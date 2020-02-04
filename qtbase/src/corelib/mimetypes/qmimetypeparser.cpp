@@ -41,8 +41,6 @@
 
 #include "qmimetypeparser_p.h"
 
-#ifndef QT_NO_MIMETYPE
-
 #include "qmimetype_p.h"
 #include "qmimemagicrulematcher_p.h"
 
@@ -201,6 +199,7 @@ bool QMimeTypeParserBase::parse(QIODevice *dev, const QString &fileName, QString
     return false;
 #else
     QMimeTypePrivate data;
+    data.loaded = true;
     int priority = 50;
     QStack<QMimeMagicRule *> currentRules; // stack for the nesting of rules
     QList<QMimeMagicRule> rules; // toplevel rules
@@ -249,11 +248,11 @@ bool QMimeTypeParserBase::parse(QIODevice *dev, const QString &fileName, QString
             }
                 break;
             case ParseComment: {
-                // comments have locale attributes. We want the default, English one
+                // comments have locale attributes.
                 QString locale = atts.value(QLatin1String(localeAttributeC)).toString();
                 const QString comment = reader.readElementText();
                 if (locale.isEmpty())
-                    locale = QString::fromLatin1("en_US");
+                    locale = QString::fromLatin1("default");
                 data.localeComments.insert(locale, comment);
             }
                 break;
@@ -340,5 +339,3 @@ bool QMimeTypeParserBase::parse(QIODevice *dev, const QString &fileName, QString
 }
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_MIMETYPE

@@ -20,44 +20,16 @@ class LoFiDecider {
  public:
   virtual ~LoFiDecider() {}
 
-  // Returns true when Lo-Fi Previews are on for the given |request|. This means
-  // the Lo-Fi header should be added to the given request.
-  virtual bool IsUsingLoFi(const net::URLRequest& request) const = 0;
-
   // Adds a previews-specific directive to the Chrome-Proxy-Accept-Transform
-  // header if needed. If a slow page preview is triggered, adds "lite-page" or
-  // "empty-image", depending on whether the request is for the main frame
-  // and lite pages are enabled, or for a subresource and Lo-Fi mode is enabled,
-  // respectively. If a slow page preview is not triggered, "lite-page;if-heavy"
-  // and "empty-image;if-heavy" are added in the respective aforementioned cases
-  // to request that the server transform the page if it determines it to be
-  // heavy. Previews-related transformation headers are never added if
-  // |is_previews_disabled| is true.
+  // header if needed.
   virtual void MaybeSetAcceptTransformHeader(
       const net::URLRequest& request,
-      bool are_previews_disabled,
       net::HttpRequestHeaders* headers) const = 0;
-
-  // Returns true if |headers| contains the Chrome-Proxy-Accept-Transform
-  // header and a slow page previews directive ("lite-page" or "empty-image")
-  // is present and not conditioned on "if-heavy".
-  virtual bool IsSlowPagePreviewRequested(
-      const net::HttpRequestHeaders& headers) const = 0;
-
-  // Returns true if |headers| contains the Chrome-Proxy-Accept-Transform
-  // header with the "lite-page" directive.
-  virtual bool IsLitePagePreviewRequested(
-      const net::HttpRequestHeaders& headers) const = 0;
 
   // Unconditionally removes the Chrome-Proxy-Accept-Transform header from
   // |headers.|
   virtual void RemoveAcceptTransformHeader(
       net::HttpRequestHeaders* headers) const = 0;
-
-  // Returns true if the Lo-Fi specific UMA should be recorded. It is set to
-  // true if Lo-Fi is enabled for |request|, Chrome session is in Lo-Fi
-  // Enabled or Control field trial, and the network quality was slow.
-  virtual bool ShouldRecordLoFiUMA(const net::URLRequest& request) const = 0;
 
   // Returns whether the request was a client-side Lo-Fi image request.
   virtual bool IsClientLoFiImageRequest(

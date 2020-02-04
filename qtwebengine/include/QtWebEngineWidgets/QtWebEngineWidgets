@@ -3,6 +3,7 @@
 #include <QtWebEngineWidgets/QtWebEngineWidgetsDepends>
 #include "qtwebenginewidgetsglobal.h"
 #include "qwebenginecertificateerror.h"
+#include "qwebengineclientcertificateselection.h"
 #include "qwebenginecontextmenudata.h"
 #include "qwebenginedownloaditem.h"
 #include "qwebenginefullscreenrequest.h"

@@ -43,43 +43,44 @@
 #include "render_widget_host_view_qt_delegate.h"
 
 #include "base/memory/weak_ptr.h"
-#include "cc/scheduler/begin_frame_source.h"
-#include "cc/resources/transferable_resource.h"
+#include "components/viz/common/frame_sinks/begin_frame_source.h"
+#include "components/viz/common/resources/transferable_resource.h"
+#include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
+#include "components/viz/host/host_frame_sink_client.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+#include "content/browser/renderer_host/input/mouse_wheel_phase_handler.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/renderer_host/text_input_manager.h"
-#include "content/common/view_messages.h"
 #include "gpu/ipc/common/gpu_messages.h"
 #include "ui/events/gesture_detection/filtered_gesture_provider.h"
 #include "qtwebenginecoreglobal_p.h"
 #include <QMap>
 #include <QPoint>
-#include <QRect>
 #include <QtGlobal>
-#include <QtGui/qaccessible.h>
 #include <QtGui/QTouchEvent>
 
-#include "delegated_frame_node.h"
-
 QT_BEGIN_NAMESPACE
-class QEvent;
-class QFocusEvent;
-class QHoverEvent;
-class QKeyEvent;
-class QMouseEvent;
-class QVariant;
-class QWheelEvent;
 class QAccessibleInterface;
 QT_END_NAMESPACE
-
-class WebContentsAdapterClient;
 
 namespace content {
 class RenderFrameHost;
 class RenderWidgetHostImpl;
+namespace mojom {
+class FrameInputHandler;
+}
+}
+
+namespace ui {
+class TouchSelectionController;
 }
 
 namespace QtWebEngineCore {
+
+class Compositor;
+class TouchHandleDrawableClient;
+class TouchSelectionControllerClientQt;
+class TouchSelectionMenuController;
 
 struct MultipleMouseClickHelper
 {
@@ -102,10 +103,6 @@ class RenderWidgetHostViewQt
     , public ui::GestureProviderClient
     , public RenderWidgetHostViewQtDelegateClient
     , public base::SupportsWeakPtr<RenderWidgetHostViewQt>
-    , public cc::BeginFrameObserverBase
-#ifndef QT_NO_ACCESSIBILITY
-    , public QAccessible::ActivationObserver
-#endif // QT_NO_ACCESSIBILITY
     , public content::TextInputManager::Observer
 {
 public:
@@ -118,74 +115,86 @@ public:
     RenderWidgetHostViewQt(content::RenderWidgetHost* widget);
     ~RenderWidgetHostViewQt();
 
+    RenderWidgetHostViewQtDelegate *delegate() { return m_delegate.get(); }
     void setDelegate(RenderWidgetHostViewQtDelegate *delegate);
+    WebContentsAdapterClient *adapterClient() { return m_adapterClient; }
     void setAdapterClient(WebContentsAdapterClient *adapterClient);
 
     void InitAsChild(gfx::NativeView) override;
     void InitAsPopup(content::RenderWidgetHostView*, const gfx::Rect&) override;
     void InitAsFullscreen(content::RenderWidgetHostView*) override;
-    content::RenderWidgetHost* GetRenderWidgetHost() const override;
     void SetSize(const gfx::Size& size) override;
     void SetBounds(const gfx::Rect&) override;
-    gfx::Vector2dF GetLastScrollOffset() const override;
-    gfx::Size GetPhysicalBackingSize() const override;
     gfx::NativeView GetNativeView() const override;
     gfx::NativeViewAccessible GetNativeViewAccessible() override;
     void Focus() override;
     bool HasFocus() const override;
     bool IsSurfaceAvailableForCopy() const override;
+    void CopyFromSurface(const gfx::Rect &src_rect,
+                         const gfx::Size &output_size,
+                         base::OnceCallback<void(const SkBitmap &)> callback) override;
     void Show() override;
     void Hide() override;
     bool IsShowing() override;
     gfx::Rect GetViewBounds() const override;
-    SkColor background_color() const override;
-    void SetBackgroundColor(SkColor color) override;
+    void UpdateBackgroundColor() override;
     bool LockMouse() override;
     void UnlockMouse() override;
     void UpdateCursor(const content::WebCursor&) override;
+    void DisplayCursor(const content::WebCursor&) override;
     void SetIsLoading(bool) override;
     void ImeCancelComposition() override;
     void ImeCompositionRangeChanged(const gfx::Range&, const std::vector<gfx::Rect>&) override;
     void RenderProcessGone(base::TerminationStatus, int) override;
     void Destroy() override;
     void SetTooltipText(const base::string16 &tooltip_text) override;
-    bool HasAcceleratedSurface(const gfx::Size&) override;
-    void DidCreateNewRendererCompositorFrameSink(cc::mojom::CompositorFrameSinkClient* renderer_compositor_frame_sink) override;
-    void SubmitCompositorFrame(const viz::LocalSurfaceId&, cc::CompositorFrame) override;
+    void DisplayTooltipText(const base::string16& tooltip_text) override;
+    void DidCreateNewRendererCompositorFrameSink(viz::mojom::CompositorFrameSinkClient* renderer_compositor_frame_sink) override;
+    void SubmitCompositorFrame(const viz::LocalSurfaceId&, viz::CompositorFrame, base::Optional<viz::HitTestRegionList>) override;
     void WheelEventAck(const blink::WebMouseWheelEvent &event, content::InputEventAckState ack_result) override;
+    content::MouseWheelPhaseHandler *GetMouseWheelPhaseHandler() override;
+    viz::ScopedSurfaceIdAllocator DidUpdateVisualProperties(const cc::RenderFrameMetadata &metadata) override;
+    void OnDidUpdateVisualPropertiesComplete(const cc::RenderFrameMetadata &metadata);
 
-    void GetScreenInfo(content::ScreenInfo* results);
+    void GetScreenInfo(content::ScreenInfo* results) const override;
     gfx::Rect GetBoundsInRootWindow() override;
     void ProcessAckedTouchEvent(const content::TouchEventWithLatencyInfo &touch, content::InputEventAckState ack_result) override;
     void ClearCompositorFrame() override;
     void SetNeedsBeginFrames(bool needs_begin_frames) override;
+    void SetWantsAnimateOnlyBeginFrames() override;
+    viz::SurfaceId GetCurrentSurfaceId() const override;
+    const viz::FrameSinkId &GetFrameSinkId() const override;
+    const viz::LocalSurfaceIdAllocation &GetLocalSurfaceIdAllocation() const override;
+    void TakeFallbackContentFrom(content::RenderWidgetHostView *view) override;
+    void EnsureSurfaceSynchronizedForWebTest() override;
+    uint32_t GetCaptureSequenceNumber() const override;
+    void ResetFallbackToFirstNavigationSurface() override;
+    void DidStopFlinging() override;
 
     // Overridden from ui::GestureProviderClient.
     void OnGestureEvent(const ui::GestureEventData& gesture) override;
 
     // Overridden from RenderWidgetHostViewQtDelegateClient.
     QSGNode *updatePaintNode(QSGNode *) override;
-    void notifyResize() override;
     void notifyShown() override;
     void notifyHidden() override;
-    void windowBoundsChanged() override;
-    void windowChanged() override;
+    void visualPropertiesChanged() override;
     bool forwardEvent(QEvent *) override;
     QVariant inputMethodQuery(Qt::InputMethodQuery query) override;
+    void closePopup() override;
 
     // Overridden from content::TextInputManager::Observer
     void OnUpdateTextInputStateCalled(content::TextInputManager *text_input_manager, RenderWidgetHostViewBase *updated_view, bool did_update_state) override;
     void OnSelectionBoundsChanged(content::TextInputManager *text_input_manager, RenderWidgetHostViewBase *updated_view) override;
     void OnTextSelectionChanged(content::TextInputManager *text_input_manager, RenderWidgetHostViewBase *updated_view) override;
 
-    // cc::BeginFrameObserverBase implementation.
-    bool OnBeginFrameDerivedImpl(const cc::BeginFrameArgs& args) override;
-    void OnBeginFrameSourcePausedChanged(bool paused) override;
-
     void handleMouseEvent(QMouseEvent*);
     void handleKeyEvent(QKeyEvent*);
     void handleWheelEvent(QWheelEvent*);
     void handleTouchEvent(QTouchEvent*);
+#if QT_CONFIG(tabletevent)
+    void handleTabletEvent(QTabletEvent *ev);
+#endif
 #ifndef QT_NO_GESTURES
     void handleGestureEvent(QNativeGestureEvent *);
 #endif
@@ -194,42 +203,49 @@ public:
     void handleInputMethodEvent(QInputMethodEvent*);
     void handleInputMethodQueryEvent(QInputMethodQueryEvent*);
 
+    template<class T> void handlePointerEvent(T*);
+
 #if defined(OS_MACOSX)
     void SetActive(bool active) override { QT_NOT_YET_IMPLEMENTED }
-    bool IsSpeaking() const override { QT_NOT_YET_IMPLEMENTED; return false; }
     void SpeakSelection() override { QT_NOT_YET_IMPLEMENTED }
-    void StopSpeaking() override { QT_NOT_YET_IMPLEMENTED }
-    bool SupportsSpeech() const override { QT_NOT_YET_IMPLEMENTED; return false; }
     void ShowDefinitionForSelection() override { QT_NOT_YET_IMPLEMENTED }
-    ui::AcceleratedWidgetMac *GetAcceleratedWidgetMac() const override { QT_NOT_YET_IMPLEMENTED; return nullptr; }
 #endif // defined(OS_MACOSX)
 
 
     // Overridden from content::BrowserAccessibilityDelegate
     content::BrowserAccessibilityManager* CreateBrowserAccessibilityManager(content::BrowserAccessibilityDelegate* delegate, bool for_root_frame) override;
-#ifndef QT_NO_ACCESSIBILITY
-    void accessibilityActiveChanged(bool active) override;
-#endif // QT_NO_ACCESSIBILITY
     LoadVisuallyCommittedState getLoadVisuallyCommittedState() const { return m_loadVisuallyCommittedState; }
     void setLoadVisuallyCommittedState(LoadVisuallyCommittedState state) { m_loadVisuallyCommittedState = state; }
 
+    // Overridden from content::RenderFrameMetadataProvider::Observer
+    void OnRenderFrameMetadataChangedAfterActivation() override;
+
     gfx::SizeF lastContentsSize() const { return m_lastContentsSize; }
+    gfx::Vector2dF lastScrollOffset() const { return m_lastScrollOffset; }
+
+    ui::TouchSelectionController *getTouchSelectionController() const { return m_touchSelectionController.get(); }
+    TouchSelectionControllerClientQt *getTouchSelectionControllerClient() const { return m_touchSelectionControllerClient.get(); }
+    content::mojom::FrameInputHandler *getFrameInputHandler();
+    ui::TextInputType getTextInputType() const;
 
 private:
-    void sendDelegatedFrameAck();
     void processMotionEvent(const ui::MotionEvent &motionEvent);
     void clearPreviousTouchMotionState();
     QList<QTouchEvent::TouchPoint> mapTouchPointIds(const QList<QTouchEvent::TouchPoint> &inputPoints);
-    float dpiScale() const;
-    void updateNeedsBeginFramesInternal();
 
     bool IsPopup() const;
 
     void selectionChanged();
     content::RenderFrameHost *getFocusedFrameHost();
-    ui::TextInputType getTextInputType() const;
 
-    content::RenderWidgetHostImpl *m_host;
+    void synchronizeVisualProperties(const base::Optional<viz::LocalSurfaceIdAllocation> &childSurfaceId);
+
+    // Geometry of the view in screen DIPs.
+    gfx::Rect m_viewRectInDips;
+    // Geometry of the window, including frame, in screen DIPs.
+    gfx::Rect m_windowRectInDips;
+    content::ScreenInfo m_screenInfo;
+
     ui::FilteredGestureProvider m_gestureProvider;
     base::TimeDelta m_eventsToNowDelta;
     bool m_sendMotionActionDown;
@@ -238,30 +254,20 @@ private:
     QList<QTouchEvent::TouchPoint> m_previousTouchPoints;
     std::unique_ptr<RenderWidgetHostViewQtDelegate> m_delegate;
 
-    QExplicitlySharedDataPointer<ChromiumCompositorData> m_chromiumCompositorData;
-    std::vector<cc::ReturnedResource> m_resourcesToRelease;
-    bool m_needsDelegatedFrameAck;
+    std::unique_ptr<Compositor> m_compositor;
     LoadVisuallyCommittedState m_loadVisuallyCommittedState;
 
     QMetaObject::Connection m_adapterClientDestroyedConnection;
     WebContentsAdapterClient *m_adapterClient;
     MultipleMouseClickHelper m_clickHelper;
-    cc::mojom::CompositorFrameSinkClient *m_rendererCompositorFrameSink;
 
     bool m_imeInProgress;
-    bool m_receivedEmptyImeText;
+    bool m_receivedEmptyImeEvent;
     QPoint m_previousMousePosition;
-
-    bool m_initPending;
-
-    std::unique_ptr<cc::SyntheticBeginFrameSource> m_beginFrameSource;
-    bool m_needsBeginFrames;
-    bool m_addedFrameObserver;
 
     gfx::Vector2dF m_lastScrollOffset;
     gfx::SizeF m_lastContentsSize;
-    SkColor m_backgroundColor;
-    viz::LocalSurfaceId m_localSurfaceId;
+    viz::ParentLocalSurfaceIdAllocator m_localSurfaceIdAllocator;
 
     uint m_imState;
     int m_anchorPositionWithinSelection;
@@ -274,8 +280,15 @@ private:
 
     bool m_wheelAckPending;
     QList<blink::WebMouseWheelEvent> m_pendingWheelEvents;
+    content::MouseWheelPhaseHandler m_mouseWheelPhaseHandler;
+    viz::FrameSinkId m_frameSinkId;
 
     std::string m_editCommand;
+
+    std::unique_ptr<TouchSelectionControllerClientQt> m_touchSelectionControllerClient;
+    std::unique_ptr<ui::TouchSelectionController> m_touchSelectionController;
+    gfx::SelectionBound m_selectionStart;
+    gfx::SelectionBound m_selectionEnd;
 };
 
 } // namespace QtWebEngineCore

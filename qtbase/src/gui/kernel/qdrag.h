@@ -43,10 +43,10 @@
 #include <QtGui/qtguiglobal.h>
 #include <QtCore/qobject.h>
 
+QT_REQUIRE_CONFIG(draganddrop);
+
 QT_BEGIN_NAMESPACE
 
-
-#ifndef QT_NO_DRAGANDDROP
 class QMimeData;
 class QDragPrivate;
 class QPixmap;
@@ -74,7 +74,10 @@ public:
     QObject *source() const;
     QObject *target() const;
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QDrag::exec() instead")
     Qt::DropAction start(Qt::DropActions supportedActions = Qt::CopyAction);
+#endif
     Qt::DropAction exec(Qt::DropActions supportedActions = Qt::MoveAction);
     Qt::DropAction exec(Qt::DropActions supportedActions, Qt::DropAction defaultAction);
 
@@ -94,8 +97,6 @@ private:
     friend class QDragManager;
     Q_DISABLE_COPY(QDrag)
 };
-
-#endif // QT_NO_DRAGANDDROP
 
 QT_END_NAMESPACE
 

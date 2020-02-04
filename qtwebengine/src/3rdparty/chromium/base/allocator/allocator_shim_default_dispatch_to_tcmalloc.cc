@@ -4,8 +4,15 @@
 
 #include "base/allocator/allocator_shim.h"
 #include "base/allocator/allocator_shim_internals.h"
+#include "base/allocator/buildflags.h"
+
+#if BUILDFLAG(USE_NEW_TCMALLOC)
 #include "third_party/tcmalloc/chromium/src/config.h"
 #include "third_party/tcmalloc/chromium/src/gperftools/tcmalloc.h"
+#else
+#include "third_party/tcmalloc/gperftools-2.0/chromium/src/config.h"
+#include "third_party/tcmalloc/gperftools-2.0/chromium/src/gperftools/tcmalloc.h"
+#endif
 
 namespace {
 
@@ -55,6 +62,9 @@ const AllocatorDispatch AllocatorDispatch::default_dispatch = {
     nullptr,            /* batch_malloc_function */
     nullptr,            /* batch_free_function */
     nullptr,            /* free_definite_size_function */
+    nullptr,            /* aligned_malloc_function */
+    nullptr,            /* aligned_realloc_function */
+    nullptr,            /* aligned_free_function */
     nullptr,            /* next */
 };
 

@@ -11,18 +11,21 @@
 #include <memory>
 #include <string>
 
+#include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
 #include "base/single_thread_task_runner.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "build/build_config.h"
+#include "gpu/command_buffer/common/context_result.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
-#include "gpu/gpu_export.h"
-#include "gpu/ipc/service/gpu_command_buffer_stub.h"
-#include "gpu/ipc/service/gpu_memory_manager.h"
+#include "gpu/ipc/service/command_buffer_stub.h"
+#include "gpu/ipc/service/gpu_ipc_service_export.h"
+#include "gpu/ipc/service/shared_image_stub.h"
 #include "ipc/ipc_sender.h"
 #include "ipc/ipc_sync_channel.h"
 #include "ipc/message_router.h"
@@ -39,62 +42,37 @@ class WaitableEvent;
 
 namespace gpu {
 
-class PreemptionFlag;
-class Scheduler;
-class SyncPointManager;
 class GpuChannelManager;
 class GpuChannelMessageFilter;
-class GpuChannelMessageQueue;
-
-class GPU_EXPORT FilteredSender : public IPC::Sender {
- public:
-  FilteredSender();
-  ~FilteredSender() override;
-
-  virtual void AddFilter(IPC::MessageFilter* filter) = 0;
-  virtual void RemoveFilter(IPC::MessageFilter* filter) = 0;
-};
-
-class GPU_EXPORT SyncChannelFilteredSender : public FilteredSender {
- public:
-  SyncChannelFilteredSender(
-      IPC::ChannelHandle channel_handle,
-      IPC::Listener* listener,
-      scoped_refptr<base::SingleThreadTaskRunner> ipc_task_runner,
-      base::WaitableEvent* shutdown_event);
-  ~SyncChannelFilteredSender() override;
-
-  bool Send(IPC::Message* msg) override;
-  void AddFilter(IPC::MessageFilter* filter) override;
-  void RemoveFilter(IPC::MessageFilter* filter) override;
-
- private:
-  std::unique_ptr<IPC::SyncChannel> channel_;
-
-  DISALLOW_COPY_AND_ASSIGN(SyncChannelFilteredSender);
-};
+class ImageDecodeAcceleratorWorker;
+class Scheduler;
+class SharedImageStub;
+class SyncPointManager;
 
 // Encapsulates an IPC channel between the GPU process and one renderer
 // process. On the renderer side there's a corresponding GpuChannelHost.
-class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
+class GPU_IPC_SERVICE_EXPORT GpuChannel : public IPC::Listener,
+                                          public IPC::Sender {
  public:
   // Takes ownership of the renderer process handle.
   GpuChannel(GpuChannelManager* gpu_channel_manager,
              Scheduler* scheduler,
              SyncPointManager* sync_point_manager,
              scoped_refptr<gl::GLShareGroup> share_group,
-             scoped_refptr<PreemptionFlag> preempting_flag,
-             scoped_refptr<PreemptionFlag> preempted_flag,
              scoped_refptr<base::SingleThreadTaskRunner> task_runner,
              scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
              int32_t client_id,
              uint64_t client_tracing_id,
-             bool is_gpu_host);
+             bool is_gpu_host,
+             ImageDecodeAcceleratorWorker* image_decode_accelerator_worker);
   ~GpuChannel() override;
 
-  // The IPC channel cannot be passed in the constructor because it needs a
-  // listener. The listener is the GpuChannel and must be constructed first.
-  void Init(std::unique_ptr<FilteredSender> channel);
+  // Init() sets up the underlying IPC channel.  Use a separate method because
+  // we don't want to do that in tests.
+  void Init(IPC::ChannelHandle channel_handle,
+            base::WaitableEvent* shutdown_event);
+
+  void InitForTesting(IPC::Channel* channel);
 
   base::WeakPtr<GpuChannel> AsWeakPtr();
 
@@ -115,11 +93,8 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
     return task_runner_;
   }
 
-  const scoped_refptr<PreemptionFlag>& preempted_flag() const {
-    return preempted_flag_;
-  }
-
   base::ProcessId GetClientPID() const;
+  bool IsConnected() const;
 
   int client_id() const { return client_id_; }
 
@@ -129,27 +104,25 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
     return io_task_runner_;
   }
 
-  FilteredSender* channel_for_testing() const { return channel_.get(); }
-
   // IPC::Listener implementation:
   bool OnMessageReceived(const IPC::Message& msg) override;
   void OnChannelConnected(int32_t peer_pid) override;
   void OnChannelError() override;
 
-  // FilteredSender implementation:
+  // IPC::Sender implementation:
   bool Send(IPC::Message* msg) override;
-  void AddFilter(IPC::MessageFilter* filter) override;
-  void RemoveFilter(IPC::MessageFilter* filter) override;
 
-  void OnCommandBufferScheduled(GpuCommandBufferStub* stub);
-  void OnCommandBufferDescheduled(GpuCommandBufferStub* stub);
+  void AddFilter(IPC::MessageFilter* filter);
+  void RemoveFilter(IPC::MessageFilter* filter);
+
+  void OnCommandBufferScheduled(CommandBufferStub* stub);
+  void OnCommandBufferDescheduled(CommandBufferStub* stub);
 
   gl::GLShareGroup* share_group() const { return share_group_.get(); }
 
-  GpuCommandBufferStub* LookupCommandBuffer(int32_t route_id);
+  CommandBufferStub* LookupCommandBuffer(int32_t route_id);
 
   bool HasActiveWebGLContext() const;
-  void LoseAllContexts();
   void MarkAllContextsLost();
 
   // Called to add a listener for a particular message routing ID.
@@ -163,19 +136,15 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
 
   void CacheShader(const std::string& key, const std::string& shader);
 
-  uint64_t GetMemoryUsage();
+  uint64_t GetMemoryUsage() const;
 
   scoped_refptr<gl::GLImage> CreateImageForGpuMemoryBuffer(
-      const gfx::GpuMemoryBufferHandle& handle,
+      gfx::GpuMemoryBufferHandle handle,
       const gfx::Size& size,
       gfx::BufferFormat format,
-      uint32_t internalformat,
       SurfaceHandle surface_handle);
 
   void HandleMessage(const IPC::Message& msg);
-
-  // Handle messages enqueued in |message_queue_|.
-  void HandleMessageOnQueue();
 
   // Some messages such as WaitForGetOffsetInRange and WaitForTokenInRange are
   // processed as soon as possible because the client is blocked until they
@@ -185,7 +154,7 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
   void HandleMessageForTesting(const IPC::Message& msg);
 
 #if defined(OS_ANDROID)
-  const GpuCommandBufferStub* GetOneStub() const;
+  const CommandBufferStub* GetOneStub() const;
 #endif
 
  private:
@@ -196,29 +165,22 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
   // Message handlers for control messages.
   void OnCreateCommandBuffer(const GPUCreateCommandBufferConfig& init_params,
                              int32_t route_id,
-                             base::SharedMemoryHandle shared_state_shm,
-                             bool* result,
+                             base::UnsafeSharedMemoryRegion shared_state_shm,
+                             gpu::ContextResult* result,
                              gpu::Capabilities* capabilities);
   void OnDestroyCommandBuffer(int32_t route_id);
-  void OnGetDriverBugWorkArounds(
-      std::vector<std::string>* gpu_driver_bug_workarounds);
+  void OnCrashForTesting();
 
-  std::unique_ptr<GpuCommandBufferStub> CreateCommandBuffer(
-      const GPUCreateCommandBufferConfig& init_params,
-      int32_t route_id,
-      std::unique_ptr<base::SharedMemory> shared_state_shm);
-
-  std::unique_ptr<FilteredSender> channel_;
+  std::unique_ptr<IPC::SyncChannel> sync_channel_;  // nullptr in tests.
+  IPC::Sender* channel_;  // Same as sync_channel_.get() except in tests.
 
   base::ProcessId peer_pid_ = base::kNullProcessId;
-
-  scoped_refptr<GpuChannelMessageQueue> message_queue_;
 
   // The message filter on the io thread.
   scoped_refptr<GpuChannelMessageFilter> filter_;
 
   // Map of routing id to command buffer stub.
-  base::flat_map<int32_t, std::unique_ptr<GpuCommandBufferStub>> stubs_;
+  base::flat_map<int32_t, std::unique_ptr<CommandBufferStub>> stubs_;
 
   // Map of stream id to scheduler sequence id.
   base::flat_map<int32_t, SequenceId> stream_sequences_;
@@ -239,14 +201,6 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
   // Used to implement message routing functionality to CommandBuffer objects
   IPC::MessageRouter router_;
 
-  // Whether the processing of IPCs on this channel is stalled and we should
-  // preempt other GpuChannels.
-  scoped_refptr<PreemptionFlag> preempting_flag_;
-
-  // If non-NULL, all stubs on this channel should stop processing GL
-  // commands (via their CommandExecutor) when preempted_flag_->IsSet()
-  scoped_refptr<PreemptionFlag> preempted_flag_;
-
   // The id of the client who is on the other side of the channel.
   const int32_t client_id_;
 
@@ -262,6 +216,7 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
   scoped_refptr<gl::GLShareGroup> share_group_;
 
   std::unique_ptr<gles2::ImageManager> image_manager_;
+  std::unique_ptr<SharedImageStub> shared_image_stub_;
 
   const bool is_gpu_host_;
 

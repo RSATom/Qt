@@ -47,7 +47,7 @@ Q_DECLARE_LOGGING_CATEGORY(QT_MODBUS_LOW)
 /*!
     \class QModbusRtuSerialMaster
     \inmodule QtSerialBus
-    \since 5.6
+    \since 5.8
 
     \brief The QModbusRtuSerialMaster class represents a Modbus client
     that uses a serial bus for its communication with the Modbus server.
@@ -76,8 +76,6 @@ QModbusRtuSerialMaster::~QModbusRtuSerialMaster()
 }
 
 /*!
-    \since 5.7
-
     Returns the amount of microseconds for the silent interval between two
     consecutive Modbus messages.
 
@@ -90,8 +88,6 @@ int QModbusRtuSerialMaster::interFrameDelay() const
 }
 
 /*!
-    \since 5.7
-
     Sets the amount of \a microseconds for the silent interval between two
     consecutive Modbus messages. By default, the class implementation will use
     a pre-calculated value according to the Modbus specification. A active or
@@ -105,6 +101,33 @@ void QModbusRtuSerialMaster::setInterFrameDelay(int microseconds)
     Q_D(QModbusRtuSerialMaster);
     d->m_interFrameDelayMilliseconds = qCeil(qreal(microseconds) / 1000.);
     d->calculateInterFrameDelay();
+}
+
+/*!
+    \since 5.13
+
+    Returns the amount of milliseconds for the silent interval between a Modbus
+    broadcast and a consecutive Modbus messages. The default value is set to
+    \c 100 milliseconds.
+*/
+int QModbusRtuSerialMaster::turnaroundDelay() const
+{
+    Q_D(const QModbusRtuSerialMaster);
+    return d->m_turnaroundDelay;
+}
+
+/*!
+    \since 5.13
+
+    Sets the amount of milliseconds for the silent interval between a Modbus
+    broadcast and a consecutive Modbus messages to \a turnaroundDelay.
+    Typically the turnaround delay is in the range of \c 100 to \c 200
+    milliseconds.
+*/
+void QModbusRtuSerialMaster::setTurnaroundDelay(int turnaroundDelay)
+{
+    Q_D(QModbusRtuSerialMaster);
+    d->m_turnaroundDelay = turnaroundDelay;
 }
 
 /*!
@@ -154,17 +177,19 @@ void QModbusRtuSerialMaster::close()
     if (d->m_serialPort->isOpen())
         d->m_serialPort->close();
 
-    if (d->m_queue.count())
-        qCDebug(QT_MODBUS_LOW) << "(RTU client) Aborted replies:" << d->m_queue.count();
-
+    int numberOfAborts = 0;
     while (!d->m_queue.isEmpty()) {
         // Finish each open reply and forget them
         QModbusRtuSerialMasterPrivate::QueueElement elem = d->m_queue.dequeue();
         if (!elem.reply.isNull()) {
             elem.reply->setError(QModbusDevice::ReplyAbortedError,
                                  QModbusClient::tr("Reply aborted due to connection closure."));
+            numberOfAborts++;
         }
     }
+
+    if (numberOfAborts > 0)
+        qCDebug(QT_MODBUS_LOW) << "(RTU client) Aborted replies:" << numberOfAborts;
 
     setState(QModbusDevice::UnconnectedState);
 }

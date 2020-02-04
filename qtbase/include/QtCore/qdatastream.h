@@ -1,1 +1,1 @@
-#include "../../src/corelib/io/qdatastream.h"
+#include "../../src/corelib/serialization/qdatastream.h"

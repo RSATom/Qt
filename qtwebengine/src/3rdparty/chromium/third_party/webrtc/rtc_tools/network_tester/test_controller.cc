@@ -8,7 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_tools/network_tester/test_controller.h"
+#include "rtc_tools/network_tester/test_controller.h"
+
+#include <limits>
+
+#include "absl/types/optional.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/ip_address.h"
+#include "rtc_base/thread.h"
 
 namespace webrtc {
 
@@ -24,20 +31,18 @@ TestController::TestController(int min_port,
   RTC_DCHECK_RUN_ON(&test_controller_thread_checker_);
   packet_sender_checker_.Detach();
   send_data_.fill(42);
-  auto socket =
+  udp_socket_ =
       std::unique_ptr<rtc::AsyncPacketSocket>(socket_factory_.CreateUdpSocket(
           rtc::SocketAddress(rtc::GetAnyIP(AF_INET), 0), min_port, max_port));
-  socket->SignalReadPacket.connect(this, &TestController::OnReadPacket);
-  udp_transport_.reset(
-      new cricket::UdpTransport("network tester transport", std::move(socket)));
+  udp_socket_->SignalReadPacket.connect(this, &TestController::OnReadPacket);
 }
 
 void TestController::SendConnectTo(const std::string& hostname, int port) {
   RTC_DCHECK_RUN_ON(&test_controller_thread_checker_);
-  udp_transport_->SetRemoteAddress(rtc::SocketAddress(hostname, port));
+  remote_address_ = rtc::SocketAddress(hostname, port);
   NetworkTesterPacket packet;
   packet.set_type(NetworkTesterPacket::HAND_SHAKING);
-  SendData(packet, rtc::Optional<size_t>());
+  SendData(packet, absl::nullopt);
   rtc::CritScope scoped_lock(&local_test_done_lock_);
   local_test_done_ = false;
   remote_test_done_ = false;
@@ -49,23 +54,23 @@ void TestController::Run() {
 }
 
 void TestController::SendData(const NetworkTesterPacket& packet,
-                              rtc::Optional<size_t> data_size) {
+                              absl::optional<size_t> data_size) {
   // Can be call from packet_sender or from test_controller thread.
-  size_t packet_size = packet.ByteSize();
+  size_t packet_size = packet.ByteSizeLong();
   send_data_[0] = packet_size;
   packet_size++;
   packet.SerializeToArray(&send_data_[1], std::numeric_limits<char>::max());
   if (data_size && *data_size > packet_size)
     packet_size = *data_size;
-  udp_transport_->SendPacket(send_data_.data(), packet_size,
-                             rtc::PacketOptions(), 0);
+  udp_socket_->SendTo((const void*)send_data_.data(), packet_size,
+                      remote_address_, rtc::PacketOptions());
 }
 
 void TestController::OnTestDone() {
   RTC_DCHECK_CALLED_SEQUENTIALLY(&packet_sender_checker_);
   NetworkTesterPacket packet;
   packet.set_type(NetworkTesterPacket::TEST_DONE);
-  SendData(packet, rtc::Optional<size_t>());
+  SendData(packet, absl::nullopt);
   rtc::CritScope scoped_lock(&local_test_done_lock_);
   local_test_done_ = true;
 }
@@ -80,7 +85,7 @@ void TestController::OnReadPacket(rtc::AsyncPacketSocket* socket,
                                   const char* data,
                                   size_t len,
                                   const rtc::SocketAddress& remote_addr,
-                                  const rtc::PacketTime& packet_time) {
+                                  const int64_t& packet_time_us) {
   RTC_DCHECK_RUN_ON(&test_controller_thread_checker_);
   size_t packet_size = data[0];
   std::string receive_data(&data[1], packet_size);
@@ -91,8 +96,8 @@ void TestController::OnReadPacket(rtc::AsyncPacketSocket* socket,
     case NetworkTesterPacket::HAND_SHAKING: {
       NetworkTesterPacket packet;
       packet.set_type(NetworkTesterPacket::TEST_START);
-      udp_transport_->SetRemoteAddress(remote_addr);
-      SendData(packet, rtc::Optional<size_t>());
+      remote_address_ = remote_addr;
+      SendData(packet, absl::nullopt);
       packet_sender_.reset(new PacketSender(this, config_file_path_));
       packet_sender_->StartSending();
       rtc::CritScope scoped_lock(&local_test_done_lock_);
@@ -109,7 +114,7 @@ void TestController::OnReadPacket(rtc::AsyncPacketSocket* socket,
       break;
     }
     case NetworkTesterPacket::TEST_DATA: {
-      packet.set_arrival_timestamp(packet_time.timestamp);
+      packet.set_arrival_timestamp(packet_time_us);
       packet.set_packet_size(len);
       packet_logger_.LogPacket(packet);
       break;

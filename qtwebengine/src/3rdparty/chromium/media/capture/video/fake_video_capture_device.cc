@@ -19,8 +19,10 @@
 #include "base/time/time.h"
 #include "media/audio/fake_audio_input_stream.h"
 #include "media/base/video_frame.h"
+#include "media/capture/mojom/image_capture_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkFont.h"
 #include "third_party/skia/include/core/SkMatrix.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "ui/gfx/codec/jpeg_codec.h"
@@ -41,6 +43,14 @@ static const double kMinZoom = 100.0;
 static const double kMaxZoom = 400.0;
 static const double kZoomStep = 1.0;
 
+static const double kMinExposureTime = 10.0;
+static const double kMaxExposureTime = 100.0;
+static const double kExposureTimeStep = 5.0;
+
+static const double kMinFocusDistance = 10.0;
+static const double kMaxFocusDistance = 100.0;
+static const double kFocusDistanceStep = 5.0;
+
 // Larger int means better.
 enum class PixelFormatMatchType : int {
   INCOMPATIBLE = 0,
@@ -49,10 +59,10 @@ enum class PixelFormatMatchType : int {
 };
 
 PixelFormatMatchType DetermineFormatMatchType(
-    media::VideoPixelFormat supported_format,
-    media::VideoPixelFormat requested_format) {
-  if (requested_format == media::PIXEL_FORMAT_I420 &&
-      supported_format == media::PIXEL_FORMAT_MJPEG) {
+    VideoPixelFormat supported_format,
+    VideoPixelFormat requested_format) {
+  if (requested_format == PIXEL_FORMAT_I420 &&
+      supported_format == PIXEL_FORMAT_MJPEG) {
     return PixelFormatMatchType::SUPPORTED_THROUGH_CONVERSION;
   }
   return (requested_format == supported_format)
@@ -60,7 +70,7 @@ PixelFormatMatchType DetermineFormatMatchType(
              : PixelFormatMatchType::INCOMPATIBLE;
 }
 
-const media::VideoCaptureFormat& FindClosestSupportedFormat(
+const VideoCaptureFormat& FindClosestSupportedFormat(
     const VideoCaptureFormat& requested_format,
     const VideoCaptureFormats& supported_formats) {
   DCHECK(!supported_formats.empty());
@@ -106,7 +116,7 @@ class FrameDeliverer {
  public:
   FrameDeliverer(std::unique_ptr<PacmanFramePainter> frame_painter)
       : frame_painter_(std::move(frame_painter)) {}
-  virtual ~FrameDeliverer() {}
+  virtual ~FrameDeliverer() = default;
   virtual void Initialize(VideoPixelFormat pixel_format,
                           std::unique_ptr<VideoCaptureDevice::Client> client,
                           const FakeDeviceState* device_state) {
@@ -197,7 +207,7 @@ std::unique_ptr<FrameDeliverer> FrameDelivererFactory::CreateFrameDeliverer(
       painter_format = PacmanFramePainter::Format::I420;
   }
   auto frame_painter =
-      base::MakeUnique<PacmanFramePainter>(painter_format, device_state_);
+      std::make_unique<PacmanFramePainter>(painter_format, device_state_);
 
   FakeVideoCaptureDevice::DeliveryMode delivery_mode = delivery_mode_;
   if (format.pixel_format == PIXEL_FORMAT_MJPEG &&
@@ -213,14 +223,14 @@ std::unique_ptr<FrameDeliverer> FrameDelivererFactory::CreateFrameDeliverer(
   switch (delivery_mode) {
     case FakeVideoCaptureDevice::DeliveryMode::USE_DEVICE_INTERNAL_BUFFERS:
       if (format.pixel_format == PIXEL_FORMAT_MJPEG) {
-        return base::MakeUnique<JpegEncodingFrameDeliverer>(
+        return std::make_unique<JpegEncodingFrameDeliverer>(
             std::move(frame_painter));
       } else {
-        return base::MakeUnique<OwnBufferFrameDeliverer>(
+        return std::make_unique<OwnBufferFrameDeliverer>(
             std::move(frame_painter));
       }
     case FakeVideoCaptureDevice::DeliveryMode::USE_CLIENT_PROVIDED_BUFFERS:
-      return base::MakeUnique<ClientBufferFrameDeliverer>(
+      return std::make_unique<ClientBufferFrameDeliverer>(
           std::move(frame_painter));
   }
   NOTREACHED();
@@ -317,6 +327,8 @@ void PacmanFramePainter::DrawPacman(base::TimeDelta elapsed_time,
   bitmap.setPixels(target_buffer);
   SkPaint paint;
   paint.setStyle(SkPaint::kFill_Style);
+  SkFont font;
+  font.setEdging(SkFont::Edging::kAlias);
   SkCanvas canvas(bitmap);
 
   const SkScalar unscaled_zoom = fake_device_state_->zoom / 100.f;
@@ -353,7 +365,8 @@ void PacmanFramePainter::DrawPacman(base::TimeDelta elapsed_time,
       base::StringPrintf("%d:%02d:%02d:%03d %d", hours, minutes, seconds,
                          milliseconds, frame_count);
   canvas.scale(3, 3);
-  canvas.drawText(time_string.data(), time_string.length(), 30, 20, paint);
+  canvas.drawSimpleText(time_string.data(), time_string.length(),
+                        kUTF8_SkTextEncoding, 30, 20, font, paint);
 
   if (pixel_format_ == Format::Y16) {
     // Use 8 bit bitmap rendered to first half of the buffer as high byte values
@@ -398,7 +411,7 @@ void FakePhotoDevice::TakePhoto(VideoCaptureDevice::TakePhotoCallback callback,
   DCHECK(result);
 
   blob->mime_type = "image/png";
-  callback.Run(std::move(blob));
+  std::move(callback).Run(std::move(blob));
 }
 
 FakeVideoCaptureDevice::FakeVideoCaptureDevice(
@@ -453,13 +466,23 @@ void FakePhotoDevice::GetPhotoState(
   if (config_.should_fail_get_photo_capabilities)
     return;
 
-  mojom::PhotoStatePtr photo_state = mojom::PhotoState::New();
+  mojom::PhotoStatePtr photo_state = mojo::CreateEmptyPhotoState();
 
   photo_state->current_white_balance_mode = mojom::MeteringMode::NONE;
-  photo_state->current_exposure_mode = mojom::MeteringMode::NONE;
-  photo_state->current_focus_mode = mojom::MeteringMode::NONE;
+
+  photo_state->supported_exposure_modes.push_back(mojom::MeteringMode::MANUAL);
+  photo_state->supported_exposure_modes.push_back(
+      mojom::MeteringMode::CONTINUOUS);
+  photo_state->current_exposure_mode = fake_device_state_->exposure_mode;
 
   photo_state->exposure_compensation = mojom::Range::New();
+
+  photo_state->exposure_time = mojom::Range::New();
+  photo_state->exposure_time->current = fake_device_state_->exposure_time;
+  photo_state->exposure_time->max = kMaxExposureTime;
+  photo_state->exposure_time->min = kMinExposureTime;
+  photo_state->exposure_time->step = kExposureTimeStep;
+
   photo_state->color_temperature = mojom::Range::New();
   photo_state->iso = mojom::Range::New();
   photo_state->iso->current = 100.0;
@@ -471,6 +494,16 @@ void FakePhotoDevice::GetPhotoState(
   photo_state->contrast = media::mojom::Range::New();
   photo_state->saturation = media::mojom::Range::New();
   photo_state->sharpness = media::mojom::Range::New();
+
+  photo_state->supported_focus_modes.push_back(mojom::MeteringMode::MANUAL);
+  photo_state->supported_focus_modes.push_back(mojom::MeteringMode::CONTINUOUS);
+  photo_state->current_focus_mode = fake_device_state_->focus_mode;
+
+  photo_state->focus_distance = mojom::Range::New();
+  photo_state->focus_distance->current = fake_device_state_->focus_distance;
+  photo_state->focus_distance->max = kMaxFocusDistance;
+  photo_state->focus_distance->min = kMinFocusDistance;
+  photo_state->focus_distance->step = kFocusDistanceStep;
 
   photo_state->zoom = mojom::Range::New();
   photo_state->zoom->current = fake_device_state_->zoom;
@@ -493,7 +526,7 @@ void FakePhotoDevice::GetPhotoState(
   photo_state->width->min = 96.0;
   photo_state->width->step = 1.0;
 
-  callback.Run(std::move(photo_state));
+  std::move(callback).Run(std::move(photo_state));
 }
 
 void FakeVideoCaptureDevice::SetPhotoOptions(mojom::PhotoSettingsPtr settings,
@@ -514,16 +547,26 @@ void FakePhotoDevice::SetPhotoOptions(
     device_state_write_access->zoom =
         std::max(kMinZoom, std::min(settings->zoom, kMaxZoom));
   }
+  if (settings->has_exposure_time) {
+    device_state_write_access->exposure_time = std::max(
+        kMinExposureTime, std::min(settings->exposure_time, kMaxExposureTime));
+  }
 
-  callback.Run(true);
+  if (settings->has_focus_distance) {
+    device_state_write_access->focus_distance =
+        std::max(kMinFocusDistance,
+                 std::min(settings->focus_distance, kMaxFocusDistance));
+  }
+
+  std::move(callback).Run(true);
 }
 
 void FakeVideoCaptureDevice::TakePhoto(TakePhotoCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&FakePhotoDevice::TakePhoto,
-                            base::Unretained(photo_device_.get()),
-                            base::Passed(&callback), elapsed_time_));
+      FROM_HERE, base::BindOnce(&FakePhotoDevice::TakePhoto,
+                                base::Unretained(photo_device_.get()),
+                                base::Passed(&callback), elapsed_time_));
 }
 
 OwnBufferFrameDeliverer::OwnBufferFrameDeliverer(
@@ -566,16 +609,18 @@ void ClientBufferFrameDeliverer::PaintAndDeliverNextFrame(
     return;
 
   const int arbitrary_frame_feedback_id = 0;
-  auto capture_buffer = client()->ReserveOutputBuffer(
+  VideoCaptureDevice::Client::Buffer capture_buffer;
+  const auto reserve_result = client()->ReserveOutputBuffer(
       device_state()->format.frame_size, device_state()->format.pixel_format,
-      device_state()->format.pixel_storage, arbitrary_frame_feedback_id);
-  DLOG_IF(ERROR, !capture_buffer.is_valid())
-      << "Couldn't allocate Capture Buffer";
+      arbitrary_frame_feedback_id, &capture_buffer);
+  if (reserve_result != VideoCaptureDevice::Client::ReserveResult::kSucceeded) {
+    client()->OnFrameDropped(
+        ConvertReservationFailureToFrameDropReason(reserve_result));
+    return;
+  }
   auto buffer_access =
       capture_buffer.handle_provider->GetHandleForInProcessAccess();
   DCHECK(buffer_access->data()) << "Buffer has NO backing memory";
-
-  DCHECK_EQ(PIXEL_STORAGE_CPU, device_state()->format.pixel_storage);
 
   uint8_t* data_ptr = buffer_access->data();
   memset(data_ptr, 0, buffer_access->mapped_size());

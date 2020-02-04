@@ -49,7 +49,7 @@ class Q_LOCATION_EXPORT QPlaceSearchSuggestionReply : public QPlaceReply
 {
     Q_OBJECT
 public:
-    explicit QPlaceSearchSuggestionReply(QObject *parent = Q_NULLPTR);
+    explicit QPlaceSearchSuggestionReply(QObject *parent = nullptr);
     ~QPlaceSearchSuggestionReply();
 
     QStringList suggestions() const;

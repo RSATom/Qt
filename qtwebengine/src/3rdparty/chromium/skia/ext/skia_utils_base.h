@@ -5,12 +5,16 @@
 #ifndef SKIA_EXT_SKIA_UTILS_BASE_H_
 #define SKIA_EXT_SKIA_UTILS_BASE_H_
 
+#include "third_party/skia/include/core/SkFlattenable.h"
 #include "third_party/skia/include/ports/SkFontConfigInterface.h"
 
 namespace base {
 class Pickle;
 class PickleIterator;
 }
+
+class SkBitmap;
+class SkFlattenable;
 
 namespace skia {
 
@@ -27,16 +31,23 @@ SK_API bool ReadSkFontIdentity(base::PickleIterator* iter,
 // style is not null, copy it into style.
 SK_API bool ReadSkFontStyle(base::PickleIterator* iter, SkFontStyle* style);
 
-// Return true if str can be written into the request pickle.
-SK_API bool WriteSkString(base::Pickle* pickle, const SkString& str);
+// Writes str into the request pickle.
+SK_API void WriteSkString(base::Pickle* pickle, const SkString& str);
 
-// Return true if identity can be written into the request pickle.
-SK_API bool WriteSkFontIdentity(
+// Writes identity into the request pickle.
+SK_API void WriteSkFontIdentity(
     base::Pickle* pickle,
     const SkFontConfigInterface::FontIdentity& identity);
 
-// Return true if str can be written into the request pickle.
-SK_API bool WriteSkFontStyle(base::Pickle* pickle, SkFontStyle style);
+// Writes style into the request pickle.
+SK_API void WriteSkFontStyle(base::Pickle* pickle, SkFontStyle style);
+
+// Converts an SkBitmap to an Opaque or Premul N32 SkBitmap. If the input is in
+// the right format (N32 Opaque or Premul) already, points |out| directly at
+// |in|. |out| may or may not be GPU-backed.
+//
+// If unsuccessful, returns false, but |out| may be modified.
+SK_API bool SkBitmapToN32OpaqueOrPremul(const SkBitmap& in, SkBitmap* out);
 
 }  // namespace skia
 

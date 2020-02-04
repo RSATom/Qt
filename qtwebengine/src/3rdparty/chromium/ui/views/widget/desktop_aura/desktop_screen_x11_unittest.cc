@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
@@ -315,14 +315,14 @@ TEST_F(DesktopScreenX11Test, DoubleClickHeaderMaximizes) {
 
   aura::Window* window = widget->GetNativeWindow();
   window->SetProperty(aura::client::kResizeBehaviorKey,
-                      ui::mojom::kResizeBehaviorCanMaximize);
+                      ws::mojom::kResizeBehaviorCanMaximize);
 
   // Cast to superclass as DesktopWindowTreeHostX11 hide IsMaximized
   DesktopWindowTreeHost* rwh =
       DesktopWindowTreeHostX11::GetHostForXID(window->GetHost()->
           GetAcceleratedWidget());
 
-  ui::test::EventGenerator generator(window);
+  ui::test::EventGenerator generator(window->GetRootWindow());
   generator.DoubleClickLeftButton();
   RunPendingMessages();
   EXPECT_TRUE(rwh->IsMaximized());
@@ -341,14 +341,14 @@ TEST_F(DesktopScreenX11Test, DoubleClickTwoDifferentTargetsDoesntMaximizes) {
 
   aura::Window* window = widget->GetNativeWindow();
   window->SetProperty(aura::client::kResizeBehaviorKey,
-                      ui::mojom::kResizeBehaviorCanMaximize);
+                      ws::mojom::kResizeBehaviorCanMaximize);
 
   // Cast to superclass as DesktopWindowTreeHostX11 hide IsMaximized
   DesktopWindowTreeHost* rwh =
       DesktopWindowTreeHostX11::GetHostForXID(window->GetHost()->
           GetAcceleratedWidget());
 
-  ui::test::EventGenerator generator(window);
+  ui::test::EventGenerator generator(window->GetRootWindow());
   native_widget->set_window_component(HTCLIENT);
   generator.ClickLeftButton();
   native_widget->set_window_component(HTCAPTION);
@@ -371,14 +371,14 @@ TEST_F(DesktopScreenX11Test, RightClickDuringDoubleClickDoesntMaximize) {
 
   aura::Window* window = widget->GetNativeWindow();
   window->SetProperty(aura::client::kResizeBehaviorKey,
-                      ui::mojom::kResizeBehaviorCanMaximize);
+                      ws::mojom::kResizeBehaviorCanMaximize);
 
   // Cast to superclass as DesktopWindowTreeHostX11 hide IsMaximized
   DesktopWindowTreeHost* rwh = static_cast<DesktopWindowTreeHost*>(
       DesktopWindowTreeHostX11::GetHostForXID(window->GetHost()->
           GetAcceleratedWidget()));
 
-  ui::test::EventGenerator generator(window);
+  ui::test::EventGenerator generator(window->GetRootWindow());
   native_widget->set_window_component(HTCLIENT);
   generator.ClickLeftButton();
   native_widget->set_window_component(HTCAPTION);

@@ -27,8 +27,11 @@ const char kSwReporterLastTimeTriggered[] =
 const char kSwReporterLastTimeSentReport[] =
     "software_reporter.last_time_sent_report";
 
-// Identify whether there is a pending prompt to be added to the Chrome menu.
-const char kSwReporterPendingPrompt[] = "software_reporter.pending_prompt";
+// Enable running the SwReporter.
+const char kSwReporterEnabled[] = "software_reporter.enabled";
+
+// Control whether SwReporter and Chrome Cleanup results are reported to Google.
+const char kSwReporterReportingEnabled[] = "software_reporter.reporting";
 
 // The version string of the reporter that triggered an SRT prompt. An empty
 // string when the prompt wasn't shown yet. Stored in the protected prefs of the

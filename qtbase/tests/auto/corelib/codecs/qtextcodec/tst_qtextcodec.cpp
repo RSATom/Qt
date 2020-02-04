@@ -2092,7 +2092,7 @@ void tst_QTextCodec::toLocal8Bit()
     QSKIP("No qprocess support", SkipAll);
 #else
     QProcess process;
-    process.start("echo/echo");
+    process.start("echo_helper");
     QString string(QChar(0x410));
     process.write((const char*)string.utf16(), string.length()*2);
 
@@ -2406,16 +2406,16 @@ void tst_QTextCodec::shiftJis()
 struct UserCodec : public QTextCodec
 {
     // implement pure virtuals
-    QByteArray name() const Q_DECL_OVERRIDE
+    QByteArray name() const override
     { return "UserCodec"; }
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE
+    QList<QByteArray> aliases() const override
     { return QList<QByteArray>() << "usercodec" << "user-codec"; }
-    int mibEnum() const Q_DECL_OVERRIDE
+    int mibEnum() const override
     { return 5000; }
 
-    virtual QString convertToUnicode(const char *, int, ConverterState *) const Q_DECL_OVERRIDE
+    virtual QString convertToUnicode(const char *, int, ConverterState *) const override
     { return QString(); }
-    virtual QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const Q_DECL_OVERRIDE
+    virtual QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override
     { return QByteArray(); }
 };
 
@@ -2429,7 +2429,7 @@ void tst_QTextCodec::userCodec()
     QVERIFY(!QTextCodec::availableCodecs().contains("UserCodec"));
     QVERIFY(!QTextCodec::codecForName("UserCodec"));
 
-    QTextCodec *codec = new UserCodec;
+    UserCodec *codec = new UserCodec;
     executedOnce = true;
 
     QList<QByteArray> availableCodecs = QTextCodec::availableCodecs();
@@ -2448,6 +2448,11 @@ void tst_QTextCodec::userCodec()
 
     pcodec = QTextCodec::codecForMib(5000);
     QCOMPARE(pcodec, codec);
+
+    delete codec;
+
+    pcodec = QTextCodec::codecForName("UserCodec");
+    QCOMPARE(pcodec, nullptr);
 }
 
 struct DontCrashAtExit {

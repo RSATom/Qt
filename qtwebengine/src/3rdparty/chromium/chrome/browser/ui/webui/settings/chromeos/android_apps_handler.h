@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_ANDROID_APPS_HANDLER_H_
 
 #include <memory>
+#include <string>
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -36,19 +37,23 @@ class AndroidAppsHandler : public ::settings::SettingsPageUIHandler,
   void OnJavascriptDisallowed() override;
 
   // ArcAppListPrefs::Observer
-  void OnAppRemoved(const std::string& app_id) override;
   void OnAppRegistered(const std::string& app_id,
                        const ArcAppListPrefs::AppInfo& app_info) override;
+  void OnAppStatesChanged(const std::string& app_id,
+                          const ArcAppListPrefs::AppInfo& app_info) override;
+  void OnAppRemoved(const std::string& app_id) override;
 
   // arc::ArcSessionManager::Observer:
   void OnArcPlayStoreEnabledChanged(bool enabled) override;
 
  private:
   std::unique_ptr<base::DictionaryValue> BuildAndroidAppsInfo();
-  void OnAppChanged(const std::string& app_id);
   void HandleRequestAndroidAppsInfo(const base::ListValue* args);
+  void HandleAppChanged(const std::string& app_id);
   void SendAndroidAppsInfo();
   void ShowAndroidAppsSettings(const base::ListValue* args);
+  void ShowAndroidManageAppLinks(const base::ListValue* args);
+  int64_t GetDisplayIdForCurrentProfile();
 
   ScopedObserver<ArcAppListPrefs, ArcAppListPrefs::Observer>
       arc_prefs_observer_;

@@ -4,11 +4,14 @@
 
 #include <stdint.h>
 
+#include "base/task/post_task.h"
 #include "chrome/browser/extensions/api/image_writer_private/error_messages.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/image_burner_client.h"
+#include "chromeos/disks/disk.h"
 #include "chromeos/disks/disk_mount_manager.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace extensions {
@@ -22,8 +25,8 @@ namespace {
 
 void ClearImageBurner() {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                            base::BindOnce(&ClearImageBurner));
+    base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
+                             base::BindOnce(&ClearImageBurner));
     return;
   }
 
@@ -35,19 +38,19 @@ void ClearImageBurner() {
 }  // namespace
 
 void Operation::Write(const base::Closure& continuation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  DCHECK(IsRunningInCorrectSequence());
   SetStage(image_writer_api::STAGE_WRITE);
 
   // Note this has to be run on the FILE thread to avoid concurrent access.
   AddCleanUpFunction(base::Bind(&ClearImageBurner));
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&Operation::UnmountVolumes, this, continuation));
 }
 
 void Operation::VerifyWrite(const base::Closure& continuation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  DCHECK(IsRunningInCorrectSequence());
 
   // No verification is available in Chrome OS currently.
   continuation.Run();
@@ -61,12 +64,12 @@ void Operation::UnmountVolumes(const base::Closure& continuation) {
 }
 
 void Operation::UnmountVolumesCallback(const base::Closure& continuation,
-                                       bool success) {
+                                       chromeos::MountError error_code) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (!success) {
-    LOG(ERROR) << "Volume unmounting failed.";
-    Error(error::kUnmountVolumesError);
+  if (error_code != chromeos::MOUNT_ERROR_NONE) {
+    LOG(ERROR) << "Volume unmounting failed with error code " << error_code;
+    PostTask(base::Bind(&Operation::Error, this, error::kUnmountVolumesError));
     return;
   }
 
@@ -77,7 +80,7 @@ void Operation::UnmountVolumesCallback(const base::Closure& continuation,
 
   if (iter == disks.end()) {
     LOG(ERROR) << "Disk not found in disk list after unmounting volumes.";
-    Error(error::kUnmountVolumesError);
+    PostTask(base::Bind(&Operation::Error, this, error::kUnmountVolumesError));
     return;
   }
 
@@ -106,11 +109,12 @@ void Operation::OnBurnFinished(const base::Closure& continuation,
                                bool success,
                                const std::string& error) {
   if (success) {
-    SetProgress(kProgressComplete);
-    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE, continuation);
+    PostTask(base::BindOnce(&Operation::SetProgress, this, kProgressComplete));
+    PostTask(continuation);
   } else {
     DLOG(ERROR) << "Error encountered while burning: " << error;
-    Error(error::kChromeOSImageBurnerError);
+    PostTask(base::BindOnce(&Operation::Error, this,
+                            error::kChromeOSImageBurnerError));
   }
 }
 
@@ -118,11 +122,12 @@ void Operation::OnBurnProgress(const std::string& target_path,
                                int64_t num_bytes_burnt,
                                int64_t total_size) {
   int progress = kProgressComplete * num_bytes_burnt / total_size;
-  SetProgress(progress);
+  PostTask(base::BindOnce(&Operation::SetProgress, this, progress));
 }
 
 void Operation::OnBurnError() {
-  Error(error::kChromeOSImageBurnerError);
+  PostTask(base::BindOnce(&Operation::Error, this,
+                          error::kChromeOSImageBurnerError));
 }
 
 }  // namespace image_writer

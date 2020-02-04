@@ -22,9 +22,6 @@ namespace {
 // See crbug.com/377613.
 const int kUnlockDelayInMs = 10;
 
-base::LazyInstance<WebSocketEndpointLockManager>::Leaky manager_instance =
-    LAZY_INSTANCE_INITIALIZER;
-
 }  // namespace
 
 WebSocketEndpointLockManager::Waiter::~Waiter() {
@@ -34,8 +31,14 @@ WebSocketEndpointLockManager::Waiter::~Waiter() {
   }
 }
 
-WebSocketEndpointLockManager* WebSocketEndpointLockManager::GetInstance() {
-  return manager_instance.Pointer();
+WebSocketEndpointLockManager::WebSocketEndpointLockManager()
+    : unlock_delay_(base::TimeDelta::FromMilliseconds(kUnlockDelayInMs)),
+      pending_unlock_count_(0),
+      weak_factory_(this) {}
+
+WebSocketEndpointLockManager::~WebSocketEndpointLockManager() {
+  DCHECK_EQ(lock_info_map_.size(), pending_unlock_count_);
+  DCHECK(socket_lock_info_map_.empty());
 }
 
 int WebSocketEndpointLockManager::LockEndpoint(const IPEndPoint& endpoint,
@@ -56,7 +59,7 @@ int WebSocketEndpointLockManager::LockEndpoint(const IPEndPoint& endpoint,
 
 void WebSocketEndpointLockManager::RememberSocket(StreamSocket* socket,
                                                   const IPEndPoint& endpoint) {
-  LockInfoMap::iterator lock_info_it = lock_info_map_.find(endpoint);
+  auto lock_info_it = lock_info_map_.find(endpoint);
   CHECK(lock_info_it != lock_info_map_.end());
   bool inserted =
       socket_lock_info_map_.insert(SocketLockInfoMap::value_type(
@@ -70,11 +73,11 @@ void WebSocketEndpointLockManager::RememberSocket(StreamSocket* socket,
 }
 
 void WebSocketEndpointLockManager::UnlockSocket(StreamSocket* socket) {
-  SocketLockInfoMap::iterator socket_it = socket_lock_info_map_.find(socket);
+  auto socket_it = socket_lock_info_map_.find(socket);
   if (socket_it == socket_lock_info_map_.end())
     return;
 
-  LockInfoMap::iterator lock_info_it = socket_it->second;
+  auto lock_info_it = socket_it->second;
 
   DVLOG(3) << "Unlocking (StreamSocket*)" << socket << " for "
            << lock_info_it->first.ToString() << " ("
@@ -86,7 +89,7 @@ void WebSocketEndpointLockManager::UnlockSocket(StreamSocket* socket) {
 }
 
 void WebSocketEndpointLockManager::UnlockEndpoint(const IPEndPoint& endpoint) {
-  LockInfoMap::iterator lock_info_it = lock_info_map_.find(endpoint);
+  auto lock_info_it = lock_info_map_.find(endpoint);
   if (lock_info_it == lock_info_map_.end())
     return;
   if (lock_info_it->second.socket)
@@ -115,15 +118,6 @@ WebSocketEndpointLockManager::LockInfo::LockInfo(const LockInfo& rhs)
   DCHECK(!rhs.queue);
 }
 
-WebSocketEndpointLockManager::WebSocketEndpointLockManager()
-    : unlock_delay_(base::TimeDelta::FromMilliseconds(kUnlockDelayInMs)),
-      pending_unlock_count_(0) {}
-
-WebSocketEndpointLockManager::~WebSocketEndpointLockManager() {
-  DCHECK_EQ(lock_info_map_.size(), pending_unlock_count_);
-  DCHECK(socket_lock_info_map_.empty());
-}
-
 void WebSocketEndpointLockManager::UnlockEndpointAfterDelay(
     const IPEndPoint& endpoint) {
   DVLOG(3) << "Delaying " << unlock_delay_.InMilliseconds()
@@ -132,13 +126,13 @@ void WebSocketEndpointLockManager::UnlockEndpointAfterDelay(
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
       base::Bind(&WebSocketEndpointLockManager::DelayedUnlockEndpoint,
-                 base::Unretained(this), endpoint),
+                 weak_factory_.GetWeakPtr(), endpoint),
       unlock_delay_);
 }
 
 void WebSocketEndpointLockManager::DelayedUnlockEndpoint(
     const IPEndPoint& endpoint) {
-  LockInfoMap::iterator lock_info_it = lock_info_map_.find(endpoint);
+  auto lock_info_it = lock_info_map_.find(endpoint);
   DCHECK_GT(pending_unlock_count_, 0U);
   --pending_unlock_count_;
   if (lock_info_it == lock_info_map_.end())

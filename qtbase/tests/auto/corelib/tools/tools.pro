@@ -30,10 +30,12 @@ SUBDIRS=\
     qlist \
     qlist_strictiterators \
     qlocale \
+    qmakearray \
     qmap \
     qmap_strictiterators \
     qmargins \
     qmessageauthenticationcode \
+    qoffsetstringarray \
     qpair \
     qpoint \
     qpointf \

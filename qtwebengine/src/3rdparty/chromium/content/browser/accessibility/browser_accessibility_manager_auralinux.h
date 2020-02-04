@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_ACCESSIBILITY_BROWSER_ACCESSIBILITY_MANAGER_AURALINUX_H_
 #define CONTENT_BROWSER_ACCESSIBILITY_BROWSER_ACCESSIBILITY_MANAGER_AURALINUX_H_
 
+#include <vector>
+
 #include "base/macros.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 
@@ -16,7 +18,6 @@ class CONTENT_EXPORT BrowserAccessibilityManagerAuraLinux
     : public BrowserAccessibilityManager {
  public:
   BrowserAccessibilityManagerAuraLinux(
-      AtkObject* parent_object,
       const ui::AXTreeUpdate& initial_tree,
       BrowserAccessibilityDelegate* delegate,
       BrowserAccessibilityFactory* factory = new BrowserAccessibilityFactory());
@@ -25,15 +26,27 @@ class CONTENT_EXPORT BrowserAccessibilityManagerAuraLinux
 
   static ui::AXTreeUpdate GetEmptyDocument();
 
-  // Implementation BrowserAccessibilityManager methods
-  void NotifyAccessibilityEvent(
-      BrowserAccessibilityEvent::Source source,
-      ui::AXEvent event_type,
-      BrowserAccessibility* node) override;
+  // Implementation of BrowserAccessibilityManager methods.
+  void FireFocusEvent(BrowserAccessibility* node) override;
+  void FireBlinkEvent(ax::mojom::Event event_type,
+                      BrowserAccessibility* node) override;
+  void FireGeneratedEvent(ui::AXEventGenerator::Event event_type,
+                          BrowserAccessibility* node) override;
 
-  AtkObject* parent_object() { return parent_object_; }
+  void FireSelectedEvent(BrowserAccessibility* node);
+  void FireExpandedEvent(BrowserAccessibility* node, bool is_expanded);
+  void FireLoadingEvent(BrowserAccessibility* node, bool is_loading);
+
+ protected:
+  // AXTreeObserver methods.
+  void OnAtomicUpdateFinished(
+      ui::AXTree* tree,
+      bool root_changed,
+      const std::vector<ui::AXTreeObserver::Change>& changes) override;
 
  private:
+  void FireEvent(BrowserAccessibility* node, ax::mojom::Event event);
+
   AtkObject* parent_object_;
 
   // Give BrowserAccessibilityManager::Create access to our constructor.

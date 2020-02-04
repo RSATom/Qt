@@ -82,7 +82,7 @@ void BadClockUI::PopulateClockStrings(base::DictionaryValue* load_time_data) {
       l10n_util::GetStringUTF16(IDS_CLOCK_ERROR_EXPLANATION));
 }
 
-void BadClockUI::HandleCommand(SecurityInterstitialCommands command) {
+void BadClockUI::HandleCommand(SecurityInterstitialCommand command) {
   switch (command) {
     case CMD_DONT_PROCEED:
       controller_->GoBack();
@@ -118,11 +118,12 @@ void BadClockUI::HandleCommand(SecurityInterstitialCommands command) {
     case CMD_REPORT_PHISHING_ERROR:
       // Not supported by the bad clock error page.
       NOTREACHED() << "Unsupported command: " << command;
+      break;
     case CMD_ERROR:
     case CMD_TEXT_FOUND:
     case CMD_TEXT_NOT_FOUND:
-      // Commands are only for testing.
-      NOTREACHED() << "Unexpected command: " << command;
+      // Commands are for testing.
+      break;
   }
 }
 

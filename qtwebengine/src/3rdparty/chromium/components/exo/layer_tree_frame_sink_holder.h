@@ -8,66 +8,93 @@
 #include <memory>
 
 #include "base/containers/flat_map.h"
-#include "cc/output/layer_tree_frame_sink_client.h"
-#include "cc/resources/release_callback.h"
-#include "components/exo/surface_observer.h"
+#include "cc/trees/layer_tree_frame_sink_client.h"
+#include "components/exo/wm_helper.h"
+#include "components/viz/common/quads/compositor_frame.h"
+#include "components/viz/common/resources/release_callback.h"
 
 namespace cc {
 class LayerTreeFrameSink;
 }
 
 namespace exo {
-class Surface;
+
+class SurfaceTreeHost;
 
 // This class talks to CompositorFrameSink and keeps track of references to
-// the contents of Buffers. It's keeped alive by references from
-// release_callbacks_. It's destroyed when its owning Surface is destroyed and
-// the last outstanding release callback is called.
+// the contents of Buffers.
 class LayerTreeFrameSinkHolder : public cc::LayerTreeFrameSinkClient,
-                                 public SurfaceObserver {
+                                 public WMHelper::LifetimeManager::Observer {
  public:
-  LayerTreeFrameSinkHolder(Surface* surface,
+  LayerTreeFrameSinkHolder(SurfaceTreeHost* surface_tree_host,
                            std::unique_ptr<cc::LayerTreeFrameSink> frame_sink);
   ~LayerTreeFrameSinkHolder() override;
 
-  bool HasReleaseCallbackForResource(cc::ResourceId id);
-  void SetResourceReleaseCallback(cc::ResourceId id,
-                                  const cc::ReleaseCallback& callback);
+  // Delete frame sink after having reclaimed and called all resource
+  // release callbacks.
+  // TODO(reveman): Find a better way to handle deletion of in-flight resources.
+  // crbug.com/765763
+  static void DeleteWhenLastResourceHasBeenReclaimed(
+      std::unique_ptr<LayerTreeFrameSinkHolder> holder);
+
+  void SubmitCompositorFrame(viz::CompositorFrame frame);
+  void DidNotProduceFrame(const viz::BeginFrameAck& ack);
+
+  bool HasReleaseCallbackForResource(viz::ResourceId id);
+  void SetResourceReleaseCallback(viz::ResourceId id,
+                                  viz::ReleaseCallback callback);
   int AllocateResourceId();
   base::WeakPtr<LayerTreeFrameSinkHolder> GetWeakPtr();
 
-  cc::LayerTreeFrameSink* frame_sink() { return frame_sink_.get(); }
-
   // Overridden from cc::LayerTreeFrameSinkClient:
-  void SetBeginFrameSource(cc::BeginFrameSource* source) override;
+  void SetBeginFrameSource(viz::BeginFrameSource* source) override {}
+  base::Optional<viz::HitTestRegionList> BuildHitTestData() override;
   void ReclaimResources(
-      const std::vector<cc::ReturnedResource>& resources) override;
-  void SetTreeActivationCallback(const base::Closure& callback) override {}
+      const std::vector<viz::ReturnedResource>& resources) override;
+  void SetTreeActivationCallback(base::RepeatingClosure callback) override {}
   void DidReceiveCompositorFrameAck() override;
-  void DidLoseLayerTreeFrameSink() override {}
+  void DidPresentCompositorFrame(
+      uint32_t presentation_token,
+      const gfx::PresentationFeedback& feedback) override;
+  void DidLoseLayerTreeFrameSink() override;
+  void DidNotNeedBeginFrame() override {}
   void OnDraw(const gfx::Transform& transform,
               const gfx::Rect& viewport,
-              bool resourceless_software_draw) override {}
+              bool resourceless_software_draw,
+              bool skip_draw) override {}
   void SetMemoryPolicy(const cc::ManagedMemoryPolicy& policy) override {}
   void SetExternalTilePriorityConstraints(
       const gfx::Rect& viewport_rect,
       const gfx::Transform& transform) override {}
 
-  // Overridden from SurfaceObserver:
-  void OnSurfaceDestroying(Surface* surface) override;
-
  private:
+  void ScheduleDelete();
+
+  // WMHelper::LifetimeManager::Observer:
+  void OnDestroyed() override;
+
   // A collection of callbacks used to release resources.
-  using ResourceReleaseCallbackMap = base::flat_map<int, cc::ReleaseCallback>;
+  using ResourceReleaseCallbackMap =
+      base::flat_map<viz::ResourceId, viz::ReleaseCallback>;
   ResourceReleaseCallbackMap release_callbacks_;
 
-  Surface* surface_;
+  SurfaceTreeHost* surface_tree_host_;
   std::unique_ptr<cc::LayerTreeFrameSink> frame_sink_;
 
   // The next resource id the buffer is attached to.
   int next_resource_id_ = 1;
 
-  base::WeakPtrFactory<LayerTreeFrameSinkHolder> weak_factory_;
+  gfx::Size last_frame_size_in_pixels_;
+  float last_frame_device_scale_factor_ = 1.0f;
+  base::TimeTicks last_local_surface_id_allocation_time_;
+  std::vector<viz::ResourceId> last_frame_resources_;
+  viz::FrameTokenGenerator next_frame_token_;
+
+  bool delete_pending_ = false;
+
+  WMHelper::LifetimeManager* lifetime_manager_ = nullptr;
+
+  base::WeakPtrFactory<LayerTreeFrameSinkHolder> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(LayerTreeFrameSinkHolder);
 };

@@ -1,4 +1,5 @@
 include_rules = [
+  "+mojo/public",
   "+third_party/iaccessible2",
   "+third_party/skia",
   "+ui/aura",
@@ -6,5 +7,15 @@ include_rules = [
   "+ui/base/l10n",
   "+ui/base/win",
   "+ui/gfx",
+  "+ui/display",
   "+ui/strings/grit/ui_strings.h",
 ]
+
+specific_include_rules = {
+  "run_all_unittests.cc": [
+    "+mojo/core/embedder",
+  ],
+  "ax_assistant_util.h": [
+    "+ui/accessibility/mojom",
+  ],
+}

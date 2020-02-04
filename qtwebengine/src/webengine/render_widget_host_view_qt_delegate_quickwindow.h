@@ -52,36 +52,39 @@ namespace QtWebEngineCore {
 class RenderWidgetHostViewQtDelegateQuickWindow : public QQuickWindow , public RenderWidgetHostViewQtDelegate {
 
 public:
-    RenderWidgetHostViewQtDelegateQuickWindow(RenderWidgetHostViewQtDelegate *realDelegate);
+    RenderWidgetHostViewQtDelegateQuickWindow(RenderWidgetHostViewQtDelegateQuick *realDelegate);
     ~RenderWidgetHostViewQtDelegateQuickWindow();
 
-    virtual void initAsChild(WebContentsAdapterClient* container) Q_DECL_OVERRIDE;
-    virtual void initAsPopup(const QRect&) Q_DECL_OVERRIDE;
-    virtual QRectF screenRect() const Q_DECL_OVERRIDE;
-    virtual QRectF contentsRect() const Q_DECL_OVERRIDE;
-    virtual void setKeyboardFocus() Q_DECL_OVERRIDE {}
-    virtual bool hasKeyboardFocus() Q_DECL_OVERRIDE { return false; }
-    virtual void lockMouse() Q_DECL_OVERRIDE {}
-    virtual void unlockMouse() Q_DECL_OVERRIDE {}
-    virtual void show() Q_DECL_OVERRIDE;
-    virtual void hide() Q_DECL_OVERRIDE;
-    virtual bool isVisible() const Q_DECL_OVERRIDE;
-    virtual QWindow* window() const Q_DECL_OVERRIDE;
-    virtual QSGTexture *createTextureFromImage(const QImage &) Q_DECL_OVERRIDE;
-    virtual QSGLayer *createLayer() Q_DECL_OVERRIDE;
-    virtual QSGInternalImageNode *createImageNode() Q_DECL_OVERRIDE;
-    virtual QSGTextureNode *createTextureNode() Q_DECL_OVERRIDE;
-    virtual QSGRectangleNode *createRectangleNode() Q_DECL_OVERRIDE;
-    virtual void update() Q_DECL_OVERRIDE;
-    virtual void updateCursor(const QCursor &) Q_DECL_OVERRIDE;
-    virtual void resize(int width, int height) Q_DECL_OVERRIDE;
-    virtual void move(const QPoint &screenPos) Q_DECL_OVERRIDE;
-    virtual void inputMethodStateChanged(bool, bool) Q_DECL_OVERRIDE {}
-    virtual void setInputMethodHints(Qt::InputMethodHints) Q_DECL_OVERRIDE { }
-    virtual void setClearColor(const QColor &) Q_DECL_OVERRIDE { }
+    void initAsPopup(const QRect&) override;
+    QRectF viewGeometry() const override;
+    QRect windowGeometry() const override;
+    void setKeyboardFocus() override {}
+    bool hasKeyboardFocus() override { return false; }
+    void lockMouse() override {}
+    void unlockMouse() override {}
+    void show() override;
+    void hide() override;
+    bool isVisible() const override;
+    QWindow* window() const override;
+    QSGTexture *createTextureFromImage(const QImage &) override;
+    QSGLayer *createLayer() override;
+    QSGInternalImageNode *createInternalImageNode() override;
+    QSGImageNode *createImageNode() override;
+    QSGRectangleNode *createRectangleNode() override;
+    void update() override;
+    void updateCursor(const QCursor &) override;
+    void resize(int width, int height) override;
+    void move(const QPoint &screenPos) override;
+    void inputMethodStateChanged(bool, bool) override {}
+    void setInputMethodHints(Qt::InputMethodHints) override { }
+    void setClearColor(const QColor &) override { }
+    bool copySurface(const QRect &, const QSize &, QImage &) override { return false; }
+
+    void setVirtualParent(QQuickItem *virtualParent);
 
 private:
-    QScopedPointer<RenderWidgetHostViewQtDelegate> m_realDelegate;
+    QScopedPointer<RenderWidgetHostViewQtDelegateQuick> m_realDelegate;
+    QQuickItem *m_virtualParent;
 };
 
 } // namespace QtWebEngineCore

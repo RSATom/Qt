@@ -27,13 +27,13 @@
 ****************************************************************************/
 
 #include "formwindow_widgetstack.h"
-#include <QtDesigner/QDesignerFormWindowToolInterface>
+#include <QtDesigner/abstractformwindowtool.h>
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 #include <QtGui/qevent.h>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QStackedLayout>
-#include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qstackedlayout.h>
+#include <QtWidgets/qboxlayout.h>
 
 #include <QtCore/qdebug.h>
 
@@ -47,14 +47,14 @@ FormWindowWidgetStack::FormWindowWidgetStack(QObject *parent) :
     m_formContainerLayout(new QStackedLayout),
     m_layout(new QStackedLayout)
 {
-    m_layout->setMargin(0);
+    m_layout->setContentsMargins(QMargins());
     m_layout->setSpacing(0);
     m_layout->setStackingMode(QStackedLayout::StackAll);
 
     // We choose a QStackedLayout as immediate layout for
     // the form windows as it ignores the sizePolicy of
     // its child (for example, Fixed would cause undesired side effects).
-    m_formContainerLayout->setMargin(0);
+    m_formContainerLayout->setContentsMargins(QMargins());
     m_formContainer->setObjectName(QStringLiteral("formContainer"));
     m_formContainer->setLayout(m_formContainerLayout);
     m_formContainerLayout->setStackingMode(QStackedLayout::StackAll);
@@ -63,9 +63,7 @@ FormWindowWidgetStack::FormWindowWidgetStack(QObject *parent) :
     m_formContainer->setAutoFillBackground(true);
 }
 
-FormWindowWidgetStack::~FormWindowWidgetStack()
-{
-}
+FormWindowWidgetStack::~FormWindowWidgetStack() = default;
 
 int FormWindowWidgetStack::count() const
 {

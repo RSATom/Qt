@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/json/json_reader.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/time/tick_clock.h"
@@ -19,8 +18,9 @@
 #include "components/ntp_snippets/remote/request_params.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/variations/variations_params_manager.h"
-#include "net/url_request/test_url_fetcher_factory.h"
-#include "net/url_request/url_request_test_util.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -52,7 +52,7 @@ MATCHER_P(EqualsJSON, json, "equals JSON") {
                      << "parse error: " << err_msg;
     return false;
   }
-  return base::Value::Equals(actual.get(), expected.get());
+  return *expected == *actual;
 }
 
 }  // namespace
@@ -64,11 +64,11 @@ class JsonRequestTest : public testing::Test {
             ntp_snippets::kArticleSuggestionsFeature.name,
             {{"send_top_languages", "true"}, {"send_user_class", "true"}},
             {ntp_snippets::kArticleSuggestionsFeature.name}),
-        pref_service_(base::MakeUnique<TestingPrefServiceSimple>()),
+        pref_service_(std::make_unique<TestingPrefServiceSimple>()),
         mock_task_runner_(new base::TestMockTimeTaskRunner()),
-        clock_(mock_task_runner_->GetMockClock()),
-        request_context_getter_(
-            new net::TestURLRequestContextGetter(mock_task_runner_.get())) {
+        test_shared_loader_factory_(
+            base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+                &test_url_loader_factory_)) {
     language::UrlLanguageHistogram::RegisterProfilePrefs(
         pref_service_->registry());
   }
@@ -76,7 +76,7 @@ class JsonRequestTest : public testing::Test {
   std::unique_ptr<language::UrlLanguageHistogram> MakeLanguageHistogram(
       const std::set<std::string>& codes) {
     std::unique_ptr<language::UrlLanguageHistogram> language_histogram =
-        base::MakeUnique<language::UrlLanguageHistogram>(pref_service_.get());
+        std::make_unique<language::UrlLanguageHistogram>(pref_service_.get());
     // There must be at least 10 visits before the top languages are defined.
     for (int i = 0; i < 10; i++) {
       for (const std::string& code : codes) {
@@ -89,8 +89,8 @@ class JsonRequestTest : public testing::Test {
   JsonRequest::Builder CreateMinimalBuilder() {
     JsonRequest::Builder builder;
     builder.SetUrl(GURL("http://valid-url.test"))
-        .SetClock(clock_.get())
-        .SetUrlRequestContextGetter(request_context_getter_.get());
+        .SetClock(mock_task_runner_->GetMockClock())
+        .SetUrlLoaderFactory(test_shared_loader_factory_);
     return builder;
   }
 
@@ -98,9 +98,8 @@ class JsonRequestTest : public testing::Test {
   variations::testing::VariationParamsManager params_manager_;
   std::unique_ptr<TestingPrefServiceSimple> pref_service_;
   scoped_refptr<base::TestMockTimeTaskRunner> mock_task_runner_;
-  std::unique_ptr<base::Clock> clock_;
-  scoped_refptr<net::TestURLRequestContextGetter> request_context_getter_;
-  net::TestURLFetcherFactory fetcher_factory_;
+  network::TestURLLoaderFactory test_url_loader_factory_;
+  scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(JsonRequestTest);
 };
@@ -266,6 +265,50 @@ TEST_F(JsonRequestTest, BuildRequestWithUILanguageOnly) {
                          "    \"frequency\" : 1.0"
                          "  }]"
                          "}"));
+}
+
+TEST_F(JsonRequestTest,
+       ShouldPropagateCountToFetchWhenExclusiveCategoryPresent) {
+  JsonRequest::Builder builder;
+  RequestParams params;
+  params.interactive_request = true;
+  params.language_code = "en";
+  params.exclusive_category =
+      Category::FromKnownCategory(KnownCategories::ARTICLES);
+  params.count_to_fetch = 25;
+  builder.SetParams(params);
+
+  EXPECT_THAT(builder.PreviewRequestBodyForTesting(), EqualsJSON(R"(
+                              {
+                                "priority": "USER_ACTION",
+                                "uiLanguage": "en",
+                                "excludedSuggestionIds": [],
+                                "categoryParameters": [{
+                                  "id": 1,
+                                  "numSuggestions": 25
+                                }]
+                              }
+                            )"));
+}
+
+// TODO(vitaliii): Propagate count to fetch in this case as well and delete this
+// test. Currently the server does not support this.
+TEST_F(JsonRequestTest,
+       ShouldNotPropagateCountToFetchWhenExclusiveCategoryNotPresent) {
+  JsonRequest::Builder builder;
+  RequestParams params;
+  params.interactive_request = true;
+  params.language_code = "en";
+  params.count_to_fetch = 10;
+  builder.SetParams(params);
+
+  EXPECT_THAT(builder.PreviewRequestBodyForTesting(), EqualsJSON(R"(
+                              {
+                                "priority": "USER_ACTION",
+                                "uiLanguage": "en",
+                                "excludedSuggestionIds": []
+                              }
+                            )"));
 }
 
 }  // namespace internal

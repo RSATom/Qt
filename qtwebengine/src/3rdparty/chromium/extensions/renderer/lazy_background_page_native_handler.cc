@@ -14,15 +14,19 @@ namespace extensions {
 
 LazyBackgroundPageNativeHandler::LazyBackgroundPageNativeHandler(
     ScriptContext* context)
-    : ObjectBackedNativeHandler(context) {
-  RouteFunction(
+    : ObjectBackedNativeHandler(context) {}
+
+void LazyBackgroundPageNativeHandler::AddRoutes() {
+  RouteHandlerFunction(
       "IncrementKeepaliveCount", "tts",
-      base::Bind(&LazyBackgroundPageNativeHandler::IncrementKeepaliveCount,
-                 base::Unretained(this)));
-  RouteFunction(
+      base::BindRepeating(
+          &LazyBackgroundPageNativeHandler::IncrementKeepaliveCount,
+          base::Unretained(this)));
+  RouteHandlerFunction(
       "DecrementKeepaliveCount", "tts",
-      base::Bind(&LazyBackgroundPageNativeHandler::DecrementKeepaliveCount,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &LazyBackgroundPageNativeHandler::DecrementKeepaliveCount,
+          base::Unretained(this)));
 }
 
 void LazyBackgroundPageNativeHandler::IncrementKeepaliveCount(

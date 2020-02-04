@@ -25,8 +25,8 @@
 #include "../test/test_util.h"
 
 
-/* kPKCS7NSS contains the certificate chain of mail.google.com, as saved by NSS
- * using the Chrome UI. */
+// kPKCS7NSS contains the certificate chain of mail.google.com, as saved by NSS
+// using the Chrome UI.
 static const uint8_t kPKCS7NSS[] = {
     0x30, 0x80, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07,
     0x02, 0xa0, 0x80, 0x30, 0x80, 0x02, 0x01, 0x01, 0x31, 0x00, 0x30, 0x80,
@@ -272,7 +272,7 @@ static const uint8_t kPKCS7NSS[] = {
     0x00, 0x00, 0x00,
 };
 
-/* kPKCS7Windows is the Equifax root certificate, as exported by Windows 7. */
+// kPKCS7Windows is the Equifax root certificate, as exported by Windows 7.
 static const uint8_t kPKCS7Windows[] = {
     0x30, 0x82, 0x02, 0xb1, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d,
     0x01, 0x07, 0x02, 0xa0, 0x82, 0x02, 0xa2, 0x30, 0x82, 0x02, 0x9e, 0x02,
@@ -334,8 +334,8 @@ static const uint8_t kPKCS7Windows[] = {
     0xcd, 0x5a, 0x2a, 0x82, 0xb2, 0x37, 0x79, 0x31, 0x00,
 };
 
-/* kOpenSSLCRL is the Equifax CRL, converted to PKCS#7 form by:
- *   openssl crl2pkcs7 -inform DER -in secureca.crl  */
+// kOpenSSLCRL is the Equifax CRL, converted to PKCS#7 form by:
+//   openssl crl2pkcs7 -inform DER -in secureca.crl
 static const uint8_t kOpenSSLCRL[] = {
     0x30, 0x82, 0x03, 0x85, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d,
     0x01, 0x07, 0x02, 0xa0, 0x82, 0x03, 0x76, 0x30, 0x82, 0x03, 0x72, 0x02,
@@ -415,9 +415,9 @@ static const uint8_t kOpenSSLCRL[] = {
     0xf0, 0x00, 0x54, 0x31, 0x00,
 };
 
-/* kPEMCert is the result of exporting the mail.google.com certificate from
- * Chrome and then running it through:
- *   openssl pkcs7 -inform DER -in mail.google.com -outform PEM */
+// kPEMCert is the result of exporting the mail.google.com certificate from
+// Chrome and then running it through:
+//   openssl pkcs7 -inform DER -in mail.google.com -outform PEM
 static const char kPEMCert[] =
     "-----BEGIN PKCS7-----\n"
     "MIID+wYJKoZIhvcNAQcCoIID7DCCA+gCAQExADALBgkqhkiG9w0BBwGgggPQMIID\n"
@@ -480,6 +480,7 @@ static void TestCertRepase(const uint8_t *der_bytes, size_t der_len) {
   CBS pkcs7;
   CBS_init(&pkcs7, der_bytes, der_len);
   ASSERT_TRUE(PKCS7_get_certificates(certs.get(), &pkcs7));
+  EXPECT_EQ(0u, CBS_len(&pkcs7));
 
   bssl::ScopedCBB cbb;
   ASSERT_TRUE(CBB_init(cbb.get(), der_len));
@@ -489,9 +490,9 @@ static void TestCertRepase(const uint8_t *der_bytes, size_t der_len) {
 
   CBS_init(&pkcs7, result_data, result_len);
   ASSERT_TRUE(PKCS7_get_certificates(certs2.get(), &pkcs7));
+  EXPECT_EQ(0u, CBS_len(&pkcs7));
 
   ASSERT_EQ(sk_X509_num(certs.get()), sk_X509_num(certs2.get()));
-
   for (size_t i = 0; i < sk_X509_num(certs.get()); i++) {
     X509 *a = sk_X509_value(certs.get(), i);
     X509 *b = sk_X509_value(certs2.get(), i);
@@ -504,6 +505,50 @@ static void TestCertRepase(const uint8_t *der_bytes, size_t der_len) {
   bssl::UniquePtr<uint8_t> free_result2_data(result2_data);
 
   EXPECT_EQ(Bytes(result_data, result_len), Bytes(result2_data, result2_len));
+
+  // Parse with the legacy API instead.
+  const uint8_t *ptr = der_bytes;
+  bssl::UniquePtr<PKCS7> pkcs7_obj(d2i_PKCS7(nullptr, &ptr, der_len));
+  ASSERT_TRUE(pkcs7_obj);
+  EXPECT_EQ(ptr, der_bytes + der_len);
+
+  ASSERT_TRUE(PKCS7_type_is_signed(pkcs7_obj.get()));
+  const STACK_OF(X509) *certs3 = pkcs7_obj->d.sign->cert;
+  ASSERT_EQ(sk_X509_num(certs.get()), sk_X509_num(certs3));
+  for (size_t i = 0; i < sk_X509_num(certs.get()); i++) {
+    X509 *a = sk_X509_value(certs.get(), i);
+    X509 *b = sk_X509_value(certs3, i);
+    ASSERT_EQ(0, X509_cmp(a, b));
+  }
+
+  // Serialize the original object. This should echo back the original saved
+  // bytes.
+  uint8_t *result3_data = nullptr;
+  int result3_len = i2d_PKCS7(pkcs7_obj.get(), &result3_data);
+  ASSERT_GT(result3_len, 0);
+  bssl::UniquePtr<uint8_t> free_result3_data(result3_data);
+  EXPECT_EQ(Bytes(der_bytes, der_len), Bytes(result3_data, result3_len));
+
+  // Make a new object with the legacy API.
+  pkcs7_obj.reset(
+      PKCS7_sign(nullptr, nullptr, certs.get(), nullptr, PKCS7_DETACHED));
+  ASSERT_TRUE(pkcs7_obj);
+
+  ASSERT_TRUE(PKCS7_type_is_signed(pkcs7_obj.get()));
+  const STACK_OF(X509) *certs4 = pkcs7_obj->d.sign->cert;
+  ASSERT_EQ(sk_X509_num(certs.get()), sk_X509_num(certs4));
+  for (size_t i = 0; i < sk_X509_num(certs.get()); i++) {
+    X509 *a = sk_X509_value(certs.get(), i);
+    X509 *b = sk_X509_value(certs4, i);
+    ASSERT_EQ(0, X509_cmp(a, b));
+  }
+
+  // This new object should serialize canonically.
+  uint8_t *result4_data = nullptr;
+  int result4_len = i2d_PKCS7(pkcs7_obj.get(), &result4_data);
+  ASSERT_GT(result4_len, 0);
+  bssl::UniquePtr<uint8_t> free_result4_data(result4_data);
+  EXPECT_EQ(Bytes(result_data, result_len), Bytes(result4_data, result4_len));
 }
 
 static void TestCRLReparse(const uint8_t *der_bytes, size_t der_len) {
@@ -517,6 +562,7 @@ static void TestCRLReparse(const uint8_t *der_bytes, size_t der_len) {
   CBS pkcs7;
   CBS_init(&pkcs7, der_bytes, der_len);
   ASSERT_TRUE(PKCS7_get_CRLs(crls.get(), &pkcs7));
+  EXPECT_EQ(0u, CBS_len(&pkcs7));
 
   bssl::ScopedCBB cbb;
   ASSERT_TRUE(CBB_init(cbb.get(), der_len));
@@ -526,9 +572,9 @@ static void TestCRLReparse(const uint8_t *der_bytes, size_t der_len) {
 
   CBS_init(&pkcs7, result_data, result_len);
   ASSERT_TRUE(PKCS7_get_CRLs(crls2.get(), &pkcs7));
+  EXPECT_EQ(0u, CBS_len(&pkcs7));
 
   ASSERT_EQ(sk_X509_CRL_num(crls.get()), sk_X509_CRL_num(crls.get()));
-
   for (size_t i = 0; i < sk_X509_CRL_num(crls.get()); i++) {
     X509_CRL *a = sk_X509_CRL_value(crls.get(), i);
     X509_CRL *b = sk_X509_CRL_value(crls2.get(), i);
@@ -541,6 +587,35 @@ static void TestCRLReparse(const uint8_t *der_bytes, size_t der_len) {
   bssl::UniquePtr<uint8_t> free_result2_data(result2_data);
 
   EXPECT_EQ(Bytes(result_data, result_len), Bytes(result2_data, result2_len));
+
+  // Parse with the legacy API instead.
+  const uint8_t *ptr = der_bytes;
+  bssl::UniquePtr<PKCS7> pkcs7_obj(d2i_PKCS7(nullptr, &ptr, der_len));
+  ASSERT_TRUE(pkcs7_obj);
+  EXPECT_EQ(ptr, der_bytes + der_len);
+
+  ASSERT_TRUE(PKCS7_type_is_signed(pkcs7_obj.get()));
+  const STACK_OF(X509_CRL) *crls3 = pkcs7_obj->d.sign->crl;
+  ASSERT_EQ(sk_X509_CRL_num(crls.get()), sk_X509_CRL_num(crls3));
+  for (size_t i = 0; i < sk_X509_CRL_num(crls.get()); i++) {
+    X509_CRL *a = sk_X509_CRL_value(crls.get(), i);
+    X509_CRL *b = sk_X509_CRL_value(crls3, i);
+    ASSERT_EQ(0, X509_CRL_cmp(a, b));
+  }
+
+  ptr = result_data;
+  pkcs7_obj.reset(d2i_PKCS7(nullptr, &ptr, result_len));
+  ASSERT_TRUE(pkcs7_obj);
+  EXPECT_EQ(ptr, result_data + result_len);
+
+  ASSERT_TRUE(PKCS7_type_is_signed(pkcs7_obj.get()));
+  const STACK_OF(X509_CRL) *crls4 = pkcs7_obj->d.sign->crl;
+  ASSERT_EQ(sk_X509_CRL_num(crls.get()), sk_X509_CRL_num(crls4));
+  for (size_t i = 0; i < sk_X509_CRL_num(crls.get()); i++) {
+    X509_CRL *a = sk_X509_CRL_value(crls.get(), i);
+    X509_CRL *b = sk_X509_CRL_value(crls4, i);
+    ASSERT_EQ(0, X509_CRL_cmp(a, b));
+  }
 }
 
 static void TestPEMCerts(const char *pem) {

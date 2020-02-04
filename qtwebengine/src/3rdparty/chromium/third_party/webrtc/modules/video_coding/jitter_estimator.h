@@ -8,12 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_VIDEO_CODING_JITTER_ESTIMATOR_H_
-#define WEBRTC_MODULES_VIDEO_CODING_JITTER_ESTIMATOR_H_
+#ifndef MODULES_VIDEO_CODING_JITTER_ESTIMATOR_H_
+#define MODULES_VIDEO_CODING_JITTER_ESTIMATOR_H_
 
-#include "webrtc/modules/video_coding/rtt_filter.h"
-#include "webrtc/rtc_base/rollingaccumulator.h"
-#include "webrtc/typedefs.h"
+#include "modules/video_coding/rtt_filter.h"
+#include "rtc_base/rolling_accumulator.h"
 
 namespace webrtc {
 
@@ -72,8 +71,6 @@ class VCMJitterEstimator {
   // These are protected for better testing possibilities
   double _theta[2];  // Estimated line parameters (slope, offset)
   double _varNoise;  // Variance of the time-deviation from the line
-
-  virtual bool LowRateExperimentEnabled();
 
  private:
   // Updates the Kalman filter for the line describing
@@ -160,11 +157,10 @@ class VCMJitterEstimator {
   VCMRttFilter _rttFilter;
 
   rtc::RollingAccumulator<uint64_t> fps_counter_;
-  enum ExperimentFlag { kInit, kEnabled, kDisabled };
-  ExperimentFlag low_rate_experiment_;
+  const double time_deviation_upper_bound_;
   const Clock* clock_;
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_VIDEO_CODING_JITTER_ESTIMATOR_H_
+#endif  // MODULES_VIDEO_CODING_JITTER_ESTIMATOR_H_

@@ -28,26 +28,26 @@ Polymer({
 
   /** @override */
   ready: function() {
-    var browserProxy = settings.AboutPageBrowserProxyImpl.getInstance();
+    const browserProxy = settings.AboutPageBrowserProxyImpl.getInstance();
     browserProxy.pageReady();
 
-    browserProxy.getVersionInfo().then(function(versionInfo) {
+    browserProxy.getVersionInfo().then(versionInfo => {
       this.versionInfo_ = versionInfo;
-    }.bind(this));
+    });
 
     this.updateChannelInfo_();
   },
 
   /** @private */
   updateChannelInfo_: function() {
-    var browserProxy = settings.AboutPageBrowserProxyImpl.getInstance();
-    browserProxy.getChannelInfo().then(function(info) {
+    const browserProxy = settings.AboutPageBrowserProxyImpl.getInstance();
+    browserProxy.getChannelInfo().then(info => {
       // Display the target channel for the 'Currently on' message.
       this.currentlyOnChannelText_ = this.i18n(
           'aboutCurrentlyOnChannel',
           this.i18n(settings.browserChannelToI18nId(info.targetChannel)));
       this.canChangeChannel_ = info.canChangeChannel;
-    }.bind(this));
+    });
   },
 
   /**
@@ -76,8 +76,9 @@ Polymer({
    * @private
    */
   getChangeChannelIndicatorType_: function(canChangeChannel) {
-    if (canChangeChannel)
+    if (canChangeChannel) {
       return CrPolicyIndicatorType.NONE;
+    }
     return loadTimeData.getBoolean('aboutEnterpriseManaged') ?
         CrPolicyIndicatorType.DEVICE_POLICY :
         CrPolicyIndicatorType.OWNER;

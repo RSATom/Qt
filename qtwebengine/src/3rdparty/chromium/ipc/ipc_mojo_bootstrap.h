@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
@@ -29,7 +30,7 @@ namespace IPC {
 //
 // This lives on IO thread other than Create(), which can be called from
 // UI thread as Channel::Create() can be.
-class IPC_EXPORT MojoBootstrap {
+class COMPONENT_EXPORT(IPC) MojoBootstrap {
  public:
   virtual ~MojoBootstrap() {}
 
@@ -38,7 +39,8 @@ class IPC_EXPORT MojoBootstrap {
   static std::unique_ptr<MojoBootstrap> Create(
       mojo::ScopedMessagePipeHandle handle,
       Channel::Mode mode,
-      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner);
+      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& proxy_task_runner);
 
   // Start the handshake over the underlying message pipe.
   virtual void Connect(mojom::ChannelAssociatedPtr* sender,

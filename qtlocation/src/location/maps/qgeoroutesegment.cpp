@@ -42,6 +42,12 @@
 
 QT_BEGIN_NAMESPACE
 
+template<>
+QGeoRouteSegmentPrivate *QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate>::clone()
+{
+    return d->clone();
+}
+
 /*!
     \class QGeoRouteSegment
     \inmodule QtLocation
@@ -53,7 +59,7 @@ QT_BEGIN_NAMESPACE
     A QGeoRouteSegment instance has information about the physical layout
     of the route segment, the length of the route and estimated time required
     to traverse the route segment and an optional QGeoManeuver associated with
-    the end of the route segment.
+    the beginning of the route segment.
 
     QGeoRouteSegment instances can be thought of as edges on a routing
     graph, with QGeoManeuver instances as optional labels attached to the
@@ -67,7 +73,7 @@ QT_BEGIN_NAMESPACE
     setTravelTime(), setDistance(), setPath() or setManeuver() is called.
 */
 QGeoRouteSegment::QGeoRouteSegment()
-    : d_ptr(new QGeoRouteSegmentPrivate()) {}
+    : d_ptr(new QGeoRouteSegmentPrivateDefault()) {}
 
 /*!
     Constructs a route segment object from the contents of \a other.
@@ -78,8 +84,16 @@ QGeoRouteSegment::QGeoRouteSegment(const QGeoRouteSegment &other)
 /*!
     \internal
 */
-QGeoRouteSegment::QGeoRouteSegment(QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> &d_ptr)
-    : d_ptr(d_ptr) {}
+QGeoRouteSegment::QGeoRouteSegment(const QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> &dd)
+    : d_ptr(dd) {}
+
+/*!
+    Returns the private implementation.
+*/
+QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> &QGeoRouteSegment::d()
+{
+    return d_ptr;
+}
 
 /*!
     Destroys this route segment object.
@@ -129,7 +143,22 @@ bool QGeoRouteSegment::operator !=(const QGeoRouteSegment &other) const
 */
 bool QGeoRouteSegment::isValid() const
 {
-    return d_ptr->valid;
+    return d_ptr->valid();
+}
+
+/*!
+    Returns whether this route segment is the last segment of a route leg.
+
+    \since 5.12
+*/
+bool QGeoRouteSegment::isLegLastSegment() const
+{
+    if (!d_ptr->valid())
+        return false;
+
+    if (!d_ptr->nextRouteSegment())
+        return true;
+    return d_ptr->isLegLastSegment();
 }
 
 /*!
@@ -137,8 +166,8 @@ bool QGeoRouteSegment::isValid() const
 */
 void QGeoRouteSegment::setNextRouteSegment(const QGeoRouteSegment &routeSegment)
 {
-    d_ptr->valid = true;
-    d_ptr->nextSegment = routeSegment.d_ptr;
+    d_ptr->setValid(true);
+    d_ptr->setNextRouteSegment(routeSegment.d_ptr);
 }
 
 /*!
@@ -149,12 +178,10 @@ void QGeoRouteSegment::setNextRouteSegment(const QGeoRouteSegment &routeSegment)
 */
 QGeoRouteSegment QGeoRouteSegment::nextRouteSegment() const
 {
-    if (d_ptr->valid && d_ptr->nextSegment)
-        return QGeoRouteSegment(d_ptr->nextSegment);
+    if (d_ptr->valid() && d_ptr->nextRouteSegment())
+        return QGeoRouteSegment(d_ptr->nextRouteSegment());
 
-    QGeoRouteSegment segment;
-    segment.d_ptr->valid = false;
-    return segment;
+    return QGeoRouteSegment();
 }
 
 /*!
@@ -163,8 +190,8 @@ QGeoRouteSegment QGeoRouteSegment::nextRouteSegment() const
 */
 void QGeoRouteSegment::setTravelTime(int secs)
 {
-    d_ptr->valid = true;
-    d_ptr->travelTime = secs;
+    d_ptr->setValid(true);
+    d_ptr->setTravelTime(secs);
 }
 
 /*!
@@ -173,7 +200,7 @@ void QGeoRouteSegment::setTravelTime(int secs)
 */
 int QGeoRouteSegment::travelTime() const
 {
-    return d_ptr->travelTime;
+    return d_ptr->travelTime();
 }
 
 /*!
@@ -181,8 +208,8 @@ int QGeoRouteSegment::travelTime() const
 */
 void QGeoRouteSegment::setDistance(qreal distance)
 {
-    d_ptr->valid = true;
-    d_ptr->distance = distance;
+    d_ptr->setValid(true);
+    d_ptr->setDistance(distance);
 }
 
 /*!
@@ -190,7 +217,7 @@ void QGeoRouteSegment::setDistance(qreal distance)
 */
 qreal QGeoRouteSegment::distance() const
 {
-    return d_ptr->distance;
+    return d_ptr->distance();
 }
 
 /*!
@@ -201,8 +228,8 @@ qreal QGeoRouteSegment::distance() const
 */
 void QGeoRouteSegment::setPath(const QList<QGeoCoordinate> &path)
 {
-    d_ptr->valid = true;
-    d_ptr->path = path;
+    d_ptr->setValid(true);
+    d_ptr->setPath(path);
 }
 
 /*!
@@ -214,7 +241,7 @@ void QGeoRouteSegment::setPath(const QList<QGeoCoordinate> &path)
 
 QList<QGeoCoordinate> QGeoRouteSegment::path() const
 {
-    return d_ptr->path;
+    return d_ptr->path();
 }
 
 /*!
@@ -222,54 +249,221 @@ QList<QGeoCoordinate> QGeoRouteSegment::path() const
 */
 void QGeoRouteSegment::setManeuver(const QGeoManeuver &maneuver)
 {
-    d_ptr->valid = true;
-    d_ptr->maneuver = maneuver;
+    d_ptr->setValid(true);
+    d_ptr->setManeuver(maneuver);
 }
 
 /*!
     Returns the maneuver for this route segment.
 
     Will return an invalid QGeoManeuver if no information has been attached
-    to the endpoint of this route segment.
+    to the starting point of this route segment.
 */
 QGeoManeuver QGeoRouteSegment::maneuver() const
 {
-    return d_ptr->maneuver;
+    return d_ptr->maneuver();
 }
 
 /*******************************************************************************
 *******************************************************************************/
 
-QGeoRouteSegmentPrivate::QGeoRouteSegmentPrivate()
-    : valid(false),
-      travelTime(0),
-      distance(0.0) {}
+QGeoRouteSegmentPrivate::QGeoRouteSegmentPrivate() {}
 
 QGeoRouteSegmentPrivate::QGeoRouteSegmentPrivate(const QGeoRouteSegmentPrivate &other)
-    : QSharedData(other),
-      valid(other.valid),
-      travelTime(other.travelTime),
-      distance(other.distance),
-      path(other.path),
-      maneuver(other.maneuver),
-      nextSegment(other.nextSegment) {}
+    : QSharedData(other), m_nextSegment(other.m_nextSegment) {}
 
 QGeoRouteSegmentPrivate::~QGeoRouteSegmentPrivate()
 {
-    nextSegment.reset();
+    m_nextSegment.reset();
 }
 
 bool QGeoRouteSegmentPrivate::operator ==(const QGeoRouteSegmentPrivate &other) const
 {
-    return ((valid == other.valid)
-            && (travelTime == other.travelTime)
-            && (distance == other.distance)
-            && (path == other.path)
-            && (maneuver == other.maneuver));
+    return equals(other);
+}
+
+bool QGeoRouteSegmentPrivate::equals(const QGeoRouteSegmentPrivate &other) const
+{
+    return ((valid() == other.valid())
+            && (travelTime() == other.travelTime())
+            && (distance() == other.distance())
+            && (path() == other.path())
+            && (maneuver() == other.maneuver()));
+}
+
+bool QGeoRouteSegmentPrivate::valid() const
+{
+    return false;
+}
+
+void QGeoRouteSegmentPrivate::setValid(bool valid)
+{
+    Q_UNUSED(valid);
+}
+
+bool QGeoRouteSegmentPrivate::isLegLastSegment() const
+{
+    return false;
+}
+
+void QGeoRouteSegmentPrivate::setLegLastSegment(bool lastSegment)
+{
+    Q_UNUSED(lastSegment);
+}
+
+int QGeoRouteSegmentPrivate::travelTime() const
+{
+    return 0;
+}
+
+void QGeoRouteSegmentPrivate::setTravelTime(int travelTime)
+{
+    Q_UNUSED(travelTime);
+}
+
+qreal QGeoRouteSegmentPrivate::distance() const
+{
+    return 0;
+}
+
+void QGeoRouteSegmentPrivate::setDistance(qreal distance)
+{
+    Q_UNUSED(distance);
+}
+
+QList<QGeoCoordinate> QGeoRouteSegmentPrivate::path() const
+{
+    return QList<QGeoCoordinate>();
+}
+
+void QGeoRouteSegmentPrivate::setPath(const QList<QGeoCoordinate> &path)
+{
+    Q_UNUSED(path);
+}
+
+QGeoManeuver QGeoRouteSegmentPrivate::maneuver() const
+{
+    return QGeoManeuver();
+}
+
+void QGeoRouteSegmentPrivate::setManeuver(const QGeoManeuver &maneuver)
+{
+    Q_UNUSED(maneuver);
+}
+
+QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> QGeoRouteSegmentPrivate::nextRouteSegment() const
+{
+    return m_nextSegment;
+}
+
+void QGeoRouteSegmentPrivate::setNextRouteSegment(const QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> &next)
+{
+    m_nextSegment = next;
+}
+
+QGeoRouteSegmentPrivate *QGeoRouteSegmentPrivate::get(QGeoRouteSegment &segment)
+{
+    return segment.d_ptr.data();
+}
+
+/*******************************************************************************
+*******************************************************************************/
+
+QGeoRouteSegmentPrivateDefault::QGeoRouteSegmentPrivateDefault()
+    : m_valid(false),
+      m_travelTime(0),
+      m_distance(0.0)
+{
+
+}
+
+QGeoRouteSegmentPrivateDefault::QGeoRouteSegmentPrivateDefault(const QGeoRouteSegmentPrivateDefault &other)
+    : QGeoRouteSegmentPrivate(other),
+      m_valid(other.m_valid),
+      m_travelTime(other.m_travelTime),
+      m_distance(other.m_distance),
+      m_path(other.m_path),
+      m_maneuver(other.m_maneuver)
+{
+
+}
+
+QGeoRouteSegmentPrivateDefault::~QGeoRouteSegmentPrivateDefault()
+{
+
+}
+
+QGeoRouteSegmentPrivate *QGeoRouteSegmentPrivateDefault::clone()
+{
+    return new QGeoRouteSegmentPrivateDefault(*this);
+}
+
+bool QGeoRouteSegmentPrivateDefault::operator ==(const QGeoRouteSegmentPrivateDefault &other) const
+{
+    return QGeoRouteSegmentPrivate::operator ==(other);
+}
+
+bool QGeoRouteSegmentPrivateDefault::valid() const
+{
+    return m_valid;
+}
+
+void QGeoRouteSegmentPrivateDefault::setValid(bool valid)
+{
+    m_valid = valid;
+}
+
+bool QGeoRouteSegmentPrivateDefault::isLegLastSegment() const
+{
+    return m_legLastSegment;
+}
+
+void QGeoRouteSegmentPrivateDefault::setLegLastSegment(bool lastSegment)
+{
+    m_legLastSegment = lastSegment;
+}
+
+int QGeoRouteSegmentPrivateDefault::travelTime() const
+{
+    return m_travelTime;
+}
+
+void QGeoRouteSegmentPrivateDefault::setTravelTime(int travelTime)
+{
+    m_travelTime = travelTime;
+}
+
+qreal QGeoRouteSegmentPrivateDefault::distance() const
+{
+    return m_distance;
+}
+
+void QGeoRouteSegmentPrivateDefault::setDistance(qreal distance)
+{
+    m_distance = distance;
+}
+
+QList<QGeoCoordinate> QGeoRouteSegmentPrivateDefault::path() const
+{
+    return m_path;
+}
+
+void QGeoRouteSegmentPrivateDefault::setPath(const QList<QGeoCoordinate> &path)
+{
+    m_path = path;
+}
+
+QGeoManeuver QGeoRouteSegmentPrivateDefault::maneuver() const
+{
+    return m_maneuver;
+}
+
+void QGeoRouteSegmentPrivateDefault::setManeuver(const QGeoManeuver &maneuver)
+{
+    m_maneuver = maneuver;
 }
 
 /*******************************************************************************
 *******************************************************************************/
 
 QT_END_NAMESPACE
-

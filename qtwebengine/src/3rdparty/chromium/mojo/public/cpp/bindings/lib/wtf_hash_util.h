@@ -9,9 +9,9 @@
 
 #include "mojo/public/cpp/bindings/lib/hash_util.h"
 #include "mojo/public/cpp/bindings/struct_ptr.h"
-#include "third_party/WebKit/Source/platform/wtf/HashFunctions.h"
-#include "third_party/WebKit/Source/platform/wtf/text/StringHash.h"
-#include "third_party/WebKit/Source/platform/wtf/text/WTFString.h"
+#include "third_party/blink/renderer/platform/wtf/hash_functions.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace mojo {
 namespace internal {
@@ -60,7 +60,7 @@ size_t WTFHash(size_t seed, const T& value) {
 template <typename T>
 struct StructPtrHashFn {
   static unsigned GetHash(const StructPtr<T>& value) {
-    return value.Hash(kHashSeed);
+    return static_cast<unsigned>(value.Hash(kHashSeed));
   }
   static bool Equal(const StructPtr<T>& left, const StructPtr<T>& right) {
     return left.Equals(right);
@@ -71,7 +71,7 @@ struct StructPtrHashFn {
 template <typename T>
 struct InlinedStructPtrHashFn {
   static unsigned GetHash(const InlinedStructPtr<T>& value) {
-    return value.Hash(kHashSeed);
+    return static_cast<unsigned>(value.Hash(kHashSeed));
   }
   static bool Equal(const InlinedStructPtr<T>& left,
                     const InlinedStructPtr<T>& right) {

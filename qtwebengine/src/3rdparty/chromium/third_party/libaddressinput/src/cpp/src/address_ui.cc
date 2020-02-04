@@ -42,39 +42,39 @@ std::string GetLabelForField(const Localization& localization,
                              int postal_code_name_message_id,
                              int locality_name_message_id,
                              int sublocality_name_message_id) {
-  int messageId;
+  int message_id;
   switch (field) {
     case SORTING_CODE:
       // This needs no translation as it's used only in one locale.
       return "CEDEX";
     case COUNTRY:
-      messageId = IDS_LIBADDRESSINPUT_COUNTRY_OR_REGION_LABEL;
+      message_id = IDS_LIBADDRESSINPUT_COUNTRY_OR_REGION_LABEL;
       break;
     case ADMIN_AREA:
-      messageId = admin_area_name_message_id;
+      message_id = admin_area_name_message_id;
       break;
     case LOCALITY:
-      messageId = locality_name_message_id;
+      message_id = locality_name_message_id;
       break;
     case DEPENDENT_LOCALITY:
-      messageId = sublocality_name_message_id;
+      message_id = sublocality_name_message_id;
       break;
     case POSTAL_CODE:
-      messageId = postal_code_name_message_id;
+      message_id = postal_code_name_message_id;
       break;
     case STREET_ADDRESS:
-      messageId = IDS_LIBADDRESSINPUT_ADDRESS_LINE_1_LABEL;
+      message_id = IDS_LIBADDRESSINPUT_ADDRESS_LINE_1_LABEL;
       break;
     case ORGANIZATION:
-      messageId = IDS_LIBADDRESSINPUT_ORGANIZATION_LABEL;
+      message_id = IDS_LIBADDRESSINPUT_ORGANIZATION_LABEL;
       break;
     case RECIPIENT:
-      messageId = IDS_LIBADDRESSINPUT_RECIPIENT_LABEL;
+      message_id = IDS_LIBADDRESSINPUT_RECIPIENT_LABEL;
       break;
     default:
-      messageId = INVALID_MESSAGE_ID;
+      message_id = INVALID_MESSAGE_ID;
   }
-  return localization.GetString(messageId);
+  return localization.GetString(message_id);
 }
 
 }  // namespace
@@ -88,7 +88,7 @@ std::vector<AddressUiComponent> BuildComponents(
     const Localization& localization,
     const std::string& ui_language_tag,
     std::string* best_address_language_tag) {
-  assert(best_address_language_tag != NULL);
+  assert(best_address_language_tag != nullptr);
   std::vector<AddressUiComponent> result;
 
   Rule rule;
@@ -113,7 +113,7 @@ std::vector<AddressUiComponent> BuildComponents(
 
   bool preceded_by_newline = true;
   bool followed_by_newline = true;
-  for (std::vector<FormatElement>::const_iterator format_it = format.begin();
+  for (auto format_it = format.begin();
        format_it != format.end(); ++format_it) {
     if (format_it->IsNewline()) {
       preceded_by_newline = true;
@@ -123,7 +123,7 @@ std::vector<AddressUiComponent> BuildComponents(
       continue;
     }
     AddressUiComponent component;
-    std::vector<FormatElement>::const_iterator next_format_it = format_it + 1;
+    auto next_format_it = format_it + 1;
     followed_by_newline =
         next_format_it == format.end() || next_format_it->IsNewline();
     component.length_hint = preceded_by_newline && followed_by_newline

@@ -53,7 +53,7 @@ class QAxisSetting;
 class QInputAspect;
 class QAbstractPhysicalDevicePrivate;
 
-class QT3DINPUTSHARED_EXPORT QAbstractPhysicalDevice : public Qt3DCore::QNode
+class Q_3DINPUTSHARED_EXPORT QAbstractPhysicalDevice : public Qt3DCore::QNode
 {
     Q_OBJECT
 public:
@@ -75,7 +75,7 @@ public:
 protected:
     QAbstractPhysicalDevice(QAbstractPhysicalDevicePrivate &dd, Qt3DCore::QNode *parent = nullptr);
     Q_DECLARE_PRIVATE(QAbstractPhysicalDevice)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

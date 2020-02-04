@@ -34,7 +34,6 @@ class FakeDemuxerStream : public DemuxerStream {
   VideoDecoderConfig video_decoder_config() override;
   Type type() const override;
   bool SupportsConfigChanges() override;
-  VideoRotation video_rotation() override;
 
   void Initialize();
 
@@ -58,6 +57,10 @@ class FakeDemuxerStream : public DemuxerStream {
   // Satisfies the pending read (if any) with kAborted and NULL. This call
   // always clears |hold_next_read_|.
   void Reset();
+
+  // Satisfies the pending read (if any) with kError and NULL. This call
+  // always clears |hold_next_read_|.
+  void Error();
 
   // Reset() this demuxer stream and set the reading position to the start of
   // the stream.
@@ -110,7 +113,6 @@ class FakeMediaResource : public MediaResource {
 
   // MediaResource implementation.
   std::vector<DemuxerStream*> GetAllStreams() override;
-  void SetStreamStatusChangeCB(const StreamStatusChangeCB& cb) override;
 
  private:
   FakeDemuxerStream fake_video_stream_;

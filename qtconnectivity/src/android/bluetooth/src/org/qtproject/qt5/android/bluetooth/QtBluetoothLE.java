@@ -403,8 +403,15 @@ public class QtBluetoothLE {
                         descriptor.getUuid().toString(), descriptor.getValue());
             } else {
                 if (isServiceDiscoveryRun) {
-                    //ignore
-                    Log.w(TAG, "onDescriptorcRead during discovery error: " + status);
+                    // Cannot read but still advertise the fact that we found a descriptor
+                    // The value will be empty.
+                    Log.w(TAG, "onDescriptorRead during discovery error: " + status);
+                    Log.d(TAG, "Non-readable descriptor " + descriptor.getUuid() +
+                          " for characteristic "  + descriptor.getCharacteristic().getUuid() +
+                          " for service " + descriptor.getCharacteristic().getService().getUuid());
+                    leDescriptorRead(qtObject, descriptor.getCharacteristic().getService().getUuid().toString(),
+                        descriptor.getCharacteristic().getUuid().toString(), foundHandle + 1,
+                        descriptor.getUuid().toString(), descriptor.getValue());
                 } else {
                     // This must be in sync with QLowEnergyService::DescriptorReadError
                     final int descriptorReadError = 6;
@@ -532,7 +539,7 @@ public class QtBluetoothLE {
         }
 
         try {
-            // BluetoothDevice.,connectGatt(Context, boolean, BluetoothGattCallback, int) was
+            // BluetoothDevice.connectGatt(Context, boolean, BluetoothGattCallback, int) was
             // officially introduced by Android API v23. Earlier Android versions have a private
             // implementation already though. Let's check at runtime and use it if possible.
             //
@@ -839,6 +846,9 @@ public class QtBluetoothLE {
      */
     public String includedServices(String serviceUuid)
     {
+        if (mBluetoothGatt == null)
+            return null;
+
         UUID uuid;
         try {
             uuid = UUID.fromString(serviceUuid);
@@ -1126,7 +1136,7 @@ public class QtBluetoothLE {
         return true;
     }
 
-    // Called by TimeoutRunnable if the current I/O job timeoutd out.
+    // Called by TimeoutRunnable if the current I/O job timed out.
     // By the time we reach this point the handleForTimeout counter has already been reset
     // and the regular responses will be blocked off.
     private void interruptCurrentIO(int handle)
@@ -1141,16 +1151,24 @@ public class QtBluetoothLE {
         if (handle == HANDLE_FOR_MTU_EXCHANGE)
             return;
 
-        GattEntry entry = entries.get(handle);
-        if (entry == null)
-            return;
-        if (entry.valueKnown)
-            return;
-        entry.valueKnown = true;
+        try {
+            synchronized (this) {
 
-        GattEntry serviceEntry = entries.get(entry.associatedServiceHandle);
-        if (serviceEntry != null && serviceEntry.endHandle == handle)
-            finishCurrentServiceDiscovery(entry.associatedServiceHandle);
+                GattEntry entry = entries.get(handle);
+                if (entry == null)
+                    return;
+                if (entry.valueKnown)
+                    return;
+                entry.valueKnown = true;
+
+                GattEntry serviceEntry = entries.get(entry.associatedServiceHandle);
+                if (serviceEntry != null && serviceEntry.endHandle == handle)
+                    finishCurrentServiceDiscovery(entry.associatedServiceHandle);
+            }
+        } catch (IndexOutOfBoundsException outOfBounds) {
+            Log.w(TAG, "interruptCurrentIO(): Unknown gatt entry, index: "
+                    + handle + " size: " + entries.size());
+        }
     }
 
     /*
@@ -1271,9 +1289,16 @@ public class QtBluetoothLE {
                     }
 
                     // last entry of current discovery run?
-                    GattEntry serviceEntry = entries.get(entry.associatedServiceHandle);
-                    if (serviceEntry.endHandle == handle)
-                        finishCurrentServiceDiscovery(entry.associatedServiceHandle);
+                    synchronized (this) {
+                        try {
+                            GattEntry serviceEntry = entries.get(entry.associatedServiceHandle);
+                            if (serviceEntry.endHandle == handle)
+                                finishCurrentServiceDiscovery(entry.associatedServiceHandle);
+                        } catch (IndexOutOfBoundsException outOfBounds) {
+                            Log.w(TAG, "performNextIO(): Unknown service for entry, index: "
+                                            + entry.associatedServiceHandle + " size: " + entries.size());
+                        }
+                    }
                 } else {
                     int errorCode = 0;
 

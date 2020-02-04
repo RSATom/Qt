@@ -66,6 +66,7 @@
 QT_BEGIN_NAMESPACE
 
 #ifndef QT_NO_SYSTEMLOCALE
+struct QLocaleData;
 class Q_CORE_EXPORT QSystemLocale
 {
 public:
@@ -126,6 +127,7 @@ public:
     virtual QVariant query(QueryType type, QVariant in) const;
     virtual QLocale fallbackUiLocale() const;
 
+    inline const QLocaleData *fallbackUiLocaleData() const;
 private:
     QSystemLocale(bool);
     friend class QSystemLocaleSingleton;
@@ -249,7 +251,14 @@ public:
         if (std::fabs(d) > std::numeric_limits<float>::max()) {
             if (ok != 0)
                 *ok = false;
-            return 0.0f;
+            const float huge = std::numeric_limits<float>::infinity();
+            return d < 0 ? -huge : huge;
+        }
+        if (d != 0 && float(d) == 0) {
+            // Values that underflow double already failed. Match them:
+            if (ok != 0)
+                *ok = false;
+            return 0;
         }
         return float(d);
     }
@@ -274,6 +283,7 @@ public:
 public:
     quint16 m_language_id, m_script_id, m_country_id;
 
+    // FIXME QTBUG-69324: not all unicode code-points map to single-token UTF-16 :-(
     quint16 m_decimal, m_group, m_list, m_percent, m_zero, m_minus, m_plus, m_exponential;
     quint16 m_quotation_start, m_quotation_end;
     quint16 m_alternate_quotation_start, m_alternate_quotation_end;
@@ -363,8 +373,6 @@ public:
 
     QLocale::MeasurementSystem measurementSystem() const;
 
-    static void updateSystemPrivate();
-
     QString dateTimeToString(QStringView format, const QDateTime &datetime,
                              const QDate &dateOnly, const QTime &timeOnly,
                              const QLocale *q) const;
@@ -373,6 +381,10 @@ public:
     QBasicAtomicInt ref;
     QLocale::NumberOptions m_numberOptions;
 };
+
+#ifndef QT_NO_SYSTEMLOCALE
+const QLocaleData *QSystemLocale::fallbackUiLocaleData() const { return fallbackUiLocale().d->m_data; }
+#endif
 
 template <>
 inline QLocalePrivate *QSharedDataPointer<QLocalePrivate>::clone()
@@ -407,9 +419,10 @@ inline char QLocaleData::digitToCLocale(QChar in) const
     if (in == m_exponential || in == QChar::toUpper(m_exponential))
         return 'e';
 
-    // In several languages group() is the char 0xA0, which looks like a space.
-    // People use a regular space instead of it and complain it doesn't work.
-    if (m_group == 0xA0 && in.unicode() == ' ')
+    // In several languages group() is a non-breaking space (U+00A0) or its thin
+    // version (U+202f), which look like spaces.  People (and thus some of our
+    // tests) use a regular space instead and complain if it doesn't work.
+    if ((m_group == 0xA0 || m_group == 0x202f) && in.unicode() == ' ')
         return ',';
 
     return 0;
@@ -419,15 +432,15 @@ QString qt_readEscapedFormatString(QStringView format, int *idx);
 bool qt_splitLocaleName(const QString &name, QString &lang, QString &script, QString &cntry);
 int qt_repeatCount(QStringView s);
 
-enum { AsciiSpaceMask = (1 << (' ' - 1)) |
-                        (1 << ('\t' - 1)) |   // 9: HT - horizontal tab
-                        (1 << ('\n' - 1)) |   // 10: LF - line feed
-                        (1 << ('\v' - 1)) |   // 11: VT - vertical tab
-                        (1 << ('\f' - 1)) |   // 12: FF - form feed
-                        (1 << ('\r' - 1)) };  // 13: CR - carriage return
+enum { AsciiSpaceMask = (1u << (' ' - 1)) |
+                        (1u << ('\t' - 1)) |   // 9: HT - horizontal tab
+                        (1u << ('\n' - 1)) |   // 10: LF - line feed
+                        (1u << ('\v' - 1)) |   // 11: VT - vertical tab
+                        (1u << ('\f' - 1)) |   // 12: FF - form feed
+                        (1u << ('\r' - 1)) };  // 13: CR - carriage return
 Q_DECL_CONSTEXPR inline bool ascii_isspace(uchar c)
 {
-    return c >= 1U && c <= 32U && (uint(AsciiSpaceMask) >> uint(c - 1)) & 1U;
+    return c >= 1u && c <= 32u && (AsciiSpaceMask >> uint(c - 1)) & 1u;
 }
 
 #if defined(Q_COMPILER_CONSTEXPR)

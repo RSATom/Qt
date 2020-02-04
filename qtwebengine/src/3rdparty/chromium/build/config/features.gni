@@ -21,16 +21,6 @@ if (is_android) {
 }
 
 declare_args() {
-  # Enables Native Client support.
-  # Temporarily disable nacl on arm64 linux to get rid of compilation errors.
-  # TODO(mcgrathr): When mipsel-nacl-clang is available, drop the exclusion.
-  enable_nacl = !is_ios && !is_android && !is_fuchsia && !is_chromecast &&
-                current_cpu != "mipsel" && current_cpu != "mips64el" &&
-                !(is_linux && target_cpu == "arm64")
-
-  # Non-SFI is not yet supported on mipsel
-  enable_nacl_nonsfi = (current_cpu != "mipsel" && current_cpu != "mips64el")
-
   # Enables proprietary codecs and demuxers; e.g. H264, AAC, MP3, and MP4.
   # We always build Google Chrome and Chromecast with proprietary codecs.
   #
@@ -50,19 +40,10 @@ declare_args() {
     safe_browsing_mode = 1
   }
 
-  # Set to true make a build that disables activation of field trial tests
-  # specified in testing/variations/fieldtrial_testing_config_*.json.
-  # Note: this setting is ignored if is_chrome_branded.
-  fieldtrial_testing_like_official_build = is_chrome_branded
-
   # libudev usage. This currently only affects the content layer.
   use_udev = is_linux && !is_chromecast
 
   use_dbus = is_linux && !is_chromecast
-
-  # Option controlling the use of GConf (the classic GNOME configuration
-  # system).
-  use_gconf = is_linux && !is_chromeos && !is_chromecast
 
   use_gio = is_linux && !is_chromeos && !is_chromecast
 

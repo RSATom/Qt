@@ -5,18 +5,22 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_FINGERPRINT_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_FINGERPRINT_HANDLER_H_
 
-#include <unordered_map>
-
+#include "base/containers/flat_map.h"
+#include "base/scoped_observer.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
 #include "components/session_manager/core/session_manager_observer.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "services/device/public/interfaces/fingerprint.mojom.h"
+#include "services/device/public/mojom/fingerprint.mojom.h"
 
 class Profile;
 
 namespace base {
 class ListValue;
 }  // namespace base
+
+namespace session_manager {
+class SessionManager;
+}  // namespace session_manager
 
 namespace chromeos {
 namespace settings {
@@ -34,22 +38,21 @@ class FingerprintHandler : public ::settings::SettingsPageUIHandler,
   void OnJavascriptAllowed() override;
   void OnJavascriptDisallowed() override;
 
- private:
-  using AttemptMatches =
-      std::unordered_map<std::string, std::vector<std::string>>;
-
   // device::mojom::FingerprintObserver:
   void OnRestarted() override;
-  void OnEnrollScanDone(uint32_t scan_result,
+  void OnEnrollScanDone(device::mojom::ScanResult scan_result,
                         bool enroll_session_complete,
                         int percent_complete) override;
-  void OnAuthScanDone(uint32_t scan_result,
-                      const AttemptMatches& matches) override;
+  void OnAuthScanDone(
+      device::mojom::ScanResult scan_result,
+      const base::flat_map<std::string, std::vector<std::string>>& matches)
+      override;
   void OnSessionFailed() override;
 
   // session_manager::SessionManagerObserver:
   void OnSessionStateChanged() override;
 
+ private:
   void HandleGetFingerprintsList(const base::ListValue* args);
   void HandleGetNumFingerprints(const base::ListValue* args);
   void HandleStartEnroll(const base::ListValue* args);
@@ -61,7 +64,7 @@ class FingerprintHandler : public ::settings::SettingsPageUIHandler,
   void HandleEndCurrentAuthentication(const base::ListValue* args);
 
   void OnGetFingerprintsList(const std::string& callback_id,
-                             const std::unordered_map<std::string, std::string>&
+                             const base::flat_map<std::string, std::string>&
                                  fingerprints_list_mapping);
   void OnRequestRecordLabel(const std::string& callback_id,
                             const std::string& label);
@@ -78,6 +81,9 @@ class FingerprintHandler : public ::settings::SettingsPageUIHandler,
 
   device::mojom::FingerprintPtr fp_service_;
   mojo::Binding<device::mojom::FingerprintObserver> binding_;
+  ScopedObserver<session_manager::SessionManager,
+                 session_manager::SessionManagerObserver>
+      session_observer_;
 
   base::WeakPtrFactory<FingerprintHandler> weak_ptr_factory_;
 

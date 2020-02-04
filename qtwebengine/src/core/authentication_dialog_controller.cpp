@@ -40,20 +40,23 @@
 #include "authentication_dialog_controller.h"
 #include "authentication_dialog_controller_p.h"
 
+#include "base/task/post_task.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/browser_task_traits.h"
 
 namespace QtWebEngineCore {
 
-AuthenticationDialogControllerPrivate::AuthenticationDialogControllerPrivate(ResourceDispatcherHostLoginDelegateQt *loginDelegate)
+AuthenticationDialogControllerPrivate::AuthenticationDialogControllerPrivate(LoginDelegateQt *loginDelegate)
     : loginDelegate(loginDelegate)
 {
 }
 
 void AuthenticationDialogControllerPrivate::dialogFinished(bool accepted, const QString &user, const QString &password)
 {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::Bind(&ResourceDispatcherHostLoginDelegateQt::sendAuthToRequester, loginDelegate, accepted, user, password));
+    base::PostTaskWithTraits(
+                FROM_HERE, {content::BrowserThread::IO},
+                base::BindOnce(&LoginDelegateQt::sendAuthToRequester,
+                               loginDelegate, accepted, user, password));
 }
 
 AuthenticationDialogController::AuthenticationDialogController(AuthenticationDialogControllerPrivate *dd)

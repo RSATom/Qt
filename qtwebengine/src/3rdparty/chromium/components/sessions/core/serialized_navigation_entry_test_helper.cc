@@ -7,7 +7,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
-#include "components/sync/base/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -31,8 +30,8 @@ const bool kHasPostData = true;
 const int64_t kPostID = 100;
 const GURL kOriginalRequestURL = GURL("http://www.original-request.com");
 const bool kIsOverridingUserAgent = true;
-const base::Time kTimestamp = syncer::ProtoTimeToTime(100);
-const base::string16 kSearchTerms = base::ASCIIToUTF16("my search terms");
+const base::Time kTimestamp =
+    base::Time::UnixEpoch() + base::TimeDelta::FromMilliseconds(100);
 const GURL kFaviconURL = GURL("http://virtual-url.com/favicon.ico");
 const int kHttpStatusCode = 404;
 const GURL kRedirectURL0 = GURL("http://go/redirect0");
@@ -96,7 +95,6 @@ SerializedNavigationEntryTestHelper::CreateNavigationForTest() {
   navigation.original_request_url_ = test_data::kOriginalRequestURL;
   navigation.is_overriding_user_agent_ = test_data::kIsOverridingUserAgent;
   navigation.timestamp_ = test_data::kTimestamp;
-  navigation.search_terms_ = test_data::kSearchTerms;
   navigation.favicon_url_ = test_data::kFaviconURL;
   navigation.http_status_code_ = test_data::kHttpStatusCode;
   navigation.password_state_ = test_data::kPasswordState;
@@ -166,6 +164,13 @@ void SerializedNavigationEntryTestHelper::SetTimestamp(
     base::Time timestamp,
     SerializedNavigationEntry* navigation) {
   navigation->timestamp_ = timestamp;
+}
+
+// static
+void SerializedNavigationEntryTestHelper::SetReplacedEntryData(
+    const SerializedNavigationEntry::ReplacedNavigationEntryData& data,
+    SerializedNavigationEntry* navigation) {
+  navigation->replaced_entry_data_ = data;
 }
 
 }  // namespace sessions

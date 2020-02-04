@@ -13,4 +13,20 @@ content::RenderViewHostDelegateView::GetOverscrollRefreshHandler() const {
 }
 #endif
 
+int RenderViewHostDelegateView::GetTopControlsHeight() const {
+  return 0;
+}
+
+int RenderViewHostDelegateView::GetBottomControlsHeight() const {
+  return 0;
+}
+
+bool RenderViewHostDelegateView::DoBrowserControlsShrinkRendererSize() const {
+  return false;
+}
+
+void RenderViewHostDelegateView::GestureEventAck(
+    const blink::WebGestureEvent& event,
+    InputEventAckState ack_result) {}
+
 }  //  namespace content

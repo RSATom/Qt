@@ -140,3 +140,18 @@ QFileDialog dialog(this);
 dialog.setMimeTypeFilters(mimeTypeFilters);
 dialog.exec();
 //! [13]
+
+//! [14]
+"Images (*.png *.xpm *.jpg);;Text files (*.txt);;XML files (*.xml)"
+//! [14]
+
+//! [15]
+auto fileOpenCompleted = [](const QString &fileName, const QByteArray &fileContent) {
+    if (fileName.isEmpty()) {
+        // No file was selected
+    } else {
+        // Use fileName and fileContent
+    }
+}
+QFileDialog::getOpenFileContent("Images (*.png *.xpm *.jpg)",  fileContentReady);
+//! [15]

@@ -47,28 +47,25 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 
 #include <QtVulkanSupport/private/qbasicvulkanplatforminstance_p.h>
-#include <QLibrary>
+#include <QtCore/qlibrary.h>
 
 QT_BEGIN_NAMESPACE
 
 class QWindowsVulkanInstance : public QBasicPlatformVulkanInstance
 {
+    Q_DISABLE_COPY(QWindowsVulkanInstance)
 public:
     QWindowsVulkanInstance(QVulkanInstance *instance);
-    ~QWindowsVulkanInstance();
 
     void createOrAdoptInstance() override;
     bool supportsPresent(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, QWindow *window) override;
 
     VkSurfaceKHR createSurface(HWND win);
-    void destroySurface(VkSurfaceKHR surface);
 
 private:
     QVulkanInstance *m_instance;
-    QLibrary m_lib;
     PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR m_getPhysDevPresSupport;
     PFN_vkCreateWin32SurfaceKHR m_createSurface;
-    PFN_vkDestroySurfaceKHR m_destroySurface;
 };
 
 QT_END_NAMESPACE

@@ -43,21 +43,6 @@
 
 QT_BEGIN_NAMESPACE
 
-// On mac we want a standard blue color used when the system palette is used
-static bool isMacSystemPalette(const QPalette &palette)
-{
-    Q_UNUSED(palette);
-#if defined(Q_OS_MACOS)
-    const QPalette *themePalette = QGuiApplicationPrivate::platformTheme()->palette();
-    if (themePalette && themePalette->color(QPalette::Normal, QPalette::Highlight) ==
-            palette.color(QPalette::Normal, QPalette::Highlight) &&
-        themePalette->color(QPalette::Normal, QPalette::HighlightedText) ==
-            palette.color(QPalette::Normal, QPalette::HighlightedText))
-        return true;
-#endif
-    return false;
-}
-
 QQuickFusionStyle::QQuickFusionStyle(QObject *parent)
     : QObject(parent)
 {
@@ -85,15 +70,11 @@ QColor QQuickFusionStyle::innerContrastLine()
 
 QColor QQuickFusionStyle::highlight(const QPalette &palette)
 {
-    if (isMacSystemPalette(palette))
-        return QColor(60, 140, 230);
     return palette.color(QPalette::Highlight);
 }
 
 QColor QQuickFusionStyle::highlightedText(const QPalette &palette)
 {
-    if (isMacSystemPalette(palette))
-        return Qt::white;
     return palette.color(QPalette::HighlightedText);
 }
 
@@ -101,7 +82,7 @@ QColor QQuickFusionStyle::outline(const QPalette &palette)
 {
     if (palette.window().style() == Qt::TexturePattern)
         return QColor(0, 0, 0, 160);
-    return palette.background().color().darker(140);
+    return palette.window().color().darker(140);
 }
 
 QColor QQuickFusionStyle::highlightedOutline(const QPalette &palette)

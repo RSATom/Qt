@@ -27,7 +27,7 @@ class MicroBenchmarkControllerTest : public testing::Test {
   void SetUp() override {
     impl_task_runner_provider_ =
         base::WrapUnique(new FakeImplTaskRunnerProvider);
-    layer_tree_host_impl_ = base::MakeUnique<FakeLayerTreeHostImpl>(
+    layer_tree_host_impl_ = std::make_unique<FakeLayerTreeHostImpl>(
         impl_task_runner_provider_.get(), &task_graph_runner_);
 
     animation_host_ = AnimationHost::CreateForTesting(ThreadInstance::MAIN);
@@ -54,22 +54,20 @@ class MicroBenchmarkControllerTest : public testing::Test {
   std::unique_ptr<FakeImplTaskRunnerProvider> impl_task_runner_provider_;
 };
 
-void Noop(std::unique_ptr<base::Value> value) {}
-
 void IncrementCallCount(int* count, std::unique_ptr<base::Value> value) {
   ++(*count);
 }
 
 TEST_F(MicroBenchmarkControllerTest, ScheduleFail) {
   int id = layer_tree_host_->ScheduleMicroBenchmark("non_existant_benchmark",
-                                                    nullptr, base::Bind(&Noop));
+                                                    nullptr, base::DoNothing());
   EXPECT_EQ(id, 0);
 }
 
 TEST_F(MicroBenchmarkControllerTest, CommitScheduled) {
   EXPECT_FALSE(layer_tree_host_->needs_commit());
   int id = layer_tree_host_->ScheduleMicroBenchmark("unittest_only_benchmark",
-                                                    nullptr, base::Bind(&Noop));
+                                                    nullptr, base::DoNothing());
   EXPECT_GT(id, 0);
   EXPECT_TRUE(layer_tree_host_->needs_commit());
 }
@@ -78,7 +76,7 @@ TEST_F(MicroBenchmarkControllerTest, BenchmarkRan) {
   int run_count = 0;
   int id = layer_tree_host_->ScheduleMicroBenchmark(
       "unittest_only_benchmark", nullptr,
-      base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
+      base::BindOnce(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
 
   layer_tree_host_->UpdateLayers();
@@ -90,11 +88,11 @@ TEST_F(MicroBenchmarkControllerTest, MultipleBenchmarkRan) {
   int run_count = 0;
   int id = layer_tree_host_->ScheduleMicroBenchmark(
       "unittest_only_benchmark", nullptr,
-      base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
+      base::BindOnce(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
   id = layer_tree_host_->ScheduleMicroBenchmark(
       "unittest_only_benchmark", nullptr,
-      base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
+      base::BindOnce(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
 
   layer_tree_host_->UpdateLayers();
@@ -103,11 +101,11 @@ TEST_F(MicroBenchmarkControllerTest, MultipleBenchmarkRan) {
 
   id = layer_tree_host_->ScheduleMicroBenchmark(
       "unittest_only_benchmark", nullptr,
-      base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
+      base::BindOnce(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
   id = layer_tree_host_->ScheduleMicroBenchmark(
       "unittest_only_benchmark", nullptr,
-      base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
+      base::BindOnce(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
 
   layer_tree_host_->UpdateLayers();
@@ -125,7 +123,7 @@ TEST_F(MicroBenchmarkControllerTest, BenchmarkImplRan) {
   // Schedule a main thread benchmark.
   int id = layer_tree_host_->ScheduleMicroBenchmark(
       "unittest_only_benchmark", std::move(settings),
-      base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
+      base::BindOnce(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
 
   // Schedule impl benchmarks. In production code, this is run in commit.
@@ -153,7 +151,7 @@ TEST_F(MicroBenchmarkControllerTest, SendMessage) {
   int run_count = 0;
   int id = layer_tree_host_->ScheduleMicroBenchmark(
       "unittest_only_benchmark", nullptr,
-      base::Bind(&IncrementCallCount, base::Unretained(&run_count)));
+      base::BindOnce(&IncrementCallCount, base::Unretained(&run_count)));
   EXPECT_GT(id, 0);
 
   // Send valid message to valid benchmark

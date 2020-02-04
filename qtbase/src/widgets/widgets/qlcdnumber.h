@@ -59,8 +59,8 @@ class Q_WIDGETS_EXPORT QLCDNumber : public QFrame // LCD number widget
     Q_PROPERTY(int intValue READ intValue WRITE display)
 
 public:
-    explicit QLCDNumber(QWidget* parent = Q_NULLPTR);
-    explicit QLCDNumber(uint numDigits, QWidget* parent = Q_NULLPTR);
+    explicit QLCDNumber(QWidget* parent = nullptr);
+    explicit QLCDNumber(uint numDigits, QWidget* parent = nullptr);
     ~QLCDNumber();
 
     enum Mode {
@@ -88,7 +88,7 @@ public:
     double value() const;
     int intValue() const;
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
 
 public Q_SLOTS:
     void display(const QString &str);
@@ -104,8 +104,8 @@ Q_SIGNALS:
     void overflow();
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
+    void paintEvent(QPaintEvent *) override;
 
 public:
 

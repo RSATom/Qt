@@ -11,8 +11,10 @@
 #include "base/values.h"
 #include "extensions/browser/api_unittest.h"
 #include "extensions/common/extension_builder.h"
+#include "extensions/common/value_builder.h"
 #include "extensions/shell/browser/shell_oauth2_token_service.h"
 #include "google_apis/gaia/oauth2_mint_token_flow.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace extensions {
 namespace shell {
@@ -21,7 +23,7 @@ namespace shell {
 class MockShellOAuth2TokenService : public ShellOAuth2TokenService {
  public:
   // The service starts with no account id or refresh token.
-  MockShellOAuth2TokenService() : ShellOAuth2TokenService(nullptr, "", "") {}
+  MockShellOAuth2TokenService() : ShellOAuth2TokenService("", "") {}
   ~MockShellOAuth2TokenService() override {}
 
   // OAuth2TokenService:
@@ -29,7 +31,9 @@ class MockShellOAuth2TokenService : public ShellOAuth2TokenService {
                                         const ScopeSet& scopes,
                                         Consumer* consumer) override {
     // Immediately return success.
-    consumer->OnGetTokenSuccess(nullptr, "logged-in-user-token", base::Time());
+    consumer->OnGetTokenSuccess(
+        nullptr, OAuth2AccessTokenConsumer::TokenResponse(
+                     "logged-in-user-token", base::Time(), std::string()));
     return nullptr;
   }
 };
@@ -42,7 +46,7 @@ class MockOAuth2MintTokenFlow : public OAuth2MintTokenFlow {
   ~MockOAuth2MintTokenFlow() override {}
 
   // OAuth2ApiCallFlow:
-  void Start(net::URLRequestContextGetter* context,
+  void Start(scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
              const std::string& access_token) override {
     EXPECT_EQ("logged-in-user-token", access_token);
     delegate_->OnMintTokenSuccess("app-access-token", 12345);
@@ -61,26 +65,15 @@ class IdentityApiTest : public ApiUnitTest {
   // testing::Test:
   void SetUp() override {
     ApiUnitTest::SetUp();
+    DictionaryBuilder oauth2;
+    oauth2.Set("client_id", "123456.apps.googleusercontent.com")
+        .Set("scopes", ListBuilder()
+                           .Append("https://www.googleapis.com/auth/drive")
+                           .Build());
     // Create an extension with OAuth2 scopes.
-    set_extension(
-        ExtensionBuilder()
-            .SetManifest(
-                DictionaryBuilder()
-                    .Set("name", "Test")
-                    .Set("version", "1.0")
-                    .Set("oauth2",
-                         DictionaryBuilder()
-                             .Set("client_id",
-                                  "123456.apps.googleusercontent.com")
-                             .Set("scopes",
-                                  ListBuilder()
-                                      .Append("https://www.googleapis.com/"
-                                              "auth/drive")
-                                      .Build())
-                             .Build())
-                    .Build())
-            .SetLocation(Manifest::UNPACKED)
-            .Build());
+    set_extension(ExtensionBuilder("Test")
+                      .SetManifestKey("oauth2", oauth2.Build())
+                      .Build());
   }
 };
 

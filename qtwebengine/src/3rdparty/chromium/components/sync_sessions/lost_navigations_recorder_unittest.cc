@@ -7,9 +7,8 @@
 #include <memory>
 #include <string>
 
-#include "base/message_loop/message_loop.h"
-#include "base/test/histogram_tester.h"
-#include "components/sync/model/attachments/attachment_service_proxy_for_test.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/sync/syncable/entry.h"
 #include "components/sync/syncable/mutable_entry.h"
 #include "components/sync/syncable/syncable_base_transaction.h"
@@ -17,7 +16,6 @@
 #include "components/sync/syncable/syncable_write_transaction.h"
 #include "components/sync/test/engine/test_directory_setter_upper.h"
 #include "components/sync/test/engine/test_id_factory.h"
-#include "components/sync_sessions/sessions_sync_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using syncer::syncable::Entry;
@@ -27,7 +25,6 @@ using syncer::syncable::WriteTransaction;
 
 namespace sync_sessions {
 namespace {
-using id_type = SessionID::id_type;
 
 const char kTab1SyncTag[] = "tab-YWRkcjHvv74=";
 const char kTab2SyncTag[] = "tab-2FyZDHvv74=";
@@ -46,7 +43,7 @@ class LostNavigationsRecorderTest : public testing::Test {
   LostNavigationsRecorder* recorder() { return &recorder_; }
 
   void AddNavigation(sync_pb::SessionSpecifics* tab_base,
-                     id_type id_override = -1) {
+                     int id_override = -1) {
     sync_pb::SessionTab* tab = tab_base->mutable_tab();
     sync_pb::TabNavigation* navigation = tab->add_navigation();
     navigation->set_page_transition(sync_pb::SyncEnums_PageTransition_TYPED);
@@ -124,8 +121,8 @@ class LostNavigationsRecorderTest : public testing::Test {
   }
 
  private:
-  base::MessageLoop message_loop;
-  id_type _id;
+  base::test::ScopedTaskEnvironment task_environment_;
+  int _id;
   LostNavigationsRecorder recorder_;
   syncer::TestDirectorySetterUpper dir_maker_;
 };

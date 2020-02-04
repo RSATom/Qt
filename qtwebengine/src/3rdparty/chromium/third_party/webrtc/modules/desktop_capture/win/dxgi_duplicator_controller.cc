@@ -8,22 +8,43 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/desktop_capture/win/dxgi_duplicator_controller.h"
+#include "modules/desktop_capture/win/dxgi_duplicator_controller.h"
 
 #include <windows.h>
 
 #include <algorithm>
 #include <string>
 
-#include "webrtc/modules/desktop_capture/desktop_capture_types.h"
-#include "webrtc/modules/desktop_capture/win/dxgi_frame.h"
-#include "webrtc/modules/desktop_capture/win/screen_capture_utils.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/timeutils.h"
-#include "webrtc/system_wrappers/include/sleep.h"
+#include "modules/desktop_capture/desktop_capture_types.h"
+#include "modules/desktop_capture/win/dxgi_frame.h"
+#include "modules/desktop_capture/win/screen_capture_utils.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/time_utils.h"
+#include "system_wrappers/include/sleep.h"
 
 namespace webrtc {
+
+// static
+std::string DxgiDuplicatorController::ResultName(
+    DxgiDuplicatorController::Result result) {
+  switch (result) {
+    case Result::SUCCEEDED:
+      return "Succeeded";
+    case Result::UNSUPPORTED_SESSION:
+      return "Unsupported session";
+    case Result::FRAME_PREPARE_FAILED:
+      return "Frame preparation failed";
+    case Result::INITIALIZATION_FAILED:
+      return "Initialization failed";
+    case Result::DUPLICATION_FAILED:
+      return "Duplication failed";
+    case Result::INVALID_MONITOR_ID:
+      return "Invalid monitor id";
+    default:
+      return "Unknown error";
+  }
+}
 
 // static
 rtc::scoped_refptr<DxgiDuplicatorController>
@@ -38,15 +59,15 @@ DxgiDuplicatorController::Instance() {
 bool DxgiDuplicatorController::IsCurrentSessionSupported() {
   DWORD session_id = 0;
   if (!::ProcessIdToSessionId(::GetCurrentProcessId(), &session_id)) {
-    LOG(LS_WARNING) << "Failed to retrieve current session Id, current binary "
-                       "may not have required priviledge.";
+    RTC_LOG(LS_WARNING)
+        << "Failed to retrieve current session Id, current binary "
+           "may not have required priviledge.";
     return false;
   }
   return session_id != 0;
 }
 
-DxgiDuplicatorController::DxgiDuplicatorController()
-    : refcount_(0) {}
+DxgiDuplicatorController::DxgiDuplicatorController() : refcount_(0) {}
 
 void DxgiDuplicatorController::AddRef() {
   int refcount = (++refcount_);
@@ -57,8 +78,8 @@ void DxgiDuplicatorController::Release() {
   int refcount = (--refcount_);
   RTC_DCHECK(refcount >= 0);
   if (refcount == 0) {
-    LOG(LS_WARNING) << "Count of references reaches zero, "
-                       "DxgiDuplicatorController will be unloaded.";
+    RTC_LOG(LS_WARNING) << "Count of references reaches zero, "
+                           "DxgiDuplicatorController will be unloaded.";
     Unload();
   }
 }
@@ -76,19 +97,20 @@ bool DxgiDuplicatorController::RetrieveD3dInfo(D3dInfo* info) {
     *info = d3d_info_;
   }
   if (!result) {
-    LOG(LS_WARNING) << "Failed to initialize DXGI components, the D3dInfo "
-                       "retrieved may not accurate or out of date.";
+    RTC_LOG(LS_WARNING) << "Failed to initialize DXGI components, the D3dInfo "
+                           "retrieved may not accurate or out of date.";
   }
   return result;
 }
 
-DxgiDuplicatorController::Result
-DxgiDuplicatorController::Duplicate(DxgiFrame* frame) {
+DxgiDuplicatorController::Result DxgiDuplicatorController::Duplicate(
+    DxgiFrame* frame) {
   return DoDuplicate(frame, -1);
 }
 
-DxgiDuplicatorController::Result
-DxgiDuplicatorController::DuplicateMonitor(DxgiFrame* frame, int monitor_id) {
+DxgiDuplicatorController::Result DxgiDuplicatorController::DuplicateMonitor(
+    DxgiFrame* frame,
+    int monitor_id) {
   RTC_DCHECK_GE(monitor_id, 0);
   return DoDuplicate(frame, monitor_id);
 }
@@ -119,8 +141,9 @@ bool DxgiDuplicatorController::GetDeviceNames(
   return false;
 }
 
-DxgiDuplicatorController::Result
-DxgiDuplicatorController::DoDuplicate(DxgiFrame* frame, int monitor_id) {
+DxgiDuplicatorController::Result DxgiDuplicatorController::DoDuplicate(
+    DxgiFrame* frame,
+    int monitor_id) {
   RTC_DCHECK(frame);
   rtc::CritScope lock(&lock_);
 
@@ -137,15 +160,14 @@ DxgiDuplicatorController::DoDuplicate(DxgiFrame* frame, int monitor_id) {
   // TODO(zijiehe): Confirm whether IDXGIOutput::GetDesc() and
   // IDXGIOutputDuplication::GetDesc() can detect the resolution change without
   // reinitialization.
-  if (resolution_change_detector_.IsChanged(
-          GetScreenRect(kFullDesktopScreenId, std::wstring()).size())) {
+  if (display_configuration_monitor_.IsChanged()) {
     Deinitialize();
   }
 
   if (!Initialize()) {
     if (succeeded_duplications_ == 0 && !IsCurrentSessionSupported()) {
-      LOG(LS_WARNING) << "Current binary is running in session 0. DXGI "
-                         "components cannot be initialized.";
+      RTC_LOG(LS_WARNING) << "Current binary is running in session 0. DXGI "
+                             "components cannot be initialized.";
       return Result::UNSUPPORTED_SESSION;
     }
 
@@ -213,7 +235,7 @@ bool DxgiDuplicatorController::DoInitialize() {
 
   std::vector<D3dDevice> devices = D3dDevice::EnumDevices();
   if (devices.empty()) {
-    LOG(LS_WARNING) << "No D3dDevice found.";
+    RTC_LOG(LS_WARNING) << "No D3dDevice found.";
     return false;
   }
 
@@ -235,9 +257,9 @@ bool DxgiDuplicatorController::DoInitialize() {
     // taking effect, so we should continually try other adapters. This usually
     // happens when a non-official virtual adapter is installed on the system.
     if (!duplicator.Initialize()) {
-      LOG(LS_WARNING) << "Failed to initialize DxgiAdapterDuplicator on "
-                         "adapter "
-                      << i;
+      RTC_LOG(LS_WARNING) << "Failed to initialize DxgiAdapterDuplicator on "
+                             "adapter "
+                          << i;
       continue;
     }
     RTC_DCHECK(!duplicator.desktop_rect().is_empty());
@@ -257,7 +279,8 @@ bool DxgiDuplicatorController::DoInitialize() {
   identity_++;
 
   if (duplicators_.empty()) {
-    LOG(LS_WARNING) << "Cannot initialize any DxgiAdapterDuplicator instance.";
+    RTC_LOG(LS_WARNING)
+        << "Cannot initialize any DxgiAdapterDuplicator instance.";
   }
 
   return !duplicators_.empty();
@@ -266,7 +289,7 @@ bool DxgiDuplicatorController::DoInitialize() {
 void DxgiDuplicatorController::Deinitialize() {
   desktop_rect_ = DesktopRect();
   duplicators_.clear();
-  resolution_change_detector_.Reset();
+  display_configuration_monitor_.Reset();
 }
 
 bool DxgiDuplicatorController::ContextExpired(
@@ -306,7 +329,7 @@ bool DxgiDuplicatorController::DoDuplicateUnlocked(Context* context,
   }
 
   if (result) {
-    target->set_dpi(dpi());
+    target->set_dpi(dpi_);
     return true;
   }
 
@@ -334,6 +357,7 @@ bool DxgiDuplicatorController::DoDuplicateOne(Context* context,
     } else {
       if (duplicators_[i].DuplicateMonitor(&context->contexts[i], monitor_id,
                                            target)) {
+        target->set_top_left(duplicators_[i].ScreenRect(monitor_id).top_left());
         return true;
       }
       return false;
@@ -420,8 +444,8 @@ bool DxgiDuplicatorController::EnsureFrameCaptured(Context* context,
     // |fallback_frame|.
     shared_frame = target;
   } else {
-    fallback_frame = SharedDesktopFrame::Wrap(std::unique_ptr<DesktopFrame>(
-        new BasicDesktopFrame(desktop_size())));
+    fallback_frame = SharedDesktopFrame::Wrap(
+        std::unique_ptr<DesktopFrame>(new BasicDesktopFrame(desktop_size())));
     shared_frame = fallback_frame.get();
   }
 
@@ -431,14 +455,17 @@ bool DxgiDuplicatorController::EnsureFrameCaptured(Context* context,
     if (GetNumFramesCaptured() > 0) {
       // Sleep |ms_per_frame| before capturing next frame to ensure the screen
       // has been updated by the video adapter.
-      webrtc::SleepMs(
-          ms_per_frame - (rtc::TimeMillis() - last_frame_start_ms));
+      webrtc::SleepMs(ms_per_frame - (rtc::TimeMillis() - last_frame_start_ms));
     }
     last_frame_start_ms = rtc::TimeMillis();
     if (!DoDuplicateAll(context, shared_frame)) {
       return false;
     }
     if (rtc::TimeMillis() - start_ms > timeout_ms) {
+      RTC_LOG(LS_ERROR) << "Failed to capture " << frames_to_skip
+                        << " frames "
+                           "within "
+                        << timeout_ms << " milliseconds.";
       return false;
     }
   }

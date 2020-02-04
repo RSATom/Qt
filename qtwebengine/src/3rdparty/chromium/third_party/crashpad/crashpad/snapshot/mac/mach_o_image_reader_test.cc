@@ -29,7 +29,7 @@
 #include "client/crashpad_info.h"
 #include "gtest/gtest.h"
 #include "snapshot/mac/mach_o_image_segment_reader.h"
-#include "snapshot/mac/process_reader.h"
+#include "snapshot/mac/process_reader_mac.h"
 #include "snapshot/mac/process_types.h"
 #include "test/mac/dyld.h"
 #include "util/misc/from_pointer_cast.h"
@@ -47,16 +47,16 @@ namespace {
 // are different.
 #if defined(ARCH_CPU_64_BITS)
 using MachHeader = mach_header_64;
-const uint32_t kMachMagic = MH_MAGIC_64;
+constexpr uint32_t kMachMagic = MH_MAGIC_64;
 using SegmentCommand = segment_command_64;
-const uint32_t kSegmentCommand = LC_SEGMENT_64;
+constexpr uint32_t kSegmentCommand = LC_SEGMENT_64;
 using Section = section_64;
 using Nlist = nlist_64;
 #else
 using MachHeader = mach_header;
-const uint32_t kMachMagic = MH_MAGIC;
+constexpr uint32_t kMachMagic = MH_MAGIC;
 using SegmentCommand = segment_command;
-const uint32_t kSegmentCommand = LC_SEGMENT;
+constexpr uint32_t kSegmentCommand = LC_SEGMENT;
 using Section = section;
 
 // This needs to be called “struct nlist” because “nlist” without the struct
@@ -65,9 +65,9 @@ using Nlist = struct nlist;
 #endif
 
 #if defined(ARCH_CPU_X86_64)
-const int kCPUType = CPU_TYPE_X86_64;
+constexpr int kCPUType = CPU_TYPE_X86_64;
 #elif defined(ARCH_CPU_X86)
-const int kCPUType = CPU_TYPE_X86;
+constexpr int kCPUType = CPU_TYPE_X86;
 #endif
 
 // Verifies that |expect_section| and |actual_section| agree.
@@ -327,7 +327,8 @@ void ExpectSegmentCommands(const MachHeader* expect_image,
 // In some cases, the expected slide value for an image is unknown, because no
 // reasonable API to return it is provided. When this happens, use kSlideUnknown
 // to avoid checking the actual slide value against anything.
-const mach_vm_size_t kSlideUnknown = std::numeric_limits<mach_vm_size_t>::max();
+constexpr mach_vm_size_t kSlideUnknown =
+    std::numeric_limits<mach_vm_size_t>::max();
 
 // Verifies that |expect_image| is a vaild Mach-O header for the current system
 // by checking its |magic| and |cputype| fields. Then, verifies that the
@@ -495,7 +496,7 @@ void ExpectSymbolTable(const MachHeader* expect_image,
 }
 
 TEST(MachOImageReader, Self_MainExecutable) {
-  ProcessReader process_reader;
+  ProcessReaderMac process_reader;
   ASSERT_TRUE(process_reader.Initialize(mach_task_self()));
 
   const MachHeader* mh_execute_header =
@@ -530,7 +531,7 @@ TEST(MachOImageReader, Self_MainExecutable) {
 }
 
 TEST(MachOImageReader, Self_DyldImages) {
-  ProcessReader process_reader;
+  ProcessReaderMac process_reader;
   ASSERT_TRUE(process_reader.Initialize(mach_task_self()));
 
   uint32_t count = _dyld_image_count();

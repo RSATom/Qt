@@ -565,6 +565,10 @@ bool QSqlTableModel::isDirty(const QModelIndex &index) const
     Returns \c true if the value could be set or false on error, for
     example if \a index is out of bounds.
 
+    Returns \c false if the role is not Qt::EditRole. To set data
+    for roles other than EditRole, either use a custom proxy model
+    or subclass QSqlTableModel.
+
     \sa editStrategy(), data(), submit(), submitAll(), revertRow()
 */
 bool QSqlTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
@@ -602,6 +606,16 @@ bool QSqlTableModel::setData(const QModelIndex &index, const QVariant &value, in
 
     return true;
 }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+/*!
+    \reimp
+ */
+bool QStringListModel::clearItemData(const QModelIndex &index)
+{
+    return setData(index, QVariant(), Qt::EditRole);
+}
+#endif
 
 /*!
     This function simply calls QSqlQueryModel::setQuery(\a query).
@@ -1368,12 +1382,12 @@ QSqlRecord QSqlTableModel::record(int row) const
     target fields are mapped by field name, not by position in
     the record.
 
-    Note that the generated flags in \a values are preserved
-    and determine whether the corresponding fields are used when
-    changes are submitted to the database. The caller should
-    remember to set the generated flag to FALSE for fields
-    where the database is meant to supply the value, such as an
-    automatically incremented ID.
+    Note that the generated flags in \a values are preserved to
+    determine whether the corresponding fields are used when changes
+    are submitted to the database. By default, it is set to \c true
+    for all fields in a QSqlRecord. You must set the flag to \c false
+    using \l{QSqlRecord::}{setGenerated}(false) for any value in
+    \a values, to save changes back to the database.
 
     For edit strategies OnFieldChange and OnRowChange, a row may
     receive a change only if no other row has a cached change.

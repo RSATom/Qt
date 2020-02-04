@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-source_set("media") {
+import("//chromecast/chromecast.gni")
+
+cast_source_set("media") {
   sources = [
     "key_systems_cast.cc",
     "key_systems_cast.h",
@@ -12,15 +14,15 @@ source_set("media") {
 
   deps = [
     "//base",
-    "//chromecast:chromecast_features",
-    "//chromecast/common/media:interfaces",
+    "//chromecast:chromecast_buildflags",
+    "//chromecast/common/mojom",
     "//chromecast/media",
     "//chromecast/media/cdm",
     "//chromecast/public:public",
     "//components/cdm/renderer",
     "//content/public/renderer",
     "//media",
-    "//third_party/widevine/cdm:headers",
+    "//third_party/widevine/cdm:buildflags",
     "//ui/gfx/geometry",
   ]
 }

@@ -10,12 +10,12 @@
 
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
-#include "services/resource_coordinator/coordination_unit/coordination_unit_manager.h"
-#include "services/resource_coordinator/public/interfaces/coordination_unit_provider.mojom.h"
+#include "services/resource_coordinator/coordination_unit/coordination_unit_graph.h"
+#include "services/resource_coordinator/public/mojom/coordination_unit_provider.mojom.h"
+#include "services/service_manager/public/cpp/service_keepalive.h"
 
 namespace service_manager {
-class ServiceContextRefFactory;
-class ServiceContextRef;
+struct BindSourceInfo;
 }  // service_manager
 
 namespace resource_coordinator {
@@ -23,24 +23,34 @@ namespace resource_coordinator {
 class CoordinationUnitProviderImpl : public mojom::CoordinationUnitProvider {
  public:
   CoordinationUnitProviderImpl(
-      service_manager::ServiceContextRefFactory* service_ref_factory,
-      CoordinationUnitManager* coordination_unit_manager);
+      service_manager::ServiceKeepalive* service_keepalive,
+      CoordinationUnitGraph* coordination_unit_graph);
   ~CoordinationUnitProviderImpl() override;
 
   void Bind(
-      resource_coordinator::mojom::CoordinationUnitProviderRequest request);
+      resource_coordinator::mojom::CoordinationUnitProviderRequest request,
+      const service_manager::BindSourceInfo& source_info);
 
-  void OnConnectionError(CoordinationUnitImpl* coordination_unit);
+  void OnConnectionError(CoordinationUnitBase* coordination_unit);
 
   // Overridden from mojom::CoordinationUnitProvider:
-  void CreateCoordinationUnit(
-      resource_coordinator::mojom::CoordinationUnitRequest request,
+  void CreateFrameCoordinationUnit(
+      resource_coordinator::mojom::FrameCoordinationUnitRequest request,
       const CoordinationUnitID& id) override;
+  void CreatePageCoordinationUnit(
+      resource_coordinator::mojom::PageCoordinationUnitRequest request,
+      const CoordinationUnitID& id) override;
+  void CreateProcessCoordinationUnit(
+      resource_coordinator::mojom::ProcessCoordinationUnitRequest request,
+      const CoordinationUnitID& id) override;
+  void GetSystemCoordinationUnit(
+      resource_coordinator::mojom::SystemCoordinationUnitRequest request)
+      override;
 
  private:
-  service_manager::ServiceContextRefFactory* service_ref_factory_;
-  std::unique_ptr<service_manager::ServiceContextRef> service_ref_;
-  CoordinationUnitManager* coordination_unit_manager_;
+  service_manager::ServiceKeepalive* const service_keepalive_;
+  std::unique_ptr<service_manager::ServiceKeepaliveRef> keepalive_ref_;
+  CoordinationUnitGraph* coordination_unit_graph_;
   mojo::BindingSet<mojom::CoordinationUnitProvider> bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(CoordinationUnitProviderImpl);

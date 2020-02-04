@@ -7,7 +7,6 @@
 #include "ui/views/animation/ink_drop_impl.h"
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/test/gtest_util.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -15,6 +14,7 @@
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/gfx/animation/animation.h"
 #include "ui/gfx/animation/animation_test_api.h"
+#include "ui/views/animation/ink_drop_ripple.h"
 #include "ui/views/animation/test/ink_drop_impl_test_api.h"
 #include "ui/views/animation/test/test_ink_drop_host.h"
 #include "ui/views/test/platform_test_helper.h"
@@ -32,6 +32,10 @@ class InkDropImplTest : public testing::Test {
   TestInkDropHost* ink_drop_host() { return ink_drop_host_.get(); }
 
   InkDropImpl* ink_drop() { return ink_drop_.get(); }
+
+  InkDropRipple* ink_drop_ripple() { return ink_drop_->ink_drop_ripple_.get(); }
+
+  InkDropHighlight* ink_drop_highlight() { return ink_drop_->highlight_.get(); }
 
   test::InkDropImplTestApi* test_api() { return test_api_.get(); }
 
@@ -71,10 +75,10 @@ InkDropImplTest::InkDropImplTest()
     : task_runner_(new base::TestSimpleTaskRunner),
       thread_task_runner_handle_(
           new base::ThreadTaskRunnerHandle(task_runner_)),
-      ink_drop_host_(base::MakeUnique<TestInkDropHost>()),
+      ink_drop_host_(std::make_unique<TestInkDropHost>()),
       ink_drop_(
-          base::MakeUnique<InkDropImpl>(ink_drop_host_.get(), gfx::Size())),
-      test_api_(base::MakeUnique<test::InkDropImplTestApi>(ink_drop_.get())),
+          std::make_unique<InkDropImpl>(ink_drop_host_.get(), gfx::Size())),
+      test_api_(std::make_unique<test::InkDropImplTestApi>(ink_drop_.get())),
       animation_mode_reset_(gfx::AnimationTestApi::SetRichAnimationRenderMode(
           gfx::Animation::RichAnimationRenderMode::FORCE_DISABLED)) {
   ink_drop_host_->set_disable_timers_for_test(true);
@@ -248,13 +252,6 @@ TEST_F(InkDropImplTest, LayersArentRemovedWhenPreemptingFadeOut) {
 
 TEST_F(InkDropImplTest,
        SettingHighlightStateDuringStateExitIsntAllowedDeathTest) {
-  // gtest death tests, such as EXPECT_DCHECK_DEATH(), can not work in the
-  // presence of fork() and other process launching. In views-mus, we have
-  // already launched additional processes for our service manager. Performing
-  // this test under mus is impossible.
-  if (PlatformTestHelper::IsMus())
-    return;
-
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
 
   test::InkDropImplTestApi::SetStateOnExitHighlightState::Install(
@@ -292,6 +289,30 @@ TEST_F(InkDropImplTest, SuccessfulAnimationEndedDuringDestruction) {
   // Abort the first animation, so that the queued animation is started (and
   // finished immediately since it has zero duration). No crash should happen.
   DestroyInkDrop();
+}
+
+// Make sure the InkDropRipple and InkDropHighlight get recreated when the host
+// size changes (https:://crbug.com/899104).
+TEST_F(InkDropImplTest, RippleAndHighlightRecreatedOnSizeChange) {
+  test_api()->SetShouldHighlight(true);
+  ink_drop()->AnimateToState(InkDropState::ACTIVATED);
+  EXPECT_EQ(1, ink_drop_host()->num_ink_drop_ripples_created());
+  EXPECT_EQ(1, ink_drop_host()->num_ink_drop_highlights_created());
+  EXPECT_EQ(ink_drop_host()->last_ink_drop_ripple(), ink_drop_ripple());
+  EXPECT_EQ(ink_drop_host()->last_ink_drop_highlight(), ink_drop_highlight());
+
+  const gfx::Rect bounds(5, 6, 7, 8);
+  ink_drop_host()->SetBoundsRect(bounds);
+  // SetBoundsRect() calls HostSizeChanged(), but only when
+  // InkDropHostView::ink_drop_ is set, but it's not in testing.  So call this
+  // function manually.
+  ink_drop()->HostSizeChanged(ink_drop_host()->size());
+  EXPECT_EQ(2, ink_drop_host()->num_ink_drop_ripples_created());
+  EXPECT_EQ(2, ink_drop_host()->num_ink_drop_highlights_created());
+  EXPECT_EQ(ink_drop_host()->last_ink_drop_ripple(), ink_drop_ripple());
+  EXPECT_EQ(ink_drop_host()->last_ink_drop_highlight(), ink_drop_highlight());
+  EXPECT_EQ(bounds.size(), ink_drop_ripple()->GetRootLayer()->size());
+  EXPECT_EQ(bounds.size(), ink_drop_highlight()->layer()->size());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

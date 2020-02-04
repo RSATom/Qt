@@ -13,15 +13,50 @@
  * Dimensions for camera capture.
  * @const
  */
-var CAPTURE_SIZE = {height: 576, width: 576};
+const CAPTURE_SIZE = {
+  width: 576,
+  height: 576
+};
+
+/**
+ * Interval between frames for camera capture (milliseconds).
+ * @const
+ */
+const CAPTURE_INTERVAL_MS = 1000 / 10;
+
+/**
+ * Duration of camera capture (milliseconds).
+ * @const
+ */
+const CAPTURE_DURATION_MS = 1000;
 
 Polymer({
   is: 'cr-camera',
 
+  behaviors: [CrPngBehavior],
+
   properties: {
     /** Strings provided by host */
-    flipPhotoLabel: String,
     takePhotoLabel: String,
+    captureVideoLabel: String,
+    switchModeToCameraLabel: String,
+    switchModeToVideoLabel: String,
+
+    /** True if video mode is enabled. */
+    videoModeEnabled: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * True if currently in video mode.
+     * @private {boolean}
+     */
+    videomode: {
+      type: Boolean,
+      value: false,
+      reflectToAttribute: true,
+    },
 
     /**
      * True when the camera is actually streaming video. May be false even when
@@ -32,22 +67,20 @@ Polymer({
       type: Boolean,
       value: false,
     },
-
-    /**
-     * True if the photo is currently marked flipped.
-     * @private {boolean}
-     */
-    isFlipped_: {
-      type: Boolean,
-      value: true,
-    },
   },
+
+  /** @private {boolean} */
+  cameraStartInProgress_: false,
+
+  /** @private {boolean} */
+  cameraCaptureInProgress_: false,
 
   /** @override */
   attached: function() {
-    this.$.userImageStreamCrop.classList.toggle('flip-x', this.isFlipped_);
     this.$.cameraVideo.addEventListener('canplay', function() {
+      this.$.userImageStreamCrop.classList.add('preview');
       this.cameraOnline_ = true;
+      this.focusTakePhotoButton();
     }.bind(this));
     this.startCamera();
   },
@@ -57,25 +90,58 @@ Polymer({
     this.stopCamera();
   },
 
+  /** Only focuses the button if it's not disabled. */
+  focusTakePhotoButton: function() {
+    if (this.cameraOnline_) {
+      this.$.takePhoto.focus();
+    }
+  },
+
   /**
    * Performs photo capture from the live camera stream. A 'photo-taken' event
    * will be fired as soon as captured photo is available, with the
    * 'photoDataURL' property containing the photo encoded as a data URL.
    */
   takePhoto: function() {
-    if (!this.cameraOnline_)
+    if (!this.cameraOnline_ || this.cameraCaptureInProgress_) {
       return;
-    var canvas =
-        /** @type {HTMLCanvasElement} */ (document.createElement('canvas'));
-    canvas.width = CAPTURE_SIZE.width;
-    canvas.height = CAPTURE_SIZE.height;
-    this.captureFrame_(
-        this.$.cameraVideo,
-        /** @type {!CanvasRenderingContext2D} */ (canvas.getContext('2d')));
+    }
+    this.cameraCaptureInProgress_ = true;
 
-    var photoDataUrl = this.isFlipped_ ? this.flipFrame_(canvas) :
-                                         canvas.toDataURL('image/png');
-    this.fire('photo-taken', {photoDataUrl: photoDataUrl});
+    /** Pre-allocate all frames needed for capture. */
+    const frames = [];
+    if (this.videomode) {
+      /** Reduce capture size when in video mode. */
+      const captureSize = {
+        width: CAPTURE_SIZE.width / 2,
+        height: CAPTURE_SIZE.height / 2
+      };
+      const captureFrameCount = CAPTURE_DURATION_MS / CAPTURE_INTERVAL_MS;
+      while (frames.length < captureFrameCount) {
+        frames.push(this.allocateFrame_(captureSize));
+      }
+    } else {
+      frames.push(this.allocateFrame_(CAPTURE_SIZE));
+    }
+
+    /** Start capturing frames at an interval. */
+    const capturedFrames = [];
+    this.$.userImageStreamCrop.classList.remove('preview');
+    this.$.userImageStreamCrop.classList.add('capture');
+    const interval = setInterval(() => {
+      /** Stop capturing frames when all allocated frames have been consumed. */
+      if (frames.length) {
+        capturedFrames.push(
+            this.captureFrame_(this.$.cameraVideo, frames.pop()));
+      } else {
+        clearInterval(interval);
+        this.fire(
+            'photo-taken',
+            {photoDataUrl: this.convertFramesToPng_(capturedFrames)});
+        this.$.userImageStreamCrop.classList.remove('capture');
+        this.cameraCaptureInProgress_ = false;
+      }
+    }, CAPTURE_INTERVAL_MS);
   },
 
   /** Tries to start the camera stream capture. */
@@ -83,9 +149,9 @@ Polymer({
     this.stopCamera();
     this.cameraStartInProgress_ = true;
 
-    var successCallback = function(stream) {
+    const successCallback = function(stream) {
       if (this.cameraStartInProgress_) {
-        this.$.cameraVideo.src = URL.createObjectURL(stream);
+        this.$.cameraVideo.srcObject = stream;
         this.cameraStream_ = stream;
       } else {
         this.stopVideoTracks_(stream);
@@ -93,20 +159,28 @@ Polymer({
       this.cameraStartInProgress_ = false;
     }.bind(this);
 
-    var errorCallback = function() {
+    const errorCallback = function() {
       this.cameraOnline_ = false;
       this.cameraStartInProgress_ = false;
     }.bind(this);
 
-    navigator.webkitGetUserMedia({video: true}, successCallback, errorCallback);
+    const videoConstraints = {
+      width: {ideal: CAPTURE_SIZE.width},
+      height: {ideal: CAPTURE_SIZE.height},
+    };
+    navigator.webkitGetUserMedia(
+        {video: videoConstraints}, successCallback, errorCallback);
   },
 
   /** Stops the camera stream capture if it's currently active. */
   stopCamera: function() {
+    this.$.userImageStreamCrop.classList.remove('preview');
     this.cameraOnline_ = false;
-    this.$.cameraVideo.src = '';
-    if (this.cameraStream_)
+    this.$.cameraVideo.srcObject = null;
+    if (this.cameraStream_) {
       this.stopVideoTracks_(this.cameraStream_);
+      this.cameraStream_ = null;
+    }
     // Cancel any pending getUserMedia() checks.
     this.cameraStartInProgress_ = false;
   },
@@ -117,67 +191,118 @@ Polymer({
    * @private
    */
   stopVideoTracks_: function(stream) {
-    var tracks = stream.getVideoTracks();
-    for (var i = 0; i < tracks.length; i++)
+    const tracks = stream.getVideoTracks();
+    for (let i = 0; i < tracks.length; i++) {
       tracks[i].stop();
+    }
   },
 
   /**
-   * Flip the live camera stream.
+   * Switch between photo and video mode.
    * @private
    */
-  onTapFlipPhoto_: function() {
-    this.isFlipped_ = !this.isFlipped_;
-    this.$.userImageStreamCrop.classList.toggle('flip-x', this.isFlipped_);
-    this.fire('photo-flipped', this.isFlipped_);
+  onTapSwitchMode_: function() {
+    this.videomode = !this.videomode;
+    this.fire('switch-mode', this.videomode);
+  },
+
+  /**
+   * Allocates a canvas for capturing a single still frame at a specific size.
+   * @param {{width: number, height: number}} size Frame size.
+   * @return {!HTMLCanvasElement} The allocated canvas.
+   * @private
+   */
+  allocateFrame_: function(size) {
+    const canvas =
+        /** @type {!HTMLCanvasElement} */ (document.createElement('canvas'));
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const ctx = /** @type {!CanvasRenderingContext2D} */ (
+        canvas.getContext('2d', {alpha: false}));
+    // Flip frame horizontally.
+    ctx.translate(size.width, 0);
+    ctx.scale(-1.0, 1.0);
+    return canvas;
   },
 
   /**
    * Captures a single still frame from a <video> element, placing it at the
    * current drawing origin of a canvas context.
    * @param {!HTMLVideoElement} video Video element to capture from.
-   * @param {!CanvasRenderingContext2D} ctx Canvas context to draw onto.
+   * @param {!HTMLCanvasElement} canvas Canvas to save frame in.
+   * @return {!HTMLCanvasElement} The canvas frame was saved in.
    * @private
    */
-  captureFrame_: function(video, ctx) {
-    var width = video.videoWidth;
-    var height = video.videoHeight;
-    if (width < CAPTURE_SIZE.width || height < CAPTURE_SIZE.height) {
+  captureFrame_: function(video, canvas) {
+    const ctx =
+        /** @type {!CanvasRenderingContext2D} */ (
+            canvas.getContext('2d', {alpha: false}));
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (width < canvas.width || height < canvas.height) {
       console.error(
           'Video capture size too small: ' + width + 'x' + height + '!');
     }
-    var src = {};
-    if (width / CAPTURE_SIZE.width > height / CAPTURE_SIZE.height) {
+    const src = {};
+    if (width / canvas.width > height / canvas.height) {
       // Full height, crop left/right.
       src.height = height;
-      src.width = height * CAPTURE_SIZE.width / CAPTURE_SIZE.height;
+      src.width = height * canvas.width / canvas.height;
     } else {
       // Full width, crop top/bottom.
       src.width = width;
-      src.height = width * CAPTURE_SIZE.height / CAPTURE_SIZE.width;
+      src.height = width * canvas.height / canvas.width;
     }
     src.x = (width - src.width) / 2;
     src.y = (height - src.height) / 2;
     ctx.drawImage(
-        video, src.x, src.y, src.width, src.height, 0, 0, CAPTURE_SIZE.width,
-        CAPTURE_SIZE.height);
+        video, src.x, src.y, src.width, src.height, 0, 0, canvas.width,
+        canvas.height);
+    return canvas;
   },
 
   /**
-   * Flips frame horizontally.
-   * @param {!(HTMLImageElement|HTMLCanvasElement|HTMLVideoElement)} source
-   *     Frame to flip.
-   * @return {string} Flipped frame as data URL.
+   * Encode frames and convert to animated PNG image.
+   * @param {!Array<!HTMLCanvasElement>} frames The frames to convert to image.
+   * @return {!string} The data URL for image.
+   * @private
    */
-  flipFrame_: function(source) {
-    var canvas = document.createElement('canvas');
-    canvas.width = CAPTURE_SIZE.width;
-    canvas.height = CAPTURE_SIZE.height;
-    var ctx = canvas.getContext('2d');
-    ctx.translate(CAPTURE_SIZE.width, 0);
-    ctx.scale(-1.0, 1.0);
-    ctx.drawImage(source, 0, 0);
-    return canvas.toDataURL('image/png');
+  convertFramesToPng_: function(frames) {
+    /** Encode captured frames. */
+    const encodedImages = frames.map(function(frame) {
+      return frame.toDataURL('image/png');
+    });
+
+    /** No need for further processing if single frame. */
+    if (encodedImages.length == 1) {
+      return encodedImages[0];
+    }
+
+    /** Create forward/backward image sequence. */
+    const forwardBackwardImageSequence =
+        encodedImages.concat(encodedImages.slice(1, -1).reverse());
+
+    /** Convert image sequence to animated PNG. */
+    return CrPngBehavior.convertImageSequenceToPng(
+        forwardBackwardImageSequence);
+  },
+
+  /**
+   * Returns the label to use for take photo button.
+   * @return {string}
+   * @private
+   */
+  getTakePhotoLabel_: function(videomode, photoLabel, videoLabel) {
+    return videomode ? videoLabel : photoLabel;
+  },
+
+  /**
+   * Returns the label to use for switch mode button.
+   * @return {string}
+   * @private
+   */
+  getSwitchModeLabel_: function(videomode, cameraLabel, videoLabel) {
+    return videomode ? cameraLabel : videoLabel;
   },
 });
 

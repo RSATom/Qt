@@ -57,7 +57,9 @@
 #include <private/qabstractitemview_p.h>
 
 #include <QtCore/qabstractitemmodel.h>
+#if QT_CONFIG(animation)
 #include <QtCore/qpropertyanimation.h>
+#endif
 #include <QtWidgets/qabstractitemdelegate.h>
 #include <QtWidgets/qabstractitemview.h>
 #include <QtWidgets/qitemdelegate.h>
@@ -80,7 +82,7 @@ public:
         setMinimumWidth(previewWidget->minimumWidth());
     }
 
-    void resizeEvent(QResizeEvent * event) Q_DECL_OVERRIDE{
+    void resizeEvent(QResizeEvent * event) override{
         if (!previewWidget)
             return;
         previewWidget->resize(
@@ -96,7 +98,7 @@ public:
         QAbstractScrollArea::resizeEvent(event);
     }
 
-    void scrollContentsBy(int dx, int dy) Q_DECL_OVERRIDE
+    void scrollContentsBy(int dx, int dy) override
     {
         if (!previewWidget)
             return;
@@ -106,36 +108,36 @@ public:
         QAbstractItemView::scrollContentsBy(dx, dy);
     }
 
-    QRect visualRect(const QModelIndex &) const Q_DECL_OVERRIDE
+    QRect visualRect(const QModelIndex &) const override
     {
         return QRect();
     }
-    void scrollTo(const QModelIndex &, ScrollHint) Q_DECL_OVERRIDE
+    void scrollTo(const QModelIndex &, ScrollHint) override
     {
     }
-    QModelIndex indexAt(const QPoint &) const Q_DECL_OVERRIDE
-    {
-        return QModelIndex();
-    }
-    QModelIndex moveCursor(CursorAction, Qt::KeyboardModifiers) Q_DECL_OVERRIDE
+    QModelIndex indexAt(const QPoint &) const override
     {
         return QModelIndex();
     }
-    int horizontalOffset () const Q_DECL_OVERRIDE {
+    QModelIndex moveCursor(CursorAction, Qt::KeyboardModifiers) override
+    {
+        return QModelIndex();
+    }
+    int horizontalOffset () const override {
         return 0;
     }
-    int verticalOffset () const Q_DECL_OVERRIDE {
+    int verticalOffset () const override {
         return 0;
     }
-    QRegion visualRegionForSelection(const QItemSelection &) const Q_DECL_OVERRIDE
+    QRegion visualRegionForSelection(const QItemSelection &) const override
     {
         return QRegion();
     }
-    bool isIndexHidden(const QModelIndex &) const Q_DECL_OVERRIDE
+    bool isIndexHidden(const QModelIndex &) const override
     {
         return false;
     }
-    void setSelection(const QRect &, QItemSelectionModel::SelectionFlags) Q_DECL_OVERRIDE
+    void setSelection(const QRect &, QItemSelectionModel::SelectionFlags) override
     {
     }
 private:
@@ -163,13 +165,13 @@ public:
     void _q_gripMoved(int offset);
     void _q_changeCurrentColumn();
     void _q_clicked(const QModelIndex &index);
-    void _q_columnsInserted(const QModelIndex &parent, int start, int end) Q_DECL_OVERRIDE;
+    void _q_columnsInserted(const QModelIndex &parent, int start, int end) override;
 
     QList<QAbstractItemView*> columns;
     QVector<int> columnSizes; // used during init and corner moving
     bool showResizeGrips;
     int offset;
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     QPropertyAnimation currentAnimation;
 #endif
     QWidget *previewWidget;
@@ -179,6 +181,7 @@ public:
 /*!
  * This is a delegate that will paint the triangle
  */
+// ### Qt6: QStyledItemDelegate
 class QColumnViewDelegate : public QItemDelegate
 {
 
@@ -188,7 +191,7 @@ public:
 
     void paint(QPainter *painter,
                const QStyleOptionViewItem &option,
-               const QModelIndex &index) const Q_DECL_OVERRIDE;
+               const QModelIndex &index) const override;
 };
 
 QT_END_NAMESPACE

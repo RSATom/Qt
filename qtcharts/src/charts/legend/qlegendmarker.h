@@ -43,7 +43,7 @@ class QLegendMarkerPrivate;
 class QAbstractSeries;
 class QLegend;
 
-class QT_CHARTS_EXPORT QLegendMarker : public QObject
+class Q_CHARTS_EXPORT QLegendMarker : public QObject
 {
     Q_OBJECT
 
@@ -63,7 +63,7 @@ public:
     Q_PROPERTY(QPen pen READ pen WRITE setPen NOTIFY penChanged)
     Q_PROPERTY(QBrush brush READ brush WRITE setBrush NOTIFY brushChanged)
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged)
-    Q_PROPERTY(QLegend::MarkerShape shape READ shape WRITE setShape NOTIFY shapeChanged)
+    Q_PROPERTY(QtCharts::QLegend::MarkerShape shape READ shape WRITE setShape NOTIFY shapeChanged)
     Q_ENUMS(LegendMarkerType)
 
 public:
@@ -105,7 +105,7 @@ Q_SIGNALS:
     void shapeChanged();
 
 protected:
-    explicit QLegendMarker(QLegendMarkerPrivate &d, QObject *parent = Q_NULLPTR);
+    explicit QLegendMarker(QLegendMarkerPrivate &d, QObject *parent = nullptr);
 
     QScopedPointer<QLegendMarkerPrivate> d_ptr;
     friend class QLegendPrivate;

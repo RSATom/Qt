@@ -6,11 +6,14 @@
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_COMMON_DATA_REDUCTION_PROXY_PARAMS_H_
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/macros.h"
-#include "base/strings/string_piece.h"
+#include "base/optional.h"
+#include "base/time/time.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_config_values.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_type_info.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -41,74 +44,30 @@ bool IsIncludedInFREPromoFieldTrial();
 // is in effect.
 bool IsIncludedInHoldbackFieldTrial();
 
+// Returns true if this client is part of a holdback experiment that disables
+// the use of secure data compression proxies. Insecure proxies remain enabled.
+bool IsIncludedInSecureProxyHoldbackFieldTrial();
+
 // The name of the Holdback experiment group, this can return an empty string if
 // not included in a group.
 std::string HoldbackFieldTrialGroup();
 
-// Returns the name of the trusted SPDY/HTTP2 proxy field trial.
-const char* GetTrustedSpdyProxyFieldTrialName();
-
-// Returns true if this client is part of the enabled group of the trusted
-// SPDY/HTTP2 proxy field trial.
-bool IsIncludedInTrustedSpdyProxyFieldTrial();
-
-// Returns true if this client is part of the field trial that should display
-// a promotion for the data reduction proxy on Android One devices. This is for
-// testing purposes and should not be called outside of tests.
-bool IsIncludedInAndroidOnePromoFieldTrialForTesting(
-    base::StringPiece build_fingerprint);
-
 // Returns the name of the Lo-Fi field trial.
+// TODO(ryansturm): crbug.com/759052 Cleanup once fully cutover to new blacklist
 const char* GetLoFiFieldTrialName();
 
 // Returns the name of the Lo-Fi field trial that configures LoFi flags when it
 // is force enabled through flags.
+// TODO(ryansturm): crbug.com/759052 Cleanup once fully cutover to new blacklist
 const char* GetLoFiFlagFieldTrialName();
-
-// Returns true if this client is part of the "Enabled" or "Enabled_Preview"
-// group of the Lo-Fi field trial, both of which mean Lo-Fi should be enabled.
-bool IsIncludedInLoFiEnabledFieldTrial();
-
-// Returns true if this client is part of the "Control" group of the Lo-Fi field
-// trial.
-bool IsIncludedInLoFiControlFieldTrial();
-
-// Returns true if this client is part of the "Preview" group of the Lo-Fi field
-// trial.
-bool IsIncludedInLitePageFieldTrial();
 
 // Returns true if this client is part of the field trial that should enable
 // server experiments for the data reduction proxy.
 bool IsIncludedInServerExperimentsFieldTrial();
 
-// Returns true if this client is part of the tamper detection experiment.
-bool IsIncludedInTamperDetectionExperiment();
-
-// Returns true if this client has any of the values to enable Lo-Fi mode for
-// the "data-reduction-proxy-lo-fi" command line switch. This includes the
-// "always-on", "cellular-only", and "slow-connections-only" values.
-bool IsLoFiOnViaFlags();
-
-// Returns true if this client has the command line switch to enable Lo-Fi
-// mode always on.
-bool IsLoFiAlwaysOnViaFlags();
-
-// Returns true if this client has the command line switch to enable Lo-Fi
-// mode only on cellular connections.
-bool IsLoFiCellularOnlyViaFlags();
-
-// Returns true if this client has the command line switch to enable Lo-Fi
-// mode only on slow connections.
-bool IsLoFiSlowConnectionsOnlyViaFlags();
-
-// Returns true if this client has the command line switch to disable Lo-Fi
-// mode.
-bool IsLoFiDisabledViaFlags();
-
-// Returns true if this client has the command line switch to enable lite pages.
-// This means a preview should be requested instead of placeholders whenever
-// Lo-Fi mode is on.
-bool AreLitePagesEnabledViaFlags();
+// Returns true if Chrome should use on-device safe browsing checks, and
+// disable safe browsing checks provided by data saver proxy.
+bool IsIncludedInOnDeviceSafeBrowsingFieldTrial();
 
 // Returns true if this client has the command line switch to enable forced
 // pageload metrics pingbacks on every page load.
@@ -127,12 +86,6 @@ bool IsQuicEnabledForNonCoreProxies();
 
 const char* GetQuicFieldTrialName();
 
-// Returns true if Brotli should be added to the accept-encoding header.
-bool IsBrotliAcceptEncodingEnabled();
-
-// Returns true if the Data Reduction Proxy config client should be used.
-bool IsConfigClientEnabled();
-
 // If the Data Reduction Proxy is used for a page load, the URL for the
 // Data Reduction Proxy Pageload Metrics service.
 GURL GetPingbackURL();
@@ -144,10 +97,6 @@ GURL GetConfigServiceURL();
 // Returns true if the Data Reduction Proxy is forced to be enabled from the
 // command line.
 bool ShouldForceEnableDataReductionProxy();
-
-// Whether the blacklist should be used for server Lo-Fi and server Lite Page
-// instead of the prefs-based rules.
-bool IsBlackListEnabledForServerPreviews();
 
 // The current LitePage experiment blacklist version.
 int LitePageVersion();
@@ -174,23 +123,50 @@ const char* GetServerExperimentsFieldTrialName();
 GURL GetSecureProxyCheckURL();
 
 // Returns true if fetching of the warmup URL is enabled.
-bool FetchWarmupURLEnabled();
+bool FetchWarmupProbeURLEnabled();
 
 // Returns the warmup URL.
 GURL GetWarmupURL();
 
-}  // namespace params
+// Returns true if the warmup URL fetcher should callback into DRP to report the
+// result of the warmup fetch.
+bool IsWarmupURLFetchCallbackEnabled();
 
-// Contains information about a given proxy server. |proxies_for_http| contains
-// the configured data reduction proxy servers. |proxy_index| notes the index
-// of the data reduction proxy used in the list of all data reduction proxies.
-struct DataReductionProxyTypeInfo {
-  DataReductionProxyTypeInfo();
-  DataReductionProxyTypeInfo(const DataReductionProxyTypeInfo& other);
-  ~DataReductionProxyTypeInfo();
-  std::vector<net::ProxyServer> proxy_servers;
-  size_t proxy_index;
-};
+// Returns true if |url| is the warmup url.
+bool IsWarmupURL(const GURL& url);
+
+// Returns true if the |http_response_code| is in the whitelist of HTTP response
+// codes that are considered as successful for fetching the warmup probe URL.
+// If this method returns false, then the probe should be considered as
+// unsuccessful.
+bool IsWhitelistedHttpResponseCodeForProbes(int http_response_code);
+
+// Returns the experiment parameter name to disable missing via header bypasses.
+const char* GetMissingViaBypassParamName();
+
+// Returns if site-breakdown metrics should be recorded using the page load
+// metrics harness.
+bool IsDataSaverSiteBreakdownUsingPLMEnabled();
+
+// Returns whether network service is enabled and data reduction proxy should be
+// used.
+bool IsEnabledWithNetworkService();
+
+// Returns the experiment parameter name to discard the cached result for canary
+// check probe.
+const char* GetDiscardCanaryCheckResultParam();
+
+// Returns true if canary check result should not be cached or reused across
+// network changes.
+bool ShouldDiscardCanaryCheckResult();
+
+// Helper function to locate |proxy_server| in |proxies| if it exists. This
+// function is exposed publicly so that DataReductionProxyParams can use it.
+base::Optional<DataReductionProxyTypeInfo> FindConfiguredProxyInVector(
+    const std::vector<DataReductionProxyServer>& proxies,
+    const net::ProxyServer& proxy_server);
+
+}  // namespace params
 
 // Provides initialization parameters. Proxy origins, and the secure proxy
 // check url are are taken from flags if available and from preprocessor
@@ -212,11 +188,14 @@ class DataReductionProxyParams : public DataReductionProxyConfigValues {
   const std::vector<DataReductionProxyServer>& proxies_for_http()
       const override;
 
+  // Finds the first proxy in |proxies_for_http()| that matches |proxy_server|
+  // if any exist.
+  base::Optional<DataReductionProxyTypeInfo> FindConfiguredDataReductionProxy(
+      const net::ProxyServer& proxy_server) const override;
+  net::ProxyList GetAllConfiguredProxies() const override;
+
  private:
   std::vector<DataReductionProxyServer> proxies_for_http_;
-
-  bool use_override_proxies_for_http_;
-  std::vector<DataReductionProxyServer> override_data_reduction_proxy_servers_;
 
   DISALLOW_COPY_AND_ASSIGN(DataReductionProxyParams);
 };

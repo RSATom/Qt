@@ -601,7 +601,7 @@ static inline void* currentThreadStackBase()
         MOV pTib, EAX
     }
     return static_cast<void*>(pTib->StackBase);
-#elif OS(WINDOWS) && CPU(X86_64) && (COMPILER(MSVC) || COMPILER(GCC))
+#elif OS(WINDOWS) && (CPU(X86_64) || CPU(AARCH64)) && (COMPILER(MSVC) || COMPILER(GCC))
     // FIXME: why only for MSVC?
     PNT_TIB64 pTib = reinterpret_cast<PNT_TIB64>(NtCurrentTeb());
     return reinterpret_cast<void*>(pTib->StackBase);

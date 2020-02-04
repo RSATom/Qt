@@ -65,10 +65,13 @@
  */
 
 #include "web_event_factory.h"
-#include "third_party/WebKit/Source/platform/WindowsKeyboardCodes.h"
+#include "third_party/blink/renderer/platform/windows_keyboard_codes.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
+#include "ui/events/keycodes/keyboard_code_conversion.h"
+
+#include <QtGui/private/qtgui-config_p.h>
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -76,15 +79,133 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QStyleHints>
+#if QT_CONFIG(tabletevent)
+#include <QTabletEvent>
+#endif
 #include <QWheelEvent>
 
 using namespace blink;
 
-static int windowsKeyCodeForKeyEvent(unsigned int keycode, bool isKeypad)
+enum class KeyboardDriver { Unknown, Windows, Cocoa, Xkb, Evdev };
+
+static KeyboardDriver keyboardDriverImpl()
+{
+    QString platformName = QGuiApplication::platformName();
+
+    if (platformName == QLatin1Literal("windows"))
+        return KeyboardDriver::Windows;
+
+    if (platformName == QLatin1Literal("cocoa"))
+        return KeyboardDriver::Cocoa;
+
+    if (platformName == QLatin1Literal("xcb") || platformName == QLatin1Literal("wayland"))
+        return KeyboardDriver::Xkb;
+
+#if QT_CONFIG(libinput)
+    // Based on QEglFSIntegration::createInputHandlers and QLibInputKeyboard::processKey.
+    if (platformName == QLatin1Literal("eglfs") && !qEnvironmentVariableIntValue("QT_QPA_EGLFS_NO_LIBINPUT"))
+        return KeyboardDriver::Xkb;
+#endif
+
+#if QT_CONFIG(evdev)
+    // Based on QEglFSIntegration::createInputHandlers.
+    if (platformName == QLatin1Literal("eglfs"))
+        return KeyboardDriver::Evdev;
+#endif
+
+    return KeyboardDriver::Unknown;
+}
+
+static KeyboardDriver keyboardDriver()
+{
+    static KeyboardDriver cached = keyboardDriverImpl();
+    return cached;
+}
+
+// Qt swaps the Control and Meta keys on macOS (unless the attribute
+// AA_MacDontSwapCtrlAndMeta is set). To preserve compatibility with Chromium we
+// want to unswap them when forwarding events. The following two functions,
+// qtKeyForKeyEvent and qtModifiersForEvent, should be used for accessing the
+// key() and modifiers() properties to ensure that the unswapping is done
+// consistently.
+static int qtKeyForKeyEvent(const QKeyEvent *ev)
+{
+    int key = ev->key();
+    if (keyboardDriver() == KeyboardDriver::Cocoa && !qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta)) {
+        if (key == Qt::Key_Control)
+            return Qt::Key_Meta;
+        if (key == Qt::Key_Meta)
+            return Qt::Key_Control;
+    }
+    return key;
+}
+
+// See above
+static Qt::KeyboardModifiers qtModifiersForEvent(const QInputEvent *ev)
+{
+    Qt::KeyboardModifiers modifiers = ev->modifiers();
+    if (keyboardDriver() == KeyboardDriver::Cocoa && !qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta)) {
+        bool controlModifier = modifiers.testFlag(Qt::ControlModifier);
+        bool metaModifier = modifiers.testFlag(Qt::MetaModifier);
+        modifiers.setFlag(Qt::ControlModifier, metaModifier);
+        modifiers.setFlag(Qt::MetaModifier, controlModifier);
+    }
+    return modifiers;
+}
+
+// QKeyEvent::text() has some limits that we need to work around.
+//
+// On Linux, the Control modifier transformation is applied [1]. For example,
+// pressing Ctrl+@ generates the text "\u0000". We would like "@" instead.
+//
+// [1]: https://www.x.org/releases/current/doc/kbproto/xkbproto.html#Interpreting_the_Control_Modifier
+//
+// On macOS, if the Control modifier is used, then no text is generated at all.
+// We need some text.
+//
+// The workaround is to use QKeyEvent::key() instead, when needed. Contrary to
+// the documentation, QKeyEvent::key() is not at all limited to the values
+// listed in the Qt::Key enum: it can actually contain any Unicode codepoint.
+// The only drawback is that letters are always upper cased.
+static QString qtTextForKeyEvent(const QKeyEvent *ev, int qtKey, Qt::KeyboardModifiers qtModifiers)
+{
+    QString text = ev->text();
+
+    if ((qtModifiers & Qt::ControlModifier) && keyboardDriver() == KeyboardDriver::Xkb)
+        text.clear();
+
+    return text;
+}
+
+// The 'native key code' in Chromium refers to
+//
+//   - On Windows: the Windows OEM scancode.
+//   - On macOS: the NSEvent's keyCode.
+//   - On Linux: The XKB keycode.
+static quint32 nativeKeyCodeForKeyEvent(const QKeyEvent *ev)
+{
+    // Ifdefs here should match <ui/events/keycodes/dom/keycode_converter.cc>,
+    // since that is where the native key code is eventually used.
+    //
+    // Note that Xkb key codes are only supported under Linux (no BSDs,
+    // Cygwin/X, etc). Also evdev key codes are *not* supported for the same
+    // reason.
+#if defined(Q_OS_WINDOWS)
+    return keyboardDriver() == KeyboardDriver::Windows ? ev->nativeScanCode() : 0;
+#elif defined(Q_OS_MACOS)
+    return keyboardDriver() == KeyboardDriver::Cocoa ? ev->nativeVirtualKey() : 0;
+#elif defined(Q_OS_LINUX)
+    return keyboardDriver() == KeyboardDriver::Xkb ? ev->nativeScanCode() : 0;
+#else
+    return 0; // 0 means unknown, KeyboardEvent.code will be empty string.
+#endif
+}
+
+static int windowsKeyCodeForQtKey(int qtKey, bool isKeypad)
 {
     // Determine wheter the event comes from the keypad
     if (isKeypad) {
-        switch (keycode) {
+        switch (qtKey) {
         case Qt::Key_0:
             return VK_NUMPAD0; // (60) Numeric keypad 0 key
         case Qt::Key_1:
@@ -151,7 +272,7 @@ static int windowsKeyCodeForKeyEvent(unsigned int keycode, bool isKeypad)
         }
 
     } else {
-        switch (keycode) {
+        switch (qtKey) {
         case Qt::Key_Backspace:
             return VK_BACK; // (08) BACKSPACE key
         case Qt::Key_Backtab:
@@ -644,12 +765,10 @@ static int windowsKeyCodeForKeyEvent(unsigned int keycode, bool isKeypad)
  *      - ui::DomKey::VIDEO_MODE_NEXT
  *      - ui::DomKey::WINK
  */
-static ui::DomKey getDomKeyFromQKeyEvent(QKeyEvent *ev)
+static ui::DomKey domKeyForQtKey(int qtKey)
 {
-    if (!ev->text().isEmpty())
-        return ui::DomKey::FromCharacter(ev->text().toUcs4().first());
-
-    switch (ev->key()) {
+    Q_ASSERT(qtKey >= Qt::Key_Escape);
+    switch (qtKey) {
     case Qt::Key_Backspace:
         return ui::DomKey::BACKSPACE;
     case Qt::Key_Tab:
@@ -807,7 +926,75 @@ static ui::DomKey getDomKeyFromQKeyEvent(QKeyEvent *ev)
         return ui::DomKey::ZENKAKU;
     case Qt::Key_Zenkaku_Hankaku:
         return ui::DomKey::ZENKAKU_HANKAKU;
-
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 0)
+    // Dead keys (ui/events/keycodes/keyboard_code_conversion_xkb.cc)
+    case Qt::Key_Dead_Grave:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0300);
+    case Qt::Key_Dead_Acute:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0301);
+    case Qt::Key_Dead_Circumflex:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0302);
+    case Qt::Key_Dead_Tilde:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0303);
+    case Qt::Key_Dead_Macron:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0304);
+    case Qt::Key_Dead_Breve:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0306);
+    case Qt::Key_Dead_Abovedot:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0307);
+    case Qt::Key_Dead_Diaeresis:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0308);
+    case Qt::Key_Dead_Abovering:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x030A);
+    case Qt::Key_Dead_Doubleacute:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x030B);
+    case Qt::Key_Dead_Caron:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x030C);
+    case Qt::Key_Dead_Cedilla:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0327);
+    case Qt::Key_Dead_Ogonek:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0328);
+    case Qt::Key_Dead_Iota:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0345);
+    case Qt::Key_Dead_Voiced_Sound:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x3099);
+    case Qt::Key_Dead_Semivoiced_Sound:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x309A);
+    case Qt::Key_Dead_Belowdot:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0323);
+    case Qt::Key_Dead_Hook:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0309);
+    case Qt::Key_Dead_Horn:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x031B);
+    case Qt::Key_Dead_Stroke:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0338);
+    case Qt::Key_Dead_Abovecomma:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0313);
+    case Qt::Key_Dead_Abovereversedcomma:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0314);
+    case Qt::Key_Dead_Doublegrave:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x030F);
+    case Qt::Key_Dead_Belowring:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0325);
+    case Qt::Key_Dead_Belowmacron:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0331);
+    case Qt::Key_Dead_Belowcircumflex:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x032D);
+    case Qt::Key_Dead_Belowtilde:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0330);
+    case Qt::Key_Dead_Belowbreve:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x032E);
+    case Qt::Key_Dead_Belowdiaeresis:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0324);
+    case Qt::Key_Dead_Invertedbreve:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0311);
+    case Qt::Key_Dead_Belowcomma:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x0326);
+    case Qt::Key_Dead_Currency:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x00A4);
+    case Qt::Key_Dead_Greek:
+        return ui::DomKey::DeadKeyFromCombiningCharacter(0x037E);
+#endif
     // General-Purpose Function Keys
     case Qt::Key_F1:
         return ui::DomKey::F1;
@@ -1019,23 +1206,8 @@ static ui::DomKey getDomKeyFromQKeyEvent(QKeyEvent *ev)
     }
 }
 
-static inline double currentTimeForEvent(const QEvent *event)
-{
-    Q_ASSERT(event);
-
-    if (event->type() != QEvent::Leave) {
-        const QInputEvent *inputEvent = static_cast<const QInputEvent *>(event);
-        if (inputEvent->timestamp())
-            return static_cast<double>(inputEvent->timestamp()) / 1000;
-    }
-
-    static QElapsedTimer timer;
-    if (!timer.isValid())
-        timer.start();
-    return static_cast<double>(timer.elapsed()) / 1000;
-}
-
-static WebMouseEvent::Button mouseButtonForEvent(QMouseEvent *event)
+template<class T>
+static WebMouseEvent::Button mouseButtonForEvent(T *event)
 {
     if (event->button() == Qt::LeftButton)
         return WebMouseEvent::Button::kLeft;
@@ -1044,7 +1216,7 @@ static WebMouseEvent::Button mouseButtonForEvent(QMouseEvent *event)
     else if (event->button() == Qt::MidButton)
         return WebMouseEvent::Button::kMiddle;
 
-    if (event->type() != QEvent::MouseMove)
+    if (event->type() != QEvent::MouseMove && event->type() != QEvent::TabletMove)
         return WebMouseEvent::Button::kNoButton;
 
     // This is technically wrong, mouse move should always have ButtonNone,
@@ -1081,17 +1253,10 @@ static inline WebInputEvent::Modifiers modifierForKeyCode(int key)
             return WebInputEvent::kShiftKey;
         case Qt::Key_Alt:
             return WebInputEvent::kAltKey;
-#if defined(Q_OS_OSX)
-        case Qt::Key_Control:
-            return (!qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta)) ? WebInputEvent::kMetaKey : WebInputEvent::kControlKey;
-        case Qt::Key_Meta:
-            return (!qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta)) ? WebInputEvent::kControlKey : WebInputEvent::kMetaKey;
-#else
         case Qt::Key_Control:
             return WebInputEvent::kControlKey;
         case Qt::Key_Meta:
             return WebInputEvent::kMetaKey;
-#endif
         default:
             return static_cast<WebInputEvent::Modifiers>(0);
     }
@@ -1100,22 +1265,11 @@ static inline WebInputEvent::Modifiers modifierForKeyCode(int key)
 static inline WebInputEvent::Modifiers modifiersForEvent(const QInputEvent* event)
 {
     unsigned result = 0;
-    Qt::KeyboardModifiers modifiers = event->modifiers();
-#if defined(Q_OS_OSX)
-    if (!qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta)) {
-        if (modifiers & Qt::ControlModifier)
-            result |= WebInputEvent::kMetaKey;
-        if (modifiers & Qt::MetaModifier)
-            result |= WebInputEvent::kControlKey;
-    } else
-#endif
-    {
-        if (modifiers & Qt::ControlModifier)
-            result |= WebInputEvent::kControlKey;
-        if (modifiers & Qt::MetaModifier)
-            result |= WebInputEvent::kMetaKey;
-    }
-
+    Qt::KeyboardModifiers modifiers = qtModifiersForEvent(event);
+    if (modifiers & Qt::ControlModifier)
+        result |= WebInputEvent::kControlKey;
+    if (modifiers & Qt::MetaModifier)
+        result |= WebInputEvent::kMetaKey;
     if (modifiers & Qt::ShiftModifier)
         result |= WebInputEvent::kShiftKey;
     if (modifiers & Qt::AltModifier)
@@ -1137,7 +1291,7 @@ static inline WebInputEvent::Modifiers modifiersForEvent(const QInputEvent* even
         const QKeyEvent *keyEvent = static_cast<const QKeyEvent*>(event);
         if (keyEvent->isAutoRepeat())
             result |= WebInputEvent::kIsAutoRepeat;
-        result |= modifierForKeyCode(keyEvent->key());
+        result |= modifierForKeyCode(qtKeyForKeyEvent(keyEvent));
     }
     default:
         break;
@@ -1150,14 +1304,17 @@ static WebInputEvent::Type webEventTypeForEvent(const QEvent* event)
 {
     switch (event->type()) {
     case QEvent::MouseButtonPress:
+    case QEvent::TabletPress:
         return WebInputEvent::kMouseDown;
     case QEvent::MouseButtonRelease:
+    case QEvent::TabletRelease:
         return WebInputEvent::kMouseUp;
     case QEvent::Enter:
         return WebInputEvent::kMouseEnter;
     case QEvent::Leave:
         return WebInputEvent::kMouseLeave;
     case QEvent::MouseMove:
+    case QEvent::TabletMove:
         return WebInputEvent::kMouseMove;
     case QEvent::Wheel:
         return WebInputEvent::kMouseWheel;
@@ -1181,31 +1338,45 @@ static WebInputEvent::Type webEventTypeForEvent(const QEvent* event)
     }
 }
 
-WebMouseEvent WebEventFactory::toWebMouseEvent(QMouseEvent *ev, double dpiScale)
+#if QT_CONFIG(tabletevent)
+static WebPointerProperties::PointerType pointerTypeForTabletEvent(const QTabletEvent *ev)
+{
+    switch (ev->pointerType()) {
+    case QTabletEvent::UnknownPointer:
+        return WebPointerProperties::PointerType::kUnknown;
+    case QTabletEvent::Pen:
+        return WebPointerProperties::PointerType::kPen;
+    case QTabletEvent::Eraser:
+        return WebPointerProperties::PointerType::kEraser;
+    default:
+        return WebPointerProperties::PointerType::kMouse;
+    }
+}
+#endif
+
+WebMouseEvent WebEventFactory::toWebMouseEvent(QMouseEvent *ev)
 {
     WebMouseEvent webKitEvent(webEventTypeForEvent(ev),
-                              ev->x() / dpiScale,
-                              ev->y() / dpiScale,
-                              ev->globalX(),
-                              ev->globalY(),
+                              WebFloatPoint(ev->x(), ev->y()),
+                              WebFloatPoint(ev->globalX(), ev->globalY()),
+                              mouseButtonForEvent<QMouseEvent>(ev),
+                              0,
                               modifiersForEvent(ev),
-                              currentTimeForEvent(ev));
+                              base::TimeTicks::Now());
 
-    webKitEvent.button = mouseButtonForEvent(ev);
-    webKitEvent.click_count = 0;
     webKitEvent.pointer_type = WebPointerProperties::PointerType::kMouse;
 
     return webKitEvent;
 }
 
-WebMouseEvent WebEventFactory::toWebMouseEvent(QHoverEvent *ev, double dpiScale)
+WebMouseEvent WebEventFactory::toWebMouseEvent(QHoverEvent *ev)
 {
     WebMouseEvent webKitEvent;
-    webKitEvent.SetTimeStampSeconds(currentTimeForEvent(ev));
+    webKitEvent.SetTimeStamp(base::TimeTicks::Now());
     webKitEvent.SetModifiers(modifiersForEvent(ev));
     webKitEvent.SetType(webEventTypeForEvent(ev));
 
-    webKitEvent.SetPositionInWidget(ev->pos().x() / dpiScale, ev->pos().y() / dpiScale);
+    webKitEvent.SetPositionInWidget(ev->pos().x(), ev->pos().y());
     webKitEvent.movement_x = ev->pos().x() - ev->oldPos().x();
     webKitEvent.movement_y = ev->pos().y() - ev->oldPos().y();
     webKitEvent.pointer_type = WebPointerProperties::PointerType::kMouse;
@@ -1213,30 +1384,51 @@ WebMouseEvent WebEventFactory::toWebMouseEvent(QHoverEvent *ev, double dpiScale)
     return webKitEvent;
 }
 
+#if QT_CONFIG(tabletevent)
+WebMouseEvent WebEventFactory::toWebMouseEvent(QTabletEvent *ev)
+{
+    WebMouseEvent webKitEvent(webEventTypeForEvent(ev),
+                              WebFloatPoint(ev->x(), ev->y()),
+                              WebFloatPoint(ev->globalX(), ev->globalY()),
+                              mouseButtonForEvent<QTabletEvent>(ev),
+                              0,
+                              modifiersForEvent(ev),
+                              base::TimeTicks::Now());
+
+    webKitEvent.force = ev->pressure();
+    webKitEvent.tilt_x = ev->xTilt();
+    webKitEvent.tilt_y = ev->yTilt();
+    webKitEvent.tangential_pressure = ev->tangentialPressure();
+    webKitEvent.twist = ev->rotation();
+    webKitEvent.pointer_type = pointerTypeForTabletEvent(ev);
+    return webKitEvent;
+}
+#endif
+
 WebMouseEvent WebEventFactory::toWebMouseEvent(QEvent *ev)
 {
     Q_ASSERT(ev->type() == QEvent::Leave || ev->type() == QEvent::HoverLeave);
 
     WebMouseEvent webKitEvent;
-    webKitEvent.SetTimeStampSeconds(currentTimeForEvent(ev));
+    webKitEvent.SetTimeStamp(base::TimeTicks::Now());
     webKitEvent.SetType(WebInputEvent::kMouseLeave);
     return webKitEvent;
 }
 
 #ifndef QT_NO_GESTURES
-WebGestureEvent WebEventFactory::toWebGestureEvent(QNativeGestureEvent *ev, double dpiScale)
+WebGestureEvent WebEventFactory::toWebGestureEvent(QNativeGestureEvent *ev)
 {
     WebGestureEvent webKitEvent;
-    webKitEvent.SetTimeStampSeconds(currentTimeForEvent(ev));
+    webKitEvent.SetTimeStamp(base::TimeTicks::Now());
     webKitEvent.SetModifiers(modifiersForEvent(ev));
 
-    webKitEvent.x = static_cast<int>(ev->localPos().x() / dpiScale);
-    webKitEvent.y = static_cast<int>(ev->localPos().y() / dpiScale);
+    webKitEvent.SetPositionInWidget(WebFloatPoint(ev->localPos().x(),
+                                                  ev->localPos().y()));
 
-    webKitEvent.global_x = static_cast<int>(ev->screenPos().x() / dpiScale);
-    webKitEvent.global_y = static_cast<int>(ev->screenPos().y() / dpiScale);
+    webKitEvent.SetPositionInScreen(WebFloatPoint(ev->screenPos().x(),
+                                                  ev->screenPos().y()));
 
-    webKitEvent.source_device = blink::kWebGestureDeviceTouchpad;
+    webKitEvent.SetSourceDevice(blink::kWebGestureDeviceTouchpad);
 
     Qt::NativeGestureType gestureType = ev->gestureType();
     switch (gestureType) {
@@ -1268,41 +1460,67 @@ static void setBlinkWheelEventDelta(blink::WebMouseWheelEvent &webEvent)
     // a pixel delta based on ticks and scroll per line.
     static const float cDefaultQtScrollStep = 20.f;
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 9, 0))
     static const int wheelScrollLines = QGuiApplication::styleHints()->wheelScrollLines();
-#else
-    static const int wheelScrollLines = 3;
-#endif
     webEvent.delta_x = webEvent.wheel_ticks_x * wheelScrollLines * cDefaultQtScrollStep;
     webEvent.delta_y = webEvent.wheel_ticks_y * wheelScrollLines * cDefaultQtScrollStep;
 }
 
+blink::WebMouseWheelEvent::Phase toBlinkPhase(QWheelEvent *ev)
+{
+    switch (ev->phase()) {
+    case Qt::NoScrollPhase:
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 12, 0))
+    case Qt::ScrollMomentum:
+#endif
+        return blink::WebMouseWheelEvent::kPhaseNone;
+    case Qt::ScrollBegin:
+        return ev->angleDelta().isNull() ? blink::WebMouseWheelEvent::kPhaseMayBegin : blink::WebMouseWheelEvent::kPhaseBegan;
+    case Qt::ScrollUpdate:
+        return blink::WebMouseWheelEvent::kPhaseChanged;
+    case Qt::ScrollEnd:
+        return blink::WebMouseWheelEvent::kPhaseEnded;
+    }
+    Q_UNREACHABLE();
+    return blink::WebMouseWheelEvent::kPhaseNone;
+}
 
-blink::WebMouseWheelEvent WebEventFactory::toWebWheelEvent(QWheelEvent *ev, double dpiScale)
+blink::WebMouseWheelEvent WebEventFactory::toWebWheelEvent(QWheelEvent *ev)
 {
     WebMouseWheelEvent webEvent;
     webEvent.SetType(webEventTypeForEvent(ev));
     webEvent.SetModifiers(modifiersForEvent(ev));
-    webEvent.SetTimeStampSeconds(currentTimeForEvent(ev));
-    webEvent.SetPositionInWidget(ev->x() / dpiScale, ev->y() / dpiScale);
+    webEvent.SetTimeStamp(base::TimeTicks::Now());
+    webEvent.SetPositionInWidget(ev->x(), ev->y());
     webEvent.SetPositionInScreen(ev->globalX(), ev->globalY());
 
     webEvent.wheel_ticks_x = static_cast<float>(ev->angleDelta().x()) / QWheelEvent::DefaultDeltasPerStep;
     webEvent.wheel_ticks_y = static_cast<float>(ev->angleDelta().y()) / QWheelEvent::DefaultDeltasPerStep;
+    webEvent.phase = toBlinkPhase(ev);
+#if defined(Q_OS_DARWIN)
+    // has_precise_scrolling_deltas is a macOS term meaning it is a system scroll gesture, see qnsview_mouse.mm
+    webEvent.has_precise_scrolling_deltas = (ev->source() == Qt::MouseEventSynthesizedBySystem);
+#endif
+
     setBlinkWheelEventDelta(webEvent);
 
     return webEvent;
 }
 
-bool WebEventFactory::coalesceWebWheelEvent(blink::WebMouseWheelEvent &webEvent, QWheelEvent *ev, double dpiScale)
+bool WebEventFactory::coalesceWebWheelEvent(blink::WebMouseWheelEvent &webEvent, QWheelEvent *ev)
 {
     if (webEventTypeForEvent(ev) != webEvent.GetType())
         return false;
     if (modifiersForEvent(ev) != webEvent.GetModifiers())
         return false;
+    if (toBlinkPhase(ev) != webEvent.phase)
+        return false;
+#if defined(Q_OS_DARWIN)
+    if (webEvent.has_precise_scrolling_deltas != (ev->source() == Qt::MouseEventSynthesizedBySystem))
+        return false;
+#endif
 
-    webEvent.SetTimeStampSeconds(currentTimeForEvent(ev));
-    webEvent.SetPositionInWidget(ev->x() / dpiScale, ev->y() / dpiScale);
+    webEvent.SetTimeStamp(base::TimeTicks::Now());
+    webEvent.SetPositionInWidget(ev->x(), ev->y());
     webEvent.SetPositionInScreen(ev->globalX(), ev->globalY());
 
     webEvent.wheel_ticks_x += static_cast<float>(ev->angleDelta().x()) / QWheelEvent::DefaultDeltasPerStep;
@@ -1315,23 +1533,49 @@ bool WebEventFactory::coalesceWebWheelEvent(blink::WebMouseWheelEvent &webEvent,
 content::NativeWebKeyboardEvent WebEventFactory::toWebKeyboardEvent(QKeyEvent *ev)
 {
     content::NativeWebKeyboardEvent webKitEvent(reinterpret_cast<gfx::NativeEvent>(ev));
-    webKitEvent.SetTimeStampSeconds(currentTimeForEvent(ev));
+    webKitEvent.SetTimeStamp(base::TimeTicks::Now());
     webKitEvent.SetModifiers(modifiersForEvent(ev));
     webKitEvent.SetType(webEventTypeForEvent(ev));
 
-    webKitEvent.native_key_code = ev->nativeVirtualKey();
-    webKitEvent.windows_key_code = windowsKeyCodeForKeyEvent(ev->key(), ev->modifiers() & Qt::KeypadModifier);
-    webKitEvent.dom_key = getDomKeyFromQKeyEvent(ev);
+    int qtKey = qtKeyForKeyEvent(ev);
+    Qt::KeyboardModifiers qtModifiers = qtModifiersForEvent(ev);
+    QString qtText = qtTextForKeyEvent(ev, qtKey, qtModifiers);
 
-    ui::DomCode domCode = ui::DomCode::NONE;
-    int scanCode = ev->nativeScanCode();
-    if (scanCode)
-        domCode = ui::KeycodeConverter::NativeKeycodeToDomCode(scanCode);
-    webKitEvent.dom_code = static_cast<int>(domCode);
+    webKitEvent.native_key_code = nativeKeyCodeForKeyEvent(ev);
+    webKitEvent.windows_key_code = windowsKeyCodeForQtKey(qtKey, qtModifiers & Qt::KeypadModifier);
 
-    const ushort* text = ev->text().utf16();
-    memcpy(&webKitEvent.text, text, std::min(sizeof(webKitEvent.text), size_t(ev->text().length() * 2)));
-    memcpy(&webKitEvent.unmodified_text, text, std::min(sizeof(webKitEvent.unmodified_text), size_t(ev->text().length() * 2)));
+    if (qtKey >= Qt::Key_Escape)
+        webKitEvent.dom_key = domKeyForQtKey(qtKey);
+    else if (!qtText.isEmpty())
+        webKitEvent.dom_key = ui::DomKey::FromCharacter(qtText.toUcs4().first());
+    else {
+        QChar ch(qtKey);
+        if (!(qtModifiers & Qt::ShiftModifier)) // No way to check for caps lock
+            ch = ch.toLower();
+        webKitEvent.dom_key = ui::DomKey::FromCharacter(ch.unicode());
+    }
+
+    // The dom_code field should contain the USB keycode of the *physical* key
+    // that was pressed. Physical meaning independent of layout and modifiers.
+    // Since this information is not available from QKeyEvent in portable form,
+    // we try to compute it from the native key code.
+    if (webKitEvent.native_key_code)
+        webKitEvent.dom_code = static_cast<int>(
+            ui::KeycodeConverter::NativeKeycodeToDomCode(webKitEvent.native_key_code));
+
+    // The dom_code and windows_key_code can be converted to each other. The
+    // result will be incorrect on non-US layouts.
+    if (!webKitEvent.dom_code && webKitEvent.windows_key_code)
+        webKitEvent.dom_code = static_cast<int>(
+                ui::UsLayoutKeyboardCodeToDomCode(static_cast<ui::KeyboardCode>(webKitEvent.windows_key_code)));
+    else if (webKitEvent.dom_code && !webKitEvent.windows_key_code)
+        webKitEvent.windows_key_code =
+                ui::DomCodeToUsLayoutKeyboardCode(static_cast<ui::DomCode>(webKitEvent.dom_code));
+
+    const ushort* text = qtText.utf16();
+    size_t textSize = std::min(sizeof(webKitEvent.text), size_t(qtText.length() * 2));
+    memcpy(&webKitEvent.text, text, textSize);
+    memcpy(&webKitEvent.unmodified_text, text, textSize);
 
     if (webKitEvent.windows_key_code == VK_RETURN) {
         // This is the same behavior as GTK:
@@ -1410,10 +1654,7 @@ bool WebEventFactory::getEditCommand(QKeyEvent *event, std::string *editCommand)
     }
 
 #ifdef Q_OS_MACOS
-    Qt::KeyboardModifier cmdKey = qApp->testAttribute(Qt::AA_MacDontSwapCtrlAndMeta) ?
-                Qt::MetaModifier :
-                Qt::ControlModifier;
-    if ((event->modifiers() & ~Qt::ShiftModifier) == cmdKey) {
+    if ((qtModifiersForEvent(event) & ~Qt::ShiftModifier) == Qt::MetaModifier) {
         if (event->key() == Qt::Key_Backspace) {
             *editCommand = "DeleteToBeginningOfLine";
             return true;

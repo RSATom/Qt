@@ -7,16 +7,14 @@
 #ifndef CORE_FXGE_CFX_UNICODEENCODING_H_
 #define CORE_FXGE_CFX_UNICODEENCODING_H_
 
-#include "core/fxge/fx_font.h"
+#include <stdint.h>
 
-#define ENCODING_INTERNAL 0
-#define ENCODING_UNICODE 1
+#include "core/fxcrt/unowned_ptr.h"
 
 #ifdef PDF_ENABLE_XFA
 #define FXFM_ENC_TAG(a, b, c, d)                                          \
   (((uint32_t)(a) << 24) | ((uint32_t)(b) << 16) | ((uint32_t)(c) << 8) | \
    (uint32_t)(d))
-#define FXFM_ENCODING_NONE FXFM_ENC_TAG(0, 0, 0, 0)
 #define FXFM_ENCODING_MS_SYMBOL FXFM_ENC_TAG('s', 'y', 'm', 'b')
 #define FXFM_ENCODING_UNICODE FXFM_ENC_TAG('u', 'n', 'i', 'c')
 #define FXFM_ENCODING_MS_SJIS FXFM_ENC_TAG('s', 'j', 'i', 's')
@@ -32,6 +30,8 @@
 #define FXFM_ENCODING_APPLE_ROMAN FXFM_ENC_TAG('a', 'r', 'm', 'n')
 #endif  // PDF_ENABLE_XFA
 
+class CFX_Font;
+
 class CFX_UnicodeEncoding {
  public:
   explicit CFX_UnicodeEncoding(CFX_Font* pFont);
@@ -40,7 +40,7 @@ class CFX_UnicodeEncoding {
   virtual uint32_t GlyphFromCharCode(uint32_t charcode);
 
  protected:
-  CFX_Font* m_pFont;  // Unowned, not nullptr.
+  UnownedPtr<CFX_Font> const m_pFont;
 };
 
 #endif  // CORE_FXGE_CFX_UNICODEENCODING_H_

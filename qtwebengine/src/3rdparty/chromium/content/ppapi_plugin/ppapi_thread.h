@@ -56,7 +56,9 @@ class PpapiThread : public ChildThreadImpl,
                     public ppapi::proxy::PluginDispatcher::PluginDelegate,
                     public ppapi::proxy::PluginProxyDelegate {
  public:
-  PpapiThread(const base::CommandLine& command_line, bool is_broker);
+  PpapiThread(base::RepeatingClosure quit_closure,
+              const base::CommandLine& command_line,
+              bool is_broker);
   ~PpapiThread() override;
   void Shutdown() override;
 
@@ -88,6 +90,12 @@ class PpapiThread : public ChildThreadImpl,
       bool should_close_source) override;
   base::SharedMemoryHandle ShareSharedMemoryHandleWithRemote(
       const base::SharedMemoryHandle& handle,
+      base::ProcessId remote_pid) override;
+  base::UnsafeSharedMemoryRegion ShareUnsafeSharedMemoryRegionWithRemote(
+      const base::UnsafeSharedMemoryRegion& region,
+      base::ProcessId remote_pid) override;
+  base::ReadOnlySharedMemoryRegion ShareReadOnlySharedMemoryRegionWithRemote(
+      const base::ReadOnlySharedMemoryRegion& region,
       base::ProcessId remote_pid) override;
   uint32_t Register(ppapi::proxy::PluginDispatcher* plugin_dispatcher) override;
   void Unregister(uint32_t plugin_dispatcher_id) override;

@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/test/scoped_task_environment.h"
 #include "net/base/request_priority.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
@@ -24,7 +25,7 @@ namespace {
 class TestURLRequestInterceptor : public URLRequestInterceptor {
  public:
   TestURLRequestInterceptor() : job_(nullptr) {}
-  ~TestURLRequestInterceptor() override {}
+  ~TestURLRequestInterceptor() override = default;
 
   // URLRequestInterceptor implementation:
   URLRequestJob* MaybeInterceptRequest(
@@ -46,6 +47,8 @@ class TestURLRequestInterceptor : public URLRequestInterceptor {
 };
 
 TEST(URLRequestFilter, BasicMatching) {
+  base::test::ScopedTaskEnvironment scoped_task_environment(
+      base::test::ScopedTaskEnvironment::MainThreadType::IO);
   TestDelegate delegate;
   TestURLRequestContext request_context;
   URLRequestFilter* filter = URLRequestFilter::GetInstance();

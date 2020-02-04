@@ -6,8 +6,10 @@ cr.define('extensions', function() {
   'use strict';
 
   /**
+   * @implements {extensions.ActivityLogDelegate}
    * @implements {extensions.ErrorPageDelegate}
    * @implements {extensions.ItemDelegate}
+   * @implements {extensions.KeyboardShortcutDelegate}
    * @implements {extensions.LoadErrorDelegate}
    * @implements {extensions.PackDialogDelegate}
    * @implements {extensions.ToolbarDelegate}
@@ -17,92 +19,79 @@ cr.define('extensions', function() {
       /** @private {boolean} */
       this.isDeleting_ = false;
 
-      /** @private {extensions.Manager} */
-      this.manager_;
-
-      /** @private {Array<chrome.developerPrivate.ExtensionInfo>} */
-      this.extensions_;
+      /** @private {!Set<string>} */
+      this.eventsToIgnoreOnce_ = new Set();
     }
 
-    /** @param {extensions.Manager} manager */
-    managerReady(manager) {
-      this.manager_ = manager;
-      this.manager_.set('delegate', this);
-
-      var keyboardShortcuts = this.manager_.keyboardShortcuts;
-      keyboardShortcuts.addEventListener(
-          'shortcut-updated', this.onExtensionCommandUpdated_.bind(this));
-      keyboardShortcuts.addEventListener(
-          'shortcut-capture-started',
-          this.onShortcutCaptureChanged_.bind(this, true));
-      keyboardShortcuts.addEventListener(
-          'shortcut-capture-ended',
-          this.onShortcutCaptureChanged_.bind(this, false));
-      chrome.developerPrivate.onProfileStateChanged.addListener(
-          this.onProfileStateChanged_.bind(this));
-      chrome.developerPrivate.onItemStateChanged.addListener(
-          this.onItemStateChanged_.bind(this));
-      chrome.developerPrivate.getExtensionsInfo(
-          {includeDisabled: true, includeTerminated: true},
-          function(extensions) {
-            this.extensions_ = extensions;
-            for (let extension of extensions)
-              this.manager_.addItem(extension);
-
-            this.manager_.initPage();
-          }.bind(this));
-      chrome.developerPrivate.getProfileConfiguration(
-          this.onProfileStateChanged_.bind(this));
-    }
-
-    /**
-     * @param {chrome.developerPrivate.ProfileInfo} profileInfo
-     * @private
-     */
-    onProfileStateChanged_(profileInfo) {
-      this.manager_.set('inDevMode', profileInfo.inDeveloperMode);
-    }
-
-    /**
-     * @param {chrome.developerPrivate.EventData} eventData
-     * @private
-     */
-    onItemStateChanged_(eventData) {
-      var currentIndex = this.extensions_.findIndex(function(extension) {
-        return extension.id == eventData.item_id;
+    getProfileConfiguration() {
+      return new Promise(function(resolve, reject) {
+        chrome.developerPrivate.getProfileConfiguration(resolve);
       });
+    }
 
-      var EventType = chrome.developerPrivate.EventType;
-      switch (eventData.event_type) {
-        case EventType.VIEW_REGISTERED:
-        case EventType.VIEW_UNREGISTERED:
-        case EventType.INSTALLED:
-        case EventType.LOADED:
-        case EventType.UNLOADED:
-        case EventType.ERROR_ADDED:
-        case EventType.ERRORS_REMOVED:
-        case EventType.PREFS_CHANGED:
-          // |extensionInfo| can be undefined in the case of an extension
-          // being unloaded right before uninstallation. There's nothing to do
-          // here.
-          if (!eventData.extensionInfo)
-            break;
+    getItemStateChangedTarget() {
+      return chrome.developerPrivate.onItemStateChanged;
+    }
 
-          if (currentIndex >= 0) {
-            this.extensions_[currentIndex] = eventData.extensionInfo;
-            this.manager_.updateItem(eventData.extensionInfo);
-          } else {
-            this.extensions_.push(eventData.extensionInfo);
-            this.manager_.addItem(eventData.extensionInfo);
+    /**
+     * @param {string} extensionId
+     * @param {!chrome.developerPrivate.EventType} eventType
+     * @return {boolean}
+     */
+    shouldIgnoreUpdate(extensionId, eventType) {
+      return this.eventsToIgnoreOnce_.delete(`${extensionId}_${eventType}`);
+    }
+
+    /**
+     * @param {string} extensionId
+     * @param {!chrome.developerPrivate.EventType} eventType
+     */
+    ignoreNextEvent(extensionId, eventType) {
+      this.eventsToIgnoreOnce_.add(`${extensionId}_${eventType}`);
+    }
+
+    getProfileStateChangedTarget() {
+      return chrome.developerPrivate.onProfileStateChanged;
+    }
+
+    getExtensionsInfo() {
+      return new Promise(function(resolve, reject) {
+        chrome.developerPrivate.getExtensionsInfo(
+            {includeDisabled: true, includeTerminated: true}, resolve);
+      });
+    }
+
+    /** @override */
+    getExtensionSize(id) {
+      return new Promise(function(resolve, reject) {
+        chrome.developerPrivate.getExtensionSize(id, resolve);
+      });
+    }
+
+    /** @override */
+    addRuntimeHostPermission(id, host) {
+      return new Promise((resolve, reject) => {
+        chrome.developerPrivate.addHostPermission(id, host, () => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError.message);
+            return;
           }
-          break;
-        case EventType.UNINSTALLED:
-          this.manager_.removeItem(this.extensions_[currentIndex]);
-          this.extensions_.splice(currentIndex, 1);
-          break;
-        default:
-          assertNotReached();
-      }
+          resolve();
+        });
+      });
+    }
+
+    /** @override */
+    removeRuntimeHostPermission(id, host) {
+      return new Promise((resolve, reject) => {
+        chrome.developerPrivate.removeHostPermission(id, host, () => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError.message);
+            return;
+          }
+          resolve();
+        });
+      });
     }
 
     /**
@@ -126,31 +115,32 @@ cr.define('extensions', function() {
       });
     }
 
-    /**
-     * Updates an extension command.
-     * @param {!CustomEvent} e
-     * @private
-     */
-    onExtensionCommandUpdated_(e) {
+    /** @override */
+    updateExtensionCommandKeybinding(extensionId, commandName, keybinding) {
       chrome.developerPrivate.updateExtensionCommand({
-        extensionId: e.detail.item,
-        commandName: e.detail.commandName,
-        keybinding: e.detail.keybinding,
+        extensionId: extensionId,
+        commandName: commandName,
+        keybinding: keybinding,
       });
     }
 
-    /**
-     * Called when shortcut capturing changes in order to suspend or re-enable
-     * global shortcut handling. This is important so that the shortcuts aren't
-     * processed normally as the user types them.
-     * TODO(devlin): From very brief experimentation, it looks like preventing
-     * the default handling on the event also does this. Investigate more in the
-     * future.
-     * @param {boolean} isCapturing
-     * @param {!CustomEvent} e
-     * @private
-     */
-    onShortcutCaptureChanged_(isCapturing, e) {
+    /** @override */
+    updateExtensionCommandScope(extensionId, commandName, scope) {
+      // The COMMAND_REMOVED event needs to be ignored since it is sent before
+      // the command is added back with the updated scope but can be handled
+      // after the COMMAND_ADDED event.
+      this.ignoreNextEvent(
+          extensionId, chrome.developerPrivate.EventType.COMMAND_REMOVED);
+      chrome.developerPrivate.updateExtensionCommand({
+        extensionId: extensionId,
+        commandName: commandName,
+        scope: scope,
+      });
+    }
+
+
+    /** @override */
+    setShortcutHandlingSuspended(isCapturing) {
       chrome.developerPrivate.setShortcutHandlingSuspended(isCapturing);
     }
 
@@ -158,36 +148,42 @@ cr.define('extensions', function() {
      * Attempts to load an unpacked extension, optionally as another attempt at
      * a previously-specified load.
      * @param {string=} opt_retryGuid
+     * @return {!Promise} A signal that loading finished, rejected if any error
+     *     occurred.
      * @private
      */
     loadUnpackedHelper_(opt_retryGuid) {
-      chrome.developerPrivate.loadUnpacked(
-          {failQuietly: true, populateError: true, retryGuid: opt_retryGuid},
-          (loadError) => {
-            if (chrome.runtime.lastError &&
-                chrome.runtime.lastError.message !=
-                    'File selection was canceled.') {
-              throw new Error(chrome.runtime.lastError.message);
-            }
-            if (loadError) {
-              this.manager_.loadError.loadError = loadError;
-              this.manager_.loadError.show();
-            }
-          });
+      return new Promise(function(resolve, reject) {
+        chrome.developerPrivate.loadUnpacked(
+            {failQuietly: true, populateError: true, retryGuid: opt_retryGuid},
+            (loadError) => {
+              if (chrome.runtime.lastError &&
+                  chrome.runtime.lastError.message !=
+                      'File selection was canceled.') {
+                throw new Error(chrome.runtime.lastError.message);
+              }
+              if (loadError) {
+                return reject(loadError);
+              }
+
+              resolve();
+            });
+      });
     }
 
     /** @override */
     deleteItem(id) {
-      if (this.isDeleting_)
+      if (this.isDeleting_) {
         return;
+      }
       this.isDeleting_ = true;
-      chrome.management.uninstall(id, {showConfirmDialog: true}, function() {
+      chrome.management.uninstall(id, {showConfirmDialog: true}, () => {
         // The "last error" was almost certainly the user canceling the dialog.
         // Do nothing. We only check it so we don't get noisy logs.
         /** @suppress {suspiciousCode} */
         chrome.runtime.lastError;
         this.isDeleting_ = false;
-      }.bind(this));
+      });
     }
 
     /** @override */
@@ -212,10 +208,10 @@ cr.define('extensions', function() {
     }
 
     /** @override */
-    setItemAllowedOnAllSites(id, isAllowedOnAllSites) {
+    setItemHostAccess(id, hostAccess) {
       chrome.developerPrivate.updateExtensionConfiguration({
         extensionId: id,
-        runOnAllUrls: isAllowedOnAllSites,
+        hostAccess: hostAccess,
       });
     }
 
@@ -237,9 +233,28 @@ cr.define('extensions', function() {
       });
     }
 
+    /**
+     * @param {string} url
+     * @override
+     */
+    openUrl(url) {
+      window.open(url);
+    }
+
     /** @override */
     reloadItem(id) {
-      chrome.developerPrivate.reload(id, {failQuietly: false});
+      return new Promise(function(resolve, reject) {
+        chrome.developerPrivate.reload(
+            id, {failQuietly: true, populateErrorForUnpacked: true},
+            (loadError) => {
+              if (loadError) {
+                reject(loadError);
+                return;
+              }
+
+              resolve();
+            });
+      });
     }
 
     /** @override */
@@ -248,16 +263,16 @@ cr.define('extensions', function() {
     }
 
     /** @override */
-    showItemOptionsPage(id) {
-      var extension = this.extensions_.find(function(e) {
-        return e.id == id;
-      });
+    showItemOptionsPage(extension) {
       assert(extension && extension.optionsPage);
       if (extension.optionsPage.openInTab) {
-        chrome.developerPrivate.showOptions(id);
+        chrome.developerPrivate.showOptions(extension.id);
       } else {
-        this.manager_.changePage(
-            {page: Page.DETAILS, subpage: Dialog.OPTIONS, extensionId: id});
+        extensions.navigation.navigateTo({
+          page: Page.DETAILS,
+          subpage: Dialog.OPTIONS,
+          extensionId: extension.id,
+        });
       }
     }
 
@@ -269,12 +284,12 @@ cr.define('extensions', function() {
 
     /** @override */
     loadUnpacked() {
-      this.loadUnpackedHelper_();
+      return this.loadUnpackedHelper_();
     }
 
     /** @override */
     retryLoadUnpacked(retryGuid) {
-      this.loadUnpackedHelper_(retryGuid);
+      return this.loadUnpackedHelper_(retryGuid);
     }
 
     /** @override */
@@ -292,13 +307,16 @@ cr.define('extensions', function() {
     }
 
     /** @override */
-    packExtension(rootPath, keyPath) {
-      chrome.developerPrivate.packDirectory(rootPath, keyPath);
+    packExtension(rootPath, keyPath, flag, callback) {
+      chrome.developerPrivate.packDirectory(rootPath, keyPath, flag, callback);
     }
 
     /** @override */
     updateAllExtensions() {
-      chrome.developerPrivate.autoUpdate();
+      return new Promise((resolve) => {
+        chrome.developerPrivate.autoUpdate(resolve);
+        chrome.metricsPrivate.recordUserAction('Options_UpdateExtensions');
+      });
     }
 
     /** @override */
@@ -313,9 +331,85 @@ cr.define('extensions', function() {
     /** @override */
     requestFileSource(args) {
       return new Promise(function(resolve, reject) {
-        chrome.developerPrivate.requestFileSource(args, function(code) {
-          resolve(code);
-        });
+        chrome.developerPrivate.requestFileSource(args, resolve);
+      });
+    }
+
+    /** @override */
+    showInFolder(id) {
+      chrome.developerPrivate.showPath(id);
+    }
+
+    /** @override */
+    getExtensionActivityLog(extensionId) {
+      return new Promise(function(resolve, reject) {
+        chrome.activityLogPrivate.getExtensionActivities(
+            {
+              activityType:
+                  chrome.activityLogPrivate.ExtensionActivityFilter.ANY,
+              extensionId: extensionId
+            },
+            resolve);
+      });
+    }
+
+    /** @override */
+    getFilteredExtensionActivityLog(extensionId, searchTerm) {
+      const anyType = chrome.activityLogPrivate.ExtensionActivityFilter.ANY;
+
+      // Construct one filter for each API call we will make: one for substring
+      // search by api call, one for substring search by page URL, and one for
+      // substring search by argument URL. % acts as a wildcard.
+      const activityLogFilters = [
+        {
+          activityType: anyType,
+          extensionId: extensionId,
+          apiCall: `%${searchTerm}%`,
+        },
+        {
+          activityType: anyType,
+          extensionId: extensionId,
+          pageUrl: `%${searchTerm}%`,
+        },
+        {
+          activityType: anyType,
+          extensionId: extensionId,
+          argUrl: `%${searchTerm}%`
+        }
+      ];
+
+      const promises = activityLogFilters.map(
+          filter => new Promise(function(resolve, reject) {
+            chrome.activityLogPrivate.getExtensionActivities(filter, resolve);
+          }));
+
+      return Promise.all(promises).then(results => {
+        // We may have results that are present in one or more searches, so
+        // we merge them here. We also assume that every distinct activity
+        // id corresponds to exactly one activity.
+        const activitiesById = new Map();
+        for (const result of results) {
+          for (const activity of result.activities) {
+            activitiesById.set(activity.activityId, activity);
+          }
+        }
+
+        return {activities: Array.from(activitiesById.values())};
+      });
+    }
+
+    /** @override */
+    deleteActivitiesById(activityIds) {
+      return new Promise(function(resolve, reject) {
+        chrome.activityLogPrivate.deleteActivities(activityIds, resolve);
+      });
+    }
+
+    /** @override */
+    deleteActivitiesFromExtension(extensionId) {
+      return new Promise(function(resolve, reject) {
+        chrome.activityLogPrivate.deleteActivitiesByExtension(
+            extensionId, resolve);
       });
     }
   }

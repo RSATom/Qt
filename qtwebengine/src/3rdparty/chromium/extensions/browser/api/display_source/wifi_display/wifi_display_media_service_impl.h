@@ -6,20 +6,25 @@
 #define EXTENSIONS_BROWSER_API_DISPLAY_SOURCE_WIFI_DISPLAY_WIFI_DISPLAY_MEDIA_SERVICE_IMPL_H_
 
 #include <memory>
-#include <queue>
 
+#include "base/containers/queue.h"
 #include "extensions/common/mojo/wifi_display_session_service.mojom.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/socket/udp_socket.h"
 
+namespace content {
+class RenderFrameHost;
+}
+
 namespace extensions {
 
 class WiFiDisplayMediaServiceImpl : public mojom::WiFiDisplayMediaService {
  public:
   ~WiFiDisplayMediaServiceImpl() override;
-  static void BindToRequest(mojom::WiFiDisplayMediaServiceRequest request);
+  static void BindToRequest(mojom::WiFiDisplayMediaServiceRequest request,
+                            content::RenderFrameHost* render_frame_host);
 
   void SetDesinationPoint(const std::string& ip_address,
                           int32_t port,
@@ -33,7 +38,7 @@ class WiFiDisplayMediaServiceImpl : public mojom::WiFiDisplayMediaService {
   void OnSent(int code);
   std::unique_ptr<net::UDPSocket> rtp_socket_;
   class PacketIOBuffer;
-  std::queue<scoped_refptr<PacketIOBuffer>> write_buffers_;
+  base::queue<scoped_refptr<PacketIOBuffer>> write_buffers_;
   int last_send_code_;
   mojo::StrongBindingPtr<mojom::WiFiDisplayMediaService> binding_;
   base::WeakPtrFactory<WiFiDisplayMediaServiceImpl> weak_factory_;

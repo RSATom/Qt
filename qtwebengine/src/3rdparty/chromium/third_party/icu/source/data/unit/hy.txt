@@ -1,7 +1,7 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html#License
 hy{
-    Version{"2.1.32.59"}
+    Version{"2.1.43.50"}
     durationUnits{
         hm{"h:mm"}
         hms{"h:mm:ss"}
@@ -123,6 +123,16 @@ hy{
                 one{"{0} մասնիկ միլիոնի վրա"}
                 other{"{0} մասնիկ միլիոնի վրա"}
             }
+            percent{
+                dnam{"տոկոս"}
+                one{"{0} տոկոս"}
+                other{"{0} տոկոս"}
+            }
+            permille{
+                dnam{"պրոմիլ"}
+                one{"{0} պրոմիլ"}
+                other{"{0} պրոմիլ"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -147,6 +157,7 @@ hy{
             }
         }
         coordinate{
+            dnam{"ուղղություն"}
             east{"արևելյան երկարության {0}"}
             north{"հյուսիսային լայնության {0}"}
             south{"հարավային լայնության {0}"}
@@ -192,6 +203,11 @@ hy{
                 dnam{"մեգաբայթեր"}
                 one{"{0} մեգաբայթ"}
                 other{"{0} մեգաբայթ"}
+            }
+            petabyte{
+                dnam{"պետաբայթ"}
+                one{"{0} պետաբայթ"}
+                other{"{0} պետաբայթ"}
             }
             terabit{
                 dnam{"տերաբիթեր"}
@@ -430,6 +446,11 @@ hy{
                 one{"{0} պիկոմետր"}
                 other{"{0} պիկոմետր"}
             }
+            point{
+                dnam{"կետեր"}
+                one{"{0} կետ"}
+                other{"{0} կետ"}
+            }
             yard{
                 dnam{"յարդեր"}
                 one{"{0} յարդ"}
@@ -532,6 +553,11 @@ hy{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"մթնոլորտներ"}
+                one{"{0} մթնոլորտ"}
+                other{"{0} մթնոլորտ"}
+            }
             hectopascal{
                 dnam{"հեկտոպասկալ"}
                 one{"{0} հեկտոպասկալ"}
@@ -780,6 +806,13 @@ hy{
         compound{
             per{"{0}/{1}"}
         }
+        concentr{
+            percent{
+                dnam{"%"}
+                one{"{0}%"}
+                other{"{0}%"}
+            }
+        }
         consumption{
             liter-per-100kilometers{
                 dnam{"լ/100 կմ"}
@@ -788,6 +821,7 @@ hy{
             }
         }
         coordinate{
+            dnam{"ուղղ․"}
             east{"{0} ավ․ ե․"}
             north{"{0} հս․ լ․"}
             south{"{0} հվ․ լ․"}
@@ -1029,14 +1063,14 @@ hy{
                 per{"{0}/սմ²"}
             }
             square-foot{
-                dnam{"քառ․ ֆտ"}
-                one{"{0} քառ. ֆտ"}
-                other{"{0} քառ. ֆտ"}
+                dnam{"ֆտ²"}
+                one{"{0} ֆտ²"}
+                other{"{0} ֆտ²"}
             }
             square-inch{
-                dnam{"քառ․ դյմ"}
-                one{"{0} քառ. դյմ"}
-                other{"{0} քառ. դյմ"}
+                dnam{"դյմ²"}
+                one{"{0} դյմ²"}
+                other{"{0} դյմ²"}
                 per{"{0}/դյմ²"}
             }
             square-kilometer{
@@ -1052,15 +1086,15 @@ hy{
                 per{"{0}/մ²"}
             }
             square-mile{
-                dnam{"քառ․ մղ"}
-                one{"{0} քառ. մղ"}
-                other{"{0} քառ. մղ"}
+                dnam{"մղ²"}
+                one{"{0} մղ²"}
+                other{"{0} մղ²"}
                 per{"{0}/մղ²"}
             }
             square-yard{
-                dnam{"քառ․ յրդ"}
-                one{"{0} քառ. յրդ"}
-                other{"{0} քառ. յրդ"}
+                dnam{"յրդ²"}
+                one{"{0} յրդ²"}
+                other{"{0} յրդ²"}
             }
         }
         compound{
@@ -1087,6 +1121,16 @@ hy{
                 one{"{0} մասնիկ/միլիոն"}
                 other{"{0} մասնիկ/միլիոն"}
             }
+            percent{
+                dnam{"տոկոս"}
+                one{"{0}%"}
+                other{"{0}%"}
+            }
+            permille{
+                dnam{"պրոմիլ"}
+                one{"{0}‰"}
+                other{"{0}‰"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -1111,6 +1155,7 @@ hy{
             }
         }
         coordinate{
+            dnam{"ուղղություն"}
             east{"{0} ավ․ ե․"}
             north{"{0} հս․ լ․"}
             south{"{0} հվ․ լ․"}
@@ -1138,9 +1183,9 @@ hy{
                 other{"{0} ԳԲ"}
             }
             kilobit{
-                dnam{"Կբիթ"}
-                one{"{0} Կբիթ"}
-                other{"{0} Կբիթ"}
+                dnam{"կբիթ"}
+                one{"{0} կբիթ"}
+                other{"{0} կբիթ"}
             }
             kilobyte{
                 dnam{"կԲ"}
@@ -1156,6 +1201,11 @@ hy{
                 dnam{"ՄԲ"}
                 one{"{0} ՄԲ"}
                 other{"{0} ՄԲ"}
+            }
+            petabyte{
+                dnam{"պետաբայթ"}
+                one{"{0} ՊԲ"}
+                other{"{0} ՊԲ"}
             }
             terabit{
                 dnam{"Տբիթ"}
@@ -1394,6 +1444,11 @@ hy{
                 one{"{0} պմ"}
                 other{"{0} պմ"}
             }
+            point{
+                dnam{"կտ"}
+                one{"{0} կտ"}
+                other{"{0} կտ"}
+            }
             yard{
                 dnam{"յրդ"}
                 one{"{0} յրդ"}
@@ -1496,6 +1551,11 @@ hy{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"մթն"}
+                one{"{0} մթն"}
+                other{"{0} մթն"}
+            }
             hectopascal{
                 dnam{"հՊա"}
                 one{"{0} հՊա"}
@@ -1584,14 +1644,14 @@ hy{
                 per{"{0}/սմ³"}
             }
             cubic-foot{
-                dnam{"խոր․ ֆտ"}
-                one{"{0} խոր․ ֆտ"}
-                other{"{0} խոր․ ֆտ"}
+                dnam{"ֆտ³"}
+                one{"{0} ֆտ³"}
+                other{"{0} ֆտ³"}
             }
             cubic-inch{
-                dnam{"խոր․ դյմ"}
-                one{"{0} խոր․ դյմ"}
-                other{"{0} խոր․ դյմ"}
+                dnam{"դյմ³"}
+                one{"{0} դյմ³"}
+                other{"{0} դյմ³"}
             }
             cubic-kilometer{
                 dnam{"կմ³"}
@@ -1605,14 +1665,14 @@ hy{
                 per{"{0}/մ³"}
             }
             cubic-mile{
-                dnam{"խոր․ մղ"}
-                one{"{0} խոր․ մղ"}
-                other{"{0} խոր․ մղ"}
+                dnam{"մղ³"}
+                one{"{0} մղ³"}
+                other{"{0} մղ³"}
             }
             cubic-yard{
-                dnam{"խոր․ յրդ"}
-                one{"{0} խոր․ յրդ"}
-                other{"{0} խոր․ յրդ"}
+                dnam{"յրդ³"}
+                one{"{0} յրդ³"}
+                other{"{0} յրդ³"}
             }
             cup{
                 dnam{"բաժակներ"}

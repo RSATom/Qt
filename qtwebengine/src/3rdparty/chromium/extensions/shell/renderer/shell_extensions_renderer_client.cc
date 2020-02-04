@@ -4,15 +4,17 @@
 
 #include "extensions/shell/renderer/shell_extensions_renderer_client.h"
 
-#include "base/memory/ptr_util.h"
+#include "content/public/renderer/render_thread.h"
 #include "extensions/renderer/dispatcher.h"
 #include "extensions/renderer/dispatcher_delegate.h"
 
 namespace extensions {
 
 ShellExtensionsRendererClient::ShellExtensionsRendererClient()
-    : dispatcher_delegate_(base::MakeUnique<DispatcherDelegate>()),
-      dispatcher_(base::MakeUnique<Dispatcher>(dispatcher_delegate_.get())) {}
+    : dispatcher_(std::make_unique<Dispatcher>(
+          std::make_unique<DispatcherDelegate>())) {
+  dispatcher_->OnRenderThreadStarted(content::RenderThread::Get());
+}
 
 ShellExtensionsRendererClient::~ShellExtensionsRendererClient() {
 }

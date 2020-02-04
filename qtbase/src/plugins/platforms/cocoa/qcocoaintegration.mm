@@ -59,7 +59,11 @@
 #include <qpa/qplatformoffscreensurface.h>
 #include <QtCore/qcoreapplication.h>
 
+#include <QtPlatformHeaders/qcocoanativecontext.h>
+
 #include <QtGui/private/qcoregraphics_p.h>
+
+#include <QtFontDatabaseSupport/private/qfontengine_coretext_p.h>
 
 #ifdef QT_WIDGETS_LIB
 #include <QtWidgets/qtwidgetsglobal.h>
@@ -76,6 +80,32 @@ static void initResources()
 }
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcQpa, "qt.qpa", QtWarningMsg);
+
+static void logVersionInformation()
+{
+    if (!lcQpa().isInfoEnabled())
+        return;
+
+    auto osVersion = QMacVersion::currentRuntime();
+    auto qtBuildSDK = QMacVersion::buildSDK(QMacVersion::QtLibraries);
+    auto qtDeploymentTarget = QMacVersion::deploymentTarget(QMacVersion::QtLibraries);
+    auto appBuildSDK = QMacVersion::buildSDK(QMacVersion::ApplicationBinary);
+    auto appDeploymentTarget = QMacVersion::deploymentTarget(QMacVersion::ApplicationBinary);
+
+    qCInfo(lcQpa, "Loading macOS (Cocoa) platform plugin for Qt " QT_VERSION_STR ", running on macOS %d.%d.%d\n\n" \
+        "  Component     SDK version   Deployment target  \n" \
+        " ------------- ------------- -------------------\n" \
+        "  Qt " QT_VERSION_STR "       %d.%d.%d          %d.%d.%d\n" \
+        "  Application     %d.%d.%d          %d.%d.%d\n",
+            osVersion.majorVersion(), osVersion.minorVersion(), osVersion.microVersion(),
+            qtBuildSDK.majorVersion(), qtBuildSDK.minorVersion(), qtBuildSDK.microVersion(),
+            qtDeploymentTarget.majorVersion(), qtDeploymentTarget.minorVersion(), qtDeploymentTarget.microVersion(),
+            appBuildSDK.majorVersion(), appBuildSDK.minorVersion(), appBuildSDK.microVersion(),
+            appDeploymentTarget.majorVersion(), appDeploymentTarget.minorVersion(), appDeploymentTarget.microVersion());
+}
+
 
 class QCoreTextFontEngine;
 class QFontEngineFT;
@@ -94,11 +124,11 @@ static QCocoaIntegration::Options parseOptions(const QStringList &paramList)
     return options;
 }
 
-QCocoaIntegration *QCocoaIntegration::mInstance = 0;
+QCocoaIntegration *QCocoaIntegration::mInstance = nullptr;
 
 QCocoaIntegration::QCocoaIntegration(const QStringList &paramList)
     : mOptions(parseOptions(paramList))
-    , mFontDb(0)
+    , mFontDb(nullptr)
 #ifndef QT_NO_ACCESSIBILITY
     , mAccessibility(new QCocoaAccessibility)
 #endif
@@ -110,7 +140,9 @@ QCocoaIntegration::QCocoaIntegration(const QStringList &paramList)
     , mServices(new QCocoaServices)
     , mKeyboardMapper(new QCocoaKeyMapper)
 {
-    if (mInstance != 0)
+    logVersionInformation();
+
+    if (mInstance)
         qWarning("Creating multiple Cocoa platform integrations is not supported");
     mInstance = this;
 
@@ -174,7 +206,8 @@ QCocoaIntegration::QCocoaIntegration(const QStringList &paramList)
     // by explicitly setting the presentation option to the magic 'default value',
     // which will resolve to an actual value and result in screen invalidation.
     cocoaApplication.presentationOptions = NSApplicationPresentationDefault;
-    updateScreens();
+
+    QCocoaScreen::initializeScreens();
 
     QMacInternalPasteboardMime::initializeMimeTypes();
     QCocoaMimeTypes::initializeMimeTypes();
@@ -186,7 +219,7 @@ QCocoaIntegration::QCocoaIntegration(const QStringList &paramList)
 
 QCocoaIntegration::~QCocoaIntegration()
 {
-    mInstance = 0;
+    mInstance = nullptr;
 
     qt_resetNSApplicationSendEvent();
 
@@ -196,7 +229,7 @@ QCocoaIntegration::~QCocoaIntegration()
         QCocoaApplicationDelegate *delegate = [QCocoaApplicationDelegate sharedDelegate];
         [delegate removeAppleEventHandlers];
         // reset the application delegate
-        [[NSApplication sharedApplication] setDelegate: 0];
+        [[NSApplication sharedApplication] setDelegate:nil];
     }
 
 #ifndef QT_NO_CLIPBOARD
@@ -207,10 +240,7 @@ QCocoaIntegration::~QCocoaIntegration()
     QMacInternalPasteboardMime::destroyMimeTypes();
 #endif
 
-    // Delete screens in reverse order to avoid crash in case of multiple screens
-    while (!mScreens.isEmpty()) {
-        destroyScreen(mScreens.takeLast());
-    }
+    QCocoaScreen::cleanupScreens();
 
     clearToolbars();
 }
@@ -225,99 +255,20 @@ QCocoaIntegration::Options QCocoaIntegration::options() const
     return mOptions;
 }
 
-Q_LOGGING_CATEGORY(lcCocoaScreen, "qt.qpa.cocoa.screens");
-
-/*!
-    \brief Synchronizes the screen list, adds new screens, removes deleted ones
-*/
-void QCocoaIntegration::updateScreens()
-{
-    NSArray *scrs = [NSScreen screens];
-    NSMutableArray *screens = [NSMutableArray arrayWithArray:scrs];
-    if ([screens count] == 0)
-        if ([NSScreen mainScreen])
-           [screens addObject:[NSScreen mainScreen]];
-    if ([screens count] == 0)
-        return;
-    QSet<QCocoaScreen*> remainingScreens = QSet<QCocoaScreen*>::fromList(mScreens);
-    QList<QPlatformScreen *> siblings;
-    uint screenCount = [screens count];
-    for (uint i = 0; i < screenCount; i++) {
-        NSScreen* scr = [screens objectAtIndex:i];
-        CGDirectDisplayID dpy = [[[scr deviceDescription] objectForKey:@"NSScreenNumber"] unsignedIntValue];
-        // If this screen is a mirror and is not the primary one of the mirror set, ignore it.
-        // Exception: The NSScreen API has been observed to a return a screen list with one
-        // mirrored, non-primary screen when Qt is running as a startup item. Always use the
-        // screen if there's only one screen in the list.
-        if (screenCount > 1 && CGDisplayIsInMirrorSet(dpy)) {
-            CGDirectDisplayID primary = CGDisplayMirrorsDisplay(dpy);
-            if (primary != kCGNullDirectDisplay && primary != dpy)
-                continue;
-        }
-        QCocoaScreen* screen = NULL;
-        foreach (QCocoaScreen* existingScr, mScreens)
-            // NSScreen documentation says do not cache the array returned from [NSScreen screens].
-            // However in practice, we can identify a screen by its pointer: if resolution changes,
-            // the NSScreen object will be the same instance, just with different values.
-            if (existingScr->nativeScreen() == scr) {
-                screen = existingScr;
-                break;
-            }
-        if (screen) {
-            remainingScreens.remove(screen);
-            screen->updateGeometry();
-            qCDebug(lcCocoaScreen) << "Updated properties of" << screen;
-        } else {
-            screen = new QCocoaScreen(i);
-            mScreens.append(screen);
-            qCDebug(lcCocoaScreen) << "Adding" << screen;
-            screenAdded(screen);
-        }
-        siblings << screen;
-    }
-
-    // Set virtual siblings list. All screens in mScreens are siblings, because we ignored the
-    // mirrors. Note that some of the screens we update the siblings list for here may be deleted
-    // below, but update anyway to keep the to-be-deleted screens out of the siblings list.
-    foreach (QCocoaScreen* screen, mScreens)
-        screen->setVirtualSiblings(siblings);
-
-    // Now the leftovers in remainingScreens are no longer current, so we can delete them.
-    foreach (QCocoaScreen* screen, remainingScreens) {
-        mScreens.removeOne(screen);
-        // Prevent stale references to NSScreen during destroy
-        screen->m_screenIndex = -1;
-        qCDebug(lcCocoaScreen) << "Removing" << screen;
-        destroyScreen(screen);
-    }
-}
-
-QCocoaScreen *QCocoaIntegration::screenForNSScreen(NSScreen *nsScreen)
-{
-    NSUInteger index = [[NSScreen screens] indexOfObject:nsScreen];
-    if (index == NSNotFound)
-        return 0;
-
-    if (index >= unsigned(mScreens.count()))
-        updateScreens();
-
-    for (QCocoaScreen *screen : mScreens) {
-        if (screen->nativeScreen() == nsScreen)
-            return screen;
-    }
-
-    return 0;
-}
-
 bool QCocoaIntegration::hasCapability(QPlatformIntegration::Capability cap) const
 {
     switch (cap) {
-    case ThreadedPixmaps:
 #ifndef QT_NO_OPENGL
-    case OpenGL:
     case ThreadedOpenGL:
+        // AppKit expects rendering to happen on the main thread, and we can
+        // easily end up in situations where rendering on secondary threads
+        // will result in visual artifacts, bugs, or even deadlocks, when
+        // building with SDK 10.14 or higher which enbles view layer-backing.
+        return QMacVersion::buildSDK() < QOperatingSystemVersion(QOperatingSystemVersion::MacOSMojave);
+    case OpenGL:
     case BufferQueueingOpenGL:
 #endif
+    case ThreadedPixmaps:
     case WindowMasks:
     case MultipleWindows:
     case ForeignWindows:
@@ -361,23 +312,41 @@ QPlatformOffscreenSurface *QCocoaIntegration::createPlatformOffscreenSurface(QOf
 #ifndef QT_NO_OPENGL
 QPlatformOpenGLContext *QCocoaIntegration::createPlatformOpenGLContext(QOpenGLContext *context) const
 {
-    QCocoaGLContext *glContext = new QCocoaGLContext(context->format(),
-                                                     context->shareHandle(),
-                                                     context->nativeHandle());
-    context->setNativeHandle(glContext->nativeHandle());
-    return glContext;
+    return new QCocoaGLContext(context);
 }
 #endif
 
 QPlatformBackingStore *QCocoaIntegration::createPlatformBackingStore(QWindow *window) const
 {
-    return new QCocoaBackingStore(window);
+    QCocoaWindow *platformWindow = static_cast<QCocoaWindow*>(window->handle());
+    if (!platformWindow) {
+        qWarning() << window << "must be created before being used with a backingstore";
+        return nullptr;
+    }
+
+    if (platformWindow->view().layer)
+        return new QCALayerBackingStore(window);
+    else
+        return new QNSWindowBackingStore(window);
 }
 
 QAbstractEventDispatcher *QCocoaIntegration::createEventDispatcher() const
 {
     return new QCocoaEventDispatcher;
 }
+
+#if QT_CONFIG(vulkan)
+QPlatformVulkanInstance *QCocoaIntegration::createPlatformVulkanInstance(QVulkanInstance *instance) const
+{
+    mCocoaVulkanInstance = new QCocoaVulkanInstance(instance);
+    return mCocoaVulkanInstance;
+}
+
+QCocoaVulkanInstance *QCocoaIntegration::getCocoaVulkanInstance() const
+{
+    return mCocoaVulkanInstance;
+}
+#endif
 
 QCoreTextFontDatabase *QCocoaIntegration::fontDatabase() const
 {
@@ -432,8 +401,13 @@ QCocoaServices *QCocoaIntegration::services() const
 
 QVariant QCocoaIntegration::styleHint(StyleHint hint) const
 {
-    if (hint == QPlatformIntegration::FontSmoothingGamma)
-        return 2.0;
+    switch (hint) {
+    case FontSmoothingGamma:
+        return QCoreTextFontEngine::fontSmoothingGamma();
+    case ShowShortcutsInContextMenus:
+        return QVariant(false);
+    default: break;
+    }
 
     return QPlatformIntegration::styleHint(hint);
 }
@@ -480,14 +454,14 @@ void QCocoaIntegration::pushPopupWindow(QCocoaWindow *window)
 QCocoaWindow *QCocoaIntegration::popPopupWindow()
 {
     if (m_popupWindowStack.isEmpty())
-        return 0;
+        return nullptr;
     return m_popupWindowStack.takeLast();
 }
 
 QCocoaWindow *QCocoaIntegration::activePopupWindow() const
 {
     if (m_popupWindowStack.isEmpty())
-        return 0;
+        return nullptr;
     return m_popupWindowStack.front();
 }
 

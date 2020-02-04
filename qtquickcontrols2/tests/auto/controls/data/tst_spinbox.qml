@@ -48,10 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
-import QtQuick.Window 2.3
+import QtQuick.Controls 2.12
+import QtQuick.Window 2.12
 
 TestCase {
     id: testCase
@@ -69,6 +69,11 @@ TestCase {
     Component {
         id: spinBox
         SpinBox { }
+    }
+
+    Component {
+        id: mouseArea
+        MouseArea { }
     }
 
     function test_defaults() {
@@ -401,7 +406,10 @@ TestCase {
     }
 
     function test_wheel(data) {
-        var control = createTemporaryObject(spinBox, testCase, {wrap: data.wrap, from: data.from, to: data.to, value: data.value, stepSize: data.stepSize, wheelEnabled: true})
+        var ma = createTemporaryObject(mouseArea, testCase, {width: 100, height: 100})
+        verify(ma)
+
+        var control = spinBox.createObject(ma, {wrap: data.wrap, from: data.from, to: data.to, value: data.value, stepSize: data.stepSize, wheelEnabled: true})
         verify(control)
 
         var valueModifiedCount = 0
@@ -410,13 +418,16 @@ TestCase {
 
         var delta = 120
 
+        var spy = signalSpy.createObject(ma, {target: ma, signalName: "wheel"})
+        verify(spy.valid)
+
         for (var u = 0; u < data.upSteps.length; ++u) {
             var wasUpEnabled = control.wrap || control.value < control.to
             mouseWheel(control, control.width / 2, control.height / 2, delta, delta)
             if (wasUpEnabled)
                 ++valueModifiedCount
             compare(valueModifiedSpy.count, valueModifiedCount)
-
+            compare(spy.count, 0) // no propagation
             compare(control.value, data.upSteps[u])
         }
 
@@ -426,7 +437,7 @@ TestCase {
             if (wasDownEnabled)
                 ++valueModifiedCount
             compare(valueModifiedSpy.count, valueModifiedCount)
-
+            compare(spy.count, 0) // no propagation
             compare(control.value, data.downSteps[d])
         }
     }
@@ -473,6 +484,39 @@ TestCase {
 
         mouseMove(control, button.indicator.x - 1, button.indicator.y - 1)
         compare(button.hovered, false)
+    }
+
+    function test_hoverWhilePressed_data() {
+        return [
+            { tag: "up" },
+            { tag: "down" },
+        ]
+    }
+
+    // QTBUG-74688
+    function test_hoverWhilePressed(data) {
+        var control = createTemporaryObject(spinBox, testCase, { hoverEnabled: true, value: 50 })
+        verify(control)
+
+        var button = control[data.tag]
+        compare(control.hovered, false)
+        compare(button.hovered, false)
+
+        // Hover over the indicator. It should be hovered.
+        var buttonXCenter = button.indicator.x + button.indicator.width / 2
+        var buttonYCenter = button.indicator.y + button.indicator.height / 2
+        mouseMove(control, buttonXCenter, buttonYCenter)
+        compare(button.hovered, true)
+
+        // Press on the indicator and then move the mouse outside of it.
+        mousePress(control, buttonXCenter, buttonYCenter)
+        compare(button.hovered, true)
+        mouseMove(control, buttonXCenter - button.indicator.width, buttonYCenter - button.indicator.height)
+        // It should not be pressed or hovered.
+        compare(button.pressed, false)
+        compare(button.hovered, false)
+
+        mouseRelease(control)
     }
 
     function test_valueFromText_data() {
@@ -569,5 +613,49 @@ TestCase {
         var control = createTemporaryObject(spinBox, testCase, {from: 1000, to: 10000})
         verify(control)
         compare(control.value, 1000)
+    }
+
+    Component {
+        id: sizeBox
+        SpinBox {
+            from: 0
+            to: items.length - 1
+
+            property var items: ["Small", "Medium", "Large"]
+
+            validator: RegExpValidator {
+                regExp: new RegExp("(Small|Medium|Large)", "i")
+            }
+
+            textFromValue: function(value) {
+                return items[value];
+            }
+
+            valueFromText: function(text) {
+                for (var i = 0; i < items.length; ++i) {
+                    if (items[i].toLowerCase().indexOf(text.toLowerCase()) === 0)
+                        return i
+                }
+                return sb.value
+            }
+        }
+    }
+
+    function test_textFromValue_data() {
+        return [
+            { tag: "default", component: spinBox, values: [0, 10, 99], displayTexts: ["0", "10", "99"] },
+            { tag: "custom", component: sizeBox, values: [0, 1, 2], displayTexts: ["Small", "Medium", "Large"] }
+        ]
+    }
+
+    function test_textFromValue(data) {
+        var control = createTemporaryObject(data.component, testCase)
+        verify(control)
+
+        for (var i = 0; i < data.values.length; ++i) {
+            control.value = data.values[i]
+            compare(control.value, data.values[i])
+            compare(control.displayText, data.displayTexts[i])
+        }
     }
 }

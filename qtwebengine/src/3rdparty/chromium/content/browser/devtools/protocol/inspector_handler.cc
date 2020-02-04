@@ -4,7 +4,7 @@
 
 #include "content/browser/devtools/protocol/inspector_handler.h"
 
-#include "content/browser/devtools/devtools_session.h"
+#include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 
 namespace content {
@@ -21,8 +21,8 @@ InspectorHandler::~InspectorHandler() {
 // static
 std::vector<InspectorHandler*> InspectorHandler::ForAgentHost(
     DevToolsAgentHostImpl* host) {
-  return DevToolsSession::HandlersForAgentHost<InspectorHandler>(
-      host, Inspector::Metainfo::domainName);
+  return host->HandlersByName<InspectorHandler>(
+      Inspector::Metainfo::domainName);
 }
 
 void InspectorHandler::Wire(UberDispatcher* dispatcher) {
@@ -30,12 +30,17 @@ void InspectorHandler::Wire(UberDispatcher* dispatcher) {
   Inspector::Dispatcher::wire(dispatcher, this);
 }
 
-void InspectorHandler::SetRenderFrameHost(RenderFrameHostImpl* host) {
-  host_ = host;
+void InspectorHandler::SetRenderer(int process_host_id,
+                                   RenderFrameHostImpl* frame_host) {
+  host_ = frame_host;
 }
 
 void InspectorHandler::TargetCrashed() {
   frontend_->TargetCrashed();
+}
+
+void InspectorHandler::TargetReloadedAfterCrash() {
+  frontend_->TargetReloadedAfterCrash();
 }
 
 void InspectorHandler::TargetDetached(const std::string& reason) {

@@ -37,7 +37,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 class QScatterSeriesPrivate;
 
-class QT_CHARTS_EXPORT QScatterSeries : public QXYSeries
+class Q_CHARTS_EXPORT QScatterSeries : public QXYSeries
 {
     Q_OBJECT
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
@@ -54,7 +54,7 @@ public:
     };
 
 public:
-    explicit QScatterSeries(QObject *parent = Q_NULLPTR);
+    explicit QScatterSeries(QObject *parent = nullptr);
     ~QScatterSeries();
     QAbstractSeries::SeriesType type() const;
     void setPen(const QPen &pen);

@@ -52,7 +52,7 @@ public:
 /*!
    \class QInAppProduct
    \inmodule QtPurchasing
-   \brief A product registered in the store
+   \brief A product registered in the store.
 
    QInAppProduct encapsulates a product in the external store after it has been registered in \c QInAppStore
    and confirmed to exist. It has an identifier which matches the identifier of the product in the external

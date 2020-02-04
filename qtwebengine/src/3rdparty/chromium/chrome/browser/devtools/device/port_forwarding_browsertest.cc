@@ -7,6 +7,7 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/devtools/device/devtools_android_bridge.h"
@@ -63,7 +64,7 @@ class PortForwardingTest: public InProcessBrowserTest {
       if (status.empty() && skip_empty_devices_)
         return;
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+          FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
     }
 
     void set_skip_empty_devices(bool skip_empty_devices) {
@@ -110,29 +111,20 @@ IN_PROC_BROWSER_TEST_F(PortForwardingTest,
 
   ui_test_utils::NavigateToURL(browser(), forwarding_url);
 
-  content::RenderViewHost* rvh = browser()->tab_strip_model()->
-      GetWebContentsAt(0)->GetRenderViewHost();
+  content::WebContents* wc = browser()->tab_strip_model()->GetWebContentsAt(0);
 
   std::string result;
-  ASSERT_TRUE(
-      content::ExecuteScriptAndExtractString(
-          rvh,
-          "window.domAutomationController.send(document.title)",
-          &result));
+  ASSERT_TRUE(content::ExecuteScriptAndExtractString(
+      wc, "window.domAutomationController.send(document.title)", &result));
   ASSERT_EQ("Port forwarding test", result) << "Document has not loaded.";
 
-  ASSERT_TRUE(
-      content::ExecuteScriptAndExtractString(
-          rvh,
-          "window.domAutomationController.send(getBodyTextContent())",
-          &result));
+  ASSERT_TRUE(content::ExecuteScriptAndExtractString(
+      wc, "window.domAutomationController.send(getBodyTextContent())",
+      &result));
   ASSERT_EQ("content", result) << "Javascript has not loaded.";
 
-  ASSERT_TRUE(
-      content::ExecuteScriptAndExtractString(
-          rvh,
-          "window.domAutomationController.send(getBodyMarginLeft())",
-          &result));
+  ASSERT_TRUE(content::ExecuteScriptAndExtractString(
+      wc, "window.domAutomationController.send(getBodyMarginLeft())", &result));
   ASSERT_EQ("100px", result) << "CSS has not loaded.";
 
   // Test that disabling port forwarding is handled normally.

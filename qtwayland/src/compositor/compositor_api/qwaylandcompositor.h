@@ -70,7 +70,9 @@ class QWaylandTouch;
 class QWaylandSurfaceGrabber;
 class QWaylandBufferRef;
 
-Q_DECLARE_LOGGING_CATEGORY(qLcCompositorInputMethods)
+Q_WAYLAND_COMPOSITOR_EXPORT Q_DECLARE_LOGGING_CATEGORY(qLcWaylandCompositor)
+Q_WAYLAND_COMPOSITOR_EXPORT Q_DECLARE_LOGGING_CATEGORY(qLcWaylandCompositorHardwareIntegration)
+Q_DECLARE_LOGGING_CATEGORY(qLcWaylandCompositorInputMethods)
 
 class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandCompositor : public QWaylandObject
 {
@@ -85,13 +87,15 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandCompositor : public QWaylandObject
 
 public:
     QWaylandCompositor(QObject *parent = nullptr);
-    virtual ~QWaylandCompositor();
+    ~QWaylandCompositor() override;
 
     virtual void create();
     bool isCreated() const;
 
     void setSocketName(const QByteArray &name);
     QByteArray socketName() const;
+
+    Q_INVOKABLE void addSocketDescriptor(int fd);
 
     ::wl_display *display() const;
     uint32_t nextSerial();
@@ -116,8 +120,6 @@ public:
     void overrideSelection(const QMimeData *data);
 
     QWaylandSeat *defaultSeat() const;
-
-    QWaylandView *createSurfaceView(QWaylandSurface *surface);
 
     QWaylandSeat *seatFor(QInputEvent *inputEvent);
 

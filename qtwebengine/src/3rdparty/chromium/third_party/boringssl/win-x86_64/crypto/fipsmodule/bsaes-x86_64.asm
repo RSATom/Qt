@@ -1,12 +1,19 @@
+; This file is generated from a similarly-named Perl script in the BoringSSL
+; source tree. Do not edit by hand.
+
 default	rel
 %define XMMWORD
 %define YMMWORD
 %define ZMMWORD
+
+%ifdef BORINGSSL_PREFIX
+%include "boringssl_prefix_symbols_nasm.inc"
+%endif
 section	.text code align=64
 
 
-EXTERN	asm_AES_encrypt
-EXTERN	asm_AES_decrypt
+EXTERN	aes_nohw_encrypt
+EXTERN	aes_nohw_decrypt
 
 
 ALIGN	64
@@ -1067,26 +1074,34 @@ DB	102,15,56,0,244
 
 	DB	0F3h,0C3h		;repret
 
-EXTERN	asm_AES_cbc_encrypt
+EXTERN	aes_nohw_cbc_encrypt
 global	bsaes_cbc_encrypt
 
 ALIGN	16
 bsaes_cbc_encrypt:
+
 	mov	r11d,DWORD[48+rsp]
 	cmp	r11d,0
-	jne	NEAR asm_AES_cbc_encrypt
+	jne	NEAR aes_nohw_cbc_encrypt
 	cmp	r8,128
-	jb	NEAR asm_AES_cbc_encrypt
+	jb	NEAR aes_nohw_cbc_encrypt
 
 	mov	rax,rsp
 $L$cbc_dec_prologue:
 	push	rbp
+
 	push	rbx
+
 	push	r12
+
 	push	r13
+
 	push	r14
+
 	push	r15
+
 	lea	rsp,[((-72))+rsp]
+
 	mov	r10,QWORD[160+rsp]
 	lea	rsp,[((-160))+rsp]
 	movaps	XMMWORD[64+rsp],xmm6
@@ -1101,6 +1116,7 @@ $L$cbc_dec_prologue:
 	movaps	XMMWORD[208+rsp],xmm15
 $L$cbc_dec_body:
 	mov	rbp,rsp
+
 	mov	eax,DWORD[240+r9]
 	mov	r12,rcx
 	mov	r13,rdx
@@ -1303,7 +1319,7 @@ $L$cbc_dec_one:
 	lea	rcx,[r12]
 	lea	rdx,[32+rbp]
 	lea	r8,[r15]
-	call	asm_AES_decrypt
+	call	aes_nohw_decrypt
 	pxor	xmm14,XMMWORD[32+rbp]
 	movdqu	XMMWORD[r13],xmm14
 	movdqa	xmm14,xmm15
@@ -1320,6 +1336,7 @@ $L$cbc_dec_bzero:
 	ja	NEAR $L$cbc_dec_bzero
 
 	lea	rax,[120+rbp]
+
 	movaps	xmm6,XMMWORD[64+rbp]
 	movaps	xmm7,XMMWORD[80+rbp]
 	movaps	xmm8,XMMWORD[96+rbp]
@@ -1333,29 +1350,45 @@ $L$cbc_dec_bzero:
 	lea	rax,[160+rax]
 $L$cbc_dec_tail:
 	mov	r15,QWORD[((-48))+rax]
+
 	mov	r14,QWORD[((-40))+rax]
+
 	mov	r13,QWORD[((-32))+rax]
+
 	mov	r12,QWORD[((-24))+rax]
+
 	mov	rbx,QWORD[((-16))+rax]
+
 	mov	rbp,QWORD[((-8))+rax]
+
 	lea	rsp,[rax]
+
 $L$cbc_dec_epilogue:
 	DB	0F3h,0C3h		;repret
+
 
 
 global	bsaes_ctr32_encrypt_blocks
 
 ALIGN	16
 bsaes_ctr32_encrypt_blocks:
+
 	mov	rax,rsp
 $L$ctr_enc_prologue:
 	push	rbp
+
 	push	rbx
+
 	push	r12
+
 	push	r13
+
 	push	r14
+
 	push	r15
+
 	lea	rsp,[((-72))+rsp]
+
 	mov	r10,QWORD[160+rsp]
 	lea	rsp,[((-160))+rsp]
 	movaps	XMMWORD[64+rsp],xmm6
@@ -1370,6 +1403,7 @@ $L$ctr_enc_prologue:
 	movaps	XMMWORD[208+rsp],xmm15
 $L$ctr_enc_body:
 	mov	rbp,rsp
+
 	movdqu	xmm0,XMMWORD[r10]
 	mov	eax,DWORD[240+r9]
 	mov	r12,rcx
@@ -1519,7 +1553,7 @@ $L$ctr_enc_short:
 	lea	rcx,[32+rbp]
 	lea	rdx,[48+rbp]
 	lea	r8,[r15]
-	call	asm_AES_encrypt
+	call	aes_nohw_encrypt
 	movdqu	xmm0,XMMWORD[r12]
 	lea	r12,[16+r12]
 	mov	eax,DWORD[44+rbp]
@@ -1544,6 +1578,7 @@ $L$ctr_enc_bzero:
 	ja	NEAR $L$ctr_enc_bzero
 
 	lea	rax,[120+rbp]
+
 	movaps	xmm6,XMMWORD[64+rbp]
 	movaps	xmm7,XMMWORD[80+rbp]
 	movaps	xmm8,XMMWORD[96+rbp]
@@ -1557,993 +1592,22 @@ $L$ctr_enc_bzero:
 	lea	rax,[160+rax]
 $L$ctr_enc_tail:
 	mov	r15,QWORD[((-48))+rax]
+
 	mov	r14,QWORD[((-40))+rax]
+
 	mov	r13,QWORD[((-32))+rax]
+
 	mov	r12,QWORD[((-24))+rax]
+
 	mov	rbx,QWORD[((-16))+rax]
+
 	mov	rbp,QWORD[((-8))+rax]
+
 	lea	rsp,[rax]
+
 $L$ctr_enc_epilogue:
 	DB	0F3h,0C3h		;repret
 
-global	bsaes_xts_encrypt
-
-ALIGN	16
-bsaes_xts_encrypt:
-	mov	rax,rsp
-$L$xts_enc_prologue:
-	push	rbp
-	push	rbx
-	push	r12
-	push	r13
-	push	r14
-	push	r15
-	lea	rsp,[((-72))+rsp]
-	mov	r10,QWORD[160+rsp]
-	mov	r11,QWORD[168+rsp]
-	lea	rsp,[((-160))+rsp]
-	movaps	XMMWORD[64+rsp],xmm6
-	movaps	XMMWORD[80+rsp],xmm7
-	movaps	XMMWORD[96+rsp],xmm8
-	movaps	XMMWORD[112+rsp],xmm9
-	movaps	XMMWORD[128+rsp],xmm10
-	movaps	XMMWORD[144+rsp],xmm11
-	movaps	XMMWORD[160+rsp],xmm12
-	movaps	XMMWORD[176+rsp],xmm13
-	movaps	XMMWORD[192+rsp],xmm14
-	movaps	XMMWORD[208+rsp],xmm15
-$L$xts_enc_body:
-	mov	rbp,rsp
-	mov	r12,rcx
-	mov	r13,rdx
-	mov	r14,r8
-	mov	r15,r9
-
-	lea	rcx,[r11]
-	lea	rdx,[32+rbp]
-	lea	r8,[r10]
-	call	asm_AES_encrypt
-
-	mov	eax,DWORD[240+r15]
-	mov	rbx,r14
-
-	mov	edx,eax
-	shl	rax,7
-	sub	rax,96
-	sub	rsp,rax
-
-	mov	rax,rsp
-	mov	rcx,r15
-	mov	r10d,edx
-	call	_bsaes_key_convert
-	pxor	xmm7,xmm6
-	movdqa	XMMWORD[rax],xmm7
-
-	and	r14,-16
-	sub	rsp,0x80
-	movdqa	xmm6,XMMWORD[32+rbp]
-
-	pxor	xmm14,xmm14
-	movdqa	xmm12,XMMWORD[$L$xts_magic]
-	pcmpgtd	xmm14,xmm6
-
-	sub	r14,0x80
-	jc	NEAR $L$xts_enc_short
-	jmp	NEAR $L$xts_enc_loop
-
-ALIGN	16
-$L$xts_enc_loop:
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm15,xmm6
-	movdqa	XMMWORD[rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm0,xmm6
-	movdqa	XMMWORD[16+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm7,XMMWORD[r12]
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm1,xmm6
-	movdqa	XMMWORD[32+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm8,XMMWORD[16+r12]
-	pxor	xmm15,xmm7
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm2,xmm6
-	movdqa	XMMWORD[48+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm9,XMMWORD[32+r12]
-	pxor	xmm0,xmm8
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm3,xmm6
-	movdqa	XMMWORD[64+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm10,XMMWORD[48+r12]
-	pxor	xmm1,xmm9
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm4,xmm6
-	movdqa	XMMWORD[80+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm11,XMMWORD[64+r12]
-	pxor	xmm2,xmm10
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm5,xmm6
-	movdqa	XMMWORD[96+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm12,XMMWORD[80+r12]
-	pxor	xmm3,xmm11
-	movdqu	xmm13,XMMWORD[96+r12]
-	pxor	xmm4,xmm12
-	movdqu	xmm14,XMMWORD[112+r12]
-	lea	r12,[128+r12]
-	movdqa	XMMWORD[112+rsp],xmm6
-	pxor	xmm5,xmm13
-	lea	rax,[128+rsp]
-	pxor	xmm6,xmm14
-	mov	r10d,edx
-
-	call	_bsaes_encrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm3,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm5,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm3
-	pxor	xmm2,XMMWORD[64+rsp]
-	movdqu	XMMWORD[48+r13],xmm5
-	pxor	xmm6,XMMWORD[80+rsp]
-	movdqu	XMMWORD[64+r13],xmm2
-	pxor	xmm1,XMMWORD[96+rsp]
-	movdqu	XMMWORD[80+r13],xmm6
-	pxor	xmm4,XMMWORD[112+rsp]
-	movdqu	XMMWORD[96+r13],xmm1
-	movdqu	XMMWORD[112+r13],xmm4
-	lea	r13,[128+r13]
-
-	movdqa	xmm6,XMMWORD[112+rsp]
-	pxor	xmm14,xmm14
-	movdqa	xmm12,XMMWORD[$L$xts_magic]
-	pcmpgtd	xmm14,xmm6
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-
-	sub	r14,0x80
-	jnc	NEAR $L$xts_enc_loop
-
-$L$xts_enc_short:
-	add	r14,0x80
-	jz	NEAR $L$xts_enc_done
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm15,xmm6
-	movdqa	XMMWORD[rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm0,xmm6
-	movdqa	XMMWORD[16+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm7,XMMWORD[r12]
-	cmp	r14,16
-	je	NEAR $L$xts_enc_1
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm1,xmm6
-	movdqa	XMMWORD[32+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm8,XMMWORD[16+r12]
-	cmp	r14,32
-	je	NEAR $L$xts_enc_2
-	pxor	xmm15,xmm7
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm2,xmm6
-	movdqa	XMMWORD[48+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm9,XMMWORD[32+r12]
-	cmp	r14,48
-	je	NEAR $L$xts_enc_3
-	pxor	xmm0,xmm8
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm3,xmm6
-	movdqa	XMMWORD[64+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm10,XMMWORD[48+r12]
-	cmp	r14,64
-	je	NEAR $L$xts_enc_4
-	pxor	xmm1,xmm9
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm4,xmm6
-	movdqa	XMMWORD[80+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm11,XMMWORD[64+r12]
-	cmp	r14,80
-	je	NEAR $L$xts_enc_5
-	pxor	xmm2,xmm10
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm5,xmm6
-	movdqa	XMMWORD[96+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm12,XMMWORD[80+r12]
-	cmp	r14,96
-	je	NEAR $L$xts_enc_6
-	pxor	xmm3,xmm11
-	movdqu	xmm13,XMMWORD[96+r12]
-	pxor	xmm4,xmm12
-	movdqa	XMMWORD[112+rsp],xmm6
-	lea	r12,[112+r12]
-	pxor	xmm5,xmm13
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_encrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm3,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm5,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm3
-	pxor	xmm2,XMMWORD[64+rsp]
-	movdqu	XMMWORD[48+r13],xmm5
-	pxor	xmm6,XMMWORD[80+rsp]
-	movdqu	XMMWORD[64+r13],xmm2
-	pxor	xmm1,XMMWORD[96+rsp]
-	movdqu	XMMWORD[80+r13],xmm6
-	movdqu	XMMWORD[96+r13],xmm1
-	lea	r13,[112+r13]
-
-	movdqa	xmm6,XMMWORD[112+rsp]
-	jmp	NEAR $L$xts_enc_done
-ALIGN	16
-$L$xts_enc_6:
-	pxor	xmm3,xmm11
-	lea	r12,[96+r12]
-	pxor	xmm4,xmm12
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_encrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm3,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm5,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm3
-	pxor	xmm2,XMMWORD[64+rsp]
-	movdqu	XMMWORD[48+r13],xmm5
-	pxor	xmm6,XMMWORD[80+rsp]
-	movdqu	XMMWORD[64+r13],xmm2
-	movdqu	XMMWORD[80+r13],xmm6
-	lea	r13,[96+r13]
-
-	movdqa	xmm6,XMMWORD[96+rsp]
-	jmp	NEAR $L$xts_enc_done
-ALIGN	16
-$L$xts_enc_5:
-	pxor	xmm2,xmm10
-	lea	r12,[80+r12]
-	pxor	xmm3,xmm11
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_encrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm3,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm5,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm3
-	pxor	xmm2,XMMWORD[64+rsp]
-	movdqu	XMMWORD[48+r13],xmm5
-	movdqu	XMMWORD[64+r13],xmm2
-	lea	r13,[80+r13]
-
-	movdqa	xmm6,XMMWORD[80+rsp]
-	jmp	NEAR $L$xts_enc_done
-ALIGN	16
-$L$xts_enc_4:
-	pxor	xmm1,xmm9
-	lea	r12,[64+r12]
-	pxor	xmm2,xmm10
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_encrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm3,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm5,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm3
-	movdqu	XMMWORD[48+r13],xmm5
-	lea	r13,[64+r13]
-
-	movdqa	xmm6,XMMWORD[64+rsp]
-	jmp	NEAR $L$xts_enc_done
-ALIGN	16
-$L$xts_enc_3:
-	pxor	xmm0,xmm8
-	lea	r12,[48+r12]
-	pxor	xmm1,xmm9
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_encrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm3,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	movdqu	XMMWORD[32+r13],xmm3
-	lea	r13,[48+r13]
-
-	movdqa	xmm6,XMMWORD[48+rsp]
-	jmp	NEAR $L$xts_enc_done
-ALIGN	16
-$L$xts_enc_2:
-	pxor	xmm15,xmm7
-	lea	r12,[32+r12]
-	pxor	xmm0,xmm8
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_encrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	movdqu	XMMWORD[16+r13],xmm0
-	lea	r13,[32+r13]
-
-	movdqa	xmm6,XMMWORD[32+rsp]
-	jmp	NEAR $L$xts_enc_done
-ALIGN	16
-$L$xts_enc_1:
-	pxor	xmm7,xmm15
-	lea	r12,[16+r12]
-	movdqa	XMMWORD[32+rbp],xmm7
-	lea	rcx,[32+rbp]
-	lea	rdx,[32+rbp]
-	lea	r8,[r15]
-	call	asm_AES_encrypt
-	pxor	xmm15,XMMWORD[32+rbp]
-
-
-
-
-
-	movdqu	XMMWORD[r13],xmm15
-	lea	r13,[16+r13]
-
-	movdqa	xmm6,XMMWORD[16+rsp]
-
-$L$xts_enc_done:
-	and	ebx,15
-	jz	NEAR $L$xts_enc_ret
-	mov	rdx,r13
-
-$L$xts_enc_steal:
-	movzx	eax,BYTE[r12]
-	movzx	ecx,BYTE[((-16))+rdx]
-	lea	r12,[1+r12]
-	mov	BYTE[((-16))+rdx],al
-	mov	BYTE[rdx],cl
-	lea	rdx,[1+rdx]
-	sub	ebx,1
-	jnz	NEAR $L$xts_enc_steal
-
-	movdqu	xmm15,XMMWORD[((-16))+r13]
-	lea	rcx,[32+rbp]
-	pxor	xmm15,xmm6
-	lea	rdx,[32+rbp]
-	movdqa	XMMWORD[32+rbp],xmm15
-	lea	r8,[r15]
-	call	asm_AES_encrypt
-	pxor	xmm6,XMMWORD[32+rbp]
-	movdqu	XMMWORD[(-16)+r13],xmm6
-
-$L$xts_enc_ret:
-	lea	rax,[rsp]
-	pxor	xmm0,xmm0
-$L$xts_enc_bzero:
-	movdqa	XMMWORD[rax],xmm0
-	movdqa	XMMWORD[16+rax],xmm0
-	lea	rax,[32+rax]
-	cmp	rbp,rax
-	ja	NEAR $L$xts_enc_bzero
-
-	lea	rax,[120+rbp]
-	movaps	xmm6,XMMWORD[64+rbp]
-	movaps	xmm7,XMMWORD[80+rbp]
-	movaps	xmm8,XMMWORD[96+rbp]
-	movaps	xmm9,XMMWORD[112+rbp]
-	movaps	xmm10,XMMWORD[128+rbp]
-	movaps	xmm11,XMMWORD[144+rbp]
-	movaps	xmm12,XMMWORD[160+rbp]
-	movaps	xmm13,XMMWORD[176+rbp]
-	movaps	xmm14,XMMWORD[192+rbp]
-	movaps	xmm15,XMMWORD[208+rbp]
-	lea	rax,[160+rax]
-$L$xts_enc_tail:
-	mov	r15,QWORD[((-48))+rax]
-	mov	r14,QWORD[((-40))+rax]
-	mov	r13,QWORD[((-32))+rax]
-	mov	r12,QWORD[((-24))+rax]
-	mov	rbx,QWORD[((-16))+rax]
-	mov	rbp,QWORD[((-8))+rax]
-	lea	rsp,[rax]
-$L$xts_enc_epilogue:
-	DB	0F3h,0C3h		;repret
-
-
-global	bsaes_xts_decrypt
-
-ALIGN	16
-bsaes_xts_decrypt:
-	mov	rax,rsp
-$L$xts_dec_prologue:
-	push	rbp
-	push	rbx
-	push	r12
-	push	r13
-	push	r14
-	push	r15
-	lea	rsp,[((-72))+rsp]
-	mov	r10,QWORD[160+rsp]
-	mov	r11,QWORD[168+rsp]
-	lea	rsp,[((-160))+rsp]
-	movaps	XMMWORD[64+rsp],xmm6
-	movaps	XMMWORD[80+rsp],xmm7
-	movaps	XMMWORD[96+rsp],xmm8
-	movaps	XMMWORD[112+rsp],xmm9
-	movaps	XMMWORD[128+rsp],xmm10
-	movaps	XMMWORD[144+rsp],xmm11
-	movaps	XMMWORD[160+rsp],xmm12
-	movaps	XMMWORD[176+rsp],xmm13
-	movaps	XMMWORD[192+rsp],xmm14
-	movaps	XMMWORD[208+rsp],xmm15
-$L$xts_dec_body:
-	mov	rbp,rsp
-	mov	r12,rcx
-	mov	r13,rdx
-	mov	r14,r8
-	mov	r15,r9
-
-	lea	rcx,[r11]
-	lea	rdx,[32+rbp]
-	lea	r8,[r10]
-	call	asm_AES_encrypt
-
-	mov	eax,DWORD[240+r15]
-	mov	rbx,r14
-
-	mov	edx,eax
-	shl	rax,7
-	sub	rax,96
-	sub	rsp,rax
-
-	mov	rax,rsp
-	mov	rcx,r15
-	mov	r10d,edx
-	call	_bsaes_key_convert
-	pxor	xmm7,XMMWORD[rsp]
-	movdqa	XMMWORD[rax],xmm6
-	movdqa	XMMWORD[rsp],xmm7
-
-	xor	eax,eax
-	and	r14,-16
-	test	ebx,15
-	setnz	al
-	shl	rax,4
-	sub	r14,rax
-
-	sub	rsp,0x80
-	movdqa	xmm6,XMMWORD[32+rbp]
-
-	pxor	xmm14,xmm14
-	movdqa	xmm12,XMMWORD[$L$xts_magic]
-	pcmpgtd	xmm14,xmm6
-
-	sub	r14,0x80
-	jc	NEAR $L$xts_dec_short
-	jmp	NEAR $L$xts_dec_loop
-
-ALIGN	16
-$L$xts_dec_loop:
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm15,xmm6
-	movdqa	XMMWORD[rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm0,xmm6
-	movdqa	XMMWORD[16+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm7,XMMWORD[r12]
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm1,xmm6
-	movdqa	XMMWORD[32+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm8,XMMWORD[16+r12]
-	pxor	xmm15,xmm7
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm2,xmm6
-	movdqa	XMMWORD[48+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm9,XMMWORD[32+r12]
-	pxor	xmm0,xmm8
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm3,xmm6
-	movdqa	XMMWORD[64+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm10,XMMWORD[48+r12]
-	pxor	xmm1,xmm9
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm4,xmm6
-	movdqa	XMMWORD[80+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm11,XMMWORD[64+r12]
-	pxor	xmm2,xmm10
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm5,xmm6
-	movdqa	XMMWORD[96+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm12,XMMWORD[80+r12]
-	pxor	xmm3,xmm11
-	movdqu	xmm13,XMMWORD[96+r12]
-	pxor	xmm4,xmm12
-	movdqu	xmm14,XMMWORD[112+r12]
-	lea	r12,[128+r12]
-	movdqa	XMMWORD[112+rsp],xmm6
-	pxor	xmm5,xmm13
-	lea	rax,[128+rsp]
-	pxor	xmm6,xmm14
-	mov	r10d,edx
-
-	call	_bsaes_decrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm5,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm3,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm5
-	pxor	xmm1,XMMWORD[64+rsp]
-	movdqu	XMMWORD[48+r13],xmm3
-	pxor	xmm6,XMMWORD[80+rsp]
-	movdqu	XMMWORD[64+r13],xmm1
-	pxor	xmm2,XMMWORD[96+rsp]
-	movdqu	XMMWORD[80+r13],xmm6
-	pxor	xmm4,XMMWORD[112+rsp]
-	movdqu	XMMWORD[96+r13],xmm2
-	movdqu	XMMWORD[112+r13],xmm4
-	lea	r13,[128+r13]
-
-	movdqa	xmm6,XMMWORD[112+rsp]
-	pxor	xmm14,xmm14
-	movdqa	xmm12,XMMWORD[$L$xts_magic]
-	pcmpgtd	xmm14,xmm6
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-
-	sub	r14,0x80
-	jnc	NEAR $L$xts_dec_loop
-
-$L$xts_dec_short:
-	add	r14,0x80
-	jz	NEAR $L$xts_dec_done
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm15,xmm6
-	movdqa	XMMWORD[rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm0,xmm6
-	movdqa	XMMWORD[16+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm7,XMMWORD[r12]
-	cmp	r14,16
-	je	NEAR $L$xts_dec_1
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm1,xmm6
-	movdqa	XMMWORD[32+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm8,XMMWORD[16+r12]
-	cmp	r14,32
-	je	NEAR $L$xts_dec_2
-	pxor	xmm15,xmm7
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm2,xmm6
-	movdqa	XMMWORD[48+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm9,XMMWORD[32+r12]
-	cmp	r14,48
-	je	NEAR $L$xts_dec_3
-	pxor	xmm0,xmm8
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm3,xmm6
-	movdqa	XMMWORD[64+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm10,XMMWORD[48+r12]
-	cmp	r14,64
-	je	NEAR $L$xts_dec_4
-	pxor	xmm1,xmm9
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm4,xmm6
-	movdqa	XMMWORD[80+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm11,XMMWORD[64+r12]
-	cmp	r14,80
-	je	NEAR $L$xts_dec_5
-	pxor	xmm2,xmm10
-	pshufd	xmm13,xmm14,0x13
-	pxor	xmm14,xmm14
-	movdqa	xmm5,xmm6
-	movdqa	XMMWORD[96+rsp],xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	pcmpgtd	xmm14,xmm6
-	pxor	xmm6,xmm13
-	movdqu	xmm12,XMMWORD[80+r12]
-	cmp	r14,96
-	je	NEAR $L$xts_dec_6
-	pxor	xmm3,xmm11
-	movdqu	xmm13,XMMWORD[96+r12]
-	pxor	xmm4,xmm12
-	movdqa	XMMWORD[112+rsp],xmm6
-	lea	r12,[112+r12]
-	pxor	xmm5,xmm13
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_decrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm5,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm3,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm5
-	pxor	xmm1,XMMWORD[64+rsp]
-	movdqu	XMMWORD[48+r13],xmm3
-	pxor	xmm6,XMMWORD[80+rsp]
-	movdqu	XMMWORD[64+r13],xmm1
-	pxor	xmm2,XMMWORD[96+rsp]
-	movdqu	XMMWORD[80+r13],xmm6
-	movdqu	XMMWORD[96+r13],xmm2
-	lea	r13,[112+r13]
-
-	movdqa	xmm6,XMMWORD[112+rsp]
-	jmp	NEAR $L$xts_dec_done
-ALIGN	16
-$L$xts_dec_6:
-	pxor	xmm3,xmm11
-	lea	r12,[96+r12]
-	pxor	xmm4,xmm12
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_decrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm5,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm3,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm5
-	pxor	xmm1,XMMWORD[64+rsp]
-	movdqu	XMMWORD[48+r13],xmm3
-	pxor	xmm6,XMMWORD[80+rsp]
-	movdqu	XMMWORD[64+r13],xmm1
-	movdqu	XMMWORD[80+r13],xmm6
-	lea	r13,[96+r13]
-
-	movdqa	xmm6,XMMWORD[96+rsp]
-	jmp	NEAR $L$xts_dec_done
-ALIGN	16
-$L$xts_dec_5:
-	pxor	xmm2,xmm10
-	lea	r12,[80+r12]
-	pxor	xmm3,xmm11
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_decrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm5,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm3,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm5
-	pxor	xmm1,XMMWORD[64+rsp]
-	movdqu	XMMWORD[48+r13],xmm3
-	movdqu	XMMWORD[64+r13],xmm1
-	lea	r13,[80+r13]
-
-	movdqa	xmm6,XMMWORD[80+rsp]
-	jmp	NEAR $L$xts_dec_done
-ALIGN	16
-$L$xts_dec_4:
-	pxor	xmm1,xmm9
-	lea	r12,[64+r12]
-	pxor	xmm2,xmm10
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_decrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm5,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	pxor	xmm3,XMMWORD[48+rsp]
-	movdqu	XMMWORD[32+r13],xmm5
-	movdqu	XMMWORD[48+r13],xmm3
-	lea	r13,[64+r13]
-
-	movdqa	xmm6,XMMWORD[64+rsp]
-	jmp	NEAR $L$xts_dec_done
-ALIGN	16
-$L$xts_dec_3:
-	pxor	xmm0,xmm8
-	lea	r12,[48+r12]
-	pxor	xmm1,xmm9
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_decrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	pxor	xmm5,XMMWORD[32+rsp]
-	movdqu	XMMWORD[16+r13],xmm0
-	movdqu	XMMWORD[32+r13],xmm5
-	lea	r13,[48+r13]
-
-	movdqa	xmm6,XMMWORD[48+rsp]
-	jmp	NEAR $L$xts_dec_done
-ALIGN	16
-$L$xts_dec_2:
-	pxor	xmm15,xmm7
-	lea	r12,[32+r12]
-	pxor	xmm0,xmm8
-	lea	rax,[128+rsp]
-	mov	r10d,edx
-
-	call	_bsaes_decrypt8
-
-	pxor	xmm15,XMMWORD[rsp]
-	pxor	xmm0,XMMWORD[16+rsp]
-	movdqu	XMMWORD[r13],xmm15
-	movdqu	XMMWORD[16+r13],xmm0
-	lea	r13,[32+r13]
-
-	movdqa	xmm6,XMMWORD[32+rsp]
-	jmp	NEAR $L$xts_dec_done
-ALIGN	16
-$L$xts_dec_1:
-	pxor	xmm7,xmm15
-	lea	r12,[16+r12]
-	movdqa	XMMWORD[32+rbp],xmm7
-	lea	rcx,[32+rbp]
-	lea	rdx,[32+rbp]
-	lea	r8,[r15]
-	call	asm_AES_decrypt
-	pxor	xmm15,XMMWORD[32+rbp]
-
-
-
-
-
-	movdqu	XMMWORD[r13],xmm15
-	lea	r13,[16+r13]
-
-	movdqa	xmm6,XMMWORD[16+rsp]
-
-$L$xts_dec_done:
-	and	ebx,15
-	jz	NEAR $L$xts_dec_ret
-
-	pxor	xmm14,xmm14
-	movdqa	xmm12,XMMWORD[$L$xts_magic]
-	pcmpgtd	xmm14,xmm6
-	pshufd	xmm13,xmm14,0x13
-	movdqa	xmm5,xmm6
-	paddq	xmm6,xmm6
-	pand	xmm13,xmm12
-	movdqu	xmm15,XMMWORD[r12]
-	pxor	xmm6,xmm13
-
-	lea	rcx,[32+rbp]
-	pxor	xmm15,xmm6
-	lea	rdx,[32+rbp]
-	movdqa	XMMWORD[32+rbp],xmm15
-	lea	r8,[r15]
-	call	asm_AES_decrypt
-	pxor	xmm6,XMMWORD[32+rbp]
-	mov	rdx,r13
-	movdqu	XMMWORD[r13],xmm6
-
-$L$xts_dec_steal:
-	movzx	eax,BYTE[16+r12]
-	movzx	ecx,BYTE[rdx]
-	lea	r12,[1+r12]
-	mov	BYTE[rdx],al
-	mov	BYTE[16+rdx],cl
-	lea	rdx,[1+rdx]
-	sub	ebx,1
-	jnz	NEAR $L$xts_dec_steal
-
-	movdqu	xmm15,XMMWORD[r13]
-	lea	rcx,[32+rbp]
-	pxor	xmm15,xmm5
-	lea	rdx,[32+rbp]
-	movdqa	XMMWORD[32+rbp],xmm15
-	lea	r8,[r15]
-	call	asm_AES_decrypt
-	pxor	xmm5,XMMWORD[32+rbp]
-	movdqu	XMMWORD[r13],xmm5
-
-$L$xts_dec_ret:
-	lea	rax,[rsp]
-	pxor	xmm0,xmm0
-$L$xts_dec_bzero:
-	movdqa	XMMWORD[rax],xmm0
-	movdqa	XMMWORD[16+rax],xmm0
-	lea	rax,[32+rax]
-	cmp	rbp,rax
-	ja	NEAR $L$xts_dec_bzero
-
-	lea	rax,[120+rbp]
-	movaps	xmm6,XMMWORD[64+rbp]
-	movaps	xmm7,XMMWORD[80+rbp]
-	movaps	xmm8,XMMWORD[96+rbp]
-	movaps	xmm9,XMMWORD[112+rbp]
-	movaps	xmm10,XMMWORD[128+rbp]
-	movaps	xmm11,XMMWORD[144+rbp]
-	movaps	xmm12,XMMWORD[160+rbp]
-	movaps	xmm13,XMMWORD[176+rbp]
-	movaps	xmm14,XMMWORD[192+rbp]
-	movaps	xmm15,XMMWORD[208+rbp]
-	lea	rax,[160+rax]
-$L$xts_dec_tail:
-	mov	r15,QWORD[((-48))+rax]
-	mov	r14,QWORD[((-40))+rax]
-	mov	r13,QWORD[((-32))+rax]
-	mov	r12,QWORD[((-24))+rax]
-	mov	rbx,QWORD[((-16))+rax]
-	mov	rbp,QWORD[((-8))+rax]
-	lea	rsp,[rax]
-$L$xts_dec_epilogue:
-	DB	0F3h,0C3h		;repret
 
 
 ALIGN	64
@@ -2708,14 +1772,6 @@ ALIGN	4
 	DD	$L$ctr_enc_epilogue wrt ..imagebase
 	DD	$L$ctr_enc_info wrt ..imagebase
 
-	DD	$L$xts_enc_prologue wrt ..imagebase
-	DD	$L$xts_enc_epilogue wrt ..imagebase
-	DD	$L$xts_enc_info wrt ..imagebase
-
-	DD	$L$xts_dec_prologue wrt ..imagebase
-	DD	$L$xts_dec_epilogue wrt ..imagebase
-	DD	$L$xts_dec_info wrt ..imagebase
-
 section	.xdata rdata align=8
 ALIGN	8
 $L$cbc_dec_info:
@@ -2729,16 +1785,4 @@ DB	9,0,0,0
 	DD	se_handler wrt ..imagebase
 	DD	$L$ctr_enc_body wrt ..imagebase,$L$ctr_enc_epilogue wrt ..imagebase
 	DD	$L$ctr_enc_tail wrt ..imagebase
-	DD	0
-$L$xts_enc_info:
-DB	9,0,0,0
-	DD	se_handler wrt ..imagebase
-	DD	$L$xts_enc_body wrt ..imagebase,$L$xts_enc_epilogue wrt ..imagebase
-	DD	$L$xts_enc_tail wrt ..imagebase
-	DD	0
-$L$xts_dec_info:
-DB	9,0,0,0
-	DD	se_handler wrt ..imagebase
-	DD	$L$xts_dec_body wrt ..imagebase,$L$xts_dec_epilogue wrt ..imagebase
-	DD	$L$xts_dec_tail wrt ..imagebase
 	DD	0

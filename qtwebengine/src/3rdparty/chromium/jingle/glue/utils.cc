@@ -14,9 +14,9 @@
 #include "base/values.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
-#include "third_party/webrtc/p2p/base/candidate.h"
-#include "third_party/webrtc/rtc_base/byteorder.h"
-#include "third_party/webrtc/rtc_base/socketaddress.h"
+#include "third_party/webrtc/api/candidate.h"
+#include "third_party/webrtc/rtc_base/byte_order.h"
+#include "third_party/webrtc/rtc_base/socket_address.h"
 
 namespace jingle_glue {
 
@@ -51,6 +51,13 @@ rtc::IPAddress NetIPAddressToRtcIPAddress(const net::IPAddress& ip_address) {
   return rtc::IPAddress();
 }
 
+net::IPAddress RtcIPAddressToNetIPAddress(const rtc::IPAddress& ip_address) {
+  rtc::SocketAddress socket_address(ip_address, 0);
+  net::IPEndPoint ip_endpoint;
+  jingle_glue::SocketAddressToIPEndPoint(socket_address, &ip_endpoint);
+  return ip_endpoint.address();
+}
+
 std::string SerializeP2PCandidate(const cricket::Candidate& candidate) {
   // TODO(sergeyu): Use SDP to format candidates?
   base::DictionaryValue value;
@@ -72,7 +79,7 @@ bool DeserializeP2PCandidate(const std::string& candidate_str,
                              cricket::Candidate* candidate) {
   std::unique_ptr<base::Value> value(
       base::JSONReader::Read(candidate_str, base::JSON_ALLOW_TRAILING_COMMAS));
-  if (!value.get() || !value->IsType(base::Value::Type::DICTIONARY)) {
+  if (!value.get() || !value->is_dict()) {
     return false;
   }
 

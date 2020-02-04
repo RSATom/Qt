@@ -6,69 +6,95 @@
 
 #include <string>
 
-#include "services/resource_coordinator/coordination_unit/coordination_unit_impl.h"
+#include "services/resource_coordinator/coordination_unit/coordination_unit_base.h"
+#include "services/resource_coordinator/coordination_unit/frame_coordination_unit_impl.h"
+#include "services/resource_coordinator/coordination_unit/page_coordination_unit_impl.h"
+#include "services/resource_coordinator/coordination_unit/process_coordination_unit_impl.h"
+#include "services/resource_coordinator/coordination_unit/system_coordination_unit_impl.h"
 #include "services/resource_coordinator/public/cpp/coordination_unit_id.h"
 #include "services/resource_coordinator/public/cpp/coordination_unit_types.h"
 
-namespace service_manager {
-class ServiceContextRef;
-}
-
 namespace resource_coordinator {
 
-namespace {
-
-TestCoordinationUnitWrapper CreateCoordinationUnit(CoordinationUnitType type) {
-  CoordinationUnitID cu_id(type, std::string());
-  return TestCoordinationUnitWrapper(
-      CoordinationUnitImpl::CreateCoordinationUnit(cu_id, nullptr));
+MockSinglePageInSingleProcessCoordinationUnitGraph::
+    MockSinglePageInSingleProcessCoordinationUnitGraph(
+        CoordinationUnitGraph* graph)
+    : system(TestCoordinationUnitWrapper<SystemCoordinationUnitImpl>::Create(
+          graph)),
+      frame(TestCoordinationUnitWrapper<FrameCoordinationUnitImpl>::Create(
+          graph)),
+      process(TestCoordinationUnitWrapper<ProcessCoordinationUnitImpl>::Create(
+          graph)),
+      page(TestCoordinationUnitWrapper<PageCoordinationUnitImpl>::Create(
+          graph)) {
+  frame->SetAllInterventionPoliciesForTesting(
+      mojom::InterventionPolicy::kDefault);
+  page->AddFrame(frame->id());
+  frame->SetProcess(process->id());
+  process->SetPID(1);
 }
 
-}  // namespace
+MockSinglePageInSingleProcessCoordinationUnitGraph::
+    ~MockSinglePageInSingleProcessCoordinationUnitGraph() = default;
 
-MockSingleTabInSingleProcessCoordinationUnitGraph::
-    MockSingleTabInSingleProcessCoordinationUnitGraph()
-    : frame(CreateCoordinationUnit(CoordinationUnitType::kFrame)),
-      process(CreateCoordinationUnit(CoordinationUnitType::kProcess)),
-      tab(CreateCoordinationUnit(CoordinationUnitType::kWebContents)) {
-  tab->AddChild(frame->id());
-  process->AddChild(frame->id());
+MockMultiplePagesInSingleProcessCoordinationUnitGraph::
+    MockMultiplePagesInSingleProcessCoordinationUnitGraph(
+        CoordinationUnitGraph* graph)
+    : MockSinglePageInSingleProcessCoordinationUnitGraph(graph),
+      other_frame(
+          TestCoordinationUnitWrapper<FrameCoordinationUnitImpl>::Create(
+              graph)),
+      other_page(TestCoordinationUnitWrapper<PageCoordinationUnitImpl>::Create(
+          graph)) {
+  other_frame->SetAllInterventionPoliciesForTesting(
+      mojom::InterventionPolicy::kDefault);
+  other_page->AddFrame(other_frame->id());
+  other_frame->SetProcess(process->id());
 }
 
-MockSingleTabInSingleProcessCoordinationUnitGraph::
-    ~MockSingleTabInSingleProcessCoordinationUnitGraph() = default;
+MockMultiplePagesInSingleProcessCoordinationUnitGraph::
+    ~MockMultiplePagesInSingleProcessCoordinationUnitGraph() = default;
 
-MockMultipleTabsInSingleProcessCoordinationUnitGraph::
-    MockMultipleTabsInSingleProcessCoordinationUnitGraph()
-    : other_frame(CreateCoordinationUnit(CoordinationUnitType::kFrame)),
-      other_tab(CreateCoordinationUnit(CoordinationUnitType::kWebContents)) {
-  other_tab->AddChild(other_frame->id());
-  process->AddChild(other_frame->id());
+MockSinglePageWithMultipleProcessesCoordinationUnitGraph::
+    MockSinglePageWithMultipleProcessesCoordinationUnitGraph(
+        CoordinationUnitGraph* graph)
+    : MockSinglePageInSingleProcessCoordinationUnitGraph(graph),
+      child_frame(
+          TestCoordinationUnitWrapper<FrameCoordinationUnitImpl>::Create(
+              graph)),
+      other_process(
+          TestCoordinationUnitWrapper<ProcessCoordinationUnitImpl>::Create(
+              graph)) {
+  child_frame->SetAllInterventionPoliciesForTesting(
+      mojom::InterventionPolicy::kDefault);
+  frame->AddChildFrame(child_frame->id());
+  page->AddFrame(child_frame->id());
+  child_frame->SetProcess(other_process->id());
+  other_process->SetPID(2);
 }
 
-MockMultipleTabsInSingleProcessCoordinationUnitGraph::
-    ~MockMultipleTabsInSingleProcessCoordinationUnitGraph() = default;
+MockSinglePageWithMultipleProcessesCoordinationUnitGraph::
+    ~MockSinglePageWithMultipleProcessesCoordinationUnitGraph() = default;
 
-MockSingleTabWithMultipleProcessesCoordinationUnitGraph::
-    MockSingleTabWithMultipleProcessesCoordinationUnitGraph()
-    : child_frame(CreateCoordinationUnit(CoordinationUnitType::kFrame)),
-      other_process(CreateCoordinationUnit(CoordinationUnitType::kProcess)) {
-  frame->AddChild(child_frame->id());
-  other_process->AddChild(child_frame->id());
+MockMultiplePagesWithMultipleProcessesCoordinationUnitGraph::
+    MockMultiplePagesWithMultipleProcessesCoordinationUnitGraph(
+        CoordinationUnitGraph* graph)
+    : MockMultiplePagesInSingleProcessCoordinationUnitGraph(graph),
+      child_frame(
+          TestCoordinationUnitWrapper<FrameCoordinationUnitImpl>::Create(
+              graph)),
+      other_process(
+          TestCoordinationUnitWrapper<ProcessCoordinationUnitImpl>::Create(
+              graph)) {
+  child_frame->SetAllInterventionPoliciesForTesting(
+      mojom::InterventionPolicy::kDefault);
+  other_frame->AddChildFrame(child_frame->id());
+  other_page->AddFrame(child_frame->id());
+  child_frame->SetProcess(other_process->id());
+  other_process->SetPID(2);
 }
 
-MockSingleTabWithMultipleProcessesCoordinationUnitGraph::
-    ~MockSingleTabWithMultipleProcessesCoordinationUnitGraph() = default;
-
-MockMultipleTabsWithMultipleProcessesCoordinationUnitGraph::
-    MockMultipleTabsWithMultipleProcessesCoordinationUnitGraph()
-    : child_frame(CreateCoordinationUnit(CoordinationUnitType::kFrame)),
-      other_process(CreateCoordinationUnit(CoordinationUnitType::kProcess)) {
-  other_frame->AddChild(child_frame->id());
-  other_process->AddChild(child_frame->id());
-}
-
-MockMultipleTabsWithMultipleProcessesCoordinationUnitGraph::
-    ~MockMultipleTabsWithMultipleProcessesCoordinationUnitGraph() = default;
+MockMultiplePagesWithMultipleProcessesCoordinationUnitGraph::
+    ~MockMultiplePagesWithMultipleProcessesCoordinationUnitGraph() = default;
 
 }  // namespace resource_coordinator

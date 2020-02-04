@@ -10,20 +10,18 @@
 #include "core/fxge/agg/fx_agg_driver.h"
 #endif
 
-#include "core/fxcrt/fx_memory.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/fx_freetype.h"
-#include "core/fxge/fx_text_int.h"
-#include "third_party/base/ptr_util.h"
 
 #include "core/fxge/apple/apple_int.h"
 #ifndef CGFLOAT_IS_DOUBLE
 #error Expected CGFLOAT_IS_DOUBLE to be defined by CoreGraphics headers
 #endif
 
-void* CQuartz2D::createGraphics(const CFX_RetainPtr<CFX_DIBitmap>& pBitmap) {
+void* CQuartz2D::createGraphics(const RetainPtr<CFX_DIBitmap>& pBitmap) {
   if (!pBitmap)
     return nullptr;
   CGBitmapInfo bmpInfo = kCGBitmapByteOrder32Little;
@@ -50,7 +48,7 @@ void CQuartz2D::destroyGraphics(void* graphics) {
 
 void* CQuartz2D::CreateFont(const uint8_t* pFontData, uint32_t dwFontSize) {
   CGDataProviderRef pDataProvider = CGDataProviderCreateWithData(
-      nullptr, pFontData, (size_t)dwFontSize, nullptr);
+      nullptr, pFontData, static_cast<size_t>(dwFontSize), nullptr);
   if (!pDataProvider)
     return nullptr;
 
@@ -79,20 +77,14 @@ bool CQuartz2D::drawGraphicsString(void* graphics,
                                    uint16_t* glyphIndices,
                                    CGPoint* glyphPositions,
                                    int32_t charsCount,
-                                   FX_ARGB argb,
-                                   CFX_Matrix* matrix) {
+                                   FX_ARGB argb) {
   if (!graphics)
     return false;
+
   CGContextRef context = (CGContextRef)graphics;
   CGContextSetFont(context, (CGFontRef)font);
   CGContextSetFontSize(context, fontSize);
-  if (matrix) {
-    CGAffineTransform m = CGContextGetTextMatrix(context);
-    m = CGAffineTransformConcat(
-        m, CGAffineTransformMake(matrix->a, matrix->b, matrix->c, matrix->d,
-                                 matrix->e, matrix->f));
-    CGContextSetTextMatrix(context, m);
-  }
+
   int32_t a;
   int32_t r;
   int32_t g;

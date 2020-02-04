@@ -13,13 +13,15 @@ group("proto_lite") {
 
 proto_library("proto") {
   sources = [
+    "action.proto",
     "audio.proto",
     "control.proto",
     "event.proto",
+    "file_transfer.proto",
     "internal.proto",
     "mux.proto",
     "process_stats.proto",
-    "test.proto",
+    "test_data_channel_manager.proto",
     "video.proto",
     "video_stats.proto",
   ]

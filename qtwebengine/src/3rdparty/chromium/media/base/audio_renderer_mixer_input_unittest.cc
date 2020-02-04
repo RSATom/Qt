@@ -19,13 +19,14 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using testing::_;
+
 namespace {
 void LogUma(int value) {}
 }
 
 namespace media {
 
-static const int kBitsPerChannel = 16;
 static const int kSampleRate = 48000;
 static const int kBufferSize = 8192;
 static const int kRenderFrameId = 42;
@@ -36,12 +37,12 @@ static const char kUnauthorizedDeviceId[] = "unauthorized";
 static const char kNonexistentDeviceId[] = "nonexistent";
 
 class AudioRendererMixerInputTest : public testing::Test,
-                                    AudioRendererMixerPool {
+                                    public AudioRendererMixerPool {
  public:
   AudioRendererMixerInputTest() {
-    audio_parameters_ = AudioParameters(
-        AudioParameters::AUDIO_PCM_LINEAR, kChannelLayout, kSampleRate,
-        kBitsPerChannel, kBufferSize);
+    audio_parameters_ =
+        AudioParameters(AudioParameters::AUDIO_PCM_LINEAR, kChannelLayout,
+                        kSampleRate, kBufferSize);
 
     CreateMixerInput(kDefaultDeviceId);
     fake_callback_.reset(new FakeAudioRenderCallback(0, kSampleRate));
@@ -50,43 +51,26 @@ class AudioRendererMixerInputTest : public testing::Test,
 
   void CreateMixerInput(const std::string& device_id) {
     mixer_input_ = new AudioRendererMixerInput(this, kRenderFrameId, device_id,
-                                               url::Origin(),
                                                AudioLatency::LATENCY_PLAYBACK);
+    mixer_input_->GetOutputDeviceInfoAsync(base::DoNothing());
+    scoped_task_environment_.RunUntilIdle();
   }
 
   AudioRendererMixer* GetMixer(int owner_id,
                                const AudioParameters& params,
                                AudioLatency::LatencyType latency,
-                               const std::string& device_id,
-                               const url::Origin& security_origin,
-                               OutputDeviceStatus* device_status) {
+                               const OutputDeviceInfo& sink_info,
+                               scoped_refptr<AudioRendererSink> sink) override {
     EXPECT_TRUE(params.IsValid());
-    if (device_id == kNonexistentDeviceId) {
-      if (device_status)
-        *device_status = OUTPUT_DEVICE_STATUS_ERROR_NOT_FOUND;
-      return nullptr;
-    }
-
-    if (device_id == kUnauthorizedDeviceId) {
-      if (device_status)
-        *device_status = OUTPUT_DEVICE_STATUS_ERROR_NOT_AUTHORIZED;
-      return nullptr;
-    }
-
-    size_t idx = (device_id == kDefaultDeviceId) ? 0 : 1;
+    size_t idx = (sink_info.device_id() == kDefaultDeviceId) ? 0 : 1;
     if (!mixers_[idx]) {
-      sinks_[idx] =
-          new MockAudioRendererSink(device_id, OUTPUT_DEVICE_STATUS_OK);
-      EXPECT_CALL(*(sinks_[idx].get()), Start());
-      EXPECT_CALL(*(sinks_[idx].get()), Stop());
+      EXPECT_CALL(*reinterpret_cast<MockAudioRendererSink*>(sink.get()),
+                  Start());
 
       mixers_[idx].reset(new AudioRendererMixer(
-          audio_parameters_, sinks_[idx].get(), base::Bind(&LogUma)));
+          audio_parameters_, std::move(sink), base::BindRepeating(&LogUma)));
     }
     EXPECT_CALL(*this, ReturnMixer(mixers_[idx].get()));
-
-    if (device_status)
-      *device_status = OUTPUT_DEVICE_STATUS_OK;
     return mixers_[idx].get();
   }
 
@@ -94,26 +78,23 @@ class AudioRendererMixerInputTest : public testing::Test,
     return mixer_input_->ProvideInput(audio_bus_.get(), 0);
   }
 
-  OutputDeviceInfo GetOutputDeviceInfo(int source_render_frame_id,
-                                       int session_id,
-                                       const std::string& device_id,
-                                       const url::Origin& security_origin) {
+  scoped_refptr<AudioRendererSink> GetSink(
+      int owner_id,
+      const std::string& device_id) override {
     OutputDeviceStatus status = OUTPUT_DEVICE_STATUS_OK;
     if (device_id == kNonexistentDeviceId)
       status = OUTPUT_DEVICE_STATUS_ERROR_NOT_FOUND;
     else if (device_id == kUnauthorizedDeviceId)
       status = OUTPUT_DEVICE_STATUS_ERROR_NOT_AUTHORIZED;
-
-    GetOutputDeviceInfoCalled(device_id);
-    return OutputDeviceInfo(device_id, status,
-                            AudioParameters::UnavailableDeviceParams());
+    auto sink = base::MakeRefCounted<MockAudioRendererSink>(device_id, status);
+    EXPECT_CALL(*sink, Stop());
+    return sink;
   }
-
-  MOCK_METHOD1(GetOutputDeviceInfoCalled, void(const std::string&));
 
   MOCK_METHOD1(ReturnMixer, void(AudioRendererMixer*));
 
   MOCK_METHOD1(SwitchCallbackCalled, void(OutputDeviceStatus));
+  MOCK_METHOD1(OnDeviceInfoReceived, void(OutputDeviceInfo));
 
   void SwitchCallback(base::RunLoop* loop, OutputDeviceStatus result) {
     SwitchCallbackCalled(result);
@@ -121,13 +102,15 @@ class AudioRendererMixerInputTest : public testing::Test,
   }
 
   AudioRendererMixer* GetInputMixer() { return mixer_input_->mixer_; }
+  MockAudioRendererSink* GetMockSink() const {
+    return reinterpret_cast<MockAudioRendererSink*>(mixer_input_->sink_.get());
+  }
 
  protected:
-  virtual ~AudioRendererMixerInputTest() {}
+  ~AudioRendererMixerInputTest() override = default;
 
   base::test::ScopedTaskEnvironment scoped_task_environment_;
   AudioParameters audio_parameters_;
-  scoped_refptr<MockAudioRendererSink> sinks_[2];
   std::unique_ptr<AudioRendererMixer> mixers_[2];
   scoped_refptr<AudioRendererMixerInput> mixer_input_;
   std::unique_ptr<FakeAudioRenderCallback> fake_callback_;
@@ -136,25 +119,6 @@ class AudioRendererMixerInputTest : public testing::Test,
  private:
   DISALLOW_COPY_AND_ASSIGN(AudioRendererMixerInputTest);
 };
-
-TEST_F(AudioRendererMixerInputTest, GetDeviceInfo) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(kDefaultDeviceId))
-      .Times(testing::Exactly(1));
-
-  mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
-
-  // Calling GetOutputDeviceInfo() should result in the mock call, since there
-  // is no mixer created yet for mixer input.
-  mixer_input_->GetOutputDeviceInfo();
-  mixer_input_->Start();
-
-  // This call should be directed to the mixer and should not result in the mock
-  // call.
-  EXPECT_STREQ(kDefaultDeviceId,
-               mixer_input_->GetOutputDeviceInfo().device_id().c_str());
-
-  mixer_input_->Stop();
-}
 
 // Test that getting and setting the volume work as expected.  The volume is
 // returned from ProvideInput() only when playing.
@@ -200,6 +164,9 @@ TEST_F(AudioRendererMixerInputTest, StopBeforeInitializeOrStart) {
 TEST_F(AudioRendererMixerInputTest, StartAfterStop) {
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Stop();
+
+  mixer_input_->GetOutputDeviceInfoAsync(base::DoNothing());
+  scoped_task_environment_.RunUntilIdle();
   mixer_input_->Start();
   mixer_input_->Stop();
 }
@@ -209,14 +176,15 @@ TEST_F(AudioRendererMixerInputTest, InitializeAfterStop) {
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Start();
   mixer_input_->Stop();
+
+  mixer_input_->GetOutputDeviceInfoAsync(base::DoNothing());
+  scoped_task_environment_.RunUntilIdle();
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Stop();
 }
 
 // Test SwitchOutputDevice().
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDevice) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(testing::_))
-      .Times(testing::Exactly(0));
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Start();
   const std::string kDeviceId("mock-device-id");
@@ -225,9 +193,8 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDevice) {
   EXPECT_EQ(old_mixer, mixers_[0].get());
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
-      kDeviceId, url::Origin(),
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
+      kDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
+                            base::Unretained(this), &run_loop));
   run_loop.Run();
   AudioRendererMixer* new_mixer = GetInputMixer();
   EXPECT_EQ(new_mixer, mixers_[1].get());
@@ -237,17 +204,14 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDevice) {
 
 // Test SwitchOutputDevice() to the same device as the current (default) device
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToSameDevice) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(testing::_))
-      .Times(testing::Exactly(0));
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Start();
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   AudioRendererMixer* old_mixer = GetInputMixer();
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
-      kDefaultDeviceId, url::Origin(),
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
+      kDefaultDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
+                                   base::Unretained(this), &run_loop));
   run_loop.Run();
   AudioRendererMixer* new_mixer = GetInputMixer();
   EXPECT_EQ(old_mixer, new_mixer);
@@ -256,17 +220,14 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToSameDevice) {
 
 // Test SwitchOutputDevice() to the new device
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToAnotherDevice) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(testing::_))
-      .Times(testing::Exactly(0));
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Start();
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   AudioRendererMixer* old_mixer = GetInputMixer();
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, url::Origin(),
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
+      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
+                                   base::Unretained(this), &run_loop));
   run_loop.Run();
   AudioRendererMixer* new_mixer = GetInputMixer();
   EXPECT_NE(old_mixer, new_mixer);
@@ -275,15 +236,13 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToAnotherDevice) {
 
 // Test that SwitchOutputDevice() to a nonexistent device fails.
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToNonexistentDevice) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(testing::_))
-      .Times(testing::Exactly(0));
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Start();
   EXPECT_CALL(*this,
               SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_ERROR_NOT_FOUND));
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
-      kNonexistentDeviceId, url::Origin(),
+      kNonexistentDeviceId,
       base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
                  base::Unretained(this), &run_loop));
   run_loop.Run();
@@ -292,15 +251,13 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToNonexistentDevice) {
 
 // Test that SwitchOutputDevice() to an unauthorized device fails.
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToUnauthorizedDevice) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(testing::_))
-      .Times(testing::Exactly(0));
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Start();
   EXPECT_CALL(*this,
               SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_ERROR_NOT_AUTHORIZED));
   base::RunLoop run_loop;
   mixer_input_->SwitchOutputDevice(
-      kUnauthorizedDeviceId, url::Origin(),
+      kUnauthorizedDeviceId,
       base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
                  base::Unretained(this), &run_loop));
   run_loop.Run();
@@ -309,15 +266,12 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceToUnauthorizedDevice) {
 
 // Test that calling SwitchOutputDevice() before Start() succeeds.
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceBeforeStart) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(kAnotherDeviceId))
-      .Times(testing::Exactly(1));
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   base::RunLoop run_loop;
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, url::Origin(),
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
+      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
+                                   base::Unretained(this), &run_loop));
   mixer_input_->Start();
   run_loop.Run();
   mixer_input_->Stop();
@@ -326,49 +280,19 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceBeforeStart) {
 // Test that calling SwitchOutputDevice() succeeds even if Start() is never
 // called.
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceWithoutStart) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(kAnotherDeviceId))
-      .Times(testing::Exactly(1));
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   base::RunLoop run_loop;
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, url::Origin(),
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
-  mixer_input_->Stop();
+      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
+                                   base::Unretained(this), &run_loop));
   run_loop.Run();
-}
-
-// Test creation with an invalid device. OnRenderError() should be called.
-// Play(), Pause() and SwitchOutputDevice() should not cause crashes, even if
-// they have no effect.
-TEST_F(AudioRendererMixerInputTest, CreateWithInvalidDevice) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(kDefaultDeviceId))
-      .Times(testing::Exactly(1));
-  // |mixer_input_| was initialized during construction.
   mixer_input_->Stop();
-
-  CreateMixerInput(kNonexistentDeviceId);
-  EXPECT_CALL(*fake_callback_, OnRenderError());
-  mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
-  mixer_input_->Start();
-  mixer_input_->Play();
-  mixer_input_->Pause();
-  base::RunLoop run_loop;
-  EXPECT_CALL(*this, SwitchCallbackCalled(testing::_));
-  mixer_input_->SwitchOutputDevice(
-      kDefaultDeviceId, url::Origin(),
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
-  mixer_input_->Stop();
-  run_loop.Run();
 }
 
 // Test that calling SwitchOutputDevice() works after calling Stop(), and that
 // restarting works after the call to SwitchOutputDevice().
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceAfterStopBeforeRestart) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(kAnotherDeviceId))
-      .Times(testing::Exactly(1));
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Start();
   mixer_input_->Stop();
@@ -376,9 +300,8 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceAfterStopBeforeRestart) {
   base::RunLoop run_loop;
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, url::Origin(),
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
+      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
+                                   base::Unretained(this), &run_loop));
   run_loop.Run();
 
   mixer_input_->Start();
@@ -389,18 +312,140 @@ TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceAfterStopBeforeRestart) {
 // and that initialization and restart work after the call to
 // SwitchOutputDevice().
 TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceBeforeInitialize) {
-  EXPECT_CALL(*this, GetOutputDeviceInfoCalled(kAnotherDeviceId))
-      .Times(testing::Exactly(1));
   base::RunLoop run_loop;
   EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
   mixer_input_->SwitchOutputDevice(
-      kAnotherDeviceId, url::Origin(),
-      base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
-                 base::Unretained(this), &run_loop));
+      kAnotherDeviceId, base::Bind(&AudioRendererMixerInputTest::SwitchCallback,
+                                   base::Unretained(this), &run_loop));
   run_loop.Run();
 
   mixer_input_->Initialize(audio_parameters_, fake_callback_.get());
   mixer_input_->Start();
+  mixer_input_->Stop();
+}
+
+// Test that calling SwitchOutputDevice() before
+// GetOutputDeviceInfoAsync() works correctly.
+TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceBeforeGODIA) {
+  mixer_input_->Stop();
+  mixer_input_ = new AudioRendererMixerInput(
+      this, kRenderFrameId, kDefaultDeviceId, AudioLatency::LATENCY_PLAYBACK);
+
+  base::RunLoop run_loop;
+  EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
+  mixer_input_->SwitchOutputDevice(
+      kAnotherDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallback,
+                     base::Unretained(this), &run_loop));
+  run_loop.Run();
+  mixer_input_->Stop();
+}
+
+// Test that calling SwitchOutputDevice() during an ongoing
+// GetOutputDeviceInfoAsync() call works correctly.
+TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceDuringGODIA) {
+  mixer_input_->Stop();
+  mixer_input_ = new AudioRendererMixerInput(
+      this, kRenderFrameId, kDefaultDeviceId, AudioLatency::LATENCY_PLAYBACK);
+
+  mixer_input_->GetOutputDeviceInfoAsync(
+      base::BindOnce(&AudioRendererMixerInputTest::OnDeviceInfoReceived,
+                     base::Unretained(this)));
+  mixer_input_->SwitchOutputDevice(
+      kAnotherDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallbackCalled,
+                     base::Unretained(this)));
+  {
+    // Verify that first the GODIA call returns, then the SwitchOutputDevice().
+    testing::InSequence sequence_required;
+    OutputDeviceInfo info;
+    constexpr auto kExpectedStatus = OUTPUT_DEVICE_STATUS_OK;
+    EXPECT_CALL(*this, OnDeviceInfoReceived(_))
+        .WillOnce(testing::SaveArg<0>(&info));
+    EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
+    scoped_task_environment_.RunUntilIdle();
+    EXPECT_EQ(kExpectedStatus, info.device_status());
+    EXPECT_EQ(kDefaultDeviceId, info.device_id());
+  }
+
+  mixer_input_->Stop();
+}
+
+// Test that calling GetOutputDeviceInfoAsync() during an ongoing
+// SwitchOutputDevice() call works correctly.
+TEST_F(AudioRendererMixerInputTest, GODIADuringSwitchOutputDevice) {
+  mixer_input_->Stop();
+  mixer_input_ = new AudioRendererMixerInput(
+      this, kRenderFrameId, kDefaultDeviceId, AudioLatency::LATENCY_PLAYBACK);
+
+  mixer_input_->SwitchOutputDevice(
+      kAnotherDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallbackCalled,
+                     base::Unretained(this)));
+  mixer_input_->GetOutputDeviceInfoAsync(
+      base::BindOnce(&AudioRendererMixerInputTest::OnDeviceInfoReceived,
+                     base::Unretained(this)));
+
+  {
+    // Verify that first the SwitchOutputDevice call returns, then the GODIA().
+    testing::InSequence sequence_required;
+    EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
+    OutputDeviceInfo info;
+    constexpr auto kExpectedStatus = OUTPUT_DEVICE_STATUS_OK;
+    EXPECT_CALL(*this, OnDeviceInfoReceived(_))
+        .WillOnce(testing::SaveArg<0>(&info));
+    scoped_task_environment_.RunUntilIdle();
+    EXPECT_EQ(kExpectedStatus, info.device_status());
+    EXPECT_EQ(kAnotherDeviceId, info.device_id());
+  }
+
+  mixer_input_->Stop();
+}
+
+// Test that calling GetOutputDeviceInfoAsync() during an ongoing
+// SwitchOutputDevice() call which eventually fails works correctly.
+TEST_F(AudioRendererMixerInputTest, GODIADuringSwitchOutputDeviceWhichFails) {
+  mixer_input_->Stop();
+  mixer_input_ = new AudioRendererMixerInput(
+      this, kRenderFrameId, kDefaultDeviceId, AudioLatency::LATENCY_PLAYBACK);
+
+  mixer_input_->SwitchOutputDevice(
+      kNonexistentDeviceId,
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallbackCalled,
+                     base::Unretained(this)));
+  mixer_input_->GetOutputDeviceInfoAsync(
+      base::BindOnce(&AudioRendererMixerInputTest::OnDeviceInfoReceived,
+                     base::Unretained(this)));
+
+  {
+    // Verify that first the SwitchOutputDevice call returns, then the GODIA().
+    testing::InSequence sequence_required;
+    EXPECT_CALL(*this,
+                SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_ERROR_NOT_FOUND));
+    OutputDeviceInfo info;
+    constexpr auto kExpectedStatus = OUTPUT_DEVICE_STATUS_OK;
+    EXPECT_CALL(*this, OnDeviceInfoReceived(_))
+        .WillOnce(testing::SaveArg<0>(&info));
+    scoped_task_environment_.RunUntilIdle();
+    EXPECT_EQ(kExpectedStatus, info.device_status());
+    EXPECT_EQ(kDefaultDeviceId, info.device_id());
+  }
+
+  mixer_input_->Stop();
+}
+
+// Test that calling SwitchOutputDevice() with an empty device id does nothing
+// when we're already on the default device.
+TEST_F(AudioRendererMixerInputTest, SwitchOutputDeviceEmptyDeviceId) {
+  EXPECT_CALL(*this, SwitchCallbackCalled(OUTPUT_DEVICE_STATUS_OK));
+  mixer_input_->SwitchOutputDevice(
+      std::string(),
+      base::BindOnce(&AudioRendererMixerInputTest::SwitchCallbackCalled,
+                     base::Unretained(this)));
+
+  // No RunUntilIdle() since switch should immediately return success.
+  testing::Mock::VerifyAndClear(this);
+
   mixer_input_->Stop();
 }
 

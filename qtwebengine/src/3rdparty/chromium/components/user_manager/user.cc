@@ -6,18 +6,34 @@
 
 #include <stddef.h>
 
+#include "base/callback.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 
 namespace user_manager {
 
 namespace {
+
+// Must be in sync with histogram enum UserTypeChanged in enums.xml.
+// The values must never be changed (only new ones can be added) as they
+// are stored in UMA logs.
+enum class UserTypeChangeHistogram {
+  UNKNOWN_FATAL = 0,
+  REGULAR_TO_CHILD = 1,
+  CHILD_TO_REGULAR = 2,
+  COUNT,  // Not a value, just a count of other values.
+};
+void UMAUserTypeChanged(const UserTypeChangeHistogram value) {
+  UMA_HISTOGRAM_ENUMERATION("UserManager.UserTypeChanged", value,
+                            UserTypeChangeHistogram::COUNT);
+}
 
 // Returns account name portion of an email.
 std::string GetUserName(const std::string& email) {
@@ -39,16 +55,16 @@ bool User::TypeHasGaiaAccount(UserType user_type) {
 // Also used for regular supervised users.
 class RegularUser : public User {
  public:
-  explicit RegularUser(const AccountId& account_id);
+  RegularUser(const AccountId& account_id, const UserType user_type);
   ~RegularUser() override;
 
   // Overridden from User:
   UserType GetType() const override;
+  void UpdateType(UserType user_type) override;
   bool CanSyncImage() const override;
-  void SetIsChild(bool is_child) override;
 
  private:
-  bool is_child_ = false;
+  bool is_child_;
 
   DISALLOW_COPY_AND_ASSIGN(RegularUser);
 };
@@ -166,12 +182,10 @@ const AccountId& User::GetAccountId() const {
   return account_id_;
 }
 
-void User::SetIsChild(bool is_child) {
-  VLOG(1) << "Ignoring SetIsChild call with param " << is_child;
-  if (is_child) {
-    NOTREACHED() << "Calling SetIsChild(true) for base User class."
-                 << "Base class cannot be set as child";
-  }
+void User::UpdateType(UserType user_type) {
+  UMAUserTypeChanged(UserTypeChangeHistogram::UNKNOWN_FATAL);
+  LOG(FATAL) << "Unsupported user type change " << GetType() << "=>"
+             << user_type;
 }
 
 bool User::HasGaiaAccount() const {
@@ -186,6 +200,10 @@ bool User::IsSupervised() const {
   UserType type = GetType();
   return  type == USER_TYPE_SUPERVISED ||
           type == USER_TYPE_CHILD;
+}
+
+bool User::IsChild() const {
+  return GetType() == USER_TYPE_CHILD;
 }
 
 std::string User::GetAccountName(bool use_display_email) const {
@@ -223,8 +241,40 @@ bool User::is_active() const {
   return is_active_;
 }
 
+bool User::has_gaia_account() const {
+  static_assert(user_manager::NUM_USER_TYPES == 9,
+                "NUM_USER_TYPES should equal 9");
+  switch (GetType()) {
+    case user_manager::USER_TYPE_REGULAR:
+    case user_manager::USER_TYPE_CHILD:
+      return true;
+    case user_manager::USER_TYPE_GUEST:
+    case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
+    case user_manager::USER_TYPE_SUPERVISED:
+    case user_manager::USER_TYPE_KIOSK_APP:
+    case user_manager::USER_TYPE_ARC_KIOSK_APP:
+    case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
+      return false;
+    default:
+      NOTREACHED();
+  }
+  return false;
+}
+
+void User::AddProfileCreatedObserver(base::OnceClosure on_profile_created) {
+  DCHECK(!profile_is_created_);
+  on_profile_created_observers_.push_back(std::move(on_profile_created));
+}
+
 bool User::IsAffiliated() const {
   return is_affiliated_;
+}
+
+void User::SetProfileIsCreated() {
+  profile_is_created_ = true;
+  for (auto& callback : on_profile_created_observers_)
+    std::move(callback).Run();
+  on_profile_created_observers_.clear();
 }
 
 void User::SetAffiliation(bool is_affiliated) {
@@ -235,10 +285,11 @@ bool User::IsDeviceLocalAccount() const {
   return false;
 }
 
-User* User::CreateRegularUser(const AccountId& account_id) {
+User* User::CreateRegularUser(const AccountId& account_id,
+                              const UserType user_type) {
   if (account_id.GetAccountType() == AccountType::ACTIVE_DIRECTORY)
     return new ActiveDirectoryUser(account_id);
-  return new RegularUser(account_id);
+  return new RegularUser(account_id, user_type);
 }
 
 User* User::CreateGuestUser(const AccountId& guest_account_id) {
@@ -294,13 +345,19 @@ bool ActiveDirectoryUser::CanSyncImage() const {
   return false;
 }
 
-RegularUser::RegularUser(const AccountId& account_id) : User(account_id) {
+RegularUser::RegularUser(const AccountId& account_id, const UserType user_type)
+    : User(account_id), is_child_(user_type == USER_TYPE_CHILD) {
+  if (user_type != USER_TYPE_CHILD && user_type != USER_TYPE_REGULAR &&
+      user_type != USER_TYPE_ACTIVE_DIRECTORY) {
+    LOG(FATAL) << "Invalid user type " << user_type;
+  }
+
   set_can_lock(true);
   set_display_email(account_id.GetUserEmail());
 }
 
 ActiveDirectoryUser::ActiveDirectoryUser(const AccountId& account_id)
-    : RegularUser(account_id) {}
+    : RegularUser(account_id, user_manager::USER_TYPE_ACTIVE_DIRECTORY) {}
 
 RegularUser::~RegularUser() {
 }
@@ -312,13 +369,32 @@ UserType RegularUser::GetType() const {
                      user_manager::USER_TYPE_REGULAR;
 }
 
-bool RegularUser::CanSyncImage() const {
-  return true;
+void RegularUser::UpdateType(UserType user_type) {
+  const UserType current_type = GetType();
+  // Can only change between regular and child.
+  if ((user_type == user_manager::USER_TYPE_CHILD ||
+       user_type == user_manager::USER_TYPE_REGULAR) &&
+      (current_type == user_manager::USER_TYPE_CHILD ||
+       current_type == user_manager::USER_TYPE_REGULAR)) {
+    // We want all the other type changes to crash, that is why this check is
+    // not at the top level.
+    if (user_type == current_type)
+      return;
+    const bool old_is_child = is_child_;
+    is_child_ = user_type == user_manager::USER_TYPE_CHILD;
+    LOG(WARNING) << "User type has changed: " << current_type
+                 << " (is_child=" << old_is_child << ") => " << user_type
+                 << " (is_child=" << is_child_ << ")";
+    UMAUserTypeChanged(is_child_ ? UserTypeChangeHistogram::REGULAR_TO_CHILD
+                                 : UserTypeChangeHistogram::CHILD_TO_REGULAR);
+    return;
+  }
+  // Fail with LOG(FATAL).
+  User::UpdateType(user_type);
 }
 
-void RegularUser::SetIsChild(bool is_child) {
-  VLOG(1) << "Setting user is child to " << is_child;
-  is_child_ = is_child;
+bool RegularUser::CanSyncImage() const {
+  return true;
 }
 
 GuestUser::GuestUser(const AccountId& guest_account_id)
@@ -401,26 +477,6 @@ PublicAccountUser::~PublicAccountUser() {
 
 UserType PublicAccountUser::GetType() const {
   return user_manager::USER_TYPE_PUBLIC_ACCOUNT;
-}
-
-bool User::has_gaia_account() const {
-  static_assert(user_manager::NUM_USER_TYPES == 9,
-                "NUM_USER_TYPES should equal 9");
-  switch (GetType()) {
-    case user_manager::USER_TYPE_REGULAR:
-    case user_manager::USER_TYPE_CHILD:
-      return true;
-    case user_manager::USER_TYPE_GUEST:
-    case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
-    case user_manager::USER_TYPE_SUPERVISED:
-    case user_manager::USER_TYPE_KIOSK_APP:
-    case user_manager::USER_TYPE_ARC_KIOSK_APP:
-    case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
-      return false;
-    default:
-      NOTREACHED();
-  }
-  return false;
 }
 
 }  // namespace user_manager

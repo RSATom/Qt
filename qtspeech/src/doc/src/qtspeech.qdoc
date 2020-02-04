@@ -28,6 +28,6 @@
 /*!
    \module QtSpeech
    \title Qt Speech C++ Classes
-   \brief Provides C++ API to access text-to-speech engines
+   \brief Provides C++ API to access text-to-speech engines.
    \qtvariable texttospeech
 */

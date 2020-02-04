@@ -79,24 +79,18 @@ void GenericTiltSensor::stop()
 
 /*
   Angle between Ground and X
-                |            Ax           |
-  pitch = arctan| ----------------------- |
-                |  sqrt(Ay * Ay + Az * Az)|
 */
 static inline qreal calcPitch(double Ax, double Ay, double Az)
 {
-    return -qAtan2(Ax, qSqrt(Ay * Ay + Az * Az));
+    return qAtan2(-Ax, qSqrt(Ay * Ay + Az * Az));
 }
 
 /*
   Angle between Ground and Y
-                |            Ay           |
-   roll = arctan| ----------------------- |
-                |  sqrt(Ax * Ax + Az * Az)|
 */
-static inline qreal calcRoll(double Ax, double Ay, double Az)
+static inline qreal calcRoll(double /*Ax*/, double Ay, double Az)
 {
-    return qAtan2(Ay, (qSqrt(Ax * Ax + Az * Az)));
+    return qAtan2(Ay, Az);
 }
 
 void GenericTiltSensor::calibrate()
@@ -132,21 +126,8 @@ bool GenericTiltSensor::filter(QAccelerometerReading *reading)
     qreal xrot = roll - calibratedRoll;
     qreal yrot = pitch - calibratedPitch;
     //get angle between 0 and 180 or 0 -180
-    qreal aG = 1 * qSin(xrot);
-    qreal aK = 1 * qCos(xrot);
-    xrot = qAtan2(aG, aK);
-    if (xrot > M_PI_2)
-        xrot = M_PI - xrot;
-    else if (xrot < -M_PI_2)
-        xrot = -(M_PI + xrot);
-    aG = 1 * qSin(yrot);
-    aK = 1 * qCos(yrot);
-    yrot = qAtan2(aG, aK);
-    if (yrot > M_PI_2)
-        yrot = M_PI - yrot;
-    else if (yrot < -M_PI_2)
-        yrot = -(M_PI + yrot);
-
+    xrot = qAtan2(qSin(xrot), qCos(xrot));
+    yrot = qAtan2(qSin(yrot), qCos(yrot));
 
 #ifdef LOGCALIBRATION
     qDebug() << "new xrot: " << xrot;

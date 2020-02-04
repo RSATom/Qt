@@ -4,10 +4,9 @@
 
 #include "dbus/object_proxy.h"
 #include "base/bind.h"
-#include "base/files/file_descriptor_watcher_posix.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "dbus/bus.h"
 #include "dbus/test_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -17,7 +16,7 @@ namespace {
 
 class ObjectProxyTest : public testing::Test {
  protected:
-  ObjectProxyTest() : file_descriptor_watcher_(&message_loop_) {}
+  ObjectProxyTest() {}
 
   void SetUp() override {
     Bus::Options bus_options;
@@ -28,10 +27,8 @@ class ObjectProxyTest : public testing::Test {
 
   void TearDown() override { bus_->ShutdownAndBlock(); }
 
-  base::MessageLoopForIO message_loop_;
-
-  // This enables FileDescriptorWatcher, which is required by dbus::Watch.
-  base::FileDescriptorWatcher file_descriptor_watcher_;
+  base::test::ScopedTaskEnvironment task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::IO};
 
   scoped_refptr<Bus> bus_;
 };
@@ -68,7 +65,7 @@ TEST_F(ObjectProxyTest, WaitForServiceToBeAvailableRunOnce) {
 
   // Start the service. The callback should be called asynchronously.
   ASSERT_TRUE(test_service.StartService());
-  ASSERT_TRUE(test_service.WaitUntilServiceIsStarted());
+  test_service.WaitUntilServiceIsStarted();
   ASSERT_TRUE(test_service.has_ownership());
   num_calls = 0;
   base::RunLoop().RunUntilIdle();
@@ -96,7 +93,7 @@ TEST_F(ObjectProxyTest, WaitForServiceToBeAvailableAlreadyRunning) {
       test_service.service_name(), ObjectPath("/org/chromium/TestObject"));
 
   ASSERT_TRUE(test_service.StartService());
-  ASSERT_TRUE(test_service.WaitUntilServiceIsStarted());
+  test_service.WaitUntilServiceIsStarted();
   ASSERT_TRUE(test_service.has_ownership());
 
   // Since the service is already running, the callback should be invoked
@@ -132,7 +129,7 @@ TEST_F(ObjectProxyTest, WaitForServiceToBeAvailableMultipleCallbacks) {
 
   // Start the service and confirm that both callbacks are invoked.
   ASSERT_TRUE(test_service.StartService());
-  ASSERT_TRUE(test_service.WaitUntilServiceIsStarted());
+  test_service.WaitUntilServiceIsStarted();
   ASSERT_TRUE(test_service.has_ownership());
   num_calls_1 = 0;
   num_calls_2 = 0;

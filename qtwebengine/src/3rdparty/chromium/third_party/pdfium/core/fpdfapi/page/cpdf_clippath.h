@@ -12,9 +12,8 @@
 #include <vector>
 
 #include "core/fpdfapi/page/cpdf_path.h"
-#include "core/fxcrt/cfx_shared_copy_on_write.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/shared_copy_on_write.h"
 
 class CPDF_Path;
 class CPDF_TextObject;
@@ -34,10 +33,10 @@ class CPDF_ClipPath {
   }
   bool operator!=(const CPDF_ClipPath& that) const { return !(*this == that); }
 
-  uint32_t GetPathCount() const;
+  size_t GetPathCount() const;
   CPDF_Path GetPath(size_t i) const;
   uint8_t GetClipType(size_t i) const;
-  uint32_t GetTextCount() const;
+  size_t GetTextCount() const;
   CPDF_TextObject* GetText(size_t i) const;
   CFX_FloatRect GetClipBox() const;
   void AppendPath(CPDF_Path path, uint8_t type, bool bAutoMerge);
@@ -45,19 +44,19 @@ class CPDF_ClipPath {
   void Transform(const CFX_Matrix& matrix);
 
  private:
-  class PathData {
+  class PathData final : public Retainable {
    public:
     using PathAndTypeData = std::pair<CPDF_Path, uint8_t>;
 
     PathData();
     PathData(const PathData& that);
-    ~PathData();
+    ~PathData() override;
 
     std::vector<PathAndTypeData> m_PathAndTypeList;
     std::vector<std::unique_ptr<CPDF_TextObject>> m_TextList;
   };
 
-  CFX_SharedCopyOnWrite<PathData> m_Ref;
+  SharedCopyOnWrite<PathData> m_Ref;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_CLIPPATH_H_

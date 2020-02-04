@@ -31,6 +31,7 @@ fi{
         151{"Itä-Eurooppa"}
         154{"Pohjois-Eurooppa"}
         155{"Länsi-Eurooppa"}
+        202{"Saharan eteläpuolinen Afrikka"}
         419{"Latinalainen Amerikka"}
         AC{"Ascension-saari"}
         AD{"Andorra"}
@@ -89,7 +90,7 @@ fi{
         CW{"Curaçao"}
         CX{"Joulusaari"}
         CY{"Kypros"}
-        CZ{"Tšekinmaa"}
+        CZ{"Tšekki"}
         DE{"Saksa"}
         DG{"Diego Garcia"}
         DJ{"Djibouti"}
@@ -106,6 +107,7 @@ fi{
         ES{"Espanja"}
         ET{"Etiopia"}
         EU{"Euroopan unioni"}
+        EZ{"euroalue"}
         FI{"Suomi"}
         FJ{"Fidži"}
         FK{"Falklandinsaaret (Malvinassaaret)"}
@@ -302,8 +304,8 @@ fi{
         CD{"Kongo-Kinshasa"}
         CG{"Kongo-Brazzaville"}
         CI{"Côte d’Ivoire"}
-        CZ{"Tšekki"}
+        CZ{"Tšekin tasavalta"}
         TL{"Timor-Leste"}
     }
-    Version{"2.1.32.59"}
+    Version{"2.1.44.91"}
 }

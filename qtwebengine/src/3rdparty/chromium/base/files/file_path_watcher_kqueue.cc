@@ -9,9 +9,11 @@
 #include <sys/param.h>
 
 #include "base/bind.h"
+#include "base/file_descriptor_posix.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 
 // On some platforms these are not defined.
@@ -27,7 +29,7 @@ namespace base {
 FilePathWatcherKQueue::FilePathWatcherKQueue() : kqueue_(-1) {}
 
 FilePathWatcherKQueue::~FilePathWatcherKQueue() {
-  DCHECK(!task_runner() || task_runner()->RunsTasksOnCurrentThread());
+  DCHECK(!task_runner() || task_runner()->RunsTasksInCurrentSequence());
 }
 
 void FilePathWatcherKQueue::ReleaseEvent(struct kevent& event) {
@@ -79,8 +81,9 @@ int FilePathWatcherKQueue::EventsForPath(FilePath path, EventVector* events) {
 }
 
 uintptr_t FilePathWatcherKQueue::FileDescriptorForPath(const FilePath& path) {
+  ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
   int fd = HANDLE_EINTR(open(path.value().c_str(), O_EVTONLY));
-  if (fd == -1)
+  if (fd == kInvalidFd)
     return kNoFileDescriptor;
   return fd;
 }
@@ -209,6 +212,7 @@ bool FilePathWatcherKQueue::UpdateWatches(bool* target_file_affected) {
     }
 
     EventVector updates(valid);
+    ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
     int count = HANDLE_EINTR(kevent(kqueue_, &events_[0], valid, &updates[0],
                                     valid, NULL));
     if (!AreKeventValuesValid(&updates[0], count)) {
@@ -256,6 +260,7 @@ bool FilePathWatcherKQueue::Watch(const FilePath& path,
 
   EventVector responses(last_entry);
 
+  ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
   int count = HANDLE_EINTR(kevent(kqueue_, &events_[0], last_entry,
                                   &responses[0], last_entry, NULL));
   if (!AreKeventValuesValid(&responses[0], count)) {
@@ -283,7 +288,7 @@ void FilePathWatcherKQueue::Cancel() {
     return;
   }
 
-  DCHECK(task_runner()->RunsTasksOnCurrentThread());
+  DCHECK(task_runner()->RunsTasksInCurrentSequence());
   if (!is_cancelled()) {
     set_cancelled();
     kqueue_watch_controller_.reset();
@@ -298,7 +303,7 @@ void FilePathWatcherKQueue::Cancel() {
 }
 
 void FilePathWatcherKQueue::OnKQueueReadable() {
-  DCHECK(task_runner()->RunsTasksOnCurrentThread());
+  DCHECK(task_runner()->RunsTasksInCurrentSequence());
   DCHECK(events_.size());
 
   // Request the file system update notifications that have occurred and return

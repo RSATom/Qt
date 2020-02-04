@@ -6,31 +6,26 @@ SkDocument and SkCanvas APIs.
 
 <!--?prettify lang=cc?-->
 
-    #include "SkDocument.h"
+    #include "SkPDFDocument.h"
 
     void WritePDF(SkWStream* outputStream,
                   const char* documentTitle,
                   void (*writePage)(SkCanvas*, int page),
                   int numberOfPages,
                   SkSize pageSize) {
-        SkDocument::PDFMetadata metadata;
+        SkPDF::Metadata metadata;
         metadata.fTitle = documentTitle;
         metadata.fCreator = "Example WritePDF() Function";
         SkTime::DateTime now;
         SkTime::GetDateTime(&now);
-        metadata.fCreation.fEnabled  = true;
-        metadata.fCreation.fDateTime = now;
-        metadata.fModified.fEnabled  = true;
-        metadata.fModified.fDateTime = now;
-        sk_sp<SkDocument> pdfDocument = SkDocument::MakePDF(
-                outputStream, SK_ScalarDefaultRasterDPI, metadata,
-                nullptr, true);
+        metadata.fCreation = now;
+        metadata.fModified = now;
+        auto pdfDocument = SkPDF::MakeDocument(outputStream, metadata);
         assert(pdfDocument);
 
         for (int page = 0; page < numberOfPages; ++page) {
-            SkCanvas* pageCanvas =
-                    pdfDocument->beginPage(pageSize.width(),
-                                           pageSize.height());
+            SkCanvas* pageCanvas = pdfDocument->beginPage(pageSize.width(),
+                                                          pageSize.height());
             writePage(pageCanvas, page);
             pdfDocument->endPage();
         }
@@ -50,7 +45,7 @@ In this document:
 
   + **drop** means to draw nothing.
 
-  + **ignore** mean to draw without the effect
+  + **ignore** means to draw without the effect
 
   + **expand** means to implement something in a non-PDF-ish way.
     This may mean to rasterize vector graphics, to expand paths with

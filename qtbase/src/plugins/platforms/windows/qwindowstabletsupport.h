@@ -43,8 +43,9 @@
 #include "qtwindowsglobal.h"
 #include <QtGui/qtguiglobal.h>
 
-#include <QtCore/QVector>
-#include <QtCore/QPointF>
+#include <QtCore/qvector.h>
+#include <QtCore/qpoint.h>
+#include <QtCore/qhash.h>
 
 #include <wintab.h>
 
@@ -83,22 +84,24 @@ struct QWindowsWinTab32DLL
 
 struct QWindowsTabletDeviceData
 {
-    QWindowsTabletDeviceData() : minPressure(0), maxPressure(0), minTanPressure(0),
-        maxTanPressure(0), minX(0), maxX(0), minY(0), maxY(0), minZ(0), maxZ(0),
-        uniqueId(0), currentDevice(0), currentPointerType(0) {}
-
     QPointF scaleCoordinates(int coordX, int coordY,const QRect &targetArea) const;
     qreal scalePressure(qreal p) const { return p / qreal(maxPressure - minPressure); }
     qreal scaleTangentialPressure(qreal p) const { return p / qreal(maxTanPressure - minTanPressure); }
 
-    int minPressure;
-    int maxPressure;
-    int minTanPressure;
-    int maxTanPressure;
-    int minX, maxX, minY, maxY, minZ, maxZ;
-    qint64 uniqueId;
-    int currentDevice;
-    int currentPointerType;
+    int minPressure = 0;
+    int maxPressure = 0;
+    int minTanPressure = 0;
+    int maxTanPressure = 0;
+    int minX = 0;
+    int maxX = 0;
+    int minY = 0;
+    int maxY = 0;
+    int minZ = 0;
+    int maxZ = 0;
+    qint64 uniqueId = 0;
+    int currentDevice = 0;
+    int currentPointerType = 0;
+    QHash<quint8, quint8> buttonsMap;
 };
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -112,6 +115,19 @@ class QWindowsTabletSupport
     explicit QWindowsTabletSupport(HWND window, HCTX context);
 
 public:
+    enum Mode
+    {
+        PenMode,
+        MouseMode
+    };
+
+    enum State
+    {
+        PenUp,
+        PenProximity,
+        PenDown
+    };
+
     ~QWindowsTabletSupport();
 
     static QWindowsTabletSupport *create();
@@ -132,11 +148,12 @@ private:
     static QWindowsWinTab32DLL m_winTab32DLL;
     const HWND m_window;
     const HCTX m_context;
-    int m_absoluteRange;
-    bool m_tiltSupport;
+    int m_absoluteRange = 20;
+    bool m_tiltSupport = false;
     QVector<QWindowsTabletDeviceData> m_devices;
-    int m_currentDevice;
-    QPointF m_oldGlobalPosF;
+    int m_currentDevice = -1;
+    Mode m_mode = PenMode;
+    State m_state = PenUp;
 };
 
 QT_END_NAMESPACE

@@ -38,9 +38,7 @@
 ****************************************************************************/
 
 #include "qconnection_qnx_global_p.h"
-#include "qconnection_qnx_qiodevices.h"
 #include "qconnection_qnx_qiodevices_p.h"
-#include "qconnection_qnx_server.h"
 #include "qconnection_qnx_server_p.h"
 
 QT_BEGIN_NAMESPACE
@@ -99,14 +97,13 @@ bool QQnxNativeServer::listen(const QString &name)
     return true;
 }
 
-QIOQnxSource *QQnxNativeServer::nextPendingConnection()
+QSharedPointer<QIOQnxSource> QQnxNativeServer::nextPendingConnection()
 {
     Q_D(QQnxNativeServer);
     d->mutex.lock();
     Q_ASSERT(d->pending.length() > 0);
-    QIOQnxSource *io = d->pending.takeFirst();
+    auto io = d->pending.takeFirst();
     d->mutex.unlock();
-    io->setParent(this);
     return io;
 }
 
@@ -134,6 +131,18 @@ void QQnxNativeServer::onSourceClosed()
     Q_ASSERT(conn);
 
     d->cleanupIOSource(conn);
+}
+
+QQnxNativeServerPrivate::QQnxNativeServerPrivate()
+    : error(QAbstractSocket::UnknownSocketError)
+    , thread(this, QStringLiteral("NativeServer"))
+{
+}
+
+QQnxNativeServerPrivate::~QQnxNativeServerPrivate()
+{
+    if (thread.isRunning())
+        teardownServer();
 }
 
 // method (run in a thread) to watch for connections and handle receiving data
@@ -170,7 +179,7 @@ void QQnxNativeServerPrivate::thread_func()
                 Q_FOREACH (int coid, coids)
                 {
                     const uint64_t uid = static_cast<uint64_t>(scoid) << 32 | static_cast<uint32_t>(coid);
-                    QIOQnxSource *io = NULL;
+                    QSharedPointer<QIOQnxSource> io;
                     mutex.lock();
                     if (sources.contains(uid))
                         io = sources.take(uid);
@@ -181,10 +190,9 @@ void QQnxNativeServerPrivate::thread_func()
                     ham_action_handle_free(action);
 #endif
 
-                    if (io) {
+                    if (!io.isNull()) {
                         io->d_func()->m_serverClosing.ref();
-                        QMetaObject::invokeMethod(io,"onDisconnected",Qt::QueuedConnection);
-                        io->deleteLater();
+                        QMetaObject::invokeMethod(io.data(),"onDisconnected",Qt::QueuedConnection);
                     }
                 }
 
@@ -201,11 +209,11 @@ void QQnxNativeServerPrivate::thread_func()
                  */
                 const int coid = recv_buf.pulse.value.sival_int;
 
-                if (ConnectServerInfo(0, coid, NULL) != coid) {
+                if (ConnectServerInfo(0, coid, nullptr) != coid) {
                     const int scoid = recv_buf.pulse.scoid;
                     if (connections.value(scoid).contains(coid))
                         connections[scoid].remove(coid);
-                    QIOQnxSource *io = NULL;
+                    QSharedPointer<QIOQnxSource> io;
                     const uint64_t uid = static_cast<uint64_t>(scoid) << 32 | static_cast<uint32_t>(coid);
                     mutex.lock();
                     if (sources.contains(uid))
@@ -217,10 +225,9 @@ void QQnxNativeServerPrivate::thread_func()
                     ham_action_handle_free(action);
 #endif
 
-                    if (io) {
+                    if (!io.isNull()) {
                         io->d_func()->m_serverClosing.ref();
-                        QMetaObject::invokeMethod(io,"onDisconnected",Qt::QueuedConnection);
-                        io->deleteLater();
+                        QMetaObject::invokeMethod(io.data(),"onDisconnected",Qt::QueuedConnection);
                     }
                     qCDebug(QT_REMOTEOBJECT) << "Connection dropped" << coid;
                 }
@@ -286,7 +293,7 @@ void QQnxNativeServerPrivate::thread_func()
             const uint64_t uid = static_cast<uint64_t>(msg_info.scoid) << 32 | static_cast<uint32_t>(msg_info.coid);
             mutex.lock();
             Q_ASSERT(sources.contains(uid));
-            QIOQnxSource *io = sources.value(uid);
+            auto io = sources.value(uid);
             mutex.unlock();
 
             io->d_func()->obLock.lockForWrite(); //NAR (Not-An-Error)
@@ -310,7 +317,7 @@ void QQnxNativeServerPrivate::thread_func()
             const uint64_t uid = static_cast<uint64_t>(msg_info.scoid) << 32 | static_cast<uint32_t>(msg_info.coid);
             mutex.lock();
             Q_ASSERT(sources.contains(uid));
-            QIOQnxSource *io = sources.value(uid);
+            auto io = sources.value(uid);
             mutex.unlock();
 
             int len_taken = 0;
@@ -347,7 +354,7 @@ void QQnxNativeServerPrivate::thread_func()
             const uint64_t uid = static_cast<uint64_t>(msg_info.scoid) << 32 | static_cast<uint32_t>(msg_info.coid);
             mutex.lock();
             Q_ASSERT(sources.contains(uid));
-            QIOQnxSource *io = sources.value(uid);
+            auto io = sources.value(uid);
             mutex.unlock();
 
             //Long-lock, use buffer+memcpy if we run into trouble
@@ -367,7 +374,7 @@ void QQnxNativeServerPrivate::thread_func()
                 io->d_func()->buffer.chop(toRead - res);
             io->d_func()->ibLock.unlock();
 
-            FATAL_ON_ERROR(MsgReply, rcvid, EOK, NULL, 0)
+            FATAL_ON_ERROR(MsgReply, rcvid, EOK, nullptr, 0)
 
             qCDebug(QT_REMOTEOBJECT) << "server received REPLICA_TX_RECV" << payload << toRead;
 
@@ -382,7 +389,7 @@ void QQnxNativeServerPrivate::thread_func()
         }
     }
     mutex.lock();
-    Q_FOREACH (QIOQnxSource *io, sources)
+    for (auto io: sources)
         io->d_func()->m_serverClosing.ref();
     mutex.unlock();
     name_detach(attachStruct, 0);
@@ -392,7 +399,7 @@ void QQnxNativeServerPrivate::thread_func()
 
 bool QQnxNativeServerPrivate::listen(const QString &name)
 {
-    attachStruct = name_attach(NULL, qPrintable(name), 0);
+    attachStruct = name_attach(nullptr, qPrintable(name), 0);
     if (attachStruct == nullptr) {
         qCDebug(QT_REMOTEOBJECT, "name_attach call failed");
         return false;
@@ -406,17 +413,20 @@ bool QQnxNativeServerPrivate::listen(const QString &name)
 
 void QQnxNativeServerPrivate::cleanupIOSource(QIOQnxSource *conn)
 {
-    QIOQnxSource *io = NULL;
+    QSharedPointer<QIOQnxSource> io;
     mutex.lock();
-    const uint64_t uid = sources.key(conn, UINT64_MAX);
-
-    if (uid != UINT64_MAX) {
-        io = sources.take(uid);
-        io->d_func()->m_serverClosing.ref();
+    QHashIterator<uint64_t, QSharedPointer<QIOQnxSource>> i(sources);
+    while (i.hasNext()) {
+        i.next();
+        if (i.value().data() == conn)
+            io = sources.take(i.key());
+        break;
     }
     mutex.unlock();
-    if (io)
+    if (!io.isNull()) {
+        io->d_func()->m_serverClosing.ref();
         io->close();
+    }
 }
 
 void QQnxNativeServerPrivate::teardownServer()
@@ -440,16 +450,19 @@ void QQnxNativeServerPrivate::teardownServer()
 void QQnxNativeServerPrivate::createSource(int rcvid, uint64_t uid, pid_t toPid)
 {
     Q_Q(QQnxNativeServer);
-    QIOQnxSource *io = new QIOQnxSource(rcvid, q);
+#ifndef USE_HAM
+    Q_UNUSED(toPid);
+#endif
+    auto io = QSharedPointer<QIOQnxSource>(new QIOQnxSource(rcvid));
     io->moveToThread(q->thread());
-    QObject::connect(io, &QIOQnxSource::aboutToClose,
+    QObject::connect(io.data(), &QIOQnxSource::aboutToClose,
                      q,  &QQnxNativeServer::onSourceClosed);
 
     QIOQnxSourcePrivate *iop = io->d_func();
     FATAL_ON_ERROR(MsgRead, rcvid, &(iop->m_event), sizeof(sigevent), sizeof(MsgType))
     int sentChannelId;
     FATAL_ON_ERROR(MsgRead, rcvid, &sentChannelId, sizeof(int), sizeof(MsgType)+sizeof(sigevent))
-    FATAL_ON_ERROR(MsgReply, rcvid, EOK, NULL, 0)
+    FATAL_ON_ERROR(MsgReply, rcvid, EOK, nullptr, 0)
 
     mutex.lock();
     sources.insert(uid, io);

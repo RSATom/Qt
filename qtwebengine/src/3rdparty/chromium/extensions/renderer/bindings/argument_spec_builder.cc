@@ -4,7 +4,6 @@
 
 #include "extensions/renderer/bindings/argument_spec_builder.h"
 
-#include "base/memory/ptr_util.h"
 
 namespace extensions {
 
@@ -13,7 +12,7 @@ ArgumentSpecBuilder::ArgumentSpecBuilder(ArgumentType type)
 
 ArgumentSpecBuilder::ArgumentSpecBuilder(ArgumentType type,
                                          base::StringPiece name)
-    : spec_(base::MakeUnique<ArgumentSpec>(type)) {
+    : spec_(std::make_unique<ArgumentSpec>(type)) {
   if (!name.empty())
     spec_->set_name(name);
 }
@@ -63,6 +62,17 @@ ArgumentSpecBuilder& ArgumentSpecBuilder::SetEnums(
 ArgumentSpecBuilder& ArgumentSpecBuilder::SetAdditionalProperties(
     std::unique_ptr<ArgumentSpec> additional_properties) {
   spec_->set_additional_properties(std::move(additional_properties));
+  return *this;
+}
+
+ArgumentSpecBuilder& ArgumentSpecBuilder::SetInstanceOf(
+    std::string instance_of) {
+  spec_->set_instance_of(std::move(instance_of));
+  return *this;
+}
+
+ArgumentSpecBuilder& ArgumentSpecBuilder::PreserveNull() {
+  spec_->set_preserve_null(true);
   return *this;
 }
 

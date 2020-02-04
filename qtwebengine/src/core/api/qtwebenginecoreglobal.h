@@ -41,13 +41,14 @@
 #define QTWEBENGINECOREGLOBAL_H
 
 #include <QtCore/qglobal.h>
+#include <QtWebEngineCore/qtwebenginecore-config.h>
 
 QT_BEGIN_NAMESPACE
 
 #if defined(BUILDING_CHROMIUM)
-#  define QWEBENGINE_EXPORT Q_DECL_EXPORT
+#  define Q_WEBENGINECORE_EXPORT Q_DECL_EXPORT
 #else
-#  define QWEBENGINE_EXPORT Q_DECL_IMPORT
+#  define Q_WEBENGINECORE_EXPORT Q_DECL_IMPORT
 #endif
 
 #define ASSERT_ENUMS_MATCH(A, B) Q_STATIC_ASSERT_X(static_cast<int>(A) == static_cast<int>(B), "The enum values must match");

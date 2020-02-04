@@ -53,8 +53,8 @@ Qt3DRender::QGeometryRenderer *customIndexedGeometryRenderer()
     Qt3DRender::QGeometryRenderer *customMeshRenderer = new Qt3DRender::QGeometryRenderer;
     Qt3DRender::QGeometry *customGeometry = new Qt3DRender::QGeometry(customMeshRenderer);
 
-    Qt3DRender::QBuffer *vertexDataBuffer = new Qt3DRender::QBuffer(Qt3DRender::QBuffer::VertexBuffer, customGeometry);
-    Qt3DRender::QBuffer *indexDataBuffer = new Qt3DRender::QBuffer(Qt3DRender::QBuffer::IndexBuffer, customGeometry);
+    auto vertexDataBuffer = new Qt3DRender::QBuffer(customGeometry);
+    auto indexDataBuffer = new Qt3DRender::QBuffer(customGeometry);
 
     // vec3 for position
     // vec3 for colors
@@ -196,7 +196,7 @@ Qt3DRender::QGeometryRenderer *customNonIndexedGeometryRenderer()
     Qt3DRender::QGeometryRenderer *customMeshRenderer = new Qt3DRender::QGeometryRenderer;
     Qt3DRender::QGeometry *customGeometry = new Qt3DRender::QGeometry(customMeshRenderer);
 
-    Qt3DRender::QBuffer *vertexDataBuffer = new Qt3DRender::QBuffer(Qt3DRender::QBuffer::VertexBuffer, customGeometry);
+    auto vertexDataBuffer = new Qt3DRender::QBuffer(customGeometry);
 
     // vec3 for position
     // vec3 for colors
@@ -353,10 +353,10 @@ private Q_SLOTS:
 
         QVector<Qt3DRender::Render::TriangleBoundingVolume *> v =
                 QVector<Qt3DRender::Render::TriangleBoundingVolume *>()
-                << new Qt3DRender::Render::TriangleBoundingVolume(Qt3DCore::QNodeId(), QVector3D(0, 1, 0), QVector3D(1, 0, -1), QVector3D(-1, 0, -1))
-                << new Qt3DRender::Render::TriangleBoundingVolume(Qt3DCore::QNodeId(), QVector3D(-1, 0, -1), QVector3D(1, 0, -1), QVector3D(0, 0, 1))
-                << new Qt3DRender::Render::TriangleBoundingVolume(Qt3DCore::QNodeId(), QVector3D(0, 0, 1), QVector3D(0, 1, 0), QVector3D(-1, 0, -1))
-                << new Qt3DRender::Render::TriangleBoundingVolume(Qt3DCore::QNodeId(), QVector3D(0, 1, 0), QVector3D(0, 0, 1), QVector3D(1, 0, -1));
+                << new Qt3DRender::Render::TriangleBoundingVolume(Qt3DCore::QNodeId(), Vector3D(0, 1, 0), Vector3D(1, 0, -1), Vector3D(-1, 0, -1))
+                << new Qt3DRender::Render::TriangleBoundingVolume(Qt3DCore::QNodeId(), Vector3D(-1, 0, -1), Vector3D(1, 0, -1), Vector3D(0, 0, 1))
+                << new Qt3DRender::Render::TriangleBoundingVolume(Qt3DCore::QNodeId(), Vector3D(0, 0, 1), Vector3D(0, 1, 0), Vector3D(-1, 0, -1))
+                << new Qt3DRender::Render::TriangleBoundingVolume(Qt3DCore::QNodeId(), Vector3D(0, 1, 0), Vector3D(0, 0, 1), Vector3D(1, 0, -1));
 
         QTest::newRow("indexedMesh") << customIndexedGeometryRenderer() << v;
         QTest::newRow("nonIndexedMesh") << customNonIndexedGeometryRenderer() << v;

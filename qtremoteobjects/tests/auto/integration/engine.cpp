@@ -28,8 +28,8 @@
 
 #include "engine.h"
 
-Engine::Engine(QObject *parent) :
-  EngineSimpleSource(parent)
+Engine::Engine(int cylinders, QObject *parent) :
+  EngineSimpleSource(cylinders, parent)
 {
     setRpm(0);
     setpurchasedPart(false);

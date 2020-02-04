@@ -55,7 +55,9 @@
 // We mean it.
 //
 
+#ifndef QT_NO_SSL
 #include "qsslsocket_p.h"
+#endif
 #include "qsslcertificateextension.h"
 #include <QtCore/qdatetime.h>
 #include <QtCore/qmap.h>
@@ -73,6 +75,10 @@ struct ASN1_OBJECT;
 #include <windows.security.cryptography.certificates.h>
 #endif
 
+#if QT_CONFIG(schannel)
+#include <wincrypt.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 // forward declaration
@@ -83,7 +89,9 @@ public:
     QSslCertificatePrivate()
         : null(true), x509(0)
     {
+#ifndef QT_NO_SSL
         QSslSocketPrivate::ensureInitialized();
+#endif
     }
 
     ~QSslCertificatePrivate()
@@ -92,14 +100,18 @@ public:
         if (x509)
             q_X509_free(x509);
 #endif
+#if QT_CONFIG(schannel)
+        if (certificateContext)
+            CertFreeCertificateContext(certificateContext);
+#endif
     }
 
     bool null;
     QByteArray versionString;
     QByteArray serialNumberString;
 
-    QMap<QByteArray, QString> issuerInfo;
-    QMap<QByteArray, QString> subjectInfo;
+    QMultiMap<QByteArray, QString> issuerInfo;
+    QMultiMap<QByteArray, QString> subjectInfo;
     QDateTime notValidAfter;
     QDateTime notValidBefore;
 
@@ -138,6 +150,12 @@ public:
     Microsoft::WRL::ComPtr<ABI::Windows::Security::Cryptography::Certificates::ICertificate> certificate;
 
     static QSslCertificate QSslCertificate_from_Certificate(ABI::Windows::Security::Cryptography::Certificates::ICertificate *iCertificate);
+#endif
+
+#if QT_CONFIG(schannel)
+    const CERT_CONTEXT *certificateContext = nullptr;
+
+    static QSslCertificate QSslCertificate_from_CERT_CONTEXT(const CERT_CONTEXT *certificateContext);
 #endif
 };
 

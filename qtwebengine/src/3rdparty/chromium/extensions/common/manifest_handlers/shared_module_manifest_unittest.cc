@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/version.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/shared_module_info.h"
@@ -37,41 +37,47 @@ TEST_F(SharedModuleManifestTest, ExportsAll) {
   EXPECT_FALSE(SharedModuleInfo::ImportsModules(extension.get()))
       << manifest.name();
 
-  EXPECT_TRUE(SharedModuleInfo::IsExportAllowedByWhitelist(extension.get(),
-                  kImportId1)) << manifest.name();
-  EXPECT_TRUE(SharedModuleInfo::IsExportAllowedByWhitelist(extension.get(),
-                  kImportId2)) << manifest.name();
-  EXPECT_FALSE(SharedModuleInfo::IsExportAllowedByWhitelist(extension.get(),
-                  kNoImport)) << manifest.name();
+  EXPECT_TRUE(
+      SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(), kImportId1))
+      << manifest.name();
+  EXPECT_TRUE(
+      SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(), kImportId2))
+      << manifest.name();
+  EXPECT_FALSE(
+      SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(), kNoImport))
+      << manifest.name();
 }
 
-TEST_F(SharedModuleManifestTest, ExportWhitelistAll) {
-  ManifestData manifest("shared_module_export_no_whitelist.json");
+TEST_F(SharedModuleManifestTest, ExportAllowlistAll) {
+  ManifestData manifest("shared_module_export_no_allowlist.json");
 
   scoped_refptr<Extension> extension = LoadAndExpectSuccess(manifest);
 
-  EXPECT_TRUE(SharedModuleInfo::IsExportAllowedByWhitelist(extension.get(),
-                  kImportId1)) << manifest.name();
-  EXPECT_TRUE(SharedModuleInfo::IsExportAllowedByWhitelist(extension.get(),
-                  kImportId2)) << manifest.name();
-  EXPECT_TRUE(SharedModuleInfo::IsExportAllowedByWhitelist(extension.get(),
-                  kNoImport)) << manifest.name();
+  EXPECT_TRUE(
+      SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(), kImportId1))
+      << manifest.name();
+  EXPECT_TRUE(
+      SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(), kImportId2))
+      << manifest.name();
+  EXPECT_TRUE(
+      SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(), kNoImport))
+      << manifest.name();
 }
 
 TEST_F(SharedModuleManifestTest, ExportParseErrors) {
   Testcase testcases[] = {
-    Testcase("shared_module_export_and_import.json",
-             "Simultaneous 'import' and 'export' are not allowed."),
-    Testcase("shared_module_export_not_dict.json",
-             "Invalid value for 'export'."),
-    Testcase("shared_module_export_whitelist_item_not_id.json",
-             "Invalid value for 'export.whitelist[0]'."),
-    Testcase("shared_module_export_whitelist_item_not_string.json",
-             "Invalid value for 'export.whitelist[0]'."),
-    Testcase("shared_module_export_whitelist_not_list.json",
-             "Invalid value for 'export.whitelist'."),
+      Testcase("shared_module_export_and_import.json",
+               "Simultaneous 'import' and 'export' are not allowed."),
+      Testcase("shared_module_export_not_dict.json",
+               "Invalid value for 'export'."),
+      Testcase("shared_module_export_allowlist_item_not_id.json",
+               "Invalid value for 'export.allowlist[0]'."),
+      Testcase("shared_module_export_allowlist_item_not_string.json",
+               "Invalid value for 'export.allowlist[0]'."),
+      Testcase("shared_module_export_allowlist_not_list.json",
+               "Invalid value for 'export.allowlist'."),
   };
-  RunTestcases(testcases, arraysize(testcases), EXPECT_TYPE_ERROR);
+  RunTestcases(testcases, base::size(testcases), EXPECT_TYPE_ERROR);
 }
 
 TEST_F(SharedModuleManifestTest, SharedModuleStaticFunctions) {
@@ -118,7 +124,18 @@ TEST_F(SharedModuleManifestTest, ImportParseErrors) {
     Testcase("shared_module_import_invalid_version.json",
              "Invalid value for 'import[0].minimum_version'."),
   };
-  RunTestcases(testcases, arraysize(testcases), EXPECT_TYPE_ERROR);
+  RunTestcases(testcases, base::size(testcases), EXPECT_TYPE_ERROR);
+}
+
+TEST_F(SharedModuleManifestTest, LegacyAllowlistKey) {
+  scoped_refptr<const Extension> extension =
+      LoadAndExpectSuccess(ManifestData("shared_module_legacy_allowlist.json"));
+  EXPECT_TRUE(SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(),
+                                                           kImportId1));
+  EXPECT_TRUE(SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(),
+                                                           kImportId2));
+  EXPECT_FALSE(
+      SharedModuleInfo::IsExportAllowedByAllowlist(extension.get(), kNoImport));
 }
 
 }  // namespace extensions

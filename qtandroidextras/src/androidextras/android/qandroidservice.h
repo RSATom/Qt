@@ -43,6 +43,7 @@
 #include <QtAndroidExtras/qandroidextrasglobal.h>
 #include <QCoreApplication>
 #include <QSharedPointer>
+#include <functional>
 
 QT_BEGIN_NAMESPACE
 class QAndroidServicePrivate;
@@ -52,6 +53,12 @@ class Q_ANDROIDEXTRAS_EXPORT QAndroidService : public QCoreApplication
 {
 public:
     QAndroidService(int &argc, char **argv
+#ifndef Q_QDOC
+                                     , int flags = ApplicationFlags
+#endif
+            );
+    QAndroidService(int &argc, char **argv,
+                    const std::function<QAndroidBinder*(const QAndroidIntent &intent)> & binder
 #ifndef Q_QDOC
                                      , int flags = ApplicationFlags
 #endif

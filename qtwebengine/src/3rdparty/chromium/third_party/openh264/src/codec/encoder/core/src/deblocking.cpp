@@ -364,8 +364,8 @@ void DeblockingInterMb (DeblockingFunc* pfDeblocking, SMB* pCurMb, SDeblockingFi
   int32_t iMbX = pCurMb->iMbX;
   int32_t iMbY = pCurMb->iMbY;
 
-  bool bLeftBsValid[2] = { (iMbX > 0), ((iMbX > 0) && (pCurMb->uiSliceIdc == (pCurMb - 1)->uiSliceIdc))};
-  bool bTopBsValid[2]  = { (iMbY > 0), ((iMbY > 0) && (pCurMb->uiSliceIdc == (pCurMb - iMbStride)->uiSliceIdc))};
+  bool bLeftBsValid[2] = { (iMbX > 0), ((iMbX > 0)&& (pCurMb->uiSliceIdc == (pCurMb - 1)->uiSliceIdc))};
+  bool bTopBsValid[2]  = { (iMbY > 0), ((iMbY > 0)&& (pCurMb->uiSliceIdc == (pCurMb - iMbStride)->uiSliceIdc))};
 
   int32_t iLeftFlag = bLeftBsValid[pFilter->uiFilterIdc];
   int32_t iTopFlag  = bTopBsValid[pFilter->uiFilterIdc];
@@ -450,8 +450,8 @@ void FilteringEdgeLumaHV (DeblockingFunc* pfDeblocking, SMB* pCurMb, SDeblocking
   int32_t iMbX = pCurMb->iMbX;
   int32_t iMbY = pCurMb->iMbY;
 
-  bool bLeftBsValid[2] = { (iMbX > 0), ((iMbX > 0) && (pCurMb->uiSliceIdc == (pCurMb - 1)->uiSliceIdc))};
-  bool bTopBsValid[2]  = { (iMbY > 0), ((iMbY > 0) && (pCurMb->uiSliceIdc == (pCurMb - iMbStride)->uiSliceIdc))};
+  bool bLeftBsValid[2] = { (iMbX > 0), ((iMbX > 0)&& (pCurMb->uiSliceIdc == (pCurMb - 1)->uiSliceIdc))};
+  bool bTopBsValid[2]  = { (iMbY > 0), ((iMbY > 0)&& (pCurMb->uiSliceIdc == (pCurMb - iMbStride)->uiSliceIdc))};
 
   int32_t iLeftFlag = bLeftBsValid[pFilter->uiFilterIdc];
   int32_t iTopFlag  = bTopBsValid[pFilter->uiFilterIdc];
@@ -505,8 +505,8 @@ void FilteringEdgeChromaHV (DeblockingFunc* pfDeblocking, SMB* pCurMb, SDeblocki
   int32_t iMbX = pCurMb->iMbX;
   int32_t iMbY = pCurMb->iMbY;
 
-  bool bLeftBsValid[2] = { (iMbX > 0), ((iMbX > 0) && (pCurMb->uiSliceIdc == (pCurMb - 1)->uiSliceIdc))};
-  bool bTopBsValid[2]  = { (iMbY > 0), ((iMbY > 0) && (pCurMb->uiSliceIdc == (pCurMb - iMbStride)->uiSliceIdc))};
+  bool bLeftBsValid[2] = { (iMbX > 0), ((iMbX > 0)&& (pCurMb->uiSliceIdc == (pCurMb - 1)->uiSliceIdc))};
+  bool bTopBsValid[2]  = { (iMbY > 0), ((iMbY > 0)&& (pCurMb->uiSliceIdc == (pCurMb - iMbStride)->uiSliceIdc))};
 
   int32_t iLeftFlag = bLeftBsValid[pFilter->uiFilterIdc];
   int32_t iTopFlag  = bTopBsValid[pFilter->uiFilterIdc];
@@ -634,8 +634,8 @@ void DeblockingMbAvcbase (SWelsFuncPtrList* pFunc, SMB* pCurMb, SDeblockingFilte
   int32_t iMbX = pCurMb->iMbX;
   int32_t iMbY = pCurMb->iMbY;
 
-  bool bLeftBsValid[2] = { (iMbX > 0), ((iMbX > 0) && (pCurMb->uiSliceIdc == (pCurMb - 1)->uiSliceIdc))};
-  bool bTopBsValid[2]  = { (iMbY > 0), ((iMbY > 0) && (pCurMb->uiSliceIdc == (pCurMb - iMbStride)->uiSliceIdc))};
+  bool bLeftBsValid[2] = { (iMbX > 0), ((iMbX > 0)&& (pCurMb->uiSliceIdc == (pCurMb - 1)->uiSliceIdc))};
+  bool bTopBsValid[2]  = { (iMbY > 0), ((iMbY > 0)&& (pCurMb->uiSliceIdc == (pCurMb - iMbStride)->uiSliceIdc))};
 
   int32_t iLeftFlag = bLeftBsValid[pFilter->uiFilterIdc];
   int32_t iTopFlag  = bTopBsValid[pFilter->uiFilterIdc];
@@ -658,7 +658,7 @@ void  DeblockingFilterFrameAvcbase (SDqLayer* pCurDq, SWelsFuncPtrList* pFunc) {
   const int32_t kiMbWidth   = pCurDq->iMbWidth;
   const int32_t kiMbHeight  = pCurDq->iMbHeight;
   SMB* pCurrentMbBlock      = pCurDq->sMbDataP;
-  SSliceHeaderExt* sSliceHeaderExt = &pCurDq->sLayerInfo.pSliceInLayer[0].sSliceHeaderExt;
+  SSliceHeaderExt* sSliceHeaderExt = &pCurDq->ppSliceInLayer[0]->sSliceHeaderExt;
   SDeblockingFilter pFilter;
 
   /* Step1: parameters set */
@@ -690,9 +690,9 @@ void  DeblockingFilterFrameAvcbase (SDqLayer* pCurDq, SWelsFuncPtrList* pFunc) {
   }
 }
 
-void DeblockingFilterSliceAvcbase (SDqLayer* pCurDq, SWelsFuncPtrList* pFunc, const int32_t kiSliceIdx) {
+void DeblockingFilterSliceAvcbase (SDqLayer* pCurDq, SWelsFuncPtrList* pFunc, SSlice* pSlice) {
   SMB* pMbList                          = pCurDq->sMbDataP;
-  SSliceHeaderExt* sSliceHeaderExt      = &pCurDq->sLayerInfo.pSliceInLayer[kiSliceIdx].sSliceHeaderExt;
+  SSliceHeaderExt* sSliceHeaderExt      = &pSlice->sSliceHeaderExt;
   SMB* pCurrentMbBlock;
 
   const int32_t kiMbWidth               = pCurDq->iMbWidth;
@@ -738,14 +738,12 @@ void DeblockingFilterSliceAvcbase (SDqLayer* pCurDq, SWelsFuncPtrList* pFunc, co
   }
 }
 
-void DeblockingFilterSliceAvcbaseNull (SDqLayer* pCurDq, SWelsFuncPtrList* pFunc, const int32_t kiSliceIdx) {
+void DeblockingFilterSliceAvcbaseNull (SDqLayer* pCurDq, SWelsFuncPtrList* pFunc, SSlice* pSlice) {
 }
 
 void PerformDeblockingFilter (sWelsEncCtx* pEnc) {
-  const int32_t kiCurDid                = pEnc->uiDependencyId;
-  SWelsSvcCodingParam* pSvcParam        = pEnc->pSvcParam;
-  SSpatialLayerConfig* pSpatialLayer    = &pSvcParam->sSpatialLayers[kiCurDid];
-  SDqLayer* pCurLayer                   = pEnc->pCurDqLayer;
+  SDqLayer* pCurLayer = pEnc->pCurDqLayer;
+  SSlice* pSlice      = NULL;
 
   if (pCurLayer->iLoopFilterDisableIdc == 0) {
     DeblockingFilterFrameAvcbase (pCurLayer, pEnc->pFuncList);
@@ -753,26 +751,13 @@ void PerformDeblockingFilter (sWelsEncCtx* pEnc) {
     int32_t iSliceCount = 0;
     int32_t iSliceIdx   = 0;
 
-    if (SM_SIZELIMITED_SLICE != pSpatialLayer->sSliceArgument.uiSliceMode) {
-      iSliceCount = GetCurrentSliceNum (pCurLayer);
-      do {
-        DeblockingFilterSliceAvcbase (pCurLayer, pEnc->pFuncList, iSliceIdx);
-        ++ iSliceIdx;
-      } while (iSliceIdx < iSliceCount);
-    } else { // for dynamic slicing mode
-      const int32_t kiNumPicPartition = pEnc->iActiveThreadsNum;
-      int32_t iPartitionIdx = 0;
-
-      while (iPartitionIdx < kiNumPicPartition) {
-        iSliceCount     = pCurLayer->pNumSliceCodedOfPartition[iPartitionIdx];
-        iSliceIdx       = iPartitionIdx;
-        do {
-          DeblockingFilterSliceAvcbase (pCurLayer, pEnc->pFuncList, iSliceIdx);
-          iSliceIdx += kiNumPicPartition;
-        } while (iSliceIdx < iSliceCount);
-        ++ iPartitionIdx;
-      }
-    }
+    iSliceCount = GetCurrentSliceNum (pCurLayer);
+    do {
+      pSlice = pCurLayer->ppSliceInLayer[iSliceIdx];
+      assert (NULL != pSlice);
+      DeblockingFilterSliceAvcbase (pCurLayer, pEnc->pFuncList, pSlice);
+      ++ iSliceIdx;
+    } while (iSliceIdx < iSliceCount);
   }
 }
 
@@ -791,6 +776,11 @@ void WelsBlockFuncInit (PSetNoneZeroCountZeroFunc* pfSetNZCZero,  int32_t iCpu) 
 #if defined(X86_ASM)
   if (iCpu & WELS_CPU_SSE2) {
     *pfSetNZCZero = WelsNonZeroCount_sse2;
+  }
+#endif
+#if defined(HAVE_MMI)
+  if (iCpu & WELS_CPU_MMI) {
+    *pfSetNZCZero = WelsNonZeroCount_mmi;
   }
 #endif
 }
@@ -857,6 +847,19 @@ void  DeblockingInit (DeblockingFunc*   pFunc,  int32_t iCpu) {
 #endif
   }
 #endif
+
+#if defined(HAVE_MMI)
+  if (iCpu & WELS_CPU_MMI) {
+    pFunc->pfLumaDeblockingLT4Ver   = DeblockLumaLt4V_mmi;
+    pFunc->pfLumaDeblockingEQ4Ver   = DeblockLumaEq4V_mmi;
+    pFunc->pfLumaDeblockingLT4Hor   = DeblockLumaLt4H_mmi;
+    pFunc->pfLumaDeblockingEQ4Hor   = DeblockLumaEq4H_mmi;
+    pFunc->pfChromaDeblockingLT4Ver = DeblockChromaLt4V_mmi;
+    pFunc->pfChromaDeblockingEQ4Ver = DeblockChromaEq4V_mmi;
+    pFunc->pfChromaDeblockingLT4Hor = DeblockChromaLt4H_mmi;
+    pFunc->pfChromaDeblockingEQ4Hor = DeblockChromaEq4H_mmi;
+  }
+#endif//HAVE_MMI
 }
 
 

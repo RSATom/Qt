@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'querywidget.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,12 +10,9 @@
 #define QUERYWIDGET_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QGroupBox>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QMainWindow>
 #include <QtWidgets/QMenuBar>
 #include <QtWidgets/QStatusBar>
@@ -49,13 +46,13 @@ public:
     void setupUi(QMainWindow *QueryWidget)
     {
         if (QueryWidget->objectName().isEmpty())
-            QueryWidget->setObjectName(QStringLiteral("QueryWidget"));
+            QueryWidget->setObjectName(QString::fromUtf8("QueryWidget"));
         QueryWidget->resize(545, 531);
         centralwidget = new QWidget(QueryWidget);
-        centralwidget->setObjectName(QStringLiteral("centralwidget"));
+        centralwidget->setObjectName(QString::fromUtf8("centralwidget"));
         centralwidget->setGeometry(QRect(0, 29, 545, 480));
         verticalLayout = new QVBoxLayout(centralwidget);
-        verticalLayout->setObjectName(QStringLiteral("verticalLayout"));
+        verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
         vboxLayout = new QVBoxLayout();
 #ifndef Q_OS_MAC
         vboxLayout->setSpacing(6);
@@ -63,12 +60,12 @@ public:
 #ifndef Q_OS_MAC
         vboxLayout->setContentsMargins(0, 0, 0, 0);
 #endif
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         inputGroupBox = new QGroupBox(centralwidget);
-        inputGroupBox->setObjectName(QStringLiteral("inputGroupBox"));
+        inputGroupBox->setObjectName(QString::fromUtf8("inputGroupBox"));
         inputGroupBox->setMinimumSize(QSize(550, 120));
         verticalLayout_4 = new QVBoxLayout(inputGroupBox);
-        verticalLayout_4->setObjectName(QStringLiteral("verticalLayout_4"));
+        verticalLayout_4->setObjectName(QString::fromUtf8("verticalLayout_4"));
         _2 = new QVBoxLayout();
 #ifndef Q_OS_MAC
         _2->setSpacing(6);
@@ -76,9 +73,9 @@ public:
 #ifndef Q_OS_MAC
         _2->setContentsMargins(0, 0, 0, 0);
 #endif
-        _2->setObjectName(QStringLiteral("_2"));
+        _2->setObjectName(QString::fromUtf8("_2"));
         inputTextEdit = new QTextEdit(inputGroupBox);
-        inputTextEdit->setObjectName(QStringLiteral("inputTextEdit"));
+        inputTextEdit->setObjectName(QString::fromUtf8("inputTextEdit"));
 
         _2->addWidget(inputTextEdit);
 
@@ -89,17 +86,17 @@ public:
         vboxLayout->addWidget(inputGroupBox);
 
         queryGroupBox = new QGroupBox(centralwidget);
-        queryGroupBox->setObjectName(QStringLiteral("queryGroupBox"));
+        queryGroupBox->setObjectName(QString::fromUtf8("queryGroupBox"));
         queryGroupBox->setMinimumSize(QSize(550, 120));
         verticalLayout_5 = new QVBoxLayout(queryGroupBox);
-        verticalLayout_5->setObjectName(QStringLiteral("verticalLayout_5"));
+        verticalLayout_5->setObjectName(QString::fromUtf8("verticalLayout_5"));
         defaultQueries = new QComboBox(queryGroupBox);
-        defaultQueries->setObjectName(QStringLiteral("defaultQueries"));
+        defaultQueries->setObjectName(QString::fromUtf8("defaultQueries"));
 
         verticalLayout_5->addWidget(defaultQueries);
 
         queryTextEdit = new QTextEdit(queryGroupBox);
-        queryTextEdit->setObjectName(QStringLiteral("queryTextEdit"));
+        queryTextEdit->setObjectName(QString::fromUtf8("queryTextEdit"));
         queryTextEdit->setMinimumSize(QSize(400, 60));
         queryTextEdit->setReadOnly(true);
         queryTextEdit->setAcceptRichText(false);
@@ -110,10 +107,10 @@ public:
         vboxLayout->addWidget(queryGroupBox);
 
         outputGroupBox = new QGroupBox(centralwidget);
-        outputGroupBox->setObjectName(QStringLiteral("outputGroupBox"));
+        outputGroupBox->setObjectName(QString::fromUtf8("outputGroupBox"));
         outputGroupBox->setMinimumSize(QSize(550, 120));
         verticalLayout_6 = new QVBoxLayout(outputGroupBox);
-        verticalLayout_6->setObjectName(QStringLiteral("verticalLayout_6"));
+        verticalLayout_6->setObjectName(QString::fromUtf8("verticalLayout_6"));
         _3 = new QVBoxLayout();
 #ifndef Q_OS_MAC
         _3->setSpacing(6);
@@ -121,9 +118,9 @@ public:
 #ifndef Q_OS_MAC
         _3->setContentsMargins(0, 0, 0, 0);
 #endif
-        _3->setObjectName(QStringLiteral("_3"));
+        _3->setObjectName(QString::fromUtf8("_3"));
         outputTextEdit = new QTextEdit(outputGroupBox);
-        outputTextEdit->setObjectName(QStringLiteral("outputTextEdit"));
+        outputTextEdit->setObjectName(QString::fromUtf8("outputTextEdit"));
         outputTextEdit->setMinimumSize(QSize(500, 80));
         outputTextEdit->setReadOnly(true);
         outputTextEdit->setAcceptRichText(false);
@@ -141,11 +138,11 @@ public:
 
         QueryWidget->setCentralWidget(centralwidget);
         menubar = new QMenuBar(QueryWidget);
-        menubar->setObjectName(QStringLiteral("menubar"));
+        menubar->setObjectName(QString::fromUtf8("menubar"));
         menubar->setGeometry(QRect(0, 0, 545, 29));
         QueryWidget->setMenuBar(menubar);
         statusbar = new QStatusBar(QueryWidget);
-        statusbar->setObjectName(QStringLiteral("statusbar"));
+        statusbar->setObjectName(QString::fromUtf8("statusbar"));
         statusbar->setGeometry(QRect(0, 509, 545, 22));
         QueryWidget->setStatusBar(statusbar);
 
@@ -156,10 +153,10 @@ public:
 
     void retranslateUi(QMainWindow *QueryWidget)
     {
-        QueryWidget->setWindowTitle(QApplication::translate("QueryWidget", "Recipes XQuery Example", nullptr));
-        inputGroupBox->setTitle(QApplication::translate("QueryWidget", "Input Document", nullptr));
-        queryGroupBox->setTitle(QApplication::translate("QueryWidget", "Select your query:", nullptr));
-        outputGroupBox->setTitle(QApplication::translate("QueryWidget", "Output Document", nullptr));
+        QueryWidget->setWindowTitle(QCoreApplication::translate("QueryWidget", "Recipes XQuery Example", nullptr));
+        inputGroupBox->setTitle(QCoreApplication::translate("QueryWidget", "Input Document", nullptr));
+        queryGroupBox->setTitle(QCoreApplication::translate("QueryWidget", "Select your query:", nullptr));
+        outputGroupBox->setTitle(QCoreApplication::translate("QueryWidget", "Output Document", nullptr));
     } // retranslateUi
 
 };

@@ -64,8 +64,8 @@ class Q_WIDGETS_EXPORT QSplitter : public QFrame
     Q_PROPERTY(bool childrenCollapsible READ childrenCollapsible WRITE setChildrenCollapsible)
 
 public:
-    explicit QSplitter(QWidget* parent = Q_NULLPTR);
-    explicit QSplitter(Qt::Orientation, QWidget* parent = Q_NULLPTR);
+    explicit QSplitter(QWidget* parent = nullptr);
+    explicit QSplitter(Qt::Orientation, QWidget* parent = nullptr);
     ~QSplitter();
 
     void addWidget(QWidget *widget);
@@ -84,8 +84,8 @@ public:
     bool opaqueResize() const;
     void refresh();
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
 
     QList<int> sizes() const;
     void setSizes(const QList<int> &list);
@@ -111,12 +111,12 @@ Q_SIGNALS:
 protected:
     virtual QSplitterHandle *createHandle();
 
-    void childEvent(QChildEvent *) Q_DECL_OVERRIDE;
+    void childEvent(QChildEvent *) override;
 
-    bool event(QEvent *) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *) Q_DECL_OVERRIDE;
+    bool event(QEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
 
-    void changeEvent(QEvent *) Q_DECL_OVERRIDE;
+    void changeEvent(QEvent *) override;
     void moveSplitter(int pos, int index);
     void setRubberBand(int position);
     int closestLegalPosition(int, int);
@@ -129,8 +129,12 @@ private:
     friend class QSplitterHandle;
 };
 
+#if QT_DEPRECATED_SINCE(5, 13)
+QT_DEPRECATED_X("Use QSplitter::saveState() instead")
 Q_WIDGETS_EXPORT QTextStream& operator<<(QTextStream&, const QSplitter&);
+QT_DEPRECATED_X("Use QSplitter::restoreState() instead")
 Q_WIDGETS_EXPORT QTextStream& operator>>(QTextStream&, QSplitter&);
+#endif
 
 class QSplitterHandlePrivate;
 class Q_WIDGETS_EXPORT QSplitterHandle : public QWidget
@@ -145,15 +149,15 @@ public:
     bool opaqueResize() const;
     QSplitter *splitter() const;
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
 
 protected:
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent *) Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent *) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent *) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *) Q_DECL_OVERRIDE;
-    bool event(QEvent *) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *) override;
+    void mouseMoveEvent(QMouseEvent *) override;
+    void mousePressEvent(QMouseEvent *) override;
+    void mouseReleaseEvent(QMouseEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
+    bool event(QEvent *) override;
 
     void moveSplitter(int p);
     int closestLegalPosition(int p);

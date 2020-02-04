@@ -7,6 +7,7 @@
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/stl_util.h"
+#include "base/strings/pattern.h"
 #include "content/common/url_schemes.h"
 #include "net/base/url_util.h"
 #include "url/gurl.h"
@@ -19,7 +20,7 @@ namespace {
 // SecurityOrigin::create might return unique origins for URLs whose schemes are
 // included in SchemeRegistry::shouldTreatURLSchemeAsNoAccess.
 bool IsOriginUnique(const url::Origin& origin) {
-  return origin.unique() ||
+  return origin.opaque() ||
          base::ContainsValue(url::GetNoAccessSchemes(), origin.scheme());
 }
 
@@ -36,15 +37,23 @@ bool IsOriginSecure(const GURL& url) {
     return true;
   }
 
-  if (net::IsLocalhost(url.HostNoBracketsPiece()))
+  if (net::IsLocalhost(url))
     return true;
 
   if (base::ContainsValue(url::GetSecureSchemes(), url.scheme()))
     return true;
 
-  if (base::ContainsValue(GetSecureOrigins(), url.GetOrigin()))
-    return true;
+  return IsWhitelistedAsSecureOrigin(url::Origin::Create(url));
+}
 
+bool IsWhitelistedAsSecureOrigin(const url::Origin& origin) {
+  if (base::ContainsValue(content::GetSecureOriginsAndPatterns(),
+                          origin.Serialize()))
+    return true;
+  for (const auto& origin_or_pattern : content::GetSecureOriginsAndPatterns()) {
+    if (base::MatchPattern(origin.host(), origin_or_pattern))
+      return true;
+  }
   return false;
 }
 
@@ -59,14 +68,6 @@ bool OriginCanAccessServiceWorkers(const GURL& url) {
   return false;
 }
 
-bool IsOriginWhiteListedTrustworthy(const url::Origin& origin) {
-  if (IsOriginUnique(origin))
-    return false;
-
-  return base::ContainsValue(GetSecureOrigins(),
-                             origin.GetURL().HostNoBrackets());
-}
-
 bool IsPotentiallyTrustworthyOrigin(const url::Origin& origin) {
   // Note: Considering this mirrors SecurityOrigin::isPotentiallyTrustworthy, it
   // assumes m_isUniqueOriginPotentiallyTrustworthy is set to false. This
@@ -78,14 +79,11 @@ bool IsPotentiallyTrustworthyOrigin(const url::Origin& origin) {
 
   if (base::ContainsValue(url::GetSecureSchemes(), origin.scheme()) ||
       base::ContainsValue(url::GetLocalSchemes(), origin.scheme()) ||
-      net::IsLocalhost(origin.GetURL().HostNoBracketsPiece())) {
+      net::IsLocalhost(origin.GetURL())) {
     return true;
   }
 
-  if (IsOriginWhiteListedTrustworthy(origin))
-    return true;
-
-  return false;
+  return IsWhitelistedAsSecureOrigin(origin);
 }
 
 }  // namespace content

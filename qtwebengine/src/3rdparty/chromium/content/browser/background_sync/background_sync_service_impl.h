@@ -10,19 +10,19 @@
 #include <memory>
 #include <vector>
 
-#include "base/id_map.h"
+#include "base/containers/id_map.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "content/browser/background_sync/background_sync_manager.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "third_party/WebKit/public/platform/modules/background_sync/background_sync.mojom.h"
+#include "third_party/blink/public/platform/modules/background_sync/background_sync.mojom.h"
 
 namespace content {
 
 class BackgroundSyncContext;
 
 class CONTENT_EXPORT BackgroundSyncServiceImpl
-    : public NON_EXPORTED_BASE(blink::mojom::BackgroundSyncService) {
+    : public blink::mojom::BackgroundSyncService {
  public:
   BackgroundSyncServiceImpl(
       BackgroundSyncContext* background_sync_context,
@@ -37,6 +37,8 @@ class CONTENT_EXPORT BackgroundSyncServiceImpl
   void Register(blink::mojom::SyncRegistrationPtr options,
                 int64_t sw_registration_id,
                 RegisterCallback callback) override;
+  void DidResolveRegistration(int64_t sw_registration_id,
+                              const std::string& tag) override;
   void GetRegistrations(int64_t sw_registration_id,
                         GetRegistrationsCallback callback) override;
 

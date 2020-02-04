@@ -29,7 +29,7 @@
 #ifndef MENUTASKMENU_H
 #define MENUTASKMENU_H
 
-#include <QtDesigner/QDesignerTaskMenuExtension>
+#include <QtDesigner/taskmenu.h>
 
 #include <qdesigner_menu_p.h>
 #include <qdesigner_menubar_p.h>
@@ -54,8 +54,8 @@ class MenuTaskMenu : public QObject, public QDesignerTaskMenuExtension
 public:
     explicit MenuTaskMenu(QDesignerMenu *menu, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private slots:
     void removeMenu();
@@ -76,8 +76,8 @@ class MenuBarTaskMenu : public QObject, public QDesignerTaskMenuExtension
 public:
     explicit MenuBarTaskMenu(QDesignerMenuBar *bar, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private:
     QDesignerMenuBar *m_bar;

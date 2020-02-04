@@ -74,7 +74,7 @@ std::string StatusToString(BlobStatus status) {
       return "BlobStatus::ERR_OUT_OF_MEMORY: Not enough memory or disk space "
              "available for blob.";
     case BlobStatus::ERR_FILE_WRITE_FAILED:
-      return "BlobStatus::ERR_FILE_WRITE_FAILED: File operation filed";
+      return "BlobStatus::ERR_FILE_WRITE_FAILED: File operation failed";
     case BlobStatus::ERR_SOURCE_DIED_IN_TRANSIT:
       return "BlobStatus::ERR_SOURCE_DIED_IN_TRANSIT: Blob source died before "
              "transporting data to browser.";
@@ -84,6 +84,9 @@ std::string StatusToString(BlobStatus status) {
     case BlobStatus::ERR_REFERENCED_BLOB_BROKEN:
       return "BlobStatus::ERR_REFERENCED_BLOB_BROKEN: Blob contains dependency "
              "blob that is broken.";
+    case BlobStatus::ERR_REFERENCED_FILE_UNAVAILABLE:
+      return "BlobStatus::ERR_REFERENCED_FILE_UNAVAILABLE: Blob contains "
+             "dependency on file that is unavailable.";
     case BlobStatus::DONE:
       return "BlobStatus::DONE: Blob built with no errors.";
     case BlobStatus::PENDING_QUOTA:
@@ -92,9 +95,9 @@ std::string StatusToString(BlobStatus status) {
     case BlobStatus::PENDING_TRANSPORT:
       return "BlobStatus::PENDING_TRANSPORT: Blob construction is pending on "
              "data transport from renderer.";
-    case BlobStatus::PENDING_INTERNALS:
-      return "BlobStatus::PENDING_INTERNALS: Blob construction is pending on "
-             "dependency blobs to finish construction.";
+    case BlobStatus::PENDING_REFERENCED_BLOBS:
+      return "BlobStatus::PENDING_REFERENCED_BLOBS: Blob construction is "
+             "pending on dependency blobs to finish construction.";
     case BlobStatus::PENDING_CONSTRUCTION:
       return "BlobStatus::PENDING_CONSTRUCTION: Blob construction is pending "
              "on resolving the UUIDs of refereneced blobs.";
@@ -148,21 +151,23 @@ ViewBlobInternalsJob::ViewBlobInternalsJob(
       weak_factory_(this) {
 }
 
-ViewBlobInternalsJob::~ViewBlobInternalsJob() {
-}
+ViewBlobInternalsJob::~ViewBlobInternalsJob() = default;
 
 void ViewBlobInternalsJob::Start() {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&ViewBlobInternalsJob::StartAsync,
-                            weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&ViewBlobInternalsJob::StartAsync,
+                                weak_factory_.GetWeakPtr()));
 }
 
-bool ViewBlobInternalsJob::IsRedirectResponse(GURL* location,
-                                              int* http_status_code) {
+bool ViewBlobInternalsJob::IsRedirectResponse(
+    GURL* location,
+    int* http_status_code,
+    bool* insecure_scheme_was_upgraded) {
   if (request_->url().has_query()) {
     // Strip the query parameters.
     GURL::Replacements replacements;
     replacements.ClearQuery();
+    *insecure_scheme_was_upgraded = false;
     *location = request_->url().ReplaceComponents(replacements);
     *http_status_code = 307;
     return true;
@@ -175,11 +180,10 @@ void ViewBlobInternalsJob::Kill() {
   weak_factory_.InvalidateWeakPtrs();
 }
 
-int ViewBlobInternalsJob::GetData(
-    std::string* mime_type,
-    std::string* charset,
-    std::string* data,
-    const net::CompletionCallback& callback) const {
+int ViewBlobInternalsJob::GetData(std::string* mime_type,
+                                  std::string* charset,
+                                  std::string* data,
+                                  net::CompletionOnceCallback callback) const {
   mime_type->assign("text/html");
   charset->assign("UTF-8");
 
@@ -194,21 +198,21 @@ std::string ViewBlobInternalsJob::GenerateHTML(
   if (blob_storage_context->registry().blob_map_.empty()) {
     out.append(kEmptyBlobStorageMessage);
   } else {
-    for (auto iter = blob_storage_context->registry().blob_map_.begin();
-         iter != blob_storage_context->registry().blob_map_.end(); ++iter) {
-      AddHTMLBoldText(iter->first, &out);
-      GenerateHTMLForBlobData(*iter->second, iter->second->content_type(),
-                              iter->second->content_disposition(),
-                              iter->second->refcount(), &out);
+    for (const auto& uuid_entry_pair :
+         blob_storage_context->registry().blob_map_) {
+      AddHTMLBoldText(uuid_entry_pair.first, &out);
+      BlobEntry* entry = uuid_entry_pair.second.get();
+      GenerateHTMLForBlobData(*entry, entry->content_type(),
+                              entry->content_disposition(), entry->refcount(),
+                              &out);
     }
     if (!blob_storage_context->registry().url_to_uuid_.empty()) {
       AddHorizontalRule(&out);
-      for (auto iter = blob_storage_context->registry().url_to_uuid_.begin();
-           iter != blob_storage_context->registry().url_to_uuid_.end();
-           ++iter) {
-        AddHTMLBoldText(iter->first.spec(), &out);
+      for (const auto& url_uuid_pair :
+           blob_storage_context->registry().url_to_uuid_) {
+        AddHTMLBoldText(url_uuid_pair.first.spec(), &out);
         StartHTMLList(&out);
-        AddHTMLListItem(kUUID, iter->second, &out);
+        AddHTMLListItem(kUUID, url_uuid_pair.second, &out);
         EndHTMLList(&out);
       }
     }
@@ -246,10 +250,10 @@ void ViewBlobInternalsJob::GenerateHTMLForBlobData(
     const BlobDataItem& item = *(blob_data.items().at(i)->item());
 
     switch (item.type()) {
-      case DataElement::TYPE_BYTES:
+      case BlobDataItem::Type::kBytes:
         AddHTMLListItem(kType, "data", out);
         break;
-      case DataElement::TYPE_FILE:
+      case BlobDataItem::Type::kFile:
         AddHTMLListItem(kType, "file", out);
         AddHTMLListItem(kPath,
                  net::EscapeForHTML(item.path().AsUTF8Unsafe()),
@@ -260,10 +264,7 @@ void ViewBlobInternalsJob::GenerateHTMLForBlobData(
               out);
         }
         break;
-      case DataElement::TYPE_BLOB:
-        NOTREACHED();   // Should be flattened in the storage context.
-        break;
-      case DataElement::TYPE_FILE_FILESYSTEM:
+      case BlobDataItem::Type::kFileFilesystem:
         AddHTMLListItem(kType, "filesystem", out);
         AddHTMLListItem(kURL, item.filesystem_url().spec(), out);
         if (!item.expected_modification_time().is_null()) {
@@ -272,14 +273,15 @@ void ViewBlobInternalsJob::GenerateHTMLForBlobData(
               out);
         }
         break;
-      case DataElement::TYPE_DISK_CACHE_ENTRY:
+      case BlobDataItem::Type::kDiskCacheEntry:
         AddHTMLListItem(kType, "disk cache entry", out);
-        AddHTMLListItem(kURL, item.disk_cache_entry()->GetKey(), out);
+        if (item.disk_cache_entry())
+          AddHTMLListItem(kURL, item.disk_cache_entry()->GetKey(), out);
+        else
+          AddHTMLListItem(kURL, "Broken", out);
         break;
-      case DataElement::TYPE_BYTES_DESCRIPTION:
+      case BlobDataItem::Type::kBytesDescription:
         AddHTMLListItem(kType, "pending data", out);
-      case DataElement::TYPE_UNKNOWN:
-        NOTREACHED();
         break;
     }
     if (item.offset()) {

@@ -7,8 +7,9 @@
 #include <android/input.h>
 
 #include "base/logging.h"
+#include "base/time/time.h"
 #include "ui/events/android/key_event_utils.h"
-#include "ui/events/android/motion_event_android.h"
+#include "ui/events/base_event_utils.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/dom/dom_code.h"
@@ -78,7 +79,7 @@ WebKeyboardEvent WebKeyboardEventBuilder::Build(
     const base::android::JavaRef<jobject>& android_key_event,
     WebInputEvent::Type type,
     int modifiers,
-    double time_sec,
+    base::TimeTicks time,
     int keycode,
     int scancode,
     int unicode_character,
@@ -90,8 +91,7 @@ WebKeyboardEvent WebKeyboardEventBuilder::Build(
     dom_code = ui::KeycodeConverter::NativeKeycodeToDomCode(scancode);
 
   WebKeyboardEvent result(
-      type, modifiers | ui::DomCodeToWebInputEventModifiers(dom_code),
-      time_sec);
+      type, modifiers | ui::DomCodeToWebInputEventModifiers(dom_code), time);
   result.windows_key_code = ui::LocatedToNonLocatedKeyboardCode(
       ui::KeyboardCodeFromAndroidKeyCode(keycode));
   result.native_key_code = keycode;
@@ -111,24 +111,19 @@ WebKeyboardEvent WebKeyboardEventBuilder::Build(
   return result;
 }
 
-WebMouseEvent WebMouseEventBuilder::Build(WebInputEvent::Type type,
-                                          double time_sec,
-                                          int window_x,
-                                          int window_y,
-                                          int modifiers,
-                                          int click_count,
-                                          int pointer_id,
-                                          float pressure,
-                                          float orientation_rad,
-                                          float tilt_x,
-                                          float tilt_y,
-                                          int action_button,
-                                          int tool_type) {
+WebMouseEvent WebMouseEventBuilder::Build(
+    const ui::MotionEventAndroid& motion_event,
+    WebInputEvent::Type type,
+    int click_count,
+    int action_button) {
   DCHECK(WebInputEvent::IsMouseEventType(type));
+  int modifiers = motion_event.GetFlags();
   WebMouseEvent result(type, ui::EventFlagsToWebEventModifiers(modifiers),
-                       time_sec);
+                       motion_event.GetEventTime());
 
-  result.SetPositionInWidget(window_x, window_y);
+  result.SetPositionInWidget(motion_event.GetX(0), motion_event.GetY(0));
+  result.SetPositionInScreen(motion_event.GetRawX(0), motion_event.GetRawY(0));
+
   result.click_count = click_count;
 
   int button = action_button;
@@ -145,42 +140,41 @@ WebMouseEvent WebMouseEventBuilder::Build(WebInputEvent::Type type,
       button = 0;
   }
 
-  ui::SetWebPointerPropertiesFromMotionEventData(result, pointer_id, pressure,
-                                                 orientation_rad, tilt_x,
-                                                 tilt_y, button, tool_type);
+  ui::SetWebPointerPropertiesFromMotionEventData(
+      result, motion_event.GetPointerId(0), motion_event.GetPressure(0),
+      motion_event.GetOrientation(0), motion_event.GetTiltX(0),
+      motion_event.GetTiltY(0), motion_event.GetTwist(0),
+      motion_event.GetTangentialPressure(0), button,
+      motion_event.GetToolType(0));
 
   return result;
 }
 
-WebMouseWheelEvent WebMouseWheelEventBuilder::Build(float ticks_x,
-                                                    float ticks_y,
-                                                    float tick_multiplier,
-                                                    double time_sec,
-                                                    int window_x,
-                                                    int window_y) {
+WebMouseWheelEvent WebMouseWheelEventBuilder::Build(
+    const ui::MotionEventAndroid& motion_event) {
   WebMouseWheelEvent result(WebInputEvent::kMouseWheel,
-                            WebInputEvent::kNoModifiers, time_sec);
-  result.SetPositionInWidget(window_x, window_y);
+                            WebInputEvent::kNoModifiers,
+                            motion_event.GetEventTime());
+  result.SetPositionInWidget(motion_event.GetX(0), motion_event.GetY(0));
+  result.SetPositionInScreen(motion_event.GetRawX(0), motion_event.GetRawY(0));
   result.button = WebMouseEvent::Button::kNoButton;
   result.has_precise_scrolling_deltas = true;
-  result.delta_x = ticks_x * tick_multiplier;
-  result.delta_y = ticks_y * tick_multiplier;
-  result.wheel_ticks_x = ticks_x;
-  result.wheel_ticks_y = ticks_y;
+  result.delta_x = motion_event.ticks_x() * motion_event.GetTickMultiplier();
+  result.delta_y = motion_event.ticks_y() * motion_event.GetTickMultiplier();
+  result.wheel_ticks_x = motion_event.ticks_x();
+  result.wheel_ticks_y = motion_event.ticks_y();
 
   return result;
 }
 
 WebGestureEvent WebGestureEventBuilder::Build(WebInputEvent::Type type,
-                                              double time_sec,
-                                              int x,
-                                              int y) {
+                                              base::TimeTicks time,
+                                              float x,
+                                              float y) {
   DCHECK(WebInputEvent::IsGestureEventType(type));
-  WebGestureEvent result(type, WebInputEvent::kNoModifiers, time_sec);
-
-  result.x = x;
-  result.y = y;
-  result.source_device = blink::kWebGestureDeviceTouchscreen;
+  WebGestureEvent result(type, WebInputEvent::kNoModifiers, time,
+                         blink::kWebGestureDeviceTouchscreen);
+  result.SetPositionInWidget(gfx::PointF(x, y));
 
   return result;
 }

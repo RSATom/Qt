@@ -1,8 +1,9 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
+<link rel="import" href="../../../html/polymer.html">
+
+<link rel="import" href="../../chromeos/network/cr_onc_types.html">
+<link rel="import" href="../../chromeos/network/network_icons.html">
+<link rel="import" href="../../hidden_style_css.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
-<link rel="import" href="chrome://resources/cr_elements/chromeos/network/cr_onc_types.html">
-<link rel="import" href="chrome://resources/cr_elements/chromeos/network/network_icons.html">
-<link rel="import" href="chrome://resources/cr_elements/hidden_style_css.html">
 
 <dom-module id="cr-network-icon">
   <template>
@@ -50,6 +51,11 @@
       }
 
       /* Wi-Fi images */
+      #icon.wifi-not-connected {
+        background: url(wifi_0_with_x.svg);
+      }
+
+      #icon.wifi-no-network,
       #icon.wifi-0 {
         background: url(wifi_0.svg);
       }
@@ -89,6 +95,11 @@
       }
 
       /* Cellular images */
+      #icon.cellular-not-connected {
+        background: url(cellular_0_with_x.svg);
+      }
+
+      #icon.cellular-no-network,
       #icon.cellular-0 {
         background: url(cellular_0.svg);
       }
@@ -109,6 +120,10 @@
         background: url(cellular_4.svg);
       }
 
+      #icon.cellular-off {
+        background: url(cellular_off.svg);
+      }
+
       #icon.cellular-connecting {
         animation: cellular-levels 750ms infinite;
         animation-direction: alternate;
@@ -123,7 +138,8 @@
         100% { background: url(cellular_4.svg); }
       }
     </style>
-    <div id="icon" class$="[[getIconClass_(networkState, isListItem)]]">
+    <div id="icon"
+        class$="[[getIconClass_(networkState, deviceState, isListItem)]]">
     </div>
     <iron-icon id="technology" hidden="[[!showTechnology_(networkState)]]"
         icon="[[getTechnology_(networkState)]]">

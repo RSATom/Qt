@@ -53,15 +53,15 @@
 #include <Qt3DCore/private/qscenechange_p.h>
 #include <Qt3DCore/private/qt3dcore_global_p.h>
 
-struct QMetaObject;
-
 QT_BEGIN_NAMESPACE
+
+struct QMetaObject;
 
 namespace Qt3DCore {
 
 class QNode;
 
-class QT3DCORE_PRIVATE_EXPORT QNodeCreatedChangeBasePrivate : public QSceneChangePrivate
+class Q_3DCORE_PRIVATE_EXPORT QNodeCreatedChangeBasePrivate : public QSceneChangePrivate
 {
 public:
     QNodeCreatedChangeBasePrivate(const QNode *node);

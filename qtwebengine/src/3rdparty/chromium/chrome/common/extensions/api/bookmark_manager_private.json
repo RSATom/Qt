@@ -149,6 +149,12 @@
             "minItems": 1
           },
           {
+            "name": "dragNodeIndex",
+            "type": "integer",
+            "minimum": 0,
+            "description": "The index of the dragged node in |idList|"
+          },
+          {
             "name": "isFromTouch",
             "type": "boolean",
             "description": "True if the drag was initiated from touch."
@@ -171,6 +177,12 @@
             "type": "integer",
             "minimum": 0,
             "optional": true
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "optional": true,
+            "parameters": []
           }
         ]
       },

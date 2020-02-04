@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
 <!--
 Copyright 2016 the V8 project authors. All rights reserved.  Use of this source
@@ -5,6 +6,8 @@ code is governed by a BSD-style license that can be found in the LICENSE file.
 -->
 
 <head>
+  <meta charset="utf-8">
+  <title>V8 IC explorer</title>
   <style>
     html {
       font-family: monospace;
@@ -46,15 +49,16 @@ code is governed by a BSD-style license that can be found in the LICENSE file.
       padding: 0.5em 0 0.2em 0;
     }
   </style>
-  <script src="./splaytree.js" type="text/javascript"></script>
-  <script src="./codemap.js" type="text/javascript"></script>
-  <script src="./csvparser.js" type="text/javascript"></script>
-  <script src="./consarray.js" type="text/javascript"></script>
-  <script src="./profile.js" type="text/javascript"></script>
-  <script src="./profile_view.js" type="text/javascript"></script>
-  <script src="./logreader.js" type="text/javascript"></script>
-  <script src="./ic-processor.js" type="text/javascript"></script>
-  <script src="./SourceMap.js" type="text/javascript"></script>
+  <script src="./splaytree.js"></script>
+  <script src="./codemap.js"></script>
+  <script src="./csvparser.js"></script>
+  <script src="./consarray.js"></script>
+  <script src="./profile.js"></script>
+  <script src="./profile_view.js"></script>
+  <script src="./logreader.js"></script>
+  <script src="./arguments.js"></script>
+  <script src="./ic-processor.js"></script>
+  <script src="./SourceMap.js"></script>
 
   <script>
     "use strict"
@@ -64,7 +68,7 @@ code is governed by a BSD-style license that can be found in the LICENSE file.
       'state', 'key', 'map', 'reason', 'file',
     ];
 
-    // For compatiblity with console scripts:
+    // For compatibility with console scripts:
     print = console.log;
 
     class CustomIcProcessor extends IcProcessor {
@@ -83,17 +87,6 @@ code is governed by a BSD-style license that can be found in the LICENSE file.
         let fnName = this.functionName(pc);
         this.entries.push(new Entry(type, fnName, line, column, key,
           old_state, new_state, map, slow_reason));
-
-      }
-
-      processCompareIC(pc, line, column, stub, op, old_left, old_right,
-          old_state, new_left, new_right, new_state) {
-        let fnName = this.functionName(pc);
-        this.entries.push(new Entry("CompareIC", fnName, line, column, name,
-          old_state, new_state));
-      }
-
-      processPatchIC(pc, test, delta) {
 
       }
     };
@@ -265,16 +258,17 @@ code is governed by a BSD-style license that can be found in the LICENSE file.
       let fragment = document.createDocumentFragment();
 
       function td(tr, content, className) {
-        let td = document.createElement("td");
+        let node = document.createElement("td");
         if (typeof content == "object") {
-          td.appendChild(content);
+          node.appendChild(content);
         } else {
-          td.innerHTML = content;
+          node.innerHTML = content;
         }
-        td.className = className
-        tr.appendChild(td);
-        return td
+        node.className = className
+        tr.appendChild(node);
+        return node
       }
+
       let max = Math.min(1000, entries.length)
       for (let i = 0; i < max; i++) {
         let entry = entries[i];
@@ -289,8 +283,8 @@ code is governed by a BSD-style license that can be found in the LICENSE file.
       let omitted = entries.length - max;
       if (omitted > 0) {
         let tr = document.createElement("tr");
-        let td = td(tr, 'Omitted ' + omitted + " entries.");
-        td.colSpan = 4;
+        let tdNode = td(tr, 'Omitted ' + omitted + " entries.");
+        tdNode.colSpan = 4;
         fragment.appendChild(tr);
       }
       parent.appendChild(fragment);

@@ -15,8 +15,6 @@
 #ifndef I18N_ADDRESSINPUT_REGION_DATA_BUILDER_H_
 #define I18N_ADDRESSINPUT_REGION_DATA_BUILDER_H_
 
-#include <libaddressinput/util/basictypes.h>
-
 #include <map>
 #include <string>
 
@@ -28,7 +26,10 @@ class RegionData;
 
 class RegionDataBuilder {
  public:
-  // Does not take ownership of |supplier|, which should not be NULL.
+  RegionDataBuilder(const RegionDataBuilder&) = delete;
+  RegionDataBuilder& operator=(const RegionDataBuilder&) = delete;
+
+  // Does not take ownership of |supplier|, which should not be nullptr.
   explicit RegionDataBuilder(PreloadSupplier* supplier);
   ~RegionDataBuilder();
 
@@ -59,19 +60,17 @@ class RegionDataBuilder {
   // The |best_region_tree_language_tag| value may be an empty string.
   //
   // Should be called only if supplier->IsLoaded(region_code) returns true. The
-  // |best_region_tree_language_tag| parameter should not be NULL.
+  // |best_region_tree_language_tag| parameter should not be nullptr.
   const RegionData& Build(const std::string& region_code,
                           const std::string& ui_language_tag,
                           std::string* best_region_tree_language_tag);
 
  private:
-  typedef std::map<std::string, const RegionData*> LanguageRegionMap;
-  typedef std::map<std::string, LanguageRegionMap*> RegionCodeDataMap;
+  using LanguageRegionMap = std::map<std::string, const RegionData*>;
+  using RegionCodeDataMap = std::map<std::string, LanguageRegionMap*>;
 
   PreloadSupplier* const supplier_;  // Not owned.
   RegionCodeDataMap cache_;
-
-  DISALLOW_COPY_AND_ASSIGN(RegionDataBuilder);
 };
 
 }  // namespace addressinput

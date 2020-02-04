@@ -1,23 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <grit-part>
 
-  <if expr="is_android">
-    <message name="IDS_SNIPPETS_DISABLED_SIGNED_OUT_INSTRUCTIONS" desc="Body of the card explaining the status of the content suggestions on the New Tab Page, when the user is signed out." formatter_data="android_java">
-      To get personalized content suggested by Google, sign in to Chrome.
-    </message>
-    <message name="IDS_SNIPPETS_DISABLED_GENERIC_PROMPT" desc="Title of the card explaining what action the user can take to get personalized content suggestions on the New Tab Page." formatter_data="android_java">
-      Get personalized content
-    </message>
-  </if>
   <if expr="is_android or is_ios">
     <message name="IDS_NTP_TITLE_NO_SUGGESTIONS" desc="On the New Tab Page, title text explaining there is no content." formatter_data="android_java">
       That’s all for now
     </message>
   </if>
 
-  <message name="IDS_NTP_ARTICLE_SUGGESTIONS_SECTION_HEADER" desc="Header of the articles section, which is a list of news articles displayed as cards on the New Tab Page.">
-    Articles for you
+  <message name="IDS_NTP_ARTICLE_SUGGESTIONS_NOT_AVAILABLE" desc="On the New Tab Page, text of a toast transiently shown to the user to indicate that no article could be fetched.">
+    Articles aren't available right now
   </message>
+
+  <if expr="use_titlecase">
+    <message name="IDS_NTP_ARTICLE_SUGGESTIONS_SECTION_HEADER" desc="Header of the articles section, which is a list of news articles displayed as cards on the New Tab Page.">
+      Articles for You
+    </message>
+  </if>
+
+  <if expr="not use_titlecase">
+    <message name="IDS_NTP_ARTICLE_SUGGESTIONS_SECTION_HEADER" desc="Header of the articles section, which is a list of news articles displayed as cards on the New Tab Page." formatter_data="android_java">
+      Articles for you
+    </message>
+  </if>
 
   <message name="IDS_NTP_ARTICLE_SUGGESTIONS_SECTION_EMPTY" desc="On the New Tab Page, text of the card explaining to the user that they can expect to see suggested articles in this area in the future.">
     Your suggested articles appear here
@@ -31,14 +35,6 @@
     Your recently visited bookmarks appear here
   </message>
 
-  <message name="IDS_NTP_FOREIGN_SESSIONS_SUGGESTIONS_SECTION_HEADER" desc="Header of the foreign sessions, which is a list of the user's most recently visited tabs on other devices displayed as cards on the New Tab Page.">
-    Tabs from other devices
-  </message>
-
-  <message name="IDS_NTP_FOREIGN_SESSIONS_SUGGESTIONS_SECTION_EMPTY" desc="On the New Tab Page, text of the card explaining to the user that they can expect to see tabs from other devices in this area in the future.">
-    Your recent tabs from other devices appear here
-  </message>
-
   <!-- When you change this string, please change IDS_NTP_PHYSICAL_WEB_PAGE_SUGGESTIONS_SECTION_EMPTY description accordingly. -->
   <message name="IDS_NTP_PHYSICAL_WEB_PAGE_SUGGESTIONS_SECTION_HEADER" desc="Header of the physical web section. The physical web section shows a list of physical web pages available near the user. A physical web page is a URL transmitted over bluetooth by a low power device (a beacon). The user must be at most 100 meters (generally even closer) away from the beacon to receive the URL. This allows the URL to be context based (e.g. one is at a train station and the schedule is available as a physical web page).">
     Nearby
@@ -48,9 +44,17 @@
     Your nearby suggestions appear here
   </message>
 
-  <message name="IDS_NTP_READING_LIST_SUGGESTIONS_SECTION_HEADER" desc="Header of the Reading List section. The Reading List section shows a list of unread pages from the Reading List.">
-    Reading list
-  </message>
+  <if expr="use_titlecase">
+    <message name="IDS_NTP_READING_LIST_SUGGESTIONS_SECTION_HEADER" desc="Header of the Reading List section. The Reading List section shows a list of unread pages from the Reading List.">
+      Reading List
+    </message>
+  </if>
+
+  <if expr="not use_titlecase">
+    <message name="IDS_NTP_READING_LIST_SUGGESTIONS_SECTION_HEADER" desc="Header of the Reading List section. The Reading List section shows a list of unread pages from the Reading List.">
+      Reading list
+    </message>
+  </if>
 
   <message name="IDS_NTP_READING_LIST_SUGGESTIONS_SECTION_EMPTY" desc="On the New Tab Page, text of the card explaining to the user that they can expect to see Reading List articles in this area in the future.">
     Pages from your reading list appear here

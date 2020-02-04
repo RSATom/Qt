@@ -58,12 +58,52 @@
 <context>
     <name>DSCameraSession</name>
     <message>
+        <source>Failed to configure preview format</source>
+        <translation>Kunne ikke konfigurere forhåndsvisningsformat</translation>
+    </message>
+    <message>
+        <source>Failed to connect graph</source>
+        <translation>Kunne ikke tilslutte graf</translation>
+    </message>
+    <message>
+        <source>Failed to get stream control</source>
+        <translation>Kunne ikke få strømkontrol</translation>
+    </message>
+    <message>
+        <source>Failed to start</source>
+        <translation>Kunne ikke starte</translation>
+    </message>
+    <message>
+        <source>Failed to stop</source>
+        <translation>Kunne ikke stoppe</translation>
+    </message>
+    <message>
         <source>Camera not ready for capture</source>
         <translation>Kameraet er ikke klar til optagelse</translation>
     </message>
     <message>
         <source>Could not save image to file.</source>
         <translation>Kunne ikke gemme billede til fil.</translation>
+    </message>
+    <message>
+        <source>Failed to create filter graph</source>
+        <translation>Kunne ikke oprette filtergraf</translation>
+    </message>
+    <message>
+        <source>Failed to create graph builder</source>
+        <translation>Kunne ikke oprette grafbygger</translation>
+    </message>
+    <message>
+        <source>Failed to connect capture graph and filter graph</source>
+        <translation>Kunne ikke tilslutte optagelsesgraf og filtergraf</translation>
+    </message>
+    <message>
+        <source>No capture device found</source>
+        <translation>Ingen optagelsesenhed fundet</translation>
+    </message>
+    <message>
+        <source>Failed to create null renderer</source>
+        <translation>Kunne ikke oprette null-gengiver</translation>
     </message>
 </context>
 <context>
@@ -78,11 +118,11 @@
     </message>
     <message>
         <source>The system cannot find the file specified.</source>
-        <translation>Systemet kan ikke finde den specificerede fil.</translation>
+        <translation>Systemet kan ikke finde den angivne fil.</translation>
     </message>
     <message>
         <source>The specified server could not be found.</source>
-        <translation>Den specificerede server kunne ikke findes.</translation>
+        <translation>Den angivne server kunne ikke findes.</translation>
     </message>
     <message>
         <source>Unsupported media type.</source>

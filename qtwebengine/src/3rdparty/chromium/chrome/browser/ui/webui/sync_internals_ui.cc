@@ -4,7 +4,8 @@
 
 #include "chrome/browser/ui/webui/sync_internals_ui.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/sync_internals_message_handler.h"
 #include "chrome/common/url_constants.h"
@@ -18,6 +19,8 @@ namespace {
 content::WebUIDataSource* CreateSyncInternalsHTMLSource() {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUISyncInternalsHost);
+  source->OverrideContentSecurityPolicyScriptSrc(
+      "script-src chrome://resources 'self' 'unsafe-eval';");
 
   source->SetJsonPath("strings.js");
   source->AddResourcePath(syncer::sync_ui_util::kSyncIndexJS,
@@ -42,7 +45,10 @@ content::WebUIDataSource* CreateSyncInternalsHTMLSource() {
                           IDR_SYNC_DRIVER_SYNC_INTERNALS_SEARCH_JS);
   source->AddResourcePath(syncer::sync_ui_util::kUserEventsJS,
                           IDR_SYNC_DRIVER_SYNC_INTERNALS_USER_EVENTS_JS);
+  source->AddResourcePath(syncer::sync_ui_util::kTrafficLogJS,
+                          IDR_SYNC_DRIVER_SYNC_INTERNALS_TRAFFIC_LOG_JS);
   source->SetDefaultResource(IDR_SYNC_DRIVER_SYNC_INTERNALS_INDEX_HTML);
+  source->UseGzip();
   return source;
 }
 
@@ -53,7 +59,7 @@ SyncInternalsUI::SyncInternalsUI(content::WebUI* web_ui)
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, CreateSyncInternalsHTMLSource());
 
-  web_ui->AddMessageHandler(base::MakeUnique<SyncInternalsMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<SyncInternalsMessageHandler>());
 }
 
 SyncInternalsUI::~SyncInternalsUI() {}

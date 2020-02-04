@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "media/base/test_data_util.h"
 #include "media/remoting/end2end_test_renderer.h"
 #include "media/test/mock_media_source.h"
@@ -13,7 +14,6 @@ namespace remoting {
 
 namespace {
 
-constexpr char kWebM[] = "video/webm; codecs=\"vp8,vorbis\"";
 constexpr int kAppendTimeSec = 1;
 
 class TestRendererFactory final : public PipelineTestRendererFactory {
@@ -21,7 +21,7 @@ class TestRendererFactory final : public PipelineTestRendererFactory {
   explicit TestRendererFactory(
       std::unique_ptr<PipelineTestRendererFactory> renderer_factory)
       : default_renderer_factory_(std::move(renderer_factory)) {}
-  ~TestRendererFactory() override {}
+  ~TestRendererFactory() override = default;
 
   // PipelineTestRendererFactory implementation.
   std::unique_ptr<Renderer> CreateRenderer(
@@ -30,7 +30,7 @@ class TestRendererFactory final : public PipelineTestRendererFactory {
     std::unique_ptr<Renderer> renderer_impl =
         default_renderer_factory_->CreateRenderer(prepend_video_decoders_cb,
                                                   prepend_audio_decoders_cb);
-    return base::MakeUnique<End2EndTestRenderer>(std::move(renderer_impl));
+    return std::make_unique<End2EndTestRenderer>(std::move(renderer_impl));
   }
 
  private:
@@ -64,7 +64,7 @@ TEST_F(MediaRemotingIntegrationTest, BasicPlayback) {
 }
 
 TEST_F(MediaRemotingIntegrationTest, BasicPlayback_MediaSource) {
-  MockMediaSource source("bear-320x240.webm", kWebM, 219229);
+  MockMediaSource source("bear-320x240.webm", 219229);
   EXPECT_EQ(PIPELINE_OK, StartPipelineWithMediaSource(&source));
   source.EndOfStream();
 
@@ -75,8 +75,7 @@ TEST_F(MediaRemotingIntegrationTest, BasicPlayback_MediaSource) {
 }
 
 TEST_F(MediaRemotingIntegrationTest, MediaSource_ConfigChange_WebM) {
-  MockMediaSource source("bear-320x240-16x9-aspect.webm", kWebM,
-                         kAppendWholeFile);
+  MockMediaSource source("bear-320x240-16x9-aspect.webm", kAppendWholeFile);
   EXPECT_EQ(PIPELINE_OK, StartPipelineWithMediaSource(&source));
 
   EXPECT_CALL(*this, OnVideoNaturalSizeChange(gfx::Size(640, 360))).Times(1);

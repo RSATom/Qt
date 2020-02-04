@@ -181,9 +181,13 @@ NSString* const kWebURLsWithTitlesPboardType  = @"WebURLsWithTitlesPboardType"; 
   NSURL* urlFromNSURL = nil;  // Used below in getting an URL from the NSURLPboardType.
   if ([types containsObject:kWebURLsWithTitlesPboardType]) {
     NSArray* urlAndTitleContainer = [self propertyListForType:kWebURLsWithTitlesPboardType];
-    *outUrls = [urlAndTitleContainer objectAtIndex:0];
-    *outTitles = [urlAndTitleContainer objectAtIndex:1];
-  } else if ([types containsObject:NSFilenamesPboardType]) {
+    if ([urlAndTitleContainer count] >= 2) {
+      *outUrls = [urlAndTitleContainer objectAtIndex:0];
+      *outTitles = [urlAndTitleContainer objectAtIndex:1];
+      return;
+    }
+  }
+  if ([types containsObject:NSFilenamesPboardType]) {
     NSArray *files = [self propertyListForType:NSFilenamesPboardType];
     *outUrls = [NSMutableArray arrayWithCapacity:[files count]];
     *outTitles = [NSMutableArray arrayWithCapacity:[files count]];
@@ -279,29 +283,4 @@ NSString* const kWebURLsWithTitlesPboardType  = @"WebURLsWithTitlesPboardType"; 
   
   return NO;
 }
-@end
-
-@implementation NSPasteboard(ChromiumHTMLUtils)
-
-// Convert the RTF to HTML via an NSAttributedString.
-- (NSString*)htmlFromRtf {
-  if (![[self types] containsObject:NSRTFPboardType])
-    return @"";
-
-  NSAttributedString* attributed =
-      [[[NSAttributedString alloc]
-             initWithRTF:[self dataForType:NSRTFPboardType]
-      documentAttributes:nil] autorelease];
-  NSDictionary* attributeDict =
-      [NSDictionary dictionaryWithObject:NSHTMLTextDocumentType
-                                  forKey:NSDocumentTypeDocumentAttribute];
-  NSData* htmlData =
-      [attributed dataFromRange:NSMakeRange(0, [attributed length])
-             documentAttributes:attributeDict
-                          error:nil];
-  // According to the docs, NSHTMLTextDocumentType is UTF8.
-  return [[[NSString alloc] 
-      initWithData:htmlData encoding:NSUTF8StringEncoding] autorelease];
-}
-
 @end

@@ -5,7 +5,7 @@
 #ifndef UI_DISPLAY_MANAGER_DISPLAY_MANAGER_UTILITIES_H_
 #define UI_DISPLAY_MANAGER_DISPLAY_MANAGER_UTILITIES_H_
 
-#include <set>
+#include <vector>
 
 #include "ui/display/display.h"
 #include "ui/display/display_layout.h"
@@ -20,38 +20,35 @@ class Size;
 namespace display {
 class ManagedDisplayInfo;
 class ManagedDisplayMode;
+using DisplayInfoList = std::vector<ManagedDisplayInfo>;
 
 // Creates the display mode list for internal display
 // based on |native_mode|.
 DISPLAY_MANAGER_EXPORT ManagedDisplayInfo::ManagedDisplayModeList
-CreateInternalManagedDisplayModeList(
-    const scoped_refptr<ManagedDisplayMode>& native_mode);
+CreateInternalManagedDisplayModeList(const ManagedDisplayMode& native_mode);
+
+// Defines parameters needed to construct a ManagedDisplayMode for Unified
+// Desktop.
+struct UnifiedDisplayModeParam {
+  UnifiedDisplayModeParam(float dsf, float scale, bool is_default);
+
+  float device_scale_factor = 1.0f;
+
+  float display_bounds_scale = 1.0f;
+
+  bool is_default_mode = false;
+};
 
 // Creates the display mode list for unified display
 // based on |native_mode| and |scales|.
 DISPLAY_MANAGER_EXPORT ManagedDisplayInfo::ManagedDisplayModeList
 CreateUnifiedManagedDisplayModeList(
-    const scoped_refptr<ManagedDisplayMode>& native_mode,
-    const std::set<std::pair<float, float>>& dsf_scale_list);
+    const ManagedDisplayMode& native_mode,
+    const std::vector<UnifiedDisplayModeParam>& modes_param_list);
 
-// Gets the display mode for |resolution|. Returns false if no display
-// mode matches the resolution, or the display is an internal display.
-DISPLAY_MANAGER_EXPORT scoped_refptr<ManagedDisplayMode>
-GetDisplayModeForResolution(const ManagedDisplayInfo& info,
-                            const gfx::Size& resolution);
-
-// Gets the display mode for the next valid UI scale. Returns false
-// if the display is not an internal display.
-DISPLAY_MANAGER_EXPORT scoped_refptr<ManagedDisplayMode>
-GetDisplayModeForNextUIScale(const ManagedDisplayInfo& info, bool up);
-
-// Gets the display mode for the next valid resolution. Returns false
-// if the display is an internal display.
-DISPLAY_MANAGER_EXPORT scoped_refptr<ManagedDisplayMode>
-GetDisplayModeForNextResolution(const ManagedDisplayInfo& info, bool up);
-
-// Tests if the |info| has display mode that matches |ui_scale|.
-bool HasDisplayModeForUIScale(const ManagedDisplayInfo& info, float ui_scale);
+// Returns true if the first display should unconditionally be considered an
+// internal display.
+bool ForceFirstDisplayInternal();
 
 // Computes the bounds that defines the bounds between two displays.
 // Returns false if two displays do not intersect.
@@ -89,6 +86,50 @@ DISPLAY_MANAGER_EXPORT DisplayIdList CreateDisplayIdList(const Displays& list);
 
 DISPLAY_MANAGER_EXPORT std::string DisplayIdListToString(
     const DisplayIdList& list);
+
+// Creates managed display info.
+DISPLAY_MANAGER_EXPORT display::ManagedDisplayInfo CreateDisplayInfo(
+    int64_t id,
+    const gfx::Rect& bounds);
+
+// Get the display id after the output index (8 bits) is masked out.
+DISPLAY_MANAGER_EXPORT int64_t GetDisplayIdWithoutOutputIndex(int64_t id);
+
+// Defines parameters needed to set mixed mirror mode.
+struct DISPLAY_MANAGER_EXPORT MixedMirrorModeParams {
+  MixedMirrorModeParams(int64_t src_id, const DisplayIdList& dst_ids);
+  MixedMirrorModeParams(const MixedMirrorModeParams& mixed_params);
+  ~MixedMirrorModeParams();
+
+  int64_t source_id;  // Id of the mirroring source display
+
+  DisplayIdList destination_ids;  // Ids of the mirroring destination displays.
+};
+
+// Defines mirror modes used to change the display mode.
+enum class MirrorMode {
+  kOff = 0,
+  kNormal,
+  kMixed,
+};
+
+// Defines the error types of mixed mirror mode parameters.
+enum class MixedMirrorModeParamsErrors {
+  kSuccess = 0,
+  kErrorSingleDisplay,
+  kErrorSourceIdNotFound,
+  kErrorDestinationIdsEmpty,
+  kErrorDestinationIdNotFound,
+  kErrorDuplicateId,
+};
+
+// Verifies whether the mixed mirror mode parameters are valid.
+// |connected_display_ids| is the id list for all connected displays. Returns
+// error type for the parameters.
+DISPLAY_MANAGER_EXPORT MixedMirrorModeParamsErrors
+ValidateParamsForMixedMirrorMode(
+    const DisplayIdList& connected_display_ids,
+    const MixedMirrorModeParams& mixed_mode_params);
 
 }  // namespace display
 

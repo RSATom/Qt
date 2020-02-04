@@ -14,14 +14,15 @@ OpenURLParams::OpenURLParams(const GURL& url,
     : url(url),
       referrer(referrer),
       uses_post(false),
-      frame_tree_node_id(-1),
+      frame_tree_node_id(RenderFrameHost::kNoFrameTreeNodeId),
       disposition(disposition),
-      force_new_process_for_new_contents(false),
       transition(transition),
       is_renderer_initiated(is_renderer_initiated),
       should_replace_current_entry(false),
       user_gesture(!is_renderer_initiated),
-      started_from_context_menu(false) {}
+      started_from_context_menu(false),
+      open_app_window_if_possible(false),
+      reload_type(ReloadType::NONE) {}
 
 OpenURLParams::OpenURLParams(const GURL& url,
                              const Referrer& referrer,
@@ -32,14 +33,15 @@ OpenURLParams::OpenURLParams(const GURL& url,
     : url(url),
       referrer(referrer),
       uses_post(false),
-      frame_tree_node_id(-1),
+      frame_tree_node_id(RenderFrameHost::kNoFrameTreeNodeId),
       disposition(disposition),
-      force_new_process_for_new_contents(false),
       transition(transition),
       is_renderer_initiated(is_renderer_initiated),
       should_replace_current_entry(false),
       user_gesture(!is_renderer_initiated),
-      started_from_context_menu(started_from_context_menu) {}
+      started_from_context_menu(started_from_context_menu),
+      open_app_window_if_possible(false),
+      reload_type(ReloadType::NONE) {}
 
 OpenURLParams::OpenURLParams(const GURL& url,
                              const Referrer& referrer,
@@ -52,23 +54,25 @@ OpenURLParams::OpenURLParams(const GURL& url,
       uses_post(false),
       frame_tree_node_id(frame_tree_node_id),
       disposition(disposition),
-      force_new_process_for_new_contents(false),
       transition(transition),
       is_renderer_initiated(is_renderer_initiated),
       should_replace_current_entry(false),
       user_gesture(!is_renderer_initiated),
-      started_from_context_menu(false) {}
+      started_from_context_menu(false),
+      open_app_window_if_possible(false),
+      reload_type(ReloadType::NONE) {}
 
 OpenURLParams::OpenURLParams()
     : uses_post(false),
-      frame_tree_node_id(-1),
+      frame_tree_node_id(RenderFrameHost::kNoFrameTreeNodeId),
       disposition(WindowOpenDisposition::UNKNOWN),
-      force_new_process_for_new_contents(false),
       transition(ui::PAGE_TRANSITION_LINK),
       is_renderer_initiated(false),
       should_replace_current_entry(false),
       user_gesture(true),
-      started_from_context_menu(false) {}
+      started_from_context_menu(false),
+      open_app_window_if_possible(false),
+      reload_type(ReloadType::NONE) {}
 
 OpenURLParams::OpenURLParams(const OpenURLParams& other) = default;
 

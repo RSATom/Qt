@@ -20,11 +20,11 @@ const float kMinAxisResetValue = 0.1f;
 GamepadPadStateProvider::GamepadPadStateProvider() {
   pad_states_.reset(new PadState[Gamepads::kItemsLengthCap]);
 
-  for (unsigned i = 0; i < Gamepads::kItemsLengthCap; ++i)
+  for (size_t i = 0; i < Gamepads::kItemsLengthCap; ++i)
     ClearPadState(pad_states_.get()[i]);
 }
 
-GamepadPadStateProvider::~GamepadPadStateProvider() {}
+GamepadPadStateProvider::~GamepadPadStateProvider() = default;
 
 PadState* GamepadPadStateProvider::GetPadState(GamepadSource source,
                                                int source_id) {
@@ -34,7 +34,7 @@ PadState* GamepadPadStateProvider::GetPadState(GamepadSource source,
     PadState& state = pad_states_.get()[i];
     if (state.source == source && state.source_id == source_id) {
       // Retrieving the pad state marks this gamepad as active.
-      state.active_state = GAMEPAD_ACTIVE;
+      state.is_active = true;
       return &state;
     }
     if (!empty_slot && state.source == GAMEPAD_SOURCE_NONE)
@@ -43,9 +43,22 @@ PadState* GamepadPadStateProvider::GetPadState(GamepadSource source,
   if (empty_slot) {
     empty_slot->source = source;
     empty_slot->source_id = source_id;
-    empty_slot->active_state = GAMEPAD_NEWLY_ACTIVE;
+    empty_slot->is_active = true;
+    empty_slot->is_newly_active = true;
+    empty_slot->is_initialized = false;
   }
   return empty_slot;
+}
+
+PadState* GamepadPadStateProvider::GetConnectedPadState(uint32_t pad_index) {
+  if (pad_index >= Gamepads::kItemsLengthCap)
+    return nullptr;
+
+  PadState& pad_state = pad_states_.get()[pad_index];
+  if (pad_state.source == GAMEPAD_SOURCE_NONE)
+    return nullptr;
+
+  return &pad_state;
 }
 
 void GamepadPadStateProvider::ClearPadState(PadState& state) {

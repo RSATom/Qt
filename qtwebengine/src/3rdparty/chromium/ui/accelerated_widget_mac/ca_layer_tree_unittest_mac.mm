@@ -46,7 +46,7 @@ scoped_refptr<gl::GLImageIOSurface> CreateGLImage(const gfx::Size& size,
                                                   gfx::BufferFormat format,
                                                   bool video) {
   scoped_refptr<gl::GLImageIOSurface> gl_image(
-      new gl::GLImageIOSurface(size, GL_RGBA));
+      gl::GLImageIOSurface::Create(size, GL_RGBA));
   base::ScopedCFTypeRef<IOSurfaceRef> io_surface(
       gfx::CreateIOSurface(size, format));
   if (video) {
@@ -80,7 +80,8 @@ void UpdateCALayerTree(std::unique_ptr<ui::CARendererLayerTree>& ca_layer_tree,
   bool result = ScheduleCALayer(new_ca_layer_tree.get(), properties);
   EXPECT_TRUE(result);
   new_ca_layer_tree->CommitScheduledCALayers(
-      superlayer, std::move(ca_layer_tree), properties->scale_factor);
+      superlayer, std::move(ca_layer_tree), properties->rect.size(),
+      properties->scale_factor);
   std::swap(new_ca_layer_tree, ca_layer_tree);
 }
 
@@ -90,13 +91,9 @@ class CALayerTreeTest : public testing::Test {
  protected:
   void SetUp() override {
     superlayer_.reset([[CALayer alloc] init]);
-    fullscreen_low_power_layer_.reset(
-        [[AVSampleBufferDisplayLayer109 alloc] init]);
   }
 
   base::scoped_nsobject<CALayer> superlayer_;
-  base::scoped_nsobject<AVSampleBufferDisplayLayer109>
-      fullscreen_low_power_layer_;
 };
 
 // Test updating each layer's properties.
@@ -512,8 +509,8 @@ TEST_F(CALayerTreeTest, SplitSortingContextZero) {
     bool result = ScheduleCALayer(ca_layer_tree.get(), &properties);
     EXPECT_TRUE(result);
   }
-  ca_layer_tree->CommitScheduledCALayers(superlayer_, nullptr,
-                                         properties.scale_factor);
+  ca_layer_tree->CommitScheduledCALayers(
+      superlayer_, nullptr, properties.rect.size(), properties.scale_factor);
 
   // Validate the root layer.
   EXPECT_EQ(1u, [[superlayer_ sublayers] count]);
@@ -592,8 +589,8 @@ TEST_F(CALayerTreeTest, SortingContexts) {
     bool result = ScheduleCALayer(ca_layer_tree.get(), &properties);
     EXPECT_TRUE(result);
   }
-  ca_layer_tree->CommitScheduledCALayers(superlayer_, nullptr,
-                                         properties.scale_factor);
+  ca_layer_tree->CommitScheduledCALayers(
+      superlayer_, nullptr, properties.rect.size(), properties.scale_factor);
 
   // Validate the root layer.
   EXPECT_EQ(1u, [[superlayer_ sublayers] count]);
@@ -762,6 +759,31 @@ TEST_F(CALayerTreeTest, AVLayer) {
   }
 
   properties.gl_image = CreateGLImage(
+      gfx::Size(513, 512), gfx::BufferFormat::YUV_420_BIPLANAR, true);
+
+  // Pass a frame with a CVPixelBuffer which, when scaled down, will have a
+  // fractional dimension.
+  {
+    UpdateCALayerTree(ca_layer_tree, &properties, superlayer_);
+
+    // Validate the tree structure.
+    EXPECT_EQ(1u, [[superlayer_ sublayers] count]);
+    root_layer = [[superlayer_ sublayers] objectAtIndex:0];
+    EXPECT_EQ(1u, [[root_layer sublayers] count]);
+    clip_and_sorting_layer = [[root_layer sublayers] objectAtIndex:0];
+    EXPECT_EQ(1u, [[clip_and_sorting_layer sublayers] count]);
+    transform_layer = [[clip_and_sorting_layer sublayers] objectAtIndex:0];
+    EXPECT_EQ(1u, [[transform_layer sublayers] count]);
+    content_layer3 = [[transform_layer sublayers] objectAtIndex:0];
+
+    // Validate that the layer's size is adjusted to include the fractional
+    // width, which works around a macOS bug (https://crbug.com/792632).
+    CGSize layer_size = content_layer3.bounds.size;
+    EXPECT_EQ(256.5, layer_size.width);
+    EXPECT_EQ(256, layer_size.height);
+  }
+
+  properties.gl_image = CreateGLImage(
       gfx::Size(256, 256), gfx::BufferFormat::YUV_420_BIPLANAR, false);
 
   // Pass a frame that is clipped.
@@ -861,10 +883,8 @@ TEST_F(CALayerTreeTest, FullscreenLowPower) {
     bool result = ScheduleCALayer(new_ca_layer_tree.get(), &properties);
     EXPECT_TRUE(result);
     new_ca_layer_tree->CommitScheduledCALayers(
-        superlayer_, std::move(ca_layer_tree), properties.scale_factor);
-    bool fullscreen_low_power_valid =
-        new_ca_layer_tree->CommitFullscreenLowPowerLayer(
-            fullscreen_low_power_layer_);
+        superlayer_, std::move(ca_layer_tree), properties.rect.size(),
+        properties.scale_factor);
     std::swap(new_ca_layer_tree, ca_layer_tree);
 
     // Validate the tree structure.
@@ -876,12 +896,10 @@ TEST_F(CALayerTreeTest, FullscreenLowPower) {
     CALayer* transform_layer =
         [[clip_and_sorting_layer sublayers] objectAtIndex:0];
     EXPECT_EQ(1u, [[transform_layer sublayers] count]);
-    CALayer* content_layer = [[transform_layer sublayers] objectAtIndex:0];
 
     // Validate the content layer and fullscreen low power mode.
-    EXPECT_TRUE([content_layer
-        isKindOfClass:NSClassFromString(@"AVSampleBufferDisplayLayer")]);
-    EXPECT_TRUE(fullscreen_low_power_valid);
+    EXPECT_FALSE(CGRectEqualToRect([root_layer frame], CGRectZero));
+    EXPECT_NE([root_layer backgroundColor], nil);
   }
 
   // Test a configuration with a black background.
@@ -893,10 +911,8 @@ TEST_F(CALayerTreeTest, FullscreenLowPower) {
     result = ScheduleCALayer(new_ca_layer_tree.get(), &properties);
     EXPECT_TRUE(result);
     new_ca_layer_tree->CommitScheduledCALayers(
-        superlayer_, std::move(ca_layer_tree), properties.scale_factor);
-    bool fullscreen_low_power_valid =
-        new_ca_layer_tree->CommitFullscreenLowPowerLayer(
-            fullscreen_low_power_layer_);
+        superlayer_, std::move(ca_layer_tree), properties.rect.size(),
+        properties.scale_factor);
     std::swap(new_ca_layer_tree, ca_layer_tree);
 
     // Validate the tree structure.
@@ -908,12 +924,10 @@ TEST_F(CALayerTreeTest, FullscreenLowPower) {
     CALayer* transform_layer =
         [[clip_and_sorting_layer sublayers] objectAtIndex:0];
     EXPECT_EQ(2u, [[transform_layer sublayers] count]);
-    CALayer* content_layer = [[transform_layer sublayers] objectAtIndex:1];
 
     // Validate the content layer and fullscreen low power mode.
-    EXPECT_TRUE([content_layer
-        isKindOfClass:NSClassFromString(@"AVSampleBufferDisplayLayer")]);
-    EXPECT_TRUE(fullscreen_low_power_valid);
+    EXPECT_FALSE(CGRectEqualToRect([root_layer frame], CGRectZero));
+    EXPECT_NE([root_layer backgroundColor], nil);
   }
 
   // Test a configuration with a white background. It will fail.
@@ -925,10 +939,8 @@ TEST_F(CALayerTreeTest, FullscreenLowPower) {
     result = ScheduleCALayer(new_ca_layer_tree.get(), &properties);
     EXPECT_TRUE(result);
     new_ca_layer_tree->CommitScheduledCALayers(
-        superlayer_, std::move(ca_layer_tree), properties.scale_factor);
-    bool fullscreen_low_power_valid =
-        new_ca_layer_tree->CommitFullscreenLowPowerLayer(
-            fullscreen_low_power_layer_);
+        superlayer_, std::move(ca_layer_tree), properties.rect.size(),
+        properties.scale_factor);
     std::swap(new_ca_layer_tree, ca_layer_tree);
 
     // Validate the tree structure.
@@ -940,12 +952,10 @@ TEST_F(CALayerTreeTest, FullscreenLowPower) {
     CALayer* transform_layer =
         [[clip_and_sorting_layer sublayers] objectAtIndex:0];
     EXPECT_EQ(2u, [[transform_layer sublayers] count]);
-    CALayer* content_layer = [[transform_layer sublayers] objectAtIndex:1];
 
     // Validate the content layer and fullscreen low power mode.
-    EXPECT_TRUE([content_layer
-        isKindOfClass:NSClassFromString(@"AVSampleBufferDisplayLayer")]);
-    EXPECT_FALSE(fullscreen_low_power_valid);
+    EXPECT_TRUE(CGRectEqualToRect([root_layer frame], CGRectZero));
+    EXPECT_EQ([root_layer backgroundColor], nil);
   }
 
   // Test a configuration with a black foreground. It too will fail.
@@ -957,10 +967,8 @@ TEST_F(CALayerTreeTest, FullscreenLowPower) {
     result = ScheduleCALayer(new_ca_layer_tree.get(), &properties_black);
     EXPECT_TRUE(result);
     new_ca_layer_tree->CommitScheduledCALayers(
-        superlayer_, std::move(ca_layer_tree), properties.scale_factor);
-    bool fullscreen_low_power_valid =
-        new_ca_layer_tree->CommitFullscreenLowPowerLayer(
-            fullscreen_low_power_layer_);
+        superlayer_, std::move(ca_layer_tree), properties.rect.size(),
+        properties.scale_factor);
     std::swap(new_ca_layer_tree, ca_layer_tree);
 
     // Validate the tree structure.
@@ -972,12 +980,10 @@ TEST_F(CALayerTreeTest, FullscreenLowPower) {
     CALayer* transform_layer =
         [[clip_and_sorting_layer sublayers] objectAtIndex:0];
     EXPECT_EQ(2u, [[transform_layer sublayers] count]);
-    CALayer* content_layer = [[transform_layer sublayers] objectAtIndex:0];
 
     // Validate the content layer and fullscreen low power mode.
-    EXPECT_TRUE([content_layer
-        isKindOfClass:NSClassFromString(@"AVSampleBufferDisplayLayer")]);
-    EXPECT_FALSE(fullscreen_low_power_valid);
+    EXPECT_TRUE(CGRectEqualToRect([root_layer frame], CGRectZero));
+    EXPECT_EQ([root_layer backgroundColor], nil);
   }
 }
 

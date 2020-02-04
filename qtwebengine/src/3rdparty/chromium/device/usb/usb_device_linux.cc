@@ -32,84 +32,92 @@ UsbDeviceLinux::UsbDeviceLinux(const std::string& device_path,
                                const std::string& manufacturer_string,
                                const std::string& product_string,
                                const std::string& serial_number,
-                               uint8_t active_configuration)
+                               uint8_t active_configuration,
+                               uint32_t bus_number, uint32_t port_number)
     : UsbDevice(descriptor,
                 base::UTF8ToUTF16(manufacturer_string),
                 base::UTF8ToUTF16(product_string),
-                base::UTF8ToUTF16(serial_number)),
+                base::UTF8ToUTF16(serial_number),
+                bus_number, port_number),
       device_path_(device_path) {
   ActiveConfigurationChanged(active_configuration);
 }
 
-UsbDeviceLinux::~UsbDeviceLinux() {}
+UsbDeviceLinux::~UsbDeviceLinux() = default;
 
 #if defined(OS_CHROMEOS)
 
-void UsbDeviceLinux::CheckUsbAccess(const ResultCallback& callback) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+void UsbDeviceLinux::CheckUsbAccess(ResultCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   chromeos::PermissionBrokerClient* client =
       chromeos::DBusThreadManager::Get()->GetPermissionBrokerClient();
   DCHECK(client) << "Could not get permission broker client.";
-  client->CheckPathAccess(device_path_, callback);
+  client->CheckPathAccess(device_path_,
+                          base::AdaptCallbackForRepeating(std::move(callback)));
 }
 
 #endif  // defined(OS_CHROMEOS)
 
-void UsbDeviceLinux::Open(const OpenCallback& callback) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+void UsbDeviceLinux::Open(OpenCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
 #if defined(OS_CHROMEOS)
   chromeos::PermissionBrokerClient* client =
       chromeos::DBusThreadManager::Get()->GetPermissionBrokerClient();
+  auto copyable_callback = base::AdaptCallbackForRepeating(std::move(callback));
   DCHECK(client) << "Could not get permission broker client.";
   client->OpenPath(
       device_path_,
-      base::Bind(&UsbDeviceLinux::OnOpenRequestComplete, this, callback),
-      base::Bind(&UsbDeviceLinux::OnOpenRequestError, this, callback));
+      base::Bind(&UsbDeviceLinux::OnOpenRequestComplete, this,
+                 copyable_callback),
+      base::Bind(&UsbDeviceLinux::OnOpenRequestError, this, copyable_callback));
 #else
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner =
       UsbService::CreateBlockingTaskRunner();
   blocking_task_runner->PostTask(
       FROM_HERE,
-      base::Bind(&UsbDeviceLinux::OpenOnBlockingThread, this, callback,
-                 base::ThreadTaskRunnerHandle::Get(), blocking_task_runner));
+      base::BindOnce(&UsbDeviceLinux::OpenOnBlockingThread, this,
+                     std::move(callback), base::ThreadTaskRunnerHandle::Get(),
+                     blocking_task_runner));
 #endif  // defined(OS_CHROMEOS)
 }
 
 #if defined(OS_CHROMEOS)
 
-void UsbDeviceLinux::OnOpenRequestComplete(const OpenCallback& callback,
+void UsbDeviceLinux::OnOpenRequestComplete(OpenCallback callback,
                                            base::ScopedFD fd) {
   if (!fd.is_valid()) {
     USB_LOG(EVENT) << "Did not get valid device handle from permission broker.";
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
-  Opened(std::move(fd), callback, UsbService::CreateBlockingTaskRunner());
+  Opened(std::move(fd), std::move(callback),
+         UsbService::CreateBlockingTaskRunner());
 }
 
-void UsbDeviceLinux::OnOpenRequestError(const OpenCallback& callback,
+void UsbDeviceLinux::OnOpenRequestError(OpenCallback callback,
                                         const std::string& error_name,
                                         const std::string& error_message) {
   USB_LOG(EVENT) << "Permission broker failed to open the device: "
                  << error_name << ": " << error_message;
-  callback.Run(nullptr);
+  std::move(callback).Run(nullptr);
 }
 
 #else
 
 void UsbDeviceLinux::OpenOnBlockingThread(
-    const OpenCallback& callback,
+    OpenCallback callback,
     scoped_refptr<base::SequencedTaskRunner> task_runner,
     scoped_refptr<base::SequencedTaskRunner> blocking_task_runner) {
   base::ScopedFD fd(HANDLE_EINTR(open(device_path_.c_str(), O_RDWR)));
   if (fd.is_valid()) {
     task_runner->PostTask(
-        FROM_HERE, base::Bind(&UsbDeviceLinux::Opened, this, base::Passed(&fd),
-                              callback, blocking_task_runner));
+        FROM_HERE, base::BindOnce(&UsbDeviceLinux::Opened, this, std::move(fd),
+                                  std::move(callback), blocking_task_runner));
   } else {
     USB_PLOG(EVENT) << "Failed to open " << device_path_;
-    task_runner->PostTask(FROM_HERE, base::Bind(callback, nullptr));
+    task_runner->PostTask(FROM_HERE,
+                          base::BindOnce(std::move(callback), nullptr));
   }
 }
 
@@ -117,13 +125,13 @@ void UsbDeviceLinux::OpenOnBlockingThread(
 
 void UsbDeviceLinux::Opened(
     base::ScopedFD fd,
-    const OpenCallback& callback,
+    OpenCallback callback,
     scoped_refptr<base::SequencedTaskRunner> blocking_task_runner) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   scoped_refptr<UsbDeviceHandle> device_handle =
       new UsbDeviceHandleUsbfs(this, std::move(fd), blocking_task_runner);
   handles().push_back(device_handle.get());
-  callback.Run(device_handle);
+  std::move(callback).Run(device_handle);
 }
 
 }  // namespace device

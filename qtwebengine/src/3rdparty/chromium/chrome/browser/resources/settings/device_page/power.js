@@ -33,7 +33,7 @@ Polymer({
     /** @private {string} Text for label describing the lid-closed behavior. */
     lidClosedLabel_: String,
 
-    /** @private {boolean} Whether the system posesses a lid. */
+    /** @private {boolean} Whether the system possesses a lid. */
     hasLid_: Boolean,
 
     /**
@@ -84,8 +84,9 @@ Polymer({
   ready: function() {
     // enablePowerSettings comes from loadTimeData, so it will always be set
     // before attached() is called.
-    if (!this.enablePowerSettings)
+    if (!this.enablePowerSettings) {
       settings.navigateToPreviousRoute();
+    }
   },
 
   /** @override */
@@ -113,7 +114,8 @@ Polymer({
     return this.i18n(
         calculating ?
             'calculatingPower' :
-            powerSources.length ? 'powerSourceLabel' : 'powerSourceBattery');
+            powerSources && powerSources.length ? 'powerSourceLabel' :
+                                                  'powerSourceBattery');
   },
 
   /**
@@ -124,7 +126,7 @@ Polymer({
    */
   computeShowPowerSourceDropdown_: function(powerSources) {
     return powerSources.length > 0 && powerSources.every(function(source) {
-      return source.type == settings.PowerDeviceType.DUAL_ROLE_USB;
+      return !source.is_dedicated_charger;
     });
   },
 
@@ -135,10 +137,12 @@ Polymer({
    * @private
    */
   computePowerSourceName_: function(powerSources, lowPowerCharger) {
-    if (lowPowerCharger)
+    if (lowPowerCharger) {
       return this.i18n('powerSourceLowPowerCharger');
-    if (powerSources.length)
+    }
+    if (powerSources.length) {
       return this.i18n('powerSourceAcAdapter');
+    }
     return '';
   },
 
@@ -149,7 +153,7 @@ Polymer({
    * @private
    */
   computeIdleOptions_: function(idleControlled) {
-    var options = [
+    const options = [
       {
         value: settings.IdleBehavior.DISPLAY_OFF_SLEEP,
         name: loadTimeData.getString('powerIdleDisplayOffSleep'),
@@ -180,7 +184,7 @@ Polymer({
 
   /** @private */
   onIdleSelectChange_: function() {
-    var behavior = /** @type {settings.IdleBehavior} */
+    const behavior = /** @type {settings.IdleBehavior} */
         (parseInt(this.$.idleSelect.value, 10));
     settings.DevicePageBrowserProxyImpl.getInstance().setIdleBehavior(behavior);
   },
@@ -213,7 +217,7 @@ Polymer({
    * @private
    */
   updateLidClosedLabelAndPref_: function(behavior, isControlled) {
-    var pref = {
+    const pref = {
       key: '',
       type: chrome.settingsPrivate.PrefType.BOOLEAN,
       // Most behaviors get a dedicated label and appear as checked.
@@ -261,6 +265,15 @@ Polymer({
     this.async(function() {
       this.$.idleSelect.value = browserSettings.idleBehavior;
     });
+  },
+
+  /**
+   * @param {boolean} batteryPresent if battery is present
+   * @return {string} 'first' if idle/lid settings are first visible div
+   * @private
+   */
+  getFirst_: function(batteryPresent) {
+    return !batteryPresent ? 'first' : '';
   },
 
   /**

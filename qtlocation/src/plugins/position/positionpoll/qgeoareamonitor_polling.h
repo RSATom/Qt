@@ -57,20 +57,20 @@ public :
     explicit QGeoAreaMonitorPolling(QObject *parent = 0);
     ~QGeoAreaMonitorPolling();
 
-    void setPositionInfoSource(QGeoPositionInfoSource *source) Q_DECL_OVERRIDE;
-    QGeoPositionInfoSource* positionInfoSource() const Q_DECL_OVERRIDE;
+    void setPositionInfoSource(QGeoPositionInfoSource *source) override;
+    QGeoPositionInfoSource* positionInfoSource() const override;
 
-    Error error() const Q_DECL_OVERRIDE;
+    Error error() const override;
 
-    bool startMonitoring(const QGeoAreaMonitorInfo &monitor) Q_DECL_OVERRIDE;
+    bool startMonitoring(const QGeoAreaMonitorInfo &monitor) override;
     bool requestUpdate(const QGeoAreaMonitorInfo &monitor,
-                       const char *signal) Q_DECL_OVERRIDE;
-    bool stopMonitoring(const QGeoAreaMonitorInfo &monitor) Q_DECL_OVERRIDE;
+                       const char *signal) override;
+    bool stopMonitoring(const QGeoAreaMonitorInfo &monitor) override;
 
-    QList<QGeoAreaMonitorInfo> activeMonitors() const Q_DECL_OVERRIDE;
-    QList<QGeoAreaMonitorInfo> activeMonitors(const QGeoShape &region) const Q_DECL_OVERRIDE;
+    QList<QGeoAreaMonitorInfo> activeMonitors() const override;
+    QList<QGeoAreaMonitorInfo> activeMonitors(const QGeoShape &region) const override;
 
-    QGeoAreaMonitorSource::AreaMonitorFeatures supportedAreaMonitorFeatures() const Q_DECL_OVERRIDE;
+    QGeoAreaMonitorSource::AreaMonitorFeatures supportedAreaMonitorFeatures() const override;
 
     inline bool isValid() { return positionInfoSource(); }
 
@@ -85,8 +85,8 @@ private:
     QGeoAreaMonitorPollingPrivate* d;
     QGeoAreaMonitorSource::Error lastError;
 
-    void connectNotify(const QMetaMethod &signal) Q_DECL_OVERRIDE;
-    void disconnectNotify(const QMetaMethod &signal) Q_DECL_OVERRIDE;
+    void connectNotify(const QMetaMethod &signal) override;
+    void disconnectNotify(const QMetaMethod &signal) override;
 
     int idForSignal(const char *signal);
 };

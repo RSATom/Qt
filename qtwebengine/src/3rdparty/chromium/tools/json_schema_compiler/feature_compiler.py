@@ -25,18 +25,10 @@ HEADER_FILE_TEMPLATE = """
 #ifndef %(header_guard)s
 #define %(header_guard)s
 
-#include "extensions/common/features/feature_provider.h"
-
 namespace extensions {
+class FeatureProvider;
 
-class %(provider_class)s : public FeatureProvider {
- public:
-  %(provider_class)s();
-  ~%(provider_class)s() override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(%(provider_class)s);
-};
+void %(method_name)s(FeatureProvider* provider);
 
 }  // namespace extensions
 
@@ -56,19 +48,27 @@ CC_FILE_BEGIN = """
 #include "%(header_file_path)s"
 
 #include "extensions/common/features/complex_feature.h"
+#include "extensions/common/features/feature_provider.h"
 #include "extensions/common/features/manifest_feature.h"
 #include "extensions/common/features/permission_feature.h"
 
 namespace extensions {
 
+void %(method_name)s(FeatureProvider* provider) {
 """
 
 # The end of the .cc file for the generated FeatureProvider.
 CC_FILE_END = """
-%(provider_class)s::~%(provider_class)s() {}
+}
 
 }  // namespace extensions
 """
+
+# Returns true if the list 'l' does not contain any strings that look like
+# extension ids.
+def ListDoesNotContainPlainExtensionIds(l):
+  # For now, let's just say anything 32 characters in length is an id.
+  return len(filter(lambda s: len(s) == 32, l)) == 0
 
 # A "grammar" for what is and isn't allowed in the features.json files. This
 # grammar has to list all possible keys and the requirements for each. The
@@ -96,6 +96,13 @@ CC_FILE_END = """
 #                assign the list of Feature::BLESSED_EXTENSION_CONTEXT,
 #                Feature::BLESSED_WEB_PAGE_CONTEXT et al for contexts. If not
 #                specified, defaults to false.
+#   'validators': A list of (function, str) pairs with a function to run on the
+#                 value for a feature. Validators allow for more flexible or
+#                 one-off style validation than just what's in the grammar (such
+#                 as validating the content of a string). The validator function
+#                 should return True if the value is valid, and False otherwise.
+#                 If the value is invalid, the specified error will be added for
+#                 that key.
 #   'values': A list of all possible allowed values for a given key.
 #   'shared': Boolean that, if set, ensures that only one of the associated
 #       features has the feature property set. Used primarily for complex
@@ -110,7 +117,13 @@ FEATURE_GRAMMAR = (
       'shared': True
     },
     'blacklist': {
-      list: {'subtype': unicode}
+      list: {
+        'subtype': unicode,
+        'validators': [
+          (ListDoesNotContainPlainExtensionIds,
+           'list should only have hex-encoded SHA1 hashes of extension ids')
+        ]
+      }
     },
     'channel': {
       unicode: {
@@ -179,10 +192,10 @@ FEATURE_GRAMMAR = (
       list: {'subtype': unicode}
     },
     'max_manifest_version': {
-      int: {'values': [1]}
+      int: {'values': [1, 2]}
     },
     'min_manifest_version': {
-      int: {'values': [2]}
+      int: {'values': [2, 3]}
     },
     'noparent': {
       bool: {'values': [True]}
@@ -211,7 +224,13 @@ FEATURE_GRAMMAR = (
       'shared': True
     },
     'whitelist': {
-      list: {'subtype': unicode}
+      list: {
+        'subtype': unicode,
+        'validators': [
+          (ListDoesNotContainPlainExtensionIds,
+           'list should only have hex-encoded SHA1 hashes of extension ids')
+        ]
+      }
     },
   })
 
@@ -340,7 +359,15 @@ def GetCodeForFeatureValues(feature_values):
   for key in sorted(feature_values.keys()):
     if key in IGNORED_KEYS:
       continue;
-    c.Append('feature->set_%s(%s);' % (key, feature_values[key]))
+
+    # TODO(devlin): Remove this hack as part of 842387.
+    set_key = key
+    if key == "whitelist":
+      set_key = "allowlist"
+    elif key == "blacklist":
+      set_key = "blocklist"
+
+    c.Append('feature->set_%s(%s);' % (set_key, feature_values[key]))
   return c
 
 class Feature(object):
@@ -478,6 +505,12 @@ class Feature(object):
       cpp_value = self._GetCheckedValue(key, expected_type, expected_values,
                                         enum_map, v)
 
+    if 'validators' in expected:
+      validators = expected['validators']
+      for validator, error in validators:
+        if not validator(v):
+          self._AddKeyError(key, error)
+
     if cpp_value:
       if 'shared' in grammar:
         shared_values[key] = cpp_value
@@ -587,12 +620,12 @@ class FeatureCompiler(object):
   """A compiler to load, parse, and generate C++ code for a number of
   features.json files."""
   def __init__(self, chrome_root, source_files, feature_type,
-               provider_class, out_root, out_base_filename):
+               method_name, out_root, out_base_filename):
     # See __main__'s ArgumentParser for documentation on these properties.
     self._chrome_root = chrome_root
     self._source_files = source_files
     self._feature_type = feature_type
-    self._provider_class = provider_class
+    self._method_name = method_name
     self._out_root = out_root
     self._out_base_filename = out_base_filename
 
@@ -715,39 +748,51 @@ class FeatureCompiler(object):
     """Returns the Code object for the body of the .cc file, which handles the
     initialization of all features."""
     c = Code()
-    c.Append('%s::%s() {' % (self._provider_class, self._provider_class))
     c.Sblock()
     for k in sorted(self._features.keys()):
       c.Sblock('{')
       feature = self._features[k]
       c.Concat(feature.GetCode(self._feature_type))
-      c.Append('AddFeature("%s", feature);' % k)
+      c.Append('provider->AddFeature("%s", feature);' % k)
       c.Eblock('}')
-    c.Eblock('}')
+    c.Eblock()
     return c
 
   def Write(self):
     """Writes the output."""
-    header_file_path = self._out_base_filename + '.h'
-    cc_file_path = self._out_base_filename + '.cc'
+    header_file = self._out_base_filename + '.h'
+    cc_file = self._out_base_filename + '.cc'
+
+    include_file_root = self._out_root
+    GEN_DIR_PREFIX = 'gen/'
+    if include_file_root.startswith(GEN_DIR_PREFIX) and len(include_file_root) >= len(GEN_DIR_PREFIX):
+      include_file_root = include_file_root[len(GEN_DIR_PREFIX):]
+    else:
+      include_file_root = ''
+    if include_file_root:
+      header_file_path = '%s/%s' % (include_file_root, header_file)
+    else:
+      header_file_path = header_file
+    cc_file_path = '%s/%s' % (include_file_root, cc_file)
+
     substitutions = ({
         'header_file_path': header_file_path,
         'header_guard': (header_file_path.replace('/', '_').
                              replace('.', '_').upper()),
-        'provider_class': self._provider_class,
+        'method_name': self._method_name,
         'source_files': str(self._source_files),
         'year': str(datetime.now().year)
     })
     if not os.path.exists(self._out_root):
       os.makedirs(self._out_root)
     # Write the .h file.
-    with open(os.path.join(self._out_root, header_file_path), 'w') as f:
+    with open(os.path.join(self._out_root, header_file), 'w') as f:
       header_file = Code()
       header_file.Append(HEADER_FILE_TEMPLATE)
       header_file.Substitute(substitutions)
       f.write(header_file.Render().strip())
     # Write the .cc file.
-    with open(os.path.join(self._out_root, cc_file_path), 'w') as f:
+    with open(os.path.join(self._out_root, cc_file), 'w') as f:
       cc_file = Code()
       cc_file.Append(CC_FILE_BEGIN)
       cc_file.Substitute(substitutions)
@@ -766,8 +811,8 @@ if __name__ == '__main__':
       'feature_type', type=str,
       help='The name of the class to use in feature generation ' +
                '(e.g. APIFeature, PermissionFeature)')
-  parser.add_argument('provider_class', type=str,
-                      help='The name of the class for the feature provider')
+  parser.add_argument('method_name', type=str,
+                      help='The name of the method to populate the provider')
   parser.add_argument('out_root', type=str,
                       help='The root directory to generate the C++ files into')
   parser.add_argument(
@@ -779,7 +824,7 @@ if __name__ == '__main__':
   if args.feature_type not in FEATURE_TYPES:
     raise NameError('Unknown feature type: %s' % args.feature_type)
   c = FeatureCompiler(args.chrome_root, args.source_files, args.feature_type,
-                      args.provider_class, args.out_root,
+                      args.method_name, args.out_root,
                       args.out_base_filename)
   c.Load()
   c.Compile()

@@ -76,6 +76,8 @@ class Q_GUI_EXPORT QPlatformTheme
 {
     Q_DECLARE_PRIVATE(QPlatformTheme)
 public:
+    Q_DISABLE_COPY_MOVE(QPlatformTheme)
+
     enum ThemeHint {
         CursorFlashTime,
         KeyboardInputInterval,
@@ -116,7 +118,9 @@ public:
         MouseDoubleClickDistance,
         WheelScrollLines,
         TouchDoubleTapDistance,
-        ShowShortcutsInContextMenus
+        ShowShortcutsInContextMenus,
+        IconFallbackSearchPaths,
+        MouseQuickSelectionThreshold
     };
 
     enum DialogType {
@@ -322,8 +326,6 @@ public:
 protected:
     explicit QPlatformTheme(QPlatformThemePrivate *priv);
     QScopedPointer<QPlatformThemePrivate> d_ptr;
-private:
-    Q_DISABLE_COPY(QPlatformTheme)
 };
 
 QT_END_NAMESPACE

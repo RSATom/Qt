@@ -9,7 +9,7 @@
  */
 
 /** @polymerBehavior SettingsBooleanControlBehavior */
-var SettingsBooleanControlBehaviorImpl = {
+const SettingsBooleanControlBehaviorImpl = {
   properties: {
     /** Whether the control should represent the inverted value. */
     inverted: {
@@ -74,8 +74,9 @@ var SettingsBooleanControlBehaviorImpl = {
   notifyChangedByUserInteraction: function() {
     this.fire('settings-boolean-control-change');
 
-    if (!this.pref || this.noSetPref)
+    if (!this.pref || this.noSetPref) {
       return;
+    }
     this.sendPrefChange();
   },
 
@@ -122,15 +123,15 @@ var SettingsBooleanControlBehaviorImpl = {
 
   /**
    * @return {boolean} Whether the control should be disabled.
-   * @private
+   * @protected
    */
-  controlDisabled_: function() {
+  controlDisabled: function() {
     return this.disabled || this.isPrefEnforced();
   },
 };
 
 /** @polymerBehavior */
-var SettingsBooleanControlBehavior = [
+const SettingsBooleanControlBehavior = [
   CrPolicyPrefBehavior,
   PrefControlBehavior,
   SettingsBooleanControlBehaviorImpl,

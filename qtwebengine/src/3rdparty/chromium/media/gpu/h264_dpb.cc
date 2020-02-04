@@ -44,7 +44,7 @@ H264Picture::H264Picture()
   memset(&ref_pic_marking, 0, sizeof(ref_pic_marking));
 }
 
-H264Picture::~H264Picture() {}
+H264Picture::~H264Picture() = default;
 
 V4L2H264Picture* H264Picture::AsV4L2H264Picture() {
   return nullptr;
@@ -55,7 +55,7 @@ VaapiH264Picture* H264Picture::AsVaapiH264Picture() {
 }
 
 H264DPB::H264DPB() : max_num_pics_(0) {}
-H264DPB::~H264DPB() {}
+H264DPB::~H264DPB() = default;
 
 void H264DPB::Clear() {
   pics_.clear();
@@ -77,8 +77,7 @@ void H264DPB::UpdatePicPositions() {
 }
 
 void H264DPB::DeleteByPOC(int poc) {
-  for (H264Picture::Vector::iterator it = pics_.begin(); it != pics_.end();
-       ++it) {
+  for (auto it = pics_.begin(); it != pics_.end(); ++it) {
     if ((*it)->pic_order_cnt == poc) {
       pics_.erase(it);
       UpdatePicPositions();
@@ -89,7 +88,7 @@ void H264DPB::DeleteByPOC(int poc) {
 }
 
 void H264DPB::DeleteUnused() {
-  for (H264Picture::Vector::iterator it = pics_.begin(); it != pics_.end();) {
+  for (auto it = pics_.begin(); it != pics_.end();) {
     if ((*it)->outputted && !(*it)->ref)
       it = pics_.erase(it);
     else

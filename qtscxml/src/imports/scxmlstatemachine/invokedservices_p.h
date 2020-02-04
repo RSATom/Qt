@@ -67,7 +67,7 @@ class QScxmlInvokedServices : public QObject, public QQmlParserStatus
     Q_INTERFACES(QQmlParserStatus)
     Q_CLASSINFO("DefaultProperty", "qmlChildren")
 public:
-    QScxmlInvokedServices(QObject *parent = 0);
+    QScxmlInvokedServices(QObject *parent = nullptr);
     QVariantMap children();
 
     QScxmlStateMachine *stateMachine() const;
@@ -83,7 +83,7 @@ private:
     void classBegin() override;
     void componentComplete() override;
 
-    QScxmlStateMachine *m_stateMachine = 0;
+    QScxmlStateMachine *m_stateMachine = nullptr;
     QList<QObject *> m_qmlChildren;
 };
 

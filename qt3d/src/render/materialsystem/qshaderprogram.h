@@ -49,7 +49,7 @@ namespace Qt3DRender {
 
 class QShaderProgramPrivate;
 
-class QT3DRENDERSHARED_EXPORT QShaderProgram : public Qt3DCore::QNode
+class Q_3DRENDERSHARED_EXPORT QShaderProgram : public Qt3DCore::QNode
 {
     Q_OBJECT
     Q_PROPERTY(QByteArray vertexShaderCode READ vertexShaderCode WRITE setVertexShaderCode NOTIFY vertexShaderCodeChanged)
@@ -118,11 +118,11 @@ Q_SIGNALS:
 
 protected:
     explicit QShaderProgram(QShaderProgramPrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QShaderProgram)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 }

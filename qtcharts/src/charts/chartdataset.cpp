@@ -421,7 +421,7 @@ void ChartDataSet::deleteAllSeries()
 {
     foreach (QAbstractSeries *s , m_seriesList){
         removeSeries(s);
-        s->deleteLater();
+        delete s;
     }
     Q_ASSERT(m_seriesList.count() == 0);
 }
@@ -430,7 +430,7 @@ void ChartDataSet::deleteAllAxes()
 {
     foreach (QAbstractAxis *a , m_axisList){
         removeAxis(a);
-        a->deleteLater();
+        delete a;
     }
     Q_ASSERT(m_axisList.count() == 0);
 }
@@ -661,6 +661,6 @@ void ChartDataSet::reverseChanged()
         m_glXYSeriesDataManager->handleAxisReverseChanged(axis->d_ptr->m_series);
 }
 
-#include "moc_chartdataset_p.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_chartdataset_p.cpp"

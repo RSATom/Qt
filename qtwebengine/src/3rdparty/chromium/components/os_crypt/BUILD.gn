@@ -2,9 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromecast_build.gni")
 import("//build/config/features.gni")
-import("//build/config/ui.gni")
 import("//build/config/linux/pkg_config.gni")
+import("//build/config/ui.gni")
 import("//components/os_crypt/features.gni")
 
 if (use_gnome_keyring) {
@@ -29,15 +30,18 @@ if (use_gnome_keyring) {
   }
 }
 
-static_library("os_crypt") {
+component("os_crypt") {
   sources = [
-    "ie7_password_win.cc",
-    "ie7_password_win.h",
+    "encryption_key_creation_util_ios.cc",
+    "encryption_key_creation_util_ios.h",
+    "encryption_key_creation_util_mac.cc",
+    "encryption_key_creation_util_mac.h",
     "keychain_password_mac.h",
     "keychain_password_mac.mm",
     "os_crypt.h",
     "os_crypt_mac.mm",
-    "os_crypt_posix.cc",
+    "os_crypt_pref_names_mac.cc",
+    "os_crypt_pref_names_mac.h",
     "os_crypt_switches.cc",
     "os_crypt_switches.h",
     "os_crypt_win.cc",
@@ -45,14 +49,18 @@ static_library("os_crypt") {
 
   deps = [
     "//base",
+    "//components/prefs",
     "//crypto",
 
     # TODO(tfarina): Remove this dep when http://crbug.com/363749 is fixed.
     "//crypto:platform",
   ]
 
-  if (is_mac || is_ios) {
-    sources -= [ "os_crypt_posix.cc" ]
+  defines = [ "IS_OS_CRYPT_IMPL" ]
+
+  if ((is_posix || is_fuchsia) && !is_mac && !is_ios &&
+      (!is_desktop_linux || is_chromecast)) {
+    sources += [ "os_crypt_posix.cc" ]
   }
 
   if (is_ios) {
@@ -65,12 +73,16 @@ static_library("os_crypt") {
     set_sources_assignment_filter(sources_assignment_filter)
   }
 
+  if (is_ios || is_mac) {
+    sources += [ "encryption_key_creation_util.h" ]
+    libs = [ "CoreFoundation.framework" ]
+  }
+
   if (is_win) {
     libs = [ "crypt32.lib" ]
   }
 
-  if (is_desktop_linux) {
-    sources -= [ "os_crypt_posix.cc" ]
+  if (is_desktop_linux && !is_chromecast) {
     sources += [
       "key_storage_config_linux.cc",
       "key_storage_config_linux.h",
@@ -80,7 +92,6 @@ static_library("os_crypt") {
       "key_storage_util_linux.h",
       "os_crypt_linux.cc",
     ]
-    defines = []
 
     if (use_gnome_keyring) {
       sources += [
@@ -127,7 +138,7 @@ static_library("test_support") {
     "//base",
     "//testing/gtest",
   ]
-  if (is_desktop_linux) {
+  if (is_desktop_linux && !is_chromecast) {
     sources += [
       "os_crypt_mocker_linux.cc",
       "os_crypt_mocker_linux.h",
@@ -148,7 +159,6 @@ static_library("test_support") {
 source_set("unit_tests") {
   testonly = true
   sources = [
-    "ie7_password_win_unittest.cc",
     "keychain_password_mac_unittest.mm",
     "os_crypt_unittest.cc",
   ]
@@ -156,13 +166,22 @@ source_set("unit_tests") {
     ":os_crypt",
     ":test_support",
     "//base",
+    "//base/test:test_support",
+    "//components/prefs:test_support",
     "//crypto",
     "//testing/gmock",
     "//testing/gtest",
   ]
 
-  if (is_desktop_linux) {
+  if (is_ios) {
+    set_sources_assignment_filter([])
+    sources += [ "keychain_password_mac_unittest.mm" ]
+    set_sources_assignment_filter(sources_assignment_filter)
+  }
+
+  if (is_desktop_linux && !is_chromecast) {
     sources += [
+      "key_storage_linux_unittest.cc",
       "key_storage_util_linux_unittest.cc",
       "os_crypt_linux_unittest.cc",
     ]

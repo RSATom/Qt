@@ -13,6 +13,8 @@
 #include "base/atomic_sequence_num.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/numerics/checked_math.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
@@ -37,7 +39,7 @@ MemoryChunk::MemoryChunk(int32_t shm_id,
       shm_(shm),
       allocator_(shm->size(), helper, shm->memory()) {}
 
-MemoryChunk::~MemoryChunk() {}
+MemoryChunk::~MemoryChunk() = default;
 
 MappedMemoryManager::MappedMemoryManager(CommandBufferHelper* helper,
                                          size_t unused_memory_reclaim_limit)
@@ -50,6 +52,7 @@ MappedMemoryManager::MappedMemoryManager(CommandBufferHelper* helper,
 }
 
 MappedMemoryManager::~MappedMemoryManager() {
+  helper_->OrderingBarrier();
   CommandBuffer* cmd_buf = helper_->command_buffer();
   for (auto& chunk : chunks_) {
     cmd_buf->DestroyTransferBuffer(chunk->shm_id());
@@ -101,14 +104,17 @@ void* MappedMemoryManager::Alloc(unsigned int size,
 
   // Make a new chunk to satisfy the request.
   CommandBuffer* cmd_buf = helper_->command_buffer();
-  unsigned int chunk_size =
-      ((size + chunk_size_multiple_ - 1) / chunk_size_multiple_) *
-      chunk_size_multiple_;
+  base::CheckedNumeric<uint32_t> chunk_size = size;
+  chunk_size = (size + chunk_size_multiple_ - 1) & ~(chunk_size_multiple_ - 1);
+  uint32_t safe_chunk_size = 0;
+  if (!chunk_size.AssignIfValid(&safe_chunk_size))
+    return nullptr;
+
   int32_t id = -1;
   scoped_refptr<gpu::Buffer> shm =
-      cmd_buf->CreateTransferBuffer(chunk_size, &id);
+      cmd_buf->CreateTransferBuffer(safe_chunk_size, &id);
   if (id  < 0)
-    return NULL;
+    return nullptr;
   DCHECK(shm.get());
   MemoryChunk* mc = new MemoryChunk(id, shm, helper_);
   allocated_memory_ += mc->GetSize();
@@ -146,7 +152,9 @@ void MappedMemoryManager::FreeUnused() {
   while (iter != chunks_.end()) {
     MemoryChunk* chunk = (*iter).get();
     chunk->FreeUnused();
-    if (!chunk->InUse()) {
+    if (chunk->bytes_in_use() == 0u) {
+      if (chunk->InUseOrFreePending())
+        helper_->OrderingBarrier();
       cmd_buf->DestroyTransferBuffer(chunk->shm_id());
       allocated_memory_ -= chunk->GetSize();
       iter = chunks_.erase(iter);
@@ -186,21 +194,30 @@ bool MappedMemoryManager::OnMemoryDump(
     dump->AddScalar("free_size", MemoryAllocatorDump::kUnitsBytes,
                     chunk->GetFreeSize());
 
-    auto guid = GetBufferGUIDForTracing(tracing_process_id, chunk->shm_id());
-
-    auto shared_memory_guid =
-        chunk->shared_memory()->backing()->shared_memory_handle().GetGUID();
+    auto shared_memory_guid = chunk->shared_memory()->backing()->GetGUID();
     const int kImportance = 2;
     if (!shared_memory_guid.is_empty()) {
-      pmd->CreateSharedMemoryOwnershipEdge(dump->guid(), guid,
-                                           shared_memory_guid, kImportance);
+      pmd->CreateSharedMemoryOwnershipEdge(dump->guid(), shared_memory_guid,
+                                           kImportance);
     } else {
+      auto guid = GetBufferGUIDForTracing(tracing_process_id, chunk->shm_id());
       pmd->CreateSharedGlobalAllocatorDump(guid);
       pmd->AddOwnershipEdge(dump->guid(), guid, kImportance);
     }
   }
 
   return true;
+}
+
+FencedAllocator::State MappedMemoryManager::GetPointerStatusForTest(
+    void* pointer,
+    int32_t* token_if_pending) {
+  for (auto& chunk : chunks_) {
+    if (chunk->IsInChunk(pointer)) {
+      return chunk->GetPointerStatusForTest(pointer, token_if_pending);
+    }
+  }
+  return FencedAllocator::FREE;
 }
 
 void ScopedMappedMemoryPtr::Release() {

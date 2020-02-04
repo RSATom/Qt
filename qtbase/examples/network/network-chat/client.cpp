@@ -71,14 +71,13 @@ void Client::sendMessage(const QString &message)
     if (message.isEmpty())
         return;
 
-    QList<Connection *> connections = peers.values();
-    foreach (Connection *connection, connections)
+    for (Connection *connection : qAsConst(peers))
         connection->sendMessage(message);
 }
 
 QString Client::nickName() const
 {
-    return QString(peerManager->userName()) + '@' + QHostInfo::localHostName()
+    return peerManager->userName() + '@' + QHostInfo::localHostName()
            + ':' + QString::number(server.serverPort());
 }
 
@@ -90,8 +89,8 @@ bool Client::hasConnection(const QHostAddress &senderIp, int senderPort) const
     if (!peers.contains(senderIp))
         return false;
 
-    QList<Connection *> connections = peers.values(senderIp);
-    foreach (Connection *connection, connections) {
+    const QList<Connection *> connections = peers.values(senderIp);
+    for (const Connection *connection : connections) {
         if (connection->peerPort() == senderPort)
             return true;
     }

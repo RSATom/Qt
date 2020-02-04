@@ -5,6 +5,13 @@
 'use strict';
 
 /**
+ * An array of the latest component data including ID, name, status and
+ * version. This is populated in returnComponentsData() for the convenience of
+ * tests.
+ */
+let currentComponentsData = null;
+
+/**
  * Takes the |componentsData| input argument which represents data about the
  * currently installed components and populates the html jstemplate with
  * that data. It expects an object structure like the above.
@@ -13,8 +20,8 @@
  */
 function renderTemplate(componentsData) {
   // This is the javascript code that processes the template:
-  var input = new JsEvalContext(componentsData);
-  var output = $('component-template').cloneNode(true);
+  const input = new JsEvalContext(componentsData);
+  const output = $('component-template').cloneNode(true);
   $('component-placeholder').innerHTML = '';
   $('component-placeholder').appendChild(output);
   jstProcess(input, output);
@@ -32,7 +39,8 @@ function requestComponentsData() {
 
 /**
  * Called by the WebUI to re-populate the page with data representing the
- * current state of installed components.
+ * current state of installed components. The componentsData will also be
+ * stored in currentComponentsData to be available to JS for testing purposes.
  * @param {Object} componentsData Detailed info about installed components. The
  *     template expects each component's format to match the following
  *     structure to correctly populate the page:
@@ -50,29 +58,32 @@ function requestComponentsData() {
  *   }
  */
 function returnComponentsData(componentsData) {
-  var bodyContainer = $('body-container');
-  var body = document.body;
+  const bodyContainer = $('body-container');
+  const body = document.body;
 
   bodyContainer.style.visibility = 'hidden';
   body.className = '';
 
+  // Initialize |currentComponentsData|, which can also be updated in
+  // onComponentEvent() later.
+  currentComponentsData = componentsData.components;
+
   renderTemplate(componentsData);
 
   // Add handlers to dynamically created HTML elements.
-  var links = document.getElementsByClassName('button-check-update');
-  for (var i = 0; i < links.length; i++) {
+  const links = document.getElementsByClassName('button-check-update');
+  for (let i = 0; i < links.length; i++) {
     links[i].onclick = function(e) {
       handleCheckUpdate(this);
       e.preventDefault();
     };
   }
 
-  if (cr.isChromeOS) {
-    // Disable some controls for Guest in ChromeOS.
-    uiAccountTweaks.UIAccountTweaks.applyGuestSessionVisibility(document);
-
-    // Disable some controls for Public session in ChromeOS.
-    uiAccountTweaks.UIAccountTweaks.applyPublicSessionVisibility(document);
+  // Disable some controls for Guest mode in ChromeOS.
+  if (cr.isChromeOS && loadTimeData.getBoolean('isGuest')) {
+    document.querySelectorAll('[guest-disabled]').forEach(function(element) {
+      element.disabled = true;
+    });
   }
 
   bodyContainer.style.visibility = 'visible';
@@ -86,12 +97,25 @@ function returnComponentsData(componentsData) {
  * optional.
  */
 function onComponentEvent(eventArgs) {
-  if (eventArgs['id']) {
-    var id = eventArgs['id'];
-    $('status-' + id).textContent = eventArgs['event'];
+  if (!eventArgs['id']) {
+    return;
   }
+
+  const id = eventArgs['id'];
+
+  const filteredComponents = currentComponentsData.filter(function(entry) {
+    return entry.id === id;
+  });
+  const component = filteredComponents[0];
+
+  const status = eventArgs['event'];
+  $('status-' + id).textContent = status;
+  component['status'] = status;
+
   if (eventArgs['version']) {
-    $('version-' + id).textContent = eventArgs['version'];
+    const version = eventArgs['version'];
+    $('version-' + id).textContent = version;
+    component['version'] = version;
   }
 }
 

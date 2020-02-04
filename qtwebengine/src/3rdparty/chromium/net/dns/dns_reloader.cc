@@ -14,7 +14,7 @@
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/synchronization/lock.h"
-#include "base/threading/thread_local_storage.h"
+#include "base/threading/thread_local.h"
 #include "net/base/network_change_notifier.h"
 
 namespace net {
@@ -43,26 +43,22 @@ namespace {
 
 class DnsReloader : public NetworkChangeNotifier::DNSObserver {
  public:
-  struct ReloadState {
-    int resolver_generation;
-  };
-
   // NetworkChangeNotifier::DNSObserver:
   void OnDNSChanged() override {
-    DCHECK(base::MessageLoopForIO::IsCurrent());
+    DCHECK(base::MessageLoopCurrentForIO::IsSet());
     base::AutoLock lock(lock_);
     resolver_generation_++;
   }
 
   void MaybeReload() {
-    ReloadState* reload_state = static_cast<ReloadState*>(tls_index_.Get());
+    ReloadState* reload_state = tls_reload_state_.Get();
     base::AutoLock lock(lock_);
 
     if (!reload_state) {
-      reload_state = new ReloadState();
-      reload_state->resolver_generation = resolver_generation_;
+      auto new_reload_state = std::make_unique<ReloadState>();
+      new_reload_state->resolver_generation = resolver_generation_;
       res_ninit(&_res);
-      tls_index_.Set(reload_state);
+      tls_reload_state_.Set(std::move(new_reload_state));
     } else if (reload_state->resolver_generation != resolver_generation_) {
       reload_state->resolver_generation = resolver_generation_;
       // It is safe to call res_nclose here since we know res_ninit will have
@@ -72,37 +68,28 @@ class DnsReloader : public NetworkChangeNotifier::DNSObserver {
     }
   }
 
-  // Free the allocated state.
-  static void SlotReturnFunction(void* data) {
-    ReloadState* reload_state = static_cast<ReloadState*>(data);
-    if (reload_state)
-      res_nclose(&_res);
-    delete reload_state;
-  }
-
  private:
-  DnsReloader() : resolver_generation_(0) {
-    tls_index_.Initialize(SlotReturnFunction);
-    NetworkChangeNotifier::AddDNSObserver(this);
-  }
+  struct ReloadState {
+    ~ReloadState() { res_nclose(&_res); }
+
+    int resolver_generation;
+  };
+
+  DnsReloader() { NetworkChangeNotifier::AddDNSObserver(this); }
 
   ~DnsReloader() override {
     NOTREACHED();  // LeakyLazyInstance is not destructed.
   }
 
   base::Lock lock_;  // Protects resolver_generation_.
-  int resolver_generation_;
+  int resolver_generation_ = 0;
   friend struct base::LazyInstanceTraitsBase<DnsReloader>;
 
   // We use thread local storage to identify which ReloadState to interact with.
-  static base::ThreadLocalStorage::StaticSlot tls_index_;
+  base::ThreadLocalOwnedPointer<ReloadState> tls_reload_state_;
 
   DISALLOW_COPY_AND_ASSIGN(DnsReloader);
 };
-
-// A TLS slot to the ReloadState for the current thread.
-// static
-base::ThreadLocalStorage::StaticSlot DnsReloader::tls_index_ = TLS_INITIALIZER;
 
 base::LazyInstance<DnsReloader>::Leaky
     g_dns_reloader = LAZY_INSTANCE_INITIALIZER;

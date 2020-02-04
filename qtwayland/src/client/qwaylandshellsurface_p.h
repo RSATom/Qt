@@ -54,8 +54,6 @@
 #include <QtCore/QSize>
 #include <QObject>
 
-#include <wayland-client.h>
-
 #include <QtWaylandClient/private/qwayland-wayland.h>
 #include <QtWaylandClient/qtwaylandclientglobal.h>
 
@@ -74,11 +72,11 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandShellSurface : public QObject
     Q_OBJECT
 public:
     explicit QWaylandShellSurface(QWaylandWindow *window);
-    virtual ~QWaylandShellSurface() {}
-    virtual void resize(QWaylandInputDevice * /*inputDevice*/, enum wl_shell_surface_resize /*edges*/)
-    {}
+    ~QWaylandShellSurface() override {}
+    virtual void resize(QWaylandInputDevice * /*inputDevice*/, Qt::Edges /*edges*/) {}
 
-    virtual void move(QWaylandInputDevice * /*inputDevice*/) {}
+    virtual bool move(QWaylandInputDevice *) { return false; }
+    virtual bool showWindowMenu(QWaylandInputDevice *seat) { Q_UNUSED(seat); return false; }
     virtual void setTitle(const QString & /*title*/) {}
     virtual void setAppId(const QString & /*appId*/) {}
 
@@ -95,16 +93,16 @@ public:
 
     inline QWaylandWindow *window() { return m_window; }
 
-    virtual void setType(Qt::WindowType type, QWaylandWindow *transientParent) = 0;
+    virtual void applyConfigure() {}
+    virtual void requestWindowStates(Qt::WindowStates states) {Q_UNUSED(states);}
+    virtual bool wantsDecorations() const { return false; }
 
-protected:
-    virtual void setMaximized() {}
-    virtual void setFullscreen() {}
-    virtual void setNormal() {}
-    virtual void setMinimized() {}
+    virtual void propagateSizeHints() {}
+
+    virtual void setWindowGeometry(const QRect &rect) { Q_UNUSED(rect); }
 
 private:
-    QWaylandWindow *m_window;
+    QWaylandWindow *m_window = nullptr;
     friend class QWaylandWindow;
 };
 

@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/macros.h"
 #include "base/memory/shared_memory.h"
+#include "base/stl_util.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
 #include "content/renderer/pepper/host_globals.h"
 #include "content/renderer/render_thread_impl.h"
@@ -31,8 +31,8 @@ namespace {
 // Buffer up to 150ms (15 x 10ms per frame).
 const uint32_t kDefaultNumberOfAudioBuffers = 15;
 
-bool PP_HardwareAccelerationCompatible(bool accelerated,
-                                       PP_HardwareAcceleration requested) {
+bool PP_HardwareAccelerationCompatibleAudio(bool accelerated,
+                                            PP_HardwareAcceleration requested) {
   switch (requested) {
     case PP_HARDWAREACCELERATION_ONLY:
       return accelerated;
@@ -53,7 +53,7 @@ class PepperAudioEncoderHost::AudioEncoderImpl {
  public:
   // Callback used to signal encoded data. If |size| is negative, an error
   // occurred.
-  using BitstreamBufferReadyCB = base::Callback<void(int32_t size)>;
+  using BitstreamBufferReadyCB = base::OnceCallback<void(int32_t size)>;
 
   AudioEncoderImpl();
   ~AudioEncoderImpl();
@@ -93,7 +93,7 @@ PepperAudioEncoderHost::AudioEncoderImpl::GetSupportedProfiles() {
   std::vector<PP_AudioProfileDescription> profiles;
   static const uint32_t sampling_rates[] = {8000, 12000, 16000, 24000, 48000};
 
-  for (uint32_t i = 0; i < arraysize(sampling_rates); ++i) {
+  for (uint32_t i = 0; i < base::size(sampling_rates); ++i) {
     PP_AudioProfileDescription profile;
     profile.profile = PP_AUDIOPROFILE_OPUS;
     profile.max_channels = 2;
@@ -154,7 +154,7 @@ void PepperAudioEncoderHost::AudioEncoderImpl::Encode(
       opus_encoder_, reinterpret_cast<opus_int16*>(input_data),
       (input_size / parameters_.channels) / parameters_.input_sample_size,
       output_data, output_size);
-  callback.Run(result);
+  std::move(callback).Run(result);
 }
 
 void PepperAudioEncoderHost::AudioEncoderImpl::RequestBitrateChange(
@@ -293,8 +293,8 @@ int32_t PepperAudioEncoderHost::OnHostMsgRequestBitrateChange(
     return encoder_last_error_;
 
   media_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&AudioEncoderImpl::RequestBitrateChange,
-                            base::Unretained(encoder_.get()), bitrate));
+      FROM_HERE, base::BindOnce(&AudioEncoderImpl::RequestBitrateChange,
+                                base::Unretained(encoder_.get()), bitrate));
 
   return PP_OK;
 }
@@ -326,7 +326,7 @@ bool PepperAudioEncoderHost::IsInitializationValid(
         parameters.input_sample_size == profile.sample_size &&
         parameters.input_sample_rate == profile.sample_rate &&
         parameters.channels <= profile.max_channels &&
-        PP_HardwareAccelerationCompatible(
+        PP_HardwareAccelerationCompatibleAudio(
             profile.hardware_accelerated == PP_TRUE, parameters.acceleration))
       return true;
   }
@@ -433,17 +433,18 @@ void PepperAudioEncoderHost::DoEncode() {
 
   media_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&AudioEncoderImpl::Encode, base::Unretained(encoder_.get()),
-                 static_cast<uint8_t*>(audio_buffer->audio.data),
-                 audio_buffer_manager_->buffer_size() -
-                     sizeof(ppapi::MediaStreamBuffer::Audio),
-                 static_cast<uint8_t*>(bitstream_buffer->bitstream.data),
-                 bitstream_buffer_manager_->buffer_size() -
-                     sizeof(ppapi::MediaStreamBuffer::Bitstream),
-                 media::BindToCurrentLoop(
-                     base::Bind(&PepperAudioEncoderHost::BitstreamBufferReady,
-                                weak_ptr_factory_.GetWeakPtr(), audio_buffer_id,
-                                bitstream_buffer_id))));
+      base::BindOnce(&AudioEncoderImpl::Encode,
+                     base::Unretained(encoder_.get()),
+                     static_cast<uint8_t*>(audio_buffer->audio.data),
+                     audio_buffer_manager_->buffer_size() -
+                         sizeof(ppapi::MediaStreamBuffer::Audio),
+                     static_cast<uint8_t*>(bitstream_buffer->bitstream.data),
+                     bitstream_buffer_manager_->buffer_size() -
+                         sizeof(ppapi::MediaStreamBuffer::Bitstream),
+                     media::BindToCurrentLoop(base::BindOnce(
+                         &PepperAudioEncoderHost::BitstreamBufferReady,
+                         weak_ptr_factory_.GetWeakPtr(), audio_buffer_id,
+                         bitstream_buffer_id))));
 }
 
 void PepperAudioEncoderHost::BitstreamBufferReady(int32_t audio_buffer_id,
@@ -488,10 +489,9 @@ void PepperAudioEncoderHost::Close() {
   // Destroy the encoder and the audio/bitstream buffers on the media thread
   // to avoid freeing memory the encoder might still be working on.
   media_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&StopAudioEncoder, base::Passed(std::move(encoder_)),
-                 base::Passed(std::move(audio_buffer_manager_)),
-                 base::Passed(std::move(bitstream_buffer_manager_))));
+      FROM_HERE, base::BindOnce(&StopAudioEncoder, std::move(encoder_),
+                                std::move(audio_buffer_manager_),
+                                std::move(bitstream_buffer_manager_)));
 }
 
 // static

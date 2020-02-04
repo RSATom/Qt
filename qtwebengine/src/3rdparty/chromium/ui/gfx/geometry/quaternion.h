@@ -7,13 +7,13 @@
 
 #include <string>
 
-#include "ui/gfx/gfx_export.h"
+#include "ui/gfx/geometry/geometry_export.h"
 
 namespace gfx {
 
 class Vector3dF;
 
-class GFX_EXPORT Quaternion {
+class GEOMETRY_EXPORT Quaternion {
  public:
   constexpr Quaternion() = default;
   constexpr Quaternion(double x, double y, double z, double w)
@@ -58,6 +58,8 @@ class GFX_EXPORT Quaternion {
   // Values of |t| in the range [0, 1] will interpolate between |this| and |q|,
   // and values outside that range will extrapolate beyond in either direction.
   Quaternion Lerp(const Quaternion& q, double t) const;
+
+  double Length() const;
 
   Quaternion Normalized() const;
 

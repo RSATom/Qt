@@ -13,6 +13,7 @@ static_library("webdata_services") {
   deps = [
     "//base",
     "//components/autofill/core/browser",
+    "//components/autofill/core/common",
     "//components/keyed_service/core",
     "//components/password_manager/core/browser",
     "//components/search_engines",
@@ -22,8 +23,8 @@ static_library("webdata_services") {
     "//sql",
   ]
 
-  if (is_android) {
-    deps += [ "//components/payments/android" ]
+  if (!is_ios) {
+    deps += [ "//components/payments/content:utils" ]
   }
 }
 

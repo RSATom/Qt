@@ -33,8 +33,8 @@ base::TimeDelta FpsAsPeriod(int frame_rate) {
 
 class AnimatedContentSamplerTest : public ::testing::Test {
  public:
-  AnimatedContentSamplerTest() {}
-  ~AnimatedContentSamplerTest() override {}
+  AnimatedContentSamplerTest() = default;
+  ~AnimatedContentSamplerTest() override = default;
 
   void SetUp() override {
     rand_seed_ = static_cast<int>(
@@ -256,7 +256,7 @@ class AnimatedContentSamplerParameterizedTest
  public:
   AnimatedContentSamplerParameterizedTest()
       : count_dropped_frames_(0), count_sampled_frames_(0) {}
-  virtual ~AnimatedContentSamplerParameterizedTest() {}
+  virtual ~AnimatedContentSamplerParameterizedTest() = default;
 
   void SetUp() override {
     AnimatedContentSamplerTest::SetUp();
@@ -327,8 +327,7 @@ class AnimatedContentSamplerParameterizedTest
     bool has_detection_switched = false;
     bool has_detection_flip_flopped_once = false;
     ResetFrameCounters();
-    for (std::vector<Event>::const_iterator i = events.begin();
-         i != events.end(); ++i) {
+    for (auto i = events.begin(); i != events.end(); ++i) {
       sampler()->ConsiderPresentationEvent(i->first, i->second);
 
       // Detect when the sampler locks in/out, and that it stays that way for

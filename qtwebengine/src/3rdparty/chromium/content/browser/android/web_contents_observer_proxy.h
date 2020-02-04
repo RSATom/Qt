@@ -37,15 +37,14 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void DidFailLoad(RenderFrameHost* render_frame_host,
                    const GURL& validated_url,
                    int error_code,
-                   const base::string16& error_description,
-                   bool was_ignored_by_handler) override;
+                   const base::string16& error_description) override;
   void DocumentAvailableInMainFrame() override;
   void DidFirstVisuallyNonEmptyPaint() override;
-  void WasShown() override;
-  void WasHidden() override;
-  void TitleWasSet(NavigationEntry* entry, bool explicit_set) override;
+  void OnVisibilityChanged(content::Visibility visibility) override;
+  void TitleWasSet(NavigationEntry* entry) override;
 
   void DidStartNavigation(NavigationHandle* navigation_handle) override;
+  void DidRedirectNavigation(NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(NavigationHandle* navigation_handle) override;
 
   void DidFinishLoad(RenderFrameHost* render_frame_host,
@@ -53,11 +52,15 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void DocumentLoadedInFrame(RenderFrameHost* render_frame_host) override;
   void NavigationEntryCommitted(
       const LoadCommittedDetails& load_details) override;
+  void NavigationEntriesDeleted() override;
   void WebContentsDestroyed() override;
   void DidAttachInterstitialPage() override;
   void DidDetachInterstitialPage() override;
   void DidChangeThemeColor(SkColor color) override;
+  void MediaEffectivelyFullscreenChanged(bool is_fullscreen) override;
   void SetToBaseURLForDataURLIfNeeded(std::string* url);
+  void ViewportFitChanged(blink::mojom::ViewportFit value) override;
+  void DidReloadLoFiImages() override;
 
   base::android::ScopedJavaGlobalRef<jobject> java_observer_;
   GURL base_url_of_last_started_data_url_;
@@ -65,7 +68,6 @@ class WebContentsObserverProxy : public WebContentsObserver {
   DISALLOW_COPY_AND_ASSIGN(WebContentsObserverProxy);
 };
 
-bool RegisterWebContentsObserverProxy(JNIEnv* env);
 }  // namespace content
 
 #endif  // CONTENT_BROWSER_ANDROID_WEB_CONTENTS_OBSERVER_PROXY_H_

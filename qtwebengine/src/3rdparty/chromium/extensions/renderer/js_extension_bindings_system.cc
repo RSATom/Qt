@@ -5,10 +5,10 @@
 #include "extensions/renderer/js_extension_bindings_system.h"
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
-#include "content/public/child/v8_value_converter.h"
+#include "base/timer/elapsed_timer.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/renderer/v8_value_converter.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_api.h"
 #include "extensions/common/extension_urls.h"
@@ -19,6 +19,7 @@
 #include "extensions/common/manifest_handlers/externally_connectable.h"
 #include "extensions/renderer/binding_generating_native_handler.h"
 #include "extensions/renderer/event_bindings.h"
+#include "extensions/renderer/event_bookkeeper.h"
 #include "extensions/renderer/ipc_message_sender.h"
 #include "extensions/renderer/renderer_extension_registry.h"
 #include "extensions/renderer/request_sender.h"
@@ -35,21 +36,27 @@ namespace {
 // exist.
 v8::Local<v8::Object> GetOrCreateObject(const v8::Local<v8::Object>& object,
                                         const std::string& field,
-                                        v8::Isolate* isolate) {
-  v8::Local<v8::String> key = v8::String::NewFromUtf8(isolate, field.c_str());
+                                        ScriptContext* context) {
+  v8::Local<v8::String> key =
+      v8::String::NewFromUtf8(context->isolate(), field.c_str(),
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked();
   // If the object has a callback property, it is assumed it is an unavailable
   // API, so it is safe to delete. This is checked before GetOrCreateObject is
   // called.
-  if (object->HasRealNamedCallbackProperty(key)) {
-    object->Delete(key);
-  } else if (object->HasRealNamedProperty(key)) {
-    v8::Local<v8::Value> value = object->Get(key);
+  if (object->HasRealNamedCallbackProperty(context->v8_context(), key)
+          .FromMaybe(false)) {
+    object->Delete(context->v8_context(), key).ToChecked();
+  } else if (object->HasRealNamedProperty(context->v8_context(), key)
+                 .FromMaybe(false)) {
+    v8::Local<v8::Value> value =
+        object->Get(context->v8_context(), key).ToLocalChecked();
     CHECK(value->IsObject());
     return v8::Local<v8::Object>::Cast(value);
   }
 
-  v8::Local<v8::Object> new_object = v8::Object::New(isolate);
-  object->Set(key, new_object);
+  v8::Local<v8::Object> new_object = v8::Object::New(context->isolate());
+  object->Set(context->v8_context(), key, new_object).ToChecked();
   return new_object;
 }
 
@@ -59,12 +66,15 @@ v8::Local<v8::Object> GetOrCreateObject(const v8::Local<v8::Object>& object,
 // an empty object.
 v8::Local<v8::Object> GetOrCreateChrome(ScriptContext* context) {
   v8::Local<v8::String> chrome_string(
-      v8::String::NewFromUtf8(context->isolate(), "chrome"));
+      v8::String::NewFromUtf8(context->isolate(), "chrome",
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked());
   v8::Local<v8::Object> global(context->v8_context()->Global());
-  v8::Local<v8::Value> chrome(global->Get(chrome_string));
+  v8::Local<v8::Value> chrome(
+      global->Get(context->v8_context(), chrome_string).ToLocalChecked());
   if (chrome->IsUndefined()) {
     chrome = v8::Object::New(context->isolate());
-    global->Set(chrome_string, chrome);
+    global->Set(context->v8_context(), chrome_string, chrome).ToChecked();
   }
   return chrome->IsObject() ? chrome.As<v8::Object>() : v8::Local<v8::Object>();
 }
@@ -107,7 +117,7 @@ v8::Local<v8::Object> GetOrCreateBindObjectIfAvailable(
       if (bind_object.IsEmpty())
         return v8::Local<v8::Object>();
     }
-    bind_object = GetOrCreateObject(bind_object, split[i], context->isolate());
+    bind_object = GetOrCreateObject(bind_object, split[i], context);
   }
 
   if (only_ancestor_available)
@@ -141,7 +151,8 @@ JsExtensionBindingsSystem::JsExtensionBindingsSystem(
     : source_map_(source_map),
       ipc_message_sender_(std::move(ipc_message_sender)),
       request_sender_(
-          base::MakeUnique<RequestSender>(ipc_message_sender_.get())) {}
+          std::make_unique<RequestSender>(ipc_message_sender_.get())),
+      messaging_service_(this) {}
 
 JsExtensionBindingsSystem::~JsExtensionBindingsSystem() {}
 
@@ -158,6 +169,8 @@ void JsExtensionBindingsSystem::WillReleaseScriptContext(
 
 void JsExtensionBindingsSystem::UpdateBindingsForContext(
     ScriptContext* context) {
+  base::ElapsedTimer timer;
+
   v8::HandleScope handle_scope(context->isolate());
   v8::Context::Scope context_scope(context->v8_context());
 
@@ -181,7 +194,7 @@ void JsExtensionBindingsSystem::UpdateBindingsForContext(
     case Feature::SERVICE_WORKER_CONTEXT:
       DCHECK(ExtensionsClient::Get()
                  ->ExtensionAPIEnabledInExtensionServiceWorkers());
-    // Intentional fallthrough.
+      FALLTHROUGH;
     case Feature::BLESSED_EXTENSION_CONTEXT:
     case Feature::UNBLESSED_EXTENSION_CONTEXT:
     case Feature::CONTENT_SCRIPT_CONTEXT:
@@ -199,7 +212,7 @@ void JsExtensionBindingsSystem::UpdateBindingsForContext(
 
         // If this API has a parent feature (and isn't marked 'noparent'),
         // then this must be a function or event, so we should not register.
-        if (api_feature_provider->GetParent(map_entry.second.get()) != nullptr)
+        if (api_feature_provider->GetParent(*map_entry.second) != nullptr)
           continue;
 
         // Skip chrome.test if this isn't a test.
@@ -223,6 +236,8 @@ void JsExtensionBindingsSystem::UpdateBindingsForContext(
       break;
     }
   }
+
+  LogUpdateBindingsForContextTime(context->context_type(), timer.Elapsed());
 }
 
 void JsExtensionBindingsSystem::HandleResponse(int request_id,
@@ -241,6 +256,10 @@ IPCMessageSender* JsExtensionBindingsSystem::GetIPCMessageSender() {
   return ipc_message_sender_.get();
 }
 
+RendererMessagingService* JsExtensionBindingsSystem::GetMessagingService() {
+  return &messaging_service_;
+}
+
 void JsExtensionBindingsSystem::DispatchEventInContext(
     const std::string& event_name,
     const base::ListValue* event_args,
@@ -253,7 +272,7 @@ void JsExtensionBindingsSystem::DispatchEventInContext(
 bool JsExtensionBindingsSystem::HasEventListenerInContext(
     const std::string& event_name,
     ScriptContext* context) {
-  return EventBindings::HasListener(context, event_name);
+  return EventBookkeeper::Get()->HasListener(context, event_name);
 }
 
 void JsExtensionBindingsSystem::RegisterBinding(
@@ -270,8 +289,11 @@ void JsExtensionBindingsSystem::RegisterBinding(
     return;
 
   v8::Local<v8::String> v8_bind_name =
-      v8::String::NewFromUtf8(context->isolate(), bind_name.c_str());
-  if (bind_object->HasRealNamedProperty(v8_bind_name)) {
+      v8::String::NewFromUtf8(context->isolate(), bind_name.c_str(),
+                              v8::NewStringType::kInternalized)
+          .ToLocalChecked();
+  if (bind_object->HasRealNamedProperty(context->v8_context(), v8_bind_name)
+          .FromMaybe(false)) {
     // The bind object may already have the property if the API has been
     // registered before (or if the extension has put something there already,
     // but, whatevs).
@@ -281,9 +303,13 @@ void JsExtensionBindingsSystem::RegisterBinding(
     // others so that we don't destroy state such as event listeners.
     //
     // TODO(kalman): Only register available APIs to make this all moot.
-    if (bind_object->HasRealNamedCallbackProperty(v8_bind_name))
+    if (bind_object
+            ->HasRealNamedCallbackProperty(context->v8_context(), v8_bind_name)
+            .FromMaybe(false))
       return;  // lazy binding still there, nothing to do
-    if (bind_object->Get(v8_bind_name)->IsObject())
+    if (bind_object->Get(context->v8_context(), v8_bind_name)
+            .ToLocalChecked()
+            ->IsObject())
       return;  // binding has already been fully installed
   }
 

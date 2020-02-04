@@ -19,20 +19,23 @@ public:
           std::unique_ptr<Expression> input_,
           Branches branches_,
           std::unique_ptr<Expression> otherwise_
-    ) : Expression(type_),
+    ) : Expression(Kind::Match, type_),
         input(std::move(input_)),
         branches(std::move(branches_)),
         otherwise(std::move(otherwise_))
     {}
 
+    EvaluationResult evaluate(const EvaluationContext& params) const override;
+
     void eachChild(const std::function<void(const Expression&)>& visit) const override;
 
     bool operator==(const Expression& e) const override;
 
-    EvaluationResult evaluate(const EvaluationContext& params) const override;
+    std::vector<optional<Value>> possibleOutputs() const override;
     
+    mbgl::Value serialize() const override;
+    std::string getOperator() const override { return "match"; }
 private:
-    
     std::unique_ptr<Expression> input;
     Branches branches;
     std::unique_ptr<Expression> otherwise;

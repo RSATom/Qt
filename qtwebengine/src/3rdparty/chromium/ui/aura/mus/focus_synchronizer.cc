@@ -5,7 +5,7 @@
 #include "ui/aura/mus/focus_synchronizer.h"
 
 #include "base/auto_reset.h"
-#include "services/ui/public/interfaces/window_tree.mojom.h"
+#include "services/ws/public/mojom/window_tree.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/mus/focus_synchronizer_delegate.h"
@@ -15,7 +15,7 @@
 namespace aura {
 
 FocusSynchronizer::FocusSynchronizer(FocusSynchronizerDelegate* delegate,
-                                     ui::mojom::WindowTree* window_tree)
+                                     ws::mojom::WindowTree* window_tree)
     : delegate_(delegate), window_tree_(window_tree) {}
 
 FocusSynchronizer::~FocusSynchronizer() {
@@ -44,25 +44,16 @@ void FocusSynchronizer::SetFocusFromServer(WindowMus* window) {
     Window* root = window->GetWindow()->GetRootWindow();
     // The client should provide a focus client for all roots.
     DCHECK(client::GetFocusClient(root));
-    if (is_singleton_focus_client_)
-      DCHECK_EQ(active_focus_client_, client::GetFocusClient(root));
-    else if (active_focus_client_root_ != root)
+    if (active_focus_client_root_ != root)
       SetActiveFocusClient(client::GetFocusClient(root), root);
     window->GetWindow()->Focus();
   } else if (active_focus_client_) {
-    active_focus_client_->FocusWindow(nullptr);
+    SetActiveFocusClient(nullptr, nullptr);
   }
 }
 
 void FocusSynchronizer::OnFocusedWindowDestroyed() {
   focused_window_ = nullptr;
-}
-
-void FocusSynchronizer::SetSingletonFocusClient(
-    client::FocusClient* focus_client) {
-  SetActiveFocusClient(focus_client, nullptr);
-  if (focus_client)
-    is_singleton_focus_client_ = true;
 }
 
 void FocusSynchronizer::SetActiveFocusClient(client::FocusClient* focus_client,
@@ -71,8 +62,6 @@ void FocusSynchronizer::SetActiveFocusClient(client::FocusClient* focus_client,
       focus_client_root == active_focus_client_root_) {
     return;
   }
-
-  is_singleton_focus_client_ = false;
 
   if (active_focus_client_root_)
     active_focus_client_root_->RemoveObserver(this);
@@ -101,10 +90,17 @@ void FocusSynchronizer::SetActiveFocusClientInternal(
 }
 
 void FocusSynchronizer::SetFocusedWindow(WindowMus* window) {
-  const uint32_t change_id = delegate_->CreateChangeIdForFocus(focused_window_);
+  WindowMus* prev_focused_window = focused_window_;
   focused_window_ = window;
-  window_tree_->SetFocus(change_id,
-                         window ? window->server_id() : kInvalidServerId);
+  // Do not call SetFocus() for resetting the focus. It'll be simply ignored on
+  // the server anyway, but the client can't set the new focused window when the
+  // server picks up a new focused window during SetFocus() and its reply.
+  // See https://crbug.com/897875
+  if (!window)
+    return;
+  const uint32_t change_id =
+      delegate_->CreateChangeIdForFocus(prev_focused_window);
+  window_tree_->SetFocus(change_id, window->server_id());
 }
 
 void FocusSynchronizer::OnActiveFocusClientChanged(
@@ -134,14 +130,12 @@ void FocusSynchronizer::OnWindowFocused(Window* gained_focus,
 }
 
 void FocusSynchronizer::OnWindowDestroying(Window* window) {
-  DCHECK(!is_singleton_focus_client_);
   SetActiveFocusClient(nullptr, nullptr);
 }
 
 void FocusSynchronizer::OnWindowPropertyChanged(Window* window,
                                                 const void* key,
                                                 intptr_t old) {
-  DCHECK(!is_singleton_focus_client_);
   if (key != client::kFocusClientKey)
     return;
 

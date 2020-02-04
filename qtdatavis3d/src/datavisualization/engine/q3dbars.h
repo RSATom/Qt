@@ -54,7 +54,7 @@ class QT_DATAVISUALIZATION_EXPORT Q3DBars : public QAbstract3DGraph
     Q_PROPERTY(float floorLevel READ floorLevel WRITE setFloorLevel NOTIFY floorLevelChanged)
 
 public:
-    explicit Q3DBars(const QSurfaceFormat *format = Q_NULLPTR, QWindow *parent = Q_NULLPTR);
+    explicit Q3DBars(const QSurfaceFormat *format = nullptr, QWindow *parent = nullptr);
     virtual ~Q3DBars();
 
     void setPrimarySeries(QBar3DSeries *series);

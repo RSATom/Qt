@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//extensions/features/features.gni")
+import("//extensions/buildflags/buildflags.gni")
 
 assert(enable_extensions,
        "Cannot depend on extensions because enable_extensions=false.")
@@ -12,6 +12,8 @@ static_library("javascript_dialog_extensions_client") {
     "javascript_dialog_extension_client_impl.cc",
     "javascript_dialog_extension_client_impl.h",
   ]
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   deps = [
     "//components/app_modal",

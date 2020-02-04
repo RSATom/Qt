@@ -23,10 +23,11 @@
 #include "build/build_config.h"
 #include "chromeos/disks/disk_mount_manager.h"
 #include "components/storage_monitor/storage_monitor.h"
+#include "services/device/public/mojom/mtp_manager.mojom.h"
 
 namespace storage_monitor {
 
-class MediaTransferProtocolDeviceObserverChromeOS;
+class MtpManagerClientChromeOS;
 
 class StorageMonitorCros : public StorageMonitor,
                            public chromeos::disks::DiskMountManager::Observer {
@@ -42,29 +43,22 @@ class StorageMonitorCros : public StorageMonitor,
 
  protected:
   void SetMediaTransferProtocolManagerForTest(
-      device::MediaTransferProtocolManager* test_manager);
+      device::mojom::MtpManagerPtr test_manager);
 
   // chromeos::disks::DiskMountManager::Observer implementation.
-  void OnDiskEvent(
-      chromeos::disks::DiskMountManager::DiskEvent event,
-      const chromeos::disks::DiskMountManager::Disk* disk) override;
-  void OnDeviceEvent(chromeos::disks::DiskMountManager::DeviceEvent event,
-                     const std::string& device_path) override;
+  void OnBootDeviceDiskEvent(chromeos::disks::DiskMountManager::DiskEvent event,
+                             const chromeos::disks::Disk& disk) override;
   void OnMountEvent(chromeos::disks::DiskMountManager::MountEvent event,
                     chromeos::MountError error_code,
                     const chromeos::disks::DiskMountManager::MountPointInfo&
                         mount_info) override;
-  void OnFormatEvent(chromeos::disks::DiskMountManager::FormatEvent event,
-                     chromeos::FormatError error_code,
-                     const std::string& device_path) override;
 
   // StorageMonitor implementation.
   bool GetStorageInfoForPath(const base::FilePath& path,
                              StorageInfo* device_info) const override;
   void EjectDevice(const std::string& device_id,
                    base::Callback<void(EjectStatus)> callback) override;
-  device::MediaTransferProtocolManager* media_transfer_protocol_manager()
-      override;
+  device::mojom::MtpManager* media_transfer_protocol_manager() override;
 
  private:
   // Mapping of mount path to removable mass storage info.
@@ -81,13 +75,20 @@ class StorageMonitorCros : public StorageMonitor,
       const chromeos::disks::DiskMountManager::MountPointInfo& mount_info,
       bool has_dcim);
 
+  // Adds the mount point in |disk| to |mount_map_| and send a device
+  // attach notification.
+  void AddFixedStorageDisk(const chromeos::disks::Disk& disk);
+
+  // Removes the mount point in |disk| from |mount_map_| and send a device
+  // detach notification.
+  void RemoveFixedStorageDisk(const chromeos::disks::Disk& disk);
+
   // Mapping of relevant mount points and their corresponding mount devices.
   MountMap mount_map_;
 
-  std::unique_ptr<device::MediaTransferProtocolManager>
-      media_transfer_protocol_manager_;
-  std::unique_ptr<MediaTransferProtocolDeviceObserverChromeOS>
-      media_transfer_protocol_device_observer_;
+  device::mojom::MtpManagerPtr mtp_device_manager_;
+
+  std::unique_ptr<MtpManagerClientChromeOS> mtp_manager_client_;
 
   base::WeakPtrFactory<StorageMonitorCros> weak_ptr_factory_;
 

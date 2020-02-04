@@ -11,6 +11,7 @@
 #include "base/time/time.h"
 #include "net/base/backoff_entry.h"
 #include "net/base/net_export.h"
+#include "net/base/rand_callback.h"
 #include "net/reporting/reporting_policy.h"
 
 namespace base {
@@ -21,13 +22,12 @@ class TickClock;
 namespace net {
 
 class ReportingCache;
+class ReportingCacheObserver;
 class ReportingDelegate;
 class ReportingDeliveryAgent;
 class ReportingEndpointManager;
 class ReportingGarbageCollector;
 class ReportingNetworkChangeObserver;
-class ReportingObserver;
-class ReportingPersister;
 class ReportingUploader;
 class URLRequestContext;
 
@@ -43,8 +43,8 @@ class NET_EXPORT ReportingContext {
 
   const ReportingPolicy& policy() { return policy_; }
 
-  base::Clock* clock() { return clock_.get(); }
-  base::TickClock* tick_clock() { return tick_clock_.get(); }
+  base::Clock* clock() { return clock_; }
+  const base::TickClock* tick_clock() { return tick_clock_; }
   ReportingUploader* uploader() { return uploader_.get(); }
 
   ReportingDelegate* delegate() { return delegate_.get(); }
@@ -57,28 +57,29 @@ class NET_EXPORT ReportingContext {
     return garbage_collector_.get();
   }
 
-  ReportingPersister* persister() { return persister_.get(); }
+  void AddCacheObserver(ReportingCacheObserver* observer);
+  void RemoveCacheObserver(ReportingCacheObserver* observer);
 
-  void AddObserver(ReportingObserver* observer);
-  void RemoveObserver(ReportingObserver* observer);
-
-  void NotifyCacheUpdated();
+  void NotifyCachedReportsUpdated();
+  void NotifyCachedClientsUpdated();
 
  protected:
   ReportingContext(const ReportingPolicy& policy,
-                   std::unique_ptr<base::Clock> clock,
-                   std::unique_ptr<base::TickClock> tick_clock,
+                   base::Clock* clock,
+                   const base::TickClock* tick_clock,
+                   const RandIntCallback& rand_callback,
                    std::unique_ptr<ReportingUploader> uploader,
                    std::unique_ptr<ReportingDelegate> delegate);
 
  private:
   ReportingPolicy policy_;
 
-  std::unique_ptr<base::Clock> clock_;
-  std::unique_ptr<base::TickClock> tick_clock_;
+  base::Clock* clock_;
+  const base::TickClock* tick_clock_;
   std::unique_ptr<ReportingUploader> uploader_;
 
-  base::ObserverList<ReportingObserver, /* check_empty= */ true> observers_;
+  base::ObserverList<ReportingCacheObserver, /* check_empty= */ true>::Unchecked
+      cache_observers_;
 
   std::unique_ptr<ReportingDelegate> delegate_;
 
@@ -90,9 +91,6 @@ class NET_EXPORT ReportingContext {
   // |delivery_agent_| must come after |tick_clock_|, |delegate_|, |uploader_|,
   // |cache_|, and |endpoint_manager_|.
   std::unique_ptr<ReportingDeliveryAgent> delivery_agent_;
-
-  // |persister_| must come after |clock_|, |tick_clock_|, and |cache_|.
-  std::unique_ptr<ReportingPersister> persister_;
 
   // |garbage_collector_| must come after |tick_clock_| and |cache_|.
   std::unique_ptr<ReportingGarbageCollector> garbage_collector_;

@@ -53,19 +53,20 @@
 
 #include <Qt3DRender/qt3drender_global.h>
 #include <Qt3DRender/private/qboundingvolume_p.h>
+#include <Qt3DCore/private/vector3d_p.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 namespace RayCasting {
 
-class QT3DRENDERSHARED_EXPORT BoundingSphere : public QBoundingVolume
+class Q_3DRENDERSHARED_EXPORT BoundingSphere : public QBoundingVolume
 {
 public:
     BoundingSphere();
     ~BoundingSphere();
 
-    virtual QVector3D center() const = 0;
+    virtual Vector3D center() const = 0;
     virtual float radius() const = 0;
 };
 

@@ -10,7 +10,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "net/base/filename_util.h"
 #include "net/base/net_errors.h"
@@ -37,7 +37,7 @@ class MockJobInterceptor : public URLRequestInterceptor {
                      bool map_all_requests_to_base_path)
       : base_path_(base_path),
         map_all_requests_to_base_path_(map_all_requests_to_base_path) {}
-  ~MockJobInterceptor() override {}
+  ~MockJobInterceptor() override = default;
 
   // URLRequestJobFactory::ProtocolHandler implementation
   URLRequestJob* MaybeInterceptRequest(
@@ -133,8 +133,7 @@ URLRequestMockHTTPJob::URLRequestMockHTTPJob(URLRequest* request,
                         base::CreateTaskRunnerWithTraits({base::MayBlock()})),
       weak_ptr_factory_(this) {}
 
-URLRequestMockHTTPJob::~URLRequestMockHTTPJob() {
-}
+URLRequestMockHTTPJob::~URLRequestMockHTTPJob() = default;
 
 // Public virtual version.
 void URLRequestMockHTTPJob::GetResponseInfo(HttpResponseInfo* info) {
@@ -142,11 +141,14 @@ void URLRequestMockHTTPJob::GetResponseInfo(HttpResponseInfo* info) {
   GetResponseInfoConst(info);
 }
 
-bool URLRequestMockHTTPJob::IsRedirectResponse(GURL* location,
-                                               int* http_status_code) {
+bool URLRequestMockHTTPJob::IsRedirectResponse(
+    GURL* location,
+    int* http_status_code,
+    bool* insecure_scheme_was_upgraded) {
   // Override the URLRequestFileJob implementation to invoke the default
   // one based on HttpResponseInfo.
-  return URLRequestJob::IsRedirectResponse(location, http_status_code);
+  return URLRequestJob::IsRedirectResponse(location, http_status_code,
+                                           insecure_scheme_was_upgraded);
 }
 
 void URLRequestMockHTTPJob::OnReadComplete(net::IOBuffer* buffer, int result) {

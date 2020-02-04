@@ -16,6 +16,16 @@
 
 namespace ui {
 
+namespace {
+
+#if defined(OS_CHROMEOS)
+constexpr bool kDoubleTapPlatformSupport = true;
+#else
+constexpr bool kDoubleTapPlatformSupport = false;
+#endif  // defined(OS_CHROMEOS)
+
+}  // namespace
+
 GestureProviderAura::GestureProviderAura(GestureConsumer* consumer,
                                          GestureProviderAuraClient* client)
     : client_(client),
@@ -24,7 +34,8 @@ GestureProviderAura::GestureProviderAura(GestureConsumer* consumer,
           this),
       handling_event_(false),
       gesture_consumer_(consumer) {
-  filtered_gesture_provider_.SetDoubleTapSupportForPlatformEnabled(false);
+  filtered_gesture_provider_.SetDoubleTapSupportForPlatformEnabled(
+      kDoubleTapPlatformSupport);
 }
 
 GestureProviderAura::~GestureProviderAura() {}
@@ -34,11 +45,12 @@ bool GestureProviderAura::OnTouchEvent(TouchEvent* event) {
     return false;
 
   auto result = filtered_gesture_provider_.OnTouchEvent(pointer_state_);
+  pointer_state_.CleanupRemovedTouchPoints(*event);
+
   if (!result.succeeded)
     return false;
 
   event->set_may_cause_scrolling(result.moved_beyond_slop_region);
-  pointer_state_.CleanupRemovedTouchPoints(*event);
   return true;
 }
 
@@ -52,6 +64,10 @@ void GestureProviderAura::OnTouchEventAck(
   filtered_gesture_provider_.OnTouchEventAck(
       unique_touch_event_id, event_consumed,
       is_source_touch_event_set_non_blocking);
+}
+
+void GestureProviderAura::ResetGestureHandlingState() {
+  filtered_gesture_provider_.ResetGestureHandlingState();
 }
 
 void GestureProviderAura::OnGestureEvent(const GestureEventData& gesture) {
@@ -68,6 +84,10 @@ void GestureProviderAura::OnGestureEvent(const GestureEventData& gesture) {
   }
 }
 
+bool GestureProviderAura::RequiresDoubleTapGestureEvents() const {
+  return gesture_consumer_->RequiresDoubleTapGestureEvents();
+}
+
 std::vector<std::unique_ptr<GestureEvent>>
 GestureProviderAura::GetAndResetPendingGestures() {
   std::vector<std::unique_ptr<GestureEvent>> result;
@@ -76,10 +96,10 @@ GestureProviderAura::GetAndResetPendingGestures() {
 }
 
 void GestureProviderAura::OnTouchEnter(int pointer_id, float x, float y) {
-  std::unique_ptr<TouchEvent> touch_event(new TouchEvent(
+  auto touch_event = std::make_unique<TouchEvent>(
       ET_TOUCH_PRESSED, gfx::Point(), ui::EventTimeForNow(),
       PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, pointer_id),
-      EF_IS_SYNTHESIZED, 0.0f));
+      EF_IS_SYNTHESIZED);
   gfx::PointF point(x, y);
   touch_event->set_location_f(point);
   touch_event->set_root_location_f(point);

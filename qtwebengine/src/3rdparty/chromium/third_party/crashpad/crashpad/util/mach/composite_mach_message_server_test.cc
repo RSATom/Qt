@@ -16,9 +16,10 @@
 
 #include <sys/types.h>
 
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "gtest/gtest.h"
-#include "test/gtest_death_check.h"
+#include "test/gtest_death.h"
 #include "util/mach/mach_message.h"
 
 namespace crashpad {
@@ -135,10 +136,10 @@ TEST(CompositeMachMessageServer, HandlerDoesNotHandle) {
 }
 
 TEST(CompositeMachMessageServer, OneHandler) {
-  const mach_msg_id_t kRequestID = 100;
-  const mach_msg_size_t kRequestSize = 256;
-  const mach_msg_size_t kReplySize = 128;
-  const kern_return_t kReturnCode = KERN_SUCCESS;
+  constexpr mach_msg_id_t kRequestID = 100;
+  constexpr mach_msg_size_t kRequestSize = 256;
+  constexpr mach_msg_size_t kReplySize = 128;
+  constexpr kern_return_t kReturnCode = KERN_SUCCESS;
 
   TestMachMessageHandler handler;
   handler.AddRequestID(kRequestID);
@@ -182,21 +183,21 @@ TEST(CompositeMachMessageServer, OneHandler) {
 }
 
 TEST(CompositeMachMessageServer, ThreeHandlers) {
-  const mach_msg_id_t kRequestIDs0[] = {5};
-  const kern_return_t kReturnCode0 = KERN_SUCCESS;
+  static constexpr mach_msg_id_t kRequestIDs0[] = {5};
+  constexpr kern_return_t kReturnCode0 = KERN_SUCCESS;
 
-  const mach_msg_id_t kRequestIDs1[] = {4, 7};
-  const kern_return_t kReturnCode1 = KERN_PROTECTION_FAILURE;
+  static constexpr mach_msg_id_t kRequestIDs1[] = {4, 7};
+  constexpr kern_return_t kReturnCode1 = KERN_PROTECTION_FAILURE;
 
-  const mach_msg_id_t kRequestIDs2[] = {10, 0, 20};
-  const mach_msg_size_t kRequestSize2 = 6144;
-  const mach_msg_size_t kReplySize2 = 16384;
-  const kern_return_t kReturnCode2 = KERN_NOT_RECEIVER;
+  static constexpr mach_msg_id_t kRequestIDs2[] = {10, 0, 20};
+  constexpr mach_msg_size_t kRequestSize2 = 6144;
+  constexpr mach_msg_size_t kReplySize2 = 16384;
+  constexpr kern_return_t kReturnCode2 = KERN_NOT_RECEIVER;
 
   TestMachMessageHandler handlers[3];
   std::set<mach_msg_id_t> expect_request_ids;
 
-  for (size_t index = 0; index < arraysize(kRequestIDs0); ++index) {
+  for (size_t index = 0; index < base::size(kRequestIDs0); ++index) {
     const mach_msg_id_t request_id = kRequestIDs0[index];
     handlers[0].AddRequestID(request_id);
     expect_request_ids.insert(request_id);
@@ -205,7 +206,7 @@ TEST(CompositeMachMessageServer, ThreeHandlers) {
   handlers[0].SetReplySize(sizeof(mig_reply_error_t));
   handlers[0].SetReturnCodes(true, kReturnCode0, false);
 
-  for (size_t index = 0; index < arraysize(kRequestIDs1); ++index) {
+  for (size_t index = 0; index < base::size(kRequestIDs1); ++index) {
     const mach_msg_id_t request_id = kRequestIDs1[index];
     handlers[1].AddRequestID(request_id);
     expect_request_ids.insert(request_id);
@@ -214,7 +215,7 @@ TEST(CompositeMachMessageServer, ThreeHandlers) {
   handlers[1].SetReplySize(200);
   handlers[1].SetReturnCodes(false, kReturnCode1, true);
 
-  for (size_t index = 0; index < arraysize(kRequestIDs2); ++index) {
+  for (size_t index = 0; index < base::size(kRequestIDs2); ++index) {
     const mach_msg_id_t request_id = kRequestIDs2[index];
     handlers[2].AddRequestID(request_id);
     expect_request_ids.insert(request_id);
@@ -252,7 +253,7 @@ TEST(CompositeMachMessageServer, ThreeHandlers) {
 
   // Send messages with known request IDs.
 
-  for (size_t index = 0; index < arraysize(kRequestIDs0); ++index) {
+  for (size_t index = 0; index < base::size(kRequestIDs0); ++index) {
     request.header.msgh_id = kRequestIDs0[index];
     SCOPED_TRACE(base::StringPrintf(
         "handler 0, index %zu, id %d", index, request.header.msgh_id));
@@ -263,7 +264,7 @@ TEST(CompositeMachMessageServer, ThreeHandlers) {
     EXPECT_FALSE(destroy_complex_request);
   }
 
-  for (size_t index = 0; index < arraysize(kRequestIDs1); ++index) {
+  for (size_t index = 0; index < base::size(kRequestIDs1); ++index) {
     request.header.msgh_id = kRequestIDs1[index];
     SCOPED_TRACE(base::StringPrintf(
         "handler 1, index %zu, id %d", index, request.header.msgh_id));
@@ -274,7 +275,7 @@ TEST(CompositeMachMessageServer, ThreeHandlers) {
     EXPECT_TRUE(destroy_complex_request);
   }
 
-  for (size_t index = 0; index < arraysize(kRequestIDs2); ++index) {
+  for (size_t index = 0; index < base::size(kRequestIDs2); ++index) {
     request.header.msgh_id = kRequestIDs2[index];
     SCOPED_TRACE(base::StringPrintf(
         "handler 2, index %zu, id %d", index, request.header.msgh_id));
@@ -289,7 +290,7 @@ TEST(CompositeMachMessageServer, ThreeHandlers) {
 // CompositeMachMessageServer can’t deal with two handlers that want to handle
 // the same request ID.
 TEST(CompositeMachMessageServerDeathTest, DuplicateRequestID) {
-  const mach_msg_id_t kRequestID = 400;
+  constexpr mach_msg_id_t kRequestID = 400;
 
   TestMachMessageHandler handlers[2];
   handlers[0].AddRequestID(kRequestID);

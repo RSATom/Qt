@@ -54,7 +54,23 @@ Polymer({
         return [];
       },
     },
+
+    /**
+     * Cached Cellular Device state or undefined if there is no Cellular device.
+     * @private {!CrOnc.DeviceStateProperties|undefined} deviceState
+     */
+    cellularDeviceState_: Object,
   },
+
+  /**
+   * Returns network list object for testing.
+   */
+  getNetworkListForTest: function() {
+    return this.$.networkList.$$('#networkList');
+  },
+
+  /** @type {!CrOnc.NetworkStateProperties|undefined} */
+  defaultNetworkState_: undefined,
 
   focus: function() {
     this.$.networkList.focus();
@@ -90,7 +106,7 @@ Polymer({
 
     this.refreshNetworks();
 
-    /** @const */ var INTERVAL_MS = 10 * 1000;
+    /** @const */ const INTERVAL_MS = 10 * 1000;
     chrome.networkingPrivate.requestNetworkScan();
     this.scanIntervalId_ = window.setInterval(function() {
       chrome.networkingPrivate.requestNetworkScan();
@@ -99,8 +115,9 @@ Polymer({
 
   /** @override */
   detached: function() {
-    if (this.scanIntervalId_ !== null)
+    if (this.scanIntervalId_ !== null) {
       window.clearInterval(this.scanIntervalId_);
+    }
     chrome.networkingPrivate.onNetworkListChanged.removeListener(
         this.networkListChangedListener_);
     chrome.networkingPrivate.onDeviceStateListChanged.removeListener(
@@ -108,31 +125,117 @@ Polymer({
   },
 
   /**
-   * Request the list of visible networks. May be called externally to force a
+   * Requests the device and network states. May be called externally to force a
    * refresh and list update (e.g. when the element is shown).
    */
   refreshNetworks: function() {
-    var filter = {
+    chrome.networkingPrivate.getDeviceStates(
+        this.getDeviceStatesCallback_.bind(this));
+  },
+
+  /**
+   * Returns default network if it is present.
+   * @return {!CrOnc.NetworkStateProperties|undefined}
+   */
+  getDefaultNetwork: function() {
+    let defaultNetwork;
+    for (let i = 0; i < this.networkStateList_.length; ++i) {
+      const state = this.networkStateList_[i];
+      if (state.ConnectionState == CrOnc.ConnectionState.CONNECTED) {
+        defaultNetwork = state;
+        break;
+      }
+      if (state.ConnectionState == CrOnc.ConnectionState.CONNECTING &&
+          !defaultNetwork) {
+        defaultNetwork = state;
+        // Do not break here in case a non WiFi network is connecting but a
+        // WiFi network is connected.
+      } else if (state.Type == CrOnc.Type.WI_FI) {
+        break;  // Non connecting or connected WiFI networks are always last.
+      }
+    }
+    return defaultNetwork;
+  },
+
+  /**
+   * Returns network with specified GUID if it is available.
+   * @param {string} guid of network.
+   * @return {!CrOnc.NetworkStateProperties|undefined}
+   */
+  getNetwork: function(guid) {
+    return this.networkStateList_.find(function(network) {
+      return network.GUID == guid;
+    });
+  },
+
+  /**
+   * @param {!Array<!CrOnc.DeviceStateProperties>} deviceStates
+   * @private
+   */
+  getDeviceStatesCallback_: function(deviceStates) {
+    const filter = {
       networkType: chrome.networkingPrivate.NetworkType.ALL,
       visible: true,
       configured: false
     };
-    chrome.networkingPrivate.getNetworks(
-        filter, this.getNetworksCallback_.bind(this));
+    chrome.networkingPrivate.getNetworks(filter, function(networkStates) {
+      this.getNetworksCallback_(deviceStates, networkStates);
+    }.bind(this));
   },
 
   /**
-   * @param {!Array<!CrOnc.NetworkStateProperties>} states
+   * @param {!Array<!CrOnc.DeviceStateProperties>} deviceStates
+   * @param {!Array<!CrOnc.NetworkStateProperties>} networkStates
    * @private
    */
-  getNetworksCallback_: function(states) {
-    this.networkStateList_ = states;
-    var defaultState = (this.networkStateList_.length > 0 &&
-                        this.networkStateList_[0].ConnectionState ==
-                            CrOnc.ConnectionState.CONNECTED) ?
-        this.networkStateList_[0] :
-        null;
-    this.defaultNetworkChanged_(defaultState);
+  getNetworksCallback_: function(deviceStates, networkStates) {
+    this.cellularDeviceState_ = deviceStates.find(function(device) {
+      return device.Type == CrOnc.Type.CELLULAR;
+    });
+    if (this.cellularDeviceState_) {
+      this.ensureCellularNetwork_(networkStates);
+    }
+    this.networkStateList_ = networkStates;
+    this.fire('network-list-changed', networkStates);
+
+    const defaultNetwork = this.getDefaultNetwork();
+
+    if ((!defaultNetwork && !this.defaultNetworkState_) ||
+        (defaultNetwork && this.defaultNetworkState_ &&
+         defaultNetwork.GUID == this.defaultNetworkState_.GUID &&
+         defaultNetwork.ConnectionState ==
+             this.defaultNetworkState_.ConnectionState)) {
+      return;  // No change to network or ConnectionState
+    }
+    this.defaultNetworkState_ = defaultNetwork ?
+        /** @type {!CrOnc.NetworkStateProperties|undefined} */ (
+            Object.assign({}, defaultNetwork)) :
+        undefined;
+    this.fire('default-network-changed', defaultNetwork);
+  },
+
+  /**
+   * Modifies |networkStates| to include a cellular network if none exists.
+   * @param {!Array<!CrOnc.NetworkStateProperties>} networkStates
+   * @private
+   */
+  ensureCellularNetwork_: function(networkStates) {
+    if (networkStates.find(function(network) {
+          return network.Type == CrOnc.Type.CELLULAR;
+        })) {
+      return;
+    }
+    // Add a Cellular network after the Ethernet network if it exists.
+    const idx = networkStates.length > 0 &&
+            networkStates[0].Type == CrOnc.Type.ETHERNET ?
+        1 :
+        0;
+    const cellular = {
+      GUID: '',
+      Type: CrOnc.Type.CELLULAR,
+      Cellular: {Scanning: this.cellularDeviceState_.Scanning}
+    };
+    networkStates.splice(idx, 0, cellular);
   },
 
   /**
@@ -141,7 +244,7 @@ Polymer({
    * @private
    */
   onNetworkListItemSelected_: function(e) {
-    var state = e.detail;
+    const state = e.detail;
     e.target.blur();
 
     if (!this.handleNetworkItemSelected) {
@@ -149,30 +252,27 @@ Polymer({
       return;
     }
 
-    if (state.ConnectionState != CrOnc.ConnectionState.NOT_CONNECTED)
+    // NOTE: This isn't used by OOBE (no handle-network-item-selected).
+    // TODO(stevenjb): Remove custom OOBE handling.
+    if (state.Type == CrOnc.Type.CELLULAR && this.cellularDeviceState_) {
+      const cellularDevice = this.cellularDeviceState_;
+      // If Cellular is not enabled and not SIM locked, enable Cellular.
+      if (cellularDevice.State != CrOnc.DeviceState.ENABLED &&
+          (!cellularDevice.SIMLockStatus ||
+           !cellularDevice.SIMLockStatus.LockType)) {
+        chrome.networkingPrivate.enableNetworkType(CrOnc.Type.CELLULAR);
+      }
+    }
+
+    if (state.ConnectionState != CrOnc.ConnectionState.NOT_CONNECTED) {
       return;
+    }
 
     chrome.networkingPrivate.startConnect(state.GUID, function() {
-      var lastError = chrome.runtime.lastError;
-      if (lastError && lastError != 'connecting')
+      const lastError = chrome.runtime.lastError;
+      if (lastError && lastError != 'connecting') {
         console.error('networkingPrivate.startConnect error: ' + lastError);
+      }
     });
-  },
-
-  /**
-   * Event triggered when a cr-network-list-item becomes connected.
-   * @param {!{target: HTMLElement, detail: !CrOnc.NetworkStateProperties}} e
-   * @private
-   */
-  onNetworkConnected_: function(e) {
-    this.defaultNetworkChanged_(e.detail);
-  },
-
-  /**
-   * @param {?CrOnc.NetworkStateProperties} state
-   * @private
-   */
-  defaultNetworkChanged_: function(state) {
-    this.fire('default-network-changed', state);
   },
 });

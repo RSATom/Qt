@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <vector>
+
 #include "gpu/config/gpu_blacklist.h"
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/config/gpu_info.h"
@@ -11,8 +13,8 @@ namespace gpu {
 
 class GpuBlacklistTest : public testing::Test {
  public:
-  GpuBlacklistTest() { }
-  ~GpuBlacklistTest() override {}
+  GpuBlacklistTest() = default;
+  ~GpuBlacklistTest() override = default;
 
   const GPUInfo& gpu_info() const {
     return gpu_info_;
@@ -28,6 +30,8 @@ class GpuBlacklistTest : public testing::Test {
         kFeatureListForEntry1,  // features
         0,                      // DisabledExtensions size
         nullptr,                // DisabledExtensions
+        0,                      // DisabledWebGLExtensions size
+        nullptr,                // DisabledWebGLExtensions
         0,                      // CrBugs size
         nullptr,                // CrBugs
         {
@@ -42,12 +46,14 @@ class GpuBlacklistTest : public testing::Test {
             nullptr,                               // driver info
             nullptr,                               // GL strings
             nullptr,                               // machine model info
+            0,                                     // gpu_series size
+            nullptr,                               // gpu_series
             nullptr,                               // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
     }};
-    GpuControlListData data("1.0", 1, kTestEntries);
+    GpuControlListData data(1, kTestEntries);
     std::unique_ptr<GpuBlacklist> blacklist = GpuBlacklist::Create(data);
     std::set<int> type =
         blacklist->MakeDecision(GpuBlacklist::kOsMacosx, "10.12.3", gpu_info());
@@ -59,9 +65,9 @@ class GpuBlacklistTest : public testing::Test {
   void SetUp() override {
     gpu_info_.gpu.vendor_id = 0x10de;
     gpu_info_.gpu.device_id = 0x0640;
-    gpu_info_.driver_vendor = "NVIDIA";
-    gpu_info_.driver_version = "1.6.18";
-    gpu_info_.driver_date = "7-14-2009";
+    gpu_info_.gpu.driver_vendor = "NVIDIA";
+    gpu_info_.gpu.driver_version = "1.6.18";
+    gpu_info_.gpu.driver_date = "7-14-2009";
     gpu_info_.machine_model_name = "MacBookPro";
     gpu_info_.machine_model_version = "7.1";
     gpu_info_.gl_vendor = "NVIDIA Corporation";
@@ -95,16 +101,32 @@ GPU_BLACKLIST_FEATURE_TEST(FlashStage3DBaseline,
 GPU_BLACKLIST_FEATURE_TEST(AcceleratedVideoDecode,
                            GPU_FEATURE_TYPE_ACCELERATED_VIDEO_DECODE)
 
-GPU_BLACKLIST_FEATURE_TEST(AcceleratedVideoEncode,
-                           GPU_FEATURE_TYPE_ACCELERATED_VIDEO_ENCODE)
-
-GPU_BLACKLIST_FEATURE_TEST(PanelFitting,
-                           GPU_FEATURE_TYPE_PANEL_FITTING)
-
 GPU_BLACKLIST_FEATURE_TEST(GpuRasterization,
                            GPU_FEATURE_TYPE_GPU_RASTERIZATION)
 
+GPU_BLACKLIST_FEATURE_TEST(OOPRasterization, GPU_FEATURE_TYPE_OOP_RASTERIZATION)
+
 GPU_BLACKLIST_FEATURE_TEST(WebGL2,
-                           GPU_FEATURE_TYPE_WEBGL2)
+                           GPU_FEATURE_TYPE_ACCELERATED_WEBGL2)
+
+GPU_BLACKLIST_FEATURE_TEST(ProtectedVideoDecode,
+                           GPU_FEATURE_TYPE_PROTECTED_VIDEO_DECODE)
+
+// Test for invariant "Assume the newly last added entry has the largest ID".
+// See GpuControlList::GpuControlList.
+// It checks software_rendering_list.json
+TEST_F(GpuBlacklistTest, TestBlacklistIsValid) {
+  std::unique_ptr<GpuBlacklist> list(GpuBlacklist::Create());
+  uint32_t max_entry_id = list->max_entry_id();
+
+  std::vector<uint32_t> indices(list->num_entries());
+  int current = 0;
+  std::generate(indices.begin(), indices.end(),
+                [&current]() { return current++; });
+
+  auto entries = list->GetEntryIDsFromIndices(indices);
+  auto real_max_entry_id = *std::max_element(entries.begin(), entries.end());
+  EXPECT_EQ(real_max_entry_id, max_entry_id);
+}
 
 }  // namespace gpu

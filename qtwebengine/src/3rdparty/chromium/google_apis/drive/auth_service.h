@@ -9,14 +9,15 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
 #include "google_apis/drive/auth_service_interface.h"
-#include "google_apis/gaia/oauth2_token_service.h"
+#include "services/identity/public/cpp/identity_manager.h"
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace google_apis {
@@ -24,19 +25,19 @@ namespace google_apis {
 class AuthServiceObserver;
 
 // This class provides authentication for Google services.
-// It integrates specific service integration with OAuth2 stack
-// (OAuth2TokenService) and provides OAuth2 token refresh infrastructure.
+// It integrates specific service integration with the Identity service
+// (IdentityManager) and provides OAuth2 token refresh infrastructure.
 // All public functions must be called on UI thread.
 class AuthService : public AuthServiceInterface,
-                    public OAuth2TokenService::Observer {
+                    public identity::IdentityManager::Observer {
  public:
-  // |url_request_context_getter| is used to perform authentication with
-  // URLFetcher.
+  // |url_loader_factory| is used to perform authentication with
+  // SimpleURLLoader.
   //
   // |scopes| specifies OAuth2 scopes.
-  AuthService(OAuth2TokenService* oauth2_token_service,
+  AuthService(identity::IdentityManager* identity_manager,
               const std::string& account_id,
-              net::URLRequestContextGetter* url_request_context_getter,
+              scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
               const std::vector<std::string>& scopes);
   ~AuthService() override;
 
@@ -50,9 +51,10 @@ class AuthService : public AuthServiceInterface,
   void ClearAccessToken() override;
   void ClearRefreshToken() override;
 
-  // Overridden from OAuth2TokenService::Observer:
-  void OnRefreshTokenAvailable(const std::string& account_id) override;
-  void OnRefreshTokenRevoked(const std::string& account_id) override;
+  // Overridden from IdentityManager::Observer
+  void OnRefreshTokenUpdatedForAccount(
+      const AccountInfo& account_info) override;
+  void OnRefreshTokenRemovedForAccount(const std::string& account_id) override;
 
  private:
   // Called when the state of the refresh token changes.
@@ -64,13 +66,13 @@ class AuthService : public AuthServiceInterface,
                        DriveApiErrorCode error,
                        const std::string& access_token);
 
-  OAuth2TokenService* oauth2_token_service_;
+  identity::IdentityManager* identity_manager_;
   std::string account_id_;
-  scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   bool has_refresh_token_;
   std::string access_token_;
   std::vector<std::string> scopes_;
-  base::ObserverList<AuthServiceObserver> observers_;
+  base::ObserverList<AuthServiceObserver>::Unchecked observers_;
   base::ThreadChecker thread_checker_;
 
   // Note: This should remain the last member so it'll be destroyed and

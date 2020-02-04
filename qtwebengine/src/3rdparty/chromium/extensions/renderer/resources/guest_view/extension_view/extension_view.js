@@ -7,12 +7,16 @@
 var GuestViewContainer = require('guestViewContainer').GuestViewContainer;
 var ExtensionViewConstants =
     require('extensionViewConstants').ExtensionViewConstants;
+var ExtensionViewAttributes =
+    require('extensionViewAttributes').ExtensionViewAttributes;
 var ExtensionViewEvents = require('extensionViewEvents').ExtensionViewEvents;
-var ExtensionViewInternal =
+var ExtensionViewInternal = getInternalApi ?
+    getInternalApi('extensionViewInternal') :
     require('extensionViewInternal').ExtensionViewInternal;
 
 function ExtensionViewImpl(extensionviewElement) {
-  GuestViewContainer.call(this, extensionviewElement, 'extensionview');
+  $Function.call(
+      GuestViewContainer, this, extensionviewElement, 'extensionview');
 
   // A queue of objects in the order they should be loaded.
   // Every load call will add the given src, as well as the resolve and reject
@@ -28,14 +32,6 @@ function ExtensionViewImpl(extensionviewElement) {
 
 ExtensionViewImpl.prototype.__proto__ = GuestViewContainer.prototype;
 
-ExtensionViewImpl.VIEW_TYPE = 'ExtensionView';
-
-ExtensionViewImpl.setupElement = function(proto) {
-  var apiMethods = ExtensionViewImpl.getApiMethods();
-
-  GuestViewContainer.forwardApiMethods(proto, apiMethods);
-};
-
 ExtensionViewImpl.prototype.createGuest = function(callback) {
   this.guest.create(this.buildParams(), $Function.bind(function() {
     this.attachWindow$();
@@ -44,11 +40,19 @@ ExtensionViewImpl.prototype.createGuest = function(callback) {
 };
 
 ExtensionViewImpl.prototype.buildContainerParams = function() {
-  var params = {};
+  var params = $Object.create(null);
   for (var i in this.attributes) {
     params[i] = this.attributes[i].getValue();
   }
   return params;
+};
+
+// Sets up all of the extensionview attributes.
+ExtensionViewImpl.prototype.setupAttributes = function() {
+  this.attributes[ExtensionViewConstants.ATTRIBUTE_EXTENSION] =
+      new ExtensionViewAttributes.ExtensionAttribute(this);
+  this.attributes[ExtensionViewConstants.ATTRIBUTE_SRC] =
+      new ExtensionViewAttributes.SrcAttribute(this);
 };
 
 ExtensionViewImpl.prototype.onElementDetached = function() {
@@ -102,7 +106,7 @@ ExtensionViewImpl.prototype.loadNextSrc = function() {
       if (extensionId !=
           this.attributes[ExtensionViewConstants.ATTRIBUTE_EXTENSION]
             .getValue()) {
-        this.guest.destroy();
+        this.guest.destroy($Function.bind(this.prepareForReattach$, this));
 
         // Update the extension and src attributes.
         this.attributes[ExtensionViewConstants.ATTRIBUTE_EXTENSION]
@@ -134,7 +138,19 @@ ExtensionViewImpl.prototype.loadNextSrc = function() {
   }
 };
 
-GuestViewContainer.registerElement(ExtensionViewImpl);
+ExtensionViewImpl.prototype.load = function(src) {
+  return new Promise($Function.bind(function(resolve, reject) {
+    $Array.push(this.loadQueue, {src: src, resolve: resolve, reject: reject});
+    this.loadNextSrc();
+  }, this)).then($Function.bind(function onLoadResolved() {
+    this.pendingLoad = null;
+    this.loadNextSrc();
+  }, this), $Function.bind(function onLoadRejected(reason) {
+    this.pendingLoad = null;
+    this.loadNextSrc();
+    return Promise.reject(reason);
+  }, this));
+};
 
 // Exports.
 exports.$set('ExtensionViewImpl', ExtensionViewImpl);

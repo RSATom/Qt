@@ -53,10 +53,11 @@ public:
     QGeoMapMapboxGL(QGeoMappingManagerEngineMapboxGL *engine, QObject *parent);
     virtual ~QGeoMapMapboxGL();
 
-    QString copyrightsStyleSheet() const Q_DECL_OVERRIDE;
-    void setMapboxGLSettings(const QMapboxGLSettings &);
+    QString copyrightsStyleSheet() const override;
+    void setMapboxGLSettings(const QMapboxGLSettings &, bool useChinaEndpoint);
     void setUseFBO(bool);
     void setMapItemsBefore(const QString &);
+    Capabilities capabilities() const override;
 
 private Q_SLOTS:
     // QMapboxGL
@@ -75,7 +76,7 @@ public Q_SLOTS:
     void copyrightsChanged(const QString &copyrightsHtml);
 
 private:
-    QSGNode *updateSceneGraph(QSGNode *oldNode, QQuickWindow *window) Q_DECL_OVERRIDE;
+    QSGNode *updateSceneGraph(QSGNode *oldNode, QQuickWindow *window) override;
 
     QGeoMappingManagerEngineMapboxGL *m_engine;
 };

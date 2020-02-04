@@ -4,6 +4,10 @@
 
 #include "ui/views/controls/menu/menu_model_adapter.h"
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/models/menu_model.h"
@@ -16,8 +20,9 @@
 namespace {
 
 // Base command id for test menu and its submenu.
-const int kRootIdBase = 100;
-const int kSubmenuIdBase = 200;
+constexpr int kRootIdBase = 100;
+constexpr int kSubmenuIdBase = 200;
+constexpr int kActionableSubmenuIdBase = 300;
 
 class MenuModelBase : public ui::MenuModel {
  public:
@@ -69,15 +74,13 @@ class MenuModelBase : public ui::MenuModel {
     return NULL;
   }
 
-  bool IsEnabledAt(int index) const override { return true; }
+  bool IsEnabledAt(int index) const override { return items_[index].enabled; }
 
-  bool IsVisibleAt(int index) const override { return true; }
+  bool IsVisibleAt(int index) const override { return items_[index].visible; }
 
   MenuModel* GetSubmenuModelAt(int index) const override {
     return items_[index].submenu;
   }
-
-  void HighlightChangedTo(int index) override {}
 
   void ActivatedAt(int index) override { set_last_activation(index); }
 
@@ -98,12 +101,26 @@ class MenuModelBase : public ui::MenuModel {
          ui::MenuModel* item_submenu)
         : type(item_type),
           label(base::ASCIIToUTF16(item_label)),
-          submenu(item_submenu) {
-    }
+          submenu(item_submenu),
+          enabled(true),
+          visible(true) {}
+
+    Item(ItemType item_type,
+         const std::string& item_label,
+         ui::MenuModel* item_submenu,
+         bool enabled,
+         bool visible)
+        : type(item_type),
+          label(base::ASCIIToUTF16(item_label)),
+          submenu(item_submenu),
+          enabled(enabled),
+          visible(visible) {}
 
     ItemType type;
     base::string16 label;
     ui::MenuModel* submenu;
+    bool enabled;
+    bool visible;
   };
 
   const Item& GetItemDefinition(int index) {
@@ -129,7 +146,7 @@ class MenuModelBase : public ui::MenuModel {
 class SubmenuModel : public MenuModelBase {
  public:
   SubmenuModel() : MenuModelBase(kSubmenuIdBase) {
-    items_.push_back(Item(TYPE_COMMAND, "submenu item 0", NULL));
+    items_.push_back(Item(TYPE_COMMAND, "submenu item 0", NULL, false, true));
     items_.push_back(Item(TYPE_COMMAND, "submenu item 1", NULL));
   }
 
@@ -139,25 +156,106 @@ class SubmenuModel : public MenuModelBase {
   DISALLOW_COPY_AND_ASSIGN(SubmenuModel);
 };
 
+class ActionableSubmenuModel : public MenuModelBase {
+ public:
+  ActionableSubmenuModel() : MenuModelBase(kActionableSubmenuIdBase) {
+    items_.push_back(Item(TYPE_COMMAND, "actionable submenu item 0", NULL));
+    items_.push_back(Item(TYPE_COMMAND, "actionable submenu item 1", NULL));
+  }
+  ~ActionableSubmenuModel() override = default;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ActionableSubmenuModel);
+};
+
 class RootModel : public MenuModelBase {
  public:
   RootModel() : MenuModelBase(kRootIdBase) {
-    submenu_model_.reset(new SubmenuModel);
+    submenu_model_ = std::make_unique<SubmenuModel>();
+    actionable_submenu_model_ = std::make_unique<ActionableSubmenuModel>();
 
-    items_.push_back(Item(TYPE_COMMAND, "command 0", NULL));
+    items_.push_back(Item(TYPE_COMMAND, "command 0", NULL, false, false));
     items_.push_back(Item(TYPE_CHECK, "check 1", NULL));
     items_.push_back(Item(TYPE_SEPARATOR, "", NULL));
     items_.push_back(Item(TYPE_SUBMENU, "submenu 3", submenu_model_.get()));
     items_.push_back(Item(TYPE_RADIO, "radio 4", NULL));
+    items_.push_back(Item(TYPE_ACTIONABLE_SUBMENU, "actionable 5",
+                          actionable_submenu_model_.get()));
   }
 
   ~RootModel() override {}
 
  private:
   std::unique_ptr<MenuModel> submenu_model_;
+  std::unique_ptr<MenuModel> actionable_submenu_model_;
 
   DISALLOW_COPY_AND_ASSIGN(RootModel);
 };
+
+void CheckSubmenu(const RootModel& model,
+                  views::MenuItemView* menu,
+                  views::MenuModelAdapter* delegate,
+                  int submenu_id,
+                  int expected_children,
+                  int submenu_model_index,
+                  int id_base) {
+  views::MenuItemView* submenu = menu->GetMenuItemByID(submenu_id);
+  views::SubmenuView* subitem_container = submenu->GetSubmenu();
+  EXPECT_EQ(expected_children, subitem_container->child_count());
+
+  for (int i = 0; i < subitem_container->child_count(); ++i) {
+    MenuModelBase* submodel = static_cast<MenuModelBase*>(
+        model.GetSubmenuModelAt(submenu_model_index));
+    EXPECT_TRUE(submodel);
+
+    const MenuModelBase::Item& model_item = submodel->GetItemDefinition(i);
+
+    const int id = i + id_base;
+    views::MenuItemView* item = menu->GetMenuItemByID(id);
+    if (!item) {
+      EXPECT_EQ(ui::MenuModel::TYPE_SEPARATOR, model_item.type);
+      continue;
+    }
+    // Check placement.
+    EXPECT_EQ(i, submenu->GetSubmenu()->GetIndexOf(item));
+
+    // Check type.
+    switch (model_item.type) {
+      case ui::MenuModel::TYPE_COMMAND:
+        EXPECT_EQ(views::MenuItemView::NORMAL, item->GetType());
+        break;
+      case ui::MenuModel::TYPE_CHECK:
+        EXPECT_EQ(views::MenuItemView::CHECKBOX, item->GetType());
+        break;
+      case ui::MenuModel::TYPE_RADIO:
+        EXPECT_EQ(views::MenuItemView::RADIO, item->GetType());
+        break;
+      case ui::MenuModel::TYPE_SEPARATOR:
+      case ui::MenuModel::TYPE_BUTTON_ITEM:
+        break;
+      case ui::MenuModel::TYPE_SUBMENU:
+        EXPECT_EQ(views::MenuItemView::SUBMENU, item->GetType());
+        break;
+      case ui::MenuModel::TYPE_ACTIONABLE_SUBMENU:
+        EXPECT_EQ(views::MenuItemView::ACTIONABLE_SUBMENU, item->GetType());
+        break;
+      case ui::MenuModel::TYPE_HIGHLIGHTED:
+        EXPECT_EQ(views::MenuItemView::HIGHLIGHTED, item->GetType());
+        break;
+    }
+
+    // Check enabled state.
+    EXPECT_EQ(model_item.enabled, item->enabled());
+
+    // Check visibility.
+    EXPECT_EQ(model_item.visible, item->visible());
+
+    // Check activation.
+    static_cast<views::MenuDelegate*>(delegate)->ExecuteCommand(id);
+    EXPECT_EQ(i, submodel->last_activation());
+    submodel->set_last_activation(-1);
+  }
+}
 
 }  // namespace
 
@@ -180,7 +278,7 @@ TEST_F(MenuModelAdapterTest, BasicTest) {
 
   // Check top level menu items.
   views::SubmenuView* item_container = menu->GetSubmenu();
-  EXPECT_EQ(5, item_container->child_count());
+  EXPECT_EQ(6, item_container->child_count());
 
   for (int i = 0; i < item_container->child_count(); ++i) {
     const MenuModelBase::Item& model_item = model.GetItemDefinition(i);
@@ -212,7 +310,19 @@ TEST_F(MenuModelAdapterTest, BasicTest) {
       case ui::MenuModel::TYPE_SUBMENU:
         EXPECT_EQ(views::MenuItemView::SUBMENU, item->GetType());
         break;
+      case ui::MenuModel::TYPE_ACTIONABLE_SUBMENU:
+        EXPECT_EQ(views::MenuItemView::ACTIONABLE_SUBMENU, item->GetType());
+        break;
+      case ui::MenuModel::TYPE_HIGHLIGHTED:
+        EXPECT_EQ(views::MenuItemView::HIGHLIGHTED, item->GetType());
+        break;
     }
+
+    // Check enabled state.
+    EXPECT_EQ(model_item.enabled, item->enabled());
+
+    // Check visibility.
+    EXPECT_EQ(model_item.visible, item->visible());
 
     // Check activation.
     static_cast<views::MenuDelegate*>(&delegate)->ExecuteCommand(id);
@@ -220,57 +330,15 @@ TEST_F(MenuModelAdapterTest, BasicTest) {
     model.set_last_activation(-1);
   }
 
-  // Check submenu items.
-  views::MenuItemView* submenu = menu->GetMenuItemByID(103);
-  views::SubmenuView* subitem_container = submenu->GetSubmenu();
-  EXPECT_EQ(2, subitem_container->child_count());
+  // Check the submenu.
+  const int submenu_index = 3;
+  CheckSubmenu(model, menu, &delegate, kRootIdBase + submenu_index, 2,
+               submenu_index, kSubmenuIdBase);
 
-  for (int i = 0; i < subitem_container->child_count(); ++i) {
-    MenuModelBase* submodel = static_cast<MenuModelBase*>(
-        model.GetSubmenuModelAt(3));
-    EXPECT_TRUE(submodel);
-
-    const MenuModelBase::Item& model_item = submodel->GetItemDefinition(i);
-
-    const int id = i + kSubmenuIdBase;
-    MenuItemView* item = menu->GetMenuItemByID(id);
-    if (!item) {
-      EXPECT_EQ(ui::MenuModel::TYPE_SEPARATOR, model_item.type);
-      continue;
-    }
-
-    // Check placement.
-    EXPECT_EQ(i, submenu->GetSubmenu()->GetIndexOf(item));
-
-    // Check type.
-    switch (model_item.type) {
-      case ui::MenuModel::TYPE_COMMAND:
-        EXPECT_EQ(views::MenuItemView::NORMAL, item->GetType());
-        break;
-      case ui::MenuModel::TYPE_CHECK:
-        EXPECT_EQ(views::MenuItemView::CHECKBOX, item->GetType());
-        break;
-      case ui::MenuModel::TYPE_RADIO:
-        EXPECT_EQ(views::MenuItemView::RADIO, item->GetType());
-        break;
-      case ui::MenuModel::TYPE_SEPARATOR:
-      case ui::MenuModel::TYPE_BUTTON_ITEM:
-        break;
-      case ui::MenuModel::TYPE_SUBMENU:
-        EXPECT_EQ(views::MenuItemView::SUBMENU, item->GetType());
-        break;
-    }
-
-    // Check activation.
-    static_cast<views::MenuDelegate*>(&delegate)->ExecuteCommand(id);
-    EXPECT_EQ(i, submodel->last_activation());
-    submodel->set_last_activation(-1);
-  }
-
-  // Check that selecting the root item is safe.  The MenuModel does
-  // not care about the root so MenuModelAdapter should do nothing
-  // (not hit the NOTREACHED check) when the root is selected.
-  static_cast<views::MenuDelegate*>(&delegate)->SelectionChanged(menu);
+  // Check the actionable submenu.
+  const int actionable_submenu_index = 5;
+  CheckSubmenu(model, menu, &delegate, kRootIdBase + actionable_submenu_index,
+               2, actionable_submenu_index, kActionableSubmenuIdBase);
 }
 
 }  // namespace views

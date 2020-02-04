@@ -199,7 +199,7 @@ void InnerBoundedLabel::SetText(const base::string16& new_text) {
 }
 
 int InnerBoundedLabel::GetTextFlags() {
-  int flags = gfx::Canvas::MULTI_LINE | gfx::Canvas::CHARACTER_BREAK;
+  int flags = gfx::Canvas::MULTI_LINE | gfx::Canvas::CHARACTER_BREAKABLE;
 
   // We can't use subpixel rendering if the background is non-opaque.
   if (SkColorGetA(background_color()) != 0xFF)
@@ -278,9 +278,9 @@ BoundedLabel::BoundedLabel(const base::string16& text)
 BoundedLabel::~BoundedLabel() {
 }
 
-void BoundedLabel::SetColors(SkColor textColor, SkColor backgroundColor) {
-  label_->SetEnabledColor(textColor);
-  label_->SetBackgroundColor(backgroundColor);
+void BoundedLabel::SetColor(SkColor text_color) {
+  label_->SetEnabledColor(text_color);
+  label_->SetAutoColorReadabilityEnabled(false);
 }
 
 void BoundedLabel::SetLineHeight(int height) {
@@ -301,6 +301,10 @@ int BoundedLabel::GetLineHeight() const {
 
 int BoundedLabel::GetLineLimit() const {
   return line_limit_;
+}
+
+const gfx::FontList& BoundedLabel::font_list() const {
+  return label_->font_list();
 }
 
 int BoundedLabel::GetLinesForWidthAndLimit(int width, int limit) {
@@ -344,6 +348,19 @@ bool BoundedLabel::CanProcessEventsWithinSubtree() const {
 
 void BoundedLabel::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   label_->GetAccessibleNodeData(node_data);
+}
+
+views::View* BoundedLabel::GetTooltipHandlerForPoint(const gfx::Point& point) {
+  if (GetSizeForWidthAndLines(width(), -1).height() <=
+      GetHeightForWidth(width())) {
+    return nullptr;
+  }
+  return HitTestPoint(point) ? this : nullptr;
+}
+
+bool BoundedLabel::GetTooltipText(const gfx::Point& p,
+                                  base::string16* tooltip) const {
+  return label_->GetTooltipText(p, tooltip);
 }
 
 void BoundedLabel::OnBoundsChanged(const gfx::Rect& previous_bounds) {

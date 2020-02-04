@@ -13,7 +13,6 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/observer_list.h"
 #include "ui/base/models/list_model_observer.h"
 
@@ -138,7 +137,7 @@ class ListModel {
 
  private:
   ItemList items_;
-  base::ObserverList<ListModelObserver> observers_;
+  base::ObserverList<ListModelObserver>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(ListModel<ItemType>);
 };

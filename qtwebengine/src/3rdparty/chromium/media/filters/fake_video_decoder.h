@@ -49,11 +49,14 @@ class FakeVideoDecoder : public VideoDecoder {
                   bool low_delay,
                   CdmContext* cdm_context,
                   const InitCB& init_cb,
-                  const OutputCB& output_cb) override;
-  void Decode(const scoped_refptr<DecoderBuffer>& buffer,
+                  const OutputCB& output_cb,
+                  const WaitingCB& waiting_cb) override;
+  void Decode(scoped_refptr<DecoderBuffer> buffer,
               const DecodeCB& decode_cb) override;
   void Reset(const base::Closure& closure) override;
   int GetMaxDecodeRequests() const override;
+
+  base::WeakPtr<FakeVideoDecoder> GetWeakPtr();
 
   // Holds the next init/decode/reset callback from firing.
   void HoldNextInit();

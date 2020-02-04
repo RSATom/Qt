@@ -6,6 +6,7 @@
 #define UI_VIEWS_WIDGET_NATIVE_WIDGET_MAC_H_
 
 #include "base/macros.h"
+#include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/widget/native_widget_private.h"
 
@@ -15,36 +16,69 @@
 class NativeWidgetMacNSWindow;
 #endif
 
+namespace views_bridge_mac {
+namespace mojom {
+class BridgedNativeWidget;
+class CreateWindowParams;
+class ValidateUserInterfaceItemResult;
+}  // namespace mojom
+}  // namespace views_bridge_mac
+
 namespace views {
 namespace test {
 class HitTestNativeWidgetMac;
 class MockNativeWidgetMac;
+class WidgetTest;
 }
 
-class BridgedNativeWidget;
+class BridgeFactoryHost;
+class BridgedNativeWidgetImpl;
+class BridgedNativeWidgetHostImpl;
 
 class VIEWS_EXPORT NativeWidgetMac : public internal::NativeWidgetPrivate {
  public:
   explicit NativeWidgetMac(internal::NativeWidgetDelegate* delegate);
   ~NativeWidgetMac() override;
 
-  // Retrieves the bridge associated with the given NSWindow. Returns null if
-  // the supplied handle has no associated Widget.
-  static BridgedNativeWidget* GetBridgeForNativeWindow(
-      gfx::NativeWindow window);
-
-  // Return true if the delegate's modal type is window-modal. These display as
-  // a native window "sheet", and have a different lifetime to regular windows.
-  bool IsWindowModalSheet() const;
+  // Informs |delegate_| that the native widget is about to be destroyed.
+  // BridgedNativeWidgetImpl::OnWindowWillClose() invokes this early when the
+  // NSWindowDelegate informs the bridge that the window is being closed (later,
+  // invoking OnWindowDestroyed()).
+  void WindowDestroying();
 
   // Deletes |bridge_| and informs |delegate_| that the native widget is
-  // destroyed. BridgedNativeWidget::OnWindowWillClose() calls this when the
-  // NSWindowDelegate informs the bridge that the window is being closed.
-  void OnWindowDestroyed();
+  // destroyed.
+  void WindowDestroyed();
 
-  // Returns the vertical position that sheets should be anchored, in pixels
-  // from the bottom of the window.
-  virtual int SheetPositionY();
+  // The vertical position from which sheets should be anchored, from the top
+  // of the content view.
+  virtual int32_t SheetOffsetY();
+
+  // Returns in |override_titlebar_height| whether or not to override the
+  // titlebar height and in |titlebar_height| the height of the titlebar.
+  virtual void GetWindowFrameTitlebarHeight(bool* override_titlebar_height,
+                                            float* titlebar_height);
+
+  // Notifies that the widget starts to enter or exit fullscreen mode.
+  virtual void OnWindowFullscreenStateChange() {}
+
+  // Handle "Move focus to the window toolbar" shortcut.
+  virtual void OnFocusWindowToolbar() {}
+
+  // Allows subclasses to override the behavior for
+  // -[NSUserInterfaceValidations validateUserInterfaceItem].
+  virtual void ValidateUserInterfaceItem(
+      int32_t command,
+      views_bridge_mac::mojom::ValidateUserInterfaceItemResult* result) {}
+
+  // Execute the chrome command |command| with |window_open_disposition|. If
+  // |is_before_first_responder| then only call ExecuteCommand if the command
+  // is reserved and extension shortcut handling is not suspended. Returns in
+  // |was_executed| whether or not ExecuteCommand was called (regardless of what
+  // the return value for ExecuteCommand was).
+  virtual bool ExecuteCommand(int32_t command,
+                              WindowOpenDisposition window_open_disposition,
+                              bool is_before_first_responder);
 
   // internal::NativeWidgetPrivate:
   void InitNativeWidget(const Widget::InitParams& params) override;
@@ -81,16 +115,16 @@ class VIEWS_EXPORT NativeWidgetMac : public internal::NativeWidgetPrivate {
   gfx::Rect GetRestoredBounds() const override;
   std::string GetWorkspace() const override;
   void SetBounds(const gfx::Rect& bounds) override;
+  void SetBoundsConstrained(const gfx::Rect& bounds) override;
   void SetSize(const gfx::Size& size) override;
   void StackAbove(gfx::NativeView native_view) override;
   void StackAtTop() override;
-  void SetShape(std::unique_ptr<SkRegion> shape) override;
+  void SetShape(std::unique_ptr<Widget::ShapeRects> shape) override;
   void Close() override;
   void CloseNow() override;
-  void Show() override;
+  void Show(ui::WindowShowState show_state,
+            const gfx::Rect& restore_bounds) override;
   void Hide() override;
-  void ShowMaximizedWithBounds(const gfx::Rect& restored_bounds) override;
-  void ShowWithWindowState(ui::WindowShowState state) override;
   bool IsVisible() const override;
   void Activate() override;
   void Deactivate() override;
@@ -107,6 +141,7 @@ class VIEWS_EXPORT NativeWidgetMac : public internal::NativeWidgetPrivate {
   void SetFullscreen(bool fullscreen) override;
   bool IsFullscreen() const override;
   void SetOpacity(float opacity) override;
+  void SetAspectRatio(const gfx::SizeF& aspect_ratio) override;
   void FlashFrame(bool flash_frame) override;
   void RunShellDrag(View* view,
                     const ui::OSExchangeData& data,
@@ -115,7 +150,9 @@ class VIEWS_EXPORT NativeWidgetMac : public internal::NativeWidgetPrivate {
                     ui::DragDropTypes::DragEventSource source) override;
   void SchedulePaintInRect(const gfx::Rect& rect) override;
   void SetCursor(gfx::NativeCursor cursor) override;
+  void ShowEmojiPanel() override;
   bool IsMouseEventsEnabled() const override;
+  bool IsMouseButtonDown() const override;
   void ClearNativeFocus() override;
   gfx::Rect GetWorkAreaBoundsInScreen() const override;
   Widget::MoveLoopResult RunMoveLoop(
@@ -128,24 +165,59 @@ class VIEWS_EXPORT NativeWidgetMac : public internal::NativeWidgetPrivate {
   void SetVisibilityAnimationTransition(
       Widget::VisibilityTransition transition) override;
   bool IsTranslucentWindowOpacitySupported() const override;
+  ui::GestureRecognizer* GetGestureRecognizer() override;
   void OnSizeConstraintsChanged() override;
-  void RepostNativeEvent(gfx::NativeEvent native_event) override;
   std::string GetName() const override;
 
+  // Calls |callback| with the newly created NativeWidget whenever a
+  // NativeWidget is created.
+  static void SetInitNativeWidgetCallback(
+      const base::RepeatingCallback<void(NativeWidgetMac*)>& callback);
+
  protected:
-  // Creates the NSWindow that will be passed to the BridgedNativeWidget.
+  virtual void PopulateCreateWindowParams(
+      const Widget::InitParams& widget_params,
+      views_bridge_mac::mojom::CreateWindowParams* params) {}
+
+  // Creates the NSWindow that will be passed to the BridgedNativeWidgetImpl.
   // Called by InitNativeWidget. The return value will be autoreleased.
+  // Note that some tests (in particular, views_unittests that interact
+  // with ScopedFakeNSWindowFullscreen, on 10.10) assume that these windows
+  // are autoreleased, and will crash if the window has a more precise
+  // lifetime.
   virtual NativeWidgetMacNSWindow* CreateNSWindow(
-      const Widget::InitParams& params);
+      const views_bridge_mac::mojom::CreateWindowParams* params);
+
+  // Return the BridgeFactoryHost that is to be used for creating this window
+  // and all of its child windows. This will return nullptr if the native
+  // windows are to be created in the current process.
+  virtual BridgeFactoryHost* GetBridgeFactoryHost();
+
+  // Called after the window has been initialized. Allows subclasses to perform
+  // additional initialization.
+  virtual void OnWindowInitialized() {}
+
+  // Optional hook for subclasses invoked by WindowDestroying().
+  virtual void OnWindowDestroying(gfx::NativeWindow window) {}
+
+  // Redispatch a keyboard event using the widget's window's CommandDispatcher.
+  // Return true if the event is handled.
+  bool RedispatchKeyEvent(NSEvent* event);
 
   internal::NativeWidgetDelegate* delegate() { return delegate_; }
+  views_bridge_mac::mojom::BridgedNativeWidget* bridge() const;
+  BridgedNativeWidgetImpl* bridge_impl() const;
+  BridgedNativeWidgetHostImpl* bridge_host() const {
+    return bridge_host_.get();
+  }
 
  private:
   friend class test::MockNativeWidgetMac;
   friend class test::HitTestNativeWidgetMac;
+  friend class views::test::WidgetTest;
 
   internal::NativeWidgetDelegate* delegate_;
-  std::unique_ptr<BridgedNativeWidget> bridge_;
+  std::unique_ptr<BridgedNativeWidgetHostImpl> bridge_host_;
 
   Widget::InitParams::Ownership ownership_;
 

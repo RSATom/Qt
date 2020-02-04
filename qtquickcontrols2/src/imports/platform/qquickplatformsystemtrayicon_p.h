@@ -49,9 +49,12 @@
 //
 
 #include <QtCore/qurl.h>
+#include <QtCore/qrect.h>
 #include <QtGui/qpa/qplatformsystemtrayicon.h>
 #include <QtQml/qqmlparserstatus.h>
 #include <QtQml/qqml.h>
+
+#include "qquickplatformicon_p.h"
 
 QT_REQUIRE_CONFIG(systemtrayicon);
 
@@ -71,6 +74,8 @@ class QQuickPlatformSystemTrayIcon : public QObject, public QQmlParserStatus
     Q_PROPERTY(QString iconName READ iconName WRITE setIconName NOTIFY iconNameChanged FINAL)
     Q_PROPERTY(QString tooltip READ tooltip WRITE setTooltip NOTIFY tooltipChanged FINAL)
     Q_PROPERTY(QQuickPlatformMenu *menu READ menu WRITE setMenu NOTIFY menuChanged FINAL)
+    Q_PROPERTY(QRect geometry READ geometry NOTIFY geometryChanged FINAL REVISION 1)
+    Q_PROPERTY(QQuickPlatformIcon icon READ icon WRITE setIcon NOTIFY iconChanged FINAL REVISION 1)
     Q_ENUMS(QPlatformSystemTrayIcon::ActivationReason QPlatformSystemTrayIcon::MessageIcon)
 
 public:
@@ -97,6 +102,11 @@ public:
     QQuickPlatformMenu *menu() const;
     void setMenu(QQuickPlatformMenu *menu);
 
+    QRect geometry() const;
+
+    QQuickPlatformIcon icon() const;
+    void setIcon(const QQuickPlatformIcon &icon);
+
 public Q_SLOTS:
     void show();
     void hide();
@@ -112,6 +122,8 @@ Q_SIGNALS:
     void iconNameChanged();
     void tooltipChanged();
     void menuChanged();
+    Q_REVISION(1) void geometryChanged();
+    Q_REVISION(1) void iconChanged();
 
 protected:
     void init();

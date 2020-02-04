@@ -8,13 +8,15 @@
 #ifndef skiagm_DEFINED
 #define skiagm_DEFINED
 
+#include "../tools/Registry.h"
 #include "SkBitmap.h"
 #include "SkCanvas.h"
+#include "SkClipOpPriv.h"
+#include "SkMacros.h"
+#include "SkMetaData.h"
 #include "SkPaint.h"
 #include "SkSize.h"
 #include "SkString.h"
-#include "../tools/Registry.h"
-#include "SkClipOpPriv.h"
 
 class SkAnimTimer;
 struct GrContextOptions;
@@ -72,16 +74,6 @@ namespace skiagm {
             return SkIntToScalar(this->getISize().height());
         }
 
-        // TODO(vandebo) Instead of exposing this, we should run all the GMs
-        // with and without an initial transform.
-        // Most GMs will return the identity matrix, but some PDFs tests
-        // require setting the initial transform.
-        SkMatrix getInitialTransform() const {
-            SkMatrix matrix = fStarterMatrix;
-            matrix.preConcat(this->onGetInitialTransform());
-            return matrix;
-        }
-
         SkColor getBGColor() const { return fBGColor; }
         void setBGColor(SkColor);
 
@@ -94,15 +86,13 @@ namespace skiagm {
             fCanvasIsDeferred = isDeferred;
         }
 
-        const SkMatrix& getStarterMatrix() { return fStarterMatrix; }
-        void setStarterMatrix(const SkMatrix& matrix) {
-            fStarterMatrix = matrix;
-        }
-
         bool animate(const SkAnimTimer&);
         bool handleKey(SkUnichar uni) {
             return this->onHandleKey(uni);
         }
+
+        bool getControls(SkMetaData* controls) { return this->onGetControls(controls); }
+        void setControls(const SkMetaData& controls) { this->onSetControls(controls); }
 
         virtual void modifyGrContextOptions(GrContextOptions* options) {}
 
@@ -118,7 +108,8 @@ namespace skiagm {
 
         virtual bool onAnimate(const SkAnimTimer&) { return false; }
         virtual bool onHandleKey(SkUnichar uni) { return false; }
-        virtual SkMatrix onGetInitialTransform() const { return SkMatrix::I(); }
+        virtual bool onGetControls(SkMetaData*) { return false; }
+        virtual void onSetControls(const SkMetaData&) {}
 
     private:
         Mode     fMode;
@@ -126,10 +117,10 @@ namespace skiagm {
         SkColor  fBGColor;
         bool     fCanvasIsDeferred; // work-around problem in srcmode.cpp
         bool     fHaveCalledOnceBeforeDraw;
-        SkMatrix fStarterMatrix;
     };
 
-    typedef sk_tools::Registry<GM*(*)(void*)> GMRegistry;
+    typedef GM*(*GMFactory)(void*) ;
+    typedef sk_tools::Registry<GMFactory> GMRegistry;
 
     class SimpleGM : public skiagm::GM {
     public:
@@ -152,5 +143,8 @@ namespace skiagm {
         SkISize fSize;
     };
 }
+
+void MarkGMGood(SkCanvas*, SkScalar x, SkScalar y);
+void MarkGMBad (SkCanvas*, SkScalar x, SkScalar y);
 
 #endif

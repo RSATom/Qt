@@ -16,6 +16,7 @@
 
 #include <sys/types.h>
 
+#include "base/stl_util.h"
 #include "gtest/gtest.h"
 
 #if defined(OS_POSIX)
@@ -40,7 +41,10 @@ TEST(Semaphore, TimedWait) {
 
 TEST(Semaphore, TimedWaitTimeout) {
   Semaphore semaphore(0);
-  EXPECT_FALSE(semaphore.TimedWait(0.01));  // 10ms
+  semaphore.Signal();
+  constexpr double kTenMs = 0.01;
+  EXPECT_TRUE(semaphore.TimedWait(kTenMs));
+  EXPECT_FALSE(semaphore.TimedWait(kTenMs));
 }
 
 TEST(Semaphore, TimedWaitInfinite_0) {
@@ -120,10 +124,9 @@ TEST(Semaphore, TenThreaded) {
   // resources (10), and the threads each try to obtain the resource a different
   // number of times.
   Semaphore semaphore(5);
-  const size_t kThreads = 10;
-  ThreadMainInfo info[kThreads];
+  ThreadMainInfo info[10];
   size_t iterations = 0;
-  for (size_t index = 0; index < kThreads; ++index) {
+  for (size_t index = 0; index < base::size(info); ++index) {
     info[index].semaphore = &semaphore;
     info[index].iterations = index;
     iterations += info[index].iterations;
@@ -135,7 +138,7 @@ TEST(Semaphore, TenThreaded) {
     semaphore.Signal();
   }
 
-  for (size_t index = 0; index < kThreads; ++index) {
+  for (size_t index = 0; index < base::size(info); ++index) {
     JoinThread(&info[index]);
   }
 }

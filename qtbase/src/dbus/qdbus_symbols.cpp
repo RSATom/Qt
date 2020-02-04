@@ -79,10 +79,8 @@ bool qdbus_loadLibDBus()
 #endif
 
     static bool triedToLoadLibrary = false;
-#ifndef QT_NO_THREAD
     static QBasicMutex mutex;
     QMutexLocker locker(&mutex);
-#endif
 
     QLibrary *&lib = qdbus_libdbus;
     if (triedToLoadLibrary)
@@ -126,14 +124,16 @@ bool qdbus_loadLibDBus()
 #endif
 }
 
-#if QT_CONFIG(library)
 void (*qdbus_resolve_conditionally(const char *name))()
 {
+#if QT_CONFIG(library)
     if (qdbus_loadLibDBus())
         return qdbus_libdbus->resolve(name);
+#else
+    Q_UNUSED(name);
+#endif
     return 0;
 }
-#endif
 
 void (*qdbus_resolve_me(const char *name))()
 {

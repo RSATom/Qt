@@ -59,7 +59,6 @@
 QT_BEGIN_NAMESPACE
 
 QGstDefaultVideoRenderer::QGstDefaultVideoRenderer()
-    : m_flushed(true)
 {
 }
 
@@ -116,14 +115,6 @@ Q_GLOBAL_STATIC_WITH_ARGS(QMediaPluginLoader, rendererLoader,
 
 QVideoSurfaceGstDelegate::QVideoSurfaceGstDelegate(QAbstractVideoSurface *surface)
     : m_surface(surface)
-    , m_renderer(0)
-    , m_activeRenderer(0)
-    , m_surfaceCaps(0)
-    , m_startCaps(0)
-    , m_renderBuffer(0)
-    , m_notified(false)
-    , m_stop(false)
-    , m_flush(false)
 {
     const auto instances = rendererLoader()->instances(QGstVideoRendererPluginKey);
     for (QObject *instance : instances) {
@@ -394,19 +385,25 @@ void QVideoSurfaceGstDelegate::updateSupportedFormats()
 }
 
 static GstVideoSinkClass *sink_parent_class;
+static QAbstractVideoSurface *current_surface;
 
 #define VO_SINK(s) QGstVideoRendererSink *sink(reinterpret_cast<QGstVideoRendererSink *>(s))
 
 QGstVideoRendererSink *QGstVideoRendererSink::createSink(QAbstractVideoSurface *surface)
 {
+    setSurface(surface);
     QGstVideoRendererSink *sink = reinterpret_cast<QGstVideoRendererSink *>(
             g_object_new(QGstVideoRendererSink::get_type(), 0));
-
-    sink->delegate = new QVideoSurfaceGstDelegate(surface);
 
     g_signal_connect(G_OBJECT(sink), "notify::show-preroll-frame", G_CALLBACK(handleShowPrerollChange), sink);
 
     return sink;
+}
+
+void QGstVideoRendererSink::setSurface(QAbstractVideoSurface *surface)
+{
+    current_surface = surface;
+    get_type();
 }
 
 GType QGstVideoRendererSink::get_type()
@@ -430,6 +427,10 @@ GType QGstVideoRendererSink::get_type()
 
         type = g_type_register_static(
                 GST_TYPE_VIDEO_SINK, "QGstVideoRendererSink", &info, GTypeFlags(0));
+
+        // Register the sink type to be used in custom piplines.
+        // When surface is ready the sink can be used.
+        gst_element_register(nullptr, "qtvideosink", GST_RANK_PRIMARY, type);
     }
 
     return type;
@@ -453,6 +454,11 @@ void QGstVideoRendererSink::class_init(gpointer g_class, gpointer class_data)
 
     GstElementClass *element_class = reinterpret_cast<GstElementClass *>(g_class);
     element_class->change_state = QGstVideoRendererSink::change_state;
+    gst_element_class_set_metadata(element_class,
+        "Qt built-in video renderer sink",
+        "Sink/Video",
+        "Qt default built-in video renderer sink",
+        "The Qt Company");
 
     GObjectClass *object_class = reinterpret_cast<GObjectClass *>(g_class);
     object_class->finalize = QGstVideoRendererSink::finalize;
@@ -471,13 +477,35 @@ void QGstVideoRendererSink::base_init(gpointer g_class)
             GST_ELEMENT_CLASS(g_class), gst_static_pad_template_get(&sink_pad_template));
 }
 
+struct NullSurface : QAbstractVideoSurface
+{
+    NullSurface(QObject *parent = nullptr) : QAbstractVideoSurface(parent) { }
+
+    QList<QVideoFrame::PixelFormat> supportedPixelFormats(QAbstractVideoBuffer::HandleType) const override
+    {
+        return QList<QVideoFrame::PixelFormat>() << QVideoFrame::Format_RGB32;
+    }
+
+    bool present(const QVideoFrame &) override
+    {
+        return true;
+    }
+};
+
 void QGstVideoRendererSink::instance_init(GTypeInstance *instance, gpointer g_class)
 {
+    Q_UNUSED(g_class);
     VO_SINK(instance);
 
-    Q_UNUSED(g_class);
+    if (!current_surface) {
+        qWarning() << "Using qtvideosink element without video surface";
+        static NullSurface nullSurface;
+        current_surface = &nullSurface;
+    }
 
-    sink->delegate = 0;
+    sink->delegate = new QVideoSurfaceGstDelegate(current_surface);
+    sink->delegate->moveToThread(current_surface->thread());
+    current_surface = nullptr;
 }
 
 void QGstVideoRendererSink::finalize(GObject *object)
@@ -501,7 +529,8 @@ void QGstVideoRendererSink::handleShowPrerollChange(GObject *o, GParamSpec *p, g
 
     if (!showPrerollFrame) {
         GstState state = GST_STATE_VOID_PENDING;
-        gst_element_get_state(GST_ELEMENT(sink), &state, NULL, GST_CLOCK_TIME_NONE);
+        GstClockTime timeout = 10000000; // 10 ms
+        gst_element_get_state(GST_ELEMENT(sink), &state, NULL, timeout);
         // show-preroll-frame being set to 'false' while in GST_STATE_PAUSED means
         // the QMediaPlayer was stopped from the paused state.
         // We need to flush the current frame.

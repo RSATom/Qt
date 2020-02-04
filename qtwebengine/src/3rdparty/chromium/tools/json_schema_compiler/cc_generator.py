@@ -43,7 +43,6 @@ class _Generator(object):
       .Append()
       .Append(self._util_cc_helper.GetIncludePath())
       .Append('#include "base/logging.h"')
-      .Append('#include "base/memory/ptr_util.h"')
       .Append('#include "base/strings/string_number_conversions.h"')
       .Append('#include "base/strings/utf_string_conversions.h"')
       .Append('#include "base/values.h"')
@@ -210,6 +209,7 @@ class _Generator(object):
     """
     props = []
     dicts = []
+    addition = 0
     for prop in type_.properties.values():
       t = prop.type_
 
@@ -246,31 +246,71 @@ class _Generator(object):
       else:
         props.append(move_str % ('additional_properties',
                                  'additional_properties'))
+        addition = True
 
-    return (props, dicts)
+    return (props, dicts, addition)
 
   def _GenerateMoveCtor(self, type_):
-    props, dicts = self._GetMoveProps(type_, '%s(rhs.%s)',
+    props, dicts, addition = self._GetMoveProps(type_, '%s(rhs.%s)',
                                       '%s(std::move(rhs.%s))')
     s = ''
+    s = s + '\n#if !defined(__GNUC__) || __GNUC__ > 5\n'
     if props:
       s = s + ': %s' % (',\n'.join(props))
-    s = s + '{'
+    s = s + '\n{'
     for item in dicts:
       s = s + ('\n%s.Swap(&rhs.%s);' % (item, item))
     s = s + '\n}'
 
+    s = s + '\n#else\n'
+    additional_props = None
+    if props:
+      if addition == True:
+        additional_props = props.pop()
+
+    if props:
+      s = s + ': %s' % (',\n'.join(props))
+    s = s + '\n{'
+    for item in dicts:
+      s = s + ('\n%s.Swap(&rhs.%s);' % (item, item))
+    if additional_props != None:
+      s = s + '\n  for (auto& x : rhs.additional_properties) {'
+      s = s + '\n    additional_properties.emplace(std::move(x.first) ,std::move( x.second));'
+      s = s + '\n  }'
+    s = s + '\n}'
+    s = s + '\n#endif'
+
     return Code().Append(s)
 
   def _GenerateMoveAssignOperator(self, type_):
-    props, dicts = self._GetMoveProps(type_, '%s = rhs.%s;',
+    props, dicts, addition = self._GetMoveProps(type_, '%s = rhs.%s;',
                                       '%s = std::move(rhs.%s);')
-    s = '{\n'
+    s = ''
+    s = s + '\n#if !defined(__GNUC__) || __GNUC__ > 5'
+    s = s + '\n{'
     if props:
       s = s + '\n'.join(props)
+
+    for item in dicts:
+      s = s + ('\n%s.Swap(&rhs.%s);' % (item, item))
+    s = s + '\nreturn *this;\n}'
+
+    s = s + '\n#else'
+    s = s + '\n{'
+    additional_props = None
+    if props:
+      if addition == True:
+        additional_props = props.pop()
+      s = s + '\n'.join(props)
+    if additional_props != None:
+      s = s + '\n  for (auto& x : rhs.additional_properties) {'
+      s = s + '\n    additional_properties.emplace(std::move(x.first), std::move(x.second));'
+      s = s + '\n  }'
+
     for item in dicts:
       s = s + ('%s.Swap(&rhs.%s);' % (item, item))
     s = s + '\nreturn *this;\n}'
+    s = s + '\n#endif'
 
     return Code().Append(s)
 
@@ -308,7 +348,7 @@ class _Generator(object):
               self._util_cc_helper.GetValueTypeString('value'))))
         .Append('return false;'))
     elif type_.property_type == PropertyType.OBJECT:
-      (c.Sblock('if (!value.IsType(base::Value::Type::DICTIONARY)) {')
+      (c.Sblock('if (!value.is_dict()) {')
         .Concat(self._GenerateError(
           '"expected dictionary, got " + ' +
           self._util_cc_helper.GetValueTypeString('value')))
@@ -364,7 +404,7 @@ class _Generator(object):
       return '(%s)' % ' || '.join(self._GenerateValueIsTypeExpression(var,
                                                                       choice)
                                   for choice in real_type.choices)
-    return '%s.IsType(%s)' % (var, cpp_util.GetValueType(real_type))
+    return '%s.type() == %s' % (var, cpp_util.GetValueType(real_type))
 
   def _GenerateTypePopulateProperty(self, prop, src, dst):
     """Generate the code to populate a single property in a type.
@@ -632,15 +672,12 @@ class _Generator(object):
       maybe_namespace = ''
       if type_.property_type == PropertyType.REF:
         maybe_namespace = '%s::' % underlying_type.namespace.unix_name
-      return 'base::MakeUnique<base::Value>(%sToString(%s))' % (
+      return 'std::make_unique<base::Value>(%sToString(%s))' % (
           maybe_namespace, var)
     elif underlying_type.property_type == PropertyType.BINARY:
       if is_ptr:
-        vardot = var + '->'
-      else:
-        vardot = var + '.'
-      return ('base::Value::CreateWithCopiedBuffer('
-              '%sdata(), %ssize())' % (vardot, vardot))
+        var = '*%s' % var
+      return 'std::make_unique<base::Value>(%s)' % var
     elif underlying_type.property_type == PropertyType.ARRAY:
       return '%s' % self._util_cc_helper.CreateValueFromArray(
           var,
@@ -649,9 +686,9 @@ class _Generator(object):
       if is_ptr:
         var = '*%s' % var
       if underlying_type.property_type == PropertyType.STRING:
-        return 'base::MakeUnique<base::Value>(%s)' % var
+        return 'std::make_unique<base::Value>(%s)' % var
       else:
-        return 'base::MakeUnique<base::Value>(%s)' % var
+        return 'std::make_unique<base::Value>(%s)' % var
     else:
       raise NotImplementedError('Conversion of %s to base::Value not '
                                 'implemented' % repr(type_.type_))
@@ -714,7 +751,7 @@ class _Generator(object):
       value_var = param.unix_name + '_value'
       (c.Append('const base::Value* %(value_var)s = NULL;')
         .Append('if (args.Get(%(i)s, &%(value_var)s) &&')
-        .Sblock('    !%(value_var)s->IsType(base::Value::Type::NONE)) {')
+        .Sblock('    !%(value_var)s->is_none()) {')
         .Concat(self._GeneratePopulatePropertyFromValue(
             param, value_var, 'params', failure_value))
         .Eblock('}')
@@ -888,7 +925,7 @@ class _Generator(object):
                                                     dst_var,
                                                     failure_value))
     elif underlying_type.property_type == PropertyType.BINARY:
-      (c.Sblock('if (!%(src_var)s->IsType(base::Value::Type::BINARY)) {')
+      (c.Sblock('if (!%(src_var)s->is_blob()) {')
         .Concat(self._GenerateError(
           '"\'%%(key)s\': expected binary, got " + ' +
           self._util_cc_helper.GetValueTypeString('%%(src_var)s', True)))
@@ -899,8 +936,8 @@ class _Generator(object):
         .Sblock('else {')
       )
       if is_ptr:
-        c.Append(
-            '%(dst_var)s.reset(new std::vector<char>(%(src_var)s->GetBlob()));')
+        c.Append('%(dst_var)s.reset(new std::vector<uint8_t>('
+                 '%(src_var)s->GetBlob()));')
       else:
         c.Append('%(dst_var)s = %(src_var)s->GetBlob();')
       c.Eblock('}')
@@ -1015,7 +1052,7 @@ class _Generator(object):
       c.Append('// static')
     maybe_namespace = '' if cpp_namespace is None else '%s::' % cpp_namespace
 
-    c.Sblock('std::string %sToString(%s enum_param) {' %
+    c.Sblock('const char* %sToString(%s enum_param) {' %
                  (maybe_namespace, classname))
     c.Sblock('switch (enum_param) {')
     for enum_value in self._type_helper.FollowRef(type_).enum_values:

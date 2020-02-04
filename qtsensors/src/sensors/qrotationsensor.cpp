@@ -261,6 +261,6 @@ void QRotationSensor::setHasZ(bool hasZ)
     }
 }
 
-#include "moc_qrotationsensor.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qrotationsensor.cpp"

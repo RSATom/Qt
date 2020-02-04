@@ -62,8 +62,8 @@ QEglFSWindow::QEglFSWindow(QWindow *w)
     : QPlatformWindow(w),
 #ifndef QT_NO_OPENGL
       m_backingStore(0),
+      m_rasterCompositingContext(0),
 #endif
-      m_raster(false),
       m_winId(0),
       m_surface(EGL_NO_SURFACE),
       m_window(0),
@@ -92,11 +92,6 @@ void QEglFSWindow::create()
         return;
 
     m_winId = newWId();
-
-    // Save the original surface type before changing to OpenGLSurface.
-    m_raster = (window()->surfaceType() == QSurface::RasterSurface);
-    if (m_raster) // change to OpenGL, but not for RasterGLSurface
-        window()->setSurfaceType(QSurface::OpenGLSurface);
 
     if (window()->type() == Qt::Desktop) {
         QRect fullscreenRect(QPoint(), screen()->availableGeometry().size());
@@ -144,18 +139,18 @@ void QEglFSWindow::create()
 
 #ifndef QT_NO_OPENGL
     if (isRaster()) {
-        QOpenGLContext *context = new QOpenGLContext(QGuiApplication::instance());
-        context->setShareContext(qt_gl_global_share_context());
-        context->setFormat(m_format);
-        context->setScreen(window()->screen());
-        if (Q_UNLIKELY(!context->create()))
+        m_rasterCompositingContext = new QOpenGLContext;
+        m_rasterCompositingContext->setShareContext(qt_gl_global_share_context());
+        m_rasterCompositingContext->setFormat(m_format);
+        m_rasterCompositingContext->setScreen(window()->screen());
+        if (Q_UNLIKELY(!m_rasterCompositingContext->create()))
             qFatal("EGLFS: Failed to create compositing context");
-        compositor->setTarget(context, window(), screen->rawGeometry());
+        compositor->setTarget(m_rasterCompositingContext, window(), screen->rawGeometry());
         compositor->setRotation(qEnvironmentVariableIntValue("QT_QPA_EGLFS_ROTATION"));
         // If there is a "root" window into which raster and QOpenGLWidget content is
         // composited, all other contexts must share with its context.
         if (!qt_gl_global_share_context()) {
-            qt_gl_set_global_share_context(context);
+            qt_gl_set_global_share_context(m_rasterCompositingContext);
             // What we set up here is in effect equivalent to the application setting
             // AA_ShareOpenGLContexts. Set the attribute to be fully consistent.
             QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
@@ -166,6 +161,13 @@ void QEglFSWindow::create()
 
 void QEglFSWindow::destroy()
 {
+    if (!m_flags.testFlag(Created))
+        return; // already destroyed
+
+#ifndef QT_NO_OPENGL
+    QOpenGLCompositor::instance()->removeWindow(this);
+#endif
+
     QEglFSScreen *screen = this->screen();
     if (m_flags.testFlag(HasNativeWindow)) {
 #ifndef QT_NO_OPENGL
@@ -177,12 +179,14 @@ void QEglFSWindow::destroy()
             screen->setPrimarySurface(EGL_NO_SURFACE);
 
         invalidateSurface();
+
+#ifndef QT_NO_OPENGL
+        QOpenGLCompositor::destroy();
+        delete m_rasterCompositingContext;
+#endif
     }
 
     m_flags = 0;
-#ifndef QT_NO_OPENGL
-    QOpenGLCompositor::instance()->removeWindow(this);
-#endif
 }
 
 void QEglFSWindow::invalidateSurface()
@@ -319,7 +323,8 @@ QEglFSScreen *QEglFSWindow::screen() const
 
 bool QEglFSWindow::isRaster() const
 {
-    return m_raster || window()->surfaceType() == QSurface::RasterGLSurface;
+    const QWindow::SurfaceType type = window()->surfaceType();
+    return type == QSurface::RasterSurface || type == QSurface::RasterGLSurface;
 }
 
 #ifndef QT_NO_OPENGL

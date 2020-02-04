@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_CHROMEOS_LOGIN_ENCRYPTION_MIGRATION_SCREEN_HANDLER_H_
 
 #include <memory>
+#include <string>
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
@@ -14,9 +15,11 @@
 #include "chrome/browser/chromeos/login/screens/encryption_migration_screen_view.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chromeos/cryptohome/cryptohome_parameters.h"
+#include "chromeos/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/power_manager_client.h"
 #include "chromeos/login/auth/user_context.h"
-#include "services/device/public/interfaces/wake_lock.mojom.h"
+#include "services/device/public/mojom/wake_lock.mojom.h"
 #include "third_party/cros_system_api/dbus/cryptohome/dbus-constants.h"
 
 namespace base {
@@ -31,6 +34,7 @@ class LoginFeedback;
 // WebUI implementation of EncryptionMigrationScreenView
 class EncryptionMigrationScreenHandler : public EncryptionMigrationScreenView,
                                          public BaseScreenHandler,
+                                         public CryptohomeClient::Observer,
                                          public PowerManagerClient::Observer {
  public:
   EncryptionMigrationScreenHandler();
@@ -60,7 +64,9 @@ class EncryptionMigrationScreenHandler : public EncryptionMigrationScreenView,
       FreeDiskSpaceFetcher free_disk_space_fetcher);
   // Testing only: Sets the tick clock used to measure elapsed time during
   // migration.
-  void SetTickClockForTesting(std::unique_ptr<base::TickClock> tick_clock);
+  // This doesn't toke the ownership of the clock. |tick_clock| must outlive the
+  // EncryptionMigrationScreenHandler instance.
+  void SetTickClockForTesting(const base::TickClock* tick_clock);
 
   virtual device::mojom::WakeLock* GetWakeLock();
 
@@ -99,23 +105,23 @@ class EncryptionMigrationScreenHandler : public EncryptionMigrationScreenView,
   void OnGetAvailableStorage(int64_t size);
   void WaitBatteryAndMigrate();
   void StartMigration();
-  void OnMountExistingVault(bool success,
-                            cryptohome::MountError return_code,
-                            const std::string& mount_hash);
+  void OnMountExistingVault(base::Optional<cryptohome::BaseReply> reply);
   // Removes cryptohome and shows the error screen after the removal finishes.
   void RemoveCryptohome();
-  void OnRemoveCryptohome(bool success, cryptohome::MountError return_code);
+  void OnRemoveCryptohome(base::Optional<cryptohome::BaseReply> reply);
 
-  // Creates authorization key for MountEx method using |user_context_|.
-  cryptohome::KeyDefinition GetAuthKey();
+  // Creates authorization request for MountEx method using |user_context_|.
+  cryptohome::AuthorizationRequest CreateAuthorizationRequest();
 
   // True if the session is in ARC kiosk mode.
   bool IsArcKiosk() const;
 
+  // CryptohomeClient::Observer implementation:
+  void DircryptoMigrationProgress(cryptohome::DircryptoMigrationStatus status,
+                                  uint64_t current,
+                                  uint64_t total) override;
+
   // Handlers for cryptohome API callbacks.
-  void OnMigrationProgress(cryptohome::DircryptoMigrationStatus status,
-                           uint64_t current,
-                           uint64_t total);
   void OnMigrationRequested(bool success);
 
   // Records UMA about visible screen after delay.
@@ -176,7 +182,7 @@ class EncryptionMigrationScreenHandler : public EncryptionMigrationScreenView,
   std::unique_ptr<LoginFeedback> login_feedback_;
 
   // Used to measure elapsed time during migration.
-  std::unique_ptr<base::TickClock> tick_clock_;
+  const base::TickClock* tick_clock_;
 
   FreeDiskSpaceFetcher free_disk_space_fetcher_;
 

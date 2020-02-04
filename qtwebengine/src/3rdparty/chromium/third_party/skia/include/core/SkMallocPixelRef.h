@@ -9,6 +9,10 @@
 #define SkMallocPixelRef_DEFINED
 
 #include "SkPixelRef.h"
+#include "SkRefCnt.h"
+#include "SkTypes.h"
+class SkData;
+struct SkImageInfo;
 
 /** We explicitly use the same allocator for our pixels that SkMask does,
     so that we can freely assign memory allocated by one class to the other.
@@ -36,11 +40,6 @@ public:
      *  Returns NULL on failure.
      */
     static sk_sp<SkPixelRef> MakeAllocate(const SkImageInfo&, size_t rowBytes);
-
-    /**
-     *  Identical to MakeAllocate, except all pixel bytes are zeroed.
-     */
-    static sk_sp<SkPixelRef> MakeZeroed(const SkImageInfo&, size_t rowBytes);
 
     /**
      *  Return a new SkMallocPixelRef with the provided pixel storage,
@@ -72,11 +71,6 @@ protected:
     ~SkMallocPixelRef() override;
 
 private:
-    // Uses alloc to implement NewAllocate or NewZeroed.
-    static sk_sp<SkPixelRef> MakeUsing(void*(*alloc)(size_t),
-                                       const SkImageInfo&,
-                                       size_t rowBytes);
-
     ReleaseProc fReleaseProc;
     void*       fReleaseProcContext;
 

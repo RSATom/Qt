@@ -76,11 +76,12 @@ enum PropertyLocation { kField = 0, kDescriptor = 1 };
 
 // Order of modes is significant.
 // Must fit in the BitField PropertyDetails::ConstnessField.
-enum PropertyConstness { kMutable = 0, kConst = 1 };
+enum class PropertyConstness { kMutable = 0, kConst = 1 };
 
 // TODO(ishell): remove once constant field tracking is done.
 const PropertyConstness kDefaultFieldConstness =
-    FLAG_track_constant_fields ? kConst : kMutable;
+    FLAG_track_constant_fields ? PropertyConstness::kConst
+                               : PropertyConstness::kMutable;
 
 class Representation {
  public:
@@ -133,8 +134,8 @@ class Representation {
     if (kind_ == kExternal && other.kind_ == kExternal) return false;
     if (kind_ == kNone && other.kind_ == kExternal) return false;
 
-    DCHECK(kind_ != kExternal);
-    DCHECK(other.kind_ != kExternal);
+    DCHECK_NE(kind_, kExternal);
+    DCHECK_NE(other.kind_, kExternal);
     if (IsHeapObject()) return other.IsNone();
     if (kind_ == kUInteger8 && other.kind_ == kInteger8) return false;
     if (kind_ == kUInteger16 && other.kind_ == kInteger16) return false;
@@ -153,16 +154,13 @@ class Representation {
 
   int size() const {
     DCHECK(!IsNone());
-    if (IsInteger8() || IsUInteger8()) {
-      return sizeof(uint8_t);
-    }
-    if (IsInteger16() || IsUInteger16()) {
-      return sizeof(uint16_t);
-    }
-    if (IsInteger32()) {
-      return sizeof(uint32_t);
-    }
-    return kPointerSize;
+    if (IsInteger8() || IsUInteger8()) return kUInt8Size;
+    if (IsInteger16() || IsUInteger16()) return kUInt16Size;
+    if (IsInteger32()) return kInt32Size;
+    if (IsDouble()) return kDoubleSize;
+    if (IsExternal()) return kSystemPointerSize;
+    DCHECK(IsTagged() || IsSmi() || IsHeapObject());
+    return kTaggedSize;
   }
 
   Kind kind() const { return static_cast<Kind>(kind_); }
@@ -197,10 +195,11 @@ class Representation {
 
 
 static const int kDescriptorIndexBitCount = 10;
-// The maximum number of descriptors we want in a descriptor array (should
-// fit in a page).
-static const int kMaxNumberOfDescriptors =
-    (1 << kDescriptorIndexBitCount) - 2;
+static const int kFirstInobjectPropertyOffsetBitCount = 7;
+// The maximum number of descriptors we want in a descriptor array.  It should
+// fit in a page and also the following should hold:
+// kMaxNumberOfDescriptors + kFieldsAdded <= PropertyArray::kMaxLength.
+static const int kMaxNumberOfDescriptors = (1 << kDescriptorIndexBitCount) - 4;
 static const int kInvalidEnumCacheSentinel =
     (1 << kDescriptorIndexBitCount) - 1;
 
@@ -228,7 +227,7 @@ enum class PropertyCellConstantType {
 
 // PropertyDetails captures type and attributes for a property.
 // They are used both in property dictionaries and instance descriptors.
-class PropertyDetails BASE_EMBEDDED {
+class PropertyDetails {
  public:
   // Property details for dictionary mode properties/elements.
   PropertyDetails(PropertyKind kind, PropertyAttributes attributes,
@@ -285,9 +284,9 @@ class PropertyDetails BASE_EMBEDDED {
     return PropertyDetails(value_, new_attributes);
   }
 
-  // Conversion for storing details as Object*.
-  explicit inline PropertyDetails(Smi* smi);
-  inline Smi* AsSmi() const;
+  // Conversion for storing details as Object.
+  explicit inline PropertyDetails(Smi smi);
+  inline Smi AsSmi() const;
 
   static uint8_t EncodeRepresentation(Representation representation) {
     return representation.kind();
@@ -303,6 +302,11 @@ class PropertyDetails BASE_EMBEDDED {
 
   PropertyAttributes attributes() const {
     return AttributesField::decode(value_);
+  }
+
+  bool HasKindAndAttributes(PropertyKind kind, PropertyAttributes attributes) {
+    return (value_ & (KindField::kMask | AttributesField::kMask)) ==
+           (KindField::encode(kind) | AttributesField::encode(attributes));
   }
 
   int dictionary_index() const {
@@ -342,6 +346,8 @@ class PropertyDetails BASE_EMBEDDED {
       (READ_ONLY << AttributesField::kShift);
   static const int kAttributesDontDeleteMask =
       (DONT_DELETE << AttributesField::kShift);
+  static const int kAttributesDontEnumMask =
+      (DONT_ENUM << AttributesField::kShift);
 
   // Bit fields for normalized objects.
   class PropertyCellTypeField
@@ -407,15 +413,15 @@ inline bool IsGeneralizableTo(PropertyLocation a, PropertyLocation b) {
   return b == kField || a == kDescriptor;
 }
 
-// kMutable constness is more general than kConst, kConst generalizes only to
-// itself.
+// PropertyConstness::kMutable constness is more general than
+// VariableMode::kConst, VariableMode::kConst generalizes only to itself.
 inline bool IsGeneralizableTo(PropertyConstness a, PropertyConstness b) {
-  return b == kMutable || a == kConst;
+  return b == PropertyConstness::kMutable || a == PropertyConstness::kConst;
 }
 
 inline PropertyConstness GeneralizeConstness(PropertyConstness a,
                                              PropertyConstness b) {
-  return a == kMutable ? kMutable : b;
+  return a == PropertyConstness::kMutable ? PropertyConstness::kMutable : b;
 }
 
 std::ostream& operator<<(std::ostream& os,

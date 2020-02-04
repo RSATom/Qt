@@ -9,10 +9,13 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/optional.h"
 #include "base/strings/string_number_conversions.h"
 #include "media/base/audio_timestamp_helper.h"
 #include "media/base/bit_reader.h"
 #include "media/base/channel_layout.h"
+#include "media/base/encryption_pattern.h"
+#include "media/base/encryption_scheme.h"
 #include "media/base/media_util.h"
 #include "media/base/stream_parser_buffer.h"
 #include "media/base/timestamp_constants.h"
@@ -136,7 +139,7 @@ EsParserAdts::EsParserAdts(const NewAudioConfigCB& new_audio_config_cb,
       get_decrypt_config_cb_(get_decrypt_config_cb),
       use_hls_sample_aes_(use_hls_sample_aes),
       sbr_in_mimetype_(sbr_in_mimetype) {
-  DCHECK_EQ(!get_decrypt_config_cb_.is_null(), use_hls_sample_aes_);
+  DCHECK_EQ(!!get_decrypt_config_cb_, use_hls_sample_aes_);
 }
 #endif
 
@@ -210,13 +213,15 @@ bool EsParserAdts::ParseFromEsQueue() {
 #if BUILDFLAG(ENABLE_HLS_SAMPLE_AES)
     if (use_hls_sample_aes_) {
       const DecryptConfig* base_decrypt_config = get_decrypt_config_cb_.Run();
-      RCHECK(base_decrypt_config);
-      std::vector<SubsampleEntry> subsamples;
-      CalculateSubsamplesForAdtsFrame(adts_frame, &subsamples);
-      std::unique_ptr<DecryptConfig> decrypt_config(
-          new DecryptConfig(base_decrypt_config->key_id(),
-                            base_decrypt_config->iv(), subsamples));
-      stream_parser_buffer->set_decrypt_config(std::move(decrypt_config));
+      if (base_decrypt_config) {
+        std::vector<SubsampleEntry> subsamples;
+        CalculateSubsamplesForAdtsFrame(adts_frame, &subsamples);
+        stream_parser_buffer->set_decrypt_config(
+            std::make_unique<DecryptConfig>(
+                base_decrypt_config->encryption_mode(),
+                base_decrypt_config->key_id(), base_decrypt_config->iv(),
+                subsamples, base_decrypt_config->encryption_pattern()));
+      }
     }
 #endif
     emit_buffer_cb_.Run(stream_parser_buffer);
@@ -260,12 +265,18 @@ bool EsParserAdts::UpdateAudioConfiguration(const uint8_t* adts_header,
 #if BUILDFLAG(ENABLE_HLS_SAMPLE_AES)
   if (use_hls_sample_aes_) {
     scheme = EncryptionScheme(EncryptionScheme::CIPHER_MODE_AES_CBC,
-                              EncryptionScheme::Pattern());
+                              EncryptionPattern());
   }
 #endif
   AudioDecoderConfig audio_decoder_config(
       kCodecAAC, kSampleFormatS16, channel_layout, extended_samples_per_second,
       extra_data, scheme);
+
+  if (!audio_decoder_config.IsValidConfig()) {
+    DVLOG(1) << "Invalid config: "
+             << audio_decoder_config.AsHumanReadableString();
+    return false;
+  }
 
   if (!audio_decoder_config.Matches(last_audio_decoder_config_)) {
     DVLOG(1) << "Sampling frequency: "

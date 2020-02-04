@@ -12,6 +12,20 @@ Polymer({
 
   properties: {
     /**
+     * Set of possible options for playing fullscreen videos when mirroring.
+     * @private {!Object}
+     */
+    FullscreenVideoOption_: {
+      type: Object,
+      value: {
+        // Play on remote screen only.
+        REMOTE_SCREEN: 'remote_screen',
+        // Play on both remote and local screens.
+        BOTH_SCREENS: 'both_screens'
+      }
+    },
+
+    /**
      * The current time displayed in seconds, before formatting.
      * @private {number}
      */
@@ -21,22 +35,22 @@ Polymer({
     },
 
     /**
-     * The media description to display. Uses route description if none is
-     * provided by the route status object.
-     * @private {string}
-     */
-    displayedDescription_: {
-      type: String,
-      value: '',
-    },
-
-    /**
      * The volume shown in the volume control, between 0 and 1.
      * @private {number}
      */
     displayedVolume_: {
       type: Number,
       value: 0,
+    },
+
+    /**
+     * True if the Hangouts route is currently using local present mode.
+     * Valid for Hangouts routes only.
+     * @private {boolean}
+     */
+    hangoutsLocalPresent_: {
+      type: Boolean,
+      value: false,
     },
 
     /**
@@ -61,7 +75,7 @@ Polymer({
     /**
      * Set to true when the user is dragging the volume bar. Volume updates from
      * the browser will be ignored when set to true.
-     * @private {boolean}
+     * @private
      */
     isVolumeChanging_: {
       type: Boolean,
@@ -69,13 +83,59 @@ Polymer({
     },
 
     /**
-     * The timestamp for when the controller last submitted a volume change
-     * request for the volume slider being dragged.
-     * @private {boolean}
+     * The timestamp for when the controller last submitted a seek request.
+     * @private
      */
-    lastVolumeChangeByDragging_: {
+    lastSeekByUser_: {
       type: Number,
       value: 0,
+    },
+
+    /**
+     * The timestamp for when |routeStatus| was last updated.
+     * @private
+     */
+    lastStatusUpdate_: {
+      type: Number,
+      value: 0,
+    },
+
+    /**
+     * The timestamp for when the controller last submitted a volume change
+     * request.
+     * @private
+     */
+    lastVolumeChangeByUser_: {
+      type: Number,
+      value: 0,
+    },
+
+    /**
+     * Keep in sync with media remoting individual user setting.
+     * @private
+     */
+    mediaRemotingEnabled_: {
+      type: Boolean,
+      value: true,
+    },
+
+    /**
+     * The route currently associated with this controller.
+     * @type {?media_router.Route|undefined}
+     */
+    route: {
+      type: Object,
+      observer: 'onRouteUpdated_',
+    },
+
+    /**
+     * The route description to display. Uses the media route description if
+     * none is provided by the media route status object.
+     * @private {string}
+     */
+    routeDescription_: {
+      type: String,
+      value: '',
     },
 
     /**
@@ -106,6 +166,15 @@ Polymer({
       type: Number,
       value: 0,
     },
+
+    /**
+     * Whether the controls should show the media title.
+     * @private {boolean}
+     */
+    shouldShowRouteStatusTitle_: {
+      type: Boolean,
+      value: false,
+    },
   },
 
   behaviors: [
@@ -128,9 +197,34 @@ Polymer({
    * @private
    */
   canIncrementCurrentTime_: function() {
-    return this.routeStatus.playState === media_router.PlayState.PLAYING &&
+    return !this.isSeeking_ &&
+        this.routeStatus.playState === media_router.PlayState.PLAYING &&
         (this.routeStatus.duration === 0 ||
-         this.routeStatus.currentTime < this.routeStatus.duration);
+         this.displayedCurrentTime_ < this.routeStatus.duration);
+  },
+
+  /**
+   * Creates an accessibility label for the element showing the media's current
+   * time.
+   * @param {number} displayedCurrentTime
+   * @return {string}
+   * @private
+   */
+  getCurrentTimeLabel_: function(displayedCurrentTime) {
+    return `${
+              this.i18n('currentTimeLabel')
+            } ${this.getFormattedTime_(displayedCurrentTime)}`;
+  },
+
+  /**
+   * Creates an accessibility label for the element showing the media's
+   * duration.
+   * @param {number} duration
+   * @return {string}
+   * @private
+   */
+  getDurationLabel_: function(duration) {
+    return `${this.i18n('durationLabel')} ${this.getFormattedTime_(duration)}`;
   },
 
   /**
@@ -148,8 +242,9 @@ Polymer({
     var hours = Math.floor(timeInSec / 3600);
     var minutes = Math.floor(timeInSec / 60) % 60;
     var seconds = Math.floor(timeInSec) % 60;
-    return ('0' + hours).substr(-2) + ':' + ('0' + minutes).substr(-2) + ':' +
-        ('0' + seconds).substr(-2);
+    // Show the hours only if it is nonzero.
+    return (hours ? ('0' + hours).substr(-2) + ':' : '') +
+        ('0' + minutes).substr(-2) + ':' + ('0' + seconds).substr(-2);
   },
 
   /**
@@ -159,7 +254,8 @@ Polymer({
    * @private
    */
   getMuteUnmuteIcon_: function(routeStatus) {
-    return routeStatus.isMuted ? 'av:volume-off' : 'av:volume-up';
+    return routeStatus.isMuted ? 'route-controls:volume-off' :
+                                 'route-controls:volume-up';
   },
 
   /**
@@ -179,8 +275,8 @@ Polymer({
    */
   getPlayPauseIcon_: function(routeStatus) {
     return routeStatus.playState === media_router.PlayState.PAUSED ?
-        'av:play-arrow' :
-        'av:pause';
+        'route-controls:play-arrow' :
+        'route-controls:pause';
   },
 
   /**
@@ -195,6 +291,28 @@ Polymer({
   },
 
   /**
+   * @return {string} Text representing the current position on the seek slider.
+   * @private
+   */
+  getTimeSliderValueText_: function(displayedCurrentTime) {
+    if (!this.routeStatus) {
+      return '';
+    }
+    return `${
+              this.getFormattedTime_(displayedCurrentTime)
+            } / ${this.getFormattedTime_(this.routeStatus.duration)}`;
+  },
+
+  /**
+   * @param {number} volume
+   * @return {string} The volume as a percentage.
+   * @private
+   */
+  getVolumeSliderValueText_: function(volume) {
+    return String(Math.round(volume * 100)) + '%';
+  },
+
+  /**
    * Checks whether the media is still playing, and if so, sends a media status
    * update incrementing the current time and schedules another call for a
    * second later.
@@ -202,16 +320,28 @@ Polymer({
    */
   maybeIncrementCurrentTime_: function() {
     if (this.canIncrementCurrentTime_()) {
-      this.routeStatus.currentTime++;
-      this.displayedCurrentTime_ = this.routeStatus.currentTime;
+      var updatedCurrentTime = this.routeStatus.currentTime +
+          Math.floor((Date.now() - this.lastStatusUpdate_) / 1000);
+      this.displayedCurrentTime_ = this.routeStatus.duration === 0 ?
+          updatedCurrentTime :
+          Math.min(updatedCurrentTime, this.routeStatus.duration);
       if (this.routeStatus.duration === 0 ||
-          this.routeStatus.currentTime < this.routeStatus.duration) {
+          this.displayedCurrentTime_ < this.routeStatus.duration) {
         this.timeIncrementsTimeoutId_ =
             setTimeout(() => this.maybeIncrementCurrentTime_(), 1000);
       }
     } else {
       this.timeIncrementsTimeoutId_ = 0;
     }
+  },
+
+  /**
+   * Called when the "smooth motion" box for Hangouts is changed by the user.
+   * @param {!{target: !HTMLElement}} e
+   * @private
+   */
+  onHangoutsLocalPresentChange_: function(e) {
+    media_router.browserApi.setHangoutsLocalPresent(e.target.checked);
   },
 
   /**
@@ -243,104 +373,131 @@ Polymer({
    * @private
    */
   onRouteStatusChange_: function(newRouteStatus) {
-    if (!this.isSeeking_) {
+    this.lastStatusUpdate_ = Date.now();
+    if (this.shouldAcceptCurrentTimeUpdates_()) {
       this.displayedCurrentTime_ = newRouteStatus.currentTime;
     }
-    if (!this.isVolumeChanging_) {
-      this.displayedVolume_ = newRouteStatus.volume;
-    }
-    if (newRouteStatus.description !== '') {
-      this.displayedDescription_ = newRouteStatus.description;
+    if (this.shouldAcceptVolumeUpdates_()) {
+      const volume = Math.round(newRouteStatus.volume * 100);
+      this.$['route-volume-slider'].value = volume;
+      this.displayedVolume_ = volume / 100;
     }
     if (!this.initialLoadTime_) {
       this.initialLoadTime_ = Date.now();
       media_router.browserApi.reportWebUIRouteControllerLoaded(
           this.initialLoadTime_ - this.routeDetailsOpenTime);
     }
+    this.stopIncrementingCurrentTime_();
     if (this.canIncrementCurrentTime_()) {
-      if (!this.timeIncrementsTimeoutId_) {
-        this.timeIncrementsTimeoutId_ =
-            setTimeout(() => this.maybeIncrementCurrentTime_(), 1000);
-      }
-    } else {
-      this.stopIncrementingCurrentTime_();
+      this.timeIncrementsTimeoutId_ =
+          setTimeout(() => this.maybeIncrementCurrentTime_(), 1000);
     }
+    this.hangoutsLocalPresent_ = !!newRouteStatus.hangoutsExtraData &&
+        newRouteStatus.hangoutsExtraData.localPresent;
+    if (newRouteStatus.mirroringExtraData) {
+      // Manually update the selected value on the
+      // mirroring-fullscreen-video-dropdown dropbox.
+      // TODO(imcheng): Avoid doing this by wrapping the dropbox in a Polymer
+      // template, or introduce <paper-dropdown-menu> to the Polymer library.
+      this.$['mirroring-fullscreen-video-dropdown'].value =
+          newRouteStatus.mirroringExtraData.mediaRemotingEnabled ?
+          this.FullscreenVideoOption_.REMOTE_SCREEN :
+          this.FullscreenVideoOption_.BOTH_SCREENS;
+    }
+    this.shouldShowRouteStatusTitle_ = !!newRouteStatus.title &&
+        newRouteStatus.title != '' &&
+        newRouteStatus.title != this.routeDescription_;
   },
 
   /**
    * Called when the route is updated. Updates the description shown if it has
    * not been provided by status updates.
    * @param {?media_router.Route} route
+   * @private
    */
-  onRouteUpdated: function(route) {
+  onRouteUpdated_: function(route) {
     if (!route) {
       this.stopIncrementingCurrentTime_();
     }
-    if (route && this.routeStatus.description === '') {
-      this.displayedDescription_ =
-          loadTimeData.getStringF('castingActivityStatus', route.description);
+    if (route) {
+      this.routeDescription_ = route.description;
     }
   },
 
-  /**
-   * Called when the user clicks on or stops dragging the seek bar.
-   * @param {!Event} e
-   * @private
-   */
-  onSeekComplete_: function(e) {
+  /** @private */
+  updateTime_: function() {
     this.stopIncrementingCurrentTime_();
-    this.isSeeking_ = false;
-    this.displayedCurrentTime_ = e.target.value;
-    media_router.browserApi.seekCurrentMedia(this.displayedCurrentTime_);
-  },
-
-  /**
-   * Called while the user is dragging the seek bar.
-   * @param {!Event} e
-   * @private
-   */
-  onSeekByDragging_: function(e) {
-    this.isSeeking_ = true;
-    var target = /** @type {{immediateValue: number}} */ (e.target);
-    this.displayedCurrentTime_ = target.immediateValue;
-  },
-
-  /**
-   * Called when the user clicks on or stops dragging the volume bar.
-   * @param {!Event} e
-   * @private
-   */
-  onVolumeChangeComplete_: function(e) {
-    this.volumeSliderValue_ = e.target.value;
-    media_router.browserApi.setCurrentMediaVolume(this.volumeSliderValue_);
-    if (this.isVolumeChanging_) {
-      // Wait for 1 second before applying external volume updates, to prevent
-      // notifications originating from this controller moving the slider knob
-      // around.
-      var that = this;
-      setTimeout(function() {
-        that.isVolumeChanging_ = false;
-      }, 1000);
+    this.displayedCurrentTime_ = this.$['route-time-slider'].value;
+    if (!this.isSeeking_) {
+      media_router.browserApi.seekCurrentMedia(this.displayedCurrentTime_);
+      this.lastSeekByUser_ = Date.now();
     }
   },
 
   /**
-   * Called while the user is dragging the volume bar.
-   * @param {!Event} e
+   * @param {!{detail: {value: boolean}}} e
    * @private
    */
-  onVolumeChangeByDragging_: function(e) {
+  onSeekingChanged_: function(e) {
+    this.isSeeking_ = e.detail.value;
+    this.updateTime_();
+  },
+
+  /** @private */
+  onSeekSliderValueChanged_: function() {
+    this.updateTime_();
+  },
+
+  /** @private */
+  updateVolume_: function() {
+    this.lastVolumeChangeByUser_ = Date.now();
+    const volume = this.$['route-volume-slider'].value / 100;
+    if (volume == this.displayedVolume_) {
+      return;
+    }
+    this.displayedVolume_ = volume;
+    media_router.browserApi.setCurrentMediaVolume(volume);
+  },
+
+  /**
+   * Called when the user updates volume with the slider.
+   * @private
+   */
+  onVolumeChanged_: function() {
     /** @const */ var currentTime = Date.now();
     // We limit the frequency of volume change requests during dragging to
     // limit the number of Mojo calls to the component extension.
-    if (currentTime - this.lastVolumeChangeByDragging_ < 300) {
+    if (currentTime - this.lastVolumeChangeByUser_ < 300) {
       return;
     }
-    this.lastVolumeChangeByDragging_ = currentTime;
-    this.isVolumeChanging_ = true;
-    var target = /** @type {{immediateValue: number}} */ (e.target);
-    this.volumeSliderValue_ = target.immediateValue;
-    media_router.browserApi.setCurrentMediaVolume(this.volumeSliderValue_);
+    this.updateVolume_();
+  },
+
+  /**
+   * @param {!{detail: {value: boolean}}} e
+   * @private
+   */
+  onVolumeDraggingChanged_: function(e) {
+    if (!!this.isVolumeChanging_ == !!e.detail.value) {
+      return;
+    }
+    this.isVolumeChanging_ = e.detail.value;
+    if (!this.isVolumeChanging_) {
+      this.updateVolume_();
+    }
+  },
+
+  /**
+   * Called when the value on the mirroring-fullscreen-video-dropdown dropdown
+   * menu changes.
+   * @param {!Event} e
+   * @private
+   */
+  onFullscreenVideoDropdownChange_: function(e) {
+    /** @const */ var dropdownValue =
+        this.$['mirroring-fullscreen-video-dropdown'].value;
+    media_router.browserApi.setMediaRemotingEnabled(
+        dropdownValue == this.FullscreenVideoOption_.REMOTE_SCREEN);
   },
 
   /**
@@ -349,6 +506,31 @@ Polymer({
   reset: function() {
     this.routeStatus = new media_router.RouteStatus();
     media_router.ui.setRouteControls(null);
+  },
+
+  /**
+   * @return {boolean} Whether external current time updates should be reflected
+   *     on the seek slider.
+   * @private
+   */
+  shouldAcceptCurrentTimeUpdates_: function() {
+    // Ignore external updates immediately after internal updates, because it's
+    // likely to just be internal updates coming back from the device, and could
+    // make the slider knob jump around.
+    return !this.isSeeking_ && Date.now() - this.lastSeekByUser_ > 1000;
+  },
+
+  /**
+   * @return {boolean} Whether external volume updates should be reflected on
+   *     the volume slider.
+   * @private
+   */
+  shouldAcceptVolumeUpdates_: function() {
+    // Ignore external updates immediately after internal updates, because it's
+    // likely to just be internal updates coming back from the device, and could
+    // make the slider knob jump around.
+    return !this.isVolumeChanging_ &&
+        Date.now() - this.lastVolumeChangeByUser_ > 1000;
   },
 
   /**

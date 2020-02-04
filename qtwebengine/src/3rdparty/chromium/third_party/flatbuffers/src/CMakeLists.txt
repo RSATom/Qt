@@ -15,6 +15,7 @@ option(FLATBUFFERS_BUILD_GRPCTEST "Enable the build of grpctest" OFF)
 option(FLATBUFFERS_BUILD_SHAREDLIB
        "Enable the build of the flatbuffers shared library"
        OFF)
+option(FLATBUFFERS_LIBCXX_WITH_CLANG "Force libc++ when using Clang" ON)
 
 if(NOT FLATBUFFERS_BUILD_FLATC AND FLATBUFFERS_BUILD_TESTS)
     message(WARNING
@@ -24,13 +25,17 @@ endif()
 
 set(FlatBuffers_Library_SRCS
   include/flatbuffers/code_generators.h
+  include/flatbuffers/base.h
   include/flatbuffers/flatbuffers.h
   include/flatbuffers/hash.h
   include/flatbuffers/idl.h
   include/flatbuffers/util.h
   include/flatbuffers/reflection.h
   include/flatbuffers/reflection_generated.h
+  include/flatbuffers/stl_emulation.h
   include/flatbuffers/flexbuffers.h
+  include/flatbuffers/registry.h
+  include/flatbuffers/minireflect.h
   src/code_generators.cpp
   src/idl_parser.cpp
   src/idl_gen_text.cpp
@@ -41,13 +46,17 @@ set(FlatBuffers_Library_SRCS
 set(FlatBuffers_Compiler_SRCS
   ${FlatBuffers_Library_SRCS}
   src/idl_gen_cpp.cpp
+  src/idl_gen_dart.cpp
   src/idl_gen_general.cpp
   src/idl_gen_go.cpp
   src/idl_gen_js.cpp
   src/idl_gen_php.cpp
   src/idl_gen_python.cpp
+  src/idl_gen_lobster.cpp
+  src/idl_gen_lua.cpp
   src/idl_gen_fbs.cpp
   src/idl_gen_grpc.cpp
+  src/idl_gen_json_schema.cpp
   src/flatc.cpp
   src/flatc_main.cpp
   grpc/src/compiler/schema_interface.h
@@ -55,6 +64,8 @@ set(FlatBuffers_Compiler_SRCS
   grpc/src/compiler/cpp_generator.cc
   grpc/src/compiler/go_generator.h
   grpc/src/compiler/go_generator.cc
+  grpc/src/compiler/java_generator.h
+  grpc/src/compiler/java_generator.cc
 )
 
 set(FlatHash_SRCS
@@ -113,10 +124,13 @@ elseif(CMAKE_COMPILER_IS_GNUCXX)
   endif(CYGWIN)
   set(CMAKE_CXX_FLAGS
     "${CMAKE_CXX_FLAGS} -Wall -pedantic -Werror -Wextra -Werror=shadow")
-  if (GCC_VERSION VERSION_GREATER 4.4)
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 4.4)
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
+      set(CMAKE_CXX_FLAGS
+        "${CMAKE_CXX_FLAGS} -faligned-new")
+    endif()
     set(CMAKE_CXX_FLAGS
-      "${CMAKE_CXX_FLAGS} -Wunused-result -Werror=unused-result \
-                          -Wunused-parameter -Werror=unused-parameter")
+      "${CMAKE_CXX_FLAGS} -Wunused-result -Werror=unused-result -Wunused-parameter -Werror=unused-parameter")
   endif()
 
   # Certain platforms such as ARM do not use signed chars by default
@@ -126,16 +140,17 @@ elseif(CMAKE_COMPILER_IS_GNUCXX)
 
 elseif(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
   set(CMAKE_CXX_FLAGS
-      "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -Werror \
-                          -Wextra -Wno-unused-parameter")
-  if(NOT "${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
-    set(CMAKE_CXX_FLAGS
-        "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-  endif()
-  if(NOT ("${CMAKE_SYSTEM_NAME}" MATCHES "FreeBSD" OR
-          "${CMAKE_SYSTEM_NAME}" MATCHES "Linux"))
-    set(CMAKE_EXE_LINKER_FLAGS
-        "${CMAKE_EXE_LINKER_FLAGS} -lc++abi")
+      "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -Werror -Wextra -Wno-unused-parameter")
+  if(FLATBUFFERS_LIBCXX_WITH_CLANG)
+    if(NOT "${CMAKE_SYSTEM_NAME}" MATCHES "Linux")
+      set(CMAKE_CXX_FLAGS
+          "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+    endif()
+    if(NOT ("${CMAKE_SYSTEM_NAME}" MATCHES "FreeBSD" OR
+            "${CMAKE_SYSTEM_NAME}" MATCHES "Linux"))
+      set(CMAKE_EXE_LINKER_FLAGS
+          "${CMAKE_EXE_LINKER_FLAGS} -lc++abi")
+    endif()
   endif()
 
   # Certain platforms such as ARM do not use signed chars by default
@@ -165,7 +180,10 @@ include_directories(include)
 include_directories(grpc)
 
 if(FLATBUFFERS_BUILD_FLATLIB)
-add_library(flatbuffers STATIC ${FlatBuffers_Library_SRCS})
+  add_library(flatbuffers STATIC ${FlatBuffers_Library_SRCS})
+  # CMake > 2.8.11: Attach header directory for when build via add_subdirectory().
+  target_include_directories(flatbuffers INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 endif()
 
 if(FLATBUFFERS_BUILD_FLATC)
@@ -185,7 +203,16 @@ endif()
 
 if(FLATBUFFERS_BUILD_SHAREDLIB)
   add_library(flatbuffers_shared SHARED ${FlatBuffers_Library_SRCS})
-  set_target_properties(flatbuffers_shared PROPERTIES OUTPUT_NAME flatbuffers)
+
+  # Shared object version: "major.minor.micro"
+  # - micro updated every release when there is no API/ABI changes
+  # - minor updated when there are additions in API/ABI
+  # - major (ABI number) updated when there are changes in ABI (or removals)
+  set(FlatBuffers_Library_SONAME_MAJOR "1")
+  set(FlatBuffers_Library_SONAME_FULL "${FlatBuffers_Library_SONAME_MAJOR}.9.0")
+  set_target_properties(flatbuffers_shared PROPERTIES OUTPUT_NAME flatbuffers
+                        SOVERSION "${FlatBuffers_Library_SONAME_MAJOR}"
+                        VERSION "${FlatBuffers_Library_SONAME_FULL}")
 endif()
 
 function(compile_flatbuffers_schema_to_cpp SRC_FBS)
@@ -195,6 +222,8 @@ function(compile_flatbuffers_schema_to_cpp SRC_FBS)
     OUTPUT ${GEN_HEADER}
     COMMAND "${FLATBUFFERS_FLATC_EXECUTABLE}" -c --no-includes --gen-mutable
             --gen-object-api -o "${SRC_FBS_DIR}"
+            --cpp-ptr-type flatbuffers::unique_ptr # Used to test with C++98 STLs
+            --reflect-names
             -I "${CMAKE_CURRENT_SOURCE_DIR}/tests/include_test"
             "${CMAKE_CURRENT_SOURCE_DIR}/${SRC_FBS}"
     DEPENDS flatc)
@@ -226,22 +255,88 @@ endif()
 
 if(FLATBUFFERS_BUILD_GRPCTEST)
   if(CMAKE_COMPILER_IS_GNUCXX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-shadow")
   endif()
   add_executable(grpctest ${FlatBuffers_GRPCTest_SRCS})
-  target_link_libraries(grpctest grpc++_unsecure pthread dl)
+  target_link_libraries(grpctest grpc++_unsecure grpc_unsecure gpr pthread dl)
 endif()
 
+include(CMake/Version.cmake)
+
 if(FLATBUFFERS_INSTALL)
-  install(DIRECTORY include/flatbuffers DESTINATION include)
+  include(GNUInstallDirs)
+
+  install(DIRECTORY include/flatbuffers DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+  set(FB_CMAKE_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/flatbuffers")
+
+  configure_file(CMake/FlatbuffersConfigVersion.cmake.in FlatbuffersConfigVersion.cmake @ONLY)
+  install(
+      FILES "CMake/FlatbuffersConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/FlatbuffersConfigVersion.cmake"
+      DESTINATION ${FB_CMAKE_DIR}
+  )
+
   if(FLATBUFFERS_BUILD_FLATLIB)
-    install(TARGETS flatbuffers DESTINATION lib)
+    if(CMAKE_VERSION VERSION_LESS 3.0)
+      install(
+        TARGETS flatbuffers EXPORT FlatbuffersTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      )
+    else()
+      install(
+        TARGETS flatbuffers EXPORT FlatbuffersTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+      )
+    endif()
+
+    install(EXPORT FlatbuffersTargets
+      FILE FlatbuffersTargets.cmake
+      NAMESPACE flatbuffers::
+      DESTINATION ${FB_CMAKE_DIR}
+    )
   endif()
+
   if(FLATBUFFERS_BUILD_FLATC)
-    install(TARGETS flatc DESTINATION bin)
+    install(
+      TARGETS flatc EXPORT FlatcTargets
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+      CONFIGURATIONS Release
+    )
+
+    install(
+      EXPORT FlatcTargets
+      FILE FlatcTargets.cmake
+      NAMESPACE flatbuffers::
+      DESTINATION ${FB_CMAKE_DIR}
+      CONFIGURATIONS Release
+    )
   endif()
+
   if(FLATBUFFERS_BUILD_SHAREDLIB)
-    install(TARGETS flatbuffers_shared DESTINATION lib)
+    if(CMAKE_VERSION VERSION_LESS 3.0)
+      install(
+        TARGETS flatbuffers_shared EXPORT FlatbuffersSharedTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      )
+    else()
+      install(
+        TARGETS flatbuffers_shared EXPORT FlatbuffersSharedTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+      )
+    endif()
+
+  install(
+      EXPORT FlatbuffersSharedTargets
+      FILE FlatbuffersSharedTargets.cmake
+      NAMESPACE flatbuffers::
+      DESTINATION ${FB_CMAKE_DIR}
+    )
   endif()
 endif()
 

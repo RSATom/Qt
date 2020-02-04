@@ -16,7 +16,9 @@
  *  its original position.
  */
 namespace SkBlurDrawLooper {
-    sk_sp<SkDrawLooper> Make(SkColor color, SkScalar sigma, SkScalar dx, SkScalar dy);
+    sk_sp<SkDrawLooper> SK_API Make(SkColor4f color, SkColorSpace* cs,
+            SkScalar sigma, SkScalar dx, SkScalar dy);
+    sk_sp<SkDrawLooper> SK_API Make(SkColor color, SkScalar sigma, SkScalar dx, SkScalar dy);
 };
 
 #endif

@@ -4,10 +4,10 @@
 
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
+#include <tuple>
 #include <utility>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
@@ -17,7 +17,6 @@
 #include "base/synchronization/lock.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "crypto/nss_util.h"
 #include "net/base/test_completion_callback.h"
 #include "net/http/http_response_headers.h"
 #include "net/log/net_log_source.h"
@@ -29,6 +28,7 @@
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/embedded_test_server/request_handler_util.h"
 #include "net/test/gtest_util.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_fetcher_delegate.h"
@@ -36,10 +36,6 @@
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#if defined(USE_NSS_CERTS)
-#include "net/cert_net/nss_ocsp.h"
-#endif
 
 using net::test::IsOk;
 
@@ -79,7 +75,7 @@ class TestConnectionListener
         did_read_from_socket_(false),
         task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
 
-  ~TestConnectionListener() override {}
+  ~TestConnectionListener() override = default;
 
   // Get called from the EmbeddedTestServer thread to be notified that
   // a connection was accepted.
@@ -122,24 +118,15 @@ class TestConnectionListener
 
 class EmbeddedTestServerTest
     : public testing::TestWithParam<EmbeddedTestServer::Type>,
-      public URLFetcherDelegate {
+      public URLFetcherDelegate,
+      public WithScopedTaskEnvironment {
  public:
   EmbeddedTestServerTest()
       : num_responses_received_(0),
         num_responses_expected_(0),
-        io_thread_("io_thread") {
-  }
+        io_thread_("io_thread") {}
 
   void SetUp() override {
-#if defined(USE_NSS_CERTS)
-    // This is needed so NSS's HTTP client functions are initialized on the
-    // right thread. These tests create SSLClientSockets on a different thread.
-    // TODO(davidben): Initialization can't be deferred to SSLClientSocket. See
-    // https://crbug.com/539520.
-    crypto::EnsureNSSInit();
-    EnsureNSSHttpIOInit();
-#endif
-
     base::Thread::Options thread_options;
     thread_options.message_loop_type = base::MessageLoop::TYPE_IO;
     ASSERT_TRUE(io_thread_.StartWithOptions(thread_options));
@@ -154,16 +141,13 @@ class EmbeddedTestServerTest
   void TearDown() override {
     if (server_->Started())
       ASSERT_TRUE(server_->ShutdownAndWaitUntilComplete());
-#if defined(USE_NSS_CERTS)
-    ShutdownNSSHttpIO();
-#endif
   }
 
   // URLFetcherDelegate override.
   void OnURLFetchComplete(const URLFetcher* source) override {
     ++num_responses_received_;
     if (num_responses_received_ == num_responses_expected_)
-      base::MessageLoop::current()->QuitWhenIdle();
+      std::move(quit_run_loop_).Run();
   }
 
   // Waits until the specified number of responses are received.
@@ -171,7 +155,9 @@ class EmbeddedTestServerTest
     num_responses_received_ = 0;
     num_responses_expected_ = num_responses;
     // Will be terminated in OnURLFetchComplete().
-    base::RunLoop().Run();
+    base::RunLoop run_loop;
+    quit_run_loop_ = run_loop.QuitClosure();
+    run_loop.Run();
   }
 
   // Handles |request| sent to |path| and returns the response per |content|,
@@ -204,6 +190,7 @@ class EmbeddedTestServerTest
   scoped_refptr<TestURLRequestContextGetter> request_context_getter_;
   TestConnectionListener connection_listener_;
   std::unique_ptr<EmbeddedTestServer> server_;
+  base::OnceClosure quit_run_loop_;
 };
 
 TEST_P(EmbeddedTestServerTest, GetBaseURL) {
@@ -244,13 +231,9 @@ TEST_P(EmbeddedTestServerTest, GetURLWithHostname) {
 }
 
 TEST_P(EmbeddedTestServerTest, RegisterRequestHandler) {
-  server_->RegisterRequestHandler(
-      base::Bind(&EmbeddedTestServerTest::HandleRequest,
-                 base::Unretained(this),
-                 "/test",
-                 "<b>Worked!</b>",
-                 "text/html",
-                 HTTP_OK));
+  server_->RegisterRequestHandler(base::BindRepeating(
+      &EmbeddedTestServerTest::HandleRequest, base::Unretained(this), "/test",
+      "<b>Worked!</b>", "text/html", HTTP_OK));
   ASSERT_TRUE(server_->Start());
 
   std::unique_ptr<URLFetcher> fetcher =
@@ -271,7 +254,7 @@ TEST_P(EmbeddedTestServerTest, RegisterRequestHandler) {
 
 TEST_P(EmbeddedTestServerTest, ServeFilesFromDirectory) {
   base::FilePath src_dir;
-  ASSERT_TRUE(PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
+  ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
   server_->ServeFilesFromDirectory(
       src_dir.AppendASCII("net").AppendASCII("data"));
   ASSERT_TRUE(server_->Start());
@@ -291,7 +274,7 @@ TEST_P(EmbeddedTestServerTest, ServeFilesFromDirectory) {
 
 TEST_P(EmbeddedTestServerTest, MockHeadersWithoutCRLF) {
   base::FilePath src_dir;
-  ASSERT_TRUE(PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
+  ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
   server_->ServeFilesFromDirectory(
       src_dir.AppendASCII("net").AppendASCII("data").AppendASCII(
           "embedded_test_server"));
@@ -358,27 +341,15 @@ TEST_P(EmbeddedTestServerTest, ConnectionListenerRead) {
 }
 
 TEST_P(EmbeddedTestServerTest, ConcurrentFetches) {
-  server_->RegisterRequestHandler(
-      base::Bind(&EmbeddedTestServerTest::HandleRequest,
-                 base::Unretained(this),
-                 "/test1",
-                 "Raspberry chocolate",
-                 "text/html",
-                 HTTP_OK));
-  server_->RegisterRequestHandler(
-      base::Bind(&EmbeddedTestServerTest::HandleRequest,
-                 base::Unretained(this),
-                 "/test2",
-                 "Vanilla chocolate",
-                 "text/html",
-                 HTTP_OK));
-  server_->RegisterRequestHandler(
-      base::Bind(&EmbeddedTestServerTest::HandleRequest,
-                 base::Unretained(this),
-                 "/test3",
-                 "No chocolates",
-                 "text/plain",
-                 HTTP_NOT_FOUND));
+  server_->RegisterRequestHandler(base::BindRepeating(
+      &EmbeddedTestServerTest::HandleRequest, base::Unretained(this), "/test1",
+      "Raspberry chocolate", "text/html", HTTP_OK));
+  server_->RegisterRequestHandler(base::BindRepeating(
+      &EmbeddedTestServerTest::HandleRequest, base::Unretained(this), "/test2",
+      "Vanilla chocolate", "text/html", HTTP_OK));
+  server_->RegisterRequestHandler(base::BindRepeating(
+      &EmbeddedTestServerTest::HandleRequest, base::Unretained(this), "/test3",
+      "No chocolates", "text/plain", HTTP_NOT_FOUND));
   ASSERT_TRUE(server_->Start());
 
   std::unique_ptr<URLFetcher> fetcher1 =
@@ -420,8 +391,8 @@ namespace {
 
 class CancelRequestDelegate : public TestDelegate {
  public:
-  CancelRequestDelegate() {}
-  ~CancelRequestDelegate() override {}
+  CancelRequestDelegate() { set_on_complete(base::DoNothing()); }
+  ~CancelRequestDelegate() override = default;
 
   void OnResponseStarted(URLRequest* request, int net_error) override {
     TestDelegate::OnResponseStarted(request, net_error);
@@ -464,7 +435,7 @@ class InfiniteResponse : public BasicHttpResponse {
 
 std::unique_ptr<HttpResponse> HandleInfiniteRequest(
     const HttpRequest& request) {
-  return base::WrapUnique(new InfiniteResponse);
+  return std::make_unique<InfiniteResponse>();
 }
 
 }  // anonymous namespace
@@ -477,8 +448,9 @@ TEST_P(EmbeddedTestServerTest, CloseDuringWrite) {
   CancelRequestDelegate cancel_delegate;
   TestURLRequestContext context;
   cancel_delegate.set_cancel_in_response_started(true);
-  server_->RegisterRequestHandler(base::Bind(
-      &HandlePrefixedRequest, "/infinite", base::Bind(&HandleInfiniteRequest)));
+  server_->RegisterRequestHandler(
+      base::BindRepeating(&HandlePrefixedRequest, "/infinite",
+                          base::BindRepeating(&HandleInfiniteRequest)));
   ASSERT_TRUE(server_->Start());
 
   std::unique_ptr<URLRequest> request =
@@ -488,39 +460,36 @@ TEST_P(EmbeddedTestServerTest, CloseDuringWrite) {
   cancel_delegate.WaitUntilDone();
 }
 
-struct CertificateValuesEntry {
+const struct CertificateValuesEntry {
   const EmbeddedTestServer::ServerCertificate server_cert;
   const bool is_expired;
   const char* common_name;
-  const char* root;
-};
-
-const CertificateValuesEntry kCertificateValuesEntry[] = {
-    {EmbeddedTestServer::CERT_OK, false, "127.0.0.1", "Test Root CA"},
+  const char* issuer_common_name;
+  size_t certs_count;
+} kCertificateValuesEntry[] = {
+    {EmbeddedTestServer::CERT_OK, false, "127.0.0.1", "Test Root CA", 1},
+    {EmbeddedTestServer::CERT_OK_BY_INTERMEDIATE, false, "127.0.0.1",
+     "Test Intermediate CA", 2},
     {EmbeddedTestServer::CERT_MISMATCHED_NAME, false, "127.0.0.1",
-     "Test Root CA"},
+     "Test Root CA", 1},
     {EmbeddedTestServer::CERT_COMMON_NAME_IS_DOMAIN, false, "localhost",
-     "Test Root CA"},
-    {EmbeddedTestServer::CERT_EXPIRED, true, "127.0.0.1", "Test Root CA"},
-    {EmbeddedTestServer::CERT_CHAIN_WRONG_ROOT, false, "127.0.0.1", "B CA"},
-#if !defined(OS_WIN) && !defined(OS_ANDROID)
-    {EmbeddedTestServer::CERT_BAD_VALIDITY, true, "Leaf Certificate",
-     "Test Root CA"},
-#endif
+     "Test Root CA", 1},
+    {EmbeddedTestServer::CERT_EXPIRED, true, "127.0.0.1", "Test Root CA", 1},
 };
 
 TEST_P(EmbeddedTestServerTest, GetCertificate) {
   if (GetParam() != EmbeddedTestServer::TYPE_HTTPS)
     return;
 
-  for (const auto& certEntry : kCertificateValuesEntry) {
-    SCOPED_TRACE(certEntry.server_cert);
-    server_->SetSSLConfig(certEntry.server_cert);
+  for (const auto& cert_entry : kCertificateValuesEntry) {
+    SCOPED_TRACE(cert_entry.server_cert);
+    server_->SetSSLConfig(cert_entry.server_cert);
     scoped_refptr<X509Certificate> cert = server_->GetCertificate();
     ASSERT_TRUE(cert);
-    EXPECT_EQ(cert->HasExpired(), certEntry.is_expired);
-    EXPECT_EQ(cert->subject().common_name, certEntry.common_name);
-    EXPECT_EQ(cert->issuer().common_name, certEntry.root);
+    EXPECT_EQ(cert->HasExpired(), cert_entry.is_expired);
+    EXPECT_EQ(cert->subject().common_name, cert_entry.common_name);
+    EXPECT_EQ(cert->issuer().common_name, cert_entry.issuer_common_name);
+    EXPECT_EQ(cert->intermediate_buffers().size(), cert_entry.certs_count - 1);
   }
 }
 
@@ -533,28 +502,11 @@ INSTANTIATE_TEST_CASE_P(EmbeddedTestServerTestInstantiation,
 // where there is no MessageLoop available on the thread at EmbeddedTestServer
 // initialization and/or destruction.
 
-typedef std::tr1::tuple<bool, bool, EmbeddedTestServer::Type>
-    ThreadingTestParams;
+typedef std::tuple<bool, bool, EmbeddedTestServer::Type> ThreadingTestParams;
 
 class EmbeddedTestServerThreadingTest
-    : public testing::TestWithParam<ThreadingTestParams> {
-  void SetUp() override {
-#if defined(USE_NSS_CERTS)
-    // This is needed so NSS's HTTP client functions are initialized on the
-    // right thread. These tests create SSLClientSockets on a different thread.
-    // TODO(davidben): Initialization can't be deferred to SSLClientSocket. See
-    // https://crbug.com/539520.
-    crypto::EnsureNSSInit();
-    EnsureNSSHttpIOInit();
-#endif
-  }
-
-  void TearDown() override {
-#if defined(USE_NSS_CERTS)
-    ShutdownNSSHttpIO();
-#endif
-  }
-};
+    : public testing::TestWithParam<ThreadingTestParams>,
+      public WithScopedTaskEnvironment {};
 
 class EmbeddedTestServerThreadingTestDelegate
     : public base::PlatformThread::Delegate,
@@ -584,7 +536,7 @@ class EmbeddedTestServerThreadingTestDelegate
     // Create the test server instance.
     EmbeddedTestServer server(type_);
     base::FilePath src_dir;
-    ASSERT_TRUE(PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
+    ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
     ASSERT_TRUE(server.Start());
 
     // Make a request and wait for the reply.
@@ -596,8 +548,10 @@ class EmbeddedTestServerThreadingTestDelegate
                            TRAFFIC_ANNOTATION_FOR_TESTS);
     fetcher->SetRequestContext(
         new TestURLRequestContextGetter(loop->task_runner()));
+    base::RunLoop run_loop;
+    quit_run_loop_ = run_loop.QuitClosure();
     fetcher->Start();
-    base::RunLoop().Run();
+    run_loop.Run();
     fetcher.reset();
 
     // Shut down.
@@ -609,13 +563,15 @@ class EmbeddedTestServerThreadingTestDelegate
 
   // URLFetcherDelegate override.
   void OnURLFetchComplete(const URLFetcher* source) override {
-    base::MessageLoop::current()->QuitWhenIdle();
+    std::move(quit_run_loop_).Run();
   }
 
  private:
   const bool message_loop_present_on_initialize_;
   const bool message_loop_present_on_shutdown_;
   const EmbeddedTestServer::Type type_;
+
+  base::OnceClosure quit_run_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(EmbeddedTestServerThreadingTestDelegate);
 };
@@ -625,9 +581,9 @@ TEST_P(EmbeddedTestServerThreadingTest, RunTest) {
   // of a MessageLoop - the test suite already sets up a MessageLoop for the
   // main test thread.
   base::PlatformThreadHandle thread_handle;
-  EmbeddedTestServerThreadingTestDelegate delegate(
-      std::tr1::get<0>(GetParam()), std::tr1::get<1>(GetParam()),
-      std::tr1::get<2>(GetParam()));
+  EmbeddedTestServerThreadingTestDelegate delegate(std::get<0>(GetParam()),
+                                                   std::get<1>(GetParam()),
+                                                   std::get<2>(GetParam()));
   ASSERT_TRUE(base::PlatformThread::Create(0, &delegate, &thread_handle));
   base::PlatformThread::Join(thread_handle);
 }

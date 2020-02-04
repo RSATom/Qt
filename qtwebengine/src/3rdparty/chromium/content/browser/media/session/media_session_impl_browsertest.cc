@@ -12,18 +12,23 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_samples.h"
+#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "content/browser/media/session/audio_focus_delegate.h"
-#include "content/browser/media/session/media_session_service_impl.h"
 #include "content/browser/media/session/mock_media_session_observer.h"
 #include "content/browser/media/session/mock_media_session_player_observer.h"
+#include "content/browser/media/session/mock_media_session_service_impl.h"
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/content_browser_test.h"
+#include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "media/base/media_content_type.h"
+#include "net/dns/mock_host_resolver.h"
+#include "services/media_session/public/cpp/test/mock_media_session.h"
+#include "services/media_session/public/mojom/audio_focus.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using content::WebContents;
@@ -35,6 +40,8 @@ using content::MediaSessionPlayerObserver;
 using content::MediaSessionUmaHelper;
 using content::MockMediaSessionPlayerObserver;
 
+using media_session::mojom::AudioFocusType;
+
 using ::testing::Eq;
 using ::testing::Expectation;
 using ::testing::NiceMock;
@@ -44,23 +51,62 @@ namespace {
 
 const double kDefaultVolumeMultiplier = 1.0;
 const double kDuckingVolumeMultiplier = 0.2;
+const double kDifferentDuckingVolumeMultiplier = 0.018;
+
+const base::string16 kExpectedSourceTitlePrefix =
+    base::ASCIIToUTF16("http://example.com:");
 
 class MockAudioFocusDelegate : public AudioFocusDelegate {
  public:
-  MockAudioFocusDelegate() {
-    ON_CALL(*this, RequestAudioFocus(_)).WillByDefault(::testing::Return(true));
+  MockAudioFocusDelegate(MediaSessionImpl* media_session, bool async_mode)
+      : media_session_(media_session), async_mode_(async_mode) {}
+
+  MOCK_METHOD0(AbandonAudioFocus, void());
+
+  AudioFocusDelegate::AudioFocusResult RequestAudioFocus(
+      AudioFocusType audio_focus_type) {
+    if (async_mode_) {
+      requests_.push_back(audio_focus_type);
+      return AudioFocusDelegate::AudioFocusResult::kDelayed;
+    } else {
+      audio_focus_type_ = audio_focus_type;
+      return sync_result_;
+    }
   }
 
-  MOCK_METHOD1(RequestAudioFocus,
-               bool(content::AudioFocusManager::AudioFocusType));
-  MOCK_METHOD0(AbandonAudioFocus, void());
-};
+  base::Optional<AudioFocusType> GetCurrentFocusType() const {
+    return audio_focus_type_;
+  }
 
-class MockMediaSessionServiceImpl : public content::MediaSessionServiceImpl {
- public:
-  explicit MockMediaSessionServiceImpl(content::RenderFrameHost* rfh)
-      : MediaSessionServiceImpl(rfh) {}
-  ~MockMediaSessionServiceImpl() override = default;
+  void MediaSessionInfoChanged(
+      media_session::mojom::MediaSessionInfoPtr session_info) override {}
+
+  void ResolveRequest(bool result) {
+    if (!async_mode_)
+      return;
+
+    audio_focus_type_ = requests_.front();
+    requests_.pop_front();
+
+    media_session_->FinishSystemAudioFocusRequest(audio_focus_type_.value(),
+                                                  result);
+  }
+
+  bool HasRequests() const { return !requests_.empty(); }
+
+  void SetSyncResult(AudioFocusDelegate::AudioFocusResult result) {
+    sync_result_ = result;
+  }
+
+ private:
+  AudioFocusDelegate::AudioFocusResult sync_result_ =
+      AudioFocusDelegate::AudioFocusResult::kSuccess;
+
+  MediaSessionImpl* media_session_;
+  const bool async_mode_ = false;
+
+  std::list<AudioFocusType> requests_;
+  base::Optional<AudioFocusType> audio_focus_type_;
 };
 
 }  // namespace
@@ -72,10 +118,17 @@ class MediaSessionImplBrowserTest : public content::ContentBrowserTest {
   void SetUpOnMainThread() override {
     ContentBrowserTest::SetUpOnMainThread();
 
+    // Navigate to a test page with a a real origin.
+    ASSERT_TRUE(embedded_test_server()->Start());
+    host_resolver()->AddRule("*", "127.0.0.1");
+    NavigateToURL(
+        shell(), embedded_test_server()->GetURL("example.com", "/title1.html"));
+
     media_session_ = MediaSessionImpl::Get(shell()->web_contents());
     mock_media_session_observer_.reset(
         new NiceMock<content::MockMediaSessionObserver>(media_session_));
-    mock_audio_focus_delegate_ = new NiceMock<MockAudioFocusDelegate>;
+    mock_audio_focus_delegate_ = new NiceMock<MockAudioFocusDelegate>(
+        media_session_, true /* async_mode */);
     media_session_->SetDelegateForTests(
         base::WrapUnique(mock_audio_focus_delegate_));
     ASSERT_TRUE(media_session_);
@@ -93,8 +146,10 @@ class MediaSessionImplBrowserTest : public content::ContentBrowserTest {
 
   void StartNewPlayer(MockMediaSessionPlayerObserver* player_observer,
                       media::MediaContentType media_content_type) {
-    bool result = AddPlayer(player_observer, player_observer->StartNewPlayer(),
-                            media_content_type);
+    int player_id = player_observer->StartNewPlayer();
+
+    bool result = AddPlayer(player_observer, player_id, media_content_type);
+
     EXPECT_TRUE(result);
   }
 
@@ -120,25 +175,33 @@ class MediaSessionImplBrowserTest : public content::ContentBrowserTest {
 
   bool IsActive() { return media_session_->IsActive(); }
 
-  content::AudioFocusManager::AudioFocusType GetSessionAudioFocusType() {
-    return media_session_->audio_focus_type();
+  base::Optional<AudioFocusType> GetSessionAudioFocusType() {
+    return mock_audio_focus_delegate_->GetCurrentFocusType();
   }
 
   bool IsControllable() { return media_session_->IsControllable(); }
 
-  void UIResume() { media_session_->Resume(MediaSession::SuspendType::UI); }
+  void UIResume() { media_session_->Resume(MediaSession::SuspendType::kUI); }
 
   void SystemResume() {
-    media_session_->OnResumeInternal(MediaSession::SuspendType::SYSTEM);
+    media_session_->OnResumeInternal(MediaSession::SuspendType::kSystem);
   }
 
-  void UISuspend() { media_session_->Suspend(MediaSession::SuspendType::UI); }
+  void UISuspend() { media_session_->Suspend(MediaSession::SuspendType::kUI); }
 
   void SystemSuspend(bool temporary) {
-    media_session_->OnSuspendInternal(MediaSession::SuspendType::SYSTEM,
+    media_session_->OnSuspendInternal(MediaSession::SuspendType::kSystem,
                                       temporary
                                           ? MediaSessionImpl::State::SUSPENDED
                                           : MediaSessionImpl::State::INACTIVE);
+  }
+
+  void UISeekForward() {
+    media_session_->Seek(base::TimeDelta::FromSeconds(1));
+  }
+
+  void UISeekBackward() {
+    media_session_->Seek(base::TimeDelta::FromSeconds(-1));
   }
 
   void SystemStartDucking() { media_session_->StartDucking(); }
@@ -146,12 +209,29 @@ class MediaSessionImplBrowserTest : public content::ContentBrowserTest {
   void SystemStopDucking() { media_session_->StopDucking(); }
 
   void EnsureMediaSessionService() {
-    mock_media_session_service_.reset(new NiceMock<MockMediaSessionServiceImpl>(
-        shell()->web_contents()->GetMainFrame()));
+    mock_media_session_service_.reset(
+        new NiceMock<content::MockMediaSessionServiceImpl>(
+            shell()->web_contents()->GetMainFrame()));
   }
 
   void SetPlaybackState(blink::mojom::MediaSessionPlaybackState state) {
     mock_media_session_service_->SetPlaybackState(state);
+  }
+
+  void ResolveAudioFocusSuccess() {
+    mock_audio_focus_delegate()->ResolveRequest(true /* result */);
+  }
+
+  void ResolveAudioFocusFailure() {
+    mock_audio_focus_delegate()->ResolveRequest(false /* result */);
+  }
+
+  void SetSyncAudioFocusResult(AudioFocusDelegate::AudioFocusResult result) {
+    mock_audio_focus_delegate()->SetSyncResult(result);
+  }
+
+  bool HasUnresolvedAudioFocusRequest() {
+    return mock_audio_focus_delegate()->HasRequests();
   }
 
   content::MockMediaSessionObserver* mock_media_session_observer() {
@@ -170,51 +250,97 @@ class MediaSessionImplBrowserTest : public content::ContentBrowserTest {
     return media_session_->uma_helper_for_test();
   }
 
+  void SetAudioFocusDelegateForTests(MockAudioFocusDelegate* delegate) {
+    mock_audio_focus_delegate_ = delegate;
+    media_session_->SetDelegateForTests(
+        base::WrapUnique(mock_audio_focus_delegate_));
+  }
+
+  bool IsDucking() const { return media_session_->is_ducking_; }
+
+  base::string16 GetExpectedSourceTitle() {
+    return base::StrCat(
+        {kExpectedSourceTitlePrefix,
+         base::NumberToString16(embedded_test_server()->port())});
+  }
+
  protected:
   MediaSessionImpl* media_session_;
   std::unique_ptr<content::MockMediaSessionObserver>
       mock_media_session_observer_;
   MockAudioFocusDelegate* mock_audio_focus_delegate_;
-  std::unique_ptr<MockMediaSessionServiceImpl> mock_media_session_service_;
+  std::unique_ptr<content::MockMediaSessionServiceImpl>
+      mock_media_session_service_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaSessionImplBrowserTest);
 };
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+class MediaSessionImplParamBrowserTest
+    : public MediaSessionImplBrowserTest,
+      public testing::WithParamInterface<bool> {
+ protected:
+  MediaSessionImplParamBrowserTest() = default;
+
+  void SetUpOnMainThread() override {
+    MediaSessionImplBrowserTest::SetUpOnMainThread();
+
+    SetAudioFocusDelegateForTests(
+        new NiceMock<MockAudioFocusDelegate>(media_session_, GetParam()));
+  }
+};
+
+class MediaSessionImplSyncBrowserTest : public MediaSessionImplBrowserTest {
+ protected:
+  MediaSessionImplSyncBrowserTest() = default;
+
+  void SetUpOnMainThread() override {
+    MediaSessionImplBrowserTest::SetUpOnMainThread();
+
+    SetAudioFocusDelegateForTests(new NiceMock<MockAudioFocusDelegate>(
+        media_session_, false /* async_mode */));
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(, MediaSessionImplParamBrowserTest, testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        PlayersFromSameObserverDoNotStopEachOtherInSameSession) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   EXPECT_TRUE(player_observer->IsPlaying(0));
   EXPECT_TRUE(player_observer->IsPlaying(1));
   EXPECT_TRUE(player_observer->IsPlaying(2));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        PlayersFromManyObserverDoNotStopEachOtherInSameSession) {
-  auto player_observer_1 = base::MakeUnique<MockMediaSessionPlayerObserver>();
-  auto player_observer_2 = base::MakeUnique<MockMediaSessionPlayerObserver>();
-  auto player_observer_3 = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer_1 = std::make_unique<MockMediaSessionPlayerObserver>();
+  auto player_observer_2 = std::make_unique<MockMediaSessionPlayerObserver>();
+  auto player_observer_3 = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer_1.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer_2.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer_3.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   EXPECT_TRUE(player_observer_1->IsPlaying(0));
   EXPECT_TRUE(player_observer_2->IsPlaying(0));
   EXPECT_TRUE(player_observer_3->IsPlaying(0));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        SuspendedMediaSessionStopsPlayers) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
 
@@ -223,13 +349,14 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(player_observer->IsPlaying(2));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ResumedMediaSessionRestartsPlayers) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
   SystemResume();
@@ -239,11 +366,12 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_TRUE(player_observer->IsPlaying(2));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        StartedPlayerOnSuspendedSessionPlaysAlone) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   EXPECT_TRUE(player_observer->IsPlaying(0));
 
@@ -252,6 +380,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(player_observer->IsPlaying(0));
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   EXPECT_FALSE(player_observer->IsPlaying(0));
   EXPECT_TRUE(player_observer->IsPlaying(1));
@@ -263,19 +392,25 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_TRUE(player_observer->IsPlaying(2));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, InitialVolumeMultiplier) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       InitialVolumeMultiplier) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
 
   EXPECT_EQ(kDefaultVolumeMultiplier, player_observer->GetVolumeMultiplier(0));
   EXPECT_EQ(kDefaultVolumeMultiplier, player_observer->GetVolumeMultiplier(1));
+
+  ResolveAudioFocusSuccess();
+
+  EXPECT_EQ(kDefaultVolumeMultiplier, player_observer->GetVolumeMultiplier(0));
+  EXPECT_EQ(kDefaultVolumeMultiplier, player_observer->GetVolumeMultiplier(1));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        StartDuckingReducesVolumeMultiplier) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
@@ -289,9 +424,9 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(kDuckingVolumeMultiplier, player_observer->GetVolumeMultiplier(2));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        StopDuckingRecoversVolumeMultiplier) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
@@ -306,43 +441,101 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(kDefaultVolumeMultiplier, player_observer->GetVolumeMultiplier(2));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, AudioFocusInitialState) {
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       DuckingUsesConfiguredMultiplier) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  media_session_->SetDuckingVolumeMultiplier(kDifferentDuckingVolumeMultiplier);
+  SystemStartDucking();
+  EXPECT_EQ(kDifferentDuckingVolumeMultiplier,
+            player_observer->GetVolumeMultiplier(0));
+  EXPECT_EQ(kDifferentDuckingVolumeMultiplier,
+            player_observer->GetVolumeMultiplier(1));
+  SystemStopDucking();
+  EXPECT_EQ(kDefaultVolumeMultiplier, player_observer->GetVolumeMultiplier(0));
+  EXPECT_EQ(kDefaultVolumeMultiplier, player_observer->GetVolumeMultiplier(1));
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       AudioFocusInitialState) {
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, StartPlayerGivesFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       AddPlayerOnSuspendedFocusUnducks) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
+
+  UISuspend();
+  EXPECT_FALSE(IsActive());
+
+  SystemStartDucking();
+  EXPECT_EQ(kDuckingVolumeMultiplier, player_observer->GetVolumeMultiplier(0));
+
+  EXPECT_TRUE(
+      AddPlayer(player_observer.get(), 0, media::MediaContentType::Persistent));
+  ResolveAudioFocusSuccess();
+  EXPECT_EQ(kDefaultVolumeMultiplier, player_observer->GetVolumeMultiplier(0));
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       CanRequestFocusBeforePlayerCreation) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  media_session_->RequestSystemAudioFocus(AudioFocusType::kGain);
+  EXPECT_TRUE(IsActive());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(IsActive());
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
-
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
-                       SuspendGivesAwayAudioFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       StartPlayerGivesFocus) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_TRUE(IsActive());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(IsActive());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       SuspendGivesAwayAudioFocus) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
 
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, StopGivesAwayAudioFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       StopGivesAwayAudioFocus) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, ResumeGivesBackAudioFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       SystemResumeGivesBackAudioFocus) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
   SystemResume();
@@ -350,13 +543,30 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, ResumeGivesBackAudioFocus) {
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       UIResumeGivesBackAudioFocus) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
+
+  UISuspend();
+
+  UIResume();
+  EXPECT_TRUE(IsActive());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(IsActive());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        RemovingLastPlayerDropsAudioFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayer(player_observer.get(), 0);
   EXPECT_TRUE(IsActive());
@@ -366,15 +576,16 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        RemovingLastPlayerFromManyObserversDropsAudioFocus) {
-  auto player_observer_1 = base::MakeUnique<MockMediaSessionPlayerObserver>();
-  auto player_observer_2 = base::MakeUnique<MockMediaSessionPlayerObserver>();
-  auto player_observer_3 = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer_1 = std::make_unique<MockMediaSessionPlayerObserver>();
+  auto player_observer_2 = std::make_unique<MockMediaSessionPlayerObserver>();
+  auto player_observer_3 = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer_1.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer_2.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer_3.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayer(player_observer_1.get(), 0);
   EXPECT_TRUE(IsActive());
@@ -384,15 +595,16 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        RemovingAllPlayersFromObserversDropsAudioFocus) {
-  auto player_observer_1 = base::MakeUnique<MockMediaSessionPlayerObserver>();
-  auto player_observer_2 = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer_1 = std::make_unique<MockMediaSessionPlayerObserver>();
+  auto player_observer_2 = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer_1.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer_1.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer_2.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer_2.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayers(player_observer_1.get());
   EXPECT_TRUE(IsActive());
@@ -400,22 +612,28 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, ResumePlayGivesAudioFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ResumePlayGivesAudioFocus) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayer(player_observer.get(), 0);
   EXPECT_FALSE(IsActive());
 
   EXPECT_TRUE(
       AddPlayer(player_observer.get(), 0, media::MediaContentType::Persistent));
+  ResolveAudioFocusSuccess();
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
-                       ResumeSuspendAreSentOnlyOncePerPlayers) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ResumeSuspendSeekAreSentOnlyOncePerPlayers) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  EXPECT_EQ(0, player_observer->received_suspend_calls());
+  EXPECT_EQ(0, player_observer->received_resume_calls());
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
@@ -424,20 +642,41 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(0, player_observer->received_suspend_calls());
   EXPECT_EQ(0, player_observer->received_resume_calls());
 
+  ResolveAudioFocusSuccess();
+
+  EXPECT_EQ(0, player_observer->received_suspend_calls());
+  EXPECT_EQ(0, player_observer->received_resume_calls());
+  EXPECT_EQ(0, player_observer->received_seek_forward_calls());
+  EXPECT_EQ(0, player_observer->received_seek_backward_calls());
+
   SystemSuspend(true);
   EXPECT_EQ(3, player_observer->received_suspend_calls());
 
   SystemResume();
   EXPECT_EQ(3, player_observer->received_resume_calls());
+
+  UISeekForward();
+  EXPECT_EQ(3, player_observer->received_seek_forward_calls());
+
+  UISeekBackward();
+  EXPECT_EQ(3, player_observer->received_seek_backward_calls());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
-                       ResumeSuspendAreSentOnlyOncePerPlayersAddedTwice) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ResumeSuspendSeekAreSentOnlyOncePerPlayersAddedTwice) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  EXPECT_EQ(0, player_observer->received_suspend_calls());
+  EXPECT_EQ(0, player_observer->received_resume_calls());
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+
+  EXPECT_EQ(0, player_observer->received_suspend_calls());
+  EXPECT_EQ(0, player_observer->received_resume_calls());
+
+  ResolveAudioFocusSuccess();
 
   // Adding the three players above again.
   EXPECT_TRUE(
@@ -449,46 +688,55 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
 
   EXPECT_EQ(0, player_observer->received_suspend_calls());
   EXPECT_EQ(0, player_observer->received_resume_calls());
+  EXPECT_EQ(0, player_observer->received_seek_forward_calls());
+  EXPECT_EQ(0, player_observer->received_seek_backward_calls());
 
   SystemSuspend(true);
   EXPECT_EQ(3, player_observer->received_suspend_calls());
 
   SystemResume();
   EXPECT_EQ(3, player_observer->received_resume_calls());
+
+  UISeekForward();
+  EXPECT_EQ(3, player_observer->received_seek_forward_calls());
+
+  UISeekBackward();
+  EXPECT_EQ(3, player_observer->received_seek_backward_calls());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        RemovingTheSamePlayerTwiceIsANoop) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayer(player_observer.get(), 0);
   RemovePlayer(player_observer.get(), 0);
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, AudioFocusType) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest, AudioFocusType) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   // Starting a player with a given type should set the session to that type.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
-  EXPECT_EQ(content::AudioFocusManager::AudioFocusType::GainTransientMayDuck,
-            GetSessionAudioFocusType());
+  ResolveAudioFocusSuccess();
+  EXPECT_EQ(AudioFocusType::kGainTransientMayDuck, GetSessionAudioFocusType());
 
   // Adding a player of the same type should have no effect on the type.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
-  EXPECT_EQ(content::AudioFocusManager::AudioFocusType::GainTransientMayDuck,
-            GetSessionAudioFocusType());
+  EXPECT_FALSE(HasUnresolvedAudioFocusRequest());
+  EXPECT_EQ(AudioFocusType::kGainTransientMayDuck, GetSessionAudioFocusType());
 
   // Adding a player of Content type should override the current type.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
-  EXPECT_EQ(content::AudioFocusManager::AudioFocusType::Gain,
-            GetSessionAudioFocusType());
+  ResolveAudioFocusSuccess();
+  EXPECT_EQ(AudioFocusType::kGain, GetSessionAudioFocusType());
 
   // Adding a player of the Transient type should have no effect on the type.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
-  EXPECT_EQ(content::AudioFocusManager::AudioFocusType::Gain,
-            GetSessionAudioFocusType());
+  EXPECT_FALSE(HasUnresolvedAudioFocusRequest());
+  EXPECT_EQ(AudioFocusType::kGain, GetSessionAudioFocusType());
 
   EXPECT_TRUE(player_observer->IsPlaying(0));
   EXPECT_TRUE(player_observer->IsPlaying(1));
@@ -502,8 +750,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, AudioFocusType) {
   EXPECT_FALSE(player_observer->IsPlaying(2));
   EXPECT_FALSE(player_observer->IsPlaying(3));
 
-  EXPECT_EQ(content::AudioFocusManager::AudioFocusType::Gain,
-            GetSessionAudioFocusType());
+  EXPECT_EQ(AudioFocusType::kGain, GetSessionAudioFocusType());
 
   SystemResume();
 
@@ -512,47 +759,157 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, AudioFocusType) {
   EXPECT_TRUE(player_observer->IsPlaying(2));
   EXPECT_TRUE(player_observer->IsPlaying(3));
 
-  EXPECT_EQ(content::AudioFocusManager::AudioFocusType::Gain,
-            GetSessionAudioFocusType());
+  EXPECT_EQ(AudioFocusType::kGain, GetSessionAudioFocusType());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, ControlsShowForContent) {
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ControlsShowForContent) {
   EXPECT_CALL(*mock_media_session_observer(),
               MediaSessionStateChanged(true, false));
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   // Starting a player with a content type should show the media controls.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   EXPECT_TRUE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsNoShowForTransient) {
   EXPECT_CALL(*mock_media_session_observer(),
               MediaSessionStateChanged(false, false));
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   // Starting a player with a transient type should not show the media controls.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  ResolveAudioFocusSuccess();
 
   EXPECT_FALSE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, ControlsHideWhenStopped) {
+// This behaviour is specific to desktop.
+#if !defined(OS_ANDROID)
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ControlsNoShowForTransientAndRoutedService) {
+  EnsureMediaSessionService();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
+      shell()->web_contents()->GetMainFrame());
+
+  EXPECT_CALL(*mock_media_session_observer(),
+              MediaSessionStateChanged(false, false));
+
+  // Starting a player with a transient type should not show the media controls.
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  ResolveAudioFocusSuccess();
+
+  EXPECT_FALSE(IsControllable());
+  EXPECT_TRUE(IsActive());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ControlsNoShowForTransientAndPlaybackStateNone) {
+  EnsureMediaSessionService();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
+      shell()->web_contents()->GetMainFrame());
+
+  ::testing::Sequence s;
+  EXPECT_CALL(*mock_media_session_observer(),
+              MediaSessionStateChanged(false, false))
+      .InSequence(s);
+  EXPECT_CALL(*mock_media_session_observer(),
+              MediaSessionStateChanged(false, _))
+      .InSequence(s);
+
+  // Starting a player with a transient type should not show the media controls.
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  ResolveAudioFocusSuccess();
+
+  SetPlaybackState(blink::mojom::MediaSessionPlaybackState::NONE);
+
+  EXPECT_FALSE(IsControllable());
+  EXPECT_TRUE(IsActive());
+
+  // Verify before test exists. Otherwise the sequence will expire and cause
+  // weird problems.
+  ::testing::Mock::VerifyAndClear(mock_media_session_observer());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ControlsShowForTransientAndPlaybackStatePaused) {
+  EnsureMediaSessionService();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
+      shell()->web_contents()->GetMainFrame());
+
+  ::testing::Sequence s;
+  EXPECT_CALL(*mock_media_session_observer(),
+              MediaSessionStateChanged(false, false))
+      .InSequence(s);
+  EXPECT_CALL(*mock_media_session_observer(), MediaSessionStateChanged(true, _))
+      .InSequence(s);
+
+  // Starting a player with a transient type should show the media controls if
+  // we have a playback state from the service.
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  ResolveAudioFocusSuccess();
+
+  SetPlaybackState(blink::mojom::MediaSessionPlaybackState::PAUSED);
+
+  EXPECT_TRUE(IsControllable());
+  EXPECT_TRUE(IsActive());
+
+  // Verify before test exists. Otherwise the sequence will expire and cause
+  // weird problems.
+  ::testing::Mock::VerifyAndClear(mock_media_session_observer());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ControlsShowForTransientAndPlaybackStatePlaying) {
+  EnsureMediaSessionService();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
+      shell()->web_contents()->GetMainFrame());
+
+  ::testing::Sequence s;
+  EXPECT_CALL(*mock_media_session_observer(),
+              MediaSessionStateChanged(false, false))
+      .InSequence(s);
+  EXPECT_CALL(*mock_media_session_observer(), MediaSessionStateChanged(true, _))
+      .InSequence(s);
+
+  // Starting a player with a transient type should show the media controls if
+  // we have a playback state from the service.
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  ResolveAudioFocusSuccess();
+
+  SetPlaybackState(blink::mojom::MediaSessionPlaybackState::PLAYING);
+
+  EXPECT_TRUE(IsControllable());
+  EXPECT_TRUE(IsActive());
+
+  // Verify before test exists. Otherwise the sequence will expire and cause
+  // weird problems.
+  ::testing::Mock::VerifyAndClear(mock_media_session_observer());
+}
+
+#endif  // !defined(OS_ANDROID)
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ControlsHideWhenStopped) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
   EXPECT_CALL(*mock_media_session_observer(),
               MediaSessionStateChanged(false, true))
       .After(showControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayers(player_observer.get());
 
@@ -560,14 +917,15 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, ControlsHideWhenStopped) {
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsShownAcceptTransient) {
   EXPECT_CALL(*mock_media_session_observer(),
               MediaSessionStateChanged(true, false));
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   // Transient player join the session without affecting the controls.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
@@ -576,7 +934,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsShownAfterContentAdded) {
   Expectation dontShowControls = EXPECT_CALL(
       *mock_media_session_observer(), MediaSessionStateChanged(false, false));
@@ -584,25 +942,29 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, false))
       .After(dontShowControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  ResolveAudioFocusSuccess();
 
   // The controls are shown when the content player is added.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   EXPECT_TRUE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsStayIfOnlyOnePlayerHasBeenPaused) {
   EXPECT_CALL(*mock_media_session_observer(),
               MediaSessionStateChanged(true, false));
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
+
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
 
   // Removing only content player doesn't hide the controls since the session
@@ -613,7 +975,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsHideWhenTheLastPlayerIsRemoved) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -621,10 +983,11 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(false, true))
       .After(showControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayer(player_observer.get(), 0);
 
@@ -637,7 +1000,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsHideWhenAllThePlayersAreRemoved) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -645,10 +1008,11 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(false, true))
       .After(showControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayers(player_observer.get());
 
@@ -656,7 +1020,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsNotHideWhenTheLastPlayerIsPaused) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -664,10 +1028,11 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, true))
       .After(showControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   OnPlayerPaused(player_observer.get(), 0);
 
@@ -680,7 +1045,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        SuspendTemporaryUpdatesControls) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -688,9 +1053,10 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, true))
       .After(showControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
 
@@ -698,7 +1064,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsUpdatedWhenResumed) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -709,9 +1075,11 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, false))
       .After(pauseControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
+
   SystemSuspend(true);
   SystemResume();
 
@@ -719,7 +1087,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsHideWhenSessionSuspendedPermanently) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -727,9 +1095,10 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(false, true))
       .After(showControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(false);
 
@@ -737,8 +1106,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
-                       ConstrolsHideWhenSessionStops) {
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ControlsHideWhenSessionStops) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
   Expectation pauseControls = EXPECT_CALL(*mock_media_session_observer(),
@@ -748,17 +1117,18 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(false, true))
       .After(pauseControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   EXPECT_FALSE(IsControllable());
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsHideWhenSessionChangesFromContentToTransient) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -769,20 +1139,22 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(false, false))
       .After(pauseControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   SystemSuspend(true);
 
   // This should reset the session and change it to a transient, so
   // hide the controls.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  ResolveAudioFocusSuccess();
 
   EXPECT_FALSE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsUpdatedWhenNewPlayerResetsSession) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -793,19 +1165,21 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, false))
       .After(pauseControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   SystemSuspend(true);
 
   // This should reset the session and update the controls.
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   EXPECT_TRUE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsResumedWhenPlayerIsResumed) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -816,19 +1190,21 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, false))
       .After(pauseControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   SystemSuspend(true);
 
   // This should resume the session and update the controls.
   AddPlayer(player_observer.get(), 0, media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   EXPECT_TRUE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsUpdatedDueToResumeSessionAction) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -836,16 +1212,17 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, true))
       .After(showControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   UISuspend();
 
   EXPECT_TRUE(IsControllable());
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsUpdatedDueToSuspendSessionAction) {
   Expectation showControls = EXPECT_CALL(*mock_media_session_observer(),
                                          MediaSessionStateChanged(true, false));
@@ -856,24 +1233,30 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, false))
       .After(pauseControls);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   UISuspend();
-  UIResume();
 
+  UIResume();
+  EXPECT_TRUE(IsControllable());
+  EXPECT_TRUE(IsActive());
+
+  ResolveAudioFocusSuccess();
   EXPECT_TRUE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsDontShowWhenOneShotIsPresent) {
   EXPECT_CALL(*mock_media_session_observer(),
               MediaSessionStateChanged(false, false));
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
+  ResolveAudioFocusSuccess();
 
   EXPECT_FALSE(IsControllable());
   EXPECT_TRUE(IsActive());
@@ -887,7 +1270,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsHiddenAfterRemoveOneShotWithoutOtherPlayers) {
   Expectation expect_1 = EXPECT_CALL(*mock_media_session_observer(),
                                      MediaSessionStateChanged(false, false));
@@ -898,16 +1281,17 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
       .Times(0)
       .After(expect_2);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
+  ResolveAudioFocusSuccess();
   RemovePlayer(player_observer.get(), 0);
 
   EXPECT_FALSE(IsControllable());
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsShowAfterRemoveOneShotWithPersistentPresent) {
   Expectation uncontrollable = EXPECT_CALL(
       *mock_media_session_observer(), MediaSessionStateChanged(false, false));
@@ -916,11 +1300,12 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionStateChanged(true, false))
       .After(uncontrollable);
 
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   RemovePlayer(player_observer.get(), 0);
 
@@ -928,13 +1313,14 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        DontSuspendWhenOneShotIsPresent) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(false);
 
@@ -944,11 +1330,12 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(0, player_observer->received_suspend_calls());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        DontResumeBySystemUISuspendedSessions) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   UISuspend();
   EXPECT_TRUE(IsControllable());
@@ -959,88 +1346,106 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_FALSE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        AllowUIResumeForSystemSuspend) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
   EXPECT_TRUE(IsControllable());
   EXPECT_FALSE(IsActive());
 
   UIResume();
+  ResolveAudioFocusSuccess();
+
   EXPECT_TRUE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, ResumeSuspendFromUI) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest, ResumeSuspendFromUI) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   UISuspend();
   EXPECT_TRUE(IsControllable());
   EXPECT_FALSE(IsActive());
 
   UIResume();
+  EXPECT_TRUE(IsActive());
+
+  ResolveAudioFocusSuccess();
   EXPECT_TRUE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, ResumeSuspendFromSystem) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       ResumeSuspendFromSystem) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
   EXPECT_TRUE(IsControllable());
   EXPECT_FALSE(IsActive());
 
   SystemResume();
+  EXPECT_FALSE(HasUnresolvedAudioFocusRequest());
   EXPECT_TRUE(IsControllable());
   EXPECT_TRUE(IsActive());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, OneShotTakesGainFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       OneShotTakesGainFocus) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
-  EXPECT_CALL(
-      *mock_audio_focus_delegate(),
-      RequestAudioFocus(content::AudioFocusManager::AudioFocusType::Gain))
-      .Times(1);
-  EXPECT_CALL(*mock_audio_focus_delegate(),
-              RequestAudioFocus(::testing::Ne(
-                  content::AudioFocusManager::AudioFocusType::Gain)))
-      .Times(0);
   StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
+  ResolveAudioFocusSuccess();
+
   StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  EXPECT_FALSE(HasUnresolvedAudioFocusRequest());
+
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_FALSE(HasUnresolvedAudioFocusRequest());
+
+  EXPECT_EQ(AudioFocusType::kGain,
+            mock_audio_focus_delegate()->GetCurrentFocusType());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, RemovingOneShotDropsFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       RemovingOneShotDropsFocus) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   EXPECT_CALL(*mock_audio_focus_delegate(), AbandonAudioFocus());
   StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
+  ResolveAudioFocusSuccess();
+
   RemovePlayer(player_observer.get(), 0);
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        RemovingOneShotWhileStillHavingOtherPlayersKeepsFocus) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   EXPECT_CALL(*mock_audio_focus_delegate(), AbandonAudioFocus())
       .Times(1);  // Called in TearDown
   StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
+  ResolveAudioFocusSuccess();
+
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_FALSE(HasUnresolvedAudioFocusRequest());
+
   RemovePlayer(player_observer.get(), 0);
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ActualPlaybackStateWhilePlayerPaused) {
   EnsureMediaSessionService();
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>(
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
       shell()->web_contents()->GetMainFrame());
 
   ::testing::Sequence s;
@@ -1061,6 +1466,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
       .InSequence(s);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
+
   OnPlayerPaused(player_observer.get(), 0);
   SetPlaybackState(blink::mojom::MediaSessionPlaybackState::PLAYING);
   SetPlaybackState(blink::mojom::MediaSessionPlaybackState::PAUSED);
@@ -1071,10 +1478,10 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   ::testing::Mock::VerifyAndClear(mock_media_session_observer());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ActualPlaybackStateWhilePlayerPlaying) {
   EnsureMediaSessionService();
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>(
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
       shell()->web_contents()->GetMainFrame());
   ::testing::Sequence s;
   EXPECT_CALL(*mock_media_session_observer(),
@@ -1091,6 +1498,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
       .InSequence(s);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
+
   SetPlaybackState(blink::mojom::MediaSessionPlaybackState::PLAYING);
   SetPlaybackState(blink::mojom::MediaSessionPlaybackState::PAUSED);
   SetPlaybackState(blink::mojom::MediaSessionPlaybackState::NONE);
@@ -1100,10 +1509,10 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   ::testing::Mock::VerifyAndClear(mock_media_session_observer());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ActualPlaybackStateWhilePlayerRemoved) {
   EnsureMediaSessionService();
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>(
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
       shell()->web_contents()->GetMainFrame());
 
   ::testing::Sequence s;
@@ -1115,6 +1524,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
       .InSequence(s);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   RemovePlayer(player_observer.get(), 0);
 
   SetPlaybackState(blink::mojom::MediaSessionPlaybackState::PLAYING);
@@ -1126,12 +1536,13 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   ::testing::Mock::VerifyAndClear(mock_media_session_observer());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_Suspended_SystemTransient) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   SystemSuspend(true);
 
   std::unique_ptr<base::HistogramSamples> samples(
@@ -1142,12 +1553,13 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(0, samples->GetCount(2));  // UI
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_Suspended_SystemPermantent) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   SystemSuspend(false);
 
   std::unique_ptr<base::HistogramSamples> samples(
@@ -1158,12 +1570,13 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(0, samples->GetCount(2));  // UI
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UMA_Suspended_UI) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest, UMA_Suspended_UI) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   base::HistogramTester tester;
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
   UISuspend();
 
   std::unique_ptr<base::HistogramSamples> samples(
@@ -1174,20 +1587,24 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UMA_Suspended_UI) {
   EXPECT_EQ(1, samples->GetCount(2));  // UI
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UMA_Suspended_Multiple) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       UMA_Suspended_Multiple) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   UISuspend();
   UIResume();
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
   SystemResume();
 
   UISuspend();
   UIResume();
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(false);
 
@@ -1199,16 +1616,19 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UMA_Suspended_Multiple) {
   EXPECT_EQ(2, samples->GetCount(2));  // UI
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UMA_Suspended_Crossing) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       UMA_Suspended_Crossing) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   UISuspend();
   SystemSuspend(true);
   SystemSuspend(false);
   UIResume();
+  ResolveAudioFocusSuccess();
 
   SystemSuspend(true);
   SystemSuspend(true);
@@ -1223,12 +1643,13 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UMA_Suspended_Crossing) {
   EXPECT_EQ(1, samples->GetCount(2));  // UI
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UMA_Suspended_Stop) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest, UMA_Suspended_Stop) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  ResolveAudioFocusSuccess();
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   std::unique_ptr<base::HistogramSamples> samples(
       tester.GetHistogramSamplesSinceCreation("Media.Session.Suspended"));
@@ -1238,7 +1659,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UMA_Suspended_Stop) {
   EXPECT_EQ(1, samples->GetCount(2));  // UI
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_ActiveTime_NoActivation) {
   base::HistogramTester tester;
 
@@ -1251,21 +1672,21 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(0, samples->TotalCount());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_ActiveTime_SimpleActivation) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   MediaSessionUmaHelper* media_session_uma_helper = GetMediaSessionUMAHelper();
-  base::SimpleTestTickClock* clock = new base::SimpleTestTickClock();
-  clock->SetNowTicks(base::TimeTicks::Now());
-  media_session_uma_helper->SetClockForTest(
-      std::unique_ptr<base::SimpleTestTickClock>(clock));
+  base::SimpleTestTickClock clock;
+  clock.SetNowTicks(base::TimeTicks::Now());
+  media_session_uma_helper->SetClockForTest(&clock);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
-  clock->Advance(base::TimeDelta::FromMilliseconds(1000));
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  clock.Advance(base::TimeDelta::FromMilliseconds(1000));
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   std::unique_ptr<base::HistogramSamples> samples(
       tester.GetHistogramSamplesSinceCreation("Media.Session.ActiveTime"));
@@ -1273,27 +1694,28 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(1, samples->GetCount(1000));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_ActiveTime_ActivationWithUISuspension) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   MediaSessionUmaHelper* media_session_uma_helper = GetMediaSessionUMAHelper();
-  base::SimpleTestTickClock* clock = new base::SimpleTestTickClock();
-  clock->SetNowTicks(base::TimeTicks::Now());
-  media_session_uma_helper->SetClockForTest(
-      std::unique_ptr<base::SimpleTestTickClock>(clock));
+  base::SimpleTestTickClock clock;
+  clock.SetNowTicks(base::TimeTicks::Now());
+  media_session_uma_helper->SetClockForTest(&clock);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
-  clock->Advance(base::TimeDelta::FromMilliseconds(1000));
+  clock.Advance(base::TimeDelta::FromMilliseconds(1000));
   UISuspend();
 
-  clock->Advance(base::TimeDelta::FromMilliseconds(2000));
+  clock.Advance(base::TimeDelta::FromMilliseconds(2000));
   UIResume();
+  ResolveAudioFocusSuccess();
 
-  clock->Advance(base::TimeDelta::FromMilliseconds(1000));
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  clock.Advance(base::TimeDelta::FromMilliseconds(1000));
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   std::unique_ptr<base::HistogramSamples> samples(
       tester.GetHistogramSamplesSinceCreation("Media.Session.ActiveTime"));
@@ -1301,27 +1723,27 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(1, samples->GetCount(2000));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_ActiveTime_ActivationWithSystemSuspension) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   MediaSessionUmaHelper* media_session_uma_helper = GetMediaSessionUMAHelper();
-  base::SimpleTestTickClock* clock = new base::SimpleTestTickClock();
-  clock->SetNowTicks(base::TimeTicks::Now());
-  media_session_uma_helper->SetClockForTest(
-      std::unique_ptr<base::SimpleTestTickClock>(clock));
+  base::SimpleTestTickClock clock;
+  clock.SetNowTicks(base::TimeTicks::Now());
+  media_session_uma_helper->SetClockForTest(&clock);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
-  clock->Advance(base::TimeDelta::FromMilliseconds(1000));
+  clock.Advance(base::TimeDelta::FromMilliseconds(1000));
   SystemSuspend(true);
 
-  clock->Advance(base::TimeDelta::FromMilliseconds(2000));
+  clock.Advance(base::TimeDelta::FromMilliseconds(2000));
   SystemResume();
 
-  clock->Advance(base::TimeDelta::FromMilliseconds(1000));
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  clock.Advance(base::TimeDelta::FromMilliseconds(1000));
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   std::unique_ptr<base::HistogramSamples> samples(
       tester.GetHistogramSamplesSinceCreation("Media.Session.ActiveTime"));
@@ -1329,19 +1751,19 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(1, samples->GetCount(2000));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_ActiveTime_ActivateSuspendedButNotStopped) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   MediaSessionUmaHelper* media_session_uma_helper = GetMediaSessionUMAHelper();
-  base::SimpleTestTickClock* clock = new base::SimpleTestTickClock();
-  clock->SetNowTicks(base::TimeTicks::Now());
-  media_session_uma_helper->SetClockForTest(
-      std::unique_ptr<base::SimpleTestTickClock>(clock));
+  base::SimpleTestTickClock clock;
+  clock.SetNowTicks(base::TimeTicks::Now());
+  media_session_uma_helper->SetClockForTest(&clock);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
-  clock->Advance(base::TimeDelta::FromMilliseconds(500));
+  ResolveAudioFocusSuccess();
+  clock.Advance(base::TimeDelta::FromMilliseconds(500));
   SystemSuspend(true);
 
   {
@@ -1351,7 +1773,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   }
 
   SystemResume();
-  clock->Advance(base::TimeDelta::FromMilliseconds(5000));
+  clock.Advance(base::TimeDelta::FromMilliseconds(5000));
   UISuspend();
 
   {
@@ -1361,26 +1783,27 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   }
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_ActiveTime_ActivateSuspendStopTwice) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   MediaSessionUmaHelper* media_session_uma_helper = GetMediaSessionUMAHelper();
-  base::SimpleTestTickClock* clock = new base::SimpleTestTickClock();
-  clock->SetNowTicks(base::TimeTicks::Now());
-  media_session_uma_helper->SetClockForTest(
-      std::unique_ptr<base::SimpleTestTickClock>(clock));
+  base::SimpleTestTickClock clock;
+  clock.SetNowTicks(base::TimeTicks::Now());
+  media_session_uma_helper->SetClockForTest(&clock);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
-  clock->Advance(base::TimeDelta::FromMilliseconds(500));
+  ResolveAudioFocusSuccess();
+  clock.Advance(base::TimeDelta::FromMilliseconds(500));
   SystemSuspend(true);
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
-  clock->Advance(base::TimeDelta::FromMilliseconds(5000));
+  ResolveAudioFocusSuccess();
+  clock.Advance(base::TimeDelta::FromMilliseconds(5000));
   SystemResume();
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   std::unique_ptr<base::HistogramSamples> samples(
       tester.GetHistogramSamplesSinceCreation("Media.Session.ActiveTime"));
@@ -1389,24 +1812,25 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(1, samples->GetCount(5000));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        UMA_ActiveTime_MultipleActivations) {
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>();
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
   base::HistogramTester tester;
 
   MediaSessionUmaHelper* media_session_uma_helper = GetMediaSessionUMAHelper();
-  base::SimpleTestTickClock* clock = new base::SimpleTestTickClock();
-  clock->SetNowTicks(base::TimeTicks::Now());
-  media_session_uma_helper->SetClockForTest(
-      std::unique_ptr<base::SimpleTestTickClock>(clock));
+  base::SimpleTestTickClock clock;
+  clock.SetNowTicks(base::TimeTicks::Now());
+  media_session_uma_helper->SetClockForTest(&clock);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
-  clock->Advance(base::TimeDelta::FromMilliseconds(10000));
+  ResolveAudioFocusSuccess();
+  clock.Advance(base::TimeDelta::FromMilliseconds(10000));
   RemovePlayer(player_observer.get(), 0);
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
-  clock->Advance(base::TimeDelta::FromMilliseconds(1000));
-  media_session_->Stop(MediaSession::SuspendType::UI);
+  ResolveAudioFocusSuccess();
+  clock.Advance(base::TimeDelta::FromMilliseconds(1000));
+  media_session_->Stop(MediaSession::SuspendType::kUI);
 
   std::unique_ptr<base::HistogramSamples> samples(
       tester.GetHistogramSamplesSinceCreation("Media.Session.ActiveTime"));
@@ -1415,7 +1839,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_EQ(1, samples->GetCount(10000));
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        AddingObserverNotifiesCurrentInformation_EmptyInfo) {
   media_session_->RemoveObserver(mock_media_session_observer());
   EXPECT_CALL(*mock_media_session_observer(),
@@ -1424,30 +1848,37 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
               MediaSessionMetadataChanged(Eq(base::nullopt)));
   EXPECT_CALL(*mock_media_session_observer(),
               MediaSessionActionsChanged(
-                  Eq(std::set<blink::mojom::MediaSessionAction>())));
+                  Eq(std::set<media_session::mojom::MediaSessionAction>())));
   media_session_->AddObserver(mock_media_session_observer());
 }
 
-IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        AddingObserverNotifiesCurrentInformation_WithInfo) {
   // Set up the service and information.
   EnsureMediaSessionService();
 
-  content::MediaMetadata metadata;
+  media_session::MediaMetadata metadata;
   metadata.title = base::ASCIIToUTF16("title");
   metadata.artist = base::ASCIIToUTF16("artist");
   metadata.album = base::ASCIIToUTF16("album");
   mock_media_session_service_->SetMetadata(metadata);
 
   mock_media_session_service_->EnableAction(
-      blink::mojom::MediaSessionAction::PLAY);
-  std::set<blink::mojom::MediaSessionAction> expectedActions =
+      media_session::mojom::MediaSessionAction::kSeekForward);
+  std::set<media_session::mojom::MediaSessionAction> expectedActions =
       mock_media_session_service_->actions();
 
+  // These actions are provided by media session automatically if we are
+  // controllable.
+  expectedActions.insert(media_session::mojom::MediaSessionAction::kPlay);
+  expectedActions.insert(media_session::mojom::MediaSessionAction::kPause);
+  expectedActions.insert(media_session::mojom::MediaSessionAction::kStop);
+
   // Make sure the service is routed,
-  auto player_observer = base::MakeUnique<MockMediaSessionPlayerObserver>(
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
       shell()->web_contents()->GetMainFrame());
   StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  ResolveAudioFocusSuccess();
 
   // Check if the expectations are met when the observer is newly added.
   media_session_->RemoveObserver(mock_media_session_observer());
@@ -1458,4 +1889,265 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
   EXPECT_CALL(*mock_media_session_observer(),
               MediaSessionActionsChanged(Eq(expectedActions)));
   media_session_->AddObserver(mock_media_session_observer());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       AddingMojoObserverNotifiesCurrentInformation_EmptyInfo) {
+  media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
+
+  media_session::MediaMetadata expected_metadata;
+  expected_metadata.source_title = GetExpectedSourceTitle();
+  EXPECT_EQ(expected_metadata, observer.WaitForMetadata());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       AddingMojoObserverNotifiesCurrentInformation_WithInfo) {
+  // Set up the service and information.
+  EnsureMediaSessionService();
+
+  media_session::MediaMetadata metadata;
+  metadata.title = base::ASCIIToUTF16("title");
+  metadata.artist = base::ASCIIToUTF16("artist");
+  metadata.album = base::ASCIIToUTF16("album");
+  mock_media_session_service_->SetMetadata(metadata);
+
+  // Make sure the service is routed,
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
+      shell()->web_contents()->GetMainFrame());
+
+  {
+    media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
+    StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+    ResolveAudioFocusSuccess();
+
+    metadata.source_title = GetExpectedSourceTitle();
+    EXPECT_EQ(metadata, observer.WaitForNonEmptyMetadata());
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplSyncBrowserTest,
+                       PepperPlayerNotAddedIfFocusFailed) {
+  SetSyncAudioFocusResult(AudioFocusDelegate::AudioFocusResult::kFailed);
+
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+  int player_id = player_observer->StartNewPlayer();
+
+  EXPECT_FALSE(AddPlayer(player_observer.get(), player_id,
+                         media::MediaContentType::Pepper));
+
+  EXPECT_FALSE(media_session_->HasPepper());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_RequestFailure_Gain) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+  EXPECT_TRUE(IsActive());
+
+  // The gain request failed so we should suspend the whole session.
+  ResolveAudioFocusFailure();
+  EXPECT_FALSE(player_observer->IsPlaying(0));
+  EXPECT_FALSE(player_observer->IsPlaying(1));
+  EXPECT_FALSE(IsActive());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_FALSE(player_observer->IsPlaying(0));
+  EXPECT_FALSE(player_observer->IsPlaying(1));
+  EXPECT_FALSE(IsActive());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+                       Async_RequestFailure_GainTransient) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+  EXPECT_TRUE(IsActive());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+  EXPECT_TRUE(IsActive());
+
+  // A transient audio focus failure should only affect transient players.
+  ResolveAudioFocusFailure();
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_FALSE(player_observer->IsPlaying(1));
+  EXPECT_TRUE(IsActive());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_GainThenTransient) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_TransientThenGain) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
+                       Async_SuspendBeforeResolve) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  SystemSuspend(true);
+  EXPECT_FALSE(player_observer->IsPlaying(0));
+  EXPECT_FALSE(IsActive());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_FALSE(player_observer->IsPlaying(0));
+  EXPECT_FALSE(IsActive());
+
+  SystemResume();
+  EXPECT_TRUE(IsActive());
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_ResumeBeforeResolve) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_TRUE(IsActive());
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  UISuspend();
+  EXPECT_FALSE(IsActive());
+  EXPECT_FALSE(player_observer->IsPlaying(0));
+
+  UIResume();
+  EXPECT_TRUE(IsActive());
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(IsActive());
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  ResolveAudioFocusFailure();
+  EXPECT_FALSE(IsActive());
+  EXPECT_FALSE(player_observer->IsPlaying(0));
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_RemoveBeforeResolve) {
+  {
+    auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+    EXPECT_CALL(*mock_audio_focus_delegate(), AbandonAudioFocus());
+    StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+    EXPECT_TRUE(player_observer->IsPlaying(0));
+
+    RemovePlayer(player_observer.get(), 0);
+  }
+
+  ResolveAudioFocusSuccess();
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_StopBeforeResolve) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+
+  media_session_->Stop(MediaSession::SuspendType::kUI);
+  ResolveAudioFocusSuccess();
+
+  EXPECT_FALSE(player_observer->IsPlaying(0));
+  EXPECT_FALSE(player_observer->IsPlaying(1));
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_Unducking_Failure) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_TRUE(IsActive());
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  SystemStartDucking();
+  EXPECT_TRUE(IsDucking());
+
+  ResolveAudioFocusFailure();
+  EXPECT_TRUE(IsDucking());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_Unducking_Inactive) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_TRUE(IsActive());
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  media_session_->Stop(MediaSession::SuspendType::kUI);
+  SystemStartDucking();
+  EXPECT_TRUE(IsDucking());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(IsDucking());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_Unducking_Success) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_TRUE(IsActive());
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  SystemStartDucking();
+  EXPECT_TRUE(IsDucking());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_FALSE(IsDucking());
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, Async_Unducking_Suspended) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
+  EXPECT_TRUE(IsActive());
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+
+  UISuspend();
+  SystemStartDucking();
+  EXPECT_TRUE(IsDucking());
+
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(IsDucking());
 }

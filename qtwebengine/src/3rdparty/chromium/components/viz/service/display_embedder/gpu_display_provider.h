@@ -10,6 +10,7 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "build/build_config.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/service/display_embedder/display_provider.h"
 #include "components/viz/service/viz_service_export.h"
@@ -17,35 +18,78 @@
 #include "gpu/ipc/common/surface_handle.h"
 #include "gpu/ipc/in_process_command_buffer.h"
 
+#if defined(OS_WIN)
+#include "components/viz/service/display_embedder/output_device_backing.h"
+#endif
+
 namespace gpu {
-class GpuChannelManager;
+class CommandBufferTaskExecutor;
+class GpuChannelManagerDelegate;
+class GpuMemoryBufferManager;
 class ImageFactory;
 }  // namespace gpu
 
 namespace viz {
 class Display;
+class ExternalBeginFrameSource;
+class GpuServiceImpl;
+class ServerSharedBitmapManager;
+class SoftwareOutputDevice;
 
 // In-process implementation of DisplayProvider.
-class VIZ_SERVICE_EXPORT GpuDisplayProvider
-    : public NON_EXPORTED_BASE(DisplayProvider) {
+class VIZ_SERVICE_EXPORT GpuDisplayProvider : public DisplayProvider {
  public:
   GpuDisplayProvider(
-      scoped_refptr<gpu::InProcessCommandBuffer::Service> gpu_service,
-      gpu::GpuChannelManager* gpu_channel_manager);
+      uint32_t restart_id,
+      GpuServiceImpl* gpu_service_impl,
+      scoped_refptr<gpu::CommandBufferTaskExecutor> task_executor,
+      gpu::GpuChannelManagerDelegate* gpu_channel_manager_delegate,
+      std::unique_ptr<gpu::GpuMemoryBufferManager> gpu_memory_buffer_manager,
+      gpu::ImageFactory* image_factory,
+      ServerSharedBitmapManager* server_shared_bitmap_manager,
+      bool headless,
+      bool wait_for_all_pipeline_stages_before_draw);
+  // Software compositing only.
+  GpuDisplayProvider(uint32_t restart_id,
+                     ServerSharedBitmapManager* server_shared_bitmap_manager,
+                     bool headless,
+                     bool wait_for_all_pipeline_stages_before_draw);
   ~GpuDisplayProvider() override;
 
-  // DisplayProvider:
+  // DisplayProvider implementation.
   std::unique_ptr<Display> CreateDisplay(
       const FrameSinkId& frame_sink_id,
       gpu::SurfaceHandle surface_handle,
-      std::unique_ptr<cc::BeginFrameSource>* begin_frame_source) override;
+      bool gpu_compositing,
+      mojom::DisplayClient* display_client,
+      ExternalBeginFrameSource* external_begin_frame_source,
+      SyntheticBeginFrameSource* synthetic_begin_frame_source,
+      const RendererSettings& renderer_settings,
+      bool send_swap_size_notifications) override;
+  uint32_t GetRestartId() const override;
 
  private:
-  scoped_refptr<gpu::InProcessCommandBuffer::Service> gpu_service_;
+  std::unique_ptr<SoftwareOutputDevice> CreateSoftwareOutputDeviceForPlatform(
+      gpu::SurfaceHandle surface_handle,
+      mojom::DisplayClient* display_client);
+
+  const uint32_t restart_id_;
+  GpuServiceImpl* const gpu_service_impl_;
+  scoped_refptr<gpu::CommandBufferTaskExecutor> task_executor_;
+  gpu::GpuChannelManagerDelegate* const gpu_channel_manager_delegate_;
   std::unique_ptr<gpu::GpuMemoryBufferManager> gpu_memory_buffer_manager_;
-  gpu::ImageFactory* image_factory_;
+  gpu::ImageFactory* const image_factory_;
+  ServerSharedBitmapManager* const server_shared_bitmap_manager_;
+
+#if defined(OS_WIN)
+  // Used for software compositing output on Windows.
+  OutputDeviceBacking output_device_backing_;
+#endif
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  const bool headless_;
+  const bool wait_for_all_pipeline_stages_before_draw_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuDisplayProvider);
 };

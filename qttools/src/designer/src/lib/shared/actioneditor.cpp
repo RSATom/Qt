@@ -39,34 +39,34 @@
 #include "formwindowbase_p.h"
 #include "qdesigner_taskmenu_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QSplitter>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QApplication>
-#ifndef QT_NO_CLIPBOARD
-#include <QtGui/QClipboard>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qapplication.h>
+#if QT_CONFIG(clipboard)
+#include <QtGui/qclipboard.h>
 #endif
-#include <QtWidgets/QItemDelegate>
-#include <QtGui/QPainter>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QToolButton>
-#include <QtGui/QContextMenuEvent>
-#include <QtCore/QItemSelection>
+#include <QtWidgets/qitemdelegate.h>
+#include <QtGui/qpainter.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtGui/qevent.h>
+#include <QtCore/qitemselectionmodel.h>
 
-#include <QtCore/QRegularExpression>
-#include <QtCore/QDebug>
-#include <QtCore/QBuffer>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qbuffer.h>
 
 Q_DECLARE_METATYPE(QAction*)
 
@@ -89,7 +89,7 @@ public:
     ActionGroupDelegate(QObject *parent)
         : QItemDelegate(parent) {}
 
-    virtual void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         if (option.state & QStyle::State_Selected)
             painter->fillRect(option.rect, option.palette.highlight());
@@ -97,7 +97,7 @@ public:
         QItemDelegate::paint(painter, option, index);
     }
 
-    virtual void drawFocus(QPainter * /*painter*/, const QStyleOptionViewItem &/*option*/, const QRect &/*rect*/) const {}
+    void drawFocus(QPainter *, const QStyleOptionViewItem &, const QRect &) const override {}
 };
 
 //--------  ActionEditor
@@ -111,7 +111,7 @@ ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, 
     m_actionNew(new QAction(tr("New..."), this)),
     m_actionEdit(new QAction(tr("Edit..."), this)),
     m_actionNavigateToSlot(new QAction(tr("Go to slot..."), this)),
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     m_actionCopy(new QAction(tr("Copy"), this)),
     m_actionCut(new QAction(tr("Cut"), this)),
     m_actionPaste(new QAction(tr("Paste"), this)),
@@ -128,7 +128,7 @@ ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, 
     setWindowTitle(tr("Actions"));
 
     QVBoxLayout *l = new QVBoxLayout(this);
-    l->setMargin(0);
+    l->setContentsMargins(QMargins());
     l->setSpacing(0);
 
     QToolBar *toolbar = new QToolBar;
@@ -144,7 +144,7 @@ ActionEditor::ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent, 
 
     connect(m_actionSelectAll, &QAction::triggered, m_actionView, &ActionView::selectAll);
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     m_actionCut->setEnabled(false);
     connect(m_actionCut, &QAction::triggered, this, &ActionEditor::slotCut);
     QIcon editCutIcon = QIcon::fromTheme(QStringLiteral("edit-cut"), createIconSet(QStringLiteral("editcut.png")));
@@ -296,7 +296,7 @@ void ActionEditor::setFormWindow(QDesignerFormWindowInterface *formWindow)
     m_actionView->model()->clearActions();
 
     m_actionEdit->setEnabled(false);
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     m_actionCopy->setEnabled(false);
     m_actionCut->setEnabled(false);
 #endif
@@ -326,7 +326,7 @@ void ActionEditor::setFormWindow(QDesignerFormWindowInterface *formWindow)
 void  ActionEditor::slotSelectionChanged(const QItemSelection& selected, const QItemSelection& /*deselected*/)
 {
     const bool hasSelection = !selected.indexes().empty();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     m_actionCopy->setEnabled(hasSelection);
     m_actionCut->setEnabled(hasSelection);
 #endif
@@ -613,7 +613,7 @@ void ActionEditor::deleteActions(QDesignerFormWindowInterface *fw, const ActionL
     fw->endCommand();
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void ActionEditor::copyActions(QDesignerFormWindowInterface *fwi, const ActionList &actions)
 {
     FormWindowBase *fw = qobject_cast<FormWindowBase *>(fwi);
@@ -776,7 +776,7 @@ void ActionEditor::updateViewModeActions()
     }
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void ActionEditor::slotCopy()
 {
     QDesignerFormWindowInterface *fw = formWindow();
@@ -836,7 +836,7 @@ void ActionEditor::slotContextMenuRequested(QContextMenuEvent *e, QAction *item)
     }
 
     menu.addSeparator();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     menu.addAction(m_actionCut);
     menu.addAction(m_actionCopy);
     menu.addAction(m_actionPaste);

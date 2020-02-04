@@ -72,6 +72,7 @@ private slots:
     void setLabelsFormat();
     void setLabelsPosition();
     void setLabelsAngle();
+    void setLabelsPrecision();
     void opacity();
     void mouseclicked_data();
     void mouseclicked();
@@ -430,6 +431,19 @@ void tst_QBarSeries::setLabelsAngle()
     QCOMPARE(m_barseries->labelsAngle(), 55.0);
 }
 
+void tst_QBarSeries::setLabelsPrecision()
+{
+    QSignalSpy labelsPrecisionSpy(m_barseries,
+                             SIGNAL(labelsPrecisionChanged(int)));
+    QCOMPARE(m_barseries->labelsPrecision(), 6);
+
+    m_barseries->setLabelsPrecision(9);
+    TRY_COMPARE(labelsPrecisionSpy.count(), 1);
+    QList<QVariant> arguments = labelsPrecisionSpy.takeFirst();
+    QVERIFY(arguments.at(0).value<int>() == 9);
+    QCOMPARE(m_barseries->labelsPrecision(), 9);
+}
+
 void tst_QBarSeries::opacity()
 {
     QSignalSpy opacitySpy(m_barseries, SIGNAL(opacityChanged()));
@@ -477,7 +491,7 @@ void tst_QBarSeries::mouseclicked()
     view.resize(400,300);
     view.chart()->addSeries(series);
     view.show();
-    QTest::qWaitForWindowShown(&view);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
 
     // Calculate expected layout for bars
     QRectF plotArea = view.chart()->plotArea();
@@ -656,7 +670,7 @@ void tst_QBarSeries::mousehovered()
     view.resize(400,300);
     view.chart()->addSeries(series);
     view.show();
-    QTest::qWaitForWindowShown(&view);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
 
     //this is hack since view does not get events otherwise
     view.setMouseTracking(true);
@@ -1003,7 +1017,7 @@ void tst_QBarSeries::mousePressed()
     view.resize(400,300);
     view.chart()->addSeries(series);
     view.show();
-    QTest::qWaitForWindowShown(&view);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
 
     // Calculate expected layout for bars
     QRectF plotArea = view.chart()->plotArea();
@@ -1168,7 +1182,7 @@ void tst_QBarSeries::mouseReleased()
     view.resize(400,300);
     view.chart()->addSeries(series);
     view.show();
-    QTest::qWaitForWindowShown(&view);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
 
     // Calculate expected layout for bars
     QRectF plotArea = view.chart()->plotArea();
@@ -1333,7 +1347,7 @@ void tst_QBarSeries::mouseDoubleClicked()
     view.resize(400,300);
     view.chart()->addSeries(series);
     view.show();
-    QTest::qWaitForWindowShown(&view);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
 
     // Calculate expected layout for bars
     QRectF plotArea = view.chart()->plotArea();

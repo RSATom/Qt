@@ -8,90 +8,79 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/optional.h"
 #include "media/audio/audio_device_description.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/media_export.h"
 
-namespace base {
-class SingleThreadTaskRunner;
-}
-
 namespace media {
-class AudioManager;
 
-// Work in progress: Provides asynchronous interface to AudioManager. All the
-// AudioManager clients will be switched to it, in preparation for moving
-// to Mojo audio service.
+// Provides asynchronous interface to access audio device information
 class MEDIA_EXPORT AudioSystem {
  public:
-  // Replies are asynchronously sent from audio system thread to the thread the
-  // call is issued on. Attention! Audio system thread may outlive the client
+  // Replies are sent asynchronously to the thread the calls are issued on.
+  // Instance is bound to the thread it's called on the first time.
+  // Attention! Audio system thread may outlive the client
   // objects; bind callbacks with care.
+
+  // Non-empty optional AudioParameters are guaranteed to be valid.
+  // If optional AudioParameters are empty, it means the specified device is not
+  // found. This is best-effort: non-empty parameters do not guarantee existence
+  // of the device.
+  // TODO(olka,tommi): fix all AudioManager implementations to always report
+  // when a device is not found, instead of returning sub parameter values.
+  // Non-empty optional matched output device id is guaranteed to be a non-empty
+  // std::string. If optional matched output device id is empty, it means there
+  // is no associated output device.
   using OnAudioParamsCallback =
-      base::OnceCallback<void(const AudioParameters&)>;
+      base::OnceCallback<void(const base::Optional<AudioParameters>&)>;
+  using OnDeviceIdCallback =
+      base::OnceCallback<void(const base::Optional<std::string>&)>;
+  using OnInputDeviceInfoCallback =
+      base::OnceCallback<void(const base::Optional<AudioParameters>&,
+                              const base::Optional<std::string>&)>;
+
   using OnBoolCallback = base::OnceCallback<void(bool)>;
   using OnDeviceDescriptionsCallback =
       base::OnceCallback<void(AudioDeviceDescriptions)>;
-  using OnDeviceIdCallback = base::OnceCallback<void(const std::string&)>;
-  using OnInputDeviceInfoCallback = base::OnceCallback<
-      void(const AudioParameters&, const AudioParameters&, const std::string&)>;
 
-  // Must not be called on audio system thread if it differs from the one
-  // AudioSystem is destroyed on. See http://crbug.com/705455.
-  static AudioSystem* Get();
+  virtual ~AudioSystem() = default;
 
-  virtual ~AudioSystem();
+  virtual void GetInputStreamParameters(const std::string& device_id,
+                                        OnAudioParamsCallback on_params_cb) = 0;
 
-  // Callback may receive invalid parameters, it means the specified device is
-  // not found. This is best-effort: valid parameters do not guarantee existence
-  // of the device.
-  // TODO(olka,tommi): fix all AudioManager implementations to return invalid
-  // parameters if the device is not found.
-  virtual void GetInputStreamParameters(
-      const std::string& device_id,
-      OnAudioParamsCallback on_params_cb) const = 0;
-
-  // If media::AudioDeviceDescription::IsDefaultDevice(device_id) is true,
-  // callback will receive the parameters of the default output device.
-  // Callback may receive invalid parameters, it means the specified device is
-  // not found. This is best-effort: valid parameters do not guarantee existence
-  // of the device.
-  // TODO(olka,tommi): fix all AudioManager implementations to return invalid
-  // parameters if the device is not found.
   virtual void GetOutputStreamParameters(
       const std::string& device_id,
-      OnAudioParamsCallback on_params_cb) const = 0;
+      OnAudioParamsCallback on_params_cb) = 0;
 
-  virtual void HasInputDevices(OnBoolCallback on_has_devices_cb) const = 0;
+  virtual void HasInputDevices(OnBoolCallback on_has_devices_cb) = 0;
 
-  virtual void HasOutputDevices(OnBoolCallback on_has_devices_cb) const = 0;
+  virtual void HasOutputDevices(OnBoolCallback on_has_devices_cb) = 0;
 
   // Replies with device descriptions of input audio devices if |for_input| is
   // true, and of output audio devices otherwise.
   virtual void GetDeviceDescriptions(
-      OnDeviceDescriptionsCallback on_descriptions_cb,
-      bool for_input) = 0;
+      bool for_input,
+      OnDeviceDescriptionsCallback on_descriptions_cb) = 0;
 
-  // Replies with an empty string if there is no associated output device found.
+  // Replies with an empty optional if there is no associated output device
+  // found and a non-empty string otherwise.
   virtual void GetAssociatedOutputDeviceID(
       const std::string& input_device_id,
       OnDeviceIdCallback on_device_id_cb) = 0;
 
-  // Replies with audio parameters for the specified input device and audio
-  // parameters and device ID of the associated output device, if any (otherwise
-  // it's AudioParameters() and an empty string).
+  // Replies with audio parameters for the specified input device and
+  // device ID of the associated output device, if any (otherwise
+  // the associated output device ID is an empty optional).
   virtual void GetInputDeviceInfo(
       const std::string& input_device_id,
       OnInputDeviceInfoCallback on_input_device_info_cb) = 0;
 
-  virtual base::SingleThreadTaskRunner* GetTaskRunner() const = 0;
-
- protected:
-  // Sets the global AudioSystem pointer to the specified non-null value.
-  static void SetInstance(AudioSystem* audio_system);
-
-  // Sets the global AudioSystem pointer to null if it equals the specified one.
-  static void ClearInstance(const AudioSystem* audio_system);
+  // This function wraps |callback| with a call to
+  // AudioDeviceDescription::LocalizeDeviceDescriptions for convenience. This is
+  // typically used by AudioSystem implementations, not AudioSystem clients.
+  static OnDeviceDescriptionsCallback WrapCallbackWithDeviceNameLocalization(
+      OnDeviceDescriptionsCallback callback);
 };
 
 }  // namespace media

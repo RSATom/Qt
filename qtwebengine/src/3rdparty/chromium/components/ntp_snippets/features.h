@@ -24,15 +24,20 @@ namespace ntp_snippets {
 // If you add a base::Feature below, you must add it to this list. It is used in
 // internal pages to list relevant parameters and settings.
 //
-extern const base::Feature*(kAllFeatures[]);
+extern const base::Feature* const kAllFeatures[];
 
-// Features to turn individual providers/categories on/off.
-// TODO(jkrcal): Rename to kRemoteSuggestionsFeature.
-extern const base::Feature kArticleSuggestionsFeature;
+////////////////////////////////////////////////////////////////////////////////
+// Dependent features.
+// DO NOT check directly whether these features are enabled (i.e. do
+// not use base::FeatureList::IsEnabled()). They are enabled conditionally. Use
+// helpers in chrome/browser/ntp_snippets/dependent_features.h instead.
+
 extern const base::Feature kBookmarkSuggestionsFeature;
-extern const base::Feature kRecentOfflineTabSuggestionsFeature;
-extern const base::Feature kPhysicalWebPageSuggestionsFeature;
-extern const base::Feature kForeignSessionsSuggestionsFeature;
+
+////////////////////////////////////////////////////////////////////////////////
+// Independent features. Treat as normal
+
+extern const base::Feature kArticleSuggestionsFeature;
 
 // Feature to allow UI as specified here: https://crbug.com/660837.
 extern const base::Feature kIncreasedVisibility;
@@ -46,10 +51,10 @@ extern const base::Feature kCategoryRanker;
 // Feature to allow the new Google favicon server for fetching publisher icons.
 extern const base::Feature kPublisherFaviconsFromNewServerFeature;
 
-// Feature for simple experimental comparision and validation of changes since
+// Feature for simple experimental comparison and validation of changes since
 // M58: enabling this brings back the M58 Stable fetching schedule (which is
 // suitable for Holdback groups).
-// TODO(jkrcal): Remove when the comparision is done (probably after M62).
+// TODO(jkrcal): Remove when the comparison is done (probably after M62).
 extern const base::Feature kRemoteSuggestionsEmulateM58FetchingSchedule;
 
 // Parameter and its values for the kCategoryRanker feature flag.
@@ -62,13 +67,15 @@ enum class CategoryRankerChoice {
   CLICK_BASED,
 };
 
-// Returns which CategoryRanker to use according to kCategoryRanker feature.
-CategoryRankerChoice GetSelectedCategoryRanker();
+// Returns which CategoryRanker to use according to kCategoryRanker feature and
+// Chrome Home.
+CategoryRankerChoice GetSelectedCategoryRanker(bool is_chrome_home_enabled);
 
-// Builds a CategoryRanker according to kCategoryRanker feature.
+// Builds a CategoryRanker according to kCategoryRanker feature and Chrome Home.
 std::unique_ptr<CategoryRanker> BuildSelectedCategoryRanker(
     PrefService* pref_service,
-    std::unique_ptr<base::Clock> clock);
+    base::Clock* clock,
+    bool is_chrome_home_enabled);
 
 // Feature to choose a default category order.
 extern const base::Feature kCategoryOrder;
@@ -123,6 +130,14 @@ constexpr int kNotificationsIgnoredDefaultLimit = 3;
 // have been fetched.
 extern const base::Feature kKeepPrefetchedContentSuggestions;
 
+// Enables debug logging accessible through snippets-internals.
+extern const base::Feature kContentSuggestionsDebugLog;
+
+// Return all the features as a vector.
+std::vector<const base::Feature*> GetAllFeatures();
+
+// Return a referrer URL for content suggestions.
+std::string GetContentSuggestionsReferrerURL();
 }  // namespace ntp_snippets
 
 #endif  // COMPONENTS_NTP_SNIPPETS_FEATURES_H_

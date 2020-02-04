@@ -133,7 +133,8 @@
 
     \list
     \li The socket's cryptographic cipher suite can be customized before
-    the handshake phase with setCiphers() and setDefaultCiphers().
+    the handshake phase with QSslConfiguration::setCiphers()
+    and QSslConfiguration::setDefaultCiphers().
     \li The socket's local certificate and private key can be customized
     before the handshake phase with setLocalCertificate() and
     setPrivateKey().
@@ -202,6 +203,7 @@
     does not require this certificate to be valid. This is useful when you
     want to display peer certificate details to the user without affecting the
     actual SSL handshake. This mode is the default for servers.
+    Note: In Schannel this value acts the same as VerifyNone.
 
     \value VerifyPeer QSslSocket will request a certificate from the peer
     during the SSL handshake phase, and requires that this certificate is
@@ -215,7 +217,7 @@
 */
 
 /*!
-    \fn QSslSocket::encrypted()
+    \fn void QSslSocket::encrypted()
 
     This signal is emitted when QSslSocket enters encrypted mode. After this
     signal has been emitted, QSslSocket::isEncrypted() will return true, and
@@ -225,7 +227,7 @@
 */
 
 /*!
-    \fn QSslSocket::modeChanged(QSslSocket::SslMode mode)
+    \fn void QSslSocket::modeChanged(QSslSocket::SslMode mode)
 
     This signal is emitted when QSslSocket changes from \l
     QSslSocket::UnencryptedMode to either \l QSslSocket::SslClientMode or \l
@@ -235,7 +237,7 @@
 */
 
 /*!
-    \fn QSslSocket::encryptedBytesWritten(qint64 written)
+    \fn void QSslSocket::encryptedBytesWritten(qint64 written)
     \since 4.4
 
     This signal is emitted when QSslSocket writes its encrypted data to the
@@ -312,6 +314,7 @@
 #include "qssl_p.h"
 #include "qsslsocket.h"
 #include "qsslcipher.h"
+#include "qocspresponse.h"
 #ifndef QT_NO_OPENSSL
 #include "qsslsocket_openssl_p.h"
 #endif
@@ -320,6 +323,9 @@
 #endif
 #ifdef QT_SECURETRANSPORT
 #include "qsslsocket_mac_p.h"
+#endif
+#if QT_CONFIG(schannel)
+#include "qsslsocket_schannel_p.h"
 #endif
 #include "qsslconfiguration_p.h"
 
@@ -336,12 +342,20 @@ QT_BEGIN_NAMESPACE
 class QSslSocketGlobalData
 {
 public:
-    QSslSocketGlobalData() : config(new QSslConfigurationPrivate) {}
+    QSslSocketGlobalData()
+        : config(new QSslConfigurationPrivate),
+          dtlsConfig(new QSslConfigurationPrivate)
+    {
+#if QT_CONFIG(dtls)
+        dtlsConfig->protocol = QSsl::DtlsV1_2OrLater;
+#endif // dtls
+    }
 
     QMutex mutex;
     QList<QSslCipher> supportedCiphers;
     QVector<QSslEllipticCurve> supportedEllipticCurves;
     QExplicitlySharedDataPointer<QSslConfigurationPrivate> config;
+    QExplicitlySharedDataPointer<QSslConfigurationPrivate> dtlsConfig;
 };
 Q_GLOBAL_STATIC(QSslSocketGlobalData, globalData)
 
@@ -371,7 +385,7 @@ QSslSocket::~QSslSocket()
     qCDebug(lcSsl) << "QSslSocket::~QSslSocket(), this =" << (void *)this;
 #endif
     delete d->plainSocket;
-    d->plainSocket = 0;
+    d->plainSocket = nullptr;
 }
 
 /*!
@@ -388,6 +402,9 @@ QSslSocket::~QSslSocket()
 */
 void QSslSocket::resume()
 {
+    Q_D(QSslSocket);
+    if (!d->paused)
+        return;
     // continuing might emit signals, rather do this through the event loop
     QMetaObject::invokeMethod(this, "_q_resumeImplementation", Qt::QueuedConnection);
 }
@@ -442,6 +459,15 @@ void QSslSocket::connectToHostEncrypted(const QString &hostName, quint16 port, O
         return;
     }
 
+    if (!supportsSsl()) {
+        qCWarning(lcSsl, "QSslSocket::connectToHostEncrypted: TLS initialization failed");
+        d->setErrorAndEmit(QAbstractSocket::SslInternalError, tr("TLS initialization failed"));
+        return;
+    }
+
+    if (!d->verifyProtocolSupported("QSslSocket::connectToHostEncrypted:"))
+        return;
+
     d->init();
     d->autoStartHandshake = true;
     d->initialized = true;
@@ -470,6 +496,12 @@ void QSslSocket::connectToHostEncrypted(const QString &hostName, quint16 port,
     if (d->state == ConnectedState || d->state == ConnectingState) {
         qCWarning(lcSsl,
                   "QSslSocket::connectToHostEncrypted() called when already connecting/connected");
+        return;
+    }
+
+    if (!supportsSsl()) {
+        qCWarning(lcSsl, "QSslSocket::connectToHostEncrypted: TLS initialization failed");
+        d->setErrorAndEmit(QAbstractSocket::SslInternalError, tr("TLS initialization failed"));
         return;
     }
 
@@ -883,7 +915,8 @@ void QSslSocket::abort()
     time without notice.
 
     \sa localCertificate(), peerCertificate(), peerCertificateChain(),
-        sessionCipher(), privateKey(), ciphers(), caCertificates()
+        sessionCipher(), privateKey(), QSslConfiguration::ciphers(),
+        QSslConfiguration::caCertificates()
 */
 QSslConfiguration QSslSocket::sslConfiguration() const
 {
@@ -907,7 +940,8 @@ QSslConfiguration QSslSocket::sslConfiguration() const
 
     It is not possible to set the SSL-state related fields.
 
-    \sa setLocalCertificate(), setPrivateKey(), setCaCertificates(), setCiphers()
+    \sa setLocalCertificate(), setPrivateKey(), QSslConfiguration::setCaCertificates(),
+        QSslConfiguration::setCiphers()
 */
 void QSslSocket::setSslConfiguration(const QSslConfiguration &configuration)
 {
@@ -922,12 +956,16 @@ void QSslSocket::setSslConfiguration(const QSslConfiguration &configuration)
     d->configuration.peerVerifyDepth = configuration.peerVerifyDepth();
     d->configuration.peerVerifyMode = configuration.peerVerifyMode();
     d->configuration.protocol = configuration.protocol();
+    d->configuration.backendConfig = configuration.backendConfiguration();
     d->configuration.sslOptions = configuration.d->sslOptions;
     d->configuration.sslSession = configuration.sessionTicket();
     d->configuration.sslSessionTicketLifeTimeHint = configuration.sessionTicketLifeTimeHint();
     d->configuration.nextAllowedProtocols = configuration.allowedNextProtocols();
     d->configuration.nextNegotiatedProtocol = configuration.nextNegotiatedProtocol();
     d->configuration.nextProtocolNegotiationStatus = configuration.nextProtocolNegotiationStatus();
+#if QT_CONFIG(ocsp)
+    d->configuration.ocspStaplingEnabled = configuration.ocspStaplingEnabled();
+#endif
 
     // if the CA certificates were set explicitly (either via
     // QSslConfiguration::setCaCertificates() or QSslSocket::setCaCertificates(),
@@ -1089,8 +1127,10 @@ QList<QSslCertificate> QSslSocket::peerCertificateChain() const
     session cipher. This ordered list must be in place before the
     handshake phase begins.
 
-    \sa ciphers(), setCiphers(), setDefaultCiphers(), defaultCiphers(),
-    supportedCiphers()
+    \sa QSslConfiguration::ciphers(), QSslConfiguration::setCiphers(),
+        QSslConfiguration::setCiphers(),
+        QSslConfiguration::ciphers(),
+        QSslConfiguration::supportedCiphers()
 */
 QSslCipher QSslSocket::sessionCipher() const
 {
@@ -1112,6 +1152,20 @@ QSsl::SslProtocol QSslSocket::sessionProtocol() const
     return d->sessionProtocol();
 }
 
+/*!
+    \since 5.13
+
+    This function returns Online Certificate Status Protocol responses that
+    a server may send during a TLS handshake using OCSP stapling. The vector
+    is empty if no definitive response or no response at all was received.
+
+    \sa QSslConfiguration::setOcspStaplingEnabled()
+*/
+QVector<QOcspResponse> QSslSocket::ocspResponses() const
+{
+    Q_D(const QSslSocket);
+    return d->ocspResponses;
+}
 
 /*!
     Sets the socket's private \l {QSslKey} {key} to \a key. The
@@ -1174,6 +1228,7 @@ QSslKey QSslSocket::privateKey() const
     return d->configuration.privateKey;
 }
 
+#if QT_DEPRECATED_SINCE(5, 5)
 /*!
     \deprecated
 
@@ -1317,6 +1372,7 @@ QList<QSslCipher> QSslSocket::supportedCiphers()
 {
     return QSslSocketPrivate::supportedCiphers();
 }
+#endif  // #if QT_DEPRECATED_SINCE(5, 5)
 
 /*!
   Searches all files in the \a path for certificates encoded in the
@@ -1352,7 +1408,8 @@ bool QSslSocket::addCaCertificates(const QString &path, QSsl::EncodingFormat for
 
   To add multiple certificates, use addCaCertificates().
 
-  \sa caCertificates(), setCaCertificates()
+  \sa QSslConfiguration::caCertificates(),
+      QSslConfiguration::setCaCertificates()
 */
 void QSslSocket::addCaCertificate(const QSslCertificate &certificate)
 {
@@ -1367,7 +1424,7 @@ void QSslSocket::addCaCertificate(const QSslCertificate &certificate)
 
   For more precise control, use addCaCertificate().
 
-  \sa caCertificates(), addDefaultCaCertificate()
+  \sa QSslConfiguration::caCertificates(), addDefaultCaCertificate()
 */
 void QSslSocket::addCaCertificates(const QList<QSslCertificate> &certificates)
 {
@@ -1375,6 +1432,7 @@ void QSslSocket::addCaCertificates(const QList<QSslCertificate> &certificates)
     d->configuration.caCertificates += certificates;
 }
 
+#if QT_DEPRECATED_SINCE(5, 5)
 /*!
   \deprecated
 
@@ -1419,6 +1477,7 @@ QList<QSslCertificate> QSslSocket::caCertificates() const
     Q_D(const QSslSocket);
     return d->configuration.caCertificates;
 }
+#endif  // #if QT_DEPRECATED_SINCE(5, 5)
 
 /*!
     Searches all files in the \a path for certificates with the
@@ -1430,7 +1489,8 @@ QList<QSslCertificate> QSslSocket::caCertificates() const
     Each SSL socket's CA certificate database is initialized to the
     default CA certificate database.
 
-    \sa defaultCaCertificates(), addCaCertificates(), addDefaultCaCertificate()
+    \sa QSslConfiguration::caCertificates(), addCaCertificates(),
+        addDefaultCaCertificate()
 */
 bool QSslSocket::addDefaultCaCertificates(const QString &path, QSsl::EncodingFormat encoding,
                                           QRegExp::PatternSyntax syntax)
@@ -1443,7 +1503,7 @@ bool QSslSocket::addDefaultCaCertificates(const QString &path, QSsl::EncodingFor
     SSL socket's CA certificate database is initialized to the default
     CA certificate database.
 
-    \sa defaultCaCertificates(), addCaCertificates()
+    \sa QSslConfiguration::defaultCaCertificates(), addCaCertificates()
 */
 void QSslSocket::addDefaultCaCertificate(const QSslCertificate &certificate)
 {
@@ -1455,13 +1515,14 @@ void QSslSocket::addDefaultCaCertificate(const QSslCertificate &certificate)
     SSL socket's CA certificate database is initialized to the default
     CA certificate database.
 
-    \sa defaultCaCertificates(), addCaCertificates()
+    \sa QSslConfiguration::caCertificates(), addCaCertificates()
 */
 void QSslSocket::addDefaultCaCertificates(const QList<QSslCertificate> &certificates)
 {
     QSslSocketPrivate::addDefaultCaCertificates(certificates);
 }
 
+#if QT_DEPRECATED_SINCE(5, 5)
 /*!
     \deprecated
 
@@ -1529,6 +1590,7 @@ QList<QSslCertificate> QSslSocket::systemCaCertificates()
     // we are calling ensureInitialized() in the method below
     return QSslSocketPrivate::systemCaCertificates();
 }
+#endif  // #if QT_DEPRECATED_SINCE(5, 5)
 
 /*!
     Waits until the socket is connected, or \a msecs milliseconds,
@@ -1572,6 +1634,8 @@ bool QSslSocket::waitForEncrypted(int msecs)
     if (!d->plainSocket || d->connectionEncrypted)
         return false;
     if (d->mode == UnencryptedMode && !d->autoStartHandshake)
+        return false;
+    if (!d->verifyProtocolSupported("QSslSocket::waitForEncrypted:"))
         return false;
 
     QElapsedTimer stopWatch;
@@ -1816,6 +1880,16 @@ void QSslSocket::startClientEncryption()
                   "QSslSocket::startClientEncryption: cannot start handshake when not connected");
         return;
     }
+
+    if (!supportsSsl()) {
+        qCWarning(lcSsl, "QSslSocket::startClientEncryption: TLS initialization failed");
+        d->setErrorAndEmit(QAbstractSocket::SslInternalError, tr("TLS initialization failed"));
+        return;
+    }
+
+    if (!d->verifyProtocolSupported("QSslSocket::startClientEncryption:"))
+        return;
+
 #ifdef QSSLSOCKET_DEBUG
     qCDebug(lcSsl) << "QSslSocket::startClientEncryption()";
 #endif
@@ -1854,6 +1928,14 @@ void QSslSocket::startServerEncryption()
 #ifdef QSSLSOCKET_DEBUG
     qCDebug(lcSsl) << "QSslSocket::startServerEncryption()";
 #endif
+    if (!supportsSsl()) {
+        qCWarning(lcSsl, "QSslSocket::startServerEncryption: TLS initialization failed");
+        d->setErrorAndEmit(QAbstractSocket::SslInternalError, tr("TLS initialization failed"));
+        return;
+    }
+    if (!d->verifyProtocolSupported("QSslSocket::startServerEncryption"))
+        return;
+
     d->mode = SslServerMode;
     emit modeChanged(d->mode);
     d->startServerEncryption();
@@ -1939,6 +2021,7 @@ void QSslSocket::connectToHost(const QString &hostName, quint16 port, OpenMode o
         d->createPlainSocket(openMode);
     }
 #ifndef QT_NO_NETWORKPROXY
+    d->plainSocket->setProtocolTag(d->protocolTag);
     d->plainSocket->setProxy(proxy());
 #endif
     QIODevice::open(openMode);
@@ -2045,9 +2128,9 @@ QSslSocketPrivate::QSslSocketPrivate()
     , connectionEncrypted(false)
     , shutdown(false)
     , ignoreAllSslErrors(false)
-    , readyReadEmittedPointer(0)
+    , readyReadEmittedPointer(nullptr)
     , allowRootCertOnDemandLoading(true)
-    , plainSocket(0)
+    , plainSocket(nullptr)
     , paused(false)
     , flushTriggered(false)
 {
@@ -2073,6 +2156,7 @@ void QSslSocketPrivate::init()
     shutdown = false;
     pendingClose = false;
     flushTriggered = false;
+    ocspResponses.clear();
 
     // we don't want to clear the ignoreErrorsList, so
     // that it is possible setting it before connecting
@@ -2082,6 +2166,20 @@ void QSslSocketPrivate::init()
     writeBuffer.clear();
     configuration.peerCertificate.clear();
     configuration.peerCertificateChain.clear();
+}
+
+/*!
+    \internal
+*/
+bool QSslSocketPrivate::verifyProtocolSupported(const char *where)
+{
+    if (configuration.protocol == QSsl::SslV2 || configuration.protocol == QSsl::SslV3) {
+        qCWarning(lcSsl) << where << "Attempted to use an unsupported protocol.";
+        setErrorAndEmit(QAbstractSocket::SslInvalidUserDataError,
+                        QSslSocket::tr("Attempted to use an unsupported protocol."));
+        return false;
+    }
+    return true;
 }
 
 /*!
@@ -2127,6 +2225,26 @@ void QSslSocketPrivate::setDefaultSupportedCiphers(const QList<QSslCipher> &ciph
 /*!
     \internal
 */
+void q_setDefaultDtlsCiphers(const QList<QSslCipher> &ciphers)
+{
+    QMutexLocker locker(&globalData()->mutex);
+    globalData()->dtlsConfig.detach();
+    globalData()->dtlsConfig->ciphers = ciphers;
+}
+
+/*!
+    \internal
+*/
+QList<QSslCipher> q_getDefaultDtlsCiphers()
+{
+    QSslSocketPrivate::ensureInitialized();
+    QMutexLocker locker(&globalData()->mutex);
+    return globalData()->dtlsConfig->ciphers;
+}
+
+/*!
+    \internal
+*/
 QVector<QSslEllipticCurve> QSslSocketPrivate::supportedEllipticCurves()
 {
     QSslSocketPrivate::ensureInitialized();
@@ -2141,6 +2259,7 @@ void QSslSocketPrivate::setDefaultSupportedEllipticCurves(const QVector<QSslElli
 {
     const QMutexLocker locker(&globalData()->mutex);
     globalData()->config.detach();
+    globalData()->dtlsConfig.detach();
     globalData()->supportedEllipticCurves = curves;
 }
 
@@ -2163,6 +2282,8 @@ void QSslSocketPrivate::setDefaultCaCertificates(const QList<QSslCertificate> &c
     QMutexLocker locker(&globalData()->mutex);
     globalData()->config.detach();
     globalData()->config->caCertificates = certs;
+    globalData()->dtlsConfig.detach();
+    globalData()->dtlsConfig->caCertificates = certs;
     // when the certificates are set explicitly, we do not want to
     // load the system certificates on demand
     s_loadRootCertsOnDemand = false;
@@ -2182,6 +2303,8 @@ bool QSslSocketPrivate::addDefaultCaCertificates(const QString &path, QSsl::Enco
     QMutexLocker locker(&globalData()->mutex);
     globalData()->config.detach();
     globalData()->config->caCertificates += certs;
+    globalData()->dtlsConfig.detach();
+    globalData()->dtlsConfig->caCertificates += certs;
     return true;
 }
 
@@ -2194,6 +2317,8 @@ void QSslSocketPrivate::addDefaultCaCertificate(const QSslCertificate &cert)
     QMutexLocker locker(&globalData()->mutex);
     globalData()->config.detach();
     globalData()->config->caCertificates += cert;
+    globalData()->dtlsConfig.detach();
+    globalData()->dtlsConfig->caCertificates += cert;
 }
 
 /*!
@@ -2205,6 +2330,8 @@ void QSslSocketPrivate::addDefaultCaCertificates(const QList<QSslCertificate> &c
     QMutexLocker locker(&globalData()->mutex);
     globalData()->config.detach();
     globalData()->config->caCertificates += certs;
+    globalData()->dtlsConfig.detach();
+    globalData()->dtlsConfig->caCertificates += certs;
 }
 
 /*!
@@ -2256,6 +2383,37 @@ void QSslConfigurationPrivate::deepCopyDefaultConfiguration(QSslConfigurationPri
     ptr->peerVerifyDepth = global->peerVerifyDepth;
     ptr->sslOptions = global->sslOptions;
     ptr->ellipticCurves = global->ellipticCurves;
+    ptr->backendConfig = global->backendConfig;
+#if QT_CONFIG(dtls)
+    ptr->dtlsCookieEnabled = global->dtlsCookieEnabled;
+#endif
+#if QT_CONFIG(ocsp)
+    ptr->ocspStaplingEnabled = global->ocspStaplingEnabled;
+#endif
+}
+
+/*!
+    \internal
+*/
+QSslConfiguration QSslConfigurationPrivate::defaultDtlsConfiguration()
+{
+    QSslSocketPrivate::ensureInitialized();
+    QMutexLocker locker(&globalData()->mutex);
+
+    return QSslConfiguration(globalData()->dtlsConfig.data());
+}
+
+/*!
+    \internal
+*/
+void QSslConfigurationPrivate::setDefaultDtlsConfiguration(const QSslConfiguration &configuration)
+{
+    QSslSocketPrivate::ensureInitialized();
+    QMutexLocker locker(&globalData()->mutex);
+    if (globalData()->dtlsConfig == configuration.d)
+        return;                 // nothing to do
+
+    globalData()->dtlsConfig = const_cast<QSslConfigurationPrivate*>(configuration.d.constData());
 }
 
 /*!
@@ -2302,8 +2460,8 @@ void QSslSocketPrivate::createPlainSocket(QIODevice::OpenMode openMode)
     q->connect(plainSocket, SIGNAL(bytesWritten(qint64)),
                q, SLOT(_q_bytesWrittenSlot(qint64)),
                Qt::DirectConnection);
-    q->connect(plainSocket, SIGNAL(channelBytesWritten(int, qint64)),
-               q, SLOT(_q_channelBytesWrittenSlot(int, qint64)),
+    q->connect(plainSocket, SIGNAL(channelBytesWritten(int,qint64)),
+               q, SLOT(_q_channelBytesWrittenSlot(int,qint64)),
                Qt::DirectConnection);
     q->connect(plainSocket, SIGNAL(readChannelFinished()),
                q, SLOT(_q_readChannelFinishedSlot()),
@@ -2571,6 +2729,7 @@ void QSslSocketPrivate::_q_resumeImplementation()
         if (verifyErrorsHaveBeenIgnored()) {
             continueHandshake();
         } else {
+            Q_ASSERT(!sslErrors.isEmpty());
             setErrorAndEmit(QAbstractSocket::SslHandshakeFailedError, sslErrors.constFirst().errorString());
             plainSocket->disconnectFromHost();
             return;
@@ -2659,6 +2818,20 @@ QByteArray QSslSocketPrivate::peek(qint64 maxSize)
 /*!
     \internal
 */
+qint64 QSslSocketPrivate::skip(qint64 maxSize)
+{
+    if (mode == QSslSocket::UnencryptedMode && !autoStartHandshake)
+        return plainSocket->skip(maxSize);
+
+    // In encrypted mode, the SSL backend writes decrypted data directly into the
+    // QIODevice's read buffer. As this buffer is always emptied by the caller,
+    // we need to wait for more incoming data.
+    return (state == QAbstractSocket::ConnectedState) ? Q_INT64_C(0) : Q_INT64_C(-1);
+}
+
+/*!
+    \internal
+*/
 bool QSslSocketPrivate::flush()
 {
 #ifdef QSSLSOCKET_DEBUG
@@ -2715,6 +2888,17 @@ QSharedPointer<QSslContext> QSslSocketPrivate::sslContext(QSslSocket *socket)
 
 bool QSslSocketPrivate::isMatchingHostname(const QSslCertificate &cert, const QString &peerName)
 {
+    QHostAddress hostAddress(peerName);
+    if (!hostAddress.isNull()) {
+        const auto subjectAlternativeNames = cert.subjectAlternativeNames();
+        const auto ipAddresses = subjectAlternativeNames.equal_range(QSsl::AlternativeNameEntryType::IpAddressEntry);
+
+        for (auto it = ipAddresses.first; it != ipAddresses.second; it++) {
+            if (QHostAddress(*it).isEqual(hostAddress, QHostAddress::StrictConversion))
+                return true;
+        }
+    }
+
     const QString lowerPeerName = QString::fromLatin1(QUrl::toAce(peerName));
     const QStringList commonNames = cert.subjectInfo(QSslCertificate::CommonName);
 

@@ -5,18 +5,24 @@
 #ifndef CONTENT_BROWSER_CHILD_PROCESS_LAUNCHER_HELPER_H_
 #define CONTENT_BROWSER_CHILD_PROCESS_LAUNCHER_HELPER_H_
 
+#include <map>
 #include <memory>
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "base/process/kill.h"
 #include "base/process/process.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/result_codes.h"
-#include "mojo/edk/embedder/embedder.h"
-#include "mojo/edk/embedder/scoped_platform_handle.h"
-#include "services/catalog/public/cpp/manifest_parsing_util.h"
+#include "mojo/public/cpp/platform/platform_channel.h"
+#include "mojo/public/cpp/system/invitation.h"
+#include "services/service_manager/zygote/common/zygote_buildflags.h"
+
+#if !defined(OS_FUCHSIA)
+#include "mojo/public/cpp/platform/named_platform_channel.h"
+#endif
 
 #if defined(OS_ANDROID)
 #include "base/android/scoped_java_ref.h"
@@ -25,15 +31,19 @@
 #if defined(OS_WIN)
 #include "sandbox/win/src/sandbox_types.h"
 #else
-#include "content/public/browser/file_descriptor_info.h"
-#endif
-
-#if defined(OS_LINUX)
-#include "content/public/common/zygote_handle.h"
+#include "content/public/browser/posix_file_descriptor_info.h"
 #endif
 
 #if defined(OS_MACOSX)
 #include "sandbox/mac/seatbelt_exec.h"
+#endif
+
+#if defined(OS_FUCHSIA)
+#include "services/service_manager/sandbox/fuchsia/sandbox_policy_fuchsia.h"
+#endif
+
+#if BUILDFLAG(USE_ZYGOTE_HANDLE)
+#include "services/service_manager/zygote/common/zygote_handle.h"  // nogncheck
 #endif
 
 namespace base {
@@ -43,16 +53,20 @@ class CommandLine;
 namespace content {
 
 class ChildProcessLauncher;
-class FileDescriptorInfo;
 class SandboxedProcessLauncherDelegate;
+struct ChildProcessLauncherPriority;
+struct ChildProcessTerminationInfo;
+
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+class PosixFileDescriptorInfo;
+#endif
 
 namespace internal {
 
-
-#if defined(OS_WIN)
-using FileMappedForLaunch = base::HandlesToInheritVector;
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+using FileMappedForLaunch = PosixFileDescriptorInfo;
 #else
-using FileMappedForLaunch = FileDescriptorInfo;
+using FileMappedForLaunch = base::HandlesToInheritVector;
 #endif
 
 // ChildProcessLauncherHelper is used by ChildProcessLauncher to start a
@@ -72,9 +86,9 @@ class ChildProcessLauncherHelper :
 
     base::Process process;
 
-#if defined(OS_LINUX)
-    ZygoteHandle zygote = nullptr;
-#endif
+#if BUILDFLAG(USE_ZYGOTE_HANDLE)
+    service_manager::ZygoteHandle zygote = nullptr;
+#endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
   };
 
   ChildProcessLauncherHelper(
@@ -83,7 +97,9 @@ class ChildProcessLauncherHelper :
       std::unique_ptr<base::CommandLine> command_line,
       std::unique_ptr<SandboxedProcessLauncherDelegate> delegate,
       const base::WeakPtr<ChildProcessLauncher>& child_process_launcher,
-      bool terminate_on_shutdown);
+      bool terminate_on_shutdown,
+      mojo::OutgoingInvitation mojo_invitation,
+      const mojo::ProcessErrorCallback& process_error_callback);
 
   // The methods below are defined in the order they are called.
 
@@ -93,16 +109,23 @@ class ChildProcessLauncherHelper :
   // Platform specific.
   void BeforeLaunchOnClientThread();
 
-  // Called in to give implementors a chance at creating a server pipe.
-  // Platform specific.
-  mojo::edk::ScopedPlatformHandle PrepareMojoPipeHandlesOnClientThread();
+#if !defined(OS_FUCHSIA)
+  // Called to give implementors a chance at creating a server pipe. Platform-
+  // specific. Returns |base::nullopt| if the helper should initialize
+  // a regular PlatformChannel for communication instead.
+  base::Optional<mojo::NamedPlatformChannel>
+  CreateNamedPlatformChannelOnClientThread();
+#endif
 
   // Returns the list of files that should be mapped in the child process.
   // Platform specific.
   std::unique_ptr<FileMappedForLaunch> GetFilesToMap();
 
-  // Platform specific.
-  void BeforeLaunchOnLauncherThread(
+  // Platform specific, returns success or failure. If failure is returned,
+  // LaunchOnLauncherThread will not call LaunchProcessOnLauncherThread and
+  // AfterLaunchOnLauncherThread, and the launch_result will be reported as
+  // LAUNCH_RESULT_FAILURE.
+  bool BeforeLaunchOnLauncherThread(
       const FileMappedForLaunch& files_to_register,
       base::LaunchOptions* options);
 
@@ -119,8 +142,8 @@ class ChildProcessLauncherHelper :
       int* launch_result);
 
   // Called right after the process has been launched, whether it was created
-  // yet or not.
-  // Platform specific.
+  // successfully or not. If the process launch is asynchronous, the process may
+  // not yet be created. Platform specific.
   void AfterLaunchOnLauncherThread(
       const ChildProcessLauncherHelper::Process& process,
       const base::LaunchOptions& options);
@@ -135,20 +158,16 @@ class ChildProcessLauncherHelper :
 
   int client_thread_id() const { return client_thread_id_; }
 
-  // Returns the termination status and sets |exit_code| if non null.
-  // See ChildProcessLauncher::GetChildTerminationStatus for more info.
-  base::TerminationStatus GetTerminationStatus(
+  // See ChildProcessLauncher::GetChildTerminationInfo for more info.
+  ChildProcessTerminationInfo GetTerminationInfo(
       const ChildProcessLauncherHelper::Process& process,
-      bool known_dead,
-      int* exit_code);
+      bool known_dead);
 
   // Terminates |process|.
   // Returns true if the process was stopped, false if the process had not been
   // started yet or could not be stopped.
-  // Note that |exit_code| and |wait| are not used on Android.
-  static bool TerminateProcess(const base::Process& process,
-                               int exit_code,
-                               bool wait);
+  // Note that |exit_code| is not used on Android.
+  static bool TerminateProcess(const base::Process& process, int exit_code);
 
   // Terminates the process with the normal exit code and ensures it has been
   // stopped. By returning a normal exit code this ensures UMA won't treat this
@@ -157,13 +176,13 @@ class ChildProcessLauncherHelper :
   static void ForceNormalProcessTerminationAsync(
       ChildProcessLauncherHelper::Process process);
 
-  void SetProcessPriorityOnLauncherThread(base::Process process,
-                                          bool background,
-                                          bool boost_for_pending_views);
+  void SetProcessPriorityOnLauncherThread(
+      base::Process process,
+      const ChildProcessLauncherPriority& priority);
 
   static void SetRegisteredFilesForService(
       const std::string& service_name,
-      catalog::RequiredFileMap required_files);
+      std::map<std::string, base::FilePath> required_files);
 
   static void ResetRegisteredFilesForTesting();
 
@@ -171,7 +190,6 @@ class ChildProcessLauncherHelper :
   void OnChildProcessStarted(JNIEnv* env,
                              const base::android::JavaParamRef<jobject>& obj,
                              jint handle);
-  static size_t GetNumberOfRendererSlots();
 #endif  // OS_ANDROID
 
  private:
@@ -181,9 +199,6 @@ class ChildProcessLauncherHelper :
 
   void LaunchOnLauncherThread();
 
-  const mojo::edk::PlatformHandle& mojo_client_handle() const {
-    return mojo_client_handle_.get();
-  }
   base::CommandLine* command_line() { return command_line_.get(); }
   int child_process_id() const { return child_process_id_; }
 
@@ -192,15 +207,35 @@ class ChildProcessLauncherHelper :
   static void ForceNormalProcessTerminationSync(
       ChildProcessLauncherHelper::Process process);
 
+#if defined(OS_ANDROID)
+  void set_java_peer_available_on_client_thread() {
+    java_peer_avaiable_on_client_thread_ = true;
+  }
+#endif
+
   const int child_process_id_;
   const BrowserThread::ID client_thread_id_;
   base::TimeTicks begin_launch_time_;
   std::unique_ptr<base::CommandLine> command_line_;
   std::unique_ptr<SandboxedProcessLauncherDelegate> delegate_;
   base::WeakPtr<ChildProcessLauncher> child_process_launcher_;
-  mojo::edk::ScopedPlatformHandle mojo_client_handle_;
-  mojo::edk::ScopedPlatformHandle mojo_server_handle_;
+
+  // The PlatformChannel that will be used to transmit an invitation to the
+  // child process in most cases. Only used if the platform's helper
+  // implementation doesn't return a server endpoint from
+  // |CreateNamedPlatformChannelOnClientThread()|.
+  base::Optional<mojo::PlatformChannel> mojo_channel_;
+
+#if !defined(OS_FUCHSIA)
+  // May be used in exclusion to the above if the platform helper implementation
+  // returns a valid server endpoint from
+  // |CreateNamedPlatformChannelOnClientThread()|.
+  base::Optional<mojo::NamedPlatformChannel> mojo_named_channel_;
+#endif
+
   bool terminate_on_shutdown_;
+  mojo::OutgoingInvitation mojo_invitation_;
+  const mojo::ProcessErrorCallback process_error_callback_;
 
 #if defined(OS_MACOSX)
   std::unique_ptr<sandbox::SeatbeltExecClient> seatbelt_exec_client_;
@@ -208,6 +243,11 @@ class ChildProcessLauncherHelper :
 
 #if defined(OS_ANDROID)
   base::android::ScopedJavaGlobalRef<jobject> java_peer_;
+  bool java_peer_avaiable_on_client_thread_ = false;
+#endif
+
+#if defined(OS_FUCHSIA)
+  service_manager::SandboxPolicyFuchsia sandbox_policy_;
 #endif
 };
 

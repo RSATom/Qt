@@ -6,7 +6,7 @@
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_context.h"
@@ -42,7 +42,18 @@ void SniffMimeType(const base::FilePath& local_path, std::string* result) {
     net::SniffMimeType(&content[0], bytes_read,
                        net::FilePathToFileURL(local_path),
                        std::string(),  // type_hint (passes no hint)
-                       result);
+                       net::ForceSniffFileUrlsForHtml::kDisabled, result);
+    if (*result == "text/plain") {
+      // text/plain misidentifies AMR files, which look like scripts because
+      // they start with "#!". Use SniffMimeTypeFromLocalData to try and get a
+      // better match.
+      // TODO(amistry): Potentially add other types (i.e. SVG).
+      std::string secondary_result;
+      net::SniffMimeTypeFromLocalData(&content[0], bytes_read,
+                                      &secondary_result);
+      if (!secondary_result.empty())
+        *result = secondary_result;
+    }
   }
 }
 
@@ -61,10 +72,9 @@ void OnGetMimeTypeFromFileForNonNativeLocalPathCompleted(
 void OnGetMimeTypeFromMetadataForNonNativeLocalPathCompleted(
     const base::FilePath& local_path,
     const base::Callback<void(const std::string&)>& callback,
-    bool success,
-    const std::string& mime_type) {
-  if (success) {
-    callback.Run(mime_type);
+    const base::Optional<std::string>& mime_type) {
+  if (mime_type) {
+    callback.Run(mime_type.value());
     return;
   }
 
@@ -130,14 +140,14 @@ void GetMimeTypeForLocalPath(
 #if defined(OS_CHROMEOS)
   NonNativeFileSystemDelegate* delegate =
       ExtensionsAPIClient::Get()->GetNonNativeFileSystemDelegate();
-  if (delegate && delegate->IsUnderNonNativeLocalPath(context, local_path)) {
+  if (delegate && delegate->HasNonNativeMimeTypeProvider(context, local_path)) {
     // For non-native files, try to get the MIME type from metadata. If not
     // available, then try to guess from the extension. Never sniff (because
     // it can be very slow).
     delegate->GetNonNativeLocalPathMimeType(
         context, local_path,
-        base::Bind(&OnGetMimeTypeFromMetadataForNonNativeLocalPathCompleted,
-                   local_path, callback));
+        base::BindOnce(&OnGetMimeTypeFromMetadataForNonNativeLocalPathCompleted,
+                       local_path, callback));
     return;
   }
 #endif

@@ -11,16 +11,20 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
+#include "base/run_loop.h"
 #include "base/strings/string_piece.h"
+#include "extensions/common/extension_builder.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/extension_paths.h"
-#include "extensions/common/feature_switch.h"
+#include "extensions/common/value_builder.h"
 #include "extensions/renderer/ipc_message_sender.h"
 #include "extensions/renderer/logging_native_handler.h"
 #include "extensions/renderer/native_extension_bindings_system.h"
@@ -48,16 +52,21 @@ class GetAPINatives : public ObjectBackedNativeHandler {
  public:
   GetAPINatives(ScriptContext* context,
                 NativeExtensionBindingsSystem* bindings_system)
-      : ObjectBackedNativeHandler(context) {
-    DCHECK_EQ(FeatureSwitch::native_crx_bindings()->IsEnabled(),
-              !!bindings_system);
+      : ObjectBackedNativeHandler(context), bindings_system_(bindings_system) {
+    DCHECK_EQ(
+        base::FeatureList::IsEnabled(extensions_features::kNativeCrxBindings),
+        !!bindings_system);
+  }
+  ~GetAPINatives() override {}
 
+  // ObjectBackedNativeHandler:
+  void AddRoutes() override {
     auto get_api = [](ScriptContext* context,
                       NativeExtensionBindingsSystem* bindings_system,
                       const v8::FunctionCallbackInfo<v8::Value>& args) {
       CHECK_EQ(1, args.Length());
       CHECK(args[0]->IsString());
-      std::string api_name = gin::V8ToString(args[0]);
+      std::string api_name = gin::V8ToString(context->isolate(), args[0]);
       v8::Local<v8::Object> api;
       if (bindings_system) {
         api = bindings_system->GetAPIObjectForTesting(context, api_name);
@@ -78,8 +87,14 @@ class GetAPINatives : public ObjectBackedNativeHandler {
       args.GetReturnValue().Set(api);
     };
 
-    RouteFunction("get", base::Bind(get_api, context, bindings_system));
+    RouteHandlerFunction(
+        "get", base::BindRepeating(get_api, context(), bindings_system_));
   }
+
+ private:
+  NativeExtensionBindingsSystem* bindings_system_ = nullptr;
+
+  DISALLOW_COPY_AND_ASSIGN(GetAPINatives);
 };
 
 }  // namespace
@@ -91,13 +106,16 @@ class ModuleSystemTestEnvironment::AssertNatives
   explicit AssertNatives(ScriptContext* context)
       : ObjectBackedNativeHandler(context),
         assertion_made_(false),
-        failed_(false) {
-    RouteFunction(
-        "AssertTrue",
-        base::Bind(&AssertNatives::AssertTrue, base::Unretained(this)));
-    RouteFunction(
-        "AssertFalse",
-        base::Bind(&AssertNatives::AssertFalse, base::Unretained(this)));
+        failed_(false) {}
+
+  // ObjectBackedNativeHandler:
+  void AddRoutes() override {
+    RouteHandlerFunction("AssertTrue",
+                         base::BindRepeating(&AssertNatives::AssertTrue,
+                                             base::Unretained(this)));
+    RouteHandlerFunction("AssertFalse",
+                         base::BindRepeating(&AssertNatives::AssertFalse,
+                                             base::Unretained(this)));
   }
 
   bool assertion_made() { return assertion_made_; }
@@ -122,23 +140,23 @@ class ModuleSystemTestEnvironment::AssertNatives
 
 ModuleSystemTestEnvironment::ModuleSystemTestEnvironment(
     v8::Isolate* isolate,
-    ScriptContextSet* context_set)
+    ScriptContextSet* context_set,
+    scoped_refptr<const Extension> extension)
     : isolate_(isolate),
       context_holder_(new gin::ContextHolder(isolate_)),
       handle_scope_(isolate_),
+      extension_(extension),
       context_set_(context_set),
       source_map_(new StringSourceMap()) {
   context_holder_->SetContext(v8::Context::New(
       isolate, TestV8ExtensionConfiguration::GetConfiguration()));
 
   {
-    auto context =
-        base::MakeUnique<ScriptContext>(context_holder_->context(),
-                                        nullptr,  // WebFrame
-                                        nullptr,  // Extension
-                                        Feature::BLESSED_EXTENSION_CONTEXT,
-                                        nullptr,  // Effective Extension
-                                        Feature::BLESSED_EXTENSION_CONTEXT);
+    auto context = std::make_unique<ScriptContext>(
+        context_holder_->context(),
+        nullptr,  // WebFrame
+        extension_.get(), Feature::BLESSED_EXTENSION_CONTEXT, extension_.get(),
+        Feature::BLESSED_EXTENSION_CONTEXT);
     context_ = context.get();
     context_set_->AddForTesting(std::move(context));
   }
@@ -146,13 +164,13 @@ ModuleSystemTestEnvironment::ModuleSystemTestEnvironment(
   context_->v8_context()->Enter();
   assert_natives_ = new AssertNatives(context_);
 
-  if (FeatureSwitch::native_crx_bindings()->IsEnabled())
-    bindings_system_ = base::MakeUnique<NativeExtensionBindingsSystem>(nullptr);
+  if (base::FeatureList::IsEnabled(extensions_features::kNativeCrxBindings))
+    bindings_system_ = std::make_unique<NativeExtensionBindingsSystem>(nullptr);
 
   {
     std::unique_ptr<ModuleSystem> module_system(
         new ModuleSystem(context_, source_map_.get()));
-    context_->set_module_system(std::move(module_system));
+    context_->SetModuleSystem(std::move(module_system));
   }
   ModuleSystem* module_system = context_->module_system();
   module_system->RegisterNativeHandler(
@@ -165,7 +183,7 @@ ModuleSystemTestEnvironment::ModuleSystemTestEnvironment(
       std::unique_ptr<NativeHandler>(new UtilsNativeHandler(context_)));
   module_system->RegisterNativeHandler(
       "apiGetter",
-      base::MakeUnique<GetAPINatives>(context_, bindings_system_.get()));
+      std::make_unique<GetAPINatives>(context_, bindings_system_.get()));
   module_system->SetExceptionHandlerForTest(
       std::unique_ptr<ModuleSystem::ExceptionHandler>(new FailsOnException));
 
@@ -186,11 +204,12 @@ void ModuleSystemTestEnvironment::RegisterModule(const std::string& name,
 }
 
 void ModuleSystemTestEnvironment::RegisterModule(const std::string& name,
-                                                 int resource_id) {
-  const std::string& code = ResourceBundle::GetSharedInstance()
+                                                 int resource_id,
+                                                 bool gzipped) {
+  const std::string& code = ui::ResourceBundle::GetSharedInstance()
                                 .GetRawDataResource(resource_id)
                                 .as_string();
-  source_map_->RegisterModule(name, code);
+  source_map_->RegisterModule(name, code, gzipped);
 }
 
 void ModuleSystemTestEnvironment::OverrideNativeHandler(
@@ -204,7 +223,7 @@ void ModuleSystemTestEnvironment::RegisterTestFile(
     const std::string& module_name,
     const std::string& file_name) {
   base::FilePath test_js_file_path;
-  ASSERT_TRUE(PathService::Get(DIR_TEST_DATA, &test_js_file_path));
+  ASSERT_TRUE(base::PathService::Get(DIR_TEST_DATA, &test_js_file_path));
   test_js_file_path = test_js_file_path.AppendASCII(file_name);
   std::string test_js;
   ASSERT_TRUE(base::ReadFileToString(test_js_file_path, &test_js));
@@ -228,8 +247,14 @@ v8::Local<v8::Object> ModuleSystemTestEnvironment::CreateGlobal(
     const std::string& name) {
   v8::EscapableHandleScope handle_scope(isolate_);
   v8::Local<v8::Object> object = v8::Object::New(isolate_);
-  isolate_->GetCurrentContext()->Global()->Set(
-      v8::String::NewFromUtf8(isolate_, name.c_str()), object);
+  isolate_->GetCurrentContext()
+      ->Global()
+      ->Set(context_->v8_context(),
+            v8::String::NewFromUtf8(isolate_, name.c_str(),
+                                    v8::NewStringType::kInternalized)
+                .ToLocalChecked(),
+            object)
+      .ToChecked();
   return handle_scope.Escape(object);
 }
 
@@ -242,6 +267,7 @@ ModuleSystemTest::~ModuleSystemTest() {
 }
 
 void ModuleSystemTest::SetUp() {
+  extension_ = CreateExtension();
   env_ = CreateEnvironment();
   base::CommandLine::ForCurrentProcess()->AppendSwitch("test-type");
 }
@@ -269,9 +295,20 @@ void ModuleSystemTest::TearDown() {
   }
 }
 
+scoped_refptr<const Extension> ModuleSystemTest::CreateExtension() {
+  std::unique_ptr<base::DictionaryValue> manifest =
+      DictionaryBuilder()
+          .Set("name", "test")
+          .Set("version", "1.0")
+          .Set("manifest_version", 2)
+          .Build();
+  return ExtensionBuilder().SetManifest(std::move(manifest)).Build();
+}
+
 std::unique_ptr<ModuleSystemTestEnvironment>
 ModuleSystemTest::CreateEnvironment() {
-  return base::MakeUnique<ModuleSystemTestEnvironment>(isolate_, &context_set_);
+  return std::make_unique<ModuleSystemTestEnvironment>(isolate_, &context_set_,
+                                                       extension_);
 }
 
 void ModuleSystemTest::ExpectNoAssertionsMade() {

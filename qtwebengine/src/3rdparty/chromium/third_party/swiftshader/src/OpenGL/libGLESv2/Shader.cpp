@@ -181,7 +181,8 @@ TranslatorASM *Shader::createCompiler(GLenum shaderType)
 	resources.OES_fragment_precision_high = 1;
 	resources.OES_EGL_image_external = 1;
 	resources.EXT_draw_buffers = 1;
-	resources.MaxCallStackDepth = 16;
+	resources.ARB_texture_rectangle = 1;
+	resources.MaxCallStackDepth = 64;
 	assembler->Init(resources);
 
 	return assembler;
@@ -215,29 +216,28 @@ void Shader::compile()
 	if(false)
 	{
 		static int serial = 1;
-		char buffer[256];
-		sprintf(buffer, "shader-input-%d-%d.txt", getName(), serial);
-		FILE *file = fopen(buffer, "wt");
-		fprintf(file, "%s", mSource);
-		fclose(file);
+
+		if(false)
+		{
+			char buffer[256];
+			sprintf(buffer, "shader-input-%d-%d.txt", getName(), serial);
+			FILE *file = fopen(buffer, "wt");
+			fprintf(file, "%s", mSource);
+			fclose(file);
+		}
+
 		getShader()->print("shader-output-%d-%d.txt", getName(), serial);
+
 		serial++;
 	}
 
-	int shaderVersion = compiler->getShaderVersion();
-	int clientVersion = es2::getContext()->getClientVersion();
-
-	if(shaderVersion >= 300 && clientVersion < 3)
-	{
-		infoLog = "GLSL ES 3.00 is not supported by OpenGL ES 2.0 contexts";
-		success = false;
-	}
+	shaderVersion = compiler->getShaderVersion();
+	infoLog += compiler->getInfoSink().info.c_str();
 
 	if(!success)
 	{
 		deleteShader();
 
-		infoLog += compiler->getInfoSink().info.c_str();
 		TRACE("\n%s", infoLog.c_str());
 	}
 
@@ -383,15 +383,15 @@ GLenum VertexShader::getType() const
 	return GL_VERTEX_SHADER;
 }
 
-int VertexShader::getSemanticIndex(const std::string &attributeName)
+int VertexShader::getSemanticIndex(const std::string &attributeName) const
 {
 	if(!attributeName.empty())
 	{
-		for(glsl::ActiveAttributes::iterator attribute = activeAttributes.begin(); attribute != activeAttributes.end(); attribute++)
+		for(const auto &attribute : activeAttributes)
 		{
-			if(attribute->name == attributeName)
+			if(attribute.name == attributeName)
 			{
-				return attribute->registerIndex;
+				return attribute.registerIndex;
 			}
 		}
 	}

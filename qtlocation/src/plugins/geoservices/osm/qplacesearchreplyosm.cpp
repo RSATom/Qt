@@ -48,6 +48,7 @@
 #include <QtPositioning/QGeoRectangle>
 #include <QtLocation/QPlaceResult>
 #include <QtLocation/QPlaceSearchRequest>
+#include <QtLocation/private/qplacesearchrequest_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -135,6 +136,9 @@ void QPlaceSearchReplyOsm::replyFinished()
 
         parameters.insert(QStringLiteral("ExcludePlaceIds"), epi);
         r.setSearchContext(parameters);
+        QPlaceSearchRequestPrivate *rpimpl = QPlaceSearchRequestPrivate::get(r);
+        rpimpl->related = true;
+        rpimpl->page--;
         setPreviousPageRequest(r);
     }
 
@@ -147,6 +151,9 @@ void QPlaceSearchReplyOsm::replyFinished()
 
         parameters.insert(QStringLiteral("ExcludePlaceIds"), epi);
         r.setSearchContext(parameters);
+        QPlaceSearchRequestPrivate *rpimpl = QPlaceSearchRequestPrivate::get(r);
+        rpimpl->related = true;
+        rpimpl->page++;
         setNextPageRequest(r);
     }
 
@@ -158,7 +165,7 @@ void QPlaceSearchReplyOsm::replyFinished()
 
 void QPlaceSearchReplyOsm::networkError(QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
     reply->deleteLater();
     setError(QPlaceReply::CommunicationError, reply->errorString());
@@ -191,6 +198,13 @@ QPlaceResult QPlaceSearchReplyOsm::parsePlaceResult(const QJsonObject &item) con
     const QString title = addressDetails.value(type).toString();
 
     place.setName(title);
+
+    if (!requestUrl.isEmpty()) {
+        QPlaceAttribute attribute;
+        attribute.setLabel("requestUrl");
+        attribute.setText(requestUrl);
+        place.setExtendedAttribute("requestUrl", attribute);
+    }
 
     QGeoAddress address;
     address.setCity(addressDetails.value(QStringLiteral("city")).toString());

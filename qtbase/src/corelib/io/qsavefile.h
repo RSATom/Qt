@@ -67,15 +67,15 @@ public:
 
     explicit QSaveFile(const QString &name);
 #ifndef QT_NO_QOBJECT
-    explicit QSaveFile(QObject *parent = Q_NULLPTR);
+    explicit QSaveFile(QObject *parent = nullptr);
     explicit QSaveFile(const QString &name, QObject *parent);
 #endif
     ~QSaveFile();
 
-    QString fileName() const Q_DECL_OVERRIDE;
+    QString fileName() const override;
     void setFileName(const QString &name);
 
-    bool open(OpenMode flags) Q_DECL_OVERRIDE;
+    bool open(OpenMode flags) override;
     bool commit();
 
     void cancelWriting();
@@ -84,10 +84,10 @@ public:
     bool directWriteFallback() const;
 
 protected:
-    qint64 writeData(const char *data, qint64 len) Q_DECL_OVERRIDE;
+    qint64 writeData(const char *data, qint64 len) override;
 
 private:
-    void close() Q_DECL_OVERRIDE;
+    void close() override;
 #if !QT_CONFIG(translation)
     static QString tr(const char *string) { return QString::fromLatin1(string); }
 #endif

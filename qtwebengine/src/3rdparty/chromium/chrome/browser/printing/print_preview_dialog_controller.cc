@@ -28,6 +28,7 @@
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/guest_view/browser/guest_view_base.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "content/public/browser/host_zoom_map.h"
@@ -36,42 +37,55 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
+#include "content/public/browser/web_contents_observer.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
+
+#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
+#include "chrome/browser/conflicts/module_database_win.h"
+#endif
 
 using content::NavigationController;
 using content::WebContents;
 using content::WebUIMessageHandler;
 
+namespace printing {
+
 namespace {
 
 // A ui::WebDialogDelegate that specifies the print preview dialog appearance.
-class PrintPreviewDialogDelegate : public ui::WebDialogDelegate {
+class PrintPreviewDialogDelegate : public ui::WebDialogDelegate,
+                                   public content::WebContentsObserver {
  public:
   explicit PrintPreviewDialogDelegate(WebContents* initiator);
   ~PrintPreviewDialogDelegate() override;
 
   ui::ModalType GetDialogModalType() const override;
   base::string16 GetDialogTitle() const override;
+  base::string16 GetAccessibleDialogTitle() const override;
   GURL GetDialogContentURL() const override;
   void GetWebUIMessageHandlers(
       std::vector<WebUIMessageHandler*>* handlers) const override;
   void GetDialogSize(gfx::Size* size) const override;
   std::string GetDialogArgs() const override;
+  void OnDialogClosingFromKeyEvent() override;
   void OnDialogClosed(const std::string& json_retval) override;
   void OnCloseContents(WebContents* source, bool* out_close_dialog) override;
   bool ShouldShowDialogTitle() const override;
 
  private:
-  WebContents* initiator_;
+  WebContents* initiator() const { return web_contents(); }
+
+  bool on_dialog_closed_called_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(PrintPreviewDialogDelegate);
 };
 
 PrintPreviewDialogDelegate::PrintPreviewDialogDelegate(WebContents* initiator)
-    : initiator_(initiator) {
-}
+    : content::WebContentsObserver(initiator) {}
 
 PrintPreviewDialogDelegate::~PrintPreviewDialogDelegate() {
 }
@@ -85,6 +99,10 @@ ui::ModalType PrintPreviewDialogDelegate::GetDialogModalType() const {
 base::string16 PrintPreviewDialogDelegate::GetDialogTitle() const {
   // Only used on Windows? UI folks prefer no title.
   return base::string16();
+}
+
+base::string16 PrintPreviewDialogDelegate::GetAccessibleDialogTitle() const {
+  return l10n_util::GetStringUTF16(IDS_PRINT_PREVIEW_TITLE);
 }
 
 GURL PrintPreviewDialogDelegate::GetDialogContentURL() const {
@@ -104,7 +122,10 @@ void PrintPreviewDialogDelegate::GetDialogSize(gfx::Size* size) const {
 
   web_modal::WebContentsModalDialogHost* host = nullptr;
   content::WebContents* outermost_web_contents =
-      guest_view::GuestViewBase::GetTopLevelWebContents(initiator_);
+      guest_view::GuestViewBase::GetTopLevelWebContents(initiator());
+  if (!outermost_web_contents)
+    return;
+
   Browser* browser = chrome::FindBrowserWithWebContents(outermost_web_contents);
   if (browser)
     host = browser->window()->GetWebContentsModalDialogHost();
@@ -127,8 +148,20 @@ std::string PrintPreviewDialogDelegate::GetDialogArgs() const {
   return std::string();
 }
 
+void PrintPreviewDialogDelegate::OnDialogClosingFromKeyEvent() {
+  OnDialogClosed(std::string());
+}
+
 void PrintPreviewDialogDelegate::OnDialogClosed(
     const std::string& /* json_retval */) {
+  if (on_dialog_closed_called_ || !initiator())
+    return;
+
+  on_dialog_closed_called_ = true;
+
+  auto* print_view_manager = PrintViewManager::FromWebContents(initiator());
+  if (print_view_manager)
+    print_view_manager->PrintPreviewAlmostDone();
 }
 
 void PrintPreviewDialogDelegate::OnCloseContents(WebContents* /* source */,
@@ -141,8 +174,6 @@ bool PrintPreviewDialogDelegate::ShouldShowDialogTitle() const {
 }
 
 }  // namespace
-
-namespace printing {
 
 PrintPreviewDialogController::PrintPreviewDialogController()
     : waiting_for_new_preview_page_(false),
@@ -158,6 +189,10 @@ PrintPreviewDialogController* PrintPreviewDialogController::GetInstance() {
 
 // static
 void PrintPreviewDialogController::PrintPreview(WebContents* initiator) {
+#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
+  ModuleDatabase::GetInstance()->DisableThirdPartyBlocking();
+#endif
+
   if (initiator->ShowingInterstitialPage() || initiator->IsCrashed())
     return;
 
@@ -190,7 +225,7 @@ WebContents* PrintPreviewDialogController::GetPrintPreviewForContents(
     WebContents* contents) const {
   // |preview_dialog_map_| is keyed by the preview dialog, so if find()
   // succeeds, then |contents| is the preview dialog.
-  PrintPreviewDialogMap::const_iterator it = preview_dialog_map_.find(contents);
+  auto it = preview_dialog_map_.find(contents);
   if (it != preview_dialog_map_.end())
     return contents;
 
@@ -208,7 +243,7 @@ WebContents* PrintPreviewDialogController::GetPrintPreviewForContents(
 
 WebContents* PrintPreviewDialogController::GetInitiator(
     WebContents* preview_dialog) {
-  PrintPreviewDialogMap::iterator it = preview_dialog_map_.find(preview_dialog);
+  auto it = preview_dialog_map_.find(preview_dialog);
   return (it != preview_dialog_map_.end()) ? it->second : nullptr;
 }
 
@@ -241,11 +276,6 @@ void PrintPreviewDialogController::ForEachPreviewDialog(
 }
 
 // static
-bool PrintPreviewDialogController::IsPrintPreviewDialog(WebContents* contents) {
-  return IsPrintPreviewURL(contents->GetURL());
-}
-
-// static
 bool PrintPreviewDialogController::IsPrintPreviewURL(const GURL& url) {
   return (url.SchemeIs(content::kChromeUIScheme) &&
           url.host_piece() == chrome::kChromeUIPrintHost);
@@ -253,7 +283,7 @@ bool PrintPreviewDialogController::IsPrintPreviewURL(const GURL& url) {
 
 void PrintPreviewDialogController::EraseInitiatorInfo(
     WebContents* preview_dialog) {
-  PrintPreviewDialogMap::iterator it = preview_dialog_map_.find(preview_dialog);
+  auto it = preview_dialog_map_.find(preview_dialog);
   if (it == preview_dialog_map_.end())
     return;
 
@@ -269,14 +299,13 @@ void PrintPreviewDialogController::OnRendererProcessClosed(
   // |preview_dialog_map_| because RemoveFoo() can change |preview_dialog_map_|.
   std::vector<WebContents*> closed_initiators;
   std::vector<WebContents*> closed_preview_dialogs;
-  for (PrintPreviewDialogMap::iterator iter = preview_dialog_map_.begin();
+  for (auto iter = preview_dialog_map_.begin();
        iter != preview_dialog_map_.end(); ++iter) {
     WebContents* preview_dialog = iter->first;
     WebContents* initiator = iter->second;
-    if (preview_dialog->GetRenderProcessHost() == rph) {
+    if (preview_dialog->GetMainFrame()->GetProcess() == rph) {
       closed_preview_dialogs.push_back(preview_dialog);
-    } else if (initiator &&
-               initiator->GetRenderProcessHost() == rph) {
+    } else if (initiator && initiator->GetMainFrame()->GetProcess() == rph) {
       closed_initiators.push_back(initiator);
     }
   }
@@ -417,19 +446,19 @@ void PrintPreviewDialogController::AddObservers(WebContents* contents) {
   // Multiple sites may share the same RenderProcessHost, so check if this
   // notification has already been added.
   content::Source<content::RenderProcessHost> rph_source(
-      contents->GetRenderProcessHost());
+      contents->GetMainFrame()->GetProcess());
   if (!registrar_.IsRegistered(this,
       content::NOTIFICATION_RENDERER_PROCESS_CLOSED, rph_source)) {
     // Not registered for this host yet, so add the notification and add the
     // host to the count map with a count of 1.
     registrar_.Add(this, content::NOTIFICATION_RENDERER_PROCESS_CLOSED,
                    rph_source);
-    host_contents_count_map_[contents->GetRenderProcessHost()] = 1;
+    host_contents_count_map_[contents->GetMainFrame()->GetProcess()] = 1;
   } else {
     // This host's notification is already registered. Increment its count in
     // the map so that the notification will not be removed from the registry
     // until all web contents that use it are destroyed.
-    ++host_contents_count_map_[contents->GetRenderProcessHost()];
+    ++host_contents_count_map_[contents->GetMainFrame()->GetProcess()];
   }
 }
 
@@ -442,19 +471,19 @@ void PrintPreviewDialogController::RemoveObservers(WebContents* contents) {
   // Multiple sites may share the same RenderProcessHost, so check if this
   // notification has already been added.
   content::Source<content::RenderProcessHost> rph_source(
-      contents->GetRenderProcessHost());
+      contents->GetMainFrame()->GetProcess());
   if (registrar_.IsRegistered(this,
       content::NOTIFICATION_RENDERER_PROCESS_CLOSED, rph_source)) {
-    if (host_contents_count_map_[contents->GetRenderProcessHost()] == 1) {
+    if (host_contents_count_map_[contents->GetMainFrame()->GetProcess()] == 1) {
       // This is the last contents that has this render process host, so we can
       // remove the notification.
       registrar_.Remove(this, content::NOTIFICATION_RENDERER_PROCESS_CLOSED,
                         rph_source);
-      host_contents_count_map_.erase(contents->GetRenderProcessHost());
+      host_contents_count_map_.erase(contents->GetMainFrame()->GetProcess());
     } else {
       // Other initializers and/or dialogs are still connected to the host, so
       // we can't remove the notification. Decrement the count in the map.
-      --host_contents_count_map_[contents->GetRenderProcessHost()];
+      --host_contents_count_map_[contents->GetMainFrame()->GetProcess()];
     }
   }
 }

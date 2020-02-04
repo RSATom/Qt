@@ -42,6 +42,8 @@
 #include "qobject.h"
 #include "qdebug.h"
 #include "qpixmapcache_p.h"
+#include "qthread.h"
+#include "qcoreapplication.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -83,10 +85,31 @@ QT_BEGIN_NAMESPACE
     with QPixmapCache} explains how to use QPixmapCache to speed up
     applications by caching the results of painting.
 
+    \note QPixmapCache is only usable from the application's main thread.
+    Access from other threads will be ignored and return failure.
+
     \sa QCache, QPixmap
 */
 
-static int cache_limit = 10240; // 10 MB cache limit
+static const int cache_limit_default = 10240; // 10 MB cache limit
+
+static inline int cost(const QPixmap &pixmap)
+{
+    // make sure to do a 64bit calculation
+    const qint64 costKb = static_cast<qint64>(pixmap.width()) *
+            pixmap.height() * pixmap.depth() / (8 * 1024);
+    const qint64 costMax = std::numeric_limits<int>::max();
+    // a small pixmap should have at least a cost of 1(kb)
+    return static_cast<int>(qBound(1LL, costKb, costMax));
+}
+
+static inline bool qt_pixmapcache_thread_test()
+{
+    if (Q_LIKELY(QCoreApplication::instance() && QThread::currentThread() == QCoreApplication::instance()->thread()))
+        return true;
+
+    return false;
+}
 
 /*!
     \class QPixmapCache::Key
@@ -193,7 +216,7 @@ public:
     QPMCache();
     ~QPMCache();
 
-    void timerEvent(QTimerEvent *) Q_DECL_OVERRIDE;
+    void timerEvent(QTimerEvent *) override;
     bool insert(const QString& key, const QPixmap &pixmap, int cost);
     QPixmapCache::Key insert(const QPixmap &pixmap, int cost);
     bool replace(const QPixmapCache::Key &key, const QPixmap &pixmap, int cost);
@@ -237,7 +260,7 @@ uint qHash(const QPixmapCache::Key &k)
 
 QPMCache::QPMCache()
     : QObject(0),
-      QCache<QPixmapCache::Key, QPixmapCacheEntry>(cache_limit * 1024),
+      QCache<QPixmapCache::Key, QPixmapCacheEntry>(cache_limit_default),
       keyArray(0), theid(0), ps(0), keyArraySize(0), freeKey(0), t(false)
 {
 }
@@ -459,9 +482,12 @@ QPixmapCacheEntry::~QPixmapCacheEntry()
     pm_cache()->releaseKey(key);
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
     \overload
+
+    Use bool find(const QString &, QPixmap *) instead.
 
     Returns the pixmap associated with the \a key in the cache, or
     null if there is no such pixmap.
@@ -477,6 +503,8 @@ QPixmapCacheEntry::~QPixmapCacheEntry()
 
 QPixmap *QPixmapCache::find(const QString &key)
 {
+    if (!qt_pixmapcache_thread_test())
+        return nullptr;
     return pm_cache()->object(key);
 }
 
@@ -484,13 +512,14 @@ QPixmap *QPixmapCache::find(const QString &key)
 /*!
     \obsolete
 
-    Use bool find(const QString&, QPixmap*) instead.
+    Use bool find(const QString &, QPixmap *) instead.
 */
 
-bool QPixmapCache::find(const QString &key, QPixmap& pixmap)
+bool QPixmapCache::find(const QString &key, QPixmap &pixmap)
 {
     return find(key, &pixmap);
 }
+#endif
 
 /*!
     Looks for a cached pixmap associated with the given \a key in the cache.
@@ -503,8 +532,10 @@ bool QPixmapCache::find(const QString &key, QPixmap& pixmap)
     \snippet code/src_gui_image_qpixmapcache.cpp 1
 */
 
-bool QPixmapCache::find(const QString &key, QPixmap* pixmap)
+bool QPixmapCache::find(const QString &key, QPixmap *pixmap)
 {
+    if (!qt_pixmapcache_thread_test())
+        return false;
     QPixmap *ptr = pm_cache()->object(key);
     if (ptr && pixmap)
         *pixmap = *ptr;
@@ -520,8 +551,10 @@ bool QPixmapCache::find(const QString &key, QPixmap* pixmap)
 
     \since 4.6
 */
-bool QPixmapCache::find(const Key &key, QPixmap* pixmap)
+bool QPixmapCache::find(const Key &key, QPixmap *pixmap)
 {
+    if (!qt_pixmapcache_thread_test())
+        return false;
     //The key is not valid anymore, a flush happened before probably
     if (!key.d || !key.d->isValid)
         return false;
@@ -553,7 +586,9 @@ bool QPixmapCache::find(const Key &key, QPixmap* pixmap)
 
 bool QPixmapCache::insert(const QString &key, const QPixmap &pixmap)
 {
-    return pm_cache()->insert(key, pixmap, pixmap.width() * pixmap.height() * pixmap.depth() / 8);
+    if (!qt_pixmapcache_thread_test())
+        return false;
+    return pm_cache()->insert(key, pixmap, cost(pixmap));
 }
 
 /*!
@@ -573,7 +608,9 @@ bool QPixmapCache::insert(const QString &key, const QPixmap &pixmap)
 */
 QPixmapCache::Key QPixmapCache::insert(const QPixmap &pixmap)
 {
-    return pm_cache()->insert(pixmap, pixmap.width() * pixmap.height() * pixmap.depth() / 8);
+    if (!qt_pixmapcache_thread_test())
+        return QPixmapCache::Key();
+    return pm_cache()->insert(pixmap, cost(pixmap));
 }
 
 /*!
@@ -587,10 +624,12 @@ QPixmapCache::Key QPixmapCache::insert(const QPixmap &pixmap)
 */
 bool QPixmapCache::replace(const Key &key, const QPixmap &pixmap)
 {
+    if (!qt_pixmapcache_thread_test())
+        return false;
     //The key is not valid anymore, a flush happened before probably
     if (!key.d || !key.d->isValid)
         return false;
-    return pm_cache()->replace(key, pixmap, pixmap.width() * pixmap.height() * pixmap.depth() / 8);
+    return pm_cache()->replace(key, pixmap, cost(pixmap));
 }
 
 /*!
@@ -603,7 +642,7 @@ bool QPixmapCache::replace(const Key &key, const QPixmap &pixmap)
 
 int QPixmapCache::cacheLimit()
 {
-    return cache_limit;
+    return pm_cache()->maxCost();
 }
 
 /*!
@@ -616,8 +655,9 @@ int QPixmapCache::cacheLimit()
 
 void QPixmapCache::setCacheLimit(int n)
 {
-    cache_limit = n;
-    pm_cache()->setMaxCost(1024 * cache_limit);
+    if (!qt_pixmapcache_thread_test())
+        return;
+    pm_cache()->setMaxCost(n);
 }
 
 /*!
@@ -625,6 +665,8 @@ void QPixmapCache::setCacheLimit(int n)
 */
 void QPixmapCache::remove(const QString &key)
 {
+    if (!qt_pixmapcache_thread_test())
+        return;
     pm_cache()->remove(key);
 }
 
@@ -636,6 +678,8 @@ void QPixmapCache::remove(const QString &key)
 */
 void QPixmapCache::remove(const Key &key)
 {
+    if (!qt_pixmapcache_thread_test())
+        return;
     //The key is not valid anymore, a flush happened before probably
     if (!key.d || !key.d->isValid)
         return;
@@ -648,6 +692,8 @@ void QPixmapCache::remove(const Key &key)
 
 void QPixmapCache::clear()
 {
+    if (!QCoreApplication::closingDown() && !qt_pixmapcache_thread_test())
+        return;
     QT_TRY {
         if (pm_cache.exists())
             pm_cache->clear();

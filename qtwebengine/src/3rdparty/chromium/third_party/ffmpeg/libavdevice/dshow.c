@@ -996,10 +996,14 @@ dshow_add_device(AVFormatContext *avctx,
             par->codec_id = AV_CODEC_ID_RAWVIDEO;
             if (bih->biCompression == BI_RGB || bih->biCompression == BI_BITFIELDS) {
                 par->bits_per_coded_sample = bih->biBitCount;
-                par->extradata = av_malloc(9 + AV_INPUT_BUFFER_PADDING_SIZE);
-                if (par->extradata) {
-                    par->extradata_size = 9;
-                    memcpy(par->extradata, "BottomUp", 9);
+                if (par->height < 0) {
+                    par->height *= -1;
+                } else {
+                    par->extradata = av_malloc(9 + AV_INPUT_BUFFER_PADDING_SIZE);
+                    if (par->extradata) {
+                        par->extradata_size = 9;
+                        memcpy(par->extradata, "BottomUp", 9);
+                    }
                 }
             }
         }
@@ -1033,7 +1037,7 @@ static int parse_device_name(AVFormatContext *avctx)
 {
     struct dshow_ctx *ctx = avctx->priv_data;
     char **device_name = ctx->device_name;
-    char *name = av_strdup(avctx->filename);
+    char *name = av_strdup(avctx->url);
     char *tmp = name;
     int ret = 1;
     char *type;

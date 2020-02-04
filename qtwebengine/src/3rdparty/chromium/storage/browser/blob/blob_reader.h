@@ -12,11 +12,12 @@
 #include <memory>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "net/base/completion_callback.h"
-#include "storage/browser/storage_browser_export.h"
+#include "base/sequence_checker.h"
+#include "net/base/completion_once_callback.h"
 #include "storage/common/blob_storage/blob_storage_constants.h"
 
 class GURL;
@@ -45,9 +46,12 @@ class FileStreamReader;
 //  * If a status of Status::NET_ERROR is returned, that means there was an
 //    error and the net_error() variable contains the error code.
 // Use a BlobDataHandle to create an instance.
-class STORAGE_EXPORT BlobReader {
+//
+// For more information on how to read Blobs in your specific situation, see:
+// https://chromium.googlesource.com/chromium/src/+/HEAD/storage/browser/blob/README.md#accessing-reading
+class COMPONENT_EXPORT(STORAGE_BROWSER) BlobReader {
  public:
-  class STORAGE_EXPORT FileStreamReaderProvider {
+  class COMPONENT_EXPORT(STORAGE_BROWSER) FileStreamReaderProvider {
    public:
     virtual ~FileStreamReaderProvider();
 
@@ -64,7 +68,7 @@ class STORAGE_EXPORT BlobReader {
         const base::Time& expected_modification_time) = 0;
   };
   enum class Status { NET_ERROR, IO_PENDING, DONE };
-  typedef base::Callback<void(Status)> StatusCallback;
+  using StatusCallback = base::OnceCallback<void(Status)>;
   virtual ~BlobReader();
 
   // This calculates the total size of the blob, and initializes the reading
@@ -75,7 +79,7 @@ class STORAGE_EXPORT BlobReader {
   //  * The 'done' callback is only called if Status::IO_PENDING is returned.
   //    The callback value contains the error code or net::OK. Please use the
   //    total_size() value to query the blob size, as it's uint64_t.
-  Status CalculateSize(const net::CompletionCallback& done);
+  Status CalculateSize(net::CompletionOnceCallback done);
 
   // Returns true when the blob has side data. CalculateSize must be called
   // beforehand. Currently side data is supported only for single DiskCache
@@ -91,10 +95,13 @@ class STORAGE_EXPORT BlobReader {
   // * If this function returns Status::IO_PENDING, the done callback will be
   //   called with Status::DONE or Status::NET_ERROR.
   // Currently side data is supported only for single DiskCache entry blob.
-  Status ReadSideData(const StatusCallback& done);
+  Status ReadSideData(StatusCallback done);
 
   // Returns the side data which has been already read with ReadSideData().
-  net::IOBufferWithSize* side_data() const { return side_data_.get(); }
+  net::IOBufferWithSize* side_data() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return side_data_.get();
+  }
 
   // Used to set the read position.
   // * This should be called after CalculateSize and before Read.
@@ -112,7 +119,7 @@ class STORAGE_EXPORT BlobReader {
   Status Read(net::IOBuffer* buffer,
               size_t dest_size,
               int* bytes_read,
-              net::CompletionCallback done);
+              net::CompletionOnceCallback done);
 
   // Kills reading and invalidates all callbacks. The reader cannot be used
   // after this call.
@@ -124,14 +131,21 @@ class STORAGE_EXPORT BlobReader {
 
   // Returns the remaining bytes to be read in the blob. This is populated
   // after CalculateSize, and is modified by SetReadRange.
-  uint64_t remaining_bytes() const { return remaining_bytes_; }
+  uint64_t remaining_bytes() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return remaining_bytes_;
+  }
 
   // Returns the net error code if there was an error. Defaults to net::OK.
-  int net_error() const { return net_error_; }
+  int net_error() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return net_error_;
+  }
 
   // Returns the total size of the blob. This is populated after CalculateSize
   // is called.
   uint64_t total_size() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     DCHECK(total_size_calculated_);
     return total_size_;
   }
@@ -142,18 +156,29 @@ class STORAGE_EXPORT BlobReader {
   FRIEND_TEST_ALL_PREFIXES(BlobReaderTest, HandleBeforeAsyncCancel);
   FRIEND_TEST_ALL_PREFIXES(BlobReaderTest, ReadFromIncompleteBlob);
 
-  BlobReader(const BlobDataHandle* blob_handle,
-             std::unique_ptr<FileStreamReaderProvider> file_stream_provider);
+  BlobReader(const BlobDataHandle* blob_handle);
 
-  bool total_size_calculated() const { return total_size_calculated_; }
+  bool total_size_calculated() const {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    return total_size_calculated_;
+  }
+
+  void SetFileStreamProviderForTesting(
+      std::unique_ptr<FileStreamReaderProvider> file_stream_provider) {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    file_stream_provider_for_testing_ = std::move(file_stream_provider);
+  }
 
  private:
   Status ReportError(int net_error);
-  void InvalidateCallbacksAndDone(int net_error, net::CompletionCallback done);
+  void InvalidateCallbacksAndDone(int net_error,
+                                  net::CompletionOnceCallback done);
 
-  void AsyncCalculateSize(const net::CompletionCallback& done,
-                          BlobStatus status);
-  Status CalculateSizeImpl(const net::CompletionCallback& done);
+  void AsyncCalculateSize(net::CompletionOnceCallback done, BlobStatus status);
+  // If this returns Status::IO_PENDING, it will take ownership of the callback
+  // pointed at by |done| and call it when complete. |done| will not be
+  // modified, otherwise.
+  Status CalculateSizeImpl(net::CompletionOnceCallback* done);
   bool AddItemLength(size_t index, uint64_t length);
   bool ResolveFileItemLength(const BlobDataItem& item,
                              int64_t total_length,
@@ -177,14 +202,14 @@ class STORAGE_EXPORT BlobReader {
   Status ReadDiskCacheEntryItem(const BlobDataItem& item, int bytes_to_read);
   void DidReadDiskCacheEntry(int result);
   void DidReadItem(int result);
-  void DidReadDiskCacheEntrySideData(const StatusCallback& done,
+  void DidReadDiskCacheEntrySideData(StatusCallback done,
                                      int expected_size,
                                      int result);
   int ComputeBytesToRead() const;
   int BytesReadCompleted();
 
   // Returns a FileStreamReader for a blob item at |index|.
-  // If the item at |index| is not of file this returns NULL.
+  // If the item at |index| is not of file this returns nullptr.
   FileStreamReader* GetOrCreateFileReaderAtIndex(size_t index);
   // If the reader is null, then this basically performs a delete operation.
   void SetFileReaderAtIndex(size_t index,
@@ -196,7 +221,7 @@ class STORAGE_EXPORT BlobReader {
 
   std::unique_ptr<BlobDataHandle> blob_handle_;
   std::unique_ptr<BlobDataSnapshot> blob_data_;
-  std::unique_ptr<FileStreamReaderProvider> file_stream_provider_;
+  std::unique_ptr<FileStreamReaderProvider> file_stream_provider_for_testing_;
   scoped_refptr<base::TaskRunner> file_task_runner_;
   scoped_refptr<net::IOBufferWithSize> side_data_;
 
@@ -216,8 +241,10 @@ class STORAGE_EXPORT BlobReader {
 
   bool io_pending_ = false;
 
-  net::CompletionCallback size_callback_;
-  net::CompletionCallback read_callback_;
+  net::CompletionOnceCallback size_callback_;
+  net::CompletionOnceCallback read_callback_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<BlobReader> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(BlobReader);

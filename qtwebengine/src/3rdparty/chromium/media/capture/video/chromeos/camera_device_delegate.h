@@ -9,15 +9,28 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "media/capture/video/chromeos/mojo/arc_camera3.mojom.h"
+#include "base/single_thread_task_runner.h"
+#include "media/capture/video/chromeos/mojo/camera3.mojom.h"
+#include "media/capture/video/chromeos/mojo/camera_common.mojom.h"
 #include "media/capture/video/video_capture_device.h"
 #include "media/capture/video_capture_types.h"
 
 namespace media {
 
-class CameraHalDelegate;
+class Camera3AController;
 class CameraDeviceContext;
+class CameraHalDelegate;
 class StreamBufferManager;
+
+enum class StreamType : uint64_t {
+  kPreview = 0,
+  kStillCapture = 1,
+  kUnknown,
+};
+
+std::string StreamTypeToString(StreamType stream_type);
+
+std::ostream& operator<<(std::ostream& os, StreamType stream_type);
 
 // The interface to register buffer with and send capture request to the
 // camera HAL.
@@ -35,9 +48,9 @@ class CAPTURE_EXPORT StreamCaptureInterface {
 
   // Registers a buffer to the camera HAL.
   virtual void RegisterBuffer(uint64_t buffer_id,
-                              arc::mojom::Camera3DeviceOps::BufferType type,
+                              cros::mojom::Camera3DeviceOps::BufferType type,
                               uint32_t drm_format,
-                              arc::mojom::HalPixelFormat hal_pixel_format,
+                              cros::mojom::HalPixelFormat hal_pixel_format,
                               uint32_t width,
                               uint32_t height,
                               std::vector<Plane> planes,
@@ -45,8 +58,11 @@ class CAPTURE_EXPORT StreamCaptureInterface {
 
   // Sends a capture request to the camera HAL.
   virtual void ProcessCaptureRequest(
-      arc::mojom::Camera3CaptureRequestPtr request,
+      cros::mojom::Camera3CaptureRequestPtr request,
       base::OnceCallback<void(int32_t)> callback) = 0;
+
+  // Send flush to cancel all pending requests to the camera HAL.
+  virtual void Flush(base::OnceCallback<void(int32_t)> callback) = 0;
 };
 
 // CameraDeviceDelegate is instantiated on the capture thread where
@@ -64,8 +80,8 @@ class CAPTURE_EXPORT CameraDeviceDelegate final {
 
   // Delegation methods for the VideoCaptureDevice interface.
   void AllocateAndStart(const VideoCaptureParams& params,
-                        std::unique_ptr<VideoCaptureDevice::Client> client);
-  void StopAndDeAllocate(base::Closure device_close_callback);
+                        CameraDeviceContext* device_context);
+  void StopAndDeAllocate(base::OnceClosure device_close_callback);
   void TakePhoto(VideoCaptureDevice::TakePhotoCallback callback);
   void GetPhotoState(VideoCaptureDevice::GetPhotoStateCallback callback);
   void SetPhotoOptions(mojom::PhotoSettingsPtr settings,
@@ -83,8 +99,13 @@ class CAPTURE_EXPORT CameraDeviceDelegate final {
 
   friend class CameraDeviceDelegateTest;
 
+  void TakePhotoImpl();
+
   // Mojo connection error handler.
   void OnMojoConnectionError();
+
+  // Reconfigure streams for picture taking.
+  void OnFlushed(int32_t result);
 
   // Callback method for the Close Mojo IPC call.  This method resets the Mojo
   // connection and closes the camera device.
@@ -94,7 +115,7 @@ class CAPTURE_EXPORT CameraDeviceDelegate final {
   void ResetMojoInterface();
 
   // Sets |static_metadata_| from |camera_info|.
-  void OnGotCameraInfo(int32_t result, arc::mojom::CameraInfoPtr camera_info);
+  void OnGotCameraInfo(int32_t result, cros::mojom::CameraInfoPtr camera_info);
 
   // Creates the Mojo connection to the camera device.
   void OnOpenedDevice(int32_t result);
@@ -111,33 +132,41 @@ class CAPTURE_EXPORT CameraDeviceDelegate final {
   // indicates.  If there's no error OnConfiguredStreams notifies
   // |client_| the capture has started by calling OnStarted, and proceeds to
   // ConstructDefaultRequestSettings.
-  void ConfigureStreams();
+  void ConfigureStreams(bool require_photo);
   void OnConfiguredStreams(
       int32_t result,
-      arc::mojom::Camera3StreamConfigurationPtr updated_config);
+      cros::mojom::Camera3StreamConfigurationPtr updated_config);
 
   // ConstructDefaultRequestSettings asks the camera HAL for the default request
   // settings of the stream in |stream_context_|.
   // OnConstructedDefaultRequestSettings sets the request settings in
   // |streams_context_|.  If there's no error
-  // OnConstructedDefaultRequestSettings calls StartCapture to start the video
-  // capture loop.
-  void ConstructDefaultRequestSettings();
-  void OnConstructedDefaultRequestSettings(
-      arc::mojom::CameraMetadataPtr settings);
+  // OnConstructedDefaultPreviewRequestSettings calls StartPreview to start the
+  // video capture loop.
+  // OnConstructDefaultStillCaptureRequestSettings triggers
+  // |stream_buffer_manager_| to request a still capture.
+  void ConstructDefaultRequestSettings(StreamType stream_type);
+  void OnConstructedDefaultPreviewRequestSettings(
+      cros::mojom::CameraMetadataPtr settings);
+  void OnConstructedDefaultStillCaptureRequestSettings(
+      cros::mojom::CameraMetadataPtr settings);
 
   // StreamCaptureInterface implementations.  These methods are called by
   // |stream_buffer_manager_| on |ipc_task_runner_|.
   void RegisterBuffer(uint64_t buffer_id,
-                      arc::mojom::Camera3DeviceOps::BufferType type,
+                      cros::mojom::Camera3DeviceOps::BufferType type,
                       uint32_t drm_format,
-                      arc::mojom::HalPixelFormat hal_pixel_format,
+                      cros::mojom::HalPixelFormat hal_pixel_format,
                       uint32_t width,
                       uint32_t height,
                       std::vector<StreamCaptureInterface::Plane> planes,
                       base::OnceCallback<void(int32_t)> callback);
-  void ProcessCaptureRequest(arc::mojom::Camera3CaptureRequestPtr request,
+  void ProcessCaptureRequest(cros::mojom::Camera3CaptureRequestPtr request,
                              base::OnceCallback<void(int32_t)> callback);
+  void Flush(base::OnceCallback<void(int32_t)> callback);
+
+  bool SetPointsOfInterest(
+      const std::vector<mojom::Point2DPtr>& points_of_interest);
 
   const VideoCaptureDeviceDescriptor device_descriptor_;
 
@@ -147,21 +176,27 @@ class CAPTURE_EXPORT CameraDeviceDelegate final {
 
   VideoCaptureParams chrome_capture_params_;
 
-  std::unique_ptr<CameraDeviceContext> device_context_;
+  CameraDeviceContext* device_context_;
+
+  std::queue<VideoCaptureDevice::TakePhotoCallback> take_photo_callbacks_;
 
   std::unique_ptr<StreamBufferManager> stream_buffer_manager_;
+
+  std::unique_ptr<Camera3AController> camera_3a_controller_;
 
   // Stores the static camera characteristics of the camera device. E.g. the
   // supported formats and resolution, various available exposure and apeture
   // settings, etc.
-  arc::mojom::CameraMetadataPtr static_metadata_;
+  cros::mojom::CameraMetadataPtr static_metadata_;
 
-  arc::mojom::Camera3DeviceOpsPtr device_ops_;
+  cros::mojom::Camera3DeviceOpsPtr device_ops_;
 
   // Where all the Mojo IPC calls takes place.
   const scoped_refptr<base::SingleThreadTaskRunner> ipc_task_runner_;
 
-  base::Closure device_close_callback_;
+  base::OnceClosure device_close_callback_;
+
+  VideoCaptureDevice::SetPhotoOptionsCallback set_photo_option_callback_;
 
   base::WeakPtrFactory<CameraDeviceDelegate> weak_ptr_factory_;
 

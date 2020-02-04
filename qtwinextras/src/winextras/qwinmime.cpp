@@ -39,11 +39,11 @@
 
 #include "qwinmime.h"
 
-#include <QtGui/QGuiApplication>
-#include <QtCore/QMetaObject>
-#include <QtCore/QDebug>
+#include <QtGui/qguiapplication.h>
+#include <QtCore/qmetaobject.h>
+#include <QtCore/qdebug.h>
 
-#include <qpa/qplatformnativeinterface.h>
+#include <QtGui/qpa/qplatformnativeinterface.h>
 
 QT_BEGIN_NAMESPACE
 

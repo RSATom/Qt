@@ -38,7 +38,6 @@
 ****************************************************************************/
 
 #include "qlowenergycontroller.h"
-#include "qlowenergycontroller_p.h"
 
 #include "qlowenergycharacteristicdata.h"
 #include "qlowenergyconnectionparameters.h"
@@ -48,11 +47,29 @@
 #include <QtBluetooth/QBluetoothLocalDevice>
 #include <QtCore/QLoggingCategory>
 
+
+#if QT_CONFIG(bluez) && !defined(QT_BLUEZ_NO_BTLE)
+#include "bluez/bluez5_helper_p.h"
+#include "qlowenergycontroller_bluezdbus_p.h"
+#include "qlowenergycontroller_bluez_p.h"
+#elif defined(QT_ANDROID_BLUETOOTH)
+#include "qlowenergycontroller_android_p.h"
+#elif defined(QT_WINRT_BLUETOOTH)
+#include "qtbluetoothglobal_p.h"
+#include "qlowenergycontroller_winrt_p.h"
+#if QT_CONFIG(winrt_btle_no_pairing)
+#include "qlowenergycontroller_winrt_new_p.h"
+#endif
+#else
+#include "qlowenergycontroller_p.h"
+#endif
+
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(QT_BT)
+Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINRT)
 
 /*!
     \class QLowEnergyController
@@ -274,212 +291,40 @@ void registerQLowEnergyControllerMetaType()
         qRegisterMetaType<QLowEnergyController::ControllerState>();
         qRegisterMetaType<QLowEnergyController::Error>();
         qRegisterMetaType<QLowEnergyConnectionParameters>();
+        qRegisterMetaType<QLowEnergyCharacteristic>();
+        qRegisterMetaType<QLowEnergyDescriptor>();
         initDone = true;
     }
 }
 
-
-void QLowEnergyControllerPrivate::setError(
-        QLowEnergyController::Error newError)
+static QLowEnergyControllerPrivate *privateController(QLowEnergyController::Role role)
 {
-    Q_Q(QLowEnergyController);
-    error = newError;
-
-    switch (newError) {
-    case QLowEnergyController::UnknownRemoteDeviceError:
-        errorString = QLowEnergyController::tr("Remote device cannot be found");
-        break;
-    case QLowEnergyController::InvalidBluetoothAdapterError:
-        errorString = QLowEnergyController::tr("Cannot find local adapter");
-        break;
-    case QLowEnergyController::NetworkError:
-        errorString = QLowEnergyController::tr("Error occurred during connection I/O");
-        break;
-    case QLowEnergyController::ConnectionError:
-        errorString = QLowEnergyController::tr("Error occurred trying to connect to remote device.");
-        break;
-    case QLowEnergyController::AdvertisingError:
-        errorString = QLowEnergyController::tr("Error occurred trying to start advertising");
-        break;
-    case QLowEnergyController::RemoteHostClosedError:
-        errorString = QLowEnergyController::tr("Remote device closed the connection");
-        break;
-    case QLowEnergyController::NoError:
-        return;
-    default:
-    case QLowEnergyController::UnknownError:
-        errorString = QLowEnergyController::tr("Unknown Error");
-        break;
+#if QT_CONFIG(bluez) && !defined(QT_BLUEZ_NO_BTLE)
+    // The new DBUS implementation only supports Central role for now
+    // For Peripheral role support see QTBUG-66909
+    if (role == QLowEnergyController::CentralRole
+            && bluetoothdVersion() >= QVersionNumber(5, 42)) {
+        qCWarning(QT_BT) << "Using BlueZ LE DBus API";
+        return new QLowEnergyControllerPrivateBluezDBus();
+    } else {
+        qCWarning(QT_BT) << "Using BlueZ kernel ATT interface";
+        return new QLowEnergyControllerPrivateBluez();
     }
-
-    emit q->error(newError);
-}
-
-bool QLowEnergyControllerPrivate::isValidLocalAdapter()
-{
-#ifdef QT_WINRT_BLUETOOTH
-    return true;
+#elif defined(QT_ANDROID_BLUETOOTH)
+    Q_UNUSED(role);
+    return new QLowEnergyControllerPrivateAndroid();
+#elif defined(QT_WINRT_BLUETOOTH)
+    Q_UNUSED(role);
+#if QT_CONFIG(winrt_btle_no_pairing)
+    return createWinRTLowEnergyController();
+#else
+    qCDebug(QT_BT_WINRT) << "Using pre 15063 low energy controller";
+    return new QLowEnergyControllerPrivateWinRT();
 #endif
-    if (localAdapter.isNull())
-        return false;
-
-    const QList<QBluetoothHostInfo> foundAdapters = QBluetoothLocalDevice::allDevices();
-    bool adapterFound = false;
-
-    foreach (const QBluetoothHostInfo &info, foundAdapters) {
-        if (info.address() == localAdapter) {
-            adapterFound = true;
-            break;
-        }
-    }
-
-    return adapterFound;
-}
-
-void QLowEnergyControllerPrivate::setState(
-        QLowEnergyController::ControllerState newState)
-{
-    Q_Q(QLowEnergyController);
-    if (state == newState)
-        return;
-
-    state = newState;
-    if (state == QLowEnergyController::UnconnectedState
-            && role == QLowEnergyController::PeripheralRole) {
-        remoteDevice.clear();
-    }
-    emit q->stateChanged(state);
-}
-
-void QLowEnergyControllerPrivate::invalidateServices()
-{
-    foreach (const QSharedPointer<QLowEnergyServicePrivate> service, serviceList.values()) {
-        service->setController(0);
-        service->setState(QLowEnergyService::InvalidService);
-    }
-
-    serviceList.clear();
-}
-
-QSharedPointer<QLowEnergyServicePrivate> QLowEnergyControllerPrivate::serviceForHandle(
-        QLowEnergyHandle handle)
-{
-    ServiceDataMap &currentList = serviceList;
-    if (role == QLowEnergyController::PeripheralRole)
-        currentList = localServices;
-
-    const QList<QSharedPointer<QLowEnergyServicePrivate>> values = currentList.values();
-    for (auto service: values)
-        if (service->startHandle <= handle && handle <= service->endHandle)
-            return service;
-
-    return QSharedPointer<QLowEnergyServicePrivate>();
-}
-
-/*!
-    Returns a valid characteristic if the given handle is the
-    handle of the characteristic itself or one of its descriptors
- */
-QLowEnergyCharacteristic QLowEnergyControllerPrivate::characteristicForHandle(
-        QLowEnergyHandle handle)
-{
-    QSharedPointer<QLowEnergyServicePrivate> service = serviceForHandle(handle);
-    if (service.isNull())
-        return QLowEnergyCharacteristic();
-
-    if (service->characteristicList.isEmpty())
-        return QLowEnergyCharacteristic();
-
-    // check whether it is the handle of a characteristic header
-    if (service->characteristicList.contains(handle))
-        return QLowEnergyCharacteristic(service, handle);
-
-    // check whether it is the handle of the characteristic value or its descriptors
-    QList<QLowEnergyHandle> charHandles = service->characteristicList.keys();
-    std::sort(charHandles.begin(), charHandles.end());
-    for (int i = charHandles.size() - 1; i >= 0; i--) {
-        if (charHandles.at(i) > handle)
-            continue;
-
-        return QLowEnergyCharacteristic(service, charHandles.at(i));
-    }
-
-    return QLowEnergyCharacteristic();
-}
-
-/*!
-    Returns a valid descriptor if \a handle belongs to a descriptor;
-    otherwise an invalid one.
- */
-QLowEnergyDescriptor QLowEnergyControllerPrivate::descriptorForHandle(
-        QLowEnergyHandle handle)
-{
-    const QLowEnergyCharacteristic matchingChar = characteristicForHandle(handle);
-    if (!matchingChar.isValid())
-        return QLowEnergyDescriptor();
-
-    const QLowEnergyServicePrivate::CharData charData = matchingChar.
-            d_ptr->characteristicList[matchingChar.attributeHandle()];
-
-    if (charData.descriptorList.contains(handle))
-        return QLowEnergyDescriptor(matchingChar.d_ptr, matchingChar.attributeHandle(),
-                                    handle);
-
-    return QLowEnergyDescriptor();
-}
-
-/*!
-    Returns the length of the updated characteristic value.
- */
-quint16 QLowEnergyControllerPrivate::updateValueOfCharacteristic(
-        QLowEnergyHandle charHandle,const QByteArray &value, bool appendValue)
-{
-    QSharedPointer<QLowEnergyServicePrivate> service = serviceForHandle(charHandle);
-    if (!service.isNull()) {
-        CharacteristicDataMap::iterator charIt = service->characteristicList.find(charHandle);
-        if (charIt != service->characteristicList.end()) {
-            QLowEnergyServicePrivate::CharData &charDetails = charIt.value();
-
-            if (appendValue)
-                charDetails.value += value;
-            else
-                charDetails.value = value;
-
-            return charDetails.value.size();
-        }
-    }
-
-    return 0;
-}
-
-/*!
-    Returns the length of the updated descriptor value.
- */
-quint16 QLowEnergyControllerPrivate::updateValueOfDescriptor(
-        QLowEnergyHandle charHandle, QLowEnergyHandle descriptorHandle,
-        const QByteArray &value, bool appendValue)
-{
-    QSharedPointer<QLowEnergyServicePrivate> service = serviceForHandle(charHandle);
-    if (!service.isNull()) {
-        CharacteristicDataMap::iterator charIt = service->characteristicList.find(charHandle);
-        if (charIt != service->characteristicList.end()) {
-            QLowEnergyServicePrivate::CharData &charDetails = charIt.value();
-
-            DescriptorDataMap::iterator descIt = charDetails.descriptorList.find(descriptorHandle);
-            if (descIt != charDetails.descriptorList.end()) {
-                QLowEnergyServicePrivate::DescData &descDetails = descIt.value();
-
-                if (appendValue)
-                    descDetails.value += value;
-                else
-                    descDetails.value = value;
-
-                return descDetails.value.size();
-            }
-        }
-    }
-
-    return 0;
+#else
+    Q_UNUSED(role);
+    return new QLowEnergyControllerPrivateCommon();
+#endif
 }
 
 /*!
@@ -497,8 +342,10 @@ quint16 QLowEnergyControllerPrivate::updateValueOfDescriptor(
 QLowEnergyController::QLowEnergyController(
                             const QBluetoothAddress &remoteDevice,
                             QObject *parent)
-    : QObject(parent), d_ptr(new QLowEnergyControllerPrivate())
+    : QObject(parent)
 {
+    d_ptr = privateController(CentralRole);
+
     Q_D(QLowEnergyController);
     d->q_ptr = this;
     d->role = CentralRole;
@@ -524,8 +371,10 @@ QLowEnergyController::QLowEnergyController(
 QLowEnergyController::QLowEnergyController(
                             const QBluetoothDeviceInfo &remoteDeviceInfo,
                             QObject *parent)
-    : QObject(parent), d_ptr(new QLowEnergyControllerPrivate())
+    : QObject(parent)
 {
+        d_ptr = privateController(CentralRole);
+
     Q_D(QLowEnergyController);
     d->q_ptr = this;
     d->role = CentralRole;
@@ -555,8 +404,10 @@ QLowEnergyController::QLowEnergyController(
                             const QBluetoothAddress &remoteDevice,
                             const QBluetoothAddress &localDevice,
                             QObject *parent)
-    : QObject(parent), d_ptr(new QLowEnergyControllerPrivate())
+    : QObject(parent)
 {
+    d_ptr = privateController(CentralRole);
+
     Q_D(QLowEnergyController);
     d->q_ptr = this;
     d->role = CentralRole;
@@ -598,8 +449,10 @@ QLowEnergyController *QLowEnergyController::createPeripheral(QObject *parent)
 }
 
 QLowEnergyController::QLowEnergyController(QObject *parent)
-    : QObject(parent), d_ptr(new QLowEnergyControllerPrivate())
+    : QObject(parent)
 {
+    d_ptr = privateController(PeripheralRole);
+
     Q_D(QLowEnergyController);
     d->q_ptr = this;
     d->role = PeripheralRole;
@@ -760,9 +613,10 @@ void QLowEnergyController::connectToDevice()
 
     This function does nothing if the controller is in the \l UnconnectedState.
 
-    If the controller is in the peripheral role, it stops advertising too.
-    The application must restart the advertising mode by calling
-    \l startAdvertising().
+    If the controller is in the peripheral role, it stops advertising and removes
+    all services which have previously been added via \l addService().
+    To reuse the QLowEnergyController instance the application must re-add services
+    and restart the advertising mode by calling \l startAdvertising().
 
     \sa connectToDevice()
  */
@@ -850,7 +704,7 @@ QLowEnergyService *QLowEnergyController::createServiceObject(
 {
     Q_D(QLowEnergyController);
 
-    QLowEnergyService *service = Q_NULLPTR;
+    QLowEnergyService *service = nullptr;
 
     ServiceDataMap::const_iterator it = d->serviceList.constFind(serviceUuid);
     if (it != d->serviceList.constEnd()) {
@@ -899,6 +753,9 @@ void QLowEnergyController::startAdvertising(const QLowEnergyAdvertisingParameter
 /*!
    Stops advertising, if this object is currently in the advertising state.
 
+   The controller has to be in the \l PeripheralRole for this function to work.
+   It does not invalidate services which have previously been added via \l addService().
+
    \since 5.7
    \sa startAdvertising()
  */
@@ -917,8 +774,15 @@ void QLowEnergyController::stopAdvertising()
   The controller must be in the \l PeripheralRole and in the \l UnconnectedState. The \a service
   object must be valid.
 
+  \note Once the peripheral instance is disconnected from the remote central device or
+  if \l disconnectFromDevice() is manually called, every service definition that was
+  previously added via this function is removed from the peripheral. Therefore this function
+  must be called again before re-advertising this peripheral controller instance. The described
+  behavior is connection specific and therefore not dependent on whether \l stopAdvertising()
+  was called.
+
   \since 5.7
-  \sa QLowEnergyServiceData::addIncludedService
+  \sa stopAdvertising(), disconnectFromDevice(), QLowEnergyServiceData::addIncludedService
  */
 QLowEnergyService *QLowEnergyController::addService(const QLowEnergyServiceData &service,
                                                     QObject *parent)
@@ -944,55 +808,6 @@ QLowEnergyService *QLowEnergyController::addService(const QLowEnergyServiceData 
     return newService;
 }
 
-QLowEnergyService *QLowEnergyControllerPrivate::addServiceHelper(
-                            const QLowEnergyServiceData &service)
-{
-    // Spec says services "should" be grouped by uuid length (16-bit first, then 128-bit).
-    // Since this is not mandatory, we ignore it here and let the caller take responsibility
-    // for it.
-
-    const auto servicePrivate = QSharedPointer<QLowEnergyServicePrivate>::create();
-    servicePrivate->state = QLowEnergyService::LocalService;
-    servicePrivate->setController(this);
-    servicePrivate->uuid = service.uuid();
-    servicePrivate->type = service.type() == QLowEnergyServiceData::ServiceTypePrimary
-            ? QLowEnergyService::PrimaryService : QLowEnergyService::IncludedService;
-    foreach (QLowEnergyService * const includedService, service.includedServices()) {
-        servicePrivate->includedServices << includedService->serviceUuid();
-        includedService->d_ptr->type |= QLowEnergyService::IncludedService;
-    }
-
-    // Spec v4.2, Vol 3, Part G, Section 3.
-    const QLowEnergyHandle oldLastHandle = this->lastLocalHandle;
-    servicePrivate->startHandle = ++this->lastLocalHandle; // Service declaration.
-    this->lastLocalHandle += servicePrivate->includedServices.count(); // Include declarations.
-    foreach (const QLowEnergyCharacteristicData &cd, service.characteristics()) {
-        const QLowEnergyHandle declHandle = ++this->lastLocalHandle;
-        QLowEnergyServicePrivate::CharData charData;
-        charData.valueHandle = ++this->lastLocalHandle;
-        charData.uuid = cd.uuid();
-        charData.properties = cd.properties();
-        charData.value = cd.value();
-        foreach (const QLowEnergyDescriptorData &dd, cd.descriptors()) {
-            QLowEnergyServicePrivate::DescData descData;
-            descData.uuid = dd.uuid();
-            descData.value = dd.value();
-            charData.descriptorList.insert(++this->lastLocalHandle, descData);
-        }
-        servicePrivate->characteristicList.insert(declHandle, charData);
-    }
-    servicePrivate->endHandle = this->lastLocalHandle;
-    const bool handleOverflow = this->lastLocalHandle <= oldLastHandle;
-    if (handleOverflow) {
-        qCWarning(QT_BT) << "Not enough attribute handles left to create this service";
-        this->lastLocalHandle = oldLastHandle;
-        return nullptr;
-    }
-
-    this->localServices.insert(servicePrivate->uuid, servicePrivate);
-    this->addToGenericAttributeList(service, servicePrivate->startHandle);
-    return new QLowEnergyService(servicePrivate);
-}
 
 /*!
   Requests the controller to update the connection according to \a parameters.

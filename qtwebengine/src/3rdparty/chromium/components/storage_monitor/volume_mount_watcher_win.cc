@@ -21,13 +21,14 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
-#include "base/task_scheduler/post_task.h"
 #include "base/time/time.h"
 #include "base/win/scoped_handle.h"
 #include "components/storage_monitor/media_storage_util.h"
 #include "components/storage_monitor/storage_info.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
 using content::BrowserThread;
@@ -161,7 +162,7 @@ bool GetDeviceDetails(const base::FilePath& device_path, StorageInfo* info) {
   base::string16 volume_label;
   GetVolumeInformationW(device_path.value().c_str(),
                         base::WriteInto(&volume_label, kMaxPathBufLen),
-                        kMaxPathBufLen, NULL, NULL, NULL, NULL, 0);
+                        kMaxPathBufLen, nullptr, nullptr, nullptr, nullptr, 0);
 
   uint64_t total_size_in_bytes = GetVolumeSize(mount_path);
   std::string device_id =
@@ -223,21 +224,20 @@ void EjectDeviceInThreadPool(
   // at not-just-drive-letter paths.
   if (drive_letter < L'A' || drive_letter > L'Z' ||
       device != device.DirName()) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::Bind(callback, StorageMonitor::EJECT_FAILURE));
     return;
   }
   base::SStringPrintf(&volume_name, L"\\\\.\\%lc:", drive_letter);
 
   base::win::ScopedHandle volume_handle(CreateFile(
-      volume_name.c_str(),
-      GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-      NULL, OPEN_EXISTING, 0, NULL));
+      volume_name.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+      nullptr, OPEN_EXISTING, 0, nullptr));
 
   if (!volume_handle.IsValid()) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::Bind(callback, StorageMonitor::EJECT_FAILURE));
     return;
   }
@@ -248,8 +248,8 @@ void EjectDeviceInThreadPool(
   // files on it). If this fails, it means some other process has files
   // open on the device. Note that the lock is released when the volume
   // handle is closed, and this is done by the ScopedHandle above.
-  BOOL locked = DeviceIoControl(volume_handle.Get(), FSCTL_LOCK_VOLUME,
-                                NULL, 0, NULL, 0, &bytes_returned, NULL);
+  BOOL locked = DeviceIoControl(volume_handle.Get(), FSCTL_LOCK_VOLUME, nullptr,
+                                0, nullptr, 0, &bytes_returned, nullptr);
   if (!locked) {
     const int kNumLockRetries = 1;
     const base::TimeDelta kLockRetryInterval =
@@ -266,24 +266,26 @@ void EjectDeviceInThreadPool(
       return;
     }
 
-    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                            base::Bind(callback, StorageMonitor::EJECT_IN_USE));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::Bind(callback, StorageMonitor::EJECT_IN_USE));
     return;
   }
 
   // Unmount the device from the filesystem -- this will remove it from
   // the file picker, drive enumerations, etc.
-  BOOL dismounted = DeviceIoControl(volume_handle.Get(), FSCTL_DISMOUNT_VOLUME,
-                                    NULL, 0, NULL, 0, &bytes_returned, NULL);
+  BOOL dismounted =
+      DeviceIoControl(volume_handle.Get(), FSCTL_DISMOUNT_VOLUME, nullptr, 0,
+                      nullptr, 0, &bytes_returned, nullptr);
 
   // Reached if we acquired a lock, but could not dismount. This might
   // occur if another process unmounted without locking. Call this OK,
   // since the volume is now unreachable.
   if (!dismounted) {
-    DeviceIoControl(volume_handle.Get(), FSCTL_UNLOCK_VOLUME,
-                    NULL, 0, NULL, 0, &bytes_returned, NULL);
-    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                            base::Bind(callback, StorageMonitor::EJECT_OK));
+    DeviceIoControl(volume_handle.Get(), FSCTL_UNLOCK_VOLUME, nullptr, 0,
+                    nullptr, 0, &bytes_returned, nullptr);
+    base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
+                             base::Bind(callback, StorageMonitor::EJECT_OK));
     return;
   }
 
@@ -291,32 +293,32 @@ void EjectDeviceInThreadPool(
   pmr_buffer.PreventMediaRemoval = FALSE;
   // Mark the device as safe to remove.
   if (!DeviceIoControl(volume_handle.Get(), IOCTL_STORAGE_MEDIA_REMOVAL,
-                       &pmr_buffer, sizeof(PREVENT_MEDIA_REMOVAL),
-                       NULL, 0, &bytes_returned, NULL)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+                       &pmr_buffer, sizeof(PREVENT_MEDIA_REMOVAL), nullptr, 0,
+                       &bytes_returned, nullptr)) {
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::Bind(callback, StorageMonitor::EJECT_FAILURE));
     return;
   }
 
   // Physically eject or soft-eject the device.
-  if (!DeviceIoControl(volume_handle.Get(), IOCTL_STORAGE_EJECT_MEDIA,
-                       NULL, 0, NULL, 0, &bytes_returned, NULL)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
+  if (!DeviceIoControl(volume_handle.Get(), IOCTL_STORAGE_EJECT_MEDIA, nullptr,
+                       0, nullptr, 0, &bytes_returned, nullptr)) {
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
         base::Bind(callback, StorageMonitor::EJECT_FAILURE));
     return;
   }
 
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                          base::Bind(callback, StorageMonitor::EJECT_OK));
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
+                           base::Bind(callback, StorageMonitor::EJECT_OK));
 }
 
 }  // namespace
 
 VolumeMountWatcherWin::VolumeMountWatcherWin()
     : device_info_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
       notifications_(nullptr),
       weak_factory_(this) {}
@@ -372,15 +374,15 @@ void VolumeMountWatcherWin::RetrieveInfoForDeviceAndAdd(
     base::WeakPtr<VolumeMountWatcherWin> volume_watcher) {
   StorageInfo info;
   if (!get_device_details_callback.Run(device_path, &info)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(&VolumeMountWatcherWin::DeviceCheckComplete,
-                   volume_watcher, device_path));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::Bind(&VolumeMountWatcherWin::DeviceCheckComplete, volume_watcher,
+                   device_path));
     return;
   }
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::Bind(&VolumeMountWatcherWin::HandleDeviceAttachEventOnUIThread,
                  volume_watcher, device_path, info));
 }

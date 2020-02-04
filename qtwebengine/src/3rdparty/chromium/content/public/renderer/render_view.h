@@ -38,7 +38,7 @@ struct WebPreferences;
 // New code should be added to RenderFrame instead.
 //
 // For context, please see https://crbug.com/467770 and
-// http://www.chromium.org/developers/design-documents/site-isolation.
+// https://www.chromium.org/developers/design-documents/site-isolation.
 class CONTENT_EXPORT RenderView : public IPC::Sender {
  public:
   // Returns the RenderView containing the given WebView.
@@ -62,13 +62,16 @@ class CONTENT_EXPORT RenderView : public IPC::Sender {
   virtual RenderFrame* GetMainRenderFrame() = 0;
 
   // Get the routing ID of the view.
-  virtual int GetRoutingID() const = 0;
+  virtual int GetRoutingID() = 0;
 
   // Returns the size of the view.
-  virtual gfx::Size GetSize() const = 0;
+  virtual gfx::Size GetSize() = 0;
 
   // Returns the device scale factor of the display the render view is in.
-  virtual float GetDeviceScaleFactor() const = 0;
+  virtual float GetDeviceScaleFactor() = 0;
+
+  // Returns the page's zoom level for the render view.
+  virtual float GetZoomLevel() = 0;
 
   // Gets WebKit related preferences associated with this view.
   virtual const WebPreferences& GetWebkitPreferences() = 0;
@@ -83,18 +86,10 @@ class CONTENT_EXPORT RenderView : public IPC::Sender {
   // Returns the associated WebFrameWidget.
   virtual blink::WebFrameWidget* GetWebFrameWidget() = 0;
 
-  // Returns true if we should display scrollbars for the given view size and
-  // false if the scrollbars should be hidden.
-  virtual bool ShouldDisplayScrollbars(int width, int height) const = 0;
-
   // Whether content state (such as form state, scroll position and page
   // contents) should be sent to the browser immediately. This is normally
   // false, but set to true by some tests.
-  virtual bool GetContentStateImmediately() const = 0;
-
-  // Notifies the renderer that a paint is to be generated for the size
-  // passed in.
-  virtual void Repaint(const gfx::Size& size) = 0;
+  virtual bool GetContentStateImmediately() = 0;
 
   // Inject edit commands to be used for the next keyboard event.
   // TODO(alexmos): Currently, these are used only by BlinkTestRunner.  They
@@ -105,13 +100,11 @@ class CONTENT_EXPORT RenderView : public IPC::Sender {
   virtual void ClearEditCommands() = 0;
 
   // Returns |renderer_preferences_.accept_languages| value.
-  virtual const std::string& GetAcceptLanguages() const = 0;
+  virtual const std::string& GetAcceptLanguages() = 0;
 
-#if defined(OS_ANDROID)
   virtual void UpdateBrowserControlsState(BrowserControlsState constraints,
                                           BrowserControlsState current,
                                           bool animate) = 0;
-#endif
 
   // Converts the |rect| from Viewport coordinates to Window coordinates.
   // See blink::WebWidgetClient::convertViewportToWindow for more details.
@@ -122,8 +115,6 @@ class CONTENT_EXPORT RenderView : public IPC::Sender {
   // This function will update the layout if required.
   virtual gfx::RectF ElementBoundsInWindow(const blink::WebElement& element)
       = 0;
-
-  virtual bool HasAddedInputHandler() const = 0;
 
  protected:
   ~RenderView() override {}

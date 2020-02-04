@@ -11,13 +11,15 @@ _protocol_generated = [
   "DOM.cpp",
   "DOM.h",
   "Forward.h",
+  "Overlay.cpp",
+  "Overlay.h",
   "Protocol.cpp",
   "Protocol.h",
 ]
 
 action("protocol_compatibility") {
   visibility = [ ":*" ]  # Only targets in this file can depend on this.
-  script = "$_inspector_protocol/CheckProtocolCompatibility.py"
+  script = "$_inspector_protocol/check_protocol_compatibility.py"
   inputs = [
     "protocol.json",
   ]
@@ -55,16 +57,27 @@ inspector_protocol_generate("protocol_generated_sources") {
 component("ui_devtools") {
   sources = rebase_path(_protocol_generated, ".", target_gen_dir)
   sources += [
+    "css_agent.cc",
+    "css_agent.h",
     "devtools_base_agent.h",
     "devtools_client.cc",
     "devtools_client.h",
     "devtools_export.h",
     "devtools_server.cc",
     "devtools_server.h",
+    "dom_agent.cc",
+    "dom_agent.h",
+    "overlay_agent.cc",
+    "overlay_agent.h",
+    "root_element.cc",
+    "root_element.h",
     "string_util.cc",
     "string_util.h",
     "switches.cc",
     "switches.h",
+    "ui_element.cc",
+    "ui_element.h",
+    "ui_element_delegate.h",
   ]
 
   defines = [ "UI_DEVTOOLS_IMPLEMENTATION" ]
@@ -78,6 +91,48 @@ component("ui_devtools") {
     ":protocol_generated_sources",
     "//base",
     "//net",
-    "//net:http_server",
+    "//ui/gfx",
   ]
+
+  public_deps = [
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
+  ]
+}
+
+static_library("test_support") {
+  testonly = true
+  sources = [
+    "ui_devtools_unittest_utils.cc",
+    "ui_devtools_unittest_utils.h",
+  ]
+  public_deps = [
+    ":ui_devtools",
+    "//testing/gmock",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+
+  cflags = []
+  if (is_win) {
+    cflags += [ "/wd4800" ]  # Value forced to bool.
+  }
+
+  sources = [
+    #TODO(lgrey,weili): fix and enable css agent tests.
+    #"css_agent_unittest.cc",
+    "devtools_server_unittest.cc",
+  ]
+
+  deps = [
+    ":test_support",
+    "//base/test:test_support",
+    "//net:test_support",
+    "//services/network:network_service",
+    "//testing/gtest",
+  ]
+
+  configs += [ "//build/config:precompiled_headers" ]
 }

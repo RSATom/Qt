@@ -12,16 +12,31 @@ namespace switches {
 // transparent.
 const char kDefaultBackgroundColor[] = "default-background-color";
 
-// Enable chrash reporter for headless.
+// Whether cookies stored as part of user profile are encrypted.
+const char kDisableCookieEncryption[] = "disable-cookie-encryption";
+
+// Whether or not begin frames should be issued over DevToolsProtocol
+// (experimental).
+const char kEnableBeginFrameControl[] = "enable-begin-frame-control";
+
+// Enable crash reporter for headless.
 const char kEnableCrashReporter[] = "enable-crash-reporter";
+
+// Disable crash reporter for headless. It is enabled by default in official
+// builds.
+const char kDisableCrashReporter[] = "disable-crash-reporter";
 
 // The directory breakpad should store minidumps in.
 const char kCrashDumpsDir[] = "crash-dumps-dir";
 
-// Instructs headless_shell to cause network fetches to complete in order of
-// creation. This removes a significant source of network related
-// non-determinism at the cost of slower page loads.
-const char kDeterministicFetch[] = "deterministic-fetch";
+// A meta flag. This sets a number of flags which put the browser into
+// deterministic mode where begin frames should be issued over DevToolsProtocol
+// (experimental).
+const char kDeterministicMode[] = "deterministic-mode";
+
+// Use a specific disk cache location, rather than one derived from the
+// UserDatadir.
+const char kDiskCacheDir[] = "disk-cache-dir";
 
 // Instructs headless_shell to print document.body.innerHTML to stdout.
 const char kDumpDom[] = "dump-dom";
@@ -29,8 +44,24 @@ const char kDumpDom[] = "dump-dom";
 // Hide scrollbars from screenshots.
 const char kHideScrollbars[] = "hide-scrollbars";
 
+// Specifies which encryption storage backend to use. Possible values are
+// kwallet, kwallet5, gnome, gnome-keyring, gnome-libsecret, basic. Any other
+// value will lead to Chrome detecting the best backend automatically.
+// TODO(crbug.com/571003): Once PasswordStore no longer uses the Keyring or
+// KWallet for storing passwords, rename this flag to stop referencing
+// passwords. Do not rename it sooner, though; developers and testers might
+// rely on it keeping large amounts of testing passwords out of their Keyrings
+// or KWallets.
+const char kPasswordStore[] = "password-store";
+
 // Save a pdf file of the loaded page.
 const char kPrintToPDF[] = "print-to-pdf";
+
+// Specifies a list of hosts for whom we bypass proxy settings and use direct
+// connections. Ignored unless --proxy-server is also specified. This is a
+// comma-separated list of bypass rules. See:
+// "net/proxy_resolution/proxy_bypass_rules.h" for the format of these rules.
+const char kProxyBypassList[] = "proxy-bypass-list";
 
 // Uses a specified proxy server, overrides system settings. This switch only
 // affects HTTP and HTTPS requests.
@@ -42,21 +73,18 @@ const char kProxyServer[] = "proxy-server";
 // so exposing it too widely can be a security risk.
 const char kRemoteDebuggingAddress[] = "remote-debugging-address";
 
-// The given value is the fd of a socket already opened by the parent process.
-// This allows automation to provide a listening socket for clients to connect
-// to before chrome is fully fired up. In particular, a parent process can
-// open the port, exec headles chrome, and connect to the devtools port
-// immediately. Waiting for chrome to be ready is then handled by the first
-// read from the port, which will block until chrome is ready. No polling is
-// needed.
-const char kRemoteDebuggingSocketFd[] = "remote-debugging-socket-fd";
-
 // Runs a read-eval-print loop that allows the user to evaluate Javascript
 // expressions.
 const char kRepl[] = "repl";
 
 // Save a screenshot of the loaded page.
 const char kScreenshot[] = "screenshot";
+
+// Causes SSL key material to be logged to the specified file for debugging
+// purposes. See
+// https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Key_Log_Format
+// for the format.
+const char kSSLKeyLogFile[] = "ssl-key-log-file";
 
 // Issues a stop after the specified number of milliseconds.  This cancels all
 // navigation and causes the DOMContentLoaded event to fire.
@@ -83,5 +111,15 @@ const char kVirtualTimeBudget[] = "virtual-time-budget";
 // Sets the initial window size. Provided as string in the format "800,600".
 const char kWindowSize[] = "window-size";
 
+// Whitelist for Negotitate Auth servers.
+const char kAuthServerWhitelist[] = "auth-server-whitelist";
+
+// Sets font render hinting when running headless, affects Skia rendering and
+// whether glyph subpixel positioning is enabled.
+// Possible values: none|slight|medium|full|max. Default: full.
+const char kFontRenderHinting[] = "font-render-hinting";
+
+// If true, then all pop-ups and calls to window.open will fail.
+const char kBlockNewWebContents[] = "block-new-web-contents";
 }  // namespace switches
 }  // namespace headless

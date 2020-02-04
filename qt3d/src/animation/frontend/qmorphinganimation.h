@@ -51,14 +51,14 @@ namespace Qt3DAnimation {
 
 class QMorphingAnimationPrivate;
 
-class QT3DANIMATIONSHARED_EXPORT QMorphingAnimation : public QAbstractAnimation
+class Q_3DANIMATIONSHARED_EXPORT QMorphingAnimation : public QAbstractAnimation
 {
     Q_OBJECT
     Q_PROPERTY(QVector<float> targetPositions READ targetPositions WRITE setTargetPositions NOTIFY targetPositionsChanged)
     Q_PROPERTY(float interpolator READ interpolator NOTIFY interpolatorChanged)
     Q_PROPERTY(Qt3DRender::QGeometryRenderer *target READ target WRITE setTarget NOTIFY targetChanged)
     Q_PROPERTY(QString targetName READ targetName WRITE setTargetName NOTIFY targetNameChanged)
-    Q_PROPERTY(QMorphingAnimation::Method method READ method WRITE setMethod NOTIFY methodChanged)
+    Q_PROPERTY(Method method READ method WRITE setMethod NOTIFY methodChanged)
     Q_PROPERTY(QEasingCurve easing READ easing WRITE setEasing NOTIFY easingChanged)
 
 public:

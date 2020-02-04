@@ -42,28 +42,32 @@
 
 #include "content/public/browser/resource_context.h"
 
+#include "extensions/buildflags/buildflags.h"
+
 namespace net {
+class URLRequestContext;
 class URLRequestContextGetter;
 }
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+namespace extensions {
+class ExtensionSystemQt;
+}
+#endif // BUILDFLAG(ENABLE_EXTENSIONS)
 
 class GURL;
 
 namespace QtWebEngineCore {
-class BrowserContextQt;
+
+class ProfileIODataQt;
 
 class ResourceContextQt : public content::ResourceContext
 {
 public:
-    ResourceContextQt(BrowserContextQt *ctx)
-        : context(ctx)
-    {}
-
-    net::HostResolver *GetHostResolver() override;
-    net::URLRequestContext *GetRequestContext() override;
-
+    ResourceContextQt(ProfileIODataQt *io_data);
 private:
-    BrowserContextQt *context;
-
+    friend class ProfileIODataQt;
+    ProfileIODataQt* m_io_data;
     DISALLOW_COPY_AND_ASSIGN(ResourceContextQt);
 };
 

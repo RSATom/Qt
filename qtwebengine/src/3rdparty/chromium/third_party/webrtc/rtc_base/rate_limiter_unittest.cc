@@ -8,15 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <algorithm>
 #include <memory>
 
-#include "webrtc/rtc_base/event.h"
-#include "webrtc/rtc_base/platform_thread.h"
-#include "webrtc/rtc_base/rate_limiter.h"
-#include "webrtc/rtc_base/task_queue.h"
-#include "webrtc/system_wrappers/include/clock.h"
-#include "webrtc/test/gtest.h"
+#include "rtc_base/event.h"
+#include "rtc_base/platform_thread.h"
+#include "rtc_base/rate_limiter.h"
+#include "system_wrappers/include/clock.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
@@ -112,9 +110,7 @@ static const int64_t kMaxTimeoutMs = 30000;
 class ThreadTask {
  public:
   explicit ThreadTask(RateLimiter* rate_limiter)
-      : rate_limiter_(rate_limiter),
-        start_signal_(false, false),
-        end_signal_(false, false) {}
+      : rate_limiter_(rate_limiter) {}
   virtual ~ThreadTask() {}
 
   void Run() {

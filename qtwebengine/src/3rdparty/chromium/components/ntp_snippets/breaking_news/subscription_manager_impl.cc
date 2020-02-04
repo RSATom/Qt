@@ -5,18 +5,19 @@
 #include "components/ntp_snippets/breaking_news/subscription_manager_impl.h"
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/strings/stringprintf.h"
+#include "components/ntp_snippets/breaking_news/breaking_news_metrics.h"
 #include "components/ntp_snippets/breaking_news/subscription_json_request.h"
 #include "components/ntp_snippets/features.h"
 #include "components/ntp_snippets/ntp_snippets_constants.h"
 #include "components/ntp_snippets/pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/access_token_fetcher.h"
-#include "components/signin/core/browser/signin_manager_base.h"
+#include "components/variations/service/variations_service.h"
 #include "net/base/url_util.h"
+#include "services/identity/public/cpp/primary_account_access_token_fetcher.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace ntp_snippets {
 
@@ -29,62 +30,36 @@ const char kAuthorizationRequestHeaderFormat[] = "Bearer %s";
 
 }  // namespace
 
-class SubscriptionManagerImpl::SigninObserver
-    : public SigninManagerBase::Observer {
- public:
-  SigninObserver(SigninManagerBase* signin_manager,
-                 const base::Closure& signin_status_changed_callback)
-      : signin_manager_(signin_manager),
-        signin_status_changed_callback_(signin_status_changed_callback) {
-    signin_manager_->AddObserver(this);
-  }
-
-  ~SigninObserver() override { signin_manager_->RemoveObserver(this); }
-
- private:
-  // SigninManagerBase::Observer implementation.
-  void GoogleSigninSucceeded(const std::string& account_id,
-                             const std::string& username) override {
-    signin_status_changed_callback_.Run();
-  }
-
-  void GoogleSignedOut(const std::string& account_id,
-                       const std::string& username) override {
-    signin_status_changed_callback_.Run();
-  }
-
-  SigninManagerBase* const signin_manager_;
-  base::Closure signin_status_changed_callback_;
-};
-
 SubscriptionManagerImpl::SubscriptionManagerImpl(
-    scoped_refptr<net::URLRequestContextGetter> url_request_context_getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     PrefService* pref_service,
-    SigninManagerBase* signin_manager,
-    OAuth2TokenService* access_token_service,
+    variations::VariationsService* variations_service,
+    identity::IdentityManager* identity_manager,
+    const std::string& locale,
     const std::string& api_key,
     const GURL& subscribe_url,
     const GURL& unsubscribe_url)
-    : url_request_context_getter_(std::move(url_request_context_getter)),
+    : url_loader_factory_(std::move(url_loader_factory)),
       pref_service_(pref_service),
-      signin_manager_(signin_manager),
-      signin_observer_(base::MakeUnique<SigninObserver>(
-          signin_manager,
-          base::Bind(&SubscriptionManagerImpl::SigninStatusChanged,
-                     base::Unretained(this)))),
-      access_token_service_(access_token_service),
+      variations_service_(variations_service),
+      identity_manager_(identity_manager),
+      locale_(locale),
       api_key_(api_key),
       subscribe_url_(subscribe_url),
-      unsubscribe_url_(unsubscribe_url) {}
+      unsubscribe_url_(unsubscribe_url) {
+  identity_manager_->AddObserver(this);
+}
 
-SubscriptionManagerImpl::~SubscriptionManagerImpl() = default;
+SubscriptionManagerImpl::~SubscriptionManagerImpl() {
+  identity_manager_->RemoveObserver(this);
+}
 
 void SubscriptionManagerImpl::Subscribe(const std::string& subscription_token) {
   // If there is a request in flight, cancel it.
   if (request_) {
     request_ = nullptr;
   }
-  if (signin_manager_->IsAuthenticated()) {
+  if (identity_manager_->HasPrimaryAccount()) {
     StartAccessTokenRequest(subscription_token);
   } else {
     SubscribeInternal(subscription_token, /*access_token=*/std::string());
@@ -95,8 +70,7 @@ void SubscriptionManagerImpl::SubscribeInternal(
     const std::string& subscription_token,
     const std::string& access_token) {
   SubscriptionJsonRequest::Builder builder;
-  builder.SetToken(subscription_token)
-      .SetUrlRequestContextGetter(url_request_context_getter_);
+  builder.SetToken(subscription_token).SetUrlLoaderFactory(url_loader_factory_);
 
   if (!access_token.empty()) {
     builder.SetUrl(subscribe_url_);
@@ -107,6 +81,11 @@ void SubscriptionManagerImpl::SubscribeInternal(
     builder.SetUrl(
         net::AppendQueryParameter(subscribe_url_, kApiKeyParamName, api_key_));
   }
+
+  builder.SetLocale(locale_);
+  builder.SetCountryCode(variations_service_
+                             ? variations_service_->GetStoredPermanentCountry()
+                             : "");
 
   request_ = builder.Build();
   request_->Start(base::BindOnce(&SubscriptionManagerImpl::DidSubscribe,
@@ -121,34 +100,35 @@ void SubscriptionManagerImpl::StartAccessTokenRequest(
     access_token_fetcher_ = nullptr;
   }
 
-  OAuth2TokenService::ScopeSet scopes = {kContentSuggestionsApiScope};
-  access_token_fetcher_ = base::MakeUnique<AccessTokenFetcher>(
-      "ntp_snippets", signin_manager_, access_token_service_, scopes,
+  identity::ScopeSet scopes = {kContentSuggestionsApiScope};
+  access_token_fetcher_ = std::make_unique<
+      identity::PrimaryAccountAccessTokenFetcher>(
+      "ntp_snippets", identity_manager_, scopes,
       base::BindOnce(&SubscriptionManagerImpl::AccessTokenFetchFinished,
-                     base::Unretained(this), subscription_token));
+                     base::Unretained(this), subscription_token),
+      identity::PrimaryAccountAccessTokenFetcher::Mode::kWaitUntilAvailable);
 }
 
 void SubscriptionManagerImpl::AccessTokenFetchFinished(
     const std::string& subscription_token,
-    const GoogleServiceAuthError& error,
-    const std::string& access_token) {
-  // Delete the fetcher only after we leave this method (which is called from
-  // the fetcher itself).
-  std::unique_ptr<AccessTokenFetcher> access_token_fetcher_deleter(
-      std::move(access_token_fetcher_));
+    GoogleServiceAuthError error,
+    identity::AccessTokenInfo access_token_info) {
+  access_token_fetcher_.reset();
 
   if (error.state() != GoogleServiceAuthError::NONE) {
     // In case of error, we will retry on next Chrome restart.
     return;
   }
-  DCHECK(!access_token.empty());
-  SubscribeInternal(subscription_token, access_token);
+  DCHECK(!access_token_info.token.empty());
+  SubscribeInternal(subscription_token, access_token_info.token);
 }
 
 void SubscriptionManagerImpl::DidSubscribe(
     const std::string& subscription_token,
     bool is_authenticated,
     const Status& status) {
+  metrics::OnSubscriptionRequestCompleted(status);
+
   // Delete the request only after we leave this method (which is called from
   // the request itself).
   std::unique_ptr<internal::SubscriptionJsonRequest> request_deleter(
@@ -187,8 +167,7 @@ void SubscriptionManagerImpl::ResubscribeInternal(
   }
 
   SubscriptionJsonRequest::Builder builder;
-  builder.SetToken(old_token).SetUrlRequestContextGetter(
-      url_request_context_getter_);
+  builder.SetToken(old_token).SetUrlLoaderFactory(url_loader_factory_);
   builder.SetUrl(
       net::AppendQueryParameter(unsubscribe_url_, kApiKeyParamName, api_key_));
 
@@ -207,7 +186,7 @@ bool SubscriptionManagerImpl::NeedsToResubscribe() {
   // Check if authentication state changed after subscription.
   bool is_auth_subscribe = pref_service_->GetBoolean(
       prefs::kBreakingNewsSubscriptionDataIsAuthenticated);
-  bool is_authenticated = signin_manager_->IsAuthenticated();
+  bool is_authenticated = identity_manager_->HasPrimaryAccount();
   return is_auth_subscribe != is_authenticated;
 }
 
@@ -225,6 +204,8 @@ void SubscriptionManagerImpl::Resubscribe(const std::string& new_token) {
 
 void SubscriptionManagerImpl::DidUnsubscribe(const std::string& new_token,
                                              const Status& status) {
+  metrics::OnUnsubscriptionRequestCompleted(status);
+
   // Delete the request only after we leave this method (which is called from
   // the request itself).
   std::unique_ptr<internal::SubscriptionJsonRequest> request_deleter(
@@ -247,6 +228,16 @@ void SubscriptionManagerImpl::DidUnsubscribe(const std::string& new_token,
   }
 }
 
+void SubscriptionManagerImpl::OnPrimaryAccountSet(
+    const AccountInfo& account_info) {
+  SigninStatusChanged();
+}
+
+void SubscriptionManagerImpl::OnPrimaryAccountCleared(
+    const AccountInfo& account_info) {
+  SigninStatusChanged();
+}
+
 void SubscriptionManagerImpl::SigninStatusChanged() {
   // If subscribed already, resubscribe.
   if (IsSubscribed()) {
@@ -259,12 +250,20 @@ void SubscriptionManagerImpl::SigninStatusChanged() {
   }
 }
 
+// static
 void SubscriptionManagerImpl::RegisterProfilePrefs(
     PrefRegistrySimple* registry) {
   registry->RegisterStringPref(prefs::kBreakingNewsSubscriptionDataToken,
                                std::string());
   registry->RegisterBooleanPref(
       prefs::kBreakingNewsSubscriptionDataIsAuthenticated, false);
+}
+
+// TODO(vitaliii): Add a test to ensure that this clears everything.
+// static
+void SubscriptionManagerImpl::ClearProfilePrefs(PrefService* pref_service) {
+  pref_service->ClearPref(prefs::kBreakingNewsSubscriptionDataToken);
+  pref_service->ClearPref(prefs::kBreakingNewsSubscriptionDataIsAuthenticated);
 }
 
 }  // namespace ntp_snippets

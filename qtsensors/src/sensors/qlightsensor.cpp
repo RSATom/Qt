@@ -185,6 +185,6 @@ void QLightSensor::setFieldOfView(qreal fieldOfView)
     }
 }
 
-#include "moc_qlightsensor.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qlightsensor.cpp"

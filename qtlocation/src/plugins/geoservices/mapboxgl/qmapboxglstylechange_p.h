@@ -70,7 +70,7 @@ public:
     static QList<QSharedPointer<QMapboxGLStyleChange>> fromMapParameter(QGeoMapParameter *);
     static QList<QSharedPointer<QMapboxGLStyleChange>> fromMapItem(QDeclarativeGeoMapItemBase *);
 
-    void apply(QMapboxGL *map) Q_DECL_OVERRIDE;
+    void apply(QMapboxGL *map) override;
 
 private:
     static QList<QSharedPointer<QMapboxGLStyleChange>> fromMapItem(QDeclarativePolylineMapItem *);
@@ -89,7 +89,7 @@ public:
     static QList<QSharedPointer<QMapboxGLStyleChange>> fromMapParameter(QGeoMapParameter *);
     static QList<QSharedPointer<QMapboxGLStyleChange>> fromMapItem(QDeclarativeGeoMapItemBase *);
 
-    void apply(QMapboxGL *map) Q_DECL_OVERRIDE;
+    void apply(QMapboxGL *map) override;
 
 private:
     static QList<QSharedPointer<QMapboxGLStyleChange>> fromMapItem(QDeclarativeRectangleMapItem *);
@@ -111,7 +111,7 @@ public:
     static QSharedPointer<QMapboxGLStyleChange> fromMapParameter(QGeoMapParameter *);
     static QSharedPointer<QMapboxGLStyleChange> fromFeature(const QMapbox::Feature &feature, const QString &before);
 
-    void apply(QMapboxGL *map) Q_DECL_OVERRIDE;
+    void apply(QMapboxGL *map) override;
 
 private:
     QMapboxGLStyleAddLayer() = default;
@@ -125,7 +125,7 @@ class QMapboxGLStyleRemoveLayer : public QMapboxGLStyleChange
 public:
     explicit QMapboxGLStyleRemoveLayer(const QString &id);
 
-    void apply(QMapboxGL *map) Q_DECL_OVERRIDE;
+    void apply(QMapboxGL *map) override;
 
 private:
     QMapboxGLStyleRemoveLayer() = default;
@@ -140,7 +140,7 @@ public:
     static QSharedPointer<QMapboxGLStyleChange> fromFeature(const QMapbox::Feature &feature);
     static QSharedPointer<QMapboxGLStyleChange> fromMapItem(QDeclarativeGeoMapItemBase *);
 
-    void apply(QMapboxGL *map) Q_DECL_OVERRIDE;
+    void apply(QMapboxGL *map) override;
 
 private:
     QMapboxGLStyleAddSource() = default;
@@ -154,7 +154,7 @@ class QMapboxGLStyleRemoveSource : public QMapboxGLStyleChange
 public:
     explicit QMapboxGLStyleRemoveSource(const QString &id);
 
-    void apply(QMapboxGL *map) Q_DECL_OVERRIDE;
+    void apply(QMapboxGL *map) override;
 
 private:
     QMapboxGLStyleRemoveSource() = default;
@@ -167,7 +167,7 @@ class QMapboxGLStyleSetFilter : public QMapboxGLStyleChange
 public:
     static QSharedPointer<QMapboxGLStyleChange> fromMapParameter(QGeoMapParameter *);
 
-    void apply(QMapboxGL *map) Q_DECL_OVERRIDE;
+    void apply(QMapboxGL *map) override;
 
 private:
     QMapboxGLStyleSetFilter() = default;
@@ -181,7 +181,7 @@ class QMapboxGLStyleAddImage : public QMapboxGLStyleChange
 public:
     static QSharedPointer<QMapboxGLStyleChange> fromMapParameter(QGeoMapParameter *);
 
-    void apply(QMapboxGL *map) Q_DECL_OVERRIDE;
+    void apply(QMapboxGL *map) override;
 
 private:
     QMapboxGLStyleAddImage() = default;

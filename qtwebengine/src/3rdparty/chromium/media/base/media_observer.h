@@ -13,16 +13,42 @@ namespace media {
 
 class MEDIA_EXPORT MediaObserverClient {
  public:
+  // Reasons to switch to local renderer from using remote renderer.
+  enum class ReasonToSwitchToLocal {
+    NORMAL,  // Remoting is disabled or media no longer occupies the viewport.
+    POOR_PLAYBACK_QUALITY,  // Playback quality is poor.
+    PIPELINE_ERROR,         // Error occurred.
+    ROUTE_TERMINATED,       // No longer show the media on remote screen.
+  };
+
   virtual ~MediaObserverClient() {}
 
   // Requests to restart the media pipeline and create a new renderer as soon as
-  // possible. |is_rendered_remotely| indicates whether the media is rendered
-  // remotely. When it is true, all the optimizations that might suspend the
-  // media pipeline should be disabled.
-  virtual void SwitchRenderer(bool is_rendered_remotely) = 0;
+  // possible. When switching to remote renderer, all the optimizations that
+  // might suspend the media pipeline should be disabled.
+  // |remote_device_friendly_name| can be empty if the remote device is unknown.
+  virtual void SwitchToRemoteRenderer(
+      const std::string& remote_device_friendly_name) = 0;
+
+  // Requests to switch to local renderer. According to |reason|, a text message
+  // may be displayed to explain why the switch occurred.
+  virtual void SwitchToLocalRenderer(ReasonToSwitchToLocal reason) = 0;
 
   // Requests to activate monitoring changes on viewport intersection.
   virtual void ActivateViewportIntersectionMonitoring(bool activate) = 0;
+
+  // Reports the latest compatibility state of the element's source for remote
+  // playback.
+  virtual void UpdateRemotePlaybackCompatibility(bool is_compatible) = 0;
+
+  // Gets the number of video frames decoded so far from the media pipeline.
+  // All the counts keep increasing and will not be reset during seek.
+  virtual unsigned DecodedFrameCount() const = 0;
+
+  // Gets the media duration in seconds. Returns
+  // |std::numeric_limits<double>::infinity()| for an infinite stream duration.
+  // TODO(xjz): Use base::TimeDelta for media duration (crbug.com/773911).
+  virtual double Duration() const = 0;
 };
 
 // This class is an observer of media player events.
@@ -31,17 +57,9 @@ class MEDIA_EXPORT MediaObserver {
   MediaObserver();
   virtual ~MediaObserver();
 
-  // Called when the media element entered/exited fullscreen.
-  virtual void OnEnteredFullscreen() = 0;
-  virtual void OnExitedFullscreen() = 0;
-
   // Called when the media element starts/stops being the dominant visible
   // content.
   virtual void OnBecameDominantVisibleContent(bool is_dominant) {}
-
-  // Called when CDM is attached to the media element. The |cdm_context| is
-  // only guaranteed to be valid in this call.
-  virtual void OnSetCdm(CdmContext* cdm_context) = 0;
 
   // Called after demuxer is initialized.
   virtual void OnMetadataChanged(const PipelineMetadata& metadata) = 0;
@@ -56,7 +74,11 @@ class MEDIA_EXPORT MediaObserver {
   virtual void OnPlaying() = 0;
   virtual void OnPaused() = 0;
 
-  // Set the MediaObserverClient.
+  // Called when the data source is asynchronously initialized.
+  virtual void OnDataSourceInitialized(const GURL& url_after_redirects) = 0;
+
+  // Set the MediaObserverClient. May be called with nullptr to disconnect the
+  // the client from the observer.
   virtual void SetClient(MediaObserverClient* client) = 0;
 };
 

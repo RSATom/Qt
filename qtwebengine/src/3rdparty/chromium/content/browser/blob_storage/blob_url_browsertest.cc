@@ -4,8 +4,10 @@
 
 #include "base/macros.h"
 #include "base/strings/pattern.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -14,15 +16,20 @@
 #include "content/test/content_browser_test_utils_internal.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "third_party/blink/public/common/features.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
 namespace content {
 
 // Tests of the blob: URL scheme.
-class BlobUrlBrowserTest : public ContentBrowserTest {
+class BlobUrlBrowserTest : public ContentBrowserTest,
+                           public testing::WithParamInterface<bool> {
  public:
-  BlobUrlBrowserTest() {}
+  BlobUrlBrowserTest() {
+    if (GetParam())
+      scoped_feature_list_.InitAndEnableFeature(blink::features::kMojoBlobURLs);
+  }
 
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
@@ -31,10 +38,14 @@ class BlobUrlBrowserTest : public ContentBrowserTest {
   }
 
  private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+
   DISALLOW_COPY_AND_ASSIGN(BlobUrlBrowserTest);
 };
 
-IN_PROC_BROWSER_TEST_F(BlobUrlBrowserTest, LinkToUniqueOriginBlob) {
+INSTANTIATE_TEST_CASE_P(_, BlobUrlBrowserTest, ::testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(BlobUrlBrowserTest, LinkToUniqueOriginBlob) {
   // Use a data URL to obtain a test page in a unique origin. The page
   // contains a link to a "blob:null/SOME-GUID-STRING" URL.
   NavigateToURL(
@@ -63,15 +74,15 @@ IN_PROC_BROWSER_TEST_F(BlobUrlBrowserTest, LinkToUniqueOriginBlob) {
   EXPECT_TRUE(ExecuteScriptAndExtractString(
       new_contents,
       "domAutomationController.send("
-      "    document.origin + ' ' + document.body.innerText);",
+      "    self.origin + ' ' + document.body.innerText);",
       &page_content));
   EXPECT_EQ("null potato", page_content);
 }
 
-IN_PROC_BROWSER_TEST_F(BlobUrlBrowserTest, LinkToSameOriginBlob) {
+IN_PROC_BROWSER_TEST_P(BlobUrlBrowserTest, LinkToSameOriginBlob) {
   // Using an http page, click a link that opens a popup to a same-origin blob.
   GURL url = embedded_test_server()->GetURL("chromium.org", "/title1.html");
-  url::Origin origin(url);
+  url::Origin origin = url::Origin::Create(url);
   NavigateToURL(shell(), url);
 
   ShellAddedObserver new_shell_observer;
@@ -94,17 +105,17 @@ IN_PROC_BROWSER_TEST_F(BlobUrlBrowserTest, LinkToSameOriginBlob) {
   EXPECT_TRUE(ExecuteScriptAndExtractString(
       new_contents,
       "domAutomationController.send("
-      "    document.origin + ' ' + document.body.innerText);",
+      "    self.origin + ' ' + document.body.innerText);",
       &page_content));
   EXPECT_EQ(origin.Serialize() + " potato", page_content);
 }
 
 // Regression test for https://crbug.com/646278
-IN_PROC_BROWSER_TEST_F(BlobUrlBrowserTest, LinkToSameOriginBlobWithAuthority) {
+IN_PROC_BROWSER_TEST_P(BlobUrlBrowserTest, LinkToSameOriginBlobWithAuthority) {
   // Using an http page, click a link that opens a popup to a same-origin blob
   // that has a spoofy authority section applied. This should be blocked.
   GURL url = embedded_test_server()->GetURL("chromium.org", "/title1.html");
-  url::Origin origin(url);
+  url::Origin origin = url::Origin::Create(url);
   NavigateToURL(shell(), url);
 
   ShellAddedObserver new_shell_observer;
@@ -126,30 +137,30 @@ IN_PROC_BROWSER_TEST_F(BlobUrlBrowserTest, LinkToSameOriginBlobWithAuthority) {
   EXPECT_FALSE(
       base::MatchPattern(new_contents->GetVisibleURL().spec(), "*spoof*"));
   // The currently implemented behavior is that the URL gets rewritten to
-  // about:blank.
-  EXPECT_EQ("about:blank", new_contents->GetVisibleURL().spec());
+  // about:blank#blocked.
+  EXPECT_EQ(kBlockedURL, new_contents->GetVisibleURL().spec());
   std::string page_content;
   EXPECT_TRUE(ExecuteScriptAndExtractString(
       new_contents,
       "domAutomationController.send("
-      "    document.origin + ' ' + document.body.innerText);",
+      "    self.origin + ' ' + document.body.innerText);",
       &page_content));
   EXPECT_EQ(origin.Serialize() + " ", page_content);  // no potato
 }
 
 // Regression test for https://crbug.com/646278
-IN_PROC_BROWSER_TEST_F(BlobUrlBrowserTest, ReplaceStateToAddAuthorityToBlob) {
+IN_PROC_BROWSER_TEST_P(BlobUrlBrowserTest, ReplaceStateToAddAuthorityToBlob) {
   // history.replaceState from a validly loaded blob URL shouldn't allow adding
   // an authority to the inner URL, which would be spoofy.
   GURL url = embedded_test_server()->GetURL("chromium.org", "/title1.html");
-  url::Origin origin(url);
+  url::Origin origin = url::Origin::Create(url);
   NavigateToURL(shell(), url);
 
   ShellAddedObserver new_shell_observer;
   EXPECT_TRUE(ExecuteScript(
       shell(),
       "var spoof_fn = function () {\n"
-      "  host_port = document.origin.split('://')[1];\n"
+      "  host_port = self.origin.split('://')[1];\n"
       "  spoof_url = 'blob:http://spoof.com@' + host_port + '/abcd';\n"
       "  window.history.replaceState({}, '', spoof_url);\n"
       "};\n"
@@ -166,13 +177,13 @@ IN_PROC_BROWSER_TEST_F(BlobUrlBrowserTest, ReplaceStateToAddAuthorityToBlob) {
       base::MatchPattern(new_contents->GetVisibleURL().spec(), "*spoof*"));
 
   // The currently implemented behavior is that the URL gets rewritten to
-  // about:blank. The content of the page stays the same.
-  EXPECT_EQ("about:blank", new_contents->GetVisibleURL().spec());
+  // about:blank#blocked. The content of the page stays the same.
+  EXPECT_EQ(kBlockedURL, new_contents->GetVisibleURL().spec());
   std::string page_content;
   EXPECT_TRUE(ExecuteScriptAndExtractString(
       new_contents,
       "domAutomationController.send("
-      "    document.origin + ' ' + document.body.innerText);",
+      "    self.origin + ' ' + document.body.innerText);",
       &page_content));
   EXPECT_EQ(origin.Serialize() + " potato", page_content);
 

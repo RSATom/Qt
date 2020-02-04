@@ -103,7 +103,7 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
       LayerAnimationElement::AnimatableProperties other) const;
 
   // Returns true if the first element animates on the compositor thread.
-  bool IsFirstElementThreaded() const;
+  bool IsFirstElementThreaded(LayerAnimationDelegate* delegate) const;
 
   // Used to identify groups of sequences that are supposed to start together.
   // Once started, used to identify the sequence that owns a particular
@@ -138,6 +138,8 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
 
   LayerAnimationElement* FirstElement() const;
 
+  std::string ToString() const;
+
  private:
   friend class LayerAnimatorTestController;
 
@@ -145,6 +147,8 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
 
   FRIEND_TEST_ALL_PREFIXES(LayerAnimatorTest,
                            ObserverReleasedBeforeAnimationSequenceEnds);
+
+  std::string ElementsToString() const;
 
   // Notifies the observers that this sequence has been scheduled.
   void NotifyScheduled();
@@ -188,7 +192,7 @@ class COMPOSITOR_EXPORT LayerAnimationSequence
   int animation_group_id_;
 
   // These parties are notified when layer animations end.
-  base::ObserverList<LayerAnimationObserver> observers_;
+  base::ObserverList<LayerAnimationObserver>::Unchecked observers_;
 
   // Tracks the last_progressed_fraction() of the most recently progressed
   // element.

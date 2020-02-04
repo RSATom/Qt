@@ -19,10 +19,13 @@ struct Feature;
 
 namespace autofill {
 
-extern const base::Feature kAutofillKeyboardAccessory;
 extern const char kAutofillKeyboardAccessoryAnimationDurationKey[];
 extern const char kAutofillKeyboardAccessoryLimitLabelWidthKey[];
 extern const char kAutofillKeyboardAccessoryHintKey[];
+
+// The length of the GUIDs used for local autofill data. It is different than
+// the length used for server autofill data.
+constexpr int kLocalGuidSize = 36;
 
 // Returns true when command line switch |kEnableSuggestionsWithSubstringMatch|
 // is on.
@@ -88,6 +91,15 @@ void SetCheckStatus(FormFieldData* form_field_data,
 // Also ignores empty tokens, resulting in a collapsing of whitespace.
 std::vector<std::string> LowercaseAndTokenizeAttributeString(
     const std::string& attribute);
+
+// Returns true if and only if the field value has no character except the
+// formatting characters. This means that the field value is a formatting string
+// entered by the website and not a real value entered by the user.
+bool SanitizedFieldIsEmpty(const base::string16& value);
+
+// Returns true if the first suggestion should be autoselected when the autofill
+// dropdown is shown due to an arrow down event. Enabled on desktop only.
+bool ShouldAutoselectFirstSuggestionOnArrowDown();
 
 }  // namespace autofill
 

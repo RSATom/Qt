@@ -57,7 +57,7 @@
 
 
 typedef struct xts128_context {
-  void *key1, *key2;
+  AES_KEY *key1, *key2;
   block128_f block1, block2;
 } XTS128_CONTEXT;
 
@@ -171,7 +171,7 @@ typedef struct {
   union {
     double align;
     AES_KEY ks;
-  } ks1, ks2;  /* AES key schedules to use */
+  } ks1, ks2;  // AES key schedules to use
   XTS128_CONTEXT xts;
 } EVP_AES_XTS_CTX;
 
@@ -183,23 +183,23 @@ static int aes_xts_init_key(EVP_CIPHER_CTX *ctx, const uint8_t *key,
   }
 
   if (key) {
-    /* key_len is two AES keys */
+    // key_len is two AES keys
     if (enc) {
       AES_set_encrypt_key(key, ctx->key_len * 4, &xctx->ks1.ks);
-      xctx->xts.block1 = (block128_f) AES_encrypt;
+      xctx->xts.block1 = AES_encrypt;
     } else {
       AES_set_decrypt_key(key, ctx->key_len * 4, &xctx->ks1.ks);
-      xctx->xts.block1 = (block128_f) AES_decrypt;
+      xctx->xts.block1 = AES_decrypt;
     }
 
     AES_set_encrypt_key(key + ctx->key_len / 2,
                         ctx->key_len * 4, &xctx->ks2.ks);
-    xctx->xts.block2 = (block128_f) AES_encrypt;
-    xctx->xts.key1 = &xctx->ks1;
+    xctx->xts.block2 = AES_encrypt;
+    xctx->xts.key1 = &xctx->ks1.ks;
   }
 
   if (iv) {
-    xctx->xts.key2 = &xctx->ks2;
+    xctx->xts.key2 = &xctx->ks2.ks;
     OPENSSL_memcpy(ctx->iv, iv, 16);
   }
 
@@ -226,22 +226,22 @@ static int aes_xts_ctrl(EVP_CIPHER_CTX *c, int type, int arg, void *ptr) {
     EVP_CIPHER_CTX *out = ptr;
     EVP_AES_XTS_CTX *xctx_out = out->cipher_data;
     if (xctx->xts.key1) {
-      if (xctx->xts.key1 != &xctx->ks1) {
+      if (xctx->xts.key1 != &xctx->ks1.ks) {
         return 0;
       }
-      xctx_out->xts.key1 = &xctx_out->ks1;
+      xctx_out->xts.key1 = &xctx_out->ks1.ks;
     }
     if (xctx->xts.key2) {
-      if (xctx->xts.key2 != &xctx->ks2) {
+      if (xctx->xts.key2 != &xctx->ks2.ks) {
         return 0;
       }
-      xctx_out->xts.key2 = &xctx_out->ks2;
+      xctx_out->xts.key2 = &xctx_out->ks2.ks;
     }
     return 1;
   } else if (type != EVP_CTRL_INIT) {
     return -1;
   }
-  /* key1 and key2 are used as an indicator both key and IV are set */
+  // key1 and key2 are used as an indicator both key and IV are set
   xctx->xts.key1 = NULL;
   xctx->xts.key2 = NULL;
   return 1;

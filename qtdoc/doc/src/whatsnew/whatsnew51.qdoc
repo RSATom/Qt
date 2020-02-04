@@ -44,9 +44,9 @@
     platforms.
 
     \list
-    \li \l{Qt Quick Controls} - a set of reusable UI controls. Qt 5.1
-    targets desktop platforms, while future releases will include more features
-    useful on touch devices.
+    \li \l{Qt Quick Controls 1}{Qt Quick Controls} - a set of reusable UI
+    controls. Qt 5.1 targets desktop platforms, while future releases will
+    include more features useful on touch devices.
 
     \li \l{Qt Quick Layouts} - provides layouts for \l{Qt Quick}
 
@@ -185,7 +185,8 @@
 
     \list
     \li Improved C++11 code editing support
-    \li \l{Qt Creator: Using Qt Quick Designer}{Qt Quick Designer} with full support for Qt Quick
+    \li \l{Qt Creator: Editing QML Files in Design Mode}{Qt Quick Designer}
+        with full support for Qt Quick
     \li Android \l{Qt Creator: Deploying Applications to Android Devices}{development target}
     \li Experimental QBS and diff integration
     \endlist

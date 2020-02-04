@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "extensions/browser/api/audio/audio_device_id_calculator.h"
@@ -26,7 +25,7 @@ namespace {
 
 std::unique_ptr<AudioDeviceIdCalculator> CreateIdCalculator(
     content::BrowserContext* context) {
-  return base::MakeUnique<AudioDeviceIdCalculator>(context);
+  return std::make_unique<AudioDeviceIdCalculator>(context);
 }
 
 // Checks if an extension is whitelisted to use deprecated version of audio API.
@@ -91,7 +90,8 @@ void AudioAPI::OnDeviceChanged() {
   std::unique_ptr<Event> event(new Event(
       events::AUDIO_ON_DEVICE_CHANGED, audio::OnDeviceChanged::kEventName,
       std::unique_ptr<base::ListValue>(new base::ListValue())));
-  event->will_dispatch_callback = base::Bind(&CanReceiveDeprecatedAudioEvent);
+  event->will_dispatch_callback =
+      base::BindRepeating(&CanReceiveDeprecatedAudioEvent);
   event_router->BroadcastEvent(std::move(event));
 }
 

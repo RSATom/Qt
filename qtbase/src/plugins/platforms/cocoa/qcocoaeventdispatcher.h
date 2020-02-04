@@ -110,8 +110,8 @@ class QCocoaEventDispatcher : public QAbstractEventDispatcher
     Q_DECLARE_PRIVATE(QCocoaEventDispatcher)
 
 public:
-    QCocoaEventDispatcher(QAbstractEventDispatcherPrivate &priv, QObject *parent = 0);
-    explicit QCocoaEventDispatcher(QObject *parent = 0);
+    QCocoaEventDispatcher(QAbstractEventDispatcherPrivate &priv, QObject *parent = nullptr);
+    explicit QCocoaEventDispatcher(QObject *parent = nullptr);
     ~QCocoaEventDispatcher();
 
     bool processEvents(QEventLoop::ProcessEventsFlags flags);
@@ -153,6 +153,7 @@ public:
     void maybeStopCFRunLoopTimer();
     static void runLoopTimerCallback(CFRunLoopTimerRef, void *info);
     static void activateTimersSourceCallback(void *info);
+    bool processTimers();
 
     // Set 'blockSendPostedEvents' to true if you _really_ need
     // to make sure that qt events are not posted while calling
@@ -167,10 +168,10 @@ public:
     uint processEventsCalled;
     NSModalSession currentModalSessionCached;
     NSModalSession currentModalSession();
-    void updateChildrenWorksWhenModal();
     void temporarilyStopAllModalSessions();
     void beginModalSession(QWindow *widget);
     void endModalSession(QWindow *widget);
+    bool hasModalSession() const;
     void cleanupModalSessions();
 
     void cancelWaitForMoreEvents();
@@ -190,6 +191,7 @@ public:
     static void waitingObserverCallback(CFRunLoopObserverRef observer,
                                         CFRunLoopActivity activity, void *info);
     static void firstLoopEntry(CFRunLoopObserverRef ref, CFRunLoopActivity activity, void *info);
+    bool sendQueuedUserInputEvents();
     void processPostedEvents();
 };
 

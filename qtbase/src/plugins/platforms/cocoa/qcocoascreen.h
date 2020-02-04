@@ -48,48 +48,58 @@
 
 QT_BEGIN_NAMESPACE
 
+class QCocoaIntegration;
+
 class QCocoaScreen : public QPlatformScreen
 {
 public:
-    QCocoaScreen(int screenIndex);
+    static void initializeScreens();
+    static void cleanupScreens();
+
     ~QCocoaScreen();
 
     // ----------------------------------------------------
     // Virtual methods overridden from QPlatformScreen
-    QPixmap grabWindow(WId window, int x, int y, int width, int height) const Q_DECL_OVERRIDE;
-    QRect geometry() const Q_DECL_OVERRIDE { return m_geometry; }
-    QRect availableGeometry() const Q_DECL_OVERRIDE { return m_availableGeometry; }
-    int depth() const Q_DECL_OVERRIDE { return m_depth; }
-    QImage::Format format() const Q_DECL_OVERRIDE { return m_format; }
-    qreal devicePixelRatio() const Q_DECL_OVERRIDE;
-    QSizeF physicalSize() const Q_DECL_OVERRIDE { return m_physicalSize; }
-    QDpi logicalDpi() const Q_DECL_OVERRIDE { return m_logicalDpi; }
-    qreal refreshRate() const Q_DECL_OVERRIDE { return m_refreshRate; }
-    QString name() const Q_DECL_OVERRIDE { return m_name; }
-    QPlatformCursor *cursor() const Q_DECL_OVERRIDE { return m_cursor; }
-    QWindow *topLevelAt(const QPoint &point) const Q_DECL_OVERRIDE;
-    QList<QPlatformScreen *> virtualSiblings() const Q_DECL_OVERRIDE { return m_siblings; }
-    QPlatformScreen::SubpixelAntialiasingType subpixelAntialiasingTypeHint() const Q_DECL_OVERRIDE;
+    QPixmap grabWindow(WId window, int x, int y, int width, int height) const override;
+    QRect geometry() const override { return m_geometry; }
+    QRect availableGeometry() const override { return m_availableGeometry; }
+    int depth() const override { return m_depth; }
+    QImage::Format format() const override { return m_format; }
+    qreal devicePixelRatio() const override { return m_devicePixelRatio; }
+    QSizeF physicalSize() const override { return m_physicalSize; }
+    QDpi logicalDpi() const override { return m_logicalDpi; }
+    qreal refreshRate() const override { return m_refreshRate; }
+    QString name() const override { return m_name; }
+    QPlatformCursor *cursor() const override { return m_cursor; }
+    QWindow *topLevelAt(const QPoint &point) const override;
+    QList<QPlatformScreen *> virtualSiblings() const override;
+    QPlatformScreen::SubpixelAntialiasingType subpixelAntialiasingTypeHint() const override;
 
     // ----------------------------------------------------
-    // Additional methods
-    void setVirtualSiblings(const QList<QPlatformScreen *> &siblings) { m_siblings = siblings; }
-    NSScreen *nativeScreen() const;
-    void updateGeometry();
 
-    QPointF mapToNative(const QPointF &pos) const { return flipCoordinate(pos); }
-    QRectF mapToNative(const QRectF &rect) const { return flipCoordinate(rect); }
-    QPointF mapFromNative(const QPointF &pos) const { return flipCoordinate(pos); }
-    QRectF mapFromNative(const QRectF &rect) const { return flipCoordinate(rect); }
+    NSScreen *nativeScreen() const;
+    void updateProperties();
+
+    void requestUpdate();
+    void deliverUpdateRequests();
+    bool isRunningDisplayLink() const;
 
     static QCocoaScreen *primaryScreen();
+    static QCocoaScreen *get(NSScreen *nsScreen);
+    static QCocoaScreen *get(CGDirectDisplayID displayId);
+
+    static CGPoint mapToNative(const QPointF &pos, QCocoaScreen *screen = QCocoaScreen::primaryScreen());
+    static CGRect mapToNative(const QRectF &rect, QCocoaScreen *screen = QCocoaScreen::primaryScreen());
+    static QPointF mapFromNative(CGPoint pos, QCocoaScreen *screen = QCocoaScreen::primaryScreen());
+    static QRectF mapFromNative(CGRect rect, QCocoaScreen *screen = QCocoaScreen::primaryScreen());
 
 private:
-    QPointF flipCoordinate(const QPointF &pos) const;
-    QRectF flipCoordinate(const QRectF &rect) const;
+    QCocoaScreen(CGDirectDisplayID displayId);
+    static void add(CGDirectDisplayID displayId);
+    void remove();
 
-public:
-    int m_screenIndex;
+    CGDirectDisplayID m_displayId = 0;
+
     QRect m_geometry;
     QRect m_availableGeometry;
     QDpi m_logicalDpi;
@@ -99,7 +109,13 @@ public:
     QImage::Format m_format;
     QSizeF m_physicalSize;
     QCocoaCursor *m_cursor;
-    QList<QPlatformScreen *> m_siblings;
+    qreal m_devicePixelRatio;
+
+    CVDisplayLinkRef m_displayLink = nullptr;
+    dispatch_source_t m_displayLinkSource = nullptr;
+    QAtomicInt m_pendingUpdates;
+
+    friend QDebug operator<<(QDebug debug, const QCocoaScreen *screen);
 };
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -108,5 +124,8 @@ QDebug operator<<(QDebug debug, const QCocoaScreen *screen);
 
 QT_END_NAMESPACE
 
-#endif
+@interface NSScreen (QtExtras)
+@property(readonly) CGDirectDisplayID qt_displayId;
+@end
 
+#endif // QCOCOASCREEN_H

@@ -6,12 +6,14 @@
 #define CONTENT_PUBLIC_BROWSER_RESOURCE_REQUEST_INFO_H_
 
 #include "base/callback_forward.h"
+#include "base/strings/string_piece.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
+#include "content/public/browser/navigation_ui_data.h"
 #include "content/public/common/previews_state.h"
 #include "content/public/common/resource_type.h"
-#include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
-#include "third_party/WebKit/public/platform/WebReferrerPolicy.h"
+#include "services/network/public/mojom/referrer_policy.mojom.h"
+#include "third_party/blink/public/platform/resource_request_blocked_reason.h"
 #include "ui/base/page_transition_types.h"
 
 namespace net {
@@ -19,7 +21,6 @@ class URLRequest;
 }
 
 namespace content {
-class NavigationUIData;
 class ResourceContext;
 class WebContents;
 
@@ -28,6 +29,8 @@ class WebContents;
 class ResourceRequestInfo {
  public:
   // Returns the ResourceRequestInfo associated with the given URLRequest.
+  CONTENT_EXPORT static ResourceRequestInfo* ForRequest(
+      net::URLRequest* request);
   CONTENT_EXPORT static const ResourceRequestInfo* ForRequest(
       const net::URLRequest* request);
 
@@ -40,17 +43,18 @@ class ResourceRequestInfo {
   // download is not associated with a frame, the IDs can be all -1.
   //
   // NOTE: Add more parameters if you need to initialize other fields.
-  CONTENT_EXPORT static void AllocateForTesting(net::URLRequest* request,
-                                                ResourceType resource_type,
-                                                ResourceContext* context,
-                                                int render_process_id,
-                                                int render_view_id,
-                                                int render_frame_id,
-                                                bool is_main_frame,
-                                                bool parent_is_main_frame,
-                                                bool allow_download,
-                                                bool is_async,
-                                                PreviewsState previews_state);
+  CONTENT_EXPORT static void AllocateForTesting(
+      net::URLRequest* request,
+      ResourceType resource_type,
+      ResourceContext* context,
+      int render_process_id,
+      int render_view_id,
+      int render_frame_id,
+      bool is_main_frame,
+      bool allow_download,
+      bool is_async,
+      PreviewsState previews_state,
+      std::unique_ptr<NavigationUIData> navigation_ui_data);
 
   // Returns the associated RenderFrame for a given process. Returns false, if
   // there is no associated RenderFrame. This method does not rely on the
@@ -109,9 +113,10 @@ class ResourceRequestInfo {
   // The globally unique identifier for this request.
   virtual GlobalRequestID GetGlobalRequestID() const = 0;
 
-  // The pid of the originating process, if the request is sent on behalf of a
-  // another process.  Otherwise it is 0.
-  virtual int GetOriginPID() const = 0;
+  // The child process unique ID of the originating process, if the request is
+  // was proxied through a renderer process on behalf of a pepper plugin
+  // process; -1 otherwise.
+  virtual int GetPluginChildID() const = 0;
 
   // Returns the FrameTreeNode ID for this frame. This ID is browser-global and
   // uniquely identifies a frame that hosts content.
@@ -128,21 +133,15 @@ class ResourceRequestInfo {
   // True if GetRenderFrameID() represents a main frame in the RenderView.
   virtual bool IsMainFrame() const = 0;
 
-  // True if the frame's parent represents a main frame in the RenderView.
-  virtual bool ParentIsMainFrame() const = 0;
-
   // Returns the associated resource type.
   virtual ResourceType GetResourceType() const = 0;
 
-  // Returns the process type that initiated this request.
-  virtual int GetProcessType() const = 0;
-
   // Returns the associated referrer policy.
-  virtual blink::WebReferrerPolicy GetReferrerPolicy() const = 0;
+  virtual network::mojom::ReferrerPolicy GetReferrerPolicy() const = 0;
 
-  // Returns the associated visibility state at the time the request was started
-  // in the renderer.
-  virtual blink::WebPageVisibilityState GetVisibilityState() const = 0;
+  // Returns whether the frame that initiated this request is used for
+  // prerendering.
+  virtual bool IsPrerendering() const = 0;
 
   // Returns the associated page transition type.
   virtual ui::PageTransition GetPageTransition() const = 0;
@@ -157,10 +156,6 @@ class ResourceRequestInfo {
   //
   // DO NOT BASE SECURITY DECISIONS ON THIS FLAG!
   virtual bool HasUserGesture() const = 0;
-
-  // True if ResourceController::CancelAndIgnore() was called.  For example,
-  // the requested URL may be being loaded by an external program.
-  virtual bool WasIgnoredByHandler() const = 0;
 
   // Returns false if there is NOT an associated render frame.
   virtual bool GetAssociatedRenderFrame(int* render_process_id,
@@ -179,6 +174,22 @@ class ResourceRequestInfo {
   // Only used for navigations. Returns opaque data set by the embedder on the
   // UI thread at the beginning of navigation.
   virtual NavigationUIData* GetNavigationUIData() const = 0;
+
+  // Used to annotate requests blocked using net::ERR_BLOCKED_BY_CLIENT and
+  // net::ERR_BLOCKED_BY_RESPONSE errors, with a ResourceRequestBlockedReason.
+  virtual void SetResourceRequestBlockedReason(
+      blink::ResourceRequestBlockedReason) = 0;
+
+  // Returns the ResourceRequestBlockedReason for this request, else
+  // base::nullopt.
+  virtual base::Optional<blink::ResourceRequestBlockedReason>
+  GetResourceRequestBlockedReason() const = 0;
+
+  // When the client of a request decides to cancel it, it may optionally
+  // provide an application-defined description of the canncellation reason.
+  // This method returns the custom reason. If no such reason has been provided,
+  // it returns an empty string.
+  virtual base::StringPiece GetCustomCancelReason() const = 0;
 
  protected:
   virtual ~ResourceRequestInfo() {}

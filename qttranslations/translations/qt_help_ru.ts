@@ -15,7 +15,7 @@
         <translation>Не удалось открыть файл коллекции справки: %1</translation>
     </message>
     <message>
-        <source>The collection file &apos;%1&apos; is not set up yet.</source>
+        <source>The collection file &quot;%1&quot; is not set up yet.</source>
         <translation>Файл коллекции справки «%1» ещё не установлен.</translation>
     </message>
     <message>
@@ -27,8 +27,36 @@
         <translation>Не удалось создать таблицы в файле %1.</translation>
     </message>
     <message>
-        <source>The collection file &apos;%1&apos; already exists.</source>
+        <source>Cannot create index tables in file %1.</source>
+        <translation>Не удалось создать индексные таблицы в файле %1.</translation>
+    </message>
+    <message>
+        <source>Cannot register index tables in file %1.</source>
+        <translation>Невозможно зарегистрировать индексную таблицу в файле %1.</translation>
+    </message>
+    <message>
+        <source>Cannot unregister index tables in file %1.</source>
+        <translation>Невозможно дерегистрировать индексную таблицу в файле %1.</translation>
+    </message>
+    <message>
+        <source>The collection file &quot;%1&quot; already exists.</source>
         <translation>Файл коллекции справки «%1» уже существует.</translation>
+    </message>
+    <message>
+        <source>Unknown filter &quot;%1&quot;.</source>
+        <translation>Неизвестный фильтр «%1».</translation>
+    </message>
+    <message>
+        <source>Invalid documentation file &quot;%1&quot;.</source>
+        <translation>Некорректный файл документации «%1».</translation>
+    </message>
+    <message>
+        <source>Cannot register namespace &quot;%1&quot;.</source>
+        <translation>Не удалось зарегистрировать пространство имён «%1».</translation>
+    </message>
+    <message>
+        <source>Cannot register virtual folder &apos;%1&apos;.</source>
+        <translation>Не удалось зарегистрировать виртуальный каталог «%1».</translation>
     </message>
     <message>
         <source>Cannot create directory: %1</source>
@@ -39,20 +67,12 @@
         <translation>Не удалось скопировать файл коллекции справки: %1</translation>
     </message>
     <message>
-        <source>Unknown filter &apos;%1&apos;.</source>
-        <translation>Неизвестный фильтр «%1».</translation>
-    </message>
-    <message>
         <source>Cannot register filter %1.</source>
         <translation>Не удалось зарегистрировать фильтр «%1».</translation>
     </message>
     <message>
         <source>Cannot open documentation file %1.</source>
         <translation>Не удалось открыть файл документации «%1».</translation>
-    </message>
-    <message>
-        <source>Invalid documentation file &apos;%1&apos;.</source>
-        <translation>Некорректный файл документации «%1».</translation>
     </message>
     <message>
         <source>The namespace %1 was not registered.</source>
@@ -62,170 +82,13 @@
         <source>Namespace %1 already exists.</source>
         <translation>Пространство имён «%1» уже существует.</translation>
     </message>
-    <message>
-        <source>Cannot register namespace &apos;%1&apos;.</source>
-        <translation>Не удалось зарегистрировать пространство имён «%1».</translation>
-    </message>
-    <message>
-        <source>Cannot open database &apos;%1&apos; to optimize.</source>
-        <translation>Не удалось открыть базу данных «%1» для оптимизации.</translation>
-    </message>
 </context>
 <context>
     <name>QHelpDBReader</name>
     <message>
-        <source>Cannot open database &apos;%1&apos; &apos;%2&apos;: %3</source>
+        <source>Cannot open database &quot;%1&quot; &quot;%2&quot;: %3</source>
         <extracomment>The placeholders are: %1 - The name of the database which cannot be opened %2 - The unique id for the connection %3 - The actual error string</extracomment>
-        <translation>Не удалось открыть базу данных &apos;%1&apos; &apos;%2&apos;: %3</translation>
-    </message>
-</context>
-<context>
-    <name>QHelpEngineCore</name>
-    <message>
-        <source>Cannot open documentation file %1: %2.</source>
-        <translation>Не удалось открыть файл документации «%1»: %2.</translation>
-    </message>
-    <message>
-        <source>The specified namespace does not exist.</source>
-        <translation>Указанное пространство имён не существует.</translation>
-    </message>
-</context>
-<context>
-    <name>QHelpGenerator</name>
-    <message>
-        <source>Building up file structure...</source>
-        <translation>Создание структуры файла...</translation>
-    </message>
-    <message>
-        <source>Insert custom filters...</source>
-        <translation>Добавление индивидуальных фильтров...</translation>
-    </message>
-    <message>
-        <source>Insert help data for filter section (%1 of %2)...</source>
-        <translation>Добавление данных справки для раздела фильтра (%1 из %2)...</translation>
-    </message>
-    <message>
-        <source>Documentation successfully generated.</source>
-        <translation>Документация успешно создана.</translation>
-    </message>
-    <message>
-        <source>Insert files...</source>
-        <translation>Добавление файлов...</translation>
-    </message>
-    <message>
-        <source>The file %1 does not exist! Skipping it.</source>
-        <translation>Файл «%1» не существует! Пропускаем.</translation>
-    </message>
-    <message>
-        <source>Cannot open file %1! Skipping it.</source>
-        <translation>Не удалось открыть файл «%1»! Пропускаем.</translation>
-    </message>
-    <message>
-        <source>Insert indices...</source>
-        <translation>Добавление указателей...</translation>
-    </message>
-    <message>
-        <source>Insert contents...</source>
-        <translation>Добавление оглавления...</translation>
-    </message>
-    <message>
-        <source>Invalid help data.</source>
-        <translation>Некорректные данные справки.</translation>
-    </message>
-    <message>
-        <source>No output file name specified.</source>
-        <translation>Не указано имя результирующего файла.</translation>
-    </message>
-    <message>
-        <source>The file %1 cannot be overwritten.</source>
-        <translation>Невозможно перезаписать файл «%1».</translation>
-    </message>
-    <message>
-        <source>Cannot open data base file %1.</source>
-        <translation>Не удалось открыть файл базы данных «%1».</translation>
-    </message>
-    <message>
-        <source>Cannot register namespace %1.</source>
-        <translation>Не удалось зарегистрировать пространство имён «%1».</translation>
-    </message>
-    <message>
-        <source>Some tables already exist.</source>
-        <translation>Некоторые таблицы уже существуют.</translation>
-    </message>
-    <message>
-        <source>Cannot create tables.</source>
-        <translation>Не удалось создать таблицы.</translation>
-    </message>
-    <message>
-        <source>Cannot register virtual folder.</source>
-        <translation>Не удалось зарегистрировать виртуальный каталог.</translation>
-    </message>
-    <message>
-        <source>The filter %1 is already registered.</source>
-        <translation>Фильтр «%1» уже зарегистрирован.</translation>
-    </message>
-    <message>
-        <source>Cannot register filter %1.</source>
-        <translation>Не удалось зарегистрировать фильтр «%1».</translation>
-    </message>
-    <message>
-        <source>Cannot insert contents.</source>
-        <translation>Не удалось добавить оглавление.</translation>
-    </message>
-    <message>
-        <source>Cannot register contents.</source>
-        <translation>Не удалось зарегистрировать оглавление.</translation>
-    </message>
-    <message>
-        <source>File &apos;%1&apos; does not exist.</source>
-        <translation>Файл «%1» не существует.</translation>
-    </message>
-    <message>
-        <source>File &apos;%1&apos; cannot be opened.</source>
-        <translation>Невозможно открыть файл «%1».</translation>
-    </message>
-    <message>
-        <source>File &apos;%1&apos; contains an invalid link to file &apos;%2&apos;</source>
-        <translation>Файл «%1» содержит некорректную ссылку на файл «%2»</translation>
-    </message>
-    <message>
-        <source>Invalid links in HTML files.</source>
-        <translation>В файлах HTML обнаружены некорректные ссылки.</translation>
-    </message>
-</context>
-<context>
-    <name>QHelpProject</name>
-    <message>
-        <source>Unknown token in file &quot;%1&quot;.</source>
-        <translation>Неизвестный идентификатор в файле «%1».</translation>
-    </message>
-    <message>
-        <source>Unknown token. Expected &quot;QtHelpProject&quot;.</source>
-        <translation>Неизвестный идентификатор. Ожидается «QtHelpProject».</translation>
-    </message>
-    <message>
-        <source>Error in line %1: %2</source>
-        <translation>Ошибка в строке %1: %2</translation>
-    </message>
-    <message>
-        <source>Virtual folder has invalid syntax in file: &quot;%1&quot;</source>
-        <translation>В файле «%1» виртуальный каталог содержит ошибку синтаксиса</translation>
-    </message>
-    <message>
-        <source>Namespace &quot;%1&quot; has invalid syntax in file: &quot;%2&quot;</source>
-        <translation>В файле «%2» пространство имён «%1» содержит ошибку синтаксиса</translation>
-    </message>
-    <message>
-        <source>Missing namespace in QtHelpProject file: &quot;%1&quot;</source>
-        <translation>Отсутствует пространство имён в файле QtHelpProject: «%1»</translation>
-    </message>
-    <message>
-        <source>Missing virtual folder in QtHelpProject file: &quot;%1&quot;</source>
-        <translation>Отсутствует виртуальный каталог в файле QtHelpProject: «%1»</translation>
-    </message>
-    <message>
-        <source>The input file %1 could not be opened.</source>
-        <translation>Невозможно открыть исходный файл «%1».</translation>
+        <translation>Не удалось открыть базу данных &quot;%1&quot; &quot;%2&quot;: %3</translation>
     </message>
 </context>
 <context>

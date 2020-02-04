@@ -44,6 +44,7 @@
 #include <QtMultimedia/qvideosurfaceformat.h>
 #include <QtMultimedia/qcameraimagecapture.h>
 #include <private/qmemoryvideobuffer_p.h>
+#include <private/qvideoframe_p.h>
 
 #include "dscamerasession.h"
 #include "dsvideorenderer.h"
@@ -51,28 +52,56 @@
 #include "directshowcameraglobal.h"
 #include "directshowmediatype.h"
 #include "directshowutils.h"
+#include "directshowvideoprobecontrol.h"
 
 QT_BEGIN_NAMESPACE
 
 DSCameraSession::DSCameraSession(QObject *parent)
     : QObject(parent)
-    , m_graphBuilder(Q_NULLPTR)
-    , m_filterGraph(Q_NULLPTR)
+    , m_graphBuilder(nullptr)
+    , m_filterGraph(nullptr)
     , m_sourceDeviceName(QLatin1String("default"))
-    , m_sourceFilter(Q_NULLPTR)
+    , m_sourceFilter(nullptr)
     , m_needsHorizontalMirroring(false)
-    , m_previewSampleGrabber(Q_NULLPTR)
-    , m_nullRendererFilter(Q_NULLPTR)
+    , m_previewSampleGrabber(nullptr)
+    , m_nullRendererFilter(nullptr)
     , m_previewStarted(false)
-    , m_surface(Q_NULLPTR)
+    , m_surface(nullptr)
     , m_previewPixelFormat(QVideoFrame::Format_Invalid)
+    , m_stride(-1)
     , m_readyForCapture(false)
     , m_imageIdCounter(0)
     , m_currentImageId(-1)
+    , m_captureDestinations(QCameraImageCapture::CaptureToFile)
+    , m_videoProbeControl(nullptr)
     , m_status(QCamera::UnloadedStatus)
 {
-    connect(this, SIGNAL(statusChanged(QCamera::Status)),
-            this, SLOT(updateReadyForCapture()));
+    connect(this, &DSCameraSession::statusChanged,
+            this, &DSCameraSession::updateReadyForCapture);
+
+    m_deviceLostEventTimer.setSingleShot(true);
+    connect(&m_deviceLostEventTimer, &QTimer::timeout, [&]() {
+        IMediaEvent *pEvent = com_cast<IMediaEvent>(m_filterGraph, IID_IMediaEvent);
+        if (!pEvent)
+            return;
+
+        long eventCode;
+        LONG_PTR param1;
+        LONG_PTR param2;
+        while (pEvent->GetEvent(&eventCode, &param1, &param2, 0) == S_OK) {
+            switch (eventCode) {
+            case EC_DEVICE_LOST:
+                unload();
+                break;
+            default:
+                break;
+            }
+
+            pEvent->FreeEventParams(eventCode, param1, param2);
+        }
+
+        pEvent->Release();
+    });
 }
 
 DSCameraSession::~DSCameraSession()
@@ -103,30 +132,28 @@ void DSCameraSession::setViewfinderSettings(const QCameraViewfinderSettings &set
 qreal DSCameraSession::scaledImageProcessingParameterValue(
         const ImageProcessingParameterInfo &sourceValueInfo)
 {
-    if (sourceValueInfo.currentValue == sourceValueInfo.defaultValue) {
+    if (sourceValueInfo.currentValue == sourceValueInfo.defaultValue)
         return 0.0f;
-    } else if (sourceValueInfo.currentValue < sourceValueInfo.defaultValue) {
+    if (sourceValueInfo.currentValue < sourceValueInfo.defaultValue) {
         return ((sourceValueInfo.currentValue - sourceValueInfo.minimumValue)
                 / qreal(sourceValueInfo.defaultValue - sourceValueInfo.minimumValue))
                 + (-1.0f);
-    } else {
-        return ((sourceValueInfo.currentValue - sourceValueInfo.defaultValue)
-                / qreal(sourceValueInfo.maximumValue - sourceValueInfo.defaultValue));
     }
+    return ((sourceValueInfo.currentValue - sourceValueInfo.defaultValue)
+            / qreal(sourceValueInfo.maximumValue - sourceValueInfo.defaultValue));
 }
 
 qint32 DSCameraSession::sourceImageProcessingParameterValue(
         qreal scaledValue, const ImageProcessingParameterInfo &valueRange)
 {
-    if (qFuzzyIsNull(scaledValue)) {
+    if (qFuzzyIsNull(scaledValue))
         return valueRange.defaultValue;
-    } else if (scaledValue < 0.0f) {
+    if (scaledValue < 0.0f) {
         return ((scaledValue - (-1.0f)) * (valueRange.defaultValue - valueRange.minimumValue))
                 + valueRange.minimumValue;
-    } else {
-        return (scaledValue * (valueRange.maximumValue - valueRange.defaultValue))
-                + valueRange.defaultValue;
     }
+    return (scaledValue * (valueRange.maximumValue - valueRange.defaultValue))
+            + valueRange.defaultValue;
 }
 
 static QCameraImageProcessingControl::ProcessingParameter searchRelatedResultingParameter(
@@ -205,8 +232,8 @@ QVariant DSCameraSession::imageProcessingParameter(
         QCameraImageProcessingControl::ProcessingParameter parameter) const
 {
     if (!m_graphBuilder) {
-        qWarning() << "failed to access to the graph builder";
-        return QVariant();
+        auto it = m_pendingImageProcessingParametrs.find(parameter);
+        return it != m_pendingImageProcessingParametrs.end() ? it.value() : QVariant();
     }
 
     const QCameraImageProcessingControl::ProcessingParameter resultingParameter =
@@ -246,7 +273,7 @@ void DSCameraSession::setImageProcessingParameter(
         const QVariant &value)
 {
     if (!m_graphBuilder) {
-        qWarning() << "failed to access to the graph builder";
+        m_pendingImageProcessingParametrs.insert(parameter, value);
         return;
     }
 
@@ -304,10 +331,10 @@ void DSCameraSession::setImageProcessingParameter(
         return;
     }
 
-    IAMVideoProcAmp *pVideoProcAmp = NULL;
+    IAMVideoProcAmp *pVideoProcAmp = nullptr;
     HRESULT hr = m_graphBuilder->FindInterface(
-                NULL,
-                NULL,
+                nullptr,
+                nullptr,
                 m_sourceFilter,
                 IID_IAMVideoProcAmp,
                 reinterpret_cast<void**>(&pVideoProcAmp)
@@ -354,6 +381,39 @@ bool DSCameraSession::getCameraControlInterface(IAMCameraControl **cameraControl
     return true;
 }
 
+bool DSCameraSession::isCaptureDestinationSupported(QCameraImageCapture::CaptureDestinations destination) const
+{
+    return destination & (QCameraImageCapture::CaptureToFile | QCameraImageCapture::CaptureToBuffer);
+}
+
+QCameraImageCapture::CaptureDestinations DSCameraSession::captureDestination() const
+{
+    return m_captureDestinations;
+}
+
+void DSCameraSession::setCaptureDestination(QCameraImageCapture::CaptureDestinations destinations)
+{
+    if (m_captureDestinations == destinations)
+        return;
+
+    m_captureDestinations = destinations;
+    Q_EMIT captureDestinationChanged(m_captureDestinations);
+}
+
+void DSCameraSession::addVideoProbe(DirectShowVideoProbeControl *probe)
+{
+    const QMutexLocker locker(&m_probeMutex);
+    m_videoProbeControl = probe;
+}
+
+void DSCameraSession::removeVideoProbe(DirectShowVideoProbeControl *probe)
+{
+    Q_UNUSED(probe);
+    Q_ASSERT(m_videoProbeControl == probe);
+    const QMutexLocker locker(&m_probeMutex);
+    m_videoProbeControl = nullptr;
+}
+
 bool DSCameraSession::load()
 {
     unload();
@@ -379,9 +439,6 @@ bool DSCameraSession::unload()
 
     setStatus(QCamera::UnloadingStatus);
 
-    m_previewSampleGrabber->deleteLater();
-    m_previewSampleGrabber = nullptr;
-
     m_needsHorizontalMirroring = false;
     m_supportedViewfinderSettings.clear();
     m_supportedFormats.clear();
@@ -405,30 +462,33 @@ bool DSCameraSession::startPreview()
 
     setStatus(QCamera::StartingStatus);
 
+    QString errorString;
     HRESULT hr = S_OK;
     IMediaControl* pControl = 0;
 
     if (!configurePreviewFormat()) {
-        qWarning() << "Failed to configure preview format";
+        errorString = tr("Failed to configure preview format");
         goto failed;
     }
 
-    if (!connectGraph())
+    if (!connectGraph()) {
+        errorString = tr("Failed to connect graph");
         goto failed;
+    }
 
     if (m_surface)
         m_surface->start(m_previewSurfaceFormat);
 
-    hr = m_filterGraph->QueryInterface(IID_IMediaControl, (void**)&pControl);
+    hr = m_filterGraph->QueryInterface(IID_IMediaControl, reinterpret_cast<void**>(&pControl));
     if (FAILED(hr)) {
-        qWarning() << "failed to get stream control";
+        errorString = tr("Failed to get stream control");
         goto failed;
     }
     hr = pControl->Run();
     pControl->Release();
 
     if (FAILED(hr)) {
-        qWarning() << "failed to start";
+        errorString = tr("Failed to start");
         goto failed;
     }
 
@@ -441,7 +501,7 @@ failed:
     if (m_surface && m_surface->isActive())
         m_surface->stop();
     disconnectGraph();
-    setStatus(QCamera::LoadedStatus);
+    setError(QCamera::CameraError, errorString, hr);
     return false;
 }
 
@@ -455,17 +515,19 @@ bool DSCameraSession::stopPreview()
     if (m_previewSampleGrabber)
         m_previewSampleGrabber->stop();
 
+    QString errorString;
     IMediaControl* pControl = 0;
-    HRESULT hr = m_filterGraph->QueryInterface(IID_IMediaControl, (void**)&pControl);
+    HRESULT hr = m_filterGraph->QueryInterface(IID_IMediaControl,
+                                               reinterpret_cast<void**>(&pControl));
     if (FAILED(hr)) {
-        qWarning() << "failed to get stream control";
+        errorString = tr("Failed to get stream control");
         goto failed;
     }
 
     hr = pControl->Stop();
     pControl->Release();
     if (FAILED(hr)) {
-        qWarning() << "failed to stop";
+        errorString = tr("Failed to stop");
         goto failed;
     }
 
@@ -478,8 +540,15 @@ bool DSCameraSession::stopPreview()
     return true;
 
 failed:
-    setStatus(QCamera::ActiveStatus);
+    setError(QCamera::CameraError, errorString, hr);
     return false;
+}
+
+void DSCameraSession::setError(int error, const QString &errorString, HRESULT hr)
+{
+    qErrnoWarning(hr, "[0x%x] %s", hr, qPrintable(errorString));
+    emit cameraError(error, errorString);
+    setStatus(QCamera::UnloadedStatus);
 }
 
 void DSCameraSession::setStatus(QCamera::Status status)
@@ -515,10 +584,13 @@ int DSCameraSession::captureImage(const QString &fileName)
         return m_imageIdCounter;
     }
 
+    const QString ext = !m_imageEncoderSettings.codec().isEmpty()
+        ? m_imageEncoderSettings.codec().toLower()
+        : QLatin1String("jpg");
     m_imageCaptureFileName = m_fileNameGenerator.generateFileName(fileName,
                                                          QMediaStorageLocation::Pictures,
                                                          QLatin1String("IMG_"),
-                                                         QLatin1String("jpg"));
+                                                         ext);
 
     updateReadyForCapture();
 
@@ -536,16 +608,19 @@ void DSCameraSession::onFrameAvailable(double time, const QByteArray &data)
 
     m_presentMutex.lock();
 
-    // (We should be getting only RGB32 data)
-    int stride = m_previewSize.width() * 4;
-
     // In case the source produces frames faster than we can display them,
     // only keep the most recent one
-    m_currentFrame = QVideoFrame(new QMemoryVideoBuffer(data, stride),
+    m_currentFrame = QVideoFrame(new QMemoryVideoBuffer(data, m_stride),
                                  m_previewSize,
                                  m_previewPixelFormat);
 
     m_presentMutex.unlock();
+
+    {
+        const QMutexLocker locker(&m_probeMutex);
+        if (m_currentFrame.isValid() && m_videoProbeControl)
+            Q_EMIT m_videoProbeControl->videoFrameProbed(m_currentFrame);
+    }
 
     // Image capture
     QMutexLocker locker(&m_captureMutex);
@@ -559,6 +634,10 @@ void DSCameraSession::onFrameAvailable(double time, const QByteArray &data)
 
 void DSCameraSession::presentFrame()
 {
+    // If no frames provided from ISampleGrabber for some time
+    // the device might be potentially unplugged.
+    m_deviceLostEventTimer.start(100);
+
     m_presentMutex.lock();
 
     if (m_currentFrame.isValid() && m_surface) {
@@ -574,20 +653,14 @@ void DSCameraSession::presentFrame()
     m_captureMutex.lock();
 
     if (m_capturedFrame.isValid()) {
-        Q_ASSERT(m_previewPixelFormat == QVideoFrame::Format_RGB32);
 
-        m_capturedFrame.map(QAbstractVideoBuffer::ReadOnly);
+        captureImage = qt_imageFromVideoFrame(m_capturedFrame);
 
-        captureImage = QImage(m_capturedFrame.bits(),
-                                m_previewSize.width(), m_previewSize.height(),
-                                QImage::Format_RGB32);
+        const bool needsVerticalMirroring = m_previewSurfaceFormat.scanLineDirection() != QVideoSurfaceFormat::TopToBottom;
+        captureImage = captureImage.mirrored(m_needsHorizontalMirroring, needsVerticalMirroring); // also causes a deep copy of the data
 
-        captureImage = captureImage.mirrored(m_needsHorizontalMirroring); // also causes a deep copy of the data
-
-        m_capturedFrame.unmap();
-
-        QtConcurrent::run(this, &DSCameraSession::saveCapturedImage,
-                          m_currentImageId, captureImage, m_imageCaptureFileName);
+        QtConcurrent::run(this, &DSCameraSession::processCapturedImage,
+                          m_currentImageId, m_captureDestinations, captureImage, m_imageCaptureFileName);
 
         m_imageCaptureFileName.clear();
         m_currentImageId = -1;
@@ -603,14 +676,23 @@ void DSCameraSession::presentFrame()
     updateReadyForCapture();
 }
 
-void DSCameraSession::saveCapturedImage(int id, const QImage &image, const QString &path)
+void DSCameraSession::processCapturedImage(int id,
+                                           QCameraImageCapture::CaptureDestinations captureDestinations,
+                                           const QImage &image,
+                                           const QString &path)
 {
-    if (image.save(path, "JPG")) {
-        emit imageSaved(id, path);
-    } else {
-        emit captureError(id, QCameraImageCapture::ResourceError,
-                          tr("Could not save image to file."));
+    const QString format = m_imageEncoderSettings.codec();
+    if (captureDestinations & QCameraImageCapture::CaptureToFile) {
+        if (image.save(path, !format.isEmpty() ? format.toUtf8().constData() : "JPG")) {
+            Q_EMIT imageSaved(id, path);
+        } else {
+            Q_EMIT captureError(id, QCameraImageCapture::ResourceError,
+                              tr("Could not save image to file."));
+        }
     }
+
+    if (captureDestinations & QCameraImageCapture::CaptureToBuffer)
+        Q_EMIT imageAvailable(id, QVideoFrame(image));
 }
 
 bool DSCameraSession::createFilterGraph()
@@ -618,36 +700,38 @@ bool DSCameraSession::createFilterGraph()
     // Previously containered in <qedit.h>.
     static const CLSID cLSID_NullRenderer = { 0xC1F400A4, 0x3F08, 0x11d3, { 0x9F, 0x0B, 0x00, 0x60, 0x08, 0x03, 0x9E, 0x37 } };
 
+    QString errorString;
     HRESULT hr;
-    IMoniker* pMoniker = NULL;
-    ICreateDevEnum* pDevEnum = NULL;
-    IEnumMoniker* pEnum = NULL;
+    IMoniker* pMoniker = nullptr;
+    ICreateDevEnum* pDevEnum = nullptr;
+    IEnumMoniker* pEnum = nullptr;
 
     // Create the filter graph
-    hr = CoCreateInstance(CLSID_FilterGraph,NULL,CLSCTX_INPROC,
-            IID_IGraphBuilder, (void**)&m_filterGraph);
+    hr = CoCreateInstance(CLSID_FilterGraph, nullptr, CLSCTX_INPROC,
+                          IID_IGraphBuilder, reinterpret_cast<void**>(&m_filterGraph));
     if (FAILED(hr)) {
-        qWarning() << "failed to create filter graph";
+        errorString = tr("Failed to create filter graph");
         goto failed;
     }
 
     // Create the capture graph builder
-    hr = CoCreateInstance(CLSID_CaptureGraphBuilder2, NULL, CLSCTX_INPROC,
-                          IID_ICaptureGraphBuilder2, (void**)&m_graphBuilder);
+    hr = CoCreateInstance(CLSID_CaptureGraphBuilder2, nullptr, CLSCTX_INPROC,
+                          IID_ICaptureGraphBuilder2,
+                          reinterpret_cast<void**>(&m_graphBuilder));
     if (FAILED(hr)) {
-        qWarning() << "failed to create graph builder";
+        errorString = tr("Failed to create graph builder");
         goto failed;
     }
 
     // Attach the filter graph to the capture graph
     hr = m_graphBuilder->SetFiltergraph(m_filterGraph);
     if (FAILED(hr)) {
-        qWarning() << "failed to connect capture graph and filter graph";
+        errorString = tr("Failed to connect capture graph and filter graph");
         goto failed;
     }
 
     // Find the Capture device
-    hr = CoCreateInstance(CLSID_SystemDeviceEnum, NULL,
+    hr = CoCreateInstance(CLSID_SystemDeviceEnum, nullptr,
                           CLSCTX_INPROC_SERVER, IID_ICreateDevEnum,
                           reinterpret_cast<void**>(&pDevEnum));
     if (SUCCEEDED(hr)) {
@@ -659,15 +743,16 @@ bool DSCameraSession::createFilterGraph()
             IMalloc *mallocInterface = 0;
             CoGetMalloc(1, (LPMALLOC*)&mallocInterface);
             //go through and find all video capture devices
-            while (pEnum->Next(1, &pMoniker, NULL) == S_OK) {
+            while (pEnum->Next(1, &pMoniker, nullptr) == S_OK) {
 
                 BSTR strName = 0;
-                hr = pMoniker->GetDisplayName(NULL, NULL, &strName);
+                hr = pMoniker->GetDisplayName(nullptr, nullptr, &strName);
                 if (SUCCEEDED(hr)) {
                     QString output = QString::fromWCharArray(strName);
                     mallocInterface->Free(strName);
                     if (m_sourceDeviceName.contains(output)) {
-                        hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&m_sourceFilter);
+                        hr = pMoniker->BindToObject(nullptr, nullptr, IID_IBaseFilter,
+                                                    reinterpret_cast<void**>(&m_sourceFilter));
                         if (SUCCEEDED(hr)) {
                             pMoniker->Release();
                             break;
@@ -677,16 +762,17 @@ bool DSCameraSession::createFilterGraph()
                 pMoniker->Release();
             }
             mallocInterface->Release();
-            if (NULL == m_sourceFilter)
+            if (nullptr == m_sourceFilter)
             {
                 if (m_sourceDeviceName.contains(QLatin1String("default")))
                 {
                     pEnum->Reset();
                     // still have to loop to discard bind to storage failure case
-                    while (pEnum->Next(1, &pMoniker, NULL) == S_OK) {
+                    while (pEnum->Next(1, &pMoniker, nullptr) == S_OK) {
                         IPropertyBag *pPropBag = 0;
 
-                        hr = pMoniker->BindToStorage(0, 0, IID_IPropertyBag, (void**)(&pPropBag));
+                        hr = pMoniker->BindToStorage(nullptr, nullptr, IID_IPropertyBag,
+                                                     reinterpret_cast<void**>(&pPropBag));
                         if (FAILED(hr)) {
                             pMoniker->Release();
                             continue; // Don't panic yet
@@ -694,7 +780,8 @@ bool DSCameraSession::createFilterGraph()
 
                         // No need to get the description, just grab it
 
-                        hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter, (void**)&m_sourceFilter);
+                        hr = pMoniker->BindToObject(0, 0, IID_IBaseFilter,
+                                                    reinterpret_cast<void**>(&m_sourceFilter));
                         pPropBag->Release();
                         pMoniker->Release();
                         if (SUCCEEDED(hr)) {
@@ -712,24 +799,24 @@ bool DSCameraSession::createFilterGraph()
     }
 
     if (!m_sourceFilter) {
-        qWarning() << "No capture device found";
+        errorString = tr("No capture device found");
         goto failed;
     }
 
     // Sample grabber filter
     if (!m_previewSampleGrabber) {
-        m_previewSampleGrabber = new DirectShowSampleGrabber;
+        m_previewSampleGrabber = new DirectShowSampleGrabber(this);
         connect(m_previewSampleGrabber, &DirectShowSampleGrabber::bufferAvailable,
-                this, &DSCameraSession::onFrameAvailable);
+                this, &DSCameraSession::onFrameAvailable, Qt::DirectConnection);
     }
 
 
     // Null renderer. Input connected to the sample grabber's output. Simply
     // discard the samples it receives.
-    hr = CoCreateInstance(cLSID_NullRenderer, NULL, CLSCTX_INPROC,
+    hr = CoCreateInstance(cLSID_NullRenderer, nullptr, CLSCTX_INPROC,
                           IID_IBaseFilter, (void**)&m_nullRendererFilter);
     if (FAILED(hr)) {
-        qWarning() << "failed to create null renderer";
+        errorString = tr("Failed to create null renderer");
         goto failed;
     }
 
@@ -743,6 +830,7 @@ failed:
     SAFE_RELEASE(m_nullRendererFilter);
     SAFE_RELEASE(m_filterGraph);
     SAFE_RELEASE(m_graphBuilder);
+    setError(QCamera::CameraError, errorString, hr);
 
     return false;
 }
@@ -751,9 +839,11 @@ bool DSCameraSession::configurePreviewFormat()
 {
     // Resolve viewfinder settings
     int settingsIndex = 0;
+    const QSize captureResolution = m_imageEncoderSettings.resolution();
+    const QSize resolution = captureResolution.isValid() ? captureResolution : m_viewfinderSettings.resolution();
     QCameraViewfinderSettings resolvedViewfinderSettings;
     for (const QCameraViewfinderSettings &s : qAsConst(m_supportedViewfinderSettings)) {
-        if ((m_viewfinderSettings.resolution().isEmpty() || m_viewfinderSettings.resolution() == s.resolution())
+        if ((resolution.isEmpty() || resolution == s.resolution())
                 && (qFuzzyIsNull(m_viewfinderSettings.minimumFrameRate()) || qFuzzyCompare((float)m_viewfinderSettings.minimumFrameRate(), (float)s.minimumFrameRate()))
                 && (qFuzzyIsNull(m_viewfinderSettings.maximumFrameRate()) || qFuzzyCompare((float)m_viewfinderSettings.maximumFrameRate(), (float)s.maximumFrameRate()))
                 && (m_viewfinderSettings.pixelFormat() == QVideoFrame::Format_Invalid || m_viewfinderSettings.pixelFormat() == s.pixelFormat())
@@ -778,29 +868,40 @@ bool DSCameraSession::configurePreviewFormat()
     VIDEOINFOHEADER *videoInfo = reinterpret_cast<VIDEOINFOHEADER*>(m_sourceFormat->pbFormat);
     videoInfo->AvgTimePerFrame = 10000000 / resolvedViewfinderSettings.maximumFrameRate();
 
-    // We only support RGB32, if the capture source doesn't support
-    // that format, the graph builder will automatically insert a
-    // converter.
+    m_previewPixelFormat = resolvedViewfinderSettings.pixelFormat();
+    const AM_MEDIA_TYPE *resolvedGrabberFormat = &m_sourceFormat;
 
-    if (m_surface && !m_surface->supportedPixelFormats(QAbstractVideoBuffer::NoHandle)
-            .contains(QVideoFrame::Format_RGB32)) {
-        qWarning() << "Video surface needs to support RGB32 pixel format";
-        return false;
+    if (m_surface) {
+        const auto surfaceFormats = m_surface->supportedPixelFormats(QAbstractVideoBuffer::NoHandle);
+        if (!surfaceFormats.contains(m_previewPixelFormat)) {
+            if (surfaceFormats.contains(QVideoFrame::Format_RGB32)) {
+                // As a fallback, we support RGB32, if the capture source doesn't support
+                // that format, the graph builder will automatically insert a
+                // converter (when possible).
+
+                static const AM_MEDIA_TYPE rgb32GrabberFormat { MEDIATYPE_Video, MEDIASUBTYPE_ARGB32, 0, 0, 0, FORMAT_VideoInfo, nullptr, 0, nullptr};
+                resolvedGrabberFormat = &rgb32GrabberFormat;
+                m_previewPixelFormat = QVideoFrame::Format_RGB32;
+
+            } else {
+                qWarning() << "Video surface needs to support at least RGB32 pixel format";
+                return false;
+            }
+        }
     }
 
-    m_previewPixelFormat = QVideoFrame::Format_RGB32;
     m_previewSize = resolvedViewfinderSettings.resolution();
     m_previewSurfaceFormat = QVideoSurfaceFormat(m_previewSize,
                                                  m_previewPixelFormat,
                                                  QAbstractVideoBuffer::NoHandle);
-    m_previewSurfaceFormat.setScanLineDirection(QVideoSurfaceFormat::BottomToTop);
+    m_previewSurfaceFormat.setScanLineDirection(DirectShowMediaType::scanLineDirection(m_previewPixelFormat, videoInfo->bmiHeader));
+    m_stride = DirectShowMediaType::bytesPerLine(m_previewSurfaceFormat);
 
     HRESULT hr;
     IAMStreamConfig* pConfig = 0;
-    hr = m_graphBuilder->FindInterface(&PIN_CATEGORY_CAPTURE,
-                                       &MEDIATYPE_Video,
-                                       m_sourceFilter,
-                                       IID_IAMStreamConfig, (void**)&pConfig);
+    hr = m_graphBuilder->FindInterface(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
+                                       m_sourceFilter, IID_IAMStreamConfig,
+                                       reinterpret_cast<void**>(&pConfig));
     if (FAILED(hr)) {
         qWarning() << "Failed to get config for capture device";
         return false;
@@ -815,9 +916,7 @@ bool DSCameraSession::configurePreviewFormat()
         return false;
     }
 
-    // Set sample grabber format
-    static const AM_MEDIA_TYPE grabberFormat { MEDIATYPE_Video, MEDIASUBTYPE_ARGB32, 0, 0, 0, FORMAT_VideoInfo, nullptr, 0, nullptr};
-    if (!m_previewSampleGrabber->setMediaType(&grabberFormat))
+    if (!m_previewSampleGrabber->setMediaType(resolvedGrabberFormat))
         return false;
 
     m_previewSampleGrabber->start(DirectShowSampleGrabber::CallbackMethod::BufferCB);
@@ -832,10 +931,10 @@ void DSCameraSession::updateImageProcessingParametersInfos()
         return;
     }
 
-    IAMVideoProcAmp *pVideoProcAmp = NULL;
+    IAMVideoProcAmp *pVideoProcAmp = nullptr;
     const HRESULT hr = m_graphBuilder->FindInterface(
-                NULL,
-                NULL,
+                nullptr,
+                nullptr,
                 m_sourceFilter,
                 IID_IAMVideoProcAmp,
                 reinterpret_cast<void**>(&pVideoProcAmp)
@@ -898,6 +997,13 @@ void DSCameraSession::updateImageProcessingParametersInfos()
     }
 
     pVideoProcAmp->Release();
+
+    for (auto it = m_pendingImageProcessingParametrs.cbegin();
+        it != m_pendingImageProcessingParametrs.cend();
+        ++it) {
+        setImageProcessingParameter(it.key(), it.value());
+    }
+    m_pendingImageProcessingParametrs.clear();
 }
 
 bool DSCameraSession::connectGraph()
@@ -935,10 +1041,10 @@ void DSCameraSession::disconnectGraph()
 {
     // To avoid increasing the memory usage every time the graph is re-connected it's
     // important that all filters are released; also the ones added by the "Intelligent Connect".
-    IEnumFilters *enumFilters = NULL;
+    IEnumFilters *enumFilters = nullptr;
     if (SUCCEEDED(m_filterGraph->EnumFilters(&enumFilters)))  {
-        IBaseFilter *filter = NULL;
-        while (enumFilters->Next(1, &filter, NULL) == S_OK) {
+        IBaseFilter *filter = nullptr;
+        while (enumFilters->Next(1, &filter, nullptr) == S_OK) {
                 m_filterGraph->RemoveFilter(filter);
                 enumFilters->Reset();
                 filter->Release();
@@ -955,8 +1061,8 @@ static bool qt_frameRateRangeGreaterThan(const QCamera::FrameRateRange &r1, cons
 void DSCameraSession::updateSourceCapabilities()
 {
     HRESULT hr;
-    AM_MEDIA_TYPE *pmt = NULL;
-    VIDEOINFOHEADER *pvi = NULL;
+    AM_MEDIA_TYPE *pmt = nullptr;
+    VIDEOINFOHEADER *pvi = nullptr;
     VIDEO_STREAM_CONFIG_CAPS scc;
     IAMStreamConfig* pConfig = 0;
 
@@ -967,8 +1073,8 @@ void DSCameraSession::updateSourceCapabilities()
 
     IAMVideoControl *pVideoControl = 0;
     hr = m_graphBuilder->FindInterface(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
-                                       m_sourceFilter,
-                                       IID_IAMVideoControl, (void**)&pVideoControl);
+                                       m_sourceFilter, IID_IAMVideoControl,
+                                       reinterpret_cast<void**>(&pVideoControl));
     if (FAILED(hr)) {
         qWarning() << "Failed to get the video control";
     } else {
@@ -994,8 +1100,8 @@ void DSCameraSession::updateSourceCapabilities()
     }
 
     hr = m_graphBuilder->FindInterface(&PIN_CATEGORY_CAPTURE, &MEDIATYPE_Video,
-                                       m_sourceFilter,
-                                       IID_IAMStreamConfig, (void**)&pConfig);
+                                       m_sourceFilter, IID_IAMStreamConfig,
+                                       reinterpret_cast<void**>(&pConfig));
     if (FAILED(hr)) {
         qWarning() << "failed to get config on capture device";
         return;
@@ -1031,8 +1137,8 @@ void DSCameraSession::updateSourceCapabilities()
                         long listSize = 0;
                         LONGLONG *frameRates = 0;
                         SIZE size = { resolution.width(), resolution.height() };
-                        if (SUCCEEDED(pVideoControl->GetFrameRateList(pPin, iIndex, size,
-                                                                      &listSize, &frameRates))) {
+                        hr = pVideoControl->GetFrameRateList(pPin, iIndex, size, &listSize, &frameRates);
+                        if (hr == S_OK && listSize > 0 && frameRates) {
                             for (long i = 0; i < listSize; ++i) {
                                 qreal fr = qreal(10000000) / frameRates[i];
                                 frameRateRanges.append(QCamera::FrameRateRange(fr, fr));
@@ -1041,6 +1147,8 @@ void DSCameraSession::updateSourceCapabilities()
                             // Make sure higher frame rates come first
                             std::sort(frameRateRanges.begin(), frameRateRanges.end(), qt_frameRateRangeGreaterThan);
                         }
+
+                        CoTaskMemFree(frameRates);
                         pPin->Release();
                     }
                 }
@@ -1070,6 +1178,25 @@ void DSCameraSession::updateSourceCapabilities()
     pConfig->Release();
 
     updateImageProcessingParametersInfos();
+}
+
+QList<QSize> DSCameraSession::supportedResolutions(bool *continuous) const
+{
+    if (continuous)
+        *continuous = false;
+
+    QList<QSize> res;
+    for (auto &settings : m_supportedViewfinderSettings) {
+        auto size = settings.resolution();
+        if (!res.contains(size))
+            res << size;
+    }
+
+    std::sort(res.begin(), res.end(), [](const QSize &r1, const QSize &r2) {
+        return qlonglong(r1.width()) * r1.height() < qlonglong(r2.width()) * r2.height();
+    });
+
+    return res;
 }
 
 QT_END_NAMESPACE

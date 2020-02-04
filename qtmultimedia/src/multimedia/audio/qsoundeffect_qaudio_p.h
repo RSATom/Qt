@@ -66,11 +66,11 @@ class PrivateSoundSource : public QIODevice
     friend class QSoundEffectPrivate;
     Q_OBJECT
 public:
-    PrivateSoundSource(QSoundEffectPrivate* s);
+    PrivateSoundSource(QSoundEffectPrivate *s, const QAudioDeviceInfo &audioDevice = QAudioDeviceInfo());
     ~PrivateSoundSource() {}
 
-    qint64 readData( char* data, qint64 len) override;
-    qint64 writeData(const char* data, qint64 len) override;
+    qint64 readData(char *data, qint64 len) override;
+    qint64 writeData(const char *data, qint64 len) override;
 
 private Q_SLOTS:
     void sampleReady();
@@ -78,20 +78,20 @@ private Q_SLOTS:
     void stateChanged(QAudio::State);
 
 private:
-    QUrl           m_url;
-    int            m_loopCount;
-    int            m_runningCount;
-    bool           m_playing;
-    QSoundEffect::Status  m_status;
-    QAudioOutput   *m_audioOutput;
-    QSample        *m_sample;
-    bool           m_muted;
-    qreal          m_volume;
-    bool           m_sampleReady;
-    qint64         m_offset;
-    QString        m_category;
-
-    QSoundEffectPrivate *soundeffect;
+    QUrl m_url;
+    int m_loopCount = 1;
+    int m_runningCount = 0;
+    bool m_playing = false;
+    QSoundEffect::Status  m_status = QSoundEffect::Null;
+    QAudioOutput *m_audioOutput = nullptr;
+    QSample *m_sample = nullptr;
+    bool m_muted = false;
+    qreal m_volume = 1.0;
+    bool m_sampleReady = false;
+    qint64 m_offset = 0;
+    QString m_category;
+    QAudioDeviceInfo m_audioDevice;
+    QSoundEffectPrivate *soundeffect = nullptr;
 };
 
 
@@ -101,7 +101,8 @@ class QSoundEffectPrivate : public QObject
     Q_OBJECT
 public:
 
-    explicit QSoundEffectPrivate(QObject* parent);
+    explicit QSoundEffectPrivate(QObject *parent);
+    explicit QSoundEffectPrivate(const QAudioDeviceInfo &audioDevice, QObject *parent);
     ~QSoundEffectPrivate();
 
     static QStringList supportedMimeTypes();
@@ -142,7 +143,7 @@ private:
     void setPlaying(bool playing);
     void setLoopsRemaining(int loopsRemaining);
 
-    PrivateSoundSource* d;
+    PrivateSoundSource *d = nullptr;
 };
 
 QT_END_NAMESPACE

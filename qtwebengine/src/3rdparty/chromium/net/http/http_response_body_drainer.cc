@@ -14,16 +14,19 @@
 
 namespace net {
 
+const int HttpResponseBodyDrainer::kDrainBodyBufferSize;
+const int HttpResponseBodyDrainer::kTimeoutInSeconds;
+
 HttpResponseBodyDrainer::HttpResponseBodyDrainer(HttpStream* stream)
     : stream_(stream),
       next_state_(STATE_NONE),
       total_read_(0),
       session_(NULL) {}
 
-HttpResponseBodyDrainer::~HttpResponseBodyDrainer() {}
+HttpResponseBodyDrainer::~HttpResponseBodyDrainer() = default;
 
 void HttpResponseBodyDrainer::Start(HttpNetworkSession* session) {
-  read_buf_ = new IOBuffer(kDrainBodyBufferSize);
+  read_buf_ = base::MakeRefCounted<IOBuffer>(kDrainBodyBufferSize);
   next_state_ = STATE_DRAIN_RESPONSE_BODY;
   int rv = DoLoop(OK);
 

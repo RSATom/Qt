@@ -1479,11 +1479,7 @@ typedef short int yytype_int16;
 
 #if !defined _Noreturn \
      && (!defined __STDC_VERSION__ || __STDC_VERSION__ < 201112)
-# if defined _MSC_VER && 1200 <= _MSC_VER
-#  define _Noreturn __declspec (noreturn)
-# else
-#  define _Noreturn YY_ATTRIBUTE ((__noreturn__))
-# endif
+# define _Noreturn __declspec (noreturn)
 #endif
 
 /* Suppress unused-variable warnings by "using" E.  */

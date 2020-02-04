@@ -35,12 +35,22 @@ class NET_EXPORT HttpUtil {
   // is stripped (username, password, reference).
   static std::string SpecForRequest(const GURL& url);
 
-  // Parses the value of a Content-Type header.  The resulting mime_type and
-  // charset values are normalized to lowercase.  The mime_type and charset
-  // output values are only modified if the content_type_str contains a mime
-  // type and charset value, respectively.  The boundary output value is
-  // optional and will be assigned the (quoted) value of the boundary
-  // paramter, if any.
+  // Parses the value of a Content-Type header.  |mime_type|, |charset|, and
+  // |had_charset| output parameters must be valid pointers.  |boundary| may be
+  // nullptr.  |*mime_type| and |*charset| should be empty and |*had_charset|
+  // false when called with the first Content-Type header value in a given
+  // header list.
+  //
+  // ParseContentType() supports parsing multiple Content-Type headers in the
+  // same header list.  For this operation, subsequent calls should pass in the
+  // same |mime_type|, |charset|, and |had_charset| arguments without clearing
+  // them.
+  //
+  // The resulting mime_type and charset values are normalized to lowercase.
+  // The mime_type and charset output values are only modified if the
+  // content_type_str contains a mime type and charset value, respectively.  If
+  // |boundary| is not null, then |*boundary| will be assigned the (unquoted)
+  // value of the boundary parameter, if any.
   static void ParseContentType(const std::string& content_type_str,
                                std::string* mime_type,
                                std::string* charset,
@@ -113,9 +123,6 @@ class NET_EXPORT HttpUtil {
                       std::string::const_iterator* end);
   static base::StringPiece TrimLWS(const base::StringPiece& string);
 
-  // Whether the character is the start of a quotation mark.
-  static bool IsQuote(char c);
-
   // Whether the character is a valid |tchar| as defined in RFC 7230 Sec 3.2.6.
   static bool IsTokenChar(char c);
   // Whether the string is a valid |token| as defined in RFC 7230 Sec 3.2.6.
@@ -143,8 +150,6 @@ class NET_EXPORT HttpUtil {
   // unescaped actually is a valid quoted string. Returns false for an empty
   // string, a string without quotes, a string with mismatched quotes, and
   // a string with unescaped embeded quotes.
-  // In accordance with RFC 2616 this method only allows double quotes to
-  // enclose the string.
   static bool StrictUnquote(std::string::const_iterator begin,
                             std::string::const_iterator end,
                             std::string* out) WARN_UNUSED_RESULT;
@@ -196,6 +201,14 @@ class NET_EXPORT HttpUtil {
   // Since all line continuations info is already lost at this point, the result
   // consists of status line and then one line for each header.
   static std::string ConvertHeadersBackToHTTPResponse(const std::string& str);
+
+  // Given a comma separated ordered list of language codes, return an expanded
+  // list by adding the base language from language-region pair if it doesn't
+  // already exist. This increases the chances of language matching in many
+  // cases as explained at this w3c doc:
+  // https://www.w3.org/International/questions/qa-lang-priorities#langtagdetail
+  // Note that we do not support Q values (e.g. ;q=0.9) in |language_prefs|.
+  static std::string ExpandLanguageList(const std::string& language_prefs);
 
   // Given a comma separated ordered list of language codes, return
   // the list with a qvalue appended to each language.
@@ -320,20 +333,14 @@ class NET_EXPORT HttpUtil {
   //
   // This iterator is careful to skip over delimiters found inside an HTTP
   // quoted string.
-  //
   class NET_EXPORT_PRIVATE ValuesIterator {
    public:
     ValuesIterator(std::string::const_iterator values_begin,
                    std::string::const_iterator values_end,
-                   char delimiter);
+                   char delimiter,
+                   bool ignore_empty_values = true);
     ValuesIterator(const ValuesIterator& other);
     ~ValuesIterator();
-
-    // Set the characters to regard as quotes.  By default, this includes both
-    // single and double quotes.
-    void set_quote_chars(const char* quotes) {
-      values_.set_quote_chars(quotes);
-    }
 
     // Advances the iterator to the next value, if any.  Returns true if there
     // is a next value.  Use value* methods to access the resultant value.
@@ -353,6 +360,7 @@ class NET_EXPORT HttpUtil {
     base::StringTokenizer values_;
     std::string::const_iterator value_begin_;
     std::string::const_iterator value_end_;
+    bool ignore_empty_values_;
   };
 
   // Iterates over a delimited sequence of name-value pairs in an HTTP header.
@@ -424,8 +432,6 @@ class NET_EXPORT HttpUtil {
                                                        value_end_); }
 
    private:
-    bool IsQuote(char c) const;
-
     HttpUtil::ValuesIterator props_;
     bool valid_;
 

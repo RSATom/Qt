@@ -84,10 +84,12 @@ public:
     float gamma() const;
     void setGamma(float gamma);
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
+
+    static QRectF computeViewport(const QRectF &childViewport, const ViewportNode *parentViewport);
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     float m_xMin;
     float m_yMin;
@@ -96,7 +98,6 @@ private:
     float m_gamma;
 };
 
-QRectF computeViewport(const QRectF &childViewport, const ViewportNode *parentViewport);
 
 } // namespace Render
 } // namespace Qt3DRender

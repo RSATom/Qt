@@ -48,6 +48,7 @@
 //
 
 #include <QtCore/QSharedPointer>
+#include <QtLocation/private/qlocationglobal_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,7 +59,7 @@ class QGeoTileTexture;
 
 class QGeoTileRequestManagerPrivate;
 
-class QGeoTileRequestManager
+class Q_LOCATION_PRIVATE_EXPORT QGeoTileRequestManager
 {
 public:
     explicit QGeoTileRequestManager(QGeoTiledMap *map, QGeoTiledMappingManagerEngine *engine);

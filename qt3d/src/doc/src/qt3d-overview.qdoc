@@ -3,9 +3,9 @@
 ** Copyright (C) 2015 Klaralvdalens Datakonsult AB (KDAB).
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the Qt3D module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,25 +14,13 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -61,18 +49,18 @@
     features:
 
     \list
-        \li 2D and 3D rendering for C++ and Qt Quick applications
-        \li Meshes and \l {Qt 3D Render Geometry}{Geometry}
+        \li  2D and 3D \l {Qt3DRender}{rendering} for C++ and Qt Quick applications
+        \li \l{Qt3DRender::QMesh}{Meshes} and \l {Qt 3D Render Geometry}{Geometry}
         \li \l {Materials}
         \li \l {Shaders}
         \li \l {Shadow Mapping}{Shadow mapping}
-        \li Ambient occlusion
+        \li \l {Qt3DExtras::QMetalRoughMaterial::ambientOcclusion}{Ambient occlusion}
         \li High dynamic range
-        \li Deferred rendering
+        \li \l {Deferred Renderer}{Deferred rendering}
         \li Multitexturing
         \li \l {Instanced Rendering}{Instanced rendering}
         \li \l {Uniform Buffer Objects}
-        \li \l {Pro Tips}
+        \li \l {Qt 3D Render Pro Tips}{Pro Tips}
     \endlist
 
     \section2 Materials
@@ -88,8 +76,12 @@
     variables in a GLSL shader program that is itself specified in the
     referenced effect property.
 
-    For examples of using materials, see the \l {Qt 3D: Materials C++ Example}
-    and \l {Qt 3D: Materials QML Example}.
+    For examples of using materials, see the following examples:
+    \list
+      \li \l {Qt 3D: Simple Custom Material QML Example}
+      \li \l {Qt 3D: Advanced Custom Material QML Example}
+      \li \l {Qt 3D: PBR Materials QML Example}
+    \endlist
 
     \section2 Shaders
 
@@ -97,7 +89,7 @@
     vertex, tessellation control, tessellation evaluation, geometry, and
     fragment shaders. Compute shaders are planned for a future release.
 
-    For examples of using shaders, see the Simple Shaders QML Example,
+    For examples of using shaders, see the \l {Simple Shader Example},
     \l {Qt 3D: Shadow Map QML Example}, \l{Qt 3D: Wireframe QML Example}, and
     \l {Qt 3D: Wave QML Example}.
 
@@ -181,10 +173,10 @@
     large amounts of data readily available. Typical use cases for UBOs are for
     sets of material or lighting parameters.
 
-    \section2 Pro Tips
+    \section2 Useful Tips
 
-    Because Murphy's law proves to often be true when it comes to 3D rendering,
-    \l {Qt 3D Render Pro Tips}{here} are a few points that might help you.
+    Some very useful programming tips for 3D rendering can be found on this
+    page: \l {Qt 3D Render Pro Tips}.
 
     \section1 Configurable Renderer
 
@@ -205,7 +197,7 @@
     \section1 3D Extensions
 
     Beyond the essentials of displaying 3D content on the screen, Qt 3D is
-    extensible and flexible enough to act as a host for following types of
+    extensible and flexible enough to act as a host for the following types of
     extensions related to the 3D objects:
 
     \list
@@ -285,7 +277,7 @@
 
     \section2 Using an ECS
 
-    In an ECS, an entity represents a simulated object but by itself is devoid
+    In an ECS, an entity represents a simulated object, but by itself it is devoid
     of any specific behavior or characteristics. Additional behavior can be
     grafted onto an entity by having the entity aggregate one or more
     components. Each component is a vertical slice of behavior of an object
@@ -381,7 +373,7 @@
 
     \section1 Qt 3D's Aspects
 
-    By default Qt 3D provides the Qt3DRender and Qt3DInput aspects. The
+    By default, Qt 3D provides the Qt3DRender and Qt3DInput aspects. The
     components and other supporting classes provided by these aspects are
     discussed in the documentation for those modules.
 

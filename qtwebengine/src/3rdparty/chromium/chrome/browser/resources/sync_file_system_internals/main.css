@@ -59,8 +59,8 @@ tbody tr:nth-child(odd) {
 }
 
 .file-icon-cell {
-  -webkit-padding-start: 0;
   display: inline-block; /* Makes the cell content start-align in RTL. */
+  padding-inline-start: 0;
 }
 
 .file-icon-cell > div {
@@ -70,7 +70,7 @@ tbody tr:nth-child(odd) {
   width: 18px;
 }
 
-<if expr="not is_macosx and not is_ios">
+<if expr="not is_macosx">
 html[dir=rtl] .file-icon-cell .folder-image {
   transform: scaleX(-1);
 }

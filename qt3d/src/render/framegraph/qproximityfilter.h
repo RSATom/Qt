@@ -48,7 +48,7 @@ namespace Qt3DRender {
 
 class QProximityFilterPrivate;
 
-class QT3DRENDERSHARED_EXPORT QProximityFilter : public QFrameGraphNode
+class Q_3DRENDERSHARED_EXPORT QProximityFilter : public QFrameGraphNode
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DCore::QEntity *entity READ entity WRITE setEntity NOTIFY entityChanged)
@@ -74,7 +74,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QProximityFilter)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

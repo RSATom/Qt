@@ -125,7 +125,7 @@ public:
     {
         Q_UNUSED(option);
         Q_UNUSED(widget);
-        painter->drawRoundRect(rect());
+        painter->drawRoundedRect(rect(), 25, 25, Qt::RelativeSize);
         painter->drawLine(rect().topLeft(), rect().bottomRight());
         painter->drawLine(rect().bottomLeft(), rect().topRight());
     }
@@ -1826,7 +1826,7 @@ void tst_QGraphicsGridLayout::removeLayout()
 
     QGraphicsView view(&scene);
     view.show();
-    QTest::qWait(20);
+    QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QRectF r1 = textEdit->geometry();
     QRectF r2 = pushButton->geometry();

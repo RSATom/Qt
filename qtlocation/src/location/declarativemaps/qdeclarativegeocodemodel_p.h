@@ -52,8 +52,8 @@
 #include <QtLocation/private/qdeclarativegeoserviceprovider_p.h>
 
 #include <QtLocation/qgeocodereply.h>
-#include <QtPositioning/private/qdeclarativegeoaddress_p.h>
-#include <QtPositioning/private/qdeclarativegeolocation_p.h>
+#include <QtPositioningQuick/private/qdeclarativegeoaddress_p.h>
+#include <QtPositioningQuick/private/qdeclarativegeolocation_p.h>
 
 #include <QtQml/qqml.h>
 #include <QtQml/QQmlParserStatus>

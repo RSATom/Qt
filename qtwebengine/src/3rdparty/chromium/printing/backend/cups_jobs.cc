@@ -14,9 +14,10 @@
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/version.h"
 #include "printing/backend/cups_deleters.h"
+#include "printing/backend/cups_ipp_util.h"
 
 namespace printing {
 namespace {
@@ -110,12 +111,6 @@ constexpr std::array<const char* const, 3> kPrinterAttributes{
 constexpr std::array<const char* const, 4> kPrinterInfo{
     {kPrinterMakeAndModel, kIppVersionsSupported, kIppFeaturesSupported,
      kDocumentFormatSupported}};
-
-using ScopedIppPtr = std::unique_ptr<ipp_t, void (*)(ipp_t*)>;
-
-ScopedIppPtr WrapIpp(ipp_t* ipp) {
-  return ScopedIppPtr(ipp, &ippDelete);
-}
 
 using ScopedHttpPtr = std::unique_ptr<http_t, HttpDeleter>;
 
@@ -385,7 +380,6 @@ ScopedIppPtr GetPrinterAttributes(http_t* http,
                                   int num_attributes,
                                   const char* const* attributes,
                                   ipp_status_t* status) {
-  base::ThreadRestrictions::AssertIOAllowed();
   DCHECK(http);
 
   // CUPS expects a leading slash for resource names.  Add one if it's missing.
@@ -405,6 +399,7 @@ ScopedIppPtr GetPrinterAttributes(http_t* http,
 
   DCHECK_EQ(ippValidateAttributes(request.get()), 1);
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::WILL_BLOCK);
   auto response = WrapIpp(cupsDoRequest(http, request.release(), rp.c_str()));
   *status = ippGetStatusCode(response.get());
 
@@ -439,20 +434,25 @@ bool GetPrinterInfo(const std::string& address,
                     const std::string& resource,
                     bool encrypted,
                     PrinterInfo* printer_info) {
-  base::ThreadRestrictions::AssertIOAllowed();
 
   ScopedHttpPtr http = ScopedHttpPtr(httpConnect2(
       address.c_str(), port, nullptr, AF_INET,
-      encrypted ? HTTP_ENCRYPTION_REQUIRED : HTTP_ENCRYPTION_IF_REQUESTED, 0,
+      encrypted ? HTTP_ENCRYPTION_ALWAYS : HTTP_ENCRYPTION_IF_REQUESTED, 0,
       kHttpConnectTimeoutMs, nullptr));
   if (!http) {
     LOG(WARNING) << "Could not connect to host";
     return false;
   }
 
+  // TODO(crbug.com/821497): Use a library to canonicalize the URL.
+  size_t first_non_slash = resource.find_first_not_of('/');
+  const std::string path = (first_non_slash == std::string::npos)
+                               ? ""
+                               : resource.substr(first_non_slash);
+
   std::string printer_uri =
       base::StringPrintf("%s://%s:%d/%s", encrypted ? kIppsScheme : kIppScheme,
-                         address.c_str(), port, resource.c_str());
+                         address.c_str(), port, path.c_str());
 
   ipp_status_t status;
   ScopedIppPtr response =
@@ -469,7 +469,6 @@ bool GetPrinterInfo(const std::string& address,
 bool GetPrinterStatus(http_t* http,
                       const std::string& printer_id,
                       PrinterStatus* printer_status) {
-  base::ThreadRestrictions::AssertIOAllowed();
 
   ipp_status_t status;
   const std::string printer_uri = PrinterUriFromName(printer_id);
@@ -491,7 +490,6 @@ bool GetCupsJobs(http_t* http,
                  int limit,
                  JobCompletionState which,
                  std::vector<CupsJob>* jobs) {
-  base::ThreadRestrictions::AssertIOAllowed();
   DCHECK(http);
 
   auto request = WrapIpp(ippNewRequest(IPP_OP_GET_JOBS));
@@ -518,6 +516,7 @@ bool GetCupsJobs(http_t* http,
     return false;
   }
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   // cupsDoRequest will delete the request.
   auto response = WrapIpp(cupsDoRequest(http, request.release(), "/"));
 

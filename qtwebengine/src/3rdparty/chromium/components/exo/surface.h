@@ -14,16 +14,18 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "cc/resources/transferable_resource.h"
-#include "cc/scheduler/begin_frame_source.h"
+#include "cc/base/region.h"
 #include "components/exo/layer_tree_frame_sink_holder.h"
+#include "components/exo/surface_delegate.h"
+#include "components/viz/common/frame_sinks/begin_frame_source.h"
+#include "components/viz/common/resources/transferable_resource.h"
 #include "third_party/skia/include/core/SkBlendMode.h"
-#include "third_party/skia/include/core/SkRegion.h"
 #include "ui/aura/window.h"
-#include "ui/aura/window_observer.h"
-#include "ui/compositor/compositor_vsync_manager.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/transform.h"
+
+class SkPath;
 
 namespace base {
 namespace trace_event {
@@ -31,14 +33,13 @@ class TracedValue;
 }
 }
 
-namespace gfx {
-class Path;
+namespace viz {
+class CompositorFrame;
 }
 
 namespace exo {
 class Buffer;
-class Pointer;
-class SurfaceDelegate;
+class LayerTreeFrameSinkHolder;
 class SurfaceObserver;
 class Surface;
 
@@ -46,33 +47,22 @@ namespace subtle {
 class PropertyHelper;
 }
 
-// The pointer class is currently the only cursor provider class but this can
-// change in the future when better hardware cursor support is added.
-using CursorProvider = Pointer;
+// Counter-clockwise rotations.
+enum class Transform { NORMAL, ROTATE_90, ROTATE_180, ROTATE_270 };
 
 // This class represents a rectangular area that is displayed on the screen.
 // It has a location, size and pixel contents.
-class Surface : public ui::ContextFactoryObserver,
-                public aura::WindowObserver,
-                public ui::PropertyHandler,
-                public ui::CompositorVSyncManager::Observer,
-                public cc::BeginFrameObserverBase {
+class Surface final : public ui::PropertyHandler {
  public:
   using PropertyDeallocator = void (*)(int64_t value);
 
   Surface();
-  ~Surface() override;
+  ~Surface();
 
   // Type-checking downcast routine.
   static Surface* AsSurface(const aura::Window* window);
 
   aura::Window* window() { return window_.get(); }
-
-  viz::SurfaceId GetSurfaceId() const;
-
-  LayerTreeFrameSinkHolder* layer_tree_frame_sink_holder() {
-    return layer_tree_frame_sink_holder_.get();
-  }
 
   // Set a buffer as the content of this surface. A buffer can only be attached
   // to one surface at a time.
@@ -91,22 +81,34 @@ class Surface : public ui::ContextFactoryObserver,
   // Request notification when the next frame is displayed. Useful for
   // throttling redrawing operations, and driving animations.
   using PresentationCallback =
-      base::Callback<void(base::TimeTicks presentation_time,
-                          base::TimeDelta refresh)>;
+      base::Callback<void(const gfx::PresentationFeedback&)>;
   void RequestPresentationCallback(const PresentationCallback& callback);
 
   // This sets the region of the surface that contains opaque content.
-  void SetOpaqueRegion(const SkRegion& region);
+  void SetOpaqueRegion(const cc::Region& region);
 
   // This sets the region of the surface that can receive pointer and touch
-  // events.
-  void SetInputRegion(const SkRegion& region);
+  // events. The region is clipped to the surface bounds.
+  void SetInputRegion(const cc::Region& region);
+  const cc::Region& hit_test_region() const { return hit_test_region_; }
+
+  // This resets the region of the surface that can receive pointer and touch
+  // events to be wide-open. This will be clipped to the surface bounds.
+  void ResetInputRegion();
+
+  // This overrides the input region to the surface bounds with an outset.
+  // TODO(domlaskowski): Remove this once client-driven resizing is removed.
+  void SetInputOutset(int outset);
 
   // This sets the scaling factor used to interpret the contents of the buffer
   // attached to the surface. Note that if the scale is larger than 1, then you
   // have to attach a buffer that is larger (by a factor of scale in each
   // dimension) than the desired surface size.
   void SetBufferScale(float scale);
+
+  // This sets the transformation used to interpret the contents of the buffer
+  // attached to the surface.
+  void SetBufferTransform(Transform transform);
 
   // Functions that control sub-surface state. All sub-surface state is
   // double-buffered and will be applied when Commit() is called.
@@ -115,6 +117,7 @@ class Surface : public ui::ContextFactoryObserver,
   void SetSubSurfacePosition(Surface* sub_surface, const gfx::Point& position);
   void PlaceSubSurfaceAbove(Surface* sub_surface, Surface* reference);
   void PlaceSubSurfaceBelow(Surface* sub_surface, Surface* sibling);
+  void OnSubSurfaceCommit();
 
   // This sets the surface viewport for scaling.
   void SetViewport(const gfx::Size& viewport);
@@ -132,8 +135,24 @@ class Surface : public ui::ContextFactoryObserver,
   // This sets the alpha value that will be applied to the whole surface.
   void SetAlpha(float alpha);
 
-  // This sets the device scale factor sent in CompositorFrames.
-  void SetDeviceScaleFactor(float device_scale_factor);
+  // Request that surface should have the specified frame type.
+  void SetFrame(SurfaceFrameType type);
+
+  // Request that surface should use a specific set of frame colors.
+  void SetFrameColors(SkColor active_color, SkColor inactive_color);
+
+  // Request that surface should have a specific startup ID string.
+  void SetStartupId(const char* startup_id);
+
+  // Request that surface should have a specific application ID string.
+  void SetApplicationId(const char* application_id);
+
+  // Request "parent" for surface.
+  void SetParent(Surface* parent, const gfx::Point& position);
+
+  // Request that surface should have a specific ID assigned by client.
+  void SetClientSurfaceId(int32_t client_surface_id);
+  int32_t GetClientSurfaceId() const;
 
   // Surface state (damage regions, attached buffers, etc.) is double-buffered.
   // A Commit() call atomically applies all pending state, replacing the
@@ -141,35 +160,39 @@ class Surface : public ui::ContextFactoryObserver,
   // CommitSurfaceHierarchy() below.
   void Commit();
 
-  // This will synchronously commit all pending state of the surface and its
-  // descendants by recursively calling CommitSurfaceHierarchy() for each
-  // sub-surface with pending state.
-  void CommitSurfaceHierarchy();
+  // This will commit all pending state of the surface and its descendants by
+  // recursively calling CommitSurfaceHierarchy() for each sub-surface.
+  // If |synchronized| is set to false, then synchronized surfaces should not
+  // commit pending state.
+  void CommitSurfaceHierarchy(bool synchronized);
+
+  // This will append current callbacks for surface and its descendants to
+  // |frame_callbacks| and |presentation_callbacks|.
+  void AppendSurfaceHierarchyCallbacks(
+      std::list<FrameCallback>* frame_callbacks,
+      std::list<PresentationCallback>* presentation_callbacks);
+
+  // This will append contents for surface and its descendants to frame.
+  void AppendSurfaceHierarchyContentsToFrame(
+      const gfx::Point& origin,
+      float device_scale_factor,
+      LayerTreeFrameSinkHolder* frame_sink_holder,
+      viz::CompositorFrame* frame);
 
   // Returns true if surface is in synchronized mode.
   bool IsSynchronized() const;
 
-  // Returns the bounds of the current input region of surface.
-  gfx::Rect GetHitTestBounds() const;
+  // Returns true if surface should receive input events.
+  bool IsInputEnabled(Surface* surface) const;
 
-  // Returns true if |rect| intersects this surface's bounds.
-  bool HitTestRect(const gfx::Rect& rect) const;
+  // Returns false if the hit test region is empty.
+  bool HasHitTestRegion() const;
 
-  // Returns true if the current input region is different than the surface
-  // bounds.
-  bool HasHitTestMask() const;
+  // Returns true if |point| is inside the surface.
+  bool HitTest(const gfx::Point& point) const;
 
-  // Returns the current input region of surface in the form of a hit-test mask.
-  void GetHitTestMask(gfx::Path* mask) const;
-
-  // Surface does not own cursor providers. It is the responsibility of the
-  // caller to remove the cursor provider before it is destroyed.
-  void RegisterCursorProvider(CursorProvider* provider);
-  void UnregisterCursorProvider(CursorProvider* provider);
-
-  // Returns the cursor for the surface. If no cursor provider is registered
-  // then CursorType::kNull is returned.
-  gfx::NativeCursor GetCursor();
+  // Sets |mask| to the path that delineates the hit test region of the surface.
+  void GetHitTestMask(SkPath* mask) const;
 
   // Set the surface delegate.
   void SetSurfaceDelegate(SurfaceDelegate* delegate);
@@ -186,15 +209,18 @@ class Surface : public ui::ContextFactoryObserver,
   // Returns a trace value representing the state of the surface.
   std::unique_ptr<base::trace_event::TracedValue> AsTracedValue() const;
 
-  // Call this to indicate that the previous CompositorFrame is processed and
-  // the surface is being scheduled for a draw.
-  void DidReceiveCompositorFrameAck();
-
   // Called when the begin frame source has changed.
-  void SetBeginFrameSource(cc::BeginFrameSource* begin_frame_source);
+  void SetBeginFrameSource(viz::BeginFrameSource* begin_frame_source);
 
-  // Returns the active contents size.
+  // Returns the active content size.
   const gfx::Size& content_size() const { return content_size_; }
+
+  // Returns the active content bounds for surface hierarchy. ie. the bounding
+  // box of the surface and its descendants, in the local coordinate space of
+  // the surface.
+  const gfx::Rect& surface_hierarchy_content_bounds() const {
+    return surface_hierarchy_content_bounds_;
+  }
 
   // Returns true if the associated window is in 'stylus-only' mode.
   bool IsStylusOnly();
@@ -202,37 +228,35 @@ class Surface : public ui::ContextFactoryObserver,
   // Enables 'stylus-only' mode for the associated window.
   void SetStylusOnly();
 
-  // Overridden from ui::ContextFactoryObserver:
-  void OnLostResources() override;
+  // Notify surface that resources and subsurfaces' resources have been lost.
+  void SurfaceHierarchyResourcesLost();
 
-  // Overridden from aura::WindowObserver:
-  void OnWindowAddedToRootWindow(aura::Window* window) override;
-  void OnWindowRemovingFromRootWindow(aura::Window* window,
-                                      aura::Window* new_root) override;
-
-  // Overridden from ui::CompositorVSyncManager::Observer:
-  void OnUpdateVSyncParameters(base::TimeTicks timebase,
-                               base::TimeDelta interval) override;
+  // Returns true if the surface's bounds should be filled opaquely.
+  bool FillsBoundsOpaquely() const;
 
   bool HasPendingDamageForTesting(const gfx::Rect& damage) const {
-    return pending_damage_.contains(gfx::RectToSkIRect(damage));
+    return pending_damage_.Contains(damage);
   }
 
-  // Overridden from cc::BeginFrameObserverBase:
-  bool OnBeginFrameDerivedImpl(const cc::BeginFrameArgs& args) override;
-  void OnBeginFrameSourcePausedChanged(bool paused) override {}
+  // Set occlusion tracking region for surface.
+  void SetOcclusionTracking(bool tracking);
+
+  // Triggers sending an occlusion update to observers.
+  void OnWindowOcclusionChanged();
 
  private:
   struct State {
     State();
     ~State();
 
-    bool operator==(const State& other);
-    bool operator!=(const State& other) { return !(*this == other); }
+    bool operator==(const State& other) const;
+    bool operator!=(const State& other) const { return !(*this == other); }
 
-    SkRegion opaque_region;
-    SkRegion input_region;
+    cc::Region opaque_region;
+    base::Optional<cc::Region> input_region;
+    int input_outset = 0;
     float buffer_scale = 1.0f;
+    Transform buffer_transform = Transform::NORMAL;
     gfx::Size viewport;
     gfx::RectF crop;
     bool only_visible_on_secure_output = false;
@@ -248,49 +272,50 @@ class Surface : public ui::ContextFactoryObserver,
 
     base::WeakPtr<Buffer>& buffer();
     const base::WeakPtr<Buffer>& buffer() const;
+    const gfx::Size& size() const;
     void Reset(base::WeakPtr<Buffer> buffer);
 
    private:
     base::WeakPtr<Buffer> buffer_;
+    gfx::Size size_;
 
     DISALLOW_COPY_AND_ASSIGN(BufferAttachment);
   };
 
   friend class subtle::PropertyHelper;
 
-  bool needs_commit_surface_hierarchy() const {
-    return needs_commit_surface_hierarchy_;
-  }
-
-  // Set SurfaceLayer contents to the current buffer.
-  void SetSurfaceLayerContents(ui::Layer* layer);
-
   // Updates current_resource_ with a new resource id corresponding to the
   // contents of the attached buffer (or id 0, if no buffer is attached).
   // UpdateSurface must be called afterwards to ensure the release callback
   // will be called.
-  void UpdateResource(bool client_usage);
+  void UpdateResource(LayerTreeFrameSinkHolder* frame_sink_holder);
 
-  // Updates the current Surface with a new frame referring to the resource in
-  // current_resource_.
-  void UpdateSurface(bool full_damage);
+  // Updates buffer_transform_ to match the current buffer parameters.
+  void UpdateBufferTransform(bool y_invert);
 
-  // Adds/Removes begin frame observer based on state.
-  void UpdateNeedsBeginFrame();
+  // Puts the current surface into a draw quad, and appends the draw quads into
+  // the |frame|.
+  void AppendContentsToFrame(const gfx::Point& origin,
+                             float device_scale_factor,
+                             viz::CompositorFrame* frame);
+
+  // Update surface content size base on current buffer size.
+  void UpdateContentSize();
 
   // This returns true when the surface has some contents assigned to it.
-  bool has_contents() const { return !!current_buffer_.buffer(); }
+  bool has_contents() const { return !current_buffer_.size().IsEmpty(); }
 
   // This window has the layer which contains the Surface contents.
   std::unique_ptr<aura::Window> window_;
 
-  // This is true if it's possible that the layer properties (size, opacity,
-  // etc.) may have been modified since the last commit. Attaching a new
-  // buffer with the same size as the old shouldn't set this to true.
-  bool has_pending_layer_changes_ = true;
+  // This true, if sub_surfaces_ has changes (order, position, etc).
+  bool sub_surfaces_changed_ = false;
 
   // This is the size of the last committed contents.
   gfx::Size content_size_;
+
+  // This is the bounds of the last committed surface hierarchy contents.
+  gfx::Rect surface_hierarchy_content_bounds_;
 
   // This is true when Attach() has been called and new contents should take
   // effect next time Commit() is called.
@@ -299,13 +324,12 @@ class Surface : public ui::ContextFactoryObserver,
   // The buffer that will become the content of surface when Commit() is called.
   BufferAttachment pending_buffer_;
 
-  // The device scale factor sent in CompositorFrames.
-  float device_scale_factor_ = 1.0f;
-
-  std::unique_ptr<LayerTreeFrameSinkHolder> layer_tree_frame_sink_holder_;
-
   // The damage region to schedule paint for when Commit() is called.
-  SkRegion pending_damage_;
+  cc::Region pending_damage_;
+
+  // The damage region which will be used by
+  // AppendSurfaceHierarchyContentsToFrame() to generate frame.
+  cc::Region damage_;
 
   // These lists contains the callbacks to notify the client when it is a good
   // time to start producing a new frame. These callbacks move to
@@ -314,7 +338,6 @@ class Surface : public ui::ContextFactoryObserver,
   // be drawn. They fire at the first begin frame notification after this.
   std::list<FrameCallback> pending_frame_callbacks_;
   std::list<FrameCallback> frame_callbacks_;
-  std::list<FrameCallback> active_frame_callbacks_;
 
   // These lists contains the callbacks to notify the client when surface
   // contents have been presented. These callbacks move to
@@ -325,8 +348,6 @@ class Surface : public ui::ContextFactoryObserver,
   // at the next VSync parameters update after that.
   std::list<PresentationCallback> pending_presentation_callbacks_;
   std::list<PresentationCallback> presentation_callbacks_;
-  std::list<PresentationCallback> swapping_presentation_callbacks_;
-  std::list<PresentationCallback> swapped_presentation_callbacks_;
 
   // This is the state that has yet to be committed.
   State pending_state_;
@@ -334,32 +355,40 @@ class Surface : public ui::ContextFactoryObserver,
   // This is the state that has been committed.
   State state_;
 
+  // Cumulative input region of surface and its sub-surfaces.
+  cc::Region hit_test_region_;
+
   // The stack of sub-surfaces to take effect when Commit() is called.
   // Bottom-most sub-surface at the front of the list and top-most sub-surface
   // at the back.
   using SubSurfaceEntry = std::pair<Surface*, gfx::Point>;
   using SubSurfaceEntryList = std::list<SubSurfaceEntry>;
   SubSurfaceEntryList pending_sub_surfaces_;
+  SubSurfaceEntryList sub_surfaces_;
 
   // The buffer that is currently set as content of surface.
   BufferAttachment current_buffer_;
 
   // The last resource that was sent to a surface.
-  cc::TransferableResource current_resource_;
+  viz::TransferableResource current_resource_;
 
   // Whether the last resource that was sent to a surface has an alpha channel.
   bool current_resource_has_alpha_ = false;
 
   // This is true if a call to Commit() as been made but
   // CommitSurfaceHierarchy() has not yet been called.
-  bool needs_commit_surface_hierarchy_ = false;
+  bool needs_commit_surface_ = false;
+
+  // This is true if UpdateResources() should be called.
+  bool needs_update_resource_ = true;
+
+  // The current buffer transform matrix. It specifies the transformation from
+  // normalized buffer coordinates to post-tranform buffer coordinates.
+  gfx::Transform buffer_transform_;
 
   // This is set when the compositing starts and passed to active frame
   // callbacks when compositing successfully ends.
   base::TimeTicks last_compositing_start_time_;
-
-  // Cursor providers. Surface does not own the cursor providers.
-  std::set<CursorProvider*> cursor_providers_;
 
   // This can be set to have some functions delegated. E.g. ShellSurface class
   // can set this to handle Commit() and apply any double buffered state it
@@ -367,12 +396,10 @@ class Surface : public ui::ContextFactoryObserver,
   SurfaceDelegate* delegate_ = nullptr;
 
   // Surface observer list. Surface does not own the observers.
-  base::ObserverList<SurfaceObserver, true> observers_;
+  base::ObserverList<SurfaceObserver, true>::Unchecked observers_;
 
-  // The begin frame source being observed.
-  cc::BeginFrameSource* begin_frame_source_ = nullptr;
-  bool needs_begin_frame_ = false;
-  cc::BeginFrameAck current_begin_frame_ack_;
+  // Whether this surface is tracking occlusion for the client.
+  bool is_tracking_occlusion_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(Surface);
 };

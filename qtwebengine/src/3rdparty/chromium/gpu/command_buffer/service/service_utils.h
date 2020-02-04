@@ -5,18 +5,34 @@
 #ifndef GPU_COMMAND_BUFFER_SERVICE_SERVICE_UTILS_H_
 #define GPU_COMMAND_BUFFER_SERVICE_SERVICE_UTILS_H_
 
-#include "gpu/gpu_export.h"
+#include "base/command_line.h"
+#include "gpu/gpu_gles2_export.h"
 #include "ui/gl/gl_context.h"
 
 namespace gpu {
+struct ContextCreationAttribs;
 struct GpuPreferences;
 
 namespace gles2 {
-struct ContextCreationAttribHelper;
+class ContextGroup;
 
-GPU_EXPORT gl::GLContextAttribs GenerateGLContextAttribs(
-    const ContextCreationAttribHelper& attribs_helper,
-    const GpuPreferences& gpu_preferences);
+GPU_GLES2_EXPORT gl::GLContextAttribs GenerateGLContextAttribs(
+    const ContextCreationAttribs& attribs_helper,
+    const ContextGroup* context_group);
+
+GPU_GLES2_EXPORT gl::GLContextAttribs GenerateGLContextAttribs(
+    const ContextCreationAttribs& attribs_helper,
+    bool use_passthrough_cmd_decoder);
+
+// Returns true if the passthrough command decoder has been requested
+GPU_GLES2_EXPORT bool UsePassthroughCommandDecoder(
+    const base::CommandLine* command_line);
+
+// Returns true if the driver supports creating passthrough command decoders
+GPU_GLES2_EXPORT bool PassthroughCommandDecoderSupported();
+
+GPU_GLES2_EXPORT GpuPreferences
+ParseGpuPreferences(const base::CommandLine* command_line);
 
 }  // namespace gles2
 }  // namespace gpu

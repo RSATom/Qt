@@ -170,7 +170,7 @@ void Cloud::calculateForces()
     newPos.setY(qMin(qMax(newPos.y(), sceneRect.top() + 10), sceneRect.bottom() - 10));
 }
 
-bool Cloud::advance()
+bool Cloud::advanceAnimation()
 {
     static const qreal scaleDelta = 0.01;
 

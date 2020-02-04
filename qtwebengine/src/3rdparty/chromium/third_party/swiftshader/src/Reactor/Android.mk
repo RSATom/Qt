@@ -21,6 +21,7 @@ LOCAL_CLANG := true
 
 LOCAL_MODULE := libsubzero
 LOCAL_MODULE_TAGS := optional
+LOCAL_VENDOR_MODULE := true
 
 SUBZERO_PATH := ../../third_party/subzero
 LLVMDEPENDENCIES_PATH := ../../third_party/llvm-subzero
@@ -107,11 +108,19 @@ LOCAL_SRC_FILES += \
 
 LOCAL_CPPFLAGS := -std=c++11
 
-LOCAL_CFLAGS += -DLOG_TAG=\"libsubzero\" \
+LOCAL_CFLAGS += \
+	-DLOG_TAG=\"libsubzero\" \
+	-Wall \
+	-Werror \
+	-Wno-undefined-var-template \
+	-Wno-unused-lambda-capture \
 	-Wno-unused-parameter \
 	-Wno-implicit-exception-spec-mismatch \
+	-Wno-implicit-fallthrough \
 	-Wno-overloaded-virtual \
-	-Wno-non-virtual-dtor
+	-Wno-non-virtual-dtor \
+	-Wno-unknown-warning-option \
+	-Wno-enum-compare-switch
 
 ifneq (16,${PLATFORM_SDK_VERSION})
 LOCAL_CFLAGS += -Xclang -fuse-init-array

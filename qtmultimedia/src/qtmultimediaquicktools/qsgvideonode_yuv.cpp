@@ -44,6 +44,28 @@
 #include <QtGui/QOpenGLFunctions>
 #include <QtGui/QOpenGLShaderProgram>
 
+#ifndef GL_RED
+#define GL_RED 0x1903
+#endif
+#ifndef GL_GREEN
+#define GL_GREEN 0x1904
+#endif
+#ifndef GL_RG
+#define GL_RG 0x8227
+#endif
+#ifndef GL_TEXTURE_SWIZZLE_R
+#define GL_TEXTURE_SWIZZLE_R 0x8E42
+#endif
+#ifndef GL_TEXTURE_SWIZZLE_G
+#define GL_TEXTURE_SWIZZLE_G 0x8E43
+#endif
+#ifndef GL_TEXTURE_SWIZZLE_B
+#define GL_TEXTURE_SWIZZLE_B 0x8E44
+#endif
+#ifndef GL_TEXTURE_SWIZZLE_A
+#define GL_TEXTURE_SWIZZLE_A 0x8E45
+#endif
+
 QT_BEGIN_NAMESPACE
 
 QList<QVideoFrame::PixelFormat> QSGVideoNodeFactory_YUV::supportedPixelFormats(
@@ -120,9 +142,9 @@ public:
         setShaderSourceFile(QOpenGLShader::Fragment, QStringLiteral(":/qtmultimediaquicktools/shaders/uyvyvideo.frag"));
     }
 
-    void updateState(const RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial) Q_DECL_OVERRIDE;
+    void updateState(const RenderState &state, QSGMaterial *newMaterial, QSGMaterial *oldMaterial) override;
 
-    char const *const *attributeNames() const Q_DECL_OVERRIDE {
+    char const *const *attributeNames() const override {
         static const char *names[] = {
             "qt_VertexPosition",
             "qt_VertexTexCoord",
@@ -132,7 +154,7 @@ public:
     }
 
 protected:
-    void initialize() Q_DECL_OVERRIDE {
+    void initialize() override {
         m_id_matrix = program()->uniformLocation("qt_Matrix");
         m_id_yTexture = program()->uniformLocation("yTexture");
         m_id_uvTexture = program()->uniformLocation("uvTexture");
@@ -335,6 +357,8 @@ QSGVideoMaterial_YUV::~QSGVideoMaterial_YUV()
 void QSGVideoMaterial_YUV::bind()
 {
     QOpenGLFunctions *functions = QOpenGLContext::currentContext()->functions();
+    QSurfaceFormat::OpenGLContextProfile profile = QOpenGLContext::currentContext()->format().profile();
+
     QMutexLocker lock(&m_frameMutex);
     if (m_frame.isValid()) {
         if (m_frame.map(QAbstractVideoBuffer::ReadOnly)) {
@@ -350,24 +374,28 @@ void QSGVideoMaterial_YUV::bind()
             }
 
             GLint previousAlignment;
+            const GLenum texFormat1 = (profile == QSurfaceFormat::CoreProfile) ? GL_RED : GL_LUMINANCE;
+            const GLenum texFormat2 = (profile == QSurfaceFormat::CoreProfile) ? GL_RG : GL_LUMINANCE_ALPHA;
+
             functions->glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousAlignment);
             functions->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
              if (m_format.pixelFormat() == QVideoFrame::Format_UYVY
               || m_format.pixelFormat() == QVideoFrame::Format_YUYV) {
                 int fw = m_frame.width();
+
                 m_planeWidth[0] = fw;
                  // In YUYV texture the UV plane appears with the 1/2 of image and Y width.
                 m_planeWidth[1] = fw / 2;
                 functions->glActiveTexture(GL_TEXTURE1);
-                // Either r,b (YUYV) or g,a (UYVY) values are used as source of YV.
-                // Additionally Y and V are set per 2 pixels hence only 1/2 of image with is used.
+                // Either r,b (YUYV) or g,a (UYVY) values are used as source of UV.
+                // Additionally U and V are set per 2 pixels hence only 1/2 of image width is used.
                 // Interpreting this properly in shaders allows to not copy or not make conditionals inside shaders,
                 // only interpretation of data changes.
                 bindTexture(m_textureIds[1], m_planeWidth[1], m_frame.height(), m_frame.bits(), GL_RGBA);
                 functions->glActiveTexture(GL_TEXTURE0); // Finish with 0 as default texture unit
                 // Either red (YUYV) or alpha (UYVY) values are used as source of Y
-                bindTexture(m_textureIds[0], m_planeWidth[0], m_frame.height(), m_frame.bits(), GL_LUMINANCE_ALPHA);
+                bindTexture(m_textureIds[0], m_planeWidth[0], m_frame.height(), m_frame.bits(), texFormat2);
             } else if (m_format.pixelFormat() == QVideoFrame::Format_NV12
                     || m_format.pixelFormat() == QVideoFrame::Format_NV21) {
                 const int y = 0;
@@ -376,9 +404,9 @@ void QSGVideoMaterial_YUV::bind()
                 m_planeWidth[0] = m_planeWidth[1] = qreal(fw) / m_frame.bytesPerLine(y);
 
                 functions->glActiveTexture(GL_TEXTURE1);
-                bindTexture(m_textureIds[1], m_frame.bytesPerLine(uv) / 2, fh / 2, m_frame.bits(uv), GL_LUMINANCE_ALPHA);
+                bindTexture(m_textureIds[1], m_frame.bytesPerLine(uv) / 2, fh / 2, m_frame.bits(uv), texFormat2);
                 functions->glActiveTexture(GL_TEXTURE0); // Finish with 0 as default texture unit
-                bindTexture(m_textureIds[0], m_frame.bytesPerLine(y), fh, m_frame.bits(y), GL_LUMINANCE);
+                bindTexture(m_textureIds[0], m_frame.bytesPerLine(y), fh, m_frame.bits(y), texFormat1);
 
             } else { // YUV420P || YV12
                 const int y = 0;
@@ -389,11 +417,11 @@ void QSGVideoMaterial_YUV::bind()
                 m_planeWidth[1] = m_planeWidth[2] = qreal(fw) / (2 * m_frame.bytesPerLine(u));
 
                 functions->glActiveTexture(GL_TEXTURE1);
-                bindTexture(m_textureIds[1], m_frame.bytesPerLine(u), fh / 2, m_frame.bits(u), GL_LUMINANCE);
+                bindTexture(m_textureIds[1], m_frame.bytesPerLine(u), fh / 2, m_frame.bits(u), texFormat1);
                 functions->glActiveTexture(GL_TEXTURE2);
-                bindTexture(m_textureIds[2], m_frame.bytesPerLine(v), fh / 2, m_frame.bits(v), GL_LUMINANCE);
+                bindTexture(m_textureIds[2], m_frame.bytesPerLine(v), fh / 2, m_frame.bits(v), texFormat1);
                 functions->glActiveTexture(GL_TEXTURE0); // Finish with 0 as default texture unit
-                bindTexture(m_textureIds[0], m_frame.bytesPerLine(y), fh, m_frame.bits(y), GL_LUMINANCE);
+                bindTexture(m_textureIds[0], m_frame.bytesPerLine(y), fh, m_frame.bits(y), texFormat1);
             }
 
             functions->glPixelStorei(GL_UNPACK_ALIGNMENT, previousAlignment);
@@ -415,6 +443,13 @@ void QSGVideoMaterial_YUV::bindTexture(int id, int w, int h, const uchar *bits, 
     QOpenGLFunctions *functions = QOpenGLContext::currentContext()->functions();
     functions->glBindTexture(GL_TEXTURE_2D, id);
     functions->glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, format, GL_UNSIGNED_BYTE, bits);
+    // replacement for GL_LUMINANCE_ALPHA in core profile
+    if (format == GL_RG) {
+        functions->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
+        functions->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED);
+        functions->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
+        functions->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_GREEN);
+    }
     functions->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     functions->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     functions->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);

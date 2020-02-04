@@ -8,11 +8,12 @@
 #include "base/pickle.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "net/base/load_flags.h"
 #include "net/base/request_priority.h"
 #include "net/base/test_completion_callback.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
@@ -92,7 +93,7 @@ class MockURLRequestThrottlerEntry : public URLRequestThrottlerEntry {
   }
 
  protected:
-  ~MockURLRequestThrottlerEntry() override {}
+  ~MockURLRequestThrottlerEntry() override = default;
 
  private:
   mutable TestTickClock fake_clock_;
@@ -158,7 +159,7 @@ struct GurlAndString {
 
 }  // namespace
 
-class URLRequestThrottlerEntryTest : public testing::Test {
+class URLRequestThrottlerEntryTest : public TestWithScopedTaskEnvironment {
  protected:
   URLRequestThrottlerEntryTest()
       : request_(context_.CreateRequest(GURL(),
@@ -246,7 +247,7 @@ TEST_F(URLRequestThrottlerEntryTest, IsEntryReallyOutdated) {
       TimeAndBool(now_ - lifetime, true, __LINE__),
       TimeAndBool(now_ - (lifetime + kFiveMs), true, __LINE__)};
 
-  for (unsigned int i = 0; i < arraysize(test_values); ++i) {
+  for (unsigned int i = 0; i < base::size(test_values); ++i) {
     entry_->set_exponential_backoff_release_time(test_values[i].time);
     EXPECT_EQ(entry_->IsEntryOutdated(), test_values[i].result) <<
         "Test case #" << i << " line " << test_values[i].line << " failed";
@@ -309,7 +310,7 @@ TEST_F(URLRequestThrottlerEntryTest, SlidingWindow) {
   EXPECT_EQ(time_4, entry_->sliding_window_release_time());
 }
 
-class URLRequestThrottlerManagerTest : public testing::Test {
+class URLRequestThrottlerManagerTest : public TestWithScopedTaskEnvironment {
  protected:
   URLRequestThrottlerManagerTest()
       : request_(context_.CreateRequest(GURL(),
@@ -318,30 +319,6 @@ class URLRequestThrottlerManagerTest : public testing::Test {
                                         TRAFFIC_ANNOTATION_FOR_TESTS)) {}
 
   void SetUp() override { request_->SetLoadFlags(0); }
-
-  void ExpectEntryAllowsAllOnErrorIfOptedOut(
-      URLRequestThrottlerEntryInterface* entry,
-      bool opted_out,
-      const URLRequest& request) {
-    EXPECT_FALSE(entry->ShouldRejectRequest(request));
-    for (int i = 0; i < 10; ++i) {
-      entry->UpdateWithResponse(503);
-    }
-    EXPECT_NE(opted_out, entry->ShouldRejectRequest(request));
-
-    if (opted_out) {
-      // We're not mocking out GetTimeNow() in this scenario
-      // so add a 100 ms buffer to avoid flakiness (that should always
-      // give enough time to get from the TimeTicks::Now() call here
-      // to the TimeTicks::Now() call in the entry class).
-      EXPECT_GT(TimeTicks::Now() + TimeDelta::FromMilliseconds(100),
-                entry->GetExponentialBackoffReleaseTime());
-    } else {
-      // As above, add 100 ms.
-      EXPECT_LT(TimeTicks::Now() + TimeDelta::FromMilliseconds(100),
-                entry->GetExponentialBackoffReleaseTime());
-    }
-  }
 
   // context_ must be declared before request_.
   TestURLRequestContext context_;
@@ -376,7 +353,7 @@ TEST_F(URLRequestThrottlerManagerTest, IsUrlStandardised) {
                     std::string("http://www.example.com:1234/"),
                     __LINE__)};
 
-  for (unsigned int i = 0; i < arraysize(test_values); ++i) {
+  for (unsigned int i = 0; i < base::size(test_values); ++i) {
     std::string temp = manager.DoGetUrlIdFromUrl(test_values[i].url);
     EXPECT_EQ(temp, test_values[i].result) <<
         "Test case #" << i << " line " << test_values[i].line << " failed";

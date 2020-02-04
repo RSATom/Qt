@@ -15,6 +15,8 @@ android_library("net_java") {
     "java/src/org/chromium/net/GURLUtils.java",
     "java/src/org/chromium/net/HttpNegotiateAuthenticator.java",
     "java/src/org/chromium/net/HttpNegotiateConstants.java",
+    "java/src/org/chromium/net/HttpUtil.java",
+    "java/src/org/chromium/net/MimeTypeFilter.java",
     "java/src/org/chromium/net/NetStringUtil.java",
     "java/src/org/chromium/net/NetworkChangeNotifier.java",
     "java/src/org/chromium/net/NetworkChangeNotifierAutoDetect.java",
@@ -24,8 +26,9 @@ android_library("net_java") {
     "java/src/org/chromium/net/X509Util.java",
   ]
   deps = [
+    ":net_thread_stats_uid_java",
     "//base:base_java",
-    "//third_party/android_tools:android_support_annotations_java",
+    "//third_party/android_deps:android_support_annotations_java",
     "//third_party/jsr-305:jsr_305_javalib",
   ]
   srcjar_deps = [
@@ -34,9 +37,14 @@ android_library("net_java") {
   ]
 }
 
+android_library("net_thread_stats_uid_java") {
+  java_files = [ "java/src/org/chromium/net/ThreadStatsUid.java" ]
+}
+
 android_aidl("embedded_test_server_aidl") {
   interface_file = "../test/android/javatests/src/org/chromium/net/test/IEmbeddedTestServerInterface.aidl"
   sources = [
+    "../test/android/javatests/src/org/chromium/net/test/IConnectionListener.aidl",
     "../test/android/javatests/src/org/chromium/net/test/IEmbeddedTestServerImpl.aidl",
   ]
 }
@@ -44,7 +52,7 @@ android_aidl("embedded_test_server_aidl") {
 android_library("embedded_test_server_aidl_java") {
   testonly = true
   deps = [
-    "//third_party/android_tools:android_support_annotations_java",
+    "//third_party/android_deps:android_support_annotations_java",
   ]
   srcjar_deps = [ ":embedded_test_server_aidl" ]
 }
@@ -57,15 +65,16 @@ android_library("net_java_test_support") {
     "../test/android/javatests/src/org/chromium/net/test/util/CertTestUtil.java",
     "../test/android/javatests/src/org/chromium/net/test/util/NetworkChangeNotifierTestUtil.java",
     "../test/android/javatests/src/org/chromium/net/test/util/TestWebServer.java",
+    "../test/android/javatests/src/org/chromium/net/test/util/WebServer.java",
   ]
   deps = [
     ":embedded_test_server_aidl_java",
     ":net_java",
     "//base:base_java",
     "//base:base_java_test_support",
+    "//third_party/android_deps:android_support_annotations_java",
     "//third_party/android_support_test_runner:rules_java",
     "//third_party/android_support_test_runner:runner_java",
-    "//third_party/android_tools:android_support_annotations_java",
     "//third_party/junit",
   ]
   srcjar_deps = [ ":net_java_test_support_enums_srcjar" ]
@@ -85,6 +94,10 @@ android_library("net_java_test_support_provider") {
     ":net_java",
     "//base:base_java",
     "//base:base_java_test_support",
+  ]
+
+  data_deps = [
+    "//net:test_support",
   ]
 }
 
@@ -144,6 +157,8 @@ android_library("net_javatests") {
     "javatests/src/org/chromium/net/AndroidNetworkLibraryTestUtil.java",
     "javatests/src/org/chromium/net/AndroidProxyConfigServiceTestUtil.java",
     "javatests/src/org/chromium/net/AndroidProxySelectorTest.java",
+    "javatests/src/org/chromium/net/HttpUtilTest.java",
+    "javatests/src/org/chromium/net/MimeTypeFilterTest.java",
     "javatests/src/org/chromium/net/NetErrorsTest.java",
     "javatests/src/org/chromium/net/NetworkChangeNotifierNoNativeTest.java",
     "javatests/src/org/chromium/net/NetworkChangeNotifierTest.java",
@@ -172,6 +187,7 @@ java_cpp_template("net_errors_java") {
 
 java_cpp_enum("net_java_test_support_enums_srcjar") {
   sources = [
+    "../test/embedded_test_server/embedded_test_server.h",
     "../test/url_request/url_request_failed_job.h",
   ]
 }
@@ -179,6 +195,7 @@ java_cpp_enum("net_java_test_support_enums_srcjar") {
 java_cpp_enum("net_android_java_enums_srcjar") {
   sources = [
     "../base/network_change_notifier.h",
+    "../socket/socket_tag.cc",
     "cellular_signal_strength.cc",
     "cert_verify_result_android.h",
     "keystore.h",
@@ -194,7 +211,7 @@ junit_binary("net_junit_tests") {
     ":net_java",
     "//base:base_java",
     "//base:base_java_test_support",
+    "//base:base_junit_test_support",
     "//third_party/hamcrest:hamcrest_java",
   ]
-  srcjar_deps = [ "//base:base_build_config_gen" ]
 }

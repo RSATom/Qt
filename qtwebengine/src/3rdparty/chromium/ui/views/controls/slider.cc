@@ -7,7 +7,7 @@
 #include <algorithm>
 
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "cc/paint/paint_flags.h"
@@ -20,7 +20,6 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -57,7 +56,7 @@ constexpr float kThumbWidth = 2 * kThumbRadius;
 constexpr float kThumbHighlightRadius = 10.f;
 
 // The stroke of the thumb when the slider is disabled.
-constexpr int kThumbStroke = 2;
+constexpr int kSliderThumbStroke = 2;
 
 // Duration of the thumb highlight growing effect animation.
 constexpr int kSlideHighlightChangeDurationMs = 150;
@@ -68,7 +67,9 @@ constexpr int kSlideHighlightChangeDurationMs = 150;
 const char Slider::kViewClassName[] = "Slider";
 
 Slider::Slider(SliderListener* listener)
-    : listener_(listener), highlight_animation_(this) {
+    : listener_(listener),
+      highlight_animation_(this),
+      pending_accessibility_value_change_(false) {
   highlight_animation_.SetSlideDuration(kSlideHighlightChangeDurationMs);
   EnableCanvasFlippingForRTLUI(true);
 #if defined(OS_MACOSX)
@@ -84,10 +85,6 @@ Slider::~Slider() {}
 
 void Slider::SetValue(float value) {
   SetValueInternal(value, VALUE_CHANGED_BY_API);
-}
-
-void Slider::SetAccessibleName(const base::string16& name) {
-  accessible_name_ = name;
 }
 
 void Slider::UpdateState(bool control_on) {
@@ -141,7 +138,7 @@ void Slider::SetValueInternal(float value, SliderChangeReason reason) {
   if (listener_)
     listener_->SliderValueChanged(this, value_, old_value, reason);
 
-  if (old_value_valid && base::MessageLoop::current()) {
+  if (old_value_valid && base::MessageLoopCurrent::Get()) {
     // Do not animate when setting the value of the slider for the first time.
     // There is no message-loop when running tests. So we cannot animate then.
     if (!move_animation_) {
@@ -153,8 +150,15 @@ void Slider::SetValueInternal(float value, SliderChangeReason reason) {
   } else {
     SchedulePaint();
   }
-  if (accessibility_events_enabled_ && GetWidget())
-    NotifyAccessibilityEvent(ui::AX_EVENT_VALUE_CHANGED, true);
+
+  if (accessibility_events_enabled_) {
+    if (GetWidget() && GetWidget()->IsVisible()) {
+      DCHECK(!pending_accessibility_value_change_);
+      NotifyAccessibilityEvent(ax::mojom::Event::kValueChanged, true);
+    } else {
+      pending_accessibility_value_change_ = true;
+    }
+  }
 }
 
 void Slider::PrepareForMove(const int new_x) {
@@ -182,21 +186,6 @@ void Slider::MoveButtonTo(const gfx::Point& point) {
   SetValueInternal(
       static_cast<float>(amount) / (width() - inset.width() - kThumbWidth),
       VALUE_CHANGED_BY_USER);
-}
-
-void Slider::OnPaintFocus(gfx::Canvas* canvas) {
-  if (!HasFocus())
-    return;
-
-  // TODO(estade): make this a glow effect instead: crbug.com/658783
-  gfx::Rect focus_bounds = GetLocalBounds();
-  focus_bounds.Inset(gfx::Insets(1));
-  canvas->DrawSolidFocusRect(
-      gfx::RectF(focus_bounds),
-      SkColorSetA(GetNativeTheme()->GetSystemColor(
-                      ui::NativeTheme::kColorId_FocusedBorderColor),
-                  0x99),
-      2);
 }
 
 void Slider::OnSliderDragStarted() {
@@ -265,8 +254,7 @@ bool Slider::OnKeyPressed(const ui::KeyEvent& event) {
 }
 
 void Slider::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ui::AX_ROLE_SLIDER;
-  node_data->SetName(accessible_name_);
+  node_data->role = ax::mojom::Role::kSlider;
   node_data->SetValue(base::UTF8ToUTF16(
       base::StringPrintf("%d%%", static_cast<int>(value_ * 100 + 0.5))));
 }
@@ -315,14 +303,13 @@ void Slider::OnPaint(gfx::Canvas* canvas) {
   flags.setAntiAlias(true);
 
   if (!is_active_) {
-    flags.setStrokeWidth(kThumbStroke);
+    flags.setStrokeWidth(kSliderThumbStroke);
     flags.setStyle(cc::PaintFlags::kStroke_Style);
   }
   canvas->DrawCircle(
       thumb_center,
-      is_active_ ? kThumbRadius : (kThumbRadius - kThumbStroke / 2), flags);
-
-  OnPaintFocus(canvas);
+      is_active_ ? kThumbRadius : (kThumbRadius - kSliderThumbStroke / 2),
+      flags);
 }
 
 void Slider::OnFocus() {
@@ -335,6 +322,24 @@ void Slider::OnBlur() {
   SchedulePaint();
 }
 
+void Slider::VisibilityChanged(View* starting_from, bool is_visible) {
+  if (is_visible)
+    NotifyPendingAccessibilityValueChanged();
+}
+
+void Slider::AddedToWidget() {
+  if (GetWidget()->IsVisible())
+    NotifyPendingAccessibilityValueChanged();
+}
+
+void Slider::NotifyPendingAccessibilityValueChanged() {
+  if (!pending_accessibility_value_change_)
+    return;
+
+  NotifyAccessibilityEvent(ax::mojom::Event::kValueChanged, true);
+  pending_accessibility_value_change_ = false;
+}
+
 void Slider::OnGestureEvent(ui::GestureEvent* event) {
   switch (event->type()) {
     // In a multi point gesture only the touch point will generate
@@ -342,7 +347,7 @@ void Slider::OnGestureEvent(ui::GestureEvent* event) {
     case ui::ET_GESTURE_TAP_DOWN:
       OnSliderDragStarted();
       PrepareForMove(event->location().x());
-      // Intentional fall through to next case.
+      FALLTHROUGH;
     case ui::ET_GESTURE_SCROLL_BEGIN:
     case ui::ET_GESTURE_SCROLL_UPDATE:
       MoveButtonTo(event->location());

@@ -53,7 +53,7 @@ class QEntityPrivate;
 
 typedef QVector<QComponent*> QComponentVector;
 
-class QT3DCORESHARED_EXPORT QEntity : public QNode
+class Q_3DCORESHARED_EXPORT QEntity : public QNode
 {
     Q_OBJECT
 public:
@@ -61,6 +61,19 @@ public:
     virtual ~QEntity();
 
     QComponentVector components() const;
+
+    template<class T>
+    QVector<T *> componentsOfType() const
+    {
+        QVector<T*> matchComponents;
+        const QComponentVector comps = this->components();
+        for (QComponent *component : comps) {
+            T *typedComponent = qobject_cast<T*>(component);
+            if (typedComponent != nullptr)
+                matchComponents.append(typedComponent);
+        }
+        return matchComponents;
+    }
 
     void addComponent(QComponent *comp);
     void removeComponent(QComponent *comp);
@@ -70,10 +83,13 @@ public:
 protected:
     explicit QEntity(QEntityPrivate &dd, QNode *parent = nullptr);
 
+private Q_SLOTS:
+    void onParentChanged(QObject *);
+
 private:
     Q_DECLARE_PRIVATE(QEntity)
 
-    QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 typedef QSharedPointer<QEntity> QEntityPtr;

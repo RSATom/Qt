@@ -66,9 +66,7 @@ class QQuickToolSeparatorPrivate : public QQuickControlPrivate
     Q_DECLARE_PUBLIC(QQuickToolSeparator)
 
 public:
-    QQuickToolSeparatorPrivate() : orientation(Qt::Vertical) { }
-
-    Qt::Orientation orientation;
+    Qt::Orientation orientation = Qt::Vertical;
 };
 
 QQuickToolSeparator::QQuickToolSeparator(QQuickItem *parent)
@@ -133,9 +131,14 @@ bool QQuickToolSeparator::isVertical() const
     return d->orientation == Qt::Vertical;
 }
 
+QFont QQuickToolSeparator::defaultFont() const
+{
+    return QQuickTheme::font(QQuickTheme::ToolBar);
+}
+
 QPalette QQuickToolSeparator::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::ToolButtonPalette);
+    return QQuickTheme::palette(QQuickTheme::ToolBar);
 }
 
 #if QT_CONFIG(accessibility)

@@ -1,6 +1,16 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtandroidextras.qdocconf)
 
 Cpp.ignoretokens += Q_ANDROIDEXTRAS_EXPORT
+# dummy module header for clang, found under doc/
+moduleheader = QtAndroidExtrasDoc
+
+# pass include paths to clang
+includepaths += -I . \
+                -I .. \
+                -I ../android \
+                -I ../jni \
+                -I ./QtAndroidExtras
 
 project = QtAndroidExtras
 description = Qt Android Extras Reference Documentation

@@ -1,48 +1,57 @@
 /****************************************************************************
- **
- ** Copyright (C) 2016 The Qt Company Ltd.
- ** Copyright (C) 2014 Petroules Corporation.
- ** Contact: https://www.qt.io/licensing/
- **
- ** This file is part of the QtCore module of the Qt Toolkit.
- **
- ** $QT_BEGIN_LICENSE:LGPL$
- ** Commercial License Usage
- ** Licensees holding valid commercial Qt licenses may use this file in
- ** accordance with the commercial license agreement provided with the
- ** Software or, alternatively, in accordance with the terms contained in
- ** a written agreement between you and The Qt Company. For licensing terms
- ** and conditions see https://www.qt.io/terms-conditions. For further
- ** information use the contact form at https://www.qt.io/contact-us.
- **
- ** GNU Lesser General Public License Usage
- ** Alternatively, this file may be used under the terms of the GNU Lesser
- ** General Public License version 3 as published by the Free Software
- ** Foundation and appearing in the file LICENSE.LGPL3 included in the
- ** packaging of this file. Please review the following information to
- ** ensure the GNU Lesser General Public License version 3 requirements
- ** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
- **
- ** GNU General Public License Usage
- ** Alternatively, this file may be used under the terms of the GNU
- ** General Public License version 2.0 or (at your option) the GNU General
- ** Public license version 3 or any later version approved by the KDE Free
- ** Qt Foundation. The licenses are as published by the Free Software
- ** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
- ** included in the packaging of this file. Please review the following
- ** information to ensure the GNU General Public License requirements will
- ** be met: https://www.gnu.org/licenses/gpl-2.0.html and
- ** https://www.gnu.org/licenses/gpl-3.0.html.
- **
- ** $QT_END_LICENSE$
- **
- ****************************************************************************/
+**
+** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2014 Petroules Corporation.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the QtCore module of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:LGPL$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
+**
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
+**
+** $QT_END_LICENSE$
+**
+****************************************************************************/
 
 #include <private/qcore_mac_p.h>
 
-#ifdef Q_OS_OSX
-#include <AppKit/NSText.h>
+#ifdef Q_OS_MACOS
+#include <AppKit/AppKit.h>
 #endif
+
+#if defined(QT_PLATFORM_UIKIT)
+#include <UIKit/UIKit.h>
+#endif
+
+#include <execinfo.h>
+#include <dlfcn.h>
+#include <cxxabi.h>
+#include <objc/runtime.h>
 
 #include <qdebug.h>
 
@@ -87,19 +96,20 @@ QT_FOR_EACH_MUTABLE_CORE_GRAPHICS_TYPE(QT_DECLARE_WEAK_QDEBUG_OPERATOR_FOR_CF_TY
 QT_END_NAMESPACE
 QT_USE_NAMESPACE
 @interface QT_MANGLE_NAMESPACE(QMacAutoReleasePoolTracker) : NSObject
-{
+@end
+
+@implementation QT_MANGLE_NAMESPACE(QMacAutoReleasePoolTracker) {
     NSAutoreleasePool **m_pool;
 }
--(id)initWithPool:(NSAutoreleasePool**)pool;
-@end
-@implementation QT_MANGLE_NAMESPACE(QMacAutoReleasePoolTracker)
--(id)initWithPool:(NSAutoreleasePool**)pool
+
+- (instancetype)initWithPool:(NSAutoreleasePool **)pool
 {
-    if (self = [super init])
+    if ((self = [self init]))
         m_pool = pool;
     return self;
 }
--(void)dealloc
+
+- (void)dealloc
 {
     if (*m_pool) {
         // The pool is still valid, which means we're not being drained from
@@ -122,12 +132,54 @@ QT_USE_NAMESPACE
 }
 @end
 QT_NAMESPACE_ALIAS_OBJC_CLASS(QMacAutoReleasePoolTracker);
+
 QT_BEGIN_NAMESPACE
 
 QMacAutoReleasePool::QMacAutoReleasePool()
     : pool([[NSAutoreleasePool alloc] init])
 {
-    [[[QMacAutoReleasePoolTracker alloc] initWithPool:
+    Class trackerClass = [QMacAutoReleasePoolTracker class];
+
+#ifdef QT_DEBUG
+    void *poolFrame = nullptr;
+    if (__builtin_available(macOS 10.14, iOS 12.0, tvOS 12.0, watchOS 5.0, *)) {
+        void *frame;
+        if (backtrace_from_fp(__builtin_frame_address(0), &frame, 1))
+            poolFrame = frame;
+    } else {
+        static const int maxFrames = 3;
+        void *callstack[maxFrames];
+        if (backtrace(callstack, maxFrames) == maxFrames)
+            poolFrame = callstack[maxFrames - 1];
+    }
+
+    if (poolFrame) {
+        Dl_info info;
+        if (dladdr(poolFrame, &info) && info.dli_sname) {
+            const char *symbolName = info.dli_sname;
+            if (symbolName[0] == '_') {
+                int status;
+                if (char *demangled = abi::__cxa_demangle(info.dli_sname, nullptr, 0, &status))
+                    symbolName = demangled;
+            }
+
+            char *className = nullptr;
+            asprintf(&className, "  ^-- allocated in function: %s", symbolName);
+
+            if (Class existingClass = objc_getClass(className))
+                trackerClass = existingClass;
+            else
+                trackerClass = objc_duplicateClass(trackerClass, className, 0);
+
+            free(className);
+
+            if (symbolName != info.dli_sname)
+                free((char*)symbolName);
+        }
+    }
+#endif
+
+    [[[trackerClass alloc] initWithPool:
         reinterpret_cast<NSAutoreleasePool **>(&pool)] autorelease];
 }
 
@@ -160,6 +212,85 @@ QDebug operator<<(QDebug debug, const QMacAutoReleasePool *pool)
     return debug;
 }
 #endif // !QT_NO_DEBUG_STREAM
+
+#ifdef Q_OS_MACOS
+bool qt_mac_applicationIsInDarkMode()
+{
+#if QT_MACOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_14)
+    if (__builtin_available(macOS 10.14, *)) {
+        auto appearance = [NSApp.effectiveAppearance bestMatchFromAppearancesWithNames:
+                @[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+        return [appearance isEqualToString:NSAppearanceNameDarkAqua];
+    }
+#endif
+    return false;
+}
+#endif
+
+bool qt_apple_isApplicationExtension()
+{
+    static bool isExtension = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSExtension"];
+    return isExtension;
+}
+
+#if !defined(QT_BOOTSTRAPPED) && !defined(Q_OS_WATCHOS)
+AppleApplication *qt_apple_sharedApplication()
+{
+    // Application extensions are not allowed to access the shared application
+    if (qt_apple_isApplicationExtension()) {
+        qWarning() << "accessing the shared" << [AppleApplication class]
+            << "is not allowed in application extensions";
+
+        // In practice the application is actually available, but the the App
+        // review process will likely catch uses of it, so we return nil just
+        // in case, unless we don't care about being App Store compliant.
+#if QT_CONFIG(appstore_compliant)
+        return nil;
+#endif
+    }
+
+    // We use performSelector so that building with -fapplication-extension will
+    // not mistakenly think we're using the shared application in extensions.
+    return [[AppleApplication class] performSelector:@selector(sharedApplication)];
+}
+#endif
+
+#if defined(Q_OS_MACOS) && !defined(QT_BOOTSTRAPPED)
+bool qt_apple_isSandboxed()
+{
+    static bool isSandboxed = []() {
+        QCFType<SecStaticCodeRef> staticCode = nullptr;
+        NSURL *bundleUrl = [[NSBundle mainBundle] bundleURL];
+        if (SecStaticCodeCreateWithPath((__bridge CFURLRef)bundleUrl,
+            kSecCSDefaultFlags, &staticCode) != errSecSuccess)
+            return false;
+
+        QCFType<SecRequirementRef> sandboxRequirement;
+        if (SecRequirementCreateWithString(CFSTR("entitlement[\"com.apple.security.app-sandbox\"] exists"),
+            kSecCSDefaultFlags, &sandboxRequirement) != errSecSuccess)
+            return false;
+
+        if (SecStaticCodeCheckValidityWithErrors(staticCode,
+            kSecCSBasicValidateOnly, sandboxRequirement, nullptr) != errSecSuccess)
+            return false;
+
+        return true;
+    }();
+    return isSandboxed;
+}
+
+QT_END_NAMESPACE
+@implementation NSObject (QtSandboxHelpers)
+- (id)qt_valueForPrivateKey:(NSString *)key
+{
+    if (qt_apple_isSandboxed())
+        return nil;
+
+    return [self valueForKey:key];
+}
+@end
+QT_BEGIN_NAMESPACE
+#endif
 
 #ifdef Q_OS_MACOS
 /*
@@ -346,15 +477,15 @@ Qt::Key qt_mac_cocoaKey2QtKey(QChar keyCode)
 
 void qt_apple_check_os_version()
 {
-#if defined(__IPHONE_OS_VERSION_MIN_REQUIRED)
-    const char *os = "iOS";
-    const int version = __IPHONE_OS_VERSION_MIN_REQUIRED;
+#if defined(__WATCH_OS_VERSION_MIN_REQUIRED)
+    const char *os = "watchOS";
+    const int version = __WATCH_OS_VERSION_MIN_REQUIRED;
 #elif defined(__TV_OS_VERSION_MIN_REQUIRED)
     const char *os = "tvOS";
     const int version = __TV_OS_VERSION_MIN_REQUIRED;
-#elif defined(__WATCH_OS_VERSION_MIN_REQUIRED)
-    const char *os = "watchOS";
-    const int version = __WATCH_OS_VERSION_MIN_REQUIRED;
+#elif defined(__IPHONE_OS_VERSION_MIN_REQUIRED)
+    const char *os = "iOS";
+    const int version = __IPHONE_OS_VERSION_MIN_REQUIRED;
 #elif defined(__MAC_OS_X_VERSION_MIN_REQUIRED)
     const char *os = "macOS";
     const int version = __MAC_OS_X_VERSION_MIN_REQUIRED;
@@ -363,18 +494,55 @@ void qt_apple_check_os_version()
         version / 10000, version / 100 % 100, version % 100};
     const NSOperatingSystemVersion current = NSProcessInfo.processInfo.operatingSystemVersion;
     if (![NSProcessInfo.processInfo isOperatingSystemAtLeastVersion:required]) {
-        fprintf(stderr, "You can't use this version of %s with this version of %s. "
-                "You have %s %ld.%ld.%ld. Qt requires %s %ld.%ld.%ld or later.\n",
-                (reinterpret_cast<const NSString *>(
-                    NSBundle.mainBundle.infoDictionary[@"CFBundleName"]).UTF8String),
-                os,
-                os, long(current.majorVersion), long(current.minorVersion), long(current.patchVersion),
-                os, long(required.majorVersion), long(required.minorVersion), long(required.patchVersion));
-        abort();
+        NSDictionary *plist = NSBundle.mainBundle.infoDictionary;
+        NSString *applicationName = plist[@"CFBundleDisplayName"];
+        if (!applicationName)
+            applicationName = plist[@"CFBundleName"];
+        if (!applicationName)
+            applicationName = NSProcessInfo.processInfo.processName;
+
+        fprintf(stderr, "Sorry, \"%s\" cannot be run on this version of %s. "
+            "Qt requires %s %ld.%ld.%ld or later, you have %s %ld.%ld.%ld.\n",
+            applicationName.UTF8String, os,
+            os, long(required.majorVersion), long(required.minorVersion), long(required.patchVersion),
+            os, long(current.majorVersion), long(current.minorVersion), long(current.patchVersion));
+
+        exit(1);
     }
 }
+Q_CONSTRUCTOR_FUNCTION(qt_apple_check_os_version);
 
 // -------------------------------------------------------------------------
+
+void QMacKeyValueObserver::addObserver(NSKeyValueObservingOptions options)
+{
+    [object addObserver:observer forKeyPath:keyPath options:options context:callback.get()];
+}
+
+void QMacKeyValueObserver::removeObserver() {
+    if (object)
+        [object removeObserver:observer forKeyPath:keyPath context:callback.get()];
+    object = nil;
+}
+
+KeyValueObserver *QMacKeyValueObserver::observer = [[KeyValueObserver alloc] init];
+
+QT_END_NAMESPACE
+@implementation KeyValueObserver
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object
+        change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void *)context
+{
+    Q_UNUSED(keyPath);
+    Q_UNUSED(object);
+    Q_UNUSED(change);
+
+    (*reinterpret_cast<QMacKeyValueObserver::Callback*>(context))();
+}
+@end
+QT_BEGIN_NAMESPACE
+
+// -------------------------------------------------------------------------
+
 
 QT_END_NAMESPACE
 

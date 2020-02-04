@@ -18,12 +18,12 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/optional.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
 #include "services/preferences/tracked/hash_store_contents.h"
 #include "services/preferences/tracked/interceptable_pref_filter.h"
+#include "services/preferences/tracked/pref_hash_store.h"
 #include "services/preferences/tracked/tracked_preference.h"
 
-class PrefHashStore;
 class PrefService;
 
 namespace base {
@@ -92,6 +92,8 @@ class PrefHashFilter : public InterceptablePrefFilter {
   OnWriteCallbackPair FilterSerializeData(
       base::DictionaryValue* pref_store_contents) override;
 
+  void OnStoreDeletionFromDisk() override;
+
  private:
   // InterceptablePrefFilter implementation.
   void FinalizeFilterOnLoad(
@@ -137,7 +139,7 @@ class PrefHashFilter : public InterceptablePrefFilter {
   // A store and contents on which to perform extra validations without
   // triggering resets.
   // Will be null if the platform does not support external validation.
-  const base::Optional<StoreContentsPair> external_validation_hash_store_pair_;
+  base::Optional<StoreContentsPair> external_validation_hash_store_pair_;
 
   // Notified if a reset occurs in a call to FilterOnLoad.
   prefs::mojom::ResetOnLoadObserverPtr reset_on_load_observer_;

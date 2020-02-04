@@ -48,10 +48,8 @@
 #include <QtCore/qtemporaryfile.h>
 #include <QtGui/QPainter>
 #include <QMutexLocker>
-#include <QLoggingCategory>
 
-#include <wayland-client.h>
-#include <wayland-client-protocol.h>
+#include <QtWaylandClient/private/wayland-wayland-client-protocol.h>
 
 #include <unistd.h>
 #include <sys/mman.h>
@@ -59,22 +57,17 @@
 #ifdef Q_OS_LINUX
 #  include <sys/syscall.h>
 // from linux/memfd.h:
-#  define MFD_CLOEXEC       0x0001U
+#  ifndef MFD_CLOEXEC
+#    define MFD_CLOEXEC     0x0001U
+#  endif
 #endif
 
 QT_BEGIN_NAMESPACE
 
 namespace QtWaylandClient {
 
-Q_DECLARE_LOGGING_CATEGORY(logCategory)
-
-Q_LOGGING_CATEGORY(logCategory, "qt.qpa.wayland.backingstore")
-
 QWaylandShmBuffer::QWaylandShmBuffer(QWaylandDisplay *display,
                      const QSize &size, QImage::Format format, int scale)
-    : QWaylandBuffer()
-    , mShmPool(0)
-    , mMarginsImage(0)
 {
     int stride = size.width() * 4;
     int alloc = stride * size.height();
@@ -105,7 +98,7 @@ QWaylandShmBuffer::QWaylandShmBuffer(QWaylandDisplay *display,
     // map ourselves: QFile::map() will unmap when the object is destroyed,
     // but we want this mapping to persist (unmapping in destructor)
     uchar *data = (uchar *)
-            mmap(NULL, alloc, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            mmap(nullptr, alloc, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (data == (uchar *) MAP_FAILED) {
         qErrnoWarning("QWaylandShmBuffer: mmap failed");
         return;
@@ -125,7 +118,7 @@ QWaylandShmBuffer::~QWaylandShmBuffer(void)
 {
     delete mMarginsImage;
     if (mImage.constBits())
-        munmap((void *) mImage.constBits(), mImage.byteCount());
+        munmap((void *) mImage.constBits(), mImage.sizeInBytes());
     if (mShmPool)
         wl_shm_pool_destroy(mShmPool);
 }
@@ -147,7 +140,7 @@ QImage *QWaylandShmBuffer::imageInsideMargins(const QMargins &marginsIn)
     }
     if (margins.isNull()) {
         delete mMarginsImage;
-        mMarginsImage = 0;
+        mMarginsImage = nullptr;
     }
 
     mMargins = margins;
@@ -161,9 +154,6 @@ QImage *QWaylandShmBuffer::imageInsideMargins(const QMargins &marginsIn)
 QWaylandShmBackingStore::QWaylandShmBackingStore(QWindow *window)
     : QPlatformBackingStore(window)
     , mDisplay(QWaylandScreen::waylandScreenFromWindow(window)->display())
-    , mFrontBuffer(0)
-    , mBackBuffer(0)
-    , mPainting(false)
 {
 
 }
@@ -171,7 +161,7 @@ QWaylandShmBackingStore::QWaylandShmBackingStore(QWindow *window)
 QWaylandShmBackingStore::~QWaylandShmBackingStore()
 {
     if (QWaylandWindow *w = waylandWindow())
-        w->setBackingStore(Q_NULLPTR);
+        w->setBackingStore(nullptr);
 
 //    if (mFrontBuffer == waylandWindow()->attached())
 //        waylandWindow()->attach(0);
@@ -203,6 +193,8 @@ void QWaylandShmBackingStore::beginPaint(const QRegion &region)
 void QWaylandShmBackingStore::endPaint()
 {
     mPainting = false;
+    if (mPendingFlush)
+        flush(window(), mPendingRegion, QPoint());
     waylandWindow()->setCanResize(true);
 }
 
@@ -222,8 +214,18 @@ void QWaylandShmBackingStore::flush(QWindow *window, const QRegion &region, cons
     // called instead. The default implementation from QPlatformBackingStore is sufficient
     // however so no need to reimplement that.
 
+
     Q_UNUSED(window);
     Q_UNUSED(offset);
+
+    if (mPainting) {
+        mPendingRegion |= region;
+        mPendingFlush = true;
+        return;
+    }
+
+    mPendingFlush = false;
+    mPendingRegion = QRegion();
 
     if (windowDecoration() && windowDecoration()->isDirty())
         updateDecorations();
@@ -231,8 +233,7 @@ void QWaylandShmBackingStore::flush(QWindow *window, const QRegion &region, cons
     mFrontBuffer = mBackBuffer;
 
     QMargins margins = windowDecorationMargins();
-
-    waylandWindow()->commit(mFrontBuffer, region.translated(margins.left(), margins.top()));
+    waylandWindow()->safeCommit(mFrontBuffer, region.translated(margins.left(), margins.top()));
 }
 
 void QWaylandShmBackingStore::resize(const QSize &size, const QRegion &)
@@ -249,7 +250,7 @@ QWaylandShmBuffer *QWaylandShmBackingStore::getBuffer(const QSize &size)
             } else {
                 mBuffers.removeOne(b);
                 if (mBackBuffer == b)
-                    mBackBuffer = 0;
+                    mBackBuffer = nullptr;
                 delete b;
             }
         }
@@ -262,7 +263,7 @@ QWaylandShmBuffer *QWaylandShmBackingStore::getBuffer(const QSize &size)
         mBuffers.prepend(b);
         return b;
     }
-    return 0;
+    return nullptr;
 }
 
 void QWaylandShmBackingStore::resize(const QSize &size)
@@ -281,16 +282,16 @@ void QWaylandShmBackingStore::resize(const QSize &size)
     // run single buffered, while with the pixman renderer we have to use two.
     QWaylandShmBuffer *buffer = getBuffer(sizeWithMargins);
     while (!buffer) {
-        qCDebug(logCategory, "QWaylandShmBackingStore: stalling waiting for a buffer to be released from the compositor...");
+        qCDebug(lcWaylandBackingstore, "QWaylandShmBackingStore: stalling waiting for a buffer to be released from the compositor...");
 
         mDisplay->blockingReadEvents();
         buffer = getBuffer(sizeWithMargins);
     }
 
-    int oldSize = mBackBuffer ? mBackBuffer->image()->byteCount() : 0;
+    qsizetype oldSize = mBackBuffer ? mBackBuffer->image()->sizeInBytes() : 0;
     // mBackBuffer may have been deleted here but if so it means its size was different so we wouldn't copy it anyway
-    if (mBackBuffer != buffer && oldSize == buffer->image()->byteCount()) {
-        memcpy(buffer->image()->bits(), mBackBuffer->image()->constBits(), buffer->image()->byteCount());
+    if (mBackBuffer != buffer && oldSize == buffer->image()->sizeInBytes()) {
+        memcpy(buffer->image()->bits(), mBackBuffer->image()->constBits(), buffer->image()->sizeInBytes());
     }
     mBackBuffer = buffer;
     // ensure the new buffer is at the beginning of the list so next time getBuffer() will pick

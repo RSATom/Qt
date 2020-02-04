@@ -8,20 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_UTILITY_SOURCE_PROCESS_THREAD_IMPL_H_
-#define WEBRTC_MODULES_UTILITY_SOURCE_PROCESS_THREAD_IMPL_H_
+#ifndef MODULES_UTILITY_SOURCE_PROCESS_THREAD_IMPL_H_
+#define MODULES_UTILITY_SOURCE_PROCESS_THREAD_IMPL_H_
 
+#include <stdint.h>
 #include <list>
 #include <memory>
 #include <queue>
 
-#include "webrtc/modules/utility/include/process_thread.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/location.h"
-#include "webrtc/rtc_base/platform_thread.h"
-#include "webrtc/rtc_base/thread_checker.h"
-#include "webrtc/system_wrappers/include/event_wrapper.h"
-#include "webrtc/typedefs.h"
+#include "api/task_queue/queued_task.h"
+#include "modules/include/module.h"
+#include "modules/utility/include/process_thread.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/event.h"
+#include "rtc_base/location.h"
+#include "rtc_base/platform_thread.h"
+#include "rtc_base/thread_checker.h"
 
 namespace webrtc {
 
@@ -34,7 +36,7 @@ class ProcessThreadImpl : public ProcessThread {
   void Stop() override;
 
   void WakeUp(Module* module) override;
-  void PostTask(std::unique_ptr<rtc::QueuedTask> task) override;
+  void PostTask(std::unique_ptr<QueuedTask> task) override;
 
   void RegisterModule(Module* module, const rtc::Location& from) override;
   void DeRegisterModule(Module* module) override;
@@ -73,16 +75,16 @@ class ProcessThreadImpl : public ProcessThread {
   rtc::CriticalSection lock_;  // Used to guard modules_, tasks_ and stop_.
 
   rtc::ThreadChecker thread_checker_;
-  const std::unique_ptr<EventWrapper> wake_up_;
+  rtc::Event wake_up_;
   // TODO(pbos): Remove unique_ptr and stop recreating the thread.
   std::unique_ptr<rtc::PlatformThread> thread_;
 
   ModuleList modules_;
-  std::queue<rtc::QueuedTask*> queue_;
+  std::queue<QueuedTask*> queue_;
   bool stop_;
   const char* thread_name_;
 };
 
 }  // namespace webrtc
 
-#endif // WEBRTC_MODULES_UTILITY_SOURCE_PROCESS_THREAD_IMPL_H_
+#endif  // MODULES_UTILITY_SOURCE_PROCESS_THREAD_IMPL_H_

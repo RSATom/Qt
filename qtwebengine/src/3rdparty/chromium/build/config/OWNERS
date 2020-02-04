@@ -1,6 +1,4 @@
-brettw@chromium.org
 dpranke@chromium.org
 scottmg@chromium.org
 
-per-file BUILDCONFIG.gn=brettw@chromium.org
-per-file BUILDCONFIG.gn=set noparent
+per-file *jumbo*=bratell@opera.com

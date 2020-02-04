@@ -8,13 +8,14 @@
 #include <string>
 
 #include "base/guid.h"
-#include "base/memory/ptr_util.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/download/content/public/all_download_item_notifier.h"
+#include "components/download/internal/background_service/test/mock_download_driver_client.h"
 #include "content/public/test/fake_download_item.h"
 #include "content/public/test/mock_download_manager.h"
 #include "net/http/http_response_headers.h"
+#include "net/http/http_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -38,21 +39,12 @@ const char kFakeGuid[] = "fake_guid";
 // driver entry.
 MATCHER_P(DriverEntryEqual, entry, "") {
   return entry.guid == arg.guid && entry.state == arg.state &&
+         entry.done == arg.done &&
          entry.bytes_downloaded == arg.bytes_downloaded &&
          entry.current_file_path.value() == arg.current_file_path.value();
 }
 
 }  // namespace
-
-class MockDriverClient : public DownloadDriver::Client {
- public:
-  MOCK_METHOD1(OnDriverReady, void(bool));
-  MOCK_METHOD1(OnDriverHardRecoverComplete, void(bool));
-  MOCK_METHOD1(OnDownloadCreated, void(const DriverEntry&));
-  MOCK_METHOD2(OnDownloadFailed, void(const DriverEntry&, FailureType));
-  MOCK_METHOD1(OnDownloadSucceeded, void(const DriverEntry&));
-  MOCK_METHOD1(OnDownloadUpdated, void(const DriverEntry&));
-};
 
 class DownloadDriverImplTest : public testing::Test {
  public:
@@ -62,7 +54,9 @@ class DownloadDriverImplTest : public testing::Test {
   ~DownloadDriverImplTest() override = default;
 
   void SetUp() override {
-    driver_ = base::MakeUnique<DownloadDriverImpl>(&mock_manager_);
+    EXPECT_CALL(mock_client_, IsTrackingDownload(_))
+        .WillRepeatedly(Return(true));
+    driver_ = std::make_unique<DownloadDriverImpl>(&mock_manager_);
   }
 
   // TODO(xingliu): implements test download manager for embedders to test.
@@ -100,11 +94,47 @@ TEST_F(DownloadDriverImplTest, TestHardRecover) {
   driver_->HardRecover();
   task_runner_->RunUntilIdle();
 }
+// Ensure driver remove call before download created will result in content
+// layer remove call and not propagating the event to driver's client.
+TEST_F(DownloadDriverImplTest, RemoveBeforeCreated) {
+  using DownloadState = download::DownloadItem::DownloadState;
+
+  EXPECT_CALL(mock_manager_, IsManagerInitialized())
+      .Times(1)
+      .WillOnce(Return(false));
+  driver_->Initialize(&mock_client_);
+
+  EXPECT_CALL(mock_client_, OnDriverReady(true));
+  static_cast<AllDownloadItemNotifier::Observer*>(driver_.get())
+      ->OnManagerInitialized(&mock_manager_);
+
+  const std::string kTestGuid = "abc";
+  content::FakeDownloadItem fake_item;
+  fake_item.SetGuid(kTestGuid);
+  fake_item.SetState(DownloadState::IN_PROGRESS);
+
+  // Download is not created yet in content layer.
+  ON_CALL(mock_manager_, GetDownloadByGuid(kTestGuid))
+      .WillByDefault(Return(nullptr));
+  driver_->Remove(kTestGuid, false);
+  task_runner_->RunUntilIdle();
+
+  // Download is created in content layer.
+  ON_CALL(mock_manager_, GetDownloadByGuid(kTestGuid))
+      .WillByDefault(Return(&fake_item));
+  EXPECT_CALL(mock_client_, OnDownloadCreated(_)).Times(0);
+  static_cast<AllDownloadItemNotifier::Observer*>(driver_.get())
+      ->OnDownloadCreated(&mock_manager_, &fake_item);
+  task_runner_->RunUntilIdle();
+
+  // Expect a remove call down to content layer download item.
+  EXPECT_TRUE(fake_item.removed());
+}
 
 // Ensures download updates from download items are propagated correctly.
 TEST_F(DownloadDriverImplTest, DownloadItemUpdateEvents) {
-  using DownloadState = content::DownloadItem::DownloadState;
-  using DownloadInterruptReason = content::DownloadInterruptReason;
+  using DownloadState = download::DownloadItem::DownloadState;
+  using DownloadInterruptReason = download::DownloadInterruptReason;
 
   EXPECT_CALL(mock_manager_, IsManagerInitialized())
       .Times(1)
@@ -152,7 +182,7 @@ TEST_F(DownloadDriverImplTest, DownloadItemUpdateEvents) {
 }
 
 TEST_F(DownloadDriverImplTest, TestGetActiveDownloadsCall) {
-  using DownloadState = content::DownloadItem::DownloadState;
+  using DownloadState = download::DownloadItem::DownloadState;
   content::FakeDownloadItem item1;
   item1.SetState(DownloadState::IN_PROGRESS);
   item1.SetGuid(base::GenerateGUID());
@@ -169,7 +199,7 @@ TEST_F(DownloadDriverImplTest, TestGetActiveDownloadsCall) {
   item4.SetState(DownloadState::INTERRUPTED);
   item4.SetGuid(base::GenerateGUID());
 
-  std::vector<content::DownloadItem*> items{&item1, &item2, &item3, &item4};
+  std::vector<download::DownloadItem*> items{&item1, &item2, &item3, &item4};
 
   ON_CALL(mock_manager_, GetAllDownloads(_))
       .WillByDefault(PopulateVector(items));
@@ -184,6 +214,28 @@ TEST_F(DownloadDriverImplTest, TestGetActiveDownloadsCall) {
 
   EXPECT_EQ(1U, guids.size());
   EXPECT_NE(guids.end(), guids.find(item1.GetGuid()));
+}
+
+TEST_F(DownloadDriverImplTest, TestCreateDriverEntry) {
+  using DownloadState = download::DownloadItem::DownloadState;
+  content::FakeDownloadItem item;
+  const std::string kGuid("dummy guid");
+  const std::vector<GURL> kUrls = {GURL("http://www.example.com/foo.html"),
+                                   GURL("http://www.example.com/bar.html")};
+  scoped_refptr<net::HttpResponseHeaders> headers =
+      new net::HttpResponseHeaders("HTTP/1.1 201\n");
+
+  item.SetGuid(kGuid);
+  item.SetUrlChain(kUrls);
+  item.SetState(DownloadState::IN_PROGRESS);
+  item.SetResponseHeaders(headers);
+
+  DriverEntry entry = driver_->CreateDriverEntry(&item);
+
+  EXPECT_EQ(kGuid, entry.guid);
+  EXPECT_EQ(kUrls, entry.url_chain);
+  EXPECT_EQ(DriverEntry::State::IN_PROGRESS, entry.state);
+  EXPECT_EQ(headers, entry.response_headers);
 }
 
 }  // namespace download

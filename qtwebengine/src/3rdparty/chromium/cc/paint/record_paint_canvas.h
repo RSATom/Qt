@@ -19,12 +19,12 @@
 
 namespace cc {
 
-class PaintOpBuffer;
+class DisplayItemList;
 class PaintFlags;
 
 class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
  public:
-  explicit RecordPaintCanvas(PaintOpBuffer* buffer, const SkRect& bounds);
+  RecordPaintCanvas(DisplayItemList* list, const SkRect& bounds);
   ~RecordPaintCanvas() override;
 
   SkMetaData& getMetaData() override;
@@ -34,9 +34,7 @@ class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
 
   int save() override;
   int saveLayer(const SkRect* bounds, const PaintFlags* flags) override;
-  int saveLayerAlpha(const SkRect* bounds,
-                     uint8_t alpha,
-                     bool preserve_lcd_text_requests) override;
+  int saveLayerAlpha(const SkRect* bounds, uint8_t alpha) override;
 
   void restore() override;
   int getSaveCount() const override;
@@ -50,8 +48,6 @@ class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
   void clipRect(const SkRect& rect, SkClipOp op, bool antialias) override;
   void clipRRect(const SkRRect& rrect, SkClipOp op, bool antialias) override;
   void clipPath(const SkPath& path, SkClipOp op, bool antialias) override;
-  bool quickReject(const SkRect& rect) const override;
-  bool quickReject(const SkPath& path) const override;
   SkRect getLocalClipBounds() const override;
   bool getLocalClipBounds(SkRect* bounds) const override;
   SkIRect getDeviceClipBounds() const override;
@@ -71,15 +67,6 @@ class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
   void drawDRRect(const SkRRect& outer,
                   const SkRRect& inner,
                   const PaintFlags& flags) override;
-  void drawCircle(SkScalar cx,
-                  SkScalar cy,
-                  SkScalar radius,
-                  const PaintFlags& flags) override;
-  void drawArc(const SkRect& oval,
-               SkScalar start_angle,
-               SkScalar sweep_angle,
-               bool use_center,
-               const PaintFlags& flags) override;
   void drawRoundRect(const SkRect& rect,
                      SkScalar rx,
                      SkScalar ry,
@@ -94,20 +81,9 @@ class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
                      const SkRect& dst,
                      const PaintFlags* flags,
                      SrcRectConstraint constraint) override;
-  void drawBitmap(const SkBitmap& bitmap,
-                  SkScalar left,
-                  SkScalar top,
-                  const PaintFlags* flags) override;
-
-  void drawText(const void* text,
-                size_t byte_length,
-                SkScalar x,
-                SkScalar y,
-                const PaintFlags& flags) override;
-  void drawPosText(const void* text,
-                   size_t byte_length,
-                   const SkPoint pos[],
-                   const PaintFlags& flags) override;
+  void drawSkottie(scoped_refptr<SkottieWrapper> skottie,
+                   const SkRect& dst,
+                   float t) override;
   void drawTextBlob(sk_sp<SkTextBlob> blob,
                     SkScalar x,
                     SkScalar y,
@@ -122,12 +98,12 @@ class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
   void Annotate(AnnotationType type,
                 const SkRect& rect,
                 sk_sp<SkData> data) override;
+  void recordCustomData(uint32_t id) override;
 
   // Don't shadow non-virtual helper functions.
   using PaintCanvas::clipRect;
   using PaintCanvas::clipRRect;
   using PaintCanvas::clipPath;
-  using PaintCanvas::drawBitmap;
   using PaintCanvas::drawColor;
   using PaintCanvas::drawImage;
   using PaintCanvas::drawPicture;
@@ -136,7 +112,9 @@ class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
   const SkNoDrawCanvas* GetCanvas() const;
   SkNoDrawCanvas* GetCanvas();
 
-  PaintOpBuffer* buffer_;
+  bool InitializedWithRecordingBounds() const;
+
+  DisplayItemList* list_;
 
   // TODO(enne): Although RecordPaintCanvas is mostly a write-only interface
   // where paint commands are stored, occasionally users of PaintCanvas want

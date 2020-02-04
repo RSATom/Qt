@@ -1,7 +1,5 @@
 qtConfig(debug_and_release): CONFIG += debug_and_release
 
-include(core_common.pri)
-
 macos {
     # This fixes namespace builds on macOS. Specifically namespace ambiguity issues between Qt and
     # Chromium forward declarations of NSString.
@@ -30,156 +28,214 @@ RCC_DIR = $$OUT_PWD/$$getConfigDir()/.rcc
 # whenever we are cross compiling.
 qtConfig(webengine-embedded-build): DEFINES += QTWEBENGINE_EMBEDDED_SWITCHES
 
-qtConfig(egl): CONFIG += egl
-
-RESOURCES += devtools.qrc
-
 INCLUDEPATH += $$PWD $$PWD/api
 
+clang_cl {
+    QMAKE_CFLAGS -= $$QMAKE_CFLAGS_MSVC_COMPAT
+    QMAKE_CXXFLAGS -= $$QMAKE_CFLAGS_MSVC_COMPAT
+}
+
 SOURCES = \
-        access_token_store_qt.cpp \
+        accessibility_activation_observer.cpp \
+        accessibility_tree_formatter_qt.cpp \
         authentication_dialog_controller.cpp \
         browser_accessibility_manager_qt.cpp \
         browser_accessibility_qt.cpp \
-        browser_context_adapter.cpp \
-        browser_context_adapter_client.cpp \
-        browser_context_qt.cpp \
         browsing_data_remover_delegate_qt.cpp \
+        browser_main_parts_qt.cpp \
         browser_message_filter_qt.cpp \
         certificate_error_controller.cpp \
-        chromium_gpu_helper.cpp \
         chromium_overrides.cpp \
+        client_cert_select_controller.cpp \
         clipboard_qt.cpp \
         color_chooser_qt.cpp \
         color_chooser_controller.cpp \
+        command_line_pref_store_qt.cpp \
         common/qt_ipc_logging.cpp \
         common/qt_messages.cpp \
         common/user_script_data.cpp \
+        compositor/chromium_gpu_helper.cpp \
+        compositor/compositor.cpp \
+        compositor/compositor_resource_tracker.cpp \
+        compositor/content_gpu_client_qt.cpp \
+        compositor/delegated_frame_node.cpp \
         content_client_qt.cpp \
         content_browser_client_qt.cpp \
         content_main_delegate_qt.cpp \
-        cookie_monster_delegate_qt.cpp \
-        custom_protocol_handler.cpp \
-        delegated_frame_node.cpp \
+        content_utility_client_qt.cpp \
         desktop_screen_qt.cpp \
-        dev_tools_http_handler_delegate_qt.cpp \
+        devtools_frontend_qt.cpp \
+        devtools_manager_delegate_qt.cpp \
         download_manager_delegate_qt.cpp \
         favicon_manager.cpp \
         file_picker_controller.cpp \
-        gl_context_qt.cpp \
-        gl_surface_qt.cpp \
         javascript_dialog_controller.cpp \
         javascript_dialog_manager_qt.cpp \
+        login_delegate_qt.cpp \
         media_capture_devices_dispatcher.cpp \
         native_web_keyboard_event_qt.cpp \
-        network_delegate_qt.cpp \
-        ozone_platform_qt.cpp \
+        net/client_cert_override.cpp \
+        net/client_cert_store_data.cpp \
+        net/cookie_monster_delegate_qt.cpp \
+        net/custom_protocol_handler.cpp \
+        net/network_delegate_qt.cpp \
+        net/proxy_config_service_qt.cpp \
+        net/qrc_url_scheme_handler.cpp \
+        net/ssl_host_state_delegate_qt.cpp \
+        net/url_request_context_getter_qt.cpp \
+        net/url_request_custom_job.cpp \
+        net/url_request_custom_job_delegate.cpp \
+        net/url_request_custom_job_proxy.cpp \
+        net/url_request_notification.cpp \
+        net/webui_controller_factory_qt.cpp \
+        ozone/gl_context_qt.cpp \
+        ozone/gl_ozone_egl_qt.cpp \
+        ozone/gl_surface_qt.cpp \
+        ozone/gl_surface_egl_qt.cpp \
+        ozone/gl_surface_wgl_qt.cpp \
+        ozone/platform_window_qt.cpp \
+        ozone/surface_factory_qt.cpp \
         permission_manager_qt.cpp \
+        platform_notification_service_qt.cpp \
         process_main.cpp \
-        proxy_config_service_qt.cpp \
-        qrc_protocol_handler_qt.cpp \
-        render_view_observer_host_qt.cpp \
+        profile_adapter.cpp \
+        profile_adapter_client.cpp \
+        profile_qt.cpp \
+        profile_io_data_qt.cpp \
+        quota_permission_context_qt.cpp \
+        quota_request_controller_impl.cpp \
+        register_protocol_handler_request_controller_impl.cpp \
+        render_view_context_menu_qt.cpp \
         render_widget_host_view_qt.cpp \
         renderer/content_renderer_client_qt.cpp \
+        renderer/content_settings_observer_qt.cpp \
         renderer/render_frame_observer_qt.cpp \
         renderer/render_view_observer_qt.cpp \
+        renderer/render_thread_observer_qt.cpp \
         renderer/user_resource_controller.cpp \
-        renderer/web_channel_ipc_transport.cpp \
-        renderer_host/resource_dispatcher_host_delegate_qt.cpp \
+        renderer_host/render_view_observer_host_qt.cpp \
         renderer_host/user_resource_controller_host.cpp \
-        renderer_host/web_channel_ipc_transport_host.cpp \
         resource_bundle_qt.cpp \
         resource_context_qt.cpp \
-        ssl_host_state_delegate_qt.cpp \
-        surface_factory_qt.cpp \
+        service/service_qt.cpp \
+        touch_handle_drawable_qt.cpp \
+        touch_selection_controller_client_qt.cpp \
+        touch_selection_menu_controller.cpp \
         type_conversion.cpp \
-        url_request_context_getter_qt.cpp \
-        url_request_custom_job.cpp \
-        url_request_custom_job_delegate.cpp \
-        url_request_custom_job_proxy.cpp \
-        url_request_qrc_job_qt.cpp \
+        user_notification_controller.cpp \
         user_script.cpp \
         visited_links_manager_qt.cpp \
         web_contents_adapter.cpp \
         web_contents_delegate_qt.cpp \
         web_contents_view_qt.cpp \
         web_engine_context.cpp \
+        web_engine_context_threads.cpp \
         web_engine_error.cpp \
         web_engine_library_info.cpp \
         web_engine_settings.cpp \
         web_event_factory.cpp
 
 HEADERS = \
-        access_token_store_qt.h \
+        accessibility_activation_observer.h \
         authentication_dialog_controller_p.h \
         authentication_dialog_controller.h \
+        build_config_qt.h \
         browser_accessibility_manager_qt.h \
         browser_accessibility_qt.h \
-        browser_context_adapter.h \
-        browser_context_adapter_client.h \
-        browser_context_qt.h \
         browsing_data_remover_delegate_qt.h \
+        browser_main_parts_qt.h \
         browser_message_filter_qt.h \
         certificate_error_controller_p.h \
         certificate_error_controller.h \
-        chromium_overrides.h \
+        client_cert_select_controller.h \
+        clipboard_change_observer.h \
         clipboard_qt.h \
+        command_line_pref_store_qt.h \
         color_chooser_qt.h \
         color_chooser_controller_p.h \
         color_chooser_controller.h \
         common/qt_messages.h \
         common/user_script_data.h \
+        compositor/chromium_gpu_helper.h \
+        compositor/compositor.h \
+        compositor/compositor_resource.h \
+        compositor/compositor_resource_tracker.h \
+        compositor/content_gpu_client_qt.h \
+        compositor/delegated_frame_node.h \
         content_client_qt.h \
         content_browser_client_qt.h \
         content_main_delegate_qt.h \
-        cookie_monster_delegate_qt.h \
-        custom_protocol_handler.h \
-        delegated_frame_node.h \
+        content_utility_client_qt.h \
         desktop_screen_qt.h \
-        dev_tools_http_handler_delegate_qt.h \
+        devtools_frontend_qt.h \
+        devtools_manager_delegate_qt.h \
         download_manager_delegate_qt.h \
-        chromium_gpu_helper.h \
-        favicon_manager_p.h \
         favicon_manager.h \
         file_picker_controller.h \
-        gl_context_qt.h \
-        gl_surface_qt.h \
         global_descriptors_qt.h \
         javascript_dialog_controller_p.h \
         javascript_dialog_controller.h \
         javascript_dialog_manager_qt.h \
+        locked_ptr.h \
+        login_delegate_qt.h \
         media_capture_devices_dispatcher.h \
-        network_delegate_qt.h \
-        ozone_platform_qt.h \
+        net/client_cert_override.h \
+        net/client_cert_store_data.h \
+        net/cookie_monster_delegate_qt.h \
+        net/custom_protocol_handler.h \
+        net/network_delegate_qt.h \
+        net/qrc_url_scheme_handler.h \
+        net/ssl_host_state_delegate_qt.h \
+        net/url_request_context_getter_qt.h \
+        net/url_request_custom_job.h \
+        net/url_request_custom_job_delegate.h \
+        net/url_request_custom_job_proxy.h \
+        net/url_request_notification.h \
+        net/webui_controller_factory_qt.h \
+        ozone/gl_context_qt.h \
+        ozone/gl_ozone_egl_qt.h \
+        ozone/gl_surface_qt.h \
+        ozone/gl_surface_egl_qt.h \
+        ozone/gl_surface_wgl_qt.h \
+        ozone/platform_window_qt.h \
+        ozone/surface_factory_qt.h \
         permission_manager_qt.h \
+        platform_notification_service_qt.h \
         process_main.h \
+        profile_adapter.h \
+        profile_adapter_client.h \
+        profile_qt.h \
+        profile_io_data_qt.h \
         proxy_config_service_qt.h \
-        qrc_protocol_handler_qt.h \
-        render_view_observer_host_qt.h \
+        quota_permission_context_qt.h \
+        quota_request_controller.h \
+        quota_request_controller_impl.h \
+        register_protocol_handler_request_controller.h \
+        register_protocol_handler_request_controller_impl.h \
+        render_view_context_menu_qt.h \
         render_widget_host_view_qt.h \
         render_widget_host_view_qt_delegate.h \
         renderer/content_renderer_client_qt.h \
+        renderer/content_settings_observer_qt.h \
         renderer/render_frame_observer_qt.h \
         renderer/render_view_observer_qt.h \
+        renderer/render_thread_observer_qt.h \
         renderer/user_resource_controller.h \
-        renderer/web_channel_ipc_transport.h \
-        renderer_host/resource_dispatcher_host_delegate_qt.h \
+        renderer_host/render_view_observer_host_qt.h \
         renderer_host/user_resource_controller_host.h \
-        renderer_host/web_channel_ipc_transport_host.h \
+        request_controller.h \
         resource_context_qt.h \
-        ssl_host_state_delegate_qt.h \
-        surface_factory_qt.h \
+        service/service_qt.h \
+        touch_handle_drawable_client.h \
+        touch_handle_drawable_qt.h \
+        touch_selection_controller_client_qt.h \
+        touch_selection_menu_controller.h \
         type_conversion.h \
-        url_request_context_getter_qt.h \
-        url_request_custom_job.h \
-        url_request_custom_job_delegate.h \
-        url_request_custom_job_proxy.h \
-        url_request_qrc_job_qt.h \
+        user_notification_controller.h \
         user_script.h \
         visited_links_manager_qt.h \
         web_contents_adapter.h \
         web_contents_adapter_client.h \
-        web_contents_adapter_p.h \
         web_contents_delegate_qt.h \
         web_contents_view_qt.h \
         web_engine_context.h \
@@ -187,6 +243,14 @@ HEADERS = \
         web_engine_library_info.h \
         web_engine_settings.h \
         web_event_factory.h
+
+
+qtConfig(webengine-ozone-x11) {
+    HEADERS += ozone/gl_ozone_glx_qt.h \
+               ozone/gl_surface_glx_qt.h
+    SOURCES += ozone/gl_surface_glx_qt.cpp \
+               ozone/gl_ozone_glx_qt.cpp
+}
 
 qtConfig(webengine-pepper-plugins) {
 
@@ -208,34 +272,79 @@ qtConfig(webengine-pepper-plugins) {
 qtConfig(webengine-printing-and-pdf) {
 
     SOURCES += \
-        printing_message_filter_qt.cpp \
-        print_view_manager_base_qt.cpp \
-        print_view_manager_qt.cpp \
+        printing/printing_message_filter_qt.cpp \
+        printing/print_view_manager_base_qt.cpp \
+        printing/print_view_manager_qt.cpp \
         renderer/print_web_view_helper_delegate_qt.cpp
 
     HEADERS += \
-        printing_message_filter_qt.h \
-        print_view_manager_base_qt.h \
-        print_view_manager_qt.h \
+        printing/printing_message_filter_qt.h \
+        printing/print_view_manager_base_qt.h \
+        printing/print_view_manager_qt.h \
         renderer/print_web_view_helper_delegate_qt.h
 
     # pdf sources
-    SOURCES += pdfium_document_wrapper_qt.cpp
-    HEADERS += pdfium_document_wrapper_qt.h
+    SOURCES += printing/pdfium_document_wrapper_qt.cpp
+    HEADERS += printing/pdfium_document_wrapper_qt.h
 }
 
 contains(QT_CONFIG, opengl) {
     SOURCES += \
-        yuv_video_node.cpp \
-        stream_video_node.cpp
+        compositor/compositor_resource_fence.cpp \
+        compositor/stream_video_node.cpp \
+        compositor/yuv_video_node.cpp
 
     HEADERS += \
-        yuv_video_node.h \
-        stream_video_node.h
+        compositor/compositor_resource_fence.h \
+        compositor/stream_video_node.h \
+        compositor/yuv_video_node.h
 }
 
-qtHaveModule(positioning) {
+qtConfig(webengine-geolocation) {
     SOURCES += location_provider_qt.cpp
     HEADERS += location_provider_qt.h
-    DEFINES += QT_USE_POSITIONING=1
+}
+
+qtConfig(webengine-webchannel) {
+    HEADERS += renderer/web_channel_ipc_transport.h \
+               renderer_host/web_channel_ipc_transport_host.h
+
+    SOURCES += renderer/web_channel_ipc_transport.cpp \
+               renderer_host/web_channel_ipc_transport_host.cpp
+}
+
+qtConfig(webengine-extensions) {
+    SOURCES += \
+        common/extensions/extensions_api_provider_qt.cpp \
+        common/extensions/extensions_client_qt.cpp \
+        extensions/component_extension_resource_manager_qt.cpp \
+        extensions/extension_system_qt.cpp \
+        extensions/extension_system_factory_qt.cpp \
+        extensions/extension_web_contents_observer_qt.cpp \
+        extensions/extensions_api_client_qt.cpp \
+        extensions/extensions_browser_api_provider_qt.cpp \
+        extensions/extensions_browser_client_qt.cpp \
+        extensions/mime_handler_view_guest_delegate_qt.cpp \
+        renderer/extensions/extensions_dispatcher_delegate_qt.cpp \
+        renderer/extensions/extensions_renderer_client_qt.cpp \
+        renderer/extensions/renderer_permissions_policy_delegate_qt.cpp \
+        renderer/extensions/resource_request_policy_qt.cpp \
+        renderer_host/resource_dispatcher_host_delegate_qt.cpp
+
+    HEADERS += \
+        common/extensions/extensions_api_provider_qt.h \
+        common/extensions/extensions_client_qt.h \
+        extensions/component_extension_resource_manager_qt.h \
+        extensions/extension_system_qt.h \
+        extensions/extension_system_factory_qt.h \
+        extensions/extension_web_contents_observer_qt.h \
+        extensions/extensions_api_client_qt.h \
+        extensions/extensions_browser_api_provider_qt.h \
+        extensions/extensions_browser_client_qt.h \
+        extensions/mime_handler_view_guest_delegate_qt.h \
+        renderer/extensions/extensions_dispatcher_delegate_qt.h \
+        renderer/extensions/extensions_renderer_client_qt.h \
+        renderer/extensions/renderer_permissions_policy_delegate_qt.h \
+        renderer/extensions/resource_request_policy_qt.h \
+        renderer_host/resource_dispatcher_host_delegate_qt.h
 }

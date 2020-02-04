@@ -10,8 +10,8 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -26,8 +26,8 @@ TEST(MCSUtilTest, BuildLoginRequest) {
   std::unique_ptr<mcs_proto::LoginRequest> login_request =
       BuildLoginRequest(kAuthId, kAuthToken, "1.0");
   ASSERT_EQ("chrome-1.0", login_request->id());
-  ASSERT_EQ(base::Uint64ToString(kAuthToken), login_request->auth_token());
-  ASSERT_EQ(base::Uint64ToString(kAuthId), login_request->user());
+  ASSERT_EQ(base::NumberToString(kAuthToken), login_request->auth_token());
+  ASSERT_EQ(base::NumberToString(kAuthId), login_request->user());
   ASSERT_EQ("android-3d5c23dac2a1fa7c", login_request->device_id());
   ASSERT_EQ("new_vc", login_request->setting(0).name());
   ASSERT_EQ("1", login_request->setting(0).value());
@@ -52,7 +52,7 @@ TEST(MCSUtilTest, PersistentIds) {
     kIqStanzaTag,
     kDataMessageStanzaTag
   };
-  for (size_t i = 0; i < arraysize(kTagsWithPersistentIds); ++i) {
+  for (size_t i = 0; i < base::size(kTagsWithPersistentIds); ++i) {
     int tag = kTagsWithPersistentIds[i];
     std::unique_ptr<google::protobuf::MessageLite> protobuf =
         BuildProtobufFromTag(tag);
@@ -74,7 +74,7 @@ TEST(MCSUtilTest, StreamIds) {
     kHeartbeatAckTag,
     kLoginResponseTag,
   };
-  for (size_t i = 0; i < arraysize(kTagsWithStreamIds); ++i) {
+  for (size_t i = 0; i < base::size(kTagsWithStreamIds); ++i) {
     int tag = kTagsWithStreamIds[i];
     std::unique_ptr<google::protobuf::MessageLite> protobuf =
         BuildProtobufFromTag(tag);

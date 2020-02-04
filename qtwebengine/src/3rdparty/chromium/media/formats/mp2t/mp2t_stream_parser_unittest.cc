@@ -19,14 +19,15 @@
 #include "base/time/time.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/decoder_buffer.h"
-#include "media/base/media_log.h"
+#include "media/base/encryption_pattern.h"
 #include "media/base/media_track.h"
 #include "media/base/media_tracks.h"
+#include "media/base/media_util.h"
 #include "media/base/stream_parser_buffer.h"
 #include "media/base/test_data_util.h"
 #include "media/base/text_track_config.h"
 #include "media/base/video_decoder_config.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(ENABLE_HLS_SAMPLE_AES)
@@ -98,6 +99,7 @@ std::string DecryptSampleAES(const std::string& key,
   while (bytes_remaining) {
     int unused;
     size_t amount_to_decrypt = has_pattern ? 16UL : bytes_remaining;
+    EXPECT_EQ(amount_to_decrypt % 16UL, 0UL);
     EXPECT_EQ(EVP_CipherUpdate(ctx.get(), out_ptr, &unused, in_ptr,
                                amount_to_decrypt),
               1);
@@ -105,7 +107,7 @@ std::string DecryptSampleAES(const std::string& key,
     if (bytes_remaining) {
       out_ptr += amount_to_decrypt;
       in_ptr += amount_to_decrypt;
-      size_t amount_to_skip = 144UL;
+      size_t amount_to_skip = 144UL;  // Skip 9 blocks.
       if (amount_to_skip > bytes_remaining)
         amount_to_skip = bytes_remaining;
       memcpy(out_ptr, in_ptr, amount_to_skip);
@@ -125,9 +127,12 @@ std::string DecryptBuffer(const StreamParserBuffer& buffer,
                           const EncryptionScheme& scheme) {
   EXPECT_TRUE(scheme.is_encrypted());
   EXPECT_TRUE(scheme.mode() == EncryptionScheme::CIPHER_MODE_AES_CBC);
-  bool has_pattern = scheme.pattern().IsInEffect();
-  EXPECT_TRUE(!has_pattern ||
-              scheme.pattern().Matches(EncryptionScheme::Pattern(1, 9)));
+
+  // Audio streams use whole block full sample encryption (so pattern = {0,0}),
+  // so only the video stream uses pattern decryption. |has_pattern| is only
+  // used by DecryptSampleAES(), which assumes a {1,9} pattern if
+  // |has_pattern| = true.
+  bool has_pattern = scheme.pattern() == EncryptionPattern(1, 9);
 
   std::string key;
   EXPECT_TRUE(
@@ -174,7 +179,7 @@ class Mp2tStreamParserTest : public testing::Test {
   }
 
  protected:
-  MediaLog media_log_;
+  NullMediaLog media_log_;
   std::unique_ptr<Mp2tStreamParser> parser_;
   int segment_count_;
   int config_count_;
@@ -225,8 +230,7 @@ class Mp2tStreamParserTest : public testing::Test {
   }
 
   void OnInit(const StreamParser::InitParameters& params) {
-    DVLOG(1) << "OnInit: dur=" << params.duration.InMilliseconds()
-             << ", autoTimestampOffset=" << params.auto_update_timestamp_offset;
+    DVLOG(1) << "OnInit: dur=" << params.duration.InMilliseconds();
   }
 
   bool OnNewConfig(std::unique_ptr<MediaTracks> tracks,
@@ -351,14 +355,18 @@ class Mp2tStreamParserTest : public testing::Test {
 
   void InitializeParser() {
     parser_->Init(
-        base::Bind(&Mp2tStreamParserTest::OnInit, base::Unretained(this)),
-        base::Bind(&Mp2tStreamParserTest::OnNewConfig, base::Unretained(this)),
-        base::Bind(&Mp2tStreamParserTest::OnNewBuffers, base::Unretained(this)),
+        base::BindOnce(&Mp2tStreamParserTest::OnInit, base::Unretained(this)),
+        base::BindRepeating(&Mp2tStreamParserTest::OnNewConfig,
+                            base::Unretained(this)),
+        base::BindRepeating(&Mp2tStreamParserTest::OnNewBuffers,
+                            base::Unretained(this)),
         true,
-        base::Bind(&Mp2tStreamParserTest::OnKeyNeeded, base::Unretained(this)),
-        base::Bind(&Mp2tStreamParserTest::OnNewSegment, base::Unretained(this)),
-        base::Bind(&Mp2tStreamParserTest::OnEndOfSegment,
-                   base::Unretained(this)),
+        base::BindRepeating(&Mp2tStreamParserTest::OnKeyNeeded,
+                            base::Unretained(this)),
+        base::BindRepeating(&Mp2tStreamParserTest::OnNewSegment,
+                            base::Unretained(this)),
+        base::BindRepeating(&Mp2tStreamParserTest::OnEndOfSegment,
+                            base::Unretained(this)),
         &media_log_);
   }
 
@@ -504,6 +512,19 @@ TEST_F(Mp2tStreamParserTest, HLSSampleAES) {
     EXPECT_EQ(decrypted_audio_buffers[i], unencrypted_audio_buffer);
   }
 }
+
+TEST_F(Mp2tStreamParserTest, PrepareForHLSSampleAES) {
+  InitializeParser();
+  ParseMpeg2TsFile("bear-1280x720-hls-with-CAT.bin", 2048);
+  parser_->Flush();
+  EncryptionScheme video_encryption_scheme =
+      current_video_config_.encryption_scheme();
+  EXPECT_TRUE(video_encryption_scheme.is_encrypted());
+  EncryptionScheme audio_encryption_scheme =
+      current_audio_config_.encryption_scheme();
+  EXPECT_TRUE(audio_encryption_scheme.is_encrypted());
+}
+
 #endif
 
 }  // namespace mp2t

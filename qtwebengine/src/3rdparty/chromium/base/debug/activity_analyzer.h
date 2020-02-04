@@ -137,12 +137,26 @@ class BASE_EXPORT GlobalActivityAnalyzer {
 
   ~GlobalActivityAnalyzer();
 
+  // Creates a global analyzer using a given persistent-memory |allocator|.
+  static std::unique_ptr<GlobalActivityAnalyzer> CreateWithAllocator(
+      std::unique_ptr<PersistentMemoryAllocator> allocator);
+
 #if !defined(OS_NACL)
   // Creates a global analyzer using the contents of a file given in
   // |file_path|.
   static std::unique_ptr<GlobalActivityAnalyzer> CreateWithFile(
       const FilePath& file_path);
 #endif  // !defined(OS_NACL)
+
+  // Like above but accesses an allocator in a mapped shared-memory segment.
+  static std::unique_ptr<GlobalActivityAnalyzer> CreateWithSharedMemory(
+      std::unique_ptr<SharedMemory> shm);
+
+  // Like above but takes a handle to an existing shared memory segment and
+  // maps it before creating the tracker.
+  static std::unique_ptr<GlobalActivityAnalyzer> CreateWithSharedMemoryHandle(
+      const SharedMemoryHandle& handle,
+      size_t size);
 
   // Iterates over all known valid processes and returns their PIDs or zero
   // if there are no more. Calls to GetFirstProcess() will perform a global
@@ -179,8 +193,10 @@ class BASE_EXPORT GlobalActivityAnalyzer {
   // Gets all log messages stored within.
   std::vector<std::string> GetLogMessages();
 
-  // Gets all the known modules.
-  std::vector<GlobalActivityTracker::ModuleInfo> GetModules();
+  // Gets modules corresponding to a pid. This pid must come from a call to
+  // GetFirst/NextProcess. Only modules that were first registered prior to
+  // GetFirstProcess's snapshot are returned.
+  std::vector<GlobalActivityTracker::ModuleInfo> GetModules(int64_t pid);
 
   // Gets the corresponding "program location" for a given "program counter".
   // This will return {0,0} if no mapping could be found.

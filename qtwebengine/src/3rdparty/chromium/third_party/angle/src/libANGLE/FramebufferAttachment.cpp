@@ -11,44 +11,61 @@
 
 #include "common/utilities.h"
 #include "libANGLE/Config.h"
+#include "libANGLE/Context.h"
 #include "libANGLE/Renderbuffer.h"
 #include "libANGLE/Surface.h"
 #include "libANGLE/Texture.h"
 #include "libANGLE/formatutils.h"
-#include "libANGLE/renderer/FramebufferImpl.h"
 #include "libANGLE/renderer/FramebufferAttachmentObjectImpl.h"
+#include "libANGLE/renderer/FramebufferImpl.h"
 
 namespace gl
 {
 
+namespace
+{
+
+std::vector<Offset> TransformViewportOffsetArrayToVectorOfOffsets(const GLint *viewportOffsets,
+                                                                  GLsizei numViews)
+{
+    const size_t numViewsAsSizeT = static_cast<size_t>(numViews);
+    std::vector<Offset> offsetVector;
+    offsetVector.reserve(numViewsAsSizeT);
+    for (size_t i = 0u; i < numViewsAsSizeT; ++i)
+    {
+        offsetVector.emplace_back(Offset(viewportOffsets[i * 2u], viewportOffsets[i * 2u + 1u], 0));
+    }
+    return offsetVector;
+}
+
+}  // namespace
+
 ////// FramebufferAttachment::Target Implementation //////
 
-const GLint FramebufferAttachment::kDefaultNumViews           = 1;
+const GLsizei FramebufferAttachment::kDefaultNumViews         = 1;
 const GLenum FramebufferAttachment::kDefaultMultiviewLayout   = GL_NONE;
 const GLint FramebufferAttachment::kDefaultBaseViewIndex      = 0;
 const GLint FramebufferAttachment::kDefaultViewportOffsets[2] = {0};
 
-FramebufferAttachment::Target::Target()
-    : mBinding(GL_NONE),
-      mTextureIndex(ImageIndex::MakeInvalid())
+std::vector<Offset> FramebufferAttachment::GetDefaultViewportOffsetVector()
 {
+    return TransformViewportOffsetArrayToVectorOfOffsets(
+        FramebufferAttachment::kDefaultViewportOffsets, FramebufferAttachment::kDefaultNumViews);
 }
+
+FramebufferAttachment::Target::Target() : mBinding(GL_NONE), mTextureIndex() {}
 
 FramebufferAttachment::Target::Target(GLenum binding, const ImageIndex &imageIndex)
-    : mBinding(binding),
-      mTextureIndex(imageIndex)
-{
-}
+    : mBinding(binding), mTextureIndex(imageIndex)
+{}
 
 FramebufferAttachment::Target::Target(const Target &other)
-    : mBinding(other.mBinding),
-      mTextureIndex(other.mTextureIndex)
-{
-}
+    : mBinding(other.mBinding), mTextureIndex(other.mTextureIndex)
+{}
 
 FramebufferAttachment::Target &FramebufferAttachment::Target::operator=(const Target &other)
 {
-    this->mBinding = other.mBinding;
+    this->mBinding      = other.mBinding;
     this->mTextureIndex = other.mTextureIndex;
     return *this;
 }
@@ -61,9 +78,8 @@ FramebufferAttachment::FramebufferAttachment()
       mNumViews(kDefaultNumViews),
       mMultiviewLayout(kDefaultMultiviewLayout),
       mBaseViewIndex(kDefaultBaseViewIndex),
-      mViewportOffsets(1u)
-{
-}
+      mViewportOffsets(GetDefaultViewportOffsetVector())
+{}
 
 FramebufferAttachment::FramebufferAttachment(const Context *context,
                                              GLenum type,
@@ -110,8 +126,7 @@ void FramebufferAttachment::detach(const Context *context)
     mNumViews        = kDefaultNumViews;
     mMultiviewLayout = kDefaultMultiviewLayout;
     mBaseViewIndex   = kDefaultBaseViewIndex;
-    mViewportOffsets.resize(1u);
-    mViewportOffsets[0] = Offset();
+    mViewportOffsets = GetDefaultViewportOffsetVector();
 
     // not technically necessary, could omit for performance
     mTarget = Target();
@@ -133,15 +148,18 @@ void FramebufferAttachment::attach(const Context *context,
         return;
     }
 
-    mType = type;
-    mTarget = Target(binding, textureIndex);
+    mType            = type;
+    mTarget          = Target(binding, textureIndex);
     mNumViews        = numViews;
     mBaseViewIndex   = baseViewIndex;
     mMultiviewLayout = multiviewLayout;
-    mViewportOffsets.resize(numViews);
-    for (size_t i = 0u; i < mViewportOffsets.size(); ++i)
+    if (multiviewLayout == GL_FRAMEBUFFER_MULTIVIEW_SIDE_BY_SIDE_ANGLE)
     {
-        mViewportOffsets[i] = Offset(viewportOffsets[i * 2u], viewportOffsets[i * 2u + 1u], 0);
+        mViewportOffsets = TransformViewportOffsetArrayToVectorOfOffsets(viewportOffsets, numViews);
+    }
+    else
+    {
+        mViewportOffsets = GetDefaultViewportOffsetVector();
     }
     resource->onAttach(context);
 
@@ -204,36 +222,31 @@ const ImageIndex &FramebufferAttachment::getTextureImageIndex() const
     return mTarget.textureIndex();
 }
 
-GLenum FramebufferAttachment::cubeMapFace() const
+TextureTarget FramebufferAttachment::cubeMapFace() const
 {
     ASSERT(mType == GL_TEXTURE);
 
     const auto &index = mTarget.textureIndex();
-    return IsCubeMapTextureTarget(index.type) ? index.type : GL_NONE;
+    return index.getType() == TextureType::CubeMap ? index.getTarget() : TextureTarget::InvalidEnum;
 }
 
 GLint FramebufferAttachment::mipLevel() const
 {
     ASSERT(type() == GL_TEXTURE);
-    return mTarget.textureIndex().mipIndex;
+    return mTarget.textureIndex().getLevelIndex();
 }
 
 GLint FramebufferAttachment::layer() const
 {
     ASSERT(mType == GL_TEXTURE);
 
-    const auto &index = mTarget.textureIndex();
-
-    if (index.type == GL_TEXTURE_2D_ARRAY || index.type == GL_TEXTURE_3D)
-    {
-        return index.layerIndex;
-    }
-    return 0;
+    const gl::ImageIndex &index = mTarget.textureIndex();
+    return (index.has3DLayer() ? index.getLayerIndex() : 0);
 }
 
-GLint FramebufferAttachment::getNumViews() const
+bool FramebufferAttachment::isLayered() const
 {
-    return mNumViews;
+    return mTarget.textureIndex().isLayered();
 }
 
 GLenum FramebufferAttachment::getMultiviewLayout() const
@@ -293,7 +306,32 @@ bool FramebufferAttachment::operator!=(const FramebufferAttachment &other) const
     return !(*this == other);
 }
 
-Error FramebufferAttachmentObject::getAttachmentRenderTarget(
+InitState FramebufferAttachment::initState() const
+{
+    return mResource ? mResource->initState(mTarget.textureIndex()) : InitState::Initialized;
+}
+
+angle::Result FramebufferAttachment::initializeContents(const Context *context)
+{
+    ASSERT(mResource);
+    ANGLE_TRY(mResource->initializeContents(context, mTarget.textureIndex()));
+    setInitState(InitState::Initialized);
+    return angle::Result::Continue;
+}
+
+void FramebufferAttachment::setInitState(InitState initState) const
+{
+    ASSERT(mResource);
+    mResource->setInitState(mTarget.textureIndex(), initState);
+}
+
+////// FramebufferAttachmentObject Implementation //////
+
+FramebufferAttachmentObject::FramebufferAttachmentObject() {}
+
+FramebufferAttachmentObject::~FramebufferAttachmentObject() {}
+
+angle::Result FramebufferAttachmentObject::getAttachmentRenderTarget(
     const Context *context,
     GLenum binding,
     const ImageIndex &imageIndex,
@@ -302,9 +340,28 @@ Error FramebufferAttachmentObject::getAttachmentRenderTarget(
     return getAttachmentImpl()->getAttachmentRenderTarget(context, binding, imageIndex, rtOut);
 }
 
-angle::BroadcastChannel<> *FramebufferAttachmentObject::getDirtyChannel()
+angle::Result FramebufferAttachmentObject::initializeContents(const Context *context,
+                                                              const ImageIndex &imageIndex)
 {
-    return &mDirtyChannel;
+    ASSERT(context->isRobustResourceInitEnabled());
+
+    // Because gl::Texture cannot support tracking individual layer dirtiness, we only handle
+    // initializing entire mip levels for 2D array textures.
+    if (imageIndex.getType() == TextureType::_2DArray && imageIndex.hasLayer())
+    {
+        ImageIndex fullMipIndex =
+            ImageIndex::Make2DArray(imageIndex.getLevelIndex(), ImageIndex::kEntireLevel);
+        return getAttachmentImpl()->initializeContents(context, fullMipIndex);
+    }
+    else if (imageIndex.getType() == TextureType::_2DMultisampleArray && imageIndex.hasLayer())
+    {
+        ImageIndex fullMipIndex = ImageIndex::Make2DMultisampleArray(ImageIndex::kEntireLevel);
+        return getAttachmentImpl()->initializeContents(context, fullMipIndex);
+    }
+    else
+    {
+        return getAttachmentImpl()->initializeContents(context, imageIndex);
+    }
 }
 
 }  // namespace gl

@@ -12,18 +12,20 @@
 namespace viz {
 
 class CompositorFrameSinkSupport;
-class CompositorFrameSinkSupportClient;
 class FrameSinkId;
+
+namespace mojom {
+class CompositorFrameSinkClient;
+}
 
 // This inteface provides a way for DirectLayerTreeFrameSink to create a
 // CompositorFrameSinkSupport.
 class CompositorFrameSinkSupportManager {
  public:
   virtual std::unique_ptr<CompositorFrameSinkSupport>
-  CreateCompositorFrameSinkSupport(CompositorFrameSinkSupportClient* client,
+  CreateCompositorFrameSinkSupport(mojom::CompositorFrameSinkClient* client,
                                    const FrameSinkId& frame_sink_id,
                                    bool is_root,
-                                   bool handles_frame_sink_id_invalidation,
                                    bool needs_sync_points) = 0;
 
  protected:

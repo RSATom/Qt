@@ -4,9 +4,10 @@
 
 #include "content/common/cursors/webcursor.h"
 
-#include "third_party/WebKit/public/platform/WebCursorInfo.h"
+#include "third_party/blink/public/platform/web_cursor_info.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/cursor/cursor_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/ozone/public/cursor_factory_ozone.h"
 
 namespace {
@@ -16,27 +17,15 @@ const int kDefaultMaxCursorHeight = 64;
 
 namespace content {
 
-ui::PlatformCursor WebCursor::GetPlatformCursor() {
-  if (platform_cursor_)
-    return platform_cursor_;
+ui::PlatformCursor WebCursor::GetPlatformCursor(const ui::Cursor& cursor) {
+  if (features::IsUsingWindowService())
+    return nullptr;
 
-  SkBitmap bitmap;
-  ImageFromCustomData(&bitmap);
-  gfx::Point hotspot = hotspot_;
+  if (!platform_cursor_) {
+    platform_cursor_ = ui::CursorFactoryOzone::GetInstance()->CreateImageCursor(
+        cursor.GetBitmap(), cursor.GetHotspot(), cursor.device_scale_factor());
+  }
 
-  float scale = device_scale_factor_ / custom_scale_;
-  DCHECK_LT(0, maximum_cursor_size_.width());
-  DCHECK_LT(0, maximum_cursor_size_.height());
-  scale = std::min(
-      scale, static_cast<float>(maximum_cursor_size_.width()) / bitmap.width());
-  scale = std::min(scale, static_cast<float>(maximum_cursor_size_.height()) /
-                              bitmap.height());
-
-  ui::ScaleAndRotateCursorBitmapAndHotpoint(scale, rotation_, &bitmap,
-                                            &hotspot);
-
-  platform_cursor_ = ui::CursorFactoryOzone::GetInstance()->CreateImageCursor(
-      bitmap, hotspot, scale);
   return platform_cursor_;
 }
 
@@ -61,20 +50,21 @@ void WebCursor::SetDisplayInfo(const display::Display& display) {
   // recreated on demand when GetPlatformCursor is called.
 }
 
+float WebCursor::GetCursorScaleFactor(SkBitmap* bitmap) {
+  DCHECK_LT(0, maximum_cursor_size_.width());
+  DCHECK_LT(0, maximum_cursor_size_.height());
+  return std::min(
+      {device_scale_factor_ / custom_scale_,
+       static_cast<float>(maximum_cursor_size_.width()) / bitmap->width(),
+       static_cast<float>(maximum_cursor_size_.height()) / bitmap->height()});
+}
+
 void WebCursor::InitPlatformData() {
   platform_cursor_ = NULL;
   device_scale_factor_ = 1.f;
   rotation_ = display::Display::ROTATE_0;
   maximum_cursor_size_ =
       gfx::Size(kDefaultMaxCursorWidth, kDefaultMaxCursorHeight);
-}
-
-bool WebCursor::SerializePlatformData(base::Pickle* pickle) const {
-  return true;
-}
-
-bool WebCursor::DeserializePlatformData(base::PickleIterator* iter) {
-  return true;
 }
 
 bool WebCursor::IsPlatformDataEqual(const WebCursor& other) const {

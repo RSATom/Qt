@@ -9,11 +9,9 @@
 namespace gpu {
 namespace {
 
-scoped_refptr<Buffer> MakeBufferForTesting(size_t num_handles) {
-  size_t size = sizeof(base::subtle::Atomic32) * num_handles;
-  std::unique_ptr<base::SharedMemory> shared_mem(new base::SharedMemory);
-  shared_mem->CreateAndMapAnonymous(size);
-  return MakeBufferFromSharedMemory(std::move(shared_mem), size);
+scoped_refptr<Buffer> MakeBufferForTesting(uint32_t num_handles) {
+  uint32_t size = sizeof(base::subtle::Atomic32) * num_handles;
+  return MakeMemoryBuffer(size);
 }
 
 }  // namespace

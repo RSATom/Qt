@@ -54,40 +54,13 @@ Polymer({
     enableForget_: Boolean,
   },
 
+  listeners: {'network-list-changed': 'refreshNetworks_'},
+
   /** @private {string} */
   selectedGuid_: '',
 
-  /**
-   * Listener function for chrome.networkingPrivate.onNetworksChanged event.
-   * @type {function(!Array<string>)}
-   * @private
-   */
-  networksChangedListener_: function() {},
-
-  /** @override */
-  attached: function() {
-    this.networksChangedListener_ = this.onNetworksChangedEvent_.bind(this);
-    this.networkingPrivate.onNetworksChanged.addListener(
-        this.networksChangedListener_);
-  },
-
-  /** @override */
-  detached: function() {
-    this.networkingPrivate.onNetworksChanged.removeListener(
-        this.networksChangedListener_);
-  },
-
   /** @private */
   networkTypeChanged_: function() {
-    this.refreshNetworks_();
-  },
-
-  /**
-   * networkingPrivate.onNetworksChanged event callback.
-   * @param {!Array<string>} networkIds The list of changed network GUIDs.
-   * @private
-   */
-  onNetworksChangedEvent_: function(networkIds) {
     this.refreshNetworks_();
   },
 
@@ -97,16 +70,17 @@ Polymer({
    * @private
    */
   refreshNetworks_: function() {
-    if (!this.networkType)
+    if (!this.networkType) {
       return;
-    var filter = {
+    }
+    const filter = {
       networkType: this.networkType,
       visible: false,
       configured: true
     };
-    this.networkingPrivate.getNetworks(filter, function(states) {
+    this.networkingPrivate.getNetworks(filter, states => {
       this.networkStateList_ = states;
-    }.bind(this));
+    });
   },
 
   /**
@@ -133,9 +107,8 @@ Polymer({
    * @private
    */
   havePreferred_: function() {
-    return this.networkStateList_.find(function(state) {
-      return this.networkIsPreferred_(state);
-    }.bind(this)) !== undefined;
+    return this.networkStateList_.find(
+               state => this.networkIsPreferred_(state)) !== undefined;
   },
 
   /**
@@ -143,9 +116,8 @@ Polymer({
    * @private
    */
   haveNotPreferred_: function() {
-    return this.networkStateList_.find(function(state) {
-      return this.networkIsNotPreferred_(state);
-    }.bind(this)) !== undefined;
+    return this.networkStateList_.find(
+               state => this.networkIsNotPreferred_(state)) !== undefined;
   },
 
   /**
@@ -153,7 +125,7 @@ Polymer({
    * @private
    */
   onMenuButtonTap_: function(event) {
-    var button = /** @type {!HTMLElement} */ (event.target);
+    const button = /** @type {!HTMLElement} */ (event.target);
     this.selectedGuid_ =
         /** @type {!{model: !{item: !CrOnc.NetworkStateProperties}}} */ (event)
             .model.item.GUID;
@@ -161,13 +133,13 @@ Polymer({
     // properties for the network. The delay is not noticeable (~5ms) and is
     // preferable to initiating a query for every known network at load time.
     this.networkingPrivate.getManagedProperties(
-        this.selectedGuid_, function(properties) {
+        this.selectedGuid_, properties => {
           if (chrome.runtime.lastError || !properties) {
             console.error(
                 'Unexpected error: ' + chrome.runtime.lastError.message);
             return;
           }
-          var preferred = button.hasAttribute('preferred');
+          const preferred = button.hasAttribute('preferred');
           if (this.isNetworkPolicyEnforced(properties.Priority)) {
             this.showAddPreferred_ = false;
             this.showRemovePreferred_ = false;
@@ -177,7 +149,7 @@ Polymer({
           }
           this.enableForget_ = !this.isPolicySource(properties.Source);
           /** @type {!CrActionMenuElement} */ (this.$.dotsMenu).showAt(button);
-        }.bind(this));
+        });
     event.stopPropagation();
   },
 
@@ -206,10 +178,19 @@ Polymer({
    * @private
    */
   fireShowDetails_: function(event) {
-    var state =
+    const state =
         /** @type {!{model: !{item: !CrOnc.NetworkStateProperties}}} */ (event)
             .model.item;
     this.fire('show-detail', state);
+    event.stopPropagation();
+  },
+
+  /**
+   * Make sure events in embedded components do not propagate to onDetailsTap_.
+   * @param {!Event} event
+   * @private
+   */
+  doNothing_: function(event) {
     event.stopPropagation();
   },
 });

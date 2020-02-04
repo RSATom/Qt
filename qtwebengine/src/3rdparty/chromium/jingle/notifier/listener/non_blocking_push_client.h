@@ -46,8 +46,10 @@ class NonBlockingPushClient : public PushClient {
   void AddObserver(PushClientObserver* observer) override;
   void RemoveObserver(PushClientObserver* observer) override;
   void UpdateSubscriptions(const SubscriptionList& subscriptions) override;
-  void UpdateCredentials(const std::string& email,
-                         const std::string& token) override;
+  void UpdateCredentials(
+      const std::string& email,
+      const std::string& token,
+      const net::NetworkTrafficAnnotationTag& traffic_annotation) override;
   void SendNotification(const Notification& notification) override;
   void SendPing() override;
 
@@ -63,7 +65,7 @@ class NonBlockingPushClient : public PushClient {
   const scoped_refptr<base::SingleThreadTaskRunner> delegate_task_runner_;
   scoped_refptr<Core> core_;
 
-  base::ObserverList<PushClientObserver> observers_;
+  base::ObserverList<PushClientObserver>::Unchecked observers_;
 
   base::WeakPtrFactory<NonBlockingPushClient> weak_ptr_factory_;
 

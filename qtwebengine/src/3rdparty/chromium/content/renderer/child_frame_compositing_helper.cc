@@ -6,297 +6,136 @@
 
 #include <utility>
 
-#include "cc/blink/web_layer_impl.h"
-#include "cc/layers/picture_image_layer.h"
-#include "cc/layers/solid_color_layer.h"
+#include "build/build_config.h"
+#include "cc/layers/picture_layer.h"
 #include "cc/layers/surface_layer.h"
-#include "cc/output/copy_output_request.h"
-#include "cc/output/copy_output_result.h"
 #include "cc/paint/paint_image.h"
-#include "cc/resources/single_release_callback.h"
-#include "components/viz/common/gpu/context_provider.h"
-#include "components/viz/common/surfaces/sequence_surface_reference_factory.h"
-#include "content/child/thread_safe_sender.h"
-#include "content/common/browser_plugin/browser_plugin_messages.h"
-#include "content/common/content_switches_internal.h"
-#include "content/common/frame_messages.h"
-#include "content/public/common/content_client.h"
-#include "content/public/renderer/content_renderer_client.h"
-#include "content/renderer/browser_plugin/browser_plugin.h"
-#include "content/renderer/browser_plugin/browser_plugin_manager.h"
-#include "content/renderer/render_frame_impl.h"
-#include "content/renderer/render_frame_proxy.h"
-#include "content/renderer/render_thread_impl.h"
-#include "services/ui/public/cpp/gpu/context_provider_command_buffer.h"
+#include "cc/paint/paint_image_builder.h"
+#include "content/renderer/child_frame_compositor.h"
 #include "skia/ext/image_operations.h"
-#include "third_party/WebKit/public/web/WebPluginContainer.h"
-#include "third_party/WebKit/public/web/WebRemoteFrame.h"
-#include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "ui/gfx/geometry/point_f.h"
-#include "ui/gfx/geometry/size_conversions.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/gfx/skia_util.h"
 
 namespace content {
 
-namespace {
-
-class IframeSurfaceReferenceFactory
-    : public viz::SequenceSurfaceReferenceFactory {
- public:
-  IframeSurfaceReferenceFactory(scoped_refptr<ThreadSafeSender> sender,
-                                int routing_id)
-      : sender_(std::move(sender)), routing_id_(routing_id) {}
-
-  void AddPendingSequence(const viz::SurfaceSequence& sequence) {
-    ReleasePendingSequenceIfNecessary();
-    pending_sequence_ = sequence;
-  }
-
- private:
-  ~IframeSurfaceReferenceFactory() override {
-    ReleasePendingSequenceIfNecessary();
-  }
-
-  void ReleasePendingSequenceIfNecessary() const {
-    if (pending_sequence_.is_valid()) {
-      sender_->Send(
-          new FrameHostMsg_SatisfySequence(routing_id_, pending_sequence_));
-      pending_sequence_ = viz::SurfaceSequence();
-    }
-  }
-
-  // cc::SequenceSurfaceReferenceFactory implementation:
-  void RequireSequence(const viz::SurfaceId& surface_id,
-                       const viz::SurfaceSequence& sequence) const override {
-    sender_->Send(
-        new FrameHostMsg_RequireSequence(routing_id_, surface_id, sequence));
-    // If there is a temporary reference that was waiting on a new one to be
-    // created, it is now safe to release it.
-    ReleasePendingSequenceIfNecessary();
-  }
-
-  void SatisfySequence(const viz::SurfaceSequence& sequence) const override {
-    sender_->Send(new FrameHostMsg_SatisfySequence(routing_id_, sequence));
-  }
-
-  const scoped_refptr<ThreadSafeSender> sender_;
-  mutable viz::SurfaceSequence pending_sequence_;
-  const int routing_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(IframeSurfaceReferenceFactory);
-};
-
-class BrowserPluginSurfaceReferenceFactory
-    : public viz::SequenceSurfaceReferenceFactory {
- public:
-  BrowserPluginSurfaceReferenceFactory(scoped_refptr<ThreadSafeSender> sender,
-                                       int routing_id,
-                                       int browser_plugin_instance_id)
-      : sender_(std::move(sender)),
-        routing_id_(routing_id),
-        browser_plugin_instance_id_(browser_plugin_instance_id) {}
-
-  void AddPendingSequence(const viz::SurfaceSequence& sequence) {
-    ReleasePendingSequenceIfNecessary();
-    pending_sequence_ = sequence;
-  }
-
- private:
-  ~BrowserPluginSurfaceReferenceFactory() override {
-    ReleasePendingSequenceIfNecessary();
-  }
-
-  void ReleasePendingSequenceIfNecessary() const {
-    if (pending_sequence_.is_valid()) {
-      sender_->Send(new BrowserPluginHostMsg_SatisfySequence(
-          routing_id_, browser_plugin_instance_id_, pending_sequence_));
-      pending_sequence_ = viz::SurfaceSequence();
-    }
-  }
-
-  // cc::SequenceSurfaceRefrenceFactory implementation:
-  void SatisfySequence(const viz::SurfaceSequence& seq) const override {
-    sender_->Send(new BrowserPluginHostMsg_SatisfySequence(
-        routing_id_, browser_plugin_instance_id_, seq));
-  }
-
-  void RequireSequence(const viz::SurfaceId& surface_id,
-                       const viz::SurfaceSequence& sequence) const override {
-    sender_->Send(new BrowserPluginHostMsg_RequireSequence(
-        routing_id_, browser_plugin_instance_id_, surface_id, sequence));
-    // If there is a temporary reference that was waiting on a new one to be
-    // created, it is now safe to release it.
-    ReleasePendingSequenceIfNecessary();
-  }
-
-  const scoped_refptr<ThreadSafeSender> sender_;
-  mutable viz::SurfaceSequence pending_sequence_;
-  const int routing_id_;
-  const int browser_plugin_instance_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserPluginSurfaceReferenceFactory);
-};
-
-}  // namespace
-
-ChildFrameCompositingHelper*
-ChildFrameCompositingHelper::CreateForBrowserPlugin(
-    const base::WeakPtr<BrowserPlugin>& browser_plugin) {
-  return new ChildFrameCompositingHelper(
-      browser_plugin, nullptr, nullptr,
-      browser_plugin->render_frame_routing_id());
-}
-
-ChildFrameCompositingHelper*
-ChildFrameCompositingHelper::CreateForRenderFrameProxy(
-    RenderFrameProxy* render_frame_proxy) {
-  return new ChildFrameCompositingHelper(
-      base::WeakPtr<BrowserPlugin>(), render_frame_proxy->web_frame(),
-      render_frame_proxy, render_frame_proxy->routing_id());
-}
-
 ChildFrameCompositingHelper::ChildFrameCompositingHelper(
-    const base::WeakPtr<BrowserPlugin>& browser_plugin,
-    blink::WebRemoteFrame* frame,
-    RenderFrameProxy* render_frame_proxy,
-    int host_routing_id)
-    : host_routing_id_(host_routing_id),
-      browser_plugin_(browser_plugin),
-      render_frame_proxy_(render_frame_proxy),
-      frame_(frame) {
-  scoped_refptr<ThreadSafeSender> sender(
-      RenderThreadImpl::current()->thread_safe_sender());
-  if (render_frame_proxy_) {
-    surface_reference_factory_ =
-        new IframeSurfaceReferenceFactory(sender, host_routing_id_);
-  } else {
-    surface_reference_factory_ = new BrowserPluginSurfaceReferenceFactory(
-        sender, host_routing_id_,
-        browser_plugin_->browser_plugin_instance_id());
-  }
+    ChildFrameCompositor* child_frame_compositor)
+    : child_frame_compositor_(child_frame_compositor) {
+  DCHECK(child_frame_compositor_);
 }
 
 ChildFrameCompositingHelper::~ChildFrameCompositingHelper() {
+  if (crash_ui_layer_)
+    crash_ui_layer_->ClearClient();
 }
 
-blink::WebPluginContainer* ChildFrameCompositingHelper::GetContainer() {
-  if (!browser_plugin_)
-    return nullptr;
+void ChildFrameCompositingHelper::ChildFrameGone(
+    const gfx::Size& frame_size_in_dip,
+    float device_scale_factor) {
+  surface_id_ = viz::SurfaceId();
+  device_scale_factor_ = device_scale_factor;
 
-  return browser_plugin_->Container();
+  crash_ui_layer_ = cc::PictureLayer::Create(this);
+  crash_ui_layer_->SetMasksToBounds(true);
+  crash_ui_layer_->SetIsDrawable(true);
+
+  bool prevent_contents_opaque_changes = false;
+  bool is_surface_layer = false;
+  child_frame_compositor_->SetLayer(
+      crash_ui_layer_, prevent_contents_opaque_changes, is_surface_layer);
 }
 
-void ChildFrameCompositingHelper::UpdateWebLayer(
-    std::unique_ptr<blink::WebLayer> layer) {
-  if (GetContainer()) {
-    GetContainer()->SetWebLayer(layer.get());
-  } else if (frame_) {
-    frame_->SetWebLayer(layer.get());
-  }
-  web_layer_ = std::move(layer);
-}
+void ChildFrameCompositingHelper::SetSurfaceId(
+    const viz::SurfaceId& surface_id,
+    const gfx::Size& frame_size_in_dip,
+    const cc::DeadlinePolicy& deadline) {
+  if (surface_id_ == surface_id)
+    return;
 
-void ChildFrameCompositingHelper::CheckSizeAndAdjustLayerProperties(
-    const gfx::Size& new_size,
-    float device_scale_factor,
-    cc::Layer* layer) {
-  if (buffer_size_ != new_size) {
-    buffer_size_ = new_size;
-    // The container size is in DIP, so is the layer size.
-    // Buffer size is in physical pixels, so we need to adjust
-    // it by the device scale factor.
-    gfx::Size device_scale_adjusted_size =
-        gfx::ScaleToFlooredSize(buffer_size_, 1.0f / device_scale_factor);
-    layer->SetBounds(device_scale_adjusted_size);
-  }
-}
+  surface_id_ = surface_id;
 
-void ChildFrameCompositingHelper::OnContainerDestroy() {
-  UpdateWebLayer(nullptr);
-}
+  surface_layer_ = cc::SurfaceLayer::Create();
+  surface_layer_->SetMasksToBounds(true);
+  surface_layer_->SetSurfaceHitTestable(true);
+  surface_layer_->SetBackgroundColor(SK_ColorTRANSPARENT);
 
-void ChildFrameCompositingHelper::ChildFrameGone() {
-  scoped_refptr<cc::SolidColorLayer> crashed_layer =
-      cc::SolidColorLayer::Create();
-  crashed_layer->SetMasksToBounds(true);
-  crashed_layer->SetBackgroundColor(SK_ColorBLACK);
+  surface_layer_->SetSurfaceId(surface_id, deadline);
 
-  if (web_layer_) {
-    SkBitmap* sad_bitmap =
-        GetContentClient()->renderer()->GetSadWebViewBitmap();
-    if (sad_bitmap && web_layer_->Bounds().width > sad_bitmap->width() &&
-        web_layer_->Bounds().height > sad_bitmap->height()) {
-      scoped_refptr<cc::PictureImageLayer> sad_layer =
-          cc::PictureImageLayer::Create();
-      sad_layer->SetImage(cc::PaintImage(cc::PaintImage::kNonLazyStableId,
-                                         SkImage::MakeFromBitmap(*sad_bitmap)));
-      sad_layer->SetBounds(
-          gfx::Size(sad_bitmap->width(), sad_bitmap->height()));
-      sad_layer->SetPosition(gfx::PointF(
-          (web_layer_->Bounds().width - sad_bitmap->width()) / 2,
-          (web_layer_->Bounds().height - sad_bitmap->height()) / 2));
-      sad_layer->SetIsDrawable(true);
-
-      crashed_layer->AddChild(sad_layer);
-    }
-  }
-
-  std::unique_ptr<blink::WebLayer> layer(
-      new cc_blink::WebLayerImpl(crashed_layer));
-  UpdateWebLayer(std::move(layer));
-}
-
-void ChildFrameCompositingHelper::OnSetSurface(
-    const viz::SurfaceInfo& surface_info,
-    const viz::SurfaceSequence& sequence) {
-  float scale_factor = surface_info.device_scale_factor();
-  surface_id_ = surface_info.id();
-  scoped_refptr<cc::SurfaceLayer> surface_layer =
-      cc::SurfaceLayer::Create(surface_reference_factory_);
-  // TODO(oshima): This is a stopgap fix so that the compositor does not
-  // scaledown the content when 2x frame data is added to 1x parent frame data.
-  // Fix this in cc/.
-  if (IsUseZoomForDSFEnabled())
-    scale_factor = 1.0f;
-
-  // The RWHV creates a destruction dependency on the surface that needs to be
-  // satisfied. The reference factory will satisfy it when a new reference has
-  // been created.
-  if (render_frame_proxy_) {
-    static_cast<IframeSurfaceReferenceFactory*>(
-        surface_reference_factory_.get())
-        ->AddPendingSequence(sequence);
-  } else {
-    static_cast<BrowserPluginSurfaceReferenceFactory*>(
-        surface_reference_factory_.get())
-        ->AddPendingSequence(sequence);
-  }
-
-  viz::SurfaceInfo modified_surface_info(surface_info.id(), scale_factor,
-                                         surface_info.size_in_pixels());
-  surface_layer->SetPrimarySurfaceInfo(modified_surface_info);
-  surface_layer->SetFallbackSurfaceInfo(modified_surface_info);
-  surface_layer->SetMasksToBounds(true);
-  std::unique_ptr<cc_blink::WebLayerImpl> layer(
-      new cc_blink::WebLayerImpl(surface_layer));
-  // TODO(lfg): Investigate if it's possible to propagate the information about
-  // the child surface's opacity. https://crbug.com/629851.
-  layer->SetOpaque(false);
-  layer->SetContentsOpaqueIsFixed(true);
-  UpdateWebLayer(std::move(layer));
+  // TODO(lfg): Investigate if it's possible to propagate the information
+  // about the child surface's opacity. https://crbug.com/629851.
+  bool prevent_contents_opaque_changes = true;
+  child_frame_compositor_->SetLayer(surface_layer_,
+                                    prevent_contents_opaque_changes,
+                                    true /* is_surface_layer */);
 
   UpdateVisibility(true);
 
-  CheckSizeAndAdjustLayerProperties(
-      surface_info.size_in_pixels(), surface_info.device_scale_factor(),
-      static_cast<cc_blink::WebLayerImpl*>(web_layer_.get())->layer());
+  surface_layer_->SetBounds(frame_size_in_dip);
 }
 
 void ChildFrameCompositingHelper::UpdateVisibility(bool visible) {
-  if (web_layer_)
-    web_layer_->SetDrawsContent(visible);
+  cc::Layer* layer = child_frame_compositor_->GetLayer();
+  if (layer)
+    layer->SetIsDrawable(visible);
+}
+
+gfx::Rect ChildFrameCompositingHelper::PaintableRegion() {
+  DCHECK(crash_ui_layer_);
+  return gfx::Rect(crash_ui_layer_->bounds());
+}
+
+scoped_refptr<cc::DisplayItemList>
+ChildFrameCompositingHelper::PaintContentsToDisplayList(
+    PaintingControlSetting) {
+  DCHECK(crash_ui_layer_);
+  auto layer_size = crash_ui_layer_->bounds();
+  auto display_list = base::MakeRefCounted<cc::DisplayItemList>();
+  display_list->StartPaint();
+  display_list->push<cc::DrawColorOp>(SK_ColorGRAY, SkBlendMode::kSrc);
+
+  SkBitmap* sad_bitmap = child_frame_compositor_->GetSadPageBitmap();
+  if (sad_bitmap) {
+    int paint_width = sad_bitmap->width() * device_scale_factor_;
+    int paint_height = sad_bitmap->height() * device_scale_factor_;
+    if (layer_size.width() >= paint_width &&
+        layer_size.height() >= paint_height) {
+      int x = (layer_size.width() - paint_width) / 2;
+      int y = (layer_size.height() - paint_height) / 2;
+      if (device_scale_factor_ != 1.f) {
+        display_list->push<cc::SaveOp>();
+        display_list->push<cc::TranslateOp>(x, y);
+        display_list->push<cc::ScaleOp>(device_scale_factor_,
+                                        device_scale_factor_);
+        x = 0;
+        y = 0;
+      }
+
+      auto image = cc::PaintImageBuilder::WithDefault()
+                       .set_id(cc::PaintImage::GetNextId())
+                       .set_image(SkImage::MakeFromBitmap(*sad_bitmap),
+                                  cc::PaintImage::GetNextContentId())
+                       .TakePaintImage();
+      display_list->push<cc::DrawImageOp>(image, x, y, nullptr);
+
+      if (device_scale_factor_ != 1.f)
+        display_list->push<cc::RestoreOp>();
+    }
+  }
+  display_list->EndPaintOfUnpaired(gfx::Rect(layer_size));
+  display_list->Finalize();
+  return display_list;
+}
+
+bool ChildFrameCompositingHelper::FillsBoundsCompletely() const {
+  // Because we paint a full opaque gray background.
+  return true;
+}
+
+size_t ChildFrameCompositingHelper::GetApproximateUnsharedMemoryUsage() const {
+  return sizeof(*this);
 }
 
 }  // namespace content

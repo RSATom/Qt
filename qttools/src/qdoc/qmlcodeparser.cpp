@@ -44,59 +44,13 @@
 
 QT_BEGIN_NAMESPACE
 
-#define COMMAND_STARTPAGE               Doc::alias("startpage")
-#define COMMAND_VARIABLE                Doc::alias("variable")
-
-#define COMMAND_DEPRECATED              Doc::alias("deprecated")
-#define COMMAND_INGROUP                 Doc::alias("ingroup")
-#define COMMAND_INTERNAL                Doc::alias("internal")
-#define COMMAND_OBSOLETE                Doc::alias("obsolete")
-#define COMMAND_PAGEKEYWORDS            Doc::alias("pagekeywords")
-#define COMMAND_PRELIMINARY             Doc::alias("preliminary")
-#define COMMAND_SINCE                   Doc::alias("since")
-#define COMMAND_WRAPPER                 Doc::alias("wrapper")
-#define COMMAND_NOAUTOLIST              Doc::alias("noautolist")
-
-#define COMMAND_ABSTRACT                Doc::alias("abstract")
-#define COMMAND_QMLABSTRACT             Doc::alias("qmlabstract")
-#define COMMAND_QMLCLASS                Doc::alias("qmlclass")
-#define COMMAND_QMLTYPE                 Doc::alias("qmltype")
-#define COMMAND_QMLMODULE               Doc::alias("qmlmodule")
-#define COMMAND_QMLPROPERTY             Doc::alias("qmlproperty")
-#define COMMAND_QMLPROPERTYGROUP        Doc::alias("qmlpropertygroup")
-#define COMMAND_QMLATTACHEDPROPERTY     Doc::alias("qmlattachedproperty")
-#define COMMAND_QMLINHERITS             Doc::alias("inherits")
-#define COMMAND_QMLINSTANTIATES         Doc::alias("instantiates")
-#define COMMAND_INQMLMODULE             Doc::alias("inqmlmodule")
-#define COMMAND_QMLSIGNAL               Doc::alias("qmlsignal")
-#define COMMAND_QMLATTACHEDSIGNAL       Doc::alias("qmlattachedsignal")
-#define COMMAND_QMLMETHOD               Doc::alias("qmlmethod")
-#define COMMAND_QMLATTACHEDMETHOD       Doc::alias("qmlattachedmethod")
-#define COMMAND_QMLDEFAULT              Doc::alias("default")
-#define COMMAND_QMLREADONLY             Doc::alias("readonly")
-#define COMMAND_QMLBASICTYPE            Doc::alias("qmlbasictype")
-#define COMMAND_QMLMODULE               Doc::alias("qmlmodule")
-
-#define COMMAND_JSTYPE                 Doc::alias("jstype")
-#define COMMAND_JSMODULE               Doc::alias("jsmodule")
-#define COMMAND_JSPROPERTY             Doc::alias("jsproperty")
-#define COMMAND_JSPROPERTYGROUP        Doc::alias("jspropertygroup")
-#define COMMAND_JSATTACHEDPROPERTY     Doc::alias("jsattachedproperty")
-#define COMMAND_INJSMODULE             Doc::alias("injsmodule")
-#define COMMAND_JSSIGNAL               Doc::alias("jssignal")
-#define COMMAND_JSATTACHEDSIGNAL       Doc::alias("jsattachedsignal")
-#define COMMAND_JSMETHOD               Doc::alias("jsmethod")
-#define COMMAND_JSATTACHEDMETHOD       Doc::alias("jsattachedmethod")
-#define COMMAND_JSBASICTYPE            Doc::alias("jsbasictype")
-#define COMMAND_JSMODULE               Doc::alias("jsmodule")
-
 /*!
   Constructs the QML code parser.
  */
 QmlCodeParser::QmlCodeParser()
 #ifndef QT_NO_DECLARATIVE
-    : lexer( 0 ),
-      parser( 0 )
+    : lexer(nullptr),
+      parser(nullptr)
 #endif
 {
 }
@@ -180,18 +134,18 @@ void QmlCodeParser::parseSourceFile(const Location& location, const QString& fil
     extractPragmas(newCode);
     lexer->setCode(newCode, 1);
 
-    const QSet<QString>& topicCommandsAllowed = topicCommands();
-    const QSet<QString>& otherMetacommandsAllowed = otherMetaCommands();
-    const QSet<QString>& metacommandsAllowed = topicCommandsAllowed + otherMetacommandsAllowed;
-
     if (parser->parse()) {
         QQmlJS::AST::UiProgram *ast = parser->ast();
         QmlDocVisitor visitor(filePath,
                               newCode,
                               &engine,
-                              metacommandsAllowed,
-                              topicCommandsAllowed);
+                              topicCommands() + commonMetaCommands(),
+                              topicCommands());
         QQmlJS::AST::Node::accept(ast, &visitor);
+        if (visitor.hasError()) {
+            qDebug().nospace() << qPrintable(filePath) << ": Could not analyze QML file. "
+                               << "The output is incomplete.";
+        }
     }
     foreach (const  QQmlJS::DiagnosticMessage &msg, parser->diagnosticMessages()) {
         qDebug().nospace() << qPrintable(filePath) << ':' << msg.loc.startLine
@@ -202,14 +156,6 @@ void QmlCodeParser::parseSourceFile(const Location& location, const QString& fil
 #else
     location.warning("QtDeclarative not installed; cannot parse QML or JS.");
 #endif
-}
-
-/*!
-  Performs cleanup after qdoc is done parsing all the QML files.
-  Currently, no cleanup is required.
- */
-void QmlCodeParser::doneParsingSourceFiles()
-{
 }
 
 static QSet<QString> topicCommands_;
@@ -223,7 +169,7 @@ const QSet<QString>& QmlCodeParser::topicCommands()
                        << COMMAND_QMLCLASS
                        << COMMAND_QMLTYPE
                        << COMMAND_QMLPROPERTY
-                       << COMMAND_QMLPROPERTYGROUP
+                       << COMMAND_QMLPROPERTYGROUP      // mws 13/03/2019
                        << COMMAND_QMLATTACHEDPROPERTY
                        << COMMAND_QMLSIGNAL
                        << COMMAND_QMLATTACHEDSIGNAL
@@ -232,7 +178,7 @@ const QSet<QString>& QmlCodeParser::topicCommands()
                        << COMMAND_QMLBASICTYPE
                        << COMMAND_JSTYPE
                        << COMMAND_JSPROPERTY
-                       << COMMAND_JSPROPERTYGROUP
+                       << COMMAND_JSPROPERTYGROUP       // mws 13/03/2019
                        << COMMAND_JSATTACHEDPROPERTY
                        << COMMAND_JSSIGNAL
                        << COMMAND_JSATTACHEDSIGNAL
@@ -241,35 +187,6 @@ const QSet<QString>& QmlCodeParser::topicCommands()
                        << COMMAND_JSBASICTYPE;
     }
     return topicCommands_;
-}
-
-static QSet<QString> otherMetaCommands_;
-/*!
-  Returns the set of strings representing the common metacommands
-  plus some other metacommands.
- */
-const QSet<QString>& QmlCodeParser::otherMetaCommands()
-{
-    if (otherMetaCommands_.isEmpty()) {
-        otherMetaCommands_ = commonMetaCommands();
-        otherMetaCommands_ << COMMAND_STARTPAGE
-                           << COMMAND_QMLINHERITS
-                           << COMMAND_QMLDEFAULT
-                           << COMMAND_QMLREADONLY
-                           << COMMAND_DEPRECATED
-                           << COMMAND_INGROUP
-                           << COMMAND_INTERNAL
-                           << COMMAND_OBSOLETE
-                           << COMMAND_PRELIMINARY
-                           << COMMAND_SINCE
-                           << COMMAND_ABSTRACT
-                           << COMMAND_QMLABSTRACT
-                           << COMMAND_INQMLMODULE
-                           << COMMAND_INJSMODULE
-                           << COMMAND_WRAPPER
-                           << COMMAND_NOAUTOLIST;
-    }
-    return otherMetaCommands_;
 }
 
 #ifndef QT_NO_DECLARATIVE
@@ -298,7 +215,7 @@ void QmlCodeParser::extractPragmas(QString &script)
     const QString pragma(QLatin1String("pragma"));
     const QString library(QLatin1String("library"));
 
-    QQmlJS::Lexer l(0);
+    QQmlJS::Lexer l(nullptr);
     l.setCode(script, 0);
 
     int token = l.lex();

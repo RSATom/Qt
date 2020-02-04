@@ -6,6 +6,7 @@
 #define EXTENSIONS_BROWSER_API_MANAGEMENT_MANAGEMENT_API_DELEGATE_H_
 
 #include "base/callback.h"
+#include "extensions/browser/disable_reason.h"
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
@@ -86,11 +87,13 @@ class ManagementAPIDelegate {
   virtual void EnableExtension(content::BrowserContext* context,
                                const std::string& extension_id) const = 0;
 
-  // Disables the extension identified by |extension_id|.
+  // Disables the extension identified by |extension_id|. |source_extension| (if
+  // specified) is the extension that originated the request.
   virtual void DisableExtension(
       content::BrowserContext* context,
+      const Extension* source_extension,
       const std::string& extension_id,
-      Extension::DisableReason disable_reason) const = 0;
+      disable_reason::DisableReason disable_reason) const = 0;
 
   // Used to show a confirmation dialog when uninstalling |target_extension|.
   virtual std::unique_ptr<UninstallDialogDelegate> UninstallFunctionDelegate(
@@ -102,7 +105,6 @@ class ManagementAPIDelegate {
   virtual bool UninstallExtension(content::BrowserContext* context,
                                   const std::string& transient_extension_id,
                                   UninstallReason reason,
-                                  const base::Closure& deletion_done_callback,
                                   base::string16* error) const = 0;
 
   // Creates an app shortcut.

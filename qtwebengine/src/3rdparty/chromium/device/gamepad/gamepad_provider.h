@@ -11,14 +11,16 @@
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/shared_memory.h"
 #include "base/synchronization/lock.h"
-#include "base/system_monitor/system_monitor.h"
+#include "base/system/system_monitor.h"
+#include "base/time/time.h"
 #include "device/gamepad/gamepad_export.h"
 #include "device/gamepad/gamepad_pad_state_provider.h"
 #include "device/gamepad/gamepad_shared_buffer.h"
 #include "device/gamepad/public/cpp/gamepads.h"
+#include "device/gamepad/public/mojom/gamepad.mojom.h"
 #include "mojo/public/cpp/system/buffer.h"
 
 namespace base {
@@ -33,7 +35,7 @@ class GamepadDataFetcher;
 class DEVICE_GAMEPAD_EXPORT GamepadConnectionChangeClient {
  public:
   virtual void OnGamepadConnectionChange(bool connected,
-                                         int index,
+                                         uint32_t index,
                                          const Gamepad& pad) = 0;
 };
 
@@ -51,16 +53,20 @@ class DEVICE_GAMEPAD_EXPORT GamepadProvider
 
   ~GamepadProvider() override;
 
-  // Returns a duplicate of the shared memory handle of the gamepad data.
-  base::SharedMemoryHandle DuplicateSharedMemoryHandle();
-
-  // Returns a new mojo::ScopedSharedBufferHandle of the gamepad data.
-  mojo::ScopedSharedBufferHandle GetSharedBufferHandle();
-
-  void AddGamepadDataFetcher(GamepadDataFetcher* fetcher);
-  void RemoveGamepadDataFetcher(GamepadDataFetcher* fetcher);
+  // Returns a duplicate of the shared memory region of the gamepad data.
+  base::ReadOnlySharedMemoryRegion DuplicateSharedMemoryRegion();
 
   void GetCurrentGamepadData(Gamepads* data);
+
+  void PlayVibrationEffectOnce(
+      uint32_t pad_index,
+      mojom::GamepadHapticEffectType,
+      mojom::GamepadEffectParametersPtr,
+      mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback);
+
+  void ResetVibrationActuator(
+      uint32_t pad_index,
+      mojom::GamepadHapticsManager::ResetVibrationActuatorCallback);
 
   // Pause and resume the background polling thread. Can be called from any
   // thread.
@@ -90,6 +96,8 @@ class DEVICE_GAMEPAD_EXPORT GamepadProvider
   void DoAddGamepadDataFetcher(std::unique_ptr<GamepadDataFetcher> fetcher);
   void DoRemoveSourceGamepadDataFetcher(GamepadSource source);
 
+  GamepadDataFetcher* GetSourceGamepadDataFetcher(GamepadSource source);
+
   // Method for sending pause hints to the low-level data fetcher. Runs on
   // polling_thread_.
   void SendPauseHint(bool paused);
@@ -98,12 +106,28 @@ class DEVICE_GAMEPAD_EXPORT GamepadProvider
   void DoPoll();
   void ScheduleDoPoll();
 
-  void OnGamepadConnectionChange(bool connected, int index, const Gamepad& pad);
+  void OnGamepadConnectionChange(bool connected,
+                                 uint32_t index,
+                                 const Gamepad& pad);
 
-  // Checks the gamepad state to see if the user has interacted with it.
-  void CheckForUserGesture();
+  // Checks the gamepad state to see if the user has interacted with it. Returns
+  // true if any user gesture observers were notified.
+  bool CheckForUserGesture();
 
-  enum { kDesiredSamplingIntervalMs = 16 };
+  void PlayEffectOnPollingThread(
+      uint32_t pad_index,
+      mojom::GamepadHapticEffectType,
+      mojom::GamepadEffectParametersPtr,
+      mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback,
+      scoped_refptr<base::SequencedTaskRunner>);
+
+  void ResetVibrationOnPollingThread(
+      uint32_t pad_index,
+      mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback,
+      scoped_refptr<base::SequencedTaskRunner>);
+
+  // The duration of the delay between iterations of DoPoll.
+  base::TimeDelta sampling_interval_delta_;
 
   // Keeps track of when the background thread is paused. Access to is_paused_
   // must be guarded by is_paused_lock_.
@@ -130,7 +154,7 @@ class DEVICE_GAMEPAD_EXPORT GamepadProvider
     base::Closure closure;
     scoped_refptr<base::SingleThreadTaskRunner> task_runner;
   };
-  typedef std::vector<ClosureAndThread> UserGestureObserverVector;
+  using UserGestureObserverVector = std::vector<ClosureAndThread>;
   UserGestureObserverVector user_gesture_observers_;
 
   // Updated based on notification from SystemMonitor when the system devices
@@ -145,7 +169,7 @@ class DEVICE_GAMEPAD_EXPORT GamepadProvider
   bool sanitize_;
 
   // Only used on the polling thread.
-  typedef std::vector<std::unique_ptr<GamepadDataFetcher>> GamepadFetcherVector;
+  using GamepadFetcherVector = std::vector<std::unique_ptr<GamepadDataFetcher>>;
   GamepadFetcherVector data_fetchers_;
 
   base::Lock shared_memory_lock_;

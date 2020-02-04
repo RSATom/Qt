@@ -9,8 +9,6 @@
 #include "base/macros.h"
 #include "media/base/media_export.h"
 
-class GURL;
-
 namespace media {
 
 // Interface to handle media related permission checks and requests.
@@ -27,20 +25,23 @@ class MEDIA_EXPORT MediaPermission {
   MediaPermission();
   virtual ~MediaPermission();
 
-  // Checks whether |type| is permitted for |security_origion| without
-  // triggering user interaction (e.g. permission prompt). The status will be
-  // |false| if the permission has never been set.
+  // Checks whether |type| is permitted without triggering user interaction
+  // (e.g. permission prompt). The status will be |false| if the permission
+  // has never been set.
   virtual void HasPermission(
       Type type,
-      const GURL& security_origin,
       const PermissionStatusCB& permission_status_cb) = 0;
 
-  // Requests |type| permission for |security_origion|. This may trigger user
-  // interaction (e.g. permission prompt) if the permission has never been set.
+  // Requests |type| permission. This may trigger user interaction
+  // (e.g. permission prompt) if the permission has never been set.
   virtual void RequestPermission(
       Type type,
-      const GURL& security_origin,
       const PermissionStatusCB& permission_status_cb) = 0;
+
+  // Whether to allow the use of Encrypted Media Extensions (EME), except for
+  // the use of Clear Key key systems, which is always allowed as required by
+  // the spec.
+  virtual bool IsEncryptedMediaEnabled() = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MediaPermission);

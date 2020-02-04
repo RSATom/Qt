@@ -4,7 +4,6 @@
 
 #include "gpu/command_buffer/service/shader_translator.h"
 
-#include <GLES2/gl2.h>
 #include <stddef.h>
 #include <string.h>
 #include <algorithm>
@@ -15,6 +14,7 @@
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
+#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_version_info.h"
 
@@ -136,16 +136,12 @@ ShShaderOutput ShaderTranslator::GetShaderOutputLanguageForContext(
   return SH_GLSL_COMPATIBILITY_OUTPUT;
 }
 
-ShaderTranslator::DestructionObserver::DestructionObserver() {
-}
+ShaderTranslator::DestructionObserver::DestructionObserver() = default;
 
-ShaderTranslator::DestructionObserver::~DestructionObserver() {
-}
+ShaderTranslator::DestructionObserver::~DestructionObserver() = default;
 
 ShaderTranslator::ShaderTranslator()
-    : compiler_(NULL),
-      compile_options_(0) {
-}
+    : compiler_(nullptr), compile_options_(0) {}
 
 bool ShaderTranslator::Init(GLenum shader_type,
                             ShShaderSpec shader_spec,
@@ -154,11 +150,11 @@ bool ShaderTranslator::Init(GLenum shader_type,
                             ShCompileOptions driver_bug_workarounds,
                             bool gl_shader_interm_output) {
   // Make sure Init is called only once.
-  DCHECK(compiler_ == NULL);
+  DCHECK(compiler_ == nullptr);
   DCHECK(shader_type == GL_FRAGMENT_SHADER || shader_type == GL_VERTEX_SHADER);
   DCHECK(shader_spec == SH_GLES2_SPEC || shader_spec == SH_WEBGL_SPEC ||
          shader_spec == SH_GLES3_SPEC || shader_spec == SH_WEBGL2_SPEC);
-  DCHECK(resources != NULL);
+  DCHECK(resources != nullptr);
 
   g_translator_initializer.Get();
 
@@ -172,7 +168,7 @@ bool ShaderTranslator::Init(GLenum shader_type,
   compile_options_ =
       SH_OBJECT_CODE | SH_VARIABLES | SH_ENFORCE_PACKING_RESTRICTIONS |
       SH_LIMIT_EXPRESSION_COMPLEXITY | SH_LIMIT_CALL_STACK_DEPTH |
-      SH_CLAMP_INDIRECT_ARRAY_BOUNDS;
+      SH_CLAMP_INDIRECT_ARRAY_BOUNDS | SH_EMULATE_GL_DRAW_ID;
   if (gl_shader_interm_output)
     compile_options_ |= SH_INTERMEDIATE_TREE;
   compile_options_ |= driver_bug_workarounds;
@@ -185,7 +181,15 @@ bool ShaderTranslator::Init(GLenum shader_type,
       break;
   }
 
-  return compiler_ != NULL;
+  if (compiler_) {
+    options_affecting_compilation_ =
+        base::MakeRefCounted<OptionsAffectingCompilationString>(
+            std::string(":CompileOptions:" +
+                        base::NumberToString(GetCompileOptions())) +
+            sh::GetBuiltInResourcesString(compiler_));
+  }
+
+  return compiler_ != nullptr;
 }
 
 ShCompileOptions ShaderTranslator::GetCompileOptions() const {
@@ -203,7 +207,7 @@ bool ShaderTranslator::Translate(
     InterfaceBlockMap* interface_block_map,
     OutputVariableList* output_variable_list) const {
   // Make sure this instance is initialized.
-  DCHECK(compiler_ != NULL);
+  DCHECK(compiler_ != nullptr);
 
   bool success = false;
   {
@@ -237,12 +241,9 @@ bool ShaderTranslator::Translate(
   return success;
 }
 
-std::string ShaderTranslator::GetStringForOptionsThatWouldAffectCompilation()
-    const {
-  DCHECK(compiler_ != NULL);
-  return std::string(":CompileOptions:" +
-                     base::Uint64ToString(GetCompileOptions())) +
-         sh::GetBuiltInResourcesString(compiler_);
+OptionsAffectingCompilationString*
+ShaderTranslator::GetStringForOptionsThatWouldAffectCompilation() const {
+  return options_affecting_compilation_.get();
 }
 
 void ShaderTranslator::AddDestructionObserver(
@@ -259,7 +260,7 @@ ShaderTranslator::~ShaderTranslator() {
   for (auto& observer : destruction_observers_)
     observer.OnDestruct(this);
 
-  if (compiler_ != NULL)
+  if (compiler_ != nullptr)
     sh::Destruct(compiler_);
 }
 

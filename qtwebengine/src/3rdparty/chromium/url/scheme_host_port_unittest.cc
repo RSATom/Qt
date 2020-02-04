@@ -5,12 +5,25 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 #include "url/scheme_host_port.h"
+#include "url/url_util.h"
 
 namespace {
+
+class SchemeHostPortTest : public testing::Test {
+ public:
+  SchemeHostPortTest() = default;
+  ~SchemeHostPortTest() override {
+    // Reset any added schemes.
+    url::Shutdown();
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(SchemeHostPortTest);
+};
 
 void ExpectParsedUrlsEqual(const GURL& a, const GURL& b) {
   EXPECT_EQ(a, b);
@@ -34,13 +47,13 @@ void ExpectParsedUrlsEqual(const GURL& a, const GURL& b) {
   EXPECT_EQ(a_parsed.ref.len, b_parsed.ref.len);
 }
 
-TEST(SchemeHostPortTest, Invalid) {
+TEST_F(SchemeHostPortTest, Invalid) {
   url::SchemeHostPort invalid;
   EXPECT_EQ("", invalid.scheme());
   EXPECT_EQ("", invalid.host());
   EXPECT_EQ(0, invalid.port());
   EXPECT_TRUE(invalid.IsInvalid());
-  EXPECT_TRUE(invalid.Equals(invalid));
+  EXPECT_EQ(invalid, invalid);
 
   const char* urls[] = {
       "data:text/html,Hello!", "javascript:alert(1)",
@@ -64,14 +77,14 @@ TEST(SchemeHostPortTest, Invalid) {
     EXPECT_EQ("", tuple.host());
     EXPECT_EQ(0, tuple.port());
     EXPECT_TRUE(tuple.IsInvalid());
-    EXPECT_TRUE(tuple.Equals(tuple));
-    EXPECT_TRUE(tuple.Equals(invalid));
-    EXPECT_TRUE(invalid.Equals(tuple));
+    EXPECT_EQ(tuple, tuple);
+    EXPECT_EQ(tuple, invalid);
+    EXPECT_EQ(invalid, tuple);
     ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
-TEST(SchemeHostPortTest, ExplicitConstruction) {
+TEST_F(SchemeHostPortTest, ExplicitConstruction) {
   struct TestCases {
     const char* scheme;
     const char* host;
@@ -93,12 +106,12 @@ TEST(SchemeHostPortTest, ExplicitConstruction) {
     EXPECT_EQ(test.host, tuple.host());
     EXPECT_EQ(test.port, tuple.port());
     EXPECT_FALSE(tuple.IsInvalid());
-    EXPECT_TRUE(tuple.Equals(tuple));
+    EXPECT_EQ(tuple, tuple);
     ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
-TEST(SchemeHostPortTest, InvalidConstruction) {
+TEST_F(SchemeHostPortTest, InvalidConstruction) {
   struct TestCases {
     const char* scheme;
     const char* host;
@@ -129,12 +142,12 @@ TEST(SchemeHostPortTest, InvalidConstruction) {
     EXPECT_EQ("", tuple.host());
     EXPECT_EQ(0, tuple.port());
     EXPECT_TRUE(tuple.IsInvalid());
-    EXPECT_TRUE(tuple.Equals(tuple));
+    EXPECT_EQ(tuple, tuple);
     ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
-TEST(SchemeHostPortTest, InvalidConstructionWithEmbeddedNulls) {
+TEST_F(SchemeHostPortTest, InvalidConstructionWithEmbeddedNulls) {
   struct TestCases {
     const char* scheme;
     size_t scheme_length;
@@ -162,7 +175,7 @@ TEST(SchemeHostPortTest, InvalidConstructionWithEmbeddedNulls) {
   }
 }
 
-TEST(SchemeHostPortTest, GURLConstruction) {
+TEST_F(SchemeHostPortTest, GURLConstruction) {
   struct TestCases {
     const char* url;
     const char* scheme;
@@ -193,12 +206,12 @@ TEST(SchemeHostPortTest, GURLConstruction) {
     EXPECT_EQ(test.host, tuple.host());
     EXPECT_EQ(test.port, tuple.port());
     EXPECT_FALSE(tuple.IsInvalid());
-    EXPECT_TRUE(tuple.Equals(tuple));
+    EXPECT_EQ(tuple, tuple);
     ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
-TEST(SchemeHostPortTest, Serialization) {
+TEST_F(SchemeHostPortTest, Serialization) {
   struct TestCases {
     const char* url;
     const char* expected;
@@ -223,7 +236,7 @@ TEST(SchemeHostPortTest, Serialization) {
   }
 }
 
-TEST(SchemeHostPortTest, Comparison) {
+TEST_F(SchemeHostPortTest, Comparison) {
   // These tuples are arranged in increasing order:
   struct SchemeHostPorts {
     const char* scheme;
@@ -240,16 +253,33 @@ TEST(SchemeHostPortTest, Comparison) {
       {"https", "b", 81},
   };
 
-  for (size_t i = 0; i < arraysize(tuples); i++) {
+  for (size_t i = 0; i < base::size(tuples); i++) {
     url::SchemeHostPort current(tuples[i].scheme, tuples[i].host,
                                 tuples[i].port);
-    for (size_t j = i; j < arraysize(tuples); j++) {
+    for (size_t j = i; j < base::size(tuples); j++) {
       url::SchemeHostPort to_compare(tuples[j].scheme, tuples[j].host,
                                      tuples[j].port);
       EXPECT_EQ(i < j, current < to_compare) << i << " < " << j;
       EXPECT_EQ(j < i, to_compare < current) << j << " < " << i;
     }
   }
+}
+
+// Some schemes have optional authority. Make sure that GURL conversion from
+// SchemeHostPort is not opinionated in that regard. For more info, See
+// crbug.com/820194, where we considered all SchemeHostPorts with
+// SCHEME_WITH_HOST (i.e., without ports) as valid with empty hosts, even though
+// most are not (e.g. chrome URLs).
+TEST_F(SchemeHostPortTest, EmptyHostGurlConversion) {
+  url::AddStandardScheme("chrome", url::SCHEME_WITH_HOST);
+
+  GURL chrome_url("chrome:");
+  EXPECT_FALSE(chrome_url.is_valid());
+
+  url::SchemeHostPort chrome_tuple("chrome", "", 0);
+  EXPECT_FALSE(chrome_tuple.GetURL().is_valid());
+  ExpectParsedUrlsEqual(GURL(chrome_tuple.Serialize()), chrome_tuple.GetURL());
+  ExpectParsedUrlsEqual(chrome_url, chrome_tuple.GetURL());
 }
 
 }  // namespace url

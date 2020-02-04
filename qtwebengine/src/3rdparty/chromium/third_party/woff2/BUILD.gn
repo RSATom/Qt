@@ -2,9 +2,17 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+config("woff2_includes") {
+  include_dirs = [ "include" ]
+}
+
 static_library("woff2_dec") {
   sources = [
+    "include/woff2/decode.h",
+    "include/woff2/encode.h",
+    "include/woff2/output.h",
     "src/buffer.h",
+    "src/file.h",
     "src/round.h",
     "src/store_bytes.h",
     "src/table_tags.cc",
@@ -14,9 +22,7 @@ static_library("woff2_dec") {
     "src/woff2_common.cc",
     "src/woff2_common.h",
     "src/woff2_dec.cc",
-    "src/woff2_dec.h",
     "src/woff2_out.cc",
-    "src/woff2_out.h",
   ]
 
   configs -= [ "//build/config/compiler:chromium_code" ]
@@ -26,7 +32,7 @@ static_library("woff2_dec") {
     "//third_party/brotli:dec",
   ]
 
-  include_dirs = [ "src" ]
+  public_configs = [ ":woff2_includes" ]
 
   # TODO(ksakamoto): http://crbug.com/167187
   if (is_win) {

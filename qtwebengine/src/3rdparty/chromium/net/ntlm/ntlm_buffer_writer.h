@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 
+#include "base/containers/span.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "net/base/net_export.h"
@@ -46,15 +47,11 @@ class NET_EXPORT_PRIVATE NtlmBufferWriter {
   explicit NtlmBufferWriter(size_t buffer_len);
   ~NtlmBufferWriter();
 
-  size_t GetLength() const { return buffer_len_; }
+  size_t GetLength() const { return buffer_.size(); }
   size_t GetCursor() const { return cursor_; }
   bool IsEndOfBuffer() const { return cursor_ >= GetLength(); }
-
-  // Gets a base::StringPiece view over the entire buffer.
-  base::StringPiece GetBuffer() const {
-    return base::StringPiece(reinterpret_cast<const char*>(buffer_.get()),
-                             buffer_len_);
-  }
+  base::span<const uint8_t> GetBuffer() const { return buffer_; }
+  std::vector<uint8_t> Pass() const { return std::move(buffer_); }
 
   // Returns true if there are |len| more bytes between the current cursor
   // position and the end of the buffer.
@@ -75,13 +72,9 @@ class NET_EXPORT_PRIVATE NtlmBufferWriter {
   // Writes flags as a 32 bit unsigned value (little endian).
   bool WriteFlags(NegotiateFlags flags) WARN_UNUSED_RESULT;
 
-  // Writes |len| bytes from |buffer|. If there are not |len| more bytes in
-  // the buffer, it returns false.
-  bool WriteBytes(const uint8_t* buffer, size_t len) WARN_UNUSED_RESULT;
-
-  // Writes the bytes from the |base::StringPiece|. If there are not enough
+  // Writes the bytes from the |buffer|. If there are not enough
   // bytes in the buffer, it returns false.
-  bool WriteBytes(base::StringPiece bytes) WARN_UNUSED_RESULT;
+  bool WriteBytes(base::span<const uint8_t> buffer) WARN_UNUSED_RESULT;
 
   // Writes |count| bytes of zeros to the buffer. If there are not |count|
   // more bytes in available in the buffer, it returns false.
@@ -96,6 +89,30 @@ class NET_EXPORT_PRIVATE NtlmBufferWriter {
   //     uint16 - Allocation (ignored and always set to |length|)
   //     uint32 - |offset| Offset from start of message
   bool WriteSecurityBuffer(SecurityBuffer sec_buf) WARN_UNUSED_RESULT;
+
+  // Writes an AvPair header. See [MS-NLMP] Section 2.2.2.1.
+  //
+  // The header has the following structure:
+  //    uint16 - |avid| The identifier of the following payload.
+  //    uint16 - |avlen| The length of the following payload.
+  bool WriteAvPairHeader(TargetInfoAvId avid,
+                         uint16_t avlen) WARN_UNUSED_RESULT;
+
+  // Writes an AvPair header for an |AvPair|. See [MS-NLMP] Section 2.2.2.1.
+  bool WriteAvPairHeader(const AvPair& pair) WARN_UNUSED_RESULT {
+    return WriteAvPairHeader(pair.avid, pair.avlen);
+  }
+
+  // Writes a special AvPair header with both fields equal to 0. This zero
+  // length AvPair signals the end of the AvPair list.
+  bool WriteAvPairTerminator() WARN_UNUSED_RESULT;
+
+  // Writes an |AvPair| header and its payload to the buffer. If the |avid|
+  // is of type |TargetInfoAvId::kFlags| the |flags| field of |pair| will be
+  // used as the payload and the |buffer| field is ignored. In all other cases
+  // |buffer| is used as the payload. See also
+  // |NtlmBufferReader::ReadTargetInfo|.
+  bool WriteAvPair(const AvPair& pair) WARN_UNUSED_RESULT;
 
   // Writes a string of 8 bit characters to the buffer.
   //
@@ -159,13 +176,16 @@ class NET_EXPORT_PRIVATE NtlmBufferWriter {
   void AdvanceCursor(size_t count) { SetCursor(GetCursor() + count); }
 
   // Returns a pointer to the start of the buffer.
-  uint8_t* GetBufferPtr() const { return buffer_.get(); }
+  const uint8_t* GetBufferPtr() const { return buffer_.data(); }
+  uint8_t* GetBufferPtr() { return buffer_.data(); }
 
   // Returns pointer into the buffer at the current cursor location.
-  uint8_t* GetBufferPtrAtCursor() const { return buffer_.get() + GetCursor(); }
+  const uint8_t* GetBufferPtrAtCursor() const {
+    return GetBufferPtr() + GetCursor();
+  }
+  uint8_t* GetBufferPtrAtCursor() { return GetBufferPtr() + GetCursor(); }
 
-  std::unique_ptr<uint8_t[]> buffer_;
-  size_t buffer_len_;
+  std::vector<uint8_t> buffer_;
   size_t cursor_;
 
   DISALLOW_COPY_AND_ASSIGN(NtlmBufferWriter);

@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "components/google/core/browser/google_util.h"
+#include "components/google/core/common/google_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/security_interstitials/core/metrics_helper.h"
 #include "components/security_interstitials/core/urls.h"
@@ -66,6 +66,10 @@ void ControllerClient::OpenURL(bool open_links_in_new_tab, const GURL& url) {
   } else {
     OpenUrlInCurrentTab(url);
   }
+}
+
+bool ControllerClient::HasSeenRecurrentError() {
+  return false;
 }
 
 GURL ControllerClient::GetBaseHelpCenterUrl() const {

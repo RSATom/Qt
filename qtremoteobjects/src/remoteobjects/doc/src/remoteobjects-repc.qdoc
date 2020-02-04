@@ -3,9 +3,9 @@
 ** Copyright (C) 2017 Ford Motor Company
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtRemoteObjects module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,25 +14,13 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -58,13 +46,13 @@
     files are processed by repc, repc generates both \l {Source} and \l
     {Replica} header files.
 
-    The Qt Remote Objects module also includes qmake macros (\l REPC_SOURCE, \l
-    REPC_REPLICA) that can be added to your project file to automatically run
+    The Qt Remote Objects module also includes qmake variables (\l REPC_SOURCE, \l
+    REPC_REPLICA, and \l REPC_MERGED) that can be added to your project file to automatically run
     repc, and add the resulting files to the list of files processed by
     \l{moc}{Meta Object Compiler} during the build process, making use of Qt
     Remote Objects in your projects simple.
 
-    While Qt Remote Objects supports sharing QObjects over the network (using
+    While Qt Remote Objects supports sharing any QObject over the network (using
     enableRemoting on the Source side and acquireDynamic on the Replica side),
     there are a couple of advantages to letting repc define your objects. First
     of all, while \l {QRemoteObjectDynamicReplica} {DynamicReplicas} are
@@ -75,7 +63,7 @@
     format supports default values, which can be handy if you are unable to
     ensure the Source is available when the Replica is instantiated.
 
-    See the documentation \l {Source} {Sources here} for information on using
+    See the documentation \l {Source} {here} for information on using
     the generated files in your code. Here we will focus on the repc format and
     options.
 
@@ -104,7 +92,7 @@
 
     Q_PROPERTY elements are created by using the PROP keyword in the rep
     file. The syntax is the \c PROP keyword followed by the definition enclosed
-    in quotes, where the definition is the type, the name, and (optionally) a
+    in parentheses, where the definition is the type, the name, and (optionally) a
     default value or attributes.
     \code
         PROP(bool simpleBool)                // boolean named simpleBool
@@ -130,7 +118,7 @@
     More information about creating custom types can be found \l {Creating
     Custom Qt Types} {here}.
 
-    By default, properties will have getters and a "push" Slot defined, as well
+    By default, properties will have getters and a "push" slot defined, as well
     as a notify signal emitted when the value is changed. Qt Remote Objects
     requires the notify signal on the Source object to trigger sending updates
     to the attached Replicas. In earlier versions of QtRO, properties defaulted
@@ -173,11 +161,11 @@
                                               //    sets the myVal to something else (race
                                               //    condition)
         // Rather than use QSignalSpy, the event-driven practice would be to connect the
-        // myValChanged notify signal to a Slot that responds to the changes.
+        // myValChanged notify signal to a slot that responds to the changes.
     \endcode
 
     QtRO now defaults to READPUSH, which provides an automatically generated
-    Slot for requesting a property change.
+    slot for requesting a property change.
     \code
         // In .rep file, defaults to READPUSH
         PROP(bool myVal)                      // No setMyVal(int myVal) on Replica, has
@@ -204,8 +192,9 @@
     \endcode
 
     You can also use the \c CONSTANT, \c READONLY, \c PERSISTED, \c READWRITE,
-    or \c READPUSH keywords in the PROP declaration, which affects how this is
-    implemented.  READPUSH is the default value if no value used.
+    \c READPUSH, or \c SOURCEONLYSETTER keywords in the PROP declaration, which
+    affects how the property is implemented. READPUSH is the default value if no value
+    used.
 
     \code
         PROP(int lifeUniverseEverything=42 CONSTANT)
@@ -216,12 +205,24 @@
     Q_PROPERTY declared as CONSTANT on the SOURCE side. However, replicas
     cannot know the correct value until they are initialized, which means the
     property value has to be allowed to change during initialization. For
-    READONLY, the Source will have neither a setter nor a push slot, and the
+    READONLY, the source will have neither a setter nor a push slot, and the
     replica side will not have a push slot generated. Adding the PERSISTED
-    trait to a PROP will have the PROP use the \l QRemoteObjectPersistedStore
+    trait to a PROP will have the PROP use the \l QRemoteObjectAbstractPersistedStore
     instance set on a Node (if any) to save/restore PROP values.
 
-    \sa QRemoteObjectPersistedStore
+    Another nuanced value is SOURCEONLYSETTER, which provides another way of
+    specifying asymmetric behavior, where the \l Source (specifically the helper
+    class, \c SimpleSource) will have a public getter and setter for the
+    property, but it will be ReadOnly (with a notify signal) on the \l Replica
+    side. Thus the property can be fully controlled from the \l Source side,
+    but only observed from the \l Replica side. SOURCEONLYSETTER is the mode
+    used by repc for MODEL and CLASS instances, meaning the \l Source can
+    change the pointed to object, but the \l Replica can not provide a new
+    object, as no set<Prop> or push<Prop> method is generated. Note, this does
+    not impact the behavior of the pointed to type's properties, just the
+    ability to change the pointer itself.
+
+    \sa QRemoteObjectAbstractPersistedStore
 
     \section3 SIGNAL
 
@@ -340,15 +341,55 @@
     instance, use #include or #define directives that support the logic or
     datatypes needed.
 
-    The repc tool currently only everything from the "#" symbol to the
+    The repc tool currently ignores everything from the "#" symbol to the
     end-of-line and adds that to the generated files. So multi-line
     #if/#else/#endif statements and multi-line macros are not supported.
 
-    \section1 Project file macros
+    \section1 qmake variables
     \section2 REPC_REPLICA
-    ...
+
+    Specifies the names of all rep files in the project that should be used to generate
+    replica header files.
+
+    For example:
+    \code
+    REPC_REPLICA = media.rep \
+                   location.rep
+    \endcode
+
+    The generated file(s) will be of the form \c {rep_<replica file base>_replica.h}.
+
     \section2 REPC_SOURCE
-    ...
-    \section2 QOBJECT_REPLICA
-    ...
+
+    Specifies the names of all rep files in the project that should be used to generate
+    source header files.
+
+    For example:
+    \code
+    REPC_SOURCE = media.rep \
+                  location.rep
+    \endcode
+
+    The generated file(s) will be of the form \c {rep_<replica file base>_source.h}.
+
+    \section2 REPC_MERGED
+
+    Specifies the names of all rep files in the project that should be used to generate
+    combined (source and replica) header files.
+
+    For example:
+    \code
+    REPC_MERGED = media.rep \
+                  location.rep
+
+    The generated file(s) will be of the form \c {rep_<replica file base>_merged.h}.
+
+    \note Typically sources and replicas live in separate processes or devices, so this variable
+    is not commonly used.
+    \endcode
+
+    \section2 QOBJECT_REP
+
+    Specifies the names of existing QObject header files that should be used to generate corresponding
+    .rep files.
 */

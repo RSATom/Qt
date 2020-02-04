@@ -16,24 +16,19 @@
 
 class GrSemaphoreOp : public GrOp {
 public:
-    static std::unique_ptr<GrSemaphoreOp> MakeSignal(sk_sp<GrSemaphore> semaphore,
-                                                     GrRenderTargetProxy* proxy,
-                                                     bool forceFlush);
-
-    static std::unique_ptr<GrSemaphoreOp> MakeWait(sk_sp<GrSemaphore> semaphore,
-                                                   GrRenderTargetProxy* proxy);
+    static std::unique_ptr<GrOp> MakeWait(GrContext*,
+                                          sk_sp<GrSemaphore>,
+                                          GrRenderTargetProxy*);
 
 protected:
     GrSemaphoreOp(uint32_t classId, sk_sp<GrSemaphore> semaphore, GrRenderTargetProxy* proxy)
         : INHERITED(classId), fSemaphore(std::move(semaphore)) {
-        this->setBounds(SkRect::MakeIWH(proxy->width(), proxy->height()),
-                        HasAABloat::kNo, IsZeroArea::kNo);
+        this->makeFullScreen(proxy);
     }
 
     sk_sp<GrSemaphore> fSemaphore;
 
 private:
-    bool onCombineIfPossible(GrOp* that, const GrCaps& caps) override { return false; }
     void onPrepare(GrOpFlushState*) override {}
 
     typedef GrOp INHERITED;

@@ -1,17 +1,18 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-styles/shadow.html">
-<link rel="import" href="../animation/animation.html">
+<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
+<link rel="import" href="chrome://resources/html/util.html">
 
 <dom-module id="settings-section">
   <template>
     <style>
       :host {
-        -webkit-margin-end: 3px;
-        -webkit-margin-start: 3px;
         display: flex;
         flex-direction: column;
         /* Margin so the box-shadow isn't clipped during animations. */
+        margin-inline-end: 3px;
+        margin-inline-start: 3px;
+        outline: none;
         position: relative;
       }
 
@@ -20,40 +21,21 @@
       }
 
       #header .title {
-        color: var(--paper-grey-700);
-        font-size: 100%;
-        font-weight: 500;
+        color: var(--cr-primary-text-color);
+        font-size: 108%;
+        font-weight: 400;
+        letter-spacing: .25px;
         margin-bottom: 0;
         margin-top: var(--settings-page-vertical-margin);
+        padding-bottom: 4px;
+        padding-top: 8px;
       }
 
-      #card {
-        @apply(--shadow-elevation-2dp);
-        background-color: white;
-        border-radius: 2px;
+      :host(:not(.expanded)) #card {
+        @apply --cr-card-elevation;
+        background-color: var(--cr-card-background-color);
+        border-radius: var(--cr-card-border-radius);
         flex: 1;
-      }
-
-      :host(.expanded) #card {
-        border-radius: 0;
-      }
-
-      :host(.expanding) #card,
-      :host(.collapsing) #card,
-      :host(.expanded) #card {
-        @apply(--shadow-elevation-4dp);
-        overflow: hidden;
-        /* A stacking context constrains sliding sub-pages to the card. */
-        z-index: 0;
-      }
-
-      :host(:not(.expanding):not(.expanded)) #card {
-        /* Keep the fading-out neon-animatable inside the card. */
-        position: relative;
-      }
-
-      :host(.expanded) #header {
-        display: none;
       }
 
       :host([hidden-by-search]) {
@@ -61,10 +43,11 @@
       }
     </style>
     <div id="header">
-      <h2 class="title">{{pageTitle}}</h2>
+      <h2 class="title"
+          aria-hidden$="[[getTitleHiddenStatus_(pageTitle)]]">[[pageTitle]]</h2>
     </div>
     <div id="card">
-      <content id="content"></content>
+      <slot></slot>
     </div>
   </template>
   <script src="settings_section.js"></script>

@@ -72,8 +72,8 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_model(new MimetypeModel(this))
-    , m_treeView(new QTreeView)
-    , m_detailsText(new QTextEdit)
+    , m_treeView(new QTreeView(this))
+    , m_detailsText(new QTextEdit(this))
     , m_findIndex(0)
 {
     setWindowTitle(tr("Qt Mime Database Browser"));
@@ -97,9 +97,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     menuBar()->addMenu(tr("&About"))->addAction(tr("&About Qt"), qApp, &QApplication::aboutQt);
 
-    QSplitter *centralSplitter = new QSplitter;
+    QSplitter *centralSplitter = new QSplitter(this);
     setCentralWidget(centralSplitter);
-    m_treeView = new QTreeView;
     m_treeView->setUniformRowHeights(true);
     m_treeView->setModel(m_model);
 
@@ -186,7 +185,9 @@ void MainWindow::find()
 
     m_findMatches.clear();
     m_findIndex = 0;
-    foreach (const QStandardItem *item, m_model->findItems(value, Qt::MatchContains | Qt::MatchFixedString | Qt::MatchRecursive))
+    const QList<QStandardItem *> items =
+            m_model->findItems(value, Qt::MatchContains | Qt::MatchFixedString | Qt::MatchRecursive);
+    for (const QStandardItem *item : items)
         m_findMatches.append(m_model->indexFromItem(item));
     statusBar()->showMessage(tr("%n mime types match \"%1\".", 0, m_findMatches.size()).arg(value));
     updateFindActions();

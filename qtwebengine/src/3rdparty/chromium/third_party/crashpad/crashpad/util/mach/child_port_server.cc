@@ -15,27 +15,9 @@
 #include "util/mach/child_port_server.h"
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "util/mach/child_portServer.h"
 #include "util/mach/mach_message.h"
-
-extern "C" {
-
-// This function is not used, and is in fact obsoleted by the other
-// functionality implemented in this file. The standard MIG-generated
-// child_port_server() (in child_portServer.c) server dispatch routine usable
-// with the standard mach_msg_server() function calls out to this function.
-// child_port_server() is unused and is replaced by the more flexible
-// ChildPortServer, but the linker still needs to see this function definition.
-
-kern_return_t handle_child_port_check_in(child_port_server_t server,
-                                         child_port_token_t token,
-                                         mach_port_t port,
-                                         mach_msg_type_name_t right_type) {
-  NOTREACHED();
-  return KERN_FAILURE;
-}
-
-}  // extern "C"
 
 namespace {
 
@@ -106,9 +88,10 @@ bool ChildPortServer::MachMessageServerFunction(
 }
 
 std::set<mach_msg_id_t> ChildPortServer::MachMessageServerRequestIDs() {
-  const mach_msg_id_t request_ids[] = {kMachMessageIDChildPortCheckIn};
+  static constexpr mach_msg_id_t request_ids[] =
+      {kMachMessageIDChildPortCheckIn};
   return std::set<mach_msg_id_t>(&request_ids[0],
-                                 &request_ids[arraysize(request_ids)]);
+                                 &request_ids[base::size(request_ids)]);
 }
 
 mach_msg_size_t ChildPortServer::MachMessageServerRequestSize() {

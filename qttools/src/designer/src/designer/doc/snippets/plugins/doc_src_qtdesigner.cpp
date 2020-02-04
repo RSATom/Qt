@@ -234,7 +234,7 @@ QObject *AGeneralExtensionFactory::createExtension(QObject *object,
 #include customwidgettwointerface.h
 #include customwidgetthreeinterface.h
 
-#include <QtDesigner/QtDesigner>
+#include <QtDesigner/qtdesigner.h>
 #include <QtCore/qplugin.h>
 
 class MyCustomWidgets: public QObject, public QDesignerCustomWidgetCollectionInterface
@@ -246,7 +246,7 @@ class MyCustomWidgets: public QObject, public QDesignerCustomWidgetCollectionInt
 public:
     MyCustomWidgets(QObject *parent = 0);
 
-    QList<QDesignerCustomWidgetInterface*> customWidgets() const Q_DECL_OVERRIDE;
+    QList<QDesignerCustomWidgetInterface*> customWidgets() const override;
 
 private:
     QList<QDesignerCustomWidgetInterface*> widgets;

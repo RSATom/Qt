@@ -19,7 +19,7 @@ namespace compiler {
 
 namespace {
 
-Decision DecideCondition(Node* const cond) {
+Decision DecideCondition(JSHeapBroker* broker, Node* const cond) {
   switch (cond->opcode()) {
     case IrOpcode::kInt32Constant: {
       Int32Matcher mcond(cond);
@@ -27,7 +27,8 @@ Decision DecideCondition(Node* const cond) {
     }
     case IrOpcode::kHeapConstant: {
       HeapObjectMatcher mcond(cond);
-      return mcond.Value()->BooleanValue() ? Decision::kTrue : Decision::kFalse;
+      return mcond.Ref(broker).BooleanValue() ? Decision::kTrue
+                                              : Decision::kFalse;
     }
     default:
       return Decision::kUnknown;
@@ -37,17 +38,22 @@ Decision DecideCondition(Node* const cond) {
 }  // namespace
 
 CommonOperatorReducer::CommonOperatorReducer(Editor* editor, Graph* graph,
+                                             JSHeapBroker* broker,
                                              CommonOperatorBuilder* common,
-                                             MachineOperatorBuilder* machine)
+                                             MachineOperatorBuilder* machine,
+                                             Zone* temp_zone)
     : AdvancedReducer(editor),
       graph_(graph),
+      broker_(broker),
       common_(common),
       machine_(machine),
-      dead_(graph->NewNode(common->Dead())) {
+      dead_(graph->NewNode(common->Dead())),
+      zone_(temp_zone) {
   NodeProperties::SetType(dead_, Type::None());
 }
 
 Reduction CommonOperatorReducer::Reduce(Node* node) {
+  DisallowHeapAccess no_heap_access;
   switch (node->opcode()) {
     case IrOpcode::kBranch:
       return ReduceBranch(node);
@@ -64,6 +70,8 @@ Reduction CommonOperatorReducer::Reduce(Node* node) {
       return ReduceReturn(node);
     case IrOpcode::kSelect:
       return ReduceSelect(node);
+    case IrOpcode::kSwitch:
+      return ReduceSwitch(node);
     default:
       break;
   }
@@ -81,8 +89,8 @@ Reduction CommonOperatorReducer::ReduceBranch(Node* node) {
   // not (i.e. true being returned in the false case and vice versa).
   if (cond->opcode() == IrOpcode::kBooleanNot ||
       (cond->opcode() == IrOpcode::kSelect &&
-       DecideCondition(cond->InputAt(1)) == Decision::kFalse &&
-       DecideCondition(cond->InputAt(2)) == Decision::kTrue)) {
+       DecideCondition(broker(), cond->InputAt(1)) == Decision::kFalse &&
+       DecideCondition(broker(), cond->InputAt(2)) == Decision::kTrue)) {
     for (Node* const use : node->uses()) {
       switch (use->opcode()) {
         case IrOpcode::kIfTrue:
@@ -104,7 +112,7 @@ Reduction CommonOperatorReducer::ReduceBranch(Node* node) {
         node, common()->Branch(NegateBranchHint(BranchHintOf(node->op()))));
     return Changed(node);
   }
-  Decision const decision = DecideCondition(cond);
+  Decision const decision = DecideCondition(broker(), cond);
   if (decision == Decision::kUnknown) return NoChange();
   Node* const control = node->InputAt(1);
   for (Node* const use : node->uses()) {
@@ -138,18 +146,20 @@ Reduction CommonOperatorReducer::ReduceDeoptimizeConditional(Node* node) {
   if (condition->opcode() == IrOpcode::kBooleanNot) {
     NodeProperties::ReplaceValueInput(node, condition->InputAt(0), 0);
     NodeProperties::ChangeOp(
-        node, condition_is_true
-                  ? common()->DeoptimizeIf(p.kind(), p.reason())
-                  : common()->DeoptimizeUnless(p.kind(), p.reason()));
+        node,
+        condition_is_true
+            ? common()->DeoptimizeIf(p.kind(), p.reason(), p.feedback())
+            : common()->DeoptimizeUnless(p.kind(), p.reason(), p.feedback()));
     return Changed(node);
   }
-  Decision const decision = DecideCondition(condition);
+  Decision const decision = DecideCondition(broker(), condition);
   if (decision == Decision::kUnknown) return NoChange();
   if (condition_is_true == (decision == Decision::kTrue)) {
     ReplaceWithValue(node, dead(), effect, control);
   } else {
-    control = graph()->NewNode(common()->Deoptimize(p.kind(), p.reason()),
-                               frame_state, effect, control);
+    control = graph()->NewNode(
+        common()->Deoptimize(p.kind(), p.reason(), p.feedback()), frame_state,
+        effect, control);
     // TODO(bmeurer): This should be on the AdvancedReducer somehow.
     NodeProperties::MergeControlToEnd(graph(), common(), control);
     Revisit(graph()->end());
@@ -375,7 +385,7 @@ Reduction CommonOperatorReducer::ReduceSelect(Node* node) {
   Node* const vtrue = node->InputAt(1);
   Node* const vfalse = node->InputAt(2);
   if (vtrue == vfalse) return Replace(vtrue);
-  switch (DecideCondition(cond)) {
+  switch (DecideCondition(broker(), cond)) {
     case Decision::kTrue:
       return Replace(vtrue);
     case Decision::kFalse:
@@ -412,6 +422,42 @@ Reduction CommonOperatorReducer::ReduceSelect(Node* node) {
   return NoChange();
 }
 
+Reduction CommonOperatorReducer::ReduceSwitch(Node* node) {
+  DCHECK_EQ(IrOpcode::kSwitch, node->opcode());
+  Node* const switched_value = node->InputAt(0);
+  Node* const control = node->InputAt(1);
+
+  // Attempt to constant match the switched value against the IfValue cases. If
+  // no case matches, then use the IfDefault. We don't bother marking
+  // non-matching cases as dead code (same for an unused IfDefault), because the
+  // Switch itself will be marked as dead code.
+  Int32Matcher mswitched(switched_value);
+  if (mswitched.HasValue()) {
+    bool matched = false;
+
+    size_t const projection_count = node->op()->ControlOutputCount();
+    Node** projections = zone_->NewArray<Node*>(projection_count);
+    NodeProperties::CollectControlProjections(node, projections,
+                                              projection_count);
+    for (size_t i = 0; i < projection_count - 1; i++) {
+      Node* if_value = projections[i];
+      DCHECK_EQ(IrOpcode::kIfValue, if_value->opcode());
+      const IfValueParameters& p = IfValueParametersOf(if_value->op());
+      if (p.value() == mswitched.Value()) {
+        matched = true;
+        Replace(if_value, control);
+        break;
+      }
+    }
+    if (!matched) {
+      Node* if_default = projections[projection_count - 1];
+      DCHECK_EQ(IrOpcode::kIfDefault, if_default->opcode());
+      Replace(if_default, control);
+    }
+    return Replace(dead());
+  }
+  return NoChange();
+}
 
 Reduction CommonOperatorReducer::Change(Node* node, Operator const* op,
                                         Node* a) {

@@ -8,17 +8,23 @@
 
 #include "gpu_info_util/SystemInfo_internal.h"
 
+#include "common/debug.h"
+#include "common/string_utils.h"
+
 // Windows.h needs to be included first
 #include <windows.h>
 
 #if defined(GPU_INFO_USE_SETUPAPI)
-#include <cfgmgr32.h>
-#include <setupapi.h>
+// Remove parts of commctrl.h that have compile errors
+#    define NOTOOLBAR
+#    define NOTOOLTIPS
+#    include <cfgmgr32.h>
+#    include <setupapi.h>
 #elif defined(GPU_INFO_USE_DXGI)
-#include <dxgi.h>
-#include <d3d10.h>
+#    include <d3d10.h>
+#    include <dxgi.h>
 #else
-#error "SystemInfo_win needs at least GPU_INFO_USE_SETUPAPI or GPU_INFO_USE_DXGI defined"
+#    error "SystemInfo_win needs at least GPU_INFO_USE_SETUPAPI or GPU_INFO_USE_DXGI defined"
 #endif
 
 #include <array>
@@ -29,6 +35,23 @@ namespace angle
 
 namespace
 {
+
+// Returns the CM device ID of the primary GPU.
+std::string GetPrimaryDisplayDeviceId()
+{
+    DISPLAY_DEVICEA displayDevice;
+    displayDevice.cb = sizeof(DISPLAY_DEVICEA);
+
+    for (int i = 0; EnumDisplayDevicesA(nullptr, i, &displayDevice, 0); ++i)
+    {
+        if (displayDevice.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE)
+        {
+            return displayDevice.DeviceID;
+        }
+    }
+
+    return "";
+}
 
 #if defined(GPU_INFO_USE_SETUPAPI)
 
@@ -166,13 +189,16 @@ bool GetDevicesFromDXGI(std::vector<GPUDeviceInfo> *devices)
 }
 
 #else
-#error
+#    error
 #endif
 
 }  // anonymous namespace
 
 bool GetSystemInfo(SystemInfo *info)
 {
+    // Get the CM device ID first so that it is returned even in error cases.
+    info->primaryDisplayDeviceId = GetPrimaryDisplayDeviceId();
+
 #if defined(GPU_INFO_USE_SETUPAPI)
     if (!GetDevicesFromRegistry(&info->gpus))
     {
@@ -184,7 +210,7 @@ bool GetSystemInfo(SystemInfo *info)
         return false;
     }
 #else
-#error
+#    error
 #endif
 
     if (info->gpus.size() == 0)
@@ -193,6 +219,27 @@ bool GetSystemInfo(SystemInfo *info)
     }
 
     FindPrimaryGPU(info);
+
+    // Override the primary GPU index with what we gathered from EnumDisplayDevices
+    uint32_t primaryVendorId = 0;
+    uint32_t primaryDeviceId = 0;
+
+    if (!CMDeviceIDToDeviceAndVendorID(info->primaryDisplayDeviceId, &primaryVendorId,
+                                       &primaryDeviceId))
+    {
+        return false;
+    }
+
+    bool foundPrimary = false;
+    for (size_t i = 0; i < info->gpus.size(); ++i)
+    {
+        if (info->gpus[i].vendorId == primaryVendorId && info->gpus[i].deviceId == primaryDeviceId)
+        {
+            info->primaryGPUIndex = static_cast<int>(i);
+            foundPrimary          = true;
+        }
+    }
+    ASSERT(foundPrimary);
 
     // nvd3d9wrap.dll is loaded into all processes when Optimus is enabled.
     HMODULE nvd3d9wrap = GetModuleHandleW(L"nvd3d9wrap.dll");

@@ -15,7 +15,6 @@ executable("service_discovery_sniffer") {
   deps = [
     "//base",
     "//base/test:test_support",
-    "//build/config:exe_and_shlib_deps",
     "//chrome/browser",
     "//net",
   ]

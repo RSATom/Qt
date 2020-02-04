@@ -34,24 +34,28 @@
 #include "qtgradientutils.h"
 #include "qdesigner_utils_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/abstractsettings.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QColorDialog>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QFontDialog>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QPushButton>
-#include <QtGui/QTextDocument>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QVBoxLayout>
+#include <texteditfindwidget.h>
+
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qcolordialog.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qfontdialog.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtGui/qtextdocument.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qboxlayout.h>
 #include <private/qcssparser_p.h>
+
+#include <QtGui/qevent.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,7 +68,7 @@ namespace qdesigner_internal {
 StyleSheetEditor::StyleSheetEditor(QWidget *parent)
     : QTextEdit(parent)
 {
-    setTabStopDistance(fontMetrics().width(QLatin1Char(' ')) * 4);
+    setTabStopDistance(fontMetrics().horizontalAdvance(QLatin1Char(' ')) * 4);
     setAcceptRichText(false);
     new CssHighlighter(document());
 }
@@ -74,6 +78,7 @@ StyleSheetEditorDialog::StyleSheetEditorDialog(QDesignerFormEditorInterface *cor
     QDialog(parent),
     m_buttonBox(new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel|QDialogButtonBox::Help)),
     m_editor(new StyleSheetEditor),
+    m_findWidget(new TextEditFindWidget),
     m_validityLabel(new QLabel(tr("Valid Style Sheet"))),
     m_core(core),
     m_addResourceAction(new QAction(tr("Add Resource..."), this)),
@@ -91,14 +96,16 @@ StyleSheetEditorDialog::StyleSheetEditorDialog(QDesignerFormEditorInterface *cor
     m_buttonBox->button(QDialogButtonBox::Help)->setShortcut(QKeySequence::HelpContents);
 
     connect(m_editor, &QTextEdit::textChanged, this, &StyleSheetEditorDialog::validateStyleSheet);
+    m_findWidget->setTextEdit(m_editor);
 
     QToolBar *toolBar = new QToolBar;
 
     QGridLayout *layout = new QGridLayout;
     layout->addWidget(toolBar, 0, 0, 1, 2);
     layout->addWidget(m_editor, 1, 0, 1, 2);
-    layout->addWidget(m_validityLabel, 2, 0, 1, 1);
-    layout->addWidget(m_buttonBox, 2, 1, 1, 1);
+    layout->addWidget(m_findWidget, 2, 0, 1, 2);
+    layout->addWidget(m_validityLabel, 3, 0, 1, 1);
+    layout->addWidget(m_buttonBox, 3, 1, 1, 1);
     setLayout(layout);
 
     m_editor->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -159,10 +166,13 @@ StyleSheetEditorDialog::StyleSheetEditorDialog(QDesignerFormEditorInterface *cor
     m_addGradientAction->setMenu(gradientActionMenu);
     m_addColorAction->setMenu(colorActionMenu);
 
+
     toolBar->addAction(m_addResourceAction);
     toolBar->addAction(m_addGradientAction);
     toolBar->addAction(m_addColorAction);
     toolBar->addAction(m_addFontAction);
+    m_findAction = m_findWidget->createFindAction(toolBar);
+    toolBar->addAction(m_findAction);
 
     m_editor->setFocus();
 
@@ -194,6 +204,8 @@ void StyleSheetEditorDialog::setOkButtonEnabled(bool v)
 void StyleSheetEditorDialog::slotContextMenuRequested(const QPoint &pos)
 {
     QMenu *menu = m_editor->createStandardContextMenu();
+    menu->addSeparator();
+    menu->addAction(m_findAction);
     menu->addSeparator();
     menu->addAction(m_addResourceAction);
     menu->addAction(m_addGradientAction);
@@ -310,6 +322,23 @@ void StyleSheetEditorDialog::slotRequestHelp()
 {
     m_core->integration()->emitHelpRequested(QStringLiteral("qtwidgets"),
                                              QStringLiteral("stylesheet-reference.html"));
+}
+
+// See QDialog::keyPressEvent()
+static inline bool isEnter(const QKeyEvent *e)
+{
+    const bool isEnter = e->key() == Qt::Key_Enter;
+    const bool isReturn = e->key() == Qt::Key_Return;
+    return (e->modifiers() == Qt::KeyboardModifiers() && (isEnter || isReturn))
+        || (e->modifiers().testFlag(Qt::KeypadModifier) && isEnter);
+}
+
+void StyleSheetEditorDialog::keyPressEvent(QKeyEvent *e)
+{
+    // As long as the find widget is visible, suppress the default button
+    // behavior (close on Enter) of QDialog.
+    if (!(m_findWidget->isVisible() && isEnter(e)))
+        QDialog::keyPressEvent(e);
 }
 
 QDialogButtonBox * StyleSheetEditorDialog::buttonBox() const

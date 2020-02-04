@@ -399,8 +399,8 @@ namespace sw
 		bool textureActive(int coordinate);
 		bool textureActive(int coordinate, int component);
 
-		unsigned short pixelShaderVersion() const;
-		unsigned short vertexShaderVersion() const;
+		unsigned short pixelShaderModel() const;
+		unsigned short vertexShaderModel() const;
 
 		int getMultiSampleCount() const;
 		int getSuperSampleCount() const;
@@ -432,7 +432,11 @@ namespace sw
 		ShadingMode shadingMode;
 
 		CullMode cullMode;
+		bool frontFacingCCW;
 		float alphaReference;
+
+		float depthBias;
+		float slopeDepthBias;
 
 		TextureStage textureStage[8];
 		Sampler sampler[TOTAL_IMAGE_UNITS];
@@ -451,8 +455,6 @@ namespace sw
 		float fogStart;
 		float fogEnd;
 
-		void computeIllumination();
-
 		bool textureWrapActive;
 		unsigned char textureWrap[TEXTURE_IMAGE_UNITS];
 		TexGen texGen[8];
@@ -462,8 +464,11 @@ namespace sw
 		bool textureTransformProject[8];
 
 		Surface *renderTarget[RENDERTARGETS];
+		unsigned int renderTargetLayer[RENDERTARGETS];
 		Surface *depthBuffer;
+		unsigned int depthBufferLayer;
 		Surface *stencilBuffer;
+		unsigned int stencilBufferLayer;
 
 		// Fog
 		bool fogEnable;

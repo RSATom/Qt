@@ -19,9 +19,6 @@
 #include "net/base/completion_callback.h"
 #include "net/base/net_error_details.h"
 #include "net/base/net_export.h"
-#include "net/base/sdch_manager.h"
-#include "net/cookies/cookie_store.h"
-#include "net/filter/sdch_policy_delegate.h"
 #include "net/http/http_request_info.h"
 #include "net/socket/connection_attempts.h"
 #include "net/url_request/url_request_job.h"
@@ -46,9 +43,8 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
                                 NetworkDelegate* network_delegate,
                                 const std::string& scheme);
 
-  // Record Sdch specific packet stats. Public so that SdchPolicyDelegate can
-  // access it.
-  void RecordPacketStats(SdchPolicyDelegate::StatisticSelector statistic) const;
+  void SetRequestHeadersCallback(RequestHeadersCallback callback) override;
+  void SetResponseHeadersCallback(ResponseHeadersCallback callback) override;
 
  protected:
   URLRequestHttpJob(URLRequest* request,
@@ -76,8 +72,6 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
 
   typedef base::RefCountedData<bool> SharedBoolean;
 
-  class SdchContext;
-
   // Shadows URLRequestJob's version of this method so we can grab cookies.
   void NotifyHeadersComplete();
 
@@ -90,17 +84,10 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
   // Processes the Strict-Transport-Security header, if one exists.
   void ProcessStrictTransportSecurityHeader();
 
-  // Processes the Public-Key-Pins header, if one exists.
-  void ProcessPublicKeyPinsHeader();
-
   // Processes the Expect-CT header, if one exists. This header
   // indicates that the server wants the user agent to send a report
   // when a connection violates the Expect CT policy.
   void ProcessExpectCTHeader();
-
-  // Processes the Report-To header, if one exists. This header configures where
-  // the Reporting API (in //net/reporting) will send reports for the origin.
-  void ProcessReportToHeader();
 
   // |result| should be OK, or the request is canceled.
   void OnHeadersReceivedCallback(int result);
@@ -192,16 +179,6 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
   // back-off. May be NULL.
   scoped_refptr<URLRequestThrottlerEntryInterface> throttling_entry_;
 
-  // A handle to the SDCH dictionaries that were advertised in this request.
-  // May be null.
-  std::unique_ptr<SdchManager::DictionarySet> dictionaries_advertised_;
-
-  // For SDCH latency experiments, when we are able to do SDCH, we may enable
-  // either an SDCH latency test xor a pass through test. The following bools
-  // indicate what we decided on for this instance.
-  bool sdch_test_activated_;  // Advertising a dictionary for sdch.
-  bool sdch_test_control_;    // Not even accepting-content sdch.
-
   // For recording of stats, we need to remember if this is cached content.
   bool is_cached_content_;
 
@@ -263,6 +240,9 @@ class NET_EXPORT_PRIVATE URLRequestHttpJob : public URLRequestJob {
   // Keeps track of total sent bytes over the network from transactions used by
   // this job that have already been destroyed.
   int64_t total_sent_bytes_from_previous_transactions_;
+
+  RequestHeadersCallback request_headers_callback_;
+  ResponseHeadersCallback response_headers_callback_;
 
   base::WeakPtrFactory<URLRequestHttpJob> weak_factory_;
 

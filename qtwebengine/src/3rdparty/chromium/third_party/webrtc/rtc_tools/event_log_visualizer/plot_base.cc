@@ -8,14 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_tools/event_log_visualizer/plot_base.h"
+#include "rtc_tools/event_log_visualizer/plot_base.h"
 
 #include <algorithm>
 
-#include "webrtc/rtc_base/checks.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
-namespace plotting {
 
 void Plot::SetXAxis(float min_value,
                     float max_value,
@@ -85,5 +84,4 @@ void Plot::AppendTimeSeriesIfNotEmpty(TimeSeries&& time_series) {
   }
 }
 
-}  // namespace plotting
 }  // namespace webrtc

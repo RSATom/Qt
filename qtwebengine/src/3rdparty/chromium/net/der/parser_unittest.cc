@@ -13,12 +13,12 @@ namespace der {
 namespace test {
 
 TEST(ParserTest, ConsumesAllBytesOfTLV) {
-  const uint8_t der[] = {0x04, 0x00};
+  const uint8_t der[] = {0x04 /* OCTET STRING */, 0x00};
   Parser parser((Input(der)));
   Tag tag;
   Input value;
   ASSERT_TRUE(parser.ReadTagAndValue(&tag, &value));
-  ASSERT_EQ(0x04, tag);
+  ASSERT_EQ(kOctetString, tag);
   ASSERT_FALSE(parser.HasMore());
 }
 
@@ -66,39 +66,97 @@ TEST(ParserTest, FailsIfLengthOverlapsAnotherTLV) {
 }
 
 TEST(ParserTest, CanSkipOptionalTagAtEndOfInput) {
-  const uint8_t der[] = {0x02, 0x01, 0x01};
+  const uint8_t der[] = {0x02 /* INTEGER */, 0x01, 0x01};
   Parser parser((Input(der)));
 
   Tag tag;
   Input value;
   ASSERT_TRUE(parser.ReadTagAndValue(&tag, &value));
   bool present;
-  ASSERT_TRUE(parser.ReadOptionalTag(0x02, &value, &present));
+  ASSERT_TRUE(parser.ReadOptionalTag(kInteger, &value, &present));
   ASSERT_FALSE(present);
   ASSERT_FALSE(parser.HasMore());
 }
 
 TEST(ParserTest, SkipOptionalTagDoesntConsumePresentNonMatchingTLVs) {
-  const uint8_t der[] = {0x02, 0x01, 0x01};
+  const uint8_t der[] = {0x02 /* INTEGER */, 0x01, 0x01};
   Parser parser((Input(der)));
 
   bool present;
-  ASSERT_TRUE(parser.SkipOptionalTag(0x04, &present));
+  ASSERT_TRUE(parser.SkipOptionalTag(kOctetString, &present));
   ASSERT_FALSE(present);
-  ASSERT_TRUE(parser.SkipOptionalTag(0x02, &present));
+  ASSERT_TRUE(parser.SkipOptionalTag(kInteger, &present));
   ASSERT_TRUE(present);
   ASSERT_FALSE(parser.HasMore());
 }
 
-TEST(ParserTest, TagNumbersAboveThirtyUnsupported) {
+TEST(ParserTest, TagNumbersAboveThirtySupported) {
   // Context-specific class, tag number 31, length 0.
   const uint8_t der[] = {0x9f, 0x1f, 0x00};
   Parser parser((Input(der)));
 
   Tag tag;
   Input value;
-  ASSERT_FALSE(parser.ReadTagAndValue(&tag, &value));
-  ASSERT_TRUE(parser.HasMore());
+  ASSERT_TRUE(parser.ReadTagAndValue(&tag, &value));
+  EXPECT_EQ(kTagContextSpecific | 31u, tag);
+  ASSERT_FALSE(parser.HasMore());
+}
+
+TEST(ParserTest, ParseTags) {
+  {
+    // Universal primitive tag, tag number 4.
+    const uint8_t der[] = {0x04, 0x00};
+    Parser parser((Input(der)));
+
+    Tag tag;
+    Input value;
+    ASSERT_TRUE(parser.ReadTagAndValue(&tag, &value));
+    EXPECT_EQ(kOctetString, tag);
+  }
+
+  {
+    // Universal constructed tag, tag number 16.
+    const uint8_t der[] = {0x30, 0x00};
+    Parser parser((Input(der)));
+
+    Tag tag;
+    Input value;
+    ASSERT_TRUE(parser.ReadTagAndValue(&tag, &value));
+    EXPECT_EQ(kSequence, tag);
+  }
+
+  {
+    // Application primitive tag, tag number 1.
+    const uint8_t der[] = {0x41, 0x00};
+    Parser parser((Input(der)));
+
+    Tag tag;
+    Input value;
+    ASSERT_TRUE(parser.ReadTagAndValue(&tag, &value));
+    EXPECT_EQ(kTagApplication | 1, tag);
+  }
+
+  {
+    // Context-specific constructed tag, tag number 30.
+    const uint8_t der[] = {0xbe, 0x00};
+    Parser parser((Input(der)));
+
+    Tag tag;
+    Input value;
+    ASSERT_TRUE(parser.ReadTagAndValue(&tag, &value));
+    EXPECT_EQ(kTagContextSpecific | kTagConstructed | 30, tag);
+  }
+
+  {
+    // Private primitive tag, tag number 15.
+    const uint8_t der[] = {0xcf, 0x00};
+    Parser parser((Input(der)));
+
+    Tag tag;
+    Input value;
+    ASSERT_TRUE(parser.ReadTagAndValue(&tag, &value));
+    EXPECT_EQ(kTagPrivate | 15, tag);
+  }
 }
 
 TEST(ParserTest, IncompleteEncodingTagOnly) {

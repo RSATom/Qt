@@ -116,48 +116,45 @@ bool EscapeJSONStringImpl(const S& str, bool put_in_quotes, std::string* dest) {
 
 }  // namespace
 
-bool EscapeJSONString(const StringPiece& str,
+bool EscapeJSONString(StringPiece str, bool put_in_quotes, std::string* dest) {
+  return EscapeJSONStringImpl(str, put_in_quotes, dest);
+}
+
+bool EscapeJSONString(StringPiece16 str,
                       bool put_in_quotes,
                       std::string* dest) {
   return EscapeJSONStringImpl(str, put_in_quotes, dest);
 }
 
-bool EscapeJSONString(const StringPiece16& str,
-                      bool put_in_quotes,
-                      std::string* dest) {
-  return EscapeJSONStringImpl(str, put_in_quotes, dest);
-}
-
-std::string GetQuotedJSONString(const StringPiece& str) {
+std::string GetQuotedJSONString(StringPiece str) {
   std::string dest;
   bool ok = EscapeJSONStringImpl(str, true, &dest);
   DCHECK(ok);
   return dest;
 }
 
-std::string GetQuotedJSONString(const StringPiece16& str) {
+std::string GetQuotedJSONString(StringPiece16 str) {
   std::string dest;
   bool ok = EscapeJSONStringImpl(str, true, &dest);
   DCHECK(ok);
   return dest;
 }
 
-std::string EscapeBytesAsInvalidJSONString(const StringPiece& str,
+std::string EscapeBytesAsInvalidJSONString(StringPiece str,
                                            bool put_in_quotes) {
   std::string dest;
 
   if (put_in_quotes)
     dest.push_back('"');
 
-  for (StringPiece::const_iterator it = str.begin(); it != str.end(); ++it) {
-    unsigned char c = *it;
+  for (unsigned char c : str) {
     if (EscapeSpecialCodePoint(c, &dest))
       continue;
 
     if (c < 32 || c > 126)
       base::StringAppendF(&dest, kU16EscapeFormat, c);
     else
-      dest.push_back(*it);
+      dest.push_back(c);
   }
 
   if (put_in_quotes)

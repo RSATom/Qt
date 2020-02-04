@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2016 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,41 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MEDIA_BASE_VIDEOSOURCEBASE_H_
-#define WEBRTC_MEDIA_BASE_VIDEOSOURCEBASE_H_
+#ifndef MEDIA_BASE_VIDEOSOURCEBASE_H_
+#define MEDIA_BASE_VIDEOSOURCEBASE_H_
 
-#include <vector>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "webrtc/api/video/video_frame.h"
-#include "webrtc/media/base/videosourceinterface.h"
-#include "webrtc/rtc_base/thread_checker.h"
+#include "media/base/video_source_base.h"
 
-namespace rtc {
-
-// VideoSourceBase is not thread safe.
-class VideoSourceBase : public VideoSourceInterface<webrtc::VideoFrame> {
- public:
-  VideoSourceBase();
-  void AddOrUpdateSink(VideoSinkInterface<webrtc::VideoFrame>* sink,
-                       const VideoSinkWants& wants) override;
-  void RemoveSink(VideoSinkInterface<webrtc::VideoFrame>* sink) override;
-
- protected:
-  struct SinkPair {
-    SinkPair(VideoSinkInterface<webrtc::VideoFrame>* sink, VideoSinkWants wants)
-        : sink(sink), wants(wants) {}
-    VideoSinkInterface<webrtc::VideoFrame>* sink;
-    VideoSinkWants wants;
-  };
-  SinkPair* FindSinkPair(const VideoSinkInterface<webrtc::VideoFrame>* sink);
-
-  const std::vector<SinkPair>& sink_pairs() const { return sinks_; }
-  ThreadChecker thread_checker_;
-
- private:
-  std::vector<SinkPair> sinks_;
-};
-
-}  // namespace rtc
-
-#endif  // WEBRTC_MEDIA_BASE_VIDEOSOURCEBASE_H_
+#endif  // MEDIA_BASE_VIDEOSOURCEBASE_H_

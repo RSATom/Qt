@@ -4,41 +4,75 @@
 
 #include "device/vr/openvr/openvr_device_provider.h"
 
+#include "base/metrics/histogram_macros.h"
 #include "device/gamepad/gamepad_data_fetcher_manager.h"
+#include "device/vr/isolated_gamepad_data_fetcher.h"
+#include "device/vr/openvr/openvr_api_wrapper.h"
 #include "device/vr/openvr/openvr_device.h"
-#include "device/vr/openvr/openvr_gamepad_data_fetcher.h"
+#include "device/vr/openvr/test/test_hook.h"
 #include "third_party/openvr/src/headers/openvr.h"
 
 namespace device {
 
-OpenVRDeviceProvider::OpenVRDeviceProvider()
-    : initialized_(false), vr_system_(nullptr) {}
+void OpenVRDeviceProvider::RecordRuntimeAvailability() {
+  XrRuntimeAvailable runtime = XrRuntimeAvailable::NONE;
+  if (vr::VR_IsRuntimeInstalled())
+    runtime = XrRuntimeAvailable::OPENVR;
+  UMA_HISTOGRAM_ENUMERATION("XR.RuntimeAvailable", runtime,
+                            XrRuntimeAvailable::COUNT);
+}
 
-OpenVRDeviceProvider::~OpenVRDeviceProvider() {}
+OpenVRDeviceProvider::OpenVRDeviceProvider() = default;
 
-void OpenVRDeviceProvider::GetDevices(std::vector<VRDevice*>* devices) {
-  if (initialized_) {
-    VRDevice* device = new OpenVRDevice(vr_system_);
-    devices->push_back(device);
+OpenVRDeviceProvider::~OpenVRDeviceProvider() {
+  device::GamepadDataFetcherManager::GetInstance()->RemoveSourceFactory(
+      device::GAMEPAD_SOURCE_OPENVR);
+
+  if (device_) {
+    device_->Shutdown();
+    device_ = nullptr;
+  }
+
+  OpenVRWrapper::SetTestHook(nullptr);
+}
+
+void OpenVRDeviceProvider::Initialize(
+    base::RepeatingCallback<void(device::mojom::XRDeviceId,
+                                 mojom::VRDisplayInfoPtr,
+                                 mojom::XRRuntimePtr)> add_device_callback,
+    base::RepeatingCallback<void(device::mojom::XRDeviceId)>
+        remove_device_callback,
+    base::OnceClosure initialization_complete) {
+  CreateDevice();
+  if (device_) {
+    add_device_callback.Run(device_->GetId(), device_->GetVRDisplayInfo(),
+                            device_->BindXRRuntimePtr());
+  }
+  initialized_ = true;
+  std::move(initialization_complete).Run();
+}
+
+void OpenVRDeviceProvider::SetTestHook(OpenVRTestHook* test_hook) {
+  OpenVRWrapper::SetTestHook(test_hook);
+}
+
+void OpenVRDeviceProvider::CreateDevice() {
+  if (!vr::VR_IsRuntimeInstalled() || !vr::VR_IsHmdPresent())
+    return;
+
+  device_ = std::make_unique<OpenVRDevice>();
+  if (device_->IsAvailable()) {
     GamepadDataFetcherManager::GetInstance()->AddFactory(
-        new OpenVRGamepadDataFetcher::Factory(device->id(), vr_system_));
+        new IsolatedGamepadDataFetcher::Factory(
+            device::mojom::XRDeviceId::OPENVR_DEVICE_ID,
+            device_->BindGamepadFactory()));
+  } else {
+    device_ = nullptr;
   }
 }
 
-void OpenVRDeviceProvider::Initialize() {
-  if (!initialized_ && vr::VR_IsRuntimeInstalled() && vr::VR_IsHmdPresent()) {
-    vr::EVRInitError init_error = vr::VRInitError_None;
-    vr_system_ =
-        vr::VR_Init(&init_error, vr::EVRApplicationType::VRApplication_Scene);
-
-    if (init_error != vr::VRInitError_None) {
-      LOG(ERROR) << vr::VR_GetVRInitErrorAsEnglishDescription(init_error);
-      vr_system_ = nullptr;
-      return;
-    }
-
-    initialized_ = true;
-  }
+bool OpenVRDeviceProvider::Initialized() {
+  return initialized_;
 }
 
 }  // namespace device

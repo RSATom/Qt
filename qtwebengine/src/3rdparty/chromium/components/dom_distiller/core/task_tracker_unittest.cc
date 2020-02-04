@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/dom_distiller/core/article_distillation_update.h"
 #include "components/dom_distiller/core/article_entry.h"
 #include "components/dom_distiller/core/distilled_content_store.h"
@@ -22,7 +22,7 @@ namespace test {
 
 class FakeViewRequestDelegate : public ViewRequestDelegate {
  public:
-  virtual ~FakeViewRequestDelegate() {}
+  ~FakeViewRequestDelegate() override {}
   MOCK_METHOD1(OnArticleReady,
                void(const DistilledArticleProto* article_proto));
   MOCK_METHOD1(OnArticleUpdated,
@@ -61,7 +61,6 @@ class MockSaveCallback {
 class DomDistillerTaskTrackerTest : public testing::Test {
  public:
   void SetUp() override {
-    message_loop_.reset(new base::MessageLoop());
     entry_id_ = "id0";
     page_0_url_ = GURL("http://www.example.com/1");
     page_1_url_ = GURL("http://www.example.com/2");
@@ -78,7 +77,7 @@ class DomDistillerTaskTrackerTest : public testing::Test {
   }
 
  protected:
-  std::unique_ptr<base::MessageLoop> message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
   std::string entry_id_;
   GURL page_0_url_;
   GURL page_1_url_;
@@ -87,8 +86,8 @@ class DomDistillerTaskTrackerTest : public testing::Test {
 TEST_F(DomDistillerTaskTrackerTest, TestHasEntryId) {
   MockDistillerFactory distiller_factory;
   TestCancelCallback cancel_callback;
-  TaskTracker task_tracker(
-      GetDefaultEntry(), cancel_callback.GetCallback(), NULL);
+  TaskTracker task_tracker(GetDefaultEntry(), cancel_callback.GetCallback(),
+                           nullptr);
   EXPECT_TRUE(task_tracker.HasEntryId(entry_id_));
   EXPECT_FALSE(task_tracker.HasEntryId("other_id"));
 }
@@ -96,8 +95,8 @@ TEST_F(DomDistillerTaskTrackerTest, TestHasEntryId) {
 TEST_F(DomDistillerTaskTrackerTest, TestHasUrl) {
   MockDistillerFactory distiller_factory;
   TestCancelCallback cancel_callback;
-  TaskTracker task_tracker(
-      GetDefaultEntry(), cancel_callback.GetCallback(), NULL);
+  TaskTracker task_tracker(GetDefaultEntry(), cancel_callback.GetCallback(),
+                           nullptr);
   EXPECT_TRUE(task_tracker.HasUrl(page_0_url_));
   EXPECT_TRUE(task_tracker.HasUrl(page_1_url_));
   EXPECT_FALSE(task_tracker.HasUrl(GURL("http://other.url/")));
@@ -106,8 +105,8 @@ TEST_F(DomDistillerTaskTrackerTest, TestHasUrl) {
 TEST_F(DomDistillerTaskTrackerTest, TestViewerCancelled) {
   MockDistillerFactory distiller_factory;
   TestCancelCallback cancel_callback;
-  TaskTracker task_tracker(
-      GetDefaultEntry(), cancel_callback.GetCallback(), NULL);
+  TaskTracker task_tracker(GetDefaultEntry(), cancel_callback.GetCallback(),
+                           nullptr);
 
   FakeViewRequestDelegate viewer_delegate;
   FakeViewRequestDelegate viewer_delegate2;
@@ -126,8 +125,8 @@ TEST_F(DomDistillerTaskTrackerTest, TestViewerCancelled) {
 TEST_F(DomDistillerTaskTrackerTest, TestViewerCancelledWithSaveRequest) {
   MockDistillerFactory distiller_factory;
   TestCancelCallback cancel_callback;
-  TaskTracker task_tracker(
-      GetDefaultEntry(), cancel_callback.GetCallback(), NULL);
+  TaskTracker task_tracker(GetDefaultEntry(), cancel_callback.GetCallback(),
+                           nullptr);
 
   FakeViewRequestDelegate viewer_delegate;
   std::unique_ptr<ViewerHandle> handle(
@@ -149,8 +148,8 @@ TEST_F(DomDistillerTaskTrackerTest, TestViewerNotifiedOnDistillationComplete) {
   EXPECT_CALL(distiller_factory, CreateDistillerImpl())
       .WillOnce(Return(distiller));
   TestCancelCallback cancel_callback;
-  TaskTracker task_tracker(
-      GetDefaultEntry(), cancel_callback.GetCallback(), NULL);
+  TaskTracker task_tracker(GetDefaultEntry(), cancel_callback.GetCallback(),
+                           nullptr);
 
   FakeViewRequestDelegate viewer_delegate;
   std::unique_ptr<ViewerHandle> handle(
@@ -173,8 +172,8 @@ TEST_F(DomDistillerTaskTrackerTest, TestDistillerFails) {
       .WillOnce(Return(distiller));
 
   TestCancelCallback cancel_callback;
-  TaskTracker task_tracker(
-      GetDefaultEntry(), cancel_callback.GetCallback(), NULL);
+  TaskTracker task_tracker(GetDefaultEntry(), cancel_callback.GetCallback(),
+                           nullptr);
 
   FakeViewRequestDelegate viewer_delegate;
   std::unique_ptr<ViewerHandle> handle(
@@ -199,8 +198,8 @@ TEST_F(DomDistillerTaskTrackerTest,
   EXPECT_CALL(distiller_factory, CreateDistillerImpl())
       .WillOnce(Return(distiller));
   TestCancelCallback cancel_callback;
-  TaskTracker task_tracker(
-      GetDefaultEntry(), cancel_callback.GetCallback(), NULL);
+  TaskTracker task_tracker(GetDefaultEntry(), cancel_callback.GetCallback(),
+                           nullptr);
 
   MockSaveCallback save_callback;
   task_tracker.AddSaveCallback(

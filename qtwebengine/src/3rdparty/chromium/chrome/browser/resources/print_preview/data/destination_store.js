@@ -2,204 +2,1408 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+cr.exportPath('print_preview');
+
+/**
+ * Printer search statuses used by the destination store.
+ * @enum {string}
+ */
+print_preview.DestinationStorePrinterSearchStatus = {
+  START: 'start',
+  SEARCHING: 'searching',
+  DONE: 'done'
+};
+
 cr.define('print_preview', function() {
   'use strict';
+  /**
+   * Localizes printer capabilities.
+   * @param {!print_preview.Cdd} capabilities Printer capabilities to
+   *     localize.
+   * @return {!print_preview.Cdd} Localized capabilities.
+   */
+  const localizeCapabilities = function(capabilities) {
+    if (!capabilities.printer) {
+      return capabilities;
+    }
+
+    const mediaSize = capabilities.printer.media_size;
+    if (!mediaSize) {
+      return capabilities;
+    }
+
+    for (let i = 0, media; (media = mediaSize.option[i]); i++) {
+      // No need to patch capabilities with localized names provided.
+      if (!media.custom_display_name_localized) {
+        media.custom_display_name = media.custom_display_name ||
+            DestinationStore.MEDIA_DISPLAY_NAMES_[media.name] || media.name;
+      }
+    }
+    return capabilities;
+  };
 
   /**
-   * A data store that stores destinations and dispatches events when the data
-   * store changes.
-   * @param {!print_preview.UserInfo} userInfo User information repository.
-   * @param {!print_preview.AppState} appState Application state.
-   * @param {!WebUIListenerTracker} listenerTracker Tracker for WebUI listeners
-   *     added in DestinationStore constructor.
-   * @constructor
-   * @extends {cr.EventTarget}
+   * Compare two media sizes by their names.
+   * @param {!Object} a Media to compare.
+   * @param {!Object} b Media to compare.
+   * @return {number} 1 if a > b, -1 if a < b, or 0 if a == b.
    */
-  function DestinationStore(userInfo, appState, listenerTracker) {
-    cr.EventTarget.call(this);
+  const compareMediaNames = function(a, b) {
+    const nameA = a.custom_display_name_localized || a.custom_display_name;
+    const nameB = b.custom_display_name_localized || b.custom_display_name;
+    return nameA == nameB ? 0 : (nameA > nameB ? 1 : -1);
+  };
+
+  /**
+   * Sort printer media sizes.
+   * @param {!print_preview.Cdd} capabilities Printer capabilities to
+   * localize.
+   * @return {!print_preview.Cdd} Localized capabilities.
+   * @private
+   */
+  const sortMediaSizes = function(capabilities) {
+    if (!capabilities.printer) {
+      return capabilities;
+    }
+
+    const mediaSize = capabilities.printer.media_size;
+    if (!mediaSize) {
+      return capabilities;
+    }
+
+    // For the standard sizes, separate into categories, as seen in the Cloud
+    // Print CDD guide:
+    // - North American
+    // - Chinese
+    // - ISO
+    // - Japanese
+    // - Other metric
+    // Otherwise, assume they are custom sizes.
+    const categoryStandardNA = [];
+    const categoryStandardCN = [];
+    const categoryStandardISO = [];
+    const categoryStandardJP = [];
+    const categoryStandardMisc = [];
+    const categoryCustom = [];
+    for (let i = 0, media; (media = mediaSize.option[i]); i++) {
+      const name = media.name || 'CUSTOM';
+      let category;
+      if (name.startsWith('NA_')) {
+        category = categoryStandardNA;
+      } else if (
+          name.startsWith('PRC_') || name.startsWith('ROC_') ||
+          name == 'OM_DAI_PA_KAI' || name == 'OM_JUURO_KU_KAI' ||
+          name == 'OM_PA_KAI') {
+        category = categoryStandardCN;
+      } else if (name.startsWith('ISO_')) {
+        category = categoryStandardISO;
+      } else if (name.startsWith('JIS_') || name.startsWith('JPN_')) {
+        category = categoryStandardJP;
+      } else if (name.startsWith('OM_')) {
+        category = categoryStandardMisc;
+      } else {
+        assert(name == 'CUSTOM', 'Unknown media size. Assuming custom');
+        category = categoryCustom;
+      }
+      category.push(media);
+    }
+
+    // For each category, sort by name.
+    categoryStandardNA.sort(compareMediaNames);
+    categoryStandardCN.sort(compareMediaNames);
+    categoryStandardISO.sort(compareMediaNames);
+    categoryStandardJP.sort(compareMediaNames);
+    categoryStandardMisc.sort(compareMediaNames);
+    categoryCustom.sort(compareMediaNames);
+
+    // Then put it all back together.
+    mediaSize.option = categoryStandardNA;
+    mediaSize.option.push(
+        ...categoryStandardCN, ...categoryStandardISO, ...categoryStandardJP,
+        ...categoryStandardMisc, ...categoryCustom);
+    return capabilities;
+  };
+
+
+  class DestinationStore extends cr.EventTarget {
+    /**
+     * A data store that stores destinations and dispatches events when the
+     * data store changes.
+     * @param {function(string, !Function):void} addListenerCallback Function
+     *     to call to add Web UI listeners in DestinationStore constructor.
+     */
+    constructor(addListenerCallback) {
+      super();
+
+      /**
+       * Currently active user.
+       * @private {string}
+       */
+      this.activeUser_ = '';
+
+      /**
+       * Whether the destination store will auto select the destination that
+       * matches this set of parameters.
+       * @private {print_preview.DestinationMatch}
+       */
+      this.autoSelectMatchingDestination_ = null;
+
+      /**
+       * ID of a timeout after the initial destination ID is set. If no inserted
+       * destination matches the initial destination ID after the specified
+       * timeout, the first destination in the store will be automatically
+       * selected.
+       * @private {?number}
+       */
+      this.autoSelectTimeout_ = null;
+
+      /**
+       * Used to fetch cloud-based print destinations.
+       * @private {cloudprint.CloudPrintInterface}
+       */
+      this.cloudPrintInterface_ = null;
+
+      /**
+       * Cache used for constant lookup of destinations by key.
+       * @private {!Map<string, !print_preview.Destination>}
+       */
+      this.destinationMap_ = new Map();
+
+      /**
+       * Internal backing store for the data store.
+       * @private {!Array<!print_preview.Destination>}
+       */
+      this.destinations_ = [];
+
+      /**
+       * Whether a search for destinations is in progress for each type of
+       * printer.
+       * @private {!Map<!print_preview.PrinterType,
+       *                !print_preview.DestinationStorePrinterSearchStatus>}
+       */
+      this.destinationSearchStatus_ = new Map([
+        [
+          print_preview.PrinterType.EXTENSION_PRINTER,
+          print_preview.DestinationStorePrinterSearchStatus.START
+        ],
+        [
+          print_preview.PrinterType.PRIVET_PRINTER,
+          print_preview.DestinationStorePrinterSearchStatus.START
+        ],
+        [
+          print_preview.PrinterType.LOCAL_PRINTER,
+          print_preview.DestinationStorePrinterSearchStatus.START
+        ],
+      ]);
+
+      /**
+       * Maps user account to the list of origins for which destinations are
+       * already loaded.
+       * @private {!Map<string, !Array<!print_preview.DestinationOrigin>>}
+       */
+      this.loadedCloudOrigins_ = new Map();
+
+      /**
+       * Used to track metrics.
+       * @private {!print_preview.MetricsContext}
+       */
+      this.metrics_ = print_preview.MetricsContext.destinationSearch();
+
+      /**
+       * Used to fetch local print destinations.
+       * @private {!print_preview.NativeLayer}
+       */
+      this.nativeLayer_ = print_preview.NativeLayer.getInstance();
+
+      /**
+       * Whether PDF printer is enabled. It's disabled, for example, in App
+       * Kiosk mode.
+       * @private {boolean}
+       */
+      this.pdfPrinterEnabled_ = false;
+
+      /**
+       * Local destinations are CROS destinations on ChromeOS because they
+       * require extra setup.
+       * @private {!print_preview.DestinationOrigin}
+       */
+      this.platformOrigin_ = cr.isChromeOS ?
+          print_preview.DestinationOrigin.CROS :
+          print_preview.DestinationOrigin.LOCAL;
+
+      /**
+       * The recent print destinations, set when the store is initialized.
+       * @private {!Array<!print_preview.RecentDestination>}
+       */
+      this.recentDestinations_ = [];
+
+      /**
+       * Currently selected destination.
+       * @private {print_preview.Destination}
+       */
+      this.selectedDestination_ = null;
+
+      /**
+       * Whether to select the first printer that is found. Used when
+       * pdfPrinterEnabled_ is false.
+       * @private {boolean}
+       */
+      this.selectFirstDestination_ = false;
+
+      /**
+       * ID of the system default destination.
+       * @private {string}
+       */
+      this.systemDefaultDestinationId_ = '';
+
+      /**
+       * Event tracker used to track event listeners of the destination store.
+       * @private {!EventTracker}
+       */
+      this.tracker_ = new EventTracker();
+
+      /**
+       * Whether to default to the system default printer instead of the most
+       * recent destination.
+       * @private {boolean}
+       */
+      this.useSystemDefaultAsDefault_ =
+          loadTimeData.getBoolean('useSystemDefaultPrinter');
+
+      addListenerCallback('printers-added', this.onPrintersAdded_.bind(this));
+      addListenerCallback(
+          'reload-printer-list', this.onDestinationsReload.bind(this));
+    }
 
     /**
-     * Used to fetch local print destinations.
-     * @private {!print_preview.NativeLayer}
+     * @param {?string=} opt_account Account to filter destinations by. When
+     *     null or omitted, all destinations are returned.
+     * @return {!Array<!print_preview.Destination>} List of destinations
+     *     accessible by the {@code account}.
      */
-    this.nativeLayer_ = print_preview.NativeLayer.getInstance();
+    destinations(opt_account) {
+      if (opt_account) {
+        return this.destinations_.filter(function(destination) {
+          return !destination.account || destination.account == opt_account;
+        });
+      }
+      return this.destinations_.slice(0);
+    }
 
     /**
-     * User information repository.
-     * @private {!print_preview.UserInfo}
+     * Gets the destination, if any, matching |key|.
+     * @param {string} key Key identifying the destination in the map.
+     * @return {?print_preview.Destination}
      */
-    this.userInfo_ = userInfo;
+    getDestinationByKey(key) {
+      return this.destinationMap_.get(key) || null;
+    }
 
     /**
-     * Used to load and persist the selected destination.
-     * @private {!print_preview.AppState}
+     * @return {boolean} Whether a search for print destinations is in progress.
      */
-    this.appState_ = appState;
+    get isPrintDestinationSearchInProgress() {
+      const isLocalDestinationSearchInProgress =
+          Array.from(this.destinationSearchStatus_.values())
+              .some(
+                  el => el ===
+                      print_preview.DestinationStorePrinterSearchStatus
+                          .SEARCHING);
+      if (isLocalDestinationSearchInProgress) {
+        return true;
+      }
+
+      const isCloudDestinationSearchInProgress = !!this.cloudPrintInterface_ &&
+          this.cloudPrintInterface_.isCloudDestinationSearchInProgress();
+      return isCloudDestinationSearchInProgress;
+    }
 
     /**
-     * Used to track metrics.
-     * @private {!print_preview.DestinationSearchMetricsContext}
+     * @return {print_preview.Destination} The currently selected destination or
+     *     {@code null} if none is selected.
      */
-    this.metrics_ = new print_preview.DestinationSearchMetricsContext();
+    get selectedDestination() {
+      return this.selectedDestination_;
+    }
 
     /**
-     * Internal backing store for the data store.
-     * @private {!Array<!print_preview.Destination>}
+     * @param {(?print_preview.Destination |
+     *          ?print_preview.RecentDestination)} destination
+     * @return {boolean} Whether the destination is valid.
+     * @private
      */
-    this.destinations_ = [];
+    isDestinationValid_(destination) {
+      return !!destination && !!destination.id && !!destination.origin;
+    }
 
     /**
-     * Cache used for constant lookup of destinations by origin and id.
-     * @private {Object<!print_preview.Destination>}
+     * Initializes the destination store. Sets the initially selected
+     * destination. If any inserted destinations match this ID, that destination
+     * will be automatically selected.
+     * @param {boolean} isInAppKioskMode Whether the print preview is in App
+     *     Kiosk mode.
+     * @param {string} systemDefaultDestinationId ID of the system default
+     *     destination.
+     * @param {?string} serializedDefaultDestinationSelectionRulesStr Serialized
+     *     default destination selection rules.
+     * @param {!Array<!print_preview.RecentDestination>}
+     *     recentDestinations The recent print destinations.
      */
-    this.destinationMap_ = {};
+    init(
+        isInAppKioskMode, systemDefaultDestinationId,
+        serializedDefaultDestinationSelectionRulesStr, recentDestinations) {
+      this.pdfPrinterEnabled_ = !isInAppKioskMode;
+      this.systemDefaultDestinationId_ = systemDefaultDestinationId;
+      this.createLocalPdfPrintDestination_();
+
+      const isRecentDestinationValid = recentDestinations.length > 0 &&
+          this.isDestinationValid_(recentDestinations[0]);
+
+      if (!isRecentDestinationValid) {
+        const destinationMatch = this.convertToDestinationMatch_(
+            serializedDefaultDestinationSelectionRulesStr);
+        if (destinationMatch) {
+          this.fetchMatchingDestination_(destinationMatch);
+          this.startAutoSelectTimeout_();
+          return;
+        }
+      }
+
+      if (this.systemDefaultDestinationId_.length == 0 &&
+          !isRecentDestinationValid) {
+        this.selectFinalFallbackDestination_();
+        return;
+      }
+
+      this.recentDestinations_ = recentDestinations;
+      let startedAutoSelect = false;
+      let selected = false;
+      let account = '';
+      // Run through the destinations forward. As soon as we find a
+      // destination, don't select any future destinations, just fetch their
+      // capabilities in case the user switches to them later.
+      for (const destination of recentDestinations) {
+        const candidate = this.destinationMap_.get(
+            print_preview.createRecentDestinationKey(destination));
+        const shouldSelectDestination =
+            !this.useSystemDefaultAsDefault_ && !selected && !startedAutoSelect;
+        if (destination.account && account && destination.account !== account) {
+          // If we have already selected a destination with a specific account,
+          // don't request destinations from a different account, as doing so
+          // will cause the cloud print interface to reset the UI to have a
+          // different active user from the user that owns the selected printer.
+          continue;
+        }
+        if (candidate != undefined) {
+          candidate.isRecent = true;
+          // Destination is already in the store. Select it, if we haven't
+          // started selecting a destination already.
+          if (shouldSelectDestination) {
+            this.selectDestination(candidate);
+            selected = true;
+            account = destination.account;
+          }
+        } else {
+          // Pre-fetch the destination and start auto select if needed.
+          const startedFetch = this.fetchPreselectedDestination_(
+              destination, shouldSelectDestination);
+          if (startedFetch && shouldSelectDestination) {
+            startedAutoSelect = true;
+            account = destination.account;
+          }
+        }
+      }
+
+      if ((selected || startedAutoSelect) && !this.useSystemDefaultAsDefault_) {
+        // Return early since we already selected a destination.
+        return;
+      }
+
+      // Try the system default
+      const serializedSystemDefault = {
+        id: this.systemDefaultDestinationId_,
+        origin: this.systemDefaultDestinationId_ ==
+                print_preview.Destination.GooglePromotedId.SAVE_AS_PDF ?
+            print_preview.DestinationOrigin.LOCAL :
+            this.platformOrigin_,
+        account: '',
+        capabilities: null,
+        displayName: '',
+        extensionId: '',
+        extensionName: '',
+      };
+      const systemDefaultCandidate = this.destinationMap_.get(
+          print_preview.createRecentDestinationKey(serializedSystemDefault));
+      if (systemDefaultCandidate != undefined) {
+        this.selectDestination(systemDefaultCandidate);
+        return;
+      }
+
+      if (this.fetchPreselectedDestination_(
+              serializedSystemDefault, true /* autoSelect */)) {
+        return;
+      }
+
+      this.selectFinalFallbackDestination_();
+    }
 
     /**
-     * Currently selected destination.
-     * @private {print_preview.Destination}
+     * Attempts to fetch capabilities of the destination identified by
+     * |serializedDestination|.
+     * @param {!print_preview.RecentDestination} serializedDestination
+     * @param {boolean} autoSelect Whether to automatically select the
+     *     destination if it is fetched successfully.
+     * @return {boolean} Whether capabilities fetch was successfully started.
+     * @private
      */
-    this.selectedDestination_ = null;
+    fetchPreselectedDestination_(serializedDestination, autoSelect) {
+      const id = serializedDestination.id;
+      const origin = serializedDestination.origin;
+      if (autoSelect) {
+        this.autoSelectMatchingDestination_ =
+            this.createExactDestinationMatch_(origin, id);
+      }
+
+      let error = false;
+      const type = print_preview.originToType(origin);
+      switch (type) {
+        case print_preview.PrinterType.LOCAL_PRINTER:
+          this.nativeLayer_.getPrinterCapabilities(id, type).then(
+              this.onCapabilitiesSet_.bind(this, origin, id),
+              this.onGetCapabilitiesFail_.bind(this, origin, id));
+          break;
+        case print_preview.PrinterType.PRIVET_PRINTER:
+        case print_preview.PrinterType.EXTENSION_PRINTER:
+          // TODO(noamsml): Resolve a specific printer instead of listing all
+          // privet or extension printers in this case.
+          this.startLoadDestinations_(type);
+
+          if (autoSelect) {
+            // Create a fake selectedDestination_ that is not actually in the
+            // destination store. When the real destination is created, this
+            // destination will be overwritten.
+            const params =
+                (origin === print_preview.DestinationOrigin.PRIVET) ? {} : {
+                  description: '',
+                  extensionId: serializedDestination.extensionId,
+                  extensionName: serializedDestination.extensionName,
+                  provisionalType: print_preview.DestinationProvisionalType.NONE
+                };
+            this.selectedDestination_ = new print_preview.Destination(
+                id, print_preview.DestinationType.LOCAL, origin,
+                serializedDestination.displayName, false /* isRecent */,
+                print_preview.DestinationConnectionStatus.ONLINE, params);
+
+            if (serializedDestination.capabilities) {
+              this.selectedDestination_.capabilities =
+                  serializedDestination.capabilities;
+              this.dispatchEvent(new CustomEvent(
+                  DestinationStore.EventType
+                      .SELECTED_DESTINATION_CAPABILITIES_READY));
+            }
+          }
+          break;
+        case print_preview.PrinterType.CLOUD_PRINTER:
+          if (this.cloudPrintInterface_) {
+            this.cloudPrintInterface_.printer(
+                id, origin, serializedDestination.account);
+          } else {
+            // No cloud print interface.
+            error = true;
+          }
+          break;
+        default:
+          // Unknown type.
+          error = true;
+      }
+
+      if (!error && autoSelect) {
+        this.startAutoSelectTimeout_();
+      }
+      return !error;
+    }
 
     /**
-     * Whether the destination store will auto select the destination that
-     * matches this set of parameters.
-     * @private {print_preview.DestinationMatch}
+     * Attempts to find a destination matching the provided rules.
+     * @param {!print_preview.DestinationMatch} destinationMatch Rules to match.
+     * @private
      */
-    this.autoSelectMatchingDestination_ = null;
+    fetchMatchingDestination_(destinationMatch) {
+      this.autoSelectMatchingDestination_ = destinationMatch;
+      const types = destinationMatch.getTypes();
+      types.forEach(type => {
+        if (type != print_preview.PrinterType.CLOUD_PRINTER) {
+          // Local, extension, or privet printer
+          this.startLoadDestinations_(type);
+        } else if (print_preview.CloudOrigins.some(origin => {
+                     return destinationMatch.matchOrigin(origin);
+                   })) {
+          this.startLoadCloudDestinations();
+        }
+      });
+    }
 
     /**
-     * Event tracker used to track event listeners of the destination store.
-     * @private {!EventTracker}
+     * @param {?string} serializedDefaultDestinationSelectionRulesStr Serialized
+     *     default destination selection rules.
+     * @return {?print_preview.DestinationMatch} Creates rules matching
+     *     previously selected destination.
+     * @private
      */
-    this.tracker_ = new EventTracker();
+    convertToDestinationMatch_(serializedDefaultDestinationSelectionRulesStr) {
+      let matchRules = null;
+      try {
+        if (serializedDefaultDestinationSelectionRulesStr) {
+          matchRules =
+              JSON.parse(serializedDefaultDestinationSelectionRulesStr);
+        }
+      } catch (e) {
+        console.error('Failed to parse defaultDestinationSelectionRules: ' + e);
+      }
+      if (!matchRules) {
+        return null;
+      }
+
+      const isLocal = !matchRules.kind || matchRules.kind == 'local';
+      const isCloud = !matchRules.kind || matchRules.kind == 'cloud';
+      if (!isLocal && !isCloud) {
+        console.error('Unsupported type: "' + matchRules.kind + '"');
+        return null;
+      }
+
+      const origins = [];
+      if (isLocal) {
+        origins.push(print_preview.DestinationOrigin.LOCAL);
+        origins.push(print_preview.DestinationOrigin.PRIVET);
+        origins.push(print_preview.DestinationOrigin.EXTENSION);
+        origins.push(print_preview.DestinationOrigin.CROS);
+      }
+      if (isCloud) {
+        origins.push(...print_preview.CloudOrigins);
+      }
+
+      let idRegExp = null;
+      try {
+        if (matchRules.idPattern) {
+          idRegExp = new RegExp(matchRules.idPattern || '.*');
+        }
+      } catch (e) {
+        console.error('Failed to parse regexp for "id": ' + e);
+      }
+
+      let displayNameRegExp = null;
+      try {
+        if (matchRules.namePattern) {
+          displayNameRegExp = new RegExp(matchRules.namePattern || '.*');
+        }
+      } catch (e) {
+        console.error('Failed to parse regexp for "name": ' + e);
+      }
+
+      return new print_preview.DestinationMatch(
+          origins, idRegExp, displayNameRegExp,
+          true /*skipVirtualDestinations*/);
+    }
 
     /**
-     * Whether PDF printer is enabled. It's disabled, for example, in App Kiosk
-     * mode.
-     * @private {boolean}
+     * @return {print_preview.DestinationMatch} Creates rules matching
+     *     previously selected destination.
+     * @private
      */
-    this.pdfPrinterEnabled_ = false;
+    convertPreselectedToDestinationMatch_() {
+      if (this.isDestinationValid_(this.selectedDestination_)) {
+        return this.createExactDestinationMatch_(
+            this.selectedDestination_.origin, this.selectedDestination_.id);
+      }
+      if (this.systemDefaultDestinationId_.length > 0) {
+        return this.createExactDestinationMatch_(
+            this.platformOrigin_, this.systemDefaultDestinationId_);
+      }
+      return null;
+    }
 
     /**
-     * ID of the system default destination.
-     * @private {?string}
+     * @param {string | print_preview.DestinationOrigin} origin Destination
+     *     origin.
+     * @param {string} id Destination id.
+     * @return {!print_preview.DestinationMatch} Creates rules matching
+     *     provided destination.
+     * @private
      */
-    this.systemDefaultDestinationId_ = null;
+    createExactDestinationMatch_(origin, id) {
+      return new print_preview.DestinationMatch(
+          [origin],
+          new RegExp('^' + id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'),
+          null /*displayNameRegExp*/, false /*skipVirtualDestinations*/);
+    }
 
     /**
-     * Used to fetch cloud-based print destinations.
-     * @private {cloudprint.CloudPrintInterface}
+     * Updates the current active user account.
+     * @param {string} activeUser
      */
-    this.cloudPrintInterface_ = null;
+    setActiveUser(activeUser) {
+      this.activeUser_ = activeUser;
+    }
 
     /**
-     * Maps user account to the list of origins for which destinations are
-     * already loaded.
-     * @private {!Object<Array<!print_preview.DestinationOrigin>>}
+     * Sets the destination store's Google Cloud Print interface.
+     * @param {!cloudprint.CloudPrintInterface} cloudPrintInterface Interface
+     *     to set.
      */
-    this.loadedCloudOrigins_ = {};
+    setCloudPrintInterface(cloudPrintInterface) {
+      assert(this.cloudPrintInterface_ == null);
+      this.cloudPrintInterface_ = cloudPrintInterface;
+      [cloudprint.CloudPrintInterfaceEventType.SEARCH_DONE,
+       cloudprint.CloudPrintInterfaceEventType.SEARCH_FAILED,
+      ].forEach(eventName => {
+        this.tracker_.add(
+            this.cloudPrintInterface_.getEventTarget(), eventName,
+            this.onCloudPrintSearchDone_.bind(this));
+      });
+      this.tracker_.add(
+          this.cloudPrintInterface_.getEventTarget(),
+          cloudprint.CloudPrintInterfaceEventType.PRINTER_DONE,
+          this.onCloudPrintPrinterDone_.bind(this));
+      this.tracker_.add(
+          this.cloudPrintInterface_.getEventTarget(),
+          cloudprint.CloudPrintInterfaceEventType.PRINTER_FAILED,
+          this.onCloudPrintPrinterFailed_.bind(this));
+      this.tracker_.add(
+          this.cloudPrintInterface_.getEventTarget(),
+          cloudprint.CloudPrintInterfaceEventType.PROCESS_INVITE_DONE,
+          this.onCloudPrintProcessInviteDone_.bind(this));
+    }
 
     /**
-     * ID of a timeout after the initial destination ID is set. If no inserted
-     * destination matches the initial destination ID after the specified
-     * timeout, the first destination in the store will be automatically
-     * selected.
-     * @private {?number}
+     * @param {print_preview.Destination} destination Destination to select.
      */
-    this.autoSelectTimeout_ = null;
+    selectDestination(destination) {
+      this.autoSelectMatchingDestination_ = null;
+      // Clear the timeout. Otherwise, when it expires, we will fall back to the
+      // default destination.
+      if (this.autoSelectTimeout_) {
+        clearTimeout(this.autoSelectTimeout_);
+        this.autoSelectTimeout_ = null;
+      } else if (destination == this.selectedDestination_) {
+        return;
+      }
+      if (destination == null) {
+        this.selectedDestination_ = null;
+        this.dispatchEvent(
+            new CustomEvent(DestinationStore.EventType.DESTINATION_SELECT));
+        return;
+      }
+
+      assert(
+          !destination.isProvisional,
+          'Unable to select provisonal destinations');
+
+      // Update and persist selected destination.
+      this.selectedDestination_ = destination;
+      this.selectedDestination_.isRecent = true;
+      // Adjust metrics.
+      if (destination.cloudID &&
+          this.destinations_.some(function(otherDestination) {
+            return otherDestination.cloudID == destination.cloudID &&
+                otherDestination != destination;
+          })) {
+        this.metrics_.record(
+            destination.isPrivet ? print_preview.Metrics.DestinationSearchBucket
+                                       .PRIVET_DUPLICATE_SELECTED :
+                                   print_preview.Metrics.DestinationSearchBucket
+                                       .CLOUD_DUPLICATE_SELECTED);
+      }
+      // Notify about selected destination change.
+      this.dispatchEvent(
+          new CustomEvent(DestinationStore.EventType.DESTINATION_SELECT));
+      // Request destination capabilities from backend, since they are not
+      // known yet.
+      if (destination.capabilities == null) {
+        const type = print_preview.originToType(destination.origin);
+        if (type !== print_preview.PrinterType.CLOUD_PRINTER) {
+          this.nativeLayer_.getPrinterCapabilities(destination.id, type)
+              .then(
+                  (caps) => this.onCapabilitiesSet_(
+                      destination.origin, destination.id, caps),
+                  () => this.onGetCapabilitiesFail_(
+                      destination.origin, destination.id));
+        } else {
+          assert(
+              this.cloudPrintInterface_ != null,
+              'Cloud destination selected, but GCP is not enabled');
+          this.cloudPrintInterface_.printer(
+              destination.id, destination.origin, destination.account);
+        }
+      } else {
+        this.sendSelectedDestinationUpdateEvent_();
+      }
+    }
 
     /**
-     * Whether a search for local destinations is in progress.
-     * @private {boolean}
+     * Selects the destination with key given by |key|. Destination must exist
+     * in the map.
+     * @param {string} key A unique key identifying the destination.
      */
-    this.isLocalDestinationSearchInProgress_ = false;
+    selectDestinationByKey(key) {
+      this.selectDestination(assert(this.getDestinationByKey(key)));
+    }
+
+    // <if expr="chromeos">
+    /**
+     * Attempt to resolve the capabilities for a Chrome OS printer.
+     * @param {!print_preview.Destination} destination The destination which
+     *     requires resolution.
+     * @return {!Promise<!print_preview.PrinterSetupResponse>}
+     */
+    resolveCrosDestination(destination) {
+      assert(destination.origin == print_preview.DestinationOrigin.CROS);
+      return this.nativeLayer_.setupPrinter(destination.id);
+    }
 
     /**
-     * Whether the destination store has already loaded or is loading all local
-     * destinations.
-     * @private {boolean}
+     * Attempts to resolve a provisional destination.
+     * @param {!print_preview.Destination} destination Provisional destination
+     *     that should be resolved.
+     * @return {!Promise<?print_preview.Destination>}
      */
-    this.hasLoadedAllLocalDestinations_ = false;
+    resolveProvisionalDestination(destination) {
+      assert(
+          destination.provisionalType ==
+              print_preview.DestinationProvisionalType.NEEDS_USB_PERMISSION,
+          'Provisional type cannot be resolved.');
+      return this.nativeLayer_.grantExtensionPrinterAccess(destination.id)
+          .then(
+              destinationInfo => {
+                /**
+                 * Removes the destination from the store and replaces it with a
+                 * destination created from the resolved destination properties,
+                 * if any are reported. Then returns the new destination.
+                 */
+                this.removeProvisionalDestination_(destination.id);
+                const parsedDestination =
+                    print_preview.parseExtensionDestination(destinationInfo);
+                this.insertIntoStore_(parsedDestination);
+                return parsedDestination;
+              },
+              () => {
+                /**
+                 * The provisional destination is removed from the store and
+                 * null is returned.
+                 */
+                this.removeProvisionalDestination_(destination.id);
+                return null;
+              });
+    }
+    // </if>
 
     /**
-     * Whether a search for privet destinations is in progress.
-     * @private {boolean}
+     * Selects the Save as PDF fallback if it is available. If not, selects the
+     * first destination if it exists. If the store is empty, starts loading all
+     * printers to find one to select.
+     * @private
      */
-    this.isPrivetDestinationSearchInProgress_ = false;
+    selectFinalFallbackDestination_() {
+      // Save as PDF should always exist if it is enabled.
+      if (this.pdfPrinterEnabled_) {
+        const saveToPdfKey = print_preview.createDestinationKey(
+            print_preview.Destination.GooglePromotedId.SAVE_AS_PDF,
+            print_preview.DestinationOrigin.LOCAL, '');
+        this.selectDestinationByKey(saveToPdfKey);
+        return;
+      }
+
+      // Try selecting the first destination if there is at least one
+      // destination already loaded.
+      if (this.destinations_.length > 0) {
+        this.selectDestination(this.destinations_[0]);
+        return;
+      }
+
+      // Load all destinations to find one to select.
+      this.selectFirstDestination_ = true;
+      this.startLoadAllDestinations();
+    }
 
     /**
-     * Whether the destination store has already loaded or is loading all privet
-     * destinations.
-     * @private {boolean}
+     * Attempts to select system default destination with a fallback to the
+     * 'Save to PDF' destination and a final fallback to the first destination
+     * in the store.
+     * @private
      */
-    this.hasLoadedAllPrivetDestinations_ = false;
+    selectDefaultDestination_() {
+      if (this.systemDefaultDestinationId_.length > 0) {
+        if (this.autoSelectMatchingDestination_ &&
+            !this.autoSelectMatchingDestination_.matchIdAndOrigin(
+                this.systemDefaultDestinationId_, this.platformOrigin_)) {
+          if (this.fetchPreselectedDestination_(
+                  {
+                    id: this.systemDefaultDestinationId_,
+                    origin: this.platformOrigin_,
+                    account: '',
+                    capabilities: null,
+                    displayName: '',
+                    extensionId: '',
+                    extensionName: ''
+                  },
+                  true /* autoSelect */)) {
+            return;
+          }
+        }
+      }
+      this.selectFinalFallbackDestination_();
+    }
 
     /**
-     * Whether a search for extension destinations is in progress.
-     * @private {boolean}
+     * Initiates loading of destinations.
+     * @param{print_preview.PrinterType} type The type of destinations to load.
+     * @private
      */
-    this.isExtensionDestinationSearchInProgress_ = false;
+    startLoadDestinations_(type) {
+      if (this.destinationSearchStatus_.get(type) ===
+          print_preview.DestinationStorePrinterSearchStatus.DONE) {
+        return;
+      }
+      this.destinationSearchStatus_.set(
+          type, print_preview.DestinationStorePrinterSearchStatus.SEARCHING);
+      this.nativeLayer_.getPrinters(type).then(
+          this.onDestinationSearchDone_.bind(this, type), () => {
+            // Will be rejected by C++ for privet printers if privet printing
+            // is disabled.
+            assert(type === print_preview.PrinterType.PRIVET_PRINTER);
+            this.destinationSearchStatus_.set(
+                type, print_preview.DestinationStorePrinterSearchStatus.DONE);
+          });
+    }
 
     /**
-     * Whether the destination store has already loaded all extension
-     * destinations.
-     * @private {boolean}
+     * Requests load of COOKIE based cloud destinations for |account|.
+     * @param {string} account
      */
-    this.hasLoadedAllExtensionDestinations_ = false;
+    reloadUserCookieBasedDestinations(account) {
+      const origins = this.loadedCloudOrigins_.get(account) || [];
+      if (origins.includes(print_preview.DestinationOrigin.COOKIES)) {
+        this.dispatchEvent(new CustomEvent(
+            DestinationStore.EventType.DESTINATION_SEARCH_DONE));
+      } else {
+        this.startLoadCloudDestinations(
+            print_preview.DestinationOrigin.COOKIES);
+      }
+    }
+
+    /** Initiates loading of all known destination types. */
+    startLoadAllDestinations() {
+      // Printer types that need to be retrieved from the handler.
+      const types = [
+        print_preview.PrinterType.PRIVET_PRINTER,
+        print_preview.PrinterType.EXTENSION_PRINTER,
+        print_preview.PrinterType.LOCAL_PRINTER,
+      ];
+
+      // If the cloud printer handler is enabled, request cloud printers from
+      // the handler instead of trying to directly communicate with the cloud
+      // print server. See https://crbug.com/829414.
+      if (loadTimeData.getBoolean('cloudPrinterHandlerEnabled')) {
+        // Add cloud printer to the map.
+        this.destinationSearchStatus_.set(
+            print_preview.PrinterType.CLOUD_PRINTER,
+            print_preview.DestinationStorePrinterSearchStatus.START);
+        types.push(print_preview.PrinterType.CLOUD_PRINTER);
+      } else {
+        this.startLoadCloudDestinations();
+      }
+
+      for (const printerType of types) {
+        this.startLoadDestinations_(printerType);
+      }
+    }
 
     /**
-     * ID of a timeout set at the start of an extension destination search. The
-     * timeout ends the search.
-     * @private {?number}
+     * Initiates loading of cloud destinations.
+     * @param {print_preview.DestinationOrigin=} opt_origin Search destinations
+     *     for the specified origin only.
      */
-    this.extensionSearchTimeout_ = null;
+    startLoadCloudDestinations(opt_origin) {
+      if (this.cloudPrintInterface_ == null) {
+        return;
+      }
+
+      const origins = this.loadedCloudOrigins_.get(this.activeUser_) || [];
+      if (origins.length == 0 || (opt_origin && origins.includes(opt_origin))) {
+        this.cloudPrintInterface_.search(this.activeUser_, opt_origin);
+      }
+    }
 
     /**
-     * MDNS service name of destination that we are waiting to register.
-     * @private {?string}
+     * Pre-fetches a cookie based destination for the current active user.
+     * @param {string} id The ID of the destination to load.
      */
-    this.waitForRegisterDestination_ = null;
+    startLoadCookieDestination(id) {
+      this.fetchPreselectedDestination_(
+          {
+            id: id,
+            origin: print_preview.DestinationOrigin.COOKIES,
+            account: this.activeUser_,
+            capabilities: null,
+            displayName: '',
+            extensionId: '',
+            extensionName: ''
+          },
+          false /* autoSelect */);
+    }
+
+    // <if expr="chromeos">
+    /**
+     * Removes the provisional destination with ID |provisionalId| from
+     * |destinationMap_| and |destinations_|.
+     * @param{string} provisionalId The provisional destination ID.
+     * @private
+     */
+    removeProvisionalDestination_(provisionalId) {
+      this.destinations_ = this.destinations_.filter(
+          function(el) {
+            if (el.id == provisionalId) {
+              this.destinationMap_.delete(el.key);
+              return false;
+            }
+            return true;
+          }, this);
+    }
+    // </if>
 
     /**
-     * Local destinations are CROS destinations on ChromeOS because they require
-     * extra setup.
-     * @private {!print_preview.DestinationOrigin}
+     * Inserts {@code destination} to the data store and dispatches a
+     * DESTINATIONS_INSERTED event.
+     * @param {!print_preview.Destination} destination Print destination to
+     *     insert.
+     * @private
      */
-    this.platformOrigin_ = cr.isChromeOS ?
-        print_preview.DestinationOrigin.CROS :
-        print_preview.DestinationOrigin.LOCAL;
+    insertDestination_(destination) {
+      if (this.insertIntoStore_(destination)) {
+        this.destinationsInserted_(destination);
+      }
+    }
 
     /**
-     * Whether to default to the system default printer instead of the most
-     * recent destination.
-     * @private {boolean}
+     * Inserts multiple {@code destinations} to the data store and dispatches
+     * single DESTINATIONS_INSERTED event.
+     * @param {!Array<!print_preview.Destination |
+     *                !Array<print_preview.Destination>>} destinations Print
+     *     destinations to insert.
+     * @private
      */
-    this.useSystemDefaultAsDefault_ =
-        loadTimeData.getBoolean('useSystemDefaultPrinter');
+    insertDestinations_(destinations) {
+      let inserted = false;
+      destinations.forEach(destination => {
+        if (Array.isArray(destination)) {
+          // privet printers return arrays of 1 or 2 printers
+          inserted = destination.reduce(function(soFar, d) {
+            return this.insertIntoStore_(d) || soFar;
+          }, inserted);
+        } else {
+          inserted = this.insertIntoStore_(destination) || inserted;
+        }
+      });
+      if (inserted) {
+        this.destinationsInserted_();
+      }
+    }
 
-    this.reset_();
+    /**
+     * Dispatches DESTINATIONS_INSERTED event. In auto select mode, tries to
+     * update selected destination to match
+     * {@code autoSelectMatchingDestination_}.
+     * @param {print_preview.Destination=} opt_destination The only destination
+     *     that was changed or skipped if possibly more than one destination was
+     *     changed. Used as a hint to limit destination search scope against
+     *     {@code autoSelectMatchingDestination_}.
+     */
+    destinationsInserted_(opt_destination) {
+      this.dispatchEvent(
+          new CustomEvent(DestinationStore.EventType.DESTINATIONS_INSERTED));
+      if (this.autoSelectMatchingDestination_) {
+        const destinationsToSearch =
+            opt_destination && [opt_destination] || this.destinations_;
+        destinationsToSearch.some(function(destination) {
+          if (this.autoSelectMatchingDestination_.match(destination)) {
+            this.selectDestination(destination);
+            return true;
+          }
+        }, this);
+      }
+    }
 
-    this.addWebUIEventListeners_(listenerTracker);
+    /**
+     * Sends SELECTED_DESTINATION_CAPABILITIES_READY event if the destination
+     * is supported, or SELECTED_DESTINATION_UNSUPPORTED otherwise.
+     * @private
+     */
+    sendSelectedDestinationUpdateEvent_() {
+      this.dispatchEvent(new CustomEvent(
+          this.selectedDestination_.shouldShowInvalidCertificateError ?
+              DestinationStore.EventType.SELECTED_DESTINATION_UNSUPPORTED :
+              DestinationStore.EventType
+                  .SELECTED_DESTINATION_CAPABILITIES_READY));
+    }
+
+    /**
+     * Updates an existing print destination with capabilities and display name
+     * information. If the destination doesn't already exist, it will be added.
+     * @param {!print_preview.Destination} destination Destination to update.
+     * @private
+     */
+    updateDestination_(destination) {
+      assert(destination.constructor !== Array, 'Single printer expected');
+      destination.capabilities =
+          localizeCapabilities(assert(destination.capabilities));
+      if (print_preview.originToType(destination.origin) !==
+          print_preview.PrinterType.LOCAL_PRINTER) {
+        destination.capabilities = sortMediaSizes(destination.capabilities);
+      }
+      const existingDestination = this.destinationMap_.get(destination.key);
+      if (existingDestination != undefined) {
+        existingDestination.capabilities = destination.capabilities;
+      } else {
+        this.insertDestination_(destination);
+      }
+
+      if (this.selectedDestination_ &&
+          (existingDestination == this.selectedDestination_ ||
+           destination == this.selectedDestination_)) {
+        this.sendSelectedDestinationUpdateEvent_();
+      }
+    }
+
+    /**
+     * Called when loading of extension managed printers is done.
+     * @private
+     */
+    endExtensionPrinterSearch_() {
+      // Clear initially selected (cached) extension destination if it hasn't
+      // been found among reported extension destinations.
+      if (this.autoSelectMatchingDestination_ &&
+          this.autoSelectMatchingDestination_.matchOrigin(
+              print_preview.DestinationOrigin.EXTENSION) &&
+          this.selectedDestination_ && this.selectedDestination_.isExtension) {
+        this.selectDefaultDestination_();
+      }
+    }
+
+    /**
+     * Inserts a destination into the store without dispatching any events.
+     * @param {!print_preview.Destination} destination The destination to be
+     *     inserted.
+     * @return {boolean} Whether the inserted destination was not already in the
+     *     store.
+     * @private
+     */
+    insertIntoStore_(destination) {
+      const key = destination.key;
+      const existingDestination = this.destinationMap_.get(key);
+      if (existingDestination == undefined) {
+        destination.isRecent = destination.isRecent ||
+            this.recentDestinations_.some(function(recent) {
+              return (
+                  destination.id == recent.id &&
+                  destination.origin == recent.origin);
+            }, this);
+        this.destinations_.push(destination);
+        this.destinationMap_.set(key, destination);
+        return true;
+      }
+      if (existingDestination.connectionStatus ==
+              print_preview.DestinationConnectionStatus.UNKNOWN &&
+          destination.connectionStatus !=
+              print_preview.DestinationConnectionStatus.UNKNOWN) {
+        existingDestination.connectionStatus = destination.connectionStatus;
+        return true;
+      }
+      return false;
+    }
+
+    /**
+     * Creates a local PDF print destination.
+     * @private
+     */
+    createLocalPdfPrintDestination_() {
+      // TODO(alekseys): Create PDF printer in the native code and send its
+      // capabilities back with other local printers.
+      if (this.pdfPrinterEnabled_) {
+        this.insertDestination_(new print_preview.Destination(
+            print_preview.Destination.GooglePromotedId.SAVE_AS_PDF,
+            print_preview.DestinationType.LOCAL,
+            print_preview.DestinationOrigin.LOCAL,
+            loadTimeData.getString('printToPDF'), false /*isRecent*/,
+            print_preview.DestinationConnectionStatus.ONLINE));
+      }
+    }
+
+    /**
+     * Starts a timeout to select the default destination.
+     * @private
+     */
+    startAutoSelectTimeout_() {
+      clearTimeout(this.autoSelectTimeout_);
+      this.autoSelectTimeout_ = setTimeout(
+          this.selectDefaultDestination_.bind(this),
+          DestinationStore.AUTO_SELECT_TIMEOUT_);
+    }
+
+    /**
+     * Resets the state of the destination store to its initial state.
+     * @private
+     */
+    reset_() {
+      this.destinations_ = [];
+      this.destinationMap_.clear();
+      this.selectDestination(null);
+      this.loadedCloudOrigins_.clear();
+      this.destinationSearchStatus_.forEach((status, type) => {
+        this.destinationSearchStatus_.set(
+            type, print_preview.DestinationStorePrinterSearchStatus.START);
+      });
+      this.startAutoSelectTimeout_();
+      this.dispatchEvent(
+          new CustomEvent(DestinationStore.EventType.DESTINATIONS_RESET));
+    }
+
+    /**
+     * Called when destination search is complete for some type of printer.
+     * @param {!print_preview.PrinterType} type The type of printers that are
+     *     done being retreived.
+     */
+    onDestinationSearchDone_(type) {
+      this.destinationSearchStatus_.set(
+          type, print_preview.DestinationStorePrinterSearchStatus.DONE);
+      this.dispatchEvent(
+          new CustomEvent(DestinationStore.EventType.DESTINATION_SEARCH_DONE));
+      if (type === print_preview.PrinterType.EXTENSION_PRINTER) {
+        this.endExtensionPrinterSearch_();
+      }
+      this.sendNoPrinterEventIfNeeded_();
+    }
+
+    /**
+     * Called when the native layer retrieves the capabilities for the selected
+     * local destination. Updates the destination with new capabilities if the
+     * destination already exists, otherwise it creates a new destination and
+     * then updates its capabilities.
+     * @param {!print_preview.DestinationOrigin} origin The origin of the
+     *     print destination.
+     * @param {string} id The id of the print destination.
+     * @param {!print_preview.CapabilitiesResponse} settingsInfo Contains
+     *     the capabilities of the print destination, and information about
+     *     the destination except in the case of extension printers.
+     * @private
+     */
+    onCapabilitiesSet_(origin, id, settingsInfo) {
+      let dest = null;
+      if (origin !== print_preview.DestinationOrigin.PRIVET) {
+        const key = print_preview.createDestinationKey(id, origin, '');
+        dest = this.destinationMap_.get(key);
+      }
+      if (!dest) {
+        // Ignore unrecognized extension printers
+        if (!settingsInfo.printer) {
+          assert(origin === print_preview.DestinationOrigin.EXTENSION);
+          return;
+        }
+        dest = /** @type {!print_preview.Destination} */ (
+            print_preview.parseDestination(
+                print_preview.originToType(origin),
+                assert(settingsInfo.printer)));
+      }
+      if (dest) {
+        if ((origin === print_preview.DestinationOrigin.LOCAL ||
+             origin === print_preview.DestinationOrigin.CROS) &&
+            dest.capabilities) {
+          // If capabilities are already set for this destination ignore new
+          // results. This prevents custom margins from being cleared as long
+          // as the user does not change to a new non-recent destination.
+          return;
+        }
+        dest.capabilities = settingsInfo.capabilities;
+        this.updateDestination_(dest);
+      }
+    }
+
+    /**
+     * Called when a request to get a local destination's print capabilities
+     * fails. If the destination is the initial destination, auto-select another
+     * destination instead.
+     * @param {print_preview.DestinationOrigin} origin The origin type of the
+     *     failed destination.
+     * @param {string} destinationId The destination ID that failed.
+     * @private
+     */
+    onGetCapabilitiesFail_(origin, destinationId) {
+      console.warn(
+          'Failed to get print capabilities for printer ' + destinationId);
+      if (this.selectedDestination_ &&
+          this.selectedDestination_.id == destinationId) {
+        this.dispatchEvent(new CustomEvent(
+            DestinationStore.EventType.SELECTED_DESTINATION_INVALID));
+      }
+      if (this.autoSelectMatchingDestination_ &&
+          this.autoSelectMatchingDestination_.matchIdAndOrigin(
+              destinationId, origin)) {
+        this.selectDefaultDestination_();
+      }
+    }
+
+    /**
+     * Called when the /search call completes, either successfully or not.
+     * In case of success, stores fetched destinations.
+     * @param {!CustomEvent} event Contains the request result.
+     * @private
+     */
+    onCloudPrintSearchDone_(event) {
+      const payload =
+          /** @type {!cloudprint.CloudPrintInterfaceSearchDoneDetail} */ (
+              event.detail);
+      if (payload.printers && payload.printers.length > 0) {
+        this.insertDestinations_(payload.printers);
+        if (this.selectFirstDestination_) {
+          this.selectDestination(this.destinations_[0]);
+          this.selectFirstDestination_ = false;
+        }
+      }
+      if (payload.searchDone) {
+        const origins = this.loadedCloudOrigins_.get(payload.user) || [];
+        if (origins.includes(payload.origin)) {
+          this.loadedCloudOrigins_.set(
+              payload.user, origins.concat([payload.origin]));
+        }
+      }
+      this.dispatchEvent(
+          new CustomEvent(DestinationStore.EventType.DESTINATION_SEARCH_DONE));
+      this.sendNoPrinterEventIfNeeded_();
+    }
+
+    /**
+     * Checks if the search is done and no printers are found. If so, fires a
+     * DestinationStore.EventType.NO_DESTINATIONS_FOUND event.
+     * @private
+     */
+    sendNoPrinterEventIfNeeded_() {
+      const isLocalDestinationSearchNotStarted =
+          Array.from(this.destinationSearchStatus_.values())
+              .some(
+                  el => el ===
+                      print_preview.DestinationStorePrinterSearchStatus.START);
+      if (isLocalDestinationSearchNotStarted ||
+          this.isPrintDestinationSearchInProgress ||
+          !this.selectFirstDestination_) {
+        return;
+      }
+
+      this.selectFirstDestination_ = false;
+      this.dispatchEvent(
+          new CustomEvent(DestinationStore.EventType.NO_DESTINATIONS_FOUND));
+    }
+
+    /**
+     * Called when /printer call completes. Updates the specified destination's
+     * print capabilities.
+     * @param {!CustomEvent} event Contains detailed information about the
+     *     destination.
+     * @private
+     */
+    onCloudPrintPrinterDone_(event) {
+      this.updateDestination_(
+          /** @type {!print_preview.Destination} */ (event.detail));
+    }
+
+    /**
+     * Called when the Google Cloud Print interface fails to lookup a
+     * destination. Selects another destination if the failed destination was
+     * the initial destination.
+     * @param {!CustomEvent} event Contains the ID of the destination that was
+     *     failed to be looked up.
+     * @private
+     */
+    onCloudPrintPrinterFailed_(event) {
+      const eventDetail =
+          /** @type {!cloudprint.CloudPrintInterfacePrinterFailedDetail } */ (
+              event.detail);
+      if (this.autoSelectMatchingDestination_ &&
+          this.autoSelectMatchingDestination_.matchIdAndOrigin(
+              eventDetail.destinationId, eventDetail.origin)) {
+        console.warn(
+            'Failed to fetch last used printer caps: ' +
+            eventDetail.destinationId);
+        this.selectDefaultDestination_();
+      } else {
+        // Log the failure
+        console.warn(
+            'Failed to fetch printer capabilities for ' +
+            eventDetail.destinationId + ' with origin ' + eventDetail.origin);
+      }
+    }
+
+    /**
+     * Called when printer sharing invitation was processed successfully.
+     * @param {!CustomEvent} event Contains detailed information about the
+     *     invite and newly accepted destination (if known).
+     * @private
+     */
+    onCloudPrintProcessInviteDone_(event) {
+      if (event.detail.accept && event.detail.printer) {
+        this.insertDestination_(event.detail.printer);
+      }
+    }
+
+    /**
+     * Called when a printer or printers are detected after sending getPrinters
+     * from the native layer.
+     * @param {print_preview.PrinterType} type The type of printer(s) added.
+     * @param {!Array<!print_preview.LocalDestinationInfo |
+     *                !print_preview.PrivetPrinterDescription |
+     *                !print_preview.ProvisionalDestinationInfo>} printers
+     *     Information about the printers that have been retrieved.
+     */
+    onPrintersAdded_(type, printers) {
+      this.insertDestinations_(printers.map(
+          printer => /** @type {!print_preview.Destination} */ (
+              print_preview.parseDestination(type, printer))));
+
+      if (this.selectFirstDestination_) {
+        this.selectDestination(this.destinations_[0]);
+        this.selectFirstDestination_ = false;
+      }
+    }
+
+    /**
+     * Called from print preview after the user was requested to sign in, and
+     * did so successfully.
+     */
+    onDestinationsReload() {
+      this.reset_();
+      this.autoSelectMatchingDestination_ =
+          this.convertPreselectedToDestinationMatch_();
+      this.createLocalPdfPrintDestination_();
+      this.startLoadAllDestinations();
+    }
   }
 
   /**
-   * Event types dispatched by the data store.
+   * Event types dispatched by the destination store.
    * @enum {string}
    */
   DestinationStore.EventType = {
     DESTINATION_SEARCH_DONE:
         'print_preview.DestinationStore.DESTINATION_SEARCH_DONE',
-    DESTINATION_SEARCH_STARTED:
-        'print_preview.DestinationStore.DESTINATION_SEARCH_STARTED',
     DESTINATION_SELECT: 'print_preview.DestinationStore.DESTINATION_SELECT',
     DESTINATIONS_INSERTED:
         'print_preview.DestinationStore.DESTINATIONS_INSERTED',
-    PROVISIONAL_DESTINATION_RESOLVED:
-        'print_preview.DestinationStore.PROVISIONAL_DESTINATION_RESOLVED',
-    CACHED_SELECTED_DESTINATION_INFO_READY:
-        'print_preview.DestinationStore.CACHED_SELECTED_DESTINATION_INFO_READY',
+    DESTINATIONS_RESET: 'print_preview.DestinationStore.DESTINATIONS_RESET',
+    NO_DESTINATIONS_FOUND:
+        'print_preview.DestinationStore.NO_DESTINATIONS_FOUND',
     SELECTED_DESTINATION_CAPABILITIES_READY: 'print_preview.DestinationStore' +
         '.SELECTED_DESTINATION_CAPABILITIES_READY',
+    SELECTED_DESTINATION_INVALID:
+        'print_preview.DestinationStore.SELECTED_DESTINATION_INVALID',
+    SELECTED_DESTINATION_UNSUPPORTED:
+        'print_preview.DestinationStore.SELECTED_DESTINATION_UNSUPPORTED',
   };
 
   /**
@@ -391,1272 +1595,6 @@ cr.define('print_preview', function() {
     'PRC_8': 'prc8 Envelope',
     'ROC_16K': 'ROC 16K',
     'ROC_8K': 'ROC 8k',
-  };
-
-  /**
-   * Localizes printer capabilities.
-   * @param {!print_preview.Cdd} capabilities Printer capabilities to localize.
-   * @return {!print_preview.Cdd} Localized capabilities.
-   * @private
-   */
-  DestinationStore.localizeCapabilities_ = function(capabilities) {
-    if (!capabilities.printer)
-      return capabilities;
-
-    var mediaSize = capabilities.printer.media_size;
-    if (!mediaSize)
-      return capabilities;
-
-    for (var i = 0, media; (media = mediaSize.option[i]); i++) {
-      // No need to patch capabilities with localized names provided.
-      if (!media.custom_display_name_localized) {
-        media.custom_display_name = media.custom_display_name ||
-            DestinationStore.MEDIA_DISPLAY_NAMES_[media.name] || media.name;
-      }
-    }
-    return capabilities;
-  };
-
-  /**
-   * Compare two media sizes by their names.
-   * @param {!Object} a Media to compare.
-   * @param {!Object} b Media to compare.
-   * @return {number} 1 if a > b, -1 if a < b, or 0 if a == b.
-   * @private
-   */
-  DestinationStore.compareMediaNames_ = function(a, b) {
-    var nameA = a.custom_display_name_localized || a.custom_display_name;
-    var nameB = b.custom_display_name_localized || b.custom_display_name;
-    return nameA == nameB ? 0 : (nameA > nameB ? 1 : -1);
-  };
-
-  /**
-   * Sort printer media sizes.
-   * @param {!print_preview.Cdd} capabilities Printer capabilities to localize.
-   * @return {!print_preview.Cdd} Localized capabilities.
-   * @private
-   */
-  DestinationStore.sortMediaSizes_ = function(capabilities) {
-    if (!capabilities.printer)
-      return capabilities;
-
-    var mediaSize = capabilities.printer.media_size;
-    if (!mediaSize)
-      return capabilities;
-
-    // For the standard sizes, separate into categories, as seen in the Cloud
-    // Print CDD guide:
-    // - North American
-    // - Chinese
-    // - ISO
-    // - Japanese
-    // - Other metric
-    // Otherwise, assume they are custom sizes.
-    var categoryStandardNA = [];
-    var categoryStandardCN = [];
-    var categoryStandardISO = [];
-    var categoryStandardJP = [];
-    var categoryStandardMisc = [];
-    var categoryCustom = [];
-    for (var i = 0, media; (media = mediaSize.option[i]); i++) {
-      var name = media.name || 'CUSTOM';
-      var category;
-      if (name.startsWith('NA_')) {
-        category = categoryStandardNA;
-      } else if (
-          name.startsWith('PRC_') || name.startsWith('ROC_') ||
-          name == 'OM_DAI_PA_KAI' || name == 'OM_JUURO_KU_KAI' ||
-          name == 'OM_PA_KAI') {
-        category = categoryStandardCN;
-      } else if (name.startsWith('ISO_')) {
-        category = categoryStandardISO;
-      } else if (name.startsWith('JIS_') || name.startsWith('JPN_')) {
-        category = categoryStandardJP;
-      } else if (name.startsWith('OM_')) {
-        category = categoryStandardMisc;
-      } else {
-        assert(name == 'CUSTOM', 'Unknown media size. Assuming custom');
-        category = categoryCustom;
-      }
-      category.push(media);
-    }
-
-    // For each category, sort by name.
-    categoryStandardNA.sort(DestinationStore.compareMediaNames_);
-    categoryStandardCN.sort(DestinationStore.compareMediaNames_);
-    categoryStandardISO.sort(DestinationStore.compareMediaNames_);
-    categoryStandardJP.sort(DestinationStore.compareMediaNames_);
-    categoryStandardMisc.sort(DestinationStore.compareMediaNames_);
-    categoryCustom.sort(DestinationStore.compareMediaNames_);
-
-    // Then put it all back together.
-    mediaSize.option = categoryStandardNA;
-    mediaSize.option.push(
-        ...categoryStandardCN, ...categoryStandardISO, ...categoryStandardJP,
-        ...categoryStandardMisc, ...categoryCustom);
-    return capabilities;
-  };
-
-  DestinationStore.prototype = {
-    __proto__: cr.EventTarget.prototype,
-
-    /**
-     * @param {?string=} opt_account Account to filter destinations by. When
-     *     null or omitted, all destinations are returned.
-     * @return {!Array<!print_preview.Destination>} List of destinations
-     *     accessible by the {@code account}.
-     */
-    destinations: function(opt_account) {
-      if (opt_account) {
-        return this.destinations_.filter(function(destination) {
-          return !destination.account || destination.account == opt_account;
-        });
-      }
-      return this.destinations_.slice(0);
-    },
-
-    /**
-     * @return {print_preview.Destination} The currently selected destination or
-     *     {@code null} if none is selected.
-     */
-    get selectedDestination() {
-      return this.selectedDestination_;
-    },
-
-    /** @return {boolean} Whether destination selection is pending or not. */
-    get isAutoSelectDestinationInProgress() {
-      return this.selectedDestination_ == null &&
-          this.autoSelectTimeout_ != null;
-    },
-
-    /**
-     * @return {boolean} Whether a search for local destinations is in progress.
-     */
-    get isLocalDestinationSearchInProgress() {
-      return this.isLocalDestinationSearchInProgress_ ||
-          this.isPrivetDestinationSearchInProgress_ ||
-          this.isExtensionDestinationSearchInProgress_;
-    },
-
-    /**
-     * @return {boolean} Whether a search for cloud destinations is in progress.
-     */
-    get isCloudDestinationSearchInProgress() {
-      return !!this.cloudPrintInterface_ &&
-          this.cloudPrintInterface_.isCloudDestinationSearchInProgress;
-    },
-
-    /**
-     * Starts listening for relevant WebUI events and adds the listeners to
-     * |listenerTracker|. |listenerTracker| is responsible for removing the
-     * listeners when necessary.
-     * @param {!WebUIListenerTracker} listenerTracker
-     * @private
-     */
-    addWebUIEventListeners_: function(listenerTracker) {
-      listenerTracker.add(
-          'privet-printer-added', this.onPrivetPrinterAdded_.bind(this));
-      listenerTracker.add(
-          'extension-printers-added',
-          this.onExtensionPrintersAdded_.bind(this));
-      listenerTracker.add(
-          'reload-printer-list', this.onDestinationsReload.bind(this));
-    },
-
-    /**
-     * Initializes the destination store. Sets the initially selected
-     * destination. If any inserted destinations match this ID, that destination
-     * will be automatically selected. This method must be called after the
-     * print_preview.AppState has been initialized.
-     * @param {boolean} isInAppKioskMode Whether the print preview is in App
-     *     Kiosk mode.
-     * @param {?string} systemDefaultDestinationId ID of the system default
-     *     destination.
-     * @param {?string} serializedDefaultDestinationSelectionRulesStr Serialized
-     *     default destination selection rules.
-     */
-    init: function(
-        isInAppKioskMode, systemDefaultDestinationId,
-        serializedDefaultDestinationSelectionRulesStr) {
-      this.pdfPrinterEnabled_ = !isInAppKioskMode;
-      this.systemDefaultDestinationId_ = systemDefaultDestinationId;
-      this.createLocalPdfPrintDestination_();
-
-      if (!this.appState_.isSelectedDestinationValid()) {
-        var destinationMatch = this.convertToDestinationMatch_(
-            serializedDefaultDestinationSelectionRulesStr);
-        if (destinationMatch) {
-          this.fetchMatchingDestination_(destinationMatch);
-          return;
-        }
-      }
-
-      if (!this.systemDefaultDestinationId_ &&
-          !this.appState_.isSelectedDestinationValid()) {
-        this.selectPdfDestination_();
-        return;
-      }
-
-      var origin = null;
-      var id = '';
-      var account = '';
-      var name = '';
-      var capabilities = null;
-      var extensionId = '';
-      var extensionName = '';
-      var foundDestination = false;
-      if (this.appState_.recentDestinations) {
-        // Run through the destinations forward. As soon as we find a
-        // destination, don't select any future destinations, just mark
-        // them recent. Otherwise, there is a race condition between selecting
-        // destinations/updating the print ticket and this selecting a new
-        // destination that causes random print preview errors.
-        for (var i = 0; i < this.appState_.recentDestinations.length; i++) {
-          origin = this.appState_.recentDestinations[i].origin;
-          id = this.appState_.recentDestinations[i].id;
-          account = this.appState_.recentDestinations[i].account || '';
-          name = this.appState_.recentDestinations[i].name || '';
-          capabilities = this.appState_.recentDestinations[i].capabilities;
-          extensionId = this.appState_.recentDestinations[i].extensionId || '';
-          extensionName =
-              this.appState_.recentDestinations[i].extensionName || '';
-          var candidate = this.destinationMap_[this.getDestinationKey_(
-              origin, id, account)];
-          if (candidate != null) {
-            if (!foundDestination && !this.useSystemDefaultAsDefault_)
-              this.selectDestination(candidate);
-            candidate.isRecent = true;
-            foundDestination = true;
-          } else if (!foundDestination && !this.useSystemDefaultAsDefault_) {
-            foundDestination = this.fetchPreselectedDestination_(
-                origin, id, account, name, capabilities, extensionId,
-                extensionName);
-          }
-        }
-      }
-
-      if (foundDestination && !this.useSystemDefaultAsDefault_)
-        return;
-
-      // Try the system default
-      id = this.systemDefaultDestinationId_ || '';
-      origin = id == print_preview.Destination.GooglePromotedId.SAVE_AS_PDF ?
-          print_preview.DestinationOrigin.LOCAL :
-          this.platformOrigin_;
-      account = '';
-      var candidate =
-          this.destinationMap_[this.getDestinationKey_(origin, id, account)];
-      if (candidate != null) {
-        this.selectDestination(candidate);
-        return;
-      }
-
-      if (this.fetchPreselectedDestination_(
-              origin, id, account, name, capabilities, extensionId,
-              extensionName)) {
-        return;
-      }
-
-      this.selectPdfDestination_();
-    },
-
-    /**
-     * Attempts to fetch capabilities of the destination identified by the
-     * provided origin, id and account.
-     * @param {string | print_preview.DestinationOrigin} origin Destination
-     *     origin.
-     * @param {string} id Destination id.
-     * @param {string} account User account destination is registered for.
-     * @param {string} name Destination display name.
-     * @param {?print_preview.Cdd} capabilities Destination capabilities.
-     * @param {string} extensionId Extension ID associated with this
-     *     destination.
-     * @param {string} extensionName Extension name associated with this
-     *     destination.
-     * @return {boolean} Whether capabilities fetch was successfully started.
-     * @private
-     */
-    fetchPreselectedDestination_: function(
-        origin, id, account, name, capabilities, extensionId, extensionName) {
-      this.autoSelectMatchingDestination_ =
-          this.createExactDestinationMatch_(origin, id);
-
-      if (origin == print_preview.DestinationOrigin.LOCAL ||
-          origin == print_preview.DestinationOrigin.CROS) {
-        this.nativeLayer_.getPrinterCapabilities(id).then(
-            this.onLocalDestinationCapabilitiesSet_.bind(this),
-            this.onGetCapabilitiesFail_.bind(
-                this,
-                /** @type {print_preview.DestinationOrigin} */ (origin), id));
-        return true;
-      }
-
-      if (this.cloudPrintInterface_ &&
-          (origin == print_preview.DestinationOrigin.COOKIES ||
-           origin == print_preview.DestinationOrigin.DEVICE)) {
-        this.cloudPrintInterface_.printer(
-            id,
-            /** @type {print_preview.DestinationOrigin} */ (origin), account);
-        return true;
-      }
-
-      if (origin == print_preview.DestinationOrigin.PRIVET) {
-        // TODO(noamsml): Resolve a specific printer instead of listing all
-        // privet printers in this case.
-        this.nativeLayer_.getPrivetPrinters().then(
-            this.endPrivetPrinterSearch_.bind(this));
-
-        // Create a fake selectedDestination_ that is not actually in the
-        // destination store. When the real destination is created, this
-        // destination will be overwritten.
-        this.selectedDestination_ = new print_preview.Destination(
-            id, print_preview.DestinationType.LOCAL,
-            print_preview.DestinationOrigin.PRIVET, name, false /*isRecent*/,
-            print_preview.DestinationConnectionStatus.ONLINE);
-
-        if (capabilities) {
-          this.selectedDestination_.capabilities = capabilities;
-
-          cr.dispatchSimpleEvent(
-              this,
-              DestinationStore.EventType
-                  .CACHED_SELECTED_DESTINATION_INFO_READY);
-        }
-        return true;
-      }
-
-      if (origin == print_preview.DestinationOrigin.EXTENSION) {
-        // TODO(tbarzic): Add support for requesting a single extension's
-        // printer list.
-        this.startLoadExtensionDestinations();
-
-        this.selectedDestination_ =
-            print_preview.ExtensionDestinationParser.parse({
-              extensionId: extensionId,
-              extensionName: extensionName,
-              id: id,
-              name: name
-            });
-
-        if (capabilities) {
-          this.selectedDestination_.capabilities = capabilities;
-
-          cr.dispatchSimpleEvent(
-              this,
-              DestinationStore.EventType
-                  .CACHED_SELECTED_DESTINATION_INFO_READY);
-        }
-        return true;
-      }
-
-      return false;
-    },
-
-    /**
-     * Attempts to find a destination matching the provided rules.
-     * @param {!print_preview.DestinationMatch} destinationMatch Rules to match.
-     * @private
-     */
-    fetchMatchingDestination_: function(destinationMatch) {
-      this.autoSelectMatchingDestination_ = destinationMatch;
-
-      if (destinationMatch.matchOrigin(print_preview.DestinationOrigin.LOCAL) ||
-          destinationMatch.matchOrigin(print_preview.DestinationOrigin.CROS)) {
-        this.startLoadLocalDestinations();
-      }
-      if (destinationMatch.matchOrigin(
-              print_preview.DestinationOrigin.PRIVET)) {
-        this.startLoadPrivetDestinations();
-      }
-      if (destinationMatch.matchOrigin(
-              print_preview.DestinationOrigin.EXTENSION)) {
-        this.startLoadExtensionDestinations();
-      }
-      if (destinationMatch.matchOrigin(
-              print_preview.DestinationOrigin.COOKIES) ||
-          destinationMatch.matchOrigin(
-              print_preview.DestinationOrigin.DEVICE)) {
-        this.startLoadCloudDestinations();
-      }
-    },
-
-    /**
-     * @param {?string} serializedDefaultDestinationSelectionRulesStr Serialized
-     *     default destination selection rules.
-     * @return {?print_preview.DestinationMatch} Creates rules matching
-     *     previously selected destination.
-     * @private
-     */
-    convertToDestinationMatch_: function(
-        serializedDefaultDestinationSelectionRulesStr) {
-      var matchRules = null;
-      try {
-        if (serializedDefaultDestinationSelectionRulesStr) {
-          matchRules =
-              JSON.parse(serializedDefaultDestinationSelectionRulesStr);
-        }
-      } catch (e) {
-        console.error('Failed to parse defaultDestinationSelectionRules: ' + e);
-      }
-      if (!matchRules)
-        return null;
-
-      var isLocal = !matchRules.kind || matchRules.kind == 'local';
-      var isCloud = !matchRules.kind || matchRules.kind == 'cloud';
-      if (!isLocal && !isCloud) {
-        console.error('Unsupported type: "' + matchRules.kind + '"');
-        return null;
-      }
-
-      var origins = [];
-      if (isLocal) {
-        origins.push(print_preview.DestinationOrigin.LOCAL);
-        origins.push(print_preview.DestinationOrigin.PRIVET);
-        origins.push(print_preview.DestinationOrigin.EXTENSION);
-        origins.push(print_preview.DestinationOrigin.CROS);
-      }
-      if (isCloud) {
-        origins.push(print_preview.DestinationOrigin.COOKIES);
-        origins.push(print_preview.DestinationOrigin.DEVICE);
-      }
-
-      var idRegExp = null;
-      try {
-        if (matchRules.idPattern) {
-          idRegExp = new RegExp(matchRules.idPattern || '.*');
-        }
-      } catch (e) {
-        console.error('Failed to parse regexp for "id": ' + e);
-      }
-
-      var displayNameRegExp = null;
-      try {
-        if (matchRules.namePattern) {
-          displayNameRegExp = new RegExp(matchRules.namePattern || '.*');
-        }
-      } catch (e) {
-        console.error('Failed to parse regexp for "name": ' + e);
-      }
-
-      return new print_preview.DestinationMatch(
-          origins, idRegExp, displayNameRegExp,
-          true /*skipVirtualDestinations*/);
-    },
-
-    /**
-     * @return {print_preview.DestinationMatch} Creates rules matching
-     *     previously selected destination.
-     * @private
-     */
-    convertPreselectedToDestinationMatch_: function() {
-      if (this.appState_.isSelectedDestinationValid()) {
-        return this.createExactDestinationMatch_(
-            this.appState_.selectedDestination.origin,
-            this.appState_.selectedDestination.id);
-      }
-      if (this.systemDefaultDestinationId_) {
-        return this.createExactDestinationMatch_(
-            this.platformOrigin_, this.systemDefaultDestinationId_);
-      }
-      return null;
-    },
-
-    /**
-     * @param {string | print_preview.DestinationOrigin} origin Destination
-     *     origin.
-     * @param {string} id Destination id.
-     * @return {!print_preview.DestinationMatch} Creates rules matching
-     *     provided destination.
-     * @private
-     */
-    createExactDestinationMatch_: function(origin, id) {
-      return new print_preview.DestinationMatch(
-          [origin],
-          new RegExp('^' + id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'),
-          null /*displayNameRegExp*/, false /*skipVirtualDestinations*/);
-    },
-
-    /**
-     * Sets the destination store's Google Cloud Print interface.
-     * @param {!cloudprint.CloudPrintInterface} cloudPrintInterface Interface
-     *     to set.
-     */
-    setCloudPrintInterface: function(cloudPrintInterface) {
-      assert(this.cloudPrintInterface_ == null);
-      this.cloudPrintInterface_ = cloudPrintInterface;
-      this.tracker_.add(
-          this.cloudPrintInterface_,
-          cloudprint.CloudPrintInterfaceEventType.SEARCH_DONE,
-          this.onCloudPrintSearchDone_.bind(this));
-      this.tracker_.add(
-          this.cloudPrintInterface_,
-          cloudprint.CloudPrintInterfaceEventType.SEARCH_FAILED,
-          this.onCloudPrintSearchDone_.bind(this));
-      this.tracker_.add(
-          this.cloudPrintInterface_,
-          cloudprint.CloudPrintInterfaceEventType.PRINTER_DONE,
-          this.onCloudPrintPrinterDone_.bind(this));
-      this.tracker_.add(
-          this.cloudPrintInterface_,
-          cloudprint.CloudPrintInterfaceEventType.PRINTER_FAILED,
-          this.onCloudPrintPrinterFailed_.bind(this));
-      this.tracker_.add(
-          this.cloudPrintInterface_,
-          cloudprint.CloudPrintInterfaceEventType.PROCESS_INVITE_DONE,
-          this.onCloudPrintProcessInviteDone_.bind(this));
-    },
-
-    /**
-     * @return {boolean} Whether only default cloud destinations have been
-     *     loaded.
-     */
-    hasOnlyDefaultCloudDestinations: function() {
-      // TODO: Move the logic to print_preview.
-      return this.destinations_.every(function(dest) {
-        return dest.isLocal ||
-            dest.id == print_preview.Destination.GooglePromotedId.DOCS;
-      });
-    },
-
-    /**
-     * @param {print_preview.Destination} destination Destination to select.
-     */
-    selectDestination: function(destination) {
-      this.autoSelectMatchingDestination_ = null;
-      // When auto select expires, DESTINATION_SELECT event has to be dispatched
-      // anyway (see isAutoSelectDestinationInProgress() logic).
-      if (this.autoSelectTimeout_) {
-        clearTimeout(this.autoSelectTimeout_);
-        this.autoSelectTimeout_ = null;
-      } else if (destination == this.selectedDestination_) {
-        return;
-      }
-      if (destination == null) {
-        this.selectedDestination_ = null;
-        cr.dispatchSimpleEvent(
-            this, DestinationStore.EventType.DESTINATION_SELECT);
-        return;
-      }
-
-      assert(
-          !destination.isProvisional,
-          'Unable to select provisonal destinations');
-
-      // Update and persist selected destination.
-      this.selectedDestination_ = destination;
-      this.selectedDestination_.isRecent = true;
-      this.appState_.persistSelectedDestination(this.selectedDestination_);
-      // Adjust metrics.
-      if (destination.cloudID &&
-          this.destinations_.some(function(otherDestination) {
-            return otherDestination.cloudID == destination.cloudID &&
-                otherDestination != destination;
-          })) {
-        this.metrics_.record(
-            destination.isPrivet ? print_preview.Metrics.DestinationSearchBucket
-                                       .PRIVET_DUPLICATE_SELECTED :
-                                   print_preview.Metrics.DestinationSearchBucket
-                                       .CLOUD_DUPLICATE_SELECTED);
-      }
-      // Notify about selected destination change.
-      cr.dispatchSimpleEvent(
-          this, DestinationStore.EventType.DESTINATION_SELECT);
-      // Request destination capabilities from backend, since they are not
-      // known yet.
-      if (destination.capabilities == null) {
-        if (destination.isPrivet) {
-          this.nativeLayer_.getPrivetPrinterCapabilities(destination.id)
-              .then(
-                  this.onPrivetCapabilitiesSet_.bind(this),
-                  this.onGetCapabilitiesFail_.bind(
-                      this, destination.origin, destination.id));
-        } else if (destination.isExtension) {
-          this.nativeLayer_.getExtensionPrinterCapabilities(destination.id)
-              .then(
-                  this.onExtensionCapabilitiesSet_.bind(this, destination.id),
-                  this.onGetCapabilitiesFail_.bind(
-                      this, destination.origin, destination.id));
-        } else if (destination.isLocal) {
-          this.nativeLayer_.getPrinterCapabilities(destination.id)
-              .then(
-                  this.onLocalDestinationCapabilitiesSet_.bind(this),
-                  this.onGetCapabilitiesFail_.bind(
-                      this, destination.origin, destination.id));
-        } else {
-          assert(
-              this.cloudPrintInterface_ != null,
-              'Cloud destination selected, but GCP is not enabled');
-          this.cloudPrintInterface_.printer(
-              destination.id, destination.origin, destination.account);
-        }
-      } else {
-        cr.dispatchSimpleEvent(
-            this,
-            DestinationStore.EventType.SELECTED_DESTINATION_CAPABILITIES_READY);
-      }
-    },
-
-    /**
-     * Attempt to resolve the capabilities for a Chrome OS printer.
-     * @param {!print_preview.Destination} destination The destination which
-     *     requires resolution.
-     * @return {!Promise<!print_preview.PrinterSetupResponse>}
-     */
-    resolveCrosDestination: function(destination) {
-      assert(destination.origin == print_preview.DestinationOrigin.CROS);
-      return this.nativeLayer_.setupPrinter(destination.id);
-    },
-
-    /**
-     * Attempts to resolve a provisional destination.
-     * @param {!print_preview.Destination} destination Provisional destination
-     *     that should be resolved.
-     */
-    resolveProvisionalDestination: function(destination) {
-      assert(
-          destination.provisionalType ==
-              print_preview.DestinationProvisionalType.NEEDS_USB_PERMISSION,
-          'Provisional type cannot be resolved.');
-      this.nativeLayer_.grantExtensionPrinterAccess(destination.id).then(
-          /**
-           * @param {!print_preview.ProvisionalDestinationInfo}
-           *     destinationInfo Information about the resolved printer.
-           */
-          function(destinationInfo) {
-            /**
-             * Removes the destination from the store and replaces it with a
-             * destination created from the resolved destination properties, if
-             * any are reported. Then sends a PROVISIONAL_DESTINATION_RESOLVED
-             * event.
-             */
-            this.removeProvisionalDestination_(destination.id);
-            var parsedDestination =
-                print_preview.ExtensionDestinationParser.parse(destinationInfo);
-            this.insertIntoStore_(parsedDestination);
-            this.dispatchProvisionalDestinationResolvedEvent_(
-                destination.id, parsedDestination);
-          }.bind(this),
-          function() {
-            /**
-             * The provisional destination is removed from the store and a
-             * PROVISIONAL_DESTINATION_RESOLVED event is dispatched with a null
-             * destination.
-             */
-            this.removeProvisionalDestination_(destination.id);
-            this.dispatchProvisionalDestinationResolvedEvent_(destination.id,
-                                                              null);
-          }.bind(this));
-    },
-
-    /**
-     * Selects 'Save to PDF' destination (since it always exists).
-     * @private
-     */
-    selectPdfDestination_: function() {
-      var saveToPdfKey = this.getDestinationKey_(
-          print_preview.DestinationOrigin.LOCAL,
-          print_preview.Destination.GooglePromotedId.SAVE_AS_PDF, '');
-      this.selectDestination(
-          this.destinationMap_[saveToPdfKey] || this.destinations_[0] || null);
-    },
-
-    /**
-     * Attempts to select system default destination with a fallback to
-     * 'Save to PDF' destination.
-     * @private
-     */
-    selectDefaultDestination_: function() {
-      if (this.systemDefaultDestinationId_) {
-        if (this.autoSelectMatchingDestination_ &&
-            !this.autoSelectMatchingDestination_.matchIdAndOrigin(
-                this.systemDefaultDestinationId_, this.platformOrigin_)) {
-          if (this.fetchPreselectedDestination_(
-                  this.platformOrigin_, this.systemDefaultDestinationId_,
-                  '' /*account*/, '' /*name*/, null /*capabilities*/,
-                  '' /*extensionId*/, '' /*extensionName*/)) {
-            return;
-          }
-        }
-      }
-      this.selectPdfDestination_();
-    },
-
-    /** Initiates loading of local print destinations. */
-    startLoadLocalDestinations: function() {
-      if (!this.hasLoadedAllLocalDestinations_) {
-        this.hasLoadedAllLocalDestinations_ = true;
-        this.nativeLayer_.getPrinters().then(
-            this.onLocalDestinationsSet_.bind(this));
-        this.isLocalDestinationSearchInProgress_ = true;
-        cr.dispatchSimpleEvent(
-            this, DestinationStore.EventType.DESTINATION_SEARCH_STARTED);
-      }
-    },
-
-    /** Initiates loading of privet print destinations. */
-    startLoadPrivetDestinations: function() {
-      if (this.hasLoadedAllPrivetDestinations_)
-        return;
-      this.isPrivetDestinationSearchInProgress_ = true;
-      this.nativeLayer_.getPrivetPrinters().then(
-          this.endPrivetPrinterSearch_.bind(this), function() {
-            // Rejected by C++, indicating privet printing is disabled.
-            this.hasLoadedAllPrivetDestinations_ = true;
-            this.isPrivetDestinationSearchInProgress_ = false;
-          }.bind(this));
-      cr.dispatchSimpleEvent(
-          this, DestinationStore.EventType.DESTINATION_SEARCH_STARTED);
-    },
-
-    /** Initializes loading of extension managed print destinations. */
-    startLoadExtensionDestinations: function() {
-      if (this.hasLoadedAllExtensionDestinations_)
-        return;
-
-      if (this.isExtensionDestinationSearchInProgress_)
-        clearTimeout(this.extensionSearchTimeout_);
-
-      this.isExtensionDestinationSearchInProgress_ = true;
-      this.nativeLayer_.getExtensionPrinters().then(
-          this.onExtensionPrintersDone_.bind(this));
-      cr.dispatchSimpleEvent(
-          this, DestinationStore.EventType.DESTINATION_SEARCH_STARTED);
-      this.extensionSearchTimeout_ = setTimeout(
-          this.endExtensionPrinterSearch_.bind(this),
-          DestinationStore.EXTENSION_SEARCH_DURATION_);
-    },
-
-    /**
-     * Initiates loading of cloud destinations.
-     * @param {print_preview.DestinationOrigin=} opt_origin Search destinations
-     *     for the specified origin only.
-     */
-    startLoadCloudDestinations: function(opt_origin) {
-      if (this.cloudPrintInterface_ != null) {
-        var origins = this.loadedCloudOrigins_[this.userInfo_.activeUser] || [];
-        if (origins.length == 0 ||
-            (opt_origin && origins.indexOf(opt_origin) < 0)) {
-          this.cloudPrintInterface_.search(
-              this.userInfo_.activeUser, opt_origin);
-          cr.dispatchSimpleEvent(
-              this, DestinationStore.EventType.DESTINATION_SEARCH_STARTED);
-        }
-      }
-    },
-
-    /** Requests load of COOKIE based cloud destinations. */
-    reloadUserCookieBasedDestinations: function() {
-      var origins = this.loadedCloudOrigins_[this.userInfo_.activeUser] || [];
-      if (origins.indexOf(print_preview.DestinationOrigin.COOKIES) >= 0) {
-        cr.dispatchSimpleEvent(
-            this, DestinationStore.EventType.DESTINATION_SEARCH_DONE);
-      } else {
-        this.startLoadCloudDestinations(
-            print_preview.DestinationOrigin.COOKIES);
-      }
-    },
-
-    /** Initiates loading of all known destination types. */
-    startLoadAllDestinations: function() {
-      this.startLoadCloudDestinations();
-      this.startLoadLocalDestinations();
-      this.startLoadPrivetDestinations();
-      this.startLoadExtensionDestinations();
-    },
-
-    /**
-     * Wait for a privet device to be registered.
-     */
-    waitForRegister: function(id) {
-      this.nativeLayer_.getPrivetPrinters().then(
-          this.endPrivetPrinterSearch_.bind(this));
-      this.waitForRegisterDestination_ = id;
-    },
-
-    /**
-     * Removes the provisional destination with ID |provisionalId| from
-     * |destinationMap_| and |destinations_|.
-     * @param{string} provisionalId The provisional destination ID.
-     * @private
-     */
-    removeProvisionalDestination_: function(provisionalId) {
-      this.destinations_ = this.destinations_.filter(
-          function(el) {
-            if (el.id == provisionalId) {
-              delete this.destinationMap_[this.getKey_(el)];
-              return false;
-            }
-            return true;
-          }, this);
-    },
-
-    /**
-     * Dispatches the PROVISIONAL_DESTINATION_RESOLVED event for id
-     * |provisionalId| and destination |destination|.
-     * @param {string} provisionalId The ID of the destination that was
-     *     resolved.
-     * @param {?print_preview.Destination} destination Information about the
-     *     destination if it was resolved successfully.
-     */
-    dispatchProvisionalDestinationResolvedEvent_: function(
-        provisionalId, destination) {
-      var event = new Event(
-          DestinationStore.EventType.PROVISIONAL_DESTINATION_RESOLVED);
-      event.provisionalId = provisionalId;
-      event.destination = destination;
-      this.dispatchEvent(event);
-    },
-
-    /**
-     * Inserts {@code destination} to the data store and dispatches a
-     * DESTINATIONS_INSERTED event.
-     * @param {!print_preview.Destination} destination Print destination to
-     *     insert.
-     * @private
-     */
-    insertDestination_: function(destination) {
-      if (this.insertIntoStore_(destination)) {
-        this.destinationsInserted_(destination);
-      }
-    },
-
-    /**
-     * Inserts multiple {@code destinations} to the data store and dispatches
-     * single DESTINATIONS_INSERTED event.
-     * @param {!Array<print_preview.Destination>} destinations Print
-     *     destinations to insert.
-     * @private
-     */
-    insertDestinations_: function(destinations) {
-      var inserted = false;
-      destinations.forEach(function(destination) {
-        inserted = this.insertIntoStore_(destination) || inserted;
-      }, this);
-      if (inserted) {
-        this.destinationsInserted_();
-      }
-    },
-
-    /**
-     * Dispatches DESTINATIONS_INSERTED event. In auto select mode, tries to
-     * update selected destination to match
-     * {@code autoSelectMatchingDestination_}.
-     * @param {print_preview.Destination=} opt_destination The only destination
-     *     that was changed or skipped if possibly more than one destination was
-     *     changed. Used as a hint to limit destination search scope against
-     *     {@code autoSelectMatchingDestination_}.
-     */
-    destinationsInserted_: function(opt_destination) {
-      cr.dispatchSimpleEvent(
-          this, DestinationStore.EventType.DESTINATIONS_INSERTED);
-      if (this.autoSelectMatchingDestination_) {
-        var destinationsToSearch =
-            opt_destination && [opt_destination] || this.destinations_;
-        destinationsToSearch.some(function(destination) {
-          if (this.autoSelectMatchingDestination_.match(destination)) {
-            this.selectDestination(destination);
-            return true;
-          }
-        }, this);
-      }
-    },
-
-    /**
-     * Updates an existing print destination with capabilities and display name
-     * information. If the destination doesn't already exist, it will be added.
-     * @param {!print_preview.Destination} destination Destination to update.
-     * @private
-     */
-    updateDestination_: function(destination) {
-      assert(destination.constructor !== Array, 'Single printer expected');
-      destination.capabilities_ = DestinationStore.localizeCapabilities_(
-          assert(destination.capabilities_));
-      destination.capabilities_ =
-          DestinationStore.sortMediaSizes_(destination.capabilities_);
-      var existingDestination = this.destinationMap_[this.getKey_(destination)];
-      if (existingDestination != null) {
-        existingDestination.capabilities = destination.capabilities;
-      } else {
-        this.insertDestination_(destination);
-      }
-
-      if (this.selectedDestination_ &&
-          (existingDestination == this.selectedDestination_ ||
-           destination == this.selectedDestination_)) {
-        this.appState_.persistSelectedDestination(this.selectedDestination_);
-        cr.dispatchSimpleEvent(
-            this,
-            DestinationStore.EventType.SELECTED_DESTINATION_CAPABILITIES_READY);
-      }
-    },
-
-    /**
-     * Called when the search for Privet printers is done.
-     * @private
-     */
-    endPrivetPrinterSearch_: function() {
-      this.isPrivetDestinationSearchInProgress_ = false;
-      this.hasLoadedAllPrivetDestinations_ = true;
-      cr.dispatchSimpleEvent(
-          this, DestinationStore.EventType.DESTINATION_SEARCH_DONE);
-    },
-
-    /**
-     * Called when loading of extension managed printers is done.
-     * @private
-     */
-    endExtensionPrinterSearch_: function() {
-      this.isExtensionDestinationSearchInProgress_ = false;
-      this.hasLoadedAllExtensionDestinations_ = true;
-      cr.dispatchSimpleEvent(
-          this, DestinationStore.EventType.DESTINATION_SEARCH_DONE);
-      // Clear initially selected (cached) extension destination if it hasn't
-      // been found among reported extension destinations.
-      if (this.autoSelectMatchingDestination_ &&
-          this.autoSelectMatchingDestination_.matchOrigin(
-              print_preview.DestinationOrigin.EXTENSION) &&
-          this.selectedDestination_ && this.selectedDestination_.isExtension) {
-        this.selectDefaultDestination_();
-      }
-    },
-
-    /**
-     * Inserts a destination into the store without dispatching any events.
-     * @return {boolean} Whether the inserted destination was not already in the
-     *     store.
-     * @private
-     */
-    insertIntoStore_: function(destination) {
-      var key = this.getKey_(destination);
-      var existingDestination = this.destinationMap_[key];
-      if (existingDestination == null) {
-        destination.isRecent |=
-            this.appState_.recentDestinations.some(function(recent) {
-              return (
-                  destination.id == recent.id &&
-                  destination.origin == recent.origin);
-            }, this);
-        this.destinations_.push(destination);
-        this.destinationMap_[key] = destination;
-        return true;
-      }
-      if (existingDestination.connectionStatus ==
-              print_preview.DestinationConnectionStatus.UNKNOWN &&
-          destination.connectionStatus !=
-              print_preview.DestinationConnectionStatus.UNKNOWN) {
-        existingDestination.connectionStatus = destination.connectionStatus;
-        return true;
-      }
-      return false;
-    },
-
-    /**
-     * Creates a local PDF print destination.
-     * @private
-     */
-    createLocalPdfPrintDestination_: function() {
-      // TODO(alekseys): Create PDF printer in the native code and send its
-      // capabilities back with other local printers.
-      if (this.pdfPrinterEnabled_) {
-        this.insertDestination_(new print_preview.Destination(
-            print_preview.Destination.GooglePromotedId.SAVE_AS_PDF,
-            print_preview.DestinationType.LOCAL,
-            print_preview.DestinationOrigin.LOCAL,
-            loadTimeData.getString('printToPDF'), false /*isRecent*/,
-            print_preview.DestinationConnectionStatus.ONLINE));
-      }
-    },
-
-    /**
-     * Resets the state of the destination store to its initial state.
-     * @private
-     */
-    reset_: function() {
-      this.destinations_ = [];
-      this.destinationMap_ = {};
-      this.selectDestination(null);
-      this.loadedCloudOrigins_ = {};
-      this.hasLoadedAllLocalDestinations_ = false;
-      this.hasLoadedAllPrivetDestinations_ = false;
-      this.hasLoadedAllExtensionDestinations_ = false;
-
-      clearTimeout(this.autoSelectTimeout_);
-      this.autoSelectTimeout_ = setTimeout(
-          this.selectDefaultDestination_.bind(this),
-          DestinationStore.AUTO_SELECT_TIMEOUT_);
-    },
-
-    /**
-     * Called when the local destinations have been got from the native layer.
-     * @param {!Array<!print_preview.LocalDestinationInfo>} destinationInfos A
-     *     list of the local destinations retrieved.
-     * @private
-     */
-    onLocalDestinationsSet_: function(destinationInfos) {
-      var localDestinations = destinationInfos.map(function(destInfo) {
-        return print_preview.LocalDestinationParser.parse(destInfo);
-      });
-      this.insertDestinations_(localDestinations);
-      this.isLocalDestinationSearchInProgress_ = false;
-      cr.dispatchSimpleEvent(
-          this, DestinationStore.EventType.DESTINATION_SEARCH_DONE);
-    },
-
-    /**
-     * Called when the native layer retrieves the capabilities for the selected
-     * local destination. Updates the destination with new capabilities if the
-     * destination already exists, otherwise it creates a new destination and
-     * then updates its capabilities.
-     * @param {print_preview.PrinterCapabilitiesResponse} settingsInfo Contains
-     *     information about and capabilities of the local print destination.
-     * @private
-     */
-    onLocalDestinationCapabilitiesSet_: function(settingsInfo) {
-      var destinationId = settingsInfo['printerId'];
-      var printerName = settingsInfo['printerName'];
-      var printerDescription = settingsInfo['printerDescription'];
-      // PDF is special since we don't need to query the device for
-      // capabilities.
-      var origin = destinationId ==
-              print_preview.Destination.GooglePromotedId.SAVE_AS_PDF ?
-          print_preview.DestinationOrigin.LOCAL :
-          this.platformOrigin_;
-      var key = this.getDestinationKey_(origin, destinationId, '');
-      var destination = this.destinationMap_[key];
-      var capabilities =
-          DestinationStore.localizeCapabilities_(settingsInfo.capabilities);
-      // Special case for PDF printer (until local printers capabilities are
-      // reported in CDD format too).
-      if (destinationId ==
-          print_preview.Destination.GooglePromotedId.SAVE_AS_PDF) {
-        if (destination) {
-          destination.capabilities = capabilities;
-        }
-      } else {
-        if (destination) {
-          // In case there were multiple capabilities request for this local
-          // destination, just ignore the later ones.
-          if (destination.capabilities != null) {
-            return;
-          }
-          destination.capabilities = capabilities;
-        } else {
-          var isEnterprisePrinter = settingsInfo['cupsEnterprisePrinter'];
-          destination = print_preview.LocalDestinationParser.parse({
-            deviceName: destinationId,
-            printerName: printerName,
-            cupsEnterprisePrinter: isEnterprisePrinter,
-            printerDescription: printerDescription
-          });
-          destination.capabilities = capabilities;
-          this.insertDestination_(destination);
-        }
-      }
-      if (this.selectedDestination_ &&
-          this.selectedDestination_.id == destinationId) {
-        cr.dispatchSimpleEvent(
-            this,
-            DestinationStore.EventType.SELECTED_DESTINATION_CAPABILITIES_READY);
-      }
-    },
-
-    /**
-     * Called when a request to get a local destination's print capabilities
-     * fails. If the destination is the initial destination, auto-select another
-     * destination instead.
-     * @param {print_preview.DestinationOrigin} origin The origin type of the
-     *     failed destination.
-     * @param {string} destinationId The destination ID that failed.
-     * @private
-     */
-    onGetCapabilitiesFail_: function(origin, destinationId) {
-      console.warn(
-          'Failed to get print capabilities for printer ' + destinationId);
-      if (this.autoSelectMatchingDestination_ &&
-          this.autoSelectMatchingDestination_.matchIdAndOrigin(
-              destinationId, origin)) {
-        this.selectDefaultDestination_();
-      }
-    },
-
-    /**
-     * Called when the /search call completes, either successfully or not.
-     * In case of success, stores fetched destinations.
-     * @param {Event} event Contains the request result.
-     * @private
-     */
-    onCloudPrintSearchDone_: function(event) {
-      if (event.printers) {
-        this.insertDestinations_(event.printers);
-      }
-      if (event.searchDone) {
-        var origins = this.loadedCloudOrigins_[event.user] || [];
-        if (origins.indexOf(event.origin) < 0) {
-          this.loadedCloudOrigins_[event.user] = origins.concat([event.origin]);
-        }
-      }
-      cr.dispatchSimpleEvent(
-          this, DestinationStore.EventType.DESTINATION_SEARCH_DONE);
-    },
-
-    /**
-     * Called when /printer call completes. Updates the specified destination's
-     * print capabilities.
-     * @param {Event} event Contains detailed information about the
-     *     destination.
-     * @private
-     */
-    onCloudPrintPrinterDone_: function(event) {
-      this.updateDestination_(event.printer);
-    },
-
-    /**
-     * Called when the Google Cloud Print interface fails to lookup a
-     * destination. Selects another destination if the failed destination was
-     * the initial destination.
-     * @param {Object} event Contains the ID of the destination that was failed
-     *     to be looked up.
-     * @private
-     */
-    onCloudPrintPrinterFailed_: function(event) {
-      if (this.autoSelectMatchingDestination_ &&
-          this.autoSelectMatchingDestination_.matchIdAndOrigin(
-              event.destinationId, event.destinationOrigin)) {
-        console.error(
-            'Failed to fetch last used printer caps: ' + event.destinationId);
-        this.selectDefaultDestination_();
-      }
-    },
-
-    /**
-     * Called when printer sharing invitation was processed successfully.
-     * @param {Event} event Contains detailed information about the invite and
-     *     newly accepted destination (if known).
-     * @private
-     */
-    onCloudPrintProcessInviteDone_: function(event) {
-      if (event.accept && event.printer) {
-        // Hint the destination list to promote this new destination.
-        event.printer.isRecent = true;
-        this.insertDestination_(event.printer);
-      }
-    },
-
-    /**
-     * Called when a Privet printer is added to the local network.
-     * @param {!{serviceName: string,
-     *           name: string,
-     *           hasLocalPrinting: boolean,
-     *           isUnregistered: boolean,
-     *           cloudID: string}} printer Information about the added printer.
-     * @private
-     */
-    onPrivetPrinterAdded_: function(printer) {
-      if (printer.serviceName == this.waitForRegisterDestination_ &&
-          !printer.isUnregistered) {
-        this.waitForRegisterDestination_ = null;
-        this.onDestinationsReload();
-      } else {
-        this.insertDestinations_(
-            print_preview.PrivetDestinationParser.parse(printer));
-      }
-    },
-
-    /**
-     * Called when capabilities for a privet printer are set.
-     * @param {!print_preview.PrivetPrinterCapabilitiesResponse} printerInfo
-     *     Contains the privet printer's description and capabilities.
-     * @private
-     */
-    onPrivetCapabilitiesSet_: function(printerInfo) {
-      var destinations =
-          print_preview.PrivetDestinationParser.parse(printerInfo.printer);
-      destinations.forEach(function(dest) {
-        dest.capabilities = printerInfo.capabilities;
-        this.updateDestination_(dest);
-      }, this);
-    },
-
-    /**
-     * Called when an extension responds to a getExtensionDestinations
-     * request.
-     * @param {!Array<!{extensionId: string,
-     *                  extensionName: string,
-     *                  id: string,
-     *                  name: string,
-     *                  description: (string|undefined),
-     *                  provisional: (boolean|undefined)}>} printers The list
-     *     containing information about printers added by an extension.
-     * @private
-     */
-    onExtensionPrintersAdded_: function(printers) {
-      this.insertDestinations_(
-          printers.map(print_preview.ExtensionDestinationParser.parse));
-    },
-
-    /**
-     * Called when all extensions are done adding printers.
-     * @private
-     */
-    onExtensionPrintersDone_: function() {
-      if (this.isExtensionDestinationSearchInProgress_) {
-        clearTimeout(this.extensionSearchTimeout_);
-        this.endExtensionPrinterSearch_();
-      }
-    },
-
-    /**
-     * Called when capabilities for an extension managed printer are set.
-     * @param {string} printerId The printer Id.
-     * @param {!print_preview.Cdd} capabilities The printer's capabilities.
-     * @private
-     */
-    onExtensionCapabilitiesSet_: function(printerId, capabilities) {
-      var destinationKey = this.getDestinationKey_(
-          print_preview.DestinationOrigin.EXTENSION, printerId,
-          '' /* account */);
-      var destination = this.destinationMap_[destinationKey];
-      if (!destination)
-        return;
-      destination.capabilities = capabilities;
-      this.updateDestination_(destination);
-    },
-
-    /**
-     * Called from print preview after the user was requested to sign in, and
-     * did so successfully.
-     */
-    onDestinationsReload: function() {
-      this.reset_();
-      this.autoSelectMatchingDestination_ =
-          this.convertPreselectedToDestinationMatch_();
-      this.createLocalPdfPrintDestination_();
-      this.startLoadAllDestinations();
-    },
-
-    // TODO(vitalybuka): Remove three next functions replacing Destination.id
-    //    and Destination.origin by complex ID.
-    /**
-     * Returns key to be used with {@code destinationMap_}.
-     * @param {print_preview.DestinationOrigin | string} origin Destination
-     *     origin.
-     * @param {string} id Destination id.
-     * @param {string} account User account destination is registered for.
-     * @private
-     */
-    getDestinationKey_: function(origin, id, account) {
-      return origin + '/' + id + '/' + account;
-    },
-
-    /**
-     * Returns key to be used with {@code destinationMap_}.
-     * @param {!print_preview.Destination} destination Destination.
-     * @private
-     */
-    getKey_: function(destination) {
-      return this.getDestinationKey_(
-          destination.origin, destination.id, destination.account);
-    }
   };
 
   // Export

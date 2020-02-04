@@ -66,7 +66,10 @@ gfx::Rect ConvertRectToPixel(const Layer* layer,
 namespace {
 
 void CheckSnapped(float snapped_position) {
-  const float kEplison = 0.0002f;
+  // The acceptable error epsilon should be small enough to detect visible
+  // artifacts as well as large enough to not cause false crashes when an
+  // uncommon device scale factor is applied.
+  const float kEplison = 0.003f;
   float diff = std::abs(snapped_position - gfx::ToRoundedInt(snapped_position));
   DCHECK_LT(diff, kEplison);
 }
@@ -80,21 +83,27 @@ void SnapLayerToPhysicalPixelBoundary(ui::Layer* snapped_layer,
   DCHECK(snapped_layer);
   DCHECK(snapped_layer->Contains(layer_to_snap));
 
-  gfx::Point view_offset_dips = layer_to_snap->GetTargetBounds().origin();
-  ui::Layer::ConvertPointToLayer(
-      layer_to_snap->parent(), snapped_layer, &view_offset_dips);
-  auto view_offset = gfx::PointF(view_offset_dips);
+  gfx::PointF view_offset(layer_to_snap->GetTargetBounds().origin());
+  ui::Layer::ConvertPointToLayer(layer_to_snap->parent(), snapped_layer,
+                                 &view_offset);
 
   float scale_factor = GetDeviceScaleFactor(layer_to_snap);
   view_offset.Scale(scale_factor);
-  gfx::PointF view_offset_snapped(gfx::ToRoundedInt(view_offset.x()),
-                                  gfx::ToRoundedInt(view_offset.y()));
+  gfx::PointF view_offset_snapped(gfx::ToRoundedPoint(view_offset));
 
   gfx::Vector2dF fudge = view_offset_snapped - view_offset;
   fudge.Scale(1.0 / scale_factor);
+
+  // Apply any scale originating from transforms to the fudge.
+  gfx::Transform transform;
+  layer_to_snap->parent()->GetTargetTransformRelativeTo(snapped_layer,
+                                                        &transform);
+  gfx::Vector2dF transform_scale = transform.Scale2d();
+  fudge.Scale(1.0 / transform_scale.x(), 1.0 / transform_scale.y());
+
   layer_to_snap->SetSubpixelPositionOffset(fudge);
 #if DCHECK_IS_ON()
-  gfx::Point layer_offset;
+  gfx::PointF layer_offset;
   gfx::PointF origin;
   Layer::ConvertPointToLayer(
       layer_to_snap->parent(), snapped_layer, &layer_offset);
@@ -104,6 +113,7 @@ void SnapLayerToPhysicalPixelBoundary(ui::Layer* snapped_layer,
   } else {
     origin = layer_to_snap->position();
   }
+  origin.Scale(transform_scale.x(), transform_scale.y());
   CheckSnapped((layer_offset.x() + origin.x()) * scale_factor);
   CheckSnapped((layer_offset.y() + origin.y()) * scale_factor);
 #endif

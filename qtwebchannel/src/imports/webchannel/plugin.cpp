@@ -43,13 +43,6 @@
 #include <qqmlwebchannel.h>
 #include <qqmlwebchannelattached_p.h>
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtWebChannel);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 class QWebChannelPlugin : public QQmlExtensionPlugin
@@ -58,7 +51,7 @@ class QWebChannelPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QWebChannelPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QWebChannelPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     void registerTypes(const char *uri);
 };
 
@@ -67,6 +60,9 @@ void QWebChannelPlugin::registerTypes(const char *uri)
     int major = 1;
     int minor = 0;
     qmlRegisterType<QQmlWebChannel>(uri, major, minor, "WebChannel");
+
+    // Auto-increment the import to stay in sync with ALL future QtQuick minor versions
+    qmlRegisterModule(uri, major, QT_VERSION_MINOR);
 }
 
 QT_END_NAMESPACE

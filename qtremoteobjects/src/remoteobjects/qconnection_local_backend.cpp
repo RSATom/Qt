@@ -43,10 +43,11 @@ QT_BEGIN_NAMESPACE
 
 LocalClientIo::LocalClientIo(QObject *parent)
     : ClientIoDevice(parent)
+    , m_socket(new QLocalSocket(this))
 {
-    connect(&m_socket, &QLocalSocket::readyRead, this, &ClientIoDevice::readyRead);
-    connect(&m_socket, static_cast<void (QLocalSocket::*)(QLocalSocket::LocalSocketError)>(&QLocalSocket::error), this, &LocalClientIo::onError);
-    connect(&m_socket, &QLocalSocket::stateChanged, this, &LocalClientIo::onStateChanged);
+    connect(m_socket, &QLocalSocket::readyRead, this, &ClientIoDevice::readyRead);
+    connect(m_socket, static_cast<void (QLocalSocket::*)(QLocalSocket::LocalSocketError)>(&QLocalSocket::error), this, &LocalClientIo::onError);
+    connect(m_socket, &QLocalSocket::stateChanged, this, &LocalClientIo::onStateChanged);
 }
 
 LocalClientIo::~LocalClientIo()
@@ -54,35 +55,41 @@ LocalClientIo::~LocalClientIo()
     close();
 }
 
-QIODevice *LocalClientIo::connection()
+QIODevice *LocalClientIo::connection() const
 {
-    return &m_socket;
+    return m_socket;
 }
 
 void LocalClientIo::doClose()
 {
-    if (m_socket.isOpen()) {
-        connect(&m_socket, &QLocalSocket::disconnected, this, &QObject::deleteLater);
-        m_socket.disconnectFromServer();
+    if (m_socket->isOpen()) {
+        connect(m_socket, &QLocalSocket::disconnected, this, &QObject::deleteLater);
+        m_socket->disconnectFromServer();
     } else {
         this->deleteLater();
     }
 }
 
+void LocalClientIo::doDisconnectFromServer()
+{
+    m_socket->disconnectFromServer();
+}
+
 void LocalClientIo::connectToServer()
 {
     if (!isOpen())
-        m_socket.connectToServer(url().path());
+        m_socket->connectToServer(url().path());
 }
 
-bool LocalClientIo::isOpen()
+bool LocalClientIo::isOpen() const
 {
-    return !isClosing() && m_socket.isOpen();
+    return !isClosing() && (m_socket->state() == QLocalSocket::ConnectedState
+                            || m_socket->state() == QLocalSocket::ConnectingState);
 }
 
 void LocalClientIo::onError(QLocalSocket::LocalSocketError error)
 {
-    qCDebug(QT_REMOTEOBJECT) << "onError" << error << m_socket.serverName();
+    qCDebug(QT_REMOTEOBJECT) << "onError" << error << m_socket->serverName();
 
     switch (error) {
     case QLocalSocket::ServerNotFoundError:
@@ -105,13 +112,11 @@ void LocalClientIo::onError(QLocalSocket::LocalSocketError error)
 void LocalClientIo::onStateChanged(QLocalSocket::LocalSocketState state)
 {
     if (state == QLocalSocket::ClosingState && !isClosing()) {
-        m_socket.abort();
+        m_socket->abort();
         emit shouldReconnect(this);
     }
-    if (state == QLocalSocket::ConnectedState) {
-        m_dataStream.setDevice(connection());
-        m_dataStream.resetStatus();
-    }
+    if (state == QLocalSocket::ConnectedState)
+        initializeDataStream();
 }
 
 LocalServerIo::LocalServerIo(QLocalSocket *conn, QObject *parent)

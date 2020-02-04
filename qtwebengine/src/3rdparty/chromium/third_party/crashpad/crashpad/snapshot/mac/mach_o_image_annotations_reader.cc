@@ -24,20 +24,19 @@
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
 #include "snapshot/mac/mach_o_image_reader.h"
-#include "snapshot/mac/process_reader.h"
-#include "util/mach/task_memory.h"
+#include "snapshot/mac/process_reader_mac.h"
+#include "snapshot/snapshot_constants.h"
 #include "util/stdlib/strnlen.h"
 
 namespace crashpad {
 
 MachOImageAnnotationsReader::MachOImageAnnotationsReader(
-    ProcessReader* process_reader,
+    ProcessReaderMac* process_reader,
     const MachOImageReader* image_reader,
     const std::string& name)
     : name_(name),
       process_reader_(process_reader),
-      image_reader_(image_reader) {
-}
+      image_reader_(image_reader) {}
 
 std::vector<std::string> MachOImageAnnotationsReader::Vector() const {
   std::vector<std::string> vector_annotations;
@@ -55,6 +54,15 @@ std::map<std::string, std::string> MachOImageAnnotationsReader::SimpleMap()
   ReadCrashpadSimpleAnnotations(&simple_map_annotations);
 
   return simple_map_annotations;
+}
+
+std::vector<AnnotationSnapshot> MachOImageAnnotationsReader::AnnotationsList()
+    const {
+  std::vector<AnnotationSnapshot> annotations;
+
+  ReadCrashpadAnnotationsList(&annotations);
+
+  return annotations;
 }
 
 void MachOImageAnnotationsReader::ReadCrashReporterClientAnnotations(
@@ -91,7 +99,7 @@ void MachOImageAnnotationsReader::ReadCrashReporterClientAnnotations(
 
   // This number was totally made up out of nowhere, but it seems prudent to
   // enforce some limit.
-  const size_t kMaxMessageSize = 1024;
+  constexpr size_t kMaxMessageSize = 1024;
   if (crash_info.message) {
     std::string message;
     if (process_reader_->Memory()->ReadCStringSizeLimited(
@@ -143,11 +151,8 @@ void MachOImageAnnotationsReader::ReadDyldErrorStringAnnotation(
 void MachOImageAnnotationsReader::ReadCrashpadSimpleAnnotations(
     std::map<std::string, std::string>* simple_map_annotations) const {
   process_types::CrashpadInfo crashpad_info;
-  if (!image_reader_->GetCrashpadInfo(&crashpad_info)) {
-    return;
-  }
-
-  if (!crashpad_info.simple_annotations) {
+  if (!image_reader_->GetCrashpadInfo(&crashpad_info) ||
+      !crashpad_info.simple_annotations) {
     return;
   }
 
@@ -170,6 +175,63 @@ void MachOImageAnnotationsReader::ReadCrashpadSimpleAnnotations(
         LOG(INFO) << "duplicate simple annotation " << key << " in " << name_;
       }
     }
+  }
+}
+
+// TODO(https://crbug.com/crashpad/270): Replace implementations of
+// ReadCrashpadAnnotationsList and ReadCrashpadSimpleAnnotations with the
+// platform-agnostic implementations in ImageAnnotationReader.
+void MachOImageAnnotationsReader::ReadCrashpadAnnotationsList(
+    std::vector<AnnotationSnapshot>* annotations) const {
+  process_types::CrashpadInfo crashpad_info;
+  if (!image_reader_->GetCrashpadInfo(&crashpad_info) ||
+      !crashpad_info.annotations_list) {
+    return;
+  }
+
+  process_types::AnnotationList annotation_list_object;
+  if (!annotation_list_object.Read(process_reader_,
+                                   crashpad_info.annotations_list)) {
+    LOG(WARNING) << "could not read annotations list object in " << name_;
+    return;
+  }
+
+  process_types::Annotation current = annotation_list_object.head;
+  for (size_t index = 0;
+       current.link_node != annotation_list_object.tail_pointer &&
+       index < kMaxNumberOfAnnotations;
+       ++index) {
+    if (!current.Read(process_reader_, current.link_node)) {
+      LOG(WARNING) << "could not read annotation at index " << index << " in "
+                   << name_;
+      return;
+    }
+
+    if (current.size == 0) {
+      continue;
+    }
+
+    AnnotationSnapshot snapshot;
+    snapshot.type = current.type;
+    snapshot.value.resize(current.size);
+
+    if (!process_reader_->Memory()->ReadCStringSizeLimited(
+            current.name, Annotation::kNameMaxLength, &snapshot.name)) {
+      LOG(WARNING) << "could not read annotation name at index " << index
+                   << " in " << name_;
+      continue;
+    }
+
+    size_t size =
+        std::min(static_cast<size_t>(current.size), Annotation::kValueMaxSize);
+    if (!process_reader_->Memory()->Read(
+            current.value, size, snapshot.value.data())) {
+      LOG(WARNING) << "could not read annotation value at index " << index
+                   << " in " << name_;
+      continue;
+    }
+
+    annotations->push_back(std::move(snapshot));
   }
 }
 

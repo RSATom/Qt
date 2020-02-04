@@ -50,6 +50,19 @@ QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcEGB, "qt.gamepad")
 
+#ifndef BTN_TRIGGER_HAPPY1
+# define BTN_TRIGGER_HAPPY1 0x2c0
+#endif
+#ifndef BTN_TRIGGER_HAPPY2
+# define BTN_TRIGGER_HAPPY2 0x2c1
+#endif
+#ifndef BTN_TRIGGER_HAPPY3
+# define BTN_TRIGGER_HAPPY3 0x2c2
+#endif
+#ifndef BTN_TRIGGER_HAPPY4
+# define BTN_TRIGGER_HAPPY4 0x2c3
+#endif
+
 QEvdevGamepadDevice::EvdevAxisInfo::EvdevAxisInfo()
     : QGamepadBackend::AxisInfo<int>(0, 1, QGamepadManager::AxisInvalid)
 {
@@ -331,6 +344,13 @@ bool QEvdevGamepadDevice::openDevice(const QByteArray &dev)
         }
 
         emit m_backend->gamepadAdded(m_productId);
+
+        // same as libevdev::libevdev_set_fd() in libevdev.c
+        char buffer[256];
+        memset(buffer, 0, sizeof(buffer));
+        if (ioctl(m_fd, EVIOCGNAME(sizeof(buffer) - 1), buffer) >= 0)
+            emit m_backend->gamepadNamed(m_productId, QString::fromUtf8(buffer));
+
     } else {
         QT_CLOSE(m_fd);
         m_fd = -1;

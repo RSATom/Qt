@@ -38,37 +38,24 @@ class TestSuiteAll(unittest.TestSuite):
     import grit.format.gzip_string_unittest
     import grit.format.html_inline_unittest
     import grit.format.js_map_format_unittest
+    import grit.format.policy_templates_json_unittest
     import grit.format.rc_header_unittest
     import grit.format.rc_unittest
     import grit.format.resource_map_unittest
-    import grit.format.policy_templates.policy_template_generator_unittest
-    import grit.format.policy_templates.writers.adm_writer_unittest
-    import grit.format.policy_templates.writers.adml_writer_unittest
-    import grit.format.policy_templates.writers.admx_writer_unittest
-    import grit.format.policy_templates.writers.android_policy_writer_unittest
-    import grit.format.policy_templates.writers.doc_writer_unittest
-    import grit.format.policy_templates.writers.json_writer_unittest
-    import grit.format.policy_templates.writers.plist_strings_writer_unittest
-    import grit.format.policy_templates.writers.plist_writer_unittest
-    import grit.format.policy_templates.writers.reg_writer_unittest
-    import grit.format.policy_templates.writers.template_writer_unittest
-    import grit.format.policy_templates.writers.xml_writer_base_unittest
     import grit.gather.admin_template_unittest
     import grit.gather.chrome_html_unittest
     import grit.gather.chrome_scaled_image_unittest
-    import grit.gather.igoogle_strings_unittest
-    import grit.gather.muppet_strings_unittest
     import grit.gather.policy_json_unittest
     import grit.gather.rc_unittest
     import grit.gather.tr_html_unittest
     import grit.gather.txt_unittest
     import grit.node.base_unittest
-    import grit.node.io_unittest
+    import grit.node.custom.filename_unittest
     import grit.node.include_unittest
     import grit.node.message_unittest
     import grit.node.misc_unittest
-    import grit.node.structure_unittest #
-    import grit.node.custom.filename_unittest
+    import grit.node.node_io_unittest
+    import grit.node.structure_unittest
     import grit.tool.android2grd_unittest
     import grit.tool.build_unittest
     import grit.tool.buildinfo_unittest
@@ -92,55 +79,30 @@ class TestSuiteAll(unittest.TestSuite):
         grit.format.chrome_messages_json_unittest.
             ChromeMessagesJsonFormatUnittest,
         grit.format.data_pack_unittest.FormatDataPackUnittest,
+        grit.format.gzip_string_unittest.FormatGzipStringUnittest,
         grit.format.html_inline_unittest.HtmlInlineUnittest,
         grit.format.js_map_format_unittest.JsMapFormatUnittest,
+        grit.format.policy_templates_json_unittest.PolicyTemplatesJsonUnittest,
         grit.format.rc_header_unittest.RcHeaderFormatterUnittest,
-        grit.format.gzip_string_unittest.FormatGzipStringUnittest,
         grit.format.rc_unittest.FormatRcUnittest,
         grit.format.resource_map_unittest.FormatResourceMapUnittest,
-        grit.format.policy_templates.policy_template_generator_unittest.
-            PolicyTemplateGeneratorUnittest,
-        grit.format.policy_templates.writers.adm_writer_unittest.
-            AdmWriterUnittest,
-        grit.format.policy_templates.writers.adml_writer_unittest.
-            AdmlWriterUnittest,
-        grit.format.policy_templates.writers.admx_writer_unittest.
-            AdmxWriterUnittest,
-        grit.format.policy_templates.writers.android_policy_writer_unittest.
-            AndroidPolicyWriterUnittest,
-        grit.format.policy_templates.writers.doc_writer_unittest.
-            DocWriterUnittest,
-        grit.format.policy_templates.writers.json_writer_unittest.
-            JsonWriterUnittest,
-        grit.format.policy_templates.writers.plist_strings_writer_unittest.
-            PListStringsWriterUnittest,
-        grit.format.policy_templates.writers.plist_writer_unittest.
-            PListWriterUnittest,
-        grit.format.policy_templates.writers.reg_writer_unittest.
-            RegWriterUnittest,
-        grit.format.policy_templates.writers.template_writer_unittest.
-            TemplateWriterUnittests,
-        grit.format.policy_templates.writers.xml_writer_base_unittest.
-            XmlWriterBaseTest,
         grit.gather.admin_template_unittest.AdmGathererUnittest,
         grit.gather.chrome_html_unittest.ChromeHtmlUnittest,
         grit.gather.chrome_scaled_image_unittest.ChromeScaledImageUnittest,
-        grit.gather.igoogle_strings_unittest.IgoogleStringsUnittest,
-        grit.gather.muppet_strings_unittest.MuppetStringsUnittest,
         grit.gather.policy_json_unittest.PolicyJsonUnittest,
         grit.gather.rc_unittest.RcUnittest,
         grit.gather.tr_html_unittest.ParserUnittest,
         grit.gather.tr_html_unittest.TrHtmlUnittest,
         grit.gather.txt_unittest.TxtUnittest,
         grit.node.base_unittest.NodeUnittest,
-        grit.node.io_unittest.FileNodeUnittest,
+        grit.node.custom.filename_unittest.WindowsFilenameUnittest,
         grit.node.include_unittest.IncludeNodeUnittest,
         grit.node.message_unittest.MessageUnittest,
         grit.node.misc_unittest.GritNodeUnittest,
         grit.node.misc_unittest.IfNodeUnittest,
         grit.node.misc_unittest.ReleaseNodeUnittest,
+        grit.node.node_io_unittest.FileNodeUnittest,
         grit.node.structure_unittest.StructureUnittest,
-        grit.node.custom.filename_unittest.WindowsFilenameUnittest,
         grit.tool.android2grd_unittest.Android2GrdUnittest,
         grit.tool.build_unittest.BuildUnittest,
         grit.tool.buildinfo_unittest.BuildInfoUnittest,

@@ -33,21 +33,26 @@ namespace expression {
 */
 struct VarargsType { type::Type type; };
 template <typename T>
-struct Varargs : std::vector<T> { using std::vector<T>::vector; };
+struct Varargs : std::vector<T> {
+    template <class... Args>
+    Varargs(Args&&... args) : std::vector<T>(std::forward<Args>(args)...) {}
+};
 
 namespace detail {
-// Base class for the Signature<Fn> structs that are used to determine the
+// Base class for the Signature<Fn> structs that are used to determine
 // each CompoundExpression definition's type::Type data from the type of its
 // "evaluate" function.
 struct SignatureBase {
-    SignatureBase(type::Type result_, variant<std::vector<type::Type>, VarargsType> params_) :
+    SignatureBase(type::Type result_, variant<std::vector<type::Type>, VarargsType> params_, std::string name_) :
         result(std::move(result_)),
-        params(std::move(params_))
+        params(std::move(params_)),
+        name(std::move(name_))
     {}
     virtual ~SignatureBase() = default;
-    virtual std::unique_ptr<Expression> makeExpression(const std::string& name, std::vector<std::unique_ptr<Expression>>) const = 0;
+    virtual std::unique_ptr<Expression> makeExpression(std::vector<std::unique_ptr<Expression>>) const = 0;
     type::Type result;
     variant<std::vector<type::Type>, VarargsType> params;
+    std::string name;
 };
 } // namespace detail
 
@@ -60,7 +65,7 @@ struct SignatureBase {
 class CompoundExpressionBase : public Expression {
 public:
     CompoundExpressionBase(std::string name_, const detail::SignatureBase& signature) :
-        Expression(signature.result),
+        Expression(Kind::CompoundExpression, signature.result),
         name(std::move(name_)),
         params(signature.params)
     {}
@@ -72,7 +77,11 @@ public:
             [&](const std::vector<type::Type>& p) -> optional<std::size_t> { return p.size(); }
         );
     }
-    
+
+    std::vector<optional<Value>> possibleOutputs() const override {
+        return { nullopt };
+    }
+
 private:
     std::string name;
     variant<std::vector<type::Type>, VarargsType> params;
@@ -102,12 +111,17 @@ public:
     }
 
     bool operator==(const Expression& e) const override {
-        if (auto rhs = dynamic_cast<const CompoundExpression*>(&e)) {
+        if (e.getKind() == Kind::CompoundExpression) {
+            auto rhs = static_cast<const CompoundExpression*>(&e);
             return getName() == rhs->getName() && Expression::childrenEqual(args, rhs->args);
         }
         return false;
     }
     
+    std::string getOperator() const override {
+        return signature.name;
+    }
+
 private:
     Signature signature;
     typename Signature::Args args;
@@ -124,11 +138,6 @@ struct CompoundExpressionRegistry {
 
 ParseResult parseCompoundExpression(const std::string name, const mbgl::style::conversion::Convertible& value, ParsingContext& ctx);
 
-ParseResult createCompoundExpression(const std::string& name,
-                                     const CompoundExpressionRegistry::Definition& definition,
-                                     std::vector<std::unique_ptr<Expression>> args,
-                                     ParsingContext& ctx);
-    
 ParseResult createCompoundExpression(const std::string& name,
                                      std::vector<std::unique_ptr<Expression>> args,
                                      ParsingContext& ctx);

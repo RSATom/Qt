@@ -4,14 +4,17 @@
 
 #include "third_party/leveldatabase/env_chromium.h"
 
+#include <atomic>
+#include <limits>
 #include <utility>
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include <dirent.h>
 #include <sys/types.h>
 #endif
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
@@ -19,50 +22,58 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/process/process_metrics.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/system/sys_info.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "third_party/leveldatabase/chromium_logger.h"
+#include "third_party/leveldatabase/leveldb_chrome.h"
+#include "third_party/leveldatabase/leveldb_features.h"
 #include "third_party/leveldatabase/src/include/leveldb/options.h"
 #include "third_party/re2/src/re2/re2.h"
 
 using base::FilePath;
+using base::trace_event::MemoryAllocatorDump;
+using base::trace_event::MemoryDumpArgs;
+using base::trace_event::ProcessMemoryDump;
 using leveldb::FileLock;
 using leveldb::Slice;
 using leveldb::Status;
 
-namespace leveldb_env {
+const base::Feature kLevelDBFileHandleEviction{
+    "LevelDBFileHandleEviction", base::FEATURE_ENABLED_BY_DEFAULT};
 
+namespace leveldb_env {
 namespace {
 
-const FilePath::CharType backup_table_extension[] = FILE_PATH_LITERAL(".bak");
+// After this limit we don't bother doing file eviction for leveldb for speed,
+// memory usage, and simplicity.
+const constexpr size_t kFileLimitToDisableEviction = 10'000;
+
 const FilePath::CharType table_extension[] = FILE_PATH_LITERAL(".ldb");
 
 static const FilePath::CharType kLevelDBTestDirectoryPrefix[] =
     FILE_PATH_LITERAL("leveldb-test-");
 
-static base::File::Error LastFileError() {
-#if defined(OS_WIN)
-  return base::File::OSErrorToFileError(GetLastError());
-#else
-  return base::File::OSErrorToFileError(errno);
-#endif
-}
+// This name should not be changed or users involved in a crash might not be
+// able to recover data.
+static const char kDatabaseNameSuffixForRebuildDB[] = "__tmp_for_rebuild";
 
 // Making direct platform in lieu of using base::FileEnumerator because the
 // latter can fail quietly without return an error result.
 static base::File::Error GetDirectoryEntries(const FilePath& dir_param,
                                              std::vector<FilePath>* result) {
   TRACE_EVENT0("leveldb", "ChromiumEnv::GetDirectoryEntries");
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   result->clear();
 #if defined(OS_WIN)
   FilePath dir_filepath = dir_param.Append(FILE_PATH_LITERAL("*"));
@@ -91,20 +102,26 @@ static base::File::Error GetDirectoryEntries(const FilePath& dir_param,
 #else
   const std::string dir_string = dir_param.AsUTF8Unsafe();
   DIR* dir = opendir(dir_string.c_str());
-  if (!dir)
-    return base::File::OSErrorToFileError(errno);
-  struct dirent dent_buf;
+  int saved_errno;
+  if (!dir) {
+    saved_errno = errno;
+    VLOG(1) << "Error " << saved_errno << " opening directory \"" << dir_string
+            << '"';
+    return base::File::OSErrorToFileError(saved_errno);
+  }
   struct dirent* dent;
-  int readdir_result;
-  while ((readdir_result = readdir_r(dir, &dent_buf, &dent)) == 0 && dent) {
+  while ((errno = 0, dent = readdir(dir)) != nullptr) {
     if (strcmp(dent->d_name, ".") == 0 || strcmp(dent->d_name, "..") == 0)
       continue;
     result->push_back(FilePath::FromUTF8Unsafe(dent->d_name));
   }
-  int saved_errno = errno;
+  saved_errno = errno;
   closedir(dir);
-  if (readdir_result != 0)
+  if (saved_errno != 0) {
+    VLOG(1) << "Error " << saved_errno << " listing entries in \"" << dir_string
+            << '"';
     return base::File::OSErrorToFileError(saved_errno);
+  }
   return base::File::FILE_OK;
 #endif
 }
@@ -191,7 +208,7 @@ class ChromiumSequentialFile : public leveldb::SequentialFile {
     TRACE_EVENT1("leveldb", "ChromiumSequentialFile::Read", "size", n);
     int bytes_read = file_.ReadAtCurrentPosNoBestEffort(scratch, n);
     if (bytes_read == -1) {
-      base::File::Error error = LastFileError();
+      base::File::Error error = base::File::GetLastFileError();
       uma_logger_->RecordErrorAt(kSequentialFileRead);
       return MakeIOError(filename_, base::File::ErrorToString(error),
                          kSequentialFileRead, error);
@@ -204,7 +221,7 @@ class ChromiumSequentialFile : public leveldb::SequentialFile {
 
   Status Skip(uint64_t n) override {
     if (file_.Seek(base::File::FROM_CURRENT, n) == -1) {
-      base::File::Error error = LastFileError();
+      base::File::Error error = base::File::GetLastFileError();
       uma_logger_->RecordErrorAt(kSequentialFileSkip);
       return MakeIOError(filename_, base::File::ErrorToString(error),
                          kSequentialFileSkip, error);
@@ -216,17 +233,113 @@ class ChromiumSequentialFile : public leveldb::SequentialFile {
  private:
   std::string filename_;
   base::File file_;
-  const UMALogger* uma_logger_;
+  const UMALogger* const uma_logger_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromiumSequentialFile);
 };
 
+void DeleteFile(const Slice& key, void* value) {
+  delete static_cast<base::File*>(value);
+};
+
+Status ReadFromFileToScratch(uint64_t offset,
+                             size_t n,
+                             Slice* result,
+                             char* scratch,
+                             base::File* file,
+                             const base::FilePath& file_path,
+                             const UMALogger* uma_logger) {
+  int bytes_read = file->Read(offset, scratch, n);
+  if (bytes_read < 0) {
+    uma_logger->RecordErrorAt(kRandomAccessFileRead);
+    return MakeIOError(file_path.AsUTF8Unsafe(), "Could not perform read",
+                       kRandomAccessFileRead);
+  }
+  *result = Slice(scratch, (bytes_read < 0) ? 0 : bytes_read);
+  if (bytes_read > 0)
+    uma_logger->RecordBytesRead(bytes_read);
+
+  return Status::OK();
+}
+
+// The cache mechanism uses leveldb's LRU cache, which is a threadsafe sharded
+// LRU cache. The keys use the pointer value of |this|, and the values are file
+// objects.
+// Each object will only use its own cache entry, so the |Erase| call in the
+// object destructor should synchronously delete the file from the cache. This
+// ensures that pointer location re-use won't re-use an entry in the cache as
+// the entry at |this| will always have been deleted.
+// Files are always cleaned up with |DeleteFile|, which will be called when the
+// ChromiumEvictableRandomAccessFile is deleted, the cache is deleted, or the
+// file is evicted.
+class ChromiumEvictableRandomAccessFile : public leveldb::RandomAccessFile {
+ public:
+  ChromiumEvictableRandomAccessFile(base::FilePath file_path,
+                                    base::File file,
+                                    leveldb::Cache* file_cache,
+                                    const UMALogger* uma_logger)
+      : filepath_(std::move(file_path)),
+        uma_logger_(uma_logger),
+        file_cache_(file_cache),
+        cache_key_data_(this),
+        cache_key_(
+            leveldb::Slice(reinterpret_cast<const char*>(&cache_key_data_),
+                           sizeof(cache_key_data_))) {
+    DCHECK(file_cache_);
+    base::File* heap_file = new base::File(std::move(file));
+    // A |charge| of '1' is used because the capacity is the file handle limit,
+    // and each entry is one file.
+    file_cache_->Release(file_cache_->Insert(cache_key_, heap_file,
+                                             1 /* charge */, &DeleteFile));
+  }
+
+  virtual ~ChromiumEvictableRandomAccessFile() {
+    file_cache_->Erase(cache_key_);
+  }
+
+  Status Read(uint64_t offset,
+              size_t n,
+              Slice* result,
+              char* scratch) const override {
+    TRACE_EVENT2("leveldb", "ChromiumEvictableRandomAccessFile::Read", "offset",
+                 offset, "size", n);
+    leveldb::Cache::Handle* handle = file_cache_->Lookup(cache_key_);
+    if (!handle) {
+      int flags = base::File::FLAG_READ | base::File::FLAG_OPEN;
+      auto new_file = std::make_unique<base::File>(filepath_, flags);
+      if (!new_file->IsValid()) {
+        return MakeIOError(filepath_.AsUTF8Unsafe(), "Could not perform read",
+                           kRandomAccessFileRead);
+      }
+      handle = file_cache_->Insert(cache_key_, new_file.release(),
+                                   sizeof(base::File), &DeleteFile);
+    }
+    base::File* file = static_cast<base::File*>(file_cache_->Value(handle));
+    Status status = ReadFromFileToScratch(offset, n, result, scratch, file,
+                                          filepath_, uma_logger_);
+    file_cache_->Release(handle);
+    return status;
+  }
+
+ private:
+  const base::FilePath filepath_;
+  const UMALogger* const uma_logger_;
+  mutable leveldb::Cache* file_cache_;
+  const ChromiumEvictableRandomAccessFile* cache_key_data_;
+  leveldb::Slice cache_key_;
+
+  DISALLOW_COPY_AND_ASSIGN(ChromiumEvictableRandomAccessFile);
+};
+
 class ChromiumRandomAccessFile : public leveldb::RandomAccessFile {
  public:
-  ChromiumRandomAccessFile(const std::string& fname,
+  ChromiumRandomAccessFile(base::FilePath file_path,
                            base::File file,
                            const UMALogger* uma_logger)
-      : filename_(fname), file_(std::move(file)), uma_logger_(uma_logger) {}
+      : filepath_(std::move(file_path)),
+        file_(std::move(file)),
+        uma_logger_(uma_logger) {}
+
   virtual ~ChromiumRandomAccessFile() {}
 
   Status Read(uint64_t offset,
@@ -235,20 +348,12 @@ class ChromiumRandomAccessFile : public leveldb::RandomAccessFile {
               char* scratch) const override {
     TRACE_EVENT2("leveldb", "ChromiumRandomAccessFile::Read", "offset", offset,
                  "size", n);
-    int bytes_read = file_.Read(offset, scratch, n);
-    *result = Slice(scratch, (bytes_read < 0) ? 0 : bytes_read);
-    if (bytes_read < 0) {
-      uma_logger_->RecordErrorAt(kRandomAccessFileRead);
-      return MakeIOError(filename_, "Could not perform read",
-                         kRandomAccessFileRead);
-    }
-    if (bytes_read > 0)
-      uma_logger_->RecordBytesRead(bytes_read);
-    return Status::OK();
+    return ReadFromFileToScratch(offset, n, result, scratch, &file_, filepath_,
+                                 uma_logger_);
   }
 
  private:
-  std::string filename_;
+  const base::FilePath filepath_;
   mutable base::File file_;
   const UMALogger* uma_logger_;
 
@@ -297,7 +402,7 @@ ChromiumWritableFile::ChromiumWritableFile(const std::string& fname,
 
 Status ChromiumWritableFile::SyncParent() {
   TRACE_EVENT0("leveldb", "SyncParent");
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
   FilePath path = FilePath::FromUTF8Unsafe(parent_dir_);
   base::File f(path, base::File::FLAG_OPEN | base::File::FLAG_READ);
   if (!f.IsValid()) {
@@ -306,7 +411,7 @@ Status ChromiumWritableFile::SyncParent() {
                        f.error_details());
   }
   if (!f.Flush()) {
-    base::File::Error error = LastFileError();
+    base::File::Error error = base::File::GetLastFileError();
     uma_logger_->RecordOSError(kSyncParent, error);
     return MakeIOError(parent_dir_, base::File::ErrorToString(error),
                        kSyncParent, error);
@@ -319,8 +424,8 @@ Status ChromiumWritableFile::Append(const Slice& data) {
   DCHECK(file_.IsValid());
   DCHECK(uma_logger_);
   int bytes_written = file_.WriteAtCurrentPos(data.data(), data.size());
-  if (bytes_written != data.size()) {
-    base::File::Error error = LastFileError();
+  if (static_cast<size_t>(bytes_written) != data.size()) {
+    base::File::Error error = base::File::GetLastFileError();
     uma_logger_->RecordOSError(kWritableFileAppend, error);
     return MakeIOError(filename_, base::File::ErrorToString(error),
                        kWritableFileAppend, error);
@@ -344,25 +449,128 @@ Status ChromiumWritableFile::Flush() {
 Status ChromiumWritableFile::Sync() {
   TRACE_EVENT0("leveldb", "WritableFile::Sync");
 
+  // leveldb's implicit contract for Sync() is that if this instance is for a
+  // manifest file then the directory is also sync'ed, to ensure new files
+  // referred to by the manifest are in the filesystem.
+  //
+  // This needs to happen before the manifest file is flushed to disk, to
+  // avoid crashing in a state where the manifest refers to files that are not
+  // yet on disk.
+  //
+  // See leveldb's env_posix.cc.
+  if (file_type_ == kManifest) {
+    Status status = SyncParent();
+    if (!status.ok())
+      return status;
+  }
+
   if (!file_.Flush()) {
-    base::File::Error error = LastFileError();
+    base::File::Error error = base::File::GetLastFileError();
     uma_logger_->RecordErrorAt(kWritableFileSync);
     return MakeIOError(filename_, base::File::ErrorToString(error),
                        kWritableFileSync, error);
   }
-
-  // leveldb's implicit contract for Sync() is that if this instance is for a
-  // manifest file then the directory is also sync'ed. See leveldb's
-  // env_posix.cc.
-  if (file_type_ == kManifest)
-    return SyncParent();
 
   return Status::OK();
 }
 
 base::LazyInstance<ChromiumEnv>::Leaky default_env = LAZY_INSTANCE_INITIALIZER;
 
+// Return the maximum number of read-only files to keep open.
+size_t GetLevelDBFileLimit(size_t max_file_descriptors) {
+  // Allow use of 20% of available file descriptors for read-only files.
+  return max_file_descriptors / 5;
+}
+
+std::string GetDumpNameForDB(const leveldb::DB* db) {
+  return base::StringPrintf("leveldatabase/db_0x%" PRIXPTR,
+                            reinterpret_cast<uintptr_t>(db));
+}
+
+std::string GetDumpNameForCache(DBTracker::SharedReadCacheUse cache) {
+  switch (cache) {
+    case DBTracker::SharedReadCacheUse_Browser:
+      return "leveldatabase/block_cache/browser";
+    case DBTracker::SharedReadCacheUse_Web:
+      return "leveldatabase/block_cache/web";
+    case DBTracker::SharedReadCacheUse_Unified:
+      return "leveldatabase/block_cache/unified";
+    case DBTracker::SharedReadCacheUse_InMemory:
+      return "leveldatabase/block_cache/in_memory";
+    case DBTracker::SharedReadCacheUse_NumCacheUses:
+      NOTREACHED();
+  }
+  NOTREACHED();
+  return "";
+}
+
+MemoryAllocatorDump* CreateDumpMalloced(ProcessMemoryDump* pmd,
+                                        const std::string& name,
+                                        size_t size) {
+  auto* dump = pmd->CreateAllocatorDump(name);
+  dump->AddScalar(MemoryAllocatorDump::kNameSize,
+                  MemoryAllocatorDump::kUnitsBytes, size);
+  static const char* system_allocator_name =
+      base::trace_event::MemoryDumpManager::GetInstance()
+          ->system_allocator_pool_name();
+  if (system_allocator_name)
+    pmd->AddSuballocation(dump->guid(), system_allocator_name);
+  return dump;
+}
+
+void RecordCacheUsageInTracing(ProcessMemoryDump* pmd,
+                               DBTracker::SharedReadCacheUse cache) {
+  std::string name = GetDumpNameForCache(cache);
+  leveldb::Cache* cache_ptr = nullptr;
+  switch (cache) {
+    case DBTracker::SharedReadCacheUse_Browser:
+      cache_ptr = leveldb_chrome::GetSharedBrowserBlockCache();
+      break;
+    case DBTracker::SharedReadCacheUse_Web:
+      cache_ptr = leveldb_chrome::GetSharedWebBlockCache();
+      break;
+    case DBTracker::SharedReadCacheUse_Unified:
+      cache_ptr = leveldb_chrome::GetSharedBrowserBlockCache();
+      break;
+    case DBTracker::SharedReadCacheUse_InMemory:
+      cache_ptr = leveldb_chrome::GetSharedInMemoryBlockCache();
+      break;
+    case DBTracker::SharedReadCacheUse_NumCacheUses:
+      NOTREACHED();
+  }
+  if (!cache_ptr)
+    return;
+  CreateDumpMalloced(pmd, name, cache_ptr->TotalCharge());
+}
+
 }  // unnamed namespace
+
+Options::Options() {
+// Note: Ensure that these default values correspond to those in
+// components/services/leveldb/public/interfaces/leveldb.mojom.
+// TODO(cmumford) Create struct-trait for leveldb.mojom.OpenOptions to force
+// users to pass in a leveldb_env::Options instance (and it's defaults).
+//
+// Currently log reuse is an experimental feature in leveldb. More info at:
+// https://github.com/google/leveldb/commit/251ebf5dc70129ad3
+#if defined(OS_CHROMEOS)
+  // Reusing logs on Chrome OS resulted in an unacceptably high leveldb
+  // corruption rate (at least for Indexed DB). More info at
+  // https://crbug.com/460568
+  reuse_logs = false;
+#else
+  // Low end devices have limited RAM. Reusing logs will prevent the database
+  // from being compacted on open and instead load the log file back into the
+  // memory buffer which won't be written until it hits the maximum size
+  // (leveldb::Options::write_buffer_size - 4MB by default). The downside here
+  // is that databases opens take longer as the open is blocked on compaction.
+  reuse_logs = !base::SysInfo::IsLowEndDevice();
+#endif
+  // By default use a single shared block cache to conserve memory. The owner of
+  // this object can create their own, or set to NULL to have leveldb create a
+  // new db-specific block cache.
+  block_cache = leveldb_chrome::GetSharedBrowserBlockCache();
+}
 
 const char* MethodIDToString(MethodID method) {
   switch (method) {
@@ -436,8 +644,8 @@ Status MakeIOError(Slice filename,
                    const std::string& message,
                    MethodID method) {
   char buf[512];
-  base::snprintf(buf, sizeof(buf), "%s (ChromeMethodOnly: %d::%s)", message.c_str(),
-           method, MethodIDToString(method));
+  base::snprintf(buf, sizeof(buf), "%s (ChromeMethodOnly: %d::%s)",
+                 message.c_str(), method, MethodIDToString(method));
   return Status::IOError(filename, buf);
 }
 
@@ -508,7 +716,7 @@ int GetCorruptionCode(const leveldb::Status& status) {
   const int kOtherError = 0;
   int error = kOtherError;
   const std::string& str_error = status.ToString();
-  const size_t kNumPatterns = arraysize(patterns);
+  const size_t kNumPatterns = base::size(patterns);
   for (size_t i = 0; i < kNumPatterns; ++i) {
     if (str_error.find(patterns[i]) != std::string::npos) {
       error = i + 1;
@@ -521,7 +729,7 @@ int GetCorruptionCode(const leveldb::Status& status) {
 int GetNumCorruptionCodes() {
   // + 1 for the "other" error that is returned when a corruption message
   // doesn't match any of the patterns.
-  return arraysize(patterns) + 1;
+  return base::size(patterns) + 1;
 }
 
 std::string GetCorruptionMessage(const leveldb::Status& status) {
@@ -543,6 +751,10 @@ bool IndicatesDiskFull(const leveldb::Status& status) {
               base::File::FILE_ERROR_NO_SPACE);
 }
 
+std::string DatabaseNameForRewriteDB(const std::string& original_name) {
+  return original_name + kDatabaseNameSuffixForRebuildDB;
+}
+
 // Given the size of the disk, identified by |disk_size| in bytes, determine the
 // appropriate write_buffer_size. Ignoring snapshots, if the current set of
 // tables in a database contains a set of key/value pairs identified by {A}, and
@@ -551,7 +763,7 @@ bool IndicatesDiskFull(const leveldb::Status& status) {
 // There is no way to know the size of A, so minimizing the size of B will
 // maximize the likelihood of a successful compaction.
 size_t WriteBufferSize(int64_t disk_size) {
-  const leveldb::Options default_options;
+  const leveldb_env::Options default_options;
   const int64_t kMinBufferSize = 1024 * 1024;
   const int64_t kMaxBufferSize = default_options.write_buffer_size;
   const int64_t kDiskMinBuffSize = 10 * 1024 * 1024;
@@ -581,6 +793,12 @@ ChromiumEnv::ChromiumEnv(const std::string& name)
       name_(name),
       bgsignal_(&mu_),
       started_bgthread_(false) {
+  size_t max_open_files = base::GetMaxFds();
+  if (base::FeatureList::IsEnabled(kLevelDBFileHandleEviction) &&
+      max_open_files < kFileLimitToDisableEviction) {
+    file_cache_.reset(
+        leveldb::NewLRUCache(GetLevelDBFileLimit(max_open_files)));
+  }
   uma_ioerror_base_name_ = name_ + ".IOError.BFE";
 }
 
@@ -651,6 +869,12 @@ void ChromiumEnv::DeleteBackupFiles(const FilePath& dir) {
        fname = dir_reader.Next()) {
     histogram->AddBoolean(base::DeleteFile(fname, false));
   }
+}
+
+// Test must call this *before* opening any random-access files.
+void ChromiumEnv::SetReadOnlyFileLimitForTesting(int max_open_files) {
+  DCHECK(!file_cache_ || file_cache_->TotalCharge() == 0);
+  file_cache_.reset(leveldb::NewLRUCache(max_open_files));
 }
 
 Status ChromiumEnv::GetChildren(const std::string& dir,
@@ -786,6 +1010,7 @@ Status ChromiumEnv::LockFile(const std::string& fname, FileLock** lock) {
     return result;
   }
 
+#if !defined(OS_FUCHSIA)
   Retrier lock_retrier(kLockFile, this);
   do {
     error_code = file.Lock();
@@ -799,6 +1024,7 @@ Status ChromiumEnv::LockFile(const std::string& fname, FileLock** lock) {
     RecordOSError(kLockFile, error_code);
     return result;
   }
+#endif  // !defined(OS_FUCHSIA)
 
   *lock = new ChromiumFileLock(std::move(file), fname);
   return result;
@@ -807,14 +1033,17 @@ Status ChromiumEnv::LockFile(const std::string& fname, FileLock** lock) {
 Status ChromiumEnv::UnlockFile(FileLock* lock) {
   std::unique_ptr<ChromiumFileLock> my_lock(
       reinterpret_cast<ChromiumFileLock*>(lock));
-  Status result;
+  Status result = Status::OK();
 
+#if !defined(OS_FUCHSIA)
   base::File::Error error_code = my_lock->file_.Unlock();
   if (error_code != base::File::FILE_OK) {
     result =
         MakeIOError(my_lock->name_, "Could not unlock lock file.", kUnlockFile);
     RecordOSError(kUnlockFile, error_code);
   }
+#endif  // !defined(OS_FUCHSIA)
+
   bool removed = locks_.Remove(my_lock->name_);
   DCHECK(removed);
   return result;
@@ -866,30 +1095,22 @@ Status ChromiumEnv::NewSequentialFile(const std::string& fname,
   }
 }
 
-void ChromiumEnv::RecordOpenFilesLimit(const std::string& type) {
-#if defined(OS_POSIX)
-  GetMaxFDHistogram(type)->Add(base::GetMaxFds());
-#elif defined(OS_WIN)
-// Windows is only limited by available memory
-#else
-#error "Need to determine limit to open files for this OS"
-#endif
-}
-
 Status ChromiumEnv::NewRandomAccessFile(const std::string& fname,
                                         leveldb::RandomAccessFile** result) {
   int flags = base::File::FLAG_READ | base::File::FLAG_OPEN;
-  base::File file(FilePath::FromUTF8Unsafe(fname), flags);
+  base::FilePath file_path = FilePath::FromUTF8Unsafe(fname);
+  base::File file(file_path, flags);
   if (file.IsValid()) {
-    *result = new ChromiumRandomAccessFile(fname, std::move(file), this);
-    RecordOpenFilesLimit("Success");
+    if (file_cache_) {
+      *result = new ChromiumEvictableRandomAccessFile(
+          std::move(file_path), std::move(file), file_cache_.get(), this);
+    } else {
+      *result = new ChromiumRandomAccessFile(std::move(file_path),
+                                             std::move(file), this);
+    }
     return Status::OK();
   }
   base::File::Error error_code = file.error_details();
-  if (error_code == base::File::FILE_ERROR_TOO_MANY_OPENED)
-    RecordOpenFilesLimit("TooManyOpened");
-  else
-    RecordOpenFilesLimit("OtherError");
   *result = NULL;
   RecordOSError(kNewRandomAccessFile, error_code);
   return MakeIOError(fname, FileErrorString(error_code), kNewRandomAccessFile,
@@ -971,19 +1192,6 @@ base::HistogramBase* ChromiumEnv::GetMethodIOErrorHistogram() const {
   uma_name.append(".IOError");
   return base::LinearHistogram::FactoryGet(uma_name, 1, kNumEntries,
       kNumEntries + 1, base::Histogram::kUmaTargetedHistogramFlag);
-}
-
-base::HistogramBase* ChromiumEnv::GetMaxFDHistogram(
-    const std::string& type) const {
-  std::string uma_name(name_);
-  uma_name.append(".MaxFDs.").append(type);
-  // These numbers make each bucket twice as large as the previous bucket.
-  const int kFirstEntry = 1;
-  const int kLastEntry = 65536;
-  const int kNumBuckets = 18;
-  return base::Histogram::FactoryGet(
-      uma_name, kFirstEntry, kLastEntry, kNumBuckets,
-      base::Histogram::kUmaTargetedHistogramFlag);
 }
 
 base::HistogramBase* ChromiumEnv::GetLockFileAncestorHistogram() const {
@@ -1110,14 +1318,35 @@ LevelDBStatusValue GetLevelDBStatusUMAValue(const leveldb::Status& s) {
 class DBTracker::TrackedDBImpl : public base::LinkNode<TrackedDBImpl>,
                                  public TrackedDB {
  public:
-  TrackedDBImpl(DBTracker* tracker, const std::string name, leveldb::DB* db)
+  TrackedDBImpl(DBTracker* tracker,
+                const std::string name,
+                leveldb::DB* db,
+                const leveldb::Cache* block_cache)
       : tracker_(tracker), name_(name), db_(db) {
-    tracker_->DatabaseOpened(this);
+    if (leveldb_chrome::GetSharedWebBlockCache() ==
+        leveldb_chrome::GetSharedBrowserBlockCache()) {
+      shared_read_cache_use_ = SharedReadCacheUse_Unified;
+    } else if (block_cache == leveldb_chrome::GetSharedBrowserBlockCache()) {
+      shared_read_cache_use_ = SharedReadCacheUse_Browser;
+    } else if (block_cache == leveldb_chrome::GetSharedWebBlockCache()) {
+      shared_read_cache_use_ = SharedReadCacheUse_Web;
+    } else if (block_cache == leveldb_chrome::GetSharedInMemoryBlockCache()) {
+      shared_read_cache_use_ = SharedReadCacheUse_InMemory;
+    } else {
+      NOTREACHED();
+    }
+    tracker_->DatabaseOpened(this, shared_read_cache_use_);
   }
 
-  ~TrackedDBImpl() override { tracker_->DatabaseDestroyed(this); }
+  ~TrackedDBImpl() override {
+    tracker_->DatabaseDestroyed(this, shared_read_cache_use_);
+  }
 
   const std::string& name() const override { return name_; }
+
+  SharedReadCacheUse block_cache_type() const override {
+    return shared_read_cache_use_;
+  }
 
   leveldb::Status Put(const leveldb::WriteOptions& options,
                       const leveldb::Slice& key,
@@ -1171,73 +1400,121 @@ class DBTracker::TrackedDBImpl : public base::LinkNode<TrackedDBImpl>,
   DBTracker* tracker_;
   std::string name_;
   std::unique_ptr<leveldb::DB> db_;
+  SharedReadCacheUse shared_read_cache_use_;
+
+  DISALLOW_COPY_AND_ASSIGN(TrackedDBImpl);
 };
 
-// Reports live databases to memory-infra. For each live database the following
-// information is reported:
+// Reports live databases and in-memory env's to memory-infra. For each live
+// database the following information is reported:
 // 1. Instance pointer (to disambiguate databases).
-// 2. Memory taken by the database.
-// 3. The name of the database (when not in BACKGROUND mode to avoid exposing
+// 2. Memory taken by the database, with the shared cache being attributed
+// equally to each database sharing 3. The name of the database (when not in
+// BACKGROUND mode to avoid exposing
 //    PIIs in slow reports).
 //
 // Example report (as seen after clicking "leveldatabase" in "Overview" pane
 // in Chrome tracing UI):
 //
-// Component             size          name
+// Component                  effective_size  size        name
 // ---------------------------------------------------------------------------
-// leveldatabase         204.4 KiB
-//   0x7FE70F2040A0      4.0 KiB       /Users/.../data_reduction_proxy_leveldb
-//   0x7FE70F530D80      188.4 KiB     /Users/.../Sync Data/LevelDB
-//   0x7FE71442F270      4.0 KiB       /Users/.../Sync App Settings/...
-//   0x7FE71471EC50      8.0 KiB       /Users/.../Extension State
+// leveldatabase              390 KiB         490 KiB
+//   db_0x7FE70F2040A0        100 KiB         100 KiB     Users/.../Sync
+//     block_cache (browser)  40 KiB          40 KiB
+//   db_0x7FE70F530D80        150 KiB         150 KiB     Users/.../Data Proxy
+//     block_cache (web)      30 KiB          30 KiB
+//   db_0x7FE70F530D80        140 KiB         140 KiB     Users/.../Extensions
+//     block_cache (web)      30 KiB          30 KiB
+//   block_cache              0 KiB           100 KiB
+//     browser                0 KiB           40 KiB
+//     web                    0 KiB           60 KiB
+//   memenv_0x7FE80F2040A0    4 KiB           4 KiB
+//   memenv_0x7FE80F3040A0    4 KiB           4 KiB
 //
 class DBTracker::MemoryDumpProvider
     : public base::trace_event::MemoryDumpProvider {
  public:
-  bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
-                    base::trace_event::ProcessMemoryDump* pmd) override {
-    // Don't dump in background mode ("from the field") until whitelisted.
-    if (args.level_of_detail ==
-        base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND) {
-      return true;
-    }
+  void DumpAllDatabases(ProcessMemoryDump* pmd);
 
-    auto db_visitor = [](const base::trace_event::MemoryDumpArgs& args,
-                         base::trace_event::ProcessMemoryDump* pmd,
-                         TrackedDB* db) {
-      std::string db_dump_name = DBTracker::GetMemoryDumpName(db);
-      auto* db_dump = pmd->CreateAllocatorDump(db_dump_name.c_str());
-
-      uint64_t db_memory_usage = 0;
-      {
-        std::string usage_string;
-        bool success = db->GetProperty("leveldb.approximate-memory-usage",
-                                       &usage_string) &&
-                       base::StringToUint64(usage_string, &db_memory_usage);
-        DCHECK(success);
-      }
-      db_dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
-                         base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-                         db_memory_usage);
-
-      if (args.level_of_detail !=
-          base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND) {
-        db_dump->AddString("name", "", db->name());
-      }
-
-      const char* system_allocator_name =
-          base::trace_event::MemoryDumpManager::GetInstance()
-              ->system_allocator_pool_name();
-      if (system_allocator_name) {
-        pmd->AddSuballocation(db_dump->guid(), system_allocator_name);
-      }
-    };
-
-    DBTracker::GetInstance()->VisitDatabases(
-        base::BindRepeating(db_visitor, args, base::Unretained(pmd)));
+  bool OnMemoryDump(const MemoryDumpArgs& args,
+                    ProcessMemoryDump* pmd) override {
+    DumpAllDatabases(pmd);
     return true;
   }
+
+  void DatabaseOpened(const TrackedDBImpl* database) {
+    database_use_count_[database->block_cache_type()]++;
+  }
+
+  void DatabaseDestroyed(const TrackedDBImpl* database) {
+    database_use_count_[database->block_cache_type()]--;
+    DCHECK_GE(database_use_count_[database->block_cache_type()], 0);
+  }
+
+  int database_use_count(SharedReadCacheUse cache) {
+    return database_use_count_[cache];
+  }
+
+ private:
+  void DumpVisitor(ProcessMemoryDump* pmd, TrackedDB* db);
+
+  int database_use_count_[SharedReadCacheUse_NumCacheUses] = {};
 };
+
+void DBTracker::MemoryDumpProvider::DumpAllDatabases(ProcessMemoryDump* pmd) {
+  if (pmd->GetAllocatorDump("leveldatabase"))
+    return;
+  pmd->CreateAllocatorDump("leveldatabase");
+
+  const auto* browser_cache = leveldb_chrome::GetSharedBrowserBlockCache();
+  const auto* web_cache = leveldb_chrome::GetSharedWebBlockCache();
+  if (browser_cache == web_cache) {
+    RecordCacheUsageInTracing(pmd, SharedReadCacheUse_Unified);
+  } else {
+    RecordCacheUsageInTracing(pmd, SharedReadCacheUse_Browser);
+    RecordCacheUsageInTracing(pmd, SharedReadCacheUse_Web);
+  }
+  RecordCacheUsageInTracing(pmd, SharedReadCacheUse_InMemory);
+
+  DBTracker::GetInstance()->VisitDatabases(
+      base::BindRepeating(&DBTracker::MemoryDumpProvider::DumpVisitor,
+                          base::Unretained(this), base::Unretained(pmd)));
+  leveldb_chrome::DumpAllTrackedEnvs(pmd);
+}
+
+void DBTracker::MemoryDumpProvider::DumpVisitor(ProcessMemoryDump* pmd,
+                                                TrackedDB* db) {
+  std::string db_dump_name = GetDumpNameForDB(db);
+
+  auto* db_cache_dump = pmd->CreateAllocatorDump(db_dump_name + "/block_cache");
+  const std::string cache_dump_name =
+      GetDumpNameForCache(db->block_cache_type());
+  pmd->AddSuballocation(db_cache_dump->guid(), cache_dump_name);
+  size_t cache_usage =
+      pmd->GetAllocatorDump(cache_dump_name)->GetSizeInternal();
+  // The |database_use_count_| can be accessed by the visitor because the
+  // visitor is called holding the lock at DBTracker.
+  size_t cache_usage_pss =
+      cache_usage / database_use_count_[db->block_cache_type()];
+  db_cache_dump->AddScalar(MemoryAllocatorDump::kNameSize,
+                           MemoryAllocatorDump::kUnitsBytes, cache_usage_pss);
+
+  auto* db_dump = pmd->CreateAllocatorDump(db_dump_name);
+  uint64_t total_usage = 0;
+  std::string usage_string;
+  bool success =
+      db->GetProperty("leveldb.approximate-memory-usage", &usage_string) &&
+      base::StringToUint64(usage_string, &total_usage);
+  DCHECK(success);
+  db_dump->AddScalar(MemoryAllocatorDump::kNameSize,
+                     MemoryAllocatorDump::kUnitsBytes,
+                     total_usage - cache_usage + cache_usage_pss);
+
+  if (pmd->dump_args().level_of_detail !=
+      base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND) {
+    db_dump->AddString("name", "", db->name());
+  }
+}
 
 DBTracker::DBTracker() : mdp_(new MemoryDumpProvider()) {
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
@@ -1248,14 +1525,59 @@ DBTracker::~DBTracker() {
   NOTREACHED();  // DBTracker is a singleton
 }
 
+// static
 DBTracker* DBTracker::GetInstance() {
   static DBTracker* instance = new DBTracker();
   return instance;
 }
 
-std::string DBTracker::GetMemoryDumpName(leveldb::DB* tracked_db) {
-  return base::StringPrintf("leveldatabase/0x%" PRIXPTR,
-                            reinterpret_cast<uintptr_t>(tracked_db));
+// static
+MemoryAllocatorDump* DBTracker::GetOrCreateAllocatorDump(
+    ProcessMemoryDump* pmd,
+    leveldb::DB* tracked_db) {
+  DCHECK(GetInstance()->IsTrackedDB(tracked_db))
+      << std::hex << tracked_db << " is not tracked";
+
+  // Create dumps for all databases to make sure the shared cache is equally
+  // attributed to each database sharing it.
+  GetInstance()->mdp_->DumpAllDatabases(pmd);
+  return pmd->GetAllocatorDump(GetDumpNameForDB(tracked_db));
+}
+
+// static
+MemoryAllocatorDump* DBTracker::GetOrCreateAllocatorDump(
+    ProcessMemoryDump* pmd,
+    leveldb::Env* tracked_memenv) {
+  GetInstance()->mdp_->DumpAllDatabases(pmd);
+  return leveldb_chrome::GetEnvAllocatorDump(pmd, tracked_memenv);
+}
+
+void DBTracker::UpdateHistograms() {
+  base::AutoLock lock(databases_lock_);
+  if (leveldb_chrome::GetSharedWebBlockCache() ==
+      leveldb_chrome::GetSharedBrowserBlockCache()) {
+    UMA_HISTOGRAM_COUNTS_100(
+        "LevelDB.SharedCache.DBCount.Unified",
+        mdp_->database_use_count(SharedReadCacheUse_Unified));
+  } else {
+    UMA_HISTOGRAM_COUNTS_100("LevelDB.SharedCache.DBCount.Web",
+                             mdp_->database_use_count(SharedReadCacheUse_Web));
+    UMA_HISTOGRAM_COUNTS_100(
+        "LevelDB.SharedCache.DBCount.Browser",
+        mdp_->database_use_count(SharedReadCacheUse_Browser));
+  }
+  UMA_HISTOGRAM_COUNTS_100(
+      "LevelDB.SharedCache.DBCount.InMemory",
+      mdp_->database_use_count(SharedReadCacheUse_InMemory));
+}
+
+bool DBTracker::IsTrackedDB(const leveldb::DB* db) const {
+  base::AutoLock lock(databases_lock_);
+  for (auto* i = databases_.head(); i != databases_.end(); i = i->next()) {
+    if (i->value() == db)
+      return true;
+  }
+  return false;
 }
 
 leveldb::Status DBTracker::OpenDatabase(const leveldb::Options& options,
@@ -1268,38 +1590,130 @@ leveldb::Status DBTracker::OpenDatabase(const leveldb::Options& options,
   CHECK((status.ok() && db) || (!status.ok() && !db));
   if (status.ok()) {
     // TrackedDBImpl ctor adds the instance to the tracker.
-    *dbptr = new TrackedDBImpl(GetInstance(), name, db);
+    *dbptr = new TrackedDBImpl(GetInstance(), name, db, options.block_cache);
   }
   return status;
 }
 
 void DBTracker::VisitDatabases(const DatabaseVisitor& visitor) {
   base::AutoLock lock(databases_lock_);
-  for (auto* i = databases_.head(); i != databases_.end(); i = i->next()) {
+  for (auto* i = databases_.head(); i != databases_.end(); i = i->next())
     visitor.Run(i->value());
-  }
 }
 
-void DBTracker::DatabaseOpened(TrackedDBImpl* database) {
+void DBTracker::DatabaseOpened(TrackedDBImpl* database,
+                               SharedReadCacheUse cache_use) {
   base::AutoLock lock(databases_lock_);
   databases_.Append(database);
+  mdp_->DatabaseOpened(database);
 }
 
-void DBTracker::DatabaseDestroyed(TrackedDBImpl* database) {
+void DBTracker::DatabaseDestroyed(TrackedDBImpl* database,
+                                  SharedReadCacheUse cache_use) {
   base::AutoLock lock(databases_lock_);
+  mdp_->DatabaseDestroyed(database);
   database->RemoveFromList();
 }
 
-leveldb::Status OpenDB(const leveldb::Options& options,
+leveldb::Status OpenDB(const leveldb_env::Options& options,
                        const std::string& name,
                        std::unique_ptr<leveldb::DB>* dbptr) {
+  // For UMA logging purposes we need the block cache to be created outside of
+  // leveldb so that the size can be logged and it can be pruned.
+  DCHECK(options.block_cache != nullptr);
   DBTracker::TrackedDB* tracked_db = nullptr;
-  leveldb::Status status =
-      DBTracker::GetInstance()->OpenDatabase(options, name, &tracked_db);
-  if (status.ok()) {
-    dbptr->reset(tracked_db);
+  leveldb::Status s;
+  if (options.env && leveldb_chrome::IsMemEnv(options.env)) {
+    Options mem_options = options;
+    mem_options.block_cache = leveldb_chrome::GetSharedInMemoryBlockCache();
+    mem_options.write_buffer_size = 0;  // minimum size.
+    s = DBTracker::GetInstance()->OpenDatabase(mem_options, name, &tracked_db);
+  } else {
+    std::string tmp_name = DatabaseNameForRewriteDB(name);
+    // If Chrome crashes during rewrite, there might be a temporary db but
+    // no actual db.
+    if (options.env->FileExists(tmp_name) &&
+        !options.env->FileExists(name + "/CURRENT")) {
+      s = leveldb::DestroyDB(name, options);
+      if (!s.ok())
+        return s;
+      s = options.env->RenameFile(tmp_name, name);
+      if (!s.ok())
+        return s;
+    }
+    s = DBTracker::GetInstance()->OpenDatabase(options, name, &tracked_db);
+    // It is possible that the database was partially deleted during a
+    // rewrite and can't be opened anymore.
+    if (!s.ok() && options.env->FileExists(tmp_name)) {
+      s = leveldb::DestroyDB(name, options);
+      if (!s.ok())
+        return s;
+      s = options.env->RenameFile(tmp_name, name);
+      if (!s.ok())
+        return s;
+      s = DBTracker::GetInstance()->OpenDatabase(options, name, &tracked_db);
+    }
+    // There might be a temporary database that needs to be cleaned up.
+    if (options.env->FileExists(tmp_name)) {
+      leveldb::DestroyDB(tmp_name, options);
+    }
   }
-  return status;
+  if (s.ok())
+    dbptr->reset(tracked_db);
+  return s;
+}
+
+leveldb::Status RewriteDB(const leveldb_env::Options& options,
+                          const std::string& name,
+                          std::unique_ptr<leveldb::DB>* dbptr) {
+  DCHECK(options.create_if_missing);
+  if (!base::FeatureList::IsEnabled(leveldb::kLevelDBRewriteFeature))
+    return Status::OK();
+  if (leveldb_chrome::IsMemEnv(options.env))
+    return Status::OK();
+  TRACE_EVENT1("leveldb", "ChromiumEnv::RewriteDB", "name", name);
+  leveldb::Status s;
+  std::string tmp_name = DatabaseNameForRewriteDB(name);
+  if (options.env->FileExists(tmp_name)) {
+    s = leveldb::DestroyDB(tmp_name, options);
+    if (!s.ok())
+      return s;
+  }
+  // Copy all data from *dbptr to a temporary db.
+  std::unique_ptr<leveldb::DB> tmp_db;
+  s = leveldb_env::OpenDB(options, tmp_name, &tmp_db);
+  if (!s.ok())
+    return s;
+  std::unique_ptr<leveldb::Iterator> it(
+      (*dbptr)->NewIterator(leveldb::ReadOptions()));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    s = tmp_db->Put(leveldb::WriteOptions(), it->key(), it->value());
+    if (!s.ok())
+      break;
+  }
+  it.reset();
+  tmp_db.reset();
+  if (!s.ok()) {
+    leveldb::DestroyDB(tmp_name, options);
+    return s;
+  }
+  // Replace the old database with tmp_db.
+  (*dbptr).reset();
+  s = leveldb::DestroyDB(name, options);
+  if (!s.ok())
+    return s;
+  s = options.env->RenameFile(tmp_name, name);
+  if (!s.ok())
+    return s;
+  return leveldb_env::OpenDB(options, name, dbptr);
+}
+
+base::StringPiece MakeStringPiece(const leveldb::Slice& s) {
+  return base::StringPiece(s.data(), s.size());
+}
+
+leveldb::Slice MakeSlice(const base::StringPiece& s) {
+  return leveldb::Slice(s.begin(), s.size());
 }
 
 }  // namespace leveldb_env

@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -23,8 +24,8 @@
 #include "net/http/http_status_code.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/http/http_util.h"
-#include "net/spdy/core/spdy_header_block.h"
 #include "net/ssl/ssl_info.h"
+#include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
 #include "net/url_request/http_user_agent_settings.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -100,20 +101,20 @@ int BidirectionalStream::Start(const char* url,
   request_info->end_stream_on_headers = end_of_stream;
   write_end_of_stream_ = end_of_stream;
   PostToNetworkThread(FROM_HERE,
-                      base::Bind(&BidirectionalStream::StartOnNetworkThread,
-                                 weak_this_, base::Passed(&request_info)));
+                      base::BindOnce(&BidirectionalStream::StartOnNetworkThread,
+                                     weak_this_, std::move(request_info)));
   return 0;
 }
 
 bool BidirectionalStream::ReadData(char* buffer, int capacity) {
   if (!buffer)
     return false;
-  scoped_refptr<net::WrappedIOBuffer> read_buffer(
-      new net::WrappedIOBuffer(buffer));
+  scoped_refptr<net::WrappedIOBuffer> read_buffer =
+      base::MakeRefCounted<net::WrappedIOBuffer>(buffer);
 
-  PostToNetworkThread(FROM_HERE,
-                      base::Bind(&BidirectionalStream::ReadDataOnNetworkThread,
-                                 weak_this_, read_buffer, capacity));
+  PostToNetworkThread(
+      FROM_HERE, base::BindOnce(&BidirectionalStream::ReadDataOnNetworkThread,
+                                weak_this_, read_buffer, capacity));
   return true;
 }
 
@@ -123,34 +124,35 @@ bool BidirectionalStream::WriteData(const char* buffer,
   if (!buffer)
     return false;
 
-  scoped_refptr<net::WrappedIOBuffer> write_buffer(
-      new net::WrappedIOBuffer(buffer));
+  scoped_refptr<net::WrappedIOBuffer> write_buffer =
+      base::MakeRefCounted<net::WrappedIOBuffer>(buffer);
 
   PostToNetworkThread(
-      FROM_HERE, base::Bind(&BidirectionalStream::WriteDataOnNetworkThread,
-                            weak_this_, write_buffer, count, end_of_stream));
+      FROM_HERE,
+      base::BindOnce(&BidirectionalStream::WriteDataOnNetworkThread, weak_this_,
+                     write_buffer, count, end_of_stream));
   return true;
 }
 
 void BidirectionalStream::Flush() {
   PostToNetworkThread(
       FROM_HERE,
-      base::Bind(&BidirectionalStream::FlushOnNetworkThread, weak_this_));
+      base::BindOnce(&BidirectionalStream::FlushOnNetworkThread, weak_this_));
 }
 
 void BidirectionalStream::Cancel() {
   PostToNetworkThread(
       FROM_HERE,
-      base::Bind(&BidirectionalStream::CancelOnNetworkThread, weak_this_));
+      base::BindOnce(&BidirectionalStream::CancelOnNetworkThread, weak_this_));
 }
 
 void BidirectionalStream::Destroy() {
   // Destroy could be called from any thread, including network thread (if
   // posting task to executor throws an exception), but is posted, so |this|
   // is valid until calling task is complete.
-  PostToNetworkThread(FROM_HERE,
-                      base::Bind(&BidirectionalStream::DestroyOnNetworkThread,
-                                 base::Unretained(this)));
+  PostToNetworkThread(
+      FROM_HERE, base::BindOnce(&BidirectionalStream::DestroyOnNetworkThread,
+                                base::Unretained(this)));
 }
 
 void BidirectionalStream::OnStreamReady(bool request_headers_sent) {
@@ -172,7 +174,7 @@ void BidirectionalStream::OnStreamReady(bool request_headers_sent) {
 }
 
 void BidirectionalStream::OnHeadersReceived(
-    const net::SpdyHeaderBlock& response_headers) {
+    const spdy::SpdyHeaderBlock& response_headers) {
   DCHECK(IsOnNetworkThread());
   DCHECK_EQ(STARTED, read_state_);
   if (!bidi_stream_)
@@ -235,7 +237,7 @@ void BidirectionalStream::OnDataSent() {
 }
 
 void BidirectionalStream::OnTrailersReceived(
-    const net::SpdyHeaderBlock& response_trailers) {
+    const spdy::SpdyHeaderBlock& response_trailers) {
   DCHECK(IsOnNetworkThread());
   if (!bidi_stream_)
     return;
@@ -249,9 +251,9 @@ void BidirectionalStream::OnFailed(int error) {
   read_state_ = write_state_ = ERR;
   weak_factory_.InvalidateWeakPtrs();
   // Delete underlying |bidi_stream_| asynchronously as it may still be used.
-  PostToNetworkThread(FROM_HERE,
-                      base::Bind(&base::DeletePointer<net::BidirectionalStream>,
-                                 bidi_stream_.release()));
+  PostToNetworkThread(
+      FROM_HERE, base::BindOnce(&base::DeletePointer<net::BidirectionalStream>,
+                                bidi_stream_.release()));
   delegate_->OnFailed(error);
 }
 
@@ -381,8 +383,9 @@ void BidirectionalStream::MaybeOnSucceded() {
     weak_factory_.InvalidateWeakPtrs();
     // Delete underlying |bidi_stream_| asynchronously as it may still be used.
     PostToNetworkThread(
-        FROM_HERE, base::Bind(&base::DeletePointer<net::BidirectionalStream>,
-                              bidi_stream_.release()));
+        FROM_HERE,
+        base::BindOnce(&base::DeletePointer<net::BidirectionalStream>,
+                       bidi_stream_.release()));
     delegate_->OnSucceeded();
   }
 }
@@ -392,10 +395,10 @@ bool BidirectionalStream::IsOnNetworkThread() {
       ->BelongsToCurrentThread();
 }
 
-void BidirectionalStream::PostToNetworkThread(
-    const tracked_objects::Location& from_here,
-    const base::Closure& task) {
-  request_context_getter_->GetNetworkTaskRunner()->PostTask(from_here, task);
+void BidirectionalStream::PostToNetworkThread(const base::Location& from_here,
+                                              base::OnceClosure task) {
+  request_context_getter_->GetNetworkTaskRunner()->PostTask(from_here,
+                                                            std::move(task));
 }
 
-}  // namespace cronet
+}  // namespace grpc_support

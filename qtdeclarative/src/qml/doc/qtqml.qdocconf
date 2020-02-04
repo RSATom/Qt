@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtdeclarative.qdocconf)
 
 project                 = QtQml
 description             = Qt QML Reference Documentation
@@ -33,7 +34,7 @@ qhp.QtQml.subprojects.qmltypes.sortPages = true
 
 tagfile                 = ../../../doc/qtqml/qtqml.tags
 
-depends += qtcore qtxmlpatterns qtgui qtquick qtdoc qtlinguist qmake qtscript qtwidgets
+depends += qtcore qtgui qtquick qtdoc qtlinguist qmake qtscript qtwidgets qtxmlpatterns qtquickcontrols
 
 headerdirs  += .. \
                ../../imports/models

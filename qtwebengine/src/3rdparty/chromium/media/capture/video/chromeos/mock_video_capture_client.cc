@@ -14,7 +14,7 @@ namespace media {
 namespace unittest_internal {
 
 MockVideoCaptureClient::MockVideoCaptureClient() {
-  ON_CALL(*this, OnError(_, _))
+  ON_CALL(*this, OnError(_, _, _))
       .WillByDefault(Invoke(this, &MockVideoCaptureClient::DumpError));
 }
 
@@ -32,9 +32,9 @@ void MockVideoCaptureClient::SetQuitCb(base::OnceClosure quit_cb) {
   quit_cb_ = std::move(quit_cb);
 }
 
-void MockVideoCaptureClient::DumpError(
-    const tracked_objects::Location& location,
-    const std::string& message) {
+void MockVideoCaptureClient::DumpError(media::VideoCaptureError,
+                                       const base::Location& location,
+                                       const std::string& message) {
   DPLOG(ERROR) << location.ToString() << " " << message;
 }
 
@@ -53,15 +53,30 @@ void MockVideoCaptureClient::OnIncomingCapturedData(
   }
 }
 
-// Trampoline methods to workaround GMOCK problems with std::unique_ptr<>.
-VideoCaptureDevice::Client::Buffer MockVideoCaptureClient::ReserveOutputBuffer(
-    const gfx::Size& dimensions,
-    media::VideoPixelFormat format,
-    media::VideoPixelStorage storage,
+void MockVideoCaptureClient::OnIncomingCapturedGfxBuffer(
+    gfx::GpuMemoryBuffer* buffer,
+    const VideoCaptureFormat& frame_format,
+    int clockwise_rotation,
+    base::TimeTicks reference_time,
+    base::TimeDelta timestamp,
     int frame_feedback_id) {
+  ASSERT_TRUE(buffer);
+  ASSERT_GT(buffer->GetSize().width() * buffer->GetSize().height(), 0);
+  if (frame_cb_) {
+    std::move(frame_cb_).Run();
+  }
+}
+
+// Trampoline methods to workaround GMOCK problems with std::unique_ptr<>.
+VideoCaptureDevice::Client::ReserveResult
+MockVideoCaptureClient::ReserveOutputBuffer(
+    const gfx::Size& dimensions,
+    VideoPixelFormat format,
+    int frame_feedback_id,
+    VideoCaptureDevice::Client::Buffer* buffer) {
   DoReserveOutputBuffer();
   NOTREACHED() << "This should never be called";
-  return Buffer();
+  return ReserveResult::kSucceeded;
 }
 
 void MockVideoCaptureClient::OnIncomingCapturedBuffer(
@@ -80,17 +95,6 @@ void MockVideoCaptureClient::OnIncomingCapturedBufferExt(
     gfx::Rect visible_rect,
     const VideoFrameMetadata& additional_metadata) {
   DoOnIncomingCapturedVideoFrame();
-}
-
-VideoCaptureDevice::Client::Buffer
-MockVideoCaptureClient::ResurrectLastOutputBuffer(
-    const gfx::Size& dimensions,
-    media::VideoPixelFormat format,
-    media::VideoPixelStorage storage,
-    int frame_feedback_id) {
-  DoResurrectLastOutputBuffer();
-  NOTREACHED() << "This should never be called";
-  return Buffer();
 }
 
 }  // namespace unittest_internal

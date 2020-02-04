@@ -51,7 +51,7 @@ namespace Qt3DInput {
 class QAbstractPhysicalDevice;
 class QInputSequencePrivate;
 
-class QT3DINPUTSHARED_EXPORT QInputSequence : public Qt3DInput::QAbstractActionInput
+class Q_3DINPUTSHARED_EXPORT QInputSequence : public Qt3DInput::QAbstractActionInput
 {
     Q_OBJECT
     Q_PROPERTY(int timeout READ timeout WRITE setTimeout NOTIFY timeoutChanged)
@@ -78,7 +78,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QInputSequence)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

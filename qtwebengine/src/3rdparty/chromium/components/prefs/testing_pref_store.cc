@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/json/json_writer.h"
-#include "base/memory/ptr_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -99,9 +98,12 @@ void TestingPrefStore::ReadPrefsAsync(ReadErrorDelegate* error_delegate) {
     NotifyInitializationCompleted();
 }
 
-void TestingPrefStore::CommitPendingWrite(base::OnceClosure done_callback) {
+void TestingPrefStore::CommitPendingWrite(
+    base::OnceClosure reply_callback,
+    base::OnceClosure synchronous_done_callback) {
   committed_ = true;
-  PersistentPrefStore::CommitPendingWrite(std::move(done_callback));
+  PersistentPrefStore::CommitPendingWrite(std::move(reply_callback),
+                                          std::move(synchronous_done_callback));
 }
 
 void TestingPrefStore::SchedulePendingLossyWrites() {}
@@ -136,15 +138,15 @@ void TestingPrefStore::ReportValueChanged(const std::string& key,
 
 void TestingPrefStore::SetString(const std::string& key,
                                  const std::string& value) {
-  SetValue(key, base::MakeUnique<base::Value>(value), DEFAULT_PREF_WRITE_FLAGS);
+  SetValue(key, std::make_unique<base::Value>(value), DEFAULT_PREF_WRITE_FLAGS);
 }
 
 void TestingPrefStore::SetInteger(const std::string& key, int value) {
-  SetValue(key, base::MakeUnique<base::Value>(value), DEFAULT_PREF_WRITE_FLAGS);
+  SetValue(key, std::make_unique<base::Value>(value), DEFAULT_PREF_WRITE_FLAGS);
 }
 
 void TestingPrefStore::SetBoolean(const std::string& key, bool value) {
-  SetValue(key, base::MakeUnique<base::Value>(value), DEFAULT_PREF_WRITE_FLAGS);
+  SetValue(key, std::make_unique<base::Value>(value), DEFAULT_PREF_WRITE_FLAGS);
 }
 
 bool TestingPrefStore::GetString(const std::string& key,
@@ -183,6 +185,8 @@ void TestingPrefStore::ClearMutableValues() {
   NOTIMPLEMENTED();
 }
 
+void TestingPrefStore::OnStoreDeletionFromDisk() {}
+
 void TestingPrefStore::set_read_only(bool read_only) {
   read_only_ = read_only;
 }
@@ -199,9 +203,8 @@ void TestingPrefStore::set_read_error(
 }
 
 TestingPrefStore::~TestingPrefStore() {
-  for (auto& pref : prefs_) {
-    CheckPrefIsSerializable(pref.first, *pref.second);
-  }
+  for (auto& pref : prefs_)
+    CheckPrefIsSerializable(pref.first, pref.second);
 }
 
 void TestingPrefStore::CheckPrefIsSerializable(const std::string& key,

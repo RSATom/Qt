@@ -53,12 +53,12 @@ XsdElement::Scope::Variety XsdElement::Scope::variety() const
     return m_variety;
 }
 
-void XsdElement::Scope::setParent(const NamedSchemaComponent::Ptr &parent)
+void XsdElement::Scope::setParent(const NamedSchemaComponent *parent)
 {
     m_parent = parent;
 }
 
-NamedSchemaComponent::Ptr XsdElement::Scope::parent() const
+const NamedSchemaComponent *XsdElement::Scope::parent() const
 {
     return m_parent;
 }

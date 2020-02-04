@@ -23,6 +23,7 @@ import sys
 
 EXECUTABLE_FILES = [
   'd8',
+  'cctest',
 ]
 
 SUPPLEMENTARY_FILES = [
@@ -35,7 +36,7 @@ SUPPLEMENTARY_FILES = [
 LIBRARY_FILES = {
   'android': ['*.a', '*.so'],
   'linux': ['*.a', '*.so'],
-  'mac': ['*.a', '*.so'],
+  'mac': ['*.a', '*.so', '*.dylib'],
   'win': ['*.lib', '*.dll'],
 }
 

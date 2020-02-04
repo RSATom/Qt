@@ -5,9 +5,16 @@
 #ifndef CONTENT_UTILITY_UTILITY_SERVICE_FACTORY_H_
 #define CONTENT_UTILITY_UTILITY_SERVICE_FACTORY_H_
 
+#include <memory>
+#include <string>
+
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/sequenced_task_runner.h"
 #include "content/child/service_factory.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
+#include "services/service_manager/public/cpp/service.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
 
 namespace content {
 
@@ -19,17 +26,23 @@ class UtilityServiceFactory : public ServiceFactory {
   ~UtilityServiceFactory() override;
 
   // ServiceFactory overrides:
-  void RegisterServices(ServiceMap* services) override;
-  void OnServiceQuit() override;
+  bool HandleServiceRequest(
+      const std::string& name,
+      service_manager::mojom::ServiceRequest request) override;
 
  private:
   void OnLoadFailed() override;
 
-  std::unique_ptr<service_manager::Service> CreateNetworkService();
+  void RunNetworkServiceOnIOThread(
+      service_manager::mojom::ServiceRequest service_request,
+      scoped_refptr<base::SequencedTaskRunner> main_thread_task_runner);
+  std::unique_ptr<service_manager::Service> CreateAudioService(
+      service_manager::mojom::ServiceRequest request);
 
   // Allows embedders to register their interface implementations before the
-  // network service is created.
+  // network or audio services are created. Used for testing.
   std::unique_ptr<service_manager::BinderRegistry> network_registry_;
+  std::unique_ptr<service_manager::BinderRegistry> audio_registry_;
 
   DISALLOW_COPY_AND_ASSIGN(UtilityServiceFactory);
 };

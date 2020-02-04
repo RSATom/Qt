@@ -4,7 +4,6 @@
 
 #include "src/source-position-table.h"
 
-#include "src/log.h"
 #include "src/objects-inl.h"
 #include "src/objects.h"
 
@@ -39,7 +38,7 @@ void AddAndSetEntry(PositionTableEntry& value,
   value.is_statement = other.is_statement;
 }
 
-// Helper: Substract the offsets from 'other' from 'value'.
+// Helper: Subtract the offsets from 'other' from 'value'.
 void SubtractFromEntry(PositionTableEntry& value,
                        const PositionTableEntry& other) {
   value.code_offset -= other.code_offset;
@@ -48,7 +47,7 @@ void SubtractFromEntry(PositionTableEntry& value,
 
 // Helper: Encode an integer.
 template <typename T>
-void EncodeInt(ZoneVector<byte>& bytes, T value) {
+void EncodeInt(std::vector<byte>& bytes, T value) {
   // Zig-zag encoding.
   static const int kShift = sizeof(T) * kBitsPerByte - 1;
   value = ((value << 1) ^ (value >> kShift));
@@ -65,9 +64,9 @@ void EncodeInt(ZoneVector<byte>& bytes, T value) {
 }
 
 // Encode a PositionTableEntry.
-void EncodeEntry(ZoneVector<byte>& bytes, const PositionTableEntry& entry) {
+void EncodeEntry(std::vector<byte>& bytes, const PositionTableEntry& entry) {
   // We only accept ascending code offsets.
-  DCHECK(entry.code_offset >= 0);
+  DCHECK_GE(entry.code_offset, 0);
   // Since code_offset is not negative, we use sign to encode is_statement.
   EncodeInt(bytes,
             entry.is_statement ? entry.code_offset : -entry.code_offset - 1);
@@ -76,13 +75,13 @@ void EncodeEntry(ZoneVector<byte>& bytes, const PositionTableEntry& entry) {
 
 // Helper: Decode an integer.
 template <typename T>
-T DecodeInt(ByteArray* bytes, int* index) {
+T DecodeInt(Vector<const byte> bytes, int* index) {
   byte current;
   int shift = 0;
   T decoded = 0;
   bool more;
   do {
-    current = bytes->get((*index)++);
+    current = bytes[(*index)++];
     decoded |= static_cast<typename std::make_unsigned<T>::type>(
                    ValueBits::decode(current))
                << shift;
@@ -94,7 +93,8 @@ T DecodeInt(ByteArray* bytes, int* index) {
   return decoded;
 }
 
-void DecodeEntry(ByteArray* bytes, int* index, PositionTableEntry* entry) {
+void DecodeEntry(Vector<const byte> bytes, int* index,
+                 PositionTableEntry* entry) {
   int tmp = DecodeInt<int>(bytes, index);
   if (tmp >= 0) {
     entry->is_statement = true;
@@ -106,17 +106,32 @@ void DecodeEntry(ByteArray* bytes, int* index, PositionTableEntry* entry) {
   entry->source_position = DecodeInt<int64_t>(bytes, index);
 }
 
+Vector<const byte> VectorFromByteArray(ByteArray byte_array) {
+  return Vector<const byte>(byte_array->GetDataStartAddress(),
+                            byte_array->length());
+}
+
+#ifdef ENABLE_SLOW_DCHECKS
+void CheckTableEquals(std::vector<PositionTableEntry>& raw_entries,
+                      SourcePositionTableIterator& encoded) {
+  // Brute force testing: Record all positions and decode
+  // the entire table to verify they are identical.
+  auto raw = raw_entries.begin();
+  for (; !encoded.done(); encoded.Advance(), raw++) {
+    DCHECK(raw != raw_entries.end());
+    DCHECK_EQ(encoded.code_offset(), raw->code_offset);
+    DCHECK_EQ(encoded.source_position().raw(), raw->source_position);
+    DCHECK_EQ(encoded.is_statement(), raw->is_statement);
+  }
+  DCHECK(raw == raw_entries.end());
+}
+#endif
+
 }  // namespace
 
 SourcePositionTableBuilder::SourcePositionTableBuilder(
-    Zone* zone, SourcePositionTableBuilder::RecordingMode mode)
-    : mode_(mode),
-      bytes_(zone),
-#ifdef ENABLE_SLOW_DCHECKS
-      raw_entries_(zone),
-#endif
-      previous_() {
-}
+    SourcePositionTableBuilder::RecordingMode mode)
+    : mode_(mode), previous_() {}
 
 void SourcePositionTableBuilder::AddPosition(size_t code_offset,
                                              SourcePosition source_position,
@@ -138,58 +153,87 @@ void SourcePositionTableBuilder::AddEntry(const PositionTableEntry& entry) {
 }
 
 Handle<ByteArray> SourcePositionTableBuilder::ToSourcePositionTable(
-    Isolate* isolate, Handle<AbstractCode> code) {
+    Isolate* isolate) {
   if (bytes_.empty()) return isolate->factory()->empty_byte_array();
   DCHECK(!Omit());
 
   Handle<ByteArray> table = isolate->factory()->NewByteArray(
       static_cast<int>(bytes_.size()), TENURED);
-
-  MemCopy(table->GetDataStartAddress(), &*bytes_.begin(), bytes_.size());
-
-  LOG_CODE_EVENT(isolate, CodeLinePosInfoRecordEvent(*code, *table));
+  MemCopy(table->GetDataStartAddress(), bytes_.data(), bytes_.size());
 
 #ifdef ENABLE_SLOW_DCHECKS
   // Brute force testing: Record all positions and decode
   // the entire table to verify they are identical.
-  auto raw = raw_entries_.begin();
-  for (SourcePositionTableIterator encoded(*table); !encoded.done();
-       encoded.Advance(), raw++) {
-    DCHECK(raw != raw_entries_.end());
-    DCHECK_EQ(encoded.code_offset(), raw->code_offset);
-    DCHECK_EQ(encoded.source_position().raw(), raw->source_position);
-    DCHECK_EQ(encoded.is_statement(), raw->is_statement);
-  }
-  DCHECK(raw == raw_entries_.end());
+  SourcePositionTableIterator it(*table, SourcePositionTableIterator::kAll);
+  CheckTableEquals(raw_entries_, it);
   // No additional source positions after creating the table.
   mode_ = OMIT_SOURCE_POSITIONS;
 #endif
   return table;
 }
 
-SourcePositionTableIterator::SourcePositionTableIterator(ByteArray* byte_array)
-    : raw_table_(byte_array) {
+OwnedVector<byte> SourcePositionTableBuilder::ToSourcePositionTableVector() {
+  if (bytes_.empty()) return OwnedVector<byte>();
+  DCHECK(!Omit());
+
+  OwnedVector<byte> table = OwnedVector<byte>::Of(bytes_);
+
+#ifdef ENABLE_SLOW_DCHECKS
+  // Brute force testing: Record all positions and decode
+  // the entire table to verify they are identical.
+  SourcePositionTableIterator it(table.as_vector(),
+                                 SourcePositionTableIterator::kAll);
+  CheckTableEquals(raw_entries_, it);
+  // No additional source positions after creating the table.
+  mode_ = OMIT_SOURCE_POSITIONS;
+#endif
+  return table;
+}
+
+SourcePositionTableIterator::SourcePositionTableIterator(ByteArray byte_array,
+                                                         IterationFilter filter)
+    : raw_table_(VectorFromByteArray(byte_array)), filter_(filter) {
   Advance();
 }
 
 SourcePositionTableIterator::SourcePositionTableIterator(
-    Handle<ByteArray> byte_array)
-    : table_(byte_array) {
+    Handle<ByteArray> byte_array, IterationFilter filter)
+    : table_(byte_array), filter_(filter) {
   Advance();
+#ifdef DEBUG
   // We can enable allocation because we keep the table in a handle.
   no_gc.Release();
+#endif  // DEBUG
+}
+
+SourcePositionTableIterator::SourcePositionTableIterator(
+    Vector<const byte> bytes, IterationFilter filter)
+    : raw_table_(bytes), filter_(filter) {
+  Advance();
+#ifdef DEBUG
+  // We can enable allocation because the underlying vector does not move.
+  no_gc.Release();
+#endif  // DEBUG
 }
 
 void SourcePositionTableIterator::Advance() {
-  ByteArray* table = raw_table_ ? raw_table_ : *table_;
+  Vector<const byte> bytes =
+      table_.is_null() ? raw_table_ : VectorFromByteArray(*table_);
   DCHECK(!done());
-  DCHECK(index_ >= 0 && index_ <= table->length());
-  if (index_ >= table->length()) {
-    index_ = kDone;
-  } else {
-    PositionTableEntry tmp;
-    DecodeEntry(table, &index_, &tmp);
-    AddAndSetEntry(current_, tmp);
+  DCHECK(index_ >= 0 && index_ <= bytes.length());
+  bool filter_satisfied = false;
+  while (!done() && !filter_satisfied) {
+    if (index_ >= bytes.length()) {
+      index_ = kDone;
+    } else {
+      PositionTableEntry tmp;
+      DecodeEntry(bytes, &index_, &tmp);
+      AddAndSetEntry(current_, tmp);
+      SourcePosition p = source_position();
+      filter_satisfied = (filter_ == kAll) ||
+                         (filter_ == kJavaScriptOnly && p.IsJavaScript()) ||
+                         (filter_ == kExternalOnly && p.IsExternal());
+    }
   }
 }
 

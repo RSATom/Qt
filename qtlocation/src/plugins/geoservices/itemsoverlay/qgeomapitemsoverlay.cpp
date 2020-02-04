@@ -38,25 +38,53 @@
 #include "qgeomappingmanagerengineitemsoverlay.h"
 #include <QtLocation/private/qgeomap_p_p.h>
 #include <QtQuick/qsgnode.h>
+#include <QtQuick/qsgrectanglenode.h>
+#include <QtQuick/qquickwindow.h>
+
+#ifdef LOCATIONLABS
+#include <QtLocation/private/qmappolylineobjectqsg_p_p.h>
+#include <QtLocation/private/qmappolygonobjectqsg_p_p.h>
+#include <QtLocation/private/qmapcircleobjectqsg_p_p.h>
+#include <QtLocation/private/qmaprouteobjectqsg_p_p.h>
+#include <QtLocation/private/qmapiconobjectqsg_p_p.h>
+#include <QtLocation/private/qdeclarativepolylinemapitem_p.h>
+#include <QtLocation/private/qgeomapobjectqsgsupport_p.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
 class QGeoMapItemsOverlayPrivate : public QGeoMapPrivate
 {
-    Q_DECLARE_PUBLIC(QGeoMap)
+    Q_DECLARE_PUBLIC(QGeoMapItemsOverlay)
 public:
-    QGeoMapItemsOverlayPrivate(QGeoMappingManagerEngineItemsOverlay *engine);
-
+    QGeoMapItemsOverlayPrivate(QGeoMappingManagerEngineItemsOverlay *engine, QGeoMapItemsOverlay *map);
     virtual ~QGeoMapItemsOverlayPrivate();
 
+#ifdef LOCATIONLABS
+    QGeoMapObjectPrivate *createMapObjectImplementation(QGeoMapObject *obj) override;
+    virtual QList<QGeoMapObject *> mapObjects() const override;
+    void removeMapObject(QGeoMapObject *obj);
+    void updateMapObjects(QSGNode *root, QQuickWindow *window);
+    QList<QObject *>mapObjectsAt(const QGeoCoordinate &coordinate) const;
+
+    QGeoMapObjectQSGSupport m_qsgSupport;
+#endif
+
+    void updateObjectsGeometry();
+
+    void setVisibleArea(const QRectF &visibleArea) override;
+    QRectF visibleArea() const override;
+
 protected:
-    void changeViewportSize(const QSize &size) Q_DECL_OVERRIDE;
-    void changeCameraData(const QGeoCameraData &oldCameraData) Q_DECL_OVERRIDE;
-    void changeActiveMapType(const QGeoMapType mapType) Q_DECL_OVERRIDE;
+    void changeViewportSize(const QSize &size) override;
+    void changeCameraData(const QGeoCameraData &oldCameraData) override;
+    void changeActiveMapType(const QGeoMapType mapType) override;
+
+    QRectF m_visibleArea;
 };
 
 QGeoMapItemsOverlay::QGeoMapItemsOverlay(QGeoMappingManagerEngineItemsOverlay *engine, QObject *parent)
-    : QGeoMap(*(new QGeoMapItemsOverlayPrivate(engine)), parent)
+    : QGeoMap(*(new QGeoMapItemsOverlayPrivate(engine, this)), parent)
 {
 
 }
@@ -65,34 +93,159 @@ QGeoMapItemsOverlay::~QGeoMapItemsOverlay()
 {
 }
 
-QSGNode *QGeoMapItemsOverlay::updateSceneGraph(QSGNode *node, QQuickWindow *window)
+QGeoMap::Capabilities QGeoMapItemsOverlay::capabilities() const
 {
-    Q_UNUSED(window)
-    return node;
+    return Capabilities(SupportsVisibleRegion
+                        | SupportsSetBearing
+                        | SupportsAnchoringCoordinate);
 }
 
-QGeoMapItemsOverlayPrivate::QGeoMapItemsOverlayPrivate(QGeoMappingManagerEngineItemsOverlay *engine)
+bool QGeoMapItemsOverlay::createMapObjectImplementation(QGeoMapObject *obj)
+{
+#ifndef LOCATIONLABS
+    return false;
+#else
+    Q_D(QGeoMapItemsOverlay);
+    return d->m_qsgSupport.createMapObjectImplementation(obj, d);
+#endif
+}
+
+QSGNode *QGeoMapItemsOverlay::updateSceneGraph(QSGNode *node, QQuickWindow *window)
+{
+#ifndef LOCATIONLABS
+    Q_UNUSED(window);
+    return node;
+#else
+    Q_D(QGeoMapItemsOverlay);
+
+    QSGRectangleNode *mapRoot = static_cast<QSGRectangleNode *>(node);
+    if (!mapRoot)
+        mapRoot = window->createRectangleNode();
+
+    mapRoot->setRect(QRect(0, 0, viewportWidth(), viewportHeight()));
+    mapRoot->setColor(QColor(0,0,0,0));
+
+    d->updateMapObjects(mapRoot, window);
+    return mapRoot;
+#endif
+}
+
+void QGeoMapItemsOverlay::removeMapObject(QGeoMapObject *obj)
+{
+#ifdef LOCATIONLABS
+    Q_D(QGeoMapItemsOverlay);
+    d->removeMapObject(obj);
+#endif
+}
+
+QList<QObject *> QGeoMapItemsOverlay::mapObjectsAt(const QGeoCoordinate &coordinate) const
+{
+#ifdef LOCATIONLABS
+    Q_D(const QGeoMapItemsOverlay);
+    return d->mapObjectsAt(coordinate);
+#else
+    return QGeoMap::mapObjectsAt(coordinate);
+#endif
+}
+
+void QGeoMapItemsOverlayPrivate::setVisibleArea(const QRectF &visibleArea)
+{
+    Q_Q(QGeoMapItemsOverlay);
+    const QRectF va = clampVisibleArea(visibleArea);
+    if (va == m_visibleArea)
+        return;
+
+    m_visibleArea = va;
+    m_geoProjection->setVisibleArea(va);
+
+    q->sgNodeChanged();
+}
+
+QRectF QGeoMapItemsOverlayPrivate::visibleArea() const
+{
+    return m_visibleArea;
+}
+
+QGeoMapItemsOverlayPrivate::QGeoMapItemsOverlayPrivate(QGeoMappingManagerEngineItemsOverlay *engine, QGeoMapItemsOverlay *map)
     : QGeoMapPrivate(engine, new QGeoProjectionWebMercator)
 {
+    m_qsgSupport.m_map = map;
 }
 
 QGeoMapItemsOverlayPrivate::~QGeoMapItemsOverlayPrivate()
 {
 }
 
-void QGeoMapItemsOverlayPrivate::changeViewportSize(const QSize &size)
+#ifdef LOCATIONLABS
+QGeoMapObjectPrivate *QGeoMapItemsOverlayPrivate::createMapObjectImplementation(QGeoMapObject *obj)
 {
-    Q_UNUSED(size)
+    return m_qsgSupport.createMapObjectImplementationPrivate(obj);
 }
 
-void QGeoMapItemsOverlayPrivate::changeCameraData(const QGeoCameraData &oldCameraData)
+QList<QGeoMapObject *> QGeoMapItemsOverlayPrivate::mapObjects() const
 {
-    Q_UNUSED(oldCameraData)
+    return m_qsgSupport.mapObjects();
 }
 
-void QGeoMapItemsOverlayPrivate::changeActiveMapType(const QGeoMapType mapType)
+void QGeoMapItemsOverlayPrivate::removeMapObject(QGeoMapObject *obj)
 {
-    Q_UNUSED(mapType)
+    m_qsgSupport.removeMapObject(obj);
+}
+
+void QGeoMapItemsOverlayPrivate::updateMapObjects(QSGNode *root, QQuickWindow *window)
+{
+    m_qsgSupport.updateMapObjects(root, window);
+}
+
+QList<QObject *> QGeoMapItemsOverlayPrivate::mapObjectsAt(const QGeoCoordinate &coordinate) const
+{
+    // ToDo: use a space partitioning strategy
+    QList<QObject *> res;
+    for (const auto o: mapObjects()) {
+        // explicitly handle lines
+        bool contains = false;
+        if (o->type() == QGeoMapObject::PolylineType ) {
+            QMapPolylineObject *mpo = static_cast<QMapPolylineObject *>(o);
+            qreal mpp = QLocationUtils::metersPerPixel(m_cameraData.zoomLevel(), coordinate);
+            QGeoPath path = o->geoShape();
+            path.setWidth(mpp * mpo->border()->width());
+            contains = path.contains(coordinate);
+        } else if (o->type() == QGeoMapObject::RouteType) {
+            qreal mpp = QLocationUtils::metersPerPixel(m_cameraData.zoomLevel(), coordinate);
+            QGeoPath path = o->geoShape();
+            path.setWidth(mpp * 4); // MapRouteObjectQSG has a hardcoded 4 pixels width;
+            contains = path.contains(coordinate);
+        } else {
+            contains = o->geoShape().contains(coordinate);
+        }
+
+        if (contains)
+            res.append(o);
+    }
+    return res;
+}
+#endif
+
+void QGeoMapItemsOverlayPrivate::updateObjectsGeometry()
+{
+#ifdef LOCATIONLABS
+    m_qsgSupport.updateObjectsGeometry();
+#endif
+}
+
+void QGeoMapItemsOverlayPrivate::changeViewportSize(const QSize &/*size*/)
+{
+    updateObjectsGeometry();
+}
+
+void QGeoMapItemsOverlayPrivate::changeCameraData(const QGeoCameraData &/*oldCameraData*/)
+{
+    updateObjectsGeometry();
+}
+
+void QGeoMapItemsOverlayPrivate::changeActiveMapType(const QGeoMapType /*mapType*/)
+{
+    updateObjectsGeometry();
 }
 
 QT_END_NAMESPACE

@@ -96,8 +96,7 @@ class QDeclarativeBluetoothDiscoveryModelPrivate
 {
 public:
     QDeclarativeBluetoothDiscoveryModelPrivate()
-        : m_serviceAgent(0),
-        m_deviceAgent(0),
+        :
         m_error(QDeclarativeBluetoothDiscoveryModel::NoError),
         m_discoveryMode(QDeclarativeBluetoothDiscoveryModel::MinimalServiceDiscovery),
         m_running(false),
@@ -119,8 +118,8 @@ public:
         qDeleteAll(m_services);
     }
 
-    QBluetoothServiceDiscoveryAgent *m_serviceAgent;
-    QBluetoothDeviceDiscoveryAgent *m_deviceAgent;
+    QBluetoothServiceDiscoveryAgent *m_serviceAgent = nullptr;
+    QBluetoothDeviceDiscoveryAgent *m_deviceAgent = nullptr;
 
     QDeclarativeBluetoothDiscoveryModel::Error m_error;
     QList<QDeclarativeBluetoothService *> m_services;
@@ -142,30 +141,30 @@ QDeclarativeBluetoothDiscoveryModel::QDeclarativeBluetoothDiscoveryModel(QObject
     d(new QDeclarativeBluetoothDiscoveryModelPrivate)
 {
     d->m_deviceAgent = new QBluetoothDeviceDiscoveryAgent(this);
-    connect(d->m_deviceAgent, SIGNAL(deviceDiscovered(QBluetoothDeviceInfo)),
-            this, SLOT(deviceDiscovered(QBluetoothDeviceInfo)));
-    connect(d->m_deviceAgent, SIGNAL(finished()), this, SLOT(finishedDiscovery()));
-    connect(d->m_deviceAgent, SIGNAL(canceled()), this, SLOT(finishedDiscovery()));
-    connect(d->m_deviceAgent, SIGNAL(error(QBluetoothDeviceDiscoveryAgent::Error)),
-            this, SLOT(errorDeviceDiscovery(QBluetoothDeviceDiscoveryAgent::Error)));
-    d->m_deviceAgent->setObjectName("DeviceDiscoveryAgent");
+    connect(d->m_deviceAgent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered,
+            this, QOverload<const QBluetoothDeviceInfo&>::of(&QDeclarativeBluetoothDiscoveryModel::deviceDiscovered));
+    connect(d->m_deviceAgent, &QBluetoothDeviceDiscoveryAgent::finished,
+            this, &QDeclarativeBluetoothDiscoveryModel::finishedDiscovery);
+    connect(d->m_deviceAgent, &QBluetoothDeviceDiscoveryAgent::canceled,
+            this, &QDeclarativeBluetoothDiscoveryModel::finishedDiscovery);
+    connect(d->m_deviceAgent,
+            QOverload<QBluetoothDeviceDiscoveryAgent::Error>::of(&QBluetoothDeviceDiscoveryAgent::error),
+            this,
+            &QDeclarativeBluetoothDiscoveryModel::errorDeviceDiscovery);
+    d->m_deviceAgent->setObjectName(QStringLiteral("DeviceDiscoveryAgent"));
 
     d->m_serviceAgent = new QBluetoothServiceDiscoveryAgent(this);
-    connect(d->m_serviceAgent, SIGNAL(serviceDiscovered(QBluetoothServiceInfo)),
-            this, SLOT(serviceDiscovered(QBluetoothServiceInfo)));
-    connect(d->m_serviceAgent, SIGNAL(finished()), this, SLOT(finishedDiscovery()));
-    connect(d->m_serviceAgent, SIGNAL(canceled()), this, SLOT(finishedDiscovery()));
-    connect(d->m_serviceAgent, SIGNAL(error(QBluetoothServiceDiscoveryAgent::Error)),
-            this, SLOT(errorDiscovery(QBluetoothServiceDiscoveryAgent::Error)));
-    d->m_serviceAgent->setObjectName("ServiceDiscoveryAgent");
-
-    QHash<int, QByteArray> roleNames;
-    roleNames = QAbstractItemModel::roleNames();
-    roleNames.insert(Name, "name");
-    roleNames.insert(ServiceRole, "service");
-    roleNames.insert(RemoteAddress, "remoteAddress");
-    roleNames.insert(DeviceName, "deviceName");
-    setRoleNames(roleNames);
+    connect(d->m_serviceAgent, &QBluetoothServiceDiscoveryAgent::serviceDiscovered,
+            this, QOverload<const QBluetoothServiceInfo&>::of(&QDeclarativeBluetoothDiscoveryModel::serviceDiscovered));
+    connect(d->m_serviceAgent, &QBluetoothServiceDiscoveryAgent::finished,
+            this, &QDeclarativeBluetoothDiscoveryModel::finishedDiscovery);
+    connect(d->m_serviceAgent, &QBluetoothServiceDiscoveryAgent::canceled,
+            this, &QDeclarativeBluetoothDiscoveryModel::finishedDiscovery);
+    connect(d->m_serviceAgent,
+            QOverload<QBluetoothServiceDiscoveryAgent::Error>::of(&QBluetoothServiceDiscoveryAgent::error),
+            this,
+            &QDeclarativeBluetoothDiscoveryModel::errorDiscovery);
+    d->m_serviceAgent->setObjectName(QStringLiteral("ServiceDiscoveryAgent"));
 }
 
 QDeclarativeBluetoothDiscoveryModel::~QDeclarativeBluetoothDiscoveryModel()
@@ -307,6 +306,14 @@ QVariant QDeclarativeBluetoothDiscoveryModel::data(const QModelIndex &index, int
     return QVariant();
 }
 
+QHash<int,QByteArray> QDeclarativeBluetoothDiscoveryModel::roleNames() const
+{
+    return {{Name, "name"},
+            {ServiceRole, "service"},
+            {RemoteAddress, "remoteAddress"},
+            {DeviceName, "deviceName"}};
+}
+
 /*!
   \qmlsignal BluetoothDiscoveryModel::serviceDiscovered(BluetoothService service)
 
@@ -323,7 +330,7 @@ void QDeclarativeBluetoothDiscoveryModel::serviceDiscovered(const QBluetoothServ
     //qDebug() << "service discovered";
 
     QDeclarativeBluetoothService *bs = new QDeclarativeBluetoothService(service, this);
-    QDeclarativeBluetoothService *current = 0;
+    QDeclarativeBluetoothService *current = nullptr;
     for (int i = 0; i < d->m_services.count(); i++) {
         current = d->m_services.at(i);
         if (bs->deviceAddress() == current->deviceAddress()

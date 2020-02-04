@@ -1,3 +1,16 @@
+// This file is generated from a similarly-named Perl script in the BoringSSL
+// source tree. Do not edit by hand.
+
+#if defined(__has_feature)
+#if __has_feature(memory_sanitizer) && !defined(OPENSSL_NO_ASM)
+#define OPENSSL_NO_ASM
+#endif
+#endif
+
+#if !defined(OPENSSL_NO_ASM)
+#if defined(BORINGSSL_PREFIX)
+#include <boringssl_prefix_symbols_asm.h>
+#endif
 @ Copyright 2007-2016 The OpenSSL Project Authors. All Rights Reserved.
 @
 @ Licensed under the OpenSSL license (the "License").  You may not use
@@ -43,6 +56,11 @@
 #else
 # define __ARM_ARCH__ __LINUX_ARM_ARCH__
 #endif
+
+@ Silence ARMv8 deprecated IT instruction warnings. This file is used by both
+@ ARMv7 and ARMv8 processors and does not use ARMv8 instructions. (ARMv8 AES
+@ instructions are in aesv8-armx.pl.)
+
 
 .text
 #if defined(__thumb2__) && !defined(__APPLE__)
@@ -159,25 +177,25 @@ AES_Te:
 .word	0x1B000000, 0x36000000, 0, 0, 0, 0, 0, 0
 
 
-@ void asm_AES_encrypt(const unsigned char *in, unsigned char *out,
-@ 		       const AES_KEY *key) {
-.globl	_asm_AES_encrypt
-.private_extern	_asm_AES_encrypt
+@ void aes_nohw_encrypt(const unsigned char *in, unsigned char *out,
+@ 		                  const AES_KEY *key) {
+.globl	_aes_nohw_encrypt
+.private_extern	_aes_nohw_encrypt
 #ifdef __thumb2__
-.thumb_func	_asm_AES_encrypt
+.thumb_func	_aes_nohw_encrypt
 #endif
 .align	5
-_asm_AES_encrypt:
+_aes_nohw_encrypt:
 #ifndef	__thumb2__
-	sub	r3,pc,#8		@ _asm_AES_encrypt
+	sub	r3,pc,#8		@ _aes_nohw_encrypt
 #else
-	adr	r3,_asm_AES_encrypt
+	adr	r3,.
 #endif
 	stmdb	sp!,{r1,r4-r12,lr}
-#ifdef	__APPLE__
+#if defined(__thumb2__) || defined(__APPLE__)
 	adr	r10,AES_Te
 #else
-	sub	r10,r3,#_asm_AES_encrypt-AES_Te	@ Te
+	sub	r10,r3,#_aes_nohw_encrypt-AES_Te	@ Te
 #endif
 	mov	r12,r0		@ inp
 	mov	r11,r2
@@ -415,18 +433,18 @@ Lenc_loop:
 	ldr	pc,[sp],#4		@ pop and return
 
 
-.globl	_asm_AES_set_encrypt_key
-.private_extern	_asm_AES_set_encrypt_key
+.globl	_aes_nohw_set_encrypt_key
+.private_extern	_aes_nohw_set_encrypt_key
 #ifdef __thumb2__
-.thumb_func	_asm_AES_set_encrypt_key
+.thumb_func	_aes_nohw_set_encrypt_key
 #endif
 .align	5
-_asm_AES_set_encrypt_key:
+_aes_nohw_set_encrypt_key:
 _armv4_AES_set_encrypt_key:
 #ifndef	__thumb2__
-	sub	r3,pc,#8		@ _asm_AES_set_encrypt_key
+	sub	r3,pc,#8		@ _aes_nohw_set_encrypt_key
 #else
-	adr	r3,_asm_AES_set_encrypt_key
+	adr	r3,.
 #endif
 	teq	r0,#0
 #ifdef	__thumb2__
@@ -457,7 +475,7 @@ Lok:	stmdb	sp!,{r4,r5,r6,r7,r8,r9,r10,r11,r12,lr}
 	mov	lr,r1			@ bits
 	mov	r11,r2			@ key
 
-#ifdef	__APPLE__
+#if defined(__thumb2__) || defined(__APPLE__)
 	adr	r10,AES_Te+1024				@ Te4
 #else
 	sub	r10,r3,#_armv4_AES_set_encrypt_key-AES_Te-1024	@ Te4
@@ -724,20 +742,20 @@ Labrt:
 #endif
 
 
-.globl	_asm_AES_set_decrypt_key
-.private_extern	_asm_AES_set_decrypt_key
+.globl	_aes_nohw_set_decrypt_key
+.private_extern	_aes_nohw_set_decrypt_key
 #ifdef __thumb2__
-.thumb_func	_asm_AES_set_decrypt_key
+.thumb_func	_aes_nohw_set_decrypt_key
 #endif
 .align	5
-_asm_AES_set_decrypt_key:
+_aes_nohw_set_decrypt_key:
 	str	lr,[sp,#-4]!            @ push lr
 	bl	_armv4_AES_set_encrypt_key
 	teq	r0,#0
 	ldr	lr,[sp],#4              @ pop lr
 	bne	Labrt
 
-	mov	r0,r2			@ _asm_AES_set_encrypt_key preserves r2,
+	mov	r0,r2			@ _aes_nohw_set_encrypt_key preserves r2,
 	mov	r1,r2			@ which is AES_KEY *key
 	b	_armv4_AES_set_enc2dec_key
 
@@ -944,25 +962,25 @@ AES_Td:
 .byte	0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d
 
 
-@ void asm_AES_decrypt(const unsigned char *in, unsigned char *out,
-@ 		       const AES_KEY *key) {
-.globl	_asm_AES_decrypt
-.private_extern	_asm_AES_decrypt
+@ void aes_nohw_decrypt(const unsigned char *in, unsigned char *out,
+@ 		                  const AES_KEY *key) {
+.globl	_aes_nohw_decrypt
+.private_extern	_aes_nohw_decrypt
 #ifdef __thumb2__
-.thumb_func	_asm_AES_decrypt
+.thumb_func	_aes_nohw_decrypt
 #endif
 .align	5
-_asm_AES_decrypt:
+_aes_nohw_decrypt:
 #ifndef	__thumb2__
-	sub	r3,pc,#8		@ _asm_AES_decrypt
+	sub	r3,pc,#8		@ _aes_nohw_decrypt
 #else
-	adr	r3,_asm_AES_decrypt
+	adr	r3,.
 #endif
 	stmdb	sp!,{r1,r4-r12,lr}
-#ifdef	__APPLE__
+#if defined(__thumb2__) || defined(__APPLE__)
 	adr	r10,AES_Td
 #else
-	sub	r10,r3,#_asm_AES_decrypt-AES_Td	@ Td
+	sub	r10,r3,#_aes_nohw_decrypt-AES_Td	@ Td
 #endif
 	mov	r12,r0		@ inp
 	mov	r11,r2
@@ -1211,3 +1229,4 @@ Ldec_loop:
 .byte	65,69,83,32,102,111,114,32,65,82,77,118,52,44,32,67,82,89,80,84,79,71,65,77,83,32,98,121,32,60,97,112,112,114,111,64,111,112,101,110,115,115,108,46,111,114,103,62,0
 .align	2
 .align	2
+#endif  // !OPENSSL_NO_ASM

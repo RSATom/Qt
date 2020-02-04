@@ -402,7 +402,10 @@ TIntermTyped* TIntermediate::addBinaryMath(TOperator op, TIntermTyped* left, TIn
 	node->setLeft(left);
 	node->setRight(right);
 	if (!node->promote(infoSink))
+	{
+		delete node;
 		return 0;
+	}
 
 	//
 	// See if we can fold constants.
@@ -526,8 +529,8 @@ TIntermTyped* TIntermediate::addUnaryMath(TOperator op, TIntermTyped* child, con
 //
 // This is the safe way to change the operator on an aggregate, as it
 // does lots of error checking and fixing.  Especially for establishing
-// a function call's operation on it's set of parameters.  Sequences
-// of instructions are also aggregates, but they just direnctly set
+// a function call's operation on its set of parameters.  Sequences
+// of instructions are also aggregates, but they just directly set
 // their operator to EOpSequence.
 //
 // Returns an aggregate node, which could be the one passed in if
@@ -1597,18 +1600,18 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					infoSink.info.message(EPrefixInternalError, "Constant Folding cannot be done for matrix times vector", getLine());
 					return 0;
 				}
-				tempConstArray = new ConstantUnion[getNominalSize()];
+				tempConstArray = new ConstantUnion[getSecondarySize()];
 
 				{// support MSVC++6.0
-					for (int size = getNominalSize(), i = 0; i < size; i++) {
+					for (int rows = getSecondarySize(), i = 0; i < rows; i++) {
 						tempConstArray[i].setFConst(0.0f);
-						for (int j = 0; j < size; j++) {
-							tempConstArray[i].setFConst(tempConstArray[i].getFConst() + ((unionArray[j*size + i].getFConst()) * rightUnionArray[j].getFConst()));
+						for (int cols = getNominalSize(), j = 0; j < cols; j++) {
+							tempConstArray[i].setFConst(tempConstArray[i].getFConst() + ((unionArray[j*rows + i].getFConst()) * rightUnionArray[j].getFConst()));
 						}
 					}
 				}
 
-				tempNode = new TIntermConstantUnion(tempConstArray, node->getType());
+				tempNode = new TIntermConstantUnion(tempConstArray, TType(EbtFloat, EbpUndefined, EvqConstExpr, getSecondarySize()));
 				tempNode->setLine(getLine());
 
 				return tempNode;
@@ -1619,16 +1622,19 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					return 0;
 				}
 
-				tempConstArray = new ConstantUnion[getNominalSize()];
+				tempConstArray = new ConstantUnion[node->getNominalSize()];
 				{// support MSVC++6.0
-					for (int size = getNominalSize(), i = 0; i < size; i++) {
+					for (int cols = node->getNominalSize(), i = 0; i < cols; i++) {
 						tempConstArray[i].setFConst(0.0f);
-						for (int j = 0; j < size; j++) {
-							tempConstArray[i].setFConst(tempConstArray[i].getFConst() + ((unionArray[j].getFConst()) * rightUnionArray[i*size + j].getFConst()));
+						for (int rows = node->getSecondarySize(), j = 0; j < rows; j++) {
+							tempConstArray[i].setFConst(tempConstArray[i].getFConst() + ((unionArray[j].getFConst()) * rightUnionArray[i*rows + j].getFConst()));
 						}
 					}
 				}
-				break;
+
+				tempNode = new TIntermConstantUnion(tempConstArray, TType(EbtFloat, EbpUndefined, EvqConstExpr, node->getNominalSize()));
+				tempNode->setLine(getLine());
+				return tempNode;
 
 			case EOpLogicalAnd: // this code is written for possible future use, will not get executed currently
 				tempConstArray = new ConstantUnion[objectSize];
@@ -1775,10 +1781,12 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 		//
 		TIntermConstantUnion *newNode = 0;
 		ConstantUnion* tempConstArray = new ConstantUnion[objectSize];
+		TType type = getType();
+		TBasicType basicType = type.getBasicType();
 		for (size_t i = 0; i < objectSize; i++) {
 			switch(op) {
 				case EOpNegative:
-					switch (getType().getBasicType()) {
+					switch (basicType) {
 						case EbtFloat: tempConstArray[i].setFConst(-unionArray[i].getFConst()); break;
 						case EbtInt:   tempConstArray[i].setIConst(-unionArray[i].getIConst()); break;
 						default:
@@ -1787,7 +1795,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpLogicalNot: // this code is written for possible future use, will not get executed currently
-					switch (getType().getBasicType()) {
+					switch (basicType) {
 						case EbtBool:  tempConstArray[i].setBConst(!unionArray[i].getBConst()); break;
 						default:
 							infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1795,7 +1803,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpBitwiseNot:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 						case EbtInt: tempConstArray[i].setIConst(~unionArray[i].getIConst()); break;
 						case EbtUInt: tempConstArray[i].setUConst(~unionArray[i].getUConst()); break;
 						default:
@@ -1804,7 +1812,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpRadians:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(unionArray[i].getFConst() * 1.74532925e-2f); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1812,7 +1820,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpDegrees:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(unionArray[i].getFConst() * 5.72957795e+1f); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1820,7 +1828,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpSin:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(sinf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1828,7 +1836,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpCos:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(cosf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1836,7 +1844,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpTan:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(tanf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1844,7 +1852,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpAsin:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(asinf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1852,7 +1860,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpAcos:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(acosf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1860,7 +1868,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpAtan:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(atanf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1868,7 +1876,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpSinh:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(sinhf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1876,7 +1884,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpCosh:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(coshf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1884,7 +1892,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpTanh:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(tanhf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1892,7 +1900,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpAsinh:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(asinhf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1900,7 +1908,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpAcosh:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(acoshf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1908,7 +1916,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpAtanh:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(atanhf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1916,7 +1924,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpLog:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(logf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1924,7 +1932,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpLog2:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(sw::log2(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1932,7 +1940,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpExp:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(expf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1940,7 +1948,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpExp2:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(exp2f(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1948,7 +1956,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpSqrt:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(sqrtf(unionArray[i].getFConst())); break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
@@ -1956,8 +1964,53 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					}
 					break;
 				case EOpInverseSqrt:
-					switch(getType().getBasicType()) {
+					switch(basicType) {
 					case EbtFloat: tempConstArray[i].setFConst(1.0f / sqrtf(unionArray[i].getFConst())); break;
+					default:
+						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
+						return 0;
+					}
+					break;
+				case EOpFloatBitsToInt:
+					switch(basicType) {
+					case EbtFloat:
+						tempConstArray[i].setIConst(sw::bit_cast<int>(unionArray[i].getFConst()));
+						type.setBasicType(EbtInt);
+						break;
+					default:
+						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
+						return 0;
+					}
+					break;
+					break;
+				case EOpFloatBitsToUint:
+					switch(basicType) {
+					case EbtFloat:
+						tempConstArray[i].setUConst(sw::bit_cast<unsigned int>(unionArray[i].getFConst()));
+						type.setBasicType(EbtUInt);
+						break;
+					default:
+						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
+						return 0;
+					}
+					break;
+				case EOpIntBitsToFloat:
+					switch(basicType) {
+					case EbtInt:
+						tempConstArray[i].setFConst(sw::bit_cast<float>(unionArray[i].getIConst()));
+						type.setBasicType(EbtFloat);
+						break;
+					default:
+						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
+						return 0;
+					}
+					break;
+				case EOpUintBitsToFloat:
+					switch(basicType) {
+					case EbtUInt:
+						tempConstArray[i].setFConst(sw::bit_cast<float>(unionArray[i].getUConst()));
+						type.setBasicType(EbtFloat);
+						break;
 					default:
 						infoSink.info.message(EPrefixInternalError, "Unary operation not folded into constant", getLine());
 						return 0;
@@ -1967,7 +2020,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, TIntermTyped* constantNod
 					return 0;
 			}
 		}
-		newNode = new TIntermConstantUnion(tempConstArray, getType());
+		newNode = new TIntermConstantUnion(tempConstArray, type);
 		newNode->setLine(getLine());
 		return newNode;
 	}

@@ -6,7 +6,7 @@ import("//build/config/features.gni")
 import("//build/config/sysroot.gni")
 import("//build/config/ui.gni")
 import("//pdf/features.gni")
-import("//printing/features/features.gni")
+import("//printing/buildflags/buildflags.gni")
 import("//testing/test.gni")
 if (is_mac) {
   import("//build/config/mac/mac_sdk.gni")
@@ -33,17 +33,15 @@ component("printing") {
     "backend/printing_info_win.h",
     "emf_win.cc",
     "emf_win.h",
-    "image.cc",
-    "image.h",
-    "image_android.cc",
-    "image_linux.cc",
-    "image_mac.cc",
-    "image_win.cc",
     "metafile.cc",
     "metafile.h",
+    "metafile_skia.cc",
+    "metafile_skia.h",
     "metafile_skia_wrapper.cc",
     "metafile_skia_wrapper.h",
     "native_drawing_context.h",
+    "nup_parameters.cc",
+    "nup_parameters.h",
     "page_number.cc",
     "page_number.h",
     "page_range.cc",
@@ -53,8 +51,6 @@ component("printing") {
     "page_size_margins.h",
     "pdf_metafile_cg_mac.cc",
     "pdf_metafile_cg_mac.h",
-    "pdf_metafile_skia.cc",
-    "pdf_metafile_skia.h",
     "pdf_render_settings.h",
     "print_dialog_gtk_interface.h",
     "print_job_constants.cc",
@@ -71,9 +67,6 @@ component("printing") {
     "printed_document.h",
     "printed_document_mac.cc",
     "printed_document_win.cc",
-    "printed_page.cc",
-    "printed_page.h",
-    "printed_pages_source.h",
     "printing_context.cc",
     "printing_context.h",
     "printing_export.h",
@@ -88,7 +81,7 @@ component("printing") {
   defines = [ "PRINTING_IMPLEMENTATION" ]
 
   public_deps = [
-    "//printing/features",
+    "//printing/buildflags",
   ]
   deps = [
     "//base",
@@ -119,6 +112,7 @@ component("printing") {
     }
     libs = [
       "AppKit.framework",
+      "QuartzCore.framework",
       "ApplicationServices.framework",
       "CoreFoundation.framework",
       "CoreGraphics.framework",
@@ -133,6 +127,8 @@ component("printing") {
       "backend/print_backend_win.cc",
       "backend/win_helper.cc",
       "backend/win_helper.h",
+      "printed_page_win.cc",
+      "printed_page_win.h",
       "printing_context_system_dialog_win.cc",
       "printing_context_system_dialog_win.h",
       "printing_context_win.cc",
@@ -218,29 +214,25 @@ component("printing") {
 
     sources += [
       "backend/print_backend_chromeos.cc",
+      "backend/printing_restrictions.cc",
+      "backend/printing_restrictions.h",
       "printed_document_chromeos.cc",
       "printing_context_no_system_dialog.cc",
       "printing_context_no_system_dialog.h",
     ]
-  } else if (is_linux) {  # Non-ChromeOS Linux.
+  } else if (is_android) {
     sources += [
-      "printed_document_linux.cc",
-      "printing_context_linux.cc",
-      "printing_context_linux.h",
-    ]
-  }
-
-  if (is_android) {
-    sources += [
+      "printed_document_android.cc",
       "printing_context_android.cc",
       "printing_context_android.h",
     ]
 
     deps += [ ":printing_jni_headers" ]
-  } else {
+  } else if (is_linux) {  # Desktop Linux.
     sources += [
-      "pdf_transform.cc",
-      "pdf_transform.h",
+      "printed_document_linux.cc",
+      "printing_context_linux.cc",
+      "printing_context_linux.h",
     ]
   }
 }
@@ -250,23 +242,37 @@ static_library("test_support") {
   sources = [
     "backend/test_print_backend.cc",
     "backend/test_print_backend.h",
+    "image.cc",
+    "image.h",
+    "image_android.cc",
+    "image_linux.cc",
+    "image_mac.cc",
+    "image_win.cc",
   ]
+  if (is_fuchsia) {
+    sources += [ "image_fuchsia.cc" ]
+  }
+
   public_deps = [
     "//printing",
+    "//ui/gfx/geometry",
   ]
   deps = [
     "//base",
+    "//skia",
+    "//ui/gfx",
   ]
 }
 
 test("printing_unittests") {
   sources = [
     "emf_win_unittest.cc",
+    "metafile_skia_unittest.cc",
+    "nup_parameters_unittest.cc",
     "page_number_unittest.cc",
     "page_range_unittest.cc",
     "page_setup_unittest.cc",
     "pdf_metafile_cg_mac_unittest.cc",
-    "printed_page_unittest.cc",
     "printing_context_win_unittest.cc",
     "printing_test.h",
     "printing_utils_unittest.cc",
@@ -277,6 +283,8 @@ test("printing_unittests") {
     ":printing",
     "//base/test:run_all_unittests",
     "//base/test:test_support",
+    "//printing/common",
+    "//testing/gmock",
     "//testing/gtest",
     "//ui/base",
     "//ui/gfx",
@@ -284,8 +292,12 @@ test("printing_unittests") {
     "//ui/gfx/geometry",
   ]
 
-  if (!is_android) {
-    sources += [ "pdf_transform_unittest.cc" ]
+  if (is_win || is_mac) {
+    sources += [ "printed_document_unittest.cc" ]
+  }
+
+  if (is_win) {
+    sources += [ "printed_page_win_unittest.cc" ]
   }
 
   if (use_cups) {
@@ -341,7 +353,6 @@ if (is_android) {
       "android/java/src/org/chromium/printing/PrintManagerDelegateImpl.java",
       "android/java/src/org/chromium/printing/Printable.java",
       "android/java/src/org/chromium/printing/PrintingContext.java",
-      "android/java/src/org/chromium/printing/PrintingContextInterface.java",
       "android/java/src/org/chromium/printing/PrintingController.java",
       "android/java/src/org/chromium/printing/PrintingControllerImpl.java",
     ]

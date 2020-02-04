@@ -15,16 +15,16 @@
 
 class CJBig2_ArithDecoder;
 class CJBig2_BitStream;
-class IFX_Pause;
-struct JBig2ArithCtx;
+class JBig2ArithCtx;
+class PauseIndicatorIface;
 
 class CJBig2_HTRDProc {
  public:
-  std::unique_ptr<CJBig2_Image> decode_Arith(CJBig2_ArithDecoder* pArithDecoder,
-                                             JBig2ArithCtx* gbContext,
-                                             IFX_Pause* pPause);
+  std::unique_ptr<CJBig2_Image> DecodeArith(CJBig2_ArithDecoder* pArithDecoder,
+                                            JBig2ArithCtx* gbContext,
+                                            PauseIndicatorIface* pPause);
 
-  std::unique_ptr<CJBig2_Image> decode_MMR(CJBig2_BitStream* pStream);
+  std::unique_ptr<CJBig2_Image> DecodeMMR(CJBig2_BitStream* pStream);
 
  public:
   uint32_t HBW;
@@ -46,7 +46,7 @@ class CJBig2_HTRDProc {
   uint8_t HPH;
 
  private:
-  std::unique_ptr<CJBig2_Image> decode_image(
+  std::unique_ptr<CJBig2_Image> DecodeImage(
       const std::vector<std::unique_ptr<CJBig2_Image>>& GSPLANES);
 };
 

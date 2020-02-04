@@ -11,9 +11,10 @@
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 
 namespace jingle_glue {
 
@@ -63,20 +64,21 @@ static const uint8_t kSslServerHello[] = {
     0x00                                             // null compression
 };
 
-net::DrainableIOBuffer* NewDrainableIOBufferWithSize(int size) {
-  return new net::DrainableIOBuffer(new net::IOBuffer(size), size);
+scoped_refptr<net::DrainableIOBuffer> NewDrainableIOBufferWithSize(int size) {
+  return base::MakeRefCounted<net::DrainableIOBuffer>(
+      base::MakeRefCounted<net::IOBuffer>(size), size);
 }
 
 }  // namespace
 
 base::StringPiece FakeSSLClientSocket::GetSslClientHello() {
   return base::StringPiece(reinterpret_cast<const char*>(kSslClientHello),
-                           arraysize(kSslClientHello));
+                           base::size(kSslClientHello));
 }
 
 base::StringPiece FakeSSLClientSocket::GetSslServerHello() {
   return base::StringPiece(reinterpret_cast<const char*>(kSslServerHello),
-                           arraysize(kSslServerHello));
+                           base::size(kSslServerHello));
 }
 
 FakeSSLClientSocket::FakeSSLClientSocket(
@@ -84,26 +86,45 @@ FakeSSLClientSocket::FakeSSLClientSocket(
     : transport_socket_(std::move(transport_socket)),
       next_handshake_state_(STATE_NONE),
       handshake_completed_(false),
-      write_buf_(NewDrainableIOBufferWithSize(arraysize(kSslClientHello))),
-      read_buf_(NewDrainableIOBufferWithSize(arraysize(kSslServerHello))) {
+      write_buf_(NewDrainableIOBufferWithSize(base::size(kSslClientHello))),
+      read_buf_(NewDrainableIOBufferWithSize(base::size(kSslServerHello))) {
   CHECK(transport_socket_.get());
-  std::memcpy(write_buf_->data(), kSslClientHello, arraysize(kSslClientHello));
+  std::memcpy(write_buf_->data(), kSslClientHello, base::size(kSslClientHello));
 }
 
 FakeSSLClientSocket::~FakeSSLClientSocket() {}
 
-int FakeSSLClientSocket::Read(net::IOBuffer* buf, int buf_len,
-                              const net::CompletionCallback& callback) {
+int FakeSSLClientSocket::Read(net::IOBuffer* buf,
+                              int buf_len,
+                              net::CompletionOnceCallback callback) {
   DCHECK_EQ(next_handshake_state_, STATE_NONE);
   DCHECK(handshake_completed_);
-  return transport_socket_->Read(buf, buf_len, callback);
+  return transport_socket_->Read(buf, buf_len, std::move(callback));
 }
 
-int FakeSSLClientSocket::Write(net::IOBuffer* buf, int buf_len,
-                               const net::CompletionCallback& callback) {
+int FakeSSLClientSocket::ReadIfReady(net::IOBuffer* buf,
+                                     int buf_len,
+                                     net::CompletionOnceCallback callback) {
   DCHECK_EQ(next_handshake_state_, STATE_NONE);
   DCHECK(handshake_completed_);
-  return transport_socket_->Write(buf, buf_len, callback);
+  return transport_socket_->ReadIfReady(buf, buf_len, std::move(callback));
+}
+
+int FakeSSLClientSocket::CancelReadIfReady() {
+  DCHECK_EQ(next_handshake_state_, STATE_NONE);
+  DCHECK(handshake_completed_);
+  return transport_socket_->CancelReadIfReady();
+}
+
+int FakeSSLClientSocket::Write(
+    net::IOBuffer* buf,
+    int buf_len,
+    net::CompletionOnceCallback callback,
+    const net::NetworkTrafficAnnotationTag& traffic_annotation) {
+  DCHECK_EQ(next_handshake_state_, STATE_NONE);
+  DCHECK(handshake_completed_);
+  return transport_socket_->Write(buf, buf_len, std::move(callback),
+                                  traffic_annotation);
 }
 
 int FakeSSLClientSocket::SetReceiveBufferSize(int32_t size) {
@@ -114,7 +135,7 @@ int FakeSSLClientSocket::SetSendBufferSize(int32_t size) {
   return transport_socket_->SetSendBufferSize(size);
 }
 
-int FakeSSLClientSocket::Connect(const net::CompletionCallback& callback) {
+int FakeSSLClientSocket::Connect(net::CompletionOnceCallback callback) {
   // We don't support synchronous operation, even if
   // |transport_socket_| does.
   DCHECK(!callback.is_null());
@@ -127,7 +148,7 @@ int FakeSSLClientSocket::Connect(const net::CompletionCallback& callback) {
   next_handshake_state_ = STATE_CONNECT;
   int status = DoHandshakeLoop();
   if (status == net::ERR_IO_PENDING)
-    user_connect_callback_ = callback;
+    user_connect_callback_ = std::move(callback);
 
   return status;
 }
@@ -161,9 +182,7 @@ int FakeSSLClientSocket::DoHandshakeLoop() {
 void FakeSSLClientSocket::RunUserConnectCallback(int status) {
   DCHECK_LE(status, net::OK);
   next_handshake_state_ = STATE_NONE;
-  net::CompletionCallback user_connect_callback = user_connect_callback_;
-  user_connect_callback_.Reset();
-  user_connect_callback.Run(status);
+  std::move(user_connect_callback_).Run(status);
 }
 
 void FakeSSLClientSocket::DoHandshakeLoopWithUserConnectCallback() {
@@ -203,10 +222,10 @@ void FakeSSLClientSocket::ProcessConnectDone() {
 
 int FakeSSLClientSocket::DoSendClientHello() {
   int status = transport_socket_->Write(
-      write_buf_.get(),
-      write_buf_->BytesRemaining(),
+      write_buf_.get(), write_buf_->BytesRemaining(),
       base::Bind(&FakeSSLClientSocket::OnSendClientHelloDone,
-                 base::Unretained(this)));
+                 base::Unretained(this)),
+      TRAFFIC_ANNOTATION_FOR_TESTS);
   if (status < net::OK) {
     return status;
   }
@@ -275,7 +294,7 @@ net::Error FakeSSLClientSocket::ProcessVerifyServerHelloDone(size_t read) {
     return net::ERR_UNEXPECTED;
   }
   const uint8_t* expected_data_start =
-      &kSslServerHello[arraysize(kSslServerHello) -
+      &kSslServerHello[base::size(kSslServerHello) -
                        read_buf_->BytesRemaining()];
   if (std::memcmp(expected_data_start, read_buf_->data(), read) != 0) {
     return net::ERR_UNEXPECTED;
@@ -319,14 +338,6 @@ const net::NetLogWithSource& FakeSSLClientSocket::NetLog() const {
   return transport_socket_->NetLog();
 }
 
-void FakeSSLClientSocket::SetSubresourceSpeculation() {
-  transport_socket_->SetSubresourceSpeculation();
-}
-
-void FakeSSLClientSocket::SetOmniboxSpeculation() {
-  transport_socket_->SetOmniboxSpeculation();
-}
-
 bool FakeSSLClientSocket::WasEverUsed() const {
   return transport_socket_->WasEverUsed();
 }
@@ -351,6 +362,10 @@ void FakeSSLClientSocket::GetConnectionAttempts(
 int64_t FakeSSLClientSocket::GetTotalReceivedBytes() const {
   NOTIMPLEMENTED();
   return 0;
+}
+
+void FakeSSLClientSocket::ApplySocketTag(const net::SocketTag& tag) {
+  NOTIMPLEMENTED();
 }
 
 }  // namespace jingle_glue

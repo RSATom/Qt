@@ -13,7 +13,7 @@
 #include "base/files/file_path.h"
 #include "base/i18n/base_i18n_switches.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
@@ -25,6 +25,7 @@
 #include "third_party/icu/source/i18n/unicode/coll.h"
 
 #if defined(OS_IOS)
+#include "base/debug/crash_logging.h"
 #include "base/ios/ios_util.h"
 #endif
 
@@ -38,14 +39,14 @@ std::string GetLocaleString(const icu::Locale& locale) {
   const char* variant = locale.getVariant();
 
   std::string result =
-      (language != NULL && *language != '\0') ? language : "und";
+      (language != nullptr && *language != '\0') ? language : "und";
 
-  if (country != NULL && *country != '\0') {
+  if (country != nullptr && *country != '\0') {
     result += '-';
     result += country;
   }
 
-  if (variant != NULL && *variant != '\0')
+  if (variant != nullptr && *variant != '\0')
     result += '@' + base::ToLowerASCII(variant);
 
   return result;
@@ -70,40 +71,17 @@ base::i18n::TextDirection GetCharacterDirection(UChar32 character) {
   // Now that we have the character, we use ICU in order to query for the
   // appropriate Unicode BiDi character type.
   int32_t property = u_getIntPropertyValue(character, UCHAR_BIDI_CLASS);
-  if ((property == U_RIGHT_TO_LEFT) ||
-      (property == U_RIGHT_TO_LEFT_ARABIC) ||
-      (property == U_RIGHT_TO_LEFT_EMBEDDING) ||
-      (property == U_RIGHT_TO_LEFT_OVERRIDE)) {
-    return base::i18n::RIGHT_TO_LEFT;
-  } else if ((property == U_LEFT_TO_RIGHT) ||
-             (property == U_LEFT_TO_RIGHT_EMBEDDING) ||
-             (property == U_LEFT_TO_RIGHT_OVERRIDE)) {
-    return base::i18n::LEFT_TO_RIGHT;
-  }
-  return base::i18n::UNKNOWN_DIRECTION;
-}
-
-// Gets the explicitly forced text direction for debugging. If no forcing is
-// applied, returns UNKNOWN_DIRECTION.
-base::i18n::TextDirection GetForcedTextDirection() {
-  // On iOS, check for RTL forcing.
-#if defined(OS_IOS)
-  if (base::ios::IsInForcedRTL())
-    return base::i18n::RIGHT_TO_LEFT;
-#endif
-
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kForceUIDirection)) {
-    std::string force_flag =
-        command_line->GetSwitchValueASCII(switches::kForceUIDirection);
-
-    if (force_flag == switches::kForceDirectionLTR)
-      return base::i18n::LEFT_TO_RIGHT;
-
-    if (force_flag == switches::kForceDirectionRTL)
+  switch (property) {
+    case U_RIGHT_TO_LEFT:
+    case U_RIGHT_TO_LEFT_ARABIC:
+    case U_RIGHT_TO_LEFT_EMBEDDING:
+    case U_RIGHT_TO_LEFT_OVERRIDE:
       return base::i18n::RIGHT_TO_LEFT;
+    case U_LEFT_TO_RIGHT:
+    case U_LEFT_TO_RIGHT_EMBEDDING:
+    case U_LEFT_TO_RIGHT_OVERRIDE:
+      return base::i18n::LEFT_TO_RIGHT;
   }
-
   return base::i18n::UNKNOWN_DIRECTION;
 }
 
@@ -154,6 +132,12 @@ std::string ICULocaleName(const std::string& locale_string) {
 }
 
 void SetICUDefaultLocale(const std::string& locale_string) {
+#if defined(OS_IOS)
+  static base::debug::CrashKeyString* crash_key_locale =
+      base::debug::AllocateCrashKeyString("icu_locale_input",
+                                          base::debug::CrashKeySize::Size256);
+  base::debug::SetCrashKeyString(crash_key_locale, locale_string);
+#endif
   icu::Locale locale(ICULocaleName(locale_string).c_str());
   UErrorCode error_code = U_ZERO_ERROR;
   const char* lang = locale.getLanguage();
@@ -171,12 +155,39 @@ bool IsRTL() {
   return ICUIsRTL();
 }
 
+void SetRTLForTesting(bool rtl) {
+  SetICUDefaultLocale(rtl ? "he" : "en");
+  DCHECK_EQ(rtl, IsRTL());
+}
+
 bool ICUIsRTL() {
   if (g_icu_text_direction == UNKNOWN_DIRECTION) {
     const icu::Locale& locale = icu::Locale::getDefault();
     g_icu_text_direction = GetTextDirectionForLocaleInStartUp(locale.getName());
   }
   return g_icu_text_direction == RIGHT_TO_LEFT;
+}
+
+TextDirection GetForcedTextDirection() {
+// On iOS, check for RTL forcing.
+#if defined(OS_IOS)
+  if (base::ios::IsInForcedRTL())
+    return base::i18n::RIGHT_TO_LEFT;
+#endif
+
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kForceUIDirection)) {
+    std::string force_flag =
+        command_line->GetSwitchValueASCII(switches::kForceUIDirection);
+
+    if (force_flag == switches::kForceDirectionLTR)
+      return base::i18n::LEFT_TO_RIGHT;
+
+    if (force_flag == switches::kForceDirectionRTL)
+      return base::i18n::RIGHT_TO_LEFT;
+  }
+
+  return base::i18n::UNKNOWN_DIRECTION;
 }
 
 TextDirection GetTextDirectionForLocaleInStartUp(const char* locale_name) {
@@ -187,12 +198,12 @@ TextDirection GetTextDirectionForLocaleInStartUp(const char* locale_name) {
 
   // This list needs to be updated in alphabetical order if we add more RTL
   // locales.
-  static const char* kRTLLanguageCodes[] = {"ar", "fa", "he", "iw", "ur"};
+  static const char kRTLLanguageCodes[][3] = {"ar", "fa", "he", "iw", "ur"};
   std::vector<StringPiece> locale_split =
       SplitStringPiece(locale_name, "-_", KEEP_WHITESPACE, SPLIT_WANT_ALL);
   const StringPiece& language_code = locale_split[0];
   if (std::binary_search(kRTLLanguageCodes,
-                         kRTLLanguageCodes + arraysize(kRTLLanguageCodes),
+                         kRTLLanguageCodes + base::size(kRTLLanguageCodes),
                          language_code))
     return RIGHT_TO_LEFT;
   return LEFT_TO_RIGHT;
@@ -212,7 +223,7 @@ TextDirection GetTextDirectionForLocale(const char* locale_name) {
 }
 
 TextDirection GetFirstStrongCharacterDirection(const string16& text) {
-  const UChar* string = text.c_str();
+  const UChar* string = reinterpret_cast<const UChar*>(text.c_str());
   size_t length = text.length();
   size_t position = 0;
   while (position < length) {
@@ -228,7 +239,7 @@ TextDirection GetFirstStrongCharacterDirection(const string16& text) {
 }
 
 TextDirection GetLastStrongCharacterDirection(const string16& text) {
-  const UChar* string = text.c_str();
+  const UChar* string = reinterpret_cast<const UChar*>(text.c_str());
   size_t position = text.length();
   while (position > 0) {
     UChar32 character;
@@ -243,7 +254,7 @@ TextDirection GetLastStrongCharacterDirection(const string16& text) {
 }
 
 TextDirection GetStringDirection(const string16& text) {
-  const UChar* string = text.c_str();
+  const UChar* string = reinterpret_cast<const UChar*>(text.c_str());
   size_t length = text.length();
   size_t position = 0;
 
@@ -373,8 +384,27 @@ bool UnadjustStringForLocaleDirection(string16* text) {
 
 #endif  // !OS_WIN
 
+void EnsureTerminatedDirectionalFormatting(string16* text) {
+  int count = 0;
+  for (auto c : *text) {
+    if (c == kLeftToRightEmbeddingMark || c == kRightToLeftEmbeddingMark ||
+        c == kLeftToRightOverride || c == kRightToLeftOverride) {
+      ++count;
+    } else if (c == kPopDirectionalFormatting && count > 0) {
+      --count;
+    }
+  }
+  for (int j = 0; j < count; j++)
+    text->push_back(kPopDirectionalFormatting);
+}
+
+void SanitizeUserSuppliedString(string16* text) {
+  EnsureTerminatedDirectionalFormatting(text);
+  AdjustStringForLocaleDirection(text);
+}
+
 bool StringContainsStrongRTLChars(const string16& text) {
-  const UChar* string = text.c_str();
+  const UChar* string = reinterpret_cast<const UChar*>(text.c_str());
   size_t length = text.length();
   size_t position = 0;
   while (position < length) {

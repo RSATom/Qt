@@ -4,7 +4,6 @@
 
 #include "extensions/browser/renderer_startup_helper.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/notification_service.h"
@@ -28,13 +27,13 @@ class RendererStartupHelperTest : public ExtensionsTest {
 
   void SetUp() override {
     ExtensionsTest::SetUp();
-    helper_ = base::MakeUnique<RendererStartupHelper>(browser_context());
+    helper_ = std::make_unique<RendererStartupHelper>(browser_context());
     registry_ =
         ExtensionRegistryFactory::GetForBrowserContext(browser_context());
     render_process_host_ =
-        base::MakeUnique<content::MockRenderProcessHost>(browser_context());
+        std::make_unique<content::MockRenderProcessHost>(browser_context());
     incognito_render_process_host_ =
-        base::MakeUnique<content::MockRenderProcessHost>(incognito_context());
+        std::make_unique<content::MockRenderProcessHost>(incognito_context());
     extension_ = CreateExtension("ext_1");
   }
 
@@ -60,7 +59,7 @@ class RendererStartupHelperTest : public ExtensionsTest {
         content::NotificationService::NoDetails());
   }
 
-  scoped_refptr<Extension> CreateExtension(const std::string& id_input) {
+  scoped_refptr<const Extension> CreateExtension(const std::string& id_input) {
     std::unique_ptr<base::DictionaryValue> manifest =
         DictionaryBuilder()
             .Set("name", "extension")
@@ -71,7 +70,7 @@ class RendererStartupHelperTest : public ExtensionsTest {
     return CreateExtension(id_input, std::move(manifest));
   }
 
-  scoped_refptr<Extension> CreateTheme(const std::string& id_input) {
+  scoped_refptr<const Extension> CreateTheme(const std::string& id_input) {
     std::unique_ptr<base::DictionaryValue> manifest =
         DictionaryBuilder()
             .Set("name", "theme")
@@ -83,7 +82,8 @@ class RendererStartupHelperTest : public ExtensionsTest {
     return CreateExtension(id_input, std::move(manifest));
   }
 
-  scoped_refptr<Extension> CreatePlatformApp(const std::string& id_input) {
+  scoped_refptr<const Extension> CreatePlatformApp(
+      const std::string& id_input) {
     std::unique_ptr<base::Value> background =
         DictionaryBuilder()
             .Set("scripts", ListBuilder().Append("background.js").Build())
@@ -101,11 +101,11 @@ class RendererStartupHelperTest : public ExtensionsTest {
     return CreateExtension(id_input, std::move(manifest));
   }
 
-  void AddExtensionToRegistry(scoped_refptr<Extension> extension) {
+  void AddExtensionToRegistry(scoped_refptr<const Extension> extension) {
     registry_->AddEnabled(extension);
   }
 
-  void RemoveExtensionFromRegistry(scoped_refptr<Extension> extension) {
+  void RemoveExtensionFromRegistry(scoped_refptr<const Extension> extension) {
     registry_->RemoveEnabled(extension->id());
   }
 
@@ -136,10 +136,10 @@ class RendererStartupHelperTest : public ExtensionsTest {
   std::unique_ptr<content::MockRenderProcessHost> render_process_host_;
   std::unique_ptr<content::MockRenderProcessHost>
       incognito_render_process_host_;
-  scoped_refptr<Extension> extension_;
+  scoped_refptr<const Extension> extension_;
 
  private:
-  scoped_refptr<Extension> CreateExtension(
+  scoped_refptr<const Extension> CreateExtension(
       const std::string& id_input,
       std::unique_ptr<base::DictionaryValue> manifest) {
     return ExtensionBuilder()
@@ -171,7 +171,8 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   EXPECT_FALSE(IsExtensionPendingActivationInProcess(
       *extension_, render_process_host_.get()));
   ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            sink.GetMessageAt(0)->type());
 
   // Activate extension.
   sink.ClearMessages();
@@ -179,7 +180,8 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   EXPECT_FALSE(IsExtensionPendingActivationInProcess(
       *extension_, render_process_host_.get()));
   ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_ActivateExtension::ID, sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_ActivateExtension::ID),
+            sink.GetMessageAt(0)->type());
 
   // Disable extension.
   sink.ClearMessages();
@@ -187,7 +189,8 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   helper_->OnExtensionUnloaded(*extension_);
   EXPECT_FALSE(IsExtensionLoaded(*extension_));
   ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Unloaded::ID, sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Unloaded::ID),
+            sink.GetMessageAt(0)->type());
 
   // Extension enabled again.
   sink.ClearMessages();
@@ -198,7 +201,8 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   EXPECT_FALSE(IsExtensionPendingActivationInProcess(
       *extension_, render_process_host_.get()));
   ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            sink.GetMessageAt(0)->type());
 
   // Render Process terminated.
   SimulateRenderProcessTerminated(render_process_host_.get());
@@ -248,7 +252,7 @@ TEST_F(RendererStartupHelperTest, LoadTheme) {
   SimulateRenderProcessCreated(render_process_host_.get());
   EXPECT_TRUE(IsProcessInitialized(render_process_host_.get()));
 
-  scoped_refptr<Extension> extension(CreateTheme("theme"));
+  scoped_refptr<const Extension> extension(CreateTheme("theme"));
   ASSERT_TRUE(extension->is_theme());
 
   IPC::TestSink& sink = render_process_host_->sink();
@@ -329,12 +333,15 @@ TEST_F(RendererStartupHelperTest, ExtensionInIncognitoRenderer) {
   // The extension would not have been unloaded from the incognito renderer
   // since it wasn't loaded.
   ASSERT_EQ(1u, incognito_sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, incognito_sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            incognito_sink.GetMessageAt(0)->type());
   // The extension would be first unloaded and then loaded from the normal
   // renderer.
   ASSERT_EQ(2u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Unloaded::ID, sink.GetMessageAt(0)->type());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, sink.GetMessageAt(1)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Unloaded::ID),
+            sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            sink.GetMessageAt(1)->type());
 }
 
 // Tests that platform apps are always loaded in an incognito renderer.
@@ -346,7 +353,8 @@ TEST_F(RendererStartupHelperTest, PlatformAppInIncognitoRenderer) {
 
   IPC::TestSink& incognito_sink = incognito_render_process_host_->sink();
 
-  scoped_refptr<Extension> platform_app(CreatePlatformApp("platform_app"));
+  scoped_refptr<const Extension> platform_app(
+      CreatePlatformApp("platform_app"));
   ASSERT_TRUE(platform_app->is_platform_app());
   EXPECT_FALSE(util::IsIncognitoEnabled(platform_app->id(), browser_context()));
   EXPECT_FALSE(util::CanBeIncognitoEnabled(platform_app.get()));
@@ -360,7 +368,8 @@ TEST_F(RendererStartupHelperTest, PlatformAppInIncognitoRenderer) {
   EXPECT_TRUE(IsExtensionLoadedInProcess(*platform_app,
                                          incognito_render_process_host_.get()));
   ASSERT_EQ(1u, incognito_sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, incognito_sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            incognito_sink.GetMessageAt(0)->type());
 }
 
 }  // namespace extensions

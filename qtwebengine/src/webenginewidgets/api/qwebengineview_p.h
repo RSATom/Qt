@@ -55,6 +55,10 @@
 
 #include <QtWidgets/qaccessiblewidget.h>
 
+namespace QtWebEngineCore {
+class RenderWidgetHostViewQtDelegateWidget;
+}
+
 QT_BEGIN_NAMESPACE
 
 class QWebEngineView;
@@ -65,12 +69,15 @@ public:
     Q_DECLARE_PUBLIC(QWebEngineView)
     QWebEngineView *q_ptr;
 
-    static void bind(QWebEngineView *view, QWebEnginePage *page);
+    void pageChanged(QWebEnginePage *oldPage, QWebEnginePage *newPage);
+    void widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *oldWidget,
+                       QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *newWidget);
 
     QWebEngineViewPrivate();
 
     QWebEnginePage *page;
     bool m_dragEntered;
+    mutable bool m_ownsPage;
 };
 
 #ifndef QT_NO_ACCESSIBILITY
@@ -80,9 +87,9 @@ public:
     QWebEngineViewAccessible(QWebEngineView *o) : QAccessibleWidget(o)
     {}
 
-    int childCount() const Q_DECL_OVERRIDE;
-    QAccessibleInterface *child(int index) const Q_DECL_OVERRIDE;
-    int indexOfChild(const QAccessibleInterface *child) const Q_DECL_OVERRIDE;
+    int childCount() const override;
+    QAccessibleInterface *child(int index) const override;
+    int indexOfChild(const QAccessibleInterface *child) const override;
 
 private:
     QWebEngineView *view() const { return static_cast<QWebEngineView*>(object()); }

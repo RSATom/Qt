@@ -8,10 +8,10 @@
 
 #include "base/callback_helpers.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_address.h"
 #include "net/base/net_errors.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace {
 
@@ -50,7 +50,7 @@ void AndroidUsbSocket::HandleIncoming(std::unique_ptr<AdbMessage> message) {
         remote_id_ = message->arg0;
         is_connected_ = true;
         if (!connect_callback_.is_null())
-          base::ResetAndReturn(&connect_callback_).Run(net::OK);
+          std::move(connect_callback_).Run(net::OK);
         // "this" can be deleted.
       } else {
         RespondToWriter(write_length_);
@@ -65,7 +65,7 @@ void AndroidUsbSocket::HandleIncoming(std::unique_ptr<AdbMessage> message) {
         remote_id_ = message->arg0;
         is_connected_ = true;
         if (!connect_callback_.is_null())
-          base::ResetAndReturn(&connect_callback_).Run(net::OK);
+          std::move(connect_callback_).Run(net::OK);
         // "this" can be deleted.
       } else {
         RespondToReader(false);
@@ -88,14 +88,14 @@ void AndroidUsbSocket::Terminated(bool closed_by_device) {
 
   // Break the socket -> device connection, release the device.
   device_ = nullptr;
-  base::ResetAndReturn(&delete_callback_).Run();
+  std::move(delete_callback_).Run();
 
   if (!closed_by_device)
     return;
 
   // Respond to pending callbacks.
   if (!connect_callback_.is_null()) {
-    base::ResetAndReturn(&connect_callback_).Run(net::ERR_FAILED);
+    std::move(connect_callback_).Run(net::ERR_FAILED);
     // "this" can be deleted.
     return;
   }
@@ -110,14 +110,14 @@ void AndroidUsbSocket::Terminated(bool closed_by_device) {
 
 int AndroidUsbSocket::Read(net::IOBuffer* buffer,
                            int length,
-                           const net::CompletionCallback& callback) {
+                           net::CompletionOnceCallback callback) {
   DCHECK(!callback.is_null());
   if (!is_connected_)
     return device_.get() ? net::ERR_SOCKET_NOT_CONNECTED : 0;
 
   DCHECK(read_callback_.is_null());
   if (read_buffer_.empty()) {
-    read_callback_ = callback;
+    read_callback_ = std::move(callback);
     read_io_buffer_ = buffer;
     read_length_ = length;
     return net::ERR_IO_PENDING;
@@ -133,9 +133,11 @@ int AndroidUsbSocket::Read(net::IOBuffer* buffer,
   return bytes_to_copy;
 }
 
-int AndroidUsbSocket::Write(net::IOBuffer* buffer,
-                            int length,
-                            const net::CompletionCallback& callback) {
+int AndroidUsbSocket::Write(
+    net::IOBuffer* buffer,
+    int length,
+    net::CompletionOnceCallback callback,
+    const net::NetworkTrafficAnnotationTag& /*traffic_annotation*/) {
   DCHECK(!callback.is_null());
   if (!is_connected_)
     return net::ERR_SOCKET_NOT_CONNECTED;
@@ -144,7 +146,7 @@ int AndroidUsbSocket::Write(net::IOBuffer* buffer,
     length = kMaxPayload;
 
   DCHECK(write_callback_.is_null());
-  write_callback_ = callback;
+  write_callback_ = std::move(callback);
   write_length_ = length;
   device_->Send(AdbMessage::kCommandWRTE, local_id_, remote_id_,
                 std::string(buffer->data(), length));
@@ -161,7 +163,7 @@ int AndroidUsbSocket::SetSendBufferSize(int32_t size) {
   return net::ERR_NOT_IMPLEMENTED;
 }
 
-int AndroidUsbSocket::Connect(const net::CompletionCallback& callback) {
+int AndroidUsbSocket::Connect(net::CompletionOnceCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!callback.is_null());
   if (!device_.get())
@@ -169,7 +171,7 @@ int AndroidUsbSocket::Connect(const net::CompletionCallback& callback) {
 
   DCHECK(!is_connected_);
   DCHECK(connect_callback_.is_null());
-  connect_callback_ = callback;
+  connect_callback_ = std::move(callback);
   device_->Send(AdbMessage::kCommandOPEN, local_id_, 0, command_);
   return net::ERR_IO_PENDING;
 }
@@ -205,14 +207,6 @@ const net::NetLogWithSource& AndroidUsbSocket::NetLog() const {
   return net_log_;
 }
 
-void AndroidUsbSocket::SetSubresourceSpeculation() {
-  NOTIMPLEMENTED();
-}
-
-void AndroidUsbSocket::SetOmniboxSpeculation() {
-  NOTIMPLEMENTED();
-}
-
 bool AndroidUsbSocket::WasEverUsed() const {
   NOTIMPLEMENTED();
   return true;
@@ -242,6 +236,10 @@ int64_t AndroidUsbSocket::GetTotalReceivedBytes() const {
   return 0;
 }
 
+void AndroidUsbSocket::ApplySocketTag(const net::SocketTag& tag) {
+  NOTIMPLEMENTED();
+}
+
 void AndroidUsbSocket::RespondToReader(bool disconnect) {
   if (read_callback_.is_null() || (read_buffer_.empty() && !disconnect))
     return;
@@ -253,10 +251,10 @@ void AndroidUsbSocket::RespondToReader(bool disconnect) {
     read_buffer_ = read_buffer_.substr(bytes_to_copy);
   else
     read_buffer_ = std::string();
-  base::ResetAndReturn(&read_callback_).Run(bytes_to_copy);
+  std::move(read_callback_).Run(bytes_to_copy);
 }
 
 void AndroidUsbSocket::RespondToWriter(int result) {
   if (!write_callback_.is_null())
-    base::ResetAndReturn(&write_callback_).Run(result);
+    std::move(write_callback_).Run(result);
 }

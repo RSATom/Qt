@@ -9,16 +9,17 @@
 
 #include "gm.h"
 
-#if SK_SUPPORT_GPU
-
 #include "GrContext.h"
+#include "GrContextPriv.h"
+#include "GrProxyProvider.h"
 #include "GrRenderTargetContextPriv.h"
-#include "SkBitmap.h"
-#include "SkGr.h"
 #include "SkGradientShader.h"
+#include "SkImage.h"
+#include "SkImage_Base.h"
+#include "SkSurface.h"
 #include "effects/GrTextureDomain.h"
 #include "ops/GrDrawOp.h"
-#include "ops/GrRectOpFactory.h"
+#include "ops/GrFillRectOp.h"
 
 namespace skiagm {
 /**
@@ -26,13 +27,20 @@ namespace skiagm {
  */
 class TextureDomainEffect : public GM {
 public:
-    TextureDomainEffect() {
+    TextureDomainEffect(GrSamplerState::Filter filter)
+            : fFilter(filter) {
         this->setBGColor(0xFFFFFFFF);
     }
 
 protected:
     SkString onShortName() override {
-        return SkString("texture_domain_effect");
+        SkString name("texture_domain_effect");
+        if (fFilter == GrSamplerState::Filter::kBilerp) {
+            name.append("_bilerp");
+        } else if (fFilter == GrSamplerState::Filter::kMipMap) {
+            name.append("_mipmap");
+        }
+        return name;
     }
 
     SkISize onISize() override {
@@ -43,33 +51,35 @@ protected:
     }
 
     void onOnceBeforeDraw() override {
-        // TODO: do this with surfaces & images and gpu backend
+        // TODO: do this with gpu backend
         SkImageInfo ii = SkImageInfo::Make(kTargetWidth, kTargetHeight, kN32_SkColorType,
                                            kPremul_SkAlphaType);
-        fBmp.allocPixels(ii);
-        SkCanvas canvas(fBmp);
-        canvas.clear(0x00000000);
+        auto surface = SkSurface::MakeRaster(ii);
+        SkCanvas* canvas = surface->getCanvas();
+        canvas->clear(0x00000000);
         SkPaint paint;
 
         SkColor colors1[] = { SK_ColorCYAN, SK_ColorLTGRAY, SK_ColorGRAY };
         paint.setShader(SkGradientShader::MakeSweep(65.f, 75.f, colors1, nullptr,
                                                     SK_ARRAY_COUNT(colors1)));
-        canvas.drawOval(SkRect::MakeXYWH(-5.f, -5.f, fBmp.width() + 10.f, fBmp.height() + 10.f),
-                        paint);
+        canvas->drawOval(SkRect::MakeXYWH(-5.f, -5.f, kTargetWidth + 10.f, kTargetHeight + 10.f),
+                         paint);
 
         SkColor colors2[] = { SK_ColorMAGENTA, SK_ColorLTGRAY, SK_ColorYELLOW };
         paint.setShader(SkGradientShader::MakeSweep(45.f, 55.f, colors2, nullptr,
                                                     SK_ARRAY_COUNT(colors2)));
         paint.setBlendMode(SkBlendMode::kDarken);
-        canvas.drawOval(SkRect::MakeXYWH(-5.f, -5.f, fBmp.width() + 10.f, fBmp.height() + 10.f),
-                        paint);
+        canvas->drawOval(SkRect::MakeXYWH(-5.f, -5.f, kTargetWidth + 10.f, kTargetHeight + 10.f),
+                         paint);
 
         SkColor colors3[] = { SK_ColorBLUE, SK_ColorLTGRAY, SK_ColorGREEN };
         paint.setShader(SkGradientShader::MakeSweep(25.f, 35.f, colors3, nullptr,
                                                     SK_ARRAY_COUNT(colors3)));
         paint.setBlendMode(SkBlendMode::kLighten);
-        canvas.drawOval(SkRect::MakeXYWH(-5.f, -5.f, fBmp.width() + 10.f, fBmp.height() + 10.f),
-                        paint);
+        canvas->drawOval(SkRect::MakeXYWH(-5.f, -5.f, kTargetWidth + 10.f, kTargetHeight + 10.f),
+                         paint);
+
+        fImage = surface->makeImageSnapshot();
     }
 
     void onDraw(SkCanvas* canvas) override {
@@ -85,15 +95,19 @@ protected:
             return;
         }
 
-        GrSurfaceDesc desc;
-        desc.fWidth = fBmp.width();
-        desc.fHeight = fBmp.height();
-        desc.fConfig = SkImageInfo2GrPixelConfig(fBmp.info(), *context->caps());
-
-        sk_sp<GrTextureProxy> proxy(GrSurfaceProxy::MakeDeferred(context->resourceProvider(),
-                                                                 desc, SkBudgeted::kYes,
-                                                                 fBmp.getPixels(),
-                                                                 fBmp.rowBytes()));
+        GrProxyProvider* proxyProvider = context->contextPriv().proxyProvider();
+        sk_sp<GrTextureProxy> proxy;
+        if (fFilter == GrSamplerState::Filter::kMipMap) {
+            SkBitmap copy;
+            SkImageInfo info = as_IB(fImage)->onImageInfo().makeColorType(kN32_SkColorType);
+            if (!copy.tryAllocPixels(info) || !fImage->readPixels(copy.pixmap(), 0, 0)) {
+                return;
+            }
+            proxy = proxyProvider->createMipMapProxyFromBitmap(copy);
+        } else {
+            proxy = proxyProvider->createTextureProxy(
+                fImage, kNone_GrSurfaceFlags, 1, SkBudgeted::kYes, SkBackingFit::kExact);
+        }
         if (!proxy) {
             return;
         }
@@ -105,12 +119,12 @@ protected:
         textureMatrices.back().setRotate(45.f, proxy->width() / 2.f, proxy->height() / 2.f);
 
         const SkIRect texelDomains[] = {
-            fBmp.bounds(),
-            SkIRect::MakeXYWH(fBmp.width() / 4, fBmp.height() / 4,
-                              fBmp.width() / 2, fBmp.height() / 2),
+            fImage->bounds(),
+            SkIRect::MakeXYWH(fImage->width() / 4 - 1, fImage->height() / 4 - 1,
+                              fImage->width() / 2 + 2, fImage->height() / 2 + 2),
         };
 
-        SkRect renderRect = SkRect::Make(fBmp.bounds());
+        SkRect renderRect = SkRect::Make(fImage->bounds());
         renderRect.outset(kDrawPad, kDrawPad);
 
         SkScalar y = kDrawPad + kTestPad;
@@ -119,14 +133,18 @@ protected:
                 SkScalar x = kDrawPad + kTestPad;
                 for (int m = 0; m < GrTextureDomain::kModeCount; ++m) {
                     GrTextureDomain::Mode mode = (GrTextureDomain::Mode) m;
+                    if (fFilter != GrSamplerState::Filter::kNearest &&
+                        mode == GrTextureDomain::kRepeat_Mode) {
+                        // Repeat mode doesn't produce correct results with bilerp filtering
+                        continue;
+                    }
+
                     GrPaint grPaint;
                     grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
-                    sk_sp<GrFragmentProcessor> fp(
-                        GrTextureDomainEffect::Make(
-                                   proxy,
-                                   nullptr, textureMatrices[tm],
-                                   GrTextureDomain::MakeTexelDomainForMode(texelDomains[d], mode),
-                                   mode, GrSamplerParams::kNone_FilterMode));
+                    auto fp = GrTextureDomainEffect::Make(
+                            proxy, textureMatrices[tm],
+                            GrTextureDomain::MakeTexelDomain(texelDomains[d], mode),
+                            mode, fFilter);
 
                     if (!fp) {
                         continue;
@@ -134,8 +152,8 @@ protected:
                     const SkMatrix viewMatrix = SkMatrix::MakeTrans(x, y);
                     grPaint.addColorFragmentProcessor(std::move(fp));
                     renderTargetContext->priv().testingOnly_addDrawOp(
-                            GrRectOpFactory::MakeNonAAFill(std::move(grPaint), viewMatrix,
-                                                           renderRect, GrAAType::kNone));
+                            GrFillRectOp::Make(context, std::move(grPaint), GrAAType::kNone,
+                                               viewMatrix, renderRect));
                     x += renderRect.width() + kTestPad;
                 }
                 y += renderRect.height() + kTestPad;
@@ -145,15 +163,17 @@ protected:
 
 private:
     static constexpr SkScalar kDrawPad = 10.f;
-    static constexpr SkScalar kTestPad = 10.f;;
+    static constexpr SkScalar kTestPad = 10.f;
     static constexpr int      kTargetWidth = 100;
     static constexpr int      kTargetHeight = 100;
-    SkBitmap fBmp;
+    sk_sp<SkImage> fImage;
+    GrSamplerState::Filter fFilter;
 
     typedef GM INHERITED;
 };
 
-DEF_GM(return new TextureDomainEffect;)
-}
+DEF_GM(return new TextureDomainEffect(GrSamplerState::Filter::kNearest);)
+DEF_GM(return new TextureDomainEffect(GrSamplerState::Filter::kBilerp);)
+DEF_GM(return new TextureDomainEffect(GrSamplerState::Filter::kMipMap);)
 
-#endif
+}

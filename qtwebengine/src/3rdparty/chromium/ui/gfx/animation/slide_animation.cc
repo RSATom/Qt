@@ -6,6 +6,8 @@
 
 #include <math.h>
 
+#include "ui/gfx/animation/animation_delegate.h"
+
 namespace gfx {
 
 // How long animations should take by default.
@@ -19,10 +21,10 @@ SlideAnimation::SlideAnimation(AnimationDelegate* target)
       value_start_(0),
       value_end_(0),
       value_current_(0),
-      slide_duration_(kDefaultDurationMs) {}
+      slide_duration_(kDefaultDurationMs),
+      dampening_value_(1.0) {}
 
-SlideAnimation::~SlideAnimation() {
-}
+SlideAnimation::~SlideAnimation() {}
 
 void SlideAnimation::Reset() {
   Reset(0);
@@ -46,14 +48,17 @@ void SlideAnimation::Show() {
   // Make sure we actually have something to do.
   if (slide_duration_ == 0) {
     AnimateToState(1.0);  // Skip to the end of the animation.
+    if (delegate()) {
+      delegate()->AnimationProgressed(this);
+      delegate()->AnimationEnded(this);
+    }
     return;
-  } else if (value_current_ == value_end_)  {
+  } else if (value_current_ == value_end_) {
     return;
   }
 
   // This will also reset the currently-occurring animation.
-  SetDuration(base::TimeDelta::FromMilliseconds(
-      static_cast<int>(slide_duration_ * (1 - value_current_))));
+  SetDuration(GetDuration());
   Start();
 }
 
@@ -71,14 +76,17 @@ void SlideAnimation::Hide() {
     // TODO(bruthig): Investigate if this should really be animating to 0.0, I
     // think it should be animating to 1.0.
     AnimateToState(0.0);  // Skip to the end of the animation.
+    if (delegate()) {
+      delegate()->AnimationProgressed(this);
+      delegate()->AnimationEnded(this);
+    }
     return;
   } else if (value_current_ == value_end_) {
     return;
   }
 
   // This will also reset the currently-occurring animation.
-  SetDuration(base::TimeDelta::FromMilliseconds(
-      static_cast<int>(slide_duration_ * value_current_)));
+  SetDuration(GetDuration());
   Start();
 }
 
@@ -86,13 +94,27 @@ void SlideAnimation::SetSlideDuration(int duration) {
   slide_duration_ = duration;
 }
 
+void SlideAnimation::SetDampeningValue(double dampening_value) {
+  dampening_value_ = dampening_value;
+}
+
 double SlideAnimation::GetCurrentValue() const {
   return value_current_;
+}
+
+base::TimeDelta SlideAnimation::GetDuration() {
+  const double current_progress =
+      showing_ ? value_current_ : 1.0 - value_current_;
+
+  return base::TimeDelta::FromMillisecondsD(
+      slide_duration_ * (1 - pow(current_progress, dampening_value_)));
 }
 
 void SlideAnimation::AnimateToState(double state) {
   if (state > 1.0)
     state = 1.0;
+  else if (state < 0)
+    state = 0;
 
   state = Tween::CalculateValue(tween_type_, state);
 

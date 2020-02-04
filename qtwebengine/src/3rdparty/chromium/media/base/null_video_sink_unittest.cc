@@ -28,7 +28,7 @@ class NullVideoSinkTest : public testing::Test,
     // Never use null TimeTicks since they have special connotations.
     tick_clock_.Advance(base::TimeDelta::FromMicroseconds(12345));
   }
-  ~NullVideoSinkTest() override {}
+  ~NullVideoSinkTest() override = default;
 
   std::unique_ptr<NullVideoSink> ConstructSink(bool clockless,
                                                base::TimeDelta interval) {
@@ -42,7 +42,7 @@ class NullVideoSinkTest : public testing::Test,
 
   scoped_refptr<VideoFrame> CreateFrame(base::TimeDelta timestamp) {
     const gfx::Size natural_size(8, 8);
-    return VideoFrame::CreateFrame(PIXEL_FORMAT_YV12, natural_size,
+    return VideoFrame::CreateFrame(PIXEL_FORMAT_I420, natural_size,
                                    gfx::Rect(natural_size), natural_size,
                                    timestamp);
   }

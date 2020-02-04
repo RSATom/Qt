@@ -11,6 +11,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "components/feedback/feedback_common.h"
+#include "components/feedback/feedback_uploader.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -24,7 +25,7 @@ namespace feedback {
 
 class FeedbackData : public FeedbackCommon {
  public:
-  FeedbackData();
+  FeedbackData(feedback::FeedbackUploader* uploader);
 
   // Called once we've updated all the data from the feedback page.
   void OnFeedbackPageDataComplete();
@@ -32,10 +33,6 @@ class FeedbackData : public FeedbackCommon {
   // Sets the system information for this instance and kicks off its
   // compression.
   void SetAndCompressSystemInfo(std::unique_ptr<SystemLogsMap> sys_info);
-
-  // Sets the histograms for this instance and kicks off its
-  // compression.
-  void SetAndCompressHistograms(std::unique_ptr<std::string> histograms);
 
   // Sets the attached file data and kicks off its compression.
   void AttachAndCompressFileData(
@@ -66,10 +63,6 @@ class FeedbackData : public FeedbackCommon {
     screenshot_uuid_ = uuid;
   }
   void set_trace_id(int trace_id) { trace_id_ = trace_id; }
-  void set_send_report_callback(
-      const base::Callback<void(scoped_refptr<FeedbackData>)>& send_report) {
-    send_report_ = send_report;
-  }
 
  private:
   ~FeedbackData() override;
@@ -80,7 +73,7 @@ class FeedbackData : public FeedbackCommon {
   void OnGetTraceData(int trace_id,
                       scoped_refptr<base::RefCountedString> trace_data);
 
-  base::Callback<void(scoped_refptr<FeedbackData>)> send_report_;
+  feedback::FeedbackUploader* uploader_;  // Not owned.
 
   content::BrowserContext* context_;
 

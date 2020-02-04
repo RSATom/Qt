@@ -24,26 +24,26 @@ static const struct TestOsWithFamily {
   TestOSEntry version;
   TestOSEntry family;
 } kOSVersionsWithFamily[] = {
-  { { "XP", GPUTestConfig::kOsWinXP }, kOsFamilyWin },
-  { { "VISTA", GPUTestConfig::kOsWinVista }, kOsFamilyWin },
-  { { "WIN7", GPUTestConfig::kOsWin7 }, kOsFamilyWin },
-  { { "WIN8", GPUTestConfig::kOsWin8 }, kOsFamilyWin },
-  { { "WIN10", GPUTestConfig::kOsWin10 }, kOsFamilyWin },
-  { { "LEOPARD", GPUTestConfig::kOsMacLeopard }, kOsFamilyMac },
-  { { "SNOWLEOPARD", GPUTestConfig::kOsMacSnowLeopard }, kOsFamilyMac },
-  { { "LION", GPUTestConfig::kOsMacLion }, kOsFamilyMac },
-  { { "MOUNTAINLION", GPUTestConfig::kOsMacMountainLion }, kOsFamilyMac },
-  { { "MAVERICKS", GPUTestConfig::kOsMacMavericks }, kOsFamilyMac },
-  { { "YOSEMITE", GPUTestConfig::kOsMacYosemite }, kOsFamilyMac },
-  { { "ELCAPITAN", GPUTestConfig::kOsMacElCapitan }, kOsFamilyMac },
-  { { "SIERRA", GPUTestConfig::kOsMacSierra }, kOsFamilyMac },
-  { { "LINUX", GPUTestConfig::kOsLinux },
-    { "LINUX", GPUTestConfig::kOsLinux } },
-  { { "CHROMEOS", GPUTestConfig::kOsChromeOS },
-    { "CHROMEOS", GPUTestConfig::kOsChromeOS } },
-  { { "ANDROID", GPUTestConfig::kOsAndroid },
-    { "ANDROID", GPUTestConfig::kOsAndroid } }
-};
+    {{"XP", GPUTestConfig::kOsWinXP}, kOsFamilyWin},
+    {{"VISTA", GPUTestConfig::kOsWinVista}, kOsFamilyWin},
+    {{"WIN7", GPUTestConfig::kOsWin7}, kOsFamilyWin},
+    {{"WIN8", GPUTestConfig::kOsWin8}, kOsFamilyWin},
+    {{"WIN10", GPUTestConfig::kOsWin10}, kOsFamilyWin},
+    {{"LEOPARD", GPUTestConfig::kOsMacLeopard}, kOsFamilyMac},
+    {{"SNOWLEOPARD", GPUTestConfig::kOsMacSnowLeopard}, kOsFamilyMac},
+    {{"LION", GPUTestConfig::kOsMacLion}, kOsFamilyMac},
+    {{"MOUNTAINLION", GPUTestConfig::kOsMacMountainLion}, kOsFamilyMac},
+    {{"MAVERICKS", GPUTestConfig::kOsMacMavericks}, kOsFamilyMac},
+    {{"YOSEMITE", GPUTestConfig::kOsMacYosemite}, kOsFamilyMac},
+    {{"ELCAPITAN", GPUTestConfig::kOsMacElCapitan}, kOsFamilyMac},
+    {{"SIERRA", GPUTestConfig::kOsMacSierra}, kOsFamilyMac},
+    {{"HIGHSIERRA", GPUTestConfig::kOsMacHighSierra}, kOsFamilyMac},
+    {{"MOJAVE", GPUTestConfig::kOsMacMojave}, kOsFamilyMac},
+    {{"LINUX", GPUTestConfig::kOsLinux}, {"LINUX", GPUTestConfig::kOsLinux}},
+    {{"CHROMEOS", GPUTestConfig::kOsChromeOS},
+     {"CHROMEOS", GPUTestConfig::kOsChromeOS}},
+    {{"ANDROID", GPUTestConfig::kOsAndroid},
+     {"ANDROID", GPUTestConfig::kOsAndroid}}};
 
 TestOSEntry GetUnrelatedOS(const TestOSEntry& os) {
   return (os.os & kOsFamilyWin.os) ? kOsFamilyMac : kOsFamilyWin;
@@ -61,9 +61,9 @@ std::ostream& operator << (std::ostream& out, const TestOsWithFamily& os) {
 
 class GPUTestExpectationsParserTest : public testing::Test {
  public:
-  GPUTestExpectationsParserTest() { }
+  GPUTestExpectationsParserTest() = default;
 
-  ~GPUTestExpectationsParserTest() override {}
+  ~GPUTestExpectationsParserTest() override = default;
 
   const GPUTestBotConfig& bot_config() const {
     return bot_config_;
@@ -94,9 +94,9 @@ class GPUTestExpectationsParserParamTest
     : public GPUTestExpectationsParserTest,
       public testing::WithParamInterface<TestOsWithFamily> {
  public:
-  GPUTestExpectationsParserParamTest() { }
+  GPUTestExpectationsParserParamTest() = default;
 
-  ~GPUTestExpectationsParserParamTest() override {}
+  ~GPUTestExpectationsParserParamTest() override = default;
 
  protected:
   const GPUTestBotConfig& GetBotConfig() {

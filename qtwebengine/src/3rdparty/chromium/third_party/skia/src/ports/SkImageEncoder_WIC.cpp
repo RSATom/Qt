@@ -7,26 +7,7 @@
 
 #include "SkTypes.h"
 
-#if defined(SK_BUILD_FOR_WIN32)
-
-// Workaround for:
-// http://connect.microsoft.com/VisualStudio/feedback/details/621653/
-// http://crbug.com/225822
-// In VS2010 both intsafe.h and stdint.h define the following without guards.
-// SkTypes brought in windows.h and stdint.h and the following defines are
-// not used by this file. However, they may be re-introduced by wincodec.h.
-#undef INT8_MIN
-#undef INT16_MIN
-#undef INT32_MIN
-#undef INT64_MIN
-#undef INT8_MAX
-#undef UINT8_MAX
-#undef INT16_MAX
-#undef UINT16_MAX
-#undef INT32_MAX
-#undef UINT32_MAX
-#undef INT64_MAX
-#undef UINT64_MAX
+#if defined(SK_BUILD_FOR_WIN)
 
 #include "SkAutoCoInitialize.h"
 #include "SkAutoMalloc.h"
@@ -156,10 +137,11 @@ bool SkEncodeImageWithWIC(SkWStream* stream, const SkPixmap& pixmap,
     }
 
     if (SUCCEEDED(hr)) {
-        PROPBAG2 name = { 0 };
+        PROPBAG2 name;
+        memset(&name, 0, sizeof(name));
         name.dwType = PROPBAG2_TYPE_DATA;
         name.vt = VT_R4;
-        name.pstrName = L"ImageQuality";
+        name.pstrName = const_cast<LPOLESTR>(L"ImageQuality");
 
         VARIANT value;
         VariantInit(&value);
@@ -213,4 +195,4 @@ bool SkEncodeImageWithWIC(SkWStream* stream, const SkPixmap& pixmap,
     return SUCCEEDED(hr);
 }
 
-#endif // defined(SK_BUILD_FOR_WIN32)
+#endif // defined(SK_BUILD_FOR_WIN)

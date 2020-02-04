@@ -11,8 +11,8 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/run_loop.h"
+#include "base/strings/string_util.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/extensions_test.h"
@@ -51,8 +51,7 @@ storage::FileSystemURL CreateNativeLocalFileSystemURL(
 
 class FileHandlersMimeUtilTest : public ExtensionsTest {
  protected:
-  FileHandlersMimeUtilTest()
-      : ExtensionsTest(base::MakeUnique<content::TestBrowserThreadBundle>()) {}
+  FileHandlersMimeUtilTest() {}
   ~FileHandlersMimeUtilTest() override {}
 
   void SetUp() override {
@@ -60,16 +59,35 @@ class FileHandlersMimeUtilTest : public ExtensionsTest {
     file_system_context_ = content::CreateFileSystemContextForTesting(
         NULL, browser_context()->GetPath());
 
-    EXPECT_TRUE(base::CreateTemporaryFile(&html_mime_file_path_));
     const std::string kSampleContent = "<html><body></body></html>";
-    EXPECT_EQ(static_cast<int>(kSampleContent.size()),
-              base::WriteFile(html_mime_file_path_, kSampleContent.c_str(),
-                              kSampleContent.size()));
+    base::FilePath temp_filename = CreateTemporaryFile(kSampleContent);
+    // File path must end in .html to avoid relying upon MIME-sniffing, which
+    // is disabled for HTML files delivered from file:// URIs.
+    html_mime_file_path_ =
+        temp_filename.AddExtension(FILE_PATH_LITERAL(".html"));
+    EXPECT_TRUE(base::Move(temp_filename, html_mime_file_path_));
+
+    // First 16 bytes of //media/test/data/bear.amr
+    const std::string kSampleAmrContent =
+        "\x23\x21\x41\x4d\x52\x0a\x3c\x53\x0a\x7c\xe8\xb8\x41\xa5\x80\xca";
+    temp_filename = CreateTemporaryFile(kSampleAmrContent);
+    amr_mime_file_path_ = temp_filename.AddExtension(FILE_PATH_LITERAL(".amr"));
+    EXPECT_TRUE(base::Move(temp_filename, amr_mime_file_path_));
+  }
+
+  base::FilePath CreateTemporaryFile(const std::string& contents) {
+    base::FilePath temp_filename;
+    EXPECT_TRUE(base::CreateTemporaryFile(&temp_filename));
+    EXPECT_EQ(
+        static_cast<int>(contents.size()),
+        base::WriteFile(temp_filename, contents.c_str(), contents.size()));
+    return temp_filename;
   }
 
   ExtensionsAPIClient extensions_api_client_;
   scoped_refptr<storage::FileSystemContext> file_system_context_;
   base::FilePath html_mime_file_path_;
+  base::FilePath amr_mime_file_path_;
 };
 
 TEST_F(FileHandlersMimeUtilTest, GetMimeTypeForLocalPath) {
@@ -78,7 +96,7 @@ TEST_F(FileHandlersMimeUtilTest, GetMimeTypeForLocalPath) {
     GetMimeTypeForLocalPath(browser_context(), base::FilePath::FromUTF8Unsafe(
                                                    kJPEGExtensionFilePath),
                             base::Bind(&OnMimeTypeResult, &result));
-    content::RunAllBlockingPoolTasksUntilIdle();
+    content::RunAllTasksUntilIdle();
     EXPECT_EQ("image/jpeg", result);
   }
 
@@ -88,7 +106,7 @@ TEST_F(FileHandlersMimeUtilTest, GetMimeTypeForLocalPath) {
         browser_context(),
         base::FilePath::FromUTF8Unsafe(kJPEGExtensionUpperCaseFilePath),
         base::Bind(&OnMimeTypeResult, &result));
-    content::RunAllBlockingPoolTasksUntilIdle();
+    content::RunAllTasksUntilIdle();
     EXPECT_EQ("image/jpeg", result);
   }
 
@@ -96,8 +114,19 @@ TEST_F(FileHandlersMimeUtilTest, GetMimeTypeForLocalPath) {
     std::string result;
     GetMimeTypeForLocalPath(browser_context(), html_mime_file_path_,
                             base::Bind(&OnMimeTypeResult, &result));
-    content::RunAllBlockingPoolTasksUntilIdle();
+    content::RunAllTasksUntilIdle();
     EXPECT_EQ("text/html", result);
+  }
+
+  {
+    std::string result;
+    GetMimeTypeForLocalPath(browser_context(), amr_mime_file_path_,
+                            base::BindRepeating(&OnMimeTypeResult, &result));
+    content::RunAllTasksUntilIdle();
+    // The MIME type for AMR files is supposed to be "audio/AMR" (note: upper
+    // case). However, platforms are inconsistent in this and some, including
+    // chrome, use lower case.
+    EXPECT_EQ("audio/amr", base::ToLowerASCII(result));
   }
 }
 
@@ -116,7 +145,7 @@ TEST_F(FileHandlersMimeUtilTest, MimeTypeCollector_ForURLs) {
 
   std::vector<std::string> result;
   collector.CollectForURLs(urls, base::Bind(&OnMimeTypesCollected, &result));
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
 
   ASSERT_EQ(3u, result.size());
   EXPECT_EQ("image/jpeg", result[0]);
@@ -136,7 +165,7 @@ TEST_F(FileHandlersMimeUtilTest, MimeTypeCollector_ForLocalPaths) {
   std::vector<std::string> result;
   collector.CollectForLocalPaths(local_paths,
                                  base::Bind(&OnMimeTypesCollected, &result));
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
 
   ASSERT_EQ(3u, result.size());
   EXPECT_EQ("image/jpeg", result[0]);

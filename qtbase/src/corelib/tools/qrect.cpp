@@ -73,7 +73,7 @@ QT_BEGIN_NAMESPACE
 
     The QRect class provides a collection of functions that return the
     various rectangle coordinates, and enable manipulation of
-    these. QRect also provide functions to move the rectangle relative
+    these. QRect also provides functions to move the rectangle relative
     to the various coordinates. In addition there is a moveTo()
     function that moves the rectangle, leaving its top left corner at
     the given coordinates. Alternatively, the translate() function
@@ -155,7 +155,7 @@ QT_BEGIN_NAMESPACE
 
     The QRect class provides a collection of functions that return the
     various rectangle coordinates, and enable manipulation of
-    these. QRect also provide functions to move the rectangle relative
+    these. QRect also provides functions to move the rectangle relative
     to the various coordinates.
 
     For example the left(), setLeft() and moveLeft() functions as an
@@ -713,10 +713,7 @@ QRect QRect::normalized() const Q_DECL_NOTHROW
     Returns a copy of the rectangle that has its width and height
     exchanged:
 
-    \code
-    QRect r = {15, 51, 42, 24};
-    r = r.transposed(); // r == {15, 51, 24, 42}
-    \endcode
+    \snippet code/src_corelib_tools_qrect.cpp 2
 
     \sa QSize::transposed()
 */
@@ -1197,7 +1194,7 @@ bool QRect::intersects(const QRect &r) const Q_DECL_NOTHROW
     \fn QRect operator-(const QRect &lhs, const QMargins &rhs)
     \relates QRect
 
-    Returns the \a lhs rectangle shrunken by the \a rhs margins.
+    Returns the \a lhs rectangle shrunk by the \a rhs margins.
 
     \since 5.3
 */
@@ -1335,7 +1332,7 @@ QDebug operator<<(QDebug dbg, const QRect &r)
 
     The QRectF class provides a collection of functions that return
     the various rectangle coordinates, and enable manipulation of
-    these. QRectF also provide functions to move the rectangle
+    these. QRectF also provides functions to move the rectangle
     relative to the various coordinates. In addition there is a
     moveTo() function that moves the rectangle, leaving its top left
     corner at the given coordinates. Alternatively, the translate()
@@ -1418,7 +1415,7 @@ QDebug operator<<(QDebug dbg, const QRect &r)
 
     The QRectF class provides a collection of functions that return
     the various rectangle coordinates, and enable manipulation of
-    these. QRectF also provide functions to move the rectangle
+    these. QRectF also provides functions to move the rectangle
     relative to the various coordinates.
 
     For example: the bottom(), setBottom() and moveBottom() functions:
@@ -1863,10 +1860,7 @@ QRectF QRectF::normalized() const Q_DECL_NOTHROW
     Returns a copy of the rectangle that has its width and height
     exchanged:
 
-    \code
-    QRectF r = {1.5, 5.1, 4.2, 2.4};
-    r = r.transposed(); // r == {1.5, 5.1, 2.4, 4.2}
-    \endcode
+    \snippet code/src_corelib_tools_qrect.cpp 3
 
     \sa QSizeF::transposed()
 */
@@ -2423,7 +2417,7 @@ QRect QRectF::toAlignedRect() const Q_DECL_NOTHROW
     \relates QRectF
     \since 5.3
 
-    Returns the \a lhs rectangle grown by the \a rhs margins.
+    Returns the \a lhs rectangle shrunk by the \a rhs margins.
 */
 
 /*!

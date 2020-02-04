@@ -46,9 +46,9 @@ QTextToSpeechProcessor::QTextToSpeechProcessor():
     m_paused(false),
     m_rate(0),
     m_pitch(0),
-    m_volume(100),
-    m_audio(0),
-    m_audioBuffer(0)
+    m_volume(1.0),
+    m_audio(nullptr),
+    m_audioBuffer(nullptr)
 {
 }
 
@@ -186,8 +186,8 @@ void QTextToSpeechProcessor::run()
         if (isInterruptionRequested()) {
             if (m_audio) {
                 delete m_audio;
-                m_audio = 0;
-                m_audioBuffer = 0;
+                m_audio = nullptr;
+                m_audioBuffer = nullptr;
             }
             m_lock.unlock();
             break;
@@ -227,8 +227,8 @@ bool QTextToSpeechProcessor::audioStart(int sampleRate, int channelCount, QStrin
         *errorString = QLatin1String("Failed to start audio output (error ")
             + QString::number(m_audio->error()) + QLatin1Char(')');
     delete m_audio;
-    m_audio = 0;
-    m_audioBuffer = 0;
+    m_audio = nullptr;
+    m_audioBuffer = nullptr;
     return false;
 }
 
@@ -282,8 +282,8 @@ void QTextToSpeechProcessor::audioStop(bool abort)
             m_audio->stop();
         }
         delete m_audio;
-        m_audio = 0;
-        m_audioBuffer = 0;
+        m_audio = nullptr;
+        m_audioBuffer = nullptr;
     }
 }
 

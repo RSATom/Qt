@@ -18,13 +18,14 @@ ProxyConnectRedirectHttpStream::ProxyConnectRedirectHttpStream(
     load_timing_info_ = *load_timing_info;
 }
 
-ProxyConnectRedirectHttpStream::~ProxyConnectRedirectHttpStream() {}
+ProxyConnectRedirectHttpStream::~ProxyConnectRedirectHttpStream() = default;
 
 int ProxyConnectRedirectHttpStream::InitializeStream(
     const HttpRequestInfo* request_info,
+    bool can_send_early,
     RequestPriority priority,
     const NetLogWithSource& net_log,
-    const CompletionCallback& callback) {
+    CompletionOnceCallback callback) {
   NOTREACHED();
   return OK;
 }
@@ -32,13 +33,13 @@ int ProxyConnectRedirectHttpStream::InitializeStream(
 int ProxyConnectRedirectHttpStream::SendRequest(
     const HttpRequestHeaders& request_headers,
     HttpResponseInfo* response,
-    const CompletionCallback& callback) {
+    CompletionOnceCallback callback) {
   NOTREACHED();
   return OK;
 }
 
 int ProxyConnectRedirectHttpStream::ReadResponseHeaders(
-    const CompletionCallback& callback) {
+    CompletionOnceCallback callback) {
   NOTREACHED();
   return OK;
 }
@@ -46,7 +47,7 @@ int ProxyConnectRedirectHttpStream::ReadResponseHeaders(
 int ProxyConnectRedirectHttpStream::ReadResponseBody(
     IOBuffer* buf,
     int buf_len,
-    const CompletionCallback& callback) {
+    CompletionOnceCallback callback) {
   NOTREACHED();
   return OK;
 }
@@ -105,14 +106,6 @@ void ProxyConnectRedirectHttpStream::GetSSLCertRequestInfo(
 bool ProxyConnectRedirectHttpStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
   NOTREACHED();
   return false;
-}
-
-Error ProxyConnectRedirectHttpStream::GetTokenBindingSignature(
-    crypto::ECPrivateKey* key,
-    TokenBindingType tb_type,
-    std::vector<uint8_t>* out) {
-  NOTREACHED();
-  return ERR_NOT_IMPLEMENTED;
 }
 
 void ProxyConnectRedirectHttpStream::Drain(HttpNetworkSession* session) {

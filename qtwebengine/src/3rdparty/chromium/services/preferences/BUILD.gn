@@ -21,11 +21,12 @@ source_set("preferences") {
     ":*",
     "//services/preferences/public/cpp:service_main",
   ]
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
   deps = [
     "//components/prefs",
     "//services/preferences/public/cpp",
     "//services/preferences/public/cpp/lib",
-    "//services/preferences/public/interfaces",
+    "//services/preferences/public/mojom",
     "//services/preferences/tracked",
     "//services/service_manager/public/cpp",
   ]
@@ -54,7 +55,7 @@ source_set("tests") {
     "//services/preferences/public/cpp",
     "//services/preferences/public/cpp:service_main",
     "//services/preferences/public/cpp/tests",
-    "//services/preferences/public/interfaces",
+    "//services/preferences/public/mojom",
     "//services/preferences/tracked:unit_tests",
     "//services/service_manager/public/cpp",
     "//testing/gmock",
@@ -64,10 +65,14 @@ source_set("tests") {
     "persistent_pref_store_impl_unittest.cc",
     "pref_store_consistency_unittest.cc",
     "pref_store_impl_unittest.cc",
+    "unittest_common.cc",
   ]
   if (!is_ios) {
     sources += [ "pref_service_factory_unittest.cc" ]
-    deps += [ "//services/service_manager/public/cpp:service_test_support" ]
+    deps += [
+      ":tests_catalog_source",
+      "//services/service_manager/public/cpp/test:test_support",
+    ]
   }
 }
 
@@ -88,4 +93,10 @@ service_manifest("unittest_helper_manifest") {
 catalog("tests_catalog") {
   testonly = true
   embedded_services = [ ":unittest_manifest" ]
+}
+
+catalog_cpp_source("tests_catalog_source") {
+  testonly = true
+  catalog = ":tests_catalog"
+  generated_function_name = "prefs::CreateServiceTestCatalog"
 }

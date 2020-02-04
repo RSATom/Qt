@@ -10,7 +10,7 @@
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/sync_token.h"
 #include "media/base/video_frame.h"
-#include "media/renderers/gpu_video_accelerator_factories.h"
+#include "media/video/gpu_video_accelerator_factories.h"
 
 namespace media {
 
@@ -21,46 +21,38 @@ class VideoOverlayFactory::Texture {
     DCHECK(gpu_factories_);
     DCHECK(gpu_factories_->GetTaskRunner()->BelongsToCurrentThread());
 
-    std::unique_ptr<GpuVideoAcceleratorFactories::ScopedGLContextLock> lock(
-        gpu_factories_->GetGLContextLock());
-    if (lock) {
-      gpu::gles2::GLES2Interface* gl = lock->ContextGL();
-      gpu_memory_buffer_ = gpu_factories_->CreateGpuMemoryBuffer(
-          gfx::Size(1, 1), gfx::BufferFormat::RGBA_8888,
-          gfx::BufferUsage::SCANOUT);
-      if (gpu_memory_buffer_) {
-        image_id_ = gl->CreateImageCHROMIUM(
-            gpu_memory_buffer_->AsClientBuffer(), 1, 1, GL_RGBA);
+    gpu::gles2::GLES2Interface* gl = gpu_factories_->ContextGL();
+    if (!gl)
+      return;
+    gpu_memory_buffer_ = gpu_factories_->CreateGpuMemoryBuffer(
+        gfx::Size(1, 1), gfx::BufferFormat::BGRA_8888,
+        gfx::BufferUsage::SCANOUT);
+    if (gpu_memory_buffer_) {
+      image_id_ = gl->CreateImageCHROMIUM(gpu_memory_buffer_->AsClientBuffer(),
+                                          1, 1, GL_BGRA_EXT);
       }
       if (image_id_) {
         gl->GenTextures(1, &texture_id_);
         gl->BindTexture(GL_TEXTURE_2D, texture_id_);
         gl->BindTexImage2DCHROMIUM(GL_TEXTURE_2D, image_id_);
 
-        gl->GenMailboxCHROMIUM(mailbox_.name);
-        gl->ProduceTextureDirectCHROMIUM(texture_id_, GL_TEXTURE_2D,
-                                         mailbox_.name);
+        gl->ProduceTextureDirectCHROMIUM(texture_id_, mailbox_.name);
 
-        const GLuint64 fence_sync = gl->InsertFenceSyncCHROMIUM();
-        gl->ShallowFlushCHROMIUM();
-        gl->GenSyncTokenCHROMIUM(fence_sync, sync_token_.GetData());
+        gl->GenSyncTokenCHROMIUM(sync_token_.GetData());
       }
-    }
   }
 
   ~Texture() {
     DCHECK(gpu_factories_->GetTaskRunner()->BelongsToCurrentThread());
 
     if (image_id_) {
-      std::unique_ptr<GpuVideoAcceleratorFactories::ScopedGLContextLock> lock(
-          gpu_factories_->GetGLContextLock());
-      if (lock) {
-        gpu::gles2::GLES2Interface* gl = lock->ContextGL();
-        gl->BindTexture(GL_TEXTURE_2D, texture_id_);
-        gl->ReleaseTexImage2DCHROMIUM(GL_TEXTURE_2D, image_id_);
-        gl->DeleteTextures(1, &texture_id_);
-        gl->DestroyImageCHROMIUM(image_id_);
-      }
+      gpu::gles2::GLES2Interface* gl = gpu_factories_->ContextGL();
+      if (!gl)
+        return;
+      gl->BindTexture(GL_TEXTURE_2D, texture_id_);
+      gl->ReleaseTexImage2DCHROMIUM(GL_TEXTURE_2D, image_id_);
+      gl->DeleteTextures(1, &texture_id_);
+      gl->DestroyImageCHROMIUM(image_id_);
     }
   }
 
@@ -81,13 +73,13 @@ VideoOverlayFactory::VideoOverlayFactory(
     GpuVideoAcceleratorFactories* gpu_factories)
     : gpu_factories_(gpu_factories) {}
 
-VideoOverlayFactory::~VideoOverlayFactory() {}
+VideoOverlayFactory::~VideoOverlayFactory() = default;
 
 scoped_refptr<VideoFrame> VideoOverlayFactory::CreateFrame(
     const gfx::Size& size) {
   // Frame size empty => video has one dimension = 0.
-  // Dimension 0 case triggers a DCHECK later on in TextureMailbox if we push
-  // through the overlay path.
+  // Dimension 0 case triggers a DCHECK later on if we push through the overlay
+  // path.
   Texture* texture = size.IsEmpty() ? nullptr : GetTexture();
   if (!texture) {
     DVLOG(1) << "Create black frame " << size.width() << "x" << size.height();
@@ -107,6 +99,15 @@ scoped_refptr<VideoFrame> VideoOverlayFactory::CreateFrame(
       base::TimeDelta());  // timestamp
   CHECK(frame);
   frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY, true);
+  // On platforms that use the video hole, the video never makes it in the media
+  // pipeline as it is side loaded straight into the hardware video plane. This
+  // is intended for protected video such that userspace cannot copy potentially
+  // protected content. While the video may not be protected, since it goes
+  // through the protected video path, the video always looks like a protected
+  // video from the perspective of VideoOverlayFactory which produces a dummy
+  // video frame in its place.
+  frame->metadata()->SetBoolean(VideoFrameMetadata::PROTECTED_VIDEO, true);
+  frame->metadata()->SetBoolean(VideoFrameMetadata::HW_PROTECTED, true);
   return frame;
 }
 

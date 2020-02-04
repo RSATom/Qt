@@ -7,7 +7,7 @@
 
 #include <stddef.h>
 
-#include <list>
+#include <deque>
 #include <set>
 #include <vector>
 
@@ -111,6 +111,9 @@ class CC_EXPORT PictureLayerTilingSet {
 
   // Removes all tilings with a contents scale key > |maximum_scale_key|.
   void RemoveTilingsAboveScaleKey(float maximum_scale);
+
+  // Removes all resources (tilings, raster source).
+  void ReleaseAllResources();
 
   // Remove all tilings.
   void RemoveAllTilings();
@@ -247,8 +250,8 @@ class CC_EXPORT PictureLayerTilingSet {
   PictureLayerTilingClient* client_;
   const float max_preraster_distance_;
   // State saved for computing velocities based on finite differences.
-  // .front() of the list refers to the most recent FrameVisibleRect.
-  std::list<FrameVisibleRect> visible_rect_history_;
+  // .front() of the deque refers to the most recent FrameVisibleRect.
+  std::deque<FrameVisibleRect> visible_rect_history_;
   StateSinceLastTilePriorityUpdate state_since_last_tile_priority_update_;
 
   scoped_refptr<RasterSource> raster_source_;

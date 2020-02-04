@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -15,6 +14,7 @@
 #include "chrome/browser/extensions/api/tabs/tabs_constants.h"
 #include "chrome/browser/extensions/api/tabs/windows_util.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/window_controller.h"
 #include "chrome/browser/extensions/window_controller_list.h"
@@ -30,7 +30,6 @@ using content::BrowserContext;
 
 namespace extensions {
 
-namespace keys = extensions::tabs_constants;
 namespace windows = extensions::api::windows;
 
 namespace {
@@ -43,14 +42,20 @@ bool ControllerVisibleToListener(WindowController* window_controller,
 
   // If there is no filter the visibility is based on the extension.
   const base::ListValue* filter_value = nullptr;
-  if (!listener_filter ||
-      !listener_filter->GetList(keys::kWindowTypesKey, &filter_value))
-    return window_controller->IsVisibleToExtension(extension);
+  if (listener_filter)
+    listener_filter->GetList(extensions::tabs_constants::kWindowTypesKey,
+                             &filter_value);
 
-  // Otherwise it's based on the type filter.
-  WindowController::TypeFilter filter =
-      WindowController::GetFilterFromWindowTypesValues(filter_value);
-  return window_controller->MatchesFilter(filter);
+  // TODO(https://crbug.com/807313): Remove this.
+  bool allow_dev_tools_windows = !!filter_value;
+  if (!window_controller->IsVisibleToTabsAPIForExtension(
+          extension, allow_dev_tools_windows)) {
+    return false;
+  }
+
+  return !filter_value ||
+         window_controller->MatchesFilter(
+             WindowController::GetFilterFromWindowTypesValues(filter_value));
 }
 
 bool WillDispatchWindowEvent(WindowController* window_controller,
@@ -59,7 +64,15 @@ bool WillDispatchWindowEvent(WindowController* window_controller,
                              Event* event,
                              const base::DictionaryValue* listener_filter) {
   bool has_filter =
-      listener_filter && listener_filter->HasKey(keys::kWindowTypesKey);
+      listener_filter &&
+      listener_filter->HasKey(extensions::tabs_constants::kWindowTypesKey);
+  // TODO(https://crbug.com/807313): Remove this.
+  bool allow_dev_tools_windows = has_filter;
+  if (!window_controller->IsVisibleToTabsAPIForExtension(
+          extension, allow_dev_tools_windows)) {
+    return false;
+  }
+
   // Cleanup previous values.
   event->filter_info = EventFilteringInfo();
   // Only set the window type if the listener has set a filter.
@@ -67,8 +80,7 @@ bool WillDispatchWindowEvent(WindowController* window_controller,
   if (has_filter) {
     event->filter_info.window_type = window_controller->GetWindowTypeText();
   } else {
-    event->filter_info.window_exposed_by_default =
-        window_controller->IsVisibleToExtension(extension);
+    event->filter_info.window_exposed_by_default = true;
   }
   return true;
 }
@@ -82,7 +94,8 @@ bool WillDispatchWindowFocusedEvent(
   int window_id = extension_misc::kUnknownWindowId;
   Profile* new_active_context = nullptr;
   bool has_filter =
-      listener_filter && listener_filter->HasKey(keys::kWindowTypesKey);
+      listener_filter &&
+      listener_filter->HasKey(extensions::tabs_constants::kWindowTypesKey);
 
   // We might not have a window controller if the focus moves away
   // from chromium's windows.
@@ -100,7 +113,7 @@ bool WillDispatchWindowFocusedEvent(
   if (has_filter) {
     event->filter_info.window_type =
         window_controller ? window_controller->GetWindowTypeText()
-                          : keys::kWindowTypeValueNormal;
+                          : extensions::tabs_constants::kWindowTypeValueNormal;
   } else {
     event->filter_info.window_exposed_by_default = true;
   }
@@ -195,9 +208,14 @@ void WindowsEventRouter::OnWindowControllerAdded(
     return;
   if (!profile_->IsSameProfile(window_controller->profile()))
     return;
+  // Ignore any windows without an associated browser (e.g., AppWindows).
+  if (!window_controller->GetBrowser())
+    return;
 
   std::unique_ptr<base::ListValue> args(new base::ListValue());
-  args->Append(window_controller->CreateWindowValue());
+  args->Append(ExtensionTabUtil::CreateWindowValueForExtension(
+      *window_controller->GetBrowser(), nullptr,
+      ExtensionTabUtil::kDontPopulateTabs));
   DispatchEvent(events::WINDOWS_ON_CREATED, windows::OnCreated::kEventName,
                 window_controller, std::move(args));
 }
@@ -207,6 +225,9 @@ void WindowsEventRouter::OnWindowControllerRemoved(
   if (!HasEventListener(windows::OnRemoved::kEventName))
     return;
   if (!profile_->IsSameProfile(window_controller->profile()))
+    return;
+  // Ignore any windows without an associated browser (e.g., AppWindows).
+  if (!window_controller->GetBrowser())
     return;
 
   int window_id = window_controller->GetWindowId();
@@ -254,11 +275,11 @@ void WindowsEventRouter::OnActiveWindowChanged(
   if (!HasEventListener(windows::OnFocusChanged::kEventName))
     return;
 
-  std::unique_ptr<Event> event = base::MakeUnique<Event>(
+  std::unique_ptr<Event> event = std::make_unique<Event>(
       events::WINDOWS_ON_FOCUS_CHANGED, windows::OnFocusChanged::kEventName,
-      base::MakeUnique<base::ListValue>());
+      std::make_unique<base::ListValue>());
   event->will_dispatch_callback =
-      base::Bind(&WillDispatchWindowFocusedEvent, window_controller);
+      base::BindRepeating(&WillDispatchWindowFocusedEvent, window_controller);
   EventRouter::Get(profile_)->BroadcastEvent(std::move(event));
 }
 
@@ -267,10 +288,10 @@ void WindowsEventRouter::DispatchEvent(events::HistogramValue histogram_value,
                                        WindowController* window_controller,
                                        std::unique_ptr<base::ListValue> args) {
   auto event =
-      base::MakeUnique<Event>(histogram_value, event_name, std::move(args),
+      std::make_unique<Event>(histogram_value, event_name, std::move(args),
                               window_controller->profile());
   event->will_dispatch_callback =
-      base::Bind(&WillDispatchWindowEvent, window_controller);
+      base::BindRepeating(&WillDispatchWindowEvent, window_controller);
   EventRouter::Get(profile_)->BroadcastEvent(std::move(event));
 }
 
@@ -280,7 +301,7 @@ bool WindowsEventRouter::HasEventListener(const std::string& event_name) {
 
 void WindowsEventRouter::AddAppWindow(extensions::AppWindow* app_window) {
   std::unique_ptr<AppWindowController> controller(new AppWindowController(
-      app_window, base::MakeUnique<AppBaseWindow>(app_window), profile_));
+      app_window, std::make_unique<AppBaseWindow>(app_window), profile_));
   app_windows_[app_window->session_id().id()] = std::move(controller);
 }
 

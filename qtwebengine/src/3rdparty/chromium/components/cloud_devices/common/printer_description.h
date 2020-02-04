@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef COMPONENTS_CLOUD_DEVICES_COMMON_CLOUD_PRINTER_DESCRIPTION_H_
-#define COMPONENTS_CLOUD_DEVICES_COMMON_CLOUD_PRINTER_DESCRIPTION_H_
+#ifndef COMPONENTS_CLOUD_DEVICES_COMMON_PRINTER_DESCRIPTION_H_
+#define COMPONENTS_CLOUD_DEVICES_COMMON_PRINTER_DESCRIPTION_H_
 
 #include <stdint.h>
 
 #include <string>
+#include <vector>
 
 #include "base/logging.h"
 #include "components/cloud_devices/common/description_items.h"
@@ -23,9 +24,16 @@ typedef std::string ContentType;
 
 enum DocumentSheetBack { NORMAL, ROTATED, MANUAL_TUMBLE, FLIPPED };
 
+enum PwgDocumentTypeSupported {
+  SGRAY_8 = 22,
+  SRGB_8 = 23,
+};
+
 struct PwgRasterConfig {
   PwgRasterConfig();
+  ~PwgRasterConfig();
 
+  std::vector<PwgDocumentTypeSupported> document_types_supported;
   DocumentSheetBack document_sheet_back;
   bool reverse_order_streaming;
   bool rotate_all_pages;
@@ -375,4 +383,4 @@ typedef TicketItem<bool, ReverseTraits> ReverseTicketItem;
 
 }  // namespace cloud_devices
 
-#endif  // COMPONENTS_CLOUD_DEVICES_COMMON_CLOUD_PRINTER_DESCRIPTION_H_
+#endif  // COMPONENTS_CLOUD_DEVICES_COMMON_PRINTER_DESCRIPTION_H_

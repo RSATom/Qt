@@ -4,9 +4,13 @@
 
 #include "content/browser/devtools/protocol/security_handler.h"
 
+#include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "content/browser/devtools/devtools_session.h"
+#include "base/base64.h"
+#include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -14,7 +18,9 @@
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
-#include "third_party/WebKit/public/platform/WebMixedContentContextType.h"
+#include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util.h"
+#include "third_party/blink/public/platform/web_mixed_content_context_type.h"
 
 namespace content {
 namespace protocol {
@@ -32,8 +38,6 @@ std::string SecurityStyleToProtocolSecurityState(
       return Security::SecurityStateEnum::Neutral;
     case blink::kWebSecurityStyleInsecure:
       return Security::SecurityStateEnum::Insecure;
-    case blink::kWebSecurityStyleWarning:
-      return Security::SecurityStateEnum::Warning;
     case blink::kWebSecurityStyleSecure:
       return Security::SecurityStateEnum::Secure;
     default:
@@ -66,14 +70,38 @@ void AddExplanations(
     const std::vector<SecurityStyleExplanation>& explanations_to_add,
     Explanations* explanations) {
   for (const auto& it : explanations_to_add) {
+    std::unique_ptr<protocol::Array<String>> certificate =
+        protocol::Array<String>::create();
+    if (it.certificate) {
+      std::string encoded;
+      base::Base64Encode(net::x509_util::CryptoBufferAsStringPiece(
+                             it.certificate->cert_buffer()),
+                         &encoded);
+      certificate->addItem(encoded);
+
+      for (const auto& cert : it.certificate->intermediate_buffers()) {
+        base::Base64Encode(
+            net::x509_util::CryptoBufferAsStringPiece(cert.get()), &encoded);
+        certificate->addItem(encoded);
+      }
+    }
+
+    std::unique_ptr<protocol::Array<String>> recommendations =
+        protocol::Array<String>::create();
+    for (const auto& recommendation : it.recommendations) {
+      recommendations->addItem(recommendation);
+    }
+
     explanations->addItem(
         Security::SecurityStateExplanation::Create()
             .SetSecurityState(security_style)
+            .SetTitle(it.title)
             .SetSummary(it.summary)
             .SetDescription(it.description)
-            .SetHasCertificate(it.has_certificate)
+            .SetCertificate(std::move(certificate))
             .SetMixedContentType(MixedContentTypeToProtocolMixedContentType(
                 it.mixed_content_type))
+            .SetRecommendations(std::move(recommendations))
             .Build());
   }
 }
@@ -83,8 +111,7 @@ void AddExplanations(
 // static
 std::vector<SecurityHandler*> SecurityHandler::ForAgentHost(
     DevToolsAgentHostImpl* host) {
-  return DevToolsSession::HandlersForAgentHost<SecurityHandler>(
-      host, Security::Metainfo::domainName);
+  return host->HandlersByName<SecurityHandler>(Security::Metainfo::domainName);
 }
 
 SecurityHandler::SecurityHandler()
@@ -111,14 +138,17 @@ void SecurityHandler::AttachToRenderFrameHost() {
   DidChangeVisibleSecurityState();
 }
 
-void SecurityHandler::SetRenderFrameHost(RenderFrameHostImpl* host) {
-  host_ = host;
+void SecurityHandler::SetRenderer(int process_host_id,
+                                  RenderFrameHostImpl* frame_host) {
+  host_ = frame_host;
   if (enabled_ && host_)
     AttachToRenderFrameHost();
 }
 
 void SecurityHandler::DidChangeVisibleSecurityState() {
   DCHECK(enabled_);
+  if (!web_contents()->GetDelegate())
+    return;
 
   SecurityStyleExplanations security_style_explanations;
   blink::WebSecurityStyle security_style =
@@ -169,7 +199,7 @@ void SecurityHandler::DidChangeVisibleSecurityState() {
 }
 
 void SecurityHandler::DidFinishNavigation(NavigationHandle* navigation_handle) {
-  if (certificate_errors_overriden_)
+  if (cert_error_override_mode_ == CertErrorOverrideMode::kHandleEvents)
     FlushPendingCertificateErrorNotifications();
 }
 
@@ -182,15 +212,25 @@ void SecurityHandler::FlushPendingCertificateErrorNotifications() {
 bool SecurityHandler::NotifyCertificateError(int cert_error,
                                              const GURL& request_url,
                                              CertErrorCallback handler) {
+  if (cert_error_override_mode_ == CertErrorOverrideMode::kIgnoreAll) {
+    if (handler)
+      std::move(handler).Run(content::CERTIFICATE_REQUEST_RESULT_TYPE_CONTINUE);
+    return true;
+  }
+
   if (!enabled_)
     return false;
+
   frontend_->CertificateError(++last_cert_error_id_,
                               net::ErrorToShortString(cert_error),
                               request_url.spec());
-  if (!certificate_errors_overriden_) {
+
+  if (!handler ||
+      cert_error_override_mode_ != CertErrorOverrideMode::kHandleEvents) {
     return false;
   }
-  cert_error_callbacks_[last_cert_error_id_] = handler;
+
+  cert_error_callbacks_[last_cert_error_id_] = std::move(handler);
   return true;
 }
 
@@ -204,22 +244,9 @@ Response SecurityHandler::Enable() {
 
 Response SecurityHandler::Disable() {
   enabled_ = false;
-  certificate_errors_overriden_ = false;
+  cert_error_override_mode_ = CertErrorOverrideMode::kDisabled;
   WebContentsObserver::Observe(nullptr);
   FlushPendingCertificateErrorNotifications();
-  return Response::OK();
-}
-
-Response SecurityHandler::ShowCertificateViewer() {
-  if (!host_)
-    return Response::InternalError();
-  WebContents* web_contents = WebContents::FromRenderFrameHost(host_);
-  scoped_refptr<net::X509Certificate> certificate =
-      web_contents->GetController().GetVisibleEntry()->GetSSL().certificate;
-  if (!certificate)
-    return Response::Error("Could not find certificate");
-  web_contents->GetDelegate()->ShowCertificateViewerInDevTools(
-      web_contents, certificate);
   return Response::OK();
 }
 
@@ -246,11 +273,27 @@ Response SecurityHandler::HandleCertificateError(int event_id,
 }
 
 Response SecurityHandler::SetOverrideCertificateErrors(bool override) {
-  if (override && !enabled_)
-    return Response::Error("Security domain not enabled");
-  certificate_errors_overriden_ = override;
-  if (!override)
+  if (override) {
+    if (!enabled_)
+      return Response::Error("Security domain not enabled");
+    if (cert_error_override_mode_ == CertErrorOverrideMode::kIgnoreAll)
+      return Response::Error("Certificate errors are already being ignored.");
+    cert_error_override_mode_ = CertErrorOverrideMode::kHandleEvents;
+  } else {
+    cert_error_override_mode_ = CertErrorOverrideMode::kDisabled;
     FlushPendingCertificateErrorNotifications();
+  }
+  return Response::OK();
+}
+
+Response SecurityHandler::SetIgnoreCertificateErrors(bool ignore) {
+  if (ignore) {
+    if (cert_error_override_mode_ == CertErrorOverrideMode::kHandleEvents)
+      return Response::Error("Certificate errors are already overridden.");
+    cert_error_override_mode_ = CertErrorOverrideMode::kIgnoreAll;
+  } else {
+    cert_error_override_mode_ = CertErrorOverrideMode::kDisabled;
+  }
   return Response::OK();
 }
 

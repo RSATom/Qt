@@ -11,9 +11,11 @@
 #include "gpu/command_buffer/client/client_test_helper.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_mock.h"
 #include "gpu/command_buffer/service/gpu_service_test.h"
+#include "gpu/command_buffer/service/gpu_tracer.h"
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager_impl.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
+#include "gpu/command_buffer/service/shared_image_manager.h"
 #include "gpu/command_buffer/service/test_helper.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,27 +40,30 @@ class ContextGroupTest : public GpuServiceTest {
  public:
   static const bool kBindGeneratesResource = false;
 
-  ContextGroupTest() {}
+  ContextGroupTest() = default;
 
  protected:
   void SetUp() override {
     GpuServiceTest::SetUp();
-    decoder_.reset(new MockGLES2Decoder(&command_buffer_service_));
+    decoder_.reset(new MockGLES2Decoder(&command_buffer_service_, &outputter_));
     scoped_refptr<FeatureInfo> feature_info = new FeatureInfo;
     group_ = scoped_refptr<ContextGroup>(new ContextGroup(
-        gpu_preferences_, &mailbox_manager_, nullptr /* memory_tracker */,
-        nullptr /* shader_translator_cache */,
+        gpu_preferences_, false, &mailbox_manager_,
+        nullptr /* memory_tracker */, nullptr /* shader_translator_cache */,
         nullptr /* framebuffer_completeness_cache */, feature_info,
         kBindGeneratesResource, &image_manager_, nullptr /* image_factory */,
         nullptr /* progress_reporter */, GpuFeatureInfo(),
-        &discardable_manager_));
+        &discardable_manager_, nullptr /* passthrough_discardable_manager */,
+        &shared_image_manager_));
   }
 
   GpuPreferences gpu_preferences_;
   ImageManager image_manager_;
   ServiceDiscardableManager discardable_manager_;
+  SharedImageManager shared_image_manager_;
   FakeCommandBufferServiceBase command_buffer_service_;
   MailboxManagerImpl mailbox_manager_;
+  TraceOutputter outputter_;
   std::unique_ptr<MockGLES2Decoder> decoder_;
   scoped_refptr<ContextGroup> group_;
 };
@@ -72,11 +77,12 @@ TEST_F(ContextGroupTest, Basic) {
   EXPECT_EQ(0u, group_->max_fragment_uniform_vectors());
   EXPECT_EQ(0u, group_->max_varying_vectors());
   EXPECT_EQ(0u, group_->max_vertex_uniform_vectors());
-  EXPECT_TRUE(group_->buffer_manager() == NULL);
-  EXPECT_TRUE(group_->renderbuffer_manager() == NULL);
-  EXPECT_TRUE(group_->texture_manager() == NULL);
-  EXPECT_TRUE(group_->program_manager() == NULL);
-  EXPECT_TRUE(group_->shader_manager() == NULL);
+  EXPECT_TRUE(group_->buffer_manager() == nullptr);
+  EXPECT_TRUE(group_->renderbuffer_manager() == nullptr);
+  EXPECT_TRUE(group_->texture_manager() == nullptr);
+  EXPECT_TRUE(group_->program_manager() == nullptr);
+  EXPECT_TRUE(group_->shader_manager() == nullptr);
+  EXPECT_FALSE(group_->use_passthrough_cmd_decoder());
 }
 
 TEST_F(ContextGroupTest, InitializeNoExtensions) {
@@ -99,59 +105,65 @@ TEST_F(ContextGroupTest, InitializeNoExtensions) {
             group_->max_varying_vectors());
   EXPECT_EQ(static_cast<uint32_t>(TestHelper::kMaxVertexUniformVectors),
             group_->max_vertex_uniform_vectors());
-  EXPECT_TRUE(group_->buffer_manager() != NULL);
-  EXPECT_TRUE(group_->renderbuffer_manager() != NULL);
-  EXPECT_TRUE(group_->texture_manager() != NULL);
-  EXPECT_TRUE(group_->program_manager() != NULL);
-  EXPECT_TRUE(group_->shader_manager() != NULL);
+  EXPECT_TRUE(group_->buffer_manager() != nullptr);
+  EXPECT_TRUE(group_->renderbuffer_manager() != nullptr);
+  EXPECT_TRUE(group_->texture_manager() != nullptr);
+  EXPECT_TRUE(group_->program_manager() != nullptr);
+  EXPECT_TRUE(group_->shader_manager() != nullptr);
 
   group_->Destroy(decoder_.get(), false);
-  EXPECT_TRUE(group_->buffer_manager() == NULL);
-  EXPECT_TRUE(group_->renderbuffer_manager() == NULL);
-  EXPECT_TRUE(group_->texture_manager() == NULL);
-  EXPECT_TRUE(group_->program_manager() == NULL);
-  EXPECT_TRUE(group_->shader_manager() == NULL);
+  EXPECT_TRUE(group_->buffer_manager() == nullptr);
+  EXPECT_TRUE(group_->renderbuffer_manager() == nullptr);
+  EXPECT_TRUE(group_->texture_manager() == nullptr);
+  EXPECT_TRUE(group_->program_manager() == nullptr);
+  EXPECT_TRUE(group_->shader_manager() == nullptr);
 }
 
 TEST_F(ContextGroupTest, MultipleContexts) {
   FakeCommandBufferServiceBase command_buffer_service2;
+  TraceOutputter outputter;
   std::unique_ptr<MockGLES2Decoder> decoder2_(
-      new MockGLES2Decoder(&command_buffer_service2));
+      new MockGLES2Decoder(&command_buffer_service2, &outputter));
   TestHelper::SetupContextGroupInitExpectations(
       gl_.get(), DisallowedFeatures(), "", "",
       CONTEXT_TYPE_OPENGLES2, kBindGeneratesResource);
-  EXPECT_TRUE(group_->Initialize(decoder_.get(), CONTEXT_TYPE_OPENGLES2,
-                                 DisallowedFeatures()));
-  EXPECT_FALSE(group_->Initialize(decoder2_.get(), CONTEXT_TYPE_WEBGL1,
-                                  DisallowedFeatures()));
-  EXPECT_FALSE(group_->Initialize(decoder2_.get(), CONTEXT_TYPE_WEBGL2,
-                                  DisallowedFeatures()));
-  EXPECT_FALSE(group_->Initialize(decoder2_.get(), CONTEXT_TYPE_OPENGLES3,
-                                  DisallowedFeatures()));
-  EXPECT_TRUE(group_->Initialize(decoder2_.get(), CONTEXT_TYPE_OPENGLES2,
-                                 DisallowedFeatures()));
+  EXPECT_EQ(group_->Initialize(decoder_.get(), CONTEXT_TYPE_OPENGLES2,
+                               DisallowedFeatures()),
+            gpu::ContextResult::kSuccess);
+  EXPECT_EQ(group_->Initialize(decoder2_.get(), CONTEXT_TYPE_WEBGL1,
+                               DisallowedFeatures()),
+            gpu::ContextResult::kFatalFailure);
+  EXPECT_EQ(group_->Initialize(decoder2_.get(), CONTEXT_TYPE_WEBGL2,
+                               DisallowedFeatures()),
+            gpu::ContextResult::kFatalFailure);
+  EXPECT_EQ(group_->Initialize(decoder2_.get(), CONTEXT_TYPE_OPENGLES3,
+                               DisallowedFeatures()),
+            gpu::ContextResult::kFatalFailure);
+  EXPECT_EQ(group_->Initialize(decoder2_.get(), CONTEXT_TYPE_OPENGLES2,
+                               DisallowedFeatures()),
+            gpu::ContextResult::kSuccess);
 
-  EXPECT_TRUE(group_->buffer_manager() != NULL);
-  EXPECT_TRUE(group_->renderbuffer_manager() != NULL);
-  EXPECT_TRUE(group_->texture_manager() != NULL);
-  EXPECT_TRUE(group_->program_manager() != NULL);
-  EXPECT_TRUE(group_->shader_manager() != NULL);
+  EXPECT_TRUE(group_->buffer_manager() != nullptr);
+  EXPECT_TRUE(group_->renderbuffer_manager() != nullptr);
+  EXPECT_TRUE(group_->texture_manager() != nullptr);
+  EXPECT_TRUE(group_->program_manager() != nullptr);
+  EXPECT_TRUE(group_->shader_manager() != nullptr);
 
   group_->Destroy(decoder_.get(), false);
 
-  EXPECT_TRUE(group_->buffer_manager() != NULL);
-  EXPECT_TRUE(group_->renderbuffer_manager() != NULL);
-  EXPECT_TRUE(group_->texture_manager() != NULL);
-  EXPECT_TRUE(group_->program_manager() != NULL);
-  EXPECT_TRUE(group_->shader_manager() != NULL);
+  EXPECT_TRUE(group_->buffer_manager() != nullptr);
+  EXPECT_TRUE(group_->renderbuffer_manager() != nullptr);
+  EXPECT_TRUE(group_->texture_manager() != nullptr);
+  EXPECT_TRUE(group_->program_manager() != nullptr);
+  EXPECT_TRUE(group_->shader_manager() != nullptr);
 
   group_->Destroy(decoder2_.get(), false);
 
-  EXPECT_TRUE(group_->buffer_manager() == NULL);
-  EXPECT_TRUE(group_->renderbuffer_manager() == NULL);
-  EXPECT_TRUE(group_->texture_manager() == NULL);
-  EXPECT_TRUE(group_->program_manager() == NULL);
-  EXPECT_TRUE(group_->shader_manager() == NULL);
+  EXPECT_TRUE(group_->buffer_manager() == nullptr);
+  EXPECT_TRUE(group_->renderbuffer_manager() == nullptr);
+  EXPECT_TRUE(group_->texture_manager() == nullptr);
+  EXPECT_TRUE(group_->program_manager() == nullptr);
+  EXPECT_TRUE(group_->shader_manager() == nullptr);
 }
 
 }  // namespace gles2

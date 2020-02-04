@@ -68,9 +68,9 @@ public:
     PeerManager(Client *client);
 
     void setServerPort(int port);
-    QByteArray userName() const;
+    QString userName() const;
     void startBroadcasting();
-    bool isLocalHostAddress(const QHostAddress &address);
+    bool isLocalHostAddress(const QHostAddress &address) const;
 
 signals:
     void newConnection(Connection *connection);
@@ -87,7 +87,7 @@ private:
     QList<QHostAddress> ipAddresses;
     QUdpSocket broadcastSocket;
     QTimer broadcastTimer;
-    QByteArray username;
+    QString username;
     int serverPort;
 };
 

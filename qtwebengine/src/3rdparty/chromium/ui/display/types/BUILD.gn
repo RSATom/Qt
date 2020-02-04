@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-component("types") {
+import("//build/config/jumbo.gni")
+
+jumbo_component("types") {
   output_name = "display_types"
   sources = [
     "display_constants.h",
@@ -10,8 +12,6 @@ component("types") {
     "display_mode.h",
     "display_snapshot.cc",
     "display_snapshot.h",
-    "display_snapshot_mojo.cc",
-    "display_snapshot_mojo.h",
     "display_types_export.h",
     "fake_display_controller.h",
     "gamma_ramp_rgb_entry.h",
@@ -24,6 +24,8 @@ component("types") {
 
   deps = [
     "//base",
+    "//skia",
+    "//ui/gfx:color_space",
     "//ui/gfx:memory_buffer",
     "//ui/gfx/geometry",
   ]

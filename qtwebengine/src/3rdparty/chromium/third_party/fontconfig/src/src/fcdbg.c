@@ -46,7 +46,10 @@ _FcValuePrintFile (FILE *f, const FcValue v)
 	fprintf (f, "\"%s\"", v.u.s);
 	break;
     case FcTypeBool:
-	fprintf (f, "%s", v.u.b ? "True" : "False");
+	fprintf (f,
+		 v.u.b == FcTrue  ? "True" :
+		 v.u.b == FcFalse ? "False" :
+				    "DontCare");
 	break;
     case FcTypeMatrix:
 	fprintf (f, "[%g %g; %g %g]", v.u.m->xx, v.u.m->xy, v.u.m->yx, v.u.m->yy);
@@ -60,6 +63,9 @@ _FcValuePrintFile (FILE *f, const FcValue v)
 	break;
     case FcTypeFTFace:
 	fprintf (f, "face");
+	break;
+    case FcTypeRange:
+	fprintf (f, "[%g %g]", v.u.r->begin, v.u.r->end);
 	break;
     }
 }
@@ -181,22 +187,21 @@ FcCharSetPrint (const FcCharSet *c)
 void
 FcPatternPrint (const FcPattern *p)
 {
-    int		    i;
-    FcPatternElt   *e;
+    FcPatternIter iter;
 
     if (!p)
     {
 	printf ("Null pattern\n");
 	return;
     }
-    printf ("Pattern has %d elts (size %d)\n", p->num, p->size);
-    for (i = 0; i < p->num; i++)
+    printf ("Pattern has %d elts (size %d)\n", FcPatternObjectCount (p), p->size);
+    FcPatternIterStart (p, &iter);
+    do
     {
-	e = &FcPatternElts(p)[i];
-	printf ("\t%s:", FcObjectName(e->object));
-	FcValueListPrint (FcPatternEltValues(e));
+	printf ("\t%s:", FcPatternIterGetObject (p, &iter));
+	FcValueListPrint (FcPatternIterGetValues (p, &iter));
 	printf ("\n");
-    }
+    } while (FcPatternIterNext (p, &iter));
     printf ("\n");
 }
 
@@ -206,6 +211,84 @@ FcPatternPrint (const FcPattern *p)
 	if (f & FcOpFlagIgnoreBlanks)	\
 	    printf ("(ignore blanks)");	\
     }
+
+void
+FcPatternPrint2 (FcPattern         *pp1,
+		 FcPattern         *pp2,
+		 const FcObjectSet *os)
+{
+    int i, j, k, pos;
+    FcPatternElt *e1, *e2;
+    FcPattern *p1, *p2;
+
+    if (os)
+    {
+	p1 = FcPatternFilter (pp1, os);
+	p2 = FcPatternFilter (pp2, os);
+    }
+    else
+    {
+	p1 = pp1;
+	p2 = pp2;
+    }
+    printf ("Pattern has %d elts (size %d), %d elts (size %d)\n",
+	    p1->num, p1->size, p2->num, p2->size);
+    for (i = 0, j = 0; i < p1->num; i++)
+    {
+	e1 = &FcPatternElts(p1)[i];
+	e2 = &FcPatternElts(p2)[j];
+	if (!e2 || e1->object != e2->object)
+	{
+	    pos = FcPatternPosition (p2, FcObjectName (e1->object));
+	    if (pos >= 0)
+	    {
+		for (k = j; k < pos; k++)
+		{
+		    e2 = &FcPatternElts(p2)[k];
+		    printf ("\t%s: (None) -> ", FcObjectName (e2->object));
+		    FcValueListPrint (FcPatternEltValues (e2));
+		    printf ("\n");
+		}
+		j = pos;
+		goto cont;
+	    }
+	    else
+	    {
+		printf ("\t%s:", FcObjectName (e1->object));
+		FcValueListPrint (FcPatternEltValues (e1));
+		printf (" -> (None)\n");
+	    }
+	}
+	else
+	{
+	cont:
+	    printf ("\t%s:", FcObjectName (e1->object));
+	    FcValueListPrint (FcPatternEltValues (e1));
+	    printf (" -> ");
+	    e2 = &FcPatternElts(p2)[j];
+	    FcValueListPrint (FcPatternEltValues (e2));
+	    printf ("\n");
+	    j++;
+	}
+    }
+    if (j < p2->num)
+    {
+	for (k = j; k < p2->num; k++)
+	{
+	    e2 = &FcPatternElts(p2)[k];
+	    if (FcObjectName (e2->object))
+	    {
+		printf ("\t%s: (None) -> ", FcObjectName (e2->object));
+		FcValueListPrint (FcPatternEltValues (e2));
+		printf ("\n");
+	    }
+	}
+    }
+    if (p1 != pp1)
+	FcPatternDestroy (p1);
+    if (p2 != pp2)
+	FcPatternDestroy (p2);
+}
 
 void
 FcOpPrint (FcOp op_)
@@ -277,7 +360,9 @@ FcExprPrint (const FcExpr *expr)
 	FcExprPrint (expr->u.mexpr->yy);
 	printf ("]");
 	break;
-    case FcOpRange: break;
+    case FcOpRange:
+	printf ("(%g, %g)", expr->u.rval->begin, expr->u.rval->end);
+	break;
     case FcOpBool: printf ("%s", expr->u.bval ? "true" : "false"); break;
     case FcOpCharSet: printf ("charset\n"); break;
     case FcOpLangSet:
@@ -393,6 +478,9 @@ FcTestPrint (const FcTest *test)
     case FcMatchScan:
 	printf ("scan ");
 	break;
+    case FcMatchKindEnd:
+	/* shouldn't be reached */
+	return;
     }
     switch (test->qual) {
     case FcQualAny:
@@ -425,13 +513,12 @@ FcEditPrint (const FcEdit *edit)
 }
 
 void
-FcSubstPrint (const FcSubst *subst)
+FcRulePrint (const FcRule *rule)
 {
-    FcRule *r;
     FcRuleType last_type = FcRuleUnknown;
+    const FcRule *r;
 
-    printf ("match\n");
-    for (r = subst->rule; r; r = r->next)
+    for (r = rule; r; r = r->next)
     {
 	if (last_type != r->type)
 	{

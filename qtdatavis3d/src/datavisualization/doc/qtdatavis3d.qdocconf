@@ -1,8 +1,10 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtdatavis3d.qdocconf)
 
 project             = QtDataVisualization
 description         = Qt Data Visualization Reference Documentation
 version             = $QT_VERSION
+buildversion        = Qt Data Visualization | Commercial or GPLv3
 
 exampledirs += ../../../examples/datavisualization \
                snippets

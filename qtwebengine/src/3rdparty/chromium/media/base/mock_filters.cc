@@ -17,17 +17,18 @@ MATCHER(NotEmpty, "") {
 
 namespace media {
 
-MockPipelineClient::MockPipelineClient() {}
-MockPipelineClient::~MockPipelineClient() {}
+MockPipelineClient::MockPipelineClient() = default;
+MockPipelineClient::~MockPipelineClient() = default;
 
-MockPipeline::MockPipeline() {}
-MockPipeline::~MockPipeline() {}
+MockPipeline::MockPipeline() = default;
+MockPipeline::~MockPipeline() = default;
 
-void MockPipeline::Start(Demuxer* demuxer,
+void MockPipeline::Start(StartType start_type,
+                         Demuxer* demuxer,
                          std::unique_ptr<Renderer> renderer,
                          Client* client,
                          const PipelineStatusCB& seek_cb) {
-  Start(demuxer, &renderer, client, seek_cb);
+  Start(start_type, demuxer, &renderer, client, seek_cb);
 }
 
 void MockPipeline::Resume(std::unique_ptr<Renderer> renderer,
@@ -36,19 +37,22 @@ void MockPipeline::Resume(std::unique_ptr<Renderer> renderer,
   Resume(&renderer, timestamp, seek_cb);
 }
 
-MockDemuxer::MockDemuxer() {}
+MockMediaResource::MockMediaResource() = default;
 
-MockDemuxer::~MockDemuxer() {}
+MockMediaResource::~MockMediaResource() = default;
+
+MockDemuxer::MockDemuxer() = default;
+
+MockDemuxer::~MockDemuxer() = default;
 
 std::string MockDemuxer::GetDisplayName() const {
   return "MockDemuxer";
 }
 
 MockDemuxerStream::MockDemuxerStream(DemuxerStream::Type type)
-    : type_(type), liveness_(LIVENESS_UNKNOWN) {
-}
+    : type_(type), liveness_(LIVENESS_UNKNOWN) {}
 
-MockDemuxerStream::~MockDemuxerStream() {}
+MockDemuxerStream::~MockDemuxerStream() = default;
 
 DemuxerStream::Type MockDemuxerStream::type() const {
   return type_;
@@ -84,16 +88,12 @@ void MockDemuxerStream::set_liveness(DemuxerStream::Liveness liveness) {
   liveness_ = liveness;
 }
 
-VideoRotation MockDemuxerStream::video_rotation() {
-  return VIDEO_ROTATION_0;
-}
-
 MockVideoDecoder::MockVideoDecoder(const std::string& decoder_name)
     : decoder_name_(decoder_name) {
   ON_CALL(*this, CanReadWithoutStalling()).WillByDefault(Return(true));
 }
 
-MockVideoDecoder::~MockVideoDecoder() {}
+MockVideoDecoder::~MockVideoDecoder() = default;
 
 std::string MockVideoDecoder::GetDisplayName() const {
   return decoder_name_;
@@ -102,47 +102,47 @@ std::string MockVideoDecoder::GetDisplayName() const {
 MockAudioDecoder::MockAudioDecoder(const std::string& decoder_name)
     : decoder_name_(decoder_name) {}
 
-MockAudioDecoder::~MockAudioDecoder() {}
+MockAudioDecoder::~MockAudioDecoder() = default;
 
 std::string MockAudioDecoder::GetDisplayName() const {
   return decoder_name_;
 }
 
-MockRendererClient::MockRendererClient() {}
+MockRendererClient::MockRendererClient() = default;
 
-MockRendererClient::~MockRendererClient() {}
+MockRendererClient::~MockRendererClient() = default;
 
-MockVideoRenderer::MockVideoRenderer() {}
+MockVideoRenderer::MockVideoRenderer() = default;
 
-MockVideoRenderer::~MockVideoRenderer() {}
+MockVideoRenderer::~MockVideoRenderer() = default;
 
-MockAudioRenderer::MockAudioRenderer() {}
+MockAudioRenderer::MockAudioRenderer() = default;
 
-MockAudioRenderer::~MockAudioRenderer() {}
+MockAudioRenderer::~MockAudioRenderer() = default;
 
-MockRenderer::MockRenderer() {}
+MockRenderer::MockRenderer() = default;
 
-MockRenderer::~MockRenderer() {}
+MockRenderer::~MockRenderer() = default;
 
-MockTimeSource::MockTimeSource() {}
+MockTimeSource::MockTimeSource() = default;
 
-MockTimeSource::~MockTimeSource() {}
+MockTimeSource::~MockTimeSource() = default;
 
-MockTextTrack::MockTextTrack() {}
+MockTextTrack::MockTextTrack() = default;
 
-MockTextTrack::~MockTextTrack() {}
+MockTextTrack::~MockTextTrack() = default;
 
-MockCdmClient::MockCdmClient() {}
+MockCdmClient::MockCdmClient() = default;
 
-MockCdmClient::~MockCdmClient() {}
+MockCdmClient::~MockCdmClient() = default;
 
-MockDecryptor::MockDecryptor() {}
+MockDecryptor::MockDecryptor() = default;
 
-MockDecryptor::~MockDecryptor() {}
+MockDecryptor::~MockDecryptor() = default;
 
-MockCdmContext::MockCdmContext() {}
+MockCdmContext::MockCdmContext() = default;
 
-MockCdmContext::~MockCdmContext() {}
+MockCdmContext::~MockCdmContext() = default;
 
 int MockCdmContext::GetCdmId() const {
   return cdm_id_;
@@ -183,52 +183,20 @@ MockCdmSessionPromise::~MockCdmSessionPromise() {
   MarkPromiseSettled();
 }
 
-MockCdm::MockCdm(const SessionMessageCB& session_message_cb,
+MockCdm::MockCdm(const std::string& key_system,
+                 const url::Origin& security_origin,
+                 const SessionMessageCB& session_message_cb,
                  const SessionClosedCB& session_closed_cb,
                  const SessionKeysChangeCB& session_keys_change_cb,
                  const SessionExpirationUpdateCB& session_expiration_update_cb)
-    : session_message_cb_(session_message_cb),
+    : key_system_(key_system),
+      security_origin_(security_origin),
+      session_message_cb_(session_message_cb),
       session_closed_cb_(session_closed_cb),
       session_keys_change_cb_(session_keys_change_cb),
       session_expiration_update_cb_(session_expiration_update_cb) {}
 
-MockCdm::~MockCdm() {}
-
-void MockCdm::SetServerCertificate(const std::vector<uint8_t>& certificate,
-                                   std::unique_ptr<SimpleCdmPromise> promise) {
-  OnSetServerCertificate(certificate, promise);
-}
-
-void MockCdm::CreateSessionAndGenerateRequest(
-    CdmSessionType session_type,
-    EmeInitDataType init_data_type,
-    const std::vector<uint8_t>& init_data,
-    std::unique_ptr<NewSessionCdmPromise> promise) {
-  OnCreateSessionAndGenerateRequest(session_type, init_data_type, init_data,
-                                    promise);
-}
-
-void MockCdm::LoadSession(CdmSessionType session_type,
-                          const std::string& session_id,
-                          std::unique_ptr<NewSessionCdmPromise> promise) {
-  OnLoadSession(session_type, session_id, promise);
-}
-
-void MockCdm::UpdateSession(const std::string& session_id,
-                            const std::vector<uint8_t>& response,
-                            std::unique_ptr<SimpleCdmPromise> promise) {
-  OnUpdateSession(session_id, response, promise);
-}
-
-void MockCdm::CloseSession(const std::string& session_id,
-                           std::unique_ptr<SimpleCdmPromise> promise) {
-  OnCloseSession(session_id, promise);
-}
-
-void MockCdm::RemoveSession(const std::string& session_id,
-                            std::unique_ptr<SimpleCdmPromise> promise) {
-  OnRemoveSession(session_id, promise);
-}
+MockCdm::~MockCdm() = default;
 
 void MockCdm::CallSessionMessageCB(const std::string& session_id,
                                    CdmMessageType message_type,
@@ -252,14 +220,14 @@ void MockCdm::CallSessionExpirationUpdateCB(const std::string& session_id,
   session_expiration_update_cb_.Run(session_id, new_expiry_time);
 }
 
-MockCdmFactory::MockCdmFactory() {}
+MockCdmFactory::MockCdmFactory() = default;
 
-MockCdmFactory::~MockCdmFactory() {}
+MockCdmFactory::~MockCdmFactory() = default;
 
 void MockCdmFactory::Create(
     const std::string& key_system,
-    const GURL& security_origin,
-    const CdmConfig& cdm_config,
+    const url::Origin& security_origin,
+    const CdmConfig& /* cdm_config */,
     const SessionMessageCB& session_message_cb,
     const SessionClosedCB& session_closed_cb,
     const SessionKeysChangeCB& session_keys_change_cb,
@@ -272,14 +240,14 @@ void MockCdmFactory::Create(
   }
 
   // Since there is a CDM, call |before_creation_cb_| first.
-  if (!before_creation_cb_.is_null())
+  if (before_creation_cb_)
     before_creation_cb_.Run();
 
   // Create and return a new MockCdm. Keep a pointer to the created CDM so
   // that tests can access it. Calls to GetCdmContext() can be ignored.
   scoped_refptr<MockCdm> cdm = new StrictMock<MockCdm>(
-      session_message_cb, session_closed_cb, session_keys_change_cb,
-      session_expiration_update_cb);
+      key_system, security_origin, session_message_cb, session_closed_cb,
+      session_keys_change_cb, session_expiration_update_cb);
   created_cdm_ = cdm.get();
   EXPECT_CALL(*created_cdm_.get(), GetCdmContext());
   cdm_created_cb.Run(std::move(cdm), "");
@@ -294,8 +262,8 @@ void MockCdmFactory::SetBeforeCreationCB(
   before_creation_cb_ = before_creation_cb;
 }
 
-MockStreamParser::MockStreamParser() {}
+MockStreamParser::MockStreamParser() = default;
 
-MockStreamParser::~MockStreamParser() {}
+MockStreamParser::~MockStreamParser() = default;
 
 }  // namespace media

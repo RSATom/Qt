@@ -2,29 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-extern "C" {
-#include <X11/Xlib.h>
-}
-
 #include <memory>
 
 #include "base/logging.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_image_glx.h"
 #include "ui/gl/gl_surface_glx.h"
 
 namespace gl {
 namespace {
-
-bool ValidFormat(unsigned internalformat) {
-  switch (internalformat) {
-    case GL_RGB:
-    case GL_RGBA:
-      return true;
-    default:
-      return false;
-  }
-}
 
 int TextureFormat(unsigned internalformat) {
   switch (internalformat) {
@@ -188,11 +175,14 @@ bool GLImageGLX::CopyTexSubImage(unsigned target,
   return false;
 }
 
-bool GLImageGLX::ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                                      int z_order,
-                                      gfx::OverlayTransform transform,
-                                      const gfx::Rect& bounds_rect,
-                                      const gfx::RectF& crop_rect) {
+bool GLImageGLX::ScheduleOverlayPlane(
+    gfx::AcceleratedWidget widget,
+    int z_order,
+    gfx::OverlayTransform transform,
+    const gfx::Rect& bounds_rect,
+    const gfx::RectF& crop_rect,
+    bool enable_blend,
+    std::unique_ptr<gfx::GpuFence> gpu_fence) {
   return false;
 }
 
@@ -200,6 +190,16 @@ void GLImageGLX::OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                               uint64_t process_tracing_id,
                               const std::string& dump_name) {
   // TODO(ericrk): Implement GLImage OnMemoryDump. crbug.com/514914
+}
+
+bool GLImageGLX::ValidFormat(unsigned internalformat) {
+  switch (internalformat) {
+    case GL_RGB:
+    case GL_RGBA:
+      return true;
+    default:
+      return false;
+  }
 }
 
 }  // namespace gl

@@ -4,7 +4,6 @@
 
 #include "ui/views/bubble/tooltip_icon.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/timer/timer.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -15,8 +14,9 @@
 
 namespace views {
 
-TooltipIcon::TooltipIcon(const base::string16& tooltip)
+TooltipIcon::TooltipIcon(const base::string16& tooltip, int tooltip_icon_size)
     : tooltip_(tooltip),
+      tooltip_icon_size_(tooltip_icon_size),
       mouse_inside_(false),
       bubble_(nullptr),
       preferred_width_(0),
@@ -55,12 +55,13 @@ void TooltipIcon::OnGestureEvent(ui::GestureEvent* event) {
 }
 
 void TooltipIcon::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ax::mojom::Role::kTooltip;
   node_data->SetName(tooltip_);
 }
 
 void TooltipIcon::MouseMovedOutOfHost() {
   if (IsMouseHovered()) {
-    mouse_watcher_->Start();
+    mouse_watcher_->Start(GetWidget()->GetNativeWindow());
     return;
   }
 
@@ -69,10 +70,10 @@ void TooltipIcon::MouseMovedOutOfHost() {
 }
 
 void TooltipIcon::SetDrawAsHovered(bool hovered) {
-  SetImage(gfx::CreateVectorIcon(vector_icons::kInfoOutlineIcon, 18,
-                                 hovered
-                                     ? SkColorSetARGB(0xBD, 0, 0, 0)
-                                     : SkColorSetARGB(0xBD, 0x44, 0x44, 0x44)));
+  SetImage(
+      gfx::CreateVectorIcon(vector_icons::kInfoOutlineIcon, tooltip_icon_size_,
+                            hovered ? SkColorSetARGB(0xBD, 0, 0, 0)
+                                    : SkColorSetARGB(0xBD, 0x44, 0x44, 0x44)));
 }
 
 void TooltipIcon::ShowBubble() {
@@ -83,7 +84,7 @@ void TooltipIcon::ShowBubble() {
 
   bubble_ = new InfoBubble(this, tooltip_);
   bubble_->set_preferred_width(preferred_width_);
-  bubble_->set_arrow(BubbleBorder::TOP_RIGHT);
+  bubble_->SetArrow(anchor_point_arrow_);
   // When shown due to a gesture event, close on deactivate (i.e. don't use
   // "focusless").
   bubble_->set_can_activate(!mouse_inside_);
@@ -93,10 +94,9 @@ void TooltipIcon::ShowBubble() {
 
   if (mouse_inside_) {
     View* frame = bubble_->GetWidget()->non_client_view()->frame_view();
-    std::unique_ptr<MouseWatcherHost> host(
-        base::MakeUnique<MouseWatcherViewHost>(frame, gfx::Insets()));
-    mouse_watcher_ = base::MakeUnique<MouseWatcher>(host.release(), this);
-    mouse_watcher_->Start();
+    mouse_watcher_ = std::make_unique<MouseWatcher>(
+        std::make_unique<MouseWatcherViewHost>(frame, gfx::Insets()), this);
+    mouse_watcher_->Start(GetWidget()->GetNativeWindow());
   }
 }
 

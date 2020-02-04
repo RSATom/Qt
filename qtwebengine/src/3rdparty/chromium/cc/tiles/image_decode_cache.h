@@ -7,13 +7,14 @@
 
 #include "base/memory/ref_counted.h"
 #include "cc/base/devtools_instrumentation.h"
+#include "cc/cc_export.h"
+#include "cc/paint/decoded_draw_image.h"
 #include "cc/paint/draw_image.h"
-#include "cc/tiles/decoded_draw_image.h"
+#include "cc/raster/tile_task.h"
+#include "cc/tiles/image_decode_cache_utils.h"
 #include "cc/tiles/tile_priority.h"
 
 namespace cc {
-
-class TileTask;
 
 // ImageDecodeCache is responsible for generating decode tasks, decoding
 // images, storing images in cache, and being able to return the decoded images
@@ -74,23 +75,32 @@ class CC_EXPORT ImageDecodeCache {
 
   virtual ~ImageDecodeCache() {}
 
+  struct CC_EXPORT TaskResult {
+    explicit TaskResult(bool need_unref);
+    explicit TaskResult(scoped_refptr<TileTask> task);
+    TaskResult(const TaskResult& result);
+    ~TaskResult();
+
+    bool IsAtRaster() const { return !task && !need_unref; }
+
+    scoped_refptr<TileTask> task;
+    bool need_unref = false;
+  };
   // Fill in an TileTask which will decode the given image when run. In
   // case the image is already cached, fills in nullptr. Returns true if the
   // image needs to be unreffed when the caller is finished with it.
   //
   // This is called by the tile manager (on the compositor thread) when creating
   // a raster task.
-  virtual bool GetTaskForImageAndRef(const DrawImage& image,
-                                     const TracingInfo& tracing_info,
-                                     scoped_refptr<TileTask>* task) = 0;
+  virtual TaskResult GetTaskForImageAndRef(const DrawImage& image,
+                                           const TracingInfo& tracing_info) = 0;
   // Similar to GetTaskForImageAndRef, except that it returns tasks that are not
   // meant to be run as part of raster. That is, this is part of a predecode
   // API. Note that this should only return a task responsible for decoding (and
   // not uploading), since it will be run on a worker thread which may not have
   // the right GPU context for upload.
-  virtual bool GetOutOfRasterDecodeTaskForImageAndRef(
-      const DrawImage& image,
-      scoped_refptr<TileTask>* task) = 0;
+  virtual TaskResult GetOutOfRasterDecodeTaskForImageAndRef(
+      const DrawImage& image) = 0;
 
   // Unrefs an image. When the tile is finished, this should be called for every
   // GetTaskForImageAndRef call that returned true.
@@ -101,6 +111,10 @@ class CC_EXPORT ImageDecodeCache {
   //
   // This is called by a raster task (on a worker thread) when an image is
   // required.
+  //
+  // TODO(khushalsagar/vmpstr): Since the cache knows if it's a video frame, it
+  // should discard any frames from the same source not in use in the
+  // compositor.
   virtual DecodedDrawImage GetDecodedImageForDraw(const DrawImage& image) = 0;
   // Unrefs an image. This should be called for every GetDecodedImageForDraw
   // when the draw with the image is finished.
@@ -125,11 +139,10 @@ class CC_EXPORT ImageDecodeCache {
   // locked budget before creating a task.
   virtual size_t GetMaximumMemoryLimitBytes() const = 0;
 
-  // Indicate to the cache that the image is no longer going
-  // to be used. This means it can be deleted altogether. If the
-  // image is locked, then the cache can do its best to clean it
-  // up later.
-  virtual void NotifyImageUnused(uint32_t skimage_id) = 0;
+  // Returns true if the cache should be used for |image|. In certain cases the
+  // image can directly be used for raster (for instance bitmaps in a software
+  // draw).
+  virtual bool UseCacheForDrawImage(const DrawImage& image) const = 0;
 
  protected:
   void RecordImageMipLevelUMA(int mip_level);

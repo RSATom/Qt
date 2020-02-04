@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_VARIATIONS_CLIENT_FILTERABLE_STATE_H_
 #define COMPONENTS_VARIATIONS_CLIENT_FILTERABLE_STATE_H_
 
+#include <string>
+
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "base/version.h"
@@ -12,7 +14,7 @@
 
 namespace variations {
 
-// A contianer for all of the client state which is used for filtering studies.
+// A container for all of the client state which is used for filtering studies.
 struct ClientFilterableState {
   static Study::Platform GetCurrentPlatform();
 
@@ -44,6 +46,11 @@ struct ClientFilterableState {
   // Whether this is a low-end device. Currently only supported on Android.
   // Based on base::SysInfo::IsLowEndDevice().
   bool is_low_end_device = false;
+
+  // Whether this platform supports experiments which retain their group
+  // assignments across runs.
+  // TODO(paulmiller): Remove this once https://crbug.com/866722 is resolved.
+  bool supports_permanent_consistency = true;
 
   // The country code to use for studies configured with session consistency.
   std::string session_consistency_country;

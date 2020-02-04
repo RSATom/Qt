@@ -2,14 +2,28 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 import("//testing/test.gni")
 import("//third_party/google_input_tools/closure.gni")
 import("//third_party/google_input_tools/inputview.gni")
 import("//tools/grit/grit_rule.gni")
 
-component("keyboard") {
+assert(is_chromeos)
+
+jumbo_component("keyboard") {
   sources = [
+    "container_behavior.cc",
+    "container_behavior.h",
+    "container_floating_behavior.cc",
+    "container_floating_behavior.h",
+    "container_full_width_behavior.cc",
+    "container_full_width_behavior.h",
+    "container_fullscreen_behavior.cc",
+    "container_fullscreen_behavior.h",
+    "display_util.cc",
+    "display_util.h",
+    "drag_descriptor.h",
     "keyboard_controller.cc",
     "keyboard_controller.h",
     "keyboard_controller_observer.h",
@@ -19,20 +33,35 @@ component("keyboard") {
     "keyboard_layout_delegate.h",
     "keyboard_layout_manager.cc",
     "keyboard_layout_manager.h",
-    "keyboard_switches.cc",
-    "keyboard_switches.h",
     "keyboard_ui.cc",
     "keyboard_ui.h",
+    "keyboard_ui_factory.cc",
+    "keyboard_ui_factory.h",
+    "keyboard_ukm_recorder.cc",
+    "keyboard_ukm_recorder.h",
     "keyboard_util.cc",
     "keyboard_util.h",
+    "notification_manager.cc",
+    "notification_manager.h",
+    "public/keyboard_switches.cc",
+    "public/keyboard_switches.h",
+    "queued_container_type.cc",
+    "queued_container_type.h",
+    "queued_display_change.cc",
+    "queued_display_change.h",
+    "resources/keyboard_resource_util.cc",
+    "resources/keyboard_resource_util.h",
+    "shaped_window_targeter.cc",
+    "shaped_window_targeter.h",
   ]
 
   defines = [ "KEYBOARD_IMPLEMENTATION" ]
 
   deps = [
+    ":mojom",
+    ":resources",
     "//base",
-    "//base/third_party/dynamic_annotations",
-    "//skia",
+    "//services/metrics/public/cpp:ukm_builders",
     "//ui/aura",
     "//ui/base",
     "//ui/base/ime",
@@ -40,7 +69,6 @@ component("keyboard") {
     "//ui/display:display",
     "//ui/events",
     "//ui/events:dom_keycode_converter",
-    "//ui/events:events_base",
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/wm",
@@ -49,43 +77,6 @@ component("keyboard") {
   if (use_ozone) {
     deps += [ "//ui/ozone" ]
   }
-}
-
-component("keyboard_with_content") {
-  sources = [
-    "content/keyboard.cc",
-    "content/keyboard.h",
-    "content/keyboard_constants.cc",
-    "content/keyboard_constants.h",
-    "content/keyboard_content_util.cc",
-    "content/keyboard_content_util.h",
-    "content/keyboard_ui_content.cc",
-    "content/keyboard_ui_content.h",
-  ]
-
-  defines = [ "KEYBOARD_IMPLEMENTATION" ]
-
-  deps = [
-    ":keyboard",
-    ":resources",
-    "//base",
-    "//base/third_party/dynamic_annotations",
-    "//content/public/browser",
-    "//content/public/common",
-    "//ipc",
-    "//skia",
-    "//ui/aura",
-    "//ui/base",
-    "//ui/base/ime",
-    "//ui/compositor",
-    "//ui/events",
-    "//ui/events:dom_keycode_converter",
-    "//ui/events:events_base",
-    "//ui/gfx",
-    "//ui/gfx/geometry",
-    "//ui/wm",
-    "//url",
-  ]
 
   data_deps = [
     ":resources",
@@ -95,15 +86,20 @@ component("keyboard_with_content") {
 static_library("test_support") {
   testonly = true
   sources = [
-    "keyboard_test_util.cc",
-    "keyboard_test_util.h",
+    "test/keyboard_test_util.cc",
+    "test/keyboard_test_util.h",
+    "test/test_keyboard_layout_delegate.cc",
+    "test/test_keyboard_layout_delegate.h",
+    "test/test_keyboard_ui.cc",
+    "test/test_keyboard_ui.h",
   ]
   deps = [
     ":keyboard",
     "//base",
-    "//skia",
     "//ui/aura",
+    "//ui/aura:test_support",
     "//ui/base:test_support",
+    "//ui/display",
   ]
 }
 
@@ -144,39 +140,37 @@ copy("resources") {
 build_closure("inputview") {
   sources = inputview_sources
   target = "$target_gen_dir/resources/inputview.js"
-  json_file = "//third_party/google_input_tools/inputview.gypi"
-  sources += [ json_file ]
-  json_sources = "variables.inputview_sources"
   path = rebase_path("//third_party/google_input_tools")
 }
 
 mojom("mojom") {
   sources = [
-    "keyboard.mojom",
-  ]
-  deps = [
-    "//ui/gfx/geometry/mojo",
+    "public/keyboard_config.mojom",
+    "public/keyboard_controller_types.mojom",
   ]
 }
 
 test("keyboard_unittests") {
   sources = [
-    "content/keyboard_ui_content_unittest.cc",
+    "container_floating_behavior_unittest.cc",
+    "container_full_width_behavior_unittest.cc",
     "keyboard_controller_unittest.cc",
     "keyboard_event_filter_unittest.cc",
+    "keyboard_ukm_recorder_unittest.cc",
     "keyboard_util_unittest.cc",
+    "notification_manager_unittest.cc",
     "test/run_all_unittests.cc",
   ]
 
   deps = [
     ":keyboard",
-    ":keyboard_with_content",
+    ":mojom",
     ":test_support",
     "//base",
     "//base/test:test_support",
-    "//content/test:test_support",
-    "//mojo/edk/system",
-    "//skia",
+    "//components/ukm:test_support",
+    "//services/service_manager/public/cpp",
+    "//testing/gmock",
     "//testing/gtest",
     "//ui/aura:test_support",
     "//ui/base",
@@ -194,4 +188,8 @@ test("keyboard_unittests") {
   data_deps = [
     "//ui/resources:ui_test_pak_data",
   ]
+
+  if (use_ozone) {
+    deps += [ "//ui/ozone" ]
+  }
 }

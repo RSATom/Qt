@@ -37,46 +37,6 @@
     QAxServer is part of the \l{Active Qt} module. The
     \l{Building ActiveX servers in Qt} page contains information about
     turning a Qt binary into a COM server
-
-    \section1 License Information
-
-    The QAxServer module is not covered by the \l{GNU General Public License (GPL)},
-    the \l{GNU Lesser General Public License (LGPL)}, or the
-    \l{Qt Commercial License}. Instead, it is distributed under
-    the following license.
-
-    \legalese
-    Copyright (C) 2015 The Qt Company Ltd.\br
-    Contact: http://www.qt.io/licensing/\br
-
-    You may use this file under the terms of the BSD license as follows:
-
-    "Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions are
-    met:
-      * Redistributions of source code must retain the above copyright
-        notice, this list of conditions and the following disclaimer.
-      * Redistributions in binary form must reproduce the above copyright
-        notice, this list of conditions and the following disclaimer in
-        the documentation and/or other materials provided with the
-        distribution.
-      * Neither the name of The Qt Company Ltd nor the names of its
-        contributors may be used to endorse or promote products derived
-        from this software without specific prior written permission.
-
-
-    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-    A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-    OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-    \endlegalese
 */
 
 /*!
@@ -265,14 +225,6 @@
 
     Declare a standard constructor taking a parent object, and functions,
     signals and slots like for any QObject subclass.
-    \footnote
-    If a standard constructor is not present the compiler will issue
-    an error "no overloaded function takes 2 parameters" when using
-    the default factory through the QAXFACTORY_DEFAULT() macro. If you
-    cannot provide a standard constructor you must implement a
-    QAxFactory custom factory and call the constructor you have in
-    your implementation of \l {QAxFactory::createObject}.
-    \endfootnote
 
     \snippet doc_src_qaxserver.cpp 6
 

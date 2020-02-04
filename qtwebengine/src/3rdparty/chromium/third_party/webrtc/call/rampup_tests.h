@@ -8,17 +8,20 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_CALL_RAMPUP_TESTS_H_
-#define WEBRTC_CALL_RAMPUP_TESTS_H_
+#ifndef CALL_RAMPUP_TESTS_H_
+#define CALL_RAMPUP_TESTS_H_
 
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "webrtc/call/call.h"
-#include "webrtc/logging/rtc_event_log/rtc_event_log.h"
-#include "webrtc/rtc_base/event.h"
-#include "webrtc/test/call_test.h"
+#include "api/test/simulated_network.h"
+#include "call/call.h"
+#include "call/simulated_network.h"
+#include "logging/rtc_event_log/rtc_event_log.h"
+#include "rtc_base/event.h"
+#include "test/call_test.h"
 
 namespace webrtc {
 
@@ -62,10 +65,9 @@ class RampUpTester : public test::EndToEndTest {
                     const std::string& units) const;
   void TriggerTestDone();
 
-  webrtc::RtcEventLogNullImpl event_log_;
   rtc::Event stop_event_;
   Clock* const clock_;
-  FakeNetworkPipe::Config forward_transport_config_;
+  BuiltInNetworkBehaviorConfig forward_transport_config_;
   const size_t num_video_streams_;
   const size_t num_audio_streams_;
   const size_t num_flexfec_streams_;
@@ -75,16 +77,19 @@ class RampUpTester : public test::EndToEndTest {
   Call* sender_call_;
   VideoSendStream* send_stream_;
   test::PacketTransport* send_transport_;
+  SimulatedNetwork* send_simulated_network_;
 
  private:
   typedef std::map<uint32_t, uint32_t> SsrcMap;
   class VideoStreamFactory;
 
-  Call::Config GetSenderCallConfig() override;
+  void ModifySenderBitrateConfig(BitrateConstraints* bitrate_config) override;
   void OnVideoStreamsCreated(
       VideoSendStream* send_stream,
       const std::vector<VideoReceiveStream*>& receive_streams) override;
-  test::PacketTransport* CreateSendTransport(Call* sender_call) override;
+  test::PacketTransport* CreateSendTransport(
+      test::SingleThreadedTaskQueueForTesting* task_queue,
+      Call* sender_call) override;
   void ModifyVideoConfigs(
       VideoSendStream::Config* send_config,
       std::vector<VideoReceiveStream::Config>* receive_configs,
@@ -137,7 +142,7 @@ class RampUpDownUpTester : public RampUpTester {
     kTransitionToNextState,
   };
 
-  Call::Config GetReceiverCallConfig() override;
+  void ModifyReceiverBitrateConfig(BitrateConstraints* bitrate_config) override;
 
   std::string GetModifierString() const;
   int GetExpectedHighBitrate() const;
@@ -155,4 +160,4 @@ class RampUpDownUpTester : public RampUpTester {
   std::vector<int> loss_rates_;
 };
 }  // namespace webrtc
-#endif  // WEBRTC_CALL_RAMPUP_TESTS_H_
+#endif  // CALL_RAMPUP_TESTS_H_

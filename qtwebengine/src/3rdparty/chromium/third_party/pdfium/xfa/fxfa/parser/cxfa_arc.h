@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,10 @@
 
 #include "xfa/fxfa/parser/cxfa_box.h"
 
-class CXFA_Node;
-
-class CXFA_Arc : public CXFA_Box {
+class CXFA_Arc final : public CXFA_Box {
  public:
-  explicit CXFA_Arc(CXFA_Node* pNode) : CXFA_Box(pNode) {}
+  CXFA_Arc(CXFA_Document* doc, XFA_PacketType packet);
+  ~CXFA_Arc() override;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_ARC_H_

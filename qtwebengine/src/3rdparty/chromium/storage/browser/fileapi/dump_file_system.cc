@@ -33,11 +33,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <stack>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "base/containers/stack.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
@@ -80,13 +80,12 @@ static void DumpDirectoryTree(const std::string& origin_name,
   if (!base::DirectoryExists(origin_dir))
     return;
 
-  SandboxDirectoryDatabase directory_db(origin_dir, NULL);
+  SandboxDirectoryDatabase directory_db(origin_dir, nullptr);
   SandboxDirectoryDatabase::FileId root_id;
   if (!directory_db.GetFileWithPath(StringToFilePath("/"), &root_id))
     return;
 
-  std::stack<std::pair<SandboxDirectoryDatabase::FileId,
-                       std::string> > paths;
+  base::stack<std::pair<SandboxDirectoryDatabase::FileId, std::string>> paths;
   paths.push(std::make_pair(root_id, ""));
   while (!paths.empty()) {
     SandboxDirectoryDatabase::FileId id = paths.top().first;
@@ -105,7 +104,7 @@ static void DumpDirectoryTree(const std::string& origin_name,
     if (info.is_directory()) {
       if (!directory_db.ListChildren(id, &children)) {
         ShowMessageAndExit(base::StringPrintf(
-            "ListChildren failed for %s (%" PRId64 ")",
+            "ListChildren failed for %" PRFilePath " (%" PRId64 ")",
             info.name.c_str(), id));
       }
 
@@ -144,7 +143,7 @@ static base::FilePath GetOriginDir(const base::FilePath& file_system_dir,
         SandboxPrioritizedOriginDatabase::kPrimaryDirectory);
   }
 
-  SandboxOriginDatabase origin_db(file_system_dir, NULL);
+  SandboxOriginDatabase origin_db(file_system_dir, nullptr);
   base::FilePath origin_dir;
   if (!origin_db.HasOriginPath(origin_name)) {
     ShowMessageAndExit("Origin " + origin_name + " is not in " +
@@ -166,7 +165,7 @@ static void DumpOrigin(const base::FilePath& file_system_dir,
 }
 
 static void DumpFileSystem(const base::FilePath& file_system_dir) {
-  SandboxOriginDatabase origin_db(file_system_dir, NULL);
+  SandboxOriginDatabase origin_db(file_system_dir, nullptr);
   std::vector<SandboxOriginDatabase::OriginRecord> origins;
   origin_db.ListAllOrigins(&origins);
   for (size_t i = 0; i < origins.size(); i++) {

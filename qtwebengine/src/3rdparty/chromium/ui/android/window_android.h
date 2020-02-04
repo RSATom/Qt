@@ -6,10 +6,8 @@
 #define UI_ANDROID_WINDOW_ANDROID_H_
 
 #include <jni.h>
-#include <list>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
@@ -21,15 +19,17 @@
 #include "ui/android/view_android.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
-namespace cc {
-class BeginFrameSource;
-}  // namespace cc
-
 namespace display {
 class DisplayAndroidManager;
 }  // namespace display
 
+namespace viz {
+class BeginFrameSource;
+}  // namespace viz
+
 namespace ui {
+
+extern UI_ANDROID_EXPORT const float kDefaultMouseWheelTickMultiplier;
 
 class WindowAndroidCompositor;
 class WindowAndroidObserver;
@@ -38,13 +38,16 @@ class WindowAndroidObserver;
 // WindowAndroid is also the root of a ViewAndroid tree.
 class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
  public:
-  WindowAndroid(JNIEnv* env, jobject obj, int display_id);
+  static WindowAndroid* FromJavaWindowAndroid(
+      const base::android::JavaParamRef<jobject>& jwindow_android);
+
+  WindowAndroid(JNIEnv* env, jobject obj, int display_id, float scroll_factor);
+
+  ~WindowAndroid() override;
 
   void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
   base::android::ScopedJavaLocalRef<jobject> GetJavaObject();
-
-  static bool RegisterWindowAndroid(JNIEnv* env);
 
   // Compositor callback relay.
   void OnCompositingDidCommit();
@@ -56,10 +59,12 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
   void RemoveObserver(WindowAndroidObserver* observer);
 
   WindowAndroidCompositor* GetCompositor() { return compositor_; }
-  cc::BeginFrameSource* GetBeginFrameSource();
+  viz::BeginFrameSource* GetBeginFrameSource();
 
   // Runs the provided callback as soon as the current vsync was handled.
-  void AddVSyncCompleteCallback(const base::Closure& callback);
+  // This call is only allowed from inside the OnBeginFrame call from the
+  // BeginFrameSource of this window.
+  void AddBeginFrameCompletionCallback(base::OnceClosure callback);
 
   void SetNeedsAnimate();
   void Animate(base::TimeTicks begin_frame_time);
@@ -83,18 +88,18 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
   // Return whether the specified Android permission can be requested by Chrome.
   bool CanRequestPermission(const std::string& permission);
 
+  float mouse_wheel_scroll_factor() const { return mouse_wheel_scroll_factor_; }
+
   static WindowAndroid* CreateForTesting();
-  void DestroyForTesting();
 
   // Return the window token for this window, if one exists.
   base::android::ScopedJavaLocalRef<jobject> GetWindowToken();
 
  private:
   class WindowBeginFrameSource;
+  class ScopedOnBeginFrame;
   friend class DisplayAndroidManager;
   friend class WindowBeginFrameSource;
-
-  ~WindowAndroid() override;
 
   void SetNeedsBeginFrames(bool needs_begin_frames);
   void RequestVSyncUpdate();
@@ -109,11 +114,12 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
   const int display_id_;
   WindowAndroidCompositor* compositor_;
 
-  base::ObserverList<WindowAndroidObserver> observer_list_;
+  base::ObserverList<WindowAndroidObserver>::Unchecked observer_list_;
 
   std::unique_ptr<WindowBeginFrameSource> begin_frame_source_;
   bool needs_begin_frames_;
-  std::list<base::Closure> vsync_complete_callbacks_;
+  float mouse_wheel_scroll_factor_;
+  bool vsync_paused_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(WindowAndroid);
 };

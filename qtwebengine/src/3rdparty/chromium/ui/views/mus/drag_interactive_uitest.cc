@@ -2,16 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "services/ui/public/interfaces/window_server_test.mojom.h"
-#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
+#include "services/ws/public/mojom/constants.mojom.h"
+#include "services/ws/public/mojom/event_injector.mojom.h"
+#include "services/ws/public/mojom/window_server_test.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "ui/aura/mus/in_flight_change.h"
+#include "ui/aura/mus/window_tree_client.h"
 #include "ui/aura/mus/window_tree_host_mus.h"
 #include "ui/aura/test/mus/change_completion_waiter.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/views/mus/mus_client.h"
-#include "ui/views/test/widget_test.h"
+#include "ui/views/test/views_interactive_ui_test_base.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 
@@ -56,7 +60,7 @@ class TargetView : public views::View {
   // views::View overrides:
   bool GetDropFormats(
       int* formats,
-      std::set<ui::Clipboard::FormatType>* format_types) override {
+      std::set<ui::ClipboardFormatType>* format_types) override {
     *formats = ui::OSExchangeData::STRING;
     return true;
   }
@@ -82,29 +86,29 @@ class TargetView : public views::View {
   DISALLOW_COPY_AND_ASSIGN(TargetView);
 };
 
-std::unique_ptr<ui::PointerEvent> CreateMouseMoveEvent(int x, int y) {
-  return base::MakeUnique<ui::PointerEvent>(ui::MouseEvent(
+std::unique_ptr<ui::MouseEvent> CreateMouseMoveEvent(int x, int y) {
+  return std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_MOVED, gfx::Point(x, y), gfx::Point(x, y),
-      ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON, ui::EF_NONE));
+      ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON, ui::EF_NONE);
 }
 
-std::unique_ptr<ui::PointerEvent> CreateMouseDownEvent(int x, int y) {
-  return base::MakeUnique<ui::PointerEvent>(
-      ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(x, y), gfx::Point(x, y),
-                     ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
-                     ui::EF_LEFT_MOUSE_BUTTON));
+std::unique_ptr<ui::MouseEvent> CreateMouseDownEvent(int x, int y) {
+  return std::make_unique<ui::MouseEvent>(
+      ui::ET_MOUSE_PRESSED, gfx::Point(x, y), gfx::Point(x, y),
+      ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
+      ui::EF_LEFT_MOUSE_BUTTON);
 }
 
-std::unique_ptr<ui::PointerEvent> CreateMouseUpEvent(int x, int y) {
-  return base::MakeUnique<ui::PointerEvent>(
-      ui::MouseEvent(ui::ET_MOUSE_RELEASED, gfx::Point(x, y), gfx::Point(x, y),
-                     ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
-                     ui::EF_LEFT_MOUSE_BUTTON));
+std::unique_ptr<ui::MouseEvent> CreateMouseUpEvent(int x, int y) {
+  return std::make_unique<ui::MouseEvent>(
+      ui::ET_MOUSE_RELEASED, gfx::Point(x, y), gfx::Point(x, y),
+      ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
+      ui::EF_LEFT_MOUSE_BUTTON);
 }
 
 }  // namespace
 
-using DragTestInteractive = WidgetTest;
+using DragTestInteractive = ViewsInteractiveUITestBase;
 
 // Dispatch of events is asynchronous so most of DragTestInteractive.DragTest
 // consists of callback functions which will perform an action after the
@@ -116,54 +120,60 @@ void DragTest_Part3(int64_t display_id,
   quit_closure.Run();
 }
 
-void DragTest_Part2(int64_t display_id,
+void DragTest_Part2(ws::mojom::EventInjector* event_injector,
+                    int64_t display_id,
                     const base::Closure& quit_closure,
                     bool result) {
   EXPECT_TRUE(result);
   if (!result)
     quit_closure.Run();
 
-  ui::mojom::WindowServerTest* server_test =
-      MusClient::Get()->GetTestingInterface();
-  server_test->DispatchEvent(
+  event_injector->InjectEvent(
       display_id, CreateMouseUpEvent(30, 30),
-      base::Bind(&DragTest_Part3, display_id, quit_closure));
+      base::BindOnce(&DragTest_Part3, display_id, quit_closure));
 }
 
-void DragTest_Part1(int64_t display_id,
+void DragTest_Part1(ws::mojom::EventInjector* event_injector,
+                    int64_t display_id,
                     const base::Closure& quit_closure,
                     bool result) {
   EXPECT_TRUE(result);
   if (!result)
     quit_closure.Run();
 
-  ui::mojom::WindowServerTest* server_test =
-      MusClient::Get()->GetTestingInterface();
-  server_test->DispatchEvent(
+  event_injector->InjectEvent(
       display_id, CreateMouseMoveEvent(30, 30),
-      base::Bind(&DragTest_Part2, display_id, quit_closure));
+      base::BindOnce(&DragTest_Part2, base::Unretained(event_injector),
+                     display_id, quit_closure));
 }
 
 TEST_F(DragTestInteractive, DragTest) {
-  Widget* source_widget = CreateTopLevelFramelessPlatformWidget();
+  ws::mojom::EventInjectorPtr event_injector;
+  MusClient::Get()->window_tree_client()->connector()->BindInterface(
+      ws::mojom::kServiceName, &event_injector);
+
+  Widget* source_widget = new Widget;
+  source_widget->Init(CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS));
   View* source_view = new DraggableView;
   source_widget->SetContentsView(source_view);
   source_widget->Show();
 
-  aura::test::ChangeCompletionWaiter source_waiter(
-      MusClient::Get()->window_tree_client(), aura::ChangeType::BOUNDS, false);
+  aura::test::ChangeCompletionWaiter source_waiter(aura::ChangeType::BOUNDS,
+                                                   false);
   source_widget->SetBounds(gfx::Rect(0, 0, 20, 20));
-  source_waiter.Wait();
+  ASSERT_TRUE(source_waiter.Wait());
 
-  Widget* target_widget = CreateTopLevelFramelessPlatformWidget();
+  Widget* target_widget = new Widget;
+  target_widget->Init(CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS));
+
   TargetView* target_view = new TargetView;
   target_widget->SetContentsView(target_view);
   target_widget->Show();
 
-  aura::test::ChangeCompletionWaiter target_waiter(
-      MusClient::Get()->window_tree_client(), aura::ChangeType::BOUNDS, false);
+  aura::test::ChangeCompletionWaiter target_waiter(aura::ChangeType::BOUNDS,
+                                                   false);
   target_widget->SetBounds(gfx::Rect(20, 20, 20, 20));
-  target_waiter.Wait();
+  ASSERT_TRUE(target_waiter.Wait());
 
   auto* dnwa =
       static_cast<DesktopNativeWidgetAura*>(source_widget->native_widget());
@@ -174,11 +184,10 @@ TEST_F(DragTestInteractive, DragTest) {
 
   {
     base::RunLoop run_loop;
-    ui::mojom::WindowServerTest* server_test =
-        MusClient::Get()->GetTestingInterface();
-    server_test->DispatchEvent(
+    event_injector->InjectEvent(
         display_id, CreateMouseDownEvent(10, 10),
-        base::Bind(&DragTest_Part1, display_id, run_loop.QuitClosure()));
+        base::BindOnce(&DragTest_Part1, base::Unretained(event_injector.get()),
+                       display_id, run_loop.QuitClosure()));
 
     run_loop.Run();
   }

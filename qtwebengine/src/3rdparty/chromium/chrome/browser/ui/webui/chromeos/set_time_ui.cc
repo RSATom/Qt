@@ -6,11 +6,12 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/build_time.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/system/timezone_util.h"
@@ -20,8 +21,9 @@
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/system_clock_client.h"
-#include "chromeos/login/login_state.h"
+#include "chromeos/login/login_state/login_state.h"
 #include "chromeos/settings/timezone_settings.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
@@ -50,11 +52,12 @@ class SetTimeMessageHandler : public content::WebUIMessageHandler,
   void RegisterMessages() override {
     web_ui()->RegisterMessageCallback(
         "setTimeInSeconds",
-        base::Bind(&SetTimeMessageHandler::OnSetTime, base::Unretained(this)));
+        base::BindRepeating(&SetTimeMessageHandler::OnSetTime,
+                            base::Unretained(this)));
     web_ui()->RegisterMessageCallback(
         "setTimezone",
-        base::Bind(&SetTimeMessageHandler::OnSetTimezone,
-                   base::Unretained(this)));
+        base::BindRepeating(&SetTimeMessageHandler::OnSetTimezone,
+                            base::Unretained(this)));
   }
 
  private:
@@ -63,6 +66,10 @@ class SetTimeMessageHandler : public content::WebUIMessageHandler,
     web_ui()->CallJavascriptFunctionUnsafe("settime.TimeSetter.updateTime");
   }
 
+  // UI actually shows real device timezone, but only allows changing the user
+  // timezone. If user timezone settings are different from system, this means
+  // that user settings are overriden and must be disabled. (And we will still
+  // show the actual device timezone.)
   // system::TimezoneSettings::Observer:
   void TimezoneChanged(const icu::TimeZone& timezone) override {
     base::Value timezone_id(system::TimezoneSettings::GetTimezoneID(timezone));
@@ -94,7 +101,9 @@ class SetTimeMessageHandler : public content::WebUIMessageHandler,
       return;
     }
 
-    CrosSettings::Get()->SetString(kSystemTimezone, timezone_id);
+    Profile* profile = Profile::FromWebUI(web_ui());
+    DCHECK(profile);
+    system::SetTimezoneFromUI(profile, timezone_id);
   }
 
   DISALLOW_COPY_AND_ASSIGN(SetTimeMessageHandler);
@@ -103,7 +112,7 @@ class SetTimeMessageHandler : public content::WebUIMessageHandler,
 }  // namespace
 
 SetTimeUI::SetTimeUI(content::WebUI* web_ui) : WebDialogUI(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<SetTimeMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<SetTimeMessageHandler>());
 
   // Set up the chrome://set-time source.
   content::WebUIDataSource* source =

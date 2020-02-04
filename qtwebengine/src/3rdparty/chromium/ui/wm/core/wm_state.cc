@@ -4,7 +4,6 @@
 
 #include "ui/wm/core/wm_state.h"
 
-#include "base/memory/ptr_util.h"
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/wm/core/capture_controller.h"
 #include "ui/wm/core/transient_window_controller.h"
@@ -15,7 +14,7 @@ namespace wm {
 WMState::WMState()
     : window_stacking_client_(new TransientWindowStackingClient),
       transient_window_client_(new TransientWindowController),
-      capture_controller_(base::MakeUnique<CaptureController>()) {
+      capture_controller_(std::make_unique<CaptureController>()) {
   aura::client::SetWindowStackingClient(window_stacking_client_.get());
   aura::client::SetTransientWindowClient(transient_window_client_.get());
 }

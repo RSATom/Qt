@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+#include "ui/display/types/display_snapshot.h"
+#include "ui/display/types/native_display_delegate.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/ozone/platform/wayland/wayland_object.h"
 
@@ -16,19 +18,27 @@ namespace ui {
 // that are available to the application.
 class WaylandOutput {
  public:
-  class Observer {
+  class Delegate {
    public:
-    // Will be called when wl_output is available.
-    virtual void OnOutputReadyForUse() = 0;
+    virtual ~Delegate() {}
+
+    virtual void OnOutputHandleMetrics(uint32_t output_id,
+                                       const gfx::Rect& new_bounds,
+                                       int32_t scale_factor) = 0;
   };
 
-  WaylandOutput(wl_output*);
+  WaylandOutput(const uint32_t output_id, wl_output* output);
   ~WaylandOutput();
 
-  // Returns the geometry of the output.
-  gfx::Rect Geometry() const { return rect_; }
-  void SetObserver(Observer* observer) { observer_ = observer; }
-  Observer* observer() { return observer_; }
+  void Initialize(Delegate* delegate);
+
+  void TriggerDelegateNotification() const;
+
+  uint32_t output_id() const { return output_id_; }
+
+  // Tells if the output has already received physical screen dimensions in the
+  // global compositor space.
+  bool is_ready() const { return !rect_in_physical_pixels_.IsEmpty(); }
 
  private:
   // Callback functions used for setting geometric properties of the output
@@ -50,11 +60,17 @@ class WaylandOutput {
                                int32_t width,
                                int32_t height,
                                int32_t refresh);
+  static void OutputHandleDone(void* data, struct wl_output* wl_output);
+  static void OutputHandleScale(void* data,
+                                struct wl_output* wl_output,
+                                int32_t factor);
 
+  const uint32_t output_id_ = 0;
   wl::Object<wl_output> output_;
-  gfx::Rect rect_;
+  float device_scale_factor_;
+  gfx::Rect rect_in_physical_pixels_;
 
-  Observer* observer_;
+  Delegate* delegate_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(WaylandOutput);
 };

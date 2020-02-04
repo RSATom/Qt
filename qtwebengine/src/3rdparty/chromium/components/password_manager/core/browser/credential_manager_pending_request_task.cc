@@ -7,9 +7,9 @@
 #include <algorithm>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/stl_util.h"
 #include "components/autofill/core/common/password_form.h"
@@ -19,6 +19,7 @@
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/common/credential_manager_types.h"
+#include "net/cert/cert_status_flags.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -71,7 +72,7 @@ void FilterDuplicates(
            std::unique_ptr<autofill::PasswordForm>>
       credentials;
   for (auto& form : *forms) {
-    if (!form->federation_origin.unique()) {
+    if (!form->federation_origin.opaque()) {
       federated_forms.push_back(std::move(form));
     } else {
       auto key = std::make_pair(
@@ -121,9 +122,10 @@ CredentialManagerPendingRequestTask::CredentialManagerPendingRequestTask(
       mediation_(mediation),
       origin_(delegate_->GetOrigin()),
       include_passwords_(include_passwords) {
-  CHECK(!delegate_->client()->DidLastPageLoadEncounterSSLErrors());
+  CHECK(!net::IsCertStatusError(delegate_->client()->GetMainFrameCertStatus()));
   for (const GURL& federation : request_federations)
-    federations_.insert(url::Origin(federation.GetOrigin()).Serialize());
+    federations_.insert(
+        url::Origin::Create(federation.GetOrigin()).Serialize());
 }
 
 CredentialManagerPendingRequestTask::~CredentialManagerPendingRequestTask() =
@@ -134,7 +136,7 @@ void CredentialManagerPendingRequestTask::OnGetPasswordStoreResults(
   // localhost is a secure origin but not https.
   if (results.empty() && origin_.SchemeIs(url::kHttpsScheme)) {
     // Try to migrate the HTTP passwords and process them later.
-    http_migrator_ = base::MakeUnique<HttpPasswordStoreMigrator>(
+    http_migrator_ = std::make_unique<HttpPasswordStoreMigrator>(
         origin_, delegate_->client(), this);
     return;
   }
@@ -155,14 +157,19 @@ void CredentialManagerPendingRequestTask::ProcessForms(
     delegate_->SendCredential(send_callback_, CredentialInfo());
     return;
   }
+  // Get rid of the blacklisted credentials.
+  base::EraseIf(results,
+                [](const std::unique_ptr<autofill::PasswordForm>& form) {
+                  return form->blacklisted_by_user;
+                });
 
   std::vector<std::unique_ptr<autofill::PasswordForm>> local_results;
   std::vector<std::unique_ptr<autofill::PasswordForm>> psl_results;
   for (auto& form : results) {
     // Ensure that the form we're looking at matches the password and
     // federation filters provided.
-    if (!((form->federation_origin.unique() && include_passwords_) ||
-          (!form->federation_origin.unique() &&
+    if (!((form->federation_origin.opaque() && include_passwords_) ||
+          (!form->federation_origin.opaque() &&
            federations_.count(form->federation_origin.Serialize())))) {
       continue;
     }
@@ -198,7 +205,7 @@ void CredentialManagerPendingRequestTask::ProcessForms(
       !password_bubble_experiment::ShouldShowAutoSignInPromptFirstRunExperience(
           delegate_->client()->GetPrefs())) {
     CredentialInfo info(*local_results[0],
-                        local_results[0]->federation_origin.unique()
+                        local_results[0]->federation_origin.opaque()
                             ? CredentialType::CREDENTIAL_TYPE_PASSWORD
                             : CredentialType::CREDENTIAL_TYPE_FEDERATED);
     delegate_->client()->NotifyUserAutoSignin(std::move(local_results),

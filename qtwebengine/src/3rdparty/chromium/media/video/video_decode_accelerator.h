@@ -10,17 +10,18 @@
 #include <memory>
 #include <vector>
 
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "media/base/bitstream_buffer.h"
 #include "media/base/cdm_context.h"
+#include "media/base/decoder_buffer.h"
 #include "media/base/encryption_scheme.h"
 #include "media/base/overlay_info.h"
-#include "media/base/surface_manager.h"
 #include "media/base/video_decoder_config.h"
 #include "media/video/picture.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 
@@ -171,7 +172,15 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
     std::vector<uint8_t> pps;
 
     // Color space specified by the container.
-    VideoColorSpace color_space;
+    VideoColorSpace container_color_space;
+
+    // Target color space.
+    // Used as a hint to the decoder. Outputting VideoFrames in this color space
+    // may avoid extra conversion steps.
+    gfx::ColorSpace target_color_space;
+
+    // HDR metadata specified by the container.
+    base::Optional<HDRMetadata> hdr_metadata;
   };
 
   // Interface for collaborating with picture interface to provide memory for
@@ -207,6 +216,11 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
     virtual void DismissPictureBuffer(int32_t picture_buffer_id) = 0;
 
     // Callback to deliver decoded pictures ready to be displayed.
+    // Note: the decoded pictures might be sent to the client more than once.
+    // The client should call ReusePictureBuffer() once for each PictureReady().
+    // For example, VDA calls Client::PictureReady() twice for a picture buffer.
+    // Then the client should also call VDA::ReusePictureBuffer() twice.
+    // Until that, VDA cannot reuse the picture buffer.
     virtual void PictureReady(const Picture& picture) = 0;
 
     // Callback to notify that decoded has decoded the end of the current
@@ -258,6 +272,16 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
   //  |bitstream_buffer| is the input bitstream that is sent for decoding.
   virtual void Decode(const BitstreamBuffer& bitstream_buffer) = 0;
 
+  // Decodes given decoder buffer that contains at most one frame.  Once
+  // decoder is done with processing |buffer| it will call
+  // NotifyEndOfBitstreamBuffer() with the bitstream id.
+  // Parameters:
+  //  |buffer| is the input buffer that is sent for decoding.
+  //  |bitstream_id| identifies the buffer for PictureReady() and
+  //      NotifyEndOfBitstreamBuffer()
+  virtual void Decode(scoped_refptr<DecoderBuffer> buffer,
+                      int32_t bitstream_id);
+
   // Assigns a set of texture-backed picture buffers to the video decoder.
   //
   // Ownership of each picture buffer remains with the client, but the client
@@ -271,20 +295,30 @@ class MEDIA_EXPORT VideoDecodeAccelerator {
   virtual void AssignPictureBuffers(
       const std::vector<PictureBuffer>& buffers) = 0;
 
-  // Imports |gpu_memory_buffer_handle| as backing memory for picture buffer
-  // associated with |picture_buffer_id|. This can only be be used if the VDA
-  // has been Initialize()d with config.output_mode = IMPORT, and should be
-  // preceded by a call to AssignPictureBuffers() to set up the number of
-  // PictureBuffers and their details.
+  // Imports |gpu_memory_buffer_handle|, pointing to a buffer in |pixel_format|,
+  // as backing memory for picture buffer associated with |picture_buffer_id|.
+  // This can only be be used if the VDA has been Initialize()d with
+  // config.output_mode = IMPORT, and should be preceded by a call to
+  // AssignPictureBuffers() to set up the number of PictureBuffers and their
+  // details.
+  // The |pixel_format| used here may be different from the |pixel_format|
+  // required in ProvidePictureBuffers(). If the buffer cannot be imported an
+  // error should be notified via NotifyError().
   // After this call, the VDA becomes the owner of the GpuMemoryBufferHandle,
   // and is responsible for closing it after use, also on import failure.
   virtual void ImportBufferForPicture(
       int32_t picture_buffer_id,
+      VideoPixelFormat pixel_format,
       const gfx::GpuMemoryBufferHandle& gpu_memory_buffer_handle);
 
   // Sends picture buffers to be reused by the decoder. This needs to be called
   // for each buffer that has been processed so that decoder may know onto which
   // picture buffers it can write the output to.
+  // Note: the decoded pictures might be sent to the client more than once.
+  // The client should call ReusePictureBuffer() once for each PictureReady().
+  // For example, VDA calls Client::PictureReady() twice for a picture buffer.
+  // Then the client should also call VDA::ReusePictureBuffer() twice.
+  // Until that, VDA can really reuse the picture buffer.
   //
   // Parameters:
   //  |picture_buffer_id| id of the picture buffer that is to be reused.

@@ -11,6 +11,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "content/browser/indexed_db/indexed_db_factory.h"
+#include "content/browser/indexed_db/indexed_db_metadata_coding.h"
 #include "content/browser/indexed_db/indexed_db_transaction.h"
 #include "content/browser/indexed_db/leveldb/leveldb_iterator_impl.h"
 #include "content/browser/indexed_db/leveldb/leveldb_transaction.h"
@@ -48,16 +49,24 @@ namespace content {
 
 class IndexedDBTestDatabase : public IndexedDBDatabase {
  public:
-  IndexedDBTestDatabase(const base::string16& name,
-                        scoped_refptr<IndexedDBBackingStore> backing_store,
-                        scoped_refptr<IndexedDBFactory> factory,
-                        const IndexedDBDatabase::Identifier& unique_identifier)
-      : IndexedDBDatabase(name, backing_store, factory, unique_identifier) {}
+  IndexedDBTestDatabase(
+      const base::string16& name,
+      scoped_refptr<IndexedDBBackingStore> backing_store,
+      scoped_refptr<IndexedDBFactory> factory,
+      std::unique_ptr<IndexedDBMetadataCoding> metadata_coding,
+      const IndexedDBDatabase::Identifier& unique_identifier,
+      ScopesLockManager* transaction_lock_manager)
+      : IndexedDBDatabase(name,
+                          backing_store,
+                          factory,
+                          std::move(metadata_coding),
+                          unique_identifier,
+                          transaction_lock_manager) {}
 
  protected:
   ~IndexedDBTestDatabase() override {}
 
-  size_t GetMaxMessageSizeInBytes() const override {
+  size_t GetUsableMessageSizeInBytes() const override {
     return 10 * 1024 * 1024;  // 10MB
   }
 };
@@ -68,7 +77,7 @@ class IndexedDBTestTransaction : public IndexedDBTransaction {
       int64_t id,
       IndexedDBConnection* connection,
       const std::set<int64_t>& scope,
-      blink::WebIDBTransactionMode mode,
+      blink::mojom::IDBTransactionMode mode,
       IndexedDBBackingStore::Transaction* backing_store_transaction)
       : IndexedDBTransaction(id,
                              connection,
@@ -263,9 +272,12 @@ MockBrowserTestIndexedDBClassFactory::CreateIndexedDBDatabase(
     const base::string16& name,
     scoped_refptr<IndexedDBBackingStore> backing_store,
     scoped_refptr<IndexedDBFactory> factory,
-    const IndexedDBDatabase::Identifier& unique_identifier) {
+    std::unique_ptr<IndexedDBMetadataCoding> metadata_coding,
+    const IndexedDBDatabase::Identifier& unique_identifier,
+    ScopesLockManager* transaction_lock_manager) {
   return new IndexedDBTestDatabase(name, backing_store, factory,
-                                   unique_identifier);
+                                   std::move(metadata_coding),
+                                   unique_identifier, transaction_lock_manager);
 }
 
 std::unique_ptr<IndexedDBTransaction>
@@ -273,7 +285,7 @@ MockBrowserTestIndexedDBClassFactory::CreateIndexedDBTransaction(
     int64_t id,
     IndexedDBConnection* connection,
     const std::set<int64_t>& scope,
-    blink::WebIDBTransactionMode mode,
+    blink::mojom::IDBTransactionMode mode,
     IndexedDBBackingStore::Transaction* backing_store_transaction) {
   return std::unique_ptr<IndexedDBTransaction>(new IndexedDBTestTransaction(
       id, connection, scope, mode, backing_store_transaction));
@@ -309,14 +321,14 @@ MockBrowserTestIndexedDBClassFactory::CreateIteratorImpl(
   instance_count_[FAIL_CLASS_LEVELDB_ITERATOR] =
       instance_count_[FAIL_CLASS_LEVELDB_ITERATOR] + 1;
   if (only_trace_calls_) {
-    return base::MakeUnique<LevelDBTraceIteratorImpl>(
+    return std::make_unique<LevelDBTraceIteratorImpl>(
         std::move(iterator), db, snapshot,
         instance_count_[FAIL_CLASS_LEVELDB_ITERATOR]);
   } else {
     if (failure_class_ == FAIL_CLASS_LEVELDB_ITERATOR &&
         instance_count_[FAIL_CLASS_LEVELDB_ITERATOR] ==
             fail_on_instance_num_[FAIL_CLASS_LEVELDB_ITERATOR]) {
-      return base::MakeUnique<LevelDBTestIteratorImpl>(
+      return std::make_unique<LevelDBTestIteratorImpl>(
           std::move(iterator), db, snapshot, failure_method_,
           fail_on_call_num_[FAIL_CLASS_LEVELDB_ITERATOR]);
     } else {

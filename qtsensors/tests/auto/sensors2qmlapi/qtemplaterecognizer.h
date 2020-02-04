@@ -41,12 +41,12 @@ public:
     QTemplateGestureRecognizer(QObject *parent = 0);
     ~QTemplateGestureRecognizer();
 
-    void create();
+    void create() override;
 
-    QString id() const;
-    bool start();
-    bool stop();
-    bool isActive();
+    QString id() const override;
+    bool start() override;
+    bool stop() override;
+    bool isActive() override;
 
 private slots:
     void timeout();
@@ -63,12 +63,12 @@ public:
     QTemplateGestureRecognizer1(QObject *parent = 0);
     ~QTemplateGestureRecognizer1();
 
-    void create();
+    void create() override;
 
-    QString id() const;
-    bool start();
-    bool stop();
-    bool isActive();
+    QString id() const override;
+    bool start() override;
+    bool stop() override;
+    bool isActive() override;
 
 private slots:
     void timeout();

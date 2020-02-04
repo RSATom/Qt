@@ -55,7 +55,7 @@
 
 #include <QtCore/private/qobject_p.h>
 
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -70,7 +70,7 @@ public:
 
     struct Listener {
         wl_listener listener;
-        QWaylandDestroyListenerPrivate *parent;
+        QWaylandDestroyListenerPrivate *parent = nullptr;
     };
     Listener listener;
 };

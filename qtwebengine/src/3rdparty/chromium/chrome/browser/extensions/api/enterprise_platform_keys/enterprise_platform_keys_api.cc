@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service.h"
@@ -14,8 +15,10 @@
 #include "chrome/browser/extensions/api/platform_keys/platform_keys_api.h"
 #include "chrome/common/extensions/api/enterprise_platform_keys.h"
 #include "chrome/common/extensions/api/enterprise_platform_keys_internal.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util.h"
 
 namespace extensions {
 
@@ -26,16 +29,16 @@ namespace api_epki = api::enterprise_platform_keys_internal;
 
 // This error will occur if a token is removed and will be exposed to the
 // extension. Keep this in sync with the custom binding in Javascript.
-const char kErrorInternal[] = "Internal Error.";
+const char kEnterprisePlatformErrorInternal[] = "Internal Error.";
 
-const char kErrorInvalidX509Cert[] =
+const char kEnterprisePlatformErrorInvalidX509Cert[] =
     "Certificate is not a valid X.509 certificate.";
 
-std::vector<char> VectorFromString(const std::string& s) {
-  return std::vector<char>(s.begin(), s.end());
+std::vector<uint8_t> VectorFromString(const std::string& s) {
+  return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-std::string StringFromVector(const std::vector<char>& v) {
+std::string StringFromVector(const std::vector<uint8_t>& v) {
   return std::string(v.begin(), v.end());
 }
 
@@ -76,7 +79,7 @@ void EnterprisePlatformKeysInternalGenerateKeyFunction::OnGeneratedKey(
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (error_message.empty()) {
     Respond(ArgumentList(api_epki::GenerateKey::Results::Create(
-        std::vector<char>(public_key_der.begin(), public_key_der.end()))));
+        std::vector<uint8_t>(public_key_der.begin(), public_key_der.end()))));
   } else {
     Respond(Error(error_message));
   }
@@ -117,10 +120,10 @@ void EnterprisePlatformKeysGetCertificatesFunction::OnGotCertificates(
   for (net::CertificateList::const_iterator it = certs->begin();
        it != certs->end();
        ++it) {
-    std::string der_encoding;
-    net::X509Certificate::GetDEREncoded((*it)->os_cert_handle(), &der_encoding);
-    client_certs->Append(base::Value::CreateWithCopiedBuffer(
-        der_encoding.data(), der_encoding.size()));
+    base::StringPiece cert_der =
+        net::x509_util::CryptoBufferAsStringPiece((*it)->cert_buffer());
+    client_certs->Append(std::make_unique<base::Value>(
+        base::Value::BlobStorage(cert_der.begin(), cert_der.end())));
   }
 
   std::unique_ptr<base::ListValue> results(new base::ListValue());
@@ -141,11 +144,17 @@ EnterprisePlatformKeysImportCertificateFunction::Run() {
   if (!platform_keys::ValidateToken(params->token_id, &platform_keys_token_id))
     return RespondNow(Error(platform_keys::kErrorInvalidToken));
 
-  const std::vector<char>& cert_der = params->certificate;
+  const std::vector<uint8_t>& cert_der = params->certificate;
+  // Allow UTF-8 inside PrintableStrings in client certificates. See
+  // crbug.com/770323 and crbug.com/788655.
+  net::X509Certificate::UnsafeCreateOptions options;
+  options.printable_string_is_utf8 = true;
   scoped_refptr<net::X509Certificate> cert_x509 =
-      net::X509Certificate::CreateFromBytes(cert_der.data(), cert_der.size());
+      net::X509Certificate::CreateFromBytesUnsafeOptions(
+          reinterpret_cast<const char*>(cert_der.data()), cert_der.size(),
+          options);
   if (!cert_x509.get())
-    return RespondNow(Error(kErrorInvalidX509Cert));
+    return RespondNow(Error(kEnterprisePlatformErrorInvalidX509Cert));
 
   chromeos::platform_keys::ImportCertificate(
       platform_keys_token_id,
@@ -179,11 +188,17 @@ EnterprisePlatformKeysRemoveCertificateFunction::Run() {
   if (!platform_keys::ValidateToken(params->token_id, &platform_keys_token_id))
     return RespondNow(Error(platform_keys::kErrorInvalidToken));
 
-  const std::vector<char>& cert_der = params->certificate;
+  const std::vector<uint8_t>& cert_der = params->certificate;
+  // Allow UTF-8 inside PrintableStrings in client certificates. See
+  // crbug.com/770323 and crbug.com/788655.
+  net::X509Certificate::UnsafeCreateOptions options;
+  options.printable_string_is_utf8 = true;
   scoped_refptr<net::X509Certificate> cert_x509 =
-      net::X509Certificate::CreateFromBytes(cert_der.data(), cert_der.size());
+      net::X509Certificate::CreateFromBytesUnsafeOptions(
+          reinterpret_cast<const char*>(cert_der.data()), cert_der.size(),
+          options);
   if (!cert_x509.get())
-    return RespondNow(Error(kErrorInvalidX509Cert));
+    return RespondNow(Error(kEnterprisePlatformErrorInvalidX509Cert));
 
   chromeos::platform_keys::RemoveCertificate(
       platform_keys_token_id,
@@ -235,7 +250,7 @@ void EnterprisePlatformKeysInternalGetTokensFunction::OnGotTokens(
        ++it) {
     std::string token_id = platform_keys::PlatformKeysTokenIdToApiId(*it);
     if (token_id.empty()) {
-      Respond(Error(kErrorInternal));
+      Respond(Error(kEnterprisePlatformErrorInternal));
       return;
     }
     token_ids.push_back(token_id);
@@ -271,7 +286,7 @@ EnterprisePlatformKeysChallengeMachineKeyFunction::Run() {
       scoped_refptr<UIThreadExtensionFunction>(AsUIThreadExtensionFunction()),
       callback, StringFromVector(params->challenge),
       params->register_key ? *params->register_key : false);
-  content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE, task);
+  base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI}, task);
   return RespondLater();
 }
 
@@ -311,7 +326,7 @@ EnterprisePlatformKeysChallengeUserKeyFunction::Run() {
       &EPKPChallengeUserKey::Run, base::Unretained(impl_),
       scoped_refptr<UIThreadExtensionFunction>(AsUIThreadExtensionFunction()),
       callback, StringFromVector(params->challenge), params->register_key);
-  content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE, task);
+  base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI}, task);
   return RespondLater();
 }
 

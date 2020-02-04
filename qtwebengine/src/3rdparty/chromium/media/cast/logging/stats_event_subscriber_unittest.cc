@@ -31,13 +31,11 @@ namespace cast {
 class StatsEventSubscriberTest : public ::testing::Test {
  protected:
   StatsEventSubscriberTest()
-      : sender_clock_(new base::SimpleTestTickClock()),
-        task_runner_(new FakeSingleThreadTaskRunner(sender_clock_)),
-        cast_environment_(
-            new CastEnvironment(std::unique_ptr<base::TickClock>(sender_clock_),
-                                task_runner_,
-                                task_runner_,
-                                task_runner_)),
+      : task_runner_(new FakeSingleThreadTaskRunner(&sender_clock_)),
+        cast_environment_(new CastEnvironment(&sender_clock_,
+                                              task_runner_,
+                                              task_runner_,
+                                              task_runner_)),
         fake_offset_estimator_(
             base::TimeDelta::FromSeconds(kReceiverOffsetSecs)) {
     receiver_clock_.Advance(base::TimeDelta::FromSeconds(kReceiverOffsetSecs));
@@ -62,7 +60,7 @@ class StatsEventSubscriberTest : public ::testing::Test {
     cast_environment_->logger()->Subscribe(subscriber_.get());
   }
 
-  base::SimpleTestTickClock* sender_clock_;  // Owned by CastEnvironment.
+  base::SimpleTestTickClock sender_clock_;
   base::SimpleTestTickClock receiver_clock_;
   scoped_refptr<FakeSingleThreadTaskRunner> task_runner_;
   scoped_refptr<CastEnvironment> cast_environment_;
@@ -80,11 +78,11 @@ TEST_F(StatsEventSubscriberTest, CaptureEncode) {
   // when computing dropped frames.
   int num_frames = StatsEventSubscriber::kMaxFrameInfoMapSize + 50;
   int dropped_frames = 0;
-  base::TimeTicks start_time = sender_clock_->NowTicks();
+  base::TimeTicks start_time = sender_clock_.NowTicks();
   // Drop half the frames during the encode step.
   for (int i = 0; i < num_frames; i++) {
     std::unique_ptr<FrameEvent> capture_begin_event(new FrameEvent());
-    capture_begin_event->timestamp = sender_clock_->NowTicks();
+    capture_begin_event->timestamp = sender_clock_.NowTicks();
     capture_begin_event->type = FRAME_CAPTURE_BEGIN;
     capture_begin_event->media_type = VIDEO_EVENT;
     capture_begin_event->rtp_timestamp = rtp_timestamp;
@@ -93,7 +91,7 @@ TEST_F(StatsEventSubscriberTest, CaptureEncode) {
 
     AdvanceClocks(base::TimeDelta::FromMicroseconds(10));
     std::unique_ptr<FrameEvent> capture_end_event(new FrameEvent());
-    capture_end_event->timestamp = sender_clock_->NowTicks();
+    capture_end_event->timestamp = sender_clock_.NowTicks();
     capture_end_event->type = FRAME_CAPTURE_END;
     capture_end_event->media_type = VIDEO_EVENT;
     capture_end_event->rtp_timestamp = rtp_timestamp;
@@ -103,7 +101,7 @@ TEST_F(StatsEventSubscriberTest, CaptureEncode) {
     if (i % 2 == 0) {
       AdvanceClocks(base::TimeDelta::FromMicroseconds(10));
       std::unique_ptr<FrameEvent> encode_event(new FrameEvent());
-      encode_event->timestamp = sender_clock_->NowTicks();
+      encode_event->timestamp = sender_clock_.NowTicks();
       encode_event->type = FRAME_ENCODED;
       encode_event->media_type = VIDEO_EVENT;
       encode_event->rtp_timestamp = rtp_timestamp;
@@ -122,13 +120,12 @@ TEST_F(StatsEventSubscriberTest, CaptureEncode) {
     frame_id++;
   }
 
-  base::TimeTicks end_time = sender_clock_->NowTicks();
+  base::TimeTicks end_time = sender_clock_.NowTicks();
 
   StatsEventSubscriber::StatsMap stats_map;
   subscriber_->GetStatsInternal(&stats_map);
 
-  StatsEventSubscriber::StatsMap::iterator it =
-      stats_map.find(StatsEventSubscriber::CAPTURE_FPS);
+  auto it = stats_map.find(StatsEventSubscriber::CAPTURE_FPS);
   ASSERT_TRUE(it != stats_map.end());
 
   base::TimeDelta duration = end_time - start_time;
@@ -158,16 +155,16 @@ TEST_F(StatsEventSubscriberTest, Encode) {
   RtpTimeTicks rtp_timestamp;
   FrameId frame_id = FrameId::first();
   int num_frames = 10;
-  base::TimeTicks start_time = sender_clock_->NowTicks();
+  base::TimeTicks start_time = sender_clock_.NowTicks();
   AdvanceClocks(base::TimeDelta::FromMicroseconds(35678));
-  base::TimeTicks first_event_time = sender_clock_->NowTicks();
+  base::TimeTicks first_event_time = sender_clock_.NowTicks();
   base::TimeTicks last_event_time;
   int total_size = 0;
   for (int i = 0; i < num_frames; i++) {
     int size = 1000 + base::RandInt(-100, 100);
     total_size += size;
     std::unique_ptr<FrameEvent> encode_event(new FrameEvent());
-    encode_event->timestamp = sender_clock_->NowTicks();
+    encode_event->timestamp = sender_clock_.NowTicks();
     encode_event->type = FRAME_ENCODED;
     encode_event->media_type = VIDEO_EVENT;
     encode_event->rtp_timestamp = rtp_timestamp;
@@ -178,20 +175,19 @@ TEST_F(StatsEventSubscriberTest, Encode) {
     encode_event->encoder_cpu_utilization = 9.10;
     encode_event->idealized_bitrate_utilization = 11.12;
     cast_environment_->logger()->DispatchFrameEvent(std::move(encode_event));
-    last_event_time = sender_clock_->NowTicks();
+    last_event_time = sender_clock_.NowTicks();
 
     AdvanceClocks(base::TimeDelta::FromMicroseconds(35678));
     rtp_timestamp += RtpTimeDelta::FromTicks(90);
     frame_id++;
   }
 
-  base::TimeTicks end_time = sender_clock_->NowTicks();
+  base::TimeTicks end_time = sender_clock_.NowTicks();
 
   StatsEventSubscriber::StatsMap stats_map;
   subscriber_->GetStatsInternal(&stats_map);
 
-  StatsEventSubscriber::StatsMap::iterator it =
-      stats_map.find(StatsEventSubscriber::ENCODE_FPS);
+  auto it = stats_map.find(StatsEventSubscriber::ENCODE_FPS);
   ASSERT_TRUE(it != stats_map.end());
 
   base::TimeDelta duration = end_time - start_time;
@@ -226,7 +222,7 @@ TEST_F(StatsEventSubscriberTest, Decode) {
   RtpTimeTicks rtp_timestamp;
   FrameId frame_id = FrameId::first();
   int num_frames = 10;
-  base::TimeTicks start_time = sender_clock_->NowTicks();
+  base::TimeTicks start_time = sender_clock_.NowTicks();
   for (int i = 0; i < num_frames; i++) {
     std::unique_ptr<FrameEvent> decode_event(new FrameEvent());
     decode_event->timestamp = receiver_clock_.NowTicks();
@@ -241,13 +237,12 @@ TEST_F(StatsEventSubscriberTest, Decode) {
     frame_id++;
   }
 
-  base::TimeTicks end_time = sender_clock_->NowTicks();
+  base::TimeTicks end_time = sender_clock_.NowTicks();
 
   StatsEventSubscriber::StatsMap stats_map;
   subscriber_->GetStatsInternal(&stats_map);
 
-  StatsEventSubscriber::StatsMap::iterator it =
-      stats_map.find(StatsEventSubscriber::DECODE_FPS);
+  auto it = stats_map.find(StatsEventSubscriber::DECODE_FPS);
   ASSERT_TRUE(it != stats_map.end());
 
   base::TimeDelta duration = end_time - start_time;
@@ -284,8 +279,7 @@ TEST_F(StatsEventSubscriberTest, PlayoutDelay) {
   StatsEventSubscriber::StatsMap stats_map;
   subscriber_->GetStatsInternal(&stats_map);
 
-  StatsEventSubscriber::StatsMap::iterator it = stats_map.find(
-      StatsEventSubscriber::NUM_FRAMES_LATE);
+  auto it = stats_map.find(StatsEventSubscriber::NUM_FRAMES_LATE);
   ASSERT_TRUE(it != stats_map.end());
 
   EXPECT_DOUBLE_EQ(it->second, late_frames);
@@ -300,7 +294,7 @@ TEST_F(StatsEventSubscriberTest, E2ELatency) {
   base::TimeDelta total_latency;
   for (int i = 0; i < num_frames; i++) {
     std::unique_ptr<FrameEvent> capture_begin_event(new FrameEvent());
-    capture_begin_event->timestamp = sender_clock_->NowTicks();
+    capture_begin_event->timestamp = sender_clock_.NowTicks();
     capture_begin_event->type = FRAME_CAPTURE_BEGIN;
     capture_begin_event->media_type = VIDEO_EVENT;
     capture_begin_event->rtp_timestamp = rtp_timestamp;
@@ -331,8 +325,7 @@ TEST_F(StatsEventSubscriberTest, E2ELatency) {
   StatsEventSubscriber::StatsMap stats_map;
   subscriber_->GetStatsInternal(&stats_map);
 
-  StatsEventSubscriber::StatsMap::iterator it =
-      stats_map.find(StatsEventSubscriber::AVG_E2E_LATENCY_MS);
+  auto it = stats_map.find(StatsEventSubscriber::AVG_E2E_LATENCY_MS);
   ASSERT_TRUE(it != stats_map.end());
 
   EXPECT_DOUBLE_EQ(
@@ -345,7 +338,7 @@ TEST_F(StatsEventSubscriberTest, Packets) {
   RtpTimeTicks rtp_timestamp;
   int num_packets = 10;
   int num_latency_recorded_packets = 0;
-  base::TimeTicks start_time = sender_clock_->NowTicks();
+  base::TimeTicks start_time = sender_clock_.NowTicks();
   int total_size = 0;
   int retransmit_total_size = 0;
   base::TimeDelta total_network_latency;
@@ -356,7 +349,7 @@ TEST_F(StatsEventSubscriberTest, Packets) {
   int num_packets_retransmitted = 0;
   int num_packets_rtx_rejected = 0;
 
-  base::TimeTicks sender_encoded_time = sender_clock_->NowTicks();
+  base::TimeTicks sender_encoded_time = sender_clock_.NowTicks();
   base::TimeTicks receiver_encoded_time = receiver_clock_.NowTicks();
   std::unique_ptr<FrameEvent> encode_event(new FrameEvent());
   encode_event->timestamp = sender_encoded_time;
@@ -374,7 +367,7 @@ TEST_F(StatsEventSubscriberTest, Packets) {
     total_size += size;
 
     std::unique_ptr<PacketEvent> send_event(new PacketEvent());
-    send_event->timestamp = sender_clock_->NowTicks();
+    send_event->timestamp = sender_clock_.NowTicks();
     send_event->type = PACKET_SENT_TO_NETWORK;
     send_event->media_type = VIDEO_EVENT;
     send_event->rtp_timestamp = rtp_timestamp;
@@ -385,7 +378,7 @@ TEST_F(StatsEventSubscriberTest, Packets) {
     cast_environment_->logger()->DispatchPacketEvent(std::move(send_event));
 
     num_packets_transmitted++;
-    total_queueing_latency += sender_clock_->NowTicks() - sender_encoded_time;
+    total_queueing_latency += sender_clock_.NowTicks() - sender_encoded_time;
 
     int latency_micros = 20000 + base::RandInt(-10000, 10000);
     base::TimeDelta latency = base::TimeDelta::FromMicroseconds(latency_micros);
@@ -487,15 +480,14 @@ TEST_F(StatsEventSubscriberTest, Packets) {
     num_packets_received++;
   }
 
-  base::TimeTicks end_time = sender_clock_->NowTicks();
+  base::TimeTicks end_time = sender_clock_.NowTicks();
   base::TimeDelta duration = end_time - start_time;
 
   StatsEventSubscriber::StatsMap stats_map;
   subscriber_->GetStatsInternal(&stats_map);
 
   // Measure AVG_NETWORK_LATENCY_MS, TRANSMISSION_KBPS, RETRANSMISSION_KBPS.
-  StatsEventSubscriber::StatsMap::iterator it =
-      stats_map.find(StatsEventSubscriber::AVG_NETWORK_LATENCY_MS);
+  auto it = stats_map.find(StatsEventSubscriber::AVG_NETWORK_LATENCY_MS);
   ASSERT_TRUE(it != stats_map.end());
 
   EXPECT_DOUBLE_EQ(
@@ -579,7 +571,7 @@ TEST_F(StatsEventSubscriberTest, Histograms) {
     rtp_timestamp += RtpTimeDelta::FromTicks(1);
 
     std::unique_ptr<FrameEvent> capture_begin_event(new FrameEvent());
-    capture_begin_event->timestamp = sender_clock_->NowTicks();
+    capture_begin_event->timestamp = sender_clock_.NowTicks();
     capture_begin_event->type = FRAME_CAPTURE_BEGIN;
     capture_begin_event->media_type = VIDEO_EVENT;
     capture_begin_event->rtp_timestamp = rtp_timestamp;
@@ -588,7 +580,7 @@ TEST_F(StatsEventSubscriberTest, Histograms) {
 
     AdvanceClocks(base::TimeDelta::FromMilliseconds(10));
     std::unique_ptr<FrameEvent> capture_end_event(new FrameEvent());
-    capture_end_event->timestamp = sender_clock_->NowTicks();
+    capture_end_event->timestamp = sender_clock_.NowTicks();
     capture_end_event->type = FRAME_CAPTURE_END;
     capture_end_event->media_type = VIDEO_EVENT;
     capture_end_event->rtp_timestamp = rtp_timestamp;
@@ -597,7 +589,7 @@ TEST_F(StatsEventSubscriberTest, Histograms) {
 
     AdvanceClocks(base::TimeDelta::FromMilliseconds(15));
     std::unique_ptr<FrameEvent> encode_event(new FrameEvent());
-    encode_event->timestamp = sender_clock_->NowTicks();
+    encode_event->timestamp = sender_clock_.NowTicks();
     encode_event->type = FRAME_ENCODED;
     encode_event->media_type = VIDEO_EVENT;
     encode_event->rtp_timestamp = rtp_timestamp;
@@ -615,7 +607,7 @@ TEST_F(StatsEventSubscriberTest, Histograms) {
   for (int i = 0; i < 3; ++i) {
     AdvanceClocks(base::TimeDelta::FromMilliseconds(100));
     std::unique_ptr<PacketEvent> send_event(new PacketEvent());
-    send_event->timestamp = sender_clock_->NowTicks();
+    send_event->timestamp = sender_clock_.NowTicks();
     send_event->type = PACKET_SENT_TO_NETWORK;
     send_event->media_type = VIDEO_EVENT;
     send_event->rtp_timestamp = rtp_timestamp;

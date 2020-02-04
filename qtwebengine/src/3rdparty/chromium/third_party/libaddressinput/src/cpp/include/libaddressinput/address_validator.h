@@ -22,7 +22,6 @@
 #include <libaddressinput/address_field.h>
 #include <libaddressinput/address_problem.h>
 #include <libaddressinput/callback.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <map>
 
@@ -32,7 +31,7 @@ namespace addressinput {
 class Supplier;
 struct AddressData;
 
-typedef std::multimap<AddressField, AddressProblem> FieldProblemMap;
+using FieldProblemMap = std::multimap<AddressField, AddressProblem>;
 
 // Validates an AddressData struct. Sample usage:
 //    class MyClass {
@@ -62,18 +61,20 @@ typedef std::multimap<AddressField, AddressProblem> FieldProblemMap;
 //      AddressData address_;
 //      FieldProblemMap filter_;
 //      FieldProblemMap problems_;
-//      const scoped_ptr<Supplier> supplier_;
-//      const scoped_ptr<AddressValidator> validator_;
-//      const scoped_ptr<const AddressValidator::Callback> validated_;
+//      const std::unique_ptr<Supplier> supplier_;
+//      const std::unique_ptr<AddressValidator> validator_;
+//      const std::unique_ptr<const AddressValidator::Callback> validated_;
 //    };
 class AddressValidator {
  public:
-  typedef i18n::addressinput::Callback<const AddressData&,
-                                       const FieldProblemMap&> Callback;
+  using Callback =
+      i18n::addressinput::Callback<const AddressData&, const FieldProblemMap&>;
+
+  AddressValidator(const AddressValidator&) = delete;
+  AddressValidator& operator=(const AddressValidator&) = delete;
 
   // Does not take ownership of |supplier|.
   AddressValidator(Supplier* supplier);
-
   ~AddressValidator();
 
   // Validates the |address| and populates |problems| with the validation
@@ -84,9 +85,9 @@ class AddressValidator {
   //
   // Set |require_name| if recipient should be considered a required field.
   //
-  // If the |filter| is NULL or empty, then all discovered validation problems
-  // are returned. If the |filter| contains problem elements, then only those
-  // field-problem pairs present in the |filter| will be returned.
+  // If the |filter| is nullptr or empty, then all discovered validation
+  // problems are returned. If the |filter| contains problem elements, then only
+  // those field-problem pairs present in the |filter| will be returned.
   //
   // Calls the |validated| callback when validation is done. All objects passed
   // as parameters must be kept available until the callback has been called.
@@ -103,8 +104,6 @@ class AddressValidator {
 
  private:
   Supplier* const supplier_;
-
-  DISALLOW_COPY_AND_ASSIGN(AddressValidator);
 };
 
 }  // namespace addressinput

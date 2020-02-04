@@ -8,37 +8,45 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/common_video/h264/sps_parser.h"
+#include "common_video/h264/sps_parser.h"
 
-#include <memory>
+#include <cstdint>
 #include <vector>
 
-#include "webrtc/common_video/h264/h264_common.h"
-#include "webrtc/rtc_base/bitbuffer.h"
-#include "webrtc/rtc_base/logging.h"
+#include "common_video/h264/h264_common.h"
+#include "rtc_base/bit_buffer.h"
 
-typedef rtc::Optional<webrtc::SpsParser::SpsState> OptionalSps;
+namespace {
+typedef absl::optional<webrtc::SpsParser::SpsState> OptionalSps;
 
 #define RETURN_EMPTY_ON_FAIL(x) \
   if (!(x)) {                   \
     return OptionalSps();       \
   }
 
+constexpr int kScalingDeltaMin = -128;
+constexpr int kScaldingDeltaMax = 127;
+}  // namespace
+
 namespace webrtc {
+
+SpsParser::SpsState::SpsState() = default;
+SpsParser::SpsState::SpsState(const SpsState&) = default;
+SpsParser::SpsState::~SpsState() = default;
 
 // General note: this is based off the 02/2014 version of the H.264 standard.
 // You can find it on this page:
 // http://www.itu.int/rec/T-REC-H.264
 
 // Unpack RBSP and parse SPS state from the supplied buffer.
-rtc::Optional<SpsParser::SpsState> SpsParser::ParseSps(const uint8_t* data,
-                                                       size_t length) {
+absl::optional<SpsParser::SpsState> SpsParser::ParseSps(const uint8_t* data,
+                                                        size_t length) {
   std::vector<uint8_t> unpacked_buffer = H264::ParseRbsp(data, length);
   rtc::BitBuffer bit_buffer(unpacked_buffer.data(), unpacked_buffer.size());
   return ParseSpsUpToVui(&bit_buffer);
 }
 
-rtc::Optional<SpsParser::SpsState> SpsParser::ParseSpsUpToVui(
+absl::optional<SpsParser::SpsState> SpsParser::ParseSpsUpToVui(
     rtc::BitBuffer* buffer) {
   // Now, we need to use a bit buffer to parse through the actual AVC SPS
   // format. See Section 7.3.2.1.1 ("Sequence parameter set data syntax") of the
@@ -94,34 +102,60 @@ rtc::Optional<SpsParser::SpsState> SpsParser::ParseSpsUpToVui(
     uint32_t seq_scaling_matrix_present_flag;
     RETURN_EMPTY_ON_FAIL(buffer->ReadBits(&seq_scaling_matrix_present_flag, 1));
     if (seq_scaling_matrix_present_flag) {
-      // seq_scaling_list_present_flags. Either 8 or 12, depending on
-      // chroma_format_idc.
-      uint32_t seq_scaling_list_present_flags;
-      if (chroma_format_idc != 3) {
+      // Process the scaling lists just enough to be able to properly
+      // skip over them, so we can still read the resolution on streams
+      // where this is included.
+      int scaling_list_count = (chroma_format_idc == 3 ? 12 : 8);
+      for (int i = 0; i < scaling_list_count; ++i) {
+        // seq_scaling_list_present_flag[i]  : u(1)
+        uint32_t seq_scaling_list_present_flags;
         RETURN_EMPTY_ON_FAIL(
-            buffer->ReadBits(&seq_scaling_list_present_flags, 8));
-      } else {
-        RETURN_EMPTY_ON_FAIL(
-            buffer->ReadBits(&seq_scaling_list_present_flags, 12));
-      }
-      // We don't support reading the sequence scaling list, and we don't really
-      // see/use them in practice, so we'll just reject the full sps if we see
-      // any provided.
-      if (seq_scaling_list_present_flags > 0) {
-        LOG(LS_WARNING) << "SPS contains scaling lists, which are unsupported.";
-        return OptionalSps();
+            buffer->ReadBits(&seq_scaling_list_present_flags, 1));
+        if (seq_scaling_list_present_flags != 0) {
+          int last_scale = 8;
+          int next_scale = 8;
+          int size_of_scaling_list = i < 6 ? 16 : 64;
+          for (int j = 0; j < size_of_scaling_list; j++) {
+            if (next_scale != 0) {
+              int32_t delta_scale;
+              // delta_scale: se(v)
+              RETURN_EMPTY_ON_FAIL(
+                  buffer->ReadSignedExponentialGolomb(&delta_scale));
+              RETURN_EMPTY_ON_FAIL(delta_scale >= kScalingDeltaMin &&
+                                   delta_scale <= kScaldingDeltaMax);
+              next_scale = (last_scale + delta_scale + 256) % 256;
+            }
+            if (next_scale != 0)
+              last_scale = next_scale;
+          }
+        }
       }
     }
   }
+  // log2_max_frame_num and log2_max_pic_order_cnt_lsb are used with
+  // BitBuffer::ReadBits, which can read at most 32 bits at a time. We also have
+  // to avoid overflow when adding 4 to the on-wire golomb value, e.g., for evil
+  // input data, ReadExponentialGolomb might return 0xfffc.
+  const uint32_t kMaxLog2Minus4 = 32 - 4;
+
   // log2_max_frame_num_minus4: ue(v)
-  RETURN_EMPTY_ON_FAIL(
-      buffer->ReadExponentialGolomb(&sps.log2_max_frame_num_minus4));
+  uint32_t log2_max_frame_num_minus4;
+  if (!buffer->ReadExponentialGolomb(&log2_max_frame_num_minus4) ||
+      log2_max_frame_num_minus4 > kMaxLog2Minus4) {
+    return OptionalSps();
+  }
+  sps.log2_max_frame_num = log2_max_frame_num_minus4 + 4;
+
   // pic_order_cnt_type: ue(v)
   RETURN_EMPTY_ON_FAIL(buffer->ReadExponentialGolomb(&sps.pic_order_cnt_type));
   if (sps.pic_order_cnt_type == 0) {
     // log2_max_pic_order_cnt_lsb_minus4: ue(v)
-    RETURN_EMPTY_ON_FAIL(
-        buffer->ReadExponentialGolomb(&sps.log2_max_pic_order_cnt_lsb_minus4));
+    uint32_t log2_max_pic_order_cnt_lsb_minus4;
+    if (!buffer->ReadExponentialGolomb(&log2_max_pic_order_cnt_lsb_minus4) ||
+        log2_max_pic_order_cnt_lsb_minus4 > kMaxLog2Minus4) {
+      return OptionalSps();
+    }
+    sps.log2_max_pic_order_cnt_lsb = log2_max_pic_order_cnt_lsb_minus4 + 4;
   } else if (sps.pic_order_cnt_type == 1) {
     // delta_pic_order_always_zero_flag: u(1)
     RETURN_EMPTY_ON_FAIL(

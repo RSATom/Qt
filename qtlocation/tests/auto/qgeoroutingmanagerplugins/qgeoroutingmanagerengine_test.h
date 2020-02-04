@@ -46,8 +46,8 @@ public:
         QGeoServiceProvider::Error *error, QString *errorString) :
         QGeoRoutingManagerEngine(parameters)
     {
-        Q_UNUSED(error)
-        Q_UNUSED(errorString)
+        Q_UNUSED(error);
+        Q_UNUSED(errorString);
         setSupportedTravelModes(QGeoRouteRequest::PedestrianTravel);
         setSupportedFeatureTypes(QGeoRouteRequest::TollFeature);
         setSupportedFeatureWeights(QGeoRouteRequest::PreferFeatureWeight);

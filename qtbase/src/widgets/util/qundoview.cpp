@@ -59,11 +59,11 @@ public:
     QUndoStack *stack() const;
 
     virtual QModelIndex index(int row, int column,
-                const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    virtual QModelIndex parent(const QModelIndex &child) const Q_DECL_OVERRIDE;
-    virtual int rowCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    virtual int columnCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    virtual QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
+                const QModelIndex &parent = QModelIndex()) const override;
+    virtual QModelIndex parent(const QModelIndex &child) const override;
+    virtual int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    virtual int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    virtual QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
 
     QModelIndex selectedIndex() const;
     QItemSelectionModel *selectionModel() const;
@@ -361,7 +361,7 @@ QUndoStack *QUndoView::stack() const
     Sets the stack displayed by this view to \a stack. If \a stack is 0, the view
     will be empty.
 
-    If the view was previously looking at a QUndoGroup, the group is set to 0.
+    If the view was previously looking at a QUndoGroup, the group is set to \nullptr.
 
     \sa stack(), setGroup()
 */
@@ -412,7 +412,7 @@ void QUndoView::setGroup(QUndoGroup *group)
 /*!
     Returns the group displayed by this view.
 
-    If the view is not looking at group, this function returns 0.
+    If the view is not looking at group, this function returns \nullptr.
 
     \sa setGroup(), setStack()
 */

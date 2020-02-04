@@ -781,6 +781,9 @@ cr.define('login', function() {
           this.handleActionAreaButtonClick_.bind(this));
       this.actionBoxAreaElement.addEventListener('keydown',
           this.handleActionAreaButtonKeyDown_.bind(this));
+      this.actionBoxAreaElement.addEventListener('focus', () => {
+        this.isActionBoxMenuActive = false;
+      });
 
       this.actionBoxMenuTitleElement.addEventListener('keydown',
           this.handleMenuTitleElementKeyDown_.bind(this));
@@ -1498,8 +1501,9 @@ cr.define('login', function() {
         if (!password)
           return false;
         Oobe.disableSigninUI();
-        chrome.send('authenticateUser', [this.user.username, password,
-                                         this.isPinShown()]);
+        chrome.send('authenticateUser', [
+          this.user.username, password, this.isPinShown() && !isNaN(password)
+        ]);
       } else {
         console.error('Activating user pod with invalid authentication type: ' +
             this.authType);
@@ -2468,7 +2472,7 @@ cr.define('login', function() {
 
     /** @override */
     get mainInput() {
-      if (this.user.needsSignin)
+      if (this.user.needsSignin && this.user.hasLocalCreds)
         return this.passwordElement;
       else
         return this.nameElement;
@@ -2684,8 +2688,8 @@ cr.define('login', function() {
     // Array of users that are shown (public/supervised/regular).
     users_: [],
 
-    // If we're in Touch View mode.
-    touchViewEnabled_: false,
+    // If we're in tablet mode.
+    tabletModeEnabled_: false,
 
     /** @override */
     decorate: function() {
@@ -2721,15 +2725,16 @@ cr.define('login', function() {
 
     /**
      * Return true if user pod row has only single user pod in it, which should
-     * always be focused except desktop and touch view modes.
+     * always be focused except desktop and tablet modes.
      * @type {boolean}
      */
     get alwaysFocusSinglePod() {
       var isDesktopUserManager = Oobe.getInstance().displayType ==
           DISPLAY_TYPE.DESKTOP_USER_MANAGER;
 
-      return (isDesktopUserManager || this.touchViewEnabled_) ?
-          false : this.children.length == 1;
+      return (isDesktopUserManager || this.tabletModeEnabled_) ?
+          false :
+          this.children.length == 1;
     },
 
     /**
@@ -3246,13 +3251,14 @@ cr.define('login', function() {
     },
 
     /**
-     * Sets the state of touch view mode.
-     * @param {boolean} isTouchViewEnabled true if the mode is on.
+     * Sets the state of tablet mode.
+     * @param {boolean} isTabletModeEnabled true if the mode is on.
      */
-    setTouchViewState: function(isTouchViewEnabled) {
-      this.touchViewEnabled_ = isTouchViewEnabled;
+    setTabletModeState: function(isTabletModeEnabled) {
+      this.tabletModeEnabled_ = isTabletModeEnabled;
       this.pods.forEach(function(pod, index) {
-        pod.actionBoxAreaElement.classList.toggle('forced', isTouchViewEnabled);
+        pod.actionBoxAreaElement.classList.toggle(
+            'forced', isTabletModeEnabled);
       });
     },
 

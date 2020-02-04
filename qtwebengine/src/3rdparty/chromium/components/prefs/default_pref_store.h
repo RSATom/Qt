@@ -11,9 +11,9 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/values.h"
-#include "components/prefs/base_prefs_export.h"
 #include "components/prefs/pref_store.h"
 #include "components/prefs/pref_value_map.h"
+#include "components/prefs/prefs_export.h"
 
 // Used within a PrefRegistry to keep track of default preference values.
 class COMPONENTS_PREFS_EXPORT DefaultPrefStore : public PrefStore {
@@ -48,7 +48,7 @@ class COMPONENTS_PREFS_EXPORT DefaultPrefStore : public PrefStore {
 
   PrefValueMap prefs_;
 
-  base::ObserverList<PrefStore::Observer, true> observers_;
+  base::ObserverList<PrefStore::Observer, true>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(DefaultPrefStore);
 };

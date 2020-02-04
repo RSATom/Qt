@@ -6,24 +6,20 @@
 #define MEDIA_MOJO_INTERFACES_VIDEO_FRAME_STRUCT_TRAITS_H_
 
 #include "base/memory/ref_counted.h"
+#include "base/values.h"
 #include "gpu/ipc/common/mailbox_holder_struct_traits.h"
 #include "media/base/ipc/media_param_traits_macros.h"
 #include "media/base/video_frame.h"
 #include "media/mojo/interfaces/media_types.mojom.h"
-#include "mojo/common/common_custom_types_struct_traits.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "ui/gfx/geometry/mojo/geometry_struct_traits.h"
+#include "ui/gfx/ipc/color/gfx_param_traits.h"
 
 namespace mojo {
 
 template <>
 struct StructTraits<media::mojom::VideoFrameDataView,
                     scoped_refptr<media::VideoFrame>> {
-  static void* SetUpContext(const scoped_refptr<media::VideoFrame>& input);
-
-  static void TearDownContext(const scoped_refptr<media::VideoFrame>&,
-                              void* context);
-
   static bool IsNull(const scoped_refptr<media::VideoFrame>& input) {
     return !input;
   }
@@ -57,9 +53,20 @@ struct StructTraits<media::mojom::VideoFrameDataView,
     return input->timestamp();
   }
 
-  static media::mojom::VideoFrameDataPtr& data(
-      const scoped_refptr<media::VideoFrame>& input,
-      void* context);
+  // TODO(hubbe): Return const ref when VideoFrame::ColorSpace()
+  // returns const ref.
+  static gfx::ColorSpace color_space(
+      const scoped_refptr<media::VideoFrame>& input) {
+    return input->ColorSpace();
+  }
+
+  static media::mojom::VideoFrameDataPtr data(
+      const scoped_refptr<media::VideoFrame>& input);
+
+  static const base::Value& metadata(
+      const scoped_refptr<media::VideoFrame>& input) {
+    return input->metadata()->GetInternalValues();
+  }
 
   static bool Read(media::mojom::VideoFrameDataView input,
                    scoped_refptr<media::VideoFrame>* output);

@@ -39,6 +39,24 @@ Polymer({
     /** @private Whether to show diamond key options. */
     showDiamondKey_: Boolean,
 
+    /** @private Whether this device has an internal keyboard. */
+    hasInternalKeyboard_: Boolean,
+
+    /**
+     * Whether to show a remapping option for external keyboard's Meta key
+     * (Search/Windows keys). This is true only when there's an external
+     * keyboard connected that is a non-Apple keyboard.
+     * @private
+     */
+    showExternalMetaKey_: Boolean,
+
+    /**
+     * Whether to show a remapping option for the Command key. This is true when
+     * one of the connected keyboards is an Apple keyboard.
+     * @private
+     */
+    showAppleCommandKey_: Boolean,
+
     /** @private {!DropdownMenuOptionList} Menu items for key mapping. */
     keyMapTargets_: Object,
 
@@ -114,21 +132,34 @@ Polymer({
 
   /**
    * Handler for updating which keys to show.
-   * @param {boolean} showCapsLock
-   * @param {boolean} showDiamondKey
+   * @param {Object} keyboardParams
    * @private
    */
-  onShowKeysChange_: function(showCapsLock, showDiamondKey) {
-    this.showCapsLock_ = showCapsLock;
-    this.showDiamondKey_ = showDiamondKey;
+  onShowKeysChange_: function(keyboardParams) {
+    this.hasInternalKeyboard_ = keyboardParams['hasInternalKeyboard'];
+    this.showCapsLock_ = keyboardParams['showCapsLock'];
+    this.showDiamondKey_ = keyboardParams['showDiamondKey'];
+    this.showExternalMetaKey_ = keyboardParams['showExternalMetaKey'];
+    this.showAppleCommandKey_ = keyboardParams['showAppleCommandKey'];
   },
 
-  onShowKeyboardShortcutsOverlayTap_: function() {
+  onShowKeyboardShortcutViewerTap_: function() {
     settings.DevicePageBrowserProxyImpl.getInstance()
-        .showKeyboardShortcutsOverlay();
+        .showKeyboardShortcutViewer();
   },
 
   onShowLanguageInputTap_: function() {
     settings.navigateTo(settings.routes.LANGUAGES);
+  },
+
+  getExternalMetaKeyLabel_: function(hasInternalKeyboard) {
+    return loadTimeData.getString(
+        hasInternalKeyboard ? 'keyboardKeyExternalMeta' : 'keyboardKeyMeta');
+  },
+
+  getExternalCommandKeyLabel_: function(hasInternalKeyboard) {
+    return loadTimeData.getString(
+        hasInternalKeyboard ? 'keyboardKeyExternalCommand' :
+                              'keyboardKeyCommand');
   },
 });

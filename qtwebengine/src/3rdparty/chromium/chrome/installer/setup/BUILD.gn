@@ -2,8 +2,18 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/buildflag_header.gni")
+import("//build/config/chrome_build.gni")
+import("//chrome/installer/setup/buildflags.gni")
 import("//chrome/process_version_rc_template.gni")
 import("//testing/test.gni")
+
+buildflag_header("buildflags") {
+  header = "buildflags.h"
+
+  # Use ZUCCHINI since ZUCCHINI_ENABLED is too long a name for setup.rc.
+  flags = [ "ZUCCHINI=$use_zucchini" ]
+}
 
 if (is_win) {
   executable("setup") {
@@ -22,13 +32,20 @@ if (is_win) {
     configs += [ "//build/config/win:windowed" ]
 
     deps = [
+      ":buildflags",
       ":lib",
       ":setup_exe_version",
-      "//build/config:exe_and_shlib_deps",
+      "//base",
       "//build/win:default_exe_manifest",
+      "//chrome/common:constants",
       "//chrome/install_static:install_static_util",
+      "//chrome/installer/util:with_rc_strings",
+      "//chrome_elf:constants",
       "//components/crash/content/app:app",
+      "//components/crash/content/app:crash_export_thunks",
       "//components/crash/content/app:run_as_crashpad_handler",
+      "//content/public/common:static_switches",
+      "//rlz:rlz_lib",
     ]
 
     libs = [ "netapi32.lib" ]
@@ -36,10 +53,16 @@ if (is_win) {
 
   static_library("lib") {
     sources = [
+      "${branding_path_component}_behaviors.cc",
       "archive_patch_helper.cc",
       "archive_patch_helper.h",
+      "brand_behaviors.h",
       "install.cc",
       "install.h",
+      "install_service_work_item.cc",
+      "install_service_work_item.h",
+      "install_service_work_item_impl.cc",
+      "install_service_work_item_impl.h",
       "install_worker.cc",
       "install_worker.h",
       "installer_crash_reporter_client.cc",
@@ -48,8 +71,8 @@ if (is_win) {
       "installer_crash_reporting.h",
       "installer_state.cc",
       "installer_state.h",
-      "persistent_histogram_storage.cc",
-      "persistent_histogram_storage.h",
+      "launch_chrome.cc",
+      "launch_chrome.h",
       "progress_calculator.cc",
       "progress_calculator.h",
       "setup_constants.cc",
@@ -60,6 +83,8 @@ if (is_win) {
       "setup_singleton.h",
       "setup_util.cc",
       "setup_util.h",
+      "uninstall_metrics.cc",
+      "uninstall_metrics.h",
       "update_active_setup_version_work_item.cc",
       "update_active_setup_version_work_item.h",
       "user_experiment.cc",
@@ -69,21 +94,25 @@ if (is_win) {
     ]
 
     public_deps = [
+      ":buildflags",
       "//base",
+      "//chrome/installer/util:with_rc_strings",
+    ]
+
+    deps = [
       "//chrome/common:constants",
       "//chrome/common:version_header",
       "//chrome/install_static:install_static_util",
-      "//chrome/installer/util:with_rc_strings",
-      "//chrome_elf:constants",
       "//components/base32",
-      "//components/crash/content/app:app",
-      "//components/crash/content/app:lib",
+      "//components/crash/content/app",
       "//components/crash/core/common",
-      "//content/public/common:static_switches",
+      "//components/metrics",
+      "//components/zucchini:zucchini_io",
+      "//components/zucchini:zucchini_lib",
       "//courgette:courgette_lib",
-      "//rlz:rlz_lib",
       "//third_party/bspatch",
-      "//third_party/zlib",
+      "//third_party/crashpad/crashpad/client",
+      "//third_party/crashpad/crashpad/util",
       "//ui/base:fullscreen_win",
     ]
   }
@@ -97,6 +126,7 @@ if (is_win) {
   test("setup_unittests") {
     sources = [
       "archive_patch_helper_unittest.cc",
+      "install_service_work_item_unittest.cc",
       "install_unittest.cc",
       "install_worker_unittest.cc",
       "installer_state_unittest.cc",
@@ -107,6 +137,7 @@ if (is_win) {
       "setup_singleton_unittest.cc",
       "setup_util_unittest.cc",
       "setup_util_unittest.h",
+      "uninstall_metrics_unittest.cc",
       "update_active_setup_version_work_item_unittest.cc",
       "user_experiment_unittest.cc",
       "user_hive_visitor_unittest.cc",
@@ -116,12 +147,15 @@ if (is_win) {
       ":lib",
       "//base",
       "//base:i18n",
-      "//base/allocator:features",
+      "//base/allocator:buildflags",
       "//base/test:test_support",
+      "//chrome/common:constants",
+      "//chrome/common:version_header",
       "//chrome/install_static:install_static_util",
       "//chrome/install_static/test:test_support",
       "//chrome/installer/mini_installer:unit_tests",
       "//chrome/installer/util:test_support",
+      "//components/crash/content/app:test_support",
       "//testing/gmock",
       "//testing/gtest",
     ]

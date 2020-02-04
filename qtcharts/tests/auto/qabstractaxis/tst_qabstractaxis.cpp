@@ -41,7 +41,7 @@ void tst_QAbstractAxis::cleanupTestCase()
     QTest::qWait(1); // Allow final deleteLaters to run
 }
 
-void tst_QAbstractAxis::init(QAbstractAxis* axis, QAbstractSeries* series)
+void tst_QAbstractAxis::initAxes(QAbstractAxis *axis, QAbstractSeries *series)
 {
     m_axis = axis;
     m_series = series;
@@ -144,9 +144,10 @@ void tst_QAbstractAxis::axisPen()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     //TODO QCOMPARE(m_axis->axisPen(), axisPen);
 }
 
@@ -203,9 +204,10 @@ void tst_QAbstractAxis::gridLinePen()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     //TODO QCOMPARE(m_axis->gridLinePen(), gridLinePen);
 }
 
@@ -253,9 +255,10 @@ void tst_QAbstractAxis::minorGridLinePen()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
 }
 
@@ -301,9 +304,10 @@ void tst_QAbstractAxis::lineVisible()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->isLineVisible(), lineVisible);
 }
 
@@ -345,9 +349,10 @@ void tst_QAbstractAxis::gridLineVisible()
     QCOMPARE(spy8.count(), 0);
     QCOMPARE(spy9.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->isGridLineVisible(), gridLineVisible);
 
 }
@@ -394,9 +399,10 @@ void tst_QAbstractAxis::minorGridLineVisible()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->isMinorGridLineVisible(), minorGridLineVisible);
 
 }
@@ -442,9 +448,10 @@ void tst_QAbstractAxis::gridLineColor()
     QCOMPARE(spy10.count(), 1);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
 }
 
@@ -489,9 +496,10 @@ void tst_QAbstractAxis::minorGridLineColor()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 1);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
 }
 
@@ -537,9 +545,10 @@ void tst_QAbstractAxis::visible()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->isVisible(), visible);
 }
 
@@ -584,9 +593,10 @@ void tst_QAbstractAxis::labelsAngle()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->labelsAngle(), labelsAngle);
 }
 
@@ -634,7 +644,7 @@ void tst_QAbstractAxis::labelsBrush()
     QCOMPARE(spy11.count(), 0);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->labelsBrush(), labelsBrush);
 
 }
@@ -691,7 +701,7 @@ void tst_QAbstractAxis::labelsFont()
     QCOMPARE(spy11.count(), 0);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->labelsFont(), labelsFont);
 
 }
@@ -738,9 +748,10 @@ void tst_QAbstractAxis::labelsVisible()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->labelsVisible(), labelsVisible);
 }
 
@@ -769,9 +780,11 @@ void tst_QAbstractAxis::orientation()
     QSignalSpy spy11(m_axis, SIGNAL(minorGridLineColorChanged(QColor)));
 
     if(orientation==Qt::Vertical){
-        m_chart->setAxisY(m_axis,m_series);
+        m_chart->addAxis(m_axis, Qt::AlignLeft);
+        m_series->attachAxis(m_axis);
     }else{
-        m_chart->setAxisX(m_axis,m_series);
+        m_chart->addAxis(m_axis, Qt::AlignBottom);
+        m_series->attachAxis(m_axis);
     }
     QCOMPARE(m_axis->orientation(), orientation);
 
@@ -789,7 +802,7 @@ void tst_QAbstractAxis::orientation()
     QCOMPARE(spy11.count(), 0);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->orientation(), orientation);
 }
 
@@ -892,7 +905,7 @@ void tst_QAbstractAxis::shadesBrush()
     QCOMPARE(spy11.count(), 0);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->shadesBrush(), shadesBrush);
 }
 
@@ -948,9 +961,10 @@ void tst_QAbstractAxis::shadesPen()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->shadesPen(), shadesPen);
 }
 
@@ -996,9 +1010,10 @@ void tst_QAbstractAxis::shadesVisible()
     QCOMPARE(spy10.count(), 0);
     QCOMPARE(spy11.count(), 0);
 
-    m_chart->setAxisX(m_axis, m_series);
+    m_chart->addAxis(m_axis, Qt::AlignBottom);
+    m_series->attachAxis(m_axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_axis->shadesVisible(), shadesVisible);
 }
 

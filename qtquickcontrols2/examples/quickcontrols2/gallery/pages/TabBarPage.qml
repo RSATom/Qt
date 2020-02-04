@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.6
-import QtQuick.Controls 2.1
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 
 Page {
     id: page
@@ -74,7 +74,7 @@ Page {
                         width: parent.width
                         wrapMode: Label.Wrap
                         horizontalAlignment: Qt.AlignHCenter
-                        text: "TabBar is a bar with icons or text which allows the user"
+                        text: "TabBar is a bar with icons or text which allows the user "
                               + "to switch between different subtasks, views, or modes."
                     }
 

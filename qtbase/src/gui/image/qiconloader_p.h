@@ -69,7 +69,7 @@ class QIconLoader;
 
 struct QIconDirInfo
 {
-    enum Type { Fixed, Scalable, Threshold };
+    enum Type { Fixed, Scalable, Threshold, Fallback };
     QIconDirInfo(const QString &_path = QString()) :
             path(_path),
             size(0),
@@ -101,13 +101,13 @@ public:
 
 struct ScalableEntry : public QIconLoaderEngineEntry
 {
-    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) Q_DECL_OVERRIDE;
+    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) override;
     QIcon svgIcon;
 };
 
 struct PixmapEntry : public QIconLoaderEngineEntry
 {
-    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) Q_DECL_OVERRIDE;
+    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) override;
     QPixmap basePixmap;
 };
 
@@ -125,20 +125,20 @@ public:
     QIconLoaderEngine(const QString& iconName = QString());
     ~QIconLoaderEngine();
 
-    void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state) Q_DECL_OVERRIDE;
-    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) Q_DECL_OVERRIDE;
-    QSize actualSize(const QSize &size, QIcon::Mode mode, QIcon::State state) Q_DECL_OVERRIDE;
-    QIconEngine *clone() const Q_DECL_OVERRIDE;
-    bool read(QDataStream &in) Q_DECL_OVERRIDE;
-    bool write(QDataStream &out) const Q_DECL_OVERRIDE;
+    void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state) override;
+    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) override;
+    QSize actualSize(const QSize &size, QIcon::Mode mode, QIcon::State state) override;
+    QIconEngine *clone() const override;
+    bool read(QDataStream &in) override;
+    bool write(QDataStream &out) const override;
 
     Q_GUI_EXPORT static QIconLoaderEngineEntry *entryForSize(const QThemeIconInfo &info, const QSize &size, int scale = 1);
 
 private:
-    QString key() const Q_DECL_OVERRIDE;
+    QString key() const override;
     bool hasIcon() const;
     void ensureLoaded();
-    void virtual_hook(int id, void *data) Q_DECL_OVERRIDE;
+    void virtual_hook(int id, void *data) override;
 
     QIconLoaderEngine(const QIconLoaderEngine &other);
     QThemeIconInfo m_info;
@@ -177,9 +177,13 @@ public:
 
     QString themeName() const { return m_userTheme.isEmpty() ? m_systemTheme : m_userTheme; }
     void setThemeName(const QString &themeName);
+    QString fallbackThemeName() const;
+    void setFallbackThemeName(const QString &themeName);
     QIconTheme theme() { return themeList.value(themeName()); }
     void setThemeSearchPath(const QStringList &searchPaths);
     QStringList themeSearchPaths() const;
+    void setFallbackSearchPaths(const QStringList &searchPaths);
+    QStringList fallbackSearchPaths() const;
     QIconDirInfo dirInfo(int dirindex);
     static QIconLoader *instance();
     void updateSystemTheme();
@@ -191,14 +195,18 @@ private:
     QThemeIconInfo findIconHelper(const QString &themeName,
                                   const QString &iconName,
                                   QStringList &visited) const;
+    QThemeIconInfo lookupFallbackIcon(const QString &iconName) const;
+
     uint m_themeKey;
     bool m_supportsSvg;
     bool m_initialized;
 
     mutable QString m_userTheme;
+    mutable QString m_userFallbackTheme;
     mutable QString m_systemTheme;
     mutable QStringList m_iconDirs;
     mutable QHash <QString, QIconTheme> themeList;
+    mutable QStringList m_fallbackDirs;
 };
 
 QT_END_NAMESPACE

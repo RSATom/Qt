@@ -4,13 +4,13 @@
 
 #include "ui/aura/window_port_for_shutdown.h"
 
-#include "base/memory/ptr_util.h"
-#include "cc/output/layer_tree_frame_sink.h"
+#include "cc/trees/layer_tree_frame_sink.h"
 #include "ui/aura/window.h"
 
 namespace aura {
 
-WindowPortForShutdown::WindowPortForShutdown() {}
+WindowPortForShutdown::WindowPortForShutdown()
+    : WindowPort(WindowPort::Type::kShutdown) {}
 
 WindowPortForShutdown::~WindowPortForShutdown() {}
 
@@ -23,7 +23,8 @@ void WindowPortForShutdown::Install(aura::Window* window) {
 void WindowPortForShutdown::OnPreInit(Window* window) {}
 
 void WindowPortForShutdown::OnDeviceScaleFactorChanged(
-    float device_scale_factor) {}
+    float old_device_scale_factor,
+    float new_device_scale_factor) {}
 
 void WindowPortForShutdown::OnWillAddChild(Window* child) {}
 
@@ -56,12 +57,26 @@ WindowPortForShutdown::CreateLayerTreeFrameSink() {
   return nullptr;
 }
 
-viz::SurfaceId WindowPortForShutdown::GetSurfaceId() const {
-  return viz::SurfaceId();
+void WindowPortForShutdown::AllocateLocalSurfaceId() {}
+void WindowPortForShutdown::InvalidateLocalSurfaceId() {}
+void WindowPortForShutdown::UpdateLocalSurfaceIdFromEmbeddedClient(
+    const viz::LocalSurfaceIdAllocation&
+        embedded_client_local_surface_id_allocation) {}
+
+viz::ScopedSurfaceIdAllocator WindowPortForShutdown::GetSurfaceIdAllocator(
+    base::OnceCallback<void()> allocation_task) {
+  return viz::ScopedSurfaceIdAllocator(std::move(allocation_task));
 }
 
-void WindowPortForShutdown::OnWindowAddedToRootWindow() {}
+const viz::LocalSurfaceIdAllocation&
+WindowPortForShutdown::GetLocalSurfaceIdAllocation() {
+  return local_surface_id_allocation_;
+}
 
-void WindowPortForShutdown::OnWillRemoveWindowFromRootWindow() {}
+void WindowPortForShutdown::OnEventTargetingPolicyChanged() {}
+
+bool WindowPortForShutdown::ShouldRestackTransientChildren() {
+  return true;
+}
 
 }  // namespace aura

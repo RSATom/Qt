@@ -7,9 +7,11 @@
 #include "base/base_paths.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
+#include "net/cert/internal/cert_error_params.h"
 #include "net/cert/internal/cert_issuer_source_static.h"
+#include "net/cert/internal/common_cert_errors.h"
 #include "net/cert/internal/parsed_certificate.h"
-#include "net/cert/internal/signature_policy.h"
+#include "net/cert/internal/simple_path_builder_delegate.h"
 #include "net/cert/internal/test_helpers.h"
 #include "net/cert/internal/trust_store_collection.h"
 #include "net/cert/internal/trust_store_in_memory.h"
@@ -44,7 +46,7 @@ class AsyncCertIssuerSourceStatic : public CertIssuerSource {
       issuers_.swap(issuers);
       issuers_iter_ = issuers_.begin();
     }
-    ~StaticAsyncRequest() override {}
+    ~StaticAsyncRequest() override = default;
 
     void GetNext(ParsedCertificateList* out_certs) override {
       if (issuers_iter_ != issuers_.end())
@@ -57,7 +59,7 @@ class AsyncCertIssuerSourceStatic : public CertIssuerSource {
     DISALLOW_COPY_AND_ASSIGN(StaticAsyncRequest);
   };
 
-  ~AsyncCertIssuerSourceStatic() override {}
+  ~AsyncCertIssuerSourceStatic() override = default;
 
   void AddCert(scoped_refptr<ParsedCertificate> cert) {
     static_cert_issuer_source_.AddCert(std::move(cert));
@@ -115,7 +117,9 @@ class AsyncCertIssuerSourceStatic : public CertIssuerSource {
 
 class PathBuilderMultiRootTest : public ::testing::Test {
  public:
-  PathBuilderMultiRootTest() : signature_policy_(1024) {}
+  PathBuilderMultiRootTest()
+      : delegate_(1024,
+                  SimplePathBuilderDelegate::DigestPolicy::kWeakAllowSha1) {}
 
   void SetUp() override {
     ASSERT_TRUE(ReadTestCert("multi-root-A-by-B.pem", &a_by_b_));
@@ -132,7 +136,7 @@ class PathBuilderMultiRootTest : public ::testing::Test {
   scoped_refptr<ParsedCertificate> a_by_b_, b_by_c_, b_by_f_, c_by_d_, c_by_e_,
       d_by_d_, e_by_e_, f_by_e_;
 
-  SimpleSignaturePolicy signature_policy_;
+  SimplePathBuilderDelegate delegate_;
   der::GeneralizedTime time_ = {2017, 3, 1, 0, 0, 0};
 
   const InitialExplicitPolicy initial_explicit_policy_ =
@@ -158,22 +162,17 @@ TEST_F(PathBuilderMultiRootTest, TargetHasNameAndSpkiOfTrustAnchor) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      a_by_b_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
 
   path_builder.Run();
 
-  ASSERT_FALSE(result.HasValidPath());
-
-  // TODO(eroman): This probably should have succeeded and found the path below.
-  // It fails right now because path building stops on trust anchors (and the
-  // end entity is added as a trust anchor).
-  //
-  // const auto& path = result.GetBestValidPath()->path;
-  // ASSERT_EQ(2U, path.certs.size());
-  // EXPECT_EQ(a_by_b_, path.certs[0]);
-  // EXPECT_EQ(b_by_f_, path.certs[1]);
+  ASSERT_TRUE(result.HasValidPath());
+  const auto& path = *result.GetBestValidPath();
+  ASSERT_EQ(2U, path.certs.size());
+  EXPECT_EQ(a_by_b_, path.certs[0]);
+  EXPECT_EQ(b_by_f_, path.certs[1]);
 }
 
 // If the target cert is has the same name and key as a trust anchor, however
@@ -185,7 +184,7 @@ TEST_F(PathBuilderMultiRootTest, TargetWithSameNameAsTrustAnchorFails) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      a_by_b_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
 
@@ -216,8 +215,8 @@ TEST_F(PathBuilderMultiRootTest, SelfSignedTrustAnchorSupplementalCert) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      b_by_c_, &trust_store, &signature_policy_, expired_time,
-      KeyPurpose::ANY_EKU, initial_explicit_policy_, user_initial_policy_set_,
+      b_by_c_, &trust_store, &delegate_, expired_time, KeyPurpose::ANY_EKU,
+      initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
 
@@ -227,7 +226,7 @@ TEST_F(PathBuilderMultiRootTest, SelfSignedTrustAnchorSupplementalCert) {
   ASSERT_EQ(1U, result.paths.size());
 
   EXPECT_FALSE(result.paths[0]->IsValid());
-  const auto& path0 = result.paths[0]->path;
+  const auto& path0 = *result.paths[0];
   ASSERT_EQ(3U, path0.certs.size());
   EXPECT_EQ(b_by_c_, path0.certs[0]);
   EXPECT_EQ(c_by_d_, path0.certs[1]);
@@ -243,22 +242,20 @@ TEST_F(PathBuilderMultiRootTest, TargetIsSelfSignedTrustAnchor) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      e_by_e_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      e_by_e_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
 
   path_builder.Run();
 
-  ASSERT_FALSE(result.HasValidPath());
+  ASSERT_TRUE(result.HasValidPath());
 
-  // TODO(eroman): This test currently fails because path building stops
-  // searching once it identifies a certificate as a trust anchor. In this case
-  // the target is a trust anchor, however could be verified using the
-  // self-signedness (or even the cert itself).
-  // const auto& path = result.GetBestValidPath()->path;
-  // ASSERT_EQ(2U, path.certs.size());
-  // EXPECT_EQ(e_by_e_, path.certs[0]);
-  // EXPECT_EQ(e_by_e_, path.certs[1]);
+  // Verifying a trusted leaf certificate is not permitted, however this
+  // certificate is self-signed, and can chain to itself.
+  const auto& path = *result.GetBestValidPath();
+  ASSERT_EQ(2U, path.certs.size());
+  EXPECT_EQ(e_by_e_, path.certs[0]);
+  EXPECT_EQ(e_by_e_, path.certs[1]);
 }
 
 // If the target cert is directly issued by a trust anchor, it should verify
@@ -269,14 +266,14 @@ TEST_F(PathBuilderMultiRootTest, TargetDirectlySignedByTrustAnchor) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      a_by_b_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
 
   path_builder.Run();
 
   ASSERT_TRUE(result.HasValidPath());
-  const auto& path = result.GetBestValidPath()->path;
+  const auto& path = *result.GetBestValidPath();
   ASSERT_EQ(2U, path.certs.size());
   EXPECT_EQ(a_by_b_, path.certs[0]);
   EXPECT_EQ(b_by_f_, path.certs[1]);
@@ -298,7 +295,7 @@ TEST_F(PathBuilderMultiRootTest, TriesSyncFirst) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      a_by_b_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&async_certs);
@@ -328,7 +325,7 @@ TEST_F(PathBuilderMultiRootTest, TestAsyncSimultaneous) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      a_by_b_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&async_certs1);
@@ -357,7 +354,7 @@ TEST_F(PathBuilderMultiRootTest, TestLongChain) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      a_by_b_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
@@ -368,7 +365,7 @@ TEST_F(PathBuilderMultiRootTest, TestLongChain) {
 
   // The result path should be A(B) <- B(C) <- C(D)
   // not the longer but also valid A(B) <- B(C) <- C(D) <- D(D)
-  EXPECT_EQ(3U, result.GetBestValidPath()->path.certs.size());
+  EXPECT_EQ(3U, result.GetBestValidPath()->certs.size());
 }
 
 // Test that PathBuilder will backtrack and try a different path if the first
@@ -392,7 +389,7 @@ TEST_F(PathBuilderMultiRootTest, TestBacktracking) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      a_by_b_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
@@ -403,7 +400,7 @@ TEST_F(PathBuilderMultiRootTest, TestBacktracking) {
   ASSERT_TRUE(result.HasValidPath());
 
   // The result path should be A(B) <- B(C) <- C(D) <- D(D)
-  const auto& path = result.GetBestValidPath()->path;
+  const auto& path = *result.GetBestValidPath();
   ASSERT_EQ(4U, path.certs.size());
   EXPECT_EQ(a_by_b_, path.certs[0]);
   EXPECT_EQ(b_by_c_, path.certs[1]);
@@ -433,7 +430,7 @@ TEST_F(PathBuilderMultiRootTest, TestCertIssuerOrdering) {
 
     CertPathBuilder::Result result;
     CertPathBuilder path_builder(
-        a_by_b_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+        a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
         initial_explicit_policy_, user_initial_policy_set_,
         initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
     path_builder.AddCertIssuerSource(&sync_certs);
@@ -443,7 +440,7 @@ TEST_F(PathBuilderMultiRootTest, TestCertIssuerOrdering) {
     ASSERT_TRUE(result.HasValidPath());
 
     // The result path should be A(B) <- B(C) <- C(D) <- D(D)
-    const auto& path = result.GetBestValidPath()->path;
+    const auto& path = *result.GetBestValidPath();
     ASSERT_EQ(4U, path.certs.size());
     EXPECT_EQ(a_by_b_, path.certs[0]);
     EXPECT_EQ(b_by_c_, path.certs[1]);
@@ -452,9 +449,50 @@ TEST_F(PathBuilderMultiRootTest, TestCertIssuerOrdering) {
   }
 }
 
+TEST_F(PathBuilderMultiRootTest, TestIterationLimit) {
+  // Both D(D) and C(D) are trusted roots.
+  TrustStoreInMemory trust_store;
+  trust_store.AddTrustAnchor(d_by_d_);
+  trust_store.AddTrustAnchor(c_by_d_);
+
+  // Certs B(C), and C(D) are all supplied.
+  CertIssuerSourceStatic sync_certs;
+  sync_certs.AddCert(b_by_c_);
+  sync_certs.AddCert(c_by_d_);
+
+  for (const bool insufficient_limit : {true, false}) {
+    SCOPED_TRACE(insufficient_limit);
+
+    CertPathBuilder::Result result;
+    CertPathBuilder path_builder(
+        a_by_b_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
+        initial_explicit_policy_, user_initial_policy_set_,
+        initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
+    path_builder.AddCertIssuerSource(&sync_certs);
+
+    if (insufficient_limit) {
+      // A limit of one is insufficient to build a path in this case. Therefore
+      // building is expected to fail in this case.
+      path_builder.SetIterationLimit(1);
+    } else {
+      // The other tests in this file exercise the case that |SetIterationLimit|
+      // isn't called. Therefore set a sufficient limit for the path to be
+      // found.
+      path_builder.SetIterationLimit(5);
+    }
+
+    path_builder.Run();
+
+    EXPECT_EQ(!insufficient_limit, result.HasValidPath());
+    EXPECT_EQ(insufficient_limit, result.exceeded_iteration_limit);
+  }
+}
+
 class PathBuilderKeyRolloverTest : public ::testing::Test {
  public:
-  PathBuilderKeyRolloverTest() : signature_policy_(1024) {}
+  PathBuilderKeyRolloverTest()
+      : delegate_(1024,
+                  SimplePathBuilderDelegate::DigestPolicy::kWeakAllowSha1) {}
 
   void SetUp() override {
     ParsedCertificateList path;
@@ -505,7 +543,7 @@ class PathBuilderKeyRolloverTest : public ::testing::Test {
   scoped_refptr<ParsedCertificate> newroot_;
   scoped_refptr<ParsedCertificate> newrootrollover_;
 
-  SimpleSignaturePolicy signature_policy_;
+  SimplePathBuilderDelegate delegate_;
   der::GeneralizedTime time_;
 
   const InitialExplicitPolicy initial_explicit_policy_ =
@@ -532,7 +570,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverOnlyOldRootTrusted) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      target_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
@@ -544,7 +582,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverOnlyOldRootTrusted) {
   // Path builder will first attempt: target <- newintermediate <- oldroot
   // but it will fail since newintermediate is signed by newroot.
   ASSERT_EQ(2U, result.paths.size());
-  const auto& path0 = result.paths[0]->path;
+  const auto& path0 = *result.paths[0];
   EXPECT_FALSE(result.paths[0]->IsValid());
   ASSERT_EQ(3U, path0.certs.size());
   EXPECT_EQ(target_, path0.certs[0]);
@@ -554,7 +592,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverOnlyOldRootTrusted) {
   // Path builder will next attempt:
   // target <- newintermediate <- newrootrollover <- oldroot
   // which will succeed.
-  const auto& path1 = result.paths[1]->path;
+  const auto& path1 = *result.paths[1];
   EXPECT_EQ(1U, result.best_result_index);
   EXPECT_TRUE(result.paths[1]->IsValid());
   ASSERT_EQ(4U, path1.certs.size());
@@ -582,7 +620,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverBothRootsTrusted) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      target_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
@@ -596,7 +634,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverBothRootsTrusted) {
   // target <- newintermediate <- newroot
   // either will succeed.
   ASSERT_EQ(1U, result.paths.size());
-  const auto& path = result.paths[0]->path;
+  const auto& path = *result.paths[0];
   EXPECT_TRUE(result.paths[0]->IsValid());
   ASSERT_EQ(3U, path.certs.size());
   EXPECT_EQ(target_, path.certs[0]);
@@ -619,7 +657,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestAnchorsNoMatchAndNoIssuerSources) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      target_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
 
@@ -652,8 +690,8 @@ TEST_F(PathBuilderKeyRolloverTest, TestMultipleRootMatchesOnlyOneWorks) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store_collection, &signature_policy_, time_,
-      KeyPurpose::ANY_EKU, initial_explicit_policy_, user_initial_policy_set_,
+      target_, &trust_store_collection, &delegate_, time_, KeyPurpose::ANY_EKU,
+      initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
 
@@ -666,7 +704,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestMultipleRootMatchesOnlyOneWorks) {
     // Path builder may first attempt: target <- oldintermediate <- newroot
     // but it will fail since oldintermediate is signed by oldroot.
     EXPECT_FALSE(result.paths[0]->IsValid());
-    const auto& path = result.paths[0]->path;
+    const auto& path = *result.paths[0];
     ASSERT_EQ(3U, path.certs.size());
     EXPECT_EQ(target_, path.certs[0]);
     EXPECT_EQ(oldintermediate_, path.certs[1]);
@@ -678,7 +716,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestMultipleRootMatchesOnlyOneWorks) {
     // target <- old intermediate <- oldroot
     // which should succeed.
     EXPECT_TRUE(result.paths[result.best_result_index]->IsValid());
-    const auto& path = result.paths[result.best_result_index]->path;
+    const auto& path = *result.paths[result.best_result_index];
     ASSERT_EQ(3U, path.certs.size());
     EXPECT_EQ(target_, path.certs[0]);
     EXPECT_EQ(oldintermediate_, path.certs[1]);
@@ -704,7 +742,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverLongChain) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      target_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
@@ -718,7 +756,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverLongChain) {
   // Path builder will first attempt: target <- newintermediate <- oldroot
   // but it will fail since newintermediate is signed by newroot.
   EXPECT_FALSE(result.paths[0]->IsValid());
-  const auto& path0 = result.paths[0]->path;
+  const auto& path0 = *result.paths[0];
   ASSERT_EQ(3U, path0.certs.size());
   EXPECT_EQ(target_, path0.certs[0]);
   EXPECT_EQ(newintermediate_, path0.certs[1]);
@@ -728,7 +766,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverLongChain) {
   // target <- newintermediate <- newroot <- oldroot
   // but it will fail since newroot is self-signed.
   EXPECT_FALSE(result.paths[1]->IsValid());
-  const auto& path1 = result.paths[1]->path;
+  const auto& path1 = *result.paths[1];
   ASSERT_EQ(4U, path1.certs.size());
   EXPECT_EQ(target_, path1.certs[0]);
   EXPECT_EQ(newintermediate_, path1.certs[1]);
@@ -743,7 +781,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestRolloverLongChain) {
   // target <- newintermediate <- newrootrollover <- oldroot
   EXPECT_EQ(2U, result.best_result_index);
   EXPECT_TRUE(result.paths[2]->IsValid());
-  const auto& path2 = result.paths[2]->path;
+  const auto& path2 = *result.paths[2];
   ASSERT_EQ(4U, path2.certs.size());
   EXPECT_EQ(target_, path2.certs[0]);
   EXPECT_EQ(newintermediate_, path2.certs[1]);
@@ -763,8 +801,8 @@ TEST_F(PathBuilderKeyRolloverTest, TestEndEntityIsTrustRoot) {
   CertPathBuilder::Result result;
   // Newintermediate is also the target cert.
   CertPathBuilder path_builder(
-      newintermediate_, &trust_store, &signature_policy_, time_,
-      KeyPurpose::ANY_EKU, initial_explicit_policy_, user_initial_policy_set_,
+      newintermediate_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
+      initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
 
   path_builder.Run();
@@ -789,7 +827,7 @@ TEST_F(PathBuilderKeyRolloverTest,
   CertPathBuilder::Result result;
   // Newroot is the target cert.
   CertPathBuilder path_builder(
-      newroot_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      newroot_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
@@ -812,7 +850,7 @@ TEST_F(PathBuilderKeyRolloverTest,
   CertPathBuilder::Result result;
   // Newroot is the target cert.
   CertPathBuilder path_builder(
-      newroot_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      newroot_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
 
@@ -820,14 +858,14 @@ TEST_F(PathBuilderKeyRolloverTest,
 
   ASSERT_TRUE(result.HasValidPath());
 
-  const CertPathBuilder::ResultPath* best_result = result.GetBestValidPath();
+  const CertPathBuilderResultPath* best_result = result.GetBestValidPath();
 
   // Newroot has same name+SPKI as newrootrollover, thus the path is valid and
   // only contains newroot.
   EXPECT_TRUE(best_result->IsValid());
-  ASSERT_EQ(2U, best_result->path.certs.size());
-  EXPECT_EQ(newroot_, best_result->path.certs[0]);
-  EXPECT_EQ(newrootrollover_, best_result->path.certs[1]);
+  ASSERT_EQ(2U, best_result->certs.size());
+  EXPECT_EQ(newroot_, best_result->certs[0]);
+  EXPECT_EQ(newrootrollover_, best_result->certs[1]);
 }
 
 // Test that PathBuilder will not try the same path twice if multiple
@@ -862,7 +900,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestDuplicateIntermediates) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      target_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs1);
@@ -877,7 +915,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestDuplicateIntermediates) {
   // Path builder will first attempt: target <- oldintermediate <- newroot
   // but it will fail since oldintermediate is signed by oldroot.
   EXPECT_FALSE(result.paths[0]->IsValid());
-  const auto& path0 = result.paths[0]->path;
+  const auto& path0 = *result.paths[0];
 
   ASSERT_EQ(3U, path0.certs.size());
   EXPECT_EQ(target_, path0.certs[0]);
@@ -890,7 +928,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestDuplicateIntermediates) {
   // which will succeed.
   EXPECT_EQ(1U, result.best_result_index);
   EXPECT_TRUE(result.paths[1]->IsValid());
-  const auto& path1 = result.paths[1]->path;
+  const auto& path1 = *result.paths[1];
   ASSERT_EQ(3U, path1.certs.size());
   EXPECT_EQ(target_, path1.certs[0]);
   EXPECT_EQ(newintermediate_, path1.certs[1]);
@@ -918,7 +956,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestDuplicateIntermediateAndRoot) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      target_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&sync_certs);
@@ -931,7 +969,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestDuplicateIntermediateAndRoot) {
   // Path builder attempt: target <- oldintermediate <- newroot
   // but it will fail since oldintermediate is signed by oldroot.
   EXPECT_FALSE(result.paths[0]->IsValid());
-  const auto& path = result.paths[0]->path;
+  const auto& path = *result.paths[0];
   ASSERT_EQ(3U, path.certs.size());
   EXPECT_EQ(target_, path.certs[0]);
   EXPECT_EQ(oldintermediate_, path.certs[1]);
@@ -994,7 +1032,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestMultipleAsyncIssuersFromSingleSource) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      target_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&cert_issuer_source);
@@ -1048,7 +1086,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestMultipleAsyncIssuersFromSingleSource) {
   // Path builder first attempts: target <- oldintermediate <- newroot
   // but it will fail since oldintermediate is signed by oldroot.
   EXPECT_FALSE(result.paths[0]->IsValid());
-  const auto& path0 = result.paths[0]->path;
+  const auto& path0 = *result.paths[0];
   ASSERT_EQ(3U, path0.certs.size());
   EXPECT_EQ(target_, path0.certs[0]);
   EXPECT_EQ(oldintermediate_, path0.certs[1]);
@@ -1057,7 +1095,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestMultipleAsyncIssuersFromSingleSource) {
   // After the second batch of async results, path builder will attempt:
   // target <- newintermediate <- newroot which will succeed.
   EXPECT_TRUE(result.paths[1]->IsValid());
-  const auto& path1 = result.paths[1]->path;
+  const auto& path1 = *result.paths[1];
   ASSERT_EQ(3U, path1.certs.size());
   EXPECT_EQ(target_, path1.certs[0]);
   EXPECT_EQ(newintermediate_, path1.certs[1]);
@@ -1075,7 +1113,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestDuplicateAsyncIntermediates) {
 
   CertPathBuilder::Result result;
   CertPathBuilder path_builder(
-      target_, &trust_store, &signature_policy_, time_, KeyPurpose::ANY_EKU,
+      target_, &trust_store, &delegate_, time_, KeyPurpose::ANY_EKU,
       initial_explicit_policy_, user_initial_policy_set_,
       initial_policy_mapping_inhibit_, initial_any_policy_inhibit_, &result);
   path_builder.AddCertIssuerSource(&cert_issuer_source);
@@ -1136,7 +1174,7 @@ TEST_F(PathBuilderKeyRolloverTest, TestDuplicateAsyncIntermediates) {
   // Path builder first attempts: target <- oldintermediate <- newroot
   // but it will fail since oldintermediate is signed by oldroot.
   EXPECT_FALSE(result.paths[0]->IsValid());
-  const auto& path0 = result.paths[0]->path;
+  const auto& path0 = *result.paths[0];
   ASSERT_EQ(3U, path0.certs.size());
   EXPECT_EQ(target_, path0.certs[0]);
   EXPECT_EQ(oldintermediate_, path0.certs[1]);
@@ -1147,18 +1185,16 @@ TEST_F(PathBuilderKeyRolloverTest, TestDuplicateAsyncIntermediates) {
   // After the third batch of async results, path builder will attempt:
   // target <- newintermediate <- newroot which will succeed.
   EXPECT_TRUE(result.paths[1]->IsValid());
-  const auto& path1 = result.paths[1]->path;
+  const auto& path1 = *result.paths[1];
   ASSERT_EQ(3U, path1.certs.size());
   EXPECT_EQ(target_, path1.certs[0]);
   EXPECT_EQ(newintermediate_, path1.certs[1]);
   EXPECT_EQ(newroot_, path1.certs[2]);
 }
 
-// Test fixture for running the path builder over a simple chain, while varying
-// the trustedness of certain certificates.
-class PathBuilderDistrustTest : public ::testing::Test {
+class PathBuilderSimpleChainTest : public ::testing::Test {
  public:
-  PathBuilderDistrustTest() {}
+  PathBuilderSimpleChainTest() = default;
 
  protected:
   void SetUp() override {
@@ -1171,10 +1207,10 @@ class PathBuilderDistrustTest : public ::testing::Test {
   }
 
   // Runs the path builder for the target certificate while |distrusted_cert| is
-  // blacklisted.
-  void RunPathBuilderWithDistrustedCert(
-      const scoped_refptr<ParsedCertificate>& distrusted_cert,
-      CertPathBuilder::Result* result) {
+  // blacklisted, and |delegate| if non-null.
+  void RunPathBuilder(const scoped_refptr<ParsedCertificate>& distrusted_cert,
+                      CertPathBuilderDelegate* optional_delegate,
+                      CertPathBuilder::Result* result) {
     ASSERT_EQ(3u, test_.chain.size());
 
     // Set up the trust store such that |distrusted_cert| is blacklisted, and
@@ -1189,7 +1225,10 @@ class PathBuilderDistrustTest : public ::testing::Test {
     CertIssuerSourceStatic intermediates;
     intermediates.AddCert(test_.chain[1]);
 
-    SimpleSignaturePolicy signature_policy(1024);
+    SimplePathBuilderDelegate default_delegate(
+        1024, SimplePathBuilderDelegate::DigestPolicy::kWeakAllowSha1);
+    CertPathBuilderDelegate* delegate =
+        optional_delegate ? optional_delegate : &default_delegate;
 
     const InitialExplicitPolicy initial_explicit_policy =
         InitialExplicitPolicy::kFalse;
@@ -1200,7 +1239,7 @@ class PathBuilderDistrustTest : public ::testing::Test {
         InitialAnyPolicyInhibit::kFalse;
 
     CertPathBuilder path_builder(
-        test_.chain.front(), &trust_store, &signature_policy, test_.time,
+        test_.chain.front(), &trust_store, delegate, test_.time,
         KeyPurpose::ANY_EKU, initial_explicit_policy, user_initial_policy_set,
         initial_policy_mapping_inhibit, initial_any_policy_inhibit, result);
     path_builder.AddCertIssuerSource(&intermediates);
@@ -1209,6 +1248,22 @@ class PathBuilderDistrustTest : public ::testing::Test {
 
  protected:
   VerifyCertChainTest test_;
+};
+
+// Test fixture for running the path builder over a simple chain, while varying
+// the trustedness of certain certificates.
+class PathBuilderDistrustTest : public PathBuilderSimpleChainTest {
+ public:
+  PathBuilderDistrustTest() = default;
+
+ protected:
+  // Runs the path builder for the target certificate while |distrusted_cert| is
+  // blacklisted.
+  void RunPathBuilderWithDistrustedCert(
+      const scoped_refptr<ParsedCertificate>& distrusted_cert,
+      CertPathBuilder::Result* result) {
+    RunPathBuilder(distrusted_cert, nullptr, result);
+  }
 };
 
 // Tests that path building fails when the target, intermediate, or root are
@@ -1221,7 +1276,7 @@ TEST_F(PathBuilderDistrustTest, TargetIntermediateRoot) {
   {
     EXPECT_TRUE(result.HasValidPath());
     // The built path should be identical the the one read from disk.
-    const auto& path = result.GetBestValidPath()->path;
+    const auto& path = *result.GetBestValidPath();
     ASSERT_EQ(test_.chain.size(), path.certs.size());
     for (size_t i = 0; i < test_.chain.size(); ++i)
       EXPECT_EQ(test_.chain[i], path.certs[i]);
@@ -1236,10 +1291,10 @@ TEST_F(PathBuilderDistrustTest, TargetIntermediateRoot) {
 
     // The built chain has length 1 since path building stopped once
     // it encountered the blacklisted certificate (target).
-    ASSERT_EQ(1u, best_path->path.certs.size());
-    EXPECT_EQ(best_path->path.certs[0], test_.chain[0]);
+    ASSERT_EQ(1u, best_path->certs.size());
+    EXPECT_EQ(best_path->certs[0], test_.chain[0]);
     EXPECT_TRUE(best_path->errors.ContainsHighSeverityErrors());
-    best_path->errors.ContainsError(kCertIsDistrusted);
+    best_path->errors.ContainsError(cert_errors::kDistrustedByTrustStore);
   }
 
   // Try path building when only the intermediate is blacklisted - should fail.
@@ -1251,11 +1306,11 @@ TEST_F(PathBuilderDistrustTest, TargetIntermediateRoot) {
 
     // The built chain has length 2 since path building stopped once
     // it encountered the blacklisted certificate (intermediate).
-    ASSERT_EQ(2u, best_path->path.certs.size());
-    EXPECT_EQ(best_path->path.certs[0], test_.chain[0]);
-    EXPECT_EQ(best_path->path.certs[1], test_.chain[1]);
+    ASSERT_EQ(2u, best_path->certs.size());
+    EXPECT_EQ(best_path->certs[0], test_.chain[0]);
+    EXPECT_EQ(best_path->certs[1], test_.chain[1]);
     EXPECT_TRUE(best_path->errors.ContainsHighSeverityErrors());
-    best_path->errors.ContainsError(kCertIsDistrusted);
+    best_path->errors.ContainsError(cert_errors::kDistrustedByTrustStore);
   }
 
   // Try path building when only the root is blacklisted - should fail.
@@ -1267,13 +1322,134 @@ TEST_F(PathBuilderDistrustTest, TargetIntermediateRoot) {
 
     // The built chain has length 3 since path building stopped once
     // it encountered the blacklisted certificate (root).
-    ASSERT_EQ(3u, best_path->path.certs.size());
-    EXPECT_EQ(best_path->path.certs[0], test_.chain[0]);
-    EXPECT_EQ(best_path->path.certs[1], test_.chain[1]);
-    EXPECT_EQ(best_path->path.certs[2], test_.chain[2]);
+    ASSERT_EQ(3u, best_path->certs.size());
+    EXPECT_EQ(best_path->certs[0], test_.chain[0]);
+    EXPECT_EQ(best_path->certs[1], test_.chain[1]);
+    EXPECT_EQ(best_path->certs[2], test_.chain[2]);
     EXPECT_TRUE(best_path->errors.ContainsHighSeverityErrors());
-    best_path->errors.ContainsError(kCertIsDistrusted);
+    best_path->errors.ContainsError(cert_errors::kDistrustedByTrustStore);
   }
+}
+
+// Test fixture for running the path builder over a simple chain, while varying
+// what CheckPathAfterVerification() does.
+class PathBuilderCheckPathAfterVerificationTest
+    : public PathBuilderSimpleChainTest {};
+
+class CertPathBuilderDelegateBase : public SimplePathBuilderDelegate {
+ public:
+  CertPathBuilderDelegateBase()
+      : SimplePathBuilderDelegate(
+            1024,
+            SimplePathBuilderDelegate::DigestPolicy::kWeakAllowSha1) {}
+  void CheckPathAfterVerification(CertPathBuilderResultPath* path) override {
+    ADD_FAILURE() << "Tests must override this";
+  }
+};
+
+class MockPathBuilderDelegate : public CertPathBuilderDelegateBase {
+ public:
+  MOCK_METHOD1(CheckPathAfterVerification,
+               void(CertPathBuilderResultPath* path));
+};
+
+TEST_F(PathBuilderCheckPathAfterVerificationTest, NoOpToValidPath) {
+  CertPathBuilder::Result result;
+
+  StrictMock<MockPathBuilderDelegate> delegate;
+  // Just verify that the hook is called.
+  EXPECT_CALL(delegate, CheckPathAfterVerification(_));
+
+  RunPathBuilder(nullptr, &delegate, &result);
+  EXPECT_TRUE(result.HasValidPath());
+}
+
+DEFINE_CERT_ERROR_ID(kWarningFromDelegate, "Warning from delegate");
+
+class AddWarningPathBuilderDelegate : public CertPathBuilderDelegateBase {
+ public:
+  void CheckPathAfterVerification(CertPathBuilderResultPath* path) override {
+    path->errors.GetErrorsForCert(1)->AddWarning(kWarningFromDelegate, nullptr);
+  }
+};
+
+TEST_F(PathBuilderCheckPathAfterVerificationTest, AddsWarningToValidPath) {
+  CertPathBuilder::Result result;
+
+  AddWarningPathBuilderDelegate delegate;
+  RunPathBuilder(nullptr, &delegate, &result);
+  ASSERT_TRUE(result.HasValidPath());
+
+  // A warning should have been added to certificate at index 1 in the path.
+  const CertErrors* cert1_errors =
+      result.GetBestValidPath()->errors.GetErrorsForCert(1);
+  ASSERT_TRUE(cert1_errors);
+  EXPECT_TRUE(cert1_errors->ContainsError(kWarningFromDelegate));
+}
+
+DEFINE_CERT_ERROR_ID(kErrorFromDelegate, "Error from delegate");
+
+class AddErrorPathBuilderDelegate : public CertPathBuilderDelegateBase {
+ public:
+  void CheckPathAfterVerification(CertPathBuilderResultPath* path) override {
+    path->errors.GetErrorsForCert(2)->AddError(kErrorFromDelegate, nullptr);
+  }
+};
+
+TEST_F(PathBuilderCheckPathAfterVerificationTest, AddsErrorToValidPath) {
+  CertPathBuilder::Result result;
+
+  AddErrorPathBuilderDelegate delegate;
+  RunPathBuilder(nullptr, &delegate, &result);
+
+  // Verification failed.
+  ASSERT_FALSE(result.HasValidPath());
+
+  ASSERT_LT(result.best_result_index, result.paths.size());
+  const CertPathBuilderResultPath* failed_path =
+      result.paths[result.best_result_index].get();
+  ASSERT_TRUE(failed_path);
+
+  // An error should have been added to certificate at index 2 in the path.
+  const CertErrors* cert2_errors = failed_path->errors.GetErrorsForCert(2);
+  ASSERT_TRUE(cert2_errors);
+  EXPECT_TRUE(cert2_errors->ContainsError(kErrorFromDelegate));
+}
+
+TEST_F(PathBuilderCheckPathAfterVerificationTest, NoopToAlreadyInvalidPath) {
+  CertPathBuilder::Result result;
+
+  StrictMock<MockPathBuilderDelegate> delegate;
+  // Just verify that the hook is called (on an invalid path).
+  EXPECT_CALL(delegate, CheckPathAfterVerification(_));
+
+  // Run the pathbuilder with certificate at index 1 actively distrusted.
+  RunPathBuilder(test_.chain[1], &delegate, &result);
+  EXPECT_FALSE(result.HasValidPath());
+}
+
+struct DelegateData : public CertPathBuilderDelegateData {
+  int value = 0xB33F;
+};
+
+class SetsDelegateDataPathBuilderDelegate : public CertPathBuilderDelegateBase {
+ public:
+  void CheckPathAfterVerification(CertPathBuilderResultPath* path) override {
+    path->delegate_data = std::make_unique<DelegateData>();
+  }
+};
+
+TEST_F(PathBuilderCheckPathAfterVerificationTest, SetsDelegateData) {
+  CertPathBuilder::Result result;
+
+  SetsDelegateDataPathBuilderDelegate delegate;
+  RunPathBuilder(nullptr, &delegate, &result);
+  ASSERT_TRUE(result.HasValidPath());
+
+  DelegateData* data = reinterpret_cast<DelegateData*>(
+      result.GetBestValidPath()->delegate_data.get());
+
+  EXPECT_EQ(0xB33F, data->value);
 }
 
 }  // namespace

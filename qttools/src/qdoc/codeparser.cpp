@@ -40,28 +40,6 @@
 
 QT_BEGIN_NAMESPACE
 
-#define COMMAND_COMPAT                  Doc::alias(QLatin1String("compat"))
-#define COMMAND_DEPRECATED              Doc::alias(QLatin1String("deprecated")) // ### don't document
-#define COMMAND_INGROUP                 Doc::alias(QLatin1String("ingroup"))
-#define COMMAND_INMODULE                Doc::alias(QLatin1String("inmodule"))  // ### don't document
-#define COMMAND_INQMLMODULE             Doc::alias(QLatin1String("inqmlmodule"))
-#define COMMAND_INJSMODULE              Doc::alias(QLatin1String("injsmodule"))
-#define COMMAND_INTERNAL                Doc::alias(QLatin1String("internal"))
-#define COMMAND_MAINCLASS               Doc::alias(QLatin1String("mainclass"))
-#define COMMAND_NONREENTRANT            Doc::alias(QLatin1String("nonreentrant"))
-#define COMMAND_OBSOLETE                Doc::alias(QLatin1String("obsolete"))
-#define COMMAND_PAGEKEYWORDS            Doc::alias(QLatin1String("pagekeywords"))
-#define COMMAND_PRELIMINARY             Doc::alias(QLatin1String("preliminary"))
-#define COMMAND_INPUBLICGROUP           Doc::alias(QLatin1String("inpublicgroup"))
-#define COMMAND_QTVARIABLE              Doc::alias(QLatin1String("qtvariable"))
-#define COMMAND_REENTRANT               Doc::alias(QLatin1String("reentrant"))
-#define COMMAND_SINCE                   Doc::alias(QLatin1String("since"))
-#define COMMAND_SUBTITLE                Doc::alias(QLatin1String("subtitle"))
-#define COMMAND_THREADSAFE              Doc::alias(QLatin1String("threadsafe"))
-#define COMMAND_TITLE                   Doc::alias(QLatin1String("title"))
-#define COMMAND_WRAPPER                 Doc::alias(QLatin1String("wrapper"))
-#define COMMAND_NOAUTOLIST              Doc::alias(QLatin1String("noautolist"))
-
 QList<CodeParser *> CodeParser::parsers;
 bool CodeParser::showInternal_ = false;
 bool CodeParser::singleExec_ = false;
@@ -112,11 +90,6 @@ void CodeParser::parseHeaderFile(const Location& location, const QString& filePa
     parseSourceFile(location, filePath);
 }
 
-void CodeParser::doneParsingHeaderFiles()
-{
-    doneParsingSourceFiles();
-}
-
 /*!
   All the code parsers in the static list are initialized here,
   after the qdoc configuration variables have been set.
@@ -150,7 +123,7 @@ CodeParser *CodeParser::parserForLanguage(const QString& language)
             return *p;
         ++p;
     }
-    return 0;
+    return nullptr;
 }
 
 CodeParser *CodeParser::parserForHeaderFile(const QString &filePath)
@@ -168,7 +141,7 @@ CodeParser *CodeParser::parserForHeaderFile(const QString &filePath)
         }
         ++p;
     }
-    return 0;
+    return nullptr;
 }
 
 CodeParser *CodeParser::parserForSourceFile(const QString &filePath)
@@ -186,7 +159,7 @@ CodeParser *CodeParser::parserForSourceFile(const QString &filePath)
         }
         ++p;
     }
-    return 0;
+    return nullptr;
 }
 
 static QSet<QString> commonMetaCommands_;
@@ -196,127 +169,34 @@ static QSet<QString> commonMetaCommands_;
 const QSet<QString>& CodeParser::commonMetaCommands()
 {
     if (commonMetaCommands_.isEmpty()) {
-        commonMetaCommands_ << COMMAND_COMPAT
+        commonMetaCommands_ << COMMAND_ABSTRACT
                             << COMMAND_DEPRECATED
                             << COMMAND_INGROUP
+                            << COMMAND_INJSMODULE
                             << COMMAND_INMODULE
+                            << COMMAND_INPUBLICGROUP
                             << COMMAND_INQMLMODULE
                             << COMMAND_INTERNAL
                             << COMMAND_MAINCLASS
+                            << COMMAND_NOAUTOLIST
                             << COMMAND_NONREENTRANT
                             << COMMAND_OBSOLETE
                             << COMMAND_PAGEKEYWORDS
                             << COMMAND_PRELIMINARY
-                            << COMMAND_INPUBLICGROUP
+                            << COMMAND_QMLABSTRACT
+                            << COMMAND_QMLDEFAULT
+                            << COMMAND_QMLINHERITS
+                            << COMMAND_QMLREADONLY
                             << COMMAND_QTVARIABLE
                             << COMMAND_REENTRANT
                             << COMMAND_SINCE
+                            << COMMAND_STARTPAGE
                             << COMMAND_SUBTITLE
                             << COMMAND_THREADSAFE
                             << COMMAND_TITLE
-                            << COMMAND_WRAPPER
-                            << COMMAND_INJSMODULE
-                            << COMMAND_NOAUTOLIST;
+                            << COMMAND_WRAPPER;
    }
     return commonMetaCommands_;
-}
-
-/*!
-  The topic command has been processed. Now process the other
-  metacommands that were found. These are not the text markup
-  commands.
- */
-void CodeParser::processCommonMetaCommand(const Location& location,
-                                          const QString& command,
-                                          const ArgLocPair& arg,
-                                          Node* node)
-{
-    if (command == COMMAND_COMPAT) {
-        location.warning(tr("\\compat command used, but Qt3 compatibility is no longer supported"));
-        node->setStatus(Node::Compat);
-    }
-    else if (command == COMMAND_DEPRECATED) {
-        node->setStatus(Node::Obsolete);
-    }
-    else if ((command == COMMAND_INGROUP) || (command == COMMAND_INPUBLICGROUP)) {
-        // Note: \ingroup and \inpublicgroup are now the same.
-        // Not that they were ever different.
-        qdb_->addToGroup(arg.first, node);
-    }
-    else if (command == COMMAND_INMODULE) {
-        qdb_->addToModule(arg.first,node);
-    }
-    else if (command == COMMAND_INQMLMODULE) {
-        qdb_->addToQmlModule(arg.first,node);
-    }
-    else if (command == COMMAND_INJSMODULE) {
-        qdb_->addToJsModule(arg.first, node);
-    }
-    else if (command == COMMAND_MAINCLASS) {
-        node->doc().location().warning(tr("'\\mainclass' is deprecated. Consider '\\ingroup mainclasses'"));
-    }
-    else if (command == COMMAND_OBSOLETE) {
-        node->setStatus(Node::Obsolete);
-    }
-    else if (command == COMMAND_NONREENTRANT) {
-        node->setThreadSafeness(Node::NonReentrant);
-    }
-    else if (command == COMMAND_PRELIMINARY) {
-        node->setStatus(Node::Preliminary);
-    }
-    else if (command == COMMAND_INTERNAL) {
-        if (!showInternal_) {
-            node->setAccess(Node::Private);
-            node->setStatus(Node::Internal);
-            if (node->type() == Node::QmlPropertyGroup) {
-                const QmlPropertyGroupNode* qpgn = static_cast<const QmlPropertyGroupNode*>(node);
-                NodeList::ConstIterator p = qpgn->childNodes().constBegin();
-                while (p != qpgn->childNodes().constEnd()) {
-                    if ((*p)->type() == Node::QmlProperty) {
-                        (*p)->setAccess(Node::Private);
-                        (*p)->setStatus(Node::Internal);
-                    }
-                    ++p;
-                }
-            }
-        }
-    }
-    else if (command == COMMAND_REENTRANT) {
-        node->setThreadSafeness(Node::Reentrant);
-    }
-    else if (command == COMMAND_SINCE) {
-        node->setSince(arg.first);
-    }
-    else if (command == COMMAND_WRAPPER) {
-        node->setWrapper();
-    }
-    else if (command == COMMAND_PAGEKEYWORDS) {
-        node->addPageKeywords(arg.first);
-    }
-    else if (command == COMMAND_THREADSAFE) {
-        node->setThreadSafeness(Node::ThreadSafe);
-    }
-    else if (command == COMMAND_TITLE) {
-        node->setTitle(arg.first);
-        if (!node->isDocumentNode() && !node->isCollectionNode())
-            location.warning(tr("Ignored '\\%1'").arg(COMMAND_SUBTITLE));
-        else if (node->isExample())
-            qdb_->addExampleNode(static_cast<ExampleNode*>(node));
-    }
-    else if (command == COMMAND_SUBTITLE) {
-        node->setSubTitle(arg.first);
-        if (!node->isDocumentNode() && !node->isCollectionNode())
-            location.warning(tr("Ignored '\\%1'").arg(COMMAND_SUBTITLE));
-    }
-    else if (command == COMMAND_QTVARIABLE) {
-        node->setQtVariable(arg.first);
-        if (!node->isModule() && !node->isQmlModule())
-            location.warning(tr("Command '\\%1' is only meanigfule in '\\module' and '\\qmlmodule'.")
-                             .arg(COMMAND_QTVARIABLE));
-    }
-    else if (command == COMMAND_NOAUTOLIST) {
-        node->setNoAutoList(true);
-    }
 }
 
 /*!
@@ -356,6 +236,21 @@ void CodeParser::setLink(Node* node, Node::LinkType linkType, const QString& arg
     QString desc;
     extractPageLinkAndDesc(arg, &link, &desc);
     node->setLink(linkType, link, desc);
+}
+
+/*!
+  \brief Test for whether a doc comment warrants warnings.
+
+  Returns true if qdoc should report that it has found something
+  wrong with the qdoc comment in \a doc. Sometimes, qdoc should
+  not report the warning, for example, when the comment contains
+  the \c internal command, which normally means qdoc will not use
+  the comment in the documentation anyway, so there is no point
+  in reporting warnings about it.
+ */
+bool CodeParser::isWorthWarningAbout(const Doc &doc)
+{
+    return (showInternal_ || !doc.metaCommandsUsed().contains(QStringLiteral("internal")));
 }
 
 /*!
@@ -408,23 +303,27 @@ void CodeParser::checkModuleInclusion(Node* n)
 {
     if (n->physicalModuleName().isEmpty()) {
         n->setPhysicalModuleName(Generator::defaultModuleName());
-        switch (n->type()) {
+        QString word;
+        switch (n->nodeType()) {
         case Node::Class:
-            if (n->access() != Node::Private && !n->doc().isEmpty()) {
-                n->doc().location().warning(tr("Class %1 has no \\inmodule command; "
-                                               "using project name by default: %2")
-                                            .arg(n->name()).arg(Generator::defaultModuleName()));
-            }
+            word = QLatin1String("Class");
+            break;
+        case Node::Struct:
+            word = QLatin1String("Struct");
+            break;
+        case Node::Union:
+            word = QLatin1String("Union");
             break;
         case Node::Namespace:
-            if (n->access() != Node::Private && !n->name().isEmpty() && !n->doc().isEmpty()) {
-                n->doc().location().warning(tr("Namespace %1 has no \\inmodule command; "
-                                               "using project name by default: %2")
-                                            .arg(n->name()).arg(Generator::defaultModuleName()));
-            }
+            word = QLatin1String("Namespace");
             break;
         default:
-            break;
+            return;
+        }
+        if (n->isInAPI() && !n->name().isEmpty()) {
+            n->doc().location().warning(tr("%1 %2 has no \\inmodule command; "
+                                           "using project name by default: %3")
+                                        .arg(word).arg(n->name()).arg(Generator::defaultModuleName()));
         }
     }
 }

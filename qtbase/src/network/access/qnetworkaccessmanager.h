@@ -100,7 +100,7 @@ public:
     Q_ENUM(NetworkAccessibility)
 #endif
 
-    explicit QNetworkAccessManager(QObject *parent = Q_NULLPTR);
+    explicit QNetworkAccessManager(QObject *parent = nullptr);
     ~QNetworkAccessManager();
 
     // ### Qt 6: turn into virtual
@@ -134,14 +134,17 @@ public:
     QNetworkReply *get(const QNetworkRequest &request);
     QNetworkReply *post(const QNetworkRequest &request, QIODevice *data);
     QNetworkReply *post(const QNetworkRequest &request, const QByteArray &data);
-    QNetworkReply *post(const QNetworkRequest &request, QHttpMultiPart *multiPart);
     QNetworkReply *put(const QNetworkRequest &request, QIODevice *data);
     QNetworkReply *put(const QNetworkRequest &request, const QByteArray &data);
-    QNetworkReply *put(const QNetworkRequest &request, QHttpMultiPart *multiPart);
     QNetworkReply *deleteResource(const QNetworkRequest &request);
-    QNetworkReply *sendCustomRequest(const QNetworkRequest &request, const QByteArray &verb, QIODevice *data = Q_NULLPTR);
+    QNetworkReply *sendCustomRequest(const QNetworkRequest &request, const QByteArray &verb, QIODevice *data = nullptr);
     QNetworkReply *sendCustomRequest(const QNetworkRequest &request, const QByteArray &verb, const QByteArray &data);
+
+#if QT_CONFIG(http)
+    QNetworkReply *post(const QNetworkRequest &request, QHttpMultiPart *multiPart);
+    QNetworkReply *put(const QNetworkRequest &request, QHttpMultiPart *multiPart);
     QNetworkReply *sendCustomRequest(const QNetworkRequest &request, const QByteArray &verb, QHttpMultiPart *multiPart);
+#endif
 
 #ifndef QT_NO_BEARERMANAGEMENT
     void setConfiguration(const QNetworkConfiguration &config);
@@ -155,6 +158,9 @@ public:
 #ifndef QT_NO_SSL
     void connectToHostEncrypted(const QString &hostName, quint16 port = 443,
                                 const QSslConfiguration &sslConfiguration = QSslConfiguration::defaultConfiguration());
+    void connectToHostEncrypted(const QString &hostName, quint16 port,
+                                const QSslConfiguration &sslConfiguration,
+                                const QString &peerName);
 #endif
     void connectToHost(const QString &hostName, quint16 port = 80);
 
@@ -181,7 +187,7 @@ Q_SIGNALS:
 
 protected:
     virtual QNetworkReply *createRequest(Operation op, const QNetworkRequest &request,
-                                         QIODevice *outgoingData = Q_NULLPTR);
+                                         QIODevice *outgoingData = nullptr);
 
 protected Q_SLOTS:
     QStringList supportedSchemesImplementation() const;
@@ -192,6 +198,9 @@ private:
     friend class QNetworkReplyHttpImplPrivate;
     friend class QNetworkReplyFileImpl;
 
+#ifdef Q_OS_WASM
+    friend class QNetworkReplyWasmImpl;
+#endif
     Q_DECLARE_PRIVATE(QNetworkAccessManager)
     Q_PRIVATE_SLOT(d_func(), void _q_replyFinished())
     Q_PRIVATE_SLOT(d_func(), void _q_replyEncrypted())

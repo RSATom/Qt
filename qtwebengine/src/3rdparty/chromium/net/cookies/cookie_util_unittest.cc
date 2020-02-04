@@ -18,27 +18,16 @@ struct RequestCookieParsingTest {
   base::StringPairs parsed;
 };
 
-cookie_util::ParsedRequestCookies MakeParsedRequestCookies(
-    const base::StringPairs& data) {
-  cookie_util::ParsedRequestCookies parsed;
-  for (size_t i = 0; i < data.size(); i++) {
-    parsed.push_back(std::make_pair(base::StringPiece(data[i].first),
-                                    base::StringPiece(data[i].second)));
-  }
-  return parsed;
-}
-
 void CheckParse(const std::string& str,
                 const base::StringPairs& parsed_expected) {
   cookie_util::ParsedRequestCookies parsed;
   cookie_util::ParseRequestCookieLine(str, &parsed);
-  EXPECT_EQ(MakeParsedRequestCookies(parsed_expected), parsed);
+  EXPECT_EQ(parsed_expected, parsed);
 }
 
 void CheckSerialize(const base::StringPairs& parsed,
                     const std::string& str_expected) {
-  cookie_util::ParsedRequestCookies prc = MakeParsedRequestCookies(parsed);
-  EXPECT_EQ(str_expected, cookie_util::SerializeRequestCookieLine(prc));
+  EXPECT_EQ(str_expected, cookie_util::SerializeRequestCookieLine(parsed));
 }
 
 TEST(CookieUtilTest, TestDomainIsHostOnly) {
@@ -47,9 +36,8 @@ TEST(CookieUtilTest, TestDomainIsHostOnly) {
     const bool is_host_only;
   } tests[] = {{"", true}, {"www.foo.com", true}, {".foo.com", false}};
 
-  for (size_t i = 0; i < arraysize(tests); ++i) {
-    EXPECT_EQ(tests[i].is_host_only,
-              cookie_util::DomainIsHostOnly(tests[i].str));
+  for (const auto& test : tests) {
+    EXPECT_EQ(test.is_host_only, cookie_util::DomainIsHostOnly(test.str));
   }
 }
 
@@ -132,14 +120,14 @@ TEST(CookieUtilTest, TestCookieDateParsing) {
   };
 
   base::Time parsed_time;
-  for (size_t i = 0; i < arraysize(tests); ++i) {
-    parsed_time = cookie_util::ParseCookieExpirationTime(tests[i].str);
-    if (!tests[i].valid) {
-      EXPECT_TRUE(parsed_time.is_null()) << tests[i].str;
+  for (const auto& test : tests) {
+    parsed_time = cookie_util::ParseCookieExpirationTime(test.str);
+    if (!test.valid) {
+      EXPECT_TRUE(parsed_time.is_null()) << test.str;
       continue;
     }
-    EXPECT_TRUE(!parsed_time.is_null()) << tests[i].str;
-    EXPECT_EQ(tests[i].epoch, parsed_time.ToTimeT()) << tests[i].str;
+    EXPECT_TRUE(!parsed_time.is_null()) << test.str;
+    EXPECT_EQ(test.epoch, parsed_time.ToTimeT()) << test.str;
   }
 }
 
@@ -171,21 +159,21 @@ TEST(CookieUtilTest, ParseCookieExpirationTimeBeyond2038) {
 // succeed anyway (and return a minimal base::Time).
 TEST(CookieUtilTest, ParseCookieExpirationTimeBefore1970) {
   const char* kTests[] = {
-      // The unix epoch.
-      "1970 Jan 1 00:00:00",
-      // The windows epoch.
-      "1601 Jan 1 00:00:00",
-      // Other dates.
-      "1969 March 3 21:01:22", "1600 April 15 21:01:22",
+      // Times around the Unix epoch.
+      "1970 Jan 1 00:00:00", "1969 March 3 21:01:22",
+      // Times around the Windows epoch.
+      "1601 Jan 1 00:00:00", "1600 April 15 21:01:22",
+      // Times around kExplodedMinYear on Mac.
+      "1902 Jan 1 00:00:00", "1901 Jan 1 00:00:00",
   };
 
   for (auto* test : kTests) {
     base::Time parsed_time = cookie_util::ParseCookieExpirationTime(test);
-    EXPECT_FALSE(parsed_time.is_null());
+    EXPECT_FALSE(parsed_time.is_null()) << test;
 
     // It should either have an exact value, or should be base::Time(1)
     // For simplicity just check that it is less than the unix epoch.
-    EXPECT_LE(parsed_time, base::Time::UnixEpoch());
+    EXPECT_LE(parsed_time, base::Time::UnixEpoch()) << test;
   }
 }
 
@@ -248,6 +236,19 @@ TEST(CookieUtilTest, TestGetEffectiveDomain) {
             cookie_util::GetEffectiveDomain("wss", "www.example.com"));
   EXPECT_EQ("www.example.com",
             cookie_util::GetEffectiveDomain("ftp", "www.example.com"));
+}
+
+TEST(CookieUtilTest, TestIsDomainMatch) {
+  EXPECT_TRUE(cookie_util::IsDomainMatch("example.com", "example.com"));
+  EXPECT_FALSE(cookie_util::IsDomainMatch("www.example.com", "example.com"));
+
+  EXPECT_TRUE(cookie_util::IsDomainMatch(".example.com", "example.com"));
+  EXPECT_TRUE(cookie_util::IsDomainMatch(".example.com", "www.example.com"));
+  EXPECT_FALSE(cookie_util::IsDomainMatch(".www.example.com", "example.com"));
+
+  EXPECT_FALSE(cookie_util::IsDomainMatch("example.com", "example.de"));
+  EXPECT_FALSE(cookie_util::IsDomainMatch(".example.com", "example.de"));
+  EXPECT_FALSE(cookie_util::IsDomainMatch(".example.de", "example.de.vu"));
 }
 
 }  // namespace

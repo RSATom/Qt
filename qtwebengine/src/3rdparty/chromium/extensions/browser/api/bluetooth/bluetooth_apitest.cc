@@ -8,7 +8,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "device/bluetooth/bluetooth_adapter.h"
@@ -18,7 +17,7 @@
 #include "device/bluetooth/test/mock_bluetooth_discovery_session.h"
 #include "extensions/browser/api/bluetooth/bluetooth_api.h"
 #include "extensions/browser/api/bluetooth/bluetooth_event_router.h"
-#include "extensions/common/test_util.h"
+#include "extensions/common/extension_builder.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -42,13 +41,13 @@ namespace {
 static const char* kAdapterAddress = "A1:A2:A3:A4:A5:A6";
 static const char* kName = "whatsinaname";
 
-class BluetoothApiTest : public ExtensionApiTest {
+class BluetoothApiTest : public extensions::ExtensionApiTest {
  public:
   BluetoothApiTest() {}
 
   void SetUpOnMainThread() override {
-    ExtensionApiTest::SetUpOnMainThread();
-    empty_extension_ = extensions::test_util::CreateEmptyExtension();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
+    empty_extension_ = extensions::ExtensionBuilder("Test").Build();
     SetUpMockAdapter();
   }
 
@@ -107,7 +106,7 @@ class BluetoothApiTest : public ExtensionApiTest {
   }
 
  private:
-  scoped_refptr<Extension> empty_extension_;
+  scoped_refptr<const Extension> empty_extension_;
 };
 
 static void StopDiscoverySessionCallback(const base::Closure& callback,
@@ -198,7 +197,8 @@ IN_PROC_BROWSER_TEST_F(BluetoothApiTest, Discovery) {
       .WillOnce(
           testing::Invoke(this, &BluetoothApiTest::DiscoverySessionCallback));
   start_function = setupFunction(new api::BluetoothStartDiscoveryFunction);
-  utils::RunFunction(start_function.get(), "[]", browser(), utils::NONE);
+  utils::RunFunction(start_function.get(), "[]", browser(),
+                     extensions::api_test_utils::NONE);
 
   // End the discovery session. The StopDiscovery function should succeed.
   testing::Mock::VerifyAndClearExpectations(mock_adapter_);

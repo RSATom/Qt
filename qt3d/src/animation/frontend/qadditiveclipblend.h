@@ -45,7 +45,7 @@ namespace Qt3DAnimation {
 
 class QAdditiveClipBlendPrivate;
 
-class QT3DANIMATIONSHARED_EXPORT QAdditiveClipBlend : public QAbstractClipBlendNode
+class Q_3DANIMATIONSHARED_EXPORT QAdditiveClipBlend : public QAbstractClipBlendNode
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DAnimation::QAbstractClipBlendNode *baseClip READ baseClip WRITE setBaseClip NOTIFY baseClipChanged)
@@ -74,7 +74,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QAdditiveClipBlend)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DAnimation

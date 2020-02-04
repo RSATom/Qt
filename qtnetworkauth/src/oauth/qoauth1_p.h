@@ -58,6 +58,8 @@
 
 QT_BEGIN_NAMESPACE
 
+class QOAuth1Signature;
+
 class QOAuth1Private : public QAbstractOAuthPrivate
 {
     Q_DECLARE_PUBLIC(QOAuth1)
@@ -82,6 +84,16 @@ public:
     QByteArray generateSignature(const QVariantMap &parameters,
                                  const QUrl &url,
                                  QNetworkAccessManager::Operation operation) const;
+    QByteArray generateSignature(const QVariantMap &parameters,
+                                 const QUrl &url,
+                                 const QByteArray &verb) const;
+    QByteArray formatSignature(const QOAuth1Signature &signature) const;
+
+    QVariantMap createOAuthBaseParams() const;
+
+    void prepareRequestImpl(QNetworkRequest *request,
+                            const QByteArray &verb,
+                            const QByteArray &body) override;
 
     void _q_onTokenRequestError(QNetworkReply::NetworkError error);
     void _q_tokensReceived(const QVariantMap &tokens);
@@ -93,6 +105,7 @@ public:
     QUrl tokenCredentialsUrl;
     QOAuth1::SignatureMethod signatureMethod = QOAuth1::SignatureMethod::Hmac_Sha1;
     const QString oauthVersion = QStringLiteral("1.0");
+    bool tokenRequested = false;
 
     struct OAuth1KeyString
     {

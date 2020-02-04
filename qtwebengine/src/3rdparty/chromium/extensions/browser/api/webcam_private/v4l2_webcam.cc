@@ -12,8 +12,8 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/stl_util.h"
 
 #define V4L2_CID_PAN_SPEED (V4L2_CID_CAMERA_CLASS_BASE+32)
 #define V4L2_CID_TILT_SPEED (V4L2_CID_CAMERA_CLASS_BASE+33)
@@ -35,17 +35,40 @@ const uvc_menu_info kLogitechCmdMenu[] = {
 };
 
 const uvc_xu_control_mapping kLogitechCmdMapping = {
-  V4L2_CID_PANTILT_CMD,
-  "Pan/Tilt Go",
-  UVC_GUID_LOGITECH_CC3000E_MOTORS,
-  LOGITECH_MOTORCONTROL_PANTILT_CMD,
-  8,
-  0,
-  V4L2_CTRL_TYPE_MENU,
-  UVC_CTRL_DATA_TYPE_ENUM,
-  const_cast<uvc_menu_info*>(&kLogitechCmdMenu[0]),
-  arraysize(kLogitechCmdMenu),
+    V4L2_CID_PANTILT_CMD,
+    "Pan/Tilt Go",
+    UVC_GUID_LOGITECH_CC3000E_MOTORS,
+    LOGITECH_MOTORCONTROL_PANTILT_CMD,
+    8,
+    0,
+    V4L2_CTRL_TYPE_MENU,
+    UVC_CTRL_DATA_TYPE_ENUM,
+    const_cast<uvc_menu_info*>(&kLogitechCmdMenu[0]),
+    base::size(kLogitechCmdMenu),
 };
+
+const uvc_xu_control_mapping kLogitechPanAbsoluteMapping = {
+    V4L2_CID_PAN_ABSOLUTE,
+    "Pan (Absolute)",
+    UVC_GUID_LOGITECH_CC3000E_MOTORS,
+    12,
+    32,
+    0,
+    V4L2_CTRL_TYPE_INTEGER,
+    UVC_CTRL_DATA_TYPE_SIGNED,
+};
+
+const uvc_xu_control_mapping kLogitechTiltAbsoluteMapping = {
+    V4L2_CID_TILT_ABSOLUTE,
+    "Tilt (Absolute)",
+    UVC_GUID_LOGITECH_CC3000E_MOTORS,
+    12,
+    32,
+    32,
+    V4L2_CTRL_TYPE_INTEGER,
+    UVC_CTRL_DATA_TYPE_SIGNED,
+};
+
 }  // namespace
 
 namespace extensions {
@@ -72,6 +95,15 @@ bool V4L2Webcam::EnsureLogitechCommandsMapped() {
 }
 
 bool V4L2Webcam::SetWebcamParameter(int fd, uint32_t control_id, int value) {
+  // Try to map the V4L2 control to the Logitech extension unit. If the
+  // connected camera does not implement these extension unit this will just
+  // silently fail and the standard camera terminal controls will be used.
+  if (control_id == V4L2_CID_PAN_ABSOLUTE) {
+    HANDLE_EINTR(ioctl(fd, UVCIOC_CTRL_MAP, &kLogitechPanAbsoluteMapping));
+  } else if (control_id == V4L2_CID_TILT_ABSOLUTE) {
+    HANDLE_EINTR(ioctl(fd, UVCIOC_CTRL_MAP, &kLogitechTiltAbsoluteMapping));
+  }
+
   struct v4l2_control v4l2_ctrl = {control_id, value};
   int res = HANDLE_EINTR(ioctl(fd, VIDIOC_S_CTRL, &v4l2_ctrl)) >= 0;
   return res >= 0;
@@ -131,6 +163,15 @@ void V4L2Webcam::GetZoom(const GetPTZCompleteCallback& callback) {
   callback.Run(success, value, min_value, max_value);
 }
 
+void V4L2Webcam::GetFocus(const GetPTZCompleteCallback& callback) {
+  int value = 0;
+  int min_value = 0;
+  int max_value = 0;
+  bool success = GetWebcamParameter(fd_.get(), V4L2_CID_FOCUS_ABSOLUTE, &value,
+                                    &min_value, &max_value);
+  callback.Run(success, value, min_value, max_value);
+}
+
 void V4L2Webcam::SetPan(int value,
                         int pan_speed,
                         const SetPTZCompleteCallback& callback) {
@@ -145,6 +186,16 @@ void V4L2Webcam::SetTilt(int value,
 
 void V4L2Webcam::SetZoom(int value, const SetPTZCompleteCallback& callback) {
   callback.Run(SetWebcamParameter(fd_.get(), V4L2_CID_ZOOM_ABSOLUTE, value));
+}
+
+void V4L2Webcam::SetFocus(int value, const SetPTZCompleteCallback& callback) {
+  callback.Run(SetWebcamParameter(fd_.get(), V4L2_CID_FOCUS_ABSOLUTE, value));
+}
+
+void V4L2Webcam::SetAutofocusState(AutofocusState state,
+                                   const SetPTZCompleteCallback& callback) {
+  const int value = (state == AUTOFOCUS_ON) ? 1 : 0;
+  callback.Run(SetWebcamParameter(fd_.get(), V4L2_CID_FOCUS_AUTO, value));
 }
 
 void V4L2Webcam::SetPanDirection(PanDirection direction,

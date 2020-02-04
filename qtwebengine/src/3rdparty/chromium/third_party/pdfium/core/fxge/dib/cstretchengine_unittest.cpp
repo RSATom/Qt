@@ -10,8 +10,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
-#include "core/fpdfapi/render/cpdf_dibsource.h"
-#include "core/fxcrt/fx_memory.h"
+#include "core/fpdfapi/render/cpdf_dibbase.h"
 #include "core/fxge/fx_dib.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/base/ptr_util.h"
@@ -24,9 +23,14 @@ TEST(CStretchEngine, OverflowInCtor) {
   dict_obj->SetNewFor<CPDF_Number>("Height", 12500);
   std::unique_ptr<CPDF_Stream> stream =
       pdfium::MakeUnique<CPDF_Stream>(nullptr, 0, std::move(dict_obj));
-  auto dib_source = pdfium::MakeRetain<CPDF_DIBSource>();
+  auto dib_source = pdfium::MakeRetain<CPDF_DIBBase>();
   dib_source->Load(nullptr, stream.get());
   CStretchEngine engine(nullptr, FXDIB_8bppRgb, 500, 500, clip_rect, dib_source,
-                        0);
-  EXPECT_EQ(FXDIB_INTERPOL, engine.m_Flags);
+                        FXDIB_ResampleOptions());
+  EXPECT_FALSE(engine.m_ResampleOptions.bInterpolateDownsample);
+  EXPECT_TRUE(engine.m_ResampleOptions.bInterpolateBilinear);
+  EXPECT_FALSE(engine.m_ResampleOptions.bInterpolateBicubic);
+  EXPECT_FALSE(engine.m_ResampleOptions.bHalftone);
+  EXPECT_FALSE(engine.m_ResampleOptions.bNoSmoothing);
+  EXPECT_FALSE(engine.m_ResampleOptions.bLossy);
 }

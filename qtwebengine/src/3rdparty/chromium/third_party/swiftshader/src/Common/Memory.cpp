@@ -24,7 +24,9 @@
 	#include <windows.h>
 	#include <intrin.h>
 #else
+	#include <errno.h>
 	#include <sys/mman.h>
+	#include <stdlib.h>
 	#include <unistd.h>
 #endif
 
@@ -39,6 +41,45 @@
 
 namespace sw
 {
+namespace
+{
+struct Allocation
+{
+//	size_t bytes;
+	unsigned char *block;
+};
+
+void *allocateRaw(size_t bytes, size_t alignment)
+{
+	ASSERT((alignment & (alignment - 1)) == 0);   // Power of 2 alignment.
+
+	#if defined(LINUX_ENABLE_NAMED_MMAP)
+		void *allocation;
+		int result = posix_memalign(&allocation, alignment, bytes);
+		if(result != 0)
+		{
+			errno = result;
+			allocation = nullptr;
+		}
+		return allocation;
+	#else
+		unsigned char *block = new unsigned char[bytes + sizeof(Allocation) + alignment];
+		unsigned char *aligned = nullptr;
+
+		if(block)
+		{
+			aligned = (unsigned char*)((uintptr_t)(block + sizeof(Allocation) + alignment - 1) & -(intptr_t)alignment);
+			Allocation *allocation = (Allocation*)(aligned - sizeof(Allocation));
+
+		//	allocation->bytes = bytes;
+			allocation->block = block;
+		}
+
+		return aligned;
+	#endif
+}
+}  // anonymous namespace
+
 size_t memoryPageSize()
 {
 	static int pageSize = 0;
@@ -57,29 +98,6 @@ size_t memoryPageSize()
 	return pageSize;
 }
 
-struct Allocation
-{
-//	size_t bytes;
-	unsigned char *block;
-};
-
-inline void *allocateRaw(size_t bytes, size_t alignment)
-{
-	unsigned char *block = new unsigned char[bytes + sizeof(Allocation) + alignment];
-	unsigned char *aligned = nullptr;
-
-	if(block)
-	{
-		aligned = (unsigned char*)((uintptr_t)(block + sizeof(Allocation) + alignment - 1) & -(intptr_t)alignment);
-		Allocation *allocation = (Allocation*)(aligned - sizeof(Allocation));
-
-	//	allocation->bytes = bytes;
-		allocation->block = block;
-	}
-
-	return aligned;
-}
-
 void *allocate(size_t bytes, size_t alignment)
 {
 	void *memory = allocateRaw(bytes, alignment);
@@ -94,49 +112,24 @@ void *allocate(size_t bytes, size_t alignment)
 
 void deallocate(void *memory)
 {
-	if(memory)
-	{
-		unsigned char *aligned = (unsigned char*)memory;
-		Allocation *allocation = (Allocation*)(aligned - sizeof(Allocation));
-
-		delete[] allocation->block;
-	}
-}
-
-void *allocateExecutable(size_t bytes)
-{
-	size_t pageSize = memoryPageSize();
-
-	return allocate((bytes + pageSize - 1) & ~(pageSize - 1), pageSize);
-}
-
-void markExecutable(void *memory, size_t bytes)
-{
-	#if defined(_WIN32)
-		unsigned long oldProtection;
-		VirtualProtect(memory, bytes, PAGE_EXECUTE_READ, &oldProtection);
+	#if defined(LINUX_ENABLE_NAMED_MMAP)
+		free(memory);
 	#else
-		mprotect(memory, bytes, PROT_READ | PROT_EXEC);
-	#endif
-}
+		if(memory)
+		{
+			unsigned char *aligned = (unsigned char*)memory;
+			Allocation *allocation = (Allocation*)(aligned - sizeof(Allocation));
 
-void deallocateExecutable(void *memory, size_t bytes)
-{
-	#if defined(_WIN32)
-		unsigned long oldProtection;
-		VirtualProtect(memory, bytes, PAGE_READWRITE, &oldProtection);
-	#else
-		mprotect(memory, bytes, PROT_READ | PROT_WRITE);
+			delete[] allocation->block;
+		}
 	#endif
-
-	deallocate(memory);
 }
 
 void clear(uint16_t *memory, uint16_t element, size_t count)
 {
-	#if defined(_MSC_VER) && defined(__x86__)
+	#if defined(_MSC_VER) && defined(__x86__) && !defined(MEMORY_SANITIZER)
 		__stosw(memory, element, count);
-	#elif defined(__GNUC__) && defined(__x86__)
+	#elif defined(__GNUC__) && defined(__x86__) && !defined(MEMORY_SANITIZER)
 		__asm__("rep stosw" : : "D"(memory), "a"(element), "c"(count));
 	#else
 		for(size_t i = 0; i < count; i++)
@@ -148,9 +141,9 @@ void clear(uint16_t *memory, uint16_t element, size_t count)
 
 void clear(uint32_t *memory, uint32_t element, size_t count)
 {
-	#if defined(_MSC_VER) && defined(__x86__)
+	#if defined(_MSC_VER) && defined(__x86__) && !defined(MEMORY_SANITIZER)
 		__stosd((unsigned long*)memory, element, count);
-	#elif defined(__GNUC__) && defined(__x86__)
+	#elif defined(__GNUC__) && defined(__x86__) && !defined(MEMORY_SANITIZER)
 		__asm__("rep stosl" : : "D"(memory), "a"(element), "c"(count));
 	#else
 		for(size_t i = 0; i < count; i++)

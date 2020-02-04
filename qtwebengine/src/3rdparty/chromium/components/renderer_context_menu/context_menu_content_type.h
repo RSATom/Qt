@@ -29,6 +29,7 @@ class ContextMenuContentType {
     ITEM_GROUP_PAGE,
     ITEM_GROUP_FRAME,
     ITEM_GROUP_LINK,
+    ITEM_GROUP_SMART_SELECTION,
     ITEM_GROUP_MEDIA_IMAGE,
     ITEM_GROUP_SEARCHWEBFORIMAGE,
     ITEM_GROUP_MEDIA_VIDEO,
@@ -66,7 +67,7 @@ class ContextMenuContentType {
  protected:
   const content::ContextMenuParams& params() const { return params_; }
 
-  const content::WebContents* source_web_contents() const {
+  content::WebContents* source_web_contents() const {
     return source_web_contents_;
   }
 

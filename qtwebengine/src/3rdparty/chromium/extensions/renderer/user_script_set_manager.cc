@@ -4,7 +4,6 @@
 
 #include "extensions/renderer/user_script_set_manager.h"
 
-#include "base/memory/ptr_util.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/renderer/render_thread.h"
 #include "extensions/common/extension_messages.h"
@@ -66,9 +65,8 @@ void UserScriptSetManager::GetAllInjections(
     UserScript::RunLocation run_location) {
   static_scripts_.GetInjections(injections, render_frame, tab_id, run_location,
                                 activity_logging_enabled_);
-  for (UserScriptSetMap::iterator it = programmatic_scripts_.begin();
-       it != programmatic_scripts_.end();
-       ++it) {
+  for (auto it = programmatic_scripts_.begin();
+       it != programmatic_scripts_.end(); ++it) {
     it->second->GetInjections(injections, render_frame, tab_id, run_location,
                               activity_logging_enabled_);
   }
@@ -78,9 +76,8 @@ void UserScriptSetManager::GetAllActiveExtensionIds(
     std::set<std::string>* ids) const {
   DCHECK(ids);
   static_scripts_.GetActiveExtensionIds(ids);
-  for (UserScriptSetMap::const_iterator it = programmatic_scripts_.begin();
-       it != programmatic_scripts_.end();
-       ++it) {
+  for (auto it = programmatic_scripts_.cbegin();
+       it != programmatic_scripts_.cend(); ++it) {
     it->second->GetActiveExtensionIds(ids);
   }
 }
@@ -118,7 +115,7 @@ void UserScriptSetManager::OnUpdateUserScripts(
     if (programmatic_scripts_.find(host_id) == programmatic_scripts_.end()) {
       scripts = programmatic_scripts_
                     .insert(std::make_pair(host_id,
-                                           base::MakeUnique<UserScriptSet>()))
+                                           std::make_unique<UserScriptSet>()))
                     .first->second.get();
     } else {
       scripts = programmatic_scripts_[host_id].get();

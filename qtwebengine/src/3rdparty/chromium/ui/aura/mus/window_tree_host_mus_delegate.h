@@ -37,11 +37,6 @@ class AURA_EXPORT WindowTreeHostMusDelegate {
       const gfx::Insets& client_area,
       const std::vector<gfx::Rect>& additional_client_areas) = 0;
 
-  // Called when the hit test mask is about to be cleared.
-  virtual void OnWindowTreeHostHitTestMaskWillChange(
-      WindowTreeHostMus* window_tree_host,
-      const base::Optional<gfx::Rect>& mask_rect) = 0;
-
   // Called when the opacity is changed client side.
   virtual void OnWindowTreeHostSetOpacity(WindowTreeHostMus* window_tree_host,
                                           float opacity) = 0;
@@ -63,18 +58,13 @@ class AURA_EXPORT WindowTreeHostMusDelegate {
   // moving a window during a drag.
   virtual void OnWindowTreeHostPerformWindowMove(
       WindowTreeHostMus* window_tree_host,
-      ui::mojom::MoveLoopSource mus_source,
+      ws::mojom::MoveLoopSource mus_source,
       const gfx::Point& cursor_location,
-      const base::Callback<void(bool)>& callback) = 0;
+      base::OnceCallback<void(bool)> callback) = 0;
 
   // Called to cancel a move loop.
   virtual void OnWindowTreeHostCancelWindowMove(
       WindowTreeHostMus* window_tree_host) = 0;
-
-  // Called to move the location of the cursor.
-  virtual void OnWindowTreeHostMoveCursorToDisplayLocation(
-      const gfx::Point& location_in_pixels,
-      int64_t display_id) = 0;
 
   // Called when a WindowTreeHostMus is created without a WindowPort.
   // TODO: this should take an unordered_map, see http://crbug.com/670515.

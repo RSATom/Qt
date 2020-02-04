@@ -49,13 +49,13 @@ class QWinRTImageEncoderControl : public QImageEncoderControl
 {
     Q_OBJECT
 public:
-    explicit QWinRTImageEncoderControl(QObject *parent = 0);
+    explicit QWinRTImageEncoderControl(QObject *parent = nullptr);
 
-    QStringList supportedImageCodecs() const Q_DECL_OVERRIDE;
-    QString imageCodecDescription(const QString &codecName) const Q_DECL_OVERRIDE;
-    QList<QSize> supportedResolutions(const QImageEncoderSettings &settings, bool *continuous = 0) const Q_DECL_OVERRIDE;
-    QImageEncoderSettings imageSettings() const Q_DECL_OVERRIDE;
-    void setImageSettings(const QImageEncoderSettings &settings) Q_DECL_OVERRIDE;
+    QStringList supportedImageCodecs() const override;
+    QString imageCodecDescription(const QString &codecName) const override;
+    QList<QSize> supportedResolutions(const QImageEncoderSettings &settings, bool *continuous = nullptr) const override;
+    QImageEncoderSettings imageSettings() const override;
+    void setImageSettings(const QImageEncoderSettings &settings) override;
 
     void setSupportedResolutionsList(const QList<QSize> resolution);
     void applySettings();

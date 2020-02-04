@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 Intel Corporation
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -43,6 +44,9 @@
 #include "qlibrary_p.h"
 #include <qcoreapplication.h>
 #include <private/qfilesystementry_p.h>
+#include <private/qsimd_p.h>
+
+#include <dlfcn.h>
 
 #ifdef Q_OS_MAC
 #  include <private/qcore_mac_p.h>
@@ -50,19 +54,9 @@
 
 QT_BEGIN_NAMESPACE
 
-#if !defined(QT_HPUX_LD)
-QT_BEGIN_INCLUDE_NAMESPACE
-#include <dlfcn.h>
-QT_END_INCLUDE_NAMESPACE
-#endif
-
 static QString qdlerror()
 {
-#if !defined(QT_HPUX_LD)
     const char *err = dlerror();
-#else
-    const char *err = strerror(errno);
-#endif
     return err ? QLatin1Char('(') + QString::fromLocal8Bit(err) + QLatin1Char(')'): QString();
 }
 
@@ -139,14 +133,6 @@ bool QLibraryPrivate::load_sys()
         suffixes = suffixes_sys(fullVersion);
     }
     int dlFlags = 0;
-#if defined(QT_HPUX_LD)
-    dlFlags = DYNAMIC_PATH | BIND_NONFATAL;
-    if (loadHints & QLibrary::ResolveAllSymbolsHint) {
-        dlFlags |= BIND_IMMEDIATE;
-    } else {
-        dlFlags |= BIND_DEFERRED;
-    }
-#else
     int loadHints = this->loadHints();
     if (loadHints & QLibrary::ResolveAllSymbolsHint) {
         dlFlags |= RTLD_NOW;
@@ -171,7 +157,7 @@ bool QLibraryPrivate::load_sys()
     // Do not unload the library during dlclose(). Consequently, the
     // library's specific static variables are not reinitialized if the
     // library is reloaded with dlopen() at a later time.
-#ifdef RTLD_NODELETE
+#if defined(RTLD_NODELETE) && !defined(Q_OS_ANDROID)
     if (loadHints & QLibrary::PreventUnloadHint) {
         dlFlags |= RTLD_NODELETE;
     }
@@ -182,7 +168,6 @@ bool QLibraryPrivate::load_sys()
         dlFlags |= RTLD_MEMBER;
     }
 #endif
-#endif // QT_HPUX_LD
 
     // If the filename is an absolute path then we want to try that first as it is most likely
     // what the callee wants. If we have been given a non-absolute path then lets try the
@@ -194,6 +179,29 @@ bool QLibraryPrivate::load_sys()
         suffixes.append(QString());
         prefixes.append(QString());
     }
+
+#if defined(Q_PROCESSOR_X86) && !defined(Q_OS_DARWIN)
+    if (qCpuHasFeature(ArchHaswell)) {
+        auto transform = [](QStringList &list, void (*f)(QString *)) {
+            QStringList tmp;
+            qSwap(tmp, list);
+            list.reserve(tmp.size() * 2);
+            for (const QString &s : qAsConst(tmp)) {
+                QString modifiedPath = s;
+                f(&modifiedPath);
+                list.append(modifiedPath);
+                list.append(s);
+            }
+        };
+        if (pluginState == IsAPlugin) {
+            // add ".avx2" to each suffix in the list
+            transform(suffixes, [](QString *s) { s->append(QLatin1String(".avx2")); });
+        } else {
+            // prepend "haswell/" to each prefix in the list
+            transform(prefixes, [](QString *s) { s->prepend(QLatin1String("haswell/")); });
+        }
+    }
+#endif
 
     bool retry = true;
     for(int prefix = 0; retry && !pHnd && prefix < prefixes.size(); prefix++) {
@@ -211,11 +219,7 @@ bool QLibraryPrivate::load_sys()
             } else {
                 attempt = path + prefixes.at(prefix) + name + suffixes.at(suffix);
             }
-#if defined(QT_HPUX_LD)
-            pHnd = (void*)shl_load(QFile::encodeName(attempt), dlFlags, 0);
-#else
             pHnd = dlopen(QFile::encodeName(attempt), dlFlags);
-#endif
 
             if (!pHnd && fileName.startsWith(QLatin1Char('/')) && QFile::exists(attempt)) {
                 // We only want to continue if dlopen failed due to that the shared library did not exist.
@@ -253,11 +257,7 @@ bool QLibraryPrivate::load_sys()
 
 bool QLibraryPrivate::unload_sys()
 {
-#if defined(QT_HPUX_LD)
-    if (shl_unload((shl_t)pHnd)) {
-#else
     if (dlclose(pHnd)) {
-#endif
 #if defined (Q_OS_QNX)                // Workaround until fixed in QNX; fixes crash in
         char *error = dlerror();      // QtDeclarative auto test "qqmlenginecleanup" for instance
         if (!qstrcmp(error, "Shared objects still referenced")) // On QNX that's only "informative"
@@ -289,13 +289,7 @@ Q_CORE_EXPORT QFunctionPointer qt_mac_resolve_sys(void *handle, const char *symb
 
 QFunctionPointer QLibraryPrivate::resolve_sys(const char* symbol)
 {
-#if defined(QT_HPUX_LD)
-    QFunctionPointer address = 0;
-    if (shl_findsym((shl_t*)&pHnd, symbol, TYPE_UNDEFINED, &address) < 0)
-        address = 0;
-#else
     QFunctionPointer address = QFunctionPointer(dlsym(pHnd, symbol));
-#endif
     if (!address) {
         errorString = QLibrary::tr("Cannot resolve symbol \"%1\" in %2: %3").arg(
             QString::fromLatin1(symbol), fileName, qdlerror());

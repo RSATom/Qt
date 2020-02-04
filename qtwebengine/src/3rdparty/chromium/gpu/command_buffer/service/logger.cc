@@ -8,30 +8,29 @@
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "gpu/command_buffer/common/debug_marker_manager.h"
-#include "gpu/command_buffer/service/gles2_cmd_decoder.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 
 namespace gpu {
 namespace gles2 {
 
 Logger::Logger(const DebugMarkerManager* debug_marker_manager,
-               GLES2DecoderClient* client)
+               const LogMessageCallback& callback,
+               bool disable_gl_error_limit)
     : debug_marker_manager_(debug_marker_manager),
-      client_(client),
+      log_message_callback_(callback),
       log_message_count_(0),
-      log_synthesized_gl_errors_(true) {
+      log_synthesized_gl_errors_(true),
+      disable_gl_error_limit_(disable_gl_error_limit) {
   Logger* this_temp = this;
   this_in_hex_ = std::string("GroupMarkerNotSet(crbug.com/242999)!:") +
       base::HexEncode(&this_temp, sizeof(this_temp));
 }
 
-Logger::~Logger() {}
+Logger::~Logger() = default;
 
 void Logger::LogMessage(
     const char* filename, int line, const std::string& msg) {
-  if (log_message_count_ < kMaxLogMessages ||
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableGLErrorLimit)) {
+  if (log_message_count_ < kMaxLogMessages || disable_gl_error_limit_) {
     std::string prefixed_msg(std::string("[") + GetLogPrefix() + "]" + msg);
     ++log_message_count_;
     // LOG this unless logging is turned off as any chromium code that
@@ -40,7 +39,7 @@ void Logger::LogMessage(
       ::logging::LogMessage(
           filename, line, ::logging::LOG_ERROR).stream() << prefixed_msg;
     }
-    client_->OnConsoleMessage(0, prefixed_msg);
+    log_message_callback_.Run(prefixed_msg);
   } else {
     if (log_message_count_ == kMaxLogMessages) {
       ++log_message_count_;
@@ -58,4 +57,3 @@ const std::string& Logger::GetLogPrefix() const {
 
 }  // namespace gles2
 }  // namespace gpu
-

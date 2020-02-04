@@ -96,7 +96,7 @@ void QGeoSatelliteInfoSourceGeoclueMaster::startUpdates()
     if (!m_master->hasMasterClient())
         configureSatelliteSource();
 
-    m_requestTimer.start(updateInterval());
+    m_requestTimer.start(qMax(updateInterval(), minimumUpdateInterval()));
 }
 
 void QGeoSatelliteInfoSourceGeoclueMaster::stopUpdates()
@@ -147,7 +147,7 @@ void QGeoSatelliteInfoSourceGeoclueMaster::updateSatelliteInfo(int timestamp, in
                                                                const QList<int> &usedPrn,
                                                                const QList<QGeoSatelliteInfo> &satInfos)
 {
-    Q_UNUSED(timestamp)
+    Q_UNUSED(timestamp);
 
     QList<QGeoSatelliteInfo> inUse;
 
@@ -173,7 +173,7 @@ void QGeoSatelliteInfoSourceGeoclueMaster::updateSatelliteInfo(int timestamp, in
     m_inUse = inUse;
     emit satellitesInUseUpdated(m_inUse);
 
-    m_requestTimer.start(updateInterval());
+    m_requestTimer.start(qMax(updateInterval(), minimumUpdateInterval()));
 }
 
 void QGeoSatelliteInfoSourceGeoclueMaster::requestUpdateTimeout()
@@ -216,8 +216,8 @@ void QGeoSatelliteInfoSourceGeoclueMaster::positionProviderChanged(const QString
                                                                    const QString &service,
                                                                    const QString &path)
 {
-    Q_UNUSED(name)
-    Q_UNUSED(description)
+    Q_UNUSED(name);
+    Q_UNUSED(description);
 
     cleanupSatelliteSource();
 

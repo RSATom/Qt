@@ -95,26 +95,9 @@
     \title Hunspell Project
 */
 
-/*
-    This prevents autolinking of each occurrence of 'WebEngine'
-    To link to the WebEngine QML type, use explicit linking:
-        \l [QML] WebEngine
-        \sa {QtWebEngine::}{WebEngine}
-*/
-/*!
-    \externalpage nolink
-    \title WebEngine
-    \internal
-*/
-
 /*!
     \externalpage https://www.w3.org/Protocols/rfc2616/rfc2616-sec19.html#sec19.5.1
     \title RFC 2616 section 19.5.1
-*/
-
-/*!
-    \externalpage https://www.w3.org/TR/html5/links.html#downloading-resources
-    \title HTML download attribute
 */
 
 /*!
@@ -145,4 +128,14 @@
 /*!
     \externalpage https://wiki.greasespot.net/Metadata_Block#.40name
     \title Metadata Block
+*/
+
+/*!
+    \externalpage https://developer.mozilla.org/en-US/docs/Web/API/Navigator/registerProtocolHandler
+    \title registerProtocolHandler
+*/
+
+/*!
+    \externalpage https://www.w3.org/TR/notifications
+    \title Web Notifications API
 */

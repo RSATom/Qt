@@ -167,12 +167,12 @@ void QQuickMenuBarItem::geometryChanged(const QRectF &newGeometry, const QRectF 
 
 QFont QQuickMenuBarItem::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::MenuBarFont);
+    return QQuickTheme::font(QQuickTheme::MenuBar);
 }
 
 QPalette QQuickMenuBarItem::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::MenuBarPalette);
+    return QQuickTheme::palette(QQuickTheme::MenuBar);
 }
 
 #if QT_CONFIG(accessibility)

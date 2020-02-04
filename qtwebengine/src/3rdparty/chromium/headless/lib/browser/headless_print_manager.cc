@@ -4,27 +4,42 @@
 
 #include "headless/lib/browser/headless_print_manager.h"
 
+#include <memory>
 #include <utility>
 #include <vector>
 
-#include "base/base64.h"
-#include "base/memory/ptr_util.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/printing/browser/print_manager_utils.h"
 #include "components/printing/common/print_messages.h"
-#include "printing/pdf_metafile_skia.h"
+#include "content/public/browser/render_view_host.h"
 #include "printing/print_job_constants.h"
 #include "printing/units.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(headless::HeadlessPrintManager);
-
 namespace headless {
 
+struct HeadlessPrintManager::FrameDispatchHelper {
+  HeadlessPrintManager* manager;
+  content::RenderFrameHost* render_frame_host;
+
+  bool Send(IPC::Message* msg) { return render_frame_host->Send(msg); }
+
+  void OnGetDefaultPrintSettings(IPC::Message* reply_msg) {
+    manager->OnGetDefaultPrintSettings(reply_msg);
+  }
+
+  void OnScriptedPrint(const PrintHostMsg_ScriptedPrint_Params& scripted_params,
+                       IPC::Message* reply_msg) {
+    manager->OnScriptedPrint(scripted_params, reply_msg);
+  }
+};
+
 HeadlessPrintSettings::HeadlessPrintSettings()
-    : landscape(false),
+    : prefer_css_page_size(false),
+      landscape(false),
       display_header_footer(false),
       should_print_backgrounds(false),
       scale(1),
@@ -35,7 +50,7 @@ HeadlessPrintManager::HeadlessPrintManager(content::WebContents* web_contents)
   Reset();
 }
 
-HeadlessPrintManager::~HeadlessPrintManager() {}
+HeadlessPrintManager::~HeadlessPrintManager() = default;
 
 // static
 std::string HeadlessPrintManager::PrintResultToString(PrintResult result) {
@@ -50,8 +65,6 @@ std::string HeadlessPrintManager::PrintResultToString(PrintResult result) {
       return "Invalid memory handle";
     case METAFILE_MAP_ERROR:
       return "Map to shared memory error";
-    case UNEXPECTED_VALID_MEMORY_HANDLE:
-      return "Unexpected valide memory handle";
     case METAFILE_INVALID_HEADER:
       return "Invalid metafile header";
     case METAFILE_GET_DATA_ERROR:
@@ -66,16 +79,6 @@ std::string HeadlessPrintManager::PrintResultToString(PrintResult result) {
       NOTREACHED();
       return "Unknown PrintResult";
   }
-}
-
-// static
-std::unique_ptr<base::DictionaryValue>
-HeadlessPrintManager::PDFContentsToDictionaryValue(const std::string& data) {
-  std::string base_64_data;
-  base::Base64Encode(data, &base_64_data);
-  auto result = base::MakeUnique<base::DictionaryValue>();
-  result->SetString("data", base_64_data);
-  return result;
 }
 
 // static
@@ -139,15 +142,16 @@ HeadlessPrintManager::PageRangeTextToPages(base::StringPiece page_range_text,
 
 void HeadlessPrintManager::GetPDFContents(content::RenderFrameHost* rfh,
                                           const HeadlessPrintSettings& settings,
-                                          const GetPDFCallback& callback) {
+                                          GetPDFCallback callback) {
   DCHECK(callback);
 
   if (callback_) {
-    callback.Run(SIMULTANEOUS_PRINT_ACTIVE, std::string());
+    std::move(callback).Run(SIMULTANEOUS_PRINT_ACTIVE,
+                            base::MakeRefCounted<base::RefCountedString>());
     return;
   }
   printing_rfh_ = rfh;
-  callback_ = callback;
+  callback_ = std::move(callback);
   print_params_ = GetPrintParamsFromSettings(settings);
   page_ranges_text_ = settings.page_ranges;
   ignore_invalid_page_ranges_ = settings.ignore_invalid_page_ranges;
@@ -182,10 +186,15 @@ HeadlessPrintManager::GetPrintParamsFromSettings(
   print_settings.SetPrinterPrintableArea(settings.paper_size_in_points,
                                          printable_area_device_units, true);
 
-  auto print_params = base::MakeUnique<PrintMsg_PrintPages_Params>();
+  auto print_params = std::make_unique<PrintMsg_PrintPages_Params>();
   printing::RenderParamsFromPrintSettings(print_settings,
                                           &print_params->params);
   print_params->params.document_cookie = printing::PrintSettings::NewCookie();
+  print_params->params.header_template =
+      base::UTF8ToUTF16(settings.header_template);
+  print_params->params.footer_template =
+      base::UTF8ToUTF16(settings.footer_template);
+  print_params->params.prefer_css_page_size = settings.prefer_css_page_size;
   return print_params;
 }
 
@@ -217,14 +226,17 @@ bool HeadlessPrintManager::OnMessageReceived(
     return true;
   }
 
+  FrameDispatchHelper helper = {this, render_frame_host};
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(HeadlessPrintManager, message)
     IPC_MESSAGE_HANDLER(PrintHostMsg_ShowInvalidPrinterSettingsError,
                         OnShowInvalidPrinterSettingsError)
-    IPC_MESSAGE_HANDLER(PrintHostMsg_DidPrintPage, OnDidPrintPage)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(PrintHostMsg_GetDefaultPrintSettings,
-                                    OnGetDefaultPrintSettings)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(PrintHostMsg_ScriptedPrint, OnScriptedPrint)
+    IPC_MESSAGE_HANDLER(PrintHostMsg_DidPrintDocument, OnDidPrintDocument)
+    IPC_MESSAGE_FORWARD_DELAY_REPLY(
+        PrintHostMsg_GetDefaultPrintSettings, &helper,
+        FrameDispatchHelper::OnGetDefaultPrintSettings)
+    IPC_MESSAGE_FORWARD_DELAY_REPLY(PrintHostMsg_ScriptedPrint, &helper,
+                                    FrameDispatchHelper::OnScriptedPrint)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled || PrintManager::OnMessageReceived(message, render_frame_host);
@@ -269,51 +281,20 @@ void HeadlessPrintManager::OnPrintingFailed(int cookie) {
   ReleaseJob(PRINTING_FAILED);
 }
 
-void HeadlessPrintManager::OnDidGetPrintedPagesCount(int cookie,
-                                                     int number_pages) {
-  PrintManager::OnDidGetPrintedPagesCount(cookie, number_pages);
-  if (!print_params_->pages.empty())
-    number_pages_ = print_params_->pages.size();
-}
-
-void HeadlessPrintManager::OnDidPrintPage(
-    const PrintHostMsg_DidPrintPage_Params& params) {
-  const bool metafile_must_be_valid = expecting_first_page_;
-  expecting_first_page_ = false;
-
-  if (metafile_must_be_valid) {
-    if (!base::SharedMemory::IsHandleValid(params.metafile_data_handle)) {
-      ReleaseJob(INVALID_MEMORY_HANDLE);
-      return;
-    }
-    auto shared_buf =
-        base::MakeUnique<base::SharedMemory>(params.metafile_data_handle, true);
-    if (!shared_buf->Map(params.data_size)) {
-      ReleaseJob(METAFILE_MAP_ERROR);
-      return;
-    }
-    auto metafile = base::MakeUnique<printing::PdfMetafileSkia>(
-        printing::PDF_SKIA_DOCUMENT_TYPE);
-    if (!metafile->InitFromData(shared_buf->memory(), params.data_size)) {
-      ReleaseJob(METAFILE_INVALID_HEADER);
-      return;
-    }
-    std::vector<char> buffer;
-    if (!metafile->GetDataAsVector(&buffer)) {
-      ReleaseJob(METAFILE_GET_DATA_ERROR);
-      return;
-    }
-    data_ = std::string(buffer.data(), buffer.size());
-  } else {
-    if (base::SharedMemory::IsHandleValid(params.metafile_data_handle)) {
-      base::SharedMemory::CloseHandle(params.metafile_data_handle);
-      ReleaseJob(UNEXPECTED_VALID_MEMORY_HANDLE);
-      return;
-    }
+void HeadlessPrintManager::OnDidPrintDocument(
+    const PrintHostMsg_DidPrintDocument_Params& params) {
+  auto& content = params.content;
+  if (!content.metafile_data_region.IsValid()) {
+    ReleaseJob(INVALID_MEMORY_HANDLE);
+    return;
   }
-
-  if (--number_pages_ == 0)
-    ReleaseJob(PRINT_SUCCESS);
+  base::ReadOnlySharedMemoryMapping map = content.metafile_data_region.Map();
+  if (!map.IsValid()) {
+    ReleaseJob(METAFILE_MAP_ERROR);
+    return;
+  }
+  data_ = std::string(static_cast<const char*>(map.memory()), map.size());
+  ReleaseJob(PRINT_SUCCESS);
 }
 
 void HeadlessPrintManager::Reset() {
@@ -323,8 +304,6 @@ void HeadlessPrintManager::Reset() {
   page_ranges_text_.clear();
   ignore_invalid_page_ranges_ = false;
   data_.clear();
-  expecting_first_page_ = true;
-  number_pages_ = 0;
 }
 
 void HeadlessPrintManager::ReleaseJob(PrintResult result) {
@@ -334,13 +313,18 @@ void HeadlessPrintManager::ReleaseJob(PrintResult result) {
     return;
   }
 
-  if (result == PRINT_SUCCESS)
-    callback_.Run(result, std::move(data_));
-  else
-    callback_.Run(result, std::string());
+  if (result == PRINT_SUCCESS) {
+    std::move(callback_).Run(result,
+                             base::RefCountedString::TakeString(&data_));
+  } else {
+    std::move(callback_).Run(result,
+                             base::MakeRefCounted<base::RefCountedString>());
+  }
   printing_rfh_->Send(new PrintMsg_PrintingDone(printing_rfh_->GetRoutingID(),
                                                 result == PRINT_SUCCESS));
   Reset();
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(HeadlessPrintManager)
 
 }  // namespace headless

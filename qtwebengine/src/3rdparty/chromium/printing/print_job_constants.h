@@ -6,15 +6,13 @@
 #define PRINTING_PRINT_JOB_CONSTANTS_H_
 
 #include "build/build_config.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 #include "printing/printing_export.h"
 
 namespace printing {
 
 PRINTING_EXPORT extern const char kIsFirstRequest[];
 PRINTING_EXPORT extern const char kPreviewRequestID[];
-PRINTING_EXPORT extern const char kPreviewInitiatorHostId[];
-PRINTING_EXPORT extern const char kPreviewInitiatorRoutingId[];
 PRINTING_EXPORT extern const char kPreviewUIID[];
 PRINTING_EXPORT extern const char kSettingCapabilities[];
 PRINTING_EXPORT extern const char kSettingCloudPrintId[];
@@ -27,12 +25,12 @@ PRINTING_EXPORT extern const char kSettingContentWidth[];
 PRINTING_EXPORT extern const char kSettingCopies[];
 PRINTING_EXPORT extern const char kSettingDeviceName[];
 PRINTING_EXPORT extern const char kSettingDisableScaling[];
+PRINTING_EXPORT extern const char kSettingDpiDefault[];
 PRINTING_EXPORT extern const char kSettingDpiHorizontal[];
 PRINTING_EXPORT extern const char kSettingDpiVertical[];
 PRINTING_EXPORT extern const char kSettingDuplexMode[];
 PRINTING_EXPORT extern const char kSettingFitToPageEnabled[];
 PRINTING_EXPORT extern const char kSettingFitToPageScaling[];
-PRINTING_EXPORT extern const char kSettingGenerateDraftData[];
 PRINTING_EXPORT extern const char kSettingHeaderFooterEnabled[];
 PRINTING_EXPORT extern const float kSettingHeaderFooterInterstice;
 PRINTING_EXPORT extern const char kSettingHeaderFooterDate[];
@@ -56,7 +54,10 @@ PRINTING_EXPORT extern const char kSettingPageRangeFrom[];
 PRINTING_EXPORT extern const char kSettingPageRangeTo[];
 PRINTING_EXPORT extern const char kSettingPageWidth[];
 PRINTING_EXPORT extern const char kSettingPageHeight[];
+PRINTING_EXPORT extern const char kSettingPagesPerSheet[];
+PRINTING_EXPORT extern const char kSettingPolicies[];
 PRINTING_EXPORT extern const char kSettingPreviewModifiable[];
+PRINTING_EXPORT extern const char kSettingPrintToGoogleDrive[];
 PRINTING_EXPORT extern const char kSettingPrintToPDF[];
 PRINTING_EXPORT extern const char kSettingPrintWithPrivet[];
 PRINTING_EXPORT extern const char kSettingPrintWithExtension[];
@@ -72,9 +73,7 @@ PRINTING_EXPORT extern const char kSettingScaleFactor[];
 PRINTING_EXPORT extern const char kSettingTicket[];
 PRINTING_EXPORT extern const char kSettingShouldPrintBackgrounds[];
 PRINTING_EXPORT extern const char kSettingShouldPrintSelectionOnly[];
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
 PRINTING_EXPORT extern const char kSettingShowSystemDialog[];
-#endif
 
 PRINTING_EXPORT extern const int FIRST_PAGE_INDEX;
 PRINTING_EXPORT extern const int COMPLETE_PREVIEW_DOCUMENT_INDEX;

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
 #include "content/browser/devtools/render_frame_devtools_agent_host.h"
@@ -42,13 +41,11 @@ class TestClient: public DevToolsAgentHostClient {
       const std::string& message) override {
     if (waiting_for_reply_) {
       waiting_for_reply_ = false;
-      base::MessageLoop::current()->QuitNow();
+      base::RunLoop::QuitCurrentDeprecated();
     }
   }
 
-  void AgentHostClosed(
-      DevToolsAgentHost* agent_host,
-      bool replaced_with_another_client) override {
+  void AgentHostClosed(DevToolsAgentHost* agent_host) override {
     closed_ = true;
   }
 
@@ -239,7 +236,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessDownloadDevToolsBrowserTest,
   scoped_refptr<DevToolsAgentHost> agent =
       DevToolsAgentHost::GetOrCreateFor(shell()->web_contents());
   TestClient client;
-  ASSERT_TRUE(agent->AttachClient(&client));
+  agent->AttachClient(&client);
   char message[] = "{\"id\": 0, \"method\": \"incorrect.method\"}";
   // Check that client is responsive.
   agent->DispatchProtocolMessage(&client, message);

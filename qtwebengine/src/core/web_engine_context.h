@@ -40,70 +40,96 @@
 #ifndef WEB_ENGINE_CONTEXT_H
 #define WEB_ENGINE_CONTEXT_H
 
-#include "qtwebenginecoreglobal.h"
-
-#include "build/build_config.h"
-
+#include "build_config_qt.h"
 #include "base/memory/ref_counted.h"
 #include "base/values.h"
-#include "printing/features/features.h"
-
-#include <QSharedPointer>
+#include <QVector>
 
 namespace base {
 class RunLoop;
+class CommandLine;
 }
 
 namespace content {
 class BrowserMainRunner;
 class ContentMainRunner;
+class GpuProcess;
+class GpuThreadController;
+class InProcessChildThreadParams;
 }
 
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
+namespace gpu {
+struct GpuPreferences;
+class SyncPointManager;
+}
+
+#if QT_CONFIG(webengine_printing_and_pdf)
 namespace printing {
 class PrintJobManager;
 }
-#endif // BUILDFLAG(ENABLE_BASIC_PRINTING)
+#endif
 
 QT_FORWARD_DECLARE_CLASS(QObject)
 
 namespace QtWebEngineCore {
 
-class BrowserContextAdapter;
+class AccessibilityActivationObserver;
 class ContentMainDelegateQt;
 class DevToolsServerQt;
-class SurfaceFactoryQt;
+class ProfileAdapter;
 
 bool usingSoftwareDynamicGL();
 
+typedef std::tuple<bool, QString, QString> ProxyAuthentication;
+
 class WebEngineContext : public base::RefCounted<WebEngineContext> {
 public:
-    static scoped_refptr<WebEngineContext> current();
+    static WebEngineContext *current();
+    static void destroyContextPostRoutine();
+    static ProxyAuthentication qProxyNetworkAuthentication(QString host, int port);
 
-    QSharedPointer<BrowserContextAdapter> defaultBrowserContext();
+    ProfileAdapter *createDefaultProfileAdapter();
+    ProfileAdapter *defaultProfileAdapter();
+
     QObject *globalQObject();
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
+#if QT_CONFIG(webengine_printing_and_pdf)
     printing::PrintJobManager* getPrintJobManager();
-#endif // BUILDFLAG(ENABLE_BASIC_PRINTING)
-    void destroyBrowserContext();
+#endif
+    void destroyProfileAdapter();
+    void addProfileAdapter(ProfileAdapter *profileAdapter);
+    void removeProfileAdapter(ProfileAdapter *profileAdapter);
     void destroy();
+    static base::CommandLine* commandLine();
+
+    static gpu::SyncPointManager *syncPointManager();
 
 private:
     friend class base::RefCounted<WebEngineContext>;
-    friend class BrowserContextAdapter;
+    friend class ProfileAdapter;
     WebEngineContext();
     ~WebEngineContext();
+
+    static void registerMainThreadFactories(bool threaded);
+    static void destroyGpuProcess();
 
     std::unique_ptr<base::RunLoop> m_runLoop;
     std::unique_ptr<ContentMainDelegateQt> m_mainDelegate;
     std::unique_ptr<content::ContentMainRunner> m_contentRunner;
     std::unique_ptr<content::BrowserMainRunner> m_browserRunner;
-    QObject* m_globalQObject;
-    QSharedPointer<BrowserContextAdapter> m_defaultBrowserContext;
+    std::unique_ptr<QObject> m_globalQObject;
+    std::unique_ptr<ProfileAdapter> m_defaultProfileAdapter;
     std::unique_ptr<DevToolsServerQt> m_devtoolsServer;
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
+    QVector<ProfileAdapter*> m_profileAdapters;
+#ifndef QT_NO_ACCESSIBILITY
+    std::unique_ptr<AccessibilityActivationObserver> m_accessibilityActivationObserver;
+#endif
+
+#if QT_CONFIG(webengine_printing_and_pdf)
     std::unique_ptr<printing::PrintJobManager> m_printJobManager;
-#endif // BUILDFLAG(ENABLE_BASIC_PRINTING)
+#endif
+    static scoped_refptr<QtWebEngineCore::WebEngineContext> m_handle;
+    static bool m_destroyed;
+    static QAtomicPointer<gpu::SyncPointManager> s_syncPointManager;
 };
 
 } // namespace

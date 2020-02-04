@@ -71,6 +71,16 @@ enum GpuControlListTestingEntryEnum {
   kGpuControlListTest_DisabledExtensionTest_1 = 55,
   kGpuControlListEntryTest_DirectRendering = 56,
   kGpuControlListTest_LinuxKernelVersion = 57,
+  kGpuControlListTest_TestGroup_0 = 58,
+  kGpuControlListTest_TestGroup_1 = 59,
+  kGpuControlListEntryTest_GpuSeries = 60,
+  kGpuControlListEntryTest_GpuSeriesActive = 61,
+  kGpuControlListEntryTest_GpuSeriesAny = 62,
+  kGpuControlListEntryTest_GpuSeriesPrimary = 63,
+  kGpuControlListEntryTest_GpuSeriesSecondary = 64,
+  kGpuControlListEntryTest_GpuSeriesInException = 65,
+  kGpuControlListEntryTest_MultipleDrivers = 66,
+  kGpuControlListEntryTest_HardwareOverlay = 67,
 };
 }  // namespace gpu
 

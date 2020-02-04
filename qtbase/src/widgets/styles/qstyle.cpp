@@ -46,6 +46,7 @@
 #include "qstyleoption.h"
 #include "private/qstyle_p.h"
 #include "private/qguiapplication_p.h"
+#include <qpa/qplatformtheme.h>
 #ifndef QT_NO_DEBUG
 #include "qdebug.h"
 #endif
@@ -765,8 +766,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
 */
 
 /*!
-    \fn void QStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *option, \
-                                   QPainter *painter, const QWidget *widget) const
+    \fn void QStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const
 
     Draws the given primitive \a element with the provided \a painter using the style
     options specified by \a option.
@@ -1592,8 +1592,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
 */
 
 /*!
-    \fn QSize QStyle::sizeFromContents(ContentsType type, const QStyleOption *option, \
-                                       const QSize &contentsSize, const QWidget *widget) const
+    \fn QSize QStyle::sizeFromContents(ContentsType type, const QStyleOption *option, const QSize &contentsSize, const QWidget *widget) const
 
     Returns the size of the element described by the specified
     \a option and \a type, based on the provided \a contentsSize.
@@ -1973,8 +1972,8 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
 
     \value SH_Widget_Animate Deprecated. Use \l{SH_Widget_Animation_Duration} instead.
 
-    \value SH_Splitter_OpaqueResize Determines if resizing is opaque
-           This enum value has been introduced in Qt 5.2
+    \value SH_Splitter_OpaqueResize Determines if widgets are resized dynamically (opaquely) while
+           interactively moving the splitter. This enum value was introduced in Qt 5.2.
 
     \value SH_TabBar_ChangeCurrentDelay Determines the delay before the current
            tab is changed while dragging over the tabbar, in milliseconds. This
@@ -1994,12 +1993,27 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
            A value equal to zero means that the animations will be disabled.
            This enum value has been introduced in Qt 5.10.
 
+    \value SH_ComboBox_AllowWheelScrolling
+           Determines if the mouse wheel can be used to scroll inside a QComboBox.
+           This is on by default in all styles except the Mac style.
+           This enum value has been introduced in Qt 5.10.
+
+    \value SH_SpinBox_ButtonsInsideFrame
+           Determines if the spin box buttons are inside the line edit frame.
+           This enum value has been introduced in Qt 5.11.
+
+    \value SH_SpinBox_StepModifier
+           Determines which Qt::KeyboardModifier increases the step rate of
+           QAbstractSpinBox. Possible values are Qt::NoModifier,
+           Qt::ControlModifier (default) or Qt::ShiftModifier. Qt::NoModifier
+           disables this feature.
+           This enum value has been introduced in Qt 5.12.
+
     \sa styleHint()
 */
 
 /*!
-    \fn int QStyle::styleHint(StyleHint hint, const QStyleOption *option, \
-                              const QWidget *widget, QStyleHintReturn *returnData) const
+    \fn int QStyle::styleHint(StyleHint hint, const QStyleOption *option, const QWidget *widget, QStyleHintReturn *returnData) const
 
     Returns an integer representing the specified style \a hint for
     the given \a widget described by the provided style \a option.
@@ -2111,8 +2125,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
 */
 
 /*!
-    \fn QPixmap QStyle::standardPixmap(StandardPixmap standardPixmap, const QStyleOption *option, \
-                                       const QWidget *widget) const
+    \fn QPixmap QStyle::standardPixmap(StandardPixmap standardPixmap, const QStyleOption *option, const QWidget *widget) const
 
     \obsolete
     Returns a pixmap for the given \a standardPixmap.
@@ -2433,6 +2446,13 @@ void QStyle::setProxy(QStyle *style)
 {
     Q_D(QStyle);
     d->proxyStyle = style;
+}
+
+//Windows and KDE allow menus to cover the taskbar, while GNOME and macOS don't
+bool QStylePrivate::useFullScreenForPopup()
+{
+    auto theme = QGuiApplicationPrivate::platformTheme();
+    return theme && theme->themeHint(QPlatformTheme::UseFullScreenForPopupMenu).toBool();
 }
 
 QT_END_NAMESPACE

@@ -47,7 +47,7 @@ namespace Qt3DRender {
 
 class QLineWidthPrivate;
 
-class QT3DRENDERSHARED_EXPORT QLineWidth : public QRenderState
+class Q_3DRENDERSHARED_EXPORT QLineWidth : public QRenderState
 {
     Q_OBJECT
     Q_PROPERTY(float value READ value WRITE setValue NOTIFY valueChanged)
@@ -70,7 +70,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QLineWidth)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

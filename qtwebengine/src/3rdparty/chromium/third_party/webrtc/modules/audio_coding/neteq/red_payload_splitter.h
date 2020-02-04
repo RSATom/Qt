@@ -8,15 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_NETEQ_RED_PAYLOAD_SPLITTER_H_
-#define WEBRTC_MODULES_AUDIO_CODING_NETEQ_RED_PAYLOAD_SPLITTER_H_
+#ifndef MODULES_AUDIO_CODING_NETEQ_RED_PAYLOAD_SPLITTER_H_
+#define MODULES_AUDIO_CODING_NETEQ_RED_PAYLOAD_SPLITTER_H_
 
-#include "webrtc/modules/audio_coding/neteq/packet.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "modules/audio_coding/neteq/packet.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
-// Forward declarations.
 class DecoderDatabase;
 
 // This class handles splitting of RED payloads into smaller parts.
@@ -38,14 +37,13 @@ class RedPayloadSplitter {
 
   // Checks all packets in |packet_list|. Packets that are DTMF events or
   // comfort noise payloads are kept. Except that, only one single payload type
-  // is accepted. Any packet with another payload type is discarded.  Returns
-  // the number of discarded packets.
-  virtual int CheckRedPayloads(PacketList* packet_list,
-                               const DecoderDatabase& decoder_database);
+  // is accepted. Any packet with another payload type is discarded.
+  virtual void CheckRedPayloads(PacketList* packet_list,
+                                const DecoderDatabase& decoder_database);
 
  private:
   RTC_DISALLOW_COPY_AND_ASSIGN(RedPayloadSplitter);
 };
 
 }  // namespace webrtc
-#endif  // WEBRTC_MODULES_AUDIO_CODING_NETEQ_RED_PAYLOAD_SPLITTER_H_
+#endif  // MODULES_AUDIO_CODING_NETEQ_RED_PAYLOAD_SPLITTER_H_

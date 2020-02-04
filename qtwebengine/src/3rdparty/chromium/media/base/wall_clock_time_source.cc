@@ -9,11 +9,11 @@
 namespace media {
 
 WallClockTimeSource::WallClockTimeSource()
-    : tick_clock_(&default_tick_clock_), ticking_(false), playback_rate_(1.0) {
-}
+    : tick_clock_(base::DefaultTickClock::GetInstance()),
+      ticking_(false),
+      playback_rate_(1.0) {}
 
-WallClockTimeSource::~WallClockTimeSource() {
-}
+WallClockTimeSource::~WallClockTimeSource() = default;
 
 void WallClockTimeSource::StartTicking() {
   DVLOG(1) << __func__;
@@ -79,6 +79,12 @@ bool WallClockTimeSource::GetWallClockTimes(
   }
 
   return playback_rate_ && ticking_;
+}
+
+void WallClockTimeSource::SetTickClockForTesting(
+    const base::TickClock* tick_clock) {
+  base::AutoLock auto_lock(lock_);
+  tick_clock_ = tick_clock;
 }
 
 base::TimeDelta WallClockTimeSource::CurrentMediaTime_Locked() {

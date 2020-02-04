@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_WEB_VIEW_APITEST_H_
+#define EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_WEB_VIEW_APITEST_H_
+
 #include "base/values.h"
 #include "components/guest_view/browser/test_guest_view_manager.h"
 #include "extensions/shell/test/shell_test.h"
@@ -27,7 +30,12 @@ class WebViewAPITest : public AppShellTest {
 
   // Runs the test |test_name| in |app_location|. RunTest will launch the app
   // and execute the javascript function runTest(test_name) inside the app.
-  void RunTest(const std::string& test_name, const std::string& app_location);
+  // If |ad_hoc_framework| is true, the test app defines its own testing
+  // framework, otherwise the test app uses the chrome.test framework.
+  // See https://crbug.com/876330
+  void RunTest(const std::string& test_name,
+               const std::string& app_location,
+               bool ad_hoc_framework = true);
 
   // Starts/Stops the embedded test server.
   void StartTestServer(const std::string& app_location);
@@ -63,3 +71,5 @@ class WebViewDPIAPITest : public WebViewAPITest {
 };
 
 }  // namespace extensions
+
+#endif  // EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_WEB_VIEW_APITEST_H_

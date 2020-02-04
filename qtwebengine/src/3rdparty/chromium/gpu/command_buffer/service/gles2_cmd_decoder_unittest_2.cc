@@ -33,7 +33,7 @@ namespace gles2 {
 
 class GLES2DecoderTest2 : public GLES2DecoderTestBase {
  public:
-  GLES2DecoderTest2() { }
+  GLES2DecoderTest2() = default;
 
   void TestAcceptedUniform(GLenum uniform_type,
                            uint32_t accepts_apis,
@@ -625,7 +625,7 @@ void GLES2DecoderTestBase::SpecializedSetup<cmds::GetProgramInfoLog, 0>(
       .WillOnce(SetArgPointee<2>(0));
 
   Program* program = GetProgram(client_program_id_);
-  ASSERT_TRUE(program != NULL);
+  ASSERT_TRUE(program != nullptr);
 
   cmds::AttachShader attach_cmd;
   attach_cmd.Init(client_program_id_, kClientVertexShaderId);
@@ -634,7 +634,7 @@ void GLES2DecoderTestBase::SpecializedSetup<cmds::GetProgramInfoLog, 0>(
   attach_cmd.Init(client_program_id_, kClientFragmentShaderId);
   EXPECT_EQ(error::kNoError, ExecuteCmd(attach_cmd));
 
-  program->Link(NULL, Program::kCountOnlyStaticallyUsed, this);
+  program->Link(nullptr, Program::kCountOnlyStaticallyUsed, this);
 };
 
 template <>
@@ -824,21 +824,9 @@ void GLES2DecoderTestBase::SpecializedSetup<cmds::Uniform4fvImmediate, 0>(
 };
 
 template <>
-void GLES2DecoderTestBase::SpecializedSetup<cmds::Uniform4ivImmediate, 0>(
-    bool /* valid */) {
-  SetupShaderForUniform(GL_INT_VEC4);
-};
-
-template <>
 void GLES2DecoderTestBase::SpecializedSetup<cmds::UniformMatrix2fvImmediate, 0>(
     bool /* valid */) {
   SetupShaderForUniform(GL_FLOAT_MAT2);
-};
-
-template <>
-void GLES2DecoderTestBase::SpecializedSetup<
-    cmds::UniformMatrix2x3fvImmediate, 0>(bool /* valid */) {
-  SetupShaderForUniform(GL_FLOAT_MAT2x3);
 };
 
 template <>

@@ -25,6 +25,30 @@ SerializedHandle::SerializedHandle()
       file_io_(0) {
 }
 
+SerializedHandle::SerializedHandle(SerializedHandle&& other)
+    : type_(other.type_),
+      shm_handle_(other.shm_handle_),
+      size_(other.size_),
+      shm_region_(std::move(other.shm_region_)),
+      descriptor_(other.descriptor_),
+      open_flags_(other.open_flags_),
+      file_io_(other.file_io_) {
+  other.set_null();
+}
+
+SerializedHandle& SerializedHandle::operator=(SerializedHandle&& other) {
+  Close();
+  type_ = other.type_;
+  shm_handle_ = other.shm_handle_;
+  size_ = other.size_;
+  shm_region_ = std::move(other.shm_region_);
+  descriptor_ = other.descriptor_;
+  open_flags_ = other.open_flags_;
+  file_io_ = other.file_io_;
+  other.set_null();
+  return *this;
+}
+
 SerializedHandle::SerializedHandle(Type type_param)
     : type_(type_param),
       size_(0),
@@ -43,6 +67,19 @@ SerializedHandle::SerializedHandle(const base::SharedMemoryHandle& handle,
       file_io_(0) {}
 
 SerializedHandle::SerializedHandle(
+    base::subtle::PlatformSharedMemoryRegion region)
+    : type_(SHARED_MEMORY_REGION),
+      size_(0),
+      shm_region_(std::move(region)),
+      descriptor_(IPC::InvalidPlatformFileForTransit()),
+      open_flags_(0),
+      file_io_(0) {
+  // Writable regions are not supported.
+  DCHECK_NE(shm_region_.GetMode(),
+            base::subtle::PlatformSharedMemoryRegion::Mode::kWritable);
+}
+
+SerializedHandle::SerializedHandle(
     Type type,
     const IPC::PlatformFileForTransit& socket_descriptor)
     : type_(type),
@@ -56,6 +93,8 @@ bool SerializedHandle::IsHandleValid() const {
   switch (type_) {
     case SHARED_MEMORY:
       return base::SharedMemory::IsHandleValid(shm_handle_);
+    case SHARED_MEMORY_REGION:
+      return shm_region_.IsValid();
     case SOCKET:
     case FILE:
       return !(IPC::InvalidPlatformFileForTransit() == descriptor_);
@@ -75,6 +114,9 @@ void SerializedHandle::Close() {
       case SHARED_MEMORY:
         base::SharedMemory::CloseHandle(shm_handle_);
         break;
+      case SHARED_MEMORY_REGION:
+        shm_region_ = base::subtle::PlatformSharedMemoryRegion();
+        break;
       case SOCKET:
       case FILE:
         base::File file_closer = IPC::PlatformFileForTransitToFile(descriptor_);
@@ -82,22 +124,18 @@ void SerializedHandle::Close() {
       // No default so the compiler will warn us if a new type is added.
     }
   }
-  *this = SerializedHandle();
+  set_null();
 }
 
 // static
-bool SerializedHandle::WriteHeader(const Header& hdr, base::Pickle* pickle) {
-  if (!pickle->WriteInt(hdr.type))
-    return false;
+void SerializedHandle::WriteHeader(const Header& hdr, base::Pickle* pickle) {
+  pickle->WriteInt(hdr.type);
   if (hdr.type == SHARED_MEMORY) {
-    if (!pickle->WriteUInt32(hdr.size))
-      return false;
+    pickle->WriteUInt32(hdr.size);
+  } else if (hdr.type == FILE) {
+    pickle->WriteInt(hdr.open_flags);
+    pickle->WriteInt(hdr.file_io);
   }
-  if (hdr.type == FILE) {
-    if (!pickle->WriteInt(hdr.open_flags) || !pickle->WriteInt(hdr.file_io))
-      return false;
-  }
-  return true;
 }
 
 // static
@@ -126,6 +164,7 @@ bool SerializedHandle::ReadHeader(base::PickleIterator* iter, Header* hdr) {
       valid_type = true;
       break;
     }
+    case SHARED_MEMORY_REGION:
     case SOCKET:
     case INVALID:
       valid_type = true;

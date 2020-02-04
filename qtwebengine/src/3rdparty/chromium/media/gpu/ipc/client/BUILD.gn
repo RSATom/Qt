@@ -4,28 +4,20 @@
 
 source_set("client") {
   sources = [
-    "gpu_jpeg_decode_accelerator_host.cc",
-    "gpu_jpeg_decode_accelerator_host.h",
     "gpu_video_decode_accelerator_host.cc",
     "gpu_video_decode_accelerator_host.h",
-    "gpu_video_encode_accelerator_host.cc",
-    "gpu_video_encode_accelerator_host.h",
   ]
 
-  configs += [
-    "//build/config/compiler:no_size_t_to_int_warning",
-    "//media/gpu:gpu_config",
-  ]
+  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
     "//base",
     "//gpu/ipc/common",
     "//ipc",
     "//media",
-    "//media:media_features",
+    "//media:media_buildflags",
     "//media/gpu",
     "//media/gpu/ipc/common",
-    "//media/gpu/mojo:jpeg_decoder",
     "//ui/gfx:memory_buffer",
     "//ui/gfx/geometry",
     "//ui/gfx/ipc",

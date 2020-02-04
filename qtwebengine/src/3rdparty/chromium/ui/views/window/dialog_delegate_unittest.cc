@@ -4,7 +4,7 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/hit_test.h"
 #include "ui/events/event_processor.h"
@@ -40,9 +40,7 @@ class TestDialog : public DialogDelegateView {
   }
 
   // WidgetDelegate overrides:
-  bool ShouldShowWindowTitle() const override {
-    return !title_.empty();
-  }
+  bool ShouldShowWindowTitle() const override { return !title_.empty(); }
   bool ShouldShowCloseButton() const override { return show_close_button_; }
 
   // DialogDelegateView overrides:
@@ -216,25 +214,23 @@ TEST_F(DialogTest, HitTest_HiddenTitle) {
   // Ensure that BubbleFrameView hit-tests as expected when the title is hidden.
   const NonClientView* view = dialog()->GetWidget()->non_client_view();
   BubbleFrameView* frame = static_cast<BubbleFrameView*>(view->frame_view());
-  const int border = frame->bubble_border()->GetBorderThickness();
 
   struct {
     const int point;
     const int hit;
   } cases[] = {
-      {border, HTSYSMENU},
-      {border + 10, HTSYSMENU},
-      {border + 20, HTNOWHERE},
-      {border + 50, HTCLIENT /* Space is reserved for the close button. */},
-      {border + 60, HTCLIENT},
+      {0, HTSYSMENU},
+      {10, HTSYSMENU},
+      {20, HTNOWHERE},
+      {50, HTCLIENT /* Space is reserved for the close button. */},
+      {60, HTCLIENT},
       {1000, HTNOWHERE},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     gfx::Point point(cases[i].point, cases[i].point);
     EXPECT_EQ(cases[i].hit, frame->NonClientHitTest(point))
-        << " case " << i << " with border: " << border << ", at point "
-        << cases[i].point;
+        << " case " << i << " at point " << cases[i].point;
   }
 }
 
@@ -245,22 +241,19 @@ TEST_F(DialogTest, HitTest_HiddenTitleNoCloseButton) {
 
   const NonClientView* view = dialog()->GetWidget()->non_client_view();
   BubbleFrameView* frame = static_cast<BubbleFrameView*>(view->frame_view());
-  const int border = frame->bubble_border()->GetBorderThickness();
 
   struct {
     const int point;
     const int hit;
   } cases[] = {
-      {border, HTSYSMENU},     {border + 10, HTSYSMENU},
-      {border + 20, HTCLIENT}, {border + 50, HTCLIENT},
-      {border + 60, HTCLIENT}, {1000, HTNOWHERE},
+      {0, HTSYSMENU}, {10, HTSYSMENU}, {20, HTCLIENT},
+      {50, HTCLIENT}, {60, HTCLIENT},  {1000, HTNOWHERE},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     gfx::Point point(cases[i].point, cases[i].point);
     EXPECT_EQ(cases[i].hit, frame->NonClientHitTest(point))
-        << " case " << i << " with border: " << border << ", at point "
-        << cases[i].point;
+        << " case " << i << " at point " << cases[i].point;
   }
 }
 
@@ -270,24 +263,19 @@ TEST_F(DialogTest, HitTest_WithTitle) {
   dialog()->set_title(base::ASCIIToUTF16("Title"));
   dialog()->GetWidget()->UpdateWindowTitle();
   BubbleFrameView* frame = static_cast<BubbleFrameView*>(view->frame_view());
-  const int border = frame->bubble_border()->GetBorderThickness();
 
   struct {
     const int point;
     const int hit;
   } cases[] = {
-    { border,      HTSYSMENU },
-    { border + 10, HTSYSMENU },
-    { border + 20, HTCAPTION },
-    { border + 50, HTCLIENT  },
-    { border + 60, HTCLIENT  },
-    { 1000,        HTNOWHERE },
+      {0, HTSYSMENU}, {10, HTSYSMENU}, {20, HTCAPTION},
+      {50, HTCLIENT}, {60, HTCLIENT},  {1000, HTNOWHERE},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     gfx::Point point(cases[i].point, cases[i].point);
     EXPECT_EQ(cases[i].hit, frame->NonClientHitTest(point))
-        << " with border: " << border << ", at point " << cases[i].point;
+        << " at point " << cases[i].point;
   }
 }
 
@@ -309,6 +297,16 @@ TEST_F(DialogTest, BoundsAccommodateTitle) {
   dialog2->set_title(base::ASCIIToUTF16("Title"));
   DialogDelegate::CreateDialogWidget(dialog2, GetContext(), nullptr);
 
+  // Remove the close button so it doesn't influence the bounds if it's taller
+  // than the title.
+  dialog()->set_show_close_button(false);
+  dialog2->set_show_close_button(false);
+  dialog()->GetWidget()->non_client_view()->ResetWindowControls();
+  dialog2->GetWidget()->non_client_view()->ResetWindowControls();
+
+  EXPECT_FALSE(dialog()->ShouldShowWindowTitle());
+  EXPECT_TRUE(dialog2->ShouldShowWindowTitle());
+
   // Titled dialogs have taller initial frame bounds than untitled dialogs.
   View* frame1 = dialog()->GetWidget()->non_client_view()->frame_view();
   View* frame2 = dialog2->GetWidget()->non_client_view()->frame_view();
@@ -317,6 +315,8 @@ TEST_F(DialogTest, BoundsAccommodateTitle) {
 
   // Giving the default test dialog a title will yield the same bounds.
   dialog()->set_title(base::ASCIIToUTF16("Title"));
+  EXPECT_TRUE(dialog()->ShouldShowWindowTitle());
+
   dialog()->GetWidget()->UpdateWindowTitle();
   EXPECT_EQ(frame1->GetPreferredSize().height(),
             frame2->GetPreferredSize().height());

@@ -8,14 +8,15 @@
 #include <memory>
 
 #include "base/callback_forward.h"
-#include "base/metrics/field_trial.h"
+#include "base/memory/scoped_refptr.h"
 
 namespace metrics {
 class MetricsServiceClient;
+class MetricsStateManager;
 }
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace rappor {
@@ -41,15 +42,20 @@ class MetricsServicesManagerClient {
   CreateVariationsService() = 0;
   virtual std::unique_ptr<metrics::MetricsServiceClient>
   CreateMetricsServiceClient() = 0;
-  virtual std::unique_ptr<const base::FieldTrial::EntropyProvider>
-  CreateEntropyProvider() = 0;
 
-  // Returns the URL request context in which the metrics services should
-  // operate.
-  virtual net::URLRequestContextGetter* GetURLRequestContext() = 0;
+  // Gets the MetricsStateManager, creating it if it has not already been
+  // created.
+  virtual metrics::MetricsStateManager* GetMetricsStateManager() = 0;
+
+  // Returns the URL loader factory which the metrics services should use.
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactory() = 0;
 
   // Returns whether metrics reporting is enabled.
   virtual bool IsMetricsReportingEnabled() = 0;
+
+  // Returns whether metrics consent is given.
+  virtual bool IsMetricsConsentGiven() = 0;
 
   // Returns whether there are any Incognito browsers/tabs open.
   virtual bool IsIncognitoSessionActive() = 0;
@@ -57,9 +63,6 @@ class MetricsServicesManagerClient {
   // Update the running state of metrics services managed by the embedder, for
   // example, crash reporting.
   virtual void UpdateRunningServices(bool may_record, bool may_upload) {}
-
-  // If the user has forced metrics collection on via the override flag.
-  virtual bool IsMetricsReportingForceEnabled();
 };
 
 }  // namespace metrics_services_manager

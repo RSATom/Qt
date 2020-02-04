@@ -8,16 +8,20 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <assert.h>
+#include <stddef.h>
 #include <algorithm>
+#include <cstdint>
 
-#include "webrtc/modules/remote_bitrate_estimator/test/estimators/remb.h"
-
-#include "webrtc/modules/bitrate_controller/include/bitrate_controller.h"
-#include "webrtc/modules/remote_bitrate_estimator/remote_bitrate_estimator_abs_send_time.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe_test_logging.h"
-#include "webrtc/modules/rtp_rtcp/include/receive_statistics.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/typedefs.h"
+#include "modules/bitrate_controller/include/bitrate_controller.h"
+#include "modules/remote_bitrate_estimator/remote_bitrate_estimator_abs_send_time.h"
+#include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
+#include "modules/remote_bitrate_estimator/test/estimators/remb.h"
+#include "modules/rtp_rtcp/include/receive_statistics.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/report_block.h"
+#include "rtc_base/strings/string_builder.h"
+#include "rtc_base/system/unused.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 namespace testing {
@@ -28,7 +32,7 @@ RembBweSender::RembBweSender(int kbps, BitrateObserver* observer, Clock* clock)
           BitrateController::CreateBitrateController(clock,
                                                      observer,
                                                      &event_log_)),
-      feedback_observer_(bitrate_controller_->CreateRtcpBandwidthObserver()),
+      feedback_observer_(bitrate_controller_.get()),
       clock_(clock) {
   assert(kbps >= kMinBitrateKbps);
   assert(kbps <= kMaxBitrateKbps);
@@ -37,8 +41,7 @@ RembBweSender::RembBweSender(int kbps, BitrateObserver* observer, Clock* clock)
                                         1000 * kMaxBitrateKbps);
 }
 
-RembBweSender::~RembBweSender() {
-}
+RembBweSender::~RembBweSender() {}
 
 void RembBweSender::GiveFeedback(const FeedbackPacket& feedback) {
   const RembFeedback& remb_feedback =
@@ -72,7 +75,7 @@ RembReceiver::RembReceiver(int flow_id, bool plot)
       latest_estimate_bps_(-1),
       last_feedback_ms_(-1),
       estimator_(new RemoteBitrateEstimatorAbsSendTime(this, &clock_)) {
-  std::stringstream ss;
+  rtc::StringBuilder ss;
   ss << "Estimate_" << flow_id_ << "#1";
   estimate_log_prefix_ = ss.str();
   // Default RTT in RemoteRateControl is 200 ms ; 50 ms is more realistic.
@@ -80,13 +83,11 @@ RembReceiver::RembReceiver(int flow_id, bool plot)
   estimator_->SetMinBitrate(kRemoteBitrateEstimatorMinBitrateBps);
 }
 
-RembReceiver::~RembReceiver() {
-}
+RembReceiver::~RembReceiver() {}
 
 void RembReceiver::ReceivePacket(int64_t arrival_time_ms,
                                  const MediaPacket& media_packet) {
-  recv_stats_->IncomingPacket(media_packet.header(),
-                              media_packet.payload_size(), false);
+  recv_stats_->OnRtpPacket(media_packet.GetRtpPacket());
 
   latest_estimate_bps_ = -1;
 
@@ -110,10 +111,14 @@ FeedbackPacket* RembReceiver::GetFeedback(int64_t now_ms) {
   uint32_t estimated_bps = 0;
   RembFeedback* feedback = NULL;
   if (LatestEstimate(&estimated_bps)) {
-    StatisticianMap statisticians = recv_stats_->GetActiveStatisticians();
-    RTCPReportBlock report_block;
-    if (!statisticians.empty()) {
-      latest_report_block_ = BuildReportBlock(statisticians.begin()->second);
+    auto report_blocks = recv_stats_->RtcpReportBlocks(1);
+    if (!report_blocks.empty()) {
+      const rtcp::ReportBlock& stat = report_blocks.front();
+      latest_report_block_.fraction_lost = stat.fraction_lost();
+      latest_report_block_.packets_lost = stat.cumulative_lost();
+      latest_report_block_.extended_highest_sequence_number =
+          stat.extended_high_seq_num();
+      latest_report_block_.jitter = stat.jitter();
     }
 
     feedback = new RembFeedback(flow_id_, now_ms * 1000, last_feedback_ms_,
@@ -132,18 +137,6 @@ FeedbackPacket* RembReceiver::GetFeedback(int64_t now_ms) {
 
 void RembReceiver::OnReceiveBitrateChanged(const std::vector<uint32_t>& ssrcs,
                                            uint32_t bitrate) {}
-
-RTCPReportBlock RembReceiver::BuildReportBlock(
-    StreamStatistician* statistician) {
-  RTCPReportBlock report_block;
-  RtcpStatistics stats;
-  RTC_DCHECK(statistician->GetStatistics(&stats, true));
-  report_block.fractionLost = stats.fraction_lost;
-  report_block.cumulativeLost = stats.cumulative_lost;
-  report_block.extendedHighSeqNum = stats.extended_max_sequence_number;
-  report_block.jitter = stats.jitter;
-  return report_block;
-}
 
 bool RembReceiver::LatestEstimate(uint32_t* estimate_bps) {
   if (latest_estimate_bps_ < 0) {

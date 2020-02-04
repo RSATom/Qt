@@ -26,8 +26,10 @@ enum DifferentPrimaryAccounts {
 };
 
 // Track all the ways a profile can become signed out as a histogram.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.signin
+// GENERATED_JAVA_CLASS_NAME_OVERRIDE: SignoutReason
 enum ProfileSignout {
-  // The value used within unit tests
+  // The value used within unit tests.
   SIGNOUT_TEST = 0,
   // The preference or policy controlling if signin is valid has changed.
   SIGNOUT_PREF_CHANGED = 0,
@@ -48,12 +50,21 @@ enum ProfileSignout {
   TRANSFER_CREDENTIALS,
   // Signed out because credentials are invalid and force-sign-in is enabled.
   AUTHENTICATION_FAILED_WITH_FORCE_SIGNIN,
+  // The user disables sync from the DICE UI.
+  USER_TUNED_OFF_SYNC_FROM_DICE_UI,
+  // Android specific. Signout forced because the account was removed from the
+  // device.
+  ACCOUNT_REMOVED_FROM_DEVICE,
+  // Signin is no longer allowed when the profile is initialized.
+  SIGNIN_NOT_ALLOWED_ON_PROFILE_INIT,
+  // Sign out is forced allowed. Only used for tests.
+  FORCE_SIGNOUT_ALWAYS_ALLOWED_FOR_TEST,
   // Keep this as the last enum.
   NUM_PROFILE_SIGNOUT_METRICS,
 };
 
 // Enum values used for use with "AutoLogin.Reverse" histograms.
-enum {
+enum AccessPointAction {
   // The infobar was shown to the user.
   HISTOGRAM_SHOWN,
   // The user pressed the accept button to perform the suggested action.
@@ -62,7 +73,7 @@ enum {
   HISTOGRAM_REJECTED,
   // The user pressed the X button to dismiss the infobar this time.
   HISTOGRAM_DISMISSED,
-  // The user completely ignored the infoar.  Either they navigated away, or
+  // The user completely ignored the infobar.  Either they navigated away, or
   // they used the page as is.
   HISTOGRAM_IGNORED,
   // The user clicked on the learn more link in the infobar.
@@ -82,7 +93,7 @@ enum {
 
 // Enum values used with the "Signin.OneClickConfirmation" histogram, which
 // tracks the actions used in the OneClickConfirmation bubble.
-enum {
+enum ConfirmationUsage {
   HISTOGRAM_CONFIRM_SHOWN,
   HISTOGRAM_CONFIRM_OK,
   HISTOGRAM_CONFIRM_RETURN,
@@ -121,38 +132,53 @@ enum Source {
 // GENERATED_JAVA_CLASS_NAME_OVERRIDE: SigninAccessPoint
 enum class AccessPoint : int {
   ACCESS_POINT_START_PAGE = 0,
-  ACCESS_POINT_NTP_LINK,
-  ACCESS_POINT_MENU,
-  ACCESS_POINT_SETTINGS,
-  ACCESS_POINT_SUPERVISED_USER,
-  ACCESS_POINT_EXTENSION_INSTALL_BUBBLE,
-  ACCESS_POINT_EXTENSIONS,
-  ACCESS_POINT_APPS_PAGE_LINK,
-  ACCESS_POINT_BOOKMARK_BUBBLE,
-  ACCESS_POINT_BOOKMARK_MANAGER,
-  ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN,
-  ACCESS_POINT_USER_MANAGER,
-  ACCESS_POINT_DEVICES_PAGE,
-  ACCESS_POINT_CLOUD_PRINT,
-  ACCESS_POINT_CONTENT_AREA,
-  ACCESS_POINT_SIGNIN_PROMO,
-  ACCESS_POINT_RECENT_TABS,
-  ACCESS_POINT_UNKNOWN,  // This should never have been used to get signin URL.
-  ACCESS_POINT_PASSWORD_BUBBLE,
-  ACCESS_POINT_AUTOFILL_DROPDOWN,
-  ACCESS_POINT_NTP_CONTENT_SUGGESTIONS,
-  ACCESS_POINT_RESIGNIN_INFOBAR,
-  ACCESS_POINT_TAB_SWITCHER,
-  ACCESS_POINT_FORCE_SIGNIN_WARNING,
+  ACCESS_POINT_NTP_LINK = 1,
+  ACCESS_POINT_MENU = 2,
+  ACCESS_POINT_SETTINGS = 3,
+  ACCESS_POINT_SUPERVISED_USER = 4,
+  ACCESS_POINT_EXTENSION_INSTALL_BUBBLE = 5,
+  ACCESS_POINT_EXTENSIONS = 6,
+  ACCESS_POINT_APPS_PAGE_LINK = 7,
+  ACCESS_POINT_BOOKMARK_BUBBLE = 8,
+  ACCESS_POINT_BOOKMARK_MANAGER = 9,
+  ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN = 10,
+  ACCESS_POINT_USER_MANAGER = 11,
+  ACCESS_POINT_DEVICES_PAGE = 12,
+  ACCESS_POINT_CLOUD_PRINT = 13,
+  ACCESS_POINT_CONTENT_AREA = 14,
+  ACCESS_POINT_SIGNIN_PROMO = 15,
+  ACCESS_POINT_RECENT_TABS = 16,
+  // This should never have been used to get signin URL.
+  ACCESS_POINT_UNKNOWN = 17,
+  ACCESS_POINT_PASSWORD_BUBBLE = 18,
+  ACCESS_POINT_AUTOFILL_DROPDOWN = 19,
+  ACCESS_POINT_NTP_CONTENT_SUGGESTIONS = 20,
+  ACCESS_POINT_RESIGNIN_INFOBAR = 21,
+  ACCESS_POINT_TAB_SWITCHER = 22,
+  // ACCESS_POINT_FORCE_SIGNIN_WARNING is no longer used.
+  ACCESS_POINT_SAVE_CARD_BUBBLE = 24,
+  ACCESS_POINT_MANAGE_CARDS_BUBBLE = 25,
+  ACCESS_POINT_MACHINE_LOGON = 26,
+  ACCESS_POINT_GOOGLE_SERVICES_SETTINGS = 27,
   ACCESS_POINT_MAX,  // This must be last.
 };
 
-// Enum values which enumerates all user actions on the mobile sign-in promo.
+// Enum values which enumerates all user actions on the sign-in promo.
 enum class PromoAction : int {
   PROMO_ACTION_NO_SIGNIN_PROMO = 0,
+  // The user selected the default account.
   PROMO_ACTION_WITH_DEFAULT,
+  // On desktop, the user selected an account that is not the default. On
+  // mobile, the user selected the generic "Use another account" button.
   PROMO_ACTION_NOT_DEFAULT,
-  PROMO_ACTION_NEW_ACCOUNT,
+  // Non-personalized promo, pre-dice on desktop.
+  PROMO_ACTION_NEW_ACCOUNT_PRE_DICE,
+  // Non personalized promo, when there is no account on the device.
+  PROMO_ACTION_NEW_ACCOUNT_NO_EXISTING_ACCOUNT,
+  // The user clicked on the "Add account" button, when there are already
+  // accounts on the device. (desktop only, the button does not exist on
+  // mobile).
+  PROMO_ACTION_NEW_ACCOUNT_EXISTING_ACCOUNT
 };
 
 // Enum values which enumerates all reasons to start sign in process.
@@ -165,6 +191,11 @@ enum class Reason : int {
   REASON_REAUTHENTICATION,
   REASON_UNLOCK,
   REASON_UNKNOWN_REASON,  // This should never have been used to get signin URL.
+  REASON_FORCED_SIGNIN_PRIMARY_ACCOUNT,
+  REASON_FETCH_LST_ONLY,  // Used to simply login and acquire a login scope
+                          // token without actually signing into any profiles on
+                          // Chrome. This allows the chrome signin page to work
+                          // in incognito mode.
   REASON_MAX,             // This must be last.
 };
 
@@ -219,7 +250,7 @@ enum CrossDevicePromoInitialized {
 // histogram, which records the state of the AccountReconcilor when GAIA returns
 // a specific response.
 enum AccountReconcilorState {
-  // The AccountReconcilor has finished running ans is up to date.
+  // The AccountReconcilor has finished running and is up to date.
   ACCOUNT_RECONCILOR_OK,
   // The AccountReconcilor is running and gathering information.
   ACCOUNT_RECONCILOR_RUNNING,
@@ -291,14 +322,41 @@ enum class AccountRelation : int {
   HISTOGRAM_COUNT,
 };
 
+// Various sources for refresh token operations (e.g. update or revoke
+// credentials).
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class SourceForRefreshTokenOperation {
+  kUnknown,
+  kTokenService_LoadCredentials,
+  kSupervisedUser_InitSync,
+  kInlineLoginHandler_Signin,
+  kSigninManager_ClearPrimaryAccount,
+  kSigninManager_LegacyPreDiceSigninFlow,
+  kUserMenu_RemoveAccount,
+  kUserMenu_SignOutAllAccounts,
+  kSettings_Signout,
+  kSettings_PauseSync,
+  kAccountReconcilor_GaiaCookiesDeletedByUser,
+  kAccountReconcilor_GaiaCookiesUpdated,
+  kAccountReconcilor_Reconcile,
+  kDiceResponseHandler_Signin,
+  kDiceResponseHandler_Signout,
+  kDiceTurnOnSyncHelper_Abort,
+  kMachineLogon_CredentialProvider,
+  kTokenService_ExtractCredentials,
+
+  kMaxValue = kTokenService_ExtractCredentials
+};
+
 // Different types of reporting. This is used as a histogram suffix.
 enum class ReportingType { PERIODIC, ON_CHANGE };
 
-// Tracks the access point of sign in on desktop.
-void LogSigninAccessPointStarted(AccessPoint access_point);
-void LogSigninAccessPointCompleted(AccessPoint access_point);
+// -----------------------------------------------------------------------------
+// Histograms
+// -----------------------------------------------------------------------------
 
-// Tracks the access point of sign in on iOS.
+// Tracks the access point of sign in.
 void LogSigninAccessPointStarted(AccessPoint access_point,
                                  PromoAction promo_action);
 void LogSigninAccessPointCompleted(AccessPoint access_point,
@@ -328,6 +386,10 @@ void LogSigninAccountReconciliation(int total_number_accounts,
                                     bool is_first_reconcile,
                                     int pre_count_gaia_cookies);
 
+// Logs to UMA histograms how many accounts are in the browser for this
+// profile.
+void RecordAccountsPerProfile(int total_number_accounts);
+
 // Logs duration of a single execution of AccountReconciler to UMA histograms.
 // |duration| - How long execution of AccountReconciler took.
 // |successful| - True if AccountReconciler was successful.
@@ -351,9 +413,9 @@ void LogExternalCcResultFetches(
     const base::TimeDelta& time_to_check_connections);
 
 // Track when the current authentication error changed.
-void LogAuthError(GoogleServiceAuthError::State auth_error);
+void LogAuthError(const GoogleServiceAuthError& auth_error);
 
-void LogSigninConfirmHistogramValue(int action);
+void LogSigninConfirmHistogramValue(ConfirmationUsage action);
 
 void LogXDevicePromoEligible(CrossDevicePromoEligibility metric);
 
@@ -389,42 +451,28 @@ void LogAccountRelation(const AccountRelation relation,
 // between multiple users.
 void LogIsShared(const bool is_shared, const ReportingType type);
 
-// These intermediate macros are necessary when we may emit to different
-// histograms from the same logical place in the code. The base histogram macros
-// expand in a way that can only work for a single histogram name, so these
-// allow a single place in the code to fan out for multiple names.
-#define INVESTIGATOR_HISTOGRAM_CUSTOM_COUNTS(name, type, sample, min, max, \
-                                             bucket_count)                 \
-  switch (type) {                                                          \
-    case ReportingType::PERIODIC:                                          \
-      UMA_HISTOGRAM_CUSTOM_COUNTS(name "_Periodic", sample, min, max,      \
-                                  bucket_count);                           \
-      break;                                                               \
-    case ReportingType::ON_CHANGE:                                         \
-      UMA_HISTOGRAM_CUSTOM_COUNTS(name "_OnChange", sample, min, max,      \
-                                  bucket_count);                           \
-      break;                                                               \
-  }
+// Records the source that updated a refresh token.
+void RecordRefreshTokenUpdatedFromSource(bool refresh_token_is_valid,
+                                         SourceForRefreshTokenOperation source);
 
-#define INVESTIGATOR_HISTOGRAM_BOOLEAN(name, type, sample) \
-  switch (type) {                                          \
-    case ReportingType::PERIODIC:                          \
-      UMA_HISTOGRAM_BOOLEAN(name "_Periodic", sample);     \
-      break;                                               \
-    case ReportingType::ON_CHANGE:                         \
-      UMA_HISTOGRAM_BOOLEAN(name "_OnChange", sample);     \
-      break;                                               \
-  }
+// Records the source that revoked a refresh token.
+void RecordRefreshTokenRevokedFromSource(SourceForRefreshTokenOperation source);
 
-#define INVESTIGATOR_HISTOGRAM_ENUMERATION(name, type, sample, boundary_value) \
-  switch (type) {                                                              \
-    case ReportingType::PERIODIC:                                              \
-      UMA_HISTOGRAM_ENUMERATION(name "_Periodic", sample, boundary_value);     \
-      break;                                                                   \
-    case ReportingType::ON_CHANGE:                                             \
-      UMA_HISTOGRAM_ENUMERATION(name "_OnChange", sample, boundary_value);     \
-      break;                                                                   \
-  }
+// -----------------------------------------------------------------------------
+// User actions
+// -----------------------------------------------------------------------------
+
+// Records corresponding sign in user action for an access point.
+void RecordSigninUserActionForAccessPoint(AccessPoint access_point,
+                                          PromoAction promo_action);
+
+// Records |Signin_ImpressionWithAccount_From*| user action.
+void RecordSigninImpressionUserActionForAccessPoint(AccessPoint access_point);
+
+// Records |Signin_Impression{With|No}Account_From*| user action.
+void RecordSigninImpressionWithAccountUserActionForAccessPoint(
+    AccessPoint access_point,
+    bool with_account);
 
 }  // namespace signin_metrics
 

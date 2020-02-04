@@ -16,7 +16,7 @@
  *   VPN: (!CrOnc.DeviceStateProperties|undefined)
  * }}
  */
-var DeviceStateObject;
+let DeviceStateObject;
 
 /**
  * @typedef {{
@@ -27,7 +27,7 @@ var DeviceStateObject;
  *   VPN: (Array<!CrOnc.NetworkStateProperties>|undefined)
  * }}
  */
-var NetworkStateListObject;
+let NetworkStateListObject;
 
 Polymer({
   is: 'network-summary',
@@ -91,11 +91,10 @@ Polymer({
     },
   },
 
-  /**
-   * Listener function for chrome.networkingPrivate.onNetworkListChanged event.
-   * @private {?function(!Array<string>)}
-   */
-  networkListChangedListener_: null,
+  listeners: {
+    'network-list-changed': 'getNetworkLists_',
+    'networks-changed': 'updateActiveNetworks_',
+  },
 
   /**
    * Listener function for chrome.networkingPrivate.onDeviceStateListChanged
@@ -103,12 +102,6 @@ Polymer({
    * @private {?function(!Array<string>)}
    */
   deviceStateListChangedListener_: null,
-
-  /**
-   * Listener function for chrome.networkingPrivate.onNetworksChanged event.
-   * @private {?function(!Array<string>)}
-   */
-  networksChangedListener_: null,
 
   /**
    * Set of GUIDs identifying active networks, one for each type.
@@ -120,41 +113,17 @@ Polymer({
   attached: function() {
     this.getNetworkLists_();
 
-    this.networkListChangedListener_ = this.networkListChangedListener_ ||
-        this.onNetworkListChangedEvent_.bind(this);
-    this.networkingPrivate.onNetworkListChanged.addListener(
-        this.networkListChangedListener_);
-
     this.deviceStateListChangedListener_ =
         this.deviceStateListChangedListener_ ||
         this.onDeviceStateListChangedEvent_.bind(this);
     this.networkingPrivate.onDeviceStateListChanged.addListener(
         this.deviceStateListChangedListener_);
-
-    this.networksChangedListener_ = this.networksChangedListener_ ||
-        this.onNetworksChangedEvent_.bind(this);
-    this.networkingPrivate.onNetworksChanged.addListener(
-        this.networksChangedListener_);
   },
 
   /** @override */
   detached: function() {
-    this.networkingPrivate.onNetworkListChanged.removeListener(
-        assert(this.networkListChangedListener_));
-
     this.networkingPrivate.onDeviceStateListChanged.removeListener(
         assert(this.deviceStateListChangedListener_));
-
-    this.networkingPrivate.onNetworksChanged.removeListener(
-        assert(this.networksChangedListener_));
-  },
-
-  /**
-   * networkingPrivate.onNetworkListChanged event callback.
-   * @private
-   */
-  onNetworkListChangedEvent_: function() {
-    this.getNetworkLists_();
   },
 
   /**
@@ -166,13 +135,14 @@ Polymer({
   },
 
   /**
-   * networkingPrivate.onNetworksChanged event callback.
-   * @param {!Array<string>} networkIds The list of changed network GUIDs.
+   * @param {!CustomEvent<!Array<string>>} event
    * @private
    */
-  onNetworksChangedEvent_: function(networkIds) {
-    if (!this.activeNetworkIds_)
-      return;  // Initial list of networks not received yet.
+  updateActiveNetworks_: function(event) {
+    if (!this.activeNetworkIds_) {
+      return;
+    }  // Initial list of networks not received yet.
+    const networkIds = event.detail;
     networkIds.forEach(function(id) {
       if (this.activeNetworkIds_.has(id)) {
         this.networkingPrivate.getState(
@@ -189,30 +159,31 @@ Polymer({
    */
   getActiveStateCallback_: function(id, state) {
     if (chrome.runtime.lastError) {
-      var message = chrome.runtime.lastError.message;
-      if (message != 'Error.NetworkUnavailable') {
+      const message = chrome.runtime.lastError.message;
+      if (message != 'Error.NetworkUnavailable' &&
+          message != 'Error.InvalidNetworkGuid') {
         console.error(
             'Unexpected networkingPrivate.getState error: ' + message +
             ' For: ' + id);
+        return;
       }
-      return;
     }
     // Async call, ensure id still exists.
-    if (!this.activeNetworkIds_.has(id))
+    if (!this.activeNetworkIds_.has(id)) {
       return;
+    }
     if (!state) {
       this.activeNetworkIds_.delete(id);
       return;
     }
     // Find the active state for the type and update it.
-    for (var i = 0; i < this.activeNetworkStates_.length; ++i) {
-      if (this.activeNetworkStates_[i].type == state.type) {
-        this.activeNetworkStates_[i] = state;
-        return;
-      }
+    const idx =
+        this.activeNetworkStates_.findIndex((s) => s.Type == state.Type);
+    if (idx == -1) {
+      console.error('Active state not found: ' + state.Name);
+      return;
     }
-    // Not found
-    console.error('Active state not found: ' + state.Name);
+    this.set(['activeNetworkStates_', idx], state);
   },
 
   /**
@@ -223,10 +194,10 @@ Polymer({
    */
   getNetworkLists_: function() {
     // First get the device states.
-    this.networkingPrivate.getDeviceStates(function(deviceStates) {
+    this.networkingPrivate.getDeviceStates(deviceStates => {
       // Second get the network states.
       this.getNetworkStates_(deviceStates);
-    }.bind(this));
+    });
   },
 
   /**
@@ -237,14 +208,14 @@ Polymer({
    * @private
    */
   getNetworkStates_: function(deviceStates) {
-    var filter = {
+    const filter = {
       networkType: CrOnc.Type.ALL,
       visible: true,
       configured: false
     };
-    this.networkingPrivate.getNetworks(filter, function(networkStates) {
+    this.networkingPrivate.getNetworks(filter, networkStates => {
       this.updateNetworkStates_(networkStates, deviceStates);
-    }.bind(this));
+    });
   },
 
   /**
@@ -255,18 +226,17 @@ Polymer({
    * @private
    */
   updateNetworkStates_: function(networkStates, deviceStates) {
-    var newDeviceStates = /** @type {!DeviceStateObject} */ ({});
-    for (var i = 0; i < deviceStates.length; ++i) {
-      var state = deviceStates[i];
+    const newDeviceStates = /** @type {!DeviceStateObject} */ ({});
+    for (const state of deviceStates) {
       newDeviceStates[state.Type] = state;
     }
 
     // Clear any current networks.
-    var activeNetworkStatesByType =
+    const activeNetworkStatesByType =
         /** @type {!Map<string, !CrOnc.NetworkStateProperties>} */ (new Map);
 
     // Complete list of states by type.
-    /** @type {!NetworkStateListObject} */ var newNetworkStateLists = {
+    /** @type {!NetworkStateListObject} */ const newNetworkStateLists = {
       Ethernet: [],
       Tether: [],
       WiFi: [],
@@ -275,9 +245,9 @@ Polymer({
       VPN: [],
     };
 
-    var firstConnectedNetwork = null;
+    let firstConnectedNetwork = null;
     networkStates.forEach(function(networkState) {
-      var type = networkState.Type;
+      const type = networkState.Type;
       if (!activeNetworkStatesByType.has(type)) {
         activeNetworkStatesByType.set(type, networkState);
         if (!firstConnectedNetwork && networkState.Type != CrOnc.Type.VPN &&
@@ -300,17 +270,17 @@ Polymer({
 
     // Push the active networks onto newActiveNetworkStates in order based on
     // device priority, creating an empty state for devices with no networks.
-    var newActiveNetworkStates = [];
+    const newActiveNetworkStates = [];
     this.activeNetworkIds_ = new Set;
-    var orderedDeviceTypes = [
+    const orderedDeviceTypes = [
       CrOnc.Type.ETHERNET, CrOnc.Type.WI_FI, CrOnc.Type.CELLULAR,
       CrOnc.Type.TETHER, CrOnc.Type.WI_MAX, CrOnc.Type.VPN
     ];
-    for (var i = 0; i < orderedDeviceTypes.length; ++i) {
-      var type = orderedDeviceTypes[i];
-      var device = newDeviceStates[type];
-      if (!device)
-        continue;  // The technology for this device type is unavailable.
+    for (const type of orderedDeviceTypes) {
+      const device = newDeviceStates[type];
+      if (!device) {
+        continue;
+      }  // The technology for this device type is unavailable.
 
       // If both 'Tether' and 'Cellular' technologies exist, merge the network
       // lists and do not add an active network for 'Tether' so that there is
@@ -324,7 +294,8 @@ Polymer({
 
       // Note: The active state for 'Cellular' may be a Tether network if both
       // types are enabled but no Cellular network exists (edge case).
-      var state = this.getActiveStateForType_(activeNetworkStatesByType, type);
+      const state =
+          this.getActiveStateForType_(activeNetworkStatesByType, type);
       if (state.Source === undefined &&
           device.State == CrOnc.DeviceState.PROHIBITED) {
         // Prohibited technologies are enforced by the device policy.
@@ -349,9 +320,10 @@ Polymer({
    * @return {!CrOnc.NetworkStateProperties|undefined}
    */
   getActiveStateForType_: function(activeStatesByType, type) {
-    var activeState = activeStatesByType.get(type);
-    if (!activeState && type == CrOnc.Type.CELLULAR)
+    let activeState = activeStatesByType.get(type);
+    if (!activeState && type == CrOnc.Type.CELLULAR) {
       activeState = activeStatesByType.get(CrOnc.Type.TETHER);
+    }
     return activeState || {GUID: '', Type: type};
   },
 });

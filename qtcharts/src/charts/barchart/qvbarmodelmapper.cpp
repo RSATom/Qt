@@ -33,7 +33,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QVBarModelMapper
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QVBarModelMapper class is a vertical model mapper for bar series.
 
     Model mappers enable using a data model derived from the QAbstractItemModel class
@@ -284,6 +284,6 @@ void QVBarModelMapper::setRowCount(int rowCount)
     }
 }
 
-#include "moc_qvbarmodelmapper.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_qvbarmodelmapper.cpp"

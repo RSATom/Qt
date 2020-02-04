@@ -5,7 +5,10 @@
 #ifndef CONTENT_RENDERER_RENDERER_WEBAPPLICATIONCACHEHOST_IMPL_H_
 #define CONTENT_RENDERER_RENDERER_WEBAPPLICATIONCACHEHOST_IMPL_H_
 
-#include "content/child/appcache/web_application_cache_host_impl.h"
+#include "content/renderer/appcache/web_application_cache_host_impl.h"
+
+#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
+#include "third_party/blink/public/mojom/appcache/appcache_info.mojom.h"
 
 namespace content {
 class RenderViewImpl;
@@ -15,19 +18,24 @@ class RendererWebApplicationCacheHostImpl : public WebApplicationCacheHostImpl {
   RendererWebApplicationCacheHostImpl(
       RenderViewImpl* render_view,
       blink::WebApplicationCacheHostClient* client,
-      AppCacheBackend* backend,
-      int appcache_host_id);
+      blink::mojom::AppCacheBackend* backend,
+      int appcache_host_id,
+      int frame_routing_id);
 
   // WebApplicationCacheHostImpl:
   void OnLogMessage(AppCacheLogLevel log_level,
                     const std::string& message) override;
   void OnContentBlocked(const GURL& manifest_url) override;
-  void OnCacheSelected(const AppCacheInfo& info) override;
+  void OnCacheSelected(const blink::mojom::AppCacheInfo& info) override;
+
+  void SetSubresourceFactory(
+      network::mojom::URLLoaderFactoryPtr url_loader_factory) override;
 
  private:
   RenderViewImpl* GetRenderView();
 
   int routing_id_;
+  int frame_routing_id_;
 };
 
 }  // namespace content

@@ -16,7 +16,7 @@ namespace content {
 class NavigationController;
 }
 
-class PersistentTabRestoreServiceTest;
+class TabRestoreServiceImplTest;
 
 namespace sessions {
 
@@ -41,14 +41,14 @@ class SESSIONS_EXPORT ContentLiveTab
   int GetEntryCount() override;
   std::unique_ptr<PlatformSpecificTabData> GetPlatformSpecificTabData()
       override;
-  const std::string& GetUserAgentOverride() const override;
+  const std::string& GetUserAgentOverride() override;
 
   content::WebContents* web_contents() { return web_contents_; }
   const content::WebContents* web_contents() const { return web_contents_; }
 
  private:
   friend class base::SupportsUserData;
-  friend class ::PersistentTabRestoreServiceTest;
+  friend class ::TabRestoreServiceImplTest;
 
   explicit ContentLiveTab(content::WebContents* contents);
 

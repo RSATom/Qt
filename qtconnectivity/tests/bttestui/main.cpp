@@ -50,5 +50,5 @@ int main(int argc, char *argv[])
     QObject::connect(view.engine(), SIGNAL(quit()), qApp, SLOT(quit()));
     view.show();
 
-    return app.exec();
+    return QGuiApplication::exec();
 }

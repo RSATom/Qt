@@ -10,21 +10,23 @@
 #include <utility>
 
 #include "base/files/file_path.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/common/previews_state.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_constants.h"
+#include "extensions/browser/api/extensions_api_client.h"
+#include "extensions/browser/api/web_request/web_request_info.h"
 #include "net/base/request_priority.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
 
 using base::DictionaryValue;
 using base::ListValue;
@@ -39,7 +41,7 @@ const char kUnknownConditionName[] = "unknownType";
 
 base::FilePath TestDataPath(base::StringPiece relative_to_src) {
   base::FilePath src_dir;
-  CHECK(PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
+  CHECK(base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
   return src_dir.AppendASCII(relative_to_src);
 }
 
@@ -112,12 +114,13 @@ TEST(WebRequestConditionAttributeTest, ResourceType) {
       -1,     // render_view_id
       -1,     // render_frame_id
       false,  // is_main_frame
-      false,  // parent_is_main_frame
       true,   // allow_download
       false,  // is_async
-      content::PREVIEWS_OFF);
+      content::PREVIEWS_OFF,
+      nullptr);  // navigation_ui_data
+  WebRequestInfo request_ok_info(url_request_ok.get());
   EXPECT_TRUE(attribute->IsFulfilled(
-      WebRequestData(url_request_ok.get(), ON_BEFORE_REQUEST)));
+      WebRequestData(&request_ok_info, ON_BEFORE_REQUEST)));
 
   std::unique_ptr<net::URLRequest> url_request_fail(context.CreateRequest(
       GURL("http://www.example.com"), net::DEFAULT_PRIORITY, nullptr,
@@ -129,12 +132,13 @@ TEST(WebRequestConditionAttributeTest, ResourceType) {
       -1,     // render_view_id
       -1,     // render_frame_id
       true,   // is_main_frame
-      false,  // parent_is_main_frame
       true,   // allow_download
       false,  // is_async
-      content::PREVIEWS_OFF);
-  EXPECT_FALSE(attribute->IsFulfilled(WebRequestData(url_request_fail.get(),
-                                                     ON_BEFORE_REQUEST)));
+      content::PREVIEWS_OFF,
+      nullptr);  // navigation_ui_data
+  WebRequestInfo request_fail_info(url_request_fail.get());
+  EXPECT_FALSE(attribute->IsFulfilled(
+      WebRequestData(&request_fail_info, ON_BEFORE_REQUEST)));
 }
 
 TEST(WebRequestConditionAttributeTest, ContentType) {
@@ -155,6 +159,7 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
       test_server.GetURL("/headers.html"), net::DEFAULT_PRIORITY, &delegate,
       TRAFFIC_ANNOTATION_FOR_TESTS));
   url_request->Start();
+  WebRequestInfo request_info(url_request.get());
   base::RunLoop().Run();
 
   base::ListValue content_types;
@@ -164,12 +169,10 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
           keys::kContentTypeKey, &content_types, &error);
   EXPECT_EQ("", error);
   ASSERT_TRUE(attribute_include.get());
-  EXPECT_FALSE(attribute_include->IsFulfilled(
-      WebRequestData(url_request.get(), ON_BEFORE_REQUEST, nullptr,
-                     url_request->response_headers())));
-  EXPECT_TRUE(attribute_include->IsFulfilled(
-      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED, nullptr,
-                     url_request->response_headers())));
+  EXPECT_FALSE(attribute_include->IsFulfilled(WebRequestData(
+      &request_info, ON_BEFORE_REQUEST, url_request->response_headers())));
+  EXPECT_TRUE(attribute_include->IsFulfilled(WebRequestData(
+      &request_info, ON_HEADERS_RECEIVED, url_request->response_headers())));
   EXPECT_EQ(std::string(keys::kContentTypeKey), attribute_include->GetName());
 
   scoped_refptr<const WebRequestConditionAttribute> attribute_exclude =
@@ -177,9 +180,8 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
           keys::kExcludeContentTypeKey, &content_types, &error);
   EXPECT_EQ("", error);
   ASSERT_TRUE(attribute_exclude.get());
-  EXPECT_FALSE(attribute_exclude->IsFulfilled(
-      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED, nullptr,
-                     url_request->response_headers())));
+  EXPECT_FALSE(attribute_exclude->IsFulfilled(WebRequestData(
+      &request_info, ON_HEADERS_RECEIVED, url_request->response_headers())));
 
   content_types.Clear();
   content_types.AppendString("something/invalid");
@@ -188,18 +190,16 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
           keys::kContentTypeKey, &content_types, &error);
   EXPECT_EQ("", error);
   ASSERT_TRUE(attribute_unincluded.get());
-  EXPECT_FALSE(attribute_unincluded->IsFulfilled(
-      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED, nullptr,
-                     url_request->response_headers())));
+  EXPECT_FALSE(attribute_unincluded->IsFulfilled(WebRequestData(
+      &request_info, ON_HEADERS_RECEIVED, url_request->response_headers())));
 
   scoped_refptr<const WebRequestConditionAttribute> attribute_unexcluded =
       WebRequestConditionAttribute::Create(
           keys::kExcludeContentTypeKey, &content_types, &error);
   EXPECT_EQ("", error);
   ASSERT_TRUE(attribute_unexcluded.get());
-  EXPECT_TRUE(attribute_unexcluded->IsFulfilled(
-      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED, nullptr,
-                     url_request->response_headers())));
+  EXPECT_TRUE(attribute_unexcluded->IsFulfilled(WebRequestData(
+      &request_info, ON_HEADERS_RECEIVED, url_request->response_headers())));
   EXPECT_EQ(std::string(keys::kExcludeContentTypeKey),
             attribute_unexcluded->GetName());
 }
@@ -243,23 +243,26 @@ TEST(WebRequestConditionAttributeTest, ThirdParty) {
     if (!(kActiveStages & i))
       continue;
     const RequestStage stage = static_cast<RequestStage>(i);
-    url_request->set_first_party_for_cookies(url_empty);
-    EXPECT_FALSE(third_party_attribute->IsFulfilled(
-        WebRequestData(url_request.get(), stage)));
-    EXPECT_TRUE(first_party_attribute->IsFulfilled(
-        WebRequestData(url_request.get(), stage)));
-
-    url_request->set_first_party_for_cookies(url_b);
+    url_request->set_site_for_cookies(url_empty);
+    WebRequestInfo request_info1(url_request.get());
     EXPECT_TRUE(third_party_attribute->IsFulfilled(
-        WebRequestData(url_request.get(), stage)));
+        WebRequestData(&request_info1, stage)));
     EXPECT_FALSE(first_party_attribute->IsFulfilled(
-        WebRequestData(url_request.get(), stage)));
+        WebRequestData(&request_info1, stage)));
 
-    url_request->set_first_party_for_cookies(url_a);
+    url_request->set_site_for_cookies(url_b);
+    WebRequestInfo request_info2(url_request.get());
+    EXPECT_TRUE(third_party_attribute->IsFulfilled(
+        WebRequestData(&request_info2, stage)));
+    EXPECT_FALSE(first_party_attribute->IsFulfilled(
+        WebRequestData(&request_info2, stage)));
+
+    url_request->set_site_for_cookies(url_a);
+    WebRequestInfo request_info3(url_request.get());
     EXPECT_FALSE(third_party_attribute->IsFulfilled(
-        WebRequestData(url_request.get(), stage)));
+        WebRequestData(&request_info3, stage)));
     EXPECT_TRUE(first_party_attribute->IsFulfilled(
-        WebRequestData(url_request.get(), stage)));
+        WebRequestData(&request_info3, stage)));
   }
 }
 
@@ -281,7 +284,7 @@ TEST(WebRequestConditionAttributeTest, Stages) {
 
   // Check that exactly all active stages are considered in this test.
   unsigned int covered_stages = 0;
-  for (size_t i = 0; i < arraysize(active_stages); ++i)
+  for (size_t i = 0; i < base::size(active_stages); ++i)
     covered_stages |= active_stages[i].first;
   EXPECT_EQ(kActiveStages, covered_stages);
 
@@ -299,7 +302,7 @@ TEST(WebRequestConditionAttributeTest, Stages) {
 
   // Create an attribute with all possible applicable stages.
   base::ListValue all_stages;
-  for (size_t i = 0; i < arraysize(active_stages); ++i)
+  for (size_t i = 0; i < base::size(active_stages); ++i)
     all_stages.AppendString(active_stages[i].second);
   scoped_refptr<const WebRequestConditionAttribute> attribute_with_all =
       WebRequestConditionAttribute::Create(keys::kStagesKey,
@@ -313,7 +316,7 @@ TEST(WebRequestConditionAttributeTest, Stages) {
   std::vector<scoped_refptr<const WebRequestConditionAttribute> >
       one_stage_attributes;
 
-  for (size_t i = 0; i < arraysize(active_stages); ++i) {
+  for (size_t i = 0; i < base::size(active_stages); ++i) {
     base::ListValue single_stage_list;
     single_stage_list.AppendString(active_stages[i].second);
     one_stage_attributes.push_back(
@@ -330,19 +333,19 @@ TEST(WebRequestConditionAttributeTest, Stages) {
   std::unique_ptr<net::URLRequest> url_request(
       context.CreateRequest(url_empty, net::DEFAULT_PRIORITY, &delegate,
                             TRAFFIC_ANNOTATION_FOR_TESTS));
+  WebRequestInfo request_info(url_request.get());
 
-  for (size_t i = 0; i < arraysize(active_stages); ++i) {
+  for (size_t i = 0; i < base::size(active_stages); ++i) {
     EXPECT_FALSE(empty_attribute->IsFulfilled(
-        WebRequestData(url_request.get(), active_stages[i].first)));
+        WebRequestData(&request_info, active_stages[i].first)));
 
     for (size_t j = 0; j < one_stage_attributes.size(); ++j) {
-      EXPECT_EQ(i == j,
-                one_stage_attributes[j]->IsFulfilled(
-                    WebRequestData(url_request.get(), active_stages[i].first)));
+      EXPECT_EQ(i == j, one_stage_attributes[j]->IsFulfilled(WebRequestData(
+                            &request_info, active_stages[i].first)));
     }
 
     EXPECT_TRUE(attribute_with_all->IsFulfilled(
-        WebRequestData(url_request.get(), active_stages[i].first)));
+        WebRequestData(&request_info, active_stages[i].first)));
   }
 }
 
@@ -387,10 +390,10 @@ std::unique_ptr<base::DictionaryValue> GetDictionaryFromArray(
       std::unique_ptr<base::Value> entry_owned;
       if (!dictionary->GetWithoutPathExpansion(*name, &entry))
         return std::unique_ptr<base::DictionaryValue>();
-      switch (entry->GetType()) {
+      switch (entry->type()) {
         case base::Value::Type::STRING: {
           // Replace the present string with a list.
-          auto list = base::MakeUnique<base::ListValue>();
+          auto list = std::make_unique<base::ListValue>();
           // Ignoring return value, we already verified the entry is there.
           dictionary->RemoveWithoutPathExpansion(*name, &entry_owned);
           list->Append(std::move(entry_owned));
@@ -437,8 +440,9 @@ void MatchAndCheck(const std::vector< std::vector<const std::string*> >& tests,
   ASSERT_TRUE(attribute.get());
   EXPECT_EQ(key, attribute->GetName());
 
-  *result = attribute->IsFulfilled(WebRequestData(
-      url_request, stage, nullptr, url_request->response_headers()));
+  WebRequestInfo request_info(url_request);
+  *result = attribute->IsFulfilled(
+      WebRequestData(&request_info, stage, url_request->response_headers()));
 }
 
 }  // namespace
@@ -473,7 +477,7 @@ TEST(WebRequestConditionAttributeTest, RequestHeaders) {
     keys::kValueSuffixKey, "alue",
     keys::kValuePrefixKey, "custom/value"
   };
-  const size_t kPassingConditionSizes[] = { arraysize(kPassingCondition) };
+  const size_t kPassingConditionSizes[] = {base::size(kPassingCondition)};
   GetArrayAsVector(kPassingCondition, kPassingConditionSizes, 1u, &tests);
   // Positive filter, passing (conjunction of tests).
   MatchAndCheck(
@@ -531,6 +535,7 @@ TEST(WebRequestConditionAttributeTest, RequestHeaders) {
 // 2. Performing logical disjunction (||) between multiple specifications.
 // 3. Negating the match in case of 'doesNotContainHeaders'.
 TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
+  ExtensionsAPIClient api_client;
   // Necessary for TestURLRequest.
   base::MessageLoopForIO message_loop;
 
@@ -567,7 +572,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kValueContainsKey, "alu",
     keys::kValueEqualsKey, "custom/value"
   };
-  const size_t kPassingConditionSizes[] = { arraysize(kPassingCondition) };
+  const size_t kPassingConditionSizes[] = {base::size(kPassingCondition)};
   GetArrayAsVector(kPassingCondition, kPassingConditionSizes, 1u, &tests);
   MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
                 &result);
@@ -591,7 +596,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kNameSuffixKey, "Header-B",
     keys::kValueEqualsKey, "custom/value"
   };
-  const size_t kMixingConditionSizes[] = { arraysize(kMixingCondition) };
+  const size_t kMixingConditionSizes[] = {base::size(kMixingCondition)};
   GetArrayAsVector(kMixingCondition, kMixingConditionSizes, 1u, &tests);
   MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
                 &result);
@@ -602,7 +607,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kNameEqualsKey, "Custom-header-b",
     keys::kValueEqualsKey, "valueA"
   };
-  const size_t kMoreValues1Sizes[] = { arraysize(kMoreValues1) };
+  const size_t kMoreValues1Sizes[] = {base::size(kMoreValues1)};
   GetArrayAsVector(kMoreValues1, kMoreValues1Sizes, 1u, &tests);
   MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
                 &result);
@@ -611,7 +616,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kNameEqualsKey, "Custom-header-b",
     keys::kValueEqualsKey, "valueB"
   };
-  const size_t kMoreValues2Sizes[] = { arraysize(kMoreValues2) };
+  const size_t kMoreValues2Sizes[] = {base::size(kMoreValues2)};
   GetArrayAsVector(kMoreValues2, kMoreValues2Sizes, 1u, &tests);
   MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
                 &result);
@@ -629,7 +634,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
                 &result);
   EXPECT_TRUE(result);
   // Then conjunction, conflict.
-  const size_t kConflictSizes[] = { arraysize(kConflict) };
+  const size_t kConflictSizes[] = {base::size(kConflict)};
   GetArrayAsVector(kConflict, kConflictSizes, 1u, &tests);
   MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
                 &result);
@@ -640,7 +645,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kNameSuffixKey, "Header-C",
     keys::kValueEqualsKey, "valueC, valueD"
   };
-  const size_t kCommaSizes[] = { arraysize(kComma) };
+  const size_t kCommaSizes[] = {base::size(kComma)};
   GetArrayAsVector(kComma, kCommaSizes, 1u, &tests);
   MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
                 &result);
@@ -651,7 +656,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kNameEqualsKey, "custom-header-d",
     keys::kValueEqualsKey, ""
   };
-  const size_t kEmptySizes[] = { arraysize(kEmpty) };
+  const size_t kEmptySizes[] = {base::size(kEmpty)};
   GetArrayAsVector(kEmpty, kEmptySizes, 1u, &tests);
   MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
                 &result);
@@ -681,7 +686,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kNameEqualsKey, "CUSTOM-HEADER-B",
     keys::kNameContainsKey, "CUSTOM-HEADER-B"
   };
-  const size_t kUppercaseSizes[] = { arraysize(kUppercase) };  // Conjunction.
+  const size_t kUppercaseSizes[] = {base::size(kUppercase)};  // Conjunction.
   GetArrayAsVector(kUppercase, kUppercaseSizes, 1u, &tests);
   MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
                 &result);
@@ -705,7 +710,7 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kNameEqualsKey, "Non-existing",
     keys::kValueEqualsKey, "void"
   };
-  const size_t kNonExistentSizes[] = { arraysize(kNonExistent) };
+  const size_t kNonExistentSizes[] = {base::size(kNonExistent)};
   GetArrayAsVector(kNonExistent, kNonExistentSizes, 1u, &tests);
   MatchAndCheck(tests, keys::kExcludeResponseHeadersKey, stage,
                 url_request.get(), &result);
@@ -716,11 +721,76 @@ TEST(WebRequestConditionAttributeTest, ResponseHeaders) {
     keys::kNameEqualsKey, "custom-header-b",
     keys::kValueEqualsKey, "valueB"
   };
-  const size_t kExistingSize[] = { arraysize(kExisting) };
+  const size_t kExistingSize[] = {base::size(kExisting)};
   GetArrayAsVector(kExisting, kExistingSize, 1u, &tests);
   MatchAndCheck(tests, keys::kExcludeResponseHeadersKey, stage,
                 url_request.get(), &result);
   EXPECT_FALSE(result);
+}
+
+TEST(WebRequestConditionAttributeTest, HideResponseHeaders) {
+  // Necessary for TestURLRequest.
+  base::MessageLoopForIO message_loop;
+
+  net::EmbeddedTestServer test_server;
+  test_server.ServeFilesFromDirectory(TestDataPath(
+      "chrome/test/data/extensions/api_test/webrequest/declarative"));
+  ASSERT_TRUE(test_server.Start());
+
+  net::TestURLRequestContext context;
+  net::TestDelegate delegate;
+  GURL url = test_server.GetURL("/headers.html");
+  std::unique_ptr<net::URLRequest> url_request(context.CreateRequest(
+      url, net::DEFAULT_PRIORITY, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
+  url_request->Start();
+  base::RunLoop().Run();
+
+  // In all the test below we assume that the server includes the headers
+  // Custom-Header: custom/value
+  // Custom-Header-B: valueA
+  // Custom-Header-B: valueB
+  // Custom-Header-C: valueC, valueD
+  // Custom-Header-D:
+
+  std::vector<std::vector<const std::string*>> tests;
+  bool result;
+  const RequestStage stage = ON_HEADERS_RECEIVED;
+  const std::string kCondition[] = {keys::kValueEqualsKey, "custom/value"};
+  const size_t kConditionSizes[] = {base::size(kCondition)};
+  GetArrayAsVector(kCondition, kConditionSizes, 1u, &tests);
+
+  {
+    // Default client does not hide the response header.
+    ExtensionsAPIClient api_client;
+    MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
+                  &result);
+    EXPECT_TRUE(result);
+  }
+
+  {
+    // Custom client hides the response header.
+    class TestExtensionsAPIClient : public ExtensionsAPIClient {
+     public:
+      TestExtensionsAPIClient(const GURL& url) : url_(url) {}
+
+     private:
+      bool ShouldHideResponseHeader(
+          const GURL& url,
+          const std::string& header_name) const override {
+        // Check that the client is called with the right URL.
+        EXPECT_EQ(url_, url);
+        // Hide the header.
+        return header_name == "Custom-Header";
+      }
+
+      GURL url_;
+    };
+
+    TestExtensionsAPIClient api_client(url);
+    MatchAndCheck(tests, keys::kResponseHeadersKey, stage, url_request.get(),
+                  &result);
+    EXPECT_FALSE(result);
+  }
 }
 
 }  // namespace

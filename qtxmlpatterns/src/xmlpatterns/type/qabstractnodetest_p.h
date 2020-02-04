@@ -67,9 +67,9 @@ namespace QPatternist
     public:
         AbstractNodeTest(const ItemType::Ptr &primaryType);
 
-        virtual bool xdtTypeMatches(const ItemType::Ptr &other) const;
-        virtual ItemType::Ptr xdtSuperType() const;
-        virtual ItemType::Ptr atomizedType() const;
+        bool xdtTypeMatches(const ItemType::Ptr &other) const override;
+        ItemType::Ptr xdtSuperType() const override;
+        ItemType::Ptr atomizedType() const override;
 
     protected:
         const ItemType::Ptr m_primaryType;

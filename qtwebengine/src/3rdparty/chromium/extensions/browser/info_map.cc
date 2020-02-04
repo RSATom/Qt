@@ -46,8 +46,7 @@ InfoMap::ExtraData::ExtraData()
 
 InfoMap::ExtraData::~ExtraData() {}
 
-InfoMap::InfoMap() {
-}
+InfoMap::InfoMap() : ruleset_manager_(this) {}
 
 const ExtensionSet& InfoMap::extensions() const {
   CheckOnValidThread();
@@ -97,7 +96,7 @@ void InfoMap::RemoveExtension(const std::string& extension_id,
 }
 
 base::Time InfoMap::GetInstallTime(const std::string& extension_id) const {
-  ExtraDataMap::const_iterator iter = extra_data_.find(extension_id);
+  auto iter = extra_data_.find(extension_id);
   if (iter != extra_data_.end())
     return iter->second.install_time;
   return base::Time();
@@ -105,7 +104,7 @@ base::Time InfoMap::GetInstallTime(const std::string& extension_id) const {
 
 bool InfoMap::IsIncognitoEnabled(const std::string& extension_id) const {
   // Keep in sync with duplicate in extensions/browser/process_manager.cc.
-  ExtraDataMap::const_iterator iter = extra_data_.find(extension_id);
+  auto iter = extra_data_.find(extension_id);
   if (iter != extra_data_.end())
     return iter->second.incognito_enabled;
   return false;
@@ -204,17 +203,28 @@ QuotaService* InfoMap::GetQuotaService() {
   return quota_service_.get();
 }
 
+declarative_net_request::RulesetManager* InfoMap::GetRulesetManager() {
+  CheckOnValidThread();
+  return &ruleset_manager_;
+}
+
+const declarative_net_request::RulesetManager* InfoMap::GetRulesetManager()
+    const {
+  CheckOnValidThread();
+  return &ruleset_manager_;
+}
+
 void InfoMap::SetNotificationsDisabled(
     const std::string& extension_id,
     bool notifications_disabled) {
-  ExtraDataMap::iterator iter = extra_data_.find(extension_id);
+  auto iter = extra_data_.find(extension_id);
   if (iter != extra_data_.end())
     iter->second.notifications_disabled = notifications_disabled;
 }
 
 bool InfoMap::AreNotificationsDisabled(
     const std::string& extension_id) const {
-  ExtraDataMap::const_iterator iter = extra_data_.find(extension_id);
+  auto iter = extra_data_.find(extension_id);
   if (iter != extra_data_.end())
     return iter->second.notifications_disabled;
   return false;

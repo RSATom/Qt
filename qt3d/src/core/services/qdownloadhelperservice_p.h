@@ -72,7 +72,7 @@ class QDownloadNetworkWorker;
 class QDownloadHelperService;
 class QDownloadHelperServicePrivate;
 
-class QT3DCORESHARED_EXPORT QDownloadRequest
+class Q_3DCORESHARED_EXPORT QDownloadRequest
 {
 public:
     QDownloadRequest(const QUrl &url);
@@ -83,7 +83,7 @@ public:
     bool cancelled() const { return m_cancelled; }
 
     virtual void onDownloaded();         // this is called in dl thread
-    virtual void onCompleted() = 0;      // this is called in job thread
+    virtual void onCompleted() = 0;      // this is called in the aspect thread
 
 protected:
     QUrl m_url;
@@ -99,7 +99,7 @@ private:
 typedef QSharedPointer<QDownloadRequest> QDownloadRequestPtr;
 
 
-class QT3DCORESHARED_EXPORT QDownloadHelperService : public QAbstractServiceProvider
+class Q_3DCORESHARED_EXPORT QDownloadHelperService : public QAbstractServiceProvider
 {
     Q_OBJECT
 public:

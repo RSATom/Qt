@@ -67,6 +67,7 @@ public slots:
     void connected(const QBluetoothAddress &addr);
     void disconnected(const QBluetoothAddress &addr);
     void pairingDisplayConfirmation(const QBluetoothAddress &address, const QString &pin);
+    void pairingDisplayPinCode(const QBluetoothAddress &address, const QString &pin);
     void confirmPairing();
     void cycleSecurityFlags();
 

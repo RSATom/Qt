@@ -29,6 +29,7 @@
 #include <QtTest/QTest>
 #include <Qt3DRender/private/updateshaderdatatransformjob_p.h>
 #include <Qt3DRender/private/updateworldtransformjob_p.h>
+#include <Qt3DRender/private/updateentityhierarchyjob_p.h>
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/qrenderaspect.h>
@@ -88,8 +89,13 @@ namespace {
 
 void runRequiredJobs(Qt3DRender::TestAspect *test)
 {
+    Qt3DRender::Render::UpdateEntityHierarchyJob updateEntitiesJob;
+    updateEntitiesJob.setManager(test->nodeManagers());
+    updateEntitiesJob.run();
+
     Qt3DRender::Render::UpdateWorldTransformJob updateWorldTransform;
     updateWorldTransform.setRoot(test->sceneRoot());
+    updateWorldTransform.setManagers(test->nodeManagers());
     updateWorldTransform.run();
 }
 
@@ -179,7 +185,8 @@ private Q_SLOTS:
 
         // THEN
         // See scene file to find translation
-        QCOMPARE(backendShaderData->getTransformedProperty(QLatin1String("eyePosition"), camera->viewMatrix()).value<QVector3D>(), camera->viewMatrix() * (QVector3D(1.0f, 1.0f, 1.0f) + QVector3D(0.0f, 5.0f, 0.0f)));
+        QCOMPARE(backendShaderData->getTransformedProperty(QLatin1String("eyePosition"), Matrix4x4(camera->viewMatrix())).value<Vector3D>(),
+                 Matrix4x4(camera->viewMatrix()) * (Vector3D(1.0f, 1.0f, 1.0f) + Vector3D(0.0f, 5.0f, 0.0f)));
     }
 
     void checkRunModelToWorld()
@@ -219,7 +226,8 @@ private Q_SLOTS:
 
         // THEN
         // See scene file to find translation
-        QCOMPARE(backendShaderData->getTransformedProperty(QLatin1String("position"), camera->viewMatrix()).value<QVector3D>(), QVector3D(1.0f, 1.0f, 1.0f) + QVector3D(5.0f, 5.0f, 5.0f));
+        QCOMPARE(backendShaderData->getTransformedProperty(QLatin1String("position"), Matrix4x4(camera->viewMatrix())).value<Vector3D>(),
+                 Vector3D(1.0f, 1.0f, 1.0f) + Vector3D(5.0f, 5.0f, 5.0f));
     }
 };
 

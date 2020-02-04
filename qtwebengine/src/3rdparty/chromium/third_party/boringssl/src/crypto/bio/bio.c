@@ -61,6 +61,7 @@
 #include <limits.h>
 #include <string.h>
 
+#include <openssl/asn1.h>
 #include <openssl/err.h>
 #include <openssl/mem.h>
 #include <openssl/thread.h>
@@ -96,13 +97,6 @@ int BIO_free(BIO *bio) {
       return 0;
     }
 
-    if (bio->callback != NULL) {
-      int i = (int)bio->callback(bio, BIO_CB_FREE, NULL, 0, 0, 1);
-      if (i <= 0) {
-        return i;
-      }
-    }
-
     next_bio = BIO_pop(bio);
 
     if (bio->method != NULL && bio->method->destroy != NULL) {
@@ -127,64 +121,74 @@ void BIO_free_all(BIO *bio) {
   BIO_free(bio);
 }
 
-static int bio_io(BIO *bio, void *buf, int len, size_t method_offset,
-                  int callback_flags, size_t *num) {
-  int i;
-  typedef int (*io_func_t)(BIO *, char *, int);
-  io_func_t io_func = NULL;
-
-  if (bio != NULL && bio->method != NULL) {
-    io_func =
-        *((const io_func_t *)(((const uint8_t *)bio->method) + method_offset));
-  }
-
-  if (io_func == NULL) {
+int BIO_read(BIO *bio, void *buf, int len) {
+  if (bio == NULL || bio->method == NULL || bio->method->bread == NULL) {
     OPENSSL_PUT_ERROR(BIO, BIO_R_UNSUPPORTED_METHOD);
     return -2;
   }
-
-  if (bio->callback != NULL) {
-    i = (int) bio->callback(bio, callback_flags, buf, len, 0L, 1L);
-    if (i <= 0) {
-      return i;
-    }
-  }
-
   if (!bio->init) {
     OPENSSL_PUT_ERROR(BIO, BIO_R_UNINITIALIZED);
     return -2;
   }
-
-  i = 0;
-  if (buf != NULL && len > 0) {
-    i = io_func(bio, buf, len);
+  if (len <= 0) {
+    return 0;
   }
-
-  if (i > 0) {
-    *num += i;
+  int ret = bio->method->bread(bio, buf, len);
+  if (ret > 0) {
+    bio->num_read += ret;
   }
-
-  if (bio->callback != NULL) {
-    i = (int)(bio->callback(bio, callback_flags | BIO_CB_RETURN, buf, len, 0L,
-                            (long)i));
-  }
-
-  return i;
-}
-
-int BIO_read(BIO *bio, void *buf, int len) {
-  return bio_io(bio, buf, len, offsetof(BIO_METHOD, bread), BIO_CB_READ,
-                &bio->num_read);
+  return ret;
 }
 
 int BIO_gets(BIO *bio, char *buf, int len) {
-  return bio_io(bio, buf, len, offsetof(BIO_METHOD, bgets), BIO_CB_GETS,
-                &bio->num_read);
+  if (bio == NULL || bio->method == NULL || bio->method->bgets == NULL) {
+    OPENSSL_PUT_ERROR(BIO, BIO_R_UNSUPPORTED_METHOD);
+    return -2;
+  }
+  if (!bio->init) {
+    OPENSSL_PUT_ERROR(BIO, BIO_R_UNINITIALIZED);
+    return -2;
+  }
+  if (len <= 0) {
+    return 0;
+  }
+  int ret = bio->method->bgets(bio, buf, len);
+  if (ret > 0) {
+    bio->num_read += ret;
+  }
+  return ret;
 }
 
 int BIO_write(BIO *bio, const void *in, int inl) {
-  return bio_io(bio, (char *)in, inl, offsetof(BIO_METHOD, bwrite),
-                BIO_CB_WRITE, &bio->num_write);
+  if (bio == NULL || bio->method == NULL || bio->method->bwrite == NULL) {
+    OPENSSL_PUT_ERROR(BIO, BIO_R_UNSUPPORTED_METHOD);
+    return -2;
+  }
+  if (!bio->init) {
+    OPENSSL_PUT_ERROR(BIO, BIO_R_UNINITIALIZED);
+    return -2;
+  }
+  if (inl <= 0) {
+    return 0;
+  }
+  int ret = bio->method->bwrite(bio, in, inl);
+  if (ret > 0) {
+    bio->num_write += ret;
+  }
+  return ret;
+}
+
+int BIO_write_all(BIO *bio, const void *data, size_t len) {
+  const uint8_t *data_u8 = data;
+  while (len > 0) {
+    int ret = BIO_write(bio, data_u8, len > INT_MAX ? INT_MAX : (int)len);
+    if (ret <= 0) {
+      return 0;
+    }
+    data_u8 += ret;
+    len -= ret;
+  }
+  return 1;
 }
 
 int BIO_puts(BIO *bio, const char *in) {
@@ -196,8 +200,6 @@ int BIO_flush(BIO *bio) {
 }
 
 long BIO_ctrl(BIO *bio, int cmd, long larg, void *parg) {
-  long ret;
-
   if (bio == NULL) {
     return 0;
   }
@@ -207,20 +209,7 @@ long BIO_ctrl(BIO *bio, int cmd, long larg, void *parg) {
     return -2;
   }
 
-  if (bio->callback != NULL) {
-    ret = bio->callback(bio, BIO_CB_CTRL, parg, cmd, larg, 1);
-    if (ret <= 0) {
-      return ret;
-    }
-  }
-
-  ret = bio->method->ctrl(bio, cmd, larg, parg);
-
-  if (bio->callback != NULL) {
-    ret = bio->callback(bio, BIO_CB_CTRL | BIO_CB_RETURN, parg, cmd, larg, ret);
-  }
-
-  return ret;
+  return bio->method->ctrl(bio, cmd, larg, parg);
 }
 
 char *BIO_ptr_ctrl(BIO *b, int cmd, long larg) {
@@ -305,9 +294,6 @@ void BIO_copy_next_retry(BIO *bio) {
 }
 
 long BIO_callback_ctrl(BIO *bio, int cmd, bio_info_cb fp) {
-  long ret;
-  bio_info_cb cb;
-
   if (bio == NULL) {
     return 0;
   }
@@ -317,22 +303,7 @@ long BIO_callback_ctrl(BIO *bio, int cmd, bio_info_cb fp) {
     return 0;
   }
 
-  cb = bio->callback;
-
-  if (cb != NULL) {
-    ret = cb(bio, BIO_CB_CTRL, (void *)&fp, cmd, 0, 1L);
-    if (ret <= 0) {
-      return ret;
-    }
-  }
-
-  ret = bio->method->callback_ctrl(bio, cmd, fp);
-
-  if (cb != NULL) {
-    ret = cb(bio, BIO_CB_CTRL | BIO_CB_RETURN, (void *)&fp, cmd, 0, ret);
-  }
-
-  return ret;
+  return bio->method->callback_ctrl(bio, cmd, fp);
 }
 
 size_t BIO_pending(const BIO *bio) {
@@ -361,18 +332,6 @@ size_t BIO_wpending(const BIO *bio) {
 
 int BIO_set_close(BIO *bio, int close_flag) {
   return BIO_ctrl(bio, BIO_CTRL_SET_CLOSE, close_flag, NULL);
-}
-
-void BIO_set_callback(BIO *bio, bio_info_cb callback_func) {
-  bio->callback = callback_func;
-}
-
-void BIO_set_callback_arg(BIO *bio, char *arg) {
-  bio->cb_arg = arg;
-}
-
-char *BIO_get_callback_arg(const BIO *bio) {
-  return bio->cb_arg;
 }
 
 OPENSSL_EXPORT size_t BIO_number_read(const BIO *bio) {
@@ -464,14 +423,14 @@ void ERR_print_errors(BIO *bio) {
   ERR_print_errors_cb(print_bio, bio);
 }
 
-/* bio_read_all reads everything from |bio| and prepends |prefix| to it. On
- * success, |*out| is set to an allocated buffer (which should be freed with
- * |OPENSSL_free|), |*out_len| is set to its length and one is returned. The
- * buffer will contain |prefix| followed by the contents of |bio|. On failure,
- * zero is returned.
- *
- * The function will fail if the size of the output would equal or exceed
- * |max_len|. */
+// bio_read_all reads everything from |bio| and prepends |prefix| to it. On
+// success, |*out| is set to an allocated buffer (which should be freed with
+// |OPENSSL_free|), |*out_len| is set to its length and one is returned. The
+// buffer will contain |prefix| followed by the contents of |bio|. On failure,
+// zero is returned.
+//
+// The function will fail if the size of the output would equal or exceed
+// |max_len|.
 static int bio_read_all(BIO *bio, uint8_t **out, size_t *out_len,
                         const uint8_t *prefix, size_t prefix_len,
                         size_t max_len) {
@@ -523,11 +482,52 @@ static int bio_read_all(BIO *bio, uint8_t **out, size_t *out_len,
   }
 }
 
+// bio_read_full reads |len| bytes |bio| and writes them into |out|. It
+// tolerates partial reads from |bio| and returns one on success or zero if a
+// read fails before |len| bytes are read. On failure, it additionally sets
+// |*out_eof_on_first_read| to whether the error was due to |bio| returning zero
+// on the first read. |out_eof_on_first_read| may be NULL to discard the value.
+static int bio_read_full(BIO *bio, uint8_t *out, int *out_eof_on_first_read,
+                         size_t len) {
+  int first_read = 1;
+  while (len > 0) {
+    int todo = len <= INT_MAX ? (int)len : INT_MAX;
+    int ret = BIO_read(bio, out, todo);
+    if (ret <= 0) {
+      if (out_eof_on_first_read != NULL) {
+        *out_eof_on_first_read = first_read && ret == 0;
+      }
+      return 0;
+    }
+    out += ret;
+    len -= (size_t)ret;
+    first_read = 0;
+  }
+
+  return 1;
+}
+
+// For compatibility with existing |d2i_*_bio| callers, |BIO_read_asn1| uses
+// |ERR_LIB_ASN1| errors.
+OPENSSL_DECLARE_ERROR_REASON(ASN1, ASN1_R_DECODE_ERROR)
+OPENSSL_DECLARE_ERROR_REASON(ASN1, ASN1_R_HEADER_TOO_LONG)
+OPENSSL_DECLARE_ERROR_REASON(ASN1, ASN1_R_NOT_ENOUGH_DATA)
+OPENSSL_DECLARE_ERROR_REASON(ASN1, ASN1_R_TOO_LONG)
+
 int BIO_read_asn1(BIO *bio, uint8_t **out, size_t *out_len, size_t max_len) {
   uint8_t header[6];
 
   static const size_t kInitialHeaderLen = 2;
-  if (BIO_read(bio, header, kInitialHeaderLen) != (int) kInitialHeaderLen) {
+  int eof_on_first_read;
+  if (!bio_read_full(bio, header, &eof_on_first_read, kInitialHeaderLen)) {
+    if (eof_on_first_read) {
+      // Historically, OpenSSL returned |ASN1_R_HEADER_TOO_LONG| when
+      // |d2i_*_bio| could not read anything. CPython conditions on this to
+      // determine if |bio| was empty.
+      OPENSSL_PUT_ERROR(ASN1, ASN1_R_HEADER_TOO_LONG);
+    } else {
+      OPENSSL_PUT_ERROR(ASN1, ASN1_R_NOT_ENOUGH_DATA);
+    }
     return 0;
   }
 
@@ -535,48 +535,55 @@ int BIO_read_asn1(BIO *bio, uint8_t **out, size_t *out_len, size_t max_len) {
   const uint8_t length_byte = header[1];
 
   if ((tag & 0x1f) == 0x1f) {
-    /* Long form tags are not supported. */
+    // Long form tags are not supported.
+    OPENSSL_PUT_ERROR(ASN1, ASN1_R_DECODE_ERROR);
     return 0;
   }
 
   size_t len, header_len;
   if ((length_byte & 0x80) == 0) {
-    /* Short form length. */
+    // Short form length.
     len = length_byte;
     header_len = kInitialHeaderLen;
   } else {
     const size_t num_bytes = length_byte & 0x7f;
 
     if ((tag & 0x20 /* constructed */) != 0 && num_bytes == 0) {
-      /* indefinite length. */
-      return bio_read_all(bio, out, out_len, header, kInitialHeaderLen,
-                          max_len);
+      // indefinite length.
+      if (!bio_read_all(bio, out, out_len, header, kInitialHeaderLen,
+                        max_len)) {
+        OPENSSL_PUT_ERROR(ASN1, ASN1_R_NOT_ENOUGH_DATA);
+        return 0;
+      }
+      return 1;
     }
 
     if (num_bytes == 0 || num_bytes > 4) {
+      OPENSSL_PUT_ERROR(ASN1, ASN1_R_DECODE_ERROR);
       return 0;
     }
 
-    if (BIO_read(bio, header + kInitialHeaderLen, num_bytes) !=
-        (int)num_bytes) {
+    if (!bio_read_full(bio, header + kInitialHeaderLen, NULL, num_bytes)) {
+      OPENSSL_PUT_ERROR(ASN1, ASN1_R_NOT_ENOUGH_DATA);
       return 0;
     }
     header_len = kInitialHeaderLen + num_bytes;
 
     uint32_t len32 = 0;
-    unsigned i;
-    for (i = 0; i < num_bytes; i++) {
+    for (unsigned i = 0; i < num_bytes; i++) {
       len32 <<= 8;
       len32 |= header[kInitialHeaderLen + i];
     }
 
     if (len32 < 128) {
-      /* Length should have used short-form encoding. */
+      // Length should have used short-form encoding.
+      OPENSSL_PUT_ERROR(ASN1, ASN1_R_DECODE_ERROR);
       return 0;
     }
 
     if ((len32 >> ((num_bytes-1)*8)) == 0) {
-      /* Length should have been at least one byte shorter. */
+      // Length should have been at least one byte shorter.
+      OPENSSL_PUT_ERROR(ASN1, ASN1_R_DECODE_ERROR);
       return 0;
     }
 
@@ -586,6 +593,7 @@ int BIO_read_asn1(BIO *bio, uint8_t **out, size_t *out_len, size_t max_len) {
   if (len + header_len < len ||
       len + header_len > max_len ||
       len > INT_MAX) {
+    OPENSSL_PUT_ERROR(ASN1, ASN1_R_TOO_LONG);
     return 0;
   }
   len += header_len;
@@ -593,11 +601,12 @@ int BIO_read_asn1(BIO *bio, uint8_t **out, size_t *out_len, size_t max_len) {
 
   *out = OPENSSL_malloc(len);
   if (*out == NULL) {
+    OPENSSL_PUT_ERROR(ASN1, ERR_R_MALLOC_FAILURE);
     return 0;
   }
   OPENSSL_memcpy(*out, header, header_len);
-  if (BIO_read(bio, (*out) + header_len, len - header_len) !=
-      (int) (len - header_len)) {
+  if (!bio_read_full(bio, (*out) + header_len, NULL, len - header_len)) {
+    OPENSSL_PUT_ERROR(ASN1, ASN1_R_NOT_ENOUGH_DATA);
     OPENSSL_free(*out);
     return 0;
   }
@@ -610,3 +619,82 @@ void BIO_set_retry_special(BIO *bio) {
 }
 
 int BIO_set_write_buffer_size(BIO *bio, int buffer_size) { return 0; }
+
+static struct CRYPTO_STATIC_MUTEX g_index_lock = CRYPTO_STATIC_MUTEX_INIT;
+static int g_index = BIO_TYPE_START;
+
+int BIO_get_new_index(void) {
+  CRYPTO_STATIC_MUTEX_lock_write(&g_index_lock);
+  // If |g_index| exceeds 255, it will collide with the flags bits.
+  int ret = g_index > 255 ? -1 : g_index++;
+  CRYPTO_STATIC_MUTEX_unlock_write(&g_index_lock);
+  return ret;
+}
+
+BIO_METHOD *BIO_meth_new(int type, const char *name) {
+  BIO_METHOD *method = OPENSSL_malloc(sizeof(BIO_METHOD));
+  if (method == NULL) {
+    return NULL;
+  }
+  OPENSSL_memset(method, 0, sizeof(BIO_METHOD));
+  method->type = type;
+  method->name = name;
+  return method;
+}
+
+void BIO_meth_free(BIO_METHOD *method) {
+  OPENSSL_free(method);
+}
+
+int BIO_meth_set_create(BIO_METHOD *method,
+                        int (*create)(BIO *)) {
+  method->create = create;
+  return 1;
+}
+
+int BIO_meth_set_destroy(BIO_METHOD *method,
+                         int (*destroy)(BIO *)) {
+  method->destroy = destroy;
+  return 1;
+}
+
+int BIO_meth_set_write(BIO_METHOD *method,
+                       int (*write)(BIO *, const char *, int)) {
+  method->bwrite = write;
+  return 1;
+}
+
+int BIO_meth_set_read(BIO_METHOD *method,
+                      int (*read)(BIO *, char *, int)) {
+  method->bread = read;
+  return 1;
+}
+
+int BIO_meth_set_gets(BIO_METHOD *method,
+                      int (*gets)(BIO *, char *, int)) {
+  method->bgets = gets;
+  return 1;
+}
+
+int BIO_meth_set_ctrl(BIO_METHOD *method,
+                      long (*ctrl)(BIO *, int, long, void *)) {
+  method->ctrl = ctrl;
+  return 1;
+}
+
+void BIO_set_data(BIO *bio, void *ptr) { bio->ptr = ptr; }
+
+void *BIO_get_data(BIO *bio) { return bio->ptr; }
+
+void BIO_set_init(BIO *bio, int init) { bio->init = init; }
+
+int BIO_get_init(BIO *bio) { return bio->init; }
+
+void BIO_set_shutdown(BIO *bio, int shutdown) { bio->shutdown = shutdown; }
+
+int BIO_get_shutdown(BIO *bio) { return bio->shutdown; }
+
+int BIO_meth_set_puts(BIO_METHOD *method, int (*puts)(BIO *, const char *)) {
+  // Ignore the parameter. We implement |BIO_puts| using |BIO_write|.
+  return 1;
+}

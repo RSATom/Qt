@@ -7,19 +7,27 @@
 #include <tuple>
 
 #include "content/common/service_worker/service_worker_types.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
 namespace content {
 
 BackgroundFetchRegistrationId::BackgroundFetchRegistrationId()
-    : service_worker_registration_id_(kInvalidServiceWorkerRegistrationId) {}
+    : service_worker_registration_id_(
+          blink::mojom::kInvalidServiceWorkerRegistrationId) {}
 
 BackgroundFetchRegistrationId::BackgroundFetchRegistrationId(
     int64_t service_worker_registration_id,
     const url::Origin& origin,
-    const std::string& tag)
+    const std::string& developer_id,
+    const std::string& unique_id)
     : service_worker_registration_id_(service_worker_registration_id),
       origin_(origin),
-      tag_(tag) {}
+      developer_id_(developer_id),
+      unique_id_(unique_id) {
+  DCHECK_NE(blink::mojom::kInvalidServiceWorkerRegistrationId,
+            service_worker_registration_id);
+  DCHECK(!unique_id_.empty());
+}
 
 BackgroundFetchRegistrationId::BackgroundFetchRegistrationId(
     const BackgroundFetchRegistrationId& other) = default;
@@ -27,32 +35,31 @@ BackgroundFetchRegistrationId::BackgroundFetchRegistrationId(
 BackgroundFetchRegistrationId::BackgroundFetchRegistrationId(
     BackgroundFetchRegistrationId&& other) = default;
 
-BackgroundFetchRegistrationId::~BackgroundFetchRegistrationId() = default;
-
 BackgroundFetchRegistrationId& BackgroundFetchRegistrationId::operator=(
     const BackgroundFetchRegistrationId& other) = default;
 
+BackgroundFetchRegistrationId& BackgroundFetchRegistrationId::operator=(
+    BackgroundFetchRegistrationId&& other) = default;
+
+BackgroundFetchRegistrationId::~BackgroundFetchRegistrationId() = default;
+
 bool BackgroundFetchRegistrationId::operator==(
     const BackgroundFetchRegistrationId& other) const {
-  return other.service_worker_registration_id_ ==
-             service_worker_registration_id_ &&
-         other.origin_ == origin_ && other.tag_ == tag_;
+  return unique_id_ == other.unique_id_;
 }
 
 bool BackgroundFetchRegistrationId::operator!=(
     const BackgroundFetchRegistrationId& other) const {
-  return !(*this == other);
+  return unique_id_ != other.unique_id_;
 }
 
 bool BackgroundFetchRegistrationId::operator<(
     const BackgroundFetchRegistrationId& other) const {
-  return std::tie(service_worker_registration_id_, origin_, tag_) <
-         std::tie(other.service_worker_registration_id_, other.origin_,
-                  other.tag_);
+  return unique_id_ < other.unique_id_;
 }
 
 bool BackgroundFetchRegistrationId::is_null() const {
-  return service_worker_registration_id_ == kInvalidServiceWorkerRegistrationId;
+  return unique_id_.empty();
 }
 
 }  // namespace content

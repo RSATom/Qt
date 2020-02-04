@@ -12,9 +12,6 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversion_utils.h"
 #include "content/child/dwrite_font_proxy/dwrite_font_proxy_win.h"
-#include "content/common/dwrite_font_proxy_messages.h"
-#include "content/public/child/child_thread.h"
-#include "ipc/ipc_sender.h"
 
 namespace mswr = Microsoft::WRL;
 
@@ -42,6 +39,12 @@ void LogFallbackResult(DirectWriteFontFallbackResult fallback_result) {
 }
 
 }  // namespace
+
+HRESULT FontFallback::Create(FontFallback** font_fallback_out,
+                             DWriteFontCollectionProxy* collection) {
+  return Microsoft::WRL::MakeAndInitialize<FontFallback>(font_fallback_out,
+                                                         collection);
+}
 
 FontFallback::FontFallback() = default;
 FontFallback::~FontFallback() = default;
@@ -95,18 +98,14 @@ HRESULT FontFallback::MapCharacters(IDWriteTextAnalysisSource* source,
 
   locale = locale ? locale : L"";
 
-  DWriteFontStyle style;
-  style.font_weight = base_weight;
-  style.font_slant = base_style;
-  style.font_stretch = base_stretch;
+  blink::mojom::MapCharactersResultPtr result;
 
-  MapCharactersResult result;
-
-  IPC::Sender* sender =
-      sender_override_ ? sender_override_ : ChildThread::Get();
-  if (!sender->Send(new DWriteFontProxyMsg_MapCharacters(
-          text_chunk, style, locale, source->GetParagraphReadingDirection(),
-          base_family_name, &result))) {
+  if (!GetFontProxy().MapCharacters(text_chunk,
+                                    blink::mojom::DWriteFontStyle::New(
+                                        base_weight, base_style, base_stretch),
+                                    locale,
+                                    source->GetParagraphReadingDirection(),
+                                    base_family_name, &result)) {
     DCHECK(false);
     return E_FAIL;
   }
@@ -116,10 +115,10 @@ HRESULT FontFallback::MapCharacters(IDWriteTextAnalysisSource* source,
   // to consider whether it's worth doing the work to plumb it through.
   DCHECK(fabs(*scale - 1.0f) < 0.00001);
 
-  *mapped_length = result.mapped_length;
-  *scale = result.scale;
+  *mapped_length = result->mapped_length;
+  *scale = result->scale;
 
-  if (result.family_index == UINT32_MAX) {
+  if (result->family_index == UINT32_MAX) {
     LogFallbackResult(FAILED_NO_FONT);
     return S_OK;
   }
@@ -130,16 +129,16 @@ HRESULT FontFallback::MapCharacters(IDWriteTextAnalysisSource* source,
   // I can't find a way to get QueryInterface to return the actual class when
   // using mswr::RuntimeClass. If we could use QI, we can fallback on
   // FindFontFamily if the proxy is not available.
-  if (!collection_->GetFontFamily(result.family_index, result.family_name,
+  if (!collection_->GetFontFamily(result->family_index, result->family_name,
                                   &family)) {
     DCHECK(false);
     return E_FAIL;
   }
 
   if (FAILED(family->GetFirstMatchingFont(
-          static_cast<DWRITE_FONT_WEIGHT>(result.font_style.font_weight),
-          static_cast<DWRITE_FONT_STRETCH>(result.font_style.font_stretch),
-          static_cast<DWRITE_FONT_STYLE>(result.font_style.font_slant),
+          static_cast<DWRITE_FONT_WEIGHT>(result->font_style->font_weight),
+          static_cast<DWRITE_FONT_STRETCH>(result->font_style->font_stretch),
+          static_cast<DWRITE_FONT_STYLE>(result->font_style->font_slant),
           mapped_font))) {
     DCHECK(false);
     return E_FAIL;
@@ -152,9 +151,7 @@ HRESULT FontFallback::MapCharacters(IDWriteTextAnalysisSource* source,
 }
 
 HRESULT STDMETHODCALLTYPE
-FontFallback::RuntimeClassInitialize(DWriteFontCollectionProxy* collection,
-                                     IPC::Sender* sender_override) {
-  sender_override_ = sender_override;
+FontFallback::RuntimeClassInitialize(DWriteFontCollectionProxy* collection) {
   collection_ = collection;
   return S_OK;
 }
@@ -224,6 +221,10 @@ void FontFallback::AddCachedFamily(
 
   while (family_list.size() > kMaxFamilyCacheSize)
     family_list.pop_back();
+}
+
+blink::mojom::DWriteFontProxy& FontFallback::GetFontProxy() {
+  return collection_->GetFontProxy();
 }
 
 }  // namespace content

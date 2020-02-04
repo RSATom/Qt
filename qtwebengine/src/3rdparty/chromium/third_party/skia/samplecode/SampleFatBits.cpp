@@ -5,17 +5,27 @@
  * found in the LICENSE file.
  */
 
-#include "sk_tool_utils.h"
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
+#include "SkBlendMode.h"
 #include "SkCanvas.h"
-#include "SkPath.h"
-#include "SkRegion.h"
-#include "SkShader.h"
-#include "SkUtils.h"
-#include "SkImage.h"
-#include "SkSurface.h"
 #include "SkClipOpPriv.h"
+#include "SkColor.h"
+#include "SkImageInfo.h"
+#include "SkMatrix.h"
+#include "SkPaint.h"
+#include "SkPath.h"
+#include "SkPoint.h"
+#include "SkPointPriv.h"
+#include "SkRect.h"
+#include "SkRefCnt.h"
+#include "SkScalar.h"
+#include "SkShader.h"
+#include "SkString.h"
+#include "SkSurface.h"
+#include "SkTypes.h"
+#include "sk_tool_utils.h"
+
+class SkEvent;
 
 #define FAT_PIXEL_COLOR     SK_ColorBLACK
 #define PIXEL_CENTER_SIZE   3
@@ -76,6 +86,8 @@ public:
         }
     }
 
+    float fStrokeWidth = 1;
+
     bool getUseClip() const { return fUseClip; }
     void setUseClip(bool uc) { fUseClip = uc; }
 
@@ -131,7 +143,7 @@ private:
                 paint->setStrokeWidth(0);
                 break;
             case kStroke_Style:
-                paint->setStrokeWidth(SK_Scalar1);
+                paint->setStrokeWidth(fStrokeWidth);
                 break;
         }
         paint->setAntiAlias(aa);
@@ -231,7 +243,7 @@ void FatBits::drawLineSkeleton(SkCanvas* max, const SkPoint pts[]) {
     if (fStyle == kStroke_Style) {
         SkPaint p;
         p.setStyle(SkPaint::kStroke_Style);
-        p.setStrokeWidth(SK_Scalar1 * fZoom);
+        p.setStrokeWidth(fStrokeWidth * fZoom);
         p.setStrokeCap(fStrokeCap);
         SkPath dst;
         p.getFillPath(path, &dst);
@@ -349,17 +361,17 @@ void FatBits::drawTriangle(SkCanvas* canvas, SkPoint pts[3]) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-class IndexClick : public SkView::Click {
+class IndexClick : public Sample::Click {
     int fIndex;
 public:
-    IndexClick(SkView* v, int index) : SkView::Click(v), fIndex(index) {}
+    IndexClick(Sample* v, int index) : Sample::Click(v), fIndex(index) {}
 
-    static int GetIndex(SkView::Click* click) {
+    static int GetIndex(Sample::Click* click) {
         return ((IndexClick*)click)->fIndex;
     }
 };
 
-class DrawLineView : public SampleView {
+class DrawLineView : public Sample {
     FatBits fFB;
     SkPoint fPts[3];
     bool    fIsRect;
@@ -376,33 +388,28 @@ public:
 
     void setStyle(FatBits::Style s) {
         fFB.setStyle(s);
-        this->inval(nullptr);
     }
 
 protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "FatBits");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "FatBits");
             return true;
         }
         SkUnichar uni;
-        if (SampleCode::CharQ(*evt, &uni)) {
+        if (Sample::CharQ(*evt, &uni)) {
             switch (uni) {
                 case 'c':
                     fFB.setUseClip(!fFB.getUseClip());
-                    this->inval(nullptr);
                     return true;
                 case 'r':
                     fIsRect = !fIsRect;
-                    this->inval(nullptr);
                     return true;
                 case 'o':
                     fFB.toggleRectAsOval();
-                    this->inval(nullptr);
                     return true;
                 case 'x':
                     fFB.setGrid(!fFB.getGrid());
-                    this->inval(nullptr);
                     return true;
                 case 's':
                     if (FatBits::kStroke_Style == fFB.getStyle()) {
@@ -416,24 +423,25 @@ protected:
                         SkPaint::kButt_Cap, SkPaint::kRound_Cap, SkPaint::kSquare_Cap,
                     };
                     fFB.fStrokeCap = caps[(fFB.fStrokeCap + 1) % 3];
-                    this->inval(nullptr);
                     return true;
                 } break;
                 case 'a':
                     fFB.setAA(!fFB.getAA());
-                    this->inval(nullptr);
                     return true;
                 case 'w':
                     fFB.setShowSkeleton(!fFB.getShowSkeleton());
-                    this->inval(nullptr);
                     return true;
                 case 'g':
                     fFB.togglePixelColors();
-                    this->inval(nullptr);
                     return true;
                 case 't':
                     fFB.setTriangle(!fFB.getTriangle());
-                    this->inval(nullptr);
+                    return true;
+                case '-':
+                    fFB.fStrokeWidth -= 0.125f;
+                    return true;
+                case '=':
+                    fFB.fStrokeWidth += 0.125f;
                     return true;
             }
         }
@@ -459,21 +467,20 @@ protected:
                        FatBits::kHair_Style == fFB.getStyle() ? "Hair" : "Stroke",
                        fFB.getUseClip() ? "clip" : "noclip");
             SkPaint paint;
-            paint.setAntiAlias(true);
-            paint.setTextSize(16);
             paint.setColor(SK_ColorBLUE);
-            canvas->drawString(str, 10, 16, paint);
+            SkFont font(nullptr, 16);
+            canvas->drawString(str, 10, 16, font, paint);
         }
     }
 
-    SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
         SkPoint pt = { x, y };
         int index = -1;
         int count = fFB.getTriangle() ? 3 : 2;
         SkScalar tol = 12;
 
         for (int i = 0; i < count; ++i) {
-            if (fPts[i].equalsWithinTolerance(pt, tol)) {
+            if (SkPointPriv::EqualsWithinTolerance(fPts[i], pt, tol)) {
                 index = i;
                 break;
             }
@@ -492,16 +499,14 @@ protected:
             fPts[1].offset(dx, dy);
             fPts[2].offset(dx, dy);
         }
-        this->inval(nullptr);
         return true;
     }
 
 private:
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new DrawLineView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new DrawLineView(); )

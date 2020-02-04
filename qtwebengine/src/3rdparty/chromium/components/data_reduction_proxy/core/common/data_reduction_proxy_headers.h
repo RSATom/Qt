@@ -13,7 +13,8 @@
 #include "base/time/time.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
+#include "url/gurl.h"
 
 class GURL;
 
@@ -21,10 +22,15 @@ namespace net {
 class HttpResponseHeaders;
 }  // namespace net
 
+namespace network {
+struct ResourceResponseHead;
+}  // namespace network
+
 namespace data_reduction_proxy {
 
 // Transform directives that may be parsed out of http headers.
 enum TransformDirective {
+  TRANSFORM_UNKNOWN,
   TRANSFORM_NONE,
   TRANSFORM_LITE_PAGE,
   TRANSFORM_EMPTY_IMAGE,
@@ -107,27 +113,16 @@ const char* lite_page_directive();
 // compressed video.
 const char* compressed_video_directive();
 
-// Gets the Chrome-Proxy directive used by data reduction proxy lite page
-// preview requests and responses.
-const char* chrome_proxy_lite_page_directive();
-
-// Gets the Chrome-Proxy experiment ("exp") value to force a lite page preview
-// for requests that accept lite pages.
-const char* chrome_proxy_experiment_force_lite_page();
-
-// Gets the Chrome-Proxy experiment ("exp") value to force an empty image
-// preview for requests that enable server provided previews.
-const char* chrome_proxy_experiment_force_empty_image();
-
-// Requests a transformation only if the server determines that the page is
-// otherwise heavy (i.e., the associated page load ordinarily requires the
-// network to transfer of a lot of bytes). Added to a previews directive. E.g.,
-// "lite-page;if-heavy".
-const char* if_heavy_qualifier();
+// Gets the directive used by the data reduction proxy to tell the client to use
+// a specific page policy.
+const char* page_policies_directive();
 
 // Returns true if the Chrome-Proxy-Content-Transform response header indicates
 // that an empty image has been provided.
 bool IsEmptyImagePreview(const net::HttpResponseHeaders& headers);
+
+// Returns true if there is a cycle in |url_chain|.
+bool HasURLRedirectCycle(const std::vector<GURL>& url_chain);
 
 // Retrieves the accepted transform type, if any, from |headers|.
 TransformDirective ParseRequestTransform(
@@ -189,30 +184,19 @@ bool ParseHeadersAndSetBypassDuration(const net::HttpResponseHeaders* headers,
                                       base::StringPiece action_prefix,
                                       base::TimeDelta* bypass_duration);
 
-// Gets the fingerprint of the Chrome-Proxy header.
-bool GetDataReductionProxyActionFingerprintChromeProxy(
-    const net::HttpResponseHeaders* headers,
-    std::string* chrome_proxy_fingerprint);
+// Returns the Original-Full-Content-Length(OFCL) value in the Chrome-Proxy
+// header. Returns -1 in case of of error or if OFCL does not exist. |headers|
+// must be non-null.
+int64_t GetDataReductionProxyOFCL(const net::HttpResponseHeaders* headers);
 
-// Gets the fingerprint of the Via header.
-bool GetDataReductionProxyActionFingerprintVia(
-    const net::HttpResponseHeaders* headers,
-    std::string* via_fingerprint);
-
-// Gets the fingerprint of a list of headers.
-bool GetDataReductionProxyActionFingerprintOtherHeaders(
-    const net::HttpResponseHeaders* headers,
-    std::string* other_headers_fingerprint);
-
-// Gets the fingerprint of Content-Length header.
-bool GetDataReductionProxyActionFingerprintContentLength(
-    const net::HttpResponseHeaders* headers,
-    std::string* content_length_fingerprint);
-
-// Returns values of the Chrome-Proxy header, but with its fingerprint removed.
-void GetDataReductionProxyHeaderWithFingerprintRemoved(
-    const net::HttpResponseHeaders* headers,
-    std::vector<std::string>* values);
+// Returns an estimate of the compression ratio from the Content-Length and
+// Chrome-Proxy Original-Full-Content-Length(OFCL) response headers. These may
+// not be populated for responses which are streamed from the origin which will
+// be treated as a no compression case. Notably, only the response body size is
+// used to compute the ratio, and headers are excluded, since this is only an
+// estimate for response that is beginning to arrive.
+double EstimateCompressionRatioFromHeaders(
+    const network::ResourceResponseHead* response_head);
 
 }  // namespace data_reduction_proxy
 #endif  // COMPONENTS_DATA_REDUCTION_PROXY_CORE_COMMON_DATA_REDUCTION_PROXY_HEADERS_H_

@@ -25,11 +25,10 @@
 #include "fxbarcode/common/BC_CommonBitMatrix.h"
 #include "fxbarcode/datamatrix/BC_DataMatrixSymbolInfo144.h"
 #include "fxbarcode/datamatrix/BC_Encoder.h"
-#include "fxbarcode/utils.h"
 
 namespace {
 
-const size_t kSymbolsCount = 30;
+constexpr size_t kSymbolsCount = 30;
 
 CBC_SymbolInfo* g_symbols[kSymbolsCount] = {
     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
@@ -79,8 +78,8 @@ void CBC_SymbolInfo::Finalize() {
   }
 }
 
-CBC_SymbolInfo::CBC_SymbolInfo(int32_t dataCapacity,
-                               int32_t errorCodewords,
+CBC_SymbolInfo::CBC_SymbolInfo(size_t dataCapacity,
+                               size_t errorCodewords,
                                int32_t matrixWidth,
                                int32_t matrixHeight,
                                int32_t dataRegions)
@@ -92,13 +91,13 @@ CBC_SymbolInfo::CBC_SymbolInfo(int32_t dataCapacity,
                      dataCapacity,
                      errorCodewords) {}
 
-CBC_SymbolInfo::CBC_SymbolInfo(int32_t dataCapacity,
-                               int32_t errorCodewords,
+CBC_SymbolInfo::CBC_SymbolInfo(size_t dataCapacity,
+                               size_t errorCodewords,
                                int32_t matrixWidth,
                                int32_t matrixHeight,
                                int32_t dataRegions,
-                               int32_t rsBlockData,
-                               int32_t rsBlockError)
+                               size_t rsBlockData,
+                               size_t rsBlockError)
     : m_rectangular(matrixWidth != matrixHeight),
       m_dataCapacity(dataCapacity),
       m_errorCodewords(errorCodewords),
@@ -108,20 +107,18 @@ CBC_SymbolInfo::CBC_SymbolInfo(int32_t dataCapacity,
       m_rsBlockData(rsBlockData),
       m_rsBlockError(rsBlockError) {}
 
-CBC_SymbolInfo::~CBC_SymbolInfo() {}
+CBC_SymbolInfo::~CBC_SymbolInfo() = default;
 
-CBC_SymbolInfo* CBC_SymbolInfo::lookup(int32_t dataCodewords,
-                                       bool allowRectangular,
-                                       int32_t& e) {
+const CBC_SymbolInfo* CBC_SymbolInfo::Lookup(size_t iDataCodewords,
+                                             bool bAllowRectangular) {
   for (size_t i = 0; i < kSymbolsCount; i++) {
     CBC_SymbolInfo* symbol = g_symbols[i];
-    if (symbol->m_rectangular && !allowRectangular)
+    if (symbol->m_rectangular && !bAllowRectangular)
       continue;
 
-    if (dataCodewords <= symbol->dataCapacity())
+    if (iDataCodewords <= symbol->dataCapacity())
       return symbol;
   }
-  e = BCExceptionIllegalDataCodewords;
   return nullptr;
 }
 
@@ -177,18 +174,18 @@ int32_t CBC_SymbolInfo::getSymbolHeight() const {
   return getSymbolDataHeight() + (getVerticalDataRegions() * 2);
 }
 
-int32_t CBC_SymbolInfo::getCodewordCount() const {
+size_t CBC_SymbolInfo::getCodewordCount() const {
   return m_dataCapacity + m_errorCodewords;
 }
 
-int32_t CBC_SymbolInfo::getInterleavedBlockCount() const {
+size_t CBC_SymbolInfo::getInterleavedBlockCount() const {
   return m_dataCapacity / m_rsBlockData;
 }
 
-int32_t CBC_SymbolInfo::getDataLengthForInterleavedBlock(int32_t index) const {
+size_t CBC_SymbolInfo::getDataLengthForInterleavedBlock() const {
   return m_rsBlockData;
 }
 
-int32_t CBC_SymbolInfo::getErrorLengthForInterleavedBlock(int32_t index) const {
+size_t CBC_SymbolInfo::getErrorLengthForInterleavedBlock() const {
   return m_rsBlockError;
 }

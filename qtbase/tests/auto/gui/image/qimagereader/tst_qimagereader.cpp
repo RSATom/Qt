@@ -164,6 +164,9 @@ private slots:
     void preserveTexts_data();
     void preserveTexts();
 
+    void devicePixelRatio_data();
+    void devicePixelRatio();
+
 private:
     QString prefix;
     QTemporaryDir m_temporaryDir;
@@ -234,6 +237,7 @@ void tst_QImageReader::readImage_data()
     QTest::newRow("BMP: high mask bit set") << QString("rgb32bf.bmp") << true << QByteArray("bmp");
     QTest::newRow("XPM: marble") << QString("marble.xpm") << true << QByteArray("xpm");
     QTest::newRow("PNG: kollada") << QString("kollada.png") << true << QByteArray("png");
+    QTest::newRow("PNG: kollada 16bpc") << QString("kollada-16bpc.png") << true << QByteArray("png");
     QTest::newRow("PPM: teapot") << QString("teapot.ppm") << true << QByteArray("ppm");
     QTest::newRow("PPM: runners") << QString("runners.ppm") << true << QByteArray("ppm");
     QTest::newRow("PPM: test") << QString("test.ppm") << true << QByteArray("ppm");
@@ -523,6 +527,12 @@ void tst_QImageReader::imageFormat_data()
     QTest::newRow("bmp-4") << QString("test32v5.bmp") << QByteArray("bmp") << QImage::Format_RGB32;
     QTest::newRow("png") << QString("kollada.png") << QByteArray("png") << QImage::Format_ARGB32;
     QTest::newRow("png-2") << QString("YCbCr_cmyk.png") << QByteArray("png") << QImage::Format_RGB32;
+    QTest::newRow("png-3") << QString("kollada-16bpc.png") << QByteArray("png") << QImage::Format_RGBA64;
+    QTest::newRow("png-4") << QString("basn0g16.png") << QByteArray("png") << QImage::Format_Grayscale16;
+    QTest::newRow("png-5") << QString("basn2c16.png") << QByteArray("png") << QImage::Format_RGBX64;
+    QTest::newRow("png-6") << QString("basn4a16.png") << QByteArray("png") << QImage::Format_RGBA64; // Grayscale16Alpha16
+    QTest::newRow("png-7") << QString("basn6a16.png") << QByteArray("png") << QImage::Format_RGBA64;
+    QTest::newRow("png-8") << QString("tbwn0g16.png") << QByteArray("png") << QImage::Format_RGBA64; // Grayscale16+tRNS
     QTest::newRow("svg") << QString("rect.svg") << QByteArray("svg") << QImage::Format_ARGB32_Premultiplied;
     QTest::newRow("svgz") << QString("rect.svgz") << QByteArray("svgz") << QImage::Format_ARGB32_Premultiplied;
 }
@@ -1596,6 +1606,7 @@ void tst_QImageReader::supportsOption_data()
                          << (QIntList() << QImageIOHandler::Gamma
                               << QImageIOHandler::Description
                               << QImageIOHandler::Quality
+                              << QImageIOHandler::CompressionRatio
                               << QImageIOHandler::Size
                               << QImageIOHandler::ScaledSize);
 }
@@ -1850,6 +1861,8 @@ void tst_QImageReader::saveFormat_data()
     QTest::newRow("Format_RGB888") << QImage::Format_RGB888;
     QTest::newRow("Format_RGB444") << QImage::Format_RGB444;
     QTest::newRow("Format_ARGB4444_Premultiplied") << QImage::Format_ARGB4444_Premultiplied;
+    QTest::newRow("Format_RGBA64") << QImage::Format_RGBA64;
+    QTest::newRow("Format_RGBA64_Premultiplied") << QImage::Format_RGBA64_Premultiplied;
 }
 
 void tst_QImageReader::saveFormat()
@@ -1966,6 +1979,28 @@ void tst_QImageReader::preserveTexts()
     QCOMPARE(r.text(key3), text3.simplified());
 }
 
+void tst_QImageReader::devicePixelRatio_data()
+{
+    QTest::addColumn<QString>("fileName");
+    QTest::addColumn<QSize>("size");
+    QTest::addColumn<qreal>("dpr");
+
+    QTest::newRow("1x") << "qticon16.png" << QSize(16, 16) << 1.0;
+    QTest::newRow("2x") << "qticon16@2x.png" << QSize(32, 32) << 2.0;
+    QTest::newRow("3x") << "qticon16@3x.png" << QSize(48, 48) << 3.0;
+}
+
+void tst_QImageReader::devicePixelRatio()
+{
+    QFETCH(QString, fileName);
+    QFETCH(QSize, size);
+    QFETCH(qreal, dpr);
+
+    QImageReader r(":/images/" + fileName);
+    QImage img = r.read();
+    QCOMPARE(img.size(), size);
+    QCOMPARE(img.devicePixelRatio(), dpr);
+}
 
 QTEST_MAIN(tst_QImageReader)
 #include "tst_qimagereader.moc"

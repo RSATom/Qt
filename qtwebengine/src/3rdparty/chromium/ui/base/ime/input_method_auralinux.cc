@@ -6,6 +6,7 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/environment.h"
 #include "ui/base/ime/ime_bridge.h"
 #include "ui/base/ime/ime_engine_handler_interface.h"
@@ -15,11 +16,7 @@
 
 namespace {
 
-ui::IMEEngineHandlerInterface* GetEngine() {
-  if (ui::IMEBridge::Get())
-    return ui::IMEBridge::Get()->GetCurrentEngineHandler();
-  return nullptr;
-}
+const int kIgnoreCommitsDurationInMilliseconds = 100;
 
 }  // namespace
 
@@ -27,12 +24,11 @@ namespace ui {
 
 InputMethodAuraLinux::InputMethodAuraLinux(
     internal::InputMethodDelegate* delegate)
-    : text_input_type_(TEXT_INPUT_TYPE_NONE),
+    : InputMethodBase(delegate),
+      text_input_type_(TEXT_INPUT_TYPE_NONE),
       is_sync_mode_(false),
       composition_changed_(false),
-      suppress_next_result_(false),
       weak_ptr_factory_(this) {
-  SetDelegate(delegate);
   context_ =
       LinuxInputMethodContextFactory::instance()->CreateInputMethodContext(
           this, false);
@@ -51,23 +47,18 @@ LinuxInputMethodContext* InputMethodAuraLinux::GetContextForTesting(
 
 // Overriden from InputMethod.
 
-bool InputMethodAuraLinux::OnUntranslatedIMEMessage(
-    const base::NativeEvent& event,
-    NativeEventResult* result) {
-  return false;
-}
-
 ui::EventDispatchDetails InputMethodAuraLinux::DispatchKeyEvent(
     ui::KeyEvent* event) {
   DCHECK(event->type() == ET_KEY_PRESSED || event->type() == ET_KEY_RELEASED);
 
   // If no text input client, do nothing.
   if (!GetTextInputClient())
-    return DispatchKeyEventPostIME(event);
+    return DispatchKeyEventPostIME(event, base::NullCallback());
 
-  if (!event->HasNativeEvent() && sending_key_event_) {
+  if (!event->HasNativeEvent() && sending_key_event()) {
     // Faked key events that are sent from input.ime.sendKeyEvents.
-    ui::EventDispatchDetails details = DispatchKeyEventPostIME(event);
+    ui::EventDispatchDetails details =
+        DispatchKeyEventPostIME(event, base::NullCallback());
     if (details.dispatcher_destroyed || details.target_destroyed ||
         event->stopped_propagation()) {
       return details;
@@ -79,7 +70,7 @@ ui::EventDispatchDetails InputMethodAuraLinux::DispatchKeyEvent(
     return details;
   }
 
-  suppress_next_result_ = false;
+  suppress_non_key_input_until_ = base::TimeTicks::UnixEpoch();
   composition_changed_ = false;
   result_text_.clear();
 
@@ -104,13 +95,14 @@ ui::EventDispatchDetails InputMethodAuraLinux::DispatchKeyEvent(
   if (text_input_type_ != TEXT_INPUT_TYPE_PASSWORD &&
       GetEngine() && GetEngine()->IsInterestedInKeyEvent() &&
       (!filtered || NeedInsertChar())) {
-    ui::IMEEngineHandlerInterface::KeyEventDoneCallback callback = base::Bind(
-        &InputMethodAuraLinux::ProcessKeyEventByEngineDone,
-        weak_ptr_factory_.GetWeakPtr(), base::Owned(new ui::KeyEvent(*event)),
-        filtered, composition_changed_,
-        base::Owned(new ui::CompositionText(composition_)),
-        base::Owned(new base::string16(result_text_)));
-    GetEngine()->ProcessKeyEvent(*event, callback);
+    ui::IMEEngineHandlerInterface::KeyEventDoneCallback callback =
+        base::BindOnce(&InputMethodAuraLinux::ProcessKeyEventByEngineDone,
+                       weak_ptr_factory_.GetWeakPtr(),
+                       base::Owned(new ui::KeyEvent(*event)), filtered,
+                       composition_changed_,
+                       base::Owned(new ui::CompositionText(composition_)),
+                       base::Owned(new base::string16(result_text_)));
+    GetEngine()->ProcessKeyEvent(*event, std::move(callback));
     return ui::EventDispatchDetails();
   }
 
@@ -125,7 +117,7 @@ void InputMethodAuraLinux::ProcessKeyEventByEngineDone(
     base::string16* result_text,
     bool is_handled) {
   composition_changed_ = composition_changed;
-  composition_.CopyFrom(*composition);
+  composition_ = *composition;
   result_text_ = *result_text;
   ignore_result(ProcessKeyEventDone(event, filtered, is_handled));
 }
@@ -145,7 +137,7 @@ ui::EventDispatchDetails InputMethodAuraLinux::ProcessKeyEventDone(
   ui::EventDispatchDetails details;
   if (event->type() == ui::ET_KEY_PRESSED && filtered) {
     if (NeedInsertChar())
-      details = DispatchKeyEventPostIME(event);
+      details = DispatchKeyEventPostIME(event, base::NullCallback());
     else if (HasInputMethodResult())
       details = SendFakeProcessKeyEvent(event);
     if (details.dispatcher_destroyed)
@@ -201,10 +193,10 @@ ui::EventDispatchDetails InputMethodAuraLinux::ProcessKeyEventDone(
   // Makes sure the cached composition is cleared after committing any text or
   // cleared composition.
   if (client && !client->HasCompositionText())
-    composition_.Clear();
+    composition_ = CompositionText();
 
   if (!filtered) {
-    details = DispatchKeyEventPostIME(event);
+    details = DispatchKeyEventPostIME(event, base::NullCallback());
     if (details.dispatcher_destroyed) {
       if (should_stop_propagation)
         event->StopPropagation();
@@ -259,7 +251,8 @@ void InputMethodAuraLinux::UpdateContextFocusState() {
     return;
 
   ui::IMEEngineHandlerInterface::InputContext context(
-      GetTextInputType(), GetTextInputMode(), GetTextInputFlags());
+      GetTextInputType(), GetTextInputMode(), GetTextInputFlags(),
+      ui::TextInputClient::FOCUS_REASON_OTHER, GetClientShouldDoLearning());
   ui::IMEBridge::Get()->SetCurrentInputContext(context);
 
   ui::IMEEngineHandlerInterface* engine = GetEngine();
@@ -284,6 +277,14 @@ void InputMethodAuraLinux::OnCaretBoundsChanged(const TextInputClient* client) {
   NotifyTextInputCaretBoundsChanged(client);
   context_->SetCursorLocation(GetTextInputClient()->GetCaretBounds());
 
+  gfx::Range text_range, selection_range;
+  base::string16 text;
+  if (client->GetTextRange(&text_range) &&
+      client->GetTextFromRange(text_range, &text) &&
+      client->GetEditableSelectionRange(&selection_range)) {
+    context_->SetSurroundingText(text, selection_range);
+  }
+
   if (!IsTextInputTypeNone() && text_input_type_ != TEXT_INPUT_TYPE_PASSWORD &&
       GetEngine())
     GetEngine()->SetCompositionBounds(GetCompositionBounds(client));
@@ -303,24 +304,28 @@ void InputMethodAuraLinux::ResetContext() {
   if (!GetTextInputClient())
     return;
 
-  // To prevent any text from being committed when resetting the |context_|;
   is_sync_mode_ = true;
-  suppress_next_result_ = true;
+
+  if (!composition_.text.empty()) {
+    // If the IME has an open composition, ignore non-synchronous attempts to
+    // commit text for a brief duration of time.
+    suppress_non_key_input_until_ =
+        base::TimeTicks::Now() +
+        base::TimeDelta::FromMilliseconds(kIgnoreCommitsDurationInMilliseconds);
+  }
 
   context_->Reset();
   context_simple_->Reset();
 
-  // Some input methods may not honour the reset call. Focusing out/in the
-  // |context_| to make sure it gets reset correctly.
-  if (text_input_type_ != TEXT_INPUT_TYPE_NONE) {
-    context_->Blur();
-    context_->Focus();
-  }
-
-  composition_.Clear();
+  composition_ = CompositionText();
   result_text_.clear();
   is_sync_mode_ = false;
   composition_changed_ = false;
+}
+
+bool InputMethodAuraLinux::IgnoringNonKeyInput() const {
+  return !is_sync_mode_ &&
+         base::TimeTicks::Now() < suppress_non_key_input_until_;
 }
 
 bool InputMethodAuraLinux::IsCandidatePopupOpen() const {
@@ -331,10 +336,8 @@ bool InputMethodAuraLinux::IsCandidatePopupOpen() const {
 // Overriden from ui::LinuxInputMethodContextDelegate
 
 void InputMethodAuraLinux::OnCommit(const base::string16& text) {
-  if (suppress_next_result_ || !GetTextInputClient()) {
-    suppress_next_result_ = false;
+  if (IgnoringNonKeyInput() || !GetTextInputClient())
     return;
-  }
 
   if (is_sync_mode_) {
     // Append the text to the buffer, because commit signal might be fired
@@ -349,13 +352,21 @@ void InputMethodAuraLinux::OnCommit(const base::string16& text) {
       return;
     if (!event.stopped_propagation() && !details.target_destroyed)
       GetTextInputClient()->InsertText(text);
-    composition_.Clear();
+    composition_ = CompositionText();
+  }
+}
+
+void InputMethodAuraLinux::OnDeleteSurroundingText(int32_t index,
+                                                   uint32_t length) {
+  if (GetTextInputClient() && composition_.text.empty()) {
+    uint32_t before = index >= 0 ? 0U : static_cast<uint32_t>(-1 * index);
+    GetTextInputClient()->ExtendSelectionAndDelete(before, length - before);
   }
 }
 
 void InputMethodAuraLinux::OnPreeditChanged(
     const CompositionText& composition_text) {
-  if (suppress_next_result_ || IsTextInputTypeNone())
+  if (IgnoringNonKeyInput() || IsTextInputTypeNone())
     return;
 
   if (is_sync_mode_) {
@@ -374,12 +385,12 @@ void InputMethodAuraLinux::OnPreeditChanged(
 }
 
 void InputMethodAuraLinux::OnPreeditEnd() {
-  if (suppress_next_result_ || IsTextInputTypeNone())
+  if (IgnoringNonKeyInput() || IsTextInputTypeNone())
     return;
 
   if (is_sync_mode_) {
     if (!composition_.text.empty()) {
-      composition_.Clear();
+      composition_ = CompositionText();
       composition_changed_ = true;
     }
   } else {
@@ -392,7 +403,7 @@ void InputMethodAuraLinux::OnPreeditEnd() {
       if (!event.stopped_propagation() && !details.target_destroyed)
         client->ClearCompositionText();
     }
-    composition_.Clear();
+    composition_ = CompositionText();
   }
 }
 
@@ -432,7 +443,8 @@ bool InputMethodAuraLinux::NeedInsertChar() const {
 ui::EventDispatchDetails InputMethodAuraLinux::SendFakeProcessKeyEvent(
     ui::KeyEvent* event) const {
   KeyEvent key_event(ui::ET_KEY_PRESSED, ui::VKEY_PROCESSKEY, event->flags());
-  ui::EventDispatchDetails details = DispatchKeyEventPostIME(&key_event);
+  ui::EventDispatchDetails details =
+      DispatchKeyEventPostIME(&key_event, base::NullCallback());
   if (key_event.stopped_propagation())
     event->StopPropagation();
   return details;

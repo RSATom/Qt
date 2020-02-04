@@ -186,7 +186,7 @@ void QGeoPositionInfoSourceGeoclueMaster::updateVelocity(VelocityFields fields, 
                                                          double speed, double direction,
                                                          double climb)
 {
-    Q_UNUSED(timestamp)
+    Q_UNUSED(timestamp);
 
     // Store the velocity and mark it as fresh. Simple but hopefully adequate.
     m_lastVelocity = (fields & Speed) ? knotsToMetersPerSecond(speed) : qQNaN();
@@ -360,8 +360,8 @@ void QGeoPositionInfoSourceGeoclueMaster::positionProviderChanged(const QString 
                                                                   const QString &service,
                                                                   const QString &path)
 {
-    Q_UNUSED(name)
-    Q_UNUSED(description)
+    Q_UNUSED(name);
+    Q_UNUSED(description);
 
     cleanupPositionSource();
 

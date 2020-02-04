@@ -13,35 +13,40 @@
 
 #include "public/fpdfview.h"
 
+#ifdef PDF_ENABLE_XFA
+class CFGAS_FontMgr;
+#endif  // PDF_ENABLE_XFA
+
 namespace pdfium {
 
-#define STR_IN_TEST_CASE(input_literal, ...)                         \
-  {                                                                  \
-    (const unsigned char*) input_literal, sizeof(input_literal) - 1, \
-        __VA_ARGS__                                                  \
+#define STR_IN_TEST_CASE(input_literal, ...)               \
+  {                                                        \
+    reinterpret_cast<const unsigned char*>(input_literal), \
+        sizeof(input_literal) - 1, __VA_ARGS__             \
   }
 
-#define STR_IN_OUT_CASE(input_literal, expected_literal, ...)                 \
-  {                                                                           \
-    (const unsigned char*) input_literal, sizeof(input_literal) - 1,          \
-        (const unsigned char*)expected_literal, sizeof(expected_literal) - 1, \
-        __VA_ARGS__                                                           \
+#define STR_IN_OUT_CASE(input_literal, expected_literal, ...)     \
+  {                                                               \
+    reinterpret_cast<const unsigned char*>(input_literal),        \
+        sizeof(input_literal) - 1,                                \
+        reinterpret_cast<const unsigned char*>(expected_literal), \
+        sizeof(expected_literal) - 1, __VA_ARGS__                 \
   }
 
 struct StrFuncTestData {
   const unsigned char* input;
-  unsigned int input_size;
+  uint32_t input_size;
   const unsigned char* expected;
-  unsigned int expected_size;
+  uint32_t expected_size;
 };
 
 struct DecodeTestData {
   const unsigned char* input;
-  unsigned int input_size;
+  uint32_t input_size;
   const unsigned char* expected;
-  unsigned int expected_size;
+  uint32_t expected_size;
   // The size of input string being processed.
-  unsigned int processed_size;
+  uint32_t processed_size;
 };
 
 struct NullTermWstrFuncTestData {
@@ -86,14 +91,17 @@ class Platform;
 namespace v8 {
 class StartupData;
 }
-bool InitializeV8ForPDFium(const std::string& exe_path,
-                           const std::string& bin_dir,
-                           v8::StartupData* natives_blob,
-                           v8::StartupData* snapshot_blob,
-                           v8::Platform** platform);
+
+// |natives_blob| and |snapshot_blob| are optional out parameters. They should
+// either both be valid or both be nullptrs.
+std::unique_ptr<v8::Platform> InitializeV8ForPDFiumWithStartupData(
+    const std::string& exe_path,
+    const std::string& bin_dir,
+    v8::StartupData* natives_blob,
+    v8::StartupData* snapshot_blob);
 #else   // V8_USE_EXTERNAL_STARTUP_DATA
-bool InitializeV8ForPDFium(const std::string& exe_path,
-                           v8::Platform** platform);
+std::unique_ptr<v8::Platform> InitializeV8ForPDFium(
+    const std::string& exe_path);
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
 #endif  // PDF_ENABLE_V8
 
@@ -109,5 +117,9 @@ class TestLoader {
   const char* const m_pBuf;
   const size_t m_Len;
 };
+
+#ifdef PDF_ENABLE_XFA
+CFGAS_FontMgr* GetGlobalFontManager();
+#endif  // PDF_ENABLE_XFA
 
 #endif  // TESTING_TEST_SUPPORT_H_

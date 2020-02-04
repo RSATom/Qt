@@ -5,30 +5,44 @@
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/threading/thread_restrictions.h"
+#include "chrome/browser/extensions/active_tab_permission_granter.h"
 #include "chrome/browser/extensions/api/page_capture/page_capture_api.h"
+#include "chrome/browser/extensions/extension_action_runner.h"
 #include "chrome/browser/extensions/extension_apitest.h"
+#include "chrome/browser/extensions/extension_util.h"
+#include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/common/chrome_switches.h"
-#include "chromeos/login/scoped_test_public_session_login_state.h"
+#include "chrome/test/base/ui_test_utils.h"
+#include "chromeos/login/login_state/scoped_test_public_session_login_state.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
+#include "extensions/common/permissions/permission_set.h"
+#include "extensions/common/permissions/permissions_data.h"
+#include "extensions/common/url_pattern_set.h"
+#include "extensions/test/extension_test_message_listener.h"
+#include "extensions/test/result_catcher.h"
 #include "net/dns/mock_host_resolver.h"
 
 #if defined(OS_CHROMEOS)
-#include "chromeos/login/login_state.h"
+#include "chromeos/login/login_state/login_state.h"
 #endif  // defined(OS_CHROMEOS)
 
+using extensions::Extension;
+using extensions::ExtensionActionRunner;
 using extensions::PageCaptureSaveAsMHTMLFunction;
+using extensions::ResultCatcher;
 using extensions::ScopedTestDialogAutoConfirm;
 
-class ExtensionPageCaptureApiTest : public ExtensionApiTest {
+class ExtensionPageCaptureApiTest : public extensions::ExtensionApiTest {
  public:
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionApiTest::SetUpCommandLine(command_line);
+    extensions::ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kJavaScriptFlags, "--expose-gc");
   }
   void SetUpOnMainThread() override {
-    ExtensionApiTest::SetUpOnMainThread();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
     host_resolver()->AddRule("*", "127.0.0.1");
   }
 };
@@ -54,15 +68,33 @@ class PageCaptureSaveAsMHTMLDelegate
 IN_PROC_BROWSER_TEST_F(ExtensionPageCaptureApiTest, SaveAsMHTML) {
   ASSERT_TRUE(StartEmbeddedTestServer());
   PageCaptureSaveAsMHTMLDelegate delegate;
+  ASSERT_TRUE(RunExtensionTestWithFlagsAndArg(
+      "page_capture", "ONLY_PAGE_CAPTURE_PERMISSION", kFlagNone))
+      << message_;
+  // Make sure the MHTML data gets written to the temporary file.
+  ASSERT_FALSE(delegate.temp_file_.empty());
+  // Flush the message loops to make sure the delete happens.
+  content::RunAllTasksUntilIdle();
+  content::RunAllPendingInMessageLoop(content::BrowserThread::IO);
+  // Make sure the temporary file is destroyed once the javascript side reads
+  // the contents.
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  ASSERT_FALSE(base::PathExists(delegate.temp_file_));
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionPageCaptureApiTest,
+                       SaveAsMHTMLWithActiveTabWithFileAccess) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+  PageCaptureSaveAsMHTMLDelegate delegate;
   ASSERT_TRUE(RunExtensionTest("page_capture")) << message_;
   // Make sure the MHTML data gets written to the temporary file.
   ASSERT_FALSE(delegate.temp_file_.empty());
   // Flush the message loops to make sure the delete happens.
-  content::RunAllPendingInMessageLoop(content::BrowserThread::FILE);
+  content::RunAllTasksUntilIdle();
   content::RunAllPendingInMessageLoop(content::BrowserThread::IO);
   // Make sure the temporary file is destroyed once the javascript side reads
   // the contents.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   ASSERT_FALSE(base::PathExists(delegate.temp_file_));
 }
 
@@ -76,9 +108,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionPageCaptureApiTest,
   ScopedTestDialogAutoConfirm auto_confirm(ScopedTestDialogAutoConfirm::ACCEPT);
   ASSERT_TRUE(RunExtensionTest("page_capture")) << message_;
   ASSERT_FALSE(delegate.temp_file_.empty());
-  content::RunAllPendingInMessageLoop(content::BrowserThread::FILE);
+  content::RunAllTasksUntilIdle();
   content::RunAllPendingInMessageLoop(content::BrowserThread::IO);
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   ASSERT_FALSE(base::PathExists(delegate.temp_file_));
 }
 

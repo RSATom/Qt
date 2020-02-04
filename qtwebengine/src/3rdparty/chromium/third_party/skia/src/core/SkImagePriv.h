@@ -43,20 +43,7 @@ sk_sp<SkShader> SkMakeBitmapShader(const SkBitmap& src, SkShader::TileMode, SkSh
  *  SkImageInfo, or the bitmap's pixels cannot be accessed, this will return
  *  nullptr.
  */
-extern sk_sp<SkImage> SkMakeImageFromRasterBitmap(const SkBitmap&, SkCopyPixelsMode);
-
-/**
- *  Similar to SkMakeImageFromRasterBitmap, this wraps a |src| bitmap in an image.
- *
- *  It also promises to transform the bitmap into the |dst| color space before it
- *  is drawn.  The transform will happen lazily.
- *
- *  If |id| is non-zero, the output image will use that as its unique id.  Otherwise,
- *  it will generate a new id.
- */
-extern sk_sp<SkImage> SkMakeImageInColorSpace(const SkBitmap& src, sk_sp<SkColorSpace> dst,
-                                              uint32_t id,
-                                              SkCopyPixelsMode = kNever_SkCopyPixelsMode);
+extern SK_API sk_sp<SkImage> SkMakeImageFromRasterBitmap(const SkBitmap&, SkCopyPixelsMode);
 
 // Given an image created from SkNewImageFromBitmap, return its pixelref. This
 // may be called to see if the surface and the image share the same pixelref,
@@ -88,6 +75,12 @@ bool SkImage_pinAsTexture(const SkImage*, GrContext*);
  *  The context passed to unpin must match the one passed to pin.
  */
 void SkImage_unpinAsTexture(const SkImage*, GrContext*);
+
+/**
+ *  Returns the bounds of the image relative to its encoded buffer. For all non-lazy images,
+ *  this returns (0,0,width,height). For a lazy-image, it may return a subset of that rect.
+ */
+SkIRect SkImage_getSubset(const SkImage*);
 
 /**
  *  Returns a new image containing the same pixel values as the source, but with a different color

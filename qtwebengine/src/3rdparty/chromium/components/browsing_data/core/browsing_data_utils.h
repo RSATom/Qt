@@ -7,14 +7,13 @@
 
 #include "base/strings/string16.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "components/browsing_data/core/clear_browsing_data_tab.h"
 #include "components/browsing_data/core/counters/browsing_data_counter.h"
 
 namespace browsing_data {
 
-// Browsing data types as seen in the Android UI.
-// TODO(msramek): Reuse this enum as the canonical representation of the
-// user-facing browsing data types in the Desktop UI as well.
+// Browsing data types as seen in the Android and Desktop UI.
 //
 // A Java counterpart will be generated for this enum.
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.browsing_data
@@ -24,8 +23,12 @@ enum class BrowsingDataType {
   COOKIES,
   PASSWORDS,
   FORM_DATA,
-  BOOKMARKS,
   SITE_SETTINGS,
+  // Only for Android:
+  BOOKMARKS,
+  // Only for Desktop:
+  DOWNLOADS,
+  HOSTED_APPS_DATA,
   NUM_TYPES
 };
 
@@ -39,7 +42,8 @@ enum class TimePeriod {
   LAST_WEEK,
   FOUR_WEEKS,
   ALL_TIME,
-  TIME_PERIOD_LAST = ALL_TIME
+  OLDER_THAN_30_DAYS,
+  TIME_PERIOD_LAST = OLDER_THAN_30_DAYS
 };
 
 // Calculate the begin time for the deletion range specified by |time_period|.
@@ -71,10 +75,8 @@ bool GetDeletionPreferenceFromDataType(
     ClearBrowsingDataTab clear_browsing_data_tab,
     std::string* out_pref);
 
-// Copies the deletion preferences for timeperiod, cache, history and cookies
-// to a separate preferences that are used to on the basic CBD tab.
-// This only happens the first time this method is called.
-void MigratePreferencesToBasic(PrefService* prefs);
+BrowsingDataType GetDataTypeFromDeletionPreference(
+    const std::string& pref_name);
 
 }  // namespace browsing_data
 

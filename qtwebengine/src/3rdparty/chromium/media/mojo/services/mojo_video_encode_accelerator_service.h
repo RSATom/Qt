@@ -27,16 +27,13 @@ namespace media {
 
 // This class implements the interface mojom::VideoEncodeAccelerator.
 class MEDIA_MOJO_EXPORT MojoVideoEncodeAcceleratorService
-    : public NON_EXPORTED_BASE(mojom::VideoEncodeAccelerator),
+    : public mojom::VideoEncodeAccelerator,
       public VideoEncodeAccelerator::Client {
  public:
   // Create and initialize a VEA. Returns nullptr if either part fails.
   using CreateAndInitializeVideoEncodeAcceleratorCallback =
       base::Callback<std::unique_ptr<::media::VideoEncodeAccelerator>(
-          VideoPixelFormat input_format,
-          const gfx::Size& input_visible_size,
-          VideoCodecProfile output_profile,
-          uint32_t initial_bitrate,
+          const ::media::VideoEncodeAccelerator::Config& config,
           Client* client,
           const gpu::GpuPreferences& gpu_preferences)>;
 
@@ -52,10 +49,7 @@ class MEDIA_MOJO_EXPORT MojoVideoEncodeAcceleratorService
   ~MojoVideoEncodeAcceleratorService() override;
 
   // mojom::VideoEncodeAccelerator impl.
-  void Initialize(VideoPixelFormat input_format,
-                  const gfx::Size& input_visible_size,
-                  VideoCodecProfile output_profile,
-                  uint32_t initial_bitrate,
+  void Initialize(const media::VideoEncodeAccelerator::Config& config,
                   mojom::VideoEncodeAcceleratorClientPtr client,
                   InitializeCallback callback) override;
   void Encode(const scoped_refptr<VideoFrame>& frame,
@@ -63,20 +57,21 @@ class MEDIA_MOJO_EXPORT MojoVideoEncodeAcceleratorService
               EncodeCallback callback) override;
   void UseOutputBitstreamBuffer(int32_t bitstream_buffer_id,
                                 mojo::ScopedSharedBufferHandle buffer) override;
-  void RequestEncodingParametersChange(uint32_t bitrate,
-                                       uint32_t framerate) override;
+  void RequestEncodingParametersChange(
+      const media::VideoBitrateAllocation& bitrate_allocation,
+      uint32_t framerate) override;
 
  private:
+  friend class MojoVideoEncodeAcceleratorIntegrationTest;
   friend class MojoVideoEncodeAcceleratorServiceTest;
 
   // VideoEncodeAccelerator::Client implementation.
   void RequireBitstreamBuffers(unsigned int input_count,
                                const gfx::Size& input_coded_size,
                                size_t output_buffer_size) override;
-  void BitstreamBufferReady(int32_t bitstream_buffer_id,
-                            size_t payload_size,
-                            bool key_frame,
-                            base::TimeDelta timestamp) override;
+  void BitstreamBufferReady(
+      int32_t bitstream_buffer_id,
+      const media::BitstreamBufferMetadata& metadata) override;
   void NotifyError(::media::VideoEncodeAccelerator::Error error) override;
 
   const CreateAndInitializeVideoEncodeAcceleratorCallback create_vea_callback_;

@@ -39,6 +39,7 @@ class tst_Pods : public QObject {
 private Q_SLOTS:
     void testConstructors();
     void testMarshalling();
+    void testProperty();
 };
 
 
@@ -75,6 +76,15 @@ void tst_Pods::testMarshalling()
         QCOMPARE(i3.i(), 3);
         QCOMPARE(iDeadBeef.i(), int(0xdeadbeef));
     }
+}
+
+void tst_Pods::testProperty()
+{
+    ContainerReplica::registerMetatypes();
+
+    PodT pt;
+    QMetaProperty prop = pt.staticMetaObject.property(0);
+    QVERIFY(prop.userType() != 0);
 }
 
 QTEST_APPLESS_MAIN(tst_Pods)

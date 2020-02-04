@@ -210,9 +210,9 @@ QPrint::InputSlot QPrintDevice::defaultInputSlot() const
     return isValid() ? d->defaultInputSlot() : QPrint::InputSlot();
 }
 
-QList<QPrint::InputSlot> QPrintDevice::supportedInputSlots() const
+QVector<QPrint::InputSlot> QPrintDevice::supportedInputSlots() const
 {
-    return isValid() ? d->supportedInputSlots() : QList<QPrint::InputSlot>();
+    return isValid() ? d->supportedInputSlots() : QVector<QPrint::InputSlot>{};
 }
 
 QPrint::OutputBin QPrintDevice::defaultOutputBin() const
@@ -220,9 +220,9 @@ QPrint::OutputBin QPrintDevice::defaultOutputBin() const
     return isValid() ? d->defaultOutputBin() : QPrint::OutputBin();
 }
 
-QList<QPrint::OutputBin> QPrintDevice::supportedOutputBins() const
+QVector<QPrint::OutputBin> QPrintDevice::supportedOutputBins() const
 {
-    return isValid() ? d->supportedOutputBins() : QList<QPrint::OutputBin>();
+    return isValid() ? d->supportedOutputBins() : QVector<QPrint::OutputBin>{};
 }
 
 QPrint::DuplexMode QPrintDevice::defaultDuplexMode() const
@@ -230,9 +230,9 @@ QPrint::DuplexMode QPrintDevice::defaultDuplexMode() const
     return isValid() ? d->defaultDuplexMode() : QPrint::DuplexNone;
 }
 
-QList<QPrint::DuplexMode> QPrintDevice::supportedDuplexModes() const
+QVector<QPrint::DuplexMode> QPrintDevice::supportedDuplexModes() const
 {
-    return isValid() ? d->supportedDuplexModes() : QList<QPrint::DuplexMode>();
+    return isValid() ? d->supportedDuplexModes() : QVector<QPrint::DuplexMode>{};
 }
 
 QPrint::ColorMode QPrintDevice::defaultColorMode() const
@@ -240,17 +240,32 @@ QPrint::ColorMode QPrintDevice::defaultColorMode() const
     return isValid() ? d->defaultColorMode() : QPrint::GrayScale;
 }
 
-QList<QPrint::ColorMode> QPrintDevice::supportedColorModes() const
+QVector<QPrint::ColorMode> QPrintDevice::supportedColorModes() const
 {
-    return isValid() ? d->supportedColorModes() : QList<QPrint::ColorMode>();
+    return isValid() ? d->supportedColorModes() : QVector<QPrint::ColorMode>{};
 }
 
-#ifndef QT_NO_MIMETYPE
+QVariant QPrintDevice::property(PrintDevicePropertyKey key) const
+{
+    return isValid() ? d->property(key) : QVariant();
+}
+
+bool QPrintDevice::setProperty(PrintDevicePropertyKey key, const QVariant &value)
+{
+    return isValid() ? d->setProperty(key, value) : false;
+}
+
+bool QPrintDevice::isFeatureAvailable(PrintDevicePropertyKey key, const QVariant &params) const
+{
+    return isValid() ? d->isFeatureAvailable(key, params) : false;
+}
+
+#if QT_CONFIG(mimetype)
 QList<QMimeType> QPrintDevice::supportedMimeTypes() const
 {
     return isValid() ? d->supportedMimeTypes() : QList<QMimeType>();
 }
-#endif // QT_NO_MIMETYPE
+#endif // mimetype
 
 #  ifndef QT_NO_DEBUG_STREAM
 void QPrintDevice::format(QDebug debug) const
@@ -281,7 +296,7 @@ void QPrintDevice::format(QDebug debug) const
         debug << "), defaultResolution=" << defaultResolution()
               << ", defaultDuplexMode=" << defaultDuplexMode()
               << ", defaultColorMode="<< defaultColorMode();
-#    ifndef QT_NO_MIMETYPE
+#    if QT_CONFIG(mimetype)
         const QList<QMimeType> mimeTypes = supportedMimeTypes();
         if (!mimeTypes.isEmpty()) {
             debug << ", supportedMimeTypes=(";
@@ -289,7 +304,7 @@ void QPrintDevice::format(QDebug debug) const
                 debug << " \"" << mimeType.name() << '"';
             debug << ')';
         }
-#    endif // !QT_NO_MIMETYPE
+#    endif // mimetype
     } else {
         debug << "null";
     }

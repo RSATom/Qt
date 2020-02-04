@@ -11,7 +11,6 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/files/file_util_proxy.h"
 #include "base/location.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
@@ -36,26 +35,66 @@ FileWriterDelegate::FileWriterDelegate(
       bytes_written_backlog_(0),
       bytes_written_(0),
       bytes_read_(0),
-      io_buffer_(new net::IOBufferWithSize(kReadBufSize)),
+      io_buffer_(base::MakeRefCounted<net::IOBufferWithSize>(kReadBufSize)),
+      data_pipe_watcher_(FROM_HERE, mojo::SimpleWatcher::ArmingPolicy::MANUAL),
       weak_factory_(this) {}
 
-FileWriterDelegate::~FileWriterDelegate() {
+FileWriterDelegate::~FileWriterDelegate() = default;
+
+void FileWriterDelegate::Start(std::unique_ptr<BlobReader> blob_reader,
+                               DelegateWriteCallback write_callback) {
+  write_callback_ = std::move(write_callback);
+
+  if (!blob_reader) {
+    OnReadError(base::File::FILE_ERROR_FAILED);
+    return;
+  }
+
+  blob_reader_ = std::move(blob_reader);
+  BlobReader::Status status = blob_reader_->CalculateSize(base::BindOnce(
+      &FileWriterDelegate::OnDidCalculateSize, weak_factory_.GetWeakPtr()));
+  switch (status) {
+    case BlobReader::Status::NET_ERROR:
+      OnDidCalculateSize(blob_reader_->net_error());
+      return;
+    case BlobReader::Status::DONE:
+      OnDidCalculateSize(net::OK);
+      return;
+    case BlobReader::Status::IO_PENDING:
+      // Do nothing.
+      return;
+  }
+  NOTREACHED();
 }
 
-void FileWriterDelegate::Start(std::unique_ptr<net::URLRequest> request,
-                               const DelegateWriteCallback& write_callback) {
-  write_callback_ = write_callback;
-  request_ = std::move(request);
-  request_->Start();
+void FileWriterDelegate::Start(mojo::ScopedDataPipeConsumerHandle data_pipe,
+                               DelegateWriteCallback write_callback) {
+  write_callback_ = std::move(write_callback);
+
+  if (!data_pipe) {
+    OnReadError(base::File::FILE_ERROR_FAILED);
+    return;
+  }
+
+  data_pipe_ = std::move(data_pipe);
+  data_pipe_watcher_.Watch(
+      data_pipe_.get(),
+      MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED,
+      MOJO_TRIGGER_CONDITION_SIGNALS_SATISFIED,
+      base::BindRepeating(&FileWriterDelegate::OnDataPipeReady,
+                          weak_factory_.GetWeakPtr()));
+  data_pipe_watcher_.ArmOrNotify();
 }
 
 void FileWriterDelegate::Cancel() {
-  // Destroy the request to prevent it from invoking any callbacks.
-  request_.reset();
+  // Destroy the reader and invalidate weak ptrs to prevent pending callbacks.
+  blob_reader_ = nullptr;
+  data_pipe_watcher_.Cancel();
+  data_pipe_.reset();
+  weak_factory_.InvalidateWeakPtrs();
 
-  const int status = file_stream_writer_->Cancel(
-      base::Bind(&FileWriterDelegate::OnWriteCancelled,
-                 weak_factory_.GetWeakPtr()));
+  const int status = file_stream_writer_->Cancel(base::BindOnce(
+      &FileWriterDelegate::OnWriteCancelled, weak_factory_.GetWeakPtr()));
   // Return true to finish immediately if we have no pending writes.
   // Otherwise we'll do the final cleanup in the Cancel callback.
   if (status != net::ERR_IO_PENDING) {
@@ -64,53 +103,21 @@ void FileWriterDelegate::Cancel() {
   }
 }
 
-void FileWriterDelegate::OnReceivedRedirect(
-    net::URLRequest* request,
-    const net::RedirectInfo& redirect_info,
-    bool* defer_redirect) {
-  NOTREACHED();
-  OnError(base::File::FILE_ERROR_SECURITY);
-}
-
-void FileWriterDelegate::OnAuthRequired(net::URLRequest* request,
-                                        net::AuthChallengeInfo* auth_info) {
-  NOTREACHED();
-  OnError(base::File::FILE_ERROR_SECURITY);
-}
-
-void FileWriterDelegate::OnCertificateRequested(
-    net::URLRequest* request,
-    net::SSLCertRequestInfo* cert_request_info) {
-  NOTREACHED();
-  OnError(base::File::FILE_ERROR_SECURITY);
-}
-
-void FileWriterDelegate::OnSSLCertificateError(net::URLRequest* request,
-                                               const net::SSLInfo& ssl_info,
-                                               bool fatal) {
-  NOTREACHED();
-  OnError(base::File::FILE_ERROR_SECURITY);
-}
-
-void FileWriterDelegate::OnResponseStarted(net::URLRequest* request,
-                                           int net_error) {
+void FileWriterDelegate::OnDidCalculateSize(int net_error) {
   DCHECK_NE(net::ERR_IO_PENDING, net_error);
-  DCHECK_EQ(request_.get(), request);
 
-  if (net_error != net::OK || request->GetResponseCode() != 200) {
-    OnError(base::File::FILE_ERROR_FAILED);
+  if (net_error != net::OK) {
+    OnReadError(NetErrorToFileError(net_error));
     return;
   }
   Read();
 }
 
-void FileWriterDelegate::OnReadCompleted(net::URLRequest* request,
-                                         int bytes_read) {
+void FileWriterDelegate::OnReadCompleted(int bytes_read) {
   DCHECK_NE(net::ERR_IO_PENDING, bytes_read);
-  DCHECK_EQ(request_.get(), request);
 
   if (bytes_read < 0) {
-    OnError(base::File::FILE_ERROR_FAILED);
+    OnReadError(NetErrorToFileError(bytes_read));
     return;
   }
   OnDataReceived(bytes_read);
@@ -118,17 +125,49 @@ void FileWriterDelegate::OnReadCompleted(net::URLRequest* request,
 
 void FileWriterDelegate::Read() {
   bytes_written_ = 0;
-  bytes_read_ = request_->Read(io_buffer_.get(), io_buffer_->size());
-  if (bytes_read_ == net::ERR_IO_PENDING)
+  if (blob_reader_) {
+    BlobReader::Status status =
+        blob_reader_->Read(io_buffer_.get(), io_buffer_->size(), &bytes_read_,
+                           base::BindOnce(&FileWriterDelegate::OnReadCompleted,
+                                          weak_factory_.GetWeakPtr()));
+    switch (status) {
+      case BlobReader::Status::NET_ERROR:
+        OnReadCompleted(blob_reader_->net_error());
+        return;
+      case BlobReader::Status::DONE:
+        base::ThreadTaskRunnerHandle::Get()->PostTask(
+            FROM_HERE, base::BindOnce(&FileWriterDelegate::OnReadCompleted,
+                                      weak_factory_.GetWeakPtr(), bytes_read_));
+        return;
+      case BlobReader::Status::IO_PENDING:
+        // Do nothing.
+        return;
+    }
+    NOTREACHED();
     return;
-
-  if (bytes_read_ >= 0) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&FileWriterDelegate::OnDataReceived,
-                              weak_factory_.GetWeakPtr(), bytes_read_));
-  } else {
-    OnError(base::File::FILE_ERROR_FAILED);
   }
+
+  DCHECK(data_pipe_);
+  uint32_t num_bytes = io_buffer_->size();
+  MojoResult result = data_pipe_->ReadData(io_buffer_->data(), &num_bytes,
+                                           MOJO_READ_DATA_FLAG_NONE);
+  if (result == MOJO_RESULT_SHOULD_WAIT) {
+    data_pipe_watcher_.ArmOrNotify();
+    return;
+  }
+  if (result == MOJO_RESULT_OK) {
+    bytes_read_ = num_bytes;
+    OnReadCompleted(bytes_read_);
+    return;
+  }
+  if (result == MOJO_RESULT_FAILED_PRECONDITION) {
+    // Pipe closed, done reading.
+    OnReadCompleted(0);
+    return;
+  }
+  // Some unknown error, this shouldn't happen.
+  NOTREACHED();
+  OnReadError(base::File::FILE_ERROR_FAILED);
 }
 
 void FileWriterDelegate::OnDataReceived(int bytes_read) {
@@ -139,7 +178,8 @@ void FileWriterDelegate::OnDataReceived(int bytes_read) {
     // This could easily be optimized to rotate between a pool of buffers, so
     // that we could read and write at the same time.  It's not yet clear that
     // it's necessary.
-    cursor_ = new net::DrainableIOBuffer(io_buffer_.get(), bytes_read_);
+    cursor_ =
+        base::MakeRefCounted<net::DrainableIOBuffer>(io_buffer_, bytes_read_);
     Write();
   }
 }
@@ -147,21 +187,28 @@ void FileWriterDelegate::OnDataReceived(int bytes_read) {
 void FileWriterDelegate::Write() {
   writing_started_ = true;
   int64_t bytes_to_write = bytes_read_ - bytes_written_;
-  int write_response =
-      file_stream_writer_->Write(cursor_.get(),
-                                 static_cast<int>(bytes_to_write),
-                                 base::Bind(&FileWriterDelegate::OnDataWritten,
-                                            weak_factory_.GetWeakPtr()));
+  int write_response = file_stream_writer_->Write(
+      cursor_.get(), static_cast<int>(bytes_to_write),
+      base::BindOnce(&FileWriterDelegate::OnDataWritten,
+                     weak_factory_.GetWeakPtr()));
   if (write_response > 0) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&FileWriterDelegate::OnDataWritten,
-                              weak_factory_.GetWeakPtr(), write_response));
+        FROM_HERE, base::BindOnce(&FileWriterDelegate::OnDataWritten,
+                                  weak_factory_.GetWeakPtr(), write_response));
   } else if (net::ERR_IO_PENDING != write_response) {
-    OnError(NetErrorToFileError(write_response));
+    OnWriteError(NetErrorToFileError(write_response));
+  } else {
+    async_write_in_progress_ = true;
   }
 }
 
 void FileWriterDelegate::OnDataWritten(int write_response) {
+  async_write_in_progress_ = false;
+  if (saved_read_error_ != base::File::FILE_OK) {
+    OnReadError(saved_read_error_);
+    return;
+  }
+
   if (write_response > 0) {
     OnProgress(write_response, false);
     cursor_->DidConsume(write_response);
@@ -171,7 +218,7 @@ void FileWriterDelegate::OnDataWritten(int write_response) {
     else
       Write();
   } else {
-    OnError(NetErrorToFileError(write_response));
+    OnWriteError(NetErrorToFileError(write_response));
   }
 }
 
@@ -180,14 +227,37 @@ FileWriterDelegate::GetCompletionStatusOnError() const {
   return writing_started_ ? ERROR_WRITE_STARTED : ERROR_WRITE_NOT_STARTED;
 }
 
-void FileWriterDelegate::OnError(base::File::Error error) {
-  // Destroy the request to prevent it from invoking any callbacks.
-  request_.reset();
+void FileWriterDelegate::OnReadError(base::File::Error error) {
+  if (async_write_in_progress_) {
+    // Error signaled by the URLRequest while writing. This will be processed
+    // when the write completes.
+    saved_read_error_ = error;
+    return;
+  }
+
+  // Destroy the reader and invalidate weak ptrs to prevent pending callbacks.
+  blob_reader_.reset();
+  data_pipe_watcher_.Cancel();
+  data_pipe_.reset();
+  weak_factory_.InvalidateWeakPtrs();
 
   if (writing_started_)
     MaybeFlushForCompletion(error, 0, ERROR_WRITE_STARTED);
   else
     write_callback_.Run(error, 0, ERROR_WRITE_NOT_STARTED);
+}
+
+void FileWriterDelegate::OnWriteError(base::File::Error error) {
+  // Destroy the reader and invalidate weak ptrs to prevent pending callbacks.
+  blob_reader_.reset();
+  data_pipe_watcher_.Cancel();
+  data_pipe_.reset();
+  weak_factory_.InvalidateWeakPtrs();
+
+  // Errors when writing are not recoverable, so don't bother flushing.
+  write_callback_.Run(
+      error, 0,
+      writing_started_ ? ERROR_WRITE_STARTED : ERROR_WRITE_NOT_STARTED);
 }
 
 void FileWriterDelegate::OnProgress(int bytes_written, bool done) {
@@ -230,8 +300,8 @@ void FileWriterDelegate::MaybeFlushForCompletion(
   DCHECK(flush_policy_ == FlushPolicy::FLUSH_ON_COMPLETION);
 
   int flush_error = file_stream_writer_->Flush(
-      base::Bind(&FileWriterDelegate::OnFlushed, weak_factory_.GetWeakPtr(),
-                 error, bytes_written, progress_status));
+      base::BindOnce(&FileWriterDelegate::OnFlushed, weak_factory_.GetWeakPtr(),
+                     error, bytes_written, progress_status));
   if (flush_error != net::ERR_IO_PENDING)
     OnFlushed(error, bytes_written, progress_status, flush_error);
 }
@@ -247,6 +317,12 @@ void FileWriterDelegate::OnFlushed(base::File::Error error,
     progress_status = GetCompletionStatusOnError();
   }
   write_callback_.Run(error, bytes_written, progress_status);
+}
+
+void FileWriterDelegate::OnDataPipeReady(
+    MojoResult result,
+    const mojo::HandleSignalsState& state) {
+  Read();
 }
 
 }  // namespace storage

@@ -30,20 +30,43 @@ base::TimeDelta ComputeBrokenAlternativeServiceExpirationDelay(
 
 }  // namespace
 
-BrokenAlternativeServices::BrokenAlternativeServices(Delegate* delegate,
-                                                     base::TickClock* clock)
-    : delegate_(delegate),
-      clock_(clock),
-      recently_broken_alternative_services_(
-          RecentlyBrokenAlternativeServices::NO_AUTO_EVICT),
-      weak_ptr_factory_(this) {
+BrokenAlternativeServices::BrokenAlternativeServices(
+    Delegate* delegate,
+    const base::TickClock* clock)
+    : delegate_(delegate), clock_(clock), weak_ptr_factory_(this) {
   DCHECK(delegate_);
   DCHECK(clock_);
 }
 
-BrokenAlternativeServices::~BrokenAlternativeServices() {}
+BrokenAlternativeServices::~BrokenAlternativeServices() = default;
 
-void BrokenAlternativeServices::MarkAlternativeServiceBroken(
+void BrokenAlternativeServices::Clear() {
+  expiration_timer_.Stop();
+  broken_alternative_service_list_.clear();
+  broken_alternative_service_map_.clear();
+  recently_broken_alternative_services_.Clear();
+}
+
+void BrokenAlternativeServices::MarkBrokenUntilDefaultNetworkChanges(
+    const AlternativeService& alternative_service) {
+  DCHECK(!alternative_service.host.empty());
+  DCHECK_NE(kProtoUnknown, alternative_service.protocol);
+
+  // The brokenness will expire on the default network change or based on
+  // timer.
+  broken_alternative_services_on_default_network_.insert(alternative_service);
+  MarkBrokenImpl(alternative_service);
+}
+
+void BrokenAlternativeServices::MarkBroken(
+    const AlternativeService& alternative_service) {
+  // The brokenness expires based only on the timer, not on the default network
+  // change.
+  broken_alternative_services_on_default_network_.erase(alternative_service);
+  MarkBrokenImpl(alternative_service);
+}
+
+void BrokenAlternativeServices::MarkBrokenImpl(
     const AlternativeService& alternative_service) {
   // Empty host means use host of origin, callers are supposed to substitute.
   DCHECK(!alternative_service.host.empty());
@@ -61,8 +84,7 @@ void BrokenAlternativeServices::MarkAlternativeServiceBroken(
       ComputeBrokenAlternativeServiceExpirationDelay(broken_count);
   // Return if alternative service is already in expiration queue.
   BrokenAlternativeServiceList::iterator list_it;
-  if (!AddToBrokenAlternativeServiceListAndMap(alternative_service, expiration,
-                                               &list_it)) {
+  if (!AddToBrokenListAndMap(alternative_service, expiration, &list_it)) {
     return;
   }
 
@@ -73,7 +95,7 @@ void BrokenAlternativeServices::MarkAlternativeServiceBroken(
   }
 }
 
-void BrokenAlternativeServices::MarkAlternativeServiceRecentlyBroken(
+void BrokenAlternativeServices::MarkRecentlyBroken(
     const AlternativeService& alternative_service) {
   DCHECK_NE(kProtoUnknown, alternative_service.protocol);
   if (recently_broken_alternative_services_.Get(alternative_service) ==
@@ -82,7 +104,7 @@ void BrokenAlternativeServices::MarkAlternativeServiceRecentlyBroken(
   }
 }
 
-bool BrokenAlternativeServices::IsAlternativeServiceBroken(
+bool BrokenAlternativeServices::IsBroken(
     const AlternativeService& alternative_service) const {
   // Empty host means use host of origin, callers are supposed to substitute.
   DCHECK(!alternative_service.host.empty());
@@ -90,18 +112,37 @@ bool BrokenAlternativeServices::IsAlternativeServiceBroken(
          broken_alternative_service_map_.end();
 }
 
-bool BrokenAlternativeServices::WasAlternativeServiceRecentlyBroken(
-    const AlternativeService& alternative_service) {
-  return recently_broken_alternative_services_.Get(alternative_service) !=
-         recently_broken_alternative_services_.end();
+bool BrokenAlternativeServices::IsBroken(
+    const AlternativeService& alternative_service,
+    base::TimeTicks* brokenness_expiration) const {
+  DCHECK(brokenness_expiration != nullptr);
+  // Empty host means use host of origin, callers are supposed to substitute.
+  DCHECK(!alternative_service.host.empty());
+  auto map_it = broken_alternative_service_map_.find(alternative_service);
+  if (map_it == broken_alternative_service_map_.end()) {
+    return false;
+  }
+  auto list_it = map_it->second;
+  *brokenness_expiration = list_it->second;
+  return true;
 }
 
-void BrokenAlternativeServices::ConfirmAlternativeService(
+bool BrokenAlternativeServices::WasRecentlyBroken(
+    const AlternativeService& alternative_service) {
+  DCHECK(!alternative_service.host.empty());
+  return recently_broken_alternative_services_.Get(alternative_service) !=
+             recently_broken_alternative_services_.end() ||
+         broken_alternative_service_map_.find(alternative_service) !=
+             broken_alternative_service_map_.end();
+}
+
+void BrokenAlternativeServices::Confirm(
     const AlternativeService& alternative_service) {
   DCHECK_NE(kProtoUnknown, alternative_service.protocol);
 
-  // Remove |alternative_service| from |alternative_service_list_| and
-  // |alternative_service_map_|.
+  // Remove |alternative_service| from |broken_alternative_service_list_|,
+  // |broken_alternative_service_map_| and
+  // |broken_alternative_services_on_default_network_|.
   auto map_it = broken_alternative_service_map_.find(alternative_service);
   if (map_it != broken_alternative_service_map_.end()) {
     broken_alternative_service_list_.erase(map_it->second);
@@ -112,6 +153,16 @@ void BrokenAlternativeServices::ConfirmAlternativeService(
   if (it != recently_broken_alternative_services_.end()) {
     recently_broken_alternative_services_.Erase(it);
   }
+
+  broken_alternative_services_on_default_network_.erase(alternative_service);
+}
+
+bool BrokenAlternativeServices::OnDefaultNetworkChanged() {
+  bool changed = !broken_alternative_services_on_default_network_.empty();
+  while (!broken_alternative_services_on_default_network_.empty()) {
+    Confirm(*broken_alternative_services_on_default_network_.begin());
+  }
+  return changed;
 }
 
 void BrokenAlternativeServices::SetBrokenAndRecentlyBrokenAlternativeServices(
@@ -122,21 +173,15 @@ void BrokenAlternativeServices::SetBrokenAndRecentlyBrokenAlternativeServices(
   DCHECK(broken_alternative_service_list);
   DCHECK(recently_broken_alternative_services);
 
-  // Make sure all alt svcs in |broken_alternative_service_list| has an entry
-  // in |recently_broken_alternative_services|
-  for (const auto& pair : *broken_alternative_service_list) {
-    DCHECK(recently_broken_alternative_services->Peek(pair.first) !=
-           recently_broken_alternative_services->end());
-  }
-
   base::TimeTicks next_expiration =
       broken_alternative_service_list_.empty()
           ? base::TimeTicks::Max()
           : broken_alternative_service_list_.front().second;
 
-  // Add recently broken alt svcs to |recently_broken_alternative_services_|.
-  // If an alt-svc already exists, update its broken-count to the one provided
-  // in |recently_broken_alternative_services|.
+  // Add |recently_broken_alternative_services| to
+  // |recently_broken_alternative_services_|.
+  // If an alt-svc already exists, overwrite its broken-count to the one in
+  // |recently_broken_alternative_services|.
 
   recently_broken_alternative_services_.Swap(
       *recently_broken_alternative_services);
@@ -150,30 +195,45 @@ void BrokenAlternativeServices::SetBrokenAndRecentlyBrokenAlternativeServices(
     }
   }
 
-  // Add broken alt svcs to |broken_alternative_service_map_|. If an entry
-  // already exists, delete its corresponding entry in
-  // |broken_alternative_service_list_| and update its map entry to point to
-  // its position in |broken_alternative_service_list|.
-  for (auto it = broken_alternative_service_list->begin();
-       it != broken_alternative_service_list->end(); ++it) {
-    const AlternativeService& alternative_service = it->first;
+  // Append |broken_alternative_service_list| to
+  // |broken_alternative_service_list_|
+  size_t num_broken_alt_svcs_added = broken_alternative_service_list->size();
+  broken_alternative_service_list_.splice(
+      broken_alternative_service_list_.begin(),
+      *broken_alternative_service_list);
+  // For each newly-appended alt svc in |broken_alternative_service_list_|,
+  // add an entry to |broken_alternative_service_map_| that points to its
+  // list iterator. Also, add an entry for that alt svc in
+  // |recently_broken_alternative_services_| if one doesn't exist.
+  auto list_it = broken_alternative_service_list_.begin();
+  for (size_t i = 0; i < num_broken_alt_svcs_added; ++i) {
+    const AlternativeService& alternative_service = list_it->first;
     auto map_it = broken_alternative_service_map_.find(alternative_service);
     if (map_it != broken_alternative_service_map_.end()) {
-      broken_alternative_service_list_.erase(map_it->second);
-      map_it->second = it;
+      // Implies this entry already exists somewhere else in
+      // |broken_alternative_service_list_|. Remove the existing entry from
+      // |broken_alternative_service_list_|, and update the
+      // |broken_alternative_service_map_| entry to point to this list entry
+      // instead.
+      auto list_existing_entry_it = map_it->second;
+      broken_alternative_service_list_.erase(list_existing_entry_it);
+      map_it->second = list_it;
     } else {
       broken_alternative_service_map_.insert(
-          std::make_pair(alternative_service, it));
+          std::make_pair(alternative_service, list_it));
     }
+
+    if (recently_broken_alternative_services_.Peek(alternative_service) ==
+        recently_broken_alternative_services_.end()) {
+      recently_broken_alternative_services_.Put(alternative_service, 1);
+    }
+
+    ++list_it;
   }
 
-  // Append |broken_alternative_service_list| to
-  // |broken_alternative_service_list_|, then sort the resulting list.
-  // Neither operations will invalidate any iterators of either list,
-  // so all iterators in |broken_alternative_service_map_| remain valid.
-  broken_alternative_service_list_.splice(
-      broken_alternative_service_list_.end(), *broken_alternative_service_list);
-
+  // Sort |broken_alternative_service_list_| by expiration time. This operation
+  // does not invalidate list iterators, so |broken_alternative_service_map_|
+  // does not need to be updated.
   broken_alternative_service_list_.sort(
       [](const std::pair<AlternativeService, base::TimeTicks>& lhs,
          const std::pair<AlternativeService, base::TimeTicks>& rhs) -> bool {
@@ -199,7 +259,7 @@ BrokenAlternativeServices::recently_broken_alternative_services() const {
   return recently_broken_alternative_services_;
 }
 
-bool BrokenAlternativeServices::AddToBrokenAlternativeServiceListAndMap(
+bool BrokenAlternativeServices::AddToBrokenListAndMap(
     const AlternativeService& alternative_service,
     base::TimeTicks expiration,
     BrokenAlternativeServiceList::iterator* it) {
@@ -253,8 +313,10 @@ void BrokenAlternativeServices ::
     ScheduleBrokenAlternateProtocolMappingsExpiration() {
   DCHECK(!broken_alternative_service_list_.empty());
   base::TimeTicks now = clock_->NowTicks();
-  base::TimeTicks when = broken_alternative_service_list_.front().second;
-  base::TimeDelta delay = when > now ? when - now : base::TimeDelta();
+  base::TimeTicks next_expiration =
+      broken_alternative_service_list_.front().second;
+  base::TimeDelta delay =
+      next_expiration > now ? next_expiration - now : base::TimeDelta();
   expiration_timer_.Stop();
   expiration_timer_.Start(
       FROM_HERE, delay,

@@ -51,8 +51,8 @@
 
 #include "jnipositioning.h"
 
-static JavaVM *javaVM = 0;
-jclass positioningClass;
+static JavaVM *javaVM = nullptr;
+static jclass positioningClass;
 
 static jmethodID providerListMethodId;
 static jmethodID lastKnownPositionMethodId;
@@ -78,10 +78,10 @@ namespace AndroidPositioning {
         AttachedJNIEnv()
         {
             attached = false;
-            if (javaVM && javaVM->GetEnv((void**)&jniEnv, JNI_VERSION_1_6) < 0) {
-                if (javaVM->AttachCurrentThread(&jniEnv, NULL) < 0) {
+            if (javaVM && javaVM->GetEnv(reinterpret_cast<void**>(&jniEnv), JNI_VERSION_1_6) < 0) {
+                if (javaVM->AttachCurrentThread(&jniEnv, nullptr) < 0) {
                     __android_log_print(ANDROID_LOG_ERROR, logTag, "AttachCurrentThread failed");
-                    jniEnv = 0;
+                    jniEnv = nullptr;
                     return;
                 }
                 attached = true;
@@ -109,7 +109,7 @@ namespace AndroidPositioning {
             QGeoPositionInfoSourceAndroid *src = qobject_cast<QGeoPositionInfoSourceAndroid *>(obj);
             Q_ASSERT(src);
             do {
-                key = QRandomGenerator::global()->generate();
+                key = qAbs(int(QRandomGenerator::global()->generate()));
             } while (idToPosSource()->contains(key));
 
             idToPosSource()->insert(key, src);
@@ -117,7 +117,7 @@ namespace AndroidPositioning {
             QGeoSatelliteInfoSourceAndroid *src = qobject_cast<QGeoSatelliteInfoSourceAndroid *>(obj);
             Q_ASSERT(src);
             do {
-                key = QRandomGenerator::global()->generate();
+                key = qAbs(int(QRandomGenerator::global()->generate()));
             } while (idToSatSource()->contains(key));
 
             idToSatSource()->insert(key, src);
@@ -142,16 +142,15 @@ namespace AndroidPositioning {
 
     QGeoPositionInfoSource::PositioningMethods availableProviders()
     {
-        QGeoPositionInfoSource::PositioningMethods ret =
-                static_cast<QGeoPositionInfoSource::PositioningMethods>(0);
+        QGeoPositionInfoSource::PositioningMethods ret = QGeoPositionInfoSource::NoPositioningMethods;
         AttachedJNIEnv env;
         if (!env.jniEnv)
             return ret;
         jintArray jProviders = static_cast<jintArray>(env.jniEnv->CallStaticObjectMethod(
                                                           positioningClass, providerListMethodId));
-        jint *providers = env.jniEnv->GetIntArrayElements(jProviders, 0);
-        const uint size = env.jniEnv->GetArrayLength(jProviders);
-        for (uint i = 0; i < size; i++) {
+        jint *providers = env.jniEnv->GetIntArrayElements(jProviders, nullptr);
+        const int size = env.jniEnv->GetArrayLength(jProviders);
+        for (int i = 0; i < size; i++) {
             switch (providers[i]) {
             case PROVIDER_GPS:
                 ret |= QGeoPositionInfoSource::SatellitePositioningMethods;
@@ -182,17 +181,17 @@ namespace AndroidPositioning {
                                        const char *name,
                                        const char *sig)
     {
-        jmethodID id = 0;
-        int offset_name = qstrlen(name);
-        int offset_signal = qstrlen(sig);
-        QByteArray key(offset_name + offset_signal, Qt::Uninitialized);
+        jmethodID id = nullptr;
+        uint offset_name = qstrlen(name);
+        uint offset_signal = qstrlen(sig);
+        QByteArray key(int(offset_name + offset_signal), Qt::Uninitialized);
         memcpy(key.data(), name, offset_name);
         memcpy(key.data()+offset_name, sig, offset_signal);
         QHash<QByteArray, jmethodID>::iterator it = cachedMethodID->find(key);
         if (it == cachedMethodID->end()) {
             id = env->GetMethodID(clazz, name, sig);
             if (env->ExceptionCheck()) {
-                id = 0;
+                id = nullptr;
     #ifdef QT_DEBUG
                 env->ExceptionDescribe();
     #endif // QT_DEBUG
@@ -235,14 +234,30 @@ namespace AndroidPositioning {
         jlong timestamp = jniEnv->CallLongMethod(location, mid);
         info.setTimestamp(QDateTime::fromMSecsSinceEpoch(timestamp, Qt::UTC));
 
-        //accuracy
+        //horizontal accuracy
         mid = getCachedMethodID(jniEnv, thisClass, "hasAccuracy", "()Z");
         attributeExists = jniEnv->CallBooleanMethod(location, mid);
         if (attributeExists) {
             mid = getCachedMethodID(jniEnv, thisClass, "getAccuracy", "()F");
             jfloat accuracy = jniEnv->CallFloatMethod(location, mid);
-            info.setAttribute(QGeoPositionInfo::HorizontalAccuracy, accuracy);
+            info.setAttribute(QGeoPositionInfo::HorizontalAccuracy, qreal(accuracy));
         }
+
+        //vertical accuracy
+        mid = getCachedMethodID(jniEnv, thisClass, "hasVerticalAccuracy", "()Z");
+        if (mid) {
+            attributeExists = jniEnv->CallBooleanMethod(location, mid);
+            if (attributeExists) {
+                mid = getCachedMethodID(jniEnv, thisClass, "getVerticalAccuracyMeters", "()F");
+                if (mid) {
+                    jfloat accuracy = jniEnv->CallFloatMethod(location, mid);
+                    info.setAttribute(QGeoPositionInfo::VerticalAccuracy, qreal(accuracy));
+                }
+            }
+        }
+
+        if (!mid)
+            jniEnv->ExceptionClear();
 
         //ground speed
         mid = getCachedMethodID(jniEnv, thisClass, "hasSpeed", "()Z");
@@ -250,7 +265,7 @@ namespace AndroidPositioning {
         if (attributeExists) {
             mid = getCachedMethodID(jniEnv, thisClass, "getSpeed", "()F");
             jfloat speed = jniEnv->CallFloatMethod(location, mid);
-            info.setAttribute(QGeoPositionInfo::GroundSpeed, speed);
+            info.setAttribute(QGeoPositionInfo::GroundSpeed, qreal(speed));
         }
 
         //bearing
@@ -259,7 +274,7 @@ namespace AndroidPositioning {
         if (attributeExists) {
             mid = getCachedMethodID(jniEnv, thisClass, "getBearing", "()F");
             jfloat bearing = jniEnv->CallFloatMethod(location, mid);
-            info.setAttribute(QGeoPositionInfo::Direction, bearing);
+            info.setAttribute(QGeoPositionInfo::Direction, qreal(bearing));
         }
 
         jniEnv->DeleteLocalRef(thisClass);
@@ -288,7 +303,7 @@ namespace AndroidPositioning {
             //signal strength
             jmethodID mid = getCachedMethodID(jniEnv, thisClass, "getSnr", "()F");
             jfloat snr = jniEnv->CallFloatMethod(element, mid);
-            info.setSignalStrength((int)snr);
+            info.setSignalStrength(int(snr));
 
             //ignore any satellite with no signal whatsoever
             if (qFuzzyIsNull(snr))
@@ -307,12 +322,12 @@ namespace AndroidPositioning {
             //azimuth
             mid = getCachedMethodID(jniEnv, thisClass, "getAzimuth", "()F");
             jfloat azimuth = jniEnv->CallFloatMethod(element, mid);
-            info.setAttribute(QGeoSatelliteInfo::Azimuth, azimuth);
+            info.setAttribute(QGeoSatelliteInfo::Azimuth, qreal(azimuth));
 
             //elevation
             mid = getCachedMethodID(jniEnv, thisClass, "getElevation", "()F");
             jfloat elevation = jniEnv->CallFloatMethod(element, mid);
-            info.setAttribute(QGeoSatelliteInfo::Elevation, elevation);
+            info.setAttribute(QGeoSatelliteInfo::Elevation, qreal(elevation));
 
             //used in a fix
             mid = getCachedMethodID(jniEnv, thisClass, "usedInFix", "()Z");
@@ -339,7 +354,7 @@ namespace AndroidPositioning {
         jobject location = env.jniEnv->CallStaticObjectMethod(positioningClass,
                                                               lastKnownPositionMethodId,
                                                               fromSatellitePositioningMethodsOnly);
-        if (location == 0)
+        if (location == nullptr)
             return QGeoPositionInfo();
 
         const QGeoPositionInfo info = positionInfoFromJavaLocation(env.jniEnv, location);
@@ -513,6 +528,18 @@ static void locationProvidersDisabled(JNIEnv *env, jobject /*thiz*/, jint androi
     QMetaObject::invokeMethod(source, "locationProviderDisabled", Qt::AutoConnection);
 }
 
+static void locationProvidersChanged(JNIEnv *env, jobject /*thiz*/, jint androidClassKey)
+{
+    Q_UNUSED(env);
+    QObject *source = AndroidPositioning::idToPosSource()->value(androidClassKey);
+    if (!source) {
+        qWarning("locationProvidersChanged: source == 0");
+        return;
+    }
+
+    QMetaObject::invokeMethod(source, "locationProvidersChanged", Qt::AutoConnection);
+}
+
 static void satelliteUpdated(JNIEnv *env, jobject /*thiz*/, jobjectArray satellites, jint androidClassKey, jboolean isSingleUpdate)
 {
     QList<QGeoSatelliteInfo> inUse;
@@ -520,7 +547,7 @@ static void satelliteUpdated(JNIEnv *env, jobject /*thiz*/, jobjectArray satelli
 
     QGeoSatelliteInfoSourceAndroid *source = AndroidPositioning::idToSatSource()->value(androidClassKey);
     if (!source) {
-        qFatal("satelliteUpdated: source == 0");
+        qWarning("satelliteUpdated: source == 0");
         return;
     }
 
@@ -549,7 +576,8 @@ if (!VAR) { \
 static JNINativeMethod methods[] = {
     {"positionUpdated", "(Landroid/location/Location;IZ)V", (void *)positionUpdated},
     {"locationProvidersDisabled", "(I)V", (void *) locationProvidersDisabled},
-    {"satelliteUpdated", "([Landroid/location/GpsSatellite;IZ)V", (void *)satelliteUpdated}
+    {"satelliteUpdated", "([Landroid/location/GpsSatellite;IZ)V", (void *)satelliteUpdated},
+    {"locationProvidersChanged", "(I)V", (void *) locationProvidersChanged}
 };
 
 static bool registerNatives(JNIEnv *env)
@@ -587,8 +615,8 @@ Q_DECL_EXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /*reserved*/)
 
     __android_log_print(ANDROID_LOG_INFO, logTag, "Positioning start");
     UnionJNIEnvToVoid uenv;
-    uenv.venv = NULL;
-    javaVM = 0;
+    uenv.venv = nullptr;
+    javaVM = nullptr;
 
     if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_4) != JNI_OK) {
         __android_log_print(ANDROID_LOG_FATAL, logTag, "GetEnv failed");

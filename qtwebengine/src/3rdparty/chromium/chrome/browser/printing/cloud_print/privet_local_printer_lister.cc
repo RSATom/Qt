@@ -10,33 +10,32 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "chrome/browser/printing/cloud_print/privet_constants.h"
 #include "chrome/browser/printing/cloud_print/privet_device_lister_impl.h"
 #include "chrome/browser/printing/cloud_print/privet_http_asynchronous_factory.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace cloud_print {
 
 struct PrivetLocalPrinterLister::DeviceContext {
-  DeviceContext() : has_local_printing(false) {
-  }
-
   std::unique_ptr<PrivetHTTPResolution> privet_resolution;
   std::unique_ptr<PrivetHTTPClient> privet_client;
   std::unique_ptr<PrivetJSONOperation> info_operation;
   DeviceDescription description;
 
-  bool has_local_printing;
+  bool has_local_printing = false;
 };
 
 PrivetLocalPrinterLister::PrivetLocalPrinterLister(
     local_discovery::ServiceDiscoveryClient* service_discovery_client,
-    net::URLRequestContextGetter* request_context,
-    Delegate* delegate) : delegate_(delegate) {
-  privet_lister_.reset(
-      new PrivetDeviceListerImpl(service_discovery_client, this));
-  privet_http_factory_ = PrivetHTTPAsynchronousFactory::CreateInstance(
-      request_context);
-}
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    Delegate* delegate)
+    : privet_http_factory_(
+          PrivetHTTPAsynchronousFactory::CreateInstance(url_loader_factory)),
+      delegate_(delegate),
+      privet_lister_(
+          new PrivetDeviceListerImpl(service_discovery_client, this)) {}
 
 PrivetLocalPrinterLister::~PrivetLocalPrinterLister() {
 }
@@ -56,7 +55,7 @@ void PrivetLocalPrinterLister::DeviceChanged(
   if (description.type != kPrivetTypePrinter)
     return;
 
-  DeviceContextMap::iterator it = device_contexts_.find(name);
+  auto it = device_contexts_.find(name);
   if (it != device_contexts_.end()) {
     it->second->description = description;
     delegate_->LocalPrinterChanged(name, it->second->has_local_printing,
@@ -64,7 +63,7 @@ void PrivetLocalPrinterLister::DeviceChanged(
     return;
   }
 
-  std::unique_ptr<DeviceContext> context(new DeviceContext);
+  auto context = std::make_unique<DeviceContext>();
   context->has_local_printing = false;
   context->description = description;
   context->privet_resolution = privet_http_factory_->CreatePrivetHTTP(name);
@@ -90,7 +89,7 @@ void PrivetLocalPrinterLister::OnPrivetResolved(
     device_contexts_.erase(name);
     return;
   }
-  DeviceContextMap::iterator it = device_contexts_.find(http_client->GetName());
+  auto it = device_contexts_.find(http_client->GetName());
   DCHECK(it != device_contexts_.end());
 
   it->second->info_operation = http_client->CreateInfoOperation(base::Bind(
@@ -130,7 +129,7 @@ void PrivetLocalPrinterLister::DeviceRemoved(const std::string& device_name) {
 
 const DeviceDescription* PrivetLocalPrinterLister::GetDeviceDescription(
     const std::string& name) {
-  DeviceContextMap::iterator it = device_contexts_.find(name);
+  auto it = device_contexts_.find(name);
   return (it != device_contexts_.end()) ? &it->second->description : nullptr;
 }
 

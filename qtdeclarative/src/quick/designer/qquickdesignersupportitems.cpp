@@ -55,11 +55,11 @@
 
 QT_BEGIN_NAMESPACE
 
-static void (*fixResourcePathsForObjectCallBack)(QObject*) = 0;
+static void (*fixResourcePathsForObjectCallBack)(QObject*) = nullptr;
 
 static void stopAnimation(QObject *object)
 {
-    if (object == 0)
+    if (object == nullptr)
         return;
 
     QQuickTransition *transition = qobject_cast<QQuickTransition*>(object);
@@ -94,10 +94,23 @@ static void allSubObjects(QObject *object, QObjectList &objectList)
 
     objectList.append(object);
 
+    const QMetaObject *mo = object->metaObject();
+
+    QByteArrayList deferredPropertyNames;
+    const int namesIndex = mo->indexOfClassInfo("DeferredPropertyNames");
+    if (namesIndex != -1) {
+        QMetaClassInfo classInfo = mo->classInfo(namesIndex);
+        deferredPropertyNames = QByteArray(classInfo.value()).split(',');
+    }
+
     for (int index = QObject::staticMetaObject.propertyOffset();
          index < object->metaObject()->propertyCount();
          index++) {
+
         QMetaProperty metaProperty = object->metaObject()->property(index);
+
+        if (deferredPropertyNames.contains(metaProperty.name()))
+            continue;
 
         // search recursive in property objects
         if (metaProperty.isReadable()
@@ -179,19 +192,19 @@ static bool isCrashingType(const QQmlType &type)
 {
     QString name = type.qmlTypeName();
 
-    if (type.qmlTypeName() == QLatin1String("QtMultimedia/MediaPlayer"))
+    if (name == QLatin1String("QtMultimedia/MediaPlayer"))
         return true;
 
-    if (type.qmlTypeName() == QLatin1String("QtMultimedia/Audio"))
+    if (name == QLatin1String("QtMultimedia/Audio"))
         return true;
 
-    if (type.qmlTypeName() == QLatin1String("QtQuick.Controls/MenuItem"))
+    if (name == QLatin1String("QtQuick.Controls/MenuItem"))
         return true;
 
-    if (type.qmlTypeName() == QLatin1String("QtQuick.Controls/Menu"))
+    if (name == QLatin1String("QtQuick.Controls/Menu"))
         return true;
 
-    if (type.qmlTypeName() == QLatin1String("QtQuick/Timer"))
+    if (name == QLatin1String("QtQuick/Timer"))
         return true;
 
     return false;
@@ -203,7 +216,7 @@ QObject *QQuickDesignerSupportItems::createPrimitive(const QString &typeName, in
 
     Q_UNUSED(disableComponentComplete)
 
-    QObject *object = 0;
+    QObject *object = nullptr;
     QQmlType type = QQmlMetaType::qmlType(typeName, majorNumber, minorNumber);
 
     if (isCrashingType(type)) {
@@ -214,7 +227,7 @@ QObject *QQuickDesignerSupportItems::createPrimitive(const QString &typeName, in
         } else
         {
             if (type.typeName() == "QQmlComponent") {
-                object = new QQmlComponent(context->engine(), 0);
+                object = new QQmlComponent(context->engine(), nullptr);
             } else  {
                 object = type.create();
             }
@@ -235,7 +248,7 @@ QObject *QQuickDesignerSupportItems::createPrimitive(const QString &typeName, in
 
     tweakObjects(object);
 
-    if (object && QQmlEngine::contextForObject(object) == 0)
+    if (object && QQmlEngine::contextForObject(object) == nullptr)
         QQmlEngine::setContextForObject(object, context);
 
     QQmlEngine::setObjectOwnership(object, QQmlEngine::CppOwnership);

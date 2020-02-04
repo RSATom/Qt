@@ -4,7 +4,6 @@
 
 #include "ui/gfx/animation/animation.h"
 
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "ui/gfx/animation/animation_container.h"
 #include "ui/gfx/animation/animation_delegate.h"
@@ -113,6 +112,12 @@ bool Animation::ShouldRenderRichAnimationImpl() {
 bool Animation::ScrollAnimationsEnabledBySystem() {
   // Defined in platform specific files for Windows and OSX.
   return true;
+}
+
+bool Animation::PrefersReducedMotion() {
+  // By default, we assume that animations are enabled, to avoid impacting the
+  // experience for users on systems that don't have APIs for reduced motion.
+  return false;
 }
 #endif
 

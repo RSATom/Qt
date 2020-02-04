@@ -225,7 +225,7 @@ void MyClass::enableCharNotifications()
 {
     QBluetoothDeviceInfo remoteDevice;
     QLowEnergyService *service;
-    QLowEnergyController *control = new QLowEnergyController(remoteDevice, this);
+    QLowEnergyController *control = QLowEnergyController::createCentral(remoteDevice, this);
     control->connectToDevice();
 
 

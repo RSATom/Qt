@@ -8,30 +8,35 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/platform_file.h"
+#include "rtc_base/platform_file.h"
 
 #if defined(WEBRTC_WIN)
 #include <io.h>
+
+#include "rtc_base/string_utils.h"  // For ToUtf16
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 #endif
 
 namespace rtc {
 
+FILE* FdopenPlatformFileForWriting(PlatformFile file) {
+  return FdopenPlatformFile(file, "w");
+}
+
 #if defined(WEBRTC_WIN)
 const PlatformFile kInvalidPlatformFileValue = INVALID_HANDLE_VALUE;
 
-FILE* FdopenPlatformFileForWriting(PlatformFile file) {
+FILE* FdopenPlatformFile(PlatformFile file, const char* modes) {
   if (file == kInvalidPlatformFileValue)
     return nullptr;
   int fd = _open_osfhandle(reinterpret_cast<intptr_t>(file), 0);
   if (fd < 0)
     return nullptr;
 
-  return _fdopen(fd, "w");
+  return _fdopen(fd, modes);
 }
 
 bool ClosePlatformFile(PlatformFile file) {
@@ -47,6 +52,11 @@ PlatformFile OpenPlatformFile(const std::string& path) {
                       nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 }
 
+PlatformFile OpenPlatformFileReadOnly(const std::string& path) {
+  return ::CreateFile(ToUtf16(path).c_str(), GENERIC_READ, FILE_SHARE_READ,
+                      nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+}
+
 PlatformFile CreatePlatformFile(const std::string& path) {
   return ::CreateFile(ToUtf16(path).c_str(), GENERIC_READ | GENERIC_WRITE, 0,
                       nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -56,12 +66,12 @@ PlatformFile CreatePlatformFile(const std::string& path) {
 
 const PlatformFile kInvalidPlatformFileValue = -1;
 
-FILE* FdopenPlatformFileForWriting(PlatformFile file) {
-  return fdopen(file, "w");
+FILE* FdopenPlatformFile(PlatformFile file, const char* modes) {
+  return fdopen(file, modes);
 }
 
 bool ClosePlatformFile(PlatformFile file) {
-  return close(file);
+  return close(file) == 0;
 }
 
 bool RemoveFile(const std::string& path) {
@@ -70,6 +80,10 @@ bool RemoveFile(const std::string& path) {
 
 PlatformFile OpenPlatformFile(const std::string& path) {
   return ::open(path.c_str(), O_RDWR);
+}
+
+PlatformFile OpenPlatformFileReadOnly(const std::string& path) {
+  return ::open(path.c_str(), O_RDONLY);
 }
 
 PlatformFile CreatePlatformFile(const std::string& path) {

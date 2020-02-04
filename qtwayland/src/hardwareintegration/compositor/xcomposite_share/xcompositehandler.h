@@ -45,7 +45,7 @@
 #include "xlibinclude.h"
 
 #include "qwayland-server-xcomposite.h"
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -55,7 +55,7 @@ public:
     XCompositeHandler(QWaylandCompositor *compositor, Display *display);
 
 private:
-    QWindow *mFakeRootWindow;
+    QWindow *mFakeRootWindow = nullptr;
 
     QString mDisplayString;
 

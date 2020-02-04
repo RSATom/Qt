@@ -18,6 +18,7 @@
 #include "dbus/object_path.h"
 #include "dbus/property.h"
 #include "device/bluetooth/bluetooth_export.h"
+#include "device/bluetooth/bluetooth_gatt_characteristic.h"
 #include "device/bluetooth/dbus/bluetooth_gatt_characteristic_client.h"
 
 namespace bluez {
@@ -44,7 +45,7 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothGattCharacteristicClient
   ~FakeBluetoothGattCharacteristicClient() override;
 
   // DBusClient override.
-  void Init(dbus::Bus* bus) override;
+  void Init(dbus::Bus* bus, const std::string& bluetooth_service_name) override;
 
   // BluetoothGattCharacteristicClient overrides.
   void AddObserver(Observer* observer) override;
@@ -58,9 +59,22 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothGattCharacteristicClient
                   const std::vector<uint8_t>& value,
                   const base::Closure& callback,
                   const ErrorCallback& error_callback) override;
+  void PrepareWriteValue(const dbus::ObjectPath& object_path,
+                         const std::vector<uint8_t>& value,
+                         const base::Closure& callback,
+                         const ErrorCallback& error_callback) override;
+#if defined(OS_CHROMEOS)
+  void StartNotify(
+      const dbus::ObjectPath& object_path,
+      device::BluetoothGattCharacteristic::NotificationType notification_type,
+      const base::Closure& callback,
+      const ErrorCallback& error_callback) override;
+#else
   void StartNotify(const dbus::ObjectPath& object_path,
                    const base::Closure& callback,
                    const ErrorCallback& error_callback) override;
+#endif
+
   void StopNotify(const dbus::ObjectPath& object_path,
                   const base::Closure& callback,
                   const ErrorCallback& error_callback) override;
@@ -181,7 +195,7 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothGattCharacteristicClient
   std::map<std::string, DelayedCallback*> action_extra_requests_;
 
   // List of observers interested in event notifications from us.
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
   // Weak pointer factory for generating 'this' pointers that might live longer
   // than we do.

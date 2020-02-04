@@ -8,15 +8,21 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "components/safe_browsing/password_protection/metrics_util.h"
 #include "components/safe_browsing/password_protection/password_protection_service.h"
 #include "content/public/browser/browser_thread.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_fetcher_delegate.h"
-#include "net/url_request/url_request_status.h"
+
+#include <vector>
 
 class GURL;
 
+namespace network {
+class SimpleURLLoader;
+}
+
 namespace safe_browsing {
+
+class PasswordProtectionNavigationThrottle;
 
 // A request for checking if an unfamiliar login form or a password reuse event
 // is safe. PasswordProtectionRequest objects are owned by
@@ -35,16 +41,17 @@ namespace safe_browsing {
 // (7) |   UI   | On receiving response, handle response and finish.
 //     |        | On request timeout, cancel request.
 //     |        | On deletion of |password_protection_service_|, cancel request.
-class PasswordProtectionRequest : public base::RefCountedThreadSafe<
-                                      PasswordProtectionRequest,
-                                      content::BrowserThread::DeleteOnUIThread>,
-                                  public net::URLFetcherDelegate {
+class PasswordProtectionRequest
+    : public base::RefCountedThreadSafe<
+          PasswordProtectionRequest,
+          content::BrowserThread::DeleteOnUIThread> {
  public:
   PasswordProtectionRequest(content::WebContents* web_contents,
                             const GURL& main_frame_url,
                             const GURL& password_form_action,
                             const GURL& password_form_frame_url,
-                            const std::string& saved_domain,
+                            ReusedPasswordType reused_password_type,
+                            const std::vector<std::string>& matching_origins,
                             LoginReputationClientRequest::TriggerType type,
                             bool password_field_exists,
                             PasswordProtectionService* pps,
@@ -62,9 +69,8 @@ class PasswordProtectionRequest : public base::RefCountedThreadSafe<
   // due to timeout. This function will call Finish() to destroy |this|.
   void Cancel(bool timed_out);
 
-  // net::URLFetcherDelegate override.
   // Processes the received response.
-  void OnURLFetchComplete(const net::URLFetcher* source) override;
+  void OnURLLoaderComplete(std::unique_ptr<std::string> response_body);
 
   GURL main_frame_url() const { return main_frame_url_; }
 
@@ -78,12 +84,37 @@ class PasswordProtectionRequest : public base::RefCountedThreadSafe<
     return trigger_type_;
   }
 
- private:
+  ReusedPasswordType reused_password_type() const {
+    return reused_password_type_;
+  }
+
+  bool is_modal_warning_showing() const { return is_modal_warning_showing_; }
+
+  void set_is_modal_warning_showing(bool is_warning_showing) {
+    is_modal_warning_showing_ = is_warning_showing;
+  }
+
+  // Keeps track of created navigation throttle.
+  void AddThrottle(PasswordProtectionNavigationThrottle* throttle) {
+    throttles_.insert(throttle);
+  }
+
+  void RemoveThrottle(PasswordProtectionNavigationThrottle* throttle) {
+    throttles_.erase(throttle);
+  }
+
+  // Cancels navigation if there is modal warning showing, resumes it otherwise.
+  void HandleDeferredNavigations();
+
+ protected:
   friend class base::RefCountedThreadSafe<PasswordProtectionRequest>;
+
+ private:
   friend struct content::BrowserThread::DeleteOnThread<
       content::BrowserThread::UI>;
   friend class base::DeleteHelper<PasswordProtectionRequest>;
-  ~PasswordProtectionRequest() override;
+  friend class ChromePasswordProtectionServiceTest;
+  virtual ~PasswordProtectionRequest();
 
   // Start checking the whitelist.
   void CheckWhitelist();
@@ -110,7 +141,7 @@ class PasswordProtectionRequest : public base::RefCountedThreadSafe<
   void StartTimeout();
 
   // |this| will be destroyed after calling this function.
-  void Finish(PasswordProtectionService::RequestOutcome outcome,
+  void Finish(RequestOutcome outcome,
               std::unique_ptr<LoginReputationClientResponse> response);
 
   // WebContents of the password protection event.
@@ -125,8 +156,13 @@ class PasswordProtectionRequest : public base::RefCountedThreadSafe<
   // Frame url of the detected password form.
   const GURL password_form_frame_url_;
 
-  // Domain on which a password is saved and gets reused.
-  const std::string saved_domain_;
+  // Type of the reused password.
+  const ReusedPasswordType reused_password_type_;
+
+  // Domains from the Password Manager that match this password.
+  // Should be non-empty if |reused_password_type_| == SAVED_PASSWORD.
+  // Otherwise, may or may not be empty.
+  const std::vector<std::string> matching_domains_;
 
   // If this request is for unfamiliar login page or for a password reuse event.
   const LoginReputationClientRequest::TriggerType trigger_type_;
@@ -137,8 +173,8 @@ class PasswordProtectionRequest : public base::RefCountedThreadSafe<
   // When request is sent.
   base::TimeTicks request_start_time_;
 
-  // URLFetcher instance for sending request and receiving response.
-  std::unique_ptr<net::URLFetcher> fetcher_;
+  // SimpleURLLoader instance for sending request and receiving response.
+  std::unique_ptr<network::SimpleURLLoader> url_loader_;
 
   // The PasswordProtectionService instance owns |this|.
   // Can only be accessed on UI thread.
@@ -152,6 +188,17 @@ class PasswordProtectionRequest : public base::RefCountedThreadSafe<
 
   // Needed for canceling tasks posted to different threads.
   base::CancelableTaskTracker tracker_;
+
+  // Navigation throttles created for this |web_contents_| during |this|'s
+  // lifetime. These throttles are owned by their corresponding
+  // NavigationHandler instances.
+  std::set<PasswordProtectionNavigationThrottle*> throttles_;
+
+  // Whether there is a modal warning triggered by this request.
+  bool is_modal_warning_showing_;
+
+  // If a request is sent, this is the token returned by the WebUI.
+  int web_ui_token_;
 
   base::WeakPtrFactory<PasswordProtectionRequest> weakptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(PasswordProtectionRequest);

@@ -55,7 +55,7 @@ void PDF::SearchString(const InstanceHandle& instance,
                        const unsigned short* term,
                        bool case_sensitive,
                        PP_PrivateFindResult** results,
-                       int* count) {
+                       uint32_t* count) {
   if (has_interface<PPB_PDF>()) {
     get_interface<PPB_PDF>()->SearchString(instance.pp_instance(), string,
         term, case_sensitive, results, count);
@@ -96,6 +96,34 @@ void PDF::UserMetricsRecordAction(const InstanceHandle& instance,
 void PDF::HasUnsupportedFeature(const InstanceHandle& instance) {
   if (has_interface<PPB_PDF>())
     get_interface<PPB_PDF>()->HasUnsupportedFeature(instance.pp_instance());
+}
+
+// static
+void PDF::ShowAlertDialog(const InstanceHandle& instance, const char* message) {
+  if (has_interface<PPB_PDF>())
+    get_interface<PPB_PDF>()->ShowAlertDialog(instance.pp_instance(), message);
+}
+
+// static
+bool PDF::ShowConfirmDialog(const InstanceHandle& instance,
+                            const char* message) {
+  if (has_interface<PPB_PDF>()) {
+    return get_interface<PPB_PDF>()->ShowConfirmDialog(instance.pp_instance(),
+                                                       message);
+  }
+  return false;
+}
+
+// static
+pp::Var PDF::ShowPromptDialog(const InstanceHandle& instance,
+                              const char* message,
+                              const char* default_answer) {
+  if (has_interface<PPB_PDF>()) {
+    return pp::Var(PASS_REF,
+                   get_interface<PPB_PDF>()->ShowPromptDialog(
+                       instance.pp_instance(), message, default_answer));
+  }
+  return pp::Var();
 }
 
 // static
@@ -190,6 +218,18 @@ void PDF::SetCrashData(const InstanceHandle& instance,
   if (has_interface<PPB_PDF>()) {
     get_interface<PPB_PDF>()->SetCrashData(instance.pp_instance(), pdf_url,
                                            top_level_url);
+  }
+}
+
+// static
+void PDF::SelectionChanged(const InstanceHandle& instance,
+                           const PP_FloatPoint& left,
+                           int32_t left_height,
+                           const PP_FloatPoint& right,
+                           int32_t right_height) {
+  if (has_interface<PPB_PDF>()) {
+    get_interface<PPB_PDF>()->SelectionChanged(
+        instance.pp_instance(), &left, left_height, &right, right_height);
   }
 }
 

@@ -43,12 +43,12 @@ public:
         : m_size(size)
     {}
 
-    QByteArray operator ()() Q_DECL_FINAL
+    QByteArray operator ()() final
     {
         return QByteArrayLiteral("454");
     }
 
-    bool operator ==(const Qt3DRender::QBufferDataGenerator &other) const Q_DECL_FINAL
+    bool operator ==(const Qt3DRender::QBufferDataGenerator &other) const final
     {
         const TestFunctor *otherFunctor = Qt3DRender::functor_cast<TestFunctor>(&other);
         if (otherFunctor != nullptr)
@@ -71,7 +71,7 @@ private Q_SLOTS:
     {
         // GIVEN
         Qt3DRender::Render::Buffer renderBuffer;
-        Qt3DRender::QBuffer buffer(Qt3DRender::QBuffer::IndexBuffer);
+        Qt3DRender::QBuffer buffer;
         Qt3DRender::Render::BufferManager bufferManager;
         TestRenderer renderer;
 
@@ -132,7 +132,7 @@ private Q_SLOTS:
         // THEN
         QCOMPARE(renderBuffer.usage(), Qt3DRender::QBuffer::DynamicCopy);
         QCOMPARE(renderBuffer.isDirty(), true);
-        QCOMPARE(renderBuffer.data(), QByteArrayLiteral("C7"));
+        QCOMPARE(renderBuffer.data(), QByteArrayLiteral("C7LS5"));
         QVERIFY(!renderBuffer.dataGenerator().isNull());
         QVERIFY(!renderBuffer.pendingBufferUpdates().empty());
 
@@ -268,7 +268,7 @@ private Q_SLOTS:
     {
         // GIVEN
         Qt3DRender::Render::Buffer renderBuffer;
-        Qt3DRender::QBuffer buffer(Qt3DRender::QBuffer::IndexBuffer);
+        Qt3DRender::QBuffer buffer;
         Qt3DRender::Render::BufferManager bufferManager;
         TestRenderer renderer;
 
@@ -294,7 +294,7 @@ private Q_SLOTS:
     {
         // GIVEN
         Qt3DRender::Render::Buffer renderBuffer;
-        Qt3DRender::QBuffer buffer(Qt3DRender::QBuffer::IndexBuffer);
+        Qt3DRender::QBuffer buffer;
         Qt3DRender::Render::BufferManager bufferManager;
         TestRenderer renderer;
 

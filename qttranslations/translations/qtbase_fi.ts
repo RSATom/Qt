@@ -821,6 +821,10 @@ Peru painamalla ESC</translation>
         <translation>Lähdetiedoston poistaminen epäonnistui</translation>
     </message>
     <message>
+        <source>Cannot open destination file: %1</source>
+        <translation>Kohdetiedostoa ei voitu avata: %1</translation>
+    </message>
+    <message>
         <source>Cannot open %1 for input</source>
         <translation>Tiedoston %1 avaaminen syötteeksi epäonnistui</translation>
     </message>
@@ -1095,7 +1099,7 @@ Haluatko silti poistaa sen?</translation>
         <translation>Virheellinen tiedostonimi</translation>
     </message>
     <message>
-        <source>&lt;b&gt;The name &quot;%1&quot; can not be used.&lt;/b&gt;&lt;p&gt;Try using another name, with fewer characters or no punctuations marks.</source>
+        <source>&lt;b&gt;The name &quot;%1&quot; cannot be used.&lt;/b&gt;&lt;p&gt;Try using another name, with fewer characters or no punctuation marks.</source>
         <translation>&lt;b&gt;Nimeä ”%1” ei voi käyttää.&lt;/b&gt;&lt;p&gt;Kokeile jotain muuta nimeä, esim. vähemmän merkkejä tai ei välimerkkejä.</translation>
     </message>
     <message>
@@ -1910,6 +1914,10 @@ Haluatko silti poistaa sen?</translation>
         <translation>osiolla ei ole dataa. Tämä ei ole kirjasto.</translation>
     </message>
     <message>
+        <source>Out of memory while loading plugin &apos;%1&apos;.</source>
+        <translation>Muisti loppui ladattaessa liitännäistä ”%1”.</translation>
+    </message>
+    <message>
         <source>Failed to extract plugin meta data from &apos;%1&apos;</source>
         <translation>Liitännäismetatietojen saaminen kirjastosta ”%1” epäonnistui</translation>
     </message>
@@ -2680,6 +2688,17 @@ kun GNU LGPL 3:n ehtoja voidaan noudattaa.&lt;/p&gt;
     </message>
 </context>
 <context>
+    <name>QPPDOptionsModel</name>
+    <message>
+        <source>Name</source>
+        <translation>Nimi</translation>
+    </message>
+    <message>
+        <source>Value</source>
+        <translation>Arvo</translation>
+    </message>
+</context>
+<context>
     <name>QPSQLDriver</name>
     <message>
         <source>Unable to connect</source>
@@ -2709,8 +2728,20 @@ kun GNU LGPL 3:n ehtoja voidaan noudattaa.&lt;/p&gt;
 <context>
     <name>QPSQLResult</name>
     <message>
+        <source>Query results lost - probably discarded on executing another SQL query.</source>
+        <translation>Kyselyn tuloksia ei saada, koska ne on saatettu hävittää toista SQL-kyselyä suoritettaessa.</translation>
+    </message>
+    <message>
         <source>Unable to create query</source>
         <translation>Kyselyn luominen epäonnistui</translation>
+    </message>
+    <message>
+        <source>Unable to get result</source>
+        <translation>Tuloksen saanti epäonnistui</translation>
+    </message>
+    <message>
+        <source>Unable to send query</source>
+        <translation>Kyselyn lähettäminen epäonnistui</translation>
     </message>
     <message>
         <source>Unable to prepare statement</source>
@@ -3505,6 +3536,14 @@ kun GNU LGPL 3:n ehtoja voidaan noudattaa.&lt;/p&gt;
         <translation>&amp;Asetukset &lt;&lt;</translation>
     </message>
     <message>
+        <source>Invalid Pages Definition</source>
+        <translation>Virheellinen sivujen määritys</translation>
+    </message>
+    <message>
+        <source>%1 does not follow the correct syntax. Please use &apos;,&apos; to separate ranges and pages, &apos;-&apos; to define ranges and make sure ranges do not intersect with each other.</source>
+        <translation>%1 ei noudata oikeaa syntaksia. Käytä pilkkua (,) sivunumeroiden ja -numeroalueiden erottamiseen. Käytä viivaa (-) sivunumeroalueiden ilmaisemiseen. Varmista, että sivunumeroalueet eivät mene päällekkäin.</translation>
+    </message>
+    <message>
         <source>Print to File (PDF)</source>
         <translation>Tulosta tiedostoon (PDF)</translation>
     </message>
@@ -3646,6 +3685,14 @@ Poista toinen niistä käytöstä.</translation>
         <source>Job Options</source>
         <translation>Työn asetukset</translation>
     </message>
+    <message>
+        <source>Advanced Option Conflicts</source>
+        <translation>Konflikti edistyneissä asetuksissa</translation>
+    </message>
+    <message>
+        <source>There are conflicts in some advanced options. Do you want to fix them?</source>
+        <translation>Joissakin edistyneissä asetuksissa on konflikteja. Haluatko korjata ne?</translation>
+    </message>
 </context>
 <context>
     <name>QPrintPropertiesWidget</name>
@@ -3656,6 +3703,14 @@ Poista toinen niistä käytöstä.</translation>
     <message>
         <source>Page</source>
         <translation>Sivu</translation>
+    </message>
+    <message>
+        <source>Advanced</source>
+        <translation>Edistyneet</translation>
+    </message>
+    <message>
+        <source>There are conflicts in some options. Please fix them.</source>
+        <translation>Joissakin asetuksissa on konflikteja. Ole hyvä ja korjaa ne.</translation>
     </message>
 </context>
 <context>
@@ -3743,6 +3798,14 @@ Poista toinen niistä käytöstä.</translation>
     <message>
         <source>Short side</source>
         <translation>Lyhyempi reuna</translation>
+    </message>
+    <message>
+        <source>Pages</source>
+        <translation>Sivut</translation>
+    </message>
+    <message>
+        <source>Specify pages or ranges separated by commas. Ranges are specified by two numbers separated by a hyphen. E.g: 3,5-7,9 prints pages 3, 5, 6, 7 and 9.</source>
+        <translation>Erottele sivunumerot ja -numeroalueet pilkuilla. Sivunumeroalueet merkitään kahdella numerolla, viivalla erotettuina. Esim. 3,5-7,9 tulostaa sivut 3, 5, 6, 7 ja 9.</translation>
     </message>
 </context>
 <context>
@@ -6212,6 +6275,34 @@ Role of an accessible object</extracomment>
         <translation>OpenSSL:ssä ei ole elliptisten käyrien tukea</translation>
     </message>
     <message>
+        <source>Error when setting the OpenSSL configuration (%1)</source>
+        <translation>Virhe asetettaessa OpenSSL:n asetuksia (%1)</translation>
+    </message>
+    <message>
+        <source>Expecting QByteArray for %1</source>
+        <translation>Asetus %1 vaatii QByteArray:n</translation>
+    </message>
+    <message>
+        <source>An error occurred attempting to set %1 to %2</source>
+        <translation>Virhe asetettaessa asetukselle %1 arvoa %2</translation>
+    </message>
+    <message>
+        <source>Wrong value for %1 (%2)</source>
+        <translation>Väärä arvo (%2) asetukselle %1</translation>
+    </message>
+    <message>
+        <source>Unrecognized command %1 = %2</source>
+        <translation>Tuntematon komento %1 = %2</translation>
+    </message>
+    <message>
+        <source>SSL_CONF_finish() failed</source>
+        <translation>SSL_CONF_finish() epäonnistui</translation>
+    </message>
+    <message>
+        <source>SSL_CONF_CTX_new() failed</source>
+        <translation>SSL_CONF_CTX_new() epäonnistui</translation>
+    </message>
+    <message>
         <source>OpenSSL version too old, need at least v1.0.2</source>
         <translation>OpenSSL-versio on liian vanha; tarvitaan vähintään v1.0.2</translation>
     </message>
@@ -6710,10 +6801,10 @@ Role of an accessible object</extracomment>
     <message>
         <source>Qt cannot load the direct2d platform plugin because the Direct2D version on this system is too old. The minimum system requirement for this platform plugin is Windows 7 SP1 with Platform Update.
 
-The minimum Direct2D version required is %1.%2.%3.%4. The Direct2D version on this system is %5.%6.%7.%8.</source>
+The minimum Direct2D version required is %1. The Direct2D version on this system is %2.</source>
         <translation>Qt ei voi ladata direct2d-alustaliitännäistä, koska järjestelmän Direct2D-versio on liian vanha. Tämä alustaliitännäinen vaatii vähintään Windows 7 SP 1:n Platform Updatella.
 
-Direct2D-version vähimmäisvaatimus on %1.%2.%3.%4. Järjestelmän Direct2D-versio on %5.%6.%7.%8.</translation>
+Direct2D-version vähimmäisvaatimus on %1. Järjestelmän Direct2D-versio on %2.</translation>
     </message>
     <message>
         <source>Cannot load direct2d platform plugin</source>

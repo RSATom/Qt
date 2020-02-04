@@ -40,7 +40,7 @@
 
 #include <iostream>
 
-LogWidget *LogWidget::m_instance = 0;
+LogWidget *LogWidget::m_instance = nullptr;
 bool LogWidget::m_lineNumberingEnabled = true;
 bool LogWidget::m_showMessageType = true;
 int LogWidget::m_indent = 0;
@@ -54,7 +54,7 @@ LogWidget::LogWidget(QWidget *parent)
 
 LogWidget::~LogWidget()
 {
-    LogWidget::m_instance = 0;
+    LogWidget::m_instance = nullptr;
 }
 
 QString LogWidget::startupMessage()
@@ -133,7 +133,7 @@ void LogWidget::install()
     qInfo("%s", qPrintable(LogWidget::startupMessage()));
 }
 
-void LogWidget::uninstall() { qInstallMessageHandler(Q_NULLPTR); }
+void LogWidget::uninstall() { qInstallMessageHandler(nullptr); }
 
 #else // Qt 5
 

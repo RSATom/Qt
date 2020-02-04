@@ -2,14 +2,21 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-# TODO(dtrainor): Remove this file and have components_unittests depend on
-# //components/download/internal:unit_tests directly.
 group("unit_tests") {
   testonly = true
 
-  deps = [
-    "//components/download/internal:unit_tests",
-  ]
+  if (!is_ios) {
+    deps = [
+      "//components/download/content/internal:unit_tests",
+      "//components/download/content/public:unit_tests",
+      "//components/download/database:unit_tests",
+      "//components/download/internal/background_service:unit_tests",
+      "//components/download/internal/common:unit_tests",
+      "//components/download/public/common:unit_tests",
+      "//components/download/public/task:unit_tests",
+      "//components/download/quarantine:unit_tests",
+    ]
+  }
 
   data_deps = [
     ":components_unittests_gtest_filter",

@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("../swiftshader.gni")
+
 declare_args() {
-  # Currently, Subzero is not used by default
-  # LLVM is still the default backend
-  use_swiftshader_with_subzero = is_win || is_linux
+  # Subzero produces smaller binaries, but doesn't support ARM64 and MIPS64.
+  use_swiftshader_with_subzero =
+      target_cpu != "arm64" && target_cpu != "mips64el"
 }
 
 # Need a separate config to ensure the warnings are added to the end.
@@ -40,10 +42,20 @@ config("swiftshader_subzero_common_private_config") {
       "SZTARGET=X8664",
       "SUBZERO_TARGET=X8664",
     ]
-  } else {
+  } else if (target_cpu == "x86") {
     defines += [
       "SZTARGET=X8632",
       "SUBZERO_TARGET=X8632",
+    ]
+  } else if (target_cpu == "mipsel") {
+    defines += [
+      "SZTARGET=MIPS32",
+      "SUBZERO_TARGET=MIPS32",
+    ]
+  } else if (target_cpu == "arm") {
+    defines += [
+      "SZTARGET=ARM32",
+      "SUBZERO_TARGET=ARM32",
     ]
   }
 
@@ -57,6 +69,8 @@ config("swiftshader_subzero_common_private_config") {
     include_dirs += [ "../../third_party/llvm-subzero/build/Windows/include/" ]
   } else if (is_linux) {
     include_dirs += [ "../../third_party/llvm-subzero/build/Linux/include/" ]
+  } else if (is_fuchsia) {
+    include_dirs += [ "../../third_party/llvm-subzero/build/Fuchsia/include/" ]
   } else if (is_mac) {
     include_dirs += [ "../../third_party/llvm-subzero/build/MacOS/include/" ]
   }
@@ -73,6 +87,7 @@ config("swiftshader_subzero_private_config") {
       "/wd4146",
       "/wd4245",  # conversion from int to unsigned int (llvm)
       "/wd4267",
+      "/wd4291",
       "/wd4310",
       "/wd4334",
       "/wd4389",
@@ -92,12 +107,20 @@ config("swiftshader_subzero_private_config") {
         cflags += [ "-Wno-sign-compare" ]
       }
     }
-  } else if (is_linux || is_mac) {
+  } else if (is_linux || is_mac || is_fuchsia) {
     cflags += [ "-Wno-macro-redefined" ]
   }
 
   if (is_clang) {
-    cflags += [ "-Wno-header-hygiene" ]
+    cflags += [
+      "-Wno-header-hygiene",
+      "-Wno-enum-compare-switch",
+      "-Wno-unused-lambda-capture",
+    ]
+  }
+
+  if (is_fuchsia) {
+    cflags += [ "-Wno-error" ]
   }
 }
 
@@ -110,6 +133,8 @@ config("swiftshader_reactor_with_subzero_private_config") {
       "/wd4146",
       "/wd4245",  # conversion from int to unsigned int (llvm)
       "/wd4267",
+      "/wd4291",
+      "/wd4309",
       "/wd4702",
       "/wd4800",
     ]
@@ -131,6 +156,10 @@ config("swiftshader_reactor_with_subzero_private_config") {
   if (is_clang) {
     cflags += [ "-Wno-header-hygiene" ]
   }
+
+  if (is_fuchsia) {
+    cflags += [ "-Wno-error" ]
+  }
 }
 
 config("swiftshader_reactor_private_config") {
@@ -140,21 +169,23 @@ config("swiftshader_reactor_private_config") {
       "/wd4245",  # conversion from int to unsigned int (llvm)
     ]
   } else {
-    cflags = [
-      "-Wno-unused-local-typedef",
-      "-msse2",
-    ]
-
+    cflags = [ "-Wno-unused-local-typedef" ]
+    if(target_cpu == "arm64") {
+      cflags += [ "-Wno-defaulted-function-deleted" ]
+    }
     defines = [
-      "LOG_TAG=\"swiftshader_reactor\"",
       "__STDC_CONSTANT_MACROS",
       "__STDC_LIMIT_MACROS",
     ]
+
+    if (target_cpu == "x86" || target_cpu == "x64") {
+        cflags += [ "-msse2" ]
+    }
   }
 }
 
 if (use_swiftshader_with_subzero) {
-  source_set("swiftshader_subzero") {
+  swiftshader_source_set("swiftshader_subzero") {
     subzero_dir = "../../third_party/subzero"
     subzero_llvm_dir = "../../third_party/llvm-subzero"
 
@@ -234,30 +265,41 @@ if (use_swiftshader_with_subzero) {
         "$subzero_dir/src/IceInstX8664.cpp",
         "$subzero_dir/src/IceTargetLoweringX8664.cpp",
       ]
-    } else {
+    } else if (target_cpu == "x86") {
       sources += [
         "$subzero_dir/src/IceInstX8632.cpp",
         "$subzero_dir/src/IceTargetLoweringX8632.cpp",
       ]
+    } else if (target_cpu == "mipsel") {
+      sources += [
+        "$subzero_dir/src/IceAssemblerMIPS32.cpp",
+        "$subzero_dir/src/IceInstMIPS32.cpp",
+        "$subzero_dir/src/IceTargetLoweringMIPS32.cpp",
+      ]
+    } else if (target_cpu == "arm") {
+      sources += [
+        "$subzero_dir/src/IceAssemblerARM32.cpp",
+        "$subzero_dir/src/IceInstARM32.cpp",
+        "$subzero_dir/src/IceTargetLoweringARM32.cpp",
+      ]
     }
 
-    if (is_win) {
-      configs -= [ "//build/config/win:unicode" ]
-    }
-    configs += [
+    configs = [
       ":swiftshader_subzero_common_private_config",
       ":swiftshader_subzero_private_config",
     ]
   }
 }
 
-source_set("swiftshader_reactor") {
+swiftshader_source_set("swiftshader_reactor") {
   deps = [
     "../OpenGL/common:swiftshader_opengl_common",
   ]
 
   sources = [
     "Routine.cpp",
+    "Debug.cpp",
+    "ExecutableMemory.cpp",
   ]
 
   if (use_swiftshader_with_subzero) {
@@ -268,29 +310,44 @@ source_set("swiftshader_reactor") {
       "SubzeroReactor.cpp",
     ]
 
-    configs += [
+    configs = [
       ":swiftshader_subzero_common_private_config",
       ":swiftshader_reactor_with_subzero_private_config",
     ]
+
+    include_dirs = [
+    ]
   } else {
-    deps += [ "../../third_party/LLVM:swiftshader_llvm" ]
+    llvm7_dir = "../../third_party/llvm-7.0"
+
+    deps += [ "$llvm7_dir:swiftshader_llvm" ]
+
+    defines = [ "REACTOR_LLVM_VERSION=7" ]
 
     sources += [
       "LLVMReactor.cpp",
       "LLVMRoutine.cpp",
       "LLVMRoutineManager.cpp",
+      "CPUID.cpp",
     ]
 
-    configs += [ ":swiftshader_reactor_private_config" ]
+    configs = [ ":swiftshader_reactor_private_config" ]
 
     include_dirs = [
-      "..",
-      "../Common",
-      "../../third_party/LLVM/include/",
+      "$llvm7_dir/llvm/include/",
+      "$llvm7_dir/configs/common/include/",
     ]
-  }
 
-  if (is_win) {
-    configs -= [ "//build/config/win:unicode" ]
+    if (is_linux) {
+      include_dirs += [ "$llvm7_dir/configs/linux/include/" ]
+    } else if (is_fuchsia) {
+      include_dirs += [ "$llvm7_dir/configs/fuchsia/include/" ]
+    } else if (is_win) {
+      include_dirs += [ "$llvm7_dir/configs/windows/include/" ]
+    } else if (is_android) {
+      include_dirs += [ "$llvm7_dir/configs/android/include/" ]
+    } else {
+      assert(false, "llvm-7.0 not configured for target platform")
+    }
   }
 }

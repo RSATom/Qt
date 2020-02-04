@@ -12,40 +12,49 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/shared_memory.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "gpu/gpu_export.h"
-
-namespace base {
-
-class SharedMemory;
-class SharedMemoryHandle;
-
-}  // namespace base
 
 namespace gpu {
 
 class GPU_EXPORT BufferBacking {
  public:
-  virtual ~BufferBacking() {}
-  virtual base::SharedMemoryHandle shared_memory_handle() const;
+  virtual ~BufferBacking() = default;
+  virtual const base::UnsafeSharedMemoryRegion& shared_memory_region() const;
+  virtual base::UnguessableToken GetGUID() const;
   virtual void* GetMemory() const = 0;
-  virtual size_t GetSize() const = 0;
+  virtual uint32_t GetSize() const = 0;
 };
+
+class GPU_EXPORT MemoryBufferBacking : public BufferBacking {
+ public:
+  explicit MemoryBufferBacking(uint32_t size);
+  ~MemoryBufferBacking() override;
+  void* GetMemory() const override;
+  uint32_t GetSize() const override;
+
+ private:
+  std::unique_ptr<char[]> memory_;
+  uint32_t size_;
+  DISALLOW_COPY_AND_ASSIGN(MemoryBufferBacking);
+};
+
 
 class GPU_EXPORT SharedMemoryBufferBacking : public BufferBacking {
  public:
-  SharedMemoryBufferBacking(std::unique_ptr<base::SharedMemory> shared_memory,
-                            size_t size);
+  SharedMemoryBufferBacking(
+      base::UnsafeSharedMemoryRegion shared_memory_region,
+      base::WritableSharedMemoryMapping shared_memory_mapping);
   ~SharedMemoryBufferBacking() override;
-  base::SharedMemoryHandle shared_memory_handle() const override;
+  const base::UnsafeSharedMemoryRegion& shared_memory_region() const override;
+  base::UnguessableToken GetGUID() const override;
   void* GetMemory() const override;
-  size_t GetSize() const override;
-  base::SharedMemory* shared_memory() { return shared_memory_.get(); }
+  uint32_t GetSize() const override;
 
  private:
-  std::unique_ptr<base::SharedMemory> shared_memory_;
-  size_t size_;
+  base::UnsafeSharedMemoryRegion shared_memory_region_;
+  base::WritableSharedMemoryMapping shared_memory_mapping_;
   DISALLOW_COPY_AND_ASSIGN(SharedMemoryBufferBacking);
 };
 
@@ -56,12 +65,12 @@ class GPU_EXPORT Buffer : public base::RefCountedThreadSafe<Buffer> {
 
   BufferBacking* backing() const { return backing_.get(); }
   void* memory() const { return memory_; }
-  size_t size() const { return size_; }
+  uint32_t size() const { return size_; }
 
-  // Returns NULL if the address overflows the memory.
+  // Returns nullptr if the address overflows the memory.
   void* GetDataAddress(uint32_t data_offset, uint32_t data_size) const;
 
-  // Returns NULL if the address overflows the memory.
+  // Returns nullptr if the address overflows the memory.
   void* GetDataAddressAndSize(uint32_t data_offset, uint32_t* data_size) const;
 
   // Returns the remaining size of the buffer after an offset
@@ -73,24 +82,32 @@ class GPU_EXPORT Buffer : public base::RefCountedThreadSafe<Buffer> {
 
   std::unique_ptr<BufferBacking> backing_;
   void* memory_;
-  size_t size_;
+  uint32_t size_;
 
   DISALLOW_COPY_AND_ASSIGN(Buffer);
 };
 
 static inline std::unique_ptr<BufferBacking> MakeBackingFromSharedMemory(
-    std::unique_ptr<base::SharedMemory> shared_memory,
-    size_t size) {
-  return std::unique_ptr<BufferBacking>(
-      new SharedMemoryBufferBacking(std::move(shared_memory), size));
+    base::UnsafeSharedMemoryRegion shared_memory_region,
+    base::WritableSharedMemoryMapping shared_memory_mapping) {
+  return std::make_unique<SharedMemoryBufferBacking>(
+      std::move(shared_memory_region), std::move(shared_memory_mapping));
+}
+static inline scoped_refptr<Buffer> MakeBufferFromSharedMemory(
+    base::UnsafeSharedMemoryRegion shared_memory_region,
+    base::WritableSharedMemoryMapping shared_memory_mapping) {
+  return base::MakeRefCounted<Buffer>(MakeBackingFromSharedMemory(
+      std::move(shared_memory_region), std::move(shared_memory_mapping)));
 }
 
-static inline scoped_refptr<Buffer> MakeBufferFromSharedMemory(
-    std::unique_ptr<base::SharedMemory> shared_memory,
-    size_t size) {
-  return new Buffer(
-      MakeBackingFromSharedMemory(std::move(shared_memory), size));
+static inline scoped_refptr<Buffer> MakeMemoryBuffer(uint32_t size) {
+  return base::MakeRefCounted<Buffer>(
+      std::make_unique<MemoryBufferBacking>(size));
 }
+
+// Generates a process unique buffer ID which can be safely used with
+// GetBufferGUIDForTracing.
+GPU_EXPORT int32_t GetNextBufferId();
 
 // Generates GUID which can be used to trace buffer using an Id.
 GPU_EXPORT base::trace_event::MemoryAllocatorDumpGuid GetBufferGUIDForTracing(

@@ -80,16 +80,17 @@ public:
     DrmEglServerBuffer(DrmEglServerBufferIntegration *integration, const QImage &qimage, QtWayland::ServerBuffer::Format format);
 
     struct ::wl_resource *resourceForClient(struct ::wl_client *) override;
+    bool bufferInUse() override;
     QOpenGLTexture *toOpenGlTexture() override;
 
 private:
-    DrmEglServerBufferIntegration *m_integration;
+    DrmEglServerBufferIntegration *m_integration = nullptr;
 
     EGLImageKHR m_image;
 
     int32_t m_name;
     int32_t m_stride;
-    QOpenGLTexture *m_texture;
+    QOpenGLTexture *m_texture = nullptr;
     QtWaylandServer::qt_drm_egl_server_buffer::format m_drm_format;
 };
 
@@ -99,7 +100,7 @@ class DrmEglServerBufferIntegration :
 {
 public:
     DrmEglServerBufferIntegration();
-    ~DrmEglServerBufferIntegration();
+    ~DrmEglServerBufferIntegration() override;
 
     void initializeHardware(QWaylandCompositor *) override;
 
@@ -115,7 +116,7 @@ public:
     inline void glEGLImageTargetTexture2DOES (GLenum target, GLeglImageOES image);
 
 private:
-    EGLDisplay m_egl_display;
+    EGLDisplay m_egl_display = EGL_NO_DISPLAY;
     PFNEGLCREATEDRMIMAGEMESAPROC m_egl_create_drm_image;
     PFNEGLEXPORTDRMIMAGEMESAPROC m_egl_export_drm_image;
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC m_gl_egl_image_target_texture_2d;

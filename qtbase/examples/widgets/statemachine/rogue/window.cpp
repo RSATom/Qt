@@ -66,7 +66,8 @@ Window::Window()
         font = QFont("Monospace");
     }
     else {
-        foreach (QString family, database.families()) {
+        const QStringList fontFamilies = database.families();
+        for (const QString &family : fontFamilies ) {
             if (database.isFixedPitch(family)) {
                 font = QFont(family);
                 break;
@@ -98,7 +99,7 @@ void Window::paintEvent(QPaintEvent * /* event */)
     QFontMetrics metrics(font());
     QPainter painter(this);
     int fontHeight = metrics.height();
-    int fontWidth = metrics.width('X');
+    int fontWidth = metrics.horizontalAdvance('X');
     int yPos = fontHeight;
     int xPos;
 
@@ -177,7 +178,7 @@ QSize Window::sizeHint() const
 {
     QFontMetrics metrics(font());
 
-    return QSize(metrics.width('X') * WIDTH, metrics.height() * (HEIGHT + 1));
+    return QSize(metrics.horizontalAdvance('X') * WIDTH, metrics.height() * (HEIGHT + 1));
 }
 
 //![2]
@@ -217,7 +218,8 @@ void Window::buildMachine()
 //![5]
     machine->setInitialState(inputState);
 
-    connect(machine, SIGNAL(finished()), qApp, SLOT(quit()));
+    connect(machine, &QStateMachine::finished,
+            qApp, &QApplication::quit);
 
     machine->start();
 }

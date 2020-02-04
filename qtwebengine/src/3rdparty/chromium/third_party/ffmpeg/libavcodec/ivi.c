@@ -302,7 +302,7 @@ static av_cold void ivi_free_buffers(IVIPlaneDesc *planes)
     }
 }
 
-av_cold int ff_ivi_init_planes(IVIPlaneDesc *planes, const IVIPicConfig *cfg,
+av_cold int ff_ivi_init_planes(AVCodecContext *avctx, IVIPlaneDesc *planes, const IVIPicConfig *cfg,
                                int is_indeo4)
 {
     int p, b;
@@ -312,7 +312,7 @@ av_cold int ff_ivi_init_planes(IVIPlaneDesc *planes, const IVIPicConfig *cfg,
 
     ivi_free_buffers(planes);
 
-    if (av_image_check_size(cfg->pic_width, cfg->pic_height, 0, NULL) < 0 ||
+    if (av_image_check_size2(cfg->pic_width, cfg->pic_height, avctx->max_pixels, AV_PIX_FMT_YUV410P, 0, avctx) < 0 ||
         cfg->luma_bands < 1 || cfg->chroma_bands < 1)
         return AVERROR_INVALIDDATA;
 
@@ -913,8 +913,16 @@ static void ivi_output_plane(IVIPlaneDesc *plane, uint8_t *dst, ptrdiff_t dst_pi
         return;
 
     for (y = 0; y < plane->height; y++) {
-        for (x = 0; x < plane->width; x++)
-            dst[x] = av_clip_uint8(src[x] + 128);
+        int m = 0;
+        int w = plane->width;
+        for (x = 0; x < w; x++) {
+            int t = src[x] + 128;
+            dst[x] = t;
+            m |= t;
+        }
+        if (m & ~255)
+            for (x = 0; x < w; x++)
+                dst[x] = av_clip_uint8(src[x] + 128);
         src += pitch;
         dst += dst_pitch;
     }

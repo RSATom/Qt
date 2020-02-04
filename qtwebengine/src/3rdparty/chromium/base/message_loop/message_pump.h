@@ -19,7 +19,10 @@ class BASE_EXPORT MessagePump {
   // these delegate methods are used.
   class BASE_EXPORT Delegate {
    public:
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
+
+    // Called before work performed internal to the message pump is executed.
+    virtual void BeforeDoInternalWork();
 
     // Called from within Run in response to ScheduleWork or when the message
     // pump would otherwise call DoDelayedWork.  Returns true to indicate that
@@ -112,9 +115,11 @@ class BASE_EXPORT MessagePump {
   virtual void Quit() = 0;
 
   // Schedule a DoWork callback to happen reasonably soon.  Does nothing if a
-  // DoWork callback is already scheduled.  This method may be called from any
-  // thread.  Once this call is made, DoWork should not be "starved" at least
-  // until it returns a value of false.
+  // DoWork callback is already scheduled. Once this call is made, DoWork should
+  // not be "starved" at least until it returns a value of false. Thread-safe
+  // (and callers should avoid holding a Lock at all cost while making this call
+  // as some platforms' priority boosting features have been observed to cause
+  // the caller to get descheduled : https://crbug.com/890978).
   virtual void ScheduleWork() = 0;
 
   // Schedule a DoDelayedWork callback to happen at the specified time,

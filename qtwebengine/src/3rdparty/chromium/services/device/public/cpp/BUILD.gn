@@ -4,14 +4,18 @@
 
 import("//build/config/features.gni")
 
-source_set("device_features") {
+component("device_features") {
   public = [
     "device_features.h",
   ]
   sources = [
     "device_features.cc",
+    "device_features_export.h",
   ]
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
   public_deps = [
     "//base",
   ]
+
+  defines = [ "DEVICE_FEATURES_IMPLEMENTATION" ]
 }

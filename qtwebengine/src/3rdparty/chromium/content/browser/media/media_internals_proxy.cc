@@ -6,8 +6,11 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/task/post_task.h"
+#include "build/build_config.h"
 #include "content/browser/media/media_internals.h"
 #include "content/browser/media/media_internals_handler.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace content {
@@ -36,11 +39,15 @@ void MediaInternalsProxy::GetEverything() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   MediaInternals::GetInstance()->SendHistoricalMediaEvents();
+  MediaInternals::GetInstance()->SendGeneralAudioInformation();
+#if !defined(OS_ANDROID)
+  MediaInternals::GetInstance()->SendAudioFocusState();
+#endif
 
   // Ask MediaInternals for its data on IO thread.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&MediaInternalsProxy::GetEverythingOnIOThread, this));
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(&MediaInternalsProxy::GetEverythingOnIOThread, this));
 }
 
 void MediaInternalsProxy::GetEverythingOnIOThread() {

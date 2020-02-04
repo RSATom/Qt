@@ -4,6 +4,8 @@
 
 #include <stddef.h>
 
+#include "base/stl_util.h"
+#include "build/build_config.h"
 #include "gpu/config/gpu_control_list.h"
 #include "gpu/config/gpu_control_list_testing_data.h"
 #include "gpu/config/gpu_info.h"
@@ -26,8 +28,8 @@ class GpuControlListEntryTest : public testing::Test {
  public:
   typedef GpuControlList::Entry Entry;
 
-  GpuControlListEntryTest() {}
-  ~GpuControlListEntryTest() override {}
+  GpuControlListEntryTest() = default;
+  ~GpuControlListEntryTest() override = default;
 
   const GPUInfo& gpu_info() const {
     return gpu_info_;
@@ -54,9 +56,9 @@ class GpuControlListEntryTest : public testing::Test {
     gpu_info_.gpu.vendor_id = 0x10de;
     gpu_info_.gpu.device_id = 0x0640;
     gpu_info_.gpu.active = true;
-    gpu_info_.driver_vendor = "NVIDIA";
-    gpu_info_.driver_version = "1.6.18";
-    gpu_info_.driver_date = "7-14-2009";
+    gpu_info_.gpu.driver_vendor = "NVIDIA";
+    gpu_info_.gpu.driver_version = "1.6.18";
+    gpu_info_.gpu.driver_date = "7-14-2009";
     gpu_info_.gl_version = "2.1 NVIDIA-8.24.11 310.90.9b01";
     gpu_info_.gl_vendor = "NVIDIA Corporation";
     gpu_info_.gl_renderer = "NVIDIA GeForce GT 120 OpenGL Engine";
@@ -86,7 +88,7 @@ TEST_F(GpuControlListEntryTest, VendorOnAllOsEntry) {
   EXPECT_EQ(kOsAny, entry.conditions.os_type);
   const GpuControlList::OsType os_type[] = {kOsMacosx, kOsWin, kOsLinux,
                                             kOsChromeOS, kOsAndroid};
-  for (size_t i = 0; i < arraysize(os_type); ++i)
+  for (size_t i = 0; i < base::size(os_type); ++i)
     EXPECT_TRUE(entry.Contains(os_type[i], "10.6", gpu_info()));
 }
 
@@ -95,7 +97,7 @@ TEST_F(GpuControlListEntryTest, VendorOnLinuxEntry) {
   EXPECT_EQ(kOsLinux, entry.conditions.os_type);
   const GpuControlList::OsType os_type[] = {kOsMacosx, kOsWin, kOsChromeOS,
                                             kOsAndroid};
-  for (size_t i = 0; i < arraysize(os_type); ++i)
+  for (size_t i = 0; i < base::size(os_type); ++i)
     EXPECT_FALSE(entry.Contains(os_type[i], "10.6", gpu_info()));
   EXPECT_TRUE(entry.Contains(kOsLinux, "10.6", gpu_info()));
 }
@@ -106,7 +108,7 @@ TEST_F(GpuControlListEntryTest, AllExceptNVidiaOnLinuxEntry) {
   EXPECT_EQ(kOsLinux, entry.conditions.os_type);
   const GpuControlList::OsType os_type[] = {kOsMacosx, kOsWin, kOsLinux,
                                             kOsChromeOS, kOsAndroid};
-  for (size_t i = 0; i < arraysize(os_type); ++i)
+  for (size_t i = 0; i < base::size(os_type); ++i)
     EXPECT_FALSE(entry.Contains(os_type[i], "10.6", gpu_info()));
 }
 
@@ -116,7 +118,7 @@ TEST_F(GpuControlListEntryTest, AllExceptIntelOnLinuxEntry) {
   EXPECT_EQ(kOsLinux, entry.conditions.os_type);
   const GpuControlList::OsType os_type[] = {kOsMacosx, kOsWin, kOsChromeOS,
                                             kOsAndroid};
-  for (size_t i = 0; i < arraysize(os_type); ++i)
+  for (size_t i = 0; i < base::size(os_type); ++i)
     EXPECT_FALSE(entry.Contains(os_type[i], "10.6", gpu_info()));
   EXPECT_TRUE(entry.Contains(kOsLinux, "10.6", gpu_info()));
 }
@@ -125,11 +127,11 @@ TEST_F(GpuControlListEntryTest, DateOnWindowsEntry) {
   const Entry& entry = GetEntry(kGpuControlListEntryTest_DateOnWindowsEntry);
   EXPECT_EQ(kOsWin, entry.conditions.os_type);
   GPUInfo gpu_info;
-  gpu_info.driver_date = "4-12-2010";
+  gpu_info.gpu.driver_date = "4-12-2010";
   EXPECT_TRUE(entry.Contains(kOsWin, "10.6", gpu_info));
-  gpu_info.driver_date = "5-8-2010";
+  gpu_info.gpu.driver_date = "5-8-2010";
   EXPECT_FALSE(entry.Contains(kOsWin, "10.6", gpu_info));
-  gpu_info.driver_date = "5-9-2010";
+  gpu_info.gpu.driver_date = "5-9-2010";
   EXPECT_FALSE(entry.Contains(kOsWin, "10.6", gpu_info));
 }
 
@@ -138,7 +140,7 @@ TEST_F(GpuControlListEntryTest, MultipleDevicesEntry) {
   EXPECT_EQ(kOsAny, entry.conditions.os_type);
   const GpuControlList::OsType os_type[] = {kOsMacosx, kOsWin, kOsLinux,
                                             kOsChromeOS, kOsAndroid};
-  for (size_t i = 0; i < arraysize(os_type); ++i)
+  for (size_t i = 0; i < base::size(os_type); ++i)
     EXPECT_TRUE(entry.Contains(os_type[i], "10.6", gpu_info()));
 }
 
@@ -147,7 +149,7 @@ TEST_F(GpuControlListEntryTest, ChromeOSEntry) {
   EXPECT_EQ(kOsChromeOS, entry.conditions.os_type);
   const GpuControlList::OsType os_type[] = {kOsMacosx, kOsWin, kOsLinux,
                                             kOsAndroid};
-  for (size_t i = 0; i < arraysize(os_type); ++i)
+  for (size_t i = 0; i < base::size(os_type); ++i)
     EXPECT_FALSE(entry.Contains(os_type[i], "10.6", gpu_info()));
   EXPECT_TRUE(entry.Contains(kOsChromeOS, "10.6", gpu_info()));
 }
@@ -272,14 +274,14 @@ TEST_F(GpuControlListEntryTest, AMDSwitchableEntry) {
 TEST_F(GpuControlListEntryTest, DriverVendorBeginWith) {
   const Entry& entry = GetEntry(kGpuControlListEntryTest_DriverVendorBeginWith);
   GPUInfo gpu_info;
-  gpu_info.driver_vendor = "NVIDIA Corporation";
+  gpu_info.gpu.driver_vendor = "NVIDIA Corporation";
   EXPECT_TRUE(entry.Contains(kOsMacosx, "10.9", gpu_info));
   // Case sensitive.
-  gpu_info.driver_vendor = "NVidia Corporation";
+  gpu_info.gpu.driver_vendor = "NVidia Corporation";
   EXPECT_FALSE(entry.Contains(kOsMacosx, "10.9", gpu_info));
-  gpu_info.driver_vendor = "NVIDIA";
+  gpu_info.gpu.driver_vendor = "NVIDIA";
   EXPECT_TRUE(entry.Contains(kOsMacosx, "10.9", gpu_info));
-  gpu_info.driver_vendor = "USA NVIDIA";
+  gpu_info.gpu.driver_vendor = "USA NVIDIA";
   EXPECT_FALSE(entry.Contains(kOsMacosx, "10.9", gpu_info));
 }
 
@@ -289,11 +291,11 @@ TEST_F(GpuControlListEntryTest, LexicalDriverVersionEntry) {
   EXPECT_EQ(kOsLinux, entry.conditions.os_type);
   GPUInfo gpu_info;
   gpu_info.gpu.vendor_id = 0x1002;
-  gpu_info.driver_version = "8.76";
+  gpu_info.gpu.driver_version = "8.76";
   EXPECT_TRUE(entry.Contains(kOsLinux, "10.6", gpu_info));
-  gpu_info.driver_version = "8.768";
+  gpu_info.gpu.driver_version = "8.768";
   EXPECT_TRUE(entry.Contains(kOsLinux, "10.6", gpu_info));
-  gpu_info.driver_version = "8.76.8";
+  gpu_info.gpu.driver_version = "8.76.8";
   EXPECT_TRUE(entry.Contains(kOsLinux, "10.6", gpu_info));
 }
 
@@ -302,7 +304,7 @@ TEST_F(GpuControlListEntryTest, NeedsMoreInfoEntry) {
   GPUInfo gpu_info;
   gpu_info.gpu.vendor_id = 0x8086;
   EXPECT_TRUE(entry.NeedsMoreInfo(gpu_info, true));
-  gpu_info.driver_version = "10.6";
+  gpu_info.gpu.driver_version = "10.6";
   EXPECT_FALSE(entry.NeedsMoreInfo(gpu_info, true));
 }
 
@@ -422,8 +424,8 @@ TEST_F(GpuControlListEntryTest, MachineModelVersionException) {
 
 class GpuControlListEntryDualGPUTest : public GpuControlListEntryTest {
  public:
-  GpuControlListEntryDualGPUTest() { }
-  ~GpuControlListEntryDualGPUTest() override {}
+  GpuControlListEntryDualGPUTest() = default;
+  ~GpuControlListEntryDualGPUTest() override = default;
 
   void SetUp() override {
     // Set up a NVIDIA/Intel dual, with NVIDIA as primary and Intel as
@@ -547,7 +549,7 @@ TEST_F(GpuControlListEntryTest, OsComparison) {
     const Entry& entry = GetEntry(kGpuControlListEntryTest_OsComparisonAny);
     const GpuControlList::OsType os_type[] = {kOsWin, kOsLinux, kOsMacosx,
                                               kOsChromeOS, kOsAndroid};
-    for (size_t i = 0; i < arraysize(os_type); ++i) {
+    for (size_t i = 0; i < base::size(os_type); ++i) {
       EXPECT_TRUE(entry.Contains(os_type[i], std::string(), gpu_info()));
       EXPECT_TRUE(entry.Contains(os_type[i], "7.8", gpu_info()));
     }
@@ -574,9 +576,9 @@ TEST_F(GpuControlListEntryTest, ExceptionWithoutVendorId) {
   GPUInfo gpu_info;
   gpu_info.gpu.vendor_id = 0x8086;
   gpu_info.gpu.device_id = 0x2a02;
-  gpu_info.driver_version = "9.1";
+  gpu_info.gpu.driver_version = "9.1";
   EXPECT_FALSE(entry.Contains(kOsLinux, "2.1", gpu_info));
-  gpu_info.driver_version = "9.0";
+  gpu_info.gpu.driver_version = "9.0";
   EXPECT_TRUE(entry.Contains(kOsLinux, "2.1", gpu_info));
 }
 
@@ -646,13 +648,13 @@ TEST_F(GpuControlListEntryTest, NVidiaNumberingScheme) {
   gpu_info.gpu.vendor_id = 0x10de;
   gpu_info.gpu.device_id = 0x0640;
   // test the same driver version number
-  gpu_info.driver_version = "8.17.12.6973";
+  gpu_info.gpu.driver_version = "8.17.12.6973";
   EXPECT_TRUE(entry.Contains(kOsWin, "7.0", gpu_info));
   // test a lower driver version number
-  gpu_info.driver_version = "8.15.11.8647";
+  gpu_info.gpu.driver_version = "8.15.11.8647";
   EXPECT_TRUE(entry.Contains(kOsWin, "7.0", gpu_info));
   // test a higher driver version number
-  gpu_info.driver_version = "9.18.13.2723";
+  gpu_info.gpu.driver_version = "9.18.13.2723";
   EXPECT_FALSE(entry.Contains(kOsWin, "7.0", gpu_info));
 }
 
@@ -664,5 +666,221 @@ TEST_F(GpuControlListEntryTest, DirectRendering) {
   gpu_info.direct_rendering = false;
   EXPECT_TRUE(entry.Contains(kOsLinux, "7.0", gpu_info));
 }
+
+TEST_F(GpuControlListEntryTest, GpuSeries) {
+  const Entry& entry = GetEntry(kGpuControlListEntryTest_GpuSeries);
+  GPUInfo gpu_info;
+  gpu_info.gpu.vendor_id = 0x8086;
+  // Intel KabyLake
+  gpu_info.gpu.device_id = 0x5916;
+  EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  // Intel SandyBridge
+  gpu_info.gpu.device_id = 0x0116;
+  EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+  // Intel SkyLake
+  gpu_info.gpu.device_id = 0x1916;
+  EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  // Non-Intel GPU
+  gpu_info.gpu.vendor_id = 0x10de;
+  gpu_info.gpu.device_id = 0x0df8;
+  EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+}
+
+TEST_F(GpuControlListEntryTest, GpuSeriesActive) {
+  const Entry& entry = GetEntry(kGpuControlListEntryTest_GpuSeriesActive);
+
+  GPUInfo::GPUDevice intel_gpu;
+  intel_gpu.vendor_id = 0x8086;
+  intel_gpu.device_id = 0x5916;
+  GPUInfo::GPUDevice nvidia_gpu;
+  nvidia_gpu.vendor_id = 0x10de;
+  nvidia_gpu.device_id = 0x0df8;
+
+  {  // Single GPU
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, Intel is primary and active
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    gpu_info.gpu.active = true;
+    gpu_info.secondary_gpus.push_back(nvidia_gpu);
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, Intel is secondary and active
+    GPUInfo gpu_info;
+    gpu_info.gpu = nvidia_gpu;
+    gpu_info.secondary_gpus.push_back(intel_gpu);
+    gpu_info.secondary_gpus[0].active = true;
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, NVidia is primary and active
+    GPUInfo gpu_info;
+    gpu_info.gpu = nvidia_gpu;
+    gpu_info.gpu.active = true;
+    gpu_info.secondary_gpus.push_back(intel_gpu);
+    EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, NVidia is secondary and active
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    gpu_info.secondary_gpus.push_back(nvidia_gpu);
+    gpu_info.secondary_gpus[0].active = true;
+    EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+}
+
+TEST_F(GpuControlListEntryTest, GpuSeriesAny) {
+  const Entry& entry = GetEntry(kGpuControlListEntryTest_GpuSeriesAny);
+
+  GPUInfo::GPUDevice intel_gpu;
+  intel_gpu.vendor_id = 0x8086;
+  intel_gpu.device_id = 0x5916;
+  GPUInfo::GPUDevice nvidia_gpu;
+  nvidia_gpu.vendor_id = 0x10de;
+  nvidia_gpu.device_id = 0x0df8;
+
+  {  // Single GPU Intel
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Single GPU NVidia
+    GPUInfo gpu_info;
+    gpu_info.gpu = nvidia_gpu;
+    EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, Intel is primary
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    gpu_info.secondary_gpus.push_back(nvidia_gpu);
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, Intel is secondary
+    GPUInfo gpu_info;
+    gpu_info.gpu = nvidia_gpu;
+    gpu_info.secondary_gpus.push_back(intel_gpu);
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+}
+
+TEST_F(GpuControlListEntryTest, GpuSeriesPrimary) {
+  const Entry& entry = GetEntry(kGpuControlListEntryTest_GpuSeriesPrimary);
+
+  GPUInfo::GPUDevice intel_gpu;
+  intel_gpu.vendor_id = 0x8086;
+  intel_gpu.device_id = 0x5916;
+  GPUInfo::GPUDevice nvidia_gpu;
+  nvidia_gpu.vendor_id = 0x10de;
+  nvidia_gpu.device_id = 0x0df8;
+
+  {  // Single GPU
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, Intel is primary
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    gpu_info.secondary_gpus.push_back(nvidia_gpu);
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, Intel is secondary
+    GPUInfo gpu_info;
+    gpu_info.gpu = nvidia_gpu;
+    gpu_info.secondary_gpus.push_back(intel_gpu);
+    EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+}
+
+TEST_F(GpuControlListEntryTest, GpuSeriesSecondary) {
+  const Entry& entry = GetEntry(kGpuControlListEntryTest_GpuSeriesSecondary);
+
+  GPUInfo::GPUDevice intel_gpu;
+  intel_gpu.vendor_id = 0x8086;
+  intel_gpu.device_id = 0x5916;
+  GPUInfo::GPUDevice nvidia_gpu;
+  nvidia_gpu.vendor_id = 0x10de;
+  nvidia_gpu.device_id = 0x0df8;
+
+  {  // Single GPU
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, Intel is primary
+    GPUInfo gpu_info;
+    gpu_info.gpu = intel_gpu;
+    gpu_info.secondary_gpus.push_back(nvidia_gpu);
+    EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+
+  {  // Dual GPU, Intel is secondary
+    GPUInfo gpu_info;
+    gpu_info.gpu = nvidia_gpu;
+    gpu_info.secondary_gpus.push_back(intel_gpu);
+    EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+  }
+}
+
+TEST_F(GpuControlListEntryTest, GpuSeriesInException) {
+  const Entry& entry = GetEntry(kGpuControlListEntryTest_GpuSeriesInException);
+
+  GPUInfo gpu_info;
+  // Intel KabyLake
+  gpu_info.gpu.vendor_id = 0x8086;
+  gpu_info.gpu.device_id = 0x5916;
+  EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+  // Intel SandyBridge
+  gpu_info.gpu.vendor_id = 0x8086;
+  gpu_info.gpu.device_id = 0x0116;
+  EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+}
+
+TEST_F(GpuControlListEntryTest, MultipleDrivers) {
+  const Entry& entry = GetEntry(kGpuControlListEntryTest_MultipleDrivers);
+  // The GPUInfo data came from https://crbug.com/810713#c58.
+  GPUInfo gpu_info;
+  gpu_info.gpu.vendor_id = 0x1002;
+  gpu_info.gpu.device_id = 0x6741;
+  gpu_info.gpu.driver_version = "8.951.0.0";
+  GPUInfo::GPUDevice intel_device;
+  intel_device.vendor_id = 0x8086;
+  intel_device.device_id = 0x0116;
+  intel_device.driver_version = "8.15.0010.2476";
+  gpu_info.secondary_gpus.push_back(intel_device);
+
+  gpu_info.gpu.active = true;
+  gpu_info.secondary_gpus[0].active = false;
+  EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+
+  gpu_info.gpu.active = false;
+  gpu_info.secondary_gpus[0].active = true;
+  EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+}
+
+#if defined(OS_WIN)
+TEST_F(GpuControlListEntryTest, HardwareOverlay) {
+  const Entry& entry = GetEntry(kGpuControlListEntryTest_HardwareOverlay);
+  GPUInfo gpu_info;
+  gpu_info.gpu.vendor_id = 0x8086;
+  gpu_info.supports_overlays = true;
+  EXPECT_FALSE(entry.Contains(kOsWin, "10.0", gpu_info));
+
+  gpu_info.supports_overlays = false;
+  EXPECT_TRUE(entry.Contains(kOsWin, "10.0", gpu_info));
+}
+#endif  // OS_WIN
 
 }  // namespace gpu

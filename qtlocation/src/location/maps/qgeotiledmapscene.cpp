@@ -35,15 +35,14 @@
 **
 ****************************************************************************/
 #include "qgeotiledmapscene_p.h"
+#include "qgeotiledmapscene_p_p.h"
 #include "qgeocameradata_p.h"
 #include "qabstractgeotilecache_p.h"
 #include "qgeotilespec_p.h"
 #include <QtPositioning/private/qdoublevector3d_p.h>
 #include <QtPositioning/private/qwebmercator_p.h>
 #include <QtCore/private/qobject_p.h>
-#include <QtQuick/QSGImageNode>
 #include <QtQuick/QQuickWindow>
-#include <QtQuick/private/qsgdefaultimagenode_p.h>
 #include <QtGui/QVector3D>
 #include <cmath>
 #include <QtPositioning/private/qlocationutils_p.h>
@@ -56,60 +55,6 @@ static QVector3D toVector3D(const QDoubleVector3D& in)
 }
 
 QT_BEGIN_NAMESPACE
-
-class QGeoTiledMapScenePrivate : public QObjectPrivate
-{
-    Q_DECLARE_PUBLIC(QGeoTiledMapScene)
-public:
-    QGeoTiledMapScenePrivate();
-    ~QGeoTiledMapScenePrivate();
-
-    QSize m_screenSize; // in pixels
-    int m_tileSize; // the pixel resolution for each tile
-    QGeoCameraData m_cameraData;
-    QSet<QGeoTileSpec> m_visibleTiles;
-
-    QDoubleVector3D m_cameraUp;
-    QDoubleVector3D m_cameraEye;
-    QDoubleVector3D m_cameraCenter;
-    QMatrix4x4 m_projectionMatrix;
-
-    // scales up the tile geometry and the camera altitude, resulting in no visible effect
-    // other than to control the accuracy of the render by keeping the values in a sensible range
-    double m_scaleFactor;
-
-    // rounded down, positive zoom is zooming in, corresponding to reduced altitude
-    int m_intZoomLevel;
-
-    // mercatorToGrid transform
-    // the number of tiles in each direction for the whole map (earth) at the current zoom level.
-    // it is 1<<zoomLevel
-    int m_sideLength;
-    double m_mapEdgeSize;
-
-    QHash<QGeoTileSpec, QSharedPointer<QGeoTileTexture> > m_textures;
-    QVector<QGeoTileSpec> m_updatedTextures;
-
-    // tilesToGrid transform
-    int m_minTileX; // the minimum tile index, i.e. 0 to sideLength which is 1<< zoomLevel
-    int m_minTileY;
-    int m_maxTileX;
-    int m_maxTileY;
-    int m_tileXWrapsBelow; // the wrap point as a tile index
-
-    bool m_linearScaling;
-
-    bool m_dropTextures;
-
-    void addTile(const QGeoTileSpec &spec, QSharedPointer<QGeoTileTexture> texture);
-
-    void setVisibleTiles(const QSet<QGeoTileSpec> &visibleTiles);
-    void removeTiles(const QSet<QGeoTileSpec> &oldTiles);
-    bool buildGeometry(const QGeoTileSpec &spec, QSGImageNode *imageNode, bool &overzooming);
-    void updateTileBounds(const QSet<QGeoTileSpec> &tiles);
-    void setupCamera();
-    inline bool isTiltedOrRotated() { return (m_cameraData.tilt() > 0.0) || (m_cameraData.bearing() > 0.0); }
-};
 
 QGeoTiledMapScene::QGeoTiledMapScene(QObject *parent)
     : QObject(*new QGeoTiledMapScenePrivate(),parent)
@@ -153,6 +98,15 @@ void QGeoTiledMapScene::setCameraData(const QGeoCameraData &cameraData)
     updateSceneParameters();
 }
 
+void QGeoTiledMapScene::setVisibleArea(const QRectF &visibleArea)
+{
+    Q_D(QGeoTiledMapScene);
+    if (d->m_visibleArea == visibleArea)
+        return;
+    d->m_visibleArea = visibleArea;
+    updateSceneParameters();
+}
+
 void QGeoTiledMapScene::setVisibleTiles(const QSet<QGeoTileSpec> &tiles)
 {
     Q_D(QGeoTiledMapScene);
@@ -191,7 +145,11 @@ void QGeoTiledMapScene::clearTexturedTiles()
 QGeoTiledMapScenePrivate::QGeoTiledMapScenePrivate()
     : QObjectPrivate(),
       m_tileSize(0),
+#ifdef QT_LOCATION_DEBUG
+      m_scaleFactor(1.0),
+#else
       m_scaleFactor(10.0),
+#endif
       m_intZoomLevel(0),
       m_sideLength(0),
       m_minTileX(-1),
@@ -465,74 +423,33 @@ void QGeoTiledMapScenePrivate::setupCamera()
     float halfHeight = 1 * apertureSize;
     halfWidth *= aspectRatio;
 
+//    m_projectionMatrix.setToIdentity();
+//    m_projectionMatrix.frustum(-halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane);
+
+    QRectF va = m_visibleArea;
+    if (va.isNull())
+        va = QRectF(0, 0, m_screenSize.width(), m_screenSize.height());
+
+    QRectF screen = QRectF(QPointF(0,0),m_screenSize);
+    QPointF vaCenter = va.center();
+
+    QPointF screenCenter = screen.center();
+    QPointF diff = screenCenter - vaCenter;
+    float xdiffpct = diff.x() / m_screenSize.width();
+    float ydiffpct = -(diff.y() / m_screenSize.height());
+
     m_projectionMatrix.setToIdentity();
-    m_projectionMatrix.frustum(-halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane);
+    float l = -halfWidth + (2 * halfWidth) * xdiffpct;
+    float r =  halfWidth + (2 * halfWidth) * xdiffpct;
+    float t =  halfHeight + (2 * halfHeight) * ydiffpct;
+    float b = -halfHeight + (2 * halfHeight) * ydiffpct;
+
+    m_projectionMatrix.frustum(l,
+                               r,
+                               b,
+                               t,
+                               nearPlane, farPlane);
 }
-
-class QGeoTiledMapTileContainerNode : public QSGTransformNode
-{
-public:
-    void addChild(const QGeoTileSpec &spec, QSGImageNode *node)
-    {
-        tiles.insert(spec, node);
-        appendChildNode(node);
-    }
-    QHash<QGeoTileSpec, QSGImageNode *> tiles;
-};
-
-class QGeoTiledMapRootNode : public QSGClipNode
-{
-public:
-    QGeoTiledMapRootNode()
-        : isTextureLinear(false)
-        , geometry(QSGGeometry::defaultAttributes_Point2D(), 4)
-        , root(new QSGTransformNode())
-        , tiles(new QGeoTiledMapTileContainerNode())
-        , wrapLeft(new QGeoTiledMapTileContainerNode())
-        , wrapRight(new QGeoTiledMapTileContainerNode())
-    {
-        setIsRectangular(true);
-        setGeometry(&geometry);
-        root->appendChildNode(tiles);
-        root->appendChildNode(wrapLeft);
-        root->appendChildNode(wrapRight);
-        appendChildNode(root);
-    }
-
-    ~QGeoTiledMapRootNode()
-    {
-        qDeleteAll(textures);
-    }
-
-    void setClipRect(const QRect &rect)
-    {
-        if (rect != clipRect) {
-            QSGGeometry::updateRectGeometry(&geometry, rect);
-            QSGClipNode::setClipRect(rect);
-            clipRect = rect;
-            markDirty(DirtyGeometry);
-        }
-    }
-
-    void updateTiles(QGeoTiledMapTileContainerNode *root,
-                     QGeoTiledMapScenePrivate *d,
-                     double camAdjust,
-                     QQuickWindow *window,
-                     bool ogl);
-
-    bool isTextureLinear;
-
-    QSGGeometry geometry;
-    QRect clipRect;
-
-    QSGTransformNode *root;
-
-    QGeoTiledMapTileContainerNode *tiles;        // The majority of the tiles
-    QGeoTiledMapTileContainerNode *wrapLeft;     // When zoomed out, the tiles that wrap around on the left.
-    QGeoTiledMapTileContainerNode *wrapRight;    // When zoomed out, the tiles that wrap around on the right
-
-    QHash<QGeoTileSpec, QSGTexture *> textures;
-};
 
 static bool qgeotiledmapscene_isTileInViewport_Straight(const QRectF &tileRect, const QMatrix4x4 &matrix)
 {
@@ -587,6 +504,9 @@ void QGeoTiledMapRootNode::updateTiles(QGeoTiledMapTileContainerNode *root,
     bool straight = !d->isTiltedOrRotated();
     bool overzooming;
     qreal pixelRatio = window->effectiveDevicePixelRatio();
+#ifdef QT_LOCATION_DEBUG
+    QList<QGeoTileSpec> droppedTiles;
+#endif
     for (QHash<QGeoTileSpec, QSGImageNode *>::iterator it = root->tiles.begin();
          it != root->tiles.end(); ) {
         QSGImageNode *node = it.value();
@@ -596,6 +516,9 @@ void QGeoTiledMapRootNode::updateTiles(QGeoTiledMapTileContainerNode *root,
         QSGNode::DirtyState dirtyBits = 0;
 
         if (!ok) {
+#ifdef QT_LOCATION_DEBUG
+            droppedTiles.append(it.key());
+#endif
             it = root->tiles.erase(it);
             delete node;
         } else {
@@ -610,7 +533,7 @@ void QGeoTiledMapRootNode::updateTiles(QGeoTiledMapTileContainerNode *root,
                 if (ogl)
                     static_cast<QSGDefaultImageNode *>(node)->setAnisotropyLevel(QSGTexture::Anisotropy16x);
 #else
-    Q_UNUSED(ogl)
+    Q_UNUSED(ogl);
 #endif
                 dirtyBits |= QSGNode::DirtyMaterial;
             }
@@ -622,8 +545,12 @@ void QGeoTiledMapRootNode::updateTiles(QGeoTiledMapTileContainerNode *root,
 
     for (const QGeoTileSpec &s : toAdd) {
         QGeoTileTexture *tileTexture = d->m_textures.value(s).data();
-        if (!tileTexture || tileTexture->image.isNull())
+        if (!tileTexture || tileTexture->image.isNull()) {
+#ifdef QT_LOCATION_DEBUG
+            droppedTiles.append(s);
+#endif
             continue;
+        }
         QSGImageNode *tileNode = window->createImageNode();
         // note: setTexture will update coordinates so do it here, before we buildGeometry
         tileNode->setTexture(textures.value(s));
@@ -641,9 +568,16 @@ void QGeoTiledMapRootNode::updateTiles(QGeoTiledMapTileContainerNode *root,
 #endif
             root->addChild(s, tileNode);
         } else {
+#ifdef QT_LOCATION_DEBUG
+            droppedTiles.append(s);
+#endif
             delete tileNode;
         }
     }
+
+#ifdef QT_LOCATION_DEBUG
+    m_droppedTiles[camAdjust] = droppedTiles;
+#endif
 }
 
 QSGNode *QGeoTiledMapScene::updateSceneGraph(QSGNode *oldNode, QQuickWindow *window)
@@ -660,6 +594,11 @@ QSGNode *QGeoTiledMapScene::updateSceneGraph(QSGNode *oldNode, QQuickWindow *win
     QGeoTiledMapRootNode *mapRoot = static_cast<QGeoTiledMapRootNode *>(oldNode);
     if (!mapRoot)
         mapRoot = new QGeoTiledMapRootNode();
+
+#ifdef QT_LOCATION_DEBUG
+    mapRoot->m_droppedTiles.clear();
+    d->m_mapRoot = mapRoot;
+#endif
 
     // Setting clip rect to fullscreen, as now the map can never be smaller than the viewport.
     mapRoot->setClipRect(QRect(0, 0, w, h));
@@ -715,6 +654,9 @@ QSGNode *QGeoTiledMapScene::updateSceneGraph(QSGNode *oldNode, QQuickWindow *win
     }
 
     double sideLength = d->m_scaleFactor * d->m_tileSize * d->m_sideLength;
+#ifdef QT_LOCATION_DEBUG
+    d->m_sideLengthPixel = sideLength;
+#endif
     mapRoot->updateTiles(mapRoot->tiles, d, 0, window, isOpenGL);
     mapRoot->updateTiles(mapRoot->wrapLeft, d, +sideLength, window, isOpenGL);
     mapRoot->updateTiles(mapRoot->wrapRight, d, -sideLength, window, isOpenGL);

@@ -11,13 +11,14 @@
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/memory/protected_memory.h"
+#include "base/memory/protected_memory_cfi.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
+#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_gl_api_implementation.h"
 #include "ui/gl/gl_version_info.h"
@@ -32,34 +33,70 @@ const struct {
 } kGLImplementationNamePairs[] = {
     {kGLImplementationDesktopName, kGLImplementationDesktopGL},
     {kGLImplementationCoreProfileName, kGLImplementationDesktopGLCoreProfile},
-    {kGLImplementationOSMesaName, kGLImplementationOSMesaGL},
     {kGLImplementationSwiftShaderName, kGLImplementationSwiftShaderGL},
 #if defined(OS_MACOSX)
     {kGLImplementationAppleName, kGLImplementationAppleGL},
 #endif
     {kGLImplementationEGLName, kGLImplementationEGLGLES2},
-    {kGLImplementationMockName, kGLImplementationMockGL}};
+    {kGLImplementationMockName, kGLImplementationMockGL},
+    {kGLImplementationDisabledName, kGLImplementationDisabled}};
 
 typedef std::vector<base::NativeLibrary> LibraryArray;
 
 GLImplementation g_gl_implementation = kGLImplementationNone;
 LibraryArray* g_libraries;
-GLGetProcAddressProc g_get_proc_address;
+// Place the function pointer for GetProcAddress in read-only memory after being
+// resolved to prevent it being tampered with. See crbug.com/771365 for details.
+PROTECTED_MEMORY_SECTION base::ProtectedMemory<GLGetProcAddressProc>
+    g_get_proc_address;
 
-void CleanupNativeLibraries(void* unused) {
+void CleanupNativeLibraries(void* due_to_fallback) {
   if (g_libraries) {
     // We do not call base::UnloadNativeLibrary() for these libraries as
     // unloading libGL without closing X display is not allowed. See
-    // crbug.com/250813 for details.
+    // https://crbug.com/250813 for details.
+    // However, if we fallback to a software renderer (e.g., SwiftShader),
+    // then the above concern becomes irrelevant.
+    // During fallback from ANGLE to SwiftShader ANGLE library needs to
+    // be unloaded, otherwise software SwiftShader loading will fail. See
+    // https://crbug.com/760063 for details.
+    // During fallback from VMware mesa to SwiftShader mesa libraries need
+    // to be unloaded. See https://crbug.com/852537 for details.
+    if (due_to_fallback && *static_cast<bool*>(due_to_fallback)) {
+      for (auto* library : *g_libraries)
+        base::UnloadNativeLibrary(library);
+    }
     delete g_libraries;
-    g_libraries = NULL;
+    g_libraries = nullptr;
   }
+}
+
+gfx::ExtensionSet GetGLExtensionsFromCurrentContext(
+    GLApi* api,
+    GLenum extensions_enum,
+    GLenum num_extensions_enum) {
+  if (WillUseGLGetStringForExtensions(api)) {
+    const char* extensions =
+        reinterpret_cast<const char*>(api->glGetStringFn(extensions_enum));
+    return extensions ? gfx::MakeExtensionSet(extensions) : gfx::ExtensionSet();
+  }
+
+  GLint num_extensions = 0;
+  api->glGetIntegervFn(num_extensions_enum, &num_extensions);
+
+  std::vector<base::StringPiece> exts(num_extensions);
+  for (GLint i = 0; i < num_extensions; ++i) {
+    const char* extension =
+        reinterpret_cast<const char*>(api->glGetStringiFn(extensions_enum, i));
+    DCHECK(extension != NULL);
+    exts[i] = extension;
+  }
+  return gfx::ExtensionSet(exts);
 }
 
 }  // namespace
 
 base::ThreadLocalPointer<CurrentGL>* g_current_gl_context_tls = NULL;
-OSMESAApi* g_current_osmesa_context;
 
 #if defined(USE_EGL)
 EGLApi* g_current_egl_context;
@@ -74,7 +111,7 @@ GLXApi* g_current_glx_context;
 #endif
 
 GLImplementation GetNamedGLImplementation(const std::string& name) {
-  for (size_t i = 0; i < arraysize(kGLImplementationNamePairs); ++i) {
+  for (size_t i = 0; i < base::size(kGLImplementationNamePairs); ++i) {
     if (name == kGLImplementationNamePairs[i].name)
       return kGLImplementationNamePairs[i].implementation;
   }
@@ -83,11 +120,11 @@ GLImplementation GetNamedGLImplementation(const std::string& name) {
 }
 
 GLImplementation GetSoftwareGLImplementation() {
-  return kGLImplementationOSMesaGL;
+  return kGLImplementationSwiftShaderGL;
 }
 
 const char* GetGLImplementationName(GLImplementation implementation) {
-  for (size_t i = 0; i < arraysize(kGLImplementationNamePairs); ++i) {
+  for (size_t i = 0; i < base::size(kGLImplementationNamePairs); ++i) {
     if (implementation == kGLImplementationNamePairs[i].implementation)
       return kGLImplementationNamePairs[i].name;
   }
@@ -106,7 +143,6 @@ GLImplementation GetGLImplementation() {
 bool HasDesktopGLFeatures() {
   return kGLImplementationDesktopGL == g_gl_implementation ||
          kGLImplementationDesktopGLCoreProfile == g_gl_implementation ||
-         kGLImplementationOSMesaGL == g_gl_implementation ||
          kGLImplementationAppleGL == g_gl_implementation;
 }
 
@@ -121,13 +157,14 @@ void AddGLNativeLibrary(base::NativeLibrary library) {
   g_libraries->push_back(library);
 }
 
-void UnloadGLNativeLibraries() {
-  CleanupNativeLibraries(NULL);
+void UnloadGLNativeLibraries(bool due_to_fallback) {
+  CleanupNativeLibraries(&due_to_fallback);
 }
 
 void SetGLGetProcAddressProc(GLGetProcAddressProc proc) {
   DCHECK(proc);
-  g_get_proc_address = proc;
+  auto writer = base::AutoWritableMemory::Create(g_get_proc_address);
+  *g_get_proc_address = proc;
 }
 
 GLFunctionPointerType GetGLProcAddress(const char* name) {
@@ -141,8 +178,9 @@ GLFunctionPointerType GetGLProcAddress(const char* name) {
         return proc;
     }
   }
-  if (g_get_proc_address) {
-    GLFunctionPointerType proc = g_get_proc_address(name);
+  if (*g_get_proc_address) {
+    GLFunctionPointerType proc =
+        base::UnsanitizedCfiCall(g_get_proc_address)(name);
     if (proc)
       return proc;
   }
@@ -170,9 +208,7 @@ std::string FilterGLExtensionList(
   auto is_disabled = [&disabled_extensions](const base::StringPiece& ext) {
     return base::ContainsValue(disabled_extensions, ext);
   };
-  extension_vec.erase(
-      std::remove_if(extension_vec.begin(), extension_vec.end(), is_disabled),
-      extension_vec.end());
+  base::EraseIf(extension_vec, is_disabled);
 
   return base::JoinString(extension_vec, " ");
 }
@@ -212,6 +248,15 @@ std::string GetGLExtensionsFromCurrentContext(GLApi* api) {
   return base::JoinString(exts, " ");
 }
 
+gfx::ExtensionSet GetRequestableGLExtensionsFromCurrentContext() {
+  return GetRequestableGLExtensionsFromCurrentContext(g_current_gl_context);
+}
+
+gfx::ExtensionSet GetRequestableGLExtensionsFromCurrentContext(GLApi* api) {
+  return GetGLExtensionsFromCurrentContext(api, GL_REQUESTABLE_EXTENSIONS_ANGLE,
+                                           GL_NUM_REQUESTABLE_EXTENSIONS_ANGLE);
+}
+
 bool WillUseGLGetStringForExtensions() {
   return WillUseGLGetStringForExtensions(g_current_gl_context);
 }
@@ -219,19 +264,9 @@ bool WillUseGLGetStringForExtensions() {
 bool WillUseGLGetStringForExtensions(GLApi* api) {
   const char* version_str =
       reinterpret_cast<const char*>(api->glGetStringFn(GL_VERSION));
-  unsigned major_version, minor_version;
-  bool is_es, is_es2, is_es3;
-  GLVersionInfo::ParseVersionString(version_str, &major_version, &minor_version,
-                                    &is_es, &is_es2, &is_es3);
-  return is_es || major_version < 3;
-}
-
-std::unique_ptr<GLVersionInfo> GetVersionInfoFromContext(GLApi* api) {
-  std::string extensions = GetGLExtensionsFromCurrentContext(api);
-  return base::MakeUnique<GLVersionInfo>(
-      reinterpret_cast<const char*>(api->glGetStringFn(GL_VERSION)),
-      reinterpret_cast<const char*>(api->glGetStringFn(GL_RENDERER)),
-      extensions.c_str());
+  gfx::ExtensionSet extensions;
+  GLVersionInfo version_info(version_str, nullptr, extensions);
+  return version_info.is_es || version_info.major_version < 3;
 }
 
 base::NativeLibrary LoadLibraryAndPrintError(

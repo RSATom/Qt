@@ -2,23 +2,33 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-if (is_android) {
-  import("//build/config/android/config.gni")
-}
+import("//build/config/freetype/freetype.gni")
+import("//third_party/harfbuzz-ng/harfbuzz.gni")
+import("//third_party/libjpeg.gni")
 
 assert(!is_ios, "This is not used on iOS, don't drag it in unintentionally")
 
-declare_args() {
-  # Uses system libjpeg. If true, overrides use_libjpeg_turbo.
-  use_system_libjpeg = false
-
-  # Uses libjpeg_turbo as the jpeg implementation. Has no effect if
-  # use_system_libjpeg is set.
-  use_libjpeg_turbo = true
+if (use_system_libjpeg) {
+  import("//build/config/linux/pkg_config.gni")
+  import("//build/shim_headers.gni")
+  pkg_config("system_libjpeg") {
+    packages = [ "libjpeg" ]
+  }
+  shim_headers("libjpeg_shim") {
+    root_path = "libjpeg"
+    headers = [
+      "jpeglib.h"
+    ]
+  }
+  source_set("libjpeg") {
+    deps = [ ":libjpeg_shim" ]
+    public_configs = [ ":system_libjpeg",
+                       ":system_libjpeg_config"
+    ]
+  }
 }
 
 config("system_libjpeg_config") {
-  libs = [ "jpeg" ]
   defines = [ "USE_SYSTEM_LIBJPEG" ]
 }
 
@@ -31,7 +41,7 @@ config("libjpeg_turbo_config") {
 # declared in this file.
 group("jpeg") {
   if (use_system_libjpeg) {
-    public_configs = [ ":system_libjpeg_config" ]
+    public_deps = [ ":libjpeg" ]
   } else if (use_libjpeg_turbo) {
     public_deps = [
       "//third_party/libjpeg_turbo:libjpeg",
@@ -50,10 +60,28 @@ group("jpeg") {
 # need to reference libjpeg without explicitly building it.
 group("jpeg_includes") {
   if (use_system_libjpeg) {
-    public_configs = [ ":system_libjpeg_config" ]
+    public_configs = [ ":system_libjpeg_config", ":system_libjpeg" ]
   } else if (use_libjpeg_turbo) {
     public_configs = [ "//third_party/libjpeg_turbo:libjpeg_config" ]
   } else {
     public_configs = [ "//third_party/libjpeg:libjpeg_config" ]
+  }
+}
+
+# FreeType and HarfBuzz libraries are dependent on each other. This component
+# will depend on the appropriate source sets or export the system packages
+# for both FreeType and HarfBuzz.
+component("freetype_harfbuzz") {
+  public_configs = []
+  public_deps = []
+  if (use_system_freetype) {
+    public_configs += [ "//build/linux:freetype_from_pkgconfig" ]
+  } else {
+    public_deps += [ "//third_party/freetype:freetype_source" ]
+  }
+  if (use_system_harfbuzz) {
+    public_configs += [ "//third_party/harfbuzz-ng:harfbuzz_from_pkgconfig" ]
+  } else {
+    public_deps += [ "//third_party/harfbuzz-ng:harfbuzz_source" ]
   }
 }

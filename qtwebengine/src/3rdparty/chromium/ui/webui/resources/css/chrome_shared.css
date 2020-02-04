@@ -8,9 +8,6 @@
 @import url(chrome://resources/css/text_defaults.css);
 @import url(i18n_process.css);
 @import url(widgets.css);
-<if expr="chromeos">
-@import url(chromeos/ui_account_tweaks.css);
-</if>
 
 /* Prevent CSS from overriding the hidden property. */
 [hidden] {
@@ -84,8 +81,8 @@ html[dir='rtl'] div.weakrtl input {
 }
 
 html[dir='rtl'] .favicon-cell.weakrtl {
-  -webkit-padding-end: 22px;
-  -webkit-padding-start: 0;
+  padding-inline-end: 22px;
+  padding-inline-start: 0;
 }
 
 /* weakrtl for selection drop downs needs to account for the fact that

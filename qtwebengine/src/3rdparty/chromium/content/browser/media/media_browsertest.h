@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/strings/string_split.h"
+#include "base/test/scoped_feature_list.h"
 #include "content/public/test/content_browser_test.h"
 
 namespace content {
@@ -17,12 +18,6 @@ class TitleWatcher;
 // A base class for media related browser tests.
 class MediaBrowserTest : public ContentBrowserTest {
  public:
-  // Common test results.
-  static const char kEnded[];
-  static const char kError[];
-  static const char kErrorEvent[];
-  static const char kFailed[];
-
   // ContentBrowserTest implementation.
   void SetUpCommandLine(base::CommandLine* command_line) override;
 
@@ -44,8 +39,15 @@ class MediaBrowserTest : public ContentBrowserTest {
   // message contents.
   std::string EncodeErrorMessage(const std::string& original_message);
 
+  // Tears down media playback. Called automatically as part of RunTest(), only
+  // needed for manually setup tests.
+  void CleanupTest();
+
   // Adds titles that RunTest() should wait for.
   virtual void AddTitlesToAwait(content::TitleWatcher* title_watcher);
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 }  // namespace content

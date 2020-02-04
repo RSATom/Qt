@@ -16,38 +16,57 @@ Polymer({
      * immediately to the input field. A change to the input field is not
      * mirrored back until pageNoCommitted() is called and change-page is fired.
      */
-    pageNo: {type: Number, value: 1},
+    pageNo: {
+      type: Number,
+      value: 1,
+    },
 
     strings: Object,
   },
 
-  pageNoCommitted: function() {
-    var page = parseInt(this.$.input.value, 10);
+  /** @return {!CrInputElement} */
+  get pageSelector() {
+    return this.$.pageselector;
+  },
 
-    if (!isNaN(page) && page <= this.docLength && page > 0)
-      this.fire('change-page', {page: page - 1});
-    else
-      this.$.input.value = this.pageNo;
-    this.$.input.blur();
+  pageNoCommitted: function() {
+    const page = parseInt(this.pageSelector.value, 10);
+
+    if (!isNaN(page) && page <= this.docLength && page > 0) {
+      this.fire('change-page', {page: page - 1, origin: 'pageselector'});
+    } else {
+      this.pageSelector.value = this.pageNo.toString();
+    }
+    this.pageSelector.blur();
   },
 
   /** @private */
   docLengthChanged_: function() {
-    var numDigits = this.docLength.toString().length;
-    this.$.pageselector.style.width = numDigits + 'ch';
+    const numDigits = this.docLength.toString().length;
     // Set both sides of the slash to the same width, so that the layout is
-    // exactly centered.
-    this.$['pagelength-spacer'].style.width = numDigits + 'ch';
+    // exactly centered. We add 1px because the unit `ch` does not provide
+    // exact whole number pixels, and therefore seems to have 1px-off bugginess.
+    const width = `calc(${numDigits}ch + 1px)`;
+    this.pageSelector.style.width = width;
+    this.$['pagelength-spacer'].style.width = width;
   },
 
   select: function() {
-    this.$.input.select();
+    this.pageSelector.select();
   },
 
   /**
    * @return {boolean} True if the selector input field is currently focused.
    */
   isActive: function() {
-    return this.shadowRoot.activeElement == this.$.input;
-  }
+    return this.shadowRoot.activeElement == this.pageSelector;
+  },
+
+  /**
+   * Immediately remove any non-digit characters.
+   * @private
+   */
+  onInputValueChange_: function() {
+    this.pageSelector.value = this.pageSelector.value.replace(/[^\d]/, '');
+  },
 });

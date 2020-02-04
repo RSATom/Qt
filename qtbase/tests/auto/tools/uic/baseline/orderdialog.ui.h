@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'orderdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,14 +40,11 @@
 #define ORDERDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QGroupBox>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QSpacerItem>
 #include <QtWidgets/QToolButton>
@@ -73,18 +70,18 @@ public:
     void setupUi(QDialog *qdesigner_internal__OrderDialog)
     {
         if (qdesigner_internal__OrderDialog->objectName().isEmpty())
-            qdesigner_internal__OrderDialog->setObjectName(QStringLiteral("qdesigner_internal__OrderDialog"));
+            qdesigner_internal__OrderDialog->setObjectName(QString::fromUtf8("qdesigner_internal__OrderDialog"));
         qdesigner_internal__OrderDialog->resize(467, 310);
         vboxLayout = new QVBoxLayout(qdesigner_internal__OrderDialog);
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         groupBox = new QGroupBox(qdesigner_internal__OrderDialog);
-        groupBox->setObjectName(QStringLiteral("groupBox"));
+        groupBox->setObjectName(QString::fromUtf8("groupBox"));
         hboxLayout = new QHBoxLayout(groupBox);
         hboxLayout->setSpacing(6);
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         hboxLayout->setContentsMargins(9, 9, 9, 9);
         pageList = new QListWidget(groupBox);
-        pageList->setObjectName(QStringLiteral("pageList"));
+        pageList->setObjectName(QString::fromUtf8("pageList"));
         pageList->setMinimumSize(QSize(344, 0));
         pageList->setDragDropMode(QAbstractItemView::InternalMove);
         pageList->setSelectionMode(QAbstractItemView::ContiguousSelection);
@@ -94,15 +91,15 @@ public:
 
         vboxLayout1 = new QVBoxLayout();
         vboxLayout1->setSpacing(6);
-        vboxLayout1->setObjectName(QStringLiteral("vboxLayout1"));
+        vboxLayout1->setObjectName(QString::fromUtf8("vboxLayout1"));
         vboxLayout1->setContentsMargins(0, 0, 0, 0);
         upButton = new QToolButton(groupBox);
-        upButton->setObjectName(QStringLiteral("upButton"));
+        upButton->setObjectName(QString::fromUtf8("upButton"));
 
         vboxLayout1->addWidget(upButton);
 
         downButton = new QToolButton(groupBox);
-        downButton->setObjectName(QStringLiteral("downButton"));
+        downButton->setObjectName(QString::fromUtf8("downButton"));
 
         vboxLayout1->addWidget(downButton);
 
@@ -117,7 +114,7 @@ public:
         vboxLayout->addWidget(groupBox);
 
         buttonBox = new QDialogButtonBox(qdesigner_internal__OrderDialog);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok|QDialogButtonBox::Reset);
 
@@ -133,14 +130,14 @@ public:
 
     void retranslateUi(QDialog *qdesigner_internal__OrderDialog)
     {
-        qdesigner_internal__OrderDialog->setWindowTitle(QApplication::translate("qdesigner_internal::OrderDialog", "Change Page Order", nullptr));
-        groupBox->setTitle(QApplication::translate("qdesigner_internal::OrderDialog", "Page Order", nullptr));
-#ifndef QT_NO_TOOLTIP
-        upButton->setToolTip(QApplication::translate("qdesigner_internal::OrderDialog", "Move page up", nullptr));
-#endif // QT_NO_TOOLTIP
-#ifndef QT_NO_TOOLTIP
-        downButton->setToolTip(QApplication::translate("qdesigner_internal::OrderDialog", "Move page down", nullptr));
-#endif // QT_NO_TOOLTIP
+        qdesigner_internal__OrderDialog->setWindowTitle(QCoreApplication::translate("qdesigner_internal::OrderDialog", "Change Page Order", nullptr));
+        groupBox->setTitle(QCoreApplication::translate("qdesigner_internal::OrderDialog", "Page Order", nullptr));
+#if QT_CONFIG(tooltip)
+        upButton->setToolTip(QCoreApplication::translate("qdesigner_internal::OrderDialog", "Move page up", nullptr));
+#endif // QT_CONFIG(tooltip)
+#if QT_CONFIG(tooltip)
+        downButton->setToolTip(QCoreApplication::translate("qdesigner_internal::OrderDialog", "Move page down", nullptr));
+#endif // QT_CONFIG(tooltip)
     } // retranslateUi
 
 };

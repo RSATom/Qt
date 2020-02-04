@@ -13,8 +13,8 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
-#include "services/preferences/public/interfaces/tracked_preference_validation_delegate.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
+#include "services/preferences/public/mojom/tracked_preference_validation_delegate.mojom.h"
 
 namespace prefs {
 
@@ -44,6 +44,7 @@ class PersistentPrefStoreImpl : public PrefStore::Observer {
   void CommitPendingWrite(base::OnceClosure done_callback);
   void SchedulePendingLossyWrites();
   void ClearMutableValues();
+  void OnStoreDeletionFromDisk();
 
   // PrefStore::Observer:
   void OnPrefValueChanged(const std::string& key) override;

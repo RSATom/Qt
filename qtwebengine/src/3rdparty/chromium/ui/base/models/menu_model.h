@@ -15,6 +15,7 @@
 namespace gfx {
 class FontList;
 class Image;
+struct VectorIcon;
 }
 
 namespace ui {
@@ -27,12 +28,16 @@ class UI_BASE_EXPORT MenuModel {
  public:
   // The type of item.
   enum ItemType {
-    TYPE_COMMAND,
-    TYPE_CHECK,
-    TYPE_RADIO,
-    TYPE_SEPARATOR,
-    TYPE_BUTTON_ITEM,
-    TYPE_SUBMENU
+    TYPE_COMMAND,      // Performs an action when selected.
+    TYPE_CHECK,        // Can be selected/checked to toggle a boolean state.
+    TYPE_RADIO,        // Can be selected/checked among a group of choices.
+    TYPE_SEPARATOR,    // Shows a horizontal line separator.
+    TYPE_BUTTON_ITEM,  // Shows a row of buttons.
+    TYPE_SUBMENU,      // Presents a submenu within another menu.
+    TYPE_ACTIONABLE_SUBMENU,  // A SUBMENU that is also a COMMAND.
+    TYPE_HIGHLIGHTED,  // Performs an action when selected, and has a different
+                       // colored background. When placed at the bottom, the
+                       // background matches the menu's rounded corners.
   };
 
   virtual ~MenuModel() {}
@@ -64,6 +69,10 @@ class UI_BASE_EXPORT MenuModel {
   // Returns the minor text of the item at the specified index. The minor text
   // is rendered to the right of the label and using the font GetLabelFontAt().
   virtual base::string16 GetMinorTextAt(int index) const;
+
+  // Returns the minor icon of the item at the specified index. The minor icon
+  // is rendered to the left of the minor text.
+  virtual const gfx::VectorIcon* GetMinorIconAt(int index) const;
 
   // Returns true if the menu item (label/sublabel/icon) at the specified
   // index can change over the course of the menu's lifetime. If this function
@@ -102,10 +111,6 @@ class UI_BASE_EXPORT MenuModel {
 
   // Returns the model for the submenu at the specified index.
   virtual MenuModel* GetSubmenuModelAt(int index) const = 0;
-
-  // Called when the highlighted menu item changes to the item at the specified
-  // index.
-  virtual void HighlightChangedTo(int index) = 0;
 
   // Called when the item at the specified index has been activated.
   virtual void ActivatedAt(int index) = 0;

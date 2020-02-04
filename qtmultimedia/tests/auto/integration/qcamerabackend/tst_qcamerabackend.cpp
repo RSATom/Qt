@@ -76,6 +76,7 @@ private slots:
     void testCtorWithPosition();
 
     void testCameraStates();
+    void testCameraStartError();
     void testCaptureMode();
     void testCameraCapture();
     void testCaptureToBuffer();
@@ -251,6 +252,27 @@ void tst_QCameraBackend::testCameraStates()
     QCOMPARE(errorSignal.count(), 0);
 }
 
+void tst_QCameraBackend::testCameraStartError()
+{
+    QCamera camera1(QCameraInfo::defaultCamera());
+    QCamera camera2(QCameraInfo::defaultCamera());
+    QSignalSpy errorSpy1(&camera1, QOverload<QCamera::Error>::of(&QCamera::error));
+    QSignalSpy errorSpy2(&camera2, QOverload<QCamera::Error>::of(&QCamera::error));
+
+    camera1.start();
+    camera2.start();
+
+    QCOMPARE(camera1.state(), QCamera::ActiveState);
+    QTRY_COMPARE(camera1.status(), QCamera::ActiveStatus);
+    QCOMPARE(camera1.error(), QCamera::NoError);
+    QCOMPARE(camera2.state(), QCamera::UnloadedState);
+    QCOMPARE(camera2.status(), QCamera::UnloadedStatus);
+    QCOMPARE(camera2.error(), QCamera::CameraError);
+
+    QCOMPARE(errorSpy1.count(), 0);
+    QCOMPARE(errorSpy2.count(), 1);
+}
+
 void tst_QCameraBackend::testCaptureMode()
 {
     QCamera camera;
@@ -356,7 +378,7 @@ void tst_QCameraBackend::testCameraCapture()
 
     QTRY_VERIFY(!savedSignal.isEmpty());
 
-    QCOMPARE(capturedSignal.size(), 1);
+    QTRY_COMPARE(capturedSignal.size(), 1);
     QCOMPARE(capturedSignal.last().first().toInt(), id);
     QCOMPARE(errorSignal.size(), 0);
     QCOMPARE(imageCapture.error(), QCameraImageCapture::NoError);
@@ -414,7 +436,7 @@ void tst_QCameraBackend::testCaptureToBuffer()
     QTRY_VERIFY(!imageAvailableSignal.isEmpty());
 
     QVERIFY(errorSignal.isEmpty());
-    QVERIFY(!capturedSignal.isEmpty());
+    QTRY_VERIFY(!capturedSignal.isEmpty());
     QVERIFY(!imageAvailableSignal.isEmpty());
 
     QTest::qWait(2000);
@@ -650,9 +672,16 @@ void tst_QCameraBackend::testVideoRecording()
     QTRY_COMPARE(recorder.status(), QMediaRecorder::RecordingStatus);
     QCOMPARE(recorderStatusSignal.last().first().value<QMediaRecorder::Status>(), recorder.status());
     QTest::qWait(5000);
+    recorderStatusSignal.clear();
     recorder.stop();
-    QCOMPARE(recorder.status(), QMediaRecorder::FinalizingStatus);
-    QCOMPARE(recorderStatusSignal.last().first().value<QMediaRecorder::Status>(), recorder.status());
+    bool foundFinalizingStatus = false;
+    for (auto &list : recorderStatusSignal) {
+        if (list.contains(QVariant(QMediaRecorder::FinalizingStatus))) {
+            foundFinalizingStatus = true;
+            break;
+        }
+    }
+    QVERIFY(foundFinalizingStatus);
     QTRY_COMPARE(recorder.status(), QMediaRecorder::LoadedStatus);
     QCOMPARE(recorderStatusSignal.last().first().value<QMediaRecorder::Status>(), recorder.status());
 

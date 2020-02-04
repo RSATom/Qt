@@ -94,6 +94,9 @@
 #ifndef WELS_MIN
 #define WELS_MIN(x, y) ((x) < (y) ? (x) : (y))
 #endif//WELS_MIN
+#ifndef WELS_MIN_POSITIVE
+#define WELS_MIN_POSITIVE(x, y) (x >= 0 && y >= 0) ? WELS_MIN(x, y) : WELS_MAX(x, y);
+#endif//WELS_MIN_POSITIVE
 #else // Alternative implementation of WELS_MAX and WELS_MIN
 #ifndef WELS_MAX
 #define WELS_MAX(x, y) ((x) - (((x)-(y))&(((x)-(y))>>31)))
@@ -189,7 +192,11 @@ static inline uint8_t WelsClip1 (int32_t iX) {
 #define WELS_SIGN(iX) ((int32_t)(iX) >> 31)
 #endif //WELS_SIGN
 #ifndef WELS_ABS
+#if 1
+#define WELS_ABS(iX) ((iX)>0 ? (iX) : -(iX))
+#else
 #define WELS_ABS(iX) ((WELS_SIGN(iX) ^ (int32_t)(iX)) - WELS_SIGN(iX))
+#endif
 #endif //WELS_ABS
 
 // WELS_CLIP3

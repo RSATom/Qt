@@ -7,10 +7,10 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_async_task_scheduler.h"
+#include "base/test/scoped_task_environment.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/bluetooth_device.h"
@@ -36,13 +36,6 @@ using device::BluetoothDevice;
 using device::BluetoothSocket;
 using device::BluetoothSocketThread;
 using device::BluetoothUUID;
-
-namespace {
-
-void DoNothingDBusErrorCallback(const std::string& error_name,
-                                const std::string& error_message) {}
-
-}  // namespace
 
 namespace bluez {
 
@@ -83,9 +76,9 @@ class BluetoothSocketBlueZTest : public testing::Test {
     // Grab a pointer to the adapter.
     {
       base::RunLoop run_loop;
-      device::BluetoothAdapterFactory::GetAdapter(
-          base::Bind(&BluetoothSocketBlueZTest::AdapterCallback,
-                     base::Unretained(this), run_loop.QuitWhenIdleClosure()));
+      device::BluetoothAdapterFactory::GetAdapter(base::BindOnce(
+          &BluetoothSocketBlueZTest::AdapterCallback, base::Unretained(this),
+          run_loop.QuitWhenIdleClosure()));
       run_loop.Run();
     }
 
@@ -94,8 +87,7 @@ class BluetoothSocketBlueZTest : public testing::Test {
     ASSERT_TRUE(adapter_->IsPresent());
 
     // Turn on the adapter.
-    adapter_->SetPowered(true, base::Bind(&base::DoNothing),
-                         base::Bind(&base::DoNothing));
+    adapter_->SetPowered(true, base::DoNothing(), base::DoNothing());
     ASSERT_TRUE(adapter_->IsPowered());
   }
 
@@ -173,8 +165,7 @@ class BluetoothSocketBlueZTest : public testing::Test {
   void ImmediateSuccessCallback() { ++success_callback_count_; }
 
  protected:
-  base::MessageLoop message_loop_;
-  base::test::ScopedAsyncTaskScheduler scoped_async_task_scheduler_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   scoped_refptr<BluetoothAdapter> adapter_;
 
@@ -217,8 +208,7 @@ TEST_F(BluetoothSocketBlueZTest, Connect) {
   error_callback_count_ = 0;
 
   // Send data to the socket, expect all of the data to be sent.
-  scoped_refptr<net::StringIOBuffer> write_buffer(
-      new net::StringIOBuffer("test"));
+  auto write_buffer = base::MakeRefCounted<net::StringIOBuffer>("test");
 
   {
     base::RunLoop run_loop;
@@ -290,7 +280,7 @@ TEST_F(BluetoothSocketBlueZTest, Connect) {
 
   // Send data again; since the socket is closed we should get a system error
   // equivalent to the connection reset error.
-  write_buffer = new net::StringIOBuffer("second test");
+  write_buffer = base::MakeRefCounted<net::StringIOBuffer>("second test");
 
   {
     base::RunLoop run_loop;
@@ -361,7 +351,7 @@ TEST_F(BluetoothSocketBlueZTest, Listen) {
     fake_bluetooth_device_client->ConnectProfile(
         static_cast<BluetoothDeviceBlueZ*>(device)->object_path(),
         bluez::FakeBluetoothProfileManagerClient::kRfcommUuid,
-        base::Bind(&base::DoNothing), base::Bind(&DoNothingDBusErrorCallback));
+        base::DoNothing(), base::DoNothing());
     run_loop.RunUntilIdle();
   }
   {
@@ -416,7 +406,7 @@ TEST_F(BluetoothSocketBlueZTest, Listen) {
     fake_bluetooth_device_client->ConnectProfile(
         static_cast<BluetoothDeviceBlueZ*>(device)->object_path(),
         bluez::FakeBluetoothProfileManagerClient::kRfcommUuid,
-        base::Bind(&base::DoNothing), base::Bind(&DoNothingDBusErrorCallback));
+        base::DoNothing(), base::DoNothing());
     run_loop2.Run();
   }
 

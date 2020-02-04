@@ -7,9 +7,8 @@
 #ifndef FPDFSDK_CPDFSDK_WIDGETHANDLER_H_
 #define FPDFSDK_CPDFSDK_WIDGETHANDLER_H_
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/ipdfsdk_annothandler.h"
 
 class CFFL_InteractiveFormFiller;
@@ -24,7 +23,7 @@ class CPDFSDK_PageView;
 class CXFA_FFWidget;
 #endif  // PDF_ENABLE_XFA
 
-class CPDFSDK_WidgetHandler : public IPDFSDK_AnnotHandler {
+class CPDFSDK_WidgetHandler final : public IPDFSDK_AnnotHandler {
  public:
   explicit CPDFSDK_WidgetHandler(CPDFSDK_FormFillEnvironment* pApp);
   ~CPDFSDK_WidgetHandler() override;
@@ -38,14 +37,20 @@ class CPDFSDK_WidgetHandler : public IPDFSDK_AnnotHandler {
   void ReleaseAnnot(CPDFSDK_Annot* pAnnot) override;
   CFX_FloatRect GetViewBBox(CPDFSDK_PageView* pPageView,
                             CPDFSDK_Annot* pAnnot) override;
-  CFX_WideString GetSelectedText(CPDFSDK_Annot* pAnnot) override;
+  WideString GetText(CPDFSDK_Annot* pAnnot) override;
+  WideString GetSelectedText(CPDFSDK_Annot* pAnnot) override;
+  void ReplaceSelection(CPDFSDK_Annot* pAnnot, const WideString& text) override;
+  bool CanUndo(CPDFSDK_Annot* pAnnot) override;
+  bool CanRedo(CPDFSDK_Annot* pAnnot) override;
+  bool Undo(CPDFSDK_Annot* pAnnot) override;
+  bool Redo(CPDFSDK_Annot* pAnnot) override;
   bool HitTest(CPDFSDK_PageView* pPageView,
                CPDFSDK_Annot* pAnnot,
                const CFX_PointF& point) override;
   void OnDraw(CPDFSDK_PageView* pPageView,
               CPDFSDK_Annot* pAnnot,
               CFX_RenderDevice* pDevice,
-              CFX_Matrix* pUser2Device,
+              const CFX_Matrix& mtUser2Device,
               bool bDrawAnnots) override;
   void OnLoad(CPDFSDK_Annot* pAnnot) override;
 
@@ -98,16 +103,9 @@ class CPDFSDK_WidgetHandler : public IPDFSDK_AnnotHandler {
                          CPDFSDK_Annot::ObservedPtr* pNewAnnot) override;
 #endif  // PDF_ENABLE_XFA
 
-  void SetFormFiller(CFFL_InteractiveFormFiller* pFiller) {
-    m_pFormFiller = pFiller;
-  }
-  CFFL_InteractiveFormFiller* GetFormFiller() const {
-    return m_pFormFiller.Get();
-  }
-
  private:
-  CFX_UnownedPtr<CPDFSDK_FormFillEnvironment> const m_pFormFillEnv;
-  CFX_UnownedPtr<CFFL_InteractiveFormFiller> m_pFormFiller;
+  UnownedPtr<CPDFSDK_FormFillEnvironment> const m_pFormFillEnv;
+  UnownedPtr<CFFL_InteractiveFormFiller> const m_pFormFiller;
 };
 
 #endif  // FPDFSDK_CPDFSDK_WIDGETHANDLER_H_

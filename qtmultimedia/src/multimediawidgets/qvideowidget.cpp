@@ -57,6 +57,10 @@
 #include <qwindow.h>
 #include <private/qhighdpiscaling_p.h>
 
+#ifdef Q_OS_WIN
+#include <QtCore/qt_windows.h>
+#endif
+
 using namespace Qt;
 
 QT_BEGIN_NAMESPACE
@@ -76,7 +80,9 @@ QVideoWidgetControlBackend::QVideoWidgetControlBackend(
     layout->setMargin(0);
     layout->setSpacing(0);
 
-    layout->addWidget(control->videoWidget());
+    QWidget *videoWidget = control->videoWidget();
+    videoWidget->setMouseTracking(widget->hasMouseTracking());
+    layout->addWidget(videoWidget);
 
     widget->setLayout(layout);
 }
@@ -237,10 +243,8 @@ void QRendererVideoWidgetBackend::paintEvent(QPaintEvent *event)
 
         QBrush brush = m_widget->palette().window();
 
-        QVector<QRect> rects = borderRegion.rects();
-        for (QVector<QRect>::iterator it = rects.begin(), end = rects.end(); it != end; ++it) {
-            painter.fillRect(*it, brush);
-        }
+        for (const QRect &r : borderRegion)
+            painter.fillRect(r, brush);
     }
 
     if (m_surface->isActive() && m_boundingRect.intersects(event->rect())) {
@@ -323,6 +327,10 @@ QWindowVideoWidgetBackend::QWindowVideoWidgetBackend(
     connect(control, SIGNAL(nativeSizeChanged()), m_widget, SLOT(_q_dimensionsChanged()));
 
     control->setWinId(widget->winId());
+#if defined(Q_OS_WIN)
+    // Disable updates to avoid flickering while resizing/moving.
+    m_widget->setUpdatesEnabled(false);
+#endif
 }
 
 QWindowVideoWidgetBackend::~QWindowVideoWidgetBackend()
@@ -392,16 +400,13 @@ void QWindowVideoWidgetBackend::showEvent()
     m_windowControl->setWinId(m_widget->winId());
     updateDisplayRect();
 
-#if defined(Q_WS_WIN)
-    m_widget->setUpdatesEnabled(false);
+#if defined(Q_OS_WIN)
+    m_windowControl->repaint();
 #endif
 }
 
 void QWindowVideoWidgetBackend::hideEvent(QHideEvent *)
 {
-#if defined(Q_WS_WIN)
-    m_widget->setUpdatesEnabled(true);
-#endif
 }
 
 void QWindowVideoWidgetBackend::moveEvent(QMoveEvent *)
@@ -426,16 +431,6 @@ void QWindowVideoWidgetBackend::paintEvent(QPaintEvent *event)
 
     event->accept();
 }
-
-#if defined(Q_WS_WIN)
-bool QWindowVideoWidgetBackend::winEvent(MSG *message, long *)
-{
-    if (message->message == WM_PAINT)
-        m_windowControl->repaint();
-
-    return false;
-}
-#endif
 
 void QVideoWidgetPrivate::setCurrentControl(QVideoWidgetControlInterface *control)
 {
@@ -632,7 +627,7 @@ QVideoWidget::QVideoWidget(QVideoWidgetPrivate &dd, QWidget *parent)
     d_ptr->q_ptr = this;
 
     QPalette palette = QWidget::palette();
-    palette.setColor(QPalette::Background, Qt::black);
+    palette.setColor(QPalette::Window, Qt::black);
     setPalette(palette);
 }
 
@@ -1011,21 +1006,24 @@ void QVideoWidget::paintEvent(QPaintEvent *event)
     }
 }
 
-
-#if defined(Q_WS_WIN)
-/*!
-    \internal
-*/
-bool QVideoWidget::winEvent(MSG *message, long *result)
+#if defined(Q_OS_WIN)
+bool QVideoWidget::nativeEvent(const QByteArray &eventType, void *message, long *result)
 {
-    return d_func()->windowBackend && d_func()->windowBackend->winEvent(message, result)
-            ? true
-            : QWidget::winEvent(message, result);
+    Q_D(QVideoWidget);
+    Q_UNUSED(eventType);
+    Q_UNUSED(result);
+
+    MSG *mes = reinterpret_cast<MSG *>(message);
+    if (mes->message == WM_PAINT || mes->message == WM_ERASEBKGND) {
+        if (d->windowBackend)
+            d->windowBackend->showEvent();
+    }
+
+    return false;
 }
 #endif
 
+QT_END_NAMESPACE
 
 #include "moc_qvideowidget.cpp"
 #include "moc_qvideowidget_p.cpp"
-QT_END_NAMESPACE
-

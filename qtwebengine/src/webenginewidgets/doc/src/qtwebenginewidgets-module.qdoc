@@ -28,12 +28,12 @@
 /*!
     \module QtWebEngineWidgets
     \title Qt WebEngine Widgets C++ Classes
-    \brief Provides C++ classes for rendering web content in a QWidget based application
+    \brief Provides C++ classes for rendering web content in a QWidget based application.
     \ingroup modules
     \ingroup qtwebengine-modules
     \qtvariable webenginewidgets
 
-    The Qt WebEngineWidgets module provides a web browser engine as well as C++ classes to render
+    The \QWEWidgets module provides a web browser engine as well as C++ classes to render
     and interact with web content.
 
     To include the definitions of the module's classes, use the
@@ -41,7 +41,9 @@
 
     \snippet qtwebenginewidgets_build_snippet.qdoc 1
 
+    \if !defined(qtforpython)
     To link against the module, add the following to your qmake project file:
 
     \snippet qtwebenginewidgets_build_snippet.qdoc 0
+    \endif
 */

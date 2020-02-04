@@ -19,11 +19,13 @@ namespace media {
 
 // Helps convert CdmPromises to an integer identifier and vice versa. The
 // integer identifier is needed where we cannot pass CdmPromises through, such
-// as PPAPI, IPC and JNI.
+// as IPC and JNI.
 class MEDIA_EXPORT CdmPromiseAdapter {
  public:
   CdmPromiseAdapter();
   ~CdmPromiseAdapter();
+
+  enum : uint32_t { kInvalidPromiseId = 0 };
 
   // Takes ownership of |promise| and returns an integer promise ID.
   uint32_t SavePromise(std::unique_ptr<media::CdmPromise> promise);

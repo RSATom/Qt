@@ -28,7 +28,7 @@
 /*!
     \module QtWinExtras
     \title Qt Windows Extras C++ Classes
-    \brief Provides classes and functions for using some Windows APIs in a Qt way
+    \brief Provides classes and functions for using some Windows APIs in a Qt way.
 
     \ingroup modules
     \ingroup technology-apis

@@ -5,9 +5,8 @@
 #include "content/browser/loader/test_resource_handler.h"
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "content/browser/loader/resource_controller.h"
-#include "content/public/common/resource_response.h"
+#include "services/network/public/cpp/resource_response.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
@@ -51,7 +50,7 @@ TestResourceHandler::~TestResourceHandler() {}
 
 void TestResourceHandler::OnRequestRedirected(
     const net::RedirectInfo& redirect_info,
-    ResourceResponse* response,
+    network::ResourceResponse* response,
     std::unique_ptr<ResourceController> controller) {
   EXPECT_FALSE(canceled_);
   EXPECT_EQ(1, on_will_start_called_);
@@ -78,7 +77,7 @@ void TestResourceHandler::OnRequestRedirected(
 }
 
 void TestResourceHandler::OnResponseStarted(
-    ResourceResponse* response,
+    network::ResourceResponse* response,
     std::unique_ptr<ResourceController> controller) {
   EXPECT_FALSE(canceled_);
   EXPECT_EQ(1, on_will_start_called_);
@@ -90,6 +89,8 @@ void TestResourceHandler::OnResponseStarted(
 
   EXPECT_FALSE(resource_response_);
   resource_response_ = response;
+
+  response_started_run_loop_.Quit();
 
   if (!on_response_started_result_) {
     canceled_ = true;
@@ -146,14 +147,13 @@ void TestResourceHandler::OnWillRead(
     int* buf_size,
     std::unique_ptr<ResourceController> controller) {
   EXPECT_FALSE(canceled_);
-  EXPECT_FALSE(expect_on_data_downloaded_);
   EXPECT_EQ(0, on_response_completed_called_);
   // Only create a ScopedCallDepthTracker if not called re-entrantly, as
   // OnWillRead may be called synchronously in response to a Resume(), but
   // nothing may be called synchronously in response to the OnWillRead call.
   std::unique_ptr<ScopedCallDepthTracker> call_depth_tracker;
   if (call_depth_ == 0)
-    call_depth_tracker = base::MakeUnique<ScopedCallDepthTracker>(&call_depth_);
+    call_depth_tracker = std::make_unique<ScopedCallDepthTracker>(&call_depth_);
 
   ++on_will_read_called_;
 
@@ -181,7 +181,6 @@ void TestResourceHandler::OnReadCompleted(
     int bytes_read,
     std::unique_ptr<ResourceController> controller) {
   EXPECT_FALSE(canceled_);
-  EXPECT_FALSE(expect_on_data_downloaded_);
   EXPECT_EQ(1, on_will_start_called_);
   EXPECT_EQ(1, on_response_started_called_);
   EXPECT_EQ(0, on_response_completed_called_);
@@ -189,6 +188,7 @@ void TestResourceHandler::OnReadCompleted(
   ScopedCallDepthTracker call_depth_tracker(&call_depth_);
 
   ++on_read_completed_called_;
+  EXPECT_EQ(on_read_completed_called_, on_will_read_called_);
   if (bytes_read == 0)
     ++on_read_eof_called_;
 
@@ -223,7 +223,7 @@ void TestResourceHandler::OnResponseCompleted(
   parent_read_buffer_size_ = nullptr;
 
   EXPECT_EQ(0, on_response_completed_called_);
-  if (status.is_success() && !expect_on_data_downloaded_ && expect_eof_read_)
+  if (status.is_success() && expect_eof_read_)
     EXPECT_EQ(1, on_read_eof_called_);
 
   ++on_response_completed_called_;
@@ -244,15 +244,6 @@ void TestResourceHandler::OnResponseCompleted(
   }
 
   controller->Resume();
-}
-
-void TestResourceHandler::OnDataDownloaded(int bytes_downloaded) {
-  EXPECT_TRUE(expect_on_data_downloaded_);
-  EXPECT_EQ(1, on_will_start_called_);
-  EXPECT_EQ(1, on_response_started_called_);
-  EXPECT_EQ(0, on_response_completed_called_);
-
-  total_bytes_downloaded_ += bytes_downloaded;
 }
 
 void TestResourceHandler::Resume() {
@@ -281,7 +272,7 @@ void TestResourceHandler::CancelWithError(net::Error net_error) {
 }
 
 void TestResourceHandler::SetBufferSize(int buffer_size) {
-  buffer_ = new net::IOBuffer(buffer_size);
+  buffer_ = base::MakeRefCounted<net::IOBuffer>(buffer_size);
   buffer_size_ = buffer_size;
   memset(buffer_->data(), '\0', buffer_size);
 }
@@ -289,6 +280,10 @@ void TestResourceHandler::SetBufferSize(int buffer_size) {
 void TestResourceHandler::WaitUntilDeferred() {
   deferred_run_loop_->Run();
   deferred_run_loop_.reset(new base::RunLoop());
+}
+
+void TestResourceHandler::WaitUntilResponseStarted() {
+  response_started_run_loop_.Run();
 }
 
 void TestResourceHandler::WaitUntilResponseComplete() {

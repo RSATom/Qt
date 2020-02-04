@@ -133,7 +133,7 @@ int QGeoMappingManager::managerVersion() const
 */
 QGeoMap *QGeoMappingManager::createMap(QObject *parent)
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     return d_ptr->engine->createMap();
 }
 

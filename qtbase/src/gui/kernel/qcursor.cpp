@@ -172,6 +172,12 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
+  \fn void QCursor::swap(QCursor &other)
+
+  Swaps this cursor with the \a other cursor.
+ */
+
+/*!
     \fn QPoint QCursor::pos(const QScreen *screen)
 
     Returns the position of the cursor (hot spot) of the \a screen
@@ -558,8 +564,8 @@ void QCursor::setShape(Qt::CursorShape shape)
 }
 
 /*!
-    Returns the cursor bitmap, or 0 if it is one of the standard
-    cursors.
+    Returns the cursor bitmap, or \nullptr if it is one of the
+    standard cursors.
 */
 const QBitmap *QCursor::bitmap() const
 {
@@ -569,8 +575,8 @@ const QBitmap *QCursor::bitmap() const
 }
 
 /*!
-    Returns the cursor bitmap mask, or 0 if it is one of the standard
-    cursors.
+    Returns the cursor bitmap mask, or \nullptr if it is one of the
+    standard cursors.
 */
 
 const QBitmap *QCursor::mask() const

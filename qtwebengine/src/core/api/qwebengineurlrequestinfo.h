@@ -47,13 +47,14 @@
 
 namespace QtWebEngineCore {
 class NetworkDelegateQt;
-}
+class URLRequestNotification;
+} // namespace QtWebEngineCore
 
 QT_BEGIN_NAMESPACE
 
 class QWebEngineUrlRequestInfoPrivate;
 
-class QWEBENGINE_EXPORT QWebEngineUrlRequestInfo {
+class Q_WEBENGINECORE_EXPORT QWebEngineUrlRequestInfo {
 public:
     enum ResourceType {
         ResourceTypeMainFrame = 0,  // top level page
@@ -104,10 +105,14 @@ public:
 
 private:
     friend class QtWebEngineCore::NetworkDelegateQt;
+    friend class QtWebEngineCore::URLRequestNotification;
     Q_DISABLE_COPY(QWebEngineUrlRequestInfo)
     Q_DECLARE_PRIVATE(QWebEngineUrlRequestInfo)
 
+    void resetChanged();
+
     QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfoPrivate *p);
+    QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfo &&p);
     ~QWebEngineUrlRequestInfo();
     QScopedPointer<QWebEngineUrlRequestInfoPrivate> d_ptr;
 };

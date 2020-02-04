@@ -49,8 +49,8 @@ public:
     ~QGeoFileTileCacheNokia();
 
 protected:
-    virtual QString tileSpecToFilename(const QGeoTileSpec &spec, const QString &format, const QString &directory) const Q_DECL_OVERRIDE;
-    virtual QGeoTileSpec filenameToTileSpec(const QString &filename) const Q_DECL_OVERRIDE;
+    virtual QString tileSpecToFilename(const QGeoTileSpec &spec, const QString &format, const QString &directory) const override;
+    virtual QGeoTileSpec filenameToTileSpec(const QString &filename) const override;
 
     QString m_ppi;
 };

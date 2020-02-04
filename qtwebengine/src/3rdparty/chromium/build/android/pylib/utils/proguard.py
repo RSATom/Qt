@@ -31,15 +31,13 @@ _PROGUARD_ELEMENT_RES = [
 _PROGUARD_INDENT_WIDTH = 2
 _PROGUARD_ANNOTATION_VALUE_RE = re.compile(r'^(\s*?)- \S+? \[(.*)\]$')
 
-_PROGUARD_PATH_SDK = os.path.join(
-    constants.PROGUARD_ROOT, 'lib', 'proguard.jar')
-_PROGUARD_PATH_BUILT = (
-    os.path.join(os.environ['ANDROID_BUILD_TOP'], 'external', 'proguard',
-                 'lib', 'proguard.jar')
-    if 'ANDROID_BUILD_TOP' in os.environ else None)
-_PROGUARD_PATH = (
-    _PROGUARD_PATH_SDK if os.path.exists(_PROGUARD_PATH_SDK)
-    else _PROGUARD_PATH_BUILT)
+
+def _GetProguardPath():
+  # Use the one in lib.java rather than source tree because it is the one that
+  # is added to swarming .isolate files.
+  return os.path.join(
+      constants.GetOutDirectory(), 'lib.java', 'third_party', 'proguard',
+      'proguard603.jar')
 
 
 def Dump(jar_path):
@@ -96,7 +94,7 @@ def Dump(jar_path):
   with tempfile.NamedTemporaryFile() as proguard_output:
     cmd_helper.GetCmdStatusAndOutput([
         'java',
-        '-jar', _PROGUARD_PATH,
+        '-jar', _GetProguardPath(),
         '-injars', jar_path,
         '-dontshrink', '-dontoptimize', '-dontobfuscate', '-dontpreverify',
         '-dump', proguard_output.name])
@@ -213,7 +211,7 @@ class _ParseState(object):
     # There can be no nested constant element values.
     assert parent.ftype in [_ELEMENT_ARRAY, _ELEMENT_ANNOTATION]
     field = self._annotation_stack[-1]
-    if type(value) is str and not field.ftype == _ELEMENT_PRIMITIVE:
+    if isinstance(value, str) and not field.ftype == _ELEMENT_PRIMITIVE:
       # The value comes from the output parser via
       # UpdateCurrentAnnotationFieldValue, and should be a value of a constant
       # element. If it isn't, just skip it.

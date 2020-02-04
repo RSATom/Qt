@@ -82,11 +82,6 @@ extern wchar_t qAxModuleFilename[MAX_PATH];
     \snippet src_activeqt_control_qaxfactory.cpp 1
 
 
-    If your server supports just a single COM object, you can use
-    a default factory implementation through the \c QAXFACTORY_DEFAULT() macro.
-
-    \snippet src_activeqt_control_qaxfactory.cpp 2
-
     Only one QAxFactory implementation may be instantiated and
     exported by an ActiveX server application. This instance is accessible
     through the global qAxFactory() function.
@@ -113,9 +108,7 @@ QAxFactory::QAxFactory(const QUuid &libid, const QUuid &appid)
 /*!
     Destroys the QAxFactory object.
 */
-QAxFactory::~QAxFactory()
-{
-}
+QAxFactory::~QAxFactory() = default;
 
 /*!
     \fn QUuid QAxFactory::typeLibID() const
@@ -290,9 +283,7 @@ bool QAxFactory::validateLicenseKey(const QString &key, const QString &licenseKe
         int lastDot = licFile.lastIndexOf(QLatin1Char('.'));
         licFile.truncate(lastDot);
         licFile += QLatin1String(".lic");
-        if (QFile::exists(licFile))
-            return true;
-        return false;
+        return QFile::exists(licFile);
     }
     return licenseKey == classKey;
 }
@@ -370,8 +361,6 @@ bool QAxFactory::isServer()
 {
     return qAxIsServer;
 }
-
-extern wchar_t qAxModuleFilename[MAX_PATH];
 
 /*!
     Returns the directory that contains the server binary.
@@ -462,7 +451,7 @@ class ActiveObject : public QObject
 {
 public:
     ActiveObject(QObject *parent, QAxFactory *factory);
-    ~ActiveObject();
+    ~ActiveObject() override;
 
     IDispatch *wrapper;
     DWORD cookie;

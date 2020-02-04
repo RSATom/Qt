@@ -27,15 +27,16 @@
 **
 ****************************************************************************/
 
-#include "abstractinputpanel.h"
+#include <QtVirtualKeyboard/private/abstractinputpanel_p.h>
 #include <QtCore/QRect>
 
+QT_BEGIN_NAMESPACE
 namespace QtVirtualKeyboard {
 
 /*!
     \class QtVirtualKeyboard::AbstractInputPanel
     \internal
-    \inmodule qtvirtualkeyboard
+    \inmodule QtVirtualKeyboard
 
     \brief Base class for an input panel.
 
@@ -77,19 +78,19 @@ AbstractInputPanel::~AbstractInputPanel()
 }
 
 /*!
-    \fn void AbstractInputPanel::show() = 0
+    \fn void QtVirtualKeyboard::AbstractInputPanel::show() = 0
 
     Shows the input panel.
 */
 
 /*!
-    \fn void AbstractInputPanel::hide() = 0
+    \fn void QtVirtualKeyboard::AbstractInputPanel::hide() = 0
 
     Hides the input panel.
 */
 
 /*!
-    \fn bool AbstractInputPanel::isVisible() const = 0
+    \fn bool QtVirtualKeyboard::AbstractInputPanel::isVisible() const = 0
 
     Returns \c true if the input panel is currently visible.
 */
@@ -112,7 +113,7 @@ void AbstractInputPanel::createView()
 }
 
 /*!
-    \fn void AbstractInputPanel::destroyView()
+    \fn void QtVirtualKeyboard::AbstractInputPanel::destroyView()
 
     Destroys the view of the input panel.
 */
@@ -121,3 +122,4 @@ void AbstractInputPanel::destroyView()
 }
 
 } // namespace QtVirtualKeyboard
+QT_END_NAMESPACE

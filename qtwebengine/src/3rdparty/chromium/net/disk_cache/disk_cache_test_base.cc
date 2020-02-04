@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/files/file_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -15,13 +14,16 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/base/request_priority.h"
 #include "net/base/test_completion_callback.h"
+#include "net/disk_cache/backend_cleanup_tracker.h"
 #include "net/disk_cache/blockfile/backend_impl.h"
 #include "net/disk_cache/cache_util.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/disk_cache/disk_cache_test_util.h"
 #include "net/disk_cache/memory/mem_backend_impl.h"
 #include "net/disk_cache/simple/simple_backend_impl.h"
+#include "net/disk_cache/simple/simple_file_tracker.h"
 #include "net/disk_cache/simple/simple_index.h"
 #include "net/test/gtest_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -34,12 +36,11 @@ DiskCacheTest::DiskCacheTest() {
   cache_path_ = temp_dir_.GetPath();
 }
 
-DiskCacheTest::~DiskCacheTest() {
-}
+DiskCacheTest::~DiskCacheTest() = default;
 
 bool DiskCacheTest::CopyTestCache(const std::string& name) {
   base::FilePath path;
-  PathService::Get(base::DIR_SOURCE_ROOT, &path);
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &path);
   path = path.AppendASCII("net");
   path = path.AppendASCII("data");
   path = path.AppendASCII("cache_tests");
@@ -62,7 +63,7 @@ DiskCacheTestWithCache::TestIterator::TestIterator(
     std::unique_ptr<disk_cache::Backend::Iterator> iterator)
     : iterator_(std::move(iterator)) {}
 
-DiskCacheTestWithCache::TestIterator::~TestIterator() {}
+DiskCacheTestWithCache::TestIterator::~TestIterator() = default;
 
 int DiskCacheTestWithCache::TestIterator::OpenNextEntry(
     disk_cache::Entry** next_entry) {
@@ -85,11 +86,9 @@ DiskCacheTestWithCache::DiskCacheTestWithCache()
       new_eviction_(false),
       first_cleanup_(true),
       integrity_(true),
-      use_current_thread_(false),
-      cache_thread_("CacheThread") {
-}
+      use_current_thread_(false) {}
 
-DiskCacheTestWithCache::~DiskCacheTestWithCache() {}
+DiskCacheTestWithCache::~DiskCacheTestWithCache() = default;
 
 void DiskCacheTestWithCache::InitCache() {
   if (memory_only_)
@@ -111,9 +110,9 @@ void DiskCacheTestWithCache::SimulateCrash() {
   cache_impl_->ClearRefCountForTest();
 
   cache_.reset();
-  EXPECT_TRUE(CheckCacheIntegrity(cache_path_, new_eviction_, mask_));
+  EXPECT_TRUE(CheckCacheIntegrity(cache_path_, new_eviction_, size_, mask_));
 
-  CreateBackend(disk_cache::kNoRandom, &cache_thread_);
+  CreateBackend(disk_cache::kNoRandom);
 }
 
 void DiskCacheTestWithCache::SetTestMode() {
@@ -121,35 +120,65 @@ void DiskCacheTestWithCache::SetTestMode() {
   cache_impl_->SetUnitTestMode();
 }
 
-void DiskCacheTestWithCache::SetMaxSize(int size) {
+void DiskCacheTestWithCache::SetMaxSize(int64_t size, bool should_succeed) {
   size_ = size;
   if (simple_cache_impl_)
-    EXPECT_TRUE(simple_cache_impl_->SetMaxSize(size));
+    EXPECT_EQ(should_succeed, simple_cache_impl_->SetMaxSize(size));
 
   if (cache_impl_)
-    EXPECT_TRUE(cache_impl_->SetMaxSize(size));
+    EXPECT_EQ(should_succeed, cache_impl_->SetMaxSize(size));
 
   if (mem_cache_)
-    EXPECT_TRUE(mem_cache_->SetMaxSize(size));
+    EXPECT_EQ(should_succeed, mem_cache_->SetMaxSize(size));
+}
+
+int DiskCacheTestWithCache::OpenOrCreateEntry(
+    const std::string& key,
+    disk_cache::EntryWithOpened* entry_struct) {
+  return OpenOrCreateEntryWithPriority(key, net::HIGHEST, entry_struct);
+}
+
+int DiskCacheTestWithCache::OpenOrCreateEntryWithPriority(
+    const std::string& key,
+    net::RequestPriority request_priority,
+    disk_cache::EntryWithOpened* entry_struct) {
+  net::TestCompletionCallback cb;
+  int rv = cache_->OpenOrCreateEntry(key, request_priority, entry_struct,
+                                     cb.callback());
+  return cb.GetResult(rv);
 }
 
 int DiskCacheTestWithCache::OpenEntry(const std::string& key,
                                       disk_cache::Entry** entry) {
+  return OpenEntryWithPriority(key, net::HIGHEST, entry);
+}
+
+int DiskCacheTestWithCache::OpenEntryWithPriority(
+    const std::string& key,
+    net::RequestPriority request_priority,
+    disk_cache::Entry** entry) {
   net::TestCompletionCallback cb;
-  int rv = cache_->OpenEntry(key, entry, cb.callback());
+  int rv = cache_->OpenEntry(key, request_priority, entry, cb.callback());
   return cb.GetResult(rv);
 }
 
 int DiskCacheTestWithCache::CreateEntry(const std::string& key,
                                         disk_cache::Entry** entry) {
+  return CreateEntryWithPriority(key, net::HIGHEST, entry);
+}
+
+int DiskCacheTestWithCache::CreateEntryWithPriority(
+    const std::string& key,
+    net::RequestPriority request_priority,
+    disk_cache::Entry** entry) {
   net::TestCompletionCallback cb;
-  int rv = cache_->CreateEntry(key, entry, cb.callback());
+  int rv = cache_->CreateEntry(key, request_priority, entry, cb.callback());
   return cb.GetResult(rv);
 }
 
 int DiskCacheTestWithCache::DoomEntry(const std::string& key) {
   net::TestCompletionCallback cb;
-  int rv = cache_->DoomEntry(key, cb.callback());
+  int rv = cache_->DoomEntry(key, net::HIGHEST, cb.callback());
   return cb.GetResult(rv);
 }
 
@@ -172,18 +201,18 @@ int DiskCacheTestWithCache::DoomEntriesSince(const base::Time initial_time) {
   return cb.GetResult(rv);
 }
 
-int DiskCacheTestWithCache::CalculateSizeOfAllEntries() {
-  net::TestCompletionCallback cb;
-  int rv = cache_->CalculateSizeOfAllEntries(cb.callback());
+int64_t DiskCacheTestWithCache::CalculateSizeOfAllEntries() {
+  net::TestInt64CompletionCallback cb;
+  int64_t rv = cache_->CalculateSizeOfAllEntries(cb.callback());
   return cb.GetResult(rv);
 }
 
-int DiskCacheTestWithCache::CalculateSizeOfEntriesBetween(
+int64_t DiskCacheTestWithCache::CalculateSizeOfEntriesBetween(
     const base::Time initial_time,
     const base::Time end_time) {
-  net::TestCompletionCallback cb;
-  int rv = cache_->CalculateSizeOfEntriesBetween(initial_time, end_time,
-                                                 cb.callback());
+  net::TestInt64CompletionCallback cb;
+  int64_t rv = cache_->CalculateSizeOfEntriesBetween(initial_time, end_time,
+                                                     cb.callback());
   return cb.GetResult(rv);
 }
 
@@ -277,18 +306,16 @@ void DiskCacheTestWithCache::AddDelay() {
 }
 
 void DiskCacheTestWithCache::TearDown() {
-  base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
-  base::RunLoop().RunUntilIdle();
+  RunUntilIdle();
   cache_.reset();
-  if (cache_thread_.IsRunning())
-    cache_thread_.Stop();
 
   if (!memory_only_ && !simple_cache_mode_ && integrity_) {
-    EXPECT_TRUE(CheckCacheIntegrity(cache_path_, new_eviction_, mask_));
+    EXPECT_TRUE(CheckCacheIntegrity(cache_path_, new_eviction_, size_, mask_));
   }
-  base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  RunUntilIdle();
+  if (simple_cache_mode_ && simple_file_tracker_)
+    EXPECT_TRUE(simple_file_tracker_->IsEmptyForTesting());
+
   DiskCacheTest::TearDown();
 }
 
@@ -307,28 +334,29 @@ void DiskCacheTestWithCache::InitDiskCache() {
   if (first_cleanup_)
     ASSERT_TRUE(CleanupCacheDir());
 
-  if (!cache_thread_.IsRunning()) {
-    ASSERT_TRUE(cache_thread_.StartWithOptions(
-        base::Thread::Options(base::MessageLoop::TYPE_IO, 0)));
-  }
-  ASSERT_TRUE(cache_thread_.message_loop() != NULL);
-
-  CreateBackend(disk_cache::kNoRandom, &cache_thread_);
+  CreateBackend(disk_cache::kNoRandom);
 }
 
-void DiskCacheTestWithCache::CreateBackend(uint32_t flags,
-                                           base::Thread* thread) {
+void DiskCacheTestWithCache::CreateBackend(uint32_t flags) {
   scoped_refptr<base::SingleThreadTaskRunner> runner;
   if (use_current_thread_)
     runner = base::ThreadTaskRunnerHandle::Get();
   else
-    runner = thread->task_runner();
+    runner = nullptr;  // let the backend sort it out.
 
   if (simple_cache_mode_) {
+    DCHECK(!use_current_thread_)
+        << "Using current thread unsupported by SimpleCache";
     net::TestCompletionCallback cb;
-    std::unique_ptr<disk_cache::SimpleBackendImpl> simple_backend(
-        new disk_cache::SimpleBackendImpl(cache_path_, size_, type_, runner,
-                                          NULL));
+    // We limit ourselves to 64 fds since OS X by default gives us 256.
+    // (Chrome raises the number on startup, but the test fixture doesn't).
+    if (!simple_file_tracker_)
+      simple_file_tracker_ =
+          std::make_unique<disk_cache::SimpleFileTracker>(64);
+    std::unique_ptr<disk_cache::SimpleBackendImpl> simple_backend =
+        std::make_unique<disk_cache::SimpleBackendImpl>(
+            cache_path_, /* cleanup_tracker = */ nullptr,
+            simple_file_tracker_.get(), size_, type_, /*net_log = */ nullptr);
     int rv = simple_backend->Init(cb.callback());
     ASSERT_THAT(cb.GetResult(rv), IsOk());
     simple_cache_impl_ = simple_backend.get();
@@ -343,9 +371,12 @@ void DiskCacheTestWithCache::CreateBackend(uint32_t flags,
   }
 
   if (mask_)
-    cache_impl_ = new disk_cache::BackendImpl(cache_path_, mask_, runner, NULL);
+    cache_impl_ = new disk_cache::BackendImpl(cache_path_, mask_, runner,
+                                              /* net_log = */ nullptr);
   else
-    cache_impl_ = new disk_cache::BackendImpl(cache_path_, runner, NULL);
+    cache_impl_ = new disk_cache::BackendImpl(cache_path_,
+                                              /* cleanup_tracker = */ nullptr,
+                                              runner, /* net_log = */ nullptr);
   cache_.reset(cache_impl_);
   ASSERT_TRUE(cache_);
   if (size_)

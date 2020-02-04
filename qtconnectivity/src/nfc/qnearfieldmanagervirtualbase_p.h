@@ -63,16 +63,16 @@ class QNearFieldManagerPrivateVirtualBase : public QNearFieldManagerPrivate
 
 public:
     QNearFieldManagerPrivateVirtualBase();
-    ~QNearFieldManagerPrivateVirtualBase();
+    ~QNearFieldManagerPrivateVirtualBase() override;
 
-    bool startTargetDetection();
-    void stopTargetDetection();
+    bool startTargetDetection() override;
+    void stopTargetDetection() override;
 
-    int registerNdefMessageHandler(QObject *object, const QMetaMethod &method);
+    int registerNdefMessageHandler(QObject *object, const QMetaMethod &method) override;
     int registerNdefMessageHandler(const QNdefFilter &filter,
-                                   QObject *object, const QMetaMethod &method);
+                                   QObject *object, const QMetaMethod &method) override;
 
-    bool unregisterNdefMessageHandler(int id);
+    bool unregisterNdefMessageHandler(int id) override;
 
 protected:
     struct Callback {

@@ -40,23 +40,27 @@
 #include "content_main_delegate_qt.h"
 
 #include "base/command_line.h"
-#include <base/i18n/rtl.h>
+#include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
-#include <chrome/grit/generated_resources.h>
+#include "chrome/grit/generated_resources.h"
+#include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_paths.h"
 #include "ui/base/resource/resource_bundle.h"
-#include <ui/base/webui/jstemplate_builder.h>
+#include "ui/base/webui/jstemplate_builder.h"
 #include "net/grit/net_resources.h"
 #include "net/base/net_module.h"
+#include "services/service_manager/sandbox/switches.h"
+#include "url/url_util_qt.h"
 
 #include "content_client_qt.h"
 #include "renderer/content_renderer_client_qt.h"
 #include "type_conversion.h"
+#include "web_engine_context.h"
 #include "web_engine_library_info.h"
 
 #if defined(ARCH_CPU_ARM_FAMILY) && (defined(OS_ANDROID) || defined(OS_LINUX))
@@ -68,6 +72,10 @@
 #endif
 
 #include <QtCore/qcoreapplication.h>
+
+namespace content {
+ContentClient *GetContentClient();
+}
 
 namespace QtWebEngineCore {
 
@@ -165,12 +173,18 @@ content::ContentBrowserClient *ContentMainDelegateQt::CreateContentBrowserClient
     return m_browserClient.get();
 }
 
+content::ContentGpuClient *ContentMainDelegateQt::CreateContentGpuClient()
+{
+    m_gpuClient.reset(new ContentGpuClientQt);
+    return m_gpuClient.get();
+}
+
 content::ContentRendererClient *ContentMainDelegateQt::CreateContentRendererClient()
 {
 #if defined(OS_LINUX)
     base::CommandLine *parsedCommandLine = base::CommandLine::ForCurrentProcess();
     std::string process_type = parsedCommandLine->GetSwitchValueASCII(switches::kProcessType);
-    bool no_sandbox = parsedCommandLine->HasSwitch(switches::kNoSandbox);
+    bool no_sandbox = parsedCommandLine->HasSwitch(service_manager::switches::kNoSandbox);
 
     // Reload locale if the renderer process is sandboxed
     if (process_type == switches::kRendererProcess && !no_sandbox) {
@@ -184,6 +198,12 @@ content::ContentRendererClient *ContentMainDelegateQt::CreateContentRendererClie
     return new ContentRendererClientQt;
 }
 
+content::ContentUtilityClient *ContentMainDelegateQt::CreateContentUtilityClient()
+{
+    m_utilityClient.reset(new ContentUtilityClientQt);
+    return m_utilityClient.get();
+}
+
 // see icu_util.cc
 #define ICU_UTIL_DATA_FILE   0
 #define ICU_UTIL_DATA_SHARED 1
@@ -195,7 +215,7 @@ static void SafeOverridePathImpl(const char *keyName, int key, const base::FileP
         return;
 
     // Do not create directories for overridden paths.
-    if (PathService::OverrideAndCreateIfNeeded(key, path, false, false))
+    if (base::PathService::OverrideAndCreateIfNeeded(key, path, false, false))
         return;
 
     qWarning("Path override failed for key %s and path '%s'", keyName, path.value().c_str());
@@ -206,14 +226,16 @@ static void SafeOverridePathImpl(const char *keyName, int key, const base::FileP
 bool ContentMainDelegateQt::BasicStartupComplete(int *exit_code)
 {
     SafeOverridePath(base::FILE_EXE, WebEngineLibraryInfo::getPath(base::FILE_EXE));
-#if ICU_UTIL_DATA_IMPL == ICU_UTIL_DATA_FILE
     SafeOverridePath(base::DIR_QT_LIBRARY_DATA, WebEngineLibraryInfo::getPath(base::DIR_QT_LIBRARY_DATA));
-#endif
     SafeOverridePath(ui::DIR_LOCALES, WebEngineLibraryInfo::getPath(ui::DIR_LOCALES));
-#if BUILDFLAG(ENABLE_SPELLCHECK)
+#if QT_CONFIG(webengine_spellchecker)
     SafeOverridePath(base::DIR_APP_DICTIONARIES, WebEngineLibraryInfo::getPath(base::DIR_APP_DICTIONARIES));
 #endif
-    SetContentClient(new ContentClientQt);
+    if (!content::GetContentClient())
+        content::SetContentClient(new ContentClientQt);
+
+    url::CustomScheme::LoadSchemes(base::CommandLine::ForCurrentProcess());
+
     return false;
 }
 

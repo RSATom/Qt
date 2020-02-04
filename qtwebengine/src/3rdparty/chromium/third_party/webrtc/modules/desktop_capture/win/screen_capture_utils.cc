@@ -8,12 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/desktop_capture/win/screen_capture_utils.h"
+#include "modules/desktop_capture/win/screen_capture_utils.h"
 
 #include <windows.h>
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/win32.h"
+#include <string>
+#include <vector>
+
+#include "modules/desktop_capture/desktop_capturer.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/string_utils.h"
+#include "rtc_base/win32.h"
 
 namespace webrtc {
 
@@ -61,13 +66,17 @@ bool IsScreenValid(DesktopCapturer::SourceId screen, std::wstring* device_key) {
   return !!enum_result;
 }
 
+DesktopRect GetFullscreenRect() {
+  return DesktopRect::MakeXYWH(GetSystemMetrics(SM_XVIRTUALSCREEN),
+                               GetSystemMetrics(SM_YVIRTUALSCREEN),
+                               GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                               GetSystemMetrics(SM_CYVIRTUALSCREEN));
+}
+
 DesktopRect GetScreenRect(DesktopCapturer::SourceId screen,
                           const std::wstring& device_key) {
   if (screen == kFullDesktopScreenId) {
-    return DesktopRect::MakeXYWH(GetSystemMetrics(SM_XVIRTUALSCREEN),
-                                 GetSystemMetrics(SM_YVIRTUALSCREEN),
-                                 GetSystemMetrics(SM_CXVIRTUALSCREEN),
-                                 GetSystemMetrics(SM_CYVIRTUALSCREEN));
+    return GetFullscreenRect();
   }
 
   DISPLAY_DEVICE device;
@@ -86,15 +95,14 @@ DesktopRect GetScreenRect(DesktopCapturer::SourceId screen,
   DEVMODE device_mode;
   device_mode.dmSize = sizeof(device_mode);
   device_mode.dmDriverExtra = 0;
-  result = EnumDisplaySettingsEx(
-      device.DeviceName, ENUM_CURRENT_SETTINGS, &device_mode, 0);
+  result = EnumDisplaySettingsEx(device.DeviceName, ENUM_CURRENT_SETTINGS,
+                                 &device_mode, 0);
   if (!result)
     return DesktopRect();
 
-  return DesktopRect::MakeXYWH(device_mode.dmPosition.x,
-                               device_mode.dmPosition.y,
-                               device_mode.dmPelsWidth,
-                               device_mode.dmPelsHeight);
+  return DesktopRect::MakeXYWH(
+      device_mode.dmPosition.x, device_mode.dmPosition.y,
+      device_mode.dmPelsWidth, device_mode.dmPelsHeight);
 }
 
 }  // namespace webrtc

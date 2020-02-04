@@ -11,8 +11,8 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "cc/input/browser_controls_offset_manager_client.h"
-#include "cc/output/begin_frame_args.h"
 #include "cc/trees/layer_tree_impl.h"
+#include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 #include "ui/gfx/transform.h"
@@ -38,20 +38,22 @@ BrowserControlsOffsetManager::BrowserControlsOffsetManager(
     float controls_show_threshold,
     float controls_hide_threshold)
     : client_(client),
+      animation_initialized_(false),
       animation_start_value_(0.f),
       animation_stop_value_(0.f),
       animation_direction_(NO_ANIMATION),
-      permitted_state_(BOTH),
+      permitted_state_(BrowserControlsState::kBoth),
       accumulated_scroll_delta_(0.f),
       baseline_top_content_offset_(0.f),
       baseline_bottom_content_offset_(0.f),
       controls_show_threshold_(controls_hide_threshold),
       controls_hide_threshold_(controls_show_threshold),
-      pinch_gesture_active_(false) {
+      pinch_gesture_active_(false),
+      constraint_changed_since_commit_(false) {
   CHECK(client_);
 }
 
-BrowserControlsOffsetManager::~BrowserControlsOffsetManager() {}
+BrowserControlsOffsetManager::~BrowserControlsOffsetManager() = default;
 
 float BrowserControlsOffsetManager::ControlsTopOffset() const {
   return ContentTopOffset() - TopControlsHeight();
@@ -87,20 +89,36 @@ void BrowserControlsOffsetManager::UpdateBrowserControlsState(
     BrowserControlsState constraints,
     BrowserControlsState current,
     bool animate) {
-  DCHECK(!(constraints == SHOWN && current == HIDDEN));
-  DCHECK(!(constraints == HIDDEN && current == SHOWN));
+  DCHECK(!(constraints == BrowserControlsState::kShown &&
+           current == BrowserControlsState::kHidden));
+  DCHECK(!(constraints == BrowserControlsState::kHidden &&
+           current == BrowserControlsState::kShown));
+
+  TRACE_EVENT2("cc", "BrowserControlsOffsetManager::UpdateBrowserControlsState",
+               "constraints", static_cast<int>(constraints), "current",
+               static_cast<int>(current));
+
+  // If the constraints have changed we need to inform Blink about it since
+  // that'll affect main thread scrolling as well as layout.
+  if (permitted_state_ != constraints) {
+    constraint_changed_since_commit_ = true;
+    client_->SetNeedsCommit();
+  }
 
   permitted_state_ = constraints;
 
   // Don't do anything if it doesn't matter which state the controls are in.
-  if (constraints == BOTH && current == BOTH)
+  if (constraints == BrowserControlsState::kBoth &&
+      current == BrowserControlsState::kBoth)
     return;
 
   // Don't do anything if there is no change in offset.
   float final_shown_ratio = 1.f;
-  if (constraints == HIDDEN || current == HIDDEN)
+  if (constraints == BrowserControlsState::kHidden ||
+      current == BrowserControlsState::kHidden)
     final_shown_ratio = 0.f;
   if (final_shown_ratio == TopControlsShownRatio()) {
+    TRACE_EVENT_INSTANT0("cc", "Ratio Unchanged", TRACE_EVENT_SCOPE_THREAD);
     ResetAnimations();
     return;
   }
@@ -111,6 +129,14 @@ void BrowserControlsOffsetManager::UpdateBrowserControlsState(
     ResetAnimations();
     client_->SetCurrentBrowserControlsShownRatio(final_shown_ratio);
   }
+}
+
+BrowserControlsState BrowserControlsOffsetManager::PullConstraintForMainThread(
+    bool* out_changed_since_commit) {
+  DCHECK(out_changed_since_commit);
+  *out_changed_since_commit = constraint_changed_since_commit_;
+  constraint_changed_since_commit_ = false;
+  return permitted_state_;
 }
 
 void BrowserControlsOffsetManager::ScrollBegin() {
@@ -134,9 +160,10 @@ gfx::Vector2dF BrowserControlsOffsetManager::ScrollBy(
   if (pinch_gesture_active_)
     return pending_delta;
 
-  if (permitted_state_ == SHOWN && pending_delta.y() > 0)
+  if (permitted_state_ == BrowserControlsState::kShown && pending_delta.y() > 0)
     return pending_delta;
-  else if (permitted_state_ == HIDDEN && pending_delta.y() < 0)
+  else if (permitted_state_ == BrowserControlsState::kHidden &&
+           pending_delta.y() < 0)
     return pending_delta;
 
   accumulated_scroll_delta_ += pending_delta.y();
@@ -189,8 +216,18 @@ void BrowserControlsOffsetManager::MainThreadHasStoppedFlinging() {
 
 gfx::Vector2dF BrowserControlsOffsetManager::Animate(
     base::TimeTicks monotonic_time) {
-  if (!has_animation() || !client_->HaveRootScrollLayer())
+  if (!has_animation() || !client_->HaveRootScrollNode())
     return gfx::Vector2dF();
+
+  if (!animation_initialized_) {
+    // Setup the animation start and time here so that they use the same clock
+    // as frame times. This is helpful for tests that mock time.
+    animation_start_time_ = monotonic_time;
+    animation_stop_time_ =
+        animation_start_time_ +
+        base::TimeDelta::FromMilliseconds(kShowHideMaxDurationMs);
+    animation_initialized_ = true;
+  }
 
   float old_offset = ContentTopOffset();
   float new_ratio = gfx::Tween::ClampedFloatValueBetween(
@@ -206,6 +243,7 @@ gfx::Vector2dF BrowserControlsOffsetManager::Animate(
 }
 
 void BrowserControlsOffsetManager::ResetAnimations() {
+  animation_initialized_ = false;
   animation_start_time_ = base::TimeTicks();
   animation_start_value_ = 0.f;
   animation_stop_time_ = base::TimeTicks();
@@ -229,13 +267,9 @@ void BrowserControlsOffsetManager::SetupAnimation(
     return;
   }
 
-  animation_start_time_ = base::TimeTicks::Now();
   animation_start_value_ = TopControlsShownRatio();
 
   const float max_ending_ratio = (direction == SHOWING_CONTROLS ? 1 : -1);
-  animation_stop_time_ =
-      animation_start_time_ +
-      base::TimeDelta::FromMilliseconds(kShowHideMaxDurationMs);
   animation_stop_value_ = animation_start_value_ + max_ending_ratio;
 
   animation_direction_ = direction;

@@ -8,14 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_DEVICE_ANDROID_BUILD_INFO_H_
-#define WEBRTC_MODULES_AUDIO_DEVICE_ANDROID_BUILD_INFO_H_
+#ifndef MODULES_AUDIO_DEVICE_ANDROID_BUILD_INFO_H_
+#define MODULES_AUDIO_DEVICE_ANDROID_BUILD_INFO_H_
 
 #include <jni.h>
 #include <memory>
 #include <string>
 
-#include "webrtc/modules/utility/include/jvm_android.h"
+#include "modules/utility/include/jvm_android.h"
 
 namespace webrtc {
 
@@ -69,7 +69,7 @@ class BuildInfo {
 
   // Ensures that this class can access a valid JNI interface pointer even
   // if the creating thread was not attached to the JVM.
-  AttachCurrentThreadIfNeeded attach_thread_if_needed_;
+  JvmThreadConnector attach_thread_if_needed_;
 
   // Provides access to the JNIEnv interface pointer and the JavaToStdString()
   // method which is used to translate Java strings to std strings.
@@ -82,4 +82,4 @@ class BuildInfo {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_DEVICE_ANDROID_BUILD_INFO_H_
+#endif  // MODULES_AUDIO_DEVICE_ANDROID_BUILD_INFO_H_

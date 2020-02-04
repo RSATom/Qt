@@ -10,12 +10,20 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/common/content_export.h"
+#include "services/service_manager/public/mojom/interface_provider.mojom.h"
+#include "third_party/blink/public/common/frame/frame_owner_element_type.h"
+
+namespace blink {
+struct FramePolicy;
+}  // namespace blink
 
 namespace content {
 
@@ -59,11 +67,12 @@ class CONTENT_EXPORT FrameTree {
    private:
     friend class NodeRange;
 
-    NodeIterator(FrameTreeNode* starting_node, FrameTreeNode* node_to_skip);
+    NodeIterator(FrameTreeNode* starting_node,
+                 FrameTreeNode* root_of_subtree_to_skip);
 
     FrameTreeNode* current_node_;
-    FrameTreeNode* const node_to_skip_;
-    std::queue<FrameTreeNode*> queue_;
+    FrameTreeNode* const root_of_subtree_to_skip_;
+    base::queue<FrameTreeNode*> queue_;
   };
 
   class CONTENT_EXPORT NodeRange {
@@ -74,10 +83,10 @@ class CONTENT_EXPORT FrameTree {
    private:
     friend class FrameTree;
 
-    NodeRange(FrameTreeNode* root, FrameTreeNode* node_to_skip);
+    NodeRange(FrameTreeNode* root, FrameTreeNode* root_of_subtree_to_skip);
 
     FrameTreeNode* const root_;
-    FrameTreeNode* const node_to_skip_;
+    FrameTreeNode* const root_of_subtree_to_skip_;
   };
 
   // Each FrameTreeNode will default to using the given |navigator| for
@@ -94,6 +103,23 @@ class CONTENT_EXPORT FrameTree {
   ~FrameTree();
 
   FrameTreeNode* root() const { return root_; }
+
+  // Delegates for RenderFrameHosts, RenderViewHosts, RenderWidgetHosts and
+  // RenderFrameHostManagers. These can be kept centrally on the FrameTree
+  // because they are expected to be the same for all frames on a given
+  // FrameTree.
+  RenderFrameHostDelegate* render_frame_delegate() {
+    return render_frame_delegate_;
+  }
+  RenderViewHostDelegate* render_view_delegate() {
+    return render_view_delegate_;
+  }
+  RenderWidgetHostDelegate* render_widget_delegate() {
+    return render_widget_delegate_;
+  }
+  RenderFrameHostManager::Delegate* manager_delegate() {
+    return manager_delegate_;
+  }
 
   // Returns the FrameTreeNode with the given |frame_tree_node_id| if it is part
   // of this FrameTree.
@@ -119,15 +145,28 @@ class CONTENT_EXPORT FrameTree {
   // Adds a new child frame to the frame tree. |process_id| is required to
   // disambiguate |new_routing_id|, and it must match the process of the
   // |parent| node. Otherwise no child is added and this method returns false.
-  bool AddFrame(FrameTreeNode* parent,
-                int process_id,
-                int new_routing_id,
-                blink::WebTreeScopeType scope,
-                const std::string& frame_name,
-                const std::string& frame_unique_name,
-                blink::WebSandboxFlags sandbox_flags,
-                const ParsedFeaturePolicyHeader& container_policy,
-                const FrameOwnerProperties& frame_owner_properties);
+  // |interface_provider_request| is the request end of the InterfaceProvider
+  // interface through which the child RenderFrame can access Mojo services
+  // exposed by the corresponding RenderFrameHost. The caller takes care of
+  // sending the client end of the interface down to the RenderFrame.
+  FrameTreeNode* AddFrame(FrameTreeNode* parent,
+                          int process_id,
+                          int new_routing_id,
+                          service_manager::mojom::InterfaceProviderRequest
+                              interface_provider_request,
+                          blink::mojom::DocumentInterfaceBrokerRequest
+                              document_interface_broker_content_request,
+                          blink::mojom::DocumentInterfaceBrokerRequest
+                              document_interface_broker_blink_request,
+                          blink::WebTreeScopeType scope,
+                          const std::string& frame_name,
+                          const std::string& frame_unique_name,
+                          bool is_created_by_script,
+                          const base::UnguessableToken& devtools_frame_token,
+                          const blink::FramePolicy& frame_policy,
+                          const FrameOwnerProperties& frame_owner_properties,
+                          bool was_discarded,
+                          blink::FrameOwnerElementType owner_type);
 
   // Removes a frame from the frame tree. |child|, its children, and objects
   // owned by their RenderFrameHostManagers are immediately deleted. The root
@@ -168,6 +207,7 @@ class CONTENT_EXPORT FrameTree {
   RenderViewHostImpl* CreateRenderViewHost(SiteInstance* site_instance,
                                            int32_t routing_id,
                                            int32_t main_frame_routing_id,
+                                           int32_t widget_routing_id,
                                            bool swapped_out,
                                            bool hidden);
 
@@ -187,10 +227,11 @@ class CONTENT_EXPORT FrameTree {
   void FrameRemoved(FrameTreeNode* frame);
 
   // Updates the overall load progress and notifies the WebContents.
-  void UpdateLoadProgress();
+  // Set based on the main frame's progress only.
+  void UpdateLoadProgress(double progress);
 
   // Returns this FrameTree's total load progress.
-  double load_progress() { return load_progress_; }
+  double load_progress() const { return load_progress_; }
 
   // Resets the load progress on all nodes in this FrameTree.
   void ResetLoadProgress();
@@ -211,12 +252,12 @@ class CONTENT_EXPORT FrameTree {
  private:
   friend class FrameTreeTest;
   FRIEND_TEST_ALL_PREFIXES(RenderFrameHostImplBrowserTest, RemoveFocusedFrame);
-  typedef base::hash_map<int, RenderViewHostImpl*> RenderViewHostMap;
+  typedef std::unordered_map<int, RenderViewHostImpl*> RenderViewHostMap;
 
   // Returns a range to iterate over all FrameTreeNodes in the frame tree in
   // breadth-first traversal order, skipping the subtree rooted at
-  // |node_to_skip|.
-  NodeRange NodesExcept(FrameTreeNode* node_to_skip);
+  // |node|, but including |node| itself.
+  NodeRange NodesExceptSubtree(FrameTreeNode* node);
 
   // These delegates are installed into all the RenderViewHosts and
   // RenderFrameHosts that we create.

@@ -7,14 +7,17 @@
 
 #include <set>
 #include <string>
+#include <vector>
 
 #include "base/callback_forward.h"
-#include "content/public/browser/service_worker_usage_info.h"
+#include "content/common/content_export.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 #include "url/gurl.h"
 
 namespace content {
 
 class ServiceWorkerContextObserver;
+struct StorageUsageInfo;
 
 enum class ServiceWorkerCapability {
   NO_SERVICE_WORKER,
@@ -37,66 +40,77 @@ enum class StartServiceWorkerForNavigationHintResult {
   // Something failed.
   FAILED = 5,
   // Add new result to record here.
-  NUM_TYPES
+  kMaxValue = FAILED,
 };
 
-// Represents the per-StoragePartition ServiceWorker data.
+// Represents the per-StoragePartition service worker data.
+//
+// See service_worker_context_wrapper.cc for the implementation
+// of ServiceWorkerContext and ServiceWorkerContextWrapper (the
+// primary implementation of this abstract class).
 class ServiceWorkerContext {
  public:
-  // https://rawgithub.com/slightlyoff/ServiceWorker/master/spec/service_worker/index.html#url-scope:
-  // roughly, must be of the form "<origin>/<path>/*".
-  using Scope = GURL;
+  using ResultCallback = base::OnceCallback<void(bool success)>;
 
-  using ResultCallback = base::Callback<void(bool success)>;
-
-  using GetUsageInfoCallback = base::Callback<void(
-      const std::vector<ServiceWorkerUsageInfo>& usage_info)>;
+  using GetUsageInfoCallback =
+      base::OnceCallback<void(const std::vector<StorageUsageInfo>& usage_info)>;
 
   using CheckHasServiceWorkerCallback =
-      base::Callback<void(ServiceWorkerCapability capability)>;
+      base::OnceCallback<void(ServiceWorkerCapability capability)>;
 
   using CountExternalRequestsCallback =
-      base::Callback<void(size_t external_request_count)>;
+      base::OnceCallback<void(size_t external_request_count)>;
 
-  using StartServiceWorkerForNavigationHintCallback =
-      base::Callback<void(StartServiceWorkerForNavigationHintResult result)>;
+  using StartServiceWorkerForNavigationHintCallback = base::OnceCallback<void(
+      StartServiceWorkerForNavigationHintResult result)>;
 
-  using StartActiveWorkerCallback =
-      base::OnceCallback<void(int process_id, int thread_id)>;
-
-  // Registers the header name which should not be passed to the ServiceWorker.
-  // Must be called from the IO thread.
-  CONTENT_EXPORT static void AddExcludedHeadersForFetchEvent(
-      const std::set<std::string>& header_names);
-
-  // Returns true if the header name should not be passed to the ServiceWorker.
-  // Must be called from the IO thread.
-  static bool IsExcludedHeaderNameForFetchEvent(const std::string& header_name);
+  using StartWorkerCallback = base::OnceCallback<
+      void(int64_t version_id, int process_id, int thread_id)>;
 
   // Returns true if |url| is within the service worker |scope|.
   CONTENT_EXPORT static bool ScopeMatches(const GURL& scope, const GURL& url);
+
+  // Runs a |task| on task |runner| making sure that
+  // |service_worker_context| is alive while the task is being run.
+  CONTENT_EXPORT static void RunTask(
+      scoped_refptr<base::SequencedTaskRunner> runner,
+      const base::Location& from_here,
+      ServiceWorkerContext* service_worker_context,
+      base::OnceClosure task);
 
   // Observer methods are always dispatched on the UI thread.
   virtual void AddObserver(ServiceWorkerContextObserver* observer) = 0;
   virtual void RemoveObserver(ServiceWorkerContextObserver* observer) = 0;
 
-  // Equivalent to calling navigator.serviceWorker.register(script_url, {scope:
-  // pattern}) from a renderer, except that |pattern| is an absolute URL instead
-  // of relative to some current origin.  |callback| is passed true when the JS
-  // promise is fulfilled or false when the JS promise is rejected.
+  // Equivalent to calling navigator.serviceWorker.register(script_url,
+  // options). |callback| is passed true when the JS promise is fulfilled or
+  // false when the JS promise is rejected.
   //
   // The registration can fail if:
-  //  * |script_url| is on a different origin from |pattern|
+  //  * |script_url| is on a different origin from |scope|
   //  * Fetching |script_url| fails.
   //  * |script_url| fails to parse or its top-level execution fails.
-  //    TODO: The error message for this needs to be available to developers.
   //  * Something unexpected goes wrong, like a renderer crash or a full disk.
   //
   // This function can be called from any thread, but the callback will always
   // be called on the UI thread.
-  virtual void RegisterServiceWorker(const Scope& pattern,
-                                     const GURL& script_url,
-                                     const ResultCallback& callback) = 0;
+  virtual void RegisterServiceWorker(
+      const GURL& script_url,
+      const blink::mojom::ServiceWorkerRegistrationOptions& options,
+      ResultCallback callback) = 0;
+
+  // Equivalent to calling ServiceWorkerRegistration#unregister on the
+  // registration for |scope|. |callback| is passed true when the JS promise is
+  // fulfilled or false when the JS promise is rejected.
+  //
+  // Unregistration can fail if:
+  //  * No registration exists for |scope|.
+  //  * Something unexpected goes wrong, like a renderer crash.
+  //
+  // This function can be called from any thread, but the callback will always
+  // be called on the UI thread.
+  virtual void UnregisterServiceWorker(const GURL& scope,
+                                       ResultCallback callback) = 0;
 
   // Mechanism for embedder to increment/decrement ref count of a service
   // worker.
@@ -112,39 +126,26 @@ class ServiceWorkerContext {
                                        const std::string& request_uuid) = 0;
   virtual bool FinishedExternalRequest(int64_t service_worker_version_id,
                                        const std::string& request_uuid) = 0;
-
-  // Starts the active worker of the registration whose scope is |pattern|.
-  // |info_callback| is passed the worker's render process id and thread id.
-  //
-  // Must be called on IO thread.
-  virtual void StartActiveWorkerForPattern(
-      const GURL& pattern,
-      StartActiveWorkerCallback info_callback,
-      base::OnceClosure failure_callback) = 0;
-
-  // Equivalent to calling navigator.serviceWorker.unregister(pattern) from a
-  // renderer, except that |pattern| is an absolute URL instead of relative to
-  // some current origin.  |callback| is passed true when the JS promise is
-  // fulfilled or false when the JS promise is rejected.
-  //
-  // Unregistration can fail if:
-  //  * No Service Worker was registered for |pattern|.
-  //  * Something unexpected goes wrong, like a renderer crash.
-  //
-  // This function can be called from any thread, but the callback will always
-  // be called on the UI thread.
-  virtual void UnregisterServiceWorker(const Scope& pattern,
-                                       const ResultCallback& callback) = 0;
-
-  // Methods used in response to browsing data and quota manager requests.
+  // Returns the pending external request count for the worker with the
+  // specified |origin| via |callback|. Must be called from the UI thread.
+  virtual void CountExternalRequestsForTest(
+      const GURL& origin,
+      CountExternalRequestsCallback callback) = 0;
 
   // Must be called from the IO thread.
-  virtual void GetAllOriginsInfo(const GetUsageInfoCallback& callback) = 0;
+  virtual void GetAllOriginsInfo(GetUsageInfoCallback callback) = 0;
 
   // This function can be called from any thread, but the callback will always
   // be called on the IO thread.
   virtual void DeleteForOrigin(const GURL& origin_url,
-                               const ResultCallback& callback) = 0;
+                               ResultCallback callback) = 0;
+
+  // Performs internal storage cleanup. Operations to the storage in the past
+  // (e.g. deletion) are usually recorded in disk for a certain period until
+  // compaction happens. This method wipes them out to ensure that the deleted
+  // entries and other traces like log files are removed.
+  // Must be called from the IO thread.
+  virtual void PerformStorageCleanup(base::OnceClosure callback) = 0;
 
   // Returns ServiceWorkerCapability describing existence and properties of a
   // Service Worker registration matching |url|. Found service worker
@@ -160,33 +161,68 @@ class ServiceWorkerContext {
   virtual void CheckHasServiceWorker(
       const GURL& url,
       const GURL& other_url,
-      const CheckHasServiceWorkerCallback& callback) = 0;
-
-  // Returns the pending external request count for the worker with the
-  // specified |origin| via |callback|.
-  virtual void CountExternalRequestsForTest(
-      const GURL& origin,
-      const CountExternalRequestsCallback& callback) = 0;
-
-  // Stops all running workers on the given |origin|.
-  //
-  // This function can be called from any thread.
-  virtual void StopAllServiceWorkersForOrigin(const GURL& origin) = 0;
+      CheckHasServiceWorkerCallback callback) = 0;
 
   // Stops all running service workers and unregisters all service worker
-  // registrations. This method is used in LayoutTests to make sure that the
+  // registrations. This method is used in web tests to make sure that the
   // existing service worker will not affect the succeeding tests.
   //
   // This function can be called from any thread, but the callback will always
   // be called on the UI thread.
-  virtual void ClearAllServiceWorkersForTest(const base::Closure& callback) = 0;
+  virtual void ClearAllServiceWorkersForTest(base::OnceClosure callback) = 0;
+
+  // Starts the active worker of the registration for the given |scope|. If
+  // there is no active worker, starts the installing worker.
+  // |info_callback| is passed information about the started worker.
+  //
+  // Must be called on IO thread.
+  virtual void StartWorkerForScope(const GURL& scope,
+                                   StartWorkerCallback info_callback,
+                                   base::OnceClosure failure_callback) = 0;
+
+  // Starts the active worker of the registration for the given |scope| and
+  // dispatches the given |message| to the service worker. |result_callback|
+  // is passed a success boolean indicating whether the message was dispatched
+  // successfully.
+  //
+  // Must be called on IO thread.
+  virtual void StartServiceWorkerAndDispatchMessage(
+      const GURL& scope,
+      blink::TransferableMessage message,
+      ResultCallback result_callback) = 0;
+
+  // Deprecated: DO NOT USE
+  // This is a temporary addition only to be used for the Android Messages
+  // integration with ChromeOS (http://crbug.com/823256).  The removal is
+  // tracked at http://crbug.com/869714.  Please ask Service Worker OWNERS
+  // (content/browser/service_worker/OWNERS) if you have questions.
+  //
+  // This method MUST be called on the IO thread.  It starts the active worker
+  // of the registration for the given |scope|, sets its timeout to 999 days,
+  // and passes in the given |message|.  The |result_callback| will be executed
+  // upon success or failure and pass back the boolean result.
+  virtual void StartServiceWorkerAndDispatchLongRunningMessage(
+      const GURL& scope,
+      blink::TransferableMessage message,
+      ResultCallback result_callback) = 0;
 
   // Starts the service worker for |document_url|. Called when a navigation to
   // that URL is predicted to occur soon. Must be called from the UI thread. The
   // |callback| will always be called on the UI thread.
   virtual void StartServiceWorkerForNavigationHint(
       const GURL& document_url,
-      const StartServiceWorkerForNavigationHintCallback& callback) = 0;
+      StartServiceWorkerForNavigationHintCallback callback) = 0;
+
+  // Stops all running workers on the given |origin|.
+  //
+  // This function can be called from any thread.
+  virtual void StopAllServiceWorkersForOrigin(const GURL& origin) = 0;
+
+  // Stops all running service workers.
+  //
+  // This function can be called from any thread.
+  // The |callback| is called on the caller's thread.
+  virtual void StopAllServiceWorkers(base::OnceClosure callback) = 0;
 
  protected:
   ServiceWorkerContext() {}

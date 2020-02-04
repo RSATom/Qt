@@ -41,7 +41,7 @@ std::string GetFieldTrialParamValue(const std::string& trial_name,
                                     const std::string& param_name) {
   std::map<std::string, std::string> params;
   if (GetFieldTrialParams(trial_name, &params)) {
-    std::map<std::string, std::string>::iterator it = params.find(param_name);
+    auto it = params.find(param_name);
     if (it != params.end())
       return it->second;
   }
@@ -116,6 +116,34 @@ bool GetFieldTrialParamByFeatureAsBool(const base::Feature& feature,
                   << default_value;
   }
   return default_value;
+}
+
+std::string FeatureParam<std::string>::Get() const {
+  const std::string value = GetFieldTrialParamValueByFeature(*feature, name);
+  return value.empty() ? default_value : value;
+}
+
+double FeatureParam<double>::Get() const {
+  return GetFieldTrialParamByFeatureAsDouble(*feature, name, default_value);
+}
+
+int FeatureParam<int>::Get() const {
+  return GetFieldTrialParamByFeatureAsInt(*feature, name, default_value);
+}
+
+bool FeatureParam<bool>::Get() const {
+  return GetFieldTrialParamByFeatureAsBool(*feature, name, default_value);
+}
+
+void LogInvalidEnumValue(const base::Feature& feature,
+                         const std::string& param_name,
+                         const std::string& value_as_string,
+                         int default_value_as_int) {
+  DLOG(WARNING) << "Failed to parse field trial param " << param_name
+                << " with string value " << value_as_string << " under feature "
+                << feature.name
+                << " into an enum. Falling back to default value of "
+                << default_value_as_int;
 }
 
 }  // namespace base

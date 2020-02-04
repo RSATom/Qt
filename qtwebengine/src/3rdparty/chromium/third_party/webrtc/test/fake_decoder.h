@@ -8,13 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_TEST_FAKE_DECODER_H_
-#define WEBRTC_TEST_FAKE_DECODER_H_
+#ifndef TEST_FAKE_DECODER_H_
+#define TEST_FAKE_DECODER_H_
 
-#include <vector>
+#include <stdint.h>
 
-#include "webrtc/modules/video_coding/include/video_codec_interface.h"
-#include "webrtc/system_wrappers/include/clock.h"
+#include "api/video/encoded_image.h"
+#include "api/video_codecs/video_codec.h"
+#include "api/video_codecs/video_decoder.h"
+#include "modules/video_coding/include/video_codec_interface.h"
 
 namespace webrtc {
 namespace test {
@@ -29,7 +31,6 @@ class FakeDecoder : public VideoDecoder {
 
   int32_t Decode(const EncodedImage& input,
                  bool missing_frames,
-                 const RTPFragmentationHeader* fragmentation,
                  const CodecSpecificInfo* codec_specific_info,
                  int64_t render_time_ms) override;
 
@@ -43,8 +44,9 @@ class FakeDecoder : public VideoDecoder {
   static const char* kImplementationName;
 
  private:
-  VideoCodec config_;
   DecodedImageCallback* callback_;
+  int width_;
+  int height_;
 };
 
 class FakeH264Decoder : public FakeDecoder {
@@ -53,24 +55,11 @@ class FakeH264Decoder : public FakeDecoder {
 
   int32_t Decode(const EncodedImage& input,
                  bool missing_frames,
-                 const RTPFragmentationHeader* fragmentation,
                  const CodecSpecificInfo* codec_specific_info,
                  int64_t render_time_ms) override;
 };
 
-class FakeNullDecoder : public FakeDecoder {
- public:
-  virtual ~FakeNullDecoder() {}
-
-  int32_t Decode(const EncodedImage& input,
-                 bool missing_frames,
-                 const RTPFragmentationHeader* fragmentation,
-                 const CodecSpecificInfo* codec_specific_info,
-                 int64_t render_time_ms) override {
-    return 0;
-  }
-};
 }  // namespace test
 }  // namespace webrtc
 
-#endif  // WEBRTC_TEST_FAKE_DECODER_H_
+#endif  // TEST_FAKE_DECODER_H_

@@ -4,8 +4,7 @@
 
 #include "ui/ozone/platform/x11/gl_surface_egl_ozone_x11.h"
 
-#include <X11/Xlib.h>
-
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_types.h"
 #include "ui/gl/egl_util.h"
 
@@ -80,6 +79,7 @@ EGLConfig GLSurfaceEGLOzoneX11::GetConfig() {
 
 bool GLSurfaceEGLOzoneX11::Resize(const gfx::Size& size,
                                   float scale_factor,
+                                  ColorSpace color_space,
                                   bool has_alpha) {
   if (size == GetSize())
     return true;

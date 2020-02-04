@@ -60,15 +60,17 @@
 #include <private/qv4mm_p.h>
 #include <private/qv4persistent_p.h>
 
+#include <QtCore/qthread.h>
+
 QT_BEGIN_NAMESPACE
 
-class QJSValuePrivate
+class Q_AUTOTEST_EXPORT QJSValuePrivate
 {
 public:
     static inline QV4::Value *getValue(const QJSValue *jsval)
     {
         if (jsval->d & 3)
-            return 0;
+            return nullptr;
         return reinterpret_cast<QV4::Value *>(jsval->d);
     }
 
@@ -76,7 +78,12 @@ public:
     {
         if (jsval->d & 1)
             return reinterpret_cast<QVariant *>(jsval->d & ~3);
-        return 0;
+        return nullptr;
+    }
+
+    static inline void setRawValue(QJSValue *jsval, QV4::Value *v)
+    {
+        jsval->d = reinterpret_cast<quintptr>(v);
     }
 
     static inline void setVariant(QJSValue *jsval, const QVariant &v) {
@@ -153,14 +160,14 @@ public:
             *v = QV4::Encode(variant->toUInt());
             break;
         default:
-            return 0;
+            return nullptr;
         }
         return v;
     }
 
     static QV4::ExecutionEngine *engine(const QJSValue *jsval) {
         QV4::Value *v = getValue(jsval);
-        return v ? QV4::PersistentValueStorage::getEngine(v) : 0;
+        return v ? QV4::PersistentValueStorage::getEngine(v) : nullptr;
     }
 
     static inline bool checkEngine(QV4::ExecutionEngine *e, const QJSValue &jsval) {
@@ -169,10 +176,20 @@ public:
     }
 
     static inline void free(QJSValue *jsval) {
-        if (QV4::Value *v = QJSValuePrivate::getValue(jsval))
+        if (QV4::Value *v = QJSValuePrivate::getValue(jsval)) {
+            if (QV4::ExecutionEngine *e = engine(jsval)) {
+                if (QJSEngine *jsEngine = e->jsEngine()) {
+                    if (jsEngine->thread() != QThread::currentThread()) {
+                        QMetaObject::invokeMethod(
+                                jsEngine, [v](){ QV4::PersistentValueStorage::free(v); });
+                        return;
+                    }
+                }
+            }
             QV4::PersistentValueStorage::free(v);
-        else if (QVariant *v = QJSValuePrivate::getVariant(jsval))
+        } else if (QVariant *v = QJSValuePrivate::getVariant(jsval)) {
             delete v;
+        }
     }
 };
 

@@ -32,7 +32,7 @@
 #include <qdesigner_propertysheet_p.h>
 #include <extensionfactory_p.h>
 
-#include <QtWidgets/QLayout>
+#include <QtWidgets/qlayout.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -47,12 +47,12 @@ class LayoutPropertySheet: public QDesignerPropertySheet
     Q_INTERFACES(QDesignerPropertySheetExtension)
 public:
     explicit LayoutPropertySheet(QLayout *object, QObject *parent = 0);
-    virtual ~LayoutPropertySheet();
+    ~LayoutPropertySheet() override;
 
-    void setProperty(int index, const QVariant &value) Q_DECL_OVERRIDE;
-    QVariant property(int index) const Q_DECL_OVERRIDE;
-    bool reset(int index) Q_DECL_OVERRIDE;
-    void setChanged(int index, bool changed) Q_DECL_OVERRIDE;
+    void setProperty(int index, const QVariant &value) override;
+    QVariant property(int index) const override;
+    bool reset(int index) override;
+    void setChanged(int index, bool changed) override;
 
     static void stretchAttributesToDom(QDesignerFormEditorInterface *core, QLayout *lt, DomLayout *domLayout);
     static void markChangedStretchProperties(QDesignerFormEditorInterface *core, QLayout *lt, const DomLayout *domLayout);

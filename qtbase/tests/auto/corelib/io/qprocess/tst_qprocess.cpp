@@ -27,6 +27,7 @@
 **
 ****************************************************************************/
 
+#include <emulationdetector.h>
 
 #include <QtTest/QtTest>
 #include <QtCore/QProcess>
@@ -184,12 +185,12 @@ void tst_QProcess::getSetCheck()
 {
     QProcess obj1;
     // ProcessChannelMode QProcess::readChannelMode()
-    // void QProcess::setReadChannelMode(ProcessChannelMode)
-    obj1.setReadChannelMode(QProcess::ProcessChannelMode(QProcess::SeparateChannels));
+    // void QProcess::setProcessChannelMode(ProcessChannelMode)
+    obj1.setProcessChannelMode(QProcess::ProcessChannelMode(QProcess::SeparateChannels));
     QCOMPARE(QProcess::ProcessChannelMode(QProcess::SeparateChannels), obj1.readChannelMode());
-    obj1.setReadChannelMode(QProcess::ProcessChannelMode(QProcess::MergedChannels));
+    obj1.setProcessChannelMode(QProcess::ProcessChannelMode(QProcess::MergedChannels));
     QCOMPARE(QProcess::ProcessChannelMode(QProcess::MergedChannels), obj1.readChannelMode());
-    obj1.setReadChannelMode(QProcess::ProcessChannelMode(QProcess::ForwardedChannels));
+    obj1.setProcessChannelMode(QProcess::ProcessChannelMode(QProcess::ForwardedChannels));
     QCOMPARE(QProcess::ProcessChannelMode(QProcess::ForwardedChannels), obj1.readChannelMode());
 
     // ProcessChannel QProcess::readChannel()
@@ -285,7 +286,7 @@ void tst_QProcess::startWithOldOpen()
     class OverriddenOpen : public QProcess
     {
     public:
-        virtual bool open(OpenMode mode) Q_DECL_OVERRIDE
+        virtual bool open(OpenMode mode) override
         { return QIODevice::open(mode); }
     };
 
@@ -708,7 +709,7 @@ void tst_QProcess::restartProcessDeadlock()
     QCOMPARE(process.write("", 1), qlonglong(1));
     QVERIFY(process.waitForFinished(5000));
 
-    QObject::disconnect(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished), Q_NULLPTR, Q_NULLPTR);
+    QObject::disconnect(&process, static_cast<QProcessFinishedSignal1>(&QProcess::finished), nullptr, nullptr);
 
     QCOMPARE(process.write("", 1), qlonglong(1));
     QVERIFY(process.waitForFinished(5000));
@@ -847,7 +848,7 @@ void tst_QProcess::emitReadyReadOnlyWhenNewDataArrives()
     QVERIFY(QTestEventLoop::instance().timeout());
     QVERIFY(!proc.waitForReadyRead(250));
 
-    QObject::disconnect(&proc, &QIODevice::readyRead, Q_NULLPTR, Q_NULLPTR);
+    QObject::disconnect(&proc, &QIODevice::readyRead, nullptr, nullptr);
     proc.write("B");
     QVERIFY(proc.waitForReadyRead(5000));
 
@@ -912,7 +913,7 @@ public:
 
         switch (n) {
         case 0:
-            setReadChannelMode(QProcess::MergedChannels);
+            setProcessChannelMode(QProcess::MergedChannels);
             connect(this, &QIODevice::readyRead, this, &SoftExitProcess::terminateSlot);
             break;
         case 1:
@@ -928,7 +929,7 @@ public:
                     this, &SoftExitProcess::terminateSlot);
             break;
         case 4:
-            setReadChannelMode(QProcess::MergedChannels);
+            setProcessChannelMode(QProcess::MergedChannels);
             connect(this, SIGNAL(channelReadyRead(int)), this, SLOT(terminateSlot()));
             break;
         default:
@@ -1024,7 +1025,7 @@ void tst_QProcess::softExitInSlots()
 void tst_QProcess::mergedChannels()
 {
     QProcess process;
-    process.setReadChannelMode(QProcess::MergedChannels);
+    process.setProcessChannelMode(QProcess::MergedChannels);
     QCOMPARE(process.readChannelMode(), QProcess::MergedChannels);
 
     process.start("testProcessEcho2/testProcessEcho2");
@@ -1046,32 +1047,50 @@ void tst_QProcess::mergedChannels()
 
 void tst_QProcess::forwardedChannels_data()
 {
+    QTest::addColumn<bool>("detach");
     QTest::addColumn<int>("mode");
     QTest::addColumn<int>("inmode");
     QTest::addColumn<QByteArray>("outdata");
     QTest::addColumn<QByteArray>("errdata");
 
-    QTest::newRow("separate") << int(QProcess::SeparateChannels) << int(QProcess::ManagedInputChannel)
-                              << QByteArray() << QByteArray();
-    QTest::newRow("forwarded") << int(QProcess::ForwardedChannels) << int(QProcess::ManagedInputChannel)
-                               << QByteArray("forwarded") << QByteArray("forwarded");
-    QTest::newRow("stdout") << int(QProcess::ForwardedOutputChannel) << int(QProcess::ManagedInputChannel)
-                            << QByteArray("forwarded") << QByteArray();
-    QTest::newRow("stderr") << int(QProcess::ForwardedErrorChannel) << int(QProcess::ManagedInputChannel)
-                            << QByteArray() << QByteArray("forwarded");
-    QTest::newRow("fwdinput") << int(QProcess::ForwardedErrorChannel) << int(QProcess::ForwardedInputChannel)
-                            << QByteArray() << QByteArray("input");
+    QTest::newRow("separate")
+            << false
+            << int(QProcess::SeparateChannels) << int(QProcess::ManagedInputChannel)
+            << QByteArray() << QByteArray();
+    QTest::newRow("forwarded")
+            << false
+            << int(QProcess::ForwardedChannels) << int(QProcess::ManagedInputChannel)
+            << QByteArray("forwarded") << QByteArray("forwarded");
+    QTest::newRow("stdout")
+            << false
+            << int(QProcess::ForwardedOutputChannel) << int(QProcess::ManagedInputChannel)
+            << QByteArray("forwarded") << QByteArray();
+    QTest::newRow("stderr")
+            << false
+            << int(QProcess::ForwardedErrorChannel) << int(QProcess::ManagedInputChannel)
+            << QByteArray() << QByteArray("forwarded");
+    QTest::newRow("fwdinput")
+            << false
+            << int(QProcess::ForwardedErrorChannel) << int(QProcess::ForwardedInputChannel)
+            << QByteArray() << QByteArray("input");
+    QTest::newRow("detached-default-forwarding")
+            << true
+            << int(QProcess::SeparateChannels) << int(QProcess::ManagedInputChannel)
+            << QByteArray("out data") << QByteArray("err data");
 }
 
 void tst_QProcess::forwardedChannels()
 {
+    QFETCH(bool, detach);
     QFETCH(int, mode);
     QFETCH(int, inmode);
     QFETCH(QByteArray, outdata);
     QFETCH(QByteArray, errdata);
 
     QProcess process;
-    process.start("testForwarding/testForwarding", QStringList() << QString::number(mode) << QString::number(inmode));
+    process.start("testForwarding/testForwarding",
+                  QStringList() << QString::number(mode) << QString::number(inmode)
+                                << QString::number(bool(detach)));
     QVERIFY(process.waitForStarted(5000));
     QCOMPARE(process.write("input"), 5);
     process.closeWriteChannel();
@@ -1088,7 +1107,9 @@ void tst_QProcess::forwardedChannels()
     case 4: err = "did not finish"; break;
     case 5: err = "unexpected stdout"; break;
     case 6: err = "unexpected stderr"; break;
-    case 13: err = "parameter error"; break;
+    case 12: err = "cannot create temp file"; break;
+    case 13: err = "startDetached failed"; break;
+    case 14: err = "waitForDoneFileWritten timed out"; break;
     default: err = "unknown exit code"; break;
     }
     QVERIFY2(!process.exitCode(), err);
@@ -1165,6 +1186,8 @@ void tst_QProcess::processInAThread()
 
 void tst_QProcess::processesInMultipleThreads()
 {
+    if (EmulationDetector::isRunningArmOnX86())
+        QSKIP("Flakily hangs in QEMU. QTBUG-67760");
     for (int i = 0; i < 10; ++i) {
         // run from 1 to 10 threads, but run at least some tests
         // with more threads than the ideal
@@ -1928,7 +1951,7 @@ void tst_QProcess::setStandardOutputFile()
 
     // run the process
     QProcess process;
-    process.setReadChannelMode(channelMode);
+    process.setProcessChannelMode(channelMode);
     if (channelToTest == QProcess::StandardOutput)
         process.setStandardOutputFile(file.fileName(), mode);
     else
@@ -2014,7 +2037,7 @@ void tst_QProcess::setStandardOutputProcess()
 
     QFETCH(bool, merged);
     QFETCH(bool, waitForBytesWritten);
-    source.setReadChannelMode(merged ? QProcess::MergedChannels : QProcess::SeparateChannels);
+    source.setProcessChannelMode(merged ? QProcess::MergedChannels : QProcess::SeparateChannels);
     source.setStandardOutputProcess(&sink);
 
     source.start("testProcessEcho2/testProcessEcho2");

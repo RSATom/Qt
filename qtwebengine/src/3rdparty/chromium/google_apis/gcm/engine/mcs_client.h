@@ -7,15 +7,14 @@
 
 #include <stdint.h>
 
-#include <deque>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "google_apis/gcm/base/gcm_export.h"
 #include "google_apis/gcm/base/mcs_message.h"
@@ -26,7 +25,7 @@
 
 namespace base {
 class Clock;
-class Timer;
+class RetainingOneShotTimer;
 }  // namespace base
 
 namespace google {
@@ -151,7 +150,7 @@ class GCM_EXPORT MCSClient {
   std::string GetStateString() const;
 
   // Updates the timer used by |heartbeat_manager_| for sending heartbeats.
-  void UpdateHeartbeatTimer(std::unique_ptr<base::Timer> timer);
+  void UpdateHeartbeatTimer(std::unique_ptr<base::RetainingOneShotTimer> timer);
 
   // Allows a caller to set a heartbeat interval (in milliseconds) with which
   // the MCS connection will be monitored on both ends, to detect device
@@ -167,12 +166,12 @@ class GCM_EXPORT MCSClient {
   }
 
  private:
-  typedef uint32_t StreamId;
-  typedef std::string PersistentId;
-  typedef std::vector<StreamId> StreamIdList;
-  typedef std::vector<PersistentId> PersistentIdList;
-  typedef std::map<StreamId, PersistentId> StreamIdToPersistentIdMap;
-  typedef linked_ptr<ReliablePacketInfo> MCSPacketInternal;
+  using StreamId = uint32_t;
+  using PersistentId = std::string;
+  using StreamIdList = std::vector<StreamId>;
+  using PersistentIdList = std::vector<PersistentId>;
+  using StreamIdToPersistentIdMap = std::map<StreamId, PersistentId>;
+  using MCSPacketInternal = std::unique_ptr<ReliablePacketInfo>;
 
   // Resets the internal state and builds a new login request, acknowledging
   // any pending server-to-device messages and rebuilding the send queue
@@ -262,8 +261,8 @@ class GCM_EXPORT MCSClient {
   // most recent (back/end).
 
   // Send/acknowledge queues.
-  std::deque<MCSPacketInternal> to_send_;
-  std::deque<MCSPacketInternal> to_resend_;
+  base::circular_deque<MCSPacketInternal> to_send_;
+  base::circular_deque<MCSPacketInternal> to_resend_;
 
   // Map of collapse keys to their pending messages.
   std::map<CollapseKey, ReliablePacketInfo*> collapse_key_map_;

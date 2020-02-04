@@ -7,11 +7,11 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/files/file_proxy.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
-#include "headless/app/shell_navigation_request.h"
 #include "headless/public/devtools/domains/emulation.h"
 #include "headless/public/devtools/domains/inspector.h"
 #include "headless/public/devtools/domains/page.h"
@@ -19,8 +19,8 @@
 #include "headless/public/headless_browser.h"
 #include "headless/public/headless_devtools_client.h"
 #include "headless/public/headless_web_contents.h"
-#include "headless/public/util/deterministic_dispatcher.h"
-#include "net/base/file_stream.h"
+
+class GURL;
 
 namespace headless {
 
@@ -50,12 +50,12 @@ class HeadlessShell : public HeadlessWebContents::Observer,
 
   // page::Observer implementation:
   void OnLoadEventFired(const page::LoadEventFiredParams& params) override;
-  void OnNavigationRequested(
-      const headless::page::NavigationRequestedParams& params) override;
 
   virtual void Shutdown();
 
   void FetchTimeout();
+
+  void OnGotURLs(const std::vector<GURL>& urls);
 
   void PollReadyState();
 
@@ -80,10 +80,10 @@ class HeadlessShell : public HeadlessWebContents::Observer,
 
   void OnPDFCreated(std::unique_ptr<page::PrintToPDFResult> result);
 
-  void WriteFile(const std::string& switch_string,
+  void WriteFile(const std::string& file_path_switch,
                  const std::string& default_file_name,
-                 const std::string& data);
-  void OnFileOpened(const std::string& data,
+                 const protocol::Binary& data);
+  void OnFileOpened(const protocol::Binary& data,
                     const base::FilePath file_name,
                     base::File::Error error_code);
   void OnFileWritten(const base::FilePath file_name,
@@ -104,7 +104,6 @@ class HeadlessShell : public HeadlessWebContents::Observer,
   bool processed_page_ready_;
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
   std::unique_ptr<base::FileProxy> file_proxy_;
-  std::unique_ptr<DeterministicDispatcher> deterministic_dispatcher_;
   base::WeakPtrFactory<HeadlessShell> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(HeadlessShell);

@@ -11,25 +11,27 @@
 #include <algorithm>
 #include <memory>
 #include <set>
-#include <stack>
 
+#include "base/containers/stack.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/pickle.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "storage/browser/fileapi/file_system_usage_cache.h"
 #include "storage/common/fileapi/file_system_util.h"
 #include "third_party/leveldatabase/env_chromium.h"
+#include "third_party/leveldatabase/leveldb_chrome.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
 #include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
 
 namespace {
 
-bool PickleFromFileInfo(const storage::SandboxDirectoryDatabase::FileInfo& info,
+void PickleFromFileInfo(const storage::SandboxDirectoryDatabase::FileInfo& info,
                         base::Pickle* pickle) {
   DCHECK(pickle);
   std::string data_path;
@@ -41,14 +43,10 @@ bool PickleFromFileInfo(const storage::SandboxDirectoryDatabase::FileInfo& info,
   data_path = storage::FilePathToString(info.data_path);
   name = storage::FilePathToString(base::FilePath(info.name));
 
-  if (pickle->WriteInt64(info.parent_id) &&
-      pickle->WriteString(data_path) &&
-      pickle->WriteString(name) &&
-      pickle->WriteInt64(time.ToInternalValue()))
-    return true;
-
-  NOTREACHED();
-  return false;
+  pickle->WriteInt64(info.parent_id);
+  pickle->WriteString(data_path);
+  pickle->WriteString(name);
+  pickle->WriteInt64(time.ToInternalValue());
 }
 
 bool FileInfoFromPickle(const base::Pickle& pickle,
@@ -75,16 +73,17 @@ const base::FilePath::CharType kDirectoryDatabaseName[] =
     FILE_PATH_LITERAL("Paths");
 const char kChildLookupPrefix[] = "CHILD_OF:";
 const char kChildLookupSeparator[] = ":";
-const char kLastFileIdKey[] = "LAST_FILE_ID";
-const char kLastIntegerKey[] = "LAST_INTEGER";
-const int64_t kMinimumReportIntervalHours = 1;
-const char kInitStatusHistogramLabel[] = "FileSystem.DirectoryDatabaseInit";
-const char kDatabaseRepairHistogramLabel[] =
+const char kSandboxDirectoryLastFileIdKey[] = "LAST_FILE_ID";
+const char kSandboxDirectoryLastIntegerKey[] = "LAST_INTEGER";
+const int64_t kSandboxDirectoryMinimumReportIntervalHours = 1;
+const char kSandboxDirectoryInitStatusHistogramLabel[] =
+    "FileSystem.DirectoryDatabaseInit";
+const char kSandboxDirectoryDatabaseRepairHistogramLabel[] =
     "FileSystem.DirectoryDatabaseRepair";
 
 // These values are recorded in UMA. Changing existing values will invalidate
 // results for older Chrome releases. Only add new values.
-enum InitStatus {
+enum class SandboxDirectoryInitStatus {
   INIT_STATUS_OK = 0,
   INIT_STATUS_CORRUPTION,
   INIT_STATUS_IO_ERROR,
@@ -94,7 +93,7 @@ enum InitStatus {
 
 // These values are recorded in UMA. Changing existing values will invalidate
 // results for older Chrome releases. Only add new values.
-enum RepairResult {
+enum class SandboxDirectoryRepairResult {
   DB_REPAIR_SUCCEEDED = 0,
   DB_REPAIR_FAILED,
   DB_REPAIR_MAX
@@ -116,11 +115,11 @@ std::string GetChildListingKeyPrefix(
 }
 
 const char* LastFileIdKey() {
-  return kLastFileIdKey;
+  return kSandboxDirectoryLastFileIdKey;
 }
 
 const char* LastIntegerKey() {
-  return kLastIntegerKey;
+  return kSandboxDirectoryLastIntegerKey;
 }
 
 std::string GetFileLookupKey(
@@ -142,8 +141,8 @@ std::string GetFileLookupKey(
 //  - Directory structure is tree, i.e. connected and acyclic.
 class DatabaseCheckHelper {
  public:
-  typedef storage::SandboxDirectoryDatabase::FileId FileId;
-  typedef storage::SandboxDirectoryDatabase::FileInfo FileInfo;
+  using FileId = storage::SandboxDirectoryDatabase::FileId;
+  using FileInfo = storage::SandboxDirectoryDatabase::FileInfo;
 
   DatabaseCheckHelper(storage::SandboxDirectoryDatabase* dir_db,
                       leveldb::DB* db,
@@ -216,7 +215,7 @@ bool DatabaseCheckHelper::ScanDatabase() {
       // key: "CHILD_OF:<parent_id>:<name>"
       // value: "<child_id>"
       ++num_hierarchy_links_in_db_;
-    } else if (key == kLastFileIdKey) {
+    } else if (key == kSandboxDirectoryLastFileIdKey) {
       // key: "LAST_FILE_ID"
       // value: "<last_file_id>"
       if (last_file_id_ >= 0 ||
@@ -225,7 +224,7 @@ bool DatabaseCheckHelper::ScanDatabase() {
 
       if (last_file_id_ < 0)
         return false;
-    } else if (key == kLastIntegerKey) {
+    } else if (key == kSandboxDirectoryLastIntegerKey) {
       // key: "LAST_INTEGER"
       // value: "<last_integer>"
       if (last_integer_ >= 0 ||
@@ -291,7 +290,7 @@ bool DatabaseCheckHelper::ScanDirectory() {
   };
 
   // Any path in |pending_directories| is relative to |path_|.
-  std::stack<base::FilePath> pending_directories;
+  base::stack<base::FilePath> pending_directories;
   pending_directories.push(base::FilePath());
 
   while (!pending_directories.empty()) {
@@ -311,8 +310,8 @@ bool DatabaseCheckHelper::ScanDirectory() {
       if (!path_.AppendRelativePath(absolute_file_path, &relative_file_path))
         return false;
 
-      if (std::find(kExcludes, kExcludes + arraysize(kExcludes),
-                    relative_file_path) != kExcludes + arraysize(kExcludes))
+      if (std::find(kExcludes, kExcludes + base::size(kExcludes),
+                    relative_file_path) != kExcludes + base::size(kExcludes))
         continue;
 
       if (find_info.IsDirectory()) {
@@ -321,8 +320,7 @@ bool DatabaseCheckHelper::ScanDirectory() {
       }
 
       // Check if the file has a database entry.
-      std::set<base::FilePath>::iterator itr =
-          files_in_db_.find(relative_file_path);
+      auto itr = files_in_db_.find(relative_file_path);
       if (itr == files_in_db_.end()) {
         if (!base::DeleteFile(absolute_file_path, false))
           return false;
@@ -340,7 +338,7 @@ bool DatabaseCheckHelper::ScanHierarchy() {
   size_t visited_files = 0;
   size_t visited_links = 0;
 
-  std::stack<FileId> directories;
+  base::stack<FileId> directories;
   directories.push(0);
 
   // Check if the root directory exists as a directory.
@@ -359,16 +357,14 @@ bool DatabaseCheckHelper::ScanHierarchy() {
     std::vector<FileId> children;
     if (!dir_db_->ListChildren(dir_id, &children))
       return false;
-    for (std::vector<FileId>::iterator itr = children.begin();
-         itr != children.end();
-         ++itr) {
+    for (const FileId& id : children) {
       // Any directory must not have root directory as child.
-      if (!*itr)
+      if (!id)
         return false;
 
       // Check if the child knows the parent as its parent.
       FileInfo file_info;
-      if (!dir_db_->GetFileInfo(*itr, &file_info))
+      if (!dir_db_->GetFileInfo(id, &file_info))
         return false;
       if (file_info.parent_id != dir_id)
         return false;
@@ -376,11 +372,11 @@ bool DatabaseCheckHelper::ScanHierarchy() {
       // Check if the parent knows the name of its child correctly.
       FileId file_id;
       if (!dir_db_->GetChildWithName(dir_id, file_info.name, &file_id) ||
-          file_id != *itr)
+          file_id != id)
         return false;
 
       if (file_info.is_directory())
-        directories.push(*itr);
+        directories.push(id);
       else
         ++visited_files;
       ++visited_links;
@@ -407,8 +403,8 @@ bool VerifyDataPath(const base::FilePath& data_path) {
       base::FilePath(kDirectoryDatabaseName),
       base::FilePath(storage::FileSystemUsageCache::kUsageFileName),
   };
-  for (size_t i = 0; i < arraysize(kExcludes); ++i) {
-    if (data_path == kExcludes[i] || kExcludes[i].IsParent(data_path))
+  for (const auto& exclude : kExcludes) {
+    if (data_path == exclude || exclude.IsParent(data_path))
       return false;
   }
   return true;
@@ -421,8 +417,7 @@ namespace storage {
 SandboxDirectoryDatabase::FileInfo::FileInfo() : parent_id(0) {
 }
 
-SandboxDirectoryDatabase::FileInfo::~FileInfo() {
-}
+SandboxDirectoryDatabase::FileInfo::~FileInfo() = default;
 
 SandboxDirectoryDatabase::SandboxDirectoryDatabase(
     const base::FilePath& filesystem_data_directory,
@@ -431,8 +426,7 @@ SandboxDirectoryDatabase::SandboxDirectoryDatabase(
       env_override_(env_override) {
 }
 
-SandboxDirectoryDatabase::~SandboxDirectoryDatabase() {
-}
+SandboxDirectoryDatabase::~SandboxDirectoryDatabase() = default;
 
 bool SandboxDirectoryDatabase::GetChildWithName(
     FileId parent_id,
@@ -460,16 +454,11 @@ bool SandboxDirectoryDatabase::GetChildWithName(
 
 bool SandboxDirectoryDatabase::GetFileWithPath(
     const base::FilePath& path, FileId* file_id) {
-  std::vector<base::FilePath::StringType> components;
-  VirtualPath::GetComponents(path, &components);
   FileId local_id = 0;
-  std::vector<base::FilePath::StringType>::iterator iter;
-  for (iter = components.begin(); iter != components.end(); ++iter) {
-    base::FilePath::StringType name;
-    name = *iter;
-    if (name == FILE_PATH_LITERAL("/"))
+  for (const auto& path_component : VirtualPath::GetComponents(path)) {
+    if (path_component == FILE_PATH_LITERAL("/"))
       continue;
-    if (!GetChildWithName(local_id, name, &local_id))
+    if (!GetChildWithName(local_id, path_component, &local_id))
       return false;
   }
   *file_id = local_id;
@@ -637,8 +626,7 @@ bool SandboxDirectoryDatabase::UpdateModificationTime(
     return false;
   info.modification_time = modification_time;
   base::Pickle pickle;
-  if (!PickleFromFileInfo(info, &pickle))
-    return false;
+  PickleFromFileInfo(info, &pickle);
   leveldb::Status status = db_->Put(
       leveldb::WriteOptions(),
       GetFileLookupKey(file_id),
@@ -669,8 +657,7 @@ bool SandboxDirectoryDatabase::OverwritingMoveFile(
   if (!RemoveFileInfoHelper(src_file_id, &batch))
     return false;
   base::Pickle pickle;
-  if (!PickleFromFileInfo(dest_file_info, &pickle))
-    return false;
+  PickleFromFileInfo(dest_file_info, &pickle);
   batch.Put(
       GetFileLookupKey(dest_file_id),
       leveldb::Slice(reinterpret_cast<const char *>(pickle.data()),
@@ -722,7 +709,7 @@ bool SandboxDirectoryDatabase::DestroyDatabase() {
   const std::string path =
       FilePathToString(filesystem_data_directory_.Append(
           kDirectoryDatabaseName));
-  leveldb::Options options;
+  leveldb_env::Options options;
   if (env_override_)
     options.env = env_override_;
   leveldb::Status status = leveldb::DestroyDB(path, options);
@@ -740,10 +727,9 @@ bool SandboxDirectoryDatabase::Init(RecoveryOption recovery_option) {
   std::string path =
       FilePathToString(filesystem_data_directory_.Append(
           kDirectoryDatabaseName));
-  leveldb::Options options;
+  leveldb_env::Options options;
   options.max_open_files = 0;  // Use minimum.
   options.create_if_missing = true;
-  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
   if (env_override_)
     options.env = env_override_;
   leveldb::Status status = leveldb_env::OpenDB(options, path, &db_);
@@ -766,17 +752,20 @@ bool SandboxDirectoryDatabase::Init(RecoveryOption recovery_option) {
       LOG(WARNING) << "Corrupted SandboxDirectoryDatabase detected."
                    << " Attempting to repair.";
       if (RepairDatabase(path)) {
-        UMA_HISTOGRAM_ENUMERATION(kDatabaseRepairHistogramLabel,
-                                  DB_REPAIR_SUCCEEDED, DB_REPAIR_MAX);
+        UMA_HISTOGRAM_ENUMERATION(
+            kSandboxDirectoryDatabaseRepairHistogramLabel,
+            SandboxDirectoryRepairResult::DB_REPAIR_SUCCEEDED,
+            SandboxDirectoryRepairResult::DB_REPAIR_MAX);
         return true;
       }
-      UMA_HISTOGRAM_ENUMERATION(kDatabaseRepairHistogramLabel,
-                                DB_REPAIR_FAILED, DB_REPAIR_MAX);
+      UMA_HISTOGRAM_ENUMERATION(kSandboxDirectoryDatabaseRepairHistogramLabel,
+                                SandboxDirectoryRepairResult::DB_REPAIR_FAILED,
+                                SandboxDirectoryRepairResult::DB_REPAIR_MAX);
       LOG(WARNING) << "Failed to repair SandboxDirectoryDatabase.";
-      // fall through
+      FALLTHROUGH;
     case DELETE_ON_CORRUPTION:
       LOG(WARNING) << "Clearing SandboxDirectoryDatabase.";
-      if (!base::DeleteFile(filesystem_data_directory_, true))
+      if (!leveldb_chrome::DeleteDB(filesystem_data_directory_, options).ok())
         return false;
       if (!base::CreateDirectory(filesystem_data_directory_))
         return false;
@@ -789,7 +778,8 @@ bool SandboxDirectoryDatabase::Init(RecoveryOption recovery_option) {
 
 bool SandboxDirectoryDatabase::RepairDatabase(const std::string& db_path) {
   DCHECK(!db_.get());
-  leveldb::Options options;
+  leveldb_env::Options options;
+  options.reuse_logs = false;
   options.max_open_files = 0;  // Use minimum.
   if (env_override_)
     options.env = env_override_;
@@ -825,23 +815,29 @@ void SandboxDirectoryDatabase::ReportInitStatus(
     const leveldb::Status& status) {
   base::Time now = base::Time::Now();
   const base::TimeDelta minimum_interval =
-      base::TimeDelta::FromHours(kMinimumReportIntervalHours);
+      base::TimeDelta::FromHours(kSandboxDirectoryMinimumReportIntervalHours);
   if (last_reported_time_ + minimum_interval >= now)
     return;
   last_reported_time_ = now;
 
   if (status.ok()) {
-    UMA_HISTOGRAM_ENUMERATION(kInitStatusHistogramLabel,
-                              INIT_STATUS_OK, INIT_STATUS_MAX);
+    UMA_HISTOGRAM_ENUMERATION(kSandboxDirectoryInitStatusHistogramLabel,
+                              SandboxDirectoryInitStatus::INIT_STATUS_OK,
+                              SandboxDirectoryInitStatus::INIT_STATUS_MAX);
   } else if (status.IsCorruption()) {
-    UMA_HISTOGRAM_ENUMERATION(kInitStatusHistogramLabel,
-                              INIT_STATUS_CORRUPTION, INIT_STATUS_MAX);
+    UMA_HISTOGRAM_ENUMERATION(
+        kSandboxDirectoryInitStatusHistogramLabel,
+        SandboxDirectoryInitStatus::INIT_STATUS_CORRUPTION,
+        SandboxDirectoryInitStatus::INIT_STATUS_MAX);
   } else if (status.IsIOError()) {
-    UMA_HISTOGRAM_ENUMERATION(kInitStatusHistogramLabel,
-                              INIT_STATUS_IO_ERROR, INIT_STATUS_MAX);
+    UMA_HISTOGRAM_ENUMERATION(kSandboxDirectoryInitStatusHistogramLabel,
+                              SandboxDirectoryInitStatus::INIT_STATUS_IO_ERROR,
+                              SandboxDirectoryInitStatus::INIT_STATUS_MAX);
   } else {
-    UMA_HISTOGRAM_ENUMERATION(kInitStatusHistogramLabel,
-                              INIT_STATUS_UNKNOWN_ERROR, INIT_STATUS_MAX);
+    UMA_HISTOGRAM_ENUMERATION(
+        kSandboxDirectoryInitStatusHistogramLabel,
+        SandboxDirectoryInitStatus::INIT_STATUS_UNKNOWN_ERROR,
+        SandboxDirectoryInitStatus::INIT_STATUS_MAX);
   }
 }
 
@@ -917,8 +913,7 @@ bool SandboxDirectoryDatabase::AddFileInfoHelper(
     batch->Put(child_key, id_string);
   }
   base::Pickle pickle;
-  if (!PickleFromFileInfo(info, &pickle))
-    return false;
+  PickleFromFileInfo(info, &pickle);
   batch->Put(
       id_string,
       leveldb::Slice(reinterpret_cast<const char *>(pickle.data()),
@@ -948,9 +943,8 @@ bool SandboxDirectoryDatabase::RemoveFileInfoHelper(
   return true;
 }
 
-void SandboxDirectoryDatabase::HandleError(
-    const tracked_objects::Location& from_here,
-    const leveldb::Status& status) {
+void SandboxDirectoryDatabase::HandleError(const base::Location& from_here,
+                                           const leveldb::Status& status) {
   LOG(ERROR) << "SandboxDirectoryDatabase failed at: "
              << from_here.ToString() << " with error: " << status.ToString();
   db_.reset();

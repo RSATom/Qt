@@ -15,16 +15,19 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_timing_info.h"
+#include "net/base/proxy_server.h"
 #include "net/http/http_auth_controller.h"
 #include "net/http/proxy_client_socket.h"
 #include "net/log/net_log_with_source.h"
+#include "net/quic/quic_stream_factory.h"
 #include "net/socket/next_proto.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/ssl_client_socket_pool.h"
-#include "net/socket/transport_client_socket_pool.h"
-#include "net/spdy/chromium/spdy_session.h"
+#include "net/spdy/spdy_session.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace net {
 
@@ -38,10 +41,11 @@ class ProxyDelegate;
 class SpdySessionPool;
 class SSLClientSocketPool;
 class TransportClientSocketPool;
+class TransportSocketParams;
 
 // Class that establishes connections by calling into the lower layer socket
-// pools, creates a HttpProxyClientSocket / SpdyProxyClientSocket, and then
-// wraps the resulting socket.
+// pools, creates a HttpProxyClientSocket, SpdyProxyClientSocket, or
+// QuicProxyClientSocket, and then wraps the resulting socket.
 //
 // This class is needed to handle auth state across multiple connection.  On
 // auth challenge, this class retains auth state in its AuthController, and can
@@ -50,11 +54,13 @@ class TransportClientSocketPool;
 //
 // TODO(mmenke): Ideally, we'd have a central location store auth state across
 // multiple connections to the same server instead.
-class HttpProxyClientSocketWrapper : public ProxyClientSocket {
+class NET_EXPORT_PRIVATE HttpProxyClientSocketWrapper
+    : public ProxyClientSocket {
  public:
   HttpProxyClientSocketWrapper(
       const std::string& group_name,
       RequestPriority priority,
+      const SocketTag& socket_tag,
       ClientSocketPool::RespectLimits respect_limits,
       base::TimeDelta connect_timeout_duration,
       base::TimeDelta proxy_negotiation_timeout_duration,
@@ -62,13 +68,17 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
       SSLClientSocketPool* ssl_pool,
       const scoped_refptr<TransportSocketParams>& transport_params,
       const scoped_refptr<SSLSocketParams>& ssl_params,
+      quic::QuicTransportVersion quic_version,
       const std::string& user_agent,
       const HostPortPair& endpoint,
       HttpAuthCache* http_auth_cache,
       HttpAuthHandlerFactory* http_auth_handler_factory,
       SpdySessionPool* spdy_session_pool,
+      QuicStreamFactory* quic_stream_factory,
+      bool is_trusted_proxy,
       bool tunnel,
       ProxyDelegate* proxy_delegate,
+      const NetworkTrafficAnnotationTag& traffic_annotation,
       const NetLogWithSource& net_log);
 
   // On destruction Disconnect() is called.
@@ -80,22 +90,22 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
 
   std::unique_ptr<HttpResponseInfo> GetAdditionalErrorState();
 
+  void SetPriority(RequestPriority priority);
+
   // ProxyClientSocket implementation.
   const HttpResponseInfo* GetConnectResponseInfo() const override;
   std::unique_ptr<HttpStream> CreateConnectResponseStream() override;
-  int RestartWithAuth(const CompletionCallback& callback) override;
+  int RestartWithAuth(CompletionOnceCallback callback) override;
   const scoped_refptr<HttpAuthController>& GetAuthController() const override;
   bool IsUsingSpdy() const override;
   NextProto GetProxyNegotiatedProtocol() const override;
 
   // StreamSocket implementation.
-  int Connect(const CompletionCallback& callback) override;
+  int Connect(CompletionOnceCallback callback) override;
   void Disconnect() override;
   bool IsConnected() const override;
   bool IsConnectedAndIdle() const override;
   const NetLogWithSource& NetLog() const override;
-  void SetSubresourceSpeculation() override;
-  void SetOmniboxSpeculation() override;
   bool WasEverUsed() const override;
   bool WasAlpnNegotiated() const override;
   NextProto GetNegotiatedProtocol() const override;
@@ -104,18 +114,26 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
   void ClearConnectionAttempts() override;
   void AddConnectionAttempts(const ConnectionAttempts& attempts) override;
   int64_t GetTotalReceivedBytes() const override;
+  void ApplySocketTag(const SocketTag& tag) override;
 
   // Socket implementation.
   int Read(IOBuffer* buf,
            int buf_len,
-           const CompletionCallback& callback) override;
+           CompletionOnceCallback callback) override;
+  int ReadIfReady(IOBuffer* buf,
+                  int buf_len,
+                  CompletionOnceCallback callback) override;
+  int CancelReadIfReady() override;
   int Write(IOBuffer* buf,
             int buf_len,
-            const CompletionCallback& callback) override;
+            CompletionOnceCallback callback,
+            const NetworkTrafficAnnotationTag& traffic_annotation) override;
   int SetReceiveBufferSize(int32_t size) override;
   int SetSendBufferSize(int32_t size) override;
   int GetPeerAddress(IPEndPoint* address) const override;
   int GetLocalAddress(IPEndPoint* address) const override;
+
+  NetErrorDetails* quic_net_error_details() { return &quic_net_error_details_; }
 
  private:
   enum State {
@@ -128,11 +146,15 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
     STATE_HTTP_PROXY_CONNECT_COMPLETE,
     STATE_SPDY_PROXY_CREATE_STREAM,
     STATE_SPDY_PROXY_CREATE_STREAM_COMPLETE,
-    STATE_SPDY_PROXY_CONNECT_COMPLETE,
+    STATE_QUIC_PROXY_CREATE_SESSION,
+    STATE_QUIC_PROXY_CREATE_STREAM,
+    STATE_QUIC_PROXY_CREATE_STREAM_COMPLETE,
     STATE_RESTART_WITH_AUTH,
     STATE_RESTART_WITH_AUTH_COMPLETE,
     STATE_NONE,
   };
+
+  ProxyServer::Scheme GetProxyServerScheme() const;
 
   void OnIOComplete(int result);
 
@@ -154,10 +176,12 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
   int DoSpdyProxyCreateStream();
   int DoSpdyProxyCreateStreamComplete(int result);
 
+  int DoQuicProxyCreateSession();
+  int DoQuicProxyCreateStream(int result);
+  int DoQuicProxyCreateStreamComplete(int result);
+
   int DoRestartWithAuth();
   int DoRestartWithAuthComplete(int result);
-
-  void NotifyProxyDelegateOfCompletion(int result);
 
   void SetConnectTimer(base::TimeDelta duration);
   void ConnectTimeout();
@@ -168,6 +192,7 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
 
   const std::string group_name_;
   RequestPriority priority_;
+  const SocketTag initial_socket_tag_;
   ClientSocketPool::RespectLimits respect_limits_;
   const base::TimeDelta connect_timeout_duration_;
   const base::TimeDelta proxy_negotiation_timeout_duration_;
@@ -176,6 +201,8 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
   SSLClientSocketPool* const ssl_pool_;
   const scoped_refptr<TransportSocketParams> transport_params_;
   const scoped_refptr<SSLSocketParams> ssl_params_;
+
+  quic::QuicTransportVersion quic_version_;
 
   const std::string user_agent_;
   const HostPortPair endpoint_;
@@ -186,6 +213,7 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
   ProxyDelegate* const proxy_delegate_;
 
   bool using_spdy_;
+  bool is_trusted_proxy_;
   NextProto negotiated_protocol_;
 
   std::unique_ptr<HttpResponseInfo> error_response_info_;
@@ -196,15 +224,24 @@ class HttpProxyClientSocketWrapper : public ProxyClientSocket {
   // Called when a connection is established. Also used when restarting with
   // AUTH, which will invoke this when ready to restart, after reconnecting
   // if necessary.
-  CompletionCallback connect_callback_;
+  CompletionOnceCallback connect_callback_;
 
-  SpdyStreamRequest spdy_stream_request_;
+  std::unique_ptr<SpdyStreamRequest> spdy_stream_request_;
+
+  QuicStreamFactory* const quic_stream_factory_;
+  std::unique_ptr<QuicStreamRequest> quic_stream_request_;
+  std::unique_ptr<QuicChromiumClientSession::Handle> quic_session_;
 
   scoped_refptr<HttpAuthController> http_auth_controller_;
 
   NetLogWithSource net_log_;
 
+  NetErrorDetails quic_net_error_details_;
+
   base::OneShotTimer connect_timer_;
+
+  // Network traffic annotation for handshaking and setup.
+  const NetworkTrafficAnnotationTag traffic_annotation_;
 
   // Time when the connection to the proxy was started.
   base::TimeTicks connect_start_time_;

@@ -6,8 +6,6 @@
 
 #include "base/values.h"
 #include "components/prefs/pref_registry.h"
-#include "mojo/common/values.mojom.h"
-#include "mojo/common/values_struct_traits.h"
 #include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "services/preferences/public/cpp/pref_registry_serializer.h"
 
@@ -150,13 +148,14 @@ PersistentPrefStoreClient::PersistentPrefStoreClient(
     : weak_factory_(this) {
   read_error_ = connection->read_error;
   read_only_ = connection->read_only;
-  pref_store_ = std::move(connection->pref_store);
+  pref_store_.Bind(std::move(connection->pref_store));
   if (error_delegate_ && read_error_ != PREF_READ_ERROR_NONE)
     error_delegate_->OnError(read_error_);
   error_delegate_.reset();
   if (connection->pref_store_connection) {
-    Init(std::move(connection->pref_store_connection->initial_prefs), true,
-         std::move(connection->pref_store_connection->observer));
+    Init(base::DictionaryValue::From(base::Value::ToUniquePtrValue(
+             std::move(connection->pref_store_connection->initial_prefs))),
+         true, std::move(connection->pref_store_connection->observer));
   } else {
     Init(nullptr, false, nullptr);
   }
@@ -226,11 +225,17 @@ void PersistentPrefStoreClient::ReadPrefsAsync(
     ReadErrorDelegate* error_delegate) {}
 
 void PersistentPrefStoreClient::CommitPendingWrite(
-    base::OnceClosure done_callback) {
+    base::OnceClosure reply_callback,
+    base::OnceClosure synchronous_done_callback) {
+  // Supporting |synchronous_done_callback| semantics would require a sync IPC.
+  // This isn't implemented as such at the moment as this functionality isn't
+  // used in practice (if it ever becomes necessary, this check will fire).
+  DCHECK(!synchronous_done_callback);
+
   DCHECK(pref_store_);
   if (!pending_writes_.empty())
     FlushPendingWrites();
-  pref_store_->CommitPendingWrite(std::move(done_callback));
+  pref_store_->CommitPendingWrite(std::move(reply_callback));
 }
 
 void PersistentPrefStoreClient::SchedulePendingLossyWrites() {
@@ -243,11 +248,16 @@ void PersistentPrefStoreClient::ClearMutableValues() {
   return pref_store_->ClearMutableValues();
 }
 
+void PersistentPrefStoreClient::OnStoreDeletionFromDisk() {
+  DCHECK(pref_store_);
+  return pref_store_->OnStoreDeletionFromDisk();
+}
+
 PersistentPrefStoreClient::~PersistentPrefStoreClient() {
   if (!pref_store_)
     return;
 
-  CommitPendingWrite(base::OnceClosure());
+  CommitPendingWrite();
 }
 
 void PersistentPrefStoreClient::QueueWrite(
@@ -295,21 +305,21 @@ void PersistentPrefStoreClient::FlushPendingWrites() {
         const base::Value* nested_value = LookupPath(value, path);
         if (nested_value) {
           pref_updates.emplace_back(base::in_place, path,
-                                    nested_value->CreateDeepCopy());
+                                    nested_value->Clone());
         } else {
-          pref_updates.emplace_back(base::in_place, path, nullptr);
+          pref_updates.emplace_back(base::in_place, path, base::nullopt);
         }
         sub_pref_writes.push_back(path);
       }
       if (pref_updates.empty()) {
-        update_value->set_atomic_update(value->CreateDeepCopy());
+        update_value->set_atomic_update(value->Clone());
         writes.push_back({pref.first});
       } else {
         update_value->set_split_updates(std::move(pref_updates));
         writes.push_back({pref.first, std::move(sub_pref_writes)});
       }
     } else {
-      update_value->set_atomic_update(nullptr);
+      update_value->set_atomic_update(base::nullopt);
       writes.push_back({pref.first});
     }
     updates.emplace_back(base::in_place, pref.first, std::move(update_value),

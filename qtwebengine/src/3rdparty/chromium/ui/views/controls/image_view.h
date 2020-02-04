@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/views/view.h"
+#include "ui/views/controls/image_view_base.h"
 
 namespace gfx {
 class Canvas;
@@ -25,16 +25,10 @@ namespace views {
 // provided image size.
 //
 /////////////////////////////////////////////////////////////////////////////
-class VIEWS_EXPORT ImageView : public View {
+class VIEWS_EXPORT ImageView : public ImageViewBase {
  public:
   // Internal class name.
   static const char kViewClassName[];
-
-  enum Alignment {
-    LEADING = 0,
-    CENTER,
-    TRAILING
-  };
 
   ImageView();
   ~ImageView() override;
@@ -51,74 +45,39 @@ class VIEWS_EXPORT ImageView : public View {
   // The returned image is still owned by the ImageView.
   const gfx::ImageSkia& GetImage() const;
 
-  // Set the desired image size for the receiving ImageView.
-  void SetImageSize(const gfx::Size& image_size);
-
-  // Returns the actual bounds of the visible image inside the view.
-  gfx::Rect GetImageBounds() const;
-
-  // Reset the image size to the current image dimensions.
-  void ResetImageSize();
-
-  // Set / Get the horizontal alignment.
-  void SetHorizontalAlignment(Alignment ha);
-  Alignment GetHorizontalAlignment() const;
-
-  // Set / Get the vertical alignment.
-  void SetVerticalAlignment(Alignment va);
-  Alignment GetVerticalAlignment() const;
-
-  // Set / Get the tooltip text.
-  void SetTooltipText(const base::string16& tooltip);
-  base::string16 GetTooltipText() const;
-
-  // Overriden from View:
+  // Overridden from View:
   void OnPaint(gfx::Canvas* canvas) override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   const char* GetClassName() const override;
-  bool GetTooltipText(const gfx::Point& p,
-                      base::string16* tooltip) const override;
-  gfx::Size CalculatePreferredSize() const override;
+
+ protected:
+  // Overridden from ImageViewBase:
+  gfx::Size GetImageSize() const override;
 
  private:
+  friend class ImageViewTest;
+
   void OnPaintImage(gfx::Canvas* canvas);
+
+  // Gets an ImageSkia to paint that has proper rep for |scale|.
+  gfx::ImageSkia GetPaintImage(float scale);
 
   // Returns true if |img| is the same as the last image we painted. This is
   // intended to be a quick check, not exhaustive. In other words it's possible
   // for this to return false even though the images are in fact equal.
   bool IsImageEqual(const gfx::ImageSkia& img) const;
 
-  // Returns the size the image will be painted.
-  gfx::Size GetImageSize() const;
-
-  // Compute the image origin given the desired size and the receiver alignment
-  // properties.
-  gfx::Point ComputeImageOrigin(const gfx::Size& image_size) const;
-
-  // Whether the image size is set.
-  bool image_size_set_;
-
-  // The actual image size.
-  gfx::Size image_size_;
-
   // The underlying image.
   gfx::ImageSkia image_;
 
-  // Horizontal alignment.
-  Alignment horiz_alignment_;
-
-  // Vertical alignment.
-  Alignment vert_alignment_;
-
-  // The current tooltip text.
-  base::string16 tooltip_text_;
+  // Caches the scaled image reps.
+  gfx::ImageSkia scaled_image_;
 
   // Scale last painted at.
-  float last_paint_scale_;
+  float last_paint_scale_ = 0.f;
 
   // Address of bytes we last painted. This is used only for comparison, so its
   // safe to cache.
-  void* last_painted_bitmap_pixels_;
+  void* last_painted_bitmap_pixels_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(ImageView);
 };

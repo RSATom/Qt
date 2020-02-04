@@ -60,7 +60,7 @@
 
 #include "qfilesystemwatcher_p.h"
 
-#ifndef QT_NO_FILESYSTEMWATCHER
+QT_REQUIRE_CONFIG(filesystemwatcher);
 QT_BEGIN_NAMESPACE
 
 enum { PollingInterval = 1000 };
@@ -110,8 +110,8 @@ class QPollingFileSystemWatcherEngine : public QFileSystemWatcherEngine
 public:
     QPollingFileSystemWatcherEngine(QObject *parent);
 
-    QStringList addPaths(const QStringList &paths, QStringList *files, QStringList *directories) Q_DECL_OVERRIDE;
-    QStringList removePaths(const QStringList &paths, QStringList *files, QStringList *directories) Q_DECL_OVERRIDE;
+    QStringList addPaths(const QStringList &paths, QStringList *files, QStringList *directories) override;
+    QStringList removePaths(const QStringList &paths, QStringList *files, QStringList *directories) override;
 
 private Q_SLOTS:
     void timeout();
@@ -121,6 +121,5 @@ private:
 };
 
 QT_END_NAMESPACE
-#endif // !QT_NO_FILESYSTEMWATCHER
 #endif // QFILESYSTEMWATCHER_POLLING_P_H
 

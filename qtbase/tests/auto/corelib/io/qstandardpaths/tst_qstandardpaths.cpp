@@ -183,12 +183,14 @@ void tst_qstandardpaths::testDefaultLocations()
 #endif
 }
 
+#ifdef Q_XDG_PLATFORM
 static void createTestFile(const QString &fileName)
 {
     QFile file(fileName);
     QVERIFY(file.open(QIODevice::WriteOnly));
     QVERIFY(file.write("Hello"));
 }
+#endif
 
 void tst_qstandardpaths::testCustomLocations()
 {
@@ -369,6 +371,12 @@ static inline QFileInfo findSh()
 
 void tst_qstandardpaths::testFindExecutable_data()
 {
+#ifdef SKIP_FINDEXECUTABLE
+    // Test needs to be skipped or Q_ASSERT below will cancel the test
+    // and report FAIL regardless of BLACKLIST contents
+    QSKIP("QTBUG-64404");
+#endif
+
     QTest::addColumn<QString>("directory");
     QTest::addColumn<QString>("needle");
     QTest::addColumn<QString>("expected");

@@ -67,6 +67,10 @@ class DomDistillerViewerSource::RequestViewerHandle
   void WebContentsDestroyed() override;
   void DidFinishLoad(content::RenderFrameHost* render_frame_host,
                      const GURL& validated_url) override;
+  void OnInterfaceRequestFromFrame(
+      content::RenderFrameHost* render_frame_host,
+      const std::string& interface_name,
+      mojo::ScopedMessagePipeHandle* interface_pipe) override;
 
  private:
   // Sends JavaScript to the attached Viewer, buffering data if the viewer isn't
@@ -96,6 +100,9 @@ class DomDistillerViewerSource::RequestViewerHandle
   // feedback and opening the distiller settings. Guaranteed to outlive this
   // object.
   DistillerUIHandle* distiller_ui_handle_;
+
+  service_manager::BinderRegistryWithArgs<content::RenderFrameHost*>
+      frame_interfaces_;
 };
 
 DomDistillerViewerSource::RequestViewerHandle::RequestViewerHandle(
@@ -111,6 +118,9 @@ DomDistillerViewerSource::RequestViewerHandle::RequestViewerHandle(
       distiller_ui_handle_(ui_handle) {
   content::WebContentsObserver::Observe(web_contents);
   distilled_page_prefs_->AddObserver(this);
+
+  frame_interfaces_.AddInterface(
+      base::Bind(&CreateDistillerJavaScriptService, distiller_ui_handle_));
 }
 
 DomDistillerViewerSource::RequestViewerHandle::~RequestViewerHandle() {
@@ -145,13 +155,6 @@ void DomDistillerViewerSource::RequestViewerHandle::DidFinishNavigation(
           navigation_handle->GetRenderFrameHost();
       CHECK_EQ(0, render_frame_host->GetEnabledBindings());
 
-      // Add mojo service for JavaScript functionality. This is the receiving
-      // end of this particular service.
-      render_frame_host->GetInterfaceRegistry()->AddInterface(
-          base::Bind(&CreateDistillerJavaScriptService,
-              render_frame_host,
-              distiller_ui_handle_));
-
       // Tell the renderer that this is currently a distilled page.
       mojom::DistillerPageNotifierServicePtr page_notifier_service;
       render_frame_host->GetRemoteInterfaces()->GetInterface(
@@ -176,7 +179,7 @@ void DomDistillerViewerSource::RequestViewerHandle::WebContentsDestroyed() {
 
 void DomDistillerViewerSource::RequestViewerHandle::Cancel() {
   // No need to listen for notifications.
-  content::WebContentsObserver::Observe(NULL);
+  content::WebContentsObserver::Observe(nullptr);
 
   // Schedule the Viewer for deletion. Ensures distillation is cancelled, and
   // any pending data stored in |buffer_| is released.
@@ -208,6 +211,14 @@ void DomDistillerViewerSource::RequestViewerHandle::DidFinishLoad(
   // No need to Cancel() here.
 }
 
+void DomDistillerViewerSource::RequestViewerHandle::OnInterfaceRequestFromFrame(
+    content::RenderFrameHost* render_frame_host,
+    const std::string& interface_name,
+    mojo::ScopedMessagePipeHandle* interface_pipe) {
+  frame_interfaces_.TryBindInterface(interface_name, interface_pipe,
+                                     render_frame_host);
+}
+
 DomDistillerViewerSource::DomDistillerViewerSource(
     DomDistillerServiceInterface* dom_distiller_service,
     const std::string& scheme,
@@ -234,12 +245,14 @@ void DomDistillerViewerSource::StartDataRequest(
     std::string css = viewer::GetCss();
     callback.Run(base::RefCountedString::TakeString(&css));
     return;
-  } else if (kViewerLoadingImagePath == path) {
+  }
+  if (kViewerLoadingImagePath == path) {
     std::string image = viewer::GetLoadingImage();
     callback.Run(base::RefCountedString::TakeString(&image));
     return;
-  } else if (base::StartsWith(path, kViewerSaveFontScalingPath,
-                              base::CompareCase::SENSITIVE)) {
+  }
+  if (base::StartsWith(path, kViewerSaveFontScalingPath,
+                       base::CompareCase::SENSITIVE)) {
     double scale = 1.0;
     if (base::StringToDouble(
         path.substr(strlen(kViewerSaveFontScalingPath)), &scale)) {
@@ -277,15 +290,14 @@ void DomDistillerViewerSource::StartDataRequest(
 
   // Place template on the page.
   callback.Run(base::RefCountedString::TakeString(&unsafe_page_html));
-};
+}
 
 std::string DomDistillerViewerSource::GetMimeType(
     const std::string& path) const {
-  if (kViewerCssPath == path) {
+  if (kViewerCssPath == path)
     return "text/css";
-  } else if (kViewerLoadingImagePath == path) {
+  if (kViewerLoadingImagePath == path)
     return "image/svg+xml";
-  }
   return "text/html";
 }
 

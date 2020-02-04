@@ -30,6 +30,7 @@ using base::android::JavaRef;
 using base::android::ScopedJavaLocalRef;
 using base::android::SDK_VERSION_JELLY_BEAN_MR2;
 using base::android::SDK_VERSION_KITKAT;
+using base::android::SDK_VERSION_LOLLIPOP;
 using base::android::SDK_VERSION_LOLLIPOP_MR1;
 
 namespace media {
@@ -50,7 +51,7 @@ const char kVp9MimeType[] = "video/x-vnd.on2.vp9";
 
 static CodecProfileLevel MediaCodecProfileLevelToChromiumProfileLevel(
     JNIEnv* env,
-    const jobject& j_codec_profile_level) {
+    const JavaRef<jobject>& j_codec_profile_level) {
   VideoCodec codec = static_cast<VideoCodec>(
       Java_CodecProfileLevelAdapter_getCodec(env, j_codec_profile_level));
   VideoCodecProfile profile = static_cast<VideoCodecProfile>(
@@ -156,7 +157,7 @@ bool MediaCodecUtil::IsMediaCodecAvailableFor(int sdk, const char* model) {
       return model == other.model;
     }
   };
-  static const std::vector<BlacklistEntry> blacklist = {
+  static const BlacklistEntry blacklist[] = {
       // crbug.com/653905
       {"LGMS330", SDK_VERSION_LOLLIPOP_MR1},
 
@@ -184,17 +185,23 @@ bool MediaCodecUtil::IsMediaCodecAvailableFor(int sdk, const char* model) {
       {"GT-N5110", SDK_VERSION_JELLY_BEAN_MR2},
       {"e-tab4", SDK_VERSION_JELLY_BEAN_MR2},
       {"GT-I8200Q", SDK_VERSION_JELLY_BEAN_MR2},
+
+      // crbug.com/693216
+      {"GT-I8552B", SDK_VERSION_JELLY_BEAN_MR2},
+      {"GT-I8262", SDK_VERSION_JELLY_BEAN_MR2},
+      {"GT-I8262B", SDK_VERSION_JELLY_BEAN_MR2},
   };
 
-  const auto iter =
-      std::find(blacklist.begin(), blacklist.end(), BlacklistEntry(model, 0));
-  return iter == blacklist.end() || sdk > iter->last_bad_sdk;
+  const BlacklistEntry* iter = std::find(
+      std::begin(blacklist), std::end(blacklist), BlacklistEntry(model, 0));
+  return iter == std::end(blacklist) || sdk > iter->last_bad_sdk;
 }
 
 // static
 bool MediaCodecUtil::SupportsSetParameters() {
-  // MediaCodec.setParameters() is only available starting with K.
-  return base::android::BuildInfo::GetInstance()->sdk_int() >= 19;
+  // MediaCodec.setParameters() is only available starting with KitKat.
+  return base::android::BuildInfo::GetInstance()->sdk_int() >=
+         SDK_VERSION_KITKAT;
 }
 
 // static
@@ -215,9 +222,9 @@ std::set<int> MediaCodecUtil::GetEncoderColorFormats(
   ScopedJavaLocalRef<jintArray> j_color_format_array =
       Java_MediaCodecUtil_getEncoderColorFormatsForMime(env, j_mime);
 
-  if (j_color_format_array.obj()) {
+  if (!j_color_format_array.is_null()) {
     std::vector<int> formats;
-    JavaIntArrayToIntVector(env, j_color_format_array.obj(), &formats);
+    JavaIntArrayToIntVector(env, j_color_format_array, &formats);
     color_formats = std::set<int>(formats.begin(), formats.end());
   }
 
@@ -258,8 +265,8 @@ bool MediaCodecUtil::AddSupportedCodecProfileLevels(
       Java_MediaCodecUtil_getSupportedCodecProfileLevels(env));
   int java_array_length = env->GetArrayLength(j_codec_profile_levels.obj());
   for (int i = 0; i < java_array_length; ++i) {
-    const jobject& java_codec_profile_level =
-        env->GetObjectArrayElement(j_codec_profile_levels.obj(), i);
+    ScopedJavaLocalRef<jobject> java_codec_profile_level(
+        env, env->GetObjectArrayElement(j_codec_profile_levels.obj(), i));
     result->push_back(MediaCodecProfileLevelToChromiumProfileLevel(
         env, java_codec_profile_level));
   }
@@ -287,7 +294,8 @@ bool MediaCodecUtil::IsKnownUnaccelerated(VideoCodec codec,
       return true;
 
     if (codec == kCodecVP9)
-      return base::android::BuildInfo::GetInstance()->sdk_int() < 21;
+      return base::android::BuildInfo::GetInstance()->sdk_int() <
+             SDK_VERSION_LOLLIPOP;
 
     return false;
   }

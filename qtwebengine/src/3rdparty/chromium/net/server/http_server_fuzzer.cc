@@ -4,13 +4,13 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/fuzzed_data_provider.h"
 #include "net/base/net_errors.h"
 #include "net/log/test_net_log.h"
 #include "net/server/http_server.h"
 #include "net/socket/fuzzed_server_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 
 namespace {
 
@@ -21,7 +21,7 @@ class WaitTillHttpCloseDelegate : public net::HttpServer::Delegate {
       : server_(nullptr),
         data_provider_(data_provider),
         done_closure_(done_closure),
-        action_flags_(data_provider_->ConsumeUint8()) {}
+        action_flags_(data_provider_->ConsumeIntegral<uint8_t>()) {}
 
   void set_server(net::HttpServer* server) { server_ = server; }
 
@@ -40,7 +40,7 @@ class WaitTillHttpCloseDelegate : public net::HttpServer::Delegate {
     if (action_flags_ & REPLY_TO_MESSAGE) {
       server_->Send200(connection_id,
                        data_provider_->ConsumeRandomLengthString(64),
-                       "text/html");
+                       "text/html", TRAFFIC_ANNOTATION_FOR_TESTS);
     }
   }
 
@@ -52,7 +52,8 @@ class WaitTillHttpCloseDelegate : public net::HttpServer::Delegate {
     }
 
     if (action_flags_ & ACCEPT_WEBSOCKET)
-      server_->AcceptWebSocket(connection_id, info);
+      server_->AcceptWebSocket(connection_id, info,
+                               TRAFFIC_ANNOTATION_FOR_TESTS);
   }
 
   void OnWebSocketMessage(int connection_id, const std::string& data) override {
@@ -63,7 +64,8 @@ class WaitTillHttpCloseDelegate : public net::HttpServer::Delegate {
 
     if (action_flags_ & REPLY_TO_MESSAGE) {
       server_->SendOverWebSocket(connection_id,
-                                 data_provider_->ConsumeRandomLengthString(64));
+                                 data_provider_->ConsumeRandomLengthString(64),
+                                 TRAFFIC_ANNOTATION_FOR_TESTS);
     }
   }
 
@@ -96,7 +98,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   base::FuzzedDataProvider data_provider(data, size);
 
   std::unique_ptr<net::ServerSocket> server_socket(
-      base::MakeUnique<net::FuzzedServerSocket>(&data_provider, &test_net_log));
+      std::make_unique<net::FuzzedServerSocket>(&data_provider, &test_net_log));
   CHECK_EQ(net::OK,
            server_socket->ListenWithAddressAndPort("127.0.0.1", 80, 5));
 

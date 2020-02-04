@@ -59,14 +59,14 @@ def main(args):
 
   crashpad_dir_or_dot = crashpad_dir if crashpad_dir is not '' else os.curdir
 
-  (dependencies, mini_chromium_dir) = (ChooseDependencyPath(
+  (dependencies, mini_chromium_common_gypi) = (ChooseDependencyPath(
       os.path.join(crashpad_dir, 'third_party', 'mini_chromium',
                    'mini_chromium', 'build', 'common.gypi'),
       os.path.join(crashpad_dir, os.pardir, os.pardir, 'mini_chromium',
                    'mini_chromium', 'build', 'common.gypi')))
   if dependencies is not None:
     args.extend(['-D', 'crashpad_dependencies=%s' % dependencies])
-  args.extend(['--include', mini_chromium_dir])
+  args.extend(['--include', mini_chromium_common_gypi])
   args.extend(['--depth', crashpad_dir_or_dot])
   args.append(os.path.join(crashpad_dir, 'crashpad.gyp'))
 
@@ -78,7 +78,7 @@ def main(args):
     # Check to make sure that no target_arch was specified. target_arch may be
     # set during a cross build, such as a cross build for Android.
     has_target_arch = False
-    for arg_index in xrange(0, len(args)):
+    for arg_index in range(0, len(args)):
       arg = args[arg_index]
       if (arg.startswith('-Dtarget_arch=') or
           (arg == '-D' and arg_index + 1 < len(args) and

@@ -8,9 +8,9 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/test/simple_test_clock.h"
 
 namespace base {
-class SimpleTestClock;
 class Time;
 }  // namespace base
 
@@ -28,8 +28,11 @@ class TestAutofillClock {
   // Set the time to be returned from AutofillClock::Now() calls.
   void SetNow(base::Time now);
 
+  // Advances the clock by |delta|.
+  void Advance(base::TimeDelta delta);
+
  private:
-  base::SimpleTestClock* test_clock_;
+  base::SimpleTestClock test_clock_;
 
   DISALLOW_COPY_AND_ASSIGN(TestAutofillClock);
 };

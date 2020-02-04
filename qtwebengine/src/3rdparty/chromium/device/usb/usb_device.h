@@ -31,8 +31,8 @@ class UsbDeviceHandle;
 // method.
 class UsbDevice : public base::RefCountedThreadSafe<UsbDevice> {
  public:
-  using OpenCallback = base::Callback<void(scoped_refptr<UsbDeviceHandle>)>;
-  using ResultCallback = base::Callback<void(bool success)>;
+  using OpenCallback = base::OnceCallback<void(scoped_refptr<UsbDeviceHandle>)>;
+  using ResultCallback = base::OnceCallback<void(bool success)>;
 
   // This observer interface should be used by objects that need only be
   // notified about the removal of a particular device as it is more efficient
@@ -51,6 +51,8 @@ class UsbDevice : public base::RefCountedThreadSafe<UsbDevice> {
   const std::string& guid() const { return guid_; }
 
   // Accessors to basic information.
+  uint32_t bus_number() const { return bus_number_; }
+  uint32_t port_number() const { return port_number_; }
   uint16_t usb_version() const { return descriptor_.usb_version; }
   uint8_t device_class() const { return descriptor_.device_class; }
   uint8_t device_subclass() const { return descriptor_.device_subclass; }
@@ -74,17 +76,17 @@ class UsbDevice : public base::RefCountedThreadSafe<UsbDevice> {
   // On ChromeOS the permission_broker service must be used to open USB devices.
   // This function asks it to check whether a future Open call will be allowed.
   // On all other platforms this is a no-op and always returns true.
-  virtual void CheckUsbAccess(const ResultCallback& callback);
+  virtual void CheckUsbAccess(ResultCallback callback);
 
   // On Android applications must request permission from the user to access a
   // USB device before it can be opened. After permission is granted the device
   // properties may contain information not previously available. On all other
   // platforms this is a no-op and always returns true.
-  virtual void RequestPermission(const ResultCallback& callback);
+  virtual void RequestPermission(ResultCallback callback);
   virtual bool permission_granted() const;
 
   // Creates a UsbDeviceHandle for further manipulation.
-  virtual void Open(const OpenCallback& callback) = 0;
+  virtual void Open(OpenCallback callback) = 0;
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -92,11 +94,12 @@ class UsbDevice : public base::RefCountedThreadSafe<UsbDevice> {
  protected:
   friend class UsbService;
 
-  UsbDevice();
+  UsbDevice(uint32_t bus_number, uint32_t port_number);
   UsbDevice(const UsbDeviceDescriptor& descriptor,
             const base::string16& manufacturer_string,
             const base::string16& product_string,
-            const base::string16& serial_number);
+            const base::string16& serial_number,
+            uint32_t bus_number, uint32_t port_number);
   UsbDevice(uint16_t usb_version,
             uint8_t device_class,
             uint8_t device_subclass,
@@ -106,7 +109,8 @@ class UsbDevice : public base::RefCountedThreadSafe<UsbDevice> {
             uint16_t device_version,
             const base::string16& manufacturer_string,
             const base::string16& product_string,
-            const base::string16& serial_number);
+            const base::string16& serial_number,
+            uint32_t bus_number, uint32_t port_number);
   virtual ~UsbDevice();
 
   void ActiveConfigurationChanged(int configuration_value);
@@ -136,6 +140,9 @@ class UsbDevice : public base::RefCountedThreadSafe<UsbDevice> {
   void OnDisconnect();
   void HandleClosed(UsbDeviceHandle* handle);
 
+  const uint32_t bus_number_;
+  const uint32_t port_number_;
+
   const std::string guid_;
 
   // The current device configuration descriptor. May be null if the device is
@@ -147,7 +154,7 @@ class UsbDevice : public base::RefCountedThreadSafe<UsbDevice> {
   // is freed.
   std::list<UsbDeviceHandle*> handles_;
 
-  base::ObserverList<Observer, true> observer_list_;
+  base::ObserverList<Observer, true>::Unchecked observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(UsbDevice);
 };

@@ -11,18 +11,12 @@
 // Most of this was borrowed (with minor modifications) from V8's and Chromium's
 // src/base/logging.cc.
 
-// Use the C++ version to provide __GLIBCXX__.
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 
-#if defined(__GLIBCXX__) && !defined(__UCLIBC__)
-#include <cxxabi.h>
-#include <execinfo.h>
-#endif
-
 #if defined(WEBRTC_ANDROID)
-#define RTC_LOG_TAG "rtc"
+#define RTC_LOG_TAG_ANDROID "rtc"
 #include <android/log.h>  // NOLINT
 #endif
 
@@ -30,93 +24,39 @@
 #include <windows.h>
 #endif
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
+#if defined(WEBRTC_WIN)
+#define LAST_SYSTEM_ERROR (::GetLastError())
+#elif defined(__native_client__) && __native_client__
+#define LAST_SYSTEM_ERROR (0)
+#elif defined(WEBRTC_POSIX)
+#include <errno.h>
+#define LAST_SYSTEM_ERROR (errno)
+#endif  // WEBRTC_WIN
 
-#if defined(_MSC_VER)
-// Warning C4722: destructor never returns, potential memory leak.
-// FatalMessage's dtor very intentionally aborts.
-#pragma warning(disable:4722)
+#include "rtc_base/checks.h"
+
+namespace {
+#if defined(__GNUC__)
+__attribute__((__format__(__printf__, 2, 3)))
 #endif
+  void AppendFormat(std::string* s, const char* fmt, ...) {
+  va_list args, copy;
+  va_start(args, fmt);
+  va_copy(copy, args);
+  const int predicted_length = std::vsnprintf(nullptr, 0, fmt, copy);
+  va_end(copy);
 
-namespace rtc {
-
-void VPrintError(const char* format, va_list args) {
-#if defined(WEBRTC_ANDROID)
-  __android_log_vprint(ANDROID_LOG_ERROR, RTC_LOG_TAG, format, args);
-#else
-  vfprintf(stderr, format, args);
-#endif
-}
-
-void PrintError(const char* format, ...) {
-  va_list args;
-  va_start(args, format);
-  VPrintError(format, args);
+  if (predicted_length > 0) {
+    const size_t size = s->size();
+    s->resize(size + predicted_length);
+    // Pass "+ 1" to vsnprintf to include space for the '\0'.
+    std::vsnprintf(&((*s)[size]), predicted_length + 1, fmt, args);
+  }
   va_end(args);
 }
-
-// TODO(ajm): This works on Mac (although the parsing fails) but I don't seem
-// to get usable symbols on Linux. This is copied from V8. Chromium has a more
-// advanced stace trace system; also more difficult to copy.
-void DumpBacktrace() {
-#if defined(__GLIBCXX__) && !defined(__UCLIBC__)
-  void* trace[100];
-  int size = backtrace(trace, sizeof(trace) / sizeof(*trace));
-  char** symbols = backtrace_symbols(trace, size);
-  PrintError("\n==== C stack trace ===============================\n\n");
-  if (size == 0) {
-    PrintError("(empty)\n");
-  } else if (symbols == nullptr) {
-    PrintError("(no symbols)\n");
-  } else {
-    for (int i = 1; i < size; ++i) {
-      char mangled[201];
-      if (sscanf(symbols[i], "%*[^(]%*[(]%200[^)+]", mangled) == 1) {  // NOLINT
-        PrintError("%2d: ", i);
-        int status;
-        size_t length;
-        char* demangled =
-            abi::__cxa_demangle(mangled, nullptr, &length, &status);
-        PrintError("%s\n", demangled != nullptr ? demangled : mangled);
-        free(demangled);
-      } else {
-        // If parsing failed, at least print the unparsed symbol.
-        PrintError("%s\n", symbols[i]);
-      }
-    }
-  }
-  free(symbols);
-#endif
 }
 
-FatalMessage::FatalMessage(const char* file, int line) {
-  Init(file, line);
-}
-
-FatalMessage::FatalMessage(const char* file, int line, std::string* result) {
-  Init(file, line);
-  stream_ << "Check failed: " << *result << std::endl << "# ";
-  delete result;
-}
-
-NO_RETURN FatalMessage::~FatalMessage() {
-  fflush(stdout);
-  fflush(stderr);
-  stream_ << std::endl << "#" << std::endl;
-  PrintError(stream_.str().c_str());
-  DumpBacktrace();
-  fflush(stderr);
-  abort();
-}
-
-void FatalMessage::Init(const char* file, int line) {
-  stream_ << std::endl << std::endl
-          << "#" << std::endl
-          << "# Fatal error in " << file << ", line " << line << std::endl
-          << "# last system error: " << LAST_SYSTEM_ERROR << std::endl
-          << "# ";
-}
+namespace rtc {
 
 // MSVC doesn't like complex extern templates and DLLs.
 #if !defined(COMPILER_MSVC)
@@ -132,10 +72,87 @@ template std::string* MakeCheckOpString<unsigned int, unsigned long>(
 template std::string* MakeCheckOpString<std::string, std::string>(
     const std::string&, const std::string&, const char* name);
 #endif
+namespace webrtc_checks_impl {
+RTC_NORETURN void FatalLog(const char* file,
+                           int line,
+                           const char* message,
+                           const CheckArgType* fmt,
+                           ...) {
+  va_list args;
+  va_start(args, fmt);
 
+  std::string s;
+  AppendFormat(&s,
+               "\n\n"
+               "#\n"
+               "# Fatal error in: %s, line %d\n"
+               "# last system error: %u\n"
+               "# Check failed: %s",
+               file, line, LAST_SYSTEM_ERROR, message);
+
+  for (; *fmt != CheckArgType::kEnd; ++fmt) {
+    switch (*fmt) {
+      case CheckArgType::kInt:
+        AppendFormat(&s, "%d", va_arg(args, int));
+        break;
+      case CheckArgType::kLong:
+        AppendFormat(&s, "%ld", va_arg(args, long));
+        break;
+      case CheckArgType::kLongLong:
+        AppendFormat(&s, "%lld", va_arg(args, long long));
+        break;
+      case CheckArgType::kUInt:
+        AppendFormat(&s, "%u", va_arg(args, unsigned));
+        break;
+      case CheckArgType::kULong:
+        AppendFormat(&s, "%lu", va_arg(args, unsigned long));
+        break;
+      case CheckArgType::kULongLong:
+        AppendFormat(&s, "%llu", va_arg(args, unsigned long long));
+        break;
+      case CheckArgType::kDouble:
+        AppendFormat(&s, "%g", va_arg(args, double));
+        break;
+      case CheckArgType::kLongDouble:
+        AppendFormat(&s, "%Lg", va_arg(args, long double));
+        break;
+      case CheckArgType::kCharP:
+        s.append(va_arg(args, const char*));
+        break;
+      case CheckArgType::kStdString:
+        s.append(*va_arg(args, const std::string*));
+        break;
+      case CheckArgType::kVoidP:
+        AppendFormat(&s, "%p", va_arg(args, const void*));
+        break;
+      default:
+        s.append("[Invalid CheckArgType]");
+        goto processing_loop_end;
+    }
+  }
+
+processing_loop_end:
+  va_end(args);
+
+  const char* output = s.c_str();
+
+#if defined(WEBRTC_ANDROID)
+  __android_log_print(ANDROID_LOG_ERROR, RTC_LOG_TAG_ANDROID, "%s\n", output);
+#endif
+
+  fflush(stdout);
+  fprintf(stderr, "%s", output);
+  fflush(stderr);
+  abort();
+}
+
+}  // namespace webrtc_checks_impl
 }  // namespace rtc
 
 // Function to call from the C version of the RTC_CHECK and RTC_DCHECK macros.
-NO_RETURN void rtc_FatalMessage(const char* file, int line, const char* msg) {
-  rtc::FatalMessage(file, line).stream() << msg;
+RTC_NORETURN void rtc_FatalMessage(const char* file, int line,
+                                   const char* msg) {
+  static constexpr rtc::webrtc_checks_impl::CheckArgType t[] = {
+      rtc::webrtc_checks_impl::CheckArgType::kEnd};
+  FatalLog(file, line, msg, t);
 }

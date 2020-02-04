@@ -41,12 +41,13 @@
 namespace WelsDec {
 //Init
 void InitErrorCon (PWelsDecoderContext pCtx) {
-  if ((pCtx->eErrorConMethod == ERROR_CON_SLICE_COPY) || (pCtx->eErrorConMethod == ERROR_CON_SLICE_COPY_CROSS_IDR)
-      || (pCtx->eErrorConMethod == ERROR_CON_SLICE_MV_COPY_CROSS_IDR)
-      || (pCtx->eErrorConMethod == ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE)
-      || (pCtx->eErrorConMethod == ERROR_CON_SLICE_COPY_CROSS_IDR_FREEZE_RES_CHANGE)) {
-    if ((pCtx->eErrorConMethod != ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE)
-        && (pCtx->eErrorConMethod != ERROR_CON_SLICE_COPY_CROSS_IDR_FREEZE_RES_CHANGE)) {
+  if ((pCtx->pParam->eEcActiveIdc == ERROR_CON_SLICE_COPY)
+      || (pCtx->pParam->eEcActiveIdc == ERROR_CON_SLICE_COPY_CROSS_IDR)
+      || (pCtx->pParam->eEcActiveIdc == ERROR_CON_SLICE_MV_COPY_CROSS_IDR)
+      || (pCtx->pParam->eEcActiveIdc == ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE)
+      || (pCtx->pParam->eEcActiveIdc == ERROR_CON_SLICE_COPY_CROSS_IDR_FREEZE_RES_CHANGE)) {
+    if ((pCtx->pParam->eEcActiveIdc != ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE)
+        && (pCtx->pParam->eEcActiveIdc != ERROR_CON_SLICE_COPY_CROSS_IDR_FREEZE_RES_CHANGE)) {
       pCtx->bFreezeOutput = false;
     }
     pCtx->sCopyFunc.pCopyLumaFunc = WelsCopy16x16_c;
@@ -87,7 +88,7 @@ void DoErrorConFrameCopy (PWelsDecoderContext pCtx) {
   int32_t iStrideY = pDstPic->iLinesize[0];
   int32_t iStrideUV = pDstPic->iLinesize[1];
   pCtx->pDec->iMbEcedNum = pCtx->pSps->iMbWidth * pCtx->pSps->iMbHeight;
-  if ((pCtx->eErrorConMethod == ERROR_CON_FRAME_COPY) && (pCtx->pCurDqLayer->sLayerInfo.sNalHeaderExt.bIdrFlag))
+  if ((pCtx->pParam->eEcActiveIdc == ERROR_CON_FRAME_COPY) && (pCtx->pCurDqLayer->sLayerInfo.sNalHeaderExt.bIdrFlag))
     pSrcPic = NULL; //no cross IDR method, should fill in data instead of copy
   if (pSrcPic == NULL) { //no ref pic, assign specific data to picture
     memset (pDstPic->pData[0], 128, uiHeightInPixelY * iStrideY);
@@ -109,7 +110,7 @@ void DoErrorConSliceCopy (PWelsDecoderContext pCtx) {
   int32_t iMbHeight = (int32_t) pCtx->pSps->iMbHeight;
   PPicture pDstPic = pCtx->pDec;
   PPicture pSrcPic = pCtx->pPreviousDecodedPictureInDpb;
-  if ((pCtx->eErrorConMethod == ERROR_CON_SLICE_COPY) && (pCtx->pCurDqLayer->sLayerInfo.sNalHeaderExt.bIdrFlag))
+  if ((pCtx->pParam->eEcActiveIdc == ERROR_CON_SLICE_COPY) && (pCtx->pCurDqLayer->sLayerInfo.sNalHeaderExt.bIdrFlag))
     pSrcPic = NULL; //no cross IDR method, should fill in data instead of copy
 
   //uint8_t *pDstData[3], *pSrcData[3];
@@ -225,22 +226,22 @@ void DoMbECMvCopy (PWelsDecoderContext pCtx, PPicture pDec, PPicture pRef, int32
     }
     // further make sure no need to expand picture
     int32_t iMinLeftOffset = (iPicWidthLeftLimit + 2) * (1 << 2);
-    int32_t iMaxRightOffset = ((iPicWidthRightLimit - 19) * (1 << 2));
+    int32_t iMaxRightOffset = ((iPicWidthRightLimit - 18) * (1 << 2));
     int32_t iMinTopOffset = (iPicHeightTopLimit + 2) * (1 << 2);
-    int32_t iMaxBottomOffset = ((iPicHeightBottomLimit - 19) * (1 << 2));
+    int32_t iMaxBottomOffset = ((iPicHeightBottomLimit - 18) * (1 << 2));
     if (iFullMVx < iMinLeftOffset) {
       iFullMVx = (iFullMVx >> 2) * (1 << 2);
       iFullMVx = WELS_MAX (iPicWidthLeftLimit, iFullMVx);
     } else if (iFullMVx > iMaxRightOffset) {
       iFullMVx = (iFullMVx >> 2) * (1 << 2);
-      iFullMVx = WELS_MIN (((iPicWidthRightLimit - 17) * (1 << 2)), iFullMVx);
+      iFullMVx = WELS_MIN (((iPicWidthRightLimit - 16) * (1 << 2)), iFullMVx);
     }
     if (iFullMVy < iMinTopOffset) {
       iFullMVy = (iFullMVy >> 2) * (1 << 2);
       iFullMVy = WELS_MAX (iPicHeightTopLimit, iFullMVy);
     } else if (iFullMVy > iMaxBottomOffset) {
       iFullMVy = (iFullMVy >> 2) * (1 << 2);
-      iFullMVy = WELS_MIN (((iPicHeightBottomLimit - 17) * (1 << 2)), iFullMVy);
+      iFullMVy = WELS_MIN (((iPicHeightBottomLimit - 16) * (1 << 2)), iFullMVy);
     }
     iMVs[0] = iFullMVx - (iMbXInPix << 2);
     iMVs[1] = iFullMVy - (iMbYInPix << 2);
@@ -266,7 +267,7 @@ void GetAvilInfoFromCorrectMb (PWelsDecoderContext pCtx) {
     for (int32_t iMbX = 0; iMbX < iMbWidth; ++iMbX) {
       iMbXyIndex = iMbY * iMbWidth + iMbX;
       if (pMbCorrectlyDecodedFlag[iMbXyIndex] && IS_INTER (pCurDqLayer->pMbType[iMbXyIndex])) {
-        int32_t iMBType = pCurDqLayer->pMbType[iMbXyIndex];
+        uint32_t iMBType = pCurDqLayer->pMbType[iMbXyIndex];
         switch (iMBType) {
         case MB_TYPE_SKIP:
         case MB_TYPE_16x16:
@@ -457,18 +458,18 @@ bool NeedErrorCon (PWelsDecoderContext pCtx) {
 // ImplementErrorConceal
 // Do actual error concealment
 void ImplementErrorCon (PWelsDecoderContext pCtx) {
-  if (ERROR_CON_DISABLE == pCtx->eErrorConMethod) {
+  if (ERROR_CON_DISABLE == pCtx->pParam->eEcActiveIdc) {
     pCtx->iErrorCode |= dsBitstreamError;
     return;
-  } else if ((ERROR_CON_FRAME_COPY == pCtx->eErrorConMethod)
-             || (ERROR_CON_FRAME_COPY_CROSS_IDR == pCtx->eErrorConMethod)) {
+  } else if ((ERROR_CON_FRAME_COPY == pCtx->pParam->eEcActiveIdc)
+             || (ERROR_CON_FRAME_COPY_CROSS_IDR == pCtx->pParam->eEcActiveIdc)) {
     DoErrorConFrameCopy (pCtx);
-  } else if ((ERROR_CON_SLICE_COPY == pCtx->eErrorConMethod)
-             || (ERROR_CON_SLICE_COPY_CROSS_IDR == pCtx->eErrorConMethod)
-             || (ERROR_CON_SLICE_COPY_CROSS_IDR_FREEZE_RES_CHANGE == pCtx->eErrorConMethod)) {
+  } else if ((ERROR_CON_SLICE_COPY == pCtx->pParam->eEcActiveIdc)
+             || (ERROR_CON_SLICE_COPY_CROSS_IDR == pCtx->pParam->eEcActiveIdc)
+             || (ERROR_CON_SLICE_COPY_CROSS_IDR_FREEZE_RES_CHANGE == pCtx->pParam->eEcActiveIdc)) {
     DoErrorConSliceCopy (pCtx);
-  } else if ((ERROR_CON_SLICE_MV_COPY_CROSS_IDR == pCtx->eErrorConMethod)
-             || (ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE == pCtx->eErrorConMethod)) {
+  } else if ((ERROR_CON_SLICE_MV_COPY_CROSS_IDR == pCtx->pParam->eEcActiveIdc)
+             || (ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE == pCtx->pParam->eEcActiveIdc)) {
     GetAvilInfoFromCorrectMb (pCtx);
     DoErrorConSliceMVCopy (pCtx);
   } //TODO add other EC methods here in the future

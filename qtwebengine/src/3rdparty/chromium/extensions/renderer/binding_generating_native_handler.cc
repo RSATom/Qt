@@ -4,8 +4,8 @@
 
 #include "extensions/renderer/binding_generating_native_handler.h"
 
-#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
 #include "base/timer/elapsed_timer.h"
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/v8_helpers.h"
@@ -20,6 +20,13 @@ BindingGeneratingNativeHandler::BindingGeneratingNativeHandler(
     const std::string& api_name,
     const std::string& bind_to)
     : context_(context), api_name_(api_name), bind_to_(bind_to) {}
+
+void BindingGeneratingNativeHandler::Initialize() {}
+
+bool BindingGeneratingNativeHandler::IsInitialized() {
+  // There's no initialization to do, so just always return true.
+  return true;
+}
 
 v8::Local<v8::Object> BindingGeneratingNativeHandler::NewInstance() {
   base::ElapsedTimer timer;
@@ -72,15 +79,21 @@ v8::Local<v8::Object> BindingGeneratingNativeHandler::NewInstance() {
       create_binding_value.As<v8::Function>();
 
   // require('Binding').Binding.create(api_name);
-  v8::Local<v8::Value> argv[] = {v8_api_name};
-  v8::Local<v8::Value> binding_instance_value;
   v8::Local<v8::Object> binding_instance;
-  if (!CallFunction(v8_context, create_binding, binding, arraysize(argv), argv,
-                    &binding_instance_value) ||
-      !binding_instance_value->ToObject(v8_context)
-           .ToLocal(&binding_instance)) {
-    NOTREACHED();
-    return v8::Local<v8::Object>();
+  {
+    v8::Local<v8::Value> argv[] = {v8_api_name};
+    v8::Local<v8::Value> binding_instance_value;
+    v8::MicrotasksScope microtasks_scope(
+        v8_context->GetIsolate(), v8::MicrotasksScope::kDoNotRunMicrotasks);
+    // TODO(devlin): We should not be using v8::Function::Call() directly here.
+    // Instead, we should use JSRunner once it's used outside native bindings.
+    if (!create_binding->Call(v8_context, binding, base::size(argv), argv)
+             .ToLocal(&binding_instance_value) ||
+        !binding_instance_value->ToObject(v8_context)
+             .ToLocal(&binding_instance)) {
+      NOTREACHED();
+      return v8::Local<v8::Object>();
+    }
   }
 
   // require('binding').Binding.create(api_name).generate;
@@ -94,10 +107,16 @@ v8::Local<v8::Object> BindingGeneratingNativeHandler::NewInstance() {
 
   // require('binding').Binding.create(api_name).generate();
   v8::Local<v8::Value> compiled_schema;
-  if (!CallFunction(v8_context, generate, binding_instance, 0, nullptr,
-                    &compiled_schema)) {
-    NOTREACHED();
-    return v8::Local<v8::Object>();
+  {
+    v8::MicrotasksScope microtasks_scope(
+        v8_context->GetIsolate(), v8::MicrotasksScope::kDoNotRunMicrotasks);
+    // TODO(devlin): We should not be using v8::Function::Call() directly here.
+    // Instead, we should use JSRunner once it's used outside native bindings.
+    if (!generate->Call(v8_context, binding_instance, 0, nullptr)
+             .ToLocal(&compiled_schema)) {
+      NOTREACHED();
+      return v8::Local<v8::Object>();
+    }
   }
 
   // var result = {};

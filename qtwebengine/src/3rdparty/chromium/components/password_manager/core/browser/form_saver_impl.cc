@@ -7,7 +7,6 @@
 #include <memory>
 #include <vector>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -17,9 +16,32 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 
+using autofill::FormData;
+using autofill::FormFieldData;
 using autofill::PasswordForm;
 
 namespace password_manager {
+
+namespace {
+
+// Remove all information from |form| that is not required for signature
+// calculation.
+void SanitizeFormData(FormData* form) {
+  form->main_frame_origin = url::Origin();
+  for (FormFieldData& field : form->fields) {
+    field.label.clear();
+    field.value.clear();
+    field.autocomplete_attribute.clear();
+    field.option_values.clear();
+    field.option_contents.clear();
+    field.placeholder.clear();
+    field.css_classes.clear();
+    field.id_attribute.clear();
+    field.name_attribute.clear();
+  }
+}
+
+}  // namespace
 
 FormSaverImpl::FormSaverImpl(PasswordStore* store) : store_(store) {
   DCHECK(store);
@@ -30,6 +52,8 @@ FormSaverImpl::~FormSaverImpl() = default;
 void FormSaverImpl::PermanentlyBlacklist(PasswordForm* observed) {
   observed->preferred = false;
   observed->blacklisted_by_user = true;
+  observed->username_value.clear();
+  observed->password_value.clear();
   observed->other_possible_usernames.clear();
   observed->date_created = base::Time::Now();
 
@@ -38,9 +62,8 @@ void FormSaverImpl::PermanentlyBlacklist(PasswordForm* observed) {
 
 void FormSaverImpl::Save(
     const PasswordForm& pending,
-    const std::map<base::string16, const PasswordForm*>& best_matches,
-    const PasswordForm* old_primary_key) {
-  SaveImpl(pending, true, best_matches, nullptr, old_primary_key);
+    const std::map<base::string16, const PasswordForm*>& best_matches) {
+  SaveImpl(pending, true, best_matches, nullptr, nullptr);
 }
 
 void FormSaverImpl::Update(
@@ -53,11 +76,14 @@ void FormSaverImpl::Update(
 }
 
 void FormSaverImpl::PresaveGeneratedPassword(const PasswordForm& generated) {
+  DCHECK_NE(base::string16(), generated.password_value);
+  auto form = std::make_unique<PasswordForm>(generated);
+  SanitizeFormData(&form->form_data);
   if (presaved_)
-    store_->UpdateLoginWithPrimaryKey(generated, *presaved_);
+    store_->UpdateLoginWithPrimaryKey(*form, *presaved_);
   else
-    store_->AddLogin(generated);
-  presaved_.reset(new PasswordForm(generated));
+    store_->AddLogin(*form);
+  presaved_ = std::move(form);
 }
 
 void FormSaverImpl::RemovePresavedPassword() {
@@ -68,36 +94,11 @@ void FormSaverImpl::RemovePresavedPassword() {
   presaved_ = nullptr;
 }
 
-void FormSaverImpl::WipeOutdatedCopies(
-    const PasswordForm& pending,
-    std::map<base::string16, const PasswordForm*>* best_matches,
-    const PasswordForm** preferred_match) {
-  DCHECK(preferred_match);  // Note: *preferred_match may still be null.
-  DCHECK(url::Origin(GURL(pending.signon_realm))
-             .IsSameOriginWith(
-                 url::Origin(GaiaUrls::GetInstance()->gaia_url().GetOrigin())))
-      << pending.signon_realm << " is not a GAIA origin";
-
-  for (auto it = best_matches->begin(); it != best_matches->end();
-       /* increment inside the for loop */) {
-    if ((pending.password_value != it->second->password_value) &&
-        gaia::AreEmailsSame(base::UTF16ToUTF8(pending.username_value),
-                            base::UTF16ToUTF8(it->second->username_value))) {
-      if (it->second == *preferred_match)
-        *preferred_match = nullptr;
-      store_->RemoveLogin(*it->second);
-      it = best_matches->erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
-
 std::unique_ptr<FormSaver> FormSaverImpl::Clone() {
-  auto result = base::MakeUnique<FormSaverImpl>(store_);
+  auto result = std::make_unique<FormSaverImpl>(store_);
   if (presaved_)
-    result->presaved_ = base::MakeUnique<PasswordForm>(*presaved_);
-  return std::move(result);
+    result->presaved_ = std::make_unique<PasswordForm>(*presaved_);
+  return result;
 }
 
 void FormSaverImpl::SaveImpl(
@@ -110,18 +111,20 @@ void FormSaverImpl::SaveImpl(
   DCHECK(!pending.blacklisted_by_user);
 
   UpdatePreferredLoginState(pending.username_value, best_matches);
+  PasswordForm sanitized_pending(pending);
+  SanitizeFormData(&sanitized_pending.form_data);
   if (presaved_) {
-    store_->UpdateLoginWithPrimaryKey(pending, *presaved_);
+    store_->UpdateLoginWithPrimaryKey(sanitized_pending, *presaved_);
     presaved_ = nullptr;
   } else if (is_new_login) {
-    store_->AddLogin(pending);
-    if (!pending.username_value.empty())
-      DeleteEmptyUsernameCredentials(pending, best_matches);
+    store_->AddLogin(sanitized_pending);
+    if (!sanitized_pending.username_value.empty())
+      DeleteEmptyUsernameCredentials(sanitized_pending, best_matches);
   } else {
     if (old_primary_key)
-      store_->UpdateLoginWithPrimaryKey(pending, *old_primary_key);
+      store_->UpdateLoginWithPrimaryKey(sanitized_pending, *old_primary_key);
     else
-      store_->UpdateLogin(pending);
+      store_->UpdateLogin(sanitized_pending);
   }
 
   if (credentials_to_update) {
@@ -140,6 +143,7 @@ void FormSaverImpl::UpdatePreferredLoginState(
         form.username_value != preferred_username) {
       // This wasn't the selected login but it used to be preferred.
       PasswordForm update(form);
+      SanitizeFormData(&update.form_data);
       update.preferred = false;
       store_->UpdateLogin(update);
     }

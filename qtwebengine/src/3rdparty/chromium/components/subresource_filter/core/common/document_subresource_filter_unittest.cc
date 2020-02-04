@@ -20,8 +20,8 @@ namespace proto = url_pattern_index::proto;
 
 namespace {
 
-constexpr auto kDryRun = ActivationLevel::DRYRUN;
-constexpr auto kEnabled = ActivationLevel::ENABLED;
+constexpr auto kDryRun = mojom::ActivationLevel::kDryRun;
+constexpr auto kEnabled = mojom::ActivationLevel::kEnabled;
 
 constexpr auto kImageType = proto::ELEMENT_TYPE_IMAGE;
 constexpr auto kSubdocumentType = proto::ELEMENT_TYPE_SUBDOCUMENT;
@@ -52,7 +52,7 @@ class DocumentSubresourceFilterTest : public ::testing::Test {
     ASSERT_NO_FATAL_FAILURE(
         test_ruleset_creator_.CreateRulesetToDisallowURLsWithPathSuffix(
             suffix, &test_ruleset_pair));
-    ruleset_ = new MemoryMappedRuleset(
+    ruleset_ = MemoryMappedRuleset::CreateAndInitialize(
         testing::TestRuleset::Open(test_ruleset_pair.indexed));
   }
 
@@ -66,7 +66,8 @@ class DocumentSubresourceFilterTest : public ::testing::Test {
 };
 
 TEST_F(DocumentSubresourceFilterTest, DryRun) {
-  ActivationState activation_state(kDryRun);
+  mojom::ActivationState activation_state;
+  activation_state.activation_level = kDryRun;
   activation_state.measure_performance = true;
   DocumentSubresourceFilter filter(url::Origin(), activation_state, ruleset());
 
@@ -91,9 +92,30 @@ TEST_F(DocumentSubresourceFilterTest, DryRun) {
   EXPECT_EQ(0, statistics.num_loads_disallowed);
 }
 
+TEST_F(DocumentSubresourceFilterTest, MatchingRuleDryRun) {
+  mojom::ActivationState activation_state;
+  activation_state.activation_level = kDryRun;
+  activation_state.measure_performance = false;
+  DocumentSubresourceFilter filter(url::Origin(), activation_state, ruleset());
+
+  EXPECT_NE(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestAlphaURL), kImageType));
+  EXPECT_EQ(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestAlphaDataURI), kImageType));
+  EXPECT_NE(nullptr, filter.FindMatchingUrlRule(GURL(kTestAlphaWSURI),
+                                                proto::ELEMENT_TYPE_OTHER));
+  EXPECT_EQ(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestBetaURL), kImageType));
+  EXPECT_NE(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestAlphaURL), kSubdocumentType));
+  EXPECT_EQ(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestBetaURL), kSubdocumentType));
+}
+
 TEST_F(DocumentSubresourceFilterTest, Enabled) {
   auto test_impl = [this](bool measure_performance) {
-    ActivationState activation_state(kEnabled);
+    mojom::ActivationState activation_state;
+    activation_state.activation_level = kEnabled;
     activation_state.measure_performance = measure_performance;
     DocumentSubresourceFilter filter(url::Origin(), activation_state,
                                      ruleset());
@@ -128,6 +150,26 @@ TEST_F(DocumentSubresourceFilterTest, Enabled) {
 
   test_impl(true /* measure_performance */);
   test_impl(false /* measure_performance */);
+}
+
+TEST_F(DocumentSubresourceFilterTest, MatchingRuleEnabled) {
+  mojom::ActivationState activation_state;
+  activation_state.activation_level = kEnabled;
+  activation_state.measure_performance = false;
+  DocumentSubresourceFilter filter(url::Origin(), activation_state, ruleset());
+
+  EXPECT_NE(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestAlphaURL), kImageType));
+  EXPECT_EQ(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestAlphaDataURI), kImageType));
+  EXPECT_NE(nullptr, filter.FindMatchingUrlRule(GURL(kTestAlphaWSURI),
+                                                proto::ELEMENT_TYPE_OTHER));
+  EXPECT_EQ(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestBetaURL), kImageType));
+  EXPECT_NE(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestAlphaURL), kSubdocumentType));
+  EXPECT_EQ(nullptr,
+            filter.FindMatchingUrlRule(GURL(kTestBetaURL), kSubdocumentType));
 }
 
 }  // namespace subresource_filter

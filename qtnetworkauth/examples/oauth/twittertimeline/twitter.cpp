@@ -67,7 +67,7 @@ Twitter::Twitter(const QString &screenName,
                  QObject *parent) :
     QOAuth1(clientCredentials.first, clientCredentials.second, nullptr, parent)
 {
-    replyHandler = new QOAuthHttpServerReplyHandler(this);
+    replyHandler = new QOAuthHttpServerReplyHandler(1337, this);
     replyHandler->setCallbackPath("callback");
     setReplyHandler(replyHandler);
     setTemporaryCredentialsUrl(QUrl("https://api.twitter.com/oauth/request_token"));

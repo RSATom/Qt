@@ -8,8 +8,6 @@
 
 #include <utility>
 
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/policy/core/browser/policy_error_map.h"
 #include "components/policy/core/common/policy_map.h"
@@ -31,13 +29,14 @@ void SetListInPref(const PolicyMap& policies,
                    base::DictionaryValue* dict) {
   DCHECK(dict);
   const base::Value* policy_value = policies.GetValue(policy_name);
-  const base::ListValue* policy_list = NULL;
+  const base::ListValue* policy_list = nullptr;
   if (policy_value) {
     bool is_list = policy_value->GetAsList(&policy_list);
     DCHECK(is_list);
   }
-  dict->Set(key, policy_list ? base::MakeUnique<base::ListValue>(*policy_list)
-                             : base::MakeUnique<base::ListValue>());
+  dict->Set(key, policy_list
+                     ? std::make_unique<base::Value>(policy_list->Clone())
+                     : std::make_unique<base::Value>(base::Value::Type::LIST));
 }
 
 // Extracts a string from a policy value and adds it to a pref dictionary.
@@ -70,17 +69,12 @@ const PolicyToPreferenceMapEntry kDefaultSearchPolicyDataMap[] = {
      base::Value::Type::STRING},
     {key::kDefaultSearchProviderSuggestURL,
      DefaultSearchManager::kSuggestionsURL, base::Value::Type::STRING},
-    {key::kDefaultSearchProviderInstantURL, DefaultSearchManager::kInstantURL,
-     base::Value::Type::STRING},
     {key::kDefaultSearchProviderIconURL, DefaultSearchManager::kFaviconURL,
      base::Value::Type::STRING},
     {key::kDefaultSearchProviderEncodings,
      DefaultSearchManager::kInputEncodings, base::Value::Type::LIST},
     {key::kDefaultSearchProviderAlternateURLs,
      DefaultSearchManager::kAlternateURLs, base::Value::Type::LIST},
-    {key::kDefaultSearchProviderSearchTermsReplacementKey,
-     DefaultSearchManager::kSearchTermsReplacementKey,
-     base::Value::Type::STRING},
     {key::kDefaultSearchProviderImageURL, DefaultSearchManager::kImageURL,
      base::Value::Type::STRING},
     {key::kDefaultSearchProviderNewTabURL, DefaultSearchManager::kNewTabURL,
@@ -90,8 +84,6 @@ const PolicyToPreferenceMapEntry kDefaultSearchPolicyDataMap[] = {
     {key::kDefaultSearchProviderSuggestURLPostParams,
      DefaultSearchManager::kSuggestionsURLPostParams,
      base::Value::Type::STRING},
-    {key::kDefaultSearchProviderInstantURLPostParams,
-     DefaultSearchManager::kInstantURLPostParams, base::Value::Type::STRING},
     {key::kDefaultSearchProviderImageURLPostParams,
      DefaultSearchManager::kImageURLPostParams, base::Value::Type::STRING},
 };
@@ -107,7 +99,8 @@ bool DefaultSearchPolicyHandler::CheckPolicySettings(const PolicyMap& policies,
   if (!CheckIndividualPolicies(policies, errors))
     return false;
 
-  if (DefaultSearchProviderIsDisabled(policies)) {
+  if (!DefaultSearchProviderPolicyIsSet(policies) ||
+      DefaultSearchProviderIsDisabled(policies)) {
     // Add an error for all specified default search policies except
     // DefaultSearchProviderEnabled.
 
@@ -133,6 +126,10 @@ bool DefaultSearchPolicyHandler::CheckPolicySettings(const PolicyMap& policies,
 
 void DefaultSearchPolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
                                                      PrefValueMap* prefs) {
+  // If the main switch is not set don't set anything.
+  if (!DefaultSearchProviderPolicyIsSet(policies))
+    return;
+
   if (DefaultSearchProviderIsDisabled(policies)) {
     std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue);
     dict->SetBoolean(DefaultSearchManager::kDisabledByPolicy, true);
@@ -149,7 +146,7 @@ void DefaultSearchPolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
     return;
 
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue);
-  for (size_t i = 0; i < arraysize(kDefaultSearchPolicyDataMap); ++i) {
+  for (size_t i = 0; i < base::size(kDefaultSearchPolicyDataMap); ++i) {
     const char* policy_name = kDefaultSearchPolicyDataMap[i].policy_name;
     // kDefaultSearchProviderEnabled has already been handled.
     if (policy_name == key::kDefaultSearchProviderEnabled)
@@ -215,7 +212,7 @@ bool DefaultSearchPolicyHandler::CheckIndividualPolicies(
     // It's important to check policy type for all policies and not just exit on
     // the first error, so we report all policy errors.
     const base::Value* value = policies.GetValue(policy_map_entry.policy_name);
-    if (value && !value->IsType(policy_map_entry.value_type)) {
+    if (value && value->type() != policy_map_entry.value_type) {
       errors->AddError(policy_map_entry.policy_name, IDS_POLICY_TYPE_ERROR,
                        base::Value::GetTypeName(policy_map_entry.value_type));
       all_ok = false;
@@ -227,7 +224,7 @@ bool DefaultSearchPolicyHandler::CheckIndividualPolicies(
 bool DefaultSearchPolicyHandler::HasDefaultSearchPolicy(
     const PolicyMap& policies,
     const char* policy_name) {
-  return policies.Get(policy_name) != NULL;
+  return policies.Get(policy_name) != nullptr;
 }
 
 bool DefaultSearchPolicyHandler::AnyDefaultSearchPoliciesSpecified(
@@ -246,6 +243,11 @@ bool DefaultSearchPolicyHandler::DefaultSearchProviderIsDisabled(
   bool enabled = true;
   return provider_enabled && provider_enabled->GetAsBoolean(&enabled) &&
       !enabled;
+}
+
+bool DefaultSearchPolicyHandler::DefaultSearchProviderPolicyIsSet(
+    const PolicyMap& policies) {
+  return HasDefaultSearchPolicy(policies, key::kDefaultSearchProviderEnabled);
 }
 
 bool DefaultSearchPolicyHandler::DefaultSearchURLIsValid(
@@ -276,7 +278,7 @@ void DefaultSearchPolicyHandler::EnsureListPrefExists(
   base::Value* value;
   base::ListValue* list_value;
   if (!prefs->GetValue(path, &value) || !value->GetAsList(&list_value))
-    prefs->SetValue(path, base::MakeUnique<base::ListValue>());
+    prefs->SetValue(path, std::make_unique<base::ListValue>());
 }
 
 }  // namespace policy

@@ -30,7 +30,6 @@
 
 typedef struct H2645NAL {
     uint8_t *rbsp_buffer;
-    int rbsp_buffer_size;
 
     int size;
     const uint8_t *data;
@@ -65,9 +64,16 @@ typedef struct H2645NAL {
     int ref_idc;
 } H2645NAL;
 
+typedef struct H2645RBSP {
+    uint8_t *rbsp_buffer;
+    int rbsp_buffer_alloc_size;
+    int rbsp_buffer_size;
+} H2645RBSP;
+
 /* an input packet split into unescaped NAL units */
 typedef struct H2645Packet {
     H2645NAL *nals;
+    H2645RBSP rbsp;
     int nb_nals;
     int nals_allocated;
 } H2645Packet;
@@ -75,11 +81,17 @@ typedef struct H2645Packet {
 /**
  * Extract the raw (unescaped) bitstream.
  */
-int ff_h2645_extract_rbsp(const uint8_t *src, int length,
+int ff_h2645_extract_rbsp(const uint8_t *src, int length, H2645RBSP *rbsp,
                           H2645NAL *nal, int small_padding);
 
 /**
  * Split an input packet into NAL units.
+ *
+ * If data == raw_data holds true for a NAL unit of the returned pkt, then
+ * said NAL unit does not contain any emulation_prevention_three_byte and
+ * the data is contained in the input buffer pointed to by buf.
+ * Otherwise, the unescaped data is part of the rbsp_buffer described by the
+ * packet's H2645RBSP.
  */
 int ff_h2645_packet_split(H2645Packet *pkt, const uint8_t *buf, int length,
                           void *logctx, int is_nalff, int nal_length_size,

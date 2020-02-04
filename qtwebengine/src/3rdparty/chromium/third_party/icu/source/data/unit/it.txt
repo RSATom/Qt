@@ -1,7 +1,7 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html#License
 it{
-    Version{"2.1.32.60"}
+    Version{"2.1.44.86"}
     durationUnits{
         hm{"h:mm"}
         hms{"h:mm:ss"}
@@ -123,6 +123,16 @@ it{
                 one{"{0} parte per milione"}
                 other{"{0} parti per milione"}
             }
+            percent{
+                dnam{"percentuale"}
+                one{"{0} percento"}
+                other{"{0} percento"}
+            }
+            permille{
+                dnam{"permille"}
+                one{"{0}‰"}
+                other{"{0}‰"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -147,6 +157,7 @@ it{
             }
         }
         coordinate{
+            dnam{"punti cardinali"}
             east{"{0}E"}
             north{"{0}N"}
             south{"{0}S"}
@@ -192,6 +203,11 @@ it{
                 dnam{"megabyte"}
                 one{"{0} megabyte"}
                 other{"{0} megabyte"}
+            }
+            petabyte{
+                dnam{"petabyte"}
+                one{"{0} petabyte"}
+                other{"{0} petabyte"}
             }
             terabit{
                 dnam{"terabit"}
@@ -253,7 +269,7 @@ it{
                 dnam{"secondi"}
                 one{"{0} secondo"}
                 other{"{0} secondi"}
-                per{"{0}/s"}
+                per{"{0} al secondo"}
             }
             week{
                 dnam{"settimane"}
@@ -430,6 +446,11 @@ it{
                 one{"{0} picometro"}
                 other{"{0} picometri"}
             }
+            point{
+                dnam{"punti"}
+                one{"{0} punto"}
+                other{"{0} punti"}
+            }
             yard{
                 dnam{"iarde"}
                 one{"{0} iarda"}
@@ -532,6 +553,11 @@ it{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atmosfere"}
+                one{"{0} atmosfera"}
+                other{"{0} atmosfere"}
+            }
             hectopascal{
                 dnam{"ettopascal"}
                 one{"{0} ettopascal"}
@@ -607,6 +633,11 @@ it{
                 dnam{"acre-feet"}
                 one{"{0} acre-foot"}
                 other{"{0} acre-feet"}
+            }
+            bushel{
+                dnam{"staia"}
+                one{"{0} staio"}
+                other{"{0} staia"}
             }
             centiliter{
                 dnam{"centilitri"}
@@ -780,6 +811,13 @@ it{
         compound{
             per{"{0}/{1}"}
         }
+        concentr{
+            percent{
+                dnam{"%"}
+                one{"{0}%"}
+                other{"{0}%"}
+            }
+        }
         consumption{
             liter-per-100kilometers{
                 dnam{"L/100km"}
@@ -788,6 +826,7 @@ it{
             }
         }
         coordinate{
+            dnam{"punto"}
             east{"{0}E"}
             north{"{0}N"}
             south{"{0}S"}
@@ -796,7 +835,7 @@ it{
         duration{
             day{
                 dnam{"giorno"}
-                one{"{0}gg"}
+                one{"{0} g"}
                 other{"{0}gg"}
             }
             hour{
@@ -816,8 +855,8 @@ it{
             }
             month{
                 dnam{"mese"}
-                one{"{0}mesi"}
-                other{"{0}mesi"}
+                one{"{0} mese"}
+                other{"{0} mesi"}
             }
             second{
                 dnam{"s"}
@@ -1088,6 +1127,16 @@ it{
                 one{"{0} ppm"}
                 other{"{0} ppm"}
             }
+            percent{
+                dnam{"percento"}
+                one{"{0}%"}
+                other{"{0}%"}
+            }
+            permille{
+                dnam{"‰"}
+                one{"{0}‰"}
+                other{"{0}‰"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -1112,6 +1161,7 @@ it{
             }
         }
         coordinate{
+            dnam{"punto"}
             east{"{0}E"}
             north{"{0}N"}
             south{"{0}S"}
@@ -1158,6 +1208,11 @@ it{
                 one{"{0} MB"}
                 other{"{0} MB"}
             }
+            petabyte{
+                dnam{"PByte"}
+                one{"{0} PB"}
+                other{"{0} PB"}
+            }
             terabit{
                 dnam{"Tb"}
                 one{"{0} Tb"}
@@ -1182,7 +1237,7 @@ it{
                 per{"{0}/giorno"}
             }
             hour{
-                dnam{"ore"}
+                dnam{"h"}
                 one{"{0} h"}
                 other{"{0} h"}
                 per{"{0}/h"}
@@ -1327,13 +1382,13 @@ it{
                 other{"{0} dm"}
             }
             foot{
-                dnam{"piedi"}
+                dnam{"ft"}
                 one{"{0} ft"}
                 other{"{0} ft"}
                 per{"{0}/ft"}
             }
             inch{
-                dnam{"pollici"}
+                dnam{"in"}
                 one{"{0} in"}
                 other{"{0} in"}
                 per{"{0}/in"}
@@ -1345,12 +1400,12 @@ it{
                 per{"{0}/km"}
             }
             light-year{
-                dnam{"anni luce"}
+                dnam{"al"}
                 one{"{0} al"}
                 other{"{0} al"}
             }
             meter{
-                dnam{"metri"}
+                dnam{"m"}
                 one{"{0} m"}
                 other{"{0} m"}
                 per{"{0}/m"}
@@ -1394,6 +1449,11 @@ it{
                 dnam{"pm"}
                 one{"{0} pm"}
                 other{"{0} pm"}
+            }
+            point{
+                dnam{"pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
             }
             yard{
                 dnam{"iarde"}
@@ -1497,6 +1557,11 @@ it{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atm"}
+                one{"{0} atm"}
+                other{"{0} atm"}
+            }
             hectopascal{
                 dnam{"hPa"}
                 one{"{0} hPa"}
@@ -1573,6 +1638,9 @@ it{
                 one{"{0} ac ft"}
                 other{"{0} ac ft"}
             }
+            bushel{
+                dnam{"staia"}
+            }
             centiliter{
                 dnam{"cl"}
                 one{"{0} cl"}
@@ -1643,6 +1711,9 @@ it{
             }
             gallon-imperial{
                 dnam{"Gal imp."}
+                one{"{0} gal imp."}
+                other{"{0} gal imp."}
+                per{"{0}/gal imp."}
             }
             hectoliter{
                 dnam{"hl"}
@@ -1650,7 +1721,7 @@ it{
                 other{"{0} hl"}
             }
             liter{
-                dnam{"litri"}
+                dnam{"l"}
                 one{"{0} l"}
                 other{"{0} l"}
                 per{"{0}/l"}

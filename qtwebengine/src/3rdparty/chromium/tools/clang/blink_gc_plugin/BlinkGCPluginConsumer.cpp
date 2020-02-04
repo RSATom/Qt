@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <set>
 
+#include "BadPatternFinder.h"
 #include "CheckDispatchVisitor.h"
 #include "CheckFieldsVisitor.h"
 #include "CheckFinalizerVisitor.h"
@@ -122,6 +123,8 @@ void BlinkGCPluginConsumer::HandleTranslationUnit(ASTContext& context) {
     delete json_;
     json_ = 0;
   }
+
+  FindBadPatterns(context, reporter_);
 }
 
 void BlinkGCPluginConsumer::ParseFunctionTemplates(TranslationUnitDecl* decl) {
@@ -360,7 +363,7 @@ void BlinkGCPluginConsumer::CheckLeftMostDerived(RecordInfo* info) {
   CXXRecordDecl* left_most = GetLeftMostBase(info->record());
   if (!left_most)
     return;
-  if (!Config::IsGCBase(left_most->getName()))
+  if (!Config::IsGCBase(left_most->getName()) || Config::IsGCMixinBase(left_most->getName()))
     reporter_.ClassMustLeftMostlyDeriveGC(info);
 }
 
@@ -567,7 +570,7 @@ void BlinkGCPluginConsumer::DumpClass(RecordInfo* info) {
 
   json_->OpenObject();
   json_->Write("name", info->record()->getQualifiedNameAsString());
-  json_->Write("loc", GetLocString(info->record()->getLocStart()));
+  json_->Write("loc", GetLocString(info->record()->getBeginLoc()));
   json_->CloseObject();
 
   class DumpEdgeVisitor : public RecursiveEdgeVisitor {
@@ -590,7 +593,6 @@ void BlinkGCPluginConsumer::DumpClass(RecordInfo* info) {
                        (static_cast<RawPtr*>(Parent())->HasReferenceType() ?
                         "reference" : "raw") :
                    Parent()->IsRefPtr() ? "ref" :
-                   Parent()->IsOwnPtr() ? "own" :
                    Parent()->IsUniquePtr() ? "unique" :
                    (Parent()->IsMember() || Parent()->IsWeakMember()) ? "mem" :
                    "val");
@@ -635,16 +637,12 @@ void BlinkGCPluginConsumer::DumpClass(RecordInfo* info) {
   DumpEdgeVisitor visitor(json_);
 
   for (auto& base : info->GetBases())
-    visitor.DumpEdge(info,
-                     base.second.info(),
-                     "<super>",
-                     Edge::kStrong,
-                     GetLocString(base.second.spec().getLocStart()));
+    visitor.DumpEdge(info, base.second.info(), "<super>", Edge::kStrong,
+                     GetLocString(base.second.spec().getBeginLoc()));
 
   for (auto& field : info->GetFields())
-    visitor.DumpField(info,
-                      &field.second,
-                      GetLocString(field.second.field()->getLocStart()));
+    visitor.DumpField(info, &field.second,
+                      GetLocString(field.second.field()->getBeginLoc()));
 }
 
 std::string BlinkGCPluginConsumer::GetLocString(SourceLocation loc) {
@@ -679,9 +677,9 @@ bool BlinkGCPluginConsumer::IsIgnoredClass(RecordInfo* info) {
 
 bool BlinkGCPluginConsumer::InIgnoredDirectory(RecordInfo* info) {
   std::string filename;
-  if (!GetFilename(info->record()->getLocStart(), &filename))
+  if (!GetFilename(info->record()->getBeginLoc(), &filename))
     return false;  // TODO: should we ignore non-existing file locations?
-#if defined(LLVM_ON_WIN32)
+#if defined(_WIN32)
   std::replace(filename.begin(), filename.end(), '\\', '/');
 #endif
   for (const auto& dir : options_.ignored_directories)

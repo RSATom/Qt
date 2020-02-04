@@ -92,7 +92,7 @@
       'source/common',
       'source/i18n',
     ],
-    'msvs_disabled_warnings': [4005, 4068, 4355, 4996, 4267],
+    'msvs_disabled_warnings': [4005, 4068, 4267],
   },
   'conditions': [
     ['use_system_icu==0 or want_separate_host_toolset==1', {
@@ -337,8 +337,6 @@
               'msvs_settings': {
                 'VCCLCompilerTool': {
                   'AdditionalOptions': [
-                    # See http://bugs.icu-project.org/trac/ticket/11122
-                    '-Wno-inline-new-delete',
                     '-Wno-implicit-exception-spec-mismatch',
                   ],
                 },
@@ -450,8 +448,6 @@
               'msvs_settings': {
                 'VCCLCompilerTool': {
                   'AdditionalOptions': [
-                    # See http://bugs.icu-project.org/trac/ticket/11122
-                    '-Wno-inline-new-delete',
                     '-Wno-implicit-exception-spec-mismatch',
                   ],
                 },
@@ -505,6 +501,7 @@
               # This list can easily be updated using the command below:
               # ls source/i18n/unicode/*h | sort | \
               # sed "s/^.*i18n\/\(.*\)$/              '\1',/"
+	      # I18N_HDR_START
               'unicode/alphaindex.h',
               'unicode/basictz.h',
               'unicode/calendar.h',
@@ -529,10 +526,14 @@
               'unicode/fpositer.h',
               'unicode/gender.h',
               'unicode/gregocal.h',
+              'unicode/listformatter.h',
               'unicode/measfmt.h',
               'unicode/measunit.h',
               'unicode/measure.h',
               'unicode/msgfmt.h',
+              'unicode/nounit.h',
+              'unicode/numberformatter.h',
+              'unicode/numberrangeformatter.h',
               'unicode/numfmt.h',
               'unicode/numsys.h',
               'unicode/plurfmt.h',
@@ -569,9 +570,11 @@
               'unicode/ufieldpositer.h',
               'unicode/uformattable.h',
               'unicode/ugender.h',
+              'unicode/ulistformatter.h',
               'unicode/ulocdata.h',
               'unicode/umsg.h',
               'unicode/unirepl.h',
+              'unicode/unumberformatter.h',
               'unicode/unum.h',
               'unicode/unumsys.h',
               'unicode/upluralrules.h',
@@ -583,6 +586,7 @@
               'unicode/utmscale.h',
               'unicode/utrans.h',
               'unicode/vtzone.h',
+	      # I18N_HDR_END
             ],
           },
           'includes': [
@@ -601,6 +605,7 @@
               # This list can easily be updated using the command below:
               # ls source/common/unicode/*h | sort | \
               # sed "s/^.*common\/\(.*\)$/              '\1',/"
+	      # COMMON_HDR_START
               'unicode/appendable.h',
               'unicode/brkiter.h',
               'unicode/bytestream.h',
@@ -620,7 +625,6 @@
               'unicode/icudataver.h',
               'unicode/icuplug.h',
               'unicode/idna.h',
-              'unicode/listformatter.h',
               'unicode/localpointer.h',
               'unicode/locdspnm.h',
               'unicode/locid.h',
@@ -639,6 +643,7 @@
               'unicode/simpleformatter.h',
               'unicode/std_string.h',
               'unicode/strenum.h',
+              'unicode/stringoptions.h',
               'unicode/stringpiece.h',
               'unicode/stringtriebuilder.h',
               'unicode/symtable.h',
@@ -657,6 +662,8 @@
               'unicode/ucnv.h',
               'unicode/ucnvsel.h',
               'unicode/uconfig.h',
+              'unicode/ucpmap.h',
+              'unicode/ucptrie.h',
               'unicode/ucurr.h',
               'unicode/udata.h',
               'unicode/udisplaycontext.h',
@@ -664,10 +671,10 @@
               'unicode/uidna.h',
               'unicode/uiter.h',
               'unicode/uldnames.h',
-              'unicode/ulistformatter.h',
               'unicode/uloc.h',
               'unicode/umachine.h',
               'unicode/umisc.h',
+              'unicode/umutablecptrie.h',
               'unicode/unifilt.h',
               'unicode/unifunct.h',
               'unicode/unimatch.h',
@@ -696,6 +703,7 @@
               'unicode/utypes.h',
               'unicode/uvernum.h',
               'unicode/uversion.h',
+	      # COMMON_HDR_END
             ],
           },
           'includes': [

@@ -273,6 +273,7 @@ void ScatterChartItem::handleUpdated()
     m_pointLabelsVisible = m_series->pointLabelsVisible();
     m_pointLabelsFont = m_series->pointLabelsFont();
     m_pointLabelsColor = m_series->pointLabelsColor();
+    bool labelClippingChanged = m_pointLabelsClipping != m_series->pointLabelsClipping();
     m_pointLabelsClipping = m_series->pointLabelsClipping();
 
     if (recreate) {
@@ -285,9 +286,13 @@ void ScatterChartItem::handleUpdated()
 
     setPen(m_series->pen());
     setBrush(m_series->brush());
-    update();
+    // Update whole chart in case label clipping changed as labels can be outside series area
+    if (labelClippingChanged)
+        m_series->chart()->update();
+    else
+        update();
 }
 
-#include "moc_scatterchartitem_p.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_scatterchartitem_p.cpp"

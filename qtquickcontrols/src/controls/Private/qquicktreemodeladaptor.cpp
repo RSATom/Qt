@@ -283,6 +283,8 @@ QItemSelection  QQuickTreeModelAdaptor1::selectionForRowRange(const QModelIndex 
             return QItemSelection();
         return QItemSelection(toIndex, toIndex);
     }
+
+    to = qMax(to, 0);
     if (from > to)
         qSwap(from, to);
 
@@ -360,8 +362,15 @@ void QQuickTreeModelAdaptor1::showModelChildItems(const TreeItem &parentItem, in
     if (start == 0) {
         startIdx = rowIdx;
     } else {
-        const QModelIndex &prevSiblingIdx = m_model->index(start - 1, 0, parentIndex);
-        startIdx = lastChildIndex(prevSiblingIdx) + 1;
+        // Prefer to insert before next sibling instead of after last child of previous, as
+        // the latter is potentially buggy, see QTBUG-66062
+        const QModelIndex &nextSiblingIdx = m_model->index(end + 1, 0, parentIndex);
+        if (nextSiblingIdx.isValid()) {
+            startIdx = itemIndex(nextSiblingIdx);
+        } else {
+            const QModelIndex &prevSiblingIdx = m_model->index(start - 1, 0, parentIndex);
+            startIdx = lastChildIndex(prevSiblingIdx) + 1;
+        }
     }
 
     int rowDepth = rowIdx == 0 ? 0 : parentItem.depth + 1;
@@ -529,7 +538,7 @@ void QQuickTreeModelAdaptor1::modelHasBeenDestroyed()
 {
     // The model has been deleted. This should behave as if no model was set
     clearModelData();
-    emit modelChanged(Q_NULLPTR);
+    emit modelChanged(nullptr);
 }
 
 void QQuickTreeModelAdaptor1::modelHasBeenReset()
@@ -732,13 +741,13 @@ void QQuickTreeModelAdaptor1::modelRowsAboutToBeMoved(const QModelIndex & source
         int bufferCopyOffset;
         if (destIndex > endIndex) {
             for (int i = endIndex + 1; i < destIndex; i++) {
-                m_items.swap(i, i - totalMovedCount); // Fast move from 1st to 2nd position
+                m_items.swapItemsAt(i, i - totalMovedCount); // Fast move from 1st to 2nd position
             }
             bufferCopyOffset = destIndex - totalMovedCount;
         } else {
             // NOTE: we will not enter this loop if startIndex == destIndex
             for (int i = startIndex - 1; i >= destIndex; i--) {
-                m_items.swap(i, i + totalMovedCount); // Fast move from 1st to 2nd position
+                m_items.swapItemsAt(i, i + totalMovedCount); // Fast move from 1st to 2nd position
             }
             bufferCopyOffset = destIndex;
         }

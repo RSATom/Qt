@@ -5,16 +5,19 @@
 #include "extensions/browser/api/serial/serial_api.h"
 
 #include <algorithm>
-#include <vector>
+#include <map>
+#include <unordered_set>
+#include <utility>
 
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_thread.h"
-#include "device/serial/serial_device_enumerator.h"
 #include "extensions/browser/api/serial/serial_connection.h"
-#include "extensions/browser/api/serial/serial_event_dispatcher.h"
+#include "extensions/browser/api/serial/serial_port_manager.h"
 #include "extensions/common/api/serial.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
+#include "mojo/public/cpp/bindings/interface_request.h"
 
 using content::BrowserThread;
 
@@ -51,7 +54,7 @@ void SetDefaultScopedPtrValue(std::unique_ptr<T>& ptr, const T& value) {
 
 }  // namespace
 
-SerialAsyncApiFunction::SerialAsyncApiFunction() : manager_(NULL) {}
+SerialAsyncApiFunction::SerialAsyncApiFunction() : manager_(nullptr) {}
 
 SerialAsyncApiFunction::~SerialAsyncApiFunction() {}
 
@@ -76,20 +79,24 @@ void SerialAsyncApiFunction::RemoveSerialConnection(int api_resource_id) {
 
 SerialGetDevicesFunction::SerialGetDevicesFunction() {}
 
-bool SerialGetDevicesFunction::Prepare() {
-  set_work_task_runner(base::CreateSequencedTaskRunnerWithTraits(
-      {base::MayBlock(), base::TaskPriority::BACKGROUND}));
-  return true;
+SerialGetDevicesFunction::~SerialGetDevicesFunction() {}
+
+ExtensionFunction::ResponseAction SerialGetDevicesFunction::Run() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  auto* port_manager = SerialPortManager::Get(browser_context());
+  DCHECK(port_manager);
+  port_manager->GetDevices(mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+      base::BindOnce(&SerialGetDevicesFunction::OnGotDevices, this),
+      std::vector<device::mojom::SerialPortInfoPtr>()));
+  return RespondLater();
 }
 
-void SerialGetDevicesFunction::Work() {
-  DCHECK(work_task_runner()->RunsTasksInCurrentSequence());
-
-  std::unique_ptr<device::SerialDeviceEnumerator> enumerator =
-      device::SerialDeviceEnumerator::Create();
-  std::vector<device::serial::DeviceInfoPtr> devices = enumerator->GetDevices();
-  results_ = serial::GetDevices::Results::Create(
-      mojo::ConvertTo<std::vector<serial::DeviceInfo>>(devices));
+void SerialGetDevicesFunction::OnGotDevices(
+    std::vector<device::mojom::SerialPortInfoPtr> devices) {
+  std::unique_ptr<base::ListValue> results =
+      serial::GetDevices::Results::Create(
+          mojo::ConvertTo<std::vector<serial::DeviceInfo>>(devices));
+  Respond(ArgumentList(std::move(results)));
 }
 
 SerialConnectFunction::SerialConnectFunction() {}
@@ -119,55 +126,64 @@ bool SerialConnectFunction::Prepare() {
   if (options->stop_bits == serial::STOP_BITS_NONE)
     options->stop_bits = kDefaultStopBits;
 
-  serial_event_dispatcher_ = SerialEventDispatcher::Get(browser_context());
-  DCHECK(serial_event_dispatcher_);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  serial_port_manager_ = SerialPortManager::Get(browser_context());
+  DCHECK(serial_port_manager_);
+  serial_port_manager_->GetPort(params_->path,
+                                mojo::MakeRequest(&serial_port_info_));
 
   return true;
 }
 
 void SerialConnectFunction::AsyncWorkStart() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  connection_ = CreateSerialConnection(params_->path, extension_->id());
+  connection_ = std::make_unique<SerialConnection>(
+      extension_->id(), std::move(serial_port_info_));
   connection_->Open(*params_->options,
-                    base::Bind(&SerialConnectFunction::OnConnected, this));
+                    base::BindOnce(&SerialConnectFunction::OnConnected, this));
 }
 
 void SerialConnectFunction::OnConnected(bool success) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(connection_);
 
   if (!success) {
-    delete connection_;
-    connection_ = NULL;
+    FinishConnect(false, false, nullptr);
+    return;
   }
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&SerialConnectFunction::FinishConnect, this));
+  connection_->GetInfo(
+      base::BindOnce(&SerialConnectFunction::FinishConnect, this, true));
 }
 
-void SerialConnectFunction::FinishConnect() {
+void SerialConnectFunction::FinishConnect(
+    bool connected,
+    bool got_complete_info,
+    std::unique_ptr<serial::ConnectionInfo> info) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  if (!connection_) {
+  DCHECK(connection_);
+  if (!connected || !got_complete_info) {
     error_ = kErrorConnectFailed;
+    connection_.reset();
   } else {
-    int id = manager_->Add(connection_);
-    serial::ConnectionInfo info;
-    info.connection_id = id;
-    if (connection_->GetInfo(&info)) {
-      serial_event_dispatcher_->PollConnection(extension_->id(), id);
-      results_ = serial::Connect::Results::Create(info);
-    } else {
-      RemoveSerialConnection(id);
-      error_ = kErrorConnectFailed;
-    }
+    DCHECK(info);
+    int id = manager_->Add(connection_.release());
+    // If a SerialConnection encountered a mojo connection error, it just
+    // becomes useless, we won't try to re-connect it but just remove it
+    // completely.
+    GetSerialConnection(id)->set_connection_error_handler(base::BindOnce(
+        [](scoped_refptr<ApiResourceManager<SerialConnection>::ApiResourceData>
+               connections,
+           std::string extension_id, int api_resource_id) {
+          connections->Remove(extension_id, api_resource_id);
+        },
+        manager_->data_, extension_->id(), id));
+
+    info->connection_id = id;
+    serial_port_manager_->PollConnection(extension_->id(), id);
+    results_ = serial::Connect::Results::Create(*info);
   }
   AsyncWorkCompleted();
-}
-
-SerialConnection* SerialConnectFunction::CreateSerialConnection(
-    const std::string& port,
-    const std::string& extension_id) const {
-  return new SerialConnection(port, extension_id);
 }
 
 SerialUpdateFunction::SerialUpdateFunction() {}
@@ -181,14 +197,22 @@ bool SerialUpdateFunction::Prepare() {
   return true;
 }
 
-void SerialUpdateFunction::Work() {
+void SerialUpdateFunction::AsyncWorkStart() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   SerialConnection* connection = GetSerialConnection(params_->connection_id);
   if (!connection) {
     error_ = kErrorSerialConnectionNotFound;
+    AsyncWorkCompleted();
     return;
   }
-  bool success = connection->Configure(params_->options);
+  connection->Configure(params_->options,
+                        base::BindOnce(&SerialUpdateFunction::OnUpdated, this));
+}
+
+void SerialUpdateFunction::OnUpdated(bool success) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   results_ = serial::Update::Results::Create(success);
+  AsyncWorkCompleted();
 }
 
 SerialDisconnectFunction::SerialDisconnectFunction() {}
@@ -233,12 +257,12 @@ void SerialSendFunction::AsyncWorkStart() {
 
   if (!connection->Send(
           params_->data,
-          base::Bind(&SerialSendFunction::OnSendComplete, this))) {
+          base::BindOnce(&SerialSendFunction::OnSendComplete, this))) {
     OnSendComplete(0, serial::SEND_ERROR_PENDING);
   }
 }
 
-void SerialSendFunction::OnSendComplete(int bytes_sent,
+void SerialSendFunction::OnSendComplete(uint32_t bytes_sent,
                                         serial::SendError error) {
   serial::SendInfo send_info;
   send_info.bytes_sent = bytes_sent;
@@ -257,15 +281,21 @@ bool SerialFlushFunction::Prepare() {
   return true;
 }
 
-void SerialFlushFunction::Work() {
+void SerialFlushFunction::AsyncWorkStart() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   SerialConnection* connection = GetSerialConnection(params_->connection_id);
   if (!connection) {
     error_ = kErrorSerialConnectionNotFound;
+    AsyncWorkCompleted();
     return;
   }
+  connection->Flush(base::BindOnce(&SerialFlushFunction::OnFlushed, this));
+}
 
-  bool success = connection->Flush();
+void SerialFlushFunction::OnFlushed(bool success) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   results_ = serial::Flush::Results::Create(success);
+  AsyncWorkCompleted();
 }
 
 SerialSetPausedFunction::SerialSetPausedFunction() {}
@@ -276,8 +306,8 @@ bool SerialSetPausedFunction::Prepare() {
   params_ = serial::SetPaused::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(params_.get());
 
-  serial_event_dispatcher_ = SerialEventDispatcher::Get(browser_context());
-  DCHECK(serial_event_dispatcher_);
+  serial_port_manager_ = SerialPortManager::Get(browser_context());
+  DCHECK(serial_port_manager_);
   return true;
 }
 
@@ -291,8 +321,8 @@ void SerialSetPausedFunction::Work() {
   if (params_->paused != connection->paused()) {
     connection->set_paused(params_->paused);
     if (!params_->paused) {
-      serial_event_dispatcher_->PollConnection(extension_->id(),
-                                               params_->connection_id);
+      serial_port_manager_->PollConnection(extension_->id(),
+                                           params_->connection_id);
     }
   }
 
@@ -310,17 +340,26 @@ bool SerialGetInfoFunction::Prepare() {
   return true;
 }
 
-void SerialGetInfoFunction::Work() {
+void SerialGetInfoFunction::AsyncWorkStart() {
   SerialConnection* connection = GetSerialConnection(params_->connection_id);
   if (!connection) {
     error_ = kErrorSerialConnectionNotFound;
+    AsyncWorkCompleted();
     return;
   }
 
-  serial::ConnectionInfo info;
-  info.connection_id = params_->connection_id;
-  connection->GetInfo(&info);
-  results_ = serial::GetInfo::Results::Create(info);
+  connection->GetInfo(base::BindOnce(&SerialGetInfoFunction::OnGotInfo, this));
+}
+
+void SerialGetInfoFunction::OnGotInfo(
+    bool got_complete_info,
+    std::unique_ptr<serial::ConnectionInfo> info) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK(info);
+  info->connection_id = params_->connection_id;
+  results_ = serial::GetInfo::Results::Create(*info);
+
+  AsyncWorkCompleted();
 }
 
 SerialGetConnectionsFunction::SerialGetConnectionsFunction() {}
@@ -331,24 +370,45 @@ bool SerialGetConnectionsFunction::Prepare() {
   return true;
 }
 
-void SerialGetConnectionsFunction::Work() {
-  std::vector<serial::ConnectionInfo> infos;
-  const base::hash_set<int>* connection_ids =
+void SerialGetConnectionsFunction::AsyncWorkStart() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  const std::unordered_set<int>* connection_ids =
       manager_->GetResourceIds(extension_->id());
   if (connection_ids) {
-    for (base::hash_set<int>::const_iterator it = connection_ids->begin();
-         it != connection_ids->end(); ++it) {
+    for (auto it = connection_ids->cbegin(); it != connection_ids->cend();
+         ++it) {
       int connection_id = *it;
       SerialConnection* connection = GetSerialConnection(connection_id);
       if (connection) {
-        serial::ConnectionInfo info;
-        info.connection_id = connection_id;
-        connection->GetInfo(&info);
-        infos.push_back(std::move(info));
+        count_++;
+        connection->GetInfo(base::BindOnce(
+            &SerialGetConnectionsFunction::OnGotOne, this, connection_id));
       }
     }
   }
-  results_ = serial::GetConnections::Results::Create(infos);
+  if (count_ > 0)
+    return;
+
+  OnGotAll();
+}
+
+void SerialGetConnectionsFunction::OnGotOne(
+    int connection_id,
+    bool got_complete_info,
+    std::unique_ptr<serial::ConnectionInfo> info) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK(info);
+  info->connection_id = connection_id;
+  infos_.push_back(std::move(*info));
+
+  if (infos_.size() == count_) {
+    OnGotAll();
+  }
+}
+
+void SerialGetConnectionsFunction::OnGotAll() {
+  results_ = serial::GetConnections::Results::Create(infos_);
+  AsyncWorkCompleted();
 }
 
 SerialGetControlSignalsFunction::SerialGetControlSignalsFunction() {}
@@ -362,20 +422,29 @@ bool SerialGetControlSignalsFunction::Prepare() {
   return true;
 }
 
-void SerialGetControlSignalsFunction::Work() {
+void SerialGetControlSignalsFunction::AsyncWorkStart() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   SerialConnection* connection = GetSerialConnection(params_->connection_id);
   if (!connection) {
     error_ = kErrorSerialConnectionNotFound;
+    AsyncWorkCompleted();
     return;
   }
 
-  serial::DeviceControlSignals signals;
-  if (!connection->GetControlSignals(&signals)) {
+  connection->GetControlSignals(base::BindOnce(
+      &SerialGetControlSignalsFunction::OnGotControlSignals, this));
+}
+
+void SerialGetControlSignalsFunction::OnGotControlSignals(
+    std::unique_ptr<serial::DeviceControlSignals> signals) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (!signals) {
     error_ = kErrorGetControlSignalsFailed;
-    return;
+  } else {
+    results_ = serial::GetControlSignals::Results::Create(*signals);
   }
 
-  results_ = serial::GetControlSignals::Results::Create(signals);
+  AsyncWorkCompleted();
 }
 
 SerialSetControlSignalsFunction::SerialSetControlSignalsFunction() {}
@@ -389,15 +458,25 @@ bool SerialSetControlSignalsFunction::Prepare() {
   return true;
 }
 
-void SerialSetControlSignalsFunction::Work() {
+void SerialSetControlSignalsFunction::AsyncWorkStart() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   SerialConnection* connection = GetSerialConnection(params_->connection_id);
   if (!connection) {
     error_ = kErrorSerialConnectionNotFound;
+    AsyncWorkCompleted();
     return;
   }
 
-  bool success = connection->SetControlSignals(params_->signals);
+  connection->SetControlSignals(
+      params_->signals,
+      base::BindOnce(&SerialSetControlSignalsFunction::OnSetControlSignals,
+                     this));
+}
+
+void SerialSetControlSignalsFunction::OnSetControlSignals(bool success) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   results_ = serial::SetControlSignals::Results::Create(success);
+  AsyncWorkCompleted();
 }
 
 SerialSetBreakFunction::SerialSetBreakFunction() {}
@@ -411,14 +490,22 @@ bool SerialSetBreakFunction::Prepare() {
   return true;
 }
 
-void SerialSetBreakFunction::Work() {
+void SerialSetBreakFunction::AsyncWorkStart() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   SerialConnection* connection = GetSerialConnection(params_->connection_id);
   if (!connection) {
     error_ = kErrorSerialConnectionNotFound;
+    AsyncWorkCompleted();
     return;
   }
-  bool success = connection->SetBreak();
+  connection->SetBreak(
+      base::BindOnce(&SerialSetBreakFunction::OnSetBreak, this));
+}
+
+void SerialSetBreakFunction::OnSetBreak(bool success) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   results_ = serial::SetBreak::Results::Create(success);
+  AsyncWorkCompleted();
 }
 
 SerialClearBreakFunction::SerialClearBreakFunction() {}
@@ -432,15 +519,22 @@ bool SerialClearBreakFunction::Prepare() {
   return true;
 }
 
-void SerialClearBreakFunction::Work() {
+void SerialClearBreakFunction::AsyncWorkStart() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   SerialConnection* connection = GetSerialConnection(params_->connection_id);
   if (!connection) {
     error_ = kErrorSerialConnectionNotFound;
+    AsyncWorkCompleted();
     return;
   }
+  connection->ClearBreak(
+      base::BindOnce(&SerialClearBreakFunction::OnClearBreak, this));
+}
 
-  bool success = connection->ClearBreak();
+void SerialClearBreakFunction::OnClearBreak(bool success) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   results_ = serial::ClearBreak::Results::Create(success);
+  AsyncWorkCompleted();
 }
 
 }  // namespace api
@@ -450,12 +544,12 @@ void SerialClearBreakFunction::Work() {
 namespace mojo {
 
 // static
-extensions::api::serial::DeviceInfo TypeConverter<
-    extensions::api::serial::DeviceInfo,
-    device::serial::DeviceInfoPtr>::Convert(const device::serial::DeviceInfoPtr&
-                                                device) {
+extensions::api::serial::DeviceInfo
+TypeConverter<extensions::api::serial::DeviceInfo,
+              device::mojom::SerialPortInfoPtr>::
+    Convert(const device::mojom::SerialPortInfoPtr& device) {
   extensions::api::serial::DeviceInfo info;
-  info.path = device->path;
+  info.path = device->path.AsUTF8Unsafe();
   if (device->has_vendor_id)
     info.vendor_id.reset(new int(static_cast<int>(device->vendor_id)));
   if (device->has_product_id)

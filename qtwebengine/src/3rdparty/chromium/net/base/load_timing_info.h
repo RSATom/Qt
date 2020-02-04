@@ -36,6 +36,7 @@ namespace net {
 // connect_end
 // send_start
 // send_end
+// receive_headers_start
 // receive_headers_end
 //
 // Times represent when a request starts/stops blocking on an event(*), not the
@@ -57,7 +58,7 @@ namespace net {
 // have SSL times.  One exception to this is when a proxy server itself returns
 // a redirect response.  In this case, the connect times treat the proxy as the
 // host.  The send and receive times will all be null, however.
-// See HttpNetworkTransaction::OnHttpsProxyTunnelResponse.
+// See HttpNetworkTransaction::OnHttpsProxyTunnelResponseRedirect.
 // TODO(mmenke):  Is this worth fixing?
 //
 struct NET_EXPORT LoadTimingInfo {
@@ -73,6 +74,9 @@ struct NET_EXPORT LoadTimingInfo {
     // established, which results in unexpected event ordering.
     // TODO(mmenke):  The SOCKS4 event ordering could be refactored to allow
     //                these times to be non-null.
+    // Corresponds to |domainLookupStart| and |domainLookupEnd| in
+    // ResourceTiming (http://www.w3.org/TR/resource-timing/) for Web-surfacing
+    // requests.
     base::TimeTicks dns_start;
     base::TimeTicks dns_end;
 
@@ -87,12 +91,16 @@ struct NET_EXPORT LoadTimingInfo {
     //                handled at different levels, this may not be worth
     //                worrying about - backup jobs, reused socket failure,
     //                multiple round authentication.
+    // Corresponds to |connectStart| and |connectEnd| in ResourceTiming
+    // (http://www.w3.org/TR/resource-timing/) for Web-surfacing requests.
     base::TimeTicks connect_start;
     base::TimeTicks connect_end;
 
     // The time when the SSL handshake started / completed. For non-HTTPS
     // requests these are null.  These times are only for the SSL connection to
     // the final destination server, not an SSL/SPDY proxy.
+    // |ssl_start| corresponds to |secureConnectionStart| in ResourceTiming
+    // (http://www.w3.org/TR/resource-timing/) for Web-surfacing requests.
     base::TimeTicks ssl_start;
     base::TimeTicks ssl_end;
   };
@@ -127,6 +135,8 @@ struct NET_EXPORT LoadTimingInfo {
   // changes.
   base::Time request_start_time;
 
+  // Corresponds to |fetchStart| in ResourceTiming
+  // (http://www.w3.org/TR/resource-timing/) for Web-surfacing requests.
   base::TimeTicks request_start;
 
   // The time spent determing which proxy to use.  Null when there is no PAC.
@@ -136,10 +146,15 @@ struct NET_EXPORT LoadTimingInfo {
   ConnectTiming connect_timing;
 
   // The time that sending HTTP request started / ended.
+  // |send_start| corresponds to |requestStart| in ResourceTiming
+  // (http://www.w3.org/TR/resource-timing/) for Web-surfacing requests.
   base::TimeTicks send_start;
   base::TimeTicks send_end;
 
-  // The time at which the end of the HTTP headers were received.
+  // The time at which the first / last byte of the HTTP headers were received.
+  // |receive_headers_start| corresponds to |responseStart| in ResourceTiming
+  // (http://www.w3.org/TR/resource-timing/) for Web-surfacing requests.
+  base::TimeTicks receive_headers_start;
   base::TimeTicks receive_headers_end;
 
   // In case the resource was proactively pushed by the server, these are

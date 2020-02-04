@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_SRC_ZONE_ZONE_CONTAINERS_H_
-#define V8_SRC_ZONE_ZONE_CONTAINERS_H_
+#ifndef V8_ZONE_ZONE_CONTAINERS_H_
+#define V8_ZONE_ZONE_CONTAINERS_H_
 
 #include <deque>
 #include <forward_list>
@@ -12,8 +12,11 @@
 #include <queue>
 #include <set>
 #include <stack>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
+#include "src/base/functional.h"
 #include "src/zone/zone-allocator.h"
 
 namespace v8 {
@@ -37,6 +40,11 @@ class ZoneVector : public std::vector<T, ZoneAllocator<T>> {
   // having the value {def}.
   ZoneVector(size_t size, T def, Zone* zone)
       : std::vector<T, ZoneAllocator<T>>(size, def, ZoneAllocator<T>(zone)) {}
+
+  // Constructs a new vector and fills it with the contents of the given
+  // initializer list.
+  ZoneVector(std::initializer_list<T> list, Zone* zone)
+      : std::vector<T, ZoneAllocator<T>>(list, ZoneAllocator<T>(zone)) {}
 
   // Constructs a new vector and fills it with the contents of the range
   // [first, last).
@@ -121,6 +129,17 @@ class ZoneSet : public std::set<K, Compare, ZoneAllocator<K>> {
                                                ZoneAllocator<K>(zone)) {}
 };
 
+// A wrapper subclass for std::multiset to make it easy to construct one that
+// uses a zone allocator.
+template <typename K, typename Compare = std::less<K>>
+class ZoneMultiset : public std::multiset<K, Compare, ZoneAllocator<K>> {
+ public:
+  // Constructs an empty set.
+  explicit ZoneMultiset(Zone* zone)
+      : std::multiset<K, Compare, ZoneAllocator<K>>(Compare(),
+                                                    ZoneAllocator<K>(zone)) {}
+};
+
 // A wrapper subclass for std::map to make it easy to construct one that uses
 // a zone allocator.
 template <typename K, typename V, typename Compare = std::less<K>>
@@ -131,6 +150,35 @@ class ZoneMap
   explicit ZoneMap(Zone* zone)
       : std::map<K, V, Compare, ZoneAllocator<std::pair<const K, V>>>(
             Compare(), ZoneAllocator<std::pair<const K, V>>(zone)) {}
+};
+
+// A wrapper subclass for std::unordered_map to make it easy to construct one
+// that uses a zone allocator.
+template <typename K, typename V, typename Hash = base::hash<K>,
+          typename KeyEqual = std::equal_to<K>>
+class ZoneUnorderedMap
+    : public std::unordered_map<K, V, Hash, KeyEqual,
+                                ZoneAllocator<std::pair<const K, V>>> {
+ public:
+  // Constructs an empty map.
+  explicit ZoneUnorderedMap(Zone* zone, size_t bucket_count = 100)
+      : std::unordered_map<K, V, Hash, KeyEqual,
+                           ZoneAllocator<std::pair<const K, V>>>(
+            bucket_count, Hash(), KeyEqual(),
+            ZoneAllocator<std::pair<const K, V>>(zone)) {}
+};
+
+// A wrapper subclass for std::unordered_set to make it easy to construct one
+// that uses a zone allocator.
+template <typename K, typename Hash = base::hash<K>,
+          typename KeyEqual = std::equal_to<K>>
+class ZoneUnorderedSet
+    : public std::unordered_set<K, Hash, KeyEqual, ZoneAllocator<K>> {
+ public:
+  // Constructs an empty map.
+  explicit ZoneUnorderedSet(Zone* zone)
+      : std::unordered_set<K, Hash, KeyEqual, ZoneAllocator<K>>(
+            100, Hash(), KeyEqual(), ZoneAllocator<K>(zone)) {}
 };
 
 // A wrapper subclass for std::multimap to make it easy to construct one that
@@ -153,4 +201,4 @@ typedef ZoneVector<int> IntVector;
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_SRC_ZONE_ZONE_CONTAINERS_H_
+#endif  // V8_ZONE_ZONE_CONTAINERS_H_

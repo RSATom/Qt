@@ -81,8 +81,118 @@ private slots:
     void setData_emits_both_roles_data();
     void setData_emits_both_roles();
 
+    void setData_emits_on_change_only();
+
     void supportedDragDropActions();
+
+    void moveRows_data();
+    void moveRows();
+    void moveRowsInvalid_data();
+    void moveRowsInvalid();
+
+    void itemData();
+    void setItemData();
 };
+
+void tst_QStringListModel::moveRowsInvalid_data()
+{
+    QTest::addColumn<QStringListModel*>("baseModel");
+    QTest::addColumn<QModelIndex>("startParent");
+    QTest::addColumn<int>("startRow");
+    QTest::addColumn<int>("count");
+    QTest::addColumn<QModelIndex>("destinationParent");
+    QTest::addColumn<int>("destination");
+
+    QStringListModel* tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("destination_equal_source") << tempModel << QModelIndex() << 0 << 1 << QModelIndex() << 1;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("count_equal_0") << tempModel << QModelIndex() << 0 << 0 << QModelIndex() << 2;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("move_child") << tempModel << tempModel->index(0, 0) << 0 << 1 << QModelIndex() << 2;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("move_to_child") << tempModel << QModelIndex() << 0 << 1 << tempModel->index(0, 0) << 2;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("negative_count") << tempModel << QModelIndex() << 0 << -1 << QModelIndex() << 2;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("negative_source_row") << tempModel << QModelIndex() << -1 << 1 << QModelIndex() << 2;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("negative_destination_row") << tempModel << QModelIndex() << 0 << 1 << QModelIndex() << -1;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("source_row_equal_rowCount") << tempModel << QModelIndex() << tempModel->rowCount() << 1 << QModelIndex() << 1;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("destination_row_greater_rowCount") << tempModel << QModelIndex() << 0 << 1 << QModelIndex() << tempModel->rowCount() + 1;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("move_row_within_source_range") << tempModel << QModelIndex() << 0 << 3 << QModelIndex() << 2;
+    tempModel = new QStringListModel(QStringList{"A", "B", "C", "D", "E", "F"}, this);
+    QTest::addRow("destination_row_before_0") << tempModel << QModelIndex() << 1 << 1 << QModelIndex() << 0;
+}
+
+void tst_QStringListModel::moveRowsInvalid()
+{
+    QFETCH(QStringListModel* const, baseModel);
+    QFETCH(const QModelIndex, startParent);
+    QFETCH(const int, startRow);
+    QFETCH(const int, count);
+    QFETCH(const QModelIndex, destinationParent);
+    QFETCH(const int, destination);
+
+    QSignalSpy rowMovedSpy(baseModel, &QAbstractItemModel::rowsMoved);
+    QSignalSpy rowAboutMovedSpy(baseModel, &QAbstractItemModel::rowsAboutToBeMoved);
+    QVERIFY(rowMovedSpy.isValid());
+    QVERIFY(rowAboutMovedSpy.isValid());
+    QVERIFY(!baseModel->moveRows(startParent, startRow, count, destinationParent, destination));
+    QCOMPARE(rowMovedSpy.size(), 0);
+    QCOMPARE(rowAboutMovedSpy.size(), 0);
+    delete baseModel;
+}
+
+void tst_QStringListModel::moveRows_data()
+{
+    QTest::addColumn<int>("startRow");
+    QTest::addColumn<int>("count");
+    QTest::addColumn<int>("destination");
+    QTest::addColumn<QStringList>("expected");
+
+    QTest::newRow("1_Item_from_top_to_middle") << 0 << 1 << 3 << QStringList{"B", "C", "A", "D", "E", "F"};
+    QTest::newRow("1_Item_from_top_to_bottom") << 0 << 1 << 6 << QStringList{"B", "C", "D", "E", "F", "A"};
+    QTest::newRow("1_Item_from_middle_to_top") << 2 << 1 << 1 << QStringList{"C", "A", "B", "D", "E", "F"};
+    QTest::newRow("1_Item_from_bottom_to_middle") << 5 << 1 << 3 << QStringList{"A", "B", "F", "C", "D", "E"};
+    QTest::newRow("1_Item_from_bottom to_top") << 5 << 1 << 1 << QStringList{"F", "A", "B", "C", "D", "E"};
+    QTest::newRow("1_Item_from_middle_to_bottom") << 2 << 1 << 6 << QStringList{"A", "B", "D", "E", "F", "C"};
+    QTest::newRow("1_Item_from_middle_to_middle_before") << 2 << 1 << 1 << QStringList{"C", "A", "B", "D", "E", "F"};
+    QTest::newRow("1_Item_from_middle_to_middle_after") << 2 << 1 << 4 << QStringList{"A", "B", "D", "C", "E", "F"};
+
+    QTest::newRow("2_Items_from_top_to_middle") << 0 << 2 << 3 << QStringList{"C", "A", "B", "D", "E", "F"};
+    QTest::newRow("2_Items_from_top_to_bottom") << 0 << 2 << 6 << QStringList{"C", "D", "E", "F", "A", "B"};
+    QTest::newRow("2_Items_from_middle_to_top") << 2 << 2 << 1 << QStringList{"C", "D", "A", "B", "E", "F"};
+    QTest::newRow("2_Items_from_bottom_to_middle") << 4 << 2 << 3 << QStringList{"A", "B", "E", "F", "C", "D"};
+    QTest::newRow("2_Items_from_bottom_to_top") << 4 << 2 << 1 << QStringList{"E", "F", "A", "B", "C", "D"};
+    QTest::newRow("2_Items_from_middle_to_bottom") << 2 << 2 << 6 << QStringList{"A", "B", "E", "F", "C", "D"};
+    QTest::newRow("2_Items_from_middle_to_middle_before") << 3 << 2 << 2 << QStringList{"A", "D", "E", "B", "C", "F"};
+    QTest::newRow("2_Items_from_middle_to_middle_after") << 1 << 2 << 5 << QStringList{"A", "D", "E", "B", "C", "F"};
+}
+
+void tst_QStringListModel::moveRows()
+{
+    QFETCH(const int, startRow);
+    QFETCH(const int, count);
+    QFETCH(const int, destination);
+    QFETCH(const QStringList, expected);
+    QStringListModel baseModel(QStringList{"A", "B", "C", "D", "E", "F"});
+    QSignalSpy rowMovedSpy(&baseModel, &QAbstractItemModel::rowsMoved);
+    QSignalSpy rowAboutMovedSpy(&baseModel, &QAbstractItemModel::rowsAboutToBeMoved);
+    QVERIFY(baseModel.moveRows(QModelIndex(), startRow, count, QModelIndex(), destination));
+    QCOMPARE(baseModel.stringList(), expected);
+    QCOMPARE(rowMovedSpy.size(), 1);
+    QCOMPARE(rowAboutMovedSpy.size(), 1);
+    for (const QList<QVariant> &signalArgs : {rowMovedSpy.first(), rowAboutMovedSpy.first()}){
+        QVERIFY(!signalArgs.at(0).value<QModelIndex>().isValid());
+        QCOMPARE(signalArgs.at(1).toInt(), startRow);
+        QCOMPARE(signalArgs.at(2).toInt(), startRow + count - 1);
+        QVERIFY(!signalArgs.at(3).value<QModelIndex>().isValid());
+        QCOMPARE(signalArgs.at(4).toInt(), destination);
+    }
+}
 
 void tst_QStringListModel::rowsAboutToBeRemoved_rowsRemoved_data()
 {
@@ -111,12 +221,6 @@ void tst_QStringListModel::rowsAboutToBeRemoved_rowsRemoved_data()
     QStringList aboutto3;   aboutto3    << "One" << "Two" << "Three" << "Four" << "Five";
     QStringList res3;
     QTest::newRow( "data3" )   << strings3 << 0 << 5 << aboutto3 << res3;
-
-    /* Not sure if this is a valid test */
-    QStringList strings4;   strings4    << "One" << "Two" << "Three" << "Four" << "Five";
-    QStringList aboutto4;   aboutto4    << "Five" << "";
-    QStringList res4;       res4        << "One" << "Two" << "Three" << "Four";
-    QTest::newRow( "data4" )   << strings4 << 4 << 2 << aboutto4 << res4;
 
     /*
      * Keep this, template to add more data
@@ -250,6 +354,92 @@ void tst_QStringListModel::setData_emits_both_roles()
     QCOMPARE(spy.size(), 1);
     QCOMPARE(sorted(spy.at(0).at(2).value<QVector<int> >()),
              expected);
+}
+
+void tst_QStringListModel::itemData()
+{
+    QStringListModel testModel{ QStringList {
+        QStringLiteral("One"),
+        QStringLiteral("Two"),
+        QStringLiteral("Three"),
+        QStringLiteral("Four"),
+        QStringLiteral("Five")
+    }};
+    QMap<int, QVariant> compareMap;
+    QCOMPARE(testModel.itemData(QModelIndex()), compareMap);
+    compareMap.insert(Qt::DisplayRole, QStringLiteral("Two"));
+    compareMap.insert(Qt::EditRole, QStringLiteral("Two"));
+    QCOMPARE(testModel.itemData(testModel.index(1, 0)), compareMap);
+}
+
+void tst_QStringListModel::setItemData()
+{
+    QStringListModel testModel{ QStringList {
+        QStringLiteral("One"),
+        QStringLiteral("Two"),
+        QStringLiteral("Three"),
+        QStringLiteral("Four"),
+        QStringLiteral("Five")
+    }};
+    QSignalSpy dataChangedSpy(&testModel, &QAbstractItemModel::dataChanged);
+    QModelIndex changeIndex = testModel.index(1, 0);
+    const QVector<int> changeRoles{Qt::DisplayRole, Qt::EditRole};
+    const QString changedString("Changed");
+    QMap<int, QVariant> newItemData{std::make_pair<int>(Qt::DisplayRole, changedString)};
+    // invalid index does nothing and returns false
+    QVERIFY(!testModel.setItemData(QModelIndex(), newItemData));
+    // valid data is set, return value is true and dataChanged is emitted once
+    QVERIFY(testModel.setItemData(changeIndex, newItemData));
+    QCOMPARE(changeIndex.data(Qt::DisplayRole).toString(), changedString);
+    QCOMPARE(changeIndex.data(Qt::EditRole).toString(), changedString);
+    QCOMPARE(dataChangedSpy.size(), 1);
+    QVariantList dataChangedArguments = dataChangedSpy.takeFirst();
+    QCOMPARE(dataChangedArguments.at(0).value<QModelIndex>(), changeIndex);
+    QCOMPARE(dataChangedArguments.at(1).value<QModelIndex>(), changeIndex);
+    QCOMPARE(dataChangedArguments.at(2).value<QVector<int> >(), changeRoles);
+    // Unsupported roles do nothing return false
+    newItemData.clear();
+    newItemData.insert(Qt::UserRole, changedString);
+    QVERIFY(!testModel.setItemData(changeIndex, newItemData));
+    QCOMPARE(dataChangedSpy.size(), 0);
+    // If some but not all the roles are supported it returns false and does nothing
+    newItemData.insert(Qt::EditRole, changedString);
+    changeIndex = testModel.index(2, 0);
+    QVERIFY(!testModel.setItemData(changeIndex, newItemData));
+    QCOMPARE(changeIndex.data(Qt::DisplayRole).toString(), QStringLiteral("Three"));
+    QCOMPARE(changeIndex.data(Qt::EditRole).toString(), QStringLiteral("Three"));
+    QCOMPARE(dataChangedSpy.size(), 0);
+    // Qt::EditRole and Qt::DisplayRole are both set, Qt::EditRole takes precedence
+    newItemData.clear();
+    newItemData.insert(Qt::EditRole, changedString);
+    newItemData.insert(Qt::DisplayRole, QStringLiteral("Ignored"));
+    changeIndex = testModel.index(3, 0);
+    QVERIFY(testModel.setItemData(changeIndex, newItemData));
+    QCOMPARE(changeIndex.data(Qt::DisplayRole).toString(), changedString);
+    QCOMPARE(changeIndex.data(Qt::EditRole).toString(), changedString);
+    QCOMPARE(dataChangedSpy.size(), 1);
+    dataChangedArguments = dataChangedSpy.takeFirst();
+    QCOMPARE(dataChangedArguments.at(0).value<QModelIndex>(), changeIndex);
+    QCOMPARE(dataChangedArguments.at(1).value<QModelIndex>(), changeIndex);
+    QCOMPARE(dataChangedArguments.at(2).value<QVector<int> >(), changeRoles);
+}
+
+void tst_QStringListModel::setData_emits_on_change_only()
+{
+    QStringListModel model(QStringList{QStringLiteral("one"), QStringLiteral("two")});
+    QSignalSpy dataChangedSpy(&model, &QAbstractItemModel::dataChanged);
+    QVERIFY(dataChangedSpy.isValid());
+    const QModelIndex modelIdx = model.index(0, 0);
+    const QString newStringData = QStringLiteral("test");
+    QVERIFY(model.setData(modelIdx, newStringData));
+    QCOMPARE(dataChangedSpy.count(), 1);
+    const QList<QVariant> spyList = dataChangedSpy.takeFirst();
+    QCOMPARE(spyList.at(0).value<QModelIndex>(), modelIdx);
+    QCOMPARE(spyList.at(1).value<QModelIndex>(), modelIdx);
+    const QVector<int> expectedRoles{Qt::DisplayRole, Qt::EditRole};
+    QCOMPARE(spyList.at(2).value<QVector<int> >(), expectedRoles);
+    QVERIFY(model.setData(modelIdx, newStringData));
+    QVERIFY(dataChangedSpy.isEmpty());
 }
 
 void tst_QStringListModel::supportedDragDropActions()

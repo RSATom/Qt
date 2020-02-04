@@ -13,7 +13,7 @@
 #include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fwl/cfwl_widgetproperties.h"
 
-class CFWL_ComboList : public CFWL_ListBox {
+class CFWL_ComboList final : public CFWL_ListBox {
  public:
   CFWL_ComboList(const CFWL_App* app,
                  std::unique_ptr<CFWL_WidgetProperties> properties,
@@ -22,7 +22,7 @@ class CFWL_ComboList : public CFWL_ListBox {
   // CFWL_ListBox.
   void OnProcessMessage(CFWL_Message* pMessage) override;
 
-  int32_t MatchItem(const CFX_WideString& wsMatch);
+  int32_t MatchItem(const WideString& wsMatch);
 
   void ChangeSelected(int32_t iSel);
 

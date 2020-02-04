@@ -9,8 +9,7 @@
 
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -27,7 +26,7 @@ struct TestData {
 std::unique_ptr<sessions::SessionCommand> CreateCommandFromData(
     const TestData& data) {
   std::unique_ptr<sessions::SessionCommand> command =
-      base::MakeUnique<sessions::SessionCommand>(
+      std::make_unique<sessions::SessionCommand>(
           data.command_id,
           static_cast<sessions::SessionCommand::size_type>(data.data.size()));
   if (!data.data.empty())
@@ -68,7 +67,7 @@ TEST_F(SessionBackendTest, SimpleReadWrite) {
   ASSERT_TRUE(commands.empty());
 
   // Read it back in.
-  backend = NULL;
+  backend = nullptr;
   backend = new SessionBackend(sessions::BaseSessionService::SESSION_RESTORE,
                                path_);
   backend->ReadLastSessionCommandsImpl(&commands);
@@ -78,7 +77,7 @@ TEST_F(SessionBackendTest, SimpleReadWrite) {
 
   commands.clear();
 
-  backend = NULL;
+  backend = nullptr;
   backend = new SessionBackend(sessions::BaseSessionService::SESSION_RESTORE,
                                path_);
   backend->ReadLastSessionCommandsImpl(&commands);
@@ -108,7 +107,7 @@ TEST_F(SessionBackendTest, RandomData) {
     { 13, "abcdefghijklm" },
   };
 
-  for (size_t i = 0; i < arraysize(data); ++i) {
+  for (size_t i = 0; i < base::size(data); ++i) {
     scoped_refptr<SessionBackend> backend(
         new SessionBackend(sessions::BaseSessionService::SESSION_RESTORE,
                            path_));
@@ -142,14 +141,14 @@ TEST_F(SessionBackendTest, BigData) {
       SessionBackend::kFileReadBufferSize + 100;
   const sessions::SessionCommand::id_type big_id = 50;
   std::unique_ptr<sessions::SessionCommand> big_command =
-      base::MakeUnique<sessions::SessionCommand>(big_id, big_size);
+      std::make_unique<sessions::SessionCommand>(big_id, big_size);
   reinterpret_cast<char*>(big_command->contents())[0] = 'a';
   reinterpret_cast<char*>(big_command->contents())[big_size - 1] = 'z';
   commands.push_back(std::move(big_command));
   commands.push_back(CreateCommandFromData(data[1]));
   backend->AppendCommands(std::move(commands), false);
 
-  backend = NULL;
+  backend = nullptr;
   backend = new SessionBackend(sessions::BaseSessionService::SESSION_RESTORE,
                                path_);
 
@@ -199,7 +198,7 @@ TEST_F(SessionBackendTest, Truncate) {
   backend->AppendCommands(std::move(commands), true);
 
   // Read it back in.
-  backend = NULL;
+  backend = nullptr;
   backend = new SessionBackend(sessions::BaseSessionService::SESSION_RESTORE,
                                path_);
   backend->ReadLastSessionCommandsImpl(&commands);

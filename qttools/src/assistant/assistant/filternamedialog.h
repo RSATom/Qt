@@ -39,7 +39,9 @@ class FilterNameDialog : public QDialog
     Q_OBJECT
 
 public:
-    FilterNameDialog(QWidget *parent = 0);
+    FilterNameDialog(QWidget *parent = nullptr);
+
+    void setFilterName(const QString &filter);
     QString filterName() const;
 
 private slots:

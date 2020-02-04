@@ -21,7 +21,6 @@ class MockOfflineContentProvider : public OfflineContentProvider {
     ~MockObserver() override;
 
     // OfflineContentProvider::Observer implementation.
-    MOCK_METHOD1(OnItemsAvailable, void(OfflineContentProvider*));
     MOCK_METHOD1(OnItemsAdded, void(const OfflineItemList&));
     MOCK_METHOD1(OnItemRemoved, void(const ContentId&));
     MOCK_METHOD1(OnItemUpdated, void(const OfflineItem&));
@@ -31,28 +30,35 @@ class MockOfflineContentProvider : public OfflineContentProvider {
   ~MockOfflineContentProvider() override;
 
   bool HasObserver(Observer* observer);
-  void NotifyOnItemsAvailable();
+  void SetItems(const OfflineItemList& items);
+  // Sets visuals returned by |GetVisualsForItem()|. If this is not called,
+  // then the mocked method |GetVisualsForItem_()| is called instead.
+  void SetVisuals(std::map<ContentId, OfflineItemVisuals> visuals);
   void NotifyOnItemsAdded(const OfflineItemList& items);
   void NotifyOnItemRemoved(const ContentId& id);
   void NotifyOnItemUpdated(const OfflineItem& item);
 
   // OfflineContentProvider implementation.
-  bool AreItemsAvailable() override;
-  MOCK_METHOD1(OpenItem, void(const ContentId&));
+  MOCK_METHOD2(OpenItem, void(LaunchLocation, const ContentId&));
   MOCK_METHOD1(RemoveItem, void(const ContentId&));
   MOCK_METHOD1(CancelDownload, void(const ContentId&));
   MOCK_METHOD1(PauseDownload, void(const ContentId&));
-  MOCK_METHOD1(ResumeDownload, void(const ContentId&));
-  MOCK_METHOD1(GetItemById, const OfflineItem*(const ContentId&));
-  MOCK_METHOD2(GetVisualsForItem,
+  MOCK_METHOD2(ResumeDownload, void(const ContentId&, bool));
+  MOCK_METHOD2(GetVisualsForItem_,
                void(const ContentId&, const VisualsCallback&));
-  MOCK_METHOD0(GetAllItems, OfflineItemList());
+  void GetVisualsForItem(const ContentId& id,
+                         VisualsCallback callback) override;
+  MOCK_METHOD2(GetShareInfoForItem, void(const ContentId&, ShareCallback));
+  void GetAllItems(MultipleItemCallback callback) override;
+  void GetItemById(const ContentId& id, SingleItemCallback callback) override;
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
 
  private:
-  base::ObserverList<Observer> observers_;
-  bool items_available_;
+  base::ObserverList<Observer>::Unchecked observers_;
+  OfflineItemList items_;
+  std::map<ContentId, OfflineItemVisuals> visuals_;
+  bool override_visuals_ = false;
 };
 
 }  // namespace offline_items_collection

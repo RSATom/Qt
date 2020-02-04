@@ -13,7 +13,7 @@
 #include "media/base/media_export.h"
 
 namespace base {
-class SharedMemory;
+class UnsafeSharedMemoryRegion;
 class CancelableSyncSocket;
 }
 
@@ -25,24 +25,21 @@ class MEDIA_EXPORT AudioOutputDelegate {
   // constructor.
   class MEDIA_EXPORT EventHandler {
    public:
-    EventHandler();
-    virtual ~EventHandler();
+    virtual ~EventHandler() = 0;
 
-    // Called when construction is finished and the stream is ready for
-    // playout.
+    // Called when the underlying stream is ready for playout.
     virtual void OnStreamCreated(
         int stream_id,
-        const base::SharedMemory* shared_memory,
+        base::UnsafeSharedMemoryRegion shared_memory_region,
         std::unique_ptr<base::CancelableSyncSocket> socket) = 0;
 
     // Called if stream encounters an error and has become unusable.
     virtual void OnStreamError(int stream_id) = 0;
   };
 
-  AudioOutputDelegate();
-  virtual ~AudioOutputDelegate();
+  virtual ~AudioOutputDelegate() = 0;
 
-  virtual int GetStreamId() const = 0;
+  virtual int GetStreamId() = 0;
 
   // Stream control:
   virtual void OnPlayStream() = 0;

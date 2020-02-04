@@ -5,10 +5,14 @@
 #include "components/cdm/browser/media_drm_storage_impl.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/run_loop.h"
-#include "base/test/test_message_loop.h"
+#include "base/threading/thread_task_runner_handle.h"
+#include "base/unguessable_token.h"
 #include "components/prefs/testing_pref_service.h"
+#include "content/public/test/navigation_simulator.h"
+#include "content/public/test/test_renderer_host.h"
 #include "media/mojo/services/mojo_media_drm_storage.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -18,30 +22,45 @@
 
 namespace cdm {
 
+namespace {
+
 const char kMediaDrmStorage[] = "media.media_drm_storage";
 const char kTestOrigin[] = "https://www.testorigin.com:80";
+const char kTestOrigin2[] = "https://www.testorigin2.com:80";
 
-class MediaDrmStorageImplTest : public ::testing::Test {
+void OnMediaDrmStorageInit(base::UnguessableToken* out_origin_id,
+                           const base::UnguessableToken& origin_id) {
+  DCHECK(out_origin_id);
+  DCHECK(origin_id);
+  *out_origin_id = origin_id;
+}
+
+void CreateOriginId(
+    base::OnceCallback<void(const base::UnguessableToken&)> callback) {
+  std::move(callback).Run(base::UnguessableToken::Create());
+}
+
+void CreateOriginIdAsync(
+    base::OnceCallback<void(const base::UnguessableToken&)> callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(&CreateOriginId, std::move(callback)));
+}
+
+}  // namespace
+
+class MediaDrmStorageImplTest : public content::RenderViewHostTestHarness {
  public:
   MediaDrmStorageImplTest() {}
 
   void SetUp() override {
+    RenderViewHostTestHarness::SetUp();
+
     pref_service_.reset(new TestingPrefServiceSimple());
     PrefRegistrySimple* registry = pref_service_->registry();
     MediaDrmStorageImpl::RegisterProfilePrefs(registry);
 
-    media::mojom::MediaDrmStoragePtr media_drm_storage_ptr;
-    auto request = mojo::MakeRequest(&media_drm_storage_ptr);
-
-    media_drm_storage_.reset(
-        new media::MojoMediaDrmStorage(std::move(media_drm_storage_ptr)));
-
-    // The created object will be destroyed on connection error.
-    new MediaDrmStorageImpl(nullptr,  // Use null RenderFrameHost for testing.
-                            pref_service_.get(), url::Origin(GURL(kTestOrigin)),
-                            std::move(request));
-
-    media_drm_storage_->Initialize(url::Origin(GURL(kTestOrigin)));
+    media_drm_storage_ =
+        CreateAndInitMediaDrmStorage(GURL(kTestOrigin), &origin_id_);
   }
 
   void TearDown() override {
@@ -52,6 +71,55 @@ class MediaDrmStorageImplTest : public ::testing::Test {
  protected:
   using SessionData = media::MediaDrmStorage::SessionData;
 
+  std::unique_ptr<media::MediaDrmStorage> CreateMediaDrmStorage(
+      content::RenderFrameHost* rfh,
+      MediaDrmStorageImpl::GetOriginIdCB get_origin_id_cb) {
+    media::mojom::MediaDrmStoragePtr media_drm_storage_ptr;
+    auto request = mojo::MakeRequest(&media_drm_storage_ptr);
+
+    auto media_drm_storage = std::make_unique<media::MojoMediaDrmStorage>(
+        std::move(media_drm_storage_ptr));
+
+    // The created object will be destroyed on connection error.
+    new MediaDrmStorageImpl(rfh, pref_service_.get(),
+                            std::move(get_origin_id_cb), std::move(request));
+
+    return std::move(media_drm_storage);
+  }
+
+  std::unique_ptr<media::MediaDrmStorage> CreateAndInitMediaDrmStorage(
+      const GURL& origin,
+      base::UnguessableToken* origin_id) {
+    DCHECK(origin_id);
+
+    std::unique_ptr<media::MediaDrmStorage> media_drm_storage =
+        CreateMediaDrmStorage(SimulateNavigation(origin),
+                              base::BindRepeating(&CreateOriginId));
+
+    media_drm_storage->Initialize(
+        base::BindOnce(OnMediaDrmStorageInit, origin_id));
+
+    base::RunLoop().RunUntilIdle();
+
+    // Verify the origin dictionary is created.
+    const base::DictionaryValue* storage_dict =
+        pref_service_->GetDictionary(kMediaDrmStorage);
+    EXPECT_TRUE(storage_dict->FindKey(kTestOrigin));
+
+    DCHECK(*origin_id);
+    return media_drm_storage;
+  }
+
+  content::RenderFrameHost* SimulateNavigation(const GURL& url) {
+    content::RenderFrameHost* rfh = web_contents()->GetMainFrame();
+    content::RenderFrameHostTester::For(rfh)->InitializeRenderFrameIfNeeded();
+
+    auto navigation_simulator =
+        content::NavigationSimulator::CreateRendererInitiated(url, rfh);
+    navigation_simulator->Commit();
+    return navigation_simulator->GetFinalRenderFrameHost();
+  }
+
   void OnProvisioned() {
     media_drm_storage_->OnProvisioned(ExpectResult(true));
   }
@@ -61,15 +129,18 @@ class MediaDrmStorageImplTest : public ::testing::Test {
                              const std::string& mime_type,
                              bool success = true) {
     media_drm_storage_->SavePersistentSession(
-        session_id, SessionData(key_set_id, mime_type), ExpectResult(success));
+        session_id,
+        SessionData(key_set_id, mime_type, media::MediaDrmKeyType::OFFLINE),
+        ExpectResult(success));
   }
 
   void LoadPersistentSession(const std::string& session_id,
                              const std::vector<uint8_t>& expected_key_set_id,
                              const std::string& expected_mime_type) {
     media_drm_storage_->LoadPersistentSession(
-        session_id, ExpectResult(base::MakeUnique<SessionData>(
-                        expected_key_set_id, expected_mime_type)));
+        session_id, ExpectResult(std::make_unique<SessionData>(
+                        expected_key_set_id, expected_mime_type,
+                        media::MediaDrmKeyType::OFFLINE)));
   }
 
   void LoadPersistentSessionAndExpectFailure(const std::string& session_id) {
@@ -99,7 +170,7 @@ class MediaDrmStorageImplTest : public ::testing::Test {
       std::unique_ptr<SessionData> expected_session_data) {
     return base::BindOnce(&MediaDrmStorageImplTest::CheckLoadedSession,
                           base::Unretained(this),
-                          base::Passed(&expected_session_data));
+                          std::move(expected_session_data));
   }
 
   void CheckResult(bool expected_result, bool result) {
@@ -117,10 +188,74 @@ class MediaDrmStorageImplTest : public ::testing::Test {
     EXPECT_EQ(expected_session_data->mime_type, session_data->mime_type);
   }
 
-  base::TestMessageLoop message_loop_;
   std::unique_ptr<TestingPrefServiceSimple> pref_service_;
   std::unique_ptr<media::MediaDrmStorage> media_drm_storage_;
+  base::UnguessableToken origin_id_;
 };
+
+// MediaDrmStorageImpl should write origin ID to persistent storage when
+// Initialize is called. Later call to Initialize should return the same origin
+// ID. The second MediaDrmStorage won't call Initialize until the first one is
+// fully initialized.
+// TODO(yucliu): Test origin ID is re-generated after clearing licenses.
+TEST_F(MediaDrmStorageImplTest, Initialize_OriginIdNotChanged) {
+  base::UnguessableToken original_origin_id = origin_id_;
+  ASSERT_TRUE(original_origin_id);
+
+  base::UnguessableToken origin_id;
+  std::unique_ptr<media::MediaDrmStorage> storage =
+      CreateAndInitMediaDrmStorage(GURL(kTestOrigin), &origin_id);
+  EXPECT_EQ(origin_id, original_origin_id);
+}
+
+// Two MediaDrmStorage call Initialize concurrently. The second MediaDrmStorage
+// will NOT wait for the first one to be initialized. Both instances should get
+// the same origin ID.
+TEST_F(MediaDrmStorageImplTest, Initialize_Concurrent) {
+  content::RenderFrameHost* rfh = SimulateNavigation(GURL(kTestOrigin2));
+
+  std::unique_ptr<media::MediaDrmStorage> storage1 =
+      CreateMediaDrmStorage(rfh, base::BindRepeating(&CreateOriginId));
+  std::unique_ptr<media::MediaDrmStorage> storage2 =
+      CreateMediaDrmStorage(rfh, base::BindRepeating(&CreateOriginId));
+
+  base::UnguessableToken origin_id_1;
+  storage1->Initialize(base::BindOnce(OnMediaDrmStorageInit, &origin_id_1));
+  base::UnguessableToken origin_id_2;
+  storage2->Initialize(base::BindOnce(OnMediaDrmStorageInit, &origin_id_2));
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(origin_id_1, origin_id_2);
+}
+
+TEST_F(MediaDrmStorageImplTest, Initialize_Concurrent_Async) {
+  content::RenderFrameHost* rfh = SimulateNavigation(GURL(kTestOrigin2));
+
+  std::unique_ptr<media::MediaDrmStorage> storage1 =
+      CreateMediaDrmStorage(rfh, base::BindRepeating(&CreateOriginIdAsync));
+  std::unique_ptr<media::MediaDrmStorage> storage2 =
+      CreateMediaDrmStorage(rfh, base::BindRepeating(&CreateOriginIdAsync));
+
+  base::UnguessableToken origin_id_1;
+  storage1->Initialize(base::BindOnce(OnMediaDrmStorageInit, &origin_id_1));
+  base::UnguessableToken origin_id_2;
+  storage2->Initialize(base::BindOnce(OnMediaDrmStorageInit, &origin_id_2));
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(origin_id_1, origin_id_2);
+}
+
+TEST_F(MediaDrmStorageImplTest, Initialize_DifferentOrigins) {
+  base::UnguessableToken origin_id_1 = origin_id_;
+  ASSERT_TRUE(origin_id_1);
+
+  base::UnguessableToken origin_id_2;
+  auto storage2 =
+      CreateAndInitMediaDrmStorage(GURL(kTestOrigin2), &origin_id_2);
+  ASSERT_TRUE(origin_id_2);
+
+  EXPECT_NE(origin_id_1, origin_id_2);
+}
 
 TEST_F(MediaDrmStorageImplTest, OnProvisioned) {
   OnProvisioned();
@@ -129,8 +264,7 @@ TEST_F(MediaDrmStorageImplTest, OnProvisioned) {
   // Verify the origin dictionary is created.
   const base::DictionaryValue* storage_dict =
       pref_service_->GetDictionary(kMediaDrmStorage);
-  EXPECT_TRUE(
-      storage_dict->GetDictionaryWithoutPathExpansion(kTestOrigin, nullptr));
+  EXPECT_TRUE(storage_dict->FindKey(kTestOrigin));
 }
 
 TEST_F(MediaDrmStorageImplTest, OnProvisioned_Twice) {
@@ -191,6 +325,48 @@ TEST_F(MediaDrmStorageImplTest, RemoveSession_InvalidSession) {
   // Can still load "session_id" session.
   LoadPersistentSession("session_id", {1, 0}, "mime/type");
   base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(MediaDrmStorageImplTest, GetAllOrigins) {
+  OnProvisioned();
+  base::RunLoop().RunUntilIdle();
+
+  // Verify the origin is found.
+  std::set<GURL> origins =
+      MediaDrmStorageImpl::GetAllOrigins(pref_service_.get());
+  EXPECT_EQ(1u, origins.count(GURL(kTestOrigin)));
+}
+
+TEST_F(MediaDrmStorageImplTest, GetOriginsModifiedSince) {
+  base::Time start_time = base::Time::Now();
+  OnProvisioned();
+  base::RunLoop().RunUntilIdle();
+
+  // Verify the origin is found from all time.
+  std::vector<GURL> origins1 = MediaDrmStorageImpl::GetOriginsModifiedSince(
+      pref_service_.get(), base::Time());
+  EXPECT_EQ(origins1, std::vector<GURL>{GURL(kTestOrigin)});
+
+  // Should also be found from |start_time|.
+  std::vector<GURL> origins2 = MediaDrmStorageImpl::GetOriginsModifiedSince(
+      pref_service_.get(), start_time);
+  EXPECT_EQ(origins2, std::vector<GURL>{GURL(kTestOrigin)});
+
+  // Should not be found from Now().
+  base::Time check_time = base::Time::Now();
+  EXPECT_GT(check_time, start_time);
+  std::vector<GURL> origins3 = MediaDrmStorageImpl::GetOriginsModifiedSince(
+      pref_service_.get(), check_time);
+  EXPECT_EQ(origins3, std::vector<GURL>{});
+
+  // Save a new session.
+  SavePersistentSession("session_id", {1, 0}, "mime/type");
+  base::RunLoop().RunUntilIdle();
+
+  // Now that a new session has been added, the origin should be found.
+  std::vector<GURL> origins4 = MediaDrmStorageImpl::GetOriginsModifiedSince(
+      pref_service_.get(), check_time);
+  EXPECT_EQ(origins4, std::vector<GURL>{GURL(kTestOrigin)});
 }
 
 }  // namespace cdm

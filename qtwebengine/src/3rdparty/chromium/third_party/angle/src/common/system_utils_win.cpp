@@ -15,11 +15,7 @@
 
 namespace angle
 {
-
-namespace
-{
-
-std::string GetExecutablePathImpl()
+std::string GetExecutablePath()
 {
     std::array<char, MAX_PATH> executableFileBuf;
     DWORD executablePathLen = GetModuleFileNameA(nullptr, executableFileBuf.data(),
@@ -27,27 +23,11 @@ std::string GetExecutablePathImpl()
     return (executablePathLen > 0 ? std::string(executableFileBuf.data()) : "");
 }
 
-std::string GetExecutableDirectoryImpl()
+std::string GetExecutableDirectory()
 {
     std::string executablePath = GetExecutablePath();
     size_t lastPathSepLoc      = executablePath.find_last_of("\\/");
     return (lastPathSepLoc != std::string::npos) ? executablePath.substr(0, lastPathSepLoc) : "";
-}
-
-}  // anonymous namespace
-
-const char *GetExecutablePath()
-{
-    // TODO(jmadill): Make global static string thread-safe.
-    const static std::string &exePath = GetExecutablePathImpl();
-    return exePath.c_str();
-}
-
-const char *GetExecutableDirectory()
-{
-    // TODO(jmadill): Make global static string thread-safe.
-    const static std::string &exeDir = GetExecutableDirectoryImpl();
-    return exeDir.c_str();
 }
 
 const char *GetSharedLibraryExtension()
@@ -71,4 +51,75 @@ bool SetCWD(const char *dirName)
     return (SetCurrentDirectoryA(dirName) == TRUE);
 }
 
+bool UnsetEnvironmentVar(const char *variableName)
+{
+    return (SetEnvironmentVariableA(variableName, nullptr) == TRUE);
+}
+
+bool SetEnvironmentVar(const char *variableName, const char *value)
+{
+    return (SetEnvironmentVariableA(variableName, value) == TRUE);
+}
+
+std::string GetEnvironmentVar(const char *variableName)
+{
+    std::array<char, MAX_PATH> oldValue;
+    DWORD result =
+        GetEnvironmentVariableA(variableName, oldValue.data(), static_cast<DWORD>(oldValue.size()));
+    if (result == 0)
+    {
+        return std::string();
+    }
+    else
+    {
+        return std::string(oldValue.data());
+    }
+}
+
+const char *GetPathSeparator()
+{
+    return ";";
+}
+
+class Win32Library : public Library
+{
+  public:
+    Win32Library(const char *libraryName)
+    {
+        char buffer[MAX_PATH];
+        int ret = snprintf(buffer, MAX_PATH, "%s.%s", libraryName, GetSharedLibraryExtension());
+        if (ret > 0 && ret < MAX_PATH)
+        {
+            mModule = LoadLibraryA(buffer);
+        }
+    }
+
+    ~Win32Library() override
+    {
+        if (mModule)
+        {
+            FreeLibrary(mModule);
+        }
+    }
+
+    void *getSymbol(const char *symbolName) override
+    {
+        if (!mModule)
+        {
+            return nullptr;
+        }
+
+        return reinterpret_cast<void *>(GetProcAddress(mModule, symbolName));
+    }
+
+    void *getNative() const override { return reinterpret_cast<void *>(mModule); }
+
+  private:
+    HMODULE mModule = nullptr;
+};
+
+Library *OpenSharedLibrary(const char *libraryName)
+{
+    return new Win32Library(libraryName);
+}
 }  // namespace angle

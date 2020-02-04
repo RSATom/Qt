@@ -54,15 +54,195 @@
 #include <QtGui/private/qtriangulator_p.h>
 
 #include <QtPositioning/private/qclipperutils_p.h>
+#include <QtPositioning/private/qgeopath_p.h>
+#include <array>
 
 QT_BEGIN_NAMESPACE
+
+
+static const double kClipperScaleFactor = 281474976710656.0;  // 48 bits of precision
+
+static inline IntPoint toIntPoint(const double x, const double y)
+{
+    return IntPoint(cInt(x * kClipperScaleFactor), cInt(y * kClipperScaleFactor));
+}
+
+static IntPoint toIntPoint(const QDoubleVector2D &p)
+{
+    return toIntPoint(p.x(), p.y());
+}
+
+static bool get_line_intersection(const double p0_x,
+                                 const double p0_y,
+                                 const double p1_x,
+                                 const double p1_y,
+                                 const double p2_x,
+                                 const double p2_y,
+                                 const double p3_x,
+                                 const double p3_y,
+                                 double *i_x,
+                                 double *i_y,
+                                 double *i_t)
+{
+    const double s10_x = p1_x - p0_x;
+    const double s10_y = p1_y - p0_y;
+    const double s32_x = p3_x - p2_x;
+    const double s32_y = p3_y - p2_y;
+
+    const double denom = s10_x * s32_y - s32_x * s10_y;
+    if (denom == 0.0)
+        return false; // Collinear
+    const bool denomPositive = denom > 0;
+
+    const double s02_x = p0_x - p2_x;
+    const double s02_y = p0_y - p2_y;
+    const double s_numer = s10_x * s02_y - s10_y * s02_x;
+    if ((s_numer < 0.0) == denomPositive)
+        return false; // No collision
+
+    const double t_numer = s32_x * s02_y - s32_y * s02_x;
+    if ((t_numer < 0.0) == denomPositive)
+        return false; // No collision
+
+    if (((s_numer > denom) == denomPositive) || ((t_numer > denom) == denomPositive))
+        return false; // No collision
+    // Collision detected
+    *i_t = t_numer / denom;
+    *i_x = p0_x + (*i_t * s10_x);
+    *i_y = p0_y + (*i_t * s10_y);
+
+    return true;
+}
+
+enum SegmentType {
+    NoIntersection,
+    OneIntersection,
+    TwoIntersections
+};
+
+static QList<QList<QDoubleVector2D> > clipLine(
+        const QList<QDoubleVector2D> &l,
+        const QList<QDoubleVector2D> &poly)
+{
+    QList<QList<QDoubleVector2D> > res;
+    if (poly.size() < 3 || l.size() < 2)
+        return res;
+
+    // Step 1: build edges
+    std::vector<std::array<double, 4> > edges;
+    for (int i = 1; i < poly.size(); i++)
+        edges.push_back({ { poly.at(i-1).x(), poly.at(i-1).y(), poly.at(i).x(), poly.at(i).y() } });
+    edges.push_back({ { poly.at(poly.size()-1).x(), poly.at(poly.size()-1).y(), poly.at(0).x(), poly.at(0).y() } });
+
+    // Build Path to check for containment, for edges not intersecting
+    // This step could be speeded up by forcing the orientation of the polygon, and testing the cross products in the step
+    // below, thus avoiding to resort to clipper.
+    Path clip;
+    for (const auto &v: poly)
+        clip.push_back(toIntPoint(v));
+
+    // Step 2: check each segment against each edge
+    QList<QDoubleVector2D> subLine;
+    std::array<double, 4> intersections = { { 0.0, 0.0, 0.0, 0.0 } };
+
+    for (int i = 0; i < l.size() - 1; ++i) {
+        SegmentType type = NoIntersection;
+        double t = -1; // valid values are in [0, 1]. Only written if intersects
+        double previousT = t;
+        double i_x, i_y;
+
+        const int firstContained = c2t::clip2tri::pointInPolygon(toIntPoint(l.at(i).x(), l.at(i).y()), clip);
+        const int secondContained = c2t::clip2tri::pointInPolygon(toIntPoint(l.at(i+1).x(), l.at(i+1).y()), clip);
+
+        if (firstContained && secondContained) { // Second most common condition, test early and skip inner loop if possible
+            if (!subLine.size())
+                subLine.push_back(l.at(i)); // the initial element has to be pushed now.
+            subLine.push_back(l.at(i+1));
+            continue;
+        }
+
+        for (unsigned int j = 0; j < edges.size(); ++j) {
+            const bool intersects = get_line_intersection(l.at(i).x(),
+                                                         l.at(i).y(),
+                                                         l.at(i+1).x(),
+                                                         l.at(i+1).y(),
+                                                         edges.at(j).at(0),
+                                                         edges.at(j).at(1),
+                                                         edges.at(j).at(2),
+                                                         edges.at(j).at(3),
+                                                         &i_x,
+                                                         &i_y,
+                                                         &t);
+            if (intersects) {
+                if (previousT >= 0.0) { //One intersection already hit
+                    if (t < previousT) { // Reorder
+                        intersections[2] = intersections[0];
+                        intersections[3] = intersections[1];
+                        intersections[0] = i_x;
+                        intersections[1] = i_y;
+                    } else {
+                        intersections[2] = i_x;
+                        intersections[3] = i_y;
+                    }
+
+                    type = TwoIntersections;
+                    break; // no need to check anything else
+                } else { // First intersection
+                    intersections[0] = i_x;
+                    intersections[1] = i_y;
+                    type = OneIntersection;
+                }
+                previousT = t;
+            }
+        }
+
+        if (type == NoIntersection) {
+            if (!firstContained && !secondContained) { // Both outside
+                subLine.clear();
+            } else if (firstContained && secondContained) {
+                // Handled above already.
+            } else { // Mismatch between PointInPolygon and get_line_intersection. Treat it as no intersection
+                if (subLine.size())
+                    res.push_back(subLine);
+                subLine.clear();
+            }
+        } else if (type == OneIntersection) { // Need to check the following cases to avoid mismatch with PointInPolygon result.
+            if (firstContained <= 0 && secondContained > 0) { // subLine MUST be empty
+                if (!subLine.size())
+                    subLine.push_back(QDoubleVector2D(intersections[0], intersections[1]));
+                subLine.push_back(l.at(i+1));
+            } else if (firstContained > 0 && secondContained <= 0) { // subLine MUST NOT be empty
+                if (!subLine.size())
+                    subLine.push_back(l.at(i));
+                subLine.push_back(QDoubleVector2D(intersections[0], intersections[1]));
+                res.push_back(subLine);
+                subLine.clear();
+            } else {
+                if (subLine.size())
+                    res.push_back(subLine);
+                subLine.clear();
+            }
+        } else { // Two
+            // restart strip
+            subLine.clear();
+            subLine.push_back(QDoubleVector2D(intersections[0], intersections[1]));
+            subLine.push_back(QDoubleVector2D(intersections[2], intersections[3]));
+            res.push_back(subLine);
+            subLine.clear();
+        }
+    }
+
+    if (subLine.size())
+        res.push_back(subLine);
+    return res;
+}
 
 /*!
     \qmltype MapPolyline
     \instantiates QDeclarativePolylineMapItem
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-maps
-    \since Qt Location 5.0
+    \since QtLocation 5.0
 
     \brief The MapPolyline type displays a polyline on a map.
 
@@ -92,11 +272,6 @@ QT_BEGIN_NAMESPACE
     Like the other map objects, MapPolyline is normally drawn without a smooth
     appearance. Setting the \l {Item::opacity}{opacity} property will force the object to
     be blended, which decreases performance considerably depending on the hardware in use.
-
-    \note MapPolylines are implemented using the OpenGL GL_LINES
-    primitive. There have been occasional reports of issues and rendering
-    inconsistencies on some (particularly quite old) platforms. No workaround
-    is yet available for these issues.
 
     \section2 Example Usage
 
@@ -189,11 +364,11 @@ QList<QList<QDoubleVector2D> > QGeoMapPolylineGeometry::clipPath(const QGeoMap &
      * 2.1) recalculate the origin and geoLeftBound to prevent these parameters from ending in unprojectable areas
      * 2.2) ensure the left bound does not wrap around due to QGeoCoordinate <-> clipper conversions
      */
-
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map.geoProjection());
     srcOrigin_ = geoLeftBound_;
 
     double unwrapBelowX = 0;
-    leftBoundWrapped = map.geoProjection().wrapMapProjection(map.geoProjection().geoToMapProjection(geoLeftBound_));
+    leftBoundWrapped = p.wrapMapProjection(p.geoToMapProjection(geoLeftBound_));
     if (preserveGeometry_)
         unwrapBelowX = leftBoundWrapped.x();
 
@@ -203,7 +378,7 @@ QList<QList<QDoubleVector2D> > QGeoMapPolylineGeometry::clipPath(const QGeoMap &
     // 1)
     for (int i = 0; i < path.size(); ++i) {
         const QDoubleVector2D &coord = path.at(i);
-        QDoubleVector2D wrappedProjection = map.geoProjection().wrapMapProjection(coord);
+        QDoubleVector2D wrappedProjection = p.wrapMapProjection(coord);
 
         // We can get NaN if the map isn't set up correctly, or the projection
         // is faulty -- probably best thing to do is abort
@@ -224,15 +399,15 @@ QList<QList<QDoubleVector2D> > QGeoMapPolylineGeometry::clipPath(const QGeoMap &
         wrappedPath.append(wrappedProjection);
     }
 
+#ifdef QT_LOCATION_DEBUG
+    m_wrappedPath = wrappedPath;
+#endif
+
     // 2)
     QList<QList<QDoubleVector2D> > clippedPaths;
-    const QList<QDoubleVector2D> &visibleRegion = map.geoProjection().projectableRegion();
+    const QList<QDoubleVector2D> &visibleRegion = p.projectableGeometry();
     if (visibleRegion.size()) {
-        c2t::clip2tri clipper;
-        clipper.addSubjectPath(QClipperUtils::qListToPath(wrappedPath), false);
-        clipper.addClipPolygon(QClipperUtils::qListToPath(visibleRegion));
-        Paths res = clipper.execute(c2t::clip2tri::Intersection);
-        clippedPaths = QClipperUtils::pathsToQList(res);
+        clippedPaths = clipLine(wrappedPath, visibleRegion);
 
         // 2.1) update srcOrigin_ and leftBoundWrapped with the point with minimum X
         QDoubleVector2D lb(qInf(), qInf());
@@ -258,6 +433,10 @@ QList<QList<QDoubleVector2D> > QGeoMapPolylineGeometry::clipPath(const QGeoMap &
         clippedPaths.append(wrappedPath);
     }
 
+#ifdef QT_LOCATION_DEBUG
+    m_clippedPaths = clippedPaths;
+#endif
+
     return clippedPaths;
 }
 
@@ -265,19 +444,18 @@ void QGeoMapPolylineGeometry::pathToScreen(const QGeoMap &map,
                                            const QList<QList<QDoubleVector2D> > &clippedPaths,
                                            const QDoubleVector2D &leftBoundWrapped)
 {
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map.geoProjection());
     // 3) project the resulting geometry to screen position and calculate screen bounds
     double minX = qInf();
     double minY = qInf();
     double maxX = -qInf();
     double maxY = -qInf();
-
-    srcOrigin_ = map.geoProjection().mapProjectionToGeo(map.geoProjection().unwrapMapProjection(leftBoundWrapped));
-    QDoubleVector2D origin = map.geoProjection().wrappedMapProjectionToItemPosition(leftBoundWrapped);
+    srcOrigin_ = p.mapProjectionToGeo(p.unwrapMapProjection(leftBoundWrapped));
+    QDoubleVector2D origin = p.wrappedMapProjectionToItemPosition(leftBoundWrapped);
     for (const QList<QDoubleVector2D> &path: clippedPaths) {
         QDoubleVector2D lastAddedPoint;
         for (int i = 0; i < path.size(); ++i) {
-            QDoubleVector2D point = map.geoProjection().wrappedMapProjectionToItemPosition(path.at(i));
-
+            QDoubleVector2D point = p.wrappedMapProjectionToItemPosition(path.at(i));
             point = point - origin; // (0,0) if point == geoLeftBound_
 
             minX = qMin(point.x(), minX);
@@ -336,13 +514,128 @@ void QGeoMapPolylineGeometry::updateSourcePoints(const QGeoMap &map,
     pathToScreen(map, clippedPaths, leftBoundWrapped);
 }
 
+// ***  SCREEN CLIPPING *** //
+
+enum ClipPointType {
+    InsidePoint  = 0x00,
+    LeftPoint    = 0x01,
+    RightPoint   = 0x02,
+    BottomPoint  = 0x04,
+    TopPoint     = 0x08
+};
+
+static inline int clipPointType(qreal x, qreal y, const QRectF &rect)
+{
+    int type = InsidePoint;
+    if (x < rect.left())
+        type |= LeftPoint;
+    else if (x > rect.right())
+        type |= RightPoint;
+    if (y < rect.top())
+        type |= TopPoint;
+    else if (y > rect.bottom())
+        type |= BottomPoint;
+    return type;
+}
+
+static void clipSegmentToRect(qreal x0, qreal y0, qreal x1, qreal y1,
+                              const QRectF &clipRect,
+                              QVector<qreal> &outPoints,
+                              QVector<QPainterPath::ElementType> &outTypes)
+{
+    int type0 = clipPointType(x0, y0, clipRect);
+    int type1 = clipPointType(x1, y1, clipRect);
+    bool accept = false;
+
+    while (true) {
+        if (!(type0 | type1)) {
+            accept = true;
+            break;
+        } else if (type0 & type1) {
+            break;
+        } else {
+            qreal x = 0.0;
+            qreal y = 0.0;
+            int outsideType = type0 ? type0 : type1;
+
+            if (outsideType & BottomPoint) {
+                x = x0 + (x1 - x0) * (clipRect.bottom() - y0) / (y1 - y0);
+                y = clipRect.bottom() - 0.1;
+            } else if (outsideType & TopPoint) {
+                x = x0 + (x1 - x0) * (clipRect.top() - y0) / (y1 - y0);
+                y = clipRect.top() + 0.1;
+            } else if (outsideType & RightPoint) {
+                y = y0 + (y1 - y0) * (clipRect.right() - x0) / (x1 - x0);
+                x = clipRect.right() - 0.1;
+            } else if (outsideType & LeftPoint) {
+                y = y0 + (y1 - y0) * (clipRect.left() - x0) / (x1 - x0);
+                x = clipRect.left() + 0.1;
+            }
+
+            if (outsideType == type0) {
+                x0 = x;
+                y0 = y;
+                type0 = clipPointType(x0, y0, clipRect);
+            } else {
+                x1 = x;
+                y1 = y;
+                type1 = clipPointType(x1, y1, clipRect);
+            }
+        }
+    }
+
+    if (accept) {
+        if (outPoints.size() >= 2) {
+            qreal lastX, lastY;
+            lastY = outPoints.at(outPoints.size() - 1);
+            lastX = outPoints.at(outPoints.size() - 2);
+
+            if (!qFuzzyCompare(lastY, y0) || !qFuzzyCompare(lastX, x0)) {
+                outTypes << QPainterPath::MoveToElement;
+                outPoints << x0 << y0;
+            }
+        } else {
+            outTypes << QPainterPath::MoveToElement;
+            outPoints << x0 << y0;
+        }
+
+        outTypes << QPainterPath::LineToElement;
+        outPoints << x1 << y1;
+    }
+}
+
+static void clipPathToRect(const QVector<qreal> &points,
+                           const QVector<QPainterPath::ElementType> &types,
+                           const QRectF &clipRect,
+                           QVector<qreal> &outPoints,
+                           QVector<QPainterPath::ElementType> &outTypes)
+{
+    outPoints.clear();
+    outPoints.reserve(points.size());
+    outTypes.clear();
+    outTypes.reserve(types.size());
+
+    qreal lastX = 0;
+    qreal lastY = 0; // or else used uninitialized
+    for (int i = 0; i < types.size(); ++i) {
+        if (i > 0 && types[i] != QPainterPath::MoveToElement) {
+            qreal x = points[i * 2], y = points[i * 2 + 1];
+            clipSegmentToRect(lastX, lastY, x, y, clipRect, outPoints, outTypes);
+        }
+
+        lastX = points[i * 2];
+        lastY = points[i * 2 + 1];
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////
 
 /*!
     \internal
 */
 void QGeoMapPolylineGeometry::updateScreenPoints(const QGeoMap &map,
-                                                 qreal strokeWidth)
+                                                 qreal strokeWidth,
+                                                 bool adjustTranslation)
 {
     if (!screenDirty_)
         return;
@@ -360,14 +653,23 @@ void QGeoMapPolylineGeometry::updateScreenPoints(const QGeoMap &map,
     viewport.adjust(-strokeWidth, -strokeWidth, strokeWidth, strokeWidth);
     viewport.translate(-1 * origin);
 
-    // The geometry has already been clipped against the visible region projection in wrapped mercator space.
-    QVector<qreal> points = srcPoints_;
-    QVector<QPainterPath::ElementType> types = srcPointTypes_;
+    QVector<qreal> points;
+    QVector<QPainterPath::ElementType> types;
+
+    if (clipToViewport_) {
+        // Although the geometry has already been clipped against the visible region in wrapped mercator space.
+        // This is currently still needed to prevent a number of artifacts deriving from QTriangulatingStroker processing
+        // very large lines (that is, polylines that span many pixels in screen space)
+        clipPathToRect(srcPoints_, srcPointTypes_, viewport, points, types);
+    } else {
+        points = srcPoints_;
+        types = srcPointTypes_;
+    }
 
     QVectorPath vp(points.data(), types.size(), types.data());
     QTriangulatingStroker ts;
-    // viewport is not used in the call below.
-    ts.process(vp, QPen(QBrush(Qt::black), strokeWidth), viewport, QPainter::Qt4CompatiblePainting);
+    // As of Qt5.11, the clip argument is not actually used, in the call below.
+    ts.process(vp, QPen(QBrush(Qt::black), strokeWidth), QRectF(), QPainter::Qt4CompatiblePainting);
 
     clear();
 
@@ -406,12 +708,39 @@ void QGeoMapPolylineGeometry::updateScreenPoints(const QGeoMap &map,
     }
 
     screenBounds_ = bb;
-    this->translate( -1 * sourceBounds_.topLeft());
+    const QPointF strokeOffset = (adjustTranslation) ? QPointF(strokeWidth, strokeWidth) : QPointF();
+    this->translate( -1 * sourceBounds_.topLeft() + strokeOffset);
+}
+
+void QGeoMapPolylineGeometry::clearSource()
+{
+    srcPoints_.clear();
+    srcPointTypes_.clear();
+}
+
+bool QGeoMapPolylineGeometry::contains(const QPointF &point) const
+{
+    // screenOutline_.contains(screenPoint) doesn't work, as, it appears, that
+    // screenOutline_ for QGeoMapPolylineGeometry is empty (QRectF(0,0 0x0))
+    const QVector<QPointF> &verts = vertices();
+    QPolygonF tri;
+    for (int i = 0; i < verts.size(); ++i) {
+        tri << verts[i];
+        if (tri.size() == 3) {
+            if (tri.containsPoint(point,Qt::OddEvenFill))
+                return true;
+            tri.remove(0);
+        }
+    }
+
+    return false;
 }
 
 QDeclarativePolylineMapItem::QDeclarativePolylineMapItem(QQuickItem *parent)
 :   QDeclarativeGeoMapItemBase(parent), line_(this), dirtyMaterial_(true), updatingGeometry_(false)
 {
+    m_itemType = QGeoMap::MapPolyline;
+    geopath_ = QGeoPathEager();
     setFlag(ItemHasContents, true);
     QObject::connect(&line_, SIGNAL(colorChanged(QColor)),
                      this, SLOT(updateAfterLinePropertiesChanged()));
@@ -455,20 +784,7 @@ void QDeclarativePolylineMapItem::setMap(QDeclarativeGeoMap *quickMap, QGeoMap *
 
 QJSValue QDeclarativePolylineMapItem::path() const
 {
-    QQmlContext *context = QQmlEngine::contextForObject(this);
-    QQmlEngine *engine = context->engine();
-    QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(engine);
-
-    QV4::Scope scope(v4);
-    QV4::Scoped<QV4::ArrayObject> pathArray(scope, v4->newArrayObject(geopath_.path().length()));
-    for (int i = 0; i < geopath_.path().length(); ++i) {
-        const QGeoCoordinate &c = geopath_.coordinateAt(i);
-
-        QV4::ScopedValue cv(scope, v4->fromVariant(QVariant::fromValue(c)));
-        pathArray->putIndexed(i, cv);
-    }
-
-    return QJSValue(v4, pathArray.asReturnedValue());
+    return fromList(this, geopath_.path());
 }
 
 void QDeclarativePolylineMapItem::setPath(const QJSValue &value)
@@ -476,27 +792,13 @@ void QDeclarativePolylineMapItem::setPath(const QJSValue &value)
     if (!value.isArray())
         return;
 
-    QList<QGeoCoordinate> pathList;
-    quint32 length = value.property(QStringLiteral("length")).toUInt();
-    for (quint32 i = 0; i < length; ++i) {
-        bool ok;
-        QGeoCoordinate c = parseCoordinate(value.property(i), &ok);
-
-        if (!ok || !c.isValid()) {
-            qmlWarning(this) << "Unsupported path type";
-            return;
-        }
-
-        pathList.append(c);
-    }
-
-    setPathFromGeoList(pathList);
+    setPathFromGeoList(toList(this, value));
 }
 
 /*!
     \qmlmethod int MapPolyline::setPath(geopath path)
 
-    Sets the \l path using a \l QGeoPath type.
+    Sets the \a path using a geopath type.
 
     \since 5.10
 
@@ -507,7 +809,7 @@ void QDeclarativePolylineMapItem::setPath(const QGeoPath &path)
     if (geopath_.path() == path.path())
         return;
 
-    geopath_ = path;
+    geopath_ = QGeoPathEager(path);
     regenerateCache();
     geometry_.setPreserveGeometry(true, geopath_.boundingGeoRectangle().topLeft());
     markSourceDirtyAndUpdate();
@@ -535,7 +837,7 @@ void QDeclarativePolylineMapItem::setPathFromGeoList(const QList<QGeoCoordinate>
 
     Returns the number of coordinates of the polyline.
 
-    \since Qt Location 5.6
+    \since QtLocation 5.6
 
     \sa path
 */
@@ -547,7 +849,7 @@ int QDeclarativePolylineMapItem::pathLength() const
 /*!
     \qmlmethod void MapPolyline::addCoordinate(coordinate)
 
-    Adds a coordinate to the end of the path.
+    Adds the specified \a coordinate to the end of the path.
 
     \sa insertCoordinate, removeCoordinate, path
 */
@@ -569,7 +871,7 @@ void QDeclarativePolylineMapItem::addCoordinate(const QGeoCoordinate &coordinate
 
     Inserts a \a coordinate to the path at the given \a index.
 
-    \since Qt Location 5.6
+    \since QtLocation 5.6
 
     \sa addCoordinate, removeCoordinate, path
 */
@@ -592,7 +894,7 @@ void QDeclarativePolylineMapItem::insertCoordinate(int index, const QGeoCoordina
     Replaces the coordinate in the current path at the given \a index
     with the new \a coordinate.
 
-    \since Qt Location 5.6
+    \since QtLocation 5.6
 
     \sa addCoordinate, insertCoordinate, removeCoordinate, path
 */
@@ -616,7 +918,7 @@ void QDeclarativePolylineMapItem::replaceCoordinate(int index, const QGeoCoordin
     If the index is outside the path's bounds then an invalid
     coordinate is returned.
 
-    \since Qt Location 5.6
+    \since QtLocation 5.6
 */
 QGeoCoordinate QDeclarativePolylineMapItem::coordinateAt(int index) const
 {
@@ -631,7 +933,7 @@ QGeoCoordinate QDeclarativePolylineMapItem::coordinateAt(int index) const
 
     Returns true if the given \a coordinate is part of the path.
 
-    \since Qt Location 5.6
+    \since QtLocation 5.6
 */
 bool QDeclarativePolylineMapItem::containsCoordinate(const QGeoCoordinate &coordinate)
 {
@@ -667,7 +969,7 @@ void QDeclarativePolylineMapItem::removeCoordinate(const QGeoCoordinate &coordin
 
     If \a index is invalid then this method does nothing.
 
-    \since Qt Location 5.6
+    \since QtLocation 5.6
 
     \sa addCoordinate, insertCoordinate, path
 */
@@ -749,12 +1051,13 @@ void QDeclarativePolylineMapItem::afterViewportChanged(const QGeoMapViewportChan
 */
 void QDeclarativePolylineMapItem::regenerateCache()
 {
-    if (!map())
+    if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
     geopathProjected_.clear();
     geopathProjected_.reserve(geopath_.path().size());
     for (const QGeoCoordinate &c : geopath_.path())
-        geopathProjected_ << map()->geoProjection().geoToMapProjection(c);
+        geopathProjected_ << p.geoToMapProjection(c);
 }
 
 /*!
@@ -762,9 +1065,10 @@ void QDeclarativePolylineMapItem::regenerateCache()
 */
 void QDeclarativePolylineMapItem::updateCache()
 {
-    if (!map())
+    if (!map() ||  map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
-    geopathProjected_ << map()->geoProjection().geoToMapProjection(geopath_.path().last());
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
+    geopathProjected_ << p.geoToMapProjection(geopath_.path().last());
 }
 
 /*!
@@ -772,8 +1076,14 @@ void QDeclarativePolylineMapItem::updateCache()
 */
 void QDeclarativePolylineMapItem::updatePolish()
 {
-    if (!map() || geopath_.path().length() == 0)
+    if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
+    if (geopath_.path().length() == 0) { // Possibly cleared
+        geometry_.clear();
+        setWidth(0);
+        setHeight(0);
+        return;
+    }
 
     QScopedValueRollback<bool> rollback(updatingGeometry_);
     updatingGeometry_ = true;
@@ -781,10 +1091,10 @@ void QDeclarativePolylineMapItem::updatePolish()
     geometry_.updateSourcePoints(*map(), geopathProjected_, geopath_.boundingGeoRectangle().topLeft());
     geometry_.updateScreenPoints(*map(), line_.width());
 
-    setWidth(geometry_.sourceBoundingBox().width());
-    setHeight(geometry_.sourceBoundingBox().height());
+    setWidth(geometry_.sourceBoundingBox().width() + 2 * line_.width());
+    setHeight(geometry_.sourceBoundingBox().height() + 2 * line_.width());
 
-    setPositionOnMap(geometry_.origin(), -1 * geometry_.sourceBoundingBox().topLeft());
+    setPositionOnMap(geometry_.origin(), -1 * geometry_.sourceBoundingBox().topLeft() + QPointF(line_.width(), line_.width()));
 }
 
 void QDeclarativePolylineMapItem::markSourceDirtyAndUpdate()
@@ -818,18 +1128,7 @@ QSGNode *QDeclarativePolylineMapItem::updateMapItemPaintNode(QSGNode *oldNode, U
 
 bool QDeclarativePolylineMapItem::contains(const QPointF &point) const
 {
-    QVector<QPointF> vertices = geometry_.vertices();
-    QPolygonF tri;
-    for (int i = 0; i < vertices.size(); ++i) {
-        tri << vertices[i];
-        if (tri.size() == 3) {
-            if (tri.containsPoint(point,Qt::OddEvenFill))
-                return true;
-            tri.remove(0);
-        }
-    }
-
-    return false;
+    return geometry_.contains(point);
 }
 
 const QGeoShape &QDeclarativePolylineMapItem::geoShape() const
@@ -837,9 +1136,10 @@ const QGeoShape &QDeclarativePolylineMapItem::geoShape() const
     return geopath_;
 }
 
-QGeoMap::ItemType QDeclarativePolylineMapItem::itemType() const
+void QDeclarativePolylineMapItem::setGeoShape(const QGeoShape &shape)
 {
-    return QGeoMap::MapPolyline;
+    const QGeoPath geopath(shape); // if shape isn't a path, path will be created as a default-constructed path
+    setPath(geopath);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -847,9 +1147,64 @@ QGeoMap::ItemType QDeclarativePolylineMapItem::itemType() const
 /*!
     \internal
 */
+VisibleNode::VisibleNode() : m_blocked{true}, m_visible{true}
+{
+
+}
+
+VisibleNode::~VisibleNode()
+{
+
+}
+
+/*!
+    \internal
+*/
+bool VisibleNode::subtreeBlocked() const
+{
+    return m_blocked || !m_visible;
+}
+
+/*!
+    \internal
+*/
+void VisibleNode::setSubtreeBlocked(bool blocked)
+{
+    m_blocked = blocked;
+}
+
+bool VisibleNode::visible() const
+{
+    return m_visible;
+}
+
+/*!
+    \internal
+*/
+void VisibleNode::setVisible(bool visible)
+{
+    m_visible = visible;
+}
+
+/*!
+    \internal
+*/
+MapItemGeometryNode::~MapItemGeometryNode()
+{
+
+}
+
+bool MapItemGeometryNode::isSubtreeBlocked() const
+{
+    return subtreeBlocked();
+}
+
+
+/*!
+    \internal
+*/
 MapPolylineNode::MapPolylineNode() :
-    geometry_(QSGGeometry::defaultAttributes_Point2D(),0),
-    blocked_(true)
+    geometry_(QSGGeometry::defaultAttributes_Point2D(),0)
 {
     geometry_.setDrawingMode(QSGGeometry::DrawTriangleStrip);
     QSGGeometryNode::setMaterial(&fill_material_);
@@ -867,22 +1222,14 @@ MapPolylineNode::~MapPolylineNode()
 /*!
     \internal
 */
-bool MapPolylineNode::isSubtreeBlocked() const
-{
-    return blocked_;
-}
-
-/*!
-    \internal
-*/
 void MapPolylineNode::update(const QColor &fillColor,
                              const QGeoMapItemGeometry *shape)
 {
     if (shape->size() == 0) {
-        blocked_ = true;
+        setSubtreeBlocked(true);
         return;
     } else {
-        blocked_ = false;
+        setSubtreeBlocked(false);
     }
 
     QSGGeometry *fill = QSGGeometryNode::geometry();

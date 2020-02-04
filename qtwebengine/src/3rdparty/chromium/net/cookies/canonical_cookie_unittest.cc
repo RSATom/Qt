@@ -4,10 +4,7 @@
 
 #include "net/cookies/canonical_cookie.h"
 
-#include <memory>
-
-#include "base/memory/ptr_util.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_options.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -15,11 +12,25 @@
 
 namespace net {
 
+namespace {
+
+// Helper for testing BuildCookieLine
+void MatchCookieLineToVector(
+    const std::string& line,
+    const std::vector<std::unique_ptr<CanonicalCookie>>& cookies) {
+  std::vector<CanonicalCookie> list;
+  for (const auto& cookie : cookies)
+    list.push_back(*cookie);
+  EXPECT_EQ(line, CanonicalCookie::BuildCookieLine(list));
+}
+
+}  // namespace
+
 TEST(CanonicalCookieTest, Constructor) {
   GURL url("http://www.example.com/test");
   base::Time current_time = base::Time::Now();
 
-  std::unique_ptr<CanonicalCookie> cookie(base::MakeUnique<CanonicalCookie>(
+  std::unique_ptr<CanonicalCookie> cookie(std::make_unique<CanonicalCookie>(
       "A", "2", "www.example.com", "/test", current_time, base::Time(),
       base::Time(), false, false, CookieSameSite::DEFAULT_MODE,
       COOKIE_PRIORITY_DEFAULT));
@@ -31,7 +42,7 @@ TEST(CanonicalCookieTest, Constructor) {
   EXPECT_FALSE(cookie->IsHttpOnly());
   EXPECT_EQ(CookieSameSite::NO_RESTRICTION, cookie->SameSite());
 
-  std::unique_ptr<CanonicalCookie> cookie2(base::MakeUnique<CanonicalCookie>(
+  std::unique_ptr<CanonicalCookie> cookie2(std::make_unique<CanonicalCookie>(
       "A", "2", ".www.example.com", "/", current_time, base::Time(),
       base::Time(), false, false, CookieSameSite::DEFAULT_MODE,
       COOKIE_PRIORITY_DEFAULT));
@@ -112,7 +123,7 @@ TEST(CanonicalCookieTest, Create) {
 
   // Test the creating cookies using specific parameter instead of a cookie
   // string.
-  cookie = base::MakeUnique<CanonicalCookie>(
+  cookie = std::make_unique<CanonicalCookie>(
       "A", "2", ".www.example.com", "/test", creation_time, base::Time(),
       base::Time(), false, false, CookieSameSite::DEFAULT_MODE,
       COOKIE_PRIORITY_DEFAULT);
@@ -124,7 +135,7 @@ TEST(CanonicalCookieTest, Create) {
   EXPECT_FALSE(cookie->IsHttpOnly());
   EXPECT_EQ(CookieSameSite::NO_RESTRICTION, cookie->SameSite());
 
-  cookie = base::MakeUnique<CanonicalCookie>(
+  cookie = std::make_unique<CanonicalCookie>(
       "A", "2", ".www.example.com", "/test", creation_time, base::Time(),
       base::Time(), false, false, CookieSameSite::DEFAULT_MODE,
       COOKIE_PRIORITY_DEFAULT);
@@ -137,20 +148,45 @@ TEST(CanonicalCookieTest, Create) {
   EXPECT_EQ(CookieSameSite::NO_RESTRICTION, cookie->SameSite());
 }
 
-TEST(CanonicalCookieTest, CreateInvalidSameSite) {
+TEST(CanonicalCookieTest, CreateNonStandardSameSite) {
   GURL url("http://www.example.com/test/foo.html");
   base::Time now = base::Time::Now();
   std::unique_ptr<CanonicalCookie> cookie;
   CookieOptions options;
 
-  // Invalid 'SameSite' attribute values.
   options.set_same_site_cookie_mode(
       CookieOptions::SameSiteCookieMode::INCLUDE_STRICT_AND_LAX);
 
-  cookie = CanonicalCookie::Create(url, "A=2; SameSite=Invalid", now, options);
-  EXPECT_EQ(nullptr, cookie.get());
+  // Non-standard value for the SameSite attribute.
+  cookie =
+      CanonicalCookie::Create(url, "A=2; SameSite=NonStandard", now, options);
+  EXPECT_TRUE(cookie.get());
+  EXPECT_EQ(CookieSameSite::NO_RESTRICTION, cookie->SameSite());
 
+  // Omit value for the SameSite attribute.
   cookie = CanonicalCookie::Create(url, "A=2; SameSite", now, options);
+  EXPECT_TRUE(cookie.get());
+  EXPECT_EQ(CookieSameSite::NO_RESTRICTION, cookie->SameSite());
+}
+
+TEST(CanonicalCookieTest, CreateInvalidHttpOnly) {
+  GURL url("http://www.example.com/test/foo.html");
+  base::Time now = base::Time::Now();
+  CookieOptions options;
+
+  options.set_exclude_httponly();
+  std::unique_ptr<CanonicalCookie> cookie =
+      CanonicalCookie::Create(url, "A=2; HttpOnly", now, options);
+  EXPECT_EQ(nullptr, cookie.get());
+}
+
+TEST(CanonicalCookieTest, CreateWithInvalidDomain) {
+  GURL url("http://www.example.com/test/foo.html");
+  base::Time now = base::Time::Now();
+  CookieOptions options;
+
+  std::unique_ptr<CanonicalCookie> cookie =
+      CanonicalCookie::Create(url, "A=2; Domain=wrongdomain.com", now, options);
   EXPECT_EQ(nullptr, cookie.get());
 }
 
@@ -198,7 +234,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   CookieSameSite same_site(CookieSameSite::NO_RESTRICTION);
 
   // Test that a cookie is equivalent to itself.
-  std::unique_ptr<CanonicalCookie> cookie(base::MakeUnique<CanonicalCookie>(
+  std::unique_ptr<CanonicalCookie> cookie(std::make_unique<CanonicalCookie>(
       cookie_name, cookie_value, cookie_domain, cookie_path, creation_time,
       expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_MEDIUM));
@@ -207,7 +243,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
 
   // Test that two identical cookies are equivalent.
   std::unique_ptr<CanonicalCookie> other_cookie(
-      base::MakeUnique<CanonicalCookie>(
+      std::make_unique<CanonicalCookie>(
           cookie_name, cookie_value, cookie_domain, cookie_path, creation_time,
           expiration_time, base::Time(), secure, httponly, same_site,
           COOKIE_PRIORITY_MEDIUM));
@@ -216,7 +252,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
 
   // Tests that use different variations of attribute values that
   // DON'T affect cookie equivalence.
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, "2", cookie_domain, cookie_path, creation_time,
       expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_HIGH);
@@ -226,7 +262,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
 
   base::Time other_creation_time =
       creation_time + base::TimeDelta::FromMinutes(2);
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, "2", cookie_domain, cookie_path, other_creation_time,
       expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_MEDIUM);
@@ -234,7 +270,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   EXPECT_TRUE(cookie->IsEquivalentForSecureCookieMatching(*other_cookie));
   EXPECT_TRUE(other_cookie->IsEquivalentForSecureCookieMatching(*cookie));
 
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, cookie_name, cookie_domain, cookie_path, creation_time,
       expiration_time, base::Time(), true, httponly, same_site,
       COOKIE_PRIORITY_LOW);
@@ -242,7 +278,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   EXPECT_TRUE(cookie->IsEquivalentForSecureCookieMatching(*other_cookie));
   EXPECT_TRUE(other_cookie->IsEquivalentForSecureCookieMatching(*cookie));
 
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, cookie_name, cookie_domain, cookie_path, creation_time,
       expiration_time, base::Time(), secure, true, same_site,
       COOKIE_PRIORITY_LOW);
@@ -250,7 +286,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   EXPECT_TRUE(cookie->IsEquivalentForSecureCookieMatching(*other_cookie));
   EXPECT_TRUE(other_cookie->IsEquivalentForSecureCookieMatching(*cookie));
 
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, cookie_name, cookie_domain, cookie_path, creation_time,
       expiration_time, base::Time(), secure, httponly,
       CookieSameSite::STRICT_MODE, COOKIE_PRIORITY_LOW);
@@ -259,7 +295,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   EXPECT_TRUE(other_cookie->IsEquivalentForSecureCookieMatching(*cookie));
 
   // Cookies whose names mismatch are not equivalent.
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       "B", cookie_value, cookie_domain, cookie_path, creation_time,
       expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_MEDIUM);
@@ -270,7 +306,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   // A domain cookie at 'www.example.com' is not equivalent to a host cookie
   // at the same domain. These are, however, equivalent according to the laxer
   // rules of 'IsEquivalentForSecureCookieMatching'.
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, cookie_value, "www.example.com", cookie_path, creation_time,
       expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_MEDIUM);
@@ -282,7 +318,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
 
   // Likewise, a cookie on 'example.com' is not equivalent to a cookie on
   // 'www.example.com', but they are equivalent for secure cookie matching.
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, cookie_value, ".example.com", cookie_path, creation_time,
       expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_MEDIUM);
@@ -295,7 +331,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   // That is, |cookie| set on '/path' is not equivalent in either way to
   // |other_cookie| set on '/test' or '/path/subpath'. It is, however,
   // equivalent for secure cookie matching to |other_cookie| set on '/'.
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, cookie_value, cookie_domain, "/test", creation_time,
       expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_MEDIUM);
@@ -303,7 +339,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   EXPECT_FALSE(cookie->IsEquivalentForSecureCookieMatching(*other_cookie));
   EXPECT_FALSE(other_cookie->IsEquivalentForSecureCookieMatching(*cookie));
 
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, cookie_value, cookie_domain, cookie_path + "/subpath",
       creation_time, expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_MEDIUM);
@@ -311,7 +347,7 @@ TEST(CanonicalCookieTest, IsEquivalent) {
   EXPECT_FALSE(cookie->IsEquivalentForSecureCookieMatching(*other_cookie));
   EXPECT_TRUE(other_cookie->IsEquivalentForSecureCookieMatching(*cookie));
 
-  other_cookie = base::MakeUnique<CanonicalCookie>(
+  other_cookie = std::make_unique<CanonicalCookie>(
       cookie_name, cookie_value, cookie_domain, "/", creation_time,
       expiration_time, base::Time(), secure, httponly, same_site,
       COOKIE_PRIORITY_MEDIUM);
@@ -380,31 +416,40 @@ TEST(CanonicalCookieTest, IncludeForRequestURL) {
 
   std::unique_ptr<CanonicalCookie> cookie(
       CanonicalCookie::Create(url, "A=2", creation_time, options));
-  EXPECT_TRUE(cookie->IncludeForRequestURL(url, options));
-  EXPECT_TRUE(cookie->IncludeForRequestURL(
-      GURL("http://www.example.com/foo/bar"), options));
-  EXPECT_TRUE(cookie->IncludeForRequestURL(
-      GURL("https://www.example.com/foo/bar"), options));
-  EXPECT_FALSE(
-      cookie->IncludeForRequestURL(GURL("https://sub.example.com"), options));
-  EXPECT_FALSE(cookie->IncludeForRequestURL(GURL("https://sub.www.example.com"),
-                                            options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
+  EXPECT_EQ(cookie->IncludeForRequestURL(GURL("http://www.example.com/foo/bar"),
+                                         options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
+  EXPECT_EQ(cookie->IncludeForRequestURL(
+                GURL("https://www.example.com/foo/bar"), options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
+  EXPECT_EQ(
+      cookie->IncludeForRequestURL(GURL("https://sub.example.com"), options),
+      CanonicalCookie::CookieInclusionStatus::EXCLUDE_DOMAIN_MISMATCH);
+  EXPECT_EQ(cookie->IncludeForRequestURL(GURL("https://sub.www.example.com"),
+                                         options),
+            CanonicalCookie::CookieInclusionStatus::EXCLUDE_DOMAIN_MISMATCH);
 
   // Test that cookie with a cookie path that does not match the url path are
   // not included.
   cookie = CanonicalCookie::Create(url, "A=2; Path=/foo/bar", creation_time,
                                    options);
-  EXPECT_FALSE(cookie->IncludeForRequestURL(url, options));
-  EXPECT_TRUE(cookie->IncludeForRequestURL(
-      GURL("http://www.example.com/foo/bar/index.html"), options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::EXCLUDE_NOT_ON_PATH);
+  EXPECT_EQ(cookie->IncludeForRequestURL(
+                GURL("http://www.example.com/foo/bar/index.html"), options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
 
   // Test that a secure cookie is not included for a non secure URL.
   GURL secure_url("https://www.example.com");
   cookie = CanonicalCookie::Create(secure_url, "A=2; Secure", creation_time,
                                    options);
   EXPECT_TRUE(cookie->IsSecure());
-  EXPECT_TRUE(cookie->IncludeForRequestURL(secure_url, options));
-  EXPECT_FALSE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(secure_url, options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::EXCLUDE_SECURE_ONLY);
 
   // Test that http only cookies are only included if the include httponly flag
   // is set on the cookie options.
@@ -412,9 +457,11 @@ TEST(CanonicalCookieTest, IncludeForRequestURL) {
   cookie =
       CanonicalCookie::Create(url, "A=2; HttpOnly", creation_time, options);
   EXPECT_TRUE(cookie->IsHttpOnly());
-  EXPECT_TRUE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
   options.set_exclude_httponly();
-  EXPECT_FALSE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::EXCLUDE_HTTP_ONLY);
 }
 
 TEST(CanonicalCookieTest, IncludeSameSiteForSameSiteURL) {
@@ -430,13 +477,16 @@ TEST(CanonicalCookieTest, IncludeSameSiteForSameSiteURL) {
   EXPECT_EQ(CookieSameSite::STRICT_MODE, cookie->SameSite());
   options.set_same_site_cookie_mode(
       CookieOptions::SameSiteCookieMode::DO_NOT_INCLUDE);
-  EXPECT_FALSE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::EXCLUDE_SAMESITE_STRICT);
   options.set_same_site_cookie_mode(
       CookieOptions::SameSiteCookieMode::INCLUDE_LAX);
-  EXPECT_FALSE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::EXCLUDE_SAMESITE_STRICT);
   options.set_same_site_cookie_mode(
       CookieOptions::SameSiteCookieMode::INCLUDE_STRICT_AND_LAX);
-  EXPECT_TRUE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
 
   // `SameSite=Lax` cookies are included for a URL only if the options'
   // SameSiteCookieMode is INCLUDE_STRICT_AND_LAX.
@@ -445,13 +495,16 @@ TEST(CanonicalCookieTest, IncludeSameSiteForSameSiteURL) {
   EXPECT_EQ(CookieSameSite::LAX_MODE, cookie->SameSite());
   options.set_same_site_cookie_mode(
       CookieOptions::SameSiteCookieMode::DO_NOT_INCLUDE);
-  EXPECT_FALSE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::EXCLUDE_SAMESITE_LAX);
   options.set_same_site_cookie_mode(
       CookieOptions::SameSiteCookieMode::INCLUDE_LAX);
-  EXPECT_TRUE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
   options.set_same_site_cookie_mode(
       CookieOptions::SameSiteCookieMode::INCLUDE_STRICT_AND_LAX);
-  EXPECT_TRUE(cookie->IncludeForRequestURL(url, options));
+  EXPECT_EQ(cookie->IncludeForRequestURL(url, options),
+            CanonicalCookie::CookieInclusionStatus::INCLUDE);
 }
 
 TEST(CanonicalCookieTest, PartialCompare) {
@@ -916,6 +969,271 @@ TEST(CanonicalCookieTest, TestPrefixHistograms) {
                                CanonicalCookie::COOKIE_PREFIX_SECURE, 2);
   histograms.ExpectBucketCount(kCookiePrefixBlockedHistogram,
                                CanonicalCookie::COOKIE_PREFIX_SECURE, 1);
+}
+
+TEST(CanonicalCookieTest, BuildCookieLine) {
+  std::vector<std::unique_ptr<CanonicalCookie>> cookies;
+  GURL url("https://example.com/");
+  CookieOptions options;
+  base::Time now = base::Time::Now();
+  MatchCookieLineToVector("", cookies);
+
+  cookies.push_back(CanonicalCookie::Create(url, "A=B", now, options));
+  MatchCookieLineToVector("A=B", cookies);
+  // Nameless cookies are sent back without a prefixed '='.
+  cookies.push_back(CanonicalCookie::Create(url, "C", now, options));
+  MatchCookieLineToVector("A=B; C", cookies);
+  // Cookies separated by ';'.
+  cookies.push_back(CanonicalCookie::Create(url, "D=E", now, options));
+  MatchCookieLineToVector("A=B; C; D=E", cookies);
+  // BuildCookieLine doesn't reorder the list, it relies on the caller to do so.
+  cookies.push_back(CanonicalCookie::Create(
+      url, "F=G", now - base::TimeDelta::FromSeconds(1), options));
+  MatchCookieLineToVector("A=B; C; D=E; F=G", cookies);
+  // BuildCookieLine doesn't deduplicate.
+  cookies.push_back(CanonicalCookie::Create(
+      url, "D=E", now - base::TimeDelta::FromSeconds(2), options));
+  MatchCookieLineToVector("A=B; C; D=E; F=G; D=E", cookies);
+}
+
+// Confirm that input arguments are reflected in the output cookie.
+TEST(CanonicalCookieTest, CreateSanitizedCookie_Inputs) {
+  base::Time two_hours_ago = base::Time::Now() - base::TimeDelta::FromHours(2);
+  base::Time one_hour_ago = base::Time::Now() - base::TimeDelta::FromHours(1);
+  base::Time one_hour_from_now =
+      base::Time::Now() + base::TimeDelta::FromHours(1);
+
+  std::unique_ptr<CanonicalCookie> cc;
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  EXPECT_TRUE(cc);
+  EXPECT_EQ("A", cc->Name());
+  EXPECT_EQ("B", cc->Value());
+  EXPECT_EQ("www.foo.com", cc->Domain());
+  EXPECT_EQ("/foo", cc->Path());
+  EXPECT_EQ(base::Time(), cc->CreationDate());
+  EXPECT_EQ(base::Time(), cc->LastAccessDate());
+  EXPECT_EQ(base::Time(), cc->ExpiryDate());
+  EXPECT_FALSE(cc->IsSecure());
+  EXPECT_FALSE(cc->IsHttpOnly());
+  EXPECT_EQ(CookieSameSite::NO_RESTRICTION, cc->SameSite());
+  EXPECT_EQ(COOKIE_PRIORITY_MEDIUM, cc->Priority());
+  EXPECT_FALSE(cc->IsDomainCookie());
+
+  // Creation date
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", std::string(), "/foo",
+      two_hours_ago, base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  EXPECT_TRUE(cc);
+  EXPECT_EQ(two_hours_ago, cc->CreationDate());
+
+  // Last access date
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", std::string(), "/foo",
+      two_hours_ago, base::Time(), one_hour_ago, false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  EXPECT_TRUE(cc);
+  EXPECT_EQ(one_hour_ago, cc->LastAccessDate());
+
+  // Expiry
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", std::string(), "/foo",
+      base::Time(), one_hour_from_now, base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  EXPECT_TRUE(cc);
+  EXPECT_EQ(one_hour_from_now, cc->ExpiryDate());
+
+  // Secure
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), true /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  EXPECT_TRUE(cc);
+  EXPECT_TRUE(cc->IsSecure());
+
+  // Httponly
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      true /*httponly*/, CookieSameSite::DEFAULT_MODE, COOKIE_PRIORITY_DEFAULT);
+  EXPECT_TRUE(cc);
+  EXPECT_TRUE(cc->IsHttpOnly());
+
+  // Same site
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::LAX_MODE, COOKIE_PRIORITY_DEFAULT);
+  EXPECT_TRUE(cc);
+  EXPECT_EQ(CookieSameSite::LAX_MODE, cc->SameSite());
+
+  // Priority
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE, COOKIE_PRIORITY_LOW);
+  EXPECT_TRUE(cc);
+  EXPECT_EQ(COOKIE_PRIORITY_LOW, cc->Priority());
+
+  // Domain cookie
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "A", "B", "www.foo.com", "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  EXPECT_TRUE(cc);
+  EXPECT_TRUE(cc->IsDomainCookie());
+}
+
+// Make sure sanitization and blocking of cookies works correctly.
+TEST(CanonicalCookieTest, CreateSanitizedCookie_Logic) {
+  base::Time two_hours_ago = base::Time::Now() - base::TimeDelta::FromHours(2);
+  base::Time one_hour_ago = base::Time::Now() - base::TimeDelta::FromHours(1);
+  base::Time one_hour_from_now =
+      base::Time::Now() + base::TimeDelta::FromHours(1);
+
+  // Simple path and domain variations.
+  EXPECT_TRUE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A", "B", std::string(), "/foo",
+      one_hour_ago, one_hour_from_now, base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_TRUE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/bar"), "C", "D", "www.foo.com", "/",
+      two_hours_ago, base::Time(), one_hour_ago, false /*secure*/,
+      true /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_TRUE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("https://www.foo.com"), "E", "F", std::string(), std::string(),
+      base::Time(), base::Time(), base::Time(), true /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+
+  // Test that malformed attributes fail to set the cookie.
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), " A", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A;", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A=", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com"), "A", " B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com"), "A", "B", "www.foo.com ", "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A", "B", "foo.ozzzzzzle", "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A", "B", std::string(), "foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com"), "A", "B", std::string(), "/foo ",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A", "B", "%2Efoo.com", "/foo",
+      one_hour_ago, one_hour_from_now, base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://domaintest.%E3%81%BF%E3%82%93%E3%81%AA"), "A", "B",
+      "domaintest.%E3%81%BF%E3%82%93%E3%81%AA", "/foo", base::Time(),
+      base::Time(), base::Time(), false /*secure*/, false /*httponly*/,
+      CookieSameSite::DEFAULT_MODE, COOKIE_PRIORITY_DEFAULT));
+
+  std::unique_ptr<CanonicalCookie> cc;
+
+  // Confirm that setting domain cookies with or without leading periods,
+  // or on domains different from the URL's, functions correctly.
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A", "B", "www.foo.com", "/foo",
+      one_hour_ago, one_hour_from_now, base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  ASSERT_TRUE(cc);
+  EXPECT_TRUE(cc->IsDomainCookie());
+  EXPECT_EQ(".www.foo.com", cc->Domain());
+
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A", "B", ".www.foo.com", "/foo",
+      one_hour_ago, one_hour_from_now, base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  ASSERT_TRUE(cc);
+  EXPECT_TRUE(cc->IsDomainCookie());
+  EXPECT_EQ(".www.foo.com", cc->Domain());
+
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A", "B", ".foo.com", "/foo",
+      one_hour_ago, one_hour_from_now, base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  ASSERT_TRUE(cc);
+  EXPECT_TRUE(cc->IsDomainCookie());
+  EXPECT_EQ(".foo.com", cc->Domain());
+
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com/foo"), "A", "B", ".www2.www.foo.com", "/foo",
+      one_hour_ago, one_hour_from_now, base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  EXPECT_FALSE(cc);
+
+  // Secure/URL Scheme mismatch.
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com"), "A", "B", std::string(), "/foo ",
+      base::Time(), base::Time(), base::Time(), true /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT));
+
+  // Null creation date/non-null last access date conflict.
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com"), "A", "B", std::string(), "/foo", base::Time(),
+      base::Time(), base::Time::Now(), false /*secure*/, false /*httponly*/,
+      CookieSameSite::DEFAULT_MODE, COOKIE_PRIORITY_DEFAULT));
+
+  // Domain doesn't match URL
+  EXPECT_FALSE(CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com"), "A", "B", "www.bar.com", "/", base::Time(),
+      base::Time(), base::Time(), false /*secure*/, false /*httponly*/,
+      CookieSameSite::DEFAULT_MODE, COOKIE_PRIORITY_DEFAULT));
+
+  // Path with unusual characters escaped.
+  cc = CanonicalCookie::CreateSanitizedCookie(
+      GURL("http://www.foo.com"), "A", "B", std::string(), "/foo",
+      base::Time(), base::Time(), base::Time(), false /*secure*/,
+      false /*httponly*/, CookieSameSite::DEFAULT_MODE,
+      COOKIE_PRIORITY_DEFAULT);
+  ASSERT_TRUE(cc);
+  EXPECT_EQ("/foo%7F", cc->Path());
 }
 
 }  // namespace net

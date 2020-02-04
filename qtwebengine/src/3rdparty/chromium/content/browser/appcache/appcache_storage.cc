@@ -4,6 +4,8 @@
 
 #include "content/browser/appcache/appcache_storage.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/memory/ptr_util.h"
@@ -11,6 +13,7 @@
 #include "content/browser/appcache/appcache_service_impl.h"
 #include "storage/browser/quota/quota_client.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 
 namespace content {
 
@@ -57,10 +60,10 @@ AppCacheStorage::ResponseInfoLoadTask::~ResponseInfoLoadTask() {
 void AppCacheStorage::ResponseInfoLoadTask::StartIfNeeded() {
   if (reader_)
     return;
-  reader_.reset(storage_->CreateResponseReader(manifest_url_, response_id_));
+  reader_ = storage_->CreateResponseReader(manifest_url_, response_id_);
   reader_->ReadInfo(info_buffer_.get(),
-                    base::Bind(&ResponseInfoLoadTask::OnReadComplete,
-                               base::Unretained(this)));
+                    base::BindOnce(&ResponseInfoLoadTask::OnReadComplete,
+                                   base::Unretained(this)));
 }
 
 void AppCacheStorage::ResponseInfoLoadTask::OnReadComplete(int result) {
@@ -70,10 +73,9 @@ void AppCacheStorage::ResponseInfoLoadTask::OnReadComplete(int result) {
 
   scoped_refptr<AppCacheResponseInfo> info;
   if (result >= 0) {
-    info = new AppCacheResponseInfo(storage_, manifest_url_,
-                                    response_id_,
-                                    info_buffer_->http_info.release(),
-                                    info_buffer_->response_data_size);
+    info = new AppCacheResponseInfo(
+        storage_->GetWeakPtr(), manifest_url_, response_id_,
+        std::move(info_buffer_->http_info), info_buffer_->response_data_size);
   }
   FOR_EACH_DELEGATE(delegates_, OnResponseInfoLoaded(info.get(), response_id_));
 
@@ -100,7 +102,7 @@ base::WeakPtr<AppCacheStorage> AppCacheStorage::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
 }
 
-void AppCacheStorage::UpdateUsageMapAndNotify(const GURL& origin,
+void AppCacheStorage::UpdateUsageMapAndNotify(const url::Origin& origin,
                                               int64_t new_usage) {
   DCHECK_GE(new_usage, 0);
   int64_t old_usage = usage_map_[origin];
@@ -110,35 +112,28 @@ void AppCacheStorage::UpdateUsageMapAndNotify(const GURL& origin,
     usage_map_.erase(origin);
   if (new_usage != old_usage && service()->quota_manager_proxy()) {
     service()->quota_manager_proxy()->NotifyStorageModified(
-        storage::QuotaClient::kAppcache,
-        origin,
-        storage::kStorageTypeTemporary,
-        new_usage - old_usage);
+        storage::QuotaClient::kAppcache, origin,
+        blink::mojom::StorageType::kTemporary, new_usage - old_usage);
   }
 }
 
 void AppCacheStorage::ClearUsageMapAndNotify() {
   if (service()->quota_manager_proxy()) {
-    for (UsageMap::const_iterator iter = usage_map_.begin();
-         iter != usage_map_.end(); ++iter) {
+    for (const auto& pair : usage_map_) {
       service()->quota_manager_proxy()->NotifyStorageModified(
-          storage::QuotaClient::kAppcache,
-          iter->first,
-          storage::kStorageTypeTemporary,
-          -(iter->second));
+          storage::QuotaClient::kAppcache, pair.first,
+          blink::mojom::StorageType::kTemporary, -(pair.second));
     }
   }
   usage_map_.clear();
 }
 
-void AppCacheStorage::NotifyStorageAccessed(const GURL& origin) {
+void AppCacheStorage::NotifyStorageAccessed(const url::Origin& origin) {
   if (service()->quota_manager_proxy() &&
       usage_map_.find(origin) != usage_map_.end())
     service()->quota_manager_proxy()->NotifyStorageAccessed(
-        storage::QuotaClient::kAppcache,
-        origin,
-        storage::kStorageTypeTemporary);
+        storage::QuotaClient::kAppcache, origin,
+        blink::mojom::StorageType::kTemporary);
 }
 
 }  // namespace content
-

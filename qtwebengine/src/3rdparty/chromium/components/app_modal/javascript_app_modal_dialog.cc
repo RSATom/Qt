@@ -4,6 +4,8 @@
 
 #include "components/app_modal/javascript_app_modal_dialog.h"
 
+#include <utility>
+
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -69,7 +71,7 @@ JavaScriptAppModalDialog::JavaScriptAppModalDialog(
     bool display_suppress_checkbox,
     bool is_before_unload_dialog,
     bool is_reload,
-    const content::JavaScriptDialogManager::DialogClosedCallback& callback)
+    content::JavaScriptDialogManager::DialogClosedCallback callback)
     : title_(title),
       completed_(false),
       valid_(true),
@@ -80,7 +82,7 @@ JavaScriptAppModalDialog::JavaScriptAppModalDialog(
       display_suppress_checkbox_(display_suppress_checkbox),
       is_before_unload_dialog_(is_before_unload_dialog),
       is_reload_(is_reload),
-      callback_(callback),
+      callback_(std::move(callback)),
       use_override_prompt_text_(false),
       creation_time_(base::TimeTicks::Now()) {
   EnforceMaxTextSize(message_text, &message_text_);
@@ -175,7 +177,7 @@ void JavaScriptAppModalDialog::NotifyDelegate(bool success,
   // The close callback above may delete web_contents_, thus removing the extra
   // data from the map owned by ::JavaScriptDialogManager. Make sure
   // to only use the data if still present. http://crbug.com/236476
-  ExtraDataMap::iterator extra_data = extra_data_map_->find(web_contents_);
+  auto extra_data = extra_data_map_->find(web_contents_);
   if (extra_data != extra_data_map_->end()) {
     extra_data->second.has_already_shown_a_dialog_ = true;
     extra_data->second.suppress_javascript_messages_ = suppress_js_messages;
@@ -194,10 +196,8 @@ void JavaScriptAppModalDialog::CallDialogClosedCallback(bool success,
   UMA_HISTOGRAM_MEDIUM_TIMES(
       "JSDialogs.FineTiming.TimeBetweenDialogCreatedAndSameDialogClosed",
       base::TimeTicks::Now() - creation_time_);
-  if (!callback_.is_null()) {
-    callback_.Run(success, user_input);
-    callback_.Reset();
-  }
+  if (!callback_.is_null())
+    std::move(callback_).Run(success, user_input);
 }
 
 AppModalDialogObserver::AppModalDialogObserver() {

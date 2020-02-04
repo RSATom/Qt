@@ -60,7 +60,7 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
 
-class QT3DCORE_PRIVATE_EXPORT QEntityPrivate : public QNodePrivate
+class Q_3DCORE_PRIVATE_EXPORT QEntityPrivate : public QNodePrivate
 {
 public :
     QEntityPrivate();
@@ -70,6 +70,20 @@ public :
 
     QNodeId parentEntityId() const;
 
+    template<class T>
+    QVector<T*> componentsOfType() const
+    {
+        QVector<T*> typedComponents;
+        for (QComponent *comp : m_components) {
+            T *typedComponent = qobject_cast<T*>(comp);
+            if (typedComponent != nullptr)
+                typedComponents.append(typedComponent);
+        }
+        return typedComponents;
+    }
+
+    void removeDestroyedComponent(QComponent *comp);
+
     QComponentVector m_components;
     mutable QNodeId m_parentEntityId;
 };
@@ -78,6 +92,7 @@ struct QEntityData
 {
     Qt3DCore::QNodeId parentEntityId;
     QVector<QNodeIdTypePair> componentIdsAndTypes;
+    Qt3DCore::QNodeIdVector childEntityIds;
 };
 
 }

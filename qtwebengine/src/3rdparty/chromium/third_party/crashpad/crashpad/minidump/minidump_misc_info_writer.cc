@@ -18,6 +18,7 @@
 
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -26,7 +27,6 @@
 #include "snapshot/process_snapshot.h"
 #include "snapshot/system_snapshot.h"
 #include "util/file/file_writer.h"
-#include "util/misc/arraysize_unsafe.h"
 #include "util/numeric/in_range_cast.h"
 #include "util/numeric/safe_assignment.h"
 
@@ -42,7 +42,7 @@ namespace {
 uint32_t TimevalToRoundedSeconds(const timeval& tv) {
   uint32_t seconds =
       InRangeCast<uint32_t>(tv.tv_sec, std::numeric_limits<uint32_t>::max());
-  const int kMicrosecondsPerSecond = static_cast<int>(1E6);
+  constexpr int kMicrosecondsPerSecond = static_cast<int>(1E6);
   if (tv.tv_usec >= kMicrosecondsPerSecond / 2 &&
       seconds != std::numeric_limits<uint32_t>::max()) {
     ++seconds;
@@ -101,25 +101,31 @@ std::string MinidumpMiscInfoDebugBuildString() {
   // plus a UTF-16 NUL terminator. Don’t let strings get longer than this, or
   // they will be truncated and a message will be logged.
 #if defined(OS_MACOSX)
-  const char kOS[] = "mac";
+  static constexpr char kOS[] = "mac";
 #elif defined(OS_ANDROID)
-  const char kOS[] = "android";
+  static constexpr char kOS[] = "android";
 #elif defined(OS_LINUX)
-  const char kOS[] = "linux";
+  static constexpr char kOS[] = "linux";
 #elif defined(OS_WIN)
-  const char kOS[] = "win";
+  static constexpr char kOS[] = "win";
+#elif defined(OS_FUCHSIA)
+  static constexpr char kOS[] = "fuchsia";
 #else
 #error define kOS for this operating system
 #endif
 
 #if defined(ARCH_CPU_X86)
-  const char kCPU[] = "i386";
+  static constexpr char kCPU[] = "i386";
 #elif defined(ARCH_CPU_X86_64)
-  const char kCPU[] = "amd64";
+  static constexpr char kCPU[] = "amd64";
 #elif defined(ARCH_CPU_ARMEL)
-  const char kCPU[] = "arm";
+  static constexpr char kCPU[] = "arm";
 #elif defined(ARCH_CPU_ARM64)
-  const char kCPU[] = "arm64";
+  static constexpr char kCPU[] = "arm64";
+#elif defined(ARCH_CPU_MIPSEL)
+  static constexpr char kCPU[] = "mips";
+#elif defined(ARCH_CPU_MIPS64EL)
+  static constexpr char kCPU[] = "mips64";
 #else
 #error define kCPU for this CPU
 #endif
@@ -163,7 +169,7 @@ void MinidumpMiscInfoWriter::InitializeFromSnapshot(
   uint64_t current_hz;
   uint64_t max_hz;
   system_snapshot->CPUFrequency(&current_hz, &max_hz);
-  const uint32_t kHzPerMHz = static_cast<const uint32_t>(1E6);
+  constexpr uint32_t kHzPerMHz = static_cast<const uint32_t>(1E6);
   SetProcessorPowerInfo(
       InRangeCast<uint32_t>(current_hz / kHzPerMHz,
                             std::numeric_limits<uint32_t>::max()),
@@ -296,7 +302,7 @@ void MinidumpMiscInfoWriter::SetTimeZone(uint32_t time_zone_id,
 
   internal::MinidumpWriterUtil::AssignUTF8ToUTF16(
       misc_info_.TimeZone.StandardName,
-      ARRAYSIZE_UNSAFE(misc_info_.TimeZone.StandardName),
+      base::size(misc_info_.TimeZone.StandardName),
       standard_name);
 
   misc_info_.TimeZone.StandardDate = standard_date;
@@ -304,7 +310,7 @@ void MinidumpMiscInfoWriter::SetTimeZone(uint32_t time_zone_id,
 
   internal::MinidumpWriterUtil::AssignUTF8ToUTF16(
       misc_info_.TimeZone.DaylightName,
-      ARRAYSIZE_UNSAFE(misc_info_.TimeZone.DaylightName),
+      base::size(misc_info_.TimeZone.DaylightName),
       daylight_name);
 
   misc_info_.TimeZone.DaylightDate = daylight_date;
@@ -321,12 +327,10 @@ void MinidumpMiscInfoWriter::SetBuildString(
   misc_info_.Flags1 |= MINIDUMP_MISC4_BUILDSTRING;
 
   internal::MinidumpWriterUtil::AssignUTF8ToUTF16(
-      misc_info_.BuildString,
-      ARRAYSIZE_UNSAFE(misc_info_.BuildString),
-      build_string);
+      misc_info_.BuildString, base::size(misc_info_.BuildString), build_string);
   internal::MinidumpWriterUtil::AssignUTF8ToUTF16(
       misc_info_.DbgBldStr,
-      ARRAYSIZE_UNSAFE(misc_info_.DbgBldStr),
+      base::size(misc_info_.DbgBldStr),
       debug_build_string);
 }
 

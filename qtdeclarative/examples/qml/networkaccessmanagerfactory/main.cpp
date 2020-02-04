@@ -74,7 +74,7 @@ static int proxyPort = 0;
 class MyNetworkAccessManagerFactory : public QQmlNetworkAccessManagerFactory
 {
 public:
-    virtual QNetworkAccessManager *create(QObject *parent);
+    QNetworkAccessManager *create(QObject *parent) override;
 };
 
 QNetworkAccessManager *MyNetworkAccessManagerFactory::create(QObject *parent)
@@ -133,7 +133,8 @@ int main(int argc, char ** argv)
         source = QUrl::fromLocalFile(parser.positionalArguments().first());
 
     QQuickView view;
-    view.engine()->setNetworkAccessManagerFactory(new MyNetworkAccessManagerFactory);
+    MyNetworkAccessManagerFactory networkManagerFactory;
+    view.engine()->setNetworkAccessManagerFactory(&networkManagerFactory);
 
     view.setSource(source);
     view.show();

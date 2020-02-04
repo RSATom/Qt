@@ -24,6 +24,7 @@ enum TouchBarAction {
   STAR,
   NEW_TAB,
   CREDIT_CARD_AUTOFILL,
+  TEXT_SUGGESTION,
   TOUCH_BAR_ACTION_COUNT
 };
 
@@ -41,15 +42,7 @@ UI_BASE_EXPORT Class NSGroupTouchBarItem();
 
 // Returns a stylized blue button for the touch bar. The button performs
 // |action| from the |target|.
-// The __attribute__ visibility annotation is necessary to work around a clang
-// bug: https://bugs.llvm.org/show_bug.cgi?id=33796.
-#if defined(UI_BASE_IMPLEMENTATION) && defined(COMPONENT_BUILD)
-// UI_BASE_EXPORT specifies "default" visibility.
 API_AVAILABLE(macosx(10.12.2))
-#else
-API_AVAILABLE(macosx(10.12.2))
-__attribute__((visibility("hidden")))
-#endif
 UI_BASE_EXPORT NSButton* GetBlueTouchBarButton(NSString* title,
                                                id target,
                                                SEL action);

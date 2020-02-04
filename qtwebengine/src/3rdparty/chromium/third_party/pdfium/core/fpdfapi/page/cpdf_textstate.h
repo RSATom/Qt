@@ -7,9 +7,8 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_TEXTSTATE_H_
 #define CORE_FPDFAPI_PAGE_CPDF_TEXTSTATE_H_
 
-#include "core/fxcrt/cfx_shared_copy_on_write.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/shared_copy_on_write.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Document;
 class CPDF_Font;
@@ -60,11 +59,11 @@ class CPDF_TextState {
   float* GetMutableCTM();
 
  private:
-  class TextData {
+  class TextData final : public Retainable {
    public:
     TextData();
     TextData(const TextData& src);
-    ~TextData();
+    ~TextData() override;
 
     void SetFont(CPDF_Font* pFont);
     float GetFontSizeV() const;
@@ -73,7 +72,7 @@ class CPDF_TextState {
     float GetShearAngle() const;
 
     CPDF_Font* m_pFont;
-    CFX_UnownedPtr<CPDF_Document> m_pDocument;
+    UnownedPtr<CPDF_Document> m_pDocument;
     float m_FontSize;
     float m_CharSpace;
     float m_WordSpace;
@@ -85,7 +84,7 @@ class CPDF_TextState {
     void ReleaseFont();
   };
 
-  CFX_SharedCopyOnWrite<TextData> m_Ref;
+  SharedCopyOnWrite<TextData> m_Ref;
 };
 
 bool SetTextRenderingModeFromInt(int iMode, TextRenderingMode* mode);

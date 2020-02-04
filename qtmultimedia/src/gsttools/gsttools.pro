@@ -15,12 +15,6 @@ QMAKE_USE += gstreamer
 qtConfig(resourcepolicy): \
     QMAKE_USE += libresourceqt5
 
-# Header files must go inside source directory of a module
-# to be installed by syncqt.
-INCLUDEPATH += ../multimedia/gsttools_headers/
-INCLUDEPATH += ../plugins/gstreamer/mediaplayer/
-VPATH += ../multimedia/gsttools_headers/
-
 PRIVATE_HEADERS += \
     qgstreamerbushelper_p.h \
     qgstreamermessage_p.h \
@@ -36,7 +30,9 @@ PRIVATE_HEADERS += \
     qgstreameraudioprobecontrol_p.h \
     qgstreamervideowindow_p.h \
     qgstreamervideooverlay_p.h \
-    qgsttools_global_p.h
+    qgsttools_global_p.h \
+    qgstreamerplayersession_p.h \
+    qgstreamerplayercontrol_p.h
 
 SOURCES += \
     qgstreamerbushelper.cpp \
@@ -52,7 +48,9 @@ SOURCES += \
     qgstreamervideoprobecontrol.cpp \
     qgstreameraudioprobecontrol.cpp \
     qgstreamervideowindow.cpp \
-    qgstreamervideooverlay.cpp
+    qgstreamervideooverlay.cpp \
+    qgstreamerplayersession.cpp \
+    qgstreamerplayercontrol.cpp
 
 qtHaveModule(widgets) {
     QT += multimediawidgets

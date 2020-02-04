@@ -6,7 +6,7 @@
 // Tools/DumpRenderTree/ImageDiff.m
 
 // The exact format of this tool's output to stdout is important, to match
-// what the run-webkit-tests script expects.
+// what the run_web_tests.py script expects.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -15,10 +15,10 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/containers/hash_tables.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -56,11 +56,7 @@ class Image {
   Image() : w_(0), h_(0) {
   }
 
-  Image(const Image& image)
-      : w_(image.w_),
-        h_(image.h_),
-        data_(image.data_) {
-  }
+  Image(const Image& image) = default;
 
   bool has_image() const {
     return w_ > 0 && h_ > 0;
@@ -179,7 +175,7 @@ float PercentageDifferent(const Image& baseline, const Image& actual) {
   return 100.0f * pixels_different / total_pixels;
 }
 
-typedef base::hash_map<uint32_t, int32_t> RgbaToCountMap;
+typedef std::unordered_map<uint32_t, int32_t> RgbaToCountMap;
 
 float HistogramPercentageDifferent(const Image& baseline, const Image& actual) {
   // TODO(johnme): Consider using a joint histogram instead, as described in

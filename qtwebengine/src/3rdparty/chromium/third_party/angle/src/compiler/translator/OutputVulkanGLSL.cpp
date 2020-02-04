@@ -11,6 +11,9 @@
 
 #include "compiler/translator/OutputVulkanGLSL.h"
 
+#include "compiler/translator/Symbol.h"
+#include "compiler/translator/util.h"
+
 namespace sh
 {
 
@@ -23,31 +26,47 @@ TOutputVulkanGLSL::TOutputVulkanGLSL(TInfoSinkBase &objSink,
                                      int shaderVersion,
                                      ShShaderOutput output,
                                      ShCompileOptions compileOptions)
-    : TOutputGLSLBase(objSink,
-                      clampingStrategy,
-                      hashFunction,
-                      nameMap,
-                      symbolTable,
-                      shaderType,
-                      shaderVersion,
-                      output,
-                      compileOptions)
-{
-}
+    : TOutputGLSL(objSink,
+                  clampingStrategy,
+                  hashFunction,
+                  nameMap,
+                  symbolTable,
+                  shaderType,
+                  shaderVersion,
+                  output,
+                  compileOptions)
+{}
 
 // TODO(jmadill): This is not complete.
-void TOutputVulkanGLSL::writeLayoutQualifier(const TType &type)
+void TOutputVulkanGLSL::writeLayoutQualifier(TIntermTyped *variable)
 {
+    const TType &type = variable->getType();
+
+    bool needsCustomLayout =
+        (type.getQualifier() == EvqAttribute || type.getQualifier() == EvqFragmentOut ||
+         type.getQualifier() == EvqVertexIn || IsVarying(type.getQualifier()) ||
+         IsSampler(type.getBasicType()) || type.isInterfaceBlock());
+
+    if (!NeedsToWriteLayoutQualifier(type) && !needsCustomLayout)
+    {
+        return;
+    }
+
     TInfoSinkBase &out                      = objSink();
     const TLayoutQualifier &layoutQualifier = type.getLayoutQualifier();
-    out << "layout(";
 
-    if (type.getQualifier() == EvqAttribute || type.getQualifier() == EvqFragmentOut ||
-        type.getQualifier() == EvqVertexIn)
+    // This isn't super clean, but it gets the job done.
+    // See corresponding code in GlslangWrapper.cpp.
+    TIntermSymbol *symbol = variable->getAsSymbolNode();
+    ASSERT(symbol);
+
+    if (needsCustomLayout)
     {
-        // TODO(jmadill): Multiple output locations.
-        out << "location = "
-            << "0";
+        out << "@@ LAYOUT-" << symbol->getName() << " @@";
+    }
+    else
+    {
+        out << "layout(";
     }
 
     if (IsImage(type.getBasicType()) && layoutQualifier.imageInternalFormat != EiifUnspecified)
@@ -56,36 +75,36 @@ void TOutputVulkanGLSL::writeLayoutQualifier(const TType &type)
         out << getImageInternalFormatString(layoutQualifier.imageInternalFormat);
     }
 
-    out << ") ";
+    if (!needsCustomLayout)
+    {
+        out << ") ";
+    }
 }
 
-bool TOutputVulkanGLSL::writeVariablePrecision(TPrecision precision)
+void TOutputVulkanGLSL::writeQualifier(TQualifier qualifier, const TSymbol *symbol)
 {
-    if (precision == EbpUndefined)
-        return false;
+    if (qualifier != EvqUniform && qualifier != EvqVaryingIn && qualifier != EvqVaryingOut &&
+        qualifier != EvqAttribute)
+    {
+        TOutputGLSLBase::writeQualifier(qualifier, symbol);
+        return;
+    }
+
+    if (symbol == nullptr)
+    {
+        return;
+    }
 
     TInfoSinkBase &out = objSink();
-    out << getPrecisionString(precision);
-    return true;
+    out << "@@ QUALIFIER-" << symbol->name().data() << " @@ ";
 }
 
-void TOutputVulkanGLSL::visitSymbol(TIntermSymbol *node)
+void TOutputVulkanGLSL::writeStructType(const TStructure *structure)
 {
-    TInfoSinkBase &out = objSink();
-
-    const TString &symbol = node->getSymbol();
-    if (symbol == "gl_FragColor")
+    if (!structDeclared(structure))
     {
-        out << "webgl_FragColor";
-    }
-    else if (symbol == "gl_FragData")
-    {
-        out << "webgl_FragData";
-    }
-    else
-    {
-        TOutputGLSLBase::visitSymbol(node);
+        declareStruct(structure);
+        objSink() << ";\n";
     }
 }
-
 }  // namespace sh

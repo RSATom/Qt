@@ -2,15 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/builtins/builtins-conversion-gen.h"
-
 #include "src/builtins/builtins-utils-gen.h"
 #include "src/builtins/builtins.h"
 #include "src/code-factory.h"
+#include "src/code-stub-assembler.h"
 #include "src/objects-inl.h"
+#include "src/objects/oddball.h"
 
 namespace v8 {
 namespace internal {
+
+class ConversionBuiltinsAssembler : public CodeStubAssembler {
+ public:
+  explicit ConversionBuiltinsAssembler(compiler::CodeAssemblerState* state)
+      : CodeStubAssembler(state) {}
+
+ protected:
+  void Generate_NonPrimitiveToPrimitive(Node* context, Node* input,
+                                        ToPrimitiveHint hint);
+
+  void Generate_OrdinaryToPrimitive(Node* context, Node* input,
+                                    OrdinaryToPrimitiveHint hint);
+};
 
 // ES6 section 7.1.1 ToPrimitive ( input [ , PreferredType ] )
 void ConversionBuiltinsAssembler::Generate_NonPrimitiveToPrimitive(
@@ -21,9 +34,7 @@ void ConversionBuiltinsAssembler::Generate_NonPrimitiveToPrimitive(
 
   // Check if {exotic_to_prim} is neither null nor undefined.
   Label ordinary_to_primitive(this);
-  GotoIf(WordEqual(exotic_to_prim, NullConstant()), &ordinary_to_primitive);
-  GotoIf(WordEqual(exotic_to_prim, UndefinedConstant()),
-         &ordinary_to_primitive);
+  GotoIf(IsNullOrUndefined(exotic_to_prim), &ordinary_to_primitive);
   {
     // Invoke the {exotic_to_prim} method on the {input} with a string
     // representation of the {hint}.
@@ -38,10 +49,8 @@ void ConversionBuiltinsAssembler::Generate_NonPrimitiveToPrimitive(
         if_resultisnotprimitive(this, Label::kDeferred);
     GotoIf(TaggedIsSmi(result), &if_resultisprimitive);
     Node* result_instance_type = LoadInstanceType(result);
-    STATIC_ASSERT(FIRST_PRIMITIVE_TYPE == FIRST_TYPE);
-    Branch(Int32LessThanOrEqual(result_instance_type,
-                                Int32Constant(LAST_PRIMITIVE_TYPE)),
-           &if_resultisprimitive, &if_resultisnotprimitive);
+    Branch(IsPrimitiveInstanceType(result_instance_type), &if_resultisprimitive,
+           &if_resultisnotprimitive);
 
     BIND(&if_resultisprimitive);
     {
@@ -52,7 +61,7 @@ void ConversionBuiltinsAssembler::Generate_NonPrimitiveToPrimitive(
     BIND(&if_resultisnotprimitive);
     {
       // Somehow the @@toPrimitive method on {input} didn't yield a primitive.
-      TailCallRuntime(Runtime::kThrowCannotConvertToPrimitive, context);
+      ThrowTypeError(context, MessageTemplate::kCannotConvertToPrimitive);
     }
   }
 
@@ -89,17 +98,71 @@ TF_BUILTIN(NonPrimitiveToPrimitive_String, ConversionBuiltinsAssembler) {
 }
 
 TF_BUILTIN(StringToNumber, CodeStubAssembler) {
-  Node* context = Parameter(Descriptor::kContext);
-  Node* input = Parameter(Descriptor::kArgument);
+  TNode<String> input = CAST(Parameter(Descriptor::kArgument));
 
-  Return(StringToNumber(context, input));
+  Return(StringToNumber(input));
 }
 
 TF_BUILTIN(ToName, CodeStubAssembler) {
   Node* context = Parameter(Descriptor::kContext);
   Node* input = Parameter(Descriptor::kArgument);
 
-  Return(ToName(context, input));
+  VARIABLE(var_input, MachineRepresentation::kTagged, input);
+  Label loop(this, &var_input);
+  Goto(&loop);
+  BIND(&loop);
+  {
+    // Load the current {input} value.
+    Node* input = var_input.value();
+
+    // Dispatch based on the type of the {input.}
+    Label if_inputisbigint(this), if_inputisname(this), if_inputisnumber(this),
+        if_inputisoddball(this), if_inputisreceiver(this, Label::kDeferred);
+    GotoIf(TaggedIsSmi(input), &if_inputisnumber);
+    Node* input_instance_type = LoadInstanceType(input);
+    STATIC_ASSERT(FIRST_NAME_TYPE == FIRST_TYPE);
+    GotoIf(IsNameInstanceType(input_instance_type), &if_inputisname);
+    GotoIf(IsJSReceiverInstanceType(input_instance_type), &if_inputisreceiver);
+    GotoIf(IsHeapNumberInstanceType(input_instance_type), &if_inputisnumber);
+    Branch(IsBigIntInstanceType(input_instance_type), &if_inputisbigint,
+           &if_inputisoddball);
+
+    BIND(&if_inputisbigint);
+    {
+      // We don't have a fast-path for BigInt currently, so just
+      // tail call to the %ToString runtime function here for now.
+      TailCallRuntime(Runtime::kToString, context, input);
+    }
+
+    BIND(&if_inputisname);
+    {
+      // The {input} is already a Name.
+      Return(input);
+    }
+
+    BIND(&if_inputisnumber);
+    {
+      // Convert the String {input} to a Number.
+      TailCallBuiltin(Builtins::kNumberToString, context, input);
+    }
+
+    BIND(&if_inputisoddball);
+    {
+      // Just return the {input}'s string representation.
+      CSA_ASSERT(this, IsOddballInstanceType(input_instance_type));
+      Return(LoadObjectField(input, Oddball::kToStringOffset));
+    }
+
+    BIND(&if_inputisreceiver);
+    {
+      // Convert the JSReceiver {input} to a primitive first,
+      // and then run the loop again with the new {input},
+      // which is then a primitive value.
+      var_input.Bind(CallBuiltin(Builtins::kNonPrimitiveToPrimitive_String,
+                                 context, input));
+      Goto(&loop);
+    }
+  }
 }
 
 TF_BUILTIN(NonNumberToNumber, CodeStubAssembler) {
@@ -107,6 +170,22 @@ TF_BUILTIN(NonNumberToNumber, CodeStubAssembler) {
   Node* input = Parameter(Descriptor::kArgument);
 
   Return(NonNumberToNumber(context, input));
+}
+
+TF_BUILTIN(NonNumberToNumeric, CodeStubAssembler) {
+  Node* context = Parameter(Descriptor::kContext);
+  Node* input = Parameter(Descriptor::kArgument);
+
+  Return(NonNumberToNumeric(context, input));
+}
+
+TF_BUILTIN(ToNumeric, CodeStubAssembler) {
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+  TNode<Object> input = CAST(Parameter(Descriptor::kArgument));
+
+  Return(Select<Numeric>(
+      IsNumber(input), [=] { return CAST(input); },
+      [=] { return NonNumberToNumeric(context, CAST(input)); }));
 }
 
 // ES6 section 7.1.3 ToNumber ( argument )
@@ -117,61 +196,27 @@ TF_BUILTIN(ToNumber, CodeStubAssembler) {
   Return(ToNumber(context, input));
 }
 
+// Like ToNumber, but also converts BigInts.
+TF_BUILTIN(ToNumberConvertBigInt, CodeStubAssembler) {
+  Node* context = Parameter(Descriptor::kContext);
+  Node* input = Parameter(Descriptor::kArgument);
+
+  Return(ToNumber(context, input, BigIntHandling::kConvertToNumber));
+}
+
+// ES section #sec-tostring-applied-to-the-number-type
+TF_BUILTIN(NumberToString, CodeStubAssembler) {
+  TNode<Number> input = CAST(Parameter(Descriptor::kArgument));
+
+  Return(NumberToString(input));
+}
+
+// ES section #sec-tostring
 TF_BUILTIN(ToString, CodeStubAssembler) {
   Node* context = Parameter(Descriptor::kContext);
   Node* input = Parameter(Descriptor::kArgument);
 
   Return(ToString(context, input));
-}
-
-// ES6 section 7.1.1 ToPrimitive( argument, "default" ) followed by
-// ES6 section 7.1.12 ToString ( argument )
-compiler::Node* ConversionBuiltinsAssembler::ToPrimitiveToString(
-    Node* context, Node* input, Variable* feedback) {
-  Label is_string(this), to_primitive(this, Label::kDeferred),
-      to_string(this, Label::kDeferred), done(this);
-  VARIABLE(result, MachineRepresentation::kTagged, input);
-
-  GotoIf(TaggedIsSmi(input), &to_string);
-  GotoIf(IsString(input), &is_string);
-  BranchIfJSReceiver(input, &to_primitive, &to_string);
-
-  BIND(&to_primitive);
-  {
-    Callable callable = CodeFactory::NonPrimitiveToPrimitive(isolate());
-    result.Bind(CallStub(callable, context, input));
-    Goto(&to_string);
-  }
-
-  BIND(&to_string);
-  {
-    if (feedback) {
-      feedback->Bind(SmiConstant(BinaryOperationFeedback::kAny));
-    }
-    result.Bind(CallBuiltin(Builtins::kToString, context, result.value()));
-    Goto(&done);
-  }
-
-  BIND(&is_string);
-  {
-    if (feedback) {
-      feedback->Bind(
-          SelectSmiConstant(WordEqual(input, EmptyStringConstant()),
-                            BinaryOperationFeedback::kString,
-                            BinaryOperationFeedback::kNonEmptyString));
-    }
-    Goto(&done);
-  }
-
-  BIND(&done);
-  return result.value();
-}
-
-TF_BUILTIN(ToPrimitiveToString, ConversionBuiltinsAssembler) {
-  Node* context = Parameter(Descriptor::kContext);
-  Node* input = Parameter(Descriptor::kArgument);
-
-  Return(ToPrimitiveToString(context, input));
 }
 
 // 7.1.1.1 OrdinaryToPrimitive ( O, hint )
@@ -214,10 +259,7 @@ void ConversionBuiltinsAssembler::Generate_OrdinaryToPrimitive(
       // Return the {result} if it is a primitive.
       GotoIf(TaggedIsSmi(result), &return_result);
       Node* result_instance_type = LoadInstanceType(result);
-      STATIC_ASSERT(FIRST_PRIMITIVE_TYPE == FIRST_TYPE);
-      GotoIf(Int32LessThanOrEqual(result_instance_type,
-                                  Int32Constant(LAST_PRIMITIVE_TYPE)),
-             &return_result);
+      GotoIf(IsPrimitiveInstanceType(result_instance_type), &return_result);
     }
 
     // Just continue with the next {name} if the {method} is not callable.
@@ -225,7 +267,7 @@ void ConversionBuiltinsAssembler::Generate_OrdinaryToPrimitive(
     BIND(&if_methodisnotcallable);
   }
 
-  TailCallRuntime(Runtime::kThrowCannotConvertToPrimitive, context);
+  ThrowTypeError(context, MessageTemplate::kCannotConvertToPrimitive);
 
   BIND(&return_result);
   Return(var_result.value());
@@ -253,10 +295,10 @@ TF_BUILTIN(ToBoolean, CodeStubAssembler) {
   BranchIfToBooleanIsTrue(value, &return_true, &return_false);
 
   BIND(&return_true);
-  Return(BooleanConstant(true));
+  Return(TrueConstant());
 
   BIND(&return_false);
-  Return(BooleanConstant(false));
+  Return(FalseConstant());
 }
 
 // ES6 section 7.1.2 ToBoolean ( argument )
@@ -269,10 +311,10 @@ TF_BUILTIN(ToBooleanLazyDeoptContinuation, CodeStubAssembler) {
   BranchIfToBooleanIsTrue(value, &return_true, &return_false);
 
   BIND(&return_true);
-  Return(BooleanConstant(true));
+  Return(TrueConstant());
 
   BIND(&return_false);
-  Return(BooleanConstant(false));
+  Return(FalseConstant());
 }
 
 TF_BUILTIN(ToLength, CodeStubAssembler) {
@@ -345,12 +387,19 @@ TF_BUILTIN(ToInteger, CodeStubAssembler) {
   Node* context = Parameter(Descriptor::kContext);
   Node* input = Parameter(Descriptor::kArgument);
 
-  Return(ToInteger(context, input));
+  Return(ToInteger(context, input, kNoTruncation));
+}
+
+TF_BUILTIN(ToInteger_TruncateMinusZero, CodeStubAssembler) {
+  Node* context = Parameter(Descriptor::kContext);
+  Node* input = Parameter(Descriptor::kArgument);
+
+  Return(ToInteger(context, input, kTruncateMinusZero));
 }
 
 // ES6 section 7.1.13 ToObject (argument)
 TF_BUILTIN(ToObject, CodeStubAssembler) {
-  Label if_number(this, Label::kDeferred), if_notsmi(this), if_jsreceiver(this),
+  Label if_smi(this, Label::kDeferred), if_jsreceiver(this),
       if_noconstructor(this, Label::kDeferred), if_wrapjsvalue(this);
 
   Node* context = Parameter(Descriptor::kContext);
@@ -359,13 +408,9 @@ TF_BUILTIN(ToObject, CodeStubAssembler) {
   VARIABLE(constructor_function_index_var,
            MachineType::PointerRepresentation());
 
-  Branch(TaggedIsSmi(object), &if_number, &if_notsmi);
+  GotoIf(TaggedIsSmi(object), &if_smi);
 
-  BIND(&if_notsmi);
   Node* map = LoadMap(object);
-
-  GotoIf(IsHeapNumberMap(map), &if_number);
-
   Node* instance_type = LoadMapInstanceType(map);
   GotoIf(IsJSReceiverInstanceType(instance_type), &if_jsreceiver);
 
@@ -376,44 +421,37 @@ TF_BUILTIN(ToObject, CodeStubAssembler) {
   constructor_function_index_var.Bind(constructor_function_index);
   Goto(&if_wrapjsvalue);
 
-  BIND(&if_number);
+  BIND(&if_smi);
   constructor_function_index_var.Bind(
       IntPtrConstant(Context::NUMBER_FUNCTION_INDEX));
   Goto(&if_wrapjsvalue);
 
   BIND(&if_wrapjsvalue);
-  Node* native_context = LoadNativeContext(context);
-  Node* constructor = LoadFixedArrayElement(
+  TNode<Context> native_context = LoadNativeContext(context);
+  Node* constructor = LoadContextElement(
       native_context, constructor_function_index_var.value());
   Node* initial_map =
       LoadObjectField(constructor, JSFunction::kPrototypeOrInitialMapOffset);
   Node* js_value = Allocate(JSValue::kSize);
   StoreMapNoWriteBarrier(js_value, initial_map);
   StoreObjectFieldRoot(js_value, JSValue::kPropertiesOrHashOffset,
-                       Heap::kEmptyFixedArrayRootIndex);
+                       RootIndex::kEmptyFixedArray);
   StoreObjectFieldRoot(js_value, JSObject::kElementsOffset,
-                       Heap::kEmptyFixedArrayRootIndex);
+                       RootIndex::kEmptyFixedArray);
   StoreObjectField(js_value, JSValue::kValueOffset, object);
   Return(js_value);
 
   BIND(&if_noconstructor);
-  TailCallRuntime(Runtime::kThrowUndefinedOrNullToObject, context,
-                  StringConstant("ToObject"));
+  ThrowTypeError(context, MessageTemplate::kUndefinedOrNullToObject,
+                 "ToObject");
 
   BIND(&if_jsreceiver);
   Return(object);
 }
 
-// Deprecated ES5 [[Class]] internal property (used to implement %_ClassOf).
-TF_BUILTIN(ClassOf, CodeStubAssembler) {
-  Node* object = Parameter(TypeofDescriptor::kObject);
-
-  Return(ClassOf(object));
-}
-
 // ES6 section 12.5.5 typeof operator
 TF_BUILTIN(Typeof, CodeStubAssembler) {
-  Node* object = Parameter(TypeofDescriptor::kObject);
+  Node* object = Parameter(Descriptor::kObject);
 
   Return(Typeof(object));
 }

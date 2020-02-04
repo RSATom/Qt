@@ -53,29 +53,29 @@ Polymer({
   /** @override */
   attached: function() {
     this.browserProxy_ = settings.ImportDataBrowserProxyImpl.getInstance();
-    this.browserProxy_.initializeImportDialog().then(
-        /** @param {!Array<!settings.BrowserProfile>} data */
-        function(data) {
-          this.browserProfiles_ = data;
-          this.selected_ = this.browserProfiles_[0];
+    this.browserProxy_.initializeImportDialog().then(data => {
+      this.browserProfiles_ = data;
+      this.selected_ = this.browserProfiles_[0];
 
-          // Show the dialog only after the browser profiles data is populated
-          // to avoid UI flicker.
-          this.$.dialog.showModal();
-        }.bind(this));
+      // Show the dialog only after the browser profiles data is populated
+      // to avoid UI flicker.
+      this.$.dialog.showModal();
+    });
 
-    this.addWebUIListener(
-        'import-data-status-changed',
-        /** @param {settings.ImportDataStatus} importStatus */
-        function(importStatus) {
-          this.importStatus_ = importStatus;
-          if (this.hasImportStatus_(settings.ImportDataStatus.FAILED))
-            this.closeDialog_();
-        }.bind(this));
+    this.addWebUIListener('import-data-status-changed', importStatus => {
+      this.importStatus_ = importStatus;
+      if (this.hasImportStatus_(settings.ImportDataStatus.FAILED)) {
+        this.closeDialog_();
+      }
+    });
   },
 
   /** @private */
   prefsChanged_: function() {
+    if (this.selected_ == undefined || this.prefs == undefined) {
+      return;
+    }
+
     this.noImportDataTypeSelected_ =
         !(this.getPref('import_dialog_history').value &&
           this.selected_.history) &&
@@ -121,10 +121,11 @@ Polymer({
 
   /** @private */
   onActionButtonTap_: function() {
-    if (this.isImportFromFileSelected_())
+    if (this.isImportFromFileSelected_()) {
       this.browserProxy_.importFromBookmarksFile();
-    else
+    } else {
       this.browserProxy_.importData(this.$.browserSelect.selectedIndex);
+    }
   },
 
   /** @private */

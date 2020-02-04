@@ -24,6 +24,7 @@
 #define png_calculate_crc cr_png_calculate_crc
 #define png_calloc cr_png_calloc
 #define png_check_IHDR cr_png_check_IHDR
+#define png_check_chunk_length cr_png_check_chunk_length
 #define png_check_chunk_name cr_png_check_chunk_name
 #define png_check_fp_number cr_png_check_fp_number
 #define png_check_fp_string cr_png_check_fp_string
@@ -129,6 +130,8 @@
 #define png_get_copyright cr_png_get_copyright
 #define png_get_current_pass_number cr_png_get_current_pass_number
 #define png_get_current_row_number cr_png_get_current_row_number
+#define png_get_eXIf cr_png_get_eXIf
+#define png_get_eXIf_1 cr_png_get_eXIf_1
 #define png_get_error_ptr cr_png_get_error_ptr
 #define png_get_filter_type cr_png_get_filter_type
 #define png_get_gAMA cr_png_get_gAMA
@@ -335,6 +338,8 @@
 #define png_set_compression_strategy cr_png_set_compression_strategy
 #define png_set_compression_window_bits cr_png_set_compression_window_bits
 #define png_set_crc_action cr_png_set_crc_action
+#define png_set_eXIf cr_png_set_eXIf
+#define png_set_eXIf_1 cr_png_set_eXIf_1
 #define png_set_error_fn cr_png_set_error_fn
 #define png_set_expand cr_png_set_expand
 #define png_set_expand_16 cr_png_set_expand_16
@@ -451,6 +456,7 @@
 #define png_write_zTXt cr_png_write_zTXt
 #define png_zalloc cr_png_zalloc
 #define png_zfree cr_png_zfree
+#define png_zlib_inflate cr_png_zlib_inflate
 #define png_zstream_error cr_png_zstream_error
 
 #endif  // PNGPREFIX_H

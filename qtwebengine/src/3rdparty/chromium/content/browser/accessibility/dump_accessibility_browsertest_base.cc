@@ -23,7 +23,7 @@
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/accessibility/browser_accessibility_state_impl.h"
-#include "content/browser/frame_host/render_widget_host_view_child_frame.h"
+#include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_paths.h"
@@ -52,9 +52,15 @@ const char kSignalDiff[] = "*";
 // that represents a fully loaded web document with the given url.
 bool AccessibilityTreeContainsLoadedDocWithUrl(BrowserAccessibility* node,
                                                const std::string& url) {
-  if ((node->GetRole() == ui::AX_ROLE_WEB_AREA ||
-       node->GetRole() == ui::AX_ROLE_ROOT_WEB_AREA) &&
-      node->GetStringAttribute(ui::AX_ATTR_URL) == url) {
+  if (node->GetRole() == ax::mojom::Role::kRootWebArea &&
+      node->GetStringAttribute(ax::mojom::StringAttribute::kUrl) == url) {
+    // Ensure the doc has finished loading and has a non-zero size.
+    return node->manager()->GetTreeData().loaded &&
+           (node->GetData().relative_bounds.bounds.width() > 0 &&
+            node->GetData().relative_bounds.bounds.height() > 0);
+  }
+  if (node->GetRole() == ax::mojom::Role::kWebArea &&
+      node->GetStringAttribute(ax::mojom::StringAttribute::kUrl) == url) {
     // Ensure the doc has finished loading.
     return node->manager()->GetTreeData().loaded;
   }
@@ -135,8 +141,8 @@ std::vector<int> DumpAccessibilityTestBase::DiffLines(
 
 void DumpAccessibilityTestBase::ParseHtmlForExtraDirectives(
     const std::string& test_html,
-    std::vector<Filter>* filters,
-    std::vector<std::string>* wait_for) {
+    std::vector<std::string>* wait_for,
+    std::vector<std::string>* run_until) {
   for (const std::string& line :
        base::SplitString(test_html, "\n", base::TRIM_WHITESPACE,
                          base::SPLIT_WANT_ALL)) {
@@ -144,32 +150,36 @@ void DumpAccessibilityTestBase::ParseHtmlForExtraDirectives(
     const std::string& allow_str = formatter_->GetAllowString();
     const std::string& deny_str = formatter_->GetDenyString();
     const std::string& wait_str = "@WAIT-FOR:";
+    const std::string& until_str = "@RUN-UNTIL-EVENT:";
     if (base::StartsWith(line, allow_empty_str,
                          base::CompareCase::SENSITIVE)) {
-      filters->push_back(
+      filters_.push_back(
           Filter(base::UTF8ToUTF16(line.substr(allow_empty_str.size())),
                  Filter::ALLOW_EMPTY));
     } else if (base::StartsWith(line, allow_str,
                                 base::CompareCase::SENSITIVE)) {
-      filters->push_back(Filter(base::UTF8ToUTF16(
+      filters_.push_back(Filter(base::UTF8ToUTF16(
           line.substr(allow_str.size())),
                                 Filter::ALLOW));
     } else if (base::StartsWith(line, deny_str,
                                 base::CompareCase::SENSITIVE)) {
-      filters->push_back(Filter(base::UTF8ToUTF16(
+      filters_.push_back(Filter(base::UTF8ToUTF16(
           line.substr(deny_str.size())),
                                 Filter::DENY));
     } else if (base::StartsWith(line, wait_str,
                                 base::CompareCase::SENSITIVE)) {
       wait_for->push_back(line.substr(wait_str.size()));
+    } else if (base::StartsWith(line, until_str,
+                                base::CompareCase::SENSITIVE)) {
+      run_until->push_back(line.substr(until_str.size()));
     }
   }
 }
 
-AccessibilityTreeFormatter*
-    DumpAccessibilityTestBase::CreateAccessibilityTreeFormatter() {
+std::unique_ptr<AccessibilityTreeFormatter>
+DumpAccessibilityTestBase::CreateAccessibilityTreeFormatter() {
   if (is_blink_pass_)
-    return new AccessibilityTreeFormatterBlink();
+    return std::make_unique<AccessibilityTreeFormatterBlink>();
   else
     return AccessibilityTreeFormatter::Create();
 }
@@ -188,7 +198,7 @@ void DumpAccessibilityTestBase::RunTest(
 
 void DumpAccessibilityTestBase::RunTestForPlatform(
     const base::FilePath file_path, const char* file_dir) {
-  formatter_.reset(CreateAccessibilityTreeFormatter());
+  formatter_ = CreateAccessibilityTreeFormatter();
 
   // Disable the "hot tracked" state (set when the mouse is hovering over
   // an object) because it makes test output change based on the mouse position.
@@ -207,7 +217,7 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
   base::FilePath expected_file;
   std::string expected_contents_raw;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_test_setup;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     base::ReadFileToString(file_path, &html_contents);
 
     // Read the expected file.
@@ -248,9 +258,10 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
 
   // Parse filters and other directives in the test file.
   std::vector<std::string> wait_for;
+  std::vector<std::string> run_until;
   filters_.clear();
   AddDefaultFilters(&filters_);
-  ParseHtmlForExtraDirectives(html_contents, &filters_, &wait_for);
+  ParseHtmlForExtraDirectives(html_contents, &wait_for, &run_until);
 
   // Get the test URL.
   GURL url(embedded_test_server()->GetURL(
@@ -263,13 +274,13 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
     // Load the url, then enable accessibility.
     NavigateToURL(shell(), url);
     AccessibilityNotificationWaiter accessibility_waiter(
-        web_contents, kAccessibilityModeComplete, ui::AX_EVENT_NONE);
+        web_contents, ui::kAXModeComplete, ax::mojom::Event::kNone);
     accessibility_waiter.WaitForNotification();
   } else {
     // Enable accessibility, then load the test html and wait for the
     // "load complete" AX event.
     AccessibilityNotificationWaiter accessibility_waiter(
-        web_contents, kAccessibilityModeComplete, ui::AX_EVENT_LOAD_COMPLETE);
+        web_contents, ui::kAXModeComplete, ax::mojom::Event::kLoadComplete);
     NavigateToURL(shell(), url);
     accessibility_waiter.WaitForNotification();
   }
@@ -340,15 +351,17 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
 
     // Block until the next accessibility notification in any frame.
     VLOG(1) << "Waiting until the next accessibility event";
-    AccessibilityNotificationWaiter accessibility_waiter(main_frame,
-                                                         ui::AX_EVENT_NONE);
+    AccessibilityNotificationWaiter accessibility_waiter(
+        main_frame, ax::mojom::Event::kNone);
     for (FrameTreeNode* node : frame_tree->Nodes())
       accessibility_waiter.ListenToAdditionalFrame(node->current_frame_host());
     accessibility_waiter.WaitForNotification();
   }
 
   // Call the subclass to dump the output.
-  std::vector<std::string> actual_lines = Dump();
+  std::vector<std::string> actual_lines = Dump(run_until);
+  std::string actual_contents_for_output =
+      base::JoinString(actual_lines, "\n") + "\n";
 
   // Perform a diff (or write the initial baseline).
   std::vector<std::string> expected_lines = base::SplitString(
@@ -388,18 +401,17 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
     diff += "------\n";
     diff += actual_contents;
     LOG(ERROR) << "Diff:\n" << diff;
-
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kGenerateAccessibilityTestExpectations)) {
-      base::ThreadRestrictions::ScopedAllowIO allow_io_to_write_expected_file;
-      CHECK(base::WriteFile(expected_file, actual_contents.c_str(),
-                            actual_contents.size()) ==
-            static_cast<int>(actual_contents.size()));
-      LOG(INFO) << "Wrote expectations to: "
-                << expected_file.LossyDisplayName();
-    }
   } else {
     LOG(INFO) << "Test output matches expectations.";
+  }
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kGenerateAccessibilityTestExpectations)) {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    CHECK(base::WriteFile(expected_file, actual_contents_for_output.c_str(),
+                          actual_contents_for_output.size()) ==
+          static_cast<int>(actual_contents_for_output.size()));
+    LOG(INFO) << "Wrote expectations to: " << expected_file.LossyDisplayName();
   }
 }
 

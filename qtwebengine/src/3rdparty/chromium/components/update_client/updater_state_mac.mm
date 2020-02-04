@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 #import <Foundation/Foundation.h>
-#import <OpenDirectory/OpenDirectory.h>
 
+#include "base/enterprise_util.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/mac/foundation_util.h"
@@ -114,68 +114,6 @@ bool UpdaterState::IsAutoupdateCheckEnabled() {
 
 int UpdaterState::GetUpdatePolicy() {
   return -1;  // Keystone does not support update policies.
-}
-
-bool UpdaterState::IsEnterpriseManaged() {
-  base::mac::ScopedNSAutoreleasePool scoped_pool;
-
-  ODSession* session = [ODSession defaultSession];
-  if (session == nil) {
-    DLOG(WARNING) << "ODSession defult session is nil.";
-    return false;
-  }
-
-  NSError* error = nil;
-  ODNode* node = [ODNode nodeWithSession:session
-                                    type:kODNodeTypeAuthentication
-                                   error:&error];
-  if (node == nil) {
-    DLOG(WARNING) << "ODSession cannot obtain the authentication node: "
-        << base::mac::NSToCFCast(error);
-    return false;
-  }
-
-  ODQuery* query = [ODQuery queryWithNode:node
-                           forRecordTypes:kODRecordTypeUsers
-                                attribute:kODAttributeTypeRecordName
-                                matchType:kODMatchEqualTo
-                              queryValues:NSUserName()
-                         returnAttributes:kODAttributeTypeAllAttributes
-                           maximumResults:0
-                                    error:&error];
-  if (query == nil) {
-    DLOG(WARNING) << "ODSession cannot create user query: "
-        << base::mac::NSToCFCast(error);
-    return false;
-  }
-
-  NSArray* results = [query resultsAllowingPartial:NO error:&error];
-  if (!results) {
-    DLOG(WARNING) << "ODSession cannot obtain current user node: "
-        << base::mac::NSToCFCast(error);
-    return false;
-  }
-  if (results.count != 1) {
-    DLOG(WARNING) << @"ODSession unexpected number of nodes: "
-        << results.count;
-  }
-  for (id element in results) {
-    ODRecord* record = base::mac::ObjCCastStrict<ODRecord>(element);
-    NSArray* attributes =
-        [record valuesForAttribute:kODAttributeTypeMetaRecordName
-                             error:NULL];
-    for (id attribute in attributes) {
-      NSString* attribute_value =
-          base::mac::ObjCCastStrict<NSString>(attribute);
-      // Example: "uid=johnsmith,ou=People,dc=chromium,dc=org
-      NSRange dc = [attribute_value rangeOfString:@"(^|,)\\s*dc="
-                                          options:NSRegularExpressionSearch];
-      if (dc.length > 0) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 }  // namespace update_client

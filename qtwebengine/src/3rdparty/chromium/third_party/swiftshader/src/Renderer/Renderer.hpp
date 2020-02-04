@@ -29,18 +29,13 @@
 namespace sw
 {
 	class Clipper;
+	struct DrawCall;
 	class PixelShader;
 	class VertexShader;
 	class SwiftConfig;
 	struct Task;
 	class Resource;
-	class Renderer;
 	struct Constants;
-
-	extern int batchSize;
-	extern int threadCount;
-	extern int unitCount;
-	extern int clusterCount;
 
 	enum TranscendentalPrecision
 	{
@@ -65,6 +60,7 @@ namespace sw
 		bool fullPixelPositionRegister;
 		bool leadingVertexFirst;
 		bool secondaryColor;
+		bool colorsDefaultToZero;
 	};
 
 	static const Conventions OpenGL =
@@ -74,7 +70,8 @@ namespace sw
 		true,    // booleanFaceRegister
 		true,    // fullPixelPositionRegister
 		false,   // leadingVertexFirst
-		false    // secondaryColor
+		false,   // secondaryColor
+		true,    // colorsDefaultToZero
 	};
 
 	static const Conventions Direct3D =
@@ -85,32 +82,42 @@ namespace sw
 		false,   // fullPixelPositionRegister
 		true,    // leadingVertexFirst
 		true,    // secondardyColor
+		false,   // colorsDefaultToZero
 	};
 
 	struct Query
 	{
 		enum Type { FRAGMENTS_PASSED, TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN };
 
-		Query(Type type) : building(false), reference(0), data(0), type(type)
-		{
-		}
+		Query(Type type);
 
-		void begin()
+		void addRef();
+		void release();
+
+		inline void begin()
 		{
 			building = true;
 			data = 0;
 		}
 
-		void end()
+		inline void end()
 		{
 			building = false;
 		}
 
+		inline bool isReady() const
+		{
+			return (reference == 1);
+		}
+
 		bool building;
-		volatile int reference;
-		volatile unsigned int data;
+		AtomicInt data;
 
 		const Type type;
+	private:
+		~Query() {} // Only delete a query within the release() function
+
+		AtomicInt reference;
 	};
 
 	struct DrawData
@@ -204,55 +211,6 @@ namespace sw
 		float4 a2c3;
 	};
 
-	struct DrawCall
-	{
-		DrawCall();
-
-		~DrawCall();
-
-		DrawType drawType;
-		int batchSize;
-
-		Routine *vertexRoutine;
-		Routine *setupRoutine;
-		Routine *pixelRoutine;
-
-		VertexProcessor::RoutinePointer vertexPointer;
-		SetupProcessor::RoutinePointer setupPointer;
-		PixelProcessor::RoutinePointer pixelPointer;
-
-		int (Renderer::*setupPrimitives)(int batch, int count);
-		SetupProcessor::State setupState;
-
-		Resource *vertexStream[MAX_VERTEX_INPUTS];
-		Resource *indexBuffer;
-		Surface *renderTarget[RENDERTARGETS];
-		Surface *depthBuffer;
-		Surface *stencilBuffer;
-		Resource *texture[TOTAL_IMAGE_UNITS];
-		Resource* pUniformBuffers[MAX_UNIFORM_BUFFER_BINDINGS];
-		Resource* vUniformBuffers[MAX_UNIFORM_BUFFER_BINDINGS];
-		Resource* transformFeedbackBuffers[MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS];
-
-		int vsDirtyConstF;
-		int vsDirtyConstI;
-		int vsDirtyConstB;
-
-		int psDirtyConstF;
-		int psDirtyConstI;
-		int psDirtyConstB;
-
-		std::list<Query*> *queries;
-
-		int clipFlags;
-
-		volatile int primitive;    // Current primitive to enter pipeline
-		volatile int count;        // Number of primitives to render
-		volatile int references;   // Remaining references to this draw call, 0 when done drawing, -1 when resources unlocked and slot is free
-
-		DrawData *data;
-	};
-
 	struct Viewport
 	{
 		float x0;
@@ -276,9 +234,9 @@ namespace sw
 				SUSPEND
 			};
 
-			volatile Type type;
-			volatile int primitiveUnit;
-			volatile int pixelCluster;
+			AtomicInt type;
+			AtomicInt primitiveUnit;
+			AtomicInt pixelCluster;
 		};
 
 		struct PrimitiveProgress
@@ -292,11 +250,11 @@ namespace sw
 				references = 0;
 			}
 
-			volatile int drawCall;
-			volatile int firstPrimitive;
-			volatile int primitiveCount;
-			volatile int visible;
-			volatile int references;
+			AtomicInt drawCall;
+			AtomicInt firstPrimitive;
+			AtomicInt primitiveCount;
+			AtomicInt visible;
+			AtomicInt references;
 		};
 
 		struct PixelProgress
@@ -308,9 +266,9 @@ namespace sw
 				executing = false;
 			}
 
-			volatile int drawCall;
-			volatile int processedPrimitives;
-			volatile bool executing;
+			AtomicInt drawCall;
+			AtomicInt processedPrimitives;
+			AtomicInt executing;
 		};
 
 	public:
@@ -323,8 +281,8 @@ namespace sw
 
 		void draw(DrawType drawType, unsigned int indexOffset, unsigned int count, bool update = true);
 
-		void clear(void* pixel, Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
-		void blit(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil = false);
+		void clear(void *value, Format format, Surface *dest, const Rect &rect, unsigned int rgbaMask);
+		void blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil = false, bool sRGBconversion = true);
 		void blit3D(Surface *source, Surface *dest);
 
 		void setIndexBuffer(Resource *indexBuffer);
@@ -350,10 +308,12 @@ namespace sw
 		void setSwizzleG(SamplerType type, int sampler, SwizzleType swizzleG);
 		void setSwizzleB(SamplerType type, int sampler, SwizzleType swizzleB);
 		void setSwizzleA(SamplerType type, int sampler, SwizzleType swizzleA);
+		void setCompareFunc(SamplerType type, int sampler, CompareFunc compare);
 		void setBaseLevel(SamplerType type, int sampler, int baseLevel);
 		void setMaxLevel(SamplerType type, int sampler, int maxLevel);
 		void setMinLod(SamplerType type, int sampler, float minLod);
 		void setMaxLod(SamplerType type, int sampler, float maxLod);
+		void setSyncRequired(SamplerType type, int sampler, bool syncRequired);
 
 		void setPointSpriteEnable(bool pointSpriteEnable);
 		void setPointScaleEnable(bool pointScaleEnable);
@@ -368,13 +328,13 @@ namespace sw
 		void setPixelShader(const PixelShader *shader);
 		void setVertexShader(const VertexShader *shader);
 
-		void setPixelShaderConstantF(int index, const float value[4], int count = 1);
-		void setPixelShaderConstantI(int index, const int value[4], int count = 1);
-		void setPixelShaderConstantB(int index, const int *boolean, int count = 1);
+		void setPixelShaderConstantF(unsigned int index, const float value[4], unsigned int count = 1);
+		void setPixelShaderConstantI(unsigned int index, const int value[4], unsigned int count = 1);
+		void setPixelShaderConstantB(unsigned int index, const int *boolean, unsigned int count = 1);
 
-		void setVertexShaderConstantF(int index, const float value[4], int count = 1);
-		void setVertexShaderConstantI(int index, const int value[4], int count = 1);
-		void setVertexShaderConstantB(int index, const int *boolean, int count = 1);
+		void setVertexShaderConstantF(unsigned int index, const float value[4], unsigned int count = 1);
+		void setVertexShaderConstantI(unsigned int index, const int value[4], unsigned int count = 1);
+		void setVertexShaderConstantB(unsigned int index, const int *boolean, unsigned int count = 1);
 
 		// Viewport & Clipper
 		void setViewport(const Viewport &viewport);
@@ -401,6 +361,8 @@ namespace sw
 			int64_t getPixelTime(int thread);
 			void resetTimers();
 		#endif
+
+		static int getClusterCount() { return clusterCount; }
 
 	private:
 		static void threadFunction(void *parameters);
@@ -446,8 +408,8 @@ namespace sw
 		Plane clipPlane[MAX_CLIP_PLANES];   // Tranformed to clip space
 		bool updateClipPlanes;
 
-		volatile bool exitThreads;
-		volatile int threadsAwake;
+		AtomicInt exitThreads;
+		AtomicInt threadsAwake;
 		Thread *worker[16];
 		Event *resume[16];         // Events for resuming threads
 		Event *suspend[16];        // Events for suspending threads
@@ -457,16 +419,26 @@ namespace sw
 		PixelProgress pixelProgress[16];
 		Task task[16];   // Current tasks for threads
 
-		enum {DRAW_COUNT = 16};   // Number of draw calls buffered
+		enum {
+			DRAW_COUNT = 16,   // Number of draw calls buffered (must be power of 2)
+			DRAW_COUNT_BITS = DRAW_COUNT - 1,
+		};
 		DrawCall *drawCall[DRAW_COUNT];
 		DrawCall *drawList[DRAW_COUNT];
 
-		volatile int currentDraw;
-		volatile int nextDraw;
+		AtomicInt currentDraw;
+		AtomicInt nextDraw;
 
-		Task taskQueue[32];
-		unsigned int qHead;
-		unsigned int qSize;
+		enum {
+			TASK_COUNT = 32,   // Size of the task queue (must be power of 2)
+			TASK_COUNT_BITS = TASK_COUNT - 1,
+		};
+		Task taskQueue[TASK_COUNT];
+		AtomicInt qHead;
+		AtomicInt qSize;
+
+		static AtomicInt unitCount;
+		static AtomicInt clusterCount;
 
 		MutexLock schedulerMutex;
 
@@ -490,6 +462,55 @@ namespace sw
 		Routine *vertexRoutine;
 		Routine *setupRoutine;
 		Routine *pixelRoutine;
+	};
+
+	struct DrawCall
+	{
+		DrawCall();
+
+		~DrawCall();
+
+		AtomicInt drawType;
+		AtomicInt batchSize;
+
+		Routine *vertexRoutine;
+		Routine *setupRoutine;
+		Routine *pixelRoutine;
+
+		VertexProcessor::RoutinePointer vertexPointer;
+		SetupProcessor::RoutinePointer setupPointer;
+		PixelProcessor::RoutinePointer pixelPointer;
+
+		int (Renderer::*setupPrimitives)(int batch, int count);
+		SetupProcessor::State setupState;
+
+		Resource *vertexStream[MAX_VERTEX_INPUTS];
+		Resource *indexBuffer;
+		Surface *renderTarget[RENDERTARGETS];
+		Surface *depthBuffer;
+		Surface *stencilBuffer;
+		Resource *texture[TOTAL_IMAGE_UNITS];
+		Resource* pUniformBuffers[MAX_UNIFORM_BUFFER_BINDINGS];
+		Resource* vUniformBuffers[MAX_UNIFORM_BUFFER_BINDINGS];
+		Resource* transformFeedbackBuffers[MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS];
+
+		unsigned int vsDirtyConstF;
+		unsigned int vsDirtyConstI;
+		unsigned int vsDirtyConstB;
+
+		unsigned int psDirtyConstF;
+		unsigned int psDirtyConstI;
+		unsigned int psDirtyConstB;
+
+		std::list<Query*> *queries;
+
+		AtomicInt clipFlags;
+
+		AtomicInt primitive;    // Current primitive to enter pipeline
+		AtomicInt count;        // Number of primitives to render
+		AtomicInt references;   // Remaining references to this draw call, 0 when done drawing, -1 when resources unlocked and slot is free
+
+		DrawData *data;
 	};
 }
 

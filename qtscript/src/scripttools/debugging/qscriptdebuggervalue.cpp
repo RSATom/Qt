@@ -327,7 +327,6 @@ bool QScriptDebuggerValue::operator!=(const QScriptDebuggerValue &other) const
 }
 
 /*!
-  \fn QDataStream &operator<<(QDataStream &stream, const QScriptDebuggerValue &value)
   \relates QScriptDebuggerValue
 
   Writes the given \a value to the specified \a stream.
@@ -357,7 +356,6 @@ QDataStream &operator<<(QDataStream &out, const QScriptDebuggerValue &value)
 }
 
 /*!
-  \fn QDataStream &operator>>(QDataStream &stream, QScriptDebuggerValue &value)
   \relates QScriptDebuggerValue
 
   Reads a QScriptDebuggerValue from the specified \a stream into the

@@ -8,9 +8,9 @@
 #include "base/android/jni_string.h"
 #include "content/browser/android/content_startup_flags.h"
 #include "content/browser/browser_main_loop.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 
-#include "jni/BrowserStartupController_jni.h"
+#include "jni/BrowserStartupControllerImpl_jni.h"
 
 using base::android::JavaParamRef;
 
@@ -18,33 +18,27 @@ namespace content {
 
 void BrowserStartupComplete(int result) {
   JNIEnv* env = base::android::AttachCurrentThread();
-  Java_BrowserStartupController_browserStartupComplete(env, result);
+  Java_BrowserStartupControllerImpl_browserStartupComplete(env, result);
+}
+
+void ServiceManagerStartupComplete() {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_BrowserStartupControllerImpl_serviceManagerStartupComplete(env);
 }
 
 bool ShouldStartGpuProcessOnBrowserStartup() {
   JNIEnv* env = base::android::AttachCurrentThread();
-  return Java_BrowserStartupController_shouldStartGpuProcessOnBrowserStartup(
+  return Java_BrowserStartupControllerImpl_shouldStartGpuProcessOnBrowserStartup(
       env);
 }
 
-bool RegisterBrowserStartupController(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
-static void SetCommandLineFlags(
+static void JNI_BrowserStartupControllerImpl_SetCommandLineFlags(
     JNIEnv* env,
-    const JavaParamRef<jclass>& clazz,
-    jboolean single_process,
-    const JavaParamRef<jstring>& plugin_descriptor) {
-  std::string plugin_str =
-      (plugin_descriptor == NULL
-           ? std::string()
-           : base::android::ConvertJavaStringToUTF8(env, plugin_descriptor));
-  SetContentCommandLineFlags(static_cast<bool>(single_process), plugin_str);
+    jboolean single_process) {
+  SetContentCommandLineFlags(static_cast<bool>(single_process));
 }
 
-static jboolean IsOfficialBuild(JNIEnv* env,
-                                const JavaParamRef<jclass>& clazz) {
+static jboolean JNI_BrowserStartupControllerImpl_IsOfficialBuild(JNIEnv* env) {
 #if defined(OFFICIAL_BUILD)
   return true;
 #else
@@ -52,16 +46,7 @@ static jboolean IsOfficialBuild(JNIEnv* env,
 #endif
 }
 
-static jboolean IsPluginEnabled(JNIEnv* env,
-                                const JavaParamRef<jclass>& clazz) {
-#if BUILDFLAG(ENABLE_PLUGINS)
-  return true;
-#else
-  return false;
-#endif
-}
-
-static void FlushStartupTasks(JNIEnv* env, const JavaParamRef<jclass>& clazz) {
+static void JNI_BrowserStartupControllerImpl_FlushStartupTasks(JNIEnv* env) {
   BrowserMainLoop::GetInstance()->SynchronouslyFlushStartupTasks();
 }
 

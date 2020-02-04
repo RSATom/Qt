@@ -21,77 +21,51 @@ DelegatedFrameHostClientAura::DelegatedFrameHostClientAura(
 DelegatedFrameHostClientAura::~DelegatedFrameHostClientAura() {}
 
 ui::Layer* DelegatedFrameHostClientAura::DelegatedFrameHostGetLayer() const {
-  return render_widget_host_view_->window_->layer();
+  return render_widget_host_view_->window()->layer();
 }
 
 bool DelegatedFrameHostClientAura::DelegatedFrameHostIsVisible() const {
-  return !render_widget_host_view_->host_->is_hidden();
+  return !render_widget_host_view_->host()->is_hidden();
 }
 
-SkColor DelegatedFrameHostClientAura::DelegatedFrameHostGetGutterColor(
-    SkColor color) const {
+SkColor DelegatedFrameHostClientAura::DelegatedFrameHostGetGutterColor() const {
   // When making an element on the page fullscreen the element's background
   // may not match the page's, so use black as the gutter color to avoid
   // flashes of brighter colors during the transition.
-  if (render_widget_host_view_->host_->delegate() &&
-      render_widget_host_view_->host_->delegate()
+  if (render_widget_host_view_->host()->delegate() &&
+      render_widget_host_view_->host()
+          ->delegate()
           ->IsFullscreenForCurrentTab()) {
     return SK_ColorBLACK;
   }
-  return color;
+  if (render_widget_host_view_->GetBackgroundColor())
+    return *render_widget_host_view_->GetBackgroundColor();
+  return SK_ColorWHITE;
 }
 
-gfx::Size DelegatedFrameHostClientAura::DelegatedFrameHostDesiredSizeInDIP()
-    const {
-  return render_widget_host_view_->window_->bounds().size();
+void DelegatedFrameHostClientAura::OnBeginFrame(base::TimeTicks frame_time) {
+  render_widget_host_view_->OnBeginFrame(frame_time);
 }
 
-bool DelegatedFrameHostClientAura::DelegatedFrameCanCreateResizeLock() const {
-#if !defined(OS_CHROMEOS)
-  // On Windows and Linux, holding pointer moves will not help throttling
-  // resizes.
-  // TODO(piman): on Windows we need to block (nested run loop?) the
-  // WM_SIZE event. On Linux we need to throttle at the WM level using
-  // _NET_WM_SYNC_REQUEST.
-  return false;
-#else
-  if (!render_widget_host_view_->host_->renderer_initialized() ||
-      render_widget_host_view_->host_->auto_resize_enabled()) {
-    return false;
-  }
-  return true;
-#endif
+void DelegatedFrameHostClientAura::OnFrameTokenChanged(uint32_t frame_token) {
+  render_widget_host_view_->OnFrameTokenChangedForView(frame_token);
 }
 
-std::unique_ptr<CompositorResizeLock>
-DelegatedFrameHostClientAura::DelegatedFrameHostCreateResizeLock() {
-  // Pointer moves are released when the CompositorResizeLock ends.
-  auto* host = render_widget_host_view_->window_->GetHost();
-  host->dispatcher()->HoldPointerMoves();
-
-  gfx::Size desired_size = render_widget_host_view_->window_->bounds().size();
-  return base::MakeUnique<CompositorResizeLock>(this, desired_size);
+float DelegatedFrameHostClientAura::GetDeviceScaleFactor() const {
+  return render_widget_host_view_->device_scale_factor_;
 }
 
-void DelegatedFrameHostClientAura::OnBeginFrame() {
-  render_widget_host_view_->OnBeginFrame();
+void DelegatedFrameHostClientAura::InvalidateLocalSurfaceIdOnEviction() {
+  render_widget_host_view_->InvalidateLocalSurfaceIdOnEviction();
 }
 
-bool DelegatedFrameHostClientAura::IsAutoResizeEnabled() const {
-  return render_widget_host_view_->host_->auto_resize_enabled();
+std::vector<viz::SurfaceId>
+DelegatedFrameHostClientAura::CollectSurfaceIdsForEviction() {
+  return render_widget_host_view_->host()->CollectSurfaceIdsForEviction();
 }
 
-std::unique_ptr<ui::CompositorLock>
-DelegatedFrameHostClientAura::GetCompositorLock(
-    ui::CompositorLockClient* client) {
-  auto* window_host = render_widget_host_view_->window_->GetHost();
-  return window_host->compositor()->GetCompositorLock(client);
-}
-
-void DelegatedFrameHostClientAura::CompositorResizeLockEnded() {
-  auto* window_host = render_widget_host_view_->window_->GetHost();
-  window_host->dispatcher()->ReleasePointerMoves();
-  render_widget_host_view_->host_->WasResized();
+bool DelegatedFrameHostClientAura::ShouldShowStaleContentOnEviction() {
+  return render_widget_host_view_->ShouldShowStaleContentOnEviction();
 }
 
 }  // namespace content

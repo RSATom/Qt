@@ -8,16 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/desktop_capture/mac/full_screen_chrome_window_detector.h"
+#include "modules/desktop_capture/mac/full_screen_chrome_window_detector.h"
 
-#include <assert.h>
 #include <libproc.h>
 #include <string>
 
-#include "webrtc/modules/desktop_capture/mac/window_list_utils.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/macutils.h"
-#include "webrtc/rtc_base/timeutils.h"
+#include "modules/desktop_capture/mac/window_list_utils.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/mac_utils.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -27,7 +26,7 @@ const int64_t kUpdateIntervalMs = 500;
 
 std::string GetWindowTitle(CGWindowID id) {
   CFArrayRef window_id_array =
-      CFArrayCreate(NULL, reinterpret_cast<const void **>(&id), 1, NULL);
+      CFArrayCreate(NULL, reinterpret_cast<const void**>(&id), 1, NULL);
   CFArrayRef window_array =
       CGWindowListCreateDescriptionFromArray(window_id_array);
   std::string title;
@@ -35,7 +34,7 @@ std::string GetWindowTitle(CGWindowID id) {
   if (window_array && CFArrayGetCount(window_array)) {
     CFDictionaryRef window = reinterpret_cast<CFDictionaryRef>(
         CFArrayGetValueAtIndex(window_array, 0));
-    CFStringRef title_ref =  reinterpret_cast<CFStringRef>(
+    CFStringRef title_ref = reinterpret_cast<CFStringRef>(
         CFDictionaryGetValue(window, kCGWindowName));
 
     if (title_ref)
@@ -49,7 +48,7 @@ std::string GetWindowTitle(CGWindowID id) {
 
 int GetWindowOwnerPid(CGWindowID id) {
   CFArrayRef window_id_array =
-      CFArrayCreate(NULL, reinterpret_cast<const void **>(&id), 1, NULL);
+      CFArrayCreate(NULL, reinterpret_cast<const void**>(&id), 1, NULL);
   CFArrayRef window_array =
       CGWindowListCreateDescriptionFromArray(window_id_array);
   int pid = 0;
@@ -57,7 +56,7 @@ int GetWindowOwnerPid(CGWindowID id) {
   if (window_array && CFArrayGetCount(window_array)) {
     CFDictionaryRef window = reinterpret_cast<CFDictionaryRef>(
         CFArrayGetValueAtIndex(window_array, 0));
-    CFNumberRef pid_ref =  reinterpret_cast<CFNumberRef>(
+    CFNumberRef pid_ref = reinterpret_cast<CFNumberRef>(
         CFDictionaryGetValue(window, kCGWindowOwnerPID));
 
     if (pid_ref)
@@ -97,7 +96,7 @@ CGWindowID FindFullScreenWindowWithSamePidAndTitle(CGWindowID id) {
         CFDictionaryGetValue(window, kCGWindowName));
     CFNumberRef window_id_ref = reinterpret_cast<CFNumberRef>(
         CFDictionaryGetValue(window, kCGWindowNumber));
-    CFNumberRef window_pid_ref =  reinterpret_cast<CFNumberRef>(
+    CFNumberRef window_pid_ref = reinterpret_cast<CFNumberRef>(
         CFDictionaryGetValue(window, kCGWindowOwnerPID));
 
     if (!window_title_ref || !window_id_ref || !window_pid_ref)
@@ -141,13 +140,13 @@ bool IsChromeWindow(CGWindowID id) {
 }  // namespace
 
 FullScreenChromeWindowDetector::FullScreenChromeWindowDetector()
-    : ref_count_(0), last_update_time_ns_(0) {}
+    : last_update_time_ns_(0) {}
 
 FullScreenChromeWindowDetector::~FullScreenChromeWindowDetector() {}
 
 CGWindowID FullScreenChromeWindowDetector::FindFullScreenWindow(
     CGWindowID original_window) {
-  if (!IsChromeWindow(original_window) || !IsWindowMinimized(original_window))
+  if (!IsChromeWindow(original_window) || IsWindowOnScreen(original_window))
     return kCGNullWindowID;
 
   CGWindowID full_screen_window_id =
@@ -160,7 +159,7 @@ CGWindowID FullScreenChromeWindowDetector::FindFullScreenWindow(
     if (static_cast<CGWindowID>(window.id) != full_screen_window_id)
       continue;
 
-    LOG(LS_WARNING) << "The full-screen window exists in the list.";
+    RTC_LOG(LS_WARNING) << "The full-screen window exists in the list.";
     return kCGNullWindowID;
   }
 
@@ -170,13 +169,13 @@ CGWindowID FullScreenChromeWindowDetector::FindFullScreenWindow(
 void FullScreenChromeWindowDetector::UpdateWindowListIfNeeded(
     CGWindowID original_window) {
   if (IsChromeWindow(original_window) &&
-      (rtc::TimeNanos() - last_update_time_ns_) / rtc::kNumNanosecsPerMillisec
-          > kUpdateIntervalMs) {
+      (rtc::TimeNanos() - last_update_time_ns_) / rtc::kNumNanosecsPerMillisec >
+          kUpdateIntervalMs) {
     previous_window_list_.clear();
     previous_window_list_.swap(current_window_list_);
 
     // No need to update the window list when the window is minimized.
-    if (IsWindowMinimized(original_window)) {
+    if (!IsWindowOnScreen(original_window)) {
       previous_window_list_.clear();
       return;
     }

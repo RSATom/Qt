@@ -90,16 +90,30 @@ protected:
 
     void endVisit(AST::CallExpression *node)
     {
-        if (AST::IdentifierExpression *idExpr = AST::cast<AST::IdentifierExpression *>(node->base)) {
+        QString name;
+        AST::ExpressionNode *base = node->base;
+
+        while (base && base->kind == AST::Node::Kind_FieldMemberExpression) {
+            auto memberExpr = static_cast<AST::FieldMemberExpression *>(base);
+            name.prepend(memberExpr->name);
+            name.prepend(QLatin1Char('.'));
+            base = memberExpr->base;
+        }
+
+        if (AST::IdentifierExpression *idExpr = AST::cast<AST::IdentifierExpression *>(base)) {
             processComments(idExpr->identifierToken.begin());
 
-            const QString name = idExpr->name.toString();
+            name = idExpr->name.toString() + name;
             const int identLineNo = idExpr->identifierToken.startLine;
             switch (trFunctionAliasManager.trFunctionByName(name)) {
             case TrFunctionAliasManager::Function_qsTr:
             case TrFunctionAliasManager::Function_QT_TR_NOOP: {
                 if (!node->arguments) {
                     yyMsg(identLineNo) << qPrintable(LU::tr("%1() requires at least one argument.\n").arg(name));
+                    return;
+                }
+                if (AST::cast<AST::TemplateLiteral *>(node->arguments->expression)) {
+                    yyMsg(identLineNo) << qPrintable(LU::tr("%1() cannot be used with template literals. Ignoring\n").arg(name));
                     return;
                 }
 
@@ -120,11 +134,11 @@ protected:
                 if (!sourcetext.isEmpty())
                     yyMsg(identLineNo) << qPrintable(LU::tr("//% cannot be used with %1(). Ignoring\n").arg(name));
 
-                TranslatorMessage msg(m_component, source,
+                TranslatorMessage msg(m_component, ParserTool::transcode(source),
                     comment, QString(), m_fileName,
                     node->firstSourceLocation().startLine, QStringList(),
                     TranslatorMessage::Unfinished, plural);
-                msg.setExtraComment(extracomment.simplified());
+                msg.setExtraComment(ParserTool::transcode(extracomment.simplified()));
                 msg.setId(msgid);
                 msg.setExtras(extra);
                 m_translator->extend(msg, m_cd);
@@ -161,11 +175,11 @@ protected:
                         plural = true;
                 }
 
-                TranslatorMessage msg(context, source,
+                TranslatorMessage msg(context, ParserTool::transcode(source),
                     comment, QString(), m_fileName,
                     node->firstSourceLocation().startLine, QStringList(),
                     TranslatorMessage::Unfinished, plural);
-                msg.setExtraComment(extracomment.simplified());
+                msg.setExtraComment(ParserTool::transcode(extracomment.simplified()));
                 msg.setId(msgid);
                 msg.setExtras(extra);
                 m_translator->extend(msg, m_cd);
@@ -189,11 +203,11 @@ protected:
 
                 bool plural = node->arguments->next;
 
-                TranslatorMessage msg(QString(), sourcetext,
+                TranslatorMessage msg(QString(), ParserTool::transcode(sourcetext),
                     QString(), QString(), m_fileName,
                     node->firstSourceLocation().startLine, QStringList(),
                     TranslatorMessage::Unfinished, plural);
-                msg.setExtraComment(extracomment.simplified());
+                msg.setExtraComment(ParserTool::transcode(extracomment.simplified()));
                 msg.setId(id);
                 msg.setExtras(extra);
                 m_translator->extend(msg, m_cd);
@@ -210,6 +224,13 @@ private:
     {
         return std::cerr << qPrintable(m_fileName) << ':' << line << ": ";
     }
+
+    void throwRecursionDepthError() final
+    {
+        std::cerr << qPrintable(m_fileName) << ": "
+                  << qPrintable(LU::tr("Maximum statement or expression depth exceeded"));
+    }
+
 
     void processComments(quint32 offset, bool flush = false);
     void processComment(const AST::SourceLocation &loc);
@@ -419,9 +440,9 @@ public:
     bool operator()() const { return directives != 0; }
     int end() const { return lastOffset; }
 
-    void pragmaLibrary() Q_DECL_OVERRIDE { consumeDirective(); }
-    void importFile(const QString &, const QString &, int, int) Q_DECL_OVERRIDE { consumeDirective(); }
-    void importModule(const QString &, const QString &, const QString &, int, int) Q_DECL_OVERRIDE { consumeDirective(); }
+    void pragmaLibrary() override { consumeDirective(); }
+    void importFile(const QString &, const QString &, int, int) override { consumeDirective(); }
+    void importModule(const QString &, const QString &, const QString &, int, int) override { consumeDirective(); }
 
 private:
     void consumeDirective()

@@ -47,8 +47,8 @@ class MyBackend : public QSensorBackend
 {
 public:
     MyBackend(QSensor *sensor) : QSensorBackend(sensor) {}
-    void stop() {}
-    void start() {}
+    void stop() override {}
+    void start() override {}
     void poll() {}
 
     static const char *id;

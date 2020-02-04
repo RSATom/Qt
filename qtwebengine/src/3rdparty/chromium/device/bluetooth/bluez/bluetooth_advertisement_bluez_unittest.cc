@@ -20,45 +20,20 @@
 #include "device/bluetooth/dbus/bluez_dbus_manager.h"
 #include "device/bluetooth/dbus/fake_bluetooth_le_advertisement_service_provider.h"
 #include "device/bluetooth/dbus/fake_bluetooth_le_advertising_manager_client.h"
+#include "device/bluetooth/test/test_bluetooth_advertisement_observer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using device::BluetoothAdapter;
 using device::BluetoothAdapterFactory;
 using device::BluetoothAdvertisement;
+using device::TestBluetoothAdvertisementObserver;
 
 namespace bluez {
-
-class TestAdvertisementObserver : public BluetoothAdvertisement::Observer {
- public:
-  explicit TestAdvertisementObserver(
-      scoped_refptr<BluetoothAdvertisement> advertisement)
-      : released_(false), advertisement_(advertisement) {
-    advertisement_->AddObserver(this);
-  }
-
-  ~TestAdvertisementObserver() override {
-    advertisement_->RemoveObserver(this);
-  }
-
-  // BluetoothAdvertisement::Observer overrides:
-  void AdvertisementReleased(BluetoothAdvertisement* advertisement) override {
-    released_ = true;
-  }
-
-  bool released() { return released_; }
-
- private:
-  bool released_;
-  scoped_refptr<BluetoothAdvertisement> advertisement_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestAdvertisementObserver);
-};
 
 class BluetoothAdvertisementBlueZTest : public testing::Test {
  public:
   void SetUp() override {
-    bluez::BluezDBusManager::Initialize(nullptr /* bus */,
-                                        true /* use_dbus_stub */);
+    bluez::BluezDBusManager::GetSetterForTesting();
 
     callback_count_ = 0;
     error_callback_count_ = 0;
@@ -83,8 +58,8 @@ class BluetoothAdvertisementBlueZTest : public testing::Test {
   // Gets the existing Bluetooth adapter.
   void GetAdapter() {
     BluetoothAdapterFactory::GetAdapter(
-        base::Bind(&BluetoothAdvertisementBlueZTest::GetAdapterCallback,
-                   base::Unretained(this)));
+        base::BindOnce(&BluetoothAdvertisementBlueZTest::GetAdapterCallback,
+                       base::Unretained(this)));
     base::RunLoop().Run();
   }
 
@@ -94,21 +69,21 @@ class BluetoothAdvertisementBlueZTest : public testing::Test {
     ASSERT_NE(adapter_.get(), nullptr);
     ASSERT_TRUE(adapter_->IsInitialized());
     if (base::RunLoop::IsRunningOnCurrentThread())
-      base::MessageLoop::current()->QuitWhenIdle();
+      base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   std::unique_ptr<BluetoothAdvertisement::Data> CreateAdvertisementData() {
     std::unique_ptr<BluetoothAdvertisement::Data> data =
-        base::MakeUnique<BluetoothAdvertisement::Data>(
+        std::make_unique<BluetoothAdvertisement::Data>(
             BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
     data->set_service_uuids(
-        base::MakeUnique<BluetoothAdvertisement::UUIDList>());
+        std::make_unique<BluetoothAdvertisement::UUIDList>());
     data->set_manufacturer_data(
-        base::MakeUnique<BluetoothAdvertisement::ManufacturerData>());
+        std::make_unique<BluetoothAdvertisement::ManufacturerData>());
     data->set_solicit_uuids(
-        base::MakeUnique<BluetoothAdvertisement::UUIDList>());
+        std::make_unique<BluetoothAdvertisement::UUIDList>());
     data->set_service_data(
-        base::MakeUnique<BluetoothAdvertisement::ServiceData>());
+        std::make_unique<BluetoothAdvertisement::ServiceData>());
     return data;
   }
 
@@ -193,7 +168,7 @@ class BluetoothAdvertisementBlueZTest : public testing::Test {
 
   base::MessageLoopForIO message_loop_;
 
-  std::unique_ptr<TestAdvertisementObserver> observer_;
+  std::unique_ptr<TestBluetoothAdvertisementObserver> observer_;
   scoped_refptr<BluetoothAdapter> adapter_;
   scoped_refptr<BluetoothAdvertisement> advertisement_;
 };
@@ -257,7 +232,7 @@ TEST_F(BluetoothAdvertisementBlueZTest, UnregisterAfterReleasedFailed) {
   ExpectSuccess();
   EXPECT_TRUE(advertisement);
 
-  observer_.reset(new TestAdvertisementObserver(advertisement));
+  observer_.reset(new TestBluetoothAdvertisementObserver(advertisement));
   TriggerReleased(advertisement);
   EXPECT_TRUE(observer_->released());
 

@@ -4,11 +4,13 @@
 
 import("//remoting/build/config/remoting_build.gni")
 import("//remoting/host/installer/win/generate_clsids.gni")
-import("//build/toolchain/win/midl.gni")
-import("//build/win/message_compiler.gni")
 
 action("remoting_me2me_host_archive") {
   script = "//remoting/host/installer/build-installer-archive.py"
+
+  sources = [
+    "//build/android/gyp/util/build_utils.py",
+  ]
 
   deps = [
     "//remoting/host:remoting_native_messaging_manifests",
@@ -27,7 +29,11 @@ action("remoting_me2me_host_archive") {
     "//remoting/host/security_key:remote_security_key",
   ]
 
-  _output = "$root_out_dir/remoting-me2me-host-$target_os.zip"
+  if (target_cpu == "x86") {
+    _output = "$root_out_dir/remoting-me2me-host-$target_os.zip"
+  } else {
+    _output = "$root_out_dir/remoting-me2me-host-$target_os-unsupported.zip"
+  }
 
   outputs = [
     _output,
@@ -60,12 +66,21 @@ action("remoting_me2me_host_archive") {
     "$root_out_dir/remoting_start_host.exe",
     "$root_gen_dir/remoting/CREDITS.txt",
     "$root_out_dir/remoting/com.google.chrome.remote_assistance.json",
+    "$root_out_dir/remoting/com.google.chrome.remote_assistance-firefox.json",
     "$root_out_dir/remoting/com.google.chrome.remote_desktop.json",
+    "$root_out_dir/remoting/com.google.chrome.remote_desktop-firefox.json",
     "$root_out_dir/icudtl.dat",
   ]
 
   _generated_files = rebase_path(inputs, root_build_dir)
-  _generated_files += [ rebase_path("//remoting/resources/chromoting.ico") ]
+  _generated_files +=
+      [ rebase_path("//remoting/resources/chromoting.ico", root_build_dir) ]
+
+  # Inputs that should not be part of _generated_files.
+  inputs += [
+    "chromoting.wxs",
+    "parameters.json",
+  ]
 
   # _generated_dst_files must contain the same files in the same order as
   # _generated_files, otherwise the Windows MSI will not be built correctly.
@@ -80,7 +95,9 @@ action("remoting_me2me_host_archive") {
     "files/remoting_start_host.exe",
     "files/CREDITS.txt",
     "files/com.google.chrome.remote_assistance.json",
+    "files/com.google.chrome.remote_assistance-firefox.json",
     "files/com.google.chrome.remote_desktop.json",
+    "files/com.google.chrome.remote_desktop-firefox.json",
     "files/icudtl.dat",
     "files/chromoting.ico",
   ]
@@ -89,10 +106,12 @@ action("remoting_me2me_host_archive") {
            rebase_path("$root_gen_dir/remoting_installation", root_build_dir),
            rebase_path(_output, root_build_dir),
            "--source-file-roots",
-           rebase_path("//remoting/host/installer/win"),
+           rebase_path("//remoting/host/installer/win", root_build_dir),
            "--source-files",
-           rebase_path("//remoting/host/installer/win/chromoting.wxs"),
-           rebase_path("//remoting/host/installer/win/parameters.json"),
+           rebase_path("//remoting/host/installer/win/chromoting.wxs",
+                       root_build_dir),
+           rebase_path("//remoting/host/installer/win/parameters.json",
+                       root_build_dir),
 
            # Input files
            "--generated-files",
@@ -105,7 +124,6 @@ action("remoting_me2me_host_archive") {
            # Defs
            "--defs",
            "BRANDING=$_branding",
-           "DAEMON_CONTROLLER_CLSID={$daemon_controller_clsid}",
            "RDP_DESKTOP_SESSION_CLSID={$rdp_desktop_session_clsid}",
            "VERSION=$chrome_version_full",
            "OFFICIAL_BUILD=$_official_build",
@@ -128,7 +146,7 @@ if (is_chrome_branded && !is_component_build && target_cpu == "x86") {
     ]
     args = [
       "--wix_path",
-      rebase_path("//third_party/wix"),
+      rebase_path("//third_party/wix", root_build_dir),
       "--intermediate_dir",
       rebase_path("$root_gen_dir/remoting_installation", root_build_dir),
       "--target_arch",

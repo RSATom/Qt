@@ -39,12 +39,6 @@ WebAccessibleResourcesInfo::~WebAccessibleResourcesInfo() {
 bool WebAccessibleResourcesInfo::IsResourceWebAccessible(
     const Extension* extension,
     const std::string& relative_path) {
-  // For old manifest versions which do not specify web_accessible_resources
-  // we always allow resource loads.
-  if (extension->manifest_version() < 2 &&
-      !WebAccessibleResourcesInfo::HasWebAccessibleResources(extension))
-    return true;
-
   const WebAccessibleResourcesInfo* info = GetResourcesInfo(extension);
   return info &&
          extension->ResourceMatches(
@@ -68,21 +62,23 @@ bool WebAccessibleResourcesHandler::Parse(Extension* extension,
                                           base::string16* error) {
   std::unique_ptr<WebAccessibleResourcesInfo> info(
       new WebAccessibleResourcesInfo);
-  const base::ListValue* list_value = NULL;
+  const base::Value* list_value = nullptr;
   if (!extension->manifest()->GetList(keys::kWebAccessibleResources,
                                       &list_value)) {
     *error = base::ASCIIToUTF16(errors::kInvalidWebAccessibleResourcesList);
     return false;
   }
-  for (size_t i = 0; i < list_value->GetSize(); ++i) {
-    std::string relative_path;
-    if (!list_value->GetString(i, &relative_path)) {
+  const base::Value::ListStorage& list_storage = list_value->GetList();
+  for (size_t i = 0; i < list_storage.size(); ++i) {
+    if (!list_storage[i].is_string()) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
-          errors::kInvalidWebAccessibleResource, base::SizeTToString(i));
+          errors::kInvalidWebAccessibleResource, base::NumberToString(i));
       return false;
     }
+    std::string relative_path = list_storage[i].GetString();
     URLPattern pattern(URLPattern::SCHEME_EXTENSION);
-    if (pattern.Parse(extension->url().spec()) != URLPattern::PARSE_SUCCESS) {
+    if (pattern.Parse(extension->url().spec()) !=
+        URLPattern::ParseResult::kSuccess) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
           errors::kInvalidURLPatternError, extension->url().spec());
       return false;
@@ -96,8 +92,13 @@ bool WebAccessibleResourcesHandler::Parse(Extension* extension,
   return true;
 }
 
-const std::vector<std::string> WebAccessibleResourcesHandler::Keys() const {
-  return SingleKey(keys::kWebAccessibleResources);
+base::span<const char* const> WebAccessibleResourcesHandler::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kWebAccessibleResources};
+#if !defined(__GNUC__) || __GNUC__ > 5
+  return kKeys;
+#else
+  return base::make_span(kKeys, 1);
+#endif
 }
 
 }  // namespace extensions

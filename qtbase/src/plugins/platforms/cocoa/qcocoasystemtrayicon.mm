@@ -84,6 +84,8 @@
 
 #include "qt_mac_p.h"
 #include "qcocoahelpers.h"
+#include "qcocoaintegration.h"
+#include "qcocoascreen.h"
 #include <QtGui/private/qcoregraphics_p.h>
 
 #import <AppKit/AppKit.h>
@@ -93,31 +95,18 @@ QT_USE_NAMESPACE
 @class QT_MANGLE_NAMESPACE(QNSImageView);
 
 @interface QT_MANGLE_NAMESPACE(QNSStatusItem) : NSObject <NSUserNotificationCenterDelegate>
-{
-@public
-    QCocoaSystemTrayIcon *systray;
-    NSStatusItem *item;
-    QCocoaMenu *menu;
-    QIcon icon;
-    QT_MANGLE_NAMESPACE(QNSImageView) *imageCell;
-}
--(id)initWithSysTray:(QCocoaSystemTrayIcon *)systray;
--(void)dealloc;
--(NSStatusItem*)item;
--(QRectF)geometry;
+@property (nonatomic, assign) QCocoaMenu *menu;
+@property (nonatomic, assign) QIcon icon;
+@property (nonatomic, readonly) NSStatusItem *item;
+@property (nonatomic, readonly) QRectF geometry;
+- (instancetype)initWithSysTray:(QCocoaSystemTrayIcon *)systray;
 - (void)triggerSelector:(id)sender button:(Qt::MouseButton)mouseButton;
 - (void)doubleClickSelector:(id)sender;
-- (BOOL)userNotificationCenter:(NSUserNotificationCenter *)center shouldPresentNotification:(NSUserNotification *)notification;
-- (void)userNotificationCenter:(NSUserNotificationCenter *)center didActivateNotification:(NSUserNotification *)notification;
 @end
 
-@interface QT_MANGLE_NAMESPACE(QNSImageView) : NSImageView {
-    BOOL down;
-    QT_MANGLE_NAMESPACE(QNSStatusItem) *parent;
-}
--(id)initWithParent:(QT_MANGLE_NAMESPACE(QNSStatusItem)*)myParent;
--(void)menuTrackingDone:(NSNotification*)notification;
--(void)mousePressed:(NSEvent *)mouseEvent button:(Qt::MouseButton)mouseButton;
+@interface QT_MANGLE_NAMESPACE(QNSImageView) : NSImageView
+@property (nonatomic, assign) BOOL down;
+@property (nonatomic, assign) QT_MANGLE_NAMESPACE(QNSStatusItem) *parent;
 @end
 
 QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSStatusItem);
@@ -129,11 +118,13 @@ class QSystemTrayIconSys
 public:
     QSystemTrayIconSys(QCocoaSystemTrayIcon *sys) {
         item = [[QNSStatusItem alloc] initWithSysTray:sys];
-        [[NSUserNotificationCenter defaultUserNotificationCenter] setDelegate:item];
+        NSUserNotificationCenter.defaultUserNotificationCenter.delegate = item;
     }
     ~QSystemTrayIconSys() {
         [[[item item] view] setHidden: YES];
-        [[NSUserNotificationCenter defaultUserNotificationCenter] setDelegate:nil];
+        NSUserNotificationCenter *center = NSUserNotificationCenter.defaultUserNotificationCenter;
+        if (center.delegate == item)
+            center.delegate = nil;
         [item release];
     }
     QNSStatusItem *item;
@@ -160,7 +151,7 @@ QRect QCocoaSystemTrayIcon::geometry() const
 void QCocoaSystemTrayIcon::cleanup()
 {
     delete m_sys;
-    m_sys = 0;
+    m_sys = nullptr;
 }
 
 static bool heightCompareFunction (QSize a, QSize b) { return (a.height() < b.height()); }
@@ -176,7 +167,7 @@ void QCocoaSystemTrayIcon::updateIcon(const QIcon &icon)
     if (!m_sys)
         return;
 
-    m_sys->item->icon = icon;
+    m_sys->item.icon = icon;
 
     // The reccomended maximum title bar icon height is 18 points
     // (device independent pixels). The menu height on past and
@@ -247,8 +238,8 @@ void QCocoaSystemTrayIcon::updateMenu(QPlatformMenu *menu)
     if (!m_sys)
         return;
 
-    m_sys->item->menu = static_cast<QCocoaMenu *>(menu);
-    if (menu && [m_sys->item->menu->nsMenu() numberOfItems] > 0) {
+    m_sys->item.menu = static_cast<QCocoaMenu *>(menu);
+    if (menu && [m_sys->item.menu->nsMenu() numberOfItems] > 0) {
         [[m_sys->item item] setHighlightMode:YES];
     } else {
         [[m_sys->item item] setHighlightMode:NO];
@@ -275,7 +266,6 @@ bool QCocoaSystemTrayIcon::supportsMessages() const
 void QCocoaSystemTrayIcon::showMessage(const QString &title, const QString &message,
                                        const QIcon& icon, MessageIcon, int)
 {
-    Q_UNUSED(icon);
     if (!m_sys)
         return;
 
@@ -283,46 +273,57 @@ void QCocoaSystemTrayIcon::showMessage(const QString &title, const QString &mess
     notification.title = [NSString stringWithUTF8String:title.toUtf8().data()];
     notification.informativeText = [NSString stringWithUTF8String:message.toUtf8().data()];
 
-    [[NSUserNotificationCenter defaultUserNotificationCenter] deliverNotification:notification];
+    if (!icon.isNull()) {
+        auto *nsimage = qt_mac_create_nsimage(icon);
+        [nsimage setTemplate:icon.isMask()];
+        notification.contentImage = [nsimage autorelease];
+    }
+
+    NSUserNotificationCenter *center = NSUserNotificationCenter.defaultUserNotificationCenter;
+    center.delegate = m_sys->item;
+    [center deliverNotification:notification];
+    [notification release];
 }
 QT_END_NAMESPACE
 
+@implementation NSStatusItem (Qt)
+@end
+
 @implementation QNSImageView
--(id)initWithParent:(QNSStatusItem*)myParent {
+- (instancetype)initWithParent:(QNSStatusItem *)myParent {
     self = [super init];
-    parent = myParent;
-    down = NO;
+    self.parent = myParent;
+    self.down = NO;
     return self;
 }
 
--(void)menuTrackingDone:(NSNotification*)notification
+- (void)menuTrackingDone:(NSNotification *)__unused notification
 {
-    Q_UNUSED(notification);
-    down = NO;
+    self.down = NO;
 
     [self setNeedsDisplay:YES];
 }
 
--(void)mousePressed:(NSEvent *)mouseEvent button:(Qt::MouseButton)mouseButton
+- (void)mousePressed:(NSEvent *)mouseEvent
 {
-    down = YES;
+    self.down = YES;
     int clickCount = [mouseEvent clickCount];
     [self setNeedsDisplay:YES];
 
     if (clickCount == 2) {
         [self menuTrackingDone:nil];
-        [parent doubleClickSelector:self];
+        [self.parent doubleClickSelector:self];
     } else {
-        [parent triggerSelector:self button:mouseButton];
+        [self.parent triggerSelector:self button:cocoaButton2QtButton(mouseEvent)];
     }
 }
 
--(void)mouseDown:(NSEvent *)mouseEvent
+- (void)mouseDown:(NSEvent *)mouseEvent
 {
-    [self mousePressed:mouseEvent button:Qt::LeftButton];
+    [self mousePressed:mouseEvent];
 }
 
--(void)mouseUp:(NSEvent *)mouseEvent
+- (void)mouseUp:(NSEvent *)mouseEvent
 {
     Q_UNUSED(mouseEvent);
     [self menuTrackingDone:nil];
@@ -330,10 +331,10 @@ QT_END_NAMESPACE
 
 - (void)rightMouseDown:(NSEvent *)mouseEvent
 {
-    [self mousePressed:mouseEvent button:Qt::RightButton];
+    [self mousePressed:mouseEvent];
 }
 
--(void)rightMouseUp:(NSEvent *)mouseEvent
+- (void)rightMouseUp:(NSEvent *)mouseEvent
 {
     Q_UNUSED(mouseEvent);
     [self menuTrackingDone:nil];
@@ -341,29 +342,36 @@ QT_END_NAMESPACE
 
 - (void)otherMouseDown:(NSEvent *)mouseEvent
 {
-    [self mousePressed:mouseEvent button:cocoaButton2QtButton([mouseEvent buttonNumber])];
+    [self mousePressed:mouseEvent];
 }
 
--(void)otherMouseUp:(NSEvent *)mouseEvent
+- (void)otherMouseUp:(NSEvent *)mouseEvent
 {
     Q_UNUSED(mouseEvent);
     [self menuTrackingDone:nil];
 }
 
--(void)drawRect:(NSRect)rect {
-    [[parent item] drawStatusBarBackgroundInRect:rect withHighlight:down];
+- (void)drawRect:(NSRect)rect {
+    [[self.parent item] drawStatusBarBackgroundInRect:rect withHighlight:self.down];
     [super drawRect:rect];
 }
 @end
 
-@implementation QNSStatusItem
+@implementation QNSStatusItem {
+    QCocoaSystemTrayIcon *systray;
+    NSStatusItem *item;
+    QT_MANGLE_NAMESPACE(QNSImageView) *imageCell;
+}
 
--(id)initWithSysTray:(QCocoaSystemTrayIcon *)sys
+@synthesize menu = menu;
+@synthesize icon = icon;
+
+- (instancetype)initWithSysTray:(QCocoaSystemTrayIcon *)sys
 {
     self = [super init];
     if (self) {
         item = [[[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength] retain];
-        menu = 0;
+        menu = nullptr;
         systray = sys;
         imageCell = [[QNSImageView alloc] initWithParent:self];
         [item setView: imageCell];
@@ -371,23 +379,23 @@ QT_END_NAMESPACE
     return self;
 }
 
--(void)dealloc {
+- (void)dealloc {
     [[NSStatusBar systemStatusBar] removeStatusItem:item];
     [[NSNotificationCenter defaultCenter] removeObserver:imageCell];
+    imageCell.parent = nil;
     [imageCell release];
     [item release];
     [super dealloc];
-
 }
 
--(NSStatusItem*)item {
+- (NSStatusItem *)item {
     return item;
 }
--(QRectF)geometry {
-    if (NSWindow *window = [[item view] window]) {
-        NSRect screenRect = [[window screen] frame];
-        NSRect windowRect = [window frame];
-        return QRectF(windowRect.origin.x, screenRect.size.height-windowRect.origin.y-windowRect.size.height, windowRect.size.width, windowRect.size.height);
+
+- (QRectF)geometry {
+    if (NSWindow *window = item.view.window) {
+        if (QCocoaScreen *screen = QCocoaScreen::get(window.screen))
+            return screen->mapFromNative(window.frame);
     }
     return QRectF();
 }

@@ -10,61 +10,49 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "base/atomic_sequence_num.h"
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
+#include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/gpu_export.h"
+#include "gpu/ipc/client/image_decode_accelerator_proxy.h"
+#include "gpu/ipc/client/shared_image_interface_proxy.h"
 #include "ipc/ipc_channel_handle.h"
-#include "ipc/ipc_sync_channel.h"
 #include "ipc/message_filter.h"
 #include "ipc/message_router.h"
 #include "ui/gfx/gpu_memory_buffer.h"
-#include "ui/latency/latency_info.h"
-
-namespace base {
-class WaitableEvent;
-}
 
 namespace IPC {
-class SyncMessageFilter;
+struct PendingSyncMsg;
+class ChannelMojo;
 }
-
-namespace gpu {
-class GpuMemoryBufferManager;
-}
+struct GpuDeferredMessage;
 
 namespace gpu {
 struct SyncToken;
 class GpuChannelHost;
+class GpuMemoryBufferManager;
+
 using GpuChannelEstablishedCallback =
-    base::Callback<void(scoped_refptr<GpuChannelHost>)>;
+    base::OnceCallback<void(scoped_refptr<GpuChannelHost>)>;
 
 class GPU_EXPORT GpuChannelEstablishFactory {
  public:
-  virtual ~GpuChannelEstablishFactory() {}
+  virtual ~GpuChannelEstablishFactory() = default;
 
-  virtual void EstablishGpuChannel(
-      const GpuChannelEstablishedCallback& callback) = 0;
+  virtual void EstablishGpuChannel(GpuChannelEstablishedCallback callback) = 0;
   virtual scoped_refptr<GpuChannelHost> EstablishGpuChannelSync() = 0;
   virtual GpuMemoryBufferManager* GetGpuMemoryBufferManager() = 0;
-};
-
-class GPU_EXPORT GpuChannelHostFactory {
- public:
-  virtual ~GpuChannelHostFactory() {}
-
-  virtual bool IsMainThread() = 0;
-  virtual scoped_refptr<base::SingleThreadTaskRunner>
-  GetIOThreadTaskRunner() = 0;
-  virtual std::unique_ptr<base::SharedMemory> AllocateSharedMemory(
-      size_t size) = 0;
 };
 
 // Encapsulates an IPC channel between the client and one GPU process.
@@ -75,43 +63,50 @@ class GPU_EXPORT GpuChannelHost
     : public IPC::Sender,
       public base::RefCountedThreadSafe<GpuChannelHost> {
  public:
-  // Must be called on the main thread (as defined by the factory).
-  static scoped_refptr<GpuChannelHost> Create(
-      GpuChannelHostFactory* factory,
-      int channel_id,
-      const gpu::GPUInfo& gpu_info,
-      const IPC::ChannelHandle& channel_handle,
-      base::WaitableEvent* shutdown_event,
-      gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager);
+  GpuChannelHost(int channel_id,
+                 const gpu::GPUInfo& gpu_info,
+                 const gpu::GpuFeatureInfo& gpu_feature_info,
+                 mojo::ScopedMessagePipeHandle handle);
 
   bool IsLost() const {
-    DCHECK(channel_filter_.get());
-    return channel_filter_->IsLost();
+    DCHECK(listener_.get());
+    return listener_->IsLost();
   }
 
   int channel_id() const { return channel_id_; }
 
   // The GPU stats reported by the GPU process.
   const gpu::GPUInfo& gpu_info() const { return gpu_info_; }
+  const gpu::GpuFeatureInfo& gpu_feature_info() const {
+    return gpu_feature_info_;
+  }
 
   // IPC::Sender implementation:
   bool Send(IPC::Message* msg) override;
 
-  // Set an ordering barrier.  AsyncFlushes any pending barriers on other
-  // routes. Combines multiple OrderingBarriers into a single AsyncFlush.
-  // Returns the flush ID for the stream or 0 if put offset was not changed.
-  // Outputs *highest_verified_flush_id.
+  // Enqueue a deferred message for the ordering barrier and return an
+  // identifier that can be used to ensure or verify the deferred message later.
   uint32_t OrderingBarrier(int32_t route_id,
-                           int32_t stream_id,
                            int32_t put_offset,
-                           uint32_t flush_count,
-                           const std::vector<ui::LatencyInfo>& latency_info,
-                           const std::vector<SyncToken>& sync_token_fences,
-                           bool put_offset_changed,
-                           bool do_flush,
-                           uint32_t* highest_verified_flush_id);
+                           std::vector<SyncToken> sync_token_fences);
 
-  void FlushPendingStream(int32_t stream_id);
+  // Enqueues an IPC message that is deferred until the next implicit or
+  // explicit flush. The IPC is also possibly gated on one or more SyncTokens
+  // being released, but is handled in-order relative to other such IPCs and/or
+  // OrderingBarriers. Returns a deferred message id just like OrderingBarrier.
+  uint32_t EnqueueDeferredMessage(
+      const IPC::Message& message,
+      std::vector<SyncToken> sync_token_fences = {});
+
+  // Ensure that the all deferred messages prior upto |deferred_message_id| have
+  // been flushed. Pass UINT32_MAX to force all pending deferred messages to be
+  // flushed.
+  void EnsureFlush(uint32_t deferred_message_id);
+
+  // Verify that the all deferred messages prior upto |deferred_message_id| have
+  // reached the service. Pass UINT32_MAX to force all pending deferred messages
+  // to be verified.
+  void VerifyFlush(uint32_t deferred_message_id);
 
   // Destroy this channel. Must be called on the main thread, before
   // destruction.
@@ -129,20 +124,14 @@ class GPU_EXPORT GpuChannelHost
   // Remove the message route associated with |route_id|.
   void RemoveRoute(int route_id);
 
-  GpuChannelHostFactory* factory() const { return factory_; }
-
-  gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager() const {
-    return gpu_memory_buffer_manager_;
-  }
-
   // Returns a handle to the shared memory that can be sent via IPC to the
   // GPU process. The caller is responsible for ensuring it is closed. Returns
   // an invalid handle on failure.
   base::SharedMemoryHandle ShareToGpuProcess(
       const base::SharedMemoryHandle& source_handle);
 
-  // Reserve one unused transfer buffer ID.
-  int32_t ReserveTransferBufferId();
+  base::UnsafeSharedMemoryRegion ShareToGpuProcess(
+      const base::UnsafeSharedMemoryRegion& source_region);
 
   // Reserve one unused image ID.
   int32_t ReserveImageId();
@@ -150,28 +139,37 @@ class GPU_EXPORT GpuChannelHost
   // Generate a route ID guaranteed to be unique for this channel.
   int32_t GenerateRouteID();
 
-  // Sends a synchronous nop to the server which validate that all previous IPC
-  // messages have been received. Once the synchronous nop has been sent to the
-  // server all previous flushes will all be marked as validated, including
-  // flushes for other streams on the same channel. Once a validation has been
-  // sent, it will return the highest validated flush id for the stream.
-  // If the validation fails (which can only happen upon context lost), the
-  // highest validated flush id will not change. If no flush ID were ever
-  // validated then it will return 0 (Note the lowest valid flush ID is 1).
-  uint32_t ValidateFlushIDReachedServer(int32_t stream_id, bool force_validate);
+  // Crashes the GPU process. This functionality is added here because
+  // of instability when creating a new tab just to navigate to
+  // chrome://gpucrash . This only works when running tests and is
+  // otherwise ignored.
+  void CrashGpuProcessForTesting();
 
-  // Returns the highest validated flush ID for a given stream.
-  uint32_t GetHighestValidatedFlushID(int32_t stream_id);
+  SharedImageInterface* shared_image_interface() {
+    return &shared_image_interface_;
+  }
+
+  ImageDecodeAcceleratorProxy* image_decode_accelerator_proxy() {
+    return &image_decode_accelerator_proxy_;
+  }
+
+ protected:
+  friend class base::RefCountedThreadSafe<GpuChannelHost>;
+  ~GpuChannelHost() override;
 
  private:
-  friend class base::RefCountedThreadSafe<GpuChannelHost>;
-
   // A filter used internally to route incoming messages from the IO thread
   // to the correct message loop. It also maintains some shared state between
   // all the contexts.
-  class MessageFilter : public IPC::MessageFilter {
+  class GPU_EXPORT Listener : public IPC::Listener {
    public:
-    MessageFilter();
+    Listener(mojo::ScopedMessagePipeHandle handle,
+             scoped_refptr<base::SingleThreadTaskRunner> io_task_runner);
+
+    ~Listener() override;
+
+    // Called on the IO thread.
+    void Close();
 
     // Called on the IO thread.
     void AddRoute(int32_t route_id,
@@ -180,10 +178,13 @@ class GPU_EXPORT GpuChannelHost
     // Called on the IO thread.
     void RemoveRoute(int32_t route_id);
 
-    // IPC::MessageFilter implementation
+    // IPC::Listener implementation
     // (called on the IO thread):
     bool OnMessageReceived(const IPC::Message& msg) override;
     void OnChannelError() override;
+
+    void SendMessage(std::unique_ptr<IPC::Message> msg,
+                     IPC::PendingSyncMsg* pending_sync);
 
     // The following methods can be called on any thread.
 
@@ -191,74 +192,72 @@ class GPU_EXPORT GpuChannelHost
     bool IsLost() const;
 
    private:
-    struct ListenerInfo {
-      ListenerInfo();
-      ListenerInfo(const ListenerInfo& other);
-      ~ListenerInfo();
+    struct RouteInfo {
+      RouteInfo();
+      RouteInfo(const RouteInfo& other);
+      RouteInfo(RouteInfo&& other);
+      ~RouteInfo();
+      RouteInfo& operator=(const RouteInfo& other);
+      RouteInfo& operator=(RouteInfo&& other);
 
       base::WeakPtr<IPC::Listener> listener;
       scoped_refptr<base::SingleThreadTaskRunner> task_runner;
     };
 
-    ~MessageFilter() override;
-
-    // Threading notes: |listeners_| is only accessed on the IO thread. Every
-    // other field is protected by |lock_|.
-    base::hash_map<int32_t, ListenerInfo> listeners_;
+    // Threading notes: most fields are only accessed on the IO thread, except
+    // for lost_ which is protected by |lock_|.
+    std::unordered_map<int32_t, RouteInfo> routes_;
+    std::unique_ptr<IPC::ChannelMojo> channel_;
+    base::flat_map<int, IPC::PendingSyncMsg*> pending_syncs_;
 
     // Protects all fields below this one.
     mutable base::Lock lock_;
 
     // Whether the channel has been lost.
-    bool lost_;
+    bool lost_ = false;
   };
 
-  struct StreamFlushInfo {
-    StreamFlushInfo();
-    StreamFlushInfo(const StreamFlushInfo& other);
-    ~StreamFlushInfo();
+  struct OrderingBarrierInfo {
+    OrderingBarrierInfo();
+    ~OrderingBarrierInfo();
+    OrderingBarrierInfo(OrderingBarrierInfo&&);
+    OrderingBarrierInfo& operator=(OrderingBarrierInfo&&);
 
-    // These are global per stream.
-    uint32_t next_stream_flush_id;
-    uint32_t flushed_stream_flush_id;
-    uint32_t verified_stream_flush_id;
-
-    // These are local per context.
-    bool flush_pending;
+    // Route ID of the command buffer for this command buffer flush.
     int32_t route_id;
+    // Client put offset. Service get offset is updated in shared memory.
     int32_t put_offset;
-    uint32_t flush_count;
-    uint32_t flush_id;
-    std::vector<ui::LatencyInfo> latency_info;
+    // Increasing counter for the deferred message.
+    uint32_t deferred_message_id;
+    // Sync token dependencies of the message. These are sync tokens for which
+    // waits are in the commands that are part of this command buffer flush.
     std::vector<SyncToken> sync_token_fences;
   };
 
-  GpuChannelHost(GpuChannelHostFactory* factory,
-                 int channel_id,
-                 const gpu::GPUInfo& gpu_info,
-                 gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager);
-  ~GpuChannelHost() override;
-  void Connect(const IPC::ChannelHandle& channel_handle,
-               base::WaitableEvent* shutdown_event);
-  bool InternalSend(IPC::Message* msg);
-  void InternalFlush(StreamFlushInfo* flush_info);
+  void EnqueuePendingOrderingBarrier();
+  void InternalFlush(uint32_t deferred_message_id);
 
   // Threading notes: all fields are constant during the lifetime of |this|
   // except:
   // - |next_image_id_|, atomic type
   // - |next_route_id_|, atomic type
-  // - |channel_| and |stream_flush_info_|, protected by |context_lock_|
-  GpuChannelHostFactory* const factory_;
+  // - |deferred_messages_| and |*_deferred_message_id_| protected by
+  // |context_lock_|
+  const scoped_refptr<base::SingleThreadTaskRunner> io_thread_;
 
   const int channel_id_;
   const gpu::GPUInfo gpu_info_;
+  const gpu::GpuFeatureInfo gpu_feature_info_;
 
-  scoped_refptr<MessageFilter> channel_filter_;
+  // Lifetime/threading notes: Listener only operates on the IO thread, and
+  // outlives |this|. It is therefore safe to PostTask calls to the IO thread
+  // with base::Unretained(listener_).
+  std::unique_ptr<Listener, base::OnTaskRunnerDeleter> listener_;
 
-  gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager_;
+  SharedImageInterfaceProxy shared_image_interface_;
 
-  // A filter for sending messages from thread other than the main thread.
-  scoped_refptr<IPC::SyncMessageFilter> sync_filter_;
+  // A client-side helper to send image decode requests to the GPU process.
+  ImageDecodeAcceleratorProxy image_decode_accelerator_proxy_;
 
   // Image IDs are allocated in sequence.
   base::AtomicSequenceNumber next_image_id_;
@@ -266,10 +265,18 @@ class GPU_EXPORT GpuChannelHost
   // Route IDs are allocated in sequence.
   base::AtomicSequenceNumber next_route_id_;
 
-  // Protects channel_ and stream_flush_info_.
+  // Protects |deferred_messages_|, |pending_ordering_barrier_| and
+  // |*_deferred_message_id_|.
   mutable base::Lock context_lock_;
-  std::unique_ptr<IPC::SyncChannel> channel_;
-  base::hash_map<int32_t, StreamFlushInfo> stream_flush_info_;
+  std::vector<GpuDeferredMessage> deferred_messages_;
+  base::Optional<OrderingBarrierInfo> pending_ordering_barrier_;
+  uint32_t next_deferred_message_id_ = 1;
+  // Highest deferred message id in |deferred_messages_|.
+  uint32_t enqueued_deferred_message_id_ = 0;
+  // Highest deferred message id sent to the channel.
+  uint32_t flushed_deferred_message_id_ = 0;
+  // Highest deferred message id known to have been received by the service.
+  uint32_t verified_deferred_message_id_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(GpuChannelHost);
 };

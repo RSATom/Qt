@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <string>
 
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
 #include "net/http/http_cache_lookup_manager.h"
@@ -41,7 +42,7 @@ std::unique_ptr<MockTransaction> CreateMockTransaction(const GURL& url) {
       "Last-Modified: Wed, 28 Nov 2007 00:40:09 GMT\n",
       base::Time(), "<html><body>Google Blah Blah</body></html>",
       TEST_MODE_NORMAL, nullptr, nullptr, nullptr, 0, 0, OK};
-  return base::MakeUnique<MockTransaction>(mock_trans);
+  return std::make_unique<MockTransaction>(mock_trans);
 }
 
 void PopulateCacheEntry(HttpCache* cache, const GURL& request_url) {
@@ -83,12 +84,13 @@ void PopulateCacheEntry(HttpCache* cache, const GURL& request_url) {
 }  // namespace
 
 TEST(HttpCacheLookupManagerTest, ServerPushMissCache) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   MockHttpCache mock_cache;
   HttpCacheLookupManager push_delegate(mock_cache.http_cache());
   GURL request_url("http://www.example.com/pushed.jpg");
 
   std::unique_ptr<MockServerPushHelper> push_helper =
-      base::MakeUnique<MockServerPushHelper>(request_url);
+      std::make_unique<MockServerPushHelper>(request_url);
   MockServerPushHelper* push_helper_ptr = push_helper.get();
 
   // Receive a server push and should not cancel the push.
@@ -103,12 +105,13 @@ TEST(HttpCacheLookupManagerTest, ServerPushMissCache) {
 }
 
 TEST(HttpCacheLookupManagerTest, ServerPushDoNotCreateCacheEntry) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   MockHttpCache mock_cache;
   HttpCacheLookupManager push_delegate(mock_cache.http_cache());
   GURL request_url("http://www.example.com/pushed.jpg");
 
   std::unique_ptr<MockServerPushHelper> push_helper =
-      base::MakeUnique<MockServerPushHelper>(request_url);
+      std::make_unique<MockServerPushHelper>(request_url);
   MockServerPushHelper* push_helper_ptr = push_helper.get();
 
   // Receive a server push and should not cancel the push.
@@ -118,7 +121,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushDoNotCreateCacheEntry) {
 
   // Receive another server push for the same url.
   std::unique_ptr<MockServerPushHelper> push_helper2 =
-      base::MakeUnique<MockServerPushHelper>(request_url);
+      std::make_unique<MockServerPushHelper>(request_url);
   MockServerPushHelper* push_helper_ptr2 = push_helper2.get();
   EXPECT_CALL(*push_helper_ptr2, Cancel()).Times(0);
   push_delegate.OnPush(std::move(push_helper2), NetLogWithSource());
@@ -132,6 +135,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushDoNotCreateCacheEntry) {
 }
 
 TEST(HttpCacheLookupManagerTest, ServerPushHitCache) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   MockHttpCache mock_cache;
   HttpCacheLookupManager push_delegate(mock_cache.http_cache());
   GURL request_url("http://www.example.com/pushed.jpg");
@@ -149,7 +153,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushHitCache) {
   AddMockTransaction(mock_trans.get());
 
   std::unique_ptr<MockServerPushHelper> push_helper =
-      base::MakeUnique<MockServerPushHelper>(request_url);
+      std::make_unique<MockServerPushHelper>(request_url);
   MockServerPushHelper* push_helper_ptr = push_helper.get();
 
   // Receive a server push and should cancel the push.
@@ -169,6 +173,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushHitCache) {
 // pending lookup transaction for the same URL, the new server push will not
 // send a new lookup transaction and should not be canceled.
 TEST(HttpCacheLookupManagerTest, ServerPushPendingLookup) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   MockHttpCache mock_cache;
   HttpCacheLookupManager push_delegate(mock_cache.http_cache());
   GURL request_url("http://www.example.com/pushed.jpg");
@@ -186,7 +191,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushPendingLookup) {
   AddMockTransaction(mock_trans.get());
 
   std::unique_ptr<MockServerPushHelper> push_helper =
-      base::MakeUnique<MockServerPushHelper>(request_url);
+      std::make_unique<MockServerPushHelper>(request_url);
   MockServerPushHelper* push_helper_ptr = push_helper.get();
 
   // Receive a server push and should cancel the push eventually.
@@ -194,7 +199,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushPendingLookup) {
   push_delegate.OnPush(std::move(push_helper), NetLogWithSource());
 
   std::unique_ptr<MockServerPushHelper> push_helper2 =
-      base::MakeUnique<MockServerPushHelper>(request_url);
+      std::make_unique<MockServerPushHelper>(request_url);
   MockServerPushHelper* push_helper_ptr2 = push_helper2.get();
 
   // Receive another server push and should not cancel the push.
@@ -213,6 +218,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushPendingLookup) {
 
 // Test the server push lookup is based on the full url.
 TEST(HttpCacheLookupManagerTest, ServerPushLookupOnUrl) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   MockHttpCache mock_cache;
   HttpCacheLookupManager push_delegate(mock_cache.http_cache());
   GURL request_url("http://www.example.com/pushed.jpg?u=0");
@@ -231,7 +237,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushLookupOnUrl) {
   AddMockTransaction(mock_trans.get());
 
   std::unique_ptr<MockServerPushHelper> push_helper =
-      base::MakeUnique<MockServerPushHelper>(request_url);
+      std::make_unique<MockServerPushHelper>(request_url);
   MockServerPushHelper* push_helper_ptr = push_helper.get();
 
   // Receive a server push and should cancel the push eventually.
@@ -248,7 +254,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushLookupOnUrl) {
   // Receive the second server push with same url after the first lookup
   // finishes, and should cancel the push.
   std::unique_ptr<MockServerPushHelper> push_helper2 =
-      base::MakeUnique<MockServerPushHelper>(request_url);
+      std::make_unique<MockServerPushHelper>(request_url);
   MockServerPushHelper* push_helper_ptr2 = push_helper2.get();
 
   EXPECT_CALL(*push_helper_ptr2, Cancel()).Times(1);
@@ -266,7 +272,7 @@ TEST(HttpCacheLookupManagerTest, ServerPushLookupOnUrl) {
   // Receive the third server push with a different url after lookup for a
   // similar server push has been completed, should not cancel the push.
   std::unique_ptr<MockServerPushHelper> push_helper3 =
-      base::MakeUnique<MockServerPushHelper>(request_url2);
+      std::make_unique<MockServerPushHelper>(request_url2);
   MockServerPushHelper* push_helper_ptr3 = push_helper3.get();
 
   EXPECT_CALL(*push_helper_ptr3, Cancel()).Times(0);

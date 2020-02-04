@@ -50,9 +50,6 @@
 #include "qquickapplicationwindow_p.h"
 #include "qquickdeferredexecute_p_p.h"
 
-#include <QtGui/private/qguiapplication_p.h>
-#include <QtGui/qpa/qplatformtheme.h>
-
 #if QT_CONFIG(accessibility)
 #include <QtQuick/private/qquickaccessibleattached_p.h>
 #endif
@@ -79,58 +76,78 @@ QT_BEGIN_NAMESPACE
 
     The \l {Item::}{implicitWidth} and \l {Item::}{implicitHeight} of a control
     are typically based on the implicit sizes of the background and the content
-    item plus any \l {Control::}{padding}. These properties determine how large
+    item plus any insets and paddings. These properties determine how large
     the control will be when no explicit \l {Item::}{width} or
     \l {Item::}{height} is specified.
 
-    The \l {Control::}{background} item fills the entire width and height of the
-    control, unless an explicit size has been given for it.
+    The geometry of the \l {Control::}{contentItem} is determined by the padding.
+    The following example reserves 10px padding between the boundaries of the
+    control and its content:
 
-    The geometry of the \l {Control::}{contentItem} is determined by the
-    padding.
+    \code
+    Control {
+        padding: 10
+
+        contentItem: Text {
+            text: "Content"
+        }
+    }
+    \endcode
+
+    The \l {Control::}{background} item fills the entire width and height of the
+    control, unless insets or an explicit size have been given for it. Background
+    insets are useful for extending the touchable/interactive area of a control
+    without affecting its visual size. This is often used on touch devices to
+    ensure that a control is not too small to be interacted with by the user.
+    Insets affect the size of the control, and hence will affect how much space
+    they take up in a layout, for example.
+
+    Negative insets can be used to make the background larger than the control.
+    The following example uses negative insets to place a shadow outside the
+    control's boundaries:
+
+    \code
+    Control {
+        topInset: -2
+        leftInset: -2
+        rightInset: -6
+        bottomInset: -6
+
+        background: BorderImage {
+            source: ":/images/shadowed-background.png"
+        }
+    }
+    \endcode
 
     \section1 Event Handling
 
     All controls, except non-interactive indicators, do not let clicks and
-    touches through to items below them. For example, if \l Pane is used as the
-    \l {ApplicationWindow::}{header} or \l {ApplicationWindow::}{footer} of
-    \l ApplicationWindow, items underneath it will not get mouse or touch
-    events.
+    touches through to items below them. For example, the \c console.log()
+    call in the example below will never be executed when clicking on the
+    Pane, because the \l MouseArea is below it in the scene:
+
+    \code
+    MouseArea {
+        anchors.fill: parent
+        onClicked: console.log("MouseArea was clicked")
+
+        Pane {
+            anchors.fill: parent
+        }
+    }
+    \endcode
 
     \sa ApplicationWindow, Container
 */
+
+const QQuickItemPrivate::ChangeTypes QQuickControlPrivate::ImplicitSizeChanges = QQuickItemPrivate::ImplicitWidth | QQuickItemPrivate::ImplicitHeight | QQuickItemPrivate::Destroyed;
 
 static bool isKeyFocusReason(Qt::FocusReason reason)
 {
     return reason == Qt::TabFocusReason || reason == Qt::BacktabFocusReason || reason == Qt::ShortcutFocusReason;
 }
 
-QQuickControlPrivate::ExtraData::ExtraData()
-{
-}
-
 QQuickControlPrivate::QQuickControlPrivate()
-    : hasTopPadding(false),
-      hasLeftPadding(false),
-      hasRightPadding(false),
-      hasBottomPadding(false),
-      hasLocale(false),
-      wheelEnabled(false),
-#if QT_CONFIG(quicktemplates2_hover)
-      hovered(false),
-      explicitHoverEnabled(false),
-#endif
-      touchId(-1),
-      padding(0),
-      topPadding(0),
-      leftPadding(0),
-      rightPadding(0),
-      bottomPadding(0),
-      spacing(0),
-      focusPolicy(Qt::NoFocus),
-      focusReason(Qt::OtherFocusReason),
-      background(nullptr),
-      contentItem(nullptr)
 {
 #if QT_CONFIG(accessibility)
     QAccessible::installActivationObserver(this);
@@ -142,6 +159,12 @@ QQuickControlPrivate::~QQuickControlPrivate()
 #if QT_CONFIG(accessibility)
     QAccessible::removeActivationObserver(this);
 #endif
+}
+
+void QQuickControlPrivate::init()
+{
+    Q_Q(QQuickControl);
+    QObject::connect(q, &QQuickItem::baselineOffsetChanged, q, &QQuickControl::baselineOffsetChanged);
 }
 
 #if QT_CONFIG(quicktemplates2_multitouch)
@@ -159,11 +182,19 @@ bool QQuickControlPrivate::acceptTouch(const QTouchEvent::TouchPoint &point)
 }
 #endif
 
+static void setActiveFocus(QQuickControl *control, Qt::FocusReason reason)
+{
+    QQuickControlPrivate *d = QQuickControlPrivate::get(control);
+    if (d->subFocusItem && d->window && d->flags & QQuickItem::ItemIsFocusScope)
+        QQuickWindowPrivate::get(d->window)->clearFocusInScope(control, d->subFocusItem, reason);
+    control->forceActiveFocus(reason);
+}
+
 void QQuickControlPrivate::handlePress(const QPointF &)
 {
     Q_Q(QQuickControl);
     if ((focusPolicy & Qt::ClickFocus) == Qt::ClickFocus && !QGuiApplication::styleHints()->setFocusOnTouchRelease())
-        q->forceActiveFocus(Qt::MouseFocusReason);
+        setActiveFocus(q, Qt::MouseFocusReason);
 }
 
 void QQuickControlPrivate::handleMove(const QPointF &point)
@@ -180,7 +211,7 @@ void QQuickControlPrivate::handleRelease(const QPointF &)
 {
     Q_Q(QQuickControl);
     if ((focusPolicy & Qt::ClickFocus) == Qt::ClickFocus && QGuiApplication::styleHints()->setFocusOnTouchRelease())
-        q->forceActiveFocus(Qt::MouseFocusReason);
+        setActiveFocus(q, Qt::MouseFocusReason);
     touchId = -1;
 }
 
@@ -199,73 +230,161 @@ void QQuickControlPrivate::mirrorChange()
 void QQuickControlPrivate::setTopPadding(qreal value, bool reset)
 {
     Q_Q(QQuickControl);
-    qreal oldPadding = q->topPadding();
-    topPadding = value;
-    hasTopPadding = !reset;
-    if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding))) {
+    const QMarginsF oldPadding = getPadding();
+    extra.value().topPadding = value;
+    extra.value().hasTopPadding = !reset;
+    if ((!reset && !qFuzzyCompare(oldPadding.top(), value)) || (reset && !qFuzzyCompare(oldPadding.top(), getVerticalPadding()))) {
         emit q->topPaddingChanged();
         emit q->availableHeightChanged();
-        q->paddingChange(QMarginsF(leftPadding, topPadding, rightPadding, bottomPadding),
-                         QMarginsF(leftPadding, oldPadding, rightPadding, bottomPadding));
+        q->paddingChange(getPadding(), oldPadding);
     }
 }
 
 void QQuickControlPrivate::setLeftPadding(qreal value, bool reset)
 {
     Q_Q(QQuickControl);
-    qreal oldPadding = q->leftPadding();
-    leftPadding = value;
-    hasLeftPadding = !reset;
-    if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding))) {
+    const QMarginsF oldPadding = getPadding();
+    extra.value().leftPadding = value;
+    extra.value().hasLeftPadding = !reset;
+    if ((!reset && !qFuzzyCompare(oldPadding.left(), value)) || (reset && !qFuzzyCompare(oldPadding.left(), getHorizontalPadding()))) {
         emit q->leftPaddingChanged();
         emit q->availableWidthChanged();
-        q->paddingChange(QMarginsF(leftPadding, topPadding, rightPadding, bottomPadding),
-                         QMarginsF(oldPadding, topPadding, rightPadding, bottomPadding));
+        q->paddingChange(getPadding(), oldPadding);
     }
 }
 
 void QQuickControlPrivate::setRightPadding(qreal value, bool reset)
 {
     Q_Q(QQuickControl);
-    qreal oldPadding = q->rightPadding();
-    rightPadding = value;
-    hasRightPadding = !reset;
-    if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding))) {
+    const QMarginsF oldPadding = getPadding();
+    extra.value().rightPadding = value;
+    extra.value().hasRightPadding = !reset;
+    if ((!reset && !qFuzzyCompare(oldPadding.right(), value)) || (reset && !qFuzzyCompare(oldPadding.right(), getHorizontalPadding()))) {
         emit q->rightPaddingChanged();
         emit q->availableWidthChanged();
-        q->paddingChange(QMarginsF(leftPadding, topPadding, rightPadding, bottomPadding),
-                         QMarginsF(leftPadding, topPadding, oldPadding, bottomPadding));
+        q->paddingChange(getPadding(), oldPadding);
     }
 }
 
 void QQuickControlPrivate::setBottomPadding(qreal value, bool reset)
 {
     Q_Q(QQuickControl);
-    qreal oldPadding = q->bottomPadding();
-    bottomPadding = value;
-    hasBottomPadding = !reset;
-    if ((!reset && !qFuzzyCompare(oldPadding, value)) || (reset && !qFuzzyCompare(oldPadding, padding))) {
+    const QMarginsF oldPadding = getPadding();
+    extra.value().bottomPadding = value;
+    extra.value().hasBottomPadding = !reset;
+    if ((!reset && !qFuzzyCompare(oldPadding.bottom(), value)) || (reset && !qFuzzyCompare(oldPadding.bottom(), getVerticalPadding()))) {
         emit q->bottomPaddingChanged();
         emit q->availableHeightChanged();
-        q->paddingChange(QMarginsF(leftPadding, topPadding, rightPadding, bottomPadding),
-                         QMarginsF(leftPadding, topPadding, rightPadding, oldPadding));
+        q->paddingChange(getPadding(), oldPadding);
+    }
+}
+
+void QQuickControlPrivate::setHorizontalPadding(qreal value, bool reset)
+{
+    Q_Q(QQuickControl);
+    const QMarginsF oldPadding = getPadding();
+    const qreal oldHorizontalPadding = getHorizontalPadding();
+    horizontalPadding = value;
+    hasHorizontalPadding = !reset;
+    if ((!reset && !qFuzzyCompare(oldHorizontalPadding, value)) || (reset && !qFuzzyCompare(oldHorizontalPadding, padding))) {
+        const QMarginsF newPadding = getPadding();
+        if (!qFuzzyCompare(newPadding.left(), oldPadding.left()))
+            emit q->leftPaddingChanged();
+        if (!qFuzzyCompare(newPadding.right(), oldPadding.right()))
+            emit q->rightPaddingChanged();
+        emit q->horizontalPaddingChanged();
+        emit q->availableWidthChanged();
+        q->paddingChange(newPadding, oldPadding);
+    }
+}
+
+void QQuickControlPrivate::setVerticalPadding(qreal value, bool reset)
+{
+    Q_Q(QQuickControl);
+    const QMarginsF oldPadding = getPadding();
+    const qreal oldVerticalPadding = getVerticalPadding();
+    verticalPadding = value;
+    hasVerticalPadding = !reset;
+    if ((!reset && !qFuzzyCompare(oldVerticalPadding, value)) || (reset && !qFuzzyCompare(oldVerticalPadding, padding))) {
+        const QMarginsF newPadding = getPadding();
+        if (!qFuzzyCompare(newPadding.top(), oldPadding.top()))
+            emit q->topPaddingChanged();
+        if (!qFuzzyCompare(newPadding.bottom(), oldPadding.bottom()))
+            emit q->bottomPaddingChanged();
+        emit q->verticalPaddingChanged();
+        emit q->availableHeightChanged();
+        q->paddingChange(newPadding, oldPadding);
+    }
+}
+
+void QQuickControlPrivate::setTopInset(qreal value, bool reset)
+{
+    Q_Q(QQuickControl);
+    const QMarginsF oldInset = getInset();
+    extra.value().topInset = value;
+    extra.value().hasTopInset = !reset;
+    if (!qFuzzyCompare(oldInset.top(), value)) {
+        emit q->topInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickControlPrivate::setLeftInset(qreal value, bool reset)
+{
+    Q_Q(QQuickControl);
+    const QMarginsF oldInset = getInset();
+    extra.value().leftInset = value;
+    extra.value().hasLeftInset = !reset;
+    if (!qFuzzyCompare(oldInset.left(), value)) {
+        emit q->leftInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickControlPrivate::setRightInset(qreal value, bool reset)
+{
+    Q_Q(QQuickControl);
+    const QMarginsF oldInset = getInset();
+    extra.value().rightInset = value;
+    extra.value().hasRightInset = !reset;
+    if (!qFuzzyCompare(oldInset.right(), value)) {
+        emit q->rightInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickControlPrivate::setBottomInset(qreal value, bool reset)
+{
+    Q_Q(QQuickControl);
+    const QMarginsF oldInset = getInset();
+    extra.value().bottomInset = value;
+    extra.value().hasBottomInset = !reset;
+    if (!qFuzzyCompare(oldInset.bottom(), value)) {
+        emit q->bottomInsetChanged();
+        q->insetChange(getInset(), oldInset);
     }
 }
 
 void QQuickControlPrivate::resizeBackground()
 {
-    Q_Q(QQuickControl);
-    if (background) {
-        QQuickItemPrivate *p = QQuickItemPrivate::get(background);
-        if (!p->widthValid && qFuzzyIsNull(background->x())) {
-            background->setWidth(q->width());
-            p->widthValid = false;
-        }
-        if (!p->heightValid && qFuzzyIsNull(background->y())) {
-            background->setHeight(q->height());
-            p->heightValid = false;
-        }
+    if (!background)
+        return;
+
+    resizingBackground = true;
+
+    QQuickItemPrivate *p = QQuickItemPrivate::get(background);
+    if (((!p->widthValid || !extra.isAllocated() || !extra->hasBackgroundWidth) && qFuzzyIsNull(background->x()))
+            || (extra.isAllocated() && (extra->hasLeftInset || extra->hasRightInset))) {
+        background->setX(getLeftInset());
+        background->setWidth(width - getLeftInset() - getRightInset());
     }
+    if (((!p->heightValid || !extra.isAllocated() || !extra->hasBackgroundHeight) && qFuzzyIsNull(background->y()))
+            || (extra.isAllocated() && (extra->hasTopInset || extra->hasBottomInset))) {
+        background->setY(getTopInset());
+        background->setHeight(height - getTopInset() - getBottomInset());
+    }
+
+    resizingBackground = false;
 }
 
 void QQuickControlPrivate::resizeContent()
@@ -293,19 +412,71 @@ void QQuickControlPrivate::setContentItem_helper(QQuickItem *item, bool notify)
     if (!contentItem.isExecuting())
         cancelContentItem();
 
-    q->contentItemChange(item, contentItem);
-    delete contentItem;
+    QQuickItem *oldContentItem = contentItem;
+    if (oldContentItem) {
+        disconnect(oldContentItem, &QQuickItem::baselineOffsetChanged, this, &QQuickControlPrivate::updateBaselineOffset);
+        removeImplicitSizeListener(oldContentItem);
+    }
+
     contentItem = item;
+    q->contentItemChange(item, oldContentItem);
+    delete oldContentItem;
 
     if (item) {
+        connect(contentItem.data(), &QQuickItem::baselineOffsetChanged, this, &QQuickControlPrivate::updateBaselineOffset);
         if (!item->parentItem())
             item->setParentItem(q);
         if (componentComplete)
             resizeContent();
+        addImplicitSizeListener(contentItem);
     }
+
+    updateImplicitContentSize();
+    updateBaselineOffset();
 
     if (notify && !contentItem.isExecuting())
         emit q->contentItemChanged();
+}
+
+qreal QQuickControlPrivate::getContentWidth() const
+{
+    return contentItem ? contentItem->implicitWidth() : 0;
+}
+
+qreal QQuickControlPrivate::getContentHeight() const
+{
+    return contentItem ? contentItem->implicitHeight() : 0;
+}
+
+void QQuickControlPrivate::updateImplicitContentWidth()
+{
+    Q_Q(QQuickControl);
+    const qreal oldWidth = implicitContentWidth;
+    implicitContentWidth = getContentWidth();
+    if (!qFuzzyCompare(implicitContentWidth, oldWidth))
+        emit q->implicitContentWidthChanged();
+}
+
+void QQuickControlPrivate::updateImplicitContentHeight()
+{
+    Q_Q(QQuickControl);
+    const qreal oldHeight = implicitContentHeight;
+    implicitContentHeight = getContentHeight();
+    if (!qFuzzyCompare(implicitContentHeight, oldHeight))
+        emit q->implicitContentHeightChanged();
+}
+
+void QQuickControlPrivate::updateImplicitContentSize()
+{
+    Q_Q(QQuickControl);
+    const qreal oldWidth = implicitContentWidth;
+    const qreal oldHeight = implicitContentHeight;
+    implicitContentWidth = getContentWidth();
+    implicitContentHeight = getContentHeight();
+    if (!qFuzzyCompare(implicitContentWidth, oldWidth))
+        emit q->implicitContentWidthChanged();
+    if (!qFuzzyCompare(implicitContentHeight, oldHeight))
+        emit q->implicitContentHeightChanged();
 }
 
 #if QT_CONFIG(accessibility)
@@ -354,21 +525,7 @@ QFont QQuickControlPrivate::parentFont(const QQuickItem *item)
     if (QQuickApplicationWindow *window = qobject_cast<QQuickApplicationWindow *>(item->window()))
         return window->font();
 
-    return themeFont(QPlatformTheme::SystemFont);
-}
-
-QFont QQuickControlPrivate::themeFont(QPlatformTheme::Font type)
-{
-    if (QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme()) {
-        if (const QFont *font = theme->font(type)) {
-            QFont f = *font;
-            if (type == QPlatformTheme::SystemFont)
-                f.resolve(0);
-            return f;
-        }
-    }
-
-    return QFont();
+    return QQuickTheme::font(QQuickTheme::System);
 }
 
 /*!
@@ -459,21 +616,7 @@ QPalette QQuickControlPrivate::parentPalette(const QQuickItem *item)
     if (QQuickApplicationWindow *window = qobject_cast<QQuickApplicationWindow *>(item->window()))
         return window->palette();
 
-    return themePalette(QPlatformTheme::SystemPalette);
-}
-
-QPalette QQuickControlPrivate::themePalette(QPlatformTheme::Palette type)
-{
-    if (QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme()) {
-        if (const QPalette *palette = theme->palette(type)) {
-            QPalette p = *palette;
-            if (type == QPlatformTheme::SystemPalette)
-                p.resolve(0);
-            return p;
-        }
-    }
-
-    return QPalette();
+    return QQuickTheme::palette(QQuickTheme::System);
 }
 
 /*!
@@ -571,8 +714,8 @@ void QQuickControlPrivate::updateLocale(const QLocale &l, bool e)
     hasLocale = e;
     if (old != l) {
         bool wasMirrored = q->isMirrored();
-        q->localeChange(l, old);
         locale = l;
+        q->localeChange(l, old);
         QQuickControlPrivate::updateLocaleRecur(q, l);
         emit q->localeChanged();
         if (wasMirrored != q->isMirrored())
@@ -689,14 +832,108 @@ void QQuickControlPrivate::executeBackground(bool complete)
         quickCompleteDeferred(q, backgroundName(), background);
 }
 
+void QQuickControlPrivate::updateBaselineOffset()
+{
+    Q_Q(QQuickControl);
+    if (extra.isAllocated() && extra.value().hasBaselineOffset)
+        return;
+
+    if (!contentItem)
+        q->QQuickItem::setBaselineOffset(0);
+    else
+        q->QQuickItem::setBaselineOffset(getTopPadding() + contentItem->baselineOffset());
+}
+
+void QQuickControlPrivate::addImplicitSizeListener(QQuickItem *item, ChangeTypes changes)
+{
+    addImplicitSizeListener(item, this, changes);
+}
+
+void QQuickControlPrivate::removeImplicitSizeListener(QQuickItem *item, ChangeTypes changes)
+{
+    removeImplicitSizeListener(item, this, changes);
+}
+
+void QQuickControlPrivate::addImplicitSizeListener(QQuickItem *item, QQuickItemChangeListener *listener, ChangeTypes changes)
+{
+    if (!item || !listener)
+        return;
+    QQuickItemPrivate::get(item)->addItemChangeListener(listener, changes);
+}
+
+void QQuickControlPrivate::removeImplicitSizeListener(QQuickItem *item, QQuickItemChangeListener *listener, ChangeTypes changes)
+{
+    if (!item || !listener)
+        return;
+    QQuickItemPrivate::get(item)->removeItemChangeListener(listener, changes);
+}
+
+void QQuickControlPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    Q_Q(QQuickControl);
+    if (item == background)
+        emit q->implicitBackgroundWidthChanged();
+    else if (item == contentItem)
+        updateImplicitContentWidth();
+}
+
+void QQuickControlPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    Q_Q(QQuickControl);
+    if (item == background)
+        emit q->implicitBackgroundHeightChanged();
+    else if (item == contentItem)
+        updateImplicitContentHeight();
+}
+
+void QQuickControlPrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff)
+{
+    Q_UNUSED(diff);
+    if (resizingBackground || item != background || !change.sizeChange())
+        return;
+
+    QQuickItemPrivate *p = QQuickItemPrivate::get(item);
+    // Only set hasBackgroundWidth/Height if it was a width/height change,
+    // otherwise we're prevented from setting a width/height in the future.
+    if (change.widthChange())
+        extra.value().hasBackgroundWidth = p->widthValid;
+    if (change.heightChange())
+        extra.value().hasBackgroundHeight = p->heightValid;
+    resizeBackground();
+}
+
+void QQuickControlPrivate::itemDestroyed(QQuickItem *item)
+{
+    Q_Q(QQuickControl);
+    if (item == background) {
+        background = nullptr;
+        emit q->implicitBackgroundWidthChanged();
+        emit q->implicitBackgroundHeightChanged();
+    } else if (item == contentItem) {
+        contentItem = nullptr;
+        updateImplicitContentSize();
+    }
+}
+
 QQuickControl::QQuickControl(QQuickItem *parent)
     : QQuickItem(*(new QQuickControlPrivate), parent)
 {
+    Q_D(QQuickControl);
+    d->init();
 }
 
 QQuickControl::QQuickControl(QQuickControlPrivate &dd, QQuickItem *parent)
     : QQuickItem(dd, parent)
 {
+    Q_D(QQuickControl);
+    d->init();
+}
+
+QQuickControl::~QQuickControl()
+{
+    Q_D(QQuickControl);
+    d->removeImplicitSizeListener(d->background, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
+    d->removeImplicitSizeListener(d->contentItem);
 }
 
 void QQuickControl::itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &value)
@@ -706,6 +943,7 @@ void QQuickControl::itemChange(QQuickItem::ItemChange change, const QQuickItem::
     switch (change) {
     case ItemEnabledHasChanged:
         emit paletteChanged();
+        enabledChange();
         break;
     case ItemVisibleHasChanged:
 #if QT_CONFIG(quicktemplates2_hover)
@@ -845,6 +1083,26 @@ qreal QQuickControl::availableHeight() const
     \li \l {Control::}{bottomPadding}
     \endlist
 
+    \note Different styles may specify the default padding for certain controls
+    in different ways, and these ways may change over time as the design
+    guidelines that the style is based on evolve. To ensure that these changes
+    don't affect the padding values you have specified, it is best to use the
+    most specific properties available. For example, rather than setting
+    the \l padding property:
+
+    \code
+    padding: 0
+    \endcode
+
+    set each specific property instead:
+
+    \code
+    leftPadding: 0
+    rightPadding: 0
+    topPadding: 0
+    bottomPadding: 0
+    \endcode
+
     \sa {Control Layout}, availableWidth, availableHeight, topPadding, leftPadding, rightPadding, bottomPadding
 */
 qreal QQuickControl::padding() const
@@ -858,10 +1116,18 @@ void QQuickControl::setPadding(qreal padding)
     Q_D(QQuickControl);
     if (qFuzzyCompare(d->padding, padding))
         return;
-    QMarginsF oldPadding(leftPadding(), topPadding(), rightPadding(), bottomPadding());
+
+    const QMarginsF oldPadding = d->getPadding();
+    const qreal oldVerticalPadding = d->getVerticalPadding();
+    const qreal oldHorizontalPadding = d->getHorizontalPadding();
+
     d->padding = padding;
     emit paddingChanged();
-    QMarginsF newPadding(leftPadding(), topPadding(), rightPadding(), bottomPadding());
+
+    const QMarginsF newPadding = d->getPadding();
+    const qreal newVerticalPadding = d->getVerticalPadding();
+    const qreal newHorizontalPadding = d->getHorizontalPadding();
+
     if (!qFuzzyCompare(newPadding.top(), oldPadding.top()))
         emit topPaddingChanged();
     if (!qFuzzyCompare(newPadding.left(), oldPadding.left()))
@@ -870,10 +1136,15 @@ void QQuickControl::setPadding(qreal padding)
         emit rightPaddingChanged();
     if (!qFuzzyCompare(newPadding.bottom(), oldPadding.bottom()))
         emit bottomPaddingChanged();
+    if (!qFuzzyCompare(newVerticalPadding, oldVerticalPadding))
+        emit verticalPaddingChanged();
+    if (!qFuzzyCompare(newHorizontalPadding, oldHorizontalPadding))
+        emit horizontalPaddingChanged();
     if (!qFuzzyCompare(newPadding.top(), oldPadding.top()) || !qFuzzyCompare(newPadding.bottom(), oldPadding.bottom()))
         emit availableHeightChanged();
     if (!qFuzzyCompare(newPadding.left(), oldPadding.left()) || !qFuzzyCompare(newPadding.right(), oldPadding.right()))
         emit availableWidthChanged();
+
     paddingChange(newPadding, oldPadding);
 }
 
@@ -885,16 +1156,15 @@ void QQuickControl::resetPadding()
 /*!
     \qmlproperty real QtQuick.Controls::Control::topPadding
 
-    This property holds the top padding.
+    This property holds the top padding. Unless explicitly set, the value
+    is equal to \c verticalPadding.
 
-    \sa {Control Layout}, padding, bottomPadding, availableHeight
+    \sa {Control Layout}, padding, bottomPadding, verticalPadding, availableHeight
 */
 qreal QQuickControl::topPadding() const
 {
     Q_D(const QQuickControl);
-    if (d->hasTopPadding)
-        return d->topPadding;
-    return d->padding;
+    return d->getTopPadding();
 }
 
 void QQuickControl::setTopPadding(qreal padding)
@@ -912,16 +1182,15 @@ void QQuickControl::resetTopPadding()
 /*!
     \qmlproperty real QtQuick.Controls::Control::leftPadding
 
-    This property holds the left padding.
+    This property holds the left padding. Unless explicitly set, the value
+    is equal to \c horizontalPadding.
 
-    \sa {Control Layout}, padding, rightPadding, availableWidth
+    \sa {Control Layout}, padding, rightPadding, horizontalPadding, availableWidth
 */
 qreal QQuickControl::leftPadding() const
 {
     Q_D(const QQuickControl);
-    if (d->hasLeftPadding)
-        return d->leftPadding;
-    return d->padding;
+    return d->getLeftPadding();
 }
 
 void QQuickControl::setLeftPadding(qreal padding)
@@ -939,16 +1208,15 @@ void QQuickControl::resetLeftPadding()
 /*!
     \qmlproperty real QtQuick.Controls::Control::rightPadding
 
-    This property holds the right padding.
+    This property holds the right padding. Unless explicitly set, the value
+    is equal to \c horizontalPadding.
 
-    \sa {Control Layout}, padding, leftPadding, availableWidth
+    \sa {Control Layout}, padding, leftPadding, horizontalPadding, availableWidth
 */
 qreal QQuickControl::rightPadding() const
 {
     Q_D(const QQuickControl);
-    if (d->hasRightPadding)
-        return d->rightPadding;
-    return d->padding;
+    return d->getRightPadding();
 }
 
 void QQuickControl::setRightPadding(qreal padding)
@@ -966,16 +1234,15 @@ void QQuickControl::resetRightPadding()
 /*!
     \qmlproperty real QtQuick.Controls::Control::bottomPadding
 
-    This property holds the bottom padding.
+    This property holds the bottom padding. Unless explicitly set, the value
+    is equal to \c verticalPadding.
 
-    \sa {Control Layout}, padding, topPadding, availableHeight
+    \sa {Control Layout}, padding, topPadding, verticalPadding, availableHeight
 */
 qreal QQuickControl::bottomPadding() const
 {
     Q_D(const QQuickControl);
-    if (d->hasBottomPadding)
-        return d->bottomPadding;
-    return d->padding;
+    return d->getBottomPadding();
 }
 
 void QQuickControl::setBottomPadding(qreal padding)
@@ -1203,9 +1470,9 @@ void QQuickControl::setHovered(bool hovered)
     Setting this property propagates the value to all child controls that do not have
     \c hoverEnabled explicitly set.
 
-    You can also enable or disable hover effects for all Qt Quick Controls 2 applications
+    You can also enable or disable hover effects for all Qt Quick Controls applications
     by setting the \c QT_QUICK_CONTROLS_HOVER_ENABLED \l {Supported Environment Variables
-    in Qt Quick Controls 2}{environment variable}.
+    in Qt Quick Controls}{environment variable}.
 
     \sa hovered
 */
@@ -1308,15 +1575,36 @@ void QQuickControl::setBackground(QQuickItem *background)
     if (!d->background.isExecuting())
         d->cancelBackground();
 
+    const qreal oldImplicitBackgroundWidth = implicitBackgroundWidth();
+    const qreal oldImplicitBackgroundHeight = implicitBackgroundHeight();
+
+    if (d->extra.isAllocated()) {
+        d->extra.value().hasBackgroundWidth = false;
+        d->extra.value().hasBackgroundHeight = false;
+    }
+
+    d->removeImplicitSizeListener(d->background, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
     delete d->background;
     d->background = background;
+
     if (background) {
         background->setParentItem(this);
         if (qFuzzyIsNull(background->z()))
             background->setZ(-1);
+        QQuickItemPrivate *p = QQuickItemPrivate::get(background);
+        if (p->widthValid || p->heightValid) {
+            d->extra.value().hasBackgroundWidth = p->widthValid;
+            d->extra.value().hasBackgroundHeight = p->heightValid;
+        }
         if (isComponentComplete())
             d->resizeBackground();
+        d->addImplicitSizeListener(background, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
     }
+
+    if (!qFuzzyCompare(oldImplicitBackgroundWidth, implicitBackgroundWidth()))
+        emit implicitBackgroundWidthChanged();
+    if (!qFuzzyCompare(oldImplicitBackgroundHeight, implicitBackgroundHeight()))
+        emit implicitBackgroundHeightChanged();
     if (!d->background.isExecuting())
         emit backgroundChanged();
 }
@@ -1338,8 +1626,9 @@ void QQuickControl::setBackground(QQuickItem *background)
     }
     \endcode
 
-    \note The content item is automatically resized to fit within the
-    \l padding of the control.
+    \note The content item is automatically positioned and resized to fit
+    within the \l padding of the control. Bindings to the \l x, \l y, \l width,
+    and \l height properties of the contentItem are not respected.
 
     \note Most controls use the implicit size of the content item to calculate
     the implicit size of the control itself. If you replace the content item
@@ -1361,6 +1650,30 @@ void QQuickControl::setContentItem(QQuickItem *item)
 {
     Q_D(QQuickControl);
     d->setContentItem_helper(item, true);
+}
+
+qreal QQuickControl::baselineOffset() const
+{
+    Q_D(const QQuickControl);
+    return d->baselineOffset;
+}
+
+void QQuickControl::setBaselineOffset(qreal offset)
+{
+    Q_D(QQuickControl);
+    d->extra.value().hasBaselineOffset = true;
+    QQuickItem::setBaselineOffset(offset);
+}
+
+void QQuickControl::resetBaselineOffset()
+{
+    Q_D(QQuickControl);
+    if (!d->extra.isAllocated() || !d->extra.value().hasBaselineOffset)
+        return;
+
+    if (d->extra.isAllocated())
+        d->extra.value().hasBaselineOffset = false;
+    d->updateBaselineOffset();
 }
 
 /*!
@@ -1432,6 +1745,278 @@ void QQuickControl::resetPalette()
     setPalette(QPalette());
 }
 
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::horizontalPadding
+
+    This property holds the horizontal padding. Unless explicitly set, the value
+    is equal to \c padding.
+
+    \sa {Control Layout}, padding, leftPadding, rightPadding, verticalPadding
+*/
+qreal QQuickControl::horizontalPadding() const
+{
+    Q_D(const QQuickControl);
+    return d->getHorizontalPadding();
+}
+
+void QQuickControl::setHorizontalPadding(qreal padding)
+{
+    Q_D(QQuickControl);
+    d->setHorizontalPadding(padding);
+}
+
+void QQuickControl::resetHorizontalPadding()
+{
+    Q_D(QQuickControl);
+    d->setHorizontalPadding(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::verticalPadding
+
+    This property holds the vertical padding. Unless explicitly set, the value
+    is equal to \c padding.
+
+    \sa {Control Layout}, padding, topPadding, bottomPadding, horizontalPadding
+*/
+qreal QQuickControl::verticalPadding() const
+{
+    Q_D(const QQuickControl);
+    return d->getVerticalPadding();
+}
+
+void QQuickControl::setVerticalPadding(qreal padding)
+{
+    Q_D(QQuickControl);
+    d->setVerticalPadding(padding);
+}
+
+void QQuickControl::resetVerticalPadding()
+{
+    Q_D(QQuickControl);
+    d->setVerticalPadding(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::implicitContentWidth
+    \readonly
+
+    This property holds the implicit content width.
+
+    For basic controls, the value is equal to \c {contentItem ? contentItem.implicitWidth : 0}.
+    For types that inherit Container or Pane, the value is calculated based on the content children.
+
+    This is typically used, together with \l implicitBackgroundWidth, to calculate
+    the \l {Item::}{implicitWidth}:
+
+    \code
+    Control {
+        implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                                implicitContentWidth + leftPadding + rightPadding)
+    }
+    \endcode
+
+    \sa implicitContentHeight, implicitBackgroundWidth
+*/
+qreal QQuickControl::implicitContentWidth() const
+{
+    Q_D(const QQuickControl);
+    return d->implicitContentWidth;
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::implicitContentHeight
+    \readonly
+
+    This property holds the implicit content height.
+
+    For basic controls, the value is equal to \c {contentItem ? contentItem.implicitHeight : 0}.
+    For types that inherit Container or Pane, the value is calculated based on the content children.
+
+    This is typically used, together with \l implicitBackgroundHeight, to calculate
+    the \l {Item::}{implicitHeight}:
+
+    \code
+    Control {
+        implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                                 implicitContentHeight + topPadding + bottomPadding)
+    }
+    \endcode
+
+    \sa implicitContentWidth, implicitBackgroundHeight
+*/
+qreal QQuickControl::implicitContentHeight() const
+{
+    Q_D(const QQuickControl);
+    return d->implicitContentHeight;
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::implicitBackgroundWidth
+    \readonly
+
+    This property holds the implicit background width.
+
+    The value is equal to \c {background ? background.implicitWidth : 0}.
+
+    This is typically used, together with \l implicitContentWidth, to calculate
+    the \l {Item::}{implicitWidth}:
+
+    \code
+    Control {
+        implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                                implicitContentWidth + leftPadding + rightPadding)
+    }
+    \endcode
+
+    \sa implicitBackgroundHeight, implicitContentWidth
+*/
+qreal QQuickControl::implicitBackgroundWidth() const
+{
+    Q_D(const QQuickControl);
+    if (!d->background)
+        return 0;
+    return d->background->implicitWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::implicitBackgroundHeight
+    \readonly
+
+    This property holds the implicit background height.
+
+    The value is equal to \c {background ? background.implicitHeight : 0}.
+
+    This is typically used, together with \l implicitContentHeight, to calculate
+    the \l {Item::}{implicitHeight}:
+
+    \code
+    Control {
+        implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                                 implicitContentHeight + topPadding + bottomPadding)
+    }
+    \endcode
+
+    \sa implicitBackgroundWidth, implicitContentHeight
+*/
+qreal QQuickControl::implicitBackgroundHeight() const
+{
+    Q_D(const QQuickControl);
+    if (!d->background)
+        return 0;
+    return d->background->implicitHeight();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::topInset
+
+    This property holds the top inset for the background.
+
+    \sa {Control Layout}, bottomInset
+*/
+qreal QQuickControl::topInset() const
+{
+    Q_D(const QQuickControl);
+    return d->getTopInset();
+}
+
+void QQuickControl::setTopInset(qreal inset)
+{
+    Q_D(QQuickControl);
+    d->setTopInset(inset);
+}
+
+void QQuickControl::resetTopInset()
+{
+    Q_D(QQuickControl);
+    d->setTopInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::leftInset
+
+    This property holds the left inset for the background.
+
+    \sa {Control Layout}, rightInset
+*/
+qreal QQuickControl::leftInset() const
+{
+    Q_D(const QQuickControl);
+    return d->getLeftInset();
+}
+
+void QQuickControl::setLeftInset(qreal inset)
+{
+    Q_D(QQuickControl);
+    d->setLeftInset(inset);
+}
+
+void QQuickControl::resetLeftInset()
+{
+    Q_D(QQuickControl);
+    d->setLeftInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::rightInset
+
+    This property holds the right inset for the background.
+
+    \sa {Control Layout}, leftInset
+*/
+qreal QQuickControl::rightInset() const
+{
+    Q_D(const QQuickControl);
+    return d->getRightInset();
+}
+
+void QQuickControl::setRightInset(qreal inset)
+{
+    Q_D(QQuickControl);
+    d->setRightInset(inset);
+}
+
+void QQuickControl::resetRightInset()
+{
+    Q_D(QQuickControl);
+    d->setRightInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Control::bottomInset
+
+    This property holds the bottom inset for the background.
+
+    \sa {Control Layout}, topInset
+*/
+qreal QQuickControl::bottomInset() const
+{
+    Q_D(const QQuickControl);
+    return d->getBottomInset();
+}
+
+void QQuickControl::setBottomInset(qreal inset)
+{
+    Q_D(QQuickControl);
+    d->setBottomInset(inset);
+}
+
+void QQuickControl::resetBottomInset()
+{
+    Q_D(QQuickControl);
+    d->setBottomInset(0, true);
+}
+
 void QQuickControl::classBegin()
 {
     Q_D(QQuickControl);
@@ -1448,6 +2033,7 @@ void QQuickControl::componentComplete()
     QQuickItem::componentComplete();
     d->resizeBackground();
     d->resizeContent();
+    d->updateBaselineOffset();
     if (!d->hasLocale)
         d->locale = QQuickControlPrivate::calcLocale(d->parentItem);
 #if QT_CONFIG(quicktemplates2_hover)
@@ -1462,12 +2048,12 @@ void QQuickControl::componentComplete()
 
 QFont QQuickControl::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::SystemFont);
+    return QQuickTheme::font(QQuickTheme::System);
 }
 
 QPalette QQuickControl::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::SystemPalette);
+    return QQuickTheme::palette(QQuickTheme::System);
 }
 
 void QQuickControl::focusInEvent(QFocusEvent *event)
@@ -1582,7 +2168,7 @@ void QQuickControl::wheelEvent(QWheelEvent *event)
 {
     Q_D(QQuickControl);
     if ((d->focusPolicy & Qt::WheelFocus) == Qt::WheelFocus)
-        forceActiveFocus(Qt::MouseFocusReason);
+        setActiveFocus(this, Qt::MouseFocusReason);
 
     event->setAccepted(d->wheelEnabled);
 }
@@ -1598,6 +2184,10 @@ void QQuickControl::geometryChanged(const QRectF &newGeometry, const QRectF &old
         emit availableWidthChanged();
     if (!qFuzzyCompare(newGeometry.height(), oldGeometry.height()))
         emit availableHeightChanged();
+}
+
+void QQuickControl::enabledChange()
+{
 }
 
 void QQuickControl::fontChange(const QFont &newFont, const QFont &oldFont)
@@ -1629,6 +2219,7 @@ void QQuickControl::paddingChange(const QMarginsF &newPadding, const QMarginsF &
     Q_UNUSED(newPadding);
     Q_UNUSED(oldPadding);
     d->resizeContent();
+    d->updateBaselineOffset();
 }
 
 void QQuickControl::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem)
@@ -1647,6 +2238,14 @@ void QQuickControl::paletteChange(const QPalette &newPalette, const QPalette &ol
 {
     Q_UNUSED(newPalette);
     Q_UNUSED(oldPalette);
+}
+
+void QQuickControl::insetChange(const QMarginsF &newInset, const QMarginsF &oldInset)
+{
+    Q_D(QQuickControl);
+    Q_UNUSED(newInset);
+    Q_UNUSED(oldInset);
+    d->resizeBackground();
 }
 
 #if QT_CONFIG(accessibility)

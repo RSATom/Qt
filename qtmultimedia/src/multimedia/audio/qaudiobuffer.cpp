@@ -85,7 +85,7 @@ public:
     static QAudioBufferPrivate *acquire(QAudioBufferPrivate *other)
     {
         if (!other)
-            return 0;
+            return nullptr;
 
         // Ref the other (if there are extant data() pointers, they will
         // also point here - it's a feature, not a bug, like QByteArray)
@@ -131,7 +131,7 @@ public:
                 }
             }
         } else
-            mBuffer = 0;
+            mBuffer = nullptr;
     }
 
     ~QMemoryAudioBufferProvider()
@@ -178,7 +178,7 @@ QAudioBufferPrivate *QAudioBufferPrivate::clone()
         }
     }
 
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -199,7 +199,7 @@ QAudioBufferPrivate *QAudioBufferPrivate::clone()
     Create a new, empty, invalid buffer.
  */
 QAudioBuffer::QAudioBuffer()
-    : d(0)
+    : d(nullptr)
 {
 }
 
@@ -244,7 +244,7 @@ QAudioBuffer::QAudioBuffer(const QByteArray &data, const QAudioFormat &format, q
         int frameCount = format.framesForBytes(data.size());
         d = new QAudioBufferPrivate(new QMemoryAudioBufferProvider(data.constData(), frameCount, format, startTime));
     } else
-        d = 0;
+        d = nullptr;
 }
 
 /*!
@@ -259,9 +259,9 @@ QAudioBuffer::QAudioBuffer(const QByteArray &data, const QAudioFormat &format, q
 QAudioBuffer::QAudioBuffer(int numFrames, const QAudioFormat &format, qint64 startTime)
 {
     if (format.isValid())
-        d = new QAudioBufferPrivate(new QMemoryAudioBufferProvider(0, numFrames, format, startTime));
+        d = new QAudioBufferPrivate(new QMemoryAudioBufferProvider(nullptr, numFrames, format, startTime));
     else
-        d = 0;
+        d = nullptr;
 }
 
 /*!
@@ -394,7 +394,7 @@ qint64 QAudioBuffer::startTime() const
 const void* QAudioBuffer::constData() const
 {
     if (!isValid())
-        return 0;
+        return nullptr;
     return d->mProvider->constData();
 }
 
@@ -417,7 +417,7 @@ const void* QAudioBuffer::constData() const
 const void* QAudioBuffer::data() const
 {
     if (!isValid())
-        return 0;
+        return nullptr;
     return d->mProvider->constData();
 }
 
@@ -456,7 +456,7 @@ const void* QAudioBuffer::data() const
 void *QAudioBuffer::data()
 {
     if (!isValid())
-        return 0;
+        return nullptr;
 
     if (d->mCount.load() != 1) {
         // Can't share a writable buffer
@@ -465,7 +465,7 @@ void *QAudioBuffer::data()
 
         // This shouldn't happen
         if (!newd)
-            return 0;
+            return nullptr;
 
         d->deref();
         d = newd;
@@ -489,7 +489,7 @@ void *QAudioBuffer::data()
         return memBuffer->writableData();
     }
 
-    return 0;
+    return nullptr;
 }
 
 // Template helper classes worth documenting
@@ -531,32 +531,32 @@ void *QAudioBuffer::data()
 */
 
 /*!
-    \fn QAudioBuffer::StereoFrame::StereoFrame()
+    \fn template <typename T> QAudioBuffer::StereoFrame<T>::StereoFrame()
 
     Constructs a new frame with the "silent" value for this
     sample format (0 for signed formats and floats, 0x8* for unsigned formats).
 */
 
 /*!
-    \fn QAudioBuffer::StereoFrame::StereoFrame(T leftSample, T rightSample)
+    \fn template <typename T> QAudioBuffer::StereoFrame<T>::StereoFrame(T leftSample, T rightSample)
 
     Constructs a new frame with the supplied \a leftSample and \a rightSample values.
 */
 
 /*!
-    \fn QAudioBuffer::StereoFrame::operator=(const StereoFrame &other)
+    \fn template <typename T> QAudioBuffer::StereoFrame<T>::operator=(const StereoFrame &other)
 
     Assigns \a other to this frame.
  */
 
 
 /*!
-    \fn QAudioBuffer::StereoFrame::average() const
+    \fn template <typename T> QAudioBuffer::StereoFrame<T>::average() const
 
     Returns the arithmetic average of the left and right samples.
  */
 
-/*! \fn QAudioBuffer::StereoFrame::clear()
+/*! \fn template <typename T> QAudioBuffer::StereoFrame<T>::clear()
 
     Sets the values of this frame to the "silent" value.
 */
@@ -573,35 +573,30 @@ void *QAudioBuffer::data()
 
 /*!
     \typedef QAudioBuffer::S8U
-    \relates QAudioBuffer::StereoFrame
 
     This is a predefined specialization for an unsigned stereo 8 bit sample.  Each
     channel is an \e {unsigned char}.
 */
 /*!
     \typedef QAudioBuffer::S8S
-    \relates QAudioBuffer::StereoFrame
 
     This is a predefined specialization for a signed stereo 8 bit sample.  Each
     channel is a \e {signed char}.
 */
 /*!
     \typedef QAudioBuffer::S16U
-    \relates QAudioBuffer::StereoFrame
 
     This is a predefined specialization for an unsigned stereo 16 bit sample.  Each
     channel is an \e {unsigned short}.
 */
 /*!
     \typedef QAudioBuffer::S16S
-    \relates QAudioBuffer::StereoFrame
 
     This is a predefined specialization for a signed stereo 16 bit sample.  Each
     channel is a \e {signed short}.
 */
 /*!
     \typedef QAudioBuffer::S32F
-    \relates QAudioBuffer::StereoFrame
 
     This is a predefined specialization for an 32 bit float sample.  Each
     channel is a \e float.

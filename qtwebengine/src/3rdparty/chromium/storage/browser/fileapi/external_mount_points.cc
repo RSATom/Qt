@@ -4,10 +4,11 @@
 
 #include "storage/browser/fileapi/external_mount_points.h"
 
+#include <memory>
+
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "storage/browser/fileapi/file_system_url.h"
 
 namespace {
@@ -43,7 +44,7 @@ class SystemMountPointsLazyWrapper {
       : system_mount_points_(storage::ExternalMountPoints::CreateRefCounted()) {
   }
 
-  ~SystemMountPointsLazyWrapper() {}
+  ~SystemMountPointsLazyWrapper() = default;
 
   storage::ExternalMountPoints* get() { return system_mount_points_.get(); }
 
@@ -66,7 +67,7 @@ class ExternalMountPoints::Instance {
       : type_(type),
         path_(path.StripTrailingSeparators()),
         mount_option_(mount_option) {}
-  ~Instance() {}
+  ~Instance() = default;
 
   FileSystemType type() const { return type_; }
   const base::FilePath& path() const { return path_; }
@@ -104,7 +105,7 @@ bool ExternalMountPoints::RegisterFileSystem(
     return false;
 
   instance_map_[mount_name] =
-      base::MakeUnique<Instance>(type, path, mount_option);
+      std::make_unique<Instance>(type, path, mount_option);
   if (!path.empty() && IsOverlappingMountPathForbidden(type))
     path_to_name_map_.insert(std::make_pair(path, mount_name));
   return true;
@@ -159,8 +160,7 @@ bool ExternalMountPoints::CrackVirtualPath(
   if (components.size() < 1)
     return false;
 
-  std::vector<base::FilePath::StringType>::iterator component_iter =
-      components.begin();
+  auto component_iter = components.begin();
   std::string maybe_mount_name =
       base::FilePath(*component_iter++).AsUTF8Unsafe();
 
@@ -329,8 +329,7 @@ bool ExternalMountPoints::ValidateNewMountPoint(const std::string& mount_name,
       }
     }
 
-    std::map<base::FilePath, std::string>::iterator potential_child =
-        path_to_name_map_.upper_bound(path);
+    auto potential_child = path_to_name_map_.upper_bound(path);
     if (potential_child != path_to_name_map_.end()) {
       if (potential_child->first == path ||
           path.IsParent(potential_child->first)) {

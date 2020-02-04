@@ -10,8 +10,6 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(dom_distiller::WebContentsMainFrameObserver);
-
 namespace dom_distiller {
 
 WebContentsMainFrameObserver::WebContentsMainFrameObserver(
@@ -49,7 +47,9 @@ void WebContentsMainFrameObserver::RenderProcessGone(
 }
 
 void WebContentsMainFrameObserver::CleanUp() {
-  content::WebContentsObserver::Observe(NULL);
+  content::WebContentsObserver::Observe(nullptr);
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(WebContentsMainFrameObserver)
 
 }  // namespace dom_distiller

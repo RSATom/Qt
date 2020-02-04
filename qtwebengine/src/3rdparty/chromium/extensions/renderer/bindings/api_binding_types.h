@@ -19,8 +19,29 @@ extern const int kNoListenerMax;
 
 // Types of changes for event listener registration.
 enum class EventListenersChanged {
-  HAS_LISTENERS,  // The event had no listeners, and now does.
-  NO_LISTENERS,   // The event had listeners, and now does not.
+  // Unfiltered Events:
+
+  // The first unfiltered listener for the associated context was added.
+  kFirstUnfilteredListenerForContextAdded,
+  // The first unfiltered listener for the associated context owner was added.
+  // This also implies the first listener for the context was added.
+  kFirstUnfilteredListenerForContextOwnerAdded,
+  // The last unfiltered listener for the associated context was removed.
+  kLastUnfilteredListenerForContextRemoved,
+  // The last unfiltered listener for the associated context owner was removed.
+  // This also implies the last listener for the context was removed.
+  kLastUnfilteredListenerForContextOwnerRemoved,
+
+  // Filtered Events:
+  // TODO(https://crbug.com/873017): The fact that we only have added/removed
+  // at the context owner level for filtered events can cause issues.
+
+  // The first listener for the associated context owner with a specific
+  // filter was added.
+  kFirstListenerWithFilterForContextOwnerAdded,
+  // The last listener for the associated context owner with a specific
+  // filter was removed.
+  kLastListenerWithFilterForContextOwnerRemoved,
 };
 
 // The browser thread that the request should be sent to.
@@ -29,29 +50,9 @@ enum class RequestThread {
   IO,
 };
 
-// A callback to execute the given v8::Function with the provided context and
-// arguments.
-using RunJSFunction = base::Callback<void(v8::Local<v8::Function>,
-                                          v8::Local<v8::Context>,
-                                          int argc,
-                                          v8::Local<v8::Value>[])>;
-
-// A callback to execute the given v8::Function synchronously and return the
-// result. Note that script can be suspended, so you need to be certain that
-// it is not before expected a synchronous result. We use a Global instead of a
-// Local because certain implementations need to create a persistent handle in
-// order to prevent immediate destruction of the locals.
-// TODO(devlin): if we could, using Local here with an EscapableHandleScope
-// would be preferable.
-using RunJSFunctionSync =
-    base::Callback<v8::Global<v8::Value>(v8::Local<v8::Function>,
-                                         v8::Local<v8::Context>,
-                                         int argc,
-                                         v8::Local<v8::Value>[])>;
-
 // Adds an error message to the context's console.
-using AddConsoleError =
-    base::Callback<void(v8::Local<v8::Context>, const std::string& error)>;
+using AddConsoleError = base::RepeatingCallback<void(v8::Local<v8::Context>,
+                                                     const std::string& error)>;
 
 }  // namespace binding
 }  // namespace extensions

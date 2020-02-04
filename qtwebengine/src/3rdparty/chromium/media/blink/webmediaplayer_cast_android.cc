@@ -11,10 +11,12 @@
 #include "media/base/bind_to_current_loop.h"
 #include "media/blink/webmediaplayer_impl.h"
 #include "media/blink/webmediaplayer_params.h"
-#include "third_party/WebKit/public/platform/WebMediaPlayerClient.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/platform/web_media_player_client.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkFont.h"
+#include "third_party/skia/include/core/SkFontStyle.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 
@@ -38,9 +40,8 @@ void OnReleaseTexture(
   gl->ShallowFlushCHROMIUM();
 }
 
-GLES2Interface* GLCBShim(
-    const WebMediaPlayerParams::Context3DCB& context_3d_cb) {
-  return context_3d_cb.Run().gl;
+GLES2Interface* GLCBShim(scoped_refptr<viz::ContextProvider> context_provider) {
+  return context_provider->ContextGL();
 }
 
 }  // namespace
@@ -61,21 +62,21 @@ scoped_refptr<VideoFrame> MakeTextFrameForCast(
   const SkScalar kMinPadding(40);
 
   SkPaint paint;
-  paint.setAntiAlias(true);
-  paint.setFilterQuality(kHigh_SkFilterQuality);
   paint.setColor(SK_ColorWHITE);
-  paint.setTypeface(SkTypeface::MakeFromName(
-      "sans", SkFontStyle::FromOldStyle(SkTypeface::kBold)));
-  paint.setTextSize(kTextSize);
+
+  SkFont font;
+  font.setTypeface(SkTypeface::MakeFromName("sans", SkFontStyle::Bold()));
+  font.setSize(kTextSize);
 
   // Calculate the vertical margin from the top
-  SkPaint::FontMetrics font_metrics;
-  paint.getFontMetrics(&font_metrics);
+  SkFontMetrics font_metrics;
+  font.getMetrics(&font_metrics);
   SkScalar sk_vertical_margin = kMinPadding - font_metrics.fAscent;
 
   // Measure the width of the entire text to display
-  size_t display_text_width = paint.measureText(remote_playback_message.c_str(),
-                                                remote_playback_message.size());
+  size_t display_text_width =
+      font.measureText(remote_playback_message.c_str(),
+                       remote_playback_message.size(), kUTF8_SkTextEncoding);
   std::string display_text(remote_playback_message);
 
   if (display_text_width + (kMinPadding * 2) > canvas_size.width()) {
@@ -84,31 +85,33 @@ scoped_refptr<VideoFrame> MakeTextFrameForCast(
 
     // First, figure out how much of the canvas the '...' will take up.
     const std::string kTruncationEllipsis("\xE2\x80\xA6");
-    SkScalar sk_ellipse_width = paint.measureText(kTruncationEllipsis.c_str(),
-                                                  kTruncationEllipsis.size());
+    SkScalar sk_ellipse_width =
+        font.measureText(kTruncationEllipsis.c_str(),
+                         kTruncationEllipsis.size(), kUTF8_SkTextEncoding);
 
     // Then calculate how much of the text can be drawn with the '...' appended
     // to the end of the string.
     SkScalar sk_max_original_text_width(canvas_size.width() -
                                         (kMinPadding * 2) - sk_ellipse_width);
-    size_t sk_max_original_text_length = paint.breakText(
+    size_t sk_max_original_text_length = font.breakText(
         remote_playback_message.c_str(), remote_playback_message.size(),
-        sk_max_original_text_width);
+        kUTF8_SkTextEncoding, sk_max_original_text_width);
 
     // Remove the part of the string that doesn't fit and append '...'.
     display_text.erase(
         sk_max_original_text_length,
         remote_playback_message.size() - sk_max_original_text_length);
     display_text.append(kTruncationEllipsis);
-    display_text_width =
-        paint.measureText(display_text.c_str(), display_text.size());
+    display_text_width = font.measureText(
+        display_text.c_str(), display_text.size(), kUTF8_SkTextEncoding);
   }
 
   // Center the text horizontally.
   SkScalar sk_horizontal_margin =
       (canvas_size.width() - display_text_width) / 2.0;
-  canvas.drawText(display_text.c_str(), display_text.size(),
-                  sk_horizontal_margin, sk_vertical_margin, paint);
+  canvas.drawSimpleText(display_text.c_str(), display_text.size(),
+                        kUTF8_SkTextEncoding, sk_horizontal_margin,
+                        sk_vertical_margin, font, paint);
 
   GLES2Interface* gl = context_3d_cb.Run();
 
@@ -130,14 +133,11 @@ scoped_refptr<VideoFrame> MakeTextFrameForCast(
                  bitmap.getPixels());
 
   gpu::Mailbox texture_mailbox;
-  gl->GenMailboxCHROMIUM(texture_mailbox.name);
-  gl->ProduceTextureCHROMIUM(texture_target, texture_mailbox.name);
-  const GLuint64 fence_sync = gl->InsertFenceSyncCHROMIUM();
-  gl->Flush();
+  gl->ProduceTextureDirectCHROMIUM(remote_playback_texture_id,
+                                   texture_mailbox.name);
 
   gpu::SyncToken texture_mailbox_sync_token;
-  gl->GenUnverifiedSyncTokenCHROMIUM(fence_sync,
-                                     texture_mailbox_sync_token.GetData());
+  gl->GenUnverifiedSyncTokenCHROMIUM(texture_mailbox_sync_token.GetData());
 
   gpu::MailboxHolder holders[media::VideoFrame::kMaxPlanes] = {
       gpu::MailboxHolder(texture_mailbox, texture_mailbox_sync_token,
@@ -153,8 +153,10 @@ scoped_refptr<VideoFrame> MakeTextFrameForCast(
 WebMediaPlayerCast::WebMediaPlayerCast(
     WebMediaPlayerImpl* impl,
     blink::WebMediaPlayerClient* client,
-    const WebMediaPlayerParams::Context3DCB& context_3d_cb)
-    : webmediaplayer_(impl), client_(client), context_3d_cb_(context_3d_cb) {}
+    scoped_refptr<viz::ContextProvider> context_provider)
+    : webmediaplayer_(impl),
+      client_(client),
+      context_provider_(context_provider) {}
 
 WebMediaPlayerCast::~WebMediaPlayerCast() {
   if (player_manager_) {
@@ -169,7 +171,7 @@ void WebMediaPlayerCast::Initialize(const GURL& url,
                                     blink::WebLocalFrame* frame,
                                     int delegate_id) {
   player_manager_->Initialize(MEDIA_PLAYER_TYPE_REMOTE_ONLY, player_id_, url,
-                              frame->GetDocument().FirstPartyForCookies(),
+                              frame->GetDocument().SiteForCookies(),
                               frame->GetDocument().Url(), true, delegate_id);
   is_player_initialized_ = true;
 }
@@ -210,12 +212,12 @@ void WebMediaPlayerCast::OnBufferingUpdate(int percentage) {
   DVLOG(1) << __func__;
 }
 
-void WebMediaPlayerCast::OnSeekRequest(const base::TimeDelta& time_to_seek) {
+void WebMediaPlayerCast::OnSeekRequest(base::TimeDelta time_to_seek) {
   DVLOG(1) << __func__;
   client_->RequestSeek(time_to_seek.InSecondsF());
 }
 
-void WebMediaPlayerCast::OnSeekComplete(const base::TimeDelta& current_time) {
+void WebMediaPlayerCast::OnSeekComplete(base::TimeDelta current_time) {
   DVLOG(1) << __func__;
   remote_time_at_ = base::TimeTicks::Now();
   remote_time_ = current_time;
@@ -248,19 +250,18 @@ void WebMediaPlayerCast::OnConnectedToRemoteDevice(
   is_remote_ = true;
   initializing_ = true;
   paused_ = false;
-  client_->PlaybackStateChanged();
+  client_->RequestPlay();
 
   remote_playback_message_ = remote_playback_message;
   webmediaplayer_->SuspendForRemote();
   client_->ConnectedToRemoteDevice();
 }
 
-double WebMediaPlayerCast::currentTime() const {
+base::TimeDelta WebMediaPlayerCast::currentTime() const {
   base::TimeDelta ret = remote_time_;
-  if (!paused_ && !initializing_) {
+  if (!paused_ && !initializing_)
     ret += base::TimeTicks::Now() - remote_time_at_;
-  }
-  return ret.InSecondsF();
+  return ret;
 }
 
 void WebMediaPlayerCast::play() {
@@ -283,15 +284,16 @@ void WebMediaPlayerCast::seek(base::TimeDelta t) {
 
 void WebMediaPlayerCast::OnDisconnectedFromRemoteDevice() {
   DVLOG(1) << __func__;
-  if (!paused_) {
+  if (!paused_)
     paused_ = true;
-  }
+
   is_remote_ = false;
-  double t = currentTime();
-  if (t + media::kTimeUpdateInterval * 2 / 1000 > webmediaplayer_->Duration()) {
-    t = webmediaplayer_->Duration();
-  }
-  webmediaplayer_->OnDisconnectedFromRemoteDevice(t);
+  auto t = currentTime();
+  auto d = base::TimeDelta::FromSecondsD(webmediaplayer_->Duration());
+  if (t + base::TimeDelta::FromMilliseconds(media::kTimeUpdateInterval * 2) > d)
+    t = d;
+
+  webmediaplayer_->OnDisconnectedFromRemoteDevice(t.InSecondsF());
 }
 
 void WebMediaPlayerCast::OnCancelledRemotePlaybackRequest() {
@@ -313,7 +315,7 @@ void WebMediaPlayerCast::OnMediaPlayerPlay() {
   if (is_remote_ && paused_) {
     paused_ = false;
     remote_time_at_ = base::TimeTicks::Now();
-    client_->PlaybackStateChanged();
+    client_->RequestPlay();
   }
   // Blink expects a timeChanged() in response to a seek().
   if (should_notify_time_changed_)
@@ -324,7 +326,7 @@ void WebMediaPlayerCast::OnMediaPlayerPause() {
   DVLOG(1) << __func__ << " is_remote_ = " << is_remote_;
   if (is_remote_ && !paused_) {
     paused_ = true;
-    client_->PlaybackStateChanged();
+    client_->RequestPause();
   }
 }
 
@@ -361,7 +363,7 @@ scoped_refptr<VideoFrame> WebMediaPlayerCast::GetCastingBanner() {
 
   return MakeTextFrameForCast(remote_playback_message_, canvas_size,
                               webmediaplayer_->NaturalSize(),
-                              base::Bind(&GLCBShim, context_3d_cb_));
+                              base::Bind(&GLCBShim, context_provider_));
 }
 
 void WebMediaPlayerCast::setPoster(const blink::WebURL& poster) {

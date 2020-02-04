@@ -4,12 +4,11 @@
 
 #include "chrome/browser/ui/webui/profile_helper.h"
 
+#include <memory>
+
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/lifetime/keep_alive_types.h"
-#include "chrome/browser/lifetime/scoped_keep_alive.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_window.h"
@@ -18,6 +17,8 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/user_manager.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "extensions/browser/app_window/app_window.h"
@@ -34,7 +35,7 @@ void ShowUserManager(const ProfileManager::CreateCallback& callback) {
 
   g_browser_process->profile_manager()->CreateProfileAsync(
       ProfileManager::GetSystemProfilePath(), callback, base::string16(),
-      std::string(), std::string());
+      std::string());
 }
 
 std::string GetProfileUserName(Profile* profile) {
@@ -46,26 +47,14 @@ std::string GetProfileUserName(Profile* profile) {
   return base::UTF16ToUTF8(entry->GetUserName());
 }
 
-void ShowSigninDialog(base::FilePath signin_profile_path,
+void ShowUnlockDialog(const std::string& user_name,
                       Profile* system_profile,
                       Profile::CreateStatus status) {
-  UserManagerProfileDialog::ShowSigninDialog(system_profile,
-                                             signin_profile_path);
-}
-
-void ShowReauthDialog(const std::string& user_name,
-                      Profile* system_profile,
-                      Profile::CreateStatus status) {
-  UserManagerProfileDialog::ShowReauthDialog(
-      system_profile, user_name, signin_metrics::Reason::REASON_UNLOCK);
+  UserManagerProfileDialog::ShowUnlockDialog(system_profile, user_name);
 }
 
 void DeleteProfileCallback(std::unique_ptr<ScopedKeepAlive> keep_alive,
-                           Profile* profile,
-                           Profile::CreateStatus status) {
-  if (status != Profile::CREATE_STATUS_INITIALIZED)
-    return;
-
+                           Profile* profile) {
   OpenNewWindowForProfile(profile);
 }
 
@@ -74,10 +63,12 @@ void DeleteProfileCallback(std::unique_ptr<ScopedKeepAlive> keep_alive,
 void OpenNewWindowForProfile(Profile* profile) {
   if (profiles::IsProfileLocked(profile->GetPath())) {
     if (signin_util::IsForceSigninEnabled()) {
-      ShowUserManager(base::Bind(&ShowSigninDialog, profile->GetPath()));
+      // If force-sign-in policy is enabled, UserManager will be displayed
+      // without any sign-in dialog opened.
+      ShowUserManager(ProfileManager::CreateCallback());
     } else {
       ShowUserManager(
-          base::Bind(&ShowReauthDialog, GetProfileUserName(profile)));
+          base::Bind(&ShowUnlockDialog, GetProfileUserName(profile)));
     }
   } else {
     profiles::FindOrCreateNewWindowForProfile(
@@ -87,17 +78,15 @@ void OpenNewWindowForProfile(Profile* profile) {
 }
 
 void DeleteProfileAtPath(base::FilePath file_path,
-                         content::WebUI* web_ui,
                          ProfileMetrics::ProfileDelete deletion_source) {
-  DCHECK(web_ui);
-
   if (!profiles::IsMultipleProfilesEnabled())
     return;
   g_browser_process->profile_manager()->MaybeScheduleProfileForDeletion(
-      file_path, base::Bind(&DeleteProfileCallback,
-                            base::Passed(base::MakeUnique<ScopedKeepAlive>(
-                                KeepAliveOrigin::PROFILE_HELPER,
-                                KeepAliveRestartOption::DISABLED))),
+      file_path,
+      base::BindOnce(
+          &DeleteProfileCallback,
+          std::make_unique<ScopedKeepAlive>(KeepAliveOrigin::PROFILE_HELPER,
+                                            KeepAliveRestartOption::DISABLED)),
       deletion_source);
 }
 

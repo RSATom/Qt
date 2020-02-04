@@ -30,7 +30,7 @@ static const double kDefaultTimecodeScaleInUs = 1000.0;  // 1 ms resolution
 
 class WebMTracksParserTest : public testing::Test {
  public:
-  WebMTracksParserTest() {}
+  WebMTracksParserTest() = default;
 
  protected:
   void VerifyTextTrackInfo(const uint8_t* buffer,
@@ -203,6 +203,38 @@ TEST_F(WebMTracksParserTest, InvalidZeroDefaultDurationSet) {
       new WebMTracksParser(&media_log_, true));
 
   EXPECT_MEDIA_LOG(HasSubstr("Illegal 0ns audio TrackEntry DefaultDuration"));
+
+  EXPECT_EQ(-1, parser->Parse(&buf[0], buf.size()));
+}
+
+TEST_F(WebMTracksParserTest, InvalidTracksCodecIdFormat) {
+  // Inexhaustively confirms parse error if Tracks CodecID element value
+  // contains a character outside of 0x01 - 0x7F.
+  TracksBuilder tb(true);
+  tb.AddAudioTrack(1, 1, "A_VORB\xA1S", "audio", "", -1, 2, 8000);
+  const std::vector<uint8_t> buf = tb.Finish();
+
+  std::unique_ptr<WebMTracksParser> parser(
+      new WebMTracksParser(&media_log_, true));
+
+  EXPECT_MEDIA_LOG(
+      HasSubstr("Tracks CodecID element value must be an ASCII string"));
+
+  EXPECT_EQ(-1, parser->Parse(&buf[0], buf.size()));
+}
+
+TEST_F(WebMTracksParserTest, InvalidTracksNameFormat) {
+  // Inexhaustively confirms parse error if Tracks Name element value
+  // contains a character outside of 0x01 - 0x7F.
+  TracksBuilder tb(true);
+  tb.AddAudioTrack(1, 1, "A_VORBIS", "aud\x80o", "", -1, 2, 8000);
+  const std::vector<uint8_t> buf = tb.Finish();
+
+  std::unique_ptr<WebMTracksParser> parser(
+      new WebMTracksParser(&media_log_, true));
+
+  EXPECT_MEDIA_LOG(
+      HasSubstr("Tracks Name element value must be an ASCII string"));
 
   EXPECT_EQ(-1, parser->Parse(&buf[0], buf.size()));
 }

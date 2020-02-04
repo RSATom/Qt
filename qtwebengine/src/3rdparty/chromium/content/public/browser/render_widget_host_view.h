@@ -5,16 +5,18 @@
 #ifndef CONTENT_PUBLIC_BROWSER_RENDER_WIDGET_HOST_VIEW_H_
 #define CONTENT_PUBLIC_BROWSER_RENDER_WIDGET_HOST_VIEW_H_
 
-#include <memory>
-
+#include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
+#include "base/optional.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
-#include "content/public/browser/readback_types.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "third_party/skia/include/core/SkImageInfo.h"
+#include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/range/range.h"
 
 namespace gfx {
 class Point;
@@ -22,20 +24,20 @@ class Rect;
 class Size;
 }
 
-namespace media {
-class VideoFrame;
-}
-
 namespace ui {
-class AcceleratedWidgetMac;
+enum class DomCode;
 class TextInputClient;
 }
+
+namespace viz {
+class ClientFrameSinkVideoCapturer;
+}  // namespace viz
 
 namespace content {
 
 class RenderWidgetHost;
-class RenderWidgetHostViewFrameSubscriber;
 class TouchSelectionControllerClientManager;
+struct ScreenInfo;
 
 // RenderWidgetHostView is an interface implemented by an object that acts as
 // the "View" portion of a RenderWidgetHost. The RenderWidgetHost and its
@@ -64,12 +66,20 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // Tells the View to size itself to the specified size.
   virtual void SetSize(const gfx::Size& size) = 0;
 
+  // Instructs the View to automatically resize and send back updates
+  // for the new size.
+  virtual void EnableAutoResize(const gfx::Size& min_size,
+                                const gfx::Size& max_size) = 0;
+
+  // Turns off auto-resize and gives a new size that the view should be.
+  virtual void DisableAutoResize(const gfx::Size& new_size) = 0;
+
   // Tells the View to size and move itself to the specified size and point in
   // screen space.
   virtual void SetBounds(const gfx::Rect& rect) = 0;
 
-  // Retrieves the last known scroll position.
-  virtual gfx::Vector2dF GetLastScrollOffset() const = 0;
+  // Indicates whether the scroll offset of the view is at top.
+  virtual bool IsScrollOffsetAtTop() const = 0;
 
   // Sets a flag that indicates if it is in virtual reality mode.
   virtual void SetIsInVR(bool is_in_vr) = 0;
@@ -79,12 +89,19 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // the top-level frame's renderer this is a no-op as they are already
   // properly transformed; however, coordinates received from an out-of-process
   // iframe renderer process require transformation.
-  virtual gfx::Point TransformPointToRootCoordSpace(
-      const gfx::Point& point) = 0;
-
-  // A floating point variant of the above. PointF values will be snapped to
-  // integral points before transformation.
   virtual gfx::PointF TransformPointToRootCoordSpaceF(
+      const gfx::PointF& point) = 0;
+
+  // A int point variant of the above. Use float version to transform,
+  // then rounded back to int point.
+  gfx::Point TransformPointToRootCoordSpace(const gfx::Point& point) {
+    return gfx::ToRoundedPoint(
+        TransformPointToRootCoordSpaceF(gfx::PointF(point)));
+  }
+
+  // Converts a point in the root view's coordinate space to the coordinate
+  // space of whichever view is used to call this method.
+  virtual gfx::PointF TransformRootPointToViewCoordSpace(
       const gfx::PointF& point) = 0;
 
   // Retrieves the native view used to contain plugins and identify the
@@ -114,16 +131,15 @@ class CONTENT_EXPORT RenderWidgetHostView {
 
   // Indicates if the view is currently occluded (e.g, not visible because it's
   // covered up by other windows), and as a result the view's renderer may be
-  // suspended. If Show() is called on a view then its state should be re-set to
-  // being un-occluded (an explicit WasUnOccluded call will not be made for
-  // that). These calls are not necessarily made in pairs.
+  // suspended. Calling Show()/Hide() overrides the state set by these methods.
   virtual void WasUnOccluded() = 0;
   virtual void WasOccluded() = 0;
 
   // Retrieve the bounds of the View, in screen coordinates.
   virtual gfx::Rect GetViewBounds() const = 0;
 
-  // Returns the currently selected text.
+  // Returns the currently selected text in both of editable text fields and
+  // non-editable texts.
   virtual base::string16 GetSelectedText() = 0;
 
   // This only returns non-null on platforms that implement touch
@@ -137,17 +153,29 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // has to be either SK_ColorTRANSPARENT or opaque. If set to
   // SK_ColorTRANSPARENT, the renderer's background color will be overridden to
   // be fully transparent.
+  // SetBackgroundColor is called to set the default color of the view,
+  // which is shown if the background color of the renderer is not available.
   virtual void SetBackgroundColor(SkColor color) = 0;
-  virtual SkColor background_color() const = 0;
-  // Convenience method to fill the background layer with the default color by
-  // calling |SetBackgroundColor|.
-  virtual void SetBackgroundColorToDefault() = 0;
+  // GetBackgroundColor returns the current background color of the view.
+  virtual base::Optional<SkColor> GetBackgroundColor() const = 0;
 
   // Return value indicates whether the mouse is locked successfully or not.
   virtual bool LockMouse() = 0;
   virtual void UnlockMouse() = 0;
   // Returns true if the mouse pointer is currently locked.
   virtual bool IsMouseLocked() = 0;
+
+  // Start/Stop intercepting future system keyboard events.
+  virtual bool LockKeyboard(
+      base::Optional<base::flat_set<ui::DomCode>> dom_codes) = 0;
+  virtual void UnlockKeyboard() = 0;
+  // Returns true if keyboard lock is active.
+  virtual bool IsKeyboardLocked() = 0;
+
+  // Return a mapping dictionary from keyboard code to key values for the
+  // highest-priority ASCII-capable layout in the list of currently installed
+  // keyboard layouts.
+  virtual base::flat_map<std::string, std::string> GetKeyboardLayoutMap() = 0;
 
   // Retrives the size of the viewport for the visible region. May be smaller
   // than the view size if a portion of the view is obstructed (e.g. by a
@@ -158,14 +186,13 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // visible viewport.
   virtual void SetInsets(const gfx::Insets& insets) = 0;
 
-  // Returns true if the current display surface is available, a prerequisite
-  // for CopyFromSurface() or CopyFromSurfaceToVideoFrame() to succeed.
+  // Returns true if the current display surface is available.
   virtual bool IsSurfaceAvailableForCopy() const = 0;
 
   // Copies the given subset of the view's surface, optionally scales it, and
   // returns the result as a bitmap via the provided callback. This is meant for
   // one-off snapshots. For continuous video capture of the surface, please use
-  // BeginFrameSubscription().
+  // CreateVideoCapturer() instead.
   //
   // |src_rect| is either the subset of the view's surface, in view coordinates,
   // or empty to indicate that all of it should be copied. This is NOT the same
@@ -176,86 +203,65 @@ class CONTENT_EXPORT RenderWidgetHostView {
   // bitmap's size may not be the same as |src_rect.size()| due to the pixel
   // scale used by the underlying device.
   //
-  // |callback| is always invoked, at some point in the future, with success/
-  // fail status and an SkBitmap containing the copied pixel data. It may be
-  // called sychronously or asynchronously.
+  // |callback| is guaranteed to be run, either synchronously or at some point
+  // in the future (depending on the platform implementation and the current
+  // state of the Surface). If the copy failed, the bitmap's drawsNothing()
+  // method will return true.
   //
   // If the view's renderer is suspended (see WasOccluded()), this may result in
   // copying old data or failing.
-  virtual void CopyFromSurface(const gfx::Rect& src_rect,
-                               const gfx::Size& output_size,
-                               const ReadbackRequestCallback& callback,
-                               const SkColorType color_type) = 0;
-
-  // Copies the given subset of the view's surface, scales/letterboxes it, and
-  // returns the result within the provided media::VideoFrame. This is meant for
-  // one-off snapshots. For continuous video capture of the surface, please use
-  // BeginFrameSubscription().
-  //
-  // |src_rect| is either the subset of the view's surface, in view coordinates,
-  // or empty to indicate that all of it should be copied. This is NOT the same
-  // coordinate system as that used GetViewBounds() (https://crbug.com/73362).
-  //
-  // The |target| must use a pixel format supported by the platform. The size of
-  // the source region and the target together will determine how the content is
-  // positioned and scaled within the video frame. The aspect ratio of the
-  // source region will always be preserved, with letterboxing/pillarboxing
-  // applied to fill the entire frame.
-  //
-  // |callback| is always invoked, at some point in the future, with the region
-  // within |target| where the content was placed and a boolean success/fail
-  // flag. It may be called sychronously or asynchronously.
-  //
-  // If the view's renderer is suspended (see WasOccluded()), this may result in
-  // copying old data or failing.
-  virtual void CopyFromSurfaceToVideoFrame(
+  virtual void CopyFromSurface(
       const gfx::Rect& src_rect,
-      scoped_refptr<media::VideoFrame> target,
-      const base::Callback<void(const gfx::Rect&, bool)>& callback) = 0;
+      const gfx::Size& output_size,
+      base::OnceCallback<void(const SkBitmap&)> callback) = 0;
 
-  // Begin subscribing for presentation events and captured frames.
-  // |subscriber| is now owned by this object, it will be called only on the
-  // UI thread.
-  virtual void BeginFrameSubscription(
-      std::unique_ptr<RenderWidgetHostViewFrameSubscriber> subscriber) = 0;
+  // Ensures that all surfaces are synchronized for the next call to
+  // CopyFromSurface. This is used by web tests.
+  virtual void EnsureSurfaceSynchronizedForWebTest() = 0;
 
-  // End subscribing for frame presentation events. FrameSubscriber will be
-  // deleted after this call.
-  virtual void EndFrameSubscription() = 0;
+  // Creates a video capturer, which will allow the caller to receive a stream
+  // of media::VideoFrames captured from this view. The capturer is configured
+  // to target this view, so there is no need to call ChangeTarget() before
+  // Start(). See viz.mojom.FrameSinkVideoCapturer for documentation.
+  virtual std::unique_ptr<viz::ClientFrameSinkVideoCapturer>
+  CreateVideoCapturer() = 0;
 
   // Notification that a node was touched.
-  // The |location_dips_screen| parameter contains the location where the touch
-  // occurred in DIPs in screen coordinates.
   // The |editable| parameter indicates if the node is editable, for e.g.
   // an input field, etc.
-  virtual void FocusedNodeTouched(const gfx::Point& location_dips_screen,
-                                  bool editable) = 0;
+  virtual void FocusedNodeTouched(bool editable) = 0;
 
   // Informs the view that its associated render widget has frames to draw and
   // wants to have BeginFrame messages sent to it.  This should only be called
   // when the value has changed.  Views must initially default to false.
   virtual void SetNeedsBeginFrames(bool needs_begin_frames) = 0;
 
-#if defined(OS_MACOSX)
-  // Return the accelerated widget which hosts the CALayers that draw the
-  // content of the view in GetNativeView. This may be null.
-  virtual ui::AcceleratedWidgetMac* GetAcceleratedWidgetMac() const = 0;
+  // Informs the view that its associated render widget also wants to receive
+  // animate_only BeginFrames.
+  virtual void SetWantsAnimateOnlyBeginFrames() = 0;
 
+  // This method returns the ScreenInfo used by the view to render. If the
+  // information is not knowable (e.g, because the view is not attached to a
+  // screen yet), then a default best-guess will be used.
+  virtual void GetScreenInfo(ScreenInfo* screen_info) const = 0;
+
+  // This must always return the same device scale factor as GetScreenInfo.
+  virtual float GetDeviceScaleFactor() const = 0;
+
+#if defined(OS_MACOSX)
   // Set the view's active state (i.e., tint state of controls).
   virtual void SetActive(bool active) = 0;
 
   // Brings up the dictionary showing a definition for the selected text.
   virtual void ShowDefinitionForSelection() = 0;
 
-  // Returns |true| if Mac OS X text to speech is supported.
-  virtual bool SupportsSpeech() const = 0;
   // Tells the view to speak the currently selected text.
   virtual void SpeakSelection() = 0;
-  // Returns |true| if text is currently being spoken by Mac OS X.
-  virtual bool IsSpeaking() const = 0;
-  // Stops speaking, if it is currently in progress.
-  virtual void StopSpeaking() = 0;
 #endif  // defined(OS_MACOSX)
+
+  // Indicates that this view should show the contents of |view| if it doesn't
+  // have anything to show.
+  virtual void TakeFallbackContentFrom(RenderWidgetHostView* view) = 0;
 };
 
 }  // namespace content

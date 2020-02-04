@@ -13,11 +13,12 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "components/prefs/persistent_pref_store.h"
 #include "components/prefs/pref_value_store.h"
 #include "services/preferences/public/cpp/pref_store_client_mixin.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
 
 namespace base {
 class Value;
@@ -53,9 +54,13 @@ class PersistentPrefStoreClient
   PrefReadError GetReadError() const override;
   PrefReadError ReadPrefs() override;
   void ReadPrefsAsync(ReadErrorDelegate* error_delegate) override;
-  void CommitPendingWrite(base::OnceClosure done_callback) override;
+  void CommitPendingWrite(
+      base::OnceClosure reply_callback = base::OnceClosure(),
+      base::OnceClosure synchronous_done_callback =
+          base::OnceClosure()) override;
   void SchedulePendingLossyWrites() override;
   void ClearMutableValues() override;
+  void OnStoreDeletionFromDisk() override;
 
  protected:
   // base::RefCounted<PrefStore>:
@@ -85,7 +90,7 @@ class PersistentPrefStoreClient
 
   std::unique_ptr<ReadErrorDelegate> error_delegate_;
 
-  std::queue<std::vector<InFlightWrite>> in_flight_writes_queue_;
+  base::queue<std::vector<InFlightWrite>> in_flight_writes_queue_;
   std::map<std::string, InFlightWriteTrie> in_flight_writes_tries_;
 
   base::WeakPtrFactory<PersistentPrefStoreClient> weak_factory_;

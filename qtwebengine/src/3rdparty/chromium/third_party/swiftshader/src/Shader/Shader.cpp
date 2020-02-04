@@ -16,8 +16,8 @@
 
 #include "VertexShader.hpp"
 #include "PixelShader.hpp"
-#include "Math.hpp"
-#include "Debug.hpp"
+#include "Common/Math.hpp"
+#include "Common/Debug.hpp"
 
 #include <set>
 #include <fstream>
@@ -317,11 +317,6 @@ namespace sw
 
 		std::string modifierString;
 
-		if(integer)
-		{
-			modifierString += "_int";
-		}
-
 		if(saturate)
 		{
 			modifierString += "_sat";
@@ -506,6 +501,24 @@ namespace sw
 		}
 
 		return "";
+	}
+
+	std::string Shader::SourceParameter::string(ShaderType shaderType, unsigned short version) const
+	{
+		if(type == PARAMETER_CONST && bufferIndex >= 0)
+		{
+			std::ostringstream buffer;
+			buffer << bufferIndex;
+
+			std::ostringstream offset;
+			offset << index;
+
+			return "cb" + buffer.str() + "[" + offset.str() + "]";
+		}
+		else
+		{
+			return Parameter::string(shaderType, version);
+		}
 	}
 
 	std::string Shader::SourceParameter::swizzleString() const
@@ -747,232 +760,234 @@ namespace sw
 	{
 		switch(opcode)
 		{
-		case OPCODE_NULL:			return "null";
-		case OPCODE_NOP:			return "nop";
-		case OPCODE_MOV:			return "mov";
-		case OPCODE_ADD:			return "add";
-		case OPCODE_IADD:			return "iadd";
-		case OPCODE_SUB:			return "sub";
-		case OPCODE_ISUB:			return "isub";
-		case OPCODE_MAD:			return "mad";
-		case OPCODE_IMAD:			return "imad";
-		case OPCODE_MUL:			return "mul";
-		case OPCODE_IMUL:			return "imul";
-		case OPCODE_RCPX:			return "rcpx";
-		case OPCODE_DIV:			return "div";
-		case OPCODE_IDIV:			return "idiv";
-		case OPCODE_UDIV:			return "udiv";
-		case OPCODE_MOD:			return "mod";
-		case OPCODE_IMOD:			return "imod";
-		case OPCODE_UMOD:			return "umod";
-		case OPCODE_SHL:			return "shl";
-		case OPCODE_ISHR:			return "ishr";
-		case OPCODE_USHR:			return "ushr";
-		case OPCODE_RSQX:			return "rsqx";
-		case OPCODE_SQRT:			return "sqrt";
-		case OPCODE_RSQ:			return "rsq";
-		case OPCODE_LEN2:			return "len2";
-		case OPCODE_LEN3:			return "len3";
-		case OPCODE_LEN4:			return "len4";
-		case OPCODE_DIST1:			return "dist1";
-		case OPCODE_DIST2:			return "dist2";
-		case OPCODE_DIST3:			return "dist3";
-		case OPCODE_DIST4:			return "dist4";
-		case OPCODE_DP3:			return "dp3";
-		case OPCODE_DP4:			return "dp4";
-		case OPCODE_DET2:			return "det2";
-		case OPCODE_DET3:			return "det3";
-		case OPCODE_DET4:			return "det4";
-		case OPCODE_MIN:			return "min";
-		case OPCODE_IMIN:			return "imin";
-		case OPCODE_UMIN:			return "umin";
-		case OPCODE_MAX:			return "max";
-		case OPCODE_IMAX:			return "imax";
-		case OPCODE_UMAX:			return "umax";
-		case OPCODE_SLT:			return "slt";
-		case OPCODE_SGE:			return "sge";
-		case OPCODE_EXP2X:			return "exp2x";
-		case OPCODE_LOG2X:			return "log2x";
-		case OPCODE_LIT:			return "lit";
-		case OPCODE_ATT:			return "att";
-		case OPCODE_LRP:			return "lrp";
-		case OPCODE_STEP:			return "step";
-		case OPCODE_SMOOTH:			return "smooth";
-		case OPCODE_FLOATBITSTOINT:	 return "floatBitsToInt";
+		case OPCODE_NULL:            return "null";
+		case OPCODE_NOP:             return "nop";
+		case OPCODE_MOV:             return "mov";
+		case OPCODE_ADD:             return "add";
+		case OPCODE_IADD:            return "iadd";
+		case OPCODE_SUB:             return "sub";
+		case OPCODE_ISUB:            return "isub";
+		case OPCODE_MAD:             return "mad";
+		case OPCODE_IMAD:            return "imad";
+		case OPCODE_MUL:             return "mul";
+		case OPCODE_IMUL:            return "imul";
+		case OPCODE_RCPX:            return "rcpx";
+		case OPCODE_DIV:             return "div";
+		case OPCODE_IDIV:            return "idiv";
+		case OPCODE_UDIV:            return "udiv";
+		case OPCODE_MOD:             return "mod";
+		case OPCODE_IMOD:            return "imod";
+		case OPCODE_UMOD:            return "umod";
+		case OPCODE_SHL:             return "shl";
+		case OPCODE_ISHR:            return "ishr";
+		case OPCODE_USHR:            return "ushr";
+		case OPCODE_RSQX:            return "rsqx";
+		case OPCODE_SQRT:            return "sqrt";
+		case OPCODE_RSQ:             return "rsq";
+		case OPCODE_LEN2:            return "len2";
+		case OPCODE_LEN3:            return "len3";
+		case OPCODE_LEN4:            return "len4";
+		case OPCODE_DIST1:           return "dist1";
+		case OPCODE_DIST2:           return "dist2";
+		case OPCODE_DIST3:           return "dist3";
+		case OPCODE_DIST4:           return "dist4";
+		case OPCODE_DP3:             return "dp3";
+		case OPCODE_DP4:             return "dp4";
+		case OPCODE_DET2:            return "det2";
+		case OPCODE_DET3:            return "det3";
+		case OPCODE_DET4:            return "det4";
+		case OPCODE_MIN:             return "min";
+		case OPCODE_IMIN:            return "imin";
+		case OPCODE_UMIN:            return "umin";
+		case OPCODE_MAX:             return "max";
+		case OPCODE_IMAX:            return "imax";
+		case OPCODE_UMAX:            return "umax";
+		case OPCODE_SLT:             return "slt";
+		case OPCODE_SGE:             return "sge";
+		case OPCODE_EXP2X:           return "exp2x";
+		case OPCODE_LOG2X:           return "log2x";
+		case OPCODE_LIT:             return "lit";
+		case OPCODE_ATT:             return "att";
+		case OPCODE_LRP:             return "lrp";
+		case OPCODE_STEP:            return "step";
+		case OPCODE_SMOOTH:          return "smooth";
+		case OPCODE_FLOATBITSTOINT:  return "floatBitsToInt";
 		case OPCODE_FLOATBITSTOUINT: return "floatBitsToUInt";
-		case OPCODE_INTBITSTOFLOAT:	 return "intBitsToFloat";
+		case OPCODE_INTBITSTOFLOAT:  return "intBitsToFloat";
 		case OPCODE_UINTBITSTOFLOAT: return "uintBitsToFloat";
-		case OPCODE_PACKSNORM2x16:	 return "packSnorm2x16";
-		case OPCODE_PACKUNORM2x16:	 return "packUnorm2x16";
-		case OPCODE_PACKHALF2x16:	 return "packHalf2x16";
+		case OPCODE_PACKSNORM2x16:   return "packSnorm2x16";
+		case OPCODE_PACKUNORM2x16:   return "packUnorm2x16";
+		case OPCODE_PACKHALF2x16:    return "packHalf2x16";
 		case OPCODE_UNPACKSNORM2x16: return "unpackSnorm2x16";
 		case OPCODE_UNPACKUNORM2x16: return "unpackUnorm2x16";
-		case OPCODE_UNPACKHALF2x16:	 return "unpackHalf2x16";
-		case OPCODE_FRC:			return "frc";
-		case OPCODE_M4X4:			return "m4x4";
-		case OPCODE_M4X3:			return "m4x3";
-		case OPCODE_M3X4:			return "m3x4";
-		case OPCODE_M3X3:			return "m3x3";
-		case OPCODE_M3X2:			return "m3x2";
-		case OPCODE_CALL:			return "call";
-		case OPCODE_CALLNZ:			return "callnz";
-		case OPCODE_LOOP:			return "loop";
-		case OPCODE_RET:			return "ret";
-		case OPCODE_ENDLOOP:		return "endloop";
-		case OPCODE_LABEL:			return "label";
-		case OPCODE_DCL:			return "dcl";
-		case OPCODE_POWX:			return "powx";
-		case OPCODE_CRS:			return "crs";
-		case OPCODE_SGN:			return "sgn";
-		case OPCODE_ISGN:			return "isgn";
-		case OPCODE_ABS:			return "abs";
-		case OPCODE_IABS:			return "iabs";
-		case OPCODE_NRM2:			return "nrm2";
-		case OPCODE_NRM3:			return "nrm3";
-		case OPCODE_NRM4:			return "nrm4";
-		case OPCODE_SINCOS:			return "sincos";
-		case OPCODE_REP:			return "rep";
-		case OPCODE_ENDREP:			return "endrep";
-		case OPCODE_IF:				return "if";
-		case OPCODE_IFC:			return "ifc";
-		case OPCODE_ELSE:			return "else";
-		case OPCODE_ENDIF:			return "endif";
-		case OPCODE_BREAK:			return "break";
-		case OPCODE_BREAKC:			return "breakc";
-		case OPCODE_MOVA:			return "mova";
-		case OPCODE_DEFB:			return "defb";
-		case OPCODE_DEFI:			return "defi";
-		case OPCODE_TEXCOORD:		return "texcoord";
-		case OPCODE_TEXKILL:		return "texkill";
-		case OPCODE_DISCARD:		return "discard";
+		case OPCODE_UNPACKHALF2x16:  return "unpackHalf2x16";
+		case OPCODE_FRC:             return "frc";
+		case OPCODE_M4X4:            return "m4x4";
+		case OPCODE_M4X3:            return "m4x3";
+		case OPCODE_M3X4:            return "m3x4";
+		case OPCODE_M3X3:            return "m3x3";
+		case OPCODE_M3X2:            return "m3x2";
+		case OPCODE_CALL:            return "call";
+		case OPCODE_CALLNZ:          return "callnz";
+		case OPCODE_LOOP:            return "loop";
+		case OPCODE_RET:             return "ret";
+		case OPCODE_ENDLOOP:         return "endloop";
+		case OPCODE_LABEL:           return "label";
+		case OPCODE_DCL:             return "dcl";
+		case OPCODE_POWX:            return "powx";
+		case OPCODE_CRS:             return "crs";
+		case OPCODE_SGN:             return "sgn";
+		case OPCODE_ISGN:            return "isgn";
+		case OPCODE_ABS:             return "abs";
+		case OPCODE_IABS:            return "iabs";
+		case OPCODE_NRM2:            return "nrm2";
+		case OPCODE_NRM3:            return "nrm3";
+		case OPCODE_NRM4:            return "nrm4";
+		case OPCODE_SINCOS:          return "sincos";
+		case OPCODE_REP:             return "rep";
+		case OPCODE_ENDREP:          return "endrep";
+		case OPCODE_IF:              return "if";
+		case OPCODE_IFC:             return "ifc";
+		case OPCODE_ELSE:            return "else";
+		case OPCODE_ENDIF:           return "endif";
+		case OPCODE_BREAK:           return "break";
+		case OPCODE_BREAKC:          return "breakc";
+		case OPCODE_MOVA:            return "mova";
+		case OPCODE_DEFB:            return "defb";
+		case OPCODE_DEFI:            return "defi";
+		case OPCODE_TEXCOORD:        return "texcoord";
+		case OPCODE_TEXKILL:         return "texkill";
+		case OPCODE_DISCARD:         return "discard";
 		case OPCODE_TEX:
-			if(version < 0x0104)	return "tex";
-			else					return "texld";
-		case OPCODE_TEXBEM:			return "texbem";
-		case OPCODE_TEXBEML:		return "texbeml";
-		case OPCODE_TEXREG2AR:		return "texreg2ar";
-		case OPCODE_TEXREG2GB:		return "texreg2gb";
-		case OPCODE_TEXM3X2PAD:		return "texm3x2pad";
-		case OPCODE_TEXM3X2TEX:		return "texm3x2tex";
-		case OPCODE_TEXM3X3PAD:		return "texm3x3pad";
-		case OPCODE_TEXM3X3TEX:		return "texm3x3tex";
-		case OPCODE_RESERVED0:		return "reserved0";
-		case OPCODE_TEXM3X3SPEC:	return "texm3x3spec";
-		case OPCODE_TEXM3X3VSPEC:	return "texm3x3vspec";
-		case OPCODE_EXPP:			return "expp";
-		case OPCODE_LOGP:			return "logp";
-		case OPCODE_CND:			return "cnd";
-		case OPCODE_DEF:			return "def";
-		case OPCODE_TEXREG2RGB:		return "texreg2rgb";
-		case OPCODE_TEXDP3TEX:		return "texdp3tex";
-		case OPCODE_TEXM3X2DEPTH:	return "texm3x2depth";
-		case OPCODE_TEXDP3:			return "texdp3";
-		case OPCODE_TEXM3X3:		return "texm3x3";
-		case OPCODE_TEXDEPTH:		return "texdepth";
-		case OPCODE_CMP0:			return "cmp0";
-		case OPCODE_ICMP:			return "icmp";
-		case OPCODE_UCMP:			return "ucmp";
-		case OPCODE_SELECT:			return "select";
-		case OPCODE_EXTRACT:		return "extract";
-		case OPCODE_INSERT:			return "insert";
-		case OPCODE_BEM:			return "bem";
-		case OPCODE_DP2ADD:			return "dp2add";
-		case OPCODE_DFDX:			return "dFdx";
-		case OPCODE_DFDY:			return "dFdy";
-		case OPCODE_FWIDTH:			return "fwidth";
-		case OPCODE_TEXLDD:			return "texldd";
-		case OPCODE_CMP:			return "cmp";
-		case OPCODE_TEXLDL:			return "texldl";
-		case OPCODE_TEXOFFSET:		return "texoffset";
-		case OPCODE_TEXLDLOFFSET:	return "texldloffset";
-		case OPCODE_TEXELFETCH:		return "texelfetch";
+			if(version < 0x0104)     return "tex";
+			else                     return "texld";
+		case OPCODE_TEXBEM:          return "texbem";
+		case OPCODE_TEXBEML:         return "texbeml";
+		case OPCODE_TEXREG2AR:       return "texreg2ar";
+		case OPCODE_TEXREG2GB:       return "texreg2gb";
+		case OPCODE_TEXM3X2PAD:      return "texm3x2pad";
+		case OPCODE_TEXM3X2TEX:      return "texm3x2tex";
+		case OPCODE_TEXM3X3PAD:      return "texm3x3pad";
+		case OPCODE_TEXM3X3TEX:      return "texm3x3tex";
+		case OPCODE_RESERVED0:       return "reserved0";
+		case OPCODE_TEXM3X3SPEC:     return "texm3x3spec";
+		case OPCODE_TEXM3X3VSPEC:    return "texm3x3vspec";
+		case OPCODE_EXPP:            return "expp";
+		case OPCODE_LOGP:            return "logp";
+		case OPCODE_CND:             return "cnd";
+		case OPCODE_DEF:             return "def";
+		case OPCODE_TEXREG2RGB:      return "texreg2rgb";
+		case OPCODE_TEXDP3TEX:       return "texdp3tex";
+		case OPCODE_TEXM3X2DEPTH:    return "texm3x2depth";
+		case OPCODE_TEXDP3:          return "texdp3";
+		case OPCODE_TEXM3X3:         return "texm3x3";
+		case OPCODE_TEXDEPTH:        return "texdepth";
+		case OPCODE_CMP0:            return "cmp0";
+		case OPCODE_ICMP:            return "icmp";
+		case OPCODE_UCMP:            return "ucmp";
+		case OPCODE_SELECT:          return "select";
+		case OPCODE_EXTRACT:         return "extract";
+		case OPCODE_INSERT:          return "insert";
+		case OPCODE_BEM:             return "bem";
+		case OPCODE_DP2ADD:          return "dp2add";
+		case OPCODE_DFDX:            return "dFdx";
+		case OPCODE_DFDY:            return "dFdy";
+		case OPCODE_FWIDTH:          return "fwidth";
+		case OPCODE_TEXLDD:          return "texldd";
+		case OPCODE_CMP:             return "cmp";
+		case OPCODE_TEXLDL:          return "texldl";
+		case OPCODE_TEXBIAS:         return "texbias";
+		case OPCODE_TEXOFFSET:       return "texoffset";
+		case OPCODE_TEXOFFSETBIAS:   return "texoffsetbias";
+		case OPCODE_TEXLODOFFSET:    return "texlodoffset";
+		case OPCODE_TEXELFETCH:      return "texelfetch";
 		case OPCODE_TEXELFETCHOFFSET: return "texelfetchoffset";
-		case OPCODE_TEXGRAD:		return "texgrad";
-		case OPCODE_TEXGRADOFFSET:	return "texgradoffset";
-		case OPCODE_BREAKP:			return "breakp";
-		case OPCODE_TEXSIZE:        return "texsize";
-		case OPCODE_PHASE:			return "phase";
-		case OPCODE_COMMENT:		return "comment";
-		case OPCODE_END:			return "end";
-		case OPCODE_PS_1_0:			return "ps_1_0";
-		case OPCODE_PS_1_1:			return "ps_1_1";
-		case OPCODE_PS_1_2:			return "ps_1_2";
-		case OPCODE_PS_1_3:			return "ps_1_3";
-		case OPCODE_PS_1_4:			return "ps_1_4";
-		case OPCODE_PS_2_0:			return "ps_2_0";
-		case OPCODE_PS_2_x:			return "ps_2_x";
-		case OPCODE_PS_3_0:			return "ps_3_0";
-		case OPCODE_VS_1_0:			return "vs_1_0";
-		case OPCODE_VS_1_1:			return "vs_1_1";
-		case OPCODE_VS_2_0:			return "vs_2_0";
-		case OPCODE_VS_2_x:			return "vs_2_x";
-		case OPCODE_VS_2_sw:		return "vs_2_sw";
-		case OPCODE_VS_3_0:			return "vs_3_0";
-		case OPCODE_VS_3_sw:		return "vs_3_sw";
-		case OPCODE_WHILE:          return "while";
-		case OPCODE_ENDWHILE:       return "endwhile";
-		case OPCODE_COS:            return "cos";
-		case OPCODE_SIN:            return "sin";
-		case OPCODE_TAN:            return "tan";
-		case OPCODE_ACOS:           return "acos";
-		case OPCODE_ASIN:           return "asin";
-		case OPCODE_ATAN:           return "atan";
-		case OPCODE_ATAN2:          return "atan2";
-		case OPCODE_COSH:           return "cosh";
-		case OPCODE_SINH:           return "sinh";
-		case OPCODE_TANH:           return "tanh";
-		case OPCODE_ACOSH:          return "acosh";
-		case OPCODE_ASINH:          return "asinh";
-		case OPCODE_ATANH:          return "atanh";
-		case OPCODE_DP1:            return "dp1";
-		case OPCODE_DP2:            return "dp2";
-		case OPCODE_TRUNC:          return "trunc";
-		case OPCODE_FLOOR:          return "floor";
-		case OPCODE_ROUND:          return "round";
-		case OPCODE_ROUNDEVEN:      return "roundEven";
-		case OPCODE_CEIL:           return "ceil";
-		case OPCODE_EXP2:           return "exp2";
-		case OPCODE_LOG2:           return "log2";
-		case OPCODE_EXP:            return "exp";
-		case OPCODE_LOG:            return "log";
-		case OPCODE_POW:            return "pow";
-		case OPCODE_F2B:            return "f2b";
-		case OPCODE_B2F:            return "b2f";
-		case OPCODE_F2I:            return "f2i";
-		case OPCODE_I2F:            return "i2f";
-		case OPCODE_F2U:            return "f2u";
-		case OPCODE_U2F:            return "u2f";
-		case OPCODE_B2I:            return "b2i";
-		case OPCODE_I2B:            return "i2b";
-		case OPCODE_ALL:            return "all";
-		case OPCODE_ANY:            return "any";
-		case OPCODE_NEG:            return "neg";
-		case OPCODE_INEG:           return "ineg";
-		case OPCODE_ISNAN:          return "isnan";
-		case OPCODE_ISINF:          return "isinf";
-		case OPCODE_NOT:            return "not";
-		case OPCODE_OR:             return "or";
-		case OPCODE_XOR:            return "xor";
-		case OPCODE_AND:            return "and";
-		case OPCODE_EQ:             return "eq";
-		case OPCODE_NE:             return "neq";
-		case OPCODE_FORWARD1:       return "forward1";
-		case OPCODE_FORWARD2:       return "forward2";
-		case OPCODE_FORWARD3:       return "forward3";
-		case OPCODE_FORWARD4:       return "forward4";
-		case OPCODE_REFLECT1:       return "reflect1";
-		case OPCODE_REFLECT2:       return "reflect2";
-		case OPCODE_REFLECT3:       return "reflect3";
-		case OPCODE_REFLECT4:       return "reflect4";
-		case OPCODE_REFRACT1:       return "refract1";
-		case OPCODE_REFRACT2:       return "refract2";
-		case OPCODE_REFRACT3:       return "refract3";
-		case OPCODE_REFRACT4:       return "refract4";
-		case OPCODE_LEAVE:          return "leave";
-		case OPCODE_CONTINUE:       return "continue";
-		case OPCODE_TEST:           return "test";
-		case OPCODE_SWITCH:         return "switch";
-		case OPCODE_ENDSWITCH:      return "endswitch";
+		case OPCODE_TEXGRAD:         return "texgrad";
+		case OPCODE_TEXGRADOFFSET:   return "texgradoffset";
+		case OPCODE_BREAKP:          return "breakp";
+		case OPCODE_TEXSIZE:         return "texsize";
+		case OPCODE_PHASE:           return "phase";
+		case OPCODE_COMMENT:         return "comment";
+		case OPCODE_END:             return "end";
+		case OPCODE_PS_1_0:          return "ps_1_0";
+		case OPCODE_PS_1_1:          return "ps_1_1";
+		case OPCODE_PS_1_2:          return "ps_1_2";
+		case OPCODE_PS_1_3:          return "ps_1_3";
+		case OPCODE_PS_1_4:          return "ps_1_4";
+		case OPCODE_PS_2_0:          return "ps_2_0";
+		case OPCODE_PS_2_x:          return "ps_2_x";
+		case OPCODE_PS_3_0:          return "ps_3_0";
+		case OPCODE_VS_1_0:          return "vs_1_0";
+		case OPCODE_VS_1_1:          return "vs_1_1";
+		case OPCODE_VS_2_0:          return "vs_2_0";
+		case OPCODE_VS_2_x:          return "vs_2_x";
+		case OPCODE_VS_2_sw:         return "vs_2_sw";
+		case OPCODE_VS_3_0:          return "vs_3_0";
+		case OPCODE_VS_3_sw:         return "vs_3_sw";
+		case OPCODE_WHILE:           return "while";
+		case OPCODE_ENDWHILE:        return "endwhile";
+		case OPCODE_COS:             return "cos";
+		case OPCODE_SIN:             return "sin";
+		case OPCODE_TAN:             return "tan";
+		case OPCODE_ACOS:            return "acos";
+		case OPCODE_ASIN:            return "asin";
+		case OPCODE_ATAN:            return "atan";
+		case OPCODE_ATAN2:           return "atan2";
+		case OPCODE_COSH:            return "cosh";
+		case OPCODE_SINH:            return "sinh";
+		case OPCODE_TANH:            return "tanh";
+		case OPCODE_ACOSH:           return "acosh";
+		case OPCODE_ASINH:           return "asinh";
+		case OPCODE_ATANH:           return "atanh";
+		case OPCODE_DP1:             return "dp1";
+		case OPCODE_DP2:             return "dp2";
+		case OPCODE_TRUNC:           return "trunc";
+		case OPCODE_FLOOR:           return "floor";
+		case OPCODE_ROUND:           return "round";
+		case OPCODE_ROUNDEVEN:       return "roundEven";
+		case OPCODE_CEIL:            return "ceil";
+		case OPCODE_EXP2:            return "exp2";
+		case OPCODE_LOG2:            return "log2";
+		case OPCODE_EXP:             return "exp";
+		case OPCODE_LOG:             return "log";
+		case OPCODE_POW:             return "pow";
+		case OPCODE_F2B:             return "f2b";
+		case OPCODE_B2F:             return "b2f";
+		case OPCODE_F2I:             return "f2i";
+		case OPCODE_I2F:             return "i2f";
+		case OPCODE_F2U:             return "f2u";
+		case OPCODE_U2F:             return "u2f";
+		case OPCODE_B2I:             return "b2i";
+		case OPCODE_I2B:             return "i2b";
+		case OPCODE_ALL:             return "all";
+		case OPCODE_ANY:             return "any";
+		case OPCODE_NEG:             return "neg";
+		case OPCODE_INEG:            return "ineg";
+		case OPCODE_ISNAN:           return "isnan";
+		case OPCODE_ISINF:           return "isinf";
+		case OPCODE_NOT:             return "not";
+		case OPCODE_OR:              return "or";
+		case OPCODE_XOR:             return "xor";
+		case OPCODE_AND:             return "and";
+		case OPCODE_EQ:              return "eq";
+		case OPCODE_NE:              return "neq";
+		case OPCODE_FORWARD1:        return "forward1";
+		case OPCODE_FORWARD2:        return "forward2";
+		case OPCODE_FORWARD3:        return "forward3";
+		case OPCODE_FORWARD4:        return "forward4";
+		case OPCODE_REFLECT1:        return "reflect1";
+		case OPCODE_REFLECT2:        return "reflect2";
+		case OPCODE_REFLECT3:        return "reflect3";
+		case OPCODE_REFLECT4:        return "reflect4";
+		case OPCODE_REFRACT1:        return "refract1";
+		case OPCODE_REFRACT2:        return "refract2";
+		case OPCODE_REFRACT3:        return "refract3";
+		case OPCODE_REFRACT4:        return "refract4";
+		case OPCODE_LEAVE:           return "leave";
+		case OPCODE_CONTINUE:        return "continue";
+		case OPCODE_TEST:            return "test";
+		case OPCODE_SWITCH:          return "switch";
+		case OPCODE_ENDSWITCH:       return "endswitch";
 		default:
 			ASSERT(false);
 		}
@@ -1059,9 +1074,14 @@ namespace sw
 		case PARAMETER_LOOP:			return "aL";
 	//	case PARAMETER_TEMPFLOAT16:		return "";
 		case PARAMETER_MISCTYPE:
-			if(index == 0)				return "vPos";
-			else if(index == 1)			return "vFace";
-			else						ASSERT(false);
+			switch(index)
+			{
+			case VPosIndex:				return "vPos";
+			case VFaceIndex:			return "vFace";
+			case InstanceIDIndex:		return "iID";
+			case VertexIDIndex:			return "vID";
+			default: ASSERT(false);
+			}
 		case PARAMETER_LABEL:			return "l";
 		case PARAMETER_PREDICATE:		return "p0";
 		case PARAMETER_FLOAT4LITERAL:	return "";
@@ -1116,10 +1136,10 @@ namespace sw
 
 	Shader::~Shader()
 	{
-		for(unsigned int i = 0; i < instruction.size(); i++)
+		for(auto &inst : instruction)
 		{
-			delete instruction[i];
-			instruction[i] = 0;
+			delete inst;
+			inst = 0;
 		}
 	}
 
@@ -1163,12 +1183,12 @@ namespace sw
 
 	int Shader::size(unsigned long opcode) const
 	{
-		return size(opcode, version);
+		return size(opcode, shaderModel);
 	}
 
-	int Shader::size(unsigned long opcode, unsigned short version)
+	int Shader::size(unsigned long opcode, unsigned short shaderModel)
 	{
-		if(version > 0x0300)
+		if(shaderModel > 0x0300)
 		{
 			ASSERT(false);
 		}
@@ -1315,7 +1335,7 @@ namespace sw
 		   opcode != OPCODE_PHASE &&
 		   opcode != OPCODE_END)
 		{
-			if(version >= 0x0200)
+			if(shaderModel >= 0x0200)
 			{
 				length = (opcode & 0x0F000000) >> 24;
 			}
@@ -1330,7 +1350,7 @@ namespace sw
 			ASSERT(false);
 		}
 
-		if(version == 0x0104)
+		if(shaderModel == 0x0104)
 		{
 			switch(opcode & 0x0000FFFF)
 			{
@@ -1418,9 +1438,9 @@ namespace sw
 		return shaderType;
 	}
 
-	unsigned short Shader::getVersion() const
+	unsigned short Shader::getShaderModel() const
 	{
-		return version;
+		return shaderModel;
 	}
 
 	void Shader::print(const char *fileName, ...) const
@@ -1434,9 +1454,9 @@ namespace sw
 
 		std::ofstream file(fullName, std::ofstream::out);
 
-		for(unsigned int i = 0; i < instruction.size(); i++)
+		for(const auto &inst : instruction)
 		{
-			file << instruction[i]->string(shaderType, version) << std::endl;
+			file << inst->string(shaderType, shaderModel) << std::endl;
 		}
 	}
 
@@ -1444,7 +1464,7 @@ namespace sw
 	{
 		std::ofstream file(fileName, std::ofstream::out | std::ofstream::app);
 
-		file << instruction[index]->string(shaderType, version) << std::endl;
+		file << instruction[index]->string(shaderType, shaderModel) << std::endl;
 	}
 
 	void Shader::append(Instruction *instruction)
@@ -1454,7 +1474,10 @@ namespace sw
 
 	void Shader::declareSampler(int i)
 	{
-		usedSamplers |= 1 << i;
+		if(i >= 0 && i < 16)
+		{
+			usedSamplers |= 1 << i;
+		}
 	}
 
 	const Shader::Instruction *Shader::getInstruction(size_t i) const
@@ -1497,11 +1520,11 @@ namespace sw
 			calledFunctions.clear();
 			rescan = false;
 
-			for(unsigned int i = 0; i < instruction.size(); i++)
+			for(const auto &inst : instruction)
 			{
-				if(instruction[i]->isCall())
+				if(inst->isCall())
 				{
-					calledFunctions.insert(instruction[i]->dst.label);
+					calledFunctions.insert(inst->dst.label);
 				}
 			}
 
@@ -1574,26 +1597,26 @@ namespace sw
 		dirtyConstantsI = 0;
 		dirtyConstantsB = 0;
 
-		for(unsigned int i = 0; i < instruction.size(); i++)
+		for(const auto &inst : instruction)
 		{
-			switch(instruction[i]->opcode)
+			switch(inst->opcode)
 			{
 			case OPCODE_DEF:
-				if(instruction[i]->dst.index + 1 > dirtyConstantsF)
+				if(inst->dst.index + 1 > dirtyConstantsF)
 				{
-					dirtyConstantsF = instruction[i]->dst.index + 1;
+					dirtyConstantsF = inst->dst.index + 1;
 				}
 				break;
 			case OPCODE_DEFI:
-				if(instruction[i]->dst.index + 1 > dirtyConstantsI)
+				if(inst->dst.index + 1 > dirtyConstantsI)
 				{
-					dirtyConstantsI = instruction[i]->dst.index + 1;
+					dirtyConstantsI = inst->dst.index + 1;
 				}
 				break;
 			case OPCODE_DEFB:
-				if(instruction[i]->dst.index + 1 > dirtyConstantsB)
+				if(inst->dst.index + 1 > dirtyConstantsB)
 				{
-					dirtyConstantsB = instruction[i]->dst.index + 1;
+					dirtyConstantsB = inst->dst.index + 1;
 				}
 				break;
 			default:
@@ -1611,9 +1634,9 @@ namespace sw
 		containsDefine = false;
 
 		// Determine global presence of branching instructions
-		for(unsigned int i = 0; i < instruction.size(); i++)
+		for(const auto &inst : instruction)
 		{
-			switch(instruction[i]->opcode)
+			switch(inst->opcode)
 			{
 			case OPCODE_CALLNZ:
 			case OPCODE_IF:
@@ -1624,22 +1647,22 @@ namespace sw
 			case OPCODE_BREAKP:
 			case OPCODE_LEAVE:
 			case OPCODE_CONTINUE:
-				if(instruction[i]->src[0].type != PARAMETER_CONSTBOOL)
+				if(inst->src[0].type != PARAMETER_CONSTBOOL)
 				{
 					dynamicBranching = true;
 				}
 
-				if(instruction[i]->opcode == OPCODE_LEAVE)
+				if(inst->opcode == OPCODE_LEAVE)
 				{
 					containsLeave = true;
 				}
 
-				if(instruction[i]->isBreak())
+				if(inst->isBreak())
 				{
 					containsBreak = true;
 				}
 
-				if(instruction[i]->opcode == OPCODE_CONTINUE)
+				if(inst->opcode == OPCODE_CONTINUE)
 				{
 					containsContinue = true;
 				}
@@ -1661,12 +1684,12 @@ namespace sw
 
 		for(unsigned int i = 0; i < instruction.size(); i++)
 		{
-			// If statements
-			if(instruction[i]->isBranch())
+			// If statements and loops
+			if(instruction[i]->isBranch() || instruction[i]->isLoop())
 			{
 				branchDepth++;
 			}
-			else if(instruction[i]->opcode == OPCODE_ENDIF)
+			else if(instruction[i]->opcode == OPCODE_ENDIF || instruction[i]->isEndLoop())
 			{
 				branchDepth--;
 			}
@@ -1774,36 +1797,36 @@ namespace sw
 	void Shader::markFunctionAnalysis(unsigned int functionLabel, Analysis flag)
 	{
 		bool marker = false;
-		for(unsigned int i = 0; i < instruction.size(); i++)
+		for(auto &inst : instruction)
 		{
 			if(!marker)
 			{
-				if(instruction[i]->opcode == OPCODE_LABEL && instruction[i]->dst.label == functionLabel)
+				if(inst->opcode == OPCODE_LABEL && inst->dst.label == functionLabel)
 				{
 					marker = true;
 				}
 			}
 			else
 			{
-				if(instruction[i]->opcode == OPCODE_RET)
+				if(inst->opcode == OPCODE_RET)
 				{
 					break;
 				}
-				else if(instruction[i]->isCall())
+				else if(inst->isCall())
 				{
-					markFunctionAnalysis(instruction[i]->dst.label, flag);
+					markFunctionAnalysis(inst->dst.label, flag);
 				}
 
-				instruction[i]->analysis |= flag;
+				inst->analysis |= flag;
 			}
 		}
 	}
 
 	void Shader::analyzeSamplers()
 	{
-		for(unsigned int i = 0; i < instruction.size(); i++)
+		for(const auto &inst : instruction)
 		{
-			switch(instruction[i]->opcode)
+			switch(inst->opcode)
 			{
 			case OPCODE_TEX:
 			case OPCODE_TEXBEM:
@@ -1819,19 +1842,24 @@ namespace sw
 			case OPCODE_TEXM3X2DEPTH:
 			case OPCODE_TEXLDD:
 			case OPCODE_TEXLDL:
+			case OPCODE_TEXLOD:
 			case OPCODE_TEXOFFSET:
-			case OPCODE_TEXLDLOFFSET:
+			case OPCODE_TEXOFFSETBIAS:
+			case OPCODE_TEXLODOFFSET:
 			case OPCODE_TEXELFETCH:
 			case OPCODE_TEXELFETCHOFFSET:
 			case OPCODE_TEXGRAD:
 			case OPCODE_TEXGRADOFFSET:
 				{
-					Parameter &dst = instruction[i]->dst;
-					Parameter &src1 = instruction[i]->src[1];
+					Parameter &dst = inst->dst;
+					Parameter &src1 = inst->src[1];
 
 					if(majorVersion >= 2)
 					{
-						usedSamplers |= 1 << src1.index;
+						if(src1.type == PARAMETER_SAMPLER)
+						{
+							usedSamplers |= 1 << src1.index;
+						}
 					}
 					else
 					{
@@ -1849,53 +1877,47 @@ namespace sw
 	// This is used to know what basic block to return to.
 	void Shader::analyzeCallSites()
 	{
-		int callSiteIndex[2048] = {0};
+		int callSiteIndex[MAX_SHADER_CALL_SITES] = {0};
 
-		for(unsigned int i = 0; i < instruction.size(); i++)
+		for(auto &inst : instruction)
 		{
-			if(instruction[i]->opcode == OPCODE_CALL || instruction[i]->opcode == OPCODE_CALLNZ)
+			if(inst->opcode == OPCODE_CALL || inst->opcode == OPCODE_CALLNZ)
 			{
-				int label = instruction[i]->dst.label;
+				int label = sw::min(inst->dst.label, static_cast<unsigned int>(MAX_SHADER_CALL_SITES));
 
-				instruction[i]->dst.callSite = callSiteIndex[label]++;
+				inst->dst.callSite = callSiteIndex[label]++;
 			}
 		}
 	}
 
-	void Shader::analyzeDynamicIndexing()
+	void Shader::analyzeIndirectAddressing()
 	{
-		dynamicallyIndexedTemporaries = false;
-		dynamicallyIndexedInput = false;
-		dynamicallyIndexedOutput = false;
+		indirectAddressableTemporaries = false;
+		indirectAddressableInput = false;
+		indirectAddressableOutput = false;
 
-		for(unsigned int i = 0; i < instruction.size(); i++)
+		for(const auto &inst : instruction)
 		{
-			if(instruction[i]->dst.rel.type == PARAMETER_ADDR ||
-			   instruction[i]->dst.rel.type == PARAMETER_LOOP ||
-			   instruction[i]->dst.rel.type == PARAMETER_TEMP ||
-			   instruction[i]->dst.rel.type == PARAMETER_CONST)
+			if(inst->dst.rel.type != PARAMETER_VOID)
 			{
-				switch(instruction[i]->dst.type)
+				switch(inst->dst.type)
 				{
-				case PARAMETER_TEMP:   dynamicallyIndexedTemporaries = true; break;
-				case PARAMETER_INPUT:  dynamicallyIndexedInput = true;       break;
-				case PARAMETER_OUTPUT: dynamicallyIndexedOutput = true;      break;
+				case PARAMETER_TEMP:   indirectAddressableTemporaries = true; break;
+				case PARAMETER_INPUT:  indirectAddressableInput = true;       break;
+				case PARAMETER_OUTPUT: indirectAddressableOutput = true;      break;
 				default: break;
 				}
 			}
 
 			for(int j = 0; j < 3; j++)
 			{
-				if(instruction[i]->src[j].rel.type == PARAMETER_ADDR ||
-				   instruction[i]->src[j].rel.type == PARAMETER_LOOP ||
-				   instruction[i]->src[j].rel.type == PARAMETER_TEMP ||
-				   instruction[i]->src[j].rel.type == PARAMETER_CONST)
+				if(inst->src[j].rel.type != PARAMETER_VOID)
 				{
-					switch(instruction[i]->src[j].type)
+					switch(inst->src[j].type)
 					{
-					case PARAMETER_TEMP:   dynamicallyIndexedTemporaries = true; break;
-					case PARAMETER_INPUT:  dynamicallyIndexedInput = true;       break;
-					case PARAMETER_OUTPUT: dynamicallyIndexedOutput = true;      break;
+					case PARAMETER_TEMP:   indirectAddressableTemporaries = true; break;
+					case PARAMETER_INPUT:  indirectAddressableInput = true;       break;
+					case PARAMETER_OUTPUT: indirectAddressableOutput = true;      break;
 					default: break;
 					}
 				}

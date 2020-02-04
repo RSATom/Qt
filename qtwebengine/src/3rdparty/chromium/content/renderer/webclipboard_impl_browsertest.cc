@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "content/renderer/webclipboard_impl.h"
-
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
@@ -27,15 +28,17 @@ IN_PROC_BROWSER_TEST_F(WebClipboardImplTest, PasteRTF) {
   const std::string rtf_content = "{\\rtf1\\ansi Hello, {\\b world.}}";
   clipboard.SetRtf(rtf_content);
 
+  FrameFocusedObserver focus_observer(shell()->web_contents()->GetMainFrame());
   // paste_listener.html takes RTF from the clipboard and sets the title.
   NavigateToURL(shell(), GetTestUrl(".", "paste_listener.html"));
+  focus_observer.Wait();
 
   const base::string16 expected_title = base::UTF8ToUTF16(rtf_content);
-  content::TitleWatcher title_watcher(shell()->web_contents(), expected_title);
+  TitleWatcher title_watcher(shell()->web_contents(), expected_title);
   shell()->web_contents()->Paste();
   EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
 }
 
-}
+}  // namespace
 
-} // namespace content
+}  // namespace content

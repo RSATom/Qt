@@ -9,18 +9,37 @@
 #ifndef COMMON_SYSTEM_UTILS_H_
 #define COMMON_SYSTEM_UTILS_H_
 
-#include "common/angleutils.h"
 #include "common/Optional.h"
+#include "common/angleutils.h"
 
 namespace angle
 {
-
-const char *GetExecutablePath();
-const char *GetExecutableDirectory();
+std::string GetExecutablePath();
+std::string GetExecutableDirectory();
 const char *GetSharedLibraryExtension();
 Optional<std::string> GetCWD();
 bool SetCWD(const char *dirName);
+bool SetEnvironmentVar(const char *variableName, const char *value);
+bool UnsetEnvironmentVar(const char *variableName);
+std::string GetEnvironmentVar(const char *variableName);
+const char *GetPathSeparator();
+bool PrependPathToEnvironmentVar(const char *variableName, const char *path);
 
+class Library : angle::NonCopyable
+{
+  public:
+    virtual ~Library() {}
+    virtual void *getSymbol(const char *symbolName) = 0;
+    virtual void *getNative() const                 = 0;
+
+    template <typename FuncT>
+    void getAs(const char *symbolName, FuncT *funcOut)
+    {
+        *funcOut = reinterpret_cast<FuncT>(getSymbol(symbolName));
+    }
+};
+
+Library *OpenSharedLibrary(const char *libraryName);
 }  // namespace angle
 
 #endif  // COMMON_SYSTEM_UTILS_H_

@@ -6,6 +6,7 @@
 #define COMPONENTS_PREFS_PREF_VALUE_STORE_H_
 
 #include <map>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -14,8 +15,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/values.h"
-#include "components/prefs/base_prefs_export.h"
 #include "components/prefs/pref_store.h"
+#include "components/prefs/prefs_export.h"
 
 class PersistentPrefStore;
 class PrefNotifier;
@@ -49,8 +50,10 @@ class COMPONENTS_PREFS_EXPORT PrefValueStore {
                       PrefStore* default_prefs,
                       PrefNotifier* pref_notifier) = 0;
 
-    virtual void InitIncognitoUnderlay(
-        PersistentPrefStore* incognito_user_prefs_underlay) = 0;
+    virtual void InitIncognitoUserPrefs(
+        scoped_refptr<PersistentPrefStore> incognito_user_prefs_overlay,
+        scoped_refptr<PersistentPrefStore> incognito_user_prefs_underlay,
+        const std::vector<const char*>& overlay_pref_names) = 0;
 
     virtual void InitPrefRegistry(PrefRegistry* pref_registry) = 0;
 
@@ -113,7 +116,7 @@ class COMPONENTS_PREFS_EXPORT PrefValueStore {
   // by the parameters passed, if unequal NULL.
   //
   // The new PrefValueStore is passed the |delegate| in its constructor.
-  PrefValueStore* CloneAndSpecialize(
+  std::unique_ptr<PrefValueStore> CloneAndSpecialize(
       PrefStore* managed_prefs,
       PrefStore* supervised_user_prefs,
       PrefStore* extension_prefs,
@@ -174,6 +177,11 @@ class COMPONENTS_PREFS_EXPORT PrefValueStore {
 
   // Update the command line PrefStore with |command_line_prefs|.
   void UpdateCommandLinePrefStore(PrefStore* command_line_prefs);
+
+  bool IsInitializationComplete() const;
+
+  // Check whether a particular type of PrefStore exists.
+  bool HasPrefStore(PrefStoreType type) const;
 
  private:
   // Keeps a PrefStore reference on behalf of the PrefValueStore and monitors

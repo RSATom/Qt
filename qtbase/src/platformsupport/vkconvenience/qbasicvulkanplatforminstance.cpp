@@ -82,6 +82,21 @@ QBasicPlatformVulkanInstance::~QBasicPlatformVulkanInstance()
         m_vkDestroyInstance(m_vkInst, nullptr);
 }
 
+void QBasicPlatformVulkanInstance::loadVulkanLibrary(const QString &defaultLibraryName)
+{
+    if (qEnvironmentVariableIsSet("QT_VULKAN_LIB"))
+        m_vulkanLib.setFileName(QString::fromUtf8(qgetenv("QT_VULKAN_LIB")));
+    else
+        m_vulkanLib.setFileName(defaultLibraryName);
+
+    if (!m_vulkanLib.load()) {
+        qWarning("Failed to load %s: %s", qPrintable(m_vulkanLib.fileName()), qPrintable(m_vulkanLib.errorString()));
+        return;
+    }
+
+    init(&m_vulkanLib);
+}
+
 void QBasicPlatformVulkanInstance::init(QLibrary *lib)
 {
     if (m_vkGetInstanceProcAddr)
@@ -256,6 +271,11 @@ void QBasicPlatformVulkanInstance::initInstance(QVulkanInstance *instance, const
     if (!m_getPhysDevSurfaceSupport)
         qWarning("Failed to find vkGetPhysicalDeviceSurfaceSupportKHR");
 
+    m_destroySurface = reinterpret_cast<PFN_vkDestroySurfaceKHR>(
+                m_vkGetInstanceProcAddr(m_vkInst, "vkDestroySurfaceKHR"));
+    if (!m_destroySurface)
+        qWarning("Failed to find vkDestroySurfaceKHR");
+
     if (!flags.testFlag(QVulkanInstance::NoDebugOutputRedirect))
         setupDebugOutput();
 }
@@ -308,6 +328,12 @@ bool QBasicPlatformVulkanInstance::supportsPresent(VkPhysicalDevice physicalDevi
     m_getPhysDevSurfaceSupport(physicalDevice, queueFamilyIndex, surface, &supported);
 
     return supported;
+}
+
+void QBasicPlatformVulkanInstance::destroySurface(VkSurfaceKHR surface) const
+{
+    if (m_destroySurface && surface)
+        m_destroySurface(m_vkInst, surface, nullptr);
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL defaultDebugCallbackFunc(VkDebugReportFlagsEXT flags,

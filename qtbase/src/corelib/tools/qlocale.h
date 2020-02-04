@@ -436,23 +436,28 @@ public:
         Cantonese = 357,
         Osage = 358,
         Tangut = 359,
+        Ido = 360,
+        Lojban = 361,
+        Sicilian = 362,
+        SouthernKurdish = 363,
+        WesternBalochi = 364,
 
-        Norwegian = NorwegianBokmal,
+        Afan = Oromo,
+        Bhutani = Dzongkha,
+        Byelorussian = Belarusian,
+        Cambodian = Khmer,
+        Chewa = Nyanja,
+        Frisian = WesternFrisian,
+        Kurundi = Rundi,
         Moldavian = Romanian,
+        Norwegian = NorwegianBokmal,
+        RhaetoRomance = Romansh,
         SerboCroatian = Serbian,
         Tagalog = Filipino,
         Twi = Akan,
-        Afan = Oromo,
-        Byelorussian = Belarusian,
-        Bhutani = Dzongkha,
-        Cambodian = Khmer,
-        Kurundi = Rundi,
-        RhaetoRomance = Romansh,
-        Chewa = Nyanja,
-        Frisian = WesternFrisian,
         Uigur = Uighur,
 
-        LastLanguage = Tangut
+        LastLanguage = WesternBalochi
     };
 
     enum Script {
@@ -851,7 +856,7 @@ public:
         Serbia = 243,
         SaintBarthelemy = 244,
         SaintMartin = 245,
-        LatinAmericaAndTheCaribbean = 246,
+        LatinAmerica = 246,
         AscensionIsland = 247,
         AlandIslands = 248,
         DiegoGarcia = 249,
@@ -865,17 +870,20 @@ public:
         Kosovo = 257,
         EuropeanUnion = 258,
         OutlyingOceania = 259,
+        World = 260,
+        Europe = 261,
 
-        Tokelau = TokelauCountry,
-        Tuvalu = TuvaluCountry,
         DemocraticRepublicOfCongo = CongoKinshasa,
-        PeoplesRepublicOfCongo = CongoBrazzaville,
         DemocraticRepublicOfKorea = NorthKorea,
+        LatinAmericaAndTheCaribbean = LatinAmerica,
+        PeoplesRepublicOfCongo = CongoBrazzaville,
         RepublicOfKorea = SouthKorea,
         RussianFederation = Russia,
         SyrianArabRepublic = Syria,
+        Tokelau = TokelauCountry,
+        Tuvalu = TuvaluCountry,
 
-        LastCountry = OutlyingOceania
+        LastCountry = Europe
     };
 // GENERATED PART ENDS HERE
 
@@ -949,29 +957,35 @@ public:
     QString nativeCountryName() const;
 
 #if QT_STRINGVIEW_LEVEL < 2
-    short toShort(const QString &s, bool *ok = Q_NULLPTR) const;
-    ushort toUShort(const QString &s, bool *ok = Q_NULLPTR) const;
-    int toInt(const QString &s, bool *ok = Q_NULLPTR) const;
-    uint toUInt(const QString &s, bool *ok = Q_NULLPTR) const;
-    qlonglong toLongLong(const QString &s, bool *ok = Q_NULLPTR) const;
-    qulonglong toULongLong(const QString &s, bool *ok = Q_NULLPTR) const;
-    float toFloat(const QString &s, bool *ok = Q_NULLPTR) const;
-    double toDouble(const QString &s, bool *ok = Q_NULLPTR) const;
+    short toShort(const QString &s, bool *ok = nullptr) const;
+    ushort toUShort(const QString &s, bool *ok = nullptr) const;
+    int toInt(const QString &s, bool *ok = nullptr) const;
+    uint toUInt(const QString &s, bool *ok = nullptr) const;
+    long toLong(const QString &s, bool *ok = nullptr) const;
+    ulong toULong(const QString &s, bool *ok = nullptr) const;
+    qlonglong toLongLong(const QString &s, bool *ok = nullptr) const;
+    qulonglong toULongLong(const QString &s, bool *ok = nullptr) const;
+    float toFloat(const QString &s, bool *ok = nullptr) const;
+    double toDouble(const QString &s, bool *ok = nullptr) const;
 
-    short toShort(const QStringRef &s, bool *ok = Q_NULLPTR) const;
-    ushort toUShort(const QStringRef &s, bool *ok = Q_NULLPTR) const;
-    int toInt(const QStringRef &s, bool *ok = Q_NULLPTR) const;
-    uint toUInt(const QStringRef &s, bool *ok = Q_NULLPTR) const;
-    qlonglong toLongLong(const QStringRef &s, bool *ok = Q_NULLPTR) const;
-    qulonglong toULongLong(const QStringRef &s, bool *ok = Q_NULLPTR) const;
-    float toFloat(const QStringRef &s, bool *ok = Q_NULLPTR) const;
-    double toDouble(const QStringRef &s, bool *ok = Q_NULLPTR) const;
+    short toShort(const QStringRef &s, bool *ok = nullptr) const;
+    ushort toUShort(const QStringRef &s, bool *ok = nullptr) const;
+    int toInt(const QStringRef &s, bool *ok = nullptr) const;
+    uint toUInt(const QStringRef &s, bool *ok = nullptr) const;
+    long toLong(const QStringRef &s, bool *ok = nullptr) const;
+    ulong toULong(const QStringRef &s, bool *ok = nullptr) const;
+    qlonglong toLongLong(const QStringRef &s, bool *ok = nullptr) const;
+    qulonglong toULongLong(const QStringRef &s, bool *ok = nullptr) const;
+    float toFloat(const QStringRef &s, bool *ok = nullptr) const;
+    double toDouble(const QStringRef &s, bool *ok = nullptr) const;
 #endif
 
     short toShort(QStringView s, bool *ok = nullptr) const;
     ushort toUShort(QStringView s, bool *ok = nullptr) const;
     int toInt(QStringView s, bool *ok = nullptr) const;
     uint toUInt(QStringView s, bool *ok = nullptr) const;
+    long toLong(QStringView s, bool *ok = nullptr) const;
+    ulong toULong(QStringView s, bool *ok = nullptr) const;
     qlonglong toLongLong(QStringView s, bool *ok = nullptr) const;
     qulonglong toULongLong(QStringView s, bool *ok = nullptr) const;
     float toFloat(QStringView s, bool *ok = nullptr) const;
@@ -979,6 +993,8 @@ public:
 
     QString toString(qlonglong i) const;
     QString toString(qulonglong i) const;
+    inline QString toString(long i) const;
+    inline QString toString(ulong i) const;
     inline QString toString(short i) const;
     inline QString toString(ushort i) const;
     inline QString toString(int i) const;
@@ -1001,7 +1017,7 @@ public:
     QString dateFormat(FormatType format = LongFormat) const;
     QString timeFormat(FormatType format = LongFormat) const;
     QString dateTimeFormat(FormatType format = LongFormat) const;
-#ifndef QT_NO_DATESTRING
+#if QT_CONFIG(datestring)
     QDate toDate(const QString &string, FormatType = LongFormat) const;
     QTime toTime(const QString &string, FormatType = LongFormat) const;
     QDateTime toDateTime(const QString &string, FormatType format = LongFormat) const;
@@ -1058,7 +1074,10 @@ public:
     { return toCurrencyString(double(i), symbol, precision); }
 #endif
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     QString formattedDataSize(qint64 bytes, int precision = 2, DataSizeFormats format = DataSizeIecFormat);
+#endif
+    QString formattedDataSize(qint64 bytes, int precision = 2, DataSizeFormats format = DataSizeIecFormat) const;
 
     QStringList uiLanguages() const;
 
@@ -1088,6 +1107,7 @@ public:
 private:
     QLocale(QLocalePrivate &dd);
     friend class QLocalePrivate;
+    friend class QSystemLocale;
     friend Q_CORE_EXPORT uint qHash(const QLocale &key, uint seed) Q_DECL_NOTHROW;
 
     QSharedDataPointer<QLocalePrivate> d;
@@ -1095,6 +1115,10 @@ private:
 Q_DECLARE_SHARED(QLocale)
 Q_DECLARE_OPERATORS_FOR_FLAGS(QLocale::NumberOptions)
 
+inline QString QLocale::toString(long i) const
+    { return toString(qlonglong(i)); }
+inline QString QLocale::toString(ulong i) const
+    { return toString(qulonglong(i)); }
 inline QString QLocale::toString(short i) const
     { return toString(qlonglong(i)); }
 inline QString QLocale::toString(ushort i) const

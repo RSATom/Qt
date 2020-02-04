@@ -15,20 +15,11 @@
 #include <intrin.h>
 #include <windows.h>
 
-#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "client/crashpad_client.h"
-#include "util/file/file_io.h"
-#include "util/misc/from_pointer_cast.h"
+#include "util/misc/capture_context.h"
 #include "util/win/address_types.h"
-
-namespace {
-
-__declspec(noinline) crashpad::WinVMAddress CurrentAddress() {
-  return crashpad::FromPointerCast<crashpad::WinVMAddress>(_ReturnAddress());
-}
-
-}  // namespace
+#include "util/win/context_wrappers.h"
 
 int wmain(int argc, wchar_t* argv[]) {
   CHECK_EQ(argc, 2);
@@ -38,8 +29,23 @@ int wmain(int argc, wchar_t* argv[]) {
 
   HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
   PCHECK(out != INVALID_HANDLE_VALUE) << "GetStdHandle";
-  crashpad::WinVMAddress break_address = CurrentAddress();
-  crashpad::CheckedWriteFile(out, &break_address, sizeof(break_address));
+
+  CONTEXT context;
+  crashpad::CaptureContext(&context);
+  crashpad::WinVMAddress break_address =
+      reinterpret_cast<crashpad::WinVMAddress>(
+          crashpad::ProgramCounterFromCONTEXT(&context));
+
+  // This does not used CheckedWriteFile() because at high optimization
+  // settings, a lot of logging code can be inlined, causing there to be a large
+  // number of instructions between where the IP is captured and the actual
+  // __debugbreak(). Instead call Windows' WriteFile() to minimize the amount of
+  // code here. Because the next line is going to crash in any case, there's
+  // minimal difference in behavior aside from an indication of what broke when
+  // the other end experiences a ReadFile() error.
+  DWORD bytes_written;
+  WriteFile(
+      out, &break_address, sizeof(break_address), &bytes_written, nullptr);
 
   __debugbreak();
 

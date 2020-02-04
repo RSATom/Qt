@@ -1,7 +1,7 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html#License
 zh_Hant_HK{
-    Version{"2.1.31.33"}
+    Version{"2.1.43.65"}
     zoneStrings{
         "Africa:Abidjan"{
             ec{"阿比贊"}
@@ -106,7 +106,7 @@ zh_Hant_HK{
             ec{"卡宴"}
         }
         "America:Chihuahua"{
-            ec{"芝華華"}
+            ec{"芝娃娃"}
         }
         "America:Cordoba"{
             ec{"科爾多瓦"}
@@ -120,9 +120,6 @@ zh_Hant_HK{
         "America:Dawson_Creek"{
             ec{"道森灣"}
         }
-        "America:Dominica"{
-            ec{"多米尼克"}
-        }
         "America:Edmonton"{
             ec{"愛民頓"}
         }
@@ -135,6 +132,9 @@ zh_Hant_HK{
         "America:Grenada"{
             ec{"格林納達"}
         }
+        "America:Guadeloupe"{
+            ec{"瓜德羅普"}
+        }
         "America:Guatemala"{
             ec{"危地馬拉"}
         }
@@ -143,6 +143,9 @@ zh_Hant_HK{
         }
         "America:Halifax"{
             ec{"哈利法克斯"}
+        }
+        "America:Havana"{
+            ec{"夏灣拿"}
         }
         "America:Indiana:Knox"{
             ec{"印第安納州諾克斯"}
@@ -170,9 +173,6 @@ zh_Hant_HK{
         }
         "America:Inuvik"{
             ec{"伊努維克"}
-        }
-        "America:Kentucky:Monticello"{
-            ec{"肯塔基州蒙蒂塞洛"}
         }
         "America:Louisville"{
             ec{"路易維爾"}
@@ -355,7 +355,7 @@ zh_Hant_HK{
             ec{"葉卡捷琳堡"}
         }
         "Asia:Yerevan"{
-            ec{"耶烈萬"}
+            ec{"埃里温"}
         }
         "Atlantic:Canary"{
             ec{"加那利"}
@@ -428,6 +428,9 @@ zh_Hant_HK{
         }
         "Europe:Zagreb"{
             ec{"薩格勒布"}
+        }
+        "Indian:Antananarivo"{
+            ec{"安塔那那利佛"}
         }
         "Indian:Chagos"{
             ec{"查戈斯群島"}
@@ -508,7 +511,7 @@ zh_Hant_HK{
             ls{"南非時間"}
         }
         "meta:America_Central"{
-            ld{"中部夏令時間"}
+            ld{"北美中部夏令時間"}
             lg{"北美中部時間"}
             ls{"北美中部標準時間"}
         }
@@ -600,6 +603,10 @@ zh_Hant_HK{
             ld{"費爾南多迪諾羅尼亞夏令時間"}
             lg{"費爾南多迪諾羅尼亞時間"}
             ls{"費爾南多迪諾羅尼亞標準時間"}
+        }
+        "meta:Omsk"{
+            ld{"鄂木斯克夏令時間"}
+            ls{"鄂木斯克標準時間"}
         }
         "meta:Papua_New_Guinea"{
             ls{"巴布亞新畿內亞時間"}

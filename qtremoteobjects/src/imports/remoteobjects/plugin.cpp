@@ -38,21 +38,27 @@
 ****************************************************************************/
 
 #include <QtRemoteObjects/qremoteobjectnode.h>
+#include <QtRemoteObjects/qremoteobjectsettingsstore.h>
 #include <QQmlExtensionPlugin>
 #include <qqml.h>
 
 QT_BEGIN_NAMESPACE
 
-class QtQmlRemoteObjectsPlugin : public QQmlExtensionPlugin
+class QtRemoteObjectsPlugin : public QQmlExtensionPlugin
 {
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QtQml.RemoteObjects/1.0")
+    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    void registerTypes(const char *uri)
+    void registerTypes(const char *uri) override
     {
-        qmlRegisterType<QRemoteObjectNode>(uri, 1, 0, "Node");
-        qmlProtectModule(uri, 1);
+        qmlRegisterModule(uri, 5, QT_VERSION_MINOR);
+
+        qmlRegisterUncreatableType<QRemoteObjectAbstractPersistedStore>(uri, 5, 12, "PersistedStore", "Cannot create PersistedStore");
+
+        qmlRegisterType<QRemoteObjectNode>(uri, 5, 12, "Node");
+        qmlRegisterType<QRemoteObjectSettingsStore>(uri, 5, 12, "SettingsStore");
+        qmlProtectModule(uri, 5);
     }
 };
 

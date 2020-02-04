@@ -4,7 +4,7 @@
 
 #include <memory>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/accessibility/ax_node.h"
@@ -62,7 +62,7 @@ TEST(AXGeneratedTreeTest, TestTreeGeneratorNoPermutations) {
   };
 
   int n = generator.UniqueTreeCount();
-  ASSERT_EQ(static_cast<int>(arraysize(EXPECTED_TREES)), n);
+  ASSERT_EQ(static_cast<int>(base::size(EXPECTED_TREES)), n);
 
   for (int i = 0; i < n; ++i) {
     AXTree tree;
@@ -96,7 +96,7 @@ TEST(AXGeneratedTreeTest, TestTreeGeneratorWithPermutations) {
   };
 
   int n = generator.UniqueTreeCount();
-  ASSERT_EQ(static_cast<int>(arraysize(EXPECTED_TREES)), n);
+  ASSERT_EQ(static_cast<int>(base::size(EXPECTED_TREES)), n);
 
   for (int i = 0; i < n; i++) {
     AXTree tree;
@@ -148,42 +148,49 @@ TEST(AXGeneratedTreeTest, SerializeGeneratedTrees) {
 
       // Now iterate over which node to update first, |k|.
       for (int k = 0; k < tree_size; k++) {
-        SCOPED_TRACE("i=" + base::IntToString(i) +
-                     " j=" + base::IntToString(j) +
-                     " k=" + base::IntToString(k));
+        // Iterate over a node to invalidate, |l| (zero means no invalidation).
+        for (int l = 0; l <= tree_size; l++) {
+          SCOPED_TRACE(
+              "i=" + base::IntToString(i) + " j=" + base::IntToString(j) +
+              " k=" + base::IntToString(k) + " l=" + base::IntToString(l));
 
-        // Start by serializing tree0 and unserializing it into a new
-        // empty tree |dst_tree|.
-        std::unique_ptr<AXTreeSource<const AXNode*, AXNodeData, AXTreeData>>
-            tree0_source(tree0.CreateTreeSource());
-        AXTreeSerializer<const AXNode*, AXNodeData, AXTreeData> serializer(
-            tree0_source.get());
-        AXTreeUpdate update0;
-        ASSERT_TRUE(serializer.SerializeChanges(tree0.root(), &update0));
+          // Start by serializing tree0 and unserializing it into a new
+          // empty tree |dst_tree|.
+          std::unique_ptr<AXTreeSource<const AXNode*, AXNodeData, AXTreeData>>
+              tree0_source(tree0.CreateTreeSource());
+          AXTreeSerializer<const AXNode*, AXNodeData, AXTreeData> serializer(
+              tree0_source.get());
+          AXTreeUpdate update0;
+          ASSERT_TRUE(serializer.SerializeChanges(tree0.root(), &update0));
 
-        AXTree dst_tree;
-        ASSERT_TRUE(dst_tree.Unserialize(update0));
+          AXTree dst_tree;
+          ASSERT_TRUE(dst_tree.Unserialize(update0));
 
-        // At this point, |dst_tree| should now be identical to |tree0|.
-        EXPECT_EQ(TreeToString(tree0), TreeToString(dst_tree));
+          // At this point, |dst_tree| should now be identical to |tree0|.
+          EXPECT_EQ(TreeToString(tree0), TreeToString(dst_tree));
 
-        // Next, pretend that tree0 turned into tree1, and serialize
-        // a sequence of updates to |dst_tree| to match.
-        std::unique_ptr<AXTreeSource<const AXNode*, AXNodeData, AXTreeData>>
-            tree1_source(tree1.CreateTreeSource());
-        serializer.ChangeTreeSourceForTesting(tree1_source.get());
+          // Next, pretend that tree0 turned into tree1.
+          std::unique_ptr<AXTreeSource<const AXNode*, AXNodeData, AXTreeData>>
+              tree1_source(tree1.CreateTreeSource());
+          serializer.ChangeTreeSourceForTesting(tree1_source.get());
 
-        for (int k_index = 0; k_index < tree_size; ++k_index) {
-          int id = 1 + (k + k_index) % tree_size;
-          AXTreeUpdate update;
-          ASSERT_TRUE(
-              serializer.SerializeChanges(tree1.GetFromId(id), &update));
-          ASSERT_TRUE(dst_tree.Unserialize(update));
+          // Invalidate a subtree rooted at one of the nodes.
+          if (l > 0)
+            serializer.InvalidateSubtree(tree1.GetFromId(l));
+
+          // Serialize a sequence of updates to |dst_tree| to match.
+          for (int k_index = 0; k_index < tree_size; ++k_index) {
+            int id = 1 + (k + k_index) % tree_size;
+            AXTreeUpdate update;
+            ASSERT_TRUE(
+                serializer.SerializeChanges(tree1.GetFromId(id), &update));
+            ASSERT_TRUE(dst_tree.Unserialize(update));
+          }
+
+          // After the sequence of updates, |dst_tree| should now be
+          // identical to |tree1|.
+          EXPECT_EQ(TreeToString(tree1), TreeToString(dst_tree));
         }
-
-        // After the sequence of updates, |dst_tree| should now be
-        // identical to |tree1|.
-        EXPECT_EQ(TreeToString(tree1), TreeToString(dst_tree));
       }
     }
   }

@@ -39,11 +39,13 @@
 
 #include "qsgdefaultrendercontext_p.h"
 
+#include <QtGui/QGuiApplication>
 #include <QtGui/QOpenGLFramebufferObject>
 
 #include <QtQuick/private/qsgbatchrenderer_p.h>
 #include <QtQuick/private/qsgrenderer_p.h>
 #include <QtQuick/private/qsgatlastexture_p.h>
+#include <QtQuick/private/qsgcompressedtexture_p.h>
 #include <QtQuick/private/qsgdefaultdistancefieldglyphcache_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -156,14 +158,14 @@ void QSGDefaultRenderContext::invalidate()
     m_fontEnginesToClean.clear();
 
     delete m_depthStencilManager;
-    m_depthStencilManager = 0;
+    m_depthStencilManager = nullptr;
 
     qDeleteAll(m_glyphCaches);
     m_glyphCaches.clear();
 
     if (m_gl->property(QSG_RENDERCONTEXT_PROPERTY) == QVariant::fromValue(this))
         m_gl->setProperty(QSG_RENDERCONTEXT_PROPERTY, QVariant());
-    m_gl = 0;
+    m_gl = nullptr;
 
     if (m_sg)
         m_sg->renderContextInvalidated(this);
@@ -210,7 +212,7 @@ QSharedPointer<QSGDepthStencilBuffer> QSGDefaultRenderContext::depthStencilBuffe
 QSGDepthStencilBufferManager *QSGDefaultRenderContext::depthStencilBufferManager()
 {
     if (!m_gl)
-        return 0;
+        return nullptr;
     if (!m_depthStencilManager)
         m_depthStencilManager = new QSGDepthStencilBufferManager(m_gl);
     return m_depthStencilManager;
@@ -241,6 +243,14 @@ QSGTexture *QSGDefaultRenderContext::createTexture(const QImage &image, uint fla
 QSGRenderer *QSGDefaultRenderContext::createRenderer()
 {
     return new QSGBatchRenderer::Renderer(this);
+}
+
+QSGTexture *QSGDefaultRenderContext::compressedTextureForFactory(const QSGCompressedTextureFactory *factory) const
+{
+    // The atlas implementation is only supported from the render thread
+    if (openglContext() && QThread::currentThread() == openglContext()->thread())
+        return m_atlasManager->create(factory);
+    return nullptr;
 }
 
 /*!
@@ -306,6 +316,18 @@ void QSGDefaultRenderContext::setAttachToGraphicsContext(bool attach)
 QSGDefaultRenderContext *QSGDefaultRenderContext::from(QOpenGLContext *context)
 {
     return qobject_cast<QSGDefaultRenderContext *>(context->property(QSG_RENDERCONTEXT_PROPERTY).value<QObject *>());
+}
+
+bool QSGDefaultRenderContext::separateIndexBuffer() const
+{
+    // WebGL: A given WebGLBuffer object may only be bound to one of
+    // the ARRAY_BUFFER or ELEMENT_ARRAY_BUFFER target in its
+    // lifetime. An attempt to bind a buffer object to the other
+    // target will generate an INVALID_OPERATION error, and the
+    // current binding will remain untouched.
+    static const bool isWebGL = (qGuiApp->platformName().compare(QLatin1String("webgl")) == 0
+                                  || qGuiApp->platformName().compare(QLatin1String("wasm")) == 0);
+    return isWebGL;
 }
 
 QSGDistanceFieldGlyphCache *QSGDefaultRenderContext::distanceFieldGlyphCache(const QRawFont &font)

@@ -5,15 +5,14 @@
 #include "extensions/browser/extension_host.h"
 
 #include "base/logging.h"
-#include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -65,12 +64,11 @@ ExtensionHost::ExtensionHost(const Extension* extension,
       document_element_available_(false),
       initial_url_(url),
       extension_host_type_(host_type) {
-  // Not used for panels, see PanelHost.
   DCHECK(host_type == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE ||
          host_type == VIEW_TYPE_EXTENSION_DIALOG ||
          host_type == VIEW_TYPE_EXTENSION_POPUP);
-  host_contents_.reset(WebContents::Create(
-      WebContents::CreateParams(browser_context_, site_instance))),
+  host_contents_ = WebContents::Create(
+      WebContents::CreateParams(browser_context_, site_instance)),
   content::WebContentsObserver::Observe(host_contents_.get());
   host_contents_->SetDelegate(this);
   SetViewType(host_contents_.get(), host_type);
@@ -133,7 +131,8 @@ bool ExtensionHost::IsRenderViewLive() const {
 }
 
 void ExtensionHost::CreateRenderViewSoon() {
-  if (render_process_host() && render_process_host()->HasConnection()) {
+  if (render_process_host() &&
+      render_process_host()->IsInitializedAndNotDead()) {
     // If the process is already started, go ahead and initialize the RenderView
     // synchronously. The process creation is the real meaty part that we want
     // to defer.
@@ -144,10 +143,6 @@ void ExtensionHost::CreateRenderViewSoon() {
 }
 
 void ExtensionHost::CreateRenderViewNow() {
-  // TODO(robliao): Remove ScopedTracker below once crbug.com/464206 is fixed.
-  tracked_objects::ScopedTracker tracking_profile1(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "464206 ExtensionHost::CreateRenderViewNow1"));
   if (!ExtensionRegistry::Get(browser_context_)
            ->ready_extensions()
            .Contains(extension_->id())) {
@@ -157,25 +152,7 @@ void ExtensionHost::CreateRenderViewNow() {
   is_render_view_creation_pending_ = false;
   LoadInitialURL();
   if (IsBackgroundPage()) {
-    // TODO(robliao): Remove ScopedTracker below once crbug.com/464206 is fixed.
-    tracked_objects::ScopedTracker tracking_profile2(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "464206 ExtensionHost::CreateRenderViewNow2"));
     DCHECK(IsRenderViewLive());
-    if (extension_) {
-      std::string group_name = base::FieldTrialList::FindFullName(
-          "ThrottleExtensionBackgroundPages");
-      if ((group_name == "ThrottlePersistent" &&
-           extensions::BackgroundInfo::HasPersistentBackgroundPage(
-               extension_)) ||
-          group_name == "ThrottleAll") {
-        host_contents_->WasHidden();
-      }
-    }
-    // TODO(robliao): Remove ScopedTracker below once crbug.com/464206 is fixed.
-    tracked_objects::ScopedTracker tracking_profile3(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "464206 ExtensionHost::CreateRenderViewNow3"));
     // Connect orphaned dev-tools instances.
     delegate_->OnRenderViewCreatedForBackgroundPage(this);
   }
@@ -209,7 +186,7 @@ void ExtensionHost::RemoveObserver(ExtensionHostObserver* observer) {
 void ExtensionHost::OnBackgroundEventDispatched(const std::string& event_name,
                                                 int event_id) {
   CHECK(IsBackgroundPage());
-  unacked_messages_.insert(event_id);
+  unacked_messages_[event_id] = event_name;
   for (auto& observer : observer_list_)
     observer.OnBackgroundEventDispatched(this, event_name, event_id);
 }
@@ -262,7 +239,8 @@ void ExtensionHost::RenderProcessGone(base::TerminationStatus status) {
   // During browser shutdown, we may use sudden termination on an extension
   // process, so it is expected to lose our connection to the render view.
   // Do nothing.
-  RenderProcessHost* process_host = host_contents_->GetRenderProcessHost();
+  RenderProcessHost* process_host =
+      host_contents_->GetMainFrame()->GetProcess();
   if (process_host && process_host->FastShutdownStarted())
     return;
 
@@ -350,45 +328,59 @@ bool ExtensionHost::OnMessageReceived(const IPC::Message& message,
 }
 
 void ExtensionHost::OnEventAck(int event_id) {
-  EventRouter* router = EventRouter::Get(browser_context_);
-  if (router)
-    router->OnEventAck(browser_context_, extension_id());
-
-  // This should always be false since event acks are only sent by extensions
+  // This should always be true since event acks are only sent by extensions
   // with lazy background pages but it doesn't hurt to be extra careful.
-  if (!IsBackgroundPage()) {
-    NOTREACHED() << "Received EventAck from extension " << extension_id()
-                 << ", which does not have a lazy background page.";
-    return;
-  }
-
+  const bool is_background_page = IsBackgroundPage();
   // A compromised renderer could start sending out arbitrary event ids, which
   // may affect other renderers by causing downstream methods to think that
   // events for other extensions have been acked.  Make sure that the event id
   // sent by the renderer is one that this ExtensionHost expects to receive.
   // This way if a renderer _is_ compromised, it can really only affect itself.
-  if (unacked_messages_.erase(event_id) > 0) {
-    for (auto& observer : observer_list_)
-      observer.OnBackgroundEventAcked(this, event_id);
-  } else {
-    // We have received an unexpected event id from the renderer.  It might be
-    // compromised or it might have some other issue.  Kill it just to be safe.
+  if (!is_background_page) {
+    // Kill this renderer.
     DCHECK(render_process_host());
-    LOG(ERROR) << "Killing renderer for extension " << extension_id() << " for "
-               << "sending an EventAck message with a bad event id.";
+    LOG(ERROR) << "Killing renderer for extension " << extension_id()
+               << " for sending an EventAck without a lazy background page.";
     bad_message::ReceivedBadMessage(render_process_host(),
                                     bad_message::EH_BAD_EVENT_ID);
+    return;
   }
+
+  const auto it = unacked_messages_.find(event_id);
+  if (it == unacked_messages_.end()) {
+    // Ideally, we'd be able to kill the renderer in the case of it sending an
+    // ack for an event that we haven't seen. However, https://crbug.com/939279
+    // demonstrates that there are cases in which this can happen in other
+    // situations. We should track those down and fix them, but for now
+    // log and gracefully exit.
+    // bad_message::ReceivedBadMessage(render_process_host(),
+    //                                 bad_message::EH_BAD_EVENT_ID);
+    LOG(ERROR) << "Received EventAck for extension " << extension_id()
+               << " for an unknown event.";
+    return;
+  }
+
+  EventRouter* router = EventRouter::Get(browser_context_);
+  if (router)
+    router->OnEventAck(browser_context_, extension_id(), it->second);
+
+  for (auto& observer : observer_list_)
+    observer.OnBackgroundEventAcked(this, event_id);
+
+  // Remove it.
+  unacked_messages_.erase(it);
 }
 
 void ExtensionHost::OnIncrementLazyKeepaliveCount() {
   ProcessManager::Get(browser_context_)
-      ->IncrementLazyKeepaliveCount(extension());
+      ->IncrementLazyKeepaliveCount(extension(), Activity::LIFECYCLE_MANAGEMENT,
+                                    Activity::kIPC);
 }
 
 void ExtensionHost::OnDecrementLazyKeepaliveCount() {
   ProcessManager::Get(browser_context_)
-      ->DecrementLazyKeepaliveCount(extension());
+      ->DecrementLazyKeepaliveCount(extension(), Activity::LIFECYCLE_MANAGEMENT,
+                                    Activity::kIPC);
 }
 
 // content::WebContentsObserver
@@ -411,7 +403,7 @@ content::JavaScriptDialogManager* ExtensionHost::GetJavaScriptDialogManager(
 }
 
 void ExtensionHost::AddNewContents(WebContents* source,
-                                   WebContents* new_contents,
+                                   std::unique_ptr<WebContents> new_contents,
                                    WindowOpenDisposition disposition,
                                    const gfx::Rect& initial_rect,
                                    bool user_gesture,
@@ -431,16 +423,16 @@ void ExtensionHost::AddNewContents(WebContents* source,
             new_contents->GetBrowserContext()) {
       WebContentsDelegate* delegate = associated_contents->GetDelegate();
       if (delegate) {
-        delegate->AddNewContents(
-            associated_contents, new_contents, disposition, initial_rect,
-            user_gesture, was_blocked);
+        delegate->AddNewContents(associated_contents, std::move(new_contents),
+                                 disposition, initial_rect, user_gesture,
+                                 was_blocked);
         return;
       }
     }
   }
 
-  delegate_->CreateTab(
-      new_contents, extension_id_, disposition, initial_rect, user_gesture);
+  delegate_->CreateTab(std::move(new_contents), extension_id_, disposition,
+                       initial_rect, user_gesture);
 }
 
 void ExtensionHost::RenderViewReady() {
@@ -453,22 +445,34 @@ void ExtensionHost::RenderViewReady() {
 void ExtensionHost::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback) {
-  delegate_->ProcessMediaAccessRequest(
-      web_contents, request, callback, extension());
+    content::MediaResponseCallback callback) {
+  delegate_->ProcessMediaAccessRequest(web_contents, request,
+                                       std::move(callback), extension());
 }
 
 bool ExtensionHost::CheckMediaAccessPermission(
-    content::WebContents* web_contents,
+    content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
-    content::MediaStreamType type) {
+    blink::MediaStreamType type) {
   return delegate_->CheckMediaAccessPermission(
-      web_contents, security_origin, type, extension());
+      render_frame_host, security_origin, type, extension());
 }
 
 bool ExtensionHost::IsNeverVisible(content::WebContents* web_contents) {
   ViewType view_type = extensions::GetViewType(web_contents);
   return view_type == extensions::VIEW_TYPE_EXTENSION_BACKGROUND_PAGE;
+}
+
+gfx::Size ExtensionHost::EnterPictureInPicture(
+    content::WebContents* web_contents,
+    const viz::SurfaceId& surface_id,
+    const gfx::Size& natural_size) {
+  return delegate_->EnterPictureInPicture(web_contents, surface_id,
+                                          natural_size);
+}
+
+void ExtensionHost::ExitPictureInPicture() {
+  delegate_->ExitPictureInPicture();
 }
 
 void ExtensionHost::RecordStopLoadingUMA() {

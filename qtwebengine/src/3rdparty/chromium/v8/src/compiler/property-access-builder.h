@@ -13,22 +13,22 @@
 
 namespace v8 {
 namespace internal {
-
-class CompilationDependencies;
-
 namespace compiler {
 
 class CommonOperatorBuilder;
+class CompilationDependencies;
 class Graph;
 class JSGraph;
+class JSHeapBroker;
 class Node;
 class PropertyAccessInfo;
 class SimplifiedOperatorBuilder;
 
 class PropertyAccessBuilder {
  public:
-  PropertyAccessBuilder(JSGraph* jsgraph, CompilationDependencies* dependencies)
-      : jsgraph_(jsgraph), dependencies_(dependencies) {}
+  PropertyAccessBuilder(JSGraph* jsgraph, JSHeapBroker* broker,
+                        CompilationDependencies* dependencies)
+      : jsgraph_(jsgraph), broker_(broker), dependencies_(dependencies) {}
 
   // Builds the appropriate string check if the maps are only string
   // maps.
@@ -41,12 +41,8 @@ class PropertyAccessBuilder {
   Node* BuildCheckHeapObject(Node* receiver, Node** effect, Node* control);
   void BuildCheckMaps(Node* receiver, Node** effect, Node* control,
                       std::vector<Handle<Map>> const& receiver_maps);
-
-  // Adds stability dependencies on all prototypes of every class in
-  // {receiver_type} up to (and including) the {holder}.
-  void AssumePrototypesStable(Handle<Context> native_context,
-                              std::vector<Handle<Map>> const& receiver_maps,
-                              Handle<JSObject> holder);
+  Node* BuildCheckValue(Node* receiver, Node** effect, Node* control,
+                        Handle<HeapObject> value);
 
   // Builds the actual load for data-field and data-constant-field
   // properties (without heap-object or map checks).
@@ -56,6 +52,7 @@ class PropertyAccessBuilder {
 
  private:
   JSGraph* jsgraph() const { return jsgraph_; }
+  JSHeapBroker* broker() const { return broker_; }
   CompilationDependencies* dependencies() const { return dependencies_; }
   Graph* graph() const;
   Isolate* isolate() const;
@@ -70,8 +67,11 @@ class PropertyAccessBuilder {
   Node* ResolveHolder(PropertyAccessInfo const& access_info, Node* receiver);
 
   JSGraph* jsgraph_;
+  JSHeapBroker* broker_;
   CompilationDependencies* dependencies_;
 };
+
+bool HasOnlyStringMaps(MapHandles const& maps);
 
 }  // namespace compiler
 }  // namespace internal

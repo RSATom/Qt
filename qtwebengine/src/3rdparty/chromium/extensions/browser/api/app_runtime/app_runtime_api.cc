@@ -8,7 +8,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -36,7 +35,7 @@ void DispatchOnEmbedRequestedEventImpl(
     content::BrowserContext* context) {
   std::unique_ptr<base::ListValue> args(new base::ListValue());
   args->Append(std::move(app_embedding_request_data));
-  auto event = base::MakeUnique<Event>(
+  auto event = std::make_unique<Event>(
       events::APP_RUNTIME_ON_EMBED_REQUESTED,
       app_runtime::OnEmbedRequested::kEventName, std::move(args), context);
   EventRouter::Get(context)
@@ -54,6 +53,9 @@ void DispatchOnLaunchedEventImpl(
   UMA_HISTOGRAM_ENUMERATION("Extensions.AppLaunchSource", source,
                             app_runtime::LaunchSource::LAUNCH_SOURCE_LAST + 1);
 
+  launch_data->SetBoolean("isDemoSession",
+                          ExtensionsBrowserClient::Get()->IsInDemoMode());
+
   // "Forced app mode" is true for Chrome OS kiosk mode.
   launch_data->SetBoolean(
       "isKioskSession",
@@ -65,7 +67,7 @@ void DispatchOnLaunchedEventImpl(
 
   std::unique_ptr<base::ListValue> args(new base::ListValue());
   args->Append(std::move(launch_data));
-  auto event = base::MakeUnique<Event>(events::APP_RUNTIME_ON_LAUNCHED,
+  auto event = std::make_unique<Event>(events::APP_RUNTIME_ON_LAUNCHED,
                                        app_runtime::OnLaunched::kEventName,
                                        std::move(args), context);
   EventRouter::Get(context)
@@ -105,6 +107,8 @@ app_runtime::LaunchSource GetLaunchSourceEnum(
   ASSERT_ENUM_EQUAL(SOURCE_CHROME_INTERNAL);
   ASSERT_ENUM_EQUAL(SOURCE_TEST);
   ASSERT_ENUM_EQUAL(SOURCE_INSTALLED_NOTIFICATION);
+  ASSERT_ENUM_EQUAL(SOURCE_CONTEXT_MENU);
+  ASSERT_ENUM_EQUAL(SOURCE_ARC);
   static_assert(extensions::NUM_APP_LAUNCH_SOURCES ==
                     app_runtime::LaunchSource::LAUNCH_SOURCE_LAST + 1,
                 "");
@@ -130,7 +134,7 @@ void AppRuntimeEventRouter::DispatchOnLaunchedEvent(
     extensions::AppLaunchSource source,
     std::unique_ptr<app_runtime::LaunchData> launch_data) {
   if (!launch_data)
-    launch_data = base::MakeUnique<app_runtime::LaunchData>();
+    launch_data = std::make_unique<app_runtime::LaunchData>();
   app_runtime::LaunchSource source_enum = GetLaunchSourceEnum(source);
   if (extensions::FeatureSwitch::trace_app_source()->IsEnabled()) {
     launch_data->source = source_enum;
@@ -145,7 +149,7 @@ void AppRuntimeEventRouter::DispatchOnRestartedEvent(
     BrowserContext* context,
     const Extension* extension) {
   std::unique_ptr<base::ListValue> arguments(new base::ListValue());
-  auto event = base::MakeUnique<Event>(events::APP_RUNTIME_ON_RESTARTED,
+  auto event = std::make_unique<Event>(events::APP_RUNTIME_ON_RESTARTED,
                                        app_runtime::OnRestarted::kEventName,
                                        std::move(arguments), context);
   EventRouter::Get(context)

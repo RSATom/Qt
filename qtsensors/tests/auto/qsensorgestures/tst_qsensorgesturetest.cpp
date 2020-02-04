@@ -77,12 +77,12 @@ public:
 
     QTest3Recognizer(QObject *parent = 0);
 
-    void create();
+    void create() override;
 
-    QString id() const;
-    bool start() ;
-    bool stop();
-    bool isActive();
+    QString id() const override;
+    bool start() override;
+    bool stop() override;
+    bool isActive() override;
     void changeId(const QString &);
 
     QString recognizerId;

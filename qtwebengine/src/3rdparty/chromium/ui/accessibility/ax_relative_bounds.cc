@@ -5,6 +5,7 @@
 #include "ui/accessibility/ax_relative_bounds.h"
 
 #include "base/strings/string_number_conversions.h"
+#include "ui/accessibility/ax_enum_util.h"
 #include "ui/gfx/transform.h"
 
 using base::IntToString;
@@ -30,10 +31,12 @@ AXRelativeBounds& AXRelativeBounds::operator=(AXRelativeBounds other) {
   bounds = other.bounds;
   if (other.transform)
     transform.reset(new gfx::Transform(*other.transform));
+  else
+    transform.reset(nullptr);
   return *this;
 }
 
-bool AXRelativeBounds::operator==(const AXRelativeBounds& other) {
+bool AXRelativeBounds::operator==(const AXRelativeBounds& other) const {
   if (offset_container_id != other.offset_container_id)
     return false;
   if (bounds != other.bounds)
@@ -45,7 +48,7 @@ bool AXRelativeBounds::operator==(const AXRelativeBounds& other) {
   return *transform == *other.transform;
 }
 
-bool AXRelativeBounds::operator!=(const AXRelativeBounds& other) {
+bool AXRelativeBounds::operator!=(const AXRelativeBounds& other) const {
   return !operator==(other);
 }
 
@@ -64,6 +67,10 @@ std::string AXRelativeBounds::ToString() const {
     result += " transform=" + transform->ToString();
 
   return result;
+}
+
+std::ostream& operator<<(std::ostream& stream, const AXRelativeBounds& bounds) {
+  return stream << bounds.ToString();
 }
 
 }  // namespace ui

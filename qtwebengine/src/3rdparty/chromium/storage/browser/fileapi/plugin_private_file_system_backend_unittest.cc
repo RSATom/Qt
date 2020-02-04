@@ -50,8 +50,8 @@ class PluginPrivateFileSystemBackendTest : public testing::Test {
  protected:
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
-    context_ = CreateFileSystemContextForTesting(NULL /* quota_manager_proxy */,
-                                                 data_dir_.GetPath());
+    context_ = CreateFileSystemContextForTesting(
+        nullptr /* quota_manager_proxy */, data_dir_.GetPath());
   }
 
   FileSystemURL CreateURL(const GURL& root_url, const std::string& relative) {
@@ -80,12 +80,9 @@ TEST_F(PluginPrivateFileSystemBackendTest, OpenFileSystemBasic) {
   const std::string filesystem_id1 = RegisterFileSystem();
   base::File::Error error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin1,
-      kType,
-      filesystem_id1,
-      kPlugin1,
+      kOrigin1, kType, filesystem_id1, kPlugin1,
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 
@@ -93,12 +90,9 @@ TEST_F(PluginPrivateFileSystemBackendTest, OpenFileSystemBasic) {
   const std::string filesystem_id2 = RegisterFileSystem();
   error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin1,
-      kType,
-      filesystem_id2,
-      kPlugin1,
+      kOrigin1, kType, filesystem_id2, kPlugin1,
       storage::OPEN_FILE_SYSTEM_FAIL_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 
@@ -120,24 +114,18 @@ TEST_F(PluginPrivateFileSystemBackendTest, PluginIsolation) {
   const std::string filesystem_id1 = RegisterFileSystem();
   base::File::Error error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin1,
-      kType,
-      filesystem_id1,
-      kPlugin1,
+      kOrigin1, kType, filesystem_id1, kPlugin1,
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 
   const std::string filesystem_id2 = RegisterFileSystem();
   error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin1,
-      kType,
-      filesystem_id2,
-      kPlugin2,
+      kOrigin1, kType, filesystem_id2, kPlugin2,
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 
@@ -163,24 +151,18 @@ TEST_F(PluginPrivateFileSystemBackendTest, OriginIsolation) {
   const std::string filesystem_id1 = RegisterFileSystem();
   base::File::Error error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin1,
-      kType,
-      filesystem_id1,
-      kPlugin1,
+      kOrigin1, kType, filesystem_id1, kPlugin1,
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 
   const std::string filesystem_id2 = RegisterFileSystem();
   error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin2,
-      kType,
-      filesystem_id2,
-      kPlugin1,
+      kOrigin2, kType, filesystem_id2, kPlugin1,
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 
@@ -206,24 +188,18 @@ TEST_F(PluginPrivateFileSystemBackendTest, DeleteOriginDirectory) {
   const std::string filesystem_id1 = RegisterFileSystem();
   base::File::Error error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin1,
-      kType,
-      filesystem_id1,
-      kPlugin1,
+      kOrigin1, kType, filesystem_id1, kPlugin1,
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 
   const std::string filesystem_id2 = RegisterFileSystem();
   error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin2,
-      kType,
-      filesystem_id2,
-      kPlugin1,
+      kOrigin2, kType, filesystem_id2, kPlugin1,
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 
@@ -246,8 +222,8 @@ TEST_F(PluginPrivateFileSystemBackendTest, DeleteOriginDirectory) {
       context_.get(), file2, AsyncFileTestHelper::kDontCheckSize));
 
   // Delete data for kOrigin1.
-  error = backend()->DeleteOriginDataOnFileTaskRunner(
-      context_.get(), NULL, kOrigin1, kType);
+  error = backend()->DeleteOriginDataOnFileTaskRunner(context_.get(), nullptr,
+                                                      kOrigin1, kType);
   EXPECT_EQ(base::File::FILE_OK, error);
 
   // Confirm 'foo' in kOrigin1 is deleted.
@@ -262,12 +238,9 @@ TEST_F(PluginPrivateFileSystemBackendTest, DeleteOriginDirectory) {
   const std::string filesystem_id3 = RegisterFileSystem();
   error = base::File::FILE_ERROR_FAILED;
   backend()->OpenPrivateFileSystem(
-      kOrigin1,
-      kType,
-      filesystem_id3,
-      kPlugin1,
+      kOrigin1, kType, filesystem_id3, kPlugin1,
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-      base::Bind(&DidOpenFileSystem, &error));
+      base::BindOnce(&DidOpenFileSystem, &error));
   base::RunLoop().RunUntilIdle();
   ASSERT_EQ(base::File::FILE_OK, error);
 

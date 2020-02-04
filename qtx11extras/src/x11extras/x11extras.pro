@@ -9,4 +9,6 @@ QT_PRIVATE += gui-private
 HEADERS += qx11info_x11.h
 SOURCES += qx11info_x11.cpp
 
+QMAKE_USE_PRIVATE += xcb/nolink
+
 load(qt_module)

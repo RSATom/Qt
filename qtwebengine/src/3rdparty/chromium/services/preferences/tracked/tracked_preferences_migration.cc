@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram.h"
 #include "base/values.h"
@@ -24,6 +23,8 @@ namespace {
 class TrackedPreferencesMigrator
     : public base::RefCounted<TrackedPreferencesMigrator> {
  public:
+  enum PrefFilterID { UNPROTECTED_PREF_FILTER, PROTECTED_PREF_FILTER };
+
   TrackedPreferencesMigrator(
       const std::set<std::string>& unprotected_pref_names,
       const std::set<std::string>& protected_pref_names,
@@ -40,13 +41,6 @@ class TrackedPreferencesMigrator
       InterceptablePrefFilter* unprotected_pref_filter,
       InterceptablePrefFilter* protected_pref_filter);
 
- private:
-  friend class base::RefCounted<TrackedPreferencesMigrator>;
-
-  enum PrefFilterID { UNPROTECTED_PREF_FILTER, PROTECTED_PREF_FILTER };
-
-  ~TrackedPreferencesMigrator();
-
   // Stores the data coming in from the filter identified by |id| into this
   // class and then calls MigrateIfReady();
   void InterceptFilterOnLoad(
@@ -54,6 +48,11 @@ class TrackedPreferencesMigrator
       const InterceptablePrefFilter::FinalizeFilterOnLoadCallback&
           finalize_filter_on_load,
       std::unique_ptr<base::DictionaryValue> prefs);
+
+ private:
+  friend class base::RefCounted<TrackedPreferencesMigrator>;
+
+  ~TrackedPreferencesMigrator();
 
   // Proceeds with migration if both |unprotected_prefs_| and |protected_prefs_|
   // have been set.
@@ -165,8 +164,8 @@ void MigratePrefsFromOldToNewStore(const std::set<std::string>& pref_names,
         // |new_store| having equivalently been successfully flushed to disk
         // (e.g., on crash or in cases where |new_store| is read-only following
         // a read error on startup).
-        new_store->Set(pref_name,
-                       base::MakeUnique<base::Value>(*value_in_old_store));
+        new_store->Set(pref_name, std::make_unique<base::Value>(
+                                      value_in_old_store->Clone()));
         migrated_value = true;
         *new_store_altered = true;
       }
@@ -216,14 +215,6 @@ TrackedPreferencesMigrator::TrackedPreferencesMigrator(
           register_on_successful_protected_store_write_callback),
       unprotected_pref_hash_store_(std::move(unprotected_pref_hash_store)),
       protected_pref_hash_store_(std::move(protected_pref_hash_store)) {
-  // The callbacks bound below will own this TrackedPreferencesMigrator by
-  // reference.
-  unprotected_pref_filter->InterceptNextFilterOnLoad(
-      base::Bind(&TrackedPreferencesMigrator::InterceptFilterOnLoad, this,
-                 UNPROTECTED_PREF_FILTER));
-  protected_pref_filter->InterceptNextFilterOnLoad(
-      base::Bind(&TrackedPreferencesMigrator::InterceptFilterOnLoad, this,
-                 PROTECTED_PREF_FILTER));
 }
 
 TrackedPreferencesMigrator::~TrackedPreferencesMigrator() {}
@@ -323,13 +314,21 @@ void SetupTrackedPreferencesMigration(
     std::unique_ptr<PrefHashStore> protected_pref_hash_store,
     InterceptablePrefFilter* unprotected_pref_filter,
     InterceptablePrefFilter* protected_pref_filter) {
-  scoped_refptr<TrackedPreferencesMigrator> prefs_migrator(
-      new TrackedPreferencesMigrator(
-          unprotected_pref_names, protected_pref_names,
-          unprotected_store_cleaner, protected_store_cleaner,
-          register_on_successful_unprotected_store_write_callback,
-          register_on_successful_protected_store_write_callback,
-          std::move(unprotected_pref_hash_store),
-          std::move(protected_pref_hash_store), unprotected_pref_filter,
-          protected_pref_filter));
+  auto prefs_migrator = base::MakeRefCounted<TrackedPreferencesMigrator>(
+      unprotected_pref_names, protected_pref_names, unprotected_store_cleaner,
+      protected_store_cleaner,
+      register_on_successful_unprotected_store_write_callback,
+      register_on_successful_protected_store_write_callback,
+      std::move(unprotected_pref_hash_store),
+      std::move(protected_pref_hash_store), unprotected_pref_filter,
+      protected_pref_filter);
+
+  // The callbacks bound below will own this TrackedPreferencesMigrator by
+  // reference.
+  unprotected_pref_filter->InterceptNextFilterOnLoad(base::Bind(
+      &TrackedPreferencesMigrator::InterceptFilterOnLoad, prefs_migrator,
+      TrackedPreferencesMigrator::UNPROTECTED_PREF_FILTER));
+  protected_pref_filter->InterceptNextFilterOnLoad(base::Bind(
+      &TrackedPreferencesMigrator::InterceptFilterOnLoad, prefs_migrator,
+      TrackedPreferencesMigrator::PROTECTED_PREF_FILTER));
 }

@@ -15,47 +15,46 @@
 
 class SkImageShader : public SkShaderBase {
 public:
-    static sk_sp<SkShader> Make(sk_sp<SkImage>, TileMode tx, TileMode ty,
-                                const SkMatrix* localMatrix);
+    static sk_sp<SkShader> Make(sk_sp<SkImage>,
+                                SkShader::TileMode tx,
+                                SkShader::TileMode ty,
+                                const SkMatrix* localMatrix,
+                                bool clampAsIfUnpremul = false);
 
     bool isOpaque() const override;
 
-    SK_TO_STRING_OVERRIDE()
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkImageShader)
-
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(const AsFPArgs&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(const GrFPArgs&) const override;
 #endif
 
-    SkImageShader(sk_sp<SkImage>, TileMode tx, TileMode ty, const SkMatrix* localMatrix);
+private:
+    SK_FLATTENABLE_HOOKS(SkImageShader)
 
-    static bool IsRasterPipelineOnly(SkColorType, SkShader::TileMode tx, SkShader::TileMode ty);
+    SkImageShader(sk_sp<SkImage>,
+                  SkShader::TileMode tx,
+                  SkShader::TileMode ty,
+                  const SkMatrix* localMatrix,
+                  bool clampAsIfUnpremul);
 
-protected:
     void flatten(SkWriteBuffer&) const override;
+#ifdef SK_ENABLE_LEGACY_SHADERCONTEXT
     Context* onMakeContext(const ContextRec&, SkArenaAlloc* storage) const override;
-#ifdef SK_SUPPORT_LEGACY_SHADER_ISABITMAP
-    bool onIsABitmap(SkBitmap*, SkMatrix*, TileMode*) const override;
 #endif
-    SkImage* onIsAImage(SkMatrix*, TileMode*) const override;
+    SkImage* onIsAImage(SkMatrix*, SkShader::TileMode*) const override;
 
-    bool onIsRasterPipelineOnly() const override;
-
-    bool onAppendStages(SkRasterPipeline*, SkColorSpace*, SkArenaAlloc*,
-                        const SkMatrix& ctm, const SkPaint&, const SkMatrix*) const override;
+    bool onAppendStages(const StageRec&) const override;
 
     sk_sp<SkShader> onMakeColorSpace(SkColorSpaceXformer* xformer) const override {
         return xformer->apply(fImage.get())->makeShader(fTileModeX, fTileModeY,
                                                         &this->getLocalMatrix());
     }
 
-    sk_sp<SkImage>  fImage;
-    const TileMode  fTileModeX;
-    const TileMode  fTileModeY;
+    sk_sp<SkImage>           fImage;
+    const SkShader::TileMode fTileModeX;
+    const SkShader::TileMode fTileModeY;
+    const bool               fClampAsIfUnpremul;
 
-private:
     friend class SkShaderBase;
-
     typedef SkShaderBase INHERITED;
 };
 

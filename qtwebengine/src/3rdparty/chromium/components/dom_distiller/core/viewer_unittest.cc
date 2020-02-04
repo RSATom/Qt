@@ -28,7 +28,6 @@ class TestDomDistillerService : public DomDistillerServiceInterface {
   TestDomDistillerService() {}
   ~TestDomDistillerService() override {}
 
-  MOCK_CONST_METHOD0(GetSyncableService, syncer::SyncableService*());
   MOCK_METHOD3(AddToList,
                const std::string(const GURL&,
                                  DistillerPage*,
@@ -92,9 +91,9 @@ TEST_F(DomDistillerViewerTest, TestCreatingViewUrlRequest) {
   std::unique_ptr<FakeViewRequestDelegate> view_request_delegate(
       new FakeViewRequestDelegate());
   ViewerHandle* viewer_handle(new ViewerHandle(ViewerHandle::CancelCallback()));
-  EXPECT_CALL(*service_.get(), ViewUrlImpl())
+  EXPECT_CALL(*service_, ViewUrlImpl())
       .WillOnce(testing::Return(viewer_handle));
-  EXPECT_CALL(*service_.get(), ViewEntryImpl()).Times(0);
+  EXPECT_CALL(*service_, ViewEntryImpl()).Times(0);
   CreateViewRequest(
       std::string("?") + kUrlKey + "=http%3A%2F%2Fwww.example.com%2F",
       view_request_delegate.get());
@@ -104,9 +103,9 @@ TEST_F(DomDistillerViewerTest, TestCreatingViewEntryRequest) {
   std::unique_ptr<FakeViewRequestDelegate> view_request_delegate(
       new FakeViewRequestDelegate());
   ViewerHandle* viewer_handle(new ViewerHandle(ViewerHandle::CancelCallback()));
-  EXPECT_CALL(*service_.get(), ViewEntryImpl())
+  EXPECT_CALL(*service_, ViewEntryImpl())
       .WillOnce(testing::Return(viewer_handle));
-  EXPECT_CALL(*service_.get(), ViewUrlImpl()).Times(0);
+  EXPECT_CALL(*service_, ViewUrlImpl()).Times(0);
   CreateViewRequest(std::string("?") + kEntryIdKey + "=abc-def",
                     view_request_delegate.get());
 }
@@ -114,8 +113,8 @@ TEST_F(DomDistillerViewerTest, TestCreatingViewEntryRequest) {
 TEST_F(DomDistillerViewerTest, TestCreatingInvalidViewRequest) {
   std::unique_ptr<FakeViewRequestDelegate> view_request_delegate(
       new FakeViewRequestDelegate());
-  EXPECT_CALL(*service_.get(), ViewEntryImpl()).Times(0);
-  EXPECT_CALL(*service_.get(), ViewUrlImpl()).Times(0);
+  EXPECT_CALL(*service_, ViewEntryImpl()).Times(0);
+  EXPECT_CALL(*service_, ViewUrlImpl()).Times(0);
   // Specify none of the required query parameters.
   CreateViewRequest("?foo=bar", view_request_delegate.get());
   // Specify both of the required query parameters.
@@ -133,7 +132,7 @@ TEST_F(DomDistillerViewerTest, TestCreatingInvalidViewRequest) {
 }
 
 DistilledPagePrefs* TestDomDistillerService::GetDistilledPagePrefs() {
-  return NULL;
+  return nullptr;
 }
 
 TEST_F(DomDistillerViewerTest, TestGetDistilledPageThemeJsOutput) {

@@ -9,9 +9,10 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "ui/accessibility/ax_enums.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/views/view.h"
+#include "ui/views/widget/widget.h"
 
 namespace gfx {
 class ImageSkia;
@@ -24,7 +25,6 @@ class ClientView;
 class DialogDelegate;
 class NonClientFrameView;
 class View;
-class Widget;
 
 // Handles events on Widgets in context-specific ways.
 class VIEWS_EXPORT WidgetDelegate {
@@ -46,6 +46,15 @@ class VIEWS_EXPORT WidgetDelegate {
   // menu bars, etc.) changes in size.
   virtual void OnWorkAreaChanged();
 
+  // Called when the window has been requested to close, after all other checks
+  // have run. Returns whether the window should be allowed to close (default is
+  // true).
+  //
+  // Can be used as an alternative to specifying a custom ClientView with
+  // the CanClose() method, or in widget types which do not support a
+  // ClientView.
+  virtual bool OnCloseRequested(Widget::ClosedReason close_reason);
+
   // Returns the view that should have the focus when the widget is shown.  If
   // NULL no view is focused.
   virtual View* GetInitiallyFocusedView();
@@ -62,7 +71,7 @@ class VIEWS_EXPORT WidgetDelegate {
   // Returns true if the window can be minimized.
   virtual bool CanMinimize() const;
 
-  // Returns a bitmask of ui::mojom::kResizeBehavior values.
+  // Returns a bitmask of ws::mojom::kResizeBehavior values.
   virtual int32_t GetResizeBehavior() const;
 
   // Returns true if the window can be activated.
@@ -72,7 +81,7 @@ class VIEWS_EXPORT WidgetDelegate {
   // ui::MODAL_TYPE_NONE (not modal).
   virtual ui::ModalType GetModalType() const;
 
-  virtual ui::AXRole GetAccessibleWindowRole() const;
+  virtual ax::mojom::Role GetAccessibleWindowRole() const;
 
   // Returns the title to be read with screen readers.
   virtual base::string16 GetAccessibleWindowTitle() const;
@@ -85,10 +94,6 @@ class VIEWS_EXPORT WidgetDelegate {
 
   // Returns true if the window should show a close button in the title bar.
   virtual bool ShouldShowCloseButton() const;
-
-  // Returns true if the window should handle standard system commands, such as
-  // close, minimize, maximize.
-  virtual bool ShouldHandleSystemCommands() const;
 
   // Returns the app icon for the window. On Windows, this is the ICON_BIG used
   // in Alt-Tab list and Win7's taskbar.
@@ -170,7 +175,7 @@ class VIEWS_EXPORT WidgetDelegate {
   virtual bool WidgetHasHitTestMask() const;
 
   // Provides the hit-test mask if HasHitTestMask above returns true.
-  virtual void GetWidgetHitTestMask(gfx::Path* mask) const;
+  virtual void GetWidgetHitTestMask(SkPath* mask) const;
 
   // Returns true if focus should advance to the top level widget when
   // tab/shift-tab is hit and on the last/first focusable view. Default returns
@@ -188,12 +193,16 @@ class VIEWS_EXPORT WidgetDelegate {
   virtual void GetAccessiblePanes(std::vector<View*>* panes) {}
 
  protected:
-  virtual ~WidgetDelegate() {}
+  virtual ~WidgetDelegate();
 
  private:
-  View* default_contents_view_;
+  friend class Widget;
 
-  bool can_activate_;
+  View* default_contents_view_ = nullptr;
+  bool can_activate_ = true;
+
+  // Managed by Widget. Ensures |this| outlives its Widget.
+  bool can_delete_this_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(WidgetDelegate);
 };

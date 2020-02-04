@@ -93,10 +93,11 @@ bool QGeoShapePrivate::operator==(const QGeoShapePrivate &other) const
 
     Describes the type of the shape.
 
-    \value UnknownType      A shape of unknown type.
-    \value RectangleType    A rectangular shape.
-    \value CircleType       A circular shape.
-    \value PathType         A path type.
+    \value UnknownType      A shape of unknown type
+    \value RectangleType    A rectangular shape
+    \value CircleType       A circular shape
+    \value PathType         A path type
+    \value PolygonType      A polygon type
 */
 
 /*!
@@ -448,6 +449,6 @@ QDataStream &operator>>(QDataStream &stream, QGeoShape &shape)
 }
 #endif
 
-#include "moc_qgeoshape.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qgeoshape.cpp"

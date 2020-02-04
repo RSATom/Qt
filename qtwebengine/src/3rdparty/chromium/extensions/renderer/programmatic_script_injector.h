@@ -32,6 +32,8 @@ class ProgrammaticScriptInjector : public ScriptInjector {
   UserScript::InjectionType script_type() const override;
   bool ShouldExecuteInMainWorld() const override;
   bool IsUserGesture() const override;
+  base::Optional<CSSOrigin> GetCssOrigin() const override;
+  const base::Optional<std::string> GetInjectionKey() const override;
   bool ExpectsResults() const override;
   bool ShouldInjectJs(
       UserScript::RunLocation run_location,
@@ -39,7 +41,7 @@ class ProgrammaticScriptInjector : public ScriptInjector {
   bool ShouldInjectCss(
       UserScript::RunLocation run_location,
       const std::set<std::string>& injected_stylesheets) const override;
-  PermissionsData::AccessType CanExecuteOnFrame(
+  PermissionsData::PageAccess CanExecuteOnFrame(
       const InjectionHost* injection_host,
       blink::WebLocalFrame* web_frame,
       int tab_id) override;
@@ -59,9 +61,6 @@ class ProgrammaticScriptInjector : public ScriptInjector {
 
   // Whether it is safe to include information about the URL in error messages.
   bool CanShowUrlInError() const;
-
-  // Return the run location for this injector.
-  UserScript::RunLocation GetRunLocation() const;
 
   // Notify the browser that the script was injected (or never will be), and
   // send along any results or errors.

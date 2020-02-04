@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "util/mac/mac_util.h"
 #include "util/mach/composite_mach_message_server.h"
 #include "util/mach/exc.h"
@@ -29,98 +30,6 @@
 #include "util/mach/mach_exc.h"
 #include "util/mach/mach_excServer.h"
 #include "util/mach/mach_message.h"
-
-extern "C" {
-
-// These six functions are not used, and are in fact obsoleted by the other
-// functionality implemented in this file. The standard MIG-generated exc_server
-// (in excServer.c) and mach_exc_server (in mach_excServer.c) server dispatch
-// routines usable with the standard mach_msg_server() function call out to
-// these functions. exc_server() and mach_exc_server() are unused and are
-// replaced by the more flexible ExcServer and MachExcServer, but the linker
-// still needs to see these six function definitions.
-
-kern_return_t catch_exception_raise(exception_handler_t exception_port,
-                                    thread_t thread,
-                                    task_t task,
-                                    exception_type_t exception,
-                                    exception_data_t code,
-                                    mach_msg_type_number_t code_count) {
-  NOTREACHED();
-  return KERN_FAILURE;
-}
-
-kern_return_t catch_exception_raise_state(
-    exception_handler_t exception_port,
-    exception_type_t exception,
-    exception_data_t code,
-    mach_msg_type_number_t code_count,
-    thread_state_flavor_t* flavor,
-    thread_state_t old_state,
-    mach_msg_type_number_t old_state_count,
-    thread_state_t new_state,
-    mach_msg_type_number_t* new_state_count) {
-  NOTREACHED();
-  return KERN_FAILURE;
-}
-
-kern_return_t catch_exception_raise_state_identity(
-    exception_handler_t exception_port,
-    thread_t thread,
-    task_t task,
-    exception_type_t exception,
-    exception_data_t code,
-    mach_msg_type_number_t code_count,
-    thread_state_flavor_t* flavor,
-    thread_state_t old_state,
-    mach_msg_type_number_t old_state_count,
-    thread_state_t new_state,
-    mach_msg_type_number_t* new_state_count) {
-  NOTREACHED();
-  return KERN_FAILURE;
-}
-
-kern_return_t catch_mach_exception_raise(exception_handler_t exception_port,
-                                         thread_t thread,
-                                         task_t task,
-                                         exception_type_t exception,
-                                         mach_exception_data_t code,
-                                         mach_msg_type_number_t code_count) {
-  NOTREACHED();
-  return KERN_FAILURE;
-}
-
-kern_return_t catch_mach_exception_raise_state(
-    exception_handler_t exception_port,
-    exception_type_t exception,
-    mach_exception_data_t code,
-    mach_msg_type_number_t code_count,
-    thread_state_flavor_t* flavor,
-    thread_state_t old_state,
-    mach_msg_type_number_t old_state_count,
-    thread_state_t new_state,
-    mach_msg_type_number_t* new_state_count) {
-  NOTREACHED();
-  return KERN_FAILURE;
-}
-
-kern_return_t catch_mach_exception_raise_state_identity(
-    exception_handler_t exception_port,
-    thread_t thread,
-    task_t task,
-    exception_type_t exception,
-    mach_exception_data_t code,
-    mach_msg_type_number_t code_count,
-    thread_state_flavor_t* flavor,
-    thread_state_t old_state,
-    mach_msg_type_number_t old_state_count,
-    thread_state_t new_state,
-    mach_msg_type_number_t* new_state_count) {
-  NOTREACHED();
-  return KERN_FAILURE;
-}
-
-}  // extern "C"
 
 namespace crashpad {
 
@@ -328,13 +237,13 @@ class ExcServer : public MachMessageServer::Interface {
                                  bool* destroy_complex_request) override;
 
   std::set<mach_msg_id_t> MachMessageServerRequestIDs() override {
-    const mach_msg_id_t request_ids[] = {
+    constexpr mach_msg_id_t request_ids[] = {
         Traits::kMachMessageIDExceptionRaise,
         Traits::kMachMessageIDExceptionRaiseState,
         Traits::kMachMessageIDExceptionRaiseStateIdentity,
     };
     return std::set<mach_msg_id_t>(&request_ids[0],
-                                   &request_ids[arraysize(request_ids)]);
+                                   &request_ids[base::size(request_ids)]);
   }
 
   mach_msg_size_t MachMessageServerRequestSize() override {
@@ -411,7 +320,7 @@ bool ExcServer<Traits>::MachMessageServerFunction(
       using Reply = typename Traits::ExceptionRaiseStateReply;
       Reply* out_reply = reinterpret_cast<Reply*>(out_header);
       out_reply->flavor = in_request_1->flavor;
-      out_reply->new_stateCnt = arraysize(out_reply->new_state);
+      out_reply->new_stateCnt = base::size(out_reply->new_state);
       out_reply->RetCode =
           interface_->CatchExceptionRaiseState(in_header->msgh_local_port,
                                                in_request->exception,
@@ -454,7 +363,7 @@ bool ExcServer<Traits>::MachMessageServerFunction(
       using Reply = typename Traits::ExceptionRaiseStateIdentityReply;
       Reply* out_reply = reinterpret_cast<Reply*>(out_header);
       out_reply->flavor = in_request_1->flavor;
-      out_reply->new_stateCnt = arraysize(out_reply->new_state);
+      out_reply->new_stateCnt = base::size(out_reply->new_state);
       out_reply->RetCode = interface_->CatchExceptionRaiseStateIdentity(
           in_header->msgh_local_port,
           in_request->thread.name,

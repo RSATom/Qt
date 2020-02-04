@@ -14,7 +14,6 @@
 
 #include "minidump/minidump_unloaded_module_writer.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "gtest/gtest.h"
 #include "minidump/minidump_file_writer.h"
@@ -46,10 +45,10 @@ void ExpectUnloadedModule(const MINIDUMP_UNLOADED_MODULE* expected,
 void GetUnloadedModuleListStream(
     const std::string& file_contents,
     const MINIDUMP_UNLOADED_MODULE_LIST** unloaded_module_list) {
-  const size_t kDirectoryOffset = sizeof(MINIDUMP_HEADER);
-  const size_t kUnloadedModuleListStreamOffset =
+  constexpr size_t kDirectoryOffset = sizeof(MINIDUMP_HEADER);
+  constexpr size_t kUnloadedModuleListStreamOffset =
       kDirectoryOffset + sizeof(MINIDUMP_DIRECTORY);
-  const size_t kUnloadedModulesOffset =
+  constexpr size_t kUnloadedModulesOffset =
       kUnloadedModuleListStreamOffset + sizeof(MINIDUMP_UNLOADED_MODULE_LIST);
 
   ASSERT_GE(file_contents.size(), kUnloadedModulesOffset);
@@ -72,12 +71,12 @@ void GetUnloadedModuleListStream(
 TEST(MinidumpUnloadedModuleWriter, EmptyModule) {
   MinidumpFileWriter minidump_file_writer;
   auto unloaded_module_list_writer =
-      base::WrapUnique(new MinidumpUnloadedModuleListWriter());
+      std::make_unique<MinidumpUnloadedModuleListWriter>();
 
-  const char kModuleName[] = "test_dll";
+  static constexpr char kModuleName[] = "test_dll";
 
   auto unloaded_module_writer =
-      base::WrapUnique(new MinidumpUnloadedModuleWriter());
+      std::make_unique<MinidumpUnloadedModuleWriter>();
   unloaded_module_writer->SetName(kModuleName);
 
   unloaded_module_list_writer->AddUnloadedModule(
@@ -111,16 +110,16 @@ TEST(MinidumpUnloadedModuleWriter, EmptyModule) {
 TEST(MinidumpUnloadedModuleWriter, OneModule) {
   MinidumpFileWriter minidump_file_writer;
   auto unloaded_module_list_writer =
-      base::WrapUnique(new MinidumpUnloadedModuleListWriter());
+      std::make_unique<MinidumpUnloadedModuleListWriter>();
 
-  const char kModuleName[] = "statically_linked";
-  const uint64_t kModuleBase = 0x10da69000;
-  const uint32_t kModuleSize = 0x1000;
-  const uint32_t kChecksum = 0x76543210;
-  const time_t kTimestamp = 0x386d4380;
+  static constexpr char kModuleName[] = "statically_linked";
+  constexpr uint64_t kModuleBase = 0x10da69000;
+  constexpr uint32_t kModuleSize = 0x1000;
+  constexpr uint32_t kChecksum = 0x76543210;
+  constexpr time_t kTimestamp = 0x386d4380;
 
   auto unloaded_module_writer =
-      base::WrapUnique(new MinidumpUnloadedModuleWriter());
+      std::make_unique<MinidumpUnloadedModuleWriter>();
   unloaded_module_writer->SetName(kModuleName);
   unloaded_module_writer->SetImageBaseAddress(kModuleBase);
   unloaded_module_writer->SetImageSize(kModuleSize);

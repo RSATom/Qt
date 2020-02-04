@@ -10,19 +10,17 @@
 #include "build/build_config.h"
 #include "content/common/accessibility_messages.h"
 #include "content/common/frame_messages.h"
-#include "content/common/site_isolation_policy.h"
-#include "content/common/view_message_enums.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/render_view_test.h"
 #include "content/renderer/accessibility/render_accessibility_impl.h"
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_view_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebSize.h"
-#include "third_party/WebKit/public/web/WebAXObject.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/platform/web_size.h"
+#include "third_party/blink/public/web/web_ax_object.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_view.h"
 #include "ui/accessibility/ax_node_data.h"
 
 using blink::WebAXObject;
@@ -33,7 +31,7 @@ namespace content {
 class TestRenderAccessibilityImpl : public RenderAccessibilityImpl {
  public:
   explicit TestRenderAccessibilityImpl(RenderFrameImpl* render_frame)
-      : RenderAccessibilityImpl(render_frame, kAccessibilityModeComplete) {}
+      : RenderAccessibilityImpl(render_frame, ui::kAXModeComplete) {}
 
   void SendPendingAccessibilityEvents() {
     RenderAccessibilityImpl::SendPendingAccessibilityEvents();
@@ -66,32 +64,28 @@ class RenderAccessibilityImplTest : public RenderViewTest {
      RenderViewTest::TearDown();
   }
 
-  void SetMode(AccessibilityMode mode) {
-    frame()->OnSetAccessibilityMode(mode);
-  }
+  void SetMode(ui::AXMode mode) { frame()->OnSetAccessibilityMode(mode); }
 
-  void GetAllAccEvents(
-      std::vector<AccessibilityHostMsg_EventParams>* param_list) {
+  void GetLastAccessibilityEventBundle(
+      AccessibilityHostMsg_EventBundleParams* event_bundle) {
     const IPC::Message* message =
-        sink_->GetUniqueMessageMatching(AccessibilityHostMsg_Events::ID);
+        sink_->GetUniqueMessageMatching(AccessibilityHostMsg_EventBundle::ID);
     ASSERT_TRUE(message);
-    std::tuple<std::vector<AccessibilityHostMsg_EventParams>, int, int> param;
-    AccessibilityHostMsg_Events::Read(message, &param);
-    *param_list = std::get<0>(param);
+    std::tuple<AccessibilityHostMsg_EventBundleParams, int, int> param;
+    AccessibilityHostMsg_EventBundle::Read(message, &param);
+    *event_bundle = std::get<0>(param);
   }
 
-  void GetLastAccEvent(
-      AccessibilityHostMsg_EventParams* params) {
-    std::vector<AccessibilityHostMsg_EventParams> param_list;
-    GetAllAccEvents(&param_list);
-    ASSERT_GE(param_list.size(), 1U);
-    *params = param_list[0];
+  AXContentTreeUpdate GetLastAccUpdate() {
+    AccessibilityHostMsg_EventBundleParams event_bundle;
+    GetLastAccessibilityEventBundle(&event_bundle);
+    CHECK_GE(event_bundle.updates.size(), 1U);
+    return event_bundle.updates[event_bundle.updates.size() - 1];
   }
 
   int CountAccessibilityNodesSentToBrowser() {
-    AccessibilityHostMsg_EventParams event;
-    GetLastAccEvent(&event);
-    return event.update.nodes.size();
+    AXContentTreeUpdate update = GetLastAccUpdate();
+    return update.nodes.size();
   }
 
  protected:
@@ -128,16 +122,13 @@ TEST_F(RenderAccessibilityImplTest, SendFullAccessibilityTreeOnReload) {
   sink_->ClearMessages();
   WebDocument document = GetMainFrame()->GetDocument();
   WebAXObject root_obj = WebAXObject::FromWebDocument(document);
-  accessibility->HandleAXEvent(
-      root_obj,
-      ui::AX_EVENT_LAYOUT_COMPLETE);
+  accessibility->HandleAXEvent(root_obj, ax::mojom::Event::kLayoutComplete);
   accessibility->SendPendingAccessibilityEvents();
   EXPECT_EQ(1, CountAccessibilityNodesSentToBrowser());
   {
     // Make sure it's the root object that was updated.
-    AccessibilityHostMsg_EventParams event;
-    GetLastAccEvent(&event);
-    EXPECT_EQ(root_obj.AxID(), event.update.nodes[0].id);
+    AXContentTreeUpdate update = GetLastAccUpdate();
+    EXPECT_EQ(root_obj.AxID(), update.nodes[0].id);
   }
 
   // If we reload the page and send a event, we should send
@@ -147,9 +138,7 @@ TEST_F(RenderAccessibilityImplTest, SendFullAccessibilityTreeOnReload) {
   document = GetMainFrame()->GetDocument();
   root_obj = WebAXObject::FromWebDocument(document);
   sink_->ClearMessages();
-  accessibility->HandleAXEvent(
-      root_obj,
-      ui::AX_EVENT_LAYOUT_COMPLETE);
+  accessibility->HandleAXEvent(root_obj, ax::mojom::Event::kLayoutComplete);
   accessibility->SendPendingAccessibilityEvents();
   EXPECT_EQ(4, CountAccessibilityNodesSentToBrowser());
 
@@ -161,9 +150,8 @@ TEST_F(RenderAccessibilityImplTest, SendFullAccessibilityTreeOnReload) {
   root_obj = WebAXObject::FromWebDocument(document);
   sink_->ClearMessages();
   const WebAXObject& first_child = root_obj.ChildAt(0);
-  accessibility->HandleAXEvent(
-      first_child,
-      ui::AX_EVENT_LIVE_REGION_CHANGED);
+  accessibility->HandleAXEvent(first_child,
+                               ax::mojom::Event::kLiveRegionChanged);
   accessibility->SendPendingAccessibilityEvents();
   EXPECT_EQ(4, CountAccessibilityNodesSentToBrowser());
 }
@@ -202,20 +190,17 @@ TEST_F(RenderAccessibilityImplTest, HideAccessibilityObject) {
 
   // Send a childrenChanged on 'A'.
   sink_->ClearMessages();
-  accessibility->HandleAXEvent(
-      node_a,
-      ui::AX_EVENT_CHILDREN_CHANGED);
+  accessibility->HandleAXEvent(node_a, ax::mojom::Event::kChildrenChanged);
 
   accessibility->SendPendingAccessibilityEvents();
-  AccessibilityHostMsg_EventParams event;
-  GetLastAccEvent(&event);
-  ASSERT_EQ(2U, event.update.nodes.size());
+  AXContentTreeUpdate update = GetLastAccUpdate();
+  ASSERT_EQ(2U, update.nodes.size());
 
   // RenderAccessibilityImpl notices that 'C' is being reparented,
   // so it clears the subtree rooted at 'A', then updates 'A' and then 'C'.
-  EXPECT_EQ(node_a.AxID(), event.update.node_id_to_clear);
-  EXPECT_EQ(node_a.AxID(), event.update.nodes[0].id);
-  EXPECT_EQ(node_c.AxID(), event.update.nodes[1].id);
+  EXPECT_EQ(node_a.AxID(), update.node_id_to_clear);
+  EXPECT_EQ(node_a.AxID(), update.nodes[0].id);
+  EXPECT_EQ(node_c.AxID(), update.nodes[1].id);
   EXPECT_EQ(2, CountAccessibilityNodesSentToBrowser());
 }
 
@@ -252,19 +237,16 @@ TEST_F(RenderAccessibilityImplTest, ShowAccessibilityObject) {
   WebAXObject node_b = node_a.ChildAt(0);
   WebAXObject node_c = node_b.ChildAt(0);
 
-  accessibility->HandleAXEvent(
-      node_a,
-      ui::AX_EVENT_CHILDREN_CHANGED);
+  accessibility->HandleAXEvent(node_a, ax::mojom::Event::kChildrenChanged);
 
   accessibility->SendPendingAccessibilityEvents();
-  AccessibilityHostMsg_EventParams event;
-  GetLastAccEvent(&event);
+  AXContentTreeUpdate update = GetLastAccUpdate();
 
-  ASSERT_EQ(3U, event.update.nodes.size());
-  EXPECT_EQ(node_a.AxID(), event.update.node_id_to_clear);
-  EXPECT_EQ(node_a.AxID(), event.update.nodes[0].id);
-  EXPECT_EQ(node_b.AxID(), event.update.nodes[1].id);
-  EXPECT_EQ(node_c.AxID(), event.update.nodes[2].id);
+  ASSERT_EQ(3U, update.nodes.size());
+  EXPECT_EQ(node_a.AxID(), update.node_id_to_clear);
+  EXPECT_EQ(node_a.AxID(), update.nodes[0].id);
+  EXPECT_EQ(node_b.AxID(), update.nodes[1].id);
+  EXPECT_EQ(node_c.AxID(), update.nodes[2].id);
   EXPECT_EQ(3, CountAccessibilityNodesSentToBrowser());
 }
 

@@ -18,9 +18,14 @@
 #include "helpers.h"
 #include "util.h"
 
+struct rockchip_private_map_data {
+	void *cached_addr;
+	void *gem_addr;
+};
+
 static const uint32_t render_target_formats[] = { DRM_FORMAT_ABGR8888, DRM_FORMAT_ARGB8888,
-						  DRM_FORMAT_RGB565, DRM_FORMAT_XBGR8888,
-						  DRM_FORMAT_XRGB8888 };
+						  DRM_FORMAT_BGR888,   DRM_FORMAT_RGB565,
+						  DRM_FORMAT_XBGR8888, DRM_FORMAT_XRGB8888 };
 
 static const uint32_t texture_source_formats[] = { DRM_FORMAT_R8, DRM_FORMAT_NV12,
 						   DRM_FORMAT_YVU420, DRM_FORMAT_YVU420_ANDROID };
@@ -71,31 +76,28 @@ static int afbc_bo_from_format(struct bo *bo, uint32_t width, uint32_t height, u
 
 static int rockchip_add_kms_item(struct driver *drv, const struct kms_item *item)
 {
-	int ret;
 	uint32_t i, j;
-	uint64_t flags;
+	uint64_t use_flags;
 	struct combination *combo;
 	struct format_metadata metadata;
 
-	for (i = 0; i < drv->backend->combos.size; i++) {
-		combo = &drv->backend->combos.data[i];
+	for (i = 0; i < drv_array_size(drv->combos); i++) {
+		combo = (struct combination *)drv_array_at_idx(drv->combos, i);
 		if (combo->format == item->format) {
 			if (item->modifier == DRM_FORMAT_MOD_CHROMEOS_ROCKCHIP_AFBC) {
-				flags = BO_USE_RENDERING | BO_USE_SCANOUT | BO_USE_TEXTURE;
+				use_flags = BO_USE_RENDERING | BO_USE_SCANOUT | BO_USE_TEXTURE;
 				metadata.modifier = item->modifier;
 				metadata.tiling = 0;
 				metadata.priority = 2;
 
 				for (j = 0; j < ARRAY_SIZE(texture_source_formats); j++) {
 					if (item->format == texture_source_formats[j])
-						flags &= ~BO_USE_RENDERING;
+						use_flags &= ~BO_USE_RENDERING;
 				}
 
-				ret = drv_add_combination(drv, item[i].format, &metadata, flags);
-				if (ret)
-					return ret;
+				drv_add_combinations(drv, &item->format, 1, &metadata, use_flags);
 			} else {
-				combo->usage |= item->usage;
+				combo->use_flags |= item->use_flags;
 			}
 		}
 	}
@@ -106,47 +108,52 @@ static int rockchip_add_kms_item(struct driver *drv, const struct kms_item *item
 static int rockchip_init(struct driver *drv)
 {
 	int ret;
-	uint32_t i, num_items;
-	struct kms_item *items;
+	uint32_t i;
+	struct drv_array *kms_items;
 	struct format_metadata metadata;
 
 	metadata.tiling = 0;
 	metadata.priority = 1;
-	metadata.modifier = DRM_FORMAT_MOD_NONE;
+	metadata.modifier = DRM_FORMAT_MOD_LINEAR;
 
-	ret = drv_add_combinations(drv, render_target_formats, ARRAY_SIZE(render_target_formats),
-				   &metadata, BO_USE_RENDER_MASK);
-	if (ret)
-		return ret;
+	drv_add_combinations(drv, render_target_formats, ARRAY_SIZE(render_target_formats),
+			     &metadata, BO_USE_RENDER_MASK);
 
-	ret = drv_add_combinations(drv, texture_source_formats, ARRAY_SIZE(texture_source_formats),
-				   &metadata, BO_USE_TEXTURE_MASK);
-	if (ret)
-		return ret;
+	drv_add_combinations(drv, texture_source_formats, ARRAY_SIZE(texture_source_formats),
+			     &metadata, BO_USE_TEXTURE_MASK);
 
 	drv_modify_combination(drv, DRM_FORMAT_XRGB8888, &metadata, BO_USE_CURSOR | BO_USE_SCANOUT);
 	drv_modify_combination(drv, DRM_FORMAT_ARGB8888, &metadata, BO_USE_CURSOR | BO_USE_SCANOUT);
 
-	items = drv_query_kms(drv, &num_items);
-	if (!items || !num_items)
+	/* Camera ISP supports only NV12 output. */
+	drv_modify_combination(drv, DRM_FORMAT_NV12, &metadata,
+			       BO_USE_CAMERA_READ | BO_USE_CAMERA_WRITE | BO_USE_HW_VIDEO_DECODER);
+	/*
+	 * R8 format is used for Android's HAL_PIXEL_FORMAT_BLOB and is used for JPEG snapshots
+	 * from camera.
+	 */
+	drv_modify_combination(drv, DRM_FORMAT_R8, &metadata,
+			       BO_USE_CAMERA_READ | BO_USE_CAMERA_WRITE);
+
+	kms_items = drv_query_kms(drv);
+	if (!kms_items)
 		return 0;
 
-	for (i = 0; i < num_items; i++) {
-		ret = rockchip_add_kms_item(drv, &items[i]);
+	for (i = 0; i < drv_array_size(kms_items); i++) {
+		ret = rockchip_add_kms_item(drv, (struct kms_item *)drv_array_at_idx(kms_items, i));
 		if (ret) {
-			free(items);
+			drv_array_destroy(kms_items);
 			return ret;
 		}
 	}
 
-	free(items);
+	drv_array_destroy(kms_items);
 	return 0;
 }
 
 static bool has_modifier(const uint64_t *list, uint32_t count, uint64_t modifier)
 {
 	uint32_t i;
-
 	for (i = 0; i < count; i++)
 		if (list[i] == modifier)
 			return true;
@@ -177,9 +184,9 @@ static int rockchip_bo_create_with_modifiers(struct bo *bo, uint32_t width, uint
 		 * pick that */
 		afbc_bo_from_format(bo, width, height, format);
 	} else {
-		if (!has_modifier(modifiers, count, DRM_FORMAT_MOD_NONE)) {
+		if (!has_modifier(modifiers, count, DRM_FORMAT_MOD_LINEAR)) {
 			errno = EINVAL;
-			fprintf(stderr, "no usable modifier found\n");
+			drv_log("no usable modifier found\n");
 			return -1;
 		}
 
@@ -205,8 +212,8 @@ static int rockchip_bo_create_with_modifiers(struct bo *bo, uint32_t width, uint
 	ret = drmIoctl(bo->drv->fd, DRM_IOCTL_ROCKCHIP_GEM_CREATE, &gem_create);
 
 	if (ret) {
-		fprintf(stderr, "drv: DRM_IOCTL_ROCKCHIP_GEM_CREATE failed (size=%llu)\n",
-			gem_create.size);
+		drv_log("DRM_IOCTL_ROCKCHIP_GEM_CREATE failed (size=%llu)\n",
+			(unsigned long long)gem_create.size);
 		return ret;
 	}
 
@@ -217,18 +224,18 @@ static int rockchip_bo_create_with_modifiers(struct bo *bo, uint32_t width, uint
 }
 
 static int rockchip_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32_t format,
-			      uint32_t flags)
+			      uint64_t use_flags)
 {
-	uint64_t modifiers[] = { DRM_FORMAT_MOD_NONE };
-
+	uint64_t modifiers[] = { DRM_FORMAT_MOD_LINEAR };
 	return rockchip_bo_create_with_modifiers(bo, width, height, format, modifiers,
 						 ARRAY_SIZE(modifiers));
 }
 
-static void *rockchip_bo_map(struct bo *bo, struct map_info *data, size_t plane)
+static void *rockchip_bo_map(struct bo *bo, struct vma *vma, size_t plane, uint32_t map_flags)
 {
 	int ret;
 	struct drm_rockchip_gem_map_off gem_map;
+	struct rockchip_private_map_data *priv;
 
 	/* We can only map buffers created with SW access flags, which should
 	 * have no modifiers (ie, not AFBC). */
@@ -240,20 +247,65 @@ static void *rockchip_bo_map(struct bo *bo, struct map_info *data, size_t plane)
 
 	ret = drmIoctl(bo->drv->fd, DRM_IOCTL_ROCKCHIP_GEM_MAP_OFFSET, &gem_map);
 	if (ret) {
-		fprintf(stderr, "drv: DRM_IOCTL_ROCKCHIP_GEM_MAP_OFFSET failed\n");
+		drv_log("DRM_IOCTL_ROCKCHIP_GEM_MAP_OFFSET failed\n");
 		return MAP_FAILED;
 	}
 
-	data->length = bo->total_size;
+	void *addr = mmap(0, bo->total_size, drv_get_prot(map_flags), MAP_SHARED, bo->drv->fd,
+			  gem_map.offset);
 
-	return mmap(0, bo->total_size, PROT_READ | PROT_WRITE, MAP_SHARED, bo->drv->fd,
-		    gem_map.offset);
+	vma->length = bo->total_size;
+
+	if (bo->use_flags & BO_USE_RENDERSCRIPT) {
+		priv = calloc(1, sizeof(*priv));
+		priv->cached_addr = calloc(1, bo->total_size);
+		priv->gem_addr = addr;
+		vma->priv = priv;
+		addr = priv->cached_addr;
+	}
+
+	return addr;
 }
 
-static uint32_t rockchip_resolve_format(uint32_t format)
+static int rockchip_bo_unmap(struct bo *bo, struct vma *vma)
+{
+	if (vma->priv) {
+		struct rockchip_private_map_data *priv = vma->priv;
+		vma->addr = priv->gem_addr;
+		free(priv->cached_addr);
+		free(priv);
+		vma->priv = NULL;
+	}
+
+	return munmap(vma->addr, vma->length);
+}
+
+static int rockchip_bo_invalidate(struct bo *bo, struct mapping *mapping)
+{
+	if (mapping->vma->priv) {
+		struct rockchip_private_map_data *priv = mapping->vma->priv;
+		memcpy(priv->cached_addr, priv->gem_addr, bo->total_size);
+	}
+
+	return 0;
+}
+
+static int rockchip_bo_flush(struct bo *bo, struct mapping *mapping)
+{
+	struct rockchip_private_map_data *priv = mapping->vma->priv;
+	if (priv && (mapping->vma->map_flags & BO_MAP_WRITE))
+		memcpy(priv->gem_addr, priv->cached_addr, bo->total_size);
+
+	return 0;
+}
+
+static uint32_t rockchip_resolve_format(uint32_t format, uint64_t use_flags)
 {
 	switch (format) {
 	case DRM_FORMAT_FLEX_IMPLEMENTATION_DEFINED:
+		/* Camera subsystem requires NV12. */
+		if (use_flags & (BO_USE_CAMERA_READ | BO_USE_CAMERA_WRITE))
+			return DRM_FORMAT_NV12;
 		/*HACK: See b/28671744 */
 		return DRM_FORMAT_XBGR8888;
 	case DRM_FORMAT_FLEX_YCbCr_420_888:
@@ -263,7 +315,7 @@ static uint32_t rockchip_resolve_format(uint32_t format)
 	}
 }
 
-struct backend backend_rockchip = {
+const struct backend backend_rockchip = {
 	.name = "rockchip",
 	.init = rockchip_init,
 	.bo_create = rockchip_bo_create,
@@ -271,6 +323,9 @@ struct backend backend_rockchip = {
 	.bo_destroy = drv_gem_bo_destroy,
 	.bo_import = drv_prime_bo_import,
 	.bo_map = rockchip_bo_map,
+	.bo_unmap = rockchip_bo_unmap,
+	.bo_invalidate = rockchip_bo_invalidate,
+	.bo_flush = rockchip_bo_flush,
 	.resolve_format = rockchip_resolve_format,
 };
 

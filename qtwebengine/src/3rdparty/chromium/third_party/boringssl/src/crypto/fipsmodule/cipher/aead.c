@@ -101,8 +101,8 @@ void EVP_AEAD_CTX_cleanup(EVP_AEAD_CTX *ctx) {
   ctx->aead = NULL;
 }
 
-/* check_alias returns 1 if |out| is compatible with |in| and 0 otherwise. If
- * |in| and |out| alias, we require that |in| == |out|. */
+// check_alias returns 1 if |out| is compatible with |in| and 0 otherwise. If
+// |in| and |out| alias, we require that |in| == |out|.
 static int check_alias(const uint8_t *in, size_t in_len, const uint8_t *out,
                        size_t out_len) {
   if (!buffers_alias(in, in_len, out, out_len)) {
@@ -140,8 +140,8 @@ int EVP_AEAD_CTX_seal(const EVP_AEAD_CTX *ctx, uint8_t *out, size_t *out_len,
   }
 
 error:
-  /* In the event of an error, clear the output buffer so that a caller
-   * that doesn't check the return value doesn't send raw data. */
+  // In the event of an error, clear the output buffer so that a caller
+  // that doesn't check the return value doesn't send raw data.
   OPENSSL_memset(out, 0, max_out_len);
   *out_len = 0;
   return 0;
@@ -172,8 +172,8 @@ int EVP_AEAD_CTX_seal_scatter(
   }
 
 error:
-  /* In the event of an error, clear the output buffer so that a caller
-   * that doesn't check the return value doesn't send raw data. */
+  // In the event of an error, clear the output buffer so that a caller
+  // that doesn't check the return value doesn't send raw data.
   OPENSSL_memset(out, 0, in_len);
   OPENSSL_memset(out_tag, 0, max_out_tag_len);
   *out_tag_len = 0;
@@ -218,9 +218,9 @@ int EVP_AEAD_CTX_open(const EVP_AEAD_CTX *ctx, uint8_t *out, size_t *out_len,
   }
 
 error:
-  /* In the event of an error, clear the output buffer so that a caller
-   * that doesn't check the return value doesn't try and process bad
-   * data. */
+  // In the event of an error, clear the output buffer so that a caller
+  // that doesn't check the return value doesn't try and process bad
+  // data.
   OPENSSL_memset(out, 0, max_out_len);
   *out_len = 0;
   return 0;
@@ -247,9 +247,9 @@ int EVP_AEAD_CTX_open_gather(const EVP_AEAD_CTX *ctx, uint8_t *out,
   }
 
 error:
-  /* In the event of an error, clear the output buffer so that a caller
-   * that doesn't check the return value doesn't try and process bad
-   * data. */
+  // In the event of an error, clear the output buffer so that a caller
+  // that doesn't check the return value doesn't try and process bad
+  // data.
   OPENSSL_memset(out, 0, in_len);
   return 0;
 }
@@ -263,4 +263,22 @@ int EVP_AEAD_CTX_get_iv(const EVP_AEAD_CTX *ctx, const uint8_t **out_iv,
   }
 
   return ctx->aead->get_iv(ctx, out_iv, out_len);
+}
+
+int EVP_AEAD_CTX_tag_len(const EVP_AEAD_CTX *ctx, size_t *out_tag_len,
+                         const size_t in_len, const size_t extra_in_len) {
+  assert(ctx->aead->seal_scatter_supports_extra_in || !extra_in_len);
+
+  if (ctx->aead->tag_len) {
+    *out_tag_len = ctx->aead->tag_len(ctx, in_len, extra_in_len);
+    return 1;
+  }
+
+  if (extra_in_len + ctx->tag_len < extra_in_len) {
+    OPENSSL_PUT_ERROR(CIPHER, ERR_R_OVERFLOW);
+    *out_tag_len = 0;
+    return 0;
+  }
+  *out_tag_len = extra_in_len + ctx->tag_len;
+  return 1;
 }

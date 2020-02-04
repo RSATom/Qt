@@ -27,16 +27,19 @@ namespace ui {
 class COMPOSITOR_EXPORT CanvasPainter {
  public:
   CanvasPainter(SkBitmap* output,
-                const gfx::Size& paint_size,
-                float raster_scale,
-                SkColor clear_color);
+                const gfx::Size& output_size,
+                float device_scale_factor,
+                SkColor clear_color,
+                bool is_pixel_canvas);
   ~CanvasPainter();
 
   const PaintContext& context() const { return context_; }
 
  private:
+  friend class CanvasPainterTest;
+
   SkBitmap* const output_;
-  const gfx::Size paint_size_;
+  const gfx::Size pixel_output_size_;
   const float raster_scale_;
   const SkColor clear_color_;
   scoped_refptr<cc::DisplayItemList> list_;

@@ -4,7 +4,7 @@
 
 #include "base/allocator/allocator_check.h"
 
-#include "base/allocator/features.h"
+#include "base/allocator/buildflags.h"
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
@@ -34,7 +34,7 @@ bool IsAllocatorInitialized() {
 #define TC_MALLOPT_IS_OVERRIDDEN_BY_TCMALLOC 0xbeef42
   return (mallopt(TC_MALLOPT_IS_OVERRIDDEN_BY_TCMALLOC, 0) ==
           TC_MALLOPT_IS_OVERRIDDEN_BY_TCMALLOC);
-#elif defined(OS_MACOSX) && !defined(MEMORY_TOOL_REPLACES_ALLOCATOR) && !defined(TOOLKIT_QT)
+#elif defined(OS_MACOSX) && !defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
   // From allocator_interception_mac.mm.
   return base::allocator::g_replaced_default_zone;
 #else

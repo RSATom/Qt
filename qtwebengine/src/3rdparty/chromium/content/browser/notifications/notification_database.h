@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/sequence_checker.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/platform_notification_context.h"
 
 class GURL;
 
@@ -22,7 +23,7 @@ namespace leveldb {
 class DB;
 class Env;
 class FilterPolicy;
-}
+}  // namespace leveldb
 
 namespace content {
 
@@ -39,6 +40,9 @@ struct NotificationDatabaseData;
 // file I/O. The same thread or task runner must be used for all method calls.
 class CONTENT_EXPORT NotificationDatabase {
  public:
+  using UkmCallback =
+      base::RepeatingCallback<void(const NotificationDatabaseData&)>;
+
   // Result status codes for interations with the database. Will be used for
   // UMA, so the assigned ids must remain stable.
   enum Status {
@@ -68,7 +72,8 @@ class CONTENT_EXPORT NotificationDatabase {
     STATUS_COUNT = 7
   };
 
-  explicit NotificationDatabase(const base::FilePath& path);
+  NotificationDatabase(const base::FilePath& path, UkmCallback callback);
+
   ~NotificationDatabase();
 
   // Opens the database. If |path| is non-empty, it will be created on the given
@@ -89,6 +94,15 @@ class CONTENT_EXPORT NotificationDatabase {
       const std::string& notification_id,
       const GURL& origin,
       NotificationDatabaseData* notification_data) const;
+
+  // This function is identical to ReadNotificationData above, but also records
+  // an interaction with that notification in the database for UKM logging
+  // purposes.
+  Status ReadNotificationDataAndRecordInteraction(
+      const std::string& notification_id,
+      const GURL& origin,
+      PlatformNotificationContext::Interaction interaction,
+      NotificationDatabaseData* notification_data);
 
   // Reads all notification data for all origins from the database, and appends
   // the data to |notification_data_vector|. Returns the status code.
@@ -147,12 +161,10 @@ class CONTENT_EXPORT NotificationDatabase {
  private:
   friend class NotificationDatabaseTest;
 
-  // TODO(peter): Convert to an enum class when DCHECK_EQ supports this.
-  // See https://crbug.com/463869.
-  enum State {
-    STATE_UNINITIALIZED,
-    STATE_INITIALIZED,
-    STATE_DISABLED,
+  enum class State {
+    UNINITIALIZED,
+    INITIALIZED,
+    DISABLED,
   };
 
   // Reads the next available persistent notification id from the database and
@@ -193,9 +205,6 @@ class CONTENT_EXPORT NotificationDatabase {
 
   base::FilePath path_;
 
-  int64_t next_persistent_notification_id_ = 0;
-  int64_t written_persistent_notification_id_ = 0;
-
   std::unique_ptr<const leveldb::FilterPolicy> filter_policy_;
 
   // The declaration order for these members matters, as |db_| depends on |env_|
@@ -203,9 +212,12 @@ class CONTENT_EXPORT NotificationDatabase {
   std::unique_ptr<leveldb::Env> env_;
   std::unique_ptr<leveldb::DB> db_;
 
-  State state_ = STATE_UNINITIALIZED;
+  State state_ = State::UNINITIALIZED;
 
   base::SequenceChecker sequence_checker_;
+
+  // Callback to use for recording UKM metrics. Must be posted to the UI thread.
+  UkmCallback record_notification_to_ukm_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(NotificationDatabase);
 };

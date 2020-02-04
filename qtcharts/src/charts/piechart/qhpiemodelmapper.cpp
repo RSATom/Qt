@@ -33,7 +33,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QHPieModelMapper
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QHPieModelMapper is a horizontal model mapper for pie series.
 
     Model mappers enable using a data model derived from the QAbstractItemModel class
@@ -277,6 +277,6 @@ void QHPieModelMapper::setColumnCount(int columnCount)
     }
 }
 
-#include "moc_qhpiemodelmapper.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_qhpiemodelmapper.cpp"

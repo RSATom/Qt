@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -45,7 +45,7 @@
 QT_BEGIN_NAMESPACE
 
 GeoTiledMapEsri::GeoTiledMapEsri(GeoTiledMappingManagerEngineEsri *engine, QObject *parent) :
-    QGeoTiledMap(engine, parent), m_engine(engine), m_mapId(-1)
+    Map(engine, parent), m_engine(engine), m_mapId(-1)
 {
 }
 

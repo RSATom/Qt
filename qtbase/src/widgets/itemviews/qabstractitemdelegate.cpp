@@ -58,13 +58,16 @@
 #endif
 #include <qapplication.h>
 #include <qvalidator.h>
+#include <qjsonvalue.h>
 #include <private/qtextengine_p.h>
 #include <private/qabstractitemdelegate_p.h>
 
 #include <qpa/qplatformintegration.h>
+#if QT_CONFIG(draganddrop)
 #include <qpa/qplatformdrag.h>
-#include <private/qguiapplication_p.h>
 #include <private/qdnd_p.h>
+#endif
+#include <private/qguiapplication_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -85,7 +88,7 @@ QT_BEGIN_NAMESPACE
     and is part of Qt's \l{Model/View Programming}{model/view framework}.
 
     To render an item in a custom way, you must implement paint() and
-    sizeHint(). The QItemDelegate class provides default implementations for
+    sizeHint(). The QStyledItemDelegate class provides default implementations for
     these functions; if you do not need custom rendering, subclass that
     class instead.
 
@@ -112,7 +115,7 @@ QT_BEGIN_NAMESPACE
     The second approach is to handle user events directly by reimplementing
     editorEvent().
 
-    \sa {model-view-programming}{Model/View Programming}, QItemDelegate,
+    \sa {model-view-programming}{Model/View Programming}, QStyledItemDelegate,
         {Pixelator Example}, QStyledItemDelegate, QStyle
 */
 
@@ -237,7 +240,7 @@ QAbstractItemDelegate::~QAbstractItemDelegate()
     model being used. The editor's parent widget is specified by \a parent,
     and the item options by \a option.
 
-    The base implementation returns 0. If you want custom editing you
+    The base implementation returns \nullptr. If you want custom editing you
     will need to reimplement this function.
 
     The returned editor widget should have Qt::StrongFocus;
@@ -342,6 +345,7 @@ bool QAbstractItemDelegate::editorEvent(QEvent *,
     return false;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -361,6 +365,7 @@ QString QAbstractItemDelegate::elidedText(const QFontMetrics &fontMetrics, int w
 {
     return fontMetrics.elidedText(text, mode, width);
 }
+#endif
 
 /*!
     \since 4.3
@@ -383,6 +388,8 @@ bool QAbstractItemDelegate::helpEvent(QHelpEvent *event,
                                       const QModelIndex &index)
 {
     Q_D(QAbstractItemDelegate);
+    Q_UNUSED(d);
+    Q_UNUSED(index);
     Q_UNUSED(option);
 
     if (!event || !view)
@@ -514,7 +521,7 @@ bool QAbstractItemDelegatePrivate::editorEventFilter(QObject *object, QEvent *ev
                     return false;
                 w = w->parentWidget();
             }
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
             // The window may lose focus during an drag operation.
             // i.e when dragging involves the taskbar on Windows.
             QPlatformDrag *platformDrag = QGuiApplicationPrivate::instance()->platformIntegration()->drag();
@@ -525,7 +532,15 @@ bool QAbstractItemDelegatePrivate::editorEventFilter(QObject *object, QEvent *ev
             if (tryFixup(editor))
                 emit q->commitData(editor);
 
+            // If the application loses focus while editing, then the focus needs to go back
+            // to the itemview when the editor closes. This ensures that when the application
+            // is active again it will have the focus on the itemview as expected.
+            const bool manuallyFixFocus = (event->type() == QEvent::FocusOut) && !editor->hasFocus() &&
+                    editor->parentWidget() &&
+                    (static_cast<QFocusEvent *>(event)->reason() == Qt::ActiveWindowFocusReason);
             emit q->closeEditor(editor, QAbstractItemDelegate::NoHint);
+            if (manuallyFixFocus)
+                editor->parentWidget()->setFocus();
         }
 #ifndef QT_NO_SHORTCUT
     } else if (event->type() == QEvent::ShortcutOverride) {
@@ -585,17 +600,28 @@ QString QAbstractItemDelegatePrivate::textForRole(Qt::ItemDataRole role, const Q
     case QVariant::Time:
         text = locale.toString(value.toTime(), formatType);
         break;
-    case QVariant::DateTime: {
-        const QDateTime dateTime = value.toDateTime();
-        text = locale.toString(dateTime.date(), formatType)
-             + QLatin1Char(' ')
-             + locale.toString(dateTime.time(), formatType);
-        break; }
-    default:
+    case QVariant::DateTime:
+        text = locale.toString(value.toDateTime(), formatType);
+        break;
+    case QVariant::Type(QMetaType::QJsonValue): {
+        const QJsonValue val = value.toJsonValue();
+        if (val.isBool()) {
+            text = QVariant(val.toBool()).toString();
+            break;
+        }
+        if (val.isDouble()) {
+            text = locale.toString(val.toDouble(), 'g', precision);
+            break;
+        }
+        // val is a string (or null) here
+        Q_FALLTHROUGH();
+    }
+    default: {
         text = value.toString();
         if (role == Qt::DisplayRole)
             text.replace(QLatin1Char('\n'), QChar::LineSeparator);
         break;
+    }
     }
     return text;
 }

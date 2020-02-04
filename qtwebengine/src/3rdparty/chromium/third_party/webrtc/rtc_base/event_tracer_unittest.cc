@@ -8,26 +8,20 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/event_tracer.h"
+#include "rtc_base/event_tracer.h"
 
-#include "webrtc/rtc_base/trace_event.h"
-#include "webrtc/system_wrappers/include/static_instance.h"
-#include "webrtc/test/gtest.h"
+#include "rtc_base/trace_event.h"
+#include "test/gtest.h"
 
 namespace {
 
 class TestStatistics {
  public:
-  TestStatistics() : events_logged_(0) {
-  }
+  TestStatistics() : events_logged_(0) {}
 
-  void Reset() {
-    events_logged_ = 0;
-  }
+  void Reset() { events_logged_ = 0; }
 
-  void Increment() {
-    ++events_logged_;
-  }
+  void Increment() { ++events_logged_; }
 
   int Count() const { return events_logged_; }
 
@@ -63,18 +57,14 @@ static void AddTraceEventHandler(char phase,
 namespace webrtc {
 
 TEST(EventTracerTest, EventTracerDisabled) {
-  {
-    TRACE_EVENT0("test", "EventTracerDisabled");
-  }
+  { TRACE_EVENT0("test", "EventTracerDisabled"); }
   EXPECT_FALSE(TestStatistics::Get()->Count());
   TestStatistics::Get()->Reset();
 }
 
 TEST(EventTracerTest, ScopedTraceEvent) {
   SetupEventTracer(&GetCategoryEnabledHandler, &AddTraceEventHandler);
-  {
-    TRACE_EVENT0("test", "ScopedTraceEvent");
-  }
+  { TRACE_EVENT0("test", "ScopedTraceEvent"); }
   EXPECT_EQ(2, TestStatistics::Get()->Count());
   TestStatistics::Get()->Reset();
 }

@@ -53,6 +53,12 @@
 #include <QtCore/qbytearraylist.h>
 #endif
 
+#if QT_HAS_INCLUDE(<variant>) && __cplusplus >= 201703L
+#include <variant>
+#elif defined(Q_CLANG_QDOC)
+namespace std { template<typename...> struct variant; }
+#endif
+
 QT_BEGIN_NAMESPACE
 
 
@@ -77,9 +83,9 @@ class QRectF;
 #ifndef QT_NO_REGEXP
 class QRegExp;
 #endif // QT_NO_REGEXP
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
 class QRegularExpression;
-#endif // QT_NO_REGULAREXPRESSION
+#endif // QT_CONFIG(regularexpression)
 class QTextFormat;
 class QTextLength;
 class QUrl;
@@ -161,8 +167,10 @@ class Q_CORE_EXPORT QVariant
         Hash = QMetaType::QVariantHash,
         EasingCurve = QMetaType::QEasingCurve,
         Uuid = QMetaType::QUuid,
+#if QT_CONFIG(itemmodel)
         ModelIndex = QMetaType::QModelIndex,
         PersistentModelIndex = QMetaType::QPersistentModelIndex,
+#endif
         LastCoreType = QMetaType::LastCoreType,
 
         Font = QMetaType::QFont,
@@ -244,20 +252,22 @@ class Q_CORE_EXPORT QVariant
 #ifndef QT_NO_REGEXP
     QVariant(const QRegExp &regExp);
 #endif // QT_NO_REGEXP
-#ifndef QT_BOOTSTRAPPED
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
     QVariant(const QRegularExpression &re);
-#endif // QT_NO_REGULAREXPRESSION
+#endif // QT_CONFIG(regularexpression)
+#ifndef QT_BOOTSTRAPPED
     QVariant(const QUrl &url);
     QVariant(const QEasingCurve &easing);
     QVariant(const QUuid &uuid);
-    QVariant(const QModelIndex &modelIndex);
-    QVariant(const QPersistentModelIndex &modelIndex);
     QVariant(const QJsonValue &jsonValue);
     QVariant(const QJsonObject &jsonObject);
     QVariant(const QJsonArray &jsonArray);
     QVariant(const QJsonDocument &jsonDocument);
 #endif // QT_BOOTSTRAPPED
+#if QT_CONFIG(itemmodel)
+    QVariant(const QModelIndex &modelIndex);
+    QVariant(const QPersistentModelIndex &modelIndex);
+#endif
 
     QVariant& operator=(const QVariant &other);
 #ifdef Q_COMPILER_RVALUE_REFS
@@ -284,14 +294,14 @@ class Q_CORE_EXPORT QVariant
     void detach();
     inline bool isDetached() const;
 
-    int toInt(bool *ok = Q_NULLPTR) const;
-    uint toUInt(bool *ok = Q_NULLPTR) const;
-    qlonglong toLongLong(bool *ok = Q_NULLPTR) const;
-    qulonglong toULongLong(bool *ok = Q_NULLPTR) const;
+    int toInt(bool *ok = nullptr) const;
+    uint toUInt(bool *ok = nullptr) const;
+    qlonglong toLongLong(bool *ok = nullptr) const;
+    qulonglong toULongLong(bool *ok = nullptr) const;
     bool toBool() const;
-    double toDouble(bool *ok = Q_NULLPTR) const;
-    float toFloat(bool *ok = Q_NULLPTR) const;
-    qreal toReal(bool *ok = Q_NULLPTR) const;
+    double toDouble(bool *ok = nullptr) const;
+    float toFloat(bool *ok = nullptr) const;
+    qreal toReal(bool *ok = nullptr) const;
     QByteArray toByteArray() const;
     QBitArray toBitArray() const;
     QString toString() const;
@@ -318,20 +328,22 @@ class Q_CORE_EXPORT QVariant
 #ifndef QT_NO_REGEXP
     QRegExp toRegExp() const;
 #endif // QT_NO_REGEXP
-#ifndef QT_BOOTSTRAPPED
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
     QRegularExpression toRegularExpression() const;
-#endif // QT_NO_REGULAREXPRESSION
+#endif // QT_CONFIG(regularexpression)
+#ifndef QT_BOOTSTRAPPED
     QUrl toUrl() const;
     QEasingCurve toEasingCurve() const;
     QUuid toUuid() const;
-    QModelIndex toModelIndex() const;
-    QPersistentModelIndex toPersistentModelIndex() const;
     QJsonValue toJsonValue() const;
     QJsonObject toJsonObject() const;
     QJsonArray toJsonArray() const;
     QJsonDocument toJsonDocument() const;
 #endif // QT_BOOTSTRAPPED
+#if QT_CONFIG(itemmodel)
+    QModelIndex toModelIndex() const;
+    QPersistentModelIndex toPersistentModelIndex() const;
+#endif
 
 #ifndef QT_NO_DATASTREAM
     void load(QDataStream &ds);
@@ -355,12 +367,21 @@ class Q_CORE_EXPORT QVariant
     static inline QVariant fromValue(const T &value)
     { return qVariantFromValue(value); }
 
+#if (QT_HAS_INCLUDE(<variant>) && __cplusplus >= 201703L) || defined(Q_CLANG_QDOC)
+    template<typename... Types>
+    static inline QVariant fromStdVariant(const std::variant<Types...> &value)
+    {
+        if (value.valueless_by_exception())
+            return QVariant();
+        return std::visit([](const auto &arg) { return fromValue(arg); }, value);
+    }
+#endif
+
     template<typename T>
     bool canConvert() const
     { return canConvert(qMetaTypeId<T>()); }
 
  public:
-#ifndef Q_QDOC
     struct PrivateShared
     {
         inline PrivateShared(void *v) : ptr(v), ref(1) { }
@@ -370,17 +391,20 @@ class Q_CORE_EXPORT QVariant
     struct Private
     {
         inline Private() Q_DECL_NOTHROW : type(Invalid), is_shared(false), is_null(true)
-        { data.ptr = Q_NULLPTR; }
+        { data.ptr = nullptr; }
 
         // Internal constructor for initialized variants.
         explicit inline Private(uint variantType) Q_DECL_NOTHROW
             : type(variantType), is_shared(false), is_null(false)
         {}
 
-        inline Private(const Private &other) Q_DECL_NOTHROW
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+        Private(const Private &other) Q_DECL_NOTHROW
             : data(other.data), type(other.type),
               is_shared(other.is_shared), is_null(other.is_null)
         {}
+        Private &operator=(const Private &other) Q_DECL_NOTHROW = default;
+#endif
         union Data
         {
             char c;
@@ -431,7 +455,6 @@ class Q_CORE_EXPORT QVariant
         f_canConvert canConvert;
         f_debugStream debugStream;
     };
-#endif
 
     inline bool operator==(const QVariant &v) const
     { return cmp(v); }
@@ -504,6 +527,11 @@ inline QVariant qVariantFromValue(const T &t)
 
 template <>
 inline QVariant qVariantFromValue(const QVariant &t) { return t; }
+
+#if QT_HAS_INCLUDE(<variant>) && __cplusplus >= 201703L
+template <>
+inline QVariant qVariantFromValue(const std::monostate &) { return QVariant(); }
+#endif
 
 template <typename T>
 inline void qVariantSetValue(QVariant &v, const T &t)
@@ -610,6 +638,7 @@ public:
         const_iterator &operator-=(int j);
         const_iterator operator+(int j) const;
         const_iterator operator-(int j) const;
+        friend inline const_iterator operator+(int j, const_iterator k) { return k + j; }
     };
 
     friend struct const_iterator;
@@ -667,6 +696,7 @@ public:
         const_iterator &operator-=(int j);
         const_iterator operator+(int j) const;
         const_iterator operator-(int j) const;
+        friend inline const_iterator operator+(int j, const_iterator k) { return k + j; }
     };
 
     friend struct const_iterator;

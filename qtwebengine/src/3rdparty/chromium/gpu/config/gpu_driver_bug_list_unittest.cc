@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <vector>
+
 #include "base/command_line.h"
 #include "gpu/config/gpu_driver_bug_list.h"
 #include "gpu/config/gpu_driver_bug_workaround_type.h"
@@ -12,8 +14,8 @@ namespace gpu {
 
 class GpuDriverBugListTest : public testing::Test {
  public:
-  GpuDriverBugListTest() {}
-  ~GpuDriverBugListTest() override {}
+  GpuDriverBugListTest() = default;
+  ~GpuDriverBugListTest() override = default;
 };
 
 #if defined(OS_ANDROID)
@@ -39,7 +41,7 @@ TEST_F(GpuDriverBugListTest, CurrentListForImagination) {
 #endif  // OS_ANDROID
 
 TEST_F(GpuDriverBugListTest, AppendSingleWorkaround) {
-  base::CommandLine command_line(0, NULL);
+  base::CommandLine command_line(0, nullptr);
   command_line.AppendSwitch(GpuDriverBugWorkaroundTypeToString(
       DISABLE_CHROMIUM_FRAMEBUFFER_MULTISAMPLE));
   std::set<int> workarounds;
@@ -53,7 +55,7 @@ TEST_F(GpuDriverBugListTest, AppendSingleWorkaround) {
 }
 
 TEST_F(GpuDriverBugListTest, AppendForceGPUWorkaround) {
-  base::CommandLine command_line(0, NULL);
+  base::CommandLine command_line(0, nullptr);
   command_line.AppendSwitch(
       GpuDriverBugWorkaroundTypeToString(FORCE_DISCRETE_GPU));
   std::set<int> workarounds;
@@ -66,6 +68,23 @@ TEST_F(GpuDriverBugListTest, AppendForceGPUWorkaround) {
   EXPECT_EQ(2u, workarounds.size());
   EXPECT_EQ(0u, workarounds.count(FORCE_INTEGRATED_GPU));
   EXPECT_EQ(1u, workarounds.count(FORCE_DISCRETE_GPU));
+}
+
+// Test for invariant "Assume the newly last added entry has the largest ID".
+// See GpuControlList::GpuControlList.
+// It checks gpu_driver_bug_list.json
+TEST_F(GpuDriverBugListTest, TestBlacklistIsValid) {
+  std::unique_ptr<GpuDriverBugList> list(GpuDriverBugList::Create());
+  auto max_entry_id = list->max_entry_id();
+
+  std::vector<uint32_t> indices(list->num_entries());
+  int current = 0;
+  std::generate(indices.begin(), indices.end(),
+                [&current] () { return current++; });
+
+  auto entries = list->GetEntryIDsFromIndices(indices);
+  auto real_max_entry_id = *std::max_element(entries.begin(), entries.end());
+  EXPECT_EQ(real_max_entry_id, max_entry_id);
 }
 
 }  // namespace gpu

@@ -241,7 +241,8 @@ Symbols Preprocessor::tokenize(const QByteArray& input, int lineNum, Preprocesso
                     if (!*data || *data != '.') {
                         token = INTEGER_LITERAL;
                         if (data - lexem == 1 &&
-                            (*data == 'x' || *data == 'X')
+                            (*data == 'x' || *data == 'X'
+                             || *data == 'b' || *data == 'B')
                             && *lexem == '0') {
                             ++data;
                             while (is_hex_char(*data) || *data == '\'')
@@ -1131,14 +1132,14 @@ void Preprocessor::preprocess(const QByteArray &filename, Symbols &preprocessed)
             Token lastToken = HASH; // skip shitespace at the beginning
             for (int i = start; i < index - 1; ++i) {
                 Token token = symbols.at(i).token;
-                if (token ==  PP_WHITESPACE || token == WHITESPACE) {
+                if (token == WHITESPACE) {
                     if (lastToken == PP_HASH || lastToken == HASH ||
                         lastToken == PP_HASHHASH ||
-                        lastToken == PP_WHITESPACE || lastToken == WHITESPACE)
+                        lastToken == WHITESPACE)
                         continue;
                 } else if (token == PP_HASHHASH) {
                     if (!macro.symbols.isEmpty() &&
-                        (lastToken ==  PP_WHITESPACE || lastToken == WHITESPACE))
+                        lastToken == WHITESPACE)
                         macro.symbols.pop_back();
                 }
                 macro.symbols.append(symbols.at(i));

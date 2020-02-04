@@ -53,7 +53,11 @@
 ;***********************************************************************
 ; Data
 ;***********************************************************************
+%ifdef X86_32_PICASM
+SECTION .text align=16
+%else
 SECTION .rodata align=16
+%endif
 
 align 16
 HSumSubDB1:   db 1,1,1,1,1,1,1,1,1,-1,1,-1,1,-1,1,-1
@@ -772,10 +776,12 @@ WELS_EXTERN WelsIntra16x16Combined3Satd_sse41
     mov  r12, r2
 %endif
 
+    INIT_X86_32_PIC r2
     pxor        xmm4,   xmm4
-    movdqa      xmm5,   [HSumSubDB1]
-    movdqa      xmm6,   [HSumSubDW1]
-    movdqa      xmm7,   [PDW1]
+    movdqa      xmm5,   [pic(HSumSubDB1)]
+    movdqa      xmm6,   [pic(HSumSubDW1)]
+    movdqa      xmm7,   [pic(PDW1)]
+    DEINIT_X86_32_PIC
     sub         r0,    r1
     movdqu      xmm0,   [r0]
     movhlps     xmm1,   xmm0
@@ -897,9 +903,9 @@ return_satd_intra_16x16_x3:
 ret
 
 %macro SSE41_ChromaGetX38x8Satd 0
-    movdqa      xmm5,   [HSumSubDB1]
-    movdqa      xmm6,   [HSumSubDW1]
-    movdqa      xmm7,   [PDW1]
+    movdqa      xmm5,   [pic(HSumSubDB1)]
+    movdqa      xmm6,   [pic(HSumSubDW1)]
+    movdqa      xmm7,   [pic(PDW1)]
     sub         r0,    r1
     movq        xmm0,   [r0]
     punpcklqdq  xmm0,   xmm0
@@ -921,7 +927,7 @@ ret
     SSE41_ChromaGet8WSumSub xmm0, xmm2, xmm3, xmm1
     movdqa      [r6+16], xmm0 ;H
 ;(sum+2)>>2
-    movdqa      xmm6,   [PDQ2]
+    movdqa      xmm6,   [pic(PDQ2)]
     movdqa      xmm5,   xmm4
     punpckhqdq  xmm5,   xmm1
     paddd       xmm5,   xmm6
@@ -974,6 +980,7 @@ WELS_EXTERN WelsIntraChroma8x8Combined3Satd_sse41
     SIGN_EXTENSION r3, r3d
     SIGN_EXTENSION r5, r5d
 loop_chroma_satdx3:
+    INIT_X86_32_PIC r4
     SSE41_ChromaGetX38x8Satd
     SSEReg2MMX  xmm4, mm0,mm1
     SSEReg2MMX  xmm5, mm2,mm3
@@ -982,6 +989,7 @@ loop_chroma_satdx3:
     mov r2,     arg9
 
     SSE41_ChromaGetX38x8Satd
+    DEINIT_X86_32_PIC
 
     MMXReg2SSE  xmm0, xmm3, mm0, mm1
     MMXReg2SSE  xmm1, xmm3, mm2, mm3
@@ -1275,11 +1283,12 @@ return_sad_intra_16x16_x3:
 ;***********************************************************************
 WELS_EXTERN WelsSampleSatd4x4_sse41
     %assign  push_num 0
+    INIT_X86_32_PIC r5
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION r1, r1d
     SIGN_EXTENSION r3, r3d
-    movdqa      xmm4,[HSwapSumSubDB1]
+    movdqa      xmm4,[pic(HSwapSumSubDB1)]
     movd        xmm2,[r2]
     movd        xmm5,[r2+r3]
     shufps      xmm2,xmm5,0
@@ -1320,6 +1329,7 @@ WELS_EXTERN WelsSampleSatd4x4_sse41
     SSSE3_SumWHorizon retrd, xmm0, xmm5, xmm7
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 
 ;***********************************************************************
@@ -1333,11 +1343,13 @@ WELS_EXTERN WelsSampleSatd8x8_sse41
     push  r5
 %endif
     %assign  push_num 2
+    INIT_X86_32_PIC r6
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION r1, r1d
     SIGN_EXTENSION r3, r3d
-    movdqa      xmm7, [HSumSubDB1]
+
+    movdqa      xmm7, [pic(HSumSubDB1)]
     lea         r4,  [r1+r1*2]
     lea         r5,  [r3+r3*2]
     pxor        xmm6, xmm6
@@ -1348,6 +1360,7 @@ WELS_EXTERN WelsSampleSatd8x8_sse41
     SSSE3_SumWHorizon retrd, xmm6, xmm5, xmm7
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
 %ifdef X86_32
     pop  r5
     pop  r4
@@ -1370,7 +1383,10 @@ WELS_EXTERN WelsSampleSatd8x16_sse41
     PUSH_XMM 8
     SIGN_EXTENSION r1, r1d
     SIGN_EXTENSION r3, r3d
-    movdqa      xmm7, [HSumSubDB1]
+
+    INIT_X86_32_PIC_NOPRESERVE r4
+    movdqa      xmm7, [pic(HSumSubDB1)]
+    DEINIT_X86_32_PIC
     lea         r4,  [r1+r1*2]
     lea         r5,  [r3+r3*2]
     pxor        xmm6, xmm6
@@ -1403,6 +1419,7 @@ WELS_EXTERN WelsSampleSatd16x8_sse41
     push  r5
 %endif
     %assign  push_num 2
+    INIT_X86_32_PIC r6
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION r1, r1d
@@ -1410,7 +1427,7 @@ WELS_EXTERN WelsSampleSatd16x8_sse41
     push  r0
     push  r2
 
-    movdqa      xmm7, [HSumSubDB1]
+    movdqa      xmm7, [pic(HSumSubDB1)]
     lea         r4,  [r1+r1*2]
     lea         r5,  [r3+r3*2]
     pxor        xmm6,   xmm6
@@ -1430,6 +1447,7 @@ WELS_EXTERN WelsSampleSatd16x8_sse41
     SSSE3_SumWHorizon retrd, xmm6, xmm5, xmm7
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
 %ifdef X86_32
     pop  r5
     pop  r4
@@ -1457,7 +1475,9 @@ WELS_EXTERN WelsSampleSatd16x16_sse41
     push  r0
     push  r2
 
-    movdqa      xmm7, [HSumSubDB1]
+    INIT_X86_32_PIC_NOPRESERVE r4
+    movdqa      xmm7, [pic(HSumSubDB1)]
+    DEINIT_X86_32_PIC
     lea         r4,  [r1+r1*2]
     lea         r5,  [r3+r3*2]
     pxor        xmm6,   xmm6
@@ -1634,7 +1654,9 @@ WelsSampleSatd8x8N_avx2:
     SIGN_EXTENSION r1, r1d
     SIGN_EXTENSION r3, r3d
 
-    vbroadcasti128 ymm7, [HSumSubDB1]
+    INIT_X86_32_PIC_NOPRESERVE r5
+    vbroadcasti128 ymm7, [pic(HSumSubDB1)]
+    DEINIT_X86_32_PIC
     lea            r5, [3 * r1]
     lea            r6, [3 * r3]
     vpxor          ymm6, ymm6, ymm6
@@ -1700,9 +1722,11 @@ WelsSampleSatd16x4N_avx2:
     SIGN_EXTENSION r1, r1d
     SIGN_EXTENSION r3, r3d
 
-    vpbroadcastq xmm0, [HSumSubDB1]
-    vpbroadcastq ymm6, [HSumSubDB1 + 8]
+    INIT_X86_32_PIC_NOPRESERVE r5
+    vpbroadcastq xmm0, [pic(HSumSubDB1)]
+    vpbroadcastq ymm6, [pic(HSumSubDB1 + 8)]
     vpblendd     ymm6, ymm0, ymm6, 11110000b
+    DEINIT_X86_32_PIC
     lea          r5, [3 * r1]
     lea          r6, [3 * r3]
     vpxor        ymm5, ymm5, ymm5

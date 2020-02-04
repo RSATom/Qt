@@ -9,13 +9,13 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/sequenced_worker_pool.h"
+#include "base/task/post_task.h"
 #include "components/onc/onc_constants.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -81,7 +81,8 @@ bool GuidToSsid(const std::string& guid, std::string* ssid) {
 // list then returns the list.
 std::unique_ptr<base::ListValue> CopyNetworkMapToList(
     const NetworkingPrivateLinux::NetworkMap& network_map) {
-  std::unique_ptr<base::ListValue> network_list(new base::ListValue);
+  auto network_list = std::make_unique<base::ListValue>();
+  network_list->GetList().reserve(network_map.size());
 
   for (const auto& network : network_map) {
     network_list->Append(network.second->CreateDeepCopy());
@@ -211,11 +212,14 @@ void NetworkingPrivateLinux::GetState(
       new base::DictionaryValue);
 
   // Runs GetCachedNetworkProperties on |dbus_thread|.
+  std::string* error_ptr = error.get();
+  base::DictionaryValue* network_prop_ptr = network_properties.get();
   dbus_thread_.task_runner()->PostTaskAndReply(
-      FROM_HERE, base::Bind(&NetworkingPrivateLinux::GetCachedNetworkProperties,
-                            base::Unretained(this), guid,
-                            base::Unretained(network_properties.get()),
-                            base::Unretained(error.get())),
+      FROM_HERE,
+      base::Bind(&NetworkingPrivateLinux::GetCachedNetworkProperties,
+                 base::Unretained(this), guid,
+                 base::Unretained(network_prop_ptr),
+                 base::Unretained(error_ptr)),
       base::Bind(&GetCachedNetworkPropertiesCallback, base::Passed(&error),
                  base::Passed(&network_properties), success_callback,
                  failure_callback));
@@ -298,11 +302,12 @@ void NetworkingPrivateLinux::GetNetworks(
 
   // Runs GetAllWiFiAccessPoints on the dbus_thread and returns the
   // results back to OnAccessPointsFound where the callback is fired.
+  NetworkMap* network_map_ptr = network_map.get();
   dbus_thread_.task_runner()->PostTaskAndReply(
       FROM_HERE,
       base::Bind(&NetworkingPrivateLinux::GetAllWiFiAccessPoints,
                  base::Unretained(this), configured_only, visible_only, limit,
-                 base::Unretained(network_map.get())),
+                 base::Unretained(network_map_ptr)),
       base::Bind(&NetworkingPrivateLinux::OnAccessPointsFound,
                  base::Unretained(this), base::Passed(&network_map),
                  success_callback, failure_callback));
@@ -318,11 +323,13 @@ bool NetworkingPrivateLinux::GetNetworksForScanRequest() {
   // Runs GetAllWiFiAccessPoints on the dbus_thread and returns the
   // results back to SendNetworkListChangedEvent to fire the event. No
   // callbacks are used in this case.
+  NetworkMap* network_map_ptr = network_map.get();
   dbus_thread_.task_runner()->PostTaskAndReply(
-      FROM_HERE, base::Bind(&NetworkingPrivateLinux::GetAllWiFiAccessPoints,
-                            base::Unretained(this), false /* configured_only */,
-                            false /* visible_only */, 0 /* limit */,
-                            base::Unretained(network_map.get())),
+      FROM_HERE,
+      base::Bind(&NetworkingPrivateLinux::GetAllWiFiAccessPoints,
+                 base::Unretained(this), false /* configured_only */,
+                 false /* visible_only */, 0 /* limit */,
+                 base::Unretained(network_map_ptr)),
       base::Bind(&NetworkingPrivateLinux::OnAccessPointsFoundViaScan,
                  base::Unretained(this), base::Passed(&network_map)));
 
@@ -504,10 +511,11 @@ void NetworkingPrivateLinux::StartConnect(
   std::unique_ptr<std::string> error(new std::string);
 
   // Runs ConnectToNetwork on |dbus_thread|.
+  std::string* error_ptr = error.get();
   dbus_thread_.task_runner()->PostTaskAndReply(
       FROM_HERE,
       base::Bind(&NetworkingPrivateLinux::ConnectToNetwork,
-                 base::Unretained(this), guid, base::Unretained(error.get())),
+                 base::Unretained(this), guid, base::Unretained(error_ptr)),
       base::Bind(&OnNetworkConnectOperationCompleted, base::Passed(&error),
                  success_callback, failure_callback));
 }
@@ -522,10 +530,11 @@ void NetworkingPrivateLinux::StartDisconnect(
   std::unique_ptr<std::string> error(new std::string);
 
   // Runs DisconnectFromNetwork on |dbus_thread|.
+  std::string* error_ptr = error.get();
   dbus_thread_.task_runner()->PostTaskAndReply(
       FROM_HERE,
       base::Bind(&NetworkingPrivateLinux::DisconnectFromNetwork,
-                 base::Unretained(this), guid, base::Unretained(error.get())),
+                 base::Unretained(this), guid, base::Unretained(error_ptr)),
       base::Bind(&OnNetworkConnectOperationCompleted, base::Passed(&error),
                  success_callback, failure_callback));
 }
@@ -571,6 +580,14 @@ void NetworkingPrivateLinux::SetCellularSimState(
   ReportNotSupported("SetCellularSimState", failure_callback);
 }
 
+void NetworkingPrivateLinux::SelectCellularMobileNetwork(
+    const std::string& guid,
+    const std::string& network_id,
+    const VoidCallback& success_callback,
+    const FailureCallback& failure_callback) {
+  ReportNotSupported("SelectCellularMobileNetwork", failure_callback);
+}
+
 std::unique_ptr<base::ListValue>
 NetworkingPrivateLinux::GetEnabledNetworkTypes() {
   std::unique_ptr<base::ListValue> network_list(new base::ListValue);
@@ -591,12 +608,12 @@ NetworkingPrivateLinux::GetDeviceStateList() {
 
 std::unique_ptr<base::DictionaryValue>
 NetworkingPrivateLinux::GetGlobalPolicy() {
-  return base::MakeUnique<base::DictionaryValue>();
+  return std::make_unique<base::DictionaryValue>();
 }
 
 std::unique_ptr<base::DictionaryValue>
 NetworkingPrivateLinux ::GetCertificateLists() {
-  return base::MakeUnique<base::DictionaryValue>();
+  return std::make_unique<base::DictionaryValue>();
 }
 
 bool NetworkingPrivateLinux::EnableNetworkType(const std::string& type) {
@@ -607,7 +624,7 @@ bool NetworkingPrivateLinux::DisableNetworkType(const std::string& type) {
   return false;
 }
 
-bool NetworkingPrivateLinux::RequestScan() {
+bool NetworkingPrivateLinux::RequestScan(const std::string& /* type */) {
   return GetNetworksForScanRequest();
 }
 
@@ -943,7 +960,7 @@ void NetworkingPrivateLinux::AddOrUpdateAccessPoint(
   access_point->GetString(kAccessPointInfoName, &ssid);
   access_point->SetString(kAccessPointInfoGuid, network_guid);
 
-  NetworkMap::iterator existing_access_point_iter = network_map->find(ssid);
+  auto existing_access_point_iter = network_map->find(ssid);
 
   if (existing_access_point_iter == network_map->end()) {
     // Unseen access point. Add it to the map.
@@ -1138,8 +1155,7 @@ bool NetworkingPrivateLinux::SetConnectionStateAndPostEvent(
     const std::string& connection_state) {
   AssertOnDBusThread();
 
-  NetworkMap::iterator network_iter =
-      network_map_->find(base::UTF8ToUTF16(ssid));
+  auto network_iter = network_map_->find(base::UTF8ToUTF16(ssid));
   if (network_iter == network_map_->end()) {
     return false;
   }
@@ -1201,8 +1217,8 @@ void NetworkingPrivateLinux::PostOnNetworksChangedToUIThread(
     std::unique_ptr<GuidList> guid_list) {
   AssertOnDBusThread();
 
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
       base::Bind(&NetworkingPrivateLinux::OnNetworksChangedEventTask,
                  base::Unretained(this), base::Passed(&guid_list)));
 }

@@ -49,11 +49,12 @@ class QWinRTCursor : public QPlatformCursor
 {
 public:
     explicit QWinRTCursor();
-    ~QWinRTCursor();
+    ~QWinRTCursor() override = default;
 #ifndef QT_NO_CURSOR
     void changeCursor(QCursor * windowCursor, QWindow *window) override;
 #endif
     QPoint pos() const override;
+    void setPos(const QPoint &pos) override;
 
 private:
     QScopedPointer<QWinRTCursorPrivate> d_ptr;

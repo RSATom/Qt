@@ -711,10 +711,12 @@ bool QWidgetLineControl::finishChange(int validateFromState, bool update, bool e
             m_validInput = (m_validator->validate(textCopy, cursorCopy) != QValidator::Invalid);
             if (m_validInput) {
                 if (m_text != textCopy) {
-                    internalSetText(textCopy, cursorCopy, false);
+                    internalSetText(textCopy, cursorCopy, edited);
                     return true;
                 }
                 m_cursor = cursorCopy;
+            } else {
+                emit inputRejected();
             }
         }
 #endif
@@ -762,6 +764,8 @@ void QWidgetLineControl::internalSetText(const QString &txt, int pos, bool edite
     if (m_maskData) {
         m_text = maskString(0, txt, true);
         m_text += clearString(m_text.length(), m_maxLength - m_text.length());
+        if (edited && oldText == m_text)
+            emit inputRejected();
     } else {
         m_text = txt.isEmpty() ? txt : txt.left(m_maxLength);
     }
@@ -839,6 +843,8 @@ void QWidgetLineControl::internalInsert(const QString &s)
         addCommand(Command(SetSelection, m_cursor, 0, m_selstart, m_selend));
     if (m_maskData) {
         QString ms = maskString(m_cursor, s);
+        if (ms.isEmpty() && !s.isEmpty())
+            emit inputRejected();
 #ifndef QT_NO_ACCESSIBILITY
         QAccessibleTextInsertEvent insertEvent(accessibleObject(), m_cursor, ms);
         QAccessible::updateAccessibility(&insertEvent);
@@ -867,6 +873,8 @@ void QWidgetLineControl::internalInsert(const QString &s)
                addCommand(Command(Insert, m_cursor++, s.at(i), -1, -1));
             m_textDirty = true;
         }
+        if (s.length() > remaining)
+            emit inputRejected();
     }
 }
 
@@ -1179,9 +1187,9 @@ bool QWidgetLineControl::hasAcceptableInput(const QString &str) const
     that blanks will be used, false that previous input is used.
     Calling this when no inputMask is set is undefined.
 */
-QString QWidgetLineControl::maskString(uint pos, const QString &str, bool clear) const
+QString QWidgetLineControl::maskString(int pos, const QString &str, bool clear) const
 {
-    if (pos >= (uint)m_maxLength)
+    if (pos >= m_maxLength)
         return QString::fromLatin1("");
 
     QString fill;
@@ -1254,13 +1262,13 @@ QString QWidgetLineControl::maskString(uint pos, const QString &str, bool clear)
     Returns a "cleared" string with only separators and blank chars.
     Calling this when no inputMask is set is undefined.
 */
-QString QWidgetLineControl::clearString(uint pos, uint len) const
+QString QWidgetLineControl::clearString(int pos, int len) const
 {
-    if (pos >= (uint)m_maxLength)
+    if (pos >= m_maxLength)
         return QString();
 
     QString s;
-    int end = qMin((uint)m_maxLength, pos + len);
+    int end = qMin(m_maxLength, pos + len);
     for (int i = pos; i < end; ++i)
         if (m_maskData[i].separator)
             s += m_maskData[i].maskChar;
@@ -1840,7 +1848,8 @@ void QWidgetLineControl::processKeyEvent(QKeyEvent* event)
     else if (event == QKeySequence::DeleteStartOfWord) {
         if (!isReadOnly()) {
             cursorWordBackward(true);
-            del();
+            if (hasSelectedText())
+                del();
         }
     } else if (event == QKeySequence::DeleteCompleteLine) {
         if (!isReadOnly()) {

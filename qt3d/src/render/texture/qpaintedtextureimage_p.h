@@ -63,7 +63,7 @@ class QPainter;
 
 namespace Qt3DRender {
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT QPaintedTextureImagePrivate : public QAbstractTextureImagePrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QPaintedTextureImagePrivate : public QAbstractTextureImagePrivate
 {
 public:
     QPaintedTextureImagePrivate();
@@ -72,6 +72,7 @@ public:
     Q_DECLARE_PUBLIC(QPaintedTextureImage)
 
     QSize m_imageSize;
+    qreal m_devicePixelRatio;
     QScopedPointer<QImage> m_image;
     QTextureImageDataGeneratorPtr m_currentGenerator;
 
@@ -89,8 +90,8 @@ public:
     ~QPaintedTextureImageDataGenerator();
 
     // Will be executed from within a QAspectJob
-    QTextureImageDataPtr operator ()() Q_DECL_FINAL;
-    bool operator ==(const QTextureImageDataGenerator &other) const Q_DECL_FINAL;
+    QTextureImageDataPtr operator ()() final;
+    bool operator ==(const QTextureImageDataGenerator &other) const final;
 
     QT3D_FUNCTOR(QPaintedTextureImageDataGenerator)
 

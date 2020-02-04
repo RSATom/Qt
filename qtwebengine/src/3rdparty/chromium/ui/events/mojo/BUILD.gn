@@ -12,18 +12,8 @@ mojom("interfaces") {
   ]
 
   public_deps = [
-    "//ui/gfx/mojo",
+    "//mojo/public/mojom/base",
+    "//ui/gfx/geometry/mojo",
     "//ui/latency/mojo:interfaces",
-  ]
-}
-
-mojom("test_interfaces") {
-  testonly = true
-  sources = [
-    "traits_test_service.mojom",
-  ]
-
-  public_deps = [
-    ":interfaces",
   ]
 }

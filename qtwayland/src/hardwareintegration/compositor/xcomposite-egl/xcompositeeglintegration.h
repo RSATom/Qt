@@ -61,8 +61,8 @@ public:
     inline EGLDisplay eglDisplay() const { return mEglDisplay; }
 
 private:
-    Display *mDisplay;
-    EGLDisplay mEglDisplay;
+    Display *mDisplay = nullptr;
+    EGLDisplay mEglDisplay = EGL_NO_DISPLAY;
 };
 
 class XCompositeEglClientBuffer : public QtWayland::ClientBuffer
@@ -78,8 +78,8 @@ public:
     }
 
 private:
-    QOpenGLTexture *m_texture;
-    XCompositeEglClientBufferIntegration *m_integration;
+    QOpenGLTexture *m_texture = nullptr;
+    XCompositeEglClientBufferIntegration *m_integration = nullptr;
 };
 
 QT_END_NAMESPACE

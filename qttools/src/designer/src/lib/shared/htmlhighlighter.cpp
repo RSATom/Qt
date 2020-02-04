@@ -26,8 +26,8 @@
 **
 ****************************************************************************/
 
-#include <QtCore/QTextStream>
-#include <QtWidgets/QTextEdit>
+#include <QtCore/qtextstream.h>
+#include <QtWidgets/qtextedit.h>
 
 #include "htmlhighlighter_p.h"
 
@@ -113,7 +113,8 @@ void HtmlHighlighter::highlightBlock(const QString &text)
                         break;
                     }
                     break;
-                } else if (ch == amp) {
+                }
+                if (ch == amp) {
                     start = pos;
                     while (pos < len && text.at(pos++) != semicolon)
                         ;
@@ -127,13 +128,11 @@ void HtmlHighlighter::highlightBlock(const QString &text)
             break;
         case InComment:
             start = pos;
-            while (pos < len) {
+            for ( ; pos < len; ++pos) {
                 if (text.mid(pos, 3) == endComment) {
                     pos += 3;
                     state = NormalState;
                     break;
-                } else {
-                    ++pos;
                 }
             }
             setFormat(start, pos - start, m_formats[Comment]);

@@ -7,9 +7,10 @@
 
 #include <memory>
 
-#include "cc/output/copy_output_request.h"
+#include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "ui/android/ui_android_export.h"
+#include "ui/compositor/compositor_lock.h"
 
 namespace cc {
 class Layer;
@@ -26,12 +27,17 @@ class UI_ANDROID_EXPORT WindowAndroidCompositor {
 
   virtual void AttachLayerForReadback(scoped_refptr<cc::Layer> layer) = 0;
   virtual void RequestCopyOfOutputOnRootLayer(
-      std::unique_ptr<cc::CopyOutputRequest> request) = 0;
+      std::unique_ptr<viz::CopyOutputRequest> request) = 0;
   virtual void SetNeedsAnimate() = 0;
   virtual ResourceManager& GetResourceManager() = 0;
   virtual viz::FrameSinkId GetFrameSinkId() = 0;
   virtual void AddChildFrameSink(const viz::FrameSinkId& frame_sink_id) = 0;
   virtual void RemoveChildFrameSink(const viz::FrameSinkId& frame_sink_id) = 0;
+  virtual std::unique_ptr<CompositorLock> GetCompositorLock(
+      CompositorLockClient* client,
+      base::TimeDelta timeout) = 0;
+  virtual bool IsDrawingFirstVisibleFrame() const = 0;
+  virtual void SetVSyncPaused(bool paused) = 0;
 };
 
 }  // namespace ui

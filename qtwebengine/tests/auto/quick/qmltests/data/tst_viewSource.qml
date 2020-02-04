@@ -63,8 +63,10 @@ TestWebEngineView {
         name: "WebEngineViewSource"
 
         function init() {
+            webEngineView.loadStatus = null;
             webEngineView.url = Qt.resolvedUrl("test1.html");
-            verify(webEngineView.waitForLoadSucceeded());
+            tryCompare(webEngineView, "loadStatus", WebEngineView.LoadSucceededStatus);
+            webEngineView.loadStatus = null;
 
             newViewRequestedSpy.clear();
             titleChangedSpy.clear();
@@ -75,8 +77,7 @@ TestWebEngineView {
             webEngineView.url = Qt.resolvedUrl("test1.html");
             verify(webEngineView.waitForLoadSucceeded());
             tryCompare(webEngineView, "title", "Test page 1");
-            // FIXME(pvarga): Reintroduce this check in the fix for QTBUG-56117
-            //verify(webEngineView.canViewSource, true);
+            verify(webEngineView.action(WebEngineView.ViewSource).enabled);
 
             titleChangedSpy.clear();
             webEngineView.triggerWebAction(WebEngineView.ViewSource);
@@ -87,8 +88,7 @@ TestWebEngineView {
 
             compare(viewRequest.destination, WebEngineView.NewViewInTab);
             verify(viewRequest.userInitiated);
-            // FIXME(pvarga): Reintroduce this check in the fix for QTBUG-56117
-            //verify(!webEngineView.canViewSource);
+            verify(!webEngineView.action(WebEngineView.ViewSource).enabled);
 
             tryCompare(webEngineView, "title", "test1.html");
             compare(webEngineView.url, "view-source:" + Qt.resolvedUrl("test1.html"));
@@ -113,16 +113,43 @@ TestWebEngineView {
             webEngineView.url = row.userInputUrl;
 
             if (row.loadSucceed) {
-                verify(webEngineView.waitForLoadSucceeded());
+                tryCompare(webEngineView, "loadStatus", WebEngineView.LoadSucceededStatus);
             } else {
-                verify(webEngineView.waitForLoadFailed());
+                tryCompare(webEngineView, "loadStatus", WebEngineView.LoadFailedStatus, 15000);
             }
             tryVerify(function() { return titleChangedSpy.count == 1; });
 
             compare(webEngineView.url, row.url);
             tryCompare(webEngineView, "title", row.title);
-            // FIXME(pvarga): Reintroduce this check in the fix for QTBUG-56117
-            //verify(!webEngineView.canViewSource);
+            verify(!webEngineView.action(WebEngineView.ViewSource).enabled);
+        }
+
+        function test_viewSourceCredentials() {
+            var url = "http://user:passwd@httpbin.org/basic-auth/user/passwd";
+
+            // Test explicit view-source URL with credentials
+            webEngineView.url = Qt.resolvedUrl("view-source:" + url);
+            if (!webEngineView.waitForLoadSucceeded(12000))
+                skip("Couldn't load page from network, skipping test.");
+
+            compare(webEngineView.url, "view-source:" + url.replace("user:passwd@", ""));
+            compare(webEngineView.title, "view-source:" + url.replace("http://user:passwd@", ""));
+            titleChangedSpy.clear();
+
+            // Test ViewSource web action on URL with credentials
+            webEngineView.url = Qt.resolvedUrl(url);
+            if (!webEngineView.waitForLoadSucceeded(12000))
+                skip("Couldn't load page from network, skipping test.");
+            webEngineView.triggerWebAction(WebEngineView.ViewSource);
+            tryCompare(newViewRequestedSpy, "count", 1);
+
+            // The first titleChanged signal is emitted by adoptWebContents()
+            tryVerify(function() { return titleChangedSpy.count >= 2; });
+            compare(viewRequest.destination, WebEngineView.NewViewInTab);
+            verify(viewRequest.userInitiated);
+
+            tryCompare(webEngineView, "url", "view-source:" + url.replace("user:passwd@", ""));
+            tryCompare(webEngineView, "title", "view-source:" + url.replace("http://user:passwd@", ""));
         }
     }
 }

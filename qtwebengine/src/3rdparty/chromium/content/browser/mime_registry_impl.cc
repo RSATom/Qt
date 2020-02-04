@@ -5,7 +5,6 @@
 #include "content/browser/mime_registry_impl.h"
 
 #include "base/files/file_path.h"
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/base/mime_util.h"
@@ -19,7 +18,7 @@ MimeRegistryImpl::~MimeRegistryImpl() = default;
 // static
 void MimeRegistryImpl::Create(
     blink::mojom::MimeRegistryRequest request) {
-  mojo::MakeStrongBinding(base::MakeUnique<MimeRegistryImpl>(),
+  mojo::MakeStrongBinding(std::make_unique<MimeRegistryImpl>(),
                           std::move(request));
 }
 

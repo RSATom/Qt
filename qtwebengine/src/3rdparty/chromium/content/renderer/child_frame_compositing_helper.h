@@ -12,24 +12,13 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/ref_counted.h"
-#include "base/memory/shared_memory.h"
-#include "base/memory/weak_ptr.h"
+#include "cc/layers/content_layer_client.h"
+#include "cc/layers/surface_layer.h"
 #include "components/viz/common/surfaces/surface_id.h"
-#include "components/viz/common/surfaces/surface_reference_factory.h"
 #include "content/common/content_export.h"
-#include "ui/gfx/geometry/size.h"
 
 namespace cc {
-struct SurfaceSequence;
-
-class Layer;
-}
-
-namespace blink {
-class WebLayer;
-class WebPluginContainer;
-class WebRemoteFrame;
+class PictureLayer;
 }
 
 namespace gfx {
@@ -37,65 +26,43 @@ class Size;
 }
 
 namespace viz {
-class SurfaceInfo;
+class SurfaceId;
 }
 
 namespace content {
 
-class BrowserPlugin;
-class RenderFrameProxy;
+class ChildFrameCompositor;
 
 class CONTENT_EXPORT ChildFrameCompositingHelper
-    : public base::RefCounted<ChildFrameCompositingHelper> {
+    : public cc::ContentLayerClient {
  public:
-  static ChildFrameCompositingHelper* CreateForBrowserPlugin(
-      const base::WeakPtr<BrowserPlugin>& browser_plugin);
-  static ChildFrameCompositingHelper* CreateForRenderFrameProxy(
-      RenderFrameProxy* render_frame_proxy);
+  explicit ChildFrameCompositingHelper(
+      ChildFrameCompositor* child_frame_compositor);
+  ~ChildFrameCompositingHelper() override;
 
-  void OnContainerDestroy();
-  void OnSetSurface(const viz::SurfaceInfo& surface_info,
-                    const viz::SurfaceSequence& sequence);
-  void UpdateVisibility(bool);
-  void ChildFrameGone();
+  void SetSurfaceId(const viz::SurfaceId& surface_id,
+                    const gfx::Size& frame_size_in_dip,
+                    const cc::DeadlinePolicy& deadline);
+  void UpdateVisibility(bool visible);
+  void ChildFrameGone(const gfx::Size& frame_size_in_dip,
+                      float device_scale_factor);
 
-  viz::SurfaceId surface_id() const { return surface_id_; }
-
- protected:
-  // Friend RefCounted so that the dtor can be non-public.
-  friend class base::RefCounted<ChildFrameCompositingHelper>;
+  const viz::SurfaceId& surface_id() const { return surface_id_; }
 
  private:
-  ChildFrameCompositingHelper(
-      const base::WeakPtr<BrowserPlugin>& browser_plugin,
-      blink::WebRemoteFrame* frame,
-      RenderFrameProxy* render_frame_proxy,
-      int host_routing_id);
+  // cc::ContentLayerClient implementation. Called from the cc::PictureLayer
+  // created for the crashed child frame to display the sad image.
+  gfx::Rect PaintableRegion() override;
+  scoped_refptr<cc::DisplayItemList> PaintContentsToDisplayList(
+      PaintingControlSetting) override;
+  bool FillsBoundsCompletely() const override;
+  size_t GetApproximateUnsharedMemoryUsage() const override;
 
-  virtual ~ChildFrameCompositingHelper();
-
-  blink::WebPluginContainer* GetContainer();
-
-  void CheckSizeAndAdjustLayerProperties(const gfx::Size& new_size,
-                                         float device_scale_factor,
-                                         cc::Layer* layer);
-  void UpdateWebLayer(std::unique_ptr<blink::WebLayer> layer);
-
-  const int host_routing_id_;
-
-  gfx::Size buffer_size_;
-
-  // The lifetime of this weak pointer should be greater than the lifetime of
-  // other member objects, as they may access this pointer during their
-  // destruction.
-  const base::WeakPtr<BrowserPlugin> browser_plugin_;
-  RenderFrameProxy* const render_frame_proxy_;
-
-  std::unique_ptr<blink::WebLayer> web_layer_;
+  ChildFrameCompositor* const child_frame_compositor_;
   viz::SurfaceId surface_id_;
-  blink::WebRemoteFrame* frame_;
-
-  scoped_refptr<viz::SurfaceReferenceFactory> surface_reference_factory_;
+  scoped_refptr<cc::SurfaceLayer> surface_layer_;
+  scoped_refptr<cc::PictureLayer> crash_ui_layer_;
+  float device_scale_factor_ = 1.f;
 
   DISALLOW_COPY_AND_ASSIGN(ChildFrameCompositingHelper);
 };

@@ -68,27 +68,31 @@ QT_BEGIN_NAMESPACE
 #if QT_CONFIG(icu)
 typedef UCollator *CollatorType;
 typedef QByteArray CollatorKeyType;
+const CollatorType NoCollator = nullptr;
 
 #elif defined(Q_OS_OSX)
 typedef CollatorRef CollatorType;
 typedef QVector<UCCollationValue> CollatorKeyType;
+const CollatorType NoCollator = 0;
 
 #elif defined(Q_OS_WIN)
 typedef QString CollatorKeyType;
 typedef int CollatorType;
+const CollatorType NoCollator = 0;
 #  ifdef Q_OS_WINRT
 #    define USE_COMPARESTRINGEX
 #  endif
 
-#else //posix
+#else // posix - ignores CollatorType collator, only handles system locale
 typedef QVector<wchar_t> CollatorKeyType;
-typedef int CollatorType;
+typedef bool CollatorType;
+const CollatorType NoCollator = false;
 #endif
 
 class QCollatorPrivate
 {
 public:
-    QAtomicInt ref;
+    QAtomicInt ref = 1;
     QLocale locale;
 #if defined(Q_OS_WIN) && !QT_CONFIG(icu)
 #ifdef USE_COMPARESTRINGEX
@@ -97,34 +101,28 @@ public:
     LCID localeID;
 #endif
 #endif
-    Qt::CaseSensitivity caseSensitivity;
-    bool numericMode;
-    bool ignorePunctuation;
-    bool dirty;
+    Qt::CaseSensitivity caseSensitivity = Qt::CaseSensitive;
+    bool numericMode = false;
+    bool ignorePunctuation = false;
+    bool dirty = true;
 
-    CollatorType collator;
+    CollatorType collator = NoCollator;
+
+    QCollatorPrivate(const QLocale &locale) : locale(locale) {}
+    ~QCollatorPrivate() { cleanup(); }
+    bool isC() { return locale.language() == QLocale::C; }
 
     void clear() {
         cleanup();
-        collator = 0;
+        collator = NoCollator;
     }
 
+    // Implemented by each back-end, in its own way:
     void init();
     void cleanup();
 
-    QCollatorPrivate()
-        : ref(1),
-          caseSensitivity(Qt::CaseSensitive),
-          numericMode(false),
-          ignorePunctuation(false),
-          dirty(true),
-          collator(0)
-    { cleanup(); }
-
-    ~QCollatorPrivate() { cleanup(); }
-
 private:
-    Q_DISABLE_COPY(QCollatorPrivate)
+    Q_DISABLE_COPY_MOVE(QCollatorPrivate)
 };
 
 class QCollatorSortKeyPrivate : public QSharedData
@@ -141,7 +139,7 @@ public:
     CollatorKeyType m_key;
 
 private:
-    Q_DISABLE_COPY(QCollatorSortKeyPrivate)
+    Q_DISABLE_COPY_MOVE(QCollatorSortKeyPrivate)
 };
 
 

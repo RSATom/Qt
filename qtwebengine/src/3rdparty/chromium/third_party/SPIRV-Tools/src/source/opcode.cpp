@@ -1,77 +1,65 @@
 // Copyright (c) 2015-2016 The Khronos Group Inc.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS
-// KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS
-// SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT
-//    https://www.khronos.org/registry/
-//
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-#include "opcode.h"
+#include "source/opcode.h"
 
 #include <assert.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cstdlib>
 
-#include "instruction.h"
+#include "source/instruction.h"
+#include "source/macro.h"
+#include "source/spirv_constant.h"
+#include "source/spirv_endian.h"
+#include "source/spirv_target_env.h"
 #include "spirv-tools/libspirv.h"
-#include "spirv_constant.h"
-#include "spirv_endian.h"
 
 namespace {
-
-// Descriptions of each opcode.  Each entry describes the format of the
-// instruction that follows a particular opcode.
-const spv_opcode_desc_t opcodeTableEntries_1_0[] = {
-#include "core.insts-1-0.inc"
+struct OpcodeDescPtrLen {
+  const spv_opcode_desc_t* ptr;
+  uint32_t len;
 };
-const spv_opcode_desc_t opcodeTableEntries_1_1[] = {
-#include "core.insts-1-1.inc"
+
+#include "core.insts-unified1.inc"
+
+static const spv_opcode_table_t kOpcodeTable = {ARRAY_SIZE(kOpcodeTableEntries),
+                                                kOpcodeTableEntries};
+
+// Represents a vendor tool entry in the SPIR-V XML Regsitry.
+struct VendorTool {
+  uint32_t value;
+  const char* vendor;
+  const char* tool;         // Might be empty string.
+  const char* vendor_tool;  // Combiantion of vendor and tool.
+};
+
+const VendorTool vendor_tools[] = {
+#include "generators.inc"
 };
 
 }  // anonymous namespace
 
+// TODO(dneto): Move this to another file.  It doesn't belong with opcode
+// processing.
 const char* spvGeneratorStr(uint32_t generator) {
-  switch (generator) {
-    case SPV_GENERATOR_KHRONOS:
-      return "Khronos";
-    case SPV_GENERATOR_LUNARG:
-      return "LunarG";
-    case SPV_GENERATOR_VALVE:
-      return "Valve";
-    case SPV_GENERATOR_CODEPLAY:
-      return "Codeplay Software Ltd.";
-    case SPV_GENERATOR_NVIDIA:
-      return "NVIDIA";
-    case SPV_GENERATOR_ARM:
-      return "ARM";
-    case SPV_GENERATOR_KHRONOS_LLVM_TRANSLATOR:
-      return "Khronos LLVM/SPIR-V Translator";
-    case SPV_GENERATOR_KHRONOS_ASSEMBLER:
-      return "Khronos SPIR-V Tools Assembler";
-    case SPV_GENERATOR_KHRONOS_GLSLANG:
-      return "Khronos Glslang Reference Front End";
-    default:
-      return "Unknown";
-  }
+  auto where = std::find_if(
+      std::begin(vendor_tools), std::end(vendor_tools),
+      [generator](const VendorTool& vt) { return generator == vt.value; });
+  if (where != std::end(vendor_tools)) return where->vendor_tool;
+  return "Unknown";
 }
 
 uint32_t spvOpcodeMake(uint16_t wordCount, SpvOp opcode) {
@@ -88,35 +76,18 @@ void spvOpcodeSplit(const uint32_t word, uint16_t* pWordCount,
   }
 }
 
-// Evaluates to the number of elements of array A.
-// If we could use constexpr, then we could make this a template function.
-// If the source arrays were std::array, then we could have used
-// std::array::size.
-#define ARRAY_SIZE(A) (static_cast<uint32_t>(sizeof(A) / sizeof(A[0])))
-
-spv_result_t spvOpcodeTableGet(spv_opcode_table* pInstTable,
-                               spv_target_env env) {
+spv_result_t spvOpcodeTableGet(spv_opcode_table* pInstTable, spv_target_env) {
   if (!pInstTable) return SPV_ERROR_INVALID_POINTER;
 
-  static const spv_opcode_table_t table_1_0 = {
-      ARRAY_SIZE(opcodeTableEntries_1_0), opcodeTableEntries_1_0};
-  static const spv_opcode_table_t table_1_1 = {
-      ARRAY_SIZE(opcodeTableEntries_1_1), opcodeTableEntries_1_1};
+  // Descriptions of each opcode.  Each entry describes the format of the
+  // instruction that follows a particular opcode.
 
-  switch (env) {
-    case SPV_ENV_UNIVERSAL_1_0:
-    case SPV_ENV_VULKAN_1_0:
-      *pInstTable = &table_1_0;
-      return SPV_SUCCESS;
-    case SPV_ENV_UNIVERSAL_1_1:
-      *pInstTable = &table_1_1;
-      return SPV_SUCCESS;
-  }
-  assert(0 && "Unknown spv_target_env in spvOpcodeTableGet()");
-  return SPV_ERROR_INVALID_TABLE;
+  *pInstTable = &kOpcodeTable;
+  return SPV_SUCCESS;
 }
 
-spv_result_t spvOpcodeTableNameLookup(const spv_opcode_table table,
+spv_result_t spvOpcodeTableNameLookup(spv_target_env env,
+                                      const spv_opcode_table table,
                                       const char* name,
                                       spv_opcode_desc* pEntry) {
   if (!name || !pEntry) return SPV_ERROR_INVALID_POINTER;
@@ -124,14 +95,24 @@ spv_result_t spvOpcodeTableNameLookup(const spv_opcode_table table,
 
   // TODO: This lookup of the Opcode table is suboptimal! Binary sort would be
   // preferable but the table requires sorting on the Opcode name, but it's
-  // static
-  // const initialized and matches the order of the spec.
+  // static const initialized and matches the order of the spec.
   const size_t nameLength = strlen(name);
   for (uint64_t opcodeIndex = 0; opcodeIndex < table->count; ++opcodeIndex) {
-    if (nameLength == strlen(table->entries[opcodeIndex].name) &&
-        !strncmp(name, table->entries[opcodeIndex].name, nameLength)) {
+    const spv_opcode_desc_t& entry = table->entries[opcodeIndex];
+    // We considers the current opcode as available as long as
+    // 1. The target environment satisfies the minimal requirement of the
+    //    opcode; or
+    // 2. There is at least one extension enabling this opcode.
+    //
+    // Note that the second rule assumes the extension enabling this instruction
+    // is indeed requested in the SPIR-V code; checking that should be
+    // validator's work.
+    if ((spvVersionForTargetEnv(env) >= entry.minVersion ||
+         entry.numExtensions > 0u || entry.numCapabilities > 0u) &&
+        nameLength == strlen(entry.name) &&
+        !strncmp(name, entry.name, nameLength)) {
       // NOTE: Found out Opcode!
-      *pEntry = &table->entries[opcodeIndex];
+      *pEntry = &entry;
       return SPV_SUCCESS;
     }
   }
@@ -139,26 +120,46 @@ spv_result_t spvOpcodeTableNameLookup(const spv_opcode_table table,
   return SPV_ERROR_INVALID_LOOKUP;
 }
 
-spv_result_t spvOpcodeTableValueLookup(const spv_opcode_table table,
+spv_result_t spvOpcodeTableValueLookup(spv_target_env env,
+                                       const spv_opcode_table table,
                                        const SpvOp opcode,
                                        spv_opcode_desc* pEntry) {
   if (!table) return SPV_ERROR_INVALID_TABLE;
   if (!pEntry) return SPV_ERROR_INVALID_POINTER;
 
-  // TODO: As above this lookup is not optimal.
-  for (uint64_t opcodeIndex = 0; opcodeIndex < table->count; ++opcodeIndex) {
-    if (opcode == table->entries[opcodeIndex].opcode) {
-      // NOTE: Found the Opcode!
-      *pEntry = &table->entries[opcodeIndex];
+  const auto beg = table->entries;
+  const auto end = table->entries + table->count;
+
+  spv_opcode_desc_t needle = {"",    opcode, 0, nullptr, 0,  {},
+                              false, false,  0, nullptr, ~0u};
+
+  auto comp = [](const spv_opcode_desc_t& lhs, const spv_opcode_desc_t& rhs) {
+    return lhs.opcode < rhs.opcode;
+  };
+
+  // We need to loop here because there can exist multiple symbols for the same
+  // opcode value, and they can be introduced in different target environments,
+  // which means they can have different minimal version requirements.
+  // Assumes the underlying table is already sorted ascendingly according to
+  // opcode value.
+  for (auto it = std::lower_bound(beg, end, needle, comp);
+       it != end && it->opcode == opcode; ++it) {
+    // We considers the current opcode as available as long as
+    // 1. The target environment satisfies the minimal requirement of the
+    //    opcode; or
+    // 2. There is at least one extension enabling this opcode.
+    //
+    // Note that the second rule assumes the extension enabling this instruction
+    // is indeed requested in the SPIR-V code; checking that should be
+    // validator's work.
+    if (spvVersionForTargetEnv(env) >= it->minVersion ||
+        it->numExtensions > 0u || it->numCapabilities > 0u) {
+      *pEntry = it;
       return SPV_SUCCESS;
     }
   }
 
   return SPV_ERROR_INVALID_LOOKUP;
-}
-
-int32_t spvOpcodeRequiresCapabilities(spv_opcode_desc entry) {
-  return entry->capabilities != 0;
 }
 
 void spvInstructionCopy(const uint32_t* words, const SpvOp opcode,
@@ -179,13 +180,18 @@ void spvInstructionCopy(const uint32_t* words, const SpvOp opcode,
 }
 
 const char* spvOpcodeString(const SpvOp opcode) {
-  // Use the latest SPIR-V version, which should be backward-compatible with all
-  // previous ones.
-  for (uint32_t i = 0;
-       i < sizeof(opcodeTableEntries_1_1) / sizeof(spv_opcode_desc_t); ++i) {
-    if (opcodeTableEntries_1_1[i].opcode == opcode)
-      return opcodeTableEntries_1_1[i].name;
+  const auto beg = kOpcodeTableEntries;
+  const auto end = kOpcodeTableEntries + ARRAY_SIZE(kOpcodeTableEntries);
+  spv_opcode_desc_t needle = {"",    opcode, 0, nullptr, 0,  {},
+                              false, false,  0, nullptr, ~0u};
+  auto comp = [](const spv_opcode_desc_t& lhs, const spv_opcode_desc_t& rhs) {
+    return lhs.opcode < rhs.opcode;
+  };
+  auto it = std::lower_bound(beg, end, needle, comp);
+  if (it != end && it->opcode == opcode) {
+    return it->name;
   }
+
   assert(0 && "Unreachable!");
   return "unknown";
 }
@@ -195,6 +201,19 @@ int32_t spvOpcodeIsScalarType(const SpvOp opcode) {
     case SpvOpTypeInt:
     case SpvOpTypeFloat:
     case SpvOpTypeBool:
+      return true;
+    default:
+      return false;
+  }
+}
+
+int32_t spvOpcodeIsSpecConstant(const SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpSpecConstantTrue:
+    case SpvOpSpecConstantFalse:
+    case SpvOpSpecConstant:
+    case SpvOpSpecConstantComposite:
+    case SpvOpSpecConstantOp:
       return true;
     default:
       return false;
@@ -220,6 +239,21 @@ int32_t spvOpcodeIsConstant(const SpvOp opcode) {
   }
 }
 
+bool spvOpcodeIsConstantOrUndef(const SpvOp opcode) {
+  return opcode == SpvOpUndef || spvOpcodeIsConstant(opcode);
+}
+
+bool spvOpcodeIsScalarSpecConstant(const SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpSpecConstantTrue:
+    case SpvOpSpecConstantFalse:
+    case SpvOpSpecConstant:
+      return true;
+    default:
+      return false;
+  }
+}
+
 int32_t spvOpcodeIsComposite(const SpvOp opcode) {
   switch (opcode) {
     case SpvOpTypeVector:
@@ -232,14 +266,34 @@ int32_t spvOpcodeIsComposite(const SpvOp opcode) {
   }
 }
 
-int32_t spvOpcodeIsPointer(const SpvOp opcode) {
+bool spvOpcodeReturnsLogicalVariablePointer(const SpvOp opcode) {
   switch (opcode) {
     case SpvOpVariable:
     case SpvOpAccessChain:
-    case SpvOpPtrAccessChain:
     case SpvOpInBoundsAccessChain:
-    case SpvOpInBoundsPtrAccessChain:
     case SpvOpFunctionParameter:
+    case SpvOpImageTexelPointer:
+    case SpvOpCopyObject:
+    case SpvOpSelect:
+    case SpvOpPhi:
+    case SpvOpFunctionCall:
+    case SpvOpPtrAccessChain:
+    case SpvOpLoad:
+    case SpvOpConstantNull:
+      return true;
+    default:
+      return false;
+  }
+}
+
+int32_t spvOpcodeReturnsLogicalPointer(const SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpVariable:
+    case SpvOpAccessChain:
+    case SpvOpInBoundsAccessChain:
+    case SpvOpFunctionParameter:
+    case SpvOpImageTexelPointer:
+    case SpvOpCopyObject:
       return true;
     default:
       return false;
@@ -268,6 +322,9 @@ int32_t spvOpcodeGeneratesType(SpvOp op) {
     case SpvOpTypeReserveId:
     case SpvOpTypeQueue:
     case SpvOpTypePipe:
+    case SpvOpTypePipeStorage:
+    case SpvOpTypeNamedBarrier:
+    case SpvOpTypeAccelerationStructureNV:
       return true;
     default:
       // In particular, OpTypeForwardPointer does not generate a type,
@@ -276,4 +333,273 @@ int32_t spvOpcodeGeneratesType(SpvOp op) {
       break;
   }
   return 0;
+}
+
+bool spvOpcodeIsDecoration(const SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpDecorate:
+    case SpvOpDecorateId:
+    case SpvOpMemberDecorate:
+    case SpvOpGroupDecorate:
+    case SpvOpGroupMemberDecorate:
+    case SpvOpDecorateStringGOOGLE:
+    case SpvOpMemberDecorateStringGOOGLE:
+      return true;
+    default:
+      break;
+  }
+  return false;
+}
+
+bool spvOpcodeIsLoad(const SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpLoad:
+    case SpvOpImageSampleExplicitLod:
+    case SpvOpImageSampleImplicitLod:
+    case SpvOpImageSampleDrefImplicitLod:
+    case SpvOpImageSampleDrefExplicitLod:
+    case SpvOpImageSampleProjImplicitLod:
+    case SpvOpImageSampleProjExplicitLod:
+    case SpvOpImageSampleProjDrefImplicitLod:
+    case SpvOpImageSampleProjDrefExplicitLod:
+    case SpvOpImageFetch:
+    case SpvOpImageGather:
+    case SpvOpImageDrefGather:
+    case SpvOpImageRead:
+    case SpvOpImageSparseSampleImplicitLod:
+    case SpvOpImageSparseSampleExplicitLod:
+    case SpvOpImageSparseSampleDrefExplicitLod:
+    case SpvOpImageSparseSampleDrefImplicitLod:
+    case SpvOpImageSparseFetch:
+    case SpvOpImageSparseGather:
+    case SpvOpImageSparseDrefGather:
+    case SpvOpImageSparseRead:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool spvOpcodeIsBranch(SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpBranch:
+    case SpvOpBranchConditional:
+    case SpvOpSwitch:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool spvOpcodeIsAtomicWithLoad(const SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpAtomicLoad:
+    case SpvOpAtomicExchange:
+    case SpvOpAtomicCompareExchange:
+    case SpvOpAtomicCompareExchangeWeak:
+    case SpvOpAtomicIIncrement:
+    case SpvOpAtomicIDecrement:
+    case SpvOpAtomicIAdd:
+    case SpvOpAtomicISub:
+    case SpvOpAtomicSMin:
+    case SpvOpAtomicUMin:
+    case SpvOpAtomicSMax:
+    case SpvOpAtomicUMax:
+    case SpvOpAtomicAnd:
+    case SpvOpAtomicOr:
+    case SpvOpAtomicXor:
+    case SpvOpAtomicFlagTestAndSet:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool spvOpcodeIsAtomicOp(const SpvOp opcode) {
+  return (spvOpcodeIsAtomicWithLoad(opcode) || opcode == SpvOpAtomicStore ||
+          opcode == SpvOpAtomicFlagClear);
+}
+
+bool spvOpcodeIsReturn(SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpReturn:
+    case SpvOpReturnValue:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool spvOpcodeIsReturnOrAbort(SpvOp opcode) {
+  return spvOpcodeIsReturn(opcode) || opcode == SpvOpKill ||
+         opcode == SpvOpUnreachable;
+}
+
+bool spvOpcodeIsBlockTerminator(SpvOp opcode) {
+  return spvOpcodeIsBranch(opcode) || spvOpcodeIsReturnOrAbort(opcode);
+}
+
+bool spvOpcodeIsBaseOpaqueType(SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpTypeImage:
+    case SpvOpTypeSampler:
+    case SpvOpTypeSampledImage:
+    case SpvOpTypeOpaque:
+    case SpvOpTypeEvent:
+    case SpvOpTypeDeviceEvent:
+    case SpvOpTypeReserveId:
+    case SpvOpTypeQueue:
+    case SpvOpTypePipe:
+    case SpvOpTypeForwardPointer:
+    case SpvOpTypePipeStorage:
+    case SpvOpTypeNamedBarrier:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool spvOpcodeIsNonUniformGroupOperation(SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpGroupNonUniformElect:
+    case SpvOpGroupNonUniformAll:
+    case SpvOpGroupNonUniformAny:
+    case SpvOpGroupNonUniformAllEqual:
+    case SpvOpGroupNonUniformBroadcast:
+    case SpvOpGroupNonUniformBroadcastFirst:
+    case SpvOpGroupNonUniformBallot:
+    case SpvOpGroupNonUniformInverseBallot:
+    case SpvOpGroupNonUniformBallotBitExtract:
+    case SpvOpGroupNonUniformBallotBitCount:
+    case SpvOpGroupNonUniformBallotFindLSB:
+    case SpvOpGroupNonUniformBallotFindMSB:
+    case SpvOpGroupNonUniformShuffle:
+    case SpvOpGroupNonUniformShuffleXor:
+    case SpvOpGroupNonUniformShuffleUp:
+    case SpvOpGroupNonUniformShuffleDown:
+    case SpvOpGroupNonUniformIAdd:
+    case SpvOpGroupNonUniformFAdd:
+    case SpvOpGroupNonUniformIMul:
+    case SpvOpGroupNonUniformFMul:
+    case SpvOpGroupNonUniformSMin:
+    case SpvOpGroupNonUniformUMin:
+    case SpvOpGroupNonUniformFMin:
+    case SpvOpGroupNonUniformSMax:
+    case SpvOpGroupNonUniformUMax:
+    case SpvOpGroupNonUniformFMax:
+    case SpvOpGroupNonUniformBitwiseAnd:
+    case SpvOpGroupNonUniformBitwiseOr:
+    case SpvOpGroupNonUniformBitwiseXor:
+    case SpvOpGroupNonUniformLogicalAnd:
+    case SpvOpGroupNonUniformLogicalOr:
+    case SpvOpGroupNonUniformLogicalXor:
+    case SpvOpGroupNonUniformQuadBroadcast:
+    case SpvOpGroupNonUniformQuadSwap:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool spvOpcodeIsScalarizable(SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpPhi:
+    case SpvOpCopyObject:
+    case SpvOpConvertFToU:
+    case SpvOpConvertFToS:
+    case SpvOpConvertSToF:
+    case SpvOpConvertUToF:
+    case SpvOpUConvert:
+    case SpvOpSConvert:
+    case SpvOpFConvert:
+    case SpvOpQuantizeToF16:
+    case SpvOpVectorInsertDynamic:
+    case SpvOpSNegate:
+    case SpvOpFNegate:
+    case SpvOpIAdd:
+    case SpvOpFAdd:
+    case SpvOpISub:
+    case SpvOpFSub:
+    case SpvOpIMul:
+    case SpvOpFMul:
+    case SpvOpUDiv:
+    case SpvOpSDiv:
+    case SpvOpFDiv:
+    case SpvOpUMod:
+    case SpvOpSRem:
+    case SpvOpSMod:
+    case SpvOpFRem:
+    case SpvOpFMod:
+    case SpvOpVectorTimesScalar:
+    case SpvOpIAddCarry:
+    case SpvOpISubBorrow:
+    case SpvOpUMulExtended:
+    case SpvOpSMulExtended:
+    case SpvOpShiftRightLogical:
+    case SpvOpShiftRightArithmetic:
+    case SpvOpShiftLeftLogical:
+    case SpvOpBitwiseOr:
+    case SpvOpBitwiseAnd:
+    case SpvOpNot:
+    case SpvOpBitFieldInsert:
+    case SpvOpBitFieldSExtract:
+    case SpvOpBitFieldUExtract:
+    case SpvOpBitReverse:
+    case SpvOpBitCount:
+    case SpvOpIsNan:
+    case SpvOpIsInf:
+    case SpvOpIsFinite:
+    case SpvOpIsNormal:
+    case SpvOpSignBitSet:
+    case SpvOpLessOrGreater:
+    case SpvOpOrdered:
+    case SpvOpUnordered:
+    case SpvOpLogicalEqual:
+    case SpvOpLogicalNotEqual:
+    case SpvOpLogicalOr:
+    case SpvOpLogicalAnd:
+    case SpvOpLogicalNot:
+    case SpvOpSelect:
+    case SpvOpIEqual:
+    case SpvOpINotEqual:
+    case SpvOpUGreaterThan:
+    case SpvOpSGreaterThan:
+    case SpvOpUGreaterThanEqual:
+    case SpvOpSGreaterThanEqual:
+    case SpvOpULessThan:
+    case SpvOpSLessThan:
+    case SpvOpULessThanEqual:
+    case SpvOpSLessThanEqual:
+    case SpvOpFOrdEqual:
+    case SpvOpFUnordEqual:
+    case SpvOpFOrdNotEqual:
+    case SpvOpFUnordNotEqual:
+    case SpvOpFOrdLessThan:
+    case SpvOpFUnordLessThan:
+    case SpvOpFOrdGreaterThan:
+    case SpvOpFUnordGreaterThan:
+    case SpvOpFOrdLessThanEqual:
+    case SpvOpFUnordLessThanEqual:
+    case SpvOpFOrdGreaterThanEqual:
+    case SpvOpFUnordGreaterThanEqual:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool spvOpcodeIsDebug(SpvOp opcode) {
+  switch (opcode) {
+    case SpvOpName:
+    case SpvOpMemberName:
+    case SpvOpSource:
+    case SpvOpSourceContinued:
+    case SpvOpSourceExtension:
+    case SpvOpString:
+    case SpvOpLine:
+    case SpvOpNoLine:
+      return true;
+    default:
+      return false;
+  }
 }

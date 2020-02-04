@@ -55,13 +55,13 @@
 #include <QVector3D>
 #endif
 
-#include "qpositioningglobal.h"
+#include "qpositioningglobal_p.h"
 #include "qdoublevector2d_p.h"
 #include <QtCore/qmetatype.h>
 
 QT_BEGIN_NAMESPACE
 
-class Q_POSITIONING_EXPORT QDoubleVector3D
+class Q_POSITIONING_PRIVATE_EXPORT QDoubleVector3D
 {
 public:
     Q_DECL_CONSTEXPR inline QDoubleVector3D();

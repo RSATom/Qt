@@ -10,9 +10,8 @@
 #include "base/callback_forward.h"
 #include "base/sequenced_task_runner.h"
 #include "content/common/content_export.h"
-#include "services/service_manager/embedder/embedded_service_info.h"
 #include "services/service_manager/public/cpp/identity.h"
-#include "services/service_manager/public/interfaces/service.mojom.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
 
 namespace service_manager {
 class Connector;
@@ -35,9 +34,12 @@ class ConnectionFilter;
 class CONTENT_EXPORT ServiceManagerConnection {
  public:
   using ServiceRequestHandler =
-      base::Callback<void(service_manager::mojom::ServiceRequest)>;
+      base::RepeatingCallback<void(service_manager::mojom::ServiceRequest)>;
+  using ServiceRequestHandlerWithPID =
+      base::RepeatingCallback<void(service_manager::mojom::ServiceRequest,
+                                   service_manager::mojom::PIDReceiverPtr)>;
   using Factory =
-      base::Callback<std::unique_ptr<ServiceManagerConnection>(void)>;
+      base::RepeatingCallback<std::unique_ptr<ServiceManagerConnection>(void)>;
 
   // Stores an instance of |connection| in TLS for the current process. Must be
   // called on the thread the connection was created on.
@@ -100,22 +102,26 @@ class CONTENT_EXPORT ServiceManagerConnection {
   // Removal (and destruction) happens asynchronously on the IO thread.
   virtual void RemoveConnectionFilter(int filter_id) = 0;
 
-  // Adds an embedded service to this connection's ServiceFactory.
-  // |info| provides details on how to construct new instances of the
-  // service when an incoming connection is made to |name|.
-  virtual void AddEmbeddedService(
-      const std::string& name,
-      const service_manager::EmbeddedServiceInfo& info) = 0;
-
   // Adds a generic ServiceRequestHandler for a given service name. This
   // will be used to satisfy any incoming calls to CreateService() which
   // reference the given name.
-  //
-  // For in-process services, it is preferable to use |AddEmbeddedService()| as
-  // defined above.
   virtual void AddServiceRequestHandler(
       const std::string& name,
       const ServiceRequestHandler& handler) = 0;
+
+  // Similar to above but for registering handlers which want to communicate
+  // additional information the process hosting the new service.
+  virtual void AddServiceRequestHandlerWithPID(
+      const std::string& name,
+      const ServiceRequestHandlerWithPID& handler) = 0;
+
+  // Sets a request handler to use if no registered handlers were interested in
+  // an incoming service request. Must be called before |Start()|.
+  using DefaultServiceRequestHandler =
+      base::RepeatingCallback<void(const std::string& service_name,
+                                   service_manager::mojom::ServiceRequest)>;
+  virtual void SetDefaultServiceRequestHandler(
+      const DefaultServiceRequestHandler& handler) = 0;
 };
 
 }  // namespace content

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -50,7 +50,7 @@ class GeoRouteReplyEsri : public QGeoRouteReply
     Q_OBJECT
 
 public:
-    GeoRouteReplyEsri(QNetworkReply *reply, const QGeoRouteRequest &request, QObject *parent = Q_NULLPTR);
+    GeoRouteReplyEsri(QNetworkReply *reply, const QGeoRouteRequest &request, QObject *parent = nullptr);
     ~GeoRouteReplyEsri();
 
 private Q_SLOTS:

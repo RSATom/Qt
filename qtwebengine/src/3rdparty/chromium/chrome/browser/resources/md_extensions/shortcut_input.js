@@ -2,33 +2,52 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/** @enum {number} */
+const ShortcutError = {
+  NO_ERROR: 0,
+  INCLUDE_START_MODIFIER: 1,
+  TOO_MANY_MODIFIERS: 2,
+  NEED_CHARACTER: 3,
+};
+
 cr.define('extensions', function() {
   'use strict';
 
   // The UI to display and manage keyboard shortcuts set for extension commands.
-  var ShortcutInput = Polymer({
+  const ShortcutInput = Polymer({
     is: 'extensions-shortcut-input',
 
-    behaviors: [I18nBehavior],
-
     properties: {
+      /** @type {!extensions.KeyboardShortcutDelegate} */
+      delegate: Object,
+
       item: {
         type: String,
         value: '',
       },
+
       commandName: {
         type: String,
         value: '',
       },
+
       shortcut: {
         type: String,
         value: '',
       },
+
       /** @private */
       capturing_: {
         type: Boolean,
         value: false,
       },
+
+      /** @private {!ShortcutError} */
+      error_: {
+        type: Number,
+        value: 0,
+      },
+
       /** @private */
       pendingShortcut_: {
         type: String,
@@ -36,8 +55,9 @@ cr.define('extensions', function() {
       },
     },
 
+    /** @override */
     ready: function() {
-      var node = this.$['input'];
+      const node = this.$.input;
       node.addEventListener('mouseup', this.startCapture_.bind(this));
       node.addEventListener('blur', this.endCapture_.bind(this));
       node.addEventListener('focus', this.startCapture_.bind(this));
@@ -47,20 +67,24 @@ cr.define('extensions', function() {
 
     /** @private */
     startCapture_: function() {
-      if (this.capturing_)
+      if (this.capturing_) {
         return;
+      }
       this.capturing_ = true;
-      this.fire('shortcut-capture-started');
+      this.delegate.setShortcutHandlingSuspended(true);
     },
 
     /** @private */
     endCapture_: function() {
-      if (!this.capturing_)
+      if (!this.capturing_) {
         return;
+      }
       this.pendingShortcut_ = '';
       this.capturing_ = false;
-      this.$['input'].blur();
-      this.fire('shortcut-capture-ended');
+      const input = this.$.input;
+      input.blur();
+      input.invalid = false;
+      this.delegate.setShortcutHandlingSuspended(false);
     },
 
     /**
@@ -68,6 +92,10 @@ cr.define('extensions', function() {
      * @private
      */
     onKeyDown_: function(e) {
+      if (e.target == this.$.clear) {
+        return;
+      }
+
       if (e.keyCode == extensions.Key.Escape) {
         if (!this.capturing_) {
           // If we're not currently capturing, allow escape to propagate.
@@ -84,8 +112,9 @@ cr.define('extensions', function() {
         return;
       }
 
-      if (!this.capturing_)
+      if (!this.capturing_) {
         this.startCapture_();
+      }
 
       this.handleKey_(e);
     },
@@ -95,10 +124,39 @@ cr.define('extensions', function() {
      * @private
      */
     onKeyUp_: function(e) {
-      if (e.keyCode == extensions.Key.Escape || e.keyCode == extensions.Key.Tab)
+      // Ignores pressing 'Space' or 'Enter' on the clear button. In 'Enter's
+      // case, the clear button disappears before key-up, so 'Enter's key-up
+      // target becomes the input field, not the clear button, and needs to
+      // be caught explicitly.
+      if (e.target == this.$.clear || e.key == 'Enter') {
         return;
+      }
+
+      if (e.keyCode == extensions.Key.Escape ||
+          e.keyCode == extensions.Key.Tab) {
+        return;
+      }
 
       this.handleKey_(e);
+    },
+
+    /**
+     * @param {!ShortcutError} error
+     * @param {string} includeStartModifier
+     * @param {string} tooManyModifiers
+     * @param {string} needCharacter
+     * @return {string} UI string.
+     * @private
+     */
+    getErrorString_: function(
+        error, includeStartModifier, tooManyModifiers, needCharacter) {
+      if (error == ShortcutError.TOO_MANY_MODIFIERS) {
+        return tooManyModifiers;
+      }
+      if (error == ShortcutError.NEED_CHARACTER) {
+        return needCharacter;
+      }
+      return includeStartModifier;
     },
 
     /**
@@ -115,27 +173,34 @@ cr.define('extensions', function() {
       // We don't allow both Ctrl and Alt in the same keybinding.
       // TODO(devlin): This really should go in extensions.hasValidModifiers,
       // but that requires updating the existing page as well.
-      if ((e.ctrlKey && e.altKey) || !extensions.hasValidModifiers(e)) {
-        this.pendingShortcut_ = 'invalid';
+      if (e.ctrlKey && e.altKey) {
+        this.error_ = ShortcutError.TOO_MANY_MODIFIERS;
+        this.$.input.invalid = true;
         return;
       }
-
-      this.pendingShortcut_ = extensions.keystrokeToString(e);
-
-      if (extensions.isValidKeyCode(e.keyCode)) {
-        this.commitPending_();
-        this.endCapture_();
+      if (!extensions.hasValidModifiers(e)) {
+        this.pendingShortcut_ = '';
+        this.error_ = ShortcutError.INCLUDE_START_MODIFIER;
+        this.$.input.invalid = true;
+        return;
       }
+      this.pendingShortcut_ = extensions.keystrokeToString(e);
+      if (!extensions.isValidKeyCode(e.keyCode)) {
+        this.error_ = ShortcutError.NEED_CHARACTER;
+        this.$.input.invalid = true;
+        return;
+      }
+      this.$.input.invalid = false;
+
+      this.commitPending_();
+      this.endCapture_();
     },
 
     /** @private */
     commitPending_: function() {
       this.shortcut = this.pendingShortcut_;
-      this.fire('shortcut-updated', {
-        keybinding: this.shortcut,
-        item: this.item,
-        commandName: this.commandName
-      });
+      this.delegate.updateExtensionCommandKeybinding(
+          this.item, this.commandName, this.shortcut);
     },
 
     /**
@@ -143,9 +208,9 @@ cr.define('extensions', function() {
      * @private
      */
     computeText_: function() {
-      if (this.capturing_)
-        return this.pendingShortcut_;
-      return this.shortcut;
+      const shortcutString =
+          this.capturing_ ? this.pendingShortcut_ : this.shortcut;
+      return shortcutString.split('+').join(' + ');
     },
 
     /**
@@ -160,10 +225,11 @@ cr.define('extensions', function() {
 
     /** @private */
     onClearTap_: function() {
-      if (this.shortcut) {
-        this.pendingShortcut_ = '';
-        this.commitPending_();
-      }
+      assert(this.shortcut);
+
+      this.pendingShortcut_ = '';
+      this.commitPending_();
+      this.endCapture_();
     },
   });
 

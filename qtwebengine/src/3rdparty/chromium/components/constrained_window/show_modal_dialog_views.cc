@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "build/build_config.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/constrained_window/native_web_contents_modal_dialog_manager_views.h"
 #include "components/web_modal/single_web_contents_dialog_manager.h"

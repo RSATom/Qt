@@ -7,9 +7,8 @@ SUBDIRS=\
    lancelot \
    languagechange \
    macgui \
-   macnativeevents \
+   #macnativeevents \
    macplist \
-   modeltest \
    networkselftest \
    qaccessibility \
    # qaccessibilitylinux \ # QTBUG-44434
@@ -17,7 +16,6 @@ SUBDIRS=\
    qcomplextext \
    qfocusevent \
    qnetworkaccessmanager_and_qprogressdialog \
-   qobjectperformance \
    qobjectrace \
    qsharedpointer_and_qwidget \
    qprocess_and_guieventloop \
@@ -32,7 +30,8 @@ SUBDIRS=\
    gestures \
    lancelot \
    languagechange \
-   modeltest \
+   macgui \
+   macplist \
    qaccessibility \
    qfocusevent \
    qnetworkaccessmanager_and_qprogressdialog \
@@ -42,23 +41,22 @@ SUBDIRS=\
    qaccessibilitylinux \
    qaccessibilitymac \
 
-!qtHaveModule(network): SUBDIRS -= \
+winrt|!qtHaveModule(network): SUBDIRS -= \
    lancelot \
    networkselftest \
    qnetworkaccessmanager_and_qprogressdialog \
-   qobjectperformance
 
 cross_compile: SUBDIRS -= \
    atwrapper \
    compiler
 
-!qtConfig(accessibility): SUBDIRS -= qaccessibility
+winrt|!qtHaveModule(gui)|!qtConfig(accessibility): SUBDIRS -= qaccessibility
 
-!qtConfig(accessibility-atspi-bridge): SUBDIRS -= qaccessibilitylinux
+!qtHaveModule(gui)|!qtConfig(accessibility-atspi-bridge): SUBDIRS -= qaccessibilitylinux
 
 !qtConfig(process): SUBDIRS -= qprocess_and_guieventloop
 
-!mac: SUBDIRS -= \
+!macos|!qtHaveModule(gui): SUBDIRS -= \
            macgui \
            macnativeevents \
            macplist \
@@ -69,3 +67,8 @@ cross_compile: SUBDIRS -= \
 
 android: SUBDIRS += \
     android
+
+qtConfig(xkbcommon): {
+    SUBDIRS += \
+        xkbkeyboard
+}

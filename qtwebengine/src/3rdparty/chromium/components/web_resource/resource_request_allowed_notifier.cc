@@ -10,29 +10,41 @@ namespace web_resource {
 
 ResourceRequestAllowedNotifier::ResourceRequestAllowedNotifier(
     PrefService* local_state,
-    const char* disable_network_switch)
+    const char* disable_network_switch,
+    NetworkConnectionTrackerGetter network_connection_tracker_getter)
     : disable_network_switch_(disable_network_switch),
       local_state_(local_state),
       observer_requested_permission_(false),
-      waiting_for_network_(false),
       waiting_for_user_to_accept_eula_(false),
-      observer_(nullptr) {
-}
+      observer_(nullptr),
+      network_connection_tracker_getter_(
+          std::move(network_connection_tracker_getter)),
+      weak_factory_(this) {}
 
 ResourceRequestAllowedNotifier::~ResourceRequestAllowedNotifier() {
   if (observer_)
-    net::NetworkChangeNotifier::RemoveConnectionTypeObserver(this);
+    network_connection_tracker_->RemoveNetworkConnectionObserver(this);
 }
 
-void ResourceRequestAllowedNotifier::Init(Observer* observer) {
-  DCHECK(!observer_ && observer);
+void ResourceRequestAllowedNotifier::Init(Observer* observer, bool leaky) {
+  DCHECK(!observer_);
+  DCHECK(observer);
   observer_ = observer;
 
-  net::NetworkChangeNotifier::AddConnectionTypeObserver(this);
+  DCHECK(network_connection_tracker_getter_);
+  network_connection_tracker_ =
+      std::move(network_connection_tracker_getter_).Run();
 
-  // Check this state during initialization. It is not expected to change until
-  // the corresponding notification is received.
-  waiting_for_network_ = net::NetworkChangeNotifier::IsOffline();
+  if (leaky)
+    network_connection_tracker_->AddLeakyNetworkConnectionObserver(this);
+  else
+    network_connection_tracker_->AddNetworkConnectionObserver(this);
+  if (network_connection_tracker_->GetConnectionType(
+          &connection_type_,
+          base::BindOnce(&ResourceRequestAllowedNotifier::SetConnectionType,
+                         weak_factory_.GetWeakPtr()))) {
+    connection_initialized_ = true;
+  }
 
   eula_notifier_.reset(CreateEulaNotifier());
   if (eula_notifier_) {
@@ -52,21 +64,24 @@ ResourceRequestAllowedNotifier::GetResourceRequestsAllowedState() {
   // The observer requested permission. Return the current criteria state and
   // set a flag to remind this class to notify the observer once the criteria
   // is met.
-  observer_requested_permission_ = waiting_for_user_to_accept_eula_ ||
-                                   waiting_for_network_;
+  observer_requested_permission_ =
+      waiting_for_user_to_accept_eula_ || IsOffline();
   if (!observer_requested_permission_)
     return ALLOWED;
-  return waiting_for_user_to_accept_eula_ ? DISALLOWED_EULA_NOT_ACCEPTED :
-                                            DISALLOWED_NETWORK_DOWN;
+  if (waiting_for_user_to_accept_eula_)
+    return DISALLOWED_EULA_NOT_ACCEPTED;
+  if (!connection_initialized_)
+    return DISALLOWED_NETWORK_STATE_NOT_INITIALIZED;
+  return DISALLOWED_NETWORK_DOWN;
+}
+
+bool ResourceRequestAllowedNotifier::IsOffline() {
+  return !connection_initialized_ ||
+         connection_type_ == network::mojom::ConnectionType::CONNECTION_NONE;
 }
 
 bool ResourceRequestAllowedNotifier::ResourceRequestsAllowed() {
   return GetResourceRequestsAllowedState() == ALLOWED;
-}
-
-void ResourceRequestAllowedNotifier::SetWaitingForNetworkForTesting(
-    bool waiting) {
-  waiting_for_network_ = waiting;
 }
 
 void ResourceRequestAllowedNotifier::SetWaitingForEulaForTesting(bool waiting) {
@@ -76,6 +91,11 @@ void ResourceRequestAllowedNotifier::SetWaitingForEulaForTesting(bool waiting) {
 void ResourceRequestAllowedNotifier::SetObserverRequestedForTesting(
     bool requested) {
   observer_requested_permission_ = requested;
+}
+
+void ResourceRequestAllowedNotifier::SetConnectionTypeForTesting(
+    network::mojom::ConnectionType type) {
+  SetConnectionType(type);
 }
 
 void ResourceRequestAllowedNotifier::MaybeNotifyObserver() {
@@ -102,23 +122,23 @@ void ResourceRequestAllowedNotifier::OnEulaAccepted() {
   MaybeNotifyObserver();
 }
 
-void ResourceRequestAllowedNotifier::OnConnectionTypeChanged(
-    net::NetworkChangeNotifier::ConnectionType type) {
-  // Only attempt to notify observers if this was previously waiting for the
-  // network to reconnect, and new network state is actually available. This
-  // prevents the notifier from notifying the observer if the notifier was never
-  // waiting on the network, or if the network changes from one online state
-  // to another (for example, Wifi to 3G, or Wifi to Wifi, if the network were
-  // flaky).
-  if (waiting_for_network_ &&
-      type != net::NetworkChangeNotifier::CONNECTION_NONE) {
-    waiting_for_network_ = false;
-    DVLOG(1) << "Network came back online.";
+void ResourceRequestAllowedNotifier::OnConnectionChanged(
+    network::mojom::ConnectionType type) {
+  SetConnectionType(type);
+  if (type != network::mojom::ConnectionType::CONNECTION_NONE) {
+    DVLOG(1) << "Network came online.";
+    // MaybeNotifyObserver() internally guarantees that it will only notify the
+    // observer if it's currently waiting for the network to come online.
     MaybeNotifyObserver();
-  } else if (!waiting_for_network_ &&
-             type == net::NetworkChangeNotifier::CONNECTION_NONE) {
-    waiting_for_network_ = true;
-    DVLOG(1) << "Network went offline.";
+  }
+}
+
+void ResourceRequestAllowedNotifier::SetConnectionType(
+    network::mojom::ConnectionType connection_type) {
+  connection_type_ = connection_type;
+  if (!connection_initialized_) {
+    connection_initialized_ = true;
+    MaybeNotifyObserver();
   }
 }
 

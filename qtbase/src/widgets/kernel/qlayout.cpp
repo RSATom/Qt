@@ -44,7 +44,9 @@
 #if QT_CONFIG(menubar)
 #include "qmenubar.h"
 #endif
+#if QT_CONFIG(toolbar)
 #include "qtoolbar.h"
+#endif
 #if QT_CONFIG(sizegrip)
 #include "qsizegrip.h"
 #endif
@@ -107,10 +109,11 @@ static int menuBarHeightForWidth(QWidget *menubar, int w)
 
 /*!
     Constructs a new top-level QLayout, with parent \a parent.
-    \a parent may not be 0.
+    \a parent may not be \nullptr.
 
-    There can be only one top-level layout for a widget. It is
-    returned by QWidget::layout().
+    The layout is set directly as the top-level layout for
+    \a parent. There can be only one top-level layout for a
+    widget. It is returned by QWidget::layout().
 */
 QLayout::QLayout(QWidget *parent)
     : QObject(*new QLayoutPrivate, parent)
@@ -279,6 +282,7 @@ bool QLayout::setAlignment(QLayout *l, Qt::Alignment alignment)
     return false;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \property QLayout::margin
     \brief the width of the outside border of the layout
@@ -303,6 +307,15 @@ int QLayout::margin() const
     }
 }
 
+/*!
+    \obsolete
+*/
+void QLayout::setMargin(int margin)
+{
+    setContentsMargins(margin, margin, margin, margin);
+}
+
+#endif
 /*!
     \property QLayout::spacing
     \brief the spacing between widgets inside the layout
@@ -339,14 +352,6 @@ int QLayout::spacing() const
             return qSmartSpacing(this, QStyle::PM_LayoutHorizontalSpacing);
         }
     }
-}
-
-/*!
-    \obsolete
-*/
-void QLayout::setMargin(int margin)
-{
-    setContentsMargins(margin, margin, margin, margin);
 }
 
 void QLayout::setSpacing(int spacing)
@@ -414,9 +419,9 @@ void QLayout::setContentsMargins(const QMargins &margins)
 /*!
     \since 4.3
 
-    Extracts the left, top, right, and bottom margins used around the
-    layout, and assigns them to *\a left, *\a top, *\a right, and *\a
-    bottom (unless they are null pointers).
+    For each of \a left, \a top, \a right and \a bottom that is not
+    \nullptr, stores the size of the margin named in the location the
+    pointer refers to.
 
     By default, QLayout uses the values provided by the style. On
     most platforms, the margin is 11 pixels in all directions.
@@ -471,8 +476,8 @@ QRect QLayout::contentsRect() const
 
 
 /*!
-    Returns the parent widget of this layout, or 0 if this layout is
-    not installed on any widget.
+    Returns the parent widget of this layout, or \nullptr if this
+    layout is not installed on any widget.
 
     If the layout is a sub-layout, this function returns the parent
     widget of the parent layout.
@@ -487,11 +492,11 @@ QWidget *QLayout::parentWidget() const
             QLayout *parentLayout = qobject_cast<QLayout*>(parent());
             if (Q_UNLIKELY(!parentLayout)) {
                 qWarning("QLayout::parentWidget: A layout can only have another layout as a parent.");
-                return 0;
+                return nullptr;
             }
             return parentLayout->parentWidget();
         } else {
-            return 0;
+            return nullptr;
         }
     } else {
         Q_ASSERT(parent() && parent()->isWidgetType());
@@ -947,8 +952,8 @@ void QLayout::setMenuBar(QWidget *widget)
 }
 
 /*!
-    Returns the menu bar set for this layout, or 0 if no menu bar is
-    set.
+    Returns the menu bar set for this layout, or \nullptr if no
+    menu bar is set.
 */
 
 QWidget *QLayout::menuBar() const
@@ -1127,8 +1132,9 @@ bool QLayout::activate()
 
     Searches for widget \a from and replaces it with widget \a to if found.
     Returns the layout item that contains the widget \a from on success.
-    Otherwise \c 0 is returned. If \a options contains \c Qt::FindChildrenRecursively
-    (the default), sub-layouts are searched for doing the replacement.
+    Otherwise \nullptr is returned.
+    If \a options contains \c Qt::FindChildrenRecursively  (the default),
+    sub-layouts are searched for doing the replacement.
     Any other flag in \a options is ignored.
 
     Notice that the returned item therefore might not belong to this layout,
@@ -1236,6 +1242,26 @@ int QLayout::indexOf(QWidget *widget) const
     QLayoutItem *item = itemAt(i);
     while (item) {
         if (item->widget() == widget)
+            return i;
+        ++i;
+        item = itemAt(i);
+    }
+    return -1;
+}
+
+/*!
+    \since 5.12
+    Searches for layout item \a layoutItem in this layout (not including child
+    layouts).
+
+    Returns the index of \a layoutItem, or -1 if \a layoutItem is not found.
+*/
+int QLayout::indexOf(QLayoutItem *layoutItem) const
+{
+    int i = 0;
+    QLayoutItem *item = itemAt(i);
+    while (item) {
+        if (item == layoutItem)
             return i;
         ++i;
         item = itemAt(i);

@@ -18,7 +18,6 @@ const unsigned int URLRequestThrottlerManager::kRequestsBetweenCollecting = 200;
 
 URLRequestThrottlerManager::URLRequestThrottlerManager()
     : requests_since_last_gc_(0),
-      enable_thread_checks_(false),
       logged_for_localhost_disabled_(false),
       registered_from_thread_(base::kInvalidThreadId) {
   url_id_replacements_.ClearPassword();
@@ -37,7 +36,7 @@ URLRequestThrottlerManager::~URLRequestThrottlerManager() {
 
   // Since the manager object might conceivably go away before the
   // entries, detach the entries' back-pointer to the manager.
-  UrlEntryMap::iterator i = url_entries_.begin();
+  auto i = url_entries_.begin();
   while (i != url_entries_.end()) {
     if (i->second.get() != NULL) {
       i->second->DetachManager();
@@ -51,9 +50,7 @@ URLRequestThrottlerManager::~URLRequestThrottlerManager() {
 
 scoped_refptr<URLRequestThrottlerEntryInterface>
     URLRequestThrottlerManager::RegisterRequestUrl(const GURL &url) {
-#if DCHECK_IS_ON()
-  DCHECK(!enable_thread_checks_ || thread_checker_.CalledOnValidThread());
-#endif
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   // Normalize the url.
   std::string url_id = GetIdFromUrl(url);
@@ -79,9 +76,9 @@ scoped_refptr<URLRequestThrottlerEntryInterface>
     // We only disable back-off throttling on an entry that we have
     // just constructed.  This is to allow unit tests to explicitly override
     // the entry for localhost URLs.
-    std::string host = url.host();
-    if (IsLocalhost(host)) {
-      if (!logged_for_localhost_disabled_ && IsLocalhost(host)) {
+    if (IsLocalhost(url)) {
+      if (!logged_for_localhost_disabled_ && IsLocalhost(url)) {
+        std::string host = url.host();
         logged_for_localhost_disabled_ = true;
         net_log_.AddEvent(NetLogEventType::THROTTLING_DISABLED_FOR_HOST,
                           NetLog::StringCallback("host", &host));
@@ -113,14 +110,6 @@ void URLRequestThrottlerManager::EraseEntryForTests(const GURL& url) {
   // Normalize the url.
   std::string url_id = GetIdFromUrl(url);
   url_entries_.erase(url_id);
-}
-
-void URLRequestThrottlerManager::set_enable_thread_checks(bool enable) {
-  enable_thread_checks_ = enable;
-}
-
-bool URLRequestThrottlerManager::enable_thread_checks() const {
-  return enable_thread_checks_;
 }
 
 void URLRequestThrottlerManager::set_net_log(NetLog* net_log) {
@@ -160,7 +149,7 @@ void URLRequestThrottlerManager::GarbageCollectEntriesIfNecessary() {
 }
 
 void URLRequestThrottlerManager::GarbageCollectEntries() {
-  UrlEntryMap::iterator i = url_entries_.begin();
+  auto i = url_entries_.begin();
   while (i != url_entries_.end()) {
     if ((i->second)->IsEntryOutdated()) {
       url_entries_.erase(i++);

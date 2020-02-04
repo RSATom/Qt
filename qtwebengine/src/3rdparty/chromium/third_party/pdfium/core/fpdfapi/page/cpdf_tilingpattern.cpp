@@ -16,7 +16,7 @@ CPDF_TilingPattern::CPDF_TilingPattern(CPDF_Document* pDoc,
                                        CPDF_Object* pPatternObj,
                                        const CFX_Matrix& parentMatrix)
     : CPDF_Pattern(pDoc, pPatternObj, parentMatrix) {
-  assert(document());
+  ASSERT(document());
   m_bColored = pattern_obj()->GetDict()->GetIntegerFor("PaintType") == 1;
   SetPatternToFormMatrix();
 }
@@ -35,7 +35,7 @@ bool CPDF_TilingPattern::Load() {
   if (m_pForm)
     return true;
 
-  CPDF_Dictionary* pDict = pattern_obj()->GetDict();
+  const CPDF_Dictionary* pDict = pattern_obj()->GetDict();
   if (!pDict)
     return false;
 
@@ -49,7 +49,7 @@ bool CPDF_TilingPattern::Load() {
 
   const CFX_Matrix& matrix = parent_matrix();
   m_pForm = pdfium::MakeUnique<CPDF_Form>(document(), nullptr, pStream);
-  m_pForm->ParseContent(nullptr, &matrix, nullptr);
+  m_pForm->ParseContent(nullptr, &matrix, nullptr, nullptr);
   m_BBox = pDict->GetRectFor("BBox");
   return true;
 }

@@ -4,10 +4,14 @@
 
 #include "headless/lib/browser/headless_browser_impl.h"
 
+#include <memory>
+
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "headless/lib/browser/headless_clipboard.h"
 #include "headless/lib/browser/headless_screen.h"
+#include "headless/lib/browser/headless_web_contents_impl.h"
+#include "headless/lib/browser/headless_window_tree_host.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/base/clipboard/clipboard.h"
@@ -24,7 +28,7 @@ void HeadlessBrowserImpl::PlatformInitialize() {
   // TODO(eseckler): We shouldn't share clipboard contents across WebContents
   // (or at least BrowserContexts).
   ui::Clipboard::SetClipboardForCurrentThread(
-      base::MakeUnique<HeadlessClipboard>());
+      std::make_unique<HeadlessClipboard>());
 }
 
 void HeadlessBrowserImpl::PlatformStart() {
@@ -34,7 +38,9 @@ void HeadlessBrowserImpl::PlatformStart() {
 
 void HeadlessBrowserImpl::PlatformInitializeWebContents(
     HeadlessWebContentsImpl* web_contents) {
-  auto window_tree_host = base::MakeUnique<HeadlessWindowTreeHost>(gfx::Rect());
+  auto window_tree_host = std::make_unique<HeadlessWindowTreeHost>(
+      gfx::Rect(),
+      web_contents->begin_frame_control_enabled() ? web_contents : nullptr);
   window_tree_host->InitHost();
   gfx::NativeWindow parent_window = window_tree_host->window();
   parent_window->Show();
@@ -50,8 +56,16 @@ void HeadlessBrowserImpl::PlatformInitializeWebContents(
 void HeadlessBrowserImpl::PlatformSetWebContentsBounds(
     HeadlessWebContentsImpl* web_contents,
     const gfx::Rect& bounds) {
-  web_contents->window_tree_host()->SetBoundsInPixels(bounds);
-  web_contents->window_tree_host()->window()->SetBounds(bounds);
+  // Browser's window bounds should contain all web contents, so that we're sure
+  // that we will actually produce visible damage when taking a screenshot.
+  gfx::Rect old_host_bounds =
+      web_contents->window_tree_host()->GetBoundsInPixels();
+  gfx::Rect new_host_bounds(
+      0, 0, std::max(old_host_bounds.width(), bounds.x() + bounds.width()),
+      std::max(old_host_bounds.height(), bounds.y() + bounds.height()));
+  web_contents->window_tree_host()->SetBoundsInPixels(
+      new_host_bounds, viz::LocalSurfaceIdAllocation());
+  web_contents->window_tree_host()->window()->SetBounds(new_host_bounds);
 
   gfx::NativeView native_view = web_contents->web_contents()->GetNativeView();
   native_view->SetBounds(bounds);
@@ -60,6 +74,11 @@ void HeadlessBrowserImpl::PlatformSetWebContentsBounds(
       web_contents->web_contents()->GetRenderWidgetHostView();
   if (host_view)
     host_view->SetSize(bounds.size());
+}
+
+ui::Compositor* HeadlessBrowserImpl::PlatformGetCompositor(
+    HeadlessWebContentsImpl* web_contents) {
+  return web_contents->window_tree_host()->compositor();
 }
 
 }  // namespace headless

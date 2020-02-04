@@ -5,61 +5,40 @@
 #include "ui/keyboard/keyboard_ui.h"
 
 #include "base/command_line.h"
+#include "base/unguessable_token.h"
 #include "ui/aura/window.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/ui_base_switches.h"
+#include "ui/gfx/geometry/size.h"
 #include "ui/keyboard/keyboard_controller.h"
 
 namespace keyboard {
 
-KeyboardUI::KeyboardUI() : keyboard_controller_(nullptr) {}
-KeyboardUI::~KeyboardUI() {}
+KeyboardUI::KeyboardUI() = default;
 
-void KeyboardUI::ShowKeyboardContainer(aura::Window* container) {
-  if (HasContentsWindow()) {
-    {
-      TRACE_EVENT0("vk", "ShowKeyboardContainerWindow");
-      GetContentsWindow()->Show();
-    }
-    {
-      TRACE_EVENT0("vk", "ShowKeyboardContainer");
-      container->Show();
-    }
+KeyboardUI::~KeyboardUI() = default;
+
+void KeyboardUI::ShowKeyboardWindow() {
+  DVLOG(1) << "ShowKeyboardWindow";
+  aura::Window* window = GetKeyboardWindow();
+  if (window) {
+    TRACE_EVENT0("vk", "ShowKeyboardWindow");
+    window->Show();
   }
 }
 
-void KeyboardUI::HideKeyboardContainer(aura::Window* container) {
-  if (HasContentsWindow()) {
-    container->Hide();
-    GetContentsWindow()->Hide();
-  }
+void KeyboardUI::HideKeyboardWindow() {
+  DVLOG(1) << "HideKeyboardWindow";
+  aura::Window* window = GetKeyboardWindow();
+  if (window)
+    window->Hide();
 }
 
-void KeyboardUI::EnsureCaretInWorkArea() {
-  if (!GetInputMethod())
-    return;
-
-  TRACE_EVENT0("vk", "EnsureCaretInWorkArea");
-
-  const aura::Window* contents_window = GetContentsWindow();
-  const gfx::Rect keyboard_bounds_in_screen =
-      contents_window->IsVisible() ? contents_window->GetBoundsInScreen()
-                                   : gfx::Rect();
-
-  // Use new virtual keyboard behavior only if the flag enabled and in
-  // non-sticky mode.
-  const bool new_vk_behavior =
-      (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-           ::switches::kDisableNewVirtualKeyboardBehavior) &&
-       !keyboard_controller_->keyboard_locked());
-
-  if (new_vk_behavior) {
-    GetInputMethod()->SetOnScreenKeyboardBounds(keyboard_bounds_in_screen);
-  } else if (GetInputMethod()->GetTextInputClient()) {
-    GetInputMethod()->GetTextInputClient()->EnsureCaretNotInRect(
-        keyboard_bounds_in_screen);
-  }
+void KeyboardUI::KeyboardContentsLoaded(const base::UnguessableToken& token,
+                                        const gfx::Size& size) {
+  NOTREACHED() << "Unexpected call to KeyboardContentsLoaded. Token: " << token
+               << " Size: " << size.ToString();
 }
 
 void KeyboardUI::SetController(KeyboardController* controller) {

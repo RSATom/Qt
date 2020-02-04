@@ -8,39 +8,55 @@
 #define CORE_FXCRT_XML_CFX_XMLPARSER_H_
 
 #include <memory>
-#include <stack>
+#include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/xml/cfx_xmlsyntaxparser.h"
+#include "core/fxcrt/retain_ptr.h"
 
+class CFX_XMLDocument;
 class CFX_XMLElement;
 class CFX_XMLNode;
-class CFX_SeekableStreamProxy;
+class IFX_SeekableReadStream;
 
 class CFX_XMLParser {
  public:
-  CFX_XMLParser(CFX_XMLNode* pParent,
-                const CFX_RetainPtr<CFX_SeekableStreamProxy>& pStream);
-  ~CFX_XMLParser();
+  static bool IsXMLNameChar(wchar_t ch, bool bFirstChar);
 
-  int32_t DoParser();
+  explicit CFX_XMLParser(const RetainPtr<IFX_SeekableReadStream>& pStream);
+  virtual ~CFX_XMLParser();
 
-  FX_FILESIZE m_nStart[2];
-  size_t m_nSize[2];
-  FX_FILESIZE m_nElementStart;
-  uint16_t m_dwCheckStatus;
-  uint16_t m_dwCurrentCheckStatus;
+  std::unique_ptr<CFX_XMLDocument> Parse();
 
  private:
-  CFX_RetainPtr<CFX_SeekableStreamProxy> m_pStream;
-  std::unique_ptr<CFX_XMLSyntaxParser> m_pParser;
-  CFX_XMLNode* m_pParent;
-  CFX_XMLNode* m_pChild;
-  std::stack<CFX_XMLNode*> m_NodeStack;
-  CFX_WideString m_ws1;
-  CFX_WideString m_ws2;
-  FX_XmlSyntaxResult m_syntaxParserResult;
+  enum class FDE_XmlSyntaxState {
+    Text,
+    Node,
+    Target,
+    Tag,
+    AttriName,
+    AttriEqualSign,
+    AttriQuotation,
+    AttriValue,
+    CloseInstruction,
+    BreakElement,
+    CloseElement,
+    SkipDeclNode,
+    SkipComment,
+    SkipCommentOrDecl,
+    SkipCData,
+    TargetData
+  };
+
+  bool DoSyntaxParse(CFX_XMLDocument* doc);
+  WideString GetTextData();
+  void ProcessTextChar(wchar_t ch);
+  void ProcessTargetData();
+
+  CFX_XMLNode* current_node_ = nullptr;
+  RetainPtr<IFX_SeekableReadStream> stream_;
+  std::vector<wchar_t> current_text_;
+  size_t xml_plane_size_ = 1024;
+  int32_t entity_start_ = -1;
 };
 
 #endif  // CORE_FXCRT_XML_CFX_XMLPARSER_H_

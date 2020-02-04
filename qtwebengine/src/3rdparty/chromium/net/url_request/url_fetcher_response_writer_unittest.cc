@@ -12,6 +12,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
 #include "net/test/gtest_util.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/platform_test.h"
 
@@ -29,7 +30,7 @@ class URLFetcherStringWriterTest : public PlatformTest {
  protected:
   void SetUp() override {
     writer_.reset(new URLFetcherStringWriter);
-    buf_ = new StringIOBuffer(kData);
+    buf_ = base::MakeRefCounted<StringIOBuffer>(kData);
   }
 
   std::unique_ptr<URLFetcherStringWriter> writer_;
@@ -56,14 +57,15 @@ TEST_F(URLFetcherStringWriterTest, Basic) {
   EXPECT_TRUE(writer_->data().empty());
 }
 
-class URLFetcherFileWriterTest : public PlatformTest {
+class URLFetcherFileWriterTest : public PlatformTest,
+                                 public WithScopedTaskEnvironment {
  protected:
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     file_path_ = temp_dir_.GetPath().AppendASCII("test.txt");
     writer_.reset(new URLFetcherFileWriter(base::ThreadTaskRunnerHandle::Get(),
                                            file_path_));
-    buf_ = new StringIOBuffer(kData);
+    buf_ = base::MakeRefCounted<StringIOBuffer>(kData);
   }
 
   base::ScopedTempDir temp_dir_;
@@ -113,7 +115,8 @@ TEST_F(URLFetcherFileWriterTest, InitializeAgain) {
 
   // Initialize() again to reset. Write different data.
   const std::string data2 = "Bye!";
-  scoped_refptr<StringIOBuffer> buf2(new StringIOBuffer(data2));
+  scoped_refptr<StringIOBuffer> buf2 =
+      base::MakeRefCounted<StringIOBuffer>(data2);
 
   rv = writer_->Initialize(callback.callback());
   EXPECT_THAT(callback.GetResult(rv), IsOk());
@@ -204,12 +207,13 @@ TEST_F(URLFetcherFileWriterTest, DisownFile) {
   EXPECT_TRUE(base::PathExists(file_path_));
 }
 
-class URLFetcherFileWriterTemporaryFileTest : public PlatformTest {
+class URLFetcherFileWriterTemporaryFileTest : public PlatformTest,
+                                              public WithScopedTaskEnvironment {
  protected:
   void SetUp() override {
     writer_.reset(new URLFetcherFileWriter(base::ThreadTaskRunnerHandle::Get(),
                                            base::FilePath()));
-    buf_ = new StringIOBuffer(kData);
+    buf_ = base::MakeRefCounted<StringIOBuffer>(kData);
   }
 
   std::unique_ptr<URLFetcherFileWriter> writer_;

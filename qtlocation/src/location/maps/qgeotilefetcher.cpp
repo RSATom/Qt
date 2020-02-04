@@ -52,9 +52,6 @@ QGeoTileFetcher::QGeoTileFetcher(QGeoMappingManagerEngine *parent)
 
     d->enabled_ = true;
     d->engine_ = parent;
-
-//    if (!d->queue_.isEmpty())
-//        d->timer_.start(0, this);
 }
 
 QGeoTileFetcher::QGeoTileFetcher(QGeoTileFetcherPrivate &dd, QGeoMappingManagerEngine *parent)
@@ -63,9 +60,6 @@ QGeoTileFetcher::QGeoTileFetcher(QGeoTileFetcherPrivate &dd, QGeoMappingManagerE
     Q_D(QGeoTileFetcher);
     d->enabled_ = true;
     d->engine_ = parent;
-
-//    if (!d->queue_.isEmpty())
-//        d->timer_.start(0, this);
 }
 
 QGeoTileFetcher::~QGeoTileFetcher()
@@ -92,6 +86,7 @@ void QGeoTileFetcher::cancelTileRequests(const QSet<QGeoTileSpec> &tiles)
     Q_D(QGeoTileFetcher);
 
     typedef QSet<QGeoTileSpec>::const_iterator tile_iter;
+    // No need to lock: called only in updateTileRequests
     tile_iter tile = tiles.constBegin();
     tile_iter end = tiles.constEnd();
     for (; tile != end; ++tile) {
@@ -176,10 +171,12 @@ void QGeoTileFetcher::timerEvent(QTimerEvent *event)
         return;
     }
 
+    QMutexLocker ml(&d->queueMutex_);
     if (d->queue_.isEmpty() || !initialized()) {
         d->timer_.stop();
         return;
     }
+    ml.unlock();
 
     requestNextTile();
 }

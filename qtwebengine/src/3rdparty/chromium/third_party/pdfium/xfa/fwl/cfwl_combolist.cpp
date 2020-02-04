@@ -9,7 +9,6 @@
 #include <memory>
 #include <utility>
 
-#include "third_party/base/ptr_util.h"
 #include "xfa/fwl/cfwl_combobox.h"
 #include "xfa/fwl/cfwl_comboedit.h"
 #include "xfa/fwl/cfwl_listbox.h"
@@ -25,16 +24,16 @@ CFWL_ComboList::CFWL_ComboList(
   ASSERT(pOuter);
 }
 
-int32_t CFWL_ComboList::MatchItem(const CFX_WideString& wsMatch) {
+int32_t CFWL_ComboList::MatchItem(const WideString& wsMatch) {
   if (wsMatch.IsEmpty())
     return -1;
 
   int32_t iCount = CountItems(this);
   for (int32_t i = 0; i < iCount; i++) {
     CFWL_ListItem* hItem = GetItem(this, i);
-    CFX_WideString wsText = hItem ? hItem->GetText() : L"";
-    FX_STRSIZE pos = wsText.Find(wsMatch.c_str());
-    if (!pos)
+    WideString wsText = hItem ? hItem->GetText() : WideString();
+    auto pos = wsText.Find(wsMatch.c_str());
+    if (pos.has_value() && pos.value() == 0)
       return i;
   }
   return -1;
@@ -122,8 +121,8 @@ void CFWL_ComboList::OnDropListFocusChanged(CFWL_Message* pMsg, bool bSet) {
 
   CFWL_MessageKillFocus* pKill = static_cast<CFWL_MessageKillFocus*>(pMsg);
   CFWL_ComboBox* pOuter = static_cast<CFWL_ComboBox*>(m_pOuter);
-  if (pKill->m_pSetFocus == m_pOuter ||
-      pKill->m_pSetFocus == pOuter->GetComboEdit()) {
+  if (pKill->IsFocusedOnWidget(m_pOuter) ||
+      pKill->IsFocusedOnWidget(pOuter->GetComboEdit())) {
     pOuter->ShowDropList(false);
   }
 }
@@ -208,7 +207,7 @@ bool CFWL_ComboList::OnDropListKey(CFWL_MessageKey* pKey) {
     bPropagate = true;
   }
   if (bPropagate) {
-    pKey->m_pDstTarget = m_pOuter;
+    pKey->SetDstTarget(m_pOuter);
     pOuter->GetDelegate()->OnProcessMessage(pKey);
     return true;
   }

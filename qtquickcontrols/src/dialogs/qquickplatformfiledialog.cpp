@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype FileDialog
-    \instantiates QQuickPlatformFileDialog
+    \instantiates QQuickPlatformFileDialog1
     \inqmlmodule QtQuick.Dialogs
     \ingroup qtquickdialogs
     \brief Dialog component for choosing files from a local filesystem.
@@ -149,12 +149,12 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \class QQuickPlatformFileDialog
+    \class QQuickPlatformFileDialog1
     \inmodule QtQuick.Dialogs
     \internal
     \since 5.1
 
-    \brief The QQuickPlatformFileDialog class provides a file dialog
+    \brief The QQuickPlatformFileDialog1 class provides a file dialog
 
     The dialog is implemented via the QPlatformFileDialogHelper when possible;
     otherwise it falls back to a QFileDialog or a QML implementation.
@@ -163,7 +163,7 @@ QT_BEGIN_NAMESPACE
 /*!
     Constructs a file dialog with parent window \a parent.
 */
-QQuickPlatformFileDialog::QQuickPlatformFileDialog(QObject *parent) :
+QQuickPlatformFileDialog1::QQuickPlatformFileDialog1(QObject *parent) :
     QQuickFileDialog(parent)
 {
 }
@@ -171,21 +171,21 @@ QQuickPlatformFileDialog::QQuickPlatformFileDialog(QObject *parent) :
 /*!
     Destroys the file dialog.
 */
-QQuickPlatformFileDialog::~QQuickPlatformFileDialog()
+QQuickPlatformFileDialog1::~QQuickPlatformFileDialog1()
 {
     if (m_dlgHelper)
         m_dlgHelper->hide();
     delete m_dlgHelper;
 }
 
-QList<QUrl> QQuickPlatformFileDialog::fileUrls() const
+QList<QUrl> QQuickPlatformFileDialog1::fileUrls() const
 {
     if (m_dialogHelperInUse)
         return m_dlgHelper->selectedFiles();
     return QQuickFileDialog::fileUrls();
 }
 
-void QQuickPlatformFileDialog::setModality(Qt::WindowModality m)
+void QQuickPlatformFileDialog1::setModality(Qt::WindowModality m)
 {
 #ifdef Q_OS_WIN
     // A non-modal native file dialog is not possible on Windows, so
@@ -200,7 +200,7 @@ void QQuickPlatformFileDialog::setModality(Qt::WindowModality m)
     QQuickAbstractFileDialog::setModality(m);
 }
 
-QPlatformFileDialogHelper *QQuickPlatformFileDialog::helper()
+QPlatformFileDialogHelper *QQuickPlatformFileDialog1::helper()
 {
     QQuickItem *parentItem = qobject_cast<QQuickItem *>(parent());
     if (parentItem)
@@ -221,7 +221,7 @@ QPlatformFileDialogHelper *QQuickPlatformFileDialog::helper()
     return m_dlgHelper;
 }
 
-void QQuickPlatformFileDialog::accept()
+void QQuickPlatformFileDialog1::accept()
 {
     updateFolder(folder());
     QQuickFileDialog::accept();
@@ -318,7 +318,9 @@ void QQuickPlatformFileDialog::accept()
         {shortcuts.pictures},
         a native image picker dialog will be used for accessing the user's photo album.
         The URL returned can be set as \l{Image::source}{source} for \l{Image}.
-        This feature was added in Qt 5.5.
+        For this to be enabled, the Info.plist assigned to QMAKE_INFO_PLIST in the project file must
+        contain the key, NSPhotoLibraryUsageDescription. See Info.plist documentation from Apple for
+        more information regarding this key. This feature was added in Qt 5.5.
 
     \sa shortcuts
 */

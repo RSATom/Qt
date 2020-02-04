@@ -71,33 +71,33 @@ public:
                                QString *errorString);
     ~QPlaceManagerEngineNokiaV2();
 
-    QPlaceDetailsReply *getPlaceDetails(const QString &placeId) Q_DECL_OVERRIDE;
+    QPlaceDetailsReply *getPlaceDetails(const QString &placeId) override;
 
-    QPlaceContentReply *getPlaceContent(const QPlaceContentRequest &request) Q_DECL_OVERRIDE;
+    QPlaceContentReply *getPlaceContent(const QPlaceContentRequest &request) override;
 
-    QPlaceSearchReply *search(const QPlaceSearchRequest &query) Q_DECL_OVERRIDE;
+    QPlaceSearchReply *search(const QPlaceSearchRequest &query) override;
 
-    QPlaceSearchSuggestionReply *searchSuggestions(const QPlaceSearchRequest &query) Q_DECL_OVERRIDE;
+    QPlaceSearchSuggestionReply *searchSuggestions(const QPlaceSearchRequest &query) override;
 
-    QPlaceIdReply *savePlace(const QPlace &place) Q_DECL_OVERRIDE;
-    QPlaceIdReply *removePlace(const QString &placeId) Q_DECL_OVERRIDE;
+    QPlaceIdReply *savePlace(const QPlace &place) override;
+    QPlaceIdReply *removePlace(const QString &placeId) override;
 
-    QPlaceIdReply *saveCategory(const QPlaceCategory &category, const QString &parentId) Q_DECL_OVERRIDE;
-    QPlaceIdReply *removeCategory(const QString &categoryId) Q_DECL_OVERRIDE;
+    QPlaceIdReply *saveCategory(const QPlaceCategory &category, const QString &parentId) override;
+    QPlaceIdReply *removeCategory(const QString &categoryId) override;
 
-    QPlaceReply *initializeCategories() Q_DECL_OVERRIDE;
-    QString parentCategoryId(const QString &categoryId) const Q_DECL_OVERRIDE;
-    QStringList childCategoryIds(const QString &categoryId) const Q_DECL_OVERRIDE;
-    QPlaceCategory category(const QString &categoryId) const Q_DECL_OVERRIDE;
-    QList<QPlaceCategory> childCategories(const QString &parentId) const Q_DECL_OVERRIDE;
+    QPlaceReply *initializeCategories() override;
+    QString parentCategoryId(const QString &categoryId) const override;
+    QStringList childCategoryIds(const QString &categoryId) const override;
+    QPlaceCategory category(const QString &categoryId) const override;
+    QList<QPlaceCategory> childCategories(const QString &parentId) const override;
 
-    QList<QLocale> locales() const Q_DECL_OVERRIDE;
-    void setLocales(const QList<QLocale> &locales) Q_DECL_OVERRIDE;
+    QList<QLocale> locales() const override;
+    void setLocales(const QList<QLocale> &locales) override;
 
     QPlaceIcon icon(const QString &remotePath,
                     const QList<QPlaceCategory> &categories = QList<QPlaceCategory>()) const;
 
-    QUrl constructIconUrl(const QPlaceIcon &icon, const QSize &size) const Q_DECL_OVERRIDE;
+    QUrl constructIconUrl(const QPlaceIcon &icon, const QSize &size) const override;
 
 private:
     QNetworkReply *sendRequest(const QUrl &url);

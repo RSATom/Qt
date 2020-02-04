@@ -8,19 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_API_AUDIO_CODECS_OPUS_AUDIO_ENCODER_OPUS_CONFIG_H_
-#define WEBRTC_API_AUDIO_CODECS_OPUS_AUDIO_ENCODER_OPUS_CONFIG_H_
+#ifndef API_AUDIO_CODECS_OPUS_AUDIO_ENCODER_OPUS_CONFIG_H_
+#define API_AUDIO_CODECS_OPUS_AUDIO_ENCODER_OPUS_CONFIG_H_
 
 #include <stddef.h>
 
 #include <vector>
 
-#include "webrtc/rtc_base/optional.h"
+#include "absl/types/optional.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
-// NOTE: This struct is still under development and may change without notice.
-struct AudioEncoderOpusConfig {
+struct RTC_EXPORT AudioEncoderOpusConfig {
   static constexpr int kDefaultFrameSizeMs = 20;
 
   // Opus API allows a min bitrate of 500bps, but Opus documentation suggests
@@ -42,7 +42,7 @@ struct AudioEncoderOpusConfig {
 
   // NOTE: This member must always be set.
   // TODO(kwiberg): Turn it into just an int.
-  rtc::Optional<int> bitrate_bps;
+  absl::optional<int> bitrate_bps;
 
   bool fec_enabled;
   bool cbr_enabled;
@@ -70,4 +70,4 @@ struct AudioEncoderOpusConfig {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_API_AUDIO_CODECS_OPUS_AUDIO_ENCODER_OPUS_CONFIG_H_
+#endif  // API_AUDIO_CODECS_OPUS_AUDIO_ENCODER_OPUS_CONFIG_H_

@@ -29,10 +29,10 @@
 #ifndef QACTIVEXPLUGINOBJECT_H
 #define QACTIVEXPLUGINOBJECT_H
 
-#include <QtCore/QPointer>
-#include <QtCore/QMap>
-#include <QtWidgets/QWidget>
-#include <QtGui/QPixmap>
+#include <QtCore/qpointer.h>
+#include <QtCore/qmap.h>
+#include <QtWidgets/qwidget.h>
+#include <QtGui/qpixmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -97,18 +97,14 @@ public:
     explicit QDesignerAxPluginWidget(QWidget *parent);
     virtual ~QDesignerAxPluginWidget();
 
-    const QMetaObject *metaObject() const Q_DECL_OVERRIDE;
-    int qt_metacall(QMetaObject::Call, int, void **) Q_DECL_OVERRIDE;
+    const QMetaObject *metaObject() const override;
+    int qt_metacall(QMetaObject::Call, int, void **) override;
 
 private:
     QMap<int, bool> m_propValues;
 };
 
-#if defined Q_CC_MSVC && _MSC_VER < 1300
-template <> inline QDesignerAxWidget *qobject_cast_helper<QDesignerAxWidget*>(QObject *o,  QDesignerAxWidget*)
-#else
 template <> inline QDesignerAxWidget *qobject_cast<QDesignerAxWidget*>(QObject *o)
-#endif
 {
     if (!o)
         return 0;

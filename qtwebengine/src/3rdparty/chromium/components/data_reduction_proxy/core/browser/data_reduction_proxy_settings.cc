@@ -12,7 +12,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
+#include "build/build_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
@@ -23,6 +23,8 @@
 #include "components/prefs/pref_member.h"
 #include "components/prefs/pref_service.h"
 #include "net/base/network_change_notifier.h"
+#include "net/http/http_request_headers.h"
+#include "services/network/public/cpp/features.h"
 
 namespace {
 
@@ -51,17 +53,10 @@ namespace data_reduction_proxy {
 DataReductionProxySettings::DataReductionProxySettings()
     : unreachable_(false),
       deferred_initialization_(false),
-      data_reduction_proxy_enabled_pref_name_(),
-      prefs_(NULL),
+
+      prefs_(nullptr),
       config_(nullptr),
-      clock_(new base::DefaultClock()) {
-  lo_fi_user_requests_for_images_per_session_ =
-      params::GetFieldTrialParameterAsInteger(
-          params::GetLoFiFieldTrialName(), "load_images_requests_per_session",
-          3, 0);
-  lo_fi_consecutive_session_disables_ = params::GetFieldTrialParameterAsInteger(
-      params::GetLoFiFieldTrialName(), "consecutive_session_disables", 3, 0);
-}
+      clock_(base::DefaultClock::GetInstance()) {}
 
 DataReductionProxySettings::~DataReductionProxySettings() {
   spdy_proxy_auth_enabled_.Destroy();
@@ -85,7 +80,7 @@ void DataReductionProxySettings::InitDataReductionProxySettings(
   DCHECK(prefs);
   DCHECK(io_data);
   DCHECK(io_data->config());
-  DCHECK(data_reduction_proxy_service.get());
+  DCHECK(data_reduction_proxy_service);
   data_reduction_proxy_enabled_pref_name_ =
       data_reduction_proxy_enabled_pref_name;
   prefs_ = prefs;
@@ -94,13 +89,16 @@ void DataReductionProxySettings::InitDataReductionProxySettings(
   data_reduction_proxy_service_->AddObserver(this);
   InitPrefMembers();
   RecordDataReductionInit();
-  data_reduction_proxy_service_->InitializeLoFiPrefs();
 
-  if (base::FeatureList::IsEnabled(features::kDataReductionSiteBreakdown) &&
-      spdy_proxy_auth_enabled_.GetValue()) {
+#if defined(OS_ANDROID)
+  if (spdy_proxy_auth_enabled_.GetValue()) {
     data_reduction_proxy_service_->compression_stats()
         ->SetDataUsageReportingEnabled(true);
   }
+#endif  // defined(OS_ANDROID)
+
+  for (auto& observer : observers_)
+    observer.OnSettingsInitialized();
 }
 
 void DataReductionProxySettings::OnServiceInitialized() {
@@ -111,6 +109,10 @@ void DataReductionProxySettings::OnServiceInitialized() {
   // Technically, this is not "at startup", but this is the first chance that
   // IO data objects can be called.
   UpdateIOData(true);
+  if (proxy_config_client_) {
+    data_reduction_proxy_service_->SetCustomProxyConfigClient(
+        std::move(proxy_config_client_));
+  }
 }
 
 void DataReductionProxySettings::SetCallbackToRegisterSyntheticFieldTrial(
@@ -121,6 +123,13 @@ void DataReductionProxySettings::SetCallbackToRegisterSyntheticFieldTrial(
 }
 
 bool DataReductionProxySettings::IsDataReductionProxyEnabled() const {
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService) &&
+      !params::IsEnabledWithNetworkService()) {
+    return false;
+  }
+
+  if (spdy_proxy_auth_enabled_.GetPrefName().empty())
+    return false;
   return spdy_proxy_auth_enabled_.GetValue() ||
          params::ShouldForceEnableDataReductionProxy();
 }
@@ -141,10 +150,10 @@ void DataReductionProxySettings::SetDataReductionProxyEnabled(bool enabled) {
   if (spdy_proxy_auth_enabled_.GetValue() != enabled) {
     spdy_proxy_auth_enabled_.SetValue(enabled);
     OnProxyEnabledPrefChange();
-    if (base::FeatureList::IsEnabled(features::kDataReductionSiteBreakdown)) {
-      data_reduction_proxy_service_->compression_stats()
-          ->SetDataUsageReportingEnabled(enabled);
-    }
+#if defined(OS_ANDROID)
+    data_reduction_proxy_service_->compression_stats()
+        ->SetDataUsageReportingEnabled(enabled);
+#endif  // defined(OS_ANDROID)
   }
 }
 
@@ -155,11 +164,12 @@ int64_t DataReductionProxySettings::GetDataReductionLastUpdateTime() {
       data_reduction_proxy_service_->compression_stats()->GetLastUpdateTime();
 }
 
-void DataReductionProxySettings::ClearDataSavingStatistics() {
+void DataReductionProxySettings::ClearDataSavingStatistics(
+    DataReductionProxySavingsClearedReason reason) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(data_reduction_proxy_service_->compression_stats());
-  data_reduction_proxy_service_->compression_stats()
-      ->ClearDataSavingStatistics();
+  data_reduction_proxy_service_->compression_stats()->ClearDataSavingStatistics(
+      reason);
 }
 
 int64_t DataReductionProxySettings::GetTotalHttpContentLengthSaved() {
@@ -182,39 +192,6 @@ bool DataReductionProxySettings::IsDataReductionProxyUnreachable() {
 PrefService* DataReductionProxySettings::GetOriginalProfilePrefs() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return prefs_;
-}
-
-void DataReductionProxySettings::SetLoFiModeActiveOnMainFrame(
-    bool lo_fi_mode_active) {
-  // TODO(ryansturm): Remove this method and prefs::kLoFiWasUsedThisSession when
-  // Lo-Fi moves over to using the Previews blacklist completely.
-  if (prefs_ && lo_fi_mode_active)
-    prefs_->SetBoolean(prefs::kLoFiWasUsedThisSession, true);
-}
-
-void DataReductionProxySettings::IncrementLoFiUIShown() {
-  prefs_->SetInteger(prefs::kLoFiUIShownPerSession,
-                     prefs_->GetInteger(prefs::kLoFiUIShownPerSession) + 1);
-}
-
-void DataReductionProxySettings::IncrementLoFiUserRequestsForImages() {
-  if (!prefs_ || params::IsLoFiOnViaFlags())
-    return;
-  prefs_->SetInteger(prefs::kLoFiLoadImagesPerSession,
-                     prefs_->GetInteger(prefs::kLoFiLoadImagesPerSession) + 1);
-  if (prefs_->GetInteger(prefs::kLoFiLoadImagesPerSession) >=
-      lo_fi_user_requests_for_images_per_session_) {
-    data_reduction_proxy_service_->SetLoFiModeOff();
-    prefs_->SetInteger(
-        prefs::kLoFiConsecutiveSessionDisables,
-        prefs_->GetInteger(prefs::kLoFiConsecutiveSessionDisables) + 1);
-    RecordLoFiImplicitOptOutAction(LO_FI_OPT_OUT_ACTION_DISABLED_FOR_SESSION);
-    if (prefs_->GetInteger(prefs::kLoFiConsecutiveSessionDisables) >=
-        lo_fi_consecutive_session_disables_) {
-      RecordLoFiImplicitOptOutAction(
-          LO_FI_OPT_OUT_ACTION_DISABLED_UNTIL_NEXT_EPOCH);
-    }
-  }
 }
 
 void DataReductionProxySettings::RegisterDataReductionProxyFieldTrial() {
@@ -307,12 +284,54 @@ void DataReductionProxySettings::MaybeActivateDataReductionProxy(
     UpdateIOData(at_startup);
 }
 
-DataReductionProxyEventStore* DataReductionProxySettings::GetEventStore()
-    const {
-  if (data_reduction_proxy_service_)
-    return data_reduction_proxy_service_->event_store();
+const net::HttpRequestHeaders&
+DataReductionProxySettings::GetProxyRequestHeaders() const {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  return proxy_request_headers_;
+};
 
-  return nullptr;
+void DataReductionProxySettings::SetProxyRequestHeaders(
+    const net::HttpRequestHeaders& headers) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  proxy_request_headers_ = headers;
+  for (auto& observer : observers_)
+    observer.OnProxyRequestHeadersChanged(headers);
+}
+
+void DataReductionProxySettings::SetConfiguredProxies(
+    const net::ProxyList& proxies) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  configured_proxies_ = proxies;
+}
+
+bool DataReductionProxySettings::IsConfiguredDataReductionProxy(
+    const net::ProxyServer& proxy_server) const {
+  if (proxy_server.is_direct() || !proxy_server.is_valid())
+    return false;
+
+  for (const auto& drp_proxy : configured_proxies_.GetAll()) {
+    if (drp_proxy.host_port_pair().Equals(proxy_server.host_port_pair()))
+      return true;
+  }
+  return false;
+}
+
+void DataReductionProxySettings::AddDataReductionProxySettingsObserver(
+    DataReductionProxySettingsObserver* observer) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  observers_.AddObserver(observer);
+}
+
+void DataReductionProxySettings::RemoveDataReductionProxySettingsObserver(
+    DataReductionProxySettingsObserver* observer) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  observers_.RemoveObserver(observer);
+}
+
+void DataReductionProxySettings::SetCustomProxyConfigClient(
+    network::mojom::CustomProxyConfigClientPtrInfo proxy_config_client) {
+  DCHECK(!data_reduction_proxy_service_);
+  proxy_config_client_ = std::move(proxy_config_client);
 }
 
 // Metrics methods
@@ -320,6 +339,7 @@ void DataReductionProxySettings::RecordDataReductionInit() const {
   DCHECK(thread_checker_.CalledOnValidThread());
   RecordStartupState(IsDataReductionProxyEnabled() ? PROXY_ENABLED
                                                    : PROXY_DISABLED);
+  RecordStartupSavings();
 }
 
 void DataReductionProxySettings::RecordStartupState(
@@ -329,55 +349,35 @@ void DataReductionProxySettings::RecordStartupState(
                             PROXY_STARTUP_STATE_COUNT);
 }
 
-void DataReductionProxySettings::RecordLoFiImplicitOptOutAction(
-    LoFiImplicitOptOutAction action) const {
-  net::NetworkChangeNotifier::ConnectionType connection_type =
-      net::NetworkChangeNotifier::GetConnectionType();
+void DataReductionProxySettings::RecordStartupSavings() const {
+  // Minimum bytes the user should have browsed, for the data savings percent
+  // UMA to be recorded at startup.
+  const unsigned int kMinOriginalContentLengthBytes =
+      10 * 1024 * 1024;  // 10 MB.
 
-  switch (connection_type) {
-    case net::NetworkChangeNotifier::CONNECTION_UNKNOWN:
-      UMA_HISTOGRAM_ENUMERATION(
-          "DataReductionProxy.LoFi.ImplicitOptOutAction.Unknown", action,
-          LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY);
-      break;
-    case net::NetworkChangeNotifier::CONNECTION_ETHERNET:
-      UMA_HISTOGRAM_ENUMERATION(
-          "DataReductionProxy.LoFi.ImplicitOptOutAction.Ethernet", action,
-          LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY);
-      break;
-    case net::NetworkChangeNotifier::CONNECTION_WIFI:
-      UMA_HISTOGRAM_ENUMERATION(
-          "DataReductionProxy.LoFi.ImplicitOptOutAction.WiFi", action,
-          LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY);
-      break;
-    case net::NetworkChangeNotifier::CONNECTION_2G:
-      UMA_HISTOGRAM_ENUMERATION(
-          "DataReductionProxy.LoFi.ImplicitOptOutAction.2G", action,
-          LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY);
-      break;
-    case net::NetworkChangeNotifier::CONNECTION_3G:
-      UMA_HISTOGRAM_ENUMERATION(
-          "DataReductionProxy.LoFi.ImplicitOptOutAction.3G", action,
-          LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY);
-      break;
-    case net::NetworkChangeNotifier::CONNECTION_4G:
-      UMA_HISTOGRAM_ENUMERATION(
-          "DataReductionProxy.LoFi.ImplicitOptOutAction.4G", action,
-          LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY);
-      break;
-    case net::NetworkChangeNotifier::CONNECTION_NONE:
-      UMA_HISTOGRAM_ENUMERATION(
-          "DataReductionProxy.LoFi.ImplicitOptOutAction.None", action,
-          LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY);
-      break;
-    case net::NetworkChangeNotifier::CONNECTION_BLUETOOTH:
-      UMA_HISTOGRAM_ENUMERATION(
-          "DataReductionProxy.LoFi.ImplicitOptOutAction.Bluetooth", action,
-          LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY);
-      break;
-    default:
-      NOTREACHED();
-      break;
+  if (!IsDataReductionProxyEnabled())
+    return;
+
+  DCHECK(data_reduction_proxy_service_->compression_stats());
+  int64_t original_content_length =
+      data_reduction_proxy_service_->compression_stats()
+          ->GetHttpOriginalContentLength();
+  int64_t received_content_length =
+      data_reduction_proxy_service_->compression_stats()
+          ->GetHttpReceivedContentLength();
+  if (original_content_length < kMinOriginalContentLengthBytes)
+    return;
+  int savings_percent =
+      static_cast<int>(((original_content_length - received_content_length) /
+                        (float)original_content_length) *
+                       100.0);
+  if (savings_percent >= 0) {
+    UMA_HISTOGRAM_PERCENTAGE("DataReductionProxy.StartupSavingsPercent",
+                             savings_percent > 0 ? savings_percent : 0);
+  }
+  if (savings_percent < 0) {
+    UMA_HISTOGRAM_PERCENTAGE("DataReductionProxy.StartupNegativeSavingsPercent",
+                             -savings_percent);
   }
 }
 

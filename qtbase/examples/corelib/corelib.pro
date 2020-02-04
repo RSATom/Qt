@@ -3,7 +3,8 @@ CONFIG += no_docs_target
 
 SUBDIRS = \
     ipc \
-    json \
     mimetypes \
-    threads \
+    serialization \
     tools
+
+qtConfig(thread): SUBDIRS += threads

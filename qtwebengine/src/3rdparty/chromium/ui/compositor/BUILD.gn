@@ -2,10 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 
-component("compositor") {
+jumbo_component("compositor") {
   sources = [
     "callback_layer_animation_observer.cc",
     "callback_layer_animation_observer.h",
@@ -15,26 +16,22 @@ component("compositor") {
     "clip_recorder.h",
     "closure_animation_observer.cc",
     "closure_animation_observer.h",
-    "compositing_recorder.cc",
-    "compositing_recorder.h",
     "compositor.cc",
     "compositor.h",
     "compositor_animation_observer.h",
-    "compositor_constants.h",
     "compositor_export.h",
     "compositor_lock.cc",
     "compositor_lock.h",
     "compositor_observer.h",
     "compositor_switches.cc",
     "compositor_switches.h",
-    "compositor_util.cc",
-    "compositor_util.h",
     "compositor_vsync_manager.cc",
     "compositor_vsync_manager.h",
     "debug_utils.cc",
     "debug_utils.h",
     "dip_util.cc",
     "dip_util.h",
+    "external_begin_frame_client.h",
     "float_animation_curve_adapter.cc",
     "float_animation_curve_adapter.h",
     "layer.cc",
@@ -55,17 +52,21 @@ component("compositor") {
     "layer_observer.h",
     "layer_owner.cc",
     "layer_owner.h",
-    "layer_owner_delegate.h",
     "layer_threaded_animation_delegate.h",
     "layer_tree_owner.cc",
     "layer_tree_owner.h",
     "layer_type.h",
+    "overscroll/scroll_input_handler.cc",
+    "overscroll/scroll_input_handler.h",
     "paint_cache.cc",
     "paint_cache.h",
     "paint_context.cc",
     "paint_context.h",
     "paint_recorder.cc",
     "paint_recorder.h",
+    "property_change_reason.h",
+    "recyclable_compositor_mac.cc",
+    "recyclable_compositor_mac.h",
     "reflector.cc",
     "reflector.h",
     "scoped_animation_duration_scale_mode.cc",
@@ -80,52 +81,45 @@ component("compositor") {
 
   defines = [ "COMPOSITOR_IMPLEMENTATION" ]
 
+  public_deps = [
+    "//cc",
+  ]
   deps = [
     "//base",
     "//base/third_party/dynamic_annotations",
-    "//cc",
     "//cc/animation",
     "//cc/paint",
-    "//cc/surfaces",
-    "//cc/surfaces:surfaces",
-    "//components/viz/common",
     "//components/viz/host",
     "//components/viz/service",
     "//gpu/command_buffer/common",
     "//skia",
+    "//ui/base",
     "//ui/display",
+    "//ui/events",
     "//ui/gfx",
     "//ui/gfx/animation",
     "//ui/gfx/geometry",
     "//ui/gl",
   ]
 
+  if (is_mac) {
+    deps += [ "//ui/accelerated_widget_mac" ]
+  }
+
   if (is_win && use_aura) {
     # TODO(sky): before we make this real need to remove
     # IDR_BITMAP_BRUSH_IMAGE.
-    deps += [
-      "//third_party/angle:libEGL",
-      "//third_party/angle:libGLESv2",
-      "//ui/resources",
-    ]
-    if (use_qt) {
-      deps -= [
-        "//third_party/angle:libEGL",
-        "//third_party/angle:libGLESv2",
-      ]
-    }
+    deps += [ "//ui/resources" ]
   }
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   sources = [
     "test/context_factories_for_test.cc",
     "test/context_factories_for_test.h",
     "test/draw_waiter_for_test.cc",
     "test/draw_waiter_for_test.h",
-    "test/fake_compositor_lock.cc",
-    "test/fake_compositor_lock.h",
     "test/fake_context_factory.cc",
     "test/fake_context_factory.h",
     "test/in_process_context_factory.cc",
@@ -162,12 +156,12 @@ static_library("test_support") {
     "//base/test:test_support",
     "//cc",
     "//cc:test_support",
-    "//cc/surfaces",
     "//components/viz/host",
     "//components/viz/service",
-    "//gpu/command_buffer/client:gles2_c_lib",
+    "//components/viz/test:test_support",
     "//gpu/command_buffer/client:gles2_implementation",
-    "//gpu/command_buffer/common:gles2_utils",
+    "//gpu/command_buffer/client:raster",
+    "//gpu/command_buffer/common",
     "//gpu/ipc:gl_in_process_context",
     "//gpu/skia_bindings",
     "//skia",
@@ -184,10 +178,20 @@ static_library("test_support") {
     deps += [ "//ui/gfx/x" ]
   }
 
+  if (is_mac) {
+    deps += [
+      "//gpu/ipc/service:service",
+      "//ui/accelerated_widget_mac",
+    ]
+  }
+
   if (use_ozone) {
     sources += [ "test/test_compositor_host_ozone.cc" ]
 
-    deps += [ "//ui/ozone" ]
+    deps += [
+      "//ui/ozone",
+      "//ui/platform_window",
+    ]
   } else if (use_x11) {
     sources += [ "test/test_compositor_host_x11.cc" ]
   }
@@ -196,6 +200,8 @@ static_library("test_support") {
 test("compositor_unittests") {
   sources = [
     "callback_layer_animation_observer_unittest.cc",
+    "canvas_painter_unittest.cc",
+    "compositor_lock_unittest.cc",
     "compositor_unittest.cc",
     "layer_animation_element_unittest.cc",
     "layer_animation_sequence_unittest.cc",
@@ -217,9 +223,10 @@ test("compositor_unittests") {
     "//base/test:test_support",
     "//cc",
     "//cc:test_support",
-    "//cc/surfaces",
     "//components/viz/common",
-    "//mojo/edk/system",
+    "//components/viz/service",
+    "//components/viz/test:test_support",
+    "//mojo/core/embedder",
     "//skia",
     "//testing/gmock",
     "//testing/gtest",
@@ -229,7 +236,8 @@ test("compositor_unittests") {
     "//ui/gl",
     "//ui/resources",
   ]
+
   if (is_linux) {
-    deps += [ "//third_party/mesa:osmesa" ]
+    deps += [ "//third_party/mesa_headers" ]
   }
 }

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <algorithm>
 #include <iterator>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_thread.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_gatt_characteristic.h"
@@ -75,13 +77,13 @@ const char kErrorIndicatePropertyNotSet[] =
 const char kErrorServiceNotRegistered[] =
     "The characteristic is not owned by a service that is registered.";
 const char kErrorUnknownNotificationError[] =
-    "An unknown notification error occured.";
+    "An unknown notification error occurred.";
 
 const char kStatusAdvertisementAlreadyExists[] =
     "An advertisement is already advertising";
 const char kStatusAdvertisementDoesNotExist[] =
     "This advertisement does not exist";
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+#if defined(OS_LINUX)
 const char kStatusInvalidAdvertisingInterval[] =
     "Invalid advertising interval specified.";
 #endif
@@ -139,9 +141,9 @@ extensions::BluetoothLowEnergyEventRouter* GetEventRouter(
 }
 
 template <typename T>
-void DoWorkCallback(const base::Callback<T()>& callback) {
+void DoWorkCallback(base::OnceCallback<T()> callback) {
   DCHECK(!callback.is_null());
-  callback.Run();
+  std::move(callback).Run();
 }
 
 std::unique_ptr<device::BluetoothAdvertisement::ManufacturerData>
@@ -372,9 +374,10 @@ ExtensionFunction::ResponseAction BluetoothLowEnergyExtensionFunction::Run() {
     return RespondNow(Error(kErrorPlatformNotSupported));
 
   // It is safe to pass |this| here as ExtensionFunction is refcounted.
-  if (!event_router_->InitializeAdapterAndInvokeCallback(base::Bind(
+  if (!event_router_->InitializeAdapterAndInvokeCallback(base::BindOnce(
           &DoWorkCallback<void>,
-          base::Bind(&BluetoothLowEnergyExtensionFunction::PreDoWork, this)))) {
+          base::BindOnce(&BluetoothLowEnergyExtensionFunction::PreDoWork,
+                         this)))) {
     // DoWork will respond when the adapter gets initialized.
     return RespondNow(Error(kErrorAdapterNotInitialized));
   }
@@ -1047,7 +1050,7 @@ void BluetoothLowEnergyAdvertisementFunction::RemoveAdvertisement(
   advertisements_manager_->Remove(extension_id(), advertisement_id);
 }
 
-const base::hash_set<int>*
+const std::unordered_set<int>*
 BluetoothLowEnergyAdvertisementFunction::GetAdvertisementIds() {
   return advertisements_manager_->GetResourceIds(extension_id());
 }
@@ -1225,7 +1228,7 @@ void BluetoothLowEnergyResetAdvertisingFunction::DoWork() {
     return;
   }
 
-  const base::hash_set<int>* advertisement_ids = GetAdvertisementIds();
+  const std::unordered_set<int>* advertisement_ids = GetAdvertisementIds();
   if (!advertisement_ids || advertisement_ids->empty()) {
     Respond(NoArguments());
     return;
@@ -1233,7 +1236,7 @@ void BluetoothLowEnergyResetAdvertisingFunction::DoWork() {
 
   // Copy the hash set, as RemoveAdvertisement can change advertisement_ids
   // while we are iterating over it.
-  base::hash_set<int> advertisement_ids_tmp = *advertisement_ids;
+  std::unordered_set<int> advertisement_ids_tmp = *advertisement_ids;
   for (int advertisement_id : advertisement_ids_tmp) {
     RemoveAdvertisement(advertisement_id);
   }
@@ -1269,7 +1272,7 @@ bool BluetoothLowEnergySetAdvertisingIntervalFunction::ParseParams() {
 }
 
 void BluetoothLowEnergySetAdvertisingIntervalFunction::DoWork() {
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+#if defined(OS_LINUX)
   BluetoothLowEnergyEventRouter* event_router =
       GetEventRouter(browser_context());
   event_router->adapter()->SetAdvertisingInterval(
@@ -1290,7 +1293,7 @@ void BluetoothLowEnergySetAdvertisingIntervalFunction::SuccessCallback() {
 
 void BluetoothLowEnergySetAdvertisingIntervalFunction::ErrorCallback(
     device::BluetoothAdvertisement::ErrorCode status) {
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+#if defined(OS_LINUX)
   switch (status) {
     case device::BluetoothAdvertisement::ErrorCode::
         ERROR_INVALID_ADVERTISEMENT_INTERVAL:

@@ -11,51 +11,49 @@
 
 #include "xfa/fwl/theme/cfwl_widgettp.h"
 
-class CFWL_ScrollBarTP : public CFWL_WidgetTP {
+class CFWL_ScrollBarTP final : public CFWL_WidgetTP {
  public:
   CFWL_ScrollBarTP();
   ~CFWL_ScrollBarTP() override;
 
   // CFWL_WidgetTP
-  void DrawBackground(CFWL_ThemeBackground* pParams) override;
+  void DrawBackground(const CFWL_ThemeBackground& pParams) override;
 
- protected:
+ private:
   struct SBThemeData {
+    FX_ARGB clrTrackBKStart;
+    FX_ARGB clrTrackBKEnd;
     FX_ARGB clrPawColorLight[4];
     FX_ARGB clrPawColorDark[4];
     FX_ARGB clrBtnBK[4][2];
     FX_ARGB clrBtnBorder[4];
-    FX_ARGB clrTrackBKStart;
-    FX_ARGB clrTrackBKEnd;
   };
 
   void DrawThumbBtn(CXFA_Graphics* pGraphics,
-                    const CFX_RectF* pRect,
+                    const CFX_RectF& rect,
                     bool bVert,
                     FWLTHEME_STATE eState,
-                    bool bPawButton = true,
-                    CFX_Matrix* pMatrix = nullptr);
+                    bool bPawButton,
+                    const CFX_Matrix& matrix);
   void DrawTrack(CXFA_Graphics* pGraphics,
-                 const CFX_RectF* pRect,
+                 const CFX_RectF& rect,
                  bool bVert,
                  FWLTHEME_STATE eState,
                  bool bLowerTrack,
-                 CFX_Matrix* pMatrix = nullptr);
+                 const CFX_Matrix& matrix);
   void DrawMaxMinBtn(CXFA_Graphics* pGraphics,
-                     const CFX_RectF* pRect,
+                     const CFX_RectF& rect,
                      FWLTHEME_DIRECTION eDict,
                      FWLTHEME_STATE eState,
-                     CFX_Matrix* pMatrix = nullptr);
+                     const CFX_Matrix& matrix);
   void DrawPaw(CXFA_Graphics* pGraphics,
-               const CFX_RectF* pRect,
+               const CFX_RectF& rect,
                bool bVert,
                FWLTHEME_STATE eState,
-               CFX_Matrix* pMatrix = nullptr);
+               const CFX_Matrix& matrix);
+  void SetThemeData();
 
   std::unique_ptr<SBThemeData> m_pThemeData;
-
- private:
-  void SetThemeData();
 };
 
 #endif  // XFA_FWL_THEME_CFWL_SCROLLBARTP_H_

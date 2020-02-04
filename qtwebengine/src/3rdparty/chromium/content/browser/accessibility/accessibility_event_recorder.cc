@@ -5,23 +5,31 @@
 #include "content/browser/accessibility/accessibility_event_recorder.h"
 
 #include "build/build_config.h"
+#include "content/browser/accessibility/accessibility_buildflags.h"
+#include "content/browser/accessibility/browser_accessibility_manager.h"
 
 namespace content {
 
 AccessibilityEventRecorder::AccessibilityEventRecorder(
     BrowserAccessibilityManager* manager)
-    : manager_(manager) {
-}
+    : manager_(manager) {}
 
-AccessibilityEventRecorder::~AccessibilityEventRecorder() {
-}
+AccessibilityEventRecorder::~AccessibilityEventRecorder() = default;
 
-#if !defined(OS_WIN) && !defined(OS_MACOSX)
+#if !defined(OS_WIN) && !defined(OS_MACOSX) && !BUILDFLAG(USE_ATK)
 // static
-AccessibilityEventRecorder* AccessibilityEventRecorder::Create(
-    BrowserAccessibilityManager* manager) {
-  return new AccessibilityEventRecorder(manager);
+std::unique_ptr<AccessibilityEventRecorder> AccessibilityEventRecorder::Create(
+    BrowserAccessibilityManager* manager,
+    base::ProcessId pid,
+    const base::StringPiece& application_name_match_pattern) {
+  return std::make_unique<AccessibilityEventRecorder>(manager);
 }
 #endif
+
+void AccessibilityEventRecorder::OnEvent(const std::string& event) {
+  event_logs_.push_back(event);
+  if (callback_)
+    callback_.Run(event);
+}
 
 }  // namespace content

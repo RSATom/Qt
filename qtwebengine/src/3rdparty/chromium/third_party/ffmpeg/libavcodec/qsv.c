@@ -20,6 +20,7 @@
 
 #include <mfx/mfxvideo.h>
 #include <mfx/mfxplugin.h>
+#include <mfx/mfxjpeg.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -30,6 +31,7 @@
 #include "libavutil/hwcontext.h"
 #include "libavutil/hwcontext_qsv.h"
 #include "libavutil/imgutils.h"
+#include "libavutil/avassert.h"
 
 #include "avcodec.h"
 #include "qsv_internal.h"
@@ -56,6 +58,8 @@ int ff_qsv_codec_id_to_mfx(enum AVCodecID codec_id)
     case AV_CODEC_ID_VP8:
         return MFX_CODEC_VP8;
 #endif
+    case AV_CODEC_ID_MJPEG:
+        return MFX_CODEC_JPEG;
     default:
         break;
     }
@@ -94,15 +98,17 @@ static const struct {
     { MFX_ERR_LOCK_MEMORY,              AVERROR(EIO),    "failed to lock the memory block"      },
     { MFX_ERR_NOT_INITIALIZED,          AVERROR_BUG,     "not initialized"                      },
     { MFX_ERR_NOT_FOUND,                AVERROR(ENOSYS), "specified object was not found"       },
-    { MFX_ERR_MORE_DATA,                AVERROR(EAGAIN), "expect more data at input"            },
-    { MFX_ERR_MORE_SURFACE,             AVERROR(EAGAIN), "expect more surface at output"        },
+    /* the following 3 errors should always be handled explicitly, so those "mappings"
+     * are for completeness only */
+    { MFX_ERR_MORE_DATA,                AVERROR_UNKNOWN, "expect more data at input"            },
+    { MFX_ERR_MORE_SURFACE,             AVERROR_UNKNOWN, "expect more surface at output"        },
+    { MFX_ERR_MORE_BITSTREAM,           AVERROR_UNKNOWN, "expect more bitstream at output"      },
     { MFX_ERR_ABORTED,                  AVERROR_UNKNOWN, "operation aborted"                    },
     { MFX_ERR_DEVICE_LOST,              AVERROR(EIO),    "device lost"                          },
     { MFX_ERR_INCOMPATIBLE_VIDEO_PARAM, AVERROR(EINVAL), "incompatible video parameters"        },
     { MFX_ERR_INVALID_VIDEO_PARAM,      AVERROR(EINVAL), "invalid video parameters"             },
     { MFX_ERR_UNDEFINED_BEHAVIOR,       AVERROR_BUG,     "undefined behavior"                   },
     { MFX_ERR_DEVICE_FAILED,            AVERROR(EIO),    "device failed"                        },
-    { MFX_ERR_MORE_BITSTREAM,           AVERROR(EAGAIN), "expect more bitstream at output"      },
     { MFX_ERR_INCOMPATIBLE_AUDIO_PARAM, AVERROR(EINVAL), "incompatible audio parameters"        },
     { MFX_ERR_INVALID_AUDIO_PARAM,      AVERROR(EINVAL), "invalid audio parameters"             },
 
@@ -188,6 +194,35 @@ int ff_qsv_find_surface_idx(QSVFramesContext *ctx, QSVFrame *frame)
             return i;
     }
     return AVERROR_BUG;
+}
+
+enum AVPictureType ff_qsv_map_pictype(int mfx_pic_type)
+{
+    enum AVPictureType type;
+    switch (mfx_pic_type & 0x7) {
+    case MFX_FRAMETYPE_I:
+        if (mfx_pic_type & MFX_FRAMETYPE_S)
+            type = AV_PICTURE_TYPE_SI;
+        else
+            type = AV_PICTURE_TYPE_I;
+        break;
+    case MFX_FRAMETYPE_B:
+        type = AV_PICTURE_TYPE_B;
+        break;
+    case MFX_FRAMETYPE_P:
+        if (mfx_pic_type & MFX_FRAMETYPE_S)
+            type = AV_PICTURE_TYPE_SP;
+        else
+            type = AV_PICTURE_TYPE_P;
+        break;
+    case MFX_FRAMETYPE_UNKNOWN:
+        type = AV_PICTURE_TYPE_NONE;
+        break;
+    default:
+        av_assert0(0);
+    }
+
+    return type;
 }
 
 static int qsv_load_plugins(mfxSession session, const char *load_plugins,
@@ -384,7 +419,7 @@ static mfxStatus qsv_frame_alloc(mfxHDL pthis, mfxFrameAllocRequest *req,
         mfxFrameInfo      *i  = &req->Info;
         mfxFrameInfo      *i1 = &frames_hwctx->surfaces[0].Info;
 
-        if (i->Width  != i1->Width  || i->Height != i1->Height ||
+        if (i->Width  > i1->Width  || i->Height > i1->Height ||
             i->FourCC != i1->FourCC || i->ChromaFormat != i1->ChromaFormat) {
             av_log(ctx->logctx, AV_LOG_ERROR, "Mismatching surface properties in an "
                    "allocation request: %dx%d %d %d vs %dx%d %d %d\n",
@@ -535,27 +570,16 @@ static mfxStatus qsv_frame_get_hdl(mfxHDL pthis, mfxMemId mid, mfxHDL *hdl)
     return MFX_ERR_NONE;
 }
 
-int ff_qsv_init_session_hwcontext(AVCodecContext *avctx, mfxSession *psession,
-                                  QSVFramesContext *qsv_frames_ctx,
-                                  const char *load_plugins, int opaque)
+int ff_qsv_init_session_device(AVCodecContext *avctx, mfxSession *psession,
+                               AVBufferRef *device_ref, const char *load_plugins)
 {
     static const mfxHandleType handle_types[] = {
         MFX_HANDLE_VA_DISPLAY,
         MFX_HANDLE_D3D9_DEVICE_MANAGER,
         MFX_HANDLE_D3D11_DEVICE,
     };
-    mfxFrameAllocator frame_allocator = {
-        .pthis  = qsv_frames_ctx,
-        .Alloc  = qsv_frame_alloc,
-        .Lock   = qsv_frame_lock,
-        .Unlock = qsv_frame_unlock,
-        .GetHDL = qsv_frame_get_hdl,
-        .Free   = qsv_frame_free,
-    };
-
-    AVHWFramesContext    *frames_ctx = (AVHWFramesContext*)qsv_frames_ctx->hw_frames_ctx->data;
-    AVQSVFramesContext *frames_hwctx = frames_ctx->hwctx;
-    AVQSVDeviceContext *device_hwctx = frames_ctx->device_ctx->hwctx;
+    AVHWDeviceContext    *device_ctx = (AVHWDeviceContext*)device_ref->data;
+    AVQSVDeviceContext *device_hwctx = device_ctx->hwctx;
     mfxSession        parent_session = device_hwctx->session;
 
     mfxSession    session;
@@ -599,11 +623,48 @@ int ff_qsv_init_session_hwcontext(AVCodecContext *avctx, mfxSession *psession,
                                       "Error setting a HW handle");
     }
 
+    if (QSV_RUNTIME_VERSION_ATLEAST(ver, 1, 25)) {
+        err = MFXJoinSession(parent_session, session);
+        if (err != MFX_ERR_NONE)
+            return ff_qsv_print_error(avctx, err,
+                                      "Error joining session");
+    }
+
     ret = qsv_load_plugins(session, load_plugins, avctx);
     if (ret < 0) {
         av_log(avctx, AV_LOG_ERROR, "Error loading plugins\n");
         return ret;
     }
+
+    *psession = session;
+    return 0;
+}
+
+int ff_qsv_init_session_frames(AVCodecContext *avctx, mfxSession *psession,
+                               QSVFramesContext *qsv_frames_ctx,
+                               const char *load_plugins, int opaque)
+{
+    mfxFrameAllocator frame_allocator = {
+        .pthis  = qsv_frames_ctx,
+        .Alloc  = qsv_frame_alloc,
+        .Lock   = qsv_frame_lock,
+        .Unlock = qsv_frame_unlock,
+        .GetHDL = qsv_frame_get_hdl,
+        .Free   = qsv_frame_free,
+    };
+
+    AVHWFramesContext    *frames_ctx = (AVHWFramesContext*)qsv_frames_ctx->hw_frames_ctx->data;
+    AVQSVFramesContext *frames_hwctx = frames_ctx->hwctx;
+
+    mfxSession    session;
+    mfxStatus err;
+
+    int ret;
+
+    ret = ff_qsv_init_session_device(avctx, &session,
+                                     frames_ctx->device_ref, load_plugins);
+    if (ret < 0)
+        return ret;
 
     if (!opaque) {
         qsv_frames_ctx->logctx = avctx;

@@ -9,6 +9,7 @@
 
 #include "GrAutoLocaleSetter.h"
 #include "GrContext.h"
+#include "GrContextPriv.h"
 #include "GrCoordTransform.h"
 #include "GrGLProgramBuilder.h"
 #include "GrProgramDesc.h"
@@ -28,24 +29,31 @@
 #define GL_CALL(X) GR_GL_CALL(this->gpu()->glInterface(), X)
 #define GL_CALL_RET(R, X) GR_GL_CALL_RET(this->gpu()->glInterface(), R, X)
 
-GrGLProgram* GrGLProgramBuilder::CreateProgram(const GrPipeline& pipeline,
-                                               const GrPrimitiveProcessor& primProc,
+GrGLProgram* GrGLProgramBuilder::CreateProgram(const GrPrimitiveProcessor& primProc,
+                                               const GrTextureProxy* const primProcProxies[],
+                                               const GrPipeline& pipeline,
                                                GrProgramDesc* desc,
                                                GrGLGpu* gpu) {
-    SkASSERT(!pipeline.isBad() && primProc.instantiate(gpu->getContext()->resourceProvider()));
+    SkASSERT(!pipeline.isBad());
 
     ATRACE_ANDROID_FRAMEWORK("Shader Compile");
     GrAutoLocaleSetter als("C");
 
     // create a builder.  This will be handed off to effects so they can use it to add
     // uniforms, varyings, textures, etc
-    GrGLProgramBuilder builder(gpu, pipeline, primProc, desc);
+    GrGLProgramBuilder builder(gpu, pipeline, primProc, primProcProxies, desc);
 
+    auto persistentCache = gpu->getContext()->contextPriv().getPersistentCache();
+    if (persistentCache) {
+        sk_sp<SkData> key = SkData::MakeWithoutCopy(desc->asKey(), desc->keyLength());
+        builder.fCached = persistentCache->load(*key);
+        // the eventual end goal is to completely skip emitAndInstallProcs on a cache hit, but it's
+        // doing necessary setup in addition to generating the SkSL code. Currently we are only able
+        // to skip the SkSL->GLSL step on a cache hit.
+    }
     if (!builder.emitAndInstallProcs()) {
-        builder.cleanupFragmentProcessors();
         return nullptr;
     }
-
     return builder.finalize();
 }
 
@@ -54,15 +62,48 @@ GrGLProgram* GrGLProgramBuilder::CreateProgram(const GrPipeline& pipeline,
 GrGLProgramBuilder::GrGLProgramBuilder(GrGLGpu* gpu,
                                        const GrPipeline& pipeline,
                                        const GrPrimitiveProcessor& primProc,
+                                       const GrTextureProxy* const primProcProxies[],
                                        GrProgramDesc* desc)
-    : INHERITED(pipeline, primProc, desc)
-    , fGpu(gpu)
-    , fVaryingHandler(this)
-    , fUniformHandler(this) {
-}
+        : INHERITED(primProc, primProcProxies, pipeline, desc)
+        , fGpu(gpu)
+        , fVaryingHandler(this)
+        , fUniformHandler(this)
+        , fVertexAttributeCnt(0)
+        , fInstanceAttributeCnt(0)
+        , fVertexStride(0)
+        , fInstanceStride(0) {}
 
 const GrCaps* GrGLProgramBuilder::caps() const {
     return fGpu->caps();
+}
+
+bool GrGLProgramBuilder::compileAndAttachShaders(const char* glsl,
+                                                 int length,
+                                                 GrGLuint programId,
+                                                 GrGLenum type,
+                                                 SkTDArray<GrGLuint>* shaderIds,
+                                                 const SkSL::Program::Settings& settings,
+                                                 const SkSL::Program::Inputs& inputs) {
+    GrGLGpu* gpu = this->gpu();
+    GrGLuint shaderId = GrGLCompileAndAttachShader(gpu->glContext(),
+                                                   programId,
+                                                   type,
+                                                   glsl,
+                                                   length,
+                                                   gpu->stats(),
+                                                   settings);
+    if (!shaderId) {
+        return false;
+    }
+
+    *shaderIds->append() = shaderId;
+    if (inputs.fFlipY) {
+        GrProgramDesc* d = this->desc();
+        d->setSurfaceOriginKey(GrGLSLFragmentShaderBuilder::KeyForSurfaceOrigin(
+                                                     this->pipeline().proxy()->origin()));
+    }
+
+    return true;
 }
 
 bool GrGLProgramBuilder::compileAndAttachShaders(GrGLSLShaderBuilder& shader,
@@ -71,117 +112,270 @@ bool GrGLProgramBuilder::compileAndAttachShaders(GrGLSLShaderBuilder& shader,
                                                  SkTDArray<GrGLuint>* shaderIds,
                                                  const SkSL::Program::Settings& settings,
                                                  SkSL::Program::Inputs* outInputs) {
-    GrGLGpu* gpu = this->gpu();
-    GrGLuint shaderId = GrGLCompileAndAttachShader(gpu->glContext(),
-                                                   programId,
-                                                   type,
-                                                   shader.fCompilerStrings.begin(),
-                                                   shader.fCompilerStringLengths.begin(),
-                                                   shader.fCompilerStrings.count(),
-                                                   gpu->stats(),
-                                                   settings,
-                                                   outInputs);
+    SkSL::String glsl;
+    std::unique_ptr<SkSL::Program> program = GrSkSLtoGLSL(gpu()->glContext(), type,
+                                                 shader.fCompilerStrings.begin(),
+                                                 shader.fCompilerStringLengths.begin(),
+                                                 shader.fCompilerStrings.count(),
+                                                 settings,
+                                                 &glsl);
+    *outInputs = program->fInputs;
+    return this->compileAndAttachShaders(glsl.c_str(),
+                                         glsl.size(),
+                                         programId,
+                                         type,
+                                         shaderIds,
+                                         settings,
+                                         *outInputs);
+}
 
-    if (!shaderId) {
-        return false;
+void GrGLProgramBuilder::computeCountsAndStrides(GrGLuint programID,
+                                                 const GrPrimitiveProcessor& primProc,
+                                                 bool bindAttribLocations) {
+    fVertexAttributeCnt = primProc.numVertexAttributes();
+    fInstanceAttributeCnt = primProc.numInstanceAttributes();
+    fAttributes.reset(
+            new GrGLProgram::Attribute[fVertexAttributeCnt + fInstanceAttributeCnt]);
+    auto addAttr = [&](int i, const auto& a, size_t* stride) {
+        fAttributes[i].fCPUType = a.cpuType();
+        fAttributes[i].fGPUType = a.gpuType();
+        fAttributes[i].fOffset = *stride;
+        *stride += a.sizeAlign4();
+        fAttributes[i].fLocation = i;
+        if (bindAttribLocations) {
+            GL_CALL(BindAttribLocation(programID, i, a.name()));
+        }
+    };
+    fVertexStride = 0;
+    int i = 0;
+    for (const auto& attr : primProc.vertexAttributes()) {
+        addAttr(i++, attr, &fVertexStride);
     }
-
-    *shaderIds->append() = shaderId;
-    if (outInputs->fFlipY) {
-        GrProgramDesc* d = this->desc();
-        d->setSurfaceOriginKey(GrGLSLFragmentShaderBuilder::KeyForSurfaceOrigin(
-                                                     this->pipeline().getRenderTarget()->origin()));
-        d->finalize();
+    SkASSERT(fVertexStride == primProc.vertexStride());
+    fInstanceStride = 0;
+    for (const auto& attr : primProc.instanceAttributes()) {
+        addAttr(i++, attr, &fInstanceStride);
     }
+    SkASSERT(fInstanceStride == primProc.instanceStride());
+}
 
-    return true;
+void GrGLProgramBuilder::addInputVars(const SkSL::Program::Inputs& inputs) {
+    if (inputs.fRTWidth) {
+        this->addRTWidthUniform(SKSL_RTWIDTH_NAME);
+    }
+    if (inputs.fRTHeight) {
+        this->addRTHeightUniform(SKSL_RTHEIGHT_NAME);
+    }
+}
+
+void GrGLProgramBuilder::storeShaderInCache(const SkSL::Program::Inputs& inputs, GrGLuint programID,
+                                            const SkSL::String& glsl) {
+    if (!this->gpu()->getContext()->contextPriv().getPersistentCache()) {
+        return;
+    }
+    sk_sp<SkData> key = SkData::MakeWithoutCopy(desc()->asKey(), desc()->keyLength());
+    if (fGpu->glCaps().programBinarySupport()) {
+        // binary cache
+        GrGLsizei length = 0;
+        GL_CALL(GetProgramiv(programID, GL_PROGRAM_BINARY_LENGTH, &length));
+        if (length > 0) {
+            GrGLenum binaryFormat;
+            std::unique_ptr<char[]> binary(new char[length]);
+            GL_CALL(GetProgramBinary(programID, length, &length, &binaryFormat, binary.get()));
+            size_t dataLength = sizeof(inputs) + sizeof(binaryFormat) + length;
+            std::unique_ptr<uint8_t[]> data(new uint8_t[dataLength]);
+            size_t offset = 0;
+            memcpy(data.get() + offset, &inputs, sizeof(inputs));
+            offset += sizeof(inputs);
+            memcpy(data.get() + offset, &binaryFormat, sizeof(binaryFormat));
+            offset += sizeof(binaryFormat);
+            memcpy(data.get() + offset, binary.get(), length);
+            this->gpu()->getContext()->contextPriv().getPersistentCache()->store(
+                                            *key, *SkData::MakeWithoutCopy(data.get(), dataLength));
+        }
+    } else {
+        // source cache
+        size_t dataLength = sizeof(inputs) + glsl.length();
+        std::unique_ptr<uint8_t[]> data(new uint8_t[dataLength]);
+        size_t offset = 0;
+        memcpy(data.get() + offset, &inputs, sizeof(inputs));
+        offset += sizeof(inputs);
+        memcpy(data.get() + offset, glsl.data(), glsl.length());
+        this->gpu()->getContext()->contextPriv().getPersistentCache()->store(
+                                            *key, *SkData::MakeWithoutCopy(data.get(), dataLength));
+    }
 }
 
 GrGLProgram* GrGLProgramBuilder::finalize() {
-    TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("skia"), "GrGLProgramBuilder::finalize()");
+    TRACE_EVENT0("skia", TRACE_FUNC);
 
     // verify we can get a program id
     GrGLuint programID;
     GL_CALL_RET(programID, CreateProgram());
     if (0 == programID) {
-        this->cleanupFragmentProcessors();
         return nullptr;
+    }
+
+    if (this->gpu()->glCaps().programBinarySupport() &&
+        this->gpu()->getContext()->contextPriv().getPersistentCache()) {
+        GL_CALL(ProgramParameteri(programID, GR_GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GR_GL_TRUE));
     }
 
     this->finalizeShaders();
 
     // compile shaders and bind attributes / uniforms
+    const GrPrimitiveProcessor& primProc = this->primitiveProcessor();
     SkSL::Program::Settings settings;
     settings.fCaps = this->gpu()->glCaps().shaderCaps();
-    settings.fFlipY = this->pipeline().getRenderTarget()->origin() != kTopLeft_GrSurfaceOrigin;
+    settings.fFlipY = this->pipeline().proxy()->origin() != kTopLeft_GrSurfaceOrigin;
+    settings.fSharpenTextures = this->gpu()->getContext()->contextPriv().sharpenMipmappedTextures();
+    settings.fFragColorIsInOut = this->fragColorIsInOut();
+
     SkSL::Program::Inputs inputs;
     SkTDArray<GrGLuint> shadersToDelete;
-    if (!this->compileAndAttachShaders(fVS, programID, GR_GL_VERTEX_SHADER, &shadersToDelete,
-                                       settings, &inputs)) {
-        this->cleanupProgram(programID, shadersToDelete);
-        return nullptr;
-    }
-
-    // NVPR actually requires a vertex shader to compile
-    const GrPrimitiveProcessor& primProc = this->primitiveProcessor();
-    bool useNvpr = primProc.isPathRendering();
-    if (!useNvpr) {
-        int vaCount = primProc.numAttribs();
-        for (int i = 0; i < vaCount; i++) {
-            GL_CALL(BindAttribLocation(programID, i, primProc.getAttrib(i).fName));
-        }
-    }
-
-    if (primProc.willUseGeoShader() &&
-        !this->compileAndAttachShaders(fGS, programID, GR_GL_GEOMETRY_SHADER, &shadersToDelete,
-                                       settings, &inputs)) {
-        this->cleanupProgram(programID, shadersToDelete);
-        return nullptr;
-    }
-
-    if (!this->compileAndAttachShaders(fFS, programID, GR_GL_FRAGMENT_SHADER, &shadersToDelete,
-                                       settings, &inputs)) {
-        this->cleanupProgram(programID, shadersToDelete);
-        return nullptr;
-    }
-
-    if (inputs.fRTHeight) {
-        this->addRTHeightUniform(SKSL_RTHEIGHT_NAME);
-    }
-
-    this->bindProgramResourceLocations(programID);
-
-    GL_CALL(LinkProgram(programID));
-
     // Calling GetProgramiv is expensive in Chromium. Assume success in release builds.
     bool checkLinked = kChromium_GrGLDriver != fGpu->ctxInfo().driver();
 #ifdef SK_DEBUG
     checkLinked = true;
 #endif
-    if (checkLinked) {
-        if (!this->checkLinkStatus(programID)) {
-            SkDebugf("VS:\n");
-            GrGLPrintShader(fGpu->glContext(), GR_GL_VERTEX_SHADER, fVS.fCompilerStrings.begin(),
-                            fVS.fCompilerStringLengths.begin(), fVS.fCompilerStrings.count(),
-                            settings);
-            if (primProc.willUseGeoShader()) {
-                SkDebugf("\nGS:\n");
-                GrGLPrintShader(fGpu->glContext(), GR_GL_GEOMETRY_SHADER,
-                                fGS.fCompilerStrings.begin(), fGS.fCompilerStringLengths.begin(),
-                                fGS.fCompilerStrings.count(), settings);
+    bool cached = fCached.get() != nullptr;
+    SkSL::String glsl;
+    if (cached) {
+        const uint8_t* bytes = fCached->bytes();
+        size_t offset = 0;
+        memcpy(&inputs, bytes + offset, sizeof(inputs));
+        offset += sizeof(inputs);
+        if (fGpu->glCaps().programBinarySupport()) {
+            // binary cache hit, just hand the binary to GL
+            int binaryFormat;
+            memcpy(&binaryFormat, bytes + offset, sizeof(binaryFormat));
+            offset += sizeof(binaryFormat);
+            GrGLClearErr(this->gpu()->glInterface());
+            GR_GL_CALL_NOERRCHECK(this->gpu()->glInterface(),
+                                  ProgramBinary(programID, binaryFormat, (void*) (bytes + offset),
+                                                fCached->size() - offset));
+            if (GR_GL_GET_ERROR(this->gpu()->glInterface()) == GR_GL_NO_ERROR) {
+                if (checkLinked) {
+                    cached = this->checkLinkStatus(programID);
+                }
+                if (cached) {
+                    this->addInputVars(inputs);
+                    this->computeCountsAndStrides(programID, primProc, false);
+                }
+            } else {
+                cached = false;
             }
-            SkDebugf("\nFS:\n");
-            GrGLPrintShader(fGpu->glContext(), GR_GL_FRAGMENT_SHADER, fFS.fCompilerStrings.begin(),
-                            fFS.fCompilerStringLengths.begin(), fFS.fCompilerStrings.count(),
-                            settings);
-            SkDEBUGFAIL("");
+        } else {
+            // source cache hit, we don't need to compile the SkSL->GLSL
+            glsl = SkSL::String(((const char*) bytes) + offset, fCached->size() - offset);
+        }
+    }
+    if (!cached || !fGpu->glCaps().programBinarySupport()) {
+        // either a cache miss, or we can't store binaries in the cache
+        if (glsl == "" || true) {
+            // don't have cached GLSL, need to compile SkSL->GLSL
+            if (fFS.fForceHighPrecision) {
+                settings.fForceHighPrecision = true;
+            }
+            std::unique_ptr<SkSL::Program> fs = GrSkSLtoGLSL(gpu()->glContext(),
+                                                             GR_GL_FRAGMENT_SHADER,
+                                                             fFS.fCompilerStrings.begin(),
+                                                             fFS.fCompilerStringLengths.begin(),
+                                                             fFS.fCompilerStrings.count(),
+                                                             settings,
+                                                             &glsl);
+            if (!fs) {
+                this->cleanupProgram(programID, shadersToDelete);
+                return nullptr;
+            }
+            inputs = fs->fInputs;
+        } else {
+            // we've pulled GLSL and inputs from the cache, but still need to do some setup
+            this->addInputVars(inputs);
+            this->computeCountsAndStrides(programID, primProc, false);
+        }
+        this->addInputVars(inputs);
+        if (!this->compileAndAttachShaders(glsl.c_str(), glsl.size(), programID,
+                                           GR_GL_FRAGMENT_SHADER, &shadersToDelete, settings,
+                                           inputs)) {
+            this->cleanupProgram(programID, shadersToDelete);
             return nullptr;
+        }
+
+        std::unique_ptr<SkSL::Program> vs = GrSkSLtoGLSL(gpu()->glContext(),
+                                                         GR_GL_VERTEX_SHADER,
+                                                         fVS.fCompilerStrings.begin(),
+                                                         fVS.fCompilerStringLengths.begin(),
+                                                         fVS.fCompilerStrings.count(),
+                                                         settings,
+                                                         &glsl);
+        if (!vs || !this->compileAndAttachShaders(glsl.c_str(), glsl.size(), programID,
+                                                  GR_GL_VERTEX_SHADER, &shadersToDelete, settings,
+                                                  inputs)) {
+            this->cleanupProgram(programID, shadersToDelete);
+            return nullptr;
+        }
+
+        // NVPR actually requires a vertex shader to compile
+        bool useNvpr = primProc.isPathRendering();
+        if (!useNvpr) {
+            this->computeCountsAndStrides(programID, primProc, true);
+        }
+
+        if (primProc.willUseGeoShader()) {
+            std::unique_ptr<SkSL::Program> gs;
+            gs = GrSkSLtoGLSL(gpu()->glContext(),
+                              GR_GL_GEOMETRY_SHADER,
+                              fGS.fCompilerStrings.begin(),
+                              fGS.fCompilerStringLengths.begin(),
+                              fGS.fCompilerStrings.count(),
+                              settings,
+                              &glsl);
+            if (!gs || !this->compileAndAttachShaders(glsl.c_str(), glsl.size(), programID,
+                                                      GR_GL_GEOMETRY_SHADER, &shadersToDelete,
+                                                      settings, inputs)) {
+                this->cleanupProgram(programID, shadersToDelete);
+                return nullptr;
+            }
+        }
+        this->bindProgramResourceLocations(programID);
+
+        GL_CALL(LinkProgram(programID));
+        if (checkLinked) {
+            if (!this->checkLinkStatus(programID)) {
+                GL_CALL(DeleteProgram(programID));
+                SkDebugf("VS:\n");
+                GrGLPrintShader(fGpu->glContext(),
+                                GR_GL_VERTEX_SHADER,
+                                fVS.fCompilerStrings.begin(),
+                                fVS.fCompilerStringLengths.begin(),
+                                fVS.fCompilerStrings.count(),
+                                settings);
+                if (primProc.willUseGeoShader()) {
+                    SkDebugf("\nGS:\n");
+                    GrGLPrintShader(fGpu->glContext(),
+                                    GR_GL_GEOMETRY_SHADER,
+                                    fGS.fCompilerStrings.begin(),
+                                    fGS.fCompilerStringLengths.begin(),
+                                    fGS.fCompilerStrings.count(), settings);
+                }
+                SkDebugf("\nFS:\n");
+                GrGLPrintShader(fGpu->glContext(),
+                                GR_GL_FRAGMENT_SHADER,
+                                fFS.fCompilerStrings.begin(),
+                                fFS.fCompilerStringLengths.begin(),
+                                fFS.fCompilerStrings.count(),
+                                settings);
+                return nullptr;
+            }
         }
     }
     this->resolveProgramResourceLocations(programID);
 
     this->cleanupShaders(shadersToDelete);
-
+    if (!cached) {
+        this->storeShaderInCache(inputs, programID, glsl);
+    }
     return this->createProgram(programID);
 }
 
@@ -229,8 +423,6 @@ bool GrGLProgramBuilder::checkLinkStatus(GrGLuint programID) {
                                       (char*)log.get()));
             SkDebugf("%s", (char*)log.get());
         }
-        GL_CALL(DeleteProgram(programID));
-        programID = 0;
     }
     return SkToBool(linked);
 }
@@ -257,25 +449,27 @@ void GrGLProgramBuilder::resolveProgramResourceLocations(GrGLuint programID) {
 void GrGLProgramBuilder::cleanupProgram(GrGLuint programID, const SkTDArray<GrGLuint>& shaderIDs) {
     GL_CALL(DeleteProgram(programID));
     this->cleanupShaders(shaderIDs);
-    this->cleanupFragmentProcessors();
 }
 void GrGLProgramBuilder::cleanupShaders(const SkTDArray<GrGLuint>& shaderIDs) {
     for (int i = 0; i < shaderIDs.count(); ++i) {
-      GL_CALL(DeleteShader(shaderIDs[i]));
+        GL_CALL(DeleteShader(shaderIDs[i]));
     }
 }
 
 GrGLProgram* GrGLProgramBuilder::createProgram(GrGLuint programID) {
     return new GrGLProgram(fGpu,
-                           *this->desc(),
                            fUniformHandles,
                            programID,
                            fUniformHandler.fUniforms,
                            fUniformHandler.fSamplers,
-                           fUniformHandler.fTexelBuffers,
-                           fUniformHandler.fImageStorages,
                            fVaryingHandler.fPathProcVaryingInfos,
-                           fGeometryProcessor,
-                           fXferProcessor,
-                           fFragmentProcessors);
+                           std::move(fGeometryProcessor),
+                           std::move(fXferProcessor),
+                           std::move(fFragmentProcessors),
+                           fFragmentProcessorCnt,
+                           std::move(fAttributes),
+                           fVertexAttributeCnt,
+                           fInstanceAttributeCnt,
+                           fVertexStride,
+                           fInstanceStride);
 }

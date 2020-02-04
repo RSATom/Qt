@@ -275,8 +275,8 @@ bool DataModel::load(const QString &fileName, bool *langGuessed, QWidget *parent
     if (lang.isEmpty()) {
         lang = QFileInfo(fileName).baseName();
         int pos = lang.indexOf(QLatin1Char('_'));
-        if (pos != -1 && pos + 3 == lang.length())
-            lang = fileName.mid(pos + 1);
+        if (pos != -1)
+            lang.remove(0, pos + 1);
         else
             lang.clear();
         *langGuessed = true;
@@ -395,7 +395,11 @@ bool DataModel::setLanguageAndCountry(QLocale::Language lang, QLocale::Country c
         lang = QLocale::English;
     QByteArray rules;
     bool ok = getNumerusInfo(lang, country, &rules, &m_numerusForms, 0);
-    m_localizedLanguage = QCoreApplication::translate("MessageEditor", QLocale::languageToString(lang).toLatin1());
+    QLocale loc(lang, country);
+    m_localizedLanguage = QLocale::countriesForLanguage(lang).size() > 1
+            //: <language> (<country>)
+            ? tr("%1 (%2)").arg(loc.nativeLanguageName(), loc.nativeCountryName())
+            : loc.nativeLanguageName();
     m_countRefNeeds.clear();
     for (int i = 0; i < rules.size(); ++i) {
         m_countRefNeeds.append(!(rules.at(i) == Q_EQ && (i == (rules.size() - 2) || rules.at(i + 2) == (char)Q_NEWRULE)));
@@ -428,9 +432,11 @@ void DataModel::updateStatistics()
 
     for (DataModelIterator it(this); it.isValid(); ++it) {
         const MessageItem *mi = it.current();
-        if (mi->isFinished())
-            foreach (const QString &trnsl, mi->translations())
+        if (mi->isFinished()) {
+            const QStringList translations = mi->translations();
+            for (const QString &trnsl : translations)
                 doCharCounting(trnsl, trW, trC, trCS);
+        }
     }
 
     emit statsChanged(m_srcWords, m_srcChars, m_srcCharsSpc, trW, trC, trCS);
@@ -1347,7 +1353,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const
 
         MultiContextItem *mci = m_data->multiContextItem(row);
 
-        if (role == Qt::DisplayRole || (role == Qt::ToolTipRole && column == numLangs)) {
+        if (role == Qt::DisplayRole || role == Qt::ToolTipRole) {
             switch (column - numLangs) {
             case 0: // Context
                 {
@@ -1357,6 +1363,10 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const
                 }
             case 1:
                 {
+                    if (role == Qt::ToolTipRole) {
+                        return tr("%n unfinished message(s) left.", 0,
+                                  mci->getNumEditable() - mci->getNumFinished());
+                    }
                     QString s;
                     s.sprintf("%d/%d", mci->getNumFinished(), mci->getNumEditable());
                     return s;

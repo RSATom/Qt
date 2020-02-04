@@ -17,6 +17,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread.h"
 #include "components/exo/display.h"
+#include "components/exo/test/exo_test_base_aura.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace exo {
@@ -30,7 +31,7 @@ std::string GetUniqueSocketName() {
                             g_next_socket_id.GetNext());
 }
 
-class ServerTest : public testing::Test {
+class ServerTest : public test::ExoTestBaseAura {
  public:
   ServerTest() {}
   ~ServerTest() override {}
@@ -39,7 +40,7 @@ class ServerTest : public testing::Test {
     ASSERT_TRUE(xdg_temp_dir_.CreateUniqueTempDir());
     setenv("XDG_RUNTIME_DIR", xdg_temp_dir_.GetPath().MaybeAsASCII().c_str(),
            1 /* overwrite */);
-    testing::Test::SetUp();
+    test::ExoTestBaseAura::SetUp();
   }
 
  private:
@@ -93,9 +94,9 @@ TEST_F(ServerTest, Dispatch) {
   bool connected_to_server = false;
   base::WaitableEvent event(base::WaitableEvent::ResetPolicy::AUTOMATIC,
                             base::WaitableEvent::InitialState::NOT_SIGNALED);
-  client.task_runner()->PostTask(
-      FROM_HERE,
-      base::Bind(&ConnectToServer, socket_name, &connected_to_server, &event));
+  client.task_runner()->PostTask(FROM_HERE,
+                                 base::BindOnce(&ConnectToServer, socket_name,
+                                                &connected_to_server, &event));
 
   // Call Dispatch() with a 5 second timeout.
   server->Dispatch(base::TimeDelta::FromSeconds(5));

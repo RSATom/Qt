@@ -42,16 +42,17 @@
 #include "qwindowsole.h"
 #include "qwindowsmime.h"
 
-#include <QtGui/QGuiApplication>
-#include <QtGui/QClipboard>
-#include <QtGui/QColor>
-#include <QtGui/QImage>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qclipboard.h>
+#include <QtGui/qcolor.h>
+#include <QtGui/qimage.h>
 
-#include <QtCore/QDebug>
-#include <QtCore/QMimeData>
-#include <QtCore/QStringList>
-#include <QtCore/QVariant>
-#include <QtCore/QUrl>
+#include <QtCore/qdebug.h>
+#include <QtCore/qmimedata.h>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qthread.h>
+#include <QtCore/qvariant.h>
+#include <QtCore/qurl.h>
 
 #include <QtEventDispatcherSupport/private/qwindowsguieventdispatcher_p.h>
 
@@ -114,13 +115,13 @@ static QDebug operator<<(QDebug d, const QMimeData *mimeData)
 
 IDataObject *QWindowsClipboardRetrievalMimeData::retrieveDataObject() const
 {
-    IDataObject * pDataObj = 0;
+    IDataObject * pDataObj = nullptr;
     if (OleGetClipboard(&pDataObj) == S_OK) {
         if (QWindowsContext::verbose > 1)
             qCDebug(lcQpaMime) << __FUNCTION__ << pDataObj;
         return pDataObj;
     }
-    return 0;
+    return nullptr;
 }
 
 void QWindowsClipboardRetrievalMimeData::releaseDataObject(IDataObject *dataObject) const
@@ -147,7 +148,7 @@ static void cleanClipboardPostRoutine()
         cl->cleanup();
 }
 
-QWindowsClipboard *QWindowsClipboard::m_instance = 0;
+QWindowsClipboard *QWindowsClipboard::m_instance = nullptr;
 
 QWindowsClipboard::QWindowsClipboard()
 {
@@ -158,7 +159,7 @@ QWindowsClipboard::QWindowsClipboard()
 QWindowsClipboard::~QWindowsClipboard()
 {
     cleanup();
-    QWindowsClipboard::m_instance = 0;
+    QWindowsClipboard::m_instance = nullptr;
 }
 
 void QWindowsClipboard::cleanup()
@@ -173,7 +174,7 @@ void QWindowsClipboard::releaseIData()
         delete m_data->mimeData();
         m_data->releaseQt();
         m_data->Release();
-        m_data = 0;
+        m_data = nullptr;
     }
 }
 
@@ -206,10 +207,10 @@ void QWindowsClipboard::unregisterViewer()
             m_formatListenerRegistered = false;
         } else {
             ChangeClipboardChain(m_clipboardViewer, m_nextClipboardViewer);
-            m_nextClipboardViewer = 0;
+            m_nextClipboardViewer = nullptr;
         }
         DestroyWindow(m_clipboardViewer);
-        m_clipboardViewer = 0;
+        m_clipboardViewer = nullptr;
     }
 }
 
@@ -299,7 +300,7 @@ QMimeData *QWindowsClipboard::mimeData(QClipboard::Mode mode)
 {
     qCDebug(lcQpaMime) << __FUNCTION__ <<  mode;
     if (mode != QClipboard::Clipboard)
-        return 0;
+        return nullptr;
     if (ownsClipboard())
         return m_data->mimeData();
     return &m_retrievalData;
@@ -318,7 +319,15 @@ void QWindowsClipboard::setMimeData(QMimeData *mimeData, QClipboard::Mode mode)
             m_data = new QWindowsOleDataObject(mimeData);
     }
 
-    const HRESULT src = OleSetClipboard(m_data);
+    HRESULT src = S_FALSE;
+    int attempts = 0;
+    for (; attempts < 3; ++attempts) {
+        src = OleSetClipboard(m_data);
+        if (src != CLIPBRD_E_CANT_OPEN || QWindowsContext::isSessionLocked())
+            break;
+        QThread::msleep(100);
+    }
+
     if (src != S_OK) {
         QString mimeDataFormats = mimeData ?
             mimeData->formats().join(QLatin1String(", ")) : QString(QStringLiteral("NULL"));
@@ -332,7 +341,7 @@ void QWindowsClipboard::setMimeData(QMimeData *mimeData, QClipboard::Mode mode)
 
 void QWindowsClipboard::clear()
 {
-    const HRESULT src = OleSetClipboard(0);
+    const HRESULT src = OleSetClipboard(nullptr);
     if (src != S_OK)
         qErrnoWarning("OleSetClipboard: Failed to clear the clipboard: 0x%lx", src);
 }

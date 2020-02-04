@@ -31,7 +31,7 @@
     \ingroup qtlocation-examples
 
     \brief The Places Map example demonstrates how to search for and display a list of places
-           on a map using a MapItemView
+           on a map using a MapItemView.
     \image places_map.png
 
     The example displays a map of the current location or, if no position is

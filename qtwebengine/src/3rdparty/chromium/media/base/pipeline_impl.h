@@ -29,15 +29,19 @@ class MediaLog;
 // Here's a state diagram that describes the lifetime of this object.
 //
 //   [ *Created ]                       [ Any State ]
-//         | Start()                         | Stop() / SetError()
+//         | Start()                         | Stop()
 //         V                                 V
 //   [ Starting ]                       [ Stopping ]
 //         |                                 |
 //         V                                 V
 //   [ Playing ] <---------.            [ Stopped ]
-//     |     | Seek()      |
-//     |     V             |
-//     |   [ Seeking ] ----'
+//     |  |  | Seek()      |
+//     |  |  V             |
+//     |  | [ Seeking ] ---'
+//     |  |                ^
+//     |  | *TrackChange() |
+//     |  V                |
+//     | [ Switching ] ----'
 //     |                   ^
 //     | Suspend()         |
 //     V                   |
@@ -55,9 +59,9 @@ class MediaLog;
 // a chance to preroll. From then on the normal Seek() transitions are carried
 // out and we start playing the media.
 //
-// If any error ever happens, this object will transition to the "Error" state
-// from any state. If Stop() is ever called, this object will transition to
-// "Stopped" state.
+// If Stop() is ever called, this object will transition to "Stopped" state.
+// Pipeline::Stop() is never called from withing PipelineImpl. It's |client_|'s
+// responsibility to call stop when appropriate.
 //
 // TODO(sandersd): It should be possible to pass through Suspended when going
 // from InitDemuxer to InitRenderer, thereby eliminating the Resuming state.
@@ -66,13 +70,14 @@ class MEDIA_EXPORT PipelineImpl : public Pipeline {
  public:
   // Constructs a media pipeline that will execute media tasks on
   // |media_task_runner|.
-  PipelineImpl(
-      const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
-      MediaLog* media_log);
+  PipelineImpl(scoped_refptr<base::SingleThreadTaskRunner> media_task_runner,
+               scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
+               MediaLog* media_log);
   ~PipelineImpl() override;
 
   // Pipeline implementation.
-  void Start(Demuxer* demuxer,
+  void Start(StartType start_type,
+             Demuxer* demuxer,
              std::unique_ptr<Renderer> renderer,
              Client* client,
              const PipelineStatusCB& seek_cb) override;
@@ -83,6 +88,7 @@ class MEDIA_EXPORT PipelineImpl : public Pipeline {
               base::TimeDelta time,
               const PipelineStatusCB& seek_cb) override;
   bool IsRunning() const override;
+  bool IsSuspended() const override;
   double GetPlaybackRate() const override;
   void SetPlaybackRate(double playback_rate) override;
   float GetVolume() const override;
@@ -97,12 +103,14 @@ class MEDIA_EXPORT PipelineImpl : public Pipeline {
 
   // |enabled_track_ids| contains track ids of enabled audio tracks.
   void OnEnabledAudioTracksChanged(
-      const std::vector<MediaTrack::Id>& enabled_track_ids) override;
+      const std::vector<MediaTrack::Id>& enabled_track_ids,
+      base::OnceClosure change_completed_cb) override;
 
   // |selected_track_id| is either empty, which means no video track is
   // selected, or contains the selected video track id.
   void OnSelectedVideoTrackChanged(
-      base::Optional<MediaTrack::Id> selected_track_id) override;
+      base::Optional<MediaTrack::Id> selected_track_id,
+      base::OnceClosure change_completed_cb) override;
 
  private:
   friend class MediaLog;
@@ -130,17 +138,18 @@ class MEDIA_EXPORT PipelineImpl : public Pipeline {
   void OnMetadata(PipelineMetadata metadata);
   void OnBufferingStateChange(BufferingState state);
   void OnDurationChange(base::TimeDelta duration);
-  void OnAddTextTrack(const TextTrackConfig& config,
-                      const AddTextTrackDoneCB& done_cb);
-  void OnWaitingForDecryptionKey();
+  void OnWaiting(WaitingReason reason);
   void OnAudioConfigChange(const AudioDecoderConfig& config);
   void OnVideoConfigChange(const VideoDecoderConfig& config);
   void OnVideoNaturalSizeChange(const gfx::Size& size);
   void OnVideoOpacityChange(bool opaque);
   void OnVideoAverageKeyframeDistanceUpdate();
+  void OnAudioDecoderChange(const std::string& name);
+  void OnVideoDecoderChange(const std::string& name);
+  void OnRemotePlayStateChange(MediaStatus::State state);
 
   // Task completion callbacks from RendererWrapper.
-  void OnSeekDone();
+  void OnSeekDone(bool is_suspended);
   void OnSuspendDone();
 
   // Parameters passed in the constructor.
@@ -180,6 +189,9 @@ class MEDIA_EXPORT PipelineImpl : public Pipeline {
   // while a seek is pending. Renderer's time cannot be trusted until the seek
   // has completed.
   base::TimeDelta seek_time_;
+
+  // Cached suspension state for the RendererWrapper.
+  bool is_suspended_;
 
   base::ThreadChecker thread_checker_;
   base::WeakPtrFactory<PipelineImpl> weak_factory_;

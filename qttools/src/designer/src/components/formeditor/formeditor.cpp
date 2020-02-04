@@ -51,8 +51,8 @@
 #include "itemview_propertysheet.h"
 
 // sdk
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerIntegrationInterface>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractintegration.h>
 // shared
 #include <pluginmanager_p.h>
 #include <qdesigner_taskmenu_p.h>
@@ -147,9 +147,7 @@ FormEditor::FormEditor(QObject *parent)
     setSettingsManager(new QDesignerQSettings());
 }
 
-FormEditor::~FormEditor()
-{
-}
+FormEditor::~FormEditor() = default;
 
 void FormEditor::slotQrcFileChangedExternally(const QString &path)
 {
@@ -157,9 +155,9 @@ void FormEditor::slotQrcFileChangedExternally(const QString &path)
         return;
 
     QDesignerIntegration::ResourceFileWatcherBehaviour behaviour = integration()->resourceFileWatcherBehaviour();
-    if (behaviour == QDesignerIntegration::NoResourceFileWatcher) {
+    if (behaviour == QDesignerIntegration::NoResourceFileWatcher)
         return;
-    } else if (behaviour == QDesignerIntegration::PromptToReloadResourceFile) {
+    if (behaviour == QDesignerIntegration::PromptToReloadResourceFile) {
         QMessageBox::StandardButton button = dialogGui()->message(topLevel(), QDesignerDialogGuiInterface::FileChangedMessage, QMessageBox::Warning,
                 tr("Resource File Changed"),
                 tr("The file \"%1\" has changed outside Designer. Do you want to reload it?").arg(path),

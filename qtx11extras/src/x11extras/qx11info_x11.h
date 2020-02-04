@@ -63,7 +63,11 @@ public:
     static int appDpiX(int screen=-1);
     static int appDpiY(int screen=-1);
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     static unsigned long appRootWindow(int screen=-1);
+#else
+    static quint32 appRootWindow(int screen=-1);
+#endif
     static int appScreen();
 
     static unsigned long appTime();

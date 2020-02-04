@@ -335,8 +335,8 @@ Polymer({
     },
 
     /**
-     * The cast mode shown to the user. Initially set to auto mode. (See
-     * media_router.CastMode documentation for details on auto mode.)
+     * The cast mode shown to the user. Initially populated within
+     * |rebuildSinksToShow_()|.
      * This value may be changed in one of the following ways:
      * 1) The user explicitly selected a cast mode.
      * 2) The user selected cast mode is no longer available for the associated
@@ -348,10 +348,7 @@ Polymer({
      *    mode.
      * @private {number}
      */
-    shownCastModeValue_: {
-      type: Number,
-      value: media_router.AUTO_CAST_MODE.type,
-    },
+    shownCastModeValue_: Number,
 
     /**
      * Max height for the sink list.
@@ -451,8 +448,9 @@ Polymer({
       // If this is not on a Mac platform, remove the placeholder. See
       // onFocus_() for more details. ready() is only called once, so no need
       // to check if the placeholder exist before removing.
-      if (!cr.isMac)
+      if (!cr.isMac) {
         this.$$('#focus-placeholder').remove();
+      }
 
       document.addEventListener('keydown', this.onKeydown_.bind(this), true);
       this.listen(this, 'focus', 'onFocus_');
@@ -465,8 +463,13 @@ Polymer({
       // sinks.
       this.async(function() {
         this.justOpened_ = false;
+        // |pseudoSinks_| does not contain pseudo sinks without a domain, so it
+        // cannot be used for calculating the number of real sinks.
+        var realSinks = this.allSinks.filter(function(sink) {
+          return !sink.isPseudoSink;
+        });
         this.fire('report-sink-count', {
-          sinkCount: this.allSinks.length,
+          sinkCount: realSinks.length,
         });
       }, 3000 /* 3 seconds */);
 
@@ -507,8 +510,9 @@ Polymer({
    * @param {!media_router.MediaRouterUserAction} initialAction
    */
   maybeReportUserFirstAction: function(initialAction) {
-    if (this.userHasTakenInitialAction_)
+    if (this.userHasTakenInitialAction_) {
       return;
+    }
 
     this.fire('report-initial-action', {
       action: initialAction,
@@ -547,8 +551,9 @@ Polymer({
    * cast mode to the first available cast mode on the list.
    */
   checkCurrentCastMode_: function() {
-    if (!this.castModeList.length)
+    if (!this.castModeList.length) {
       return;
+    }
 
     // If there is a forced mode make sure it is shown.
     if (this.findForcedCastMode_()) {
@@ -645,8 +650,9 @@ Polymer({
    */
   computeCastMode_: function() {
     /** @const */ var forcedMode = this.findForcedCastMode_();
-    if (forcedMode)
+    if (forcedMode) {
       return forcedMode;
+    }
 
     var allCastModes = this.allSinks.reduce(function(castModesSoFar, sink) {
       // Ignore pseudo sinks in the cast mode computation.
@@ -654,12 +660,14 @@ Polymer({
     }, 0);
 
     // This checks whether |castModes| does not consist of exactly 1 cast mode.
-    if (!allCastModes || allCastModes & (allCastModes - 1))
+    if (!allCastModes || allCastModes & (allCastModes - 1)) {
       return media_router.AUTO_CAST_MODE;
+    }
 
     var castMode = this.findCastModeByType_(allCastModes);
-    if (castMode)
+    if (castMode) {
       return castMode;
+    }
 
     console.error('Cast mode ' + allCastModes + ' not in castModeList');
     return media_router.AUTO_CAST_MODE;
@@ -959,6 +967,8 @@ Polymer({
         return 'media-router:hangout';
       case media_router.SinkIconType.EDUCATION:
         return 'media-router:education';
+      case media_router.SinkIconType.WIRED_DISPLAY:
+        return 'media-router:tv';
       case media_router.SinkIconType.GENERIC:
         return 'media-router:tv';
       default:
@@ -1075,8 +1085,9 @@ Polymer({
    */
   computeSinkSubtext_: function(sink, sinkToRouteMap) {
     var route = sinkToRouteMap[sink.id];
-    if (route && !this.isEmptyOrWhitespace_(route.description))
+    if (route && !this.isEmptyOrWhitespace_(route.description)) {
       return route.description;
+    }
 
     return sink.description;
   },
@@ -1089,8 +1100,9 @@ Polymer({
    * @private
    */
   computeSinkSubtextHidden_: function(sink, sinkToRouteMap) {
-    if (!this.isEmptyOrWhitespace_(sink.description))
+    if (!this.isEmptyOrWhitespace_(sink.description)) {
       return false;
+    }
 
     var route = sinkToRouteMap[sink.id];
     return !route || this.isEmptyOrWhitespace_(route.description);
@@ -1146,8 +1158,9 @@ Polymer({
 
     if (previousView == media_router.MediaRouterView.ROUTE_DETAILS) {
       media_router.browserApi.onMediaControllerClosed();
-      if (this.$$('route-details'))
+      if (this.$$('route-details')) {
         this.$$('route-details').onClosed();
+      }
     }
   },
 
@@ -1333,8 +1346,9 @@ Polymer({
     var localRoute = null;
     for (var i = 0; i < this.routeList.length; i++) {
       var route = this.routeList[i];
-      if (!route.isLocal)
+      if (!route.isLocal) {
         continue;
+      }
       if (!localRoute) {
         localRoute = route;
       } else {
@@ -1344,8 +1358,9 @@ Polymer({
       }
     }
 
-    if (localRoute)
+    if (localRoute) {
       this.showRouteDetails_(localRoute);
+    }
     this.fire('show-initial-state', {currentView: this.currentView_});
   },
 
@@ -1388,9 +1403,10 @@ Polymer({
    * @private
    */
   maybeUpdateFocusOnFilterViewExit_: function() {
-    var searchSinks = this.$$('#search-results').querySelectorAll('paper-item');
+    var searchSinks =
+        this.$$('#search-results').querySelectorAll('.selectable-item');
     var focusedElem = Array.prototype.find.call(searchSinks, function(sink) {
-      return sink.focused;
+      return sink.matches(':focus');
     });
     if (!focusedElem) {
       return;
@@ -1424,8 +1440,9 @@ Polymer({
     if (currentView == media_router.MediaRouterView.SINK_LIST &&
         sinksToShow.length != 0) {
       // Only set |populatedSinkListSeenTimeMs_| if it has not already been set.
-      if (this.populatedSinkListSeenTimeMs_ == -1)
+      if (this.populatedSinkListSeenTimeMs_ == -1) {
         this.populatedSinkListSeenTimeMs_ = window.performance.now();
+      }
     } else {
       // Reset |populatedSinkListLastSeen_| if the sink list isn't being shown
       // or if there aren't any sinks available for display.
@@ -1714,8 +1731,9 @@ Polymer({
         this.$$('#shareScreenCastModeList').itemForElement(event.target) ||
         this.$$('#localMediaCastModeList').itemForElement(event.target);
 
-    if (!clickedMode)
+    if (!clickedMode) {
       return;
+    }
 
     // If the user selects LOCAL_FILE, some additional steps are required
     // (selecting the file), before the cast mode has been officially
@@ -1821,8 +1839,9 @@ Polymer({
     /** @const */ var mode =
         this.findCastModeByType_(media_router.CastModeType.LOCAL_FILE);
 
-    if (!mode)
+    if (!mode) {
       return;
+    }
 
     this.castModeSelected_(mode);
     this.headerText =
@@ -2181,8 +2200,9 @@ Polymer({
     // - If all sinks support only a single cast mode, then the cast mode is
     //   switched to that mode.
     // - Otherwise, the cast mode becomes AUTO mode.
-    if (!this.userHasSelectedCastMode_)
+    if (!this.userHasSelectedCastMode_) {
       this.setShownCastMode_(this.computeCastMode_());
+    }
 
     // Non-AUTO modes may show a subset of sinks based on compatibility with the
     // shown value.
@@ -2383,14 +2403,16 @@ Polymer({
    * @param {!media_router.CastMode} castMode
    */
   setShownCastMode_: function(castMode) {
-    if (this.shownCastModeValue_ == castMode.type)
+    if (this.shownCastModeValue_ == castMode.type) {
       return;
+    }
 
     this.shownCastModeValue_ = castMode.type;
     this.headerText = castMode.description;
     this.headerTextTooltip = castMode.host || '';
-    if (castMode.type == media_router.CastModeType.AUTO)
+    if (castMode.type == media_router.CastModeType.AUTO) {
       this.userHasSelectedCastMode_ = false;
+    }
   },
 
   /**
@@ -2506,10 +2528,11 @@ Polymer({
    */
   startTapTimer_: function() {
     var id = setTimeout(function() {
-      if (!this.mouseIsPositionedOverDialog_)
+      if (!this.mouseIsPositionedOverDialog_) {
         this.fire('close-dialog', {
           pressEscToClose: false,
         });
+      }
     }.bind(this), 3000 /* 3 seconds */);
   },
 
@@ -2565,13 +2588,14 @@ Polymer({
           firstRunFlowHeight - issueHeight - searchHeight + searchPadding -
           sinkListPadding;
 
-      // Limit the height of the dialog to five items, including search.
+      // Limit the height of the dialog to ten items, including search.
       var sinkItemHeight = 41;
-      var maxSinkItems = hasSearch ? 4 : 5;
+      var maxSinkItems = hasSearch ? 9 : 10;
       this.sinkListMaxHeight_ =
           Math.min(sinkItemHeight * maxSinkItems, this.sinkListMaxHeight_);
-      if (sinkList)
+      if (sinkList) {
         sinkList.style.maxHeight = this.sinkListMaxHeight_ + 'px';
+      }
     });
   },
 
@@ -2593,7 +2617,8 @@ Polymer({
   updateSelectedCastModeMenuItem_: function() {
     /** @const */ var curIndex =
         this.findCastModeIndexByType_(this.shownCastModeValue_);
-    if (this.selectedCastModeMenuItem_ != curIndex)
+    if (this.selectedCastModeMenuItem_ != curIndex) {
       this.selectedCastModeMenuItem_ = curIndex;
+    }
   },
 });

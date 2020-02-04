@@ -11,7 +11,7 @@ QT       -= gui
 REPC_MERGED += model.rep
 
 TARGET = tst_modelreplicatest
-CONFIG   += console
+CONFIG   += console testcase
 CONFIG   -= app_bundle
 
 TEMPLATE = app

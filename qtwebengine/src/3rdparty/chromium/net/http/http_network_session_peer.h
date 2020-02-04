@@ -10,13 +10,12 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "net/base/net_export.h"
+#include "net/http/http_network_session.h"
 
 namespace net {
 
 class ClientSocketPoolManager;
-class HttpNetworkSession;
 class HttpStreamFactory;
-class NetworkThrottleManager;
 
 class NET_EXPORT_PRIVATE HttpNetworkSessionPeer {
  public:
@@ -29,11 +28,8 @@ class NET_EXPORT_PRIVATE HttpNetworkSessionPeer {
 
   void SetHttpStreamFactory(
       std::unique_ptr<HttpStreamFactory> http_stream_factory);
-  void SetHttpStreamFactoryForWebSocket(
-      std::unique_ptr<HttpStreamFactory> http_stream_factory_for_websocket);
 
-  void SetNetworkStreamThrottler(
-      std::unique_ptr<NetworkThrottleManager> network_throttle_manager);
+  HttpNetworkSession::Params* params();
 
  private:
   HttpNetworkSession* const session_;

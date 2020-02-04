@@ -9,18 +9,20 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "media/base/cdm_config.h"
+#include "media/base/key_system_names.h"
 #include "media/base/key_systems.h"
+#include "media/base/logging_override_if_enabled.h"
 #include "media/base/media_permission.h"
 #include "media/base/mime_util.h"
 #include "media/blink/webmediaplayer_util.h"
-#include "third_party/WebKit/public/platform/URLConversion.h"
-#include "third_party/WebKit/public/platform/WebMediaKeySystemConfiguration.h"
-#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/WebVector.h"
+#include "third_party/blink/public/platform/url_conversion.h"
+#include "third_party/blink/public/platform/web_media_key_system_configuration.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_vector.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -28,10 +30,12 @@ namespace media {
 
 using EmeFeatureRequirement =
     blink::WebMediaKeySystemConfiguration::Requirement;
+using EmeEncryptionScheme =
+    blink::WebMediaKeySystemMediaCapability::EncryptionScheme;
 
 namespace {
 
-static EmeConfigRule GetSessionTypeConfigRule(EmeSessionTypeSupport support) {
+EmeConfigRule GetSessionTypeConfigRule(EmeSessionTypeSupport support) {
   switch (support) {
     case EmeSessionTypeSupport::INVALID:
       NOTREACHED();
@@ -47,7 +51,7 @@ static EmeConfigRule GetSessionTypeConfigRule(EmeSessionTypeSupport support) {
   return EmeConfigRule::NOT_SUPPORTED;
 }
 
-static EmeConfigRule GetDistinctiveIdentifierConfigRule(
+EmeConfigRule GetDistinctiveIdentifierConfigRule(
     EmeFeatureSupport support,
     EmeFeatureRequirement requirement) {
   if (support == EmeFeatureSupport::INVALID) {
@@ -87,9 +91,8 @@ static EmeConfigRule GetDistinctiveIdentifierConfigRule(
   return EmeConfigRule::IDENTIFIER_REQUIRED;
 }
 
-static EmeConfigRule GetPersistentStateConfigRule(
-    EmeFeatureSupport support,
-    EmeFeatureRequirement requirement) {
+EmeConfigRule GetPersistentStateConfigRule(EmeFeatureSupport support,
+                                           EmeFeatureRequirement requirement) {
   if (support == EmeFeatureSupport::INVALID) {
     NOTREACHED();
     return EmeConfigRule::NOT_SUPPORTED;
@@ -130,14 +133,13 @@ static EmeConfigRule GetPersistentStateConfigRule(
   return EmeConfigRule::PERSISTENCE_REQUIRED;
 }
 
-static bool IsPersistentSessionType(
-    blink::WebEncryptedMediaSessionType sessionType) {
+bool IsPersistentSessionType(blink::WebEncryptedMediaSessionType sessionType) {
   switch (sessionType) {
     case blink::WebEncryptedMediaSessionType::kTemporary:
       return false;
     case blink::WebEncryptedMediaSessionType::kPersistentLicense:
       return true;
-    case blink::WebEncryptedMediaSessionType::kPersistentReleaseMessage:
+    case blink::WebEncryptedMediaSessionType::kPersistentUsageRecord:
       return true;
     case blink::WebEncryptedMediaSessionType::kUnknown:
       break;
@@ -147,16 +149,34 @@ static bool IsPersistentSessionType(
   return false;
 }
 
+bool IsSupportedMediaType(const std::string& container_mime_type,
+                          const std::string& codecs,
+                          bool use_aes_decryptor) {
+  DVLOG(3) << __func__ << ": container_mime_type=" << container_mime_type
+           << ", codecs=" << codecs
+           << ", use_aes_decryptor=" << use_aes_decryptor;
+
+  std::vector<std::string> codec_vector;
+  SplitCodecs(codecs, &codec_vector);
+
+  // AesDecryptor decrypts the stream in the demuxer before it reaches the
+  // decoder so check whether the media format is supported when clear.
+  SupportsType support_result =
+      use_aes_decryptor
+          ? IsSupportedMediaFormat(container_mime_type, codec_vector)
+          : IsSupportedEncryptedMediaFormat(container_mime_type, codec_vector);
+  return (support_result == IsSupported);
+}
+
 }  // namespace
 
 struct KeySystemConfigSelector::SelectionRequest {
   std::string key_system;
   blink::WebVector<blink::WebMediaKeySystemConfiguration>
       candidate_configurations;
-  blink::WebSecurityOrigin security_origin;
   base::Callback<void(const blink::WebMediaKeySystemConfiguration&,
                       const CdmConfig&)> succeeded_cb;
-  base::Callback<void(const blink::WebString&)> not_supported_cb;
+  base::Closure not_supported_cb;
   bool was_permission_requested = false;
   bool is_permission_granted = false;
 };
@@ -286,31 +306,13 @@ KeySystemConfigSelector::KeySystemConfigSelector(
     MediaPermission* media_permission)
     : key_systems_(key_systems),
       media_permission_(media_permission),
+      is_supported_media_type_cb_(base::BindRepeating(&IsSupportedMediaType)),
       weak_factory_(this) {
   DCHECK(key_systems_);
   DCHECK(media_permission_);
 }
 
-KeySystemConfigSelector::~KeySystemConfigSelector() {
-}
-
-bool IsSupportedMediaFormat(const std::string& container_mime_type,
-                            const std::string& codecs,
-                            bool use_aes_decryptor) {
-  DVLOG(3) << __func__ << ": container_mime_type=" << container_mime_type
-           << ", codecs=" << codecs
-           << ", use_aes_decryptor=" << use_aes_decryptor;
-
-  std::vector<std::string> codec_vector;
-  SplitCodecsToVector(codecs, &codec_vector, false);
-  // AesDecryptor decrypts the stream in the demuxer before it reaches the
-  // decoder so check whether the media format is supported when clear.
-  SupportsType support_result =
-      use_aes_decryptor
-          ? IsSupportedMediaFormat(container_mime_type, codec_vector)
-          : IsSupportedEncryptedMediaFormat(container_mime_type, codec_vector);
-  return (support_result == IsSupported);
-}
+KeySystemConfigSelector::~KeySystemConfigSelector() = default;
 
 // TODO(sandersd): Move contentType parsing from Blink to here so that invalid
 // parameters can be rejected. http://crbug.com/449690, http://crbug.com/690131
@@ -320,7 +322,9 @@ bool KeySystemConfigSelector::IsSupportedContentType(
     const std::string& container_mime_type,
     const std::string& codecs,
     KeySystemConfigSelector::ConfigState* config_state) {
-  DVLOG(3) << __func__;
+  DVLOG(3) << __func__ << ": key_system = " << key_system
+           << ", container_mime_type = " << container_mime_type
+           << ", codecs = " << codecs;
 
   // From RFC6838: "Both top-level type and subtype names are case-insensitive."
   std::string container_lower = base::ToLowerASCII(container_mime_type);
@@ -338,24 +342,52 @@ bool KeySystemConfigSelector::IsSupportedContentType(
   // is done primarily to validate extended codecs, but it also ensures that the
   // CDM cannot support codecs that Chrome does not (which could complicate the
   // robustness algorithm).
-  if (!IsSupportedMediaFormat(container_lower, codecs,
-                              CanUseAesDecryptor(key_system))) {
+  if (!is_supported_media_type_cb_.Run(
+          container_lower, codecs,
+          key_systems_->CanUseAesDecryptor(key_system))) {
     DVLOG(3) << "Container mime type and codecs are not supported";
     return false;
   }
 
-  // Check that |container_mime_type| and |codecs| are supported by the CDM.
-  // This check does not handle extended codecs, so extended codec information
-  // is stripped (extended codec information was checked above).
-  std::vector<std::string> stripped_codec_vector;
-  SplitCodecsToVector(codecs, &stripped_codec_vector, true);
+  // Before checking CDM support, split |codecs| into a vector of codecs.
+  std::vector<std::string> codec_vector;
+  SplitCodecs(codecs, &codec_vector);
+
+  // Check that |container_lower| and |codec_vector| are supported by the CDM.
   EmeConfigRule codecs_rule = key_systems_->GetContentTypeConfigRule(
-      key_system, media_type, container_lower, stripped_codec_vector);
-  if (!config_state->IsRuleSupported(codecs_rule))
+      key_system, media_type, container_lower, codec_vector);
+  if (!config_state->IsRuleSupported(codecs_rule)) {
+    DVLOG(3) << "Container mime type and codecs are not supported by CDM";
     return false;
+  }
   config_state->AddRule(codecs_rule);
 
   return true;
+}
+
+EmeConfigRule KeySystemConfigSelector::GetEncryptionSchemeConfigRule(
+    const std::string& key_system,
+    const EmeEncryptionScheme encryption_scheme) {
+  switch (encryption_scheme) {
+    // https://github.com/WICG/encrypted-media-encryption-scheme/blob/master/explainer.md
+    // "A missing or null value indicates that any encryption scheme is
+    // acceptable."
+    // To fully implement this, we need to get the config rules for both kCenc
+    // and kCbcs, which could be conflicting, and choose a final config rule
+    // somehow. If we end up choosing the rule for kCbcs, we could actually
+    // break legacy players which serves kCenc streams. Therefore, for backward
+    // compatibility and simplicity, we treat kNotSpecified the same as kCenc.
+    case EmeEncryptionScheme::kNotSpecified:
+    case EmeEncryptionScheme::kCenc:
+      return key_systems_->GetEncryptionSchemeConfigRule(key_system,
+                                                         EncryptionMode::kCenc);
+    case EmeEncryptionScheme::kCbcs:
+      return key_systems_->GetEncryptionSchemeConfigRule(key_system,
+                                                         EncryptionMode::kCbcs);
+  }
+
+  NOTREACHED();
+  return EmeConfigRule::NOT_SUPPORTED;
 }
 
 bool KeySystemConfigSelector::GetSupportedCapabilities(
@@ -424,13 +456,23 @@ bool KeySystemConfigSelector::GetSupportedCapabilities(
       DVLOG(3) << "The current robustness rule is not supported.";
       continue;
     }
+    proposed_config_state.AddRule(robustness_rule);
+
+    // Check for encryption scheme support.
+    // https://github.com/WICG/encrypted-media-encryption-scheme/blob/master/explainer.md.
+    EmeConfigRule encryption_scheme_rule =
+        GetEncryptionSchemeConfigRule(key_system, capability.encryption_scheme);
+    if (!proposed_config_state.IsRuleSupported(encryption_scheme_rule)) {
+      DVLOG(3) << "The current encryption scheme rule is not supported.";
+      continue;
+    }
 
     // 3.13.1. Add requested media capability to supported media capabilities.
     supported_media_capabilities->push_back(capability);
 
     // 3.13.2. Add requested media capability to the {audio|video}Capabilities
     // member of local accumulated configuration.
-    proposed_config_state.AddRule(robustness_rule);
+    proposed_config_state.AddRule(encryption_scheme_rule);
 
     // This is used as an intermediate variable so that |proposed_config_state|
     // is updated in the next iteration of the for loop.
@@ -632,10 +674,9 @@ KeySystemConfigSelector::GetSupportedConfiguration(
         session_type_rule = GetSessionTypeConfigRule(
             key_systems_->GetPersistentLicenseSessionSupport(key_system));
         break;
-      case blink::WebEncryptedMediaSessionType::kPersistentReleaseMessage:
+      case blink::WebEncryptedMediaSessionType::kPersistentUsageRecord:
         session_type_rule = GetSessionTypeConfigRule(
-            key_systems_->GetPersistentReleaseMessageSessionSupport(
-                key_system));
+            key_systems_->GetPersistentUsageRecordSessionSupport(key_system));
         break;
     }
 
@@ -848,10 +889,9 @@ void KeySystemConfigSelector::SelectConfig(
     const blink::WebString& key_system,
     const blink::WebVector<blink::WebMediaKeySystemConfiguration>&
         candidate_configurations,
-    const blink::WebSecurityOrigin& security_origin,
     base::Callback<void(const blink::WebMediaKeySystemConfiguration&,
                         const CdmConfig&)> succeeded_cb,
-    base::Callback<void(const blink::WebString&)> not_supported_cb) {
+    base::Closure not_supported_cb) {
   // Continued from requestMediaKeySystemAccess(), step 6, from
   // https://w3c.github.io/encrypted-media/#requestmediakeysystemaccess
   //
@@ -859,13 +899,35 @@ void KeySystemConfigSelector::SelectConfig(
   //     agent, reject promise with a NotSupportedError. String comparison
   //     is case-sensitive.
   if (!key_system.ContainsOnlyASCII()) {
-    not_supported_cb.Run("Only ASCII keySystems are supported");
+    not_supported_cb.Run();
     return;
   }
 
   std::string key_system_ascii = key_system.Ascii();
   if (!key_systems_->IsSupportedKeySystem(key_system_ascii)) {
-    not_supported_cb.Run("Unsupported keySystem");
+    not_supported_cb.Run();
+    return;
+  }
+
+  const bool is_encrypted_media_enabled =
+      media_permission_->IsEncryptedMediaEnabled();
+
+  // Only report this UMA at most once per renderer process.
+  static bool has_reported_encrypted_media_enabled_uma = false;
+  if (!has_reported_encrypted_media_enabled_uma) {
+    has_reported_encrypted_media_enabled_uma = true;
+    UMA_HISTOGRAM_BOOLEAN("Media.EME.EncryptedMediaEnabled",
+                          is_encrypted_media_enabled);
+  }
+
+  // According to Section 9 "Common Key Systems": All user agents MUST support
+  // the common key systems described in this section.
+  //   9.1 Clear Key
+  //
+  // Therefore, always support Clear Key key system and only check settings for
+  // other key systems.
+  if (!is_encrypted_media_enabled && !IsClearKey(key_system_ascii)) {
+    not_supported_cb.Run();
     return;
   }
 
@@ -874,7 +936,6 @@ void KeySystemConfigSelector::SelectConfig(
   std::unique_ptr<SelectionRequest> request(new SelectionRequest());
   request->key_system = key_system_ascii;
   request->candidate_configurations = candidate_configurations;
-  request->security_origin = security_origin;
   request->succeeded_cb = succeeded_cb;
   request->not_supported_cb = not_supported_cb;
   SelectConfigInternal(std::move(request));
@@ -913,16 +974,11 @@ void KeySystemConfigSelector::SelectConfigInternal(
                    << "permission was denied.";
           continue;
         }
-        {
-          // Note: the GURL must not be constructed inline because
-          // base::Passed(&request) sets |request| to null.
-          GURL security_origin(url::Origin(request->security_origin).GetURL());
-          DVLOG(3) << "Request permission.";
-          media_permission_->RequestPermission(
-              MediaPermission::PROTECTED_MEDIA_IDENTIFIER, security_origin,
-              base::Bind(&KeySystemConfigSelector::OnPermissionResult,
-                         weak_factory_.GetWeakPtr(), base::Passed(&request)));
-        }
+        DVLOG(3) << "Request permission.";
+        media_permission_->RequestPermission(
+            MediaPermission::PROTECTED_MEDIA_IDENTIFIER,
+            base::Bind(&KeySystemConfigSelector::OnPermissionResult,
+                       weak_factory_.GetWeakPtr(), base::Passed(&request)));
         return;
       case CONFIGURATION_SUPPORTED:
         cdm_config.allow_distinctive_identifier =
@@ -939,8 +995,7 @@ void KeySystemConfigSelector::SelectConfigInternal(
   }
 
   // 6.4. Reject promise with a NotSupportedError.
-  request->not_supported_cb.Run(
-      "None of the requested configurations were supported.");
+  request->not_supported_cb.Run();
 }
 
 void KeySystemConfigSelector::OnPermissionResult(

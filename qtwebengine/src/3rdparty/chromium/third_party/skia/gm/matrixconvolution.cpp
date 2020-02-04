@@ -10,7 +10,6 @@
 #include "SkColor.h"
 #include "SkGradientShader.h"
 #include "SkMatrixConvolutionImageFilter.h"
-#include "SkPixelRef.h"
 
 namespace skiagm {
 
@@ -31,26 +30,18 @@ protected:
 
     void makeBitmap() {
         // Draw our bitmap in N32, so legacy devices get "premul" values they understand
-        SkBitmap n32Bitmap;
-        n32Bitmap.allocN32Pixels(80, 80);
-        SkCanvas canvas(n32Bitmap);
+        fBitmap.allocN32Pixels(80, 80);
+        SkCanvas canvas(fBitmap);
         canvas.clear(0x00000000);
         SkPaint paint;
-        paint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&paint);
         paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(SkIntToScalar(180));
-        SkPoint pts[2] = { SkPoint::Make(0, 0),
-                           SkPoint::Make(0, SkIntToScalar(80)) };
-        SkScalar pos[2] = { 0, SkIntToScalar(80) };
+        SkPoint pts[2] = { {0, 0},
+                           {0, 80.0f} };
+        SkScalar pos[2] = { 0, 80.0f };
         paint.setShader(SkGradientShader::MakeLinear(
             pts, fColors, pos, 2, SkShader::kClamp_TileMode));
-        const char* str = "e";
-        canvas.drawString(str, SkIntToScalar(-10), SkIntToScalar(80), paint);
-
-        // ... tag the data as sRGB, so color-aware devices do gamut adjustment, etc...
-        fBitmap.setInfo(SkImageInfo::MakeS32(80, 80, kPremul_SkAlphaType));
-        fBitmap.setPixelRef(sk_ref_sp(n32Bitmap.pixelRef()), 0, 0);
+        SkFont font(sk_tool_utils::create_portable_typeface(), 180.0f);
+        canvas.drawString("e", -10.0f, 80.0f, font, paint);
     }
 
     SkISize onISize() override {
@@ -67,19 +58,6 @@ protected:
         };
         SkISize kernelSize = SkISize::Make(3, 3);
         SkScalar gain = 0.3f, bias = SkIntToScalar(100);
-        if (canvas->imageInfo().colorSpace()) {
-            // TODO: Gain and bias are poorly specified (in the feConvolveMatrix SVG documentation,
-            // there is obviously no mention of gamma or color spaces). Eventually, we need to
-            // decide what to do with these (they generally have an extreme brightening effect).
-            // For now, I'm modifying this GM to use values tuned to preserve luminance across the
-            // range of input values (compared to the legacy math and values).
-            //
-            // It's impossible to match the results exactly, because legacy math produces a flat
-            // response (when looking at sRGB encoded results), while gamma-correct math produces
-            // a curve.
-            gain = 0.25f;
-            bias = 16.5f;
-        }
         SkPaint paint;
         paint.setImageFilter(SkMatrixConvolutionImageFilter::Make(kernelSize,
                                                                   kernel,
@@ -92,9 +70,14 @@ protected:
                                                                   cropRect));
         canvas->save();
         canvas->translate(SkIntToScalar(x), SkIntToScalar(y));
-        canvas->clipRect(SkRect::MakeWH(SkIntToScalar(fBitmap.width()),
-                                        SkIntToScalar(fBitmap.height())));
-        canvas->drawBitmap(fBitmap, 0, 0, &paint);
+        const SkRect layerBounds = SkRect::MakeIWH(fBitmap.width(), fBitmap.height());
+        canvas->clipRect(layerBounds);
+        // This GM is, in part, intended to display the wrapping behavior of the
+        // matrix image filter. The only (rational) way to achieve that for repeat mode
+        // is to create a tight layer.
+        canvas->saveLayer(layerBounds, &paint);
+            canvas->drawBitmap(fBitmap, 0, 0, nullptr);
+        canvas->restore();
         canvas->restore();
     }
 

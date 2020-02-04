@@ -66,9 +66,16 @@ class VIEWS_EXPORT FloodFillInkDropRipple : public InkDropRipple {
   ~FloodFillInkDropRipple() override;
 
   // InkDropRipple:
-  void HostSizeChanged(const gfx::Size& new_size) override;
   void SnapToActivated() override;
   ui::Layer* GetRootLayer() override;
+
+  void set_use_hide_transform_duration_for_hide_fade_out(bool value) {
+    use_hide_transform_duration_for_hide_fade_out_ = value;
+  }
+
+  void set_duration_factor(float duration_factor) {
+    duration_factor_ = duration_factor;
+  }
 
  private:
   friend class test::FloodFillInkDropRippleTestApi;
@@ -129,6 +136,9 @@ class VIEWS_EXPORT FloodFillInkDropRipple : public InkDropRipple {
   // |root_layer_| bounds.
   float MaxDistanceToCorners(const gfx::Point& point) const;
 
+  // Returns the InkDropState sub animation duration for the given |state|.
+  base::TimeDelta GetAnimationDuration(int state);
+
   // Insets of the clip area relative to the host bounds.
   gfx::Insets clip_insets_;
 
@@ -137,6 +147,13 @@ class VIEWS_EXPORT FloodFillInkDropRipple : public InkDropRipple {
 
   // Ink drop opacity when it is visible.
   float visible_opacity_;
+
+  // Whether the fade out animation to hidden state should have the same
+  // duration as the associated scale transform animation.
+  bool use_hide_transform_duration_for_hide_fade_out_;
+
+  // The factor used to scale down/up animation duration.
+  float duration_factor_;
 
   // The root layer that parents the animating layer. The root layer is used to
   // manipulate opacity and clipping bounds, and it child is used to manipulate

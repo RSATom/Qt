@@ -7,16 +7,17 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "webrtc/test/run_loop.h"
+#include "test/run_loop.h"
 
 #include <stdio.h>
 
 namespace webrtc {
 namespace test {
 
-void PressEnterToContinue() {
+void PressEnterToContinue(SingleThreadedTaskQueueForTesting&) {
   puts(">> Press ENTER to continue...");
-  while (getc(stdin) != '\n' && !feof(stdin));
+  while (getc(stdin) != '\n' && !feof(stdin))
+    ;
 }
 }  // namespace test
 }  // namespace webrtc

@@ -250,20 +250,31 @@ int32_t StashPopMBStatusCavlc (SDynamicSlicingStack* pDss, SSlice* pSlice) {
 void StashMBStatusCabac (SDynamicSlicingStack* pDss, SSlice* pSlice, int32_t iMbSkipRun) {
   SCabacCtx* pCtx = &pSlice->sCabacCtx;
   memcpy (&pDss->sStoredCabac, pCtx, sizeof (SCabacCtx));
+  if (pDss->pRestoreBuffer) {
+    int32_t iPosBitOffset =  GetBsPosCabac (pSlice) - pDss->iStartPos;
+    int32_t iLen = ((iPosBitOffset >> 3) + ((iPosBitOffset & 0x07) ? 1 : 0));
+    memcpy (pDss->pRestoreBuffer, pCtx->m_pBufStart, iLen);
+  }
   pDss->uiLastMbQp =  pSlice->uiLastMbQp;
   pDss->iMbSkipRunStack = iMbSkipRun;
 }
 int32_t StashPopMBStatusCabac (SDynamicSlicingStack* pDss, SSlice* pSlice) {
   SCabacCtx* pCtx = &pSlice->sCabacCtx;
   memcpy (pCtx, &pDss->sStoredCabac, sizeof (SCabacCtx));
+  if (pDss->pRestoreBuffer) {
+    int32_t iPosBitOffset = GetBsPosCabac (pSlice) - pDss->iStartPos;
+    int32_t iLen = ((iPosBitOffset >> 3) + ((iPosBitOffset & 0x07) ? 1 : 0));
+    memcpy (pCtx->m_pBufStart, pDss->pRestoreBuffer, iLen);
+  }
   pSlice->uiLastMbQp = pDss->uiLastMbQp;
   return pDss->iMbSkipRunStack;
 }
-int32_t GetBsPosCavlc(SSlice *pSlice){
+int32_t GetBsPosCavlc (SSlice* pSlice) {
   return BsGetBitsPos (pSlice->pSliceBsa);
 }
-int32_t GetBsPosCabac(SSlice *pSlice){
-  return (int32_t) ((pSlice->sCabacCtx.m_pBufCur - pSlice->sCabacCtx.m_pBufStart) << 3) + (pSlice->sCabacCtx.m_iLowBitCnt - 9);
+int32_t GetBsPosCabac (SSlice* pSlice) {
+  return (int32_t) ((pSlice->sCabacCtx.m_pBufCur - pSlice->sCabacCtx.m_pBufStart) << 3) +
+         (pSlice->sCabacCtx.m_iLowBitCnt - 9);
 }
 void WelsWriteSliceEndSyn (SSlice* pSlice, bool bEntropyCodingModeFlag) {
   SBitStringAux* pBs = pSlice->pSliceBsa;
@@ -284,6 +295,7 @@ void InitCoeffFunc (SWelsFuncPtrList* pFuncList, const uint32_t uiCpuFlag, int32
     pFuncList->pfCavlcParamCal = CavlcParamCal_sse2;
   }
 #endif
+
 #ifdef X86_ASM
   if (uiCpuFlag & WELS_CPU_SSE42) {
     pFuncList->pfCavlcParamCal = CavlcParamCal_sse42;

@@ -7,9 +7,8 @@
 #ifndef FPDFSDK_CPDFSDK_XFAWIDGETHANDLER_H_
 #define FPDFSDK_CPDFSDK_XFAWIDGETHANDLER_H_
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/ipdfsdk_annothandler.h"
 
 class CFX_Matrix;
@@ -21,7 +20,7 @@ class CPDFSDK_PageView;
 class CXFA_FFWidget;
 class CXFA_FFWidgetHandler;
 
-class CPDFSDK_XFAWidgetHandler : public IPDFSDK_AnnotHandler {
+class CPDFSDK_XFAWidgetHandler final : public IPDFSDK_AnnotHandler {
  public:
   explicit CPDFSDK_XFAWidgetHandler(CPDFSDK_FormFillEnvironment* pApp);
   ~CPDFSDK_XFAWidgetHandler() override;
@@ -33,14 +32,20 @@ class CPDFSDK_XFAWidgetHandler : public IPDFSDK_AnnotHandler {
   void ReleaseAnnot(CPDFSDK_Annot* pAnnot) override;
   CFX_FloatRect GetViewBBox(CPDFSDK_PageView* pPageView,
                             CPDFSDK_Annot* pAnnot) override;
-  CFX_WideString GetSelectedText(CPDFSDK_Annot* pAnnot) override;
+  WideString GetText(CPDFSDK_Annot* pAnnot) override;
+  WideString GetSelectedText(CPDFSDK_Annot* pAnnot) override;
+  void ReplaceSelection(CPDFSDK_Annot* pAnnot, const WideString& text) override;
+  bool CanUndo(CPDFSDK_Annot* pAnnot) override;
+  bool CanRedo(CPDFSDK_Annot* pAnnot) override;
+  bool Undo(CPDFSDK_Annot* pAnnot) override;
+  bool Redo(CPDFSDK_Annot* pAnnot) override;
   bool HitTest(CPDFSDK_PageView* pPageView,
                CPDFSDK_Annot* pAnnot,
                const CFX_PointF& point) override;
   void OnDraw(CPDFSDK_PageView* pPageView,
               CPDFSDK_Annot* pAnnot,
               CFX_RenderDevice* pDevice,
-              CFX_Matrix* pUser2Device,
+              const CFX_Matrix& mtUser2Device,
               bool bDrawAnnots) override;
   void OnLoad(CPDFSDK_Annot* pAnnot) override;
   void OnMouseEnter(CPDFSDK_PageView* pPageView,
@@ -94,7 +99,7 @@ class CPDFSDK_XFAWidgetHandler : public IPDFSDK_AnnotHandler {
   CXFA_FFWidgetHandler* GetXFAWidgetHandler(CPDFSDK_Annot* pAnnot);
   uint32_t GetFWLFlags(uint32_t dwFlag);
 
-  CFX_UnownedPtr<CPDFSDK_FormFillEnvironment> const m_pFormFillEnv;
+  UnownedPtr<CPDFSDK_FormFillEnvironment> const m_pFormFillEnv;
 };
 
 #endif  // FPDFSDK_CPDFSDK_XFAWIDGETHANDLER_H_

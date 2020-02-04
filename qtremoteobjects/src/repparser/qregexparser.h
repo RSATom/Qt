@@ -42,20 +42,20 @@
 #ifndef QREGEXPARSER_H
 #define QREGEXPARSER_H
 
-#include <QtCore/QSharedDataPointer>
-#include <QtCore/QVarLengthArray>
-#include <QtCore/QVariant>
+#include <QtCore/qshareddata.h>
+#include <QtCore/qvarlengtharray.h>
+#include <QtCore/qvariant.h>
 #ifdef QT_BOOTSTRAPPED
-#  include <QtCore/QRegExp>
+#  include <QtCore/qregexp.h>
 #  define REGEX QRegExp
 #else
-#  include <QtCore/QRegularExpression>
+#  include <QtCore/qregularexpression.h>
 #  define REGEX QRegularExpression
 #endif
-#include <QtCore/QMap>
-#include <QFile>
-#include <QTextStream>
-#include <QDebug>
+#include <QtCore/qmap.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qdebug.h>
 
 struct MatchCandidate {
     MatchCandidate(const QString &n, const QString &t, int i) : name(n), matchText(t), index(i) {}

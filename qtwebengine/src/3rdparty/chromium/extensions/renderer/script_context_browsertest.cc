@@ -6,8 +6,9 @@
 #include "content/public/renderer/render_frame.h"
 #include "content/public/test/frame_load_waiter.h"
 #include "extensions/renderer/script_context.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "extensions/renderer/script_context_set.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "url/gurl.h"
 
 using blink::WebLocalFrame;
@@ -44,7 +45,8 @@ TEST_F(ScriptContextTest, GetEffectiveDocumentURL) {
   WebLocalFrame* frame = GetMainFrame();
   ASSERT_TRUE(frame);
 
-  frame->LoadHTMLString(frame_html, top_url);
+  content::RenderFrame::FromWebFrame(frame)->LoadHTMLString(
+      frame_html, top_url, "UTF-8", GURL(), false /* replace_current_item */);
   content::FrameLoadWaiter(content::RenderFrame::FromWebFrame(frame)).Wait();
 
   WebLocalFrame* frame1 = frame->FirstChild()->ToWebLocalFrame();
@@ -67,7 +69,9 @@ TEST_F(ScriptContextTest, GetEffectiveDocumentURL) {
   ASSERT_EQ("frame3", frame3->AssignedName());
 
   // Load a blank document in a frame from a different origin.
-  frame3->LoadHTMLString(frame3_html, different_url);
+  content::RenderFrame::FromWebFrame(frame3)->LoadHTMLString(
+      frame3_html, different_url, "UTF-8", GURL(),
+      false /* replace_current_item */);
   content::FrameLoadWaiter(content::RenderFrame::FromWebFrame(frame3)).Wait();
 
   WebLocalFrame* frame3_1 = frame3->FirstChild()->ToWebLocalFrame();
@@ -92,6 +96,17 @@ TEST_F(ScriptContextTest, GetEffectiveDocumentURL) {
   EXPECT_EQ(GetEffectiveDocumentURL(frame3), different_url);
   // top -> different origin -> about:blank = inherit
   EXPECT_EQ(GetEffectiveDocumentURL(frame3_1), different_url);
+}
+
+TEST_F(ScriptContextTest, GetMainWorldContextForFrame) {
+  // ScriptContextSet::GetMainWorldContextForFrame should work, even without an
+  // existing v8::HandleScope.
+  content::RenderFrame* render_frame =
+      content::RenderFrame::FromWebFrame(GetMainFrame());
+  ScriptContext* script_context =
+      ScriptContextSet::GetMainWorldContextForFrame(render_frame);
+  ASSERT_TRUE(script_context);
+  EXPECT_EQ(render_frame, script_context->GetRenderFrame());
 }
 
 }  // namespace

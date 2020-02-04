@@ -8,6 +8,7 @@
 #define CORE_FXGE_CFX_CLIPRGN_H_
 
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CFX_DIBitmap;
 
@@ -21,22 +22,19 @@ class CFX_ClipRgn {
 
   ClipType GetType() const { return m_Type; }
   const FX_RECT& GetBox() const { return m_Box; }
-  CFX_RetainPtr<CFX_DIBitmap> GetMask() const { return m_Mask; }
+  RetainPtr<CFX_DIBitmap> GetMask() const { return m_Mask; }
 
-  void Reset(const FX_RECT& rect);
   void IntersectRect(const FX_RECT& rect);
-  void IntersectMaskF(int left,
-                      int top,
-                      const CFX_RetainPtr<CFX_DIBitmap>& Mask);
+  void IntersectMaskF(int left, int top, const RetainPtr<CFX_DIBitmap>& Mask);
 
  private:
   void IntersectMaskRect(FX_RECT rect,
                          FX_RECT mask_box,
-                         const CFX_RetainPtr<CFX_DIBitmap>& Mask);
+                         const RetainPtr<CFX_DIBitmap>& Mask);
 
   ClipType m_Type;
   FX_RECT m_Box;
-  CFX_RetainPtr<CFX_DIBitmap> m_Mask;
+  RetainPtr<CFX_DIBitmap> m_Mask;
 };
 
 #endif  // CORE_FXGE_CFX_CLIPRGN_H_

@@ -1,4 +1,5 @@
-requires(qtConfig(opengl))
+qtHaveModule(gui): \
+    requires(qtConfig(opengl):!wasm)
 
 CONFIG += examples_need_tools
 load(qt_parts)

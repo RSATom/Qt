@@ -26,16 +26,7 @@ void DomainReliabilityContextManager::RouteBeacon(
   if (!context)
     return;
 
-  bool queued = context->OnBeacon(std::move(beacon));
-  if (!queued)
-    return;
-
-  base::TimeTicks now = base::TimeTicks::Now();
-  if (!last_routed_beacon_time_.is_null()) {
-    UMA_HISTOGRAM_LONG_TIMES("DomainReliability.BeaconIntervalGlobal",
-                             now - last_routed_beacon_time_);
-  }
-  last_routed_beacon_time_ = now;
+  context->OnBeacon(std::move(beacon));
 }
 
 void DomainReliabilityContextManager::SetConfig(
@@ -45,8 +36,8 @@ void DomainReliabilityContextManager::SetConfig(
   std::string key = origin.host();
 
   if (!contexts_.count(key) && !removed_contexts_.count(key)) {
-    LOG(WARNING) << "Ignoring NEL header for unknown origin " << origin.spec()
-                 << ".";
+    DLOG(WARNING) << "Ignoring NEL header for unknown origin " << origin.spec()
+                  << ".";
     return;
   }
 
@@ -57,8 +48,6 @@ void DomainReliabilityContextManager::SetConfig(
     // needlessly; make sure the config has actually changed before recreating
     // the context.
     bool config_same = contexts_[key]->config().Equals(*config);
-    UMA_HISTOGRAM_BOOLEAN("DomainReliability.SetConfigRecreatedContext",
-                          !config_same);
     if (!config_same) {
       DVLOG(1) << "Ignoring unchanged NEL header for existing origin "
                << origin.spec() << ".";
@@ -111,7 +100,7 @@ DomainReliabilityContext* DomainReliabilityContextManager::AddContextForConfig(
 
 void DomainReliabilityContextManager::RemoveContexts(
     const base::Callback<bool(const GURL&)>& origin_filter) {
-  for (ContextMap::iterator it = contexts_.begin(); it != contexts_.end(); ) {
+  for (auto it = contexts_.begin(); it != contexts_.end();) {
     if (!origin_filter.is_null() &&
         !origin_filter.Run(it->second->config().origin)) {
       ++it;

@@ -9,11 +9,9 @@
 
 #include <vector>
 
-#include "core/fxcrt/cfx_shared_copy_on_write.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxge/cfx_defaultrenderdevice.h"
+#include "core/fxcrt/shared_copy_on_write.h"
 #include "core/fxge/cfx_pathdata.h"
-#include "core/fxge/cfx_renderdevice.h"
 
 class CPDF_Path {
  public:
@@ -32,10 +30,11 @@ class CPDF_Path {
   CFX_FloatRect GetBoundingBox(float line_width, float miter_limit) const;
 
   bool IsRect() const;
-  void Transform(const CFX_Matrix* pMatrix);
+  void Transform(const CFX_Matrix& matrix);
 
   void Append(const CPDF_Path& other, const CFX_Matrix* pMatrix);
   void Append(const CFX_PathData* pData, const CFX_Matrix* pMatrix);
+  // TODO(thestig): Switch to CFX_FloatRect.
   void AppendRect(float left, float bottom, float right, float top);
   void AppendPoint(const CFX_PointF& point, FXPT_TYPE type, bool close);
 
@@ -43,7 +42,7 @@ class CPDF_Path {
   const CFX_PathData* GetObject() const { return m_Ref.GetObject(); }
 
  private:
-  CFX_SharedCopyOnWrite<CFX_PathData> m_Ref;
+  SharedCopyOnWrite<CFX_PathData> m_Ref;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_PATH_H_

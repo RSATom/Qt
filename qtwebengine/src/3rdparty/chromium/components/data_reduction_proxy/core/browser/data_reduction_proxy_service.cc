@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
@@ -19,12 +20,15 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_pingback_client.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service_observer.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_util.h"
 #include "components/data_reduction_proxy/core/browser/data_store.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_store.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/proto/data_store.pb.h"
+#include "components/data_use_measurement/core/data_use_measurement.h"
 #include "components/prefs/pref_service.h"
+#include "services/network/public/cpp/features.h"
 
 namespace data_reduction_proxy {
 
@@ -32,36 +36,62 @@ DataReductionProxyService::DataReductionProxyService(
     DataReductionProxySettings* settings,
     PrefService* prefs,
     net::URLRequestContextGetter* request_context_getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     std::unique_ptr<DataStore> store,
+    std::unique_ptr<DataReductionProxyPingbackClient> pingback_client,
+    network::NetworkQualityTracker* network_quality_tracker,
+    network::NetworkConnectionTracker* network_connection_tracker,
+    data_use_measurement::DataUseMeasurement* data_use_measurement,
     const scoped_refptr<base::SequencedTaskRunner>& ui_task_runner,
     const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& db_task_runner,
     const base::TimeDelta& commit_delay)
     : url_request_context_getter_(request_context_getter),
-      pingback_client_(
-          new DataReductionProxyPingbackClient(request_context_getter)),
+      url_loader_factory_(std::move(url_loader_factory)),
+      pingback_client_(std::move(pingback_client)),
       settings_(settings),
       prefs_(prefs),
       db_data_owner_(new DBDataOwner(std::move(store))),
       io_task_runner_(io_task_runner),
       db_task_runner_(db_task_runner),
       initialized_(false),
+      network_quality_tracker_(network_quality_tracker),
+      network_connection_tracker_(network_connection_tracker),
+      data_use_measurement_(data_use_measurement),
+      effective_connection_type_(net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN),
       weak_factory_(this) {
   DCHECK(settings);
+  DCHECK(network_quality_tracker_);
+  DCHECK(network_connection_tracker_);
   db_task_runner_->PostTask(FROM_HERE,
-                            base::Bind(&DBDataOwner::InitializeOnDBThread,
-                                       db_data_owner_->GetWeakPtr()));
+                            base::BindOnce(&DBDataOwner::InitializeOnDBThread,
+                                           db_data_owner_->GetWeakPtr()));
   if (prefs_) {
     compression_stats_.reset(
         new DataReductionProxyCompressionStats(this, prefs_, commit_delay));
   }
-  event_store_.reset(new DataReductionProxyEventStore());
+  network_quality_tracker_->AddEffectiveConnectionTypeObserver(this);
+  network_quality_tracker_->AddRTTAndThroughputEstimatesObserver(this);
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService))
+    data_use_measurement_->AddServicesDataUseObserver(this);
+
+  // TODO(rajendrant): Combine uses of NetworkConnectionTracker within DRP.
+  network_connection_tracker_->AddNetworkConnectionObserver(this);
+  network_connection_tracker_->GetConnectionType(
+      &connection_type_,
+      base::BindOnce(&DataReductionProxyService::OnConnectionChanged,
+                     GetWeakPtr()));
 }
 
 DataReductionProxyService::~DataReductionProxyService() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  network_quality_tracker_->RemoveEffectiveConnectionTypeObserver(this);
+  network_quality_tracker_->RemoveRTTAndThroughputEstimatesObserver(this);
+  network_connection_tracker_->RemoveNetworkConnectionObserver(this);
   compression_stats_.reset();
   db_task_runner_->DeleteSoon(FROM_HERE, db_data_owner_.release());
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService))
+    data_use_measurement_->RemoveServicesDataUseObserver(this);
 }
 
 void DataReductionProxyService::SetIOData(
@@ -69,21 +99,88 @@ void DataReductionProxyService::SetIOData(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   io_data_ = io_data;
   initialized_ = true;
+
+  // Notify IO data of the current network quality estimates.
+  OnEffectiveConnectionTypeChanged(effective_connection_type_);
+  if (http_rtt_) {
+    OnRTTOrThroughputEstimatesComputed(http_rtt_.value(), base::TimeDelta(),
+                                       INT32_MAX);
+  }
+
   for (DataReductionProxyServiceObserver& observer : observer_list_)
     observer.OnServiceInitialized();
 
-  // Load the Data Reduction Proxy configuration from |prefs_| and apply it.
-  if (prefs_) {
-    std::string config_value =
-        prefs_->GetString(prefs::kDataReductionProxyConfig);
-    if (!config_value.empty()) {
-      io_task_runner_->PostTask(
-          FROM_HERE,
-          base::Bind(
-              &DataReductionProxyIOData::SetDataReductionProxyConfiguration,
-              io_data_, config_value));
-    }
-  }
+  ReadPersistedClientConfig();
+}
+
+void DataReductionProxyService::ReadPersistedClientConfig() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (!prefs_)
+    return;
+
+  base::Time last_config_retrieval_time =
+      base::Time() + base::TimeDelta::FromMicroseconds(prefs_->GetInt64(
+                         prefs::kDataReductionProxyLastConfigRetrievalTime));
+  base::TimeDelta time_since_last_config_retrieval =
+      base::Time::Now() - last_config_retrieval_time;
+
+  // A config older than 24 hours should not be used.
+  bool persisted_config_is_expired =
+      GetFieldTrialParamByFeatureAsBool(
+          features::kDataReductionProxyRobustConnection,
+          "use_24h_config_expiration_time", true) &&
+      !last_config_retrieval_time.is_null() &&
+      time_since_last_config_retrieval > base::TimeDelta::FromHours(24);
+
+  if (persisted_config_is_expired)
+    return;
+
+  const std::string config_value =
+      prefs_->GetString(prefs::kDataReductionProxyConfig);
+
+  if (config_value.empty())
+    return;
+
+  io_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &DataReductionProxyIOData::SetDataReductionProxyConfiguration,
+          io_data_, config_value));
+}
+
+void DataReductionProxyService::OnConnectionChanged(
+    network::mojom::ConnectionType type) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  connection_type_ = type;
+}
+
+void DataReductionProxyService::OnEffectiveConnectionTypeChanged(
+    net::EffectiveConnectionType type) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  effective_connection_type_ = type;
+
+  io_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &DataReductionProxyIOData::OnEffectiveConnectionTypeChanged, io_data_,
+          type));
+}
+
+void DataReductionProxyService::OnRTTOrThroughputEstimatesComputed(
+    base::TimeDelta http_rtt,
+    base::TimeDelta transport_rtt,
+    int32_t downstream_throughput_kbps) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  http_rtt_ = http_rtt;
+
+  io_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &DataReductionProxyIOData::OnRTTOrThroughputEstimatesComputed,
+          io_data_, http_rtt));
 }
 
 void DataReductionProxyService::Shutdown() {
@@ -106,137 +203,21 @@ void DataReductionProxyService::UpdateContentLengths(
     int64_t original_size,
     bool data_reduction_proxy_enabled,
     DataReductionProxyRequestType request_type,
-    const std::string& mime_type) {
+    const std::string& mime_type,
+    bool is_user_traffic,
+    data_use_measurement::DataUseUserData::DataUseContentType content_type,
+    int32_t service_hash_code) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (compression_stats_) {
-    compression_stats_->RecordDataUseWithMimeType(data_used, original_size,
-                                                  data_reduction_proxy_enabled,
-                                                  request_type, mime_type);
+    compression_stats_->RecordDataUseWithMimeType(
+        data_used, original_size, data_reduction_proxy_enabled, request_type,
+        mime_type, is_user_traffic, content_type, service_hash_code);
   }
-}
-
-void DataReductionProxyService::AddEvent(std::unique_ptr<base::Value> event) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  event_store_->AddEvent(std::move(event));
-}
-
-void DataReductionProxyService::AddEnabledEvent(
-    std::unique_ptr<base::Value> event,
-    bool enabled) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  event_store_->AddEnabledEvent(std::move(event), enabled);
-}
-
-void DataReductionProxyService::AddEventAndSecureProxyCheckState(
-    std::unique_ptr<base::Value> event,
-    SecureProxyCheckState state) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  event_store_->AddEventAndSecureProxyCheckState(std::move(event), state);
-}
-
-void DataReductionProxyService::AddAndSetLastBypassEvent(
-    std::unique_ptr<base::Value> event,
-    int64_t expiration_ticks) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  event_store_->AddAndSetLastBypassEvent(std::move(event), expiration_ticks);
 }
 
 void DataReductionProxyService::SetUnreachable(bool unreachable) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   settings_->SetUnreachable(unreachable);
-}
-
-void DataReductionProxyService::SetLoFiModeActiveOnMainFrame(
-    bool lo_fi_mode_active) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  settings_->SetLoFiModeActiveOnMainFrame(lo_fi_mode_active);
-}
-
-void DataReductionProxyService::SetLoFiModeOff() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (io_task_runner_->BelongsToCurrentThread()) {
-    io_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&DataReductionProxyIOData::SetLoFiModeOff, io_data_));
-    return;
-  }
-  io_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&DataReductionProxyIOData::SetLoFiModeOff, io_data_));
-}
-
-void DataReductionProxyService::InitializeLoFiPrefs() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!prefs_)
-    return;
-
-  int lo_fi_user_requests_for_images_per_session =
-      params::GetFieldTrialParameterAsInteger(
-          params::GetLoFiFieldTrialName(), "load_images_requests_per_session",
-          3, 0);
-
-  int lo_fi_implicit_opt_out_epoch = params::GetFieldTrialParameterAsInteger(
-      params::GetLoFiFieldTrialName(), "implicit_opt_out_epoch", 0, 0);
-
-  int lo_fi_consecutive_session_disables =
-      params::GetFieldTrialParameterAsInteger(params::GetLoFiFieldTrialName(),
-                                              "consecutive_session_disables", 3,
-                                              0);
-
-  // Record if Lo-Fi was used during the last session. Do not record if the
-  // Data Reduction Proxy is disabled.
-  if (!settings_->IsDataReductionProxyEnabled()) {
-    // Don't record the session state.
-  } else if (prefs_->GetInteger(prefs::kLoFiConsecutiveSessionDisables) >=
-             lo_fi_consecutive_session_disables) {
-    RecordLoFiSessionState(LO_FI_SESSION_STATE_OPTED_OUT);
-  } else if (prefs_->GetInteger(prefs::kLoFiLoadImagesPerSession) >=
-             lo_fi_user_requests_for_images_per_session) {
-    DCHECK(prefs_->GetBoolean(prefs::kLoFiWasUsedThisSession));
-    DCHECK_GT(prefs_->GetInteger(prefs::kLoFiConsecutiveSessionDisables), 0);
-    // Consider the session as temporary opt out only if the number of
-    // requests for images were more than the threshold.
-    RecordLoFiSessionState(LO_FI_SESSION_STATE_TEMPORARILY_OPTED_OUT);
-  } else if (prefs_->GetBoolean(prefs::kLoFiWasUsedThisSession)) {
-    RecordLoFiSessionState(LO_FI_SESSION_STATE_USED);
-  } else {
-    DCHECK(!prefs_->GetBoolean(prefs::kLoFiWasUsedThisSession));
-    RecordLoFiSessionState(LO_FI_SESSION_STATE_NOT_USED);
-  }
-
-  if (prefs_->GetInteger(prefs::kLoFiImplicitOptOutEpoch) <
-      lo_fi_implicit_opt_out_epoch) {
-    // We have a new implicit opt out epoch, reset the consecutive session
-    // disables count so that Lo-Fi can be enabled again.
-    prefs_->SetInteger(prefs::kLoFiConsecutiveSessionDisables, 0);
-    prefs_->SetInteger(prefs::kLoFiImplicitOptOutEpoch,
-                       lo_fi_implicit_opt_out_epoch);
-    settings_->RecordLoFiImplicitOptOutAction(LO_FI_OPT_OUT_ACTION_NEXT_EPOCH);
-  } else if (!params::IsLoFiOnViaFlags() &&
-             (prefs_->GetInteger(prefs::kLoFiConsecutiveSessionDisables) >=
-              lo_fi_consecutive_session_disables)) {
-    // If Lo-Fi isn't always on and and the number of
-    // |consecutive_session_disables| has been met, turn Lo-Fi off for this
-    // session.
-    SetLoFiModeOff();
-  } else if (prefs_->GetInteger(prefs::kLoFiLoadImagesPerSession) <
-                 lo_fi_user_requests_for_images_per_session &&
-             prefs_->GetInteger(prefs::kLoFiUIShownPerSession) >=
-                 lo_fi_user_requests_for_images_per_session) {
-    // If the last session didn't have
-    // |lo_fi_user_requests_for_images_per_session|, but the user saw at least
-    // that many "Load image" UI notifications, reset the consecutive sessions
-    // count.
-    prefs_->SetInteger(prefs::kLoFiConsecutiveSessionDisables, 0);
-  }
-  prefs_->SetInteger(prefs::kLoFiLoadImagesPerSession, 0);
-  prefs_->SetInteger(prefs::kLoFiUIShownPerSession, 0);
-  prefs_->SetBoolean(prefs::kLoFiWasUsedThisSession, false);
-}
-
-void DataReductionProxyService::RecordLoFiSessionState(LoFiSessionState state) {
-  UMA_HISTOGRAM_ENUMERATION("DataReductionProxy.LoFi.SessionState", state,
-                            LO_FI_SESSION_STATE_INDEX_BOUNDARY);
 }
 
 void DataReductionProxyService::SetInt64Pref(const std::string& pref_path,
@@ -258,8 +239,8 @@ void DataReductionProxyService::SetProxyPrefs(bool enabled, bool at_startup) {
     return;
   }
   io_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&DataReductionProxyIOData::SetProxyPrefs, io_data_,
-                            enabled, at_startup));
+      FROM_HERE, base::BindOnce(&DataReductionProxyIOData::SetProxyPrefs,
+                                io_data_, enabled, at_startup));
 }
 
 void DataReductionProxyService::SetPingbackReportingFraction(
@@ -268,16 +249,69 @@ void DataReductionProxyService::SetPingbackReportingFraction(
   pingback_client_->SetPingbackReportingFraction(pingback_reporting_fraction);
 }
 
+void DataReductionProxyService::OnCacheCleared(const base::Time start,
+                                               const base::Time end) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  io_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&DataReductionProxyIOData::OnCacheCleared,
+                                io_data_, start, end));
+}
+
+net::EffectiveConnectionType
+DataReductionProxyService::GetEffectiveConnectionType() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return effective_connection_type_;
+}
+
+network::mojom::ConnectionType DataReductionProxyService::GetConnectionType()
+    const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return connection_type_;
+}
+
+base::Optional<base::TimeDelta> DataReductionProxyService::GetHttpRttEstimate()
+    const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return http_rtt_;
+}
+
+void DataReductionProxyService::SetProxyRequestHeadersOnUI(
+    const net::HttpRequestHeaders& headers) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  settings_->SetProxyRequestHeaders(headers);
+}
+
+void DataReductionProxyService::SetConfiguredProxiesOnUI(
+    const net::ProxyList& proxies) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  settings_->SetConfiguredProxies(proxies);
+}
+
+void DataReductionProxyService::SetIgnoreLongTermBlackListRules(
+    bool ignore_long_term_black_list_rules) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  settings_->SetIgnoreLongTermBlackListRules(ignore_long_term_black_list_rules);
+}
+
+void DataReductionProxyService::SetCustomProxyConfigClient(
+    network::mojom::CustomProxyConfigClientPtrInfo config_client_info) {
+  io_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&DataReductionProxyIOData::SetCustomProxyConfigClient,
+                     io_data_, std::move(config_client_info)));
+}
+
 void DataReductionProxyService::LoadHistoricalDataUsage(
     const HistoricalDataUsageCallback& load_data_usage_callback) {
   std::unique_ptr<std::vector<DataUsageBucket>> data_usage(
       new std::vector<DataUsageBucket>());
   std::vector<DataUsageBucket>* data_usage_ptr = data_usage.get();
   db_task_runner_->PostTaskAndReply(
-      FROM_HERE, base::Bind(&DBDataOwner::LoadHistoricalDataUsage,
-                            db_data_owner_->GetWeakPtr(),
-                            base::Unretained(data_usage_ptr)),
-      base::Bind(load_data_usage_callback, base::Passed(&data_usage)));
+      FROM_HERE,
+      base::BindOnce(&DBDataOwner::LoadHistoricalDataUsage,
+                     db_data_owner_->GetWeakPtr(),
+                     base::Unretained(data_usage_ptr)),
+      base::BindOnce(load_data_usage_callback, std::move(data_usage)));
 }
 
 void DataReductionProxyService::LoadCurrentDataUsageBucket(
@@ -286,31 +320,37 @@ void DataReductionProxyService::LoadCurrentDataUsageBucket(
   DataUsageBucket* bucket_ptr = bucket.get();
   db_task_runner_->PostTaskAndReply(
       FROM_HERE,
-      base::Bind(&DBDataOwner::LoadCurrentDataUsageBucket,
-                 db_data_owner_->GetWeakPtr(), base::Unretained(bucket_ptr)),
-      base::Bind(load_current_data_usage_callback, base::Passed(&bucket)));
+      base::BindOnce(&DBDataOwner::LoadCurrentDataUsageBucket,
+                     db_data_owner_->GetWeakPtr(),
+                     base::Unretained(bucket_ptr)),
+      base::BindOnce(load_current_data_usage_callback, std::move(bucket)));
 }
 
 void DataReductionProxyService::StoreCurrentDataUsageBucket(
     std::unique_ptr<DataUsageBucket> current) {
   db_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&DBDataOwner::StoreCurrentDataUsageBucket,
-                 db_data_owner_->GetWeakPtr(), base::Passed(&current)));
+      base::BindOnce(&DBDataOwner::StoreCurrentDataUsageBucket,
+                     db_data_owner_->GetWeakPtr(), std::move(current)));
 }
 
 void DataReductionProxyService::DeleteHistoricalDataUsage() {
-  db_task_runner_->PostTask(FROM_HERE,
-                            base::Bind(&DBDataOwner::DeleteHistoricalDataUsage,
-                                       db_data_owner_->GetWeakPtr()));
+  db_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&DBDataOwner::DeleteHistoricalDataUsage,
+                                db_data_owner_->GetWeakPtr()));
 }
 
 void DataReductionProxyService::DeleteBrowsingHistory(const base::Time& start,
                                                       const base::Time& end) {
   DCHECK_LE(start, end);
   db_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&DBDataOwner::DeleteBrowsingHistory,
-                            db_data_owner_->GetWeakPtr(), start, end));
+      FROM_HERE, base::BindOnce(&DBDataOwner::DeleteBrowsingHistory,
+                                db_data_owner_->GetWeakPtr(), start, end));
+
+  io_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&DataReductionProxyIOData::DeleteBrowsingHistory, io_data_,
+                     start, end));
 }
 
 void DataReductionProxyService::AddObserver(
@@ -334,6 +374,27 @@ base::WeakPtr<DataReductionProxyService>
 DataReductionProxyService::GetWeakPtr() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return weak_factory_.GetWeakPtr();
+}
+
+void DataReductionProxyService::OnServicesDataUse(int32_t service_hash_code,
+                                                  int64_t recv_bytes,
+                                                  int64_t sent_bytes) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (compression_stats_) {
+    // Record non-content initiated traffic to the Other bucket for data saver
+    // site-breakdown.
+    DCHECK(base::FeatureList::IsEnabled(network::features::kNetworkService));
+    compression_stats_->RecordDataUseByHost(
+        util::GetSiteBreakdownOtherHostName(), sent_bytes, sent_bytes,
+        base::Time::Now());
+    compression_stats_->RecordDataUseByHost(
+        util::GetSiteBreakdownOtherHostName(), recv_bytes, recv_bytes,
+        base::Time::Now());
+    compression_stats_->RecordDataUseWithMimeType(
+        recv_bytes, recv_bytes, settings_->IsDataReductionProxyEnabled(), HTTPS,
+        std::string(), false, data_use_measurement::DataUseUserData::OTHER,
+        service_hash_code);
+  }
 }
 
 }  // namespace data_reduction_proxy

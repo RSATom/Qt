@@ -53,6 +53,8 @@
 
 #include <QtNetwork/private/qtnetworkglobal_p.h>
 
+QT_REQUIRE_CONFIG(settings);
+
 #include <QtCore/qsettings.h>
 #include <QtCore/qvector.h>
 
@@ -85,7 +87,7 @@ private:
     QVector<QHstsPolicy> observedPolicies;
     QSettings store;
 
-    Q_DISABLE_COPY(QHstsStore)
+    Q_DISABLE_COPY_MOVE(QHstsStore)
 };
 
 QT_END_NAMESPACE

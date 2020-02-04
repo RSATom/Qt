@@ -12,12 +12,14 @@
 
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ref_counted_memory.h"
-#include "base/memory/weak_ptr.h"
-#include "base/metrics/histogram.h"
+#include "base/timer/timer.h"
+#include "base/trace_event/trace_config.h"
 #include "content/browser/tracing/background_tracing_config_impl.h"
-#include "content/browser/tracing/tracing_controller_impl.h"
 #include "content/public/browser/background_tracing_manager.h"
+
+namespace base {
+class RefCountedString;
+}  // namespace base
 
 namespace content {
 
@@ -36,6 +38,9 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
     virtual void OnScenarioActivated(
         const BackgroundTracingConfigImpl* config) = 0;
 
+    // In case the scenario was aborted before or after tracing was enabled.
+    virtual void OnScenarioAborted() = 0;
+
     // Called after tracing is enabled on all processes because the rule was
     // triggered.
     virtual void OnTracingEnabled(
@@ -53,7 +58,7 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   CONTENT_EXPORT static BackgroundTracingManagerImpl* GetInstance();
 
   bool SetActiveScenario(std::unique_ptr<BackgroundTracingConfig>,
-                         const ReceiveCallback&,
+                         ReceiveCallback,
                          DataFiltering data_filtering) override;
   void WhenIdle(IdleCallback idle_callback) override;
 
@@ -64,7 +69,7 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
 
   void OnRuleTriggered(const BackgroundTracingRule* triggered_rule,
                        StartedFinalizingCallback callback);
-  void AbortScenario();
+  CONTENT_EXPORT void AbortScenario() override;
   bool HasActiveScenario() override;
 
   void OnStartTracingDone(BackgroundTracingConfigImpl::CategoryPreset preset);
@@ -80,12 +85,17 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   void AddTraceMessageFilterObserver(TraceMessageFilterObserver* observer);
   void RemoveTraceMessageFilterObserver(TraceMessageFilterObserver* observer);
 
+  void AddMetadataGeneratorFunction();
+
   // For tests
   void InvalidateTriggerHandlesForTesting() override;
   CONTENT_EXPORT void SetRuleTriggeredCallbackForTesting(
       const base::Closure& callback);
   void FireTimerForTesting() override;
   CONTENT_EXPORT bool IsTracingForTesting();
+  CONTENT_EXPORT bool requires_anonymized_data_for_testing() const {
+    return requires_anonymized_data_;
+  }
 
  private:
   BackgroundTracingManagerImpl();
@@ -94,14 +104,16 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   void StartTracing(BackgroundTracingConfigImpl::CategoryPreset,
                     base::trace_event::TraceRecordMode);
   void StartTracingIfConfigNeedsIt();
-  void OnFinalizeStarted(std::unique_ptr<const base::DictionaryValue> metadata,
+  void OnFinalizeStarted(base::Closure started_finalizing_closure,
+                         std::unique_ptr<const base::DictionaryValue> metadata,
                          base::RefCountedString*);
-  void OnFinalizeComplete();
+  void OnFinalizeComplete(bool success);
   void BeginFinalizing(StartedFinalizingCallback);
   void ValidateStartupScenario();
 
-  void AddCustomMetadata();
+  std::unique_ptr<base::DictionaryValue> GenerateMetadataDict();
 
+  bool IsAllowedFinalization() const;
   std::string GetTriggerNameFromHandle(TriggerHandle handle) const;
   bool IsTriggerHandleValid(TriggerHandle handle) const;
 
@@ -109,8 +121,13 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
       TriggerHandle handle) const;
   bool IsSupportedConfig(BackgroundTracingConfigImpl* config);
 
-  std::string GetCategoryFilterStringForCategoryPreset(
-      BackgroundTracingConfigImpl::CategoryPreset) const;
+  base::trace_event::TraceConfig GetConfigForCategoryPreset(
+      BackgroundTracingConfigImpl::CategoryPreset,
+      base::trace_event::TraceRecordMode) const;
+
+  void OnAbortScenarioReceived(
+      std::unique_ptr<const base::DictionaryValue> metadata,
+      base::RefCountedString* trace_str);
 
   class TracingTimer {
    public:

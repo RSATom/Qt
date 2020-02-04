@@ -18,12 +18,12 @@
 
 #include <list>
 
-#include "webrtc/modules/rtp_rtcp/source/byte_io.h"
-#include "webrtc/modules/rtp_rtcp/source/forward_error_correction.h"
-#include "webrtc/modules/rtp_rtcp/source/forward_error_correction_internal.h"
-#include "webrtc/rtc_base/random.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "modules/rtp_rtcp/source/byte_io.h"
+#include "modules/rtp_rtcp/source/forward_error_correction.h"
+#include "modules/rtp_rtcp/source/forward_error_correction_internal.h"
+#include "rtc_base/random.h"
+#include "test/gtest.h"
+#include "test/testsupport/file_utils.h"
 
 // #define VERBOSE_OUTPUT
 
@@ -35,8 +35,10 @@ namespace test {
 using fec_private_tables::kPacketMaskBurstyTbl;
 
 void ReceivePackets(
-    ForwardErrorCorrection::ReceivedPacketList* to_decode_list,
-    ForwardErrorCorrection::ReceivedPacketList* received_packet_list,
+    std::vector<std::unique_ptr<ForwardErrorCorrection::ReceivedPacket>>*
+        to_decode_list,
+    std::vector<std::unique_ptr<ForwardErrorCorrection::ReceivedPacket>>*
+        received_packet_list,
     size_t num_packets_to_decode,
     float reorder_rate,
     float duplicate_rate,
@@ -103,13 +105,15 @@ void RunTest(bool use_flexfec) {
 
   ForwardErrorCorrection::PacketList media_packet_list;
   std::list<ForwardErrorCorrection::Packet*> fec_packet_list;
-  ForwardErrorCorrection::ReceivedPacketList to_decode_list;
-  ForwardErrorCorrection::ReceivedPacketList received_packet_list;
+  std::vector<std::unique_ptr<ForwardErrorCorrection::ReceivedPacket>>
+      to_decode_list;
+  std::vector<std::unique_ptr<ForwardErrorCorrection::ReceivedPacket>>
+      received_packet_list;
   ForwardErrorCorrection::RecoveredPacketList recovered_packet_list;
   std::list<uint8_t*> fec_mask_list;
 
-  // Running over only one loss rate to limit execution time.
-  const float loss_rate[] = {0.5f};
+  // Running over only two loss rates to limit execution time.
+  const float loss_rate[] = {0.05f, 0.01f};
   const uint32_t loss_rate_size = sizeof(loss_rate) / sizeof(*loss_rate);
   const float reorder_rate = 0.1f;
   const float duplicate_rate = 0.1f;
@@ -188,10 +192,9 @@ void RunTest(bool use_flexfec) {
                    num_media_packets * mask_bytes_per_fec_packet);
 
             // Transfer packet masks from bit-mask to byte-mask.
-            internal::GeneratePacketMasks(num_media_packets, num_fec_packets,
-                                          num_imp_packets,
-                                          kUseUnequalProtection,
-                                          mask_table, packet_mask.get());
+            internal::GeneratePacketMasks(
+                num_media_packets, num_fec_packets, num_imp_packets,
+                kUseUnequalProtection, &mask_table, packet_mask.get());
 
 #ifdef VERBOSE_OUTPUT
             printf(
@@ -249,8 +252,8 @@ void RunTest(bool use_flexfec) {
               const uint32_t kMinPacketSize = 12;
               const uint32_t kMaxPacketSize = static_cast<uint32_t>(
                   IP_PACKET_SIZE - 12 - 28 - fec->MaxPacketOverhead());
-              media_packet->length = random.Rand(kMinPacketSize,
-                                                 kMaxPacketSize);
+              media_packet->length =
+                  random.Rand(kMinPacketSize, kMaxPacketSize);
 
               // Generate random values for the first 2 bytes.
               media_packet->data[0] = random.Rand<uint8_t>();
@@ -403,11 +406,10 @@ void RunTest(bool use_flexfec) {
                   }
                 }
               }
-              ASSERT_EQ(0,
-                        fec->DecodeFec(&to_decode_list, &recovered_packet_list))
-                  << "DecodeFec() failed";
-              ASSERT_TRUE(to_decode_list.empty())
-                  << "Received packet list is not empty.";
+              for (const auto& received_packet : to_decode_list) {
+                fec->DecodeFec(*received_packet, &recovered_packet_list);
+              }
+              to_decode_list.clear();
             }
             media_packet_idx = 0;
             for (const auto& media_packet : media_packet_list) {
@@ -454,8 +456,8 @@ void RunTest(bool use_flexfec) {
           }  // loop over num_imp_packets
         }    // loop over FecPackets
       }      // loop over num_media_packets
-    }  // loop over loss rates
-  }    // loop over mask types
+    }        // loop over loss rates
+  }          // loop over mask types
 
   // Have DecodeFec clear the recovered packet list.
   fec->ResetState(&recovered_packet_list);
@@ -463,19 +465,11 @@ void RunTest(bool use_flexfec) {
       << "Recovered packet list is not empty";
 }
 
-// Too slow to finish before timeout on iOS. See webrtc:4755.
-#if defined(WEBRTC_IOS)
-#define MAYBE_UlpfecTest DISABLED_UlpfecTest
-#define MAYBE_FlexfecTest DISABLED_FlexfecTest
-#else
-#define MAYBE_UlpfecTest UlpfecTest
-#define MAYBE_FlexfecTest FlexfecTest
-#endif
-TEST(FecTest, MAYBE_UlpfecTest) {
+TEST(FecTest, UlpfecTest) {
   RunTest(false);
 }
 
-TEST(FecTest, MAYBE_FlexfecTest) {
+TEST(FecTest, FlexfecTest) {
   RunTest(true);
 }
 

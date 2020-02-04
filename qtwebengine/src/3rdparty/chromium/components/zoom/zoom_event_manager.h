@@ -51,8 +51,8 @@ class ZoomEventManager : public base::SupportsUserData::Data {
   void OnDefaultZoomLevelChanged();
 
   // Add and remove observers.
-  void AddZoomEventManagerObserver(ZoomEventManagerObserver* observer);
-  void RemoveZoomEventManagerObserver(ZoomEventManagerObserver* observer);
+  void AddObserver(ZoomEventManagerObserver* observer);
+  void RemoveObserver(ZoomEventManagerObserver* observer);
 
   // Get a weak ptr to be used by clients who may themselves be UserData for
   // the context, since the order of destruction is undefined between the client
@@ -64,7 +64,7 @@ class ZoomEventManager : public base::SupportsUserData::Data {
  private:
   base::CallbackList<void(const content::HostZoomMap::ZoomLevelChange&)>
       zoom_level_changed_callbacks_;
-  base::ObserverList<ZoomEventManagerObserver> observers_;
+  base::ObserverList<ZoomEventManagerObserver>::Unchecked observers_;
   base::WeakPtrFactory<ZoomEventManager> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ZoomEventManager);

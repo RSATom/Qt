@@ -14,16 +14,17 @@
 
 #include "SwiftConfig.hpp"
 
-#include "Configurator.hpp"
-#include "Debug.hpp"
 #include "Config.hpp"
-#include "Version.h"
+#include "Common/Configurator.hpp"
+#include "Common/Debug.hpp"
+#include "Common/Version.h"
 
 #include <sstream>
 #include <stdio.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <algorithm>
 
 namespace sw
 {
@@ -247,7 +248,7 @@ namespace sw
 		html += "function request()\n";
 		html += "{\n";
 		html += "var xhr = new XMLHttpRequest();\n";
-		html += "xhr.open('POST', 'http://localhost:8080/swiftshader/profile', true);\n";
+		html += "xhr.open('POST', '/swiftshader/profile', true);\n";
 		html += "xhr.onreadystatechange = function()\n";
 		html += "{\n";
 		html += "if(xhr.readyState == 4 && xhr.status == 200)\n";
@@ -651,7 +652,7 @@ namespace sw
 			}
 			else if(sscanf(post, "optimization%d=%d", &index, &integer))
 			{
-				config.optimization[index - 1] = (Optimization)integer;
+				config.optimization[index - 1] = (rr::Optimization)integer;
 			}
 			else if(strstr(post, "disableServer=on"))
 			{
@@ -738,7 +739,7 @@ namespace sw
 
 		for(int pass = 0; pass < 10; pass++)
 		{
-			config.optimization[pass] = (Optimization)ini.getInteger("Optimization", "OptimizationPass" + itoa(pass + 1), pass == 0 ? InstructionCombining : Disabled);
+			config.optimization[pass] = (rr::Optimization)ini.getInteger("Optimization", "OptimizationPass" + itoa(pass + 1), pass == 0 ? rr::InstructionCombining : rr::Disabled);
 		}
 
 		config.disableServer = ini.getBoolean("Testing", "DisableServer", false);

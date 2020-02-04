@@ -11,6 +11,7 @@
 #include <set>
 #include <string>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -27,27 +28,29 @@ namespace content {
 class PluginPrivateFileSystemBackendTest;
 }
 
-namespace storage {
-class SpecialStoragePolicy;
+namespace leveldb {
+class Env;
 }
 
 namespace storage {
 
 class ObfuscatedFileUtil;
+class SpecialStoragePolicy;
 class WatcherManager;
 
-class STORAGE_EXPORT PluginPrivateFileSystemBackend
+class COMPONENT_EXPORT(STORAGE_BROWSER) PluginPrivateFileSystemBackend
     : public FileSystemBackend,
       public FileSystemQuotaUtil {
  public:
   class FileSystemIDToPluginMap;
-  typedef base::Callback<void(base::File::Error result)> StatusCallback;
+  using StatusCallback = base::OnceCallback<void(base::File::Error result)>;
 
   PluginPrivateFileSystemBackend(
       base::SequencedTaskRunner* file_task_runner,
       const base::FilePath& profile_path,
       storage::SpecialStoragePolicy* special_storage_policy,
-      const FileSystemOptions& file_system_options);
+      const FileSystemOptions& file_system_options,
+      leveldb::Env* env_override);
   ~PluginPrivateFileSystemBackend() override;
 
   // This must be used to open 'private' filesystem instead of regular
@@ -56,20 +59,19 @@ class STORAGE_EXPORT PluginPrivateFileSystemBackend
   // isolation, e.g. name, MIME type etc.
   // NOTE: |plugin_id| must be sanitized ASCII string that doesn't
   // include *any* dangerous character like '/'.
-  void OpenPrivateFileSystem(
-      const GURL& origin_url,
-      FileSystemType type,
-      const std::string& filesystem_id,
-      const std::string& plugin_id,
-      OpenFileSystemMode mode,
-      const StatusCallback& callback);
+  void OpenPrivateFileSystem(const GURL& origin_url,
+                             FileSystemType type,
+                             const std::string& filesystem_id,
+                             const std::string& plugin_id,
+                             OpenFileSystemMode mode,
+                             StatusCallback callback);
 
   // FileSystemBackend overrides.
   bool CanHandleType(FileSystemType type) const override;
   void Initialize(FileSystemContext* context) override;
   void ResolveURL(const FileSystemURL& url,
                   OpenFileSystemMode mode,
-                  const OpenFileSystemCallback& callback) override;
+                  OpenFileSystemCallback callback) override;
   AsyncFileUtil* GetAsyncFileUtil(FileSystemType type) override;
   WatcherManager* GetWatcherManager(FileSystemType type) override;
   CopyOrMoveFileValidatorFactory* GetCopyOrMoveFileValidatorFactory(
@@ -106,6 +108,9 @@ class STORAGE_EXPORT PluginPrivateFileSystemBackend
       storage::QuotaManagerProxy* proxy,
       const GURL& origin_url,
       FileSystemType type) override;
+  void PerformStorageCleanupOnFileTaskRunner(FileSystemContext* context,
+                                             storage::QuotaManagerProxy* proxy,
+                                             FileSystemType type) override;
   void GetOriginsForTypeOnFileTaskRunner(FileSystemType type,
                                          std::set<GURL>* origins) override;
   void GetOriginsForHostOnFileTaskRunner(FileSystemType type,

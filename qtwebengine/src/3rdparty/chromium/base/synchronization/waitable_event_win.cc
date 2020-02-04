@@ -13,6 +13,8 @@
 #include "base/debug/activity_tracker.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/optional.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 
@@ -52,14 +54,22 @@ bool WaitableEvent::IsSignaled() {
 }
 
 void WaitableEvent::Wait() {
-  base::ThreadRestrictions::AssertWaitAllowed();
-  // Record the event that this thread is blocking upon (for hang diagnosis).
-  base::debug::ScopedEventWaitActivity event_activity(this);
+  // Record the event that this thread is blocking upon (for hang diagnosis) and
+  // consider it blocked for scheduling purposes. Ignore this for non-blocking
+  // WaitableEvents.
+  Optional<debug::ScopedEventWaitActivity> event_activity;
+  Optional<internal::ScopedBlockingCallWithBaseSyncPrimitives>
+      scoped_blocking_call;
+  if (waiting_is_blocking_) {
+    event_activity.emplace(this);
+    scoped_blocking_call.emplace(BlockingType::MAY_BLOCK);
+  }
 
   DWORD result = WaitForSingleObject(handle_.Get(), INFINITE);
   // It is most unexpected that this should ever fail.  Help consumers learn
   // about it if it should ever fail.
-  DCHECK_EQ(WAIT_OBJECT_0, result) << "WaitForSingleObject failed";
+  DPCHECK(result != WAIT_FAILED);
+  DCHECK_EQ(WAIT_OBJECT_0, result);
 }
 
 namespace {
@@ -102,9 +112,16 @@ bool WaitableEvent::TimedWait(const TimeDelta& wait_delta) {
   if (wait_delta.is_zero())
     return IsSignaled();
 
-  base::ThreadRestrictions::AssertWaitAllowed();
-  // Record the event that this thread is blocking upon (for hang diagnosis).
-  base::debug::ScopedEventWaitActivity event_activity(this);
+  // Record the event that this thread is blocking upon (for hang diagnosis) and
+  // consider it blocked for scheduling purposes. Ignore this for non-blocking
+  // WaitableEvents.
+  Optional<debug::ScopedEventWaitActivity> event_activity;
+  Optional<internal::ScopedBlockingCallWithBaseSyncPrimitives>
+      scoped_blocking_call;
+  if (waiting_is_blocking_) {
+    event_activity.emplace(this);
+    scoped_blocking_call.emplace(BlockingType::MAY_BLOCK);
+  }
 
   TimeTicks now(TimeTicks::Now());
   // TimeTicks takes care of overflow including the cases when wait_delta
@@ -116,9 +133,16 @@ bool WaitableEvent::TimedWaitUntil(const TimeTicks& end_time) {
   if (end_time.is_null())
     return IsSignaled();
 
-  base::ThreadRestrictions::AssertWaitAllowed();
-  // Record the event that this thread is blocking upon (for hang diagnosis).
-  base::debug::ScopedEventWaitActivity event_activity(this);
+  // Record the event that this thread is blocking upon (for hang diagnosis) and
+  // consider it blocked for scheduling purposes. Ignore this for non-blocking
+  // WaitableEvents.
+  Optional<debug::ScopedEventWaitActivity> event_activity;
+  Optional<internal::ScopedBlockingCallWithBaseSyncPrimitives>
+      scoped_blocking_call;
+  if (waiting_is_blocking_) {
+    event_activity.emplace(this);
+    scoped_blocking_call.emplace(BlockingType::MAY_BLOCK);
+  }
 
   TimeTicks now(TimeTicks::Now());
   if (end_time <= now)
@@ -130,10 +154,10 @@ bool WaitableEvent::TimedWaitUntil(const TimeTicks& end_time) {
 // static
 size_t WaitableEvent::WaitMany(WaitableEvent** events, size_t count) {
   DCHECK(count) << "Cannot wait on no events";
-
-  base::ThreadRestrictions::AssertWaitAllowed();
+  internal::ScopedBlockingCallWithBaseSyncPrimitives scoped_blocking_call(
+      BlockingType::MAY_BLOCK);
   // Record an event (the first) that this thread is blocking upon.
-  base::debug::ScopedEventWaitActivity event_activity(events[0]);
+  debug::ScopedEventWaitActivity event_activity(events[0]);
 
   HANDLE handles[MAXIMUM_WAIT_OBJECTS];
   CHECK_LE(count, static_cast<size_t>(MAXIMUM_WAIT_OBJECTS))

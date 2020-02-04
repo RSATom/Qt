@@ -30,7 +30,7 @@
 
 use strict;
 
-my @catalogs = ( "qtbase", "qtscript", "qtquick1", "qtmultimedia", "qtxmlpatterns" );
+my @catalogs = ( "qtbase", "qtscript", "qtmultimedia", "qtxmlpatterns" );
 
 die "Usage: $0 <locale> [<builddir>]\n" if (@ARGV != 1 && @ARGV != 2);
 my $lang = $ARGV[0];
@@ -42,9 +42,8 @@ for my $cat (@catalogs) {
     $extra = " ../../qtactiveqt/src/src.pro ../../qtimageformats/src/src.pro" if ($cat eq "qtbase");
     system("$lupdate ../../$cat/src/src.pro$extra -xts qt_$lang.ts -ts ${cat}_$lang.ts") and die;
 }
-# qtdeclarative & qmlviewer are special: we import them, but they are not part of the meta catalog
+# qtdeclarative is special: we import it, but it is not part of the meta catalog
 system("$lupdate ../../qtdeclarative/src/src.pro -xts qt_$lang.ts -ts qtdeclarative_$lang.ts") and die;
-system("$lupdate ../../qtquick1/tools/qml/qml.pro -xts qt_$lang.ts -ts qmlviewer_$lang.ts") and die;
 
 open META, "> qt_$lang.ts" or die;
 print META <<EOF ;

@@ -141,6 +141,7 @@ void tst_lconvert::verifyReadFail(const QString &fn)
 {
     QProcess cvt;
     cvt.start(lconvert, QStringList() << (dataDir + fn));
+    QVERIFY2(cvt.waitForStarted(), qPrintable(cvt.errorString()));
     QVERIFY(cvt.waitForFinished(10000));
     QVERIFY(cvt.exitStatus() == QProcess::NormalExit);
     QVERIFY2(cvt.exitCode() == 2, "Accepted invalid input");
@@ -169,6 +170,8 @@ void tst_lconvert::convertChain(const QString &_inFileName, const QString &_outF
         args << "-if" << stations[i] << "-i" << "-" << "-of" << stations[i + 1];
         cvts.at(i)->start(lconvert, args, QIODevice::ReadWrite | QIODevice::Text);
     }
+    for (QProcess *cvt : qAsConst(cvts))
+        QVERIFY2(cvt->waitForStarted(), qPrintable(cvt->errorString()));
     int st = 0;
     foreach (QProcess *cvt, cvts)
         doWait(cvt, ++st);
@@ -236,6 +239,7 @@ void tst_lconvert::converts()
     cvt.start(lconvert,
               QStringList() << "-i" << (dataDir + inFileName) << "-of" << format,
               QIODevice::ReadWrite | QIODevice::Text);
+    QVERIFY2(cvt.waitForStarted(), qPrintable(cvt.errorString()));
     doWait(&cvt, 0);
     if (QTest::currentTestFailed())
         return;
@@ -313,6 +317,7 @@ void tst_lconvert::roundtrips_data()
     QTest::newRow("ts-xliff-ts (msgid)") << "msgid.ts" << tsXlfTs << noArgs;
 
     QTest::newRow("ts-po-ts (endless loop)") << "endless-po-loop.ts" << tsPoTs << noArgs;
+    QTest::newRow("ts-qm-ts (whitespace)") << "whitespace.ts" << tsQmTs << noArgs;
 }
 
 void tst_lconvert::roundtrips()

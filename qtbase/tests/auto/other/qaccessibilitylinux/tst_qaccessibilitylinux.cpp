@@ -42,11 +42,10 @@
 #include <QDBusInterface>
 #include <QDBusReply>
 
-#include "atspi/atspi-constants.h"
+#include <atspi/atspi-constants.h>
+#include <private/dbusconnection_p.h>
+#include <private/struct_marshallers_p.h>
 #include "bus_interface.h"
-
-#include "dbusconnection_p.h"
-#include "struct_marshallers_p.h"
 
 #define COMPARE3(v1, v2, v3) QCOMPARE(v1, v3); QCOMPARE(v2, v3);
 
@@ -211,6 +210,27 @@ void tst_QAccessibilityLinux::registerDbus()
     mainWindow = getInterface(window, "org.a11y.atspi.Accessible");
 }
 
+quint64 getAtspiState(QDBusInterface *interface)
+{
+    QDBusMessage msg = interface->call(QDBus::Block, "GetState");
+    const QDBusArgument arg = msg.arguments().at(0).value<QDBusArgument>();
+    quint32 state1 = 0;
+    quint64 state2 = 0;
+    arg.beginArray();
+    arg >> state1;
+    arg >> state2;
+    arg.endArray();
+
+    state2 = state2 << 32;
+    return state2 | state1;
+}
+
+bool hasState(QDBusInterface *interface, AtspiStateType state)
+{
+    quint64 intState = quint64(1) << state;
+    return getAtspiState(interface) & intState;
+}
+
 #define ROOTPATH "/org/a11y/atspi/accessible"
 
 void tst_QAccessibilityLinux::testLabel()
@@ -230,6 +250,8 @@ void tst_QAccessibilityLinux::testLabel()
     QCOMPARE(labelInterface->call(QDBus::Block, "GetRoleName").arguments().first().toString(), QLatin1String("label"));
     QCOMPARE(labelInterface->call(QDBus::Block, "GetRole").arguments().first().toUInt(), 29u);
     QCOMPARE(getParent(labelInterface), mainWindow->path());
+    QVERIFY(!hasState(labelInterface, ATSPI_STATE_EDITABLE));
+    QVERIFY(hasState(labelInterface, ATSPI_STATE_READ_ONLY));
 
     l->setText("New text");
     QCOMPARE(labelInterface->property("Name").toString(), l->text());
@@ -281,6 +303,12 @@ void tst_QAccessibilityLinux::testLineEdit()
     textInterface->call(QDBus::Block, "RemoveSelection", 0);
     QCOMPARE(lineEdit->selectionStart(), -1);
     QCOMPARE(textInterface->call(QDBus::Block, "GetNSelections").arguments().first().toInt(), 0);
+
+    QVERIFY(hasState(accessibleInterface, ATSPI_STATE_EDITABLE));
+    QVERIFY(!hasState(accessibleInterface, ATSPI_STATE_READ_ONLY));
+    lineEdit->setReadOnly(true);
+    QVERIFY(hasState(accessibleInterface, ATSPI_STATE_EDITABLE));
+    QVERIFY(hasState(accessibleInterface, ATSPI_STATE_READ_ONLY));
 
     m_window->clearChildren();
     delete accessibleInterface;
@@ -353,13 +381,21 @@ void tst_QAccessibilityLinux::testTreeWidget()
 
     QDBusInterface *cell3 = getInterface(tableChildren.at(2), "org.a11y.atspi.Accessible");
     QCOMPARE(cell3->property("Name").toString(), QLatin1String("0.0"));
+    QVERIFY(!hasState(cell3, ATSPI_STATE_EXPANDABLE));
+    QVERIFY(!hasState(cell3, ATSPI_STATE_EXPANDED));
 
     QDBusInterface *cell4 = getInterface(tableChildren.at(3), "org.a11y.atspi.Accessible");
     QCOMPARE(cell4->property("Name").toString(), QLatin1String("0.1"));
 
+    QDBusInterface *dbus_top2 = getInterface(tableChildren.at(4), "org.a11y.atspi.Accessible");
+    QCOMPARE(dbus_top2->property("Name").toString(), QLatin1String("1.0"));
+    QVERIFY(hasState(dbus_top2, ATSPI_STATE_EXPANDABLE));
+    QVERIFY(!hasState(dbus_top2, ATSPI_STATE_EXPANDED));
+
     tree->expandItem(top2);
     tableChildren = getChildren(treeIface);
     QCOMPARE(tableChildren.size(), 8);
+    QVERIFY(hasState(dbus_top2, ATSPI_STATE_EXPANDED));
 
     QDBusInterface *cell5 = getInterface(tableChildren.at(6), "org.a11y.atspi.Accessible");
     QCOMPARE(cell5->property("Name").toString(), QLatin1String("1.0 0.0"));
@@ -471,23 +507,10 @@ void tst_QAccessibilityLinux::testSlider()
     m_window->clearChildren();
 }
 
-quint64 getAtspiState(QDBusInterface *interface)
-{
-    QDBusMessage msg = interface->call(QDBus::Block, "GetState");
-    const QDBusArgument arg = msg.arguments().at(0).value<QDBusArgument>();
-    quint32 state1 = 0;
-    quint64 state2 = 0;
-    arg.beginArray();
-    arg >> state1;
-    arg >> state2;
-    arg.endArray();
-
-    state2 = state2 << 32;
-    return state2 | state1;
-}
-
 void tst_QAccessibilityLinux::testFocus()
 {
+    m_window->activateWindow();
+    QVERIFY(QTest::qWaitForWindowActive(m_window));
     QLineEdit *lineEdit1 = new QLineEdit(m_window);
     lineEdit1->setText("lineEdit 1");
     QLineEdit *lineEdit2 = new QLineEdit(m_window);
@@ -508,15 +531,14 @@ void tst_QAccessibilityLinux::testFocus()
     QDBusInterface *componentInterfaceLineEdit2 = getInterface(children.at(1), "org.a11y.atspi.Component");
     QVERIFY(componentInterfaceLineEdit2->isValid());
 
-    quint64 focusedState = quint64(1) << ATSPI_STATE_FOCUSED;
-    QVERIFY(getAtspiState(accessibleInterfaceLineEdit1) & focusedState);
-    QVERIFY(!(getAtspiState(accessibleInterfaceLineEdit2) & focusedState));
+    QVERIFY(hasState(accessibleInterfaceLineEdit1, ATSPI_STATE_FOCUSED));
+    QVERIFY(!hasState(accessibleInterfaceLineEdit2, ATSPI_STATE_FOCUSED));
 
     QDBusMessage focusReply = componentInterfaceLineEdit2->call(QDBus::Block, "GrabFocus");
     QVERIFY(focusReply.arguments().at(0).toBool());
     QVERIFY(lineEdit2->hasFocus());
-    QVERIFY(!(getAtspiState(accessibleInterfaceLineEdit1) & focusedState));
-    QVERIFY(getAtspiState(accessibleInterfaceLineEdit2) & focusedState);
+    QVERIFY(!hasState(accessibleInterfaceLineEdit1, ATSPI_STATE_FOCUSED));
+    QVERIFY(hasState(accessibleInterfaceLineEdit2, ATSPI_STATE_FOCUSED));
     m_window->clearChildren();
     delete accessibleInterfaceLineEdit1;
     delete accessibleInterfaceLineEdit2;

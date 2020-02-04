@@ -31,8 +31,8 @@ std::string ComputeTreeHashRoot(const std::vector<std::string>& leaf_hashes,
   while (current->size() > 1) {
     // Iterate over the current level of hashes, computing the hash of up to
     // |branch_factor| elements to form the hash of each parent node.
-    std::vector<std::string>::const_iterator i = current->begin();
-    while (i != current->end()) {
+    auto i = current->cbegin();
+    while (i != current->cend()) {
       std::unique_ptr<crypto::SecureHash> hash(
           crypto::SecureHash::Create(crypto::SecureHash::SHA256));
       for (int j = 0; j < branch_factor && i != current->end(); j++) {
@@ -41,8 +41,7 @@ std::string ComputeTreeHashRoot(const std::vector<std::string>& leaf_hashes,
         ++i;
       }
       parent_nodes.push_back(std::string(crypto::kSHA256Length, 0));
-      std::string* output = &(parent_nodes.back());
-      hash->Finish(base::string_as_array(output), output->size());
+      hash->Finish(base::data(parent_nodes.back()), crypto::kSHA256Length);
     }
     current_nodes.swap(parent_nodes);
     parent_nodes.clear();

@@ -33,14 +33,17 @@ class GPU_EXPORT GPUTestConfig {
     kOsMacYosemite = 1 << 9,
     kOsMacElCapitan = 1 << 10,
     kOsMacSierra = 1 << 11,
+    kOsMacHighSierra = 1 << 12,
+    kOsMacMojave = 1 << 13,
     kOsMac = kOsMacLeopard | kOsMacSnowLeopard | kOsMacLion |
              kOsMacMountainLion | kOsMacMavericks | kOsMacYosemite |
-             kOsMacElCapitan | kOsMacSierra,
-    kOsLinux = 1 << 12,
-    kOsChromeOS = 1 << 13,
-    kOsAndroid = 1 << 14,
-    kOsWin10 = 1 << 15,
+             kOsMacElCapitan | kOsMacSierra | kOsMacHighSierra | kOsMacMojave,
+    kOsLinux = 1 << 14,
+    kOsChromeOS = 1 << 15,
+    kOsAndroid = 1 << 16,
+    kOsWin10 = 1 << 17,
     kOsWin = kOsWinXP | kOsWinVista | kOsWin7 | kOsWin8 | kOsWin10,
+    kOsFuchsia = 1 << 18,
   };
 
   enum BuildType {
@@ -82,15 +85,8 @@ class GPU_EXPORT GPUTestConfig {
   // both configs.
   bool OverlapsWith(const GPUTestConfig& config) const;
 
-  // Disable validation of GPU vendor and device ids.
-  void DisableGPUInfoValidation();
-
  protected:
   void ClearGPUVendor();
-
-  // Indicates that the OS has the notion of a numeric GPU vendor and device id
-  // and this data should be validated.
-  bool validate_gpu_info_;
 
  private:
   // operating system.
@@ -111,7 +107,7 @@ class GPU_EXPORT GPUTestConfig {
 
 class GPU_EXPORT GPUTestBotConfig : public GPUTestConfig {
  public:
-  GPUTestBotConfig() { }
+  GPUTestBotConfig() = default;
   ~GPUTestBotConfig() override;
 
   // This should only be called when no gpu_vendor is added.
@@ -131,7 +127,7 @@ class GPU_EXPORT GPUTestBotConfig : public GPUTestConfig {
   bool Matches(const std::string& config_data) const;
 
   // Setup the config with the current gpu testing environment.
-  // If gpu_info is NULL, collect GPUInfo first.
+  // If gpu_info is nullptr, collect GPUInfo first.
   bool LoadCurrentConfig(const GPUInfo* gpu_info);
 
   // Check if this bot's config matches |config_data| or any of the |configs|.

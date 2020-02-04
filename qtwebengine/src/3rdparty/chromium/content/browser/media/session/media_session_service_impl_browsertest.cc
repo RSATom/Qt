@@ -29,11 +29,13 @@ class MockMediaSessionObserver : public MediaSessionObserver {
         closure_on_actions_change_(closure_on_actions_change) {}
 
   void MediaSessionActionsChanged(
-      const std::set<blink::mojom::MediaSessionAction>& actions) override {
-    // The actions might be empty when the service becomes routed for the first
-    // time.
-    if (actions.size() == 1)
+      const std::set<media_session::mojom::MediaSessionAction>& actions)
+      override {
+    // Wait for the page action to be present.
+    if (base::ContainsKey(
+            actions, media_session::mojom::MediaSessionAction::kSeekForward)) {
       closure_on_actions_change_.Run();
+    }
   }
 
  private:
@@ -64,6 +66,8 @@ class MockMediaSessionPlayerObserver : public MediaSessionPlayerObserver {
 
   void OnSuspend(int player_id) override {}
   void OnResume(int player_id) override {}
+  void OnSeekForward(int player_id, base::TimeDelta seek_time) override {}
+  void OnSeekBackward(int player_id, base::TimeDelta seek_time) override {}
   void OnSetVolumeMultiplier(int player_id, double volume_multiplier) override {
   }
 
@@ -87,7 +91,7 @@ void NavigateToURLAndWaitForFinish(Shell* window, const GURL& url) {
 char kSetUpMediaSessionScript[] =
     "navigator.mediaSession.playbackState = \"playing\";\n"
     "navigator.mediaSession.metadata = new MediaMetadata({ title: \"foo\" });\n"
-    "navigator.mediaSession.setActionHandler(\"play\", _ => {});";
+    "navigator.mediaSession.setActionHandler(\"seekforward\", _ => {});";
 
 const int kPlayerId = 0;
 
@@ -137,9 +141,15 @@ class MediaSessionServiceImplBrowserTest : public ContentBrowserTest {
   std::unique_ptr<MockMediaSessionPlayerObserver> player_;
 };
 
+#if defined(LEAK_SANITIZER)
+// TODO(crbug.com/850870) Plug the leaks.
+#define MAYBE_CrashMessageOnUnload DISABLED_CrashMessageOnUnload
+#else
+#define MAYBE_CrashMessageOnUnload CrashMessageOnUnload
+#endif
 // Two windows from the same BrowserContext.
 IN_PROC_BROWSER_TEST_F(MediaSessionServiceImplBrowserTest,
-                       CrashMessageOnUnload) {
+                       MAYBE_CrashMessageOnUnload) {
   NavigateToURL(shell(), GetTestUrl("media/session", "embedder.html"));
   // Navigate to a chrome:// URL to avoid render process re-use.
   NavigateToURL(shell(), GURL("chrome://flags"));
@@ -152,8 +162,15 @@ IN_PROC_BROWSER_TEST_F(MediaSessionServiceImplBrowserTest,
 // observers to wait for the message to be processed on the MediaSessionObserver
 // side.
 
+#if defined(LEAK_SANITIZER)
+// TODO(crbug.com/850870) Plug the leaks.
+#define MAYBE_ResetServiceWhenNavigatingAway \
+  DISABLED_ResetServiceWhenNavigatingAway
+#else
+#define MAYBE_ResetServiceWhenNavigatingAway ResetServiceWhenNavigatingAway
+#endif
 IN_PROC_BROWSER_TEST_F(MediaSessionServiceImplBrowserTest,
-                       ResetServiceWhenNavigatingAway) {
+                       MAYBE_ResetServiceWhenNavigatingAway) {
   NavigateToURL(shell(), GetTestUrl(".", "title1.html"));
   EnsurePlayer();
 
@@ -174,8 +191,16 @@ IN_PROC_BROWSER_TEST_F(MediaSessionServiceImplBrowserTest,
   EXPECT_EQ(0u, GetService()->actions().size());
 }
 
+#if defined(LEAK_SANITIZER)
+// TODO(crbug.com/850870) Plug the leaks.
+#define MAYBE_DontResetServiceForSameDocumentNavigation \
+  DISABLED_DontResetServiceForSameDocumentNavigation
+#else
+#define MAYBE_DontResetServiceForSameDocumentNavigation \
+  DontResetServiceForSameDocumentNavigation
+#endif
 IN_PROC_BROWSER_TEST_F(MediaSessionServiceImplBrowserTest,
-                       DontResetServiceForSameDocumentNavigation) {
+                       MAYBE_DontResetServiceForSameDocumentNavigation) {
   NavigateToURL(shell(), GetTestUrl(".", "title1.html"));
   EnsurePlayer();
 

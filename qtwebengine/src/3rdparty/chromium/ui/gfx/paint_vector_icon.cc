@@ -4,13 +4,13 @@
 
 #include "ui/gfx/paint_vector_icon.h"
 
+#include <algorithm>
 #include <map>
 #include <tuple>
 
 #include "base/i18n/rtl.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/trace_event/trace_event.h"
@@ -28,6 +28,36 @@ namespace gfx {
 
 namespace {
 
+// The default size of a single side of the square canvas to which path
+// coordinates are relative, in device independent pixels.
+constexpr int kReferenceSizeDip = 48;
+
+constexpr int kEmptyIconSize = -1;
+
+// Retrieves the specified CANVAS_DIMENSIONS size from a PathElement.
+int GetCanvasDimensions(const PathElement* path) {
+  if (!path)
+    return kEmptyIconSize;
+  return path[0].command == CANVAS_DIMENSIONS ? path[1].arg : kReferenceSizeDip;
+}
+
+// Retrieves the appropriate icon representation to draw when the pixel size
+// requested is |icon_size_px|. VectorIconReps may only be downscaled, not
+// upscaled (with the exception of the largest VectorIconRep), so the return
+// result will be the smallest VectorIconRep greater or equal to |icon_size_px|.
+const VectorIconRep* GetRepForPxSize(const VectorIcon& icon, int icon_size_px) {
+  if (icon.is_empty())
+    return nullptr;
+
+  // Since |VectorIcon::reps| is sorted in descending order by size, search in
+  // reverse order for an icon that is equal to or greater than |icon_size_px|.
+  for (int i = static_cast<int>(icon.reps_size - 1); i >= 0; --i) {
+    if (GetCanvasDimensions(icon.reps[i].path) >= icon_size_px)
+      return &icon.reps[i];
+  }
+  return &icon.reps[0];
+}
+
 struct CompareIconDescription {
   bool operator()(const IconDescription& a, const IconDescription& b) const {
     const VectorIcon* a_icon = &a.icon;
@@ -42,11 +72,13 @@ struct CompareIconDescription {
 // Helper that simplifies iterating over a sequence of PathElements.
 class PathParser {
  public:
-  PathParser(const PathElement* path_elements)
-      : path_elements_(path_elements) {}
+  PathParser(const PathElement* path_elements, size_t path_size)
+      : path_elements_(path_elements), path_size_(path_size) {}
   ~PathParser() {}
 
   void Advance() { command_index_ += GetArgumentCount() + 1; }
+
+  bool HasCommandsRemaining() const { return command_index_ < path_size_; }
 
   CommandType CurrentCommand() const {
     return path_elements_[command_index_].command;
@@ -66,6 +98,7 @@ class PathParser {
       case V_LINE_TO:
       case R_V_LINE_TO:
       case CANVAS_DIMENSIONS:
+      case PATH_COLOR_ALPHA:
         return 1;
 
       case MOVE_TO:
@@ -102,7 +135,6 @@ class PathParser {
       case FLIPS_IN_RTL:
       case TRANSITION_FROM:
       case TRANSITION_TO:
-      case END:
         return 0;
     }
 
@@ -111,7 +143,8 @@ class PathParser {
   }
 
   const PathElement* path_elements_;
-  int command_index_ = 0;
+  size_t path_size_;
+  size_t command_index_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(PathParser);
 };
@@ -123,6 +156,7 @@ CommandType CommandFromString(const std::string& source) {
     return command;
 
   RETURN_IF_IS(NEW_PATH);
+  RETURN_IF_IS(PATH_COLOR_ALPHA);
   RETURN_IF_IS(PATH_COLOR_ARGB);
   RETURN_IF_IS(PATH_MODE_CLEAR);
   RETURN_IF_IS(STROKE);
@@ -147,7 +181,6 @@ CommandType CommandFromString(const std::string& source) {
   RETURN_IF_IS(CLIP);
   RETURN_IF_IS(DISABLE_AA);
   RETURN_IF_IS(FLIPS_IN_RTL);
-  RETURN_IF_IS(END);
 #undef RETURN_IF_IS
 
   NOTREACHED() << "Unrecognized command: " << source;
@@ -173,12 +206,10 @@ std::vector<PathElement> PathFromSource(const std::string& source) {
 
 void PaintPath(Canvas* canvas,
                const PathElement* path_elements,
+               size_t path_size,
                int dip_size,
                SkColor color,
                const base::TimeDelta& elapsed_time) {
-  SkPath path;
-  path.setFillType(SkPath::kEvenOdd_FillType);
-
   int canvas_size = kReferenceSizeDip;
   std::vector<SkPath> paths;
   std::vector<cc::PaintFlags> flags_array;
@@ -186,8 +217,8 @@ void PaintPath(Canvas* canvas,
   bool flips_in_rtl = false;
   CommandType previous_command_type = NEW_PATH;
 
-  for (PathParser parser(path_elements); parser.CurrentCommand() != END;
-       parser.Advance()) {
+  for (PathParser parser(path_elements, path_size);
+       parser.HasCommandsRemaining(); parser.Advance()) {
     auto arg = [&parser](int i) { return parser.GetArgument(i); };
     const CommandType command_type = parser.CurrentCommand();
     auto start_new_path = [&paths]() {
@@ -211,6 +242,10 @@ void PaintPath(Canvas* canvas,
     switch (command_type) {
       // Handled above.
       case NEW_PATH:
+        break;
+
+      case PATH_COLOR_ALPHA:
+        flags.setAlpha(SkScalarFloorToInt(arg(0)));
         break;
 
       case PATH_COLOR_ARGB:
@@ -256,18 +291,15 @@ void PaintPath(Canvas* canvas,
         SkScalar arc_sweep_flag = arg(4);
         SkScalar x = arg(5);
         SkScalar y = arg(6);
+        SkPath::ArcSize arc_size =
+            large_arc_flag ? SkPath::kLarge_ArcSize : SkPath::kSmall_ArcSize;
+        SkPath::Direction direction =
+            arc_sweep_flag ? SkPath::kCW_Direction : SkPath::kCCW_Direction;
 
-        auto path_fn =
-            command_type == ARC_TO
-                ? static_cast<void (SkPath::*)(
-                      SkScalar, SkScalar, SkScalar, SkPath::ArcSize,
-                      SkPath::Direction, SkScalar, SkScalar)>(&SkPath::arcTo)
-                : &SkPath::rArcTo;
-        (path.*path_fn)(
-            rx, ry, angle,
-            large_arc_flag ? SkPath::kLarge_ArcSize : SkPath::kSmall_ArcSize,
-            arc_sweep_flag ? SkPath::kCW_Direction : SkPath::kCCW_Direction, x,
-            y);
+        if (command_type == ARC_TO)
+          path.arcTo(rx, ry, angle, arc_size, direction, x, y);
+        else
+          path.rArcTo(rx, ry, angle, arc_size, direction, x, y);
         break;
       }
 
@@ -392,8 +424,9 @@ void PaintPath(Canvas* canvas,
         if (elapsed_time >= delay + duration) {
           state = 1;
         } else if (elapsed_time > delay) {
-          state = (elapsed_time - delay).ToInternalValue() /
-                  static_cast<double>(duration.ToInternalValue());
+          DCHECK(!duration.is_zero());
+          state = (elapsed_time - delay).InMicroseconds() /
+                  static_cast<double>(duration.InMicroseconds());
         }
 
         auto weight = Tween::CalculateValue(
@@ -423,21 +456,19 @@ void PaintPath(Canvas* canvas,
         flags_array.pop_back();
         break;
       }
-
-      case END:
-        NOTREACHED();
-        break;
     }
 
     previous_command_type = command_type;
   }
 
-  ScopedRTLFlipCanvas scoped_rtl_flip_canvas(canvas, canvas_size, flips_in_rtl);
+  ScopedCanvas scoped_canvas(canvas);
 
   if (dip_size != canvas_size) {
     SkScalar scale = SkIntToScalar(dip_size) / SkIntToScalar(canvas_size);
     canvas->sk_canvas()->scale(scale, scale);
   }
+
+  ScopedRTLFlipCanvas scoped_rtl_flip_canvas(canvas, canvas_size, flips_in_rtl);
 
   if (!clip_rect.isEmpty())
     canvas->sk_canvas()->clipRect(clip_rect);
@@ -472,7 +503,7 @@ class VectorIconSource : public CanvasImageSource {
       if (!data_.badge_icon.is_empty())
         PaintVectorIcon(canvas, data_.badge_icon, size_.width(), data_.color);
     } else {
-      PaintPath(canvas, path_.data(), size_.width(), data_.color,
+      PaintPath(canvas, path_.data(), path_.size(), size_.width(), data_.color,
                 base::TimeDelta());
     }
   }
@@ -497,7 +528,7 @@ class VectorIconCache {
     if (iter != images_.end())
       return iter->second;
 
-    ImageSkia icon_image(new VectorIconSource(description),
+    ImageSkia icon_image(std::make_unique<VectorIconSource>(description),
                          Size(description.dip_size, description.dip_size));
     images_.insert(std::make_pair(description, icon_image));
     return icon_image;
@@ -528,11 +559,6 @@ IconDescription::IconDescription(const VectorIcon& icon,
       badge_icon(badge_icon) {
   if (dip_size == 0)
     this->dip_size = GetDefaultSizeOfVectorIcon(icon);
-
-  // If an icon has a .1x.icon version, it should only be rendered at the size
-  // specified in that definition.
-  if (icon.path_1x)
-    DCHECK_EQ(this->dip_size, GetDefaultSizeOfVectorIcon(icon));
 }
 
 IconDescription::~IconDescription() {}
@@ -553,9 +579,11 @@ void PaintVectorIcon(Canvas* canvas,
                      SkColor color,
                      const base::TimeDelta& elapsed_time) {
   DCHECK(!icon.is_empty());
-  const PathElement* path =
-      (canvas->image_scale() == 1.f && icon.path_1x) ? icon.path_1x : icon.path;
-  PaintPath(canvas, path, dip_size, color, elapsed_time);
+  for (size_t i = 0; i < icon.reps_size; ++i)
+    DCHECK(icon.reps[i].path_size > 0);
+  const int px_size = gfx::ToCeiledInt(canvas->image_scale() * dip_size);
+  const VectorIconRep* rep = GetRepForPxSize(icon, px_size);
+  PaintPath(canvas, rep->path, rep->path_size, dip_size, color, elapsed_time);
 }
 
 ImageSkia CreateVectorIcon(const IconDescription& params) {
@@ -592,15 +620,21 @@ ImageSkia CreateVectorIconFromSource(const std::string& source,
 }
 
 int GetDefaultSizeOfVectorIcon(const VectorIcon& icon) {
-  const PathElement* one_x_path = icon.path_1x ? icon.path_1x : icon.path;
-  return one_x_path[0].command == CANVAS_DIMENSIONS ? one_x_path[1].arg
-                                                    : kReferenceSizeDip;
+  if (icon.is_empty())
+    return kEmptyIconSize;
+  DCHECK_EQ(icon.reps[icon.reps_size - 1].path[0].command, CANVAS_DIMENSIONS)
+      << " " << icon.name
+      << " has no size in its icon definition, and it seems unlikely you want "
+         "to display at the default of 48dip. Please specify a size in "
+         "CreateVectorIcon().";
+  const PathElement* default_icon_path = icon.reps[icon.reps_size - 1].path;
+  return GetCanvasDimensions(default_icon_path);
 }
 
 base::TimeDelta GetDurationOfAnimation(const VectorIcon& icon) {
   base::TimeDelta last_motion;
-  for (PathParser parser(icon.path); parser.CurrentCommand() != END;
-       parser.Advance()) {
+  for (PathParser parser(icon.reps[0].path, icon.reps[0].path_size);
+       parser.HasCommandsRemaining(); parser.Advance()) {
     if (parser.CurrentCommand() != TRANSITION_END)
       continue;
 

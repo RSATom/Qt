@@ -38,45 +38,53 @@
 ****************************************************************************/
 
 #include "qsgtexturereader_p.h"
-
-#include <private/qtquickglobal_p.h>
+#include <private/qtexturefilereader_p.h>
 
 #if QT_CONFIG(opengl)
-#include <private/qsgpkmhandler_p.h>
+#include <private/qsgcompressedtexture_p.h>
 #endif
 
 QT_BEGIN_NAMESPACE
 
-QSGTextureReader::QSGTextureReader()
-{
-
-}
-
-QQuickTextureFactory *QSGTextureReader::read(QIODevice *device, const QByteArray &format)
+QSGTextureReader::QSGTextureReader(QIODevice *device, const QString &fileName)
 {
 #if QT_CONFIG(opengl)
-    if (format == QByteArrayLiteral("pkm")) {
-        QSGPkmHandler handler;
-        return handler.read(device);
-    }
+    m_reader = new QTextureFileReader(device, fileName);
 #else
-    Q_UNUSED(device)
-    Q_UNUSED(format)
+    Q_UNUSED(device);
+    Q_UNUSED(fileName);
 #endif
+}
+
+QSGTextureReader::~QSGTextureReader()
+{
+    delete m_reader;
+}
+
+QQuickTextureFactory *QSGTextureReader::read()
+{
+#if QT_CONFIG(opengl)
+    if (!m_reader)
+        return nullptr;
+
+    QTextureFileData texData = m_reader->read();
+    if (!texData.isValid())
+        return nullptr;
+
+    return new QSGCompressedTextureFactory(texData);
+#else
     return nullptr;
+#endif
 }
 
-bool QSGTextureReader::isTexture(QIODevice *device, const QByteArray &format)
+bool QSGTextureReader::isTexture()
 {
-#if QT_CONFIG(opengl)
-    if (format == QByteArrayLiteral("pkm")) {
-        return device->peek(4) == QByteArrayLiteral("PKM ");
-    }
-#else
-    Q_UNUSED(device)
-    Q_UNUSED(format)
-#endif
-    return false;
+    return m_reader ? m_reader->canRead() : false;
+}
+
+QList<QByteArray> QSGTextureReader::supportedFileFormats()
+{
+    return QTextureFileReader::supportedFileFormats();
 }
 
 QT_END_NAMESPACE

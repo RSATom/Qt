@@ -55,7 +55,7 @@ public:
     explicit QQuickPicture(QQuickItem *parent = 0);
     ~QQuickPicture();
 
-    void paint(QPainter *painter) Q_DECL_OVERRIDE;
+    void paint(QPainter *painter) override;
 
     QUrl source() const;
     void setSource(const QUrl &source);

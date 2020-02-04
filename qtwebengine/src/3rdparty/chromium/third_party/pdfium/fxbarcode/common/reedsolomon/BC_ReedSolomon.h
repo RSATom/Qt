@@ -10,7 +10,7 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CBC_ReedSolomonGF256;
 class CBC_ReedSolomonGF256Poly;
@@ -20,13 +20,12 @@ class CBC_ReedSolomonEncoder {
   explicit CBC_ReedSolomonEncoder(CBC_ReedSolomonGF256* field);
   ~CBC_ReedSolomonEncoder();
 
-  void Init();
   bool Encode(std::vector<int32_t>* toEncode, size_t ecBytes);
 
  private:
   CBC_ReedSolomonGF256Poly* BuildGenerator(size_t degree);
 
-  CFX_UnownedPtr<CBC_ReedSolomonGF256> const m_field;
+  UnownedPtr<CBC_ReedSolomonGF256> const m_field;
   std::vector<std::unique_ptr<CBC_ReedSolomonGF256Poly>> m_cachedGenerators;
 };
 

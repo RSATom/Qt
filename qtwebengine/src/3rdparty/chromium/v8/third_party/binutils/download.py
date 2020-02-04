@@ -15,15 +15,13 @@ import re
 import shutil
 import subprocess
 import sys
+from detect_v8_host_arch import DetectHostArch
 
 
 BINUTILS_DIR = os.path.abspath(os.path.dirname(__file__))
 BINUTILS_FILE = 'binutils.tar.bz2'
 BINUTILS_TOOLS = ['bin/ld.gold', 'bin/objcopy', 'bin/objdump']
 BINUTILS_OUT = 'Release'
-
-DETECT_HOST_ARCH = os.path.abspath(os.path.join(
-    BINUTILS_DIR, '../../gypfiles/detect_v8_host_arch.py'))
 
 
 def ReadFile(filename):
@@ -36,19 +34,6 @@ def WriteFile(filename, content):
   with file(filename, 'w') as f:
     f.write(content)
     f.write('\n')
-
-
-def GetArch():
-  gyp_host_arch = re.search(
-      'host_arch=(\S*)', os.environ.get('GYP_DEFINES', ''))
-  if gyp_host_arch:
-    arch = gyp_host_arch.group(1)
-    # This matches detect_host_arch.py.
-    if arch == 'x86_64':
-      return 'x64'
-    return arch
-
-  return subprocess.check_output(['python', DETECT_HOST_ARCH]).strip()
 
 
 def FetchAndExtract(arch):
@@ -101,7 +86,7 @@ def main(args):
   if not sys.platform.startswith('linux'):
     return 0
 
-  arch = GetArch()
+  arch = DetectHostArch()
   if arch == 'x64':
     return FetchAndExtract(arch)
   if arch == 'ia32':

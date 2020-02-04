@@ -113,7 +113,7 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoServiceProvider : public QObject,
     Q_INTERFACES(QQmlParserStatus)
 
 public:
-    explicit QDeclarativeGeoServiceProvider(QObject *parent = Q_NULLPTR);
+    explicit QDeclarativeGeoServiceProvider(QObject *parent = nullptr);
     ~QDeclarativeGeoServiceProvider();
 
     enum RoutingFeature {
@@ -160,6 +160,13 @@ public:
         AnyPlacesFeatures               = QGeoServiceProvider::AnyPlacesFeatures
     };
 
+    enum NavigationFeature {
+        NoNavigationFeatures            = QGeoServiceProvider::NoNavigationFeatures,
+        OnlineNavigationFeature         = QGeoServiceProvider::OnlineNavigationFeature,
+        OfflineNavigationFeature        = QGeoServiceProvider::OfflineNavigationFeature,
+        AnyNavigationFeatures           = QGeoServiceProvider::AnyNavigationFeatures
+    };
+
     Q_DECLARE_FLAGS(RoutingFeatures, RoutingFeature)
     Q_FLAGS(RoutingFeatures)
 
@@ -171,6 +178,9 @@ public:
 
     Q_DECLARE_FLAGS(PlacesFeatures, PlacesFeature)
     Q_FLAGS(PlacesFeatures)
+
+    Q_DECLARE_FLAGS(NavigationFeatures, NavigationFeature)
+    Q_FLAGS(NavigationFeatures)
 
     // From QQmlParserStatus
     virtual void classBegin() {}
@@ -196,6 +206,7 @@ public:
     Q_INVOKABLE bool supportsGeocoding(const GeocodingFeatures &feature = AnyGeocodingFeatures) const;
     Q_INVOKABLE bool supportsMapping(const MappingFeatures &feature = AnyMappingFeatures) const;
     Q_INVOKABLE bool supportsPlaces(const PlacesFeatures &feature = AnyPlacesFeatures) const;
+    Q_REVISION(11) Q_INVOKABLE bool supportsNavigation(const NavigationFeature &feature = AnyNavigationFeatures) const;
 
     QStringList locales() const;
     void setLocales(const QStringList &locales);

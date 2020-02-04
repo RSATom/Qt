@@ -651,10 +651,12 @@ QICNSHandler::QICNSHandler() :
 {
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 QByteArray QICNSHandler::name() const
 {
     return QByteArrayLiteral("icns");
 }
+#endif
 
 bool QICNSHandler::canRead(QIODevice *device)
 {

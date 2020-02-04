@@ -45,6 +45,7 @@
 QT_BEGIN_NAMESPACE
 
 class MmRendererAudioRoleControl;
+class MmRendererCustomAudioRoleControl;
 class MmRendererMediaPlayerControl;
 class MmRendererMetaDataReaderControl;
 class MmRendererPlayerVideoRendererControl;
@@ -57,8 +58,8 @@ public:
     explicit MmRendererMediaPlayerService(QObject *parent = 0);
     ~MmRendererMediaPlayerService();
 
-    QMediaControl *requestControl(const char *name) Q_DECL_OVERRIDE;
-    void releaseControl(QMediaControl *control) Q_DECL_OVERRIDE;
+    QMediaControl *requestControl(const char *name) override;
+    void releaseControl(QMediaControl *control) override;
 
 private:
     void updateControls();
@@ -68,6 +69,7 @@ private:
     QPointer<MmRendererMediaPlayerControl> m_mediaPlayerControl;
     QPointer<MmRendererMetaDataReaderControl> m_metaDataReaderControl;
     QPointer<MmRendererAudioRoleControl> m_audioRoleControl;
+    QPointer<MmRendererCustomAudioRoleControl> m_customAudioRoleControl;
 
     bool m_appHasDrmPermission : 1;
     bool m_appHasDrmPermissionChecked : 1;

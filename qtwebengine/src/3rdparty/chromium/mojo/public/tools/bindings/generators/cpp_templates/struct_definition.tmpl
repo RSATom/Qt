@@ -2,11 +2,6 @@
 {%- set class_name = struct.name ~ "_Data" %}
 
 // static
-{{class_name}}* {{class_name}}::New(mojo::internal::Buffer* buf) {
-  return new (buf->Allocate(sizeof({{class_name}}))) {{class_name}}();
-}
-
-// static
 bool {{class_name}}::Validate(
     const void* data,
     mojo::internal::ValidationContext* validation_context) {
@@ -30,9 +25,9 @@ bool {{class_name}}::Validate(
   };
 
   if (object->header_.version <=
-          kVersionSizes[arraysize(kVersionSizes) - 1].version) {
+          kVersionSizes[base::size(kVersionSizes) - 1].version) {
     // Scan in reverse order to optimize for more recent versions.
-    for (int i = arraysize(kVersionSizes) - 1; i >= 0; --i) {
+    for (int i = base::size(kVersionSizes) - 1; i >= 0; --i) {
       if (object->header_.version >= kVersionSizes[i].version) {
         if (object->header_.num_bytes == kVersionSizes[i].num_bytes)
           break;
@@ -44,7 +39,7 @@ bool {{class_name}}::Validate(
       }
     }
   } else if (object->header_.num_bytes <
-                 kVersionSizes[arraysize(kVersionSizes) - 1].num_bytes) {
+                 kVersionSizes[base::size(kVersionSizes) - 1].num_bytes) {
     ReportValidationError(
         validation_context,
         mojo::internal::VALIDATION_ERROR_UNEXPECTED_STRUCT_HEADER);
@@ -66,7 +61,7 @@ bool {{class_name}}::Validate(
     return true;
 {%-     endif %}
 {%-     set field_expr = "object->" ~ packed_field.field.name %}
-{{validation_macros.validate_field(packed_field.field, field_expr, struct.name, true)}}
+{{validation_macros.validate_field(packed_field.field, loop.index, field_expr, struct.name, true)}}
 {%-   endif %}
 {%- endfor %}
 

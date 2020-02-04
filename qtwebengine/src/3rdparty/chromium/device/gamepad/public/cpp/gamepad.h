@@ -6,6 +6,7 @@
 #define DEVICE_GAMEPAD_PUBLIC_CPP_GAMEPAD_H_
 
 #include <stddef.h>
+#include <cstdint>
 
 namespace device {
 
@@ -13,12 +14,45 @@ namespace device {
 
 class GamepadButton {
  public:
+  // Matches XInput's trigger deadzone.
+  static constexpr float kDefaultButtonPressedThreshold = 30.f / 255.f;
+
   GamepadButton() : pressed(false), touched(false), value(0.) {}
   GamepadButton(bool pressed, bool touched, double value)
       : pressed(pressed), touched(touched), value(value) {}
   bool pressed;
   bool touched;
   double value;
+};
+
+enum class GamepadHapticActuatorType { kVibration = 0, kDualRumble = 1 };
+
+enum class GamepadHapticEffectType { kDualRumble = 0 };
+
+enum class GamepadHapticsResult {
+  kError = 0,
+  kComplete = 1,
+  kPreempted = 2,
+  kInvalidParameter = 3,
+  kNotSupported = 4
+};
+
+class GamepadHapticActuator {
+ public:
+  static constexpr double kMaxEffectDurationMillis = 5000.0;
+
+  GamepadHapticActuator() : not_null(false) {}
+
+  bool not_null;
+  GamepadHapticActuatorType type;
+};
+
+class GamepadEffectParameters {
+ public:
+  double duration;
+  double start_delay;
+  double strong_magnitude;
+  double weak_magnitude;
 };
 
 class GamepadVector {
@@ -82,9 +116,9 @@ class Gamepad {
   // Device identifier (based on manufacturer, model, etc.).
   UChar id[kIdLengthCap];
 
-  // Monotonically increasing value referring to when the data were last
-  // updated.
-  unsigned long long timestamp;
+  // Time value representing the last time the data for this gamepad was
+  // updated. Measured as TimeTicks::Now().since_origin().InMicroseconds().
+  int64_t timestamp;
 
   // Number of valid entries in the axes array.
   unsigned axes_length;
@@ -98,6 +132,8 @@ class Gamepad {
   // Button states
   GamepadButton buttons[kButtonsLengthCap];
 
+  GamepadHapticActuator vibration_actuator;
+
   // Mapping type (for example "standard")
   UChar mapping[kMappingLengthCap];
 
@@ -106,6 +142,8 @@ class Gamepad {
   GamepadHand hand;
 
   unsigned display_id;
+
+  bool is_xr = false;
 };
 
 #pragma pack(pop)

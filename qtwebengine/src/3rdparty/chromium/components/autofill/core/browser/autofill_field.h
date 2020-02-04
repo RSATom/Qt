@@ -10,15 +10,20 @@
 #include <string>
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/strings/string16.h"
+#include "components/autofill/core/browser/autofill_profile.h"
+#include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/proto/password_requirements.pb.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "components/autofill/core/common/signatures_util.h"
 
 namespace autofill {
 
-class AutofillType;
+typedef std::map<ServerFieldType, std::vector<AutofillProfile::ValidityState>>
+    ServerFieldTypeValidityStatesMap;
 
 class AutofillField : public FormFieldData {
  public:
@@ -34,23 +39,44 @@ class AutofillField : public FormFieldData {
 
   const base::string16& unique_name() const { return unique_name_; }
 
-  const std::string& section() const { return section_; }
   ServerFieldType heuristic_type() const { return heuristic_type_; }
   ServerFieldType server_type() const { return server_type_; }
+  const std::vector<AutofillQueryResponseContents::Field::FieldPrediction>&
+  server_predictions() const {
+    return server_predictions_;
+  }
   HtmlFieldType html_type() const { return html_type_; }
   HtmlFieldMode html_mode() const { return html_mode_; }
   const ServerFieldTypeSet& possible_types() const { return possible_types_; }
+  const ServerFieldTypeValidityStatesMap& possible_types_validities() const {
+    return possible_types_validities_;
+  }
   PhonePart phone_part() const { return phone_part_; }
   bool previously_autofilled() const { return previously_autofilled_; }
   const base::string16& parseable_name() const { return parseable_name_; }
+  bool only_fill_when_focused() const { return only_fill_when_focused_; }
 
-  // Setters for the detected type and section for this field.
-  void set_section(const std::string& section) { section_ = section; }
+  // Setters for the detected types.
   void set_heuristic_type(ServerFieldType type);
   void set_server_type(ServerFieldType type);
+  void add_possible_types_validities(
+      const std::map<ServerFieldType, AutofillProfile::ValidityState>&
+          possible_types_validities);
+  void set_server_predictions(
+      const std::vector<AutofillQueryResponseContents::Field::FieldPrediction>
+          predictions) {
+    server_predictions_ = std::move(predictions);
+  }
   void set_possible_types(const ServerFieldTypeSet& possible_types) {
     possible_types_ = possible_types;
   }
+  void set_possible_types_validities(
+      const ServerFieldTypeValidityStatesMap& possible_types_validities) {
+    possible_types_validities_ = possible_types_validities;
+  }
+  std::vector<AutofillProfile::ValidityState> get_validities_for_possible_type(
+      ServerFieldType);
+
   void SetHtmlType(HtmlFieldType type, HtmlFieldMode mode);
   void set_previously_autofilled(bool previously_autofilled) {
     previously_autofilled_ = previously_autofilled;
@@ -59,9 +85,30 @@ class AutofillField : public FormFieldData {
     parseable_name_ = parseable_name;
   }
 
-  // This function automatically chooses between server and heuristic autofill
-  // type, depending on the data available.
+  void set_only_fill_when_focused(bool fill_when_focused) {
+    only_fill_when_focused_ = fill_when_focused;
+  }
+
+  // Set the type of the field. This sets the value returned by |Type|.
+  // This function can be used to override the value that would be returned by
+  // |ComputedType|.
+  // As the |type| is expected to depend on |ComputedType|, the value will be
+  // reset to |ComputedType| if some internal value change (e.g. on call to
+  // (|set_heuristic_type| or |set_server_type|).
+  // |SetTypeTo| cannot be called with
+  // type.GetStoreableType() == NO_SERVER_DATA.
+  void SetTypeTo(const AutofillType& type);
+
+  // This function returns |ComputedType| unless the value has been overriden
+  // by |SetTypeTo|.
+  // (i.e. overall_type_ != NO_SERVER_DATA ? overall_type_ : ComputedType())
   AutofillType Type() const;
+
+  // This function automatically chooses between server and heuristic autofill
+  // type, depending on the data available for this field alone.
+  // This type does not take into account the rationalization involving the
+  // surrounding fields.
+  AutofillType ComputedType() const;
 
   // Returns true if the value of this field is empty.
   bool IsEmpty() const;
@@ -103,37 +150,27 @@ class AutofillField : public FormFieldData {
     return generated_password_changed_;
   }
 
-  void set_form_classifier_outcome(
-      AutofillUploadContents::Field::FormClassifierOutcome outcome) {
-    form_classifier_outcome_ = outcome;
+  void set_vote_type(AutofillUploadContents::Field::VoteType type) {
+    vote_type_ = type;
   }
-  AutofillUploadContents::Field::FormClassifierOutcome form_classifier_outcome()
+  AutofillUploadContents::Field::VoteType vote_type() const {
+    return vote_type_;
+  }
+
+  void SetPasswordRequirements(PasswordRequirementsSpec spec);
+  const base::Optional<PasswordRequirementsSpec>& password_requirements()
       const {
-    return form_classifier_outcome_;
+    return password_requirements_;
   }
 
-  // Set |field_data|'s value to |value|. Uses |field|, |address_language_code|,
-  // and |app_locale| as hints when filling exceptional cases like phone number
-  // values and <select> fields. Returns |true| if the field has been filled,
-  // |false| otherwise.
-  static bool FillFormField(const AutofillField& field,
-                            const base::string16& value,
-                            const std::string& address_language_code,
-                            const std::string& app_locale,
-                            FormFieldData* field_data);
-
-  // Returns the phone number value for the given |field|. The returned value
-  // might be |number|, or could possibly be a meaningful subset |number|, if
-  // that's appropriate for the field.
-  static base::string16 GetPhoneNumberValue(const AutofillField& field,
-                                            const base::string16& number,
-                                            const FormFieldData& field_data);
-
-  // Returns the index of the shortest entry in the given select field of which
-  // |value| is a substring. Returns -1 if no such entry exists.
-  static int FindShortestSubstringMatchInSelect(const base::string16& value,
-                                                bool ignore_whitespace,
-                                                const FormFieldData* field);
+  // For each type in |possible_types_| that's missing from
+  // |possible_types_validities_|, will add it to the
+  // |possible_types_validities_| and will set its validity to UNVALIDATED. This
+  // is to avoid inconsistencies between |possible_types_| and
+  // |possible_types_validities_|. Used especially when the server validity map
+  // is not available (is empty), and as a result the
+  // |possible_types_validities_| would also be empty.
+  void NormalizePossibleTypesValidities();
 
  private:
   // Whether the heuristics or server predict a credit card field.
@@ -142,15 +179,26 @@ class AutofillField : public FormFieldData {
   // The unique name of this field, generated by Autofill.
   base::string16 unique_name_;
 
-  // The unique identifier for the section (e.g. billing vs. shipping address)
-  // that this field belongs to.
-  std::string section_;
-
   // The type of the field, as determined by the Autofill server.
   ServerFieldType server_type_;
 
+  // The possible types of the field, as determined by the Autofill server,
+  // including |server_type_| as the first item.
+  std::vector<AutofillQueryResponseContents::Field::FieldPrediction>
+      server_predictions_;
+
+  // Requirements the site imposes to passwords (for password generation).
+  // Corresponds to the requirements determined by the Autofill server.
+  base::Optional<PasswordRequirementsSpec> password_requirements_;
+
   // The type of the field, as determined by the local heuristics.
   ServerFieldType heuristic_type_;
+
+  // The type of the field. Overrides all other types (html_type_,
+  // heuristic_type_, server_type_).
+  // |AutofillType(NO_SERVER_DATA)| is used when this |overall_type_| has not
+  // been set.
+  AutofillType overall_type_;
 
   // The type of the field, as specified by the site author in HTML.
   HtmlFieldType html_type_;
@@ -161,6 +209,9 @@ class AutofillField : public FormFieldData {
 
   // The set of possible types for this field.
   ServerFieldTypeSet possible_types_;
+
+  // The set of possible types and their validity for this field.
+  ServerFieldTypeValidityStatesMap possible_types_validities_;
 
   // Used to track whether this field is a phone prefix or suffix.
   PhonePart phone_part_;
@@ -175,6 +226,9 @@ class AutofillField : public FormFieldData {
   // Whether the field was autofilled then later edited.
   bool previously_autofilled_;
 
+  // Whether the field should be filled when it is not the highlighted field.
+  bool only_fill_when_focused_;
+
   // The parseable name attribute, with unnecessary information removed (such as
   // a common prefix shared with other fields). Will be used for heuristics
   // parsing.
@@ -186,8 +240,10 @@ class AutofillField : public FormFieldData {
   // Whether the generated password was changed by user.
   bool generated_password_changed_;
 
-  // The outcome of HTML parsing based form classifier.
-  AutofillUploadContents::Field::FormClassifierOutcome form_classifier_outcome_;
+  // The vote type, if the autofill type is USERNAME or any password vote.
+  // Otherwise, the field is ignored. |vote_type_| provides context as to what
+  // triggered the vote.
+  AutofillUploadContents::Field::VoteType vote_type_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillField);
 };

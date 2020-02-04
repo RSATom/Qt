@@ -29,7 +29,7 @@
 #include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "sandbox/linux/bpf_dsl/bpf_dsl.h"
@@ -116,10 +116,8 @@ SANDBOX_TEST(SandboxBPF, DISABLE_ON_TSAN(VerboseAPITesting)) {
   if (SandboxBPF::SupportsSeccompSandbox(
           SandboxBPF::SeccompLevel::SINGLE_THREADED)) {
     static int counter = 0;
-
-    SandboxBPF sandbox(new VerboseAPITestingPolicy(&counter));
+    SandboxBPF sandbox(std::make_unique<VerboseAPITestingPolicy>(&counter));
     BPF_ASSERT(sandbox.StartSandbox(SandboxBPF::SeccompLevel::SINGLE_THREADED));
-
     BPF_ASSERT_EQ(0, counter);
     BPF_ASSERT_EQ(0, syscall(__NR_uname, 0));
     BPF_ASSERT_EQ(1, counter);
@@ -168,6 +166,24 @@ BPF_TEST_C(SandboxBPF, UseVsyscall, BlacklistNanosleepPolicy) {
   BPF_ASSERT_NE(static_cast<time_t>(-1), time(&current_time));
 }
 
+bool IsSyscallForTestHarness(int sysno) {
+  if (sysno == __NR_exit_group || sysno == __NR_write) {
+    // exit_group is special and we really need it to work.
+    // write() is needed for BPF_ASSERT() to report a useful error message.
+    return true;
+  }
+#if defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
+    defined(UNDEFINED_SANITIZER)
+  // UBSan_vptr checker needs mmap, munmap, pipe, write.
+  // ASan and MSan don't need any of these for normal operation, but they
+  // require at least mmap & munmap to print a report if an error is detected.
+  if (sysno == kMMapNr || sysno == __NR_munmap || sysno == __NR_pipe) {
+    return true;
+  }
+#endif
+  return false;
+}
+
 // Now do a simple whitelist test
 
 class WhitelistGetpidPolicy : public Policy {
@@ -177,13 +193,10 @@ class WhitelistGetpidPolicy : public Policy {
 
   ResultExpr EvaluateSyscall(int sysno) const override {
     DCHECK(SandboxBPF::IsValidSyscallNumber(sysno));
-    switch (sysno) {
-      case __NR_getpid:
-      case __NR_exit_group:
-        return Allow();
-      default:
-        return Error(ENOMEM);
+    if (IsSyscallForTestHarness(sysno) || sysno == __NR_getpid) {
+      return Allow();
     }
+    return Error(ENOMEM);
   }
 
  private:
@@ -385,7 +398,7 @@ BPF_TEST_C(SandboxBPF, StackingPolicy, StackingPolicyPartOne) {
 
   // Stack a second sandbox with its own policy. Verify that we can further
   // restrict filters, but we cannot relax existing filters.
-  SandboxBPF sandbox(new StackingPolicyPartTwo());
+  SandboxBPF sandbox(std::make_unique<StackingPolicyPartTwo>());
   BPF_ASSERT(sandbox.StartSandbox(SandboxBPF::SeccompLevel::SINGLE_THREADED));
 
   errno = 0;
@@ -418,9 +431,7 @@ class SyntheticPolicy : public Policy {
 
   ResultExpr EvaluateSyscall(int sysno) const override {
     DCHECK(SandboxBPF::IsValidSyscallNumber(sysno));
-    if (sysno == __NR_exit_group || sysno == __NR_write) {
-      // exit_group() is special, we really need it to work.
-      // write() is needed for BPF_ASSERT() to report a useful error message.
+    if (IsSyscallForTestHarness(sysno)) {
       return Allow();
     }
     return Error(SysnoToRandomErrno(sysno));
@@ -439,8 +450,7 @@ BPF_TEST_C(SandboxBPF, SyntheticPolicy, SyntheticPolicy) {
   for (int syscall_number = static_cast<int>(MIN_SYSCALL);
        syscall_number <= static_cast<int>(MAX_PUBLIC_SYSCALL);
        ++syscall_number) {
-    if (syscall_number == __NR_exit_group || syscall_number == __NR_write) {
-      // exit_group() is special
+    if (IsSyscallForTestHarness(syscall_number)) {
       continue;
     }
     errno = 0;
@@ -679,7 +689,7 @@ BPF_TEST_C(SandboxBPF, SigBus, RedirectAllSyscallsPolicy) {
   sa.sa_sigaction = SigBusHandler;
   sa.sa_flags = SA_SIGINFO;
   BPF_ASSERT(sigaction(SIGBUS, &sa, NULL) == 0);
-  raise(SIGBUS);
+  kill(getpid(), SIGBUS);
   char c = '\000';
   BPF_ASSERT(read(fds[0], &c, 1) == 1);
   BPF_ASSERT(close(fds[0]) == 0);
@@ -764,6 +774,7 @@ ResultExpr SimpleCondTestPolicy::EvaluateSyscall(int sysno) const {
 #if defined(__NR_open)
     case __NR_open:
       flags_argument_position = 1;
+      FALLTHROUGH;
 #endif
     case __NR_openat: {  // open can be a wrapper for openat(2).
       if (sysno == __NR_openat)
@@ -1957,7 +1968,7 @@ SANDBOX_TEST(SandboxBPF, DISABLE_ON_TSAN(SeccompRetTrace)) {
     pid_t my_pid = getpid();
     BPF_ASSERT_NE(-1, ptrace(PTRACE_TRACEME, -1, NULL, NULL));
     BPF_ASSERT_EQ(0, raise(SIGSTOP));
-    SandboxBPF sandbox(new TraceAllPolicy);
+    SandboxBPF sandbox(std::make_unique<TraceAllPolicy>());
     BPF_ASSERT(sandbox.StartSandbox(SandboxBPF::SeccompLevel::SINGLE_THREADED));
 
     // getpid is allowed.
@@ -2156,7 +2167,7 @@ SANDBOX_TEST(SandboxBPF, Tsync) {
   BPF_ASSERT_EQ(0, HANDLE_EINTR(syscall(__NR_nanosleep, &ts, NULL)));
 
   // Engage the sandbox.
-  SandboxBPF sandbox(new BlacklistNanosleepPolicy());
+  SandboxBPF sandbox(std::make_unique<BlacklistNanosleepPolicy>());
   BPF_ASSERT(sandbox.StartSandbox(SandboxBPF::SeccompLevel::MULTI_THREADED));
 
   // This thread should have the filter applied as well.
@@ -2188,7 +2199,7 @@ SANDBOX_DEATH_TEST(
   base::Thread thread("sandbox.linux.StartMultiThreadedAsSingleThreaded");
   BPF_ASSERT(thread.Start());
 
-  SandboxBPF sandbox(new AllowAllPolicy());
+  SandboxBPF sandbox(std::make_unique<AllowAllPolicy>());
   BPF_ASSERT(!sandbox.StartSandbox(SandboxBPF::SeccompLevel::SINGLE_THREADED));
 }
 
@@ -2210,6 +2221,9 @@ class UnsafeTrapWithCondPolicy : public Policy {
     if (SandboxBPF::IsRequiredForUnsafeTrap(sysno))
       return Allow();
 
+    if (IsSyscallForTestHarness(sysno))
+      return Allow();
+
     switch (sysno) {
       case __NR_uname: {
         const Arg<uint32_t> arg(0);
@@ -2223,8 +2237,6 @@ class UnsafeTrapWithCondPolicy : public Policy {
             .Default(Error(EPERM));
       }
       case __NR_close:
-      case __NR_exit_group:
-      case __NR_write:
         return Allow();
       case __NR_getppid:
         return UnsafeTrap(NoOpHandler, NULL);

@@ -4,8 +4,7 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
 #include "SkCanvas.h"
 #include "SkPath.h"
 
@@ -16,7 +15,7 @@
 
 #define LIN_SEGMENTS 10
 
-class OverstrokeView : public SampleView {
+class OverstrokeView : public Sample {
    public:
     SkScalar fStroke;
     int fPathType;  // super lazy enum
@@ -33,37 +32,31 @@ class OverstrokeView : public SampleView {
     }
 
    protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "PathOverstroke");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "PathOverstroke");
             return true;
         }
         SkUnichar uni;
-        if (SampleCode::CharQ(*evt, &uni)) {
+        if (Sample::CharQ(*evt, &uni)) {
             switch (uni) {
                 case ',':
                     fStroke += 1.0;
-                    this->inval(nullptr);
                     return true;
                 case '.':
                     fStroke -= 1.0;
-                    this->inval(nullptr);
                     return true;
                 case 'x':
                     fPathType = (fPathType + 1) % 4;
-                    this->inval(nullptr);
                     return true;
                 case 'c':
                     fClosePath = !fClosePath;
-                    this->inval(nullptr);
                     return true;
                 case 'f':
                     fDrawFillPath = !fDrawFillPath;
-                    this->inval(nullptr);
                     return true;
                 case 'D':
                     fDumpHex = !fDumpHex;
-                    this->inval(nullptr);
                     return true;
                 default:
                     break;
@@ -203,10 +196,9 @@ class OverstrokeView : public SampleView {
     }
 
    private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new OverstrokeView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new OverstrokeView(); )

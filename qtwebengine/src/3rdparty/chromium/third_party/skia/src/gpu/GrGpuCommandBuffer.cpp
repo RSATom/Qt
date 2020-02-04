@@ -16,52 +16,82 @@
 #include "GrRenderTarget.h"
 #include "SkRect.h"
 
-void GrGpuCommandBuffer::submit() {
-    this->gpu()->handleDirtyContext();
-    this->onSubmit();
+void GrGpuRTCommandBuffer::clear(const GrFixedClip& clip, const SkPMColor4f& color) {
+    SkASSERT(fRenderTarget);
+    // A clear at this level will always be a true clear, so make sure clears were not supposed to
+    // be redirected to draws instead
+    SkASSERT(!this->gpu()->caps()->performColorClearsAsDraws());
+    SkASSERT(!clip.scissorEnabled() || !this->gpu()->caps()->performPartialClearsAsDraws());
+    this->onClear(clip, color);
 }
 
-void GrGpuCommandBuffer::clear(GrRenderTarget* rt, const GrFixedClip& clip, GrColor color) {
+void GrGpuRTCommandBuffer::clearStencilClip(const GrFixedClip& clip, bool insideStencilMask) {
+    // As above, make sure the stencil clear wasn't supposed to be a draw rect with stencil settings
+    SkASSERT(!this->gpu()->caps()->performStencilClearsAsDraws());
+    this->onClearStencilClip(clip, insideStencilMask);
+}
+
+bool GrGpuRTCommandBuffer::draw(const GrPrimitiveProcessor& primProc, const GrPipeline& pipeline,
+                                const GrPipeline::FixedDynamicState* fixedDynamicState,
+                                const GrPipeline::DynamicStateArrays* dynamicStateArrays,
+                                const GrMesh meshes[], int meshCount, const SkRect& bounds) {
 #ifdef SK_DEBUG
-    SkASSERT(rt);
-    SkASSERT(!clip.scissorEnabled() ||
-             (SkIRect::MakeWH(rt->width(), rt->height()).contains(clip.scissorRect()) &&
-              SkIRect::MakeWH(rt->width(), rt->height()) != clip.scissorRect()));
-#endif
-    this->onClear(rt, clip, color);
-}
-
-void GrGpuCommandBuffer::clearStencilClip(GrRenderTarget* rt, const GrFixedClip& clip,
-                                          bool insideStencilMask) {
-    this->onClearStencilClip(rt, clip, insideStencilMask);
-}
-
-bool GrGpuCommandBuffer::draw(const GrPipeline& pipeline,
-                              const GrPrimitiveProcessor& primProc,
-                              const GrMesh meshes[],
-                              const GrPipeline::DynamicState dynamicStates[],
-                              int meshCount,
-                              const SkRect& bounds) {
-#ifdef SK_DEBUG
-    SkASSERT(!primProc.hasInstanceAttribs() || this->gpu()->caps()->instanceAttribSupport());
+    SkASSERT(!primProc.hasInstanceAttributes() || this->gpu()->caps()->instanceAttribSupport());
     for (int i = 0; i < meshCount; ++i) {
         SkASSERT(!GrPrimTypeRequiresGeometryShaderSupport(meshes[i].primitiveType()) ||
                  this->gpu()->caps()->shaderCaps()->geometryShaderSupport());
-        SkASSERT(primProc.hasVertexAttribs() == meshes[i].hasVertexData());
-        SkASSERT(primProc.hasInstanceAttribs() == meshes[i].isInstanced());
+        SkASSERT(primProc.hasVertexAttributes() == meshes[i].hasVertexData());
+        SkASSERT(primProc.hasInstanceAttributes() == meshes[i].isInstanced());
     }
 #endif
+    SkASSERT(!pipeline.isScissorEnabled() || fixedDynamicState ||
+             (dynamicStateArrays && dynamicStateArrays->fScissorRects));
 
-    if (pipeline.isBad() || !primProc.instantiate(this->gpu()->getContext()->resourceProvider())) {
+    auto resourceProvider = this->gpu()->getContext()->contextPriv().resourceProvider();
+
+    if (pipeline.isBad()) {
         return false;
     }
+    if (fixedDynamicState && fixedDynamicState->fPrimitiveProcessorTextures) {
+        for (int i = 0; i < primProc.numTextureSamplers(); ++i) {
+            if (!fixedDynamicState->fPrimitiveProcessorTextures[i]->instantiate(resourceProvider)) {
+                return false;
+            }
+        }
+    }
+    if (dynamicStateArrays && dynamicStateArrays->fPrimitiveProcessorTextures) {
+        int n = primProc.numTextureSamplers() * meshCount;
+        const auto* textures = dynamicStateArrays->fPrimitiveProcessorTextures;
+        for (int i = 0; i < n; ++i) {
+            if (!textures[i]->instantiate(resourceProvider)) {
+                return false;
+            }
+        }
+#ifdef SK_DEBUG
+        SkASSERT(meshCount >= 1);
+        const GrTextureProxy* const* primProcProxies =
+                dynamicStateArrays->fPrimitiveProcessorTextures;
+        for (int i = 0; i < primProc.numTextureSamplers(); ++i) {
+            const GrBackendFormat& format = primProcProxies[i]->backendFormat();
+            GrTextureType type = primProcProxies[i]->textureType();
+            GrPixelConfig config = primProcProxies[i]->config();
+            for (int j = 1; j < meshCount; ++j) {
+                const GrTextureProxy* testProxy =
+                        primProcProxies[j*primProc.numTextureSamplers() + i];
+                SkASSERT(testProxy->backendFormat() == format);
+                SkASSERT(testProxy->textureType() == type);
+                SkASSERT(testProxy->config() == config);
+            }
+        }
+#endif
 
-    SkASSERT(pipeline.isInitialized());
-    if (primProc.numAttribs() > this->gpu()->caps()->maxVertexAttributes()) {
+    }
+
+    if (primProc.numVertexAttributes() > this->gpu()->caps()->maxVertexAttributes()) {
         this->gpu()->stats()->incNumFailedDraws();
         return false;
     }
-    this->onDraw(pipeline, primProc, meshes, dynamicStates, meshCount, bounds);
+    this->onDraw(primProc, pipeline, fixedDynamicState, dynamicStateArrays, meshes, meshCount,
+                 bounds);
     return true;
 }
-

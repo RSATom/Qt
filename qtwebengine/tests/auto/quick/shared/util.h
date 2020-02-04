@@ -34,8 +34,9 @@
 #include <QSignalSpy>
 #include <QTimer>
 #include <QtTest/QtTest>
-#include <private/qquickwebengineview_p.h>
-#include <private/qquickwebengineloadrequest_p.h>
+#include <QtWebEngine/private/qquickwebengineview_p.h>
+#include <QtWebEngine/private/qquickwebengineloadrequest_p.h>
+#include <QGuiApplication>
 
 #if !defined(TESTS_SOURCE_DIR)
 #define TESTS_SOURCE_DIR ""
@@ -108,7 +109,7 @@ inline bool waitForLoadFailed(QQuickWebEngineView *webEngineView, int timeout = 
 
 inline bool waitForViewportReady(QQuickWebEngineView *webEngineView, int timeout = 10000)
 {
-#ifdef ENABLE_QML_TESTSUPPORT_API
+#if QT_CONFIG(webengine_testsupport)
     QSignalSpy spy(reinterpret_cast<QObject *>(webEngineView->testSupport()), SIGNAL(loadVisuallyCommitted()));
     return spy.wait(timeout);
 #else
@@ -182,4 +183,15 @@ inline QString activeElementId(QQuickWebEngineView *webEngineView)
     return arguments.at(1).toString();
 }
 
+#define W_QTEST_MAIN(TestObject) \
+int main(int argc, char *argv[]) \
+{ \
+    QtWebEngine::initialize(); \
+    QGuiApplication app(argc, argv); \
+    app.setAttribute(Qt::AA_Use96Dpi, true); \
+    TestObject tc; \
+    QTEST_SET_MAIN_SOURCE_PATH \
+    return QTest::qExec(&tc, argc, argv); \
+}
 #endif /* UTIL_H */
+

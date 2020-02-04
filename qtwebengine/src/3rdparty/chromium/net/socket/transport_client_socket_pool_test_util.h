@@ -10,10 +10,11 @@
 #define NET_SOCKET_TRANSPORT_CLIENT_SOCKET_POOL_TEST_UTIL_H_
 
 #include <memory>
-#include <queue>
+#include <string>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "net/base/address_list.h"
@@ -75,11 +76,10 @@ class MockTransportClientSocketFactory : public ClientSocketFactory {
 
   std::unique_ptr<DatagramClientSocket> CreateDatagramClientSocket(
       DatagramSocket::BindType bind_type,
-      const RandIntCallback& rand_int_cb,
       NetLog* net_log,
       const NetLogSource& source) override;
 
-  std::unique_ptr<StreamSocket> CreateTransportClientSocket(
+  std::unique_ptr<TransportClientSocket> CreateTransportClientSocket(
       const AddressList& addresses,
       std::unique_ptr<
           SocketPerformanceWatcher> /* socket_performance_watcher */,
@@ -91,6 +91,18 @@ class MockTransportClientSocketFactory : public ClientSocketFactory {
       const HostPortPair& host_and_port,
       const SSLConfig& ssl_config,
       const SSLClientSocketContext& context) override;
+  std::unique_ptr<ProxyClientSocket> CreateProxyClientSocket(
+      std::unique_ptr<ClientSocketHandle> transport_socket,
+      const std::string& user_agent,
+      const HostPortPair& endpoint,
+      const ProxyServer& proxy_server,
+      HttpAuthController* http_auth_controller,
+      bool tunnel,
+      bool using_spdy,
+      NextProto negotiated_protocol,
+      ProxyDelegate* proxy_delegate,
+      bool is_https_proxy,
+      const NetworkTrafficAnnotationTag& traffic_annotation) override;
 
   void ClearSSLSessionCache() override;
 
@@ -122,7 +134,7 @@ class MockTransportClientSocketFactory : public ClientSocketFactory {
   int client_socket_index_;
   int client_socket_index_max_;
   base::TimeDelta delay_;
-  std::queue<base::Closure> triggerable_sockets_;
+  base::queue<base::Closure> triggerable_sockets_;
   base::Closure run_loop_quit_closure_;
 
   DISALLOW_COPY_AND_ASSIGN(MockTransportClientSocketFactory);

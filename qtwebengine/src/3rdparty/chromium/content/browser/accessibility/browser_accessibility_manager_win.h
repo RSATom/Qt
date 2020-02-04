@@ -10,18 +10,15 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/win/scoped_comptr.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "ui/accessibility/platform/ax_platform_node_win.h"
 
 namespace content {
-class BrowserAccessibilityEventWin;
 class BrowserAccessibilityWin;
 
 // Manages a tree of BrowserAccessibilityWin objects.
 class CONTENT_EXPORT BrowserAccessibilityManagerWin
-    : public BrowserAccessibilityManager,
-      public ui::IAccessible2UsageObserver {
+    : public BrowserAccessibilityManager {
  public:
   BrowserAccessibilityManagerWin(
       const ui::AXTreeUpdate& initial_tree,
@@ -35,26 +32,19 @@ class CONTENT_EXPORT BrowserAccessibilityManagerWin
   // Get the closest containing HWND.
   HWND GetParentHWND();
 
-  // The IAccessible for the parent window.
-  IAccessible* GetParentIAccessible();
-
-  // IAccessible2UsageObserver
-  void OnIAccessible2Used() override;
-
   // BrowserAccessibilityManager methods
   void UserIsReloading() override;
   BrowserAccessibility* GetFocus() override;
-  void NotifyAccessibilityEvent(
-      BrowserAccessibilityEvent::Source source,
-      ui::AXEvent event_type,
-      BrowserAccessibility* node) override;
-  BrowserAccessibilityEvent::Result
-      FireWinAccessibilityEvent(BrowserAccessibilityEventWin* event);
   bool CanFireEvents() override;
-  void FireFocusEvent(
-      BrowserAccessibilityEvent::Source source,
-      BrowserAccessibility* node) override;
   gfx::Rect GetViewBounds() override;
+
+  void FireFocusEvent(BrowserAccessibility* node) override;
+  void FireBlinkEvent(ax::mojom::Event event_type,
+                      BrowserAccessibility* node) override;
+  void FireGeneratedEvent(ui::AXEventGenerator::Event event_type,
+                          BrowserAccessibility* node) override;
+
+  void FireWinAccessibilityEvent(LONG win_event, BrowserAccessibility* node);
 
   // Track this object and post a VISIBLE_DATA_CHANGED notification when
   // its container scrolls.
@@ -65,12 +55,11 @@ class CONTENT_EXPORT BrowserAccessibilityManagerWin
   void OnAccessibleHwndDeleted();
 
  protected:
-  // AXTreeDelegate methods.
-  void OnNodeCreated(ui::AXTree* tree, ui::AXNode* node) override;
+  // AXTreeObserver methods.
   void OnAtomicUpdateFinished(
       ui::AXTree* tree,
       bool root_changed,
-      const std::vector<ui::AXTreeDelegate::Change>& changes) override;
+      const std::vector<ui::AXTreeObserver::Change>& changes) override;
 
  private:
   // Give BrowserAccessibilityManager::Create access to our constructor.

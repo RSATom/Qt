@@ -17,53 +17,8 @@ static const char* type_modifier_string(GrShaderVar::TypeModifier t) {
         case GrShaderVar::kOut_TypeModifier: return "out";
         case GrShaderVar::kUniform_TypeModifier: return "uniform";
     }
-    SkFAIL("Unknown shader variable type modifier.");
+    SK_ABORT("Unknown shader variable type modifier.");
     return "";
-}
-
-void GrShaderVar::setImageStorageFormat(GrImageStorageFormat format) {
-    const char* formatStr = nullptr;
-    switch (format) {
-        case GrImageStorageFormat::kRGBA8:
-            formatStr = "rgba8";
-            break;
-        case GrImageStorageFormat::kRGBA8i:
-            formatStr = "rgba8i";
-            break;
-        case GrImageStorageFormat::kRGBA16f:
-            formatStr = "rgba16f";
-            break;
-        case GrImageStorageFormat::kRGBA32f:
-            formatStr = "rgba32f";
-            break;
-    }
-    this->addLayoutQualifier(formatStr);
-    SkASSERT(formatStr);
-}
-
-void GrShaderVar::setMemoryModel(GrSLMemoryModel model) {
-    switch (model) {
-        case GrSLMemoryModel::kNone:
-            return;
-        case GrSLMemoryModel::kCoherent:
-            this->addModifier("coherent");
-            return;
-        case GrSLMemoryModel::kVolatile:
-            this->addModifier("volatile");
-            return;
-    }
-    SkFAIL("Unknown memory model.");
-}
-
-void GrShaderVar::setRestrict(GrSLRestrict restrict) {
-    switch (restrict) {
-        case GrSLRestrict::kNo:
-            return;
-        case GrSLRestrict::kYes:
-            this->addModifier("restrict");
-            return;
-    }
-    SkFAIL("Unknown restrict.");
 }
 
 void GrShaderVar::setIOType(GrIOType ioType) {
@@ -77,11 +32,28 @@ void GrShaderVar::setIOType(GrIOType ioType) {
             this->addModifier("writeonly");
             return;
     }
-    SkFAIL("Unknown io type.");
+    SK_ABORT("Unknown io type.");
+}
+
+// Converts a GrSLPrecision to its corresponding GLSL precision qualifier. TODO: Remove this as we
+// shouldn't need it with SkSL.
+static inline const char* glsl_precision_string(GrSLPrecision p) {
+    switch (p) {
+        case kLow_GrSLPrecision:
+            return "lowp";
+        case kMedium_GrSLPrecision:
+            return "mediump";
+        case kHigh_GrSLPrecision:
+            return "highp";
+        case kDefault_GrSLPrecision:
+            return "";
+    }
+    SK_ABORT("Unexpected precision type.");
+    return "";
 }
 
 void GrShaderVar::appendDecl(const GrShaderCaps* shaderCaps, SkString* out) const {
-    SkASSERT(kDefault_GrSLPrecision == fPrecision || GrSLTypeAcceptsPrecision(fType));
+    SkASSERT(kDefault_GrSLPrecision == fPrecision || GrSLTypeTemporarilyAcceptsPrecision(fType));
     SkString layout = fLayoutQualifier;
     if (!fLayoutQualifier.isEmpty()) {
         out->appendf("layout(%s) ", fLayoutQualifier.c_str());
@@ -94,23 +66,23 @@ void GrShaderVar::appendDecl(const GrShaderCaps* shaderCaps, SkString* out) cons
     GrSLType effectiveType = this->getType();
     if (shaderCaps->usesPrecisionModifiers() && GrSLTypeAcceptsPrecision(effectiveType)) {
         // Desktop GLSL has added precision qualifiers but they don't do anything.
-        out->appendf("%s ", GrGLSLPrecisionString(fPrecision));
+        out->appendf("%s ", glsl_precision_string(fPrecision));
     }
     if (this->isArray()) {
         if (this->isUnsizedArray()) {
             out->appendf("%s %s[]",
-                         GrGLSLTypeString(effectiveType),
+                         GrGLSLTypeString(shaderCaps, effectiveType),
                          this->getName().c_str());
         } else {
             SkASSERT(this->getArrayCount() > 0);
             out->appendf("%s %s[%d]",
-                         GrGLSLTypeString(effectiveType),
+                         GrGLSLTypeString(shaderCaps, effectiveType),
                          this->getName().c_str(),
                          this->getArrayCount());
         }
     } else {
         out->appendf("%s %s",
-                     GrGLSLTypeString(effectiveType),
+                     GrGLSLTypeString(shaderCaps, effectiveType),
                      this->getName().c_str());
     }
 }

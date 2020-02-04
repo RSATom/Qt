@@ -77,7 +77,7 @@ Q_SIGNALS:
     void error(QGeoRouteReply *reply, QGeoRouteReply::Error error, QString errorString = QString());
 
 private:
-    explicit QGeoRoutingManager(QGeoRoutingManagerEngine *engine, QObject *parent = Q_NULLPTR);
+    explicit QGeoRoutingManager(QGeoRoutingManagerEngine *engine, QObject *parent = nullptr);
 
     QGeoRoutingManagerPrivate *d_ptr;
     Q_DISABLE_COPY(QGeoRoutingManager)

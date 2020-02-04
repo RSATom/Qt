@@ -26,10 +26,10 @@ namespace mojo {
 
 namespace {
 
-void DCheckIfInvalid(const base::WeakPtr<InterfaceEndpointClient>& client,
-                     const std::string& message) {
-  bool is_valid = client && !client->encountered_error();
-  DCHECK(!is_valid) << message;
+void DetermineIfEndpointIsConnected(
+    const base::WeakPtr<InterfaceEndpointClient>& client,
+    base::OnceCallback<void(bool)> callback) {
+  std::move(callback).Run(client && !client->encountered_error());
 }
 
 // When receiving an incoming message which expects a repsonse,
@@ -86,17 +86,18 @@ class ResponderThunk : public MessageReceiverWithStatus {
   }
 
   // MessageReceiverWithStatus implementation:
-  bool IsValid() override {
+  bool IsConnected() override {
     DCHECK(task_runner_->RunsTasksInCurrentSequence());
     return endpoint_client_ && !endpoint_client_->encountered_error();
   }
 
-  void DCheckInvalid(const std::string& message) override {
+  void IsConnectedAsync(base::OnceCallback<void(bool)> callback) override {
     if (task_runner_->RunsTasksInCurrentSequence()) {
-      DCheckIfInvalid(endpoint_client_, message);
+      DetermineIfEndpointIsConnected(endpoint_client_, std::move(callback));
     } else {
       task_runner_->PostTask(
-          FROM_HERE, base::Bind(&DCheckIfInvalid, endpoint_client_, message));
+          FROM_HERE, base::BindOnce(&DetermineIfEndpointIsConnected,
+                                    endpoint_client_, std::move(callback)));
     }
   }
 
@@ -167,20 +168,13 @@ InterfaceEndpointClient::InterfaceEndpointClient(
 
 InterfaceEndpointClient::~InterfaceEndpointClient() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  // TODO(crbug.com/741047): Remove these checks.
-  CheckObjectIsValid();
-  CHECK(task_runner_->RunsTasksInCurrentSequence());
-
-  if (controller_) {
-    CHECK(handle_.group_controller());
+  if (controller_)
     handle_.group_controller()->DetachEndpointClient(handle_);
-  }
 }
 
 AssociatedGroup* InterfaceEndpointClient::associated_group() {
   if (!associated_group_)
-    associated_group_ = base::MakeUnique<AssociatedGroup>(handle_);
+    associated_group_ = std::make_unique<AssociatedGroup>(handle_);
   return associated_group_.get();
 }
 
@@ -284,7 +278,7 @@ bool InterfaceEndpointClient::AcceptWithResponder(
 
   bool response_received = false;
   sync_responses_.insert(std::make_pair(
-      request_id, base::MakeUnique<SyncResponseInfo>(&response_received)));
+      request_id, std::make_unique<SyncResponseInfo>(&response_received)));
 
   base::WeakPtr<InterfaceEndpointClient> weak_self =
       weak_ptr_factory_.GetWeakPtr();
@@ -294,8 +288,13 @@ bool InterfaceEndpointClient::AcceptWithResponder(
     DCHECK(base::ContainsKey(sync_responses_, request_id));
     auto iter = sync_responses_.find(request_id);
     DCHECK_EQ(&response_received, iter->second->response_received);
-    if (response_received)
+    if (response_received) {
       ignore_result(responder->Accept(&iter->second->response));
+    } else {
+      DVLOG(1) << "Mojo sync call returns without receiving a response. "
+               << "Typcially it is because the interface has been "
+               << "disconnected.";
+    }
     sync_responses_.erase(iter);
   }
 
@@ -348,6 +347,10 @@ void InterfaceEndpointClient::FlushForTesting() {
   control_message_proxy_.FlushForTesting();
 }
 
+void InterfaceEndpointClient::FlushAsyncForTesting(base::OnceClosure callback) {
+  control_message_proxy_.FlushAsyncForTesting(std::move(callback));
+}
+
 void InterfaceEndpointClient::InitControllerIfNecessary() {
   if (controller_ || handle_.pending_association())
     return;
@@ -386,7 +389,7 @@ bool InterfaceEndpointClient::HandleValidatedMessage(Message* message) {
 
   if (message->has_flag(Message::kFlagExpectsResponse)) {
     std::unique_ptr<MessageReceiverWithStatus> responder =
-        base::MakeUnique<ResponderThunk>(weak_ptr_factory_.GetWeakPtr(),
+        std::make_unique<ResponderThunk>(weak_ptr_factory_.GetWeakPtr(),
                                          task_runner_);
     if (mojo::internal::ControlMessageHandler::IsControlMessage(message)) {
       return control_message_handler_.AcceptWithResponder(message,

@@ -11,10 +11,11 @@ Also install Python, Subversion, and Git and make sure they're in your path.
 
 ### Windows development
 
-PDFium uses a similar Windows toolchain as Chromium:
+PDFium uses the same build tool as Chromium:
 
 #### Open source contributors
-Visual Studio 2015 Update 2 or later is highly recommended.
+Please refer to [Chromium's Visual Studio set up](https://chromium.googlesource.com/chromium/src/+/master/docs/windows_build_instructions.md#visual-studio)
+for requirements and instructions on build environment configuration.
 
 Run `set DEPOT_TOOLS_WIN_TOOLCHAIN=0`, or set that variable in your global
 environment.
@@ -28,6 +29,9 @@ The default architecture for Windows, Linux, and Mac is "`x64`". On Windows,
 override the default value. If you specify Android build, the default CPU
 architecture will be "`arm`".
 
+It is expected that there are still some places lurking in the code which will
+not function properly on big-endian architectures. Bugs and/or patches are
+welcome, however providing this support is **not** a priority at this time.
 
 #### Google employees
 
@@ -38,8 +42,9 @@ authentication instructions. **Note that you must authenticate with your
 Once you've done this, the toolchain will be installed automatically for
 you in the [Generate the build files](#GenBuild) step below.
 
-The toolchain will be in `depot_tools\win_toolchain\vs_files\<hash>`, and windbg
-can be found in `depot_tools\win_toolchain\vs_files\<hash>\win_sdk\Debuggers`.
+The toolchain will be in `depot_tools\win_toolchain\vs_files\<hash>`, and
+windbg can be found in
+`depot_tools\win_toolchain\vs_files\<hash>\win_sdk\Debuggers`.
 
 If you want the IDE for debugging and editing, you will need to install
 it separately, but this is optional and not needed for building PDFium.
@@ -85,8 +90,10 @@ A typical `<directory>` name is `out/Debug`.
 use_goma = true  # Googlers only. Make sure goma is installed and running first.
 is_debug = true  # Enable debugging features.
 
-pdf_use_skia = false  # Set true to enable experimental skia backend.
-pdf_use_skia_paths = false  # Set true to enable experimental skia backend (paths only).
+# Set true to enable experimental Skia backend.
+pdf_use_skia = false
+# Set true to enable experimental Skia backend (paths only).
+pdf_use_skia_paths = false
 
 pdf_enable_xfa = true  # Set false to remove XFA support (implies JS support).
 pdf_enable_v8 = true  # Set false to remove Javascript support.
@@ -96,8 +103,11 @@ is_component_build = false # Disable component build (must be false)
 clang_use_chrome_plugins = false  # Currently must be false.
 ```
 
-Note, you must set `pdf_is_standalone = true` if you want the sample
-applications like `pdfium_test` to build.
+For sample applications like `pdfium_test` to build, one must set
+`pdf_is_standalone = true`.
+
+To use the Skia backend, one must set `use_cxx11 = false` which will build the
+entire project with C++14.
 
 When complete the arguments will be stored in `<directory>/args.gn`, and
 GN will automatically use the new arguments to generate build files.
@@ -132,15 +142,30 @@ differences on the various platforms. These tests are reliable on the bots. If
 you see failures, it can be a good idea to run the tests on the tip-of-tree
 checkout to see if the same failures appear.
 
+## Embedding PDFium in your own projects
+
+The public/ directory contains header files for the APIs available for use by
+embedders of PDFium. We endeavor to keep these as stable as possible.
+
+Outside of the public/ directory, code may change at any time, and embedders
+should not directly call these routines.
+
 ## Code Coverage
 
 Code coverage reports for PDFium can be generated in Linux development
 environments. Details can be found [here](/docs/code-coverage.md).
 
+## Profiling
+
+Valgrind and other profiling tools do not work correctly with the standard build
+setup that PDFium uses. You will need to add
+`ro_segment_workaround_for_valgrind=true` to `args.gn` to get symbols to
+correctly appear.
+
 ## Waterfall
 
 The current health of the source tree can be found at
-http://build.chromium.org/p/client.pdfium/console
+https://ci.chromium.org/p/pdfium/g/main/console
 
 ## Community
 
@@ -169,5 +194,5 @@ as much as possible. The main exceptions are:
 1. Code has to conform to the existing style and not Chromium/Google style.
 2. PDFium uses a different tool for code reviews, and credentials for
 the tool need to be generated before uploading a CL.
-
-
+3. PDFium is currently holding at C++11 compatibility, rejecting features that
+are only present in C++14 (onto which Chromium is now slowly moving).

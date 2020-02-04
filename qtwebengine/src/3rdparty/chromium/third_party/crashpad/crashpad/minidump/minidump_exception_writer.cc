@@ -21,7 +21,7 @@
 #include "minidump/minidump_context_writer.h"
 #include "snapshot/exception_snapshot.h"
 #include "util/file/file_writer.h"
-#include "util/misc/arraysize_unsafe.h"
+#include "util/misc/arraysize.h"
 
 namespace crashpad {
 
@@ -64,8 +64,8 @@ void MinidumpExceptionWriter::SetExceptionInformation(
   DCHECK_EQ(state(), kStateMutable);
 
   const size_t parameters = exception_information.size();
-  const size_t kMaxParameters =
-      ARRAYSIZE_UNSAFE(exception_.ExceptionRecord.ExceptionInformation);
+  constexpr size_t kMaxParameters =
+      ArraySize(exception_.ExceptionRecord.ExceptionInformation);
   CHECK_LE(parameters, kMaxParameters);
 
   exception_.ExceptionRecord.NumberParameters =

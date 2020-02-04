@@ -277,6 +277,7 @@ MainWindow::MainWindow()
       m_findMatchCase(Qt::CaseInsensitive),
       m_findIgnoreAccelerators(true),
       m_findSkipObsolete(false),
+      m_findUseRegExp(false),
       m_findWhere(DataModel::NoLocation),
       m_translationSettingsDialog(0),
       m_settingCurrentMessage(false),
@@ -358,7 +359,7 @@ MainWindow::MainWindow()
     // We can't call setCentralWidget(m_messageEditor), since it is already called in m_ui.setupUi()
     QBoxLayout *lout = new QBoxLayout(QBoxLayout::TopToBottom, m_ui.centralwidget);
     lout->addWidget(m_messageEditor);
-    lout->setMargin(0);
+    lout->setContentsMargins(QMargins());
     m_ui.centralwidget->setLayout(lout);
 
     // Set up the phrases & guesses dock widget
@@ -426,6 +427,8 @@ MainWindow::MainWindow()
 
     connect(m_phraseView, SIGNAL(phraseSelected(int,QString)),
             m_messageEditor, SLOT(setTranslation(int,QString)));
+    connect(m_phraseView, SIGNAL(setCurrentMessageFromGuess(int,Candidate)),
+            this, SLOT(setCurrentMessage(int,Candidate)));
     connect(m_contextView->selectionModel(),
             SIGNAL(currentRowChanged(QModelIndex,QModelIndex)),
             this, SLOT(selectedContextChanged(QModelIndex,QModelIndex)));
@@ -483,8 +486,8 @@ MainWindow::MainWindow()
             this, SLOT(updateTranslation(QStringList)));
     connect(m_messageEditor, SIGNAL(translatorCommentChanged(QString)),
             this, SLOT(updateTranslatorComment(QString)));
-    connect(m_findDialog, SIGNAL(findNext(QString,DataModel::FindLocation,bool,bool,bool)),
-            this, SLOT(findNext(QString,DataModel::FindLocation,bool,bool,bool)));
+    connect(m_findDialog, SIGNAL(findNext(QString,DataModel::FindLocation,bool,bool,bool,bool)),
+            this, SLOT(findNext(QString,DataModel::FindLocation,bool,bool,bool,bool)));
     connect(m_translateDialog, SIGNAL(requestMatchUpdate(bool&)), SLOT(updateTranslateHit(bool&)));
     connect(m_translateDialog, SIGNAL(activated(int)), SLOT(translate(int)));
 
@@ -986,8 +989,10 @@ bool MainWindow::searchItem(DataModel::FindLocation where, const QString &search
         // FIXME: This removes too much. The proper solution might be too slow, though.
         text.remove(QLatin1Char('&'));
 
-    int foundOffset = text.indexOf(m_findText, 0, m_findMatchCase);
-    return foundOffset >= 0;
+    if (m_findUseRegExp)
+        return m_findDialog->getRegExp().match(text).hasMatch();
+    else
+        return text.indexOf(m_findText, 0, m_findMatchCase) >= 0;
 }
 
 void MainWindow::findAgain()
@@ -1275,7 +1280,8 @@ void MainWindow::printPhraseBook(QAction *action)
 void MainWindow::addToPhraseBook()
 {
     MessageItem *currentMessage = m_dataModel->messageItem(m_currentIndex);
-    Phrase *phrase = new Phrase(currentMessage->text(), currentMessage->translation(), QString());
+    Phrase *phrase = new Phrase(currentMessage->text(), currentMessage->translation(),
+                                QString(), nullptr);
     QStringList phraseBookList;
     QHash<QString, PhraseBook *> phraseBookHash;
     foreach (PhraseBook *pb, m_phraseBooks) {
@@ -1351,11 +1357,13 @@ void MainWindow::about()
     QString version = tr("Version %1");
     version = version.arg(QLatin1String(QT_VERSION_STR));
 
-    box.setText(tr("<center><img src=\":/images/splash.png\"/></img><p>%1</p></center>"
-                    "<p>Qt Linguist is a tool for adding translations to Qt "
-                    "applications.</p>"
-                    "<p>Copyright (C) %2 The Qt Company Ltd."
-                   ).arg(version, QStringLiteral("2017")));
+    const QString description
+            = tr("Qt Linguist is a tool for adding translations to Qt applications.");
+    const QString copyright
+            = tr("Copyright (C) %1 The Qt Company Ltd.").arg(QStringLiteral("2019"));
+    box.setText(QStringLiteral("<center><img src=\":/images/icons/linguist-128-32.png\"/></img><p>%1</p></center>"
+                               "<p>%2</p>"
+                               "<p>%3</p>").arg(version, description, copyright));
 
     box.setWindowTitle(QApplication::translate("AboutDialog", "Qt Linguist"));
     box.setIcon(QMessageBox::NoIcon);
@@ -1585,12 +1593,16 @@ void MainWindow::refreshItemViews()
     updateStatistics();
 }
 
-void MainWindow::doneAndNext()
+void MainWindow::done()
 {
     int model = m_messageEditor->activeModel();
     if (model >= 0 && m_dataModel->isModelWritable(model))
         m_dataModel->setFinished(m_currentIndex, true);
+}
 
+void MainWindow::doneAndNext()
+{
+    done();
     if (!m_messageEditor->focusNextUnfinished())
         nextUnfinished();
 }
@@ -1763,7 +1775,7 @@ bool MainWindow::next(bool checkUnfinished)
 }
 
 void MainWindow::findNext(const QString &text, DataModel::FindLocation where,
-                          bool matchCase, bool ignoreAccelerators, bool skipObsolete)
+                          bool matchCase, bool ignoreAccelerators, bool skipObsolete, bool useRegExp)
 {
     if (text.isEmpty())
         return;
@@ -1772,6 +1784,12 @@ void MainWindow::findNext(const QString &text, DataModel::FindLocation where,
     m_findMatchCase = matchCase ? Qt::CaseSensitive : Qt::CaseInsensitive;
     m_findIgnoreAccelerators = ignoreAccelerators;
     m_findSkipObsolete = skipObsolete;
+    m_findUseRegExp = useRegExp;
+    if (m_findUseRegExp) {
+        m_findDialog->getRegExp().setPatternOptions(matchCase
+                                                    ? QRegularExpression::NoPatternOption
+                                                    : QRegularExpression::CaseInsensitiveOption);
+    }
     m_ui.actionFindNext->setEnabled(true);
     findAgain();
 }
@@ -1834,6 +1852,7 @@ void MainWindow::setupMenuBar()
     // No well defined theme icons for these actions
     m_ui.actionAccelerators->setIcon(QIcon(prefix + QStringLiteral("/accelerator.png")));
     m_ui.actionOpenPhraseBook->setIcon(QIcon(prefix + QStringLiteral("/book.png")));
+    m_ui.actionDone->setIcon(QIcon(prefix + QStringLiteral("/done.png")));
     m_ui.actionDoneAndNext->setIcon(QIcon(prefix + QStringLiteral("/doneandnext.png")));
     m_ui.actionNext->setIcon(QIcon(prefix + QStringLiteral("/next.png")));
     m_ui.actionNextUnfinished->setIcon(QIcon(prefix + QStringLiteral("/nextunfinished.png")));
@@ -1893,6 +1912,7 @@ void MainWindow::setupMenuBar()
     connect(m_ui.actionNextUnfinished, SIGNAL(triggered()), this, SLOT(nextUnfinished()));
     connect(m_ui.actionNext, SIGNAL(triggered()), this, SLOT(next()));
     connect(m_ui.actionPrev, SIGNAL(triggered()), this, SLOT(prev()));
+    connect(m_ui.actionDone, SIGNAL(triggered()), this, SLOT(done()));
     connect(m_ui.actionDoneAndNext, SIGNAL(triggered()), this, SLOT(doneAndNext()));
     connect(m_ui.actionBeginFromSource, SIGNAL(triggered()), m_messageEditor, SLOT(beginFromSource()));
     connect(m_messageEditor, SIGNAL(beginFromSourceAvailable(bool)), m_ui.actionBeginFromSource, SLOT(setEnabled(bool)));
@@ -1924,6 +1944,10 @@ void MainWindow::setupMenuBar()
     connect(m_ui.actionIncreaseZoom, SIGNAL(triggered()), m_messageEditor, SLOT(increaseFontSize()));
     connect(m_ui.actionDecreaseZoom, SIGNAL(triggered()), m_messageEditor, SLOT(decreaseFontSize()));
     connect(m_ui.actionResetZoomToDefault, SIGNAL(triggered()), m_messageEditor, SLOT(resetFontSize()));
+    connect(m_ui.actionShowMoreGuesses, SIGNAL(triggered()), m_phraseView, SLOT(moreGuesses()));
+    connect(m_ui.actionShowFewerGuesses, SIGNAL(triggered()), m_phraseView, SLOT(fewerGuesses()));
+    connect(m_phraseView, SIGNAL(showFewerGuessesAvailable(bool)), m_ui.actionShowFewerGuesses, SLOT(setEnabled(bool)));
+    connect(m_ui.actionResetGuessesToDefault, SIGNAL(triggered()), m_phraseView, SLOT(resetNumGuesses()));
     m_ui.menuViewViews->addAction(m_contextDock->toggleViewAction());
     m_ui.menuViewViews->addAction(m_messagesDock->toggleViewAction());
     m_ui.menuViewViews->addAction(m_phrasesDock->toggleViewAction());
@@ -1949,6 +1973,9 @@ void MainWindow::setupMenuBar()
 
     m_ui.actionManual->setWhatsThis(tr("Display the manual for %1.").arg(tr("Qt Linguist")));
     m_ui.actionAbout->setWhatsThis(tr("Display information about %1.").arg(tr("Qt Linguist")));
+    m_ui.actionDone->setShortcuts(QList<QKeySequence>()
+                                     << QKeySequence(QLatin1String("Alt+Return"))
+                                     << QKeySequence(QLatin1String("Alt+Enter")));
     m_ui.actionDoneAndNext->setShortcuts(QList<QKeySequence>()
                                             << QKeySequence(QLatin1String("Ctrl+Return"))
                                             << QKeySequence(QLatin1String("Ctrl+Enter")));
@@ -2181,6 +2208,7 @@ void MainWindow::setupToolBars()
     translationst->addAction(m_ui.actionNext);
     translationst->addAction(m_ui.actionPrevUnfinished);
     translationst->addAction(m_ui.actionNextUnfinished);
+    translationst->addAction(m_ui.actionDone);
     translationst->addAction(m_ui.actionDoneAndNext);
 
     validationt->addAction(m_ui.actionAccelerators);
@@ -2224,6 +2252,15 @@ void MainWindow::setCurrentMessage(const QModelIndex &index, int model)
     const QModelIndex &theIndex = m_messageModel->index(index.row(), model + 1, index.parent());
     setCurrentMessage(theIndex);
     m_messageEditor->setEditorFocus(model);
+}
+
+void MainWindow::setCurrentMessage(int modelIndex, const Candidate &cand)
+{
+    int contextIndex = m_dataModel->findContextIndex(cand.context);
+    int messageIndex = m_dataModel->multiContextItem(contextIndex)->findMessage(cand.source,
+                                                                                cand.disambiguation);
+    setCurrentMessage(m_messageModel->modelIndex(MultiDataIndex(modelIndex, contextIndex,
+                                                                messageIndex)));
 }
 
 QModelIndex MainWindow::currentContextIndex() const
@@ -2321,14 +2358,18 @@ void MainWindow::updateProgress()
 {
     int numEditable = m_dataModel->getNumEditable();
     int numFinished = m_dataModel->getNumFinished();
-    if (!m_dataModel->modelCount())
+    if (!m_dataModel->modelCount()) {
         m_progressLabel->setText(QString(QLatin1String("    ")));
-    else
-        m_progressLabel->setText(QString(QLatin1String(" %1/%2 "))
-                                 .arg(numFinished).arg(numEditable));
+        m_progressLabel->setToolTip(QString());
+    } else {
+        m_progressLabel->setText(QStringLiteral(" %1/%2 ").arg(numFinished).arg(numEditable));
+        m_progressLabel->setToolTip(tr("%n unfinished message(s) left.", 0,
+                                       numEditable - numFinished));
+    }
     bool enable = numFinished != numEditable;
     m_ui.actionPrevUnfinished->setEnabled(enable);
     m_ui.actionNextUnfinished->setEnabled(enable);
+    m_ui.actionDone->setEnabled(enable);
     m_ui.actionDoneAndNext->setEnabled(enable);
 
     m_ui.actionPrev->setEnabled(m_dataModel->contextCount() > 0);
@@ -2610,6 +2651,8 @@ void MainWindow::readConfig()
 
     m_messageEditor->setFontSize(
                 config.value(settingPath("Options/EditorFontsize"), font().pointSize()).toReal());
+    m_phraseView->setMaxCandidates(config.value(settingPath("Options/NumberOfGuesses"),
+                                                PhraseView::getDefaultMaxCandidates()).toInt());
 
     recentFiles().readConfig();
 
@@ -2645,6 +2688,7 @@ void MainWindow::writeConfig()
     recentFiles().writeConfig();
 
     config.setValue(settingPath("Options/EditorFontsize"), m_messageEditor->fontSize());
+    config.setValue(settingPath("Options/NumberOfGuesses"), m_phraseView->getMaxCandidates());
 
     config.beginWriteArray(settingPath("OpenedPhraseBooks"),
         m_phraseBooks.size());

@@ -24,7 +24,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
+#include "components/user_manager/scoped_user_manager.h"
 #endif
 
 namespace settings {
@@ -58,8 +58,8 @@ class ProfileInfoHandlerTest : public testing::Test {
 #if defined(OS_CHROMEOS)
     chromeos::FakeChromeUserManager* fake_user_manager =
         new chromeos::FakeChromeUserManager;
-    user_manager_enabler_.reset(
-        new chromeos::ScopedUserManagerEnabler(fake_user_manager));
+    user_manager_enabler_ = std::make_unique<user_manager::ScopedUserManager>(
+        base::WrapUnique(fake_user_manager));
     profile_ = profile_manager_.CreateTestingProfile(fake_email);
     fake_user_manager->AddUser(AccountId::FromUserEmail(fake_email));
 #else
@@ -106,7 +106,7 @@ class ProfileInfoHandlerTest : public testing::Test {
   content::TestWebUI web_ui_;
 
 #if defined(OS_CHROMEOS)
-  std::unique_ptr<chromeos::ScopedUserManagerEnabler> user_manager_enabler_;
+  std::unique_ptr<user_manager::ScopedUserManager> user_manager_enabler_;
 #endif
 
   Profile* profile_;
@@ -149,55 +149,6 @@ TEST_F(ProfileInfoHandlerTest, PushProfileInfo) {
   EXPECT_EQ(ProfileInfoHandler::kProfileInfoChangedEventName, event_id);
 
   VerifyProfileInfo(data.arg2());
-}
-
-TEST_F(ProfileInfoHandlerTest, GetProfileManagesSupervisedUsers) {
-  base::ListValue list_args;
-  list_args.AppendString("get-profile-manages-supervised-users-callback-id");
-  handler()->HandleGetProfileManagesSupervisedUsers(&list_args);
-
-  EXPECT_EQ(1U, web_ui()->call_data().size());
-
-  const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
-  EXPECT_EQ("cr.webUIResponse", data.function_name());
-
-  std::string callback_id;
-  ASSERT_TRUE(data.arg1()->GetAsString(&callback_id));
-  EXPECT_EQ("get-profile-manages-supervised-users-callback-id", callback_id);
-
-  bool success = false;
-  ASSERT_TRUE(data.arg2()->GetAsBoolean(&success));
-  EXPECT_TRUE(success);
-
-  bool has_supervised_users = false;
-  ASSERT_TRUE(data.arg3()->GetAsBoolean(&has_supervised_users));
-  EXPECT_FALSE(has_supervised_users);
-}
-
-TEST_F(ProfileInfoHandlerTest, PushProfileManagesSupervisedUsers) {
-  handler()->AllowJavascript();
-
-  // The handler is notified of the change after |update| is destroyed.
-  std::unique_ptr<DictionaryPrefUpdate> update(
-      new DictionaryPrefUpdate(profile()->GetPrefs(), prefs::kSupervisedUsers));
-  base::DictionaryValue* dict = update->Get();
-  dict->SetWithoutPathExpansion("supervised-user-id",
-                                base::MakeUnique<base::DictionaryValue>());
-  update.reset();
-
-  EXPECT_EQ(1U, web_ui()->call_data().size());
-
-  const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
-  EXPECT_EQ("cr.webUIListenerCallback", data.function_name());
-
-  std::string event_id;
-  ASSERT_TRUE(data.arg1()->GetAsString(&event_id));
-  EXPECT_EQ(ProfileInfoHandler::kProfileManagesSupervisedUsersChangedEventName,
-            event_id);
-
-  bool has_supervised_users = false;
-  ASSERT_TRUE(data.arg2()->GetAsBoolean(&has_supervised_users));
-  EXPECT_TRUE(has_supervised_users);
 }
 
 }  // namespace settings

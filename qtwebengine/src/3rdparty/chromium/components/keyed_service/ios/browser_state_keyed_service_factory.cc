@@ -4,6 +4,7 @@
 
 #include "components/keyed_service/ios/browser_state_keyed_service_factory.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
@@ -11,18 +12,31 @@
 
 void BrowserStateKeyedServiceFactory::SetTestingFactory(
     web::BrowserState* context,
-    TestingFactoryFunction testing_factory) {
-  KeyedServiceFactory::SetTestingFactory(
-      context, reinterpret_cast<KeyedServiceFactory::TestingFactoryFunction>(
-                   testing_factory));
+    TestingFactory testing_factory) {
+  KeyedServiceFactory::TestingFactory wrapped_factory;
+  if (testing_factory) {
+    wrapped_factory = base::BindRepeating(
+        [](const TestingFactory& testing_factory,
+           base::SupportsUserData* context) {
+          return testing_factory.Run(static_cast<web::BrowserState*>(context));
+        },
+        std::move(testing_factory));
+  }
+  KeyedServiceFactory::SetTestingFactory(context, std::move(wrapped_factory));
 }
 
 KeyedService* BrowserStateKeyedServiceFactory::SetTestingFactoryAndUse(
     web::BrowserState* context,
-    TestingFactoryFunction testing_factory) {
+    TestingFactory testing_factory) {
+  DCHECK(testing_factory);
   return KeyedServiceFactory::SetTestingFactoryAndUse(
-      context, reinterpret_cast<KeyedServiceFactory::TestingFactoryFunction>(
-                   testing_factory));
+      context, base::BindRepeating(
+                   [](const TestingFactory& testing_factory,
+                      base::SupportsUserData* context) {
+                     return testing_factory.Run(
+                         static_cast<web::BrowserState*>(context));
+                   },
+                   std::move(testing_factory)));
 }
 
 BrowserStateKeyedServiceFactory::BrowserStateKeyedServiceFactory(

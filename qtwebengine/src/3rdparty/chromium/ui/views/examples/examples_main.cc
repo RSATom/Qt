@@ -9,14 +9,17 @@
 #include "base/files/file_path.h"
 #include "base/i18n/icu_util.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/power_monitor/power_monitor.h"
 #include "base/power_monitor/power_monitor_device_source.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/test_discardable_memory_allocator.h"
+#include "base/test/test_timeouts.h"
 #include "build/build_config.h"
 #include "components/viz/host/host_frame_sink_manager.h"
+#include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
+#include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "ui/base/ime/input_method_initializer.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -66,21 +69,29 @@ int main(int argc, char** argv) {
 
   gl::init::InitializeGLOneOff();
 
+  // The use of base::test::ScopedTaskEnvironment below relies on the timeout
+  // values from TestTimeouts. This ensures they're properly initialized.
+  TestTimeouts::Initialize();
+
   // The ContextFactory must exist before any Compositors are created.
-  viz::HostFrameSinkManager host_frame_sink_manager_;
-  viz::FrameSinkManagerImpl frame_sink_manager_;
-  auto context_factory = base::MakeUnique<ui::InProcessContextFactory>(
-      &host_frame_sink_manager_, &frame_sink_manager_);
+  viz::HostFrameSinkManager host_frame_sink_manager;
+  viz::ServerSharedBitmapManager shared_bitmap_manager;
+  viz::FrameSinkManagerImpl frame_sink_manager(&shared_bitmap_manager);
+  host_frame_sink_manager.SetLocalManager(&frame_sink_manager);
+  frame_sink_manager.SetLocalClient(&host_frame_sink_manager);
+  auto context_factory = std::make_unique<ui::InProcessContextFactory>(
+      &host_frame_sink_manager, &frame_sink_manager);
   context_factory->set_use_test_surface(false);
 
-  base::MessageLoopForUI message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment(
+      base::test::ScopedTaskEnvironment::MainThreadType::UI);
 
   base::i18n::InitializeICU();
 
   ui::RegisterPathProvider();
 
   base::FilePath ui_test_pak_path;
-  CHECK(PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
+  CHECK(base::PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
   ui::ResourceBundle::InitSharedInstanceWithPakPath(ui_test_pak_path);
 
   base::DiscardableMemoryAllocator::SetInstance(
@@ -112,9 +123,10 @@ int main(int argc, char** argv) {
     display::Screen::SetScreenInstance(desktop_screen.get());
 #endif
 
-    views::examples::ShowExamplesWindow(views::examples::QUIT_ON_CLOSE);
+    base::RunLoop run_loop;
+    views::examples::ShowExamplesWindow(run_loop.QuitClosure());
 
-    base::RunLoop().Run();
+    run_loop.Run();
 
     ui::ResourceBundle::CleanupSharedInstance();
   }

@@ -84,7 +84,7 @@ QImage Utils::printTextToImage(const QFont &font, const QString &text, const QCo
     QFont valueFont = font;
     valueFont.setPointSize(textureFontSize);
     QFontMetrics valueFM(valueFont);
-    int valueStrWidth = valueFM.width(text);
+    int valueStrWidth = valueFM.horizontalAdvance(text);
 
     // ES2 needs to use maxLabelWidth always (when given) because of the power of 2 -issue.
     if (maxLabelWidth && (labelBackground || Utils::isOpenGLES()))
@@ -136,7 +136,7 @@ QImage Utils::printTextToImage(const QFont &font, const QString &text, const QCo
             if (maxLabelWidth && (labelBackground || Utils::isOpenGLES()))
                 valueStrWidth = maxLabelWidth * fontRatio;
             else
-                valueStrWidth = currentValueFM.width(text);
+                valueStrWidth = currentValueFM.horizontalAdvance(text);
             valueStrHeight = currentValueFM.height();
             valueStrWidth += paddingWidth / 2;
         }
@@ -367,7 +367,7 @@ void Utils::resolveStatics()
     const GLubyte *openGLVersion = ctx->functions()->glGetString(GL_VERSION);
     versionStr = QString::fromLatin1(reinterpret_cast<const char *>(openGLVersion)).toLower();
 #endif
-    if (versionStr.contains(QStringLiteral("mesa"))
+    if (versionStr.contains(QStringLiteral("mesa"), Qt::CaseInsensitive)
             || QCoreApplication::testAttribute(Qt::AA_UseSoftwareOpenGL)) {
         qWarning("Only OpenGL ES2 emulation is available for software rendering.");
         isES = true;

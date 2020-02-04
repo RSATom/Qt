@@ -39,6 +39,7 @@ class V8_EXPORT_PRIVATE Location {
  private:
   int line_number_;
   int column_number_;
+  bool is_empty_;
 };
 
 /**
@@ -59,7 +60,7 @@ struct WasmDisassemblyOffsetTableEntry {
 
 struct WasmDisassembly {
   using OffsetTable = std::vector<WasmDisassemblyOffsetTableEntry>;
-  WasmDisassembly() {}
+  WasmDisassembly() = default;
   WasmDisassembly(std::string disassembly, OffsetTable offset_table)
       : disassembly(std::move(disassembly)),
         offset_table(std::move(offset_table)) {}
@@ -68,13 +69,14 @@ struct WasmDisassembly {
   OffsetTable offset_table;
 };
 
-enum PromiseDebugActionType {
-  kDebugPromiseCreated,
-  kDebugEnqueueAsyncFunction,
-  kDebugEnqueuePromiseResolve,
-  kDebugEnqueuePromiseReject,
+enum DebugAsyncActionType {
+  kDebugPromiseThen,
+  kDebugPromiseCatch,
+  kDebugPromiseFinally,
   kDebugWillHandle,
   kDebugDidHandle,
+  kAsyncFunctionSuspended,
+  kAsyncFunctionFinished
 };
 
 enum BreakLocationType {
@@ -149,26 +151,26 @@ class ConsoleDelegate {
                      const ConsoleContext& context) {}
   virtual void Count(const ConsoleCallArguments& args,
                      const ConsoleContext& context) {}
+  virtual void CountReset(const ConsoleCallArguments& args,
+                          const ConsoleContext& context) {}
   virtual void Assert(const ConsoleCallArguments& args,
                       const ConsoleContext& context) {}
-  virtual void MarkTimeline(const ConsoleCallArguments& args,
-                            const ConsoleContext& context) {}
   virtual void Profile(const ConsoleCallArguments& args,
                        const ConsoleContext& context) {}
   virtual void ProfileEnd(const ConsoleCallArguments& args,
                           const ConsoleContext& context) {}
-  virtual void Timeline(const ConsoleCallArguments& args,
-                        const ConsoleContext& context) {}
-  virtual void TimelineEnd(const ConsoleCallArguments& args,
-                           const ConsoleContext& context) {}
   virtual void Time(const ConsoleCallArguments& args,
                     const ConsoleContext& context) {}
+  virtual void TimeLog(const ConsoleCallArguments& args,
+                       const ConsoleContext& context) {}
   virtual void TimeEnd(const ConsoleCallArguments& args,
                        const ConsoleContext& context) {}
   virtual void TimeStamp(const ConsoleCallArguments& args,
                          const ConsoleContext& context) {}
   virtual ~ConsoleDelegate() = default;
 };
+
+typedef int BreakpointId;
 
 }  // namespace debug
 }  // namespace v8

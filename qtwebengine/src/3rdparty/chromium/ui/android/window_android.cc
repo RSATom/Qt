@@ -4,6 +4,9 @@
 
 #include "ui/android/window_android.h"
 
+#include <utility>
+#include <vector>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
@@ -11,8 +14,8 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/observer_list.h"
 #include "base/stl_util.h"
-#include "cc/output/begin_frame_args.h"
-#include "cc/scheduler/begin_frame_source.h"
+#include "components/viz/common/frame_sinks/begin_frame_args.h"
+#include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "jni/WindowAndroid_jni.h"
 #include "ui/android/window_android_compositor.h"
 #include "ui/android/window_android_observer.h"
@@ -24,37 +27,58 @@ using base::android::JavaParamRef;
 using base::android::JavaRef;
 using base::android::ScopedJavaLocalRef;
 
-class WindowAndroid::WindowBeginFrameSource : public cc::BeginFrameSource {
+const float kDefaultMouseWheelTickMultiplier = 64;
+
+class WindowAndroid::WindowBeginFrameSource : public viz::BeginFrameSource {
  public:
   explicit WindowBeginFrameSource(WindowAndroid* window)
-      : window_(window),
-        observers_(
-            base::ObserverList<cc::BeginFrameObserver>::NOTIFY_EXISTING_ONLY),
+      : BeginFrameSource(kNotRestartableId),
+        window_(window),
+        observers_(base::ObserverListPolicy::EXISTING_ONLY),
         observer_count_(0),
-        next_sequence_number_(cc::BeginFrameArgs::kStartingFrameNumber),
+        next_sequence_number_(viz::BeginFrameArgs::kStartingFrameNumber),
         paused_(false) {}
   ~WindowBeginFrameSource() override {}
 
-  // cc::BeginFrameSource implementation.
-  void AddObserver(cc::BeginFrameObserver* obs) override;
-  void RemoveObserver(cc::BeginFrameObserver* obs) override;
-  void DidFinishFrame(cc::BeginFrameObserver* obs) override {}
+  // viz::BeginFrameSource implementation.
+  void AddObserver(viz::BeginFrameObserver* obs) override;
+  void RemoveObserver(viz::BeginFrameObserver* obs) override;
+  void DidFinishFrame(viz::BeginFrameObserver* obs) override {}
   bool IsThrottled() const override { return true; }
+  void OnGpuNoLongerBusy() override;
 
   void OnVSync(base::TimeTicks frame_time, base::TimeDelta vsync_period);
   void OnPauseChanged(bool paused);
+  void AddBeginFrameCompletionCallback(base::OnceClosure callback);
 
  private:
+  friend class WindowAndroid::ScopedOnBeginFrame;
+
   WindowAndroid* const window_;
-  base::ObserverList<cc::BeginFrameObserver> observers_;
+  base::ObserverList<viz::BeginFrameObserver>::Unchecked observers_;
   int observer_count_;
-  cc::BeginFrameArgs last_begin_frame_args_;
+  viz::BeginFrameArgs last_begin_frame_args_;
   uint64_t next_sequence_number_;
   bool paused_;
+
+  // Set by ScopedOnBeginFrame.
+  std::vector<base::OnceClosure>* vsync_complete_callbacks_ptr_ = nullptr;
+};
+
+class WindowAndroid::ScopedOnBeginFrame {
+ public:
+  explicit ScopedOnBeginFrame(WindowAndroid::WindowBeginFrameSource* bfs,
+                              bool allow_reentrancy);
+  ~ScopedOnBeginFrame();
+
+ private:
+  WindowAndroid::WindowBeginFrameSource* const begin_frame_source_;
+  const bool reentrant_;
+  std::vector<base::OnceClosure> vsync_complete_callbacks_;
 };
 
 void WindowAndroid::WindowBeginFrameSource::AddObserver(
-    cc::BeginFrameObserver* obs) {
+    viz::BeginFrameObserver* obs) {
   DCHECK(obs);
   DCHECK(!observers_.HasObserver(obs));
 
@@ -65,26 +89,27 @@ void WindowAndroid::WindowBeginFrameSource::AddObserver(
 
   // Send a MISSED BeginFrame if possible and necessary.
   if (last_begin_frame_args_.IsValid()) {
-    cc::BeginFrameArgs last_args = obs->LastUsedBeginFrameArgs();
+    viz::BeginFrameArgs last_args = obs->LastUsedBeginFrameArgs();
     if (!last_args.IsValid() ||
         last_args.frame_time < last_begin_frame_args_.frame_time) {
       DCHECK(last_args.sequence_number <
                  last_begin_frame_args_.sequence_number ||
              last_args.source_id != last_begin_frame_args_.source_id);
-      last_begin_frame_args_.type = cc::BeginFrameArgs::MISSED;
+      last_begin_frame_args_.type = viz::BeginFrameArgs::MISSED;
       // TODO(crbug.com/602485): A deadline doesn't make too much sense
       // for a missed BeginFrame (the intention rather is 'immediately'),
       // but currently the retro frame logic is very strict in discarding
       // BeginFrames.
       last_begin_frame_args_.deadline =
           base::TimeTicks::Now() + last_begin_frame_args_.interval;
+      ScopedOnBeginFrame scope(this, true /* allow_reentrancy */);
       obs->OnBeginFrame(last_begin_frame_args_);
     }
   }
 }
 
 void WindowAndroid::WindowBeginFrameSource::RemoveObserver(
-    cc::BeginFrameObserver* obs) {
+    viz::BeginFrameObserver* obs) {
   DCHECK(obs);
   DCHECK(observers_.HasObserver(obs));
 
@@ -94,19 +119,25 @@ void WindowAndroid::WindowBeginFrameSource::RemoveObserver(
     window_->SetNeedsBeginFrames(false);
 }
 
+void WindowAndroid::WindowBeginFrameSource::OnGpuNoLongerBusy() {
+  ScopedOnBeginFrame scope(this, false /* allow_reentrancy */);
+  for (auto& obs : observers_)
+    obs.OnBeginFrame(last_begin_frame_args_);
+}
+
 void WindowAndroid::WindowBeginFrameSource::OnVSync(
     base::TimeTicks frame_time,
     base::TimeDelta vsync_period) {
   // frame time is in the past, so give the next vsync period as the deadline.
   base::TimeTicks deadline = frame_time + vsync_period;
-  last_begin_frame_args_ = cc::BeginFrameArgs::Create(
+  last_begin_frame_args_ = viz::BeginFrameArgs::Create(
       BEGINFRAME_FROM_HERE, source_id(), next_sequence_number_, frame_time,
-      deadline, vsync_period, cc::BeginFrameArgs::NORMAL);
+      deadline, vsync_period, viz::BeginFrameArgs::NORMAL);
   DCHECK(last_begin_frame_args_.IsValid());
   next_sequence_number_++;
-
-  for (auto& obs : observers_)
-    obs.OnBeginFrame(last_begin_frame_args_);
+  if (RequestCallbackOnGpuAvailable())
+    return;
+  OnGpuNoLongerBusy();
 }
 
 void WindowAndroid::WindowBeginFrameSource::OnPauseChanged(bool paused) {
@@ -115,12 +146,62 @@ void WindowAndroid::WindowBeginFrameSource::OnPauseChanged(bool paused) {
     obs.OnBeginFrameSourcePausedChanged(paused_);
 }
 
-WindowAndroid::WindowAndroid(JNIEnv* env, jobject obj, int display_id)
+void WindowAndroid::WindowBeginFrameSource::AddBeginFrameCompletionCallback(
+    base::OnceClosure callback) {
+  CHECK(vsync_complete_callbacks_ptr_);
+  vsync_complete_callbacks_ptr_->emplace_back(std::move(callback));
+}
+
+WindowAndroid::ScopedOnBeginFrame::ScopedOnBeginFrame(
+    WindowAndroid::WindowBeginFrameSource* bfs,
+    bool allow_reentrancy)
+    : begin_frame_source_(bfs),
+      reentrant_(allow_reentrancy &&
+                 begin_frame_source_->vsync_complete_callbacks_ptr_) {
+  if (reentrant_) {
+    DCHECK(begin_frame_source_->vsync_complete_callbacks_ptr_);
+    return;
+  }
+  DCHECK(!begin_frame_source_->vsync_complete_callbacks_ptr_);
+  begin_frame_source_->vsync_complete_callbacks_ptr_ =
+      &vsync_complete_callbacks_;
+}
+
+WindowAndroid::ScopedOnBeginFrame::~ScopedOnBeginFrame() {
+  if (reentrant_) {
+    DCHECK_NE(&vsync_complete_callbacks_,
+              begin_frame_source_->vsync_complete_callbacks_ptr_);
+    return;
+  }
+  DCHECK_EQ(&vsync_complete_callbacks_,
+            begin_frame_source_->vsync_complete_callbacks_ptr_);
+  begin_frame_source_->vsync_complete_callbacks_ptr_ = nullptr;
+  for (base::OnceClosure& callback : vsync_complete_callbacks_)
+    std::move(callback).Run();
+}
+
+// static
+WindowAndroid* WindowAndroid::FromJavaWindowAndroid(
+    const JavaParamRef<jobject>& jwindow_android) {
+  if (jwindow_android.is_null())
+    return nullptr;
+
+  return reinterpret_cast<WindowAndroid*>(Java_WindowAndroid_getNativePointer(
+      AttachCurrentThread(), jwindow_android));
+}
+
+WindowAndroid::WindowAndroid(JNIEnv* env,
+                             jobject obj,
+                             int display_id,
+                             float scroll_factor)
     : display_id_(display_id),
       compositor_(NULL),
       begin_frame_source_(new WindowBeginFrameSource(this)),
       needs_begin_frames_(false) {
   java_window_.Reset(env, obj);
+  mouse_wheel_scroll_factor_ =
+      scroll_factor > 0 ? scroll_factor
+                        : kDefaultMouseWheelTickMultiplier * GetDipScale();
 }
 
 void WindowAndroid::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
@@ -131,13 +212,10 @@ ScopedJavaLocalRef<jobject> WindowAndroid::GetJavaObject() {
   return base::android::ScopedJavaLocalRef<jobject>(java_window_);
 }
 
-bool WindowAndroid::RegisterWindowAndroid(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
 WindowAndroid::~WindowAndroid() {
   DCHECK(parent_ == nullptr) << "WindowAndroid must be a root view.";
   DCHECK(!compositor_);
+  RemoveAllChildren(true);
   Java_WindowAndroid_clearNativePointer(AttachCurrentThread(), GetJavaObject());
 }
 
@@ -145,10 +223,6 @@ WindowAndroid* WindowAndroid::CreateForTesting() {
   JNIEnv* env = AttachCurrentThread();
   long native_pointer = Java_WindowAndroid_createForTesting(env);
   return reinterpret_cast<WindowAndroid*>(native_pointer);
-}
-
-void WindowAndroid::DestroyForTesting() {
-  delete this;
 }
 
 void WindowAndroid::OnCompositingDidCommit() {
@@ -161,15 +235,16 @@ void WindowAndroid::AddObserver(WindowAndroidObserver* observer) {
     observer_list_.AddObserver(observer);
 }
 
-void WindowAndroid::AddVSyncCompleteCallback(const base::Closure& callback) {
-  vsync_complete_callbacks_.push_back(callback);
+void WindowAndroid::AddBeginFrameCompletionCallback(
+    base::OnceClosure callback) {
+  begin_frame_source_->AddBeginFrameCompletionCallback(std::move(callback));
 }
 
 void WindowAndroid::RemoveObserver(WindowAndroidObserver* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
-cc::BeginFrameSource* WindowAndroid::GetBeginFrameSource() {
+viz::BeginFrameSource* WindowAndroid::GetBeginFrameSource() {
   return begin_frame_source_.get();
 }
 
@@ -180,6 +255,8 @@ void WindowAndroid::AttachCompositor(WindowAndroidCompositor* compositor) {
   compositor_ = compositor;
   for (WindowAndroidObserver& observer : observer_list_)
     observer.OnAttachCompositor();
+
+  compositor_->SetVSyncPaused(vsync_paused_);
 }
 
 void WindowAndroid::DetachCompositor() {
@@ -217,15 +294,18 @@ void WindowAndroid::OnVSync(JNIEnv* env,
                             const JavaParamRef<jobject>& obj,
                             jlong time_micros,
                             jlong period_micros) {
-  base::TimeTicks frame_time(base::TimeTicks::FromInternalValue(time_micros));
+  // Warning: It is generally unsafe to manufacture TimeTicks values. The
+  // following assumption is being made, AND COULD EASILY BREAK AT ANY TIME:
+  // Upstream, Java code is providing "System.nanos() / 1000," and this is the
+  // same timestamp that would be provided by the CLOCK_MONOTONIC POSIX clock.
+  DCHECK_EQ(base::TimeTicks::GetClock(),
+            base::TimeTicks::Clock::LINUX_CLOCK_MONOTONIC);
+  base::TimeTicks frame_time =
+      base::TimeTicks() + base::TimeDelta::FromMicroseconds(time_micros);
   base::TimeDelta vsync_period(
       base::TimeDelta::FromMicroseconds(period_micros));
 
   begin_frame_source_->OnVSync(frame_time, vsync_period);
-
-  for (const base::Closure& callback : vsync_complete_callbacks_)
-    callback.Run();
-  vsync_complete_callbacks_.clear();
 
   if (needs_begin_frames_)
     RequestVSyncUpdate();
@@ -253,6 +333,11 @@ void WindowAndroid::OnActivityStarted(JNIEnv* env,
 void WindowAndroid::SetVSyncPaused(JNIEnv* env,
                                    const JavaParamRef<jobject>& obj,
                                    bool paused) {
+  vsync_paused_ = paused;
+
+  if (compositor_)
+    compositor_->SetVSyncPaused(paused);
+
   begin_frame_source_->OnPauseChanged(paused);
 }
 
@@ -284,8 +369,12 @@ ScopedJavaLocalRef<jobject> WindowAndroid::GetWindowToken() {
 // Native JNI methods
 // ----------------------------------------------------------------------------
 
-jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj, int sdk_display_id) {
-  WindowAndroid* window = new WindowAndroid(env, obj, sdk_display_id);
+jlong JNI_WindowAndroid_Init(JNIEnv* env,
+                             const JavaParamRef<jobject>& obj,
+                             int sdk_display_id,
+                             float scroll_factor) {
+  WindowAndroid* window =
+      new WindowAndroid(env, obj, sdk_display_id, scroll_factor);
   return reinterpret_cast<intptr_t>(window);
 }
 

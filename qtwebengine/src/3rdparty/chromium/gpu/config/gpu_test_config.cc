@@ -8,7 +8,8 @@
 #include <stdint.h>
 
 #include "base/logging.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
+#include "build/build_config.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_info_collector.h"
 #include "gpu/config/gpu_test_expectations_parser.h"
@@ -66,10 +67,16 @@ GPUTestConfig::OS GetCurrentOS() {
         return GPUTestConfig::kOsMacElCapitan;
       case 12:
         return GPUTestConfig::kOsMacSierra;
+      case 13:
+        return GPUTestConfig::kOsMacHighSierra;
+      case 14:
+        return GPUTestConfig::kOsMacMojave;
     }
   }
 #elif defined(OS_ANDROID)
   return GPUTestConfig::kOsAndroid;
+#elif defined(OS_FUCHSIA)
+  return GPUTestConfig::kOsFuchsia;
 #endif
   return GPUTestConfig::kOsUnknown;
 }
@@ -77,19 +84,18 @@ GPUTestConfig::OS GetCurrentOS() {
 }  // namespace anonymous
 
 GPUTestConfig::GPUTestConfig()
-    : validate_gpu_info_(true),
-      os_(kOsUnknown),
+    : os_(kOsUnknown),
       gpu_device_id_(0),
       build_type_(kBuildTypeUnknown),
       api_(kAPIUnknown) {}
 
 GPUTestConfig::GPUTestConfig(const GPUTestConfig& other) = default;
 
-GPUTestConfig::~GPUTestConfig() {
-}
+GPUTestConfig::~GPUTestConfig() = default;
 
 void GPUTestConfig::set_os(int32_t os) {
-  DCHECK_EQ(0, os & ~(kOsAndroid | kOsWin | kOsMac | kOsLinux | kOsChromeOS));
+  DCHECK_EQ(0, os & ~(kOsAndroid | kOsWin | kOsMac | kOsLinux | kOsChromeOS |
+                      kOsFuchsia));
   os_ = os;
 }
 
@@ -115,8 +121,6 @@ void GPUTestConfig::set_api(int32_t api) {
 }
 
 bool GPUTestConfig::IsValid() const {
-  if (!validate_gpu_info_)
-    return true;
   if (gpu_device_id_ != 0 && (gpu_vendor_.size() != 1 || gpu_vendor_[0] == 0))
     return false;
   return true;
@@ -148,19 +152,16 @@ bool GPUTestConfig::OverlapsWith(const GPUTestConfig& config) const {
       build_type_ != kBuildTypeUnknown &&
       (build_type_ & config.build_type_) == 0)
     return false;
+  if (config.api() != kAPIUnknown && api_ != kAPIUnknown && api_ != config.api_)
+    return false;
   return true;
-}
-
-void GPUTestConfig::DisableGPUInfoValidation() {
-  validate_gpu_info_ = false;
 }
 
 void GPUTestConfig::ClearGPUVendor() {
   gpu_vendor_.clear();
 }
 
-GPUTestBotConfig::~GPUTestBotConfig() {
-}
+GPUTestBotConfig::~GPUTestBotConfig() = default;
 
 void GPUTestBotConfig::AddGPUVendor(uint32_t gpu_vendor) {
   DCHECK_EQ(0u, GPUTestConfig::gpu_vendor().size());
@@ -168,7 +169,6 @@ void GPUTestBotConfig::AddGPUVendor(uint32_t gpu_vendor) {
 }
 
 bool GPUTestBotConfig::SetGPUInfo(const GPUInfo& gpu_info) {
-  DCHECK(validate_gpu_info_);
   if (gpu_info.gpu.device_id == 0 || gpu_info.gpu.vendor_id == 0)
     return false;
   ClearGPUVendor();
@@ -192,19 +192,20 @@ bool GPUTestBotConfig::IsValid() const {
     case kOsMacYosemite:
     case kOsMacElCapitan:
     case kOsMacSierra:
+    case kOsMacHighSierra:
+    case kOsMacMojave:
     case kOsLinux:
     case kOsChromeOS:
     case kOsAndroid:
+    case kOsFuchsia:
       break;
     default:
       return false;
   }
-  if (validate_gpu_info_) {
-    if (gpu_vendor().size() != 1 || gpu_vendor()[0] == 0)
-      return false;
-    if (gpu_device_id() == 0)
-      return false;
-  }
+  if (gpu_vendor().size() != 1 || gpu_vendor()[0] == 0)
+    return false;
+  if (gpu_device_id() == 0)
+    return false;
   switch (build_type()) {
     case kBuildTypeRelease:
     case kBuildTypeDebug:
@@ -253,16 +254,19 @@ bool GPUTestBotConfig::Matches(const std::string& config_data) const {
 
 bool GPUTestBotConfig::LoadCurrentConfig(const GPUInfo* gpu_info) {
   bool rt;
-  if (gpu_info == NULL) {
+  if (!gpu_info) {
+#if defined(OS_ANDROID)
+    // TODO(zmo): Implement this.
+    rt = false;
+#else
     GPUInfo my_gpu_info;
-    CollectInfoResult result = CollectBasicGraphicsInfo(&my_gpu_info);
-    if (result != kCollectInfoSuccess) {
+    if (!CollectBasicGraphicsInfo(&my_gpu_info)) {
       LOG(ERROR) << "Fail to identify GPU";
-      DisableGPUInfoValidation();
-      rt = true;
+      rt = false;
     } else {
       rt = SetGPUInfo(my_gpu_info);
     }
+#endif  // OS_ANDROID
   } else {
     rt = SetGPUInfo(*gpu_info);
   }
@@ -282,7 +286,7 @@ bool GPUTestBotConfig::LoadCurrentConfig(const GPUInfo* gpu_info) {
 // static
 bool GPUTestBotConfig::CurrentConfigMatches(const std::string& config_data) {
   GPUTestBotConfig my_config;
-  if (!my_config.LoadCurrentConfig(NULL))
+  if (!my_config.LoadCurrentConfig(nullptr))
     return false;
   return my_config.Matches(config_data);
 }
@@ -291,7 +295,7 @@ bool GPUTestBotConfig::CurrentConfigMatches(const std::string& config_data) {
 bool GPUTestBotConfig::CurrentConfigMatches(
     const std::vector<std::string>& configs) {
   GPUTestBotConfig my_config;
-  if (!my_config.LoadCurrentConfig(NULL))
+  if (!my_config.LoadCurrentConfig(nullptr))
     return false;
   for (size_t i = 0 ; i < configs.size(); ++i) {
     if (my_config.Matches(configs[i]))
@@ -302,14 +306,7 @@ bool GPUTestBotConfig::CurrentConfigMatches(
 
 // static
 bool GPUTestBotConfig::GpuBlacklistedOnBot() {
-#if defined(OS_WIN)
-  // Blacklist rule #79 disables all Gpu acceleration before Windows 7.
-  if (base::win::GetVersion() <= base::win::VERSION_VISTA) {
-    return true;
-  }
-#endif
   return false;
 }
 
 }  // namespace gpu
-

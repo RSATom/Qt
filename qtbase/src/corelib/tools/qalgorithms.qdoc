@@ -29,6 +29,7 @@
     \headerfile <QtAlgorithms>
     \title Generic Algorithms
     \ingroup funclists
+    \keyword generic algorithms
 
     \brief The <QtAlgorithms> header includes the generic, template-based algorithms.
 
@@ -154,8 +155,8 @@
 
     \section2 Porting guidelines
 
-    Most of the times, an application using the deprecated Qt algorithmic functions
-    can be easily ported to use the equivalent STL functions. You need to
+    Most of the time, an application using the deprecated Qt algorithmic functions
+    can be easily ported to use the equivalent STL functions. You need to:
 
     \list 1
         \li add the \c{#include <algorithm>} preprocessor directive;
@@ -228,7 +229,7 @@
     \sa {container classes}, <QtGlobal>
 */
 
-/*! \fn OutputIterator qCopy(InputIterator begin1, InputIterator end1, OutputIterator begin2)
+/*! \fn template <typename InputIterator, typename OutputIterator> OutputIterator qCopy(InputIterator begin1, InputIterator end1, OutputIterator begin2)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -247,7 +248,7 @@
     \sa qCopyBackward(), {input iterators}, {output iterators}
 */
 
-/*! \fn BiIterator2 qCopyBackward(BiIterator1 begin1, BiIterator1 end1, BiIterator2 end2)
+/*! \fn template <typename BiIterator1, typename BiIterator2> BiIterator2 qCopyBackward(BiIterator1 begin1, BiIterator1 end1, BiIterator2 end2)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -266,7 +267,7 @@
     \sa qCopy(), {bidirectional iterators}
 */
 
-/*! \fn bool qEqual(InputIterator1 begin1, InputIterator1 end1, InputIterator2 begin2)
+/*! \fn template <typename InputIterator1, typename InputIterator2> bool qEqual(InputIterator1 begin1, InputIterator1 end1, InputIterator2 begin2)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -285,7 +286,7 @@
     \sa {input iterators}
 */
 
-/*! \fn void qFill(ForwardIterator begin, ForwardIterator end, const T &value)
+/*! \fn template <typename ForwardIterator, typename T> void qFill(ForwardIterator begin, ForwardIterator end, const T &value)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -299,7 +300,7 @@
     \sa qCopy(), {forward iterators}
 */
 
-/*! \fn void qFill(Container &container, const T &value)
+/*! \fn template <typename Container, typename T> void qFill(Container &container, const T &value)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -309,7 +310,7 @@
     This is the same as qFill(\a{container}.begin(), \a{container}.end(), \a value);
 */
 
-/*! \fn InputIterator qFind(InputIterator begin, InputIterator end, const T &value)
+/*! \fn template <typename InputIterator, typename T> InputIterator qFind(InputIterator begin, InputIterator end, const T &value)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -332,7 +333,7 @@
     \sa qBinaryFind(), {input iterators}
 */
 
-/*! \fn void qFind(const Container &container, const T &value)
+/*! \fn template <typename Container, typename T> void qFind(const Container &container, const T &value)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -342,7 +343,7 @@
     This is the same as qFind(\a{container}.constBegin(), \a{container}.constEnd(), \a value);
 */
 
-/*! \fn void qCount(InputIterator begin, InputIterator end, const T &value, Size &n)
+/*! \fn template <typename InputIterator, typename T, typename Size> void qCount(InputIterator begin, InputIterator end, const T &value, Size &n)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -362,7 +363,7 @@
     \sa {input iterators}
 */
 
-/*! \fn void qCount(const Container &container, const T &value, Size &n)
+/*! \fn template <typename Container, typename T, typename Size> void qCount(const Container &container, const T &value, Size &n)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -374,7 +375,7 @@
     of \a value in the variable passed as a reference in argument \a n.
 */
 
-/*! \fn void qSwap(T &var1, T &var2)
+/*! \fn template <typename T> void qSwap(T &var1, T &var2)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -386,7 +387,7 @@
     \snippet code/doc_src_qalgorithms.cpp 10
 */
 
-/*! \fn void qSort(RandomAccessIterator begin, RandomAccessIterator end)
+/*! \fn template <typename RandomAccessIterator> void qSort(RandomAccessIterator begin, RandomAccessIterator end)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -411,7 +412,7 @@
     \sa qStableSort(), {random access iterators}
 */
 
-/*! \fn void qSort(RandomAccessIterator begin, RandomAccessIterator end, LessThan lessThan)
+/*! \fn template <typename RandomAccessIterator, typename LessThan> void qSort(RandomAccessIterator begin, RandomAccessIterator end, LessThan lessThan)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -447,7 +448,7 @@
     \sa QMap
 */
 
-/*! \fn void qSort(Container &container)
+/*! \fn template<typename Container> void qSort(Container &container)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -458,7 +459,7 @@
 */
 
 /*!
-    \fn void qStableSort(RandomAccessIterator begin, RandomAccessIterator end)
+    \fn template <typename RandomAccessIterator> void qStableSort(RandomAccessIterator begin, RandomAccessIterator end)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -485,7 +486,7 @@
 */
 
 /*!
-    \fn void qStableSort(RandomAccessIterator begin, RandomAccessIterator end, LessThan lessThan)
+    \fn template <typename RandomAccessIterator, typename LessThan> void qStableSort(RandomAccessIterator begin, RandomAccessIterator end, LessThan lessThan)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -517,7 +518,7 @@
 */
 
 /*!
-    \fn void qStableSort(Container &container)
+    \fn template <typename Container> void qStableSort(Container &container)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -527,7 +528,7 @@
     This is the same as qStableSort(\a{container}.begin(), \a{container}.end());
 */
 
-/*! \fn RandomAccessIterator qLowerBound(RandomAccessIterator begin, RandomAccessIterator end, const T &value)
+/*! \fn template <typename RandomAccessIterator, typename T> RandomAccessIterator qLowerBound(RandomAccessIterator begin, RandomAccessIterator end, const T &value)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -556,7 +557,7 @@
 */
 
 /*!
-    \fn RandomAccessIterator qLowerBound(RandomAccessIterator begin, RandomAccessIterator end, const T &value, LessThan lessThan)
+    \fn template <typename RandomAccessIterator, typename T, typename LessThan> RandomAccessIterator qLowerBound(RandomAccessIterator begin, RandomAccessIterator end, const T &value, LessThan lessThan)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -571,7 +572,7 @@
 */
 
 /*!
-    \fn void qLowerBound(const Container &container, const T &value)
+    \fn template <typename Container, typename T> void qLowerBound(const Container &container, const T &value)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -584,7 +585,7 @@
     to insert items.
 */
 
-/*! \fn RandomAccessIterator qUpperBound(RandomAccessIterator begin, RandomAccessIterator end, const T &value)
+/*! \fn template <typename RandomAccessIterator, typename T> RandomAccessIterator qUpperBound(RandomAccessIterator begin, RandomAccessIterator end, const T &value)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -613,7 +614,7 @@
 */
 
 /*!
-    \fn RandomAccessIterator qUpperBound(RandomAccessIterator begin, RandomAccessIterator end, const T &value, LessThan lessThan)
+    \fn template <typename RandomAccessIterator, typename T, typename LessThan> RandomAccessIterator qUpperBound(RandomAccessIterator begin, RandomAccessIterator end, const T &value, LessThan lessThan)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -628,7 +629,7 @@
 */
 
 /*!
-    \fn void qUpperBound(const Container &container, const T &value)
+    \fn template <typename Container, typename T> void qUpperBound(const Container &container, const T &value)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -639,7 +640,7 @@
 */
 
 
-/*! \fn RandomAccessIterator qBinaryFind(RandomAccessIterator begin, RandomAccessIterator end, const T &value)
+/*! \fn template <typename RandomAccessIterator, typename T> RandomAccessIterator qBinaryFind(RandomAccessIterator begin, RandomAccessIterator end, const T &value)
     \relates <QtAlgorithms>
     \deprecated
 
@@ -665,7 +666,7 @@
     \sa qLowerBound(), qUpperBound(), {random access iterators}
 */
 
-/*! \fn RandomAccessIterator qBinaryFind(RandomAccessIterator begin, RandomAccessIterator end, const T &value, LessThan lessThan)
+/*! \fn template <typename RandomAccessIterator, typename T, typename LessThan> RandomAccessIterator qBinaryFind(RandomAccessIterator begin, RandomAccessIterator end, const T &value, LessThan lessThan)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -680,7 +681,7 @@
 */
 
 /*!
-    \fn void qBinaryFind(const Container &container, const T &value)
+    \fn template <typename Container, typename T> void qBinaryFind(const Container &container, const T &value)
     \relates <QtAlgorithms>
     \deprecated
     \overload
@@ -692,7 +693,7 @@
 
 
 /*!
-    \fn void qDeleteAll(ForwardIterator begin, ForwardIterator end)
+    \fn template <typename ForwardIterator> void qDeleteAll(ForwardIterator begin, ForwardIterator end)
     \relates <QtAlgorithms>
 
     Deletes all the items in the range [\a begin, \a end) using the
@@ -715,7 +716,7 @@
 */
 
 /*!
-    \fn void qDeleteAll(const Container &c)
+    \fn template <typename Container> void qDeleteAll(const Container &c)
     \relates <QtAlgorithms>
 
     \overload
@@ -723,7 +724,7 @@
     This is the same as qDeleteAll(\a{c}.begin(), \a{c}.end()).
 */
 
-/*! \fn LessThan qLess()
+/*! \fn template <typename LessThan> LessThan qLess()
     \relates <QtAlgorithms>
     \deprecated
 
@@ -739,7 +740,7 @@
     \sa {qGreater()}{qGreater<T>()}
 */
 
-/*! \fn LessThan qGreater()
+/*! \fn template <typename LessThan> LessThan qGreater()
     \relates <QtAlgorithms>
     \deprecated
 

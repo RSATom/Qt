@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
@@ -21,6 +20,7 @@
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util.h"
 #include "ppapi/c/private/ppb_net_address_private.h"
 #include "ppapi/shared_impl/private/net_address_private_impl.h"
 #include "ppapi/shared_impl/private/ppb_x509_certificate_private_shared.h"
@@ -81,36 +81,36 @@ bool GetCertificateFields(const net::X509Certificate& cert,
                           ppapi::PPB_X509Certificate_Fields* fields) {
   const net::CertPrincipal& issuer = cert.issuer();
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_ISSUER_COMMON_NAME,
-                   base::MakeUnique<base::Value>(issuer.common_name));
+                   std::make_unique<base::Value>(issuer.common_name));
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_ISSUER_LOCALITY_NAME,
-                   base::MakeUnique<base::Value>(issuer.locality_name));
+                   std::make_unique<base::Value>(issuer.locality_name));
   fields->SetField(
       PP_X509CERTIFICATE_PRIVATE_ISSUER_STATE_OR_PROVINCE_NAME,
-      base::MakeUnique<base::Value>(issuer.state_or_province_name));
+      std::make_unique<base::Value>(issuer.state_or_province_name));
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_ISSUER_COUNTRY_NAME,
-                   base::MakeUnique<base::Value>(issuer.country_name));
+                   std::make_unique<base::Value>(issuer.country_name));
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_ISSUER_ORGANIZATION_NAME,
-                   base::MakeUnique<base::Value>(
+                   std::make_unique<base::Value>(
                        base::JoinString(issuer.organization_names, "\n")));
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_ISSUER_ORGANIZATION_UNIT_NAME,
-                   base::MakeUnique<base::Value>(
+                   std::make_unique<base::Value>(
                        base::JoinString(issuer.organization_unit_names, "\n")));
 
   const net::CertPrincipal& subject = cert.subject();
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_SUBJECT_COMMON_NAME,
-                   base::MakeUnique<base::Value>(subject.common_name));
+                   std::make_unique<base::Value>(subject.common_name));
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_SUBJECT_LOCALITY_NAME,
-                   base::MakeUnique<base::Value>(subject.locality_name));
+                   std::make_unique<base::Value>(subject.locality_name));
   fields->SetField(
       PP_X509CERTIFICATE_PRIVATE_SUBJECT_STATE_OR_PROVINCE_NAME,
-      base::MakeUnique<base::Value>(subject.state_or_province_name));
+      std::make_unique<base::Value>(subject.state_or_province_name));
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_SUBJECT_COUNTRY_NAME,
-                   base::MakeUnique<base::Value>(subject.country_name));
+                   std::make_unique<base::Value>(subject.country_name));
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_SUBJECT_ORGANIZATION_NAME,
-                   base::MakeUnique<base::Value>(
+                   std::make_unique<base::Value>(
                        base::JoinString(subject.organization_names, "\n")));
   fields->SetField(PP_X509CERTIFICATE_PRIVATE_SUBJECT_ORGANIZATION_UNIT_NAME,
-                   base::MakeUnique<base::Value>(base::JoinString(
+                   std::make_unique<base::Value>(base::JoinString(
                        subject.organization_unit_names, "\n")));
 
   const std::string& serial_number = cert.serial_number();
@@ -119,15 +119,15 @@ bool GetCertificateFields(const net::X509Certificate& cert,
                                                        serial_number.length()));
   fields->SetField(
       PP_X509CERTIFICATE_PRIVATE_VALIDITY_NOT_BEFORE,
-      base::MakeUnique<base::Value>(cert.valid_start().ToDoubleT()));
+      std::make_unique<base::Value>(cert.valid_start().ToDoubleT()));
   fields->SetField(
       PP_X509CERTIFICATE_PRIVATE_VALIDITY_NOT_AFTER,
-      base::MakeUnique<base::Value>(cert.valid_expiry().ToDoubleT()));
-  std::string der;
-  net::X509Certificate::GetDEREncoded(cert.os_cert_handle(), &der);
-  fields->SetField(
-      PP_X509CERTIFICATE_PRIVATE_RAW,
-      base::Value::CreateWithCopiedBuffer(der.data(), der.length()));
+      std::make_unique<base::Value>(cert.valid_expiry().ToDoubleT()));
+  base::StringPiece cert_der =
+      net::x509_util::CryptoBufferAsStringPiece(cert.cert_buffer());
+  fields->SetField(PP_X509CERTIFICATE_PRIVATE_RAW,
+                   std::make_unique<base::Value>(base::Value::BlobStorage(
+                       cert_der.begin(), cert_der.end())));
   return true;
 }
 
@@ -185,6 +185,95 @@ void OpenUDPFirewallHole(const net::IPEndPoint& address,
   OpenFirewallHole(address, chromeos::FirewallHole::PortType::UDP, callback);
 }
 #endif  // defined(OS_CHROMEOS)
+
+net::MutableNetworkTrafficAnnotationTag PepperTCPNetworkAnnotationTag() {
+  return net::MutableNetworkTrafficAnnotationTag(
+      net::DefineNetworkTrafficAnnotation("pepper_tcp_socket",
+                                          R"(
+        semantics {
+          sender: "Pepper TCP Socket"
+          description:
+            "Pepper plugins use this API to send and receive data over the "
+            "network using TCP connections. This inteface is used by Flash and "
+            "PDF viewer, and Chrome Apps which use plugins to send/receive TCP "
+            "traffic (require Chrome Apps TCP socket permission). This "
+            "interface allows creation of client and server sockets."
+          trigger:
+            "A request from a Pepper plugin."
+          data: "Any data that the plugin sends."
+          destination: OTHER
+          destination_other:
+            "Data can be sent to any destination."
+        }
+        policy {
+          cookies_allowed: NO
+          setting:
+            "These requests cannot be disabled, but will not happen if user "
+            "does not use Flash, internal PDF Viewer, or Chrome Apps that use "
+            "Pepper interface."
+          chrome_policy {
+            DefaultPluginsSetting {
+              DefaultPluginsSetting: 2
+            }
+          }
+          chrome_policy {
+            AlwaysOpenPdfExternally {
+              AlwaysOpenPdfExternally: true
+            }
+          }
+          chrome_policy {
+            ExtensionInstallBlacklist {
+              ExtensionInstallBlacklist: {
+                entries: '*'
+              }
+            }
+          }
+        })"));
+}
+
+net::MutableNetworkTrafficAnnotationTag PepperUDPNetworkAnnotationTag() {
+  return net::MutableNetworkTrafficAnnotationTag(
+      net::DefineNetworkTrafficAnnotation("pepper_udp_socket",
+                                          R"(
+        semantics {
+          sender: "Pepper UDP Socket"
+          description:
+            "Pepper plugins use this API to send and receive data over the "
+            "network using UDP connections. This inteface is used by Flash and "
+            "PDF viewer, and Chrome Apps which use plugins to send/receive UDP "
+            "traffic (require Chrome Apps UDP socket permission)."
+          trigger:
+            "A request from a Pepper plugin."
+          data: "Any data that the plugin sends."
+          destination: OTHER
+          destination_other:
+            "Data can be sent to any destination."
+        }
+        policy {
+          cookies_allowed: NO
+          setting:
+            "These requests cannot be disabled, but will not happen if user "
+            "does not use Flash, internal PDF Viewer, or Chrome Apps that use "
+            "Pepper interface."
+          chrome_policy {
+            DefaultPluginsSetting {
+              DefaultPluginsSetting: 2
+            }
+          }
+          chrome_policy {
+            AlwaysOpenPdfExternally {
+              AlwaysOpenPdfExternally: true
+            }
+          }
+          chrome_policy {
+            ExtensionInstallBlacklist {
+              ExtensionInstallBlacklist: {
+                entries: '*'
+              }
+            }
+          }
+        })"));
+}
 
 }  // namespace pepper_socket_utils
 }  // namespace content

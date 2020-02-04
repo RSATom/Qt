@@ -9,7 +9,11 @@
 Polymer({
   is: 'settings-basic-page',
 
-  behaviors: [MainPageBehavior, WebUIListenerBehavior],
+  behaviors: [
+    settings.MainPageBehavior,
+    settings.RouteObserverBehavior,
+    WebUIListenerBehavior,
+  ],
 
   properties: {
     /** Preferences state. */
@@ -21,7 +25,9 @@ Polymer({
     // <if expr="chromeos">
     showAndroidApps: Boolean,
 
-    showMultidevice: Boolean,
+    showCrostini: Boolean,
+
+    allowCrostini_: Boolean,
 
     havePlayStoreApp: Boolean,
     // </if>
@@ -29,12 +35,9 @@ Polymer({
     /** @type {!AndroidAppsInfo|undefined} */
     androidAppsInfo: Object,
 
-    showChromeCleanup: {
+    showChangePassword: {
       type: Boolean,
-      value: function() {
-        return loadTimeData.valueExists('chromeCleanupEnabled') &&
-            loadTimeData.getBoolean('chromeCleanupEnabled');
-      },
+      value: false,
     },
 
     /**
@@ -50,6 +53,7 @@ Polymer({
 
     advancedToggleExpanded: {
       type: Boolean,
+      value: false,
       notify: true,
       observer: 'advancedToggleExpandedChanged_',
     },
@@ -91,20 +95,38 @@ Polymer({
     currentRoute_: Object,
   },
 
+  hostAttributes: {
+    role: 'main',
+  },
+
   listeners: {
     'subpage-expand': 'onSubpageExpanded_',
   },
+
+  /**
+   * Used to avoid handling a new toggle while currently toggling.
+   * @private {boolean}
+   */
+  advancedTogglingInProgress_: false,
 
   /** @override */
   attached: function() {
     this.currentRoute_ = settings.getCurrentRoute();
 
-    this.addEventListener('chrome-cleanup-dismissed', function(e) {
-      this.showChromeCleanup = false;
-    }.bind(this));
+    this.allowCrostini_ = loadTimeData.valueExists('allowCrostini') &&
+        loadTimeData.getBoolean('allowCrostini');
+
+    this.addWebUIListener('change-password-visibility', visibility => {
+      this.showChangePassword = visibility;
+    });
+
+    if (loadTimeData.getBoolean('passwordProtectionAvailable')) {
+      settings.ChangePasswordBrowserProxyImpl.getInstance()
+          .initializeChangePasswordHandler();
+    }
 
     if (settings.AndroidAppsBrowserProxyImpl) {
-      cr.addWebUIListener(
+      this.addWebUIListener(
           'android-apps-info-update', this.androidAppsInfoUpdate_.bind(this));
       settings.AndroidAppsBrowserProxyImpl.getInstance()
           .requestAndroidAppsInfo();
@@ -112,26 +134,35 @@ Polymer({
   },
 
   /**
-   * Overrides MainPageBehaviorImpl from MainPageBehavior.
    * @param {!settings.Route} newRoute
    * @param {settings.Route} oldRoute
    */
   currentRouteChanged: function(newRoute, oldRoute) {
     this.currentRoute_ = newRoute;
 
-    if (settings.routes.ADVANCED && settings.routes.ADVANCED.contains(newRoute))
+    if (settings.routes.ADVANCED &&
+        settings.routes.ADVANCED.contains(newRoute)) {
       this.advancedToggleExpanded = true;
+    }
 
     if (oldRoute && oldRoute.isSubpage()) {
       // If the new route isn't the same expanded section, reset
       // hasExpandedSection_ for the next transition.
-      if (!newRoute.isSubpage() || newRoute.section != oldRoute.section)
+      if (!newRoute.isSubpage() || newRoute.section != oldRoute.section) {
         this.hasExpandedSection_ = false;
+      }
     } else {
       assert(!this.hasExpandedSection_);
     }
 
-    MainPageBehaviorImpl.currentRouteChanged.call(this, newRoute, oldRoute);
+    settings.MainPageBehavior.currentRouteChanged.call(
+        this, newRoute, oldRoute);
+  },
+
+  // Override settings.MainPageBehavior method.
+  containsRoute: function(route) {
+    return !route || settings.routes.BASIC.contains(route) ||
+        settings.routes.ADVANCED.contains(route);
   },
 
   /**
@@ -151,7 +182,7 @@ Polymer({
    *     searching finished.
    */
   searchContents: function(query) {
-    var whenSearchDone = [
+    const whenSearchDone = [
       settings.getSearchManager().search(query, assert(this.$$('#basicPage'))),
     ];
 
@@ -203,34 +234,30 @@ Polymer({
   },
 
   /**
+   * Returns true in case Android apps settings needs to be created. It is not
+   * created in case ARC++ is not allowed for the current profile.
    * @return {boolean}
    * @private
    */
-  shouldShowAndroidApps_: function() {
-    var visibility = /** @type {boolean|undefined} */ (
+  shouldCreateAndroidAppsSection_: function() {
+    const visibility = /** @type {boolean|undefined} */ (
         this.get('pageVisibility.androidApps'));
-    if (!this.showAndroidApps || !this.showPage_(visibility)) {
-      return false;
-    }
-
-    // Section is invisible in case we don't have the Play Store app and
-    // settings app is not yet available.
-    if (!this.havePlayStoreApp &&
-        (!this.androidAppsInfo || !this.androidAppsInfo.settingsAppAvailable)) {
-      return false;
-    }
-
-    return true;
+    return this.showAndroidApps && this.showPage_(visibility);
   },
 
   /**
-   * @return {boolean} Whether to show the multidevice settings page.
+   * Returns true in case Android apps settings should be shown. It is not
+   * shown in case we don't have the Play Store app and settings app is not
+   * yet available.
+   * @return {boolean}
    * @private
    */
-  shouldShowMultidevice_: function() {
-    var visibility = /** @type {boolean|undefined} */ (
-        this.get('pageVisibility.multidevice'));
-    return this.showMultidevice && this.showPage_(visibility);
+  shouldShowAndroidAppsSection_: function() {
+    if (this.havePlayStoreApp ||
+        (this.androidAppsInfo && this.androidAppsInfo.settingsAppAvailable)) {
+      return true;
+    }
+    return false;
   },
 
   /**
@@ -247,9 +274,49 @@ Polymer({
    */
   advancedToggleExpandedChanged_: function() {
     if (this.advancedToggleExpanded) {
-      this.async(function() {
-        this.$$('#advancedPageTemplate').get();
-      }.bind(this));
+      // In Polymer2, async() does not wait long enough for layout to complete.
+      // Polymer.RenderStatus.beforeNextRender() must be used instead.
+      // TODO (rbpotter): Remove conditional when migration to Polymer 2 is
+      // completed.
+      if (Polymer.DomIf) {
+        Polymer.RenderStatus.beforeNextRender(this, () => {
+          this.$$('#advancedPageTemplate').get();
+        });
+      } else {
+        this.async(() => {
+          this.$$('#advancedPageTemplate').get();
+        });
+      }
+    }
+  },
+
+  advancedToggleClicked_: function() {
+    if (this.advancedTogglingInProgress_) {
+      return;
+    }
+
+    this.advancedTogglingInProgress_ = true;
+    const toggle = this.$$('#toggleContainer');
+    if (!this.advancedToggleExpanded) {
+      this.advancedToggleExpanded = true;
+      this.async(() => {
+        this.$$('#advancedPageTemplate').get().then(() => {
+          this.fire('scroll-to-top', {
+            top: toggle.offsetTop,
+            callback: () => {
+              this.advancedTogglingInProgress_ = false;
+            }
+          });
+        });
+      });
+    } else {
+      this.fire('scroll-to-bottom', {
+        bottom: toggle.offsetTop + toggle.offsetHeight + 24,
+        callback: () => {
+          this.advancedToggleExpanded = false;
+          this.advancedTogglingInProgress_ = false;
+        }
+      });
     }
   },
 
@@ -308,5 +375,14 @@ Polymer({
    */
   getArrowIcon_: function(opened) {
     return opened ? 'cr:arrow-drop-up' : 'cr:arrow-drop-down';
+  },
+
+  /**
+   * @param {boolean} bool
+   * @return {string}
+   * @private
+   */
+  boolToString_: function(bool) {
+    return bool.toString();
   },
 });

@@ -49,7 +49,7 @@
 
 QT_BEGIN_NAMESPACE
 
-#if !defined(Q_OS_WIN) && !defined(QT_NO_THREAD) && !defined(Q_OS_INTEGRITY) && !defined(Q_OS_QNX) && \
+#if !defined(Q_OS_WIN) && QT_CONFIG(thread) && !defined(Q_OS_INTEGRITY) && !defined(Q_OS_QNX) && \
     defined(_POSIX_THREAD_SAFE_FUNCTIONS) && _POSIX_VERSION >= 200112L
 namespace {
     // There are two incompatible versions of strerror_r:
@@ -130,7 +130,7 @@ static QString standardLibraryErrorString(int errorCode)
         s = QT_TRANSLATE_NOOP("QIODevice", "No space left on device");
         break;
     default: {
-      #if !defined(QT_NO_THREAD) && defined(_POSIX_THREAD_SAFE_FUNCTIONS) && _POSIX_VERSION >= 200112L && !defined(Q_OS_INTEGRITY) && !defined(Q_OS_QNX)
+      #if QT_CONFIG(thread) && defined(_POSIX_THREAD_SAFE_FUNCTIONS) && _POSIX_VERSION >= 200112L && !defined(Q_OS_INTEGRITY) && !defined(Q_OS_QNX)
             QByteArray buf(1024, Qt::Uninitialized);
             ret = fromstrerror_helper(strerror_r(errorCode, buf.data(), buf.size()), buf);
       #else
@@ -152,10 +152,7 @@ QString QSystemError::string(ErrorScope errorScope, int errorCode)
     case NativeError:
 #if defined (Q_OS_WIN)
         return windowsErrorString(errorCode);
-#else
-        //unix: fall through as native and standard library are the same
-        Q_FALLTHROUGH();
-#endif
+#endif // else unix: native and standard library are the same
     case StandardLibraryError:
         return standardLibraryErrorString(errorCode);
     default:

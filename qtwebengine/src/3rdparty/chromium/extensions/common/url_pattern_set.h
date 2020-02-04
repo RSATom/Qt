@@ -11,6 +11,7 @@
 #include <memory>
 #include <set>
 
+#include "base/macros.h"
 #include "extensions/common/url_pattern.h"
 
 class GURL;
@@ -32,20 +33,48 @@ class URLPatternSet {
   static URLPatternSet CreateDifference(const URLPatternSet& set1,
                                         const URLPatternSet& set2);
 
-  // Returns the intersection of |set1| and |set2|.
-  static URLPatternSet CreateIntersection(const URLPatternSet& set1,
-                                          const URLPatternSet& set2);
+  enum class IntersectionBehavior {
+    // For the following descriptions, consider the two URLPatternSets:
+    // Set 1: {"https://example.com/*", "https://*.google.com/*", "http://*/*"}
+    // Set 2: {"https://example.com/*", "https://google.com/maps",
+    //         "*://chromium.org/*"}
 
-  // Creates an intersection result where result has every element that is
-  // contained by both |set1| and |set2|. This is different than
-  // CreateIntersection(), which does string comparisons. For example, the
-  // semantic intersection of ("http://*.google.com/*") and
-  // ("http://google.com/*") is ("http://google.com/*"), but the result from
-  // CreateIntersection() would be ().
-  // TODO(devlin): This is weird. We probably want to use mostly
-  // CreateSemanticIntersection().
-  static URLPatternSet CreateSemanticIntersection(const URLPatternSet& set1,
-                                                  const URLPatternSet& set2);
+    // Only includes patterns that are exactly in both sets. The intersection of
+    // the two sets above is {"https://example.com/*"}, since that is the only
+    // pattern that appears exactly in each.
+    kStringComparison,
+
+    // Includes patterns that are effectively contained by both sets. The
+    // intersection of the two sets above is
+    // {
+    //   "https://example.com/*" (contained exactly by each set)
+    //   "https://google.com/maps" (contained exactly by set 2 and a strict
+    //                              subset of https://*.google.com/* in set 1)
+    // }
+    kPatternsContainedByBoth,
+
+    // Includes patterns that are contained by both sets and creates new
+    // patterns to represent the intersection of any others. The intersection of
+    // the two sets above is
+    // {
+    //   "https://example.com/*" (contained exactly by each set)
+    //   "https://google.com/maps" (contained exactly by set 2 and a strict
+    //                              subset of https://*.google.com/* in set 1)
+    //   "http://chromium.org/*" (the overlap between "http://*/*" in set 1 and
+    //                            *://chromium.org/*" in set 2).
+    // }
+    // Note that this is the most computationally expensive - potentially
+    // O(n^2) - since it can require comparing each pattern in one set to every
+    // pattern in the other set.
+    kDetailed,
+  };
+
+  // Returns the intersection of |set1| and |set2| according to
+  // |intersection_behavior|.
+  static URLPatternSet CreateIntersection(
+      const URLPatternSet& set1,
+      const URLPatternSet& set2,
+      IntersectionBehavior intersection_behavior);
 
   // Returns the union of |set1| and |set2|.
   static URLPatternSet CreateUnion(const URLPatternSet& set1,
@@ -55,11 +84,11 @@ class URLPatternSet {
   static URLPatternSet CreateUnion(const std::vector<URLPatternSet>& sets);
 
   URLPatternSet();
-  URLPatternSet(const URLPatternSet& rhs);
+  URLPatternSet(URLPatternSet&& rhs);
   explicit URLPatternSet(const std::set<URLPattern>& patterns);
   ~URLPatternSet();
 
-  URLPatternSet& operator=(const URLPatternSet& rhs);
+  URLPatternSet& operator=(URLPatternSet&& rhs);
   bool operator==(const URLPatternSet& rhs) const;
 
   bool is_empty() const;
@@ -67,6 +96,10 @@ class URLPatternSet {
   const std::set<URLPattern>& patterns() const { return patterns_; }
   const_iterator begin() const { return patterns_.begin(); }
   const_iterator end() const { return patterns_.end(); }
+
+  // Returns a copy of this URLPatternSet; not instrumented as a copy
+  // constructor to avoid accidental/unnecessary copies.
+  URLPatternSet Clone() const;
 
   // Adds a pattern to the set. Returns true if a new pattern was inserted,
   // false if the pattern was already in the set.
@@ -115,6 +148,8 @@ class URLPatternSet {
  private:
   // The list of URL patterns that comprise the extent.
   std::set<URLPattern> patterns_;
+
+  DISALLOW_COPY_AND_ASSIGN(URLPatternSet);
 };
 
 std::ostream& operator<<(std::ostream& out,

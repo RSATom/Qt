@@ -50,7 +50,7 @@ namespace Qt3DRender {
 
 class QShaderDataPrivate;
 
-class QT3DRENDERSHARED_EXPORT PropertyReaderInterface
+class Q_3DRENDERSHARED_EXPORT PropertyReaderInterface
 {
 public:
     virtual ~PropertyReaderInterface();
@@ -59,7 +59,7 @@ public:
 
 typedef QSharedPointer<PropertyReaderInterface> PropertyReaderInterfacePtr;
 
-class QT3DRENDERSHARED_EXPORT QShaderData : public Qt3DCore::QComponent
+class Q_3DRENDERSHARED_EXPORT QShaderData : public Qt3DCore::QComponent
 {
     Q_OBJECT
 public:
@@ -68,14 +68,14 @@ public:
 
     PropertyReaderInterfacePtr propertyReader() const;
 
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
+    bool event(QEvent *event) override;
 
 protected:
     explicit QShaderData(QShaderDataPrivate &dd, Qt3DCore::QNode *parent = nullptr);
 
 private:
     Q_DECLARE_PRIVATE(QShaderData)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

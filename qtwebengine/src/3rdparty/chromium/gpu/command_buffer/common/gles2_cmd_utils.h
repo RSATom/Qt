@@ -13,47 +13,19 @@
 
 #include <limits>
 #include <string>
-#include <vector>
 
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/numerics/safe_math.h"
 #include "gpu/command_buffer/common/gles2_utils_export.h"
-#include "ui/gfx/geometry/size.h"
-#include "ui/gl/gpu_preference.h"
 
 namespace gpu {
 namespace gles2 {
 
-// Does a multiply and checks for overflow.  If the multiply did not overflow
-// returns true.
-
-// Multiplies 2 32 bit unsigned numbers checking for overflow.
-// If there was no overflow returns true.
-inline bool SafeMultiplyUint32(uint32_t a, uint32_t b, uint32_t* dst) {
-  DCHECK(dst);
-  base::CheckedNumeric<uint32_t> checked = a;
-  checked *= b;
-  *dst = checked.ValueOrDefault(0);
-  return checked.IsValid();
-}
-
-// Does an add checking for overflow.  If there was no overflow returns true.
-inline bool SafeAddUint32(uint32_t a, uint32_t b, uint32_t* dst) {
-  DCHECK(dst);
-  base::CheckedNumeric<uint32_t> checked = a;
-  checked += b;
-  *dst = checked.ValueOrDefault(0);
-  return checked.IsValid();
-}
-
-// Does an add checking for overflow.  If there was no overflow returns true.
-inline bool SafeAddInt32(int32_t a, int32_t b, int32_t* dst) {
-  DCHECK(dst);
-  base::CheckedNumeric<int32_t> checked = a;
-  checked += b;
-  *dst = checked.ValueOrDefault(0);
-  return checked.IsValid();
+// A 32-bit and 64-bit compatible way of converting a pointer to a
+// 32-bit usigned integer, suitable to be stored in a GLuint.
+inline uint32_t ToGLuint(const void* ptr) {
+  return static_cast<uint32_t>(reinterpret_cast<size_t>(ptr));
 }
 
 // Returns the address of the first byte after a struct.
@@ -62,7 +34,7 @@ const volatile void* AddressAfterStruct(const volatile T& pod) {
   return reinterpret_cast<const volatile uint8_t*>(&pod) + sizeof(pod);
 }
 
-// Returns the address of the frst byte after the struct or NULL if size >
+// Returns the address of the frst byte after the struct or nullptr if size >
 // immediate_data_size.
 template <typename RETURN_TYPE, typename COMMAND_TYPE>
 RETURN_TYPE GetImmediateDataAs(const volatile COMMAND_TYPE& pod,
@@ -71,7 +43,7 @@ RETURN_TYPE GetImmediateDataAs(const volatile COMMAND_TYPE& pod,
   return (size <= immediate_data_size)
              ? static_cast<RETURN_TYPE>(
                    const_cast<volatile void*>(AddressAfterStruct(pod)))
-             : NULL;
+             : nullptr;
 }
 
 struct GLES2_UTILS_EXPORT PixelStoreParams {
@@ -140,7 +112,7 @@ class GLES2_UTILS_EXPORT GLES2Util {
   // function is called. If 0 is returned the id is invalid.
   int GLGetNumValuesReturned(int id) const;
 
-  static int ElementsPerGroup(int format, int type);
+  static uint32_t ElementsPerGroup(int format, int type);
   // Computes the size of a single group of elements from a format and type pair
   static uint32_t ComputeImageGroupSize(int format, int type);
 
@@ -168,7 +140,9 @@ class GLES2_UTILS_EXPORT GLES2Util {
       uint32_t* opt_padded_row_size, uint32_t* opt_skip_size,
       uint32_t* opt_padding);
 
-  static size_t RenderbufferBytesPerPixel(int format);
+  static uint32_t RenderbufferBytesPerPixel(int format);
+
+  static uint8_t StencilBitsPerPixel(int format);
 
   // Return the element's number of bytes.
   // For example, GL_FLOAT_MAT3 returns sizeof(GLfloat).
@@ -177,21 +151,22 @@ class GLES2_UTILS_EXPORT GLES2Util {
   // For example, GL_FLOAT_MAT3 returns 9.
   static uint32_t GetElementCountForUniformType(int type);
 
-  static size_t GetGLTypeSizeForTextures(uint32_t type);
+  static uint32_t GetGLTypeSizeForTextures(uint32_t type);
 
-  static size_t GetGLTypeSizeForBuffers(uint32_t type);
+  static uint32_t GetGLTypeSizeForBuffers(uint32_t type);
 
-  static size_t GetGroupSizeForBufferType(uint32_t count, uint32_t type);
+  static uint32_t GetGroupSizeForBufferType(uint32_t count, uint32_t type);
 
-  static size_t GetGLTypeSizeForPathCoordType(uint32_t type);
+  static uint32_t GetComponentCountForGLTransformType(uint32_t type);
+
+  static uint32_t GetCoefficientCountForGLPathFragmentInputGenMode(
+      uint32_t gen_mode);
+
+  static uint32_t GetGLTypeSizeForPathCoordType(uint32_t type);
+
+  static uint32_t GetGLTypeSizeForGLPathNameType(uint32_t type);
 
   static uint32_t GLErrorToErrorBit(uint32_t gl_error);
-
-  static size_t GetComponentCountForGLTransformType(uint32_t type);
-  static size_t GetGLTypeSizeForGLPathNameType(uint32_t type);
-
-  static size_t GetCoefficientCountForGLPathFragmentInputGenMode(
-      uint32_t gen_mode);
 
   static uint32_t GLErrorBitToGLError(uint32_t error_bit);
 
@@ -229,8 +204,9 @@ class GLES2_UTILS_EXPORT GLES2Util {
   static std::string GetStringBool(uint32_t value);
   static std::string GetStringError(uint32_t value);
 
-  static size_t CalcClearBufferivDataCount(int buffer);
-  static size_t CalcClearBufferfvDataCount(int buffer);
+  static uint32_t CalcClearBufferivDataCount(int buffer);
+  static uint32_t CalcClearBufferfvDataCount(int buffer);
+  static uint32_t CalcClearBufferuivDataCount(int buffer);
 
   static void MapUint64ToTwoUint32(
       uint64_t v64, uint32_t* v32_0, uint32_t* v32_1);
@@ -299,53 +275,6 @@ class GLES2_UTILS_EXPORT GLSLArrayName {
   std::string base_name_;
   int element_index_;
   DISALLOW_COPY_AND_ASSIGN(GLSLArrayName);
-};
-
-enum ContextType {
-  CONTEXT_TYPE_WEBGL1,
-  CONTEXT_TYPE_WEBGL2,
-  CONTEXT_TYPE_OPENGLES2,
-  CONTEXT_TYPE_OPENGLES3,
-  CONTEXT_TYPE_LAST = CONTEXT_TYPE_OPENGLES3
-};
-GLES2_UTILS_EXPORT bool IsWebGLContextType(ContextType context_type);
-GLES2_UTILS_EXPORT bool IsWebGL1OrES2ContextType(ContextType context_type);
-GLES2_UTILS_EXPORT bool IsWebGL2OrES3ContextType(ContextType context_type);
-
-enum ColorSpace {
-  COLOR_SPACE_UNSPECIFIED,
-  COLOR_SPACE_SRGB,
-  COLOR_SPACE_DISPLAY_P3,
-  COLOR_SPACE_LAST = COLOR_SPACE_DISPLAY_P3
-};
-
-struct GLES2_UTILS_EXPORT ContextCreationAttribHelper {
-  ContextCreationAttribHelper();
-  ContextCreationAttribHelper(const ContextCreationAttribHelper& other);
-
-  bool Parse(const std::vector<int32_t>& attribs);
-
-  gfx::Size offscreen_framebuffer_size;
-  gl::GpuPreference gpu_preference;
-  // -1 if invalid or unspecified.
-  int32_t alpha_size;
-  int32_t blue_size;
-  int32_t green_size;
-  int32_t red_size;
-  int32_t depth_size;
-  int32_t stencil_size;
-  int32_t samples;
-  int32_t sample_buffers;
-  bool buffer_preserved;
-  bool bind_generates_resource;
-  bool fail_if_major_perf_caveat;
-  bool lose_context_when_out_of_memory;
-  bool should_use_native_gmb_for_backbuffer;
-  bool own_offscreen_surface;
-  bool single_buffer;
-
-  ContextType context_type;
-  ColorSpace color_space = COLOR_SPACE_UNSPECIFIED;
 };
 
 }  // namespace gles2

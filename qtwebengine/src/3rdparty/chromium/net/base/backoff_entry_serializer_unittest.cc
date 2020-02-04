@@ -31,10 +31,10 @@ BackoffEntry::Policy base_policy = {
 
 class TestTickClock : public base::TickClock {
  public:
-  TestTickClock() {}
-  ~TestTickClock() override {}
+  TestTickClock() = default;
+  ~TestTickClock() override = default;
 
-  TimeTicks NowTicks() override { return now_ticks_; }
+  TimeTicks NowTicks() const override { return now_ticks_; }
   void set_now(TimeTicks now) { now_ticks_ = now; }
 
  private:

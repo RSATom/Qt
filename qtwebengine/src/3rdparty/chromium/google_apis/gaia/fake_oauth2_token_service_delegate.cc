@@ -10,10 +10,10 @@ FakeOAuth2TokenServiceDelegate::AccountInfo::AccountInfo(
     : refresh_token(refresh_token),
       error(GoogleServiceAuthError::NONE) {}
 
-FakeOAuth2TokenServiceDelegate::FakeOAuth2TokenServiceDelegate(
-    net::URLRequestContextGetter* request_context)
-    : request_context_(request_context) {
-}
+FakeOAuth2TokenServiceDelegate::FakeOAuth2TokenServiceDelegate()
+    : shared_factory_(
+          base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+              &test_url_loader_factory_)) {}
 
 FakeOAuth2TokenServiceDelegate::~FakeOAuth2TokenServiceDelegate() {
 }
@@ -21,11 +21,11 @@ FakeOAuth2TokenServiceDelegate::~FakeOAuth2TokenServiceDelegate() {
 OAuth2AccessTokenFetcher*
 FakeOAuth2TokenServiceDelegate::CreateAccessTokenFetcher(
     const std::string& account_id,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     OAuth2AccessTokenConsumer* consumer) {
-  AccountInfoMap::const_iterator it = refresh_tokens_.find(account_id);
+  auto it = refresh_tokens_.find(account_id);
   DCHECK(it != refresh_tokens_.end());
-  return new OAuth2AccessTokenFetcherImpl(consumer, getter,
+  return new OAuth2AccessTokenFetcherImpl(consumer, url_loader_factory,
                                           it->second->refresh_token);
 }
 
@@ -34,16 +34,16 @@ bool FakeOAuth2TokenServiceDelegate::RefreshTokenIsAvailable(
   return !GetRefreshToken(account_id).empty();
 }
 
-bool FakeOAuth2TokenServiceDelegate::RefreshTokenHasError(
+GoogleServiceAuthError FakeOAuth2TokenServiceDelegate::GetAuthError(
     const std::string& account_id) const {
   auto it = refresh_tokens_.find(account_id);
-  // TODO(rogerta): should we distinguish between transient and persistent?
-  return it == refresh_tokens_.end() ? false : IsError(it->second->error);
+  return (it == refresh_tokens_.end()) ? GoogleServiceAuthError::AuthErrorNone()
+                                       : it->second->error;
 }
 
 std::string FakeOAuth2TokenServiceDelegate::GetRefreshToken(
     const std::string& account_id) const {
-  AccountInfoMap::const_iterator it = refresh_tokens_.find(account_id);
+  auto it = refresh_tokens_.find(account_id);
   if (it != refresh_tokens_.end())
     return it->second->refresh_token;
   return std::string();
@@ -51,23 +51,20 @@ std::string FakeOAuth2TokenServiceDelegate::GetRefreshToken(
 
 std::vector<std::string> FakeOAuth2TokenServiceDelegate::GetAccounts() {
   std::vector<std::string> account_ids;
-  for (AccountInfoMap::const_iterator iter = refresh_tokens_.begin();
-       iter != refresh_tokens_.end(); ++iter) {
-    account_ids.push_back(iter->first);
-  }
+  for (const auto& token : refresh_tokens_)
+    account_ids.push_back(token.first);
   return account_ids;
 }
 
 void FakeOAuth2TokenServiceDelegate::RevokeAllCredentials() {
   std::vector<std::string> account_ids = GetAccounts();
-  for (std::vector<std::string>::const_iterator it = account_ids.begin();
-       it != account_ids.end(); it++) {
-    RevokeCredentials(*it);
-  }
+  for (const auto& account : account_ids)
+    RevokeCredentials(account);
 }
 
 void FakeOAuth2TokenServiceDelegate::LoadCredentials(
     const std::string& primary_account_id) {
+  set_load_credentials_state(LOAD_CREDENTIALS_FINISHED_WITH_SUCCESS);
   FireRefreshTokensLoaded();
 }
 
@@ -86,8 +83,17 @@ void FakeOAuth2TokenServiceDelegate::IssueRefreshTokenForUser(
     FireRefreshTokenRevoked(account_id);
   } else {
     refresh_tokens_[account_id].reset(new AccountInfo(token));
+    // If the token is a special "invalid" value, then that means the token was
+    // rejected by the client and is thus not valid. So set the appropriate
+    // error in that case. This logic is essentially duplicated from
+    // MutableProfileOAuth2TokenServiceDelegate.
+    if (token == kInvalidRefreshToken) {
+      refresh_tokens_[account_id]->error =
+          GoogleServiceAuthError::FromInvalidGaiaCredentialsReason(
+              GoogleServiceAuthError::InvalidGaiaCredentialsReason::
+                  CREDENTIALS_REJECTED_BY_CLIENT);
+    }
     FireRefreshTokenAvailable(account_id);
-    // TODO(atwilson): Maybe we should also call FireRefreshTokensLoaded() here?
   }
 }
 
@@ -96,15 +102,39 @@ void FakeOAuth2TokenServiceDelegate::RevokeCredentials(
   IssueRefreshTokenForUser(account_id, std::string());
 }
 
-net::URLRequestContextGetter*
-FakeOAuth2TokenServiceDelegate::GetRequestContext() const {
-  return request_context_.get();
+void FakeOAuth2TokenServiceDelegate::ExtractCredentials(
+    OAuth2TokenService* to_service,
+    const std::string& account_id) {
+  auto it = refresh_tokens_.find(account_id);
+  DCHECK(it != refresh_tokens_.end());
+  to_service->GetDelegate()->UpdateCredentials(account_id,
+                                               it->second->refresh_token);
+  RevokeCredentials(account_id);
 }
 
-void FakeOAuth2TokenServiceDelegate::SetLastErrorForAccount(
+scoped_refptr<network::SharedURLLoaderFactory>
+FakeOAuth2TokenServiceDelegate::GetURLLoaderFactory() const {
+  return shared_factory_;
+}
+
+bool FakeOAuth2TokenServiceDelegate::FixRequestErrorIfPossible() {
+  return fix_request_if_possible_;
+}
+
+void FakeOAuth2TokenServiceDelegate::UpdateAuthError(
     const std::string& account_id,
     const GoogleServiceAuthError& error) {
+  if (error.IsTransientError() || GetAuthError(account_id) == error)
+    return;
+
+  // Drop transient errors to match OAuth2TokenService's stated contract for
+  // GetAuthError() and to allow clients to test proper behavior in the case of
+  // transient errors.
+  if (error.IsTransientError())
+    return;
+
   auto it = refresh_tokens_.find(account_id);
   DCHECK(it != refresh_tokens_.end());
   it->second->error = error;
+  FireAuthErrorChanged(account_id, error);
 }

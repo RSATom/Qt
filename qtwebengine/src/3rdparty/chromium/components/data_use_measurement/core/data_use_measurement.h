@@ -12,10 +12,13 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
+#include "base/observer_list.h"
+#include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/metrics/data_use_tracker.h"
+#include "services/network/public/cpp/network_connection_tracker.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/application_status_listener.h"
@@ -39,13 +42,38 @@ class URLRequestClassifier;
 // background or foreground during the request.
 // TODO(amohammadkhan): Complete the layered architecture.
 // http://crbug.com/527460
-class DataUseMeasurement {
+class DataUseMeasurement
+    : public network::NetworkConnectionTracker::NetworkConnectionObserver {
  public:
+  class ServicesDataUseObserver {
+   public:
+    // Called when services data use is reported.
+    virtual void OnServicesDataUse(int32_t service_hash_code,
+                                   int64_t recv_bytes,
+                                   int64_t sent_bytes) = 0;
+  };
+
+  // Returns true if the NTA hash is initiated by user traffic.
+  static bool IsUserRequest(int32_t network_traffic_annotation_hash_id);
+
+  // Returns true if the NTA hash is one used by Chrome downloads.
+  static bool IsUserDownloadsRequest(
+      int32_t network_traffic_annotation_hash_id);
+
+  // Returns true if the NTA hash is one used by metrics (UMA, UKM) component.
+  static bool IsMetricsServiceRequest(
+      int32_t network_traffic_annotation_hash_id);
+
+  // Returns the content-type saved in the request userdata when the response
+  // headers were received.
+  static DataUseUserData::DataUseContentType GetContentTypeForRequest(
+      const net::URLRequest& request);
+
   DataUseMeasurement(
       std::unique_ptr<URLRequestClassifier> url_request_classifier,
-      const metrics::UpdateUsagePrefCallbackType& metrics_data_use_forwarder,
-      DataUseAscriber* ascriber);
-  ~DataUseMeasurement();
+      DataUseAscriber* ascriber,
+      network::NetworkConnectionTracker* network_connection_tracker);
+  ~DataUseMeasurement() override;
 
   // Called before a request is sent.
   void OnBeforeURLRequest(net::URLRequest* request);
@@ -73,17 +101,68 @@ class DataUseMeasurement {
       base::android::ApplicationState application_state);
 #endif
 
- private:
-  friend class DataUseMeasurementTest;
-  FRIEND_TEST_ALL_PREFIXES(DataUseMeasurementTest,
-                           TimeOfBackgroundDownstreamBytes);
+  // Updates the data use to metrics service. |is_metrics_service_usage|
+  // indicates if the data use is from metrics component.
+  virtual void UpdateDataUseToMetricsService(int64_t total_bytes,
+                                             bool is_cellular,
+                                             bool is_metrics_service_usage) = 0;
 
+  void AddServicesDataUseObserver(ServicesDataUseObserver* observer);
+  void RemoveServicesDataUseObserver(ServicesDataUseObserver* observer);
+
+  void RecordTrafficSizeMetric(bool is_user_traffic,
+                               bool is_downstream,
+                               bool is_tab_visible,
+                               int64_t bytes);
+
+ protected:
   // Specifies that data is received or sent, respectively.
   enum TrafficDirection { DOWNSTREAM, UPSTREAM };
 
   // Returns the current application state (Foreground or Background). It always
   // returns Foreground if Chrome is not running on Android.
   DataUseUserData::AppState CurrentAppState() const;
+
+  // Records data use histograms of services. It gets the size of exchanged
+  // message, its direction (which is upstream or downstream) and reports to the
+  // histogram DataUse.Services.{Dimensions} with, services as the buckets.
+  // |app_state| indicates the app state which can be foreground, or background.
+  void ReportDataUsageServices(int32_t traffic_annotation_hash,
+                               TrafficDirection dir,
+                               DataUseUserData::AppState app_state,
+                               int64_t message_size_bytes) const;
+
+  // Returns if the current network connection type is cellular.
+  bool IsCurrentNetworkCellular() const;
+
+#if defined(OS_ANDROID)
+  // Records the count of bytes received and sent by Chrome on the network as
+  // reported by the operating system.
+  void MaybeRecordNetworkBytesOS();
+
+  // Number of bytes received and sent by Chromium as reported by the network
+  // delegate since the operating system was last queried for traffic
+  // statistics.
+  int64_t bytes_transferred_since_last_traffic_stats_query_ = 0;
+#endif
+
+  base::ObserverList<ServicesDataUseObserver>::Unchecked
+      services_data_use_observer_list_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
+
+ private:
+  friend class DataUseMeasurementTest;
+
+  // Makes the full name of the histogram. It is made from |prefix| and suffix
+  // which is made based on network and application status. suffix is a string
+  // representing whether the data use was on the send ("Upstream") or receive
+  // ("Downstream") path, and whether the app was in the "Foreground" or
+  // "Background".
+  std::string GetHistogramNameWithConnectionType(
+      const char* prefix,
+      TrafficDirection dir,
+      DataUseUserData::AppState app_state) const;
 
   // Makes the full name of the histogram. It is made from |prefix| and suffix
   // which is made based on network and application status. suffix is a string
@@ -103,10 +182,6 @@ class DataUseMeasurement {
   // and vice versa.
   void OnApplicationStateChange(
       base::android::ApplicationState application_state);
-
-  // Records the count of bytes received and sent by Chrome on the network as
-  // reported by the operating system.
-  void MaybeRecordNetworkBytesOS();
 #endif
 
   // Records the data use of the |request|, thus |request| must be non-null.
@@ -116,24 +191,8 @@ class DataUseMeasurement {
                         TrafficDirection dir,
                         int64_t bytes);
 
-  // Updates the data use of the |request|, thus |request| must be non-null.
-  void UpdateDataUsePrefs(const net::URLRequest& request) const;
-
   // Reports the message size of the service requests.
   void ReportServicesMessageSizeUMA(const net::URLRequest& request);
-
-  // Records data use histograms of services. It gets the size of exchanged
-  // message, its direction (which is upstream or downstream) and reports to two
-  // histogram groups. DataUse.MessageSize.ServiceName and
-  // DataUse.Services.{Dimensions}. In the second one, services are buckets.
-  // |app_state| indicates the app state which can be foreground, background, or
-  // unknown.
-  void ReportDataUsageServices(
-      data_use_measurement::DataUseUserData::ServiceName service,
-      TrafficDirection dir,
-      DataUseUserData::AppState app_state,
-      bool is_connection_cellular,
-      int64_t message_size) const;
 
   // Records data use histograms split on TrafficDirection, AppState and
   // TabState.
@@ -154,14 +213,12 @@ class DataUseMeasurement {
       bool is_tab_visible,
       int64_t bytes);
 
+  // NetworkConnectionObserver overrides
+  void OnConnectionChanged(
+      network::mojom::ConnectionType connection_type) override;
+
   // Classifier for identifying if an URL request is user initiated.
   std::unique_ptr<URLRequestClassifier> url_request_classifier_;
-
-  // Callback for updating data use prefs.
-  // TODO(rajendrant): If a similar mechanism would need be used for components
-  // other than metrics, then the better approach would be to refactor this
-  // class to support registering arbitrary observers. crbug.com/601185
-  metrics::UpdateUsagePrefCallbackType metrics_data_use_forwarder_;
 
   // DataUseAscriber used to get the attributes of data use.
   DataUseAscriber* ascriber_;
@@ -181,11 +238,6 @@ class DataUseMeasurement {
   int64_t rx_bytes_os_;
   int64_t tx_bytes_os_;
 
-  // Number of bytes received and sent by Chromium as reported by the network
-  // delegate since the operating system was last queried for traffic
-  // statistics.
-  int64_t bytes_transferred_since_last_traffic_stats_query_;
-
   // The time at which Chromium app state changed to background. Can be null if
   // app is not in background.
   base::TimeTicks last_app_background_time_;
@@ -194,9 +246,12 @@ class DataUseMeasurement {
   bool no_reads_since_background_;
 #endif
 
-  // User traffic data use by content type is logged in 1KB increments. The
-  // remaining bytes are saved in this array until logged next time.
-  int16_t user_traffic_content_type_bytes_[DataUseUserData::TYPE_MAX];
+  // Watches for network connection changes. Global singleton object and
+  // outlives |this|
+  network::NetworkConnectionTracker* network_connection_tracker_;
+
+  // The current connection type.
+  network::mojom::ConnectionType connection_type_;
 
   DISALLOW_COPY_AND_ASSIGN(DataUseMeasurement);
 };

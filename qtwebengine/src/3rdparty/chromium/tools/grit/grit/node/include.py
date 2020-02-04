@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -7,14 +6,11 @@
 """
 
 import os
-import sys
 
 from grit import exception
 from grit import util
-import grit.format.gzip_string
 import grit.format.html_inline
 import grit.format.rc
-import grit.format.rc_header
 from grit.format import minifier
 from grit.node import base
 
@@ -34,27 +30,42 @@ class IncludeNode(base.Node):
   def _IsValidChild(self, child):
     return False
 
-  def _GetFlattenedData(self, allow_external_script=False):
+  def _GetFlattenedData(
+      self, allow_external_script=False, preprocess_only=False):
     if not self._flattened_data:
       filename = self.ToRealPath(self.GetInputPath())
       self._flattened_data = (
           grit.format.html_inline.InlineToString(filename, self,
-              preprocess_only=False,
+              preprocess_only=preprocess_only,
               allow_external_script=allow_external_script))
     return self._flattened_data
   def MandatoryAttributes(self):
     return ['name', 'type', 'file']
 
   def DefaultAttributes(self):
+    """Attributes:
+       translateable:         False if the node has contents that should not be
+                              translated.
+       preprocess:            Takes the same code path as flattenhtml, but it
+                              disables any  processing/inlining outside of <if>
+                              and <include>.
+       compress:              The format to compress the data with, e.g. 'gzip'
+                              or 'false' if data should not be compressed.
+       skip_minify:           If true, skips minifying the node's contents.
+       skip_in_resource_map:  If true, do not add to the resource map.
+    """
     return {'translateable' : 'true',
             'generateid': 'true',
             'filenameonly': 'false',
             'mkoutput': 'false',
+            'preprocess': 'false',
             'flattenhtml': 'false',
             'compress': 'false',
             'allowexternalscript': 'false',
             'relativepath': 'false',
             'use_base_dir': 'true',
+            'skip_minify': 'false',
+            'skip_in_resource_map': 'false',
            }
 
   def GetInputPath(self):
@@ -79,37 +90,25 @@ class IncludeNode(base.Node):
 
     return self.ToRealPath(input_path)
 
-  def GetDataPackPair(self, lang, encoding):
-    """Returns a (id, string) pair that represents the resource id and raw
-    bytes of the data.  This is used to generate the data pack data file.
-    """
-    # TODO(benrg/joi): Move this and other implementations of GetDataPackPair
-    # to grit.format.data_pack?
-    from grit.format import rc_header
-    id_map = rc_header.GetIds(self.GetRoot())
-    id = id_map[self.GetTextualIds()[0]]
+  def GetDataPackValue(self, lang, encoding):
+    '''Returns a str represenation for a data_pack entry.'''
     filename = self.ToRealPath(self.GetInputPath())
     if self.attrs['flattenhtml'] == 'true':
       allow_external_script = self.attrs['allowexternalscript'] == 'true'
       data = self._GetFlattenedData(allow_external_script=allow_external_script)
+    elif self.attrs['preprocess'] == 'true':
+      data = self._GetFlattenedData(preprocess_only=True)
     else:
       data = util.ReadFile(filename, util.BINARY)
-    # Note that the minifier will only do anything if a minifier command
-    # has been set in the command line.
-    data = minifier.Minify(data, filename)
-    use_gzip = self.attrs.get('compress', '') == 'gzip'
-    if use_gzip and self.GetRoot().target_platform != 'ios':
-      # We only use rsyncable compression on Linux.
-      # We exclude ChromeOS since ChromeOS bots are Linux based but do not have
-      # the --rsyncable option built in for gzip. See crbug.com/617950.
-      if sys.platform == 'linux2' and 'chromeos' not in self.GetRoot().defines:
-        data = grit.format.gzip_string.GzipStringRsyncable(data)
-      else:
-        data = grit.format.gzip_string.GzipString(data)
+
+    if self.attrs['skip_minify'] != 'true':
+      # Note that the minifier will only do anything if a minifier command
+      # has been set in the command line.
+      data = minifier.Minify(data, filename)
 
     # Include does not care about the encoding, because it only returns binary
     # data.
-    return id, data
+    return self.CompressDataIfNeeded(data)
 
   def Process(self, output_dir):
     """Rewrite file references to be base64 encoded data URLs.  The new file
@@ -132,17 +131,12 @@ class IncludeNode(base.Node):
     allow_external_script = self.attrs['allowexternalscript'] == 'true'
     return grit.format.html_inline.GetResourceFilenames(
          self.ToRealPath(self.GetInputPath()),
+         self,
          allow_external_script=allow_external_script)
 
   def IsResourceMapSource(self):
-    return True
-
-  def GeneratesResourceMapEntry(self, output_all_resource_defines,
-                                is_active_descendant):
-    # includes always generate resource entries.
-    if output_all_resource_defines:
-      return True
-    return is_active_descendant
+    skip = self.attrs.get('skip_in_resource_map', 'false') == 'true'
+    return not skip
 
   @staticmethod
   def Construct(parent, name, type, file, translateable=True,

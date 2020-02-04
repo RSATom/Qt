@@ -55,35 +55,32 @@
 #include "qevent.h"
 #include "qquickmultipointhandler_p.h"
 #include <private/qquicktranslate_p.h>
+#include "qquickdragaxis_p.h"
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickPinchHandler : public QQuickMultiPointHandler
+class Q_QUICK_PRIVATE_EXPORT QQuickPinchHandler : public QQuickMultiPointHandler
 {
     Q_OBJECT
     Q_PROPERTY(qreal minimumScale READ minimumScale WRITE setMinimumScale NOTIFY minimumScaleChanged)
     Q_PROPERTY(qreal maximumScale READ maximumScale WRITE setMaximumScale NOTIFY maximumScaleChanged)
     Q_PROPERTY(qreal minimumRotation READ minimumRotation WRITE setMinimumRotation NOTIFY minimumRotationChanged)
     Q_PROPERTY(qreal maximumRotation READ maximumRotation WRITE setMaximumRotation NOTIFY maximumRotationChanged)
-    Q_PROPERTY(PinchOrigin pinchOrigin READ pinchOrigin WRITE setPinchOrigin NOTIFY pinchOriginChanged)
-    Q_PROPERTY(QPointF centroid READ centroid NOTIFY updated)
-    Q_PROPERTY(QVector2D centroidVelocity READ centroidVelocity NOTIFY updated)
     Q_PROPERTY(qreal scale READ scale NOTIFY updated)
+    Q_PROPERTY(qreal activeScale READ activeScale NOTIFY updated)
     Q_PROPERTY(qreal rotation READ rotation NOTIFY updated)
     Q_PROPERTY(QVector2D translation READ translation NOTIFY updated)
-    Q_PROPERTY(qreal minimumX READ minimumX WRITE setMinimumX NOTIFY minimumXChanged)
-    Q_PROPERTY(qreal maximumX READ maximumX WRITE setMaximumX NOTIFY maximumXChanged)
-    Q_PROPERTY(qreal minimumY READ minimumY WRITE setMinimumY NOTIFY minimumYChanged)
-    Q_PROPERTY(qreal maximumY READ maximumY WRITE setMaximumY NOTIFY maximumYChanged)
+#if QT_DEPRECATED_SINCE(5, 12)
+    Q_PROPERTY(qreal minimumX READ minimumX WRITE setMinimumX NOTIFY minimumXChanged)   // ### Qt 6: remove
+    Q_PROPERTY(qreal maximumX READ maximumX WRITE setMaximumX NOTIFY maximumXChanged)   // ### Qt 6: remove
+    Q_PROPERTY(qreal minimumY READ minimumY WRITE setMinimumY NOTIFY minimumYChanged)   // ### Qt 6: remove
+    Q_PROPERTY(qreal maximumY READ maximumY WRITE setMaximumY NOTIFY maximumYChanged)   // ### Qt 6: remove
+#endif
+    Q_PROPERTY(QQuickDragAxis * xAxis READ xAxis CONSTANT)
+    Q_PROPERTY(QQuickDragAxis * yAxis READ yAxis CONSTANT)
 
 public:
-    enum PinchOrigin {
-        FirstPoint, PinchCenter, TargetCenter
-    };
-    Q_ENUM(PinchOrigin)
-
-    explicit QQuickPinchHandler(QObject *parent = 0);
-    ~QQuickPinchHandler();
+    explicit QQuickPinchHandler(QQuickItem *parent = nullptr);
 
     qreal minimumScale() const { return m_minimumScale; }
     void setMinimumScale(qreal minimumScale);
@@ -97,23 +94,25 @@ public:
     qreal maximumRotation() const { return m_maximumRotation; }
     void setMaximumRotation(qreal maximumRotation);
 
-    PinchOrigin pinchOrigin() const { return m_pinchOrigin; }
-    void setPinchOrigin(PinchOrigin pinchOrigin);
-
     QVector2D translation() const { return m_activeTranslation; }
-    qreal scale() const { return m_activeScale; }
+    qreal scale() const { return m_accumulatedScale; }
+    qreal activeScale() const { return m_activeScale; }
     qreal rotation() const { return m_activeRotation; }
-    QPointF centroid() const { return m_centroid; }
-    QVector2D centroidVelocity() const { return m_centroidVelocity; }
 
-    qreal minimumX() const { return m_minimumX; }
+#if QT_DEPRECATED_SINCE(5, 12)
+    void warnAboutMinMaxDeprecated() const;
+    qreal minimumX() const { warnAboutMinMaxDeprecated(); return m_minimumX; }
     void setMinimumX(qreal minX);
-    qreal maximumX() const { return m_maximumX; }
+    qreal maximumX() const { warnAboutMinMaxDeprecated(); return m_maximumX; }
     void setMaximumX(qreal maxX);
-    qreal minimumY() const { return m_minimumY; }
+    qreal minimumY() const { warnAboutMinMaxDeprecated(); return m_minimumY; }
     void setMinimumY(qreal minY);
-    qreal maximumY() const { return m_maximumY; }
+    qreal maximumY() const { warnAboutMinMaxDeprecated(); return m_maximumY; }
     void setMaximumY(qreal maxY);
+#endif
+
+    QQuickDragAxis *xAxis() { return &m_xAxis; }
+    QQuickDragAxis *yAxis() { return &m_yAxis; }
 
 signals:
     void minimumScaleChanged();
@@ -124,7 +123,6 @@ signals:
     void maximumXChanged();
     void minimumYChanged();
     void maximumYChanged();
-    void pinchOriginChanged();
     void updated();
 
 protected:
@@ -134,36 +132,33 @@ protected:
 
 private:
     // properties
-    qreal m_activeScale;
-    qreal m_activeRotation;
-    QVector2D m_activeTranslation;
-    QPointF m_centroid;
-    QVector2D m_centroidVelocity;
+    qreal m_activeScale = 1;
+    qreal m_accumulatedScale = 1;
+    qreal m_activeRotation = 0;
+    QVector2D m_activeTranslation = QVector2D(0, 0);
 
-    qreal m_minimumScale;
-    qreal m_maximumScale;
+    qreal m_minimumScale = -qInf();
+    qreal m_maximumScale = qInf();
 
-    qreal m_minimumRotation;
-    qreal m_maximumRotation;
+    qreal m_minimumRotation = -qInf();
+    qreal m_maximumRotation = qInf();
 
-    qreal m_minimumX;
-    qreal m_maximumX;
-    qreal m_minimumY;
-    qreal m_maximumY;
-
-    PinchOrigin m_pinchOrigin;
+    qreal m_minimumX = -qInf();
+    qreal m_maximumX = qInf();
+    qreal m_minimumY = -qInf();
+    qreal m_maximumY = qInf();
+    QQuickDragAxis m_xAxis;
+    QQuickDragAxis m_yAxis;
 
     // internal
-    qreal m_startScale;
-    qreal m_startRotation;
-    QPointF m_startCentroid;
-    qreal m_startDistance;
+    qreal m_startScale = 1;
+    qreal m_startRotation = 0;
+    qreal m_startDistance = 0;
     QPointF m_startPos;
-
+    qreal m_accumulatedStartCentroidDistance = 0;
     QVector<PointData> m_startAngles;
-    QMatrix4x4 m_startMatrix;
     QQuickMatrix4x4 m_transform;
-
+    QMatrix4x4 m_startMatrix;
 };
 
 QT_END_NAMESPACE

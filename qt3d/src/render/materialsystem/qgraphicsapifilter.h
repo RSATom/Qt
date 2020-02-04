@@ -51,7 +51,7 @@ namespace Qt3DRender {
 
 class QGraphicsApiFilterPrivate;
 
-class QT3DRENDERSHARED_EXPORT QGraphicsApiFilter : public QObject
+class Q_3DRENDERSHARED_EXPORT QGraphicsApiFilter : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DRender::QGraphicsApiFilter::Api api READ api WRITE setApi NOTIFY apiChanged)
@@ -64,8 +64,10 @@ class QT3DRENDERSHARED_EXPORT QGraphicsApiFilter : public QObject
 public:
 
     enum Api {
-        OpenGLES = QSurfaceFormat::OpenGLES,
-        OpenGL = QSurfaceFormat::OpenGL
+        OpenGLES = QSurfaceFormat::OpenGLES, // 2
+        OpenGL = QSurfaceFormat::OpenGL,     // 1
+        Vulkan = 3,                          // 3
+        DirectX                              // 4
     };
     Q_ENUM(Api) // LCOV_EXCL_LINE
 

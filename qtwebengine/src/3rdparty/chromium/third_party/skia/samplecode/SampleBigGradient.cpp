@@ -5,8 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
 #include "SkCanvas.h"
 #include "SkGradientShader.h"
 #include "SkMakeUnique.h"
@@ -17,14 +16,14 @@ static sk_sp<SkShader> make_grad(SkScalar w, SkScalar h) {
     return SkGradientShader::MakeLinear(pts, colors, nullptr, 2, SkShader::kClamp_TileMode);
 }
 
-class BigGradientView : public SampleView {
+class BigGradientView : public Sample {
 public:
     BigGradientView() {}
 
 protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "BigGradient");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "BigGradient");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -39,13 +38,12 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new BigGradientView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new BigGradientView(); )
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -93,7 +91,7 @@ public:
 
     void drawRect(const SkRect& r, SkColor c) override {
         CGContextRef cg = (CGContextRef)fCanvas->accessTopRasterHandle();
-        
+
         CGColorRef color = CGColorCreateGenericRGB(SkColorGetR(c)/255.f,
                                                    SkColorGetG(c)/255.f,
                                                    SkColorGetB(c)/255.f,
@@ -121,7 +119,7 @@ static CGAffineTransform matrix_to_transform(CGContextRef cg, const SkMatrix& ct
 class Allocator_CG : public SkRasterHandleAllocator {
 public:
     Allocator_CG() {}
-    
+
     bool allocHandle(const SkImageInfo& info, Rec* rec) override {
         // let CG allocate the pixels
         CGContextRef cg = SkCreateCGContext(SkPixmap(info, nullptr, 0));
@@ -139,7 +137,7 @@ public:
 
     void updateHandle(Handle hndl, const SkMatrix& ctm, const SkIRect& clip) override {
         CGContextRef cg = (CGContextRef)hndl;
-        
+
         CGContextRestoreGState(cg);
         CGContextSaveGState(cg);
         CGContextClipToRect(cg, CGRectMake(clip.x(), clip.y(), clip.width(), clip.height()));
@@ -164,7 +162,8 @@ public:
         HDC hdc = (HDC)fCanvas->accessTopRasterHandle();
 
         COLORREF cr = RGB(SkColorGetR(c), SkColorGetG(c), SkColorGetB(c));// SkEndian_Swap32(c) >> 8;
-        FillRect(hdc, &toRECT(r.round()), CreateSolidBrush(cr));
+        RECT rounded = toRECT(r.round());
+        FillRect(hdc, &rounded, CreateSolidBrush(cr));
 
         // Assuming GDI wrote zeros for alpha, this will or-in 0xFF for alpha
         SkPaint paint;
@@ -185,7 +184,8 @@ static void DeleteHDCCallback(void*, void* context) {
 // required so that we can call the base class' constructor with the pixel
 // data.
 static bool Create(int width, int height, bool is_opaque, SkRasterHandleAllocator::Rec* rec) {
-    BITMAPINFOHEADER hdr = { 0 };
+    BITMAPINFOHEADER hdr;
+    memset(&hdr, 0, sizeof(hdr));
     hdr.biSize = sizeof(BITMAPINFOHEADER);
     hdr.biWidth = width;
     hdr.biHeight = -height;  // Minus means top-down bitmap.
@@ -244,7 +244,8 @@ public:
         xf.eDy = ctm[SkMatrix::kMTransY];
         SetWorldTransform(hdc, &xf);
 
-        HRGN hrgn = CreateRectRgnIndirect(&toRECT(clip_bounds));
+        RECT clip_bounds_RECT = toRECT(clip_bounds);
+        HRGN hrgn = CreateRectRgnIndirect(&clip_bounds_RECT);
         int result = SelectClipRgn(hdc, hrgn);
         SkASSERT(result != ERROR);
         result = DeleteObject(hrgn);
@@ -258,14 +259,14 @@ public:
 #endif
 
 #ifdef MyAllocator
-class RasterAllocatorSample : public SampleView {
+class RasterAllocatorSample : public Sample {
 public:
     RasterAllocatorSample() {}
 
 protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "raster-allocator");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "raster-allocator");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -280,7 +281,7 @@ protected:
         port->drawRect({0, 0, 30, 30}, SK_ColorBLUE);
         port->drawOval({10, 10, 20, 20}, SK_ColorWHITE);
         port->restore();
-        
+
         port->saveLayer({50, 50, 100, 100}, 0x80);
         port->drawRect({55, 55, 95, 95}, SK_ColorGREEN);
         port->restore();
@@ -307,7 +308,7 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 DEF_SAMPLE( return new RasterAllocatorSample; )
 #endif

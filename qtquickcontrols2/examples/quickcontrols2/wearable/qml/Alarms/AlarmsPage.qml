@@ -48,8 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.7
-import QtQuick.Controls 2.0 as QQC2
+import QtQuick 2.12
+import QtQuick.Controls 2.3 as QQC2
+import ".."
 import "../Style"
 
 Item {
@@ -64,7 +65,9 @@ Item {
                 ListElement { name: qsTr("Week Ends"); state: false; time: "07:30 AM" }
             }
 
-            Item {
+            SwipeViewPage {
+                property alias stateSwitch: stateSwitch
+
                 Column {
                     spacing: 30
                     anchors.centerIn: parent
@@ -83,7 +86,7 @@ Item {
                         font.bold: stateSwitch.checked
                         font.pixelSize: stateSwitch.checked ? UIStyle.fontSizeXL : UIStyle.fontSizeL
                         font.letterSpacing: 4
-                        color: UIStyle.colorQtGray1
+                        color: UIStyle.themeColorQtGray1
                     }
 
                     Text {
@@ -94,7 +97,7 @@ Item {
                         font.italic: true
                         font.bold: true
                         font.letterSpacing: 1
-                        color: UIStyle.colorQtGray2
+                        color: UIStyle.themeColorQtGray2
                     }
                 }
             }

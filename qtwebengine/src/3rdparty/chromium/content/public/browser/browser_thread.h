@@ -13,17 +13,11 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_runner_util.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
-
-namespace base {
-class MessageLoop;
-class SequencedWorkerPool;
-class Thread;
-}
 
 namespace content {
 
@@ -40,25 +34,16 @@ class BrowserThreadImpl;
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserThread
 //
-// Utility functions for threads that are known by a browser-wide
-// name.  For example, there is one IO thread for the entire browser
-// process, and various pieces of code find it useful to retrieve a
-// pointer to the IO thread's message loop.
+// Utility functions for threads that are known by a browser-wide name.  For
+// example, there is one IO thread for the entire browser process, and various
+// pieces of code find it useful to retrieve a pointer to the IO thread's
+// message loop.
 //
-// Invoke a task by thread ID:
+// See browser_task_traits.h for posting Tasks to a BrowserThread.
 //
-//   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE, task);
-//
-// The return value is false if the task couldn't be posted because the target
-// thread doesn't exist.  If this could lead to data loss, you need to check the
-// result and restructure the code to ensure it doesn't occur.
-//
-// This class automatically handles the lifetime of different threads.
-// It's always safe to call PostTask on any thread.  If it's not yet created,
-// the task is deleted.  There are no race conditions.  If the thread that the
-// task is posted to is guaranteed to outlive the current thread, then no locks
-// are used.  You should never need to cache pointers to MessageLoops, since
-// they're not thread safe.
+// This class automatically handles the lifetime of different threads. You
+// should never need to cache pointers to MessageLoops, since they're not thread
+// safe.
 class CONTENT_EXPORT BrowserThread {
  public:
   // An enumeration of the well-known threads.
@@ -68,42 +53,12 @@ class CONTENT_EXPORT BrowserThread {
     // The main thread in the browser.
     UI,
 
-    // This is the thread that interacts with the database.
-    DB,
-
-    // This is the thread that interacts with the file system.
-    // DEPRECATED: prefer base/task_scheduler/post_task.h for new classes
-    // requiring a background file I/O task runner, i.e.:
-    //   base::CreateSequencedTaskRunnerWithTraits(
-    //       {base::MayBlock(), base::TaskPriority::BACKGROUND})
-    //   Note: You can use base::TaskPriority::USER_VISIBLE instead of
-    //         base::TaskPriority::BACKGROUND if the latency of this operation
-    //         is visible but non-blocking to the user.
-    FILE,
-
-    // Used for file system operations that block user interactions.
-    // Responsiveness of this thread affect users.
-    // DEPRECATED: prefer base/task_scheduler/post_task.h for new classes
-    // requiring a user-blocking file I/O task runner, i.e.:
-    //   base::CreateSequencedTaskRunnerWithTraits(
-    //       {base::MayBlock(), base::TaskPriority::USER_BLOCKING})
-    FILE_USER_BLOCKING,
-
-    // Used to launch and terminate Chrome processes.
-    PROCESS_LAUNCHER,
-
-    // This is the thread to handle slow HTTP cache operations.
-    CACHE,
-
     // This is the thread that processes non-blocking IO, i.e. IPC and network.
-    // Blocking IO should happen on other threads like DB, FILE,
-    // FILE_USER_BLOCKING and CACHE depending on the usage.
+    // Blocking I/O should happen in TaskScheduler.
     IO,
 
-    // NOTE: do not add new threads here that are only used by a small number of
-    // files. Instead you should just use a Thread class and pass its
-    // task runner around. Named threads there are only for threads that
-    // are used in many places.
+    // NOTE: do not add new threads here. Instead you should just use
+    // base::Create*TaskRunnerWithTraits to run tasks on the TaskScheduler.
 
     // This identifier does not represent a thread.  Instead it counts the
     // number of well-known threads.  Insert new well-known threads before this
@@ -111,103 +66,32 @@ class CONTENT_EXPORT BrowserThread {
     ID_COUNT
   };
 
-  // These are the same methods in message_loop.h, but are guaranteed to either
-  // get posted to the MessageLoop if it's still alive, or be deleted otherwise.
-  // They return true iff the thread existed and the task was posted.  Note that
-  // even if the task is posted, there's no guarantee that it will run, since
-  // the target thread may already have a Quit message in its queue.
-  static bool PostTask(ID identifier,
-                       const tracked_objects::Location& from_here,
-                       base::OnceClosure task);
-  static bool PostDelayedTask(ID identifier,
-                              const tracked_objects::Location& from_here,
-                              base::OnceClosure task,
-                              base::TimeDelta delay);
-  static bool PostNonNestableTask(ID identifier,
-                                  const tracked_objects::Location& from_here,
-                                  base::OnceClosure task);
-  static bool PostNonNestableDelayedTask(
-      ID identifier,
-      const tracked_objects::Location& from_here,
-      base::OnceClosure task,
-      base::TimeDelta delay);
+  // NOTE: Task posting APIs have moved to post_task.h. See
+  // browser_task_traits.h.
 
-  static bool PostTaskAndReply(ID identifier,
-                               const tracked_objects::Location& from_here,
-                               base::OnceClosure task,
-                               base::OnceClosure reply);
-
-  template <typename ReturnType, typename ReplyArgType>
-  static bool PostTaskAndReplyWithResult(
-      ID identifier,
-      const tracked_objects::Location& from_here,
-      base::OnceCallback<ReturnType()> task,
-      base::OnceCallback<void(ReplyArgType)> reply) {
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner =
-        GetTaskRunnerForThread(identifier);
-    return base::PostTaskAndReplyWithResult(task_runner.get(), from_here,
-                                            std::move(task), std::move(reply));
-  }
-
-  // Callback version of PostTaskAndReplyWithResult above.
-  // Though RepeatingCallback is convertible to OnceCallback, we need this since
-  // we cannot use template deduction and object conversion at once on the
-  // overload resolution.
-  // TODO(crbug.com/714018): Update all callers of the Callback version to use
-  // OnceCallback.
-  template <typename ReturnType, typename ReplyArgType>
-  static bool PostTaskAndReplyWithResult(
-      ID identifier,
-      const tracked_objects::Location& from_here,
-      base::Callback<ReturnType()> task,
-      base::Callback<void(ReplyArgType)> reply) {
-    return PostTaskAndReplyWithResult(
-        identifier, from_here,
-        base::OnceCallback<ReturnType()>(std::move(task)),
-        base::OnceCallback<void(ReplyArgType)>(std::move(reply)));
-  }
-
+  // TODO(crbug.com/878356): Consider replacing callsites of this with
+  // base::CreateTaskRunnerWithTraits({id})->DeleteSoon(..).
   template <class T>
   static bool DeleteSoon(ID identifier,
-                         const tracked_objects::Location& from_here,
+                         const base::Location& from_here,
                          const T* object) {
     return GetTaskRunnerForThread(identifier)->DeleteSoon(from_here, object);
   }
 
   template <class T>
   static bool DeleteSoon(ID identifier,
-                         const tracked_objects::Location& from_here,
+                         const base::Location& from_here,
                          std::unique_ptr<T> object) {
     return DeleteSoon(identifier, from_here, object.release());
   }
 
   template <class T>
-  static bool ReleaseSoon(ID identifier,
-                          const tracked_objects::Location& from_here,
-                          const T* object) {
-    return GetTaskRunnerForThread(identifier)->ReleaseSoon(from_here, object);
+  static void ReleaseSoon(ID identifier,
+                          const base::Location& from_here,
+                          scoped_refptr<T>&& object) {
+    GetTaskRunnerForThread(identifier)
+        ->ReleaseSoon(from_here, std::move(object));
   }
-
-  // DEPRECATED: use base/task_scheduler/post_task.h instead.
-  //   * BrowserThread::PostBlockingPoolSequencedTask =>
-  //         Share a single SequencedTaskRunner created via
-  //         base::CreateSequencedTaskRunnerWithTraits() instead of sharing a
-  //         SequenceToken (ping base/task_scheduler/OWNERS if you find a use
-  //         case where that's not possible).
-  //
-  // Posts a task to the blocking pool. The task is guaranteed to run before
-  // shutdown. Tasks posted with the same sequence token name are sequenced.
-  //
-  // If you need to provide different shutdown semantics (like you have
-  // something slow and noncritical that doesn't need to block shutdown),
-  // or you want to manually provide a sequence token (which saves a map
-  // lookup and is guaranteed unique without you having to come up with a
-  // unique string), you can access the sequenced worker pool directly via
-  // GetBlockingPool().
-  static bool PostBlockingPoolSequencedTask(
-      const std::string& sequence_token_name,
-      const tracked_objects::Location& from_here,
-      base::OnceClosure task);
 
   // For use with scheduling non-critical tasks for execution after startup.
   // The order or execution of tasks posted here is unspecified even when
@@ -216,22 +100,13 @@ class CONTENT_EXPORT BrowserThread {
   // When called after the browser startup is complete, will post |task|
   // to |task_runner| immediately.
   // Note: see related ContentBrowserClient::PostAfterStartupTask.
+  //
+  // TODO(crbug.com/887407): Replace callsites with PostTaskWithTraits and
+  // appropriate traits (TBD).
   static void PostAfterStartupTask(
-      const tracked_objects::Location& from_here,
+      const base::Location& from_here,
       const scoped_refptr<base::TaskRunner>& task_runner,
       base::OnceClosure task);
-
-  // Returns the thread pool used for blocking file I/O. Use this object to
-  // perform random blocking operations such as file writes.
-  //
-  // DEPRECATED: use an independent TaskRunner obtained from
-  // base/task_scheduler/post_task.h instead, e.g.:
-  //   BrowserThread::GetBlockingPool()->GetSequencedTaskRunner(
-  //       base::SequencedWorkerPool::GetSequenceToken())
-  //  =>
-  //   base::CreateSequencedTaskRunnerWithTraits(
-  //       {base::MayBlock()}).
-  static base::SequencedWorkerPool* GetBlockingPool() WARN_UNUSED_RESULT;
 
   // Callable on any thread.  Returns whether the given well-known thread is
   // initialized.
@@ -241,42 +116,30 @@ class CONTENT_EXPORT BrowserThread {
   // thread.  To DCHECK this, use the DCHECK_CURRENTLY_ON() macro above.
   static bool CurrentlyOn(ID identifier) WARN_UNUSED_RESULT;
 
-  // Callable on any thread.  Returns whether the threads message loop is valid.
-  // If this returns false it means the thread is in the process of shutting
-  // down.
-  static bool IsMessageLoopValid(ID identifier) WARN_UNUSED_RESULT;
-
   // If the current message loop is one of the known threads, returns true and
   // sets identifier to its ID.  Otherwise returns false.
   static bool GetCurrentThreadIdentifier(ID* identifier) WARN_UNUSED_RESULT;
 
-  // Callers can hold on to a refcounted task runner beyond the lifetime
-  // of the thread.
-  static scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunnerForThread(
-      ID identifier);
-
   // Sets the delegate for BrowserThread::IO.
-  //
-  // This only supports the IO thread as it doesn't work for potentially
-  // redirected threads (ref. http://crbug.com/653916) and also doesn't make
-  // sense for the UI thread.
   //
   // Only one delegate may be registered at a time. The delegate may be
   // unregistered by providing a nullptr pointer.
   //
-  // If the caller unregisters the delegate before CleanUp has been called, it
-  // must perform its own locking to ensure the delegate is not deleted while
-  // unregistering.
+  // The delegate can only be registered through this call before
+  // BrowserThreadImpl(BrowserThread::IO) is created and unregistered after
+  // it was destroyed and its underlying thread shutdown.
   static void SetIOThreadDelegate(BrowserThreadDelegate* delegate);
 
   // Use these templates in conjunction with RefCountedThreadSafe or scoped_ptr
   // when you want to ensure that an object is deleted on a specific thread.
-  // This is needed when an object can hop between threads
-  // (i.e. IO -> FILE -> IO), and thread switching delays can mean that the
-  // final IO tasks executes before the FILE task's stack unwinds.
-  // This would lead to the object destructing on the FILE thread, which often
-  // is not what you want (i.e. to unregister from NotificationService, to
-  // notify other objects on the creating thread etc).
+  // This is needed when an object can hop between threads (i.e. UI -> IO ->
+  // UI), and thread switching delays can mean that the final UI tasks executes
+  // before the IO task's stack unwinds. This would lead to the object
+  // destructing on the IO thread, which often is not what you want (i.e. to
+  // unregister from NotificationService, to notify other objects on the
+  // creating thread etc). Note: see base::OnTaskRunnerDeleter and
+  // base::RefCountedDeleteOnSequence to bind to SequencedTaskRunner instead of
+  // specific BrowserThreads.
   template<ID thread>
   struct DeleteOnThread {
     template<typename T>
@@ -315,16 +178,19 @@ class CONTENT_EXPORT BrowserThread {
   // Sample usage with scoped_ptr:
   // std::unique_ptr<Foo, BrowserThread::DeleteOnIOThread> ptr;
   //
-  // Note: when migrating BrowserThreads to TaskScheduler based
-  // SequencedTaskRunners these map to base::OnTaskRunnerDeleter and
-  // base::RefCountedDeleteOnSequence.
+  // Note: see base::OnTaskRunnerDeleter and base::RefCountedDeleteOnSequence to
+  // bind to SequencedTaskRunner instead of specific BrowserThreads.
   struct DeleteOnUIThread : public DeleteOnThread<UI> { };
   struct DeleteOnIOThread : public DeleteOnThread<IO> { };
-  struct DeleteOnFileThread : public DeleteOnThread<FILE> { };
-  struct DeleteOnDBThread : public DeleteOnThread<DB> { };
 
   // Returns an appropriate error message for when DCHECK_CURRENTLY_ON() fails.
   static std::string GetDCheckCurrentlyOnErrorMessage(ID expected);
+
+ protected:
+  // For DeleteSoon(). Requires that the BrowserThread with the provided
+  // |identifier| was started.
+  static scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunnerForThread(
+      ID identifier);
 
  private:
   friend class BrowserThreadImpl;

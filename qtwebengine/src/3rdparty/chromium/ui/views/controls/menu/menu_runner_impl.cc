@@ -17,6 +17,10 @@
 #include "ui/events/win/system_event_state_lookup.h"
 #endif
 
+#if defined(USE_X11)
+#include "ui/events/x/events_x_utils.h"  // nogncheck
+#endif
+
 namespace views {
 namespace internal {
 
@@ -77,7 +81,8 @@ void MenuRunnerImpl::RunMenuAt(Widget* parent,
                                MenuButton* button,
                                const gfx::Rect& bounds,
                                MenuAnchorPosition anchor,
-                               int32_t run_types) {
+                               int32_t run_types,
+                               base::flat_set<int> alerted_commands) {
   closing_event_time_ = base::TimeTicks();
   if (running_) {
     // Ignore requests to show the menu while it's already showing. MenuItemView
@@ -88,9 +93,9 @@ void MenuRunnerImpl::RunMenuAt(Widget* parent,
   MenuController* controller = MenuController::GetActiveInstance();
   if (controller) {
     if ((run_types & MenuRunner::IS_NESTED) != 0) {
-      if (!controller->IsBlockingRun()) {
+      if (controller->for_drop()) {
         controller->CancelAll();
-        controller = NULL;
+        controller = nullptr;
       } else {
         // Only nest the delegate when not cancelling drag-and-drop. When
         // cancelling this will become the root delegate of the new
@@ -108,7 +113,7 @@ void MenuRunnerImpl::RunMenuAt(Widget* parent,
       }
       // Drop menus don't block the message loop, so it's ok to create a new
       // MenuController.
-      controller = NULL;
+      controller = nullptr;
     }
   }
 
@@ -118,19 +123,22 @@ void MenuRunnerImpl::RunMenuAt(Widget* parent,
   owns_controller_ = false;
   if (!controller) {
     // No menus are showing, show one.
-    controller = new MenuController(!for_drop_, this);
+    controller = new MenuController(for_drop_, this);
     owns_controller_ = true;
   }
   controller->set_is_combobox((run_types & MenuRunner::COMBOBOX) != 0);
+  controller->set_send_gesture_events_to_owner(
+      (run_types & MenuRunner::SEND_GESTURE_EVENTS_TO_OWNER) != 0);
+  controller->set_use_touchable_layout(
+      (run_types & MenuRunner::USE_TOUCHABLE_LAYOUT) != 0);
   controller_ = controller->AsWeakPtr();
   menu_->set_controller(controller_.get());
-  menu_->PrepareForRun(owns_controller_,
-                       has_mnemonics,
+  menu_->PrepareForRun(owns_controller_, has_mnemonics,
                        !for_drop_ && ShouldShowMnemonics(button));
 
   controller->Run(parent, button, menu_, bounds, anchor,
                   (run_types & MenuRunner::CONTEXT_MENU) != 0,
-                  (run_types & MenuRunner::NESTED_DRAG) != 0);
+                  (run_types & MenuRunner::NESTED_DRAG) != 0, alerted_commands);
 }
 
 void MenuRunnerImpl::Cancel() {
@@ -185,8 +193,7 @@ void MenuRunnerImpl::SiblingMenuCreated(MenuItemView* menu) {
 
 MenuRunnerImpl::~MenuRunnerImpl() {
   delete menu_;
-  for (std::set<MenuItemView*>::iterator i = sibling_menus_.begin();
-       i != sibling_menus_.end(); ++i)
+  for (auto i = sibling_menus_.begin(); i != sibling_menus_.end(); ++i)
     delete *i;
 }
 
@@ -194,9 +201,11 @@ bool MenuRunnerImpl::ShouldShowMnemonics(MenuButton* button) {
   // Show mnemonics if the button has focus or alt is pressed.
   bool show_mnemonics = button ? button->HasFocus() : false;
 #if defined(OS_WIN)
-  // This is only needed on Windows.
-  if (!show_mnemonics)
-    show_mnemonics = ui::win::IsAltPressed();
+  show_mnemonics |= ui::win::IsAltPressed();
+#elif defined(USE_X11)
+  show_mnemonics |= ui::IsAltPressed();
+#elif defined(OS_MACOSX)
+  show_mnemonics = false;
 #endif
   return show_mnemonics;
 }

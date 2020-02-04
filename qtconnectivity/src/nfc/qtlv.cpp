@@ -284,7 +284,8 @@ bool QTlvReader::readMoreData(int sparseOffset)
 int QTlvReader::absoluteOffset(int sparseOffset) const
 {
     int absoluteOffset = sparseOffset;
-    foreach (int offset, m_reservedMemory.keys()) {
+    const QList<int> offsets = m_reservedMemory.keys();
+    for (const int offset : offsets) {
         if (offset <= absoluteOffset)
             absoluteOffset += m_reservedMemory.value(offset);
     }
@@ -298,7 +299,8 @@ int QTlvReader::absoluteOffset(int sparseOffset) const
 */
 int QTlvReader::dataLength(int startOffset) const
 {
-    foreach (int offset, m_reservedMemory.keys()) {
+    const QList<int> offsets = m_reservedMemory.keys();
+    for (const int offset : offsets) {
         if (offset <= startOffset)
             continue;
 

@@ -8,10 +8,9 @@
 
 #include "base/logging.h"
 #include "build/build_config.h"
-#include "cc/output/output_surface_client.h"
-#include "cc/output/output_surface_frame.h"
-#include "cc/resources/resource_provider.h"
 #include "components/viz/common/resources/resource_format_utils.h"
+#include "components/viz/service/display/output_surface_client.h"
+#include "components/viz/service/display/output_surface_frame.h"
 #include "components/viz/service/display_embedder/compositor_overlay_candidate_validator.h"
 #include "content/browser/compositor/reflector_impl.h"
 #include "content/browser/compositor/reflector_texture.h"
@@ -19,7 +18,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
-#include "services/ui/public/cpp/gpu/context_provider_command_buffer.h"
+#include "services/ws/public/cpp/gpu/context_provider_command_buffer.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
 
@@ -31,7 +30,7 @@ static viz::ResourceFormat kFboTextureFormat = viz::RGBA_8888;
 
 OffscreenBrowserCompositorOutputSurface::
     OffscreenBrowserCompositorOutputSurface(
-        scoped_refptr<ui::ContextProviderCommandBuffer> context,
+        scoped_refptr<ws::ContextProviderCommandBuffer> context,
         const UpdateVSyncParametersCallback& update_vsync_parameters_callback,
         std::unique_ptr<viz::CompositorOverlayCandidateValidator>
             overlay_candidate_validator)
@@ -48,7 +47,7 @@ OffscreenBrowserCompositorOutputSurface::
 }
 
 void OffscreenBrowserCompositorOutputSurface::BindToClient(
-    cc::OutputSurfaceClient* client) {
+    viz::OutputSurfaceClient* client) {
   DCHECK(client);
   DCHECK(!client_);
   client_ = client;
@@ -139,7 +138,7 @@ void OffscreenBrowserCompositorOutputSurface::BindFramebuffer() {
 }
 
 void OffscreenBrowserCompositorOutputSurface::SwapBuffers(
-    cc::OutputSurfaceFrame frame) {
+    viz::OutputSurfaceFrame frame) {
   gfx::Size surface_size = frame.size;
   DCHECK(surface_size == reshape_size_);
 
@@ -154,14 +153,12 @@ void OffscreenBrowserCompositorOutputSurface::SwapBuffers(
   // (crbug.com/520567).
   // The original implementation had a flickering issue (crbug.com/515332).
   gpu::gles2::GLES2Interface* gl = context_provider_->ContextGL();
-  const GLuint64 fence_sync = gl->InsertFenceSyncCHROMIUM();
-  gl->ShallowFlushCHROMIUM();
 
   gpu::SyncToken sync_token;
-  gl->GenUnverifiedSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+  gl->GenUnverifiedSyncTokenCHROMIUM(sync_token.GetData());
   context_provider_->ContextSupport()->SignalSyncToken(
       sync_token,
-      base::Bind(
+      base::BindOnce(
           &OffscreenBrowserCompositorOutputSurface::OnSwapBuffersComplete,
           weak_ptr_factory_.GetWeakPtr(), frame.latency_info));
 }
@@ -180,11 +177,6 @@ OffscreenBrowserCompositorOutputSurface::GetOverlayBufferFormat() const {
   return gfx::BufferFormat::RGBX_8888;
 }
 
-bool OffscreenBrowserCompositorOutputSurface::SurfaceIsSuspendForRecycle()
-    const {
-  return false;
-}
-
 GLenum
 OffscreenBrowserCompositorOutputSurface::GetFramebufferCopyTextureFormat() {
   return GLCopyTextureInternalFormat(kFboTextureFormat);
@@ -199,8 +191,21 @@ void OffscreenBrowserCompositorOutputSurface::OnReflectorChanged() {
 
 void OffscreenBrowserCompositorOutputSurface::OnSwapBuffersComplete(
     const std::vector<ui::LatencyInfo>& latency_info) {
-  RenderWidgetHostImpl::OnGpuSwapBuffersCompleted(latency_info);
+  latency_tracker_.OnGpuSwapBuffersCompleted(latency_info);
   client_->DidReceiveSwapBuffersAck();
+  client_->DidReceivePresentationFeedback(gfx::PresentationFeedback());
+}
+
+#if BUILDFLAG(ENABLE_VULKAN)
+gpu::VulkanSurface*
+OffscreenBrowserCompositorOutputSurface::GetVulkanSurface() {
+  NOTIMPLEMENTED();
+  return nullptr;
+}
+#endif
+
+unsigned OffscreenBrowserCompositorOutputSurface::UpdateGpuFence() {
+  return 0;
 }
 
 }  // namespace content

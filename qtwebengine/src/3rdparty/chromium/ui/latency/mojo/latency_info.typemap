@@ -13,14 +13,12 @@ sources = [
   "latency_info_struct_traits.h",
 ]
 public_deps = [
-  "//ui/gfx/geometry/mojo:struct_traits",
   "//ui/latency",
 ]
 deps = [
   "//ipc:param_traits",
 ]
 type_mappings = [
-  "ui.mojom.LatencyComponent=ui::LatencyInfo::LatencyComponent",
-  "ui.mojom.LatencyComponentId=std::pair<ui::LatencyComponentType, int64_t>",
+  "ui.mojom.LatencyComponentType=ui::LatencyComponentType",
   "ui.mojom.LatencyInfo=ui::LatencyInfo",
 ]

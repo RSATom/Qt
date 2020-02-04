@@ -10,9 +10,9 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
 #include "base/files/file_path.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/gtest_prod_util.h"
@@ -20,7 +20,6 @@
 #include "base/sequence_checker.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
-#include "build/build_config.h"
 #include "ui/base/layout.h"
 #include "ui/base/ui_base_export.h"
 #include "ui/gfx/font_list.h"
@@ -157,7 +156,7 @@ class UI_BASE_EXPORT ResourceBundle {
       const base::MemoryMappedFile::Region& region);
 
   // Check if the .pak for the given locale exists.
-  bool LocaleDataPakExists(const std::string& locale);
+  static bool LocaleDataPakExists(const std::string& locale);
 
   // Registers additional data pack files with this ResourceBundle.  When
   // looking for a DataResource, we will search these files after searching the
@@ -238,9 +237,9 @@ class UI_BASE_EXPORT ResourceBundle {
   base::StringPiece GetRawDataResourceForScale(int resource_id,
                                                ScaleFactor scale_factor) const;
 
-  // Get a localized string given a message id.  Returns an empty
-  // string if the message_id is not found.
-  base::string16 GetLocalizedString(int message_id);
+  // Get a localized string given a message id.  Returns an empty string if the
+  // resource_id is not found.
+  base::string16 GetLocalizedString(int resource_id);
 
   // Get a localized resource (for example, localized image logo) given a
   // resource id.
@@ -249,6 +248,16 @@ class UI_BASE_EXPORT ResourceBundle {
   // Returns a font list derived from the platform-specific "Base" font list.
   // The result is always cached and exists for the lifetime of the process.
   const gfx::FontList& GetFontListWithDelta(
+      int size_delta,
+      gfx::Font::FontStyle style = gfx::Font::NORMAL,
+      gfx::Font::Weight weight = gfx::Font::Weight::NORMAL);
+
+  // Returns a font list derived from the user-specified typeface. The
+  // result is always cached and exists for the lifetime of the process.
+  // If typeface is empty, we default to the platform-specific "Base" font
+  // list.
+  const gfx::FontList& GetFontListWithTypefaceAndDelta(
+      const std::string& typeface,
       int size_delta,
       gfx::Font::FontStyle style = gfx::Font::NORMAL,
       gfx::Font::Weight weight = gfx::Font::Weight::NORMAL);
@@ -273,19 +282,19 @@ class UI_BASE_EXPORT ResourceBundle {
 
   // Overrides a localized string resource with the given string. If no delegate
   // is present, the |string| will be returned when getting the localized string
-  // |message_id|. If |ReloadLocaleResources| is called, all overrides are
+  // |resource_id|. If |ReloadLocaleResources| is called, all overrides are
   // cleared. This is intended to be used in conjunction with field trials and
   // the variations service to experiment with different UI strings. This method
   // is not thread safe!
-  void OverrideLocaleStringResource(int message_id,
+  void OverrideLocaleStringResource(int resource_id,
                                     const base::string16& string);
 
   // Returns the full pathname of the locale file to load.  May return an empty
   // string if no locale data files are found and |test_file_exists| is true.
   // Used on Android to load the local file in the browser process and pass it
   // to the sandboxed renderer process.
-  base::FilePath GetLocaleFilePath(const std::string& app_locale,
-                                   bool test_file_exists);
+  static base::FilePath GetLocaleFilePath(const std::string& app_locale,
+                                          bool test_file_exists);
 
   // Returns the maximum scale factor currently loaded.
   // Returns SCALE_FACTOR_100P if no resource is loaded.
@@ -293,6 +302,22 @@ class UI_BASE_EXPORT ResourceBundle {
 
   // Returns true if |scale_factor| is supported by this platform.
   static bool IsScaleFactorSupported(ScaleFactor scale_factor);
+
+  // Checks whether overriding locale strings is supported. This will fail with
+  // a DCHECK if the first string resource has already been queried.
+  void CheckCanOverrideStringResources();
+
+  // Sets whether this ResourceBundle should mangle localized strings or not.
+  void set_mangle_localized_strings_for_test(bool mangle) {
+    mangle_localized_strings_ = mangle;
+  }
+
+#if DCHECK_IS_ON()
+  // Gets whether overriding locale strings is supported.
+  bool get_can_override_locale_string_resources_for_test() {
+    return can_override_locale_string_resources_;
+  }
+#endif
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ResourceBundleTest, DelegateGetPathForLocalePack);
@@ -309,7 +334,7 @@ class UI_BASE_EXPORT ResourceBundle {
 
   struct FontKey;
 
-  typedef base::hash_map<int, base::string16> IdToStringMap;
+  using IdToStringMap = std::unordered_map<int, base::string16>;
 
   // Ctor/dtor are private, since we're a singleton.
   explicit ResourceBundle(Delegate* delegate);
@@ -395,6 +420,18 @@ class UI_BASE_EXPORT ResourceBundle {
 
   const base::FilePath& GetOverriddenPakPath();
 
+  // If mangling of localized strings is enabled, mangles |str| to make it
+  // longer and to add begin and end markers so that any truncation of it is
+  // visible and returns the mangled string. If not, returns |str|.
+  base::string16 MaybeMangleLocalizedString(const base::string16& str);
+
+  // An internal implementation of |GetLocalizedString()| without setting the
+  // flag of whether overriding locale strings is supported to false. We don't
+  // update this flag only in |InitDefaultFontList()| which is called earlier
+  // than the overriding. This is okay, because the font list doesn't need to be
+  // overridden by variations.
+  base::string16 GetLocalizedStringImpl(int resource_id);
+
   // This pointer is guaranteed to outlive the ResourceBundle instance and may
   // be NULL.
   Delegate* delegate_;
@@ -412,7 +449,7 @@ class UI_BASE_EXPORT ResourceBundle {
 
   // Cached images. The ResourceBundle caches all retrieved images and keeps
   // ownership of the pointers.
-  typedef std::map<int, gfx::Image> ImageMap;
+  using ImageMap = std::map<int, gfx::Image>;
   ImageMap images_;
 
   gfx::Image empty_image_;
@@ -427,16 +464,18 @@ class UI_BASE_EXPORT ResourceBundle {
 
   IdToStringMap overridden_locale_strings_;
 
-  bool is_test_resources_ = false;
+#if DCHECK_IS_ON()
+  bool can_override_locale_string_resources_ = true;
+#endif
 
-  base::SequenceChecker sequence_checker_;
+  bool is_test_resources_ = false;
+  bool mangle_localized_strings_ = false;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(ResourceBundle);
 };
 
 }  // namespace ui
-
-// TODO(beng): Someday, maybe, get rid of this.
-using ui::ResourceBundle;
 
 #endif  // UI_BASE_RESOURCE_RESOURCE_BUNDLE_H_

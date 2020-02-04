@@ -5,11 +5,12 @@
 #include "chrome/browser/printing/print_view_manager.h"
 
 #include <map>
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
@@ -19,13 +20,13 @@
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/webplugininfo.h"
-#include "printing/features/features.h"
+#include "ipc/ipc_message_macros.h"
+#include "printing/buildflags/buildflags.h"
 
 using content::BrowserThread;
-
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(printing::PrintViewManager);
 
 namespace {
 
@@ -37,31 +38,38 @@ base::LazyInstance<std::map<content::RenderProcessHost*, base::Closure>>::Leaky
 void EnableInternalPDFPluginForContents(int render_process_id,
                                         int render_frame_id) {
   // Always enable the internal PDF plugin for the print preview page.
-  base::FilePath pdf_plugin_path = base::FilePath::FromUTF8Unsafe(
+  static const base::FilePath pdf_plugin_path(
       ChromeContentClient::kPDFPluginPath);
-
-  content::WebPluginInfo pdf_plugin;
-  if (!content::PluginService::GetInstance()->GetPluginInfoByPath(
-      pdf_plugin_path, &pdf_plugin)) {
+  auto* plugin_service = content::PluginService::GetInstance();
+  const content::PepperPluginInfo* info =
+      plugin_service->GetRegisteredPpapiPluginInfo(pdf_plugin_path);
+  if (!info)
     return;
-  }
 
   ChromePluginServiceFilter::GetInstance()->OverridePluginForFrame(
-      render_process_id, render_frame_id, GURL(), pdf_plugin);
+      render_process_id, render_frame_id, info->ToWebPluginInfo());
 }
 
 }  // namespace
 
 namespace printing {
 
+struct PrintViewManager::FrameDispatchHelper {
+  PrintViewManager* manager;
+  content::RenderFrameHost* render_frame_host;
+
+  bool Send(IPC::Message* msg) { return render_frame_host->Send(msg); }
+
+  void OnSetupScriptedPrintPreview(IPC::Message* reply_msg) {
+    manager->OnSetupScriptedPrintPreview(render_frame_host, reply_msg);
+  }
+};
+
 PrintViewManager::PrintViewManager(content::WebContents* web_contents)
-    : PrintViewManagerBase(web_contents),
-      print_preview_state_(NOT_PREVIEWING),
-      print_preview_rfh_(nullptr),
-      scripted_print_preview_rph_(nullptr) {
-  if (PrintPreviewDialogController::IsPrintPreviewDialog(web_contents)) {
+    : PrintViewManagerBase(web_contents) {
+  if (PrintPreviewDialogController::IsPrintPreviewURL(web_contents->GetURL())) {
     EnableInternalPDFPluginForContents(
-        web_contents->GetRenderProcessHost()->GetID(),
+        web_contents->GetMainFrame()->GetProcess()->GetID(),
         web_contents->GetMainFrame()->GetRoutingID());
   }
 }
@@ -70,17 +78,17 @@ PrintViewManager::~PrintViewManager() {
   DCHECK_EQ(NOT_PREVIEWING, print_preview_state_);
 }
 
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
 bool PrintViewManager::PrintForSystemDialogNow(
-    const base::Closure& dialog_shown_callback) {
-  DCHECK(!dialog_shown_callback.is_null());
-  DCHECK(on_print_dialog_shown_callback_.is_null());
-  on_print_dialog_shown_callback_ = dialog_shown_callback;
+    base::OnceClosure dialog_shown_callback) {
+  DCHECK(dialog_shown_callback);
+  DCHECK(!on_print_dialog_shown_callback_);
+  on_print_dialog_shown_callback_ = std::move(dialog_shown_callback);
+  is_switching_to_system_dialog_ = true;
 
   SetPrintingRFH(print_preview_rfh_);
   int32_t id = print_preview_rfh_->GetRoutingID();
   return PrintNowInternal(print_preview_rfh_,
-                          base::MakeUnique<PrintMsg_PrintForSystemDialog>(id));
+                          std::make_unique<PrintMsg_PrintForSystemDialog>(id));
 }
 
 bool PrintViewManager::BasicPrint(content::RenderFrameHost* rfh) {
@@ -96,7 +104,6 @@ bool PrintViewManager::BasicPrint(content::RenderFrameHost* rfh) {
 
   return !!print_preview_dialog->GetWebUI();
 }
-#endif  // BUILDFLAG(ENABLE_BASIC_PRINTING)
 
 bool PrintViewManager::PrintPreviewNow(content::RenderFrameHost* rfh,
                                        bool has_selection) {
@@ -106,7 +113,7 @@ bool PrintViewManager::PrintPreviewNow(content::RenderFrameHost* rfh,
   if (print_preview_state_ != NOT_PREVIEWING)
     return false;
 
-  auto message = base::MakeUnique<PrintMsg_InitiatePrintPreview>(
+  auto message = std::make_unique<PrintMsg_InitiatePrintPreview>(
       rfh->GetRoutingID(), has_selection);
   if (!PrintNowInternal(rfh, std::move(message)))
     return false;
@@ -127,10 +134,36 @@ void PrintViewManager::PrintPreviewForWebNode(content::RenderFrameHost* rfh) {
   print_preview_state_ = USER_INITIATED_PREVIEW;
 }
 
+void PrintViewManager::PrintPreviewAlmostDone() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (print_preview_state_ != SCRIPTED_PREVIEW)
+    return;
+
+  MaybeUnblockScriptedPreviewRPH();
+}
+
 void PrintViewManager::PrintPreviewDone() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (print_preview_state_ == NOT_PREVIEWING)
     return;
+
+// Send ClosePrintPreview message for 'afterprint' event.
+#if defined(OS_WIN)
+  // On Windows, we always send ClosePrintPreviewDialog. It's ok to dispatch
+  // 'afterprint' at this timing because system dialog printing on
+  // Windows doesn't need the original frame.
+  bool send_message = true;
+#else
+  // On non-Windows, we don't need to send ClosePrintPreviewDialog when we are
+  // switching to system dialog. PrintRenderFrameHelper is responsible to
+  // dispatch 'afterprint' event.
+  bool send_message = !is_switching_to_system_dialog_;
+#endif
+  if (send_message) {
+    print_preview_rfh_->Send(new PrintMsg_ClosePrintPreviewDialog(
+        print_preview_rfh_->GetRoutingID()));
+  }
+  is_switching_to_system_dialog_ = false;
 
   if (print_preview_state_ == SCRIPTED_PREVIEW) {
     auto& map = g_scripted_print_preview_closure_map.Get();
@@ -138,6 +171,10 @@ void PrintViewManager::PrintPreviewDone() {
     CHECK(it != map.end());
     it->second.Run();
     map.erase(it);
+
+    // PrintPreviewAlmostDone() usually already calls this. Calling it again
+    // will likely be a no-op, but do it anyway to reset the state for sure.
+    MaybeUnblockScriptedPreviewRPH();
     scripted_print_preview_rph_ = nullptr;
   }
   print_preview_state_ = NOT_PREVIEWING;
@@ -146,7 +183,8 @@ void PrintViewManager::PrintPreviewDone() {
 
 void PrintViewManager::RenderFrameCreated(
     content::RenderFrameHost* render_frame_host) {
-  if (PrintPreviewDialogController::IsPrintPreviewDialog(web_contents())) {
+  if (PrintPreviewDialogController::IsPrintPreviewURL(
+          web_contents()->GetURL())) {
     EnableInternalPDFPluginForContents(render_frame_host->GetProcess()->GetID(),
                                        render_frame_host->GetRoutingID());
   }
@@ -163,11 +201,8 @@ void PrintViewManager::OnDidShowPrintDialog(content::RenderFrameHost* rfh) {
   if (rfh != print_preview_rfh_)
     return;
 
-  if (on_print_dialog_shown_callback_.is_null())
-    return;
-
-  on_print_dialog_shown_callback_.Run();
-  on_print_dialog_shown_callback_.Reset();
+  if (on_print_dialog_shown_callback_)
+    std::move(on_print_dialog_shown_callback_).Run();
 }
 
 void PrintViewManager::OnSetupScriptedPrintPreview(
@@ -205,6 +240,11 @@ void PrintViewManager::OnSetupScriptedPrintPreview(
   map[rph] = base::Bind(&PrintViewManager::OnScriptedPrintPreviewReply,
                         base::Unretained(this), reply_msg);
   scripted_print_preview_rph_ = rph;
+  DCHECK(!scripted_print_preview_rph_set_blocked_);
+  if (!scripted_print_preview_rph_->IsBlocked()) {
+    scripted_print_preview_rph_->SetBlocked(true);
+    scripted_print_preview_rph_set_blocked_ = true;
+  }
 }
 
 void PrintViewManager::OnShowScriptedPrintPreview(content::RenderFrameHost* rfh,
@@ -240,11 +280,13 @@ void PrintViewManager::OnScriptedPrintPreviewReply(IPC::Message* reply_msg) {
 bool PrintViewManager::OnMessageReceived(
     const IPC::Message& message,
     content::RenderFrameHost* render_frame_host) {
+  FrameDispatchHelper helper = {this, render_frame_host};
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP_WITH_PARAM(PrintViewManager, message, render_frame_host)
     IPC_MESSAGE_HANDLER(PrintHostMsg_DidShowPrintDialog, OnDidShowPrintDialog)
-    IPC_MESSAGE_HANDLER_WITH_PARAM_DELAY_REPLY(
-        PrintHostMsg_SetupScriptedPrintPreview, OnSetupScriptedPrintPreview)
+    IPC_MESSAGE_FORWARD_DELAY_REPLY(
+        PrintHostMsg_SetupScriptedPrintPreview, &helper,
+        FrameDispatchHelper::OnSetupScriptedPrintPreview)
     IPC_MESSAGE_HANDLER(PrintHostMsg_ShowScriptedPrintPreview,
                         OnShowScriptedPrintPreview)
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -253,5 +295,14 @@ bool PrintViewManager::OnMessageReceived(
   return handled ||
          PrintViewManagerBase::OnMessageReceived(message, render_frame_host);
 }
+
+void PrintViewManager::MaybeUnblockScriptedPreviewRPH() {
+  if (scripted_print_preview_rph_set_blocked_) {
+    scripted_print_preview_rph_->SetBlocked(false);
+    scripted_print_preview_rph_set_blocked_ = false;
+  }
+}
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(PrintViewManager)
 
 }  // namespace printing

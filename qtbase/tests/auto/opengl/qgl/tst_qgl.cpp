@@ -923,8 +923,8 @@ void tst_QGL::partialGLWidgetUpdates()
     widget.setFixedSize(150, 150);
     widget.setAutoFillBackground(autoFillBackground);
     widget.show();
-
-    QTest::qWait(200);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    QCoreApplication::processEvents(); // Process all queued paint events
 
     if (widget.format().doubleBuffer() != doubleBufferedContext)
         QSKIP("Platform does not support requested format");

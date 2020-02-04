@@ -17,7 +17,7 @@ namespace internal {
 // VMState object leaves a state by popping the current state from the
 // stack.
 template <StateTag Tag>
-class VMState BASE_EMBEDDED {
+class VMState {
  public:
   explicit inline VMState(Isolate* isolate);
   inline ~VMState();
@@ -27,14 +27,13 @@ class VMState BASE_EMBEDDED {
   StateTag previous_tag_;
 };
 
-
-class ExternalCallbackScope BASE_EMBEDDED {
+class ExternalCallbackScope {
  public:
   inline ExternalCallbackScope(Isolate* isolate, Address callback);
   inline ~ExternalCallbackScope();
   Address callback() { return callback_; }
   Address* callback_entrypoint_address() {
-    if (callback_ == nullptr) return nullptr;
+    if (callback_ == kNullAddress) return nullptr;
 #if USES_FUNCTION_DESCRIPTORS
     return FUNCTION_ENTRYPOINT_ADDRESS(callback_);
 #else

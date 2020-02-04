@@ -12,7 +12,8 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/ref_counted.h"
+#include "base/optional.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/http/http_basic_state.h"
 #include "net/websockets/websocket_handshake_stream_base.h"
@@ -24,11 +25,11 @@ class ClientSocketHandle;
 class HttpResponseHeaders;
 class HttpResponseInfo;
 class HttpStreamParser;
-
+class WebSocketEndpointLockManager;
 struct WebSocketExtensionParams;
-class WebSocketStreamRequest;
+class WebSocketStreamRequestAPI;
 
-class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream
+class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream final
     : public WebSocketHandshakeStreamBase {
  public:
   // |connect_delegate| and |failure_message| must out-live this object.
@@ -38,22 +39,24 @@ class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream
       bool using_proxy,
       std::vector<std::string> requested_sub_protocols,
       std::vector<std::string> requested_extensions,
-      WebSocketStreamRequest* request);
+      WebSocketStreamRequestAPI* request,
+      WebSocketEndpointLockManager* websocket_endpoint_lock_manager);
 
   ~WebSocketBasicHandshakeStream() override;
 
   // HttpStreamBase methods
   int InitializeStream(const HttpRequestInfo* request_info,
+                       bool can_send_early,
                        RequestPriority priority,
                        const NetLogWithSource& net_log,
-                       const CompletionCallback& callback) override;
+                       CompletionOnceCallback callback) override;
   int SendRequest(const HttpRequestHeaders& request_headers,
                   HttpResponseInfo* response,
-                  const CompletionCallback& callback) override;
-  int ReadResponseHeaders(const CompletionCallback& callback) override;
+                  CompletionOnceCallback callback) override;
+  int ReadResponseHeaders(CompletionOnceCallback callback) override;
   int ReadResponseBody(IOBuffer* buf,
                        int buf_len,
-                       const CompletionCallback& callback) override;
+                       CompletionOnceCallback callback) override;
   void Close(bool not_reusable) override;
   bool IsResponseBodyComplete() const override;
   bool IsConnectionReused() const override;
@@ -67,9 +70,6 @@ class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream
   void GetSSLInfo(SSLInfo* ssl_info) override;
   void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info) override;
   bool GetRemoteEndpoint(IPEndPoint* endpoint) override;
-  Error GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                 TokenBindingType tb_type,
-                                 std::vector<uint8_t>* out) override;
   void Drain(HttpNetworkSession* session) override;
   void SetPriority(RequestPriority priority) override;
   void PopulateNetErrorDetails(NetErrorDetails* details) override;
@@ -82,6 +82,8 @@ class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream
   // Upgrade() has been called and should be disposed of as soon as possible.
   std::unique_ptr<WebSocketStream> Upgrade() override;
 
+  base::WeakPtr<WebSocketHandshakeStreamBase> GetWeakPtr() override;
+
   // Set the value used for the next Sec-WebSocket-Key header
   // deterministically. The key is only used once, and then discarded.
   // For tests only.
@@ -90,8 +92,7 @@ class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream
  private:
   // A wrapper for the ReadResponseHeaders callback that checks whether or not
   // the connection has been accepted.
-  void ReadResponseHeadersCallback(const CompletionCallback& callback,
-                                   int result);
+  void ReadResponseHeadersCallback(CompletionOnceCallback callback, int result);
 
   void OnFinishOpeningHandshake();
 
@@ -106,6 +107,8 @@ class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream
 
   HttpStreamParser* parser() const { return state_.parser(); }
 
+  HandshakeResult result_;
+
   // The request URL.
   GURL url_;
 
@@ -114,14 +117,14 @@ class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream
 
   // Owned by another object.
   // |connect_delegate| will live during the lifetime of this object.
-  WebSocketStream::ConnectDelegate* connect_delegate_;
+  WebSocketStream::ConnectDelegate* const connect_delegate_;
 
   // This is stored in SendRequest() for use by ReadResponseHeaders().
   HttpResponseInfo* http_response_info_;
 
   // The key to be sent in the next Sec-WebSocket-Key header. Usually NULL (the
   // key is generated on the fly).
-  std::unique_ptr<std::string> handshake_challenge_for_testing_;
+  base::Optional<std::string> handshake_challenge_for_testing_;
 
   // The required value for the Sec-WebSocket-Accept header.
   std::string handshake_challenge_response_;
@@ -142,7 +145,11 @@ class NET_EXPORT_PRIVATE WebSocketBasicHandshakeStream
   // to avoid including extension-related header files here.
   std::unique_ptr<WebSocketExtensionParams> extension_params_;
 
-  WebSocketStreamRequest* stream_request_;
+  WebSocketStreamRequestAPI* const stream_request_;
+
+  WebSocketEndpointLockManager* const websocket_endpoint_lock_manager_;
+
+  base::WeakPtrFactory<WebSocketBasicHandshakeStream> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(WebSocketBasicHandshakeStream);
 };

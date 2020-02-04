@@ -6,6 +6,13 @@
 
 #include "base/macros.h"
 
+namespace gpu {
+
+const char kCmdDecoderValidatingName[] = "validating";
+const char kCmdDecoderPassthroughName[] = "passthrough";
+
+}  // namespace gpu
+
 namespace switches {
 
 // Always return success when compiling a shader. Linking will still fail.
@@ -16,10 +23,6 @@ const char kDisableGLErrorLimit[]           = "disable-gl-error-limit";
 
 // Disable the GLSL translator.
 const char kDisableGLSLTranslator[]         = "disable-glsl-translator";
-
-// Disable workarounds for various GPU driver bugs.
-const char kDisableGpuDriverBugWorkarounds[] =
-    "disable-gpu-driver-bug-workarounds";
 
 // Turn off user-defined name hashing in shaders.
 const char kDisableShaderNameHashing[]      = "disable-shader-name-hashing";
@@ -65,5 +68,16 @@ const char kGLShaderIntermOutput[] = "gl-shader-interm-output";
 // Emulate ESSL lowp and mediump float precisions by mutating the shaders to
 // round intermediate values in ANGLE.
 const char kEmulateShaderPrecision[] = "emulate-shader-precision";
+
+// Use the Pass-through command decoder, skipping all validation and state
+// tracking.
+const char kUseCmdDecoder[] = "use-cmd-decoder";
+
+// Turns on rastering to SkImage with RasterDecoder.
+const char kEnableRasterToSkImage[] = "enable-raster-to-sk-image";
+
+// Enable RasterDecoder with passthrough GLES2 command decoding.
+const char kEnablePassthroughRasterDecoder[] =
+    "enable-passthrough-raster-decoder";
 
 }  // namespace switches

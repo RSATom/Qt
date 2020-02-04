@@ -59,7 +59,6 @@ namespace ABI {
                 struct IPointerEventArgs;
                 struct IVisibilityChangedEventArgs;
                 struct IWindowActivatedEventArgs;
-                struct IWindowSizeChangedEventArgs;
             }
             namespace Xaml {
                 struct IDependencyObject;
@@ -89,7 +88,7 @@ class QWinRTScreen : public QPlatformScreen
 {
 public:
     explicit QWinRTScreen();
-    ~QWinRTScreen();
+    ~QWinRTScreen() override;
 
     QRect geometry() const override;
     QRect availableGeometry() const override;
@@ -97,7 +96,6 @@ public:
     QImage::Format format() const override;
     QSizeF physicalSize() const override;
     QDpi logicalDpi() const override;
-    qreal pixelDensity() const override;
     qreal scaleFactor() const;
     QPlatformCursor *cursor() const override;
     Qt::KeyboardModifiers keyboardModifiers() const;
@@ -128,6 +126,18 @@ public:
     void setCursorRect(const QRectF &cursorRect);
     void setKeyboardRect(const QRectF &keyboardRect);
 
+    enum class MousePositionTransition {
+        MovedOut,
+        MovedIn,
+        StayedIn,
+        StayedOut
+    };
+
+    void emulateMouseMove(const QPointF &point, MousePositionTransition transition);
+
+    void setResizePending();
+    bool resizePending() const;
+
 private:
     void handleExpose();
 
@@ -145,11 +155,7 @@ private:
 
     HRESULT onOrientationChanged(ABI::Windows::Graphics::Display::IDisplayInformation *, IInspectable *);
     HRESULT onDpiChanged(ABI::Windows::Graphics::Display::IDisplayInformation *, IInspectable *);
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
     HRESULT onWindowSizeChanged(ABI::Windows::UI::ViewManagement::IApplicationView *, IInspectable *);
-#else
-    HRESULT onWindowSizeChanged(ABI::Windows::UI::Core::ICoreWindow *, ABI::Windows::UI::Core::IWindowSizeChangedEventArgs *);
-#endif
     HRESULT onRedirectReleased(ABI::Windows::UI::Core::ICorePointerRedirector *, ABI::Windows::UI::Core::IPointerEventArgs *);
 
     QScopedPointer<QWinRTScreenPrivate> d_ptr;

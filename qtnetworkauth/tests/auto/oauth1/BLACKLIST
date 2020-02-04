@@ -15,3 +15,5 @@ windows
 *
 [authenticatedCalls]
 *
+[prepareRequestCalls]
+*

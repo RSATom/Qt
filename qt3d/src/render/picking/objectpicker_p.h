@@ -69,7 +69,7 @@ public:
     ~ObjectPicker();
 
     void cleanup();
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_FINAL;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) final;
     bool isPressed() const;
     bool isHoverEnabled() const;
     bool isDragEnabled() const;
@@ -81,10 +81,15 @@ public:
     void onEntered();
     void onExited();
 
+    // Needed for unit tests
+    void setPriority(int priority);
+    int priority() const;
+
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
     void notifyJob();
 
+    int m_priority;
     bool m_isPressed;
     bool m_hoverEnabled;
     bool m_dragEnabled;

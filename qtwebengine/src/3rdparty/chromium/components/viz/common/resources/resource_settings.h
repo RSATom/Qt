@@ -5,7 +5,8 @@
 #ifndef COMPONENTS_VIZ_COMMON_RESOURCES_RESOURCE_SETTINGS_H_
 #define COMPONENTS_VIZ_COMMON_RESOURCES_RESOURCE_SETTINGS_H_
 
-#include "components/viz/common/resources/buffer_to_texture_target_map.h"
+#include <stddef.h>
+
 #include "components/viz/common/viz_common_export.h"
 
 namespace viz {
@@ -19,9 +20,9 @@ class VIZ_COMMON_EXPORT ResourceSettings {
   ResourceSettings& operator=(const ResourceSettings& other);
   ~ResourceSettings();
 
-  size_t texture_id_allocation_chunk_size = 64;
   bool use_gpu_memory_buffer_resources = false;
-  BufferToTextureTargetMap buffer_to_texture_target_map;
+  // TODO(crbug.com/759456): Remove after r16 is used without the flag.
+  bool use_r16_texture = false;
 };
 
 }  // namespace viz

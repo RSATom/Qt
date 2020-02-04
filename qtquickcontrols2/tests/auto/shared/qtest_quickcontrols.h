@@ -55,11 +55,15 @@ static int runTests(QObject *testObject, int argc, char *argv[])
     int res = 0;
     QTest::qInit(testObject, argc, argv);
     const QByteArray testObjectName = QTestResult::currentTestObjectName();
+    // setCurrentTestObject() takes a C string, which means we must ensure
+    // that the string we pass in lives long enough (i.e until the next call
+    // to setCurrentTestObject()), so store the name outside of the loop.
+    QByteArray testName;
     const QStringList styles = testStyles();
     for (const QString &style : styles) {
         qmlClearTypeRegistrations();
         QQuickStyle::setStyle(style);
-        const QByteArray testName = testObjectName + "::" + style.toLocal8Bit();
+        testName = testObjectName + "::" + style.toLocal8Bit();
         QTestResult::setCurrentTestObject(testName);
         res += QTest::qRun();
     }
@@ -69,15 +73,11 @@ static int runTests(QObject *testObject, int argc, char *argv[])
 }
 
 #define QTEST_QUICKCONTROLS_MAIN(TestCase) \
-QT_BEGIN_NAMESPACE \
-QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS \
-QT_END_NAMESPACE \
 int main(int argc, char *argv[]) \
 { \
     qputenv("QML_NO_TOUCH_COMPRESSION", "1"); \
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling); \
     QGuiApplication app(argc, argv); \
-    QTEST_ADD_GPU_BLACKLIST_SUPPORT \
     TestCase tc; \
     QTEST_SET_MAIN_SOURCE_PATH \
     return runTests(&tc, argc, argv); \

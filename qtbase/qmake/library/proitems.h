@@ -31,6 +31,7 @@
 
 #include "qmake_global.h"
 
+#include <qdebug.h>
 #include <qstring.h>
 #include <qvector.h>
 #include <qhash.h>
@@ -78,12 +79,12 @@ public:
     int sourceFile() const { return m_file; }
 
     ProString &prepend(const ProString &other);
-    ProString &append(const ProString &other, bool *pending = 0);
+    ProString &append(const ProString &other, bool *pending = nullptr);
     ProString &append(const QString &other) { return append(ProString(other)); }
     ProString &append(const QLatin1String other);
     ProString &append(const char *other) { return append(QLatin1String(other)); }
     ProString &append(QChar other);
-    ProString &append(const ProStringList &other, bool *pending = 0, bool skipEmpty1st = false);
+    ProString &append(const ProStringList &other, bool *pending = nullptr, bool skipEmpty1st = false);
     ProString &operator+=(const ProString &other) { return append(other); }
     ProString &operator+=(const QString &other) { return append(other); }
     ProString &operator+=(const QLatin1String other) { return append(other); }
@@ -133,9 +134,9 @@ public:
     bool contains(const QString &s, Qt::CaseSensitivity cs = Qt::CaseSensitive) const { return indexOf(s, 0, cs) >= 0; }
     bool contains(const char *s, Qt::CaseSensitivity cs = Qt::CaseSensitive) const { return indexOf(QLatin1String(s), 0, cs) >= 0; }
     bool contains(QChar c, Qt::CaseSensitivity cs = Qt::CaseSensitive) const { return indexOf(c, 0, cs) >= 0; }
-    int toLongLong(bool *ok = 0, int base = 10) const { return toQStringRef().toLongLong(ok, base); }
-    int toInt(bool *ok = 0, int base = 10) const { return toQStringRef().toInt(ok, base); }
-    short toShort(bool *ok = 0, int base = 10) const { return toQStringRef().toShort(ok, base); }
+    qlonglong toLongLong(bool *ok = nullptr, int base = 10) const { return toQStringRef().toLongLong(ok, base); }
+    int toInt(bool *ok = nullptr, int base = 10) const { return toQStringRef().toInt(ok, base); }
+    short toShort(bool *ok = nullptr, int base = 10) const { return toQStringRef().toShort(ok, base); }
 
     uint hash() const { return m_hash; }
     static uint hash(const QChar *p, int n);
@@ -228,6 +229,55 @@ inline bool operator!=(const QString &that, const ProString &other)
     { return !(other == that); }
 
 QTextStream &operator<<(QTextStream &t, const ProString &str);
+
+// This class manages read-only access to a ProString via a raw data QString
+// temporary, ensuring that the latter is accessed exclusively.
+class ProStringRoUser
+{
+public:
+    ProStringRoUser(QString &rs)
+    {
+        Q_ASSERT(rs.isDetached() || rs.isEmpty());
+        m_rs = &rs;
+    }
+    ProStringRoUser(const ProString &ps, QString &rs)
+        : ProStringRoUser(rs)
+    {
+        ps.toQString(rs);
+    }
+    // No destructor, as a RAII pattern cannot be used: references to the
+    // temporary string can legitimately outlive instances of this class
+    // (if they are held by Qt, e.g. in QRegExp).
+    QString &set(const ProString &ps) { return ps.toQString(*m_rs); }
+    QString &str() { return *m_rs; }
+
+protected:
+    QString *m_rs;
+};
+
+// This class manages read-write access to a ProString via a raw data QString
+// temporary, ensuring that the latter is accessed exclusively, and that raw
+// data does not leak outside its source's refcounting.
+class ProStringRwUser : public ProStringRoUser
+{
+public:
+    ProStringRwUser(QString &rs)
+        : ProStringRoUser(rs), m_ps(nullptr) {}
+    ProStringRwUser(const ProString &ps, QString &rs)
+        : ProStringRoUser(ps, rs), m_ps(&ps) {}
+    QString &set(const ProString &ps) { m_ps = &ps; return ProStringRoUser::set(ps); }
+    ProString extract(const QString &s) const
+        { return s.isSharedWith(*m_rs) ? *m_ps : ProString(s).setSource(*m_ps); }
+    ProString extract(const QString &s, const ProStringRwUser &other) const
+    {
+        if (other.m_ps && s.isSharedWith(*other.m_rs))
+            return *other.m_ps;
+        return extract(s);
+    }
+
+private:
+    const ProString *m_ps;
+};
 
 class ProStringList : public QVector<ProString> {
 public:
@@ -382,11 +432,12 @@ public:
     ProFunctionDef(const ProFunctionDef &o) : m_pro(o.m_pro), m_offset(o.m_offset) { m_pro->ref(); }
     ProFunctionDef(ProFunctionDef &&other) Q_DECL_NOTHROW
         : m_pro(other.m_pro), m_offset(other.m_offset) { other.m_pro = nullptr; }
-    ~ProFunctionDef() { m_pro->deref(); }
+    ~ProFunctionDef() { if (m_pro) m_pro->deref(); }
     ProFunctionDef &operator=(const ProFunctionDef &o)
     {
         if (this != &o) {
-            m_pro->deref();
+            if (m_pro)
+                m_pro->deref();
             m_pro = o.m_pro;
             m_pro->ref();
             m_offset = o.m_offset;
@@ -418,6 +469,8 @@ struct ProFunctionDefs {
     QHash<ProKey, ProFunctionDef> testFunctions;
     QHash<ProKey, ProFunctionDef> replaceFunctions;
 };
+
+QDebug operator<<(QDebug debug, const ProString &str);
 
 QT_END_NAMESPACE
 

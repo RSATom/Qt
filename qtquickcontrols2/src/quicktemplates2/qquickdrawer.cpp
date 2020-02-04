@@ -37,6 +37,7 @@
 #include "qquickdrawer_p.h"
 #include "qquickdrawer_p_p.h"
 #include "qquickpopupitem_p_p.h"
+#include "qquickpopuppositioner_p_p.h"
 
 #include <QtGui/qstylehints.h>
 #include <QtGui/private/qguiapplication_p.h>
@@ -67,9 +68,9 @@ QT_BEGIN_NAMESPACE
     drawer is then opened by \e "dragging" it out from the left edge of the
     window.
 
-    \code
-    import QtQuick 2.7
-    import QtQuick.Controls 2.0
+    \code \QtMinorVersion
+    import QtQuick 2.\1
+    import QtQuick.Controls 2.\1
 
     ApplicationWindow {
         id: window
@@ -97,9 +98,9 @@ QT_BEGIN_NAMESPACE
     Drawer can be configured to cover only part of its window edge. The following example
     illustrates how Drawer can be positioned to appear below a window header:
 
-    \code
-    import QtQuick 2.7
-    import QtQuick.Controls 2.0
+    \code \QtMinorVersion
+    import QtQuick 2.\1
+    import QtQuick.Controls 2.\1
 
     ApplicationWindow {
         id: window
@@ -123,9 +124,9 @@ QT_BEGIN_NAMESPACE
     In the image above, the application's contents are \e "pushed" across the
     screen. This is achieved by applying a translation to the contents:
 
-    \code
-    import QtQuick 2.7
-    import QtQuick.Controls 2.1
+    \code \QtMinorVersion
+    import QtQuick 2.\1
+    import QtQuick.Controls 2.\1
 
     ApplicationWindow {
         id: window
@@ -171,14 +172,13 @@ QT_BEGIN_NAMESPACE
     \sa SwipeView, {Customizing Drawer}, {Navigation Controls}, {Popup Controls}
 */
 
-QQuickDrawerPrivate::QQuickDrawerPrivate()
-    : edge(Qt::LeftEdge),
-      offset(0),
-      position(0),
-      dragMargin(QGuiApplication::styleHints()->startDragDistance())
+class QQuickDrawerPositioner : public QQuickPopupPositioner
 {
-    setEdge(Qt::LeftEdge);
-}
+public:
+    QQuickDrawerPositioner(QQuickDrawer *drawer) : QQuickPopupPositioner(drawer) { }
+
+    void reposition() override;
+};
 
 qreal QQuickDrawerPrivate::offsetAt(const QPointF &point) const
 {
@@ -212,14 +212,27 @@ qreal QQuickDrawerPrivate::positionAt(const QPointF &point) const
     }
 }
 
-void QQuickDrawerPrivate::reposition()
+QQuickPopupPositioner *QQuickDrawerPrivate::getPositioner()
 {
     Q_Q(QQuickDrawer);
-    QQuickWindow *window = q->window();
+    if (!positioner)
+        positioner = new QQuickDrawerPositioner(q);
+    return positioner;
+}
+
+void QQuickDrawerPositioner::reposition()
+{
+    if (m_positioning)
+        return;
+
+    QQuickDrawer *drawer = static_cast<QQuickDrawer*>(popup());
+    QQuickWindow *window = drawer->window();
     if (!window)
         return;
 
-    switch (edge) {
+    const qreal position = drawer->position();
+    QQuickItem *popupItem = drawer->popupItem();
+    switch (drawer->edge()) {
     case Qt::LeftEdge:
         popupItem->setX((position - 1.0) * popupItem->width());
         break;
@@ -234,7 +247,7 @@ void QQuickDrawerPrivate::reposition()
         break;
     }
 
-    QQuickPopupPrivate::reposition();
+    QQuickPopupPositioner::reposition();
 }
 
 void QQuickDrawerPrivate::showOverlay()
@@ -319,12 +332,17 @@ bool QQuickDrawerPrivate::startDrag(QEvent *event)
     return false;
 }
 
+static inline bool keepGrab(QQuickItem *item)
+{
+    return item->keepMouseGrab() || item->keepTouchGrab();
+}
+
 bool QQuickDrawerPrivate::grabMouse(QQuickItem *item, QMouseEvent *event)
 {
     Q_Q(QQuickDrawer);
     handleMouseEvent(item, event);
 
-    if (!window || !interactive || popupItem->keepMouseGrab() || popupItem->keepTouchGrab())
+    if (!window || !interactive || keepGrab(popupItem) || keepGrab(item))
         return false;
 
     const QPointF movePoint = event->windowPos();
@@ -352,12 +370,9 @@ bool QQuickDrawerPrivate::grabMouse(QQuickItem *item, QMouseEvent *event)
     }
 
     if (overThreshold) {
-        QQuickItem *grabber = window->mouseGrabberItem();
-        if (!grabber || !grabber->keepMouseGrab()) {
-            popupItem->grabMouse();
-            popupItem->setKeepMouseGrab(true);
-            offset = offsetAt(movePoint);
-        }
+        popupItem->grabMouse();
+        popupItem->setKeepMouseGrab(true);
+        offset = offsetAt(movePoint);
     }
 
     return overThreshold;
@@ -369,7 +384,7 @@ bool QQuickDrawerPrivate::grabTouch(QQuickItem *item, QTouchEvent *event)
     Q_Q(QQuickDrawer);
     bool handled = handleTouchEvent(item, event);
 
-    if (!window || !interactive || popupItem->keepTouchGrab() || !event->touchPointStates().testFlag(Qt::TouchPointMoved))
+    if (!window || !interactive || keepGrab(popupItem) || keepGrab(item) || !event->touchPointStates().testFlag(Qt::TouchPointMoved))
         return handled;
 
     bool overThreshold = false;
@@ -606,6 +621,10 @@ bool QQuickDrawerPrivate::setEdge(Qt::Edge e)
 QQuickDrawer::QQuickDrawer(QObject *parent)
     : QQuickPopup(*(new QQuickDrawerPrivate), parent)
 {
+    Q_D(QQuickDrawer);
+    d->dragMargin = QGuiApplication::styleHints()->startDragDistance();
+    d->setEdge(Qt::LeftEdge);
+
     setFocus(true);
     setModal(true);
     setFiltersChildMouseEvents(true);

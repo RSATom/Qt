@@ -7,32 +7,19 @@
 #ifndef XFA_FXFA_PARSER_CXFA_DATAEXPORTER_H_
 #define XFA_FXFA_PARSER_CXFA_DATAEXPORTER_H_
 
-#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CXFA_Document;
 class CXFA_Node;
 class IFX_SeekableStream;
-class CFX_SeekableStreamProxy;
 
 class CXFA_DataExporter {
  public:
-  explicit CXFA_DataExporter(CXFA_Document* pDocument);
+  CXFA_DataExporter();
   ~CXFA_DataExporter();
 
-  bool Export(const CFX_RetainPtr<IFX_SeekableStream>& pWrite);
-  bool Export(const CFX_RetainPtr<IFX_SeekableStream>& pWrite,
-              CXFA_Node* pNode,
-              uint32_t dwFlag,
-              const char* pChecksum);
-
- private:
-  bool Export(const CFX_RetainPtr<CFX_SeekableStreamProxy>& pStream,
-              CXFA_Node* pNode,
-              uint32_t dwFlag,
-              const char* pChecksum);
-
-  CFX_UnownedPtr<CXFA_Document> const m_pDocument;
+  bool Export(const RetainPtr<IFX_SeekableStream>& pWrite, CXFA_Node* pNode);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_DATAEXPORTER_H_

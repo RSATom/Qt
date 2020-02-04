@@ -44,7 +44,7 @@
 
 QT_CHARTS_BEGIN_NAMESPACE
 
-class QT_CHARTS_PRIVATE_EXPORT PolarChartLayout : public AbstractChartLayout
+class Q_CHARTS_PRIVATE_EXPORT PolarChartLayout : public AbstractChartLayout
 {
 public:
     PolarChartLayout(ChartPresenter *presenter);
@@ -52,7 +52,8 @@ public:
 
     // from AbstractChartLayout
     QRectF calculateAxisMinimum(const QRectF &minimum, const QList<ChartAxisElement *> &axes) const;
-    QRectF calculateAxisGeometry(const QRectF &geometry, const QList<ChartAxisElement *> &axes) const;
+    QRectF calculateAxisGeometry(const QRectF &geometry, const QList<ChartAxisElement *> &axes,
+                                 bool update = true) const;
 };
 
 QT_CHARTS_END_NAMESPACE

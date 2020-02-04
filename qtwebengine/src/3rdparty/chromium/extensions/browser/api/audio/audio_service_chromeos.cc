@@ -9,7 +9,6 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -116,7 +115,7 @@ class AudioServiceImpl : public AudioService,
   AudioDeviceInfo ToAudioDeviceInfo(const chromeos::AudioDevice& device);
 
   // List of observers.
-  base::ObserverList<AudioService::Observer> observer_list_;
+  base::ObserverList<AudioService::Observer>::Unchecked observer_list_;
 
   chromeos::CrasAudioHandler* cras_audio_handler_;
 
@@ -170,7 +169,7 @@ bool AudioServiceImpl::GetInfo(OutputInfo* output_info_out,
   for (size_t i = 0; i < devices.size(); ++i) {
     if (!devices[i].is_input) {
       OutputDeviceInfo info;
-      info.id = base::Uint64ToString(devices[i].id);
+      info.id = base::NumberToString(devices[i].id);
       info.name = devices[i].device_name + ": " + devices[i].display_name;
       info.is_active = devices[i].active;
       info.volume =
@@ -180,7 +179,7 @@ bool AudioServiceImpl::GetInfo(OutputInfo* output_info_out,
       output_info_out->push_back(std::move(info));
     } else {
       InputDeviceInfo info;
-      info.id = base::Uint64ToString(devices[i].id);
+      info.id = base::NumberToString(devices[i].id);
       info.name = devices[i].device_name + ": " + devices[i].display_name;
       info.is_active = devices[i].active;
       info.gain =
@@ -354,7 +353,7 @@ bool AudioServiceImpl::GetAudioNodeIdList(
 AudioDeviceInfo AudioServiceImpl::ToAudioDeviceInfo(
     const chromeos::AudioDevice& device) {
   AudioDeviceInfo info;
-  info.id = base::Uint64ToString(device.id);
+  info.id = base::NumberToString(device.id);
   info.stream_type = device.is_input
                          ? extensions::api::audio::STREAM_TYPE_INPUT
                          : extensions::api::audio::STREAM_TYPE_OUTPUT;
@@ -366,7 +365,7 @@ AudioDeviceInfo AudioServiceImpl::ToAudioDeviceInfo(
       device.is_input
           ? cras_audio_handler_->GetOutputVolumePercentForDevice(device.id)
           : cras_audio_handler_->GetInputGainPercentForDevice(device.id);
-  info.stable_device_id = base::MakeUnique<std::string>(
+  info.stable_device_id = std::make_unique<std::string>(
       id_calculator_->GetStableDeviceId(device.stable_device_id));
 
   return info;
@@ -407,7 +406,7 @@ void AudioServiceImpl::NotifyDeviceChanged() {
 
 void AudioServiceImpl::NotifyLevelChanged(uint64_t id, int level) {
   for (auto& observer : observer_list_)
-    observer.OnLevelChanged(base::Uint64ToString(id), level);
+    observer.OnLevelChanged(base::NumberToString(id), level);
 
   // Notify DeviceChanged event for backward compatibility.
   // TODO(jennyz): remove this code when the old version of hotrod retires.

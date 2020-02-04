@@ -5,10 +5,10 @@
 #ifndef CONTENT_RENDERER_PEPPER_MESSAGE_CHANNEL_H_
 #define CONTENT_RENDERER_PEPPER_MESSAGE_CHANNEL_H_
 
-#include <deque>
 #include <list>
 #include <map>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/renderer/pepper/v8_var_converter.h"
@@ -17,7 +17,7 @@
 #include "gin/wrappable.h"
 #include "ppapi/proxy/host_dispatcher.h"
 #include "ppapi/shared_impl/resource.h"
-#include "third_party/WebKit/public/web/WebSerializedScriptValue.h"
+#include "third_party/blink/public/web/web_serialized_script_value.h"
 #include "v8/include/v8-util.h"
 #include "v8/include/v8.h"
 
@@ -164,7 +164,7 @@ class MessageChannel :
   };
 
   // This queue stores values being posted to JavaScript.
-  std::deque<blink::WebSerializedScriptValue> js_message_queue_;
+  base::circular_deque<blink::WebSerializedScriptValue> js_message_queue_;
   MessageQueueState js_message_queue_state_;
 
   // True if there is already a posted task to drain the JS message queue.

@@ -86,7 +86,7 @@ static QList<QGeoCoordinate> parsePolyline(const QByteArray &data)
     return path;
 }
 
-static QGeoManeuver::InstructionDirection osrmInstructionDirection(const QString &instructionCode)
+static QGeoManeuver::InstructionDirection osrmInstructionDirection(const QString &instructionCode, QGeoRouteParser::TrafficSide trafficSide)
 {
     if (instructionCode == QLatin1String("0"))
         return QGeoManeuver::NoDirection;
@@ -98,9 +98,15 @@ static QGeoManeuver::InstructionDirection osrmInstructionDirection(const QString
         return QGeoManeuver::DirectionRight;
     else if (instructionCode == QLatin1String("4"))
         return QGeoManeuver::DirectionHardRight;
-    else if (instructionCode == QLatin1String("5"))
+    else if (instructionCode == QLatin1String("5")) {
+        switch (trafficSide) {
+        case QGeoRouteParser::RightHandTraffic:
+            return QGeoManeuver::DirectionUTurnLeft;
+        case QGeoRouteParser::LeftHandTraffic:
+            return QGeoManeuver::DirectionUTurnRight;
+        }
         return QGeoManeuver::DirectionUTurnLeft;
-    else if (instructionCode == QLatin1String("6"))
+    } else if (instructionCode == QLatin1String("6"))
         return QGeoManeuver::DirectionHardLeft;
     else if (instructionCode == QLatin1String("7"))
         return QGeoManeuver::DirectionLeft;
@@ -240,7 +246,7 @@ static QString osrmInstructionText(const QString &instructionCode, const QString
 }
 
 static QGeoRoute constructRoute(const QByteArray &geometry, const QJsonArray &instructions,
-                                const QJsonObject &summary)
+                                const QJsonObject &summary, QGeoRouteParser::TrafficSide trafficSide)
 {
     QGeoRoute route;
 
@@ -272,7 +278,7 @@ static QGeoRoute constructRoute(const QByteArray &geometry, const QJsonArray &in
         segment.setDistance(segmentLength);
 
         QGeoManeuver maneuver;
-        maneuver.setDirection(osrmInstructionDirection(instructionCode));
+        maneuver.setDirection(osrmInstructionDirection(instructionCode, trafficSide));
         maneuver.setDistanceToNextInstruction(segmentLength);
         maneuver.setInstructionText(osrmInstructionText(instructionCode, wayname));
         maneuver.setPosition(path.at(position));
@@ -310,8 +316,8 @@ public:
     QGeoRouteParserOsrmV4Private();
     virtual ~QGeoRouteParserOsrmV4Private();
 
-    QGeoRouteReply::Error parseReply(QList<QGeoRoute> &routes, QString &errorString, const QByteArray &reply) const Q_DECL_OVERRIDE;
-    QUrl requestUrl(const QGeoRouteRequest &request, const QString &prefix) const Q_DECL_OVERRIDE;
+    QGeoRouteReply::Error parseReply(QList<QGeoRoute> &routes, QString &errorString, const QByteArray &reply) const override;
+    QUrl requestUrl(const QGeoRouteRequest &request, const QString &prefix) const override;
 };
 
 QGeoRouteParserOsrmV4Private::QGeoRouteParserOsrmV4Private() : QGeoRouteParserPrivate()
@@ -349,7 +355,7 @@ QGeoRouteReply::Error QGeoRouteParserOsrmV4Private::parseReply(QList<QGeoRoute> 
 
         QJsonArray routeInstructions = object.value(QStringLiteral("route_instructions")).toArray();
 
-        QGeoRoute route = constructRoute(routeGeometry, routeInstructions, routeSummary);
+        QGeoRoute route = constructRoute(routeGeometry, routeInstructions, routeSummary, trafficSide);
 
         routes.append(route);
 
@@ -365,7 +371,8 @@ QGeoRouteReply::Error QGeoRouteParserOsrmV4Private::parseReply(QList<QGeoRoute> 
             for (int i = 0; i < alternativeSummaries.count(); ++i) {
                 route = constructRoute(alternativeGeometries.at(i).toString().toLatin1(),
                                        alternativeInstructions.at(i).toArray(),
-                                       alternativeSummaries.at(i).toObject());
+                                       alternativeSummaries.at(i).toObject(),
+                                       trafficSide);
                 //routes.append(route);
             }
         }

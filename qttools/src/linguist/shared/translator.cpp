@@ -384,11 +384,14 @@ int Translator::find(const QString &context,
 {
     if (!refs.isEmpty()) {
         for (TMM::ConstIterator it = m_messages.constBegin(); it != m_messages.constEnd(); ++it) {
-            if (it->context() == context && it->comment() == comment)
-                foreach (const TranslatorMessage::Reference &itref, it->allReferences())
-                    foreach (const TranslatorMessage::Reference &ref, refs)
+            if (it->context() == context && it->comment() == comment) {
+                foreach (const TranslatorMessage::Reference &itref, it->allReferences()) {
+                    foreach (const TranslatorMessage::Reference &ref, refs) {
                         if (itref == ref)
                             return it - m_messages.constBegin();
+                    }
+                }
+            }
         }
     }
     return -1;
@@ -428,6 +431,17 @@ void Translator::stripUntranslatedMessages()
         else
             ++it;
     m_indexOk = false;
+}
+
+bool Translator::translationsExist()
+{
+    for (TMM::Iterator it = m_messages.begin(); it != m_messages.end(); ) {
+        if (it->isTranslated())
+            return true;
+        else
+            ++it;
+    }
+    return false;
 }
 
 void Translator::stripEmptyContexts()

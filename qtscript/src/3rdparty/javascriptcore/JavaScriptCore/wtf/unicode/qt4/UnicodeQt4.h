@@ -23,8 +23,8 @@
 #ifndef WTF_UNICODE_QT4_H
 #define WTF_UNICODE_QT4_H
 
-#include <QChar>
-#include <QString>
+#include <QtCore/qchar.h>
+#include <QtCore/qstring.h>
 
 #include <config.h>
 

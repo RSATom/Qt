@@ -7,12 +7,14 @@ QT += core-private gui-private waylandcompositor waylandcompositor-private
 
 QMAKE_USE += wayland-client wayland-server
 
-qtConfig(xkbcommon-evdev): \
-    QMAKE_USE += xkbcommon_evdev
+qtConfig(xkbcommon): \
+    QMAKE_USE += xkbcommon
 
 WAYLANDCLIENTSOURCES += \
-            ../../../../src/3rdparty/protocol/xdg-shell.xml \
             ../../../../src/3rdparty/protocol/ivi-application.xml \
+            ../../../../src/3rdparty/protocol/wayland.xml \
+            ../../../../src/3rdparty/protocol/xdg-shell.xml \
+            ../../../../src/3rdparty/protocol/viewporter.xml
 
 SOURCES += \
     tst_compositor.cpp \
@@ -21,6 +23,7 @@ SOURCES += \
     mockclient.cpp \
     mockseat.cpp \
     testseat.cpp \
+    mockkeyboard.cpp \
     mockpointer.cpp
 
 HEADERS += \
@@ -29,4 +32,5 @@ HEADERS += \
     mockclient.h \
     mockseat.h \
     testseat.h \
+    mockkeyboard.h \
     mockpointer.h

@@ -1,10 +1,10 @@
 # This OWNERS file also covers:
 #
-# //content/child/notifications/
+# //content/common/notifications/
+# //content/renderer/notifications/
 # //content/test/mock_platform_notification_service.*
 
 mkwst@chromium.org
-mvanouwerkerk@chromium.org
 peter@chromium.org
 
 # TEAM: platform-capabilities@chromium.org

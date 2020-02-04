@@ -58,6 +58,10 @@
         <translation>Неверная строка состояния ответа: %1.</translation>
     </message>
     <message>
+        <source>Malformed header in response: %1.</source>
+        <translation>Неверный заголовок в ответе: %1.</translation>
+    </message>
+    <message>
         <source>QWebSocketPrivate::processHandshake: Connection closed while reading header.</source>
         <translation>QWebSocketPrivate::processHandshake: Подключение закрыто при чтения заголовка.</translation>
     </message>

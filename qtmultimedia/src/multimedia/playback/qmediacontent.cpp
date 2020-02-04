@@ -61,14 +61,24 @@ public:
         isPlaylistOwned(false)
     {}
 
+#if QT_DEPRECATED_SINCE(6, 0)
     QMediaContentPrivate(const QMediaResourceList &r):
-        resources(r),
         isPlaylistOwned(false)
-    {}
+    {
+        for (auto &item : r)
+            requests << item.request();
+    }
+#endif
+
+    QMediaContentPrivate(const QNetworkRequest &r):
+        isPlaylistOwned(false)
+    {
+        requests << r;
+    }
 
     QMediaContentPrivate(const QMediaContentPrivate &other):
         QSharedData(other),
-        resources(other.resources),
+        requests(other.requests),
         playlist(other.playlist),
         isPlaylistOwned(false)
     {}
@@ -77,7 +87,7 @@ public:
         playlist(pls),
         isPlaylistOwned(isOwn)
     {
-        resources << QMediaResource(url);
+        requests << QNetworkRequest(url);
     }
 
     ~QMediaContentPrivate()
@@ -88,11 +98,10 @@ public:
 
     bool operator ==(const QMediaContentPrivate &other) const
     {
-        return resources == other.resources && playlist == other.playlist;
+        return requests == other.requests && playlist == other.playlist;
     }
 
-    QMediaResourceList resources;
-
+    QList<QNetworkRequest> requests;
     QPointer<QMediaPlaylist> playlist;
     bool isPlaylistOwned;
 private:
@@ -103,20 +112,19 @@ private:
 /*!
     \class QMediaContent
 
-    \brief The QMediaContent class provides access to the resources relating to a media content.
+    \brief The QMediaContent class provides access to the resource relating to a media content.
 
     \inmodule QtMultimedia
     \ingroup multimedia
     \ingroup multimedia_playback
 
     QMediaContent is used within the multimedia framework as the logical handle
-    to media content.  A QMediaContent object is composed of one or more
-    \l {QMediaResource}s where each resource provides the URL and format
-    information of a different encoding of the content.
+    to media content. A QMediaContent object contains a \l {QNetworkRequest}
+    which provides the URL of the content.
 
-    A non-null QMediaContent will always have a primary or canonical reference to
-    the content available through the canonicalUrl() or canonicalResource()
-    methods, any additional resources are optional.
+    A non-null QMediaContent will always have a reference to
+    the content available through the canonicalUrl() or canonicalRequest()
+    methods.
 
     Alternatively QMediaContent can represent a playlist and contain a pointer to a
     valid QMediaPlaylist object. In this case URL is optional and can either be empty
@@ -139,7 +147,7 @@ QMediaContent::QMediaContent()
 QMediaContent::QMediaContent(const QUrl &url):
     d(new QMediaContentPrivate)
 {
-    d->resources << QMediaResource(url);
+    d->requests << QNetworkRequest(url);
 }
 
 /*!
@@ -152,20 +160,25 @@ QMediaContent::QMediaContent(const QUrl &url):
 QMediaContent::QMediaContent(const QNetworkRequest &request):
     d(new QMediaContentPrivate)
 {
-    d->resources << QMediaResource(request);
+    d->requests << request;
 }
 
+#if QT_DEPRECATED_SINCE(6, 0)
 /*!
+    \obsolete
+
     Constructs a media content with \a resource providing a reference to the content.
 */
 
 QMediaContent::QMediaContent(const QMediaResource &resource):
     d(new QMediaContentPrivate)
 {
-    d->resources << resource;
+    d->requests << resource.request();
 }
 
 /*!
+    \obsolete
+
     Constructs a media content with \a resources providing a reference to the content.
 */
 
@@ -173,6 +186,7 @@ QMediaContent::QMediaContent(const QMediaResourceList &resources):
     d(new QMediaContentPrivate(resources))
 {
 }
+#endif
 
 /*!
     Constructs a copy of the media content \a other.
@@ -221,8 +235,8 @@ QMediaContent& QMediaContent::operator=(const QMediaContent &other)
 
 bool QMediaContent::operator==(const QMediaContent &other) const
 {
-    return (d.constData() == 0 && other.d.constData() == 0) ||
-            (d.constData() != 0 && other.d.constData() != 0 &&
+    return (d.constData() == 0 && other.d.constData() == nullptr) ||
+            (d.constData() != 0 && other.d.constData() != nullptr &&
              *d.constData() == *other.d.constData());
 }
 
@@ -241,7 +255,7 @@ bool QMediaContent::operator!=(const QMediaContent &other) const
 
 bool QMediaContent::isNull() const
 {
-    return d.constData() == 0;
+    return d.constData() == nullptr;
 }
 
 /*!
@@ -250,7 +264,7 @@ bool QMediaContent::isNull() const
 
 QUrl QMediaContent::canonicalUrl() const
 {
-    return canonicalResource().url();
+    return canonicalRequest().url();
 }
 
 /*!
@@ -259,31 +273,38 @@ QUrl QMediaContent::canonicalUrl() const
 
 QNetworkRequest QMediaContent::canonicalRequest() const
 {
-    return canonicalResource().request();
+    return (d && !d->requests.isEmpty()) ? d->requests.first() : QNetworkRequest();
 }
 
+#if QT_DEPRECATED_SINCE(6, 0)
 /*!
+    \obsolete
+
     Returns a QMediaResource that represents that canonical resource for this media content.
 */
 
 QMediaResource QMediaContent::canonicalResource() const
 {
-    return d.constData() != 0
-            ?  d->resources.value(0)
-            : QMediaResource();
+    return (d && !d->requests.isEmpty()) ? d->requests.first() : QMediaResource();
 }
 
 /*!
+    \obsolete
+
     Returns a list of alternative resources for this media content.  The first item in this list
     is always the canonical resource.
 */
 
 QMediaResourceList QMediaContent::resources() const
 {
-    return d.constData() != 0
-            ? d->resources
-            : QMediaResourceList();
+    QMediaResourceList list;
+    if (d) {
+        for (auto &item : d->requests)
+            list << item;
+    }
+    return list;
 }
+#endif // #if QT_DEPRECATED_SINCE(6, 0)
 
 /*!
     Returns a playlist for this media content or 0 if this QMediaContent is not a playlist.
@@ -291,9 +312,9 @@ QMediaResourceList QMediaContent::resources() const
 
 QMediaPlaylist *QMediaContent::playlist() const
 {
-    return d.constData() != 0
+    return d.constData() != nullptr
             ? d->playlist.data()
-            : 0;
+            : nullptr;
 }
 
 QT_END_NAMESPACE

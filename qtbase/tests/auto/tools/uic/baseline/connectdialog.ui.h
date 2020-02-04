@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'connectdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,16 +10,13 @@
 #define CONNECTDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QGroupBox>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QSpacerItem>
 #include <QtWidgets/QToolButton>
@@ -49,24 +46,24 @@ public:
     void setupUi(QDialog *ConnectDialog)
     {
         if (ConnectDialog->objectName().isEmpty())
-            ConnectDialog->setObjectName(QStringLiteral("ConnectDialog"));
+            ConnectDialog->setObjectName(QString::fromUtf8("ConnectDialog"));
         ConnectDialog->resize(585, 361);
         gridLayout = new QGridLayout(ConnectDialog);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         signalGroupBox = new QGroupBox(ConnectDialog);
-        signalGroupBox->setObjectName(QStringLiteral("signalGroupBox"));
+        signalGroupBox->setObjectName(QString::fromUtf8("signalGroupBox"));
         vboxLayout = new QVBoxLayout(signalGroupBox);
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         signalList = new QListWidget(signalGroupBox);
-        signalList->setObjectName(QStringLiteral("signalList"));
+        signalList->setObjectName(QString::fromUtf8("signalList"));
         signalList->setTextElideMode(Qt::ElideMiddle);
 
         vboxLayout->addWidget(signalList);
 
         hboxLayout = new QHBoxLayout();
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         editSignalsButton = new QToolButton(signalGroupBox);
-        editSignalsButton->setObjectName(QStringLiteral("editSignalsButton"));
+        editSignalsButton->setObjectName(QString::fromUtf8("editSignalsButton"));
 
         hboxLayout->addWidget(editSignalsButton);
 
@@ -81,19 +78,19 @@ public:
         gridLayout->addWidget(signalGroupBox, 0, 0, 1, 2);
 
         slotGroupBox = new QGroupBox(ConnectDialog);
-        slotGroupBox->setObjectName(QStringLiteral("slotGroupBox"));
+        slotGroupBox->setObjectName(QString::fromUtf8("slotGroupBox"));
         vboxLayout1 = new QVBoxLayout(slotGroupBox);
-        vboxLayout1->setObjectName(QStringLiteral("vboxLayout1"));
+        vboxLayout1->setObjectName(QString::fromUtf8("vboxLayout1"));
         slotList = new QListWidget(slotGroupBox);
-        slotList->setObjectName(QStringLiteral("slotList"));
+        slotList->setObjectName(QString::fromUtf8("slotList"));
         slotList->setTextElideMode(Qt::ElideMiddle);
 
         vboxLayout1->addWidget(slotList);
 
         hboxLayout1 = new QHBoxLayout();
-        hboxLayout1->setObjectName(QStringLiteral("hboxLayout1"));
+        hboxLayout1->setObjectName(QString::fromUtf8("hboxLayout1"));
         editSlotsButton = new QToolButton(slotGroupBox);
-        editSlotsButton->setObjectName(QStringLiteral("editSlotsButton"));
+        editSlotsButton->setObjectName(QString::fromUtf8("editSlotsButton"));
 
         hboxLayout1->addWidget(editSlotsButton);
 
@@ -108,12 +105,12 @@ public:
         gridLayout->addWidget(slotGroupBox, 0, 2, 1, 1);
 
         showAllCheckBox = new QCheckBox(ConnectDialog);
-        showAllCheckBox->setObjectName(QStringLiteral("showAllCheckBox"));
+        showAllCheckBox->setObjectName(QString::fromUtf8("showAllCheckBox"));
 
         gridLayout->addWidget(showAllCheckBox, 1, 0, 1, 1);
 
         buttonBox = new QDialogButtonBox(ConnectDialog);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::NoButton|QDialogButtonBox::Ok);
 
@@ -129,12 +126,12 @@ public:
 
     void retranslateUi(QDialog *ConnectDialog)
     {
-        ConnectDialog->setWindowTitle(QApplication::translate("ConnectDialog", "Configure Connection", nullptr));
-        signalGroupBox->setTitle(QApplication::translate("ConnectDialog", "GroupBox", nullptr));
-        editSignalsButton->setText(QApplication::translate("ConnectDialog", "Edit...", nullptr));
-        slotGroupBox->setTitle(QApplication::translate("ConnectDialog", "GroupBox", nullptr));
-        editSlotsButton->setText(QApplication::translate("ConnectDialog", "Edit...", nullptr));
-        showAllCheckBox->setText(QApplication::translate("ConnectDialog", "Show signals and slots inherited from QWidget", nullptr));
+        ConnectDialog->setWindowTitle(QCoreApplication::translate("ConnectDialog", "Configure Connection", nullptr));
+        signalGroupBox->setTitle(QCoreApplication::translate("ConnectDialog", "GroupBox", nullptr));
+        editSignalsButton->setText(QCoreApplication::translate("ConnectDialog", "Edit...", nullptr));
+        slotGroupBox->setTitle(QCoreApplication::translate("ConnectDialog", "GroupBox", nullptr));
+        editSlotsButton->setText(QCoreApplication::translate("ConnectDialog", "Edit...", nullptr));
+        showAllCheckBox->setText(QCoreApplication::translate("ConnectDialog", "Show signals and slots inherited from QWidget", nullptr));
     } // retranslateUi
 
 };

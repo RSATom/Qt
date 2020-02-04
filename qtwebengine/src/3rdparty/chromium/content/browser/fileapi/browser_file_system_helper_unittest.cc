@@ -13,6 +13,7 @@
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/fileapi/browser_file_system_helper.h"
 #include "content/public/common/drop_data.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "net/base/filename_util.h"
 #include "storage/browser/fileapi/external_mount_points.h"
 #include "storage/browser/fileapi/file_system_options.h"
@@ -24,17 +25,16 @@
 #include "url/origin.h"
 
 namespace content {
-namespace {
+namespace browser_file_system_helper_unittest {
 
 const int kRendererID = 42;
-
-}  // namespace
 
 TEST(BrowserFileSystemHelperTest,
      PrepareDropDataForChildProcess_FileSystemFiles) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
+  TestBrowserThreadBundle thread_bundle;
   ChildProcessSecurityPolicyImpl* p =
       ChildProcessSecurityPolicyImpl::GetInstance();
   p->Add(kRendererID);
@@ -64,7 +64,7 @@ TEST(BrowserFileSystemHelperTest,
       new base::NullTaskRunner);
   storage::FileSystemOptions file_system_options(
       storage::FileSystemOptions::PROFILE_MODE_NORMAL,
-      std::vector<std::string>(), nullptr);
+      false /* force_in_memory */, std::vector<std::string>());
   scoped_refptr<storage::FileSystemContext> test_file_system_context(
       new storage::FileSystemContext(
           io_task_runner.get(), file_task_runner.get(),
@@ -138,6 +138,7 @@ TEST(BrowserFileSystemHelperTest, PrepareDropDataForChildProcess_LocalFiles) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
+  TestBrowserThreadBundle thread_bundle;
   ChildProcessSecurityPolicyImpl* p =
       ChildProcessSecurityPolicyImpl::GetInstance();
   p->Add(kRendererID);
@@ -185,4 +186,5 @@ TEST(BrowserFileSystemHelperTest, PrepareDropDataForChildProcess_LocalFiles) {
   p->Remove(kRendererID);
 }
 
+}  // namespace browser_file_system_helper_unittest
 }  // namespace content

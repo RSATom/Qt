@@ -7,50 +7,42 @@
 #ifndef CORE_FXCRT_CFX_MEMORYSTREAM_H_
 #define CORE_FXCRT_CFX_MEMORYSTREAM_H_
 
-#include <vector>
+#include <memory>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
+#include "core/fxcrt/fx_memory.h"
 #include "core/fxcrt/fx_stream.h"
+#include "core/fxcrt/retain_ptr.h"
 
-class CFX_MemoryStream : public IFX_SeekableStream {
+class CFX_MemoryStream final : public IFX_SeekableStream {
  public:
-  enum Type { kConsecutive = 1 << 0, kTakeOver = 1 << 1 };
-
   template <typename T, typename... Args>
-  friend CFX_RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+  friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
 
   // IFX_SeekableStream
   FX_FILESIZE GetSize() override;
   FX_FILESIZE GetPosition() override;
   bool IsEOF() override;
-  bool ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override;
+  bool ReadBlockAtOffset(void* buffer,
+                         FX_FILESIZE offset,
+                         size_t size) override;
   size_t ReadBlock(void* buffer, size_t size) override;
-  bool WriteBlock(const void* buffer, FX_FILESIZE offset, size_t size) override;
+  bool WriteBlockAtOffset(const void* buffer,
+                          FX_FILESIZE offset,
+                          size_t size) override;
   bool Flush() override;
 
-  bool IsConsecutive() const { return !!(m_dwFlags & Type::kConsecutive); }
-
-  uint8_t* GetBuffer() const {
-    return !m_Blocks.empty() ? m_Blocks.front() : nullptr;
-  }
-
-  void EstimateSize(size_t nInitSize, size_t nGrowSize);
-  void AttachBuffer(uint8_t* pBuffer, size_t nSize);
-  void DetachBuffer();
+  const uint8_t* GetBuffer() const { return m_data.get(); }
 
  private:
-  explicit CFX_MemoryStream(bool bConsecutive);
-  CFX_MemoryStream(uint8_t* pBuffer, size_t nSize, bool bTakeOver);
+  CFX_MemoryStream();
+  CFX_MemoryStream(std::unique_ptr<uint8_t, FxFreeDeleter> pBuffer,
+                   size_t nSize);
   ~CFX_MemoryStream() override;
 
-  bool ExpandBlocks(size_t size);
-
-  std::vector<uint8_t*> m_Blocks;
+  std::unique_ptr<uint8_t, FxFreeDeleter> m_data;
   size_t m_nTotalSize;
   size_t m_nCurSize;
-  size_t m_nCurPos;
-  size_t m_nGrowSize;
-  uint32_t m_dwFlags;
+  size_t m_nCurPos = 0;
 };
 
 #endif  // CORE_FXCRT_CFX_MEMORYSTREAM_H_

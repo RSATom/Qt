@@ -40,15 +40,13 @@
 #include "qhttpnetworkrequest_p.h"
 #include "private/qnoncontiguousbytedevice_p.h"
 
-#ifndef QT_NO_HTTP
-
 QT_BEGIN_NAMESPACE
 
 QHttpNetworkRequestPrivate::QHttpNetworkRequestPrivate(QHttpNetworkRequest::Operation op,
         QHttpNetworkRequest::Priority pri, const QUrl &newUrl)
     : QHttpNetworkHeaderPrivate(newUrl), operation(op), priority(pri), uploadByteDevice(0),
       autoDecompress(false), pipeliningAllowed(false), spdyAllowed(false), http2Allowed(false),
-      withCredentials(true), preConnect(false), redirectCount(0),
+      http2Direct(false), withCredentials(true), preConnect(false), redirectCount(0),
       redirectPolicy(QNetworkRequest::ManualRedirectPolicy)
 {
 }
@@ -63,11 +61,13 @@ QHttpNetworkRequestPrivate::QHttpNetworkRequestPrivate(const QHttpNetworkRequest
       pipeliningAllowed(other.pipeliningAllowed),
       spdyAllowed(other.spdyAllowed),
       http2Allowed(other.http2Allowed),
+      http2Direct(other.http2Direct),
       withCredentials(other.withCredentials),
       ssl(other.ssl),
       preConnect(other.preConnect),
       redirectCount(other.redirectCount),
-      redirectPolicy(other.redirectPolicy)
+      redirectPolicy(other.redirectPolicy),
+      peerVerifyName(other.peerVerifyName)
 {
 }
 
@@ -85,12 +85,14 @@ bool QHttpNetworkRequestPrivate::operator==(const QHttpNetworkRequestPrivate &ot
         && (pipeliningAllowed == other.pipeliningAllowed)
         && (spdyAllowed == other.spdyAllowed)
         && (http2Allowed == other.http2Allowed)
+        && (http2Direct == other.http2Direct)
         // we do not clear the customVerb in setOperation
         && (operation != QHttpNetworkRequest::Custom || (customVerb == other.customVerb))
         && (withCredentials == other.withCredentials)
         && (ssl == other.ssl)
         && (preConnect == other.preConnect)
-        && (redirectPolicy == other.redirectPolicy);
+        && (redirectPolicy == other.redirectPolicy)
+        && (peerVerifyName == other.peerVerifyName);
 }
 
 QByteArray QHttpNetworkRequest::methodName() const
@@ -133,6 +135,8 @@ QByteArray QHttpNetworkRequest::uri(bool throughProxy) const
     QUrl copy = d->url;
     if (copy.path().isEmpty())
         copy.setPath(QStringLiteral("/"));
+    else
+        format |= QUrl::NormalizePathSegments;
     QByteArray uri = copy.toEncoded(format);
     return uri;
 }
@@ -355,6 +359,16 @@ void QHttpNetworkRequest::setHTTP2Allowed(bool b)
     d->http2Allowed = b;
 }
 
+bool QHttpNetworkRequest::isHTTP2Direct() const
+{
+    return d->http2Direct;
+}
+
+void QHttpNetworkRequest::setHTTP2Direct(bool b)
+{
+    d->http2Direct = b;
+}
+
 bool QHttpNetworkRequest::withCredentials() const
 {
     return d->withCredentials;
@@ -385,8 +399,15 @@ int QHttpNetworkRequest::minorVersion() const
     return 1;
 }
 
+QString QHttpNetworkRequest::peerVerifyName() const
+{
+    return d->peerVerifyName;
+}
+
+void QHttpNetworkRequest::setPeerVerifyName(const QString &peerName)
+{
+    d->peerVerifyName = peerName;
+}
 
 QT_END_NAMESPACE
-
-#endif
 

@@ -47,7 +47,6 @@
 #include <qstring.h>
 
 #ifndef BUILD_QSCXMLC
-#include "qscxmlecmascriptdatamodel.h"
 #include "qscxmlinvokableservice_p.h"
 #include "qscxmldatamodel_p.h"
 #include "qscxmlstatemachine_p.h"
@@ -77,7 +76,7 @@ class ScxmlVerifier: public DocumentModel::NodeVisitor
 public:
     ScxmlVerifier(std::function<void (const DocumentModel::XmlLocation &, const QString &)> errorHandler)
         : m_errorHandler(errorHandler)
-        , m_doc(Q_NULLPTR)
+        , m_doc(nullptr)
         , m_hasErrors(false)
     {}
 
@@ -106,7 +105,7 @@ public:
     }
 
 private:
-    bool visit(DocumentModel::Scxml *scxml) Q_DECL_OVERRIDE
+    bool visit(DocumentModel::Scxml *scxml) override
     {
         if (!scxml->name.isEmpty() && !isValidToken(scxml->name, XmlNmtoken)) {
             error(scxml->xmlLocation,
@@ -133,12 +132,12 @@ private:
         return true;
     }
 
-    void endVisit(DocumentModel::Scxml *) Q_DECL_OVERRIDE
+    void endVisit(DocumentModel::Scxml *) override
     {
         m_parentNodes.removeLast();
     }
 
-    bool visit(DocumentModel::State *state) Q_DECL_OVERRIDE
+    bool visit(DocumentModel::State *state) override
     {
         if (!state->id.isEmpty() && !isValidToken(state->id, XmlNCName)) {
             error(state->xmlLocation, QStringLiteral("'%1' is not a valid XML ID").arg(state->id));
@@ -197,12 +196,12 @@ private:
         return true;
     }
 
-    void endVisit(DocumentModel::State *) Q_DECL_OVERRIDE
+    void endVisit(DocumentModel::State *) override
     {
         m_parentNodes.removeLast();
     }
 
-    bool visit(DocumentModel::Transition *transition) Q_DECL_OVERRIDE
+    bool visit(DocumentModel::Transition *transition) override
     {
         Q_ASSERT(transition->targetStates.isEmpty());
 
@@ -226,12 +225,12 @@ private:
         return true;
     }
 
-    void endVisit(DocumentModel::Transition *) Q_DECL_OVERRIDE
+    void endVisit(DocumentModel::Transition *) override
     {
         m_parentNodes.removeLast();
     }
 
-    bool visit(DocumentModel::HistoryState *state) Q_DECL_OVERRIDE
+    bool visit(DocumentModel::HistoryState *state) override
     {
         bool seenTransition = false;
         for (DocumentModel::StateOrTransition *sot : qAsConst(state->children)) {
@@ -252,25 +251,25 @@ private:
         return false;
     }
 
-    bool visit(DocumentModel::Send *node) Q_DECL_OVERRIDE
+    bool visit(DocumentModel::Send *node) override
     {
         checkEvent(node->event, node->xmlLocation, ForbidWildCards);
         checkExpr(node->xmlLocation, QStringLiteral("send"), QStringLiteral("eventexpr"), node->eventexpr);
         return true;
     }
 
-    void visit(DocumentModel::Cancel *node) Q_DECL_OVERRIDE
+    void visit(DocumentModel::Cancel *node) override
     {
         checkExpr(node->xmlLocation, QStringLiteral("cancel"), QStringLiteral("sendidexpr"), node->sendidexpr);
     }
 
-    bool visit(DocumentModel::DoneData *node) Q_DECL_OVERRIDE
+    bool visit(DocumentModel::DoneData *node) override
     {
         checkExpr(node->xmlLocation, QStringLiteral("donedata"), QStringLiteral("expr"), node->expr);
         return false;
     }
 
-    bool visit(DocumentModel::Invoke *node) Q_DECL_OVERRIDE
+    bool visit(DocumentModel::Invoke *node) override
     {
         if (!node->srcexpr.isEmpty())
             return false;
@@ -478,7 +477,7 @@ public:
     void setContent(const QSharedPointer<DocumentModel::ScxmlDocument> &content)
     { m_content = content; }
 
-    QScxmlInvokableService *invoke(QScxmlStateMachine *child) Q_DECL_OVERRIDE;
+    QScxmlInvokableService *invoke(QScxmlStateMachine *child) override;
 
 private:
     QSharedPointer<DocumentModel::ScxmlDocument> m_content;
@@ -496,10 +495,10 @@ class DynamicStateMachine: public QScxmlStateMachine, public QScxmlInternal::Gen
     Q_DECLARE_PRIVATE(DynamicStateMachine)
     // Manually expanded from Q_OBJECT macro:
 public:
-    const QMetaObject *metaObject() const Q_DECL_OVERRIDE
+    const QMetaObject *metaObject() const override
     { return d_func()->m_metaObject; }
 
-    int qt_metacall(QMetaObject::Call _c, int _id, void **_a) Q_DECL_OVERRIDE
+    int qt_metacall(QMetaObject::Call _c, int _id, void **_a) override
     {
         Q_D(DynamicStateMachine);
         _id = QScxmlStateMachine::qt_metacall(_c, _id, _a);
@@ -593,7 +592,7 @@ public:
         }
     }
 
-    QScxmlInvokableServiceFactory *serviceFactory(int id) const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QScxmlInvokableServiceFactory *serviceFactory(int id) const override final
     { return m_allFactoriesById.at(id); }
 
     static DynamicStateMachine *build(DocumentModel::ScxmlDocument *doc)
@@ -640,7 +639,7 @@ inline QScxmlInvokableService *InvokeDynamicScxmlFactory::invoke(
     bool ok = true;
     auto srcexpr = calculateSrcexpr(parentStateMachine, invokeInfo().expr, &ok);
     if (!ok)
-        return Q_NULLPTR;
+        return nullptr;
 
     if (!srcexpr.isEmpty())
         return invokeDynamicScxmlService(srcexpr, parentStateMachine, this);
@@ -670,7 +669,7 @@ QScxmlScxmlService *invokeDynamicScxmlService(const QString &sourceUrl,
 
     if (!errs.isEmpty()) {
         qWarning() << errs;
-        return Q_NULLPTR;
+        return nullptr;
     }
 
     QXmlStreamReader reader(data);
@@ -682,7 +681,7 @@ QScxmlScxmlService *invokeDynamicScxmlService(const QString &sourceUrl,
         const auto errors = compiler.errors();
         for (const QScxmlError &error : errors)
             qWarning().noquote() << error.toString();
-        return Q_NULLPTR;
+        return nullptr;
     }
 
     auto mainDoc = QScxmlCompilerPrivate::get(&compiler)->scxmlDocument();
@@ -691,7 +690,7 @@ QScxmlScxmlService *invokeDynamicScxmlService(const QString &sourceUrl,
         const auto errors = compiler.errors();
         for (const QScxmlError &error : errors)
             qWarning().noquote() << error.toString();
-        return Q_NULLPTR;
+        return nullptr;
     }
 
     auto childStateMachine = DynamicStateMachine::build(mainDoc);
@@ -810,7 +809,7 @@ QScxmlStateMachine *QScxmlCompiler::compile()
 QScxmlStateMachine *QScxmlCompilerPrivate::instantiateStateMachine() const
 {
 #ifdef BUILD_QSCXMLC
-    return Q_NULLPTR;
+    return nullptr;
 #else // BUILD_QSCXMLC
     DocumentModel::ScxmlDocument *doc = scxmlDocument();
     if (doc && doc->root) {
@@ -848,15 +847,15 @@ void QScxmlCompilerPrivate::instantiateDataModel(QScxmlStateMachine *stateMachin
         return;
     }
 
-    auto doc = m_doc.data();
-    auto root = doc ? doc->root : Q_NULLPTR;
-    if (root == Q_NULLPTR) {
+    auto doc = scxmlDocument();
+    auto root = doc ? doc->root : nullptr;
+    if (root == nullptr) {
         qWarning() << "SCXML document has no root element";
     } else {
         QScxmlDataModel *dm = QScxmlDataModelPrivate::instantiateDataModel(root->dataModel);
         QScxmlStateMachinePrivate::get(stateMachine)->parserData()->m_ownedDataModel.reset(dm);
         stateMachine->setDataModel(dm);
-        if (dm == Q_NULLPTR)
+        if (dm == nullptr)
             qWarning() << "No data-model instantiated";
     }
 #endif // BUILD_QSCXMLC
@@ -1158,7 +1157,7 @@ DocumentModel::AbstractState *DocumentModel::Node::asAbstractState()
         return state;
     if (HistoryState *history = asHistoryState())
         return history;
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 void DocumentModel::DataElement::accept(DocumentModel::NodeVisitor *visitor)
@@ -1320,7 +1319,7 @@ QScxmlCompilerPrivate *QScxmlCompilerPrivate::get(QScxmlCompiler *compiler)
 }
 
 QScxmlCompilerPrivate::QScxmlCompilerPrivate(QXmlStreamReader *reader)
-    : m_currentState(Q_NULLPTR)
+    : m_currentState(nullptr)
     , m_loader(&m_defaultLoader)
     , m_reader(reader)
 {}
@@ -1342,7 +1341,7 @@ bool QScxmlCompilerPrivate::verifyDocument()
 
 DocumentModel::ScxmlDocument *QScxmlCompilerPrivate::scxmlDocument() const
 {
-    return m_doc && m_errors.isEmpty() ? m_doc.data() : Q_NULLPTR;
+    return m_doc && m_errors.isEmpty() ? m_doc.data() : nullptr;
 }
 
 QString QScxmlCompilerPrivate::fileName() const
@@ -1590,7 +1589,7 @@ bool QScxmlCompilerPrivate::preReadElementOnEntry()
             current().instructionContainer = m_doc->newSequence(&s->onEntry);
             break;
         }
-        // intentional fall-through
+        Q_FALLTHROUGH();
     default:
         addError(QStringLiteral("unexpected container state for onentry"));
         break;
@@ -1609,7 +1608,7 @@ bool QScxmlCompilerPrivate::preReadElementOnExit()
             current().instructionContainer = m_doc->newSequence(&s->onExit);
             break;
         }
-        // intentional fall-through
+        Q_FALLTHROUGH();
     default:
         addError(QStringLiteral("unexpected container state for onexit"));
         break;
@@ -1963,7 +1962,7 @@ bool QScxmlCompilerPrivate::postReadElementDataModel()
 bool QScxmlCompilerPrivate::postReadElementData()
 {
     const ParserState parserState = current();
-    DocumentModel::DataElement *data = Q_NULLPTR;
+    DocumentModel::DataElement *data = nullptr;
     if (auto state = m_currentState->asState()) {
         data = state->dataElements.last();
     } else if (auto scxml = m_currentState->asScxml()) {
@@ -2345,7 +2344,7 @@ void QScxmlCompilerPrivate::addError(const DocumentModel::XmlLocation &location,
 
 DocumentModel::AbstractState *QScxmlCompilerPrivate::currentParent() const
 {
-    return m_currentState ? m_currentState->asAbstractState() : Q_NULLPTR;
+    return m_currentState ? m_currentState->asAbstractState() : nullptr;
 }
 
 DocumentModel::XmlLocation QScxmlCompilerPrivate::xmlLocation() const
@@ -2372,18 +2371,18 @@ DocumentModel::If *QScxmlCompilerPrivate::lastIf()
 {
     if (!hasPrevious()) {
         addError(QStringLiteral("No previous instruction found for else block"));
-        return Q_NULLPTR;
+        return nullptr;
     }
 
     DocumentModel::Instruction *lastI = previous().instruction;
     if (!lastI) {
         addError(QStringLiteral("No previous instruction found for else block"));
-        return Q_NULLPTR;
+        return nullptr;
     }
     DocumentModel::If *ifI = lastI->asIf();
     if (!ifI) {
         addError(QStringLiteral("Previous instruction for else block is not an 'if'"));
-        return Q_NULLPTR;
+        return nullptr;
     }
     return ifI;
 }

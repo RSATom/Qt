@@ -111,17 +111,17 @@ NmeaSource::NmeaSource(QObject *parent)
 QGeoPositionInfoSource *QGeoPositionInfoSourceFactorySerialNmea::positionInfoSource(QObject *parent)
 {
     QScopedPointer<NmeaSource> src(new NmeaSource(parent));
-    return src->isValid() ? src.take() : Q_NULLPTR;
+    return src->isValid() ? src.take() : nullptr;
 }
 
 QGeoSatelliteInfoSource *QGeoPositionInfoSourceFactorySerialNmea::satelliteInfoSource(QObject *parent)
 {
     Q_UNUSED(parent);
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 QGeoAreaMonitorSource *QGeoPositionInfoSourceFactorySerialNmea::areaMonitor(QObject *parent)
 {
     Q_UNUSED(parent);
-    return Q_NULLPTR;
+    return nullptr;
 }

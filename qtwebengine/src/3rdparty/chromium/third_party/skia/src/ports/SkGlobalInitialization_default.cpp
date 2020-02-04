@@ -5,118 +5,151 @@
  * found in the LICENSE file.
  */
 
-#include "Sk1DPathEffect.h"
-#include "Sk2DPathEffect.h"
-#include "SkAlphaThresholdFilter.h"
-#include "SkArcToPathEffect.h"
-#include "SkBitmapSourceDeserializer.h"
-#include "SkBlurImageFilter.h"
-#include "SkBlurMaskFilter.h"
-#include "SkColorFilterImageFilter.h"
-#include "SkColorMatrixFilterRowMajor255.h"
-#include "SkComposeImageFilter.h"
-#include "SkCornerPathEffect.h"
-#include "../../src/effects/SkDashImpl.h"
-#include "SkDiscretePathEffect.h"
-#include "SkDisplacementMapEffect.h"
-#include "SkDropShadowImageFilter.h"
-#include "../../src/effects/SkEmbossMaskFilter.h"
-#include "SkGradientShader.h"
-#include "SkHighContrastFilter.h"
-#include "SkImageSource.h"
-#include "SkLayerDrawLooper.h"
-#include "SkLayerRasterizer.h"
-#include "SkLightingImageFilter.h"
-#include "SkLightingShader.h"
-#include "SkLocalMatrixImageFilter.h"
-#include "SkLumaColorFilter.h"
-#include "SkMagnifierImageFilter.h"
-#include "SkMatrixConvolutionImageFilter.h"
-#include "SkMergeImageFilter.h"
-#include "SkMorphologyImageFilter.h"
-#include "SkNormalSource.h"
-#include "SkOffsetImageFilter.h"
-#include "../../src/effects/SkOverdrawColorFilter.h"
-#include "SkPaintImageFilter.h"
-#include "SkPerlinNoiseShader.h"
-#include "SkPictureImageFilter.h"
-#include "SkRRectsGaussianEdgeMaskFilter.h"
-#include "SkTableColorFilter.h"
-#include "SkTileImageFilter.h"
-#include "SkXfermodeImageFilter.h"
+#include "SkFlattenable.h"
 
-// Security note:
-//
-// As new subclasses are added here, they should be reviewed by chrome security before they
-// support deserializing cross-process: chrome-security@google.com. SampleFilterFuzz.cpp should
-// also be amended to exercise the new subclass.
-//
-// See SkReadBuffer::isCrossProcess() and SkPicture::PictureIOSecurityPrecautionsEnabled()
-//
+#if defined(SK_DISABLE_EFFECT_DESERIALIZATION)
 
-/*
- *  None of these are strictly "required" for Skia to operate.
- *
- *  These are the bulk of our "effects" -- subclasses of various effects on SkPaint.
- *
- *  Clients should feel free to dup this file and modify it as needed. This function "InitEffects"
- *  will automatically be called before any of skia's effects are asked to be deserialized.
- */
-void SkFlattenable::PrivateInitializer::InitEffects() {
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkBitmapSourceDeserializer)
+    void SkFlattenable::PrivateInitializer::InitEffects() {}
+    void SkFlattenable::PrivateInitializer::InitImageFilters() {}
 
-    // MaskFilter
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkEmbossMaskFilter)
-    SkBlurMaskFilter::InitializeFlattenables();
-    SkRRectsGaussianEdgeMaskFilter::InitializeFlattenables();
+#else
 
-    // DrawLooper
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkLayerDrawLooper)
+    #include "../../src/effects/SkDashImpl.h"
+    #include "../../src/effects/SkEmbossMaskFilter.h"
+    #include "../../src/effects/SkOpPE.h"
+    #include "../../src/effects/SkTrimPE.h"
+    #include "Sk1DPathEffect.h"
+    #include "Sk2DPathEffect.h"
+    #include "SkBitmapProcShader.h"
+    #include "SkColorFilter.h"
+    #include "SkColorFilterShader.h"
+    #include "SkColorMatrixFilterRowMajor255.h"
+    #include "SkColorShader.h"
+    #include "SkComposeShader.h"
+    #include "SkCornerPathEffect.h"
+    #include "SkDiscretePathEffect.h"
+    #include "SkEmptyShader.h"
+    #include "SkGradientShader.h"
+    #include "SkHighContrastFilter.h"
+    #include "SkImageShader.h"
+    #include "SkLayerDrawLooper.h"
+    #include "SkLightingShader.h"
+    #include "SkLocalMatrixShader.h"
+    #include "SkLumaColorFilter.h"
+    #include "SkNormalSource.h"
+    #include "SkOverdrawColorFilter.h"
+    #include "SkPathEffect.h"
+    #include "SkPerlinNoiseShader.h"
+    #include "SkPictureShader.h"
+    #include "SkRecordedDrawable.h"
+    #include "SkShaderBase.h"
+    #include "SkShaderMaskFilter.h"
+    #include "SkTableColorFilter.h"
+    #include "SkToSRGBColorFilter.h"
 
-    // Rasterizer
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkLayerRasterizer)
+    #include "SkAlphaThresholdFilter.h"
+    #include "SkBlurImageFilter.h"
+    #include "SkColorFilterImageFilter.h"
+    #include "SkComposeImageFilter.h"
+    #include "SkDisplacementMapEffect.h"
+    #include "SkDropShadowImageFilter.h"
+    #include "SkImageSource.h"
+    #include "SkLightingImageFilter.h"
+    #include "SkLocalMatrixImageFilter.h"
+    #include "SkMagnifierImageFilter.h"
+    #include "SkMatrixConvolutionImageFilter.h"
+    #include "SkMatrixImageFilter.h"
+    #include "SkMergeImageFilter.h"
+    #include "SkMorphologyImageFilter.h"
+    #include "SkOffsetImageFilter.h"
+    #include "SkPaintImageFilter.h"
+    #include "SkPictureImageFilter.h"
+    #include "SkTileImageFilter.h"
+    #include "SkXfermodeImageFilter.h"
 
-    // ColorFilter
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkColorMatrixFilterRowMajor255)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkLumaColorFilter)
-    SkAlphaThresholdFilter::InitializeFlattenables();
-    SkTableColorFilter::InitializeFlattenables();
-    SkOverdrawColorFilter::InitializeFlattenables();
-    SkHighContrastFilter::InitializeFlattenables();
+    /*
+     *  Register most effects for deserialization.
+     *
+     *  None of these are strictly required for Skia to operate, so if you're
+     *  not using deserialization yourself, you can define
+     *  SK_DISABLE_EFFECT_SERIALIZATION, or modify/replace this file as needed.
+     */
+    void SkFlattenable::PrivateInitializer::InitEffects() {
+        // Shaders.
+        SK_REGISTER_FLATTENABLE(SkColor4Shader);
+        SK_REGISTER_FLATTENABLE(SkColorFilterShader);
+        SK_REGISTER_FLATTENABLE(SkColorShader);
+        SK_REGISTER_FLATTENABLE(SkComposeShader);
+        SK_REGISTER_FLATTENABLE(SkEmptyShader);
+        SK_REGISTER_FLATTENABLE(SkLocalMatrixShader);
+        SK_REGISTER_FLATTENABLE(SkPictureShader);
+        SkGradientShader::RegisterFlattenables();
+        SkLightingShader::RegisterFlattenables();
+        SkPerlinNoiseShader::RegisterFlattenables();
+        SkShaderBase::RegisterFlattenables();
 
-    // Shader
-    SkPerlinNoiseShader::InitializeFlattenables();
-    SkGradientShader::InitializeFlattenables();
-    SkLightingShader::InitializeFlattenables();
-    SkNormalSource::InitializeFlattenables();
+        // Color filters.
+        SK_REGISTER_FLATTENABLE(SkColorMatrixFilterRowMajor255);
+        SK_REGISTER_FLATTENABLE(SkLumaColorFilter);
+        SK_REGISTER_FLATTENABLE(SkToSRGBColorFilter);
+        SkColorFilter::RegisterFlattenables();
+        SkHighContrastFilter::RegisterFlattenables();
+        SkOverdrawColorFilter::RegisterFlattenables();
+        SkTableColorFilter::RegisterFlattenables();
 
-    // PathEffect
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkArcToPathEffect)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkCornerPathEffect)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDashImpl)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDiscretePathEffect)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPath1DPathEffect)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkLine2DPathEffect)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPath2DPathEffect)
+        // Mask filters.
+        SK_REGISTER_FLATTENABLE(SkEmbossMaskFilter);
+        SkMaskFilter::RegisterFlattenables();
+        SkShaderMaskFilter::RegisterFlattenables();
 
-    // ImageFilter
-    SkImageFilter::InitializeFlattenables();
-    SkArithmeticImageFilter::InitializeFlattenables();
-    SkXfermodeImageFilter::InitializeFlattenables();
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDilateImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDisplacementMapEffect)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDropShadowImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkErodeImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkImageSource)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkLocalMatrixImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPaintImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPictureImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkTileImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkMagnifierImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkMatrixConvolutionImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkOffsetImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkComposeImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkMergeImageFilter)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkColorFilterImageFilter)
-    SkLightingImageFilter::InitializeFlattenables();
-}
+        // Path effects.
+        SK_REGISTER_FLATTENABLE(SkCornerPathEffect);
+        SK_REGISTER_FLATTENABLE(SkDashImpl);
+        SK_REGISTER_FLATTENABLE(SkDiscretePathEffect);
+        SK_REGISTER_FLATTENABLE(SkLine2DPathEffect);
+        SK_REGISTER_FLATTENABLE(SkMatrixPE);
+        SK_REGISTER_FLATTENABLE(SkOpPE);
+        SK_REGISTER_FLATTENABLE(SkPath1DPathEffect);
+        SK_REGISTER_FLATTENABLE(SkPath2DPathEffect);
+        SK_REGISTER_FLATTENABLE(SkStrokePE);
+        SK_REGISTER_FLATTENABLE(SkTrimPE);
+        SkPathEffect::RegisterFlattenables();
+
+        // Misc.
+        SK_REGISTER_FLATTENABLE(SkLayerDrawLooper);
+        SK_REGISTER_FLATTENABLE(SkRecordedDrawable);
+        SkNormalSource::RegisterFlattenables();
+    }
+
+    /*
+     *  Register SkImageFilters for deserialization.
+     *
+     *  None of these are strictly required for Skia to operate, so if you're
+     *  not using deserialization yourself, you can define
+     *  SK_DISABLE_EFFECT_SERIALIZATION, or modify/replace this file as needed.
+     */
+    void SkFlattenable::PrivateInitializer::InitImageFilters() {
+        SkAlphaThresholdFilter::RegisterFlattenables();
+        SkImageFilter::RegisterFlattenables();
+        SkArithmeticImageFilter::RegisterFlattenables();
+        SkXfermodeImageFilter::RegisterFlattenables();
+        SK_REGISTER_FLATTENABLE(SkDilateImageFilter);
+        SK_REGISTER_FLATTENABLE(SkDisplacementMapEffect);
+        SK_REGISTER_FLATTENABLE(SkDropShadowImageFilter);
+        SK_REGISTER_FLATTENABLE(SkErodeImageFilter);
+        SK_REGISTER_FLATTENABLE(SkImageSource);
+        SK_REGISTER_FLATTENABLE(SkLocalMatrixImageFilter);
+        SK_REGISTER_FLATTENABLE(SkPaintImageFilter);
+        SK_REGISTER_FLATTENABLE(SkPictureImageFilter);
+        SK_REGISTER_FLATTENABLE(SkTileImageFilter);
+        SK_REGISTER_FLATTENABLE(SkMagnifierImageFilter);
+        SK_REGISTER_FLATTENABLE(SkMatrixConvolutionImageFilter);
+        SK_REGISTER_FLATTENABLE(SkMatrixImageFilter);
+        SK_REGISTER_FLATTENABLE(SkOffsetImageFilter);
+        SK_REGISTER_FLATTENABLE(SkComposeImageFilter);
+        SK_REGISTER_FLATTENABLE(SkMergeImageFilter);
+        SK_REGISTER_FLATTENABLE(SkColorFilterImageFilter);
+        SkLightingImageFilter::RegisterFlattenables();
+    }
+
+#endif

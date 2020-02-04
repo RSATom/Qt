@@ -83,6 +83,9 @@ public:
     float endTime() const;
 
     float evaluateAtTime(float localTime) const;
+    float evaluateAtTime(float localTime, int lowerBound) const;
+    float evaluateAtTimeAsSlerp(float localTime, int lowerBound, float halfTheta, float sinHalfTheta, float reverseQ1) const;
+    int lowerKeyframeBound(float localTime) const;
 
     void read(const QJsonObject &json);
     void setFromQChannelComponent(const QChannelComponent &qcc);
@@ -110,7 +113,6 @@ inline QDebug operator<<(QDebug dbg, const FCurve &fcurve)
                 << endl;
             break;
         }
-
         case QKeyFrame::ConstantInterpolation:
         case QKeyFrame::LinearInterpolation: {
             dbg << "t = " << fcurve.localTime(i)

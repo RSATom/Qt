@@ -8,8 +8,9 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -66,15 +67,29 @@ void ExpectScopedFoo(std::unique_ptr<Foo, FooDeleter> foo) {
   EXPECT_FALSE(foo.get());
 }
 
+struct FooWithoutDefaultConstructor {
+  explicit FooWithoutDefaultConstructor(int value) : value(value) {}
+  int value;
+};
+
+FooWithoutDefaultConstructor CreateFooWithoutDefaultConstructor(int value) {
+  return FooWithoutDefaultConstructor(value);
+}
+
+void SaveFooWithoutDefaultConstructor(int* output_value,
+                                      FooWithoutDefaultConstructor input) {
+  *output_value = input.value;
+}
+
 }  // namespace
 
 TEST(TaskRunnerHelpersTest, PostTaskAndReplyWithResult) {
   int result = 0;
 
-  MessageLoop message_loop;
-  PostTaskAndReplyWithResult(message_loop.task_runner().get(), FROM_HERE,
-                             Bind(&ReturnFourtyTwo),
-                             Bind(&StoreValue, &result));
+  test::ScopedTaskEnvironment scoped_task_environment;
+  PostTaskAndReplyWithResult(ThreadTaskRunnerHandle::Get().get(), FROM_HERE,
+                             BindOnce(&ReturnFourtyTwo),
+                             BindOnce(&StoreValue, &result));
 
   RunLoop().RunUntilIdle();
 
@@ -84,10 +99,10 @@ TEST(TaskRunnerHelpersTest, PostTaskAndReplyWithResult) {
 TEST(TaskRunnerHelpersTest, PostTaskAndReplyWithResultImplicitConvert) {
   double result = 0;
 
-  MessageLoop message_loop;
-  PostTaskAndReplyWithResult(message_loop.task_runner().get(), FROM_HERE,
-                             Bind(&ReturnFourtyTwo),
-                             Bind(&StoreDoubleValue, &result));
+  test::ScopedTaskEnvironment scoped_task_environment;
+  PostTaskAndReplyWithResult(ThreadTaskRunnerHandle::Get().get(), FROM_HERE,
+                             BindOnce(&ReturnFourtyTwo),
+                             BindOnce(&StoreDoubleValue, &result));
 
   RunLoop().RunUntilIdle();
 
@@ -98,9 +113,9 @@ TEST(TaskRunnerHelpersTest, PostTaskAndReplyWithResultPassed) {
   g_foo_destruct_count = 0;
   g_foo_free_count = 0;
 
-  MessageLoop message_loop;
-  PostTaskAndReplyWithResult(message_loop.task_runner().get(), FROM_HERE,
-                             Bind(&CreateFoo), Bind(&ExpectFoo));
+  test::ScopedTaskEnvironment scoped_task_environment;
+  PostTaskAndReplyWithResult(ThreadTaskRunnerHandle::Get().get(), FROM_HERE,
+                             BindOnce(&CreateFoo), BindOnce(&ExpectFoo));
 
   RunLoop().RunUntilIdle();
 
@@ -112,14 +127,31 @@ TEST(TaskRunnerHelpersTest, PostTaskAndReplyWithResultPassedFreeProc) {
   g_foo_destruct_count = 0;
   g_foo_free_count = 0;
 
-  MessageLoop message_loop;
-  PostTaskAndReplyWithResult(message_loop.task_runner().get(), FROM_HERE,
-                             Bind(&CreateScopedFoo), Bind(&ExpectScopedFoo));
+  test::ScopedTaskEnvironment scoped_task_environment;
+  PostTaskAndReplyWithResult(ThreadTaskRunnerHandle::Get().get(), FROM_HERE,
+                             BindOnce(&CreateScopedFoo),
+                             BindOnce(&ExpectScopedFoo));
 
   RunLoop().RunUntilIdle();
 
   EXPECT_EQ(1, g_foo_destruct_count);
   EXPECT_EQ(1, g_foo_free_count);
+}
+
+TEST(TaskRunnerHelpersTest,
+     PostTaskAndReplyWithResultWithoutDefaultConstructor) {
+  const int kSomeVal = 17;
+
+  test::ScopedTaskEnvironment scoped_task_environment;
+  int actual = 0;
+  PostTaskAndReplyWithResult(
+      ThreadTaskRunnerHandle::Get().get(), FROM_HERE,
+      BindOnce(&CreateFooWithoutDefaultConstructor, kSomeVal),
+      BindOnce(&SaveFooWithoutDefaultConstructor, &actual));
+
+  RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(kSomeVal, actual);
 }
 
 }  // namespace base

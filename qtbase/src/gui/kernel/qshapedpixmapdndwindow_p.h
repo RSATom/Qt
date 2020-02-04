@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the plugins of the Qt Toolkit.
+** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -55,6 +55,8 @@
 #include <QtGui/QRasterWindow>
 #include <QtGui/QPixmap>
 
+QT_REQUIRE_CONFIG(draganddrop);
+
 QT_BEGIN_NAMESPACE
 
 class QShapedPixmapWindow : public QRasterWindow
@@ -71,7 +73,7 @@ public:
     void updateGeometry(const QPoint &pos);
 
 protected:
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *) override;
 
 private:
     QPixmap m_pixmap;

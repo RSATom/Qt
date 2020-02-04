@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/animation/ink_drop.h"
@@ -21,7 +22,7 @@ class InkDropImplTestApi;
 }  // namespace test
 
 class InkDropRipple;
-class InkDropHost;
+class InkDropHostView;
 class InkDropHighlight;
 
 // A functional implementation of an InkDrop.
@@ -49,7 +50,7 @@ class VIEWS_EXPORT InkDropImpl : public InkDrop,
   //
   // By default the highlight will be made visible while |this| is hovered but
   // not focused and the NONE AutoHighlightMode will be used.
-  InkDropImpl(InkDropHost* ink_drop_host, const gfx::Size& host_size);
+  InkDropImpl(InkDropHostView* ink_drop_host, const gfx::Size& host_size);
   ~InkDropImpl() override;
 
   // Auto highlighting is a mechanism to show/hide the highlight based on the
@@ -59,13 +60,22 @@ class VIEWS_EXPORT InkDropImpl : public InkDrop,
   // This method is intended as a configuration option to be used after
   // construction. Behavior is undefined if |this| has already handled any
   // InkDrop inherited functions.
+  // TODO(pbos): Move along with AutoHighlightMode to views::InkDrop so users
+  // can configure inkdrops created by parent classes.
   void SetAutoHighlightMode(AutoHighlightMode auto_highlight_mode);
+
+  const base::Optional<int>& hover_highlight_fade_duration_ms() const {
+    return hover_highlight_fade_duration_ms_;
+  }
 
   // InkDrop:
   void HostSizeChanged(const gfx::Size& new_size) override;
   InkDropState GetTargetInkDropState() const override;
   void AnimateToState(InkDropState ink_drop_state) override;
+  void SetHoverHighlightFadeDurationMs(int duration_ms) override;
+  void UseDefaultHoverHighlightFadeDuration() override;
   void SnapToActivated() override;
+  void SnapToHidden() override;
   void SetHovered(bool is_hovered) override;
   void SetFocused(bool is_focused) override;
   bool IsHighlightFadingInOrVisible() const override;
@@ -261,7 +271,7 @@ class VIEWS_EXPORT InkDropImpl : public InkDrop,
 
   // The host of the ink drop. Used to create the ripples and highlights, and to
   // add/remove the root layer to/from it.
-  InkDropHost* ink_drop_host_;
+  InkDropHostView* ink_drop_host_;
 
   // The root Layer that parents the InkDropRipple layers and the
   // InkDropHighlight layers. The |root_layer_| is the one that is added and
@@ -299,6 +309,9 @@ class VIEWS_EXPORT InkDropImpl : public InkDrop,
   // The current state object that handles all inputs that affect the visibility
   // of the |highlight_|.
   std::unique_ptr<HighlightState> highlight_state_;
+
+  // Overrides the default hover highlight fade durations when set.
+  base::Optional<int> hover_highlight_fade_duration_ms_;
 
   // Used to ensure highlight state transitions are not triggered when exiting
   // the current state.

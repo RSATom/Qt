@@ -6,17 +6,21 @@ source_set("factory") {
   sources = [
     "download_service_factory.cc",
     "download_service_factory.h",
+    "navigation_monitor_factory.cc",
+    "navigation_monitor_factory.h",
   ]
 
   public_deps = [
-    "//components/download/public",
+    "//components/download/public/background_service:public",
   ]
 
   deps = [
     "//base",
     "//components/download/content/internal",
-    "//components/download/internal",
-    "//components/download/internal/proto",
+    "//components/download/internal/background_service:internal",
+    "//components/download/internal/background_service/proto",
+    "//components/download/network",
+    "//components/keyed_service/content",
     "//components/leveldb_proto",
     "//content/public/browser",
     "//net",

@@ -11,105 +11,135 @@
 #include <memory>
 #include <set>
 #include <utility>
+#include <vector>
 
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "core/fxcrt/cfx_string_pool_template.h"
-#include "core/fxcrt/cfx_weak_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/string_pool_template.h"
+#include "core/fxcrt/weak_ptr.h"
+#include "third_party/base/logging.h"
 #include "third_party/base/ptr_util.h"
 
 class CPDF_IndirectObjectHolder;
 
-class CPDF_Dictionary : public CPDF_Object {
+class CPDF_Dictionary final : public CPDF_Object {
  public:
   using const_iterator =
-      std::map<CFX_ByteString, std::unique_ptr<CPDF_Object>>::const_iterator;
+      std::map<ByteString, std::unique_ptr<CPDF_Object>>::const_iterator;
 
   CPDF_Dictionary();
-  explicit CPDF_Dictionary(const CFX_WeakPtr<CFX_ByteStringPool>& pPool);
+  explicit CPDF_Dictionary(const WeakPtr<ByteStringPool>& pPool);
   ~CPDF_Dictionary() override;
 
   // CPDF_Object:
   Type GetType() const override;
   std::unique_ptr<CPDF_Object> Clone() const override;
-  CPDF_Dictionary* GetDict() const override;
+  CPDF_Dictionary* GetDict() override;
+  const CPDF_Dictionary* GetDict() const override;
   bool IsDictionary() const override;
   CPDF_Dictionary* AsDictionary() override;
   const CPDF_Dictionary* AsDictionary() const override;
-  bool WriteTo(IFX_ArchiveStream* archive) const override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
 
-  size_t GetCount() const { return m_Map.size(); }
-  CPDF_Object* GetObjectFor(const CFX_ByteString& key) const;
-  CPDF_Object* GetDirectObjectFor(const CFX_ByteString& key) const;
-  CFX_ByteString GetStringFor(const CFX_ByteString& key) const;
-  CFX_ByteString GetStringFor(const CFX_ByteString& key,
-                              const CFX_ByteString& default_str) const;
-  CFX_WideString GetUnicodeTextFor(const CFX_ByteString& key) const;
-  int GetIntegerFor(const CFX_ByteString& key) const;
-  int GetIntegerFor(const CFX_ByteString& key, int default_int) const;
-  bool GetBooleanFor(const CFX_ByteString& key, bool bDefault = false) const;
-  float GetNumberFor(const CFX_ByteString& key) const;
-  CPDF_Dictionary* GetDictFor(const CFX_ByteString& key) const;
-  CPDF_Stream* GetStreamFor(const CFX_ByteString& key) const;
-  CPDF_Array* GetArrayFor(const CFX_ByteString& key) const;
-  CFX_FloatRect GetRectFor(const CFX_ByteString& key) const;
-  CFX_Matrix GetMatrixFor(const CFX_ByteString& key) const;
-  float GetFloatFor(const CFX_ByteString& key) const {
-    return GetNumberFor(key);
-  }
+  bool IsLocked() const { return !!m_LockCount; }
 
-  bool KeyExist(const CFX_ByteString& key) const;
-  bool IsSignatureDict() const;
+  size_t size() const { return m_Map.size(); }
+  const CPDF_Object* GetObjectFor(const ByteString& key) const;
+  CPDF_Object* GetObjectFor(const ByteString& key);
+  const CPDF_Object* GetDirectObjectFor(const ByteString& key) const;
+  CPDF_Object* GetDirectObjectFor(const ByteString& key);
+  ByteString GetStringFor(const ByteString& key) const;
+  ByteString GetStringFor(const ByteString& key,
+                          const ByteString& default_str) const;
+  WideString GetUnicodeTextFor(const ByteString& key) const;
+  int GetIntegerFor(const ByteString& key) const;
+  int GetIntegerFor(const ByteString& key, int default_int) const;
+  bool GetBooleanFor(const ByteString& key, bool bDefault) const;
+  float GetNumberFor(const ByteString& key) const;
+  const CPDF_Dictionary* GetDictFor(const ByteString& key) const;
+  CPDF_Dictionary* GetDictFor(const ByteString& key);
+  const CPDF_Stream* GetStreamFor(const ByteString& key) const;
+  CPDF_Stream* GetStreamFor(const ByteString& key);
+  const CPDF_Array* GetArrayFor(const ByteString& key) const;
+  CPDF_Array* GetArrayFor(const ByteString& key);
+  CFX_FloatRect GetRectFor(const ByteString& key) const;
+  CFX_Matrix GetMatrixFor(const ByteString& key) const;
+  float GetFloatFor(const ByteString& key) const { return GetNumberFor(key); }
+
+  bool KeyExist(const ByteString& key) const;
+  std::vector<ByteString> GetKeys() const;
 
   // Set* functions invalidate iterators for the element with the key |key|.
   // Takes ownership of |pObj|, returns an unowned pointer to it.
-  CPDF_Object* SetFor(const CFX_ByteString& key,
-                      std::unique_ptr<CPDF_Object> pObj);
+  CPDF_Object* SetFor(const ByteString& key, std::unique_ptr<CPDF_Object> pObj);
 
   // Creates a new object owned by the dictionary and returns an unowned
   // pointer to it.
   template <typename T, typename... Args>
   typename std::enable_if<!CanInternStrings<T>::value, T*>::type SetNewFor(
-      const CFX_ByteString& key,
+      const ByteString& key,
       Args&&... args) {
+    CHECK(!IsLocked());
     return static_cast<T*>(
         SetFor(key, pdfium::MakeUnique<T>(std::forward<Args>(args)...)));
   }
   template <typename T, typename... Args>
   typename std::enable_if<CanInternStrings<T>::value, T*>::type SetNewFor(
-      const CFX_ByteString& key,
+      const ByteString& key,
       Args&&... args) {
+    CHECK(!IsLocked());
     return static_cast<T*>(SetFor(
         key, pdfium::MakeUnique<T>(m_pPool, std::forward<Args>(args)...)));
   }
 
   // Convenience functions to convert native objects to array form.
-  void SetRectFor(const CFX_ByteString& key, const CFX_FloatRect& rect);
-  void SetMatrixFor(const CFX_ByteString& key, const CFX_Matrix& matrix);
+  void SetRectFor(const ByteString& key, const CFX_FloatRect& rect);
+  void SetMatrixFor(const ByteString& key, const CFX_Matrix& matrix);
 
-  void ConvertToIndirectObjectFor(const CFX_ByteString& key,
+  void ConvertToIndirectObjectFor(const ByteString& key,
                                   CPDF_IndirectObjectHolder* pHolder);
 
   // Invalidates iterators for the element with the key |key|.
-  void RemoveFor(const CFX_ByteString& key);
+  std::unique_ptr<CPDF_Object> RemoveFor(const ByteString& key);
 
   // Invalidates iterators for the element with the key |oldkey|.
-  void ReplaceKey(const CFX_ByteString& oldkey, const CFX_ByteString& newkey);
+  void ReplaceKey(const ByteString& oldkey, const ByteString& newkey);
 
-  const_iterator begin() const { return m_Map.begin(); }
-  const_iterator end() const { return m_Map.end(); }
+  WeakPtr<ByteStringPool> GetByteStringPool() const { return m_pPool; }
 
-  CFX_WeakPtr<CFX_ByteStringPool> GetByteStringPool() const { return m_pPool; }
+ private:
+  friend class CPDF_DictionaryLocker;
 
- protected:
-  CFX_ByteString MaybeIntern(const CFX_ByteString& str);
+  ByteString MaybeIntern(const ByteString& str);
   std::unique_ptr<CPDF_Object> CloneNonCyclic(
       bool bDirect,
       std::set<const CPDF_Object*>* visited) const override;
 
-  CFX_WeakPtr<CFX_ByteStringPool> m_pPool;
-  std::map<CFX_ByteString, std::unique_ptr<CPDF_Object>> m_Map;
+  mutable uint32_t m_LockCount = 0;
+  WeakPtr<ByteStringPool> m_pPool;
+  std::map<ByteString, std::unique_ptr<CPDF_Object>> m_Map;
+};
+
+class CPDF_DictionaryLocker {
+ public:
+  using const_iterator = CPDF_Dictionary::const_iterator;
+
+  explicit CPDF_DictionaryLocker(const CPDF_Dictionary* pDictionary);
+  ~CPDF_DictionaryLocker();
+
+  const_iterator begin() const {
+    CHECK(m_pDictionary->IsLocked());
+    return m_pDictionary->m_Map.begin();
+  }
+  const_iterator end() const {
+    CHECK(m_pDictionary->IsLocked());
+    return m_pDictionary->m_Map.end();
+  }
+
+ private:
+  UnownedPtr<const CPDF_Dictionary> const m_pDictionary;
 };
 
 inline CPDF_Dictionary* ToDictionary(CPDF_Object* obj) {

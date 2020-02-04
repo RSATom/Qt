@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -27,10 +27,12 @@
 ****************************************************************************/
 
 #include <QString>
+#include <QtTest/QtTest>
 #ifdef QT_NETWORK_LIB
 #include <QtNetwork/QHostInfo>
 #include <QtNetwork/QHostAddress>
 #include <QtNetwork/QAbstractSocket>
+#include <QtNetwork/QTcpSocket>
 #endif
 
 #ifdef Q_OS_UNIX
@@ -50,7 +52,11 @@ public:
     }
     static QString serverDomainName()
     {
+#ifdef QT_TEST_SERVER_DOMAIN
+        return QString(QT_TEST_SERVER_DOMAIN); // Defined in testserver feature
+#else
         return QString("qt-test-net");
+#endif
     }
     static QString serverName()
     {
@@ -137,6 +143,20 @@ public:
         return true;
     }
 
+    static bool verifyConnection(QString serverName, quint16 port, quint32 retry = 60)
+    {
+        QTcpSocket socket;
+        for (quint32 i = 1; i < retry; i++) {
+            socket.connectToHost(serverName, port);
+            if (socket.waitForConnected(1000))
+                return true;
+            // Wait for service to start up
+            QTest::qWait(1000);
+        }
+        socket.connectToHost(serverName, port);
+        return socket.waitForConnected(1000);
+    }
+
     // Helper function for usage with QVERIFY2 on sockets.
     static QByteArray msgSocketError(const QAbstractSocket &s)
     {
@@ -153,4 +173,45 @@ public:
        return result.toLocal8Bit();
     }
 #endif // QT_NETWORK_LIB
+
+    static QString ftpServerName()
+    {
+#ifdef QT_TEST_SERVER_NAME
+        return QString("vsftpd.") % serverDomainName();
+#else
+        return serverName();
+#endif
+    }
+    static QString ftpProxyServerName()
+    {
+#ifdef QT_TEST_SERVER_NAME
+        return QString("ftp-proxy.") % serverDomainName();
+#else
+        return serverName();
+#endif
+    }
+    static QString httpServerName()
+    {
+#ifdef QT_TEST_SERVER_NAME
+        return QString("apache2.") % serverDomainName();
+#else
+        return serverName();
+#endif
+    }
+    static QString httpProxyServerName()
+    {
+#ifdef QT_TEST_SERVER_NAME
+        return QString("squid.") % serverDomainName();
+#else
+        return serverName();
+#endif
+    }
+    static QString socksProxyServerName()
+    {
+#ifdef QT_TEST_SERVER_NAME
+        return QString("danted.") % serverDomainName();
+#else
+        return serverName();
+#endif
+    }
 };

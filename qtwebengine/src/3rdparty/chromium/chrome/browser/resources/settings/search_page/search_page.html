@@ -4,7 +4,6 @@
 <link rel="import" href="chrome://resources/html/assert.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/html/md_select_css.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/neon-animation/neon-animatable.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-button/paper-button.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
 <link rel="import" href="../controls/extension_controlled_indicator.html">
@@ -34,39 +33,36 @@
       }
 
       iron-icon {
-        -webkit-padding-end: 16px;
+        padding-inline-end: 16px;
       }
 
       .indented {
-        -webkit-margin-start: var(--settings-indent-width);
+        margin-inline-start: var(--settings-indent-width);
       }
     </style>
     <settings-animated-pages id="pages" section="search"
         focus-config="[[focusConfig_]]">
-      <neon-animatable route-path="default">
+      <div route-path="default">
         <!-- Omnibox search engine -->
         <div class="settings-box first block">
           <div id="search-wrapper">
-            <p id="searchExplanation" class="start">
+            <div id="searchExplanation" class="start">
               $i18nRaw{searchExplanation}
-            </p>
+            </div>
             <template is="dom-if" if="[[isDefaultSearchControlledByPolicy_(
                 prefs.default_search_provider_data.template_url_data)]]">
               <cr-policy-pref-indicator pref="[[
                   prefs.default_search_provider_data.template_url_data]]">
               </cr-policy-pref-indicator>
             </template>
-            <div>
-              <select class="md-select" on-change="onChange_"
-                  aria-labelledby="searchExplanation"
-                  disabled$="[[isDefaultSearchEngineEnforced_(
-                      prefs.default_search_provider_data.template_url_data)]]">
-                <template is="dom-repeat" items="[[searchEngines_]]">
-                  <option selected="[[item.default]]">[[item.name]]</option>
-                </template>
-              </select>
-              <span class="md-select-underline"></span>
-            </div>
+            <select class="md-select" on-change="onChange_"
+                aria-labelledby="searchExplanation"
+                disabled$="[[isDefaultSearchEngineEnforced_(
+                    prefs.default_search_provider_data.template_url_data)]]">
+              <template is="dom-repeat" items="[[searchEngines_]]">
+                <option selected="[[item.default]]">[[item.name]]</option>
+              </template>
+            </select>
           </div>
           <template is="dom-if"
               if="[[prefs.default_search_provider_data.template_url_data.extensionId]]">
@@ -82,107 +78,52 @@
           </template>
         </div>
 
-        <template is="dom-if" if="[[googleNowAvailable_]]">
-          <!-- Google Now cards in the launcher -->
-          <div class="settings-box continuation indented">
-            <settings-toggle-button id="googleNowEnable" class="start"
-                pref="{{prefs.google_now_launcher.enabled}}"
-                label="$i18n{searchEnableGoogleNowLabel}">
-            </settings-toggle-button>
-          </div>
-        </template>
-
-        <template is="dom-if" if="[[hotwordInfo_.allowed]]">
-          <!-- Hotword (OK Google) -->
-          <div class="settings-box two-line continuation indented">
-            <settings-toggle-button id="hotwordSearchEnable" class="start"
-                pref="{{hotwordSearchEnablePref_}}"
-                label="$i18n{searchOkGoogleLabel}"
-                sub-label="[[getHotwordSearchEnableSubLabel_(
-                           hotwordInfo_.alwaysOn)]]"
-                on-change="onHotwordSearchEnableChange_">
-            </settings-toggle-button>
-            <div class="settings-row"
-                hidden$="[[!getShowHotwordSearchRetrain_(hotwordInfo_.*)]]">
-              <div class="separator"></div>
-              <paper-button on-tap="onRetrainTap_" class="secondary-button">
-                $i18n{searchOkGoogleRetrain}
-              </paper-button>
-            </div>
-          </div>
-
-          <template is="dom-if"
-              if="[[getShowHotwordError_(hotwordInfo_.*,
-                  hotwordSearchEnablePref_)]]">
-            <div class="settings-box continuation indented">
-              <iron-icon icon="settings:warning"></iron-icon>
-              <div inner-h-t-m-l="[[hotwordInfo_.errorMessage]]"></div>
-            </div>
-          </template>
-
-          <template is="dom-if" if="[[hotwordInfo_.historyEnabled]]">
-            <a class="settings-box two-line continuation indented inherit-color
-                no-outline" tabindex="-1" target="_blank"
-                href="$i18n{manageAudioHistoryUrl}">
-              <div class="start">
-                [[i18n('searchOkGoogleAudioHistoryLabel',
-                       hotwordInfo_.userName)]]
-                <div class="secondary" id="audioHistorySecondary">
-                  $i18n{searchOkGoogleAudioHistorySubtext}
-                </div>
-              </div>
-              <button actionable class="icon-external"
-                  is="paper-icon-button-light"
-                  aria-label$="[[i18n('searchOkGoogleAudioHistoryLabel',
-                                      hotwordInfo_.userName)]]"
-                  aria-describedby="audioHistorySecondary"></button>
-            </a>
-          </template>
-        </template>
-
-<if expr="chromeos">
-        <template is="dom-if"
-            if="[[hotwordSearchEnablePref_.value]]">
-          <div class="start settings-box continuation indented">
-            $i18n{searchOkGoogleDisabled}
-          </div>
-        </template>
-</if>
-
         <!-- Manage search engines -->
-        <div id="engines-subpage-trigger" class="settings-box"
-            on-tap="onManageSearchEnginesTap_" actionable>
-          <div class="start">
-            $i18n{searchEnginesManage}
-          </div>
-          <button class="subpage-arrow" is="paper-icon-button-light"
-              aria-label="$i18n{searchEnginesManage}"></button>
-        </div>
+        <cr-link-row
+            class="hr"
+            icon-class="subpage-arrow"
+            id="engines-subpage-trigger"
+            label="$i18n{searchEnginesManage}"
+            on-click="onManageSearchEnginesTap_">
+        </cr-link-row>
 
 <if expr="chromeos">
         <!-- Google Assistant -->
-        <template is="dom-if" if="[[showAssistantSection_(
-            voiceInteractionFeatureEnabled_, prefs.arc.enabled.value)]]">
+        <template is="dom-if" if="[[voiceInteractionFeatureEnabled_]]">
           <div id="assistant-subpage-trigger" class="settings-box two-line"
-            on-tap="onGoogleAssistantTap_" actionable>
-          <div class="start">
-            $i18n{searchGoogleAssistant}
-            <div class="secondary">
-              [[getAssistantEnabledDisabledLabel_(
-                  prefs.settings.voice_interaction.enabled.value)]]
+            on-click="onGoogleAssistantTap_" actionable>
+            <div class="start">
+              $i18n{searchGoogleAssistant}
+              <div class="secondary">
+                [[getAssistantEnabledDisabledLabel_(
+                    prefs.settings.voice_interaction.enabled.value)]]
+              </div>
             </div>
-          </div>
-          <button class="subpage-arrow" is="paper-icon-button-light"
-              aria-label="$i18n{searchGoogleAssistant}"></button>
+            <template is="dom-if" if="[[assistantOn_]]">
+              <paper-icon-button-light class="subpage-arrow">
+                <button aria-label="$i18n{searchGoogleAssistant}"></button>
+              </paper-icon-button-light>
+            </template>
+            <template is="dom-if" if="[[!assistantOn_]]">
+              <div class="separator"></div>
+              <paper-button id="enable" class="secondary-button"
+                  on-click="onAssistantTurnOnTap_"
+                  aria-label="$i18n{searchPageTitle}"
+                  aria-describedby="secondaryText">
+                $i18n{assistantTurnOn}
+              </paper-button>
+            </template>
           </div>
         </template>
 </if>
-      </neon-animatable>
+      </div>
       <template is="dom-if" route-path="/searchEngines">
         <settings-subpage
             associated-control="[[$$('#engines-subpage-trigger')]]"
-            page-title="$i18n{searchEnginesManage}">
-          <settings-search-engines-page></settings-search-engines-page>
+            page-title="$i18n{searchEnginesManage}"
+            search-label="$i18n{searchEnginesSearch}"
+            search-term="{{searchEnginesFilter_}}">
+          <settings-search-engines-page filter="[[searchEnginesFilter_]]">
         </settings-subpage>
       </template>
 <if expr="chromeos">

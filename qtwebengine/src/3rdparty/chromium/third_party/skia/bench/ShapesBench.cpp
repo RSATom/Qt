@@ -12,6 +12,7 @@
 #include "SkRandom.h"
 #include "SkRRect.h"
 #include "SkString.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <functional>
@@ -96,8 +97,6 @@ public:
         clampShapeSize();
     }
 #endif
-
-    bool isVisual() override { return true; }
 
 private:
     void clampShapeSize() {
@@ -186,13 +185,13 @@ private:
                         break;
                 }
             } else {
-                const SkRRect* outer;
+                const SkRRect* outer = nullptr;
                 switch (shapeType) {
                     case kRect_ShapesType: outer = &fRect; break;
                     case kOval_ShapesType: outer = &fOval; break;
                     case kRRect_ShapesType: outer = &fRRect; break;
                 }
-                const SkRRect* inner;
+                const SkRRect* inner = nullptr;
                 switch (innerShapeType) {
                     case kRect_ShapesType: inner = &fInnerRect; break;
                     case kOval_ShapesType: inner = &fInnerOval; break;

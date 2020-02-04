@@ -14,7 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "media/blink/key_system_config_selector.h"
 #include "media/blink/media_blink_export.h"
-#include "third_party/WebKit/public/platform/WebEncryptedMediaClient.h"
+#include "third_party/blink/public/platform/web_encrypted_media_client.h"
 
 namespace blink {
 
@@ -28,16 +28,13 @@ namespace media {
 
 struct CdmConfig;
 class CdmFactory;
-class MediaLog;
 class MediaPermission;
 
 class MEDIA_BLINK_EXPORT WebEncryptedMediaClientImpl
     : public blink::WebEncryptedMediaClient {
  public:
-  WebEncryptedMediaClientImpl(
-      CdmFactory* cdm_factory,
-      MediaPermission* media_permission,
-      MediaLog* media_log);
+  WebEncryptedMediaClientImpl(CdmFactory* cdm_factory,
+                              MediaPermission* media_permission);
   ~WebEncryptedMediaClientImpl() override;
 
   // WebEncryptedMediaClient implementation.
@@ -66,9 +63,8 @@ class MEDIA_BLINK_EXPORT WebEncryptedMediaClientImpl
       const blink::WebMediaKeySystemConfiguration& accumulated_configuration,
       const CdmConfig& cdm_config);
 
-  // Complete a requestMediaKeySystemAccess() request with an error message.
-  void OnRequestNotSupported(blink::WebEncryptedMediaRequest request,
-                             const blink::WebString& error_message);
+  // Complete a requestMediaKeySystemAccess() request with a NotSupportedError.
+  void OnRequestNotSupported(blink::WebEncryptedMediaRequest request);
 
   // Gets the Reporter for |key_system|. If it doesn't already exist,
   // create one.
@@ -79,7 +75,6 @@ class MEDIA_BLINK_EXPORT WebEncryptedMediaClientImpl
 
   CdmFactory* cdm_factory_;
   KeySystemConfigSelector key_system_config_selector_;
-  MediaLog* media_log_;
   base::WeakPtrFactory<WebEncryptedMediaClientImpl> weak_factory_;
 };
 

@@ -16,14 +16,6 @@ Polymer({
       type: String,
       notify: true,
     },
-
-    /**
-     * The type of data used by the given website.
-     */
-    websiteStorageType: {
-      type: Number,
-      notify: true,
-    },
   },
 
   /** @override */
@@ -38,10 +30,9 @@ Polymer({
 
   /**
    * @param {string} origin
-   * @param {number} type
    */
-  clearUsage: function(origin, type) {
-    settings.WebsiteUsagePrivateApi.clearUsage(origin, type);
+  clearUsage: function(origin) {
+    settings.WebsiteUsagePrivateApi.clearUsage(origin);
   },
 
   /** @param {string} origin */
@@ -56,22 +47,24 @@ cr.define('settings.WebsiteUsagePrivateApi', function() {
    * @type {Object} An instance of the polymer object defined above.
    * All data will be set here.
    */
-  var websiteUsagePolymerInstance = null;
+  const websiteUsagePolymerInstance = null;
 
   /**
    * @type {string} The host for which the usage total is being fetched.
    */
-  var hostName;
+  let hostName;
 
   /**
    * Encapsulates the calls between JS and C++ to fetch how much storage the
    * host is using.
    * Will update the data in |websiteUsagePolymerInstance|.
    */
-  var fetchUsageTotal = function(host) {
-    var instance = settings.WebsiteUsagePrivateApi.websiteUsagePolymerInstance;
-    if (instance != null)
+  const fetchUsageTotal = function(host) {
+    const instance =
+        settings.WebsiteUsagePrivateApi.websiteUsagePolymerInstance;
+    if (instance != null) {
       instance.websiteDataUsage = '';
+    }
 
     hostName = host;
     chrome.send('fetchUsageTotal', [host]);
@@ -82,36 +75,30 @@ cr.define('settings.WebsiteUsagePrivateApi', function() {
    * @param {string} host The host that the usage was fetched for.
    * @param {string} usage The string showing how much data the given host
    *     is using.
-   * @param {number} type The storage type.
    */
-  var returnUsageTotal = function(host, usage, type) {
-    var instance = settings.WebsiteUsagePrivateApi.websiteUsagePolymerInstance;
-    if (instance == null)
+  const returnUsageTotal = function(host, usage) {
+    const instance =
+        settings.WebsiteUsagePrivateApi.websiteUsagePolymerInstance;
+    if (instance == null) {
       return;
+    }
 
     if (hostName == host) {
       instance.websiteDataUsage = usage;
-      instance.websiteStorageType = type;
     }
   };
 
   /**
    * Deletes the storage being used for a given origin.
    * @param {string} origin The origin to delete storage for.
-   * @param {number} type The type of storage to delete.
    */
-  var clearUsage = function(origin, type) {
-    chrome.send('clearUsage', [origin, type]);
-  };
-
-  /**
-   * Callback for when the usage has been cleared.
-   * @param {string} origin The origin that the usage was fetched for.
-   */
-  var onUsageCleared = function(origin) {
-    var instance = settings.WebsiteUsagePrivateApi.websiteUsagePolymerInstance;
-    if (instance == null)
+  const clearUsage = function(origin) {
+    chrome.send('clearUsage', [origin]);
+    const instance =
+        settings.WebsiteUsagePrivateApi.websiteUsagePolymerInstance;
+    if (instance == null) {
       return;
+    }
 
     instance.notifyUsageDeleted(origin);
   };
@@ -121,6 +108,5 @@ cr.define('settings.WebsiteUsagePrivateApi', function() {
     fetchUsageTotal: fetchUsageTotal,
     returnUsageTotal: returnUsageTotal,
     clearUsage: clearUsage,
-    onUsageCleared: onUsageCleared,
   };
 });

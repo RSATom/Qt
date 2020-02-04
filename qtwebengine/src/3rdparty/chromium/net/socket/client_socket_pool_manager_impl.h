@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
+#include "net/base/net_export.h"
 #include "net/cert/cert_database.h"
 #include "net/http/http_network_session.h"
 #include "net/socket/client_socket_pool_manager.h"
@@ -33,22 +34,26 @@ class CTVerifier;
 class HttpProxyClientSocketPool;
 class HostResolver;
 class NetLog;
-class NetworkQualityProvider;
+class NetworkQualityEstimator;
+class ProxyDelegate;
+class ProxyServer;
 class SocketPerformanceWatcherFactory;
 class SOCKSClientSocketPool;
 class SSLClientSocketPool;
 class SSLConfigService;
 class TransportClientSocketPool;
 class TransportSecurityState;
+class WebSocketEndpointLockManager;
 
-class ClientSocketPoolManagerImpl : public ClientSocketPoolManager,
-                                    public CertDatabase::Observer {
+class NET_EXPORT_PRIVATE ClientSocketPoolManagerImpl
+    : public ClientSocketPoolManager,
+      public CertDatabase::Observer {
  public:
   ClientSocketPoolManagerImpl(
       NetLog* net_log,
       ClientSocketFactory* socket_factory,
       SocketPerformanceWatcherFactory* socket_performance_watcher_factory,
-      NetworkQualityProvider* network_quality_provider,
+      NetworkQualityEstimator* network_quality_estimator,
       HostResolver* host_resolver,
       CertVerifier* cert_verifier,
       ChannelIDService* channel_id_service,
@@ -57,6 +62,8 @@ class ClientSocketPoolManagerImpl : public ClientSocketPoolManager,
       CTPolicyEnforcer* ct_policy_enforcer,
       const std::string& ssl_session_cache_shard,
       SSLConfigService* ssl_config_service,
+      WebSocketEndpointLockManager* websocket_endpoint_lock_manager,
+      ProxyDelegate* proxy_delegate,
       HttpNetworkSession::SocketPoolType pool_type);
   ~ClientSocketPoolManagerImpl() override;
 
@@ -68,13 +75,13 @@ class ClientSocketPoolManagerImpl : public ClientSocketPoolManager,
   SSLClientSocketPool* GetSSLSocketPool() override;
 
   SOCKSClientSocketPool* GetSocketPoolForSOCKSProxy(
-      const HostPortPair& socks_proxy) override;
+      const ProxyServer& socks_proxy) override;
 
-  HttpProxyClientSocketPool* GetSocketPoolForHTTPProxy(
-      const HostPortPair& http_proxy) override;
+  HttpProxyClientSocketPool* GetSocketPoolForHTTPLikeProxy(
+      const ProxyServer& http_proxy) override;
 
   SSLClientSocketPool* GetSocketPoolForSSLWithProxy(
-      const HostPortPair& proxy_server) override;
+      const ProxyServer& proxy_server) override;
 
   // Creates a Value summary of the state of the socket pools.
   std::unique_ptr<base::Value> SocketPoolInfoToValue() const override;
@@ -88,18 +95,18 @@ class ClientSocketPoolManagerImpl : public ClientSocketPoolManager,
 
  private:
   using TransportSocketPoolMap =
-      std::map<HostPortPair, std::unique_ptr<TransportClientSocketPool>>;
+      std::map<ProxyServer, std::unique_ptr<TransportClientSocketPool>>;
   using SOCKSSocketPoolMap =
-      std::map<HostPortPair, std::unique_ptr<SOCKSClientSocketPool>>;
+      std::map<ProxyServer, std::unique_ptr<SOCKSClientSocketPool>>;
   using HTTPProxySocketPoolMap =
-      std::map<HostPortPair, std::unique_ptr<HttpProxyClientSocketPool>>;
+      std::map<ProxyServer, std::unique_ptr<HttpProxyClientSocketPool>>;
   using SSLSocketPoolMap =
-      std::map<HostPortPair, std::unique_ptr<SSLClientSocketPool>>;
+      std::map<ProxyServer, std::unique_ptr<SSLClientSocketPool>>;
 
   NetLog* const net_log_;
   ClientSocketFactory* const socket_factory_;
   SocketPerformanceWatcherFactory* socket_performance_watcher_factory_;
-  NetworkQualityProvider* network_quality_provider_;
+  NetworkQualityEstimator* network_quality_estimator_;
   HostResolver* const host_resolver_;
   CertVerifier* const cert_verifier_;
   ChannelIDService* const channel_id_service_;
@@ -107,7 +114,8 @@ class ClientSocketPoolManagerImpl : public ClientSocketPoolManager,
   CTVerifier* const cert_transparency_verifier_;
   CTPolicyEnforcer* const ct_policy_enforcer_;
   const std::string ssl_session_cache_shard_;
-  const scoped_refptr<SSLConfigService> ssl_config_service_;
+  SSLConfigService* const ssl_config_service_;
+  ProxyDelegate* const proxy_delegate_;
   const HttpNetworkSession::SocketPoolType pool_type_;
 
   // Note: this ordering is important.

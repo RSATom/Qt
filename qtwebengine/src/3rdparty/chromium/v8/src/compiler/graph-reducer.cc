@@ -37,7 +37,7 @@ GraphReducer::GraphReducer(Zone* zone, Graph* graph, Node* dead)
   }
 }
 
-GraphReducer::~GraphReducer() {}
+GraphReducer::~GraphReducer() = default;
 
 
 void GraphReducer::AddReducer(Reducer* reducer) {
@@ -90,9 +90,8 @@ Reduction GraphReducer::Reduce(Node* const node) {
         // all the other reducers for this node, as now there may be more
         // opportunities for reduction.
         if (FLAG_trace_turbo_reduction) {
-          OFStream os(stdout);
-          os << "- In-place update of " << *node << " by reducer "
-             << (*i)->reducer_name() << std::endl;
+          StdoutStream{} << "- In-place update of " << *node << " by reducer "
+                         << (*i)->reducer_name() << std::endl;
         }
         skip = i;
         i = reducers_.begin();
@@ -100,10 +99,9 @@ Reduction GraphReducer::Reduce(Node* const node) {
       } else {
         // {node} was replaced by another node.
         if (FLAG_trace_turbo_reduction) {
-          OFStream os(stdout);
-          os << "- Replacement of " << *node << " with "
-             << *(reduction.replacement()) << " by reducer "
-             << (*i)->reducer_name() << std::endl;
+          StdoutStream{} << "- Replacement of " << *node << " with "
+                         << *(reduction.replacement()) << " by reducer "
+                         << (*i)->reducer_name() << std::endl;
         }
         return reduction;
       }
@@ -122,7 +120,7 @@ Reduction GraphReducer::Reduce(Node* const node) {
 void GraphReducer::ReduceTop() {
   NodeState& entry = stack_.top();
   Node* node = entry.node;
-  DCHECK(state_.Get(node) == State::kOnStack);
+  DCHECK_EQ(State::kOnStack, state_.Get(node));
 
   if (node->IsDead()) return Pop();  // Node was killed while on stack.
 
@@ -269,7 +267,7 @@ void GraphReducer::Pop() {
 
 
 void GraphReducer::Push(Node* const node) {
-  DCHECK(state_.Get(node) != State::kOnStack);
+  DCHECK_NE(State::kOnStack, state_.Get(node));
   state_.Set(node, State::kOnStack);
   stack_.push({node, 0});
 }

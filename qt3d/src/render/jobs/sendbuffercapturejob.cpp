@@ -61,15 +61,16 @@ SendBufferCaptureJob::~SendBufferCaptureJob()
 {
 }
 
-void SendBufferCaptureJob::setManagers(NodeManagers *managers)
-{
-    m_managers = managers;
-}
-
 void SendBufferCaptureJob::addRequest(QPair<Buffer *, QByteArray> request)
 {
     QMutexLocker locker(&m_mutex);
     m_pendingSendBufferCaptures.push_back(request);
+}
+
+// Called by aspect thread jobs to execute (no concurrency at that point)
+bool SendBufferCaptureJob::hasRequests() const
+{
+    return m_pendingSendBufferCaptures.size() > 0;
 }
 
 void SendBufferCaptureJob::run()

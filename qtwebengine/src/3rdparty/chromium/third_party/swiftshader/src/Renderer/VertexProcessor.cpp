@@ -14,13 +14,13 @@
 
 #include "VertexProcessor.hpp"
 
-#include "Math.hpp"
-#include "VertexPipeline.hpp"
-#include "VertexProgram.hpp"
-#include "VertexShader.hpp"
-#include "PixelShader.hpp"
-#include "Constants.hpp"
-#include "Debug.hpp"
+#include "Shader/VertexPipeline.hpp"
+#include "Shader/VertexProgram.hpp"
+#include "Shader/VertexShader.hpp"
+#include "Shader/PixelShader.hpp"
+#include "Shader/Constants.hpp"
+#include "Common/Math.hpp"
+#include "Common/Debug.hpp"
 
 #include <string.h>
 
@@ -647,6 +647,15 @@ namespace sw
 		else ASSERT(false);
 	}
 
+	void VertexProcessor::setCompareFunc(unsigned int sampler, CompareFunc compFunc)
+	{
+		if(sampler < VERTEX_TEXTURE_IMAGE_UNITS)
+		{
+			context->sampler[TEXTURE_IMAGE_UNITS + sampler].setCompareFunc(compFunc);
+		}
+		else ASSERT(false);
+	}
+
 	void VertexProcessor::setBaseLevel(unsigned int sampler, int baseLevel)
 	{
 		if(sampler < VERTEX_TEXTURE_IMAGE_UNITS)
@@ -679,6 +688,15 @@ namespace sw
 		if(sampler < VERTEX_TEXTURE_IMAGE_UNITS)
 		{
 			context->sampler[TEXTURE_IMAGE_UNITS + sampler].setMaxLod(maxLod);
+		}
+		else ASSERT(false);
+	}
+
+	void VertexProcessor::setSyncRequired(unsigned int sampler, bool isSincRequired)
+	{
+		if(sampler < TEXTURE_IMAGE_UNITS)
+		{
+			context->sampler[sampler].setSyncRequired(isSincRequired);
 		}
 		else ASSERT(false);
 	}
@@ -916,7 +934,7 @@ namespace sw
 			state.shaderID = 0;
 		}
 
-		state.fixedFunction = !context->vertexShader && context->pixelShaderVersion() < 0x0300;
+		state.fixedFunction = !context->vertexShader && context->pixelShaderModel() < 0x0300;
 		state.textureSampling = context->vertexShader ? context->vertexShader->containsTextureSampling() : false;
 		state.positionRegister = context->vertexShader ? context->vertexShader->getPositionRegister() : Pos;
 		state.pointSizeRegister = context->vertexShader ? context->vertexShader->getPointSizeRegister() : Pts;
@@ -986,7 +1004,7 @@ namespace sw
 			{
 				if(context->vertexShader->usesSampler(i))
 				{
-					state.samplerState[i] = context->sampler[TEXTURE_IMAGE_UNITS + i].samplerState();
+					state.sampler[i] = context->sampler[TEXTURE_IMAGE_UNITS + i].samplerState();
 				}
 			}
 		}
@@ -1001,7 +1019,7 @@ namespace sw
 				state.output[i].wWrite = context->vertexShader->getOutput(i, 3).active();
 			}
 		}
-		else if(!context->preTransformed || context->pixelShaderVersion() < 0x0300)
+		else if(!context->preTransformed || context->pixelShaderModel() < 0x0300)
 		{
 			state.output[Pos].write = 0xF;
 
@@ -1059,7 +1077,7 @@ namespace sw
 			}
 		}
 
-		if(context->vertexShaderVersion() < 0x0300)
+		if(context->vertexShaderModel() < 0x0300)
 		{
 			state.output[C0].clamp = 0xF;
 			state.output[C1].clamp = 0xF;

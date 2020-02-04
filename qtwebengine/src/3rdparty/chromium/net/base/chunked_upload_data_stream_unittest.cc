@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "base/stl_util.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -23,16 +24,16 @@ namespace net {
 
 namespace {
 
-const char kTestData[] = "0123456789";
-const size_t kTestDataSize = arraysize(kTestData) - 1;
-const size_t kTestBufferSize = 1 << 14;  // 16KB.
+constexpr char kTestData[] = "0123456789";
+constexpr size_t kTestDataSize = base::size(kTestData) - 1;
+constexpr size_t kTestBufferSize = 1 << 14;  // 16KB.
 
 }  // namespace
 
 // Reads data once from the upload data stream, and returns the data as string.
 // Expects the read to succeed synchronously.
 std::string ReadSync(UploadDataStream* stream, int buffer_size) {
-  scoped_refptr<IOBuffer> buf = new IOBuffer(buffer_size);
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(buffer_size);
   int result = stream->Read(buf.get(),
                             buffer_size,
                             TestCompletionCallback().callback());
@@ -53,7 +54,7 @@ TEST(ChunkedUploadDataStreamTest, AppendOnce) {
   EXPECT_FALSE(stream.IsEOF());
 
   TestCompletionCallback callback;
-  scoped_refptr<IOBuffer> buf = new IOBuffer(kTestBufferSize);
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(kTestBufferSize);
   int result = stream.Read(buf.get(), kTestBufferSize, callback.callback());
   ASSERT_THAT(result, IsError(ERR_IO_PENDING));
 
@@ -120,7 +121,7 @@ TEST(ChunkedUploadDataStreamTest, MultipleAppends) {
   EXPECT_FALSE(stream.IsEOF());
 
   TestCompletionCallback callback;
-  scoped_refptr<IOBuffer> buf = new IOBuffer(kTestBufferSize);
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(kTestBufferSize);
   for (size_t i = 0; i < kTestDataSize; ++i) {
     EXPECT_EQ(0u, stream.size());  // Content-Length is 0 for chunked data.
     EXPECT_EQ(i, stream.position());
@@ -150,7 +151,7 @@ TEST(ChunkedUploadDataStreamTest, MultipleAppendsBetweenReads) {
   EXPECT_EQ(0u, stream.position());
   EXPECT_FALSE(stream.IsEOF());
 
-  scoped_refptr<IOBuffer> buf = new IOBuffer(kTestBufferSize);
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(kTestBufferSize);
   for (size_t i = 0; i < kTestDataSize; ++i) {
     EXPECT_EQ(i, stream.position());
     ASSERT_FALSE(stream.IsEOF());
@@ -238,7 +239,7 @@ TEST(ChunkedUploadDataStreamTest, EmptyUpload) {
   EXPECT_FALSE(stream.IsEOF());
 
   TestCompletionCallback callback;
-  scoped_refptr<IOBuffer> buf = new IOBuffer(kTestBufferSize);
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(kTestBufferSize);
   int result = stream.Read(buf.get(), kTestBufferSize, callback.callback());
   ASSERT_THAT(result, IsError(ERR_IO_PENDING));
 
@@ -312,7 +313,7 @@ TEST(ChunkedUploadDataStreamTest, RewindWhileReading) {
   EXPECT_FALSE(stream.IsEOF());
 
   TestCompletionCallback callback;
-  scoped_refptr<IOBuffer> buf = new IOBuffer(kTestBufferSize);
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(kTestBufferSize);
   int result = stream.Read(buf.get(), kTestBufferSize, callback.callback());
   ASSERT_THAT(result, IsError(ERR_IO_PENDING));
 

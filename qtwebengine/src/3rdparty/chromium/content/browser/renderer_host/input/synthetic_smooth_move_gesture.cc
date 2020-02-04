@@ -12,25 +12,9 @@
 namespace content {
 namespace {
 
-gfx::Vector2d FloorTowardZero(const gfx::Vector2dF& vector) {
-  int x = vector.x() > 0 ? floor(vector.x()) : ceil(vector.x());
-  int y = vector.y() > 0 ? floor(vector.y()) : ceil(vector.y());
-  return gfx::Vector2d(x, y);
-}
-
-gfx::Vector2d CeilFromZero(const gfx::Vector2dF& vector) {
-  int x = vector.x() > 0 ? ceil(vector.x()) : floor(vector.x());
-  int y = vector.y() > 0 ? ceil(vector.y()) : floor(vector.y());
-  return gfx::Vector2d(x, y);
-}
-
 gfx::Vector2dF ProjectScalarOntoVector(float scalar,
                                        const gfx::Vector2dF& vector) {
   return gfx::ScaleVector2d(vector, scalar / vector.Length());
-}
-
-double ConvertTimestampToSeconds(const base::TimeTicks& timestamp) {
-  return (timestamp - base::TimeTicks()).InSecondsF();
 }
 
 const int kDefaultSpeedInPixelsPerSec = 800;
@@ -39,8 +23,12 @@ const int kDefaultSpeedInPixelsPerSec = 800;
 
 SyntheticSmoothMoveGestureParams::SyntheticSmoothMoveGestureParams()
     : speed_in_pixels_s(kDefaultSpeedInPixelsPerSec),
+      fling_velocity_x(0),
+      fling_velocity_y(0),
       prevent_fling(true),
-      add_slop(true) {}
+      add_slop(true),
+      precise_scrolling_deltas(false),
+      scroll_by_page(false) {}
 
 SyntheticSmoothMoveGestureParams::SyntheticSmoothMoveGestureParams(
     const SyntheticSmoothMoveGestureParams& other) = default;
@@ -51,8 +39,8 @@ SyntheticSmoothMoveGesture::SyntheticSmoothMoveGesture(
     SyntheticSmoothMoveGestureParams params)
     : params_(params),
       current_move_segment_start_position_(params.start_point),
-      state_(SETUP) {
-}
+      state_(SETUP),
+      needs_scroll_begin_(true) {}
 
 SyntheticSmoothMoveGesture::~SyntheticSmoothMoveGesture() {}
 
@@ -97,7 +85,6 @@ SyntheticGesture::Result SyntheticSmoothMoveGesture::ForwardInputEvents(
 void SyntheticSmoothMoveGesture::ForwardTouchInputEvents(
     const base::TimeTicks& timestamp,
     SyntheticGestureTarget* target) {
-  base::TimeTicks event_timestamp = timestamp;
   switch (state_) {
     case STARTED:
       if (MoveIsNoOp()) {
@@ -107,11 +94,11 @@ void SyntheticSmoothMoveGesture::ForwardTouchInputEvents(
       if (params_.add_slop)
         AddTouchSlopToFirstDistance(target);
       ComputeNextMoveSegment();
-      PressPoint(target, event_timestamp);
+      PressPoint(target, timestamp);
       state_ = MOVING;
       break;
     case MOVING: {
-      event_timestamp = ClampTimestamp(timestamp);
+      base::TimeTicks event_timestamp = ClampTimestamp(timestamp);
       gfx::Vector2dF delta = GetPositionDeltaAtTime(event_timestamp);
       MovePoint(target, delta, event_timestamp);
 
@@ -131,8 +118,8 @@ void SyntheticSmoothMoveGesture::ForwardTouchInputEvents(
     case STOPPING:
       if (timestamp - current_move_segment_stop_time_ >=
           target->PointerAssumedStoppedTime()) {
-        event_timestamp = current_move_segment_stop_time_ +
-                          target->PointerAssumedStoppedTime();
+        base::TimeTicks event_timestamp = current_move_segment_stop_time_ +
+                                          target->PointerAssumedStoppedTime();
         ReleasePoint(target, event_timestamp);
         state_ = DONE;
       }
@@ -140,17 +127,17 @@ void SyntheticSmoothMoveGesture::ForwardTouchInputEvents(
     case SETUP:
       NOTREACHED()
           << "State SETUP invalid for synthetic scroll using touch input.";
+      break;
     case DONE:
       NOTREACHED()
           << "State DONE invalid for synthetic scroll using touch input.";
+      break;
   }
 }
 
 void SyntheticSmoothMoveGesture::ForwardMouseWheelInputEvents(
     const base::TimeTicks& timestamp,
     SyntheticGestureTarget* target) {
-  blink::WebMouseWheelEvent::Phase phase =
-      blink::WebMouseWheelEvent::kPhaseChanged;
   switch (state_) {
     case STARTED:
       if (MoveIsNoOp()) {
@@ -159,52 +146,77 @@ void SyntheticSmoothMoveGesture::ForwardMouseWheelInputEvents(
       }
       ComputeNextMoveSegment();
       state_ = MOVING;
-      phase = blink::WebMouseWheelEvent::kPhaseBegan;
-      // Fall through to forward the first event.
+      break;
     case MOVING: {
-      // Even though WebMouseWheelEvents take floating point deltas,
-      // internally the scroll position is stored as an integer. We therefore
-      // keep track of the discrete delta which is consistent with the
-      // internal scrolling state. This ensures that when the gesture has
-      // finished we've scrolled exactly the specified distance.
       base::TimeTicks event_timestamp = ClampTimestamp(timestamp);
-      gfx::Vector2dF current_move_segment_total_delta =
-          GetPositionDeltaAtTime(event_timestamp);
-      gfx::Vector2d delta_discrete =
-          FloorTowardZero(current_move_segment_total_delta -
-                          current_move_segment_total_delta_discrete_);
-      ForwardMouseWheelEvent(target, delta_discrete, phase, event_timestamp);
-      current_move_segment_total_delta_discrete_ += delta_discrete;
+      gfx::Vector2dF delta = GetPositionDeltaAtTime(event_timestamp) -
+                             current_move_segment_total_delta_;
+
+      // Android MotionEvents that carry mouse wheel ticks and the tick
+      // granularity. Since it's not easy to change this granularity, it means
+      // we can only scroll in terms of number of these ticks. Note also: if
+      // the delta is smaller than one tick size we wont send an event or
+      // accumulate it in current_move_segment_total_delta_ so that we don't
+      // consider that delta applied. If we did, slow scrolls would be entirely
+      // lost since we'd send 0 ticks in each event but assume delta was
+      // applied.
+      int pixels_per_wheel_tick = target->GetMouseWheelMinimumGranularity();
+      if (pixels_per_wheel_tick) {
+        int wheel_ticks_x = static_cast<int>(delta.x() / pixels_per_wheel_tick);
+        int wheel_ticks_y = static_cast<int>(delta.y() / pixels_per_wheel_tick);
+        delta = gfx::Vector2dF(wheel_ticks_x * pixels_per_wheel_tick,
+                               wheel_ticks_y * pixels_per_wheel_tick);
+      }
+
+      if (delta.x() || delta.y()) {
+        blink::WebMouseWheelEvent::Phase phase =
+            needs_scroll_begin_ ? blink::WebMouseWheelEvent::kPhaseBegan
+                                : blink::WebMouseWheelEvent::kPhaseChanged;
+        ForwardMouseWheelEvent(target, delta, phase, event_timestamp);
+        current_move_segment_total_delta_ += delta;
+        needs_scroll_begin_ = false;
+      }
 
       if (FinishedCurrentMoveSegment(event_timestamp)) {
         if (!IsLastMoveSegment()) {
-          current_move_segment_total_delta_discrete_ = gfx::Vector2d();
+          current_move_segment_total_delta_ = gfx::Vector2dF();
           ComputeNextMoveSegment();
-          ForwardMouseWheelInputEvents(timestamp, target);
         } else {
           state_ = DONE;
-          ForwardMouseWheelEvent(target, gfx::Vector2d(),
-                                 blink::WebMouseWheelEvent::kPhaseEnded,
-                                 event_timestamp);
+
+          // Start flinging on the swipe action.
+          if (!params_.prevent_fling && (params_.fling_velocity_x != 0 ||
+                                         params_.fling_velocity_y != 0)) {
+            ForwardFlingGestureEvent(
+                target, blink::WebGestureEvent::kGestureFlingStart);
+          } else {
+            // Forward a wheel event with phase ended and zero deltas.
+            ForwardMouseWheelEvent(target, gfx::Vector2d(),
+                                   blink::WebMouseWheelEvent::kPhaseEnded,
+                                   event_timestamp);
+          }
+          needs_scroll_begin_ = true;
         }
       }
     } break;
     case SETUP:
       NOTREACHED() << "State SETUP invalid for synthetic scroll using mouse "
                       "wheel input.";
+      break;
     case STOPPING:
       NOTREACHED() << "State STOPPING invalid for synthetic scroll using mouse "
                       "wheel input.";
+      break;
     case DONE:
       NOTREACHED()
           << "State DONE invalid for synthetic scroll using mouse wheel input.";
+      break;
   }
 }
 
 void SyntheticSmoothMoveGesture::ForwardMouseClickInputEvents(
     const base::TimeTicks& timestamp,
     SyntheticGestureTarget* target) {
-  base::TimeTicks event_timestamp = timestamp;
   switch (state_) {
     case STARTED:
       if (MoveIsNoOp()) {
@@ -212,7 +224,7 @@ void SyntheticSmoothMoveGesture::ForwardMouseClickInputEvents(
         break;
       }
       ComputeNextMoveSegment();
-      PressPoint(target, event_timestamp);
+      PressPoint(target, timestamp);
       state_ = MOVING;
       break;
     case MOVING: {
@@ -234,12 +246,15 @@ void SyntheticSmoothMoveGesture::ForwardMouseClickInputEvents(
     case STOPPING:
       NOTREACHED()
           << "State STOPPING invalid for synthetic drag using mouse input.";
+      break;
     case SETUP:
       NOTREACHED()
           << "State SETUP invalid for synthetic drag using mouse input.";
+      break;
     case DONE:
       NOTREACHED()
           << "State DONE invalid for synthetic drag using mouse input.";
+      break;
   }
 }
 
@@ -249,17 +264,30 @@ void SyntheticSmoothMoveGesture::ForwardMouseWheelEvent(
     const blink::WebMouseWheelEvent::Phase phase,
     const base::TimeTicks& timestamp) const {
   blink::WebMouseWheelEvent mouse_wheel_event =
-      SyntheticWebMouseWheelEventBuilder::Build(0, 0, delta.x(), delta.y(), 0,
-                                                false);
+      SyntheticWebMouseWheelEventBuilder::Build(
+          0, 0, delta.x(), delta.y(), 0, params_.precise_scrolling_deltas,
+          params_.scroll_by_page);
 
   mouse_wheel_event.SetPositionInWidget(
       current_move_segment_start_position_.x(),
       current_move_segment_start_position_.y());
   mouse_wheel_event.phase = phase;
 
-  mouse_wheel_event.SetTimeStampSeconds(ConvertTimestampToSeconds(timestamp));
+  mouse_wheel_event.SetTimeStamp(timestamp);
 
   target->DispatchInputEventToPlatform(mouse_wheel_event);
+}
+
+void SyntheticSmoothMoveGesture::ForwardFlingGestureEvent(
+    SyntheticGestureTarget* target,
+    const blink::WebInputEvent::Type type) const {
+  blink::WebGestureEvent fling_gesture_event =
+      SyntheticWebGestureEventBuilder::Build(type,
+                                             blink::kWebGestureDeviceTouchpad);
+  fling_gesture_event.data.fling_start.velocity_x = params_.fling_velocity_x;
+  fling_gesture_event.data.fling_start.velocity_y = params_.fling_velocity_y;
+  fling_gesture_event.SetPositionInWidget(current_move_segment_start_position_);
+  target->DispatchInputEventToPlatform(fling_gesture_event);
 }
 
 void SyntheticSmoothMoveGesture::PressPoint(SyntheticGestureTarget* target,
@@ -300,14 +328,17 @@ void SyntheticSmoothMoveGesture::AddTouchSlopToFirstDistance(
   DCHECK_GE(params_.distances.size(), 1ul);
   gfx::Vector2dF& first_move_distance = params_.distances[0];
   DCHECK_GT(first_move_distance.Length(), 0);
-  first_move_distance += CeilFromZero(ProjectScalarOntoVector(
-      target->GetTouchSlopInDips(), first_move_distance));
+  first_move_distance += ProjectScalarOntoVector(target->GetTouchSlopInDips(),
+                                                 first_move_distance);
 }
 
 gfx::Vector2dF SyntheticSmoothMoveGesture::GetPositionDeltaAtTime(
     const base::TimeTicks& timestamp) const {
   // Make sure the final delta is correct. Using the computation below can lead
   // to issues with floating point precision.
+  // TODO(bokan): This comment makes it sound like we have pixel perfect
+  // precision. In fact, gestures can accumulate a significant amount of
+  // error (e.g. due to snapping to physical pixels on each event).
   if (FinishedCurrentMoveSegment(timestamp))
     return params_.distances[current_move_segment_];
 

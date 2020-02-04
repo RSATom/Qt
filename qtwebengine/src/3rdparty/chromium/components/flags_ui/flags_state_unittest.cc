@@ -14,7 +14,6 @@
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/format_macros.h"
-#include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
@@ -46,12 +45,16 @@ const char kFlags7[] = "flag7";
 const char kFlags8[] = "flag8";
 const char kFlags9[] = "flag9";
 const char kFlags10[] = "flag10";
+const char kFlags11[] = "flag11";
 
 const char kSwitch1[] = "switch";
 const char kSwitch2[] = "switch2";
 const char kSwitch3[] = "switch3";
 const char kSwitch6[] = "switch6";
 const char kValueForSwitch2[] = "value_for_switch2";
+
+const char kStringSwitch[] = "string_switch";
+const char kValueForStringSwitch[] = "value_for_string_switch";
 
 const char kMultiSwitch1[] = "multi_switch1";
 const char kMultiSwitch2[] = "multi_switch2";
@@ -62,6 +65,9 @@ const char kEnableDisableValue2[] = "value2";
 
 const char kEnableFeatures[] = "dummy-enable-features";
 const char kDisableFeatures[] = "dummy-disable-features";
+
+const char kDummySentinelBeginSwitch[] = "dummy-begin";
+const char kDummySentinelEndSwitch[] = "dummy-end";
 
 const char kTestTrial[] = "TestTrial";
 const char kTestParam1[] = "param1";
@@ -116,7 +122,7 @@ static FeatureEntry kEntries[] = {
     {kFlags4, kDummyName, kDummyDescription,
      0,  // Ends up being mapped to the current platform.
      FeatureEntry::MULTI_VALUE, "", "", "", "", nullptr,
-     arraysize(kMultiChoices), kMultiChoices, nullptr, nullptr},
+     base::size(kMultiChoices), kMultiChoices, nullptr, nullptr},
     {kFlags5, kDummyName, kDummyDescription,
      0,  // Ends up being mapped to the current platform.
      FeatureEntry::ENABLE_DISABLE_VALUE, kSwitch1, kEnableDisableValue1,
@@ -140,21 +146,24 @@ static FeatureEntry kEntries[] = {
      0,  // Ends up being mapped to the current platform.
      FeatureEntry::FEATURE_WITH_PARAMS_VALUE, nullptr, nullptr, nullptr,
      nullptr, &kTestFeature2, 4, nullptr, kTestVariations2, kTestTrial},
-};
+    {kFlags11, kDummyName, kDummyDescription,
+     0,  // Ends up being mapped to the current platform.
+     FeatureEntry::ORIGIN_LIST_VALUE, kStringSwitch, kValueForStringSwitch,
+     nullptr, nullptr, nullptr /* feature */, 0, nullptr, nullptr, nullptr}};
 
 class FlagsStateTest : public ::testing::Test {
  protected:
   FlagsStateTest() : flags_storage_(&prefs_), trial_list_(nullptr) {
     prefs_.registry()->RegisterListPref(prefs::kEnabledLabsExperiments);
 
-    for (size_t i = 0; i < arraysize(kEntries); ++i)
+    for (size_t i = 0; i < base::size(kEntries); ++i)
       kEntries[i].supported_platforms = FlagsState::GetCurrentPlatform();
 
     int os_other_than_current = 1;
     while (os_other_than_current == FlagsState::GetCurrentPlatform())
       os_other_than_current <<= 1;
     kEntries[2].supported_platforms = os_other_than_current;
-    flags_state_.reset(new FlagsState(kEntries, arraysize(kEntries)));
+    flags_state_.reset(new FlagsState(kEntries, base::size(kEntries)));
   }
 
   ~FlagsStateTest() override {
@@ -382,6 +391,9 @@ base::CommandLine::StringType CreateSwitch(const std::string& value) {
 }
 
 TEST_F(FlagsStateTest, CompareSwitchesToCurrentCommandLine) {
+  // Start with the active command line containing no flags, and the new command
+  // line having the |kFlags1| flag.
+
   flags_state_->SetFeatureEntryEnabled(&flags_storage_, kFlags1, true);
 
   const std::string kDoubleDash("--");
@@ -404,6 +416,8 @@ TEST_F(FlagsStateTest, CompareSwitchesToCurrentCommandLine) {
     EXPECT_EQ(1U, difference.count(CreateSwitch(kDoubleDash + kSwitch1)));
   }
 
+  // Now both command lines have the |kFlags1| flag.
+
   flags_state_->ConvertFlagsToSwitches(&flags_storage_, &command_line,
                                        kAddSentinels, kEnableFeatures,
                                        kDisableFeatures);
@@ -417,7 +431,9 @@ TEST_F(FlagsStateTest, CompareSwitchesToCurrentCommandLine) {
     EXPECT_TRUE(difference.empty());
   }
 
-  // Now both have flags but different.
+  // Now the active command line has the |kFlags2| flag, and the new command
+  // line has the |kFlags1| flag.
+
   flags_state_->SetFeatureEntryEnabled(&flags_storage_, kFlags1, false);
   flags_state_->SetFeatureEntryEnabled(&flags_storage_, kFlags2, true);
 
@@ -437,10 +453,63 @@ TEST_F(FlagsStateTest, CompareSwitchesToCurrentCommandLine) {
     EXPECT_EQ(1U, difference.count(CreateSwitch(kDoubleDash + kSwitch2 + "=" +
                                                 kValueForSwitch2)));
   }
+
+  // Now both command lines have both flags |kFlags1| and |kFlags2|, but each
+  // flag is surrounded by dummy sentinels in one of the command lines.
+
+  new_command_line.AppendSwitch(kDummySentinelBeginSwitch);
+  flags_state_->ConvertFlagsToSwitches(&flags_storage_, &new_command_line,
+                                       kNoSentinels, kEnableFeatures,
+                                       kDisableFeatures);
+  new_command_line.AppendSwitch(kDummySentinelEndSwitch);
+
+  flags_state_->SetFeatureEntryEnabled(&flags_storage_, kFlags1, true);
+  flags_state_->SetFeatureEntryEnabled(&flags_storage_, kFlags2, false);
+
+  another_command_line.AppendSwitch(kDummySentinelBeginSwitch);
+  flags_state_->ConvertFlagsToSwitches(&flags_storage_, &another_command_line,
+                                       kNoSentinels, kEnableFeatures,
+                                       kDisableFeatures);
+  another_command_line.AppendSwitch(kDummySentinelEndSwitch);
+
+  EXPECT_FALSE(FlagsState::AreSwitchesIdenticalToCurrentCommandLine(
+      new_command_line, another_command_line, nullptr, nullptr, nullptr));
+  EXPECT_TRUE(FlagsState::AreSwitchesIdenticalToCurrentCommandLine(
+      new_command_line, another_command_line, nullptr,
+      kDummySentinelBeginSwitch, kDummySentinelEndSwitch));
+
+  // Now the new command line additionally contains |kFlags3|, which is
+  // followed by another dummy end sentinel.
+
+  flags_state_->SetFeatureEntryEnabled(&flags_storage_, kFlags1, false);
+  flags_state_->SetFeatureEntryEnabled(&flags_storage_, kFlags3, true);
+
+  flags_state_->ConvertFlagsToSwitches(&flags_storage_, &new_command_line,
+                                       kNoSentinels, kEnableFeatures,
+                                       kDisableFeatures);
+  new_command_line.AppendSwitch(kDummySentinelEndSwitch);
+
+  EXPECT_FALSE(FlagsState::AreSwitchesIdenticalToCurrentCommandLine(
+      new_command_line, another_command_line, nullptr,
+      kDummySentinelBeginSwitch, kDummySentinelEndSwitch));
+
+  // Now both command lines contain the |kFlags3| flag followed by the second
+  // dummy end sentinel.
+
+  flags_state_->ConvertFlagsToSwitches(&flags_storage_, &another_command_line,
+                                       kNoSentinels, kEnableFeatures,
+                                       kDisableFeatures);
+  another_command_line.AppendSwitch(kDummySentinelEndSwitch);
+
+  EXPECT_FALSE(FlagsState::AreSwitchesIdenticalToCurrentCommandLine(
+      new_command_line, another_command_line, nullptr, nullptr, nullptr));
+  EXPECT_TRUE(FlagsState::AreSwitchesIdenticalToCurrentCommandLine(
+      new_command_line, another_command_line, nullptr,
+      kDummySentinelBeginSwitch, kDummySentinelEndSwitch));
 }
 
 TEST_F(FlagsStateTest, RemoveFlagSwitches) {
-  std::map<std::string, base::CommandLine::StringType> switch_list;
+  base::CommandLine::SwitchMap switch_list;
   switch_list[kSwitch1] = base::CommandLine::StringType();
   switch_list[switches::kFlagSwitchesBegin] = base::CommandLine::StringType();
   switch_list[switches::kFlagSwitchesEnd] = base::CommandLine::StringType();
@@ -488,7 +557,7 @@ TEST_F(FlagsStateTest, RemoveFlagSwitches_Features) {
       {2, "A,B", "C", "A,B", "C,FeatureName1"},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf(
         "Test[%" PRIuS "]: %d [%s] [%s]", i, cases[i].enabled_choice,
         cases[i].existing_enable_features ? cases[i].existing_enable_features
@@ -783,7 +852,7 @@ TEST_F(FlagsStateTest, FeatureValues) {
       {2, nullptr, "Foo,Bar", "", "Foo,Bar,FeatureName1"},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (size_t i = 0; i < base::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf(
         "Test[%" PRIuS "]: %d [%s] [%s]", i, cases[i].enabled_choice,
         cases[i].existing_enable_features ? cases[i].existing_enable_features
@@ -823,9 +892,9 @@ TEST_F(FlagsStateTest, GetFlagFeatureEntries) {
                                       &supported_entries, &unsupported_entries,
                                       base::Bind(&SkipFeatureEntry));
   // All |kEntries| except for |kFlags3| should be supported.
-  EXPECT_EQ(9u, supported_entries.GetSize());
+  EXPECT_EQ(10u, supported_entries.GetSize());
   EXPECT_EQ(1u, unsupported_entries.GetSize());
-  EXPECT_EQ(arraysize(kEntries),
+  EXPECT_EQ(base::size(kEntries),
             supported_entries.GetSize() + unsupported_entries.GetSize());
 }
 

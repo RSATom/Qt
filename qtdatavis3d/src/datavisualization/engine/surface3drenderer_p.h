@@ -116,6 +116,7 @@ public:
     void render(GLuint defaultFboHandle = 0);
 
 protected:
+    void contextCleanup();
     void initializeOpenGL();
     virtual void fixCameraTarget(QVector3D &target);
     virtual void getVisibleItemBounds(QVector3D &minBounds, QVector3D &maxBounds);

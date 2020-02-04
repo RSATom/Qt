@@ -72,6 +72,7 @@ inline static QString fromSQLTCHAR(const QVarLengthArray<SQLTCHAR>& input, int s
 {
     QString result;
 
+    // Remove any trailing \0 as some drivers misguidedly append one
     int realsize = qMin(size, input.size());
     if(realsize > 0 && input[realsize-1] == 0)
         realsize--;
@@ -163,27 +164,27 @@ public:
     QODBCResult(const QODBCDriver *db);
     virtual ~QODBCResult();
 
-    bool prepare(const QString &query) Q_DECL_OVERRIDE;
-    bool exec() Q_DECL_OVERRIDE;
+    bool prepare(const QString &query) override;
+    bool exec() override;
 
-    QVariant lastInsertId() const Q_DECL_OVERRIDE;
-    QVariant handle() const Q_DECL_OVERRIDE;
+    QVariant lastInsertId() const override;
+    QVariant handle() const override;
 
 protected:
-    bool fetchNext() Q_DECL_OVERRIDE;
-    bool fetchFirst() Q_DECL_OVERRIDE;
-    bool fetchLast() Q_DECL_OVERRIDE;
-    bool fetchPrevious() Q_DECL_OVERRIDE;
-    bool fetch(int i) Q_DECL_OVERRIDE;
-    bool reset(const QString &query) Q_DECL_OVERRIDE;
-    QVariant data(int field) Q_DECL_OVERRIDE;
-    bool isNull(int field) Q_DECL_OVERRIDE;
-    int size() Q_DECL_OVERRIDE;
-    int numRowsAffected() Q_DECL_OVERRIDE;
-    QSqlRecord record() const Q_DECL_OVERRIDE;
-    void virtual_hook(int id, void *data) Q_DECL_OVERRIDE;
-    void detachFromResultSet() Q_DECL_OVERRIDE;
-    bool nextResult() Q_DECL_OVERRIDE;
+    bool fetchNext() override;
+    bool fetchFirst() override;
+    bool fetchLast() override;
+    bool fetchPrevious() override;
+    bool fetch(int i) override;
+    bool reset(const QString &query) override;
+    QVariant data(int field) override;
+    bool isNull(int field) override;
+    int size() override;
+    int numRowsAffected() override;
+    QSqlRecord record() const override;
+    void virtual_hook(int id, void *data) override;
+    void detachFromResultSet() override;
+    bool nextResult() override;
 };
 
 class QODBCResultPrivate: public QSqlResultPrivate
@@ -335,7 +336,8 @@ static QSqlError qMakeError(const QString& err, QSqlError::ErrorType type, const
 {
     int nativeCode = -1;
     QString message = qODBCWarn(p, &nativeCode);
-    return QSqlError(QLatin1String("QODBC3: ") + err, message, type, nativeCode);
+    return QSqlError(QLatin1String("QODBC3: ") + err, message, type,
+                     nativeCode != -1 ? QString::number(nativeCode) : QString());
 }
 
 static QSqlError qMakeError(const QString& err, QSqlError::ErrorType type,
@@ -343,7 +345,8 @@ static QSqlError qMakeError(const QString& err, QSqlError::ErrorType type,
 {
     int nativeCode = -1;
     QString message = qODBCWarn(p, &nativeCode);
-    return QSqlError(QLatin1String("QODBC3: ") + err, qODBCWarn(p), type, nativeCode);
+    return QSqlError(QLatin1String("QODBC3: ") + err, message, type,
+                     nativeCode != -1 ? QString::number(nativeCode) : QString());
 }
 
 static QVariant::Type qDecodeODBCType(SQLSMALLINT sqltype, bool isSigned = true)
@@ -456,7 +459,6 @@ static QString qGetStringData(SQLHANDLE hStmt, int column, int colSize, bool uni
                 // more data can be fetched, the length indicator does NOT
                 // contain the number of bytes returned - it contains the
                 // total number of bytes that CAN be fetched
-                // colSize-1: remove 0 termination when there is more data to fetch
                 int rSize = (r == SQL_SUCCESS_WITH_INFO) ? colSize : int(lengthIndicator / sizeof(SQLTCHAR));
                     fieldVal += fromSQLTCHAR(buf, rSize);
                 if (lengthIndicator < SQLLEN(colSize*sizeof(SQLTCHAR))) {
@@ -497,9 +499,12 @@ static QString qGetStringData(SQLHANDLE hStmt, int column, int colSize, bool uni
                 // more data can be fetched, the length indicator does NOT
                 // contain the number of bytes returned - it contains the
                 // total number of bytes that CAN be fetched
-                // colSize-1: remove 0 termination when there is more data to fetch
                 int rSize = (r == SQL_SUCCESS_WITH_INFO) ? colSize : lengthIndicator;
-                    fieldVal += QString::fromUtf8((const char *)buf.constData(), rSize);
+                // Remove any trailing \0 as some drivers misguidedly append one
+                int realsize = qMin(rSize, buf.size());
+                if (realsize > 0 && buf[realsize - 1] == 0)
+                    realsize--;
+                fieldVal += QString::fromUtf8(reinterpret_cast<const char *>(buf.constData()), realsize);
                 if (lengthIndicator < SQLLEN(colSize)) {
                     // workaround for Drivermanagers that don't return SQL_NO_DATA
                     break;
@@ -1302,7 +1307,7 @@ QVariant QODBCResult::data(int field)
 bool QODBCResult::isNull(int field)
 {
     Q_D(const QODBCResult);
-    if (field < 0 || field > d->fieldCache.size())
+    if (field < 0 || field >= d->fieldCache.size())
         return true;
     if (field <= d->fieldCacheIdx) {
         // since there is no good way to find out whether the value is NULL

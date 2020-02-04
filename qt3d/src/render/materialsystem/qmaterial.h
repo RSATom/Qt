@@ -54,7 +54,7 @@ class QParameter;
 class QMaterialPrivate;
 class QEffect;
 
-class QT3DRENDERSHARED_EXPORT QMaterial : public Qt3DCore::QComponent
+class Q_3DRENDERSHARED_EXPORT QMaterial : public Qt3DCore::QComponent
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DRender::QEffect *effect READ effect WRITE setEffect NOTIFY effectChanged)
@@ -80,7 +80,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QMaterial)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 }

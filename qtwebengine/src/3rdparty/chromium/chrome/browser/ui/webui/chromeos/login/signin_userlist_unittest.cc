@@ -4,20 +4,21 @@
 
 #include <stddef.h>
 
-#include "ash/test/ash_test_base.h"
 #include "base/compiler_specific.h"
-#include "base/macros.h"
+#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "chrome/browser/chromeos/login/screens/user_selection_screen.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller.h"
 #include "chrome/browser/chromeos/login/users/multi_profile_user_controller_delegate.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
+#include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "components/proximity_auth/screenlock_bridge.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "chromeos/components/proximity_auth/screenlock_bridge.h"
+#include "components/account_id/account_id.h"
+#include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -36,17 +37,18 @@ const char* kUsers[] = {
 
 namespace chromeos {
 
-class SigninPrepareUserListTest : public ash::AshTestBase,
+class SigninPrepareUserListTest : public testing::Test,
                                   public MultiProfileUserControllerDelegate {
  public:
   SigninPrepareUserListTest()
       : fake_user_manager_(new FakeChromeUserManager()),
-        user_manager_enabler_(fake_user_manager_) {}
+        user_manager_enabler_(base::WrapUnique(fake_user_manager_)) {}
 
   ~SigninPrepareUserListTest() override {}
 
+  // testing::Test:
   void SetUp() override {
-    ash::AshTestBase::SetUp();
+    testing::Test::SetUp();
     profile_manager_.reset(
         new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
     ASSERT_TRUE(profile_manager_->SetUp());
@@ -54,30 +56,32 @@ class SigninPrepareUserListTest : public ash::AshTestBase,
         this, TestingBrowserProcess::GetGlobal()->local_state()));
     fake_user_manager_->set_multi_profile_user_controller(controller_.get());
 
-    for (size_t i = 0; i < arraysize(kUsersPublic); ++i)
+    for (size_t i = 0; i < base::size(kUsersPublic); ++i)
       fake_user_manager_->AddPublicAccountUser(
           AccountId::FromUserEmail(kUsersPublic[i]));
 
-    for (size_t i = 0; i < arraysize(kUsers); ++i)
+    for (size_t i = 0; i < base::size(kUsers); ++i)
       fake_user_manager_->AddUser(AccountId::FromUserEmail(kUsers[i]));
 
     fake_user_manager_->set_owner_id(AccountId::FromUserEmail(kOwner));
-
-    chromeos::WallpaperManager::Initialize();
   }
 
   void TearDown() override {
-    chromeos::WallpaperManager::Shutdown();
     controller_.reset();
     profile_manager_.reset();
-    ash::AshTestBase::TearDown();
+    testing::Test::TearDown();
   }
 
-  // MultiProfileUserControllerDelegate overrides:
+  // MultiProfileUserControllerDelegate:
   void OnUserNotAllowed(const std::string& user_email) override {}
 
+  FakeChromeUserManager* user_manager() { return fake_user_manager_; }
+
+ private:
+  content::TestBrowserThreadBundle thread_bundle_;
+  ScopedCrosSettingsTestHelper cros_settings_test_helper_;
   FakeChromeUserManager* fake_user_manager_;
-  ScopedUserManagerEnabler user_manager_enabler_;
+  user_manager::ScopedUserManager user_manager_enabler_;
   std::unique_ptr<TestingProfileManager> profile_manager_;
   std::map<std::string, proximity_auth::mojom::AuthType> user_auth_type_map;
   std::unique_ptr<MultiProfileUserController> controller_;
@@ -86,22 +90,20 @@ class SigninPrepareUserListTest : public ash::AshTestBase,
 };
 
 TEST_F(SigninPrepareUserListTest, AlwaysKeepOwnerInList) {
-  EXPECT_LT(kMaxUsers, fake_user_manager_->GetUsers().size());
+  EXPECT_LT(kMaxUsers, user_manager()->GetUsers().size());
   user_manager::UserList users_to_send =
       UserSelectionScreen::PrepareUserListForSending(
-          fake_user_manager_->GetUsers(), AccountId::FromUserEmail(kOwner),
-          true /* is signin to add */);
+          user_manager()->GetUsers(), AccountId::FromUserEmail(kOwner),
+          true /* is_signin_to_add */);
 
   EXPECT_EQ(kMaxUsers, users_to_send.size());
   EXPECT_EQ(kOwner, users_to_send.back()->GetAccountId().GetUserEmail());
 
-  fake_user_manager_->RemoveUserFromList(
-      AccountId::FromUserEmail("a16@gmail.com"));
-  fake_user_manager_->RemoveUserFromList(
-      AccountId::FromUserEmail("a17@gmail.com"));
+  user_manager()->RemoveUserFromList(AccountId::FromUserEmail("a16@gmail.com"));
+  user_manager()->RemoveUserFromList(AccountId::FromUserEmail("a17@gmail.com"));
   users_to_send = UserSelectionScreen::PrepareUserListForSending(
-      fake_user_manager_->GetUsers(), AccountId::FromUserEmail(kOwner),
-      true /* is signin to add */);
+      user_manager()->GetUsers(), AccountId::FromUserEmail(kOwner),
+      true /* is_signin_to_add */);
 
   EXPECT_EQ(kMaxUsers, users_to_send.size());
   EXPECT_EQ("a18@gmail.com",
@@ -113,16 +115,16 @@ TEST_F(SigninPrepareUserListTest, AlwaysKeepOwnerInList) {
 TEST_F(SigninPrepareUserListTest, PublicAccounts) {
   user_manager::UserList users_to_send =
       UserSelectionScreen::PrepareUserListForSending(
-          fake_user_manager_->GetUsers(), AccountId::FromUserEmail(kOwner),
-          true /* is signin to add */);
+          user_manager()->GetUsers(), AccountId::FromUserEmail(kOwner),
+          true /* is_signin_to_add */);
 
   EXPECT_EQ(kMaxUsers, users_to_send.size());
   EXPECT_EQ("a0@gmail.com",
             users_to_send.front()->GetAccountId().GetUserEmail());
 
   users_to_send = UserSelectionScreen::PrepareUserListForSending(
-      fake_user_manager_->GetUsers(), AccountId::FromUserEmail(kOwner),
-      false /* is signin to add */);
+      user_manager()->GetUsers(), AccountId::FromUserEmail(kOwner),
+      false /* is_signin_to_add */);
 
   EXPECT_EQ(kMaxUsers, users_to_send.size());
   EXPECT_EQ("public0@gmail.com",

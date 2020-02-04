@@ -16,9 +16,10 @@ AutofillHandlerProxy::AutofillHandlerProxy(AutofillDriver* driver,
 
 AutofillHandlerProxy::~AutofillHandlerProxy() {}
 
-bool AutofillHandlerProxy::OnWillSubmitFormImpl(const FormData& form,
-                                                const TimeTicks timestamp) {
-  return provider_->OnWillSubmitForm(this, form, timestamp);
+void AutofillHandlerProxy::OnFormSubmittedImpl(const FormData& form,
+                                               bool known_success,
+                                               SubmissionSource source) {
+  provider_->OnFormSubmitted(this, form, known_success, source);
 }
 
 void AutofillHandlerProxy::OnTextFieldDidChangeImpl(
@@ -29,13 +30,21 @@ void AutofillHandlerProxy::OnTextFieldDidChangeImpl(
   provider_->OnTextFieldDidChange(this, form, field, bounding_box, timestamp);
 }
 
+void AutofillHandlerProxy::OnTextFieldDidScrollImpl(
+    const FormData& form,
+    const FormFieldData& field,
+    const gfx::RectF& bounding_box) {
+  provider_->OnTextFieldDidScroll(this, form, field, bounding_box);
+}
+
 void AutofillHandlerProxy::OnQueryFormFieldAutofillImpl(
     int query_id,
     const FormData& form,
     const FormFieldData& field,
-    const gfx::RectF& bounding_box) {
-  provider_->OnQueryFormFieldAutofill(this, query_id, form, field,
-                                      bounding_box);
+    const gfx::RectF& bounding_box,
+    bool autoselect_first_suggestion) {
+  provider_->OnQueryFormFieldAutofill(this, query_id, form, field, bounding_box,
+                                      autoselect_first_suggestion);
 }
 
 void AutofillHandlerProxy::OnFocusOnFormFieldImpl(
@@ -44,6 +53,25 @@ void AutofillHandlerProxy::OnFocusOnFormFieldImpl(
     const gfx::RectF& bounding_box) {
   provider_->OnFocusOnFormField(this, form, field, bounding_box);
 }
+
+void AutofillHandlerProxy::OnSelectControlDidChangeImpl(
+    const FormData& form,
+    const FormFieldData& field,
+    const gfx::RectF& bounding_box) {
+  provider_->OnSelectControlDidChange(this, form, field, bounding_box);
+}
+
+bool AutofillHandlerProxy::ShouldParseForms(const std::vector<FormData>& forms,
+                                            const base::TimeTicks timestamp) {
+  provider_->OnFormsSeen(this, forms, timestamp);
+  // Need to parse the |forms| to FormStructure, so heuristic_type can be
+  // retrieved later.
+  return true;
+}
+
+void AutofillHandlerProxy::OnFormsParsed(
+    const std::vector<FormStructure*>& form_structures,
+    const base::TimeTicks timestamp) {}
 
 void AutofillHandlerProxy::OnFocusNoLongerOnForm() {
   provider_->OnFocusNoLongerOnForm(this);
@@ -57,13 +85,6 @@ void AutofillHandlerProxy::OnDidFillAutofillFormData(
 
 void AutofillHandlerProxy::OnDidPreviewAutofillFormData() {}
 
-void AutofillHandlerProxy::OnFormsSeen(const std::vector<FormData>& forms,
-                                       const base::TimeTicks timestamp) {}
-
-bool AutofillHandlerProxy::OnFormSubmitted(const FormData& form) {
-  return false;
-}
-
 void AutofillHandlerProxy::OnDidEndTextFieldEditing() {}
 
 void AutofillHandlerProxy::OnHidePopup() {}
@@ -71,6 +92,8 @@ void AutofillHandlerProxy::OnHidePopup() {}
 void AutofillHandlerProxy::OnSetDataList(
     const std::vector<base::string16>& values,
     const std::vector<base::string16>& labels) {}
+
+void AutofillHandlerProxy::SelectFieldOptionsDidChange(const FormData& form) {}
 
 void AutofillHandlerProxy::Reset() {
   provider_->Reset(this);

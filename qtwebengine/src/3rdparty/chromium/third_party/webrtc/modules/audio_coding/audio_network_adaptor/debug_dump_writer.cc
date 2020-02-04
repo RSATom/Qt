@@ -8,18 +8,21 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/audio_network_adaptor/debug_dump_writer.h"
+#include "modules/audio_coding/audio_network_adaptor/debug_dump_writer.h"
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/ignore_wundef.h"
-#include "webrtc/rtc_base/protobuf_utils.h"
+#include "absl/types/optional.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/ignore_wundef.h"
+#include "rtc_base/numerics/safe_conversions.h"
+#include "rtc_base/protobuf_utils.h"
+#include "rtc_base/system/file_wrapper.h"
 
 #if WEBRTC_ENABLE_PROTOBUF
 RTC_PUSH_IGNORING_WUNDEF()
 #ifdef WEBRTC_ANDROID_PLATFORM_BUILD
 #include "external/webrtc/webrtc/modules/audio_coding/audio_network_adaptor/debug_dump.pb.h"
 #else
-#include "webrtc/modules/audio_coding/audio_network_adaptor/debug_dump.pb.h"
+#include "modules/audio_coding/audio_network_adaptor/debug_dump.pb.h"
 #endif
 RTC_POP_IGNORING_WUNDEF()
 #endif
@@ -37,7 +40,7 @@ void DumpEventToFile(const Event& event, FileWrapper* dump_file) {
   RTC_CHECK(dump_file->is_open());
   ProtoString dump_data;
   event.SerializeToString(&dump_data);
-  int32_t size = event.ByteSize();
+  int32_t size = rtc::checked_cast<int32_t>(event.ByteSizeLong());
   dump_file->Write(&size, sizeof(size));
   dump_file->Write(dump_data.data(), dump_data.length());
 }
@@ -64,14 +67,13 @@ class DebugDumpWriterImpl final : public DebugDumpWriter {
 #endif
 
  private:
-  std::unique_ptr<FileWrapper> dump_file_;
+  FileWrapper dump_file_;
 };
 
-DebugDumpWriterImpl::DebugDumpWriterImpl(FILE* file_handle)
-    : dump_file_(FileWrapper::Create()) {
+DebugDumpWriterImpl::DebugDumpWriterImpl(FILE* file_handle) {
 #if WEBRTC_ENABLE_PROTOBUF
-  dump_file_->OpenFromFileHandle(file_handle);
-  RTC_CHECK(dump_file_->is_open());
+  dump_file_ = FileWrapper(file_handle);
+  RTC_CHECK(dump_file_.is_open());
 #else
   RTC_NOTREACHED();
 #endif
@@ -107,7 +109,7 @@ void DebugDumpWriterImpl::DumpNetworkMetrics(
         *metrics.uplink_recoverable_packet_loss_fraction);
   }
 
-  DumpEventToFile(event, dump_file_.get());
+  DumpEventToFile(event, &dump_file_);
 #endif  // WEBRTC_ENABLE_PROTOBUF
 }
 
@@ -140,7 +142,7 @@ void DebugDumpWriterImpl::DumpEncoderRuntimeConfig(
   if (config.num_channels)
     dump_config->set_num_channels(*config.num_channels);
 
-  DumpEventToFile(event, dump_file_.get());
+  DumpEventToFile(event, &dump_file_);
 #endif  // WEBRTC_ENABLE_PROTOBUF
 }
 
@@ -154,7 +156,7 @@ void DebugDumpWriterImpl::DumpControllerManagerConfig(
   event.set_type(Event::CONTROLLER_MANAGER_CONFIG);
   event.mutable_controller_manager_config()->CopyFrom(
       controller_manager_config);
-  DumpEventToFile(event, dump_file_.get());
+  DumpEventToFile(event, &dump_file_);
 }
 #endif  // WEBRTC_ENABLE_PROTOBUF
 

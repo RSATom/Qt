@@ -69,10 +69,6 @@ class VIEWS_EXPORT DesktopScreenX11 : public display::Screen,
   // Constructor used in tests.
   DesktopScreenX11(const std::vector<display::Display>& test_displays);
 
-  // Builds a list of displays from the current screen information offered by
-  // the X server.
-  std::vector<display::Display> BuildDisplaysFromXRandRInfo();
-
   // Removes |delayed_configuration_task_| from the task queue (if
   // it's in the queue) and adds it back at the end of the queue.
   void RestartDelayedConfigurationTask();
@@ -84,21 +80,21 @@ class VIEWS_EXPORT DesktopScreenX11 : public display::Screen,
   // factor.
   void SetDisplaysInternal(const std::vector<display::Display>& displays);
 
-  Display* xdisplay_;
+  ::Display* xdisplay_;
   ::Window x_root_window_;
 
-  // Whether the x server supports the XRandR extension.
-  bool has_xrandr_;
+  // XRandR version. MAJOR * 100 + MINOR. Zero if no xrandr is present.
+  const int xrandr_version_;
 
   // The base of the event numbers used to represent XRandr events used in
   // decoding events regarding output add/remove.
-  int xrandr_event_base_;
+  int xrandr_event_base_ = 0;
 
   // The display objects we present to chrome.
   std::vector<display::Display> displays_;
 
   // The index into displays_ that represents the primary display.
-  size_t primary_display_index_;
+  int64_t primary_display_index_ = 0;
 
   // The task to delay configuring outputs.  We delay updating the
   // display so we can coalesce events.

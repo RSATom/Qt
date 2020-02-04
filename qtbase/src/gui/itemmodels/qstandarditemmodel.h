@@ -49,10 +49,9 @@
 #include <QtCore/qdatastream.h>
 #endif
 
+QT_REQUIRE_CONFIG(standarditemmodel);
+
 QT_BEGIN_NAMESPACE
-
-
-#ifndef QT_NO_STANDARDITEMMODEL
 
 template <class T> class QList;
 
@@ -70,6 +69,7 @@ public:
 
     virtual QVariant data(int role = Qt::UserRole + 1) const;
     virtual void setData(const QVariant &value, int role = Qt::UserRole + 1);
+    void clearData();
 
     inline QString text() const {
         return qvariant_cast<QString>(data(Qt::DisplayRole));
@@ -180,7 +180,7 @@ public:
     QT_DEPRECATED void setTristate(bool tristate);
 #endif
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     inline bool isDragEnabled() const {
         return (flags() & Qt::ItemIsDragEnabled) != 0;
     }
@@ -190,7 +190,7 @@ public:
         return (flags() & Qt::ItemIsDropEnabled) != 0;
     }
     void setDropEnabled(bool dropEnabled);
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
     QStandardItem *parent() const;
     int row() const;
@@ -327,45 +327,47 @@ class Q_GUI_EXPORT QStandardItemModel : public QAbstractItemModel
     Q_PROPERTY(int sortRole READ sortRole WRITE setSortRole)
 
 public:
-    explicit QStandardItemModel(QObject *parent = Q_NULLPTR);
-    QStandardItemModel(int rows, int columns, QObject *parent = Q_NULLPTR);
+    explicit QStandardItemModel(QObject *parent = nullptr);
+    QStandardItemModel(int rows, int columns, QObject *parent = nullptr);
     ~QStandardItemModel();
 
     void setItemRoleNames(const QHash<int,QByteArray> &roleNames);
 
-    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    QModelIndex parent(const QModelIndex &child) const Q_DECL_OVERRIDE;
+    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
+    QModelIndex parent(const QModelIndex &child) const override;
 
-    int rowCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    int columnCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    bool hasChildren(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    bool hasChildren(const QModelIndex &parent = QModelIndex()) const override;
     // Qt 6: Remove
-    QModelIndex sibling(int row, int column, const QModelIndex &idx) const Q_DECL_OVERRIDE;
+    QModelIndex sibling(int row, int column, const QModelIndex &idx) const override;
 
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
-    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) Q_DECL_OVERRIDE;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
+    // Qt 6: add override keyword
+    bool clearItemData(const QModelIndex &index);
 
     QVariant headerData(int section, Qt::Orientation orientation,
-                        int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
+                        int role = Qt::DisplayRole) const override;
     bool setHeaderData(int section, Qt::Orientation orientation, const QVariant &value,
-                       int role = Qt::EditRole) Q_DECL_OVERRIDE;
+                       int role = Qt::EditRole) override;
 
-    bool insertRows(int row, int count, const QModelIndex &parent = QModelIndex()) Q_DECL_OVERRIDE;
-    bool insertColumns(int column, int count, const QModelIndex &parent = QModelIndex()) Q_DECL_OVERRIDE;
-    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) Q_DECL_OVERRIDE;
-    bool removeColumns(int column, int count, const QModelIndex &parent = QModelIndex()) Q_DECL_OVERRIDE;
+    bool insertRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
+    bool insertColumns(int column, int count, const QModelIndex &parent = QModelIndex()) override;
+    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
+    bool removeColumns(int column, int count, const QModelIndex &parent = QModelIndex()) override;
 
-    Qt::ItemFlags flags(const QModelIndex &index) const Q_DECL_OVERRIDE;
-    Qt::DropActions supportedDropActions() const Q_DECL_OVERRIDE;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
+    Qt::DropActions supportedDropActions() const override;
 
-    QMap<int, QVariant> itemData(const QModelIndex &index) const Q_DECL_OVERRIDE;
-    bool setItemData(const QModelIndex &index, const QMap<int, QVariant> &roles) Q_DECL_OVERRIDE;
+    QMap<int, QVariant> itemData(const QModelIndex &index) const override;
+    bool setItemData(const QModelIndex &index, const QMap<int, QVariant> &roles) override;
 
     void clear();
 
     using QObject::parent;
 
-    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) Q_DECL_OVERRIDE;
+    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override;
 
     QStandardItem *itemFromIndex(const QModelIndex &index) const;
     QModelIndex indexFromItem(const QStandardItem *item) const;
@@ -414,15 +416,16 @@ public:
     int sortRole() const;
     void setSortRole(int role);
 
-    QStringList mimeTypes() const Q_DECL_OVERRIDE;
-    QMimeData *mimeData(const QModelIndexList &indexes) const Q_DECL_OVERRIDE;
-    bool dropMimeData (const QMimeData *data, Qt::DropAction action, int row, int column, const QModelIndex &parent) Q_DECL_OVERRIDE;
+    QStringList mimeTypes() const override;
+    QMimeData *mimeData(const QModelIndexList &indexes) const override;
+    bool dropMimeData (const QMimeData *data, Qt::DropAction action, int row, int column, const QModelIndex &parent) override;
 
 Q_SIGNALS:
+    // ### Qt 6: add changed roles
     void itemChanged(QStandardItem *item);
 
 protected:
-    QStandardItemModel(QStandardItemModelPrivate &dd, QObject *parent = Q_NULLPTR);
+    QStandardItemModel(QStandardItemModelPrivate &dd, QObject *parent = nullptr);
 
 private:
     friend class QStandardItemPrivate;
@@ -452,8 +455,6 @@ inline bool QStandardItemModel::insertColumn(int acolumn, const QModelIndex &apa
 Q_GUI_EXPORT QDataStream &operator>>(QDataStream &in, QStandardItem &item);
 Q_GUI_EXPORT QDataStream &operator<<(QDataStream &out, const QStandardItem &item);
 #endif
-
-#endif // QT_NO_STANDARDITEMMODEL
 
 QT_END_NAMESPACE
 

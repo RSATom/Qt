@@ -5,13 +5,11 @@
 #include <utility>
 
 #include "base/callback.h"
-#include "base/containers/hash_tables.h"
 #include "base/metrics/histogram.h"
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/blob/blob_data_item.h"
 #include "storage/browser/blob/blob_entry.h"
 #include "storage/browser/blob/shareable_blob_data_item.h"
-#include "storage/common/data_element.h"
 
 namespace storage {
 
@@ -26,14 +24,14 @@ BlobEntry::ItemCopyEntry::ItemCopyEntry(
 BlobEntry::ItemCopyEntry::ItemCopyEntry(ItemCopyEntry&& other) = default;
 BlobEntry::ItemCopyEntry& BlobEntry::ItemCopyEntry::operator=(
     BlobEntry::ItemCopyEntry&& rhs) = default;
-BlobEntry::ItemCopyEntry::~ItemCopyEntry() {}
+BlobEntry::ItemCopyEntry::~ItemCopyEntry() = default;
 
 BlobEntry::BuildingState::BuildingState(
     bool transport_items_present,
     TransportAllowedCallback transport_allowed_callback,
     size_t num_building_dependent_blobs)
     : transport_items_present(transport_items_present),
-      transport_allowed_callback(transport_allowed_callback),
+      transport_allowed_callback(std::move(transport_allowed_callback)),
       num_building_dependent_blobs(num_building_dependent_blobs) {}
 
 BlobEntry::BuildingState::~BuildingState() {
@@ -41,19 +39,19 @@ BlobEntry::BuildingState::~BuildingState() {
   DCHECK(!transport_quota_request);
 }
 
-void BlobEntry::BuildingState::CancelRequests() {
-  if (copy_quota_request) {
+void BlobEntry::BuildingState::CancelRequestsAndAbort() {
+  if (copy_quota_request)
     copy_quota_request->Cancel();
-  }
-  if (transport_quota_request) {
+  if (transport_quota_request)
     transport_quota_request->Cancel();
-  }
+  if (build_aborted_callback)
+    std::move(build_aborted_callback).Run();
 }
 
 BlobEntry::BlobEntry(const std::string& content_type,
                      const std::string& content_disposition)
     : content_type_(content_type), content_disposition_(content_disposition) {}
-BlobEntry::~BlobEntry() {}
+BlobEntry::~BlobEntry() = default;
 
 void BlobEntry::AppendSharedBlobItem(
     scoped_refptr<ShareableBlobDataItem> item) {
@@ -63,6 +61,24 @@ void BlobEntry::AppendSharedBlobItem(
   }
   size_ += item->item()->length();
   items_.push_back(std::move(item));
+}
+
+void BlobEntry::SetSharedBlobItems(
+    std::vector<scoped_refptr<ShareableBlobDataItem>> items) {
+  DCHECK(items_.empty());
+  DCHECK(offsets_.empty());
+  DCHECK_EQ(size_, 0u);
+
+  items_ = std::move(items);
+  offsets_.reserve(items_.size());
+  for (const auto& item : items_) {
+    size_ += item->item()->length();
+    offsets_.emplace_back(size_);
+  }
+  // The loop above pushed one too many offset onto offsets_, so remove the
+  // last one.
+  if (!offsets_.empty())
+    offsets_.pop_back();
 }
 
 const std::vector<scoped_refptr<ShareableBlobDataItem>>& BlobEntry::items()

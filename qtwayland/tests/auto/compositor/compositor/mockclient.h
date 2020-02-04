@@ -26,14 +26,16 @@
 **
 ****************************************************************************/
 
-#include <wayland-client.h>
-#include <wayland-xdg-shell-client-protocol.h>
+#include "wayland-wayland-client-protocol.h"
+#include <qwayland-xdg-shell.h>
 #include <wayland-ivi-application-client-protocol.h>
+#include "wayland-viewporter-client-protocol.h"
 
 #include <QObject>
 #include <QImage>
 #include <QRect>
 #include <QList>
+#include <QtCore/QMap>
 #include <QWaylandOutputMode>
 
 class MockSeat;
@@ -44,8 +46,8 @@ public:
     ShmBuffer(const QSize &size, wl_shm *shm);
     ~ShmBuffer();
 
-    struct wl_buffer *handle;
-    struct wl_shm_pool *shm_pool;
+    struct wl_buffer *handle = nullptr;
+    struct wl_shm_pool *shm_pool = nullptr;
     QImage image;
 };
 
@@ -55,37 +57,39 @@ class MockClient : public QObject
 
 public:
     MockClient();
-    ~MockClient();
+    ~MockClient() override;
 
     wl_surface *createSurface();
     wl_shell_surface *createShellSurface(wl_surface *surface);
     xdg_surface *createXdgSurface(wl_surface *surface);
+    xdg_toplevel *createXdgToplevel(xdg_surface *xdgSurface);
     ivi_surface *createIviSurface(wl_surface *surface, uint iviId);
 
-    wl_display *display;
-    wl_compositor *compositor;
-    wl_output *output;
-    wl_shm *shm;
-    wl_registry *registry;
-    wl_shell *wlshell;
-    xdg_shell *xdgShell;
-    ivi_application *iviApplication;
+    wl_display *display = nullptr;
+    wl_compositor *compositor = nullptr;
+    QMap<uint, wl_output *> m_outputs;
+    wl_shm *shm = nullptr;
+    wl_registry *registry = nullptr;
+    wl_shell *wlshell = nullptr;
+    xdg_wm_base *xdgWmBase = nullptr;
+    wp_viewporter *viewporter = nullptr;
+    ivi_application *iviApplication = nullptr;
 
     QList<MockSeat *> m_seats;
 
     QRect geometry;
     QSize resolution;
-    int refreshRate;
+    int refreshRate = -1;
     QWaylandOutputMode currentMode;
     QWaylandOutputMode preferredMode;
     QList<QWaylandOutputMode> modes;
 
     int fd;
-    int error;
+    int error = 0 /* means no error according to spec */;
     struct {
-        uint id;
-        uint code;
-        const wl_interface *interface;
+        uint id = 0;
+        uint code = 0;
+        const wl_interface *interface = nullptr;
     } protocolError;
 
 private slots:
@@ -96,6 +100,7 @@ private:
     static MockClient *resolve(void *data) { return static_cast<MockClient *>(data); }
     static const struct wl_registry_listener registryListener;
     static void handleGlobal(void *data, struct wl_registry *registry, uint32_t id, const char *interface, uint32_t version);
+    static void handleGlobalRemove(void *data, struct wl_registry *wl_registry, uint32_t id);
     static int sourceUpdate(uint32_t mask, void *data);
 
     static void outputGeometryEvent(void *data,
@@ -117,6 +122,7 @@ private:
     static void outputScale(void *data, wl_output *output, int factor);
 
     void handleGlobal(uint32_t id, const QByteArray &interface);
+    void handleGlobalRemove(uint32_t id);
 
     static const wl_output_listener outputListener;
 };

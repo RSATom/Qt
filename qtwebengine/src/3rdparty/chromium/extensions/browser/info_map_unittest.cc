@@ -7,6 +7,7 @@
 #include "base/path_service.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_paths.h"
 #include "extensions/common/manifest_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -24,24 +25,11 @@ class InfoMapTest : public testing::Test {
 };
 
 // Returns a barebones test Extension object with the given name.
-static scoped_refptr<Extension> CreateExtension(const std::string& name) {
+static scoped_refptr<const Extension> CreateExtension(const std::string& name) {
   base::FilePath path;
-  PathService::Get(DIR_TEST_DATA, &path);
+  base::PathService::Get(DIR_TEST_DATA, &path);
 
-  base::DictionaryValue manifest;
-  manifest.SetString(keys::kVersion, "1.0.0.0");
-  manifest.SetString(keys::kName, name);
-
-  std::string error;
-  scoped_refptr<Extension> extension =
-      Extension::Create(path.AppendASCII(name),
-                        Manifest::INVALID_LOCATION,
-                        manifest,
-                        Extension::NO_FLAGS,
-                        &error);
-  EXPECT_TRUE(extension.get()) << error;
-
-  return extension;
+  return ExtensionBuilder(name).SetPath(path.AppendASCII(name)).Build();
 }
 
 // Test that the InfoMap handles refcounting properly.
@@ -49,9 +37,9 @@ TEST_F(InfoMapTest, RefCounting) {
   scoped_refptr<InfoMap> info_map(new InfoMap());
 
   // New extensions should have a single reference holding onto them.
-  scoped_refptr<Extension> extension1(CreateExtension("extension1"));
-  scoped_refptr<Extension> extension2(CreateExtension("extension2"));
-  scoped_refptr<Extension> extension3(CreateExtension("extension3"));
+  scoped_refptr<const Extension> extension1(CreateExtension("extension1"));
+  scoped_refptr<const Extension> extension2(CreateExtension("extension2"));
+  scoped_refptr<const Extension> extension3(CreateExtension("extension3"));
   EXPECT_TRUE(extension1->HasOneRef());
   EXPECT_TRUE(extension2->HasOneRef());
   EXPECT_TRUE(extension3->HasOneRef());
@@ -80,8 +68,8 @@ TEST_F(InfoMapTest, RefCounting) {
 TEST_F(InfoMapTest, Properties) {
   scoped_refptr<InfoMap> info_map(new InfoMap());
 
-  scoped_refptr<Extension> extension1(CreateExtension("extension1"));
-  scoped_refptr<Extension> extension2(CreateExtension("extension2"));
+  scoped_refptr<const Extension> extension1(CreateExtension("extension1"));
+  scoped_refptr<const Extension> extension2(CreateExtension("extension2"));
 
   info_map->AddExtension(extension1.get(), base::Time(), false, false);
   info_map->AddExtension(extension2.get(), base::Time(), false, false);
@@ -94,7 +82,7 @@ TEST_F(InfoMapTest, Properties) {
 // Tests that extension URLs are properly mapped to local file paths.
 TEST_F(InfoMapTest, MapUrlToLocalFilePath) {
   scoped_refptr<InfoMap> info_map(new InfoMap());
-  scoped_refptr<Extension> app(CreateExtension("platform_app"));
+  scoped_refptr<const Extension> app(CreateExtension("platform_app"));
   info_map->AddExtension(app.get(), base::Time(), false, false);
 
   // Non-extension URLs don't map to anything.

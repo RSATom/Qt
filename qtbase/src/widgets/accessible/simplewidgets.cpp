@@ -170,7 +170,7 @@ QAccessible::State QAccessibleButton::state() const
     if (b->isChecked())
         state.checked = true;
 #if QT_CONFIG(checkbox)
-    else if (cb && cb->checkState() == Qt::PartiallyChecked)
+    if (cb && cb->checkState() == Qt::PartiallyChecked)
         state.checkStateMixed = true;
 #endif
     if (b->isDown())
@@ -454,6 +454,13 @@ QAccessible::Role QAccessibleDisplay::role() const
     return QAccessibleWidget::role();
 }
 
+QAccessible::State QAccessibleDisplay::state() const
+{
+    QAccessible::State s = QAccessibleWidget::state();
+    s.readOnly = true;
+    return s;
+}
+
 QString QAccessibleDisplay::text(QAccessible::Text t) const
 {
     QString str;
@@ -704,6 +711,8 @@ QString QAccessibleLineEdit::text(QAccessible::Text t) const
     }
     if (str.isEmpty())
         str = QAccessibleWidget::text(t);
+    if (str.isEmpty() && t == QAccessible::Description)
+        str = lineEdit()->placeholderText();
     return str;
 }
 
@@ -730,10 +739,9 @@ QAccessible::State QAccessibleLineEdit::state() const
     QAccessible::State state = QAccessibleWidget::state();
 
     QLineEdit *l = lineEdit();
+    state.editable = true;
     if (l->isReadOnly())
         state.readOnly = true;
-    else
-        state.editable = true;
 
     if (l->echoMode() != QLineEdit::Normal)
         state.passwordEdit = true;
@@ -777,7 +785,7 @@ QRect QAccessibleLineEdit::characterRect(int offset) const
     const QString ch = text(offset, offset + 1);
     if (ch.isEmpty())
         return QRect();
-    int w = fm.width(ch);
+    int w = fm.horizontalAdvance(ch);
     int h = fm.height();
     QRect r(x, y, w, h);
     r.moveTo(lineEdit()->mapToGlobal(r.topLeft()));

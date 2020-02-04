@@ -15,8 +15,10 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "net/base/filename_util.h"
-#include "services/ui/public/interfaces/clipboard.mojom.h"
+#include "ui/base/clipboard/clipboard_constants.h"
+#include "ui/base/clipboard/clipboard_format_type.h"
 #include "ui/base/dragdrop/file_info.h"
+#include "ui/base/mojo/clipboard.mojom.h"
 #include "url/gurl.h"
 
 namespace aura {
@@ -66,7 +68,7 @@ OSExchangeDataProviderMus::Data OSExchangeDataProviderMus::GetData() const {
 std::unique_ptr<ui::OSExchangeData::Provider> OSExchangeDataProviderMus::Clone()
     const {
   std::unique_ptr<OSExchangeDataProviderMus> r =
-      base::MakeUnique<OSExchangeDataProviderMus>();
+      std::make_unique<OSExchangeDataProviderMus>();
   r->drag_image_ = drag_image_;
   r->drag_image_offset_ = drag_image_offset_;
   r->mime_data_ = mime_data_;
@@ -87,7 +89,7 @@ void OSExchangeDataProviderMus::SetString(const base::string16& data) {
   if (HasString())
     return;
 
-  mime_data_[ui::mojom::kMimeTypeText] = FromString(base::UTF16ToUTF8(data));
+  mime_data_[ui::kMimeTypeText] = FromString(base::UTF16ToUTF8(data));
 }
 
 void OSExchangeDataProviderMus::SetURL(const GURL& url,
@@ -97,10 +99,10 @@ void OSExchangeDataProviderMus::SetURL(const GURL& url,
   AddString16ToVector(spec, &data);
   AddString16ToVector(base::ASCIIToUTF16("\n"), &data);
   AddString16ToVector(title, &data);
-  mime_data_[ui::mojom::kMimeTypeMozillaURL] = std::move(data);
+  mime_data_[ui::kMimeTypeMozillaURL] = std::move(data);
 
-  if (!base::ContainsKey(mime_data_, ui::mojom::kMimeTypeText))
-    mime_data_[ui::mojom::kMimeTypeText] = FromString(url.spec());
+  if (!base::ContainsKey(mime_data_, ui::kMimeTypeText))
+    mime_data_[ui::kMimeTypeText] = FromString(url.spec());
 }
 
 void OSExchangeDataProviderMus::SetFilename(const base::FilePath& path) {
@@ -112,19 +114,18 @@ void OSExchangeDataProviderMus::SetFilename(const base::FilePath& path) {
 void OSExchangeDataProviderMus::SetFilenames(
     const std::vector<ui::FileInfo>& file_names) {
   std::vector<std::string> paths;
-  for (std::vector<ui::FileInfo>::const_iterator it = file_names.begin();
-       it != file_names.end(); ++it) {
+  for (auto it = file_names.begin(); it != file_names.end(); ++it) {
     std::string url_spec = net::FilePathToFileURL(it->path).spec();
     if (!url_spec.empty())
       paths.push_back(url_spec);
   }
 
   std::string joined_data = base::JoinString(paths, "\n");
-  mime_data_[ui::mojom::kMimeTypeURIList] = FromString(joined_data);
+  mime_data_[ui::kMimeTypeURIList] = FromString(joined_data);
 }
 
 void OSExchangeDataProviderMus::SetPickledData(
-    const ui::Clipboard::FormatType& format,
+    const ui::ClipboardFormatType& format,
     const base::Pickle& pickle) {
   const unsigned char* bytes =
       reinterpret_cast<const unsigned char*>(pickle.data());
@@ -134,7 +135,7 @@ void OSExchangeDataProviderMus::SetPickledData(
 }
 
 bool OSExchangeDataProviderMus::GetString(base::string16* data) const {
-  auto it = mime_data_.find(ui::mojom::kMimeTypeText);
+  auto it = mime_data_.find(ui::kMimeTypeText);
   if (it != mime_data_.end())
     *data = base::UTF8ToUTF16(ToString(it->second));
   return it != mime_data_.end();
@@ -144,7 +145,7 @@ bool OSExchangeDataProviderMus::GetURLAndTitle(
     ui::OSExchangeData::FilenameToURLPolicy policy,
     GURL* url,
     base::string16* title) const {
-  auto it = mime_data_.find(ui::mojom::kMimeTypeMozillaURL);
+  auto it = mime_data_.find(ui::kMimeTypeMozillaURL);
   if (it == mime_data_.end()) {
     title->clear();
     return GetPlainTextURL(url) ||
@@ -177,7 +178,7 @@ bool OSExchangeDataProviderMus::GetFilename(base::FilePath* path) const {
 
 bool OSExchangeDataProviderMus::GetFilenames(
     std::vector<ui::FileInfo>* file_names) const {
-  auto it = mime_data_.find(ui::mojom::kMimeTypeURIList);
+  auto it = mime_data_.find(ui::kMimeTypeURIList);
   if (it == mime_data_.end())
     return false;
 
@@ -193,7 +194,7 @@ bool OSExchangeDataProviderMus::GetFilenames(
 }
 
 bool OSExchangeDataProviderMus::GetPickledData(
-    const ui::Clipboard::FormatType& format,
+    const ui::ClipboardFormatType& format,
     base::Pickle* data) const {
   auto it = mime_data_.find(format.Serialize());
   if (it == mime_data_.end())
@@ -207,15 +208,15 @@ bool OSExchangeDataProviderMus::GetPickledData(
 }
 
 bool OSExchangeDataProviderMus::HasString() const {
-  return base::ContainsKey(mime_data_, ui::mojom::kMimeTypeText);
+  return base::ContainsKey(mime_data_, ui::kMimeTypeText);
 }
 
 bool OSExchangeDataProviderMus::HasURL(
     ui::OSExchangeData::FilenameToURLPolicy policy) const {
-  if (base::ContainsKey(mime_data_, ui::mojom::kMimeTypeMozillaURL))
+  if (base::ContainsKey(mime_data_, ui::kMimeTypeMozillaURL))
     return true;
 
-  auto it = mime_data_.find(ui::mojom::kMimeTypeURIList);
+  auto it = mime_data_.find(ui::kMimeTypeURIList);
   if (it == mime_data_.end())
     return false;
 
@@ -230,7 +231,7 @@ bool OSExchangeDataProviderMus::HasURL(
 }
 
 bool OSExchangeDataProviderMus::HasFile() const {
-  auto it = mime_data_.find(ui::mojom::kMimeTypeURIList);
+  auto it = mime_data_.find(ui::kMimeTypeURIList);
   if (it == mime_data_.end())
     return false;
 
@@ -245,13 +246,13 @@ bool OSExchangeDataProviderMus::HasFile() const {
 }
 
 bool OSExchangeDataProviderMus::HasCustomFormat(
-    const ui::Clipboard::FormatType& format) const {
+    const ui::ClipboardFormatType& format) const {
   return base::ContainsKey(mime_data_, format.Serialize());
 }
 
 // These methods were added in an ad-hoc way to different operating
 // systems. We need to support them until they get cleaned up.
-#if (!defined(OS_CHROMEOS) && defined(USE_X11)) || defined(OS_WIN)
+#if defined(USE_X11) || defined(OS_WIN)
 void OSExchangeDataProviderMus::SetFileContents(
     const base::FilePath& filename,
     const std::string& file_contents) {}
@@ -281,12 +282,12 @@ void OSExchangeDataProviderMus::SetHtml(const base::string16& html,
   bytes.push_back(0xFF);
   bytes.push_back(0xFE);
   AddString16ToVector(html, &bytes);
-  mime_data_[ui::mojom::kMimeTypeHTML] = bytes;
+  mime_data_[ui::kMimeTypeHTML] = bytes;
 }
 
 bool OSExchangeDataProviderMus::GetHtml(base::string16* html,
                                         GURL* base_url) const {
-  auto it = mime_data_.find(ui::mojom::kMimeTypeHTML);
+  auto it = mime_data_.find(ui::kMimeTypeHTML);
   if (it == mime_data_.end())
     return false;
 
@@ -313,7 +314,7 @@ bool OSExchangeDataProviderMus::GetHtml(base::string16* html,
 }
 
 bool OSExchangeDataProviderMus::HasHtml() const {
-  return base::ContainsKey(mime_data_, ui::mojom::kMimeTypeHTML);
+  return base::ContainsKey(mime_data_, ui::kMimeTypeHTML);
 }
 #endif
 

@@ -4,6 +4,8 @@
 
 #include "components/sync_preferences/pref_service_syncable.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_path.h"
@@ -11,6 +13,7 @@
 #include "base/value_conversions.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/default_pref_store.h"
+#include "components/prefs/in_memory_pref_store.h"
 #include "components/prefs/overlay_user_pref_store.h"
 #include "components/prefs/pref_notifier_impl.h"
 #include "components/prefs/pref_registry.h"
@@ -19,93 +22,102 @@
 #include "services/preferences/public/cpp/in_process_service_factory.h"
 #include "services/preferences/public/cpp/persistent_pref_store_client.h"
 #include "services/preferences/public/cpp/pref_registry_serializer.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 
 namespace sync_preferences {
 
+// TODO(tschumann): Handing out pointers to this in the constructor is an
+// anti-pattern. Instead, introduce a factory method which first constructs
+// the PrefServiceSyncable instance and then the members which need a reference
+// to the PrefServiceSycnable instance.
 PrefServiceSyncable::PrefServiceSyncable(
-    PrefNotifierImpl* pref_notifier,
-    PrefValueStore* pref_value_store,
-    PersistentPrefStore* user_prefs,
-    user_prefs::PrefRegistrySyncable* pref_registry,
+    std::unique_ptr<PrefNotifierImpl> pref_notifier,
+    std::unique_ptr<PrefValueStore> pref_value_store,
+    scoped_refptr<PersistentPrefStore> user_prefs,
+    scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry,
     const PrefModelAssociatorClient* pref_model_associator_client,
-    base::Callback<void(PersistentPrefStore::PrefReadError)>
+    base::RepeatingCallback<void(PersistentPrefStore::PrefReadError)>
         read_error_callback,
     bool async)
-    : PrefService(pref_notifier,
-                  pref_value_store,
-                  user_prefs,
+    : PrefService(std::move(pref_notifier),
+                  std::move(pref_value_store),
+                  std::move(user_prefs),
                   pref_registry,
-                  read_error_callback,
+                  std::move(read_error_callback),
                   async),
       pref_service_forked_(false),
-      pref_sync_associator_(pref_model_associator_client, syncer::PREFERENCES),
+      unknown_pref_accessor_(this, pref_registry.get(), user_pref_store_.get()),
+      pref_sync_associator_(pref_model_associator_client,
+                            syncer::PREFERENCES,
+                            &unknown_pref_accessor_),
       priority_pref_sync_associator_(pref_model_associator_client,
-                                     syncer::PRIORITY_PREFERENCES) {
+                                     syncer::PRIORITY_PREFERENCES,
+                                     &unknown_pref_accessor_),
+      pref_registry_(std::move(pref_registry)) {
   pref_sync_associator_.SetPrefService(this);
   priority_pref_sync_associator_.SetPrefService(this);
 
   // Let PrefModelAssociators know about changes to preference values.
-  pref_value_store->set_callback(base::Bind(
+  pref_value_store_->set_callback(base::Bind(
       &PrefServiceSyncable::ProcessPrefChange, base::Unretained(this)));
 
   // Add already-registered syncable preferences to PrefModelAssociator.
-  for (PrefRegistry::const_iterator it = pref_registry->begin();
-       it != pref_registry->end(); ++it) {
-    const std::string& path = it->first;
+  for (const auto& entry : *pref_registry_) {
+    const std::string& path = entry.first;
     AddRegisteredSyncablePreference(path,
                                     pref_registry_->GetRegistrationFlags(path));
   }
 
   // Watch for syncable preferences registered after this point.
-  pref_registry->SetSyncableRegistrationCallback(
-      base::Bind(&PrefServiceSyncable::AddRegisteredSyncablePreference,
-                 base::Unretained(this)));
+  static_cast<user_prefs::PrefRegistrySyncable*>(pref_registry_.get())
+      ->SetSyncableRegistrationCallback(base::BindRepeating(
+          &PrefServiceSyncable::AddRegisteredSyncablePreference,
+          base::Unretained(this)));
 }
 
 PrefServiceSyncable::~PrefServiceSyncable() {
   // Remove our callback from the registry, since it may outlive us.
-  user_prefs::PrefRegistrySyncable* registry =
-      static_cast<user_prefs::PrefRegistrySyncable*>(pref_registry_.get());
-  registry->SetSyncableRegistrationCallback(
+  pref_registry_->SetSyncableRegistrationCallback(
       user_prefs::PrefRegistrySyncable::SyncableRegistrationCallback());
 }
 
-PrefServiceSyncable* PrefServiceSyncable::CreateIncognitoPrefService(
+std::unique_ptr<PrefServiceSyncable>
+PrefServiceSyncable::CreateIncognitoPrefService(
     PrefStore* incognito_extension_pref_store,
-    const std::vector<const char*>& overlay_pref_names,
+    const std::vector<const char*>& persistent_pref_names,
     std::unique_ptr<PrefValueStore::Delegate> delegate) {
   pref_service_forked_ = true;
-  PrefNotifierImpl* pref_notifier = new PrefNotifierImpl();
+  auto pref_notifier = std::make_unique<PrefNotifierImpl>();
 
   scoped_refptr<user_prefs::PrefRegistrySyncable> forked_registry =
-      static_cast<user_prefs::PrefRegistrySyncable*>(pref_registry_.get())
-          ->ForkForIncognito();
+      pref_registry_->ForkForIncognito();
 
+  auto overlay = base::MakeRefCounted<InMemoryPrefStore>();
   if (delegate) {
-    delegate->InitIncognitoUnderlay(user_pref_store_.get());
+    delegate->InitIncognitoUserPrefs(overlay, user_pref_store_,
+                                     persistent_pref_names);
     delegate->InitPrefRegistry(forked_registry.get());
   }
-  auto incognito_pref_store =
-      base::MakeRefCounted<OverlayUserPrefStore>(user_pref_store_.get());
+  auto incognito_pref_store = base::MakeRefCounted<OverlayUserPrefStore>(
+      overlay.get(), user_pref_store_.get());
 
-  for (const char* overlay_pref_name : overlay_pref_names)
-    incognito_pref_store->RegisterOverlayPref(overlay_pref_name);
+  for (const char* persistent_pref_name : persistent_pref_names)
+    incognito_pref_store->RegisterPersistentPref(persistent_pref_name);
 
-  PrefServiceSyncable* incognito_service = new PrefServiceSyncable(
-      pref_notifier,
-      pref_value_store_->CloneAndSpecialize(NULL,  // managed
-                                            NULL,  // supervised_user
-                                            incognito_extension_pref_store,
-                                            NULL,  // command_line_prefs
-                                            incognito_pref_store.get(),
-                                            NULL,  // recommended
-                                            forked_registry->defaults().get(),
-                                            pref_notifier, std::move(delegate)),
-      incognito_pref_store.get(), forked_registry.get(),
+  auto pref_value_store = pref_value_store_->CloneAndSpecialize(
+      nullptr,  // managed
+      nullptr,  // supervised_user
+      incognito_extension_pref_store,
+      nullptr,  // command_line_prefs
+      incognito_pref_store.get(),
+      nullptr,  // recommended
+      forked_registry->defaults().get(), pref_notifier.get(),
+      std::move(delegate));
+  return std::make_unique<PrefServiceSyncable>(
+      std::move(pref_notifier), std::move(pref_value_store),
+      std::move(incognito_pref_store), std::move(forked_registry),
       pref_sync_associator_.client(), read_error_callback_, false);
-  return incognito_service;
 }
 
 bool PrefServiceSyncable::IsSyncing() {
@@ -138,7 +150,7 @@ syncer::SyncableService* PrefServiceSyncable::GetSyncableService(
     return &priority_pref_sync_associator_;
   } else {
     NOTREACHED() << "invalid model type: " << type;
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -168,23 +180,18 @@ void PrefServiceSyncable::RegisterMergeDataFinishedCallback(
   pref_sync_associator_.RegisterMergeDataFinishedCallback(callback);
 }
 
-// Set the PrefModelAssociatorClient to use for that object during tests.
-void PrefServiceSyncable::SetPrefModelAssociatorClientForTesting(
-    const PrefModelAssociatorClient* pref_model_associator_client) {
-  pref_sync_associator_.SetPrefModelAssociatorClientForTesting(
-      pref_model_associator_client);
-  priority_pref_sync_associator_.SetPrefModelAssociatorClientForTesting(
-      pref_model_associator_client);
-}
-
 void PrefServiceSyncable::AddRegisteredSyncablePreference(
     const std::string& path,
     uint32_t flags) {
   DCHECK(FindPreference(path));
   if (flags & user_prefs::PrefRegistrySyncable::SYNCABLE_PREF) {
-    pref_sync_associator_.RegisterPref(path.c_str());
+    DCHECK(!pref_sync_associator_.models_associated() ||
+           pref_registry_->IsWhitelistedLateRegistrationPref(path));
+    pref_sync_associator_.RegisterPref(path);
   } else if (flags & user_prefs::PrefRegistrySyncable::SYNCABLE_PRIORITY_PREF) {
-    priority_pref_sync_associator_.RegisterPref(path.c_str());
+    DCHECK(!priority_pref_sync_associator_.models_associated() ||
+           pref_registry_->IsWhitelistedLateRegistrationPref(path));
+    priority_pref_sync_associator_.RegisterPref(path);
   }
 }
 

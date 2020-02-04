@@ -11,7 +11,7 @@
 
 #include "base/files/file_path.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/time/time.h"
 
 namespace ui {
@@ -38,8 +38,11 @@ DrmDeviceHandle::DrmDeviceHandle() {
 }
 
 DrmDeviceHandle::~DrmDeviceHandle() {
-  if (file_.is_valid())
-    base::ThreadRestrictions::AssertIOAllowed();
+  if (file_.is_valid()) {
+    base::ScopedBlockingCall scoped_blocking_call(
+        base::BlockingType::MAY_BLOCK);
+    file_.reset();
+  }
 }
 
 bool DrmDeviceHandle::Initialize(const base::FilePath& dev_path,
@@ -48,7 +51,7 @@ bool DrmDeviceHandle::Initialize(const base::FilePath& dev_path,
   // expected path, so use a CHECK instead of a DCHECK. The sys_path is only
   // used a label and is otherwise unvalidated.
   CHECK(dev_path.DirName() == base::FilePath("/dev/dri"));
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   int num_auth_attempts = 0;
   bool logged_warning = false;
@@ -65,8 +68,15 @@ bool DrmDeviceHandle::Initialize(const base::FilePath& dev_path,
     sys_path_ = sys_path;
 
     num_auth_attempts++;
-    if (Authenticate(file_.get()))
+    if (Authenticate(file_.get())) {
+      struct drm_set_client_cap cap = {DRM_CLIENT_CAP_ATOMIC, 1};
+      has_atomic_capabilities_ =
+          !drmIoctl(file_.get(), DRM_IOCTL_SET_CLIENT_CAP, &cap);
+
+      cap = {DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1};
+      drmIoctl(file_.get(), DRM_IOCTL_SET_CLIENT_CAP, &cap);
       break;
+    }
 
     // To avoid spamming the logs, hold off before logging a warning (some
     // failures are expected at first) and only log a single message.

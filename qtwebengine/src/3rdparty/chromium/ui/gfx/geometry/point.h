@@ -9,22 +9,22 @@
 #include <string>
 #include <tuple>
 
-#include "base/numerics/saturated_arithmetic.h"
+#include "base/numerics/clamped_math.h"
 #include "build/build_config.h"
+#include "ui/gfx/geometry/geometry_export.h"
 #include "ui/gfx/geometry/vector2d.h"
-#include "ui/gfx/gfx_export.h"
 
 #if defined(OS_WIN)
 typedef unsigned long DWORD;
 typedef struct tagPOINT POINT;
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
 typedef struct CGPoint CGPoint;
 #endif
 
 namespace gfx {
 
 // A point has an x and y coordinate.
-class GFX_EXPORT Point {
+class GEOMETRY_EXPORT Point {
  public:
   constexpr Point() : x_(0), y_(0) {}
   constexpr Point(int x, int y) : x_(x), y_(y) {}
@@ -35,13 +35,13 @@ class GFX_EXPORT Point {
   explicit Point(DWORD point);
   explicit Point(const POINT& point);
   Point& operator=(const POINT& point);
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
   explicit Point(const CGPoint& point);
 #endif
 
 #if defined(OS_WIN)
   POINT ToPOINT() const;
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
   CGPoint ToCGPoint() const;
 #endif
 
@@ -56,18 +56,18 @@ class GFX_EXPORT Point {
   }
 
   void Offset(int delta_x, int delta_y) {
-    x_ = base::SaturatedAddition(x_, delta_x);
-    y_ = base::SaturatedAddition(y_, delta_y);
+    x_ = base::ClampAdd(x_, delta_x);
+    y_ = base::ClampAdd(y_, delta_y);
   }
 
   void operator+=(const Vector2d& vector) {
-    x_ = base::SaturatedAddition(x_, vector.x());
-    y_ = base::SaturatedAddition(y_, vector.y());
+    x_ = base::ClampAdd(x_, vector.x());
+    y_ = base::ClampAdd(y_, vector.y());
   }
 
   void operator-=(const Vector2d& vector) {
-    x_ = base::SaturatedSubtraction(x_, vector.x());
-    y_ = base::SaturatedSubtraction(y_, vector.y());
+    x_ = base::ClampSub(x_, vector.x());
+    y_ = base::ClampSub(y_, vector.y());
   }
 
   void SetToMin(const Point& other);
@@ -116,8 +116,8 @@ inline Point operator-(const Point& lhs, const Vector2d& rhs) {
 }
 
 inline Vector2d operator-(const Point& lhs, const Point& rhs) {
-  return Vector2d(base::SaturatedSubtraction(lhs.x(), rhs.x()),
-                  base::SaturatedSubtraction(lhs.y(), rhs.y()));
+  return Vector2d(base::ClampSub(lhs.x(), rhs.x()),
+                  base::ClampSub(lhs.y(), rhs.y()));
 }
 
 inline Point PointAtOffsetFromOrigin(const Vector2d& offset_from_origin) {
@@ -130,18 +130,18 @@ inline Point PointAtOffsetFromOrigin(const Vector2d& offset_from_origin) {
 void PrintTo(const Point& point, ::std::ostream* os);
 
 // Helper methods to scale a gfx::Point to a new gfx::Point.
-GFX_EXPORT Point ScaleToCeiledPoint(const Point& point,
-                                    float x_scale,
-                                    float y_scale);
-GFX_EXPORT Point ScaleToCeiledPoint(const Point& point, float x_scale);
-GFX_EXPORT Point ScaleToFlooredPoint(const Point& point,
-                                     float x_scale,
-                                     float y_scale);
-GFX_EXPORT Point ScaleToFlooredPoint(const Point& point, float x_scale);
-GFX_EXPORT Point ScaleToRoundedPoint(const Point& point,
-                                     float x_scale,
-                                     float y_scale);
-GFX_EXPORT Point ScaleToRoundedPoint(const Point& point, float x_scale);
+GEOMETRY_EXPORT Point ScaleToCeiledPoint(const Point& point,
+                                         float x_scale,
+                                         float y_scale);
+GEOMETRY_EXPORT Point ScaleToCeiledPoint(const Point& point, float x_scale);
+GEOMETRY_EXPORT Point ScaleToFlooredPoint(const Point& point,
+                                          float x_scale,
+                                          float y_scale);
+GEOMETRY_EXPORT Point ScaleToFlooredPoint(const Point& point, float x_scale);
+GEOMETRY_EXPORT Point ScaleToRoundedPoint(const Point& point,
+                                          float x_scale,
+                                          float y_scale);
+GEOMETRY_EXPORT Point ScaleToRoundedPoint(const Point& point, float x_scale);
 
 }  // namespace gfx
 

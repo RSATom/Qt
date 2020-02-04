@@ -1,24 +1,6 @@
-CONFIG += testcase link_pkgconfig
+include (../shared_old/shared_old.pri)
+
 TARGET = tst_client
+SOURCES += tst_client.cpp
 
-QT += testlib
-QT += core-private gui-private waylandclient-private
-
-QMAKE_USE += wayland-client wayland-server
-
-CONFIG += wayland-scanner
-WAYLANDSERVERSOURCES += \
-    ../../../../src/3rdparty/protocol/wayland.xml
-
-SOURCES += \
-    tst_client.cpp \
-    mockcompositor.cpp \
-    mockinput.cpp \
-    mockshell.cpp \
-    mocksurface.cpp \
-    mockoutput.cpp
-
-HEADERS += \
-    mockcompositor.h \
-    mockinput.h \
-    mocksurface.h
+check.commands = $(TESTRUNNER) $${PWD}/run-with-all-shells.sh $(TESTARGS)

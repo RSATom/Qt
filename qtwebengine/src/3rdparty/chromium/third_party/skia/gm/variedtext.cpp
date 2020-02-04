@@ -46,7 +46,7 @@ protected:
 
     void onOnceBeforeDraw() override {
         fPaint.setAntiAlias(true);
-        fPaint.setLCDRenderText(fLCD);
+        fFont.setEdging(fLCD ? SkFont::Edging::kSubpixelAntiAlias : SkFont::Edging::kAntiAlias);
 
         SkISize size = this->getISize();
         SkScalar w = SkIntToScalar(size.fWidth);
@@ -54,11 +54,9 @@ protected:
 
         static_assert(4 == SK_ARRAY_COUNT(fTypefaces), "typeface_cnt");
         fTypefaces[0] = sk_tool_utils::create_portable_typeface("sans-serif", SkFontStyle());
-        fTypefaces[1] = sk_tool_utils::create_portable_typeface("sans-serif",
-                            SkFontStyle::FromOldStyle(SkTypeface::kBold));
+        fTypefaces[1] = sk_tool_utils::create_portable_typeface("sans-serif", SkFontStyle::Bold());
         fTypefaces[2] = sk_tool_utils::create_portable_typeface("serif", SkFontStyle());
-        fTypefaces[3] = sk_tool_utils::create_portable_typeface("serif",
-                            SkFontStyle::FromOldStyle(SkTypeface::kBold));
+        fTypefaces[3] = sk_tool_utils::create_portable_typeface("serif", SkFontStyle::Bold());
 
         SkRandom random;
         for (int i = 0; i < kCnt; ++i) {
@@ -82,10 +80,10 @@ protected:
 
             SkRect r;
             fPaint.setColor(fColors[i]);
-            fPaint.setTypeface(fTypefaces[fTypefaceIndices[i]]);
-            fPaint.setTextSize(fPtSizes[i]);
+            fFont.setTypeface(fTypefaces[fTypefaceIndices[i]]);
+            fFont.setSize(fPtSizes[i]);
 
-            fPaint.measureText(fStrings[i].c_str(), fStrings[i].size(), &r);
+            fFont.measureText(fStrings[i].c_str(), fStrings[i].size(), kUTF8_SkTextEncoding, &r);
             // safeRect is set of x,y positions where we can draw the string without hitting
             // the GM's border.
             SkRect safeRect = SkRect::MakeLTRB(-r.fLeft, -r.fTop, w - r.fRight, h - r.fBottom);
@@ -110,13 +108,14 @@ protected:
     void onDraw(SkCanvas* canvas) override {
         for (int i = 0; i < kCnt; ++i) {
             fPaint.setColor(fColors[i]);
-            fPaint.setTextSize(fPtSizes[i]);
-            fPaint.setTypeface(fTypefaces[fTypefaceIndices[i]]);
+            fFont.setSize(fPtSizes[i]);
+            fFont.setTypeface(fTypefaces[fTypefaceIndices[i]]);
 
             canvas->save();
                 canvas->clipRect(fClipRects[i]);
                 canvas->translate(fPositions[i].fX, fPositions[i].fY);
-                canvas->drawString(fStrings[i], 0, 0, fPaint);
+                canvas->drawSimpleText(fStrings[i].c_str(), fStrings[i].size(), kUTF8_SkTextEncoding,
+                                       0, 0, fFont, fPaint);
             canvas->restore();
         }
 
@@ -143,6 +142,7 @@ private:
     bool        fLCD;
     sk_sp<SkTypeface> fTypefaces[4];
     SkPaint     fPaint;
+    SkFont      fFont;
 
     // precomputed for each text draw
     SkString        fStrings[kCnt];

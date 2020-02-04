@@ -6,6 +6,8 @@
 
 #include "core/fpdfapi/page/cpdf_function.h"
 
+#include <vector>
+
 #include "core/fpdfapi/page/cpdf_expintfunc.h"
 #include "core/fpdfapi/page/cpdf_psfunc.h"
 #include "core/fpdfapi/page/cpdf_sampledfunc.h"
@@ -14,19 +16,33 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "third_party/base/ptr_util.h"
+#include "third_party/base/stl_util.h"
 
 // static
-std::unique_ptr<CPDF_Function> CPDF_Function::Load(CPDF_Object* pFuncObj) {
-  std::unique_ptr<CPDF_Function> pFunc;
+std::unique_ptr<CPDF_Function> CPDF_Function::Load(
+    const CPDF_Object* pFuncObj) {
+  std::set<const CPDF_Object*> visited;
+  return Load(pFuncObj, &visited);
+}
+
+// static
+std::unique_ptr<CPDF_Function> CPDF_Function::Load(
+    const CPDF_Object* pFuncObj,
+    std::set<const CPDF_Object*>* pVisited) {
   if (!pFuncObj)
-    return pFunc;
+    return nullptr;
+
+  if (pdfium::ContainsKey(*pVisited, pFuncObj))
+    return nullptr;
+  pdfium::ScopedSetInsertion<const CPDF_Object*> insertion(pVisited, pFuncObj);
 
   int iType = -1;
-  if (CPDF_Stream* pStream = pFuncObj->AsStream())
+  if (const CPDF_Stream* pStream = pFuncObj->AsStream())
     iType = pStream->GetDict()->GetIntegerFor("FunctionType");
-  else if (CPDF_Dictionary* pDict = pFuncObj->AsDictionary())
+  else if (const CPDF_Dictionary* pDict = pFuncObj->AsDictionary())
     iType = pDict->GetIntegerFor("FunctionType");
 
+  std::unique_ptr<CPDF_Function> pFunc;
   Type type = IntegerToFunctionType(iType);
   if (type == Type::kType0Sampled)
     pFunc = pdfium::MakeUnique<CPDF_SampledFunc>();
@@ -37,7 +53,7 @@ std::unique_ptr<CPDF_Function> CPDF_Function::Load(CPDF_Object* pFuncObj) {
   else if (type == Type::kType4PostScript)
     pFunc = pdfium::MakeUnique<CPDF_PSFunc>();
 
-  if (!pFunc || !pFunc->Init(pFuncObj))
+  if (!pFunc || !pFunc->Init(pFuncObj, pVisited))
     return nullptr;
 
   return pFunc;
@@ -56,52 +72,59 @@ CPDF_Function::Type CPDF_Function::IntegerToFunctionType(int iType) {
   }
 }
 
-CPDF_Function::CPDF_Function(Type type)
-    : m_pDomains(nullptr), m_pRanges(nullptr), m_Type(type) {}
+CPDF_Function::CPDF_Function(Type type) : m_Type(type) {}
 
-CPDF_Function::~CPDF_Function() {
-  FX_Free(m_pDomains);
-  FX_Free(m_pRanges);
-}
+CPDF_Function::~CPDF_Function() = default;
 
-bool CPDF_Function::Init(CPDF_Object* pObj) {
-  CPDF_Stream* pStream = pObj->AsStream();
-  CPDF_Dictionary* pDict = pStream ? pStream->GetDict() : pObj->AsDictionary();
+bool CPDF_Function::Init(const CPDF_Object* pObj,
+                         std::set<const CPDF_Object*>* pVisited) {
+  const CPDF_Stream* pStream = pObj->AsStream();
+  const CPDF_Dictionary* pDict =
+      pStream ? pStream->GetDict() : pObj->AsDictionary();
 
-  CPDF_Array* pDomains = pDict->GetArrayFor("Domain");
+  const CPDF_Array* pDomains = pDict->GetArrayFor("Domain");
   if (!pDomains)
     return false;
 
-  m_nInputs = pDomains->GetCount() / 2;
+  m_nInputs = pDomains->size() / 2;
   if (m_nInputs == 0)
     return false;
 
-  m_pDomains = FX_Alloc2D(float, m_nInputs, 2);
-  for (uint32_t i = 0; i < m_nInputs * 2; i++) {
-    m_pDomains[i] = pDomains->GetFloatAt(i);
-  }
-  CPDF_Array* pRanges = pDict->GetArrayFor("Range");
-  m_nOutputs = 0;
-  if (pRanges) {
-    m_nOutputs = pRanges->GetCount() / 2;
-    m_pRanges = FX_Alloc2D(float, m_nOutputs, 2);
-    for (uint32_t i = 0; i < m_nOutputs * 2; i++)
-      m_pRanges[i] = pRanges->GetFloatAt(i);
-  }
-  uint32_t old_outputs = m_nOutputs;
-  if (!v_Init(pObj))
+  size_t nInputs = m_nInputs * 2;
+  m_Domains = std::vector<float>(nInputs);
+  for (size_t i = 0; i < nInputs; ++i)
+    m_Domains[i] = pDomains->GetFloatAt(i);
+
+  const CPDF_Array* pRanges = pDict->GetArrayFor("Range");
+  m_nOutputs = pRanges ? pRanges->size() / 2 : 0;
+
+  // Ranges are required for type 0 and type 4 functions. A non-zero
+  // |m_nOutputs| here implied Ranges meets the requirements.
+  bool bRangeRequired =
+      m_Type == Type::kType0Sampled || m_Type == Type::kType4PostScript;
+  if (bRangeRequired && m_nOutputs == 0)
     return false;
-  if (m_pRanges && m_nOutputs > old_outputs) {
-    m_pRanges = FX_Realloc(float, m_pRanges, m_nOutputs * 2);
-    if (m_pRanges) {
-      memset(m_pRanges + (old_outputs * 2), 0,
-             sizeof(float) * (m_nOutputs - old_outputs) * 2);
-    }
+
+  if (m_nOutputs > 0) {
+    size_t nOutputs = m_nOutputs * 2;
+    m_Ranges = std::vector<float>(nOutputs);
+    for (size_t i = 0; i < nOutputs; ++i)
+      m_Ranges[i] = pRanges->GetFloatAt(i);
+  }
+
+  uint32_t old_outputs = m_nOutputs;
+  if (!v_Init(pObj, pVisited))
+    return false;
+
+  if (!m_Ranges.empty() && m_nOutputs > old_outputs) {
+    FX_SAFE_SIZE_T nOutputs = m_nOutputs;
+    nOutputs *= 2;
+    m_Ranges.resize(nOutputs.ValueOrDie());
   }
   return true;
 }
 
-bool CPDF_Function::Call(float* inputs,
+bool CPDF_Function::Call(const float* inputs,
                          uint32_t ninputs,
                          float* results,
                          int* nresults) const {
@@ -109,17 +132,20 @@ bool CPDF_Function::Call(float* inputs,
     return false;
 
   *nresults = m_nOutputs;
+  std::vector<float> clamped_inputs(m_nInputs);
   for (uint32_t i = 0; i < m_nInputs; i++) {
-    inputs[i] =
-        pdfium::clamp(inputs[i], m_pDomains[i * 2], m_pDomains[i * 2 + 1]);
+    clamped_inputs[i] =
+        pdfium::clamp(inputs[i], m_Domains[i * 2], m_Domains[i * 2 + 1]);
   }
-  v_Call(inputs, results);
-  if (!m_pRanges)
+  if (!v_Call(clamped_inputs.data(), results))
+    return false;
+
+  if (m_Ranges.empty())
     return true;
 
   for (uint32_t i = 0; i < m_nOutputs; i++) {
     results[i] =
-        pdfium::clamp(results[i], m_pRanges[i * 2], m_pRanges[i * 2 + 1]);
+        pdfium::clamp(results[i], m_Ranges[i * 2], m_Ranges[i * 2 + 1]);
   }
   return true;
 }

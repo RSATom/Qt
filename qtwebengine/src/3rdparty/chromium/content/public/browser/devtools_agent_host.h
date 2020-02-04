@@ -31,34 +31,27 @@ namespace content {
 class BrowserContext;
 class DevToolsExternalAgentProxyDelegate;
 class DevToolsSocketFactory;
+class RenderFrameHost;
 class WebContents;
 
 // Describes interface for managing devtools agents from browser process.
 class CONTENT_EXPORT DevToolsAgentHost
     : public base::RefCounted<DevToolsAgentHost> {
  public:
-  static char kTypePage[];
-  static char kTypeFrame[];
-  static char kTypeSharedWorker[];
-  static char kTypeServiceWorker[];
-  static char kTypeBrowser[];
-  static char kTypeGuest[];
-  static char kTypeOther[];
+  static const char kTypePage[];
+  static const char kTypeFrame[];
+  static const char kTypeDedicatedWorker[];
+  static const char kTypeSharedWorker[];
+  static const char kTypeServiceWorker[];
+  static const char kTypeBrowser[];
+  static const char kTypeGuest[];
+  static const char kTypeOther[];
 
   // Latest DevTools protocol version supported.
   static std::string GetProtocolVersion();
 
   // Returns whether particular version of DevTools protocol is supported.
   static bool IsSupportedProtocolVersion(const std::string& version);
-
-  // Returns the DevTools FrameId for the given pair of |process_id| and
-  // |frame_tree_node_id|. This is sent by the renderer and shouldn't be fully
-  // trusted.
-  // TODO(alexclarke): Remove once there is a solution for stable frame IDs. See
-  // crbug.com/715541
-  static std::string GetUntrustedDevToolsFrameIdForFrameTreeNodeId(
-      int process_id,
-      int frame_tree_node_id);
 
   // Returns DevToolsAgentHost with a given |id| or nullptr of it doesn't exist.
   static scoped_refptr<DevToolsAgentHost> GetForId(const std::string& id);
@@ -71,11 +64,6 @@ class CONTENT_EXPORT DevToolsAgentHost
   // Returns true iff an instance of DevToolsAgentHost for the |web_contents|
   // does exist.
   static bool HasFor(WebContents* web_contents);
-
-  // Returns DevToolsAgentHost that can be used for inspecting shared worker
-  // with given worker process host id and routing id.
-  static scoped_refptr<DevToolsAgentHost> GetForWorker(int worker_process_id,
-                                                       int worker_route_id);
 
   // Creates DevToolsAgentHost that communicates to the target by means of
   // provided |delegate|. |delegate| ownership is passed to the created agent
@@ -101,38 +89,34 @@ class CONTENT_EXPORT DevToolsAgentHost
 
   using List = std::vector<scoped_refptr<DevToolsAgentHost>>;
 
-  // Returns all DevToolsAgentHosts content is aware of.
+  // Returns all non-browser target DevToolsAgentHosts content is aware of.
   static List GetOrCreateAll();
 
   // Starts remote debugging.
   // Takes ownership over |socket_factory|.
-  // If |frontend_url| is empty, assumes it's bundled.
   // If |active_port_output_directory| is non-empty, it is assumed the
   // socket_factory was initialized with an ephemeral port (0). The
   // port selected by the OS will be written to a well-known file in
   // the output directory.
   static void StartRemoteDebuggingServer(
       std::unique_ptr<DevToolsSocketFactory> server_socket_factory,
-      const std::string& frontend_url,
       const base::FilePath& active_port_output_directory,
-      const base::FilePath& debug_frontend_dir,
-      const std::string& product_name,
-      const std::string& user_agent);
-
-  // Stops remote debugging.
+      const base::FilePath& debug_frontend_dir);
   static void StopRemoteDebuggingServer();
+
+  // Starts remote debugging for browser target for the given fd=3
+  // for reading and fd=4 for writing remote debugging messages.
+  static void StartRemoteDebuggingPipeHandler();
+  static void StopRemoteDebuggingPipeHandler();
 
   // Observer is notified about changes in DevToolsAgentHosts.
   static void AddObserver(DevToolsAgentHostObserver*);
   static void RemoveObserver(DevToolsAgentHostObserver*);
 
   // Attaches |client| to this agent host to start debugging.
-  // Returns true iff attach succeeded.
+  // Returns |true| on success. Note that some policies defined by
+  // embedder or |client| itself may prevent attaching.
   virtual bool AttachClient(DevToolsAgentHostClient* client) = 0;
-
-  // Attaches |client| to this agent host to start debugging. Disconnects
-  // any existing clients.
-  virtual void ForceAttachClient(DevToolsAgentHostClient* client) = 0;
 
   // Already attached client detaches from this agent host to stop debugging it.
   // Returns true iff detach succeeded.
@@ -146,16 +130,18 @@ class CONTENT_EXPORT DevToolsAgentHost
   virtual bool DispatchProtocolMessage(DevToolsAgentHostClient* client,
                                        const std::string& message) = 0;
 
-  // Starts inspecting element at position (|x|, |y|).
-  virtual void InspectElement(DevToolsAgentHostClient* client,
-                              int x,
-                              int y) = 0;
+  // Starts inspecting element at position (|x|, |y|) in the frame
+  // represented by |frame_host|.
+  virtual void InspectElement(RenderFrameHost* frame_host, int x, int y) = 0;
 
   // Returns the unique id of the agent.
   virtual std::string GetId() = 0;
 
   // Returns the id of the parent host, or empty string if no parent.
   virtual std::string GetParentId() = 0;
+
+  // Returns the id of the opener host, or empty string if no opener.
+  virtual std::string GetOpenerId() = 0;
 
   // Returns web contents instance for this host if any.
   virtual WebContents* GetWebContents() = 0;

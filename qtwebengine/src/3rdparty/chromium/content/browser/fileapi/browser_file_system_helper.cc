@@ -5,6 +5,7 @@
 #include "content/browser/fileapi/browser_file_system_helper.h"
 
 #include <stddef.h>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,9 +14,11 @@
 #include "base/files/file_path.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/sequenced_worker_pool.h"
+#include "base/task/lazy_task_runner.h"
+#include "base/task/post_task.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/content_browser_client.h"
@@ -33,14 +36,23 @@
 #include "storage/browser/fileapi/file_system_url.h"
 #include "storage/browser/fileapi/isolated_context.h"
 #include "storage/browser/quota/quota_manager.h"
+#include "third_party/leveldatabase/leveldb_chrome.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
+
+using storage::FileSystemOptions;
 
 namespace content {
 
 namespace {
 
-using storage::FileSystemOptions;
+// All FileSystemContexts currently need to share the same sequence per sharing
+// global objects: https://codereview.chromium.org/2883403002#msg14.
+base::LazySequencedTaskRunner g_fileapi_task_runner =
+    LAZY_SEQUENCED_TASK_RUNNER_INITIALIZER(
+        base::TaskTraits(base::MayBlock(),
+                         base::TaskPriority::USER_VISIBLE,
+                         base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN));
 
 FileSystemOptions CreateBrowserFileSystemOptions(bool is_incognito) {
   FileSystemOptions::ProfileMode profile_mode =
@@ -53,7 +65,50 @@ FileSystemOptions CreateBrowserFileSystemOptions(bool is_incognito) {
           switches::kAllowFileAccessFromFiles)) {
     additional_allowed_schemes.push_back(url::kFileScheme);
   }
-  return FileSystemOptions(profile_mode, additional_allowed_schemes, NULL);
+  return FileSystemOptions(profile_mode, is_incognito,
+                           additional_allowed_schemes);
+}
+
+bool CheckCanReadFileSystemFileOnUIThread(int process_id,
+                                          const storage::FileSystemURL& url) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  ChildProcessSecurityPolicyImpl* policy =
+      ChildProcessSecurityPolicyImpl::GetInstance();
+  return policy->CanReadFileSystemFile(process_id, url);
+}
+
+void GrantReadAccessOnUIThread(int process_id,
+                               const base::FilePath& platform_path) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  ChildProcessSecurityPolicyImpl* policy =
+      ChildProcessSecurityPolicyImpl::GetInstance();
+  if (!policy->CanReadFile(process_id, platform_path)) {
+    policy->GrantReadFile(process_id, platform_path);
+  }
+}
+
+// Helper function that used by SyncGetPlatformPath() to get the platform
+// path, grant read access, and send return the path via a callback.
+void GetPlatformPathOnFileThread(
+    scoped_refptr<storage::FileSystemContext> context,
+    int process_id,
+    const storage::FileSystemURL& url,
+    SyncGetPlatformPathCB callback,
+    bool can_read_filesystem_file) {
+  DCHECK(context->default_file_task_runner()->RunsTasksInCurrentSequence());
+
+  if (!can_read_filesystem_file) {
+    std::move(callback).Run(base::FilePath());
+    return;
+  }
+
+  base::FilePath platform_path;
+  context->operation_runner()->SyncGetPlatformPath(url, &platform_path);
+
+  base::PostTaskWithTraitsAndReply(
+      FROM_HERE, {BrowserThread::UI},
+      base::BindOnce(&GrantReadAccessOnUIThread, process_id, platform_path),
+      base::BindOnce(std::move(callback), platform_path));
 }
 
 }  // namespace
@@ -63,12 +118,6 @@ scoped_refptr<storage::FileSystemContext> CreateFileSystemContext(
     const base::FilePath& profile_path,
     bool is_incognito,
     storage::QuotaManagerProxy* quota_manager_proxy) {
-  base::SequencedWorkerPool* pool = BrowserThread::GetBlockingPool();
-  scoped_refptr<base::SequencedTaskRunner> file_task_runner =
-      pool->GetSequencedTaskRunnerWithShutdownBehavior(
-          pool->GetNamedSequenceToken("FileAPI"),
-          base::SequencedWorkerPool::SKIP_ON_SHUTDOWN);
-
   // Setting up additional filesystem backends.
   std::vector<std::unique_ptr<storage::FileSystemBackend>> additional_backends;
   GetContentClient()->browser()->GetAdditionalFileSystemBackends(
@@ -84,20 +133,19 @@ scoped_refptr<storage::FileSystemContext> CreateFileSystemContext(
 
   scoped_refptr<storage::FileSystemContext> file_system_context =
       new storage::FileSystemContext(
-          BrowserThread::GetTaskRunnerForThread(BrowserThread::IO).get(),
-          file_task_runner.get(),
+          base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO})
+              .get(),
+          g_fileapi_task_runner.Get().get(),
           BrowserContext::GetMountPoints(browser_context),
           browser_context->GetSpecialStoragePolicy(), quota_manager_proxy,
           std::move(additional_backends), url_request_auto_mount_handlers,
           profile_path, CreateBrowserFileSystemOptions(is_incognito));
 
-  std::vector<storage::FileSystemType> types;
-  file_system_context->GetFileSystemTypes(&types);
-  for (size_t i = 0; i < types.size(); ++i) {
+  for (const storage::FileSystemType& type :
+       file_system_context->GetFileSystemTypes()) {
     ChildProcessSecurityPolicyImpl::GetInstance()
         ->RegisterFileSystemPermissionPolicy(
-            types[i],
-            storage::FileSystemContext::GetPermissionPolicy(types[i]));
+            type, storage::FileSystemContext::GetPermissionPolicy(type));
   }
 
   return file_system_context;
@@ -108,36 +156,33 @@ bool FileSystemURLIsValid(storage::FileSystemContext* context,
   if (!url.is_valid())
     return false;
 
-  return context->GetFileSystemBackend(url.type()) != NULL;
+  return context->GetFileSystemBackend(url.type()) != nullptr;
 }
 
 void SyncGetPlatformPath(storage::FileSystemContext* context,
                          int process_id,
                          const GURL& path,
-                         base::FilePath* platform_path) {
+                         SyncGetPlatformPathCB callback) {
   DCHECK(context->default_file_task_runner()->
          RunsTasksInCurrentSequence());
-  DCHECK(platform_path);
-  *platform_path = base::FilePath();
   storage::FileSystemURL url(context->CrackURL(path));
-  if (!FileSystemURLIsValid(context, url))
+  if (!FileSystemURLIsValid(context, url)) {
+    // Note: Posting a task here so this function always returns
+    // before the callback is called no matter which path is taken.
+    base::PostTask(FROM_HERE,
+                   base::BindOnce(std::move(callback), base::FilePath()));
     return;
+  }
 
   // Make sure if this file is ok to be read (in the current architecture
   // which means roughly same as the renderer is allowed to get the platform
   // path to the file).
-  ChildProcessSecurityPolicyImpl* policy =
-      ChildProcessSecurityPolicyImpl::GetInstance();
-  if (!policy->CanReadFileSystemFile(process_id, url))
-    return;
-
-  context->operation_runner()->SyncGetPlatformPath(url, platform_path);
-
-  // The path is to be attached to URLLoader so we grant read permission
-  // for the file. (We need to check first because a parent directory may
-  // already have the permissions and we don't need to grant it to the file.)
-  if (!policy->CanReadFile(process_id, *platform_path))
-    policy->GrantReadFile(process_id, *platform_path);
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE, {BrowserThread::UI},
+      base::BindOnce(&CheckCanReadFileSystemFileOnUIThread, process_id, url),
+      base::BindOnce(&GetPlatformPathOnFileThread,
+                     scoped_refptr<storage::FileSystemContext>(context),
+                     process_id, url, std::move(callback)));
 }
 
 void PrepareDropDataForChildProcess(
@@ -148,8 +193,12 @@ void PrepareDropDataForChildProcess(
 #if defined(OS_CHROMEOS)
   // The externalfile:// scheme is used in Chrome OS to open external files in a
   // browser tab.
+  // TODO(https://crbug.com/858972): This seems like it could be forged by the
+  // renderer. This probably needs to check that this didn't originate from the
+  // renderer... Also, this probably can just be GrantRequestURL (which doesn't
+  // yet exist) instead of GrantCommitURL.
   if (drop_data->url.SchemeIs(content::kExternalFileScheme))
-    security_policy->GrantRequestURL(child_id, drop_data->url);
+    security_policy->GrantCommitURL(child_id, drop_data->url);
 #endif
 
   // The filenames vector represents a capability to access the given files.

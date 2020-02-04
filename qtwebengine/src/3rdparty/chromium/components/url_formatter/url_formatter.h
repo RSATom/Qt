@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_offset_string_conversions.h"
@@ -34,9 +35,27 @@ struct Parsed;
 
 namespace url_formatter {
 
+using Skeletons = base::flat_set<std::string>;
+
 // Used by FormatUrl to specify handling of certain parts of the url.
 typedef uint32_t FormatUrlType;
 typedef uint32_t FormatUrlTypes;
+
+// The result of an IDN to Unicode conversion.
+struct IDNConversionResult {
+  // The result of the conversion. If the input is a safe-to-display IDN encoded
+  // as punycode, this will be its unicode representation. Otherwise, it'll be
+  // the same as input.
+  base::string16 result;
+  // True if the hostname of the input has an IDN component, even if the result
+  // wasn't converted.
+  bool has_idn_component = false;
+  // The top domain that the hostname of the input is visually similar to. Is
+  // empty if the input didn't match any top domain.
+  // E.g. IDNToUnicodeWithDetails("googlé.com") will fill |result| with
+  // "xn--googl-fsa.com" and |matching_top_domain| with "google.com".
+  std::string matching_top_domain;
+};
 
 // Nothing is ommitted.
 extern const FormatUrlType kFormatUrlOmitNothing;
@@ -51,20 +70,26 @@ extern const FormatUrlType kFormatUrlOmitHTTP;
 // meaningful for non-file "standard" URLs.
 extern const FormatUrlType kFormatUrlOmitTrailingSlashOnBareHostname;
 
-// Convenience for omitting all unecessary types. Does not include experimental
-// flags below.
-extern const FormatUrlType kFormatUrlOmitAll;
+// If the scheme is 'https://', it's removed. Not in kFormatUrlOmitDefaults.
+extern const FormatUrlType kFormatUrlOmitHTTPS;
 
-// Replaces the path, query, and ref with an ellipsis. Experimental and not in
-// kFormatUrlOmitAll.
-extern const FormatUrlType kFormatUrlExperimentalElideAfterHost;
+// Omits some trivially informative subdomains such as "www" or "m". Not in
+// kFormatUrlOmitDefaults.
+extern const FormatUrlType kFormatUrlOmitTrivialSubdomains;
 
-// If the scheme is 'https://', it's removed. Experimental and not in
-// kFormatUrlOmitAll.
-extern const FormatUrlType kFormatUrlExperimentalOmitHTTPS;
+// Omits everything after the host: the path, query, ref, username and password
+// are all omitted.
+extern const FormatUrlType kFormatUrlTrimAfterHost;
 
-// Omits some trivially informative subdomains such as "www" or "m".
-extern const FormatUrlType kFormatUrlExperimentalOmitTrivialSubdomains;
+// If the scheme is 'file://', it's removed. Not in kFormatUrlOmitDefaults.
+extern const FormatUrlType kFormatUrlOmitFileScheme;
+
+// If the scheme is 'mailto:', it's removed. Not in kFormatUrlOmitDefaults.
+extern const FormatUrlType kFormatUrlOmitMailToScheme;
+
+// Convenience for omitting all unecessary types. Does not include HTTPS scheme
+// removal, or experimental flags.
+extern const FormatUrlType kFormatUrlOmitDefaults;
 
 // Creates a string representation of |url|. The IDN host name is turned to
 // Unicode if the Unicode representation is deemed safe. |format_type| is a
@@ -125,11 +150,12 @@ base::string16 FormatUrlWithAdjustments(
     base::OffsetAdjuster::Adjustments* adjustments);
 
 // This is a convenience function for FormatUrl() with
-// format_types = kFormatUrlOmitAll and unescape = SPACES.  This is the typical
-// set of flags for "URLs to display to the user".  You should be cautious about
-// using this for URLs which will be parsed or sent to other applications.
+// format_types = kFormatUrlOmitDefaults and unescape = SPACES.  This is the
+// typical set of flags for "URLs to display to the user".  You should be
+// cautious about using this for URLs which will be parsed or sent to other
+// applications.
 inline base::string16 FormatUrl(const GURL& url) {
-  return FormatUrl(url, kFormatUrlOmitAll, net::UnescapeRule::SPACES,
+  return FormatUrl(url, kFormatUrlOmitDefaults, net::UnescapeRule::SPACES,
                    nullptr, nullptr, nullptr);
 }
 
@@ -148,12 +174,22 @@ void AppendFormattedHost(const GURL& url, base::string16* output);
 // function does NOT accept UTF-8!
 base::string16 IDNToUnicode(base::StringPiece host);
 
+// Same as IDNToUnicode, but returns more details.
+IDNConversionResult IDNToUnicodeWithDetails(base::StringPiece host);
+
 // If |text| starts with "www." it is removed, otherwise |text| is returned
 // unmodified.
 base::string16 StripWWW(const base::string16& text);
 
 // Runs |url|'s host through StripWWW().  |url| must be valid.
 base::string16 StripWWWFromHost(const GURL& url);
+
+// Returns skeleton strings computed from |host| for spoof checking.
+Skeletons GetSkeletons(const base::string16& host);
+
+// Returns a domain from the top 10K list matching the given skeleton. Used for
+// spoof checking.
+std::string LookupSkeletonInTopDomains(const std::string& skeleton);
 
 }  // namespace url_formatter
 

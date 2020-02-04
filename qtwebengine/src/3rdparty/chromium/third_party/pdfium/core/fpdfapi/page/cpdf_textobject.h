@@ -23,8 +23,9 @@ class CPDF_TextObjectItem {
   CFX_PointF m_Origin;
 };
 
-class CPDF_TextObject : public CPDF_PageObject {
+class CPDF_TextObject final : public CPDF_PageObject {
  public:
+  explicit CPDF_TextObject(int32_t content_stream);
   CPDF_TextObject();
   ~CPDF_TextObject() override;
 
@@ -36,34 +37,35 @@ class CPDF_TextObject : public CPDF_PageObject {
   const CPDF_TextObject* AsText() const override;
 
   std::unique_ptr<CPDF_TextObject> Clone() const;
-  int CountItems() const;
-  void GetItemInfo(int index, CPDF_TextObjectItem* pInfo) const;
-  int CountChars() const;
-  void GetCharInfo(int index, uint32_t* charcode, float* kerning) const;
-  void GetCharInfo(int index, CPDF_TextObjectItem* pInfo) const;
+
+  size_t CountItems() const;
+  void GetItemInfo(size_t index, CPDF_TextObjectItem* pInfo) const;
+
+  size_t CountChars() const;
+  void GetCharInfo(size_t index, uint32_t* charcode, float* kerning) const;
+  void GetCharInfo(size_t index, CPDF_TextObjectItem* pInfo) const;
   float GetCharWidth(uint32_t charcode) const;
+
   CFX_PointF GetPos() const { return m_Pos; }
   CFX_Matrix GetTextMatrix() const;
   CPDF_Font* GetFont() const;
   float GetFontSize() const;
 
-  void SetText(const CFX_ByteString& text);
+  void SetText(const ByteString& text);
+  void SetPosition(CFX_PointF pos) { m_Pos = pos; }
   void SetPosition(float x, float y);
 
   void RecalcPositionData();
 
- private:
-  friend class CPDF_RenderStatus;
-  friend class CPDF_StreamContentParser;
-  friend class CPDF_TextRenderer;
-  friend class CPDF_PageContentGenerator;
+  const std::vector<uint32_t>& GetCharCodes() const { return m_CharCodes; }
+  const std::vector<float>& GetCharPositions() const { return m_CharPos; }
 
-  void SetSegments(const CFX_ByteString* pStrs,
-                   const float* pKerning,
-                   int nSegs);
-
+  void SetSegments(const ByteString* pStrs,
+                   const std::vector<float>& kernings,
+                   size_t nSegs);
   CFX_PointF CalcPositionData(float horz_scale);
 
+ private:
   CFX_PointF m_Pos;
   std::vector<uint32_t> m_CharCodes;
   std::vector<float> m_CharPos;

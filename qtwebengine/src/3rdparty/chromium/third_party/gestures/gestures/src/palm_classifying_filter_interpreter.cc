@@ -17,6 +17,7 @@ PalmClassifyingFilterInterpreter::PalmClassifyingFilterInterpreter(
     : FilterInterpreter(NULL, next, tracer, false),
       palm_pressure_(prop_reg, "Palm Pressure", 200.0),
       palm_width_(prop_reg, "Palm Width", 21.2),
+      multi_palm_width_(prop_reg, "Multiple Palm Width", 75.0),
       fat_finger_pressure_ratio_(prop_reg, "Fat Finger Pressure Ratio", 1.4),
       fat_finger_width_ratio_(prop_reg, "Fat Finger Width Ratio", 1.3),
       fat_finger_min_dist_(prop_reg, "Fat Finger Min Move Distance", 15.0),
@@ -32,7 +33,8 @@ PalmClassifyingFilterInterpreter::PalmClassifyingFilterInterpreter(
       palm_pointing_max_reverse_dist_(prop_reg,
                                       "Palm Pointing Max Reverse Move Distance",
                                       0.3),
-      palm_split_max_distance_(prop_reg, "Palm Split Maximum Distance", 4.0)
+      palm_split_max_distance_(prop_reg, "Palm Split Maximum Distance", 4.0),
+      filter_top_edge_(prop_reg, "Palm Filter Top Edge Enable", 0)
 {
   InitName();
   requires_metrics_ = true;
@@ -151,9 +153,10 @@ bool PalmClassifyingFilterInterpreter::FingerInPalmEnvelope(
       fs.position_x > (hwprops_->right - limit);
 }
 
-bool PalmClassifyingFilterInterpreter::FingerInBottomArea(
+bool PalmClassifyingFilterInterpreter::FingerInFilteredHorizontalEdge(
     const FingerState& fs) {
-  return fs.position_y > (hwprops_->bottom - palm_edge_min_width_.val_);
+  return fs.position_y > (hwprops_->bottom - palm_edge_min_width_.val_) ||
+      (filter_top_edge_.val_ && fs.position_y < palm_edge_min_width_.val_);
 }
 
 void PalmClassifyingFilterInterpreter::UpdatePalmState(
@@ -170,15 +173,21 @@ void PalmClassifyingFilterInterpreter::UpdatePalmState(
 
   for (short i = 0; i < hwstate.finger_cnt; i++) {
     const FingerState& fs = hwstate.fingers[i];
-    if (!(FingerInPalmEnvelope(fs) || FingerInBottomArea(fs)))
+    if (!(FingerInPalmEnvelope(fs) || FingerInFilteredHorizontalEdge(fs)))
       fingers_not_in_edge_.insert(fs.tracking_id);
     // Mark anything over the palm thresh as a palm
     if (fs.pressure >= palm_pressure_.val_ ||
-        fs.touch_major >= palm_width_.val_) {
+        fs.touch_major >= multi_palm_width_.val_) {
       palm_.insert(fs.tracking_id);
       pointing_.erase(fs.tracking_id);
       continue;
     }
+  }
+
+  if (hwstate.finger_cnt == 1 &&
+      hwstate.fingers[0].touch_major >= palm_width_.val_) {
+    palm_.insert(hwstate.fingers[0].tracking_id);
+    pointing_.erase(hwstate.fingers[0].tracking_id);
   }
 
   const float kPalmStationaryDistSq =
@@ -220,7 +229,8 @@ void PalmClassifyingFilterInterpreter::UpdatePalmState(
     }
     // If another finger is close by, let this be pointing
     bool near_finger = FingerNearOtherFinger(hwstate, i);
-    bool on_edge = FingerInPalmEnvelope(fs) || FingerInBottomArea(fs);
+    bool on_edge = FingerInPalmEnvelope(fs) ||
+        FingerInFilteredHorizontalEdge(fs);
     if (!prev_pointing && (near_finger || !on_edge)) {
       unsigned reason = (near_finger ? kPointCloseToFinger : 0) |
           ((!on_edge) ? kPointNotInEdge : 0);
@@ -255,7 +265,7 @@ void PalmClassifyingFilterInterpreter::UpdatePalmState(
     }
     if (DistSq(origin_fingerstates_[fs.tracking_id], fs) >
         kPalmStationaryDistSq || !(FingerInPalmEnvelope(fs) ||
-                                   FingerInBottomArea(fs))) {
+                                   FingerInFilteredHorizontalEdge(fs))) {
       // Finger moving a lot or not in palm envelope; not a stationary palm.
       non_stationary_palm_.insert(fs.tracking_id);
       continue;
@@ -282,7 +292,7 @@ void PalmClassifyingFilterInterpreter::UpdatePalmFlags(HardwareState* hwstate) {
                !SetContainsValue(was_near_other_fingers_, fs->tracking_id)) {
       if (FingerInPalmEnvelope(*fs)) {
         fs->flags |= GESTURES_FINGER_PALM;
-      } else if (FingerInBottomArea(*fs)) {
+      } else if (FingerInFilteredHorizontalEdge(*fs)) {
         fs->flags |= (GESTURES_FINGER_WARP_X | GESTURES_FINGER_WARP_Y);
       }
     } else if (MapContainsKey(pointing_, fs->tracking_id) &&

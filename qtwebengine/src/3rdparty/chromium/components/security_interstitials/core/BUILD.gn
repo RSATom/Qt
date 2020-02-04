@@ -14,17 +14,24 @@ static_library("core") {
     "controller_client.h",
     "metrics_helper.cc",
     "metrics_helper.h",
+    "mitm_software_ui.cc",
+    "mitm_software_ui.h",
     "safe_browsing_loud_error_ui.cc",
     "safe_browsing_loud_error_ui.h",
     "safe_browsing_quiet_error_ui.cc",
     "safe_browsing_quiet_error_ui.h",
     "ssl_error_ui.cc",
     "ssl_error_ui.h",
-    "superfish_error_ui.cc",
-    "superfish_error_ui.h",
     "urls.cc",
     "urls.h",
   ]
+
+  if (is_ios) {
+    sources -= [
+      "mitm_software_ui.cc",
+      "mitm_software_ui.h",
+    ]
+  }
 
   deps = [
     "//base",
@@ -38,6 +45,11 @@ static_library("core") {
     "//components/strings",
     "//components/url_formatter",
     "//net",
+    "//third_party/zlib/google:compression_utils",
     "//ui/base",
+  ]
+
+  public_deps = [
+    "//components/security_interstitials/core/common/interfaces:interfaces",
   ]
 }

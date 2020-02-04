@@ -10,10 +10,8 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -47,6 +45,7 @@ using system_logs::SystemLogsResponse;
 class SystemInfoUIHTMLSource : public content::URLDataSource{
  public:
   SystemInfoUIHTMLSource();
+  ~SystemInfoUIHTMLSource() override {}
 
   // content::URLDataSource implementation.
   std::string GetSource() const override;
@@ -58,7 +57,7 @@ class SystemInfoUIHTMLSource : public content::URLDataSource{
     return "text/html";
   }
   std::string GetContentSecurityPolicyScriptSrc() const override {
-    // 'unsafe-inline' is added to script-src.
+    // 'unsafe-eval' and 'unsafe-inline' are added to script-src.
     return "script-src 'self' chrome://resources 'unsafe-eval' "
         "'unsafe-inline';";
   }
@@ -68,8 +67,6 @@ class SystemInfoUIHTMLSource : public content::URLDataSource{
   }
 
  private:
-  ~SystemInfoUIHTMLSource() override {}
-
   void SysInfoComplete(std::unique_ptr<SystemLogsResponse> response);
   void RequestComplete();
   void WaitForData();
@@ -153,7 +150,7 @@ void SystemInfoUIHTMLSource::RequestComplete() {
   webui::SetLoadTimeDataDefaults(app_locale, &strings);
 
   if (response_.get()) {
-    auto details = base::MakeUnique<base::ListValue>();
+    auto details = std::make_unique<base::ListValue>();
     for (SystemLogsResponse::const_iterator it = response_->begin();
          it != response_->end();
          ++it) {
@@ -165,7 +162,7 @@ void SystemInfoUIHTMLSource::RequestComplete() {
     strings.Set("details", std::move(details));
   }
   static const base::StringPiece systeminfo_html(
-      ResourceBundle::GetSharedInstance().GetRawDataResource(
+      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
           IDR_ABOUT_SYS_HTML));
   std::string full_html = webui::GetI18nTemplateHtml(systeminfo_html, &strings);
   callback_.Run(base::RefCountedString::TakeString(&full_html));
@@ -193,10 +190,9 @@ void SystemInfoHandler::RegisterMessages() {
 ////////////////////////////////////////////////////////////////////////////////
 
 SystemInfoUI::SystemInfoUI(content::WebUI* web_ui) : WebUIController(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<SystemInfoHandler>());
-  SystemInfoUIHTMLSource* html_source = new SystemInfoUIHTMLSource();
+  web_ui->AddMessageHandler(std::make_unique<SystemInfoHandler>());
 
   // Set up the chrome://system/ source.
-  Profile* profile = Profile::FromWebUI(web_ui);
-  content::URLDataSource::Add(profile, html_source);
+  content::URLDataSource::Add(Profile::FromWebUI(web_ui),
+                              std::make_unique<SystemInfoUIHTMLSource>());
 }

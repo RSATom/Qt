@@ -62,13 +62,13 @@ namespace Render {
 
 class EntityManager;
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT UpdateWorldBoundingVolumeJob : public Qt3DCore::QAspectJob
+class Q_3DRENDERSHARED_PRIVATE_EXPORT UpdateWorldBoundingVolumeJob : public Qt3DCore::QAspectJob
 {
 public:
     UpdateWorldBoundingVolumeJob();
 
     inline void setManager(EntityManager *manager) Q_DECL_NOTHROW { m_manager = manager; }
-    void run() Q_DECL_OVERRIDE;
+    void run() override;
 
 private:
     EntityManager *m_manager;

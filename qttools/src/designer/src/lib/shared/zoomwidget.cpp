@@ -28,18 +28,18 @@
 
 #include "zoomwidget_p.h"
 
-#include <QtWidgets/QGraphicsScene>
-#include <QtWidgets/QGraphicsProxyWidget>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtGui/QContextMenuEvent>
-#include <QtWidgets/QScrollBar>
+#include <QtWidgets/qgraphicsscene.h>
+#include <QtWidgets/qgraphicsproxywidget.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qactiongroup.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qscrollbar.h>
 
-#include <QtCore/QTextStream>
+#include <QtCore/qtextstream.h>
 #include <QtCore/qmath.h>
-#include <QtCore/QDebug>
-#include <QtCore/QList>
+#include <QtCore/qdebug.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,9 +59,7 @@ ZoomMenu::ZoomMenu(QObject *parent) :
    m_menuActions(new QActionGroup(this))
 {
     connect(m_menuActions, &QActionGroup::triggered, this, &ZoomMenu::slotZoomMenu);
-    const int nz = sizeof(menuZoomList)/sizeof(int);
-    for (int i = 0; i < nz; i++) {
-        const int zoom = menuZoomList[i];
+    for (int zoom : menuZoomList) {
         //: Zoom factor
         QAction *a = m_menuActions->addAction(tr("%1 %").arg(zoom));
         a->setCheckable(true);
@@ -265,7 +263,7 @@ class ZoomedEventFilterRedirector : public QObject {
 
 public:
     explicit ZoomedEventFilterRedirector(ZoomWidget *zw, QObject *parent);
-    bool eventFilter(QObject *watched, QEvent *event) Q_DECL_OVERRIDE;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     ZoomWidget *m_zw;
@@ -537,7 +535,7 @@ void ZoomWidget::dump() const
             <<  m_proxy->effectiveSizeHint(Qt::MinimumSize)
             <<  m_proxy->effectiveSizeHint(Qt::PreferredSize)
             << m_proxy->effectiveSizeHint(Qt::MaximumSize)
-            << "\nMatrix: " << m_proxy->matrix()
+            << "\nTransform: " << m_proxy->transform()
             << "\nWidget: " <<  m_proxy->widget()->geometry()
             << "scaled" << (zoomFactor() * m_proxy->widget()->size());
     }

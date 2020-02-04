@@ -5,13 +5,6 @@
 #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
 #include "ui/latency/ipc/latency_info_param_traits_macros.h"
 
-// Generate param traits size methods.
-#include "ipc/param_traits_size_macros.h"
-namespace IPC {
-#undef UI_LATENCY_IPC_LATENCY_INFO_PARAM_TRAITS_MACROS_H_
-#include "ui/latency/ipc/latency_info_param_traits_macros.h"
-}
-
 // Generate param traits write methods.
 #include "ipc/param_traits_write_macros.h"
 namespace IPC {
@@ -38,25 +31,16 @@ namespace IPC {
 
 namespace IPC {
 
-void ParamTraits<ui::LatencyInfo>::GetSize(base::PickleSizer* s,
-                                           const param_type& p) {
-  GetParamSize(s, p.trace_name_);
-  GetParamSize(s, p.latency_components_);
-  GetParamSize(s, p.trace_id_);
-  GetParamSize(s, p.began_);
-  GetParamSize(s, p.terminated_);
-  GetParamSize(s, p.source_event_type_);
-  GetParamSize(s, p.expected_queueing_time_on_dispatch_);
-}
-
 void ParamTraits<ui::LatencyInfo>::Write(base::Pickle* m, const param_type& p) {
   WriteParam(m, p.trace_name_);
   WriteParam(m, p.latency_components_);
   WriteParam(m, p.trace_id_);
+  WriteParam(m, p.ukm_source_id_);
+  WriteParam(m, p.coalesced_);
   WriteParam(m, p.began_);
   WriteParam(m, p.terminated_);
   WriteParam(m, p.source_event_type_);
-  WriteParam(m, p.expected_queueing_time_on_dispatch_);
+  WriteParam(m, p.scroll_update_delta_);
 }
 
 bool ParamTraits<ui::LatencyInfo>::Read(const base::Pickle* m,
@@ -69,13 +53,17 @@ bool ParamTraits<ui::LatencyInfo>::Read(const base::Pickle* m,
 
   if (!ReadParam(m, iter, &p->trace_id_))
     return false;
+  if (!ReadParam(m, iter, &p->ukm_source_id_))
+    return false;
+  if (!ReadParam(m, iter, &p->coalesced_))
+    return false;
   if (!ReadParam(m, iter, &p->began_))
     return false;
   if (!ReadParam(m, iter, &p->terminated_))
     return false;
   if (!ReadParam(m, iter, &p->source_event_type_))
     return false;
-  if (!ReadParam(m, iter, &p->expected_queueing_time_on_dispatch_))
+  if (!ReadParam(m, iter, &p->scroll_update_delta_))
     return false;
 
   return true;
@@ -88,13 +76,17 @@ void ParamTraits<ui::LatencyInfo>::Log(const param_type& p, std::string* l) {
   l->append(" ");
   LogParam(p.trace_id_, l);
   l->append(" ");
+  LogParam(p.ukm_source_id_, l);
+  l->append(" ");
+  LogParam(p.coalesced_, l);
+  l->append(" ");
   LogParam(p.began_, l);
   l->append(" ");
   LogParam(p.terminated_, l);
   l->append(" ");
   LogParam(p.source_event_type_, l);
   l->append(" ");
-  LogParam(p.expected_queueing_time_on_dispatch_, l);
+  LogParam(p.scroll_update_delta_, l);
 }
 
 }  // namespace IPC

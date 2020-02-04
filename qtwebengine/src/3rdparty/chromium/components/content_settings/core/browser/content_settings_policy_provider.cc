@@ -11,12 +11,14 @@
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/json/json_reader.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "components/content_settings/core/browser/content_settings_info.h"
 #include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
+#include "components/content_settings/core/browser/website_settings_info.h"
+#include "components/content_settings/core/browser/website_settings_registry.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -57,6 +59,10 @@ const PrefsForManagedContentSettingsMapEntry
         {prefs::kManagedPopupsAllowedForUrls, CONTENT_SETTINGS_TYPE_POPUPS,
          CONTENT_SETTING_ALLOW},
         {prefs::kManagedPopupsBlockedForUrls, CONTENT_SETTINGS_TYPE_POPUPS,
+         CONTENT_SETTING_BLOCK},
+        {prefs::kManagedWebUsbAskForUrls, CONTENT_SETTINGS_TYPE_USB_GUARD,
+         CONTENT_SETTING_ASK},
+        {prefs::kManagedWebUsbBlockedForUrls, CONTENT_SETTINGS_TYPE_USB_GUARD,
          CONTENT_SETTING_BLOCK}};
 
 }  // namespace
@@ -73,6 +79,7 @@ struct PolicyProvider::PrefsForManagedDefaultMapEntry {
 // static
 const PolicyProvider::PrefsForManagedDefaultMapEntry
     PolicyProvider::kPrefsForManagedDefault[] = {
+        {CONTENT_SETTINGS_TYPE_ADS, prefs::kManagedDefaultAdsSetting},
         {CONTENT_SETTINGS_TYPE_COOKIES, prefs::kManagedDefaultCookiesSetting},
         {CONTENT_SETTINGS_TYPE_IMAGES, prefs::kManagedDefaultImagesSetting},
         {CONTENT_SETTINGS_TYPE_GEOLOCATION,
@@ -89,6 +96,8 @@ const PolicyProvider::PrefsForManagedDefaultMapEntry
         {CONTENT_SETTINGS_TYPE_POPUPS, prefs::kManagedDefaultPopupsSetting},
         {CONTENT_SETTINGS_TYPE_BLUETOOTH_GUARD,
          prefs::kManagedDefaultWebBluetoothGuardSetting},
+        {CONTENT_SETTINGS_TYPE_USB_GUARD,
+         prefs::kManagedDefaultWebUsbGuardSetting},
 };
 
 // static
@@ -108,8 +117,13 @@ void PolicyProvider::RegisterProfilePrefs(
   registry->RegisterListPref(prefs::kManagedPluginsBlockedForUrls);
   registry->RegisterListPref(prefs::kManagedPopupsAllowedForUrls);
   registry->RegisterListPref(prefs::kManagedPopupsBlockedForUrls);
+  registry->RegisterListPref(prefs::kManagedWebUsbAllowDevicesForUrls);
+  registry->RegisterListPref(prefs::kManagedWebUsbAskForUrls);
+  registry->RegisterListPref(prefs::kManagedWebUsbBlockedForUrls);
   // Preferences for default content setting policies. If a policy is not set of
   // the corresponding preferences below is set to CONTENT_SETTING_DEFAULT.
+  registry->RegisterIntegerPref(prefs::kManagedDefaultAdsSetting,
+                                CONTENT_SETTING_DEFAULT);
   registry->RegisterIntegerPref(prefs::kManagedDefaultCookiesSetting,
                                 CONTENT_SETTING_DEFAULT);
   registry->RegisterIntegerPref(prefs::kManagedDefaultGeolocationSetting,
@@ -127,6 +141,8 @@ void PolicyProvider::RegisterProfilePrefs(
   registry->RegisterIntegerPref(prefs::kManagedDefaultPopupsSetting,
                                 CONTENT_SETTING_DEFAULT);
   registry->RegisterIntegerPref(prefs::kManagedDefaultWebBluetoothGuardSetting,
+                                CONTENT_SETTING_DEFAULT);
+  registry->RegisterIntegerPref(prefs::kManagedDefaultWebUsbGuardSetting,
                                 CONTENT_SETTING_DEFAULT);
 }
 
@@ -155,6 +171,8 @@ PolicyProvider::PolicyProvider(PrefService* prefs) : prefs_(prefs) {
   pref_change_registrar_.Add(prefs::kManagedPluginsBlockedForUrls, callback);
   pref_change_registrar_.Add(prefs::kManagedPopupsAllowedForUrls, callback);
   pref_change_registrar_.Add(prefs::kManagedPopupsBlockedForUrls, callback);
+  pref_change_registrar_.Add(prefs::kManagedWebUsbAskForUrls, callback);
+  pref_change_registrar_.Add(prefs::kManagedWebUsbBlockedForUrls, callback);
   // The following preferences are only used to indicate if a default content
   // setting is managed and to hold the managed default setting value. If the
   // value for any of the following preferences is set then the corresponding
@@ -162,6 +180,7 @@ PolicyProvider::PolicyProvider(PrefService* prefs) : prefs_(prefs) {
   // the preference default content settings. If a default content settings type
   // is managed any user defined exceptions (patterns) for this type are
   // ignored.
+  pref_change_registrar_.Add(prefs::kManagedDefaultAdsSetting, callback);
   pref_change_registrar_.Add(prefs::kManagedDefaultCookiesSetting, callback);
   pref_change_registrar_.Add(
       prefs::kManagedDefaultGeolocationSetting, callback);
@@ -174,6 +193,8 @@ PolicyProvider::PolicyProvider(PrefService* prefs) : prefs_(prefs) {
   pref_change_registrar_.Add(prefs::kManagedDefaultPluginsSetting, callback);
   pref_change_registrar_.Add(prefs::kManagedDefaultPopupsSetting, callback);
   pref_change_registrar_.Add(prefs::kManagedDefaultWebBluetoothGuardSetting,
+                             callback);
+  pref_change_registrar_.Add(prefs::kManagedDefaultWebUsbGuardSetting,
                              callback);
 }
 
@@ -190,7 +211,7 @@ std::unique_ptr<RuleIterator> PolicyProvider::GetRuleIterator(
 
 void PolicyProvider::GetContentSettingsFromPreferences(
     OriginIdentifierValueMap* value_map) {
-  for (size_t i = 0; i < arraysize(kPrefsForManagedContentSettingsMap); ++i) {
+  for (size_t i = 0; i < base::size(kPrefsForManagedContentSettingsMap); ++i) {
     const char* pref_name = kPrefsForManagedContentSettingsMap[i].pref_name;
     // Skip unset policies.
     if (!prefs_->HasPrefPath(pref_name)) {
@@ -200,7 +221,7 @@ void PolicyProvider::GetContentSettingsFromPreferences(
 
     const PrefService::Preference* pref = prefs_->FindPreference(pref_name);
     DCHECK(pref);
-    DCHECK(pref->IsManaged());
+    DCHECK(!pref->HasUserSetting() && !pref->HasExtensionSetting());
 
     const base::ListValue* pattern_str_list = nullptr;
     if (!pref->GetValue()->GetAsList(&pattern_str_list)) {
@@ -237,11 +258,22 @@ void PolicyProvider::GetContentSettingsFromPreferences(
       VLOG_IF(2, !pattern_pair.second.IsValid())
           << "Replacing invalid secondary pattern '"
           << pattern_pair.second.ToString() << "' with wildcard";
+
+      // Currently all settings that can set pattern pairs support embedded
+      // exceptions. However if a new content setting is added that doesn't,
+      // this DCHECK should be changed to an actual check which ignores such
+      // patterns for that type.
+      DCHECK(pattern_pair.first == pattern_pair.second ||
+             pattern_pair.second == ContentSettingsPattern::Wildcard() ||
+             content_settings::WebsiteSettingsRegistry::GetInstance()
+                 ->Get(content_type)
+                 ->SupportsEmbeddedExceptions());
+
       // Don't set a timestamp for policy settings.
       value_map->SetValue(
           pattern_pair.first, secondary_pattern, content_type,
           ResourceIdentifier(), base::Time(),
-          new base::Value(kPrefsForManagedContentSettingsMap[i].setting));
+          base::Value(kPrefsForManagedContentSettingsMap[i].setting));
     }
   }
 }
@@ -257,7 +289,7 @@ void PolicyProvider::GetAutoSelectCertificateSettingsFromPreferences(
 
   const PrefService::Preference* pref = prefs_->FindPreference(pref_name);
   DCHECK(pref);
-  DCHECK(pref->IsManaged());
+  DCHECK(!pref->HasUserSetting() && !pref->HasExtensionSetting());
 
   const base::ListValue* pattern_filter_str_list = nullptr;
   if (!pref->GetValue()->GetAsList(&pattern_filter_str_list)) {
@@ -282,6 +314,7 @@ void PolicyProvider::GetAutoSelectCertificateSettingsFromPreferences(
   //      }
   //   }
   // }
+  std::unordered_map<std::string, base::DictionaryValue> filters_map;
   for (size_t j = 0; j < pattern_filter_str_list->GetSize(); ++j) {
     std::string pattern_filter_json;
     if (!pattern_filter_str_list->GetString(j, &pattern_filter_json)) {
@@ -291,41 +324,49 @@ void PolicyProvider::GetAutoSelectCertificateSettingsFromPreferences(
 
     std::unique_ptr<base::Value> value = base::JSONReader::Read(
         pattern_filter_json, base::JSON_ALLOW_TRAILING_COMMAS);
-    if (!value || !value->IsType(base::Value::Type::DICTIONARY)) {
+    if (!value || !value->is_dict()) {
       VLOG(1) << "Ignoring invalid certificate auto select setting. Reason:"
                  " Invalid JSON object: " << pattern_filter_json;
       continue;
     }
 
-    std::unique_ptr<base::DictionaryValue> pattern_filter_pair(
-        static_cast<base::DictionaryValue*>(value.release()));
-    std::string pattern_str;
-    bool pattern_read = pattern_filter_pair->GetStringWithoutPathExpansion(
-        "pattern", &pattern_str);
-    base::DictionaryValue* cert_filter = nullptr;
-    pattern_filter_pair->GetDictionaryWithoutPathExpansion("filter",
-                                                           &cert_filter);
-    if (!pattern_read || !cert_filter) {
+    std::unique_ptr<base::DictionaryValue> pattern_filter_pair =
+        base::DictionaryValue::From(std::move(value));
+    base::Value* pattern = pattern_filter_pair->FindKey("pattern");
+    base::Value* filter = pattern_filter_pair->FindKey("filter");
+    if (!pattern || !filter) {
       VLOG(1) << "Ignoring invalid certificate auto select setting. Reason:"
                  " Missing pattern or filter.";
       continue;
     }
+    std::string pattern_str = pattern->GetString();
+
+    if (filters_map.find(pattern_str) == filters_map.end())
+      filters_map[pattern_str].SetKey("filters", base::ListValue());
+
+    // Don't pass removed values from |value|, because base::Values read with
+    // JSONReader use a shared string buffer. Instead, Clone() here.
+    filters_map[pattern_str].FindKey("filters")->GetList().push_back(
+        filter->Clone());
+  }
+
+  for (const auto& it : filters_map) {
+    const std::string& pattern_str = it.first;
+    const base::DictionaryValue& setting = it.second;
 
     ContentSettingsPattern pattern =
         ContentSettingsPattern::FromString(pattern_str);
     // Ignore invalid patterns.
     if (!pattern.IsValid()) {
       VLOG(1) << "Ignoring invalid certificate auto select setting:"
-                 " Invalid content settings pattern: " << pattern.ToString();
+                 " Invalid content settings pattern: "
+              << pattern.ToString();
       continue;
     }
 
-    // Don't pass removed values from |value|, because base::Values read with
-    // JSONReader use a shared string buffer. Instead, DeepCopy here.
-    // Don't set a timestamp for policy settings.
     value_map->SetValue(pattern, ContentSettingsPattern::Wildcard(),
                         CONTENT_SETTINGS_TYPE_AUTO_SELECT_CERTIFICATE,
-                        std::string(), base::Time(), cert_filter->DeepCopy());
+                        std::string(), base::Time(), setting.Clone());
   }
 }
 
@@ -368,7 +409,7 @@ void PolicyProvider::UpdateManagedDefaultSetting(
     // Don't set a timestamp for policy settings.
     value_map_.SetValue(ContentSettingsPattern::Wildcard(),
                         ContentSettingsPattern::Wildcard(), entry.content_type,
-                        std::string(), base::Time(), new base::Value(setting));
+                        std::string(), base::Time(), base::Value(setting));
   }
 }
 

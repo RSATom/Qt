@@ -13,25 +13,28 @@
 
 class CJBig2_ArithDecoder;
 class CJBig2_BitStream;
+class CJBig2_GRDProc;
 class CJBig2_PatternDict;
-class IFX_Pause;
-struct JBig2ArithCtx;
+class JBig2ArithCtx;
+class PauseIndicatorIface;
 
 class CJBig2_PDDProc {
  public:
-  std::unique_ptr<CJBig2_PatternDict> decode_Arith(
+  std::unique_ptr<CJBig2_PatternDict> DecodeArith(
       CJBig2_ArithDecoder* pArithDecoder,
       JBig2ArithCtx* gbContext,
-      IFX_Pause* pPause);
+      PauseIndicatorIface* pPause);
 
-  std::unique_ptr<CJBig2_PatternDict> decode_MMR(CJBig2_BitStream* pStream);
+  std::unique_ptr<CJBig2_PatternDict> DecodeMMR(CJBig2_BitStream* pStream);
 
- public:
   bool HDMMR;
   uint8_t HDPW;
   uint8_t HDPH;
   uint32_t GRAYMAX;
   uint8_t HDTEMPLATE;
+
+ private:
+  std::unique_ptr<CJBig2_GRDProc> CreateGRDProc();
 };
 
 #endif  // CORE_FXCODEC_JBIG2_JBIG2_PDDPROC_H_

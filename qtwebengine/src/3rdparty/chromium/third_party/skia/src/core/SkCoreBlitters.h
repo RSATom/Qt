@@ -11,6 +11,7 @@
 #include "SkBitmapProcShader.h"
 #include "SkBlitter.h"
 #include "SkBlitRow.h"
+#include "SkPaint.h"
 #include "SkShaderBase.h"
 #include "SkXfermodePriv.h"
 
@@ -60,6 +61,9 @@ public:
     void blitRect(int x, int y, int width, int height) override;
     void blitMask(const SkMask&, const SkIRect&) override;
     const SkPixmap* justAnOpaqueColor(uint32_t*) override;
+
+private:
+    typedef SkRasterBlitter INHERITED;
 };
 
 ////////////////////////////////////////////////////////////////
@@ -133,6 +137,27 @@ private:
 
     // illegal
     SkARGB32_Shader_Blitter& operator=(const SkARGB32_Shader_Blitter&);
+
+    typedef SkShaderBlitter INHERITED;
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+typedef void (*SkS32D16BlendProc)(uint16_t*, const SkPMColor*, int, uint8_t);
+
+class SkRGB565_Shader_Blitter : public SkShaderBlitter {
+public:
+    SkRGB565_Shader_Blitter(const SkPixmap& device, const SkPaint&, SkShaderBase::Context*);
+    ~SkRGB565_Shader_Blitter() override;
+    void blitH(int x, int y, int width) override;
+    void blitAntiH(int x, int y, const SkAlpha[], const int16_t[]) override;
+
+    static bool Supports(const SkPixmap& device, const SkPaint&);
+
+private:
+    SkPMColor*          fBuffer;
+    SkS32D16BlendProc   fBlend;
+    SkS32D16BlendProc   fBlendCoverage;
 
     typedef SkShaderBlitter INHERITED;
 };

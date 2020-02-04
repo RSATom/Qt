@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -43,42 +43,46 @@
 #include <QtCore/qabstractitemmodel.h>
 #include <QtCore/qstringlist.h>
 
+QT_REQUIRE_CONFIG(stringlistmodel);
+
 QT_BEGIN_NAMESPACE
-
-
-#ifndef QT_NO_STRINGLISTMODEL
 
 class Q_CORE_EXPORT QStringListModel : public QAbstractListModel
 {
     Q_OBJECT
 public:
-    explicit QStringListModel(QObject *parent = Q_NULLPTR);
-    explicit QStringListModel(const QStringList &strings, QObject *parent = Q_NULLPTR);
+    explicit QStringListModel(QObject *parent = nullptr);
+    explicit QStringListModel(const QStringList &strings, QObject *parent = nullptr);
 
-    int rowCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    QModelIndex sibling(int row, int column, const QModelIndex &idx) const Q_DECL_OVERRIDE;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    QModelIndex sibling(int row, int column, const QModelIndex &idx) const override;
 
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
-    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) Q_DECL_OVERRIDE;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool clearItemData(const QModelIndex &index) override;
+#endif
 
-    Qt::ItemFlags flags(const QModelIndex &index) const Q_DECL_OVERRIDE;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
 
-    bool insertRows(int row, int count, const QModelIndex &parent = QModelIndex()) Q_DECL_OVERRIDE;
-    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) Q_DECL_OVERRIDE;
+    bool insertRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
+    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
+    bool moveRows(const QModelIndex &sourceParent, int sourceRow, int count, const QModelIndex &destinationParent, int destinationChild) override;
 
-    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) Q_DECL_OVERRIDE;
+    QMap<int, QVariant> itemData(const QModelIndex &index) const override;
+    bool setItemData(const QModelIndex &index, const QMap<int, QVariant> &roles) override;
+
+    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override;
 
     QStringList stringList() const;
     void setStringList(const QStringList &strings);
 
-    Qt::DropActions supportedDropActions() const Q_DECL_OVERRIDE;
+    Qt::DropActions supportedDropActions() const override;
 
 private:
     Q_DISABLE_COPY(QStringListModel)
     QStringList lst;
 };
-
-#endif // QT_NO_STRINGLISTMODEL
 
 QT_END_NAMESPACE
 

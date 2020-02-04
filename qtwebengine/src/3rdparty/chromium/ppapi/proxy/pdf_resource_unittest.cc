@@ -30,9 +30,9 @@ typedef PluginProxyTest PDFResourceTest;
 TEST_F(PDFResourceTest, SearchString) {
   ProxyAutoLock lock;
   // Instantiate a resource explicitly so we can specify the locale.
-  scoped_refptr<PDFResource> pdf_resource(
-      new PDFResource(Connection(&sink(), &sink()), pp_instance()));
-  pdf_resource->SetLocaleForTest("en-US");
+  auto pdf_resource = base::MakeRefCounted<PDFResource>(
+      Connection(&sink(), &sink(), 0), pp_instance());
+  pdf_resource->SetLocaleForTest("en-US@collation=search");
 
   base::string16 input;
   base::string16 term;
@@ -40,7 +40,7 @@ TEST_F(PDFResourceTest, SearchString) {
   base::UTF8ToUTF16("bc", 2, &term);
 
   PP_PrivateFindResult* results;
-  int count = 0;
+  uint32_t count = 0;
   pdf_resource->SearchString(
       reinterpret_cast<const unsigned short*>(input.c_str()),
       reinterpret_cast<const unsigned short*>(term.c_str()),
@@ -48,7 +48,7 @@ TEST_F(PDFResourceTest, SearchString) {
       &results,
       &count);
 
-  ASSERT_EQ(2, count);
+  ASSERT_EQ(2U, count);
   ASSERT_EQ(1, results[0].start_index);
   ASSERT_EQ(2, results[0].length);
   ASSERT_EQ(7, results[1].start_index);
@@ -123,6 +123,19 @@ TEST_F(PDFResourceTest, SaveAs) {
   IPC::Message msg;
   ASSERT_TRUE(sink().GetFirstResourceCallMatching(
       PpapiHostMsg_PDF_SaveAs::ID, &params, &msg));
+}
+
+TEST_F(PDFResourceTest, SelectionChanged) {
+  const PPB_PDF* pdf_iface = thunk::GetPPB_PDF_Thunk();
+
+  PP_FloatPoint left = PP_MakeFloatPoint(0.0f, 0.0f);
+  PP_FloatPoint right = PP_MakeFloatPoint(1.0f, 1.0f);
+  pdf_iface->SelectionChanged(pp_instance(), &left, 0, &right, 0);
+
+  ResourceMessageCallParams params;
+  IPC::Message msg;
+  ASSERT_TRUE(sink().GetFirstResourceCallMatching(
+      PpapiHostMsg_PDF_SelectionChanged::ID, &params, &msg));
 }
 
 }  // namespace proxy

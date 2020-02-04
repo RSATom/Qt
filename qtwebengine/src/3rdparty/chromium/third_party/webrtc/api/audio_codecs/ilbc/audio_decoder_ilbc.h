@@ -8,29 +8,30 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_API_AUDIO_CODECS_ILBC_AUDIO_DECODER_ILBC_H_
-#define WEBRTC_API_AUDIO_CODECS_ILBC_AUDIO_DECODER_ILBC_H_
+#ifndef API_AUDIO_CODECS_ILBC_AUDIO_DECODER_ILBC_H_
+#define API_AUDIO_CODECS_ILBC_AUDIO_DECODER_ILBC_H_
 
 #include <memory>
 #include <vector>
 
-#include "webrtc/api/audio_codecs/audio_decoder.h"
-#include "webrtc/api/audio_codecs/audio_format.h"
-#include "webrtc/rtc_base/optional.h"
+#include "absl/types/optional.h"
+#include "api/audio_codecs/audio_codec_pair_id.h"
+#include "api/audio_codecs/audio_decoder.h"
+#include "api/audio_codecs/audio_format.h"
 
 namespace webrtc {
 
 // ILBC decoder API for use as a template parameter to
 // CreateAudioDecoderFactory<...>().
-//
-// NOTE: This struct is still under development and may change without notice.
 struct AudioDecoderIlbc {
   struct Config {};  // Empty---no config values needed!
-  static rtc::Optional<Config> SdpToConfig(const SdpAudioFormat& audio_format);
+  static absl::optional<Config> SdpToConfig(const SdpAudioFormat& audio_format);
   static void AppendSupportedDecoders(std::vector<AudioCodecSpec>* specs);
-  static std::unique_ptr<AudioDecoder> MakeAudioDecoder(Config config);
+  static std::unique_ptr<AudioDecoder> MakeAudioDecoder(
+      Config config,
+      absl::optional<AudioCodecPairId> codec_pair_id = absl::nullopt);
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_API_AUDIO_CODECS_ILBC_AUDIO_DECODER_ILBC_H_
+#endif  // API_AUDIO_CODECS_ILBC_AUDIO_DECODER_ILBC_H_

@@ -42,8 +42,10 @@ FakeConnectionHandler::FakeConnectionHandler(
 FakeConnectionHandler::~FakeConnectionHandler() {
 }
 
-void FakeConnectionHandler::Init(const mcs_proto::LoginRequest& login_request,
-                                 net::StreamSocket* socket) {
+void FakeConnectionHandler::Init(
+    const mcs_proto::LoginRequest& login_request,
+    mojo::ScopedDataPipeConsumerHandle receive_stream,
+    mojo::ScopedDataPipeProducerHandle send_stream) {
   ASSERT_GE(expected_outgoing_messages_.size(), 1U);
   EXPECT_EQ(expected_outgoing_messages_.front().SerializeAsString(),
             login_request.SerializeAsString());

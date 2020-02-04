@@ -29,10 +29,10 @@
 #include "saveformastemplate.h"
 #include "qdesigner_settings.h"
 
-#include <QtCore/QFile>
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QPushButton>
+#include <QtCore/qfile.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qpushbutton.h>
 
 #include <QtDesigner/abstractformeditor.h>
 #include <QtDesigner/abstractformwindow.h>
@@ -66,9 +66,7 @@ SaveFormAsTemplate::SaveFormAsTemplate(QDesignerFormEditorInterface *core,
             this, &SaveFormAsTemplate::checkToAddPath);
 }
 
-SaveFormAsTemplate::~SaveFormAsTemplate()
-{
-}
+SaveFormAsTemplate::~SaveFormAsTemplate() = default;
 
 void SaveFormAsTemplate::accept()
 {
@@ -94,7 +92,8 @@ void SaveFormAsTemplate::accept()
 
     while (!file.open(QFile::WriteOnly)) {
         if (QMessageBox::information(m_formWindow, tr("Open Error"),
-            tr("There was an error opening template %1 for writing. Reason: %2").arg(name).arg(file.errorString()),
+            tr("There was an error opening template %1 for writing. Reason: %2")
+              .arg(name, file.errorString()),
             QMessageBox::Retry|QMessageBox::Cancel, QMessageBox::Cancel) == QMessageBox::Cancel) {
             return;
         }
@@ -108,7 +107,8 @@ void SaveFormAsTemplate::accept()
     m_formWindow->setFileName(origName);
     while (file.write(ba) != ba.size()) {
         if (QMessageBox::information(m_formWindow, tr("Write Error"),
-            tr("There was an error writing the template %1 to disk. Reason: %2").arg(name).arg(file.errorString()),
+            tr("There was an error writing the template %1 to disk. Reason: %2")
+              .arg(name, file.errorString()),
             QMessageBox::Retry|QMessageBox::Cancel, QMessageBox::Cancel) == QMessageBox::Cancel) {
                 file.close();
                 file.remove();

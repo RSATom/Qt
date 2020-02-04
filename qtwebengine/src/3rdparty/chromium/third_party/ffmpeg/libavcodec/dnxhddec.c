@@ -66,6 +66,8 @@ typedef struct DNXHDContext {
     const CIDEntry *cid_table;
     int bit_depth; // 8, 10, 12 or 0 if not initialized at all.
     int is_444;
+    int alpha;
+    int lla;
     int mbaff;
     int act;
     int (*decode_dct_block)(const struct DNXHDContext *ctx,
@@ -92,7 +94,9 @@ static av_cold int dnxhd_decode_init(AVCodecContext *avctx)
 
     ctx->avctx = avctx;
     ctx->cid = -1;
-    avctx->colorspace = AVCOL_SPC_BT709;
+    if (avctx->colorspace == AVCOL_SPC_UNSPECIFIED) {
+        avctx->colorspace = AVCOL_SPC_BT709;
+    }
 
     avctx->coded_width  = FFALIGN(avctx->width,  16);
     avctx->coded_height = FFALIGN(avctx->height, 16);
@@ -202,6 +206,10 @@ static int dnxhd_decode_header(DNXHDContext *ctx, AVFrame *frame,
         ctx->cur_field = 0;
     }
     ctx->mbaff = (buf[0x6] >> 5) & 1;
+    ctx->alpha = buf[0x7] & 1;
+    ctx->lla   = (buf[0x7] >> 1) & 1;
+    if (ctx->alpha)
+        avpriv_request_sample(ctx->avctx, "alpha");
 
     ctx->height = AV_RB16(buf + 0x18);
     ctx->width  = AV_RB16(buf + 0x1a);
@@ -297,13 +305,17 @@ static int dnxhd_decode_header(DNXHDContext *ctx, AVFrame *frame,
     if (ctx->mb_height > 68 && ff_dnxhd_check_header_prefix_hr(header_prefix)) {
         ctx->data_offset = 0x170 + (ctx->mb_height << 2);
     } else {
-        if (ctx->mb_height > 68 ||
-            (ctx->mb_height << frame->interlaced_frame) > (ctx->height + 15) >> 4) {
+        if (ctx->mb_height > 68) {
             av_log(ctx->avctx, AV_LOG_ERROR,
                    "mb height too big: %d\n", ctx->mb_height);
             return AVERROR_INVALIDDATA;
         }
         ctx->data_offset = 0x280;
+    }
+    if ((ctx->mb_height << frame->interlaced_frame) > (ctx->height + 15) >> 4) {
+        av_log(ctx->avctx, AV_LOG_ERROR,
+                "mb height too big: %d\n", ctx->mb_height);
+        return AVERROR_INVALIDDATA;
     }
 
     if (buf_size < ctx->data_offset) {
@@ -376,6 +388,10 @@ static av_always_inline int dnxhd_decode_dct_block(const DNXHDContext *ctx,
 
     UPDATE_CACHE(bs, &row->gb);
     GET_VLC(len, bs, &row->gb, ctx->dc_vlc.table, DNXHD_DC_VLC_BITS, 1);
+    if (len < 0) {
+        ret = len;
+        goto error;
+    }
     if (len) {
         level = GET_CACHE(bs, &row->gb);
         LAST_SKIP_BITS(bs, &row->gb, len);
@@ -429,7 +445,7 @@ static av_always_inline int dnxhd_decode_dct_block(const DNXHDContext *ctx,
         GET_VLC(index1, bs, &row->gb, ctx->ac_vlc.table,
                 DNXHD_VLC_BITS, 2);
     }
-
+error:
     CLOSE_READER(bs, &row->gb);
     return ret;
 }

@@ -44,6 +44,7 @@
 #include <QtCore/qdir.h>
 #include <QtCore/qbytearray.h>
 #include <QtCore/qvariant.h>
+#include <QtCore/qregularexpression.h>
 #include <QtCore/qsize.h>
 #include <QtCore/qset.h>
 #include <QtCore/qstringlist.h>
@@ -175,6 +176,11 @@ static void addTagToMap(const GstTagList *list,
 }
 
 /*!
+    \class QGstUtils
+    \internal
+*/
+
+/*!
   Convert GstTagList structure to QMap<QByteArray, QVariant>.
 
   Mapping to int, bool, char, string, fractions and date are supported.
@@ -190,7 +196,7 @@ QMap<QByteArray, QVariant> QGstUtils::gstTagListToMap(const GstTagList *tags)
 
 /*!
   Returns resolution of \a caps.
-  If caps doesn't have a valid size, and ampty QSize is returned.
+  If caps doesn't have a valid size, an empty QSize is returned.
 */
 QSize QGstUtils::capsResolution(const GstCaps *caps)
 {
@@ -361,7 +367,7 @@ QAudioFormat QGstUtils::audioFormatForCaps(const GstCaps *caps)
 }
 
 #if GST_CHECK_VERSION(1,0,0)
-/*!
+/*
   Returns audio format for a sample.
   If the buffer doesn't have a valid audio format, an empty QAudioFormat is returned.
 */
@@ -643,7 +649,7 @@ QVector<QGstUtils::CameraInfo> QGstUtils::enumerateCameras(GstElementFactory *fa
         for (; ::ioctl(fd, VIDIOC_ENUMINPUT, &input) >= 0; ++input.index) {
             if (input.type == V4L2_INPUT_TYPE_CAMERA || input.type == 0) {
                 const int ret = ::ioctl(fd, VIDIOC_S_INPUT, &input.index);
-                isCamera = (ret == 0 || errno == ENOTTY);
+                isCamera = (ret == 0 || errno == ENOTTY || errno == EBUSY);
                 break;
             }
         }
@@ -679,6 +685,67 @@ QVector<QGstUtils::CameraInfo> QGstUtils::enumerateCameras(GstElementFactory *fa
     }
     camerasCacheAgeTimer.restart();
 #endif // linux_v4l
+
+#if GST_CHECK_VERSION(1,4,0) && (defined(Q_OS_WIN) || defined(Q_OS_MACOS))
+    if (!devices.isEmpty())
+        return devices;
+
+#if defined(Q_OS_WIN)
+    const char *propName = "device-path";
+    auto deviceDesc = [](GValue *value) {
+        gchar *desc = g_value_dup_string(value);
+        const QString id = QLatin1String(desc);
+        g_free(desc);
+        return id;
+    };
+#elif defined(Q_OS_MACOS)
+    const char *propName = "device-index";
+    auto deviceDesc = [](GValue *value) {
+        return QString::number(g_value_get_int(value));
+    };
+#endif
+
+    QGstUtils::initializeGst();
+    GstDeviceMonitor *monitor = gst_device_monitor_new();
+    auto caps = gst_caps_new_empty_simple("video/x-raw");
+    gst_device_monitor_add_filter(monitor, "Video/Source", caps);
+    gst_caps_unref(caps);
+
+    GList *devs = gst_device_monitor_get_devices(monitor);
+    while (devs) {
+        GstDevice *dev = reinterpret_cast<GstDevice*>(devs->data);
+        GstElement *element = gst_device_create_element(dev, nullptr);
+        if (element) {
+            gchar *name = gst_device_get_display_name(dev);
+            const QString deviceName = QLatin1String(name);
+            g_free(name);
+            GParamSpec *prop = g_object_class_find_property(G_OBJECT_GET_CLASS(element), propName);
+            if (prop) {
+                GValue value = G_VALUE_INIT;
+                g_value_init(&value, prop->value_type);
+                g_object_get_property(G_OBJECT(element), prop->name, &value);
+                const QString deviceId = deviceDesc(&value);
+                g_value_unset(&value);
+
+                CameraInfo device = {
+                    deviceId,
+                    deviceName,
+                    0,
+                    QCamera::UnspecifiedPosition,
+                    QByteArray()
+                };
+
+                devices.append(device);
+            }
+
+            gst_object_unref(element);
+        }
+
+        gst_object_unref(dev);
+        devs = g_list_delete_link(devs, devs);
+    }
+    gst_object_unref(monitor);
+#endif // GST_CHECK_VERSION(1,4,0) && (defined(Q_OS_WIN) || defined(Q_OS_MACOS))
 
     return devices;
 }
@@ -799,7 +866,7 @@ QSet<QString> QGstUtils::supportedMimeTypes(bool (*isValidFactory)(GstElementFac
                             if (value) {
                                 gchar *str = gst_value_serialize(value);
                                 QString versions = QLatin1String(str);
-                                const QStringList elements = versions.split(QRegExp(QLatin1String("\\D+")), QString::SkipEmptyParts);
+                                const QStringList elements = versions.split(QRegularExpression(QLatin1String("\\D+")), QString::SkipEmptyParts);
                                 for (const QString &e : elements)
                                     supportedMimeTypes.insert(nameLowcase + e);
                                 g_free(str);
@@ -1303,7 +1370,7 @@ void QGstUtils::setMetaData(GstBin *bin, const QMap<QByteArray, QVariant> &data)
 
 GstCaps *QGstUtils::videoFilterCaps()
 {
-    static GstStaticCaps staticCaps = GST_STATIC_CAPS(
+    const char *caps =
 #if GST_CHECK_VERSION(1,2,0)
         "video/x-raw(ANY);"
 #elif GST_CHECK_VERSION(1,0,0)
@@ -1315,7 +1382,8 @@ GstCaps *QGstUtils::videoFilterCaps()
         "video/x-android-buffer;"
 #endif
         "image/jpeg;"
-        "video/x-h264");
+        "video/x-h264";
+    static GstStaticCaps staticCaps = GST_STATIC_CAPS(caps);
 
     return gst_caps_make_writable(gst_static_caps_get(&staticCaps));
 }
@@ -1458,13 +1526,45 @@ QString QGstUtils::fileExtensionForMimeType(const QString &mimeType)
     if (!extension.isEmpty() || format.isEmpty())
         return extension;
 
-    QRegExp rx(QStringLiteral("[-/]([\\w]+)$"));
+    QRegularExpression rx(QStringLiteral("[-/]([\\w]+)$"));
+    QRegularExpressionMatch match = rx.match(format);
 
-    if (rx.indexIn(format) != -1)
-        extension = rx.cap(1);
+    if (match.hasMatch())
+        extension = match.captured(1);
 
     return extension;
 }
+
+#if GST_CHECK_VERSION(0,10,30)
+QVariant QGstUtils::fromGStreamerOrientation(const QVariant &value)
+{
+    // Note gstreamer tokens either describe the counter clockwise rotation of the
+    // image or the clockwise transform to apply to correct the image.  The orientation
+    // value returned is the clockwise rotation of the image.
+    const QString token = value.toString();
+    if (token == QStringLiteral("rotate-90"))
+        return 270;
+    if (token == QStringLiteral("rotate-180"))
+        return 180;
+    if (token == QStringLiteral("rotate-270"))
+        return 90;
+    return 0;
+}
+
+QVariant QGstUtils::toGStreamerOrientation(const QVariant &value)
+{
+    switch (value.toInt()) {
+    case 90:
+        return QStringLiteral("rotate-270");
+    case 180:
+        return QStringLiteral("rotate-180");
+    case 270:
+        return QStringLiteral("rotate-90");
+    default:
+        return QStringLiteral("rotate-0");
+    }
+}
+#endif
 
 void qt_gst_object_ref_sink(gpointer object)
 {

@@ -21,8 +21,6 @@
 #include "vp9/encoder/vp9_denoiser.h"
 #include "vp9/encoder/vp9_encoder.h"
 
-// OUTPUT_YUV_DENOISED
-
 #ifdef OUTPUT_YUV_DENOISED
 static void make_grayscale(YV12_BUFFER_CONFIG *yuv);
 #endif
@@ -190,11 +188,13 @@ static VP9_DENOISER_DECISION perform_motion_compensation(
     VP9_COMMON *const cm, VP9_DENOISER *denoiser, MACROBLOCK *mb, BLOCK_SIZE bs,
     int increase_denoising, int mi_row, int mi_col, PICK_MODE_CONTEXT *ctx,
     int motion_magnitude, int is_skin, int *zeromv_filter, int consec_zeromv,
-    int num_spatial_layers, int width) {
+    int num_spatial_layers, int width, int lst_fb_idx, int gld_fb_idx,
+    int use_svc, int spatial_layer, int use_gf_temporal_ref) {
   const int sse_diff = (ctx->newmv_sse == UINT_MAX)
                            ? 0
                            : ((int)ctx->zeromv_sse - (int)ctx->newmv_sse);
-  MV_REFERENCE_FRAME frame;
+  int frame;
+  int denoise_layer_idx = 0;
   MACROBLOCKD *filter_mbd = &mb->e_mbd;
   MODE_INFO *mi = filter_mbd->mi[0];
   MODE_INFO saved_mi;
@@ -202,8 +202,10 @@ static VP9_DENOISER_DECISION perform_motion_compensation(
   struct buf_2d saved_dst[MAX_MB_PLANE];
   struct buf_2d saved_pre[MAX_MB_PLANE];
   RefBuffer *saved_block_refs[2];
+  MV_REFERENCE_FRAME saved_frame;
 
   frame = ctx->best_reference_frame;
+
   saved_mi = *mi;
 
   if (is_skin && (motion_magnitude > 0 || consec_zeromv < 4)) return COPY_BLOCK;
@@ -218,7 +220,8 @@ static VP9_DENOISER_DECISION perform_motion_compensation(
   // If the best reference frame uses inter-prediction and there is enough of a
   // difference in sum-squared-error, use it.
   if (frame != INTRA_FRAME && frame != ALTREF_FRAME &&
-      (frame != GOLDEN_FRAME || num_spatial_layers == 1) &&
+      (frame != GOLDEN_FRAME || num_spatial_layers == 1 ||
+       use_gf_temporal_ref) &&
       sse_diff > sse_diff_thresh(bs, increase_denoising, motion_magnitude)) {
     mi->ref_frame[0] = ctx->best_reference_frame;
     mi->mode = ctx->best_sse_inter_mode;
@@ -228,7 +231,8 @@ static VP9_DENOISER_DECISION perform_motion_compensation(
     frame = ctx->best_zeromv_reference_frame;
     ctx->newmv_sse = ctx->zeromv_sse;
     // Bias to last reference.
-    if (num_spatial_layers > 1 || frame == ALTREF_FRAME ||
+    if ((num_spatial_layers > 1 && !use_gf_temporal_ref) ||
+        frame == ALTREF_FRAME ||
         (frame != LAST_FRAME &&
          ((ctx->zeromv_lastref_sse<(5 * ctx->zeromv_sse)>> 2) ||
           denoiser->denoising_level >= kDenHigh))) {
@@ -244,6 +248,27 @@ static VP9_DENOISER_DECISION perform_motion_compensation(
     if (denoiser->denoising_level > kDenMedium) {
       motion_magnitude = 0;
     }
+  }
+
+  saved_frame = frame;
+  // When using SVC, we need to map REF_FRAME to the frame buffer index.
+  if (use_svc) {
+    if (frame == LAST_FRAME)
+      frame = lst_fb_idx + 1;
+    else if (frame == GOLDEN_FRAME)
+      frame = gld_fb_idx + 1;
+    // Shift for the second spatial layer.
+    if (num_spatial_layers - spatial_layer == 2)
+      frame = frame + denoiser->num_ref_frames;
+    denoise_layer_idx = num_spatial_layers - spatial_layer - 1;
+  }
+
+  // Force copy (no denoise, copy source in denoised buffer) if
+  // running_avg_y[frame] is NULL.
+  if (denoiser->running_avg_y[frame].buffer_alloc == NULL) {
+    // Restore everything to its original state
+    *mi = saved_mi;
+    return COPY_BLOCK;
   }
 
   if (ctx->newmv_sse > sse_thresh(bs, increase_denoising)) {
@@ -279,20 +304,23 @@ static VP9_DENOISER_DECISION perform_motion_compensation(
                   denoiser->running_avg_y[frame].uv_stride, mi_row, mi_col);
   filter_mbd->plane[2].pre[0].stride = denoiser->running_avg_y[frame].uv_stride;
 
-  filter_mbd->plane[0].dst.buf =
-      block_start(denoiser->mc_running_avg_y.y_buffer,
-                  denoiser->mc_running_avg_y.y_stride, mi_row, mi_col);
-  filter_mbd->plane[0].dst.stride = denoiser->mc_running_avg_y.y_stride;
-  filter_mbd->plane[1].dst.buf =
-      block_start(denoiser->mc_running_avg_y.u_buffer,
-                  denoiser->mc_running_avg_y.uv_stride, mi_row, mi_col);
-  filter_mbd->plane[1].dst.stride = denoiser->mc_running_avg_y.uv_stride;
-  filter_mbd->plane[2].dst.buf =
-      block_start(denoiser->mc_running_avg_y.v_buffer,
-                  denoiser->mc_running_avg_y.uv_stride, mi_row, mi_col);
-  filter_mbd->plane[2].dst.stride = denoiser->mc_running_avg_y.uv_stride;
+  filter_mbd->plane[0].dst.buf = block_start(
+      denoiser->mc_running_avg_y[denoise_layer_idx].y_buffer,
+      denoiser->mc_running_avg_y[denoise_layer_idx].y_stride, mi_row, mi_col);
+  filter_mbd->plane[0].dst.stride =
+      denoiser->mc_running_avg_y[denoise_layer_idx].y_stride;
+  filter_mbd->plane[1].dst.buf = block_start(
+      denoiser->mc_running_avg_y[denoise_layer_idx].u_buffer,
+      denoiser->mc_running_avg_y[denoise_layer_idx].uv_stride, mi_row, mi_col);
+  filter_mbd->plane[1].dst.stride =
+      denoiser->mc_running_avg_y[denoise_layer_idx].uv_stride;
+  filter_mbd->plane[2].dst.buf = block_start(
+      denoiser->mc_running_avg_y[denoise_layer_idx].v_buffer,
+      denoiser->mc_running_avg_y[denoise_layer_idx].uv_stride, mi_row, mi_col);
+  filter_mbd->plane[2].dst.stride =
+      denoiser->mc_running_avg_y[denoise_layer_idx].uv_stride;
 
-  set_ref_ptrs(cm, filter_mbd, frame, NONE);
+  set_ref_ptrs(cm, filter_mbd, saved_frame, NONE);
   vp9_build_inter_predictors_sby(filter_mbd, mi_row, mi_col, bs);
 
   // Restore everything to its original state
@@ -308,21 +336,31 @@ static VP9_DENOISER_DECISION perform_motion_compensation(
 
 void vp9_denoiser_denoise(VP9_COMP *cpi, MACROBLOCK *mb, int mi_row, int mi_col,
                           BLOCK_SIZE bs, PICK_MODE_CONTEXT *ctx,
-                          VP9_DENOISER_DECISION *denoiser_decision) {
+                          VP9_DENOISER_DECISION *denoiser_decision,
+                          int use_gf_temporal_ref) {
   int mv_col, mv_row;
   int motion_magnitude = 0;
   int zeromv_filter = 0;
   VP9_DENOISER *denoiser = &cpi->denoiser;
   VP9_DENOISER_DECISION decision = COPY_BLOCK;
-  YV12_BUFFER_CONFIG avg = denoiser->running_avg_y[INTRA_FRAME];
-  YV12_BUFFER_CONFIG mc_avg = denoiser->mc_running_avg_y;
+
+  const int shift =
+      cpi->svc.number_spatial_layers - cpi->svc.spatial_layer_id == 2
+          ? denoiser->num_ref_frames
+          : 0;
+  YV12_BUFFER_CONFIG avg = denoiser->running_avg_y[INTRA_FRAME + shift];
+  const int denoise_layer_index =
+      cpi->svc.number_spatial_layers - cpi->svc.spatial_layer_id - 1;
+  YV12_BUFFER_CONFIG mc_avg = denoiser->mc_running_avg_y[denoise_layer_index];
   uint8_t *avg_start = block_start(avg.y_buffer, avg.y_stride, mi_row, mi_col);
+
   uint8_t *mc_avg_start =
       block_start(mc_avg.y_buffer, mc_avg.y_stride, mi_row, mi_col);
   struct buf_2d src = mb->plane[0].src;
   int is_skin = 0;
   int increase_denoising = 0;
   int consec_zeromv = 0;
+  int last_is_reference = cpi->ref_frame_flags & VP9_LAST_FLAG;
   mv_col = ctx->best_sse_mv.as_mv.col;
   mv_row = ctx->best_sse_mv.as_mv.row;
   motion_magnitude = mv_row * mv_row + mv_col * mv_col;
@@ -338,8 +376,8 @@ void vp9_denoiser_denoise(VP9_COMP *cpi, MACROBLOCK *mb, int mi_row, int mi_col,
       VP9_COMMON *const cm = &cpi->common;
       int j, i;
       // Loop through the 8x8 sub-blocks.
-      const int bw = num_8x8_blocks_wide_lookup[BLOCK_64X64];
-      const int bh = num_8x8_blocks_high_lookup[BLOCK_64X64];
+      const int bw = num_8x8_blocks_wide_lookup[bs];
+      const int bh = num_8x8_blocks_high_lookup[bs];
       const int xmis = VPXMIN(cm->mi_cols - mi_col, bw);
       const int ymis = VPXMIN(cm->mi_rows - mi_row, bh);
       const int block_index = mi_row * cm->mi_cols + mi_col;
@@ -353,7 +391,7 @@ void vp9_denoiser_denoise(VP9_COMP *cpi, MACROBLOCK *mb, int mi_row, int mi_col,
           // zero/small motion in skin detection is high, i.e, > 4).
           if (consec_zeromv < 4) {
             i = ymis;
-            j = xmis;
+            break;
           }
         }
       }
@@ -366,14 +404,18 @@ void vp9_denoiser_denoise(VP9_COMP *cpi, MACROBLOCK *mb, int mi_row, int mi_col,
   }
   if (!is_skin && denoiser->denoising_level == kDenHigh) increase_denoising = 1;
 
-  // TODO(marpan): There is an issue with denoising for speed 5,
-  // due to the partitioning scheme based on pickmode.
-  // Remove this speed constraint when issue is resolved.
-  if (denoiser->denoising_level >= kDenLow && cpi->oxcf.speed > 5)
+  // Copy block if LAST_FRAME is not a reference.
+  // Last doesn't always exist when SVC layers are dynamically changed, e.g. top
+  // spatial layer doesn't have last reference when it's brought up for the
+  // first time on the fly.
+  if (last_is_reference && denoiser->denoising_level >= kDenLow &&
+      !ctx->sb_skip_denoising)
     decision = perform_motion_compensation(
         &cpi->common, denoiser, mb, bs, increase_denoising, mi_row, mi_col, ctx,
         motion_magnitude, is_skin, &zeromv_filter, consec_zeromv,
-        cpi->svc.number_spatial_layers, cpi->Source->y_width);
+        cpi->svc.number_spatial_layers, cpi->Source->y_width, cpi->lst_fb_idx,
+        cpi->gld_fb_idx, cpi->use_svc, cpi->svc.spatial_layer_id,
+        use_gf_temporal_ref);
 
   if (decision == FILTER_BLOCK) {
     decision = vp9_denoiser_filter(src.buf, src.stride, mc_avg_start,
@@ -382,12 +424,12 @@ void vp9_denoiser_denoise(VP9_COMP *cpi, MACROBLOCK *mb, int mi_row, int mi_col,
   }
 
   if (decision == FILTER_BLOCK) {
-    vpx_convolve_copy(avg_start, avg.y_stride, src.buf, src.stride, NULL, 0,
-                      NULL, 0, num_4x4_blocks_wide_lookup[bs] << 2,
+    vpx_convolve_copy(avg_start, avg.y_stride, src.buf, src.stride, NULL, 0, 0,
+                      0, 0, num_4x4_blocks_wide_lookup[bs] << 2,
                       num_4x4_blocks_high_lookup[bs] << 2);
   } else {  // COPY_BLOCK
-    vpx_convolve_copy(src.buf, src.stride, avg_start, avg.y_stride, NULL, 0,
-                      NULL, 0, num_4x4_blocks_wide_lookup[bs] << 2,
+    vpx_convolve_copy(src.buf, src.stride, avg_start, avg.y_stride, NULL, 0, 0,
+                      0, 0, num_4x4_blocks_wide_lookup[bs] << 2,
                       num_4x4_blocks_high_lookup[bs] << 2);
   }
   *denoiser_decision = decision;
@@ -420,71 +462,65 @@ static void swap_frame_buffer(YV12_BUFFER_CONFIG *const dest,
   src->y_buffer = tmp_buf;
 }
 
-void vp9_denoise_init_svc(VP9_COMP *cpi) {
-  // For fixed pattern SVC, on base temporal layer. Note we only denoise
-  // higher spatial layer for SVC.
-  if (cpi->svc.temporal_layering_mode != VP9E_TEMPORAL_LAYERING_MODE_BYPASS &&
-      cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 1 &&
-      cpi->svc.temporal_layer_id == 0) {
-    VP9_DENOISER *denoiser = &cpi->denoiser;
-    copy_frame(&denoiser->running_avg_y[LAST_FRAME],
-               &denoiser->running_avg_y[GOLDEN_FRAME]);
-  }
-}
-
 void vp9_denoiser_update_frame_info(
-    VP9_DENOISER *denoiser, YV12_BUFFER_CONFIG src, FRAME_TYPE frame_type,
-    int refresh_alt_ref_frame, int refresh_golden_frame, int refresh_last_frame,
-    int resized, int svc_base_is_key, int svc_fixed_pattern,
-    int temporal_layer_id) {
+    VP9_DENOISER *denoiser, YV12_BUFFER_CONFIG src, struct SVC *svc,
+    FRAME_TYPE frame_type, int refresh_alt_ref_frame, int refresh_golden_frame,
+    int refresh_last_frame, int alt_fb_idx, int gld_fb_idx, int lst_fb_idx,
+    int resized, int svc_refresh_denoiser_buffers, int second_spatial_layer) {
+  const int shift = second_spatial_layer ? denoiser->num_ref_frames : 0;
   // Copy source into denoised reference buffers on KEY_FRAME or
   // if the just encoded frame was resized. For SVC, copy source if the base
   // spatial layer was key frame.
   if (frame_type == KEY_FRAME || resized != 0 || denoiser->reset ||
-      svc_base_is_key) {
+      svc_refresh_denoiser_buffers) {
     int i;
     // Start at 1 so as not to overwrite the INTRA_FRAME
-    for (i = 1; i < DENOISER_REF_FRAMES; ++i)
-      copy_frame(&denoiser->running_avg_y[i], &src);
+    for (i = 1; i < denoiser->num_ref_frames; ++i) {
+      if (denoiser->running_avg_y[i + shift].buffer_alloc != NULL)
+        copy_frame(&denoiser->running_avg_y[i + shift], &src);
+    }
     denoiser->reset = 0;
     return;
   }
 
-  // If more than one refresh occurs, must copy frame buffer.
-  if (refresh_golden_frame + refresh_last_frame + refresh_alt_ref_frame > 1) {
-    if (refresh_golden_frame) {
-      copy_frame(&denoiser->running_avg_y[GOLDEN_FRAME],
-                 &denoiser->running_avg_y[INTRA_FRAME]);
-    }
-    // For fixed pattern SVC: update denoised last_frame if alt_ref is
-    // refreshed, only for non-zero temporal layer.
-    if (refresh_last_frame ||
-        (refresh_alt_ref_frame && svc_fixed_pattern && temporal_layer_id > 0)) {
-      copy_frame(&denoiser->running_avg_y[LAST_FRAME],
-                 &denoiser->running_avg_y[INTRA_FRAME]);
+  if (svc->temporal_layering_mode == VP9E_TEMPORAL_LAYERING_MODE_BYPASS &&
+      svc->use_set_ref_frame_config) {
+    int i;
+    for (i = 0; i < REF_FRAMES; i++) {
+      if (svc->update_buffer_slot[svc->spatial_layer_id] & (1 << i))
+        copy_frame(&denoiser->running_avg_y[i + 1 + shift],
+                   &denoiser->running_avg_y[INTRA_FRAME + shift]);
     }
   } else {
-    if (refresh_golden_frame) {
-      swap_frame_buffer(&denoiser->running_avg_y[GOLDEN_FRAME],
-                        &denoiser->running_avg_y[INTRA_FRAME]);
+    // If more than one refresh occurs, must copy frame buffer.
+    if ((refresh_alt_ref_frame + refresh_golden_frame + refresh_last_frame) >
+        1) {
+      if (refresh_alt_ref_frame) {
+        copy_frame(&denoiser->running_avg_y[alt_fb_idx + 1 + shift],
+                   &denoiser->running_avg_y[INTRA_FRAME + shift]);
+      }
+      if (refresh_golden_frame) {
+        copy_frame(&denoiser->running_avg_y[gld_fb_idx + 1 + shift],
+                   &denoiser->running_avg_y[INTRA_FRAME + shift]);
+      }
+      if (refresh_last_frame) {
+        copy_frame(&denoiser->running_avg_y[lst_fb_idx + 1 + shift],
+                   &denoiser->running_avg_y[INTRA_FRAME + shift]);
+      }
+    } else {
+      if (refresh_alt_ref_frame) {
+        swap_frame_buffer(&denoiser->running_avg_y[alt_fb_idx + 1 + shift],
+                          &denoiser->running_avg_y[INTRA_FRAME + shift]);
+      }
+      if (refresh_golden_frame) {
+        swap_frame_buffer(&denoiser->running_avg_y[gld_fb_idx + 1 + shift],
+                          &denoiser->running_avg_y[INTRA_FRAME + shift]);
+      }
+      if (refresh_last_frame) {
+        swap_frame_buffer(&denoiser->running_avg_y[lst_fb_idx + 1 + shift],
+                          &denoiser->running_avg_y[INTRA_FRAME + shift]);
+      }
     }
-    // For fixed pattern SVC: update denoised last_frame if alt_ref is
-    // refreshed, only for non-zero temporal layer.
-    if (refresh_last_frame ||
-        (refresh_alt_ref_frame && svc_fixed_pattern && temporal_layer_id > 0)) {
-      swap_frame_buffer(&denoiser->running_avg_y[LAST_FRAME],
-                        &denoiser->running_avg_y[INTRA_FRAME]);
-    }
-  }
-  // For fixed pattern SVC we need to keep track of denoised last_frame for base
-  // temporal layer (since alt_ref refresh may update denoised last_frame on
-  // the upper/middle temporal layers).We do this by copying the current
-  // denoised last into the denoised golden_frame, for temporal_layer_id = 0.
-  // For the fixed pattern SVC golden is always spatial reference and is never
-  // used for denoising, so we can use it to keep track of denoised last_frame.
-  if (svc_fixed_pattern && temporal_layer_id == 0) {
-    copy_frame(&denoiser->running_avg_y[GOLDEN_FRAME],
-               &denoiser->running_avg_y[LAST_FRAME]);
   }
 }
 
@@ -512,19 +548,122 @@ void vp9_denoiser_update_frame_stats(MODE_INFO *mi, unsigned int sse,
   }
 }
 
-int vp9_denoiser_alloc(VP9_DENOISER *denoiser, int width, int height, int ssx,
-                       int ssy,
+static int vp9_denoiser_realloc_svc_helper(VP9_COMMON *cm,
+                                           VP9_DENOISER *denoiser, int fb_idx) {
+  int fail = 0;
+  if (denoiser->running_avg_y[fb_idx].buffer_alloc == NULL) {
+    fail =
+        vpx_alloc_frame_buffer(&denoiser->running_avg_y[fb_idx], cm->width,
+                               cm->height, cm->subsampling_x, cm->subsampling_y,
+#if CONFIG_VP9_HIGHBITDEPTH
+                               cm->use_highbitdepth,
+#endif
+                               VP9_ENC_BORDER_IN_PIXELS, 0);
+    if (fail) {
+      vp9_denoiser_free(denoiser);
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int vp9_denoiser_realloc_svc(VP9_COMMON *cm, VP9_DENOISER *denoiser,
+                             struct SVC *svc, int svc_buf_shift,
+                             int refresh_alt, int refresh_gld, int refresh_lst,
+                             int alt_fb_idx, int gld_fb_idx, int lst_fb_idx) {
+  int fail = 0;
+  if (svc->temporal_layering_mode == VP9E_TEMPORAL_LAYERING_MODE_BYPASS &&
+      svc->use_set_ref_frame_config) {
+    int i;
+    for (i = 0; i < REF_FRAMES; i++) {
+      if (cm->frame_type == KEY_FRAME ||
+          svc->update_buffer_slot[svc->spatial_layer_id] & (1 << i)) {
+        fail = vp9_denoiser_realloc_svc_helper(cm, denoiser,
+                                               i + 1 + svc_buf_shift);
+      }
+    }
+  } else {
+    if (refresh_alt) {
+      // Increase the frame buffer index by 1 to map it to the buffer index in
+      // the denoiser.
+      fail = vp9_denoiser_realloc_svc_helper(cm, denoiser,
+                                             alt_fb_idx + 1 + svc_buf_shift);
+      if (fail) return 1;
+    }
+    if (refresh_gld) {
+      fail = vp9_denoiser_realloc_svc_helper(cm, denoiser,
+                                             gld_fb_idx + 1 + svc_buf_shift);
+      if (fail) return 1;
+    }
+    if (refresh_lst) {
+      fail = vp9_denoiser_realloc_svc_helper(cm, denoiser,
+                                             lst_fb_idx + 1 + svc_buf_shift);
+      if (fail) return 1;
+    }
+  }
+  return 0;
+}
+
+int vp9_denoiser_alloc(VP9_COMMON *cm, struct SVC *svc, VP9_DENOISER *denoiser,
+                       int use_svc, int noise_sen, int width, int height,
+                       int ssx, int ssy,
 #if CONFIG_VP9_HIGHBITDEPTH
                        int use_highbitdepth,
 #endif
                        int border) {
-  int i, fail;
+  int i, layer, fail, init_num_ref_frames;
   const int legacy_byte_alignment = 0;
+  int num_layers = 1;
+  int scaled_width = width;
+  int scaled_height = height;
+  if (use_svc) {
+    LAYER_CONTEXT *lc = &svc->layer_context[svc->spatial_layer_id *
+                                                svc->number_temporal_layers +
+                                            svc->temporal_layer_id];
+    get_layer_resolution(width, height, lc->scaling_factor_num,
+                         lc->scaling_factor_den, &scaled_width, &scaled_height);
+    // For SVC: only denoise at most 2 spatial (highest) layers.
+    if (noise_sen >= 2)
+      // Denoise from one spatial layer below the top.
+      svc->first_layer_denoise = VPXMAX(svc->number_spatial_layers - 2, 0);
+    else
+      // Only denoise the top spatial layer.
+      svc->first_layer_denoise = VPXMAX(svc->number_spatial_layers - 1, 0);
+    num_layers = svc->number_spatial_layers - svc->first_layer_denoise;
+  }
   assert(denoiser != NULL);
+  denoiser->num_ref_frames = use_svc ? SVC_REF_FRAMES : NONSVC_REF_FRAMES;
+  init_num_ref_frames = use_svc ? MAX_REF_FRAMES : NONSVC_REF_FRAMES;
+  denoiser->num_layers = num_layers;
+  CHECK_MEM_ERROR(cm, denoiser->running_avg_y,
+                  vpx_calloc(denoiser->num_ref_frames * num_layers,
+                             sizeof(denoiser->running_avg_y[0])));
+  CHECK_MEM_ERROR(
+      cm, denoiser->mc_running_avg_y,
+      vpx_calloc(num_layers, sizeof(denoiser->mc_running_avg_y[0])));
 
-  for (i = 0; i < DENOISER_REF_FRAMES; ++i) {
-    fail = vpx_alloc_frame_buffer(&denoiser->running_avg_y[i], width, height,
-                                  ssx, ssy,
+  for (layer = 0; layer < num_layers; ++layer) {
+    const int denoise_width = (layer == 0) ? width : scaled_width;
+    const int denoise_height = (layer == 0) ? height : scaled_height;
+    for (i = 0; i < init_num_ref_frames; ++i) {
+      fail = vpx_alloc_frame_buffer(
+          &denoiser->running_avg_y[i + denoiser->num_ref_frames * layer],
+          denoise_width, denoise_height, ssx, ssy,
+#if CONFIG_VP9_HIGHBITDEPTH
+          use_highbitdepth,
+#endif
+          border, legacy_byte_alignment);
+      if (fail) {
+        vp9_denoiser_free(denoiser);
+        return 1;
+      }
+#ifdef OUTPUT_YUV_DENOISED
+      make_grayscale(&denoiser->running_avg_y[i]);
+#endif
+    }
+
+    fail = vpx_alloc_frame_buffer(&denoiser->mc_running_avg_y[layer],
+                                  denoise_width, denoise_height, ssx, ssy,
 #if CONFIG_VP9_HIGHBITDEPTH
                                   use_highbitdepth,
 #endif
@@ -533,22 +672,10 @@ int vp9_denoiser_alloc(VP9_DENOISER *denoiser, int width, int height, int ssx,
       vp9_denoiser_free(denoiser);
       return 1;
     }
-#ifdef OUTPUT_YUV_DENOISED
-    make_grayscale(&denoiser->running_avg_y[i]);
-#endif
   }
 
-  fail = vpx_alloc_frame_buffer(&denoiser->mc_running_avg_y, width, height, ssx,
-                                ssy,
-#if CONFIG_VP9_HIGHBITDEPTH
-                                use_highbitdepth,
-#endif
-                                border, legacy_byte_alignment);
-  if (fail) {
-    vp9_denoiser_free(denoiser);
-    return 1;
-  }
-
+  // denoiser->last_source only used for noise_estimation, so only for top
+  // layer.
   fail = vpx_alloc_frame_buffer(&denoiser->last_source, width, height, ssx, ssy,
 #if CONFIG_VP9_HIGHBITDEPTH
                                 use_highbitdepth,
@@ -565,6 +692,7 @@ int vp9_denoiser_alloc(VP9_DENOISER *denoiser, int width, int height, int ssx,
   denoiser->denoising_level = kDenLow;
   denoiser->prev_denoising_level = kDenLow;
   denoiser->reset = 0;
+  denoiser->current_denoiser_frame = 0;
   return 0;
 }
 
@@ -574,24 +702,49 @@ void vp9_denoiser_free(VP9_DENOISER *denoiser) {
     return;
   }
   denoiser->frame_buffer_initialized = 0;
-  for (i = 0; i < DENOISER_REF_FRAMES; ++i) {
+  for (i = 0; i < denoiser->num_ref_frames * denoiser->num_layers; ++i) {
     vpx_free_frame_buffer(&denoiser->running_avg_y[i]);
   }
-  vpx_free_frame_buffer(&denoiser->mc_running_avg_y);
+  vpx_free(denoiser->running_avg_y);
+  denoiser->running_avg_y = NULL;
+
+  for (i = 0; i < denoiser->num_layers; ++i) {
+    vpx_free_frame_buffer(&denoiser->mc_running_avg_y[i]);
+  }
+
+  vpx_free(denoiser->mc_running_avg_y);
+  denoiser->mc_running_avg_y = NULL;
   vpx_free_frame_buffer(&denoiser->last_source);
 }
 
-void vp9_denoiser_set_noise_level(VP9_DENOISER *denoiser, int noise_level) {
+static void force_refresh_longterm_ref(VP9_COMP *const cpi) {
+  SVC *const svc = &cpi->svc;
+  // If long term reference is used, force refresh of that slot, so
+  // denoiser buffer for long term reference stays in sync.
+  if (svc->use_gf_temporal_ref_current_layer) {
+    int index = svc->spatial_layer_id;
+    if (svc->number_spatial_layers == 3) index = svc->spatial_layer_id - 1;
+    assert(index >= 0);
+    cpi->alt_fb_idx = svc->buffer_gf_temporal_ref[index].idx;
+    cpi->refresh_alt_ref_frame = 1;
+  }
+}
+
+void vp9_denoiser_set_noise_level(VP9_COMP *const cpi, int noise_level) {
+  VP9_DENOISER *const denoiser = &cpi->denoiser;
   denoiser->denoising_level = noise_level;
   if (denoiser->denoising_level > kDenLowLow &&
-      denoiser->prev_denoising_level == kDenLowLow)
+      denoiser->prev_denoising_level == kDenLowLow) {
     denoiser->reset = 1;
-  else
+    force_refresh_longterm_ref(cpi);
+  } else {
     denoiser->reset = 0;
+  }
   denoiser->prev_denoising_level = denoiser->denoising_level;
 }
 
-// Scale/increase the partition threshold for denoiser speed-up.
+// Scale/increase the partition threshold
+// for denoiser speed-up.
 int64_t vp9_scale_part_thresh(int64_t threshold, VP9_DENOISER_LEVEL noise_level,
                               int content_state, int temporal_layer_id) {
   if ((content_state == kLowSadLowSumdiff) ||
@@ -606,7 +759,8 @@ int64_t vp9_scale_part_thresh(int64_t threshold, VP9_DENOISER_LEVEL noise_level,
   }
 }
 
-//  Scale/increase the ac skip threshold for denoiser speed-up.
+//  Scale/increase the ac skip threshold for
+//  denoiser speed-up.
 int64_t vp9_scale_acskip_thresh(int64_t threshold,
                                 VP9_DENOISER_LEVEL noise_level, int abs_sumdiff,
                                 int temporal_layer_id) {
@@ -615,6 +769,56 @@ int64_t vp9_scale_acskip_thresh(int64_t threshold,
            (noise_level == kDenLow) ? 2 : (temporal_layer_id == 2) ? 10 : 6;
   else
     return threshold;
+}
+
+void vp9_denoiser_reset_on_first_frame(VP9_COMP *const cpi) {
+  if (vp9_denoise_svc_non_key(cpi) &&
+      cpi->denoiser.current_denoiser_frame == 0) {
+    cpi->denoiser.reset = 1;
+    force_refresh_longterm_ref(cpi);
+  }
+}
+
+void vp9_denoiser_update_ref_frame(VP9_COMP *const cpi) {
+  VP9_COMMON *const cm = &cpi->common;
+  SVC *const svc = &cpi->svc;
+
+  if (cpi->oxcf.noise_sensitivity > 0 && denoise_svc(cpi) &&
+      cpi->denoiser.denoising_level > kDenLowLow) {
+    int svc_refresh_denoiser_buffers = 0;
+    int denoise_svc_second_layer = 0;
+    FRAME_TYPE frame_type = cm->intra_only ? KEY_FRAME : cm->frame_type;
+    cpi->denoiser.current_denoiser_frame++;
+    if (cpi->use_svc) {
+      const int svc_buf_shift =
+          svc->number_spatial_layers - svc->spatial_layer_id == 2
+              ? cpi->denoiser.num_ref_frames
+              : 0;
+      int layer =
+          LAYER_IDS_TO_IDX(svc->spatial_layer_id, svc->temporal_layer_id,
+                           svc->number_temporal_layers);
+      LAYER_CONTEXT *const lc = &svc->layer_context[layer];
+      svc_refresh_denoiser_buffers =
+          lc->is_key_frame || svc->spatial_layer_sync[svc->spatial_layer_id];
+      denoise_svc_second_layer =
+          svc->number_spatial_layers - svc->spatial_layer_id == 2 ? 1 : 0;
+      // Check if we need to allocate extra buffers in the denoiser
+      // for refreshed frames.
+      if (vp9_denoiser_realloc_svc(cm, &cpi->denoiser, svc, svc_buf_shift,
+                                   cpi->refresh_alt_ref_frame,
+                                   cpi->refresh_golden_frame,
+                                   cpi->refresh_last_frame, cpi->alt_fb_idx,
+                                   cpi->gld_fb_idx, cpi->lst_fb_idx))
+        vpx_internal_error(&cm->error, VPX_CODEC_MEM_ERROR,
+                           "Failed to re-allocate denoiser for SVC");
+    }
+    vp9_denoiser_update_frame_info(
+        &cpi->denoiser, *cpi->Source, svc, frame_type,
+        cpi->refresh_alt_ref_frame, cpi->refresh_golden_frame,
+        cpi->refresh_last_frame, cpi->alt_fb_idx, cpi->gld_fb_idx,
+        cpi->lst_fb_idx, cpi->resize_pending, svc_refresh_denoiser_buffers,
+        denoise_svc_second_layer);
+  }
 }
 
 #ifdef OUTPUT_YUV_DENOISED

@@ -33,7 +33,7 @@ import QtQuick.VirtualKeyboard 2.3
 
 KeyboardLayout {
     function createInputMethod() {
-        return Qt.createQmlObject('import QtQuick 2.0; import QtQuick.VirtualKeyboard 2.3; HandwritingInputMethod {}', parent)
+        return Qt.createQmlObject('import QtQuick 2.0; import QtQuick.VirtualKeyboard.Plugins 2.3; HandwritingInputMethod {}', parent)
     }
     sharedLayouts: ['symbols']
     inputMode: preferredInputMode()
@@ -50,7 +50,7 @@ KeyboardLayout {
     function preferredInputMode() {
         return InputContext.inputMethodHints &
                 (Qt.ImhPreferLatin | Qt.ImhEmailCharactersOnly | Qt.ImhUrlCharactersOnly |
-                 Qt.ImhLatinOnly) ? InputEngine.Latin : InputEngine.ChineseHandwriting
+                 Qt.ImhLatinOnly) ? InputEngine.InputMode.Latin : InputEngine.InputMode.ChineseHandwriting
     }
 
     KeyboardRow {
@@ -60,9 +60,9 @@ KeyboardLayout {
             KeyboardRow {
                 TraceInputKey {
                     objectName: "hwrInputArea"
-                    patternRecognitionMode: InputEngine.HandwritingRecoginition
+                    patternRecognitionMode: InputEngine.PatternRecognitionMode.Handwriting
                     horizontalRulers:
-                        InputContext.inputEngine.inputMode !== InputEngine.ChineseHandwriting ? [] :
+                        InputContext.inputEngine.inputMode !== InputEngine.InputMode.ChineseHandwriting ? [] :
                             [Math.round(boundingBox.height / 4), Math.round(boundingBox.height / 4) * 2, Math.round(boundingBox.height / 4) * 3]
 
                 }

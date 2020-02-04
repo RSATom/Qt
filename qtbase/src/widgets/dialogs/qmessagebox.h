@@ -132,9 +132,9 @@ public:
     Q_DECLARE_FLAGS(StandardButtons, StandardButton)
     Q_FLAG(StandardButtons)
 
-    explicit QMessageBox(QWidget *parent = Q_NULLPTR);
+    explicit QMessageBox(QWidget *parent = nullptr);
     QMessageBox(Icon icon, const QString &title, const QString &text,
-                StandardButtons buttons = NoButton, QWidget *parent = Q_NULLPTR,
+                StandardButtons buttons = NoButton, QWidget *parent = nullptr,
                 Qt::WindowFlags flags = Qt::Dialog | Qt::MSWindowsFixedSizeDialogHint);
     ~QMessageBox();
 
@@ -201,7 +201,7 @@ public:
 
     QMessageBox(const QString &title, const QString &text, Icon icon,
                   int button0, int button1, int button2,
-                  QWidget *parent = Q_NULLPTR,
+                  QWidget *parent = nullptr,
                   Qt::WindowFlags f = Qt::Dialog | Qt::MSWindowsFixedSizeDialogHint);
 
     static int information(QWidget *parent, const QString &title,
@@ -284,18 +284,18 @@ public:
 Q_SIGNALS:
     void buttonClicked(QAbstractButton *button);
 
-#ifdef Q_QDOC
+#ifdef Q_CLANG_QDOC
 public Q_SLOTS:
-    int exec();
+    int exec() override;
 #endif
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *event) Q_DECL_OVERRIDE;
-    void showEvent(QShowEvent *event) Q_DECL_OVERRIDE;
-    void closeEvent(QCloseEvent *event) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent *event) Q_DECL_OVERRIDE;
-    void changeEvent(QEvent *event) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
+    void resizeEvent(QResizeEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private:
     Q_PRIVATE_SLOT(d_func(), void _q_buttonClicked(QAbstractButton *))

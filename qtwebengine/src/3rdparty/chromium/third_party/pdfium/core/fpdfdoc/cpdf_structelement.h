@@ -9,10 +9,9 @@
 
 #include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_string.h"
-#include "core/fxge/fx_dib.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Dictionary;
 class CPDF_Object;
@@ -27,40 +26,42 @@ class CPDF_StructKid {
 
   enum { Invalid, Element, PageContent, StreamContent, Object } m_Type;
 
-  CFX_RetainPtr<CPDF_StructElement> m_pElement;  // For Element.
-  CFX_UnownedPtr<CPDF_Dictionary> m_pDict;       // For Element.
+  RetainPtr<CPDF_StructElement> m_pElement;      // For Element.
+  UnownedPtr<const CPDF_Dictionary> m_pDict;     // For Element.
   uint32_t m_PageObjNum;  // For PageContent, StreamContent, Object.
   uint32_t m_RefObjNum;   // For StreamContent, Object.
   uint32_t m_ContentId;   // For PageContent, StreamContent.
 };
 
-class CPDF_StructElement : public CFX_Retainable {
+class CPDF_StructElement final : public Retainable {
  public:
   template <typename T, typename... Args>
-  friend CFX_RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+  friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
 
-  const CFX_ByteString& GetType() const { return m_Type; }
-  const CFX_ByteString& GetTitle() const { return m_Title; }
-  CPDF_Dictionary* GetDict() const { return m_pDict.Get(); }
+  ByteString GetType() const { return m_Type; }
+  ByteString GetTitle() const { return m_Title; }
+  const CPDF_Dictionary* GetDict() const { return m_pDict.Get(); }
 
-  int CountKids() const;
-  CPDF_StructElement* GetKidIfElement(int index) const;
+  size_t CountKids() const;
+  CPDF_StructElement* GetKidIfElement(size_t index) const;
   std::vector<CPDF_StructKid>* GetKids() { return &m_Kids; }
 
  private:
   CPDF_StructElement(CPDF_StructTree* pTree,
                      CPDF_StructElement* pParent,
-                     CPDF_Dictionary* pDict);
+                     const CPDF_Dictionary* pDict);
   ~CPDF_StructElement() override;
 
-  void LoadKids(CPDF_Dictionary* pDict);
-  void LoadKid(uint32_t PageObjNum, CPDF_Object* pObj, CPDF_StructKid* pKid);
+  void LoadKids(const CPDF_Dictionary* pDict);
+  void LoadKid(uint32_t PageObjNum,
+               const CPDF_Object* pObj,
+               CPDF_StructKid* pKid);
 
-  CFX_UnownedPtr<CPDF_StructTree> const m_pTree;
-  CFX_UnownedPtr<CPDF_StructElement> const m_pParent;
-  CFX_UnownedPtr<CPDF_Dictionary> const m_pDict;
-  CFX_ByteString m_Type;
-  CFX_ByteString m_Title;
+  UnownedPtr<CPDF_StructTree> const m_pTree;
+  UnownedPtr<CPDF_StructElement> const m_pParent;
+  UnownedPtr<const CPDF_Dictionary> const m_pDict;
+  ByteString m_Type;
+  ByteString m_Title;
   std::vector<CPDF_StructKid> m_Kids;
 };
 

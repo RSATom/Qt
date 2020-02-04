@@ -57,10 +57,10 @@
 
 /*!
     \page qtquickcontrolsstyles-index.html
-    \title Qt Quick Controls Styles
+    \title Qt Quick Controls 1 Styles
     \brief The Qt Quick Controls Styles submodule provides custom styles for Qt Quick Controls.
 
-    The Qt Quick Controls Styles submodule allows custom styling for \l {Qt Quick Controls}.
+    The Qt Quick Controls Styles submodule allows custom styling for \l {Qt Quick Controls 1}.
 
     The submodule was introduced in Qt 5.1.
 
@@ -118,19 +118,19 @@
 
      \list
       \li \l{Qt Quick}
-      \li \l{Qt Quick Controls}
-      \li \l{Qt Quick Controls Styles QML Types}
+      \li \l{Qt Quick Controls 1}
+      \li \l{Qt Quick Controls 1 Styles QML Types}
      \endlist
 
 */
 
 /*!
     \qmlmodule QtQuick.Controls.Styles 1.4
-    \title Qt Quick Controls Styles QML Types
+    \title Qt Quick Controls 1 Styles QML Types
     \ingroup qmlmodules
     \brief Provides QML types for Qt Quick Controls styles.
 
-    The \l{Qt Quick Controls} module provides a set of QML types for handling
+    The \l{Qt Quick Controls 1} module provides a set of QML types for handling
     styles.
 
     Some of the controls allow custom styling similar to widget style sheets.

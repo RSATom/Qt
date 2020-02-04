@@ -40,12 +40,12 @@
 #include "shared_enums_p.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/abstractsettings.h>
 // shared
 #include <qdesigner_utils_p.h>
 #include <qdesigner_propertycommand_p.h>
@@ -53,21 +53,21 @@
 #include <iconloader_p.h>
 #include <widgetfactory_p.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QScrollArea>
-#include <QtWidgets/QStackedWidget>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QActionGroup>
-#include <QtWidgets/QLabel>
-#include <QtGui/QPainter>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qscrollarea.h>
+#include <QtWidgets/qstackedwidget.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qactiongroup.h>
+#include <QtWidgets/qlabel.h>
+#include <QtGui/qpainter.h>
 
-#include <QtCore/QDebug>
-#include <QtCore/QTextStream>
+#include <QtCore/qdebug.h>
+#include <QtCore/qtextstream.h>
 
 static const char *SettingsGroupC = "PropertyEditor";
 static const char *ViewKeyC = "View";
@@ -90,14 +90,10 @@ namespace qdesigner_internal {
 class ElidingLabel : public QWidget
 {
 public:
-    ElidingLabel(const QString &text = QString(), QWidget *parent = 0)
-        : QWidget(parent),
-        m_text(text),
-        m_mode(Qt::ElideRight) {
-        setContentsMargins(3, 2, 3, 2);
-    }
-    QSize sizeHint() const;
-    void paintEvent(QPaintEvent *e);
+    explicit ElidingLabel(const QString &text = QString(),
+                          QWidget *parent = nullptr) : QWidget(parent), m_text(text)
+        { setContentsMargins(3, 2, 3, 2); }
+
     void setText(const QString &text) {
         m_text = text;
         updateGeometry();
@@ -106,9 +102,14 @@ public:
         m_mode = mode;
         updateGeometry();
     }
+
+protected:
+    QSize sizeHint() const override;
+    void paintEvent(QPaintEvent *e) override;
+
 private:
     QString m_text;
-    Qt::TextElideMode m_mode;
+    Qt::TextElideMode m_mode = Qt::ElideRight;
 };
 
 QSize ElidingLabel::sizeHint() const
@@ -324,7 +325,7 @@ PropertyEditor::PropertyEditor(QDesignerFormEditorInterface *core, QWidget *pare
     layout->addWidget(m_classLabel);
     layout->addSpacerItem(new QSpacerItem(0,1));
     layout->addWidget(m_stackedWidget);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->setSpacing(0);
 
     m_treeFactory = new DesignerEditorFactory(m_core, this);
@@ -417,7 +418,7 @@ bool PropertyEditor::isExpanded(QtBrowserItem *item) const
 {
     if (m_buttonBrowser == m_currentBrowser)
         return m_buttonBrowser->isExpanded(item);
-    else if (m_treeBrowser == m_currentBrowser)
+    if (m_treeBrowser == m_currentBrowser)
         return m_treeBrowser->isExpanded(item);
     return false;
 }
@@ -796,7 +797,8 @@ void PropertyEditor::updateToolBarLabel()
     classLabelText += className;
 
     m_classLabel->setText(classLabelText);
-    m_classLabel->setToolTip(tr("Object: %1\nClass: %2").arg(objectName).arg(className));
+    m_classLabel->setToolTip(tr("Object: %1\nClass: %2")
+                             .arg(objectName, className));
 }
 
 void PropertyEditor::updateBrowserValue(QtVariantProperty *property, const QVariant &value)
@@ -890,7 +892,7 @@ static const char *typeName(int type)
         return "invalid";
     if (type == QVariant::UserType)
         return "user type";
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 static QString msgUnsupportedType(const QString &propertyName, int type)
@@ -911,7 +913,19 @@ void PropertyEditor::setObject(QObject *object)
     m_object = object;
     m_propertyManager->setObject(object);
     QDesignerFormWindowInterface *formWindow = QDesignerFormWindowInterface::findFormWindow(m_object);
+    // QTBUG-68507: Form window can be null for objects in Morph Undo macros with buddies
+    if (object != nullptr && formWindow == nullptr) {
+        formWindow = m_core->formWindowManager()->activeFormWindow();
+        if (formWindow == nullptr) {
+            qWarning("PropertyEditor::setObject(): Unable to find form window for \"%s\".",
+                     qPrintable(object->objectName()));
+            return;
+        }
+    }
     FormWindowBase *fwb = qobject_cast<FormWindowBase *>(formWindow);
+    const bool idIdBasedTranslation = fwb && fwb->useIdBasedTranslations();
+    const bool idIdBasedTranslationUnchanged = (idIdBasedTranslation == DesignerPropertyManager::useIdBasedTranslations());
+    DesignerPropertyManager::setUseIdBasedTranslations(idIdBasedTranslation);
     m_treeFactory->setFormWindowBase(fwb);
     m_groupFactory->setFormWindowBase(fwb);
 
@@ -933,6 +947,7 @@ void PropertyEditor::setObject(QObject *object)
 
     m_propertySheet = qobject_cast<QDesignerPropertySheetExtension*>(m->extension(object, Q_TYPEID(QDesignerPropertySheetExtension)));
     if (m_propertySheet) {
+        const int stringTypeId = qMetaTypeId<PropertySheetStringValue>();
         const int propertyCount = m_propertySheet->count();
         for (int i = 0; i < propertyCount; ++i) {
             if (!m_propertySheet->isVisible(i))
@@ -945,8 +960,14 @@ void PropertyEditor::setObject(QObject *object)
             const QMap<QString, QtVariantProperty *>::const_iterator rit = toRemove.constFind(propertyName);
             if (rit != toRemove.constEnd()) {
                 QtVariantProperty *property = rit.value();
-                if (m_propertyToGroup.value(property) == groupName && toBrowserType(m_propertySheet->property(i), propertyName) == property->propertyType())
+                const int propertyType = property->propertyType();
+                // Also remove string properties in case a change in translation mode
+                // occurred since different sub-properties are used (disambiguation/id).
+                if (m_propertyToGroup.value(property) == groupName
+                    && (idIdBasedTranslationUnchanged || propertyType != stringTypeId)
+                    && toBrowserType(m_propertySheet->property(i), propertyName) == propertyType) {
                     toRemove.remove(propertyName);
+                }
             }
         }
     }
@@ -1225,10 +1246,8 @@ bool PropertyEditor::isDynamicProperty(const QtBrowserItem* item) const
     if (!dynamicSheet)
         return false;
 
-    if (m_propertyToGroup.contains(item->property())
-                && dynamicSheet->isDynamicProperty(m_propertySheet->indexOf(item->property()->propertyName())))
-        return true;
-    return false;
+    return m_propertyToGroup.contains(item->property())
+        && dynamicSheet->isDynamicProperty(m_propertySheet->indexOf(item->property()->propertyName()));
 }
 
 void PropertyEditor::editProperty(const QString &name)

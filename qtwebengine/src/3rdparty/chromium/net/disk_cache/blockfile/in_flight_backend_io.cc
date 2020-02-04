@@ -34,13 +34,15 @@ EntryImpl* LeakEntryImpl(scoped_refptr<EntryImpl> entry) {
 
 }  // namespace
 
-BackendIO::BackendIO(InFlightIO* controller, BackendImpl* backend,
-                     const net::CompletionCallback& callback)
+BackendIO::BackendIO(InFlightIO* controller,
+                     BackendImpl* backend,
+                     net::CompletionOnceCallback callback)
     : BackgroundIO(controller),
       backend_(backend),
-      callback_(callback),
+      callback_(std::move(callback)),
       operation_(OP_NONE),
       entry_ptr_(NULL),
+      entry_with_opened_ptr_(NULL),
       iterator_(NULL),
       entry_(NULL),
       index_(0),
@@ -74,13 +76,16 @@ void BackendIO::OnDone(bool cancel) {
     CACHE_UMA(TIMES, "TotalIOTime", 0, ElapsedTime());
   }
 
-  if (!ReturnsEntry())
+  if (!ReturnsEntry() && !ReturnsEntryWithOpened())
     return;
 
+  EntryImpl* working_entry =
+      ReturnsEntry() ? static_cast<EntryImpl*>(*entry_ptr_)
+                     : static_cast<EntryImpl*>(entry_with_opened_ptr_->entry);
   if (result() == net::OK) {
-    static_cast<EntryImpl*>(*entry_ptr_)->OnEntryCreated(backend_);
+    working_entry->OnEntryCreated(backend_);
     if (cancel)
-      (*entry_ptr_)->Close();
+      working_entry->Close();
   }
 }
 
@@ -88,8 +93,19 @@ bool BackendIO::IsEntryOperation() {
   return operation_ > OP_MAX_BACKEND;
 }
 
+void BackendIO::RunCallback(int result) {
+  std::move(callback_).Run(result);
+}
+
 void BackendIO::Init() {
   operation_ = OP_INIT;
+}
+
+void BackendIO::OpenOrCreateEntry(const std::string& key,
+                                  EntryWithOpened* entry_struct) {
+  operation_ = OP_OPEN_OR_CREATE;
+  key_ = key;
+  entry_with_opened_ptr_ = entry_struct;
 }
 
 void BackendIO::OpenEntry(const std::string& key, Entry** entry) {
@@ -160,9 +176,9 @@ void BackendIO::FlushQueue() {
   operation_ = OP_FLUSH_QUEUE;
 }
 
-void BackendIO::RunTask(const base::Closure& task) {
+void BackendIO::RunTask(base::OnceClosure task) {
   operation_ = OP_RUN_TASK;
-  task_ = task;
+  task_ = std::move(task);
 }
 
 void BackendIO::ReadData(EntryImpl* entry, int index, int offset,
@@ -229,11 +245,15 @@ void BackendIO::ReadyForSparseIO(EntryImpl* entry) {
   entry_ = entry;
 }
 
-BackendIO::~BackendIO() {}
+BackendIO::~BackendIO() = default;
 
 bool BackendIO::ReturnsEntry() {
   return operation_ == OP_OPEN || operation_ == OP_CREATE ||
-      operation_ == OP_OPEN_NEXT;
+         operation_ == OP_OPEN_NEXT;
+}
+
+bool BackendIO::ReturnsEntryWithOpened() {
+  return operation_ == OP_OPEN_OR_CREATE;
 }
 
 base::TimeDelta BackendIO::ElapsedTime() const {
@@ -246,6 +266,22 @@ void BackendIO::ExecuteBackendOperation() {
     case OP_INIT:
       result_ = backend_->SyncInit();
       break;
+    case OP_OPEN_OR_CREATE: {
+      scoped_refptr<EntryImpl> entry;
+      result_ = backend_->SyncOpenEntry(key_, &entry);
+
+      if (result_ == net::OK) {
+        entry_with_opened_ptr_->entry = LeakEntryImpl(std::move(entry));
+        entry_with_opened_ptr_->opened = true;
+        break;
+      }
+
+      // Opening failed, create an entry instead.
+      result_ = backend_->SyncCreateEntry(key_, &entry);
+      entry_with_opened_ptr_->entry = LeakEntryImpl(std::move(entry));
+      entry_with_opened_ptr_->opened = false;
+      break;
+    }
     case OP_OPEN: {
       scoped_refptr<EntryImpl> entry;
       result_ = backend_->SyncOpenEntry(key_, &entry);
@@ -301,7 +337,7 @@ void BackendIO::ExecuteBackendOperation() {
       result_ = net::OK;
       break;
     case OP_RUN_TASK:
-      task_.Run();
+      std::move(task_).Run();
       result_ = net::OK;
       break;
     default:
@@ -310,6 +346,7 @@ void BackendIO::ExecuteBackendOperation() {
   }
   DCHECK_NE(net::ERR_IO_PENDING, result_);
   NotifyController();
+  backend_->OnSyncBackendOpComplete();
 }
 
 // Runs on the background thread.
@@ -364,69 +401,89 @@ InFlightBackendIO::InFlightBackendIO(
       ptr_factory_(this) {
 }
 
-InFlightBackendIO::~InFlightBackendIO() {
-}
+InFlightBackendIO::~InFlightBackendIO() = default;
 
-void InFlightBackendIO::Init(const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::Init(net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->Init();
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::OpenEntry(const std::string& key, Entry** entry,
-                                  const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::OpenOrCreateEntry(
+    const std::string& key,
+    EntryWithOpened* entry_struct,
+    net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
+  operation->OpenOrCreateEntry(key, entry_struct);
+  PostOperation(FROM_HERE, operation.get());
+}
+
+void InFlightBackendIO::OpenEntry(const std::string& key,
+                                  Entry** entry,
+                                  net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->OpenEntry(key, entry);
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::CreateEntry(const std::string& key, Entry** entry,
-                                    const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::CreateEntry(const std::string& key,
+                                    Entry** entry,
+                                    net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->CreateEntry(key, entry);
   PostOperation(FROM_HERE, operation.get());
 }
 
 void InFlightBackendIO::DoomEntry(const std::string& key,
-                                  const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+                                  net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->DoomEntry(key);
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::DoomAllEntries(
-    const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::DoomAllEntries(net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->DoomAllEntries();
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::DoomEntriesBetween(const base::Time initial_time,
-                        const base::Time end_time,
-                        const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::DoomEntriesBetween(
+    const base::Time initial_time,
+    const base::Time end_time,
+    net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->DoomEntriesBetween(initial_time, end_time);
   PostOperation(FROM_HERE, operation.get());
 }
 
 void InFlightBackendIO::CalculateSizeOfAllEntries(
-    const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+    net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->CalculateSizeOfAllEntries();
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::DoomEntriesSince(
-    const base::Time initial_time, const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::DoomEntriesSince(const base::Time initial_time,
+                                         net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->DoomEntriesSince(initial_time);
   PostOperation(FROM_HERE, operation.get());
 }
 
 void InFlightBackendIO::OpenNextEntry(Rankings::Iterator* iterator,
                                       Entry** next_entry,
-                                      const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+                                      net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->OpenNextEntry(iterator, next_entry);
   PostOperation(FROM_HERE, operation.get());
 }
@@ -434,80 +491,90 @@ void InFlightBackendIO::OpenNextEntry(Rankings::Iterator* iterator,
 void InFlightBackendIO::EndEnumeration(
     std::unique_ptr<Rankings::Iterator> iterator) {
   scoped_refptr<BackendIO> operation(
-      new BackendIO(this, backend_, net::CompletionCallback()));
+      new BackendIO(this, backend_, net::CompletionOnceCallback()));
   operation->EndEnumeration(std::move(iterator));
   PostOperation(FROM_HERE, operation.get());
 }
 
 void InFlightBackendIO::OnExternalCacheHit(const std::string& key) {
   scoped_refptr<BackendIO> operation(
-      new BackendIO(this, backend_, net::CompletionCallback()));
+      new BackendIO(this, backend_, net::CompletionOnceCallback()));
   operation->OnExternalCacheHit(key);
   PostOperation(FROM_HERE, operation.get());
 }
 
 void InFlightBackendIO::CloseEntryImpl(EntryImpl* entry) {
   scoped_refptr<BackendIO> operation(
-      new BackendIO(this, backend_, net::CompletionCallback()));
+      new BackendIO(this, backend_, net::CompletionOnceCallback()));
   operation->CloseEntryImpl(entry);
   PostOperation(FROM_HERE, operation.get());
 }
 
 void InFlightBackendIO::DoomEntryImpl(EntryImpl* entry) {
   scoped_refptr<BackendIO> operation(
-      new BackendIO(this, backend_, net::CompletionCallback()));
+      new BackendIO(this, backend_, net::CompletionOnceCallback()));
   operation->DoomEntryImpl(entry);
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::FlushQueue(const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::FlushQueue(net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->FlushQueue();
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::RunTask(
-    const base::Closure& task, const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
-  operation->RunTask(task);
+void InFlightBackendIO::RunTask(base::OnceClosure task,
+                                net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
+  operation->RunTask(std::move(task));
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::ReadData(EntryImpl* entry, int index, int offset,
-                                 net::IOBuffer* buf, int buf_len,
-                                 const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::ReadData(EntryImpl* entry,
+                                 int index,
+                                 int offset,
+                                 net::IOBuffer* buf,
+                                 int buf_len,
+                                 net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->ReadData(entry, index, offset, buf, buf_len);
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::WriteData(EntryImpl* entry, int index, int offset,
-                                  net::IOBuffer* buf, int buf_len,
+void InFlightBackendIO::WriteData(EntryImpl* entry,
+                                  int index,
+                                  int offset,
+                                  net::IOBuffer* buf,
+                                  int buf_len,
                                   bool truncate,
-                                  const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+                                  net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->WriteData(entry, index, offset, buf, buf_len, truncate);
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::ReadSparseData(
-    EntryImpl* entry,
-    int64_t offset,
-    net::IOBuffer* buf,
-    int buf_len,
-    const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::ReadSparseData(EntryImpl* entry,
+                                       int64_t offset,
+                                       net::IOBuffer* buf,
+                                       int buf_len,
+                                       net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->ReadSparseData(entry, offset, buf, buf_len);
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::WriteSparseData(
-    EntryImpl* entry,
-    int64_t offset,
-    net::IOBuffer* buf,
-    int buf_len,
-    const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::WriteSparseData(EntryImpl* entry,
+                                        int64_t offset,
+                                        net::IOBuffer* buf,
+                                        int buf_len,
+                                        net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->WriteSparseData(entry, offset, buf, buf_len);
   PostOperation(FROM_HERE, operation.get());
 }
@@ -517,22 +584,24 @@ void InFlightBackendIO::GetAvailableRange(
     int64_t offset,
     int len,
     int64_t* start,
-    const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+    net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->GetAvailableRange(entry, offset, len, start);
   PostOperation(FROM_HERE, operation.get());
 }
 
 void InFlightBackendIO::CancelSparseIO(EntryImpl* entry) {
   scoped_refptr<BackendIO> operation(
-      new BackendIO(this, backend_, net::CompletionCallback()));
+      new BackendIO(this, backend_, net::CompletionOnceCallback()));
   operation->CancelSparseIO(entry);
   PostOperation(FROM_HERE, operation.get());
 }
 
-void InFlightBackendIO::ReadyForSparseIO(
-    EntryImpl* entry, const net::CompletionCallback& callback) {
-  scoped_refptr<BackendIO> operation(new BackendIO(this, backend_, callback));
+void InFlightBackendIO::ReadyForSparseIO(EntryImpl* entry,
+                                         net::CompletionOnceCallback callback) {
+  scoped_refptr<BackendIO> operation(
+      new BackendIO(this, backend_, std::move(callback)));
   operation->ReadyForSparseIO(entry);
   PostOperation(FROM_HERE, operation.get());
 }
@@ -546,13 +615,12 @@ void InFlightBackendIO::OnOperationComplete(BackgroundIO* operation,
   BackendIO* op = static_cast<BackendIO*>(operation);
   op->OnDone(cancel);
 
-  if (!op->callback().is_null() && (!cancel || op->IsEntryOperation()))
-    op->callback().Run(op->result());
+  if (op->has_callback() && (!cancel || op->IsEntryOperation()))
+    op->RunCallback(op->result());
 }
 
-void InFlightBackendIO::PostOperation(
-    const tracked_objects::Location& from_here,
-    BackendIO* operation) {
+void InFlightBackendIO::PostOperation(const base::Location& from_here,
+                                      BackendIO* operation) {
   background_thread_->PostTask(
       from_here, base::Bind(&BackendIO::ExecuteOperation, operation));
   OnOperationPosted(operation);

@@ -381,7 +381,7 @@ void VolumetricModifier::createVolume()
     logo.load(QStringLiteral(":/logo_no_padding.png"));
     //logo.load(QStringLiteral(":/logo.png"));
     qDebug() << "image dimensions:" << logo.width() << logo.height()
-             << logo.byteCount() << (logo.width() * logo.height())
+             << logo.sizeInBytes() << (logo.width() * logo.height())
              << logo.bytesPerLine();
 
     QVector<QImage *> imageArray(imageCount);
@@ -535,7 +535,7 @@ void VolumetricModifier::createAnotherVolume()
     //logo.load(QStringLiteral(":/logo.png"));
     logo = logo.convertToFormat(QImage::Format_ARGB8555_Premultiplied);
     qDebug() << "second image dimensions:" << logo.width() << logo.height()
-             << logo.byteCount() << (logo.width() * logo.height())
+             << logo.sizeInBytes() << (logo.width() * logo.height())
              << logo.bytesPerLine();
 
     logo.save("d:/qt/goobar.png");

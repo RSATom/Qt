@@ -6,44 +6,7 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
-
 namespace device {
-
-namespace {
-
-PowerSaveBlocker::PowerSaveBlockerType ToPowerSaveBlockerType(
-    mojom::WakeLockType type) {
-  switch (type) {
-    case mojom::WakeLockType::PreventAppSuspension:
-      return PowerSaveBlocker::PowerSaveBlockerType::
-          kPowerSaveBlockPreventAppSuspension;
-    case mojom::WakeLockType::PreventDisplaySleep:
-      return PowerSaveBlocker::PowerSaveBlockerType::
-          kPowerSaveBlockPreventDisplaySleep;
-  }
-
-  NOTREACHED();
-  return PowerSaveBlocker::PowerSaveBlockerType::
-      kPowerSaveBlockPreventAppSuspension;
-}
-
-PowerSaveBlocker::Reason ToPowerSaveBlockerReason(
-    mojom::WakeLockReason reason) {
-  switch (reason) {
-    case mojom::WakeLockReason::ReasonAudioPlayback:
-      return PowerSaveBlocker::Reason::kReasonAudioPlayback;
-    case mojom::WakeLockReason::ReasonVideoPlayback:
-      return PowerSaveBlocker::Reason::kReasonVideoPlayback;
-    case mojom::WakeLockReason::ReasonOther:
-      return PowerSaveBlocker::Reason::kReasonOther;
-  }
-
-  NOTREACHED();
-  return PowerSaveBlocker::Reason::kReasonOther;
-}
-
-}  // namespace
 
 WakeLock::WakeLock(mojom::WakeLockRequest request,
                    mojom::WakeLockType type,
@@ -55,7 +18,7 @@ WakeLock::WakeLock(mojom::WakeLockRequest request,
     : num_lock_requests_(0),
       type_(type),
       reason_(reason),
-      description_(base::MakeUnique<std::string>(description)),
+      description_(std::make_unique<std::string>(description)),
 #if defined(OS_ANDROID)
       context_id_(context_id),
       native_view_getter_(native_view_getter),
@@ -72,7 +35,17 @@ WakeLock::~WakeLock() {}
 void WakeLock::AddClient(mojom::WakeLockRequest request) {
   DCHECK(main_task_runner_->RunsTasksInCurrentSequence());
   binding_set_.AddBinding(this, std::move(request),
-                          base::MakeUnique<bool>(false));
+                          std::make_unique<bool>(false));
+}
+
+void WakeLock::AddObserver(Observer* observer) {
+  DCHECK(observer);
+  observers_.AddObserver(observer);
+}
+
+void WakeLock::RemoveObserver(Observer* observer) {
+  DCHECK(observer);
+  observers_.RemoveObserver(observer);
 }
 
 void WakeLock::RequestWakeLock() {
@@ -82,8 +55,9 @@ void WakeLock::RequestWakeLock() {
   // Uses the Context to get the outstanding status of current binding.
   // Two consecutive requests from the same client should be coalesced
   // as one request.
-  if (*binding_set_.dispatch_context())
+  if (*binding_set_.dispatch_context()) {
     return;
+  }
 
   *binding_set_.dispatch_context() = true;
   num_lock_requests_++;
@@ -97,7 +71,7 @@ void WakeLock::CancelWakeLock() {
   if (!(*binding_set_.dispatch_context()))
     return;
 
-  DCHECK(num_lock_requests_ > 0);
+  DCHECK_GT(num_lock_requests_, 0);
   *binding_set_.dispatch_context() = false;
   num_lock_requests_--;
   UpdateWakeLock();
@@ -133,7 +107,7 @@ void WakeLock::HasWakeLockForTests(HasWakeLockForTestsCallback callback) {
 }
 
 void WakeLock::UpdateWakeLock() {
-  DCHECK(num_lock_requests_ >= 0);
+  DCHECK_GE(num_lock_requests_, 0);
 
   if (num_lock_requests_) {
     if (!wake_lock_)
@@ -147,14 +121,13 @@ void WakeLock::UpdateWakeLock() {
 void WakeLock::CreateWakeLock() {
   DCHECK(!wake_lock_);
 
-  // TODO(heke): Switch PowerSaveBlocker to use mojom::WakeLockType and
-  // mojom::WakeLockReason once all its clients are converted to be the clients
-  // of WakeLock.
-  wake_lock_ = base::MakeUnique<PowerSaveBlocker>(
-      ToPowerSaveBlockerType(type_), ToPowerSaveBlockerReason(reason_),
-      *description_, main_task_runner_, file_task_runner_);
+  wake_lock_ = std::make_unique<PowerSaveBlocker>(
+      type_, reason_, *description_, main_task_runner_, file_task_runner_);
 
-  if (type_ != mojom::WakeLockType::PreventDisplaySleep)
+  for (auto& observer : observers_)
+    observer.OnWakeLockActivated(type_);
+
+  if (type_ != mojom::WakeLockType::kPreventDisplaySleep)
     return;
 
 #if defined(OS_ANDROID)
@@ -173,18 +146,18 @@ void WakeLock::CreateWakeLock() {
 void WakeLock::RemoveWakeLock() {
   DCHECK(wake_lock_);
   wake_lock_.reset();
+
+  for (auto& observer : observers_)
+    observer.OnWakeLockDeactivated(type_);
 }
 
 void WakeLock::SwapWakeLock() {
   DCHECK(wake_lock_);
-
-  auto new_wake_lock = base::MakeUnique<PowerSaveBlocker>(
-      ToPowerSaveBlockerType(type_), ToPowerSaveBlockerReason(reason_),
-      *description_, main_task_runner_, file_task_runner_);
-
   // Do a swap to ensure that there isn't a brief period where the old
-  // powersaveblocker is unblocked while the new powersaveblocker is not
+  // PowerSaveBlocker is unblocked while the new PowerSaveBlocker is not
   // created.
+  auto new_wake_lock = std::make_unique<PowerSaveBlocker>(
+      type_, reason_, *description_, main_task_runner_, file_task_runner_);
   wake_lock_.swap(new_wake_lock);
 }
 

@@ -1,5 +1,7 @@
 windows
-[protocolServerSide:ssl3-any]
-rhel-7.2
-[protocolServerSide:tls1.0-any]
-rhel-7.2
+[connectToHostEncrypted]
+osx-10.13
+[setSslConfiguration]
+osx-10.13
+[connectToHostEncryptedWithVerificationPeerName]
+osx-10.13

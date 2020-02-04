@@ -439,5 +439,38 @@ Item {
 
             control.destroy();
         }
+
+        Component {
+            id: mouseWheelSlider
+            Slider {
+                 property real boundValue: 10
+                 width: 300
+                 height: 50
+                 minimumValue: 0
+                 maximumValue: 200
+                 stepSize: 2
+                 value: boundValue
+             }
+        }
+
+        function test_mouseWheelWithValueBinding() {
+            var slider = createTemporaryObject(mouseWheelSlider, container)
+            slider.forceActiveFocus()
+
+            var defaultScrollSpeed = 20.0
+            var mouseStep = 15.0
+            var deltatUnit = 8.0
+            var mouseRatio = deltatUnit * mouseStep / defaultScrollSpeed;
+            var sliderDeltaRatio = 1; //(slider.maximumValue - slider.minimumValue)/slider.width
+            var ratio = mouseRatio / sliderDeltaRatio
+
+            compare(slider.value, 10)
+
+            mouseWheel(slider, 5, 5, -20 * ratio, 0)
+            compare(slider.value, 24)
+
+            slider.boundValue = 50
+            compare(slider.value, 50)
+        }
     }
 }

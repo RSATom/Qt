@@ -9,7 +9,7 @@
 
 #include "content/common/content_export.h"
 #include "ipc/ipc_message.h"
-#include "storage/common/quota/quota_types.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -19,19 +19,14 @@ namespace content {
 struct CONTENT_EXPORT StorageQuotaParams {
   StorageQuotaParams()
       : render_frame_id(MSG_ROUTING_NONE),
-        request_id(-1),
-        storage_type(storage::kStorageTypeTemporary),
-        requested_size(0),
-        user_gesture(false) {}
+        storage_type(blink::mojom::StorageType::kTemporary),
+        requested_size(0) {}
 
   int render_frame_id;
-  int request_id;
+  // TODO(sashab): Change this to url::Origin, crbug.com/598424.
   GURL origin_url;
-  storage::StorageType storage_type;
+  blink::mojom::StorageType storage_type;
   uint64_t requested_size;
-
-  // Request was made in the context of a user gesture.
-  bool user_gesture;
 };
 
 }  // namespace content

@@ -52,7 +52,8 @@ enum DotNET {
     NET2012 = 0xb0,
     NET2013 = 0xc0,
     NET2015 = 0xd0,
-    NET2017 = 0xe0
+    NET2017 = 0xe0,
+    NET2019
 };
 
 DotNET vsVersionFromString(const ProString &versionString);
@@ -484,7 +485,7 @@ public:
     // Functions
     VCCLCompilerTool();
 
-    bool parseOption(const char* option);
+    bool parseOption(const char* option) override;
 
     // Variables
     QStringList             AdditionalIncludeDirectories;
@@ -525,6 +526,7 @@ public:
     triState                ImproveFloatingPointConsistency;
     inlineExpansionOption   InlineFunctionExpansion;
     triState                KeepComments;
+    QString                 LanguageStandard;
     triState                MinimalRebuild;
     QString                 ObjectFile;
     triState                OmitDefaultLibName;
@@ -581,7 +583,7 @@ public:
     // Functions
     VCLinkerTool();
 
-    bool parseOption(const char* option);
+    bool parseOption(const char* option) override;
 
     // Variables
     QStringList             AdditionalDependencies;
@@ -676,7 +678,7 @@ class VCManifestTool : public VCToolBase
 public:
     VCManifestTool();
 
-    bool parseOption(const char* option);
+    bool parseOption(const char* option) override;
 
     triState                EmbedManifest;
 };
@@ -687,7 +689,7 @@ public:
     // Functions
     VCMIDLTool();
 
-    bool parseOption(const char* option);
+    bool parseOption(const char* option) override;
 
     // Variables
     QStringList             AdditionalIncludeDirectories;
@@ -741,7 +743,7 @@ public:
     // Functions
     VCLibrarianTool();
 
-    bool parseOption(const char*){ return false; }
+    bool parseOption(const char*) override { return false; }
 
     // Variables
     QStringList             AdditionalDependencies;
@@ -762,7 +764,7 @@ public:
     // Functions
     VCCustomBuildTool();
 
-    bool parseOption(const char*){ return false; }
+    bool parseOption(const char*) override { return false; }
 
     // Variables
     QStringList             AdditionalDependencies;
@@ -781,7 +783,7 @@ public:
     // Functions
     VCResourceCompilerTool();
 
-    bool parseOption(const char*){ return false; }
+    bool parseOption(const char*) override { return false; }
 
     // Variables
     QStringList             AdditionalIncludeDirectories;
@@ -815,7 +817,7 @@ protected:
     // Functions
     VCEventTool(const QString &eventName);
 
-    bool parseOption(const char*){ return false; }
+    bool parseOption(const char*) override { return false; }
 
 public:
     // Variables
@@ -851,7 +853,7 @@ public:
     VCWinDeployQtTool() {}
 
 protected:
-    bool parseOption(const char *) { return false; }
+    bool parseOption(const char *) override { return false; }
 
 public:
     // Variables
@@ -1037,7 +1039,7 @@ public:
         return Uindex;
     }
 
-    void addElement(const QString &filepath, const VCFilterFile &allInfo){
+    void addElement(const QString &filepath, const VCFilterFile &allInfo) override {
         QString newNodeName(filepath);
 
         int index = pathIndex(filepath);
@@ -1054,7 +1056,7 @@ public:
             n->addElement(filepath.mid(index+1), allInfo);
     }
 
-    void removeElements() {
+    void removeElements() override {
         ChildrenMap::ConstIterator it = children.constBegin();
         ChildrenMap::ConstIterator end = children.constEnd();
         for( ; it != end; it++) {
@@ -1064,8 +1066,8 @@ public:
         children.clear();
     }
 
-    void generateXML(XmlOutput &xml, const QString &tagName, VCProject &tool, const QString &filter);
-    bool hasElements() {
+    void generateXML(XmlOutput &xml, const QString &tagName, VCProject &tool, const QString &filter) override;
+    bool hasElements() override {
         return children.size() != 0;
     }
 };
@@ -1088,7 +1090,7 @@ public:
         return Uindex;
     }
 
-    void addElement(const QString &filepath, const VCFilterFile &allInfo){
+    void addElement(const QString &filepath, const VCFilterFile &allInfo) override {
         QString newKey(filepath);
 
         int index = pathIndex(filepath);
@@ -1100,12 +1102,12 @@ public:
         children.insert(newKey + "\0" + allInfo.file, allInfo);
     }
 
-    void removeElements() {
+    void removeElements() override {
         children.clear();
     }
 
-    void generateXML(XmlOutput &xml, const QString &tagName, VCProject &proj, const QString &filter);
-    bool hasElements() {
+    void generateXML(XmlOutput &xml, const QString &tagName, VCProject &proj, const QString &filter) override;
+    bool hasElements() override {
         return children.size() != 0;
     }
 };
@@ -1123,6 +1125,8 @@ public:
     QString                 SccLocalPath;
     QString                 PlatformName;
     QString                 SdkVersion;
+    QString                 WindowsTargetPlatformVersion;
+    QString                 WindowsTargetPlatformMinVersion;
 
     // Single projects
     QList<VCProjectSingleConfig>  SingleProjects;

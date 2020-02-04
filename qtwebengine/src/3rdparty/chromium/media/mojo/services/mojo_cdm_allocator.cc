@@ -5,15 +5,16 @@
 #include "media/mojo/services/mojo_cdm_allocator.h"
 
 #include <limits>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/numerics/safe_math.h"
 #include "media/cdm/api/content_decryption_module.h"
 #include "media/cdm/cdm_helpers.h"
+#include "media/cdm/cdm_type_conversion.h"
 #include "media/mojo/common/mojo_shared_buffer_video_frame.h"
 #include "mojo/public/cpp/system/buffer.h"
 #include "ui/gfx/geometry/rect.h"
@@ -27,18 +28,6 @@ typedef base::Callback<void(mojo::ScopedSharedBufferHandle buffer,
                             size_t capacity)>
     MojoSharedBufferDoneCB;
 
-VideoPixelFormat CdmVideoFormatToVideoPixelFormat(cdm::VideoFormat format) {
-  switch (format) {
-    case cdm::kYv12:
-      return PIXEL_FORMAT_YV12;
-    case cdm::kI420:
-      return PIXEL_FORMAT_I420;
-    default:
-      NOTREACHED();
-      return PIXEL_FORMAT_UNKNOWN;
-  }
-}
-
 // cdm::Buffer implementation that provides access to mojo shared memory.
 // It owns the memory until Destroy() is called.
 class MojoCdmBuffer : public cdm::Buffer {
@@ -48,7 +37,7 @@ class MojoCdmBuffer : public cdm::Buffer {
       size_t capacity,
       const MojoSharedBufferDoneCB& mojo_shared_buffer_done_cb) {
     DCHECK(buffer.is_valid());
-    DCHECK(!mojo_shared_buffer_done_cb.is_null());
+    DCHECK(mojo_shared_buffer_done_cb);
 
     // cdm::Buffer interface limits capacity to uint32.
     DCHECK_LE(capacity, std::numeric_limits<uint32_t>::max());
@@ -119,7 +108,7 @@ class MojoCdmVideoFrame : public VideoFrameImpl {
   explicit MojoCdmVideoFrame(
       const MojoSharedBufferDoneCB& mojo_shared_buffer_done_cb)
       : mojo_shared_buffer_done_cb_(mojo_shared_buffer_done_cb) {}
-  ~MojoCdmVideoFrame() final {}
+  ~MojoCdmVideoFrame() final = default;
 
   // VideoFrameImpl implementation.
   scoped_refptr<media::VideoFrame> TransformToVideoFrame(
@@ -143,12 +132,19 @@ class MojoCdmVideoFrame : public VideoFrameImpl {
 
     scoped_refptr<MojoSharedBufferVideoFrame> frame =
         media::MojoSharedBufferVideoFrame::Create(
-            CdmVideoFormatToVideoPixelFormat(Format()), frame_size,
-            gfx::Rect(frame_size), natural_size, std::move(handle), buffer_size,
-            PlaneOffset(kYPlane), PlaneOffset(kUPlane), PlaneOffset(kVPlane),
-            Stride(kYPlane), Stride(kUPlane), Stride(kVPlane),
+            ToMediaVideoFormat(Format()), frame_size, gfx::Rect(frame_size),
+            natural_size, std::move(handle), buffer_size,
+            PlaneOffset(cdm::kYPlane), PlaneOffset(cdm::kUPlane),
+            PlaneOffset(cdm::kVPlane), Stride(cdm::kYPlane),
+            Stride(cdm::kUPlane), Stride(cdm::kVPlane),
             base::TimeDelta::FromMicroseconds(Timestamp()));
-    frame->SetMojoSharedBufferDoneCB(mojo_shared_buffer_done_cb_);
+
+    frame->set_color_space(MediaColorSpace().ToGfxColorSpace());
+
+    // |frame| could fail to be created if the memory can't be mapped into
+    // this address space.
+    if (frame)
+      frame->SetMojoSharedBufferDoneCB(mojo_shared_buffer_done_cb_);
     return frame;
   }
 
@@ -162,7 +158,7 @@ class MojoCdmVideoFrame : public VideoFrameImpl {
 
 MojoCdmAllocator::MojoCdmAllocator() : weak_ptr_factory_(this) {}
 
-MojoCdmAllocator::~MojoCdmAllocator() {}
+MojoCdmAllocator::~MojoCdmAllocator() = default;
 
 // Creates a cdm::Buffer, reusing an existing buffer if one is available.
 // If not, a new buffer is created using AllocateNewBuffer(). The caller is
@@ -199,7 +195,7 @@ cdm::Buffer* MojoCdmAllocator::CreateCdmBuffer(size_t capacity) {
 // Creates a new MojoCdmVideoFrame on every request.
 std::unique_ptr<VideoFrameImpl> MojoCdmAllocator::CreateCdmVideoFrame() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  return base::MakeUnique<MojoCdmVideoFrame>(
+  return std::make_unique<MojoCdmVideoFrame>(
       base::Bind(&MojoCdmAllocator::AddBufferToAvailableMap,
                  weak_ptr_factory_.GetWeakPtr()));
 }

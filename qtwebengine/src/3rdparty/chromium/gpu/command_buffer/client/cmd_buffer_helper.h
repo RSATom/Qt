@@ -19,6 +19,7 @@
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/cmd_buffer_common.h"
 #include "gpu/command_buffer/common/command_buffer.h"
+#include "gpu/command_buffer/common/context_result.h"
 #include "gpu/gpu_export.h"
 
 namespace gpu {
@@ -50,17 +51,16 @@ const int kAutoFlushBig = 2;     // 1/2 of the buffer
 //
 // helper.WaitForToken(token);  // this doesn't return until the first two
 //                              // commands have been executed.
-class GPU_EXPORT CommandBufferHelper
-    : public base::trace_event::MemoryDumpProvider {
+class GPU_EXPORT CommandBufferHelper {
  public:
   explicit CommandBufferHelper(CommandBuffer* command_buffer);
-  ~CommandBufferHelper() override;
+  virtual ~CommandBufferHelper();
 
   // Initializes the CommandBufferHelper.
   // Parameters:
   //   ring_buffer_size: The size of the ring buffer portion of the command
   //       buffer.
-  bool Initialize(int32_t ring_buffer_size);
+  gpu::ContextResult Initialize(uint32_t ring_buffer_size);
 
   // Sets whether the command buffer should automatically flush periodically
   // to try to increase performance. Defaults to true.
@@ -73,6 +73,9 @@ class GPU_EXPORT CommandBufferHelper
   // buffer interface know that new commands have been added. After a flush
   // returns, the command buffer service is aware of all pending commands.
   void Flush();
+
+  // Flushes if the put pointer has changed since the last flush.
+  void FlushLazy();
 
   // Ensures that commands up to the put pointer will be processed in the
   // command buffer service before any future commands on other command buffers
@@ -130,7 +133,7 @@ class GPU_EXPORT CommandBufferHelper
     if (entries > immediate_entry_count_) {
       WaitForAvailableEntries(entries);
       if (entries > immediate_entry_count_)
-        return NULL;
+        return nullptr;
     }
 
     DCHECK_LE(entries, immediate_entry_count_);
@@ -255,24 +258,23 @@ class GPU_EXPORT CommandBufferHelper
 
   void FreeRingBuffer();
 
-  bool HaveRingBuffer() const { return ring_buffer_id_ != -1; }
+  bool HaveRingBuffer() const {
+    bool have_ring_buffer = !!ring_buffer_;
+    DCHECK(usable() || !have_ring_buffer);
+    return have_ring_buffer;
+  }
 
   bool usable() const { return usable_; }
 
-  void ClearUsable() {
-    usable_ = false;
-    context_lost_ = true;
-    CalcImmediateEntries(0);
-  }
-
-  // Overridden from base::trace_event::MemoryDumpProvider:
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
-                    base::trace_event::ProcessMemoryDump* pmd) override;
+                    base::trace_event::ProcessMemoryDump* pmd);
+
+  int32_t GetPutOffsetForTest() const { return put_; }
 
  private:
   void CalcImmediateEntries(int waiting_count);
   bool AllocateRingBuffer();
-  void FreeResources();
+  void SetGetBuffer(int32_t id, scoped_refptr<Buffer> buffer);
 
   // Waits for the get offset to be in a specific range, inclusive. Returns
   // false if there was an error.
@@ -289,34 +291,43 @@ class GPU_EXPORT CommandBufferHelper
   // from given command buffer state.
   void UpdateCachedState(const CommandBuffer::State& state);
 
-  CommandBuffer* command_buffer_;
-  int32_t ring_buffer_id_;
-  int32_t ring_buffer_size_;
+  CommandBuffer* const command_buffer_;
+  int32_t ring_buffer_id_ = -1;
+  uint32_t ring_buffer_size_ = 0;
   scoped_refptr<gpu::Buffer> ring_buffer_;
-  CommandBufferEntry* entries_;
-  int32_t total_entry_count_;  // the total number of entries
-  int32_t immediate_entry_count_;
-  int32_t token_;
-  int32_t put_;
-  int32_t last_put_sent_;
-  int32_t cached_last_token_read_;
-  int32_t cached_get_offset_;
-  uint32_t set_get_buffer_count_;
-  bool service_on_old_buffer_;
+  CommandBufferEntry* entries_ = nullptr;
+  int32_t total_entry_count_ = 0;  // the total number of entries
+  int32_t immediate_entry_count_ = 0;
+  int32_t token_ = 0;
+  int32_t put_ = 0;
+  int32_t cached_last_token_read_ = 0;
+  int32_t cached_get_offset_ = 0;
+  uint32_t set_get_buffer_count_ = 0;
+  bool service_on_old_buffer_ = false;
 
 #if defined(CMD_HELPER_PERIODIC_FLUSH_CHECK)
-  int commands_issued_;
+  int commands_issued_ = 0;
 #endif
 
-  bool usable_;
-  bool context_lost_;
-  bool flush_automatically_;
+  bool usable_ = true;
+  bool context_lost_ = false;
+  bool flush_automatically_ = true;
+
+  // We track last put offset to avoid redundant automatic flushes. We track
+  // both flush and ordering barrier put offsets so that an automatic flush
+  // after an ordering barrier forces a flush. Automatic flushes are enabled on
+  // desktop, and are also used to flush before waiting for free space in the
+  // command buffer. If the auto flush logic is wrong, we might call
+  // WaitForGetOffsetInRange without flushing, causing the service to go idle,
+  // and the client to hang. See https://crbug.com/798400 for details.
+  int32_t last_flush_put_ = 0;
+  int32_t last_ordering_barrier_put_ = 0;
 
   base::TimeTicks last_flush_time_;
 
   // Incremented every time the helper flushes the command buffer.
   // Can be used to track when prior commands have been flushed.
-  uint32_t flush_generation_;
+  uint32_t flush_generation_ = 0;
 
   friend class CommandBufferHelperTest;
   DISALLOW_COPY_AND_ASSIGN(CommandBufferHelper);

@@ -14,19 +14,17 @@
 #include <audioclient.h>
 #include <mmdeviceapi.h>
 #include <stdint.h>
+#include <wrl/client.h>
+
 #include <string>
 
 #include "base/macros.h"
 #include "base/time/time.h"
-#include "base/win/scoped_comptr.h"
 #include "media/audio/audio_device_name.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/media_export.h"
 
-using base::win::ScopedComPtr;
-
 namespace media {
-
 
 // Represents audio channel configuration constants as understood by Windows.
 // E.g. KSAUDIO_SPEAKER_MONO.  For a list of possible values see:
@@ -35,6 +33,32 @@ typedef uint32_t ChannelConfig;
 
 class MEDIA_EXPORT CoreAudioUtil {
  public:
+  // Helper class which automates casting between WAVEFORMATEX and
+  // WAVEFORMATEXTENSIBLE raw pointers using implicit constructors and
+  // operator overloading. Note that, no memory is allocated by this utility
+  // structure. It only serves as a handle (or a wrapper) of the structure
+  // provided to it at construction.
+  class MEDIA_EXPORT WaveFormatWrapper {
+   public:
+    WaveFormatWrapper(WAVEFORMATEXTENSIBLE* p)
+        : ptr_(reinterpret_cast<WAVEFORMATEX*>(p)) {}
+    WaveFormatWrapper(WAVEFORMATEX* p) : ptr_(p) {}
+    ~WaveFormatWrapper() = default;
+
+    operator WAVEFORMATEX*() const { return ptr_; }
+    WAVEFORMATEX* operator->() const { return ptr_; }
+    WAVEFORMATEX* get() const { return ptr_; }
+    WAVEFORMATEXTENSIBLE* GetExtensible() const;
+
+    bool IsExtensible() const;
+    bool IsPcm() const;
+    bool IsFloat() const;
+    size_t size() const;
+
+   private:
+    WAVEFORMATEX* ptr_;
+  };
+
   // Returns true if Windows Core Audio is supported.
   // Always verify that this method returns true before using any of the
   // methods in this class.
@@ -42,10 +66,18 @@ class MEDIA_EXPORT CoreAudioUtil {
   // it is safe to call from other threads.
   static bool IsSupported();
 
+  // Prints/logs all fields of the format structure in |format|.
+  // Also supports extended versions (WAVEFORMATEXTENSIBLE).
+  static std::string WaveFormatToString(WaveFormatWrapper format);
+
   // Converts between reference time to base::TimeDelta.
   // One reference-time unit is 100 nanoseconds.
   // Example: double s = RefererenceTimeToTimeDelta(t).InMillisecondsF();
-  static base::TimeDelta RefererenceTimeToTimeDelta(REFERENCE_TIME time);
+  static base::TimeDelta ReferenceTimeToTimeDelta(REFERENCE_TIME time);
+
+  // Returns 1, 2, or 3 corresponding to the highest version of IAudioClient
+  // the platform supports.
+  static uint32_t GetIAudioClientVersion();
 
   // Returns AUDCLNT_SHAREMODE_EXCLUSIVE if --enable-exclusive-mode is used
   // as command-line flag and AUDCLNT_SHAREMODE_SHARED otherwise (default).
@@ -61,20 +93,21 @@ class MEDIA_EXPORT CoreAudioUtil {
 
   // Creates an IMMDeviceEnumerator interface which provides methods for
   // enumerating audio endpoint devices.
-  static ScopedComPtr<IMMDeviceEnumerator> CreateDeviceEnumerator();
+  static Microsoft::WRL::ComPtr<IMMDeviceEnumerator> CreateDeviceEnumerator();
 
-  // Creates a default endpoint device that is specified by a data-flow
-  // direction and role, e.g. default render device.
-  static ScopedComPtr<IMMDevice> CreateDefaultDevice(
-      EDataFlow data_flow, ERole role);
+  // Create an endpoint device specified by |device_id| or a default device
+  // specified by data-flow direction and role if
+  // AudioDeviceDescription::IsDefaultDevice(|device_id|).
+  static Microsoft::WRL::ComPtr<IMMDevice>
+  CreateDevice(const std::string& device_id, EDataFlow data_flow, ERole role);
 
-  // Returns the device id of the default output device or an empty string
-  // if no such device exists or if the default device has been disabled.
+  // These functions return the device id of the default or communications
+  // input/output device, or an empty string if no such device exists or if the
+  // device has been disabled.
+  static std::string GetDefaultInputDeviceID();
   static std::string GetDefaultOutputDeviceID();
-
-  // Creates an endpoint device that is specified by a unique endpoint device-
-  // identification string.
-  static ScopedComPtr<IMMDevice> CreateDevice(const std::string& device_id);
+  static std::string GetCommunicationsInputDeviceID();
+  static std::string GetCommunicationsOutputDeviceID();
 
   // Returns the unique ID and user-friendly name of a given endpoint device.
   // Example: "{0.0.1.00000000}.{8db6020f-18e3-4f25-b6f5-7726c9122574}", and
@@ -101,12 +134,9 @@ class MEDIA_EXPORT CoreAudioUtil {
 
   // Gets the user-friendly name of the endpoint device which is represented
   // by a unique id in |device_id|.
-  static std::string GetFriendlyName(const std::string& device_id);
-
-  // Returns true if the provided unique |device_id| corresponds to the current
-  // default device for the specified by a data-flow direction and role.
-  static bool DeviceIsDefault(
-      EDataFlow flow, ERole role, const std::string& device_id);
+  static std::string GetFriendlyName(const std::string& device_id,
+                                     EDataFlow data_flow,
+                                     ERole role);
 
   // Query if the audio device is a rendering device or a capture device.
   static EDataFlow GetDataFlow(IMMDevice* device);
@@ -115,37 +145,29 @@ class MEDIA_EXPORT CoreAudioUtil {
   // manage the flow of audio data between the application and an audio endpoint
   // device.
 
-  // Create an IAudioClient instance for the default IMMDevice where
-  // flow direction and role is define by |data_flow| and |role|.
-  // The IAudioClient interface enables a client to create and initialize an
-  // audio stream between an audio application and the audio engine (for a
-  // shared-mode stream) or the hardware buffer of an audio endpoint device
-  // (for an exclusive-mode stream).
-  static ScopedComPtr<IAudioClient> CreateDefaultClient(EDataFlow data_flow,
-                                                        ERole role);
-
-  // Create an IAudioClient instance for a specific device _or_ the default
-  // device if |device_id| is empty.
-  static ScopedComPtr<IAudioClient> CreateClient(const std::string& device_id,
-                                                 EDataFlow data_flow,
-                                                 ERole role);
-
-  // Create an IAudioClient interface for an existing IMMDevice given by
-  // |audio_device|. Flow direction and role is define by the |audio_device|.
-  static ScopedComPtr<IAudioClient> CreateClient(IMMDevice* audio_device);
+  // Create an IAudioClient instance for a specific device or the default
+  // device if AudioDeviceDescription::IsDefaultDevice(device_id).
+  static Microsoft::WRL::ComPtr<IAudioClient>
+  CreateClient(const std::string& device_id, EDataFlow data_flow, ERole role);
+  static Microsoft::WRL::ComPtr<IAudioClient3>
+  CreateClient3(const std::string& device_id, EDataFlow data_flow, ERole role);
 
   // Get the mix format that the audio engine uses internally for processing
   // of shared-mode streams. This format is not necessarily a format that the
-  // audio endpoint device supports. Thus, the caller might not succeed in
-  // creating an exclusive-mode stream with a format obtained by this method.
+  // audio endpoint device supports. The WAVEFORMATEXTENSIBLE structure can
+  // specify both the mapping of channels to speakers and the number of bits of
+  // precision in each sample. The first member of the WAVEFORMATEXTENSIBLE
+  // structure is a WAVEFORMATEX structure and its wFormatTag will be set to
+  // WAVE_FORMAT_EXTENSIBLE if the output structure is extended.
+  // FormatIsExtensible() can be used to determine if that is the case or not.
   static HRESULT GetSharedModeMixFormat(IAudioClient* client,
-                                        WAVEFORMATPCMEX* format);
+                                        WAVEFORMATEXTENSIBLE* format);
 
   // Returns true if the specified |client| supports the format in |format|
   // for the given |share_mode| (shared or exclusive).
   static bool IsFormatSupported(IAudioClient* client,
                                 AUDCLNT_SHAREMODE share_mode,
-                                const WAVEFORMATPCMEX* format);
+                                WaveFormatWrapper format);
 
   // Returns true if the specified |channel_layout| is supported for the
   // default IMMDevice where flow direction and role is define by |data_flow|
@@ -168,13 +190,9 @@ class MEDIA_EXPORT CoreAudioUtil {
                                  AUDCLNT_SHAREMODE share_mode,
                                  REFERENCE_TIME* device_period);
 
-  // Get the preferred audio parameters for the specified |client| or the
-  // given direction and role is define by |data_flow| and |role|, or the
-  // unique device id given by |device_id|.
-  // The acquired values should only be utilized for shared mode streamed since
-  // there are no preferred settings for an exclusive mode stream.
-  static HRESULT GetPreferredAudioParameters(IAudioClient* client,
-                                             AudioParameters* params);
+  // Get the preferred audio parameters for the given |device_id|. The acquired
+  // values should only be utilized for shared mode streamed since there are no
+  // preferred settings for an exclusive mode stream.
   static HRESULT GetPreferredAudioParameters(const std::string& device_id,
                                              bool is_output_device,
                                              AudioParameters* params);
@@ -204,23 +222,22 @@ class MEDIA_EXPORT CoreAudioUtil {
   // audio session if NULL is passed for |session_guid|, otherwise the client
   // will be associated with the specified session.
   static HRESULT SharedModeInitialize(IAudioClient* client,
-                                      const WAVEFORMATPCMEX* format,
+                                      WaveFormatWrapper format,
                                       HANDLE event_handle,
+                                      uint32_t requested_buffer_size,
                                       uint32_t* endpoint_buffer_size,
                                       const GUID* session_guid);
-
-  // TODO(henrika): add ExclusiveModeInitialize(...)
 
   // Create an IAudioRenderClient client for an existing IAudioClient given by
   // |client|. The IAudioRenderClient interface enables a client to write
   // output data to a rendering endpoint buffer.
-  static ScopedComPtr<IAudioRenderClient> CreateRenderClient(
+  static Microsoft::WRL::ComPtr<IAudioRenderClient> CreateRenderClient(
       IAudioClient* client);
 
   // Create an IAudioCaptureClient client for an existing IAudioClient given by
   // |client|. The IAudioCaptureClient interface enables a client to read
   // input data from a capture endpoint buffer.
-  static ScopedComPtr<IAudioCaptureClient> CreateCaptureClient(
+  static Microsoft::WRL::ComPtr<IAudioCaptureClient> CreateCaptureClient(
       IAudioClient* client);
 
   // Fills up the endpoint rendering buffer with silence for an existing
@@ -228,11 +245,6 @@ class MEDIA_EXPORT CoreAudioUtil {
   // given by |render_client|.
   static bool FillRenderEndpointBufferWithSilence(
       IAudioClient* client, IAudioRenderClient* render_client);
-
-  // Returns the default audio driver file name and version string according to
-  // DxDiag.  Used for crash reporting.  Can be slow (~seconds).
-  static bool GetDxDiagDetails(std::string* driver_name,
-                               std::string* driver_version);
 
  private:
   CoreAudioUtil() {}

@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2015 The Qt Company Ltd.
+    Copyright (C) 2019 The Qt Company Ltd.
     Copyright (C) 2008 Nokia Corporation and/or its subsidiary(-ies)
     Copyright (C) 2008 Holger Hans Peter Freyther
     Copyright (C) 2009 Girish Ramakrishnan <girish@forwardbias.in>
@@ -33,7 +33,7 @@
 
     \inmodule QtWebEngineWidgets
 
-    A \e {web view} is the main widget component of the Qt WebEngine web browsing module.
+    A \e {web view} is the main widget component of the \QWE web browsing module.
     It can be used in various applications to display web content live from the
     Internet.
 
@@ -125,11 +125,15 @@
     Sets the content of the web view to the specified \a html content.
 
     External objects, such as stylesheets or images referenced in the HTML
-    document, are located relative to \a baseUrl.
+    document, are located relative to \a baseUrl. For external objects to
+    be loaded, \c baseUrl cannot be empty. For example, if \a html
+    is retrieved from \c http://www.example.com/documents/overview.html, which
+    is the base URL, then an image referenced with the relative URL, \c diagram.png,
+    should be at \c{http://www.example.com/documents/diagram.png}.
 
     The HTML document is loaded immediately, whereas external objects are loaded asynchronously.
 
-    When using this method, Qt WebEngine assumes that external resources, such as
+    When using this method, \QWE assumes that external resources, such as
     JavaScript programs or style sheets, are encoded in UTF-8 unless otherwise
     specified. For example, the encoding of an external script can be specified
     through the \c charset attribute of the HTML script tag. Alternatively, the
@@ -156,6 +160,7 @@
     is empty, it is assumed that the content is \c{text/plain,charset=US-ASCII}.
 
     External objects referenced in the content are located relative to \a baseUrl.
+    For external objects to be loaded, \c baseUrl cannot be empty.
 
     The data is loaded immediately; external objects are loaded asynchronously.
 
@@ -173,16 +178,16 @@
 
 /*!
     \property QWebEngineView::title
-    \brief the title of the web page currently viewed
+    \brief The title of the page as defined by the HTML \c <title> element.
 
-    By default, this property contains an empty string.
+    Equivalent to \l {QWebEnginePage::title()}.
 
     \sa titleChanged()
 */
 
 /*!
     \property QWebEngineView::url
-    \brief the URL of the web page currently viewed
+    \brief The URL of the web page currently viewed.
 
     Setting this property clears the view and loads the URL.
 
@@ -193,7 +198,7 @@
 
 /*!
     \property QWebEngineView::iconUrl
-    \brief the URL of the icon associated with the page currently viewed
+    \brief The URL of the icon associated with the page currently viewed.
 
     By default, this property contains an empty URL.
 
@@ -202,7 +207,7 @@
 
 /*!
     \property QWebEngineView::hasSelection
-    \brief whether this page contains selected content or not.
+    \brief Whether this page contains selected content or not.
 
     By default, this property is \c false.
 
@@ -211,7 +216,7 @@
 
 /*!
     \property QWebEngineView::selectedText
-    \brief the text currently selected
+    \brief The text currently selected.
 
     By default, this property contains an empty string.
 
@@ -238,28 +243,23 @@
 
 /*!
     \property QWebEngineView::zoomFactor
-    \brief the zoom factor for the view
+    \brief The zoom factor for the view.
 
     Valid values are within the range from \c{0.25} to \c{5.0}. The default factor is \c{1.0}.
 */
 
 /*!
-    \fn void QWebEngineView::findText(const QString &subString, QWebEnginePage::FindFlags options)
-    Finds the specified string, \a subString, in the page, using the given \a options.
-
-    To clear the selection, just pass an empty string.
-
-    \sa selectedText(), selectionChanged()
-*/
-
-/*!
-    \fn void QWebEngineView::findText(const QString &subString, QWebEnginePage::FindFlags options, FunctorOrLambda resultCallback)
+    \fn void QWebEngineView::findText(const QString &subString, QWebEnginePage::FindFlags options = QWebEnginePage::FindFlags(), const QWebEngineCallback<bool> &resultCallback = QWebEngineCallback<bool>())
     Finds the specified string, \a subString, in the page, using the given \a options.
 
     To clear the selection, just pass an empty string.
 
     \a resultCallback must take a boolean parameter. It will be called with a value of \c true
     if \a subString was found; otherwise the callback value will be \c false.
+
+    \warning We guarantee that the callback (\a resultCallback) is always called, but it might be done
+    during page destruction. When QWebEnginePage is deleted, the callback is triggered with an invalid
+    value and it is not safe to use the corresponding QWebEnginePage or QWebEngineView instance inside it.
 
     \sa selectedText(), selectionChanged()
 */

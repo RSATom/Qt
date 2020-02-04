@@ -39,11 +39,24 @@
 
 #include "qresultstore.h"
 
-#ifndef QT_NO_QFUTURE
-
 QT_BEGIN_NAMESPACE
 
 namespace QtPrivate {
+
+/*!
+  \class QtPrivate::ResultItem
+  \internal
+ */
+
+/*!
+  \class QtPrivate::ResultIteratorBase
+  \internal
+ */
+
+/*!
+  \class QtPrivate::ResultStoreBase
+  \internal
+ */
 
 ResultIteratorBase::ResultIteratorBase()
  : mapIterator(QMap<int, ResultItem>::const_iterator()), m_vectorIndex(0) { }
@@ -256,5 +269,3 @@ int ResultStoreBase::updateInsertIndex(int index, int _count)
 } // namespace QtPrivate
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_QFUTURE

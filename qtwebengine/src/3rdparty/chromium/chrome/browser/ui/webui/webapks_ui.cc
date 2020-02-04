@@ -4,8 +4,8 @@
 
 #include "chrome/browser/ui/webui/webapks_ui.h"
 
+#include <memory>
 #include <string>
-#include <unordered_set>
 
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/webapks_handler.h"
@@ -25,7 +25,7 @@ WebUIDataSource* CreateWebApksUIDataSource() {
   html_source->AddResourcePath("webapks.js", IDR_WEBAPKS_UI_JS);
   html_source->AddResourcePath("about_webapks.css", IDR_WEBAPKS_UI_CSS);
   html_source->SetDefaultResource(IDR_WEBAPKS_UI_HTML);
-  html_source->UseGzip(std::unordered_set<std::string>());
+  html_source->UseGzip();
 
   return html_source;
 }
@@ -35,7 +35,7 @@ WebUIDataSource* CreateWebApksUIDataSource() {
 WebApksUI::WebApksUI(content::WebUI* web_ui)
     : content::WebUIController(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
-  web_ui->AddMessageHandler(base::MakeUnique<WebApksHandler>());
+  web_ui->AddMessageHandler(std::make_unique<WebApksHandler>());
   WebUIDataSource::Add(profile, CreateWebApksUIDataSource());
 }
 

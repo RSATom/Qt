@@ -53,7 +53,7 @@ NetworkChangeNotifierLinux::Thread::Thread(
                      base::Unretained(this)),
           base::Bind(&NetworkChangeNotifierLinux::Thread::OnLinkChanged,
                      base::Unretained(this)),
-          base::Bind(base::DoNothing),
+          base::DoNothing(),
           ignored_interfaces)),
       last_type_(NetworkChangeNotifier::CONNECTION_NONE) {}
 
@@ -63,6 +63,7 @@ NetworkChangeNotifierLinux::Thread::~Thread() {
 
 void NetworkChangeNotifierLinux::Thread::Init() {
   address_tracker_->Init();
+  last_type_ = GetCurrentConnectionType();
   dns_config_service_ = DnsConfigService::CreateSystemService();
   dns_config_service_->WatchConfig(
       base::Bind(&NetworkChangeNotifier::SetDnsConfig));
@@ -88,7 +89,7 @@ void NetworkChangeNotifierLinux::Thread::OnLinkChanged() {
     NetworkChangeNotifier::NotifyObserversOfConnectionTypeChange();
     last_type_ = GetCurrentConnectionType();
     double max_bandwidth_mbps =
-        NetworkChangeNotifier::GetMaxBandwidthForConnectionSubtype(
+        NetworkChangeNotifier::GetMaxBandwidthMbpsForConnectionSubtype(
             last_type_ == CONNECTION_NONE ? SUBTYPE_NONE : SUBTYPE_UNKNOWN);
     NetworkChangeNotifier::NotifyObserversOfMaxBandwidthChange(
         max_bandwidth_mbps, last_type_);
@@ -101,7 +102,7 @@ NetworkChangeNotifierLinux::NetworkChangeNotifierLinux(
       notifier_thread_(new Thread(ignored_interfaces)) {
   // We create this notifier thread because the notification implementation
   // needs a MessageLoopForIO, and there's no guarantee that
-  // MessageLoop::current() meets that criterion.
+  // MessageLoopCurrent::Get() meets that criterion.
   base::Thread::Options thread_options(base::MessageLoop::TYPE_IO, 0);
   notifier_thread_->StartWithOptions(thread_options);
 }

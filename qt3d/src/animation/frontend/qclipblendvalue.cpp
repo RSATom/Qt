@@ -58,6 +58,22 @@ QClipBlendValuePrivate::QClipBlendValuePrivate()
    \inmodule Qt3DAnimation
    \brief Class used for including a clip in a blend tree.
 */
+/*!
+   \qmltype ClipBlendValue
+   \instantiates QClipBlendValue
+   \inqmlmodule Qt3D.Animation
+   \brief Type used for including a clip in a blend tree.
+*/
+/*!
+   \property Qt3DAnimation::QClipBlendValue::clip
+
+   The animation clip that needs to be included in the blend tree.
+*/
+/*!
+   \qmlproperty AbstractAnimationClip ClipBlendValue::clip
+
+   The animation clip that needs to be included in the blend tree.
+*/
 QClipBlendValue::QClipBlendValue(Qt3DCore::QNode *parent)
     : QAbstractClipBlendNode(*new QClipBlendValuePrivate(), parent)
 {

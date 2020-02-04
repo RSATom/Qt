@@ -12,14 +12,28 @@
 #include "cc/paint/paint_export.h"
 #include "cc/paint/paint_image.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkTextBlob.h"
 
 namespace cc {
-
+class SkottieWrapper;
 class PaintFlags;
 class PaintOpBuffer;
 
 using PaintRecord = PaintOpBuffer;
 
+// PaintCanvas is the cc/paint wrapper of SkCanvas.  It has a more restricted
+// interface than SkCanvas (trimmed back to only what Chrome uses).  Its reason
+// for existence is so that it can do custom serialization logic into a
+// PaintOpBuffer which (unlike SkPicture) is mutable, handles image replacement,
+// and can be serialized in custom ways (such as using the transfer cache).
+//
+// PaintCanvas is usually implemented by either:
+// (1) SkiaPaintCanvas, which is backed by an SkCanvas, usually for rasterizing.
+// (2) RecordPaintCanvas, which records paint commands into a PaintOpBuffer.
+//
+// SkiaPaintCanvas allows callers to go from PaintCanvas to SkCanvas (or
+// PaintRecord to SkPicture), but this is a one way trip.  There is no way to go
+// from SkCanvas to PaintCanvas or from SkPicture back into PaintRecord.
 class CC_PAINT_EXPORT PaintCanvas {
  public:
   PaintCanvas() {}
@@ -33,7 +47,7 @@ class CC_PAINT_EXPORT PaintCanvas {
 
   // TODO(enne): It would be nice to get rid of flush() entirely, as it
   // doesn't really make sense for recording.  However, this gets used by
-  // SkCanvasVideoRenderer which takes a PaintCanvas to paint both
+  // PaintCanvasVideoRenderer which takes a PaintCanvas to paint both
   // software and hardware video.  This is super entangled with ImageBuffer
   // and canvas/video painting in Blink where the same paths are used for
   // both recording and gpu work.
@@ -41,9 +55,7 @@ class CC_PAINT_EXPORT PaintCanvas {
 
   virtual int save() = 0;
   virtual int saveLayer(const SkRect* bounds, const PaintFlags* flags) = 0;
-  virtual int saveLayerAlpha(const SkRect* bounds,
-                             uint8_t alpha,
-                             bool preserve_lcd_text_requests) = 0;
+  virtual int saveLayerAlpha(const SkRect* bounds, uint8_t alpha) = 0;
 
   virtual void restore() = 0;
   virtual int getSaveCount() const = 0;
@@ -86,8 +98,6 @@ class CC_PAINT_EXPORT PaintCanvas {
     clipPath(path, SkClipOp::kIntersect, do_anti_alias);
   }
 
-  virtual bool quickReject(const SkRect& rect) const = 0;
-  virtual bool quickReject(const SkPath& path) const = 0;
   virtual SkRect getLocalClipBounds() const = 0;
   virtual bool getLocalClipBounds(SkRect* bounds) const = 0;
   virtual SkIRect getDeviceClipBounds() const = 0;
@@ -110,15 +120,6 @@ class CC_PAINT_EXPORT PaintCanvas {
   virtual void drawDRRect(const SkRRect& outer,
                           const SkRRect& inner,
                           const PaintFlags& flags) = 0;
-  virtual void drawCircle(SkScalar cx,
-                          SkScalar cy,
-                          SkScalar radius,
-                          const PaintFlags& flags) = 0;
-  virtual void drawArc(const SkRect& oval,
-                       SkScalar start_angle,
-                       SkScalar sweep_angle,
-                       bool use_center,
-                       const PaintFlags& flags) = 0;
   virtual void drawRoundRect(const SkRect& rect,
                              SkScalar rx,
                              SkScalar ry,
@@ -142,23 +143,14 @@ class CC_PAINT_EXPORT PaintCanvas {
                              const SkRect& dst,
                              const PaintFlags* flags,
                              SrcRectConstraint constraint) = 0;
-  virtual void drawBitmap(const SkBitmap& bitmap,
-                          SkScalar left,
-                          SkScalar top,
-                          const PaintFlags* flags) = 0;
-  void drawBitmap(const SkBitmap& bitmap, SkScalar left, SkScalar top) {
-    drawBitmap(bitmap, left, top, nullptr);
-  }
 
-  virtual void drawText(const void* text,
-                        size_t byte_length,
-                        SkScalar x,
-                        SkScalar y,
-                        const PaintFlags& flags) = 0;
-  virtual void drawPosText(const void* text,
-                           size_t byte_length,
-                           const SkPoint pos[],
-                           const PaintFlags& flags) = 0;
+  // Draws the frame of the |skottie| animation specified by the normalized time
+  // t [0->first frame..1->last frame] at the destination bounds given by |dst|
+  // onto the canvas.
+  virtual void drawSkottie(scoped_refptr<SkottieWrapper> skottie,
+                           const SkRect& dst,
+                           float t) = 0;
+
   virtual void drawTextBlob(sk_sp<SkTextBlob> blob,
                             SkScalar x,
                             SkScalar y,
@@ -180,6 +172,9 @@ class CC_PAINT_EXPORT PaintCanvas {
   virtual void Annotate(AnnotationType type,
                         const SkRect& rect,
                         sk_sp<SkData> data) = 0;
+
+  // Subclasses can override to handle custom data.
+  virtual void recordCustomData(uint32_t id) {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(PaintCanvas);
@@ -213,13 +208,6 @@ class CC_PAINT_EXPORT PaintCanvasAutoRestore {
   PaintCanvas* canvas_ = nullptr;
   int save_count_ = 0;
 };
-
-// Following routines are used in print preview workflow to mark the
-// preview metafile.
-#if defined(OS_MACOSX)
-CC_PAINT_EXPORT void SetIsPreviewMetafile(PaintCanvas* canvas, bool is_preview);
-CC_PAINT_EXPORT bool IsPreviewMetafile(PaintCanvas* canvas);
-#endif
 
 }  // namespace cc
 

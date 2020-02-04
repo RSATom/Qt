@@ -16,35 +16,40 @@
 namespace net {
 
 TCPServerSocket::TCPServerSocket(NetLog* net_log, const NetLogSource& source)
-    : socket_(nullptr, net_log, source), pending_accept_(false) {}
+    : TCPServerSocket(
+          std::make_unique<TCPSocket>(nullptr /* socket_performance_watcher */,
+                                      net_log,
+                                      source)) {}
+
+TCPServerSocket::TCPServerSocket(std::unique_ptr<TCPSocket> socket)
+    : socket_(std::move(socket)), pending_accept_(false) {}
 
 int TCPServerSocket::AdoptSocket(SocketDescriptor socket) {
-  return socket_.AdoptUnconnectedSocket(socket);
+  return socket_->AdoptUnconnectedSocket(socket);
 }
 
-TCPServerSocket::~TCPServerSocket() {
-}
+TCPServerSocket::~TCPServerSocket() = default;
 
 int TCPServerSocket::Listen(const IPEndPoint& address, int backlog) {
-  int result = socket_.Open(address.GetFamily());
+  int result = socket_->Open(address.GetFamily());
   if (result != OK)
     return result;
 
-  result = socket_.SetDefaultOptionsForServer();
+  result = socket_->SetDefaultOptionsForServer();
   if (result != OK) {
-    socket_.Close();
+    socket_->Close();
     return result;
   }
 
-  result = socket_.Bind(address);
+  result = socket_->Bind(address);
   if (result != OK) {
-    socket_.Close();
+    socket_->Close();
     return result;
   }
 
-  result = socket_.Listen(backlog);
+  result = socket_->Listen(backlog);
   if (result != OK) {
-    socket_.Close();
+    socket_->Close();
     return result;
   }
 
@@ -52,11 +57,11 @@ int TCPServerSocket::Listen(const IPEndPoint& address, int backlog) {
 }
 
 int TCPServerSocket::GetLocalAddress(IPEndPoint* address) const {
-  return socket_.GetLocalAddress(address);
+  return socket_->GetLocalAddress(address);
 }
 
 int TCPServerSocket::Accept(std::unique_ptr<StreamSocket>* socket,
-                            const CompletionCallback& callback) {
+                            CompletionOnceCallback callback) {
   DCHECK(socket);
   DCHECK(!callback.is_null());
 
@@ -67,11 +72,11 @@ int TCPServerSocket::Accept(std::unique_ptr<StreamSocket>* socket,
 
   // It is safe to use base::Unretained(this). |socket_| is owned by this class,
   // and the callback won't be run after |socket_| is destroyed.
-  CompletionCallback accept_callback =
-      base::Bind(&TCPServerSocket::OnAcceptCompleted, base::Unretained(this),
-                 socket, callback);
-  int result = socket_.Accept(&accepted_socket_, &accepted_address_,
-                              accept_callback);
+  CompletionOnceCallback accept_callback =
+      base::BindOnce(&TCPServerSocket::OnAcceptCompleted,
+                     base::Unretained(this), socket, std::move(callback));
+  int result = socket_->Accept(&accepted_socket_, &accepted_address_,
+                               std::move(accept_callback));
   if (result != ERR_IO_PENDING) {
     // |accept_callback| won't be called so we need to run
     // ConvertAcceptedSocket() ourselves in order to do the conversion from
@@ -85,7 +90,7 @@ int TCPServerSocket::Accept(std::unique_ptr<StreamSocket>* socket,
 }
 
 void TCPServerSocket::DetachFromThread() {
-  socket_.DetachFromThread();
+  socket_->DetachFromThread();
 }
 
 int TCPServerSocket::ConvertAcceptedSocket(
@@ -104,11 +109,11 @@ int TCPServerSocket::ConvertAcceptedSocket(
 
 void TCPServerSocket::OnAcceptCompleted(
     std::unique_ptr<StreamSocket>* output_accepted_socket,
-    const CompletionCallback& forward_callback,
+    CompletionOnceCallback forward_callback,
     int result) {
   result = ConvertAcceptedSocket(result, output_accepted_socket);
   pending_accept_ = false;
-  forward_callback.Run(result);
+  std::move(forward_callback).Run(result);
 }
 
 }  // namespace net

@@ -71,10 +71,11 @@ static const char *candidateSignal(int which)
     case IntValueSelectedSignal:    return SIGNAL(intValueSelected(int));
     case DoubleValueSelectedSignal: return SIGNAL(doubleValueSelected(double));
 
-    case NumCandidateSignals:       ; // fall through
+    case NumCandidateSignals:
+        break;
     };
     Q_UNREACHABLE();
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 static const char *signalForMember(const char *member)
@@ -115,7 +116,7 @@ private slots:
     void notifyTextChanged() { emit textChanged(hasAcceptableInput()); }
 
 private:
-    void keyPressEvent(QKeyEvent *event) Q_DECL_OVERRIDE {
+    void keyPressEvent(QKeyEvent *event) override {
         if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && !hasAcceptableInput()) {
 #ifndef QT_NO_PROPERTIES
             setProperty("value", property("value"));
@@ -126,7 +127,7 @@ private:
         notifyTextChanged();
     }
 
-    void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE {
+    void mousePressEvent(QMouseEvent *event) override {
         QSpinBox::mousePressEvent(event);
         notifyTextChanged();
     }
@@ -150,7 +151,7 @@ private slots:
     void notifyTextChanged() { emit textChanged(hasAcceptableInput()); }
 
 private:
-    void keyPressEvent(QKeyEvent *event) Q_DECL_OVERRIDE {
+    void keyPressEvent(QKeyEvent *event) override {
         if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && !hasAcceptableInput()) {
 #ifndef QT_NO_PROPERTIES
             setProperty("value", property("value"));
@@ -161,9 +162,21 @@ private:
         notifyTextChanged();
     }
 
-    void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE {
+    void mousePressEvent(QMouseEvent *event) override {
         QDoubleSpinBox::mousePressEvent(event);
         notifyTextChanged();
+    }
+};
+
+class QInputDialogListView : public QListView
+{
+public:
+    QInputDialogListView(QWidget *parent = 0) : QListView(parent) {}
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override
+    {
+        if (query == Qt::ImEnabled)
+            return false;
+        return QListView::inputMethodQuery(query);
     }
 };
 
@@ -200,7 +213,7 @@ public:
     mutable QSpinBox *intSpinBox;
     mutable QDoubleSpinBox *doubleSpinBox;
     mutable QComboBox *comboBox;
-    mutable QListView *listView;
+    mutable QInputDialogListView *listView;
     mutable QWidget *inputWidget;
     mutable QVBoxLayout *mainLayout;
     QInputDialog::InputDialogOptions opts;
@@ -239,7 +252,6 @@ void QInputDialogPrivate::ensureLayout()
     QObject::connect(buttonBox, SIGNAL(rejected()), q, SLOT(reject()));
 
     mainLayout = new QVBoxLayout(q);
-    //we want to let the input dialog grow to available size on Symbian.
     mainLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
     mainLayout->addWidget(label);
     mainLayout->addWidget(inputWidget);
@@ -298,8 +310,7 @@ void QInputDialogPrivate::ensureListView()
     Q_Q(QInputDialog);
     if (!listView) {
         ensureComboBox();
-
-        listView = new QListView(q);
+        listView = new QInputDialogListView(q);
         listView->hide();
         listView->setEditTriggers(QAbstractItemView::NoEditTriggers);
         listView->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1070,7 +1081,6 @@ QString QInputDialog::cancelButtonText() const
 
 /*!
     \since 4.5
-    \overload
 
     This function connects one of its signals to the slot specified by \a receiver
     and \a member. The specific signal depends on the arguments that are specified
@@ -1180,7 +1190,7 @@ void QInputDialog::done(int result)
     \a inputMethodHints is the input method hints that will be used in the
     edit widget if an input method is active.
 
-    If \a ok is nonnull \e *\a ok will be set to true if the user pressed
+    If \a ok is nonnull \e {*ok} will be set to true if the user pressed
     \uicontrol OK and to false if the user pressed \uicontrol Cancel. The dialog's parent
     is \a parent. The dialog will be modal and uses the specified widget
     \a flags.
@@ -1228,7 +1238,7 @@ QString QInputDialog::getText(QWidget *parent, const QString &title, const QStri
     \a inputMethodHints is the input method hints that will be used in the
     edit widget if an input method is active.
 
-    If \a ok is nonnull \e *\a ok will be set to true if the user pressed
+    If \a ok is nonnull \e {*ok} will be set to true if the user pressed
     \uicontrol OK and to false if the user pressed \uicontrol Cancel. The dialog's parent
     is \a parent. The dialog will be modal and uses the specified widget
     \a flags.
@@ -1312,7 +1322,7 @@ int QInputDialog::getInt(QWidget *parent, const QString &title, const QString &l
 }
 
 /*!
-    \fn QInputDialog::getInteger(QWidget *parent, const QString &title, const QString &label, int value, int min, int max, int step, bool *ok, Qt::WindowFlags flags)
+    \fn int QInputDialog::getInteger(QWidget *parent, const QString &title, const QString &label, int value, int min, int max, int step, bool *ok, Qt::WindowFlags flags)
     \deprecated use getInt()
 
     Static convenience function to get an integer input from the user.
@@ -1436,7 +1446,7 @@ double QInputDialog::getDouble(QWidget *parent, const QString &title, const QStr
     If \a editable is true the user can enter their own text; otherwise, the
     user may only select one of the existing items.
 
-    If \a ok is nonnull \e *\a ok will be set to true if the user pressed
+    If \a ok is nonnull \e {*ok} will be set to true if the user pressed
     \uicontrol OK and to false if the user pressed \uicontrol Cancel. The dialog's parent
     is \a parent. The dialog will be modal and uses the widget \a flags.
 

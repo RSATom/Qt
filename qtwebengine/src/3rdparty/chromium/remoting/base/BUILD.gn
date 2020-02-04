@@ -23,10 +23,13 @@ source_set("base") {
     "leaky_bucket.cc",
     "leaky_bucket.h",
     "name_value_map.h",
+    "platform_details.cc",
+    "platform_details.h",
     "rate_counter.cc",
     "rate_counter.h",
     "remoting_bot.cc",
     "remoting_bot.h",
+    "result.h",
     "rsa_key_pair.cc",
     "rsa_key_pair.h",
     "running_samples.cc",
@@ -34,6 +37,8 @@ source_set("base") {
     "scoped_sc_handle_win.h",
     "service_urls.cc",
     "service_urls.h",
+    "session_options.cc",
+    "session_options.h",
     "socket_reader.cc",
     "socket_reader.h",
     "telemetry_log_writer.cc",
@@ -46,6 +51,8 @@ source_set("base") {
     "util.h",
     "vlog_net_log.cc",
     "vlog_net_log.h",
+    "weighted_samples.cc",
+    "weighted_samples.h",
   ]
 
   configs += [
@@ -71,7 +78,7 @@ source_set("base") {
     sources -= [
       "chromium_url_request.cc",
       "chromoting_event.cc",
-      "service_urls.cc",
+      "platform_details.cc",
       "telemetry_log_writer.cc",
       "url_request_context_getter.cc",
     ]
@@ -119,9 +126,9 @@ source_set("breakpad") {
   ]
 
   if (is_mac) {
-    deps += [ "//breakpad" ]
+    deps += [ "//third_party/breakpad" ]
   } else if (is_win) {
-    deps += [ "//breakpad:breakpad_handler" ]
+    deps += [ "//third_party/breakpad:breakpad_handler" ]
   }
 }
 
@@ -162,24 +169,28 @@ source_set("unit_tests") {
     "compound_buffer_unittest.cc",
     "oauth_helper_unittest.cc",
     "rate_counter_unittest.cc",
+    "result_unittest.cc",
     "rsa_key_pair_unittest.cc",
     "run_all_unittests.cc",
     "running_samples_unittest.cc",
+    "session_options_unittest.cc",
     "telemetry_log_writer_unittest.cc",
     "typed_buffer_unittest.cc",
     "util_unittest.cc",
+    "weighted_samples_unittest.cc",
   ]
 
   deps = [
     ":test_support",
-    "//mojo/edk/system",
+    "//base",
+    "//mojo/core/embedder",
     "//net:test_support",
     "//third_party/libyuv",
     "//third_party/webrtc/modules/desktop_capture:primitives",
   ]
 
   if (is_win || is_mac || is_chromeos) {
-    deps += [ "//breakpad:client" ]
+    deps += [ "//third_party/breakpad:client" ]
   }
 
   if (is_win) {

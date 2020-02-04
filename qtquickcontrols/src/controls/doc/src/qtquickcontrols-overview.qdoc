@@ -27,7 +27,7 @@
 
 /*!
     \page qtquickcontrols-overview.html
-    \title Qt Quick Controls Overview
+    \title Qt Quick Controls 1 Overview
     \brief A set of UI controls to create user interfaces in Qt Quick
 
     The Qt Quick Controls provide a set of UI controls to create user interfaces
@@ -61,8 +61,8 @@
     }
     \endcode
 
-    For an overview of the controls provided by \l{Qt Quick Controls}, you can look at
-    the \l{Qt Quick Controls - Gallery}{Gallery} example.
+    For an overview of the controls provided by \l{Qt Quick Controls 1}, you can look at
+    the \l{Qt Quick Controls 1 - Gallery}{Gallery} example.
 
     \image qtquickcontrols-example-gallery-osx.png
 
@@ -134,7 +134,7 @@
 
      \list
       \li \l{Qt Quick}
-      \li \l{Qt Quick Controls}
-      \li \l{Qt Quick Controls Examples}
+      \li \l{Qt Quick Controls 1}
+      \li \l{Qt Quick Controls 1 Examples}
     \endlist
 */

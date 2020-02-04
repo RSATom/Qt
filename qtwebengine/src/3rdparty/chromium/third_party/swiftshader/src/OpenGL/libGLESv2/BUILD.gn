@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("../../swiftshader.gni")
+
 # Need a separate config to ensure the warnings are added to the end.
 config("swiftshader_libGLESv2_private_config") {
   defines = [
@@ -28,7 +30,7 @@ config("swiftshader_libGLESv2_private_config") {
 
     defines += [
       "GL_APICALL=",
-      "LIBGLESV2_EXPORTS",
+      "GLAPI=",
     ]
 
     if (is_clang) {
@@ -44,28 +46,29 @@ config("swiftshader_libGLESv2_private_config") {
     }
 
     defines += [
-      "LOG_TAG=\"swiftshader_libGLESv2\"",
       "__STDC_CONSTANT_MACROS",
       "__STDC_LIMIT_MACROS",
-      "GL_APICALL=__attribute__((visibility(\"default\")))",
+      "GLAPI=GL_APICALL",
     ]
+
+    if (is_mac) {
+      cflags += [ "-fvisibility=protected" ]
+      defines += [ "GL_APICALL=__attribute__((no_sanitize(\"function\")))" ]
+    } else {
+      defines += [ "GL_APICALL=__attribute__((visibility(\"protected\"))) __attribute__((no_sanitize(\"function\")))" ]
+    }
   }
 }
 
-shared_library("swiftshader_libGLESv2") {
-  if (!is_mac) {
-    output_name = "libGLESv2"
-    output_dir = "$root_out_dir/swiftshader"
-  }
-
+swiftshader_static_library("swiftshader_libGLESv2_static") {
   deps = [
     "../../OpenGL/compiler:swiftshader_opengl_compiler",
     "../../Reactor:swiftshader_reactor",
     "../../Renderer:swiftshader_renderer",
-    "//build/config:exe_and_shlib_deps",
   ]
 
   sources = [
+    "../../Common/SharedLibrary.cpp",
     "Buffer.cpp",
     "Context.cpp",
     "Device.cpp",
@@ -82,30 +85,52 @@ shared_library("swiftshader_libGLESv2") {
     "VertexArray.cpp",
     "VertexDataManager.cpp",
     "libGLESv2.cpp",
-    "libGLESv2.def",
-    "libGLESv2.rc",
     "libGLESv3.cpp",
     "main.cpp",
     "resource.h",
     "utilities.cpp",
   ]
 
-  if (is_win) {
-    configs -= [ "//build/config/win:unicode" ]
-    ldflags = [ "/DEF:" + rebase_path("libGLESv2.def", root_build_dir) ]
-  } else if (is_mac) {
-    ldflags = [ "-Wl,-install_name,@rpath/libswiftshader_libGLESv2.dylib" ]
-  } else if (is_linux) {
-    ldflags =
-        [ "-Wl,--version-script=" + rebase_path("exports.map", root_build_dir) ]
+  if (is_mac) {
+    libs = [
+      "CoreFoundation.framework",
+      "IOSurface.framework",
+    ]
   }
 
-  configs -= [ "//build/config/compiler:chromium_code" ]
-  configs += [
-    "//build/config/compiler:no_chromium_code",
-    "//third_party/swiftshader:swiftshader_config",
-    ":swiftshader_libGLESv2_private_config",
+  configs = [ ":swiftshader_libGLESv2_private_config" ]
+
+  include_dirs = [
+    "../../../include",
+    "../..",
+    "..",
   ]
+}
+
+swiftshader_shared_library("swiftshader_libGLESv2") {
+  if (!is_mac && !is_fuchsia) {
+    output_name = "libGLESv2"
+    output_dir = "$root_out_dir/swiftshader"
+  }
+
+  deps = [
+    ":swiftshader_libGLESv2_static",
+  ]
+
+  sources = [
+    "entry_points.cpp",
+    "libGLESv2.def",
+    "libGLESv2.rc",
+  ]
+
+  if (is_mac) {
+    ldflags = [ "-Wl,-install_name,@rpath/libswiftshader_libGLESv2.dylib" ]
+  } else if (is_linux) {
+    ldflags = [ "-Wl,--version-script=" +
+                rebase_path("libGLESv2.lds", root_build_dir) ]
+  }
+
+  configs = [ ":swiftshader_libGLESv2_private_config" ]
 
   include_dirs = [
     "../../../include",

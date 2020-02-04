@@ -8,16 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_NETEQ_COMFORT_NOISE_H_
-#define WEBRTC_MODULES_AUDIO_CODING_NETEQ_COMFORT_NOISE_H_
+#ifndef MODULES_AUDIO_CODING_NETEQ_COMFORT_NOISE_H_
+#define MODULES_AUDIO_CODING_NETEQ_COMFORT_NOISE_H_
 
-#include "webrtc/modules/audio_coding/neteq/audio_multi_vector.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/typedefs.h"
+#include <stddef.h>
+
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
 // Forward declarations.
+class AudioMultiVector;
 class DecoderDatabase;
 class SyncBuffer;
 struct Packet;
@@ -32,14 +33,14 @@ class ComfortNoise {
     kMultiChannelNotSupported
   };
 
-  ComfortNoise(int fs_hz, DecoderDatabase* decoder_database,
+  ComfortNoise(int fs_hz,
+               DecoderDatabase* decoder_database,
                SyncBuffer* sync_buffer)
       : fs_hz_(fs_hz),
         first_call_(true),
         overlap_length_(5 * fs_hz_ / 8000),
         decoder_database_(decoder_database),
-        sync_buffer_(sync_buffer) {
-  }
+        sync_buffer_(sync_buffer) {}
 
   // Resets the state. Should be called before each new comfort noise period.
   void Reset();
@@ -68,4 +69,4 @@ class ComfortNoise {
 };
 
 }  // namespace webrtc
-#endif  // WEBRTC_MODULES_AUDIO_CODING_NETEQ_COMFORT_NOISE_H_
+#endif  // MODULES_AUDIO_CODING_NETEQ_COMFORT_NOISE_H_

@@ -15,36 +15,33 @@ ScopedMakeCurrent::ScopedMakeCurrent(gl::GLContext* context,
     : previous_context_(gl::GLContext::GetCurrent()),
       previous_surface_(gl::GLSurface::GetCurrent()),
       context_(context),
-      surface_(surface),
-      succeeded_(false) {
+      surface_(surface) {
   DCHECK(context);
   DCHECK(surface);
-  succeeded_ = context->MakeCurrent(surface);
+  context->MakeCurrent(surface);
 }
 
 ScopedMakeCurrent::~ScopedMakeCurrent() {
-  if (previous_context_.get()) {
-    DCHECK(previous_surface_.get());
+  if (previous_context_) {
+    DCHECK(previous_surface_);
     previous_context_->MakeCurrent(previous_surface_.get());
   } else {
     context_->ReleaseCurrent(surface_.get());
   }
 }
 
-bool ScopedMakeCurrent::Succeeded() const {
-  return succeeded_;
-}
-
-ScopedReleaseCurrent::ScopedReleaseCurrent(gl::GLSurface* this_surface) {
-  gl::GLContext* current_context = gl::GLContext::GetCurrent();
-  bool was_current =
-      current_context && current_context->IsCurrent(this_surface);
-  if (was_current) {
-    make_current_.emplace(current_context, this_surface);
-    current_context->ReleaseCurrent(this_surface);
+ScopedReleaseCurrent::ScopedReleaseCurrent()
+    : previous_context_(gl::GLContext::GetCurrent()),
+      previous_surface_(gl::GLSurface::GetCurrent()) {
+  if (previous_context_) {
+    DCHECK(previous_surface_);
+    previous_context_->ReleaseCurrent(previous_surface_.get());
   }
 }
 
-ScopedReleaseCurrent::~ScopedReleaseCurrent() {}
+ScopedReleaseCurrent::~ScopedReleaseCurrent() {
+  if (previous_context_)
+    previous_context_->MakeCurrent(previous_surface_.get());
+}
 
 }  // namespace ui

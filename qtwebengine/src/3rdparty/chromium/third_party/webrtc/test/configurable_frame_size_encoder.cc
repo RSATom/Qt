@@ -8,14 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/test/configurable_frame_size_encoder.h"
+#include "test/configurable_frame_size_encoder.h"
 
 #include <string.h>
+#include <cstdint>
+#include <type_traits>
+#include <utility>
 
-#include "webrtc/common_video/include/video_frame.h"
-#include "webrtc/modules/video_coding/include/video_codec_interface.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/test/gtest.h"
+#include "api/video/encoded_image.h"
+#include "modules/include/module_common_types.h"
+#include "modules/video_coding/include/video_codec_interface.h"
+#include "modules/video_coding/include/video_error_codes.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 namespace test {
@@ -25,7 +29,8 @@ ConfigurableFrameSizeEncoder::ConfigurableFrameSizeEncoder(
     : callback_(NULL),
       max_frame_size_(max_frame_size),
       current_frame_size_(max_frame_size),
-      buffer_(new uint8_t[max_frame_size]) {
+      buffer_(new uint8_t[max_frame_size]),
+      codec_type_(kVideoCodecGeneric) {
   memset(buffer_.get(), 0, max_frame_size);
 }
 
@@ -42,19 +47,21 @@ int32_t ConfigurableFrameSizeEncoder::Encode(
     const VideoFrame& inputImage,
     const CodecSpecificInfo* codecSpecificInfo,
     const std::vector<FrameType>* frame_types) {
-  EncodedImage encodedImage(
-      buffer_.get(), current_frame_size_, max_frame_size_);
+  EncodedImage encodedImage(buffer_.get(), current_frame_size_,
+                            max_frame_size_);
   encodedImage._completeFrame = true;
   encodedImage._encodedHeight = inputImage.height();
   encodedImage._encodedWidth = inputImage.width();
   encodedImage._frameType = kVideoFrameKey;
-  encodedImage._timeStamp = inputImage.timestamp();
+  encodedImage.SetTimestamp(inputImage.timestamp());
   encodedImage.capture_time_ms_ = inputImage.render_time_ms();
   RTPFragmentationHeader* fragmentation = NULL;
-  CodecSpecificInfo specific;
-  memset(&specific, 0, sizeof(specific));
+  CodecSpecificInfo specific{};
+  specific.codecType = codec_type_;
   callback_->OnEncodedImage(encodedImage, &specific, fragmentation);
-
+  if (post_encode_callback_) {
+    (*post_encode_callback_)();
+  }
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -68,18 +75,9 @@ int32_t ConfigurableFrameSizeEncoder::Release() {
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t ConfigurableFrameSizeEncoder::SetChannelParameters(uint32_t packet_loss,
-                                                           int64_t rtt) {
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
 int32_t ConfigurableFrameSizeEncoder::SetRateAllocation(
-    const BitrateAllocation& allocation,
+    const VideoBitrateAllocation& allocation,
     uint32_t framerate) {
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t ConfigurableFrameSizeEncoder::SetPeriodicKeyFrames(bool enable) {
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -87,6 +85,15 @@ int32_t ConfigurableFrameSizeEncoder::SetFrameSize(size_t size) {
   RTC_DCHECK_LE(size, max_frame_size_);
   current_frame_size_ = size;
   return WEBRTC_VIDEO_CODEC_OK;
+}
+
+void ConfigurableFrameSizeEncoder::SetCodecType(VideoCodecType codec_type) {
+  codec_type_ = codec_type;
+}
+
+void ConfigurableFrameSizeEncoder::RegisterPostEncodeCallback(
+    std::function<void(void)> post_encode_callback) {
+  post_encode_callback_ = std::move(post_encode_callback);
 }
 
 }  // namespace test

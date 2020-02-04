@@ -15,7 +15,7 @@ GamepadDataFetcherManager* g_gamepad_data_fetcher_manager = 0;
 
 GamepadDataFetcherManager::GamepadDataFetcherManager() : provider_(nullptr) {}
 
-GamepadDataFetcherManager::~GamepadDataFetcherManager() {}
+GamepadDataFetcherManager::~GamepadDataFetcherManager() = default;
 
 GamepadDataFetcherManager* GamepadDataFetcherManager::GetInstance() {
   if (!g_gamepad_data_fetcher_manager) {
@@ -38,8 +38,7 @@ void GamepadDataFetcherManager::RemoveSourceFactory(GamepadSource source) {
   if (provider_)
     provider_->RemoveSourceGamepadDataFetcher(source);
 
-  for (FactoryVector::iterator it = factories_.begin();
-       it != factories_.end();) {
+  for (auto it = factories_.begin(); it != factories_.end();) {
     if ((*it)->source() == source) {
       delete (*it);
       it = factories_.erase(it);

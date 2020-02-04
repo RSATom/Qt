@@ -13,22 +13,19 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
-#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/stl_util.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/arc/extensions/arc_support_message_host.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/url_pattern.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "remoting/base/auto_thread_task_runner.h"
-#include "remoting/host/chromoting_host_context.h"
-#include "remoting/host/it2me/it2me_native_messaging_host.h"
-#include "remoting/host/policy_watcher.h"
+#include "remoting/host/it2me/it2me_native_messaging_host_chromeos.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
@@ -97,25 +94,13 @@ struct BuiltInHost {
 };
 
 std::unique_ptr<NativeMessageHost> CreateIt2MeHost() {
-  std::unique_ptr<remoting::It2MeHostFactory> host_factory(
-      new remoting::It2MeHostFactory());
-  std::unique_ptr<remoting::ChromotingHostContext> context =
-      remoting::ChromotingHostContext::CreateForChromeOS(
-          make_scoped_refptr(g_browser_process->system_request_context()),
-          content::BrowserThread::GetTaskRunnerForThread(
-              content::BrowserThread::IO),
-          content::BrowserThread::GetTaskRunnerForThread(
-              content::BrowserThread::UI),
-          base::CreateSingleThreadTaskRunnerWithTraits(
-              {base::MayBlock(), base::TaskPriority::BACKGROUND}));
-  std::unique_ptr<remoting::PolicyWatcher> policy_watcher =
-      remoting::PolicyWatcher::CreateWithPolicyService(
-          g_browser_process->policy_service());
-  std::unique_ptr<NativeMessageHost> host(
-      new remoting::It2MeNativeMessagingHost(
-          /*needs_elevation=*/false, std::move(policy_watcher),
-          std::move(context), std::move(host_factory)));
-  return host;
+  return remoting::CreateIt2MeNativeMessagingHostForChromeOS(
+      g_browser_process->system_request_context(),
+      base::CreateSingleThreadTaskRunnerWithTraits(
+          {content::BrowserThread::IO}),
+      base::CreateSingleThreadTaskRunnerWithTraits(
+          {content::BrowserThread::UI}),
+      g_browser_process->policy_service());
 }
 
 // If you modify the list of allowed_origins, don't forget to update
@@ -137,9 +122,9 @@ const char* const kRemotingIt2MeOrigins[] = {
 
 static const BuiltInHost kBuiltInHost[] = {
     {"com.google.chrome.test.echo",  // ScopedTestNativeMessagingHost::kHostName
-     kEchoHostOrigins, arraysize(kEchoHostOrigins), &EchoHost::Create},
+     kEchoHostOrigins, base::size(kEchoHostOrigins), &EchoHost::Create},
     {"com.google.chrome.remote_assistance", kRemotingIt2MeOrigins,
-     arraysize(kRemotingIt2MeOrigins), &CreateIt2MeHost},
+     base::size(kRemotingIt2MeOrigins), &CreateIt2MeHost},
     {arc::ArcSupportMessageHost::kHostName,
      arc::ArcSupportMessageHost::kHostOrigin, 1,
      &arc::ArcSupportMessageHost::Create},
@@ -165,7 +150,7 @@ std::unique_ptr<NativeMessageHost> NativeMessageHost::Create(
     const std::string& native_host_name,
     bool allow_user_level,
     std::string* error) {
-  for (unsigned int i = 0; i < arraysize(kBuiltInHost); i++) {
+  for (unsigned int i = 0; i < base::size(kBuiltInHost); i++) {
     const BuiltInHost& host = kBuiltInHost[i];
     std::string name(host.name);
     if (name == native_host_name) {

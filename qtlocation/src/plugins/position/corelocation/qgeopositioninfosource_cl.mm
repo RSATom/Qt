@@ -47,16 +47,16 @@
 #define MINIMUM_UPDATE_INTERVAL 1000
 
 @interface PositionLocationDelegate : NSObject <CLLocationManagerDelegate>
-{
-    QGeoPositionInfoSourceCL *m_positionInfoSource;
-}
 @end
 
 @implementation PositionLocationDelegate
-- (id)initWithInfoSource:(QGeoPositionInfoSourceCL*) positionInfoSource
 {
-    self = [super init];
-    if (self) {
+    QGeoPositionInfoSourceCL *m_positionInfoSource;
+}
+
+- (instancetype)initWithInfoSource:(QGeoPositionInfoSourceCL*) positionInfoSource
+{
+    if ((self = [self init])) {
         m_positionInfoSource = positionInfoSource;
     }
     return self;
@@ -64,8 +64,8 @@
 
 - (void)locationManager:(CLLocationManager *)manager didUpdateToLocation:(CLLocation *)newLocation fromLocation:(CLLocation *)oldLocation
 {
-    Q_UNUSED(manager)
-    Q_UNUSED(oldLocation)
+    Q_UNUSED(manager);
+    Q_UNUSED(oldLocation);
 
     // Convert location timestamp to QDateTime
     QDateTime timeStamp;
@@ -94,7 +94,7 @@
 
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error
 {
-    Q_UNUSED(manager)
+    Q_UNUSED(manager);
     m_positionInfoSource->setError(QGeoPositionInfoSource::AccessError);
 
     qWarning() << QString::fromNSString([error localizedDescription]);
@@ -140,7 +140,39 @@ void QGeoPositionInfoSourceCL::setUpdateInterval(int msec)
 bool QGeoPositionInfoSourceCL::enableLocationManager()
 {
     if (!m_locationManager) {
-        m_locationManager = [[CLLocationManager alloc] init];
+        if ([CLLocationManager locationServicesEnabled]) {
+            // Location Services Are Enabled
+            switch ([CLLocationManager authorizationStatus]) {
+                case kCLAuthorizationStatusNotDetermined:
+                    // User has not yet made a choice with regards to this application
+                    break;
+                case kCLAuthorizationStatusRestricted:
+                    // This application is not authorized to use location services.  Due
+                    // to active restrictions on location services, the user cannot change
+                    // this status, and may not have personally denied authorization
+                    return false;
+                case kCLAuthorizationStatusDenied:
+                    // User has explicitly denied authorization for this application, or
+                    // location services are disabled in Settings
+                    return false;
+                case kCLAuthorizationStatusAuthorizedAlways:
+                    // This app is authorized to start location services at any time.
+                    break;
+#ifndef Q_OS_MACOS
+                case kCLAuthorizationStatusAuthorizedWhenInUse:
+                    // This app is authorized to start most location services while running in the foreground.
+                    break;
+#endif
+                default:
+                    // By default, try to enable it
+                    break;
+            }
+        } else {
+            // Location Services Disabled
+            return false;
+        }
+
+    m_locationManager = [[CLLocationManager alloc] init];
 
 #if defined(Q_OS_IOS) || defined(Q_OS_WATCHOS)
         if (__builtin_available(watchOS 4.0, *)) {
@@ -162,18 +194,29 @@ bool QGeoPositionInfoSourceCL::enableLocationManager()
         m_locationManager.desiredAccuracy = kCLLocationAccuracyBest;
         m_locationManager.delegate = [[PositionLocationDelegate alloc] initWithInfoSource:this];
 
-        // These two methods are new in iOS 8. They require NSLocationAlwaysUsageDescription
-        // and NSLocationWhenInUseUsageDescription to be set in Info.plist to work (methods are
-        // noop if there are no such entries in plist).
+        // -requestAlwaysAuthorization is available on iOS (>= 8.0) and watchOS (>= 2.0).
+        // This method requires both NSLocationAlwaysAndWhenInUseUsageDescription and
+        // NSLocationWhenInUseUsageDescription entries present in Info.plist (otherwise,
+        // while probably a noop, the call generates a warning).
+        // -requestWhenInUseAuthorization only requires NSLocationWhenInUseUsageDescription
+        // entry in Info.plist (available on iOS (>= 8.0), tvOS (>= 9.0) and watchOS (>= 2.0).
+
 #ifndef Q_OS_MACOS
+        NSDictionary<NSString *, id> *infoDict = NSBundle.mainBundle.infoDictionary;
+        const bool hasAlwaysUseUsage = !![infoDict objectForKey:@"NSLocationAlwaysAndWhenInUseUsageDescription"];
+        const bool hasWhenInUseUsage = !![infoDict objectForKey:@"NSLocationWhenInUseUsageDescription"];
 #ifndef Q_OS_TVOS
-        [m_locationManager requestAlwaysAuthorization];
-#endif
-        [m_locationManager requestWhenInUseAuthorization];
-#endif
+        if (hasAlwaysUseUsage && hasWhenInUseUsage)
+            [m_locationManager requestAlwaysAuthorization];
+        else
+#endif // !Q_OS_TVOS
+        if (hasWhenInUseUsage)
+            [m_locationManager requestWhenInUseAuthorization];
+#endif // !Q_OS_MACOS
+
     }
 
-    return (m_locationManager != 0);
+    return (m_locationManager != nullptr);
 }
 
 void QGeoPositionInfoSourceCL::setTimeoutInterval(int msec)
@@ -266,7 +309,7 @@ void QGeoPositionInfoSourceCL::locationDataAvailable(QGeoPositionInfo location)
 
 QGeoPositionInfo QGeoPositionInfoSourceCL::lastKnownPosition(bool fromSatellitePositioningMethodsOnly) const
 {
-    Q_UNUSED(fromSatellitePositioningMethodsOnly)
+    Q_UNUSED(fromSatellitePositioningMethodsOnly);
 
     return m_lastUpdate;
 }
@@ -282,6 +325,6 @@ void QGeoPositionInfoSourceCL::setError(QGeoPositionInfoSource::Error positionEr
     emit QGeoPositionInfoSource::error(positionError);
 }
 
-#include "moc_qgeopositioninfosource_cl_p.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qgeopositioninfosource_cl_p.cpp"

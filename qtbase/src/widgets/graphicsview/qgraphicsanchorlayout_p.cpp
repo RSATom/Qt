@@ -167,7 +167,7 @@ AnchorData::~AnchorData()
     if (graphicsAnchor) {
         // Remove reference to ourself to avoid double removal in
         // QGraphicsAnchorPrivate dtor.
-        graphicsAnchor->d_func()->data = 0;
+        QGraphicsAnchorPrivate::get(graphicsAnchor)->data = nullptr;
 
         delete graphicsAnchor;
     }
@@ -215,7 +215,7 @@ void AnchorData::refreshSizeHints(const QLayoutStyleInfo *styleInfo)
     } else {
         // It is a user-created anchor, fetch size information from the associated QGraphicsAnchor
         Q_ASSERT(graphicsAnchor);
-        QGraphicsAnchorPrivate *anchorPrivate = graphicsAnchor->d_func();
+        QGraphicsAnchorPrivate *anchorPrivate = QGraphicsAnchorPrivate::get(graphicsAnchor);
 
         // Policy, min and max sizes are straightforward
         policy = anchorPrivate->sizePolicy;
@@ -2526,7 +2526,7 @@ QGraphicsAnchorLayoutPrivate::getGraphParts(Orientation orientation)
 
             // Check if this constraint have some overlap with current
             // trunk variables...
-            foreach (QSimplexVariable *ad, trunkVariables) {
+            for (QSimplexVariable *ad : qAsConst(trunkVariables)) {
                 if (c->variables.contains(ad)) {
                     match = true;
                     break;

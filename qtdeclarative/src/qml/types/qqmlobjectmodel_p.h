@@ -60,6 +60,7 @@ QT_BEGIN_NAMESPACE
 
 class QObject;
 class QQmlChangeSet;
+class QAbstractItemModel;
 
 class Q_QML_PRIVATE_EXPORT QQmlInstanceModel : public QObject
 {
@@ -75,7 +76,6 @@ public:
 
     virtual int count() const = 0;
     virtual bool isValid() const = 0;
-    QObject *object(int index, bool async) { return object(index, async ? QQmlIncubator::Asynchronous : QQmlIncubator::AsynchronousIfNested); }
     virtual QObject *object(int index, QQmlIncubator::IncubationMode incubationMode = QQmlIncubator::AsynchronousIfNested) = 0;
     virtual ReleaseFlags release(QObject *object) = 0;
     virtual void cancel(int) {}
@@ -84,6 +84,7 @@ public:
     virtual QQmlIncubator::Status incubationStatus(int index) = 0;
 
     virtual int indexOf(QObject *object, QObject *objectContext) const = 0;
+    virtual const QAbstractItemModel *abstractItemModel() const { return nullptr; }
 
 Q_SIGNALS:
     void countChanged();
@@ -93,7 +94,7 @@ Q_SIGNALS:
     void destroyingItem(QObject *object);
 
 protected:
-    QQmlInstanceModel(QObjectPrivate &dd, QObject *parent = 0)
+    QQmlInstanceModel(QObjectPrivate &dd, QObject *parent = nullptr)
         : QObject(dd, parent) {}
 
 private:
@@ -111,7 +112,7 @@ class Q_QML_PRIVATE_EXPORT QQmlObjectModel : public QQmlInstanceModel
     Q_CLASSINFO("DefaultProperty", "children")
 
 public:
-    QQmlObjectModel(QObject *parent=0);
+    QQmlObjectModel(QObject *parent=nullptr);
     ~QQmlObjectModel() {}
 
     int count() const override;

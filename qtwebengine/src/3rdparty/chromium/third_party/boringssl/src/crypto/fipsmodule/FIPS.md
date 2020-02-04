@@ -1,6 +1,15 @@
 # FIPS 140-2
 
-BoringSSL as a whole is not FIPS validated. However, there is a core library (called BoringCrypto) that is undergoing validation at time of writing. This document contains some notes about the design of the FIPS module and some documentation on performing FIPS-related tasks. This is not a substitute for reading the offical Security Policy (which, at the time of writing, has not yet been published).
+BoringSSL as a whole is not FIPS validated. However, there is a core library (called BoringCrypto) that has been FIPS validated. This document contains some notes about the design of the FIPS module and some documentation on performing FIPS-related tasks. This is not a substitute for reading the offical Security Policy.
+
+Please note that we cannot answer questions about FIPS, nor about using BoringSSL in a FIPS-compliant manner. Please consult with an [accredited CMVP lab](http://csrc.nist.gov/groups/STM/testing_labs/) on these subjects.
+
+## Validations
+
+BoringCrypto has undergone the following validations:
+
+1. 2017-06-15: certificate [#2964](https://csrc.nist.gov/Projects/Cryptographic-Module-Validation-Program/Certificate/2964), [security policy](/crypto/fipsmodule/policydocs/BoringCrypto-Security-Policy-20170615.docx) (in docx format).
+1. 2018-07-30: certificate [#3318](https://csrc.nist.gov/Projects/Cryptographic-Module-Validation-Program/Certificate/3318), [security policy](/crypto/fipsmodule/policydocs/BoringCrypto-Security-Policy-20180730.docx) (in docx format).
 
 ## Running CAVP tests
 
@@ -95,7 +104,7 @@ The script performs a number of other transformations which are worth noting but
 
 In order to actually implement the integrity test, a constructor function within the module calculates an HMAC from `module_start` to `module_end` using a fixed, all-zero key. It compares the result with the known-good value added (by the script) to the unhashed portion of the text segment. If they don't match, it calls `exit` in an infinite loop.
 
-Initially the known-good value will be incorrect. Another script (`inject-hash.go`) calculates the correct value from the assembled object and injects it back into the object.
+Initially the known-good value will be incorrect. Another script (`inject_hash.go`) calculates the correct value from the assembled object and injects it back into the object.
 
 ![build process](/crypto/fipsmodule/intcheck2.png)
 

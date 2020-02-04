@@ -6,7 +6,7 @@ In order to build with a fast configuration, try setting these options in your
 GN args:
 
 ```
-use_vulcanize = true
+optimize_webui = true
 is_debug = false
 ```
 
@@ -27,7 +27,7 @@ continue (i.e. script execution may be paused).
 ```
 
 To reduce this latency, Chrome uses a tool created by the Polymer project named
-[vulcanize](https://github.com/Polymer/polymer-bundler/tree/1.x).  It processes
+[polymer-bundler](https://github.com/Polymer/polymer-bundler).  It processes
 a page starting from a URL entry point and inlines resources the first time
 they're encountered.  This greatly decreases latency due to HTML imports.
 
@@ -120,7 +120,5 @@ To mark a WebUI's resources compressed, you'll need to do something like:
 ```c++
 WebUIDataSource* data_source = WebUIDataSource::Create(...);
 data_source->SetDefaultResource(IDR_MY_PAGE);
-std::unordered_set<std::string> exclusions;
-exclusions.insert("strings.js");  // if required
-data_source->UseGzip(exclusions);
+data_source->UseGzip();  // Optional callback if exclusions are needed.
 ```

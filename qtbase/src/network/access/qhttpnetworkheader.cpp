@@ -41,8 +41,6 @@
 
 #include <algorithm>
 
-#ifndef QT_NO_HTTP
-
 QT_BEGIN_NAMESPACE
 
 QHttpNetworkHeaderPrivate::QHttpNetworkHeaderPrivate(const QUrl &newUrl)
@@ -66,7 +64,7 @@ qint64 QHttpNetworkHeaderPrivate::contentLength() const
     QList<QPair<QByteArray, QByteArray> >::ConstIterator it = fields.constBegin(),
                                                         end = fields.constEnd();
     for ( ; it != end; ++it)
-        if (qstricmp("content-length", it->first) == 0) {
+        if (it->first.compare("content-length", Qt::CaseInsensitive) == 0) {
             value = it->second;
             break;
         }
@@ -97,7 +95,7 @@ QList<QByteArray> QHttpNetworkHeaderPrivate::headerFieldValues(const QByteArray 
     QList<QPair<QByteArray, QByteArray> >::ConstIterator it = fields.constBegin(),
                                                         end = fields.constEnd();
     for ( ; it != end; ++it)
-        if (qstricmp(name.constData(), it->first) == 0)
+        if (name.compare(it->first, Qt::CaseInsensitive) == 0)
             result += it->second;
 
     return result;
@@ -106,7 +104,7 @@ QList<QByteArray> QHttpNetworkHeaderPrivate::headerFieldValues(const QByteArray 
 void QHttpNetworkHeaderPrivate::setHeaderField(const QByteArray &name, const QByteArray &data)
 {
     auto firstEqualsName = [&name](const QPair<QByteArray, QByteArray> &header) {
-        return qstricmp(name.constData(), header.first) == 0;
+        return name.compare(header.first, Qt::CaseInsensitive) == 0;
     };
     fields.erase(std::remove_if(fields.begin(), fields.end(),
                                 firstEqualsName),
@@ -126,5 +124,3 @@ bool QHttpNetworkHeaderPrivate::operator==(const QHttpNetworkHeaderPrivate &othe
 
 
 QT_END_NAMESPACE
-
-#endif

@@ -1262,7 +1262,6 @@ public:
     {
         CircularReferenceObject *retn = new CircularReferenceObject(parent);
         retn->m_dtorCount = m_dtorCount;
-        retn->m_engine = m_engine;
         return retn;
     }
 
@@ -1283,14 +1282,8 @@ public:
         thisObject->defineDefaultProperty(QStringLiteral("autoTestStrongRef"), v);
     }
 
-    void setEngine(QQmlEngine* declarativeEngine)
-    {
-        m_engine = QQmlEnginePrivate::get(declarativeEngine)->v8engine();
-    }
-
 private:
     int *m_dtorCount;
-    QV8Engine* m_engine;
 };
 Q_DECLARE_METATYPE(CircularReferenceObject*)
 
@@ -1509,7 +1502,7 @@ public:
             }
             break;
         case Qt::OffsetFromUTC:
-            m_offset = m_datetime.utcOffset() / 60;
+            m_offset = m_datetime.offsetFromUtc() / 60;
             m_timespec = QString("%1%2:%3").arg(m_offset < 0 ? '-' : '+')
                                            .arg(abs(m_offset) / 60)
                                            .arg(abs(m_offset) % 60);

@@ -6,10 +6,11 @@
 #define COMPONENTS_PAYMENTS_CONTENT_PAYMENT_RESPONSE_HELPER_H_
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
+#include "components/autofill/core/browser/address_normalizer.h"
 #include "components/autofill/core/browser/autofill_profile.h"
-#include "components/payments/core/address_normalizer.h"
 #include "components/payments/core/payment_instrument.h"
-#include "third_party/WebKit/public/platform/modules/payments/payment_request.mojom.h"
+#include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 
 namespace payments {
 
@@ -17,8 +18,9 @@ class PaymentRequestDelegate;
 class PaymentRequestSpec;
 
 // A helper class to facilitate the creation of the PaymentResponse.
-class PaymentResponseHelper : public PaymentInstrument::Delegate,
-                              public AddressNormalizer::Delegate {
+class PaymentResponseHelper
+    : public PaymentInstrument::Delegate,
+      public base::SupportsWeakPtr<PaymentResponseHelper> {
  public:
   class Delegate {
    public:
@@ -38,26 +40,22 @@ class PaymentResponseHelper : public PaymentInstrument::Delegate,
                         Delegate* delegate);
   ~PaymentResponseHelper() override;
 
-  // Returns a new mojo PaymentAddress based on the specified
-  // |profile| and |app_locale|.
-  static mojom::PaymentAddressPtr GetMojomPaymentAddressFromAutofillProfile(
-      const autofill::AutofillProfile& profile,
-      const std::string& app_locale);
-
   // PaymentInstrument::Delegate
   void OnInstrumentDetailsReady(
       const std::string& method_name,
       const std::string& stringified_details) override;
   void OnInstrumentDetailsError() override {}
 
-  // AddressNormalizer::Delegate
-  void OnAddressNormalized(
-      const autofill::AutofillProfile& normalized_profile) override;
-  void OnCouldNotNormalize(const autofill::AutofillProfile& profile) override;
+  mojom::PayerDetailPtr GeneratePayerDetail(
+      const autofill::AutofillProfile* selected_contact_profile) const;
 
  private:
   // Generates the Payment Response and sends it to the delegate.
   void GeneratePaymentResponse();
+
+  // To be used as AddressNormalizer::NormalizationCallback.
+  void OnAddressNormalized(bool success,
+                           const autofill::AutofillProfile& normalized_profile);
 
   const std::string& app_locale_;
   bool is_waiting_for_shipping_address_normalization_;
@@ -79,6 +77,8 @@ class PaymentResponseHelper : public PaymentInstrument::Delegate,
   // Instrument Details.
   std::string method_name_;
   std::string stringified_details_;
+
+  base::WeakPtrFactory<PaymentResponseHelper> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PaymentResponseHelper);
 };

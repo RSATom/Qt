@@ -44,8 +44,29 @@ enum JpegMarker {
   JPEG_SOS = 0xDA,    // start of scan
   JPEG_DQT = 0xDB,    // define quantization table
   JPEG_DRI = 0xDD,    // define restart internal
+  JPEG_APP0 = 0xE0,   // start of application segment (APP0)
+  JPEG_APP1 = 0xE1,   // start of application segment (APP1)
   JPEG_MARKER_PREFIX = 0xFF,  // jpeg marker prefix
 };
+
+// JPEG format uses 2 bytes to denote the size of a segment, and the size
+// includes the 2 bytes used for specifying it. Therefore, maximum data size
+// allowed is: 65535 - 2 = 65533.
+constexpr size_t kMaxMarkerSizeAllowed = 65533;
+
+// JPEG header only uses 2 bytes to represent width and height.
+constexpr int kMaxDimension = 65535;
+
+constexpr size_t kDctSize = 64;
+constexpr size_t kNumDcRunSizeBits = 16;
+constexpr size_t kNumAcRunSizeBits = 16;
+constexpr size_t kNumDcCodeWordsHuffVal = 12;
+constexpr size_t kNumAcCodeWordsHuffVal = 162;
+constexpr size_t kJpegDefaultHeaderSize =
+    67 + (kDctSize * 2) + (kNumDcRunSizeBits * 2) +
+    (kNumDcCodeWordsHuffVal * 2) + (kNumAcRunSizeBits * 2) +
+    (kNumAcCodeWordsHuffVal * 2);
+constexpr size_t kJFIFApp0Size = 16;
 
 const size_t kJpegMaxHuffmanTableNumBaseline = 2;
 const size_t kJpegMaxComponents = 4;
@@ -55,14 +76,28 @@ const size_t kJpegMaxQuantizationTableNum = 4;
 struct JpegHuffmanTable {
   bool valid;
   uint8_t code_length[16];
-  uint8_t code_value[256];
+  uint8_t code_value[162];
 };
+
+// K.3.3.1 "Specification of typical tables for DC difference coding"
+MEDIA_EXPORT extern const JpegHuffmanTable
+    kDefaultDcTable[kJpegMaxHuffmanTableNumBaseline];
+
+// K.3.3.2 "Specification of typical tables for AC coefficient coding"
+MEDIA_EXPORT extern const JpegHuffmanTable
+    kDefaultAcTable[kJpegMaxHuffmanTableNumBaseline];
 
 // Parsing result of JPEG DQT marker.
 struct JpegQuantizationTable {
   bool valid;
-  uint8_t value[64];  // baseline only supports 8 bits quantization table
+  uint8_t value[kDctSize];  // baseline only supports 8 bits quantization table
 };
+
+MEDIA_EXPORT extern const uint8_t kZigZag8x8[64];
+
+// Table K.1 Luminance quantization table
+// Table K.2 Chrominance quantization table
+MEDIA_EXPORT extern const JpegQuantizationTable kDefaultQuantTable[2];
 
 // Parsing result of a JPEG component.
 struct JpegComponent {

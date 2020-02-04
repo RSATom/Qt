@@ -4,19 +4,19 @@
 
 #include "chrome/browser/ui/webui/version_ui.h"
 
+#include <memory>
+
 #include "base/command_line.h"
 #include "base/i18n/message_formatter.h"
-#include "base/memory/ptr_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/version_handler.h"
 #include "chrome/common/channel_info.h"
-#include "chrome/common/chrome_content_client.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chrome/install_static/install_details.h"
 #include "components/grit/components_resources.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/version_info/version_info.h"
@@ -38,6 +38,11 @@
 #include "chrome/browser/ui/webui/version_handler_chromeos.h"
 #endif
 
+#if defined(OS_WIN)
+#include "chrome/browser/ui/webui/version_handler_win.h"
+#include "chrome/install_static/install_details.h"
+#endif
+
 using content::WebUIDataSource;
 
 namespace {
@@ -53,7 +58,7 @@ WebUIDataSource* CreateVersionUIDataSource() {
   html_source->AddString(version_ui::kVersion,
                          version_info::GetVersionNumber());
   html_source->AddString(version_ui::kVersionModifier,
-                         chrome::GetChannelString());
+                         chrome::GetChannelName());
   html_source->AddString(version_ui::kJSEngine, "V8");
   html_source->AddString(version_ui::kJSVersion, V8_VERSION_STRING);
   html_source->AddLocalizedString(version_ui::kCompany,
@@ -86,7 +91,8 @@ WebUIDataSource* CreateVersionUIDataSource() {
   html_source->AddString(version_ui::kProfilePath, std::string());
   html_source->AddLocalizedString(version_ui::kVariationsName,
                                   IDS_VERSION_UI_VARIATIONS);
-
+  html_source->AddLocalizedString(version_ui::kVariationsCmdName,
+                                  IDS_VERSION_UI_VARIATIONS_CMD);
 #if defined(OS_CHROMEOS)
   html_source->AddLocalizedString(version_ui::kARC, IDS_ARC_LABEL);
   html_source->AddLocalizedString(version_ui::kPlatform, IDS_PLATFORM_LABEL);
@@ -112,13 +118,9 @@ WebUIDataSource* CreateVersionUIDataSource() {
   html_source->AddString(version_ui::kFlashVersion, std::string());
 #endif  // OS_ANDROID
 
-#if defined(ARCH_CPU_64_BITS)
-  html_source->AddLocalizedString(version_ui::kVersionBitSize,
-                                  IDS_VERSION_UI_64BIT);
-#else
-  html_source->AddLocalizedString(version_ui::kVersionBitSize,
-                                  IDS_VERSION_UI_32BIT);
-#endif
+  html_source->AddLocalizedString(
+      version_ui::kVersionBitSize,
+      sizeof(void*) == 8 ? IDS_VERSION_UI_64BIT : IDS_VERSION_UI_32BIT);
 
 #if defined(OS_WIN)
   html_source->AddString(
@@ -128,7 +130,7 @@ WebUIDataSource* CreateVersionUIDataSource() {
   std::string command_line;
   typedef std::vector<std::string> ArgvList;
   const ArgvList& argv = base::CommandLine::ForCurrentProcess()->argv();
-  for (ArgvList::const_iterator iter = argv.begin(); iter != argv.end(); iter++)
+  for (auto iter = argv.begin(); iter != argv.end(); iter++)
     command_line += " " + *iter;
   // TODO(viettrungluu): |command_line| could really have any encoding, whereas
   // below we assumes it's UTF-8.
@@ -136,26 +138,6 @@ WebUIDataSource* CreateVersionUIDataSource() {
 #endif
 
 #if defined(OS_WIN)
-#if defined(__clang__)
-  html_source->AddString(version_ui::kCompiler, "clang");
-#elif defined(_MSC_VER) && _MSC_VER == 1900
-#if BUILDFLAG(PGO_BUILD)
-  html_source->AddString(version_ui::kCompiler, "MSVC 2015 (PGO)");
-#else
-  html_source->AddString(version_ui::kCompiler, "MSVC 2015");
-#endif
-#elif defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER < 2000
-#if BUILDFLAG(PGO_BUILD)
-  html_source->AddString(version_ui::kCompiler, "MSVC 2017 (PGO)");
-#else
-  html_source->AddString(version_ui::kCompiler, "MSVC 2017");
-#endif
-#elif defined(_MSC_VER)
-#error "Unsupported version of MSVC."
-#else
-  html_source->AddString(version_ui::kCompiler, "Unknown");
-#endif
-
   base::string16 update_cohort_name =
       install_static::InstallDetails::Get().update_cohort_name();
   if (!update_cohort_name.empty()) {
@@ -172,6 +154,7 @@ WebUIDataSource* CreateVersionUIDataSource() {
   html_source->AddResourcePath(version_ui::kAboutVersionCSS,
                                IDR_VERSION_UI_CSS);
   html_source->SetDefaultResource(IDR_VERSION_UI_HTML);
+  html_source->UseGzip();
   return html_source;
 }
 
@@ -182,19 +165,19 @@ VersionUI::VersionUI(content::WebUI* web_ui)
   Profile* profile = Profile::FromWebUI(web_ui);
 
 #if defined(OS_CHROMEOS)
-  web_ui->AddMessageHandler(base::MakeUnique<VersionHandlerChromeOS>());
+  web_ui->AddMessageHandler(std::make_unique<VersionHandlerChromeOS>());
+#elif defined(OS_WIN)
+  web_ui->AddMessageHandler(std::make_unique<VersionHandlerWindows>());
 #else
-  web_ui->AddMessageHandler(base::MakeUnique<VersionHandler>());
+  web_ui->AddMessageHandler(std::make_unique<VersionHandler>());
 #endif
 
 #if !defined(OS_ANDROID)
   // Set up the chrome://theme/ source.
-  ThemeSource* theme = new ThemeSource(profile);
-  content::URLDataSource::Add(profile, theme);
+  content::URLDataSource::Add(profile, std::make_unique<ThemeSource>(profile));
 #endif
 
   WebUIDataSource::Add(profile, CreateVersionUIDataSource());
 }
 
-VersionUI::~VersionUI() {
-}
+VersionUI::~VersionUI() {}

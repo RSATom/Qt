@@ -73,7 +73,7 @@ public:
 
     void abort(QWidget *widget);
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
 private Q_SLOTS:
     void animationFinished();
 #endif
@@ -81,7 +81,9 @@ private Q_SLOTS:
 private:
     typedef QHash<QWidget*, QPointer<QPropertyAnimation> > AnimationMap;
     AnimationMap m_animation_map;
+#if QT_CONFIG(mainwindow)
     QMainWindowLayout *m_mainWindowLayout;
+#endif
 };
 
 QT_END_NAMESPACE

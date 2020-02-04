@@ -14,6 +14,9 @@
 namespace media {
 
 // A class storing the context of a running CameraDeviceDelegate.
+//
+// The class is also used to forward/translate events and method calls to a
+// given VideoCaptureDevice::Client.
 class CAPTURE_EXPORT CameraDeviceContext {
  public:
   // The internal state of the running CameraDeviceDelegate.  The state
@@ -53,7 +56,7 @@ class CAPTURE_EXPORT CameraDeviceContext {
     //
     //   ConstructDefaultRequestSettings() ->
     //   OnConstructedDefaultRequestSettings() ->
-    //   |stream_buffer_manager_|->StartCapture()
+    //   |stream_buffer_manager_|->StartPreview()
     //
     // In the kCapturing state the |stream_buffer_manager_| runs the capture
     // loop to send capture requests and process capture results.
@@ -99,20 +102,24 @@ class CAPTURE_EXPORT CameraDeviceContext {
 
   // Sets state to kError and call |client_->OnError| to tear down the
   // VideoCaptureDevice.
-  void SetErrorState(const tracked_objects::Location& from_here,
+  void SetErrorState(media::VideoCaptureError error,
+                     const base::Location& from_here,
                      const std::string& reason);
 
   // Logs |message| to |client_|.
   void LogToClient(std::string message);
 
   // Submits the capture data to |client_->OnIncomingCapturedData|.
-  void SubmitCapturedData(const uint8_t* data,
-                          int length,
+  void SubmitCapturedData(gfx::GpuMemoryBuffer* buffer,
                           const VideoCaptureFormat& frame_format,
                           base::TimeTicks reference_time,
                           base::TimeDelta timestamp);
 
-  void SetRotation(int rotation);
+  void SetSensorOrientation(int sensor_orientation);
+
+  void SetScreenRotation(int screen_rotation);
+
+  int GetCameraFrameOrientation();
 
  private:
   friend class StreamBufferManagerTest;
@@ -122,8 +129,14 @@ class CAPTURE_EXPORT CameraDeviceContext {
   // The state the CameraDeviceDelegate currently is in.
   State state_;
 
-  // Clockwise rotation in degrees. This value should be 0, 90, 180, or 270.
-  int rotation_;
+  // Clockwise angle through which the output image needs to be rotated to be
+  // upright on the device screen in its native orientation.  This value should
+  // be 0, 90, 180, or 270.
+  int sensor_orientation_;
+
+  // Clockwise screen rotation in degrees. This value should be 0, 90, 180, or
+  // 270.
+  int screen_rotation_;
 
   std::unique_ptr<VideoCaptureDevice::Client> client_;
 

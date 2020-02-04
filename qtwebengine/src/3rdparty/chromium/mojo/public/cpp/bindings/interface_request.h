@@ -10,7 +10,7 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
-#include "base/single_thread_task_runner.h"
+#include "base/sequenced_task_runner.h"
 #include "mojo/public/cpp/bindings/disconnect_reason.h"
 #include "mojo/public/cpp/bindings/interface_ptr.h"
 #include "mojo/public/cpp/bindings/pipe_control_message_proxy.h"
@@ -53,6 +53,8 @@ class InterfaceRequest {
 
   // Indicates whether the request currently contains a valid message pipe.
   bool is_pending() const { return handle_.is_valid(); }
+
+  explicit operator bool() const { return handle_.is_valid(); }
 
   // Removes the message pipe from the request and returns it.
   ScopedMessagePipeHandle PassMessagePipe() { return std::move(handle_); }
@@ -132,7 +134,7 @@ class InterfaceRequest {
 template <typename Interface>
 InterfaceRequest<Interface> MakeRequest(
     InterfacePtr<Interface>* ptr,
-    scoped_refptr<base::SingleThreadTaskRunner> runner = nullptr) {
+    scoped_refptr<base::SequencedTaskRunner> runner = nullptr) {
   MessagePipe pipe;
   ptr->Bind(InterfacePtrInfo<Interface>(std::move(pipe.handle0), 0u),
             std::move(runner));

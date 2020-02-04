@@ -42,6 +42,7 @@ OTHER_FILES += \
     $$PWD/data/keyboardModifierMapping.html \
     $$PWD/data/keyboardEvents.html \
     $$PWD/data/titleupdate.js \
+    $$PWD/data/tst_action.qml \
     $$PWD/data/tst_activeFocusOnPress.qml \
     $$PWD/data/tst_contextMenu.qml \
     $$PWD/data/tst_desktopBehaviorLoadHtml.qml \
@@ -51,7 +52,6 @@ OTHER_FILES += \
     $$PWD/data/tst_filePicker.qml \
     $$PWD/data/tst_findText.qml \
     $$PWD/data/tst_focusOnNavigation.qml \
-    $$PWD/data/tst_formValidation.qml \
     $$PWD/data/tst_geopermission.qml \
     $$PWD/data/tst_getUserMedia.qml \
     $$PWD/data/tst_inputMethod.qml \
@@ -67,6 +67,8 @@ OTHER_FILES += \
     $$PWD/data/tst_navigationHistory.qml \
     $$PWD/data/tst_navigationRequested.qml \
     $$PWD/data/tst_newViewRequest.qml \
+    $$PWD/data/tst_notification.qml \
+    $$PWD/data/tst_profile.qml \
     $$PWD/data/tst_properties.qml \
     $$PWD/data/tst_runJavaScript.qml \
     $$PWD/data/tst_scrollPosition.qml \

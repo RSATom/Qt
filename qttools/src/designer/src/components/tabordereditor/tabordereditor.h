@@ -31,11 +31,11 @@
 
 #include "tabordereditor_global.h"
 
-#include <QtCore/QPointer>
-#include <QtWidgets/QWidget>
-#include <QtGui/QRegion>
-#include <QtGui/QFont>
-#include <QtGui/QFontMetrics>
+#include <QtCore/qpointer.h>
+#include <QtWidgets/qwidget.h>
+#include <QtGui/qregion.h>
+#include <QtGui/qfont.h>
+#include <QtGui/qfontmetrics.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -63,13 +63,13 @@ private slots:
     void showTabOrderDialog();
 
 protected:
-    void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent *e) Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent *e) Q_DECL_OVERRIDE;
-    void mouseDoubleClickEvent(QMouseEvent *e) Q_DECL_OVERRIDE;
-    void contextMenuEvent(QContextMenuEvent *e) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *e) Q_DECL_OVERRIDE;
-    void showEvent(QShowEvent *e) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *e) override;
+    void mouseMoveEvent(QMouseEvent *e) override;
+    void mousePressEvent(QMouseEvent *e) override;
+    void mouseDoubleClickEvent(QMouseEvent *e) override;
+    void contextMenuEvent(QContextMenuEvent *e) override;
+    void resizeEvent(QResizeEvent *e) override;
+    void showEvent(QShowEvent *e) override;
 
 private:
     QRect indicatorRect(int index) const;

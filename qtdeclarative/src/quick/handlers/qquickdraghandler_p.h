@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
@@ -51,41 +51,12 @@
 // We mean it.
 //
 
-#include "qquicksinglepointhandler_p.h"
+#include "qquickmultipointhandler_p.h"
+#include "qquickdragaxis_p.h"
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickDragAxis : public QObject
-{
-    Q_OBJECT
-    Q_PROPERTY(qreal minimum READ minimum WRITE setMinimum NOTIFY minimumChanged)
-    Q_PROPERTY(qreal maximum READ maximum WRITE setMaximum NOTIFY maximumChanged)
-    Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
-
-public:
-    QQuickDragAxis();
-
-    qreal minimum() const { return m_minimum; }
-    void setMinimum(qreal minimum);
-
-    qreal maximum() const { return m_maximum; }
-    void setMaximum(qreal maximum);
-
-    bool enabled() const { return m_enabled; }
-    void setEnabled(bool enabled);
-
-signals:
-    void minimumChanged();
-    void maximumChanged();
-    void enabledChanged();
-
-private:
-    qreal m_minimum;
-    qreal m_maximum;
-    bool m_enabled;
-};
-
-class Q_AUTOTEST_EXPORT QQuickDragHandler : public QQuickSinglePointHandler
+class Q_QUICK_PRIVATE_EXPORT QQuickDragHandler : public QQuickMultiPointHandler
 {
     Q_OBJECT
     Q_PROPERTY(QQuickDragAxis * xAxis READ xAxis CONSTANT)
@@ -93,10 +64,9 @@ class Q_AUTOTEST_EXPORT QQuickDragHandler : public QQuickSinglePointHandler
     Q_PROPERTY(QVector2D translation READ translation NOTIFY translationChanged)
 
 public:
-    explicit QQuickDragHandler(QObject *parent = 0);
-    ~QQuickDragHandler();
+    explicit QQuickDragHandler(QQuickItem *parent = nullptr);
 
-    void handleEventPoint(QQuickEventPoint *point) override;
+    void handlePointerEventImpl(QQuickPointerEvent *event) override;
 
     QQuickDragAxis *xAxis() { return &m_xAxis; }
     QQuickDragAxis *yAxis() { return &m_yAxis; }
@@ -104,27 +74,30 @@ public:
     QVector2D translation() const { return m_translation; }
     void setTranslation(const QVector2D &trans);
 
-    Q_INVOKABLE void enforceConstraints();
+    void enforceConstraints();
 
 Q_SIGNALS:
-//    void gestureStarted(QQuickGestureEvent *gesture);
     void translationChanged();
 
 protected:
-    bool wantsEventPoint(QQuickEventPoint *point) override;
     void onActiveChanged() override;
-    void onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabState stateChange, QQuickEventPoint *point) override;
+    void onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *point) override;
 
 private:
     void ungrab();
     void enforceAxisConstraints(QPointF *localPos);
-    void initializeTargetStartPos(QQuickEventPoint *point);
+    bool targetContainsCentroid();
+    QPointF targetCentroidPosition();
 
 private:
-    QPointF m_targetStartPos;
+    QPointF m_pressTargetPos;   // We must also store the local targetPos, because we cannot deduce
+                                // the press target pos from the scene pos in case there was e.g a
+                                // flick in one of the ancestors during the drag.
     QVector2D m_translation;
+
     QQuickDragAxis m_xAxis;
     QQuickDragAxis m_yAxis;
+    bool m_pressedInsideTarget = false;
 
     friend class QQuickDragAxis;
 };

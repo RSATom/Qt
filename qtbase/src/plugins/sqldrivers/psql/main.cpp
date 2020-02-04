@@ -51,7 +51,7 @@ class QPSQLDriverPlugin : public QSqlDriverPlugin
 public:
     QPSQLDriverPlugin();
 
-    QSqlDriver* create(const QString &) Q_DECL_OVERRIDE;
+    QSqlDriver* create(const QString &) override;
 };
 
 QPSQLDriverPlugin::QPSQLDriverPlugin()
@@ -61,11 +61,9 @@ QPSQLDriverPlugin::QPSQLDriverPlugin()
 
 QSqlDriver* QPSQLDriverPlugin::create(const QString &name)
 {
-    if (name == QLatin1String("QPSQL") || name == QLatin1String("QPSQL7")) {
-        QPSQLDriver* driver = new QPSQLDriver();
-        return driver;
-    }
-    return 0;
+    if (name == QLatin1String("QPSQL") || name == QLatin1String("QPSQL7"))
+        return new QPSQLDriver;
+    return nullptr;
 }
 
 QT_END_NAMESPACE

@@ -5,36 +5,35 @@
 #include "ui/base/x/selection_owner.h"
 
 #include <algorithm>
-#include <X11/Xlib.h>
-#include <X11/Xatom.h>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "ui/base/x/selection_utils.h"
 #include "ui/base/x/x11_window_event_manager.h"
 #include "ui/events/platform/x11/x11_event_source.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 
 namespace ui {
 
+const char kIncr[] = "INCR";
+const char kSaveTargets[] = "SAVE_TARGETS";
+const char kTargets[] = "TARGETS";
+
 namespace {
 
 const char kAtomPair[] = "ATOM_PAIR";
-const char kIncr[] = "INCR";
 const char kMultiple[] = "MULTIPLE";
-const char kSaveTargets[] = "SAVE_TARGETS";
-const char kTargets[] = "TARGETS";
 const char kTimestamp[] = "TIMESTAMP";
 
 // The period of |incremental_transfer_abort_timer_|. Arbitrary but must be <=
 // than kIncrementalTransferTimeoutMs.
-const int kTimerPeriodMs = 1000;
+const int KSelectionOwnerTimerPeriodMs = 1000;
 
 // The amount of time to wait for the selection requestor to process the data
 // sent by the selection owner before aborting an incremental data transfer.
 const int kIncrementalTransferTimeoutMs = 10000;
 
-static_assert(kTimerPeriodMs <= kIncrementalTransferTimeoutMs,
+static_assert(KSelectionOwnerTimerPeriodMs <= kIncrementalTransferTimeoutMs,
               "timer period must be <= transfer timeout");
 
 // Returns a conservative max size of the data we can pass into
@@ -52,28 +51,22 @@ size_t GetMaxRequestSize(XDisplay* display) {
 bool GetAtomPairArrayProperty(XID window,
                               XAtom property,
                               std::vector<std::pair<XAtom,XAtom> >* value) {
-  XAtom type = None;
+  XAtom type = x11::None;
   int format = 0;  // size in bits of each item in 'property'
   unsigned long num_items = 0;
-  unsigned char* properties = NULL;
+  unsigned char* properties = nullptr;
   unsigned long remaining_bytes = 0;
 
-  int result = XGetWindowProperty(gfx::GetXDisplay(),
-                                  window,
-                                  property,
-                                  0,          // offset into property data to
-                                              // read
-                                  (~0L),      // entire array
-                                  False,      // deleted
-                                  AnyPropertyType,
-                                  &type,
-                                  &format,
-                                  &num_items,
-                                  &remaining_bytes,
-                                  &properties);
+  int result = XGetWindowProperty(gfx::GetXDisplay(), window, property,
+                                  0,           // offset into property data to
+                                               // read
+                                  (~0L),       // entire array
+                                  x11::False,  // deleted
+                                  AnyPropertyType, &type, &format, &num_items,
+                                  &remaining_bytes, &properties);
   gfx::XScopedPtr<unsigned char> scoped_properties(properties);
 
-  if (result != Success)
+  if (result != x11::Success)
     return false;
 
   // GTK does not require |type| to be kAtomPair.
@@ -102,14 +95,13 @@ SelectionOwner::~SelectionOwner() {
   // don't receive further events. However, we don't call ClearSelectionOwner()
   // because we don't want to do this indiscriminately.
   if (XGetSelectionOwner(x_display_, selection_name_) == x_window_)
-    XSetSelectionOwner(x_display_, selection_name_, None, CurrentTime);
+    XSetSelectionOwner(x_display_, selection_name_, x11::None,
+                       x11::CurrentTime);
 }
 
 void SelectionOwner::RetrieveTargets(std::vector<XAtom>* targets) {
-  for (SelectionFormatMap::const_iterator it = format_map_.begin();
-       it != format_map_.end(); ++it) {
-    targets->push_back(it->first);
-  }
+  for (const auto& format_target : format_map_)
+    targets->push_back(format_target.first);
 }
 
 void SelectionOwner::TakeOwnershipOfSelection(
@@ -125,7 +117,7 @@ void SelectionOwner::TakeOwnershipOfSelection(
 }
 
 void SelectionOwner::ClearSelectionOwner() {
-  XSetSelectionOwner(x_display_, selection_name_, None, CurrentTime);
+  XSetSelectionOwner(x_display_, selection_name_, x11::None, x11::CurrentTime);
   format_map_ = SelectionFormatMap();
 }
 
@@ -141,7 +133,7 @@ void SelectionOwner::OnSelectionRequest(const XEvent& event) {
   reply.xselection.requestor = requestor;
   reply.xselection.selection = event.xselectionrequest.selection;
   reply.xselection.target = requested_target;
-  reply.xselection.property = None;  // Indicates failure
+  reply.xselection.property = x11::None;  // Indicates failure
   reply.xselection.time = event.xselectionrequest.time;
 
   if (requested_target == gfx::GetAtom(kMultiple)) {
@@ -152,13 +144,12 @@ void SelectionOwner::OnSelectionRequest(const XEvent& event) {
                                  requested_property,
                                  &conversions)) {
       std::vector<XAtom> conversion_results;
-      for (size_t i = 0; i < conversions.size(); ++i) {
-        bool conversion_successful = ProcessTarget(conversions[i].first,
-                                                   requestor,
-                                                   conversions[i].second);
-        conversion_results.push_back(conversions[i].first);
-        conversion_results.push_back(
-            conversion_successful ? conversions[i].second : None);
+      for (const std::pair<XAtom, XAtom>& conversion : conversions) {
+        bool conversion_successful =
+            ProcessTarget(conversion.first, requestor, conversion.second);
+        conversion_results.push_back(conversion.first);
+        conversion_results.push_back(conversion_successful ? conversion.second
+                                                           : x11::None);
       }
 
       // Set the property to indicate which conversions succeeded. This matches
@@ -177,7 +168,7 @@ void SelectionOwner::OnSelectionRequest(const XEvent& event) {
   }
 
   // Send off the reply.
-  XSendEvent(x_display_, requestor, False, 0, &reply);
+  XSendEvent(x_display_, requestor, x11::False, 0, &reply);
 }
 
 void SelectionOwner::OnSelectionClear(const XEvent& event) {
@@ -193,8 +184,7 @@ bool SelectionOwner::CanDispatchPropertyEvent(const XEvent& event) {
 }
 
 void SelectionOwner::OnPropertyEvent(const XEvent& event) {
-  std::vector<IncrementalTransfer>::iterator it =
-      FindIncrementalTransferForEvent(event);
+  auto it = FindIncrementalTransferForEvent(event);
   if (it == incremental_transfers_.end())
     return;
 
@@ -224,11 +214,8 @@ bool SelectionOwner::ProcessTarget(XAtom target,
   if (target == targets_atom) {
     // We have been asked for TARGETS. Send an atom array back with the data
     // types we support.
-    std::vector<XAtom> targets;
-    targets.push_back(timestamp_atom);
-    targets.push_back(targets_atom);
-    targets.push_back(save_targets_atom);
-    targets.push_back(multiple_atom);
+    std::vector<XAtom> targets = {timestamp_atom, targets_atom,
+                                  save_targets_atom, multiple_atom};
     RetrieveTargets(&targets);
 
     XChangeProperty(x_display_, requestor, property, XA_ATOM, 32,
@@ -239,7 +226,7 @@ bool SelectionOwner::ProcessTarget(XAtom target,
   }
 
   // Try to find the data type in map.
-  SelectionFormatMap::const_iterator it = format_map_.find(target);
+  auto it = format_map_.find(target);
   if (it != format_map_.end()) {
     if (it->second->size() > max_request_size_) {
       // We must send the data back in several chunks due to a limitation in
@@ -258,7 +245,7 @@ bool SelectionOwner::ProcessTarget(XAtom target,
           base::TimeDelta::FromMilliseconds(kIncrementalTransferTimeoutMs);
       incremental_transfers_.push_back(IncrementalTransfer(
           requestor, target, property,
-          base::MakeUnique<XScopedEventSelector>(requestor, PropertyChangeMask),
+          std::make_unique<XScopedEventSelector>(requestor, PropertyChangeMask),
           it->second, 0, timeout));
 
       // Start a timer to abort the data transfer in case that the selection
@@ -267,9 +254,8 @@ bool SelectionOwner::ProcessTarget(XAtom target,
       if (!incremental_transfer_abort_timer_.IsRunning()) {
         incremental_transfer_abort_timer_.Start(
             FROM_HERE,
-            base::TimeDelta::FromMilliseconds(kTimerPeriodMs),
-            this,
-            &SelectionOwner::AbortStaleIncrementalTransfers);
+            base::TimeDelta::FromMilliseconds(KSelectionOwnerTimerPeriodMs),
+            this, &SelectionOwner::AbortStaleIncrementalTransfers);
       }
     } else {
       XChangeProperty(
@@ -311,7 +297,7 @@ void SelectionOwner::ProcessIncrementalTransfer(IncrementalTransfer* transfer) {
   // transfer->data once the zero-sized chunk is sent to indicate that state
   // related to this data transfer can be cleared.
   if (chunk_length == 0)
-    transfer->data = NULL;
+    transfer->data = nullptr;
 }
 
 void SelectionOwner::AbortStaleIncrementalTransfers() {
@@ -333,10 +319,8 @@ void SelectionOwner::CompleteIncrementalTransfer(
 
 std::vector<SelectionOwner::IncrementalTransfer>::iterator
     SelectionOwner::FindIncrementalTransferForEvent(const XEvent& event) {
-  for (std::vector<IncrementalTransfer>::iterator it =
-           incremental_transfers_.begin();
-       it != incremental_transfers_.end();
-       ++it) {
+  for (auto it = incremental_transfers_.begin();
+       it != incremental_transfers_.end(); ++it) {
     if (it->window == event.xproperty.window &&
         it->property == event.xproperty.atom) {
       return it;

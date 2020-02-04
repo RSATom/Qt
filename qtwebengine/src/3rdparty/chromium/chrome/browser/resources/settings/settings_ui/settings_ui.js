@@ -20,20 +20,17 @@ settings.defaultResourceLoaded = true;
 Polymer({
   is: 'settings-ui',
 
-  behaviors: [settings.RouteObserverBehavior],
+  behaviors: [
+    settings.RouteObserverBehavior,
+    CrContainerShadowBehavior,
+    FindShortcutBehavior,
+  ],
 
   properties: {
     /**
      * Preferences state.
      */
     prefs: Object,
-
-    /** @type {?settings.DirectionDelegate} */
-    directionDelegate: {
-      observer: 'directionDelegateChanged_',
-      type: Object,
-      value: new settings.DirectionDelegateImpl(),
-    },
 
     /** @private */
     advancedOpened_: {
@@ -57,7 +54,7 @@ Polymer({
     showAndroidApps_: Boolean,
 
     /** @private */
-    showMultidevice_: Boolean,
+    showCrostini_: Boolean,
 
     /** @private */
     havePlayStoreApp_: Boolean,
@@ -66,7 +63,7 @@ Polymer({
     lastSearchQuery_: {
       type: String,
       value: '',
-    }
+    },
   },
 
   listeners: {
@@ -85,17 +82,19 @@ Polymer({
    */
   ready: function() {
     // Lazy-create the drawer the first time it is opened or swiped into view.
-    listenOnce(this.$.drawer, 'open-changed', function() {
+    listenOnce(this.$.drawer, 'cr-drawer-opening', () => {
       this.$.drawerTemplate.if = true;
-    }.bind(this));
+    });
 
-    window.addEventListener('popstate', function(e) {
-      this.$.drawer.closeDrawer();
-    }.bind(this));
+    window.addEventListener('popstate', e => {
+      this.$.drawer.cancel();
+    });
 
     CrPolicyStrings = {
       controlledSettingExtension:
           loadTimeData.getString('controlledSettingExtension'),
+      controlledSettingExtensionWithoutName:
+          loadTimeData.getString('controlledSettingExtensionWithoutName'),
       controlledSettingPolicy:
           loadTimeData.getString('controlledSettingPolicy'),
       controlledSettingRecommendedMatches:
@@ -123,31 +122,33 @@ Polymer({
           loadTimeData.getString('networkListItemConnecting'),
       networkListItemConnectingTo:
           loadTimeData.getString('networkListItemConnectingTo'),
+      networkListItemInitializing:
+          loadTimeData.getString('networkListItemInitializing'),
+      networkListItemScanning:
+          loadTimeData.getString('networkListItemScanning'),
       networkListItemNotConnected:
           loadTimeData.getString('networkListItemNotConnected'),
+      networkListItemNoNetwork:
+          loadTimeData.getString('networkListItemNoNetwork'),
       vpnNameTemplate: loadTimeData.getString('vpnNameTemplate'),
     };
     // </if>
 
     this.showAndroidApps_ = loadTimeData.valueExists('androidAppsVisible') &&
         loadTimeData.getBoolean('androidAppsVisible');
-    this.showMultidevice_ =
-        loadTimeData.valueExists('enableMultideviceSettings') &&
-        loadTimeData.getBoolean('enableMultideviceSettings');
+    this.showCrostini_ = loadTimeData.valueExists('showCrostini') &&
+        loadTimeData.getBoolean('showCrostini');
     this.havePlayStoreApp_ = loadTimeData.valueExists('havePlayStoreApp') &&
         loadTimeData.getBoolean('havePlayStoreApp');
 
-    this.addEventListener('show-container', function() {
+    this.addEventListener('show-container', () => {
       this.$.container.style.visibility = 'visible';
-    }.bind(this));
+    });
 
-    this.addEventListener('hide-container', function() {
+    this.addEventListener('hide-container', () => {
       this.$.container.style.visibility = 'hidden';
-    }.bind(this));
+    });
   },
-
-  /** @private {?IntersectionObserver} */
-  intersectionObserver_: null,
 
   /** @override */
   attached: function() {
@@ -163,38 +164,46 @@ Polymer({
     document.fonts.load('bold 12px Roboto');
     settings.setGlobalScrollTarget(this.$.container);
 
-    // Setup drop shadow logic.
-    var callback = function(entries) {
-      this.$.dropShadow.classList.toggle(
-          'has-shadow', entries[entries.length - 1].intersectionRatio == 0);
-    }.bind(this);
-
-    this.intersectionObserver_ = new IntersectionObserver(
-        callback,
-        /** @type {IntersectionObserverInit} */ ({
-          root: this.$.container,
-          threshold: 0,
-        }));
-    this.intersectionObserver_.observe(this.$.intersectionProbe);
+    const scrollToTop = top => new Promise(resolve => {
+      // When transitioning  back to main page from a subpage on ChromeOS, using
+      // 'smooth' scroll here results in the scroll changing to whatever is last
+      // value of |top|. This happens even after setting the scroll position the
+      // UI or programmatically.
+      const behavior = cr.isChromeOS ? 'auto' : 'smooth';
+      this.$.container.scrollTo({top: top, behavior: behavior});
+      const onScroll = () => {
+        this.debounce('scrollEnd', () => {
+          this.$.container.removeEventListener('scroll', onScroll);
+          resolve();
+        }, 75);
+      };
+      this.$.container.addEventListener('scroll', onScroll);
+    });
+    this.addEventListener('scroll-to-top', e => {
+      scrollToTop(e.detail.top).then(e.detail.callback);
+    });
+    this.addEventListener('scroll-to-bottom', e => {
+      scrollToTop(e.detail.bottom - this.$.container.clientHeight)
+          .then(e.detail.callback);
+    });
   },
 
   /** @override */
   detached: function() {
     settings.resetRouteForTesting();
-    this.intersectionObserver_.disconnect();
-    this.intersectionObserver_ = null;
   },
 
   /** @param {!settings.Route} route */
   currentRouteChanged: function(route) {
-    var urlSearchQuery = settings.getQueryParameters().get('search') || '';
-    if (urlSearchQuery == this.lastSearchQuery_)
+    const urlSearchQuery = settings.getQueryParameters().get('search') || '';
+    if (urlSearchQuery == this.lastSearchQuery_) {
       return;
+    }
 
     this.lastSearchQuery_ = urlSearchQuery;
 
-    var toolbar = /** @type {!CrToolbarElement} */ (this.$$('cr-toolbar'));
-    var searchField =
+    const toolbar = /** @type {!CrToolbarElement} */ (this.$$('cr-toolbar'));
+    const searchField =
         /** @type {CrToolbarSearchFieldElement} */ (toolbar.getSearchField());
 
     // If the search was initiated by directly entering a search URL, need to
@@ -208,13 +217,26 @@ Polymer({
     this.$.main.searchContents(urlSearchQuery);
   },
 
+  // Override FindShortcutBehavior methods.
+  handleFindShortcut: function(modalContextOpen) {
+    if (modalContextOpen) {
+      return false;
+    }
+    this.$$('cr-toolbar').getSearchField().showAndFocus();
+    return true;
+  },
+
+  // Override FindShortcutBehavior methods.
+  searchInputHasFocus: function() {
+    return this.$$('cr-toolbar').getSearchField().isSearchFocused();
+  },
+
   /**
-   * @param {!CustomEvent} e
+   * @param {!CustomEvent<string>} e
    * @private
    */
   onRefreshPref_: function(e) {
-    var prefName = /** @type {string} */ (e.detail);
-    return /** @type {SettingsPrefsElement} */ (this.$.prefs).refresh(prefName);
+    return /** @type {SettingsPrefsElement} */ (this.$.prefs).refresh(e.detail);
   },
 
   /**
@@ -226,10 +248,11 @@ Polymer({
     // Trim leading whitespace only, to prevent searching for empty string. This
     // still allows the user to search for 'foo bar', while taking a long pause
     // after typing 'foo '.
-    var query = e.detail.replace(/^\s+/, '');
+    const query = e.detail.replace(/^\s+/, '');
     // Prevent duplicate history entries.
-    if (query == this.lastSearchQuery_)
+    if (query == this.lastSearchQuery_) {
       return;
+    }
 
     settings.navigateTo(
         settings.routes.BASIC,
@@ -240,12 +263,11 @@ Polymer({
   },
 
   /**
-   * @param {!Event} event
+   * Called when a section is selected.
    * @private
    */
-  onIronActivate_: function(event) {
-    if (event.detail.item.id != 'advancedSubmenu')
-      this.$.drawer.closeDrawer();
+  onIronActivate_: function() {
+    this.$.drawer.close();
   },
 
   /** @private */
@@ -253,19 +275,27 @@ Polymer({
     this.$.drawer.toggle();
   },
 
-  /** @private */
-  onMenuClosed_: function() {
+  /**
+   * When this is called, The drawer animation is finished, and the dialog no
+   * longer has focus. The selected section will gain focus if one was selected.
+   * Otherwise, the drawer was closed due being canceled, and the main settings
+   * container is given focus. That way the arrow keys can be used to scroll
+   * the container, and pressing tab focuses a component in settings.
+   * @private
+   */
+  onMenuClose_: function() {
+    if (!this.$.drawer.wasCanceled()) {
+      // If a navigation happened, MainPageBehavior#currentRouteChanged handles
+      // focusing the corresponding section.
+      return;
+    }
+
     // Add tab index so that the container can be focused.
     this.$.container.setAttribute('tabindex', '-1');
     this.$.container.focus();
 
-    listenOnce(this.$.container, ['blur', 'pointerdown'], function() {
+    listenOnce(this.$.container, ['blur', 'pointerdown'], () => {
       this.$.container.removeAttribute('tabindex');
-    }.bind(this));
-  },
-
-  /** @private */
-  directionDelegateChanged_: function() {
-    this.$.drawer.align = this.directionDelegate.isRtl() ? 'right' : 'left';
+    });
   },
 });

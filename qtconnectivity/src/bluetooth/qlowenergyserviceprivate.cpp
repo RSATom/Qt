@@ -39,7 +39,7 @@
 
 #include "qlowenergyserviceprivate_p.h"
 
-#include "qlowenergycontroller_p.h"
+#include "qlowenergycontrollerbase_p.h"
 
 QT_BEGIN_NAMESPACE
 

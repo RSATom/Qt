@@ -4,18 +4,18 @@
 
 #include "extensions/browser/api/power/power_api.h"
 
-#include <deque>
 #include <memory>
 #include <string>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "extensions/browser/api_test_utils.h"
 #include "extensions/browser/api_unittest.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/test_util.h"
-#include "services/device/public/interfaces/wake_lock.mojom.h"
+#include "extensions/common/extension_builder.h"
+#include "services/device/public/mojom/wake_lock.mojom.h"
 
 namespace extensions {
 
@@ -79,13 +79,16 @@ class FakeWakeLockManager {
 
       // Has an active wake lock already, perform ChangeType:
       switch (type) {
-        case device::mojom::WakeLockType::PreventAppSuspension:
+        case device::mojom::WakeLockType::kPreventAppSuspension:
           requests_.push_back(BLOCK_APP_SUSPENSION);
           requests_.push_back(UNBLOCK_DISPLAY_SLEEP);
           break;
-        case device::mojom::WakeLockType::PreventDisplaySleep:
+        case device::mojom::WakeLockType::kPreventDisplaySleep:
           requests_.push_back(BLOCK_DISPLAY_SLEEP);
           requests_.push_back(UNBLOCK_APP_SUSPENSION);
+          break;
+        case device::mojom::WakeLockType::kPreventDisplaySleepAllowDimming:
+          NOTREACHED() << "Unexpected wake lock type " << type;
           break;
       }
 
@@ -96,11 +99,14 @@ class FakeWakeLockManager {
     // Wake lock is not active, so activate it:
     if (!is_active_) {
       switch (type) {
-        case device::mojom::WakeLockType::PreventAppSuspension:
+        case device::mojom::WakeLockType::kPreventAppSuspension:
           requests_.push_back(BLOCK_APP_SUSPENSION);
           break;
-        case device::mojom::WakeLockType::PreventDisplaySleep:
+        case device::mojom::WakeLockType::kPreventDisplaySleep:
           requests_.push_back(BLOCK_DISPLAY_SLEEP);
+          break;
+        case device::mojom::WakeLockType::kPreventDisplaySleepAllowDimming:
+          NOTREACHED() << "Unexpected wake lock type " << type;
           break;
       }
 
@@ -113,11 +119,14 @@ class FakeWakeLockManager {
     if (!is_active_)
       return;
     switch (type_) {
-      case device::mojom::WakeLockType::PreventAppSuspension:
+      case device::mojom::WakeLockType::kPreventAppSuspension:
         requests_.push_back(UNBLOCK_APP_SUSPENSION);
         break;
-      case device::mojom::WakeLockType::PreventDisplaySleep:
+      case device::mojom::WakeLockType::kPreventDisplaySleep:
         requests_.push_back(UNBLOCK_DISPLAY_SLEEP);
+        break;
+      case device::mojom::WakeLockType::kPreventDisplaySleepAllowDimming:
+        NOTREACHED() << "Unexpected wake lock type " << type_;
         break;
     }
     is_active_ = false;
@@ -129,7 +138,7 @@ class FakeWakeLockManager {
   bool is_active_;
 
   // Requests in chronological order.
-  std::deque<Request> requests_;
+  base::circular_deque<Request> requests_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeWakeLockManager);
 };
@@ -267,7 +276,7 @@ TEST_F(PowerAPITest, MultipleExtensions) {
   // Create a second extension that blocks system suspend.  No additional
   // wake lock is needed; the wake lock from the first extension
   // already covers the behavior requested by the second extension.
-  scoped_refptr<Extension> extension2(test_util::CreateEmptyExtension("id2"));
+  scoped_refptr<const Extension> extension2(ExtensionBuilder("Test2").Build());
   ASSERT_TRUE(CallFunction(REQUEST, kSystemArgs, extension2.get()));
   EXPECT_EQ(NONE, manager_->PopFirstRequest());
 

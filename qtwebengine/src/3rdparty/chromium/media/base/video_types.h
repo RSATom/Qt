@@ -5,6 +5,8 @@
 #ifndef MEDIA_BASE_VIDEO_TYPES_H_
 #define MEDIA_BASE_VIDEO_TYPES_H_
 
+#include <stdint.h>
+#include <iosfwd>
 #include <string>
 
 #include "build/build_config.h"
@@ -20,10 +22,14 @@ enum VideoPixelFormat {
   PIXEL_FORMAT_UNKNOWN = 0,  // Unknown or unspecified format value.
   PIXEL_FORMAT_I420 =
       1,  // 12bpp YUV planar 1x1 Y, 2x2 UV samples, a.k.a. YU12.
-  PIXEL_FORMAT_YV12 = 2,   // 12bpp YVU planar 1x1 Y, 2x2 VU samples.
-  PIXEL_FORMAT_YV16 = 3,   // 16bpp YVU planar 1x1 Y, 2x1 VU samples.
-  PIXEL_FORMAT_YV12A = 4,  // 20bpp YUVA planar 1x1 Y, 2x2 VU, 1x1 A samples.
-  PIXEL_FORMAT_YV24 = 5,   // 24bpp YUV planar, no subsampling.
+
+  // Note: Chrome does not actually support YVU compositing, so you probably
+  // don't actually want to use this. See http://crbug.com/784627.
+  PIXEL_FORMAT_YV12 = 2,  // 12bpp YVU planar 1x1 Y, 2x2 VU samples.
+
+  PIXEL_FORMAT_I422 = 3,   // 16bpp YUV planar 1x1 Y, 2x1 UV samples.
+  PIXEL_FORMAT_I420A = 4,  // 20bpp YUVA planar 1x1 Y, 2x2 UV, 1x1 A samples.
+  PIXEL_FORMAT_I444 = 5,   // 24bpp YUV planar, no subsampling.
   PIXEL_FORMAT_NV12 =
       6,  // 12bpp with Y plane followed by a 2x2 interleaved UV plane.
   PIXEL_FORMAT_NV21 =
@@ -47,48 +53,53 @@ enum VideoPixelFormat {
   // Plane size = Row pitch * (((height+31)/32)*32)
   PIXEL_FORMAT_MT21 = 15,
 
+  // The P* in the formats below designates the number of bits per pixel
+  // component. I.e. P9 is 9-bits per pixel component, P10 is 10-bits per pixel
+  // component, etc.
   PIXEL_FORMAT_YUV420P9 = 16,
   PIXEL_FORMAT_YUV420P10 = 17,
   PIXEL_FORMAT_YUV422P9 = 18,
   PIXEL_FORMAT_YUV422P10 = 19,
   PIXEL_FORMAT_YUV444P9 = 20,
   PIXEL_FORMAT_YUV444P10 = 21,
-
   PIXEL_FORMAT_YUV420P12 = 22,
   PIXEL_FORMAT_YUV422P12 = 23,
   PIXEL_FORMAT_YUV444P12 = 24,
 
-  PIXEL_FORMAT_Y8 = 25,   // single 8bpp plane.
+  /* PIXEL_FORMAT_Y8 = 25, Deprecated */
   PIXEL_FORMAT_Y16 = 26,  // single 16bpp plane.
 
-  PIXEL_FORMAT_I422 =
-      27,  // 16bpp YUV planar 1x1 Y, 2x1 UV samples, a.k.a. YU16.
+  PIXEL_FORMAT_ABGR = 27,  // 32bpp RGBA, 1 plane.
+  PIXEL_FORMAT_XBGR = 28,  // 24bpp RGB, 1 plane.
+
+  PIXEL_FORMAT_P016LE = 29,  // 24bpp NV12, 16 bits per channel
 
   // Please update UMA histogram enumeration when adding new formats here.
   PIXEL_FORMAT_MAX =
-      PIXEL_FORMAT_I422,  // Must always be equal to largest entry logged.
-};
-
-// Color space or color range used for the pixels.
-// Logged to UMA, so never reuse values. Leave gaps if necessary.
-enum ColorSpace {
-  COLOR_SPACE_UNSPECIFIED = 0,  // In general this is Rec601.
-  // The JPEG color space is the combination of Rec.601 and full range colors
-  // (aka pc range colors).
-  COLOR_SPACE_JPEG = 1,
-  COLOR_SPACE_HD_REC709 = 2,  // Rec709 "HD" color space.
-  COLOR_SPACE_SD_REC601 = 3,  // Rec601 "SD" color space.
-  COLOR_SPACE_MAX = COLOR_SPACE_SD_REC601,
+      PIXEL_FORMAT_P016LE,  // Must always be equal to largest entry logged.
 };
 
 // Returns the name of a Format as a string.
 MEDIA_EXPORT std::string VideoPixelFormatToString(VideoPixelFormat format);
+
+// Stream operator of Format for logging etc.
+MEDIA_EXPORT std::ostream& operator<<(std::ostream& os,
+                                      VideoPixelFormat format);
+
+// Returns human readable fourcc string.
+// If any of the four characters is non-printable, it outputs
+// "0x<32-bit integer in hex>", e.g. FourccToString(0x66616b00) returns
+// "0x66616b00".
+MEDIA_EXPORT std::string FourccToString(uint32_t fourcc);
 
 // Returns true if |format| is a YUV format with multiple planes.
 MEDIA_EXPORT bool IsYuvPlanar(VideoPixelFormat format);
 
 // Returns true if |format| has no Alpha channel (hence is always opaque).
 MEDIA_EXPORT bool IsOpaque(VideoPixelFormat format);
+
+// Returns the number of significant bits per channel.
+MEDIA_EXPORT size_t BitDepth(VideoPixelFormat format);
 
 }  // namespace media
 

@@ -11,13 +11,12 @@
 
 namespace offline_pages {
 
-UpdateRequestTask::UpdateRequestTask(
-    RequestQueueStore* store,
-    int64_t request_id,
-    const RequestQueueStore::UpdateCallback& callback)
+UpdateRequestTask::UpdateRequestTask(RequestQueueStore* store,
+                                     int64_t request_id,
+                                     RequestQueueStore::UpdateCallback callback)
     : store_(store),
       request_id_(request_id),
-      callback_(callback),
+      callback_(std::move(callback)),
       weak_ptr_factory_(this) {}
 
 UpdateRequestTask::~UpdateRequestTask() {}
@@ -29,22 +28,22 @@ void UpdateRequestTask::Run() {
 void UpdateRequestTask::ReadRequest() {
   std::vector<int64_t> request_ids{request_id_};
   store_->GetRequestsByIds(request_ids,
-                           base::Bind(&UpdateRequestTask::UpdateRequestImpl,
-                                      weak_ptr_factory_.GetWeakPtr()));
+                           base::BindOnce(&UpdateRequestTask::UpdateRequestImpl,
+                                          weak_ptr_factory_.GetWeakPtr()));
 }
 
-void UpdateRequestTask::CompleteWithResult(
-    std::unique_ptr<UpdateRequestsResult> result) {
-  callback_.Run(std::move(result));
+void UpdateRequestTask::CompleteWithResult(UpdateRequestsResult result) {
+  std::move(callback_).Run(std::move(result));
   TaskComplete();
 }
 
-bool UpdateRequestTask::ValidateReadResult(UpdateRequestsResult* result) {
-  return result->store_state == StoreState::LOADED &&
-         result->item_statuses.at(0).first == request_id() &&
-         result->item_statuses.at(0).second == ItemActionStatus::SUCCESS &&
-         result->updated_items.size() == 1 &&
-         result->updated_items.at(0).request_id() == request_id();
+bool UpdateRequestTask::ValidateReadResult(const UpdateRequestsResult& result) {
+  return result.store_state == StoreState::LOADED &&
+         result.item_statuses.size() == 1 &&
+         result.item_statuses.at(0).first == request_id() &&
+         result.item_statuses.at(0).second == ItemActionStatus::SUCCESS &&
+         result.updated_items.size() == 1 &&
+         result.updated_items.at(0).request_id() == request_id();
 }
 
 }  // namespace offline_pages

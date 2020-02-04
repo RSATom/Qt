@@ -10,38 +10,28 @@
 
 #include "base/bind.h"
 #include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/metrics/metrics_log.h"
 #include "components/metrics/metrics_service_client.h"
-#include "components/metrics/proto/ukm/report.pb.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/ukm/persisted_logs_metrics_impl.h"
 #include "components/ukm/ukm_pref_names.h"
 #include "components/ukm/ukm_rotation_scheduler.h"
+#include "services/metrics/public/cpp/delegating_ukm_recorder.h"
+#include "third_party/metrics_proto/ukm/report.pb.h"
 
 namespace ukm {
 
 namespace {
 
-// The delay, in seconds, after starting recording before doing expensive
-// initialization work.
-constexpr int kInitializationDelaySeconds = 5;
-
-// True if we should record session ids in the UKM Report proto.
-bool ShouldRecordSessionId() {
-  return base::GetFieldTrialParamByFeatureAsBool(kUkmFeature, "RecordSessionId",
-                                                 false);
-}
-
 // Generates a new client id and stores it in prefs.
-uint64_t GenerateClientId(PrefService* pref_service) {
+uint64_t GenerateAndStoreClientId(PrefService* pref_service) {
   uint64_t client_id = 0;
   while (!client_id)
     client_id = base::RandUint64();
@@ -52,16 +42,16 @@ uint64_t GenerateClientId(PrefService* pref_service) {
   return client_id;
 }
 
-uint64_t LoadOrGenerateClientId(PrefService* pref_service) {
+uint64_t LoadOrGenerateAndStoreClientId(PrefService* pref_service) {
   uint64_t client_id = pref_service->GetInt64(prefs::kUkmClientId);
   if (!client_id)
-    client_id = GenerateClientId(pref_service);
+    client_id = GenerateAndStoreClientId(pref_service);
   return client_id;
 }
 
-int32_t LoadSessionId(PrefService* pref_service) {
+int32_t LoadAndIncrementSessionId(PrefService* pref_service) {
   int32_t session_id = pref_service->GetInteger(prefs::kUkmSessionId);
-  ++session_id;  // increment session id, once per session
+  ++session_id;  // Increment session id, once per session.
   pref_service->SetInteger(prefs::kUkmSessionId, session_id);
   return session_id;
 }
@@ -69,10 +59,13 @@ int32_t LoadSessionId(PrefService* pref_service) {
 }  // namespace
 
 UkmService::UkmService(PrefService* pref_service,
-                       metrics::MetricsServiceClient* client)
+                       metrics::MetricsServiceClient* client,
+                       bool restrict_to_whitelist_entries)
     : pref_service_(pref_service),
+      restrict_to_whitelist_entries_(restrict_to_whitelist_entries),
       client_id_(0),
       session_id_(0),
+      report_count_(0),
       client_(client),
       reporting_service_(client, pref_service),
       initialize_started_(false),
@@ -94,39 +87,37 @@ UkmService::UkmService(PrefService* pref_service,
   scheduler_.reset(new ukm::UkmRotationScheduler(rotate_callback,
                                                  get_upload_interval_callback));
 
-  for (auto& provider : metrics_providers_)
-    provider->Init();
-
   StoreWhitelistedEntries();
 
-  UkmRecorder::Set(this);
+  DelegatingUkmRecorder::Get()->AddDelegate(self_ptr_factory_.GetWeakPtr());
 }
 
 UkmService::~UkmService() {
   DisableReporting();
-  UkmRecorder::Set(nullptr);
+  DelegatingUkmRecorder::Get()->RemoveDelegate(this);
 }
 
 void UkmService::Initialize() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!initialize_started_);
   DVLOG(1) << "UkmService::Initialize";
   initialize_started_ = true;
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&UkmService::StartInitTask, self_ptr_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSeconds(kInitializationDelaySeconds));
+  DCHECK_EQ(0, report_count_);
+  client_id_ = LoadOrGenerateAndStoreClientId(pref_service_);
+  session_id_ = LoadAndIncrementSessionId(pref_service_);
+  metrics_providers_.Init();
+
+  StartInitTask();
 }
 
 void UkmService::EnableReporting() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::EnableReporting";
   if (reporting_service_.reporting_active())
     return;
 
-  for (auto& provider : metrics_providers_)
-    provider->OnRecordingEnabled();
+  metrics_providers_.OnRecordingEnabled();
 
   if (!initialize_started_)
     Initialize();
@@ -135,13 +126,12 @@ void UkmService::EnableReporting() {
 }
 
 void UkmService::DisableReporting() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::DisableReporting";
 
   reporting_service_.DisableReporting();
 
-  for (auto& provider : metrics_providers_)
-    provider->OnRecordingDisabled();
+  metrics_providers_.OnRecordingDisabled();
 
   scheduler_->Stop();
   Flush();
@@ -149,7 +139,7 @@ void UkmService::DisableReporting() {
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
 void UkmService::OnAppEnterForeground() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::OnAppEnterForeground";
 
   // If initialize_started_ is false, UKM has not yet been started, so bail. The
@@ -161,7 +151,7 @@ void UkmService::OnAppEnterForeground() {
 }
 
 void UkmService::OnAppEnterBackground() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::OnAppEnterBackground";
 
   if (!initialize_started_)
@@ -170,37 +160,40 @@ void UkmService::OnAppEnterBackground() {
   scheduler_->Stop();
 
   // Give providers a chance to persist ukm data as part of being backgrounded.
-  for (auto& provider : metrics_providers_)
-    provider->OnAppEnterBackground();
+  metrics_providers_.OnAppEnterBackground();
 
   Flush();
 }
 #endif
 
 void UkmService::Flush() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (initialize_complete_)
     BuildAndStoreLog();
   reporting_service_.ukm_log_store()->PersistUnsentLogs();
 }
 
 void UkmService::Purge() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::Purge";
   reporting_service_.ukm_log_store()->Purge();
   UkmRecorderImpl::Purge();
 }
 
-// TODO(bmcquade): rename this to something more generic, like
-// ResetClientState. Consider resetting all prefs here.
-void UkmService::ResetClientId() {
-  client_id_ = GenerateClientId(pref_service_);
-  session_id_ = LoadSessionId(pref_service_);
+void UkmService::ResetClientState(ResetReason reason) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  UMA_HISTOGRAM_ENUMERATION("UKM.ResetReason", reason);
+
+  client_id_ = GenerateAndStoreClientId(pref_service_);
+  // Note: the session_id has already been cleared by GenerateAndStoreClientId.
+  session_id_ = LoadAndIncrementSessionId(pref_service_);
+  report_count_ = 0;
 }
 
 void UkmService::RegisterMetricsProvider(
     std::unique_ptr<metrics::MetricsProvider> provider) {
-  metrics_providers_.push_back(std::move(provider));
+  metrics_providers_.RegisterMetricsProvider(std::move(provider));
 }
 
 // static
@@ -211,55 +204,58 @@ void UkmService::RegisterPrefs(PrefRegistrySimple* registry) {
 }
 
 void UkmService::StartInitTask() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::StartInitTask";
-  client_id_ = LoadOrGenerateClientId(pref_service_);
-  session_id_ = LoadSessionId(pref_service_);
-  client_->InitializeSystemProfileMetrics(base::Bind(
-      &UkmService::FinishedInitTask, self_ptr_factory_.GetWeakPtr()));
+  metrics_providers_.AsyncInit(base::Bind(&UkmService::FinishedInitTask,
+                                          self_ptr_factory_.GetWeakPtr()));
 }
 
 void UkmService::FinishedInitTask() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::FinishedInitTask";
   initialize_complete_ = true;
   scheduler_->InitTaskComplete();
 }
 
 void UkmService::RotateLog() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::RotateLog";
   if (!reporting_service_.ukm_log_store()->has_unsent_logs())
     BuildAndStoreLog();
   reporting_service_.Start();
+  scheduler_->RotationFinished();
 }
 
 void UkmService::BuildAndStoreLog() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DVLOG(1) << "UkmService::BuildAndStoreLog";
 
   // Suppress generating a log if we have no new data to include.
-  // TODO(zhenw): add a histogram here to debug if this case is hitting a lot.
-  if (sources().empty() && entries().empty())
+  bool empty = sources().empty() && entries().empty();
+  UMA_HISTOGRAM_BOOLEAN("UKM.BuildAndStoreLogIsEmpty", empty);
+  if (empty)
     return;
 
   Report report;
   report.set_client_id(client_id_);
-  if (ShouldRecordSessionId())
-    report.set_session_id(session_id_);
+  report.set_session_id(session_id_);
+  report.set_report_id(++report_count_);
 
   StoreRecordingsInReport(&report);
 
   metrics::MetricsLog::RecordCoreSystemProfile(client_,
                                                report.mutable_system_profile());
 
-  for (auto& provider : metrics_providers_) {
-    provider->ProvideSystemProfileMetrics(report.mutable_system_profile());
-  }
+  metrics_providers_.ProvideSystemProfileMetrics(
+      report.mutable_system_profile());
 
   std::string serialized_log;
   report.SerializeToString(&serialized_log);
   reporting_service_.ukm_log_store()->StoreLog(serialized_log);
+}
+
+bool UkmService::ShouldRestrictToWhitelistedEntries() const {
+  return restrict_to_whitelist_entries_;
 }
 
 }  // namespace ukm

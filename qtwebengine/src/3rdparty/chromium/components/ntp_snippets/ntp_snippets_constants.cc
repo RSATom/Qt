@@ -9,20 +9,14 @@ namespace ntp_snippets {
 const base::FilePath::CharType kDatabaseFolder[] =
     FILE_PATH_LITERAL("NTPSnippets");
 
-const base::FilePath::CharType kBreakingNewsDatabaseFolder[] =
-    FILE_PATH_LITERAL("NTPBreakingNews");
-
 const char kContentSuggestionsApiScope[] =
     "https://www.googleapis.com/auth/chrome-content-suggestions";
 
+// There is only one endpoint for fetching suggestions. Current server
+// infrastructure doesn't have staging endpoint.
 const char kContentSuggestionsServer[] =
-    "https://chromecontentsuggestions-pa.googleapis.com/v1/suggestions/fetch";
-const char kContentSuggestionsStagingServer[] =
-    "https://staging-chromecontentsuggestions-pa.googleapis.com/v1/suggestions/"
+    "https://chromefeedcontentsuggestions-pa.googleapis.com/v2/suggestions/"
     "fetch";
-const char kContentSuggestionsAlphaServer[] =
-    "https://alpha-chromecontentsuggestions-pa.sandbox.googleapis.com/v1/"
-    "suggestions/fetch";
 
 const char kPushUpdatesSubscriptionServer[] =
     "https://chromecontentsuggestions-pa.googleapis.com/v1/suggestions/"

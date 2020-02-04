@@ -15,10 +15,11 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/no_destructor.h"
 #include "base/run_loop.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/nacl/common/buildflags.h"
 #include "content/common/frame_messages.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/renderer/pepper/host_dispatcher_wrapper.h"
@@ -33,6 +34,7 @@
 #include "content/renderer/pepper/ppb_var_deprecated_impl.h"
 #include "content/renderer/pepper/ppb_video_decoder_impl.h"
 #include "content/renderer/pepper/renderer_ppapi_host_impl.h"
+#include "content/renderer/render_thread_impl.h"
 #include "content/renderer/render_view_impl.h"
 #include "ppapi/c/dev/ppb_audio_input_dev.h"
 #include "ppapi/c/dev/ppb_audio_output_dev.h"
@@ -61,8 +63,6 @@
 #include "ppapi/c/ppb_audio_buffer.h"
 #include "ppapi/c/ppb_audio_config.h"
 #include "ppapi/c/ppb_audio_encoder.h"
-#include "ppapi/c/ppb_compositor.h"
-#include "ppapi/c/ppb_compositor_layer.h"
 #include "ppapi/c/ppb_console.h"
 #include "ppapi/c/ppb_core.h"
 #include "ppapi/c/ppb_file_io.h"
@@ -109,7 +109,6 @@
 #include "ppapi/c/private/ppb_find_private.h"
 #include "ppapi/c/private/ppb_flash.h"
 #include "ppapi/c/private/ppb_flash_clipboard.h"
-#include "ppapi/c/private/ppb_flash_device_id.h"
 #include "ppapi/c/private/ppb_flash_drm.h"
 #include "ppapi/c/private/ppb_flash_file.h"
 #include "ppapi/c/private/ppb_flash_font_file.h"
@@ -120,17 +119,13 @@
 #include "ppapi/c/private/ppb_host_resolver_private.h"
 #include "ppapi/c/private/ppb_instance_private.h"
 #include "ppapi/c/private/ppb_isolated_file_system_private.h"
-#include "ppapi/c/private/ppb_output_protection_private.h"
 #include "ppapi/c/private/ppb_pdf.h"
-#include "ppapi/c/private/ppb_platform_verification_private.h"
 #include "ppapi/c/private/ppb_proxy_private.h"
 #include "ppapi/c/private/ppb_tcp_server_socket_private.h"
 #include "ppapi/c/private/ppb_tcp_socket_private.h"
 #include "ppapi/c/private/ppb_testing_private.h"
 #include "ppapi/c/private/ppb_udp_socket_private.h"
 #include "ppapi/c/private/ppb_uma_private.h"
-#include "ppapi/c/private/ppb_video_destination_private.h"
-#include "ppapi/c/private/ppb_video_source_private.h"
 #include "ppapi/c/private/ppb_x509_certificate_private.h"
 #include "ppapi/c/trusted/ppb_broker_trusted.h"
 #include "ppapi/c/trusted/ppb_browser_font_trusted.h"
@@ -170,15 +165,15 @@ namespace {
 // TODO(raymes): I'm not sure if it is completely necessary to leak the
 // HostGlobals. Figure out the shutdown sequence and find a way to do this
 // more elegantly.
-HostGlobals* host_globals = NULL;
+HostGlobals* host_globals = nullptr;
 
 // Maintains all currently loaded plugin libs for validating PP_Module
 // identifiers.
 typedef std::set<PluginModule*> PluginModuleSet;
 
 PluginModuleSet* GetLivePluginSet() {
-  CR_DEFINE_STATIC_LOCAL(PluginModuleSet, live_plugin_libs, ());
-  return &live_plugin_libs;
+  static base::NoDestructor<PluginModuleSet> live_plugin_libs;
+  return live_plugin_libs.get();
 }
 
 class PowerSaverTestPluginDelegate : public PluginInstanceThrottler::Observer {
@@ -268,8 +263,7 @@ void CallOnMainThread(int delay_in_msec,
                       int32_t result) {
   if (callback.func) {
     PpapiGlobals::Get()->GetMainThreadMessageLoop()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(callback.func, callback.user_data, result),
+        FROM_HERE, base::BindOnce(callback.func, callback.user_data, result),
         base::TimeDelta::FromMilliseconds(delay_in_msec));
   }
 }
@@ -296,13 +290,11 @@ PP_Bool ReadImageData(PP_Resource device_context_2d,
 }
 
 void RunMessageLoop(PP_Instance instance) {
-  base::MessageLoop::ScopedNestableTaskAllower allow(
-      base::MessageLoop::current());
-  base::RunLoop().Run();
+  base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).Run();
 }
 
 void QuitMessageLoop(PP_Instance instance) {
-  base::MessageLoop::current()->QuitNow();
+  base::RunLoop::QuitCurrentDeprecated();
 }
 
 uint32_t GetLiveObjectsForInstance(PP_Instance instance_id) {
@@ -407,8 +399,10 @@ const void* InternalGetInterface(const char* name) {
 #include "ppapi/thunk/interfaces_ppb_private.h"
 #include "ppapi/thunk/interfaces_ppb_private_flash.h"
 #include "ppapi/thunk/interfaces_ppb_private_no_permissions.h"
+#include "ppapi/thunk/interfaces_ppb_private_pdf.h"
 #include "ppapi/thunk/interfaces_ppb_public_dev.h"
 #include "ppapi/thunk/interfaces_ppb_public_dev_channel.h"
+#include "ppapi/thunk/interfaces_ppb_public_socket.h"
 #include "ppapi/thunk/interfaces_ppb_public_stable.h"
 
 #undef PROXIED_IFACE
@@ -429,7 +423,7 @@ const void* InternalGetInterface(const char* name) {
     if (strcmp(name, PPB_TESTING_PRIVATE_INTERFACE) == 0)
       return &testing_interface;
   }
-  return NULL;
+  return nullptr;
 }
 
 const void* GetInterface(const char* name) {
@@ -498,13 +492,13 @@ PluginModule::PluginModule(const std::string& name,
     : callback_tracker_(new ppapi::CallbackTracker),
       is_in_destructor_(false),
       is_crashed_(false),
-      broker_(NULL),
-      library_(NULL),
+      broker_(nullptr),
+      library_(nullptr),
       name_(name),
       version_(version),
       path_(path),
       permissions_(ppapi::PpapiPermissions::GetForCommandLine(perms.GetBits())),
-      reserve_instance_id_(NULL) {
+      reserve_instance_id_(nullptr) {
   // Ensure the globals object is created.
   if (!host_globals)
     host_globals = new HostGlobals;
@@ -567,7 +561,7 @@ bool PluginModule::InitAsInternalPlugin(
 }
 
 bool PluginModule::InitAsLibrary(const base::FilePath& path) {
-  base::NativeLibrary library = base::LoadNativeLibrary(path, NULL);
+  base::NativeLibrary library = base::LoadNativeLibrary(path, nullptr);
   if (!library)
     return false;
 
@@ -642,7 +636,7 @@ PepperPluginInstanceImpl* PluginModule::CreateInstance(
       render_frame, this, container, plugin_url);
   if (!instance) {
     LOG(WARNING) << "Plugin doesn't support instance interface, failing.";
-    return NULL;
+    return nullptr;
   }
   if (host_dispatcher_wrapper_)
     host_dispatcher_wrapper_->AddInstance(instance->pp_instance());
@@ -662,7 +656,7 @@ const void* PluginModule::GetPluginInterface(const char* name) const {
 
   // In-process plugins.
   if (!entry_points_.get_interface)
-    return NULL;
+    return nullptr;
   return entry_points_.get_interface(name);
 }
 
@@ -685,9 +679,7 @@ void PluginModule::PluginCrashed() {
   is_crashed_ = true;
 
   // Notify all instances that they crashed.
-  for (PluginInstanceSet::iterator i = instances_.begin();
-       i != instances_.end();
-       ++i)
+  for (auto i = instances_.begin(); i != instances_.end(); ++i)
     (*i)->InstanceCrashed();
 
   PepperPluginRegistry::GetInstance()->PluginModuleDead(this);
@@ -719,17 +711,30 @@ RendererPpapiHostImpl* PluginModule::CreateOutOfProcessModule(
     const IPC::ChannelHandle& channel_handle,
     base::ProcessId peer_pid,
     int plugin_child_id,
-    bool is_external) {
+    bool is_external,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   scoped_refptr<PepperHungPluginFilter> hung_filter(new PepperHungPluginFilter(
       path, render_frame->GetRoutingID(), plugin_child_id));
   std::unique_ptr<HostDispatcherWrapper> dispatcher(new HostDispatcherWrapper(
       this, peer_pid, plugin_child_id, permissions, is_external));
-  if (!dispatcher->Init(channel_handle,
-                        &GetInterface,
+
+  RenderThreadImpl* render_thread = RenderThreadImpl::current();
+  if (!render_thread)
+    return nullptr;
+  scoped_refptr<gpu::GpuChannelHost> channel =
+      render_thread->EstablishGpuChannelSync();
+  // If no channel is established, feature statuses are unknown and disabled.
+  const gpu::GpuFeatureInfo default_gpu_feature_info;
+  const gpu::GpuFeatureInfo& gpu_feature_info =
+      channel ? channel->gpu_feature_info() : default_gpu_feature_info;
+
+  if (!dispatcher->Init(channel_handle, &GetInterface,
                         ppapi::Preferences(PpapiPreferencesBuilder::Build(
-                            render_frame->render_view()->webkit_preferences())),
-                        hung_filter.get()))
-    return NULL;
+                            render_frame->render_view()->webkit_preferences(),
+                            gpu_feature_info)),
+                        hung_filter.get(), task_runner)) {
+    return nullptr;
+  }
 
   RendererPpapiHostImpl* host_impl =
       RendererPpapiHostImpl::CreateOnModuleForOutOfProcess(
@@ -743,18 +748,18 @@ RendererPpapiHostImpl* PluginModule::CreateOutOfProcessModule(
 // static
 void PluginModule::ResetHostGlobalsForTest() {
   delete host_globals;
-  host_globals = NULL;
+  host_globals = nullptr;
 }
 
 bool PluginModule::InitializeModule(
     const PepperPluginInfo::EntryPoints& entry_points) {
   DCHECK(!host_dispatcher_wrapper_.get()) << "Don't call for proxied modules.";
-  DCHECK(entry_points.initialize_module != NULL);
+  DCHECK(entry_points.initialize_module != nullptr);
   int retval = entry_points.initialize_module(pp_module(), &GetInterface);
   if (retval != 0) {
-#if !defined(DISABLE_NACL)
+#if BUILDFLAG(ENABLE_NACL)
     LOG(WARNING) << "PPP_InitializeModule returned failure " << retval;
-#endif  // !defined(DISABLE_NACL)
+#endif  // BUILDFLAG(ENABLE_NACL)
     return false;
   }
   return true;
@@ -763,13 +768,15 @@ bool PluginModule::InitializeModule(
 scoped_refptr<PluginModule> PluginModule::Create(
     RenderFrameImpl* render_frame,
     const WebPluginInfo& webplugin_info,
-    bool* pepper_plugin_was_registered) {
+    const base::Optional<url::Origin>& origin_lock,
+    bool* pepper_plugin_was_registered,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   *pepper_plugin_was_registered = true;
 
   // See if a module has already been loaded for this plugin.
   base::FilePath path(webplugin_info.path);
   scoped_refptr<PluginModule> module =
-      PepperPluginRegistry::GetInstance()->GetLiveModule(path);
+      PepperPluginRegistry::GetInstance()->GetLiveModule(path, origin_lock);
   if (module.get()) {
     if (!module->renderer_ppapi_host()) {
       // If the module exists and no embedder state was associated with it,
@@ -798,7 +805,7 @@ scoped_refptr<PluginModule> PluginModule::Create(
   base::ProcessId peer_pid = 0;
   int plugin_child_id = 0;
   render_frame->Send(new FrameHostMsg_OpenChannelToPepperPlugin(
-      path, &channel_handle, &peer_pid, &plugin_child_id));
+      path, origin_lock, &channel_handle, &peer_pid, &plugin_child_id));
   if (!channel_handle.is_mojo_channel_handle()) {
     // Couldn't be initialized.
     return scoped_refptr<PluginModule>();
@@ -809,15 +816,13 @@ scoped_refptr<PluginModule> PluginModule::Create(
   // AddLiveModule must be called before any early returns since the
   // module's destructor will remove itself.
   module = new PluginModule(info->name, info->version, path, permissions);
-  PepperPluginRegistry::GetInstance()->AddLiveModule(path, module.get());
+  PepperPluginRegistry::GetInstance()->AddLiveModule(path, origin_lock,
+                                                     module.get());
 
-  if (!module->CreateOutOfProcessModule(render_frame,
-                                        path,
-                                        permissions,
-                                        channel_handle,
-                                        peer_pid,
-                                        plugin_child_id,
-                                        false))  // is_external = false
+  if (!module->CreateOutOfProcessModule(render_frame, path, permissions,
+                                        channel_handle, peer_pid,
+                                        plugin_child_id, false,
+                                        task_runner))  // is_external = false
     return scoped_refptr<PluginModule>();
 
   return module;

@@ -14,12 +14,12 @@
 
 #include "Context.hpp"
 
-#include "PixelShader.hpp"
-#include "VertexShader.hpp"
 #include "Primitive.hpp"
 #include "Surface.hpp"
-#include "Memory.hpp"
-#include "Debug.hpp"
+#include "Shader/PixelShader.hpp"
+#include "Shader/VertexShader.hpp"
+#include "Common/Memory.hpp"
+#include "Common/Debug.hpp"
 
 #include <string.h>
 
@@ -33,6 +33,7 @@ namespace sw
 	bool fullPixelPositionRegister = false;
 	bool leadingVertexFirst = false;         // Flat shading uses first vertex, else last
 	bool secondaryColor = false;             // Specular lighting is applied after texturing
+	bool colorsDefaultToZero = false;
 
 	bool forceWindowed = false;
 	bool quadLayoutEnabled = false;
@@ -273,7 +274,11 @@ namespace sw
 		blendOperationStateAlpha = BLENDOP_ADD;
 
 		cullMode = CULL_CLOCKWISE;
+		frontFacingCCW = true;
 		alphaReference = 0.0f;
+
+		depthBias = 0.0f;
+		slopeDepthBias = 0.0f;
 
 		for(int i = 0; i < RENDERTARGETS; i++)
 		{
@@ -480,7 +485,7 @@ namespace sw
 	{
 		if(!colorUsed()) return false;
 
-		if(pixelShaderVersion() >= 0x0300) return false;
+		if(pixelShaderModel() >= 0x0300) return false;
 
 		return fogEnable;
 	}
@@ -612,7 +617,7 @@ namespace sw
 
 	bool Context::isProjectionComponent(unsigned int coordinate, int component)
 	{
-		if(pixelShaderVersion() <= 0x0103 && coordinate < 8 && textureTransformProject[coordinate])
+		if(pixelShaderModel() <= 0x0103 && coordinate < 8 && textureTransformProject[coordinate])
 		{
 			if(textureTransformCount[coordinate] == 2)
 			{
@@ -1378,7 +1383,7 @@ namespace sw
 			return false;
 		}
 
-		if(textureTransformProject[coordinate] && pixelShaderVersion() <= 0x0103)
+		if(textureTransformProject[coordinate] && pixelShaderModel() <= 0x0103)
 		{
 			if(textureTransformCount[coordinate] == 2)
 			{
@@ -1431,14 +1436,14 @@ namespace sw
 		return false;
 	}
 
-	unsigned short Context::pixelShaderVersion() const
+	unsigned short Context::pixelShaderModel() const
 	{
-		return pixelShader ? pixelShader->getVersion() : 0x0000;
+		return pixelShader ? pixelShader->getShaderModel() : 0x0000;
 	}
 
-	unsigned short Context::vertexShaderVersion() const
+	unsigned short Context::vertexShaderModel() const
 	{
-		return vertexShader ? vertexShader->getVersion() : 0x0000;
+		return vertexShader ? vertexShader->getShaderModel() : 0x0000;
 	}
 
 	int Context::getMultiSampleCount() const

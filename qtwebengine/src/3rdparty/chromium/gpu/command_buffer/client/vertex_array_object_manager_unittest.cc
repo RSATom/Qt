@@ -12,6 +12,7 @@
 
 #include <memory>
 
+#include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace gpu {
@@ -71,7 +72,7 @@ TEST_F(VertexArrayObjectManagerTest, Basic) {
     EXPECT_EQ(0u, param);
     EXPECT_TRUE(manager_->GetAttribPointer(
         ii, GL_VERTEX_ATTRIB_ARRAY_POINTER, &ptr));
-    EXPECT_TRUE(NULL == ptr);
+    EXPECT_TRUE(nullptr == ptr);
   }
 }
 
@@ -81,9 +82,9 @@ TEST_F(VertexArrayObjectManagerTest, UnbindBuffer) {
   const GLuint kElementArray = 789;
   bool changed = false;
   GLuint ids[2] = { 1, 3, };
-  manager_->GenVertexArrays(arraysize(ids), ids);
+  manager_->GenVertexArrays(base::size(ids), ids);
   // Bind buffers to attribs on 2 vaos.
-  for (size_t ii = 0; ii < arraysize(ids); ++ii) {
+  for (size_t ii = 0; ii < base::size(ids); ++ii) {
     EXPECT_TRUE(manager_->BindVertexArray(ids[ii], &changed));
     EXPECT_TRUE(manager_->SetAttribPointer(
         kBufferToUnbind, 0, 4, GL_FLOAT, false, 0, 0, GL_FALSE));
@@ -117,7 +118,7 @@ TEST_F(VertexArrayObjectManagerTest, UnbindBuffer) {
   static const GLuint expected_element_array[] = {
     0, kElementArray,
   };
-  for (size_t ii = 0; ii < arraysize(ids); ++ii) {
+  for (size_t ii = 0; ii < base::size(ids); ++ii) {
     EXPECT_TRUE(manager_->BindVertexArray(ids[ii], &changed));
     for (size_t jj = 0; jj < 4; ++jj) {
       uint32_t param = 1;
@@ -187,10 +188,10 @@ TEST_F(VertexArrayObjectManagerTest, HaveEnabledClientSideArrays) {
   EXPECT_FALSE(manager_->HaveEnabledClientSideBuffers());
   // Check turning on an array and assigning a buffer.
   manager_->SetAttribEnable(1, true);
-  manager_->SetAttribPointer(123, 1, 3, GL_BYTE, true, 3, NULL, GL_FALSE);
+  manager_->SetAttribPointer(123, 1, 3, GL_BYTE, true, 3, nullptr, GL_FALSE);
   EXPECT_FALSE(manager_->HaveEnabledClientSideBuffers());
   // Check unassigning a buffer.
-  manager_->SetAttribPointer(0, 1, 3, GL_BYTE, true, 3, NULL, GL_FALSE);
+  manager_->SetAttribPointer(0, 1, 3, GL_BYTE, true, 3, nullptr, GL_FALSE);
   EXPECT_TRUE(manager_->HaveEnabledClientSideBuffers());
   // Check disabling the array.
   manager_->SetAttribEnable(1, false);
@@ -200,7 +201,7 @@ TEST_F(VertexArrayObjectManagerTest, HaveEnabledClientSideArrays) {
 TEST_F(VertexArrayObjectManagerTest, BindElementArray) {
   bool changed = false;
   GLuint ids[2] = { 1, 3, };
-  manager_->GenVertexArrays(arraysize(ids), ids);
+  manager_->GenVertexArrays(base::size(ids), ids);
 
   // Check the default element array is 0.
   EXPECT_EQ(0u, manager_->bound_element_array_buffer());
@@ -240,7 +241,7 @@ TEST_F(VertexArrayObjectManagerTest, GenBindDelete) {
   EXPECT_FALSE(changed);
 
   GLuint ids[2] = { 1, 3, };
-  manager_->GenVertexArrays(arraysize(ids), ids);
+  manager_->GenVertexArrays(base::size(ids), ids);
   // Check Genned arrays succeed.
   EXPECT_TRUE(manager_->BindVertexArray(1, &changed));
   EXPECT_TRUE(changed);

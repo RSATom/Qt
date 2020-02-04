@@ -47,7 +47,7 @@ import QtQuick.Controls.Private 1.0
     \inqmlmodule QtQuick.Controls
     \since 5.3
     \ingroup controls
-    \brief Provides a way to select dates from a calendar
+    \brief Provides a way to select dates from a calendar.
 
     \image calendar.png
 

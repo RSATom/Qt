@@ -1,11 +1,12 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
+<link rel="import" href="../../../html/polymer.html">
 
-<link rel="import" href="chrome://resources/cr_elements/icons.html">
-<link rel="import" href="chrome://resources/cr_elements/shared_style_css.html">
+<link rel="import" href="../../icons.html">
+<link rel="import" href="../../shared_style_css.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-a11y-keys/iron-a11y-keys.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-selector/iron-selector.html">
 <link rel="import" href="cr_picture_types.html">
+<link rel="import" href="cr_png_behavior.html">
 
 <dom-module id="cr-picture-list">
   <template>
@@ -80,13 +81,13 @@
             src="[[getImgSrc_(profileImageUrl_)]]"
             hidden="[[!profileImageUrl_]]"
             srcset="[[getImgSrc2x_(profileImageUrl_)]]"
-            title="[[profileImageLoadingLabel]]">
+            title="[[profileImageLabel]]">
         <!-- Shows and selects the previously selected ('old') picture. -->
         <img id="oldImage" role="radio"
             data-type$="[[selectionTypesEnum_.OLD]]"
             data-image-index$="[[oldImageIndex_]]"
             data-url$="[[oldImageUrl_]]"
-            src="[[oldImageUrl_]]" hidden="[[!oldImageUrl_]]"
+            src="[[getImgSrc_(oldImageUrl_)]]" hidden="[[!oldImageUrl_]]"
             title="[[oldImageLabel]]">
         <!-- Shows the list of available images to select from. -->
         <template is="dom-repeat" items="[[defaultImages]]">

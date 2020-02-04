@@ -5,6 +5,7 @@
 #include "net/ssl/client_cert_store_win.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
 
 #define SECURITY_WIN32  // Needs to be defined before including security.h
@@ -15,16 +16,17 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/single_thread_task_runner.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "crypto/wincrypt_shim.h"
+#include "base/win/wincrypt_shim.h"
 #include "net/cert/x509_util.h"
 #include "net/cert/x509_util_win.h"
 #include "net/ssl/ssl_platform_key_util.h"
 #include "net/ssl/ssl_platform_key_win.h"
 #include "net/ssl/ssl_private_key.h"
+#include "third_party/boringssl/src/include/openssl/pool.h"
 
 namespace net {
 
@@ -187,18 +189,15 @@ ClientCertIdentityList GetClientCertsImpl(HCERTSTORE cert_store,
       intermediates.pop_back();
     }
 
-    // TODO(mattm): The following comment is only true when not using
-    // USE_BYTE_CERTS. Remove it once the non-byte-certs code is also removed.
-    // TODO(svaldez): cert currently wraps cert_context2 which may be backed
-    // by a smartcard with threading difficulties. Instead, create a fresh
-    // X509Certificate with CreateFromBytes and route cert_context2 into the
-    // SSLPrivateKey. Probably changing CertificateList to be a
-    // pair<X509Certificate, SSLPrivateKeyCallback>.
+    // Allow UTF-8 inside PrintableStrings in client certificates. See
+    // crbug.com/770323.
+    X509Certificate::UnsafeCreateOptions options;
+    options.printable_string_is_utf8 = true;
     scoped_refptr<X509Certificate> cert =
-        x509_util::CreateX509CertificateFromCertContexts(cert_context2,
-                                                         intermediates);
+        x509_util::CreateX509CertificateFromCertContexts(
+            cert_context2, intermediates, options);
     if (cert) {
-      selected_identities.push_back(base::MakeUnique<ClientCertIdentityWin>(
+      selected_identities.push_back(std::make_unique<ClientCertIdentityWin>(
           std::move(cert),
           cert_context2,     // Takes ownership of |cert_context2|.
           current_thread));  // The key must be acquired on the same thread, as
@@ -237,7 +236,6 @@ void ClientCertStoreWin::GetClientCerts(
     return;
   }
 
-#if BUILDFLAG(USE_BYTE_CERTS)
   if (base::PostTaskAndReplyWithResult(
           GetSSLPlatformKeyTaskRunner().get(), FROM_HERE,
           // Caller is responsible for keeping the |request| alive
@@ -250,11 +248,6 @@ void ClientCertStoreWin::GetClientCerts(
 
   // If the task could not be posted, behave as if there were no certificates.
   callback.Run(ClientCertIdentityList());
-#else
-  // When using PCERT_CONTEXT based X509Certificate, must do this on the same
-  // thread.
-  callback.Run(GetClientCertsWithMyCertStore(request));
-#endif
 }
 
 // static
@@ -282,16 +275,16 @@ bool ClientCertStoreWin::SelectClientCertsForTesting(
     return false;
 
   // Add available certificates to the test store.
-  for (size_t i = 0; i < input_certs.size(); ++i) {
+  for (const auto& input_cert : input_certs) {
     // Add the certificate to the test store.
     PCCERT_CONTEXT cert = NULL;
-    std::string der_cert;
-    X509Certificate::GetDEREncoded(input_certs[i]->os_cert_handle(), &der_cert);
     if (!CertAddEncodedCertificateToStore(
             test_store, X509_ASN_ENCODING,
-            reinterpret_cast<const BYTE*>(der_cert.data()),
-            base::checked_cast<DWORD>(der_cert.size()), CERT_STORE_ADD_NEW,
-            &cert)) {
+            reinterpret_cast<const BYTE*>(
+                CRYPTO_BUFFER_data(input_cert->cert_buffer())),
+            base::checked_cast<DWORD>(
+                CRYPTO_BUFFER_len(input_cert->cert_buffer())),
+            CERT_STORE_ADD_NEW, &cert)) {
       return false;
     }
     // Hold the reference to the certificate (since we requested a copy).

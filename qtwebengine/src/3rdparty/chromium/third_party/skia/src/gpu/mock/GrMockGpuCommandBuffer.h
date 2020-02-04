@@ -11,31 +11,53 @@
 #include "GrGpuCommandBuffer.h"
 #include "GrMockGpu.h"
 
-class GrMockGpuCommandBuffer : public GrGpuCommandBuffer {
+class GrMockGpuTextureCommandBuffer : public GrGpuTextureCommandBuffer {
 public:
-    GrMockGpuCommandBuffer(GrMockGpu* gpu) : fGpu(gpu) {}
+    GrMockGpuTextureCommandBuffer(GrTexture* texture, GrSurfaceOrigin origin)
+        : INHERITED(texture, origin) {
+    }
+
+    ~GrMockGpuTextureCommandBuffer() override {}
+
+    void copy(GrSurface* src, GrSurfaceOrigin srcOrigin, const SkIRect& srcRect,
+              const SkIPoint& dstPoint) override {}
+    void insertEventMarker(const char*) override {}
+
+private:
+    typedef GrGpuTextureCommandBuffer INHERITED;
+};
+
+class GrMockGpuRTCommandBuffer : public GrGpuRTCommandBuffer {
+public:
+    GrMockGpuRTCommandBuffer(GrMockGpu* gpu, GrRenderTarget* rt, GrSurfaceOrigin origin)
+            : INHERITED(rt, origin)
+            , fGpu(gpu) {
+    }
 
     GrGpu* gpu() override { return fGpu; }
-    void inlineUpload(GrOpFlushState*, GrDrawOp::DeferredUploadFn&, GrRenderTarget*) override {}
-    void discard(GrRenderTarget*) override {}
+    void inlineUpload(GrOpFlushState*, GrDeferredTextureUploadFn&) override {}
+    void discard() override {}
+    void insertEventMarker(const char*) override {}
+    void begin() override {}
     void end() override {}
+    void copy(GrSurface* src, GrSurfaceOrigin srcOrigin, const SkIRect& srcRect,
+              const SkIPoint& dstPoint) override {}
 
     int numDraws() const { return fNumDraws; }
 
 private:
-    void onSubmit() override { fGpu->submitCommandBuffer(this); }
-    void onDraw(const GrPipeline&, const GrPrimitiveProcessor&, const GrMesh[],
-                const GrPipeline::DynamicState[], int meshCount, const SkRect& bounds) override {
+    void onDraw(const GrPrimitiveProcessor&, const GrPipeline&,
+                const GrPipeline::FixedDynamicState*, const GrPipeline::DynamicStateArrays*,
+                const GrMesh[], int meshCount, const SkRect& bounds) override {
         ++fNumDraws;
     }
-    void onClear(GrRenderTarget*, const GrFixedClip&, GrColor) override {}
-    void onClearStencilClip(GrRenderTarget*, const GrFixedClip&, bool insideStencilMask) override {}
-    GrRenderTarget* renderTarget() override { return nullptr; }
+    void onClear(const GrFixedClip&, const SkPMColor4f&) override {}
+    void onClearStencilClip(const GrFixedClip&, bool insideStencilMask) override {}
 
     GrMockGpu* fGpu;
     int fNumDraws = 0;
 
-    typedef GrGpuCommandBuffer INHERITED;
+    typedef GrGpuRTCommandBuffer INHERITED;
 };
 
 #endif

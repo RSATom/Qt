@@ -11,7 +11,7 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/process_metrics.h"
 #include "base/single_thread_task_runner.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 
@@ -19,6 +19,9 @@ namespace base {
 namespace chromeos {
 
 namespace {
+
+// Type-safe version of |g_monitor| from base/memory/memory_pressure_monitor.cc.
+MemoryPressureMonitor* g_monitor = nullptr;
 
 // The time between memory pressure checks. While under critical pressure, this
 // is also the timer to repeat cleanup attempts.
@@ -117,6 +120,9 @@ MemoryPressureMonitor::MemoryPressureMonitor(
       dispatch_callback_(
           base::Bind(&MemoryPressureListener::NotifyMemoryPressure)),
       weak_ptr_factory_(this) {
+  DCHECK(!g_monitor);
+  g_monitor = this;
+
   StartObserving();
   LOG_IF(ERROR,
          base::SysInfo::IsRunningOnChromeOS() && !low_mem_file_.is_valid())
@@ -124,6 +130,9 @@ MemoryPressureMonitor::MemoryPressureMonitor(
 }
 
 MemoryPressureMonitor::~MemoryPressureMonitor() {
+  DCHECK(g_monitor);
+  g_monitor = nullptr;
+
   StopObserving();
 }
 
@@ -140,8 +149,7 @@ MemoryPressureMonitor::GetCurrentPressureLevel() {
 
 // static
 MemoryPressureMonitor* MemoryPressureMonitor::Get() {
-  return static_cast<MemoryPressureMonitor*>(
-      base::MemoryPressureMonitor::Get());
+  return g_monitor;
 }
 
 void MemoryPressureMonitor::StartObserving() {

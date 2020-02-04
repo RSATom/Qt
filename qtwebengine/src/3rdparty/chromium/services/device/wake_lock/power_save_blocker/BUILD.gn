@@ -9,6 +9,12 @@ if (is_android) {
   import("//build/config/android/rules.gni")
 }
 
+config("maybe_desktop_suspend") {
+  if (use_dbus && !is_chromeos) {
+    defines = [ "USE_FREEDESKTOP_SUSPEND", ]
+  }
+}
+
 source_set("power_save_blocker") {
   visibility = [
     # //remoting runs in a separate process which is outside of the context of
@@ -30,47 +36,50 @@ source_set("power_save_blocker") {
     "power_save_blocker_x11.cc",
   ]
 
+  public_deps = [
+    "//services/device/public/mojom",
+  ]
+
   deps = [
     "//base",
   ]
 
-  if (use_dbus) {
-    deps += [ "//dbus" ]
-  }
-
-  if (use_x11) {
-    configs += [ "//build/config/linux:x11" ]
+  if (use_dbus && !is_chromeos) {
     if (use_xscrnsaver) {
       defines = [ "USE_XSCRNSAVER" ]
-      configs += [ "//build/config/linux:xscrnsaver" ]
+      configs += [
+        "//build/config/linux:xscrnsaver",
+        "//build/config/linux:x11",
+      ]
+      deps += [ "//ui/gfx/x" ]
     }
     deps += [
+      "//dbus",
       "//ui/gfx",
-      "//ui/gfx/x",
     ]
   }
+
+  configs += [ ":maybe_desktop_suspend" ]
 
   # Dealing with power_save_blocker_{x11,ozone}.cc is a little complicated
   # given the interaction between os_chromeos and the feature flags for X11 and
   # ozone, so do it all in one spot.
-  if (is_chromeos || !use_ozone) {
+  if (is_chromeos || !use_ozone || use_dbus) {
     sources -= [ "power_save_blocker_ozone.cc" ]
   }
-  if (is_chromeos || !use_x11 || !use_dbus) {
+  if (is_chromeos || !use_dbus) {
     sources -= [ "power_save_blocker_x11.cc" ]
   }
 
   if (is_android) {
     deps += [ ":jni_headers" ]
-    public_deps = [
-      "//ui/android",
-    ]
+    public_deps += [ "//ui/android" ]
   }
 
   if (is_chromeos) {
     deps += [
-      "//chromeos",
-      "//chromeos:power_manager_proto",
+      "//chromeos/dbus",
+      "//chromeos/dbus:power_manager_proto",
     ]
   }
 

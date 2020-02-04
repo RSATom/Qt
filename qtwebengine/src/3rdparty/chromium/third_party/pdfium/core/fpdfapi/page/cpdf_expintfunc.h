@@ -7,21 +7,25 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_EXPINTFUNC_H_
 #define CORE_FPDFAPI_PAGE_CPDF_EXPINTFUNC_H_
 
+#include <set>
+#include <vector>
+
 #include "core/fpdfapi/page/cpdf_function.h"
 
-class CPDF_ExpIntFunc : public CPDF_Function {
+class CPDF_ExpIntFunc final : public CPDF_Function {
  public:
   CPDF_ExpIntFunc();
   ~CPDF_ExpIntFunc() override;
 
   // CPDF_Function
-  bool v_Init(CPDF_Object* pObj) override;
-  bool v_Call(float* inputs, float* results) const override;
+  bool v_Init(const CPDF_Object* pObj,
+              std::set<const CPDF_Object*>* pVisited) override;
+  bool v_Call(const float* inputs, float* results) const override;
 
-  uint32_t m_nOrigOutputs;
-  float m_Exponent;
-  float* m_pBeginValues;
-  float* m_pEndValues;
+  uint32_t m_nOrigOutputs = 0;
+  float m_Exponent = 0.0f;
+  std::vector<float> m_BeginValues;
+  std::vector<float> m_EndValues;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_EXPINTFUNC_H_

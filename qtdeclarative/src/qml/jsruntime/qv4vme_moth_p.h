@@ -52,10 +52,6 @@
 //
 
 #include <private/qv4global_p.h>
-#include <private/qv4runtime_p.h>
-#include <private/qv4instr_moth_p.h>
-
-QT_REQUIRE_CONFIG(qml_interpreter);
 
 QT_BEGIN_NAMESPACE
 
@@ -65,10 +61,12 @@ namespace Moth {
 class VME
 {
 public:
-    static QV4::ReturnedValue exec(QV4::ExecutionEngine *, const uchar *);
-
-private:
-    QV4::ReturnedValue run(QV4::ExecutionEngine *, const uchar *code);
+    struct ExecData {
+        QV4::Function *function;
+        const QV4::ExecutionContext *scope;
+    };
+    static QV4::ReturnedValue exec(CppStackFrame *frame, ExecutionEngine *engine);
+    static QV4::ReturnedValue interpret(CppStackFrame *frame, ExecutionEngine *engine, const char *codeEntry);
 };
 
 } // namespace Moth

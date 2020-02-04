@@ -6,7 +6,6 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/rand_util.h"
 #include "net/base/address_list.h"
 #include "net/base/ip_endpoint.h"
@@ -75,8 +74,8 @@ std::unique_ptr<DatagramClientSocket> DnsSocketPool::CreateConnectedSocket(
   std::unique_ptr<DatagramClientSocket> socket;
 
   NetLogSource no_source;
-  socket = socket_factory_->CreateDatagramClientSocket(
-      kBindType, rand_int_callback_, net_log_, no_source);
+  socket = socket_factory_->CreateDatagramClientSocket(kBindType, net_log_,
+                                                       no_source);
 
   if (socket.get()) {
     int rv = socket->Connect((*nameservers_)[server_index]);
@@ -153,7 +152,7 @@ class DefaultDnsSocketPool : public DnsSocketPool {
   DISALLOW_COPY_AND_ASSIGN(DefaultDnsSocketPool);
 };
 
-DnsSocketPool::~DnsSocketPool() {}
+DnsSocketPool::~DnsSocketPool() = default;
 
 // static
 std::unique_ptr<DnsSocketPool> DnsSocketPool::CreateDefault(
@@ -175,8 +174,7 @@ void DefaultDnsSocketPool::Initialize(
     FillPool(server_index, kInitialPoolSize);
 }
 
-DefaultDnsSocketPool::~DefaultDnsSocketPool() {
-}
+DefaultDnsSocketPool::~DefaultDnsSocketPool() = default;
 
 std::unique_ptr<DatagramClientSocket> DefaultDnsSocketPool::AllocateSocket(
     unsigned server_index) {

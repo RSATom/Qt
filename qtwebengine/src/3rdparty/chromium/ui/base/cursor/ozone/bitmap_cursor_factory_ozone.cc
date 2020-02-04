@@ -21,9 +21,14 @@ PlatformCursor ToPlatformCursor(BitmapCursorOzone* cursor) {
 }
 
 scoped_refptr<BitmapCursorOzone> CreateDefaultBitmapCursor(CursorType type) {
-  SkBitmap bitmap;
-  gfx::Point hotspot;
-  if (GetCursorBitmap(type, &bitmap, &hotspot))
+  Cursor cursor(type);
+  // Ozone must honor the lowest possible scale value, which is 1.0f. Otherwise,
+  // it can happen that cursor chooses wrong hotspots if max scaling value is
+  // set to 200p, for example.
+  cursor.set_device_scale_factor(1.0f);
+  SkBitmap bitmap = cursor.GetBitmap();
+  gfx::Point hotspot = cursor.GetHotspot();
+  if (!bitmap.isNull())
     return new BitmapCursorOzone(bitmap, hotspot);
   return NULL;
 }
@@ -70,7 +75,7 @@ BitmapCursorFactoryOzone::~BitmapCursorFactoryOzone() {}
 // static
 scoped_refptr<BitmapCursorOzone> BitmapCursorFactoryOzone::GetBitmapCursor(
     PlatformCursor platform_cursor) {
-  return make_scoped_refptr(ToBitmapCursorOzone(platform_cursor));
+  return base::WrapRefCounted(ToBitmapCursorOzone(platform_cursor));
 }
 
 PlatformCursor BitmapCursorFactoryOzone::GetDefaultCursor(CursorType type) {

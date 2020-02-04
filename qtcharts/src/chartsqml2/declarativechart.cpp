@@ -27,26 +27,26 @@
 **
 ****************************************************************************/
 
-#include "declarativechart.h"
+#include "declarativechart_p.h"
 #include <QtGui/QPainter>
-#include "declarativelineseries.h"
-#include "declarativeareaseries.h"
-#include "declarativebarseries.h"
-#include "declarativepieseries.h"
-#include "declarativesplineseries.h"
-#include "declarativeboxplotseries.h"
-#include "declarativecandlestickseries.h"
-#include "declarativescatterseries.h"
-#include "declarativechartnode.h"
-#include "declarativeabstractrendernode.h"
+#include "declarativelineseries_p.h"
+#include "declarativeareaseries_p.h"
+#include "declarativebarseries_p.h"
+#include "declarativepieseries_p.h"
+#include "declarativesplineseries_p.h"
+#include "declarativeboxplotseries_p.h"
+#include "declarativecandlestickseries_p.h"
+#include "declarativescatterseries_p.h"
+#include "declarativechartnode_p.h"
+#include "declarativeabstractrendernode_p.h"
 #include <QtCharts/QBarCategoryAxis>
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QLogValueAxis>
 #include <QtCharts/QCategoryAxis>
 #include <private/qabstractseries_p.h>
-#include "declarativemargins.h"
+#include "declarativemargins_p.h"
 #include <private/chartdataset_p.h>
-#include "declarativeaxes.h"
+#include "declarativeaxes_p.h"
 #include <private/qchart_p.h>
 #include <private/chartpresenter_p.h>
 #include <QtCharts/QPolarChart>
@@ -211,7 +211,9 @@ QT_CHARTS_BEGIN_NAMESPACE
   \qmlproperty rect ChartView::plotArea
   The rectangle within which the chart is drawn.
 
-  The plot area does not include the area defined by margins.
+  The plot area does not include the area defined by margins. By default this will resize if inside
+  a ChartView. If an explicit rectangle is set for the plot area then it will respect this, to revert
+  back to the default behavior, then setting it to \c{Qt.rect(0, 0, 0, 0)} will achieve this.
 
   \sa margins
 */
@@ -439,6 +441,23 @@ DeclarativeChart::DeclarativeChart(QChart::ChartType type, QQuickItem *parent)
     initChart(type);
 }
 
+// QTBUG-71013
+// The symbol resides in qbarmodelmapper.cpp#548 in the C++ module.
+// Here, it gets imported and reset to the DeclarativeBarSet allocator
+#if defined(Q_OS_WIN) && !defined(QT_STATIC)
+Q_CHARTS_EXPORT
+#else
+extern
+#endif
+QBarSet *(*qt_allocate_bar_set)(const QString &label);
+
+QBarSet *qt_allocate_bar_set_qml(const QString &label)
+{
+    auto bar = new DeclarativeBarSet();
+    bar->setLabel(label);
+    return bar;
+}
+
 void DeclarativeChart::initChart(QChart::ChartType type)
 {
     m_sceneImage = 0;
@@ -449,6 +468,10 @@ void DeclarativeChart::initChart(QChart::ChartType type)
     m_updatePending = false;
 
     setFlag(ItemHasContents, true);
+
+    // Reset allocator for QBarSet to create
+    // Declarative BarSets by default
+    qt_allocate_bar_set = &qt_allocate_bar_set_qml;
 
     if (type == QChart::ChartTypePolar)
         m_chart = new QPolarChart();
@@ -488,7 +511,7 @@ void DeclarativeChart::initChart(QChart::ChartType type)
             this, SLOT(changeMargins(int,int,int,int)));
     connect(m_chart->d_ptr->m_dataset, SIGNAL(seriesAdded(QAbstractSeries*)), this, SLOT(handleSeriesAdded(QAbstractSeries*)));
     connect(m_chart->d_ptr->m_dataset, SIGNAL(seriesRemoved(QAbstractSeries*)), this, SIGNAL(seriesRemoved(QAbstractSeries*)));
-    connect(m_chart, &QChart::plotAreaChanged, this, &DeclarativeChart::plotAreaChanged);
+    connect(m_chart, SIGNAL(plotAreaChanged(QRectF)), this, SIGNAL(plotAreaChanged(QRectF)));
 }
 
 void DeclarativeChart::handleSeriesAdded(QAbstractSeries *series)
@@ -1469,6 +1492,11 @@ QPointF DeclarativeChart::mapToPosition(const QPointF &value, QAbstractSeries *s
     return m_chart->mapToPosition(value, series);
 }
 
-#include "moc_declarativechart.cpp"
+void DeclarativeChart::setPlotArea(const QRectF &rect)
+{
+    m_chart->setPlotArea(rect);
+}
 
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_declarativechart_p.cpp"

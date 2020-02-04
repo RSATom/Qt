@@ -73,7 +73,7 @@ public:
         JobDisconnectDevice,
     };
 
-    explicit RemoteDeviceManager(const QBluetoothAddress& localAddress, QObject *parent = 0);
+    explicit RemoteDeviceManager(const QBluetoothAddress& localAddress, QObject *parent = nullptr);
 
     bool isJobInProgress() const { return jobInProgress; }
     bool scheduleJob(JobType job, const QVector<QBluetoothAddress>& remoteDevices);

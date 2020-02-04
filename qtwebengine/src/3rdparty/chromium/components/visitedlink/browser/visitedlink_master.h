@@ -17,12 +17,14 @@
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/shared_memory_mapping.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/sequenced_worker_pool.h"
+#include "base/sequenced_task_runner.h"
+#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "components/visitedlink/common/visitedlink_common.h"
-#include "mojo/public/cpp/system/buffer.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -57,8 +59,8 @@ class VisitedLinkMaster : public VisitedLinkCommon {
     virtual ~Listener() {}
 
     // Called when link coloring database has been created or replaced. The
-    // argument is the new table handle.
-    virtual void NewTable(mojo::SharedBufferHandle table) = 0;
+    // argument is a memory region containing the new table.
+    virtual void NewTable(base::ReadOnlySharedMemoryRegion* table_region) = 0;
 
     // Called when new link has been added. The argument is the fingerprint
     // (hash) of the link.
@@ -105,8 +107,8 @@ class VisitedLinkMaster : public VisitedLinkCommon {
   // object won't work.
   bool Init();
 
-  const mojo::SharedBufferHandle& shared_memory() {
-    return shared_memory_.get();
+  base::MappedReadOnlyRegion& mapped_table_memory() {
+    return mapped_table_memory_;
   }
 
   // Adds a URL to the table.
@@ -208,9 +210,6 @@ class VisitedLinkMaster : public VisitedLinkCommon {
   // we will write the whole table to disk at once instead of individual items.
   static const size_t kBigDeleteThreshold;
 
-  // Backend for the constructors initializing the members.
-  void InitMembers();
-
   // If a rebuild is in progress, we save the URL in the temporary list.
   // Otherwise, we add this to the table. Returns the index of the
   // inserted fingerprint or null_hash_ on failure.
@@ -221,8 +220,7 @@ class VisitedLinkMaster : public VisitedLinkCommon {
   // These functions are only called if |persist_to_disk_| is true.
 
   // Posts the given task to the blocking worker pool with our options.
-  void PostIOTask(const tracked_objects::Location& from_here,
-                  const base::Closure& task);
+  void PostIOTask(const base::Location& from_here, const base::Closure& task);
 
   // Writes the entire table to disk. It will leave the table file open and
   // the handle to it will be stored in file_.
@@ -320,12 +318,10 @@ class VisitedLinkMaster : public VisitedLinkCommon {
 
   // Allocates the Fingerprint structure and length. Returns true on success.
   // Structure is filled with 0s and shared header with salt. The result of
-  // allocation is saved into |shared_memory| and |hash_table| points to the
-  // beginning of Fingerprint table in |shared_memory|.
+  // allocation is saved into |mapped_region|.
   static bool CreateApartURLTable(int32_t num_entries,
                                   const uint8_t salt[LINK_SALT_LENGTH],
-                                  mojo::ScopedSharedBufferHandle* shared_memory,
-                                  mojo::ScopedSharedBufferMapping* hash_table);
+                                  base::MappedReadOnlyRegion* memory);
 
   // A wrapper for CreateURLTable, this will allocate a new table, initialized
   // to empty. The caller is responsible for saving the shared memory pointer
@@ -394,11 +390,11 @@ class VisitedLinkMaster : public VisitedLinkCommon {
   // Returns a pointer to the start of the hash table, given the mapping
   // containing the hash table.
   static Fingerprint* GetHashTableFromMapping(
-      const mojo::ScopedSharedBufferMapping& hash_table_mapping);
+      const base::WritableSharedMemoryMapping& hash_table_mapping);
 
   // Reference to the browser context that this object belongs to
   // (it knows the path to where the data is stored)
-  content::BrowserContext* browser_context_;
+  content::BrowserContext* browser_context_ = nullptr;
 
   // Client owns the delegate and is responsible for it being valid through
   // the life time this VisitedLinkMaster.
@@ -407,8 +403,11 @@ class VisitedLinkMaster : public VisitedLinkCommon {
   // VisitedLinkEventListener to handle incoming events.
   std::unique_ptr<Listener> listener_;
 
-  // Lazily initialized sequence token for posting file tasks.
-  base::SequencedWorkerPool::SequenceToken sequence_token_;
+  // Task runner for posting file tasks.
+  scoped_refptr<base::SequencedTaskRunner> file_task_runner_ =
+      base::CreateSequencedTaskRunnerWithTraits(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 
   // When non-NULL, indicates we are in database rebuild mode and points to
   // the class collecting fingerprint information from the history system.
@@ -434,29 +433,24 @@ class VisitedLinkMaster : public VisitedLinkCommon {
   // guaranteed to be executed after the opening.
   // The class owns both the |file_| pointer and the pointer pointed
   // by |*file_|.
-  FILE** file_;
+  FILE** file_ = nullptr;
 
   // If true, will try to persist the hash table to disk. Will rebuild from
   // VisitedLinkDelegate::RebuildTable if there are disk corruptions.
   bool persist_to_disk_;
 
   // Shared memory consists of a SharedHeader followed by the table.
-  mojo::ScopedSharedBufferHandle shared_memory_;
-
-  // A mapping of the table including the SharedHeader.
-  // GetHashTableFromMapping() can be used to obtain a pointer to the hash table
-  // contained in this mapping.
-  mojo::ScopedSharedBufferMapping hash_table_mapping_;
+  base::MappedReadOnlyRegion mapped_table_memory_;
 
   // When we generate new tables, we increment the serial number of the
   // shared memory object.
-  int32_t shared_memory_serial_;
+  int32_t shared_memory_serial_ = 0;
 
   // Number of non-empty items in the table, used to compute fullness.
-  int32_t used_items_;
+  int32_t used_items_ = 0;
 
   // We set this to true to avoid writing to the database file.
-  bool table_is_loading_from_file_;
+  bool table_is_loading_from_file_ = false;
 
   // Testing values -----------------------------------------------------------
   //
@@ -470,7 +464,7 @@ class VisitedLinkMaster : public VisitedLinkCommon {
   base::FilePath database_name_override_;
 
   // When nonzero, overrides the table size for new databases for testing
-  int32_t table_size_override_;
+  int32_t table_size_override_ = 0;
 
   // When set, indicates the task that should be run after the next rebuild from
   // history is complete.
@@ -479,7 +473,7 @@ class VisitedLinkMaster : public VisitedLinkCommon {
   // Set to prevent us from attempting to rebuild the database from global
   // history if we have an error opening the file. This is used for testing,
   // will be false in production.
-  bool suppress_rebuild_;
+  bool suppress_rebuild_ = false;
 
   base::WeakPtrFactory<VisitedLinkMaster> weak_ptr_factory_;
 

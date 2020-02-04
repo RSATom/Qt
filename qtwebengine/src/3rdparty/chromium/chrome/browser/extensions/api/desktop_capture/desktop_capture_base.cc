@@ -4,32 +4,33 @@
 
 #include "chrome/browser/extensions/api/desktop_capture/desktop_capture_base.h"
 
+#include <memory>
 #include <tuple>
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/media/webrtc/desktop_media_list_ash.h"
-#include "chrome/browser/media/webrtc/desktop_streams_registry.h"
+#include "chrome/browser/media/webrtc/desktop_media_picker_factory_impl.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/native_desktop_media_list.h"
 #include "chrome/browser/media/webrtc/tab_desktop_media_list.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/grit/chromium_strings.h"
 #include "content/public/browser/desktop_capture.h"
+#include "content/public/browser/desktop_streams_registry.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/switches.h"
-#include "third_party/webrtc/modules/desktop_capture/desktop_capture_options.h"
-#include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
 #include "ui/base/l10n/l10n_util.h"
 
+using extensions::api::desktop_capture::ChooseDesktopMedia::Results::Options;
 using content::DesktopMediaID;
 
 namespace extensions {
@@ -40,24 +41,22 @@ const char kInvalidSourceNameError[] = "Invalid source type specified.";
 const char kEmptySourcesListError[] =
     "At least one source type must be specified.";
 
-DesktopCaptureChooseDesktopMediaFunctionBase::PickerFactory* g_picker_factory =
-    NULL;
+DesktopMediaPickerFactory* g_picker_factory = nullptr;
 
 }  // namespace
 
 // static
 void DesktopCaptureChooseDesktopMediaFunctionBase::SetPickerFactoryForTests(
-    PickerFactory* factory) {
+    DesktopMediaPickerFactory* factory) {
   g_picker_factory = factory;
 }
 
 DesktopCaptureChooseDesktopMediaFunctionBase::
-    DesktopCaptureChooseDesktopMediaFunctionBase() {
-}
+    DesktopCaptureChooseDesktopMediaFunctionBase() = default;
 
 DesktopCaptureChooseDesktopMediaFunctionBase::
     ~DesktopCaptureChooseDesktopMediaFunctionBase() {
-  // RenderViewHost may be already destroyed.
+  // RenderFrameHost may be already destroyed.
   if (render_frame_host()) {
     DesktopCaptureRequestsRegistry::GetInstance()->RemoveRequest(
         render_frame_host()->GetProcess()->GetID(), request_id_);
@@ -70,7 +69,7 @@ void DesktopCaptureChooseDesktopMediaFunctionBase::Cancel() {
   scoped_refptr<DesktopCaptureChooseDesktopMediaFunctionBase> self(this);
   if (picker_) {
     picker_.reset();
-    SetResult(base::MakeUnique<base::Value>(std::string()));
+    SetResultList(Create(std::string(), Options()));
     SendResponse(true);
   }
 }
@@ -95,12 +94,8 @@ bool DesktopCaptureChooseDesktopMediaFunctionBase::Execute(
       parent_window = target_browser->window()->GetNativeWindow();
   }
 
-  // Keep same order as the input |sources| and avoid duplicates.
-  std::vector<std::unique_ptr<DesktopMediaList>> source_lists;
-  bool have_screen_list = false;
-  bool have_window_list = false;
-  bool have_tab_list = false;
   bool request_audio = false;
+  std::vector<content::DesktopMediaID::Type> media_types;
   for (auto source_type : sources) {
     switch (source_type) {
       case api::desktop_capture::DESKTOP_CAPTURE_SOURCE_TYPE_NONE: {
@@ -108,109 +103,59 @@ bool DesktopCaptureChooseDesktopMediaFunctionBase::Execute(
         return false;
       }
       case api::desktop_capture::DESKTOP_CAPTURE_SOURCE_TYPE_SCREEN: {
-        if (have_screen_list) {
-          continue;
-        }
-        std::unique_ptr<DesktopMediaList> screen_list;
-        if (g_picker_factory) {
-          screen_list =
-              g_picker_factory->CreateMediaList(DesktopMediaID::TYPE_SCREEN);
-        } else {
-#if defined(USE_ASH)
-          screen_list = base::MakeUnique<DesktopMediaListAsh>(
-              DesktopMediaID::TYPE_SCREEN);
-#else   // !defined(USE_ASH)
-          screen_list = base::MakeUnique<NativeDesktopMediaList>(
-              content::DesktopMediaID::TYPE_SCREEN,
-              webrtc::DesktopCapturer::CreateScreenCapturer(
-                  content::CreateDesktopCaptureOptions()));
-#endif  // !defined(USE_ASH)
-        }
-        have_screen_list = true;
-        source_lists.push_back(std::move(screen_list));
+        media_types.push_back(content::DesktopMediaID::TYPE_SCREEN);
         break;
       }
       case api::desktop_capture::DESKTOP_CAPTURE_SOURCE_TYPE_WINDOW: {
-        if (have_window_list) {
-          continue;
-        }
-        std::unique_ptr<DesktopMediaList> window_list;
-        if (g_picker_factory) {
-          window_list =
-              g_picker_factory->CreateMediaList(DesktopMediaID::TYPE_WINDOW);
-        } else {
-#if defined(USE_ASH)
-          window_list = base::MakeUnique<DesktopMediaListAsh>(
-              DesktopMediaID::TYPE_WINDOW);
-#else   // !defined(USE_ASH)
-          // NativeDesktopMediaList calls the capturers on a background thread.
-          // This means that the two DesktopCapturer instances (for screens and
-          // windows) created here cannot share the same DesktopCaptureOptions
-          // instance. DesktopCaptureOptions owns X connection, which cannot be
-          // used on multiple threads concurrently.
-          window_list = base::MakeUnique<NativeDesktopMediaList>(
-              content::DesktopMediaID::TYPE_WINDOW,
-              webrtc::DesktopCapturer::CreateWindowCapturer(
-                  content::CreateDesktopCaptureOptions()));
-#endif  // !defined(USE_ASH)
-        }
-        have_window_list = true;
-        source_lists.push_back(std::move(window_list));
+        media_types.push_back(content::DesktopMediaID::TYPE_WINDOW);
         break;
       }
       case api::desktop_capture::DESKTOP_CAPTURE_SOURCE_TYPE_TAB: {
         if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-                extensions::switches::kDisableTabForDesktopShare) ||
-            have_tab_list) {
+                extensions::switches::kDisableTabForDesktopShare)) {
           continue;
         }
-        std::unique_ptr<DesktopMediaList> tab_list;
-        if (g_picker_factory) {
-          tab_list = g_picker_factory->CreateMediaList(
-              DesktopMediaID::TYPE_WEB_CONTENTS);
-        } else {
-          tab_list = base::MakeUnique<TabDesktopMediaList>();
-        }
-        have_tab_list = true;
-        source_lists.push_back(std::move(tab_list));
+        media_types.push_back(content::DesktopMediaID::TYPE_WEB_CONTENTS);
         break;
       }
       case api::desktop_capture::DESKTOP_CAPTURE_SOURCE_TYPE_AUDIO: {
-        bool audio_capture_disabled =
-            base::CommandLine::ForCurrentProcess()->HasSwitch(
-                extensions::switches::kDisableDesktopCaptureAudio);
-        if (!audio_capture_disabled) {
+        if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+                extensions::switches::kDisableDesktopCaptureAudio)) {
           request_audio = true;
         }
         break;
       }
     }
   }
+
+  DesktopMediaPickerFactory* picker_factory =
+      g_picker_factory ? g_picker_factory
+                       : DesktopMediaPickerFactoryImpl::GetInstance();
+  // Keep same order as the input |sources| and avoid duplicates.
+  std::vector<std::unique_ptr<DesktopMediaList>> source_lists =
+      picker_factory->CreateMediaList(media_types);
   if (source_lists.empty()) {
     error_ = kEmptySourcesListError;
     return false;
   }
-
-  if (g_picker_factory) {
-    picker_ = g_picker_factory->CreatePicker();
-  } else {
-    // DesktopMediaPicker is implemented only for Windows, OSX and
-    // Aura Linux builds.
-#if defined(TOOLKIT_VIEWS) || defined(OS_MACOSX)
-    picker_ = DesktopMediaPicker::Create();
-#else
+  picker_ = picker_factory->CreatePicker();
+  if (!picker_) {
     error_ = "Desktop Capture API is not yet implemented for this platform.";
     return false;
-#endif
   }
 
   DesktopMediaPicker::DoneCallback callback = base::Bind(
       &DesktopCaptureChooseDesktopMediaFunctionBase::OnPickerDialogResults,
       this);
-
-  picker_->Show(web_contents, parent_window, parent_window,
-                base::UTF8ToUTF16(GetCallerDisplayName()), target_name,
-                std::move(source_lists), request_audio, callback);
+  DesktopMediaPicker::Params picker_params;
+  picker_params.web_contents = web_contents;
+  picker_params.context = parent_window;
+  picker_params.parent = parent_window;
+  picker_params.app_name = base::UTF8ToUTF16(GetCallerDisplayName());
+  picker_params.target_name = target_name;
+  picker_params.request_audio = request_audio;
+  picker_params.created_by_extension = true;
+  picker_->Show(picker_params, std::move(source_lists), callback);
   origin_ = origin;
   return true;
 }
@@ -233,34 +178,26 @@ void DesktopCaptureChooseDesktopMediaFunctionBase::OnPickerDialogResults(
     DesktopMediaID source) {
   std::string result;
   if (source.type != DesktopMediaID::TYPE_NONE && web_contents()) {
-    DesktopStreamsRegistry* registry =
-        MediaCaptureDevicesDispatcher::GetInstance()->
-        GetDesktopStreamsRegistry();
     // TODO(miu): Once render_frame_host() is being set, we should register the
     // exact RenderFrame requesting the stream, not the main RenderFrame.  With
     // that change, also update
     // MediaCaptureDevicesDispatcher::ProcessDesktopCaptureAccessRequest().
     // http://crbug.com/304341
     content::RenderFrameHost* const main_frame = web_contents()->GetMainFrame();
-    result = registry->RegisterStream(main_frame->GetProcess()->GetID(),
-                                      main_frame->GetRoutingID(),
-                                      origin_,
-                                      source,
-                                      extension()->name());
+    result = content::DesktopStreamsRegistry::GetInstance()->RegisterStream(
+        main_frame->GetProcess()->GetID(), main_frame->GetRoutingID(), origin_,
+        source, extension()->name(), content::kRegistryStreamTypeDesktop);
   }
 
-  api::desktop_capture::ChooseDesktopMedia::Results::Options options;
+  Options options;
   options.can_request_audio_track = source.audio_share;
-  results_ = api::desktop_capture::ChooseDesktopMedia::Results::Create(result,
-                                                                       options);
+  results_ = Create(result, options);
   SendResponse(true);
 }
 
 DesktopCaptureRequestsRegistry::RequestId::RequestId(int process_id,
                                                      int request_id)
-    : process_id(process_id),
-      request_id(request_id) {
-}
+    : process_id(process_id), request_id(request_id) {}
 
 bool DesktopCaptureRequestsRegistry::RequestId::operator<(
     const RequestId& other) const {
@@ -307,10 +244,9 @@ void DesktopCaptureRequestsRegistry::RemoveRequest(int process_id,
 
 void DesktopCaptureRequestsRegistry::CancelRequest(int process_id,
                                                    int request_id) {
-  RequestsMap::iterator it = requests_.find(RequestId(process_id, request_id));
+  auto it = requests_.find(RequestId(process_id, request_id));
   if (it != requests_.end())
     it->second->Cancel();
 }
-
 
 }  // namespace extensions

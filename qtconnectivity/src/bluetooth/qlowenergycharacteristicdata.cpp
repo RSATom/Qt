@@ -157,7 +157,7 @@ QList<QLowEnergyDescriptorData> QLowEnergyCharacteristicData::descriptors() cons
 void QLowEnergyCharacteristicData::setDescriptors(const QList<QLowEnergyDescriptorData> &descriptors)
 {
     d->descriptors.clear();
-    foreach (const QLowEnergyDescriptorData &desc, descriptors)
+    for (const QLowEnergyDescriptorData &desc : descriptors)
         addDescriptor(desc);
 }
 

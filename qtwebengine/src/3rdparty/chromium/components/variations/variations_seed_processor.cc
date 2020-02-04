@@ -58,10 +58,8 @@ void RegisterVariationIds(const Study_Experiment& experiment,
   if (experiment.has_chrome_sync_experiment_id()) {
     const VariationID variation_id =
         static_cast<VariationID>(experiment.chrome_sync_experiment_id());
-    AssociateGoogleVariationIDForce(CHROME_SYNC_SERVICE,
-                                    trial_name,
-                                    experiment.name(),
-                                    variation_id);
+    AssociateGoogleVariationIDForce(CHROME_SYNC_EVENT_LOGGER, trial_name,
+                                    experiment.name(), variation_id);
   }
 }
 
@@ -127,21 +125,13 @@ void RegisterFeatureOverrides(const ProcessedStudy& processed_study,
         base::FeatureList::OVERRIDE_DISABLE_FEATURE, trial);
   }
 
-  // Check if this study enables/disables a single feature and uses explicit
-  // activation (i.e. the trial should be activated when queried). If so, ensure
-  // that groups that don't explicitly enable/disable that feature are still
-  // associated with it (i.e. so "Default" group gets reported).
-  //
-  // Note: This checks for ACTIVATION_EXPLICIT, since there is no reason to
-  // have this association with ACTIVATION_AUTO (where the trial starts active),
-  // as well as allowing flexibility to disable this behavior in the future from
-  // the server by introducing a new activation type.
-  if (!processed_study.single_feature_name().empty() &&
-      study.activation_type() == Study_ActivationType_ACTIVATION_EXPLICIT &&
-      !experiment.has_feature_association()) {
-    feature_list->RegisterFieldTrialOverride(
-        processed_study.single_feature_name(),
-        base::FeatureList::OVERRIDE_USE_DEFAULT, trial);
+  // Associate features for groups that do not specify them manually (e.g.
+  // "Default" group), so that such groups are reported.
+  if (!experiment.has_feature_association()) {
+    for (const auto& feature_name : processed_study.associated_features()) {
+      feature_list->RegisterFieldTrialOverride(
+          feature_name, base::FeatureList::OVERRIDE_USE_DEFAULT, trial);
+    }
   }
 }
 
@@ -182,6 +172,7 @@ void VariationsSeedProcessor::CreateTrialsFromSeed(
     base::FeatureList* feature_list) {
   std::vector<ProcessedStudy> filtered_studies;
   FilterAndValidateStudies(seed, client_state, &filtered_studies);
+  SetSeedVersion(seed.version());
 
   for (const ProcessedStudy& study : filtered_studies) {
     CreateTrialFromStudy(study, override_callback, low_entropy_provider,
@@ -270,8 +261,8 @@ void VariationsSeedProcessor::CreateTrialFromStudy(
           study.name(), processed_study.total_probability(),
           processed_study.GetDefaultExperimentName(),
           base::FieldTrialList::kNoExpirationYear, 1, 1, randomization_type,
-          randomization_seed, NULL,
-          ShouldStudyUseLowEntropy(study) ? low_entropy_provider : NULL));
+          randomization_seed, nullptr,
+          ShouldStudyUseLowEntropy(study) ? low_entropy_provider : nullptr));
 
   bool has_overrides = false;
   bool enables_or_disables_features = false;

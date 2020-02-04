@@ -8,10 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/video/quality_threshold.h"
+#include "video/quality_threshold.h"
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -36,6 +35,8 @@ QualityThreshold::QualityThreshold(int low_threshold,
   RTC_CHECK_LT(low_threshold, high_threshold);
 }
 
+QualityThreshold::~QualityThreshold() = default;
+
 void QualityThreshold::AddMeasurement(int measurement) {
   int prev_val = until_full_ > 0 ? 0 : buffer_[next_index_];
   buffer_[next_index_] = measurement;
@@ -59,9 +60,9 @@ void QualityThreshold::AddMeasurement(int measurement) {
 
   float sufficient_majority = fraction_ * max_measurements_;
   if (count_high_ >= sufficient_majority) {
-    is_high_ = rtc::Optional<bool>(true);
+    is_high_ = true;
   } else if (count_low_ >= sufficient_majority) {
-    is_high_ = rtc::Optional<bool>(false);
+    is_high_ = false;
   }
 
   if (until_full_ > 0)
@@ -74,13 +75,13 @@ void QualityThreshold::AddMeasurement(int measurement) {
   }
 }
 
-rtc::Optional<bool> QualityThreshold::IsHigh() const {
+absl::optional<bool> QualityThreshold::IsHigh() const {
   return is_high_;
 }
 
-rtc::Optional<double> QualityThreshold::CalculateVariance() const {
+absl::optional<double> QualityThreshold::CalculateVariance() const {
   if (until_full_ > 0) {
-    return rtc::Optional<double>();
+    return absl::nullopt;
   }
 
   double variance = 0;
@@ -88,17 +89,16 @@ rtc::Optional<double> QualityThreshold::CalculateVariance() const {
   for (int i = 0; i < max_measurements_; ++i) {
     variance += (buffer_[i] - mean) * (buffer_[i] - mean);
   }
-  return rtc::Optional<double>(variance / (max_measurements_ - 1));
+  return variance / (max_measurements_ - 1);
 }
 
-rtc::Optional<double> QualityThreshold::FractionHigh(
+absl::optional<double> QualityThreshold::FractionHigh(
     int min_required_samples) const {
   RTC_DCHECK_GT(min_required_samples, 0);
   if (num_certain_states_ < min_required_samples)
-    return rtc::Optional<double>();
+    return absl::nullopt;
 
-  return rtc::Optional<double>(static_cast<double>(num_high_states_) /
-                               num_certain_states_);
+  return static_cast<double>(num_high_states_) / num_certain_states_;
 }
 
 }  // namespace webrtc

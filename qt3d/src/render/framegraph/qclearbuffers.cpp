@@ -50,7 +50,7 @@ namespace Qt3DRender {
     \inmodule Qt3DRender
     \since 5.7
     \ingroup framegraph
-    \brief Class to clear buffers
+    \brief Class to clear buffers.
 
     A Qt3DRender::QClearBuffers FrameGraph node enables clearing of the specific
     render target buffers with specific values.
@@ -62,7 +62,7 @@ namespace Qt3DRender {
     \instantiates Qt3DRender::QClearBuffers
     \inherits FrameGraphNode
     \since 5.7
-    \brief Class to clear buffers
+    \brief Class to clear buffers.
 
     A Qt3DRender::QClearBuffers FrameGraph node enables clearing of the specific
     render target buffers with specific values.
@@ -87,7 +87,7 @@ QClearBuffersPrivate::QClearBuffersPrivate()
     , m_buffersType(QClearBuffers::None)
     , m_clearDepthValue(1.f)
     , m_clearStencilValue(0)
-    , m_buffer(Q_NULLPTR)
+    , m_buffer(nullptr)
 {
 }
 
@@ -164,7 +164,7 @@ void QClearBuffers::setBuffers(QClearBuffers::BufferType buffers)
     Specifies the clear color to be used.
  */
 /*!
-    \qmlproperty color Qt3D.Render::ClearBuffers::color
+    \qmlproperty color Qt3D.Render::ClearBuffers::clearColor
     Specifies the clear color to be used.
 */
 void QClearBuffers::setClearColor(const QColor &color)
@@ -220,7 +220,7 @@ void QClearBuffers::setClearStencilValue(int clearStencilValue)
     ColorBuffer flag is set, all color buffers will be cleared.
  */
 /*!
-    \qmlproperty RenderTargetOutput Qt3D.Render::ClearBuffers::colorbuffer
+    \qmlproperty RenderTargetOutput Qt3D.Render::ClearBuffers::colorBuffer
     Specifies a specific color buffer to clear. If set to NULL (default), and
     ColorBuffer flag is set, all color buffers will be cleared.
 */

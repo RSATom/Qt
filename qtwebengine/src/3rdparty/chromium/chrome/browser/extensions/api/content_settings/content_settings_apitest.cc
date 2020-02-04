@@ -8,6 +8,8 @@
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -15,13 +17,15 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chrome/browser/lifetime/keep_alive_types.h"
-#include "chrome/browser/lifetime/scoped_keep_alive.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/common/content_settings.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/plugin_service.h"
@@ -217,6 +221,43 @@ class ExtensionContentSettingsApiTest : public ExtensionApiTest {
                   url, url, CONTENT_SETTINGS_TYPE_AUTOPLAY, std::string()));
   }
 
+  // Returns a snapshot of content settings for a given URL.
+  std::vector<int> GetContentSettingsSnapshot(const GURL& url) {
+    std::vector<int> content_settings;
+
+    HostContentSettingsMap* map =
+        HostContentSettingsMapFactory::GetForProfile(profile_);
+    content_settings::CookieSettings* cookie_settings =
+        CookieSettingsFactory::GetForProfile(profile_).get();
+
+    content_settings.push_back(
+        cookie_settings->IsCookieAccessAllowed(url, url));
+    content_settings.push_back(cookie_settings->IsCookieSessionOnly(url));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_IMAGES, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_JAVASCRIPT, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_PLUGINS, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_POPUPS, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_GEOLOCATION, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_PPAPI_BROKER, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS, std::string()));
+    content_settings.push_back(map->GetContentSetting(
+        url, url, CONTENT_SETTINGS_TYPE_AUTOPLAY, std::string()));
+    return content_settings;
+  }
+
  private:
   Profile* profile_;
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
@@ -283,6 +324,96 @@ IN_PROC_BROWSER_TEST_F(ExtensionContentSettingsApiTest,
                        UnsupportedDefaultSettings) {
   const char kExtensionPath[] = "content_settings/unsupporteddefaultsettings";
   EXPECT_TRUE(RunExtensionSubtest(kExtensionPath, "test.html")) << message_;
+}
+
+// Tests if an extension clearing content settings for one content type leaves
+// the others unchanged.
+IN_PROC_BROWSER_TEST_F(ExtensionContentSettingsApiTest, ClearProperlyGranular) {
+  const char kExtensionPath[] = "content_settings/clearproperlygranular";
+  EXPECT_TRUE(RunExtensionSubtest(kExtensionPath, "test.html")) << message_;
+}
+
+// Tests if changing permissions in incognito mode keeps the previous state of
+// regular mode.
+IN_PROC_BROWSER_TEST_F(ExtensionContentSettingsApiTest, IncognitoIsolation) {
+  GURL url("http://www.example.com");
+
+  // Record previous state of content settings.
+  std::vector<int> content_settings_before = GetContentSettingsSnapshot(url);
+
+  // Run extension, set all permissions to allow, and check if they are changed.
+  EXPECT_TRUE(RunExtensionSubtest("content_settings/incognitoisolation",
+                                  "test.html?allow",
+                                  kFlagUseIncognito | kFlagEnableIncognito))
+      << message_;
+
+  // Get content settings after running extension to ensure nothing is changed.
+  std::vector<int> content_settings_after = GetContentSettingsSnapshot(url);
+  EXPECT_EQ(content_settings_before, content_settings_after);
+
+  // Run extension, set all permissions to block, and check if they are changed.
+  EXPECT_TRUE(RunExtensionSubtest("content_settings/incognitoisolation",
+                                  "test.html?block",
+                                  kFlagUseIncognito | kFlagEnableIncognito))
+      << message_;
+
+  // Get content settings after running extension to ensure nothing is changed.
+  content_settings_after = GetContentSettingsSnapshot(url);
+  EXPECT_EQ(content_settings_before, content_settings_after);
+}
+
+// Tests if changing incognito mode permissions in regular profile are rejected.
+IN_PROC_BROWSER_TEST_F(ExtensionContentSettingsApiTest,
+                       IncognitoNotAllowedInRegular) {
+  EXPECT_FALSE(RunExtensionSubtest("content_settings/incognitoisolation",
+                                   "test.html?allow"))
+      << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionContentSettingsApiTest,
+                       EmbeddedSettingsMetric) {
+  base::HistogramTester histogram_tester;
+  const char kExtensionPath[] = "content_settings/embeddedsettingsmetric";
+  EXPECT_TRUE(RunExtensionSubtest(kExtensionPath, "test.html")) << message_;
+
+  size_t num_values = 0;
+  int images_type = ContentSettingTypeToHistogramValue(
+      CONTENT_SETTINGS_TYPE_IMAGES, &num_values);
+  int geolocation_type = ContentSettingTypeToHistogramValue(
+      CONTENT_SETTINGS_TYPE_GEOLOCATION, &num_values);
+  int cookies_type = ContentSettingTypeToHistogramValue(
+      CONTENT_SETTINGS_TYPE_COOKIES, &num_values);
+
+  histogram_tester.ExpectBucketCount(
+      "ContentSettings.ExtensionEmbeddedSettingSet", images_type, 1);
+  histogram_tester.ExpectBucketCount(
+      "ContentSettings.ExtensionEmbeddedSettingSet", geolocation_type, 1);
+  histogram_tester.ExpectTotalCount(
+      "ContentSettings.ExtensionEmbeddedSettingSet", 2);
+
+  histogram_tester.ExpectBucketCount(
+      "ContentSettings.ExtensionNonEmbeddedSettingSet", images_type, 1);
+  histogram_tester.ExpectBucketCount(
+      "ContentSettings.ExtensionNonEmbeddedSettingSet", cookies_type, 1);
+  histogram_tester.ExpectTotalCount(
+      "ContentSettings.ExtensionNonEmbeddedSettingSet", 2);
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionContentSettingsApiTest, EmbeddedSettings) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(features::kPermissionDelegation);
+  const char kExtensionPath[] = "content_settings/embeddedsettings";
+  EXPECT_TRUE(RunExtensionSubtest(kExtensionPath, "test.html")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionContentSettingsApiTest,
+                       EmbeddedSettingsPermissionDelegation) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kPermissionDelegation);
+  const char kExtensionPath[] = "content_settings/embeddedsettings";
+  EXPECT_TRUE(
+      RunExtensionSubtest(kExtensionPath, "test.html?permission_delegation"))
+      << message_;
 }
 
 }  // namespace extensions

@@ -35,20 +35,22 @@
 #include "qdesigner_settings.h"
 #include "qttoolbardialog.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QAction>
-#include <QtGui/QCloseEvent>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QMdiSubWindow>
-#include <QtWidgets/QStatusBar>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QDockWidget>
+#include <QtWidgets/qaction.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qmdisubwindow.h>
+#include <QtWidgets/qstatusbar.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qdockwidget.h>
 
-#include <QtCore/QUrl>
-#include <QtCore/QDebug>
-#include <QtCore/QMimeData>
+#include <QtCore/qurl.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qmimedata.h>
+
+#include <algorithm>
 
 static const char *uriListMimeFormatC = "text/uri-list";
 
@@ -260,7 +262,7 @@ bool toolBarTitleLessThan(const QToolBar *t1, const QToolBar *t2)
 void ToolBarManager::updateToolBarMenu()
 {
     // Sort tool bars alphabetically by title
-    qStableSort(m_toolbars.begin(), m_toolbars.end(), toolBarTitleLessThan);
+    std::stable_sort(m_toolbars.begin(), m_toolbars.end(), toolBarTitleLessThan);
     // add to menu
     m_toolBarMenu->clear();
     for (QToolBar *tb : qAsConst(m_toolbars))
@@ -308,7 +310,7 @@ DockedMainWindow::DockedMainWindow(QDesignerWorkbench *wb,
     setCentralWidget(dma);
 
     QStatusBar *sb = statusBar();
-    Q_UNUSED(sb)
+    Q_UNUSED(sb);
 
     m_toolBarManager = new ToolBarManager(this, this, toolBarMenu, wb->actionManager(), toolbars, toolWindows);
 }

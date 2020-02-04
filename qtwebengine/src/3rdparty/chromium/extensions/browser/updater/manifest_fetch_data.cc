@@ -11,7 +11,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "extensions/common/extension.h"
+#include "extensions/browser/disable_reason.h"
 #include "net/base/escape.h"
 
 namespace extensions {
@@ -22,12 +22,20 @@ namespace {
 // request. We want to stay under 2K because of proxies, etc.
 const int kExtensionsManifestMaxURLSize = 2000;
 
+// Strings to report the manifest location in Omaha update pings. Please use
+// strings with no capitalization, spaces or underscorse.
+const char kInternalLocation[] = "internal";
+const char kExternalLocation[] = "external";
+const char kPolicyLocation[] = "policy";
+const char kOtherLocation[] = "other";
+const char kInvalidLocation[] = "invalid";
+
 void AddEnabledStateToPing(std::string* ping_value,
                       const ManifestFetchData::PingData* ping_data) {
   *ping_value += "&e=" + std::string(ping_data->is_enabled ? "1" : "0");
   if (!ping_data->is_enabled) {
     // Add a dr=<number> param for each bit set in disable reasons.
-    for (int enum_value = 1; enum_value < Extension::DISABLE_REASON_LAST;
+    for (int enum_value = 1; enum_value < disable_reason::DISABLE_REASON_LAST;
          enum_value <<= 1) {
       if (ping_data->disable_reasons & enum_value)
         *ping_value += "&dr=" + base::IntToString(enum_value);
@@ -36,6 +44,37 @@ void AddEnabledStateToPing(std::string* ping_value,
 }
 
 }  // namespace
+
+// static
+std::string ManifestFetchData::GetSimpleLocationString(Manifest::Location loc) {
+  std::string result = kInvalidLocation;
+  switch (loc) {
+    case Manifest::INTERNAL:
+      result = kInternalLocation;
+      break;
+    case Manifest::EXTERNAL_PREF:
+    case Manifest::EXTERNAL_PREF_DOWNLOAD:
+    case Manifest::EXTERNAL_REGISTRY:
+      result = kExternalLocation;
+      break;
+    case Manifest::COMPONENT:
+    case Manifest::EXTERNAL_COMPONENT:
+    case Manifest::UNPACKED:
+    case Manifest::COMMAND_LINE:
+      result = kOtherLocation;
+      break;
+    case Manifest::EXTERNAL_POLICY_DOWNLOAD:
+    case Manifest::EXTERNAL_POLICY:
+      result = kPolicyLocation;
+      break;
+    case Manifest::INVALID_LOCATION:
+    case Manifest::NUM_LOCATIONS:
+      NOTREACHED();
+      break;
+  }
+
+  return result;
+}
 
 ManifestFetchData::ManifestFetchData(const GURL& update_url,
                                      int request_id,
@@ -88,6 +127,7 @@ bool ManifestFetchData::AddExtension(const std::string& id,
                                      const PingData* ping_data,
                                      const std::string& update_url_data,
                                      const std::string& install_source,
+                                     const std::string& install_location,
                                      FetchPriority fetch_priority) {
   if (extension_ids_.find(id) != extension_ids_.end()) {
     NOTREACHED() << "Duplicate extension id " << id;
@@ -104,6 +144,8 @@ bool ManifestFetchData::AddExtension(const std::string& id,
   parts.push_back("v=" + version);
   if (!install_source.empty())
     parts.push_back("installsource=" + install_source);
+  if (!install_location.empty())
+    parts.push_back("installedby=" + install_location);
   parts.push_back("uc");
 
   if (!update_url_data.empty()) {
@@ -165,7 +207,7 @@ bool ManifestFetchData::Includes(const std::string& extension_id) const {
 
 bool ManifestFetchData::DidPing(const std::string& extension_id,
                                 PingType type) const {
-  std::map<std::string, PingData>::const_iterator i = pings_.find(extension_id);
+  auto i = pings_.find(extension_id);
   if (i == pings_.end())
     return false;
   int value = 0;

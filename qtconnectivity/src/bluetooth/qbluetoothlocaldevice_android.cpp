@@ -54,25 +54,21 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_ANDROID)
 
 QBluetoothLocalDevicePrivate::QBluetoothLocalDevicePrivate(
     QBluetoothLocalDevice *q, const QBluetoothAddress &address) :
-    q_ptr(q),
-    obj(0),
-    pendingHostModeTransition(false)
+    q_ptr(q)
 {
     registerQBluetoothLocalDeviceMetaType();
 
     initialize(address);
 
     receiver = new LocalDeviceBroadcastReceiver(q_ptr);
-    connect(receiver, SIGNAL(hostModeStateChanged(QBluetoothLocalDevice::HostMode)),
-            this, SLOT(processHostModeChange(QBluetoothLocalDevice::HostMode)));
-    connect(receiver, SIGNAL(pairingStateChanged(QBluetoothAddress,
-                                                 QBluetoothLocalDevice::Pairing)),
-            this, SLOT(processPairingStateChanged(QBluetoothAddress,
-                                                  QBluetoothLocalDevice::Pairing)));
-    connect(receiver, SIGNAL(connectDeviceChanges(QBluetoothAddress, bool)),
-            this, SLOT(processConnectDeviceChanges(QBluetoothAddress, bool)));
-    connect(receiver, SIGNAL(pairingDisplayConfirmation(QBluetoothAddress, QString)),
-            this, SLOT(processDisplayConfirmation(QBluetoothAddress, QString)));
+    connect(receiver, &LocalDeviceBroadcastReceiver::hostModeStateChanged,
+            this, &QBluetoothLocalDevicePrivate::processHostModeChange);
+    connect(receiver, &LocalDeviceBroadcastReceiver::pairingStateChanged,
+            this, &QBluetoothLocalDevicePrivate::processPairingStateChanged);
+    connect(receiver, &LocalDeviceBroadcastReceiver::connectDeviceChanges,
+            this, &QBluetoothLocalDevicePrivate::processConnectDeviceChanges);
+    connect(receiver, &LocalDeviceBroadcastReceiver::pairingDisplayConfirmation,
+            this, &QBluetoothLocalDevicePrivate::processDisplayConfirmation);
 }
 
 QBluetoothLocalDevicePrivate::~QBluetoothLocalDevicePrivate()
@@ -92,23 +88,16 @@ static QAndroidJniObject getDefaultAdapter()
     QAndroidJniObject adapter = QAndroidJniObject::callStaticObjectMethod(
                                     "android/bluetooth/BluetoothAdapter", "getDefaultAdapter",
                                     "()Landroid/bluetooth/BluetoothAdapter;");
+    QAndroidJniExceptionCleaner exCleaner{QAndroidJniExceptionCleaner::OutputMode::Verbose};
     if (!adapter.isValid()) {
-        QAndroidJniEnvironment env;
-        if (env->ExceptionCheck()) {
-            env->ExceptionDescribe();
-            env->ExceptionClear();
-        }
+        exCleaner.clean();
 
         // workaround stupid bt implementations where first call of BluetoothAdapter.getDefaultAdapter() always fails
         adapter = QAndroidJniObject::callStaticObjectMethod(
                                             "android/bluetooth/BluetoothAdapter", "getDefaultAdapter",
                                             "()Landroid/bluetooth/BluetoothAdapter;");
-        if (!adapter.isValid()) {
-            if (env->ExceptionCheck()) {
-                env->ExceptionDescribe();
-                env->ExceptionClear();
-            }
-        }
+        if (!adapter.isValid())
+            exCleaner.clean();
     }
     return adapter;
 }
@@ -128,7 +117,7 @@ void QBluetoothLocalDevicePrivate::initialize(const QBluetoothAddress &address)
         if (localAddress != address.toString()) {
             // passed address not local one -> invalid
             delete obj;
-            obj = 0;
+            obj = nullptr;
         }
     }
 }

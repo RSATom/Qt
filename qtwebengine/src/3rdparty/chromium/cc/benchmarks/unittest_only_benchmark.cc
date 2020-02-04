@@ -13,8 +13,8 @@
 namespace cc {
 
 UnittestOnlyBenchmark::UnittestOnlyBenchmark(std::unique_ptr<base::Value> value,
-                                             const DoneCallback& callback)
-    : MicroBenchmark(callback),
+                                             DoneCallback callback)
+    : MicroBenchmark(std::move(callback)),
       create_impl_benchmark_(false),
       weak_ptr_factory_(this) {
   if (!value)
@@ -61,8 +61,8 @@ std::unique_ptr<MicroBenchmarkImpl> UnittestOnlyBenchmark::CreateBenchmarkImpl(
 
   return base::WrapUnique(new UnittestOnlyBenchmarkImpl(
       origin_task_runner, nullptr,
-      base::Bind(&UnittestOnlyBenchmark::RecordImplResults,
-                 weak_ptr_factory_.GetWeakPtr())));
+      base::BindOnce(&UnittestOnlyBenchmark::RecordImplResults,
+                     weak_ptr_factory_.GetWeakPtr())));
 }
 
 }  // namespace cc

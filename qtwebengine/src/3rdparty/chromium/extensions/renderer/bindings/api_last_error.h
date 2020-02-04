@@ -24,12 +24,12 @@ class APILastError {
   // a simple object without getters/setters. This is to accommodate the
   // legacy chrome.extension.lastError property.
   // Note: |secondary_parent| may be null.
-  using GetParent = base::Callback<v8::Local<v8::Object>(
+  using GetParent = base::RepeatingCallback<v8::Local<v8::Object>(
       v8::Local<v8::Context>,
       v8::Local<v8::Object>* secondary_parent)>;
 
-  APILastError(const GetParent& get_parent,
-               const binding::AddConsoleError& add_console_error);
+  APILastError(GetParent get_parent,
+               binding::AddConsoleError add_console_error);
   APILastError(APILastError&& other);
   ~APILastError();
 
@@ -42,6 +42,11 @@ class APILastError {
 
   // Returns true if the given context has an active error.
   bool HasError(v8::Local<v8::Context> context);
+
+  // Reports an unchecked error by logging it to the console. This is used when
+  // an error occurs, and there is no way it could be checked.
+  void ReportUncheckedError(v8::Local<v8::Context> context,
+                            const std::string& error);
 
  private:
   // Sets the lastError property on the primary parent object (in practice, this

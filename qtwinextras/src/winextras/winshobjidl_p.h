@@ -229,7 +229,7 @@ public:
 
 #endif
 
-#if (defined _MSC_VER && _MSC_VER < 1600) || defined(Q_CC_MINGW)
+#ifdef Q_CC_MINGW
 
 #   if !defined(__MINGW64_VERSION_MAJOR) || !defined(__MINGW64_VERSION_MINOR) || __MINGW64_VERSION_MAJOR * 100 + __MINGW64_VERSION_MINOR < 301
 

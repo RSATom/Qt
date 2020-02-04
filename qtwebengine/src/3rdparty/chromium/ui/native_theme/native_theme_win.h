@@ -18,6 +18,8 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/no_destructor.h"
+#include "base/win/registry.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/sys_color_change_listener.h"
@@ -52,9 +54,6 @@ class NATIVE_THEME_EXPORT NativeThemeWin : public NativeTheme,
     LAST
   };
 
-  // Returns true if a high contrast theme is being used.
-  static bool IsUsingHighContrastTheme();
-
   // Closes cached theme handles so we can unload the DLL or update our UI
   // for a theme change.
   static void CloseHandles();
@@ -78,13 +77,15 @@ class NATIVE_THEME_EXPORT NativeThemeWin : public NativeTheme,
              const gfx::Rect& rect,
              const ExtraParams& extra) const override;
   SkColor GetSystemColor(ColorId color_id) const override;
-
   bool SupportsNinePatch(Part part) const override;
   gfx::Size GetNinePatchCanvasSize(Part part) const override;
   gfx::Rect GetNinePatchAperture(Part part) const override;
+  bool UsesHighContrastColors() const override;
+  bool SystemDarkModeEnabled() const override;
 
  protected:
   friend class NativeTheme;
+  friend class base::NoDestructor<NativeThemeWin>;
   // Gets our singleton instance.
   static NativeThemeWin* instance();
 
@@ -92,7 +93,7 @@ class NATIVE_THEME_EXPORT NativeThemeWin : public NativeTheme,
   ~NativeThemeWin() override;
 
  private:
-  bool IsUsingHighContrastThemeInternal();
+  bool IsUsingHighContrastThemeInternal() const;
   void CloseHandlesInternal();
 
   // gfx::SysColorChangeListener implementation:
@@ -261,6 +262,8 @@ class NATIVE_THEME_EXPORT NativeThemeWin : public NativeTheme,
   // Returns a handle to the theme data.
   HANDLE GetThemeHandle(ThemeName theme_name) const;
 
+  void RegisterThemeRegkeyObserver();
+
   typedef HRESULT (WINAPI* DrawThemeBackgroundPtr)(HANDLE theme,
                                                    HDC hdc,
                                                    int part_id,
@@ -314,6 +317,9 @@ class NATIVE_THEME_EXPORT NativeThemeWin : public NativeTheme,
 
   // Handle to uxtheme.dll.
   HMODULE theme_dll_;
+
+  // Dark Mode registry key.
+  base::win::RegKey hkcu_themes_regkey_;
 
   // A cache of open theme handles.
   mutable HANDLE theme_handles_[LAST];

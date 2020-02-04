@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/no_destructor.h"
 #include "services/preferences/tracked/device_id.h"
 #include "services/preferences/tracked/hash_store_contents.h"
 
@@ -20,21 +21,17 @@ using ValueState =
 
 // Returns a deterministic ID for this machine.
 std::string GenerateDeviceId() {
-  static std::string cached_device_id;
-  if (!cached_device_id.empty())
-    return cached_device_id;
+  static base::NoDestructor<std::string> cached_device_id;
+  if (!cached_device_id->empty())
+    return *cached_device_id;
 
   std::string device_id;
   MachineIdStatus status = GetDeterministicMachineSpecificId(&device_id);
-  if (status != MachineIdStatus::NOT_IMPLEMENTED) {
-    // TODO(proberge): Remove this histogram once we validate that machine id
-    // generation is not flaky and consider adding a CHECK or DCHECK.
-    UMA_HISTOGRAM_BOOLEAN("Settings.MachineIdGenerationSuccess",
-                          status == MachineIdStatus::SUCCESS);
-  }
+  DCHECK(status == MachineIdStatus::NOT_IMPLEMENTED ||
+         status == MachineIdStatus::SUCCESS);
 
   if (status == MachineIdStatus::SUCCESS) {
-    cached_device_id = device_id;
+    *cached_device_id = device_id;
     return device_id;
   }
 
@@ -101,7 +98,8 @@ std::string PrefHashStoreImpl::ComputeMac(const std::string& path,
 std::unique_ptr<base::DictionaryValue> PrefHashStoreImpl::ComputeSplitMacs(
     const std::string& path,
     const base::DictionaryValue* split_values) {
-  DCHECK(split_values);
+  if (!split_values)
+    return std::make_unique<base::DictionaryValue>();
 
   std::string keyed_path(path);
   keyed_path.push_back('.');
@@ -115,8 +113,8 @@ std::unique_ptr<base::DictionaryValue> PrefHashStoreImpl::ComputeSplitMacs(
     // get the new |keyed_path|.
     keyed_path.replace(common_part_length, std::string::npos, it.key());
 
-    split_macs->SetStringWithoutPathExpansion(
-        it.key(), ComputeMac(keyed_path, &it.value()));
+    split_macs->SetKey(it.key(),
+                       base::Value(ComputeMac(keyed_path, &it.value())));
   }
 
   return split_macs;

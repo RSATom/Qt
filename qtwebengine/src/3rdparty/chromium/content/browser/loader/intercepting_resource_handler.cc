@@ -7,14 +7,13 @@
 #include "base/auto_reset.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/loader/null_resource_controller.h"
 #include "content/browser/loader/resource_controller.h"
-#include "content/public/common/resource_response.h"
 #include "net/base/io_buffer.h"
 #include "net/url_request/url_request.h"
+#include "services/network/public/cpp/resource_response.h"
 
 namespace content {
 
@@ -30,14 +29,18 @@ class InterceptingResourceHandler::Controller : public ResourceController {
     intercepting_handler_->ResumeInternal();
   }
 
+  void ResumeForRedirect(
+      const std::vector<std::string>& removed_headers,
+      const net::HttpRequestHeaders& modified_headers) override {
+    DCHECK(removed_headers.empty() && modified_headers.IsEmpty())
+        << "Removing or modifying headers from the |new_handler| is not used "
+           "and not supported. See https://crbug.com/845683.";
+    Resume();
+  }
+
   void Cancel() override {
     MarkAsUsed();
     intercepting_handler_->Cancel();
-  }
-
-  void CancelAndIgnore() override {
-    MarkAsUsed();
-    intercepting_handler_->CancelAndIgnore();
   }
 
   void CancelWithError(int error_code) override {
@@ -71,7 +74,7 @@ InterceptingResourceHandler::InterceptingResourceHandler(
 InterceptingResourceHandler::~InterceptingResourceHandler() {}
 
 void InterceptingResourceHandler::OnResponseStarted(
-    ResourceResponse* response,
+    network::ResourceResponse* response,
     std::unique_ptr<ResourceController> controller) {
   // If there's no need to switch handlers, just start acting as a blind
   // pass-through ResourceHandler.
@@ -166,7 +169,7 @@ void InterceptingResourceHandler::OnResponseCompleted(
   // TODO(mmenke): Get rid of NullResourceController and do something more
   // reasonable.
   next_handler_->OnResponseCompleted(
-      status, base::MakeUnique<NullResourceController>(&was_resumed));
+      status, std::make_unique<NullResourceController>(&was_resumed));
   DCHECK(was_resumed);
 
   state_ = State::PASS_THROUGH;
@@ -261,8 +264,8 @@ void InterceptingResourceHandler::ResumeInternal() {
   // Can't call DoLoop synchronously, as it may call into |next_handler_|
   // synchronously, which is what called Resume().
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&InterceptingResourceHandler::DoLoop,
-                            weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&InterceptingResourceHandler::DoLoop,
+                                weak_ptr_factory_.GetWeakPtr()));
 }
 
 void InterceptingResourceHandler::SendOnWillReadToOldHandler() {
@@ -270,7 +273,7 @@ void InterceptingResourceHandler::SendOnWillReadToOldHandler() {
 
   state_ = State::WAITING_FOR_OLD_HANDLERS_BUFFER;
   next_handler_->OnWillRead(&first_read_buffer_, &first_read_buffer_size_,
-                            base::MakeUnique<Controller>(this));
+                            std::make_unique<Controller>(this));
 }
 
 void InterceptingResourceHandler::OnBufferReceived() {
@@ -283,8 +286,8 @@ void InterceptingResourceHandler::OnBufferReceived() {
   // already handles that case, anyways, so could share that code with the
   // no-swap path as well. Or better, just have MimeSniffingResourceHandler
   // create and manage the buffer itself.
-  first_read_buffer_double_ =
-      new net::IOBuffer(static_cast<size_t>(first_read_buffer_size_));
+  first_read_buffer_double_ = base::MakeRefCounted<net::IOBuffer>(
+      static_cast<size_t>(first_read_buffer_size_));
   *parent_read_buffer_ = first_read_buffer_double_;
   *parent_read_buffer_size_ = first_read_buffer_size_;
 
@@ -298,7 +301,7 @@ void InterceptingResourceHandler::OnBufferReceived() {
 void InterceptingResourceHandler::SendOnResponseStartedToOldHandler() {
   state_ = State::SENDING_PAYLOAD_TO_OLD_HANDLER;
   next_handler_->OnResponseStarted(response_.get(),
-                                   base::MakeUnique<Controller>(this));
+                                   std::make_unique<Controller>(this));
 }
 
 void InterceptingResourceHandler::SendPayloadToOldHandler() {
@@ -316,13 +319,13 @@ void InterceptingResourceHandler::SendPayloadToOldHandler() {
     // TODO(mmenke): Get rid of NullResourceController and do something more
     // reasonable.
     next_handler_->OnResponseCompleted(
-        status, base::MakeUnique<NullResourceController>(&was_resumed));
+        status, std::make_unique<NullResourceController>(&was_resumed));
     DCHECK(was_resumed);
 
     next_handler_ = std::move(new_handler_);
     state_ = State::SENDING_ON_WILL_START_TO_NEW_HANDLER;
     next_handler_->OnWillStart(request()->url(),
-                               base::MakeUnique<Controller>(this));
+                               std::make_unique<Controller>(this));
     return;
   }
 
@@ -340,7 +343,7 @@ void InterceptingResourceHandler::SendPayloadToOldHandler() {
 
   DCHECK(!first_read_buffer_size_);
   next_handler_->OnWillRead(&first_read_buffer_, &first_read_buffer_size_,
-                            base::MakeUnique<Controller>(this));
+                            std::make_unique<Controller>(this));
 }
 
 void InterceptingResourceHandler::ReceivedBufferFromOldHandler() {
@@ -362,13 +365,13 @@ void InterceptingResourceHandler::ReceivedBufferFromOldHandler() {
 
   state_ = State::SENDING_PAYLOAD_TO_OLD_HANDLER;
   next_handler_->OnReadCompleted(bytes_to_copy,
-                                 base::MakeUnique<Controller>(this));
+                                 std::make_unique<Controller>(this));
 }
 
 void InterceptingResourceHandler::SendOnResponseStartedToNewHandler() {
   state_ = State::SENDING_ON_RESPONSE_STARTED_TO_NEW_HANDLER;
   next_handler_->OnResponseStarted(response_.get(),
-                                   base::MakeUnique<Controller>(this));
+                                   std::make_unique<Controller>(this));
 }
 
 void InterceptingResourceHandler::SendFirstReadBufferToNewHandler() {
@@ -386,7 +389,7 @@ void InterceptingResourceHandler::SendFirstReadBufferToNewHandler() {
   state_ = State::SENDING_BUFFER_TO_NEW_HANDLER_WAITING_FOR_BUFFER;
   next_handler_->OnWillRead(&new_handler_read_buffer_,
                             &new_handler_read_buffer_size_,
-                            base::MakeUnique<Controller>(this));
+                            std::make_unique<Controller>(this));
 }
 
 void InterceptingResourceHandler::ReceivedBufferFromNewHandler() {
@@ -408,7 +411,7 @@ void InterceptingResourceHandler::ReceivedBufferFromNewHandler() {
 
   state_ = State::SENDING_BUFFER_TO_NEW_HANDLER;
   next_handler_->OnReadCompleted(bytes_to_copy,
-                                 base::MakeUnique<Controller>(this));
+                                 std::make_unique<Controller>(this));
 }
 
 }  // namespace content

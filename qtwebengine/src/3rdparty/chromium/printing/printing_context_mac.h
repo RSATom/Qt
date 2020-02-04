@@ -26,7 +26,7 @@ class PRINTING_EXPORT PrintingContextMac : public PrintingContext {
   void AskUserForSettings(int max_pages,
                           bool has_selection,
                           bool is_scripted,
-                          const PrintSettingsCallback& callback) override;
+                          PrintSettingsCallback callback) override;
   Result UseDefaultSettings() override;
   gfx::Size GetPdfPaperSizeDeviceUnits() override;
   Result UpdatePrinterSettings(bool external_preview,
@@ -38,7 +38,7 @@ class PRINTING_EXPORT PrintingContextMac : public PrintingContext {
   Result DocumentDone() override;
   void Cancel() override;
   void ReleaseContext() override;
-  skia::NativeDrawingContext context() const override;
+  printing::NativeDrawingContext context() const override;
 
  private:
   // Initializes PrintSettings from |print_info_|. This must be called

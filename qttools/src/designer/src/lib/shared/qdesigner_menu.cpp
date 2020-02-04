@@ -37,22 +37,22 @@
 #include "qdesigner_utils_p.h"
 #include "qdesigner_objectinspector_p.h"
 
-#include <QtCore/QTimer>
+#include <QtCore/qtimer.h>
 #include <QtCore/qdebug.h>
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetfactory.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QPainter>
-#include <QtGui/QDrag>
-#include <QtWidgets/QRubberBand>
-#include <QtWidgets/QToolTip>
-#include <QtWidgets/QToolBar>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtGui/qpainter.h>
+#include <QtGui/qdrag.h>
+#include <QtWidgets/qrubberband.h>
+#include <QtWidgets/qtooltip.h>
+#include <QtWidgets/qtoolbar.h>
 #include <QtGui/qevent.h>
 
 Q_DECLARE_METATYPE(QAction*)
@@ -110,9 +110,7 @@ QDesignerMenu::QDesignerMenu(QWidget *parent) :
     installEventFilter(this);
 }
 
-QDesignerMenu::~QDesignerMenu()
-{
-}
+QDesignerMenu::~QDesignerMenu() = default;
 
 void QDesignerMenu::slotAdjustSizeNow()
 {
@@ -174,7 +172,7 @@ void QDesignerMenu::startDrag(const QPoint &pos, Qt::KeyboardModifiers modifiers
     const int old_index = m_currentIndex;
     m_currentIndex = -1;
 
-    if (drag->start(dropAction) == Qt::IgnoreAction) {
+    if (drag->exec(dropAction) == Qt::IgnoreAction) {
         if (dropAction == Qt::MoveAction) {
             QAction *previous = safeActionAt(index);
             InsertActionIntoCommand *cmd = new InsertActionIntoCommand(fw);
@@ -254,7 +252,8 @@ bool QDesignerMenu::handleKeyPressEvent(QWidget * /*widget*/, QKeyEvent *e)
             if (!action || action->isSeparator() || action == m_addSeparator) {
                 e->ignore();
                 return true;
-            } else if (!e->text().isEmpty() && e->text().at(0).toLatin1() >= 32) {
+            }
+            if (!e->text().isEmpty() && e->text().at(0).toLatin1() >= 32) {
                 showLineEdit();
                 QApplication::sendEvent(m_editor, e);
                 e->accept();
@@ -279,7 +278,7 @@ bool QDesignerMenu::handleKeyPressEvent(QWidget * /*widget*/, QKeyEvent *e)
                 moveDown(false);
                 break;
             }
-            // fall through
+            Q_FALLTHROUGH();
 
         case Qt::Key_Escape:
             m_editor->hide();
@@ -870,9 +869,7 @@ bool QDesignerMenu::hideSubMenuOnCursorKey()
     }
     closeMenuChain();
     update();
-    if (parentMenuBar())
-        return false;
-    return true;
+    return parentMenuBar() == nullptr;
 }
 
 // Open a submenu using the left/right keys according to layoutDirection().

@@ -107,8 +107,8 @@ private:
 #if QT_CONFIG(bluez)
     bool ensureSdpConnection(const QBluetoothAddress &localAdapter = QBluetoothAddress());
 
-    OrgBluezServiceInterface *service;
-    OrgBluezProfileManager1Interface *serviceBluez5;
+    OrgBluezServiceInterface *service = nullptr;
+    OrgBluezProfileManager1Interface *serviceBluez5 = nullptr;
     quint32 serviceRecord;
     QBluetoothAddress currentLocalAdapter;
     QString profilePath;

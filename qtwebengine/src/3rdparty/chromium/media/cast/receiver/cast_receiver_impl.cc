@@ -13,7 +13,6 @@
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/trace_event/trace_event.h"
 #include "media/cast/net/rtcp/rtcp_utility.h"
 #include "media/cast/receiver/audio_decoder.h"
@@ -46,7 +45,7 @@ CastReceiverImpl::CastReceiverImpl(
       audio_codec_(audio_config.codec),
       video_codec_(video_config.codec) {}
 
-CastReceiverImpl::~CastReceiverImpl() {}
+CastReceiverImpl::~CastReceiverImpl() = default;
 
 void CastReceiverImpl::ReceivePacket(std::unique_ptr<Packet> packet) {
   const uint8_t* const data = &packet->front();
@@ -143,8 +142,8 @@ void CastReceiverImpl::DecodeEncodedVideoFrame(
     std::unique_ptr<EncodedFrame> encoded_frame) {
   DCHECK(cast_environment_->CurrentlyOn(CastEnvironment::MAIN));
   if (!encoded_frame) {
-    callback.Run(
-        make_scoped_refptr<VideoFrame>(NULL), base::TimeTicks(), false);
+    callback.Run(base::WrapRefCounted<VideoFrame>(NULL), base::TimeTicks(),
+                 false);
     return;
   }
 

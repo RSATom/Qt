@@ -24,12 +24,16 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "util/misc/capture_context.h"
 
 #if defined(OS_MACOSX)
 #include "base/mac/scoped_mach_port.h"
 #elif defined(OS_WIN)
 #include <windows.h>
 #include "util/win/scoped_handle.h"
+#elif defined(OS_LINUX) || defined(OS_ANDROID)
+#include <signal.h>
+#include <ucontext.h>
 #endif
 
 namespace crashpad {
@@ -71,6 +75,9 @@ class CrashpadClient {
   //! Crashpad. Optionally, use WaitForHandlerStart() to join with the
   //! background thread and retrieve the status of handler startup.
   //!
+  //! On Fuchsia, this method binds to the exception port of the current default
+  //! job, and starts a Crashpad handler to monitor that port.
+  //!
   //! \param[in] handler The path to a Crashpad handler executable.
   //! \param[in] database The path to a Crashpad database. The handler will be
   //!     started with this path as its `--database` argument.
@@ -104,6 +111,189 @@ class CrashpadClient {
                     const std::vector<std::string>& arguments,
                     bool restartable,
                     bool asynchronous_start);
+
+#if defined(OS_ANDROID) || DOXYGEN
+  //! \brief Installs a signal handler to execute `/system/bin/app_process` and
+  //!     load a Java class in response to a crash.
+  //!
+  //! \param[in] class_name The fully qualified class name to load, which must
+  //!     define a `main()` method to be invoked by `app_process`. Arguments
+  //!     will be passed to this method as though it were the Crashpad handler.
+  //!     This class is expected to load a native library defining
+  //!     crashpad::HandlerMain() and pass the arguments to it.
+  //! \param[in] env A vector of environment variables of the form `var=value`
+  //!     defining the environment in which to execute `app_process`. If this
+  //!     value is `nullptr`, the application's environment at the time of the
+  //!     crash will be used.
+  //! \param[in] database The path to a Crashpad database. The handler will be
+  //!     started with this path as its `--database` argument.
+  //! \param[in] metrics_dir The path to an already existing directory where
+  //!     metrics files can be stored. The handler will be started with this
+  //!     path as its `--metrics-dir` argument.
+  //! \param[in] url The URL of an upload server. The handler will be started
+  //!     with this URL as its `--url` argument.
+  //! \param[in] annotations Process annotations to set in each crash report.
+  //!     The handler will be started with an `--annotation` argument for each
+  //!     element in this map.
+  //! \param[in] arguments Additional arguments to pass to the Crashpad handler.
+  //!     Arguments passed in other parameters and arguments required to perform
+  //!     the handshake are the responsibility of this method, and must not be
+  //!     specified in this parameter.
+  //!
+  //! \return `true` on success, `false` on failure with a message logged.
+  static bool StartJavaHandlerAtCrash(
+      const std::string& class_name,
+      const std::vector<std::string>* env,
+      const base::FilePath& database,
+      const base::FilePath& metrics_dir,
+      const std::string& url,
+      const std::map<std::string, std::string>& annotations,
+      const std::vector<std::string>& arguments);
+
+  //! \brief Executes `/system/bin/app_process` and loads a Java class.
+  //!
+  //! \param[in] class_name The fully qualified class name to load, which must
+  //!     define a `main()` method to be invoked by `app_process`. Arguments
+  //!     will be passed to this method as though it were the Crashpad handler.
+  //!     This class is expected to load a native library defining
+  //!     crashpad::HandlerMain() and pass the arguments to it.
+  //! \param[in] env A vector of environment variables of the form `var=value`
+  //!     defining the environment in which to execute `app_process`. If this
+  //!     value is `nullptr`, the application's current environment will be
+  //!     used.
+  //! \param[in] database The path to a Crashpad database. The handler will be
+  //!     started with this path as its `--database` argument.
+  //! \param[in] metrics_dir The path to an already existing directory where
+  //!     metrics files can be stored. The handler will be started with this
+  //!     path as its `--metrics-dir` argument.
+  //! \param[in] url The URL of an upload server. The handler will be started
+  //!     with this URL as its `--url` argument.
+  //! \param[in] annotations Process annotations to set in each crash report.
+  //!     The handler will be started with an `--annotation` argument for each
+  //!     element in this map.
+  //! \param[in] arguments Additional arguments to pass to the Crashpad handler.
+  //!     Arguments passed in other parameters and arguments required to perform
+  //!     the handshake are the responsibility of this method, and must not be
+  //!     specified in this parameter.
+  //! \param[in] socket The server end of a socket pair. The client end should
+  //!     be used with an ExceptionHandlerClient.
+  //!
+  //! \return `true` on success, `false` on failure with a message logged.
+  static bool StartJavaHandlerForClient(
+      const std::string& class_name,
+      const std::vector<std::string>* env,
+      const base::FilePath& database,
+      const base::FilePath& metrics_dir,
+      const std::string& url,
+      const std::map<std::string, std::string>& annotations,
+      const std::vector<std::string>& arguments,
+      int socket);
+#endif  // OS_ANDROID || DOXYGEN
+
+#if defined(OS_LINUX) || defined(OS_ANDROID) || DOXYGEN
+  //! \brief Installs a signal handler to launch a handler process in reponse to
+  //!     a crash.
+  //!
+  //! The handler process will create a crash dump for this process and exit.
+  //!
+  //! \param[in] handler The path to a Crashpad handler executable.
+  //! \param[in] database The path to a Crashpad database. The handler will be
+  //!     started with this path as its `--database` argument.
+  //! \param[in] metrics_dir The path to an already existing directory where
+  //!     metrics files can be stored. The handler will be started with this
+  //!     path as its `--metrics-dir` argument.
+  //! \param[in] url The URL of an upload server. The handler will be started
+  //!     with this URL as its `--url` argument.
+  //! \param[in] annotations Process annotations to set in each crash report.
+  //!     The handler will be started with an `--annotation` argument for each
+  //!     element in this map.
+  //! \param[in] arguments Additional arguments to pass to the Crashpad handler.
+  //!     Arguments passed in other parameters and arguments required to perform
+  //!     the handshake are the responsibility of this method, and must not be
+  //!     specified in this parameter.
+  //!
+  //! \return `true` on success, `false` on failure with a message logged.
+  static bool StartHandlerAtCrash(
+      const base::FilePath& handler,
+      const base::FilePath& database,
+      const base::FilePath& metrics_dir,
+      const std::string& url,
+      const std::map<std::string, std::string>& annotations,
+      const std::vector<std::string>& arguments);
+
+  //! \brief Starts a handler process with an initial client.
+  //!
+  //! This method allows a process to launch the handler process on behalf of
+  //! another process.
+  //!
+  //! \param[in] handler The path to a Crashpad handler executable.
+  //! \param[in] database The path to a Crashpad database. The handler will be
+  //!     started with this path as its `--database` argument.
+  //! \param[in] metrics_dir The path to an already existing directory where
+  //!     metrics files can be stored. The handler will be started with this
+  //!     path as its `--metrics-dir` argument.
+  //! \param[in] url The URL of an upload server. The handler will be started
+  //!     with this URL as its `--url` argument.
+  //! \param[in] annotations Process annotations to set in each crash report.
+  //!     The handler will be started with an `--annotation` argument for each
+  //!     element in this map.
+  //! \param[in] arguments Additional arguments to pass to the Crashpad handler.
+  //!     Arguments passed in other parameters and arguments required to perform
+  //!     the handshake are the responsibility of this method, and must not be
+  //!     specified in this parameter.
+  //! \param[in] socket The server end of a socket pair. The client end should
+  //!     be used with an ExceptionHandlerClient.
+  //!
+  //! \return `true` on success, `false` on failure with a message logged.
+  static bool StartHandlerForClient(
+      const base::FilePath& handler,
+      const base::FilePath& database,
+      const base::FilePath& metrics_dir,
+      const std::string& url,
+      const std::map<std::string, std::string>& annotations,
+      const std::vector<std::string>& arguments,
+      int socket);
+
+  //! \brief Requests that the handler capture a dump even though there hasn't
+  //!     been a crash.
+  //!
+  //! A handler must have already been installed before calling this method.
+  //!
+  //! TODO(jperaza): Floating point information in the context is zeroed out
+  //! until CaptureContext() supports collecting that information.
+  //!
+  //! \param[in] context A NativeCPUContext, generally captured by
+  //!     CaptureContext() or similar.
+  static void DumpWithoutCrash(NativeCPUContext* context);
+
+  //! \brief Disables any installed crash handler, including any
+  //!     FirstChanceHandler and crashes the current process.
+  //!
+  //! \param[in] message A message to be logged before crashing.
+  static void CrashWithoutDump(const std::string& message);
+
+  //! \brief The type for custom handlers installed by clients.
+  using FirstChanceHandler = bool (*)(int, siginfo_t*, ucontext_t*);
+
+  //! \brief Installs a custom crash signal handler which runs before the
+  //!     currently installed Crashpad handler.
+  //!
+  //! Handling signals appropriately can be tricky and use of this method
+  //! should be avoided, if possible.
+  //!
+  //! A handler must have already been installed before calling this method.
+  //!
+  //! The custom handler runs in a signal handler context and must be safe for
+  //! that purpose.
+  //!
+  //! If the custom handler returns `true`, the signal is considered handled and
+  //! the signal handler returns. Otherwise, the currently installed Crashpad
+  //! signal handler is run.
+  //!
+  //! \param[in] handler The custom crash signal handler to install.
+  static void SetFirstChanceExceptionHandler(FirstChanceHandler handler);
+
+#endif  // OS_LINUX || OS_ANDROID || DOXYGEN
 
 #if defined(OS_MACOSX) || DOXYGEN
   //! \brief Sets the process’ crash handler to a Mach service registered with
@@ -239,9 +429,9 @@ class CrashpadClient {
   //!     used as the exception code in the exception record.
   //!
   //! \return `true` if the exception was triggered successfully.
-  bool DumpAndCrashTargetProcess(HANDLE process,
-                                 HANDLE blame_thread,
-                                 DWORD exception_code) const;
+  static bool DumpAndCrashTargetProcess(HANDLE process,
+                                        HANDLE blame_thread,
+                                        DWORD exception_code);
 
   enum : uint32_t {
     //! \brief The exception code (roughly "Client called") used when

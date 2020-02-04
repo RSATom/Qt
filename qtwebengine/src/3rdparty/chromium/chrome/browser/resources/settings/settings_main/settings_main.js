@@ -5,7 +5,7 @@
 /**
  * @typedef {{about: boolean, settings: boolean}}
  */
-var MainPageVisibility;
+let MainPageVisibility;
 
 /**
  * @fileoverview
@@ -64,6 +64,14 @@ Polymer({
       value: false,
     },
 
+    /** @private */
+    showingSubpage_: {
+      type: Boolean,
+      // TODO(dpapad): Initial value only needed for Polymer 1, remove once
+      // Polymer 2 migration is done.
+      value: false,
+    },
+
     toolbarSpinnerActive: {
       type: Boolean,
       value: false,
@@ -78,26 +86,7 @@ Polymer({
 
     showAndroidApps: Boolean,
 
-    showMultidevice: Boolean,
-
     havePlayStoreApp: Boolean,
-  },
-
-  /** @override */
-  attached: function() {
-    this.listen(this, 'freeze-scroll', 'onFreezeScroll_');
-    this.listen(this, 'lazy-loaded', 'onLazyLoaded_');
-  },
-
-  /** @private */
-  onLazyLoaded_: function() {
-    Polymer.dom.flush();
-    this.updateOverscrollForPage_();
-  },
-
-  /** @override */
-  detached: function() {
-    this.unlisten(this, 'freeze-scroll', 'onFreezeScroll_');
   },
 
   /** @private */
@@ -107,10 +96,11 @@ Polymer({
       window.removeEventListener('resize', this.boundScroll_);
       this.boundScroll_ = null;
     } else if (this.overscroll_ && !this.boundScroll_) {
-      this.boundScroll_ = function() {
-        if (!this.ignoreScroll_)
+      this.boundScroll_ = () => {
+        if (!this.showingSubpage_) {
           this.setOverscroll_(0);
-      }.bind(this);
+        }
+      };
       this.offsetParent.addEventListener('scroll', this.boundScroll_);
       window.addEventListener('resize', this.boundScroll_);
     }
@@ -123,112 +113,64 @@ Polymer({
    * @private
    */
   setOverscroll_: function(opt_minHeight) {
-    var scroller = this.offsetParent;
-    if (!scroller)
+    const scroller = this.offsetParent;
+    if (!scroller) {
       return;
-    var overscroll = this.$.overscroll;
-    var visibleBottom = scroller.scrollTop + scroller.clientHeight;
-    var overscrollBottom = overscroll.offsetTop + overscroll.scrollHeight;
+    }
+    const overscroll = this.$.overscroll;
+    const visibleBottom = scroller.scrollTop + scroller.clientHeight;
+    const overscrollBottom = overscroll.offsetTop + overscroll.scrollHeight;
     // How much of the overscroll is visible (may be negative).
-    var visibleOverscroll =
+    const visibleOverscroll =
         overscroll.scrollHeight - (overscrollBottom - visibleBottom);
     this.overscroll_ =
         Math.max(opt_minHeight || 0, Math.ceil(visibleOverscroll));
   },
 
   /**
-   * Enables or disables user scrolling, via overscroll: hidden. Room for the
-   * hidden scrollbar is added to prevent the page width from changing back and
-   * forth. Also freezes the overscroll height.
-   * @param {!Event} e |e.detail| is true to freeze, false to unfreeze.
-   * @private
+   * Updates the hidden state of the about and settings pages based on the
+   * current route.
+   * @param {!settings.Route} newRoute
    */
-  onFreezeScroll_: function(e) {
-    if (e.detail) {
-      // Update the overscroll and ignore scroll events.
-      this.setOverscroll_(this.overscrollHeight_());
-      this.ignoreScroll_ = true;
-
-      // Prevent scrolling the container.
-      var scrollerWidth = this.offsetParent.clientWidth;
-      this.offsetParent.style.overflow = 'hidden';
-      var scrollbarWidth = this.offsetParent.clientWidth - scrollerWidth;
-      this.offsetParent.style.width = 'calc(100% - ' + scrollbarWidth + 'px)';
-    } else {
-      this.ignoreScroll_ = false;
-      this.offsetParent.style.overflow = '';
-      this.offsetParent.style.width = '';
-    }
-  },
-
-  /** @param {!settings.Route} newRoute */
   currentRouteChanged: function(newRoute) {
-    this.updatePagesShown_();
+    const inAbout = settings.routes.ABOUT.contains(settings.getCurrentRoute());
+    this.showPages_ = {about: inAbout, settings: !inAbout};
+
+    if (!newRoute.isSubpage()) {
+      document.title = inAbout ? loadTimeData.getStringF(
+                                     'settingsAltPageTitle',
+                                     loadTimeData.getString('aboutPageTitle')) :
+                                 loadTimeData.getString('settings');
+    }
   },
 
   /** @private */
-  onSubpageExpand_: function() {
-    this.updatePagesShown_();
+  onShowingSubpage_: function() {
+    this.showingSubpage_ = true;
+  },
+
+  /** @private */
+  onShowingMainPage_: function() {
+    this.showingSubpage_ = false;
   },
 
   /**
-   * Updates the hidden state of the about and settings pages based on the
-   * current route.
+   * A handler for the 'showing-section' event fired from settings-basic-page,
+   * indicating that a section should be scrolled into view as a result of a
+   * navigation.
+   * @param {!CustomEvent} e
    * @private
    */
-  updatePagesShown_: function() {
-    var inAbout = settings.routes.ABOUT.contains(settings.getCurrentRoute());
-    this.showPages_ = {about: inAbout, settings: !inAbout};
-
-    // Calculate and set the overflow padding.
-    this.updateOverscrollForPage_();
-
-    // Wait for any other changes, then calculate the overflow padding again.
-    setTimeout(function() {
-      // Ensure any dom-if reflects the current properties.
-      Polymer.dom.flush();
-      this.updateOverscrollForPage_();
-    }.bind(this));
-  },
-
-  /**
-   * Calculates the necessary overscroll and sets the overscroll to that value
-   * (at minimum). For the About page, this just zeroes the overscroll.
-   * @private
-   */
-  updateOverscrollForPage_: function() {
-    if (this.showPages_.about || this.inSearchMode_) {
-      // Set overscroll directly to remove any existing overscroll that
-      // setOverscroll_ would otherwise preserve.
-      this.overscroll_ = 0;
-      return;
-    }
-    this.setOverscroll_(this.overscrollHeight_());
-  },
-
-  /**
-   * Return the height that the overscroll padding should be set to.
-   * This is used to determine how much padding to apply to the end of the
-   * content so that the last element may align with the top of the content
-   * area.
-   * @return {number}
-   * @private
-   */
-  overscrollHeight_: function() {
-    var route = settings.getCurrentRoute();
-    if (!route.section || route.isSubpage() || this.showPages_.about)
-      return 0;
-
-    var page = this.getPage_(route);
-    var section = page && page.getSection(route.section);
-    if (!section || !section.offsetParent)
-      return 0;
-
+  onShowingSection_: function(e) {
+    const section = e.detail;
+    // Calculate the height that the overscroll padding should be set to, so
+    // that the given section is displayed at the top of the viewport.
     // Find the distance from the section's top to the overscroll.
-    var sectionTop = section.offsetParent.offsetTop + section.offsetTop;
-    var distance = this.$.overscroll.offsetTop - sectionTop;
-
-    return Math.max(0, this.offsetParent.clientHeight - distance);
+    const sectionTop = section.offsetParent.offsetTop + section.offsetTop;
+    const distance = this.$.overscroll.offsetTop - sectionTop;
+    const overscroll = Math.max(0, this.offsetParent.clientHeight - distance);
+    this.setOverscroll_(overscroll);
+    section.scrollIntoView();
   },
 
   /**
@@ -259,11 +201,11 @@ Polymer({
     this.inSearchMode_ = true;
     this.toolbarSpinnerActive = true;
 
-    return new Promise(function(resolve, reject) {
-      setTimeout(function() {
-        var whenSearchDone =
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        const whenSearchDone =
             assert(this.getPage_(settings.routes.BASIC)).searchContents(query);
-        whenSearchDone.then(function(result) {
+        whenSearchDone.then(result => {
           resolve();
           if (result.canceled) {
             // Nothing to do here. A previous search request was canceled
@@ -285,8 +227,16 @@ Polymer({
                   loadTimeData.getStringF('searchResults', query)
             });
           }
-        }.bind(this));
-      }.bind(this), 0);
-    }.bind(this));
+        });
+      }, 0);
+    });
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  showManagedHeader_: function() {
+    return !this.inSearchMode_ && !this.showingSubpage_;
   },
 });

@@ -16,6 +16,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "net/disk_cache/simple/simple_entry_format.h"
+#include "third_party/zlib/zlib.h"
 
 namespace {
 
@@ -59,13 +60,23 @@ uint64_t GetEntryHashKey(const std::string& key) {
   return u.key_hash;
 }
 
-std::string GetFilenameFromEntryHashAndFileIndex(uint64_t entry_hash,
-                                                 int file_index) {
-  return base::StringPrintf("%016" PRIx64 "_%1d", entry_hash, file_index);
+std::string GetFilenameFromEntryFileKeyAndFileIndex(
+    const SimpleFileTracker::EntryFileKey& key,
+    int file_index) {
+  if (key.doom_generation == 0)
+    return base::StringPrintf("%016" PRIx64 "_%1d", key.entry_hash, file_index);
+  else
+    return base::StringPrintf("todelete_%016" PRIx64 "_%1d_%" PRIu64,
+                              key.entry_hash, file_index, key.doom_generation);
 }
 
-std::string GetSparseFilenameFromEntryHash(uint64_t entry_hash) {
-  return base::StringPrintf("%016" PRIx64 "_s", entry_hash);
+std::string GetSparseFilenameFromEntryFileKey(
+    const SimpleFileTracker::EntryFileKey& key) {
+  if (key.doom_generation == 0)
+    return base::StringPrintf("%016" PRIx64 "_s", key.entry_hash);
+  else
+    return base::StringPrintf("todelete_%016" PRIx64 "_s_%" PRIu64,
+                              key.entry_hash, key.doom_generation);
 }
 
 std::string GetFilenameFromKeyAndFileIndex(const std::string& key,
@@ -100,6 +111,17 @@ bool GetMTime(const base::FilePath& path, base::Time* out_mtime) {
     return false;
   *out_mtime = file_info.last_modified;
   return true;
+}
+
+uint32_t Crc32(const char* data, int length) {
+  uint32_t empty_crc = crc32(0, Z_NULL, 0);
+  if (length == 0)
+    return empty_crc;
+  return crc32(empty_crc, reinterpret_cast<const Bytef*>(data), length);
+}
+
+uint32_t IncrementalCrc32(uint32_t previous_crc, const char* data, int length) {
+  return crc32(previous_crc, reinterpret_cast<const Bytef*>(data), length);
 }
 
 }  // namespace simple_util

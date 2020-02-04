@@ -12,7 +12,6 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/metrics_hashes.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/metrics/user_metrics.h"
@@ -39,6 +38,11 @@ namespace metrics {
 
 namespace {
 
+void YieldUntil(base::Time when) {
+  while (base::Time::Now() <= when)
+    base::PlatformThread::YieldCurrentThread();
+}
+
 void StoreNoClientInfoBackup(const ClientInfo& /* client_info */) {
 }
 
@@ -56,6 +60,7 @@ class TestMetricsService : public MetricsService {
 
   using MetricsService::log_manager;
   using MetricsService::log_store;
+  using MetricsService::RecordCurrentEnvironmentHelper;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestMetricsService);
@@ -65,13 +70,8 @@ class TestMetricsLog : public MetricsLog {
  public:
   TestMetricsLog(const std::string& client_id,
                  int session_id,
-                 MetricsServiceClient* client,
-                 PrefService* local_state)
-      : MetricsLog(client_id,
-                   session_id,
-                   MetricsLog::ONGOING_LOG,
-                   client,
-                   local_state) {}
+                 MetricsServiceClient* client)
+      : MetricsLog(client_id, session_id, MetricsLog::ONGOING_LOG, client) {}
 
   ~TestMetricsLog() override {}
 
@@ -89,10 +89,7 @@ class MetricsServiceTest : public testing::Test {
     MetricsService::RegisterPrefs(testing_local_state_.registry());
   }
 
-  ~MetricsServiceTest() override {
-    MetricsService::SetExecutionPhase(ExecutionPhase::UNINITIALIZED_PHASE,
-                                      GetLocalState());
-  }
+  ~MetricsServiceTest() override {}
 
   MetricsStateManager* GetMetricsStateManager() {
     // Lazy-initialize the metrics_state_manager so that it correctly reads the
@@ -130,8 +127,8 @@ class MetricsServiceTest : public testing::Test {
   void CheckForNonStabilityHistograms(
       const ChromeUserMetricsExtension& uma_log) {
     const int kStabilityFlags = base::HistogramBase::kUmaStabilityHistogramFlag;
-    base::StatisticsRecorder::Histograms histograms;
-    base::StatisticsRecorder::GetHistograms(&histograms);
+    const base::StatisticsRecorder::Histograms histograms =
+        base::StatisticsRecorder::GetHistograms();
     for (int i = 0; i < uma_log.histogram_event_size(); ++i) {
       const uint64_t hash = uma_log.histogram_event(i).name_hash();
 
@@ -174,7 +171,7 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAfterCleanShutDown) {
   // No initial stability log should be generated.
   EXPECT_FALSE(service.has_unsent_logs());
 
-  // Ensure that HasInitialStabilityMetrics() is always called on providers,
+  // Ensure that HasPreviousSessionData() is always called on providers,
   // for consistency, even if other conditions already indicate their presence.
   EXPECT_TRUE(test_provider->has_initial_stability_metrics_called());
 
@@ -190,8 +187,10 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAtProviderRequest) {
   // Save an existing system profile to prefs, to correspond to what would be
   // saved from a previous session.
   TestMetricsServiceClient client;
-  TestMetricsLog log("client", 1, &client, GetLocalState());
-  log.RecordEnvironment(std::vector<std::unique_ptr<MetricsProvider>>(), 0, 0);
+  TestMetricsLog log("client", 1, &client);
+  DelegatingProvider delegating_provider;
+  TestMetricsService::RecordCurrentEnvironmentHelper(&log, GetLocalState(),
+                                                     &delegating_provider);
 
   // Record stability build time and version from previous session, so that
   // stability metrics (including exited cleanly flag) won't be cleared.
@@ -218,7 +217,7 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAtProviderRequest) {
   EXPECT_TRUE(log_store->has_unsent_logs());
   EXPECT_FALSE(log_store->has_staged_log());
 
-  // Ensure that HasInitialStabilityMetrics() is always called on providers,
+  // Ensure that HasPreviousSessionData() is always called on providers,
   // for consistency, even if other conditions already indicate their presence.
   EXPECT_TRUE(test_provider->has_initial_stability_metrics_called());
 
@@ -243,7 +242,6 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAtProviderRequest) {
   EXPECT_TRUE(uma_log.has_system_profile());
   EXPECT_EQ(0, uma_log.user_action_event_size());
   EXPECT_EQ(0, uma_log.omnibox_event_size());
-  EXPECT_EQ(0, uma_log.profiler_event_size());
   EXPECT_EQ(0, uma_log.perf_data_size());
   CheckForNonStabilityHistograms(uma_log);
 
@@ -260,8 +258,10 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAfterCrash) {
   // Save an existing system profile to prefs, to correspond to what would be
   // saved from a previous session.
   TestMetricsServiceClient client;
-  TestMetricsLog log("client", 1, &client, GetLocalState());
-  log.RecordEnvironment(std::vector<std::unique_ptr<MetricsProvider>>(), 0, 0);
+  TestMetricsLog log("client", 1, &client);
+  DelegatingProvider delegating_provider;
+  TestMetricsService::RecordCurrentEnvironmentHelper(&log, GetLocalState(),
+                                                     &delegating_provider);
 
   // Record stability build time and version from previous session, so that
   // stability metrics (including exited cleanly flag) won't be cleared.
@@ -284,7 +284,7 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAfterCrash) {
   EXPECT_TRUE(log_store->has_unsent_logs());
   EXPECT_FALSE(log_store->has_staged_log());
 
-  // Ensure that HasInitialStabilityMetrics() is always called on providers,
+  // Ensure that HasPreviousSessionData() is always called on providers,
   // for consistency, even if other conditions already indicate their presence.
   EXPECT_TRUE(test_provider->has_initial_stability_metrics_called());
 
@@ -309,7 +309,6 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAfterCrash) {
   EXPECT_TRUE(uma_log.has_system_profile());
   EXPECT_EQ(0, uma_log.user_action_event_size());
   EXPECT_EQ(0, uma_log.omnibox_event_size());
-  EXPECT_EQ(0, uma_log.profiler_event_size());
   EXPECT_EQ(0, uma_log.perf_data_size());
   CheckForNonStabilityHistograms(uma_log);
 
@@ -394,6 +393,48 @@ TEST_F(MetricsServiceTest, SplitRotation) {
   task_runner_->RunPendingTasks();
   EXPECT_TRUE(client.uploader()->is_uploading());
   EXPECT_EQ(1U, task_runner_->NumPendingTasks());
+}
+
+TEST_F(MetricsServiceTest, LastLiveTimestamp) {
+  TestMetricsServiceClient client;
+  TestMetricsService service(GetMetricsStateManager(), &client,
+                             GetLocalState());
+
+  base::Time initial_last_live_time =
+      GetLocalState()->GetTime(prefs::kStabilityBrowserLastLiveTimeStamp);
+
+  service.InitializeMetricsRecordingState();
+  service.Start();
+
+  task_runner_->RunPendingTasks();
+  size_t num_pending_tasks = task_runner_->NumPendingTasks();
+
+  service.StartUpdatingLastLiveTimestamp();
+
+  // Starting the update sequence should not write anything, but should
+  // set up for a later write.
+  EXPECT_EQ(
+      initial_last_live_time,
+      GetLocalState()->GetTime(prefs::kStabilityBrowserLastLiveTimeStamp));
+  EXPECT_EQ(num_pending_tasks + 1, task_runner_->NumPendingTasks());
+
+  // To avoid flakiness, yield until we're over a microsecond threshold.
+  YieldUntil(initial_last_live_time + base::TimeDelta::FromMicroseconds(2));
+
+  task_runner_->RunPendingTasks();
+
+  // Verify that the time has updated in local state.
+  base::Time updated_last_live_time =
+      GetLocalState()->GetTime(prefs::kStabilityBrowserLastLiveTimeStamp);
+  EXPECT_LT(initial_last_live_time, updated_last_live_time);
+
+  // Double check that an update schedules again...
+  YieldUntil(updated_last_live_time + base::TimeDelta::FromMicroseconds(2));
+
+  task_runner_->RunPendingTasks();
+  EXPECT_LT(
+      updated_last_live_time,
+      GetLocalState()->GetTime(prefs::kStabilityBrowserLastLiveTimeStamp));
 }
 
 }  // namespace metrics

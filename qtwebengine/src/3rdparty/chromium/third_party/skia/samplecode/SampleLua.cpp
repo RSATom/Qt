@@ -5,8 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
 #include "SkLua.h"
 #include "SkCanvas.h"
 #include "Resources.h"
@@ -18,14 +17,12 @@ extern "C" {
 #include "lauxlib.h"
 }
 
-//#define LUA_FILENAME    "test.lua"
-#define LUA_FILENAME    "slides.lua"
+//#define LUA_FILENAME    "lua/test.lua"
+#define LUA_FILENAME    "lua/slides.lua"
 
 static const char gDrawName[] = "onDrawContent";
 static const char gClickName[] = "onClickHandler";
 static const char gUnicharName[] = "onCharHandler";
-
-static const char gLuaClickHandlerName[] = "lua-click-handler";
 
 static const char gMissingCode[] = ""
     "local paint = Sk.newPaint()"
@@ -37,14 +34,14 @@ static const char gMissingCode[] = ""
     "end"
     ;
 
-class LuaView : public SampleView {
+class LuaView : public Sample {
 public:
     LuaView() : fLua(nullptr) {}
 
-    virtual ~LuaView() { delete fLua; }
+    ~LuaView() override { delete fLua; }
 
     void setImageFilename(lua_State* L) {
-        SkString str = GetResourcePath("mandrill_256.png");
+        SkString str = GetResourcePath("images/mandrill_256.png");
 
         lua_getglobal(L, "setImageFilename");
         if (lua_isfunction(L, -1)) {
@@ -59,8 +56,7 @@ public:
         if (nullptr == fLua) {
             fLua = new SkLua;
 
-            SkString str = GetResourcePath(LUA_FILENAME);
-            sk_sp<SkData> data(SkData::MakeFromFileName(str.c_str()));
+            sk_sp<SkData> data = GetResourceAsData(LUA_FILENAME);
             if (data) {
                 fLua->runCode(data->data(), data->size());
                 this->setImageFilename(fLua->get());
@@ -72,13 +68,13 @@ public:
     }
 
 protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Lua");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Lua");
             return true;
         }
         SkUnichar uni;
-        if (SampleCode::CharQ(*evt, &uni)) {
+        if (Sample::CharQ(*evt, &uni)) {
             lua_State* L = this->ensureLua();
             lua_getglobal(L, gUnicharName);
             if (lua_isfunction(L, -1)) {
@@ -89,7 +85,6 @@ protected:
                     SkDebugf("lua err: %s\n", lua_tostring(L, -1));
                 } else {
                     if (lua_isboolean(L, -1) && lua_toboolean(L, -1)) {
-                        this->inval(nullptr);
                         return true;
                     }
                 }
@@ -114,15 +109,11 @@ protected:
             fLua->pushScalar(this->height());
             if (lua_pcall(L, 3, 1, 0) != LUA_OK) {
                 SkDebugf("lua err: %s\n", lua_tostring(L, -1));
-            } else {
-                if (lua_isboolean(L, -1) && lua_toboolean(L, -1)) {
-                    this->inval(nullptr);
-                }
             }
         }
     }
 
-    virtual SkView::Click* onFindClickHandler(SkScalar x, SkScalar y,
+    virtual Sample::Click* onFindClickHandler(SkScalar x, SkScalar y,
                                               unsigned modi) override {
         lua_State* L = this->ensureLua();
         lua_getglobal(L, gClickName);
@@ -134,10 +125,7 @@ protected:
                 SkDebugf("lua err: %s\n", lua_tostring(L, -1));
             } else {
                 if (lua_isboolean(L, -1) && lua_toboolean(L, -1)) {
-                    this->inval(nullptr);
-                    Click* c = new Click(this);
-                    c->setType(gLuaClickHandlerName);
-                    return c;
+                    return new Click(this);
                 }
             }
         }
@@ -145,10 +133,6 @@ protected:
     }
 
     bool onClick(Click* click) override {
-        if (click->getType() != gLuaClickHandlerName) {
-            return this->INHERITED::onClick(click);
-        }
-
         const char* state = nullptr;
         switch (click->fState) {
             case Click::kMoved_State:
@@ -161,7 +145,6 @@ protected:
                 break;
         }
         if (state) {
-            this->inval(nullptr);
             lua_State* L = fLua->get();
             lua_getglobal(L, gClickName);
             fLua->pushScalar(click->fCurr.x());
@@ -176,10 +159,9 @@ protected:
 private:
     SkLua* fLua;
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new LuaView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new LuaView(); )

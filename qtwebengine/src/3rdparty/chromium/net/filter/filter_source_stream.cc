@@ -4,6 +4,8 @@
 
 #include "net/filter/filter_source_stream.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
@@ -19,7 +21,6 @@ namespace {
 
 const char kDeflate[] = "deflate";
 const char kGZip[] = "gzip";
-const char kSdch[] = "sdch";
 const char kXGZip[] = "x-gzip";
 const char kBrotli[] = "br";
 
@@ -37,18 +38,18 @@ FilterSourceStream::FilterSourceStream(SourceType type,
   DCHECK(upstream_);
 }
 
-FilterSourceStream::~FilterSourceStream() {}
+FilterSourceStream::~FilterSourceStream() = default;
 
 int FilterSourceStream::Read(IOBuffer* read_buffer,
                              int read_buffer_size,
-                             const CompletionCallback& callback) {
+                             CompletionOnceCallback callback) {
   DCHECK_EQ(STATE_NONE, next_state_);
   DCHECK(read_buffer);
   DCHECK_LT(0, read_buffer_size);
 
   // Allocate a BlockBuffer during first Read().
   if (!input_buffer_) {
-    input_buffer_ = new IOBufferWithSize(kBufferSize);
+    input_buffer_ = base::MakeRefCounted<IOBufferWithSize>(kBufferSize);
     // This is first Read(), start with reading data from |upstream_|.
     next_state_ = STATE_READ_DATA;
   } else {
@@ -62,7 +63,7 @@ int FilterSourceStream::Read(IOBuffer* read_buffer,
   int rv = DoLoop(OK);
 
   if (rv == ERR_IO_PENDING)
-    callback_ = callback;
+    callback_ = std::move(callback);
   return rv;
 }
 
@@ -84,8 +85,6 @@ FilterSourceStream::SourceType FilterSourceStream::ParseEncodingType(
   } else if (base::LowerCaseEqualsASCII(encoding, kGZip) ||
              base::LowerCaseEqualsASCII(encoding, kXGZip)) {
     return TYPE_GZIP;
-  } else if (base::LowerCaseEqualsASCII(encoding, kSdch)) {
-    return TYPE_SDCH;
   } else {
     return TYPE_UNKNOWN;
   }
@@ -142,7 +141,7 @@ int FilterSourceStream::DoReadDataComplete(int result) {
 
   if (result >= OK) {
     drainable_input_buffer_ =
-        new DrainableIOBuffer(input_buffer_.get(), result);
+        base::MakeRefCounted<DrainableIOBuffer>(input_buffer_, result);
     next_state_ = STATE_FILTER_DATA;
   }
   if (result <= OK)

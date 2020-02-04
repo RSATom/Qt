@@ -55,8 +55,6 @@
 #include <QtCore/qmap.h>
 #include <QtNetwork/qssl.h>
 
-#ifndef QT_NO_SSL
-
 QT_BEGIN_NAMESPACE
 
 class QDateTime;
@@ -122,6 +120,9 @@ public:
     QStringList issuerInfo(const QByteArray &attribute) const;
     QStringList subjectInfo(SubjectInfo info) const;
     QStringList subjectInfo(const QByteArray &attribute) const;
+    QString issuerDisplayName() const;
+    QString subjectDisplayName() const;
+
     QList<QByteArray> subjectInfoAttributes() const;
     QList<QByteArray> issuerInfoAttributes() const;
 #if QT_DEPRECATED_SINCE(5,0)
@@ -131,7 +132,9 @@ public:
     QMultiMap<QSsl::AlternativeNameEntryType, QString> subjectAlternativeNames() const;
     QDateTime effectiveDate() const;
     QDateTime expiryDate() const;
+#ifndef QT_NO_SSL
     QSslKey publicKey() const;
+#endif
     QList<QSslCertificateExtension> extensions() const;
 
     QByteArray toPem() const;
@@ -146,6 +149,7 @@ public:
     static QList<QSslCertificate> fromData(
         const QByteArray &data, QSsl::EncodingFormat format = QSsl::Pem);
 
+#ifndef QT_NO_SSL
 #if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
     static QList<QSslError> verify(const QList<QSslCertificate> &certificateChain, const QString &hostName = QString());
 #else
@@ -154,8 +158,9 @@ public:
 
     static bool importPkcs12(QIODevice *device,
                              QSslKey *key, QSslCertificate *cert,
-                             QList<QSslCertificate> *caCertificates = Q_NULLPTR,
+                             QList<QSslCertificate> *caCertificates = nullptr,
                              const QByteArray &passPhrase=QByteArray());
+#endif
 
     Qt::HANDLE handle() const;
 
@@ -177,7 +182,5 @@ Q_NETWORK_EXPORT QDebug operator<<(QDebug debug, QSslCertificate::SubjectInfo in
 QT_END_NAMESPACE
 
 Q_DECLARE_METATYPE(QSslCertificate)
-
-#endif // QT_NO_SSL
 
 #endif

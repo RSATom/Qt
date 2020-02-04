@@ -9,11 +9,11 @@
 
 #include <vector>
 
-#include "core/fxcrt/cfx_char.h"
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_string.h"
-#include "xfa/fxfa/app/cxfa_textuserdata.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "xfa/fgas/layout/cfx_char.h"
+#include "xfa/fxfa/cxfa_textuserdata.h"
 
 class CFX_BreakPiece {
  public:
@@ -25,7 +25,7 @@ class CFX_BreakPiece {
   int32_t GetLength() const { return m_iChars; }
 
   CFX_Char* GetChar(int32_t index) const;
-  CFX_WideString GetString() const;
+  WideString GetString() const;
   std::vector<int32_t> GetWidths() const;
 
   CFX_BreakType m_dwStatus;
@@ -40,8 +40,8 @@ class CFX_BreakPiece {
   int32_t m_iVerticalScale;
   uint32_t m_dwIdentity;
   uint32_t m_dwCharStyles;
-  CFX_UnownedPtr<std::vector<CFX_Char>> m_pChars;
-  CFX_RetainPtr<CXFA_TextUserData> m_pUserData;
+  UnownedPtr<std::vector<CFX_Char>> m_pChars;
+  RetainPtr<CXFA_TextUserData> m_pUserData;
 };
 
 #endif  // XFA_FGAS_LAYOUT_CFX_BREAKPIECE_H_

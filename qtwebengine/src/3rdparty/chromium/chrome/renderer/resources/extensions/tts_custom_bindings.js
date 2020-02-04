@@ -4,10 +4,12 @@
 
 // Custom binding for the tts API.
 
-var binding = require('binding').Binding.create('tts');
+var binding = apiBridge || require('binding').Binding.create('tts');
 
 var idGenerator = requireNative('id_generator');
-var sendRequest = require('sendRequest').sendRequest;
+var sendRequest = bindingUtil ?
+    $Function.bind(bindingUtil.sendRequest, bindingUtil) :
+    require('sendRequest').sendRequest;
 var lazyBG = requireNative('lazy_background_page');
 
 binding.registerCustomHook(function(api) {
@@ -40,18 +42,29 @@ binding.registerCustomHook(function(api) {
   } catch (e) {}
 
   apiFunctions.setHandleRequest('speak', function() {
-    var args = arguments;
-    if (args.length > 1 && args[1] && args[1].onEvent) {
-      var id = idGenerator.GetNextId();
-      args[1].srcId = id;
-      handlers[id] = args[1].onEvent;
-      // Keep the page alive until the event finishes.
-      // Balanced in eventHandler.
-      lazyBG.IncrementKeepaliveCount();
+    var args = $Array.from(arguments);
+    if (args.length > 1 && args[1]) {
+      if (args[1].onEvent) {
+        var id = idGenerator.GetNextId();
+        args[1].srcId = id;
+        handlers[id] = args[1].onEvent;
+        // Keep the page alive until the event finishes.
+        // Balanced in eventHandler.
+        lazyBG.IncrementKeepaliveCount();
+      }
+      if (args[1].gender) {
+        console.warn(
+            'chrome.tts.speak: ' +
+            'Voice gender is deprecated and values will be ignored starting ' +
+            'in Chrome 71.');
+      }
     }
-    sendRequest(this.name, args, this.definition.parameters);
+    sendRequest('tts.speak', args,
+                bindingUtil ? undefined : this.definition.parameters,
+                undefined);
     return id;
   });
 });
 
-exports.$set('binding', binding.generate());
+if (!apiBridge)
+  exports.$set('binding', binding.generate());

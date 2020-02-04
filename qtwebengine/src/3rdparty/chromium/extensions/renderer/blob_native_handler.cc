@@ -6,8 +6,8 @@
 
 #include "base/bind.h"
 #include "extensions/renderer/script_context.h"
-#include "third_party/WebKit/public/platform/WebURL.h"
-#include "third_party/WebKit/public/web/WebBlob.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/web/web_blob.h"
 
 namespace {
 
@@ -15,8 +15,10 @@ namespace {
 void GetBlobUuid(const v8::FunctionCallbackInfo<v8::Value>& args) {
   CHECK_EQ(1, args.Length());
   blink::WebBlob blob = blink::WebBlob::FromV8Value(args[0]);
-  args.GetReturnValue().Set(
-      v8::String::NewFromUtf8(args.GetIsolate(), blob.Uuid().Utf8().data()));
+  args.GetReturnValue().Set(v8::String::NewFromUtf8(args.GetIsolate(),
+                                                    blob.Uuid().Utf8().data(),
+                                                    v8::NewStringType::kNormal)
+                                .ToLocalChecked());
 }
 
 }  // namespace
@@ -24,11 +26,14 @@ void GetBlobUuid(const v8::FunctionCallbackInfo<v8::Value>& args) {
 namespace extensions {
 
 BlobNativeHandler::BlobNativeHandler(ScriptContext* context)
-    : ObjectBackedNativeHandler(context) {
-  RouteFunction("GetBlobUuid", base::Bind(&GetBlobUuid));
-  RouteFunction("TakeBrowserProcessBlob",
-                base::Bind(&BlobNativeHandler::TakeBrowserProcessBlob,
-                           base::Unretained(this)));
+    : ObjectBackedNativeHandler(context) {}
+
+void BlobNativeHandler::AddRoutes() {
+  RouteHandlerFunction("GetBlobUuid", base::BindRepeating(&GetBlobUuid));
+  RouteHandlerFunction(
+      "TakeBrowserProcessBlob",
+      base::BindRepeating(&BlobNativeHandler::TakeBrowserProcessBlob,
+                          base::Unretained(this)));
 }
 
 // Take ownership of a Blob created on the browser process. Expects the Blob's
@@ -41,13 +46,14 @@ void BlobNativeHandler::TakeBrowserProcessBlob(
   CHECK(args[0]->IsString());
   CHECK(args[1]->IsString());
   CHECK(args[2]->IsInt32());
-  std::string uuid(*v8::String::Utf8Value(args[0]));
-  std::string type(*v8::String::Utf8Value(args[1]));
+  v8::Isolate* isolate = args.GetIsolate();
+  std::string uuid(*v8::String::Utf8Value(isolate, args[0]));
+  std::string type(*v8::String::Utf8Value(isolate, args[1]));
   blink::WebBlob blob = blink::WebBlob::CreateFromUUID(
       blink::WebString::FromUTF8(uuid), blink::WebString::FromUTF8(type),
-      args[2]->Int32Value());
+      args[2].As<v8::Int32>()->Value());
   args.GetReturnValue().Set(
-      blob.ToV8Value(context()->v8_context()->Global(), args.GetIsolate()));
+      blob.ToV8Value(context()->v8_context()->Global(), isolate));
 }
 
 }  // namespace extensions

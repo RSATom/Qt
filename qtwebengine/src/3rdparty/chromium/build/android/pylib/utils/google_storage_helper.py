@@ -9,11 +9,11 @@ Due to logdog not having image or HTML viewer, those instead should be uploaded
 to Google Storage directly using this module.
 """
 
-import hashlib
 import logging
 import os
 import sys
 import time
+import urlparse
 
 from pylib.constants import host_paths
 from pylib.utils import decorators
@@ -30,7 +30,8 @@ _AUTHENTICATED_URL = 'https://storage.cloud.google.com/%s/'
 
 
 @decorators.NoRaiseException(default_return_value='')
-def upload(name, filepath, bucket, content_type=None, authenticated_link=True):
+def upload(name, filepath, bucket, gs_args=None, command_args=None,
+           content_type=None, authenticated_link=True):
   """Uploads data to Google Storage.
 
   Args:
@@ -52,28 +53,23 @@ def upload(name, filepath, bucket, content_type=None, authenticated_link=True):
   logging.info('Uploading %s to %s', filepath, gs_path)
 
   cmd = [_GSUTIL_PATH, '-q']
+  cmd.extend(gs_args or [])
   if content_type:
     cmd.extend(['-h', 'Content-Type:%s' % content_type])
-  cmd.extend(['cp', filepath, gs_path])
+  cmd.extend(['cp'] + (command_args or []) + [filepath, gs_path])
 
   cmd_helper.RunCmd(cmd)
 
   return get_url_link(name, bucket, authenticated_link)
 
 
-def upload_content_addressed(
-    filepath, bucket, content_type=None, authenticated_link=True):
-  """Uploads data to Google Storage with filename as sha1 hash.
-
-  If file already exists in bucket with hash name, nothing is uploaded.
-  """
-  sha1 = hashlib.sha1()
-  with open(filepath, 'rb') as f:
-    sha1.update(f.read())
-  sha1_hash = sha1.hexdigest()
-  if not exists(sha1_hash, bucket):
-    upload(sha1_hash, filepath, bucket, content_type, authenticated_link)
-  return get_url_link(sha1_hash, bucket, authenticated_link)
+@decorators.NoRaiseException(default_return_value='')
+def read_from_link(link):
+  # Note that urlparse returns the path with an initial '/', so we only need to
+  # add one more after the 'gs;'
+  gs_path = 'gs:/%s' % urlparse.urlparse(link).path
+  cmd = [_GSUTIL_PATH, '-q', 'cat', gs_path]
+  return cmd_helper.GetCmdOutput(cmd)
 
 
 @decorators.NoRaiseException(default_return_value=False)
@@ -83,12 +79,10 @@ def exists(name, bucket):
 
   cmd = [_GSUTIL_PATH, '-q', 'stat', gs_path]
   return_code = cmd_helper.RunCmd(cmd)
-  if return_code == 0:
-    return True
-  else:
-    return False
+  return return_code == 0
 
 
+# TODO(jbudorick): Delete this function. Only one user of it.
 def unique_name(basename, suffix='', timestamp=True, device=None):
   """Helper function for creating a unique name for a file to store in GS.
 

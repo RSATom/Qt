@@ -8,10 +8,10 @@
 #include <stdint.h>
 
 #include <memory>
-#include <queue>
+#include <unordered_map>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "ppapi/proxy/connection.h"
@@ -22,7 +22,6 @@
 #include "ppapi/thunk/ppb_video_decoder_api.h"
 
 namespace gpu {
-struct Mailbox;
 namespace gles2 {
 class GLES2Implementation;
 }
@@ -121,8 +120,7 @@ class PPAPI_PROXY_EXPORT VideoDecoderResource
   void OnPluginMsgRequestTextures(const ResourceMessageReplyParams& params,
                                   uint32_t num_textures,
                                   const PP_Size& size,
-                                  uint32_t texture_target,
-                                  const std::vector<gpu::Mailbox>& mailboxes);
+                                  uint32_t texture_target);
   void OnPluginMsgPictureReady(const ResourceMessageReplyParams& params,
                                int32_t decode_id,
                                uint32_t texture_id,
@@ -147,15 +145,15 @@ class PPAPI_PROXY_EXPORT VideoDecoderResource
   std::vector<std::unique_ptr<ShmBuffer>> shm_buffers_;
 
   // List of available shared memory buffers.
-  typedef std::vector<ShmBuffer*> ShmBufferList;
+  using ShmBufferList = std::vector<ShmBuffer*>;
   ShmBufferList available_shm_buffers_;
 
   // Map of GL texture id to texture info.
-  typedef base::hash_map<uint32_t, Texture> TextureMap;
+  using TextureMap = std::unordered_map<uint32_t, Texture>;
   TextureMap textures_;
 
   // Queue of received pictures.
-  typedef std::queue<Picture> PictureQueue;
+  using PictureQueue = base::queue<Picture>;
   PictureQueue received_pictures_;
 
   // Pending callbacks.

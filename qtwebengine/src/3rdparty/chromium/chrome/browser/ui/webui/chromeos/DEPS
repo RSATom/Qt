@@ -1,12 +1,16 @@
 include_rules = [
-  "+components/login",
-  "+components/user_manager",
+  # Chrome OS depends on views, so allow code in this directory to depend on
+  # ui/views.
+  "+chrome/browser/ui/views",
+
   "+media/audio/sounds",
-  "+services/device/public/interfaces",
+  "+services/device/public/mojom",
+  "+services/network",
 ]
 
 specific_include_rules = {
-  "drive_internals_ui\.cc": [
-    "+components/drive"
+  "keyboard_overlay_ui\.cc": [
+    # TODO(mash): Remove. http://crbug.com/770866
+    "+ash/shell.h",
   ],
 }

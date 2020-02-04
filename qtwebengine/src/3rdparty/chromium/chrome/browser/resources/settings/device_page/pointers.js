@@ -22,7 +22,7 @@ Polymer({
     /**
      * TODO(michaelpg): settings-slider should optionally take a min and max so
      * we don't have to generate a simple range of natural numbers ourselves.
-     * @const {!Array<number>}
+     * @type {!Array<number>}
      * @private
      */
     sensitivityValues_: {
@@ -35,15 +35,6 @@ Polymer({
   // Used to correctly identify when the mouse button has been released.
   // crbug.com/686949.
   receivedMouseSwapButtonsDown_: false,
-
-  /**
-   * Prevents the link from activating its parent paper-radio-button.
-   * @param {!Event} e
-   * @private
-   */
-  onLearnMoreLinkActivated_: function(e) {
-    settings.DevicePageBrowserProxyImpl.getInstance().handleLinkEvent(e);
-  },
 
   /**
    * Mouse and touchpad sections are only subsections if they are both present.

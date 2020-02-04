@@ -107,6 +107,10 @@ static int vb_decode_framedata(VBDecContext *c, int offset)
     blk2   = 0;
     for (blk = 0; blk < blocks; blk++) {
         if (!(blk & 3)) {
+            if (bytestream2_get_bytes_left(&g) < 1) {
+                av_log(c->avctx, AV_LOG_ERROR, "Insufficient data\n");
+                return AVERROR_INVALIDDATA;
+            }
             blocktypes = bytestream2_get_byte(&g);
         }
         switch (blocktypes & 0xC0) {
@@ -205,6 +209,10 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     if (flags & VB_HAS_GMC) {
         i = (int16_t)bytestream2_get_le16(&c->stream);
         j = (int16_t)bytestream2_get_le16(&c->stream);
+        if (FFABS(j) > avctx->height) {
+            av_log(avctx, AV_LOG_ERROR, "GMV out of range\n");
+            return AVERROR_INVALIDDATA;
+        }
         offset = i + j * avctx->width;
     }
     if (flags & VB_HAS_VIDEO) {

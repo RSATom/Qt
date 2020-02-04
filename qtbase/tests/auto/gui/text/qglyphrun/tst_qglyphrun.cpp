@@ -491,10 +491,6 @@ void tst_QGlyphRun::drawMultiScriptText2()
     drawGlyphs.save("drawMultiScriptText2_drawGlyphIndexes.png");
 #endif
 
-#ifdef Q_OS_OSX
-    if (drawGlyphs.toImage() != textLayoutDraw.toImage())
-        QEXPECT_FAIL("", "See QTBUG-32690", Continue);
-#endif // Q_OS_OSX
     QCOMPARE(drawGlyphs, textLayoutDraw);
 }
 
@@ -731,6 +727,9 @@ void tst_QGlyphRun::mixedScripts()
     layout.endLayout();
 
     QList<QGlyphRun> glyphRuns = layout.glyphRuns();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Hangul character not rendered on winrt", Continue);
+#endif
     QCOMPARE(glyphRuns.size(), 2);
 }
 

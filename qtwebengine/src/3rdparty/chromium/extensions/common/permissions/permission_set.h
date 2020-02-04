@@ -35,8 +35,9 @@ class PermissionSet {
   // permissions, manifest key permissions, host permissions, and scriptable
   // hosts. The effective hosts of the newly created permission set will be
   // inferred from the given host permissions.
-  PermissionSet(const APIPermissionSet& apis,
-                const ManifestPermissionSet& manifest_permissions,
+  PermissionSet(APIPermissionSet apis,
+                ManifestPermissionSet manifest_permissions,
+                // TODO(devlin): Pass these by value.
                 const URLPatternSet& explicit_hosts,
                 const URLPatternSet& scriptable_hosts);
   ~PermissionSet();
@@ -48,9 +49,13 @@ class PermissionSet {
 
   // Creates a new permission set equal to the intersection of |set1| and
   // |set2|.
+  // TODO(https://crbug.com/867549): Audit callers of CreateIntersection() and
+  // have them determine the proper intersection behavior.
   static std::unique_ptr<const PermissionSet> CreateIntersection(
       const PermissionSet& set1,
-      const PermissionSet& set2);
+      const PermissionSet& set2,
+      URLPatternSet::IntersectionBehavior intersection_behavior =
+          URLPatternSet::IntersectionBehavior::kPatternsContainedByBoth);
 
   // Creates a new permission set equal to the union of |set1| and |set2|.
   static std::unique_ptr<const PermissionSet> CreateUnion(
@@ -93,9 +98,6 @@ class PermissionSet {
   // Returns true if this includes permission to access |origin|.
   bool HasExplicitAccessToOrigin(const GURL& origin) const;
 
-  // Returns true if this permission set includes access to script |url|.
-  bool HasScriptableAccessToURL(const GURL& url) const;
-
   // Returns true if this permission set includes effective access to all
   // origins.
   bool HasEffectiveAccessToAllHosts() const;
@@ -103,14 +105,13 @@ class PermissionSet {
   // Returns true if this permission set has access to so many hosts, that we
   // should treat it as all hosts for warning purposes.
   // For example, '*://*.com/*'.
-  bool ShouldWarnAllHosts() const;
+  // If |include_api_permissions| is true, this will look at both host
+  // permissions and API permissions. Otherwise, this only looks at
+  // host permissions.
+  bool ShouldWarnAllHosts(bool include_api_permissions = true) const;
 
   // Returns true if this permission set includes effective access to |url|.
   bool HasEffectiveAccessToURL(const GURL& url) const;
-
-  // Returns true if this permission set effectively represents full access
-  // (e.g. native code).
-  bool HasEffectiveFullAccess() const;
 
   const APIPermissionSet& apis() const { return apis_; }
 
@@ -137,8 +138,10 @@ class PermissionSet {
   // Initializes the effective host permission based on the data in this set.
   void InitEffectiveHosts();
 
-  // Initializes |has_access_to_most_hosts_|.
-  void InitShouldWarnAllHosts() const;
+  // Initializes whether we should present the user with the "all hosts" warning
+  // for either the included host permissions or API permissions.
+  void InitShouldWarnAllHostsForHostPermissions() const;
+  void InitShouldWarnAllHostsForAPIPermissions() const;
 
   // The api list is used when deciding if an extension can access certain
   // extension APIs and features.
@@ -166,7 +169,10 @@ class PermissionSet {
   };
   // Cache whether this set implies access to all hosts, because it's
   // non-trivial to compute (lazily initialized).
-  mutable ShouldWarnAllHostsType should_warn_all_hosts_;
+  mutable ShouldWarnAllHostsType host_permissions_should_warn_all_hosts_ =
+      UNINITIALIZED;
+  mutable ShouldWarnAllHostsType api_permissions_should_warn_all_hosts_ =
+      UNINITIALIZED;
 
   DISALLOW_ASSIGN(PermissionSet);
 };

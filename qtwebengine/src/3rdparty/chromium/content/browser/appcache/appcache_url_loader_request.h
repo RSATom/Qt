@@ -5,9 +5,11 @@
 #ifndef CONTENT_BROWSER_APPCACHE_APPCACHE_URL_LOADER_REQUEST_H_
 #define CONTENT_BROWSER_APPCACHE_APPCACHE_URL_LOADER_REQUEST_H_
 
+#include "base/memory/weak_ptr.h"
 #include "content/browser/appcache/appcache_request.h"
-#include "content/public/common/resource_request.h"
-#include "content/public/common/resource_response.h"
+#include "net/url_request/redirect_info.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/cpp/resource_response.h"
 
 namespace content {
 
@@ -18,41 +20,42 @@ class CONTENT_EXPORT AppCacheURLLoaderRequest : public AppCacheRequest {
   // Factory function to create an instance of the AppCacheResourceRequest
   // class.
   static std::unique_ptr<AppCacheURLLoaderRequest> Create(
-      const ResourceRequest& request);
+      const network::ResourceRequest& request);
 
   ~AppCacheURLLoaderRequest() override;
 
   // AppCacheRequest overrides.
-  // TODO(ananta)
-  // Add support to the GetURL() call to return the updated URL while following
-  // a chain of redirects.
   const GURL& GetURL() const override;
   const std::string& GetMethod() const override;
-  const GURL& GetFirstPartyForCookies() const override;
+  const GURL& GetSiteForCookies() const override;
   const GURL GetReferrer() const override;
-  // TODO(ananta)
-  // ResourceRequest only identifies the request unlike URLRequest which
-  // contains response information as well. We need the following methods to
-  // work for AppCache. Look into this.
+
   bool IsSuccess() const override;
   bool IsCancelled() const override;
   bool IsError() const override;
   int GetResponseCode() const override;
   std::string GetResponseHeaderByName(const std::string& name) const override;
-  ResourceRequest* GetResourceRequest() override;
+
+  network::ResourceRequest* GetResourceRequest() override;
   AppCacheURLLoaderRequest* AsURLLoaderRequest() override;
 
-  void set_response(const ResourceResponseHead& response) {
+  void UpdateWithRedirectInfo(const net::RedirectInfo& redirect_info);
+  void set_request(const network::ResourceRequest& request) {
+    request_ = request;
+  }
+  void set_response(const network::ResourceResponseHead& response) {
     response_ = response;
   }
 
+  base::WeakPtr<AppCacheURLLoaderRequest> GetWeakPtr();
+
  protected:
-  explicit AppCacheURLLoaderRequest(const ResourceRequest& request);
+  explicit AppCacheURLLoaderRequest(const network::ResourceRequest& request);
 
  private:
-  ResourceRequest request_;
-  ResourceResponseHead response_;
-
+  network::ResourceRequest request_;
+  network::ResourceResponseHead response_;
+  base::WeakPtrFactory<AppCacheURLLoaderRequest> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(AppCacheURLLoaderRequest);
 };
 

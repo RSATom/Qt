@@ -4,7 +4,6 @@
 
 #include "ui/android/resources/resource.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/trace_event/memory_usage_estimator.h"
 
 namespace ui {
@@ -22,7 +21,7 @@ void Resource::SetUIResource(std::unique_ptr<cc::ScopedUIResource> ui_resource,
 }
 
 std::unique_ptr<Resource> Resource::CreateForCopy() {
-  return base::MakeUnique<Resource>();
+  return std::make_unique<Resource>();
 }
 
 size_t Resource::EstimateMemoryUsage() const {

@@ -192,9 +192,6 @@ public:
     void updatePaddings(const QSizeF &size, const QVector<qreal> &horizontal, const QVector<qreal> &vertical);
     void updateInsets(const QVector<qreal> &horizontal, const QVector<qreal> &vertical);
 
-    qreal getImplicitWidth() const override;
-    qreal getImplicitHeight() const override;
-
     bool resetNode = false;
     qreal topPadding = 0;
     qreal leftPadding = 0;
@@ -332,18 +329,6 @@ void QQuickNinePatchImagePrivate::updateInsets(const QVector<qreal> &horizontal,
         emit q->rightInsetChanged();
 }
 
-qreal QQuickNinePatchImagePrivate::getImplicitWidth() const
-{
-    Q_Q(const QQuickNinePatchImage);
-    return implicitWidth - q->leftInset() - q->rightInset();
-}
-
-qreal QQuickNinePatchImagePrivate::getImplicitHeight() const
-{
-    Q_Q(const QQuickNinePatchImage);
-    return implicitHeight - q->topInset() - q->bottomInset();
-}
-
 QQuickNinePatchImage::QQuickNinePatchImage(QQuickItem *parent)
     : QQuickImage(*(new QQuickNinePatchImagePrivate), parent)
 {
@@ -412,7 +397,24 @@ void QQuickNinePatchImage::pixmapChange()
 
         d->updatePatches();
     } else {
-        d->resetNode = !d->ninePatch.isNull();
+        /*
+            Only change resetNode when it's false; i.e. when no reset is pending.
+            updatePaintNode() will take care of setting it to false if it's true.
+
+            Consider the following changes in source:
+
+                normal.png => press.9.png => normal.png => focus.png
+
+            If the last two events happen quickly, pixmapChange() can be called
+            twice with no call to updatePaintNode() inbetween. On the first call,
+            resetNode will be true (because ninePatch is not null since it is still
+            in the process of going from a 9-patch image to a regular image),
+            and on the second call, resetNode would be false if we didn't have this check.
+            This results in the oldNode never being deleted, and QQuickImage
+            tries to static_cast a QQuickNinePatchImage to a QSGInternalImageNode.
+        */
+        if (!d->resetNode)
+            d->resetNode = !d->ninePatch.isNull();
         d->ninePatch = QImage();
     }
     QQuickImage::pixmapChange();

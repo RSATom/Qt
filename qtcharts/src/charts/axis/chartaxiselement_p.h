@@ -43,8 +43,12 @@
 #include <QtCharts/private/qchartglobal_p.h>
 #include <private/chartelement_p.h>
 #include <private/axisanimation_p.h>
+#include <private/datetimeaxislabel_p.h>
+#include <private/valueaxislabel_p.h>
 #include <QtWidgets/QGraphicsItem>
 #include <QtWidgets/QGraphicsLayoutItem>
+#include <QtCharts/qdatetimeaxis.h>
+#include <QtCharts/QValueAxis>
 #include <QtGui/QFont>
 
 QT_CHARTS_BEGIN_NAMESPACE
@@ -52,7 +56,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 class ChartPresenter;
 class QAbstractAxis;
 
-class QT_CHARTS_PRIVATE_EXPORT ChartAxisElement : public ChartElement, public QGraphicsLayoutItem
+class Q_CHARTS_PRIVATE_EXPORT ChartAxisElement : public ChartElement, public QGraphicsLayoutItem
 {
     Q_OBJECT
 
@@ -71,6 +75,8 @@ public:
     QAbstractAxis *axis() const { return m_axis; }
     void setLayout(QVector<qreal> &layout) { m_layout = layout; }
     QVector<qreal> &layout() { return m_layout; } // Modifiable reference
+    void setDynamicMinorTickLayout(const QVector<qreal> &layout) { m_dynamicMinorTickLayout = layout; }
+    QVector<qreal> &dynamicMinorTicklayout() { return m_dynamicMinorTickLayout; } // Modifiable reference
     inline qreal labelPadding() const { return qreal(4.0); }
     inline qreal titlePadding() const { return qreal(2.0); }
     void setLabels(const QStringList &labels) { m_labelsList = labels; }
@@ -78,6 +84,9 @@ public:
 
     qreal min() const;
     qreal max() const;
+
+    qreal tickInterval() const;
+    qreal tickAnchor() const;
 
     QRectF axisGeometry() const { return m_axisRect; }
     void setAxisGeometry(const QRectF &axisGeometry) { m_axisRect = axisGeometry; }
@@ -87,7 +96,9 @@ public:
     //this flag indicates that axis is used to show intervals it means labels are in between ticks
     bool intervalAxis() const { return m_intervalAxis; }
 
-    QStringList createValueLabels(qreal max, qreal min, int ticks, const QString &format) const;
+    QStringList createValueLabels(qreal max, qreal min, int ticks,
+                                  qreal tickInterval, qreal tickAnchor,
+                                  QValueAxis::TickType tickType, const QString &format) const;
     QStringList createLogValueLabels(qreal min, qreal max, qreal base, int ticks,
                                      const QString &format) const;
     QStringList createDateTimeLabels(qreal max, qreal min, int ticks, const QString &format) const;
@@ -102,6 +113,9 @@ public:
     void paint(QPainter*, const QStyleOptionGraphicsItem*, QWidget*)
     {
     }
+
+    bool labelsEditable() const;
+    void setLabelsEditable(bool labelsEditable);
 
 protected:
     virtual QVector<qreal> calculateLayout() const = 0;
@@ -147,6 +161,8 @@ public Q_SLOTS:
     void handleMinorArrowVisibleChanged(bool visible);
     void handleMinorGridVisibleChanged(bool visible);
     void handleLabelsPositionChanged();
+    void valueLabelEdited(qreal oldValue, qreal newValue);
+    void dateTimeLabelEdited(const QDateTime &oldTime, const QDateTime &newTime);
 
 Q_SIGNALS:
     void clicked();
@@ -160,6 +176,7 @@ private:
     QAbstractAxis *m_axis;
     AxisAnimation *m_animation;
     QVector<qreal> m_layout;
+    QVector<qreal> m_dynamicMinorTickLayout;
     QStringList m_labelsList;
     QRectF m_axisRect;
     QScopedPointer<QGraphicsItemGroup> m_grid;
@@ -170,6 +187,7 @@ private:
     QScopedPointer<QGraphicsItemGroup> m_labels;
     QScopedPointer<QGraphicsTextItem> m_title;
     bool m_intervalAxis;
+    bool m_labelsEditable = false;
 };
 
 QT_CHARTS_END_NAMESPACE

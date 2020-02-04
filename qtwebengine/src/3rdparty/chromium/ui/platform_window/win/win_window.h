@@ -7,15 +7,18 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "ui/gfx/win/window_impl.h"
 #include "ui/platform_window/platform_window.h"
 #include "ui/platform_window/win/win_window_export.h"
+
+#include <windows.h>
 
 namespace ui {
 
 class PlatformWindowDelegate;
 
-class WIN_WINDOW_EXPORT WinWindow : public NON_EXPORTED_BASE(PlatformWindow),
+class WIN_WINDOW_EXPORT WinWindow : public PlatformWindow,
                                     public gfx::WindowImpl {
  public:
   WinWindow(PlatformWindowDelegate* delegate, const gfx::Rect& bounds);
@@ -34,19 +37,22 @@ class WIN_WINDOW_EXPORT WinWindow : public NON_EXPORTED_BASE(PlatformWindow),
   void SetTitle(const base::string16& title) override;
   void SetCapture() override;
   void ReleaseCapture() override;
+  bool HasCapture() const override;
   void ToggleFullscreen() override;
   void Maximize() override;
   void Minimize() override;
   void Restore() override;
+  PlatformWindowState GetPlatformWindowState() const override;
   void SetCursor(PlatformCursor cursor) override;
   void MoveCursorTo(const gfx::Point& location) override;
   void ConfineCursorToBounds(const gfx::Rect& bounds) override;
   PlatformImeController* GetPlatformImeController() override;
+  void SetRestoredBoundsInPixels(const gfx::Rect& bounds) override;
+  gfx::Rect GetRestoredBoundsInPixels() const override;
 
   CR_BEGIN_MSG_MAP_EX(WinWindow)
     CR_MESSAGE_RANGE_HANDLER_EX(WM_MOUSEFIRST, WM_MOUSELAST, OnMouseRange)
-    CR_MESSAGE_RANGE_HANDLER_EX(WM_NCMOUSEMOVE,
-                                WM_NCXBUTTONDBLCLK,
+    CR_MESSAGE_RANGE_HANDLER_EX(WM_NCMOUSEMOVE, WM_NCXBUTTONDBLCLK,
                                 OnMouseRange)
     CR_MESSAGE_HANDLER_EX(WM_CAPTURECHANGED, OnCaptureChanged)
 
@@ -77,6 +83,8 @@ class WIN_WINDOW_EXPORT WinWindow : public NON_EXPORTED_BASE(PlatformWindow),
   void OnWindowPosChanged(WINDOWPOS* window_pos);
 
   PlatformWindowDelegate* delegate_;
+
+  CR_MSG_MAP_CLASS_DECLARATIONS(WinWindow)
 
   DISALLOW_COPY_AND_ASSIGN(WinWindow);
 };

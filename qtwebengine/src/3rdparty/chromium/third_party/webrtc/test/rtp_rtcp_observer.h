@@ -7,22 +7,23 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#ifndef WEBRTC_TEST_RTP_RTCP_OBSERVER_H_
-#define WEBRTC_TEST_RTP_RTCP_OBSERVER_H_
+#ifndef TEST_RTP_RTCP_OBSERVER_H_
+#define TEST_RTP_RTCP_OBSERVER_H_
 
 #include <map>
 #include <memory>
 #include <vector>
 
-#include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/event.h"
-#include "webrtc/system_wrappers/include/field_trial.h"
-#include "webrtc/test/constants.h"
-#include "webrtc/test/direct_transport.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/typedefs.h"
-#include "webrtc/video_send_stream.h"
+#include "api/test/simulated_network.h"
+#include "call/simulated_packet_receiver.h"
+#include "call/video_send_stream.h"
+#include "modules/rtp_rtcp/include/rtp_header_parser.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/event.h"
+#include "system_wrappers/include/field_trial.h"
+#include "test/constants.h"
+#include "test/direct_transport.h"
+#include "test/gtest.h"
 
 namespace {
 const int kShortTimeoutMs = 500;
@@ -32,6 +33,7 @@ namespace webrtc {
 namespace test {
 
 class PacketTransport;
+class SingleThreadedTaskQueueForTesting;
 
 class RtpRtcpObserver {
  public:
@@ -69,9 +71,7 @@ class RtpRtcpObserver {
  protected:
   RtpRtcpObserver() : RtpRtcpObserver(0) {}
   explicit RtpRtcpObserver(int event_timeout_ms)
-      : observation_complete_(false, false),
-        parser_(RtpHeaderParser::Create()),
-        timeout_ms_(event_timeout_ms) {
+      : parser_(RtpHeaderParser::Create()), timeout_ms_(event_timeout_ms) {
     parser_->RegisterRtpHeaderExtension(kRtpExtensionTransmissionTimeOffset,
                                         kTOffsetExtensionId);
     parser_->RegisterRtpHeaderExtension(kRtpExtensionAbsoluteSendTime,
@@ -91,12 +91,16 @@ class PacketTransport : public test::DirectTransport {
  public:
   enum TransportType { kReceiver, kSender };
 
-  PacketTransport(Call* send_call,
+  PacketTransport(SingleThreadedTaskQueueForTesting* task_queue,
+                  Call* send_call,
                   RtpRtcpObserver* observer,
                   TransportType transport_type,
                   const std::map<uint8_t, MediaType>& payload_type_map,
-                  const FakeNetworkPipe::Config& configuration)
-      : test::DirectTransport(configuration, send_call, payload_type_map),
+                  std::unique_ptr<SimulatedPacketReceiverInterface> nw_pipe)
+      : test::DirectTransport(task_queue,
+                              std::move(nw_pipe),
+                              send_call,
+                              payload_type_map),
         observer_(observer),
         transport_type_(transport_type) {}
 
@@ -149,4 +153,4 @@ class PacketTransport : public test::DirectTransport {
 }  // namespace test
 }  // namespace webrtc
 
-#endif  // WEBRTC_TEST_RTP_RTCP_OBSERVER_H_
+#endif  // TEST_RTP_RTCP_OBSERVER_H_

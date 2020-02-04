@@ -9,7 +9,6 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/time/time.h"
 #include "device/gamepad/gamepad_standard_mappings.h"
 
 #import <GameController/GameController.h>
@@ -17,6 +16,8 @@
 namespace device {
 
 namespace {
+
+const int kGCControllerPlayerIndexCount = 4;
 
 void CopyNSStringAsUTF16LittleEndian(NSString* src,
                                      UChar* dest,
@@ -39,15 +40,41 @@ GamepadSource GameControllerDataFetcherMac::source() {
 void GameControllerDataFetcherMac::GetGamepadData(bool) {
   NSArray* controllers = [GCController controllers];
 
+  // In the first pass, record which player indices are still in use so unused
+  // indices can be assigned to newly connected gamepads.
+  bool player_indices[Gamepads::kItemsLengthCap];
+  std::fill(player_indices, player_indices + Gamepads::kItemsLengthCap, false);
+  for (GCController* controller in controllers) {
+    // We only support the extendedGamepad profile, the basic gamepad profile
+    // appears to only be for iOS devices.
+    if (![controller extendedGamepad])
+      continue;
+
+    int player_index = [controller playerIndex];
+    if (player_index != GCControllerPlayerIndexUnset)
+      player_indices[player_index] = true;
+  }
+
+  for (size_t i = 0; i < Gamepads::kItemsLengthCap; ++i) {
+    if (connected_[i] && !player_indices[i])
+      connected_[i] = false;
+  }
+
+  // In the second pass, assign indices to newly connected gamepads and fetch
+  // the gamepad state.
   for (GCController* controller in controllers) {
     auto extended_gamepad = [controller extendedGamepad];
 
-    // We only support the extendedGamepad profile, the basic gamepad profile
-    // appears to only be for iOS devices.
     if (!extended_gamepad)
       continue;
 
     int player_index = [controller playerIndex];
+    if (player_index == GCControllerPlayerIndexUnset) {
+      player_index = NextUnusedPlayerIndex();
+      if (player_index == GCControllerPlayerIndexUnset)
+        continue;
+    }
+
     PadState* state = GetPadState(player_index);
     if (!state)
       continue;
@@ -57,7 +84,8 @@ void GameControllerDataFetcherMac::GetGamepadData(bool) {
     // This first time we encounter a gamepad, set its name, mapping, and
     // axes/button counts. This information is static, so it only needs to be
     // done once.
-    if (state->active_state == GAMEPAD_NEWLY_ACTIVE) {
+    if (!state->is_initialized) {
+      state->is_initialized = true;
       NSString* vendorName = [controller vendorName];
       NSString* ident =
           [NSString stringWithFormat:@"%@ (STANDARD GAMEPAD)",
@@ -70,9 +98,21 @@ void GameControllerDataFetcherMac::GetGamepadData(bool) {
       pad.axes_length = AXIS_INDEX_COUNT;
       pad.buttons_length = BUTTON_INDEX_COUNT - 1;
       pad.connected = true;
+      connected_[player_index] = true;
+
+// In OS X 10.11, the type of the GCController playerIndex member was
+// changed from NSInteger to a GCControllerPlayerIndex enum. Once Chrome
+// no longer supports OSX 10.10, the integer version can be removed.
+#if !defined(MAC_OS_X_VERSION_10_11) || \
+    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_11
+      [controller setPlayerIndex:player_index];
+#else
+      [controller
+          setPlayerIndex:static_cast<GCControllerPlayerIndex>(player_index)];
+#endif
     }
 
-    pad.timestamp = base::TimeTicks::Now().ToInternalValue();
+    pad.timestamp = CurrentTimeInMicroseconds();
 
     pad.axes[AXIS_INDEX_LEFT_STICK_X] =
         [[[extended_gamepad leftThumbstick] xAxis] value];
@@ -105,6 +145,14 @@ void GameControllerDataFetcherMac::GetGamepadData(bool) {
 
 #undef BUTTON
   }
+}
+
+int GameControllerDataFetcherMac::NextUnusedPlayerIndex() {
+  for (int i = 0; i < kGCControllerPlayerIndexCount; ++i) {
+    if (!connected_[i])
+      return i;
+  }
+  return GCControllerPlayerIndexUnset;
 }
 
 }  // namespace device

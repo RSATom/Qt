@@ -37,19 +37,19 @@
 #include "promotiontaskmenu_p.h"
 #include "qdesigner_objectinspector_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetfactory.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtCore/QMimeData>
+#include <QtCore/qmimedata.h>
 
 #include <QtCore/qdebug.h>
 
-#include <QtWidgets/QApplication>
-#include <QtGui/QDrag>
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QPainter>
+#include <QtWidgets/qapplication.h>
+#include <QtGui/qdrag.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtGui/qpainter.h>
 #include <QtGui/qevent.h>
 
 Q_DECLARE_METATYPE(QAction*)
@@ -69,10 +69,7 @@ SpecialMenuAction::SpecialMenuAction(QObject *parent)
 {
 }
 
-SpecialMenuAction::~SpecialMenuAction()
-{
-}
-
+SpecialMenuAction::~SpecialMenuAction() = default;
 
 } // namespace qdesigner_internal
 
@@ -107,9 +104,7 @@ QDesignerMenuBar::QDesignerMenuBar(QWidget *parent)  :
     installEventFilter(this);
 }
 
-QDesignerMenuBar::~QDesignerMenuBar()
-{
-}
+QDesignerMenuBar::~QDesignerMenuBar() = default;
 
 void QDesignerMenuBar::paintEvent(QPaintEvent *event)
 {
@@ -279,7 +274,7 @@ bool QDesignerMenuBar::handleKeyPressEvent(QWidget *, QKeyEvent *e)
                 showMenu();
                 break;
             }
-            // fall through
+            Q_FALLTHROUGH();
 
         case Qt::Key_Escape:
             update();
@@ -318,7 +313,7 @@ void QDesignerMenuBar::startDrag(const QPoint &pos)
     const int old_index = m_currentIndex;
     m_currentIndex = -1;
 
-    if (drag->start(Qt::MoveAction) == Qt::IgnoreAction) {
+    if (drag->exec(Qt::MoveAction) == Qt::IgnoreAction) {
         InsertActionIntoCommand *cmd = new InsertActionIntoCommand(fw);
         cmd->init(this, action, safeActionAt(index));
         fw->commandHistory()->push(cmd);

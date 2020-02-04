@@ -23,13 +23,13 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "base/win/registry.h"
 #include "components/browser_watcher/features.h"
 #include "components/browser_watcher/postmortem_report_collector.h"
 #include "components/browser_watcher/stability_paths.h"
-#include "components/browser_watcher/system_session_analyzer_win.h"
+#include "components/metrics/system_session_analyzer_win.h"
 #include "third_party/crashpad/crashpad/client/crash_report_database.h"
 
 namespace browser_watcher {
@@ -168,7 +168,7 @@ void LogCollectionInitStatus(CollectionInitializationStatus status) {
 // file I/O.
 scoped_refptr<base::TaskRunner> CreateBackgroundTaskRunner() {
   return base::CreateSequencedTaskRunnerWithTraits(
-      {base::MayBlock(), base::TaskPriority::BACKGROUND,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 }
 
@@ -222,8 +222,7 @@ void WatcherMetricsProviderWin::ProvideStabilityMetrics(
   RecordExitCodes(registry_path_);
 }
 
-void WatcherMetricsProviderWin::CollectPostmortemReports(
-    const base::Closure& done_callback) {
+void WatcherMetricsProviderWin::AsyncInit(const base::Closure& done_callback) {
   task_runner_->PostTaskAndReply(
       FROM_HERE,
       base::BindOnce(&WatcherMetricsProviderWin::CollectPostmortemReportsImpl,
@@ -268,34 +267,37 @@ void WatcherMetricsProviderWin::CollectPostmortemReportsImpl() {
   const bool should_collect = base::GetFieldTrialParamByFeatureAsBool(
       browser_watcher::kStabilityDebuggingFeature,
       browser_watcher::kCollectPostmortemParam, false);
-  if (!should_collect) {
-    PostmortemDeleter deleter;
-    deleter.Process(stability_files);
-    return;
-  }
 
   // Create a database. Note: Chrome already has a g_database in crashpad.cc but
   // it has internal linkage. Create a new one.
-  std::unique_ptr<crashpad::CrashReportDatabase> crashpad_database =
-      crashpad::CrashReportDatabase::InitializeWithoutCreating(crash_dir_);
-  if (!crashpad_database) {
-    LOG(ERROR) << "Failed to initialize a CrashPad database.";
-    LogCollectionInitStatus(CRASHPAD_DATABASE_INIT_FAILED);
-    return;
+  std::unique_ptr<crashpad::CrashReportDatabase> crashpad_database;
+  if (should_collect) {
+    crashpad_database =
+        crashpad::CrashReportDatabase::InitializeWithoutCreating(crash_dir_);
+    if (!crashpad_database) {
+      LOG(ERROR) << "Failed to initialize a CrashPad database.";
+      LogCollectionInitStatus(CRASHPAD_DATABASE_INIT_FAILED);
+      // Note: continue to processing the files anyway.
+    }
   }
 
+  // Note: this is logged even when Crashpad database initialization fails.
   LogCollectionInitStatus(INIT_SUCCESS);
 
-  // Get the reporter's version details.
-  base::string16 product_name, version_number, channel_name;
-  exe_details_cb_.Run(&product_name, &version_number, &channel_name);
-
   const size_t kSystemSessionsToInspect = 5U;
-  SystemSessionAnalyzer analyzer(kSystemSessionsToInspect);
-  PostmortemReportCollector collector(
-      base::UTF16ToUTF8(product_name), base::UTF16ToUTF8(version_number),
-      base::UTF16ToUTF8(channel_name), crashpad_database.get(), &analyzer);
-  collector.Process(stability_files);
+  metrics::SystemSessionAnalyzer analyzer(kSystemSessionsToInspect);
+
+  if (should_collect) {
+    base::string16 product_name, version_number, channel_name;
+    exe_details_cb_.Run(&product_name, &version_number, &channel_name);
+    PostmortemReportCollector collector(
+        base::UTF16ToUTF8(product_name), base::UTF16ToUTF8(version_number),
+        base::UTF16ToUTF8(channel_name), crashpad_database.get(), &analyzer);
+    collector.Process(stability_files);
+  } else {
+    PostmortemReportCollector collector(&analyzer);
+    collector.Process(stability_files);
+  }
 }
 
 }  // namespace browser_watcher

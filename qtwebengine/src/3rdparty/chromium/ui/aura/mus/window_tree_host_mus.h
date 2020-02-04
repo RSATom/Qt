@@ -12,8 +12,9 @@
 
 #include "base/macros.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "ui/aura/aura_export.h"
+#include "ui/aura/mus/input_method_mus_delegate.h"
 #include "ui/aura/window_tree_host_platform.h"
 
 namespace display {
@@ -26,10 +27,10 @@ class InputMethodMus;
 class WindowTreeClient;
 class WindowTreeHostMusDelegate;
 
-struct DisplayInitParams;
 struct WindowTreeHostMusInitParams;
 
-class AURA_EXPORT WindowTreeHostMus : public aura::WindowTreeHostPlatform {
+class AURA_EXPORT WindowTreeHostMus : public WindowTreeHostPlatform,
+                                      public InputMethodMusDelegate {
  public:
   explicit WindowTreeHostMus(WindowTreeHostMusInitParams init_params);
 
@@ -40,7 +41,8 @@ class AURA_EXPORT WindowTreeHostMus : public aura::WindowTreeHostPlatform {
   static WindowTreeHostMus* ForWindow(aura::Window* window);
 
   // Sets the bounds in pixels.
-  void SetBoundsFromServer(const gfx::Rect& bounds_in_pixels);
+  void SetBoundsFromServerInPixels(const gfx::Rect& bounds_in_pixels,
+                                   const viz::LocalSurfaceId& local_surface_id);
 
   ui::EventDispatchDetails SendEventToSink(ui::Event* event) {
     return aura::WindowTreeHostPlatform::SendEventToSink(event);
@@ -51,10 +53,6 @@ class AURA_EXPORT WindowTreeHostMus : public aura::WindowTreeHostPlatform {
   // Sets the client area on the underlying mus window.
   void SetClientArea(const gfx::Insets& insets,
                      const std::vector<gfx::Rect>& additional_client_area);
-
-  // Sets the hit test mask on the underlying mus window. Pass base::nullopt to
-  // clear.
-  void SetHitTestMask(const base::Optional<gfx::Rect>& rect);
 
   // Sets the opacity of the underlying mus window.
   void SetOpacity(float value);
@@ -72,17 +70,14 @@ class AURA_EXPORT WindowTreeHostMus : public aura::WindowTreeHostPlatform {
 
   // Tells the window manager to take control of moving the window. Returns
   // true if the move wasn't canceled.
-  void PerformWindowMove(ui::mojom::MoveLoopSource mus_source,
+  void PerformWindowMove(Window* window,
+                         ws::mojom::MoveLoopSource mus_source,
                          const gfx::Point& cursor_location,
-                         const base::Callback<void(bool)>& callback);
+                         base::OnceCallback<void(bool)> callback);
 
   // Tells the window manager to abort any current move initiated by
   // PerformWindowMove().
   void CancelWindowMove();
-
-  // Used during initial setup. Returns the DisplayInitParams
-  // supplied to the constructor.
-  std::unique_ptr<DisplayInitParams> ReleaseDisplayInitParams();
 
   // Intended only for WindowTreeClient to call.
   void set_display_id(int64_t id) { display_id_ = id; }
@@ -91,13 +86,20 @@ class AURA_EXPORT WindowTreeHostMus : public aura::WindowTreeHostPlatform {
 
   // aura::WindowTreeHostPlatform:
   void HideImpl() override;
-  void SetBoundsInPixels(const gfx::Rect& bounds) override;
+  void SetBoundsInPixels(
+      const gfx::Rect& bounds,
+      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation =
+          viz::LocalSurfaceIdAllocation()) override;
   void DispatchEvent(ui::Event* event) override;
   void OnClosed() override;
   void OnActivationChanged(bool active) override;
   void OnCloseRequest() override;
-  void MoveCursorToScreenLocationInPixels(
-      const gfx::Point& location_in_pixels) override;
+  int64_t GetDisplayId() override;
+
+  // InputMethodMusDelegate:
+  void SetTextInputState(ui::mojom::TextInputStatePtr state) override;
+  void SetImeVisibility(bool visible,
+                        ui::mojom::TextInputStatePtr state) override;
 
  private:
   int64_t display_id_;
@@ -107,8 +109,6 @@ class AURA_EXPORT WindowTreeHostMus : public aura::WindowTreeHostPlatform {
   bool in_set_bounds_from_server_ = false;
 
   std::unique_ptr<InputMethodMus> input_method_;
-
-  std::unique_ptr<DisplayInitParams> display_init_params_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowTreeHostMus);
 };

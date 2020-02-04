@@ -4,7 +4,7 @@
 
 #include "services/service_manager/embedder/main.h"
 
-#include "base/allocator/features.h"
+#include "base/allocator/buildflags.h"
 #include "base/at_exit.h"
 #include "base/base_switches.h"
 #include "base/command_line.h"
@@ -13,32 +13,30 @@
 #include "base/debug/stack_trace.h"
 #include "base/i18n/icu_util.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/optional.h"
 #include "base/process/launch.h"
 #include "base/process/memory.h"
 #include "base/process/process.h"
 #include "base/run_loop.h"
-#include "base/task_scheduler/task_scheduler.h"
-#include "base/threading/sequenced_worker_pool.h"
+#include "base/stl_util.h"
+#include "base/task/task_scheduler/task_scheduler.h"
 #include "base/threading/thread.h"
 #include "base/trace_event/trace_config.h"
 #include "base/trace_event/trace_log.h"
 #include "build/build_config.h"
 #include "components/tracing/common/trace_to_console.h"
 #include "components/tracing/common/tracing_switches.h"
-#include "mojo/edk/embedder/configuration.h"
-#include "mojo/edk/embedder/embedder.h"
-#include "mojo/edk/embedder/scoped_ipc_support.h"
+#include "mojo/core/embedder/configuration.h"
+#include "mojo/core/embedder/embedder.h"
+#include "mojo/core/embedder/scoped_ipc_support.h"
 #include "services/service_manager/embedder/main_delegate.h"
 #include "services/service_manager/embedder/process_type.h"
 #include "services/service_manager/embedder/set_process_title.h"
 #include "services/service_manager/embedder/shared_file_util.h"
 #include "services/service_manager/embedder/switches.h"
 #include "services/service_manager/public/cpp/service.h"
-#include "services/service_manager/public/cpp/service_context.h"
-#include "services/service_manager/public/cpp/standalone_service/standalone_service.h"
+#include "services/service_manager/public/cpp/service_executable/service_executable_environment.h"
 #include "services/service_manager/runner/common/client_util.h"
 #include "services/service_manager/runner/common/switches.h"
 #include "services/service_manager/runner/init.h"
@@ -128,7 +126,7 @@ void SetupSignalHandlers() {
   static const int signals_to_reset[] = {
       SIGHUP,  SIGINT,  SIGQUIT, SIGILL, SIGABRT, SIGFPE, SIGSEGV,
       SIGALRM, SIGTERM, SIGCHLD, SIGBUS, SIGTRAP};  // SIGPIPE is set below.
-  for (unsigned i = 0; i < arraysize(signals_to_reset); i++) {
+  for (unsigned i = 0; i < base::size(signals_to_reset); i++) {
     CHECK_EQ(0, sigaction(signals_to_reset[i], &sigact, NULL));
   }
 
@@ -168,7 +166,7 @@ void CommonSubprocessInit() {
   MSG msg;
   PeekMessage(&msg, NULL, 0, 0, PM_REMOVE);
 #endif
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if defined(OS_POSIX) && !defined(OS_ANDROID)
   // Various things break when you're using a locale where the decimal
   // separator isn't a period.  See e.g. bugs 22782 and 39964.  For
   // all processes except the browser process (where we call system
@@ -194,7 +192,10 @@ void NonEmbedderProcessInit() {
   // names in all loaded libraries will be cached.
   // NOTE: On Chrome OS, crash reporting for the root process and non-browser
   // service processes is handled by the OS-level crash_reporter.
-  base::debug::EnableInProcessStackDumping();
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableInProcessStackTraces)) {
+    base::debug::EnableInProcessStackDumping();
+  }
 #endif
 
   base::TaskScheduler::CreateAndStartWithDefaultParams("ServiceManagerProcess");
@@ -219,42 +220,24 @@ void WaitForDebuggerIfNecessary() {
   base::debug::WaitForDebugger(120, true);
 }
 
-// Quits |run_loop| if the |identity| of the quitting service is critical to the
-// system (e.g. the window manager). Used in the main process.
-void OnInstanceQuit(MainDelegate* delegate,
-                    base::RunLoop* run_loop,
-                    int* exit_code,
-                    const service_manager::Identity& identity) {
-  if (delegate->ShouldTerminateServiceManagerOnInstanceQuit(identity,
-                                                            exit_code)) {
-    run_loop->Quit();
-  }
-}
-
 int RunServiceManager(MainDelegate* delegate) {
   NonEmbedderProcessInit();
 
   base::MessageLoop message_loop(base::MessageLoop::TYPE_UI);
 
-  base::SequencedWorkerPool::EnableWithRedirectionToTaskSchedulerForProcess();
-
   base::Thread ipc_thread("IPC thread");
   ipc_thread.StartWithOptions(
       base::Thread::Options(base::MessageLoop::TYPE_IO, 0));
-  mojo::edk::ScopedIPCSupport ipc_support(
+  mojo::core::ScopedIPCSupport ipc_support(
       ipc_thread.task_runner(),
-      mojo::edk::ScopedIPCSupport::ShutdownPolicy::FAST);
+      mojo::core::ScopedIPCSupport::ShutdownPolicy::FAST);
 
   ServiceProcessLauncherDelegateImpl service_process_launcher_delegate(
       delegate);
   service_manager::BackgroundServiceManager background_service_manager(
-      &service_process_launcher_delegate, delegate->CreateServiceCatalog());
+      &service_process_launcher_delegate, delegate->GetServiceManifests());
 
   base::RunLoop run_loop;
-  int exit_code = 0;
-  background_service_manager.SetInstanceQuitCallback(
-      base::Bind(&OnInstanceQuit, delegate, &run_loop, &exit_code));
-
   delegate->OnServiceManagerInitialized(run_loop.QuitClosure(),
                                         &background_service_manager);
   run_loop.Run();
@@ -262,7 +245,7 @@ int RunServiceManager(MainDelegate* delegate) {
   ipc_thread.Stop();
   base::TaskScheduler::GetInstance()->Shutdown();
 
-  return exit_code;
+  return 0;
 }
 
 void InitializeResources() {
@@ -281,40 +264,29 @@ int RunService(MainDelegate* delegate) {
 
   InitializeResources();
 
-  int exit_code = 0;
-  RunStandaloneService(base::Bind(
-      [](MainDelegate* delegate, int* exit_code,
-         mojom::ServiceRequest request) {
-        // TODO(rockot): Make the default MessageLoop type overridable for
-        // services. This is TYPE_UI because at least one service (the "ui"
-        // service) needs it to be.
-        base::MessageLoop message_loop(base::MessageLoop::TYPE_UI);
-        base::RunLoop run_loop;
+  service_manager::ServiceExecutableEnvironment environment;
 
-        std::string service_name =
-            base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-                switches::kServiceName);
-        if (service_name.empty()) {
-          LOG(ERROR) << "Service process requires --service-name";
-          *exit_code = 1;
-          return;
-        }
+  base::MessageLoop message_loop(base::MessageLoop::TYPE_UI);
+  base::RunLoop run_loop;
 
-        std::unique_ptr<Service> service =
-            delegate->CreateEmbeddedService(service_name);
-        if (!service) {
-          LOG(ERROR) << "Failed to start embedded service: " << service_name;
-          *exit_code = 1;
-          return;
-        }
+  std::string service_name =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kServiceName);
+  if (service_name.empty()) {
+    LOG(ERROR) << "Service process requires --service-name";
+    return 1;
+  }
 
-        ServiceContext context(std::move(service), std::move(request));
-        context.SetQuitClosure(run_loop.QuitClosure());
-        run_loop.Run();
-      },
-      delegate, &exit_code));
+  std::unique_ptr<Service> service =
+      delegate->CreateEmbeddedService(service_name);
+  if (!service) {
+    LOG(ERROR) << "Failed to start embedded service: " << service_name;
+    return 1;
+  }
 
-  return exit_code;
+  service->set_termination_closure(run_loop.QuitClosure());
+  run_loop.Run();
+  return 0;
 }
 
 }  // namespace
@@ -327,89 +299,143 @@ int Main(const MainParams& params) {
   MainDelegate* delegate = params.delegate;
   DCHECK(delegate);
 
+  int exit_code = -1;
+  base::debug::GlobalActivityTracker* tracker = nullptr;
+  ProcessType process_type = delegate->OverrideProcessType();
+#if defined(OS_MACOSX)
+  std::unique_ptr<base::mac::ScopedNSAutoreleasePool> autorelease_pool;
+#endif
+
+  // A flag to indicate whether Main() has been called before. On Android, we
+  // may re-run Main() without restarting the browser process. This flag
+  // prevents initializing things more than once.
+  static bool is_initialized = false;
+#if !defined(OS_ANDROID)
+  DCHECK(!is_initialized);
+#endif
+  if (!is_initialized) {
+    is_initialized = true;
 #if defined(OS_MACOSX) && BUILDFLAG(USE_ALLOCATOR_SHIM)
-  base::allocator::InitializeAllocatorShim();
+    base::allocator::InitializeAllocatorShim();
 #endif
 #if !defined(TOOLKIT_QT)
-  base::EnableTerminationOnOutOfMemory();
+    base::EnableTerminationOnOutOfMemory();
 #endif
 
 #if defined(OS_LINUX)
-  // The various desktop environments set this environment variable that allows
-  // the dbus client library to connect directly to the bus. When this variable
-  // is not set (test environments like xvfb-run), the dbus client library will
-  // fall back to auto-launch mode. Auto-launch is dangerous as it can cause
-  // hangs (crbug.com/715658) . This one line disables the dbus auto-launch,
-  // by clobbering the DBUS_SESSION_BUS_ADDRESS env variable if not already set.
-  // The old auto-launch behavior, if needed, can be restored by setting
-  // DBUS_SESSION_BUS_ADDRESS="autolaunch:" before launching chrome.
-  const int kNoOverrideIfAlreadySet = 0;
-  setenv("DBUS_SESSION_BUS_ADDRESS", "disabled:", kNoOverrideIfAlreadySet);
+    // The various desktop environments set this environment variable that
+    // allows the dbus client library to connect directly to the bus. When this
+    // variable is not set (test environments like xvfb-run), the dbus client
+    // library will fall back to auto-launch mode. Auto-launch is dangerous as
+    // it can cause hangs (crbug.com/715658) . This one line disables the dbus
+    // auto-launch, by clobbering the DBUS_SESSION_BUS_ADDRESS env variable if
+    // not already set. The old auto-launch behavior, if needed, can be restored
+    // by setting DBUS_SESSION_BUS_ADDRESS="autolaunch:" before launching
+    // chrome.
+    const int kNoOverrideIfAlreadySet = 0;
+    setenv("DBUS_SESSION_BUS_ADDRESS", "disabled:", kNoOverrideIfAlreadySet);
 #endif
 
 #if defined(OS_WIN)
-  base::win::RegisterInvalidParamHandler();
-  ui::win::CreateATLModuleIfNeeded();
+    base::win::RegisterInvalidParamHandler();
+    ui::win::CreateATLModuleIfNeeded();
 #endif  // defined(OS_WIN)
 
 #if !defined(OS_ANDROID)
-  // On Android, the command line is initialized when library is loaded.
-  int argc = 0;
-  const char** argv = nullptr;
+    // On Android, the command line is initialized when library is loaded.
+    int argc = 0;
+    const char** argv = nullptr;
 
-#if defined(OS_POSIX)
-  // argc/argv are ignored on Windows; see command_line.h for details.
-  argc = params.argc;
-  argv = params.argv;
+#if !defined(OS_WIN)
+    // argc/argv are ignored on Windows; see command_line.h for details.
+    argc = params.argc;
+    argv = params.argv;
 #endif
 
-  base::CommandLine::Init(argc, argv);
+    base::CommandLine::Init(argc, argv);
 
 #if defined(OS_POSIX)
-  PopulateFDsFromCommandLine();
+    PopulateFDsFromCommandLine();
 #endif
 
-  base::EnableTerminationOnHeapCorruption();
+    base::EnableTerminationOnHeapCorruption();
 
-  SetProcessTitleFromCommandLine(argv);
+    SetProcessTitleFromCommandLine(argv);
 #endif  // !defined(OS_ANDROID)
 
 // On Android setlocale() is not supported, and we don't override the signal
 // handlers so we can get a stack trace when crashing.
 #if defined(OS_POSIX) && !defined(OS_ANDROID)
-  // Set C library locale to make sure CommandLine can parse argument values in
-  // the correct encoding.
-  setlocale(LC_ALL, "");
+    // Set C library locale to make sure CommandLine can parse argument values
+    // in the correct encoding.
+    setlocale(LC_ALL, "");
 
-  SetupSignalHandlers();
+    SetupSignalHandlers();
 #endif
 
-  const auto& command_line = *base::CommandLine::ForCurrentProcess();
+    const auto& command_line = *base::CommandLine::ForCurrentProcess();
 
 #if defined(OS_WIN)
-  base::win::SetupCRT(command_line);
+    base::win::SetupCRT(command_line);
 #endif
 
-  MainDelegate::InitializeParams init_params;
+    MainDelegate::InitializeParams init_params;
 
 #if defined(OS_MACOSX)
-  // We need this pool for all the objects created before we get to the event
-  // loop, but we don't want to leave them hanging around until the app quits.
-  // Each "main" needs to flush this pool right before it goes into its main
-  // event loop to get rid of the cruft.
-  std::unique_ptr<base::mac::ScopedNSAutoreleasePool> autorelease_pool =
-      base::MakeUnique<base::mac::ScopedNSAutoreleasePool>();
-  init_params.autorelease_pool = autorelease_pool.get();
-  InitializeMac();
+    // We need this pool for all the objects created before we get to the event
+    // loop, but we don't want to leave them hanging around until the app quits.
+    // Each "main" needs to flush this pool right before it goes into its main
+    // event loop to get rid of the cruft.
+    autorelease_pool = std::make_unique<base::mac::ScopedNSAutoreleasePool>();
+    init_params.autorelease_pool = autorelease_pool.get();
+    InitializeMac();
 #endif
 
-  mojo::edk::Configuration mojo_config;
-  ProcessType process_type = delegate->OverrideProcessType();
+    mojo::core::Configuration mojo_config;
+    if (process_type == ProcessType::kDefault &&
+        command_line.GetSwitchValueASCII(switches::kProcessType) ==
+            switches::kProcessTypeServiceManager) {
+      mojo_config.is_broker_process = true;
+    }
+    mojo_config.max_message_num_bytes = kMaximumMojoMessageSize;
+    delegate->OverrideMojoConfiguration(&mojo_config);
+    mojo::core::Init(mojo_config);
+
+    ui::RegisterPathProvider();
+
+    tracker = base::debug::GlobalActivityTracker::Get();
+    exit_code = delegate->Initialize(init_params);
+    if (exit_code >= 0) {
+      if (tracker) {
+        tracker->SetProcessPhase(
+            base::debug::GlobalActivityTracker::PROCESS_LAUNCH_FAILED);
+        tracker->process_data().SetInt("exit-code", exit_code);
+      }
+      return exit_code;
+    }
+
+#if defined(OS_WIN)
+    // Route stdio to parent console (if any) or create one.
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kEnableLogging)) {
+      base::RouteStdioToConsole(true);
+    }
+#endif
+
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+            ::switches::kTraceToConsole)) {
+      base::trace_event::TraceConfig trace_config =
+          tracing::GetConfigForTraceToConsole();
+      base::trace_event::TraceLog::GetInstance()->SetEnabled(
+          trace_config, base::trace_event::TraceLog::RECORDING_MODE);
+    }
+  }
+
+  const auto& command_line = *base::CommandLine::ForCurrentProcess();
   if (process_type == ProcessType::kDefault) {
     std::string type_switch =
         command_line.GetSwitchValueASCII(switches::kProcessType);
     if (type_switch == switches::kProcessTypeServiceManager) {
-      mojo_config.is_broker_process = true;
       process_type = ProcessType::kServiceManager;
     } else if (type_switch == switches::kProcessTypeService) {
       process_type = ProcessType::kService;
@@ -417,40 +443,6 @@ int Main(const MainParams& params) {
       process_type = ProcessType::kEmbedder;
     }
   }
-  mojo_config.max_message_num_bytes = kMaximumMojoMessageSize;
-  delegate->OverrideMojoConfiguration(&mojo_config);
-  mojo::edk::Init(mojo_config);
-
-  ui::RegisterPathProvider();
-
-  base::debug::GlobalActivityTracker* tracker =
-      base::debug::GlobalActivityTracker::Get();
-  int exit_code = delegate->Initialize(init_params);
-  if (exit_code >= 0) {
-    if (tracker) {
-      tracker->SetProcessPhase(
-          base::debug::GlobalActivityTracker::PROCESS_LAUNCH_FAILED);
-      tracker->process_data().SetInt("exit-code", exit_code);
-    }
-    return exit_code;
-  }
-
-#if defined(OS_WIN)
-  // Route stdio to parent console (if any) or create one.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableLogging)) {
-    base::RouteStdioToConsole(true);
-  }
-#endif
-
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kTraceToConsole)) {
-    base::trace_event::TraceConfig trace_config =
-        tracing::GetConfigForTraceToConsole();
-    base::trace_event::TraceLog::GetInstance()->SetEnabled(
-        trace_config, base::trace_event::TraceLog::RECORDING_MODE);
-  }
-
   switch (process_type) {
     case ProcessType::kDefault:
       NOTREACHED();

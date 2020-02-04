@@ -147,7 +147,7 @@ QSensor *QSensorBackend::sensor() const
 }
 
 /*!
-    \fn QSensorBackend<T>::setReading(T *reading)
+    \fn template <typename T> T *QSensorBackend::setReading(T *reading)
 
     This function is called to initialize the \a reading
     classes used for a sensor.
@@ -350,6 +350,6 @@ void QSensorBackend::sensorError(int error)
     Q_EMIT d->m_sensor->sensorError(error);
 }
 
-#include "moc_qsensorbackend.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qsensorbackend.cpp"

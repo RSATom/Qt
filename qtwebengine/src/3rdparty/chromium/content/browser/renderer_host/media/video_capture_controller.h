@@ -17,9 +17,10 @@
 #include "content/browser/renderer_host/media/video_capture_provider.h"
 #include "content/common/content_export.h"
 #include "content/common/media/video_capture.h"
-#include "content/public/common/media_stream_request.h"
+#include "content/public/browser/video_capture_device_launcher.h"
 #include "media/capture/video/video_frame_receiver.h"
 #include "media/capture/video_capture_types.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
 namespace content {
 
@@ -42,9 +43,15 @@ class CONTENT_EXPORT VideoCaptureController
  public:
   VideoCaptureController(
       const std::string& device_id,
-      MediaStreamType stream_type,
+      blink::MediaStreamType stream_type,
       const media::VideoCaptureParams& params,
-      std::unique_ptr<VideoCaptureDeviceLauncher> device_launcher);
+      std::unique_ptr<VideoCaptureDeviceLauncher> device_launcher,
+      base::RepeatingCallback<void(const std::string&)> emit_log_message_cb);
+
+  // Warning: This value should not be changed, because doing so would change
+  // the meaning of logged UMA events for histograms Media.VideoCapture.Error
+  // and Media.VideoCapture.MaxFrameDropExceeded.
+  static constexpr int kMaxConsecutiveFrameDropForSameReasonCount = 10;
 
   base::WeakPtr<VideoCaptureController> GetWeakPtrForIOThread();
 
@@ -97,10 +104,8 @@ class CONTENT_EXPORT VideoCaptureController
   bool has_received_frames() const { return has_received_frames_; }
 
   // Implementation of media::VideoFrameReceiver interface:
-  void OnNewBufferHandle(
-      int buffer_id,
-      std::unique_ptr<media::VideoCaptureDevice::Client::Buffer::HandleProvider>
-          handle_provider) override;
+  void OnNewBuffer(int32_t buffer_id,
+                   media::mojom::VideoBufferHandlePtr buffer_handle) override;
   void OnFrameReadyInBuffer(
       int buffer_id,
       int frame_feedback_id,
@@ -109,7 +114,8 @@ class CONTENT_EXPORT VideoCaptureController
           buffer_read_permission,
       media::mojom::VideoFrameInfoPtr frame_info) override;
   void OnBufferRetired(int buffer_id) override;
-  void OnError() override;
+  void OnError(media::VideoCaptureError error) override;
+  void OnFrameDropped(media::VideoCaptureFrameDropReason reason) override;
   void OnLog(const std::string& message) override;
   void OnStarted() override;
   void OnStartedUsingGpuDecode() override;
@@ -117,7 +123,7 @@ class CONTENT_EXPORT VideoCaptureController
   // Implementation of VideoCaptureDeviceLauncher::Callbacks interface:
   void OnDeviceLaunched(
       std::unique_ptr<LaunchedVideoCaptureDevice> device) override;
-  void OnDeviceLaunchFailed() override;
+  void OnDeviceLaunchFailed(media::VideoCaptureError error) override;
   void OnDeviceLaunchAborted() override;
 
   void OnDeviceConnectionLost();
@@ -140,7 +146,7 @@ class CONTENT_EXPORT VideoCaptureController
                                       base::OnceClosure done_cb);
   int serial_id() const { return serial_id_; }
   const std::string& device_id() const { return device_id_; }
-  MediaStreamType stream_type() const { return stream_type_; }
+  blink::MediaStreamType stream_type() const { return stream_type_; }
   const media::VideoCaptureParams& parameters() const { return parameters_; }
 
  private:
@@ -154,13 +160,16 @@ class CONTENT_EXPORT VideoCaptureController
         int buffer_context_id,
         int buffer_id,
         media::VideoFrameConsumerFeedbackObserver* consumer_feedback_observer,
-        mojo::ScopedSharedBufferHandle handle);
+        media::mojom::VideoBufferHandlePtr buffer_handle);
     ~BufferContext();
     BufferContext(BufferContext&& other);
     BufferContext& operator=(BufferContext&& other);
     int buffer_context_id() const { return buffer_context_id_; }
     int buffer_id() const { return buffer_id_; }
     bool is_retired() const { return is_retired_; }
+    const media::mojom::VideoBufferHandlePtr& buffer_handle() const {
+      return buffer_handle_;
+    }
     void set_is_retired() { is_retired_ = true; }
     void set_frame_feedback_id(int id) { frame_feedback_id_ = id; }
     void set_consumer_feedback_observer(
@@ -177,7 +186,7 @@ class CONTENT_EXPORT VideoCaptureController
     void IncreaseConsumerCount();
     void DecreaseConsumerCount();
     bool HasConsumers() const { return consumer_hold_count_ > 0; }
-    mojo::ScopedSharedBufferHandle CloneHandle();
+    media::mojom::VideoBufferHandlePtr CloneBufferHandle();
 
    private:
     int buffer_context_id_;
@@ -185,12 +194,22 @@ class CONTENT_EXPORT VideoCaptureController
     bool is_retired_;
     int frame_feedback_id_;
     media::VideoFrameConsumerFeedbackObserver* consumer_feedback_observer_;
-    mojo::ScopedSharedBufferHandle buffer_handle_;
+    media::mojom::VideoBufferHandlePtr buffer_handle_;
     double max_consumer_utilization_;
     int consumer_hold_count_;
     std::unique_ptr<
         media::VideoCaptureDevice::Client::Buffer::ScopedAccessPermission>
         buffer_read_permission_;
+  };
+
+  struct FrameDropLogState {
+    FrameDropLogState(media::VideoCaptureFrameDropReason reason =
+                          media::VideoCaptureFrameDropReason::kNone);
+
+    int drop_count = 0;
+    media::VideoCaptureFrameDropReason drop_reason =
+        media::VideoCaptureFrameDropReason::kNone;
+    bool max_log_count_exceeded = false;
   };
 
   ~VideoCaptureController() override;
@@ -216,15 +235,18 @@ class CONTENT_EXPORT VideoCaptureController
       const std::vector<BufferContext>::iterator& buffer_state_iter);
 
   using EventHandlerAction =
-      base::Callback<void(VideoCaptureControllerEventHandler* client,
-                          VideoCaptureControllerID id)>;
+      base::RepeatingCallback<void(VideoCaptureControllerEventHandler* client,
+                                   VideoCaptureControllerID id)>;
   void PerformForClientsWithOpenSession(EventHandlerAction action);
+
+  void EmitLogMessage(const std::string& message, int verbose_log_level);
 
   const int serial_id_;
   const std::string device_id_;
-  const MediaStreamType stream_type_;
+  const blink::MediaStreamType stream_type_;
   const media::VideoCaptureParams parameters_;
   std::unique_ptr<VideoCaptureDeviceLauncher> device_launcher_;
+  base::RepeatingCallback<void(const std::string&)> emit_log_message_cb_;
   std::unique_ptr<LaunchedVideoCaptureDevice> launched_device_;
   VideoCaptureDeviceLaunchObserver* device_launch_observer_;
 
@@ -236,6 +258,8 @@ class CONTENT_EXPORT VideoCaptureController
   // Takes on only the states 'STARTING', 'STARTED' and 'ERROR'. 'ERROR' is an
   // absorbing state which stops the flow of data to clients.
   VideoCaptureState state_;
+
+  FrameDropLogState frame_drop_log_state_;
 
   int next_buffer_context_id_ = 0;
 

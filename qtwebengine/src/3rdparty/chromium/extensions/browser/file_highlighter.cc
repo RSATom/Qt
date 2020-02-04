@@ -4,9 +4,7 @@
 
 #include "extensions/browser/file_highlighter.h"
 
-#include <stack>
-
-#include "base/strings/utf_string_conversions.h"
+#include "base/containers/stack.h"
 #include "base/values.h"
 
 namespace extensions {
@@ -59,7 +57,7 @@ void CommentSafeIncrement(const std::string& str, size_t* index) {
 // |index| currently points to a chunk's starting character ('{', '[', or '"').
 void ChunkIncrement(const std::string& str, size_t* index, size_t end) {
   char c = str[*index];
-  std::stack<char> stack;
+  base::stack<char> stack;
   do {
     if (c == '"')
       QuoteIncrement(str, index);
@@ -98,15 +96,15 @@ std::string FileHighlighter::GetAfterFeature() const {
 void FileHighlighter::SetHighlightedRegions(base::DictionaryValue* dict) const {
   std::string before_feature = GetBeforeFeature();
   if (!before_feature.empty())
-    dict->SetString(kBeforeHighlightKey, base::UTF8ToUTF16(before_feature));
+    dict->SetString(kBeforeHighlightKey, before_feature);
 
   std::string feature = GetFeature();
   if (!feature.empty())
-    dict->SetString(kHighlightKey, base::UTF8ToUTF16(feature));
+    dict->SetString(kHighlightKey, feature);
 
   std::string after_feature = GetAfterFeature();
   if (!after_feature.empty())
-    dict->SetString(kAfterHighlightKey, base::UTF8ToUTF16(after_feature));
+    dict->SetString(kAfterHighlightKey, after_feature);
 }
 
 ManifestHighlighter::ManifestHighlighter(const std::string& manifest,

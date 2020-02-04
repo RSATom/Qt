@@ -5,6 +5,20 @@
 (function() {
 'use strict';
 
+const categoryLabels = {
+  app_cache: loadTimeData.getString('cookieAppCache'),
+  cache_storage: loadTimeData.getString('cookieCacheStorage'),
+  channel_id: loadTimeData.getString('cookieChannelId'),
+  database: loadTimeData.getString('cookieDatabaseStorage'),
+  file_system: loadTimeData.getString('cookieFileSystem'),
+  flash_lso: loadTimeData.getString('cookieFlashLso'),
+  indexed_db: loadTimeData.getString('cookieDatabaseStorage'),
+  local_storage: loadTimeData.getString('cookieLocalStorage'),
+  service_worker: loadTimeData.getString('cookieServiceWorker'),
+  shared_worker: loadTimeData.getString('cookieSharedWorker'),
+  media_license: loadTimeData.getString('cookieMediaLicense'),
+};
+
 /**
  * 'site-data-details-subpage' Display cookie contents.
  */
@@ -36,17 +50,16 @@ Polymer({
 
   /**
    * The browser proxy used to retrieve and change cookies.
-   * @private {?settings.SiteSettingsPrefsBrowserProxy}
+   * @private {?settings.LocalDataBrowserProxy}
    */
   browserProxy_: null,
 
   /** @override */
   ready: function() {
-    this.browserProxy_ =
-        settings.SiteSettingsPrefsBrowserProxyImpl.getInstance();
+    this.browserProxy_ = settings.LocalDataBrowserProxyImpl.getInstance();
 
     this.addWebUIListener(
-        'onTreeItemRemoved', this.getCookieDetails_.bind(this));
+        'on-tree-item-removed', this.getCookieDetails_.bind(this));
   },
 
   /**
@@ -56,11 +69,13 @@ Polymer({
    */
   currentRouteChanged: function(route) {
     if (settings.getCurrentRoute() !=
-        settings.routes.SITE_SETTINGS_DATA_DETAILS)
+        settings.routes.SITE_SETTINGS_DATA_DETAILS) {
       return;
-    var site = settings.getQueryParameters().get('site');
-    if (!site || site == this.site_)
+    }
+    const site = settings.getQueryParameters().get('site');
+    if (!site) {
       return;
+    }
     this.site_ = site;
     this.pageTitle = loadTimeData.getStringF('siteSettingsCookieSubpage', site);
     this.getCookieDetails_();
@@ -68,8 +83,9 @@ Polymer({
 
   /** @private */
   getCookieDetails_: function() {
-    if (!this.site_)
+    if (!this.site_) {
       return;
+    }
     this.browserProxy_.getCookieDetails(this.site_)
         .then(
             this.onCookiesLoaded_.bind(this),
@@ -117,9 +133,13 @@ Polymer({
     // Frequently there are multiple cookies per site. To avoid showing a list
     // of '1 cookie', '1 cookie', ... etc, it is better to show the title of the
     // cookie to differentiate them.
-    if (item.type == 'cookie')
+    if (item.type == 'cookie') {
       return item.title;
-    return getCookieDataCategoryText(item.type, item.totalUsage);
+    }
+    if (item.type == 'quota') {
+      return item.totalUsage;
+    }
+    return categoryLabels[item.type];
   },
 
   /**

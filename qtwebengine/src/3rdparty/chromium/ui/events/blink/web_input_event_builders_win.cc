@@ -4,6 +4,7 @@
 
 #include "ui/events/blink/web_input_event_builders_win.h"
 
+#include "base/win/windowsx_shim.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/event_utils.h"
@@ -18,68 +19,10 @@ namespace ui {
 static const unsigned long kDefaultScrollLinesPerWheelDelta = 3;
 static const unsigned long kDefaultScrollCharsPerWheelDelta = 1;
 
-WebKeyboardEvent WebKeyboardEventBuilder::Build(HWND hwnd,
-                                                UINT message,
-                                                WPARAM wparam,
-                                                LPARAM lparam,
-                                                double time_stamp) {
-  WebInputEvent::Type type = WebInputEvent::kUndefined;
-  bool is_system_key = false;
-  switch (message) {
-    case WM_SYSKEYDOWN:
-      is_system_key = true;
-    // fallthrough
-    case WM_KEYDOWN:
-      type = WebInputEvent::kRawKeyDown;
-      break;
-    case WM_SYSKEYUP:
-      is_system_key = true;
-    // fallthrough
-    case WM_KEYUP:
-      type = WebInputEvent::kKeyUp;
-      break;
-    case WM_IME_CHAR:
-      type = WebInputEvent::kChar;
-      break;
-    case WM_SYSCHAR:
-      is_system_key = true;
-    // fallthrough
-    case WM_CHAR:
-      type = WebInputEvent::kChar;
-      break;
-    default:
-      NOTREACHED();
-  }
-
-  WebKeyboardEvent result(
-      type, ui::EventFlagsToWebEventModifiers(ui::GetModifiersFromKeyState()),
-      time_stamp);
-  result.is_system_key = is_system_key;
-  result.windows_key_code = static_cast<int>(wparam);
-  // Record the scan code (along with other context bits) for this key event.
-  result.native_key_code = static_cast<int>(lparam);
-
-  if (result.GetType() == WebInputEvent::kChar ||
-      result.GetType() == WebInputEvent::kRawKeyDown) {
-    result.text[0] = result.windows_key_code;
-    result.unmodified_text[0] = result.windows_key_code;
-  }
-  // NOTE: There doesn't seem to be a way to query the mouse button state in
-  // this case.
-
-  // Bit 30 of lParam represents the "previous key state". If set, the key was
-  // already down, therefore this is an auto-repeat. Only apply this to key
-  // down events, to match DOM semantics.
-  if ((result.GetType() == WebInputEvent::kRawKeyDown) && (lparam & 0x40000000))
-    result.SetModifiers(result.GetModifiers() | WebInputEvent::kIsAutoRepeat);
-
-  return result;
-}
-
 // WebMouseEvent --------------------------------------------------------------
 
 static int g_last_click_count = 0;
-static double g_last_click_time = 0;
+static base::TimeTicks g_last_click_time;
 
 static LPARAM GetRelativeCursorPos(HWND hwnd) {
   POINT pos = {-1, -1};
@@ -93,7 +36,7 @@ WebMouseEvent WebMouseEventBuilder::Build(
     UINT message,
     WPARAM wparam,
     LPARAM lparam,
-    double time_stamp,
+    base::TimeTicks time_stamp,
     blink::WebPointerProperties::PointerType pointer_type) {
   WebInputEvent::Type type = WebInputEvent::Type::kUndefined;
   WebMouseEvent::Button button = WebMouseEvent::Button::kNoButton;
@@ -134,6 +77,14 @@ WebMouseEvent WebMouseEventBuilder::Build(
       type = WebInputEvent::kMouseDown;
       button = WebMouseEvent::Button::kRight;
       break;
+    case WM_XBUTTONDOWN:
+    case WM_XBUTTONDBLCLK:
+      type = WebInputEvent::kMouseDown;
+      if ((HIWORD(wparam) & XBUTTON1))
+        button = WebMouseEvent::Button::kBack;
+      else if ((HIWORD(wparam) & XBUTTON2))
+        button = WebMouseEvent::Button::kForward;
+      break;
     case WM_LBUTTONUP:
       type = WebInputEvent::kMouseUp;
       button = WebMouseEvent::Button::kLeft;
@@ -145,6 +96,13 @@ WebMouseEvent WebMouseEventBuilder::Build(
     case WM_RBUTTONUP:
       type = WebInputEvent::kMouseUp;
       button = WebMouseEvent::Button::kRight;
+      break;
+    case WM_XBUTTONUP:
+      type = WebInputEvent::kMouseUp;
+      if ((HIWORD(wparam) & XBUTTON1))
+        button = WebMouseEvent::Button::kBack;
+      else if ((HIWORD(wparam) & XBUTTON2))
+        button = WebMouseEvent::Button::kForward;
       break;
     default:
       NOTREACHED();
@@ -163,22 +121,25 @@ WebMouseEvent WebMouseEventBuilder::Build(
     modifiers |= WebInputEvent::kMiddleButtonDown;
   if (wparam & MK_RBUTTON)
     modifiers |= WebInputEvent::kRightButtonDown;
+  if (wparam & MK_XBUTTON1)
+    modifiers |= WebInputEvent::kBackButtonDown;
+  if (wparam & MK_XBUTTON2)
+    modifiers |= WebInputEvent::kForwardButtonDown;
 
   WebMouseEvent result(type, modifiers, time_stamp);
   result.pointer_type = pointer_type;
   result.button = button;
 
   // set position fields:
-  result.SetPositionInWidget(static_cast<short>(LOWORD(lparam)),
-                             static_cast<short>(HIWORD(lparam)));
+  result.SetPositionInWidget(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
 
   POINT global_point = {result.PositionInWidget().x,
                         result.PositionInWidget().y};
   ClientToScreen(hwnd, &global_point);
 
   // We need to convert the global point back to DIP before using it.
-  gfx::Point dip_global_point = display::win::ScreenWin::ScreenToDIPPoint(
-      gfx::Point(global_point.x, global_point.y));
+  gfx::PointF dip_global_point = display::win::ScreenWin::ScreenToDIPPoint(
+      gfx::PointF(global_point.x, global_point.y));
 
   result.SetPositionInScreen(dip_global_point.x(), dip_global_point.y());
 
@@ -190,13 +151,14 @@ WebMouseEvent WebMouseEventBuilder::Build(
   static int last_click_position_y;
   static WebMouseEvent::Button last_click_button = WebMouseEvent::Button::kLeft;
 
-  double current_time = result.TimeStampSeconds();
+  base::TimeTicks current_time = result.TimeStamp();
   bool cancel_previous_click =
       (abs(last_click_position_x - result.PositionInWidget().x) >
        (::GetSystemMetrics(SM_CXDOUBLECLK) / 2)) ||
       (abs(last_click_position_y - result.PositionInWidget().y) >
        (::GetSystemMetrics(SM_CYDOUBLECLK) / 2)) ||
-      ((current_time - g_last_click_time) * 1000.0 > ::GetDoubleClickTime());
+      ((current_time - g_last_click_time).InMilliseconds() >
+       ::GetDoubleClickTime());
 
   if (result.GetType() == WebInputEvent::kMouseDown) {
     if (!cancel_previous_click && (result.button == last_click_button)) {
@@ -214,7 +176,7 @@ WebMouseEvent WebMouseEventBuilder::Build(
       g_last_click_count = 0;
       last_click_position_x = 0;
       last_click_position_y = 0;
-      g_last_click_time = 0;
+      g_last_click_time = base::TimeTicks();
     }
   }
   result.click_count = g_last_click_count;
@@ -229,7 +191,7 @@ WebMouseWheelEvent WebMouseWheelEventBuilder::Build(
     UINT message,
     WPARAM wparam,
     LPARAM lparam,
-    double time_stamp,
+    base::TimeTicks time_stamp,
     blink::WebPointerProperties::PointerType pointer_type) {
   WebMouseWheelEvent result(
       WebInputEvent::kMouseWheel,
@@ -285,8 +247,7 @@ WebMouseWheelEvent WebMouseWheelEventBuilder::Build(
     // Non-synthesized event; we can just read data off the event.
     key_state = GET_KEYSTATE_WPARAM(wparam);
 
-    result.SetPositionInScreen(static_cast<short>(LOWORD(lparam)),
-                               static_cast<short>(HIWORD(lparam)));
+    result.SetPositionInScreen(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
 
     // Currently we leave hasPreciseScrollingDeltas false, even for trackpad
     // scrolls that generate WM_MOUSEWHEEL, since we don't have a good way to

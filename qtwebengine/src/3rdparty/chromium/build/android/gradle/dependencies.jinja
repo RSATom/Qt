@@ -15,14 +15,14 @@
 {% endif %}
 {% if variables.android_project_deps is defined %}
 {% for proj in variables.android_project_deps %}
-    {{ prefix }} project(path: ":{{ proj }}", configuration: "debug")
+    {{ prefix }} project(path: ":{{ proj }}")
 {% endfor %}
 {% endif %}
 {% endif %}
 {% endmacro %}
 
 dependencies {
-{{ expand_deps(main, 'compile') }}
-{{ expand_deps(test, 'testCompile') }}
-{{ expand_deps(android_test, 'androidTestCompile') }}
+{{ expand_deps(main, 'implementation') }}
+{{ expand_deps(test, 'testImplementation') }}
+{{ expand_deps(android_test, 'androidTestImplementation') }}
 }

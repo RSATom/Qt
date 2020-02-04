@@ -40,11 +40,14 @@
 #include "qwaylandivisurface.h"
 #include "qwaylandivisurface_p.h"
 #include "qwaylandiviapplication_p.h"
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 #include "qwaylandivisurfaceintegration_p.h"
 #endif
 
 #include <QtWaylandCompositor/QWaylandResource>
+#include <QDebug>
+
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -181,10 +184,9 @@ QWaylandSurfaceRole *QWaylandIviSurface::role()
  */
 QWaylandIviSurface *QWaylandIviSurface::fromResource(wl_resource *resource)
 {
-    auto iviSurfaceResource = QWaylandIviSurfacePrivate::Resource::fromResource(resource);
-    if (!iviSurfaceResource)
-        return nullptr;
-    return static_cast<QWaylandIviSurfacePrivate *>(iviSurfaceResource->ivi_surface_object)->q_func();
+    if (auto p = QtWayland::fromResource<QWaylandIviSurfacePrivate *>(resource))
+        return p->q_func();
+    return nullptr;
 }
 
 /*!
@@ -198,11 +200,15 @@ QWaylandIviSurface *QWaylandIviSurface::fromResource(wl_resource *resource)
  */
 void QWaylandIviSurface::sendConfigure(const QSize &size)
 {
+    if (!size.isValid()) {
+        qWarning() << "Can't configure ivi_surface with an invalid size" << size;
+        return;
+    }
     Q_D(QWaylandIviSurface);
     d->send_configure(size.width(), size.height());
 }
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 QWaylandQuickShellIntegration *QWaylandIviSurface::createIntegration(QWaylandQuickShellSurfaceItem *item)
 {
     return new QtWayland::IviSurfaceIntegration(item);
@@ -218,11 +224,6 @@ void QWaylandIviSurface::initialize()
 }
 
 QWaylandIviSurfacePrivate::QWaylandIviSurfacePrivate()
-    : QWaylandCompositorExtensionPrivate()
-    , ivi_surface()
-    , m_iviApplication(nullptr)
-    , m_surface(nullptr)
-    , m_iviId(UINT_MAX)
 {
 }
 

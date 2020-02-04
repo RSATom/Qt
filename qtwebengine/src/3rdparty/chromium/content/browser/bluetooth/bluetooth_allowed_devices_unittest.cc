@@ -14,8 +14,10 @@ using device::BluetoothUUID;
 
 namespace content {
 namespace {
-const url::Origin kTestOrigin1(GURL("https://www.example1.com"));
-const url::Origin kTestOrigin2(GURL("https://www.example2.com"));
+const url::Origin kTestOrigin1 =
+    url::Origin::Create(GURL("https://www.example1.com"));
+const url::Origin kTestOrigin2 =
+    url::Origin::Create(GURL("https://www.example2.com"));
 
 const std::string kDeviceAddress1 = "00:00:00";
 const std::string kDeviceAddress2 = "11:11:11";
@@ -114,8 +116,8 @@ TEST_F(BluetoothAllowedDevicesTest, AddTwoDevicesFromTwoOriginsToMap) {
   EXPECT_EQ(nullptr, allowed_devices1.GetDeviceId(kDeviceAddress2));
   EXPECT_EQ(nullptr, allowed_devices2.GetDeviceId(kDeviceAddress1));
 
-  EXPECT_EQ(base::EmptyString(), allowed_devices1.GetDeviceAddress(device_id2));
-  EXPECT_EQ(base::EmptyString(), allowed_devices2.GetDeviceAddress(device_id1));
+  EXPECT_EQ(std::string(), allowed_devices1.GetDeviceAddress(device_id2));
+  EXPECT_EQ(std::string(), allowed_devices2.GetDeviceAddress(device_id1));
 
   // Test that we can retrieve the device address/id.
   EXPECT_EQ(device_id1, *(allowed_devices1.GetDeviceId(kDeviceAddress1)));
@@ -141,8 +143,8 @@ TEST_F(BluetoothAllowedDevicesTest, AddDeviceFromTwoOriginsToMap) {
   EXPECT_NE(device_id1, device_id2);
 
   // Test that the wrong origin doesn't have access to the device.
-  EXPECT_EQ(base::EmptyString(), allowed_devices1.GetDeviceAddress(device_id2));
-  EXPECT_EQ(base::EmptyString(), allowed_devices2.GetDeviceAddress(device_id1));
+  EXPECT_EQ(std::string(), allowed_devices1.GetDeviceAddress(device_id2));
+  EXPECT_EQ(std::string(), allowed_devices2.GetDeviceAddress(device_id1));
 }
 
 TEST_F(BluetoothAllowedDevicesTest, AddRemoveAddDevice) {
@@ -167,7 +169,7 @@ TEST_F(BluetoothAllowedDevicesTest, RemoveDevice) {
   allowed_devices.RemoveDevice(kDeviceAddress1);
 
   EXPECT_EQ(nullptr, allowed_devices.GetDeviceId(kDeviceAddress1));
-  EXPECT_EQ(base::EmptyString(), allowed_devices.GetDeviceAddress(device_id));
+  EXPECT_EQ(std::string(), allowed_devices.GetDeviceAddress(device_id));
 }
 
 TEST_F(BluetoothAllowedDevicesTest, NoPermissionForAnyService) {

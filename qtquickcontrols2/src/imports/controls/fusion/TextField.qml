@@ -34,21 +34,20 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Fusion 2.3
-import QtQuick.Controls.Fusion.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Fusion 2.12
+import QtQuick.Controls.Fusion.impl 2.12
 
 T.TextField {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            placeholderText ? placeholder.implicitWidth + leftPadding + rightPadding : 0)
-                            || contentWidth + leftPadding + rightPadding
-    implicitHeight: Math.max(contentHeight + topPadding + bottomPadding,
-                             background ? background.implicitHeight : 0,
+    implicitWidth: implicitBackgroundWidth + leftInset + rightInset
+                   || Math.max(contentWidth, placeholder.implicitWidth) + leftPadding + rightPadding
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             contentHeight + topPadding + bottomPadding,
                              placeholder.implicitHeight + topPadding + bottomPadding)
 
     padding: 4
@@ -56,6 +55,7 @@ T.TextField {
     color: control.palette.text
     selectionColor: control.palette.highlight
     selectedTextColor: control.palette.highlightedText
+    placeholderTextColor: Color.transparent(control.color, 0.5)
     verticalAlignment: TextInput.AlignVCenter
 
     PlaceholderText {
@@ -65,13 +65,13 @@ T.TextField {
         width: control.width - (control.leftPadding + control.rightPadding)
         height: control.height - (control.topPadding + control.bottomPadding)
 
-        opacity: 0.5
         text: control.placeholderText
         font: control.font
-        color: control.palette.text
+        color: control.placeholderTextColor
         verticalAlignment: control.verticalAlignment
         visible: !control.length && !control.preeditText && (!control.activeFocus || control.horizontalAlignment !== Qt.AlignHCenter)
         elide: Text.ElideRight
+        renderType: control.renderType
     }
 
     background: Rectangle {

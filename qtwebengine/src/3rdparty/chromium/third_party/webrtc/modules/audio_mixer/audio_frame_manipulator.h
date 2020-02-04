@@ -8,10 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_MIXER_AUDIO_FRAME_MANIPULATOR_H_
-#define WEBRTC_MODULES_AUDIO_MIXER_AUDIO_FRAME_MANIPULATOR_H_
+#ifndef MODULES_AUDIO_MIXER_AUDIO_FRAME_MANIPULATOR_H_
+#define MODULES_AUDIO_MIXER_AUDIO_FRAME_MANIPULATOR_H_
 
-#include "webrtc/modules/include/module_common_types.h"
+#include <stddef.h>
+#include <stdint.h>
+
+#include "api/audio/audio_frame.h"
 
 namespace webrtc {
 
@@ -27,4 +30,4 @@ void RemixFrame(size_t target_number_of_channels, AudioFrame* frame);
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_MIXER_AUDIO_FRAME_MANIPULATOR_H_
+#endif  // MODULES_AUDIO_MIXER_AUDIO_FRAME_MANIPULATOR_H_

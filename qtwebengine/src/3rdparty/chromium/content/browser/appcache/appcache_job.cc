@@ -16,54 +16,11 @@
 
 namespace content {
 
-std::unique_ptr<AppCacheJob> AppCacheJob::Create(
-    bool is_main_resource,
-    AppCacheHost* host,
-    AppCacheStorage* storage,
-    AppCacheRequest* request,
-    net::NetworkDelegate* network_delegate,
-    const OnPrepareToRestartCallback& restart_callback) {
-  std::unique_ptr<AppCacheJob> job;
-  if (base::FeatureList::IsEnabled(features::kNetworkService)) {
-    job.reset(new AppCacheURLLoaderJob(*(request->GetResourceRequest()),
-                                       request->AsURLLoaderRequest(), storage));
-  } else {
-    job.reset(new AppCacheURLRequestJob(request->GetURLRequest(),
-                                        network_delegate, storage, host,
-                                        is_main_resource, restart_callback));
-  }
-  return job;
-}
-
 AppCacheJob::~AppCacheJob() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
-bool AppCacheJob::IsWaiting() const {
-  return delivery_type_ == AWAITING_DELIVERY_ORDERS;
-}
-
-bool AppCacheJob::IsDeliveringAppCacheResponse() const {
-  return delivery_type_ == APPCACHED_DELIVERY;
-}
-
-bool AppCacheJob::IsDeliveringNetworkResponse() const {
-  return delivery_type_ == NETWORK_DELIVERY;
-}
-
-bool AppCacheJob::IsDeliveringErrorResponse() const {
-  return delivery_type_ == ERROR_DELIVERY;
-}
-
-bool AppCacheJob::IsCacheEntryNotFound() const {
-  return cache_entry_not_found_;
-}
-
-base::WeakPtr<AppCacheJob> AppCacheJob::GetWeakPtr() {
-  return weak_factory_.GetWeakPtr();
-}
-
-net::URLRequestJob* AppCacheJob::AsURLRequestJob() {
+AppCacheURLRequestJob* AppCacheJob::AsURLRequestJob() {
   return nullptr;
 }
 
@@ -73,8 +30,7 @@ AppCacheURLLoaderJob* AppCacheJob::AsURLLoaderJob() {
 
 AppCacheJob::AppCacheJob()
     : cache_entry_not_found_(false),
-      delivery_type_(AWAITING_DELIVERY_ORDERS),
-      weak_factory_(this) {}
+      delivery_type_(DeliveryType::kAwaitingDeliverCall) {}
 
 void AppCacheJob::InitializeRangeRequestInfo(
     const net::HttpRequestHeaders& headers) {
@@ -109,8 +65,8 @@ void AppCacheJob::SetupRangeResponse() {
 
   // Make a copy of the full response headers and fix them up
   // for the range we'll be returning.
-  range_response_info_.reset(
-      new net::HttpResponseInfo(*info_->http_response_info()));
+  range_response_info_ =
+      std::make_unique<net::HttpResponseInfo>(info_->http_response_info());
   net::HttpResponseHeaders* headers = range_response_info_->headers.get();
   headers->UpdateWithNewRange(range_requested_, resource_size,
                               true /* replace status line */);

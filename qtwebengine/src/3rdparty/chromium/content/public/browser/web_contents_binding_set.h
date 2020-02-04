@@ -10,7 +10,6 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -116,7 +115,7 @@ class WebContentsFrameBindingSet : public WebContentsBindingSet {
       : WebContentsBindingSet(
             web_contents,
             Interface::Name_,
-            base::MakeUnique<FrameInterfaceBinder>(this, web_contents, impl)) {}
+            std::make_unique<FrameInterfaceBinder>(this, web_contents, impl)) {}
   ~WebContentsFrameBindingSet() {}
 
   // Returns the RenderFrameHost currently targeted by a message dispatch to

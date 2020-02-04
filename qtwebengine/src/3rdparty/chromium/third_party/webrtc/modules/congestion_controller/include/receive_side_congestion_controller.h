@@ -8,15 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_CONGESTION_CONTROLLER_INCLUDE_RECEIVE_SIDE_CONGESTION_CONTROLLER_H_
-#define WEBRTC_MODULES_CONGESTION_CONTROLLER_INCLUDE_RECEIVE_SIDE_CONGESTION_CONTROLLER_H_
+#ifndef MODULES_CONGESTION_CONTROLLER_INCLUDE_RECEIVE_SIDE_CONGESTION_CONTROLLER_H_
+#define MODULES_CONGESTION_CONTROLLER_INCLUDE_RECEIVE_SIDE_CONGESTION_CONTROLLER_H_
 
 #include <memory>
 #include <vector>
 
-#include "webrtc/modules/remote_bitrate_estimator/remote_estimator_proxy.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/criticalsection.h"
+#include "modules/remote_bitrate_estimator/remote_estimator_proxy.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/critical_section.h"
 
 namespace webrtc {
 class RemoteBitrateEstimator;
@@ -30,11 +30,10 @@ class RemoteBitrateObserver;
 class ReceiveSideCongestionController : public CallStatsObserver,
                                         public Module {
  public:
-  ReceiveSideCongestionController(
-      const Clock* clock,
-      PacketRouter* packet_router);
+  ReceiveSideCongestionController(const Clock* clock,
+                                  PacketRouter* packet_router);
 
-  virtual ~ReceiveSideCongestionController() {}
+  ~ReceiveSideCongestionController() override {}
 
   virtual void OnReceivedPacket(int64_t arrival_time_ms,
                                 size_t payload_size,
@@ -61,7 +60,7 @@ class ReceiveSideCongestionController : public CallStatsObserver,
     WrappingBitrateEstimator(RemoteBitrateObserver* observer,
                              const Clock* clock);
 
-    virtual ~WrappingBitrateEstimator() {}
+    ~WrappingBitrateEstimator() override;
 
     void IncomingPacket(int64_t arrival_time_ms,
                         size_t payload_size,
@@ -82,8 +81,8 @@ class ReceiveSideCongestionController : public CallStatsObserver,
 
    private:
     void PickEstimatorFromHeader(const RTPHeader& header)
-        EXCLUSIVE_LOCKS_REQUIRED(crit_sect_);
-    void PickEstimator() EXCLUSIVE_LOCKS_REQUIRED(crit_sect_);
+        RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_sect_);
+    void PickEstimator() RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_sect_);
     RemoteBitrateObserver* observer_;
     const Clock* const clock_;
     rtc::CriticalSection crit_sect_;
@@ -101,4 +100,4 @@ class ReceiveSideCongestionController : public CallStatsObserver,
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_CONGESTION_CONTROLLER_INCLUDE_RECEIVE_SIDE_CONGESTION_CONTROLLER_H_
+#endif  // MODULES_CONGESTION_CONTROLLER_INCLUDE_RECEIVE_SIDE_CONGESTION_CONTROLLER_H_

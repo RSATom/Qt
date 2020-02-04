@@ -53,8 +53,6 @@
 ** QToolBarAreaLayoutItem
 */
 
-#ifndef QT_NO_TOOLBAR
-
 QT_BEGIN_NAMESPACE
 
 // qmainwindow.cpp
@@ -791,7 +789,7 @@ void QToolBarAreaLayout::deleteAllLayoutItems()
     }
 }
 
-QInternal::DockPosition QToolBarAreaLayout::findToolBar(QToolBar *toolBar) const
+QInternal::DockPosition QToolBarAreaLayout::findToolBar(const QToolBar *toolBar) const
 {
     for (int i = 0; i < QInternal::DockCount; ++i) {
         const QToolBarAreaLayoutInfo &dock = docks[i];
@@ -1080,7 +1078,11 @@ bool QToolBarAreaLayout::insertGap(const QList<int> &path, QLayoutItem *item)
 void QToolBarAreaLayout::remove(const QList<int> &path)
 {
     Q_ASSERT(path.count() == 3);
-    docks[path.at(0)].lines[path.at(1)].toolBarItems.removeAt(path.at(2));
+    QToolBarAreaLayoutInfo &dock = docks[path.at(0)];
+    QToolBarAreaLayoutLine &line = dock.lines[path.at(1)];
+    line.toolBarItems.removeAt(path.at(2));
+    if (line.toolBarItems.isEmpty())
+        dock.lines.removeAt(path.at(1));
 }
 
 void QToolBarAreaLayout::remove(QLayoutItem *item)
@@ -1391,5 +1393,3 @@ bool QToolBarAreaLayout::isEmpty() const
 }
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_TOOLBAR

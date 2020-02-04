@@ -12,19 +12,85 @@
 
 namespace content {
 
-NativeWebKeyboardEvent::NativeWebKeyboardEvent(blink::WebInputEvent::Type type,
-                                               int modifiers,
-                                               base::TimeTicks timestamp)
-    : NativeWebKeyboardEvent(type,
-                             modifiers,
-                             ui::EventTimeStampToSeconds(timestamp)) {}
+namespace {
+
+int modifiersForEvent(int modifiers) {
+  int flags = 0;
+  if (modifiers & blink::WebInputEvent::kControlKey)
+    flags |= NSControlKeyMask;
+  if (modifiers & blink::WebInputEvent::kShiftKey)
+    flags |= NSShiftKeyMask;
+  if (modifiers & blink::WebInputEvent::kAltKey)
+    flags |= NSAlternateKeyMask;
+  if (modifiers & blink::WebInputEvent::kMetaKey)
+    flags |= NSCommandKeyMask;
+  if (modifiers & blink::WebInputEvent::kCapsLockOn)
+    flags |= NSAlphaShiftKeyMask;
+  return flags;
+}
+
+size_t WebKeyboardEventTextLength(const blink::WebUChar* text) {
+  size_t text_length = 0;
+  while (text_length < blink::WebKeyboardEvent::kTextLengthCap &&
+         text[text_length]) {
+    ++text_length;
+  }
+  return text_length;
+}
+
+}  // namepsace
 
 NativeWebKeyboardEvent::NativeWebKeyboardEvent(blink::WebInputEvent::Type type,
                                                int modifiers,
-                                               double timestampSeconds)
-    : WebKeyboardEvent(type, modifiers, timestampSeconds),
+                                               base::TimeTicks timestamp)
+    : WebKeyboardEvent(type, modifiers, timestamp),
       os_event(NULL),
       skip_in_browser(false) {}
+
+NativeWebKeyboardEvent::NativeWebKeyboardEvent(
+    const blink::WebKeyboardEvent& web_event,
+    gfx::NativeView native_view)
+    : WebKeyboardEvent(web_event), os_event(nullptr), skip_in_browser(false) {
+  NSEventType type = NSKeyUp;
+  int flags = modifiersForEvent(web_event.GetModifiers());
+  if (web_event.GetType() == blink::WebInputEvent::kChar ||
+      web_event.GetType() == blink::WebInputEvent::kRawKeyDown ||
+      web_event.GetType() == blink::WebInputEvent::kKeyDown) {
+    type = NSKeyDown;
+  }
+  size_t text_length = WebKeyboardEventTextLength(web_event.text);
+  size_t unmod_text_length =
+      WebKeyboardEventTextLength(web_event.unmodified_text);
+
+  if (text_length == 0)
+    type = NSFlagsChanged;
+
+  NSString* text =
+      [[[NSString alloc] initWithCharacters:web_event.text length:text_length]
+          autorelease];
+  NSString* unmodified_text =
+      [[[NSString alloc] initWithCharacters:web_event.unmodified_text
+                                     length:unmod_text_length] autorelease];
+
+  os_event = [[NSEvent keyEventWithType:type
+                               location:NSZeroPoint
+                          modifierFlags:flags
+                              timestamp:ui::EventTimeStampToSeconds(
+                                            web_event.TimeStamp())
+                           windowNumber:[[native_view.GetNativeNSView() window]
+                                            windowNumber]
+                                context:nil
+                             characters:text
+            charactersIgnoringModifiers:unmodified_text
+                              isARepeat:NO
+                                keyCode:web_event.native_key_code] retain];
+  // The eventRef is necessary for MacOS code (like NSMenu) to work later in the
+  // pipeline. As per documentation:
+  // https://developer.apple.com/documentation/appkit/nsevent/1525143-eventref
+  // "Other NSEvent objects create an EventRef when this property is first
+  // accessed, if possible".
+  [os_event eventRef];
+}
 
 NativeWebKeyboardEvent::NativeWebKeyboardEvent(gfx::NativeEvent native_event)
     : WebKeyboardEvent(WebKeyboardEventBuilder::Build(native_event)),

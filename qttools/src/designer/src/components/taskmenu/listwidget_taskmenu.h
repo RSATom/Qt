@@ -29,8 +29,8 @@
 #ifndef LISTWIDGET_TASKMENU_H
 #define LISTWIDGET_TASKMENU_H
 
-#include <QtWidgets/QListWidget>
-#include <QtCore/QPointer>
+#include <QtWidgets/qlistwidget.h>
+#include <QtCore/qpointer.h>
 
 #include <qdesigner_taskmenu_p.h>
 #include <extensionfactory_p.h>
@@ -47,10 +47,10 @@ class ListWidgetTaskMenu: public QDesignerTaskMenu
     Q_OBJECT
 public:
     explicit ListWidgetTaskMenu(QListWidget *button, QObject *parent = 0);
-    virtual ~ListWidgetTaskMenu();
+    ~ListWidgetTaskMenu() override;
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private slots:
     void editItems();

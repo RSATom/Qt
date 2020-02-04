@@ -24,9 +24,9 @@
 #include "jingle/notifier/listener/send_ping_task.h"
 #include "third_party/libjingle_xmpp/xmpp/xmppclientsettings.h"
 
-namespace buzz {
+namespace jingle_xmpp {
 class XmppTaskParentInterface;
-}  // namespace buzz
+}  // namespace jingle_xmpp
 
 namespace notifier {
 
@@ -47,14 +47,16 @@ class XmppPushClient :
   void AddObserver(PushClientObserver* observer) override;
   void RemoveObserver(PushClientObserver* observer) override;
   void UpdateSubscriptions(const SubscriptionList& subscriptions) override;
-  void UpdateCredentials(const std::string& email,
-                         const std::string& token) override;
+  void UpdateCredentials(
+      const std::string& email,
+      const std::string& token,
+      const net::NetworkTrafficAnnotationTag& traffic_annotation) override;
   void SendNotification(const Notification& notification) override;
   void SendPing() override;
 
   // Login::Delegate implementation.
   void OnConnect(
-      base::WeakPtr<buzz::XmppTaskParentInterface> base_task) override;
+      base::WeakPtr<jingle_xmpp::XmppTaskParentInterface> base_task) override;
   void OnTransientDisconnection() override;
   void OnCredentialsRejected() override;
 
@@ -71,16 +73,16 @@ class XmppPushClient :
  private:
   base::ThreadChecker thread_checker_;
   const NotifierOptions notifier_options_;
-  base::ObserverList<PushClientObserver> observers_;
+  base::ObserverList<PushClientObserver>::Unchecked observers_;
 
   // XMPP connection settings.
   SubscriptionList subscriptions_;
-  buzz::XmppClientSettings xmpp_settings_;
+  jingle_xmpp::XmppClientSettings xmpp_settings_;
 
   std::unique_ptr<notifier::Login> login_;
 
   // The XMPP connection.
-  base::WeakPtr<buzz::XmppTaskParentInterface> base_task_;
+  base::WeakPtr<jingle_xmpp::XmppTaskParentInterface> base_task_;
 
   std::vector<Notification> pending_notifications_to_send_;
 

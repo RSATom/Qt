@@ -51,9 +51,10 @@
 #ifndef CHATCLIENT_H
 #define CHATCLIENT_H
 
-#include <qbluetoothserviceinfo.h>
+#include <QtCore/qobject.h>
 
-#include <QtCore/QObject>
+#include <QtBluetooth/qbluetoothserviceinfo.h>
+#include <QtBluetooth/qbluetoothsocket.h>
 
 QT_FORWARD_DECLARE_CLASS(QBluetoothSocket)
 
@@ -65,7 +66,7 @@ class ChatClient : public QObject
     Q_OBJECT
 
 public:
-    explicit ChatClient(QObject *parent = 0);
+    explicit ChatClient(QObject *parent = nullptr);
     ~ChatClient();
 
     void startClient(const QBluetoothServiceInfo &remoteService);
@@ -78,13 +79,15 @@ signals:
     void messageReceived(const QString &sender, const QString &message);
     void connected(const QString &name);
     void disconnected();
+    void socketErrorOccurred(const QString &errorString);
 
 private slots:
     void readSocket();
     void connected();
+    void onSocketErrorOccurred(QBluetoothSocket::SocketError);
 
 private:
-    QBluetoothSocket *socket;
+    QBluetoothSocket *socket = nullptr;
 };
 //! [declaration]
 

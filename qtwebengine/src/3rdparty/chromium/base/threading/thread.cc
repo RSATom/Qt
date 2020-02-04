@@ -96,7 +96,7 @@ bool Thread::StartWithOptions(const Options& options) {
   if (!options.message_pump_factory.is_null())
     type = MessageLoop::TYPE_CUSTOM;
 
-  message_loop_timer_slack_ = options.timer_slack;
+  timer_slack_ = options.timer_slack;
   std::unique_ptr<MessageLoop> message_loop_owned =
       MessageLoop::CreateUnbound(type, options.message_pump_factory);
   message_loop_ = message_loop_owned.get();
@@ -143,7 +143,8 @@ bool Thread::WaitUntilThreadStarted() const {
   DCHECK(owning_sequence_checker_.CalledOnValidSequence());
   if (!message_loop_)
     return false;
-  base::ThreadRestrictions::ScopedAllowWait allow_wait;
+  // https://crbug.com/918039
+  base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
   start_event_.Wait();
   return true;
 }
@@ -220,14 +221,9 @@ void Thread::DetachFromSequence() {
 
 PlatformThreadId Thread::GetThreadId() const {
   // If the thread is created but not started yet, wait for |id_| being ready.
-  base::ThreadRestrictions::ScopedAllowWait allow_wait;
+  base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
   id_event_.Wait();
   return id_;
-}
-
-PlatformThreadHandle Thread::GetThreadHandle() const {
-  AutoLock lock(thread_lock_);
-  return thread_;
 }
 
 bool Thread::IsRunning() const {
@@ -302,15 +298,14 @@ void Thread::ThreadMain() {
   DCHECK(message_loop_);
   std::unique_ptr<MessageLoop> message_loop(message_loop_);
   message_loop_->BindToCurrentThread();
-  message_loop_->SetTimerSlack(message_loop_timer_slack_);
+  message_loop_->SetTimerSlack(timer_slack_);
 
 #if defined(OS_POSIX) && !defined(OS_NACL)
   // Allow threads running a MessageLoopForIO to use FileDescriptorWatcher API.
   std::unique_ptr<FileDescriptorWatcher> file_descriptor_watcher;
-  if (MessageLoopForIO::IsCurrent()) {
-    DCHECK_EQ(message_loop_, MessageLoopForIO::current());
+  if (MessageLoopCurrentForIO::IsSet()) {
     file_descriptor_watcher.reset(
-        new FileDescriptorWatcher(MessageLoopForIO::current()));
+        new FileDescriptorWatcher(message_loop_->task_runner()));
   }
 #endif
 

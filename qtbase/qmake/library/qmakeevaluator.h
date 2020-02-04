@@ -34,6 +34,7 @@
 #endif
 
 #include "qmakeparser.h"
+#include "qmakevfs.h"
 #include "ioutils.h"
 
 #include <qlist.h>
@@ -103,6 +104,8 @@ public:
     ProValueMap &top() { return last(); }
     const ProValueMap &top() const { return last(); }
 };
+
+namespace QMakeInternal { struct QMakeBuiltin; }
 
 class QMAKE_EXPORT QMakeEvaluator
 {
@@ -185,6 +188,8 @@ public:
     int currentFileId() const;
     QString resolvePath(const QString &fileName) const
         { return QMakeInternal::IoUtils::resolvePath(currentDirectory(), fileName); }
+    QString filePathArg0(const ProStringList &args);
+    QString filePathEnvArg0(const ProStringList &args);
 
     VisitReturn evaluateFile(const QString &fileName, QMakeHandler::EvalFileType type,
                              LoadFlags flags);
@@ -213,8 +218,10 @@ public:
     VisitReturn evaluateExpandFunction(const ProKey &function, const ushort *&tokPtr, ProStringList *ret);
     VisitReturn evaluateConditionalFunction(const ProKey &function, const ushort *&tokPtr);
 
-    VisitReturn evaluateBuiltinExpand(int func_t, const ProKey &function, const ProStringList &args, ProStringList &ret);
-    VisitReturn evaluateBuiltinConditional(int func_t, const ProKey &function, const ProStringList &args);
+    VisitReturn evaluateBuiltinExpand(const QMakeInternal::QMakeBuiltin &adef,
+                                      const ProKey &function, const ProStringList &args, ProStringList &ret);
+    VisitReturn evaluateBuiltinConditional(const QMakeInternal::QMakeBuiltin &adef,
+                                           const ProKey &function, const ProStringList &args);
 
     VisitReturn evaluateConditional(const QStringRef &cond, const QString &where, int line = -1);
 #ifdef PROEVALUATOR_FULL
@@ -237,12 +244,17 @@ public:
     VisitReturn parseJsonInto(const QByteArray &json, const QString &into, ProValueMap *value);
 
     VisitReturn writeFile(const QString &ctx, const QString &fn, QIODevice::OpenMode mode,
-                          bool exe, const QString &contents);
+                          QMakeVfs::VfsFlags flags, const QString &contents);
 #if QT_CONFIG(process)
     void runProcess(QProcess *proc, const QString &command) const;
 #endif
     QByteArray getCommandOutput(const QString &args, int *exitCode) const;
 
+private:
+    // Implementation detail of evaluateBuiltinConditional():
+    VisitReturn testFunc_cache(const ProStringList &args);
+
+public:
     QMakeEvaluator *m_caller;
 #ifdef PROEVALUATOR_CUMULATIVE
     bool m_cumulative;
@@ -270,9 +282,9 @@ public:
 #endif
 
     struct Location {
-        Location() : pro(0), line(0) {}
+        Location() : pro(nullptr), line(0) {}
         Location(ProFile *_pro, ushort _line) : pro(_pro), line(_line) {}
-        void clear() { pro = 0; line = 0; }
+        void clear() { pro = nullptr; line = 0; }
         ProFile *pro;
         ushort line;
     };

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2009 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,13 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_WIN32SOCKETINIT_H_
-#define WEBRTC_RTC_BASE_WIN32SOCKETINIT_H_
+#ifndef RTC_BASE_WIN32SOCKETINIT_H_
+#define RTC_BASE_WIN32SOCKETINIT_H_
 
-namespace rtc {
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-void EnsureWinsockInit();
+#include "rtc_base/win32_socket_init.h"
 
-}  // namespace rtc
-
-#endif  // WEBRTC_RTC_BASE_WIN32SOCKETINIT_H_
+#endif  // RTC_BASE_WIN32SOCKETINIT_H_

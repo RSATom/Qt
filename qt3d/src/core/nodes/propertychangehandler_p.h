@@ -62,7 +62,7 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
 
-class QT3DCORESHARED_EXPORT PropertyChangeHandlerBase : public QObject
+class Q_3DCORESHARED_EXPORT PropertyChangeHandlerBase : public QObject
 {
     Q_OBJECT
 public:
@@ -97,7 +97,7 @@ public:
      * Custom implementation of qt_metacall which calls propertyChanged() on the receiver for
      * connected signals.
      */
-    int qt_metacall(QMetaObject::Call call, int methodId, void **args) Q_DECL_OVERRIDE;
+    int qt_metacall(QMetaObject::Call call, int methodId, void **args) override;
 
 private:
     Receiver *m_receiver;

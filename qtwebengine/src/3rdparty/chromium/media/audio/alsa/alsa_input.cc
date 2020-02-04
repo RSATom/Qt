@@ -9,9 +9,8 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/stl_util.h"
 #include "media/audio/alsa/alsa_output.h"
 #include "media/audio/alsa/alsa_util.h"
 #include "media/audio/alsa/alsa_wrapper.h"
@@ -19,6 +18,9 @@
 #include "media/audio/audio_manager.h"
 
 namespace media {
+
+static const SampleFormat kSampleFormat = kSampleFormatS16;
+static const snd_pcm_format_t kAlsaSampleFormat = SND_PCM_FORMAT_S16;
 
 static const int kNumPacketsInRingBuffer = 3;
 
@@ -34,9 +36,7 @@ AlsaPcmInputStream::AlsaPcmInputStream(AudioManagerBase* audio_manager,
     : audio_manager_(audio_manager),
       device_name_(device_name),
       params_(params),
-      bytes_per_buffer_(params.frames_per_buffer() *
-                        (params.channels() * params.bits_per_sample()) /
-                        8),
+      bytes_per_buffer_(params.GetBytesPerBuffer(kSampleFormat)),
       wrapper_(wrapper),
       buffer_duration_(base::TimeDelta::FromMicroseconds(
           params.frames_per_buffer() * base::Time::kMicrosecondsPerSecond /
@@ -47,35 +47,27 @@ AlsaPcmInputStream::AlsaPcmInputStream(AudioManagerBase* audio_manager,
       mixer_element_handle_(NULL),
       read_callback_behind_schedule_(false),
       audio_bus_(AudioBus::Create(params)),
-      weak_factory_(this) {
-}
+      capture_thread_("AlsaInput"),
+      running_(false) {}
 
-AlsaPcmInputStream::~AlsaPcmInputStream() {}
+AlsaPcmInputStream::~AlsaPcmInputStream() = default;
 
 bool AlsaPcmInputStream::Open() {
   if (device_handle_)
     return false;  // Already open.
 
-  snd_pcm_format_t pcm_format = alsa_util::BitsToFormat(
-      params_.bits_per_sample());
-  if (pcm_format == SND_PCM_FORMAT_UNKNOWN) {
-    LOG(WARNING) << "Unsupported bits per sample: "
-                 << params_.bits_per_sample();
-    return false;
-  }
-
-  uint32_t latency_us =
-      buffer_duration_.InMicroseconds() * kNumPacketsInRingBuffer;
+  uint32_t packet_us = buffer_duration_.InMicroseconds();
+  uint32_t buffer_us = packet_us * kNumPacketsInRingBuffer;
 
   // Use the same minimum required latency as output.
-  latency_us = std::max(latency_us, AlsaPcmOutputStream::kMinLatencyMicros);
+  buffer_us = std::max(buffer_us, AlsaPcmOutputStream::kMinLatencyMicros);
 
   if (device_name_ == kAutoSelectDevice) {
     const char* device_names[] = { kDefaultDevice1, kDefaultDevice2 };
-    for (size_t i = 0; i < arraysize(device_names); ++i) {
+    for (size_t i = 0; i < base::size(device_names); ++i) {
       device_handle_ = alsa_util::OpenCaptureDevice(
-          wrapper_, device_names[i], params_.channels(),
-          params_.sample_rate(), pcm_format, latency_us);
+          wrapper_, device_names[i], params_.channels(), params_.sample_rate(),
+          kAlsaSampleFormat, buffer_us, packet_us);
 
       if (device_handle_) {
         device_name_ = device_names[i];
@@ -83,11 +75,9 @@ bool AlsaPcmInputStream::Open() {
       }
     }
   } else {
-    device_handle_ = alsa_util::OpenCaptureDevice(wrapper_,
-                                                  device_name_.c_str(),
-                                                  params_.channels(),
-                                                  params_.sample_rate(),
-                                                  pcm_format, latency_us);
+    device_handle_ = alsa_util::OpenCaptureDevice(
+        wrapper_, device_name_.c_str(), params_.channels(),
+        params_.sample_rate(), kAlsaSampleFormat, buffer_us, packet_us);
   }
 
   if (device_handle_) {
@@ -120,19 +110,25 @@ void AlsaPcmInputStream::Start(AudioInputCallback* callback) {
   if (error < 0) {
     callback_ = NULL;
   } else {
+    base::Thread::Options options;
+    options.priority = base::ThreadPriority::REALTIME_AUDIO;
+    CHECK(capture_thread_.StartWithOptions(options));
+
     // We start reading data half |buffer_duration_| later than when the
     // buffer might have got filled, to accommodate some delays in the audio
     // driver. This could also give us a smooth read sequence going forward.
     base::TimeDelta delay = buffer_duration_ + buffer_duration_ / 2;
     next_read_time_ = base::TimeTicks::Now() + delay;
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    running_ = true;
+    capture_thread_.task_runner()->PostDelayedTask(
         FROM_HERE,
-        base::Bind(&AlsaPcmInputStream::ReadAudio, weak_factory_.GetWeakPtr()),
+        base::BindOnce(&AlsaPcmInputStream::ReadAudio, base::Unretained(this)),
         delay);
   }
 }
 
 bool AlsaPcmInputStream::Recover(int original_error) {
+  DCHECK(capture_thread_.task_runner()->BelongsToCurrentThread());
   int error = wrapper_->PcmRecover(device_handle_, original_error, 1);
   if (error < 0) {
     // Docs say snd_pcm_recover returns the original error if it is not one
@@ -157,23 +153,23 @@ bool AlsaPcmInputStream::Recover(int original_error) {
   return true;
 }
 
-snd_pcm_sframes_t AlsaPcmInputStream::GetCurrentDelay() {
-  snd_pcm_sframes_t delay = -1;
-
-  int error = wrapper_->PcmDelay(device_handle_, &delay);
-  if (error < 0)
-    Recover(error);
-
-  // snd_pcm_delay() may not work in the beginning of the stream. In this case
-  // return delay of data we know currently is in the ALSA's buffer.
-  if (delay < 0)
-    delay = wrapper_->PcmAvailUpdate(device_handle_);
-
-  return delay;
+void AlsaPcmInputStream::StopRunningOnCaptureThread() {
+  DCHECK(capture_thread_.IsRunning());
+  if (!capture_thread_.task_runner()->BelongsToCurrentThread()) {
+    capture_thread_.task_runner()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&AlsaPcmInputStream::StopRunningOnCaptureThread,
+                       base::Unretained(this)));
+    return;
+  }
+  running_ = false;
 }
 
 void AlsaPcmInputStream::ReadAudio() {
+  DCHECK(capture_thread_.task_runner()->BelongsToCurrentThread());
   DCHECK(callback_);
+  if (!running_)
+    return;
 
   snd_pcm_sframes_t frames = wrapper_->PcmAvailUpdate(device_handle_);
   if (frames < 0) {  // Potentially recoverable error?
@@ -192,32 +188,49 @@ void AlsaPcmInputStream::ReadAudio() {
     }
 
     base::TimeDelta next_check_time = buffer_duration_ / 2;
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    capture_thread_.task_runner()->PostDelayedTask(
         FROM_HERE,
-        base::Bind(&AlsaPcmInputStream::ReadAudio, weak_factory_.GetWeakPtr()),
+        base::BindOnce(&AlsaPcmInputStream::ReadAudio, base::Unretained(this)),
         next_check_time);
     return;
   }
 
-  int num_buffers = frames / params_.frames_per_buffer();
-  uint32_t hardware_delay_bytes =
-      static_cast<uint32_t>(GetCurrentDelay() * params_.GetBytesPerFrame());
-  double normalized_volume = 0.0;
-
   // Update the AGC volume level once every second. Note that, |volume| is
   // also updated each time SetVolume() is called through IPC by the
   // render-side AGC.
+  double normalized_volume = 0.0;
   GetAgcVolume(&normalized_volume);
 
+  int num_buffers = frames / params_.frames_per_buffer();
   while (num_buffers--) {
     int frames_read = wrapper_->PcmReadi(device_handle_, audio_buffer_.get(),
                                          params_.frames_per_buffer());
     if (frames_read == params_.frames_per_buffer()) {
-      audio_bus_->FromInterleaved(audio_buffer_.get(),
-                                  audio_bus_->frames(),
-                                  params_.bits_per_sample() / 8);
-      callback_->OnData(
-          this, audio_bus_.get(), hardware_delay_bytes, normalized_volume);
+      audio_bus_->FromInterleaved<SignedInt16SampleTypeTraits>(
+          reinterpret_cast<int16_t*>(audio_buffer_.get()),
+          audio_bus_->frames());
+
+      // TODO(dalecurtis): This should probably use snd_pcm_htimestamp() so that
+      // we can have |capture_time| directly instead of computing it as
+      // Now() - available frames.
+      snd_pcm_sframes_t avail_frames = wrapper_->PcmAvailUpdate(device_handle_);
+      if (avail_frames < 0) {
+        LOG(WARNING) << "PcmAvailUpdate(): "
+                     << wrapper_->StrError(avail_frames);
+        avail_frames = 0;  // Error getting number of avail frames, set it to 0
+      }
+      base::TimeDelta hardware_delay = base::TimeDelta::FromSecondsD(
+          avail_frames / static_cast<double>(params_.sample_rate()));
+
+      callback_->OnData(audio_bus_.get(),
+                        base::TimeTicks::Now() - hardware_delay,
+                        normalized_volume);
+    } else if (frames_read < 0) {
+      bool success = Recover(frames_read);
+      LOG(WARNING) << "PcmReadi failed with error "
+                   << wrapper_->StrError(frames_read) << ". "
+                   << (success ? "Successfully" : "Unsuccessfully")
+                   << " recovered.";
     } else {
       LOG(WARNING) << "PcmReadi returning less than expected frames: "
                    << frames_read << " vs. " << params_.frames_per_buffer()
@@ -237,9 +250,9 @@ void AlsaPcmInputStream::ReadAudio() {
     delay = base::TimeDelta();
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  capture_thread_.task_runner()->PostDelayedTask(
       FROM_HERE,
-      base::Bind(&AlsaPcmInputStream::ReadAudio, weak_factory_.GetWeakPtr()),
+      base::BindOnce(&AlsaPcmInputStream::ReadAudio, base::Unretained(this)),
       delay);
 }
 
@@ -249,7 +262,8 @@ void AlsaPcmInputStream::Stop() {
 
   StopAgc();
 
-  weak_factory_.InvalidateWeakPtrs();  // Cancel the next scheduled read.
+  StopRunningOnCaptureThread();
+  capture_thread_.Stop();
   int error = wrapper_->PcmDrop(device_handle_);
   if (error < 0)
     HandleError("PcmDrop", error);
@@ -259,7 +273,7 @@ void AlsaPcmInputStream::Stop() {
 
 void AlsaPcmInputStream::Close() {
   if (device_handle_) {
-    weak_factory_.InvalidateWeakPtrs();  // Cancel the next scheduled read.
+    Stop();
     int error = alsa_util::CloseDevice(wrapper_, device_handle_);
     if (error < 0)
       HandleError("PcmClose", error);
@@ -343,9 +357,15 @@ bool AlsaPcmInputStream::IsMuted() {
   return false;
 }
 
+void AlsaPcmInputStream::SetOutputDeviceForAec(
+    const std::string& output_device_id) {
+  // Not supported. Do nothing.
+}
+
 void AlsaPcmInputStream::HandleError(const char* method, int error) {
   LOG(WARNING) << method << ": " << wrapper_->StrError(error);
-  callback_->OnError(this);
+  if (callback_)
+    callback_->OnError();
 }
 
 }  // namespace media

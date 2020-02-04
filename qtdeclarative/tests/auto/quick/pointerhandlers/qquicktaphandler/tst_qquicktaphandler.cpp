@@ -59,6 +59,7 @@ private slots:
 
     void touchGesturePolicyDragThreshold();
     void mouseGesturePolicyDragThreshold();
+    void touchMouseGesturePolicyDragThreshold();
     void touchGesturePolicyWithinBounds();
     void mouseGesturePolicyWithinBounds();
     void touchGesturePolicyReleaseWithinBounds();
@@ -69,6 +70,7 @@ private slots:
     void mouseLongPress();
     void buttonsMultiTouch();
     void componentUserBehavioralOverride();
+    void rightLongPressIgnoreWheel();
 
 private:
     void createView(QScopedPointer<QQuickView> &window, const char *fileName);
@@ -85,7 +87,7 @@ void tst_TapHandler::createView(QScopedPointer<QQuickView> &window, const char *
 
     window->show();
     QVERIFY(QTest::qWaitForWindowActive(window.data()));
-    QVERIFY(window->rootObject() != 0);
+    QVERIFY(window->rootObject() != nullptr);
 }
 
 void tst_TapHandler::initTestCase()
@@ -105,6 +107,8 @@ void tst_TapHandler::touchGesturePolicyDragThreshold()
 
     QQuickItem *buttonDragThreshold = window->rootObject()->findChild<QQuickItem*>("DragThreshold");
     QVERIFY(buttonDragThreshold);
+    QQuickTapHandler *tapHandler = buttonDragThreshold->findChild<QQuickTapHandler*>();
+    QVERIFY(tapHandler);
     QSignalSpy dragThresholdTappedSpy(buttonDragThreshold, SIGNAL(tapped()));
 
     // DragThreshold button stays pressed while touchpoint stays within dragThreshold, emits tapped on release
@@ -120,6 +124,8 @@ void tst_TapHandler::touchGesturePolicyDragThreshold()
     QQuickTouchUtils::flush(window);
     QTRY_VERIFY(!buttonDragThreshold->property("pressed").toBool());
     QCOMPARE(dragThresholdTappedSpy.count(), 1);
+    QCOMPARE(buttonDragThreshold->property("tappedPosition").toPoint(), p1);
+    QCOMPARE(tapHandler->point().position(), QPointF());
 
     // DragThreshold button is no longer pressed if touchpoint goes beyond dragThreshold
     dragThresholdTappedSpy.clear();
@@ -150,6 +156,8 @@ void tst_TapHandler::mouseGesturePolicyDragThreshold()
 
     QQuickItem *buttonDragThreshold = window->rootObject()->findChild<QQuickItem*>("DragThreshold");
     QVERIFY(buttonDragThreshold);
+    QQuickTapHandler *tapHandler = buttonDragThreshold->findChild<QQuickTapHandler*>();
+    QVERIFY(tapHandler);
     QSignalSpy dragThresholdTappedSpy(buttonDragThreshold, SIGNAL(tapped()));
 
     // DragThreshold button stays pressed while mouse stays within dragThreshold, emits tapped on release
@@ -162,6 +170,8 @@ void tst_TapHandler::mouseGesturePolicyDragThreshold()
     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, p1);
     QTRY_VERIFY(!buttonDragThreshold->property("pressed").toBool());
     QTRY_COMPARE(dragThresholdTappedSpy.count(), 1);
+    QCOMPARE(buttonDragThreshold->property("tappedPosition").toPoint(), p1);
+    QCOMPARE(tapHandler->point().position(), QPointF());
 
     // DragThreshold button is no longer pressed if mouse goes beyond dragThreshold
     dragThresholdTappedSpy.clear();
@@ -177,6 +187,59 @@ void tst_TapHandler::mouseGesturePolicyDragThreshold()
     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, p1);
     QVERIFY(!buttonDragThreshold->property("pressed").toBool());
     QCOMPARE(dragThresholdTappedSpy.count(), 0);
+}
+
+void tst_TapHandler::touchMouseGesturePolicyDragThreshold()
+{
+    QScopedPointer<QQuickView> windowPtr;
+    createView(windowPtr, "buttons.qml");
+    QQuickView * window = windowPtr.data();
+
+    QQuickItem *buttonDragThreshold = window->rootObject()->findChild<QQuickItem*>("DragThreshold");
+    QVERIFY(buttonDragThreshold);
+    QSignalSpy tappedSpy(buttonDragThreshold, SIGNAL(tapped()));
+    QSignalSpy canceledSpy(buttonDragThreshold, SIGNAL(canceled()));
+
+    // Press mouse, drag it outside the button, release
+    QPoint p1 = buttonDragThreshold->mapToScene(QPointF(20, 20)).toPoint();
+    QPoint p2 = p1 + QPoint(int(buttonDragThreshold->height()), 0);
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, p1);
+    QTRY_VERIFY(buttonDragThreshold->property("pressed").toBool());
+    QTest::mouseMove(window, p2);
+    QTRY_COMPARE(canceledSpy.count(), 1);
+    QCOMPARE(tappedSpy.count(), 0);
+    QCOMPARE(buttonDragThreshold->property("pressed").toBool(), false);
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, p2);
+
+    // Press and release touch, verify that it still works (QTBUG-71466)
+    QTest::touchEvent(window, touchDevice).press(1, p1, window);
+    QQuickTouchUtils::flush(window);
+    QTRY_VERIFY(buttonDragThreshold->property("pressed").toBool());
+    QTest::touchEvent(window, touchDevice).release(1, p1, window);
+    QQuickTouchUtils::flush(window);
+    QTRY_VERIFY(!buttonDragThreshold->property("pressed").toBool());
+    QCOMPARE(tappedSpy.count(), 1);
+
+    // Press touch, drag it outside the button, release
+    QTest::touchEvent(window, touchDevice).press(1, p1, window);
+    QQuickTouchUtils::flush(window);
+    QTRY_VERIFY(buttonDragThreshold->property("pressed").toBool());
+    QTest::touchEvent(window, touchDevice).move(1, p2, window);
+    QQuickTouchUtils::flush(window);
+    QTRY_COMPARE(buttonDragThreshold->property("pressed").toBool(), false);
+    QTest::touchEvent(window, touchDevice).release(1, p2, window);
+    QQuickTouchUtils::flush(window);
+    QTRY_COMPARE(canceledSpy.count(), 2);
+    QCOMPARE(tappedSpy.count(), 1); // didn't increase
+    QCOMPARE(buttonDragThreshold->property("pressed").toBool(), false);
+
+    // Press and release mouse, verify that it still works
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, p1);
+    QTRY_VERIFY(buttonDragThreshold->property("pressed").toBool());
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, p1);
+    QTRY_COMPARE(tappedSpy.count(), 2);
+    QCOMPARE(canceledSpy.count(), 2); // didn't increase
+    QCOMPARE(buttonDragThreshold->property("pressed").toBool(), false);
 }
 
 void tst_TapHandler::touchGesturePolicyWithinBounds()
@@ -526,23 +589,24 @@ void tst_TapHandler::buttonsMultiTouch()
     QQuickItem *buttonReleaseWithinBounds = window->rootObject()->findChild<QQuickItem*>("ReleaseWithinBounds");
     QVERIFY(buttonReleaseWithinBounds);
     QSignalSpy releaseWithinBoundsTappedSpy(buttonReleaseWithinBounds, SIGNAL(tapped()));
+    QTest::QTouchEventSequence touchSeq = QTest::touchEvent(window, touchDevice, false);
 
     // can press multiple buttons at the same time
     QPoint p1 = buttonDragThreshold->mapToScene(QPointF(20, 20)).toPoint();
-    QTest::touchEvent(window, touchDevice).press(1, p1, window);
+    touchSeq.press(1, p1, window).commit();
     QQuickTouchUtils::flush(window);
     QTRY_VERIFY(buttonDragThreshold->property("pressed").toBool());
     QPoint p2 = buttonWithinBounds->mapToScene(QPointF(20, 20)).toPoint();
-    QTest::touchEvent(window, touchDevice).stationary(1).press(2, p2, window);
+    touchSeq.stationary(1).press(2, p2, window).commit();
     QQuickTouchUtils::flush(window);
     QTRY_VERIFY(buttonWithinBounds->property("pressed").toBool());
     QPoint p3 = buttonReleaseWithinBounds->mapToScene(QPointF(20, 20)).toPoint();
-    QTest::touchEvent(window, touchDevice).stationary(1).stationary(2).press(3, p3, window);
+    touchSeq.stationary(1).stationary(2).press(3, p3, window).commit();
     QQuickTouchUtils::flush(window);
     QTRY_VERIFY(buttonReleaseWithinBounds->property("pressed").toBool());
 
     // can release top button and press again: others stay pressed the whole time
-    QTest::touchEvent(window, touchDevice).stationary(2).stationary(3).release(1, p1, window);
+    touchSeq.stationary(2).stationary(3).release(1, p1, window).commit();
     QQuickTouchUtils::flush(window);
     QTRY_VERIFY(!buttonDragThreshold->property("pressed").toBool());
     QCOMPARE(dragThresholdTappedSpy.count(), 1);
@@ -550,14 +614,14 @@ void tst_TapHandler::buttonsMultiTouch()
     QCOMPARE(withinBoundsTappedSpy.count(), 0);
     QVERIFY(buttonReleaseWithinBounds->property("pressed").toBool());
     QCOMPARE(releaseWithinBoundsTappedSpy.count(), 0);
-    QTest::touchEvent(window, touchDevice).stationary(2).stationary(3).press(1, p1, window);
+    touchSeq.stationary(2).stationary(3).press(1, p1, window).commit();
     QQuickTouchUtils::flush(window);
     QTRY_VERIFY(buttonDragThreshold->property("pressed").toBool());
     QVERIFY(buttonWithinBounds->property("pressed").toBool());
     QVERIFY(buttonReleaseWithinBounds->property("pressed").toBool());
 
     // can release middle button and press again: others stay pressed the whole time
-    QTest::touchEvent(window, touchDevice).stationary(1).stationary(3).release(2, p2, window);
+    touchSeq.stationary(1).stationary(3).release(2, p2, window).commit();
     QQuickTouchUtils::flush(window);
     QTRY_VERIFY(!buttonWithinBounds->property("pressed").toBool());
     QCOMPARE(withinBoundsTappedSpy.count(), 1);
@@ -565,21 +629,21 @@ void tst_TapHandler::buttonsMultiTouch()
     QCOMPARE(dragThresholdTappedSpy.count(), 1);
     QVERIFY(buttonReleaseWithinBounds->property("pressed").toBool());
     QCOMPARE(releaseWithinBoundsTappedSpy.count(), 0);
-    QTest::touchEvent(window, touchDevice).stationary(1).stationary(3).press(2, p2, window);
+    touchSeq.stationary(1).stationary(3).press(2, p2, window).commit();
     QQuickTouchUtils::flush(window);
     QVERIFY(buttonDragThreshold->property("pressed").toBool());
     QVERIFY(buttonWithinBounds->property("pressed").toBool());
     QVERIFY(buttonReleaseWithinBounds->property("pressed").toBool());
 
     // can release bottom button and press again: others stay pressed the whole time
-    QTest::touchEvent(window, touchDevice).stationary(1).stationary(2).release(3, p3, window);
+    touchSeq.stationary(1).stationary(2).release(3, p3, window).commit();
     QQuickTouchUtils::flush(window);
     QCOMPARE(releaseWithinBoundsTappedSpy.count(), 1);
     QVERIFY(buttonWithinBounds->property("pressed").toBool());
     QCOMPARE(withinBoundsTappedSpy.count(), 1);
     QVERIFY(!buttonReleaseWithinBounds->property("pressed").toBool());
     QCOMPARE(dragThresholdTappedSpy.count(), 1);
-    QTest::touchEvent(window, touchDevice).stationary(1).stationary(2).press(3, p3, window);
+    touchSeq.stationary(1).stationary(2).press(3, p3, window).commit();
     QQuickTouchUtils::flush(window);
     QTRY_VERIFY(buttonDragThreshold->property("pressed").toBool());
     QVERIFY(buttonWithinBounds->property("pressed").toBool());
@@ -599,8 +663,8 @@ void tst_TapHandler::componentUserBehavioralOverride()
     QQuickTapHandler *userTapHandler = button->findChild<QQuickTapHandler*>("override");
     QVERIFY(userTapHandler);
     QSignalSpy tappedSpy(button, SIGNAL(tapped()));
-    QSignalSpy innerGrabChangedSpy(innerTapHandler, SIGNAL(grabChanged(QQuickEventPoint *)));
-    QSignalSpy userGrabChangedSpy(userTapHandler, SIGNAL(grabChanged(QQuickEventPoint *)));
+    QSignalSpy innerGrabChangedSpy(innerTapHandler, SIGNAL(grabChanged(QQuickEventPoint::GrabTransition, QQuickEventPoint *)));
+    QSignalSpy userGrabChangedSpy(userTapHandler, SIGNAL(grabChanged(QQuickEventPoint::GrabTransition, QQuickEventPoint *)));
     QSignalSpy innerPressedChangedSpy(innerTapHandler, SIGNAL(pressedChanged()));
     QSignalSpy userPressedChangedSpy(userTapHandler, SIGNAL(pressedChanged()));
 
@@ -619,6 +683,44 @@ void tst_TapHandler::componentUserBehavioralOverride()
     QCOMPARE(tappedSpy.count(), 1); // only because the override handler makes that happen
     QCOMPARE(innerGrabChangedSpy.count(), 0);
     QCOMPARE(userGrabChangedSpy.count(), 2);
+}
+
+void tst_TapHandler::rightLongPressIgnoreWheel()
+{
+    QScopedPointer<QQuickView> windowPtr;
+    createView(windowPtr, "rightTapHandler.qml");
+    QQuickView * window = windowPtr.data();
+
+    QQuickTapHandler *tap = window->rootObject()->findChild<QQuickTapHandler*>();
+    QVERIFY(tap);
+    QSignalSpy tappedSpy(tap, SIGNAL(tapped(QQuickEventPoint *)));
+    QSignalSpy longPressedSpy(tap, SIGNAL(longPressed()));
+    QPoint p1(100, 100);
+
+    // Mouse wheel with ScrollBegin phase (because as soon as two fingers are touching
+    // the trackpad, it will send such an event: QTBUG-71955)
+    {
+        QWheelEvent wheelEvent(p1, p1, QPoint(0, 0), QPoint(0, 0),
+                               Qt::NoButton, Qt::NoModifier, Qt::ScrollBegin, false, Qt::MouseEventNotSynthesized);
+        QGuiApplication::sendEvent(window, &wheelEvent);
+    }
+
+    // Press
+    QTest::mousePress(window, Qt::RightButton, Qt::NoModifier, p1);
+    QTRY_COMPARE(tap->isPressed(), true);
+
+    // Mouse wheel ScrollEnd phase
+    QWheelEvent wheelEvent(p1, p1, QPoint(0, 0), QPoint(0, 0),
+                           Qt::NoButton, Qt::NoModifier, Qt::ScrollEnd, false, Qt::MouseEventNotSynthesized);
+    QGuiApplication::sendEvent(window, &wheelEvent);
+    QTRY_COMPARE(longPressedSpy.count(), 1);
+    QCOMPARE(tap->isPressed(), true);
+    QCOMPARE(tappedSpy.count(), 0);
+
+    // Release
+    QTest::mouseRelease(window, Qt::RightButton, Qt::NoModifier, p1, 500);
+    QTRY_COMPARE(tap->isPressed(), false);
+    QCOMPARE(tappedSpy.count(), 0);
 }
 
 QTEST_MAIN(tst_TapHandler)

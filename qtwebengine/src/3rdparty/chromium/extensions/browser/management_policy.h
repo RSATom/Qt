@@ -5,11 +5,13 @@
 #ifndef EXTENSIONS_BROWSER_MANAGEMENT_POLICY_H_
 #define EXTENSIONS_BROWSER_MANAGEMENT_POLICY_H_
 
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/macros.h"
+#include "extensions/browser/disable_reason.h"
 #include "extensions/common/extension.h"
 
 namespace extensions {
@@ -47,7 +49,8 @@ class ManagementPolicy {
 
     // A human-readable name for this provider, for use in debug messages.
     // Implementers should return an empty string in non-debug builds, to save
-    // executable size.
+    // executable size, and should not call this in builds without DCHECKs
+    // enabled.
     virtual std::string GetDebugPolicyProviderName() const = 0;
 
     // Providers should return false if a user may not install the |extension|,
@@ -58,6 +61,12 @@ class ManagementPolicy {
     virtual bool UserMayLoad(const Extension* extension,
                              base::string16* error) const;
 
+    // Returns false if the user should not be allowed to install the given
+    // |extension|. By default, this forwards to UserMayLoad() (since a user
+    // should not be able to install an extension they cannot load).
+    virtual bool UserMayInstall(const Extension* extension,
+                                base::string16* error) const;
+
     // Providers should return false if a user may not enable, disable, or
     // uninstall the |extension|, or change its usage options (incognito
     // permission, file access, etc.).
@@ -66,6 +75,12 @@ class ManagementPolicy {
     // name or the semantics. crbug.com/461747
     virtual bool UserMayModifySettings(const Extension* extension,
                                        base::string16* error) const;
+
+    // Providers should return false if the originating extension
+    // |source_extension| cannot disable the |extension|.
+    virtual bool ExtensionMayModifySettings(const Extension* source_extension,
+                                            const Extension* extension,
+                                            base::string16* error) const;
 
     // Providers should return true if the |extension| must always remain
     // enabled. This is distinct from UserMayModifySettings() in that the latter
@@ -78,7 +93,7 @@ class ManagementPolicy {
     // Similar to MustRemainEnabled, but for whether an extension must remain
     // disabled, and returns an error and/or reason if the caller needs it.
     virtual bool MustRemainDisabled(const Extension* extension,
-                                    Extension::DisableReason* reason,
+                                    disable_reason::DisableReason* reason,
                                     base::string16* error) const;
 
     // Similar to MustRemainEnabled, but for whether an extension must remain
@@ -105,8 +120,15 @@ class ManagementPolicy {
 
   // Returns true if the user is permitted to install, load, and run the given
   // extension. If not, |error| may be set to an appropriate message.
+  // Installed extensions failing this check are disabled with the reason
+  // DISABLE_BLOCKED_BY_POLICY.
   // TODO(treib,pam): Misleading name; see comment in Provider. crbug.com/461747
   bool UserMayLoad(const Extension* extension, base::string16* error) const;
+
+  // Returns false if the user should not be allowed to install the given
+  // |extension|. By default, this forwards to UserMayLoad() (since a user
+  // should not be able to install an extension they cannot load).
+  bool UserMayInstall(const Extension* extension, base::string16* error) const;
 
   // Returns true if the user is permitted to enable, disable, or uninstall the
   // given extension, or change the extension's usage options (incognito mode,
@@ -115,16 +137,22 @@ class ManagementPolicy {
   bool UserMayModifySettings(const Extension* extension,
                              base::string16* error) const;
 
+  // Returns true if the originating extension is permitted to disable the
+  // given extension. If not, |error| may be set to an appropriate message.
+  bool ExtensionMayModifySettings(const Extension* source_extension,
+                                  const Extension* extension,
+                                  base::string16* error) const;
+
   // Returns true if the extension must remain enabled at all times (e.g. a
   // component extension). In that case, |error| may be set to an appropriate
   // message.
   bool MustRemainEnabled(const Extension* extension,
                          base::string16* error) const;
 
-  // Returns true immediately if any registered provider's MustRemainDisabled
-  // function returns true.
+  // Returns true immediately if any registered provider's UserMayLoad() returns
+  // false or MustRemainDisabled() returns true.
   bool MustRemainDisabled(const Extension* extension,
-                          Extension::DisableReason* reason,
+                          disable_reason::DisableReason* reason,
                           base::string16* error) const;
 
   // Returns true immediately if any registered provider's MustRemainInstalled

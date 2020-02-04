@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ui/gfx/image/image.h"
+#include "ui/gfx/image/image_platform.h"
 
 #include <stddef.h>
 #import <UIKit/UIKit.h>
@@ -72,8 +72,7 @@ scoped_refptr<base::RefCountedMemory> Get1xPNGBytesFromUIImage(
   return png_bytes;
 }
 
-UIImage* CreateUIImageFromPNG(
-    const std::vector<gfx::ImagePNGRep>& image_png_reps) {
+UIImage* UIImageFromPNG(const std::vector<gfx::ImagePNGRep>& image_png_reps) {
   float ideal_scale = ImageSkia::GetMaxSupportedScale();
 
   if (image_png_reps.empty())
@@ -91,7 +90,8 @@ UIImage* CreateUIImageFromPNG(
     }
   }
 
-  return CreateUIImageFromImagePNGRep(image_png_reps[closest_index]);
+  return
+      [CreateUIImageFromImagePNGRep(image_png_reps[closest_index]) autorelease];
 }
 
 scoped_refptr<base::RefCountedMemory> Get1xPNGBytesFromImageSkia(

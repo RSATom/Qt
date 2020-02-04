@@ -54,7 +54,7 @@ ProgressBar::~ProgressBar() {
 }
 
 void ProgressBar::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ui::AX_ROLE_PROGRESS_INDICATOR;
+  node_data->role = ax::mojom::Role::kProgressIndicator;
 }
 
 gfx::Size ProgressBar::CalculatePreferredSize() const {
@@ -121,14 +121,16 @@ void ProgressBar::SetValue(double value) {
 }
 
 SkColor ProgressBar::GetForegroundColor() const {
+  if (foreground_color_)
+    return foreground_color_.value();
+
   return GetNativeTheme()->GetSystemColor(
       ui::NativeTheme::kColorId_ProminentButtonColor);
 }
 
 SkColor ProgressBar::GetBackgroundColor() const {
-  // The default foreground is GoogleBlue500, and the default background is
-  // that color but 80% lighter.
-  return color_utils::BlendTowardOppositeLuma(GetForegroundColor(), 0xCC);
+  return background_color_.value_or(
+      color_utils::BlendTowardMaxContrast(GetForegroundColor(), 0xCC));
 }
 
 void ProgressBar::AnimationProgressed(const gfx::Animation* animation) {

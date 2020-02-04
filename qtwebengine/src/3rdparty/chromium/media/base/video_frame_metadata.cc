@@ -22,29 +22,29 @@ inline std::string ToInternalKey(VideoFrameMetadata::Key key) {
 
 }  // namespace
 
-VideoFrameMetadata::VideoFrameMetadata() {}
+VideoFrameMetadata::VideoFrameMetadata() = default;
 
-VideoFrameMetadata::~VideoFrameMetadata() {}
+VideoFrameMetadata::~VideoFrameMetadata() = default;
 
 bool VideoFrameMetadata::HasKey(Key key) const {
   return dictionary_.HasKey(ToInternalKey(key));
 }
 
 void VideoFrameMetadata::SetBoolean(Key key, bool value) {
-  dictionary_.SetBooleanWithoutPathExpansion(ToInternalKey(key), value);
+  dictionary_.SetKey(ToInternalKey(key), base::Value(value));
 }
 
 void VideoFrameMetadata::SetInteger(Key key, int value) {
-  dictionary_.SetIntegerWithoutPathExpansion(ToInternalKey(key), value);
+  dictionary_.SetKey(ToInternalKey(key), base::Value(value));
 }
 
 void VideoFrameMetadata::SetDouble(Key key, double value) {
-  dictionary_.SetDoubleWithoutPathExpansion(ToInternalKey(key), value);
+  dictionary_.SetKey(ToInternalKey(key), base::Value(value));
 }
 
 void VideoFrameMetadata::SetRotation(Key key, VideoRotation value) {
   DCHECK_EQ(ROTATION, key);
-  dictionary_.SetIntegerWithoutPathExpansion(ToInternalKey(key), value);
+  dictionary_.SetKey(ToInternalKey(key), base::Value(value));
 }
 
 void VideoFrameMetadata::SetString(Key key, const std::string& value) {
@@ -111,8 +111,8 @@ bool VideoFrameMetadata::GetString(Key key, std::string* value) const {
   DCHECK(value);
   const base::Value* const binary_value = GetBinaryValue(key);
   if (binary_value)
-    value->assign(binary_value->GetBlob().data(),
-                  binary_value->GetBlob().size());
+    value->assign(binary_value->GetBlob().begin(),
+                  binary_value->GetBlob().end());
   return !!binary_value;
 }
 
@@ -141,10 +141,7 @@ bool VideoFrameMetadata::GetTimeTicks(Key key, base::TimeTicks* value) const {
 }
 
 const base::Value* VideoFrameMetadata::GetValue(Key key) const {
-  const base::Value* result = nullptr;
-  if (!dictionary_.GetWithoutPathExpansion(ToInternalKey(key), &result))
-    return nullptr;
-  return result;
+  return dictionary_.FindKey(ToInternalKey(key));
 }
 
 bool VideoFrameMetadata::IsTrue(Key key) const {
@@ -157,9 +154,13 @@ std::unique_ptr<base::DictionaryValue> VideoFrameMetadata::CopyInternalValues()
   return dictionary_.CreateDeepCopy();
 }
 
-void VideoFrameMetadata::MergeInternalValuesFrom(
-    const base::DictionaryValue& in) {
-  dictionary_.MergeDictionary(&in);
+void VideoFrameMetadata::MergeInternalValuesFrom(const base::Value& in) {
+  const base::DictionaryValue* dict;
+  if (!in.GetAsDictionary(&dict)) {
+    NOTREACHED();
+    return;
+  }
+  dictionary_.MergeDictionary(dict);
 }
 
 void VideoFrameMetadata::MergeMetadataFrom(
@@ -168,12 +169,9 @@ void VideoFrameMetadata::MergeMetadataFrom(
 }
 
 const base::Value* VideoFrameMetadata::GetBinaryValue(Key key) const {
-  const base::Value* internal_value = nullptr;
-  if (dictionary_.GetWithoutPathExpansion(ToInternalKey(key),
-                                          &internal_value) &&
-      internal_value->GetType() == base::Value::Type::BINARY) {
+  const base::Value* internal_value = dictionary_.FindKey(ToInternalKey(key));
+  if (internal_value && (internal_value->type() == base::Value::Type::BINARY))
     return internal_value;
-  }
   return nullptr;
 }
 

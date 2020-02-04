@@ -10,8 +10,6 @@
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(history::WebContentsTopSitesObserver);
-
 namespace history {
 
 // static
@@ -38,8 +36,21 @@ WebContentsTopSitesObserver::~WebContentsTopSitesObserver() {
 void WebContentsTopSitesObserver::NavigationEntryCommitted(
     const content::LoadCommittedDetails& load_details) {
   DCHECK(load_details.entry);
-  if (top_sites_)
-    top_sites_->OnNavigationCommitted(load_details.entry->GetURL());
+
+  // Frame-wise, we only care about navigating the main frame.
+  // Type-wise, we only care about navigating to a new page, or renavigating to
+  // an existing navigation entry.
+  if (top_sites_ && load_details.is_main_frame &&
+      (load_details.type == content::NavigationType::NAVIGATION_TYPE_NEW_PAGE ||
+       load_details.type ==
+           content::NavigationType::NAVIGATION_TYPE_EXISTING_PAGE)) {
+    // Only report the Virtual URL. The virtual URL, when it differs from the
+    // actual URL that is loaded in the renderer, is the one meant to be shown
+    // to the user in all UI.
+    top_sites_->OnNavigationCommitted(load_details.entry->GetVirtualURL());
+  }
 }
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(WebContentsTopSitesObserver)
 
 }  // namespace history

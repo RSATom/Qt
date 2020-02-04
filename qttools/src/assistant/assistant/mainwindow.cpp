@@ -64,6 +64,7 @@
 #include <QtWidgets/QDockWidget>
 #include <QtGui/QFontDatabase>
 #include <QtGui/QImageReader>
+#include <QtGui/QScreen>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLayout>
@@ -80,6 +81,7 @@
 #include <QtHelp/QHelpEngineCore>
 #include <QtHelp/QHelpIndexModel>
 #include <QtHelp/QHelpSearchEngine>
+#include <QtHelp/QHelpFilterEngine>
 
 #include <cstdlib>
 
@@ -89,13 +91,7 @@ enum { warnAboutMissingModules = 0 };
 
 MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
     : QMainWindow(parent)
-    , m_bookmarkWidget(0)
-    , m_filterCombo(0)
-    , m_toolBarMenu(0)
     , m_cmdLine(cmdLine)
-    , m_progressWidget(0)
-    , m_qtDocInstaller(0)
-    , m_connectedInitSignals(false)
 {
     TRACE_OBJ
 
@@ -163,7 +159,7 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
     connect(bookMarkManager, &BookmarkManager::setSource,
             m_centralWidget, &CentralWidget::setSource);
     connect(bookMarkManager, &BookmarkManager::setSourceInNewTab,
-            [openPagesManager](const QUrl &url){ openPagesManager->createPage(url); });
+            openPagesManager, [openPagesManager](const QUrl &url){ openPagesManager->createPage(url); });
 
     QHelpSearchEngine *searchEngine = helpEngineWrapper.searchEngine();
     connect(searchEngine, &QHelpSearchEngine::indexingStarted,
@@ -221,7 +217,7 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
         tabifyDockWidget(indexDock, bookmarkDock);
         tabifyDockWidget(bookmarkDock, searchDock);
         contentDock->raise();
-        const QRect screen = QApplication::desktop()->screenGeometry();
+        const QRect screen = QGuiApplication::primaryScreen()->geometry();
         resize(4*screen.width()/5, 4*screen.height()/5);
 
         adjustSize();   // make sure we won't start outside of the screen
@@ -274,8 +270,8 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
 
     if (!m_cmdLine->currentFilter().isEmpty()) {
         const QString &curFilter = m_cmdLine->currentFilter();
-        if (helpEngineWrapper.customFilters().contains(curFilter))
-            helpEngineWrapper.setCurrentFilter(curFilter);
+        if (helpEngineWrapper.filterEngine()->filters().contains(curFilter))
+            helpEngineWrapper.filterEngine()->setActiveFilter(curFilter);
     }
 
     if (usesDefaultCollection())
@@ -495,8 +491,8 @@ void MainWindow::checkInitState()
         }
     } else {
         if (m_connectedInitSignals) {
-            disconnect(helpEngine.contentModel(), 0, this, 0);
-            disconnect(helpEngine.indexModel(), 0, this, 0);
+            disconnect(helpEngine.contentModel(), nullptr, this, nullptr);
+            disconnect(helpEngine.indexModel(), nullptr, this, nullptr);
         }
         HelpEngineWrapper::instance().initialDocSetupDone();
         emit initDone();
@@ -681,7 +677,7 @@ void MainWindow::setupActions()
     connect(m_centralWidget, &CentralWidget::backwardAvailable,
             globalActions, &GlobalActions::updateActions);
     connect(m_centralWidget, &CentralWidget::highlighted,
-            [this](const QString &link) { statusBar()->showMessage(link);} );
+            this, [this](const QString &link) { statusBar()->showMessage(link);} );
 
     // index window
     connect(m_indexWindow, &IndexWindow::linkActivated,
@@ -729,7 +725,7 @@ void MainWindow::setupFilterToolbar()
 
     m_filterCombo = new QComboBox(this);
     m_filterCombo->setMinimumWidth(QFontMetrics(QFont()).
-        width(QLatin1String("MakeTheComboBoxWidthEnough")));
+        horizontalAdvance(QLatin1String("MakeTheComboBoxWidthEnough")));
 
     QToolBar *filterToolBar = addToolBar(tr("Filter Toolbar"));
     filterToolBar->setObjectName(QLatin1String("FilterToolBar"));
@@ -743,9 +739,9 @@ void MainWindow::setupFilterToolbar()
 
     connect(&helpEngine, &HelpEngineWrapper::setupFinished,
             this, &MainWindow::setupFilterCombo, Qt::QueuedConnection);
-    connect(m_filterCombo, QOverload<const QString &>::of(&QComboBox::activated),
+    connect(m_filterCombo, QOverload<int>::of(&QComboBox::activated),
             this, &MainWindow::filterDocumentation);
-    connect(&helpEngine, &HelpEngineWrapper::currentFilterChanged,
+    connect(helpEngine.filterEngine(), &QHelpFilterEngine::filterActivated,
             this, &MainWindow::currentFilterChanged);
 
     setupFilterCombo();
@@ -846,7 +842,7 @@ void MainWindow::showPreferences()
             m_centralWidget, &CentralWidget::updateBrowserFont);
     connect(&dia, &PreferencesDialog::updateUserInterface,
             m_centralWidget, &CentralWidget::updateUserInterface);
-    dia.showDialog();
+    dia.exec();
 }
 
 void MainWindow::syncContents()
@@ -911,7 +907,7 @@ void MainWindow::showAboutDialog()
             "<p>Version %2</p>"
             "<p>Browser: %3</p></center>"
             "<p>Copyright (C) %4 The Qt Company Ltd.</p>")
-            .arg(tr("Qt Assistant"), QLatin1String(QT_VERSION_STR), browser, QStringLiteral("2017")),
+            .arg(tr("Qt Assistant"), QLatin1String(QT_VERSION_STR), browser, QStringLiteral("2019")),
             resources);
         QLatin1String path(":/qt-project.org/assistant/images/assistant-128.png");
         aboutDia.setPixmap(QString(path));
@@ -1054,21 +1050,27 @@ void MainWindow::setupFilterCombo()
 {
     TRACE_OBJ
     HelpEngineWrapper &helpEngine = HelpEngineWrapper::instance();
-    QString curFilter = m_filterCombo->currentText();
-    if (curFilter.isEmpty())
-        curFilter = helpEngine.currentFilter();
+    const QString currentFilter = helpEngine.filterEngine()->activeFilter();
     m_filterCombo->clear();
-    m_filterCombo->addItems(helpEngine.customFilters());
-    int idx = m_filterCombo->findText(curFilter);
+    m_filterCombo->addItem(tr("Unfiltered"));
+    const QStringList allFilters = helpEngine.filterEngine()->filters();
+    if (!allFilters.isEmpty())
+        m_filterCombo->insertSeparator(1);
+    for (const QString &filter : allFilters)
+        m_filterCombo->addItem(filter, filter);
+
+    int idx = m_filterCombo->findData(currentFilter);
     if (idx < 0)
         idx = 0;
     m_filterCombo->setCurrentIndex(idx);
 }
 
-void MainWindow::filterDocumentation(const QString &customFilter)
+void MainWindow::filterDocumentation(int filterIndex)
 {
     TRACE_OBJ
-    HelpEngineWrapper::instance().setCurrentFilter(customFilter);
+
+    const QString filter = m_filterCombo->itemData(filterIndex).toString();
+    HelpEngineWrapper::instance().filterEngine()->setActiveFilter(filter);
 }
 
 void MainWindow::expandTOC(int depth)
@@ -1097,7 +1099,7 @@ void MainWindow::indexingStarted()
         progressBar->setSizePolicy(sizePolicy);
 
         hlayout->setSpacing(6);
-        hlayout->setMargin(0);
+        hlayout->setContentsMargins(QMargins());
         hlayout->addWidget(progressBar);
 
         statusBar()->addPermanentWidget(m_progressWidget);
@@ -1109,7 +1111,7 @@ void MainWindow::indexingFinished()
     TRACE_OBJ
     statusBar()->removeWidget(m_progressWidget);
     delete m_progressWidget;
-    m_progressWidget = 0;
+    m_progressWidget = nullptr;
 }
 
 QString MainWindow::collectionFileDirectory(bool createDir, const QString &cacheDir)
@@ -1149,8 +1151,9 @@ QString MainWindow::defaultHelpCollectionFileName()
 void MainWindow::currentFilterChanged(const QString &filter)
 {
     TRACE_OBJ
-    const int index = m_filterCombo->findText(filter);
-    Q_ASSERT(index != -1);
+    int index = m_filterCombo->findData(filter);
+    if (index < 0)
+        index = 0;
     m_filterCombo->setCurrentIndex(index);
 }
 

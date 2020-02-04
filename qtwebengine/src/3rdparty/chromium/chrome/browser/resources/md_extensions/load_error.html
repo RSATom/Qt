@@ -1,11 +1,13 @@
+<link rel="import" href="chrome://resources/html/polymer.html">
+
 <link rel="import" href="chrome://resources/cr_elements/cr_dialog/cr_dialog.html">
 <link rel="import" href="chrome://resources/cr_elements/paper_button_style_css.html">
 <link rel="import" href="chrome://resources/cr_elements/shared_style_css.html">
 <link rel="import" href="chrome://resources/html/assert.html">
 <link rel="import" href="chrome://resources/html/cr.html">
-<link rel="import" href="chrome://resources/html/polymer.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-button/paper-button.html">
-<link rel="import" href="chrome://extensions/code_section.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-spinner/paper-spinner-lite.html">
+<link rel="import" href="code_section.html">
 
 <dom-module id="extensions-load-error">
   <template>
@@ -18,10 +20,14 @@
         display: block;
         width: 104px;  /* Magic number from the specs. */
       }
+
+      paper-spinner-lite {
+        margin-inline-end: 8px;
+      }
     </style>
-    <dialog is="cr-dialog" id="dialog" close-text="$i18n{close}">
-      <div class="title" slot="title">$i18n{loadErrorHeading}</div>
-      <div class="body" slot="body">
+    <cr-dialog id="dialog" close-text="$i18n{close}">
+      <div slot="title">$i18n{loadErrorHeading}</div>
+      <div slot="body">
         <div id="info">
           <div id="file" class="description-row">
             <span class="row-label">$i18n{loadErrorFileLabel}</span>
@@ -36,15 +42,17 @@
             could-not-display-code="$i18n{loadErrorCouldNotLoadManifest}">
         </extensions-code-section>
       </div>
-      <div class="button-container" slot="button-container">
-        <paper-button class="cancel-button" on-tap="close">
-          $i18n{loadErrorCancel}
+      <div slot="button-container">
+        <paper-spinner-lite active="[[retrying_]]"></paper-spinner-lite>
+        <paper-button class="cancel-button" on-click="close">
+          $i18n{cancel}
         </paper-button>
-        <paper-button class="action-button" on-tap="onRetryTap_">
+        <paper-button class="action-button" disabled="[[retrying_]]"
+            on-click="onRetryTap_">
           $i18n{loadErrorRetry}
         </paper-button>
       </div>
-    </dialog>
+    </cr-dialog>
   </template>
-  <script src="chrome://extensions/load_error.js"></script>
+  <script src="load_error.js"></script>
 </dom-module>

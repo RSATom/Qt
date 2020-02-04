@@ -5,11 +5,10 @@
 #include "ppapi/proxy/plugin_dispatcher.h"
 
 #include <map>
+#include <memory>
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -42,8 +41,8 @@ namespace proxy {
 
 namespace {
 
-typedef std::map<PP_Instance, PluginDispatcher*> InstanceToDispatcherMap;
-InstanceToDispatcherMap* g_instance_to_dispatcher = NULL;
+typedef std::map<PP_Instance, PluginDispatcher*> InstanceToPluginDispatcherMap;
+InstanceToPluginDispatcherMap* g_instance_to_plugin_dispatcher = NULL;
 
 typedef std::set<PluginDispatcher*> DispatcherSet;
 DispatcherSet* g_live_dispatchers = NULL;
@@ -69,6 +68,58 @@ InstanceData::FlushInfo::FlushInfo()
 InstanceData::FlushInfo::~FlushInfo() {
 }
 
+PluginDispatcher::Sender::Sender(
+    base::WeakPtr<PluginDispatcher> plugin_dispatcher,
+    scoped_refptr<IPC::SyncMessageFilter> sync_filter)
+    : plugin_dispatcher_(plugin_dispatcher), sync_filter_(sync_filter) {}
+
+PluginDispatcher::Sender::~Sender() {}
+
+bool PluginDispatcher::Sender::SendMessage(IPC::Message* msg) {
+  // Currently we need to choose between two different mechanisms for sending.
+  // On the main thread we use the regular dispatch Send() method, on another
+  // thread we use SyncMessageFilter.
+  if (PpapiGlobals::Get()
+          ->GetMainThreadMessageLoop()
+          ->BelongsToCurrentThread()) {
+    // The PluginDispatcher may have been destroyed if the channel is gone, but
+    // resources are leaked and may still send messages. We ignore those
+    // messages. See crbug.com/725033.
+    if (plugin_dispatcher_) {
+      return plugin_dispatcher_.get()->Dispatcher::Send(msg);
+    } else {
+      delete msg;
+      return false;
+    }
+  }
+  return sync_filter_->Send(msg);
+}
+
+bool PluginDispatcher::Sender::Send(IPC::Message* msg) {
+  TRACE_EVENT2("ppapi proxy", "PluginDispatcher::Send", "Class",
+               IPC_MESSAGE_ID_CLASS(msg->type()), "Line",
+               IPC_MESSAGE_ID_LINE(msg->type()));
+  // We always want plugin->renderer messages to arrive in-order. If some sync
+  // and some async messages are sent in response to a synchronous
+  // renderer->plugin call, the sync reply will be processed before the async
+  // reply, and everything will be confused.
+  //
+  // Allowing all async messages to unblock the renderer means more reentrancy
+  // there but gives correct ordering.
+  //
+  // We don't want reply messages to unblock however, as they will potentially
+  // end up on the wrong queue - see crbug.com/122443
+  if (!msg->is_reply())
+    msg->set_unblock(true);
+  if (msg->is_sync()) {
+    // Synchronous messages might be re-entrant, so we need to drop the lock.
+    ProxyAutoUnlock unlock;
+    SCOPED_UMA_HISTOGRAM_TIMER("Plugin.PpapiSyncIPCTime");
+    return SendMessage(msg);
+  }
+  return SendMessage(msg);
+}
+
 PluginDispatcher::PluginDispatcher(PP_GetInterface_Func get_interface,
                                    const PpapiPermissions& permissions,
                                    bool incognito)
@@ -76,7 +127,9 @@ PluginDispatcher::PluginDispatcher(PP_GetInterface_Func get_interface,
       plugin_delegate_(NULL),
       received_preferences_(false),
       plugin_dispatcher_id_(0),
-      incognito_(incognito) {
+      incognito_(incognito),
+      sender_(
+          new Sender(AsWeakPtr(), scoped_refptr<IPC::SyncMessageFilter>())) {
   SetSerializationRules(new PluginVarSerializationRules(AsWeakPtr()));
 
   if (!g_live_dispatchers)
@@ -99,11 +152,11 @@ PluginDispatcher::~PluginDispatcher() {
 
 // static
 PluginDispatcher* PluginDispatcher::GetForInstance(PP_Instance instance) {
-  if (!g_instance_to_dispatcher)
+  if (!g_instance_to_plugin_dispatcher)
     return NULL;
-  InstanceToDispatcherMap::iterator found = g_instance_to_dispatcher->find(
-      instance);
-  if (found == g_instance_to_dispatcher->end())
+  InstanceToPluginDispatcherMap::iterator found =
+      g_instance_to_plugin_dispatcher->find(instance);
+  if (found == g_instance_to_plugin_dispatcher->end())
     return NULL;
   return found->second;
 }
@@ -125,13 +178,13 @@ void PluginDispatcher::LogWithSource(PP_Instance instance,
                                      PP_LogLevel level,
                                      const std::string& source,
                                      const std::string& value) {
-  if (!g_live_dispatchers || !g_instance_to_dispatcher)
+  if (!g_live_dispatchers || !g_instance_to_plugin_dispatcher)
     return;
 
   if (instance) {
-    InstanceToDispatcherMap::iterator found =
-        g_instance_to_dispatcher->find(instance);
-    if (found != g_instance_to_dispatcher->end()) {
+    InstanceToPluginDispatcherMap::iterator found =
+        g_instance_to_plugin_dispatcher->find(instance);
+    if (found != g_instance_to_plugin_dispatcher->end()) {
       // Send just to this specific dispatcher.
       found->second->Send(new PpapiHostMsg_LogWithSource(
           instance, static_cast<int>(level), source, value));
@@ -164,12 +217,13 @@ bool PluginDispatcher::InitPluginWithChannel(
     const IPC::ChannelHandle& channel_handle,
     bool is_client) {
   if (!Dispatcher::InitWithChannel(delegate, peer_pid, channel_handle,
-                                   is_client))
+                                   is_client,
+                                   base::ThreadTaskRunnerHandle::Get()))
     return false;
   plugin_delegate_ = delegate;
   plugin_dispatcher_id_ = plugin_delegate_->Register(this);
 
-  sync_filter_ = channel()->CreateSyncMessageFilter();
+  sender_ = new Sender(AsWeakPtr(), channel()->CreateSyncMessageFilter());
 
   // The message filter will intercept and process certain messages directly
   // on the I/O thread.
@@ -184,38 +238,8 @@ bool PluginDispatcher::IsPlugin() const {
   return true;
 }
 
-bool PluginDispatcher::SendMessage(IPC::Message* msg) {
-  // Currently we need to choose between two different mechanisms for sending.
-  // On the main thread we use the regular dispatch Send() method, on another
-  // thread we use SyncMessageFilter.
-  if (PpapiGlobals::Get()->GetMainThreadMessageLoop()->BelongsToCurrentThread())
-    return Dispatcher::Send(msg);
-  return sync_filter_->Send(msg);
-}
-
 bool PluginDispatcher::Send(IPC::Message* msg) {
-  TRACE_EVENT2("ppapi proxy", "PluginDispatcher::Send",
-               "Class", IPC_MESSAGE_ID_CLASS(msg->type()),
-               "Line", IPC_MESSAGE_ID_LINE(msg->type()));
-  // We always want plugin->renderer messages to arrive in-order. If some sync
-  // and some async messages are sent in response to a synchronous
-  // renderer->plugin call, the sync reply will be processed before the async
-  // reply, and everything will be confused.
-  //
-  // Allowing all async messages to unblock the renderer means more reentrancy
-  // there but gives correct ordering.
-  //
-  // We don't want reply messages to unblock however, as they will potentially
-  // end up on the wrong queue - see crbug.com/122443
-  if (!msg->is_reply())
-    msg->set_unblock(true);
-  if (msg->is_sync()) {
-    // Synchronous messages might be re-entrant, so we need to drop the lock.
-    ProxyAutoUnlock unlock;
-    SCOPED_UMA_HISTOGRAM_TIMER("Plugin.PpapiSyncIPCTime");
-    return SendMessage(msg);
-  }
-  return SendMessage(msg);
+  return sender_->Send(msg);
 }
 
 bool PluginDispatcher::SendAndStayLocked(IPC::Message* msg) {
@@ -224,7 +248,7 @@ bool PluginDispatcher::SendAndStayLocked(IPC::Message* msg) {
                "Line", IPC_MESSAGE_ID_LINE(msg->type()));
   if (!msg->is_reply())
     msg->set_unblock(true);
-  return SendMessage(msg);
+  return sender_->SendMessage(msg);
 }
 
 bool PluginDispatcher::OnMessageReceived(const IPC::Message& msg) {
@@ -260,21 +284,21 @@ void PluginDispatcher::OnChannelError() {
 }
 
 void PluginDispatcher::DidCreateInstance(PP_Instance instance) {
-  if (!g_instance_to_dispatcher)
-    g_instance_to_dispatcher = new InstanceToDispatcherMap;
-  (*g_instance_to_dispatcher)[instance] = this;
-  instance_map_[instance] = base::MakeUnique<InstanceData>();
+  if (!g_instance_to_plugin_dispatcher)
+    g_instance_to_plugin_dispatcher = new InstanceToPluginDispatcherMap;
+  (*g_instance_to_plugin_dispatcher)[instance] = this;
+  instance_map_[instance] = std::make_unique<InstanceData>();
 }
 
 void PluginDispatcher::DidDestroyInstance(PP_Instance instance) {
   instance_map_.erase(instance);
 
-  if (g_instance_to_dispatcher) {
-    InstanceToDispatcherMap::iterator found = g_instance_to_dispatcher->find(
-        instance);
-    if (found != g_instance_to_dispatcher->end()) {
+  if (g_instance_to_plugin_dispatcher) {
+    InstanceToPluginDispatcherMap::iterator found =
+        g_instance_to_plugin_dispatcher->find(instance);
+    if (found != g_instance_to_plugin_dispatcher->end()) {
       DCHECK(found->second == this);
-      g_instance_to_dispatcher->erase(found);
+      g_instance_to_plugin_dispatcher->erase(found);
     } else {
       NOTREACHED();
     }
@@ -299,13 +323,13 @@ thunk::ResourceCreationAPI* PluginDispatcher::GetResourceCreationAPI() {
 }
 
 void PluginDispatcher::ForceFreeAllInstances() {
-  if (!g_instance_to_dispatcher)
+  if (!g_instance_to_plugin_dispatcher)
     return;
 
   // Iterating will remove each item from the map, so we need to make a copy
   // to avoid things changing out from under is.
-  InstanceToDispatcherMap temp_map = *g_instance_to_dispatcher;
-  for (InstanceToDispatcherMap::iterator i = temp_map.begin();
+  InstanceToPluginDispatcherMap temp_map = *g_instance_to_plugin_dispatcher;
+  for (InstanceToPluginDispatcherMap::iterator i = temp_map.begin();
        i != temp_map.end(); ++i) {
     if (i->second == this) {
       // Synthesize an "instance destroyed" message, this will notify the

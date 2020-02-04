@@ -34,22 +34,22 @@
 #include "qdesigner_objectinspector_p.h"
 #include "promotiontaskmenu_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/abstractformeditor.h>
 #include <actionprovider_p.h>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractwidgetfactory.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QMenu>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qmenu.h>
 #include <QtGui/qevent.h>
-#include <QtGui/QDrag>
-#include <QtWidgets/QApplication>
-#include <QtCore/QDebug>
+#include <QtGui/qdrag.h>
+#include <QtWidgets/qapplication.h>
+#include <QtCore/qdebug.h>
 
 Q_DECLARE_METATYPE(QAction*)
 
@@ -76,10 +76,7 @@ ToolBarEventFilter::ToolBarEventFilter(QToolBar *tb) :
 ToolBarEventFilter *ToolBarEventFilter::eventFilterOf(const QToolBar *tb)
 {
     // Look for 1st order children only..otherwise, we might get filters of nested widgets
-    const QObjectList children = tb->children();
-    const QObjectList::const_iterator cend = children.constEnd();
-    for (QObjectList::const_iterator it = children.constBegin(); it != cend; ++it) {
-        QObject *o = *it;
+    for (QObject *o : tb->children()) {
         if (!o->isWidgetType())
             if (ToolBarEventFilter *ef = qobject_cast<ToolBarEventFilter *>(o))
                 return ef;
@@ -406,7 +403,7 @@ void ToolBarEventFilter::startDrag(const QPoint &pos, Qt::KeyboardModifiers modi
     drag->setPixmap(ActionRepositoryMimeData::actionDragPixmap( action));
     drag->setMimeData(new ActionRepositoryMimeData(action, dropAction));
 
-    if (drag->start(dropAction) == Qt::IgnoreAction) {
+    if (drag->exec(dropAction) == Qt::IgnoreAction) {
         hideDragIndicator();
         if (dropAction == Qt::MoveAction) {
             const ActionList currentActions = m_toolBar->actions();

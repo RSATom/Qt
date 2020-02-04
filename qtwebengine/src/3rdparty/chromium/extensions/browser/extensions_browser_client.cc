@@ -8,15 +8,36 @@
 #include "components/update_client/update_client.h"
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "extensions/browser/extension_error.h"
-#include "extensions/browser/updater/update_client_config.h"
 
 namespace extensions {
 
 namespace {
 
-ExtensionsBrowserClient* g_client = NULL;
+ExtensionsBrowserClient* g_extension_browser_client = NULL;
 
 }  // namespace
+
+ExtensionsBrowserClient::ExtensionsBrowserClient() {}
+ExtensionsBrowserClient::~ExtensionsBrowserClient() = default;
+
+ExtensionsBrowserClient* ExtensionsBrowserClient::Get() {
+  return g_extension_browser_client;
+}
+
+void ExtensionsBrowserClient::Set(ExtensionsBrowserClient* client) {
+  g_extension_browser_client = client;
+}
+
+void ExtensionsBrowserClient::RegisterExtensionFunctions(
+    ExtensionFunctionRegistry* registry) {
+  for (const auto& provider : providers_)
+    provider->RegisterExtensionFunctions(registry);
+}
+
+void ExtensionsBrowserClient::AddAPIProvider(
+    std::unique_ptr<ExtensionsBrowserAPIProvider> provider) {
+  providers_.push_back(std::move(provider));
+}
 
 scoped_refptr<update_client::UpdateClient>
 ExtensionsBrowserClient::CreateUpdateClient(content::BrowserContext* context) {
@@ -53,12 +74,36 @@ ExtensionsBrowserClient::GetExtensionNavigationUIData(
   return nullptr;
 }
 
-ExtensionsBrowserClient* ExtensionsBrowserClient::Get() {
-  return g_client;
+void ExtensionsBrowserClient::GetTabAndWindowIdForWebContents(
+    content::WebContents* web_contents,
+    int* tab_id,
+    int* window_id) {
+  *tab_id = -1;
+  *window_id = -1;
 }
 
-void ExtensionsBrowserClient::Set(ExtensionsBrowserClient* client) {
-  g_client = client;
+bool ExtensionsBrowserClient::IsExtensionEnabled(
+    const std::string& extension_id,
+    content::BrowserContext* context) const {
+  return false;
+}
+
+bool ExtensionsBrowserClient::IsWebUIAllowedToMakeNetworkRequests(
+    const url::Origin& origin) {
+  return false;
+}
+
+network::mojom::NetworkContext*
+ExtensionsBrowserClient::GetSystemNetworkContext() {
+  return nullptr;
+}
+
+UserScriptListener* ExtensionsBrowserClient::GetUserScriptListener() {
+  return nullptr;
+}
+
+std::string ExtensionsBrowserClient::GetUserAgent() const {
+  return std::string();
 }
 
 }  // namespace extensions

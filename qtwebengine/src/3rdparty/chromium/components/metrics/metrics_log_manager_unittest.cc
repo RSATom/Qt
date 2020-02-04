@@ -26,7 +26,7 @@ namespace {
 
 class MetricsLogManagerTest : public testing::Test {
  public:
-  MetricsLogManagerTest() : log_store_(&pref_service_, 0) {
+  MetricsLogManagerTest() : log_store_(&pref_service_, 0, std::string()) {
     MetricsLogStore::RegisterPrefs(pref_service_.registry());
     log_store()->LoadPersistedUnsentLogs();
   }
@@ -35,7 +35,7 @@ class MetricsLogManagerTest : public testing::Test {
   MetricsLogStore* log_store() { return &log_store_; }
 
   MetricsLog* CreateLog(MetricsLog::LogType log_type) {
-    return new MetricsLog("id", 0, log_type, &client_, &pref_service_);
+    return new MetricsLog("id", 0, log_type, &client_);
   }
 
  private:
@@ -52,7 +52,7 @@ TEST_F(MetricsLogManagerTest, StandardFlow) {
   MetricsLogManager log_manager;
 
   // Make sure a new manager has a clean slate.
-  EXPECT_EQ(NULL, log_manager.current_log());
+  EXPECT_EQ(nullptr, log_manager.current_log());
 
   // Check that the normal flow works.
   MetricsLog* initial_log = CreateLog(MetricsLog::INITIAL_STABILITY_LOG);
@@ -61,7 +61,7 @@ TEST_F(MetricsLogManagerTest, StandardFlow) {
 
   EXPECT_FALSE(log_store()->has_unsent_logs());
   log_manager.FinishCurrentLog(log_store());
-  EXPECT_EQ(NULL, log_manager.current_log());
+  EXPECT_EQ(nullptr, log_manager.current_log());
   EXPECT_TRUE(log_store()->has_unsent_logs());
 
   MetricsLog* second_log = CreateLog(MetricsLog::ONGOING_LOG);
@@ -77,7 +77,7 @@ TEST_F(MetricsLogManagerTest, AbandonedLog) {
   EXPECT_EQ(dummy_log, log_manager.current_log());
 
   log_manager.DiscardCurrentLog();
-  EXPECT_EQ(NULL, log_manager.current_log());
+  EXPECT_EQ(nullptr, log_manager.current_log());
 }
 
 // Make sure that interjecting logs updates the "current" log correctly.
@@ -91,12 +91,12 @@ TEST_F(MetricsLogManagerTest, InterjectedLog) {
   EXPECT_EQ(ongoing_log, log_manager.current_log());
 
   log_manager.PauseCurrentLog();
-  EXPECT_EQ(NULL, log_manager.current_log());
+  EXPECT_EQ(nullptr, log_manager.current_log());
 
   log_manager.BeginLoggingWithLog(base::WrapUnique(temp_log));
   EXPECT_EQ(temp_log, log_manager.current_log());
   log_manager.FinishCurrentLog(log_store());
-  EXPECT_EQ(NULL, log_manager.current_log());
+  EXPECT_EQ(nullptr, log_manager.current_log());
 
   log_manager.ResumePausedLog();
   EXPECT_EQ(ongoing_log, log_manager.current_log());

@@ -1,7 +1,7 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html#License
 sv{
-    Version{"2.1.32.59"}
+    Version{"2.1.43.94"}
     durationUnits{
         hm{"h:mm"}
         hms{"h:mm:ss"}
@@ -123,6 +123,16 @@ sv{
                 one{"{0} miljondel"}
                 other{"{0} miljondelar"}
             }
+            percent{
+                dnam{"procent"}
+                one{"{0} procent"}
+                other{"{0} procent"}
+            }
+            permille{
+                dnam{"promille"}
+                one{"{0} promille"}
+                other{"{0} promille"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -147,6 +157,7 @@ sv{
             }
         }
         coordinate{
+            dnam{"kompassriktning"}
             east{"{0} öst"}
             north{"{0} nord"}
             south{"{0} syd"}
@@ -192,6 +203,11 @@ sv{
                 dnam{"megabyte"}
                 one{"{0} megabyte"}
                 other{"{0} megabyte"}
+            }
+            petabyte{
+                dnam{"petabyte"}
+                one{"{0} petabyte"}
+                other{"{0} petabyte"}
             }
             terabit{
                 dnam{"terabit"}
@@ -440,6 +456,11 @@ sv{
                 one{"{0} pikometer"}
                 other{"{0} pikometer"}
             }
+            point{
+                dnam{"pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
+            }
             yard{
                 dnam{"engelska yard"}
                 one{"{0} engelsk yard"}
@@ -547,6 +568,11 @@ sv{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atmosfärer"}
+                one{"{0} atmosfär"}
+                other{"{0} atmosfärer"}
+            }
             hectopascal{
                 dnam{"hektopascal"}
                 one{"{0} hektopascal"}
@@ -846,6 +872,11 @@ sv{
             per{"{0}/{1}"}
         }
         concentr{
+            karat{
+                dnam{"karat"}
+                one{"{0} krt"}
+                other{"{0} krt"}
+            }
             milligram-per-deciliter{
                 dnam{"mg/dL"}
                 one{"{0}mg/dL"}
@@ -857,8 +888,19 @@ sv{
                 other{"{0}mmol/L"}
             }
             part-per-million{
+                dnam{"miljondelar"}
                 one{"{0} ppm"}
                 other{"{0} ppm"}
+            }
+            percent{
+                dnam{"%"}
+                one{"{0} %"}
+                other{"{0} %"}
+            }
+            permille{
+                dnam{"‰"}
+                one{"{0}‰"}
+                other{"{0}‰"}
             }
         }
         consumption{
@@ -884,6 +926,7 @@ sv{
             }
         }
         coordinate{
+            dnam{"riktning"}
             east{"{0}Ö"}
             north{"{0}N"}
             south{"{0}S"}
@@ -1157,6 +1200,11 @@ sv{
                 one{"{0}pm"}
                 other{"{0}pm"}
             }
+            point{
+                dnam{"pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
+            }
             yard{
                 dnam{"engelska yard"}
                 one{"{0}yd"}
@@ -1210,6 +1258,7 @@ sv{
                 per{"{0}/uns·28g"}
             }
             ounce-troy{
+                dnam{"Troy-uns à 31g"}
                 one{"{0} tr.uns"}
                 other{"{0} tr.uns"}
             }
@@ -1263,6 +1312,11 @@ sv{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atm"}
+                one{"{0}atm"}
+                other{"{0}atm"}
+            }
             hectopascal{
                 dnam{"hPa"}
                 one{"{0}hPa"}
@@ -1582,6 +1636,16 @@ sv{
                 one{"{0} ppm"}
                 other{"{0} ppm"}
             }
+            percent{
+                dnam{"%"}
+                one{"{0} %"}
+                other{"{0} %"}
+            }
+            permille{
+                dnam{"‰"}
+                one{"{0} ‰"}
+                other{"{0} ‰"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -1606,6 +1670,7 @@ sv{
             }
         }
         coordinate{
+            dnam{"väderstreck"}
             east{"{0} Ö"}
             north{"{0} N"}
             south{"{0} S"}
@@ -1651,6 +1716,11 @@ sv{
                 dnam{"MB"}
                 one{"{0} MB"}
                 other{"{0} MB"}
+            }
+            petabyte{
+                dnam{"PB"}
+                one{"{0} PB"}
+                other{"{0} PB"}
             }
             terabit{
                 dnam{"Tb"}
@@ -1899,6 +1969,11 @@ sv{
                 one{"{0} pm"}
                 other{"{0} pm"}
             }
+            point{
+                dnam{"pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
+            }
             yard{
                 dnam{"engelska yard"}
                 one{"{0} eng. yard"}
@@ -2006,6 +2081,11 @@ sv{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atm"}
+                one{"{0} atm"}
+                other{"{0} atm"}
+            }
             hectopascal{
                 dnam{"hPa"}
                 one{"{0} hPa"}

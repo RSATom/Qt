@@ -8,8 +8,9 @@
 #ifndef GrGpuResource_DEFINED
 #define GrGpuResource_DEFINED
 
+#include "../private/GrResourceKey.h"
 #include "../private/GrTypesPriv.h"
-#include "GrResourceKey.h"
+#include "../private/SkNoncopyable.h"
 
 class GrContext;
 class GrGpu;
@@ -84,13 +85,12 @@ protected:
         kPendingWrite_CntType,
     };
 
-    bool isPurgeable() const { return !this->internalHasRef() && !this->internalHasPendingIO(); }
-
     bool internalHasPendingRead() const { return SkToBool(fPendingReads); }
     bool internalHasPendingWrite() const { return SkToBool(fPendingWrites); }
     bool internalHasPendingIO() const { return SkToBool(fPendingWrites | fPendingReads); }
 
     bool internalHasRef() const { return SkToBool(fRefCnt); }
+    bool internalHasUniqueRef() const { return fRefCnt == 1; }
 
 private:
     friend class GrIORefProxy; // needs to forward on wrapped IO calls
@@ -131,8 +131,6 @@ private:
     mutable int32_t fPendingReads;
     mutable int32_t fPendingWrites;
 
-    // This class is used to manage conversion of refs to pending reads/writes.
-    friend class GrGpuResourceRef;
     friend class GrResourceCache; // to check IO ref counts.
 
     template <typename, GrIOType> friend class GrPendingIOResource;
@@ -154,7 +152,7 @@ public:
      * @return true if the object has been released or abandoned,
      *         false otherwise.
      */
-    bool wasDestroyed() const { return NULL == fGpu; }
+    bool wasDestroyed() const { return nullptr == fGpu; }
 
     /**
      * Retrieves the context that owns the object. Note that it is possible for
@@ -248,6 +246,15 @@ public:
      **/
     virtual void dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump) const;
 
+    /**
+     * Describes the type of gpu resource that is represented by the implementing
+     * class (e.g. texture, buffer object, stencil).  This data is used for diagnostic
+     * purposes by dumpMemoryStatistics().
+     *
+     * The value returned is expected to be long lived and will not be copied by the caller.
+     */
+    virtual const char* getResourceType() const = 0;
+
     static uint32_t CreateUniqueID();
 
 protected:
@@ -258,7 +265,7 @@ protected:
     // This must be called by every GrGpuObject that references any wrapped backend objects. It
     // should be called once the object is fully initialized (i.e. only from the constructors of the
     // final class).
-    void registerWithCacheWrapped();
+    void registerWithCacheWrapped(bool purgeImmediately = false);
 
     GrGpuResource(GrGpu*);
     virtual ~GrGpuResource();
@@ -273,18 +280,27 @@ protected:
     virtual void onAbandon() { }
 
     /**
-     * This entry point should be called whenever gpuMemorySize() should report a different size.
-     * The cache will call gpuMemorySize() to update the current size of the resource.
-     */
-    void didChangeGpuMemorySize() const;
-
-    /**
-     * Allows subclasses to add additional backing information to the SkTraceMemoryDump. Called by
-     * onMemoryDump. The default implementation adds no backing information.
+     * Allows subclasses to add additional backing information to the SkTraceMemoryDump.
      **/
     virtual void setMemoryBacking(SkTraceMemoryDump*, const SkString&) const {}
 
+    /**
+     * Returns a string that uniquely identifies this resource.
+     */
+    SkString getResourceName() const;
+
+    /**
+     * A helper for subclasses that override dumpMemoryStatistics(). This method using a format
+     * consistent with the default implementation of dumpMemoryStatistics() but allows the caller
+     * to customize various inputs.
+     */
+    void dumpMemoryStatisticsPriv(SkTraceMemoryDump* traceMemoryDump, const SkString& resourceName,
+                                  const char* type, size_t size) const;
+
+
 private:
+    bool isPurgeable() const { return !this->internalHasRef() && !this->internalHasPendingIO(); }
+
     /**
      * Called by the registerWithCache if the resource is available to be used as scratch.
      * Resource subclasses should override this if the instances should be recycled as scratch
@@ -299,6 +315,11 @@ private:
     void release();
 
     virtual size_t onGpuMemorySize() const = 0;
+
+    /**
+     * Called by GrResourceCache when a resource transitions from being unpurgeable to purgeable.
+     */
+    virtual void becamePurgeable() {}
 
     // See comments in CacheAccess and ResourcePriv.
     void setUniqueKey(const GrUniqueKey&);
@@ -319,7 +340,6 @@ private:
     // This value reflects how recently this resource was accessed in the cache. This is maintained
     // by the cache.
     uint32_t fTimestamp;
-    uint32_t fExternalFlushCntWhenBecamePurgeable;
     GrStdSteadyClock::time_point fTimeWhenBecamePurgeable;
 
     static const size_t kInvalidGpuMemorySize = ~static_cast<size_t>(0);
@@ -332,6 +352,7 @@ private:
     mutable size_t fGpuMemorySize;
 
     SkBudgeted fBudgeted;
+    bool fShouldPurgeImmediately;
     bool fRefsWrappedObjects;
     const UniqueID fUniqueID;
 

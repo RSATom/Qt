@@ -11,7 +11,6 @@
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/navigation_ui_data.h"
 #include "content/public/browser/reload_type.h"
-#include "content/public/common/previews_state.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 
@@ -49,12 +48,10 @@ class CONTENT_EXPORT NavigatorDelegate {
   // events should go away in favor of the ones above.
 
   // Document load in |render_frame_host| failed.
-  virtual void DidFailLoadWithError(
-      RenderFrameHostImpl* render_frame_host,
-      const GURL& url,
-      int error_code,
-      const base::string16& error_description,
-      bool was_ignored_by_handler) {}
+  virtual void DidFailLoadWithError(RenderFrameHostImpl* render_frame_host,
+                                    const GURL& url,
+                                    int error_code,
+                                    const base::string16& error_description) {}
 
   // Handles post-navigation tasks in navigation BEFORE the entry has been
   // committed to the NavigationController.
@@ -99,7 +96,11 @@ class CONTENT_EXPORT NavigatorDelegate {
   virtual bool ShouldPreserveAbortedURLs();
 
   // Returns the overriden user agent string if it's set.
-  virtual const std::string& GetUserAgentOverride() const = 0;
+  virtual const std::string& GetUserAgentOverride() = 0;
+
+  // Returns whether we should override the user agent in new tabs, e.g., for
+  // Android Webview's popup window when current entry.
+  virtual bool ShouldOverrideUserAgentInNewTabs() = 0;
 
   // A RenderFrameHost in the specified |frame_tree_node| started loading a new
   // document. This correponds to Blink's notion of the throbber starting.
@@ -131,14 +132,7 @@ class CONTENT_EXPORT NavigatorDelegate {
 
   // Whether the delegate is displaying an interstitial page over the current
   // page.
-  virtual bool ShowingInterstitialPage() const = 0;
-
-  // Gives the delegate a chance to adjust the previews state during navigation.
-  // When called, previews_state will be pointing to a valid set of previews, or
-  // an enum value disabling previews.  The call will change the value of
-  // previews_state in place, and must change it to either a value disabling
-  // previews, or a subset of the previews passed in.
-  virtual void AdjustPreviewsStateForNavigation(PreviewsState* previews_state);
+  virtual bool ShowingInterstitialPage() = 0;
 };
 
 }  // namspace content

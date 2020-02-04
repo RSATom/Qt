@@ -8,15 +8,16 @@
 #include <OpenGL/CGLTypes.h>
 
 #include <memory>
+#include <sstream>
 #include <vector>
 
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gl/gl_bindings.h"
+#include "ui/gl/gl_fence.h"
 #include "ui/gl/gl_gl_api_implementation.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_surface.h"
@@ -30,23 +31,16 @@ namespace {
 
 bool g_support_renderer_switching;
 
-struct CGLRendererInfoObjDeleter {
-  void operator()(CGLRendererInfoObj* x) {
-    if (x)
-      CGLDestroyRendererInfo(*x);
-  }
-};
-
 }  // namespace
 
-static CGLPixelFormatObj GetPixelFormat() {
+static CGLPixelFormatObj GetPixelFormat(const int core_profile = 0) {
   static CGLPixelFormatObj format;
-  if (format)
+  if (format && core_profile == 0)
     return format;
   std::vector<CGLPixelFormatAttribute> attribs;
   // If the system supports dual gpus then allow offline renderers for every
   // context, so that they can all be in the same share group.
-  if (ui::GpuSwitchingManager::GetInstance()->SupportsDualGpus()) {
+  if (GLContext::SwitchableGPUsSupported()) {
     attribs.push_back(kCGLPFAAllowOfflineRenderers);
     g_support_renderer_switching = true;
   }
@@ -59,9 +53,8 @@ static CGLPixelFormatObj GetPixelFormat() {
     // These constants don't exist in the 10.6 SDK against which
     // Chromium currently compiles.
     const int kOpenGLProfile = 99;
-    const int kOpenGL3_2Core = 0x3200;
     attribs.push_back(static_cast<CGLPixelFormatAttribute>(kOpenGLProfile));
-    attribs.push_back(static_cast<CGLPixelFormatAttribute>(kOpenGL3_2Core));
+    attribs.push_back(static_cast<CGLPixelFormatAttribute>(core_profile));
   }
 
   attribs.push_back((CGLPixelFormatAttribute) 0);
@@ -81,15 +74,9 @@ static CGLPixelFormatObj GetPixelFormat() {
   return format;
 }
 
-GLContextCGL::GLContextCGL(GLShareGroup* share_group)
-  : GLContextReal(share_group),
-    context_(nullptr),
-    gpu_preference_(PreferIntegratedGpu),
-    discrete_pixelformat_(nullptr),
-    screen_(-1),
-    renderer_id_(-1),
-    safe_to_force_gpu_switch_(true) {
-}
+GLContextCGL::GLContextCGL(GLShareGroup* share_group, int core_profile_number)
+    : GLContextReal(share_group)
+    , core_profile_number_(core_profile_number) {}
 
 bool GLContextCGL::Initialize(GLSurface* compatible_surface,
                               const GLContextAttribs& attribs) {
@@ -101,19 +88,18 @@ bool GLContextCGL::Initialize(GLSurface* compatible_surface,
          attribs.bind_generates_resource);
 
   GpuPreference gpu_preference =
-      ui::GpuSwitchingManager::GetInstance()->AdjustGpuPreference(
-          attribs.gpu_preference);
+      GLContext::AdjustGpuPreference(attribs.gpu_preference);
 
   GLContextCGL* share_context = share_group() ?
       static_cast<GLContextCGL*>(share_group()->GetContext()) : nullptr;
 
-  CGLPixelFormatObj format = GetPixelFormat();
+  CGLPixelFormatObj format = GetPixelFormat(core_profile_number_);
   if (!format)
     return false;
 
   // If using the discrete gpu, create a pixel format requiring it before we
   // create the context.
-  if (!ui::GpuSwitchingManager::GetInstance()->SupportsDualGpus() ||
+  if (!GLContext::SwitchableGPUsSupported() ||
       gpu_preference == PreferDiscreteGpu) {
     std::vector<CGLPixelFormatAttribute> discrete_attribs;
     discrete_attribs.push_back((CGLPixelFormatAttribute) 0);
@@ -149,16 +135,18 @@ bool GLContextCGL::Initialize(GLSurface* compatible_surface,
 }
 
 void GLContextCGL::Destroy() {
-  if (yuv_to_rgb_converter_) {
+  if (!yuv_to_rgb_converters_.empty() || !backpressure_fences_.empty()) {
     // If this context is not current, bind this context's API so that the YUV
-    // converter can safely destruct
+    // converter and GLFences can safely destruct
     GLContext* current_context = GetRealCurrent();
     if (current_context != this) {
       SetCurrentGL(GetCurrentGL());
     }
 
-    ScopedCGLSetCurrentContext(static_cast<CGLContextObj>(context_));
-    yuv_to_rgb_converter_.reset();
+    ScopedCGLSetCurrentContext scoped_set_current(
+        static_cast<CGLContextObj>(context_));
+    yuv_to_rgb_converters_.clear();
+    backpressure_fences_.clear();
 
     // Rebind the current context's API if needed.
     if (current_context && current_context != this) {
@@ -166,7 +154,7 @@ void GLContextCGL::Destroy() {
     }
   }
   if (discrete_pixelformat_) {
-    if (base::MessageLoop::current() != nullptr) {
+    if (base::ThreadTaskRunnerHandle::IsSet()) {
       // Delay releasing the pixel format for 10 seconds to reduce the number of
       // unnecessary GPU switches.
       base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
@@ -219,15 +207,89 @@ bool GLContextCGL::ForceGpuSwitchIfNeeded() {
         }
       }
       renderer_id_ = renderer_id;
+      has_switched_gpus_ = true;
     }
   }
   return true;
 }
 
-YUVToRGBConverter* GLContextCGL::GetYUVToRGBConverter() {
-  if (!yuv_to_rgb_converter_)
-    yuv_to_rgb_converter_.reset(new YUVToRGBConverter(*GetVersionInfo()));
-  return yuv_to_rgb_converter_.get();
+YUVToRGBConverter* GLContextCGL::GetYUVToRGBConverter(
+    const gfx::ColorSpace& color_space) {
+  std::unique_ptr<YUVToRGBConverter>& yuv_to_rgb_converter =
+      yuv_to_rgb_converters_[color_space];
+  if (!yuv_to_rgb_converter)
+    yuv_to_rgb_converter =
+        std::make_unique<YUVToRGBConverter>(*GetVersionInfo(), color_space);
+  return yuv_to_rgb_converter.get();
+}
+
+constexpr uint64_t kInvalidFenceId = 0;
+
+uint64_t GLContextCGL::BackpressureFenceCreate() {
+  TRACE_EVENT0("gpu", "GLContextCGL::BackpressureFenceCreate");
+
+  // This flush will trigger a crash if FlushForDriverCrashWorkaround is not
+  // called sufficiently frequently.
+  glFlush();
+
+  if (gl::GLFence::IsSupported()) {
+    next_backpressure_fence_ += 1;
+    backpressure_fences_[next_backpressure_fence_] = GLFence::Create();
+    return next_backpressure_fence_;
+  }
+  glFinish();
+  return kInvalidFenceId;
+}
+
+void GLContextCGL::BackpressureFenceWait(uint64_t fence_id) {
+  TRACE_EVENT0("gpu", "GLContextCGL::BackpressureFenceWait");
+  if (fence_id == kInvalidFenceId) {
+    return;
+  }
+
+  // If a fence is not found, then it has already been waited on.
+  auto found = backpressure_fences_.find(fence_id);
+  if (found == backpressure_fences_.end())
+    return;
+  std::unique_ptr<GLFence> fence = std::move(found->second);
+  backpressure_fences_.erase(found);
+
+  // While we could call GLFence::ClientWait, this performs a busy wait on
+  // Mac, leading to high CPU usage. Instead we poll with a 1ms delay. This
+  // should have minimal impact, as we will only hit this path when we are
+  // more than one frame (16ms) behind.
+  //
+  // Note that on some platforms (10.9), fences appear to sometimes get
+  // lost and will never pass. Add a 32ms timout to prevent these
+  // situations from causing a GPU process hang.
+  // https://crbug.com/618075
+  bool fence_completed = false;
+  for (int poll_iter = 0; !fence_completed && poll_iter < 32; ++poll_iter) {
+    if (poll_iter > 0) {
+      base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(1));
+    }
+    {
+      TRACE_EVENT0("gpu", "GLFence::HasCompleted");
+      fence_completed = fence->HasCompleted();
+    }
+  }
+  if (!fence_completed) {
+    TRACE_EVENT0("gpu", "Finish");
+    // We timed out waiting for the above fence, just issue a glFinish.
+    glFinish();
+  }
+  fence.reset();
+
+  // Waiting on |fence_id| has implicitly waited on all previous fences, so
+  // remove them.
+  while (backpressure_fences_.begin()->first < fence_id)
+    backpressure_fences_.erase(backpressure_fences_.begin());
+}
+
+void GLContextCGL::FlushForDriverCrashWorkaround() {
+  if (!context_ || CGLGetCurrentContext() != context_)
+    return;
+  glFlush();
 }
 
 bool GLContextCGL::MakeCurrent(GLSurface* surface) {
@@ -238,6 +300,16 @@ bool GLContextCGL::MakeCurrent(GLSurface* surface) {
 
   if (IsCurrent(surface))
     return true;
+
+  // It's likely we're going to switch OpenGL contexts at this point.
+  // Before doing so, if there is a current context, flush it. There
+  // are many implicit assumptions of flush ordering between contexts
+  // at higher levels, and if a flush isn't performed, OpenGL commands
+  // may be issued in unexpected orders, causing flickering and other
+  // artifacts.
+  if (CGLGetCurrentContext() != nullptr) {
+    glFlush();
+  }
 
   ScopedReleaseCurrent release_current;
   TRACE_EVENT0("gpu", "GLContextCGL::MakeCurrent");
@@ -267,6 +339,12 @@ void GLContextCGL::ReleaseCurrent(GLSurface* surface) {
   if (!IsCurrent(surface))
     return;
 
+  // Before releasing the current context, flush it. This ensures that
+  // all commands issued by higher levels will be seen by the OpenGL
+  // implementation, which is assumed throughout the code. See comment
+  // in MakeCurrent, above.
+  glFlush();
+
   SetCurrent(nullptr);
   CGLSetCurrentContext(nullptr);
 }
@@ -289,14 +367,9 @@ void* GLContextCGL::GetHandle() {
   return context_;
 }
 
-void GLContextCGL::OnSetSwapInterval(int interval) {
-  DCHECK(IsCurrent(nullptr));
-}
-
 void GLContextCGL::SetSafeToForceGpuSwitch() {
   safe_to_force_gpu_switch_ = true;
 }
-
 
 GLContextCGL::~GLContextCGL() {
   Destroy();

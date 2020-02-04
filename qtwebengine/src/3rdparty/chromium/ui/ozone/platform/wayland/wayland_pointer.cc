@@ -7,25 +7,49 @@
 #include <linux/input.h>
 #include <wayland-client.h>
 
+#include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
+#include "ui/ozone/platform/wayland/wayland_connection.h"
 #include "ui/ozone/platform/wayland/wayland_window.h"
 
 // TODO(forney): Handle version 5 of wl_pointer.
 
 namespace ui {
 
+namespace {
+
+bool VerifyFlagsAfterMasking(int flags, int original_flags, int modifiers) {
+  flags &= ~modifiers;
+  return flags == original_flags;
+}
+
+bool HasAnyButtonFlag(int flags) {
+  return (flags & (EF_LEFT_MOUSE_BUTTON | EF_MIDDLE_MOUSE_BUTTON |
+                   EF_RIGHT_MOUSE_BUTTON | EF_BACK_MOUSE_BUTTON |
+                   EF_FORWARD_MOUSE_BUTTON)) != 0;
+}
+
+}  // namespace
+
 WaylandPointer::WaylandPointer(wl_pointer* pointer,
                                const EventDispatchCallback& callback)
-    : obj_(pointer), callback_(callback) {
+    : obj_(pointer), callback_(callback), weak_ptr_factory_(this) {
   static const wl_pointer_listener listener = {
       &WaylandPointer::Enter,  &WaylandPointer::Leave, &WaylandPointer::Motion,
       &WaylandPointer::Button, &WaylandPointer::Axis,
   };
 
   wl_pointer_add_listener(obj_.get(), &listener, this);
+
+  cursor_.reset(new WaylandCursor);
 }
 
-WaylandPointer::~WaylandPointer() {}
+WaylandPointer::~WaylandPointer() {
+  if (window_with_pointer_focus_) {
+    window_with_pointer_focus_->set_pointer_focus(false);
+    window_with_pointer_focus_->set_has_implicit_grab(false);
+  }
+}
 
 // static
 void WaylandPointer::Enter(void* data,
@@ -37,8 +61,11 @@ void WaylandPointer::Enter(void* data,
   WaylandPointer* pointer = static_cast<WaylandPointer*>(data);
   pointer->location_.SetPoint(wl_fixed_to_double(surface_x),
                               wl_fixed_to_double(surface_y));
-  if (surface)
-    WaylandWindow::FromSurface(surface)->set_pointer_focus(true);
+  if (surface) {
+    WaylandWindow* window = WaylandWindow::FromSurface(surface);
+    window->set_pointer_focus(true);
+    pointer->window_with_pointer_focus_ = window;
+  }
 }
 
 // static
@@ -46,8 +73,16 @@ void WaylandPointer::Leave(void* data,
                            wl_pointer* obj,
                            uint32_t serial,
                            wl_surface* surface) {
-  if (surface)
-    WaylandWindow::FromSurface(surface)->set_pointer_focus(false);
+  WaylandPointer* pointer = static_cast<WaylandPointer*>(data);
+  MouseEvent event(ET_MOUSE_EXITED, gfx::Point(), gfx::Point(),
+                   EventTimeForNow(), pointer->flags_, 0);
+  pointer->callback_.Run(&event);
+  if (surface) {
+    WaylandWindow* window = WaylandWindow::FromSurface(surface);
+    window->set_pointer_focus(false);
+    window->set_has_implicit_grab(false);
+    pointer->window_with_pointer_focus_ = nullptr;
+  }
 }
 
 // static
@@ -60,8 +95,8 @@ void WaylandPointer::Motion(void* data,
   pointer->location_.SetPoint(wl_fixed_to_double(surface_x),
                               wl_fixed_to_double(surface_y));
   MouseEvent event(ET_MOUSE_MOVED, gfx::Point(), gfx::Point(),
-                   base::TimeTicks() + base::TimeDelta::FromMilliseconds(time),
-                   pointer->flags_, 0);
+                   EventTimeForNow(), pointer->GetFlagsWithKeyboardModifiers(),
+                   0);
   event.set_location_f(pointer->location_);
   event.set_root_location_f(pointer->location_);
   pointer->callback_.Run(&event);
@@ -75,41 +110,58 @@ void WaylandPointer::Button(void* data,
                             uint32_t button,
                             uint32_t state) {
   WaylandPointer* pointer = static_cast<WaylandPointer*>(data);
-  int flag;
+  int changed_button;
   switch (button) {
     case BTN_LEFT:
-      flag = EF_LEFT_MOUSE_BUTTON;
+      changed_button = EF_LEFT_MOUSE_BUTTON;
       break;
     case BTN_MIDDLE:
-      flag = EF_MIDDLE_MOUSE_BUTTON;
+      changed_button = EF_MIDDLE_MOUSE_BUTTON;
       break;
     case BTN_RIGHT:
-      flag = EF_RIGHT_MOUSE_BUTTON;
+      changed_button = EF_RIGHT_MOUSE_BUTTON;
       break;
     case BTN_BACK:
-      flag = EF_BACK_MOUSE_BUTTON;
+      changed_button = EF_BACK_MOUSE_BUTTON;
       break;
     case BTN_FORWARD:
-      flag = EF_FORWARD_MOUSE_BUTTON;
+      changed_button = EF_FORWARD_MOUSE_BUTTON;
       break;
     default:
       return;
   }
-  int flags = pointer->flags_ | flag;
+
   EventType type;
   if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
     type = ET_MOUSE_PRESSED;
-    pointer->flags_ |= flag;
+    pointer->flags_ |= changed_button;
+    pointer->connection_->set_serial(serial);
   } else {
     type = ET_MOUSE_RELEASED;
-    pointer->flags_ &= ~flag;
+    pointer->flags_ &= ~changed_button;
   }
-  MouseEvent event(type, gfx::Point(), gfx::Point(),
-                   base::TimeTicks() + base::TimeDelta::FromMilliseconds(time),
-                   flags, flag);
+
+  // See comment bellow.
+  if (type == ET_MOUSE_PRESSED)
+    pointer->MaybeSetOrResetImplicitGrab();
+
+  // MouseEvent's flags should contain the button that was released too.
+  const int flags = pointer->GetFlagsWithKeyboardModifiers() | changed_button;
+  MouseEvent event(type, gfx::Point(), gfx::Point(), EventTimeForNow(), flags,
+                   changed_button);
   event.set_location_f(pointer->location_);
   event.set_root_location_f(pointer->location_);
+
+  auto weak_ptr = pointer->weak_ptr_factory_.GetWeakPtr();
   pointer->callback_.Run(&event);
+
+  // Reset implicit grab only after the event has been sent. Otherwise,
+  // we may end up in a situation, when a target checks for a pointer grab on
+  // the MouseRelease event type, and fails to release capture due to early
+  // pointer focus reset. Setting implicit grab is done normally before the
+  // event has been sent.
+  if (weak_ptr && type == ET_MOUSE_RELEASED)
+    pointer->MaybeSetOrResetImplicitGrab();
 }
 
 // static
@@ -134,13 +186,36 @@ void WaylandPointer::Axis(void* data,
                  MouseWheelEvent::kWheelDelta);
   else
     return;
-  MouseWheelEvent event(
-      offset, gfx::Point(), gfx::Point(),
-      base::TimeTicks() + base::TimeDelta::FromMilliseconds(time),
-      pointer->flags_, 0);
+  MouseWheelEvent event(offset, gfx::Point(), gfx::Point(), EventTimeForNow(),
+                        pointer->GetFlagsWithKeyboardModifiers(), 0);
   event.set_location_f(pointer->location_);
   event.set_root_location_f(pointer->location_);
   pointer->callback_.Run(&event);
+}
+
+void WaylandPointer::MaybeSetOrResetImplicitGrab() {
+  if (!window_with_pointer_focus_)
+    return;
+
+  window_with_pointer_focus_->set_has_implicit_grab(HasAnyButtonFlag(flags_));
+}
+
+int WaylandPointer::GetFlagsWithKeyboardModifiers() {
+  assert(sizeof(flags_) == sizeof(keyboard_modifiers_));
+
+  // Remove old modifiers from flags and then update them with new modifiers.
+  flags_ &= ~keyboard_modifiers_;
+  keyboard_modifiers_ = connection_->GetKeyboardModifiers();
+
+  int old_flags = flags_;
+  flags_ |= keyboard_modifiers_;
+  DCHECK(VerifyFlagsAfterMasking(flags_, old_flags, keyboard_modifiers_));
+  return flags_;
+}
+
+void WaylandPointer::ResetFlags() {
+  flags_ = 0;
+  keyboard_modifiers_ = 0;
 }
 
 }  // namespace ui

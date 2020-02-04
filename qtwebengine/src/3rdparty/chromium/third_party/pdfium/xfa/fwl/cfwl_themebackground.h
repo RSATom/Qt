@@ -7,26 +7,23 @@
 #ifndef XFA_FWL_CFWL_THEMEBACKGROUND_H_
 #define XFA_FWL_CFWL_THEMEBACKGROUND_H_
 
-#include "core/fxge/fx_dib.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fwl/cfwl_themepart.h"
 
-class CFX_DIBitmpa;
 class CXFA_Graphics;
-class CXFA_Path;
+class CXFA_GEPath;
 
-class CFWL_ThemeBackground : public CFWL_ThemePart {
+class CFWL_ThemeBackground final : public CFWL_ThemePart {
  public:
   CFWL_ThemeBackground();
   ~CFWL_ThemeBackground();
 
-  CXFA_Graphics* m_pGraphics;
-  CXFA_Path* m_pPath;
-  CFX_RetainPtr<CFX_DIBitmap> m_pImage;
+  UnownedPtr<CXFA_Graphics> m_pGraphics;
+  UnownedPtr<CXFA_GEPath> m_pPath;
 };
 
-inline CFWL_ThemeBackground::CFWL_ThemeBackground()
-    : m_pGraphics(nullptr), m_pPath(nullptr) {}
+inline CFWL_ThemeBackground::CFWL_ThemeBackground() = default;
 
-inline CFWL_ThemeBackground::~CFWL_ThemeBackground() {}
+inline CFWL_ThemeBackground::~CFWL_ThemeBackground() = default;
 
 #endif  // XFA_FWL_CFWL_THEMEBACKGROUND_H_

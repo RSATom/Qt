@@ -5,23 +5,24 @@
 #include <tuple>
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "content/common/view_messages.h"
 #include "content/public/test/mock_render_thread.h"
 #include "content/renderer/media/render_media_log.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 
 namespace content {
 
 class RenderMediaLogTest : public testing::Test {
  public:
   RenderMediaLogTest()
-      : log_(GURL("http://foo.com")),
-        tick_clock_(new base::SimpleTestTickClock()),
+      : log_(GURL("http://foo.com"),
+             blink::scheduler::GetSingleThreadTaskRunnerForTesting()),
         task_runner_(new base::TestMockTimeTaskRunner()) {
-    log_.SetTickClockForTesting(std::unique_ptr<base::TickClock>(tick_clock_));
+    log_.SetTickClockForTesting(&tick_clock_);
     log_.SetTaskRunnerForTesting(task_runner_);
   }
 
@@ -36,7 +37,7 @@ class RenderMediaLogTest : public testing::Test {
   }
 
   void Advance(base::TimeDelta delta) {
-    tick_clock_->Advance(delta);
+    tick_clock_.Advance(delta);
     task_runner_->FastForwardBy(delta);
   }
 
@@ -56,10 +57,10 @@ class RenderMediaLogTest : public testing::Test {
   }
 
  private:
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
   MockRenderThread render_thread_;
+  base::SimpleTestTickClock tick_clock_;
   RenderMediaLog log_;
-  base::SimpleTestTickClock* tick_clock_;  // Owned by |log_|.
   scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderMediaLogTest);

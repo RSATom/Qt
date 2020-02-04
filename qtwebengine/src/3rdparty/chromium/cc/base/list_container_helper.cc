@@ -119,7 +119,7 @@ class ListContainerHelper::CharAllocator {
     last_list_ = storage_[last_list_index_].get();
   }
 
-  ~CharAllocator() {}
+  ~CharAllocator() = default;
 
   void* Allocate() {
     if (last_list_->IsFull()) {
@@ -268,10 +268,7 @@ class ListContainerHelper::CharAllocator {
 // PositionInCharAllocator
 //////////////////////////////////////////////////////
 ListContainerHelper::PositionInCharAllocator::PositionInCharAllocator(
-    const ListContainerHelper::PositionInCharAllocator& other)
-    : ptr_to_container(other.ptr_to_container),
-      vector_index(other.vector_index),
-      item_iterator(other.item_iterator) {}
+    const ListContainerHelper::PositionInCharAllocator& other) = default;
 
 ListContainerHelper::PositionInCharAllocator::PositionInCharAllocator(
     ListContainerHelper::CharAllocator* container,
@@ -307,7 +304,7 @@ ListContainerHelper::PositionInCharAllocator::Increment() {
     if (vector_index < ptr_to_container->list_count())
       item_iterator = ptr_to_container->InnerListById(vector_index)->Begin();
     else
-      item_iterator = NULL;
+      item_iterator = nullptr;
   } else {
     item_iterator += list->step;
   }
@@ -332,7 +329,7 @@ ListContainerHelper::PositionInCharAllocator::ReverseIncrement() {
       item_iterator =
           ptr_to_container->InnerListById(vector_index)->LastElement();
     } else {
-      item_iterator = NULL;
+      item_iterator = nullptr;
     }
   } else {
     item_iterator -= list->step;
@@ -349,7 +346,7 @@ ListContainerHelper::ListContainerHelper(size_t alignment,
                               max_size_for_derived_class,
                               num_of_elements_to_reserve_for)) {}
 
-ListContainerHelper::~ListContainerHelper() {}
+ListContainerHelper::~ListContainerHelper() = default;
 
 void ListContainerHelper::RemoveLast() {
   data_->RemoveLast();
@@ -376,7 +373,7 @@ ListContainerHelper::ConstReverseIterator ListContainerHelper::crbegin() const {
 }
 
 ListContainerHelper::ConstReverseIterator ListContainerHelper::crend() const {
-  return ConstReverseIterator(data_.get(), static_cast<size_t>(-1), NULL,
+  return ConstReverseIterator(data_.get(), static_cast<size_t>(-1), nullptr,
                               size());
 }
 
@@ -390,7 +387,7 @@ ListContainerHelper::ReverseIterator ListContainerHelper::rbegin() {
 }
 
 ListContainerHelper::ReverseIterator ListContainerHelper::rend() {
-  return ReverseIterator(data_.get(), static_cast<size_t>(-1), NULL, size());
+  return ReverseIterator(data_.get(), static_cast<size_t>(-1), nullptr, size());
 }
 
 ListContainerHelper::ConstIterator ListContainerHelper::cbegin() const {
@@ -403,10 +400,10 @@ ListContainerHelper::ConstIterator ListContainerHelper::cbegin() const {
 
 ListContainerHelper::ConstIterator ListContainerHelper::cend() const {
   if (data_->IsEmpty())
-    return ConstIterator(data_.get(), 0, NULL, size());
+    return ConstIterator(data_.get(), 0, nullptr, size());
 
   size_t id = data_->list_count();
-  return ConstIterator(data_.get(), id, NULL, size());
+  return ConstIterator(data_.get(), id, nullptr, size());
 }
 
 ListContainerHelper::Iterator ListContainerHelper::begin() {
@@ -419,10 +416,10 @@ ListContainerHelper::Iterator ListContainerHelper::begin() {
 
 ListContainerHelper::Iterator ListContainerHelper::end() {
   if (data_->IsEmpty())
-    return Iterator(data_.get(), 0, NULL, size());
+    return Iterator(data_.get(), 0, nullptr, size());
 
   size_t id = data_->list_count();
-  return Iterator(data_.get(), id, NULL, size());
+  return Iterator(data_.get(), id, nullptr, size());
 }
 
 ListContainerHelper::ConstIterator ListContainerHelper::IteratorAt(
@@ -497,7 +494,7 @@ ListContainerHelper::Iterator::Iterator(CharAllocator* container,
     : PositionInCharAllocator(container, vector_ind, item_iter),
       index_(index) {}
 
-ListContainerHelper::Iterator::~Iterator() {}
+ListContainerHelper::Iterator::~Iterator() = default;
 
 size_t ListContainerHelper::Iterator::index() const {
   return index_;
@@ -516,7 +513,7 @@ ListContainerHelper::ConstIterator::ConstIterator(CharAllocator* container,
     : PositionInCharAllocator(container, vector_ind, item_iter),
       index_(index) {}
 
-ListContainerHelper::ConstIterator::~ConstIterator() {}
+ListContainerHelper::ConstIterator::~ConstIterator() = default;
 
 size_t ListContainerHelper::ConstIterator::index() const {
   return index_;
@@ -531,7 +528,7 @@ ListContainerHelper::ReverseIterator::ReverseIterator(CharAllocator* container,
     : PositionInCharAllocator(container, vector_ind, item_iter),
       index_(index) {}
 
-ListContainerHelper::ReverseIterator::~ReverseIterator() {}
+ListContainerHelper::ReverseIterator::~ReverseIterator() = default;
 
 size_t ListContainerHelper::ReverseIterator::index() const {
   return index_;
@@ -551,7 +548,7 @@ ListContainerHelper::ConstReverseIterator::ConstReverseIterator(
     : PositionInCharAllocator(container, vector_ind, item_iter),
       index_(index) {}
 
-ListContainerHelper::ConstReverseIterator::~ConstReverseIterator() {}
+ListContainerHelper::ConstReverseIterator::~ConstReverseIterator() = default;
 
 size_t ListContainerHelper::ConstReverseIterator::index() const {
   return index_;

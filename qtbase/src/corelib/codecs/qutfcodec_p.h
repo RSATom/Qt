@@ -1,7 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -52,7 +52,13 @@
 // We mean it.
 //
 
+#include <QtCore/qstring.h>
+#include <QtCore/qlist.h>
+
+#if QT_CONFIG(textcodec)
 #include "QtCore/qtextcodec.h"
+#endif
+
 #include "private/qtextcodec_p.h"
 
 QT_BEGIN_NAMESPACE
@@ -290,6 +296,13 @@ struct QUtf8
     static QString convertToUnicode(const char *, int, QTextCodec::ConverterState *);
     static QByteArray convertFromUnicode(const QChar *, int);
     static QByteArray convertFromUnicode(const QChar *, int, QTextCodec::ConverterState *);
+    struct ValidUtf8Result {
+        bool isValidUtf8;
+        bool isValidAscii;
+    };
+    static ValidUtf8Result isValidUtf8(const char *, qsizetype);
+    static int compareUtf8(const char *, qsizetype, const QChar *, int);
+    static int compareUtf8(const char *, qsizetype, QLatin1String s);
 };
 
 struct QUtf16
@@ -304,17 +317,17 @@ struct QUtf32
     static QByteArray convertFromUnicode(const QChar *, int, QTextCodec::ConverterState *, DataEndianness = DetectEndianness);
 };
 
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
 
 class QUtf8Codec : public QTextCodec {
 public:
     ~QUtf8Codec();
 
-    QByteArray name() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    int mibEnum() const override;
 
-    QString convertToUnicode(const char *, int, ConverterState *) const Q_DECL_OVERRIDE;
-    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const Q_DECL_OVERRIDE;
+    QString convertToUnicode(const char *, int, ConverterState *) const override;
+    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override;
     void convertToUnicode(QString *target, const char *, int, ConverterState *) const;
 };
 
@@ -324,12 +337,12 @@ public:
     QUtf16Codec() { e = DetectEndianness; }
     ~QUtf16Codec();
 
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 
-    QString convertToUnicode(const char *, int, ConverterState *) const Q_DECL_OVERRIDE;
-    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const Q_DECL_OVERRIDE;
+    QString convertToUnicode(const char *, int, ConverterState *) const override;
+    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override;
 
 protected:
     DataEndianness e;
@@ -338,17 +351,17 @@ protected:
 class QUtf16BECodec : public QUtf16Codec {
 public:
     QUtf16BECodec() : QUtf16Codec() { e = BigEndianness; }
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 };
 
 class QUtf16LECodec : public QUtf16Codec {
 public:
     QUtf16LECodec() : QUtf16Codec() { e = LittleEndianness; }
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 };
 
 class QUtf32Codec : public QTextCodec {
@@ -356,12 +369,12 @@ public:
     QUtf32Codec() { e = DetectEndianness; }
     ~QUtf32Codec();
 
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 
-    QString convertToUnicode(const char *, int, ConverterState *) const Q_DECL_OVERRIDE;
-    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const Q_DECL_OVERRIDE;
+    QString convertToUnicode(const char *, int, ConverterState *) const override;
+    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override;
 
 protected:
     DataEndianness e;
@@ -370,21 +383,21 @@ protected:
 class QUtf32BECodec : public QUtf32Codec {
 public:
     QUtf32BECodec() : QUtf32Codec() { e = BigEndianness; }
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 };
 
 class QUtf32LECodec : public QUtf32Codec {
 public:
     QUtf32LECodec() : QUtf32Codec() { e = LittleEndianness; }
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 };
 
 
-#endif // QT_NO_TEXTCODEC
+#endif // textcodec
 
 QT_END_NAMESPACE
 

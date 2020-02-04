@@ -50,7 +50,7 @@
 
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtLocation/qgeomaneuver.h>
-
+#include <QtQml/QQmlPropertyMap>
 #include <QtPositioning/QGeoCoordinate>
 
 #include <QObject>
@@ -71,6 +71,7 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoManeuver : public QObject
     Q_PROPERTY(qreal distanceToNextInstruction READ distanceToNextInstruction CONSTANT)
     Q_PROPERTY(QGeoCoordinate waypoint READ waypoint CONSTANT)
     Q_PROPERTY(bool waypointValid READ waypointValid CONSTANT)
+    Q_PROPERTY(QObject *extendedAttributes READ extendedAttributes NOTIFY extendedAttributesChanged REVISION 11)
 
 public:
     enum Direction {
@@ -101,9 +102,15 @@ public:
     int timeToNextInstruction() const;
     qreal distanceToNextInstruction() const;
     QGeoCoordinate waypoint() const;
+    QQmlPropertyMap *extendedAttributes() const;
+
+Q_SIGNALS:
+    void extendedAttributesChanged();   //in practice is never emitted since parameters cannot be re-assigned
+                                        //the declaration is needed to avoid warnings about non-notifyable properties
 
 private:
     QGeoManeuver maneuver_;
+    QQmlPropertyMap *m_extendedAttributes = nullptr;
 };
 
 QT_END_NAMESPACE

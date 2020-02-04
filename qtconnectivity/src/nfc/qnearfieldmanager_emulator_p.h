@@ -67,9 +67,9 @@ class QNearFieldManagerPrivateImpl : public QNearFieldManagerPrivateVirtualBase
 
 public:
     QNearFieldManagerPrivateImpl();
-    ~QNearFieldManagerPrivateImpl();
+    ~QNearFieldManagerPrivateImpl() override;
 
-    bool isAvailable() const;
+    bool isAvailable() const override;
 
     void reset();
 

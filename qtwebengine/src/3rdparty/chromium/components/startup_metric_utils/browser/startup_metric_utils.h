@@ -52,12 +52,12 @@ void RecordStartupProcessCreationTime(base::Time time);
 // Call this with a time recorded as early as possible in the startup process.
 // On Android, the entry point time is the time at which the Java code starts.
 // In Mojo, the entry point time is the time at which the shell starts.
-void RecordMainEntryPointTime(base::Time time);
+void RecordMainEntryPointTime(base::TimeTicks ticks);
 
 // Call this with the time when the executable is loaded and main() is entered.
 // Can be different from |RecordMainEntryPointTime| when the startup process is
 // contained in a separate dll, such as with chrome.exe / chrome.dll on Windows.
-void RecordExeMainEntryPointTicks(base::TimeTicks time);
+void RecordExeMainEntryPointTicks(base::TimeTicks ticks);
 
 // Call this with the time recorded just before the message loop is started.
 // |is_first_run| - is the current launch part of a first run. |pref_service| is
@@ -106,7 +106,7 @@ void RecordBrowserWindowFirstPaint(base::TimeTicks ticks);
 void RecordBrowserWindowFirstPaintCompositingEnded(base::TimeTicks ticks);
 
 // Returns the TimeTicks corresponding to main entry as recorded by
-// RecordMainEntryPointTime. Returns a null TimeTicks if a value has not been
+// |RecordMainEntryPointTime|. Returns a null TimeTicks if a value has not been
 // recorded yet. This method is expected to be called from the UI thread.
 base::TimeTicks MainEntryPointTicks();
 

@@ -39,8 +39,6 @@
 
 #include "qstandarditemmodel.h"
 
-#ifndef QT_NO_STANDARDITEMMODEL
-
 #include <QtCore/qdatetime.h>
 #include <QtCore/qlist.h>
 #include <QtCore/qmap.h>
@@ -144,6 +142,8 @@ void QStandardItemPrivate::setChild(int row, int column, QStandardItem *item,
         oldItem->d_func()->setModel(0);
     delete oldItem;
     children.replace(index, item);
+    if (item)
+        item->d_func()->lastKnownIndex = index;
 
     if (model && emitChanged)
         emit model->layoutChanged();
@@ -185,6 +185,72 @@ void QStandardItemPrivate::childDeleted(QStandardItem *child)
     emit model->dataChanged(modelIndex, modelIndex);
 }
 
+namespace {
+
+    struct ByNormalizedRole
+    {
+        static int normalizedRole(int role)
+        {
+            return role == Qt::EditRole ? Qt::DisplayRole : role;
+        }
+
+       bool operator()(const QStandardItemData& standardItemData, const std::pair<const int &, const QVariant&>& roleMapIt) const
+       {
+           return standardItemData.role < normalizedRole(roleMapIt.first);
+       }
+       bool operator()(const std::pair<const int&, const QVariant &>& roleMapIt, const QStandardItemData& standardItemData) const
+       {
+           return normalizedRole(roleMapIt.first) < standardItemData.role;
+       }
+
+    };
+
+    /*
+        Based on std::transform with a twist. The inputs are iterators of <int, QVariant> pair.
+        The variant is checked for validity and if not valid, that element is not taken into account
+        which means that the resulting output might be shorter than the input.
+    */
+    template<class Input, class OutputIt>
+    OutputIt roleMapStandardItemDataTransform(Input first1, Input last1, OutputIt d_first)
+    {
+        while (first1 != last1) {
+            if ((*first1).second.isValid())
+                *d_first++ = QStandardItemData(*first1);
+            ++first1;
+        }
+        return d_first;
+    }
+
+
+    /*
+        Based on std::set_union with a twist. The idea is to create a union of both inputs
+        with an additional constraint: if an input contains an invalid variant, it means
+        that this one should not be taken into account for generating the output.
+    */
+    template<class Input1, class Input2,
+             class OutputIt, class Compare>
+    OutputIt roleMapStandardItemDataUnion(Input1 first1, Input1 last1,
+                                          Input2 first2, Input2 last2,
+                                          OutputIt d_first, Compare comp)
+    {
+        for (; first1 != last1; ++d_first) {
+            if (first2 == last2) {
+                return roleMapStandardItemDataTransform(first1, last1, d_first);
+            }
+            if (comp(*first2, *first1)) {
+                *d_first = *first2++;
+            } else {
+                if ((*first1).second.isValid())
+                    *d_first = QStandardItemData(*first1);
+                if (!comp(*first1, *first2))
+                    ++first2;
+                ++first1;
+            }
+        }
+        return std::copy(first2, last2, d_first);
+    }
+}
+
 /*!
   \internal
 */
@@ -192,21 +258,44 @@ void QStandardItemPrivate::setItemData(const QMap<int, QVariant> &roles)
 {
     Q_Q(QStandardItem);
 
-    //let's build the vector of new values
-    QVector<QStandardItemData> newValues;
-    for (auto it = roles.begin(), end = roles.end(); it != end; ++it) {
-        const QVariant &value = it.value();
-        if (value.isValid()) {
-            int role = it.key();
-            role = (role == Qt::EditRole) ? Qt::DisplayRole : role;
-            newValues.append(QStandardItemData(role, value));
-        }
-    }
+    auto byRole = [](const QStandardItemData& item1, const QStandardItemData& item2) {
+        return item1.role < item2.role;
+    };
 
-    if (values!=newValues) {
+    std::sort(values.begin(), values.end(), byRole);
+
+    /*
+        Create a vector of QStandardItemData that will contain the original values
+        if the matching role is not contained in roles, the new value if it is and
+        if the new value is an invalid QVariant, it will be removed.
+    */
+    QVector<QStandardItemData> newValues;
+    newValues.reserve(values.size());
+    roleMapStandardItemDataUnion(roles.keyValueBegin(),
+                                 roles.keyValueEnd(),
+                                 values.cbegin(), values.cend(),
+                                 std::back_inserter(newValues), ByNormalizedRole());
+
+    if (newValues != values) {
         values.swap(newValues);
-        if (model)
-            model->d_func()->itemChanged(q);
+        if (model) {
+            QVector<int> roleKeys;
+            roleKeys.reserve(roles.size() + 1);
+            bool hasEditRole = false;
+            bool hasDisplayRole = false;
+            for (auto it = roles.keyBegin(); it != roles.keyEnd(); ++it) {
+                roleKeys.push_back(*it);
+                if (*it == Qt::EditRole)
+                    hasEditRole = true;
+                else if (*it == Qt::DisplayRole)
+                    hasDisplayRole = true;
+            }
+            if (hasEditRole && !hasDisplayRole)
+                roleKeys.push_back(Qt::DisplayRole);
+            else if (!hasEditRole && hasDisplayRole)
+                roleKeys.push_back(Qt::EditRole);
+            model->d_func()->itemChanged(q, roleKeys);
+        }
     }
 }
 
@@ -217,8 +306,11 @@ const QMap<int, QVariant> QStandardItemPrivate::itemData() const
 {
     QMap<int, QVariant> result;
     QVector<QStandardItemData>::const_iterator it;
-    for (it = values.begin(); it != values.end(); ++it)
-        result.insert((*it).role, (*it).value);
+    for (it = values.cbegin(); it != values.cend(); ++it){
+        // Qt::UserRole - 1 is used internally to store the flags
+        if (it->role != Qt::UserRole - 1)
+            result.insert(it->role, it->value);
+    }
     return result;
 }
 
@@ -366,7 +458,7 @@ void QStandardItemModelPrivate::_q_emitItemChanged(const QModelIndex &topLeft,
 bool QStandardItemPrivate::insertRows(int row, const QList<QStandardItem*> &items)
 {
     Q_Q(QStandardItem);
-    if ((row < 0) || (row > rowCount()))
+    if ((row < 0) || (row > rowCount()) || items.isEmpty())
         return false;
     int count = items.count();
     if (model)
@@ -388,6 +480,8 @@ bool QStandardItemPrivate::insertRows(int row, const QList<QStandardItem*> &item
         item->d_func()->parent = q;
         int index = childIndex(i + row, 0);
         children.replace(index, item);
+        if (item)
+            item->d_func()->lastKnownIndex = index;
     }
     if (model)
         model->d_func()->rowsInserted(q, row, count);
@@ -397,7 +491,7 @@ bool QStandardItemPrivate::insertRows(int row, const QList<QStandardItem*> &item
 bool QStandardItemPrivate::insertRows(int row, int count, const QList<QStandardItem*> &items)
 {
     Q_Q(QStandardItem);
-    if ((count < 1) || (row < 0) || (row > rowCount()))
+    if ((count < 1) || (row < 0) || (row > rowCount()) || count == 0)
         return false;
     if (model)
         model->d_func()->rowsAboutToBeInserted(q, row, row + count - 1);
@@ -425,6 +519,8 @@ bool QStandardItemPrivate::insertRows(int row, int count, const QList<QStandardI
                 }
             }
             children.replace(index, item);
+            if (item)
+                item->d_func()->lastKnownIndex = index;
             ++index;
         }
     }
@@ -439,7 +535,7 @@ bool QStandardItemPrivate::insertRows(int row, int count, const QList<QStandardI
 bool QStandardItemPrivate::insertColumns(int column, int count, const QList<QStandardItem*> &items)
 {
     Q_Q(QStandardItem);
-    if ((count < 1) || (column < 0) || (column > columnCount()))
+    if ((count < 1) || (column < 0) || (column > columnCount()) || count == 0)
         return false;
     if (model)
         model->d_func()->columnsAboutToBeInserted(q, column, column + count - 1);
@@ -471,6 +567,8 @@ bool QStandardItemPrivate::insertColumns(int column, int count, const QList<QSta
             int c = column + (i % count);
             int index = childIndex(r, c);
             children.replace(index, item);
+            if (item)
+                item->d_func()->lastKnownIndex = index;
         }
     }
     if (model)
@@ -481,7 +579,7 @@ bool QStandardItemPrivate::insertColumns(int column, int count, const QList<QSta
 /*!
   \internal
 */
-void QStandardItemModelPrivate::itemChanged(QStandardItem *item)
+void QStandardItemModelPrivate::itemChanged(QStandardItem *item, const QVector<int> &roles)
 {
     Q_Q(QStandardItemModel);
     Q_ASSERT(item);
@@ -497,8 +595,8 @@ void QStandardItemModelPrivate::itemChanged(QStandardItem *item)
         }
     } else {
         // Normal item
-        QModelIndex index = q->indexFromItem(item);
-        emit q->dataChanged(index, index);
+        const QModelIndex index = q->indexFromItem(item);
+        emit q->dataChanged(index, index, roles);
     }
 }
 
@@ -781,8 +879,8 @@ QStandardItem::~QStandardItem()
 }
 
 /*!
-  Returns the item's parent item, or 0 if the item has no parent.
-  \note For toplevel items parent() returns 0. To receive toplevel
+  Returns the item's parent item, or \nullptr if the item has no parent.
+  \note For toplevel items parent() returns \nullptr. To receive toplevel
   item's parent use QStandardItemModel::invisibleRootItem() instead.
 
   \sa child(), QStandardItemModel::invisibleRootItem()
@@ -812,6 +910,9 @@ void QStandardItem::setData(const QVariant &value, int role)
 {
     Q_D(QStandardItem);
     role = (role == Qt::EditRole) ? Qt::DisplayRole : role;
+    const QVector<int> roles((role == Qt::DisplayRole) ?
+                                QVector<int>({Qt::DisplayRole, Qt::EditRole}) :
+                                QVector<int>({role}));
     QVector<QStandardItemData>::iterator it;
     for (it = d->values.begin(); it != d->values.end(); ++it) {
         if ((*it).role == role) {
@@ -823,13 +924,28 @@ void QStandardItem::setData(const QVariant &value, int role)
                 d->values.erase(it);
             }
             if (d->model)
-                d->model->d_func()->itemChanged(this);
+                d->model->d_func()->itemChanged(this, roles);
             return;
         }
     }
     d->values.append(QStandardItemData(role, value));
     if (d->model)
-        d->model->d_func()->itemChanged(this);
+        d->model->d_func()->itemChanged(this, roles);
+}
+
+/*!
+    \since 5.12
+    Removes all the data from all roles previously set.
+    \sa data(), setData()
+*/
+void QStandardItem::clearData()
+{
+    Q_D(QStandardItem);
+    if (d->values.isEmpty())
+        return;
+    d->values.clear();
+    if (d->model)
+        d->model->d_func()->itemChanged(this, QVector<int>{});
 }
 
 /*!
@@ -1324,7 +1440,7 @@ void QStandardItem::setTristate(bool tristate)
 }
 #endif
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 
 /*!
   Sets whether the item is drag enabled. If \a dragEnabled is true, the item
@@ -1382,7 +1498,7 @@ void QStandardItem::setDropEnabled(bool dropEnabled)
   \sa setDropEnabled(), isDragEnabled(), flags()
 */
 
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*!
   Returns the row where the item is located in its parent's child table, or
@@ -1432,7 +1548,7 @@ QModelIndex QStandardItem::index() const
   Returns the QStandardItemModel that this item belongs to.
 
   If the item is not a child of another item that belongs to the model, this
-  function returns 0.
+  function returns \nullptr.
 
   \sa index()
 */
@@ -1730,7 +1846,7 @@ bool QStandardItem::hasChildren() const
     item) takes ownership of \a item. If necessary, the row count and column
     count are increased to fit the item.
 
-    \note Passing a null pointer as \a item removes the item.
+    \note Passing \nullptr as \a item removes the item.
 
     \sa child()
 */
@@ -1749,7 +1865,7 @@ void QStandardItem::setChild(int row, int column, QStandardItem *item)
 
 /*!
     Returns the child item at (\a row, \a column) if one has been set; otherwise
-    returns 0.
+    returns \nullptr.
 
     \sa setChild(), takeChild(), parent()
 */
@@ -1765,7 +1881,7 @@ QStandardItem *QStandardItem::child(int row, int column) const
 /*!
     Removes the child item at (\a row, \a column) without deleting it, and returns
     a pointer to the item. If there was no child at the given location, then
-    this function returns 0.
+    this function returns \nullptr.
 
     Note that this function, unlike takeRow() and takeColumn(), does not affect
     the dimensions of the child table.
@@ -1789,7 +1905,7 @@ QStandardItem *QStandardItem::takeChild(int row, int column)
 /*!
     Removes \a row without deleting the row items, and returns a list of
     pointers to the removed items. For items in the row that have not been
-    set, the corresponding pointers in the list will be 0.
+    set, the corresponding pointers in the list will be \nullptr.
 
     \sa removeRow(), insertRow(), takeColumn()
 */
@@ -1823,7 +1939,7 @@ QList<QStandardItem*> QStandardItem::takeRow(int row)
 /*!
     Removes \a column without deleting the column items, and returns a list of
     pointers to the removed items. For items in the column that have not been
-    set, the corresponding pointers in the list will be 0.
+    set, the corresponding pointers in the list will be \nullptr.
 
     \sa removeColumn(), insertColumn(), takeRow()
 */
@@ -2167,7 +2283,7 @@ void QStandardItemModel::clear()
     itemPrototype()), and set it in the parent item's child table, if no item
     already exists at that index.
 
-    If \a index is an invalid index, this function returns 0.
+    If \a index is an invalid index, this function returns \nullptr.
 
     \sa indexFromItem()
 */
@@ -2264,7 +2380,7 @@ void QStandardItemModel::setItem(int row, int column, QStandardItem *item)
     \since 4.2
 
     Returns the item for the given \a row and \a column if one has been set;
-    otherwise returns 0.
+    otherwise returns \nullptr.
 
     \sa setItem(), takeItem(), itemFromIndex()
 */
@@ -2337,7 +2453,7 @@ void QStandardItemModel::setHorizontalHeaderItem(int column, QStandardItem *item
     \since 4.2
 
     Returns the horizontal header item for \a column if one has been set;
-    otherwise returns 0.
+    otherwise returns \nullptr.
 
     \sa setHorizontalHeaderItem(), verticalHeaderItem()
 */
@@ -2393,7 +2509,7 @@ void QStandardItemModel::setVerticalHeaderItem(int row, QStandardItem *item)
     \since 4.2
 
     Returns the vertical header item for row \a row if one has been set;
-    otherwise returns 0.
+    otherwise returns \nullptr.
 
     \sa setVerticalHeaderItem(), horizontalHeaderItem()
 */
@@ -2602,7 +2718,7 @@ QStandardItem *QStandardItemModel::takeItem(int row, int column)
     Removes the given \a row without deleting the row items, and returns a
     list of pointers to the removed items. The model releases ownership of the
     items. For items in the row that have not been set, the corresponding
-    pointers in the list will be 0.
+    pointers in the list will be \nullptr.
 
     \sa takeColumn()
 */
@@ -2618,7 +2734,7 @@ QList<QStandardItem*> QStandardItemModel::takeRow(int row)
     Removes the given \a column without deleting the column items, and returns
     a list of pointers to the removed items. The model releases ownership of
     the items. For items in the column that have not been set, the
-    corresponding pointers in the list will be 0.
+    corresponding pointers in the list will be \nullptr.
 
     \sa takeRow()
 */
@@ -2826,8 +2942,10 @@ bool QStandardItemModel::insertRows(int row, int count, const QModelIndex &paren
 QMap<int, QVariant> QStandardItemModel::itemData(const QModelIndex &index) const
 {
     Q_D(const QStandardItemModel);
-    QStandardItem *item = d->itemFromIndex(index);
-    return item ? item->d_func()->itemData() : QMap<int, QVariant>();
+    const QStandardItem *const item = d->itemFromIndex(index);
+    if (!item || item == d->root.data())
+        return QMap<int, QVariant>();
+    return item->d_func()->itemData();
 }
 
 /*!
@@ -2889,6 +3007,32 @@ bool QStandardItemModel::setData(const QModelIndex &index, const QVariant &value
     if (item == 0)
         return false;
     item->setData(value, role);
+    return true;
+}
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+/*!
+    \reimp
+ */
+#else
+/*!
+  \since 5.12
+  Removes the data stored in all the roles for the given \a index.
+  Returns \c true if \a index is valid and data was cleared, \c false
+  otherwise.
+
+  \sa setData(), data()
+*/
+#endif
+bool QStandardItemModel::clearItemData(const QModelIndex &index)
+{
+    if (!checkIndex(index, CheckIndexOption::IndexIsValid))
+        return false;
+    Q_D(QStandardItemModel);
+    QStandardItem *item = d->itemFromIndex(index);
+    if (!item)
+        return false;
+    item->clearData();
     return true;
 }
 
@@ -3167,5 +3311,3 @@ bool QStandardItemModel::dropMimeData(const QMimeData *data, Qt::DropAction acti
 QT_END_NAMESPACE
 
 #include "moc_qstandarditemmodel.cpp"
-
-#endif // QT_NO_STANDARDITEMMODEL

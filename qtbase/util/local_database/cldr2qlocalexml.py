@@ -31,11 +31,19 @@
 The CLDR data can be downloaded from CLDR_, which has a sub-directory
 for each version; you need the ``core.zip`` file for your version of
 choice (typically the latest).  This script has had updates to cope up
-to v29; for later versions, we may need adaptations.  Unpack the
+to v35; for later versions, we may need adaptations.  Unpack the
 downloaded ``core.zip`` and check it has a common/main/ sub-directory:
 pass the path of that sub-directory to this script as its single
 command-line argument.  Save its standard output (but not error) to a
 file for later processing by ``./qlocalexml2cpp.py``
+
+When you update the CLDR data, be sure to also update
+src/corelib/tools/qt_attribution.json's entry for unicode-cldr.  Check
+this script's output for unknown language, country or script messages;
+if any can be resolved, use their entry in common/main/en.xml to
+append new entries to enumdata.py's lists and update documentation in
+src/corelib/tools/qlocale.qdoc, adding the new entries in alphabetic
+order.
 
 .. _CLDR: ftp://unicode.org/Public/cldr/
 """
@@ -43,6 +51,7 @@ file for later processing by ``./qlocalexml2cpp.py``
 import os
 import sys
 import re
+import textwrap
 
 import enumdata
 import xpathlite
@@ -51,6 +60,10 @@ from dateconverter import convert_date
 from localexml import Locale
 
 findEntryInFile = xpathlite._findEntryInFile
+def wrappedwarn(prefix, tokens):
+    return sys.stderr.write(
+        '\n'.join(textwrap.wrap(prefix + ', '.join(tokens),
+                                subsequent_indent=' ', width=80)) + '\n')
 
 def parse_number_format(patterns, data):
     # this is a very limited parsing of the number format for currency only.
@@ -142,6 +155,28 @@ def generateLocaleInfo(path):
     return _generateLocaleInfo(path, code('language'), code('script'),
                                code('territory'), code('variant'))
 
+def getNumberSystems(cache={}):
+    """Cached look-up of number system information.
+
+    Pass no arguments.  Returns a mapping from number system names to,
+    for each system, a mapping with keys u'digits', u'type' and
+    u'id'\n"""
+    if not cache:
+        for ns in findTagsInFile(os.path.join(cldr_dir, '..', 'supplemental',
+                                              'numberingSystems.xml'),
+                                 'numberingSystems'):
+            # ns has form: [u'numberingSystem', [(u'digits', u'0123456789'), (u'type', u'numeric'), (u'id', u'latn')]]
+            entry = dict(ns[1])
+            name = entry[u'id']
+            if u'digits' in entry and ord(entry[u'digits'][0]) > 0xffff:
+                # FIXME, QTBUG-69324: make this redundant:
+                # omit number system if zero doesn't fit in single-char16 UTF-16 :-(
+                sys.stderr.write('skipping number system "%s" [can\'t represent its zero, U+%X]\n'
+                                 % (name, ord(entry[u'digits'][0])))
+            else:
+                cache[name] = entry
+    return cache
+
 def _generateLocaleInfo(path, language_code, script_code, country_code, variant_code=""):
     if not path.endswith(".xml"):
         return {}
@@ -213,7 +248,7 @@ def _generateLocaleInfo(path, language_code, script_code, country_code, variant_
     numbering_system = None
     try:
         numbering_system = findEntry(path, "numbers/defaultNumberingSystem")
-    except:
+    except xpathlite.Error:
         pass
     def findEntryDef(path, xpath, value=''):
         try:
@@ -239,20 +274,9 @@ def _generateLocaleInfo(path, language_code, script_code, country_code, variant_
     result['list'] = get_number_in_system(path, "numbers/symbols/list", numbering_system)
     result['percent'] = get_number_in_system(path, "numbers/symbols/percentSign", numbering_system)
     try:
-        numbering_systems = {}
-        for ns in findTagsInFile(os.path.join(cldr_dir, '..', 'supplemental',
-                                              'numberingSystems.xml'),
-                                 'numberingSystems'):
-            tmp = {}
-            id = ""
-            for data in ns[1:][0]: # ns looks like this: [u'numberingSystem', [(u'digits', u'0123456789'), (u'type', u'numeric'), (u'id', u'latn')]]
-                tmp[data[0]] = data[1]
-                if data[0] == u"id":
-                    id = data[1]
-            numbering_systems[id] = tmp
-        result['zero'] = numbering_systems[numbering_system][u"digits"][0]
-    except e:
-        sys.stderr.write("Native zero detection problem:\n" + str(e) + "\n")
+        result['zero'] = getNumberSystems()[numbering_system][u"digits"][0]
+    except Exception as e:
+        sys.stderr.write("Native zero detection problem: %s\n" % repr(e))
         result['zero'] = get_number_in_system(path, "numbers/symbols/nativeZeroDigit", numbering_system)
     result['minus'] = get_number_in_system(path, "numbers/symbols/minusSign", numbering_system)
     result['plus'] = get_number_in_system(path, "numbers/symbols/plusSign", numbering_system)
@@ -419,6 +443,38 @@ def integrateWeekData(filePath):
         else:
             locale.weekendEnd = weekendEndByCountryCode["001"]
 
+def splitLocale(name):
+    """Split name into (language, script, territory) triple as generator.
+
+    Ignores any trailing fields (with a warning), leaves script (a capitalised
+    four-letter token) or territory (either a number or an all-uppercase token)
+    empty if unspecified, returns a single-entry generator if name is a single
+    tag (i.e. contains no underscores).  Always yields 1 or 3 values, never 2."""
+    tags = iter(name.split('_'))
+    yield tags.next() # Language
+    tag = tags.next()
+
+    # Script is always four letters, always capitalised:
+    if len(tag) == 4 and tag[0].isupper() and tag[1:].islower():
+        yield tag
+        try:
+            tag = tags.next()
+        except StopIteration:
+            tag = ''
+    else:
+        yield ''
+
+    # Territory is upper-case or numeric:
+    if tag and tag.isupper() or tag.isdigit():
+        yield tag
+        tag = ''
+    else:
+        yield ''
+
+    # If nothing is left, StopIteration will avoid the warning:
+    tag = (tag if tag else tags.next(),)
+    sys.stderr.write('Ignoring unparsed cruft %s in %s\n' % ('_'.join(tag + tuple(tags)), name))
+
 if len(sys.argv) != 2:
     usage()
 
@@ -432,34 +488,30 @@ cldr_files = os.listdir(cldr_dir)
 locale_database = {}
 
 # see http://www.unicode.org/reports/tr35/tr35-info.html#Default_Content
-defaultContent_locales = {}
+defaultContent_locales = []
 for ns in findTagsInFile(os.path.join(cldr_dir, '..', 'supplemental',
                                       'supplementalMetadata.xml'),
                          'metadata/defaultContent'):
     for data in ns[1:][0]:
         if data[0] == u"locales":
-            defaultContent_locales = data[1].split()
+            defaultContent_locales += data[1].split()
 
+skips = []
 for file in defaultContent_locales:
-    items = file.split("_")
-    if len(items) == 3:
-        language_code = items[0]
-        script_code = items[1]
-        country_code = items[2]
-    else:
-        if len(items) != 2:
-            sys.stderr.write('skipping defaultContent locale "' + file + '" [neither lang_script_country nor lang_country]\n')
-            continue
-        language_code = items[0]
-        script_code = ""
-        country_code = items[1]
-        if len(country_code) == 4:
-            sys.stderr.write('skipping defaultContent locale "' + file + '" [long country code]\n')
-            continue
+    try:
+        language_code, script_code, country_code = splitLocale(file)
+    except ValueError:
+        sys.stderr.write('skipping defaultContent locale "' + file + '" [neither two nor three tags]\n')
+        continue
+
+    if not (script_code or country_code):
+        sys.stderr.write('skipping defaultContent locale "' + file + '" [second tag is neither script nor territory]\n')
+        continue
+
     try:
         l = _generateLocaleInfo(cldr_dir + "/" + file + ".xml", language_code, script_code, country_code)
         if not l:
-            sys.stderr.write('skipping defaultContent locale "' + file + '" [no locale info generated]\n')
+            skips.append(file)
             continue
     except xpathlite.Error as e:
         sys.stderr.write('skipping defaultContent locale "%s" (%s)\n' % (file, str(e)))
@@ -467,17 +519,24 @@ for file in defaultContent_locales:
 
     locale_database[(l.language_id, l.script_id, l.country_id, l.variant_code)] = l
 
+if skips:
+    wrappedwarn('skipping defaultContent locales [no locale info generated]: ', skips)
+    skips = []
+
 for file in cldr_files:
     try:
         l = generateLocaleInfo(cldr_dir + "/" + file)
         if not l:
-            sys.stderr.write('skipping file "' + file + '" [no locale info generated]\n')
+            skips.append(file)
             continue
     except xpathlite.Error as e:
         sys.stderr.write('skipping file "%s" (%s)\n' % (file, str(e)))
         continue
 
     locale_database[(l.language_id, l.script_id, l.country_id, l.variant_code)] = l
+
+if skips:
+    wrappedwarn('skipping files [no locale info generated]: ', skips)
 
 integrateWeekData(cldr_dir+"/../supplemental/supplementalData.xml")
 locale_keys = locale_database.keys()
@@ -529,34 +588,35 @@ def _parseLocale(l):
     if l == "und":
         raise xpathlite.Error("we are treating unknown locale like C")
 
-    items = l.split("_")
-    language_code = items[0]
+    parsed = splitLocale(l)
+    language_code = parsed.next()
+    script_code = country_code = ''
+    try:
+        script_code, country_code = parsed
+    except ValueError:
+        pass
+
     if language_code != "und":
         language_id = enumdata.languageCodeToId(language_code)
         if language_id == -1:
             raise xpathlite.Error('unknown language code "%s"' % language_code)
         language = enumdata.language_list[language_id][0]
 
-    if len(items) > 1:
-        script_code = items[1]
-        country_code = ""
-        if len(items) > 2:
-            country_code = items[2]
-        if len(script_code) == 4:
-            script_id = enumdata.scriptCodeToId(script_code)
-            if script_id == -1:
-                raise xpathlite.Error('unknown script code "%s"' % script_code)
-            script = enumdata.script_list[script_id][0]
-        else:
-            country_code = script_code
-        if country_code:
-            country_id = enumdata.countryCodeToId(country_code)
-            if country_id == -1:
-                raise xpathlite.Error('unknown country code "%s"' % country_code)
-            country = enumdata.country_list[country_id][0]
+    if script_code:
+        script_id = enumdata.scriptCodeToId(script_code)
+        if script_id == -1:
+            raise xpathlite.Error('unknown script code "%s"' % script_code)
+        script = enumdata.script_list[script_id][0]
+
+    if country_code:
+        country_id = enumdata.countryCodeToId(country_code)
+        if country_id == -1:
+            raise xpathlite.Error('unknown country code "%s"' % country_code)
+        country = enumdata.country_list[country_id][0]
 
     return (language, script, country)
 
+skips = []
 print "    <likelySubtags>"
 for ns in findTagsInFile(cldr_dir + "/../supplemental/likelySubtags.xml", "likelySubtags"):
     tmp = {}
@@ -564,14 +624,13 @@ for ns in findTagsInFile(cldr_dir + "/../supplemental/likelySubtags.xml", "likel
         tmp[data[0]] = data[1]
 
     try:
-        (from_language, from_script, from_country) = _parseLocale(tmp[u"from"])
+        from_language, from_script, from_country = _parseLocale(tmp[u"from"])
+        to_language, to_script, to_country = _parseLocale(tmp[u"to"])
     except xpathlite.Error as e:
-        sys.stderr.write('skipping likelySubtag "%s" -> "%s" (%s)\n' % (tmp[u"from"], tmp[u"to"], str(e)))
-        continue
-    try:
-        (to_language, to_script, to_country) = _parseLocale(tmp[u"to"])
-    except xpathlite.Error as e:
-        sys.stderr.write('skipping likelySubtag "%s" -> "%s" (%s)\n' % (tmp[u"from"], tmp[u"to"], str(e)))
+        if tmp[u'to'].startswith(tmp[u'from']) and str(e) == 'unknown language code "%s"' % tmp[u'from']:
+            skips.append(tmp[u'to'])
+        else:
+            sys.stderr.write('skipping likelySubtag "%s" -> "%s" (%s)\n' % (tmp[u"from"], tmp[u"to"], str(e)))
         continue
     # substitute according to http://www.unicode.org/reports/tr35/#Likely_Subtags
     if to_country == "AnyCountry" and from_country != to_country:
@@ -592,7 +651,8 @@ for ns in findTagsInFile(cldr_dir + "/../supplemental/likelySubtags.xml", "likel
     print "            </to>"
     print "        </likelySubtag>"
 print "    </likelySubtags>"
-
+if skips:
+    wrappedwarn('skipping likelySubtags (for unknown language codes): ', skips)
 print "    <localeList>"
 
 Locale.C().toXml()

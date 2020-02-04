@@ -5,8 +5,10 @@
 #ifndef CHROME_BROWSER_DEVTOOLS_DEVICE_DEVTOOLS_ANDROID_BRIDGE_H_
 #define CHROME_BROWSER_DEVTOOLS_DEVICE_DEVTOOLS_ANDROID_BRIDGE_H_
 
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/callback.h"
@@ -19,6 +21,7 @@
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -132,6 +135,10 @@ class DevToolsAndroidBridge : public KeyedService {
   using TCPProviderCallback =
       base::Callback<void(scoped_refptr<TCPDeviceProvider>)>;
   void set_tcp_provider_callback_for_test(TCPProviderCallback callback);
+  void set_usb_device_manager_for_test(
+      device::mojom::UsbDeviceManagerPtrInfo fake_usb_manager);
+
+  void Shutdown() override;
 
  private:
   friend struct content::BrowserThread::DeleteOnThread<
@@ -161,7 +168,7 @@ class DevToolsAndroidBridge : public KeyedService {
   }
 
   Profile* const profile_;
-  const std::unique_ptr<AndroidDeviceManager> device_manager_;
+  std::unique_ptr<AndroidDeviceManager> device_manager_;
 
   using DeviceMap =
       std::map<std::string, scoped_refptr<AndroidDeviceManager::Device> >;

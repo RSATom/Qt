@@ -9,56 +9,26 @@
 #include "Resources.h"
 #include "SkCodec.h"
 #include "SkColorSpace.h"
-#include "SkColorSpace_Base.h"
-#include "SkColorSpaceXform.h"
-#include "SkColorSpaceXformPriv.h"
+#include "SkColorSpacePriv.h"
 #include "SkHalf.h"
 #include "SkImage.h"
+#include "SkImageInfoPriv.h"
 #include "SkPictureRecorder.h"
-
-static void clamp_if_necessary(const SkImageInfo& info, void* pixels) {
-    if (kRGBA_F16_SkColorType != info.colorType()) {
-        return;
-    }
-
-    for (int y = 0; y < info.height(); y++) {
-        for (int x = 0; x < info.width(); x++) {
-            uint64_t pixel = ((uint64_t*) pixels)[y * info.width() + x];
-
-            Sk4f rgba = SkHalfToFloat_finite_ftz(pixel);
-            if (kUnpremul_SkAlphaType == info.alphaType()) {
-                rgba = Sk4f::Max(0.0f, Sk4f::Min(rgba, 1.0f));
-            } else {
-                SkASSERT(kPremul_SkAlphaType == info.alphaType());
-                rgba = Sk4f::Max(0.0f, Sk4f::Min(rgba, rgba[3]));
-            }
-            SkFloatToHalf_finite_ftz(rgba).store(&pixel);
-
-            ((uint64_t*) pixels)[y * info.width() + x] = pixel;
-        }
-    }
-}
-
-sk_sp<SkColorSpace> fix_for_colortype(SkColorSpace* colorSpace, SkColorType colorType) {
-    if (kRGBA_F16_SkColorType == colorType) {
-        return as_CSB(colorSpace)->makeLinearGamma();
-    }
-
-    return sk_ref_sp(colorSpace);
-}
 
 static const int kWidth = 64;
 static const int kHeight = 64;
 
 static sk_sp<SkImage> make_raster_image(SkColorType colorType) {
-    std::unique_ptr<SkStream> stream(GetResourceAsStream("google_chrome.ico"));
-    std::unique_ptr<SkCodec> codec(SkCodec::NewFromStream(stream.release()));
+    std::unique_ptr<SkStream> stream(GetResourceAsStream("images/google_chrome.ico"));
+    std::unique_ptr<SkCodec> codec = SkCodec::MakeFromStream(std::move(stream));
+    if (!codec) {
+        return nullptr;
+    }
 
     SkBitmap bitmap;
     SkImageInfo info = codec->getInfo().makeWH(kWidth, kHeight)
                                        .makeColorType(colorType)
-                                       .makeAlphaType(kPremul_SkAlphaType)
-            .makeColorSpace(fix_for_colortype(codec->getInfo().colorSpace(), colorType));
+                                       .makeAlphaType(kPremul_SkAlphaType);
     bitmap.allocPixels(info);
     codec->getPixels(info, bitmap.getPixels(), bitmap.rowBytes());
     bitmap.setImmutable();
@@ -66,7 +36,7 @@ static sk_sp<SkImage> make_raster_image(SkColorType colorType) {
 }
 
 static sk_sp<SkImage> make_codec_image() {
-    sk_sp<SkData> encoded = GetResourceAsData("randPixels.png");
+    sk_sp<SkData> encoded = GetResourceAsData("images/randPixels.png");
     return SkImage::MakeFromEncoded(encoded);
 }
 
@@ -92,10 +62,9 @@ static sk_sp<SkImage> make_picture_image() {
 }
 
 static sk_sp<SkColorSpace> make_parametric_transfer_fn(const SkColorSpacePrimaries& primaries) {
-    SkMatrix44 toXYZD50(SkMatrix44::kUninitialized_Constructor);
+    skcms_Matrix3x3 toXYZD50;
     SkAssertResult(primaries.toXYZD50(&toXYZD50));
-    SkColorSpaceTransferFn fn;
-    fn.fA = 1.f; fn.fB = 0.f; fn.fC = 0.f; fn.fD = 0.f; fn.fE = 0.f; fn.fF = 0.f; fn.fG = 1.8f;
+    skcms_TransferFunction fn = { 1.8f, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f };
     return SkColorSpace::MakeRGB(fn, toXYZD50);
 }
 
@@ -131,30 +100,14 @@ static void draw_image(SkCanvas* canvas, SkImage* image, SkColorType dstColorTyp
                        SkImage::CachingHint hint) {
     size_t rowBytes = image->width() * SkColorTypeBytesPerPixel(dstColorType);
     sk_sp<SkData> data = SkData::MakeUninitialized(rowBytes * image->height());
-    dstColorSpace = fix_for_colortype(dstColorSpace.get(), dstColorType);
     SkImageInfo dstInfo = SkImageInfo::Make(image->width(), image->height(), dstColorType,
                                             dstAlphaType, dstColorSpace);
     if (!image->readPixels(dstInfo, data->writable_data(), rowBytes, 0, 0, hint)) {
         memset(data->writable_data(), 0, rowBytes * image->height());
     }
 
-    // SkImage must be premul, so manually premul the data if we unpremul'd during readPixels
-    if (kUnpremul_SkAlphaType == dstAlphaType) {
-        auto xform = SkColorSpaceXform::New(dstColorSpace.get(), dstColorSpace.get());
-        if (!xform->apply(select_xform_format(dstColorType), data->writable_data(),
-                          select_xform_format(dstColorType), data->data(),
-                          image->width() * image->height(), kPremul_SkAlphaType)) {
-            memset(data->writable_data(), 0, rowBytes * image->height());
-        }
-        dstInfo = dstInfo.makeAlphaType(kPremul_SkAlphaType);
-    }
-
-    // readPixels() does not always clamp F16.  The drawing code expects pixels in the 0-1 range.
-    clamp_if_necessary(dstInfo, data->writable_data());
-
     // Now that we have called readPixels(), dump the raw pixels into an srgb image.
-    sk_sp<SkColorSpace> srgb = fix_for_colortype(
-            SkColorSpace::MakeSRGB().get(), dstColorType);
+    sk_sp<SkColorSpace> srgb = SkColorSpace::MakeSRGB();
     sk_sp<SkImage> raw = SkImage::MakeRasterData(dstInfo.makeColorSpace(srgb), data, rowBytes);
     canvas->drawImage(raw.get(), 0.0f, 0.0f, nullptr);
 }
@@ -173,11 +126,6 @@ protected:
     }
 
     void onDraw(SkCanvas* canvas) override {
-        if (!canvas->imageInfo().colorSpace()) {
-            // This gm is only interesting in color correct modes.
-            return;
-        }
-
         const SkAlphaType alphaTypes[] = {
                 kUnpremul_SkAlphaType,
                 kPremul_SkAlphaType,
@@ -197,6 +145,9 @@ protected:
             for (SkColorType srcColorType : colorTypes) {
                 canvas->save();
                 sk_sp<SkImage> image = make_raster_image(srcColorType);
+                if (!image) {
+                    continue;
+                }
                 if (GrContext* context = canvas->getGrContext()) {
                     image = image->makeTextureImage(context, canvas->imageInfo().colorSpace());
                 }

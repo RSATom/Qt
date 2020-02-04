@@ -53,10 +53,6 @@
 
 #include "deviceinfo.h"
 
-DeviceInfo::DeviceInfo()
-{
-}
-
 DeviceInfo::DeviceInfo(const QBluetoothDeviceInfo &d)
 {
     device = d;

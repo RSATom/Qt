@@ -157,6 +157,6 @@ QProximityReading *QProximitySensor::reading() const
     return static_cast<QProximityReading*>(QSensor::reading());
 }
 
-#include "moc_qproximitysensor.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qproximitysensor.cpp"

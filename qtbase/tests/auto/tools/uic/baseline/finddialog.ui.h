@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'finddialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,15 +40,12 @@
 #define FINDDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QGroupBox>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QPushButton>
@@ -80,7 +77,7 @@ public:
     void setupUi(QDialog *FindDialog)
     {
         if (FindDialog->objectName().isEmpty())
-            FindDialog->setObjectName(QStringLiteral("FindDialog"));
+            FindDialog->setObjectName(QString::fromUtf8("FindDialog"));
         FindDialog->resize(414, 170);
         QSizePolicy sizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
         sizePolicy.setHorizontalStretch(0);
@@ -90,22 +87,22 @@ public:
         hboxLayout = new QHBoxLayout(FindDialog);
         hboxLayout->setSpacing(6);
         hboxLayout->setContentsMargins(11, 11, 11, 11);
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         vboxLayout = new QVBoxLayout();
         vboxLayout->setSpacing(6);
         vboxLayout->setContentsMargins(0, 0, 0, 0);
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         hboxLayout1 = new QHBoxLayout();
         hboxLayout1->setSpacing(6);
         hboxLayout1->setContentsMargins(0, 0, 0, 0);
-        hboxLayout1->setObjectName(QStringLiteral("hboxLayout1"));
+        hboxLayout1->setObjectName(QString::fromUtf8("hboxLayout1"));
         findWhat = new QLabel(FindDialog);
-        findWhat->setObjectName(QStringLiteral("findWhat"));
+        findWhat->setObjectName(QString::fromUtf8("findWhat"));
 
         hboxLayout1->addWidget(findWhat);
 
         led = new QLineEdit(FindDialog);
-        led->setObjectName(QStringLiteral("led"));
+        led->setObjectName(QString::fromUtf8("led"));
 
         hboxLayout1->addWidget(led);
 
@@ -113,36 +110,36 @@ public:
         vboxLayout->addLayout(hboxLayout1);
 
         groupBox = new QGroupBox(FindDialog);
-        groupBox->setObjectName(QStringLiteral("groupBox"));
+        groupBox->setObjectName(QString::fromUtf8("groupBox"));
         gridLayout = new QGridLayout(groupBox);
         gridLayout->setSpacing(6);
         gridLayout->setContentsMargins(9, 9, 9, 9);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         sourceText = new QCheckBox(groupBox);
-        sourceText->setObjectName(QStringLiteral("sourceText"));
+        sourceText->setObjectName(QString::fromUtf8("sourceText"));
         sourceText->setChecked(true);
 
         gridLayout->addWidget(sourceText, 1, 0, 1, 1);
 
         translations = new QCheckBox(groupBox);
-        translations->setObjectName(QStringLiteral("translations"));
+        translations->setObjectName(QString::fromUtf8("translations"));
         translations->setChecked(true);
 
         gridLayout->addWidget(translations, 2, 0, 1, 1);
 
         matchCase = new QCheckBox(groupBox);
-        matchCase->setObjectName(QStringLiteral("matchCase"));
+        matchCase->setObjectName(QString::fromUtf8("matchCase"));
 
         gridLayout->addWidget(matchCase, 0, 1, 1, 1);
 
         comments = new QCheckBox(groupBox);
-        comments->setObjectName(QStringLiteral("comments"));
+        comments->setObjectName(QString::fromUtf8("comments"));
         comments->setChecked(true);
 
         gridLayout->addWidget(comments, 0, 0, 1, 1);
 
         ignoreAccelerators = new QCheckBox(groupBox);
-        ignoreAccelerators->setObjectName(QStringLiteral("ignoreAccelerators"));
+        ignoreAccelerators->setObjectName(QString::fromUtf8("ignoreAccelerators"));
         ignoreAccelerators->setChecked(true);
 
         gridLayout->addWidget(ignoreAccelerators, 1, 1, 1, 1);
@@ -156,15 +153,15 @@ public:
         vboxLayout1 = new QVBoxLayout();
         vboxLayout1->setSpacing(6);
         vboxLayout1->setContentsMargins(0, 0, 0, 0);
-        vboxLayout1->setObjectName(QStringLiteral("vboxLayout1"));
+        vboxLayout1->setObjectName(QString::fromUtf8("vboxLayout1"));
         findNxt = new QPushButton(FindDialog);
-        findNxt->setObjectName(QStringLiteral("findNxt"));
+        findNxt->setObjectName(QString::fromUtf8("findNxt"));
         findNxt->setFlat(false);
 
         vboxLayout1->addWidget(findNxt);
 
         cancel = new QPushButton(FindDialog);
-        cancel->setObjectName(QStringLiteral("cancel"));
+        cancel->setObjectName(QString::fromUtf8("cancel"));
 
         vboxLayout1->addWidget(cancel);
 
@@ -175,9 +172,9 @@ public:
 
         hboxLayout->addLayout(vboxLayout1);
 
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
         findWhat->setBuddy(led);
-#endif // QT_NO_SHORTCUT
+#endif // QT_CONFIG(shortcut)
         QWidget::setTabOrder(led, findNxt);
         QWidget::setTabOrder(findNxt, cancel);
         QWidget::setTabOrder(cancel, comments);
@@ -196,40 +193,40 @@ public:
 
     void retranslateUi(QDialog *FindDialog)
     {
-        FindDialog->setWindowTitle(QApplication::translate("FindDialog", "Find", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        FindDialog->setWhatsThis(QApplication::translate("FindDialog", "This window allows you to search for some text in the translation source file.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        findWhat->setText(QApplication::translate("FindDialog", "&Find what:", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        led->setWhatsThis(QApplication::translate("FindDialog", "Type in the text to search for.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        groupBox->setTitle(QApplication::translate("FindDialog", "Options", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        sourceText->setWhatsThis(QApplication::translate("FindDialog", "Source texts are searched when checked.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        sourceText->setText(QApplication::translate("FindDialog", "&Source texts", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        translations->setWhatsThis(QApplication::translate("FindDialog", "Translations are searched when checked.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        translations->setText(QApplication::translate("FindDialog", "&Translations", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        matchCase->setWhatsThis(QApplication::translate("FindDialog", "Texts such as 'TeX' and 'tex' are considered as different when checked.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        matchCase->setText(QApplication::translate("FindDialog", "&Match case", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        comments->setWhatsThis(QApplication::translate("FindDialog", "Comments and contexts are searched when checked.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        comments->setText(QApplication::translate("FindDialog", "&Comments", nullptr));
-        ignoreAccelerators->setText(QApplication::translate("FindDialog", "Ignore &accelerators", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        findNxt->setWhatsThis(QApplication::translate("FindDialog", "Click here to find the next occurrence of the text you typed in.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        findNxt->setText(QApplication::translate("FindDialog", "Find Next", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        cancel->setWhatsThis(QApplication::translate("FindDialog", "Click here to close this window.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        cancel->setText(QApplication::translate("FindDialog", "Cancel", nullptr));
+        FindDialog->setWindowTitle(QCoreApplication::translate("FindDialog", "Find", nullptr));
+#if QT_CONFIG(whatsthis)
+        FindDialog->setWhatsThis(QCoreApplication::translate("FindDialog", "This window allows you to search for some text in the translation source file.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        findWhat->setText(QCoreApplication::translate("FindDialog", "&Find what:", nullptr));
+#if QT_CONFIG(whatsthis)
+        led->setWhatsThis(QCoreApplication::translate("FindDialog", "Type in the text to search for.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        groupBox->setTitle(QCoreApplication::translate("FindDialog", "Options", nullptr));
+#if QT_CONFIG(whatsthis)
+        sourceText->setWhatsThis(QCoreApplication::translate("FindDialog", "Source texts are searched when checked.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        sourceText->setText(QCoreApplication::translate("FindDialog", "&Source texts", nullptr));
+#if QT_CONFIG(whatsthis)
+        translations->setWhatsThis(QCoreApplication::translate("FindDialog", "Translations are searched when checked.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        translations->setText(QCoreApplication::translate("FindDialog", "&Translations", nullptr));
+#if QT_CONFIG(whatsthis)
+        matchCase->setWhatsThis(QCoreApplication::translate("FindDialog", "Texts such as 'TeX' and 'tex' are considered as different when checked.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        matchCase->setText(QCoreApplication::translate("FindDialog", "&Match case", nullptr));
+#if QT_CONFIG(whatsthis)
+        comments->setWhatsThis(QCoreApplication::translate("FindDialog", "Comments and contexts are searched when checked.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        comments->setText(QCoreApplication::translate("FindDialog", "&Comments", nullptr));
+        ignoreAccelerators->setText(QCoreApplication::translate("FindDialog", "Ignore &accelerators", nullptr));
+#if QT_CONFIG(whatsthis)
+        findNxt->setWhatsThis(QCoreApplication::translate("FindDialog", "Click here to find the next occurrence of the text you typed in.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        findNxt->setText(QCoreApplication::translate("FindDialog", "Find Next", nullptr));
+#if QT_CONFIG(whatsthis)
+        cancel->setWhatsThis(QCoreApplication::translate("FindDialog", "Click here to close this window.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        cancel->setText(QCoreApplication::translate("FindDialog", "Cancel", nullptr));
     } // retranslateUi
 
 };

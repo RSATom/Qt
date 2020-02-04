@@ -36,6 +36,7 @@
 #include <QtCore/qtextstream.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/private/qopenglcontext_p.h>
+#include <QtGui/private/qwindow_p.h>
 #include <QtGui/qpa/qwindowsysteminterface.h>
 #include <QtGui/qpa/qplatformintegration.h>
 #include <QtGui/qopenglcontext.h>
@@ -113,6 +114,8 @@ void QWebGLWindow::destroy()
     if (d->flags.testFlag(QWebGLWindowPrivate::HasNativeWindow)) {
         invalidateSurface();
     }
+
+    qt_window_private(window())->updateRequestPending = false;
 
     d->flags = 0;
 

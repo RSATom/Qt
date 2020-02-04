@@ -11,7 +11,7 @@
 
 #include "xfa/fwl/theme/cfwl_widgettp.h"
 
-class CFWL_MonthCalendarTP : public CFWL_WidgetTP {
+class CFWL_MonthCalendarTP final : public CFWL_WidgetTP {
  public:
   CFWL_MonthCalendarTP();
   ~CFWL_MonthCalendarTP() override;
@@ -19,10 +19,10 @@ class CFWL_MonthCalendarTP : public CFWL_WidgetTP {
   // CFWL_WidgetTP
   void Initialize() override;
   void Finalize() override;
-  void DrawBackground(CFWL_ThemeBackground* pParams) override;
-  void DrawText(CFWL_ThemeText* pParams) override;
+  void DrawBackground(const CFWL_ThemeBackground& pParams) override;
+  void DrawText(const CFWL_ThemeText& pParams) override;
 
- protected:
+ private:
   struct MCThemeData {
     FX_ARGB clrCaption;
     FX_ARGB clrSeperator;
@@ -33,22 +33,29 @@ class CFWL_MonthCalendarTP : public CFWL_WidgetTP {
     FX_ARGB clrBK;
   };
 
-  void DrawTotalBK(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawHeadBk(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawLButton(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawRButton(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawDatesInBK(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawDatesInCircle(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawTodayCircle(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawHSeperator(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
-  void DrawWeekNumSep(CFWL_ThemeBackground* pParams, CFX_Matrix* pMatrix);
+  void DrawTotalBK(const CFWL_ThemeBackground& pParams,
+                   const CFX_Matrix& matrix);
+  void DrawHeadBk(const CFWL_ThemeBackground& pParams,
+                  const CFX_Matrix& matrix);
+  void DrawLButton(const CFWL_ThemeBackground& pParams,
+                   const CFX_Matrix& matrix);
+  void DrawRButton(const CFWL_ThemeBackground& pParams,
+                   const CFX_Matrix& matrix);
+  void DrawDatesInBK(const CFWL_ThemeBackground& pParams,
+                     const CFX_Matrix& matrix);
+  void DrawDatesInCircle(const CFWL_ThemeBackground& pParams,
+                         const CFX_Matrix& matrix);
+  void DrawTodayCircle(const CFWL_ThemeBackground& pParams,
+                       const CFX_Matrix& matrix);
+  void DrawHSeperator(const CFWL_ThemeBackground& pParams,
+                      const CFX_Matrix& matrix);
+  void DrawWeekNumSep(const CFWL_ThemeBackground& pParams,
+                      const CFX_Matrix& matrix);
   FWLTHEME_STATE GetState(uint32_t dwFWLStates);
+  void SetThemeData();
 
   std::unique_ptr<MCThemeData> m_pThemeData;
-  CFX_WideString wsResource;
-
- private:
-  void SetThemeData();
+  WideString wsResource;
 };
 
 #endif  // XFA_FWL_THEME_CFWL_MONTHCALENDARTP_H_

@@ -40,6 +40,7 @@
 #include <QtWidgets/QDesktopWidget>
 #include <QtWidgets/QMessageBox>
 #include <QtGui/QDesktopServices>
+#include <QtGui/QScreen>
 
 QT_BEGIN_NAMESPACE
 
@@ -49,7 +50,7 @@ AboutLabel::AboutLabel(QWidget *parent)
     TRACE_OBJ
     setFrameStyle(QFrame::NoFrame);
     QPalette p;
-    p.setColor(QPalette::Base, p.color(QPalette::Background));
+    p.setColor(QPalette::Base, p.color(QPalette::Window));
     setPalette(p);
 }
 
@@ -88,7 +89,7 @@ void AboutLabel::setSource(const QUrl &url)
     || !HelpViewer::canOpenPage(url.path()))) {
         if (!QDesktopServices::openUrl(url)) {
             QMessageBox::warning(this, tr("Warning"),
-                tr("Unable to launch external application.\n"), tr("OK"));
+                tr("Unable to launch external application."), tr("OK"));
         }
     }
 }
@@ -98,7 +99,7 @@ AboutDialog::AboutDialog(QWidget *parent)
         Qt::WindowTitleHint|Qt::WindowSystemMenuHint)
 {
     TRACE_OBJ
-    m_pixmapLabel = 0;
+    m_pixmapLabel = nullptr;
     m_aboutLabel = new AboutLabel();
 
     m_closeButton = new QPushButton();
@@ -141,8 +142,10 @@ QString AboutDialog::documentTitle() const
 void AboutDialog::updateSize()
 {
     TRACE_OBJ
-    QSize screenSize = QApplication::desktop()->availableGeometry(QCursor::pos())
-        .size();
+    auto screen = QGuiApplication::screenAt(QCursor::pos());
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    const QSize screenSize = screen->availableSize();
     int limit = qMin(screenSize.width()/2, 500);
 
 #ifdef Q_OS_MAC
@@ -156,7 +159,7 @@ void AboutDialog::updateSize()
         width = limit;
 
     QFontMetrics fm(qApp->font("QWorkspaceTitleBar"));
-    int windowTitleWidth = qMin(fm.width(windowTitle()) + 50, limit);
+    int windowTitleWidth = qMin(fm.horizontalAdvance(windowTitle()) + 50, limit);
     if (windowTitleWidth > width)
         width = windowTitleWidth;
 

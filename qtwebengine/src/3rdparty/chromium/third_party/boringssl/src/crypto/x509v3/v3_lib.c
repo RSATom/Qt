@@ -116,6 +116,7 @@ const X509V3_EXT_METHOD *X509V3_EXT_get_nid(int nid)
     if (!ext_list)
         return NULL;
 
+    sk_X509V3_EXT_METHOD_sort(ext_list);
     if (!sk_X509V3_EXT_METHOD_find(ext_list, &idx, &tmp))
         return NULL;
     return sk_X509V3_EXT_METHOD_value(ext_list, idx);
@@ -288,9 +289,9 @@ void *X509V3_get_d2i(STACK_OF(X509_EXTENSION) *x, int nid, int *crit,
 int X509V3_add1_i2d(STACK_OF(X509_EXTENSION) **x, int nid, void *value,
                     int crit, unsigned long flags)
 {
-    int extidx = -1;
-    int errcode;
-    X509_EXTENSION *ext, *extmp;
+    int errcode, extidx = -1;
+    X509_EXTENSION *ext = NULL, *extmp;
+    STACK_OF(X509_EXTENSION) *ret = NULL;
     unsigned long ext_op = flags & X509V3_ADD_OP_MASK;
 
     /*
@@ -348,12 +349,20 @@ int X509V3_add1_i2d(STACK_OF(X509_EXTENSION) **x, int nid, void *value,
         return 1;
     }
 
-    if (!*x && !(*x = sk_X509_EXTENSION_new_null()))
-        return -1;
-    if (!sk_X509_EXTENSION_push(*x, ext))
-        return -1;
+    if ((ret = *x) == NULL
+         && (ret = sk_X509_EXTENSION_new_null()) == NULL)
+        goto m_fail;
+    if (!sk_X509_EXTENSION_push(ret, ext))
+        goto m_fail;
 
+    *x = ret;
     return 1;
+
+ m_fail:
+    if (ret != *x)
+        sk_X509_EXTENSION_free(ret);
+    X509_EXTENSION_free(ext);
+    return -1;
 
  err:
     if (!(flags & X509V3_ADD_SILENT))

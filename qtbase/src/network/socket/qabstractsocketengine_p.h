@@ -105,7 +105,8 @@ public:
         TypeOfServiceOption,
         ReceivePacketInformation,
         ReceiveHopLimit,
-        MaxStreamsSocketOption
+        MaxStreamsSocketOption,
+        PathMtuInformation
     };
 
     enum PacketHeaderOption {
@@ -214,7 +215,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QAbstractSocketEngine)
-    Q_DISABLE_COPY(QAbstractSocketEngine)
+    Q_DISABLE_COPY_MOVE(QAbstractSocketEngine)
 };
 
 class QAbstractSocketEnginePrivate : public QObjectPrivate

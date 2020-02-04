@@ -2,9 +2,10 @@
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_toolbar/cr_toolbar.html">
-<link rel="import" href="chrome://history/browser_service.html">
-<link rel="import" href="chrome://history/icons.html">
-<link rel="import" href="chrome://history/shared_style.html">
+<link rel="import" href="browser_service.html">
+<link rel="import" href="icons.html">
+<link rel="import" href="shared_style.html">
+<link rel="import" href="strings.html">
 
 <!-- Lazy loaded: cr-toolbar-selection-overlay. -->
 
@@ -14,17 +15,12 @@
       :host {
         color: #fff;
         display: flex;
-        transition: background-color 150ms;
+        position: relative;
       }
 
       /* General toolbar layout. */
 
-      :host([items-selected_]) {
-        background: var(--interactive-color);
-      }
-
-      cr-toolbar,
-      cr-toolbar-selection-overlay {
+      cr-toolbar {
         --cr-toolbar-field-margin: var(--side-bar-width);
         flex: 1;
       }
@@ -35,80 +31,35 @@
       }
 
       cr-toolbar-selection-overlay {
+        opacity: 0;
         --selection-overlay-max-width: var(--card-max-width);
+        --cr-toolbar-field-margin: var(--side-bar-width);
       }
 
-      /* Info button and dropdown. */
-
-      #info-button {
-        /* Additional styles for unresolved <button>. */
-        background: none;
-        border: none;
-        color: inherit;
-        height: 32px;
-        margin: 6px;
-        outline: none;
-        padding: 0;
-        width: 32px;
-      }
-
-      #info-button-icon {
-        height: 20px;
-        width: 20px;
-      }
-
-      #sync-notice {
-        @apply(--shadow-elevation-2dp);
-        background-color: white;
-        border-radius: 2px;
-        color: var(--primary-text-color);
-        overflow: hidden;
-        padding: 12px 20px;
-        position: absolute;
-        right: 24px;
-        top: 46px;
-        z-index: 1;
-      }
-
-      :host-context([dir=rtl]) #sync-notice {
-        left: 24px;
-        right: auto;
+      cr-toolbar-selection-overlay[show] {
+        opacity: 1;
       }
     </style>
     <cr-toolbar id="main-toolbar"
+        has-overlay$="[[itemsSelected_]]"
         page-name="$i18n{title}"
         clear-label="$i18n{clearSearch}"
         search-prompt="$i18n{searchPrompt}"
-        hidden$="[[itemsSelected_]]"
         spinner-active="[[spinnerActive]]"
         show-menu="[[hasDrawer]]"
-        show-menu-promo="[[showMenuPromo]]"
+        show-menu-promo="[[canShowMenuPromo_(showMenuPromo)]]"
         menu-label="$i18n{historyMenuButton}"
         menu-promo="$i18n{menuPromo}"
         close-menu-promo="$i18n{closeMenuPromo}"
         on-search-changed="onSearchChanged_">
-      <div class="more-actions">
-        <template is="dom-if" if="[[showSyncNotice]]">
-          <button is="paper-icon-button-light" id="info-button"
-              on-click="onInfoButtonTap_"
-              aria-label="$i18n{hasSyncedResultsDescription}">
-            <iron-icon icon="history:info-outline" id="info-button-icon">
-            </iron-icon>
-          </button>
-        </template>
-      </div>
     </cr-toolbar>
-    <div id="sync-notice" hidden="[[!syncNoticeVisible_]]">
-      $i18nRaw{hasSyncedResults}
-    </div>
-    <template is="dom-if" if="[[itemsSelected_]]">
-      <cr-toolbar-selection-overlay delete-label="$i18n{delete}"
-          cancel-label="$i18n{cancel}"
-          selection-label="[[numberOfItemsSelected_(count)]]"
-          on-clear-selected-items="clearSelectedItems"
-          on-delete-selected-items="deleteSelectedItems">
-      </cr-toolbar-selection-overlay>
-    </template>
+    <cr-toolbar-selection-overlay show="[[itemsSelected_]]"
+        delete-label="$i18n{delete}"
+        cancel-label="$i18n{cancel}"
+        selection-label="[[numberOfItemsSelected_(count)]]"
+        on-clear-selected-items="clearSelectedItems"
+        on-delete-selected-items="deleteSelectedItems">
+    </cr-toolbar-selection-overlay>
   </template>
-  <script src="chrome://history/history_toolbar.js"></script>
+  <script src="history_toolbar.js"></script>
 </dom-module>

@@ -37,8 +37,9 @@
 **
 ****************************************************************************/
 
+#if !defined(QNSWINDOW_PROTOCOL_IMPLMENTATION)
+
 #include "qnswindow.h"
-#include "qnswindowdelegate.h"
 #include "qcocoawindow.h"
 #include "qcocoahelpers.h"
 #include "qcocoaeventdispatcher.h"
@@ -46,18 +47,18 @@
 #include <qpa/qwindowsysteminterface.h>
 #include <qoperatingsystemversion.h>
 
-Q_LOGGING_CATEGORY(lcCocoaEvents, "qt.qpa.cocoa.events");
+Q_LOGGING_CATEGORY(lcQpaEvents, "qt.qpa.events");
 
 static bool isMouseEvent(NSEvent *ev)
 {
     switch ([ev type]) {
-    case NSLeftMouseDown:
-    case NSLeftMouseUp:
-    case NSRightMouseDown:
-    case NSRightMouseUp:
-    case NSMouseMoved:
-    case NSLeftMouseDragged:
-    case NSRightMouseDragged:
+    case NSEventTypeLeftMouseDown:
+    case NSEventTypeLeftMouseUp:
+    case NSEventTypeRightMouseDown:
+    case NSEventTypeRightMouseUp:
+    case NSEventTypeMouseMoved:
+    case NSEventTypeLeftMouseDragged:
+    case NSEventTypeRightMouseDragged:
         return true;
     default:
         return false;
@@ -72,7 +73,7 @@ static bool isMouseEvent(NSEvent *ev)
     [center addObserverForName:NSWindowDidEnterFullScreenNotification object:nil queue:nil
         usingBlock:^(NSNotification *notification) {
             objc_setAssociatedObject(notification.object, @selector(qt_fullScreen),
-                [NSNumber numberWithBool:YES], OBJC_ASSOCIATION_RETAIN);
+                @(YES), OBJC_ASSOCIATION_RETAIN);
         }
     ];
     [center addObserverForName:NSWindowDidExitFullScreenNotification object:nil queue:nil
@@ -90,172 +91,10 @@ static bool isMouseEvent(NSEvent *ev)
 }
 @end
 
-#define super USE_qt_objcDynamicSuper_INSTEAD
-
 @implementation QNSWindow
-
-+ (void)load
-{
-    const Class windowClass = [self class];
-    const Class panelClass = [QNSPanel class];
-
-    unsigned int protocolCount;
-    Protocol **protocols = class_copyProtocolList(windowClass, &protocolCount);
-    for (unsigned int i = 0; i < protocolCount; ++i) {
-        Protocol *protocol = protocols[i];
-
-        unsigned int methodDescriptionsCount;
-        objc_method_description *methods = protocol_copyMethodDescriptionList(
-            protocol, NO, YES, &methodDescriptionsCount);
-
-        for (unsigned int j = 0; j < methodDescriptionsCount; ++j) {
-            objc_method_description method = methods[j];
-            class_addMethod(panelClass, method.name,
-                class_getMethodImplementation(windowClass, method.name),
-                method.types);
-        }
-        free(methods);
-    }
-
-    free(protocols);
-}
-
-- (QCocoaWindow *)platformWindow
-{
-    return qnsview_cast(self.contentView).platformWindow;
-}
-
-- (NSString *)description
-{
-    NSMutableString *description = [NSMutableString stringWithString:qt_objcDynamicSuper()];
-
-#ifndef QT_NO_DEBUG_STREAM
-    QString contentViewDescription;
-    QDebug debug(&contentViewDescription);
-    debug.nospace() << "; contentView=" << qnsview_cast(self.contentView) << ">";
-
-    NSRange lastCharacter = [description rangeOfComposedCharacterSequenceAtIndex:description.length - 1];
-    [description replaceCharactersInRange:lastCharacter withString:contentViewDescription.toNSString()];
-#endif
-
-    return description;
-}
-
-- (BOOL)canBecomeKeyWindow
-{
-    QCocoaWindow *pw = self.platformWindow;
-    if (!pw)
-        return NO;
-
-    if (pw->shouldRefuseKeyWindowAndFirstResponder())
-        return NO;
-
-    if ([self isKindOfClass:[QNSPanel class]]) {
-        // Only tool or dialog windows should become key:
-        Qt::WindowType type = pw->window()->type();
-        if (type == Qt::Tool || type == Qt::Dialog)
-            return YES;
-
-        return NO;
-    } else {
-        // The default implementation returns NO for title-bar less windows,
-        // override and return yes here to make sure popup windows such as
-        // the combobox popup can become the key window.
-        return YES;
-    }
-}
-
-- (BOOL)canBecomeMainWindow
-{
-    BOOL canBecomeMain = YES; // By default, windows can become the main window
-
-    // Windows with a transient parent (such as combobox popup windows)
-    // cannot become the main window:
-    QCocoaWindow *pw = self.platformWindow;
-    if (!pw || pw->window()->transientParent())
-        canBecomeMain = NO;
-
-    return canBecomeMain;
-}
-
-- (BOOL)isOpaque
-{
-    return self.platformWindow ?
-        self.platformWindow->isOpaque() : qt_objcDynamicSuper();
-}
-
-/*!
-    Borderless windows need a transparent background
-
-    Technically windows with NSTexturedBackgroundWindowMask (such
-    as windows with unified toolbars) need to draw the textured
-    background of the NSWindow, and can't have a transparent
-    background, but as NSBorderlessWindowMask is 0, you can't
-    have a window with NSTexturedBackgroundWindowMask that is
-    also borderless.
-*/
-- (NSColor *)backgroundColor
-{
-    return self.styleMask == NSBorderlessWindowMask
-        ? [NSColor clearColor] : qt_objcDynamicSuper();
-}
-
-- (void)sendEvent:(NSEvent*)theEvent
-{
-    qCDebug(lcCocoaEvents) << "Sending" << theEvent << "to" << self;
-
-    // We might get events for a NSWindow after the corresponding platform
-    // window has been deleted, as the NSWindow can outlive the QCocoaWindow
-    // e.g. if being retained by other parts of AppKit, or in an auto-release
-    // pool. We guard against this in QNSView as well, as not all callbacks
-    // come via events, but if they do there's no point in propagating them.
-    if (!self.platformWindow)
-        return;
-
-    // Prevent deallocation of this NSWindow during event delivery, as we
-    // have logic further below that depends on the window being alive.
-    [[self retain] autorelease];
-
-    const char *eventType = object_getClassName(theEvent);
-    if (QWindowSystemInterface::handleNativeEvent(self.platformWindow->window(),
-        QByteArray::fromRawData(eventType, qstrlen(eventType)), theEvent, nullptr)) {
-        return;
-    }
-
-    qt_objcDynamicSuper(theEvent);
-
-    if (!self.platformWindow)
-        return; // Platform window went away while processing event
-
-    QCocoaWindow *pw = self.platformWindow;
-    if (pw->frameStrutEventsEnabled() && isMouseEvent(theEvent)) {
-        NSPoint loc = [theEvent locationInWindow];
-        NSRect windowFrame = [self convertRectFromScreen:self.frame];
-        NSRect contentFrame = self.contentView.frame;
-        if (NSMouseInRect(loc, windowFrame, NO) && !NSMouseInRect(loc, contentFrame, NO))
-            [qnsview_cast(pw->view()) handleFrameStrutMouseEvent:theEvent];
-    }
-}
-
-- (void)closeAndRelease
-{
-    qCDebug(lcQpaCocoaWindow) << "closeAndRelease" << self;
-
-    [self.delegate release];
-    self.delegate = nil;
-
-    [self close];
-    [self release];
-}
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wobjc-missing-super-calls"
-- (void)dealloc
-{
-    qCDebug(lcQpaCocoaWindow) << "dealloc" << self;
-    qt_objcDynamicSuper();
-}
-#pragma clang diagnostic pop
+#define QNSWINDOW_PROTOCOL_IMPLMENTATION 1
+#include "qnswindow.mm"
+#undef QNSWINDOW_PROTOCOL_IMPLMENTATION
 
 + (void)applicationActivationChanged:(NSNotification*)notification
 {
@@ -263,29 +102,20 @@ static bool isMouseEvent(NSEvent *ev)
     NSEnumerator<NSWindow*> *windowEnumerator = nullptr;
     NSApplication *application = [NSApplication sharedApplication];
 
-#if QT_MACOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_12)
-    if (__builtin_available(macOS 10.12, *)) {
-        // Unfortunately there's no NSWindowListOrderedBackToFront,
-        // so we have to manually reverse the order using an array.
-        NSMutableArray *windows = [[[NSMutableArray alloc] init] autorelease];
-        [application enumerateWindowsWithOptions:NSWindowListOrderedFrontToBack
-            usingBlock:^(NSWindow *window, BOOL *) {
-                // For some reason AppKit will give us nil-windows, skip those
-                if (!window)
-                    return;
+    // Unfortunately there's no NSWindowListOrderedBackToFront,
+    // so we have to manually reverse the order using an array.
+    NSMutableArray<NSWindow *> *windows = [NSMutableArray<NSWindow *> new];
+    [application enumerateWindowsWithOptions:NSWindowListOrderedFrontToBack
+        usingBlock:^(NSWindow *window, BOOL *) {
+            // For some reason AppKit will give us nil-windows, skip those
+            if (!window)
+                return;
 
-                [(NSMutableArray*)windows addObject:window];
-            }
-        ];
+            [windows addObject:window];
+        }
+    ];
 
-        windowEnumerator = windows.reverseObjectEnumerator;
-    } else
-#endif
-    {
-        // No way to get ordered list of windows, so fall back to unordered,
-        // list, which typically corresponds to window creation order.
-        windowEnumerator = application.windows.objectEnumerator;
-    }
+    windowEnumerator = windows.reverseObjectEnumerator;
 
     for (NSWindow *window in windowEnumerator) {
         // We're meddling with normal and floating windows, so leave others alone
@@ -325,7 +155,159 @@ static bool isMouseEvent(NSEvent *ev)
 @end
 
 @implementation QNSPanel
-// Implementation shared with QNSWindow, see +[QNSWindow load] above
+#define QNSWINDOW_PROTOCOL_IMPLMENTATION 1
+#include "qnswindow.mm"
+#undef QNSWINDOW_PROTOCOL_IMPLMENTATION
 @end
 
-#undef super
+#else // QNSWINDOW_PROTOCOL_IMPLMENTATION
+
+// The following content is mixed in to the QNSWindow and QNSPanel classes via includes
+
+{
+    // Member variables
+    QPointer<QCocoaWindow> m_platformWindow;
+}
+
+- (instancetype)initWithContentRect:(NSRect)contentRect styleMask:(NSWindowStyleMask)style
+    backing:(NSBackingStoreType)backingStoreType defer:(BOOL)defer screen:(NSScreen *)screen
+    platformWindow:(QCocoaWindow*)window
+{
+    // Initializing the window will end up in [NSWindow _commonAwake], which calls many
+    // of the getters below. We need to set up the platform window reference first, so
+    // we can properly reflect the window's state during initialization.
+    m_platformWindow = window;
+
+    return [super initWithContentRect:contentRect styleMask:style backing:backingStoreType defer:defer screen:screen];
+}
+
+- (QCocoaWindow *)platformWindow
+{
+    return m_platformWindow;
+}
+
+- (NSString *)description
+{
+    NSMutableString *description = [NSMutableString stringWithString:[super description]];
+
+#ifndef QT_NO_DEBUG_STREAM
+    QString contentViewDescription;
+    QDebug debug(&contentViewDescription);
+    debug.nospace() << "; contentView=" << qnsview_cast(self.contentView) << ">";
+
+    NSRange lastCharacter = [description rangeOfComposedCharacterSequenceAtIndex:description.length - 1];
+    [description replaceCharactersInRange:lastCharacter withString:contentViewDescription.toNSString()];
+#endif
+
+    return description;
+}
+
+- (BOOL)canBecomeKeyWindow
+{
+    if (!m_platformWindow)
+        return NO;
+
+    if (m_platformWindow->shouldRefuseKeyWindowAndFirstResponder())
+        return NO;
+
+    if ([self isKindOfClass:[QNSPanel class]]) {
+        // Only tool or dialog windows should become key:
+        Qt::WindowType type = m_platformWindow->window()->type();
+        if (type == Qt::Tool || type == Qt::Dialog)
+            return YES;
+
+        return NO;
+    } else {
+        // The default implementation returns NO for title-bar less windows,
+        // override and return yes here to make sure popup windows such as
+        // the combobox popup can become the key window.
+        return YES;
+    }
+}
+
+- (BOOL)canBecomeMainWindow
+{
+    BOOL canBecomeMain = YES; // By default, windows can become the main window
+
+    // Windows with a transient parent (such as combobox popup windows)
+    // cannot become the main window:
+    if (!m_platformWindow || m_platformWindow->window()->transientParent())
+        canBecomeMain = NO;
+
+    return canBecomeMain;
+}
+
+- (BOOL)worksWhenModal
+{
+    if (m_platformWindow && [self isKindOfClass:[QNSPanel class]]) {
+        Qt::WindowType type = m_platformWindow->window()->type();
+        if (type == Qt::Popup || type == Qt::Dialog || type == Qt::Tool)
+            return YES;
+    }
+
+    return [super worksWhenModal];
+}
+
+- (BOOL)isOpaque
+{
+    return m_platformWindow ? m_platformWindow->isOpaque() : [super isOpaque];
+}
+
+- (NSColor *)backgroundColor
+{
+    return self.styleMask & NSWindowStyleMaskTexturedBackground ?
+                [super backgroundColor] : [NSColor clearColor];
+}
+
+- (void)sendEvent:(NSEvent*)theEvent
+{
+    qCDebug(lcQpaEvents) << "Sending" << theEvent << "to" << self;
+
+    // We might get events for a NSWindow after the corresponding platform
+    // window has been deleted, as the NSWindow can outlive the QCocoaWindow
+    // e.g. if being retained by other parts of AppKit, or in an auto-release
+    // pool. We guard against this in QNSView as well, as not all callbacks
+    // come via events, but if they do there's no point in propagating them.
+    if (!m_platformWindow)
+        return;
+
+    // Prevent deallocation of this NSWindow during event delivery, as we
+    // have logic further below that depends on the window being alive.
+    [[self retain] autorelease];
+
+    const char *eventType = object_getClassName(theEvent);
+    if (QWindowSystemInterface::handleNativeEvent(m_platformWindow->window(),
+        QByteArray::fromRawData(eventType, qstrlen(eventType)), theEvent, nullptr)) {
+        return;
+    }
+
+    [super sendEvent:theEvent];
+
+    if (!m_platformWindow)
+        return; // Platform window went away while processing event
+
+    if (m_platformWindow->frameStrutEventsEnabled() && isMouseEvent(theEvent)) {
+        NSPoint loc = [theEvent locationInWindow];
+        NSRect windowFrame = [self convertRectFromScreen:self.frame];
+        NSRect contentFrame = self.contentView.frame;
+        if (NSMouseInRect(loc, windowFrame, NO) && !NSMouseInRect(loc, contentFrame, NO))
+            [qnsview_cast(m_platformWindow->view()) handleFrameStrutMouseEvent:theEvent];
+    }
+}
+
+- (void)closeAndRelease
+{
+    qCDebug(lcQpaWindow) << "Closing and releasing" << self;
+    [self close];
+    [self release];
+}
+
+- (void)dealloc
+{
+    qCDebug(lcQpaWindow) << "Deallocating" << self;
+    self.delegate = nil;
+
+    [super dealloc];
+}
+
+#endif

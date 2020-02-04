@@ -35,20 +35,39 @@
 #include <QtPositioning/qgeoaddress.h>
 #include <QtPositioning/qgeolocation.h>
 #include <qgeocodereply.h>
+#include <QtLocation/private/qgeocodereply_p.h>
 #include <QtPositioning/QGeoShape>
 
 #include <QTimer>
 #include <QDebug>
 #include <QTimerEvent>
+#include <QVariantMap>
 
 QT_USE_NAMESPACE
 
+
+class GeocodeReplyTestPrivate : public QGeoCodeReplyPrivate
+{
+public:
+    GeocodeReplyTestPrivate()
+    {
+    }
+    ~GeocodeReplyTestPrivate()
+    {
+    }
+    QVariantMap extraData() const override
+    {
+        return m_extraData;
+    }
+
+    QVariantMap m_extraData;
+};
 
 class GeocodeReplyTest :public QGeoCodeReply
 {
     Q_OBJECT
 public:
-    GeocodeReplyTest(QObject *parent = 0) : QGeoCodeReply (parent) {}
+    GeocodeReplyTest(QObject *parent = 0) : QGeoCodeReply (*new GeocodeReplyTestPrivate, parent) {}
 
     void  callAddLocation ( const QGeoLocation & location ) {addLocation(location);}
     void  callSetError ( Error error, const QString & errorString ) {setError(error, errorString);}
@@ -74,14 +93,19 @@ public:
                                 timerId_(0),
                                 errorCode_(QGeoCodeReply::NoError)
     {
-        Q_UNUSED(error)
-        Q_UNUSED(errorString)
+        Q_UNUSED(error);
+        Q_UNUSED(errorString);
         if (parameters.contains("supported"))
             supported_ = qvariant_cast<bool>(parameters.value("supported"));
         if (parameters.contains("finishRequestImmediately"))
             finishRequestImmediately_ = qvariant_cast<bool>(parameters.value("finishRequestImmediately"));
         if (parameters.contains("validateWellKnownValues"))
             validateWellKnownValues_ = qvariant_cast<bool>(parameters.value("validateWellKnownValues"));
+        if (parameters.contains("includeExtendedData")) {
+            includeExtendedData_ = qvariant_cast<bool>(parameters.value("includeExtendedData"));
+            extendedLocationData_["QGeoCodingManagerEngineTest_locationExtendedAttribute"] = 42;
+            extendedReplyData_["QGeoCodingManagerEngineTest_extraData"] = 43;
+        }
 
         setLocale(QLocale (QLocale::German, QLocale::Germany));
     }
@@ -105,6 +129,8 @@ public:
 
         if (errorCode_ == QGeoCodeReply::NoError)
             setLocations(geocodeReply_, searchString, limit, offset);
+        if (includeExtendedData_)
+            injectExtra(geocodeReply_, extendedReplyData_);
 
         if (finishRequestImmediately_) {
             // check if we should finish with error
@@ -126,6 +152,8 @@ public:
         geocodeReply_ = new GeocodeReplyTest();
         connect(geocodeReply_, SIGNAL(aborted()), this, SLOT(requestAborted()));
         geocodeReply_->callSetViewport(bounds);
+        if (includeExtendedData_)
+            injectExtra(geocodeReply_, extendedReplyData_);
 
         if (address.street().startsWith("error")) {
             errorString_ = address.street();
@@ -184,6 +212,8 @@ public:
             address.setStreet(searchString);
             address.setCounty(QString::number(offset));
             location.setAddress(address);
+            if (includeExtendedData_)
+                injectExtra(location, extendedLocationData_);
             reply->callAddLocation(location);
         }
     }
@@ -195,6 +225,8 @@ public:
         for (int i = 0; i < count; ++i) {
             QGeoLocation location;
             location.setAddress(address);
+            if (includeExtendedData_)
+                injectExtra(location, extendedLocationData_);
             reply->callAddLocation(location);
         }
     }
@@ -204,6 +236,8 @@ public:
         for (int i = 0; i < coordinate.longitude(); ++i) {
             QGeoLocation location;
             location.setCoordinate(coordinate);
+            if (includeExtendedData_)
+                injectExtra(location, extendedLocationData_);
             reply->callAddLocation(location);
         }
     }
@@ -215,6 +249,8 @@ public:
 
         setLocations(geocodeReply_, coordinate);
         geocodeReply_->callSetViewport(bounds);
+        if (includeExtendedData_)
+            injectExtra(geocodeReply_, extendedReplyData_);
 
         if (coordinate.latitude() > 70) {
             errorString_ = "error";
@@ -256,7 +292,20 @@ protected:
          emit finished(geocodeReply_);
      }
 
+     static void injectExtra(QGeoCodeReply *reply, const QVariantMap &extra)
+     {
+         GeocodeReplyTestPrivate *replyPrivate
+                 = static_cast<GeocodeReplyTestPrivate *>(QGeoCodeReplyPrivate::get(*reply));
+         replyPrivate->m_extraData = extra;
+     }
+
+     static void injectExtra(QGeoLocation &location, const QVariantMap &extra)
+     {
+        location.setExtendedAttributes(extra);
+     }
+
 private:
+    bool includeExtendedData_ = false;
     bool validateWellKnownValues_;
     bool finishRequestImmediately_;
     bool supported_;
@@ -264,6 +313,8 @@ private:
     int timerId_;
     QGeoCodeReply::Error errorCode_;
     QString errorString_;
+    QVariantMap extendedLocationData_;
+    QVariantMap extendedReplyData_;
 };
 
 #endif

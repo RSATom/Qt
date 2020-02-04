@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 #include "base/i18n/message_formatter.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
 #include "net/base/escape.h"
@@ -96,6 +96,7 @@ ErrorInfo ErrorInfo::CreateError(ErrorType error_type,
       }
       break;
     case CERT_AUTHORITY_INVALID:
+    case CERT_SYMANTEC_LEGACY:
       details =
           l10n_util::GetStringFUTF16(IDS_CERT_ERROR_AUTHORITY_INVALID_DETAILS,
                                      UTF8ToUTF16(request_url.host()));
@@ -216,6 +217,8 @@ ErrorInfo::ErrorType ErrorInfo::NetErrorToErrorType(int net_error) {
       return CERT_PINNED_KEY_MISSING;
     case net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED:
       return CERTIFICATE_TRANSPARENCY_REQUIRED;
+    case net::ERR_CERT_SYMANTEC_LEGACY:
+      return CERT_SYMANTEC_LEGACY;
     default:
       NOTREACHED();
       return UNKNOWN;
@@ -241,6 +244,7 @@ void ErrorInfo::GetErrorsForCertStatus(
       net::CERT_STATUS_NAME_CONSTRAINT_VIOLATION,
       net::CERT_STATUS_VALIDITY_TOO_LONG,
       net::CERT_STATUS_CERTIFICATE_TRANSPARENCY_REQUIRED,
+      net::CERT_STATUS_SYMANTEC_LEGACY,
   };
 
   const ErrorType kErrorTypes[] = {
@@ -256,10 +260,11 @@ void ErrorInfo::GetErrorsForCertStatus(
       CERT_NAME_CONSTRAINT_VIOLATION,
       CERT_VALIDITY_TOO_LONG,
       CERTIFICATE_TRANSPARENCY_REQUIRED,
+      CERT_SYMANTEC_LEGACY,
   };
-  DCHECK(arraysize(kErrorFlags) == arraysize(kErrorTypes));
+  DCHECK(base::size(kErrorFlags) == base::size(kErrorTypes));
 
-  for (size_t i = 0; i < arraysize(kErrorFlags); ++i) {
+  for (size_t i = 0; i < base::size(kErrorFlags); ++i) {
     if ((cert_status & kErrorFlags[i]) && errors) {
       errors->push_back(
           ErrorInfo::CreateError(kErrorTypes[i], cert.get(), url));

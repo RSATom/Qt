@@ -51,6 +51,8 @@ private Q_SLOTS:
     void cookieSignals();
     void setAndDeleteCookie();
     void batchCookieTasks();
+    void basicFilter();
+    void html5featureFilter();
 
 private:
     QWebEngineProfile m_profile;
@@ -184,6 +186,63 @@ void tst_QWebEngineCookieStore::batchCookieTasks()
 
     client->deleteAllCookies();
     QTRY_COMPARE(cookieRemovedSpy.count(), 4);
+}
+
+void tst_QWebEngineCookieStore::basicFilter()
+{
+    QWebEnginePage page(&m_profile);
+    QWebEngineCookieStore *client = m_profile.cookieStore();
+
+    QAtomicInt accessTested = 0;
+    client->setCookieFilter([&](const QWebEngineCookieStore::FilterRequest &){ ++accessTested; return true;});
+
+    QSignalSpy loadSpy(&page, SIGNAL(loadFinished(bool)));
+    QSignalSpy cookieAddedSpy(client, SIGNAL(cookieAdded(const QNetworkCookie &)));
+    QSignalSpy cookieRemovedSpy(client, SIGNAL(cookieRemoved(const QNetworkCookie &)));
+
+    page.load(QUrl("qrc:///resources/index.html"));
+
+    QTRY_COMPARE(loadSpy.count(), 1);
+    QVERIFY(loadSpy.takeFirst().takeFirst().toBool());
+    QTRY_COMPARE(cookieAddedSpy.count(), 2);
+    QTRY_COMPARE(accessTested.loadAcquire(), 2); // FIXME?
+
+    client->deleteAllCookies();
+    QTRY_COMPARE(cookieRemovedSpy.count(), 2);
+
+    client->setCookieFilter([&](const QWebEngineCookieStore::FilterRequest &){ ++accessTested; return false; });
+    page.triggerAction(QWebEnginePage::ReloadAndBypassCache);
+    QTRY_COMPARE(loadSpy.count(), 1);
+    QVERIFY(loadSpy.takeFirst().takeFirst().toBool());
+    QTRY_COMPARE(accessTested.loadAcquire(), 4); // FIXME?
+    // Test cookies are NOT added:
+    QTest::qWait(100);
+    QCOMPARE(cookieAddedSpy.count(), 2);
+}
+
+void tst_QWebEngineCookieStore::html5featureFilter()
+{
+    QWebEnginePage page(&m_profile);
+    QWebEngineCookieStore *client = m_profile.cookieStore();
+
+    QAtomicInt accessTested = 0;
+    client->setCookieFilter([&](const QWebEngineCookieStore::FilterRequest &){ ++accessTested; return false;});
+
+    QSignalSpy loadSpy(&page, SIGNAL(loadFinished(bool)));
+
+    page.load(QUrl("qrc:///resources/content.html"));
+
+    QTRY_COMPARE(loadSpy.count(), 1);
+    QVERIFY(loadSpy.takeFirst().takeFirst().toBool());
+    QCOMPARE(accessTested.loadAcquire(), 0); // FIXME?
+    QTest::ignoreMessage(QtCriticalMsg, QRegularExpression(".*Uncaught SecurityError.*sessionStorage.*"));
+    page.runJavaScript("sessionStorage.test = 5;");
+    QTRY_COMPARE(accessTested.loadAcquire(), 1);
+
+    QTest::ignoreMessage(QtCriticalMsg, QRegularExpression(".*Uncaught SecurityError.*sessionStorage.*"));
+    QAtomicInt callbackTriggered = 0;
+    page.runJavaScript("sessionStorage.test", [&](const QVariant &v) { QVERIFY(!v.isValid()); callbackTriggered = 1; });
+    QTRY_VERIFY(callbackTriggered);
 }
 
 QTEST_MAIN(tst_QWebEngineCookieStore)

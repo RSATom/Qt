@@ -18,7 +18,11 @@ MockContentSuggestionsProvider::MockContentSuggestionsProvider(
   SetProvidedCategories(provided_categories);
 }
 
-MockContentSuggestionsProvider::~MockContentSuggestionsProvider() {}
+MockContentSuggestionsProvider::~MockContentSuggestionsProvider() {
+  if (destructor_callback_) {
+    std::move(destructor_callback_).Run();
+  }
+}
 
 void MockContentSuggestionsProvider::SetProvidedCategories(
     const std::vector<Category>& provided_categories) {
@@ -43,6 +47,29 @@ CategoryInfo MockContentSuggestionsProvider::GetCategoryInfo(
                       base::ASCIIToUTF16("No suggestions message"));
 }
 
+void MockContentSuggestionsProvider::SetDestructorCallback(
+    DestructorCallback callback) {
+  destructor_callback_ = std::move(callback);
+}
+
+void MockContentSuggestionsProvider::Fetch(const Category& category,
+                                           const std::set<std::string>& set,
+                                           FetchDoneCallback callback) {
+  FetchMock(category, set, &callback);
+}
+
+void MockContentSuggestionsProvider::FetchSuggestionImage(
+    const ContentSuggestion::ID& id,
+    ImageFetchedCallback callback) {
+  FetchSuggestionImageMock(id, callback);
+}
+
+void MockContentSuggestionsProvider::FetchSuggestionImageData(
+    const ContentSuggestion::ID& id,
+    ImageDataFetchedCallback callback) {
+  FetchSuggestionImageDataMock(id, &callback);
+}
+
 void MockContentSuggestionsProvider::FireSuggestionsChanged(
     Category category,
     std::vector<ContentSuggestion> suggestions) {
@@ -64,6 +91,12 @@ void MockContentSuggestionsProvider::FireCategoryStatusChangedWithCurrentStatus(
 void MockContentSuggestionsProvider::FireSuggestionInvalidated(
     const ContentSuggestion::ID& suggestion_id) {
   observer()->OnSuggestionInvalidated(this, suggestion_id);
+}
+
+void MockContentSuggestionsProvider::GetDismissedSuggestionsForDebugging(
+    Category category,
+    DismissedSuggestionsCallback callback) {
+  GetDismissedSuggestionsForDebuggingMock(category, callback);
 }
 
 }  // namespace ntp_snippets

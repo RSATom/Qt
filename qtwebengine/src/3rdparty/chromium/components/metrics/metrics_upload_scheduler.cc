@@ -15,23 +15,16 @@
 
 namespace metrics {
 
-// This feature moves the upload schedule to a seperate schedule from the
-// log rotation schedule.  This may change upload timing slightly, but
-// would allow some compartmentalization of uploader logic to allow more
-// code reuse between different metrics services.
-const base::Feature kUploadSchedulerFeature{"UMAUploadScheduler",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
-
 namespace {
 
 // When uploading metrics to the server fails, we progressively wait longer and
 // longer before sending the next log. This backoff process helps reduce load
 // on a server that is having issues.
 // The following is the multiplier we use to expand that inter-log duration.
-const double kBackoffMultiplier = 1.1;
+const double kBackoffMultiplier = 2;
 
-// The maximum backoff interval in minutes.
-const int kMaxBackoffIntervalMinutes = 10;
+// The maximum backoff interval in hours.
+const int kMaxBackoffIntervalHours = 24;
 
 // Minutes to wait if we are unable to upload due to data usage cap.
 const int kOverDataUsageIntervalMinutes = 5;
@@ -44,31 +37,23 @@ base::TimeDelta BackOffUploadInterval(base::TimeDelta interval) {
       kBackoffMultiplier * interval.InMicroseconds()));
 
   base::TimeDelta max_interval =
-      base::TimeDelta::FromMinutes(kMaxBackoffIntervalMinutes);
+      base::TimeDelta::FromHours(kMaxBackoffIntervalHours);
   if (interval > max_interval || interval.InSeconds() < 0) {
     interval = max_interval;
   }
   return interval;
 }
 
-// Gets a time interval in seconds from a variations parameter.
-base::TimeDelta GetTimeParameterSeconds(const std::string& param_name,
-                                        int default_seconds) {
-  int seconds = base::GetFieldTrialParamByFeatureAsInt(
-      kUploadSchedulerFeature, param_name, default_seconds);
-  return base::TimeDelta::FromSeconds(seconds);
-}
-
 // Time delay after a log is uploaded successfully before attempting another.
 // On mobile, keeping the radio on is very expensive, so prefer to keep this
 // short and send in bursts.
 base::TimeDelta GetUnsentLogsInterval() {
-  return GetTimeParameterSeconds("UnsentLogsIntervalSeconds", 3);
+  return base::TimeDelta::FromSeconds(3);
 }
 
-// Inital time delay after a log uploaded fails before retrying it.
+// Initial time delay after a log uploaded fails before retrying it.
 base::TimeDelta GetInitialBackoffInterval() {
-  return GetTimeParameterSeconds("InitialBackoffIntervalSeconds", 15);
+  return base::TimeDelta::FromMinutes(5);
 }
 
 }  // namespace

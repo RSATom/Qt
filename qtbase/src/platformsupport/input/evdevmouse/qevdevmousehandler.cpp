@@ -184,7 +184,7 @@ void QEvdevMouseHandler::sendMouseEvent()
         m_prevInvalid = false;
     }
 
-    emit handleMouseEvent(x, y, m_abs, m_buttons);
+    emit handleMouseEvent(x, y, m_abs, m_buttons, m_button, m_eventType);
 
     m_prevx = m_x;
     m_prevy = m_y;
@@ -210,7 +210,7 @@ void QEvdevMouseHandler::readMouseData()
                 // by the above error over and over again.
                 if (errno == ENODEV) {
                     delete m_notify;
-                    m_notify = Q_NULLPTR;
+                    m_notify = nullptr;
                     qt_safe_close(m_fd);
                     m_fd = -1;
                 }
@@ -245,18 +245,12 @@ void QEvdevMouseHandler::readMouseData()
                 m_y += data->value;
                 posChanged = true;
             } else if (data->code == ABS_WHEEL) { // vertical scroll
-                // data->value: 1 == up, -1 == down
-                if (data->value == 1)
-                    delta.setY(120);
-                else
-                    delta.setY(-120);
+                // data->value: positive == up, negative == down
+                delta.setY(120 * data->value);
                 emit handleWheelEvent(delta);
             } else if (data->code == ABS_THROTTLE) { // horizontal scroll
-                // data->value: 1 == right, -1 == left
-                if (data->value == 1)
-                    delta.setX(-120);
-                else
-                    delta.setX(120);
+                // data->value: positive == right, negative == left
+                delta.setX(-120 * data->value);
                 emit handleWheelEvent(delta);
             }
         } else if (data->type == EV_KEY && data->code == BTN_TOUCH) {
@@ -286,6 +280,8 @@ void QEvdevMouseHandler::readMouseData()
             case 0x11f: button = Qt::ExtraButton13; break;
             }
             m_buttons.setFlag(button, data->value);
+            m_button = button;
+            m_eventType = data->value == 0 ? QEvent::MouseButtonRelease : QEvent::MouseButtonPress;
             btnChanged = true;
         } else if (data->type == EV_SYN && data->code == SYN_REPORT) {
             if (btnChanged) {
@@ -293,6 +289,7 @@ void QEvdevMouseHandler::readMouseData()
                 sendMouseEvent();
                 pendingMouseEvent = false;
             } else if (posChanged) {
+                m_eventType = QEvent::MouseMove;
                 posChanged = false;
                 if (m_compression) {
                     pendingMouseEvent = true;

@@ -4,23 +4,12 @@
 
 #include "gpu/command_buffer/service/gles2_cmd_copy_tex_image.h"
 
+#include "gpu/command_buffer/service/decoder_context.h"
+#include "gpu/command_buffer/service/shader_manager.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "ui/gl/gl_version_info.h"
 
-namespace {
-
-void CompileShader(GLuint shader, const char* shader_source) {
-  glShaderSource(shader, 1, &shader_source, 0);
-  glCompileShader(shader);
-#ifndef NDEBUG
-  GLint compile_status;
-  glGetShaderiv(shader, GL_COMPILE_STATUS, &compile_status);
-  if (GL_TRUE != compile_status)
-    DLOG(ERROR) << "CopyTexImage: shader compilation failure.";
-#endif
-}
-
-}  // anonymous namespace
+#include <string>
 
 namespace gpu {
 namespace gles2 {
@@ -28,13 +17,12 @@ namespace gles2 {
 CopyTexImageResourceManager::CopyTexImageResourceManager(
     const gles2::FeatureInfo* feature_info)
     : feature_info_(feature_info) {
-  DCHECK(feature_info->gl_version_info().is_desktop_core_profile);
+  DCHECK(feature_info->gl_version_info().NeedsLuminanceAlphaEmulation());
 }
 
-CopyTexImageResourceManager::~CopyTexImageResourceManager() {}
+CopyTexImageResourceManager::~CopyTexImageResourceManager() = default;
 
-void CopyTexImageResourceManager::Initialize(
-    const gles2::GLES2Decoder* decoder) {
+void CopyTexImageResourceManager::Initialize(const DecoderContext* decoder) {
   if (initialized_) {
     return;
   }
@@ -42,8 +30,9 @@ void CopyTexImageResourceManager::Initialize(
   blit_program_ = glCreateProgram();
 
   // Compile the vertex shader
-  const char* vs_source =
-      "#version 150\n"
+  std::string vs_source =
+      std::string(feature_info_->gl_version_info().is_es3 ? "#version 300 es\n"
+                                                          : "#version 150\n") +
       "out vec2 v_texcoord;\n"
       "\n"
       "void main()\n"
@@ -65,13 +54,15 @@ void CopyTexImageResourceManager::Initialize(
       "}\n";
 
   GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-  CompileShader(vs, vs_source);
+  CompileShaderWithLog(vs, vs_source.c_str());
   glAttachShader(blit_program_, vs);
   glDeleteShader(vs);
 
   // Compile the fragment shader
-  const char* fs_source =
-      "#version 150\n"
+  std::string fs_source =
+      std::string(feature_info_->gl_version_info().is_es3
+                      ? "#version 300 es\nprecision mediump float;\n"
+                      : "#version 150\n") +
       "uniform sampler2D u_source_texture;\n"
       "in vec2 v_texcoord;\n"
       "out vec4 output_color;\n"
@@ -82,7 +73,7 @@ void CopyTexImageResourceManager::Initialize(
       "}\n";
 
   GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-  CompileShader(fs, fs_source);
+  CompileShaderWithLog(fs, fs_source.c_str());
   glAttachShader(blit_program_, fs);
   glDeleteShader(fs);
 
@@ -141,7 +132,7 @@ void CopyTexImageResourceManager::Destroy() {
 }
 
 void CopyTexImageResourceManager::DoCopyTexImage2DToLUMACompatibilityTexture(
-    const gles2::GLES2Decoder* decoder,
+    const DecoderContext* decoder,
     GLuint dest_texture,
     GLenum dest_texture_target,
     GLenum dest_target,
@@ -170,7 +161,7 @@ void CopyTexImageResourceManager::DoCopyTexImage2DToLUMACompatibilityTexture(
 }
 
 void CopyTexImageResourceManager::DoCopyTexSubImageToLUMACompatibilityTexture(
-    const gles2::GLES2Decoder* decoder,
+    const DecoderContext* decoder,
     GLuint dest_texture,
     GLenum dest_texture_target,
     GLenum dest_target,
@@ -206,7 +197,15 @@ void CopyTexImageResourceManager::DoCopyTexSubImageToLUMACompatibilityTexture(
       (luma_format == GL_LUMINANCE_ALPHA) ? GL_ALPHA : GL_ZERO, GL_ZERO,
       GL_ZERO,
   };
-  glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+  if (feature_info_->gl_version_info().is_es) {
+    // ES doesn't support GL_TEXTURE_SWIZZLE_RGBA. We must set each swizzle
+    // separately.
+    for (int i = 0; i < 4; i++) {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R + i, swizzle[i]);
+    }
+  } else {
+    glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+  }
 
   // Make a temporary framebuffer using the second scratch texture to render the
   // swizzled result to.
@@ -235,6 +234,9 @@ void CopyTexImageResourceManager::DoCopyTexSubImageToLUMACompatibilityTexture(
   glDepthMask(GL_FALSE);
   glDisable(GL_BLEND);
   glDisable(GL_DITHER);
+  if (decoder->GetFeatureInfo()->feature_flags().ext_window_rectangles) {
+    glWindowRectanglesEXT(GL_EXCLUSIVE_EXT, 0, nullptr);
+  }
 
   glBindTexture(GL_TEXTURE_2D, scratch_textures_[0]);
   glBindVertexArrayOES(vao_);
@@ -265,7 +267,7 @@ void CopyTexImageResourceManager::DoCopyTexSubImageToLUMACompatibilityTexture(
 bool CopyTexImageResourceManager::CopyTexImageRequiresBlit(
     const gles2::FeatureInfo* feature_info,
     GLenum dest_texture_format) {
-  if (feature_info->gl_version_info().is_desktop_core_profile) {
+  if (feature_info->gl_version_info().NeedsLuminanceAlphaEmulation()) {
     switch (dest_texture_format) {
       case GL_LUMINANCE:
       case GL_ALPHA:

@@ -8,11 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/desktop_capture/fallback_desktop_capturer_wrapper.h"
+#include "modules/desktop_capture/fallback_desktop_capturer_wrapper.h"
 
+#include <stddef.h>
 #include <utility>
 
-#include "webrtc/rtc_base/checks.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/thread_checker.h"
+#include "system_wrappers/include/metrics.h"
 
 namespace webrtc {
 
@@ -50,16 +53,16 @@ SharedMemoryFactoryProxy::SharedMemoryFactoryProxy(
 }
 
 // static
-std::unique_ptr<SharedMemoryFactory>
-SharedMemoryFactoryProxy::Create(SharedMemoryFactory* factory) {
+std::unique_ptr<SharedMemoryFactory> SharedMemoryFactoryProxy::Create(
+    SharedMemoryFactory* factory) {
   return std::unique_ptr<SharedMemoryFactory>(
       new SharedMemoryFactoryProxy(factory));
 }
 
 SharedMemoryFactoryProxy::~SharedMemoryFactoryProxy() = default;
 
-std::unique_ptr<SharedMemory>
-SharedMemoryFactoryProxy::CreateSharedMemory(size_t size) {
+std::unique_ptr<SharedMemory> SharedMemoryFactoryProxy::CreateSharedMemory(
+    size_t size) {
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
   return factory_->CreateSharedMemory(size);
 }
@@ -77,6 +80,7 @@ FallbackDesktopCapturerWrapper::~FallbackDesktopCapturerWrapper() = default;
 
 void FallbackDesktopCapturerWrapper::Start(
     DesktopCapturer::Callback* callback) {
+  callback_ = callback;
   // FallbackDesktopCapturerWrapper catchs the callback of the main capturer,
   // and checks its return value to decide whether the secondary capturer should
   // be involved.
@@ -85,7 +89,6 @@ void FallbackDesktopCapturerWrapper::Start(
   // FallbackDesktopCapturerWrapper won't check its return value any more. It
   // will directly return to the input |callback|.
   secondary_capturer_->Start(callback);
-  callback_ = callback;
 }
 
 void FallbackDesktopCapturerWrapper::SetSharedMemoryFactory(
@@ -129,8 +132,15 @@ bool FallbackDesktopCapturerWrapper::SelectSource(SourceId id) {
   if (main_capturer_permanent_error_) {
     return secondary_capturer_->SelectSource(id);
   }
-  return main_capturer_->SelectSource(id) &&
-         secondary_capturer_->SelectSource(id);
+  const bool main_capturer_result = main_capturer_->SelectSource(id);
+  RTC_HISTOGRAM_BOOLEAN(
+      "WebRTC.DesktopCapture.PrimaryCapturerSelectSourceError",
+      main_capturer_result);
+  if (!main_capturer_result) {
+    main_capturer_permanent_error_ = true;
+  }
+
+  return secondary_capturer_->SelectSource(id);
 }
 
 bool FallbackDesktopCapturerWrapper::FocusOnSelectedSource() {
@@ -141,10 +151,23 @@ bool FallbackDesktopCapturerWrapper::FocusOnSelectedSource() {
          secondary_capturer_->FocusOnSelectedSource();
 }
 
+bool FallbackDesktopCapturerWrapper::IsOccluded(const DesktopVector& pos) {
+  // Returns true if either capturer returns true.
+  if (main_capturer_permanent_error_) {
+    return secondary_capturer_->IsOccluded(pos);
+  }
+  return main_capturer_->IsOccluded(pos) ||
+         secondary_capturer_->IsOccluded(pos);
+}
+
 void FallbackDesktopCapturerWrapper::OnCaptureResult(
     Result result,
     std::unique_ptr<DesktopFrame> frame) {
   RTC_DCHECK(callback_);
+  RTC_HISTOGRAM_BOOLEAN("WebRTC.DesktopCapture.PrimaryCapturerError",
+                        result != Result::SUCCESS);
+  RTC_HISTOGRAM_BOOLEAN("WebRTC.DesktopCapture.PrimaryCapturerPermanentError",
+                        result == Result::ERROR_PERMANENT);
   if (result == Result::SUCCESS) {
     callback_->OnCaptureResult(result, std::move(frame));
     return;

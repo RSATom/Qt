@@ -8,6 +8,7 @@
 #include <list>
 #include <memory>
 
+#include "net/base/completion_once_callback.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/cert_verify_result.h"
 
@@ -27,17 +28,20 @@ class MockCertVerifier : public CertVerifier {
 
   // CertVerifier implementation
   int Verify(const RequestParams& params,
-             CRLSet* crl_set,
              CertVerifyResult* verify_result,
-             const CompletionCallback& callback,
+             CompletionOnceCallback callback,
              std::unique_ptr<Request>* out_req,
              const NetLogWithSource& net_log) override;
+  void SetConfig(const Config& config) override {}
 
   // Sets the default return value for Verify() for certificates/hosts that do
   // not have explicit results added via the AddResult*() methods.
   void set_default_result(int default_result) {
     default_result_ = default_result;
   }
+
+  // Sets whether Verify() returns a result asynchronously.
+  void set_async(bool async) { async_ = async; }
 
   // Adds a rule that will cause any call to Verify() for |cert| to return rv,
   // copying |verify_result| into the verified result.
@@ -56,10 +60,14 @@ class MockCertVerifier : public CertVerifier {
 
  private:
   struct Rule;
-  typedef std::list<Rule> RuleList;
+  using RuleList = std::list<Rule>;
+  class MockRequest;
+
+  int VerifyImpl(const RequestParams& params, CertVerifyResult* verify_result);
 
   int default_result_;
   RuleList rules_;
+  bool async_;
 };
 
 }  // namespace net

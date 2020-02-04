@@ -8,12 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_COMMON_AUDIO_AUDIO_CONVERTER_H_
-#define WEBRTC_COMMON_AUDIO_AUDIO_CONVERTER_H_
+#ifndef COMMON_AUDIO_AUDIO_CONVERTER_H_
+#define COMMON_AUDIO_AUDIO_CONVERTER_H_
 
+#include <stddef.h>
 #include <memory>
 
-#include "webrtc/rtc_base/constructormagic.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -37,8 +38,10 @@ class AudioConverter {
   // capacity of |dst_capacity|. Both point to a series of buffers containing
   // the samples for each channel. The sizes must correspond to the format
   // passed to Create().
-  virtual void Convert(const float* const* src, size_t src_size,
-                       float* const* dst, size_t dst_capacity) = 0;
+  virtual void Convert(const float* const* src,
+                       size_t src_size,
+                       float* const* dst,
+                       size_t dst_capacity) = 0;
 
   size_t src_channels() const { return src_channels_; }
   size_t src_frames() const { return src_frames_; }
@@ -47,7 +50,9 @@ class AudioConverter {
 
  protected:
   AudioConverter();
-  AudioConverter(size_t src_channels, size_t src_frames, size_t dst_channels,
+  AudioConverter(size_t src_channels,
+                 size_t src_frames,
+                 size_t dst_channels,
                  size_t dst_frames);
 
   // Helper to RTC_CHECK that inputs are correctly sized.
@@ -64,4 +69,4 @@ class AudioConverter {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_COMMON_AUDIO_AUDIO_CONVERTER_H_
+#endif  // COMMON_AUDIO_AUDIO_CONVERTER_H_

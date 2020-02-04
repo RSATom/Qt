@@ -44,10 +44,31 @@ QT_BEGIN_NAMESPACE
 
 /*!
   \class QVoice
-  \brief The QVoice class allows to set and retrieve values of a particular voice
+  \brief The QVoice class allows to set and retrieve values of a particular voice.
   \inmodule QtSpeech
 */
 
+/*!
+    \enum QVoice::Age
+
+    The age of a voice.
+
+    \value Child    Voice of a child
+    \value Teenager Voice of a teenager
+    \value Adult    Voice of an adult
+    \value Senior   Voice of a senior
+    \value Other    Voice of unknown age
+*/
+
+/*!
+    \enum QVoice::Gender
+
+    The gender of a voice.
+
+    \value Male    Voice of a male
+    \value Female  Voice of a female
+    \value Unknown Voice of unknown gender
+*/
 
 QVoice::QVoice()
 {
@@ -76,6 +97,10 @@ void QVoice::operator=(const QVoice &other)
     d->data = other.d->data;
 }
 
+/*!
+    Compares the \l name, \l gender, and \l age of this voice with \a other.
+    Returns \c true if all of them match.
+*/
 bool QVoice::operator==(const QVoice &other)
 {
     if (d->name != other.d->name ||
@@ -86,13 +111,17 @@ bool QVoice::operator==(const QVoice &other)
     return true;
 }
 
+/*!
+    Compares the \l name, \l gender, and \l age of this voice with \a other.
+    Returns \c true if they are not identical.
+*/
 bool QVoice::operator!=(const QVoice &other)
 {
     return !operator==(other);
 }
 
 /*!
-   Assign a \a name to a voice
+   Assign a \a name to a voice.
 */
 void QVoice::setName(const QString &name)
 {
@@ -100,7 +129,7 @@ void QVoice::setName(const QString &name)
 }
 
 /*!
-   Assign a \a gender to a voice
+   Assign a \a gender to a voice.
 */
 void QVoice::setGender(Gender gender)
 {
@@ -108,7 +137,7 @@ void QVoice::setGender(Gender gender)
 }
 
 /*!
-   Set the \a age property
+   Set the \a age property.
 */
 void QVoice::setAge(Age age)
 {
@@ -121,7 +150,7 @@ void QVoice::setData(const QVariant &data)
 }
 
 /*!
-   Returns the name of a voice
+   Returns the name of a voice.
 */
 QString QVoice::name() const
 {
@@ -129,7 +158,7 @@ QString QVoice::name() const
 }
 
 /*!
-   Returns the age of a voice
+   Returns the age of a voice.
 */
 QVoice::Age QVoice::age() const
 {
@@ -137,7 +166,7 @@ QVoice::Age QVoice::age() const
 }
 
 /*!
-   Returns the gender of a voice
+   Returns the gender of a voice.
 */
 QVoice::Gender QVoice::gender() const
 {
@@ -150,7 +179,7 @@ QVariant QVoice::data() const
 }
 
 /*!̈́
-   Returns the \a gender name of a voice
+   Returns the \a gender name of a voice.
 */
 QString QVoice::genderName(QVoice::Gender gender)
 {
@@ -171,7 +200,7 @@ QString QVoice::genderName(QVoice::Gender gender)
 }
 
 /*!
-   Returns the \a age class of a voice
+   Returns a string representing the \a age class of a voice.
 */
 QString QVoice::ageName(QVoice::Age age)
 {

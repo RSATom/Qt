@@ -15,10 +15,10 @@ class WebUIInjectionHost : public InjectionHost {
 
  private:
   // InjectionHost:
-  std::string GetContentSecurityPolicy() const override;
+  const std::string* GetContentSecurityPolicy() const override;
   const GURL& url() const override;
   const std::string& name() const override;
-  extensions::PermissionsData::AccessType CanExecuteOnFrame(
+  extensions::PermissionsData::PageAccess CanExecuteOnFrame(
       const GURL& document_url,
       content::RenderFrame* render_frame,
       int tab_id,

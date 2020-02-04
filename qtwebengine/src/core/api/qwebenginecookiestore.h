@@ -41,27 +41,37 @@
 #define QWEBENGINECOOKIESTORE_H
 
 #include <QtWebEngineCore/qtwebenginecoreglobal.h>
-#include <QtWebEngineCore/qwebenginecallback.h>
 
 #include <QtCore/qobject.h>
 #include <QtCore/qscopedpointer.h>
 #include <QtCore/qurl.h>
 #include <QtNetwork/qnetworkcookie.h>
 
+#include <functional>
+
 namespace QtWebEngineCore {
-class BrowserContextAdapter;
+class ProfileAdapter;
 class CookieMonsterDelegateQt;
-}
+} // namespace QtWebEngineCore
 
 QT_BEGIN_NAMESPACE
 
 class QWebEngineCookieStorePrivate;
-class QWEBENGINE_EXPORT QWebEngineCookieStore : public QObject {
+class Q_WEBENGINECORE_EXPORT QWebEngineCookieStore : public QObject {
     Q_OBJECT
 
 public:
+    struct FilterRequest {
+        QUrl firstPartyUrl;
+        QUrl origin;
+        bool thirdParty;
+        bool _reservedFlag;
+        ushort _reservedType;
+    };
     virtual ~QWebEngineCookieStore();
 
+    void setCookieFilter(const std::function<bool(const FilterRequest &)> &filterCallback);
+    void setCookieFilter(std::function<bool(const FilterRequest &)> &&filterCallback);
     void setCookie(const QNetworkCookie &cookie, const QUrl &origin = QUrl());
     void deleteCookie(const QNetworkCookie &cookie, const QUrl &origin = QUrl());
     void deleteSessionCookies();
@@ -74,14 +84,15 @@ Q_SIGNALS:
 
 private:
     explicit QWebEngineCookieStore(QObject *parent = Q_NULLPTR);
-    friend class QtWebEngineCore::BrowserContextAdapter;
+    friend class QtWebEngineCore::ProfileAdapter;
     friend class QtWebEngineCore::CookieMonsterDelegateQt;
     Q_DISABLE_COPY(QWebEngineCookieStore)
     Q_DECLARE_PRIVATE(QWebEngineCookieStore)
+    QScopedPointer<QWebEngineCookieStorePrivate> d_ptr;
 };
 
 QT_END_NAMESPACE
 
-Q_DECLARE_METATYPE(QWebEngineCookieStore*)
+Q_DECLARE_METATYPE(QWebEngineCookieStore *)
 
 #endif // QWEBENGINECOOKIESTORE_H

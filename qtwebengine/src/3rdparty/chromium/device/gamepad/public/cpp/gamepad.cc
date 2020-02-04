@@ -6,6 +6,13 @@
 
 namespace device {
 
+constexpr float GamepadButton::kDefaultButtonPressedThreshold;
+constexpr double GamepadHapticActuator::kMaxEffectDurationMillis;
+constexpr size_t Gamepad::kIdLengthCap;
+constexpr size_t Gamepad::kMappingLengthCap;
+constexpr size_t Gamepad::kAxesLengthCap;
+constexpr size_t Gamepad::kButtonsLengthCap;
+
 Gamepad::Gamepad()
     : connected(false),
       timestamp(0),

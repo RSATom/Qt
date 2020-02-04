@@ -29,8 +29,8 @@ void DateBuiltinsAssembler::Generate_DatePrototype_GetField(Node* context,
 
   GotoIf(TaggedIsSmi(receiver), &receiver_not_date);
   Node* receiver_instance_type = LoadInstanceType(receiver);
-  GotoIf(Word32NotEqual(receiver_instance_type, Int32Constant(JS_DATE_TYPE)),
-         &receiver_not_date);
+  GotoIfNot(InstanceTypeEqual(receiver_instance_type, JS_DATE_TYPE),
+            &receiver_not_date);
 
   // Load the specified date field, falling back to the runtime as necessary.
   if (field_index == JSDate::kDateValue) {
@@ -44,15 +44,15 @@ void DateBuiltinsAssembler::Generate_DatePrototype_GetField(Node* context,
 
       Node* cache_stamp = LoadObjectField(receiver, JSDate::kCacheStampOffset);
       GotoIf(WordNotEqual(date_cache_stamp, cache_stamp), &stamp_mismatch);
-      Return(LoadObjectField(
-          receiver, JSDate::kValueOffset + field_index * kPointerSize));
+      Return(LoadObjectField(receiver,
+                             JSDate::kValueOffset + field_index * kTaggedSize));
 
       BIND(&stamp_mismatch);
     }
 
     Node* field_index_smi = SmiConstant(field_index);
     Node* function =
-        ExternalConstant(ExternalReference::get_date_field_function(isolate()));
+        ExternalConstant(ExternalReference::get_date_field_function());
     Node* result = CallCFunction2(
         MachineType::AnyTagged(), MachineType::AnyTagged(),
         MachineType::AnyTagged(), function, receiver, field_index_smi);
@@ -61,10 +61,7 @@ void DateBuiltinsAssembler::Generate_DatePrototype_GetField(Node* context,
 
   // Raise a TypeError if the receiver is not a date.
   BIND(&receiver_not_date);
-  {
-    CallRuntime(Runtime::kThrowNotDateError, context);
-    Unreachable();
-  }
+  { ThrowTypeError(context, MessageTemplate::kNotDateObject); }
 }
 
 TF_BUILTIN(DatePrototypeGetDate, DateBuiltinsAssembler) {
@@ -196,11 +193,11 @@ TF_BUILTIN(DatePrototypeToPrimitive, CodeStubAssembler) {
       hint_is_invalid(this, Label::kDeferred);
 
   // Fast cases for internalized strings.
-  Node* number_string = LoadRoot(Heap::knumber_stringRootIndex);
+  Node* number_string = LoadRoot(RootIndex::knumber_string);
   GotoIf(WordEqual(hint, number_string), &hint_is_number);
-  Node* default_string = LoadRoot(Heap::kdefault_stringRootIndex);
+  Node* default_string = LoadRoot(RootIndex::kdefault_string);
   GotoIf(WordEqual(hint, default_string), &hint_is_string);
-  Node* string_string = LoadRoot(Heap::kstring_stringRootIndex);
+  Node* string_string = LoadRoot(RootIndex::kstring_string);
   GotoIf(WordEqual(hint, string_string), &hint_is_string);
 
   // Slow-case with actual string comparisons.
@@ -240,17 +237,14 @@ TF_BUILTIN(DatePrototypeToPrimitive, CodeStubAssembler) {
 
   // Raise a TypeError if the {hint} is invalid.
   BIND(&hint_is_invalid);
-  {
-    CallRuntime(Runtime::kThrowInvalidHint, context, hint);
-    Unreachable();
-  }
+  { ThrowTypeError(context, MessageTemplate::kInvalidHint, hint); }
 
   // Raise a TypeError if the {receiver} is not a JSReceiver instance.
   BIND(&receiver_is_invalid);
   {
-    CallRuntime(Runtime::kThrowIncompatibleMethodReceiver, context,
-                StringConstant("Date.prototype [ @@toPrimitive ]"), receiver);
-    Unreachable();
+    ThrowTypeError(context, MessageTemplate::kIncompatibleMethodReceiver,
+                   StringConstant("Date.prototype [ @@toPrimitive ]"),
+                   receiver);
   }
 }
 

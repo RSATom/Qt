@@ -73,9 +73,6 @@ QT_BEGIN_NAMESPACE
 
 Q_GLOBAL_STATIC_WITH_ARGS(QMutex, qt_opensslInitMutex, (QMutex::Recursive))
 
-/*!
-    \internal
-*/
 void QSslSocketPrivate::deinitialize()
 {
     // This function exists only for compatibility with the pre-11 code,
@@ -91,8 +88,6 @@ bool QSslSocketPrivate::ensureLibraryLoaded()
     const QMutexLocker locker(qt_opensslInitMutex);
 
     if (!s_libraryLoaded) {
-        s_libraryLoaded = true;
-
         // Initialize OpenSSL.
         if (q_OPENSSL_init_ssl(0, nullptr) != 1)
             return false;
@@ -108,6 +103,8 @@ bool QSslSocketPrivate::ensureLibraryLoaded()
             qWarning("Random number generator not seeded, disabling SSL support");
             return false;
         }
+
+        s_libraryLoaded = true;
     }
     return true;
 }
@@ -125,18 +122,7 @@ void QSslSocketPrivate::ensureCiphersAndCertsLoaded()
 
 #if QT_CONFIG(library)
     //load symbols needed to receive certificates from system store
-#if defined(Q_OS_WIN)
-    HINSTANCE hLib = LoadLibraryW(L"Crypt32");
-    if (hLib) {
-        ptrCertOpenSystemStoreW = (PtrCertOpenSystemStoreW)GetProcAddress(hLib, "CertOpenSystemStoreW");
-        ptrCertFindCertificateInStore = (PtrCertFindCertificateInStore)GetProcAddress(hLib, "CertFindCertificateInStore");
-        ptrCertCloseStore = (PtrCertCloseStore)GetProcAddress(hLib, "CertCloseStore");
-        if (!ptrCertOpenSystemStoreW || !ptrCertFindCertificateInStore || !ptrCertCloseStore)
-            qCWarning(lcSsl, "could not resolve symbols in crypt32 library"); // should never happen
-    } else {
-        qCWarning(lcSsl, "could not load crypt32 library"); // should never happen
-    }
-#elif defined(Q_OS_QNX)
+#if defined(Q_OS_QNX)
     s_loadRootCertsOnDemand = true;
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
     // check whether we can enable on-demand root-cert loading (i.e. check whether the sym links are there)
@@ -248,7 +234,7 @@ void QSslSocketBackendPrivate::continueHandshake()
         // we could not agree -> be conservative and use HTTP/1.1
         configuration.nextNegotiatedProtocol = QByteArrayLiteral("http/1.1");
     } else {
-        const unsigned char *proto = 0;
+        const unsigned char *proto = nullptr;
         unsigned int proto_len = 0;
 
         q_SSL_get0_alpn_selected(ssl, &proto, &proto_len);

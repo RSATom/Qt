@@ -8,8 +8,17 @@
 
 namespace media {
 
-DataSource::DataSource() {}
+DataSource::DataSource() = default;
 
-DataSource::~DataSource() {}
+DataSource::~DataSource() = default;
+
+bool DataSource::AssumeFullyBuffered() const {
+  return true;
+}
+
+int64_t DataSource::GetMemoryUsage() {
+  int64_t temp;
+  return GetSize(&temp) ? temp : 0;
+}
 
 }  // namespace media

@@ -6,16 +6,15 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/fake_audio_render_callback.h"
-#include "media/base/media_log.h"
+#include "media/base/media_util.h"
 #include "media/base/mock_audio_renderer_sink.h"
 #include "media/blink/webaudiosourceprovider_impl.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebAudioSourceProviderClient.h"
+#include "third_party/blink/public/platform/web_audio_source_provider_client.h"
 
 using ::testing::_;
 
@@ -24,76 +23,39 @@ namespace media {
 namespace {
 const float kTestVolume = 0.25;
 const int kSampleRate = 48000;
-
-class WebAudioSourceProviderImplUnderTest : public WebAudioSourceProviderImpl {
- public:
-  WebAudioSourceProviderImplUnderTest(
-      scoped_refptr<SwitchableAudioRendererSink> sink)
-      : WebAudioSourceProviderImpl(std::move(sink), &media_log_),
-        fallback_sink_(new MockAudioRendererSink()) {}
-
-  MockAudioRendererSink* fallback_sink() { return fallback_sink_.get(); }
-
- protected:
-  scoped_refptr<SwitchableAudioRendererSink> CreateFallbackSink() override {
-    return fallback_sink_;
-  }
-
- private:
-  ~WebAudioSourceProviderImplUnderTest() override = default;
-  MediaLog media_log_;
-  scoped_refptr<MockAudioRendererSink> fallback_sink_;
-
-  DISALLOW_COPY_AND_ASSIGN(WebAudioSourceProviderImplUnderTest);
-};
-
-enum class WaspSinkStatus { WASP_SINK_OK, WASP_SINK_ERROR, WASP_SINK_NULL };
-
-scoped_refptr<MockAudioRendererSink> CreateWaspMockSink(WaspSinkStatus status) {
-  if (status == WaspSinkStatus::WASP_SINK_NULL)
-    return nullptr;
-  return new MockAudioRendererSink(status == WaspSinkStatus::WASP_SINK_OK
-                                       ? OUTPUT_DEVICE_STATUS_OK
-                                       : OUTPUT_DEVICE_STATUS_ERROR_INTERNAL);
-}
-
 }  // namespace
 
 class WebAudioSourceProviderImplTest
-    : public testing::TestWithParam<WaspSinkStatus>,
+    : public testing::Test,
       public blink::WebAudioSourceProviderClient {
  public:
   WebAudioSourceProviderImplTest()
       : params_(AudioParameters::AUDIO_PCM_LINEAR,
                 CHANNEL_LAYOUT_STEREO,
                 kSampleRate,
-                16,
                 64),
         fake_callback_(0.1, kSampleRate),
-        mock_sink_(CreateWaspMockSink(GetParam())),
-        wasp_impl_(new WebAudioSourceProviderImplUnderTest(mock_sink_)),
-        expected_sink_(GetParam() == WaspSinkStatus::WASP_SINK_OK
-                           ? mock_sink_.get()
-                           : wasp_impl_->fallback_sink()) {}
+        mock_sink_(new MockAudioRendererSink()),
+        wasp_impl_(new WebAudioSourceProviderImpl(mock_sink_, &media_log_)) {}
 
-  virtual ~WebAudioSourceProviderImplTest() {}
+  virtual ~WebAudioSourceProviderImplTest() = default;
 
   void CallAllSinkMethodsAndVerify(bool verify) {
     testing::InSequence s;
 
-    EXPECT_CALL(*expected_sink_, Start()).Times(verify);
+    EXPECT_CALL(*mock_sink_, Start()).Times(verify);
     wasp_impl_->Start();
 
-    EXPECT_CALL(*expected_sink_, Play()).Times(verify);
+    EXPECT_CALL(*mock_sink_, Play()).Times(verify);
     wasp_impl_->Play();
 
-    EXPECT_CALL(*expected_sink_, Pause()).Times(verify);
+    EXPECT_CALL(*mock_sink_, Pause()).Times(verify);
     wasp_impl_->Pause();
 
-    EXPECT_CALL(*expected_sink_, SetVolume(kTestVolume)).Times(verify);
+    EXPECT_CALL(*mock_sink_, SetVolume(kTestVolume)).Times(verify);
     wasp_impl_->SetVolume(kTestVolume);
 
-    EXPECT_CALL(*expected_sink_, Stop()).Times(verify);
+    EXPECT_CALL(*mock_sink_, Stop()).Times(verify);
     wasp_impl_->Stop();
 
     testing::Mock::VerifyAndClear(mock_sink_.get());
@@ -103,14 +65,13 @@ class WebAudioSourceProviderImplTest
     testing::InSequence s;
 
     if (client) {
-      EXPECT_CALL(*expected_sink_, Stop());
+      EXPECT_CALL(*mock_sink_, Stop());
       EXPECT_CALL(*this, SetFormat(params_.channels(), params_.sample_rate()));
     }
     wasp_impl_->SetClient(client);
     base::RunLoop().RunUntilIdle();
 
     testing::Mock::VerifyAndClear(mock_sink_.get());
-    testing::Mock::VerifyAndClear(wasp_impl_->fallback_sink());
     testing::Mock::VerifyAndClear(this);
   }
 
@@ -127,7 +88,7 @@ class WebAudioSourceProviderImplTest
   }
 
   // blink::WebAudioSourceProviderClient implementation.
-  MOCK_METHOD2(SetFormat, void(size_t numberOfChannels, float sampleRate));
+  MOCK_METHOD2(SetFormat, void(uint32_t numberOfChannels, float sampleRate));
 
   // CopyAudioCB. Added forwarder method due to GMock troubles with scoped_ptr.
   MOCK_METHOD3(DoCopyAudioCB,
@@ -142,39 +103,28 @@ class WebAudioSourceProviderImplTest
     return wasp_impl_->RenderForTesting(audio_bus);
   }
 
-  void ExpectUnhealthySinkToStop() {
-    if (GetParam() == WaspSinkStatus::WASP_SINK_ERROR)
-      EXPECT_CALL(*mock_sink_.get(), Stop());
-  }
-
  protected:
   AudioParameters params_;
   FakeAudioRenderCallback fake_callback_;
+  NullMediaLog media_log_;
   scoped_refptr<MockAudioRendererSink> mock_sink_;
-  scoped_refptr<WebAudioSourceProviderImplUnderTest> wasp_impl_;
-  MockAudioRendererSink* expected_sink_;
-  base::MessageLoop message_loop_;
+  scoped_refptr<WebAudioSourceProviderImpl> wasp_impl_;
 
   DISALLOW_COPY_AND_ASSIGN(WebAudioSourceProviderImplTest);
 };
 
-TEST_P(WebAudioSourceProviderImplTest, SetClientBeforeInitialize) {
-  // setClient() with a NULL client should do nothing if no client is set.
-  wasp_impl_->SetClient(NULL);
+TEST_F(WebAudioSourceProviderImplTest, SetClientBeforeInitialize) {
+  // setClient() with a nullptr client should do nothing if no client is set.
+  wasp_impl_->SetClient(nullptr);
 
   // If |mock_sink_| is not null, it should be stopped during setClient(this).
-  // If it is unhealthy, it should also be stopped during fallback in
-  // Initialize().
   if (mock_sink_)
-    EXPECT_CALL(*mock_sink_.get(), Stop())
-        .Times(2 + static_cast<int>(GetParam()));
+    EXPECT_CALL(*mock_sink_.get(), Stop());
 
   wasp_impl_->SetClient(this);
   base::RunLoop().RunUntilIdle();
 
-  if (mock_sink_)
-    EXPECT_CALL(*mock_sink_.get(), SetVolume(1)).Times(1);
-  wasp_impl_->SetClient(NULL);
+  wasp_impl_->SetClient(nullptr);
   base::RunLoop().RunUntilIdle();
 
   wasp_impl_->SetClient(this);
@@ -192,8 +142,7 @@ TEST_P(WebAudioSourceProviderImplTest, SetClientBeforeInitialize) {
 }
 
 // Verify AudioRendererSink functionality w/ and w/o a client.
-TEST_P(WebAudioSourceProviderImplTest, SinkMethods) {
-  ExpectUnhealthySinkToStop();
+TEST_F(WebAudioSourceProviderImplTest, SinkMethods) {
   wasp_impl_->Initialize(params_, &fake_callback_);
 
   // Without a client all WASP calls should fall through to the underlying sink.
@@ -204,40 +153,14 @@ TEST_P(WebAudioSourceProviderImplTest, SinkMethods) {
   SetClient(this);
   CallAllSinkMethodsAndVerify(false);
 
-  // Removing the client should cause WASP to revert to the underlying sink.
-  EXPECT_CALL(*expected_sink_, SetVolume(kTestVolume));
-  SetClient(NULL);
-  CallAllSinkMethodsAndVerify(true);
-}
-
-// Verify underlying sink state is restored after client removal.
-TEST_P(WebAudioSourceProviderImplTest, SinkStateRestored) {
-  ExpectUnhealthySinkToStop();
-  wasp_impl_->Initialize(params_, &fake_callback_);
-
-  // Verify state set before the client is set propagates back afterward.
-  EXPECT_CALL(*expected_sink_, Start());
-  wasp_impl_->Start();
-  SetClient(this);
-
-  EXPECT_CALL(*expected_sink_, SetVolume(1.0));
-  EXPECT_CALL(*expected_sink_, Start());
-  SetClient(NULL);
-
-  // Verify state set while the client was attached propagates back afterward.
-  SetClient(this);
-  wasp_impl_->Play();
-  wasp_impl_->SetVolume(kTestVolume);
-
-  EXPECT_CALL(*expected_sink_, SetVolume(kTestVolume));
-  EXPECT_CALL(*expected_sink_, Start());
-  EXPECT_CALL(*expected_sink_, Play());
-  SetClient(NULL);
+  // Removing the client should cause WASP to revert to the underlying sink;
+  // this shouldn't crash, but shouldn't do anything either.
+  SetClient(nullptr);
+  CallAllSinkMethodsAndVerify(false);
 }
 
 // Test the AudioRendererSink state machine and its effects on provideInput().
-TEST_P(WebAudioSourceProviderImplTest, ProvideInput) {
-  ExpectUnhealthySinkToStop();
+TEST_F(WebAudioSourceProviderImplTest, ProvideInput) {
   std::unique_ptr<AudioBus> bus1 = AudioBus::Create(params_);
   std::unique_ptr<AudioBus> bus2 = AudioBus::Create(params_);
 
@@ -323,9 +246,7 @@ TEST_P(WebAudioSourceProviderImplTest, ProvideInput) {
 }
 
 // Verify CopyAudioCB is called if registered.
-TEST_P(WebAudioSourceProviderImplTest, CopyAudioCB) {
-  ExpectUnhealthySinkToStop();
-
+TEST_F(WebAudioSourceProviderImplTest, CopyAudioCB) {
   testing::InSequence s;
   wasp_impl_->Initialize(params_, &fake_callback_);
   wasp_impl_->SetCopyAudioCallback(base::Bind(
@@ -341,12 +262,5 @@ TEST_P(WebAudioSourceProviderImplTest, CopyAudioCB) {
 
   testing::Mock::VerifyAndClear(mock_sink_.get());
 }
-
-INSTANTIATE_TEST_CASE_P(
-    /* prefix intentionally left blank due to only one parameterization */,
-    WebAudioSourceProviderImplTest,
-    testing::Values(WaspSinkStatus::WASP_SINK_OK,
-                    WaspSinkStatus::WASP_SINK_ERROR,
-                    WaspSinkStatus::WASP_SINK_NULL));
 
 }  // namespace media

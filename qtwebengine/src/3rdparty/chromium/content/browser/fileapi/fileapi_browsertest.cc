@@ -20,19 +20,20 @@ class FileAPIBrowserTest : public ContentBrowserTest {
 
 IN_PROC_BROWSER_TEST_F(FileAPIBrowserTest, FileInputChooserParams) {
   base::FilePath file;
-  EXPECT_TRUE(PathService::Get(base::DIR_TEMP, &file));
+  EXPECT_TRUE(base::PathService::Get(base::DIR_TEMP, &file));
   file = file.AppendASCII("bar");
 
   NavigateToURL(shell(), GetTestUrl(".", "file_input.html"));
 
   // Click on the <input type=file> element to launch the file upload picker.
   {
+    base::RunLoop run_loop;
     std::unique_ptr<FileChooserDelegate> delegate(
-        new FileChooserDelegate(file));
+        new FileChooserDelegate(file, run_loop.QuitClosure()));
     shell()->web_contents()->SetDelegate(delegate.get());
     EXPECT_TRUE(ExecuteScript(shell(),
                               "document.getElementById('fileinput').click();"));
-    EXPECT_TRUE(delegate->file_chosen());
+    run_loop.Run();
     EXPECT_TRUE(delegate->params().default_file_name.empty());
   }
 
@@ -40,12 +41,13 @@ IN_PROC_BROWSER_TEST_F(FileAPIBrowserTest, FileInputChooserParams) {
   // The renderer is expected not to specify a default file name; it's up to
   // the browser to remember the last selected directory in the profile.
   {
+    base::RunLoop run_loop;
     std::unique_ptr<FileChooserDelegate> delegate(
-        new FileChooserDelegate(file));
+        new FileChooserDelegate(file, run_loop.QuitClosure()));
     shell()->web_contents()->SetDelegate(delegate.get());
     EXPECT_TRUE(ExecuteScript(shell(),
                               "document.getElementById('fileinput').click();"));
-    EXPECT_TRUE(delegate->file_chosen());
+    run_loop.Run();
     EXPECT_TRUE(delegate->params().default_file_name.empty());
   }
 }

@@ -29,6 +29,9 @@ TEST(MimeUtilTest, ExtensionTest) {
     {FILE_PATH_LITERAL("css"), "text/css", true},
     {FILE_PATH_LITERAL("pjp"), "image/jpeg", true},
     {FILE_PATH_LITERAL("pjpeg"), "image/jpeg", true},
+    {FILE_PATH_LITERAL("json"), "application/json", true},
+    {FILE_PATH_LITERAL("js"), "text/javascript", true},
+    {FILE_PATH_LITERAL("webm"), "video/webm", true},
 #if defined(OS_CHROMEOS)
     // These are test cases for testing platform mime types on Chrome OS.
     {FILE_PATH_LITERAL("epub"), "application/epub+zip", true},
@@ -46,11 +49,36 @@ TEST(MimeUtilTest, ExtensionTest) {
   std::string mime_type;
   bool rv;
 
-  for (size_t i = 0; i < arraysize(tests); ++i) {
-    rv = GetMimeTypeFromExtension(tests[i].extension, &mime_type);
-    EXPECT_EQ(tests[i].valid, rv);
+  for (const auto& test : tests) {
+    rv = GetMimeTypeFromExtension(test.extension, &mime_type);
+    EXPECT_EQ(test.valid, rv);
     if (rv)
-      EXPECT_EQ(tests[i].mime_type, mime_type);
+      EXPECT_EQ(test.mime_type, mime_type);
+  }
+}
+
+// Behavior of GetPreferredExtensionForMimeType() is dependent on the host
+// platform since the latter can override the mapping from file extensions to
+// MIME types. The tests below would only work if the platform MIME mappings
+// don't have mappings for or has an agreeing mapping for each MIME type
+// mentioned.
+TEST(MimeUtilTest, GetPreferredExtensionForMimeType) {
+  const struct {
+    const std::string mime_type;
+    const base::FilePath::StringType expected_extension;
+  } kTestCases[] = {
+      {"application/wasm", FILE_PATH_LITERAL("wasm")},      // Primary
+      {"application/javascript", FILE_PATH_LITERAL("js")},  // Secondary
+      {"text/javascript", FILE_PATH_LITERAL("js")},         // Primary
+      {"audio/webm", FILE_PATH_LITERAL("webm")},            // Primary
+      {"video/webm", FILE_PATH_LITERAL("webm")},            // Primary
+  };
+
+  for (const auto& test : kTestCases) {
+    base::FilePath::StringType extension;
+    auto rv = GetPreferredExtensionForMimeType(test.mime_type, &extension);
+    EXPECT_TRUE(rv);
+    EXPECT_EQ(test.expected_extension, extension);
   }
 }
 
@@ -72,12 +100,11 @@ TEST(MimeUtilTest, FileTest) {
   std::string mime_type;
   bool rv;
 
-  for (size_t i = 0; i < arraysize(tests); ++i) {
-    rv = GetMimeTypeFromFile(base::FilePath(tests[i].file_path),
-                                  &mime_type);
-    EXPECT_EQ(tests[i].valid, rv);
+  for (const auto& test : tests) {
+    rv = GetMimeTypeFromFile(base::FilePath(test.file_path), &mime_type);
+    EXPECT_EQ(test.valid, rv);
     if (rv)
-      EXPECT_EQ(tests[i].mime_type, mime_type);
+      EXPECT_EQ(test.mime_type, mime_type);
   }
 }
 
@@ -204,6 +231,32 @@ TEST(MimeUtilTest, TestParseMimeTypeWithoutParameter) {
 
   EXPECT_FALSE(ParseMimeTypeWithoutParameter("application/a/b/c", NULL, NULL));
 
+  // Test leading and trailing whitespace
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter(" text/plain", NULL, NULL));
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("text/plain ", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text /plain", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text/ plain ", NULL, NULL));
+
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("\ttext/plain", NULL, NULL));
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("text/plain\t", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text\t/plain", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text/\tplain ", NULL, NULL));
+
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("\vtext/plain", NULL, NULL));
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("text/plain\v", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text\v/plain", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text/\vplain ", NULL, NULL));
+
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("\rtext/plain", NULL, NULL));
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("text/plain\r", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text\r/plain", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text/\rplain ", NULL, NULL));
+
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("\ntext/plain", NULL, NULL));
+  EXPECT_TRUE(ParseMimeTypeWithoutParameter("text/plain\n", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text\n/plain", NULL, NULL));
+  EXPECT_FALSE(ParseMimeTypeWithoutParameter("text/\nplain ", NULL, NULL));
+
   //EXPECT_TRUE(ParseMimeTypeWithoutParameter("video/mime;parameter"));
 }
 
@@ -249,11 +302,7 @@ TEST(MimeUtilTest, TestGetExtensionsForMimeType) {
     {"message/", 0, NULL, true},
     {"image/bmp", 1, "bmp"},
     {"video/*", 6, "mp4"},
-#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_IOS)
-    {"video/*", 6, "mpg"},
-#else
     {"video/*", 6, "mpeg"},
-#endif
     {"audio/*", 6, "oga"},
     {"aUDIo/*", 6, "wav"},
   };
@@ -326,4 +375,22 @@ TEST(MimeUtilTest, TestAddMultipartValueForUpload) {
   EXPECT_STREQ(ref_output, post_data.c_str());
 }
 
+TEST(MimeUtilTest, TestAddMultipartValueForUploadWithFileName) {
+  const char ref_output[] =
+      "--boundary\r\nContent-Disposition: form-data;"
+      " name=\"value name\"; filename=\"file name\"\r\nContent-Type: content "
+      "type"
+      "\r\n\r\nvalue\r\n"
+      "--boundary\r\nContent-Disposition: form-data;"
+      " name=\"value name\"; filename=\"file name\"\r\n\r\nvalue\r\n"
+      "--boundary--\r\n";
+  std::string post_data;
+  AddMultipartValueForUploadWithFileName("value name", "file name", "value",
+                                         "boundary", "content type",
+                                         &post_data);
+  AddMultipartValueForUploadWithFileName("value name", "file name", "value",
+                                         "boundary", "", &post_data);
+  AddMultipartFinalDelimiterForUpload("boundary", &post_data);
+  EXPECT_STREQ(ref_output, post_data.c_str());
+}
 }  // namespace net

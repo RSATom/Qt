@@ -6,6 +6,7 @@
 
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_base.h"
+#include "base/metrics/sample_vector.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/pickle.h"
@@ -21,20 +22,13 @@ class HistogramBaseTest : public testing::Test {
     ResetStatisticsRecorder();
   }
 
-  ~HistogramBaseTest() override {
-    HistogramBase::report_histogram_ = nullptr;
-  }
+  ~HistogramBaseTest() override = default;
 
   void ResetStatisticsRecorder() {
     // It is necessary to fully destruct any existing StatisticsRecorder
     // before creating a new one.
     statistics_recorder_.reset();
     statistics_recorder_ = StatisticsRecorder::CreateTemporaryForTesting();
-  }
-
-  HistogramBase* GetCreationReportHistogram(const std::string& name) {
-    HistogramBase::EnableActivityReportHistogram(name);
-    return HistogramBase::report_histogram_;
   }
 
  private:
@@ -50,7 +44,7 @@ TEST_F(HistogramBaseTest, DeserializeHistogram) {
       HistogramBase::kIPCSerializationSourceFlag));
 
   Pickle pickle;
-  ASSERT_TRUE(histogram->SerializeInfo(&pickle));
+  histogram->SerializeInfo(&pickle);
 
   PickleIterator iter(pickle);
   HistogramBase* deserialized = DeserializeHistogramInfo(&iter);
@@ -62,7 +56,7 @@ TEST_F(HistogramBaseTest, DeserializeHistogram) {
   deserialized = DeserializeHistogramInfo(&iter2);
   EXPECT_TRUE(deserialized);
   EXPECT_NE(histogram, deserialized);
-  EXPECT_EQ("TestHistogram", deserialized->histogram_name());
+  EXPECT_EQ("TestHistogram", StringPiece(deserialized->histogram_name()));
   EXPECT_TRUE(deserialized->HasConstructionArguments(1, 1000, 10));
 
   // kIPCSerializationSourceFlag will be cleared.
@@ -75,7 +69,7 @@ TEST_F(HistogramBaseTest, DeserializeLinearHistogram) {
       HistogramBase::kIPCSerializationSourceFlag);
 
   Pickle pickle;
-  ASSERT_TRUE(histogram->SerializeInfo(&pickle));
+  histogram->SerializeInfo(&pickle);
 
   PickleIterator iter(pickle);
   HistogramBase* deserialized = DeserializeHistogramInfo(&iter);
@@ -87,7 +81,7 @@ TEST_F(HistogramBaseTest, DeserializeLinearHistogram) {
   deserialized = DeserializeHistogramInfo(&iter2);
   EXPECT_TRUE(deserialized);
   EXPECT_NE(histogram, deserialized);
-  EXPECT_EQ("TestHistogram", deserialized->histogram_name());
+  EXPECT_EQ("TestHistogram", StringPiece(deserialized->histogram_name()));
   EXPECT_TRUE(deserialized->HasConstructionArguments(1, 1000, 10));
   EXPECT_EQ(0, deserialized->flags());
 }
@@ -97,7 +91,7 @@ TEST_F(HistogramBaseTest, DeserializeBooleanHistogram) {
       "TestHistogram", HistogramBase::kIPCSerializationSourceFlag);
 
   Pickle pickle;
-  ASSERT_TRUE(histogram->SerializeInfo(&pickle));
+  histogram->SerializeInfo(&pickle);
 
   PickleIterator iter(pickle);
   HistogramBase* deserialized = DeserializeHistogramInfo(&iter);
@@ -109,7 +103,7 @@ TEST_F(HistogramBaseTest, DeserializeBooleanHistogram) {
   deserialized = DeserializeHistogramInfo(&iter2);
   EXPECT_TRUE(deserialized);
   EXPECT_NE(histogram, deserialized);
-  EXPECT_EQ("TestHistogram", deserialized->histogram_name());
+  EXPECT_EQ("TestHistogram", StringPiece(deserialized->histogram_name()));
   EXPECT_TRUE(deserialized->HasConstructionArguments(1, 2, 3));
   EXPECT_EQ(0, deserialized->flags());
 }
@@ -124,7 +118,7 @@ TEST_F(HistogramBaseTest, DeserializeCustomHistogram) {
       "TestHistogram", ranges, HistogramBase::kIPCSerializationSourceFlag);
 
   Pickle pickle;
-  ASSERT_TRUE(histogram->SerializeInfo(&pickle));
+  histogram->SerializeInfo(&pickle);
 
   PickleIterator iter(pickle);
   HistogramBase* deserialized = DeserializeHistogramInfo(&iter);
@@ -136,7 +130,7 @@ TEST_F(HistogramBaseTest, DeserializeCustomHistogram) {
   deserialized = DeserializeHistogramInfo(&iter2);
   EXPECT_TRUE(deserialized);
   EXPECT_NE(histogram, deserialized);
-  EXPECT_EQ("TestHistogram", deserialized->histogram_name());
+  EXPECT_EQ("TestHistogram", StringPiece(deserialized->histogram_name()));
   EXPECT_TRUE(deserialized->HasConstructionArguments(5, 13, 4));
   EXPECT_EQ(0, deserialized->flags());
 }
@@ -146,7 +140,7 @@ TEST_F(HistogramBaseTest, DeserializeSparseHistogram) {
       "TestHistogram", HistogramBase::kIPCSerializationSourceFlag);
 
   Pickle pickle;
-  ASSERT_TRUE(histogram->SerializeInfo(&pickle));
+  histogram->SerializeInfo(&pickle);
 
   PickleIterator iter(pickle);
   HistogramBase* deserialized = DeserializeHistogramInfo(&iter);
@@ -158,65 +152,124 @@ TEST_F(HistogramBaseTest, DeserializeSparseHistogram) {
   deserialized = DeserializeHistogramInfo(&iter2);
   EXPECT_TRUE(deserialized);
   EXPECT_NE(histogram, deserialized);
-  EXPECT_EQ("TestHistogram", deserialized->histogram_name());
+  EXPECT_EQ("TestHistogram", StringPiece(deserialized->histogram_name()));
   EXPECT_EQ(0, deserialized->flags());
 }
 
-TEST_F(HistogramBaseTest, CreationReportHistogram) {
-  // Enabled creation report. Itself is not included in the report.
-  HistogramBase* report = GetCreationReportHistogram("CreationReportTest");
-  ASSERT_TRUE(report);
+TEST_F(HistogramBaseTest, AddKilo) {
+  HistogramBase* histogram =
+      LinearHistogram::FactoryGet("TestAddKiloHistogram", 1, 1000, 100, 0);
 
-  std::vector<HistogramBase::Sample> ranges;
-  ranges.push_back(1);
-  ranges.push_back(2);
-  ranges.push_back(4);
-  ranges.push_back(8);
-  ranges.push_back(10);
+  histogram->AddKilo(100, 1000);
+  histogram->AddKilo(200, 2000);
+  histogram->AddKilo(300, 1500);
 
-  // Create all histogram types and verify counts.
-  Histogram::FactoryGet("CRH-Histogram", 1, 10, 5, 0);
-  LinearHistogram::FactoryGet("CRH-Linear", 1, 10, 5, 0);
-  BooleanHistogram::FactoryGet("CRH-Boolean", 0);
-  CustomHistogram::FactoryGet("CRH-Custom", ranges, 0);
-  SparseHistogram::FactoryGet("CRH-Sparse", 0);
+  std::unique_ptr<HistogramSamples> samples = histogram->SnapshotSamples();
+  EXPECT_EQ(1, samples->GetCount(100));
+  EXPECT_EQ(2, samples->GetCount(200));
+  EXPECT_LE(1, samples->GetCount(300));
+  EXPECT_GE(2, samples->GetCount(300));
+}
 
-  std::unique_ptr<HistogramSamples> samples = report->SnapshotSamples();
-  EXPECT_EQ(1, samples->GetCount(HISTOGRAM_REPORT_CREATED));
-  EXPECT_EQ(5, samples->GetCount(HISTOGRAM_REPORT_HISTOGRAM_CREATED));
-  EXPECT_EQ(0, samples->GetCount(HISTOGRAM_REPORT_HISTOGRAM_LOOKUP));
-  EXPECT_EQ(1, samples->GetCount(HISTOGRAM_REPORT_TYPE_LOGARITHMIC));
-  EXPECT_EQ(1, samples->GetCount(HISTOGRAM_REPORT_TYPE_LINEAR));
-  EXPECT_EQ(1, samples->GetCount(HISTOGRAM_REPORT_TYPE_BOOLEAN));
-  EXPECT_EQ(1, samples->GetCount(HISTOGRAM_REPORT_TYPE_CUSTOM));
-  EXPECT_EQ(1, samples->GetCount(HISTOGRAM_REPORT_TYPE_SPARSE));
+TEST_F(HistogramBaseTest, AddKiB) {
+  HistogramBase* histogram =
+      LinearHistogram::FactoryGet("TestAddKiBHistogram", 1, 1000, 100, 0);
 
-  // Create all flag types and verify counts.
-  Histogram::FactoryGet("CRH-Histogram-UMA-Targeted", 1, 10, 5,
-                        HistogramBase::kUmaTargetedHistogramFlag);
-  Histogram::FactoryGet("CRH-Histogram-UMA-Stability", 1, 10, 5,
-                        HistogramBase::kUmaStabilityHistogramFlag);
-  SparseHistogram::FactoryGet("CRH-Sparse-UMA-Targeted",
-                              HistogramBase::kUmaTargetedHistogramFlag);
-  SparseHistogram::FactoryGet("CRH-Sparse-UMA-Stability",
-                              HistogramBase::kUmaStabilityHistogramFlag);
-  samples = report->SnapshotSamples();
-  EXPECT_EQ(1, samples->GetCount(HISTOGRAM_REPORT_CREATED));
-  EXPECT_EQ(9, samples->GetCount(HISTOGRAM_REPORT_HISTOGRAM_CREATED));
-  EXPECT_EQ(0, samples->GetCount(HISTOGRAM_REPORT_HISTOGRAM_LOOKUP));
-  EXPECT_EQ(2, samples->GetCount(HISTOGRAM_REPORT_FLAG_UMA_TARGETED));
-  EXPECT_EQ(2, samples->GetCount(HISTOGRAM_REPORT_FLAG_UMA_STABILITY));
+  histogram->AddKiB(100, 1024);
+  histogram->AddKiB(200, 2048);
+  histogram->AddKiB(300, 1536);
 
-  // Do lookup of existing histograms and verify counts.
-  Histogram::FactoryGet("CRH-Histogram", 1, 10, 5, 0);
-  LinearHistogram::FactoryGet("CRH-Linear", 1, 10, 5, 0);
-  BooleanHistogram::FactoryGet("CRH-Boolean", 0);
-  CustomHistogram::FactoryGet("CRH-Custom", ranges, 0);
-  SparseHistogram::FactoryGet("CRH-Sparse", 0);
-  samples = report->SnapshotSamples();
-  EXPECT_EQ(1, samples->GetCount(HISTOGRAM_REPORT_CREATED));
-  EXPECT_EQ(9, samples->GetCount(HISTOGRAM_REPORT_HISTOGRAM_CREATED));
-  EXPECT_EQ(5, samples->GetCount(HISTOGRAM_REPORT_HISTOGRAM_LOOKUP));
+  std::unique_ptr<HistogramSamples> samples = histogram->SnapshotSamples();
+  EXPECT_EQ(1, samples->GetCount(100));
+  EXPECT_EQ(2, samples->GetCount(200));
+  EXPECT_LE(1, samples->GetCount(300));
+  EXPECT_GE(2, samples->GetCount(300));
+}
+
+TEST_F(HistogramBaseTest, AddTimeMillisecondsGranularityOverflow) {
+  const HistogramBase::Sample sample_max =
+      std::numeric_limits<HistogramBase::Sample>::max() / 2;
+  HistogramBase* histogram = LinearHistogram::FactoryGet(
+      "TestAddTimeMillisecondsGranularity1", 1, sample_max, 100, 0);
+  int64_t large_positive = std::numeric_limits<int64_t>::max();
+  // |add_count| is the number of large values that have been added to the
+  // histogram. We consider a number to be 'large' if it cannot be represented
+  // in a HistogramBase::Sample.
+  int add_count = 0;
+  while (large_positive > std::numeric_limits<HistogramBase::Sample>::max()) {
+    // Add the TimeDelta corresponding to |large_positive| milliseconds to the
+    // histogram.
+    histogram->AddTimeMillisecondsGranularity(
+        TimeDelta::FromMilliseconds(large_positive));
+    ++add_count;
+    // Reduce the value of |large_positive|. The choice of 7 here is
+    // arbitrary.
+    large_positive /= 7;
+  }
+  std::unique_ptr<HistogramSamples> samples = histogram->SnapshotSamples();
+  // All of the reported values must have gone into the max overflow bucket.
+  EXPECT_EQ(add_count, samples->GetCount(sample_max));
+
+  // We now perform the analoguous operations, now with negative values with a
+  // large absolute value.
+  histogram = LinearHistogram::FactoryGet("TestAddTimeMillisecondsGranularity2",
+                                          1, sample_max, 100, 0);
+  int64_t large_negative = std::numeric_limits<int64_t>::min();
+  add_count = 0;
+  while (large_negative < std::numeric_limits<HistogramBase::Sample>::min()) {
+    histogram->AddTimeMillisecondsGranularity(
+        TimeDelta::FromMilliseconds(large_negative));
+    ++add_count;
+    large_negative /= 7;
+  }
+  samples = histogram->SnapshotSamples();
+  // All of the reported values must have gone into the min overflow bucket.
+  EXPECT_EQ(add_count, samples->GetCount(0));
+}
+
+TEST_F(HistogramBaseTest, AddTimeMicrosecondsGranularityOverflow) {
+  // Nothing to test if we don't have a high resolution clock.
+  if (!TimeTicks::IsHighResolution())
+    return;
+
+  const HistogramBase::Sample sample_max =
+      std::numeric_limits<HistogramBase::Sample>::max() / 2;
+  HistogramBase* histogram = LinearHistogram::FactoryGet(
+      "TestAddTimeMicrosecondsGranularity1", 1, sample_max, 100, 0);
+  int64_t large_positive = std::numeric_limits<int64_t>::max();
+  // |add_count| is the number of large values that have been added to the
+  // histogram. We consider a number to be 'large' if it cannot be represented
+  // in a HistogramBase::Sample.
+  int add_count = 0;
+  while (large_positive > std::numeric_limits<HistogramBase::Sample>::max()) {
+    // Add the TimeDelta corresponding to |large_positive| microseconds to the
+    // histogram.
+    histogram->AddTimeMicrosecondsGranularity(
+        TimeDelta::FromMicroseconds(large_positive));
+    ++add_count;
+    // Reduce the value of |large_positive|. The choice of 7 here is
+    // arbitrary.
+    large_positive /= 7;
+  }
+  std::unique_ptr<HistogramSamples> samples = histogram->SnapshotSamples();
+  // All of the reported values must have gone into the max overflow bucket.
+  EXPECT_EQ(add_count, samples->GetCount(sample_max));
+
+  // We now perform the analoguous operations, now with negative values with a
+  // large absolute value.
+  histogram = LinearHistogram::FactoryGet("TestAddTimeMicrosecondsGranularity2",
+                                          1, sample_max, 100, 0);
+  int64_t large_negative = std::numeric_limits<int64_t>::min();
+  add_count = 0;
+  while (large_negative < std::numeric_limits<HistogramBase::Sample>::min()) {
+    histogram->AddTimeMicrosecondsGranularity(
+        TimeDelta::FromMicroseconds(large_negative));
+    ++add_count;
+    large_negative /= 7;
+  }
+  samples = histogram->SnapshotSamples();
+  // All of the reported values must have gone into the min overflow bucket.
+  EXPECT_EQ(add_count, samples->GetCount(0));
 }
 
 }  // namespace base

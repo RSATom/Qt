@@ -27,17 +27,13 @@ namespace media {
 // expected and if any error has been reported.
 class TestInputCallback : public AudioInputStream::AudioInputCallback {
  public:
-  explicit TestInputCallback()
-      : callback_count_(0),
-        had_error_(0) {
-  }
-  void OnData(AudioInputStream* stream,
-              const AudioBus* source,
-              uint32_t hardware_delay_bytes,
+  TestInputCallback() : callback_count_(0), had_error_(0) {}
+  void OnData(const AudioBus* source,
+              base::TimeTicks capture_time,
               double volume) override {
     ++callback_count_;
   }
-  void OnError(AudioInputStream* stream) override { ++had_error_; }
+  void OnError() override { ++had_error_; }
   // Returns how many times OnData() has been called.
   int callback_count() const {
     return callback_count_;
@@ -57,7 +53,7 @@ class AudioInputTest : public testing::Test {
   AudioInputTest()
       : message_loop_(base::MessageLoop::TYPE_UI),
         audio_manager_(AudioManager::CreateForTesting(
-            base::MakeUnique<TestAudioThread>())),
+            std::make_unique<TestAudioThread>())),
         audio_input_stream_(NULL) {
     base::RunLoop().RunUntilIdle();
   }

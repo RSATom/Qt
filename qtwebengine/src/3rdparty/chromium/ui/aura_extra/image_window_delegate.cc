@@ -78,8 +78,9 @@ void ImageWindowDelegate::OnPaint(const ui::PaintContext& context) {
   }
 }
 
-void ImageWindowDelegate::OnDeviceScaleFactorChanged(float scale_factor) {
-}
+void ImageWindowDelegate::OnDeviceScaleFactorChanged(
+    float old_device_scale_factor,
+    float new_device_scale_factor) {}
 
 void ImageWindowDelegate::OnWindowDestroying(aura::Window* window) {
 }
@@ -95,7 +96,6 @@ bool ImageWindowDelegate::HasHitTestMask() const {
   return false;
 }
 
-void ImageWindowDelegate::GetHitTestMask(gfx::Path* mask) const {
-}
+void ImageWindowDelegate::GetHitTestMask(SkPath* mask) const {}
 
 }  // namespace aura_extra

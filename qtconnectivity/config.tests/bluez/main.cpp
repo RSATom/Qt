@@ -30,11 +30,10 @@
 
 int main()
 {
-#ifdef BDADDR_NONE
-    bacmp(BDADDR_ANY, BDADDR_NONE);
-#else
-    bacmp(BDADDR_ANY, BDADDR_LOCAL);
-#endif
+    bdaddr_t anyTmp = {{0, 0, 0, 0, 0, 0}};
+    bdaddr_t localTmp = {{0, 0, 0, 0xff, 0xff, 0xff}};
+
+    bacmp(&anyTmp, &localTmp);
 
     return 0;
 }

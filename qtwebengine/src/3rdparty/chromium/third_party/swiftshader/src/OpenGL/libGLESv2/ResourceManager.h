@@ -19,6 +19,7 @@
 #define LIBGLESV2_RESOURCEMANAGER_H_
 
 #include "common/NameSpace.hpp"
+#include "Common/MutexLock.hpp"
 
 #include <GLES2/gl2.h>
 
@@ -40,6 +41,7 @@ enum TextureType
 	TEXTURE_3D,
 	TEXTURE_2D_ARRAY,
 	TEXTURE_CUBE,
+	TEXTURE_2D_RECT,
 	TEXTURE_EXTERNAL,
 
 	TEXTURE_TYPE_COUNT,
@@ -85,9 +87,11 @@ public:
 	void checkSamplerAllocation(GLuint sampler);
 
 	bool isSampler(GLuint sampler);
+	sw::MutexLock *getLock() { return &mMutex; }
 
 private:
 	std::size_t mRefCount;
+	sw::MutexLock mMutex;
 
 	gl::NameSpace<Buffer> mBufferNameSpace;
 	gl::NameSpace<Program> mProgramNameSpace;

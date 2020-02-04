@@ -45,7 +45,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \class QMediaContainerControl
 
-    \brief The QMediaContainerControl class provides access to the output container format of a QMediaService
+    \brief The QMediaContainerControl class provides access to the output container format of a QMediaService.
 
     \inmodule QtMultimedia
 
@@ -111,11 +111,11 @@ QMediaContainerControl::~QMediaContainerControl()
 */
 
 /*!
-    \fn QMediaContainerControl::containerDescription(const QString &format) const
+    \fn QMediaContainerControl::containerDescription(const QString &formatMimeType) const
 
-    Returns a description of the container \a format.
+    Returns a description of the container \a formatMimeType.
 */
 
-#include "moc_qmediacontainercontrol.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qmediacontainercontrol.cpp"

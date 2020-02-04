@@ -116,27 +116,12 @@
     Calling isRelative() will return whether or not the URL is relative.
     A relative URL has no \l {scheme}. For example:
 
-    \code
-    qDebug() << QUrl("main.qml").isRelative();          // true: no scheme
-    qDebug() << QUrl("qml/main.qml").isRelative();      // true: no scheme
-    qDebug() << QUrl("file:main.qml").isRelative();     // false: has "file" scheme
-    qDebug() << QUrl("file:qml/main.qml").isRelative(); // false: has "file" scheme
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 8
 
     Notice that a URL can be absolute while containing a relative path, and
     vice versa:
 
-    \code
-    // Absolute URL, relative path
-    QUrl url("file:file.txt");
-    qDebug() << url.isRelative();                 // false: has "file" scheme
-    qDebug() << QDir::isAbsolutePath(url.path()); // false: relative path
-
-    // Relative URL, absolute path
-    url = QUrl("/home/user/file.txt");
-    qDebug() << url.isRelative();                 // true: has no scheme
-    qDebug() << QDir::isAbsolutePath(url.path()); // true: absolute path
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 9
 
     A relative URL can be resolved by passing it as an argument to resolved(),
     which returns an absolute URL. isParentOf() is used for determining whether
@@ -268,7 +253,8 @@
      and contains no query or fragment, a local file path is returned.
     \value StripTrailingSlash  The trailing slash is removed from the path, if one is present.
     \value NormalizePathSegments  Modifies the path to remove redundant directory separators,
-             and to resolve "."s and ".."s (as far as possible).
+             and to resolve "."s and ".."s (as far as possible). For non-local paths, adjacent
+             slashes are preserved.
 
     Note that the case folding rules in \l{RFC 3491}{Nameprep}, which QUrl
     conforms to, require host names to always be converted to lower case,
@@ -369,14 +355,7 @@
 
     The following example illustrates the problem:
 
-    \code
-        QUrl original("http://example.com/?q=a%2B%3Db%26c");
-        QUrl copy(original);
-        copy.setQuery(copy.query(QUrl::FullyDecoded), QUrl::DecodedMode);
-
-        qDebug() << original.toString();   // prints: http://example.com/?q=a%2B%3Db%26c
-        qDebug() << copy.toString();       // prints: http://example.com/?q=a+=b&c
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 10
 
     If the two URLs were used via HTTP GET, the interpretation by the web
     server would probably be different. In the first case, it would interpret
@@ -441,10 +420,9 @@
 #endif
 #include "private/qipaddress_p.h"
 #include "qurlquery.h"
+#include "private/qdir_p.h"
 
 QT_BEGIN_NAMESPACE
-extern QString qt_normalizePathSegments(const QString &name, bool allowUncPaths,
-                                        bool *ok = nullptr); // qdir.cpp
 
 inline static bool isHex(char c)
 {
@@ -472,16 +450,10 @@ static inline QString webDavSslTag()
     return QStringLiteral("@SSL");
 }
 
-#ifdef Q_COMPILER_CLASS_ENUM
-#  define colon_uchar   : uchar
-#else
-#  define colon_uchar
-#endif
-
 class QUrlPrivate
 {
 public:
-    enum Section colon_uchar {
+    enum Section : uchar {
         Scheme = 0x01,
         UserName = 0x02,
         Password = 0x04,
@@ -496,7 +468,7 @@ public:
         FullUrl = 0xff
     };
 
-    enum Flags colon_uchar {
+    enum Flags : uchar {
         IsLocalFile = 0x01
     };
 
@@ -616,7 +588,6 @@ public:
     // 32-bit: 2 bytes tail padding available
     // 64-bit: 6 bytes tail padding available
 };
-#undef colon_uchar
 
 inline QUrlPrivate::QUrlPrivate()
     : ref(1), port(-1),
@@ -959,7 +930,7 @@ inline void QUrlPrivate::appendPath(QString &appendTo, QUrl::FormattingOptions o
 {
     QString thePath = path;
     if (options & QUrl::NormalizePathSegments) {
-        thePath = qt_normalizePathSegments(path, false);
+        thePath = qt_normalizePathSegments(path, isLocalFile() ? QDirPrivate::DefaultNormalization : QDirPrivate::RemotePath);
     }
 
     QStringRef thePathRef(&thePath);
@@ -1203,15 +1174,13 @@ inline void QUrlPrivate::setQuery(const QString &value, int from, int iend)
 
 inline void QUrlPrivate::appendHost(QString &appendTo, QUrl::FormattingOptions options) const
 {
-    // EncodeUnicode is the only flag that matters
-    if ((options & QUrl::FullyDecoded) == QUrl::FullyDecoded)
-        options = 0;
-    else
-        options &= QUrl::EncodeUnicode;
     if (host.isEmpty())
         return;
     if (host.at(0).unicode() == '[') {
-        // IPv6Address and IPvFuture address never require any transformation
+        // IPv6 addresses might contain a zone-id which needs to be recoded
+        if (options != 0)
+            if (qt_urlRecode(appendTo, host.constBegin(), host.constEnd(), options, 0))
+                return;
         appendTo += host;
     } else {
         // this is either an IPv4Address or a reg-name
@@ -1278,31 +1247,44 @@ static const QChar *parseIpFuture(QString &host, const QChar *begin, const QChar
 // ONLY the IPv6 address is parsed here, WITHOUT the brackets
 static const QChar *parseIp6(QString &host, const QChar *begin, const QChar *end, QUrl::ParsingMode mode)
 {
-    QIPAddressUtils::IPv6Address address;
-    const QChar *ret = QIPAddressUtils::parseIp6(address, begin, end);
-    if (ret) {
+    // ### Update to use QStringView once QStringView::indexOf and QStringView::lastIndexOf exists
+    QString decoded;
+    if (mode == QUrl::TolerantMode) {
         // this struct is kept in automatic storage because it's only 4 bytes
         const ushort decodeColon[] = { decode(':'), 0 };
-
-        // IPv6 failed parsing, check if it was a percent-encoded character in
-        // the middle and try again
-        QString decoded;
-        if (mode == QUrl::TolerantMode && qt_urlRecode(decoded, begin, end, 0, decodeColon)) {
-            // recurse
-            // if the parsing fails again, the qt_urlRecode above will return 0
-            ret = parseIp6(host, decoded.constBegin(), decoded.constEnd(), mode);
-
-            // we can't return ret, otherwise it would be dangling
-            return ret ? end : 0;
-        }
-
-        // no transformation, nothing to re-parse
-        return ret;
+        if (qt_urlRecode(decoded, begin, end, QUrl::ComponentFormattingOption::PrettyDecoded, decodeColon) == 0)
+            decoded = QString(begin, end-begin);
+    } else {
+      decoded = QString(begin, end-begin);
     }
 
-    host.reserve(host.size() + (end - begin));
+    const QLatin1String zoneIdIdentifier("%25");
+    QIPAddressUtils::IPv6Address address;
+    QString zoneId;
+
+    const QChar *endBeforeZoneId = decoded.constEnd();
+
+    int zoneIdPosition = decoded.indexOf(zoneIdIdentifier);
+    if ((zoneIdPosition != -1) && (decoded.lastIndexOf(zoneIdIdentifier) == zoneIdPosition)) {
+        zoneId = decoded.mid(zoneIdPosition + zoneIdIdentifier.size());
+        endBeforeZoneId = decoded.constBegin() + zoneIdPosition;
+
+        if (zoneId.isEmpty())
+            return end;
+    }
+
+    const QChar *ret = QIPAddressUtils::parseIp6(address, decoded.constBegin(), endBeforeZoneId);
+    if (ret)
+        return begin + (ret - decoded.constBegin());
+
+    host.reserve(host.size() + (decoded.constEnd() - decoded.constBegin()));
     host += QLatin1Char('[');
     QIPAddressUtils::toString(host, address);
+
+    if (!zoneId.isEmpty()) {
+        host += zoneIdIdentifier;
+        host += zoneId;
+    }
     host += QLatin1Char(']');
     return 0;
 }
@@ -1987,10 +1969,7 @@ void QUrl::setUrl(const QString &url, ParsingMode parsingMode)
     \image qurl-authority2.png
 
     To set the scheme, the following call is used:
-    \code
-        QUrl url;
-        url.setScheme("ftp");
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 11
 
     The scheme can also be empty, in which case the URL is interpreted
     as relative.
@@ -2530,7 +2509,7 @@ int QUrl::port(int defaultPort) const
     The \a path data is interpreted according to \a mode: in StrictMode,
     any '%' characters must be followed by exactly two hexadecimal characters
     and some characters (including space) are not allowed in undecoded form. In
-    TolerantMode (the default), all characters are accepted in undecoded form and the
+    TolerantMode, all characters are accepted in undecoded form and the
     tolerant parser will correct stray '%' not followed by two hex characters.
     In DecodedMode, '%' stand for themselves and encoded characters are not
     possible.
@@ -2565,11 +2544,7 @@ void QUrl::setPath(const QString &path, ParsingMode mode)
 /*!
     Returns the path of the URL.
 
-    \code
-    qDebug() << QUrl("file:file.txt").path();                   // "file.txt"
-    qDebug() << QUrl("/home/user/file.txt").path();             // "/home/user/file.txt"
-    qDebug() << QUrl("http://www.example.com/test/123").path(); // "/test/123"
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 12
 
     The \a options argument controls how to format the path component. All
     values produce an unambiguous result. With QUrl::FullyDecoded, all
@@ -2584,27 +2559,18 @@ void QUrl::setPath(const QString &path, ParsingMode mode)
     An example of data loss is when you have non-Unicode percent-encoded sequences
     and use FullyDecoded (the default):
 
-    \code
-    qDebug() << QUrl("/foo%FFbar").path();
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 13
 
     In this example, there will be some level of data loss because the \c %FF cannot
     be converted.
 
     Data loss can also occur when the path contains sub-delimiters (such as \c +):
 
-    \code
-    qDebug() << QUrl("/foo+bar%2B").path(); // "/foo+bar+"
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 14
 
     Other decoding examples:
 
-    \code
-    const QUrl url("/tmp/Mambo %235%3F.mp3");
-    qDebug() << url.path(QUrl::FullyDecoded);  // "/tmp/Mambo #5?.mp3"
-    qDebug() << url.path(QUrl::PrettyDecoded); // "/tmp/Mambo #5?.mp3"
-    qDebug() << url.path(QUrl::FullyEncoded);  // "/tmp/Mambo%20%235%3F.mp3"
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 15
 
     \sa setPath()
 */
@@ -3722,37 +3688,37 @@ bool QUrl::matches(const QUrl &url, FormattingOptions options) const
     if (isLocalFile())
         mask &= ~QUrlPrivate::Host;
 
-    if (options & QUrl::RemoveScheme)
+    if (options.testFlag(QUrl::RemoveScheme))
         mask &= ~QUrlPrivate::Scheme;
     else if (d->scheme != url.d->scheme)
         return false;
 
-    if (options & QUrl::RemovePassword)
+    if (options.testFlag(QUrl::RemovePassword))
         mask &= ~QUrlPrivate::Password;
     else if (d->password != url.d->password)
         return false;
 
-    if (options & QUrl::RemoveUserInfo)
+    if (options.testFlag(QUrl::RemoveUserInfo))
         mask &= ~QUrlPrivate::UserName;
     else if (d->userName != url.d->userName)
         return false;
 
-    if (options & QUrl::RemovePort)
+    if (options.testFlag(QUrl::RemovePort))
         mask &= ~QUrlPrivate::Port;
     else if (d->port != url.d->port)
         return false;
 
-    if (options & QUrl::RemoveAuthority)
+    if (options.testFlag(QUrl::RemoveAuthority))
         mask &= ~QUrlPrivate::Host;
     else if (d->host != url.d->host)
         return false;
 
-    if (options & QUrl::RemoveQuery)
+    if (options.testFlag(QUrl::RemoveQuery))
         mask &= ~QUrlPrivate::Query;
     else if (d->query != url.d->query)
         return false;
 
-    if (options & QUrl::RemoveFragment)
+    if (options.testFlag(QUrl::RemoveFragment))
         mask &= ~QUrlPrivate::Fragment;
     else if (d->fragment != url.d->fragment)
         return false;
@@ -3760,7 +3726,7 @@ bool QUrl::matches(const QUrl &url, FormattingOptions options) const
     if ((d->sectionIsPresent & mask) != (url.d->sectionIsPresent & mask))
         return false;
 
-    if (options & QUrl::RemovePath)
+    if (options.testFlag(QUrl::RemovePath))
         return true;
 
     // Compare paths, after applying path-related options
@@ -3855,40 +3821,22 @@ bool QUrl::isDetached() const
 
     An empty \a localFile leads to an empty URL (since Qt 5.4).
 
-    \code
-    qDebug() << QUrl::fromLocalFile("file.txt");            // QUrl("file:file.txt")
-    qDebug() << QUrl::fromLocalFile("/home/user/file.txt"); // QUrl("file:///home/user/file.txt")
-    qDebug() << QUrl::fromLocalFile("file:file.txt");       // doesn't make sense; expects path, not url with scheme
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 16
 
     In the first line in snippet above, a file URL is constructed from a
     local, relative path. A file URL with a relative path only makes sense
     if there is a base URL to resolve it against. For example:
 
-    \code
-    QUrl url = QUrl::fromLocalFile("file.txt");
-    QUrl baseUrl = QUrl("file:/home/user/");
-    // wrong: prints QUrl("file:file.txt"), as url already has a scheme
-    qDebug() << baseUrl.resolved(url);
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 17
 
     To resolve such a URL, it's necessary to remove the scheme beforehand:
 
-    \code
-    // correct: prints QUrl("file:///home/user/file.txt")
-    url.setScheme(QString());
-    qDebug() << baseUrl.resolved(url);
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 18
 
     For this reason, it is better to use a relative URL (that is, no scheme)
     for relative file paths:
 
-    \code
-    QUrl url = QUrl("file.txt");
-    QUrl baseUrl = QUrl("file:/home/user/");
-    // prints QUrl("file:///home/user/file.txt")
-    qDebug() << baseUrl.resolved(url);
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 19
 
     \sa toLocalFile(), isLocalFile(), QDir::toNativeSeparators()
 */
@@ -3934,11 +3882,7 @@ QUrl QUrl::fromLocalFile(const QString &localFile)
     returned value in the form found on SMB networks (for example,
     "//servername/path/to/file.txt").
 
-    \code
-    qDebug() << QUrl("file:file.txt").toLocalFile();            // "file:file.txt"
-    qDebug() << QUrl("file:/home/user/file.txt").toLocalFile(); // "file:///home/user/file.txt"
-    qDebug() << QUrl("file.txt").toLocalFile();                 // ""; wasn't a local file as it had no scheme
-    \endcode
+    \snippet code/src_corelib_io_qurl.cpp 20
 
     Note: if the path component of this URL contains a non-UTF-8 binary
     sequence (such as %80), the behaviour of this function is undefined.

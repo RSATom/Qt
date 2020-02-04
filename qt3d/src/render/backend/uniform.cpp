@@ -38,6 +38,7 @@
 ****************************************************************************/
 
 #include "uniform_p.h"
+#include "qabstracttexture.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -47,10 +48,22 @@ namespace Render {
 namespace {
 
 const int qNodeIdTypeId = qMetaTypeId<Qt3DCore::QNodeId>();
+const int qVector3DTypeId = qMetaTypeId<Vector3D>();
+const int qVector4DTypeId = qMetaTypeId<Vector4D>();
+const int qMatrix4x4TypeId = qMetaTypeId<Matrix4x4>();
 
 // glUniform*fv/glUniform*iv/glUniform*uiv -> only handles sizeof(float)/sizeof(int)
 int byteSizeForMetaType(int type)
 {
+    if (type == qMatrix4x4TypeId)
+        return sizeof(Matrix4x4);
+    if (type == qVector3DTypeId)
+        return sizeof(Vector3D);
+    if (type == qVector4DTypeId)
+        return sizeof(Vector4D);
+    if (type == qNodeIdTypeId)
+        return sizeof(Qt3DCore::QNodeId);
+
     switch (type) {
     case QMetaType::Bool:
     case QMetaType::Int:
@@ -88,9 +101,9 @@ int byteSizeForMetaType(int type)
     case QMetaType::QVector4D:
     case QMetaType::QColor:
         return 4 * sizeof(float);
-
     case QMetaType::QMatrix4x4:
         return 16 * sizeof(float);
+
     default:
         Q_UNREACHABLE();
         return -1;
@@ -102,11 +115,22 @@ int byteSizeForMetaType(int type)
 UniformValue UniformValue::fromVariant(const QVariant &variant)
 {
     // Texture/Buffer case
-    if (variant.userType() == qNodeIdTypeId)
+    const int type = variant.userType();
+
+    if (type == qNodeIdTypeId)
         return UniformValue(variant.value<Qt3DCore::QNodeId>());
 
+    if (type == qMatrix4x4TypeId)
+        return UniformValue(variant.value<Matrix4x4>());
+
+    if (type == qVector3DTypeId)
+        return UniformValue(variant.value<Vector3D>());
+
+    if (type == qVector4DTypeId)
+        return UniformValue(variant.value<Vector4D>());
+
     UniformValue v;
-    switch (variant.userType()) {
+    switch (type) {
     case QMetaType::Bool:
         v.data<bool>()[0] = variant.toBool();
         break;
@@ -209,6 +233,11 @@ UniformValue UniformValue::fromVariant(const QVariant &variant)
             break;
 
         const int listEntryType = variants.first().userType();
+
+        // array of textures
+        if (listEntryType == qNodeIdTypeId)
+            v.m_valueType = NodeId;
+
         const int stride = byteSizeForMetaType(listEntryType) / sizeof(float);
         // Resize v.m_data
         v.m_data.resize(stride * variants.size());
@@ -232,6 +261,11 @@ UniformValue UniformValue::fromVariant(const QVariant &variant)
             v.m_data.resize(9);
             memcpy(v.data<float>(), mat33.constData(), 9 * sizeof(float));
             break;
+        }
+        if (variant.userType() == qMetaTypeId<Qt3DRender::QAbstractTexture *>()) {
+            // silently ignore null texture pointers as they are common while textures are loading
+            if (variant.value<Qt3DRender::QAbstractTexture *>() == nullptr)
+                break;
         }
         qWarning() << "Unknown uniform type or value:" << variant << "Please check your QParameters";
     }

@@ -5,35 +5,62 @@
 #ifndef UI_ACCESSIBILITY_AX_UTIL_AURALINUX_H_
 #define UI_ACCESSIBILITY_AX_UTIL_AURALINUX_H_
 
+#include <atk/atk.h>
+
+#include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "ui/accessibility/ax_export.h"
 
-namespace base {
-class TaskRunner;
-}
+#if defined(USE_X11)
+#include "ui/gfx/x/x11.h"
+#endif
 
 namespace ui {
+
+// These values are duplicates of the GDK values that can be found in
+// <gdk/gdktypes.h>. ATK expects the GDK values, but we don't want to depend on
+// GDK here.
+typedef enum {
+  kAtkShiftMask = 1 << 0,
+  kAtkLockMask = 1 << 1,
+  kAtkControlMask = 1 << 2,
+  kAtkMod1Mask = 1 << 3,
+  kAtkMod2Mask = 1 << 4,
+  kAtkMod3Mask = 1 << 5,
+  kAtkMod4Mask = 1 << 6,
+  KAtkMod5Mask = 1 << 7,
+} AtkKeyModifierMask;
+
+enum DiscardAtkKeyEvent { Discard, Retain };
 
 // This singleton class initializes ATK (accessibility toolkit) and
 // registers an implementation of the AtkUtil class, a global class that
 // every accessible application needs to register once.
-class AtkUtilAuraLinux {
+class AX_EXPORT AtkUtilAuraLinux {
  public:
   // Get the single instance of this class.
   static AtkUtilAuraLinux* GetInstance();
 
-  AtkUtilAuraLinux();
-  virtual ~AtkUtilAuraLinux();
+  AtkUtilAuraLinux() = default;
 
-  void Initialize(scoped_refptr<base::TaskRunner> init_task_runner);
+  void InitializeAsync();
+  void InitializeForTesting();
+
+  static DiscardAtkKeyEvent HandleAtkKeyEvent(AtkKeyEventStruct* key_event);
+
+#if defined(USE_X11)
+  static DiscardAtkKeyEvent HandleKeyEvent(XEvent* xevent);
+#endif
 
  private:
   friend struct base::DefaultSingletonTraits<AtkUtilAuraLinux>;
 
-  void CheckIfAccessibilityIsEnabledOnFileThread();
-  void FinishAccessibilityInitOnUIThread();
+  bool ShouldEnableAccessibility();
 
-  bool is_enabled_;
+  bool PlatformShouldEnableAccessibility();
+  void PlatformInitializeAsync();
+
+  DISALLOW_COPY_AND_ASSIGN(AtkUtilAuraLinux);
 };
 
 }  // namespace ui

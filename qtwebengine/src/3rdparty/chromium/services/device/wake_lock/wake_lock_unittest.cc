@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "services/device/wake_lock/wake_lock.h"
+
 #include "base/run_loop.h"
 #include "mojo/public/cpp/bindings/interface_ptr.h"
 #include "services/device/device_service_test_base.h"
-#include "services/device/public/interfaces/constants.mojom.h"
-#include "services/device/public/interfaces/wake_lock.mojom.h"
-#include "services/device/public/interfaces/wake_lock_context.mojom.h"
-#include "services/device/public/interfaces/wake_lock_provider.mojom.h"
+#include "services/device/public/mojom/constants.mojom.h"
+#include "services/device/public/mojom/wake_lock.mojom.h"
+#include "services/device/public/mojom/wake_lock_context.mojom.h"
+#include "services/device/public/mojom/wake_lock_provider.mojom.h"
 #include "services/device/wake_lock/wake_lock_provider.h"
 
 namespace device {
@@ -25,10 +27,9 @@ class WakeLockTest : public DeviceServiceTestBase {
     DeviceServiceTestBase::SetUp();
     connector()->BindInterface(mojom::kServiceName, &wake_lock_provider_);
 
-    WakeLockProvider::is_in_unittest_ = true;
     wake_lock_provider_->GetWakeLockWithoutContext(
-        device::mojom::WakeLockType::PreventAppSuspension,
-        device::mojom::WakeLockReason::ReasonOther, "WakeLockTest",
+        device::mojom::WakeLockType::kPreventAppSuspension,
+        device::mojom::WakeLockReason::kOther, "WakeLockTest",
         mojo::MakeRequest(&wake_lock_));
   }
 
@@ -119,15 +120,19 @@ TEST_F(WakeLockTest, ChangeType) {
   EXPECT_FALSE(HasWakeLock());
 #if !defined(OS_ANDROID)
   // Call ChangeType() on a wake lock that is in inactive status.
-  EXPECT_TRUE(ChangeType(device::mojom::WakeLockType::PreventAppSuspension));
-  EXPECT_TRUE(ChangeType(device::mojom::WakeLockType::PreventDisplaySleep));
+  EXPECT_TRUE(ChangeType(device::mojom::WakeLockType::kPreventAppSuspension));
+  EXPECT_TRUE(ChangeType(device::mojom::WakeLockType::kPreventDisplaySleep));
+  EXPECT_TRUE(ChangeType(
+      device::mojom::WakeLockType::kPreventDisplaySleepAllowDimming));
   EXPECT_FALSE(HasWakeLock());  // still inactive.
 
   wake_lock_->RequestWakeLock();
   EXPECT_TRUE(HasWakeLock());
   // Call ChangeType() on a wake lock that is in active status.
-  EXPECT_TRUE(ChangeType(device::mojom::WakeLockType::PreventAppSuspension));
-  EXPECT_TRUE(ChangeType(device::mojom::WakeLockType::PreventDisplaySleep));
+  EXPECT_TRUE(ChangeType(device::mojom::WakeLockType::kPreventAppSuspension));
+  EXPECT_TRUE(ChangeType(device::mojom::WakeLockType::kPreventDisplaySleep));
+  EXPECT_TRUE(ChangeType(
+      device::mojom::WakeLockType::kPreventDisplaySleepAllowDimming));
   EXPECT_TRUE(HasWakeLock());  // still active.
 
   // Send multiple requests, should be coalesced as usual.
@@ -137,14 +142,16 @@ TEST_F(WakeLockTest, ChangeType) {
   mojom::WakeLockPtr wake_lock_1;
   wake_lock_->AddClient(mojo::MakeRequest(&wake_lock_1));
   // Not allowed to change type when shared by multiple clients.
-  EXPECT_FALSE(ChangeType(device::mojom::WakeLockType::PreventAppSuspension));
+  EXPECT_FALSE(ChangeType(device::mojom::WakeLockType::kPreventAppSuspension));
 
   wake_lock_->CancelWakeLock();
   wake_lock_1->CancelWakeLock();
   EXPECT_FALSE(HasWakeLock());
 #else  // OS_ANDROID:
-  EXPECT_FALSE(ChangeType(device::mojom::WakeLockType::PreventAppSuspension));
-  EXPECT_FALSE(ChangeType(device::mojom::WakeLockType::PreventDisplaySleep));
+  EXPECT_FALSE(ChangeType(device::mojom::WakeLockType::kPreventAppSuspension));
+  EXPECT_FALSE(ChangeType(device::mojom::WakeLockType::kPreventDisplaySleep));
+  EXPECT_FALSE(ChangeType(
+      device::mojom::WakeLockType::kPreventDisplaySleepAllowDimming));
 #endif
 }
 

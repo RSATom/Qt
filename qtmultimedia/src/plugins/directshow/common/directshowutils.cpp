@@ -56,8 +56,10 @@ bool DirectShowUtils::isPinConnected(IPin *pin, HRESULT *hrOut)
         hrOut = &hr;
 
     *hrOut = pin->ConnectedTo(&connectedPin);
-    if (*hrOut == VFW_E_NOT_CONNECTED) // Not an error in this case
+    if (*hrOut == VFW_E_NOT_CONNECTED) { // Not an error in this case
         *hrOut = S_OK;
+        return false;
+    }
 
     if (FAILED(*hrOut)) {
         qCDebug(qtDirectShowPlugin, "Querying pin connection failed!");
@@ -115,7 +117,7 @@ bool DirectShowUtils::getPin(IBaseFilter *filter, PIN_DIRECTION pinDirection, IP
 
     enumPins->Reset();
     IPin *nextPin = nullptr;
-    while (enumPins->Next(1, &nextPin, NULL) == S_OK) {
+    while (enumPins->Next(1, &nextPin, nullptr) == S_OK) {
         const ScopedSafeRelease<IPin> releasePin { &nextPin };
         PIN_DIRECTION currentPinDir;
         *hrOut = nextPin->QueryDirection(&currentPinDir);
@@ -150,7 +152,7 @@ bool DirectShowUtils::matchPin(IPin *pin, PIN_DIRECTION pinDirection, BOOL shoul
     if (isConnected == shouldBeConnected)
         return hasPinDirection(pin, pinDirection, hrOut);
 
-    return SUCCEEDED(*hrOut);
+    return false;
 }
 
 /**
@@ -183,9 +185,6 @@ bool DirectShowUtils::findUnconnectedPin(IBaseFilter *filter, PIN_DIRECTION pinD
             (*pin)->AddRef();
             return true;
         }
-
-        if (FAILED(*hrOut))
-            return false;
     }
 
     qCDebug(qtDirectShowPlugin, "No unconnected pins found");
@@ -285,7 +284,7 @@ bool DirectShowUtils::connectFilters(IGraphBuilder *graph,
 
     // Try to connect to the upstream filter first.
     if (findAndConnect(upstreamFilter))
-        return S_OK;
+        return true;
 
     const auto getFilters = [graph, hrOut]() -> IEnumFilters * {
         IEnumFilters *f = nullptr;
@@ -304,10 +303,23 @@ bool DirectShowUtils::connectFilters(IGraphBuilder *graph,
     while (S_OK == filters->Next(1, &nextFilter, 0)) {
         const ScopedSafeRelease<IBaseFilter> releaseNextFilter { &nextFilter };
         if (nextFilter && findAndConnect(nextFilter))
-            break;
+            return true;
     }
 
-    return SUCCEEDED(*hrOut);
+    return false;
+}
+
+thread_local static int g_refCount = 0;
+void DirectShowUtils::CoInitializeIfNeeded()
+{
+    if (++g_refCount == 1)
+        ::CoInitialize(nullptr);
+}
+
+void DirectShowUtils::CoUninitializeIfNeeded()
+{
+    if (--g_refCount == 0)
+        ::CoUninitialize();
 }
 
 QT_END_NAMESPACE

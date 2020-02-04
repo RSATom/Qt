@@ -20,9 +20,9 @@ using ::testing::Invoke;
 
 namespace gpu {
 
-FakeCommandBufferServiceBase::FakeCommandBufferServiceBase() {}
+FakeCommandBufferServiceBase::FakeCommandBufferServiceBase() = default;
 
-FakeCommandBufferServiceBase::~FakeCommandBufferServiceBase() {}
+FakeCommandBufferServiceBase::~FakeCommandBufferServiceBase() = default;
 
 CommandBuffer::State FakeCommandBufferServiceBase::GetState() {
   return state_;
@@ -43,22 +43,25 @@ int32_t FakeCommandBufferServiceBase::GetNextFreeTransferBufferId() {
   return -1;
 }
 
-void FakeCommandBufferServiceBase::SetGetBufferHelper(int transfer_buffer_id) {
+void FakeCommandBufferServiceBase::SetGetBufferHelper(int transfer_buffer_id,
+                                                      int32_t token) {
   ++state_.set_get_buffer_count;
   state_.get_offset = 0;
-  state_.token = 10000;  // All token checks in the tests should pass.
+  state_.token = token;
 }
 
 scoped_refptr<gpu::Buffer>
-FakeCommandBufferServiceBase::CreateTransferBufferHelper(size_t size,
+FakeCommandBufferServiceBase::CreateTransferBufferHelper(uint32_t size,
                                                          int32_t* id) {
   *id = GetNextFreeTransferBufferId();
   if (*id >= 0) {
     int32_t ndx = *id - kTransferBufferBaseId;
-    std::unique_ptr<base::SharedMemory> shared_memory(new base::SharedMemory());
-    shared_memory->CreateAndMapAnonymous(size);
-    transfer_buffer_buffers_[ndx] =
-        MakeBufferFromSharedMemory(std::move(shared_memory), size);
+    base::UnsafeSharedMemoryRegion shared_memory_region =
+        base::UnsafeSharedMemoryRegion::Create(size);
+    base::WritableSharedMemoryMapping shared_memory_mapping =
+        shared_memory_region.Map();
+    transfer_buffer_buffers_[ndx] = MakeBufferFromSharedMemory(
+        std::move(shared_memory_region), std::move(shared_memory_mapping));
   }
   return GetTransferBuffer(*id);
 }
@@ -67,7 +70,7 @@ void FakeCommandBufferServiceBase::DestroyTransferBufferHelper(int32_t id) {
   DCHECK_GE(id, kTransferBufferBaseId);
   DCHECK_LT(id, kTransferBufferBaseId + kMaxTransferBuffers);
   id -= kTransferBufferBaseId;
-  transfer_buffer_buffers_[id] = NULL;
+  transfer_buffer_buffers_[id] = nullptr;
 }
 
 scoped_refptr<Buffer> FakeCommandBufferServiceBase::GetTransferBuffer(
@@ -105,7 +108,7 @@ MockClientCommandBuffer::MockClientCommandBuffer() {
   DelegateToFake();
 }
 
-MockClientCommandBuffer::~MockClientCommandBuffer() {}
+MockClientCommandBuffer::~MockClientCommandBuffer() = default;
 
 CommandBuffer::State MockClientCommandBuffer::GetLastState() {
   return GetState();
@@ -131,11 +134,11 @@ CommandBuffer::State MockClientCommandBuffer::WaitForGetOffsetInRange(
 }
 
 void MockClientCommandBuffer::SetGetBuffer(int transfer_buffer_id) {
-  SetGetBufferHelper(transfer_buffer_id);
+  SetGetBufferHelper(transfer_buffer_id, token_);
 }
 
 scoped_refptr<gpu::Buffer> MockClientCommandBuffer::CreateTransferBuffer(
-    size_t size,
+    uint32_t size,
     int32_t* id) {
   return CreateTransferBufferHelper(size, id);
 }
@@ -158,7 +161,7 @@ MockClientCommandBufferMockFlush::MockClientCommandBufferMockFlush() {
   DelegateToFake();
 }
 
-MockClientCommandBufferMockFlush::~MockClientCommandBufferMockFlush() {}
+MockClientCommandBufferMockFlush::~MockClientCommandBufferMockFlush() = default;
 
 void MockClientCommandBufferMockFlush::DelegateToFake() {
   MockClientCommandBuffer::DelegateToFake();
@@ -170,8 +173,8 @@ void MockClientCommandBufferMockFlush::DoFlush(int32_t put_offset) {
   MockClientCommandBuffer::Flush(put_offset);
 }
 
-MockClientGpuControl::MockClientGpuControl() {}
+MockClientGpuControl::MockClientGpuControl() = default;
 
-MockClientGpuControl::~MockClientGpuControl() {}
+MockClientGpuControl::~MockClientGpuControl() = default;
 
 }  // namespace gpu

@@ -5,7 +5,7 @@
 #include "content/browser/renderer_host/input/synthetic_tap_gesture.h"
 
 #include "base/logging.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/latency/latency_info.h"
 
 namespace content {
@@ -46,6 +46,17 @@ SyntheticGesture::Result SyntheticTapGesture::ForwardInputEvents(
                           : SyntheticGesture::GESTURE_RUNNING;
 }
 
+void SyntheticTapGesture::WaitForTargetAck(
+    base::OnceClosure callback,
+    SyntheticGestureTarget* target) const {
+  target->WaitForTargetAck(params_.GetGestureType(), gesture_source_type_,
+                           std::move(callback));
+}
+
+bool SyntheticTapGesture::AllowHighFrequencyDispatch() const {
+  return false;
+}
+
 void SyntheticTapGesture::ForwardTouchOrMouseInputEvents(
     const base::TimeTicks& timestamp, SyntheticGestureTarget* target) {
   switch (state_) {
@@ -73,8 +84,10 @@ void SyntheticTapGesture::ForwardTouchOrMouseInputEvents(
       break;
     case SETUP:
       NOTREACHED() << "State SETUP invalid for synthetic tap gesture.";
+      break;
     case DONE:
       NOTREACHED() << "State DONE invalid for synthetic tap gesture.";
+      break;
   }
 }
 

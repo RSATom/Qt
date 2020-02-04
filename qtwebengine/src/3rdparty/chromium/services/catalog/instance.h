@@ -5,25 +5,23 @@
 #ifndef SERVICES_CATALOG_INSTANCE_H_
 #define SERVICES_CATALOG_INSTANCE_H_
 
+#include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/values.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "services/catalog/entry.h"
-#include "services/catalog/public/interfaces/catalog.mojom.h"
+#include "services/catalog/public/mojom/catalog.mojom.h"
 #include "services/catalog/store.h"
 
 namespace catalog {
 
 class EntryCache;
-class ManifestProvider;
 
-class Instance : public mojom::Catalog {
+class COMPONENT_EXPORT(CATALOG) Instance : public mojom::Catalog {
  public:
-  // Neither |system_cache| nor |service_manifest_provider| is owned.
-  // |service_manifest_provider| may be null
-  Instance(EntryCache* system_cache,
-           ManifestProvider* service_manifest_provider);
+  // |system_cache| is not owned.
+  explicit Instance(EntryCache* system_cache);
   ~Instance() override;
 
   void BindCatalog(mojom::CatalogRequest request);
@@ -44,10 +42,6 @@ class Instance : public mojom::Catalog {
   // that are visible to all users).
   // TODO(beng): eventually add per-user applications.
   EntryCache* const system_cache_;
-
-  // A runtime interface the embedder can use to provide dynamic manifest data
-  // to be queried on-demand if something can't be found in |system_cache_|.
-  ManifestProvider* const service_manifest_provider_;
 
   DISALLOW_COPY_AND_ASSIGN(Instance);
 };

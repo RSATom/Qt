@@ -8,12 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/rtp_rtcp/source/tmmbr_help.h"
+#include "modules/rtp_rtcp/source/tmmbr_help.h"
 
+#include <stddef.h>
 #include <algorithm>
 #include <limits>
 
-#include "webrtc/rtc_base/checks.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 std::vector<rtcp::TmmbItem> TMMBRHelp::FindBoundingSet(

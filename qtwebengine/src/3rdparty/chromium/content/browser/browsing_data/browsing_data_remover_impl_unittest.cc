@@ -20,28 +20,31 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "build/build_config.h"
 #include "content/browser/browsing_data/browsing_data_remover_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browsing_data_filter_builder.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/cookie_store_factory.h"
 #include "content/public/browser/dom_storage_context.h"
-#include "content/public/browser/local_storage_usage_info.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/browser/storage_usage_info.h"
 #include "content/public/test/browsing_data_remover_test_util.h"
 #include "content/public/test/mock_download_manager.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/test_storage_partition.h"
 #include "content/public/test/test_utils.h"
+#include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_deletion_info.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_transaction_factory.h"
@@ -50,25 +53,38 @@
 #include "net/ssl/ssl_client_cert_type.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "services/network/cookie_manager.h"
+#include "services/network/test/test_network_context.h"
 #include "storage/browser/test/mock_special_storage_policy.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/origin.h"
 
-using testing::_;
+#if BUILDFLAG(ENABLE_REPORTING)
+#include "net/network_error_logging/network_error_logging_delegate.h"
+#include "net/network_error_logging/network_error_logging_service.h"
+#include "net/reporting/reporting_cache.h"
+#include "net/reporting/reporting_report.h"
+#include "net/reporting/reporting_service.h"
+#include "net/reporting/reporting_test_util.h"
+#endif  // BUILDFLAG(ENABLE_REPORTING)
+
 using testing::ByRef;
 using testing::Eq;
 using testing::Invoke;
 using testing::IsEmpty;
-using testing::Matcher;
 using testing::MakeMatcher;
-using testing::MatcherInterface;
 using testing::MatchResultListener;
+using testing::Matcher;
+using testing::MatcherInterface;
 using testing::Not;
 using testing::Return;
 using testing::SizeIs;
+using testing::UnorderedElementsAre;
 using testing::WithArgs;
+using testing::_;
+using CookieDeletionFilterPtr = network::mojom::CookieDeletionFilterPtr;
 
 namespace content {
 
@@ -93,32 +109,46 @@ const GURL kOrigin4(kTestOrigin4);
 const GURL kOriginExt(kTestOriginExt);
 const GURL kOriginDevTools(kTestOriginDevTools);
 
-const base::FilePath::CharType kDomStorageOrigin1[] =
-    FILE_PATH_LITERAL("http_host1_1.localstorage");
-
-const base::FilePath::CharType kDomStorageOrigin2[] =
-    FILE_PATH_LITERAL("http_host2_1.localstorage");
-
-const base::FilePath::CharType kDomStorageOrigin3[] =
-    FILE_PATH_LITERAL("http_host3_1.localstorage");
-
-const base::FilePath::CharType kDomStorageExt[] = FILE_PATH_LITERAL(
-    "chrome-extension_abcdefghijklmnopqrstuvwxyz_0.localstorage");
-
 struct StoragePartitionRemovalData {
-  uint32_t remove_mask = 0;
-  uint32_t quota_storage_remove_mask = 0;
+  StoragePartitionRemovalData()
+      : remove_mask(0),
+        quota_storage_remove_mask(0),
+        cookie_deletion_filter(network::mojom::CookieDeletionFilter::New()),
+        remove_code_cache(false) {}
+
+  StoragePartitionRemovalData(const StoragePartitionRemovalData& other)
+      : remove_mask(other.remove_mask),
+        quota_storage_remove_mask(other.quota_storage_remove_mask),
+        remove_begin(other.remove_begin),
+        remove_end(other.remove_end),
+        origin_matcher(other.origin_matcher),
+        cookie_deletion_filter(other.cookie_deletion_filter.Clone()),
+        remove_code_cache(other.remove_code_cache) {}
+
+  StoragePartitionRemovalData& operator=(
+      const StoragePartitionRemovalData& rhs) {
+    remove_mask = rhs.remove_mask;
+    quota_storage_remove_mask = rhs.quota_storage_remove_mask;
+    remove_begin = rhs.remove_begin;
+    remove_end = rhs.remove_end;
+    origin_matcher = rhs.origin_matcher;
+    cookie_deletion_filter = rhs.cookie_deletion_filter.Clone();
+    remove_code_cache = rhs.remove_code_cache;
+    return *this;
+  }
+
+  uint32_t remove_mask;
+  uint32_t quota_storage_remove_mask;
   base::Time remove_begin;
   base::Time remove_end;
   StoragePartition::OriginMatcherFunction origin_matcher;
-  StoragePartition::CookieMatcherFunction cookie_matcher;
-
-  StoragePartitionRemovalData() {}
+  CookieDeletionFilterPtr cookie_deletion_filter;
+  bool remove_code_cache;
 };
 
 net::CanonicalCookie CreateCookieWithHost(const GURL& source) {
   std::unique_ptr<net::CanonicalCookie> cookie(
-      base::MakeUnique<net::CanonicalCookie>(
+      std::make_unique<net::CanonicalCookie>(
           "A", "1", source.host(), "/", base::Time::Now(), base::Time::Now(),
           base::Time(), false, false, net::CookieSameSite::DEFAULT_MODE,
           net::COOKIE_PRIORITY_MEDIUM));
@@ -126,77 +156,44 @@ net::CanonicalCookie CreateCookieWithHost(const GURL& source) {
   return *cookie;
 }
 
-class TestStoragePartition : public StoragePartition {
+class StoragePartitionRemovalTestStoragePartition
+    : public TestStoragePartition {
  public:
-  TestStoragePartition() {}
-  ~TestStoragePartition() override {}
-
-  // StoragePartition implementation.
-  base::FilePath GetPath() override { return base::FilePath(); }
-  net::URLRequestContextGetter* GetURLRequestContext() override {
-    return nullptr;
-  }
-  net::URLRequestContextGetter* GetMediaURLRequestContext() override {
-    return nullptr;
-  }
-  storage::QuotaManager* GetQuotaManager() override { return nullptr; }
-  AppCacheService* GetAppCacheService() override { return nullptr; }
-  storage::FileSystemContext* GetFileSystemContext() override {
-    return nullptr;
-  }
-  storage::DatabaseTracker* GetDatabaseTracker() override { return nullptr; }
-  DOMStorageContext* GetDOMStorageContext() override { return nullptr; }
-  IndexedDBContext* GetIndexedDBContext() override { return nullptr; }
-  ServiceWorkerContext* GetServiceWorkerContext() override { return nullptr; }
-  CacheStorageContext* GetCacheStorageContext() override { return nullptr; }
-  PlatformNotificationContext* GetPlatformNotificationContext() override {
-    return nullptr;
-  }
-#if !defined(OS_ANDROID)
-  HostZoomMap* GetHostZoomMap() override { return nullptr; }
-  HostZoomLevelContext* GetHostZoomLevelContext() override { return nullptr; }
-  ZoomLevelDelegate* GetZoomLevelDelegate() override { return nullptr; }
-#endif  // !defined(OS_ANDROID)
+  StoragePartitionRemovalTestStoragePartition() {}
+  ~StoragePartitionRemovalTestStoragePartition() override {}
 
   void ClearDataForOrigin(uint32_t remove_mask,
                           uint32_t quota_storage_remove_mask,
-                          const GURL& storage_origin,
-                          net::URLRequestContextGetter* rq_context,
-                          const base::Closure& callback) override {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::BindOnce(&TestStoragePartition::AsyncRunCallback,
-                       base::Unretained(this), callback));
-  }
+                          const GURL& storage_origin) override {}
 
   void ClearData(uint32_t remove_mask,
                  uint32_t quota_storage_remove_mask,
                  const GURL& storage_origin,
-                 const OriginMatcherFunction& origin_matcher,
                  const base::Time begin,
                  const base::Time end,
-                 const base::Closure& callback) override {
+                 base::OnceClosure callback) override {
     // Store stuff to verify parameters' correctness later.
     storage_partition_removal_data_.remove_mask = remove_mask;
     storage_partition_removal_data_.quota_storage_remove_mask =
         quota_storage_remove_mask;
     storage_partition_removal_data_.remove_begin = begin;
     storage_partition_removal_data_.remove_end = end;
-    storage_partition_removal_data_.origin_matcher = origin_matcher;
 
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::BindOnce(&TestStoragePartition::AsyncRunCallback,
-                       base::Unretained(this), callback));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(
+            &StoragePartitionRemovalTestStoragePartition::AsyncRunCallback,
+            base::Unretained(this), std::move(callback)));
   }
 
   void ClearData(uint32_t remove_mask,
                  uint32_t quota_storage_remove_mask,
                  const OriginMatcherFunction& origin_matcher,
-                 const CookieMatcherFunction& cookie_matcher,
+                 CookieDeletionFilterPtr cookie_deletion_filter,
+                 bool perform_storage_cleanup,
                  const base::Time begin,
                  const base::Time end,
-                 const base::Closure& callback) override {
+                 base::OnceClosure callback) override {
     // Store stuff to verify parameters' correctness later.
     storage_partition_removal_data_.remove_mask = remove_mask;
     storage_partition_removal_data_.quota_storage_remove_mask =
@@ -204,36 +201,32 @@ class TestStoragePartition : public StoragePartition {
     storage_partition_removal_data_.remove_begin = begin;
     storage_partition_removal_data_.remove_end = end;
     storage_partition_removal_data_.origin_matcher = origin_matcher;
-    storage_partition_removal_data_.cookie_matcher = cookie_matcher;
+    storage_partition_removal_data_.cookie_deletion_filter =
+        std::move(cookie_deletion_filter);
 
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::BindOnce(&TestStoragePartition::AsyncRunCallback,
-                       base::Unretained(this), callback));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(
+            &StoragePartitionRemovalTestStoragePartition::AsyncRunCallback,
+            base::Unretained(this), std::move(callback)));
   }
 
-  void ClearHttpAndMediaCaches(
-      const base::Time begin,
-      const base::Time end,
-      const base::Callback<bool(const GURL&)>& url_matcher,
-      const base::Closure& callback) override {
-    // Not needed in this test.
+  void ClearCodeCaches(base::OnceClosure callback) override {
+    storage_partition_removal_data_.remove_code_cache = true;
   }
 
-  void Flush() override {}
-
-  void ClearBluetoothAllowedDevicesMapForTesting() override {}
-
-  StoragePartitionRemovalData GetStoragePartitionRemovalData() {
+  const StoragePartitionRemovalData& GetStoragePartitionRemovalData() const {
     return storage_partition_removal_data_;
   }
 
  private:
-  void AsyncRunCallback(const base::Closure& callback) { callback.Run(); }
+  void AsyncRunCallback(base::OnceClosure callback) {
+    std::move(callback).Run();
+  }
 
   StoragePartitionRemovalData storage_partition_removal_data_;
 
-  DISALLOW_COPY_AND_ASSIGN(TestStoragePartition);
+  DISALLOW_COPY_AND_ASSIGN(StoragePartitionRemovalTestStoragePartition);
 };
 
 // Custom matcher to test the equivalence of two URL filters. Since those are
@@ -294,68 +287,14 @@ base::Time AnHourAgo() {
   return base::Time::Now() - base::TimeDelta::FromHours(1);
 }
 
+bool FilterMatchesCookie(const CookieDeletionFilterPtr& filter,
+                         const net::CanonicalCookie& cookie) {
+  return network::DeletionFilterToInfo(filter.Clone()).Matches(cookie);
+}
+
 }  // namespace
 
 // Testers -------------------------------------------------------------------
-
-class RemoveCookieTester {
- public:
-  RemoveCookieTester() {}
-
-  // Returns true, if the given cookie exists in the cookie store.
-  bool ContainsCookie() {
-    scoped_refptr<MessageLoopRunner> message_loop_runner =
-        new MessageLoopRunner();
-    quit_closure_ = message_loop_runner->QuitClosure();
-    get_cookie_success_ = false;
-    cookie_store_->GetCookiesWithOptionsAsync(
-        kOrigin1, net::CookieOptions(),
-        base::Bind(&RemoveCookieTester::GetCookieCallback,
-                   base::Unretained(this)));
-    message_loop_runner->Run();
-    return get_cookie_success_;
-  }
-
-  void AddCookie() {
-    scoped_refptr<MessageLoopRunner> message_loop_runner =
-        new MessageLoopRunner();
-    quit_closure_ = message_loop_runner->QuitClosure();
-    cookie_store_->SetCookieWithOptionsAsync(
-        kOrigin1, "A=1", net::CookieOptions(),
-        base::Bind(&RemoveCookieTester::SetCookieCallback,
-                   base::Unretained(this)));
-    message_loop_runner->Run();
-  }
-
- protected:
-  void SetCookieStore(net::CookieStore* cookie_store) {
-    cookie_store_ = cookie_store;
-  }
-
- private:
-  void GetCookieCallback(const std::string& cookies) {
-    if (cookies == "A=1") {
-      get_cookie_success_ = true;
-    } else {
-      EXPECT_EQ("", cookies);
-      get_cookie_success_ = false;
-    }
-    quit_closure_.Run();
-  }
-
-  void SetCookieCallback(bool result) {
-    ASSERT_TRUE(result);
-    quit_closure_.Run();
-  }
-
-  bool get_cookie_success_ = false;
-  base::Closure quit_closure_;
-
-  // CookieStore must out live |this|.
-  net::CookieStore* cookie_store_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(RemoveCookieTester);
-};
 
 class RemoveChannelIDTester : public net::SSLConfigService::Observer {
  public:
@@ -380,7 +319,7 @@ class RemoveChannelIDTester : public net::SSLConfigService::Observer {
   void AddChannelIDWithTimes(const std::string& server_identifier,
                              base::Time creation_time) {
     GetChannelIDStore()->SetChannelID(
-        base::MakeUnique<net::ChannelIDStore::ChannelID>(
+        std::make_unique<net::ChannelIDStore::ChannelID>(
             server_identifier, creation_time, crypto::ECPrivateKey::Create()));
   }
 
@@ -392,7 +331,7 @@ class RemoveChannelIDTester : public net::SSLConfigService::Observer {
   }
 
   void GetChannelIDList(net::ChannelIDStore::ChannelIDList* channel_ids) {
-    GetChannelIDStore()->GetAllChannelIDs(base::Bind(
+    GetChannelIDStore()->GetAllChannelIDs(base::BindOnce(
         &RemoveChannelIDTester::GetAllChannelIDsCallback, channel_ids));
   }
 
@@ -413,82 +352,10 @@ class RemoveChannelIDTester : public net::SSLConfigService::Observer {
   }
 
   net::ChannelIDService* channel_id_service_;
-  scoped_refptr<net::SSLConfigService> ssl_config_service_;
+  net::SSLConfigService* ssl_config_service_;
   int ssl_config_changed_count_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(RemoveChannelIDTester);
-};
-
-class RemoveLocalStorageTester {
- public:
-  explicit RemoveLocalStorageTester(BrowserContext* browser_context)
-      : browser_context_(browser_context) {
-    dom_storage_context_ =
-        BrowserContext::GetDefaultStoragePartition(browser_context_)
-            ->GetDOMStorageContext();
-  }
-
-  // Returns true, if the given origin URL exists.
-  bool DOMStorageExistsForOrigin(const GURL& origin) {
-    scoped_refptr<MessageLoopRunner> message_loop_runner =
-        new MessageLoopRunner();
-    quit_closure_ = message_loop_runner->QuitClosure();
-    GetLocalStorageUsage();
-    message_loop_runner->Run();
-    for (size_t i = 0; i < infos_.size(); ++i) {
-      if (origin == infos_[i].origin)
-        return true;
-    }
-    return false;
-  }
-
-  void AddDOMStorageTestData() {
-    // Note: This test depends on details of how the dom_storage library
-    // stores data in the host file system.
-    base::FilePath storage_path =
-        browser_context_->GetPath().AppendASCII("Local Storage");
-    base::CreateDirectory(storage_path);
-
-    // Write some files.
-    base::WriteFile(storage_path.Append(kDomStorageOrigin1), nullptr, 0);
-    base::WriteFile(storage_path.Append(kDomStorageOrigin2), nullptr, 0);
-    base::WriteFile(storage_path.Append(kDomStorageOrigin3), nullptr, 0);
-    base::WriteFile(storage_path.Append(kDomStorageExt), nullptr, 0);
-
-    // Tweak their dates.
-    base::Time now = base::Time::Now();
-    base::TouchFile(storage_path.Append(kDomStorageOrigin1), now, now);
-
-    base::Time one_day_ago = now - base::TimeDelta::FromDays(1);
-    base::TouchFile(storage_path.Append(kDomStorageOrigin2), one_day_ago,
-                    one_day_ago);
-
-    base::Time sixty_days_ago = now - base::TimeDelta::FromDays(60);
-    base::TouchFile(storage_path.Append(kDomStorageOrigin3), sixty_days_ago,
-                    sixty_days_ago);
-
-    base::TouchFile(storage_path.Append(kDomStorageExt), now, now);
-  }
-
- private:
-  void GetLocalStorageUsage() {
-    dom_storage_context_->GetLocalStorageUsage(
-        base::Bind(&RemoveLocalStorageTester::OnGotLocalStorageUsage,
-                   base::Unretained(this)));
-  }
-  void OnGotLocalStorageUsage(const std::vector<LocalStorageUsageInfo>& infos) {
-    infos_ = infos;
-    quit_closure_.Run();
-  }
-
-  // We don't own these pointers.
-  BrowserContext* browser_context_;
-  DOMStorageContext* dom_storage_context_ = nullptr;
-
-  std::vector<LocalStorageUsageInfo> infos_;
-  base::Closure quit_closure_;
-
-  DISALLOW_COPY_AND_ASSIGN(RemoveLocalStorageTester);
 };
 
 class RemoveDownloadsTester {
@@ -532,14 +399,16 @@ class BrowsingDataRemoverImplTest : public testing::Test {
     // destroyed, and that the message loop is cleared out, before destroying
     // the threads and loop. Otherwise we leak memory.
     browser_context_.reset();
-    base::RunLoop().RunUntilIdle();
+    RunAllTasksUntilIdle();
   }
 
   void BlockUntilBrowsingDataRemoved(const base::Time& delete_begin,
                                      const base::Time& delete_end,
                                      int remove_mask,
                                      bool include_protected_origins) {
-    TestStoragePartition storage_partition;
+    StoragePartitionRemovalTestStoragePartition storage_partition;
+    network::TestNetworkContext nop_network_context;
+    storage_partition.set_network_context(&nop_network_context);
     remover_->OverrideStoragePartitionForTesting(&storage_partition);
 
     int origin_type_mask = BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB;
@@ -561,7 +430,7 @@ class BrowsingDataRemoverImplTest : public testing::Test {
       const base::Time& delete_end,
       int remove_mask,
       std::unique_ptr<BrowsingDataFilterBuilder> filter_builder) {
-    TestStoragePartition storage_partition;
+    StoragePartitionRemovalTestStoragePartition storage_partition;
     remover_->OverrideStoragePartitionForTesting(&storage_partition);
 
     BrowsingDataRemoverCompletionObserver completion_observer(remover_);
@@ -586,7 +455,7 @@ class BrowsingDataRemoverImplTest : public testing::Test {
 
   int GetOriginTypeMask() { return remover_->GetLastUsedOriginTypeMask(); }
 
-  StoragePartitionRemovalData GetStoragePartitionRemovalData() {
+  const StoragePartitionRemovalData& GetStoragePartitionRemovalData() const {
     return storage_partition_removal_data_;
   }
 
@@ -683,12 +552,16 @@ TEST_F(BrowsingDataRemoverImplTest, RemoveCookiesDomainBlacklist) {
   // Even though it's a different origin, it's the same domain.
   EXPECT_FALSE(removal_data.origin_matcher.Run(kOrigin4, mock_policy()));
 
-  EXPECT_FALSE(removal_data.cookie_matcher.Run(CreateCookieWithHost(kOrigin1)));
-  EXPECT_TRUE(removal_data.cookie_matcher.Run(CreateCookieWithHost(kOrigin2)));
-  EXPECT_FALSE(removal_data.cookie_matcher.Run(CreateCookieWithHost(kOrigin3)));
+  EXPECT_FALSE(FilterMatchesCookie(removal_data.cookie_deletion_filter,
+                                   CreateCookieWithHost(kOrigin1)));
+  EXPECT_TRUE(FilterMatchesCookie(removal_data.cookie_deletion_filter,
+                                  CreateCookieWithHost(kOrigin2)));
+  EXPECT_FALSE(FilterMatchesCookie(removal_data.cookie_deletion_filter,
+                                   CreateCookieWithHost(kOrigin3)));
   // This is false, because this is the same domain as 3, just with a different
   // scheme.
-  EXPECT_FALSE(removal_data.cookie_matcher.Run(CreateCookieWithHost(kOrigin4)));
+  EXPECT_FALSE(FilterMatchesCookie(removal_data.cookie_deletion_filter,
+                                   CreateCookieWithHost(kOrigin4)));
 }
 
 // Test that removing cookies clears HTTP auth data.
@@ -699,7 +572,7 @@ TEST_F(BrowsingDataRemoverImplTest, ClearHttpAuthCache_RemoveCookies) {
           ->GetURLRequestContext()
           ->http_transaction_factory()
           ->GetSession();
-  DCHECK(http_session);
+  ASSERT_TRUE(http_session);
 
   net::HttpAuthCache* http_auth_cache = http_session->http_auth_cache();
   http_auth_cache->Add(kOrigin1, kTestRealm, net::HttpAuth::AUTH_SCHEME_BASIC,
@@ -707,14 +580,46 @@ TEST_F(BrowsingDataRemoverImplTest, ClearHttpAuthCache_RemoveCookies) {
                        net::AuthCredentials(base::ASCIIToUTF16("foo"),
                                             base::ASCIIToUTF16("bar")),
                        "/");
-  CHECK(http_auth_cache->Lookup(kOrigin1, kTestRealm,
-                                net::HttpAuth::AUTH_SCHEME_BASIC));
+  ASSERT_TRUE(http_auth_cache->Lookup(kOrigin1, kTestRealm,
+                                      net::HttpAuth::AUTH_SCHEME_BASIC));
 
   BlockUntilBrowsingDataRemoved(base::Time(), base::Time::Max(),
                                 BrowsingDataRemover::DATA_TYPE_COOKIES, false);
 
   EXPECT_EQ(nullptr, http_auth_cache->Lookup(kOrigin1, kTestRealm,
                                              net::HttpAuth::AUTH_SCHEME_BASIC));
+}
+
+// Test that removing cookies does not clear HTTP auth data if we're avoiding
+// closing connections.
+TEST_F(BrowsingDataRemoverImplTest,
+       ClearHttpAuthCache_AvoidClosingConnections) {
+  net::HttpNetworkSession* http_session =
+      BrowserContext::GetDefaultStoragePartition(GetBrowserContext())
+          ->GetURLRequestContext()
+          ->GetURLRequestContext()
+          ->http_transaction_factory()
+          ->GetSession();
+  ASSERT_TRUE(http_session);
+
+  net::HttpAuthCache* http_auth_cache = http_session->http_auth_cache();
+  net::HttpAuthCache::Entry* entry = http_auth_cache->Add(
+      kOrigin1, kTestRealm, net::HttpAuth::AUTH_SCHEME_BASIC, "test challenge",
+      net::AuthCredentials(base::ASCIIToUTF16("foo"),
+                           base::ASCIIToUTF16("bar")),
+      "/");
+  ASSERT_TRUE(http_auth_cache->Lookup(kOrigin1, kTestRealm,
+                                      net::HttpAuth::AUTH_SCHEME_BASIC));
+
+  BlockUntilBrowsingDataRemoved(
+      base::Time(), base::Time::Max(),
+      BrowsingDataRemover::DATA_TYPE_COOKIES |
+          BrowsingDataRemover::DATA_TYPE_AVOID_CLOSING_CONNECTIONS,
+      false);
+
+  // The entry stays unchanged.
+  EXPECT_EQ(entry, http_auth_cache->Lookup(kOrigin1, kTestRealm,
+                                           net::HttpAuth::AUTH_SCHEME_BASIC));
 }
 
 TEST_F(BrowsingDataRemoverImplTest, RemoveChannelIDForever) {
@@ -779,6 +684,29 @@ TEST_F(BrowsingDataRemoverImplTest, RemoveChannelIDsForServerIdentifiers) {
   net::ChannelIDStore::ChannelIDList channel_ids;
   tester.GetChannelIDList(&channel_ids);
   EXPECT_EQ(kTestRegisterableDomain3, channel_ids.front().server_identifier());
+}
+
+TEST_F(BrowsingDataRemoverImplTest, RemoveChannelIDsAvoidClosingConnections) {
+  RemoveChannelIDTester tester(GetBrowserContext());
+
+  tester.AddChannelID(kTestOrigin1);
+  EXPECT_EQ(0, tester.ssl_config_changed_count());
+  EXPECT_EQ(1, tester.ChannelIDCount());
+
+  int remove_mask = BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS |
+                    BrowsingDataRemover::DATA_TYPE_AVOID_CLOSING_CONNECTIONS;
+
+  BlockUntilBrowsingDataRemoved(base::Time(), base::Time::Max(), remove_mask,
+                                false);
+
+  EXPECT_EQ(remove_mask, GetRemovalMask());
+  EXPECT_EQ(BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB,
+            GetOriginTypeMask());
+
+  // No deletion took place because the AVOID_CLOSING_CONNECTIONS flag
+  // was specified.
+  EXPECT_EQ(0, tester.ssl_config_changed_count());
+  EXPECT_EQ(1, tester.ChannelIDCount());
 }
 
 TEST_F(BrowsingDataRemoverImplTest, RemoveUnprotectedLocalStorageForever) {
@@ -1403,7 +1331,7 @@ TEST_F(BrowsingDataRemoverImplTest, CompletionInhibition) {
   // sure we do not complete asynchronously before ContinueToCompletion() is
   // called.
   completion_inhibitor.BlockUntilNearCompletion();
-  base::RunLoop().RunUntilIdle();
+  RunAllTasksUntilIdle();
 
   // Verify that the removal has not yet been completed and the observer has
   // not been called.
@@ -1473,6 +1401,183 @@ TEST_F(BrowsingDataRemoverImplTest, RemoveDownloadsByOrigin) {
                               BrowsingDataRemover::DATA_TYPE_DOWNLOADS,
                               std::move(builder));
 }
+
+TEST_F(BrowsingDataRemoverImplTest, RemoveCodeCache) {
+  RemoveDownloadsTester tester(GetBrowserContext());
+
+  BlockUntilBrowsingDataRemoved(base::Time(), base::Time::Max(),
+                                BrowsingDataRemover::DATA_TYPE_CACHE, false);
+  StoragePartitionRemovalData removal_data = GetStoragePartitionRemovalData();
+  EXPECT_TRUE(removal_data.remove_code_cache);
+}
+
+#if BUILDFLAG(ENABLE_REPORTING)
+TEST_F(BrowsingDataRemoverImplTest, RemoveReportingCache) {
+  auto reporting_context = std::make_unique<net::TestReportingContext>(
+      base::DefaultClock::GetInstance(), base::DefaultTickClock::GetInstance(),
+      net::ReportingPolicy());
+  net::ReportingCache* reporting_cache = reporting_context->cache();
+  std::unique_ptr<net::ReportingService> reporting_service =
+      net::ReportingService::CreateForTesting(std::move(reporting_context));
+
+  BrowserContext::GetDefaultStoragePartition(GetBrowserContext())
+      ->GetURLRequestContext()
+      ->GetURLRequestContext()
+      ->set_reporting_service(reporting_service.get());
+
+  GURL domain("https://google.com");
+  reporting_cache->SetClient(url::Origin::Create(domain), domain,
+                             net::ReportingClient::Subdomains::EXCLUDE, "group",
+                             base::TimeTicks::Max(), 0, 1);
+
+  std::vector<const net::ReportingClient*> clients;
+  reporting_cache->GetClients(&clients);
+  ASSERT_EQ(1u, clients.size());
+
+  BlockUntilBrowsingDataRemoved(base::Time(), base::Time::Max(),
+                                BrowsingDataRemover::DATA_TYPE_COOKIES, false);
+
+  reporting_cache->GetClients(&clients);
+  EXPECT_TRUE(clients.empty());
+}
+
+TEST_F(BrowsingDataRemoverImplTest, RemoveReportingCache_SpecificOrigins) {
+  auto reporting_context = std::make_unique<net::TestReportingContext>(
+      base::DefaultClock::GetInstance(), base::DefaultTickClock::GetInstance(),
+      net::ReportingPolicy());
+  net::ReportingCache* reporting_cache = reporting_context->cache();
+  std::unique_ptr<net::ReportingService> reporting_service =
+      net::ReportingService::CreateForTesting(std::move(reporting_context));
+
+  BrowserContext::GetDefaultStoragePartition(GetBrowserContext())
+      ->GetURLRequestContext()
+      ->GetURLRequestContext()
+      ->set_reporting_service(reporting_service.get());
+
+  GURL domain1("https://google.com");
+  reporting_cache->SetClient(url::Origin::Create(domain1), domain1,
+                             net::ReportingClient::Subdomains::EXCLUDE, "group",
+                             base::TimeTicks::Max(), 0, 1);
+  GURL domain2("https://host2.com");
+  reporting_cache->SetClient(url::Origin::Create(domain2), domain2,
+                             net::ReportingClient::Subdomains::EXCLUDE, "group",
+                             base::TimeTicks::Max(), 0, 1);
+  GURL domain3("https://host3.com");
+  reporting_cache->SetClient(url::Origin::Create(domain3), domain3,
+                             net::ReportingClient::Subdomains::EXCLUDE, "group",
+                             base::TimeTicks::Max(), 0, 1);
+  GURL domain4("https://host4.com");
+  reporting_cache->SetClient(url::Origin::Create(domain4), domain4,
+                             net::ReportingClient::Subdomains::EXCLUDE, "group",
+                             base::TimeTicks::Max(), 0, 1);
+
+  std::vector<const net::ReportingClient*> clients;
+  reporting_cache->GetClients(&clients);
+  ASSERT_EQ(4u, clients.size());
+
+  std::unique_ptr<BrowsingDataFilterBuilder> filter_builder(
+      BrowsingDataFilterBuilder::Create(BrowsingDataFilterBuilder::WHITELIST));
+  filter_builder->AddRegisterableDomain("google.com");
+  filter_builder->AddRegisterableDomain("host3.com");
+  BlockUntilOriginDataRemoved(base::Time(), base::Time::Max(),
+                              BrowsingDataRemover::DATA_TYPE_COOKIES,
+                              std::move(filter_builder));
+
+  reporting_cache->GetClients(&clients);
+  EXPECT_EQ(2u, clients.size());
+  std::vector<GURL> origins;
+  for (const net::ReportingClient* client : clients) {
+    origins.push_back(client->endpoint);
+  }
+  EXPECT_THAT(origins, UnorderedElementsAre(domain2, domain4));
+}
+
+TEST_F(BrowsingDataRemoverImplTest, RemoveReportingCache_NoService) {
+  ASSERT_FALSE(BrowserContext::GetDefaultStoragePartition(GetBrowserContext())
+                   ->GetURLRequestContext()
+                   ->GetURLRequestContext()
+                   ->reporting_service());
+
+  BlockUntilBrowsingDataRemoved(base::Time(), base::Time::Max(),
+                                BrowsingDataRemover::DATA_TYPE_COOKIES, false);
+}
+
+TEST_F(BrowsingDataRemoverImplTest, RemoveNetworkErrorLogging) {
+  std::unique_ptr<net::NetworkErrorLoggingService> logging_service =
+      net::NetworkErrorLoggingService::Create(
+          net::NetworkErrorLoggingDelegate::Create());
+  BrowserContext::GetDefaultStoragePartition(GetBrowserContext())
+      ->GetURLRequestContext()
+      ->GetURLRequestContext()
+      ->set_network_error_logging_service(logging_service.get());
+
+  GURL domain("https://google.com");
+  logging_service->OnHeader(url::Origin::Create(domain),
+                            net::IPAddress(192, 168, 0, 1),
+                            "{\"report_to\":\"group\",\"max_age\":86400}");
+
+  ASSERT_EQ(1u, logging_service->GetPolicyOriginsForTesting().size());
+
+  BlockUntilBrowsingDataRemoved(base::Time(), base::Time::Max(),
+                                BrowsingDataRemover::DATA_TYPE_COOKIES, false);
+
+  EXPECT_TRUE(logging_service->GetPolicyOriginsForTesting().empty());
+}
+
+TEST_F(BrowsingDataRemoverImplTest, RemoveNetworkErrorLogging_SpecificOrigins) {
+  std::unique_ptr<net::NetworkErrorLoggingService> logging_service =
+      net::NetworkErrorLoggingService::Create(
+          net::NetworkErrorLoggingDelegate::Create());
+  BrowserContext::GetDefaultStoragePartition(GetBrowserContext())
+      ->GetURLRequestContext()
+      ->GetURLRequestContext()
+      ->set_network_error_logging_service(logging_service.get());
+
+  GURL domain1("https://google.com");
+  logging_service->OnHeader(url::Origin::Create(domain1),
+                            net::IPAddress(192, 168, 0, 1),
+                            "{\"report_to\":\"group\",\"max_age\":86400}");
+  GURL domain2("https://host2.com");
+  logging_service->OnHeader(url::Origin::Create(domain2),
+                            net::IPAddress(192, 168, 0, 1),
+                            "{\"report_to\":\"group\",\"max_age\":86400}");
+  GURL domain3("https://host3.com");
+  logging_service->OnHeader(url::Origin::Create(domain3),
+                            net::IPAddress(192, 168, 0, 1),
+                            "{\"report_to\":\"group\",\"max_age\":86400}");
+  GURL domain4("https://host4.com");
+  logging_service->OnHeader(url::Origin::Create(domain4),
+                            net::IPAddress(192, 168, 0, 1),
+                            "{\"report_to\":\"group\",\"max_age\":86400}");
+
+  ASSERT_EQ(4u, logging_service->GetPolicyOriginsForTesting().size());
+
+  std::unique_ptr<BrowsingDataFilterBuilder> filter_builder(
+      BrowsingDataFilterBuilder::Create(BrowsingDataFilterBuilder::WHITELIST));
+  filter_builder->AddRegisterableDomain("google.com");
+  filter_builder->AddRegisterableDomain("host3.com");
+  BlockUntilOriginDataRemoved(base::Time(), base::Time::Max(),
+                              BrowsingDataRemover::DATA_TYPE_COOKIES,
+                              std::move(filter_builder));
+
+  std::set<url::Origin> policy_origins =
+      logging_service->GetPolicyOriginsForTesting();
+  EXPECT_EQ(2u, policy_origins.size());
+  EXPECT_THAT(policy_origins,
+              UnorderedElementsAre(url::Origin::Create(domain2),
+                                   url::Origin::Create(domain4)));
+}
+
+TEST_F(BrowsingDataRemoverImplTest, RemoveNetworkErrorLogging_NoService) {
+  ASSERT_FALSE(BrowserContext::GetDefaultStoragePartition(GetBrowserContext())
+                   ->GetURLRequestContext()
+                   ->GetURLRequestContext()
+                   ->network_error_logging_service());
+
+  BlockUntilBrowsingDataRemoved(base::Time(), base::Time::Max(),
+                                BrowsingDataRemover::DATA_TYPE_COOKIES, false);
+}
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 
 class MultipleTasksObserver {
  public:
@@ -1610,6 +1715,9 @@ TEST_F(BrowsingDataRemoverImplTest, MultipleTasks) {
   }
 
   EXPECT_FALSE(remover->is_removing());
+
+  // Run clean up tasks.
+  RunAllTasksUntilIdle();
 }
 
 // The previous test, BrowsingDataRemoverTest.MultipleTasks, tests that the

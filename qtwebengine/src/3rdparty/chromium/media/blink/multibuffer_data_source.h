@@ -13,7 +13,6 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "media/base/data_source.h"
@@ -57,11 +56,8 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   // will be reported to |host|. |downloading_cb| will be called whenever the
   // downloading/paused state of the source changes.
   MultibufferDataSource(
-      const GURL& url,
-      UrlData::CORSMode cors_mode,
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      linked_ptr<UrlIndex> url_index,
-      blink::WebFrame* frame,
+      scoped_refptr<UrlData> url_data,
       MediaLog* media_log,
       BufferedDataSourceHost* host,
       const DownloadingCB& downloading_cb);
@@ -82,8 +78,12 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   // Method called on the render thread.
   bool HasSingleOrigin();
 
-  // Returns true if the media resource passed a CORS access control check.
-  bool DidPassCORSAccessCheck() const;
+  // https://html.spec.whatwg.org/#cors-cross-origin
+  // This must be called after the response arrives.
+  bool IsCorsCrossOrigin() const;
+
+  // Returns the CorsMode of the underlying UrlData.
+  UrlData::CorsMode cors_mode() const;
 
   // Notifies changes in playback state for controlling media buffering
   // behavior.
@@ -92,7 +92,7 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   bool media_has_played() const;
 
   // Returns true if the resource is local.
-  bool assume_fully_buffered();
+  bool AssumeFullyBuffered() const override;
 
   // Cancels any open network connections once reaching the deferred state. If
   // |always_cancel| is false this is done only for preload=metadata, non-
@@ -101,7 +101,7 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   // deferred, connections will be immediately closed.
   void OnBufferingHaveEnough(bool always_cancel);
 
-  int64_t GetMemoryUsage() const;
+  int64_t GetMemoryUsage() override;
 
   GURL GetUrlAfterRedirects() const;
 
@@ -117,6 +117,9 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   bool GetSize(int64_t* size_out) override;
   bool IsStreaming() override;
   void SetBitrate(int bitrate) override;
+  void SetIsClientAudioElement(bool is_client_audio_element) {
+    is_client_audio_element_ = is_client_audio_element;
+  }
 
  protected:
   void OnRedirect(const scoped_refptr<UrlData>& destination);
@@ -126,10 +129,26 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   void CreateResourceLoader(int64_t first_byte_position,
                             int64_t last_byte_position);
 
+  // Same as above, but called with |lock_| held.
+  void CreateResourceLoader_Locked(int64_t first_byte_position,
+                                   int64_t last_byte_position);
+
+  // Set reader_ while asserting proper locking.
+  void SetReader(MultiBufferReader* reader);
+
   friend class MultibufferDataSourceTest;
 
   // Task posted to perform actual reading on the render thread.
   void ReadTask();
+
+  // After a read, this function updates the read position.
+  // It's in a separate function because the read itself can either happen
+  // in ReadTask() or in Read(), both of which call this function afterwards.
+  void SeekTask_Locked();
+
+  // Lock |lock_| lock and call SeekTask_Locked().
+  // Called with PostTask when read() complets on the demuxer thread.
+  void SeekTask();
 
   // Cancels oustanding callbacks and sets |stop_signal_received_|. Safe to call
   // from any thread.
@@ -162,16 +181,19 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   // Update |reader_|'s preload and buffer settings.
   void UpdateBufferSizes();
 
-  // crossorigin attribute on the corresponding HTML media element, if any.
-  UrlData::CORSMode cors_mode_;
-
-  // URL of the resource requested.
-  scoped_refptr<UrlData> url_data_;
-
   // The total size of the resource. Set during StartCallback() if the size is
   // known, otherwise it will remain kPositionNotSpecified until the size is
   // determined by reaching EOF.
   int64_t total_bytes_;
+
+  // Bytes we've read but not reported to the url_data yet.
+  // SeekTask handles the reporting.
+  int64_t bytes_read_ = 0;
+
+  // Places we might want to seek to. After each read we add another
+  // location here, and when SeekTask() is called, it picks the best
+  // position and then clears it out.
+  std::vector<int64_t> seek_positions_;
 
   // This value will be true if this data source can only support streaming.
   // i.e. range request is not supported.
@@ -187,11 +209,8 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   // The task runner of the render thread.
   const scoped_refptr<base::SingleThreadTaskRunner> render_task_runner_;
 
-  // Shared cache.
-  linked_ptr<UrlIndex> url_index_;
-
-  // A webframe for loading.
-  blink::WebFrame* frame_;
+  // URL of the resource requested.
+  scoped_refptr<UrlData> url_data_;
 
   // A resource reader for the media resource.
   std::unique_ptr<MultiBufferReader> reader_;
@@ -204,7 +223,7 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
   class ReadOperation;
   std::unique_ptr<ReadOperation> read_op_;
 
-  // Protects |stop_signal_received_|, |read_op_| and |total_bytes_|.
+  // Protects |stop_signal_received_|, |read_op_|, |reader_| and |total_bytes_|.
   base::Lock lock_;
 
   // Whether we've been told to stop via Abort() or Stop().
@@ -233,18 +252,14 @@ class MEDIA_BLINK_EXPORT MultibufferDataSource : public DataSource {
 
   MediaLog* media_log_;
 
+  bool is_client_audio_element_ = false;
+
+  int buffer_size_update_counter_;
+
   // Host object to report buffered byte range changes to.
   BufferedDataSourceHost* host_;
 
   DownloadingCB downloading_cb_;
-
-  // The original URL of the first response. If the request is redirected to
-  // another URL it is the URL after redirected. If the response is generated in
-  // a Service Worker this URL is empty. MultibufferDataSource checks the
-  // original URL of each successive response. If the origin URL of it is
-  // different from the original URL of the first response, it is treated
-  // as an error.
-  GURL response_original_url_;
 
   // Disallow rebinding WeakReference ownership to a different thread by keeping
   // a persistent reference. This avoids problems with the thread-safety of

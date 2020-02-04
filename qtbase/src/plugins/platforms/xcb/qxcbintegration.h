@@ -53,7 +53,6 @@ QT_BEGIN_NAMESPACE
 class QXcbConnection;
 class QAbstractEventDispatcher;
 class QXcbNativeInterface;
-class QXcbScreen;
 
 class Q_XCB_EXPORT QXcbIntegration : public QPlatformIntegration
 {
@@ -84,7 +83,7 @@ public:
 #ifndef QT_NO_CLIPBOARD
     QPlatformClipboard *clipboard() const override;
 #endif
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QPlatformDrag *drag() const override;
 #endif
 
@@ -103,6 +102,7 @@ public:
     QPlatformTheme *createPlatformTheme(const QString &name) const override;
     QVariant styleHint(StyleHint hint) const override;
 
+    bool hasDefaultConnection() const { return !m_connections.isEmpty(); }
     QXcbConnection *defaultConnection() const { return m_connections.first(); }
 
     QByteArray wmClass() const;
@@ -136,8 +136,6 @@ private:
 #endif
 
     QScopedPointer<QPlatformServices> m_services;
-
-    friend class QXcbConnection; // access QPlatformIntegration::screenAdded()
 
     mutable QByteArray m_wmClass;
     const char *m_instanceName;

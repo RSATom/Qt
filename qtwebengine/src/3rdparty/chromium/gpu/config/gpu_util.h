@@ -5,10 +5,6 @@
 #ifndef GPU_CONFIG_GPU_UTIL_H_
 #define GPU_CONFIG_GPU_UTIL_H_
 
-#include <set>
-#include <string>
-
-#include "base/command_line.h"
 #include "build/build_config.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/gpu_export.h"
@@ -20,36 +16,67 @@ class CommandLine;
 namespace gpu {
 
 struct GPUInfo;
+struct GpuPreferences;
+enum class GpuSeriesType;
 
-// With provided GPUInfo, compute the driver bug workarounds and disabled
-// extensions for the current system, and append the |command_line|.
-GPU_EXPORT void ApplyGpuDriverBugWorkarounds(
-    const GPUInfo& gpu_info,
-    base::CommandLine* command_line);
+// Set GPU feature status if hardware acceleration is disabled.
+GPU_EXPORT GpuFeatureInfo
+ComputeGpuFeatureInfoWithHardwareAccelerationDisabled();
 
-// |str| is in the format of "feature1,feature2,...,featureN".
-GPU_EXPORT void StringToFeatureSet(
-    const std::string& str, std::set<int>* feature_set);
+// Set GPU feature status if GPU is blocked.
+GPU_EXPORT GpuFeatureInfo ComputeGpuFeatureInfoWithNoGpu();
 
-// With provided command line, fill gpu_info->secondary_gpus with parsed
-// secondary vendor and device ids.
-GPU_EXPORT void ParseSecondaryGpuDevicesFromCommandLine(
-    const base::CommandLine& command_line,
-    GPUInfo* gpu_info);
-
-GPU_EXPORT void InitializeDualGpusIfSupported(
-    const std::set<int>& driver_bug_workarounds);
+// Set GPU feature status for SwiftShader.
+GPU_EXPORT GpuFeatureInfo ComputeGpuFeatureInfoForSwiftShader();
 
 // This function should only be called from the GPU process, or the Browser
 // process while using in-process GPU. This function is safe to call at any
 // point, and is not dependent on sandbox initialization.
+// This function also appends a few commandline switches caused by driver bugs.
 GPU_EXPORT GpuFeatureInfo
-GetGpuFeatureInfo(const GPUInfo& gpu_info,
-                  const base::CommandLine& command_line);
+ComputeGpuFeatureInfo(const GPUInfo& gpu_info,
+                      const GpuPreferences& gpu_preferences,
+                      base::CommandLine* command_line,
+                      bool* needs_more_info);
 
 GPU_EXPORT void SetKeysForCrashLogging(const GPUInfo& gpu_info);
+
+// Cache GPUInfo so it can be accessed later.
+GPU_EXPORT void CacheGPUInfo(const GPUInfo& gpu_info);
+
+// If GPUInfo is cached, write into |gpu_info|, clear cache, and return true;
+// otherwise, return false;
+GPU_EXPORT bool PopGPUInfoCache(GPUInfo* gpu_info);
+
+// Cache GpuFeatureInfo so it can be accessed later.
+GPU_EXPORT void CacheGpuFeatureInfo(const GpuFeatureInfo& gpu_feature_info);
+
+// If GpuFeatureInfo is cached, write into |gpu_feature_info|, clear cache, and
+// return true; otherwise, return false;
+GPU_EXPORT bool PopGpuFeatureInfoCache(GpuFeatureInfo* gpu_feature_info);
+
+#if defined(OS_ANDROID)
+// Check if GL bindings are initialized. If not, initializes GL
+// bindings, create a GL context, collects GPUInfo, make blacklist and
+// GPU driver bug workaround decisions. This is intended to be called
+// by Android WebView render thread and in-process GPU thread.
+GPU_EXPORT bool InitializeGLThreadSafe(base::CommandLine* command_line,
+                                       const GpuPreferences& gpu_preferences,
+                                       GPUInfo* out_gpu_info,
+                                       GpuFeatureInfo* out_gpu_feature_info);
+#endif  // OS_ANDROID
+
+// Returns whether SwiftShader should be enabled. If true, the proper command
+// line switch to enable SwiftShader will be appended to 'command_line'.
+GPU_EXPORT bool EnableSwiftShaderIfNeeded(
+    base::CommandLine* command_line,
+    const GpuFeatureInfo& gpu_feature_info,
+    bool disable_software_rasterizer,
+    bool blacklist_needs_more_info);
+
+GPU_EXPORT GpuSeriesType GetGpuSeriesType(uint32_t vendor_id,
+                                          uint32_t device_id);
 
 }  // namespace gpu
 
 #endif  // GPU_CONFIG_GPU_UTIL_H_
-

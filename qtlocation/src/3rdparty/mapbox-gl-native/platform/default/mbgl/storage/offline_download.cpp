@@ -7,6 +7,7 @@
 #include <mbgl/style/parser.hpp>
 #include <mbgl/style/sources/vector_source.hpp>
 #include <mbgl/style/sources/raster_source.hpp>
+#include <mbgl/style/sources/raster_dem_source.hpp>
 #include <mbgl/style/sources/geojson_source.hpp>
 #include <mbgl/style/sources/image_source.hpp>
 #include <mbgl/style/conversion/json.hpp>
@@ -110,6 +111,12 @@ OfflineRegionStatus OfflineDownload::getStatus() const {
             handleTiledSource(rasterSource.getURLOrTileset(), rasterSource.getTileSize());
             break;
         }
+        
+        case SourceType::RasterDEM: {
+            const auto& rasterDEMSource = *source->as<RasterDEMSource>();
+            handleTiledSource(rasterDEMSource.getURLOrTileset(), rasterDEMSource.getTileSize());
+            break;
+        }
 
         case SourceType::GeoJSON: {
             const auto& geojsonSource = *source->as<GeoJSONSource>();
@@ -193,6 +200,12 @@ void OfflineDownload::activateDownload() {
             case SourceType::Raster: {
                 const auto& rasterSource = *source->as<RasterSource>();
                 handleTiledSource(rasterSource.getURLOrTileset(), rasterSource.getTileSize());
+                break;
+            }
+            
+            case SourceType::RasterDEM: {
+                const auto& rasterDEMSource = *source->as<RasterDEMSource>();
+                handleTiledSource(rasterDEMSource.getURLOrTileset(), rasterDEMSource.getTileSize());
                 break;
             }
 
@@ -317,7 +330,8 @@ void OfflineDownload::ensureResource(const Resource& resource,
             return;
         }
 
-        if (checkTileCountLimit(resource)) {
+        if (offlineDatabase.exceedsOfflineMapboxTileCountLimit(resource)) {
+            onMapboxTileCountLimitExceeded();
             return;
         }
 
@@ -334,17 +348,24 @@ void OfflineDownload::ensureResource(const Resource& resource,
                 callback(onlineResponse);
             }
 
-            status.completedResourceCount++;
-            uint64_t resourceSize = offlineDatabase.putRegionResource(id, resource, onlineResponse);
-            status.completedResourceSize += resourceSize;
-            if (resource.kind == Resource::Kind::Tile) {
-                status.completedTileCount += 1;
-                status.completedTileSize += resourceSize;
+            // Queue up for batched insertion
+            buffer.emplace_back(resource, onlineResponse);
+
+            // Flush buffer periodically
+            if (buffer.size() == 64 || resourcesRemaining.size() == 0) {
+                try {
+                    offlineDatabase.putRegionResources(id, buffer, status);
+                } catch (const MapboxTileLimitExceededException&) {
+                    onMapboxTileCountLimitExceeded();
+                    return;
+                }
+
+                buffer.clear();
+                observer->statusChanged(status);
             }
 
-            observer->statusChanged(status);
-
-            if (checkTileCountLimit(resource)) {
+            if (offlineDatabase.exceedsOfflineMapboxTileCountLimit(resource)) {
+                onMapboxTileCountLimitExceeded();
                 return;
             }
 
@@ -353,15 +374,9 @@ void OfflineDownload::ensureResource(const Resource& resource,
     });
 }
 
-bool OfflineDownload::checkTileCountLimit(const Resource& resource) {
-    if (resource.kind == Resource::Kind::Tile && util::mapbox::isMapboxURL(resource.url) &&
-        offlineDatabase.offlineMapboxTileCountLimitExceeded()) {
-        observer->mapboxTileCountLimitExceeded(offlineDatabase.getOfflineMapboxTileCountLimit());
-        setState(OfflineRegionDownloadState::Inactive);
-        return true;
-    }
-
-    return false;
+void OfflineDownload::onMapboxTileCountLimitExceeded() {
+    observer->mapboxTileCountLimitExceeded(offlineDatabase.getOfflineMapboxTileCountLimit());
+    setState(OfflineRegionDownloadState::Inactive);
 }
 
 } // namespace mbgl

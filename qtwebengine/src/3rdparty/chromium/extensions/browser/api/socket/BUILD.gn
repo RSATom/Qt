@@ -2,13 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//extensions/features/features.gni")
+import("//extensions/buildflags/buildflags.gni")
 
 assert(enable_extensions,
        "Cannot depend on extensions because enable_extensions=false.")
 
 source_set("socket") {
   sources = [
+    "mojo_data_pump.cc",
+    "mojo_data_pump.h",
     "socket.cc",
     "socket.h",
     "socket_api.cc",

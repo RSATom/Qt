@@ -7,6 +7,8 @@
 #ifndef CORE_FXCRT_FX_CODEPAGE_H_
 #define CORE_FXCRT_FX_CODEPAGE_H_
 
+#include <stdint.h>
+
 #define FX_CODEPAGE_DefANSI 0
 #define FX_CODEPAGE_Symbol 42
 #define FX_CODEPAGE_MSDOS_US 437
@@ -87,5 +89,17 @@
 #define FX_CHARSET_MSWin_EasternEuropean 238
 #define FX_CHARSET_US 254
 #define FX_CHARSET_OEM 255
+
+// Hi-bytes to unicode codepoint mapping for various code pages.
+struct FX_CharsetUnicodes {
+  uint8_t m_Charset;
+  const uint16_t* m_pUnicodes;
+};
+
+extern const FX_CharsetUnicodes g_FX_CharsetUnicodes[8];
+
+uint16_t FX_GetCodePageFromCharset(uint8_t charset);
+uint8_t FX_GetCharsetFromCodePage(uint16_t codepage);
+bool FX_CharSetIsCJK(uint8_t uCharset);
 
 #endif  // CORE_FXCRT_FX_CODEPAGE_H_

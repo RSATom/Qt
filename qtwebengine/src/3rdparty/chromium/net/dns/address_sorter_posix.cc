@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_source.h"
 #include "net/socket/client_socket_factory.h"
@@ -48,7 +49,7 @@ bool ComparePolicy(const AddressSorterPosix::PolicyEntry& p1,
 
 // Creates sorted PolicyTable from |table| with |size| entries.
 AddressSorterPosix::PolicyTable LoadPolicy(
-    AddressSorterPosix::PolicyEntry* table,
+    const AddressSorterPosix::PolicyEntry* table,
     size_t size) {
   AddressSorterPosix::PolicyTable result(table, table + size);
   std::sort(result.begin(), result.end(), ComparePolicy);
@@ -124,55 +125,65 @@ AddressSorterPosix::AddressScope GetScope(
 }
 
 // Default policy table. RFC 3484, Section 2.1.
-AddressSorterPosix::PolicyEntry kDefaultPrecedenceTable[] = {
-  // ::1/128 -- loopback
-  { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, 128, 50 },
-  // ::/0 -- any
-  { { }, 0, 40 },
-  // ::ffff:0:0/96 -- IPv4 mapped
-  { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF }, 96, 35 },
-  // 2002::/16 -- 6to4
-  { { 0x20, 0x02, }, 16, 30 },
-  // 2001::/32 -- Teredo
-  { { 0x20, 0x01, 0, 0 }, 32, 5 },
-  // fc00::/7 -- unique local address
-  { { 0xFC }, 7, 3 },
-  // ::/96 -- IPv4 compatible
-  { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 96, 1 },
-  // fec0::/10 -- site-local expanded scope
-  { { 0xFE, 0xC0 }, 10, 1 },
-  // 3ffe::/16 -- 6bone
-  { { 0x3F, 0xFE }, 16, 1 },
+const AddressSorterPosix::PolicyEntry kDefaultPrecedenceTable[] = {
+    // ::1/128 -- loopback
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, 128, 50},
+    // ::/0 -- any
+    {{}, 0, 40},
+    // ::ffff:0:0/96 -- IPv4 mapped
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF}, 96, 35},
+    // 2002::/16 -- 6to4
+    {{
+         0x20, 0x02,
+     },
+     16,
+     30},
+    // 2001::/32 -- Teredo
+    {{0x20, 0x01, 0, 0}, 32, 5},
+    // fc00::/7 -- unique local address
+    {{0xFC}, 7, 3},
+    // ::/96 -- IPv4 compatible
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 96, 1},
+    // fec0::/10 -- site-local expanded scope
+    {{0xFE, 0xC0}, 10, 1},
+    // 3ffe::/16 -- 6bone
+    {{0x3F, 0xFE}, 16, 1},
 };
 
-AddressSorterPosix::PolicyEntry kDefaultLabelTable[] = {
-  // ::1/128 -- loopback
-  { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, 128, 0 },
-  // ::/0 -- any
-  { { }, 0, 1 },
-  // ::ffff:0:0/96 -- IPv4 mapped
-  { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF }, 96, 4 },
-  // 2002::/16 -- 6to4
-  { { 0x20, 0x02, }, 16, 2 },
-  // 2001::/32 -- Teredo
-  { { 0x20, 0x01, 0, 0 }, 32, 5 },
-  // fc00::/7 -- unique local address
-  { { 0xFC }, 7, 13 },
-  // ::/96 -- IPv4 compatible
-  { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 96, 3 },
-  // fec0::/10 -- site-local expanded scope
-  { { 0xFE, 0xC0 }, 10, 11 },
-  // 3ffe::/16 -- 6bone
-  { { 0x3F, 0xFE }, 16, 12 },
+const AddressSorterPosix::PolicyEntry kDefaultLabelTable[] = {
+    // ::1/128 -- loopback
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, 128, 0},
+    // ::/0 -- any
+    {{}, 0, 1},
+    // ::ffff:0:0/96 -- IPv4 mapped
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF}, 96, 4},
+    // 2002::/16 -- 6to4
+    {{
+         0x20, 0x02,
+     },
+     16,
+     2},
+    // 2001::/32 -- Teredo
+    {{0x20, 0x01, 0, 0}, 32, 5},
+    // fc00::/7 -- unique local address
+    {{0xFC}, 7, 13},
+    // ::/96 -- IPv4 compatible
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 96, 3},
+    // fec0::/10 -- site-local expanded scope
+    {{0xFE, 0xC0}, 10, 11},
+    // 3ffe::/16 -- 6bone
+    {{0x3F, 0xFE}, 16, 12},
 };
 
 // Default mapping of IPv4 addresses to scope.
-AddressSorterPosix::PolicyEntry kDefaultIPv4ScopeTable[] = {
-  { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0x7F }, 104,
-      AddressSorterPosix::SCOPE_LINKLOCAL },
-  { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xA9, 0xFE }, 112,
-      AddressSorterPosix::SCOPE_LINKLOCAL },
-  { { }, 0, AddressSorterPosix::SCOPE_GLOBAL },
+const AddressSorterPosix::PolicyEntry kDefaultIPv4ScopeTable[] = {
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0x7F},
+     104,
+     AddressSorterPosix::SCOPE_LINKLOCAL},
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0xA9, 0xFE},
+     112,
+     AddressSorterPosix::SCOPE_LINKLOCAL},
+    {{}, 0, AddressSorterPosix::SCOPE_GLOBAL},
 };
 
 struct DestinationInfo {
@@ -241,11 +252,11 @@ bool CompareDestinations(const std::unique_ptr<DestinationInfo>& dst_a,
 AddressSorterPosix::AddressSorterPosix(ClientSocketFactory* socket_factory)
     : socket_factory_(socket_factory),
       precedence_table_(LoadPolicy(kDefaultPrecedenceTable,
-                                   arraysize(kDefaultPrecedenceTable))),
-      label_table_(LoadPolicy(kDefaultLabelTable,
-                              arraysize(kDefaultLabelTable))),
+                                   base::size(kDefaultPrecedenceTable))),
+      label_table_(
+          LoadPolicy(kDefaultLabelTable, base::size(kDefaultLabelTable))),
       ipv4_scope_table_(LoadPolicy(kDefaultIPv4ScopeTable,
-                              arraysize(kDefaultIPv4ScopeTable))) {
+                                   base::size(kDefaultIPv4ScopeTable))) {
   NetworkChangeNotifier::AddIPAddressObserver(this);
   OnIPAddressChanged();
 }
@@ -256,7 +267,7 @@ AddressSorterPosix::~AddressSorterPosix() {
 }
 
 void AddressSorterPosix::Sort(const AddressList& list,
-                              const CallbackType& callback) const {
+                              CallbackType callback) const {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   std::vector<std::unique_ptr<DestinationInfo>> sort_list;
 
@@ -270,7 +281,7 @@ void AddressSorterPosix::Sort(const AddressList& list,
     // Each socket can only be bound once.
     std::unique_ptr<DatagramClientSocket> socket(
         socket_factory_->CreateDatagramClientSocket(
-            DatagramSocket::DEFAULT_BIND, RandIntCallback(), NULL /* NetLog */,
+            DatagramSocket::DEFAULT_BIND, nullptr /* NetLog */,
             NetLogSource()));
 
     // Even though no packets are sent, cannot use port 0 in Connect.
@@ -312,7 +323,7 @@ void AddressSorterPosix::Sort(const AddressList& list,
   for (size_t i = 0; i < sort_list.size(); ++i)
     result.push_back(IPEndPoint(sort_list[i]->address, 0 /* port */));
 
-  callback.Run(true, result);
+  std::move(callback).Run(true, result);
 }
 
 void AddressSorterPosix::OnIPAddressChanged() {

@@ -49,10 +49,12 @@ int main(int argc, char **argv)
         qDebug() << "   -use-debug-libs    : Deploy with debug versions of frameworks and plugins (implies -no-strip)";
         qDebug() << "   -executable=<path> : Let the given executable use the deployed frameworks too";
         qDebug() << "   -qmldir=<path>     : Scan for QML imports in the given path";
+        qDebug() << "   -qmlimport=<path>  : Add the given path to the QML module search locations";
         qDebug() << "   -always-overwrite  : Copy files even if the target file exists";
         qDebug() << "   -codesign=<ident>  : Run codesign with the given identity on all executables";
         qDebug() << "   -appstore-compliant: Skip deployment of components that use private API";
         qDebug() << "   -libpath=<path>    : Add the given path to the library search path";
+        qDebug() << "   -fs=<filesystem>   : Set the filesystem used for the .dmg disk image (defaults to HFS+)";
         qDebug() << "";
         qDebug() << "macdeployqt takes an application bundle as input and makes it";
         qDebug() << "self-contained by copying in the Qt frameworks and plugins that";
@@ -83,6 +85,7 @@ int main(int argc, char **argv)
 
     bool plugins = true;
     bool dmg = false;
+    QByteArray filesystem("HFS+");
     bool useDebugLibs = false;
     extern bool runStripEnabled;
     extern bool alwaysOwerwriteEnabled;
@@ -90,6 +93,7 @@ int main(int argc, char **argv)
     QStringList additionalExecutables;
     bool qmldirArgumentUsed = false;
     QStringList qmlDirs;
+    QStringList qmlImportPaths;
     extern bool runCodesign;
     extern QString codesignIdentiy;
     extern bool appstoreCompliant;
@@ -134,6 +138,13 @@ int main(int argc, char **argv)
                 LogError() << "Missing qml directory path";
             else
                 qmlDirs << argument.mid(index+1);
+        } else if (argument.startsWith(QByteArray("-qmlimport"))) {
+            LogDebug() << "Argument found:" << argument;
+            int index = argument.indexOf('=');
+            if (index == -1)
+                LogError() << "Missing qml import path";
+            else
+                qmlImportPaths << argument.mid(index+1);
         } else if (argument.startsWith(QByteArray("-libpath"))) {
             LogDebug() << "Argument found:" << argument;
             int index = argument.indexOf('=');
@@ -162,6 +173,13 @@ int main(int argc, char **argv)
             LogDebug() << "Argument found:" << argument;
             deployFramework = true;
 
+        } else if (argument.startsWith(QByteArray("-fs"))) {
+            LogDebug() << "Argument found:" << argument;
+            int index = argument.indexOf('=');
+            if (index == -1)
+                LogError() << "Missing filesystem type";
+            else
+                filesystem = argument.mid(index+1);
         } else if (argument.startsWith("-")) {
             LogError() << "Unknown argument" << argument << "\n";
             return 1;
@@ -169,6 +187,9 @@ int main(int argc, char **argv)
      }
 
     DeploymentInfo deploymentInfo = deployQtFrameworks(appBundlePath, additionalExecutables, useDebugLibs);
+
+    if (deploymentInfo.isDebug)
+        useDebugLibs = true;
 
     if (deployFramework && deploymentInfo.isFramework)
         fixupFramework(appBundlePath);
@@ -182,7 +203,7 @@ int main(int argc, char **argv)
     }
 
     if (!qmlDirs.isEmpty()) {
-        bool ok = deployQmlImports(appBundlePath, deploymentInfo, qmlDirs);
+        bool ok = deployQmlImports(appBundlePath, deploymentInfo, qmlDirs, qmlImportPaths);
         if (!ok && qmldirArgumentUsed)
             return 1; // exit if the user explicitly asked for qml import deployment
 
@@ -207,7 +228,7 @@ int main(int argc, char **argv)
 
     if (dmg) {
         LogNormal();
-        createDiskImage(appBundlePath);
+        createDiskImage(appBundlePath, filesystem);
     }
 
     return 0;

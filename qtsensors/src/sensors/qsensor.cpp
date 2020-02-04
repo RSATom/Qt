@@ -77,7 +77,6 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \class qoutputrange
-    \relates QSensor
     \inmodule QtSensors
     \brief The qoutputrange class holds the specifics of an output range.
     \since 5.1
@@ -1390,6 +1389,7 @@ void QSensorReading::copyValuesFrom(QSensorReading *other)
     \sa DECLARE_READING()
 */
 
-#include "moc_qsensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qsensor.cpp"
 

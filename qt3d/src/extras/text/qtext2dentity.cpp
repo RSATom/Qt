@@ -69,6 +69,72 @@ inline Q_DECL_CONSTEXPR QRectF scaleRectF(const QRectF &rect, float scale)
 
 namespace Qt3DExtras {
 
+/*!
+ * \qmltype Text2DEntity
+ * \instantiates Qt3DExtras::QText2DEntity
+ * \inqmlmodule Qt3D.Extras
+ * \brief Text2DEntity allows creation of a 2D text in 3D space.
+ *
+ * The Text2DEntity renders text as triangles in the XY plane. The geometry will be fitted
+ * in the rectangle of specified width and height. If the resulting geometry is wider than
+ * the specified width, the remainder will be rendered on the new line.
+ *
+ * The entity can be positionned in the scene by adding a transform component.
+ *
+ * Text2DEntity will create geometry based on the shape of the glyphs and a solid
+ * material using the specified color.
+ *
+ */
+
+/*!
+ * \qmlproperty QString Text2DEntity::text
+ *
+ * Holds the text used for the mesh.
+ */
+
+/*!
+ * \qmlproperty QFont Text2DEntity::font
+ *
+ * Holds the font of the text.
+ */
+
+/*!
+ * \qmlproperty QColor Text2DEntity::color
+ *
+ * Holds the color of the text.
+ */
+
+/*!
+ * \qmlproperty float Text2DEntity::width
+ *
+ * Holds the width of the text's bounding rectangle.
+ */
+
+/*!
+ * \qmlproperty float Text2DEntity::height
+ *
+ * Holds the height of the text's bounding rectangle.
+ */
+
+
+/*!
+ * \class Qt3DExtras::QText2DEntity
+ * \inheaderfile Qt3DExtras/QText2DEntity
+ * \inmodule Qt3DExtras
+ *
+ * \brief QText2DEntity allows creation of a 2D text in 3D space.
+ *
+ * The QText2DEntity renders text as triangles in the XY plane. The geometry will be fitted
+ * in the rectangle of specified width and height. If the resulting geometry is wider than
+ * the specified width, the remainder will be rendered on the new line.
+ *
+ * The entity can be positionned in the scene by adding a transform component.
+ *
+ * QText2DEntity will create geometry based on the shape of the glyphs and a solid
+ * material using the specified color.
+ *
+ */
+
 QHash<Qt3DCore::QScene *, QText2DEntityPrivate::CacheEntry> QText2DEntityPrivate::m_glyphCacheInstances;
 
 QText2DEntityPrivate::QText2DEntityPrivate()
@@ -92,10 +158,17 @@ void QText2DEntityPrivate::setScene(Qt3DCore::QScene *scene)
 
     // Unref old glyph cache if it exists
     if (m_scene != nullptr) {
+        // Ensure we don't keep reference to glyphs
+        // if we are changing the cache
+        if (m_glyphCache != nullptr)
+            clearCurrentGlyphRuns();
+
         m_glyphCache = nullptr;
+
         QText2DEntityPrivate::CacheEntry &entry = QText2DEntityPrivate::m_glyphCacheInstances[m_scene];
         --entry.count;
         if (entry.count == 0 && entry.glyphCache != nullptr) {
+
             delete entry.glyphCache;
             entry.glyphCache = nullptr;
         }
@@ -122,6 +195,7 @@ QText2DEntity::QText2DEntity(QNode *parent)
 {
 }
 
+/*! \internal */
 QText2DEntity::~QText2DEntity()
 {
 }
@@ -149,7 +223,6 @@ void QText2DEntityPrivate::setCurrentGlyphRuns(const QVector<QGlyphRun> &runs)
     // For each distinct texture, we need a separate DistanceFieldTextRenderer,
     // for which we need vertex and index data
     QHash<Qt3DRender::QAbstractTexture*, RenderData> renderData;
-
     const float scale = computeActualScale();
 
     // process glyph runs
@@ -248,6 +321,13 @@ void QText2DEntityPrivate::setCurrentGlyphRuns(const QVector<QGlyphRun> &runs)
     m_currentGlyphRuns = runs;
 }
 
+void QText2DEntityPrivate::clearCurrentGlyphRuns()
+{
+    for (int i = 0; i < m_currentGlyphRuns.size(); i++)
+        m_glyphCache->derefGlyphs(m_currentGlyphRuns[i]);
+    m_currentGlyphRuns.clear();
+}
+
 void QText2DEntityPrivate::update()
 {
     if (m_glyphCache == nullptr)
@@ -285,8 +365,10 @@ void QText2DEntityPrivate::update()
 }
 
 /*!
-    Returns the font for the text item that is displayed
-    in the Qt Quick scene.
+  \property QText2DEntity::font
+
+  Holds the font for the text item that is displayed
+  in the Qt Quick scene.
 */
 QFont QText2DEntity::font() const
 {
@@ -313,8 +395,10 @@ void QText2DEntity::setFont(const QFont &font)
 }
 
 /*!
-    Returns the color for the text item that is displayed in the Qt
-    Quick scene.
+  \property QText2DEntity::color
+
+  Holds the color for the text item that is displayed in the Qt
+  Quick scene.
 */
 QColor QText2DEntity::color() const
 {
@@ -336,7 +420,9 @@ void QText2DEntity::setColor(const QColor &color)
 }
 
 /*!
-    Returns the text that is displayed in the Qt Quick scene.
+  \property QText2DEntity::text
+
+  Holds the text that is displayed in the Qt Quick scene.
 */
 QString QText2DEntity::text() const
 {
@@ -356,8 +442,10 @@ void QText2DEntity::setText(const QString &text)
 }
 
 /*!
-    Returns the width of the text item that is displayed in the
-    Qt Quick scene.
+  \property QText2DEntity::width
+
+  Returns the width of the text item that is displayed in the
+  Qt Quick scene.
 */
 float QText2DEntity::width() const
 {
@@ -366,8 +454,10 @@ float QText2DEntity::width() const
 }
 
 /*!
-    Returns the width of the text item that is displayed in the
-    Qt Quick scene.
+  \property QText2DEntity::height
+
+  Returns the height of the text item that is displayed in the
+  Qt Quick scene.
 */
 float QText2DEntity::height() const
 {

@@ -41,7 +41,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QXYSeries
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QXYSeries class is a base class for line, spline, and scatter
     series.
 */
@@ -1008,7 +1008,9 @@ void QXYSeriesPrivate::drawSeriesPointLabels(QPainter *painter, const QVector<QP
     static const QString yPointTag(QLatin1String("@yPoint"));
     const int labelOffset = offset + 2;
 
-    painter->setFont(m_pointLabelsFont);
+    QFont f(m_pointLabelsFont);
+    f.setPixelSize(QFontInfo(m_pointLabelsFont).pixelSize());
+    painter->setFont(f);
     painter->setPen(QPen(m_pointLabelsColor));
     QFontMetrics fm(painter->font());
     // m_points is used for the label here as it has the series point information
@@ -1020,7 +1022,7 @@ void QXYSeriesPrivate::drawSeriesPointLabels(QPainter *painter, const QVector<QP
         pointLabel.replace(yPointTag, presenter()->numberToString(m_points.at(i).y()));
 
         // Position text in relation to the point
-        int pointLabelWidth = fm.width(pointLabel);
+        int pointLabelWidth = fm.horizontalAdvance(pointLabel);
         QPointF position(points.at(i));
         position.setX(position.x() - pointLabelWidth / 2);
         position.setY(position.y() - labelOffset);
@@ -1029,7 +1031,7 @@ void QXYSeriesPrivate::drawSeriesPointLabels(QPainter *painter, const QVector<QP
     }
 }
 
+QT_CHARTS_END_NAMESPACE
+
 #include "moc_qxyseries.cpp"
 #include "moc_qxyseries_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

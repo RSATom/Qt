@@ -10,39 +10,28 @@
 #include "base/memory/ref_counted.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/image_fetcher/core/image_data_fetcher.h"
+#include "components/image_fetcher/core/image_fetcher_types.h"
 
-namespace base {
-class TaskRunner;
-}
-
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 class GURL;
 
 namespace image_fetcher {
 
-// Callback that informs of the download of an image encoded in |data| and the
-// associated metadata. If an error prevented a http response,
-// |metadata.http_response_code| will be RESPONSE_CODE_INVALID.
-using IOSImageDataFetcherCallback = void (^)(NSData* data,
-                                             const RequestMetadata& metadata);
-
 class IOSImageDataFetcherWrapper {
  public:
-  using DataUseServiceName = data_use_measurement::DataUseUserData::ServiceName;
-
   // The TaskRunner is used to decode the image if it is WebP-encoded.
-  IOSImageDataFetcherWrapper(
-      net::URLRequestContextGetter* url_request_context_getter,
-      const scoped_refptr<base::TaskRunner>& task_runner);
+  explicit IOSImageDataFetcherWrapper(
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
   virtual ~IOSImageDataFetcherWrapper();
 
   // Helper to start downloading and possibly decoding the image without a
   // referrer.
-  virtual void FetchImageDataWebpDecoded(const GURL& image_url,
-                                         IOSImageDataFetcherCallback callback);
+  void FetchImageDataWebpDecoded(const GURL& image_url,
+                                 ImageDataFetcherBlock callback,
+                                 bool send_cookies = false);
 
   // Start downloading the image at the given |image_url|. The |callback| will
   // be called with the downloaded image, or nil if any error happened. If the
@@ -52,19 +41,23 @@ class IOSImageDataFetcherWrapper {
   // |callback| cannot be nil.
   void FetchImageDataWebpDecoded(
       const GURL& image_url,
-      IOSImageDataFetcherCallback callback,
+      ImageDataFetcherBlock callback,
       const std::string& referrer,
-      net::URLRequest::ReferrerPolicy referrer_policy);
+      net::URLRequest::ReferrerPolicy referrer_policy,
+      bool send_cookies = false);
 
   // Sets a service name against which to track data usage.
   void SetDataUseServiceName(DataUseServiceName data_use_service_name);
 
- private:
-  ImageDataFetcher::ImageDataFetcherCallback CallbackForImageDataFetcher(
-      IOSImageDataFetcherCallback callback);
+  // Test-only accessor for underlying ImageDataFetcher.
+  ImageDataFetcher* AccessImageDataFetcherForTesting() {
+    return &image_data_fetcher_;
+  }
 
-  // The task runner used to decode images if necessary.
-  const scoped_refptr<base::TaskRunner> task_runner_;
+ private:
+  ImageDataFetcherCallback CallbackForImageDataFetcher(
+      ImageDataFetcherBlock callback);
+
   ImageDataFetcher image_data_fetcher_;
 
   DISALLOW_COPY_AND_ASSIGN(IOSImageDataFetcherWrapper);

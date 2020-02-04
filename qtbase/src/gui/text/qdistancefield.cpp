@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtDeclarative module of the Qt Toolkit.
+** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -897,11 +897,6 @@ QDistanceField::QDistanceField()
 QDistanceField::QDistanceField(int width, int height)
     : d(QDistanceFieldData::create(QSize(width, height)))
 {
-}
-
-QDistanceField::QDistanceField(const QDistanceField &other)
-{
-    d = other.d;
 }
 
 QDistanceField::QDistanceField(const QRawFont &font, glyph_t glyph, bool doubleResolution)

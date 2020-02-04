@@ -4,9 +4,11 @@
 
 #include "printing/printing_context_system_dialog_win.h"
 
+#include <utility>
+
 #include "base/auto_reset.h"
-#include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
+#include "base/stl_util.h"
 #include "printing/backend/win_helper.h"
 #include "printing/print_settings_initializer_win.h"
 #include "skia/ext/skia_utils_win.h"
@@ -23,7 +25,7 @@ void PrintingContextSystemDialogWin::AskUserForSettings(
     int max_pages,
     bool has_selection,
     bool is_scripted,
-    const PrintSettingsCallback& callback) {
+    PrintSettingsCallback callback) {
   DCHECK(!in_print_job_);
 
   HWND window = GetRootWindow(delegate_->GetParentView());
@@ -55,7 +57,7 @@ void PrintingContextSystemDialogWin::AskUserForSettings(
     ranges[0].nFromPage = 1;
     ranges[0].nToPage = max_pages;
     dialog_options.nPageRanges = 1;
-    dialog_options.nMaxPageRanges = arraysize(ranges);
+    dialog_options.nMaxPageRanges = base::size(ranges);
     dialog_options.nMinPage = 1;
     dialog_options.nMaxPage = max_pages;
     dialog_options.lpPageRanges = ranges;
@@ -66,12 +68,12 @@ void PrintingContextSystemDialogWin::AskUserForSettings(
 
   if (ShowPrintDialog(&dialog_options) != S_OK) {
     ResetSettings();
-    callback.Run(FAILED);
+    std::move(callback).Run(FAILED);
     return;
   }
 
   // TODO(maruel):  Support PD_PRINTTOFILE.
-  callback.Run(ParseDialogResultEx(dialog_options));
+  std::move(callback).Run(ParseDialogResultEx(dialog_options));
 }
 
 HRESULT PrintingContextSystemDialogWin::ShowPrintDialog(PRINTDLGEX* options) {
@@ -88,8 +90,7 @@ HRESULT PrintingContextSystemDialogWin::ShowPrintDialog(PRINTDLGEX* options) {
   // browser frame (but still being modal) so neither the browser frame nor
   // the print dialog will get any input. See http://crbug.com/342697
   // http://crbug.com/180997 for details.
-  base::MessageLoop::ScopedNestableTaskAllower allow(
-      base::MessageLoop::current());
+  base::MessageLoopCurrent::ScopedNestableTaskAllower allow;
 
   return PrintDlgEx(options);
 }
@@ -144,9 +145,11 @@ PrintingContext::Result PrintingContextSystemDialogWin::ParseDialogResultEx(
     const PRINTDLGEX& dialog_options) {
   // If the user clicked OK or Apply then Cancel, but not only Cancel.
   if (dialog_options.dwResultAction != PD_RESULT_CANCEL) {
-    // Start fresh, but preserve GDI print setting.
+    // Start fresh, but preserve is_modifiable and GDI print setting.
+    bool is_modifiable = settings_.is_modifiable();
     bool print_text_with_gdi = settings_.print_text_with_gdi();
     ResetSettings();
+    settings_.set_is_modifiable(is_modifiable);
     settings_.set_print_text_with_gdi(print_text_with_gdi);
 
     DEVMODE* dev_mode = NULL;

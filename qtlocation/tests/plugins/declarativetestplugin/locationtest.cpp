@@ -62,7 +62,6 @@ public:
     }
 };
 
-#include "locationtest.moc"
-
 QT_END_NAMESPACE
 
+#include "locationtest.moc"

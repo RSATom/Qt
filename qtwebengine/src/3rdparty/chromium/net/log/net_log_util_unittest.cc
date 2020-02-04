@@ -4,12 +4,11 @@
 
 #include "net/log/net_log_util.h"
 
-#include <memory>
 #include <set>
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/memory/ptr_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/values.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -35,6 +34,8 @@ TEST(NetLogUtil, GetNetConstants) {
 // Make sure GetNetInfo doesn't crash when called on contexts with and without
 // caches, and they have the same number of elements.
 TEST(NetLogUtil, GetNetInfo) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
+
   TestURLRequestContext context;
   HttpCache* http_cache = context.http_transaction_factory()->GetCache();
 
@@ -60,6 +61,8 @@ TEST(NetLogUtil, GetNetInfo) {
 // Make sure CreateNetLogEntriesForActiveObjects works for requests from a
 // single URLRequestContext.
 TEST(NetLogUtil, CreateNetLogEntriesForActiveObjectsOneContext) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
+
   // Using same context for each iteration makes sure deleted requests don't
   // appear in the list, or result in crashes.
   TestURLRequestContext context(true);
@@ -91,6 +94,8 @@ TEST(NetLogUtil, CreateNetLogEntriesForActiveObjectsOneContext) {
 // Make sure CreateNetLogEntriesForActiveObjects works with multiple
 // URLRequestContexts.
 TEST(NetLogUtil, CreateNetLogEntriesForActiveObjectsMultipleContexts) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
+
   TestDelegate delegate;
   for (size_t num_requests = 0; num_requests < 5; ++num_requests) {
     NetLog net_log;
@@ -98,7 +103,7 @@ TEST(NetLogUtil, CreateNetLogEntriesForActiveObjectsMultipleContexts) {
     std::vector<std::unique_ptr<URLRequest>> requests;
     std::set<URLRequestContext*> context_set;
     for (size_t i = 0; i < num_requests; ++i) {
-      contexts.push_back(base::WrapUnique(new TestURLRequestContext(true)));
+      contexts.push_back(std::make_unique<TestURLRequestContext>(true));
       contexts[i]->set_net_log(&net_log);
       contexts[i]->Init();
       context_set.insert(contexts[i].get());

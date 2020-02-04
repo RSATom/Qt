@@ -56,7 +56,7 @@ class CopyOrMoveFileValidatorTestHelper {
       : origin_(origin), src_type_(src_type), dest_type_(dest_type) {}
 
   ~CopyOrMoveFileValidatorTestHelper() {
-    file_system_context_ = NULL;
+    file_system_context_ = nullptr;
     base::RunLoop().RunUntilIdle();
   }
 
@@ -64,7 +64,7 @@ class CopyOrMoveFileValidatorTestHelper {
     ASSERT_TRUE(base_.CreateUniqueTempDir());
     base::FilePath base_dir = base_.GetPath();
 
-    file_system_context_ = CreateFileSystemContextForTesting(NULL, base_dir);
+    file_system_context_ = CreateFileSystemContextForTesting(nullptr, base_dir);
 
     // Set up TestFileSystemBackend to require CopyOrMoveFileValidator.
     storage::FileSystemBackend* test_file_system_backend =
@@ -78,7 +78,7 @@ class CopyOrMoveFileValidatorTestHelper {
     src_file_system_backend->ResolveURL(
         FileSystemURL::CreateForTest(origin_, src_type_, base::FilePath()),
         storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-        base::Bind(&ExpectOk));
+        base::BindOnce(&ExpectOk));
     base::RunLoop().RunUntilIdle();
     ASSERT_EQ(base::File::FILE_OK, CreateDirectory(SourceURL("")));
 
@@ -205,7 +205,7 @@ class TestCopyOrMoveFileValidatorFactory
   // TODO(gbillock): switch args to enum or something
   explicit TestCopyOrMoveFileValidatorFactory(Validity validity)
       : validity_(validity) {}
-  ~TestCopyOrMoveFileValidatorFactory() override {}
+  ~TestCopyOrMoveFileValidatorFactory() override = default;
 
   storage::CopyOrMoveFileValidator* CreateCopyOrMoveFileValidator(
       const FileSystemURL& /*src_url*/,
@@ -224,13 +224,13 @@ class TestCopyOrMoveFileValidatorFactory
                         base::File::FILE_OK :
                         base::File::FILE_ERROR_SECURITY) {
     }
-    ~TestCopyOrMoveFileValidator() override {}
+    ~TestCopyOrMoveFileValidator() override = default;
 
     void StartPreWriteValidation(
         const ResultCallback& result_callback) override {
       // Post the result since a real validator must do work asynchronously.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(result_callback, result_));
+          FROM_HERE, base::BindOnce(result_callback, result_));
     }
 
     void StartPostWriteValidation(
@@ -238,7 +238,7 @@ class TestCopyOrMoveFileValidatorFactory
         const ResultCallback& result_callback) override {
       // Post the result since a real validator must do work asynchronously.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(result_callback, write_result_));
+          FROM_HERE, base::BindOnce(result_callback, write_result_));
     }
 
    private:

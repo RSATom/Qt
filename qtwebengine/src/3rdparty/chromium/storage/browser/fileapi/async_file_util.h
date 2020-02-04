@@ -11,12 +11,11 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "base/files/file.h"
-#include "base/files/file_util_proxy.h"
 #include "base/macros.h"
+#include "components/services/filesystem/public/interfaces/types.mojom.h"
 #include "storage/browser/fileapi/file_system_operation.h"
-#include "storage/browser/storage_browser_export.h"
-#include "storage/common/fileapi/directory_entry.h"
 
 namespace base {
 class Time;
@@ -49,46 +48,42 @@ class FileSystemURL;
 //
 class AsyncFileUtil {
  public:
-  typedef base::Callback<void(base::File::Error result)> StatusCallback;
+  using StatusCallback = base::OnceCallback<void(base::File::Error result)>;
 
   // |on_close_callback| will be called after the |file| is closed in the
   // child process. |on_close_callback|.is_null() can be true, if no operation
   // is needed on closing the file.
-  typedef base::Callback<
-      void(base::File file,
-           const base::Closure& on_close_callback)> CreateOrOpenCallback;
+  using CreateOrOpenCallback =
+      base::OnceCallback<void(base::File file,
+                              base::OnceClosure on_close_callback)>;
 
-  typedef base::Callback<
-      void(base::File::Error result,
-           bool created)> EnsureFileExistsCallback;
+  using EnsureFileExistsCallback =
+      base::OnceCallback<void(base::File::Error result, bool created)>;
 
-  typedef base::Callback<
-      void(base::File::Error result,
-           const base::File::Info& file_info)> GetFileInfoCallback;
+  using GetFileInfoCallback =
+      base::OnceCallback<void(base::File::Error result,
+                              const base::File::Info& file_info)>;
 
-  typedef std::vector<DirectoryEntry> EntryList;
-  typedef base::Callback<
-      void(base::File::Error result,
-           const EntryList& file_list,
-           bool has_more)> ReadDirectoryCallback;
+  using EntryList = std::vector<filesystem::mojom::DirectoryEntry>;
+  using ReadDirectoryCallback = base::RepeatingCallback<
+      void(base::File::Error result, EntryList file_list, bool has_more)>;
 
-  typedef base::Callback<
-      void(base::File::Error result,
-           const base::File::Info& file_info,
-           const base::FilePath& platform_path,
-           const scoped_refptr<storage::ShareableFileReference>& file_ref)>
-      CreateSnapshotFileCallback;
+  using CreateSnapshotFileCallback = base::OnceCallback<void(
+      base::File::Error result,
+      const base::File::Info& file_info,
+      const base::FilePath& platform_path,
+      scoped_refptr<storage::ShareableFileReference> file_ref)>;
 
-  typedef base::Callback<void(int64_t size)> CopyFileProgressCallback;
+  using CopyFileProgressCallback = base::RepeatingCallback<void(int64_t size)>;
 
-  typedef FileSystemOperation::CopyOrMoveOption CopyOrMoveOption;
-  typedef FileSystemOperation::GetMetadataField GetMetadataField;
+  using CopyOrMoveOption = FileSystemOperation::CopyOrMoveOption;
+  using GetMetadataField = FileSystemOperation::GetMetadataField;
 
   // Creates an AsyncFileUtil instance which performs file operations on
   // local native file system. The created instance assumes
   // FileSystemURL::path() has the target platform path.
-  STORAGE_EXPORT static AsyncFileUtil*
-      CreateForLocalFileSystem();
+  COMPONENT_EXPORT(STORAGE_BROWSER)
+  static AsyncFileUtil* CreateForLocalFileSystem();
 
   AsyncFileUtil() {}
   virtual ~AsyncFileUtil() {}
@@ -104,7 +99,7 @@ class AsyncFileUtil {
   virtual void CreateOrOpen(std::unique_ptr<FileSystemOperationContext> context,
                             const FileSystemURL& url,
                             int file_flags,
-                            const CreateOrOpenCallback& callback) = 0;
+                            CreateOrOpenCallback callback) = 0;
 
   // Ensures that the given |url| exist.  This creates a empty new file
   // at |url| if the |url| does not exist.
@@ -121,7 +116,7 @@ class AsyncFileUtil {
   virtual void EnsureFileExists(
       std::unique_ptr<FileSystemOperationContext> context,
       const FileSystemURL& url,
-      const EnsureFileExistsCallback& callback) = 0;
+      EnsureFileExistsCallback callback) = 0;
 
   // Creates directory at given url.
   //
@@ -141,7 +136,7 @@ class AsyncFileUtil {
       const FileSystemURL& url,
       bool exclusive,
       bool recursive,
-      const StatusCallback& callback) = 0;
+      StatusCallback callback) = 0;
 
   // Retrieves the information about a file.
   //
@@ -154,7 +149,7 @@ class AsyncFileUtil {
   virtual void GetFileInfo(std::unique_ptr<FileSystemOperationContext> context,
                            const FileSystemURL& url,
                            int fields,
-                           const GetFileInfoCallback& callback) = 0;
+                           GetFileInfoCallback callback) = 0;
 
   // Reads contents of a directory at |path|.
   //
@@ -177,7 +172,7 @@ class AsyncFileUtil {
   virtual void ReadDirectory(
       std::unique_ptr<FileSystemOperationContext> context,
       const FileSystemURL& url,
-      const ReadDirectoryCallback& callback) = 0;
+      ReadDirectoryCallback callback) = 0;
 
   // Modifies timestamps of a file or directory at |url| with
   // |last_access_time| and |last_modified_time|. The function DOES NOT
@@ -190,7 +185,7 @@ class AsyncFileUtil {
                      const FileSystemURL& url,
                      const base::Time& last_access_time,
                      const base::Time& last_modified_time,
-                     const StatusCallback& callback) = 0;
+                     StatusCallback callback) = 0;
 
   // Truncates a file at |path| to |length|. If |length| is larger than
   // the original file size, the file will be extended, and the extended
@@ -204,7 +199,7 @@ class AsyncFileUtil {
   virtual void Truncate(std::unique_ptr<FileSystemOperationContext> context,
                         const FileSystemURL& url,
                         int64_t length,
-                        const StatusCallback& callback) = 0;
+                        StatusCallback callback) = 0;
 
   // Copies a file from |src_url| to |dest_url|.
   // This must be called for files that belong to the same filesystem
@@ -232,8 +227,8 @@ class AsyncFileUtil {
       const FileSystemURL& src_url,
       const FileSystemURL& dest_url,
       CopyOrMoveOption option,
-      const CopyFileProgressCallback& progress_callback,
-      const StatusCallback& callback) = 0;
+      CopyFileProgressCallback progress_callback,
+      StatusCallback callback) = 0;
 
   // Moves a local file from |src_url| to |dest_url|.
   // This must be called for files that belong to the same filesystem
@@ -255,7 +250,7 @@ class AsyncFileUtil {
       const FileSystemURL& src_url,
       const FileSystemURL& dest_url,
       CopyOrMoveOption option,
-      const StatusCallback& callback) = 0;
+      StatusCallback callback) = 0;
 
   // Copies in a single file from a different filesystem.
   //
@@ -274,7 +269,7 @@ class AsyncFileUtil {
       std::unique_ptr<FileSystemOperationContext> context,
       const base::FilePath& src_file_path,
       const FileSystemURL& dest_url,
-      const StatusCallback& callback) = 0;
+      StatusCallback callback) = 0;
 
   // Deletes a single file.
   //
@@ -286,7 +281,7 @@ class AsyncFileUtil {
   //
   virtual void DeleteFile(std::unique_ptr<FileSystemOperationContext> context,
                           const FileSystemURL& url,
-                          const StatusCallback& callback) = 0;
+                          StatusCallback callback) = 0;
 
   // Removes a single empty directory.
   //
@@ -300,7 +295,7 @@ class AsyncFileUtil {
   virtual void DeleteDirectory(
       std::unique_ptr<FileSystemOperationContext> context,
       const FileSystemURL& url,
-      const StatusCallback& callback) = 0;
+      StatusCallback callback) = 0;
 
   // Removes a single file or a single directory with its contents
   // (i.e. files/subdirectories under the directory).
@@ -318,7 +313,7 @@ class AsyncFileUtil {
   virtual void DeleteRecursively(
       std::unique_ptr<FileSystemOperationContext> context,
       const FileSystemURL& url,
-      const StatusCallback& callback) = 0;
+      StatusCallback callback) = 0;
 
   // Creates a local snapshot file for a given |url| and returns the
   // metadata and platform path of the snapshot file via |callback|.
@@ -354,7 +349,7 @@ class AsyncFileUtil {
   virtual void CreateSnapshotFile(
       std::unique_ptr<FileSystemOperationContext> context,
       const FileSystemURL& url,
-      const CreateSnapshotFileCallback& callback) = 0;
+      CreateSnapshotFileCallback callback) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(AsyncFileUtil);

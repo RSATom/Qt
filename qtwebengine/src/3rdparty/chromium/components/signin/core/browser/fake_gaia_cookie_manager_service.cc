@@ -3,122 +3,97 @@
 // found in the LICENSE file.
 
 #include "components/signin/core/browser/fake_gaia_cookie_manager_service.h"
-
-#include "base/memory/ptr_util.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "components/signin/core/browser/list_accounts_test_utils.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_urls.h"
+#include "net/url_request/test_url_fetcher_factory.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/test/test_url_loader_factory.h"
+
+namespace {
+// Factory method to return a SharedURLLoaderFactory of our choosing.
+scoped_refptr<network::SharedURLLoaderFactory> GetSharedURLLoaderFactory(
+    scoped_refptr<network::SharedURLLoaderFactory> shared_url_loader_factory) {
+  return shared_url_loader_factory;
+}
+}  // namespace
 
 FakeGaiaCookieManagerService::FakeGaiaCookieManagerService(
     OAuth2TokenService* token_service,
-    const std::string& source,
     SigninClient* client)
-    : GaiaCookieManagerService(token_service, source, client),
-      url_fetcher_factory_(NULL) {}
+    : GaiaCookieManagerService(
+          token_service,
+          client,
+          base::BindRepeating(&SigninClient::GetURLLoaderFactory,
+                              base::Unretained(client))) {}
 
-void FakeGaiaCookieManagerService::Init(
-    net::FakeURLFetcherFactory* url_fetcher_factory) {
-  url_fetcher_factory_ = url_fetcher_factory;
+FakeGaiaCookieManagerService::FakeGaiaCookieManagerService(
+    OAuth2TokenService* token_service,
+    SigninClient* client,
+    network::TestURLLoaderFactory* test_url_loader_factory)
+    : FakeGaiaCookieManagerService(
+          token_service,
+          client,
+          test_url_loader_factory,
+          base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+              test_url_loader_factory)) {}
+
+FakeGaiaCookieManagerService::FakeGaiaCookieManagerService(
+    OAuth2TokenService* token_service,
+    SigninClient* client,
+    network::TestURLLoaderFactory* test_url_loader_factory,
+    scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
+        shared_url_loader_factory)
+    : GaiaCookieManagerService(token_service,
+                               client,
+                               base::BindRepeating(&GetSharedURLLoaderFactory,
+                                                   shared_url_loader_factory)),
+      test_url_loader_factory_(test_url_loader_factory),
+      shared_url_loader_factory_(shared_url_loader_factory) {}
+
+FakeGaiaCookieManagerService::~FakeGaiaCookieManagerService() {
+  if (shared_url_loader_factory_)
+    shared_url_loader_factory_->Detach();
 }
 
 void FakeGaiaCookieManagerService::SetListAccountsResponseHttpNotFound() {
-  DCHECK(url_fetcher_factory_);
-  url_fetcher_factory_->SetFakeResponse(
-      GaiaUrls::GetInstance()->ListAccountsURLWithSource(
-          GaiaConstants::kChromeSource),
-      "", net::HTTP_NOT_FOUND, net::URLRequestStatus::SUCCESS);
+  signin::SetListAccountsResponseHttpNotFound(test_url_loader_factory_);
 }
 
 void FakeGaiaCookieManagerService::SetListAccountsResponseWebLoginRequired() {
-  DCHECK(url_fetcher_factory_);
-  url_fetcher_factory_->SetFakeResponse(
-      GaiaUrls::GetInstance()->ListAccountsURLWithSource(
-          GaiaConstants::kChromeSource),
-      "Info=WebLoginRequired", net::HTTP_OK, net::URLRequestStatus::SUCCESS);
+  signin::SetListAccountsResponseWebLoginRequired(test_url_loader_factory_);
+}
+
+void FakeGaiaCookieManagerService::SetListAccountsResponseWithParams(
+    const std::vector<signin::CookieParams>& params) {
+  signin::SetListAccountsResponseWithParams(params, test_url_loader_factory_);
 }
 
 void FakeGaiaCookieManagerService::SetListAccountsResponseNoAccounts() {
-  DCHECK(url_fetcher_factory_);
-  url_fetcher_factory_->SetFakeResponse(
-      GaiaUrls::GetInstance()->ListAccountsURLWithSource(
-          GaiaConstants::kChromeSource),
-      "[\"f\", []]", net::HTTP_OK, net::URLRequestStatus::SUCCESS);
+  signin::SetListAccountsResponseNoAccounts(test_url_loader_factory_);
 }
 
 void FakeGaiaCookieManagerService::SetListAccountsResponseOneAccount(
-    const char* email,
-    const char* gaia_id) {
-  DCHECK(url_fetcher_factory_);
-  url_fetcher_factory_->SetFakeResponse(
-      GaiaUrls::GetInstance()->ListAccountsURLWithSource(
-          GaiaConstants::kChromeSource),
-      base::StringPrintf(
-          "[\"f\", [[\"b\", 0, \"n\", \"%s\", \"p\", 0, 0, 0, 0, 1, \"%s\"]]]",
-          email, gaia_id),
-      net::HTTP_OK, net::URLRequestStatus::SUCCESS);
+    const std::string& email,
+    const std::string& gaia_id) {
+  signin::SetListAccountsResponseOneAccount(email, gaia_id,
+                                            test_url_loader_factory_);
 }
 
-void FakeGaiaCookieManagerService::SetListAccountsResponseOneAccountWithExpiry(
-    const char* email,
-    const char* gaia_id,
-    bool expired) {
-  DCHECK(url_fetcher_factory_);
-  url_fetcher_factory_->SetFakeResponse(
-      GaiaUrls::GetInstance()->ListAccountsURLWithSource(
-          GaiaConstants::kChromeSource),
-      base::StringPrintf(
-          "[\"f\", [[\"b\", 0, \"n\", \"%s\", \"p\", 0, 0, 0, 0, %d, \"%s\"]]]",
-          email, expired ? 0 : 1, gaia_id),
-      net::HTTP_OK, net::URLRequestStatus::SUCCESS);
+void FakeGaiaCookieManagerService::SetListAccountsResponseOneAccountWithParams(
+    const signin::CookieParams& params) {
+  signin::SetListAccountsResponseOneAccountWithParams(params,
+                                                      test_url_loader_factory_);
 }
 
 void FakeGaiaCookieManagerService::SetListAccountsResponseTwoAccounts(
-    const char* email1,
-    const char* gaia_id1,
-    const char* email2,
-    const char* gaia_id2) {
-  DCHECK(url_fetcher_factory_);
-  url_fetcher_factory_->SetFakeResponse(
-      GaiaUrls::GetInstance()->ListAccountsURLWithSource(
-          GaiaConstants::kChromeSource),
-      base::StringPrintf(
-          "[\"f\", [[\"b\", 0, \"n\", \"%s\", \"p\", 0, 0, 0, 0, 1, \"%s\"], "
-          "[\"b\", 0, \"n\", \"%s\", \"p\", 0, 0, 0, 0, 1, \"%s\"]]]",
-          email1, gaia_id1, email2, gaia_id2),
-      net::HTTP_OK, net::URLRequestStatus::SUCCESS);
-}
-
-void FakeGaiaCookieManagerService::SetListAccountsResponseTwoAccountsWithExpiry(
-    const char* email1,
-    const char* gaia_id1,
-    bool account1_expired,
-    const char* email2,
-    const char* gaia_id2,
-    bool account2_expired) {
-  DCHECK(url_fetcher_factory_);
-  url_fetcher_factory_->SetFakeResponse(
-      GaiaUrls::GetInstance()->ListAccountsURLWithSource(
-          GaiaConstants::kChromeSource),
-      base::StringPrintf(
-          "[\"f\", [[\"b\", 0, \"n\", \"%s\", \"p\", 0, 0, 0, 0, %d, \"%s\"], "
-          "[\"b\", 0, \"n\", \"%s\", \"p\", 0, 0, 0, 0, %d, \"%s\"]]]",
-          email1, account1_expired ? 0 : 1, gaia_id1, email2,
-          account2_expired ? 0 : 1, gaia_id2),
-      net::HTTP_OK, net::URLRequestStatus::SUCCESS);
-}
-
-std::string FakeGaiaCookieManagerService::GetSourceForRequest(
-    const GaiaCookieManagerService::GaiaCookieRequest& request) {
-  // Always return the default.  This value must match the source used in the
-  // SetXXXResponseYYY methods above so that the test URLFetcher factory will
-  // be able to find the URLs.
-  return GaiaConstants::kChromeSource;
-}
-
-std::string FakeGaiaCookieManagerService::GetDefaultSourceForRequest() {
-  // Always return the default.  This value must match the source used in the
-  // SetXXXResponseYYY methods above so that the test URLFetcher factory will
-  // be able to find the URLs.
-  return GaiaConstants::kChromeSource;
+    const std::string& email1,
+    const std::string& gaia_id1,
+    const std::string& email2,
+    const std::string& gaia_id2) {
+  signin::SetListAccountsResponseTwoAccounts(email1, gaia_id1, email2, gaia_id2,
+                                             test_url_loader_factory_);
 }

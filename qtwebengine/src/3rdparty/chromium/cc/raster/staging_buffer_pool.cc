@@ -6,17 +6,18 @@
 
 #include <memory>
 
-#include "base/memory/memory_coordinator_client_registry.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "cc/base/container_util.h"
-#include "cc/debug/traced_value.h"
-#include "cc/resources/scoped_resource.h"
-#include "gpu/command_buffer/client/gles2_interface.h"
+#include "components/viz/common/gpu/raster_context_provider.h"
+#include "components/viz/common/resources/resource_sizes.h"
+#include "gpu/command_buffer/client/context_support.h"
+#include "gpu/command_buffer/client/raster_interface.h"
+#include "gpu/command_buffer/client/shared_image_interface.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
+#include "ui/gfx/gpu_memory_buffer.h"
 
 using base::trace_event::MemoryAllocatorDump;
 using base::trace_event::MemoryAllocatorDumpGuid;
@@ -35,60 +36,53 @@ const int kMaxCheckForQueryResultAvailableAttempts = 256;
 // Delay before a staging buffer might be released.
 const int kStagingBufferExpirationDelayMs = 1000;
 
-bool CheckForQueryResult(gpu::gles2::GLES2Interface* gl, unsigned query_id) {
-  unsigned complete = 1;
-  gl->GetQueryObjectuivEXT(query_id, GL_QUERY_RESULT_AVAILABLE_EXT, &complete);
+bool CheckForQueryResult(gpu::raster::RasterInterface* ri, GLuint query_id) {
+  DCHECK(query_id);
+  GLuint complete = 1;
+  ri->GetQueryObjectuivEXT(query_id, GL_QUERY_RESULT_AVAILABLE_EXT, &complete);
   return !!complete;
 }
 
-void WaitForQueryResult(gpu::gles2::GLES2Interface* gl, unsigned query_id) {
+void WaitForQueryResult(gpu::raster::RasterInterface* ri, GLuint query_id) {
   TRACE_EVENT0("cc", "WaitForQueryResult");
+  DCHECK(query_id);
 
   int attempts_left = kMaxCheckForQueryResultAvailableAttempts;
   while (attempts_left--) {
-    if (CheckForQueryResult(gl, query_id))
+    if (CheckForQueryResult(ri, query_id))
       break;
 
     // We have to flush the context to be guaranteed that a query result will
     // be available in a finite amount of time.
-    gl->ShallowFlushCHROMIUM();
+    ri->ShallowFlushCHROMIUM();
 
     base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(
         kCheckForQueryResultAvailableTickRateMs));
   }
 
-  unsigned result = 0;
-  gl->GetQueryObjectuivEXT(query_id, GL_QUERY_RESULT_EXT, &result);
+  GLuint result = 0;
+  ri->GetQueryObjectuivEXT(query_id, GL_QUERY_RESULT_EXT, &result);
 }
 
 }  // namespace
 
 StagingBuffer::StagingBuffer(const gfx::Size& size, viz::ResourceFormat format)
-    : size(size),
-      format(format),
-      texture_id(0),
-      image_id(0),
-      query_id(0),
-      content_id(0) {}
+    : size(size), format(format) {}
 
 StagingBuffer::~StagingBuffer() {
-  DCHECK_EQ(texture_id, 0u);
-  DCHECK_EQ(image_id, 0u);
+  DCHECK(mailbox.IsZero());
   DCHECK_EQ(query_id, 0u);
 }
 
-void StagingBuffer::DestroyGLResources(gpu::gles2::GLES2Interface* gl) {
+void StagingBuffer::DestroyGLResources(gpu::raster::RasterInterface* ri,
+                                       gpu::SharedImageInterface* sii) {
   if (query_id) {
-    gl->DeleteQueriesEXT(1, &query_id);
+    ri->DeleteQueriesEXT(1, &query_id);
     query_id = 0;
   }
-  if (image_id) {
-    gl->DestroyImageCHROMIUM(image_id);
-    image_id = 0;
-  }
-  if (texture_id) {
-    gl->DeleteTextures(1, &texture_id);
-    texture_id = 0;
+  if (!mailbox.IsZero()) {
+    sii->DestroySharedImage(sync_token, mailbox);
+    mailbox.SetZero();
   }
 }
 
@@ -98,13 +92,13 @@ void StagingBuffer::OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
   if (!gpu_memory_buffer)
     return;
 
-  gfx::GpuMemoryBufferId buffer_id = gpu_memory_buffer->GetId();
+  // Use |this| as the id, which works with multiple StagingBuffers.
   std::string buffer_dump_name =
-      base::StringPrintf("cc/one_copy/staging_memory/buffer_%d", buffer_id.id);
+      base::StringPrintf("cc/one_copy/staging_memory/buffer_%p", this);
   MemoryAllocatorDump* buffer_dump = pmd->CreateAllocatorDump(buffer_dump_name);
 
   uint64_t buffer_size_in_bytes =
-      ResourceUtil::UncheckedSizeInBytes<uint64_t>(size, format);
+      viz::ResourceSizes::UncheckedSizeInBytes<uint64_t>(size, format);
   buffer_dump->AddScalar(MemoryAllocatorDump::kNameSize,
                          MemoryAllocatorDump::kUnitsBytes,
                          buffer_size_in_bytes);
@@ -115,30 +109,18 @@ void StagingBuffer::OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
   const uint64_t tracing_process_id =
       base::trace_event::MemoryDumpManager::GetInstance()
           ->GetTracingProcessId();
-  auto shared_buffer_guid =
-      gpu_memory_buffer->GetGUIDForTracing(tracing_process_id);
-
-  auto shared_memory_guid = gpu_memory_buffer->GetHandle().handle.GetGUID();
   const int kImportance = 2;
-  if (!shared_memory_guid.is_empty()) {
-    pmd->CreateSharedMemoryOwnershipEdge(buffer_dump->guid(),
-                                         shared_buffer_guid, shared_memory_guid,
-                                         kImportance);
-  } else {
-    pmd->CreateSharedGlobalAllocatorDump(shared_buffer_guid);
-    pmd->AddOwnershipEdge(buffer_dump->guid(), shared_buffer_guid, kImportance);
-  }
+  gpu_memory_buffer->OnMemoryDump(pmd, buffer_dump->guid(), tracing_process_id,
+                                  kImportance);
 }
 
 StagingBufferPool::StagingBufferPool(
-    base::SequencedTaskRunner* task_runner,
-    viz::ContextProvider* worker_context_provider,
-    ResourceProvider* resource_provider,
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    viz::RasterContextProvider* worker_context_provider,
     bool use_partial_raster,
     int max_staging_buffer_usage_in_bytes)
-    : task_runner_(task_runner),
+    : task_runner_(std::move(task_runner)),
       worker_context_provider_(worker_context_provider),
-      resource_provider_(resource_provider),
       use_partial_raster_(use_partial_raster),
       max_staging_buffer_usage_in_bytes_(max_staging_buffer_usage_in_bytes),
       staging_buffer_usage_in_bytes_(0),
@@ -150,13 +132,13 @@ StagingBufferPool::StagingBufferPool(
   DCHECK(worker_context_provider_);
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "cc::StagingBufferPool", base::ThreadTaskRunnerHandle::Get());
-  reduce_memory_usage_callback_ = base::Bind(
-      &StagingBufferPool::ReduceMemoryUsage, weak_ptr_factory_.GetWeakPtr());
 
-  task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&StagingBufferPool::RegisterMemoryCoordinatorClient,
-                     weak_ptr_factory_.GetWeakPtr()));
+  memory_pressure_listener_.reset(new base::MemoryPressureListener(
+      base::BindRepeating(&StagingBufferPool::OnMemoryPressure,
+                          weak_ptr_factory_.GetWeakPtr())));
+
+  reduce_memory_usage_callback_ = base::BindRepeating(
+      &StagingBufferPool::ReduceMemoryUsage, weak_ptr_factory_.GetWeakPtr());
 }
 
 StagingBufferPool::~StagingBufferPool() {
@@ -164,16 +146,9 @@ StagingBufferPool::~StagingBufferPool() {
       this);
 }
 
-void StagingBufferPool::RegisterMemoryCoordinatorClient() {
-  // Register this component with base::MemoryCoordinatorClientRegistry.
-  base::MemoryCoordinatorClientRegistry::GetInstance()->Register(this);
-}
-
 void StagingBufferPool::Shutdown() {
-  // Unregister this component with memory_coordinator::ClientRegistry.
-  base::MemoryCoordinatorClientRegistry::GetInstance()->Unregister(this);
-
   base::AutoLock lock(lock_);
+
   if (buffers_.empty())
     return;
 
@@ -223,8 +198,8 @@ void StagingBufferPool::AddStagingBuffer(const StagingBuffer* staging_buffer,
 
   DCHECK(buffers_.find(staging_buffer) == buffers_.end());
   buffers_.insert(staging_buffer);
-  int buffer_usage_in_bytes =
-      ResourceUtil::UncheckedSizeInBytes<int>(staging_buffer->size, format);
+  int buffer_usage_in_bytes = viz::ResourceSizes::UncheckedSizeInBytes<int>(
+      staging_buffer->size, format);
   staging_buffer_usage_in_bytes_ += buffer_usage_in_bytes;
 }
 
@@ -234,7 +209,7 @@ void StagingBufferPool::RemoveStagingBuffer(
 
   DCHECK(buffers_.find(staging_buffer) != buffers_.end());
   buffers_.erase(staging_buffer);
-  int buffer_usage_in_bytes = ResourceUtil::UncheckedSizeInBytes<int>(
+  int buffer_usage_in_bytes = viz::ResourceSizes::UncheckedSizeInBytes<int>(
       staging_buffer->size, staging_buffer->format);
   DCHECK_GE(staging_buffer_usage_in_bytes_, buffer_usage_in_bytes);
   staging_buffer_usage_in_bytes_ -= buffer_usage_in_bytes;
@@ -244,7 +219,7 @@ void StagingBufferPool::MarkStagingBufferAsFree(
     const StagingBuffer* staging_buffer) {
   lock_.AssertAcquired();
 
-  int buffer_usage_in_bytes = ResourceUtil::UncheckedSizeInBytes<int>(
+  int buffer_usage_in_bytes = viz::ResourceSizes::UncheckedSizeInBytes<int>(
       staging_buffer->size, staging_buffer->format);
   free_staging_buffer_usage_in_bytes_ += buffer_usage_in_bytes;
 }
@@ -253,34 +228,38 @@ void StagingBufferPool::MarkStagingBufferAsBusy(
     const StagingBuffer* staging_buffer) {
   lock_.AssertAcquired();
 
-  int buffer_usage_in_bytes = ResourceUtil::UncheckedSizeInBytes<int>(
+  int buffer_usage_in_bytes = viz::ResourceSizes::UncheckedSizeInBytes<int>(
       staging_buffer->size, staging_buffer->format);
   DCHECK_GE(free_staging_buffer_usage_in_bytes_, buffer_usage_in_bytes);
   free_staging_buffer_usage_in_bytes_ -= buffer_usage_in_bytes;
 }
 
 std::unique_ptr<StagingBuffer> StagingBufferPool::AcquireStagingBuffer(
-    const Resource* resource,
+    const gfx::Size& size,
+    viz::ResourceFormat format,
     uint64_t previous_content_id) {
   base::AutoLock lock(lock_);
 
   std::unique_ptr<StagingBuffer> staging_buffer;
 
-  viz::ContextProvider::ScopedContextLock scoped_context(
+  viz::RasterContextProvider::ScopedRasterContextLock scoped_context(
       worker_context_provider_);
 
-  gpu::gles2::GLES2Interface* gl = scoped_context.ContextGL();
-  DCHECK(gl);
+  gpu::raster::RasterInterface* ri = scoped_context.RasterInterface();
+  gpu::SharedImageInterface* sii =
+      worker_context_provider_->SharedImageInterface();
+  DCHECK(ri);
 
   // Check if any busy buffers have become available.
-  if (resource_provider_->use_sync_query()) {
-    while (!busy_buffers_.empty()) {
-      if (!CheckForQueryResult(gl, busy_buffers_.front()->query_id))
-        break;
+  while (!busy_buffers_.empty()) {
+    // Early out if query isn't used, or if query isn't complete yet.  Query is
+    // created in OneCopyRasterBufferProvider::CopyOnWorkerThread().
+    if (!busy_buffers_.front()->query_id ||
+        !CheckForQueryResult(ri, busy_buffers_.front()->query_id))
+      break;
 
-      MarkStagingBufferAsFree(busy_buffers_.front().get());
-      free_buffers_.push_back(PopFront(&busy_buffers_));
-    }
+    MarkStagingBufferAsFree(busy_buffers_.front().get());
+    free_buffers_.push_back(PopFront(&busy_buffers_));
   }
 
   // Wait for memory usage of non-free buffers to become less than the limit.
@@ -291,13 +270,13 @@ std::unique_ptr<StagingBuffer> StagingBufferPool::AcquireStagingBuffer(
     if (busy_buffers_.empty())
       break;
 
-    if (resource_provider_->use_sync_query()) {
-      WaitForQueryResult(gl, busy_buffers_.front()->query_id);
+    if (busy_buffers_.front()->query_id) {
+      WaitForQueryResult(ri, busy_buffers_.front()->query_id);
       MarkStagingBufferAsFree(busy_buffers_.front().get());
       free_buffers_.push_back(PopFront(&busy_buffers_));
     } else {
-      // Fall-back to glFinish if CHROMIUM_sync_query is not available.
-      gl->Finish();
+      // Fall back to glFinish if query isn't used.
+      ri->Finish();
       while (!busy_buffers_.empty()) {
         MarkStagingBufferAsFree(busy_buffers_.front().get());
         free_buffers_.push_back(PopFront(&busy_buffers_));
@@ -322,12 +301,11 @@ std::unique_ptr<StagingBuffer> StagingBufferPool::AcquireStagingBuffer(
 
   // Find staging buffer of correct size and format.
   if (!staging_buffer) {
-    StagingBufferDeque::iterator it =
-        std::find_if(free_buffers_.begin(), free_buffers_.end(),
-                     [resource](const std::unique_ptr<StagingBuffer>& buffer) {
-                       return buffer->size == resource->size() &&
-                              buffer->format == resource->format();
-                     });
+    StagingBufferDeque::iterator it = std::find_if(
+        free_buffers_.begin(), free_buffers_.end(),
+        [&size, format](const std::unique_ptr<StagingBuffer>& buffer) {
+          return buffer->size == size && buffer->format == format;
+        });
     if (it != free_buffers_.end()) {
       staging_buffer = std::move(*it);
       free_buffers_.erase(it);
@@ -337,9 +315,8 @@ std::unique_ptr<StagingBuffer> StagingBufferPool::AcquireStagingBuffer(
 
   // Create new staging buffer if necessary.
   if (!staging_buffer) {
-    staging_buffer =
-        base::MakeUnique<StagingBuffer>(resource->size(), resource->format());
-    AddStagingBuffer(staging_buffer.get(), resource->format());
+    staging_buffer = std::make_unique<StagingBuffer>(size, format);
+    AddStagingBuffer(staging_buffer.get(), format);
   }
 
   // Release enough free buffers to stay within the limit.
@@ -347,7 +324,7 @@ std::unique_ptr<StagingBuffer> StagingBufferPool::AcquireStagingBuffer(
     if (free_buffers_.empty())
       break;
 
-    free_buffers_.front()->DestroyGLResources(gl);
+    free_buffers_.front()->DestroyGLResources(ri, sii);
     MarkStagingBufferAsBusy(free_buffers_.front().get());
     RemoveStagingBuffer(free_buffers_.front().get());
     free_buffers_.pop_front();
@@ -413,19 +390,24 @@ void StagingBufferPool::ReleaseBuffersNotUsedSince(base::TimeTicks time) {
   lock_.AssertAcquired();
 
   {
-    viz::ContextProvider::ScopedContextLock scoped_context(
+    viz::RasterContextProvider::ScopedRasterContextLock scoped_context(
         worker_context_provider_);
 
-    gpu::gles2::GLES2Interface* gl = scoped_context.ContextGL();
-    DCHECK(gl);
+    gpu::raster::RasterInterface* ri = scoped_context.RasterInterface();
+    DCHECK(ri);
+    gpu::SharedImageInterface* sii =
+        worker_context_provider_->SharedImageInterface();
+    DCHECK(sii);
 
+    bool destroyed_buffers = false;
     // Note: Front buffer is guaranteed to be LRU so we can stop releasing
     // buffers as soon as we find a buffer that has been used since |time|.
     while (!free_buffers_.empty()) {
       if (free_buffers_.front()->last_usage > time)
-        return;
+        break;
 
-      free_buffers_.front()->DestroyGLResources(gl);
+      destroyed_buffers = true;
+      free_buffers_.front()->DestroyGLResources(ri, sii);
       MarkStagingBufferAsBusy(free_buffers_.front().get());
       RemoveStagingBuffer(free_buffers_.front().get());
       free_buffers_.pop_front();
@@ -433,19 +415,33 @@ void StagingBufferPool::ReleaseBuffersNotUsedSince(base::TimeTicks time) {
 
     while (!busy_buffers_.empty()) {
       if (busy_buffers_.front()->last_usage > time)
-        return;
+        break;
 
-      busy_buffers_.front()->DestroyGLResources(gl);
+      destroyed_buffers = true;
+      busy_buffers_.front()->DestroyGLResources(ri, sii);
       RemoveStagingBuffer(busy_buffers_.front().get());
       busy_buffers_.pop_front();
+    }
+
+    if (destroyed_buffers) {
+      ri->OrderingBarrierCHROMIUM();
+      worker_context_provider_->ContextSupport()->FlushPendingWork();
     }
   }
 }
 
-void StagingBufferPool::OnPurgeMemory() {
+void StagingBufferPool::OnMemoryPressure(
+    base::MemoryPressureListener::MemoryPressureLevel level) {
   base::AutoLock lock(lock_);
-  // Release all buffers, regardless of how recently they were used.
-  ReleaseBuffersNotUsedSince(base::TimeTicks() + base::TimeDelta::Max());
+  switch (level) {
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE:
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE:
+      break;
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL:
+      // Release all buffers, regardless of how recently they were used.
+      ReleaseBuffersNotUsedSince(base::TimeTicks() + base::TimeDelta::Max());
+      break;
+  }
 }
 
 }  // namespace cc

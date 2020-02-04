@@ -28,6 +28,11 @@
             "label": "WinRT Bluetooth API",
             "type": "compile",
             "test": "winrt_bt"
+        },
+        "winrt_btle_no_pairing": {
+            "label": "WinRT extended bluetooth low energy API",
+            "type": "compile",
+            "test": "winrt_btle_no_pairing"
         }
     },
 
@@ -50,6 +55,11 @@
         "winrt_bt": {
             "label": "WinRT Bluetooth API (desktop & UWP)",
             "condition": "config.win32 && tests.winrt_bt",
+            "output": [ "privateFeature" ]
+        },
+        "winrt_btle_no_pairing": {
+            "label": "WinRT advanced bluetooth low energy API (desktop & UWP)",
+            "condition": "config.win32 && features.winrt_bt && tests.winrt_btle_no_pairing",
             "output": [ "privateFeature" ]
         }
     },
@@ -75,7 +85,8 @@ Only classic Bluetooth will be available."
                 "bluez",
                 "bluez_le",
                 "linux_crypto_api",
-                "winrt_bt"
+                "winrt_bt",
+                "winrt_btle_no_pairing"
             ]
         }
     ]

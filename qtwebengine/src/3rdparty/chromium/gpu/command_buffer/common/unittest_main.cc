@@ -8,7 +8,7 @@
 #include "base/test/test_io_thread.h"
 #include "base/test/test_suite.h"
 #include "build/build_config.h"
-#include "mojo/edk/embedder/embedder.h"
+#include "mojo/core/embedder/embedder.h"
 
 namespace {
 
@@ -24,7 +24,7 @@ class GpuTestSuite : public base::TestSuite {
 GpuTestSuite::GpuTestSuite(int argc, char** argv)
     : base::TestSuite(argc, argv) {}
 
-GpuTestSuite::~GpuTestSuite() {}
+GpuTestSuite::~GpuTestSuite() = default;
 
 }  // namespace
 
@@ -32,9 +32,9 @@ int main(int argc, char** argv) {
   base::CommandLine::Init(argc, argv);
   GpuTestSuite test_suite(argc, argv);
 
-  mojo::edk::Init();
+  mojo::core::Init();
 
   return base::LaunchUnitTests(
       argc, argv,
-      base::Bind(&base::TestSuite::Run, base::Unretained(&test_suite)));
+      base::BindOnce(&base::TestSuite::Run, base::Unretained(&test_suite)));
 }

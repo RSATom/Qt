@@ -26,12 +26,11 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.8
-import Qt.labs.handlers 1.0
+import QtQuick 2.12
 
 Rectangle {
     id: root
-    width: 500
+    width: 800
     height: 480
     objectName: "root"
     color: "#222222"
@@ -41,15 +40,20 @@ Rectangle {
         anchors.margins: 10
         anchors.topMargin: 40
         contentHeight: 600
-        contentWidth: 600
+        contentWidth: 1000
 //        pressDelay: TODO
 
         Row {
             spacing: 6
-            Slider {
-                label: "DragHandler"
-                objectName: "Slider"
-                value: 49; width: 100; height: 400
+            KnobDragSlider {
+                label: "Slider with\nDH on knob"
+                objectName: "knobSlider"
+                value: 49; width: 120; height: 400
+            }
+            GrooveDragSlider {
+                label: "Slider with\nDH on root"
+                objectName: "grooveSlider"
+                value: 49; width: 120; height: 400
             }
             Column {
                 spacing: 6
@@ -80,6 +84,7 @@ Rectangle {
                     objectName: "drag"
                     DragHandler {
                         id: drag1
+                        objectName: "drag1"
                     }
                     Text {
                         anchors.centerIn: parent
@@ -96,6 +101,7 @@ Rectangle {
                     border.width: 3
                     TapHandler {
                         id: tap1
+                        objectName: "tap1"
                         gesturePolicy: TapHandler.DragThreshold
                     }
                     Text {
@@ -113,9 +119,11 @@ Rectangle {
                     objectName: "dragAndTap"
                     DragHandler {
                         id: drag2
+                        objectName: "drag2"
                     }
                     TapHandler {
                         id: tap2
+                        objectName: "tap2"
                         gesturePolicy: TapHandler.DragThreshold
                     }
                     Text {
@@ -133,10 +141,12 @@ Rectangle {
                     objectName: "tapAndDrag"
                     TapHandler {
                         id: tap3
+                        objectName: "tap3"
                         gesturePolicy: TapHandler.DragThreshold
                     }
                     DragHandler {
                         id: drag3
+                        objectName: "drag3"
                     }
                     Text {
                         anchors.centerIn: parent

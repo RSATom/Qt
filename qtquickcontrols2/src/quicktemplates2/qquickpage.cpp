@@ -35,18 +35,21 @@
 ****************************************************************************/
 
 #include "qquickpage_p.h"
-#include "qquickcontrol_p_p.h"
-#include "qquickpagelayout_p_p.h"
+#include "qquickpage_p_p.h"
+#include "qquicktabbar_p.h"
+#include "qquicktoolbar_p.h"
+#include "qquickdialogbuttonbox_p.h"
 
 QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype Page
-    \inherits Control
+    \inherits Pane
     \instantiates QQuickPage
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-containers
+    \ingroup qtquickcontrols2-focusscopes
     \brief Styled page control with support for a header and footer.
 
     Page is a container control which makes it convenient to add
@@ -58,7 +61,7 @@ QT_BEGIN_NAMESPACE
     toolbar header and an application-wide tabbar footer.
 
     \qml
-    import QtQuick.Controls 2.1
+    import QtQuick.Controls 2.12
 
     ApplicationWindow {
         visible: true
@@ -79,48 +82,158 @@ QT_BEGIN_NAMESPACE
     }
     \endqml
 
-    \sa ApplicationWindow, {Container Controls}
+    \sa ApplicationWindow, {Container Controls},
+        {Focus Management in Qt Quick Controls}
 */
 
-class QQuickPagePrivate : public QQuickControlPrivate
-{
-    Q_DECLARE_PUBLIC(QQuickPage)
+static const QQuickItemPrivate::ChangeTypes LayoutChanges = QQuickItemPrivate::Geometry | QQuickItemPrivate::Visibility | QQuickItemPrivate::Destroyed
+                                                          | QQuickItemPrivate::ImplicitWidth | QQuickItemPrivate::ImplicitHeight;
 
-public:
-    QQuickPagePrivate();
+namespace {
+    enum Position {
+        Header,
+        Footer
+    };
 
-    QQuickItem *getContentItem() override;
+    Q_STATIC_ASSERT(int(Header) == int(QQuickTabBar::Header));
+    Q_STATIC_ASSERT(int(Footer) == int(QQuickTabBar::Footer));
 
-    qreal contentWidth;
-    qreal contentHeight;
-    QString title;
-    QScopedPointer<QQuickPageLayout> layout;
-};
+    Q_STATIC_ASSERT(int(Header) == int(QQuickToolBar::Header));
+    Q_STATIC_ASSERT(int(Footer) == int(QQuickToolBar::Footer));
 
-QQuickPagePrivate::QQuickPagePrivate()
-    : contentWidth(0),
-      contentHeight(0)
-{
+    Q_STATIC_ASSERT(int(Header) == int(QQuickDialogButtonBox::Header));
+    Q_STATIC_ASSERT(int(Footer) == int(QQuickDialogButtonBox::Footer));
+
+    static void setPos(QQuickItem *item, Position position)
+    {
+        if (QQuickToolBar *toolBar = qobject_cast<QQuickToolBar *>(item))
+            toolBar->setPosition(static_cast<QQuickToolBar::Position>(position));
+        else if (QQuickTabBar *tabBar = qobject_cast<QQuickTabBar *>(item))
+            tabBar->setPosition(static_cast<QQuickTabBar::Position>(position));
+        else if (QQuickDialogButtonBox *buttonBox = qobject_cast<QQuickDialogButtonBox *>(item))
+            buttonBox->setPosition(static_cast<QQuickDialogButtonBox::Position>(position));
+    }
 }
 
-QQuickItem *QQuickPagePrivate::getContentItem()
+void QQuickPagePrivate::relayout()
 {
     Q_Q(QQuickPage);
-    if (QQuickItem *item = QQuickControlPrivate::getContentItem())
-        return item;
-    return new QQuickItem(q);
+    const qreal hh = header && header->isVisible() ? header->height() : 0;
+    const qreal fh = footer && footer->isVisible() ? footer->height() : 0;
+    const qreal hsp = hh > 0 ? spacing : 0;
+    const qreal fsp = fh > 0 ? spacing : 0;
+
+    if (contentItem) {
+        contentItem->setY(q->topPadding() + hh + hsp);
+        contentItem->setX(q->leftPadding());
+        contentItem->setWidth(q->availableWidth());
+        contentItem->setHeight(q->availableHeight() - hh - fh - hsp - fsp);
+    }
+
+    if (header)
+        header->setWidth(q->width());
+
+    if (footer) {
+        footer->setY(q->height() - footer->height());
+        footer->setWidth(q->width());
+    }
+}
+
+void QQuickPagePrivate::resizeContent()
+{
+    relayout();
+}
+
+void QQuickPagePrivate::itemVisibilityChanged(QQuickItem *item)
+{
+    Q_Q(QQuickPage);
+    QQuickPanePrivate::itemVisibilityChanged(item);
+    if (item == header) {
+        QBoolBlocker signalGuard(emittingImplicitSizeChangedSignals);
+        emit q->implicitHeaderWidthChanged();
+        emit q->implicitHeaderHeightChanged();
+        relayout();
+    } else if (item == footer) {
+        QBoolBlocker signalGuard(emittingImplicitSizeChangedSignals);
+        emit q->implicitFooterWidthChanged();
+        emit q->implicitFooterHeightChanged();
+        relayout();
+    }
+}
+
+void QQuickPagePrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    Q_Q(QQuickPage);
+    QQuickPanePrivate::itemImplicitWidthChanged(item);
+
+    // Avoid binding loops by skipping signal emission if we're already doing it.
+    if (emittingImplicitSizeChangedSignals)
+        return;
+
+    if (item == header)
+        emit q->implicitHeaderWidthChanged();
+    else if (item == footer)
+        emit q->implicitFooterWidthChanged();
+}
+
+void QQuickPagePrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    Q_Q(QQuickPage);
+    QQuickPanePrivate::itemImplicitHeightChanged(item);
+
+    // Avoid binding loops by skipping signal emission if we're already doing it.
+    if (emittingImplicitSizeChangedSignals)
+        return;
+
+    if (item == header)
+        emit q->implicitHeaderHeightChanged();
+    else if (item == footer)
+        emit q->implicitFooterHeightChanged();
+}
+
+void QQuickPagePrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF & diff)
+{
+    QQuickPanePrivate::itemGeometryChanged(item, change, diff);
+    if (item == header || item == footer)
+        relayout();
+}
+
+void QQuickPagePrivate::itemDestroyed(QQuickItem *item)
+{
+    Q_Q(QQuickPage);
+    QQuickPanePrivate::itemDestroyed(item);
+    if (item == header) {
+        header = nullptr;
+        relayout();
+        emit q->implicitHeaderWidthChanged();
+        emit q->implicitHeaderHeightChanged();
+        emit q->headerChanged();
+    } else if (item == footer) {
+        footer = nullptr;
+        relayout();
+        emit q->implicitFooterWidthChanged();
+        emit q->implicitFooterHeightChanged();
+        emit q->footerChanged();
+    }
 }
 
 QQuickPage::QQuickPage(QQuickItem *parent)
-    : QQuickControl(*(new QQuickPagePrivate), parent)
+    : QQuickPane(*(new QQuickPagePrivate), parent)
+{
+}
+
+QQuickPage::QQuickPage(QQuickPagePrivate &dd, QQuickItem *parent)
+    : QQuickPane(dd, parent)
+{
+}
+
+QQuickPage::~QQuickPage()
 {
     Q_D(QQuickPage);
-    setFlag(ItemIsFocusScope);
-    setAcceptedMouseButtons(Qt::AllButtons);
-#if QT_CONFIG(cursor)
-    setCursor(Qt::ArrowCursor);
-#endif
-    d->layout.reset(new QQuickPageLayout(this));
+    if (d->header)
+        QQuickItemPrivate::get(d->header)->removeItemChangeListener(d, LayoutChanges);
+    if (d->footer)
+        QQuickItemPrivate::get(d->footer)->removeItemChangeListener(d, LayoutChanges);
 }
 
 /*!
@@ -191,16 +304,29 @@ void QQuickPage::setTitle(const QString &title)
 QQuickItem *QQuickPage::header() const
 {
     Q_D(const QQuickPage);
-    return d->layout->header();
+    return d->header;
 }
 
 void QQuickPage::setHeader(QQuickItem *header)
 {
     Q_D(QQuickPage);
-    if (!d->layout->setHeader(header))
+    if (d->header == header)
         return;
+
+    if (d->header) {
+        QQuickItemPrivate::get(d->header)->removeItemChangeListener(d, LayoutChanges);
+        d->header->setParentItem(nullptr);
+    }
+    d->header = header;
+    if (header) {
+        header->setParentItem(this);
+        QQuickItemPrivate::get(header)->addItemChangeListener(d, LayoutChanges);
+        if (qFuzzyIsNull(header->z()))
+            header->setZ(1);
+        setPos(header, Header);
+    }
     if (isComponentComplete())
-        d->layout->update();
+        d->relayout();
     emit headerChanged();
 }
 
@@ -219,150 +345,120 @@ void QQuickPage::setHeader(QQuickItem *header)
 QQuickItem *QQuickPage::footer() const
 {
     Q_D(const QQuickPage);
-    return d->layout->footer();
+    return d->footer;
 }
 
 void QQuickPage::setFooter(QQuickItem *footer)
 {
     Q_D(QQuickPage);
-    if (!d->layout->setFooter(footer))
+    if (d->footer == footer)
         return;
+
+    if (d->footer) {
+        QQuickItemPrivate::get(d->footer)->removeItemChangeListener(d, LayoutChanges);
+        d->footer->setParentItem(nullptr);
+    }
+    d->footer = footer;
+    if (footer) {
+        footer->setParentItem(this);
+        QQuickItemPrivate::get(footer)->addItemChangeListener(d, LayoutChanges);
+        if (qFuzzyIsNull(footer->z()))
+            footer->setZ(1);
+        setPos(footer, Footer);
+    }
     if (isComponentComplete())
-        d->layout->update();
+        d->relayout();
     emit footerChanged();
 }
 
 /*!
-    \qmlproperty list<Object> QtQuick.Controls::Page::contentData
-    \default
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Page::implicitHeaderWidth
+    \readonly
 
-    This property holds the list of content data.
+    This property holds the implicit header width.
 
-    The list contains all objects that have been declared in QML as children
-    of the container.
+    The value is equal to \c {header && header.visible ? header.implicitWidth : 0}.
 
-    \note Unlike \c contentChildren, \c contentData does include non-visual QML
-    objects.
-
-    \sa Item::data, contentChildren
+    \sa implicitHeaderHeight, implicitFooterWidth
 */
-QQmlListProperty<QObject> QQuickPage::contentData()
-{
-    return QQmlListProperty<QObject>(contentItem(), nullptr,
-                                     QQuickItemPrivate::data_append,
-                                     QQuickItemPrivate::data_count,
-                                     QQuickItemPrivate::data_at,
-                                     QQuickItemPrivate::data_clear);
-}
-
-/*!
-    \qmlproperty list<Item> QtQuick.Controls::Page::contentChildren
-
-    This property holds the list of content children.
-
-    The list contains all items that have been declared in QML as children
-    of the page.
-
-    \note Unlike \c contentData, \c contentChildren does not include non-visual
-    QML objects.
-
-    \sa Item::children, contentData
-*/
-QQmlListProperty<QQuickItem> QQuickPage::contentChildren()
-{
-    return QQmlListProperty<QQuickItem>(contentItem(), nullptr,
-                                        QQuickItemPrivate::children_append,
-                                        QQuickItemPrivate::children_count,
-                                        QQuickItemPrivate::children_at,
-                                        QQuickItemPrivate::children_clear);
-}
-
-/*!
-    \qmlproperty real QtQuick.Controls::Page::contentWidth
-    \since QtQuick.Controls 2.1 (Qt 5.8)
-
-    This property holds the content width. It is used for calculating the total
-    implicit width of the page.
-
-    \sa contentHeight
-*/
-qreal QQuickPage::contentWidth() const
+qreal QQuickPage::implicitHeaderWidth() const
 {
     Q_D(const QQuickPage);
-    return d->contentWidth;
-}
-
-void QQuickPage::setContentWidth(qreal width)
-{
-    Q_D(QQuickPage);
-    if (qFuzzyCompare(d->contentWidth, width))
-        return;
-
-    d->contentWidth = width;
-    emit contentWidthChanged();
+    if (!d->header || !d->header->isVisible())
+        return 0;
+    return d->header->implicitWidth();
 }
 
 /*!
-    \qmlproperty real QtQuick.Controls::Page::contentHeight
-    \since QtQuick.Controls 2.1 (Qt 5.8)
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Page::implicitHeaderHeight
+    \readonly
 
-    This property holds the content height. It is used for calculating the total
-    implicit height of the page.
+    This property holds the implicit header height.
 
-    \sa contentWidth
+    The value is equal to \c {header && header.visible ? header.implicitHeight : 0}.
+
+    \sa implicitHeaderWidth, implicitFooterHeight
 */
-qreal QQuickPage::contentHeight() const
+qreal QQuickPage::implicitHeaderHeight() const
 {
     Q_D(const QQuickPage);
-    return d->contentHeight;
+    if (!d->header || !d->header->isVisible())
+        return 0;
+    return d->header->implicitHeight();
 }
 
-void QQuickPage::setContentHeight(qreal height)
-{
-    Q_D(QQuickPage);
-    if (qFuzzyCompare(d->contentHeight, height))
-        return;
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Page::implicitFooterWidth
+    \readonly
 
-    d->contentHeight = height;
-    emit contentHeightChanged();
+    This property holds the implicit footer width.
+
+    The value is equal to \c {footer && footer.visible ? footer.implicitWidth : 0}.
+
+    \sa implicitFooterHeight, implicitHeaderWidth
+*/
+qreal QQuickPage::implicitFooterWidth() const
+{
+    Q_D(const QQuickPage);
+    if (!d->footer || !d->footer->isVisible())
+        return 0;
+    return d->footer->implicitWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Page::implicitFooterHeight
+    \readonly
+
+    This property holds the implicit footer height.
+
+    The value is equal to \c {footer && footer.visible ? footer.implicitHeight : 0}.
+
+    \sa implicitFooterWidth, implicitHeaderHeight
+*/
+qreal QQuickPage::implicitFooterHeight() const
+{
+    Q_D(const QQuickPage);
+    if (!d->footer || !d->footer->isVisible())
+        return 0;
+    return d->footer->implicitHeight();
 }
 
 void QQuickPage::componentComplete()
 {
     Q_D(QQuickPage);
-    QQuickControl::componentComplete();
-    d->layout->update();
-}
-
-void QQuickPage::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem)
-{
-    QQuickControl::contentItemChange(newItem, oldItem);
-    if (oldItem)
-        disconnect(oldItem, &QQuickItem::childrenChanged, this, &QQuickPage::contentChildrenChanged);
-    if (newItem)
-        connect(newItem, &QQuickItem::childrenChanged, this, &QQuickPage::contentChildrenChanged);
-    emit contentChildrenChanged();
-}
-
-void QQuickPage::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
-{
-    Q_D(QQuickPage);
-    QQuickControl::geometryChanged(newGeometry, oldGeometry);
-    d->layout->update();
-}
-
-void QQuickPage::paddingChange(const QMarginsF &newPadding, const QMarginsF &oldPadding)
-{
-    Q_D(QQuickPage);
-    QQuickControl::paddingChange(newPadding, oldPadding);
-    d->layout->update();
+    QQuickPane::componentComplete();
+    d->relayout();
 }
 
 void QQuickPage::spacingChange(qreal newSpacing, qreal oldSpacing)
 {
     Q_D(QQuickPage);
-    QQuickControl::spacingChange(newSpacing, oldSpacing);
-    d->layout->update();
+    QQuickPane::spacingChange(newSpacing, oldSpacing);
+    d->relayout();
 }
 
 #if QT_CONFIG(accessibility)
@@ -374,7 +470,7 @@ QAccessible::Role QQuickPage::accessibleRole() const
 void QQuickPage::accessibilityActiveChanged(bool active)
 {
     Q_D(QQuickPage);
-    QQuickControl::accessibilityActiveChanged(active);
+    QQuickPane::accessibilityActiveChanged(active);
 
     if (active)
         setAccessibleName(d->title);

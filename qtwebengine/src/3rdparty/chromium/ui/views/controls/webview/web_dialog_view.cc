@@ -28,7 +28,7 @@ using content::NativeWebKeyboardEvent;
 using content::WebContents;
 using content::WebUIMessageHandler;
 using ui::WebDialogDelegate;
-using ui::WebDialogUI;
+using ui::WebDialogUIBase;
 using ui::WebDialogWebContentsDelegate;
 
 namespace views {
@@ -46,7 +46,7 @@ WebDialogView::WebDialogView(content::BrowserContext* context,
   web_view_->set_allow_accelerators(true);
   AddChildView(web_view_);
   set_contents_view(web_view_);
-  SetLayoutManager(new views::FillLayout);
+  SetLayoutManager(std::make_unique<views::FillLayout>());
   // Pressing the ESC key will close the dialog.
   AddAccelerator(ui::Accelerator(ui::VKEY_ESCAPE, ui::EF_NONE));
 
@@ -116,7 +116,7 @@ bool WebDialogView::CanClose() {
   if (!is_attempting_close_dialog_) {
     // Fire beforeunload event when user attempts to close the dialog.
     is_attempting_close_dialog_ = true;
-    web_view_->web_contents()->DispatchBeforeUnload();
+    web_view_->web_contents()->DispatchBeforeUnload(false /* auto_cancel */);
   }
   return false;
 }
@@ -138,6 +138,12 @@ base::string16 WebDialogView::GetWindowTitle() const {
   if (delegate_)
     return delegate_->GetDialogTitle();
   return base::string16();
+}
+
+base::string16 WebDialogView::GetAccessibleWindowTitle() const {
+  if (delegate_)
+    return delegate_->GetAccessibleDialogTitle();
+  return GetWindowTitle();
 }
 
 std::string WebDialogView::GetWindowName() const {
@@ -271,21 +277,23 @@ bool WebDialogView::HandleContextMenu(
 ////////////////////////////////////////////////////////////////////////////////
 // content::WebContentsDelegate implementation:
 
-void WebDialogView::MoveContents(WebContents* source, const gfx::Rect& pos) {
+void WebDialogView::SetContentsBounds(WebContents* source,
+                                      const gfx::Rect& bounds) {
   // The contained web page wishes to resize itself. We let it do this because
   // if it's a dialog we know about, we trust it not to be mean to the user.
-  GetWidget()->SetBounds(pos);
+  GetWidget()->SetBounds(bounds);
 }
 
 // A simplified version of BrowserView::HandleKeyboardEvent().
 // We don't handle global keyboard shortcuts here, but that's fine since
 // they're all browser-specific. (This may change in the future.)
-void WebDialogView::HandleKeyboardEvent(content::WebContents* source,
+bool WebDialogView::HandleKeyboardEvent(content::WebContents* source,
                                         const NativeWebKeyboardEvent& event) {
   if (!event.os_event)
-    return;
+    return false;
 
-  GetWidget()->native_widget_private()->RepostNativeEvent(event.os_event);
+  return unhandled_keyboard_event_handler_.HandleKeyboardEvent(
+      event, GetFocusManager());
 }
 
 void WebDialogView::CloseContents(WebContents* source) {
@@ -307,19 +315,16 @@ content::WebContents* WebDialogView::OpenURLFromTab(
   return WebDialogWebContentsDelegate::OpenURLFromTab(source, params);
 }
 
-void WebDialogView::AddNewContents(content::WebContents* source,
-                                   content::WebContents* new_contents,
-                                   WindowOpenDisposition disposition,
-                                   const gfx::Rect& initial_rect,
-                                   bool user_gesture,
-                                   bool* was_blocked) {
-  if (delegate_ && delegate_->HandleAddNewContents(
-          source, new_contents, disposition, initial_rect, user_gesture)) {
-    return;
-  }
-  WebDialogWebContentsDelegate::AddNewContents(
-      source, new_contents, disposition, initial_rect, user_gesture,
-      was_blocked);
+void WebDialogView::AddNewContents(
+    content::WebContents* source,
+    std::unique_ptr<content::WebContents> new_contents,
+    WindowOpenDisposition disposition,
+    const gfx::Rect& initial_rect,
+    bool user_gesture,
+    bool* was_blocked) {
+  WebDialogWebContentsDelegate::AddNewContents(source, std::move(new_contents),
+                                               disposition, initial_rect,
+                                               user_gesture, was_blocked);
 }
 
 void WebDialogView::LoadingStateChanged(content::WebContents* source,
@@ -365,7 +370,7 @@ void WebDialogView::InitDialog() {
 
   // Set the delegate. This must be done before loading the page. See
   // the comment above WebDialogUI in its header file for why.
-  WebDialogUI::SetDelegate(web_contents, this);
+  WebDialogUIBase::SetDelegate(web_contents, this);
 
   web_view_->LoadInitialURL(GetDialogContentURL());
 }

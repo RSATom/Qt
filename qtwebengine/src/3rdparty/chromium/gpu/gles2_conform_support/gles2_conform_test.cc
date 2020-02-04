@@ -37,7 +37,7 @@ int RunHelper(base::TestSuite* test_suite) {
 bool RunGLES2ConformTest(const char* path) {
   // Load test expectations, and return early if a test is marked as FAIL.
   base::FilePath src_path;
-  PathService::Get(base::DIR_SOURCE_ROOT, &src_path);
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &src_path);
   base::FilePath test_expectations_path =
       src_path.Append(FILE_PATH_LITERAL("gpu")).
       Append(FILE_PATH_LITERAL("gles2_conform_support")).
@@ -52,7 +52,7 @@ bool RunGLES2ConformTest(const char* path) {
     return false;
   }
   gpu::GPUTestBotConfig bot_config;
-  if (!bot_config.LoadCurrentConfig(NULL)) {
+  if (!bot_config.LoadCurrentConfig(nullptr)) {
     LOG(ERROR) << "Fail to load bot configuration";
     return false;
   }
@@ -101,7 +101,7 @@ bool RunGLES2ConformTest(const char* path) {
   }
 
   base::FilePath test_path;
-  PathService::Get(base::DIR_EXE, &test_path);
+  base::PathService::Get(base::DIR_EXE, &test_path);
   base::FilePath program(test_path.Append(FILE_PATH_LITERAL(
       "gles2_conform_test_windowless")));
 
@@ -132,8 +132,6 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   base::TestSuite test_suite(argc, argv);
   int rt = base::LaunchUnitTestsSerially(
-      argc,
-      argv,
-      base::Bind(&RunHelper, base::Unretained(&test_suite)));
+      argc, argv, base::BindOnce(&RunHelper, base::Unretained(&test_suite)));
   return rt;
 }

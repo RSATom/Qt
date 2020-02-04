@@ -7,8 +7,6 @@
 #ifndef XFA_FWL_CFWL_PUSHBUTTON_H_
 #define XFA_FWL_CFWL_PUSHBUTTON_H_
 
-#include <memory>
-
 #include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fwl/cfwl_widgetproperties.h"
 
@@ -19,7 +17,7 @@ class CFWL_MessageMouse;
 class CFX_DIBitmap;
 class CFWL_Widget;
 
-class CFWL_PushButton : public CFWL_Widget {
+class CFWL_PushButton final : public CFWL_Widget {
  public:
   explicit CFWL_PushButton(const CFWL_App*);
   ~CFWL_PushButton() override;
@@ -28,10 +26,10 @@ class CFWL_PushButton : public CFWL_Widget {
   FWL_Type GetClassID() const override;
   void SetStates(uint32_t dwStates) override;
   void Update() override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
   void OnDrawWidget(CXFA_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+                    const CFX_Matrix& matrix) override;
 
  private:
   void DrawBkground(CXFA_Graphics* pGraphics,
@@ -49,8 +47,6 @@ class CFWL_PushButton : public CFWL_Widget {
   CFX_RectF m_rtClient;
   CFX_RectF m_rtCaption;
   bool m_bBtnDown;
-  uint32_t m_dwTTOStyles;
-  int32_t m_iTTOAlign;
 };
 
 #endif  // XFA_FWL_CFWL_PUSHBUTTON_H_

@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
 #include "chrome/browser/browser_process.h"
@@ -37,14 +36,14 @@ Profile* CreateProfile() {
   base::RunLoop run_loop;
   profile_manager->CreateProfileAsync(
       new_path, base::Bind(&UnblockOnProfileCreation, &run_loop),
-      base::string16(), std::string(), std::string());
+      base::string16(), std::string());
   run_loop.Run();
   return profile_manager->GetProfileByPath(new_path);
 }
 
 // An observer returns back to test code after brower window associated with
 // the profile is activated.
-class ExpectBrowserActivationForProfile : public chrome::BrowserListObserver {
+class ExpectBrowserActivationForProfile : public BrowserListObserver {
  public:
   explicit ExpectBrowserActivationForProfile(Profile* profile)
       : profile_(profile), scoped_observer_(this) {
@@ -64,7 +63,7 @@ class ExpectBrowserActivationForProfile : public chrome::BrowserListObserver {
  private:
   Profile* profile_;
   base::RunLoop loop_;
-  ScopedObserver<BrowserList, chrome::BrowserListObserver> scoped_observer_;
+  ScopedObserver<BrowserList, BrowserListObserver> scoped_observer_;
 };
 
 }  // namespace
@@ -90,7 +89,7 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, OpenNewWindowForProfile) {
   // Open additional browser will add new window and activates it.
   Profile* additional_profile = CreateProfile();
   activation_observer =
-      base::MakeUnique<ExpectBrowserActivationForProfile>(additional_profile);
+      std::make_unique<ExpectBrowserActivationForProfile>(additional_profile);
   webui::OpenNewWindowForProfile(additional_profile);
   EXPECT_EQ(2u, browser_list->size());
   activation_observer->Wait();
@@ -104,7 +103,7 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, OpenNewWindowForProfile) {
 #if !defined(OS_MACOSX)
   // Switch to original browser. Only LastActive should change.
   activation_observer =
-      base::MakeUnique<ExpectBrowserActivationForProfile>(original_profile);
+      std::make_unique<ExpectBrowserActivationForProfile>(original_profile);
   webui::OpenNewWindowForProfile(original_profile);
   EXPECT_EQ(2u, browser_list->size());
   activation_observer->Wait();
@@ -129,7 +128,7 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteSoleProfile) {
       content::NotificationService::AllSources());
   content::WindowedNotificationObserver close_observer(
       chrome::NOTIFICATION_BROWSER_CLOSED, content::Source<Browser>(browser()));
-  webui::DeleteProfileAtPath(original_browser->profile()->GetPath(), &web_ui,
+  webui::DeleteProfileAtPath(original_browser->profile()->GetPath(),
                              ProfileMetrics::DELETE_PROFILE_SETTINGS);
   open_observer.Wait();
   close_observer.Wait();
@@ -159,7 +158,7 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteActiveProfile) {
       content::NotificationService::AllSources());
   content::WindowedNotificationObserver close_observer(
       chrome::NOTIFICATION_BROWSER_CLOSED, content::Source<Browser>(browser()));
-  webui::DeleteProfileAtPath(original_browser->profile()->GetPath(), &web_ui,
+  webui::DeleteProfileAtPath(original_browser->profile()->GetPath(),
                              ProfileMetrics::DELETE_PROFILE_SETTINGS);
   open_observer.Wait();
   close_observer.Wait();
@@ -185,7 +184,7 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteInactiveProfile) {
 
   content::BrowsingDataRemoverCompletionInhibitor inhibitor(
       content::BrowserContext::GetBrowsingDataRemover(additional_profile));
-  webui::DeleteProfileAtPath(additional_profile->GetPath(), &web_ui,
+  webui::DeleteProfileAtPath(additional_profile->GetPath(),
                              ProfileMetrics::DELETE_PROFILE_SETTINGS);
   inhibitor.BlockUntilNearCompletion();
   inhibitor.ContinueToCompletion();

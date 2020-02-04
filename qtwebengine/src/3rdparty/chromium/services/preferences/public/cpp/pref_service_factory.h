@@ -15,7 +15,7 @@
 
 #include "base/callback.h"
 #include "components/prefs/pref_value_store.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
 
 class PrefRegistry;
 class PrefService;
@@ -30,6 +30,14 @@ namespace prefs {
 // to call |AddPrefInitObserver| on it before using it. Passed |nullptr| on
 // failure.
 using ConnectCallback = base::Callback<void(std::unique_ptr<::PrefService>)>;
+
+// Create a |PrefService| object acting as a client library for the pref
+// service, using the provided |connector|. Connecting is asynchronous and
+// |callback| will be called when it has been established. All preferences that
+// will be accessed need to be registered in |pref_registry| first.
+void ConnectToPrefService(mojom::PrefStoreConnectorPtr connector,
+                          scoped_refptr<PrefRegistry> pref_registry,
+                          ConnectCallback callback);
 
 // Create a |PrefService| object acting as a client library for the pref
 // service, by connecting to the service using |connector|. Connecting is

@@ -28,9 +28,9 @@ namespace base {
 class SingleThreadTaskRunner;
 }
 
-namespace tracked_objects {
+namespace base {
 class Location;
-}  // namespace tracked_objects
+}  // namespace base
 
 // Small class to bundle device name and connection type into a dictionary.
 CAPTURE_EXPORT
@@ -87,7 +87,8 @@ class VideoCaptureDeviceMac : public VideoCaptureDevice {
   void OnPhotoError();
 
   // Forwarder to VideoCaptureDevice::Client::OnError().
-  void ReceiveError(const tracked_objects::Location& from_here,
+  void ReceiveError(VideoCaptureError error,
+                    const base::Location& from_here,
                     const std::string& reason);
 
   // Forwarder to VideoCaptureDevice::Client::OnLog().
@@ -98,7 +99,8 @@ class VideoCaptureDeviceMac : public VideoCaptureDevice {
                                       VideoCaptureTransportType transport_type);
 
  private:
-  void SetErrorState(const tracked_objects::Location& from_here,
+  void SetErrorState(VideoCaptureError error,
+                     const base::Location& from_here,
                      const std::string& reason);
   bool UpdateCaptureResolution();
 
@@ -117,7 +119,7 @@ class VideoCaptureDeviceMac : public VideoCaptureDevice {
   base::scoped_nsobject<VideoCaptureDeviceAVFoundation> capture_device_;
 
   // To hold on to the TakePhotoCallback while the picture is being taken.
-  std::unique_ptr<TakePhotoCallback> photo_callback_;
+  TakePhotoCallback photo_callback_;
 
   // Used with Bind and PostTask to ensure that methods aren't called after the
   // VideoCaptureDeviceMac is destroyed.

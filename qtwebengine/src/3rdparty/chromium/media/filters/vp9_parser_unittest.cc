@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// For each sample vp9 test video, $filename, there is a file of golden value
+// For some sample vp9 test videos, $filename, there is a file of golden value
 // of frame entropy, named $filename.context. These values are dumped from
 // libvpx.
 //
@@ -15,6 +15,8 @@
 // If |should_update| is true, it follows by the frame context to update.
 #include <stdint.h>
 #include <string.h>
+#include <utility>
+#include <vector>
 
 #include "base/files/memory_mapped_file.h"
 #include "base/logging.h"
@@ -23,10 +25,43 @@
 #include "media/filters/vp9_parser.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using ::testing::TestWithParam;
+
 namespace media {
 
-class Vp9ParserTest : public ::testing::Test {
+namespace {
+
+struct TestParams {
+  const char* file_name;
+  int profile;
+  int bit_depth;
+  size_t width;
+  size_t height;
+  bool frame_parallel_decoding_mode;
+  int loop_filter_level;
+  int quantization_base_index;
+  size_t first_frame_header_size_bytes;
+  enum Vp9InterpolationFilter filter;
+  size_t second_frame_header_size_bytes;
+  size_t second_frame_uncompressed_header_size_bytes;
+};
+
+const struct TestParams kTestParams[] = {
+    {"test-25fps.vp9", 0, 8, 320, 240, true, 9, 65, 120,
+     Vp9InterpolationFilter::EIGHTTAP, 48, 11},
+    {"test-25fps.vp9_2", 2, 10, 320, 240, true, 8, 79, 115,
+     Vp9InterpolationFilter::SWITCHABLE, 46, 10}};
+
+const char kInitialIV[] = "aaaaaaaaaaaaaaaa";
+const char kIVIncrementOne[] = "aaaaaaaaaaaaaaab";
+const char kIVIncrementTwo[] = "aaaaaaaaaaaaaaac";
+const char kKeyID[] = "key-id";
+
+}  // anonymous namespace
+
+class Vp9ParserTest : public TestWithParam<TestParams> {
  protected:
+  Vp9ParserTest() = default;
   void TearDown() override {
     stream_.reset();
     vp9_parser_.reset();
@@ -70,6 +105,11 @@ class Vp9ParserTest : public ::testing::Test {
   }
 
   Vp9Parser::Result ParseNextFrame(struct Vp9FrameHeader* frame_hdr);
+  void CheckSubsampleValues(
+      const uint8_t* superframe,
+      size_t framesize,
+      std::unique_ptr<DecryptConfig> config,
+      std::vector<std::unique_ptr<DecryptConfig>>& expected_split);
 
   const Vp9SegmentationParams& GetSegmentation() const {
     return vp9_parser_->context().segmentation();
@@ -93,7 +133,8 @@ class Vp9ParserTest : public ::testing::Test {
 
 Vp9Parser::Result Vp9ParserTest::ParseNextFrame(Vp9FrameHeader* fhdr) {
   while (1) {
-    Vp9Parser::Result res = vp9_parser_->ParseNextFrame(fhdr);
+    std::unique_ptr<DecryptConfig> null_config;
+    Vp9Parser::Result res = vp9_parser_->ParseNextFrame(fhdr, &null_config);
     if (res == Vp9Parser::kEOStream) {
       IvfFrameHeader ivf_frame_header;
       const uint8_t* ivf_payload;
@@ -101,11 +142,418 @@ Vp9Parser::Result Vp9ParserTest::ParseNextFrame(Vp9FrameHeader* fhdr) {
       if (!ivf_parser_.ParseNextFrame(&ivf_frame_header, &ivf_payload))
         return Vp9Parser::kEOStream;
 
-      vp9_parser_->SetStream(ivf_payload, ivf_frame_header.frame_size);
+      vp9_parser_->SetStream(ivf_payload, ivf_frame_header.frame_size, nullptr);
       continue;
     }
 
     return res;
+  }
+}
+
+void Vp9ParserTest::CheckSubsampleValues(
+    const uint8_t* superframe,
+    size_t framesize,
+    std::unique_ptr<DecryptConfig> config,
+    std::vector<std::unique_ptr<DecryptConfig>>& expected_split) {
+  vp9_parser_->SetStream(superframe, framesize, std::move(config));
+  for (auto& expected : expected_split) {
+    std::unique_ptr<DecryptConfig> actual =
+        vp9_parser_->NextFrameDecryptContextForTesting();
+    EXPECT_EQ(actual->iv(), expected->iv());
+    EXPECT_EQ(actual->subsamples().size(), expected->subsamples().size());
+  }
+}
+
+uint8_t make_marker_byte(bool is_superframe, const uint8_t frame_count) {
+  DCHECK_LE(frame_count, 8);
+  const uint8_t superframe_marker_byte =
+      // superframe marker byte
+      // marker (0b110) encoded at bits 6, 7, 8
+      // or non-superframe marker (0b111)
+      (0xE0 & ((is_superframe ? 0x06 : 0x07) << 5)) |
+      // magnitude - 1 encoded at bits 4, 5
+      (0x18 & (0x00 << 3)) |
+      // frame count - 2 encoded at bits 1, 2, 3
+      (0x07 & (frame_count - 1));
+  return superframe_marker_byte;
+}
+
+// ┌───────────────────┬────────────────────┐
+// │ frame 1           │ frame 2            │
+// ┝━━━━━━━━━━━━━━━━━━━┿━━━━━━━━━━━━━━━━━━━━┥
+// │ clear1 | cipher 1 │ clear 2 | cipher 2 │
+// └───────────────────┴────────────────────┘
+TEST_F(Vp9ParserTest, AlignedFrameSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(true, 2);
+  const uint8_t kSuperframe[] = {
+      // First frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Second frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x20,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  std::vector<std::unique_ptr<DecryptConfig>> expected;
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kInitialIV, {SubsampleEntry(16, 16)}, base::nullopt));
+
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kIVIncrementOne, {SubsampleEntry(16, 16)}, base::nullopt));
+
+  CheckSubsampleValues(
+      kSuperframe, sizeof(kSuperframe),
+      DecryptConfig::CreateCencConfig(
+          kKeyID, kInitialIV, {SubsampleEntry(16, 16), SubsampleEntry(16, 16)}),
+      expected);
+}
+
+// ┌───────────────────┬────────────────────┐
+// │ frame 1           │ frame 2            │
+// ┝━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━━━━━━━━━━━━┥
+// │ clear1                  | cipher 1     │
+// └────────────────────────────────────────┘
+TEST_F(Vp9ParserTest, UnalignedFrameSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(true, 2);
+  const uint8_t kSuperframe[] = {
+      // First frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Second frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x20,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  std::vector<std::unique_ptr<DecryptConfig>> expected;
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kInitialIV, {SubsampleEntry(32, 0)}, base::nullopt));
+
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kInitialIV, {SubsampleEntry(16, 16)}, base::nullopt));
+
+  CheckSubsampleValues(kSuperframe, sizeof(kSuperframe),
+                       DecryptConfig::CreateCencConfig(
+                           kKeyID, kInitialIV, {SubsampleEntry(48, 16)}),
+                       expected);
+}
+
+// ┌─────────────────────────┬────────────────────┐
+// │ frame 1                 │ frame 2            │
+// ┝━━━━━━━━━━━━━━━━━━━┯━━━━━┷━━━━━━━━━━━━━━━━━━━━┥
+// │ clear1 | cipher 1 │ clear 2       | cipher 2 │
+// └───────────────────┴──────────────────────────┘
+TEST_F(Vp9ParserTest, ClearSectionRollsOverSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(true, 2);
+  const uint8_t kSuperframe[] = {
+      // First frame; 48 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Second frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x30,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  std::vector<std::unique_ptr<DecryptConfig>> expected;
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kInitialIV, {SubsampleEntry(16, 16), SubsampleEntry(16, 0)},
+      base::nullopt));
+
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kIVIncrementOne, {SubsampleEntry(16, 16)}, base::nullopt));
+
+  CheckSubsampleValues(
+      kSuperframe, sizeof(kSuperframe),
+      DecryptConfig::CreateCencConfig(
+          kKeyID, kInitialIV, {SubsampleEntry(16, 16), SubsampleEntry(32, 16)}),
+      expected);
+}
+
+// ┌────────────────────────────────────────┬────────────────────┐
+// │ frame 1                                │ frame 2            │
+// ┝━━━━━━━━━━━━━━━━━━━┯━━━━━━━━━━━━━━━━━━━━┿━━━━━━━━━━━━━━━━━━━━┥
+// │ clear1 | cipher 1 │ clear 2 | cipher 2 │ clear 3 | cipher 3 │
+// └───────────────────┴────────────────────┴────────────────────┘
+TEST_F(Vp9ParserTest, FirstFrame2xSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(true, 2);
+  const uint8_t kSuperframe[] = {
+      // First frame; 64 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      // Second frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x40,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  std::vector<std::unique_ptr<DecryptConfig>> expected;
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kInitialIV, {SubsampleEntry(16, 16), SubsampleEntry(16, 16)},
+      base::nullopt));
+
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kIVIncrementTwo, {SubsampleEntry(16, 16)}, base::nullopt));
+
+  CheckSubsampleValues(kSuperframe, sizeof(kSuperframe),
+                       DecryptConfig::CreateCencConfig(
+                           kKeyID, kInitialIV,
+                           {SubsampleEntry(16, 16), SubsampleEntry(16, 16),
+                            SubsampleEntry(16, 16)}),
+                       expected);
+}
+
+// ┌─────────────────────────────────────────────┬───────────────┐
+// │ frame 1                                     │ frame 2       │
+// ┝━━━━━━━━━━━━━━━━━━━┯━━━━━━━━━━━━━━━━━━━━┯━━━━┷━━━━━━━━━━━━━━━┥
+// │ clear1 | cipher 1 │ clear 2 | cipher 2 │ clear 3 | cipher 3 │
+// └───────────────────┴────────────────────┴────────────────────┘
+TEST_F(Vp9ParserTest, UnalignedBigFrameSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(true, 2);
+  const uint8_t kSuperframe[] = {
+      // First frame; 72 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Second frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x48,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  std::vector<std::unique_ptr<DecryptConfig>> expected;
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kInitialIV,
+      {SubsampleEntry(16, 16), SubsampleEntry(16, 16), SubsampleEntry(8, 0)},
+      base::nullopt));
+
+  expected.push_back(DecryptConfig::CreateCbcsConfig(
+      kKeyID, kIVIncrementTwo, {SubsampleEntry(16, 16)}, base::nullopt));
+
+  CheckSubsampleValues(
+      kSuperframe, sizeof(kSuperframe),
+      DecryptConfig::CreateCencConfig(kKeyID, kInitialIV,
+                                      {
+                                          SubsampleEntry(16, 16),
+                                          SubsampleEntry(16, 16),
+                                          SubsampleEntry(24, 16),
+                                      }),
+      expected);
+}
+
+// ┌───────────────────┬────────────────────┐
+// │ frame 1           │ frame 2            │
+// ┝━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━━━━━━━━━━━━┥
+// │ clear1      | cipher 1                 │
+// └────────────────────────────────────────┘
+TEST_F(Vp9ParserTest, UnalignedInvalidSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(true, 2);
+  const uint8_t kSuperframe[] = {
+      // First frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Second frame; 32 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x20,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  vp9_parser_->SetStream(kSuperframe, sizeof(kSuperframe),
+                         DecryptConfig::CreateCencConfig(
+                             kKeyID, kInitialIV, {SubsampleEntry(16, 32)}));
+
+  ASSERT_EQ(vp9_parser_->NextFrameDecryptContextForTesting().get(), nullptr);
+}
+
+// ┌─────────────────────────────────────┬─────────┐
+// │ single frame in superframe          │ marker  │
+// ┝━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━┥
+// │ clear1 = 0  | cipher 1                        │
+// └───────────────────────────────────────────────┘
+TEST_F(Vp9ParserTest, CipherBytesCoverSuperframeMarkerSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(false, 1);
+  const uint8_t kSuperframe[] = {
+      // First frame; 44 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x20,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  vp9_parser_->SetStream(kSuperframe, sizeof(kSuperframe),
+                         DecryptConfig::CreateCencConfig(
+                             kKeyID, kInitialIV, {SubsampleEntry(0, 48)}));
+
+  std::unique_ptr<DecryptConfig> actual =
+      vp9_parser_->NextFrameDecryptContextForTesting();
+
+  EXPECT_EQ(actual->iv(), kInitialIV);
+  EXPECT_EQ(actual->subsamples().size(), 1lu);
+}
+
+// ┌─────────────────────────────────────┬─────────┐
+// │ single frame in superframe          │ marker  │
+// ┝━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━┥
+// │ clear1                                        │
+// └───────────────────────────────────────────────┘
+TEST_F(Vp9ParserTest, ClearBytesCoverSuperframeMarkerSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(false, 1);
+  const uint8_t kSuperframe[] = {
+      // First frame; 44 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x20,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  vp9_parser_->SetStream(kSuperframe, sizeof(kSuperframe),
+                         DecryptConfig::CreateCencConfig(
+                             kKeyID, kInitialIV, {SubsampleEntry(48, 0)}));
+
+  std::unique_ptr<DecryptConfig> actual =
+      vp9_parser_->NextFrameDecryptContextForTesting();
+
+  EXPECT_EQ(actual->iv(), kInitialIV);
+  EXPECT_EQ(actual->subsamples().size(), 1lu);
+}
+
+// ┌─────────────────────────────────────┬─────────┐
+// │ single frame in superframe          │ marker  │
+// ┝━━━━━━━━━━━━━━━━━━━━┯━━━━━━━━━━━━━━━━┷━━━━━━━━━┥
+// │ clear 1 | cipher 1 │ clear 2                  │
+// └────────────────────┴──────────────────────────┘
+TEST_F(Vp9ParserTest, SecondClearSubsampleSuperframeMarkerSubsampleParsing) {
+  vp9_parser_.reset(new Vp9Parser(false));
+
+  const uint8_t superframe_marker_byte = make_marker_byte(false, 1);
+  const uint8_t kSuperframe[] = {
+      // First frame; 44 bytes.
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      // Superframe marker goes before and after frame index.
+      superframe_marker_byte,
+      // First frame length (magnitude 1)
+      0x20,
+      // Second frame length (magnigude 1)
+      0x20,
+      // marker again.
+      superframe_marker_byte};
+
+  vp9_parser_->SetStream(
+      kSuperframe, sizeof(kSuperframe),
+      DecryptConfig::CreateCencConfig(kKeyID, kInitialIV,
+                                      {
+                                          SubsampleEntry(16, 16),
+                                          SubsampleEntry(16, 0),
+                                      }));
+
+  std::unique_ptr<DecryptConfig> actual =
+      vp9_parser_->NextFrameDecryptContextForTesting();
+
+  EXPECT_EQ(actual->iv(), kInitialIV);
+  EXPECT_EQ(actual->subsamples().size(), 2lu);
+}
+
+TEST_F(Vp9ParserTest, TestIncrementIV) {
+  std::vector<std::tuple<char const*, uint32_t, char const*>> input_output = {
+      {"--------aaaaaaaa", 1, "--------aaaaaaab"},
+      {"--------aaaaaaa\377", 1, "--------aaaaaab\0"},
+      {"--------aaaaaaa\377", 2, "--------aaaaaab\1"},
+      {"--------\377\377\377\377\377\377\377\377", 2,
+       "--------\0\0\0\0\0\0\0\1"}};
+
+  for (auto& testcase : input_output) {
+    EXPECT_EQ(
+        vp9_parser_->IncrementIVForTesting(
+            std::string(std::get<0>(testcase), 16), std::get<1>(testcase)),
+        std::string(std::get<2>(testcase), 16));
   }
 }
 
@@ -156,7 +604,7 @@ TEST_F(Vp9ParserTest, StreamFileParsingWithCompressedHeader) {
 
     // test-25fps.vp9 doesn't need frame update from driver.
     auto context_refresh_cb = GetContextRefreshCb(fhdr);
-    EXPECT_TRUE(context_refresh_cb.is_null());
+    EXPECT_TRUE(!context_refresh_cb);
     ASSERT_FALSE(ReadShouldContextUpdate());
 
     ++num_parsed_frames;
@@ -192,7 +640,7 @@ TEST_F(Vp9ParserTest, StreamFileParsingWithContextUpdate) {
 
     bool should_update = ReadShouldContextUpdate();
     auto context_refresh_cb = GetContextRefreshCb(fhdr);
-    if (context_refresh_cb.is_null()) {
+    if (!context_refresh_cb) {
       EXPECT_FALSE(should_update);
     } else {
       EXPECT_TRUE(should_update);
@@ -228,7 +676,7 @@ TEST_F(Vp9ParserTest, AwaitingContextUpdate) {
 
   // After update, parse should be ok.
   auto context_refresh_cb = GetContextRefreshCb(fhdr);
-  EXPECT_FALSE(context_refresh_cb.is_null());
+  EXPECT_FALSE(!context_refresh_cb);
   context_refresh_cb.Run(frame_context);
   EXPECT_EQ(Vp9Parser::kOk, ParseNextFrame(&fhdr));
 
@@ -236,35 +684,36 @@ TEST_F(Vp9ParserTest, AwaitingContextUpdate) {
   EXPECT_EQ(9u, fhdr.header_size_in_bytes);
 }
 
-TEST_F(Vp9ParserTest, VerifyFirstFrame) {
-  Initialize("test-25fps.vp9", false);
+TEST_P(Vp9ParserTest, VerifyFirstFrame) {
+  Initialize(GetParam().file_name, false);
   Vp9FrameHeader fhdr;
 
   ASSERT_EQ(Vp9Parser::kOk, ParseNextFrame(&fhdr));
 
-  EXPECT_EQ(0, fhdr.profile);
+  EXPECT_EQ(GetParam().profile, fhdr.profile);
   EXPECT_FALSE(fhdr.show_existing_frame);
   EXPECT_EQ(Vp9FrameHeader::KEYFRAME, fhdr.frame_type);
   EXPECT_TRUE(fhdr.show_frame);
   EXPECT_FALSE(fhdr.error_resilient_mode);
 
-  EXPECT_EQ(8, fhdr.bit_depth);
+  EXPECT_EQ(GetParam().bit_depth, fhdr.bit_depth);
   EXPECT_EQ(Vp9ColorSpace::UNKNOWN, fhdr.color_space);
   EXPECT_FALSE(fhdr.color_range);
   EXPECT_EQ(1, fhdr.subsampling_x);
   EXPECT_EQ(1, fhdr.subsampling_y);
 
-  EXPECT_EQ(320u, fhdr.frame_width);
-  EXPECT_EQ(240u, fhdr.frame_height);
-  EXPECT_EQ(320u, fhdr.render_width);
-  EXPECT_EQ(240u, fhdr.render_height);
+  EXPECT_EQ(GetParam().width, fhdr.frame_width);
+  EXPECT_EQ(GetParam().height, fhdr.frame_height);
+  EXPECT_EQ(GetParam().width, fhdr.render_width);
+  EXPECT_EQ(GetParam().height, fhdr.render_height);
 
   EXPECT_TRUE(fhdr.refresh_frame_context);
-  EXPECT_TRUE(fhdr.frame_parallel_decoding_mode);
+  EXPECT_EQ(GetParam().frame_parallel_decoding_mode,
+            fhdr.frame_parallel_decoding_mode);
   EXPECT_EQ(0, fhdr.frame_context_idx_to_save_probs);
 
   const Vp9LoopFilterParams& lf = GetLoopFilter();
-  EXPECT_EQ(9, lf.level);
+  EXPECT_EQ(GetParam().loop_filter_level, lf.level);
   EXPECT_EQ(0, lf.sharpness);
   EXPECT_TRUE(lf.delta_enabled);
   EXPECT_TRUE(lf.delta_update);
@@ -274,7 +723,7 @@ TEST_F(Vp9ParserTest, VerifyFirstFrame) {
   EXPECT_EQ(-1, lf.ref_deltas[3]);
 
   const Vp9QuantizationParams& qp = fhdr.quant_params;
-  EXPECT_EQ(65, qp.base_q_idx);
+  EXPECT_EQ(GetParam().quantization_base_index, qp.base_q_idx);
   EXPECT_FALSE(qp.delta_q_y_dc);
   EXPECT_FALSE(qp.delta_q_uv_dc);
   EXPECT_FALSE(qp.delta_q_uv_ac);
@@ -286,18 +735,15 @@ TEST_F(Vp9ParserTest, VerifyFirstFrame) {
   EXPECT_EQ(0, fhdr.tile_cols_log2);
   EXPECT_EQ(0, fhdr.tile_rows_log2);
 
-  EXPECT_EQ(120u, fhdr.header_size_in_bytes);
+  EXPECT_EQ(GetParam().first_frame_header_size_bytes,
+            fhdr.header_size_in_bytes);
   EXPECT_EQ(18u, fhdr.uncompressed_header_size);
-}
 
-TEST_F(Vp9ParserTest, VerifyInterFrame) {
-  Initialize("test-25fps.vp9", false);
-  Vp9FrameHeader fhdr;
+  // Now verify the second frame in the file which should be INTERFRAME.
+  ASSERT_EQ(Vp9Parser::kOk, ParseNextFrame(&fhdr));
 
-  // To verify the second frame.
-  for (int i = 0; i < 2; i++)
-    ASSERT_EQ(Vp9Parser::kOk, ParseNextFrame(&fhdr));
-
+  EXPECT_EQ(GetParam().bit_depth, fhdr.bit_depth);
+  EXPECT_EQ(Vp9ColorSpace::UNKNOWN, fhdr.color_space);
   EXPECT_EQ(Vp9FrameHeader::INTERFRAME, fhdr.frame_type);
   EXPECT_FALSE(fhdr.show_frame);
   EXPECT_FALSE(fhdr.intra_only);
@@ -307,10 +753,23 @@ TEST_F(Vp9ParserTest, VerifyInterFrame) {
   EXPECT_EQ(1, fhdr.ref_frame_idx[1]);
   EXPECT_EQ(2, fhdr.ref_frame_idx[2]);
   EXPECT_TRUE(fhdr.allow_high_precision_mv);
-  EXPECT_EQ(Vp9InterpolationFilter::EIGHTTAP, fhdr.interpolation_filter);
+  EXPECT_EQ(GetParam().filter, fhdr.interpolation_filter);
 
-  EXPECT_EQ(48u, fhdr.header_size_in_bytes);
-  EXPECT_EQ(11u, fhdr.uncompressed_header_size);
+  EXPECT_EQ(GetParam().second_frame_header_size_bytes,
+            fhdr.header_size_in_bytes);
+  EXPECT_EQ(GetParam().second_frame_uncompressed_header_size_bytes,
+            fhdr.uncompressed_header_size);
+}
+
+INSTANTIATE_TEST_CASE_P(, Vp9ParserTest, ::testing::ValuesIn(kTestParams));
+
+TEST_F(Vp9ParserTest, CheckColorSpace) {
+  Vp9FrameHeader fhdr{};
+  EXPECT_FALSE(fhdr.GetColorSpace().IsSpecified());
+  fhdr.color_space = Vp9ColorSpace::BT_709;
+  EXPECT_EQ(VideoColorSpace::REC709(), fhdr.GetColorSpace());
+  fhdr.color_space = Vp9ColorSpace::BT_601;
+  EXPECT_EQ(VideoColorSpace::REC601(), fhdr.GetColorSpace());
 }
 
 }  // namespace media

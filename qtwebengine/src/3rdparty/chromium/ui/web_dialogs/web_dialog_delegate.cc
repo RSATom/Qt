@@ -8,6 +8,10 @@
 
 namespace ui {
 
+base::string16 WebDialogDelegate::GetAccessibleDialogTitle() const {
+  return GetDialogTitle();
+}
+
 std::string WebDialogDelegate::GetDialogName() const {
   return std::string();
 }
@@ -38,15 +42,6 @@ bool WebDialogDelegate::HandleOpenURLFromTab(
     content::WebContents* source,
     const content::OpenURLParams& params,
     content::WebContents** out_new_contents) {
-  return false;
-}
-
-bool WebDialogDelegate::HandleAddNewContents(
-    content::WebContents* source,
-    content::WebContents* new_contents,
-    WindowOpenDisposition disposition,
-    const gfx::Rect& initial_rect,
-    bool user_gesture) {
   return false;
 }
 

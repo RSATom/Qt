@@ -8,11 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_mixer/default_output_rate_calculator.h"
+#include "modules/audio_mixer/default_output_rate_calculator.h"
 
 #include <algorithm>
+#include <iterator>
 
-#include "webrtc/modules/audio_processing/include/audio_processing.h"
+#include "modules/audio_processing/include/audio_processing.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 

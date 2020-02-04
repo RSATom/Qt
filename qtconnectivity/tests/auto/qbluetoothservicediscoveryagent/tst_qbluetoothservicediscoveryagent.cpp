@@ -91,7 +91,6 @@ tst_QBluetoothServiceDiscoveryAgent::tst_QBluetoothServiceDiscoveryAgent()
 #endif
 
     qRegisterMetaType<QBluetoothDeviceInfo>();
-    qRegisterMetaType<QBluetoothServiceInfo>();
     qRegisterMetaType<QList<QBluetoothUuid> >();
     qRegisterMetaType<QBluetoothServiceDiscoveryAgent::Error>();
     qRegisterMetaType<QBluetoothDeviceDiscoveryAgent::Error>();
@@ -186,12 +185,12 @@ static void dumpAttributeVariant(const QVariant &var, const QString indent)
     if (var.userType() == qMetaTypeId<QBluetoothServiceInfo::Sequence>()) {
         qDebug("%sSequence", indent.toLocal8Bit().constData());
         const QBluetoothServiceInfo::Sequence *sequence = static_cast<const QBluetoothServiceInfo::Sequence *>(var.data());
-        foreach (const QVariant &v, *sequence)
+        for (const QVariant &v : *sequence)
             dumpAttributeVariant(v, indent + '\t');
     } else if (var.userType() == qMetaTypeId<QBluetoothServiceInfo::Alternative>()) {
         qDebug("%sAlternative", indent.toLocal8Bit().constData());
         const QBluetoothServiceInfo::Alternative *alternative = static_cast<const QBluetoothServiceInfo::Alternative *>(var.data());
-        foreach (const QVariant &v, *alternative)
+        for (const QVariant &v : *alternative)
             dumpAttributeVariant(v, indent + '\t');
     } else if (var.userType() == qMetaTypeId<QBluetoothUuid>()) {
         QBluetoothUuid uuid = var.value<QBluetoothUuid>();
@@ -237,7 +236,8 @@ static void dumpAttributeVariant(const QVariant &var, const QString indent)
 
 static inline void dumpServiceInfoAttributes(const QBluetoothServiceInfo &info)
 {
-    foreach (quint16 id, info.attributes()) {
+    const QList<quint16> attributes = info.attributes();
+    for (quint16 id : attributes) {
         dumpAttributeVariant(info.attribute(id), QString("\t"));
     }
 }
@@ -254,7 +254,7 @@ void tst_QBluetoothServiceDiscoveryAgent::tst_serviceDiscovery_data()
 
     // Only need to test the first 5 live devices
     int max = 5;
-    foreach (const QBluetoothDeviceInfo &info, devices) {
+    for (const QBluetoothDeviceInfo &info : qAsConst(devices)) {
         if (info.isCached())
             continue;
         QTest::newRow("default filter") << info << QList<QBluetoothUuid>()
@@ -286,14 +286,17 @@ void tst_QBluetoothServiceDiscoveryAgent::tst_serviceDiscoveryAdapters()
         server.listen(addresses[0]);
         QBluetoothServiceInfo serviceInfo;
         serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceName, "serviceName");
-        serviceInfo.setAttribute(QBluetoothServiceInfo::BrowseGroupList,
-                                 QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+        QBluetoothServiceInfo::Sequence publicBrowse;
+        publicBrowse << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+        serviceInfo.setAttribute(QBluetoothServiceInfo::BrowseGroupList, publicBrowse);
 
+        QBluetoothServiceInfo::Sequence profileSequence;
         QBluetoothServiceInfo::Sequence classId;
         classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
-        serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceClassIds, classId);
+        classId << QVariant::fromValue(quint16(0x100));
+        profileSequence.append(QVariant::fromValue(classId));
         serviceInfo.setAttribute(QBluetoothServiceInfo::BluetoothProfileDescriptorList,
-                                 classId);
+                                 profileSequence);
 
         serviceInfo.setServiceUuid(uuid);
 

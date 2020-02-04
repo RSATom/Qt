@@ -14,13 +14,13 @@
 
 #include "base/bind.h"
 #include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
 #include "mojo/public/cpp/bindings/associated_group.h"
-#include "mojo/public/cpp/bindings/bindings_export.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
 #include "mojo/public/cpp/bindings/filter_chain.h"
 #include "mojo/public/cpp/bindings/interface_endpoint_client.h"
@@ -33,7 +33,7 @@
 namespace mojo {
 namespace internal {
 
-class MOJO_CPP_BINDINGS_EXPORT InterfacePtrStateBase {
+class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) InterfacePtrStateBase {
  public:
   InterfacePtrStateBase();
   ~InterfacePtrStateBase();
@@ -70,7 +70,7 @@ class MOJO_CPP_BINDINGS_EXPORT InterfacePtrStateBase {
   void Swap(InterfacePtrStateBase* other);
   void Bind(ScopedMessagePipeHandle handle,
             uint32_t version,
-            scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+            scoped_refptr<base::SequencedTaskRunner> task_runner);
 
   ScopedMessagePipeHandle PassMessagePipe() {
     endpoint_client_.reset();
@@ -104,10 +104,12 @@ class MOJO_CPP_BINDINGS_EXPORT InterfacePtrStateBase {
 template <typename Interface>
 class InterfacePtrState : public InterfacePtrStateBase {
  public:
+  using Proxy = typename Interface::Proxy_;
+
   InterfacePtrState() = default;
   ~InterfacePtrState() = default;
 
-  Interface* instance() {
+  Proxy* instance() {
     ConfigureProxyIfNecessary();
 
     // This will be null if the object is not bound.
@@ -129,6 +131,11 @@ class InterfacePtrState : public InterfacePtrStateBase {
     endpoint_client()->FlushForTesting();
   }
 
+  void FlushAsyncForTesting(base::OnceClosure callback) {
+    ConfigureProxyIfNecessary();
+    endpoint_client()->FlushAsyncForTesting(std::move(callback));
+  }
+
   void CloseWithReason(uint32_t custom_reason, const std::string& description) {
     ConfigureProxyIfNecessary();
     endpoint_client()->CloseWithReason(custom_reason, description);
@@ -141,7 +148,7 @@ class InterfacePtrState : public InterfacePtrStateBase {
   }
 
   void Bind(InterfacePtrInfo<Interface> info,
-            scoped_refptr<base::SingleThreadTaskRunner> runner) {
+            scoped_refptr<base::SequencedTaskRunner> runner) {
     DCHECK(!proxy_);
     InterfacePtrStateBase::Bind(info.PassHandle(), info.version(),
                                 std::move(runner));
@@ -191,9 +198,12 @@ class InterfacePtrState : public InterfacePtrStateBase {
     endpoint_client()->AcceptWithResponder(&message, std::move(responder));
   }
 
- private:
-  using Proxy = typename Interface::Proxy_;
+  void RaiseError() {
+    ConfigureProxyIfNecessary();
+    endpoint_client()->RaiseError();
+  }
 
+ private:
   void ConfigureProxyIfNecessary() {
     // The proxy has been configured.
     if (proxy_) {
@@ -204,9 +214,9 @@ class InterfacePtrState : public InterfacePtrStateBase {
 
     if (InitializeEndpointClient(
             Interface::PassesAssociatedKinds_, Interface::HasSyncMethods_,
-            base::MakeUnique<typename Interface::ResponseValidator_>())) {
+            std::make_unique<typename Interface::ResponseValidator_>())) {
       router()->SetMasterInterfaceName(Interface::Name_);
-      proxy_ = base::MakeUnique<Proxy>(endpoint_client());
+      proxy_ = std::make_unique<Proxy>(endpoint_client());
     }
   }
 

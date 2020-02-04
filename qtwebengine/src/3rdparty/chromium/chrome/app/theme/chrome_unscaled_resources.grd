@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- This grd file contains images that are not pre-scaled for device
      scale factors. The image returned by
-     |base::ResourceBundle::GetImageNamed| only contains 100P, and
+     ui::ResourceBundle::GetImageNamed() only contains 100P, and
      it is the caller's responsibility to do the right thing when the
      display is not at 100P device scale factor.
   -->
@@ -18,6 +18,14 @@
         <include name="IDR_PRODUCT_LOGO_64" file="google_chrome/product_logo_64.png" type="BINDATA" />
         <include name="IDR_PRODUCT_LOGO_128" file="google_chrome/product_logo_128.png" type="BINDATA" />
         <include name="IDR_PRODUCT_LOGO_256" file="google_chrome/product_logo_256.png" type="BINDATA" />
+        <if expr="is_linux">
+          <include name="IDR_PRODUCT_LOGO_128_BETA" file="google_chrome/product_logo_128_beta.png" type="BINDATA" />
+          <include name="IDR_PRODUCT_LOGO_128_DEV" file="google_chrome/product_logo_128_dev.png" type="BINDATA" />
+        </if>
+        <if expr="chromeos">
+          <include name="IDR_PRODUCT_LOGO_24PX_1X" file="google_chrome/chrome_24px_1x.svg" type="BINDATA" />
+          <include name="IDR_PRODUCT_LOGO_24PX_2X" file="google_chrome/chrome_24px_2x.svg" type="BINDATA" />
+        </if>
         <if expr="is_win">
           <!-- External company logo, displayed in the Chrome Cleanup WebUI if
                cleanup functionality is powered by an external company. -->
@@ -32,6 +40,12 @@
         <if expr="not is_macosx and not is_win">
           <include name="IDR_STATUS_TRAY_ICON" file="google_chrome/product_logo_22.png" type="BINDATA" />
         </if>
+        <if expr="chromeos">
+          <include name="IDR_CHROME_APP_ICON_32" file="google_chrome/chromeos/chrome_app_icon_32.png" type="BINDATA" />
+          <include name="IDR_CHROME_APP_ICON_192" file="google_chrome/chromeos/chrome_app_icon_192.png" type="BINDATA" />
+          <include name="IDR_WEBSTORE_APP_ICON_16" file="google_chrome/chromeos/webstore_app_icon_16.png" type="BINDATA" />
+          <include name="IDR_WEBSTORE_APP_ICON_128" file="google_chrome/chromeos/webstore_app_icon_128.png" type="BINDATA" />
+        </if>
       </if>
       <if expr="not _google_chrome">
         <include name="IDR_PRODUCT_LOGO_64" file="chromium/product_logo_64.png" type="BINDATA" />
@@ -45,6 +59,12 @@
         </if>
         <if expr="not is_macosx and not is_win">
           <include name="IDR_STATUS_TRAY_ICON" file="chromium/product_logo_22.png" type="BINDATA" />
+        </if>
+        <if expr="chromeos">
+          <include name="IDR_CHROME_APP_ICON_32" file="chromium/chromeos/chrome_app_icon_32.png" type="BINDATA" />
+          <include name="IDR_CHROME_APP_ICON_192" file="chromium/chromeos/chrome_app_icon_192.png" type="BINDATA" />
+          <include name="IDR_WEBSTORE_APP_ICON_16" file="chromium/chromeos/webstore_app_icon_16.png" type="BINDATA" />
+          <include name="IDR_WEBSTORE_APP_ICON_128" file="chromium/chromeos/webstore_app_icon_128.png" type="BINDATA" />
         </if>
       </if>
       <if expr="is_win">
@@ -102,6 +122,16 @@
         <include name="IDR_APPS_FOLDER_32" file="mac/apps_folder_32.png" type="BINDATA" />
         <include name="IDR_APPS_FOLDER_OVERLAY_128" file="mac/apps_folder_overlay_128.png" type="BINDATA" />
         <include name="IDR_APPS_FOLDER_OVERLAY_512" file="mac/apps_folder_overlay_512.png" type="BINDATA" />
+      </if>
+      <if expr="chromeos">
+        <!-- Crostini icons -->
+        <include name="IDR_LOGO_CROSTINI_TERMINAL" file="crostini/logo_crostini_terminal.png" type="BINDATA" />
+        <include name="IDR_LOGO_CROSTINI_DEFAULT_32" file="crostini/logo_crostini_default_32.png" type="BINDATA" />
+        <include name="IDR_LOGO_CROSTINI_DEFAULT_192" file="crostini/logo_crostini_default_192.png" type="BINDATA" />
+        <include name="IDR_CROSTINI_MASCOT" file="crostini/crostini_mascot_1x.svg" type="BINDATA" />
+        <include name="IDR_LINUX_ILLUSTRATION" file="crostini/linux_illustration_2x.png" type="BINDATA" />
+        <!-- PluginVm icons -->
+        <include name="IDR_LOGO_PLUGIN_VM_LAUNCHER" file="plugin_vm/logo_plugin_vm_launcher.png" type="BINDATA" />
       </if>
     </includes>
   </release>

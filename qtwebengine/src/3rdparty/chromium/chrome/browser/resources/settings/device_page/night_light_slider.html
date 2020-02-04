@@ -1,5 +1,7 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-a11y-keys-behavior/iron-a11y-keys-behavior.html">
+
+<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/iron-resizable-behavior/iron-resizable-behavior.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-behaviors/paper-inky-focus-behavior.html">
 <link rel="import" href="../prefs/prefs_behavior.html">
 
@@ -8,6 +10,7 @@
     <style>
       :host {
         cursor: default;
+        font-weight: 500;
         text-align: center;
         user-select: none;
       }
@@ -16,11 +19,11 @@
         display: inline-block;
         position: relative;
         user-select: none;
-        width: 570px;
+        width: 100%;
       }
 
       #sliderBar {
-        background-color: #ccc;
+        background-color: rgba(var(--google-blue-600-rgb), .24);
         background-size: 100%;
         display: inline-block;
         height: 2px;
@@ -34,6 +37,7 @@
         margin-top: -15px;
         position: absolute;
         width: 32px;
+        z-index: 3;
       }
 
       .knob:focus {
@@ -41,24 +45,18 @@
       }
 
       .knob-inner {
-        background: var(--google-blue-700);
+        background: var(--google-blue-600);
         border-radius: 6px;
-        height: 12px;
+        height: 10px;
         left: 0;
-        margin-left: 10px;
-        margin-top: 10px;
+        margin: 11px;
         position: absolute;
-        width: 12px;
+        width: 10px;
         z-index: 3;
       }
 
       .knob-inner:focus {
         outline: none;
-      }
-
-      .expanded-knob {
-        transform: scale(1.25);
-        z-index: 3;
       }
 
       #progressContainer {
@@ -69,7 +67,7 @@
       }
 
       .progress {
-        background: var(--google-blue-700);
+        background: var(--google-blue-600);
         height: 100%;
         position: absolute;
         z-index: 1;
@@ -80,7 +78,7 @@
       }
 
       .label {
-        background: var(--google-blue-700);
+        background: var(--google-blue-600);
         border-radius: 14px;
         color: white;
         font-size: 12px;
@@ -106,8 +104,9 @@
         width: 100%;
       }
 
-      .markers {
-        background-color: black;
+      .active-marker,
+      .inactive-marker {
+        background-color: rgba(255, 255, 255, 0.54);
         border-radius: 50%;
         display: block;
         height: 100%;
@@ -116,6 +115,10 @@
         position: absolute;
         width: 2PX;
         z-index: 2;
+      }
+
+      .inactive-marker {
+        background-color: rgba(26, 115, 232, 0.54);
       }
 
       #legendContainer {
@@ -135,7 +138,7 @@
       }
 
       paper-ripple {
-        color: var(--google-blue-700);
+        color: var(--google-blue-600);
       }
     </style>
 
@@ -143,11 +146,13 @@
       <div id="labelContainer">
         <div id="startLabel" class="label"
             aria-label="$i18n{displayNightLightStartTime}">
-          [[startTime_]]
+          [[getTimeString_(prefs.ash.night_light.custom_start_time.value,
+                           shouldUse24Hours_)]]
         </div>
         <div id="endLabel" class="label"
             aria-label="$i18n{displayNightLightStopTime}">
-          [[endTime_]]
+          [[getTimeString_(prefs.ash.night_light.custom_end_time.value,
+                           shouldUse24Hours_)]]
         </div>
       </div>
       <div id="sliderBar">
@@ -158,13 +163,11 @@
         <div id="markersContainer">
         </div>
         <div id="startKnob" class="knob" tabindex="1" on-down="startDrag_"
-            on-up="endDrag_" on-track="continueDrag_" on-focus="onFocus_"
-            on-blur="onBlur_">
+            on-up="endDrag_" on-track="continueDrag_">
           <div class="knob-inner" tabindex="-1"></div>
         </div>
         <div id="endKnob" class="knob" tabindex="2" on-down="startDrag_"
-            on-up="endDrag_" on-track="continueDrag_" on-focus="onFocus_"
-            on-blur="onBlur_">
+            on-up="endDrag_" on-track="continueDrag_">
           <div class="knob-inner" tabindex="-1"></div>
         </div>
       </div>

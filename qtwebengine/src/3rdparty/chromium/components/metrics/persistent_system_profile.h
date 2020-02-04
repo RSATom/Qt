@@ -9,7 +9,7 @@
 
 #include "base/strings/string_piece.h"
 #include "base/threading/thread_checker.h"
-#include "components/metrics/proto/system_profile.pb.h"
+#include "third_party/metrics_proto/system_profile.pb.h"
 
 namespace base {
 template <typename T>
@@ -47,7 +47,9 @@ class PersistentSystemProfile {
       const base::PersistentMemoryAllocator& memory_allocator);
 
   // Retrieves the system profile from a persistent memory allocator. Returns
-  // true if a profile was successfully retrieved.
+  // true if a profile was successfully retrieved. If null is passed for the
+  // |system_profile|, only a basic check for the existence of one will be
+  // done.
   static bool GetSystemProfile(
       const base::PersistentMemoryAllocator& memory_allocator,
       SystemProfileProto* system_profile);

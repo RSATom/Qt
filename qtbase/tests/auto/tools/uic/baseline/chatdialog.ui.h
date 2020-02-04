@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'chatdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,12 +10,9 @@
 #define CHATDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QListWidget>
@@ -38,7 +35,7 @@ public:
     void setupUi(QDialog *ChatDialog)
     {
         if (ChatDialog->objectName().isEmpty())
-            ChatDialog->setObjectName(QStringLiteral("ChatDialog"));
+            ChatDialog->setObjectName(QString::fromUtf8("ChatDialog"));
         ChatDialog->resize(513, 349);
         vboxLayout = new QVBoxLayout(ChatDialog);
 #ifndef Q_OS_MAC
@@ -47,7 +44,7 @@ public:
 #ifndef Q_OS_MAC
         vboxLayout->setContentsMargins(9, 9, 9, 9);
 #endif
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         hboxLayout = new QHBoxLayout();
 #ifndef Q_OS_MAC
         hboxLayout->setSpacing(6);
@@ -55,16 +52,16 @@ public:
 #ifndef Q_OS_MAC
         hboxLayout->setContentsMargins(0, 0, 0, 0);
 #endif
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         textEdit = new QTextEdit(ChatDialog);
-        textEdit->setObjectName(QStringLiteral("textEdit"));
+        textEdit->setObjectName(QString::fromUtf8("textEdit"));
         textEdit->setFocusPolicy(Qt::NoFocus);
         textEdit->setReadOnly(true);
 
         hboxLayout->addWidget(textEdit);
 
         listWidget = new QListWidget(ChatDialog);
-        listWidget->setObjectName(QStringLiteral("listWidget"));
+        listWidget->setObjectName(QString::fromUtf8("listWidget"));
         listWidget->setMaximumSize(QSize(180, 16777215));
         listWidget->setFocusPolicy(Qt::NoFocus);
 
@@ -78,14 +75,14 @@ public:
         hboxLayout1->setSpacing(6);
 #endif
         hboxLayout1->setContentsMargins(0, 0, 0, 0);
-        hboxLayout1->setObjectName(QStringLiteral("hboxLayout1"));
+        hboxLayout1->setObjectName(QString::fromUtf8("hboxLayout1"));
         label = new QLabel(ChatDialog);
-        label->setObjectName(QStringLiteral("label"));
+        label->setObjectName(QString::fromUtf8("label"));
 
         hboxLayout1->addWidget(label);
 
         lineEdit = new QLineEdit(ChatDialog);
-        lineEdit->setObjectName(QStringLiteral("lineEdit"));
+        lineEdit->setObjectName(QString::fromUtf8("lineEdit"));
 
         hboxLayout1->addWidget(lineEdit);
 
@@ -100,8 +97,8 @@ public:
 
     void retranslateUi(QDialog *ChatDialog)
     {
-        ChatDialog->setWindowTitle(QApplication::translate("ChatDialog", "Chat", nullptr));
-        label->setText(QApplication::translate("ChatDialog", "Message:", nullptr));
+        ChatDialog->setWindowTitle(QCoreApplication::translate("ChatDialog", "Chat", nullptr));
+        label->setText(QCoreApplication::translate("ChatDialog", "Message:", nullptr));
     } // retranslateUi
 
 };

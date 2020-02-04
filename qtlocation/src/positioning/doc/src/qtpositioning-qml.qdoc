@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -26,40 +26,46 @@
 ****************************************************************************/
 
 /*!
-    \qmlmodule QtPositioning 5.2
+    \qmlmodule QtPositioning \QtVer
     \title Qt Positioning QML Types
     \ingroup qmlmodules
-    \brief Provides QML types for position information
+    \brief Provides QML types for position information.
 
-\section1 Overview
+    \section1 Overview
 
-The identifying string for this module is \e QtPositioning. To use include the following import
-statement in the QML file.
+    The identifying string for this module is \e QtPositioning. To use the QML
+    from this module, include the following import statement in the QML file:
 
-\snippet doc_src_qtpositioning.qml import
+    \qml \QtVer
+    import QtPositioning \1
+    \endqml
 
-\section2 Positioning QML Concepts
+    \section2 Positioning QML Concepts
 
-Position information can come from a variety of sources including satellites,
-wifi, text files and so on. The position is described by the latitude,
-the longitude, and the altitude in meters. For more information see
-\l {http://en.wikipedia.org/wiki/Geographic_coordinate}{Geographic Coordinate}.
+    Position information can come from a variety of sources including
+    satellites, Wi-Fi, text files and so on. The position is described by the
+    latitude, longitude, and the altitude in meters. For more information, see
+    the Wikipedia page on
+    \l {http://en.wikipedia.org/wiki/Geographic_coordinate}
+    {Geographic Coordinates}.
 
-The QML position is stored in a \l {coordinate} which contains the
-latitude, longitude and altitude of the device.  The \l {QtPositioning::Location}{Location} contains
-this \l {coordinate} and adds an address, it also has a bounding box which
-defines the recommended viewing region when displaying the location.
+    The QML position is stored in a \l {coordinate} which contains the
+    latitude, longitude and altitude of the device.  The \l {QtPositioning::}
+    {Location} contains this \l {coordinate} and adds an address, and also has
+    a bounding box which defines the recommended viewing region when displaying
+    the location.
 
-Now that the device has a position, with regular updates the API can determine
-the speed and heading of the device. It can also define a box or a circle that can
-produce a notification when the device either leaves or enters that region.
+    Now that the device has a position, with regular updates the API can
+    determine the speed and heading of the device. It can also define a
+    box-shaped or circular region that triggers notifications when the device
+    either leaves or enters that region.
 
-More detailed information retrieving the current position can be found under
-\l {Positioning (QML)}{Location Positioning via QML}
+    More detailed information on retrieving the current position can be found
+    under \l {Positioning (QML)}{Location Positioning via QML}.
 
-\section1 Basic Types
+    \section1 Basic Types
 
-\annotatedlist qml-QtPositioning5-basictypes
+    \annotatedlist qml-QtPositioning5-basictypes
 
-\section1 Alphabetical Listing of All QML Types
+    \section1 Alphabetical Listing of All QML Types
 */

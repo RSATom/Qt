@@ -11,7 +11,6 @@
 #include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/time/time.h"
 #include "components/security_interstitials/content/unsafe_resource.h"
 
 class GURL;
@@ -35,12 +34,6 @@ class BaseUIManager
 
   BaseUIManager();
 
-  // Called to stop or shutdown operations on the io_thread. This may be called
-  // multiple times during the life of the UIManager. Should be called
-  // on IO thread. If shutdown is true, the manager is disabled permanently.
-  // This currently is a no-op in the base class.
-  virtual void StopOnIOThread(bool shutdown);
-
   // Called on the UI thread to display an interstitial page.
   // |url| is the url of the resource that matches a safe browsing list.
   // If the request contained a chain of redirects, |url| is the last url
@@ -48,16 +41,16 @@ class BaseUIManager
   // chain). Otherwise, |original_url| = |url|.
   virtual void DisplayBlockingPage(const UnsafeResource& resource);
 
-  // Log the user perceived delay caused by SafeBrowsing. This delay is the time
-  // delta starting from when we would have started reading data from the
-  // network, and ending when the SafeBrowsing check completes indicating that
-  // the current page is 'safe'.
-  virtual void LogPauseDelay(base::TimeDelta time);
-
   // This is a no-op in the base class, but should be overridden to send threat
-  // details. Called on the IO thread by the ThreatDetails with the serialized
+  // details. Called on the UI thread by the ThreatDetails with the serialized
   // protocol buffer.
   virtual void SendSerializedThreatDetails(const std::string& serialized);
+
+  // Updates the whitelist URL set for |web_contents|. Called on the UI thread.
+  void AddToWhitelistUrlSet(const GURL& whitelist_url,
+                            content::WebContents* web_contents,
+                            bool is_pending,
+                            SBThreatType threat_type);
 
   // This is a no-op in the base class, but should be overridden to report hits
   // to the unsafe contents (malware, phishing, unsafe download URL)
@@ -65,7 +58,7 @@ class BaseUIManager
   // report if the user has enabled SBER and is not currently in incognito mode.
   virtual void MaybeReportSafeBrowsingHit(
       const safe_browsing::HitReport& hit_report,
-      const content::WebContents* web_contents);
+      content::WebContents* web_contents);
 
   // A convenience wrapper method for IsUrlWhitelistedOrPendingForWebContents.
   virtual bool IsWhitelisted(const UnsafeResource& resource);
@@ -112,23 +105,14 @@ class BaseUIManager
   virtual const GURL default_safe_page() const;
 
  protected:
+  friend class ChromePasswordProtectionService;
   virtual ~BaseUIManager();
 
-  // Updates the whitelist URL set for |web_contents|. Called on the UI thread.
-  void AddToWhitelistUrlSet(const GURL& whitelist_url,
-                            content::WebContents* web_contents,
-                            bool is_pending,
-                            SBThreatType threat_type);
-
-  // This is a no-op that should be overridden to call protocol manager on IO
-  // thread to report hits of unsafe contents.
-  virtual void ReportSafeBrowsingHitOnIOThread(
-      const safe_browsing::HitReport& hit_report);
-
-  // Removes |whitelist_url| from the pending whitelist for
-  // |web_contents|. Called on the UI thread.
-  void RemoveFromPendingWhitelistUrlSet(const GURL& whitelist_url,
-                                        content::WebContents* web_contents);
+  // Removes |whitelist_url| from the whitelist for |web_contents|.
+  // Called on the UI thread.
+  void RemoveWhitelistUrlSet(const GURL& whitelist_url,
+                             content::WebContents* web_contents,
+                             bool from_pending_only);
 
   // Ensures that |web_contents| has its whitelist set in its userdata
   static void EnsureWhitelistCreated(content::WebContents* web_contents);

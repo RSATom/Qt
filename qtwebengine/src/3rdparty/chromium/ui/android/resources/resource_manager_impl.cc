@@ -34,6 +34,27 @@ using base::android::JavaArrayOfIntArrayToIntVector;
 using base::android::JavaParamRef;
 using base::android::JavaRef;
 
+namespace {
+
+base::trace_event::MemoryAllocatorDump* CreateMemoryDump(
+    const std::string& name,
+    size_t memory_usage,
+    base::trace_event::ProcessMemoryDump* pmd) {
+  base::trace_event::MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(name);
+  dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+                  base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+                  memory_usage);
+
+  static const char* system_allocator_name =
+      base::trace_event::MemoryDumpManager::GetInstance()
+          ->system_allocator_pool_name();
+  if (system_allocator_name)
+    pmd->AddSuballocation(dump->guid(), system_allocator_name);
+  return dump;
+}
+
+}  // namespace
+
 namespace ui {
 
 // static
@@ -112,7 +133,7 @@ void ResourceManagerImpl::RemoveUnusedTints(
 Resource* ResourceManagerImpl::GetStaticResourceWithTint(int res_id,
                                                          SkColor tint_color) {
   if (tinted_resources_.find(tint_color) == tinted_resources_.end()) {
-    tinted_resources_[tint_color] = base::MakeUnique<ResourceMap>();
+    tinted_resources_[tint_color] = std::make_unique<ResourceMap>();
   }
   ResourceMap* resource_map = tinted_resources_[tint_color].get();
 
@@ -138,9 +159,14 @@ Resource* ResourceManagerImpl::GetStaticResourceWithTint(int res_id,
   // Build a color filter to use on the base resource. This filter multiplies
   // the RGB components by the components of the new color but retains the
   // alpha of the original image.
+  SkScalar color_matrix[20] = {
+      0, 0, 0, 0, SkColorGetR(tint_color),
+      0, 0, 0, 0, SkColorGetG(tint_color),
+      0, 0, 0, 0, SkColorGetB(tint_color),
+      0, 0, 0, 1, 0};
   SkPaint color_filter;
   color_filter.setColorFilter(
-      SkColorFilter::MakeModeFilter(tint_color, SkBlendMode::kModulate));
+      SkColorFilter::MakeMatrixFilterRowMajor255(color_matrix));
 
   // Draw the resource and make it immutable.
   base_image->ui_resource()
@@ -212,30 +238,22 @@ void ResourceManagerImpl::RemoveResource(
 bool ResourceManagerImpl::OnMemoryDump(
     const base::trace_event::MemoryDumpArgs& args,
     base::trace_event::ProcessMemoryDump* pmd) {
-  size_t memory_usage =
-      base::trace_event::EstimateMemoryUsage(resources_) +
-      base::trace_event::EstimateMemoryUsage(tinted_resources_);
-
-  base::trace_event::MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(
-      base::StringPrintf("ui/resource_manager_0x%" PRIXPTR,
-                         reinterpret_cast<uintptr_t>(this)));
-  dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
-                  base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-                  memory_usage);
-
-  const char* system_allocator_name =
-      base::trace_event::MemoryDumpManager::GetInstance()
-          ->system_allocator_pool_name();
-  if (system_allocator_name) {
-    pmd->AddSuballocation(dump->guid(), system_allocator_name);
+  std::string prefix = base::StringPrintf("ui/resource_manager_0x%" PRIXPTR,
+                                          reinterpret_cast<uintptr_t>(this));
+  for (uint32_t type = static_cast<uint32_t>(ANDROID_RESOURCE_TYPE_FIRST);
+       type <= static_cast<uint32_t>(ANDROID_RESOURCE_TYPE_LAST); ++type) {
+    size_t usage = base::trace_event::EstimateMemoryUsage(resources_[type]);
+    auto* dump = CreateMemoryDump(
+        prefix + base::StringPrintf("/default_resource/0x%u",
+                                    static_cast<uint32_t>(type)),
+        usage, pmd);
+    dump->AddScalar("resource_count", "objects", resources_[type].size());
   }
 
+  size_t tinted_resource_usage =
+      base::trace_event::EstimateMemoryUsage(tinted_resources_);
+  CreateMemoryDump(prefix + "/tinted_resource", tinted_resource_usage, pmd);
   return true;
-}
-
-// static
-bool ResourceManagerImpl::RegisterResourceManager(JNIEnv* env) {
-  return RegisterNativesImpl(env);
 }
 
 void ResourceManagerImpl::PreloadResourceFromJava(AndroidResourceType res_type,

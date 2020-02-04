@@ -26,8 +26,8 @@
 ****************************************************************************/
 
 /*!
-    \page qtquickcontrols-index.html
-    \title Qt Quick Controls
+    \page qtquickcontrols1-index.html
+    \title Qt Quick Controls 1
 
     \brief The Qt Quick Controls module provides a set of UI controls for Qt Quick.
 
@@ -36,7 +36,7 @@
 
     The module was introduced in Qt 5.1.
 
-    Visit the \l{Qt Quick Controls Overview} page to get started.
+    Visit the \l{Qt Quick Controls 1 Overview} page to get started.
 
     \section1 Application Window
     Components used to describe the basic window properties of an application.
@@ -67,11 +67,11 @@
 
      \list
       \li \l{Qt Quick}
-      \li \l{Qt Quick Controls Overview}
-      \li \l{Qt Quick Controls QML Types}{Qt Quick Controls QML Types}
-      \li \l{Qt Quick Controls Platform Notes}
-      \li \l{Qt Quick Controls Examples}
-      \li \l{Qt Quick Controls Styles}
+      \li \l{Qt Quick Controls 1 Overview}
+      \li \l{Qt Quick Controls 1 QML Types}
+      \li \l{Qt Quick Controls 1 Platform Notes}
+      \li \l{Qt Quick Controls 1 Examples}
+      \li \l{Qt Quick Controls 1 Styles}
       \li \l{Qt Quick Layouts}
       \li \l{Qt Quick Dialogs}
      \endlist

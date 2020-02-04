@@ -60,8 +60,8 @@ public:
     QByteArray *buf;
     QByteArray defaultBuf;
 
-    virtual qint64 peek(char *data, qint64 maxSize) Q_DECL_OVERRIDE;
-    virtual QByteArray peek(qint64 maxSize) Q_DECL_OVERRIDE;
+    qint64 peek(char *data, qint64 maxSize) override;
+    QByteArray peek(qint64 maxSize) override;
 
 #ifndef QT_NO_QOBJECT
     // private slots

@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(EXPAT_CFLAGS "${CMAKE_C_FLAGS} ${FUZZING_FLAGS} -w")
-set(EXPAT_CXXFLAGS "${CMAKE_CXX_FLAGS} ${FUZZING_FLAGS} -w")
+set(EXPAT_CFLAGS "${CMAKE_C_FLAGS} ${FUZZING_FLAGS}")
+set(EXPAT_CXXFLAGS "${CMAKE_CXX_FLAGS} ${FUZZING_FLAGS}")
 include(expat)
 
 add_executable(expat_example
@@ -25,7 +25,7 @@ target_link_libraries(expat_example
 set_property(TARGET expat_example
              PROPERTY COMPILE_FLAGS ${FUZZING_FLAGS})
 set_property(TARGET expat_example
-             PROPERTY LINK_FLAGS ${FUZZING_FLAGS})
+             PROPERTY LINK_FLAGS ${FUZZING_FLAGS_BINARY})
 
 add_executable(expat_example_test
                expat_example_test.cc)
@@ -34,4 +34,6 @@ target_link_libraries(expat_example_test
                       ${GTEST_BOTH_LIBRARIES}
                       ${CMAKE_THREAD_LIBS_INIT})
 add_test(test.expat_example_test expat_example_test --gtest_color=yes AUTO)
-add_dependencies(check expat_example_test)
+if(LIB_PROTO_MUTATOR_TESTING)
+  add_dependencies(check expat_example_test)
+endif()

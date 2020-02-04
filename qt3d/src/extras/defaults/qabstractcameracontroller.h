@@ -55,7 +55,7 @@ namespace Qt3DExtras {
 
 class QAbstractCameraControllerPrivate;
 
-class QT3DEXTRASSHARED_EXPORT QAbstractCameraController : public Qt3DCore::QEntity
+class Q_3DEXTRASSHARED_EXPORT QAbstractCameraController : public Qt3DCore::QEntity
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DRender::QCamera *camera READ camera WRITE setCamera NOTIFY cameraChanged)
@@ -96,6 +96,7 @@ protected:
     Qt3DInput::QKeyboardDevice *keyboardDevice() const;
     Qt3DInput::QMouseDevice *mouseDevice() const;
 
+public:
     struct InputState
     {
         float rxAxisValue;

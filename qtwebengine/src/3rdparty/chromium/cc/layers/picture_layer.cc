@@ -24,7 +24,7 @@ PictureLayer::PictureLayerInputs::PictureLayerInputs() = default;
 PictureLayer::PictureLayerInputs::~PictureLayerInputs() = default;
 
 scoped_refptr<PictureLayer> PictureLayer::Create(ContentLayerClient* client) {
-  return make_scoped_refptr(new PictureLayer(client));
+  return base::WrapRefCounted(new PictureLayer(client));
 }
 
 PictureLayer::PictureLayer(ContentLayerClient* client)
@@ -40,8 +40,7 @@ PictureLayer::PictureLayer(ContentLayerClient* client,
   recording_source_ = std::move(source);
 }
 
-PictureLayer::~PictureLayer() {
-}
+PictureLayer::~PictureLayer() = default;
 
 std::unique_ptr<LayerImpl> PictureLayer::CreateLayerImpl(
     LayerTreeImpl* tree_impl) {
@@ -50,7 +49,8 @@ std::unique_ptr<LayerImpl> PictureLayer::CreateLayerImpl(
 
 void PictureLayer::PushPropertiesTo(LayerImpl* base_layer) {
   Layer::PushPropertiesTo(base_layer);
-  TRACE_EVENT0("cc", "PictureLayer::PushPropertiesTo");
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("cc.debug"),
+               "PictureLayer::PushPropertiesTo");
   PictureLayerImpl* layer_impl = static_cast<PictureLayerImpl*>(base_layer);
   layer_impl->SetLayerMaskType(mask_type());
   DropRecordingSourceContentIfInvalid();
@@ -103,8 +103,8 @@ bool PictureLayer::Update() {
       !contents_opaque() &&
       !picture_layer_inputs_.client->FillsBoundsCompletely());
 
-  TRACE_EVENT1("cc", "PictureLayer::Update", "source_frame_number",
-               layer_tree_host()->SourceFrameNumber());
+  TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("cc.debug"), "PictureLayer::Update",
+               "source_frame_number", layer_tree_host()->SourceFrameNumber());
   devtools_instrumentation::ScopedLayerTreeTask update_layer(
       devtools_instrumentation::kUpdateLayer, id(), layer_tree_host()->GetId());
 
@@ -129,8 +129,11 @@ bool PictureLayer::Update() {
         picture_layer_inputs_.client->GetApproximateUnsharedMemoryUsage();
     recording_source_->UpdateDisplayItemList(
         picture_layer_inputs_.display_list,
-        picture_layer_inputs_.painter_reported_memory_usage);
+        picture_layer_inputs_.painter_reported_memory_usage,
+        layer_tree_host()->recording_scale_factor());
+
     SetNeedsPushProperties();
+    paint_count_++;
   } else {
     // If this invalidation did not affect the recording source, then it can be
     // cleared as an optimization.
@@ -170,8 +173,9 @@ sk_sp<SkPicture> PictureLayer::GetPicture() const {
 
   recording_source.UpdateAndExpandInvalidation(
       &recording_invalidation, layer_size, new_recorded_viewport);
-  recording_source.UpdateDisplayItemList(display_list,
-                                         painter_reported_memory_usage);
+  recording_source.UpdateDisplayItemList(
+      display_list, painter_reported_memory_usage,
+      layer_tree_host()->recording_scale_factor());
 
   scoped_refptr<RasterSource> raster_source =
       recording_source.CreateRasterSource();

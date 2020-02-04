@@ -8,65 +8,85 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_AUDIO_AUDIO_STATE_H_
-#define WEBRTC_AUDIO_AUDIO_STATE_H_
+#ifndef AUDIO_AUDIO_STATE_H_
+#define AUDIO_AUDIO_STATE_H_
 
-#include "webrtc/audio/audio_transport_proxy.h"
-#include "webrtc/audio/scoped_voe_interface.h"
-#include "webrtc/call/audio_state.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/thread_checker.h"
-#include "webrtc/voice_engine/include/voe_base.h"
+#include <map>
+#include <memory>
+#include <unordered_set>
+
+#include "audio/audio_transport_impl.h"
+#include "audio/null_audio_poller.h"
+#include "call/audio_state.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/ref_count.h"
+#include "rtc_base/thread_checker.h"
 
 namespace webrtc {
+
+class AudioSendStream;
+class AudioReceiveStream;
+
 namespace internal {
 
-class AudioState final : public webrtc::AudioState,
-                         public webrtc::VoiceEngineObserver {
+class AudioState : public webrtc::AudioState {
  public:
   explicit AudioState(const AudioState::Config& config);
   ~AudioState() override;
 
-  AudioProcessing* audio_processing() override {
-    RTC_DCHECK(config_.audio_processing);
-    return config_.audio_processing.get();
+  AudioProcessing* audio_processing() override;
+  AudioTransport* audio_transport() override;
+
+  void SetPlayout(bool enabled) override;
+  void SetRecording(bool enabled) override;
+
+  Stats GetAudioInputStats() const override;
+  void SetStereoChannelSwapping(bool enable) override;
+
+  AudioDeviceModule* audio_device_module() {
+    RTC_DCHECK(config_.audio_device_module);
+    return config_.audio_device_module.get();
   }
 
-  VoiceEngine* voice_engine();
-  rtc::scoped_refptr<AudioMixer> mixer();
   bool typing_noise_detected() const;
 
- private:
-  // rtc::RefCountInterface implementation.
-  int AddRef() const override;
-  int Release() const override;
+  void AddReceivingStream(webrtc::AudioReceiveStream* stream);
+  void RemoveReceivingStream(webrtc::AudioReceiveStream* stream);
 
-  // webrtc::VoiceEngineObserver implementation.
-  void CallbackOnError(int channel_id, int err_code) override;
+  void AddSendingStream(webrtc::AudioSendStream* stream,
+                        int sample_rate_hz,
+                        size_t num_channels);
+  void RemoveSendingStream(webrtc::AudioSendStream* stream);
+
+ private:
+  void UpdateAudioTransportWithSendingStreams();
 
   rtc::ThreadChecker thread_checker_;
   rtc::ThreadChecker process_thread_checker_;
   const webrtc::AudioState::Config config_;
-
-  // We hold one interface pointer to the VoE to make sure it is kept alive.
-  ScopedVoEInterface<VoEBase> voe_base_;
-
-  // The critical section isn't strictly needed in this case, but xSAN bots may
-  // trigger on unprotected cross-thread access.
-  rtc::CriticalSection crit_sect_;
-  bool typing_noise_detected_ GUARDED_BY(crit_sect_) = false;
-
-  // Reference count; implementation copied from rtc::RefCountedObject.
-  mutable volatile int ref_count_ = 0;
+  bool recording_enabled_ = true;
+  bool playout_enabled_ = true;
 
   // Transports mixed audio from the mixer to the audio device and
-  // recorded audio to the VoE AudioTransport.
-  AudioTransportProxy audio_transport_proxy_;
+  // recorded audio to the sending streams.
+  AudioTransportImpl audio_transport_;
+
+  // Null audio poller is used to continue polling the audio streams if audio
+  // playout is disabled so that audio processing still happens and the audio
+  // stats are still updated.
+  std::unique_ptr<NullAudioPoller> null_audio_poller_;
+
+  std::unordered_set<webrtc::AudioReceiveStream*> receiving_streams_;
+  struct StreamProperties {
+    int sample_rate_hz = 0;
+    size_t num_channels = 0;
+  };
+  std::map<webrtc::AudioSendStream*, StreamProperties> sending_streams_;
 
   RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(AudioState);
 };
 }  // namespace internal
 }  // namespace webrtc
 
-#endif  // WEBRTC_AUDIO_AUDIO_STATE_H_
+#endif  // AUDIO_AUDIO_STATE_H_

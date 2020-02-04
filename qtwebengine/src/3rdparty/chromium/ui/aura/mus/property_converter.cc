@@ -4,10 +4,12 @@
 
 #include "ui/aura/mus/property_converter.h"
 
-#include "base/memory/ptr_util.h"
+#include "base/time/time.h"
+#include "base/unguessable_token.h"
 #include "mojo/public/cpp/bindings/type_converter.h"
-#include "services/ui/public/cpp/property_type_converters.h"
-#include "services/ui/public/interfaces/window_manager.mojom.h"
+#include "services/ws/public/cpp/property_type_converters.h"
+#include "services/ws/public/mojom/window_manager.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/base/class_property.h"
 
@@ -22,8 +24,8 @@ std::unique_ptr<std::vector<uint8_t>> GetArray(Window* window,
                                                const WindowProperty<T>* key) {
   const T value = window->GetProperty(key);
   if (!value)
-    return base::MakeUnique<std::vector<uint8_t>>();
-  return base::MakeUnique<std::vector<uint8_t>>(
+    return std::make_unique<std::vector<uint8_t>>();
+  return std::make_unique<std::vector<uint8_t>>(
       mojo::ConvertTo<std::vector<uint8_t>>(*value));
 }
 
@@ -34,19 +36,22 @@ bool AlwaysTrue(int64_t value) {
 
 bool ValidateResizeBehaviour(int64_t value) {
   // Resize behaviour is a 3 bitfield.
-  return value >= 0 &&
-         value <= (ui::mojom::kResizeBehaviorCanMaximize |
-                   ui::mojom::kResizeBehaviorCanMinimize |
-                   ui::mojom::kResizeBehaviorCanResize);
+  return value >= 0 && value <= (ws::mojom::kResizeBehaviorCanMaximize |
+                                 ws::mojom::kResizeBehaviorCanMinimize |
+                                 ws::mojom::kResizeBehaviorCanResize);
 }
 
 bool ValidateShowState(int64_t value) {
-  return value == int64_t(ui::mojom::ShowState::DEFAULT) ||
-         value == int64_t(ui::mojom::ShowState::NORMAL) ||
-         value == int64_t(ui::mojom::ShowState::MINIMIZED) ||
-         value == int64_t(ui::mojom::ShowState::MAXIMIZED) ||
-         value == int64_t(ui::mojom::ShowState::INACTIVE) ||
-         value == int64_t(ui::mojom::ShowState::FULLSCREEN);
+  return value == int64_t(ws::mojom::ShowState::DEFAULT) ||
+         value == int64_t(ws::mojom::ShowState::NORMAL) ||
+         value == int64_t(ws::mojom::ShowState::MINIMIZED) ||
+         value == int64_t(ws::mojom::ShowState::MAXIMIZED) ||
+         value == int64_t(ws::mojom::ShowState::INACTIVE) ||
+         value == int64_t(ws::mojom::ShowState::FULLSCREEN);
+}
+
+bool ValidateWindowCornerRadius(int64_t value) {
+  return value >= -1;
 }
 
 }  // namespace
@@ -67,35 +72,103 @@ PropertyConverter::CreateAcceptAnyValueCallback() {
 PropertyConverter::PropertyConverter() {
   // Add known aura properties with associated mus properties.
   RegisterImageSkiaProperty(client::kAppIconKey,
-                            ui::mojom::WindowManager::kAppIcon_Property);
+                            ws::mojom::WindowManager::kAppIcon_Property);
   RegisterImageSkiaProperty(client::kWindowIconKey,
-                            ui::mojom::WindowManager::kWindowIcon_Property);
+                            ws::mojom::WindowManager::kWindowIcon_Property);
   RegisterPrimitiveProperty(client::kAlwaysOnTopKey,
-                            ui::mojom::WindowManager::kAlwaysOnTop_Property,
+                            ws::mojom::WindowManager::kAlwaysOnTop_Property,
                             CreateAcceptAnyValueCallback());
-  RegisterPrimitiveProperty(
-      client::kImmersiveFullscreenKey,
-      ui::mojom::WindowManager::kImmersiveFullscreen_Property,
-      CreateAcceptAnyValueCallback());
+  RegisterPrimitiveProperty(client::kDrawAttentionKey,
+                            ws::mojom::WindowManager::kDrawAttention_Property,
+                            CreateAcceptAnyValueCallback());
   RegisterPrimitiveProperty(client::kResizeBehaviorKey,
-                            ui::mojom::WindowManager::kResizeBehavior_Property,
+                            ws::mojom::WindowManager::kResizeBehavior_Property,
                             base::Bind(&ValidateResizeBehaviour));
   RegisterPrimitiveProperty(client::kShowStateKey,
-                            ui::mojom::WindowManager::kShowState_Property,
+                            ws::mojom::WindowManager::kShowState_Property,
                             base::Bind(&ValidateShowState));
   RegisterRectProperty(client::kRestoreBoundsKey,
-                       ui::mojom::WindowManager::kRestoreBounds_Property);
+                       ws::mojom::WindowManager::kRestoreBounds_Property);
   RegisterSizeProperty(client::kPreferredSize,
-                       ui::mojom::WindowManager::kPreferredSize_Property);
+                       ws::mojom::WindowManager::kPreferredSize_Property);
+  RegisterSizeProperty(client::kMaximumSize,
+                       ws::mojom::WindowManager::kMaximumSize_Property);
   RegisterSizeProperty(client::kMinimumSize,
-                       ui::mojom::WindowManager::kMinimumSize_Property);
+                       ws::mojom::WindowManager::kMinimumSize_Property);
   RegisterStringProperty(client::kNameKey,
-                         ui::mojom::WindowManager::kName_Property);
+                         ws::mojom::WindowManager::kName_Property);
   RegisterString16Property(client::kTitleKey,
-                           ui::mojom::WindowManager::kWindowTitle_Property);
+                           ws::mojom::WindowManager::kWindowTitle_Property);
+  RegisterSizeFProperty(client::kAspectRatio,
+                        ws::mojom::WindowManager::kAspectRatio_Property);
+  RegisterPrimitiveProperty(
+      client::kWindowCornerRadiusKey,
+      ws::mojom::WindowManager::kWindowCornerRadius_Property,
+      base::BindRepeating(&ValidateWindowCornerRadius));
+  RegisterPrimitiveProperty(
+      client::kAnimationsDisabledKey,
+      ws::mojom::WindowManager::kAnimationsDisabled_Property,
+      CreateAcceptAnyValueCallback());
+  RegisterWindowPtrProperty(
+      client::kChildModalParentKey,
+      ws::mojom::WindowManager::kChildModalParent_Property);
+  RegisterPrimitiveProperty(
+      client::kClientWindowHasContent,
+      ws::mojom::WindowManager::kClientWindowHasContent_Property,
+      CreateAcceptAnyValueCallback());
 }
 
 PropertyConverter::~PropertyConverter() {}
+
+const void* PropertyConverter::GetPropertyKeyFromTransportName(
+    const std::string& transport_name) {
+  for (const auto& primitive_property : primitive_properties_) {
+    if (primitive_property.second.transport_name == transport_name)
+      return primitive_property.first;
+  }
+
+  for (const auto& image_property : image_properties_) {
+    if (image_property.second == transport_name)
+      return image_property.first->name;
+  }
+
+  for (const auto& rect_property : rect_properties_) {
+    if (rect_property.second == transport_name)
+      return rect_property.first->name;
+  }
+
+  for (const auto& size_property : size_properties_) {
+    if (size_property.second == transport_name)
+      return size_property.first->name;
+  }
+
+  for (const auto& size_f_property : size_f_properties_) {
+    if (size_f_property.second == transport_name)
+      return size_f_property.first->name;
+  }
+
+  for (const auto& string_property : string_properties_) {
+    if (string_property.second == transport_name)
+      return string_property.first->name;
+  }
+
+  for (const auto& string16_property : string16_properties_) {
+    if (string16_property.second == transport_name)
+      return string16_property.first->name;
+  }
+
+  for (const auto& unguessable_token_property : unguessable_token_properties_) {
+    if (unguessable_token_property.second == transport_name)
+      return unguessable_token_property.first->name;
+  }
+
+  for (const auto& window_ptr_property : window_ptr_properties_) {
+    if (window_ptr_property.second == transport_name)
+      return window_ptr_property.first->name;
+  }
+
+  return nullptr;
+}
 
 bool PropertyConverter::IsTransportNameRegistered(
     const std::string& name) const {
@@ -116,11 +189,11 @@ bool PropertyConverter::ConvertPropertyForTransport(
     const gfx::ImageSkia* value = window->GetProperty(image_key);
     if (value) {
       // TODO(crbug.com/667566): Support additional scales or gfx::Image[Skia].
-      SkBitmap bitmap = value->GetRepresentation(1.f).sk_bitmap();
-      *transport_value = base::MakeUnique<std::vector<uint8_t>>(
+      SkBitmap bitmap = value->GetRepresentation(1.f).GetBitmap();
+      *transport_value = std::make_unique<std::vector<uint8_t>>(
           mojo::ConvertTo<std::vector<uint8_t>>(bitmap));
     } else {
-      *transport_value = base::MakeUnique<std::vector<uint8_t>>();
+      *transport_value = std::make_unique<std::vector<uint8_t>>();
     }
     return true;
   }
@@ -137,6 +210,12 @@ bool PropertyConverter::ConvertPropertyForTransport(
     return true;
   }
 
+  auto* size_f_key = static_cast<const WindowProperty<gfx::SizeF*>*>(key);
+  if (size_f_properties_.count(size_f_key) > 0) {
+    *transport_value = GetArray(window, size_f_key);
+    return true;
+  }
+
   auto* string_key = static_cast<const WindowProperty<std::string*>*>(key);
   if (string_properties_.count(string_key) > 0) {
     *transport_value = GetArray(window, string_key);
@@ -149,12 +228,27 @@ bool PropertyConverter::ConvertPropertyForTransport(
     return true;
   }
 
+  auto* unguessable_token_key =
+      static_cast<const WindowProperty<base::UnguessableToken*>*>(key);
+  if (unguessable_token_properties_.count(unguessable_token_key) > 0) {
+    *transport_value = GetArray(window, unguessable_token_key);
+    return true;
+  }
+
+  // window_ptr_properties_ aren't processed here since Window* values aren't
+  // transferrable. A post processing step in WindowTree and WindowTreeClient
+  // takes care of the conversion.
+  if (IsWindowPtrPropertyRegistered(
+          static_cast<const WindowProperty<Window*>*>(key))) {
+    return true;
+  }
+
   // Handle primitive property types generically.
   DCHECK_GT(primitive_properties_.count(key), 0u);
   PrimitiveType default_value = primitive_properties_[key].default_value;
   // TODO(msw): Using the int64_t accessor is wasteful for smaller types.
   const PrimitiveType value = window->GetPropertyInternal(key, default_value);
-  *transport_value = base::MakeUnique<std::vector<uint8_t>>(
+  *transport_value = std::make_unique<std::vector<uint8_t>>(
       mojo::ConvertTo<std::vector<uint8_t>>(value));
   return true;
 }
@@ -175,6 +269,10 @@ std::string PropertyConverter::GetTransportNameForPropertyKey(const void* key) {
   if (size_properties_.count(size_key) > 0)
     return size_properties_[size_key];
 
+  auto* size_f_key = static_cast<const WindowProperty<gfx::SizeF*>*>(key);
+  if (size_f_properties_.count(size_f_key) > 0)
+    return size_f_properties_[size_f_key];
+
   auto* string_key = static_cast<const WindowProperty<std::string*>*>(key);
   if (string_properties_.count(string_key) > 0)
     return string_properties_[string_key];
@@ -182,6 +280,15 @@ std::string PropertyConverter::GetTransportNameForPropertyKey(const void* key) {
   auto* string16_key = static_cast<const WindowProperty<base::string16*>*>(key);
   if (string16_properties_.count(string16_key) > 0)
     return string16_properties_[string16_key];
+
+  auto* unguessable_token_key =
+      static_cast<const WindowProperty<base::UnguessableToken*>*>(key);
+  if (unguessable_token_properties_.count(unguessable_token_key) > 0)
+    return unguessable_token_properties_[unguessable_token_key];
+
+  auto* window_ptr_key = static_cast<const WindowProperty<Window*>*>(key);
+  if (window_ptr_properties_.count(window_ptr_key) > 0)
+    return window_ptr_properties_[window_ptr_key];
 
   return std::string();
 }
@@ -247,6 +354,18 @@ void PropertyConverter::SetPropertyFromTransportValue(
     }
   }
 
+  for (const auto& size_f_property : size_f_properties_) {
+    if (size_f_property.second == transport_name) {
+      if (data->size() != 8u) {
+        DVLOG(2) << "Property size mismatch (gfx::Size): " << transport_name;
+        return;
+      }
+      const gfx::SizeF value = mojo::ConvertTo<gfx::SizeF>(*data);
+      window->SetProperty(size_f_property.first, new gfx::SizeF(value));
+      return;
+    }
+  }
+
   for (const auto& string_property : string_properties_) {
     if (string_property.second == transport_name) {
       // TODO(msw): Validate the data somehow, before trying to convert?
@@ -264,6 +383,35 @@ void PropertyConverter::SetPropertyFromTransportValue(
       return;
     }
   }
+
+  for (const auto& unguessable_token_property : unguessable_token_properties_) {
+    if (unguessable_token_property.second == transport_name) {
+      base::UnguessableToken token =
+          mojo::ConvertTo<base::UnguessableToken>(*data);
+      if (token.is_empty()) {
+        window->ClearProperty(unguessable_token_property.first);
+      } else {
+        // |window| takes ownership of the newly allocated token.
+        window->SetProperty(unguessable_token_property.first,
+                            new base::UnguessableToken(token));
+      }
+      return;
+    }
+  }
+
+  // window_ptr_properties_ aren't processed here since Window* values aren't
+  // transferrable. A post processing step in WindowTree and WindowTreeClient
+  // takes care of the conversion.
+  for (const auto& window_ptr_property : window_ptr_properties_) {
+    if (window_ptr_property.second == transport_name) {
+      LOG(ERROR) << transport_name << " is a registered window property but "
+                 << "should not be processed here.";
+      return;
+    }
+  }
+
+  // WARNING: Adding a new map, be sure and update
+  // GetPropertyKeyFromTransportName() as well.
 
   DVLOG(2) << "Unknown mus property name: " << transport_name;
 }
@@ -295,6 +443,8 @@ bool PropertyConverter::GetPropertyValueFromTransportValue(
 void PropertyConverter::RegisterImageSkiaProperty(
     const WindowProperty<gfx::ImageSkia*>* property,
     const char* transport_name) {
+  DCHECK(!IsTransportNameRegistered(transport_name))
+      << "Property already registered: " << transport_name;
   image_properties_[property] = transport_name;
   transport_names_.insert(transport_name);
 }
@@ -302,6 +452,8 @@ void PropertyConverter::RegisterImageSkiaProperty(
 void PropertyConverter::RegisterRectProperty(
     const WindowProperty<gfx::Rect*>* property,
     const char* transport_name) {
+  DCHECK(!IsTransportNameRegistered(transport_name))
+      << "Property already registered: " << transport_name;
   rect_properties_[property] = transport_name;
   transport_names_.insert(transport_name);
 }
@@ -309,13 +461,26 @@ void PropertyConverter::RegisterRectProperty(
 void PropertyConverter::RegisterSizeProperty(
     const WindowProperty<gfx::Size*>* property,
     const char* transport_name) {
+  DCHECK(!IsTransportNameRegistered(transport_name))
+      << "Property already registered: " << transport_name;
   size_properties_[property] = transport_name;
+  transport_names_.insert(transport_name);
+}
+
+void PropertyConverter::RegisterSizeFProperty(
+    const WindowProperty<gfx::SizeF*>* property,
+    const char* transport_name) {
+  DCHECK(!IsTransportNameRegistered(transport_name))
+      << "Property already registered: " << transport_name;
+  size_f_properties_[property] = transport_name;
   transport_names_.insert(transport_name);
 }
 
 void PropertyConverter::RegisterStringProperty(
     const WindowProperty<std::string*>* property,
     const char* transport_name) {
+  DCHECK(!IsTransportNameRegistered(transport_name))
+      << "Property already registered: " << transport_name;
   string_properties_[property] = transport_name;
   transport_names_.insert(transport_name);
 }
@@ -323,8 +488,63 @@ void PropertyConverter::RegisterStringProperty(
 void PropertyConverter::RegisterString16Property(
     const WindowProperty<base::string16*>* property,
     const char* transport_name) {
+  DCHECK(!IsTransportNameRegistered(transport_name))
+      << "Property already registered: " << transport_name;
   string16_properties_[property] = transport_name;
   transport_names_.insert(transport_name);
+}
+
+void PropertyConverter::RegisterTimeDeltaProperty(
+    const WindowProperty<base::TimeDelta>* property,
+    const char* transport_name) {
+  // TimeDelta is internally handled (by class_property) as a primitive
+  // value (int64_t) . See ClassPropertyCaster<base::TimeDelta> for details.
+  RegisterPrimitiveProperty(property, transport_name,
+                            CreateAcceptAnyValueCallback());
+}
+
+void PropertyConverter::RegisterUnguessableTokenProperty(
+    const WindowProperty<base::UnguessableToken*>* property,
+    const char* transport_name) {
+  DCHECK(!IsTransportNameRegistered(transport_name))
+      << "Property already registered: " << transport_name;
+  unguessable_token_properties_[property] = transport_name;
+  transport_names_.insert(transport_name);
+}
+
+void PropertyConverter::RegisterWindowPtrProperty(
+    const WindowProperty<Window*>* property,
+    const char* transport_name) {
+  DCHECK(!IsTransportNameRegistered(transport_name))
+      << "Property already registered: " << transport_name;
+  window_ptr_properties_[property] = transport_name;
+  transport_names_.insert(transport_name);
+}
+
+const WindowProperty<Window*>* PropertyConverter::GetWindowPtrProperty(
+    const std::string& transport_name) const {
+  for (const auto& iter : window_ptr_properties_) {
+    if (transport_name == iter.second)
+      return iter.first;
+  }
+  return nullptr;
+}
+
+bool PropertyConverter::IsWindowPtrPropertyRegistered(
+    const WindowProperty<Window*>* property) const {
+  return window_ptr_properties_.find(property) != window_ptr_properties_.end();
+}
+
+base::flat_map<std::string, std::vector<uint8_t>>
+PropertyConverter::GetTransportProperties(Window* window) {
+  base::flat_map<std::string, std::vector<uint8_t>> properties;
+  std::string name;
+  std::unique_ptr<std::vector<uint8_t>> value;
+  for (const void* key : window->GetAllPropertyKeys()) {
+    if (ConvertPropertyForTransport(window, key, &name, &value))
+      properties[name] = value ? std::move(*value) : std::vector<uint8_t>();
+  }
+  return properties;
 }
 
 }  // namespace aura

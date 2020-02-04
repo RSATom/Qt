@@ -57,7 +57,7 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothMediaTransportClient
   ~FakeBluetoothMediaTransportClient() override;
 
   // DBusClient override.
-  void Init(dbus::Bus* bus) override;
+  void Init(dbus::Bus* bus, const std::string& bluetooth_service_name) override;
 
   // BluetoothMediaTransportClient override.
   void AddObserver(Observer* observer) override;
@@ -142,7 +142,8 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothMediaTransportClient
   // corresponding endpoint path when GetProperties() is called.
   std::map<dbus::ObjectPath, dbus::ObjectPath> transport_to_endpoint_map_;
 
-  base::ObserverList<BluetoothMediaTransportClient::Observer> observers_;
+  base::ObserverList<BluetoothMediaTransportClient::Observer>::Unchecked
+      observers_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeBluetoothMediaTransportClient);
 };

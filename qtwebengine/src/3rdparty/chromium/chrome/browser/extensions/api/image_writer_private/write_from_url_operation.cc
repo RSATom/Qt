@@ -9,6 +9,9 @@
 #include "content/public/browser/browser_thread.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_fetcher.h"
+#include "services/network/public/cpp/resource_response.h"
+#include "services/network/public/cpp/simple_url_loader.h"
+#include "services/service_manager/public/cpp/connector.h"
 
 namespace extensions {
 namespace image_writer {
@@ -17,70 +20,68 @@ using content::BrowserThread;
 
 WriteFromUrlOperation::WriteFromUrlOperation(
     base::WeakPtr<OperationManager> manager,
+    std::unique_ptr<service_manager::Connector> connector,
     const ExtensionId& extension_id,
-    net::URLRequestContextGetter* request_context,
+    network::mojom::URLLoaderFactoryPtrInfo factory_info,
     GURL url,
     const std::string& hash,
     const std::string& device_path,
     const base::FilePath& download_folder)
-    : Operation(manager, extension_id, device_path, download_folder),
-      request_context_(request_context),
+    : Operation(manager,
+                std::move(connector),
+                extension_id,
+                device_path,
+                download_folder),
+      url_loader_factory_ptr_info_(std::move(factory_info)),
       url_(url),
       hash_(hash),
       download_continuation_() {}
 
-WriteFromUrlOperation::~WriteFromUrlOperation() {
-}
+WriteFromUrlOperation::~WriteFromUrlOperation() = default;
 
 void WriteFromUrlOperation::StartImpl() {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  DCHECK(IsRunningInCorrectSequence());
 
-  GetDownloadTarget(base::Bind(
-      &WriteFromUrlOperation::Download,
-      this,
-      base::Bind(
-          &WriteFromUrlOperation::VerifyDownload,
-          this,
-          base::Bind(
-              &WriteFromUrlOperation::Unzip,
-              this,
-              base::Bind(&WriteFromUrlOperation::Write,
-                         this,
-                         base::Bind(&WriteFromUrlOperation::VerifyWrite,
-                                    this,
+  GetDownloadTarget(base::BindOnce(
+      &WriteFromUrlOperation::Download, this,
+      base::BindOnce(
+          &WriteFromUrlOperation::VerifyDownload, this,
+          base::BindOnce(
+              &WriteFromUrlOperation::Unzip, this,
+              base::Bind(&WriteFromUrlOperation::Write, this,
+                         base::Bind(&WriteFromUrlOperation::VerifyWrite, this,
                                     base::Bind(&WriteFromUrlOperation::Finish,
                                                this)))))));
 }
 
-void WriteFromUrlOperation::GetDownloadTarget(
-    const base::Closure& continuation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+void WriteFromUrlOperation::GetDownloadTarget(base::OnceClosure continuation) {
+  DCHECK(IsRunningInCorrectSequence());
   if (IsCancelled()) {
     return;
   }
 
   if (url_.ExtractFileName().empty()) {
-    if (!base::CreateTemporaryFileInDir(temp_dir_.GetPath(), &image_path_)) {
+    if (!base::CreateTemporaryFileInDir(temp_dir_->GetPath(), &image_path_)) {
       Error(error::kTempFileError);
       return;
     }
   } else {
     base::FilePath file_name =
         base::FilePath::FromUTF8Unsafe(url_.ExtractFileName());
-    image_path_ = temp_dir_.GetPath().Append(file_name);
+    image_path_ = temp_dir_->GetPath().Append(file_name);
   }
 
-  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE, continuation);
+  PostTask(std::move(continuation));
 }
 
-void WriteFromUrlOperation::Download(const base::Closure& continuation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+void WriteFromUrlOperation::Download(base::OnceClosure continuation) {
+  DCHECK(IsRunningInCorrectSequence());
 
   if (IsCancelled()) {
     return;
   }
 
-  download_continuation_ = continuation;
+  download_continuation_ = std::move(continuation);
 
   SetStage(image_writer_api::STAGE_DOWNLOAD);
 
@@ -102,7 +103,7 @@ void WriteFromUrlOperation::Download(const base::Closure& continuation) {
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: true
+          cookies_allowed: YES
           cookies_store: "user"
           setting:
             "This feature cannot be disabled by settings, it can only be used "
@@ -111,63 +112,63 @@ void WriteFromUrlOperation::Download(const base::Closure& continuation) {
             "Not implemented, considered not useful."
         })");
 
-  // Store the URL fetcher on this object so that it is destroyed before this
-  // object is.
-  url_fetcher_ = net::URLFetcher::Create(url_, net::URLFetcher::GET, this,
-                                         traffic_annotation);
+  auto request = std::make_unique<network::ResourceRequest>();
+  request->url = GURL(url_);
+  simple_url_loader_ =
+      network::SimpleURLLoader::Create(std::move(request), traffic_annotation);
 
-  url_fetcher_->SetRequestContext(request_context_);
-  url_fetcher_->SaveResponseToFileAtPath(
-      image_path_, BrowserThread::GetTaskRunnerForThread(BrowserThread::FILE));
+  simple_url_loader_->SetOnDownloadProgressCallback(base::BindRepeating(
+      &WriteFromUrlOperation::OnDataDownloaded, base::Unretained(this)));
+  simple_url_loader_->SetOnResponseStartedCallback(base::BindOnce(
+      &WriteFromUrlOperation::OnResponseStarted, base::Unretained(this)));
 
   AddCleanUpFunction(
-      base::Bind(&WriteFromUrlOperation::DestroyUrlFetcher, this));
+      base::BindOnce(&WriteFromUrlOperation::DestroySimpleURLLoader, this));
 
-  url_fetcher_->Start();
+  network::mojom::URLLoaderFactoryPtr url_loader_factory_ptr;
+  url_loader_factory_ptr.Bind(std::move(url_loader_factory_ptr_info_));
+
+  simple_url_loader_->DownloadToFile(
+      url_loader_factory_ptr.get(),
+      base::BindOnce(&WriteFromUrlOperation::OnSimpleLoaderComplete,
+                     base::Unretained(this)),
+      image_path_);
 }
 
-void WriteFromUrlOperation::DestroyUrlFetcher() { url_fetcher_.reset(); }
-
-void WriteFromUrlOperation::OnURLFetchUploadProgress(
-    const net::URLFetcher* source,
-    int64_t current,
-    int64_t total) {
-  // No-op
+void WriteFromUrlOperation::DestroySimpleURLLoader() {
+  simple_url_loader_.reset();
 }
 
-void WriteFromUrlOperation::OnURLFetchDownloadProgress(
-    const net::URLFetcher* source,
-    int64_t current,
-    int64_t total,
-    int64_t current_network_bytes) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+void WriteFromUrlOperation::OnResponseStarted(
+    const GURL& final_url,
+    const network::ResourceResponseHead& response_head) {
+  total_response_bytes_ = response_head.content_length;
+}
 
-  if (IsCancelled()) {
-    url_fetcher_.reset(NULL);
-  }
+void WriteFromUrlOperation::OnDataDownloaded(uint64_t current) {
+  DCHECK(IsRunningInCorrectSequence());
 
-  int progress = (kProgressComplete * current) / total;
+  if (IsCancelled())
+    DestroySimpleURLLoader();
+
+  int progress = (kProgressComplete * current) / total_response_bytes_;
 
   SetProgress(progress);
 }
 
-void WriteFromUrlOperation::OnURLFetchComplete(const net::URLFetcher* source) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
-
-  if (source->GetStatus().is_success() && source->GetResponseCode() == 200) {
+void WriteFromUrlOperation::OnSimpleLoaderComplete(base::FilePath file_path) {
+  DCHECK(IsRunningInCorrectSequence());
+  if (!file_path.empty()) {
     SetProgress(kProgressComplete);
 
-    download_continuation_.Run();
-
-    // Remove the reference to ourselves in this closure.
-    download_continuation_ = base::Closure();
+    std::move(download_continuation_).Run();
   } else {
     Error(error::kDownloadInterrupted);
   }
 }
 
-void WriteFromUrlOperation::VerifyDownload(const base::Closure& continuation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+void WriteFromUrlOperation::VerifyDownload(base::OnceClosure continuation) {
+  DCHECK(IsRunningInCorrectSequence());
 
   if (IsCancelled()) {
     return;
@@ -175,45 +176,39 @@ void WriteFromUrlOperation::VerifyDownload(const base::Closure& continuation) {
 
   // Skip verify if no hash.
   if (hash_.empty()) {
-    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE, continuation);
+    PostTask(std::move(continuation));
     return;
   }
 
   SetStage(image_writer_api::STAGE_VERIFYDOWNLOAD);
 
-  GetMD5SumOfFile(
-      image_path_,
-      0,
-      0,
-      kProgressComplete,
-      base::Bind(
-          &WriteFromUrlOperation::VerifyDownloadCompare, this, continuation));
+  GetMD5SumOfFile(image_path_, 0, 0, kProgressComplete,
+                  base::BindOnce(&WriteFromUrlOperation::VerifyDownloadCompare,
+                                 this, std::move(continuation)));
 }
 
 void WriteFromUrlOperation::VerifyDownloadCompare(
-    const base::Closure& continuation,
+    base::OnceClosure continuation,
     const std::string& download_hash) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  DCHECK(IsRunningInCorrectSequence());
   if (download_hash != hash_) {
     Error(error::kDownloadHashError);
     return;
   }
 
-  BrowserThread::PostTask(
-      BrowserThread::FILE, FROM_HERE,
-      base::BindOnce(&WriteFromUrlOperation::VerifyDownloadComplete, this,
-                     continuation));
+  PostTask(base::BindOnce(&WriteFromUrlOperation::VerifyDownloadComplete, this,
+                          std::move(continuation)));
 }
 
 void WriteFromUrlOperation::VerifyDownloadComplete(
-    const base::Closure& continuation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+    base::OnceClosure continuation) {
+  DCHECK(IsRunningInCorrectSequence());
   if (IsCancelled()) {
     return;
   }
 
   SetProgress(kProgressComplete);
-  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE, continuation);
+  PostTask(std::move(continuation));
 }
 
 } // namespace image_writer

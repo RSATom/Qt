@@ -11,12 +11,8 @@ let binding = apiBridge || require('binding').Binding.create('mojoPrivate');
 binding.registerCustomHook(function(bindingsAPI) {
   let apiFunctions = bindingsAPI.apiFunctions;
 
-  apiFunctions.setHandleRequest('define', function(name, deps, factory) {
-    define(name, deps || [], factory);
-  });
-
   apiFunctions.setHandleRequest('requireAsync', function(moduleName) {
-    return requireAsync(moduleName);
+    return Promise.resolve(require(moduleName).returnValue);
   });
 });
 

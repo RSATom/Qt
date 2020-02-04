@@ -9,20 +9,29 @@
 
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "content/common/cursors/webcursor.h"
 #include "content/common/input/input_event_ack.h"
 #include "content/common/input/input_event_dispatch_type.h"
 #include "content/renderer/input/main_thread_event_queue.h"
-#include "third_party/WebKit/public/platform/WebCoalescedInputEvent.h"
+#include "third_party/blink/public/platform/web_coalesced_input_event.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/events/blink/did_overscroll_params.h"
 
 namespace blink {
 struct WebFloatPoint;
 struct WebFloatSize;
+}  // namespace blink
+
+namespace cc {
+struct OverscrollBehavior;
 }
 
 namespace ui {
 class LatencyInfo;
+}
+
+namespace viz {
+class FrameSinkId;
 }
 
 namespace content {
@@ -38,6 +47,12 @@ class CONTENT_EXPORT RenderWidgetInputHandler {
                            RenderWidget* widget);
   virtual ~RenderWidgetInputHandler();
 
+  // Hit test the given point to find out the frame underneath and
+  // returns the FrameSinkId for that frame. |local_point| returns the point
+  // in the coordinate space of the FrameSinkId that was hit.
+  viz::FrameSinkId GetFrameSinkIdAtPoint(const gfx::PointF& point,
+                                         gfx::PointF* local_point);
+
   // Handle input events from the input event provider.
   virtual void HandleInputEvent(
       const blink::WebCoalescedInputEvent& coalesced_event,
@@ -45,20 +60,20 @@ class CONTENT_EXPORT RenderWidgetInputHandler {
       HandledEventCallback callback);
 
   // Handle overscroll from Blink.
-  void DidOverscrollFromBlink(
-      const blink::WebFloatSize& overscrollDelta,
-      const blink::WebFloatSize& accumulatedOverscroll,
-      const blink::WebFloatPoint& position,
-      const blink::WebFloatSize& velocity);
+  void DidOverscrollFromBlink(const blink::WebFloatSize& overscrollDelta,
+                              const blink::WebFloatSize& accumulatedOverscroll,
+                              const blink::WebFloatPoint& position,
+                              const blink::WebFloatSize& velocity,
+                              const cc::OverscrollBehavior& behavior);
 
   bool handling_input_event() const { return handling_input_event_; }
   void set_handling_input_event(bool handling_input_event) {
     handling_input_event_ = handling_input_event;
   }
 
-  blink::WebInputEvent::Type handling_event_type() const {
-    return handling_event_type_;
-  }
+  // Process the touch action, returning whether the action should be relayed
+  // to the browser.
+  bool ProcessTouchAction(cc::TouchAction touch_action);
 
   bool ime_composition_replacement() const {
       return ime_composition_replacement_;
@@ -67,7 +82,14 @@ class CONTENT_EXPORT RenderWidgetInputHandler {
       ime_composition_replacement_ = ime_composition_replacement;
   }
 
+  // Process the new cursor and returns true if it has changed from the last
+  // cursor.
+  bool DidChangeCursor(const WebCursor& cursor);
+
  private:
+  blink::WebInputEventResult HandleTouchEvent(
+      const blink::WebCoalescedInputEvent& coalesced_event);
+
   RenderWidgetInputHandlerDelegate* const delegate_;
 
   RenderWidget* const widget_;
@@ -75,11 +97,17 @@ class CONTENT_EXPORT RenderWidgetInputHandler {
   // Are we currently handling an input event?
   bool handling_input_event_;
 
+  // We store the current cursor object so we can avoid spamming SetCursor
+  // messages.
+  base::Optional<WebCursor> current_cursor_;
+
   // Used to intercept overscroll notifications while an event is being
   // handled. If the event causes overscroll, the overscroll metadata can be
   // bundled in the event ack, saving an IPC.  Note that we must continue
   // supporting overscroll IPC notifications due to fling animation updates.
   std::unique_ptr<ui::DidOverscrollParams>* handling_event_overscroll_;
+
+  base::Optional<cc::TouchAction> handling_touch_action_;
 
   // Type of the input event we are currently handling.
   blink::WebInputEvent::Type handling_event_type_;

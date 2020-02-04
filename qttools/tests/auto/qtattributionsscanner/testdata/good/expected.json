@@ -1,5 +1,25 @@
 [
     {
+        "Copyright": "",
+        "Description": "Hello world!\nLine 2",
+        "DownloadLocation": "",
+        "Files": "",
+        "Homepage": "",
+        "Id": "chromium-test",
+        "License": "License",
+        "LicenseFile": "",
+        "LicenseId": "",
+        "Name": "Test",
+        "PackageComment":"",
+        "Path": "%{PWD}/chromium",
+        "QDocModule": "qtwebengine",
+        "QtParts": [
+            "libs"
+        ],
+        "QtUsage": "Used in Qt WebEngine",
+        "Version": ""
+    },
+    {
         "Copyright": "Copyright",
         "Description": "Multi\nLine\nDescription",
         "Homepage": "www.qt.io",
@@ -8,6 +28,7 @@
         "LicenseFile": "%{PWD}/complete/LICENSE",
         "LicenseId": "xxx",
         "Name": "Complete",
+        "PackageComment":"just a test package",
         "Path": "%{PWD}/complete",
         "Files": "",
         "QDocModule": "qtest",
@@ -25,6 +46,7 @@
         "LicenseFile": "",
         "LicenseId": "",
         "Name": "Minimal",
+        "PackageComment":"",
         "Path": "%{PWD}/minimal",
         "Files": "",
         "QDocModule": "qtest",

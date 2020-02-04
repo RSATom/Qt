@@ -17,16 +17,13 @@
 #include "base/strings/string16.h"
 #include "content/browser/service_worker/service_worker_lifetime_tracker.h"
 #include "content/common/content_export.h"
-#include "content/common/service_worker/service_worker_status_code.h"
-
-namespace IPC {
-class Message;
-}
+#include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 
 namespace content {
 
 class EmbeddedWorkerInstance;
 class ServiceWorkerContextCore;
+class ServiceWorkerVersion;
 
 // Acts as a thin stub between MessageFilter and each EmbeddedWorkerInstance,
 // which sends/receives messages to/from each EmbeddedWorker in child process.
@@ -34,10 +31,10 @@ class ServiceWorkerContextCore;
 // Hangs off ServiceWorkerContextCore (its reference is also held by each
 // EmbeddedWorkerInstance).  Operated only on IO thread.
 class CONTENT_EXPORT EmbeddedWorkerRegistry
-    : public NON_EXPORTED_BASE(base::RefCounted<EmbeddedWorkerRegistry>) {
+    : public base::RefCounted<EmbeddedWorkerRegistry> {
  public:
   static scoped_refptr<EmbeddedWorkerRegistry> Create(
-      const base::WeakPtr<ServiceWorkerContextCore>& contxet);
+      const base::WeakPtr<ServiceWorkerContextCore>& context);
 
   // Used for DeleteAndStartOver. Creates a new registry which takes over
   // |next_embedded_worker_id_| and |process_sender_map_| from |old_registry|.
@@ -45,30 +42,21 @@ class CONTENT_EXPORT EmbeddedWorkerRegistry
       const base::WeakPtr<ServiceWorkerContextCore>& context,
       EmbeddedWorkerRegistry* old_registry);
 
-  bool OnMessageReceived(const IPC::Message& message, int process_id);
-
   // Creates and removes a new worker instance entry for bookkeeping.
   // This doesn't actually start or stop the worker.
-  std::unique_ptr<EmbeddedWorkerInstance> CreateWorker();
+  std::unique_ptr<EmbeddedWorkerInstance> CreateWorker(
+      ServiceWorkerVersion* owner_version);
 
-  // Stop all active workers, even if they're handling events.
+  // Stop all running workers, even if they're handling events.
   void Shutdown();
 
-  // Called by EmbeddedWorkerInstance to do some necessary work in the registry.
+  // Called by EmbeddedWorkerInstance when it starts or stops. This registry
+  // keeps track of running workers.
   bool OnWorkerStarted(int process_id, int embedded_worker_id);
   void OnWorkerStopped(int process_id, int embedded_worker_id);
 
-  // Called by EmbeddedWorkerInstance when it learns DevTools has attached to
-  // it.
-  void OnDevToolsAttached(int embedded_worker_id);
-
-  // Removes information about the service workers running on the process and
-  // calls ServiceWorkerVersion::OnDetached() on each. Called when the process
-  // is terminated. Under normal operation, the workers should already have
-  // been stopped before the process is terminated, in which case this function
-  // does nothing. But in some cases the process can be terminated unexpectedly
-  // or the workers can fail to stop cleanly.
-  void RemoveProcess(int process_id);
+  // Aborts the timer which tracks the lifetime of the worker for UMA logging.
+  void AbortLifetimeTracking(int embedded_worker_id);
 
   // Returns an embedded worker instance for given |embedded_worker_id|.
   EmbeddedWorkerInstance* GetWorker(int embedded_worker_id);
@@ -91,8 +79,6 @@ class CONTENT_EXPORT EmbeddedWorkerRegistry
       int initial_embedded_worker_id);
   ~EmbeddedWorkerRegistry();
 
-  ServiceWorkerStatusCode Send(int process_id, IPC::Message* message);
-
   // Called when EmbeddedWorkerInstance is ready for IPC. This function
   // prepares a route to the child worker thread.
   // TODO(shimazu): Remove this function once mojofication is completed.
@@ -102,13 +88,11 @@ class CONTENT_EXPORT EmbeddedWorkerRegistry
   // |process_id| could be invalid (i.e. ChildProcessHost::kInvalidUniqueID)
   // if it's not running.
   void RemoveWorker(int process_id, int embedded_worker_id);
-  // DetachWorker is called when EmbeddedWorkerInstance releases a process.
-  // |process_id| could be invalid (i.e. ChildProcessHost::kInvalidUniqueID)
-  // if it's not running.
-  void DetachWorker(int process_id, int embedded_worker_id);
 
-  EmbeddedWorkerInstance* GetWorkerForMessage(int process_id,
-                                              int embedded_worker_id);
+  // Removes the bookkeeping that binds the worker to the process.  This is
+  // called instead of WorkerStopped() in cases when the worker could not be
+  // cleanly stopped, e.g., because connection with the renderer was lost.
+  void DetachWorker(int process_id, int embedded_worker_id);
 
   base::WeakPtr<ServiceWorkerContextCore> context_;
 

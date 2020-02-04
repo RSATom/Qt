@@ -47,7 +47,13 @@ namespace Qt3DRender {
 namespace RayCasting {
 
 /*!
-    \class Qt3DRender::QRay3D
+    \namespace Qt3DRender::RayCasting
+    \internal
+*/
+
+/*!
+    \internal
+    \class Qt3DRender::RayCasting::QRay3D
     \inmodule Qt3DRender
     \brief The QRay3D class defines a directional line in 3D space extending through an origin point.
     \since 5.5
@@ -70,7 +76,7 @@ namespace RayCasting {
 */
 
 /*!
-    \fn Qt3DRender::QRay3D::QRay3D()
+    \fn Qt3DRender::RayCasting::QRay3D::QRay3D()
 
     Construct a default ray with an origin() of (0, 0, 0), a
     direction() of (0, 0, 1) and a distance of 1.
@@ -82,7 +88,7 @@ QRay3D::QRay3D()
 }
 
 /*!
-    \fn Qt3DRender::QRay3D::QRay3D(const QVector3D &origin, const QVector3D &direction, float distance)
+    \fn Qt3DRender::RayCasting::QRay3D::QRay3D(const Vector3D &origin, const Vector3D &direction, float distance)
 
     Construct a ray given its defining \a origin, \a direction and \a distance.
     The \a direction does not need to be normalized.
@@ -93,9 +99,9 @@ QRay3D::QRay3D()
     QRay3D thruAB(pointA, pointB - pointA);
     \endcode
 */
-QRay3D::QRay3D(const QVector3D &origin, const QVector3D &direction, float distance)
+QRay3D::QRay3D(const Vector3D &origin, const Vector3D &direction, float distance)
     : m_origin(origin)
-    , m_direction(direction)
+    , m_direction(direction.normalized())
     , m_distance(distance)
 {}
 
@@ -104,54 +110,54 @@ QRay3D::~QRay3D()
 }
 
 /*!
-    \fn QVector3D Qt3DRender::QRay3D::origin() const
+    \fn QVector3D Qt3DRender::RayCasting::QRay3D::origin() const
 
     Returns the origin of this ray.  The default value is (0, 0, 0).
 
     \sa setOrigin(), direction()
 */
-QVector3D QRay3D::origin() const
+Vector3D QRay3D::origin() const
 {
     return m_origin;
 }
 
 /*!
-    \fn void Qt3DRender::QRay3D::setOrigin(const QVector3D &value)
+    \fn void Qt3DRender::RayCasting::QRay3D::setOrigin(const Vector3D &value)
 
     Sets the origin point of this ray to \a value.
 
     \sa origin(), setDirection()
  */
-void QRay3D::setOrigin(const QVector3D &value)
+void QRay3D::setOrigin(const Vector3D &value)
 {
     m_origin = value;
 }
 
 /*!
-    \fn QVector3D Qt3DRender::QRay3D::direction() const
+    \fn QVector3D Qt3DRender::RayCasting::QRay3D::direction() const
 
     Returns the direction vector of this ray.  The default value is (0, 0, 1).
 
     \sa setDirection(), origin()
 */
-QVector3D QRay3D::direction() const
+Vector3D QRay3D::direction() const
 {
     return m_direction;
 }
 
 /*!
-    \fn void Qt3DRender::QRay3D::setDirection(const QVector3D &direction)
+    \fn void Qt3DRender::RayCasting::QRay3D::setDirection(const Vector3D &direction)
 
     Sets the direction vector of this ray to \a direction.
 
     \sa direction(), setOrigin()
 */
-void QRay3D::setDirection(const QVector3D &value)
+void QRay3D::setDirection(const Vector3D &value)
 {
     if (value.isNull())
         return;
 
-    m_direction = value;
+    m_direction = value.normalized();
 }
 
 float QRay3D::distance() const
@@ -164,22 +170,22 @@ void QRay3D::setDistance(float distance)
     m_distance = distance;
 }
 
-QVector3D QRay3D::point(float t) const
+Vector3D QRay3D::point(float t) const
 {
     return m_origin + t * m_direction;
 }
 
-QRay3D &QRay3D::transform(const QMatrix4x4 &matrix)
+QRay3D &QRay3D::transform(const Matrix4x4 &matrix)
 {
     m_origin = matrix * m_origin;
-    m_direction = matrix.mapVector(m_direction);
+    m_direction = matrix.mapVector(m_direction).normalized();
 
     return *this;
 }
 
-QRay3D QRay3D::transformed(const QMatrix4x4 &matrix) const
+QRay3D QRay3D::transformed(const Matrix4x4 &matrix) const
 {
-    return QRay3D(matrix * m_origin, matrix.mapVector(m_direction));
+    return QRay3D(matrix * m_origin, matrix.mapVector(m_direction).normalized());
 }
 
 bool QRay3D::operator==(const QRay3D &other) const
@@ -193,34 +199,34 @@ bool QRay3D::operator!=(const QRay3D &other) const
 }
 
 /*!
-    Returns true if \a point lies on this ray; false otherwise.
+    Returns \c true if \a point lies on this ray; \c false otherwise.
 */
-bool QRay3D::contains(const QVector3D &point) const
+bool QRay3D::contains(const Vector3D &point) const
 {
-    QVector3D ppVec(point - m_origin);
+    Vector3D  ppVec(point - m_origin);
     if (ppVec.isNull()) // point coincides with origin
         return true;
-    const float dot = QVector3D::dotProduct(ppVec, m_direction);
+    const float dot = Vector3D ::dotProduct(ppVec, m_direction);
     if (qFuzzyIsNull(dot))
         return false;
     return qFuzzyCompare(dot*dot, ppVec.lengthSquared() * m_direction.lengthSquared());
 }
 
 /*!
-    Returns true if \a ray lies on this ray; false otherwise.  If true,
+    Returns \c true if \a ray lies on this ray; \c false otherwise. If true,
     this implies that the two rays are actually the same, but with
     different origin() points or an inverted direction().
 */
 bool QRay3D::contains(const QRay3D &ray) const
 {
-    const float dot = QVector3D::dotProduct(m_direction, ray.direction());
+    const float dot = Vector3D ::dotProduct(m_direction, ray.direction());
     if (!qFuzzyCompare(dot*dot, m_direction.lengthSquared() * ray.direction().lengthSquared()))
         return false;
     return contains(ray.origin());
 }
 
 /*!
-    \fn QVector3D Qt3DRender::QRay3D::point(float t) const
+    \fn QVector3D Qt3DRender::RayCasting::QRay3D::point(float t) const
 
     Returns the point on the ray defined by moving \a t units
     along the ray in the direction of the direction() vector.
@@ -247,11 +253,11 @@ bool QRay3D::contains(const QRay3D &ray) const
 
     \sa point(), project()
 */
-float QRay3D::projectedDistance(const QVector3D &point) const
+float QRay3D::projectedDistance(const Vector3D  &point) const
 {
     Q_ASSERT(!m_direction.isNull());
 
-    return QVector3D::dotProduct(point - m_origin, m_direction) /
+    return Vector3D ::dotProduct(point - m_origin, m_direction) /
                 m_direction.lengthSquared();
 }
 
@@ -264,10 +270,10 @@ float QRay3D::projectedDistance(const QVector3D &point) const
 
     \sa projectedDistance()
 */
-QVector3D QRay3D::project(const QVector3D &vector) const
+Vector3D  QRay3D::project(const Vector3D &vector) const
 {
-    QVector3D norm = m_direction.normalized();
-    return QVector3D::dotProduct(vector, norm) * norm;
+    Vector3D  norm = m_direction.normalized();
+    return Vector3D ::dotProduct(vector, norm) * norm;
 }
 
 /*!
@@ -277,14 +283,14 @@ QVector3D QRay3D::project(const QVector3D &vector) const
 
     \sa point()
 */
-float QRay3D::distance(const QVector3D &point) const
+float QRay3D::distance(const Vector3D  &point) const
 {
     float t = projectedDistance(point);
     return (point - (m_origin + t * m_direction)).length();
 }
 
 /*!
-    \fn QRay3D &Qt3DRender::QRay3D::transform(const QMatrix4x4 &matrix)
+    \fn Qt3DRender::RayCasting::QRay3D &Qt3DRender::RayCasting::QRay3D::transform(const Matrix4x4 &matrix)
 
     Transforms this ray using \a matrix, replacing origin() and
     direction() with the transformed versions.
@@ -293,7 +299,7 @@ float QRay3D::distance(const QVector3D &point) const
 */
 
 /*!
-    \fn QRay3D Qt3DRender::QRay3D::transformed(const QMatrix4x4 &matrix) const
+    \fn Qt3DRender::RayCasting::QRay3D Qt3DRender::RayCasting::QRay3D::transformed(const Matrix4x4 &matrix) const
 
     Returns a new ray that is formed by transforming origin()
     and direction() using \a matrix.
@@ -302,7 +308,7 @@ float QRay3D::distance(const QVector3D &point) const
 */
 
 /*!
-    \fn bool Qt3DRender::QRay3D::operator==(const QRay3D &other) const
+    \fn bool Qt3DRender::RayCasting::QRay3D::operator==(const QRay3D &other) const
 
     Returns \c true if this ray is the same as \a other; \c false otherwise.
 
@@ -310,7 +316,7 @@ float QRay3D::distance(const QVector3D &point) const
 */
 
 /*!
-    \fn bool Qt3DRender::QRay3D::operator!=(const QRay3D &other) const
+    \fn bool Qt3DRender::RayCasting::QRay3D::operator!=(const QRay3D &other) const
 
     Returns \c true if this ray is not the same as \a other; \c false otherwise.
 
@@ -318,8 +324,8 @@ float QRay3D::distance(const QVector3D &point) const
 */
 
 /*!
-    \fn bool qFuzzyCompare(const Qt3DRender::QRay3D &ray1, const Qt3DRender::QRay3D &ray2)
-    \relates Qt3DRender::QRay3D
+    \fn bool qFuzzyCompare(const Qt3DRender::RayCasting::QRay3D &ray1, const Qt3DRender::RayCasting::QRay3D &ray2)
+    \relates  Qt3DRender::RayCasting::QRay3D
 
     Returns \c true if \a ray1 and \a ray2 are almost equal; \c false
     otherwise.
@@ -334,7 +340,7 @@ QDebug operator<<(QDebug dbg, const QRay3D &ray)
         << ray.origin().x() << ", " << ray.origin().y() << ", "
         << ray.origin().z() << ") - direction("
         << ray.direction().x() << ", " << ray.direction().y() << ", "
-        << ray.direction().z() << "))";
+        << ray.direction().z() << ") - distance(" << ray.distance() << "))";
     return dbg;
 }
 
@@ -343,20 +349,22 @@ QDebug operator<<(QDebug dbg, const QRay3D &ray)
 #ifndef QT_NO_DATASTREAM
 
 /*!
-    \relates Qt3DRender::QRay3D
+    \relates Qt3DRender::RayCasting::QRay3D
 
     Writes the given \a ray to the given \a stream and returns a
     reference to the stream.
 */
 QDataStream &operator<<(QDataStream &stream, const QRay3D &ray)
 {
-    stream << ray.origin();
-    stream << ray.direction();
+    stream << convertToQVector3D(ray.origin());
+    stream << convertToQVector3D(ray.direction());
+    if (stream.version() >= QDataStream::Qt_5_11)
+        stream << ray.distance();
     return stream;
 }
 
 /*!
-    \relates Qt3DRender::QRay3D
+    \relates Qt3DRender::RayCasting::QRay3D
 
     Reads a 3D ray from the given \a stream into the given \a ray
     and returns a reference to the stream.
@@ -364,9 +372,13 @@ QDataStream &operator<<(QDataStream &stream, const QRay3D &ray)
 QDataStream &operator>>(QDataStream &stream, QRay3D &ray)
 {
     QVector3D origin, direction;
+    float distance = 1.f;
+
     stream >> origin;
     stream >> direction;
-    ray = QRay3D(origin, direction);
+    if (stream.version() >= QDataStream::Qt_5_11)
+        stream >> distance;
+    ray = QRay3D(Vector3D(origin), Vector3D(direction), distance);
     return stream;
 }
 

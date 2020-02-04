@@ -9,8 +9,8 @@
 #include <stdint.h>
 
 #include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "build/build_config.h"
-#include "storage/common/storage_common_export.h"
 
 namespace storage {
 
@@ -29,8 +29,18 @@ constexpr uint64_t kDefaultMinPageFileSize = 5ull * 1024 * 1024;
 const float kDefaultMaxBlobInMemorySpaceUnderPressureRatio = 0.002f;
 #endif
 
+// Specifies the size at which blob data will be transported by file instead of
+// memory. Overrides internal logic and allows perf tests to use the file path.
+constexpr const char kBlobFileTransportByFileTriggerSwitch[] =
+    "blob-transport-by-file-trigger";
+
 // All sizes are in bytes.
-struct STORAGE_COMMON_EXPORT BlobStorageLimits {
+struct COMPONENT_EXPORT(STORAGE_COMMON) BlobStorageLimits {
+  BlobStorageLimits();
+  ~BlobStorageLimits();
+  BlobStorageLimits(const BlobStorageLimits&);
+  BlobStorageLimits& operator=(const BlobStorageLimits&);
+
   // Returns if the current configuration is valid.
   bool IsValid() const;
 
@@ -49,7 +59,9 @@ struct STORAGE_COMMON_EXPORT BlobStorageLimits {
 
   // This is the maximum amount of memory we can send in an IPC.
   size_t max_ipc_memory_size = kDefaultIPCMemorySize;
-  // This is the maximum size of a shared memory handle.
+  // This is the maximum size of a shared memory handle. This can be overriden
+  // using the "blob-transport-shared-memory-max-size" switch (see
+  // BlobMemoryController).
   size_t max_shared_memory_size = kDefaultSharedMemorySize;
 
   // This is the maximum size of a bytes BlobDataItem. Only used for mojo
@@ -77,6 +89,11 @@ struct STORAGE_COMMON_EXPORT BlobStorageLimits {
   uint64_t min_page_file_size = kDefaultMinPageFileSize;
   // This is the maximum file size we can create.
   uint64_t max_file_size = kDefaultMaxPageFileSize;
+  // This overrides the minimum size for transporting a blob using the file
+  // strategy. This allows perf tests to force file transportation. This is
+  // usually set using the "blob-transport-by-file-min-size" switch (see
+  // BlobMemoryController).
+  uint64_t override_file_transport_min_size = 0ull;
 };
 
 enum class IPCBlobItemRequestStrategy {
@@ -109,7 +126,10 @@ enum class BlobStatus {
   // builder tries to build a blob with a blob reference that isn't finished
   // constructing.
   ERR_REFERENCED_BLOB_BROKEN = 5,
-  LAST_ERROR = ERR_REFERENCED_BLOB_BROKEN,
+  // A file that we referenced during construction is not accessible to the
+  // renderer trying to create the blob.
+  ERR_REFERENCED_FILE_UNAVAILABLE = 6,
+  LAST_ERROR = ERR_REFERENCED_FILE_UNAVAILABLE,
 
   // Blob state section:
   // The blob has finished.
@@ -120,24 +140,23 @@ enum class BlobStatus {
   PENDING_TRANSPORT = 202,
   // Waiting for any operations involving dependent blobs after transport data
   // has been populated. See BlobEntry::BuildingState for more info.
-  // TODO(dmurph): Change to PENDING_REFERENCED_BLOBS (crbug.com/670398).
-  PENDING_INTERNALS = 203,
+  PENDING_REFERENCED_BLOBS = 203,
   // Waiting for construction to begin.
   PENDING_CONSTRUCTION = 204,
   LAST_PENDING = PENDING_CONSTRUCTION,
   LAST = LAST_PENDING
 };
 
-using BlobStatusCallback = base::Callback<void(BlobStatus)>;
+using BlobStatusCallback = base::OnceCallback<void(BlobStatus)>;
 
 // Returns if the status is an error code.
-STORAGE_COMMON_EXPORT bool BlobStatusIsError(BlobStatus status);
+COMPONENT_EXPORT(STORAGE_COMMON) bool BlobStatusIsError(BlobStatus status);
 
-STORAGE_COMMON_EXPORT bool BlobStatusIsPending(BlobStatus status);
+COMPONENT_EXPORT(STORAGE_COMMON) bool BlobStatusIsPending(BlobStatus status);
 
 // Returns if the status is a bad enough error to flag the IPC as bad. This is
 // only INVALID_CONSTRUCTION_ARGUMENTS.
-STORAGE_COMMON_EXPORT bool BlobStatusIsBadIPC(BlobStatus status);
+COMPONENT_EXPORT(STORAGE_COMMON) bool BlobStatusIsBadIPC(BlobStatus status);
 
 }  // namespace storage
 

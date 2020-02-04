@@ -190,6 +190,8 @@ private:
     static int count_menuItems(QQuickMenuItems *list);
     static QObject *at_menuItems(QQuickMenuItems *list, int index);
     static void clear_menuItems(QQuickMenuItems *list);
+
+    void unparentItem(QQuickMenuBase1 *menuItem);
     void setupMenuItem(QQuickMenuBase1 *item, int platformIndex = -1);
 
     QPlatformMenu *m_platformMenu;

@@ -30,18 +30,18 @@
 #include "widgetboxtreewidget.h"
 #include "widgetbox_dnditem.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
 
 #include <iconloader_p.h>
 #include <qdesigner_utils_p.h>
 
-#include <QtGui/QDropEvent>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QIcon>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtGui/qicon.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,8 +59,8 @@ public:
         { setFocusPolicy(Qt::NoFocus); }
 
 protected:
-    void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
-    void focusInEvent(QFocusEvent *e) Q_DECL_OVERRIDE;
+    void mousePressEvent(QMouseEvent *event) override;
+    void focusInEvent(QFocusEvent *e) override;
 
 private:
     const Qt::FocusPolicy m_defaultFocusPolicy;
@@ -97,7 +97,7 @@ WidgetBox::WidgetBox(QDesignerFormEditorInterface *core, QWidget *parent, Qt::Wi
 {
 
     QVBoxLayout *l = new QVBoxLayout(this);
-    l->setMargin(0);
+    l->setContentsMargins(QMargins());
     l->setSpacing(0);
 
     // Prevent the filter from grabbing focus since Our view has Qt::NoFocus
@@ -117,9 +117,7 @@ WidgetBox::WidgetBox(QDesignerFormEditorInterface *core, QWidget *parent, Qt::Wi
     setAcceptDrops (true);
 }
 
-WidgetBox::~WidgetBox()
-{
-}
+WidgetBox::~WidgetBox() = default;
 
 QDesignerFormEditorInterface *WidgetBox::core() const
 {

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2016 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,46 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_PC_TEST_RTCSTATSOBTAINER_H_
-#define WEBRTC_PC_TEST_RTCSTATSOBTAINER_H_
+#ifndef PC_TEST_RTCSTATSOBTAINER_H_
+#define PC_TEST_RTCSTATSOBTAINER_H_
 
-#include "webrtc/api/stats/rtcstatsreport.h"
-#include "webrtc/rtc_base/gunit.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace webrtc {
+#include "pc/test/rtc_stats_obtainer.h"
 
-class RTCStatsObtainer : public RTCStatsCollectorCallback {
- public:
-  static rtc::scoped_refptr<RTCStatsObtainer> Create(
-      rtc::scoped_refptr<const RTCStatsReport>* report_ptr = nullptr) {
-    return rtc::scoped_refptr<RTCStatsObtainer>(
-        new rtc::RefCountedObject<RTCStatsObtainer>(report_ptr));
-  }
-
-  void OnStatsDelivered(
-      const rtc::scoped_refptr<const RTCStatsReport>& report) override {
-    EXPECT_TRUE(thread_checker_.CalledOnValidThread());
-    report_ = report;
-    if (report_ptr_)
-      *report_ptr_ = report_;
-  }
-
-  rtc::scoped_refptr<const RTCStatsReport> report() const {
-    EXPECT_TRUE(thread_checker_.CalledOnValidThread());
-    return report_;
-  }
-
- protected:
-  explicit RTCStatsObtainer(
-      rtc::scoped_refptr<const RTCStatsReport>* report_ptr)
-      : report_ptr_(report_ptr) {}
-
- private:
-  rtc::ThreadChecker thread_checker_;
-  rtc::scoped_refptr<const RTCStatsReport> report_;
-  rtc::scoped_refptr<const RTCStatsReport>* report_ptr_;
-};
-
-}  // namespace webrtc
-
-#endif  // WEBRTC_PC_TEST_RTCSTATSOBTAINER_H_
+#endif  // PC_TEST_RTCSTATSOBTAINER_H_

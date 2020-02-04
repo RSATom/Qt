@@ -53,20 +53,20 @@
 
 #include "qquickitem.h"
 #include "qevent.h"
+#include "qquickhandlerpoint_p.h"
 #include "qquickpointerdevicehandler_p.h"
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickMultiPointHandler : public QQuickPointerDeviceHandler
+class Q_QUICK_PRIVATE_EXPORT QQuickMultiPointHandler : public QQuickPointerDeviceHandler
 {
     Q_OBJECT
     Q_PROPERTY(int minimumPointCount READ minimumPointCount WRITE setMinimumPointCount NOTIFY minimumPointCountChanged)
     Q_PROPERTY(int maximumPointCount READ maximumPointCount WRITE setMaximumPointCount NOTIFY maximumPointCountChanged)
-    Q_PROPERTY(qreal pointDistanceThreshold READ pointDistanceThreshold WRITE setPointDistanceThreshold NOTIFY pointDistanceThresholdChanged)
+    Q_PROPERTY(QQuickHandlerPoint centroid READ centroid NOTIFY centroidChanged)
 
 public:
-    explicit QQuickMultiPointHandler(QObject *parent = 0, int minimumPointCount = 2);
-    ~QQuickMultiPointHandler();
+    explicit QQuickMultiPointHandler(QQuickItem *parent = nullptr, int minimumPointCount = 2, int maximumPointCount = -1);
 
     int minimumPointCount() const { return m_minimumPointCount; }
     void setMinimumPointCount(int c);
@@ -74,13 +74,13 @@ public:
     int maximumPointCount() const { return m_maximumPointCount >= 0 ? m_maximumPointCount : m_minimumPointCount; }
     void setMaximumPointCount(int maximumPointCount);
 
-    qreal pointDistanceThreshold() const { return m_pointDistanceThreshold; }
-    void setPointDistanceThreshold(qreal pointDistanceThreshold);
+    QQuickHandlerPoint centroid() const { return m_centroid; }
 
 signals:
     void minimumPointCountChanged();
     void maximumPointCountChanged();
-    void pointDistanceThresholdChanged();
+    void marginChanged();
+    void centroidChanged();
 
 protected:
     struct PointData {
@@ -91,10 +91,11 @@ protected:
     };
 
     bool wantsPointerEvent(QQuickPointerEvent *event) override;
-    bool sameAsCurrentPoints(QQuickPointerEvent *event);
+    void handlePointerEventImpl(QQuickPointerEvent *event) override;
+    void onActiveChanged() override;
+    void onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *point) override;
+    bool hasCurrentPoints(QQuickPointerEvent *event);
     QVector<QQuickEventPoint *> eligiblePoints(QQuickPointerEvent *event);
-    QPointF touchPointCentroid();
-    QVector2D touchPointCentroidVelocity();
     qreal averageTouchPointDistance(const QPointF &ref);
     qreal averageStartingDistance(const QPointF &ref);
     qreal averageTouchPointAngle(const QPointF &ref);
@@ -103,12 +104,13 @@ protected:
     static qreal averageAngleDelta(const QVector<PointData> &old, const QVector<PointData> &newAngles);
     void acceptPoints(const QVector<QQuickEventPoint *> &points);
     bool grabPoints(QVector<QQuickEventPoint *> points);
+    void moveTarget(QPointF pos);
 
 protected:
-    QVector<QQuickEventPoint *> m_currentPoints;
+    QVector<QQuickHandlerPoint> m_currentPoints;
+    QQuickHandlerPoint m_centroid;
     int m_minimumPointCount;
     int m_maximumPointCount;
-    qreal m_pointDistanceThreshold;
 };
 
 QT_END_NAMESPACE

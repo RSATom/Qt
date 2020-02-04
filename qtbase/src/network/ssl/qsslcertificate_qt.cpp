@@ -41,13 +41,17 @@
 #include "qsslcertificate_p.h"
 
 #include "qssl_p.h"
+#ifndef QT_NO_SSL
 #include "qsslkey.h"
 #include "qsslkey_p.h"
+#endif
 #include "qsslcertificateextension.h"
 #include "qsslcertificateextension_p.h"
 #include "qasn1element_p.h"
 
 #include <QtCore/qdatastream.h>
+#include <QtCore/qendian.h>
+#include <QtNetwork/qhostaddress.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -137,14 +141,15 @@ QDateTime QSslCertificate::expiryDate() const
     return d->notValidAfter;
 }
 
-#ifndef Q_OS_WINRT // implemented in qsslcertificate_winrt.cpp
+#if !defined(Q_OS_WINRT) && !QT_CONFIG(schannel) // implemented in qsslcertificate_{winrt,schannel}.cpp
 Qt::HANDLE QSslCertificate::handle() const
 {
     Q_UNIMPLEMENTED();
-    return 0;
+    return nullptr;
 }
 #endif
 
+#ifndef QT_NO_SSL
 QSslKey QSslCertificate::publicKey() const
 {
     QSslKey key;
@@ -155,6 +160,7 @@ QSslKey QSslCertificate::publicKey() const
     }
     return key;
 }
+#endif
 
 QList<QSslCertificateExtension> QSslCertificate::extensions() const
 {
@@ -202,6 +208,10 @@ void QSslCertificatePrivate::init(const QByteArray &data, QSsl::EncodingFormat f
             : certificatesFromDer(data, 1);
         if (!certs.isEmpty()) {
             *this = *certs.first().d;
+#if QT_CONFIG(schannel)
+            if (certificateContext)
+                certificateContext = CertDuplicateCertificateContext(certificateContext);
+#endif
         }
     }
 }
@@ -395,10 +405,32 @@ bool QSslCertificatePrivate::parse(const QByteArray &data)
                             QDataStream nameStream(sanElem.value());
                             QAsn1Element nameElem;
                             while (nameElem.read(nameStream)) {
-                                if (nameElem.type() == QAsn1Element::Rfc822NameType) {
+                                switch (nameElem.type()) {
+                                case QAsn1Element::Rfc822NameType:
                                     subjectAlternativeNames.insert(QSsl::EmailEntry, nameElem.toString());
-                                } else if (nameElem.type() == QAsn1Element::DnsNameType) {
+                                    break;
+                                case QAsn1Element::DnsNameType:
                                     subjectAlternativeNames.insert(QSsl::DnsEntry, nameElem.toString());
+                                    break;
+                                case QAsn1Element::IpAddressType: {
+                                    QHostAddress ipAddress;
+                                    QByteArray ipAddrValue = nameElem.value();
+                                    switch (ipAddrValue.length()) {
+                                    case 4: // IPv4
+                                        ipAddress = QHostAddress(qFromBigEndian(*reinterpret_cast<quint32 *>(ipAddrValue.data())));
+                                        break;
+                                    case 16: // IPv6
+                                        ipAddress = QHostAddress(reinterpret_cast<quint8 *>(ipAddrValue.data()));
+                                        break;
+                                    default: // Unknown IP address format
+                                        break;
+                                    }
+                                    if (!ipAddress.isNull())
+                                        subjectAlternativeNames.insert(QSsl::IpAddressEntry, ipAddress.toString());
+                                    break;
+                                }
+                                default:
+                                    break;
                                 }
                             }
                         }

@@ -6,18 +6,21 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
+#include "base/task/post_task.h"
 #include "components/proxy_config/pref_proxy_config_tracker_impl.h"
+#include "ios/web/public/web_task_traits.h"
 #include "ios/web/public/web_thread.h"
-#include "net/proxy/proxy_config_service.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_config_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 
 // static
 std::unique_ptr<net::ProxyConfigService>
 ProxyServiceFactory::CreateProxyConfigService(PrefProxyConfigTracker* tracker) {
   std::unique_ptr<net::ProxyConfigService> base_service(
-      net::ProxyService::CreateSystemProxyConfigService(
-          web::WebThread::GetTaskRunnerForThread(web::WebThread::IO)));
+      net::ProxyResolutionService::CreateSystemProxyConfigService(
+          base::CreateSingleThreadTaskRunnerWithTraits({web::WebThread::IO})));
   return tracker->CreateTrackingProxyConfigService(std::move(base_service));
 }
 
@@ -26,31 +29,32 @@ std::unique_ptr<PrefProxyConfigTracker>
 ProxyServiceFactory::CreatePrefProxyConfigTrackerOfProfile(
     PrefService* browser_state_prefs,
     PrefService* local_state_prefs) {
-  return base::MakeUnique<PrefProxyConfigTrackerImpl>(
+  return std::make_unique<PrefProxyConfigTrackerImpl>(
       browser_state_prefs,
-      web::WebThread::GetTaskRunnerForThread(web::WebThread::IO));
+      base::CreateSingleThreadTaskRunnerWithTraits({web::WebThread::IO}));
 }
 
 // static
 std::unique_ptr<PrefProxyConfigTracker>
 ProxyServiceFactory::CreatePrefProxyConfigTrackerOfLocalState(
     PrefService* local_state_prefs) {
-  return base::MakeUnique<PrefProxyConfigTrackerImpl>(
+  return std::make_unique<PrefProxyConfigTrackerImpl>(
       local_state_prefs,
-      web::WebThread::GetTaskRunnerForThread(web::WebThread::IO));
+      base::CreateSingleThreadTaskRunnerWithTraits({web::WebThread::IO}));
 }
 
 // static
-std::unique_ptr<net::ProxyService> ProxyServiceFactory::CreateProxyService(
+std::unique_ptr<net::ProxyResolutionService>
+ProxyServiceFactory::CreateProxyResolutionService(
     net::NetLog* net_log,
     net::URLRequestContext* context,
     net::NetworkDelegate* network_delegate,
     std::unique_ptr<net::ProxyConfigService> proxy_config_service,
     bool quick_check_enabled) {
   DCHECK_CURRENTLY_ON(web::WebThread::IO);
-  std::unique_ptr<net::ProxyService> proxy_service(
-      net::ProxyService::CreateUsingSystemProxyResolver(
+  std::unique_ptr<net::ProxyResolutionService> proxy_resolution_service(
+      net::ProxyResolutionService::CreateUsingSystemProxyResolver(
           std::move(proxy_config_service), net_log));
-  proxy_service->set_quick_check_enabled(quick_check_enabled);
-  return proxy_service;
+  proxy_resolution_service->set_quick_check_enabled(quick_check_enabled);
+  return proxy_resolution_service;
 }

@@ -5,16 +5,17 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkAnimTimer.h"
-#include "SkView.h"
+#include "SkBitmap.h"
 #include "SkCanvas.h"
+#include "SkFont.h"
 #include "SkGradientShader.h"
 #include "SkGraphics.h"
 #include "SkPath.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
+#include "SkUTF.h"
 #include "SkColorPriv.h"
 #include "SkColorFilter.h"
 #include "SkTime.h"
@@ -63,7 +64,7 @@ static void bounce_pt(SkPoint* pt, SkVector* vec, const SkRect& limit) {
     bounce(&pt->fY, &vec->fY, limit.fTop, limit.fBottom);
 }
 
-class BitmapRectView : public SampleView {
+class BitmapRectView : public Sample {
     SkPoint fSrcPts[2];
     SkPoint fSrcVec[2];
     SkRect  fSrcLimit;
@@ -101,9 +102,9 @@ public:
     }
 
 protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "BitmapRect");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "BitmapRect");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -145,7 +146,7 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -160,21 +161,20 @@ static void make_big_bitmap(SkBitmap* bm) {
 
     const int BIG_H = 120;
 
-    SkPaint paint;
-    paint.setAntiAlias(true);
-    paint.setTextSize(SkIntToScalar(BIG_H));
+    SkFont font;
+    font.setSize(SkIntToScalar(BIG_H));
 
-    const int BIG_W = SkScalarRoundToInt(paint.measureText(gText, strlen(gText)));
+    const int BIG_W = SkScalarRoundToInt(font.measureText(gText, strlen(gText), kUTF8_SkTextEncoding));
 
     bm->allocN32Pixels(BIG_W, BIG_H);
     bm->eraseColor(SK_ColorWHITE);
 
     SkCanvas canvas(*bm);
 
-    canvas.drawString(gText, 0, paint.getTextSize()*4/5, paint);
+    canvas.drawSimpleText(gText, strlen(gText), kUTF8_SkTextEncoding, 0, font.getSize()*4/5, font, SkPaint());
 }
 
-class BitmapRectView2 : public SampleView {
+class BitmapRectView2 : public Sample {
     SkBitmap fBitmap;
 
     SkRect  fSrcR;
@@ -194,7 +194,18 @@ class BitmapRectView2 : public SampleView {
     }
 
 public:
-    BitmapRectView2() {
+    BitmapRectView2() { }
+
+protected:
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "BigBitmapRect");
+            return true;
+        }
+        return this->INHERITED::onQuery(evt);
+    }
+
+    void onOnceBeforeDraw() override {
         make_big_bitmap(&fBitmap);
 
         this->setBGColor(SK_ColorGRAY);
@@ -206,15 +217,6 @@ public:
         fDstR[0] = SkRect::MakeXYWH(20, 20, 600, 200);
         fDstR[1] = fDstR[0];
         fDstR[1].offset(0, fDstR[0].height() * 5/4);
-    }
-
-protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "BigBitmapRect");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
     }
 
     void onDrawContent(SkCanvas* canvas) override {
@@ -240,12 +242,10 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* F0() { return new BitmapRectView; }
-static SkView* F1() { return new BitmapRectView2; }
-static SkViewRegister gR0(F0);
-static SkViewRegister gR1(F1);
+DEF_SAMPLE( return new BitmapRectView(); )
+DEF_SAMPLE( return new BitmapRectView2(); )

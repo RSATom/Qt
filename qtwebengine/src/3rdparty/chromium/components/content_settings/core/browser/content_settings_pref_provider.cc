@@ -13,14 +13,15 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/default_clock.h"
+#include "base/trace_event/trace_event.h"
+#include "components/content_settings/core/browser/content_settings_info.h"
 #include "components/content_settings/core/browser/content_settings_pref.h"
+#include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
-#include "components/content_settings/core/browser/website_settings_info.h"
 #include "components/content_settings/core/browser/website_settings_registry.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
@@ -37,6 +38,9 @@ namespace content_settings {
 namespace {
 
 // These settings are no longer used, and should be deleted on profile startup.
+const char kObsoleteDomainToOriginMigrationStatus[] =
+    "profile.content_settings.domain_to_origin_migration_status";
+
 #if !defined(OS_IOS)
 const char kObsoleteFullscreenExceptionsPref[] =
     "profile.content_settings.exceptions.fullscreen";
@@ -70,6 +74,7 @@ void PrefProvider::RegisterProfilePrefs(
 
   // These prefs have been removed, but need to be registered so they can
   // be deleted on startup.
+  registry->RegisterIntegerPref(kObsoleteDomainToOriginMigrationStatus, 0);
 #if !defined(OS_IOS)
   registry->RegisterDictionaryPref(
       kObsoleteFullscreenExceptionsPref,
@@ -88,7 +93,8 @@ PrefProvider::PrefProvider(PrefService* prefs,
     : prefs_(prefs),
       is_incognito_(incognito),
       store_last_modified_(store_last_modified),
-      clock_(new base::DefaultClock) {
+      clock_(base::DefaultClock::GetInstance()) {
+  TRACE_EVENT_BEGIN0("startup", "PrefProvider::PrefProvider");
   DCHECK(prefs_);
   // Verify preferences version.
   if (!prefs_->HasPrefPath(prefs::kContentSettingsVersion)) {
@@ -97,6 +103,7 @@ PrefProvider::PrefProvider(PrefService* prefs,
   }
   if (prefs_->GetInteger(prefs::kContentSettingsVersion) >
       ContentSettingsPattern::kContentSettingsPatternVersion) {
+    TRACE_EVENT_END0("startup", "PrefProvider::PrefProvider");
     return;
   }
 
@@ -104,25 +111,44 @@ PrefProvider::PrefProvider(PrefService* prefs,
 
   pref_change_registrar_.Init(prefs_);
 
+  ContentSettingsRegistry* content_settings =
+      ContentSettingsRegistry::GetInstance();
   WebsiteSettingsRegistry* website_settings =
       WebsiteSettingsRegistry::GetInstance();
   for (const WebsiteSettingsInfo* info : *website_settings) {
-    content_settings_prefs_.insert(std::make_pair(
-        info->type(),
-        base::MakeUnique<ContentSettingsPref>(
-            info->type(), prefs_, &pref_change_registrar_, info->pref_name(),
-            is_incognito_,
-            base::Bind(&PrefProvider::Notify, base::Unretained(this)))));
+    const ContentSettingsInfo* content_type_info =
+        content_settings->Get(info->type());
+    // If it's not a content setting, or it's persistent, handle it in this
+    // class.
+    if (!content_type_info || content_type_info->storage_behavior() ==
+                                  ContentSettingsInfo::PERSISTENT) {
+      content_settings_prefs_.insert(std::make_pair(
+          info->type(),
+          std::make_unique<ContentSettingsPref>(
+              info->type(), prefs_, &pref_change_registrar_, info->pref_name(),
+              is_incognito_,
+              base::Bind(&PrefProvider::Notify, base::Unretained(this)))));
+    } else if (info->type() == CONTENT_SETTINGS_TYPE_PLUGINS) {
+      // TODO(https://crbug.com/850062): Remove after M71, two milestones after
+      // migration of the Flash permissions to ephemeral provider.
+      flash_content_settings_pref_ = std::make_unique<ContentSettingsPref>(
+          info->type(), prefs_, &pref_change_registrar_, info->pref_name(),
+          is_incognito_,
+          base::Bind(&PrefProvider::Notify, base::Unretained(this)));
+    }
   }
 
+  size_t num_exceptions = 0;
   if (!is_incognito_) {
-    size_t num_exceptions = 0;
     for (const auto& pref : content_settings_prefs_)
       num_exceptions += pref.second->GetNumExceptions();
 
-    UMA_HISTOGRAM_COUNTS("ContentSettings.NumberOfExceptions",
-                         num_exceptions);
+    UMA_HISTOGRAM_COUNTS_1M("ContentSettings.NumberOfExceptions",
+                            num_exceptions);
   }
+
+  TRACE_EVENT_END1("startup", "PrefProvider::PrefProvider",
+                   "NumberOfExceptions", num_exceptions);
 }
 
 PrefProvider::~PrefProvider() {
@@ -133,6 +159,9 @@ std::unique_ptr<RuleIterator> PrefProvider::GetRuleIterator(
     ContentSettingsType content_type,
     const ResourceIdentifier& resource_identifier,
     bool incognito) const {
+  if (!supports_type(content_type))
+    return nullptr;
+
   return GetPref(content_type)->GetRuleIterator(resource_identifier, incognito);
 }
 
@@ -144,6 +173,9 @@ bool PrefProvider::SetWebsiteSetting(
     base::Value* in_value) {
   DCHECK(CalledOnValidThread());
   DCHECK(prefs_);
+
+  if (!supports_type(content_type))
+    return false;
 
   // Default settings are set using a wildcard pattern for both
   // |primary_pattern| and |secondary_pattern|. Don't store default settings in
@@ -172,6 +204,9 @@ base::Time PrefProvider::GetWebsiteSettingLastModified(
   DCHECK(CalledOnValidThread());
   DCHECK(prefs_);
 
+  if (!supports_type(content_type))
+    return base::Time();
+
   return GetPref(content_type)
       ->GetWebsiteSettingLastModified(primary_pattern, secondary_pattern,
                                       resource_identifier);
@@ -182,7 +217,17 @@ void PrefProvider::ClearAllContentSettingsRules(
   DCHECK(CalledOnValidThread());
   DCHECK(prefs_);
 
-  GetPref(content_type)->ClearAllContentSettingsRules();
+  if (supports_type(content_type))
+    GetPref(content_type)->ClearAllContentSettingsRules();
+
+  // TODO(https://crbug.com/850062): Remove after M71, two milestones after
+  // migration of the Flash permissions to ephemeral provider.
+  // |flash_content_settings_pref_| is not null only if Flash permissions are
+  // ephemeral and handled in EphemeralProvider.
+  if (content_type == CONTENT_SETTINGS_TYPE_PLUGINS &&
+      flash_content_settings_pref_) {
+    flash_content_settings_pref_->ClearAllContentSettingsRules();
+  }
 }
 
 void PrefProvider::ShutdownOnUIThread() {
@@ -190,7 +235,7 @@ void PrefProvider::ShutdownOnUIThread() {
   DCHECK(prefs_);
   RemoveAllObservers();
   pref_change_registrar_.RemoveAll();
-  prefs_ = NULL;
+  prefs_ = nullptr;
 }
 
 void PrefProvider::ClearPrefs() {
@@ -221,6 +266,9 @@ void PrefProvider::Notify(
 void PrefProvider::DiscardObsoletePreferences() {
   if (is_incognito_)
     return;
+
+  prefs_->ClearPref(kObsoleteDomainToOriginMigrationStatus);
+
   // These prefs were never stored on iOS/Android so they don't need to be
   // deleted.
 #if !defined(OS_IOS)
@@ -229,33 +277,10 @@ void PrefProvider::DiscardObsoletePreferences() {
   prefs_->ClearPref(kObsoleteMouseLockExceptionsPref);
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)
-
-#if !defined(OS_IOS)
-  // Migrate CONTENT_SETTINGS_TYPE_PROMPT_NO_DECISION_COUNT to
-  // CONTENT_SETTINGS_TYPE_PERMISSION_AUTOBLOCKER_DATA.
-  // TODO(raymes): See crbug.com/681709. Remove after M60.
-  const std::string prompt_no_decision_count_pref =
-      WebsiteSettingsRegistry::GetInstance()
-          ->Get(CONTENT_SETTINGS_TYPE_PROMPT_NO_DECISION_COUNT)
-          ->pref_name();
-  const base::DictionaryValue* old_dict =
-      prefs_->GetDictionary(prompt_no_decision_count_pref);
-
-  const std::string permission_autoblocker_data_pref =
-      WebsiteSettingsRegistry::GetInstance()
-          ->Get(CONTENT_SETTINGS_TYPE_PERMISSION_AUTOBLOCKER_DATA)
-          ->pref_name();
-  const base::DictionaryValue* new_dict =
-      prefs_->GetDictionary(permission_autoblocker_data_pref);
-
-  if (!old_dict->empty() && new_dict->empty())
-    prefs_->Set(permission_autoblocker_data_pref, *old_dict);
-  prefs_->ClearPref(prompt_no_decision_count_pref);
-#endif  // !defined(OS_IOS)
 }
 
-void PrefProvider::SetClockForTesting(std::unique_ptr<base::Clock> clock) {
-  clock_ = std::move(clock);
+void PrefProvider::SetClockForTesting(base::Clock* clock) {
+  clock_ = clock;
 }
 
 }  // namespace content_settings

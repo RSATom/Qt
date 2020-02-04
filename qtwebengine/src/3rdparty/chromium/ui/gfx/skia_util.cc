@@ -12,7 +12,6 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColorPriv.h"
 #include "third_party/skia/include/core/SkUnPreMultiply.h"
-#include "third_party/skia/include/effects/SkBlurMaskFilter.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "third_party/skia/include/effects/SkLayerDrawLooper.h"
 #include "ui/gfx/geometry/quad_f.h"
@@ -69,6 +68,10 @@ SkSize SizeFToSkSize(const SizeF& size) {
                       SkFloatToScalar(size.height()));
 }
 
+SkISize SizeToSkISize(const Size& size) {
+  return SkISize::Make(size.width(), size.height());
+}
+
 SizeF SkSizeToSizeF(const SkSize& size) {
   return SizeF(SkScalarToFloat(size.width()), SkScalarToFloat(size.height()));
 }
@@ -98,12 +101,12 @@ bool BitmapsAreEqual(const SkBitmap& bitmap1, const SkBitmap& bitmap2) {
   size_t size2 = 0;
 
   addr1 = bitmap1.getAddr32(0, 0);
-  size1 = bitmap1.getSize();
+  size1 = bitmap1.computeByteSize();
 
   addr2 = bitmap2.getAddr32(0, 0);
-  size2 = bitmap2.getSize();
+  size2 = bitmap2.computeByteSize();
 
-  return (size1 == size2) && (0 == memcmp(addr1, addr2, bitmap1.getSize()));
+  return (size1 == size2) && (0 == memcmp(addr1, addr2, size1));
 }
 
 void ConvertSkiaToRGBA(const unsigned char* skia,

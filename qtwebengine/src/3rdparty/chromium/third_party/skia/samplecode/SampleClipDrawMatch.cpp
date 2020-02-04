@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkCanvas.h"
 #include "SkInterpolator.h"
 #include "SkPath.h"
@@ -114,7 +114,7 @@ static void draw_normal_geom(SkCanvas* canvas, const SkPoint& offset, int geom, 
     }
 }
 
-class ClipDrawMatchView : public SampleView {
+class ClipDrawMatchView : public Sample {
 public:
     ClipDrawMatchView() : fTrans(2, 5), fGeom(kRect_Geometry), fClipFirst(true), fSign(1) {
         SkScalar values[2];
@@ -133,25 +133,25 @@ public:
     }
 
 protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "ClipDrawMatch");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "ClipDrawMatch");
             return true;
         }
         SkUnichar uni;
-        if (SampleCode::CharQ(*evt, &uni)) {
+        if (Sample::CharQ(*evt, &uni)) {
             switch (uni) {
-                case '1': fGeom = kRect_Geometry; this->inval(nullptr); return true;
-                case '2': fGeom = kRRect_Geometry; this->inval(nullptr); return true;
-                case '3': fGeom = kCircle_Geometry; this->inval(nullptr); return true;
-                case '4': fGeom = kConvexPath_Geometry; this->inval(nullptr); return true;
-                case '5': fGeom = kConcavePath_Geometry; this->inval(nullptr); return true;
-                case '6': fGeom = kRectAndRect_Geometry; this->inval(nullptr); return true;
-                case '7': fGeom = kRectAndRRect_Geometry; this->inval(nullptr); return true;
-                case '8': fGeom = kRectAndConvex_Geometry; this->inval(nullptr); return true;
-                case '9': fGeom = kRectAndConcave_Geometry; this->inval(nullptr); return true;
-                case 'f': fSign = -fSign; this->inval(nullptr); return true;
-                case 't': fClipFirst = !fClipFirst; this->inval(nullptr); return true;
+                case '1': fGeom = kRect_Geometry; return true;
+                case '2': fGeom = kRRect_Geometry; return true;
+                case '3': fGeom = kCircle_Geometry; return true;
+                case '4': fGeom = kConvexPath_Geometry; return true;
+                case '5': fGeom = kConcavePath_Geometry; return true;
+                case '6': fGeom = kRectAndRect_Geometry; return true;
+                case '7': fGeom = kRectAndRRect_Geometry; return true;
+                case '8': fGeom = kRectAndConvex_Geometry; return true;
+                case '9': fGeom = kRectAndConcave_Geometry; return true;
+                case 'f': fSign = -fSign; return true;
+                case 't': fClipFirst = !fClipFirst; return true;
                 default: break;
             }
         }
@@ -239,8 +239,6 @@ protected:
         int saveCount = canvas->save();
         this->drawGeometry(canvas, offset, false);
         canvas->restoreToCount(saveCount);
-
-        this->inval(nullptr);
     }
 
     SkMSec GetMSecs() const {
@@ -254,10 +252,9 @@ private:
     int             fSign;
     const double    fStart = SkTime::GetMSecs();
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new ClipDrawMatchView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new ClipDrawMatchView(); )

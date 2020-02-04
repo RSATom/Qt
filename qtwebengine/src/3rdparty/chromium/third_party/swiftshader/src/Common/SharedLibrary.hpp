@@ -21,17 +21,21 @@
 	#include <dlfcn.h>
 #endif
 
+#include <string>
+
 void *getLibraryHandle(const char *path);
 void *loadLibrary(const char *path);
 void freeLibrary(void *library);
 void *getProcAddress(void *library, const char *name);
+std::string getModuleDirectory();
 
 template<int n>
-void *loadLibrary(const char *(&names)[n], const char *mustContainSymbol = nullptr)
+void *loadLibrary(const std::string &libraryDirectory, const char *(&names)[n], const char *mustContainSymbol = nullptr)
 {
-	for(int i = 0; i < n; i++)
+	for(const char *libraryName : names)
 	{
-		void *library = getLibraryHandle(names[i]);
+		std::string libraryPath = libraryDirectory + libraryName;
+		void *library = getLibraryHandle(libraryPath.c_str());
 
 		if(library)
 		{
@@ -44,9 +48,10 @@ void *loadLibrary(const char *(&names)[n], const char *mustContainSymbol = nullp
 		}
 	}
 
-	for(int i = 0; i < n; i++)
+	for(const char *libraryName : names)
 	{
-		void *library = loadLibrary(names[i]);
+		std::string libraryPath = libraryDirectory + libraryName;
+		void *library = loadLibrary(libraryPath.c_str());
 
 		if(library)
 		{

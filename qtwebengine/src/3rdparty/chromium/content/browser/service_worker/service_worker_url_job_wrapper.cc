@@ -4,7 +4,7 @@
 
 #include "content/browser/service_worker/service_worker_url_job_wrapper.h"
 
-#include "content/browser/service_worker/service_worker_url_loader_job.h"
+#include "content/browser/service_worker/service_worker_navigation_loader.h"
 #include "content/browser/service_worker/service_worker_url_request_job.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/common/content_switches.h"
@@ -16,10 +16,18 @@ ServiceWorkerURLJobWrapper::ServiceWorkerURLJobWrapper(
     : url_request_job_(std::move(url_request_job)) {}
 
 ServiceWorkerURLJobWrapper::ServiceWorkerURLJobWrapper(
-    std::unique_ptr<ServiceWorkerURLLoaderJob> url_loader_job)
+    std::unique_ptr<ServiceWorkerNavigationLoader> url_loader_job)
     : url_loader_job_(std::move(url_loader_job)) {}
 
-ServiceWorkerURLJobWrapper::~ServiceWorkerURLJobWrapper() {}
+ServiceWorkerURLJobWrapper::~ServiceWorkerURLJobWrapper() {
+  if (url_loader_job_) {
+    // Detach the URLLoader from this wrapper (and therefore
+    // from the request handler). This may delete the
+    // |url_loader_job_| or may make it self-owned if it is
+    // bound to a Mojo endpoint.
+    url_loader_job_.release()->DetachedFromRequest();
+  }
+}
 
 void ServiceWorkerURLJobWrapper::FallbackToNetwork() {
   if (url_loader_job_) {
@@ -31,7 +39,10 @@ void ServiceWorkerURLJobWrapper::FallbackToNetwork() {
 
 void ServiceWorkerURLJobWrapper::FallbackToNetworkOrRenderer() {
   if (url_loader_job_) {
-    url_loader_job_->FallbackToNetworkOrRenderer();
+    // Fallback to renderer is used when CORS checks need to be performed on the
+    // request. CORS doesn't apply to navigations, and |url_loader_job_| is for
+    // navigations, so just use FallbackToNetwork().
+    url_loader_job_->FallbackToNetwork();
   } else {
     url_request_job_->FallbackToNetworkOrRenderer();
   }
@@ -53,41 +64,23 @@ bool ServiceWorkerURLJobWrapper::ShouldFallbackToNetwork() {
   }
 }
 
-ui::PageTransition ServiceWorkerURLJobWrapper::GetPageTransition() {
+bool ServiceWorkerURLJobWrapper::ShouldForwardToServiceWorker() {
   if (url_loader_job_) {
-    return url_loader_job_->GetPageTransition();
+    return url_loader_job_->ShouldForwardToServiceWorker();
   } else {
-    const ResourceRequestInfo* info =
-        ResourceRequestInfo::ForRequest(url_request_job_->request());
-    // ResourceRequestInfo may not be set in some tests.
-    if (!info)
-      return ui::PAGE_TRANSITION_LINK;
-    return info->GetPageTransition();
-  }
-}
-
-size_t ServiceWorkerURLJobWrapper::GetURLChainSize() const {
-  if (url_loader_job_) {
-    return url_loader_job_->GetURLChainSize();
-  } else {
-    return url_request_job_->request()->url_chain().size();
+    return url_request_job_->ShouldForwardToServiceWorker();
   }
 }
 
 void ServiceWorkerURLJobWrapper::FailDueToLostController() {
-  if (url_loader_job_) {
-    url_loader_job_->FailDueToLostController();
-  } else {
-    url_request_job_->FailDueToLostController();
-  }
+  // This function is only called for subresource requests, so it can't
+  // be called for |url_loader_job_|, which is for navigations.
+  DCHECK(!url_loader_job_);
+  url_request_job_->FailDueToLostController();
 }
 
-bool ServiceWorkerURLJobWrapper::WasCanceled() const {
-  if (url_loader_job_) {
-    return url_loader_job_->WasCanceled();
-  } else {
-    return !url_request_job_;
-  }
+bool ServiceWorkerURLJobWrapper::IsAlive() const {
+  return url_loader_job_ || url_request_job_;
 }
 
 }  // namespace content

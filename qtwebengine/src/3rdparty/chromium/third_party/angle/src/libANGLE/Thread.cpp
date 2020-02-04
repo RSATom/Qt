@@ -9,20 +9,47 @@
 #include "libANGLE/Thread.h"
 
 #include "libANGLE/Context.h"
+#include "libANGLE/Debug.h"
 #include "libANGLE/Error.h"
 
 namespace egl
 {
+
 Thread::Thread()
-    : mError(EGL_SUCCESS),
+    : mLabel(nullptr),
+      mError(EGL_SUCCESS),
       mAPI(EGL_OPENGL_ES_API),
       mContext(static_cast<gl::Context *>(EGL_NO_CONTEXT))
+{}
+
+void Thread::setLabel(EGLLabelKHR label)
 {
+    mLabel = label;
 }
 
-void Thread::setError(const Error &error)
+EGLLabelKHR Thread::getLabel() const
 {
+    return mLabel;
+}
+
+void Thread::setSuccess()
+{
+    mError = EGL_SUCCESS;
+}
+
+void Thread::setError(const Error &error,
+                      const Debug *debug,
+                      const char *command,
+                      const LabeledObject *object)
+{
+    ASSERT(debug != nullptr);
+
     mError = error.getCode();
+    if (error.isError() && !error.getMessage().empty())
+    {
+        debug->insertMessage(error.getCode(), command, ErrorCodeToMessageType(error.getCode()),
+                             getLabel(), object ? object->getLabel() : nullptr, error.getMessage());
+    }
 }
 
 EGLint Thread::getError() const
@@ -72,7 +99,8 @@ gl::Context *Thread::getValidContext() const
 {
     if (mContext && mContext->isContextLost())
     {
-        mContext->handleError(gl::OutOfMemory() << "Context has been lost.");
+        mContext->handleError(GL_OUT_OF_MEMORY, "Context has been lost.", __FILE__, ANGLE_FUNCTION,
+                              __LINE__);
         return nullptr;
     }
 

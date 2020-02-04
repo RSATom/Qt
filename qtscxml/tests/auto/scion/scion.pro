@@ -89,15 +89,15 @@ for (f,ALLSCXMLS) {
 ALLFILES = $$files($$SCXMLS_DIR/*.*, true)
 for (f,ALLFILES) {
     base = $$relative_path($$f,$$absolute_path($$SCXMLS_DIR))
-    file = $$relative_path($$f, $$absolute_path($$PWD))
+    file = $$relative_path($$f, $$absolute_path($$OUT_PWD))
     qrc += '<file alias="$$base">$$file</file>'
 }
 
 contents = $$inc_list "std::function<QScxmlStateMachine *()> creators[] = {" $$func_list "};"
-write_file("scxml/compiled_tests.h", contents)|error("Aborting.")
+write_file("$$OUT_PWD/scxml/compiled_tests.h", contents)|error("Aborting.")
 
 contents = "const char *testBases[] = {" $$testBases "};"
-write_file("scxml/scion.h", contents)|error("Aborting.")
+write_file("$$OUT_PWD/scxml/scion.h", contents)|error("Aborting.")
 
 contents = '<!DOCTYPE RCC><RCC version=\"1.0\">' '<qresource>' $$qrc '</qresource></RCC>'
-write_file("scion.qrc", contents)|error("Aborting.")
+write_file("$$OUT_PWD/scion.qrc", contents)|error("Aborting.")

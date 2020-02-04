@@ -10,7 +10,6 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
@@ -19,6 +18,8 @@
 #include "content/common/text_input_client_messages.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_browser_context.h"
+#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/test/mock_widget_impl.h"
 #include "ipc/ipc_test_sink.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
@@ -49,16 +50,19 @@ class MockRenderWidgetHostDelegate : public RenderWidgetHostDelegate {
 class TextInputClientMacTest : public testing::Test {
  public:
   TextInputClientMacTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::UI),
-        browser_context_(),
+      : browser_context_(),
         process_factory_(),
         delegate_(),
         thread_("TextInputClientMacTestThread") {
     RenderProcessHost* rph =
-        process_factory_.CreateRenderProcessHost(&browser_context_);
+        process_factory_.CreateRenderProcessHost(&browser_context_, nullptr);
     int32_t routing_id = rph->GetNextRoutingID();
-    widget_.reset(new RenderWidgetHostImpl(&delegate_, rph, routing_id, false));
+    mojom::WidgetPtr widget;
+    mock_widget_impl_ =
+        std::make_unique<MockWidgetImpl>(mojo::MakeRequest(&widget));
+
+    widget_.reset(new RenderWidgetHostImpl(&delegate_, rph, routing_id,
+                                           std::move(widget), false));
   }
 
   void TearDown() override {
@@ -77,12 +81,11 @@ class TextInputClientMacTest : public testing::Test {
 
   // Helper method to post a task on the testing thread's MessageLoop after
   // a short delay.
-  void PostTask(const tracked_objects::Location& from_here,
-                const base::Closure& task) {
+  void PostTask(const base::Location& from_here, const base::Closure& task) {
     PostTask(from_here, task, base::TimeDelta::FromMilliseconds(kTaskDelayMs));
   }
 
-  void PostTask(const tracked_objects::Location& from_here,
+  void PostTask(const base::Location& from_here,
                 const base::Closure& task,
                 const base::TimeDelta delay) {
     thread_.task_runner()->PostDelayedTask(from_here, task, delay);
@@ -98,7 +101,7 @@ class TextInputClientMacTest : public testing::Test {
   friend class ScopedTestingThread;
 
   // TaskScheduler is used by RenderWidgetHostImpl constructor.
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  TestBrowserThreadBundle thread_bundle_;
 
   TestBrowserContext browser_context_;
 
@@ -106,6 +109,7 @@ class TextInputClientMacTest : public testing::Test {
   MockRenderProcessHostFactory process_factory_;
   MockRenderWidgetHostDelegate delegate_;
   std::unique_ptr<RenderWidgetHostImpl> widget_;
+  std::unique_ptr<MockWidgetImpl> mock_widget_impl_;
 
   base::Thread thread_;
 };
@@ -155,12 +159,12 @@ TEST_F(TextInputClientMacTest, GetCharacterIndex) {
 }
 
 TEST_F(TextInputClientMacTest, TimeoutCharacterIndex) {
-  NSUInteger index = service()->GetCharacterIndexAtPoint(
-      widget(), gfx::Point(2, 2));
+  uint32_t index =
+      service()->GetCharacterIndexAtPoint(widget(), gfx::Point(2, 2));
   EXPECT_EQ(1U, ipc_sink().message_count());
   EXPECT_TRUE(ipc_sink().GetUniqueMessageMatching(
       TextInputClientMsg_CharacterIndexForPoint::ID));
-  EXPECT_EQ(static_cast<NSUInteger>(NSNotFound), index);
+  EXPECT_EQ(UINT32_MAX, index);
 }
 
 TEST_F(TextInputClientMacTest, NotFoundCharacterIndex) {
@@ -183,11 +187,11 @@ TEST_F(TextInputClientMacTest, NotFoundCharacterIndex) {
            base::Bind(&CallOnMessageReceived, filter, *message),
            base::TimeDelta::FromMilliseconds(kTaskDelayMs) * 2);
 
-  NSUInteger index = service()->GetCharacterIndexAtPoint(
-      widget(), gfx::Point(2, 2));
+  uint32_t index =
+      service()->GetCharacterIndexAtPoint(widget(), gfx::Point(2, 2));
   EXPECT_EQ(kPreviousValue, index);
   index = service()->GetCharacterIndexAtPoint(widget(), gfx::Point(2, 2));
-  EXPECT_EQ(static_cast<NSUInteger>(NSNotFound), index);
+  EXPECT_EQ(UINT32_MAX, index);
 
   EXPECT_EQ(2U, ipc_sink().message_count());
   for (size_t i = 0; i < ipc_sink().message_count(); ++i) {
@@ -199,25 +203,27 @@ TEST_F(TextInputClientMacTest, NotFoundCharacterIndex) {
 
 TEST_F(TextInputClientMacTest, GetRectForRange) {
   ScopedTestingThread thread(this);
-  const NSRect kSuccessValue = NSMakeRect(42, 43, 44, 45);
+  const gfx::Rect kSuccessValue(42, 43, 44, 45);
 
   PostTask(FROM_HERE,
            base::Bind(&TextInputClientMac::SetFirstRectAndSignal,
                       base::Unretained(service()), kSuccessValue));
-  NSRect rect = service()->GetFirstRectForRange(widget(), NSMakeRange(0, 32));
+  gfx::Rect rect =
+      service()->GetFirstRectForRange(widget(), gfx::Range(NSMakeRange(0, 32)));
 
   EXPECT_EQ(1U, ipc_sink().message_count());
   EXPECT_TRUE(ipc_sink().GetUniqueMessageMatching(
       TextInputClientMsg_FirstRectForCharacterRange::ID));
-  EXPECT_NSEQ(kSuccessValue, rect);
+  EXPECT_EQ(kSuccessValue, rect);
 }
 
 TEST_F(TextInputClientMacTest, TimeoutRectForRange) {
-  NSRect rect = service()->GetFirstRectForRange(widget(), NSMakeRange(0, 32));
+  gfx::Rect rect =
+      service()->GetFirstRectForRange(widget(), gfx::Range(NSMakeRange(0, 32)));
   EXPECT_EQ(1U, ipc_sink().message_count());
   EXPECT_TRUE(ipc_sink().GetUniqueMessageMatching(
       TextInputClientMsg_FirstRectForCharacterRange::ID));
-  EXPECT_NSEQ(NSZeroRect, rect);
+  EXPECT_EQ(gfx::Rect(), rect);
 }
 
 }  // namespace content

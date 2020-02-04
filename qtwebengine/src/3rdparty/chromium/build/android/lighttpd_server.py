@@ -31,7 +31,7 @@ class LighttpdServer(object):
   Args:
     document_root: Path to root of this server's hosted files.
     port: TCP port on the _host_ machine that the server will listen on. If
-        ommitted it will attempt to use 9000, or if unavailable it will find
+        omitted it will attempt to use 9000, or if unavailable it will find
         a free port from 8001 - 8999.
     lighttpd_path, lighttpd_module_path: Optional paths to lighttpd binaries.
     base_config_path: If supplied this file will replace the built-in default
@@ -39,7 +39,7 @@ class LighttpdServer(object):
     extra_config_contents: If specified, this string will be appended to the
         base config (default built-in, or from base_config_path).
     config_path, error_log, access_log: Optional paths where the class should
-        place temprary files for this session.
+        place temporary files for this session.
   """
 
   def __init__(self, document_root, port=None,
@@ -93,6 +93,7 @@ class LighttpdServer(object):
             'Could not find lighttpd at %s.\n'
             'It may need to be installed (e.g. sudo apt-get install lighttpd)'
             % self.lighttpd_path)
+      # pylint: disable=no-member
       self.process = pexpect.spawn(self.lighttpd_path,
                                    ['-D', '-f', self.config_path,
                                     '-m', self.lighttpd_module_path],
@@ -103,7 +104,7 @@ class LighttpdServer(object):
         break
       self.process.close()
 
-      if self.fixed_port or not 'in use' in server_error:
+      if self.fixed_port or 'in use' not in server_error:
         print 'Client error:', client_error
         print 'Server error:', server_error
         return False
@@ -137,6 +138,7 @@ class LighttpdServer(object):
       except (httplib.HTTPException, socket.error) as client_error:
         pass  # Probably too quick connecting: try again
       # Check for server startup error messages
+      # pylint: disable=no-member
       ix = self.process.expect([pexpect.TIMEOUT, pexpect.EOF, '.+'],
                                timeout=timeout)
       if ix == 2:  # stdout spew from the server

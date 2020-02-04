@@ -58,7 +58,7 @@ class QTextToSpeechProcessorFlite : public QTextToSpeechProcessor {
 
 public:
     static QSharedPointer<QTextToSpeechProcessorFlite> instance();
-    ~QTextToSpeechProcessorFlite();
+    ~QTextToSpeechProcessorFlite() override;
     const QVector<VoiceInfo> &voices() const override;
 
 private:

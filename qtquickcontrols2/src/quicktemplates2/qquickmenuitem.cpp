@@ -58,7 +58,7 @@ QT_BEGIN_NAMESPACE
     example.
 
     MenuItem inherits its API from AbstractButton. For instance, you can set
-    \l {AbstractButton::text}{text} and \l {Icons in Qt Quick Controls 2}{icon}
+    \l {AbstractButton::text}{text} and \l {Icons in Qt Quick Controls}{icon}
     using the AbstractButton API.
 
     \code
@@ -88,14 +88,6 @@ QT_BEGIN_NAMESPACE
 
     \sa {Customizing Menu}, Menu, {Menu Controls}
 */
-
-QQuickMenuItemPrivate::QQuickMenuItemPrivate()
-    : highlighted(false),
-      arrow(nullptr),
-      menu(nullptr),
-      subMenu(nullptr)
-{
-}
 
 void QQuickMenuItemPrivate::setMenu(QQuickMenu *newMenu)
 {
@@ -153,6 +145,11 @@ void QQuickMenuItemPrivate::executeArrow(bool complete)
         quickBeginDeferred(q, arrowName(), arrow);
     if (complete)
         quickCompleteDeferred(q, arrowName(), arrow);
+}
+
+bool QQuickMenuItemPrivate::acceptKeyClick(Qt::Key key) const
+{
+    return key == Qt::Key_Space || key == Qt::Key_Return || key == Qt::Key_Enter;
 }
 
 /*!
@@ -264,12 +261,12 @@ void QQuickMenuItem::componentComplete()
 
 QFont QQuickMenuItem::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::MenuItemFont);
+    return QQuickTheme::font(QQuickTheme::Menu);
 }
 
 QPalette QQuickMenuItem::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::MenuPalette);
+    return QQuickTheme::palette(QQuickTheme::Menu);
 }
 
 #if QT_CONFIG(accessibility)

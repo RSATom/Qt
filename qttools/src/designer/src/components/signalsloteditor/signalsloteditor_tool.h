@@ -32,8 +32,8 @@
 #include "signalsloteditor_global.h"
 #include "signalsloteditor.h"
 
-#include <QtCore/QPointer>
-#include <QtDesigner/QDesignerFormWindowToolInterface>
+#include <QtCore/qpointer.h>
+#include <QtDesigner/abstractformwindowtool.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -50,22 +50,22 @@ class QT_SIGNALSLOTEDITOR_EXPORT SignalSlotEditorTool: public QDesignerFormWindo
     Q_OBJECT
 public:
     explicit SignalSlotEditorTool(QDesignerFormWindowInterface *formWindow, QObject *parent = 0);
-    virtual ~SignalSlotEditorTool();
+    ~SignalSlotEditorTool() override;
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
-    QDesignerFormWindowInterface *formWindow() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
+    QDesignerFormWindowInterface *formWindow() const override;
 
-    QWidget *editor() const Q_DECL_OVERRIDE;
+    QWidget *editor() const override;
 
-    QAction *action() const Q_DECL_OVERRIDE;
+    QAction *action() const override;
 
-    void activated() Q_DECL_OVERRIDE;
-    void deactivated() Q_DECL_OVERRIDE;
+    void activated() override;
+    void deactivated() override;
 
-    bool handleEvent(QWidget *widget, QWidget *managedWidget, QEvent *event) Q_DECL_OVERRIDE;
+    bool handleEvent(QWidget *widget, QWidget *managedWidget, QEvent *event) override;
 
-    void saveToDom(DomUI *ui, QWidget *mainContainer) Q_DECL_OVERRIDE;
-    void loadFromDom(DomUI *ui, QWidget *mainContainer) Q_DECL_OVERRIDE;
+    void saveToDom(DomUI *ui, QWidget *mainContainer) override;
+    void loadFromDom(DomUI *ui, QWidget *mainContainer) override;
 
 private:
     QDesignerFormWindowInterface *m_formWindow;

@@ -51,7 +51,7 @@
     \since QtQuick.Extras 1.4
     \ingroup extras
     \ingroup extras-non-interactive
-    \brief An indicator that displays a colorized QPicture icon
+    \brief An indicator that displays a colorized QPicture icon.
 
     Picture displays icons in a scalable vector format. It can also colorize
     the icons via the \l color property.

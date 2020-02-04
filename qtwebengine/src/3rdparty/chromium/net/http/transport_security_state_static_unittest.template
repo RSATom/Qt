@@ -8,13 +8,12 @@
 
 #include <stdint.h>
 
+#include "base/stl_util.h"
 #include "net/http/transport_security_state_source.h"
 
 [[SPKI_HASHES]]
 
 static const char* const kExpectCTReportURIs[] = [[EXPECT_CT_REPORT_URIS]];
-
-static const char* const kExpectStapleReportURIs[] = [[EXPECT_STAPLE_REPORT_URIS]];
 
 static const char* const kNoRejectedPublicKeys[] = {
     NULL,
@@ -38,7 +37,6 @@ static const net::TransportSecurityStateSource kHSTSSource = {
   kPreloadedHSTSBits,
   kHSTSRootPosition,
   kExpectCTReportURIs,
-  kExpectStapleReportURIs,
   kPinsets,
-  arraysize(kPinsets)
+  base::size(kPinsets)
 };

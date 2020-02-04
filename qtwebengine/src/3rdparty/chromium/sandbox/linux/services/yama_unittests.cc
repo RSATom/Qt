@@ -14,7 +14,7 @@
 #include "base/compiler_specific.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_util.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "sandbox/linux/services/scoped_process.h"
 #include "sandbox/linux/services/yama.h"
 #include "sandbox/linux/tests/unit_tests.h"
@@ -158,7 +158,7 @@ SANDBOX_TEST(Yama, RestrictPtraceIsDefault) {
     return;
 
   CHECK(Yama::DisableYamaRestrictions());
-  ScopedProcess process1(base::Bind(&base::DoNothing));
+  ScopedProcess process1{base::DoNothing()};
 
   if (Yama::IsEnforcing()) {
     // Check that process1 is protected by Yama, even though it has

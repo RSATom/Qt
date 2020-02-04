@@ -55,6 +55,7 @@
 #include "url/origin.h"
 #include "url/third_party/mozilla/url_parse.h"
 #include "url/url_util.h"
+#include "url/url_util_qt.h"
 
 namespace net {
 namespace registry_controlled_domains {
@@ -349,6 +350,12 @@ bool SameDomainOrHost(
     const GURL& gurl1,
     const GURL& gurl2,
     PrivateRegistryFilter filter) {
+  if (gurl1.scheme() == gurl2.scheme()) {
+    if (const url::CustomScheme* cs = url::CustomScheme::FindScheme(gurl1.scheme()))
+      if (!cs->has_host_component())
+        return true;
+  }
+
   return SameDomainOrHost(gurl1.host_piece(), gurl2.host_piece(), filter);
 }
 

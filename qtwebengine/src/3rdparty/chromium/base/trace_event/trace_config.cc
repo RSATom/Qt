@@ -31,6 +31,7 @@ const char kEnableArgumentFilter[] = "enable-argument-filter";
 
 // String parameters that can be used to parse the trace config string.
 const char kRecordModeParam[] = "record_mode";
+const char kTraceBufferSizeInEvents[] = "trace_buffer_size_in_events";
 const char kEnableSystraceParam[] = "enable_systrace";
 const char kEnableArgumentFilterParam[] = "enable_argument_filter";
 
@@ -51,13 +52,16 @@ const char kEventFiltersParam[] = "event_filters";
 const char kFilterPredicateParam[] = "filter_predicate";
 const char kFilterArgsParam[] = "filter_args";
 
+// String parameter used to parse process filter.
+const char kIncludedProcessesParam[] = "included_process_ids";
+
 class ConvertableTraceConfigToTraceFormat
     : public base::trace_event::ConvertableToTraceFormat {
  public:
   explicit ConvertableTraceConfigToTraceFormat(const TraceConfig& trace_config)
       : trace_config_(trace_config) {}
 
-  ~ConvertableTraceConfigToTraceFormat() override {}
+  ~ConvertableTraceConfigToTraceFormat() override = default;
 
   void AppendAsTraceFormat(std::string* out) const override {
     out->append(trace_config_.ToString());
@@ -91,12 +95,12 @@ void TraceConfig::ResetMemoryDumpConfig(
   memory_dump_config_ = memory_dump_config;
 }
 
-TraceConfig::MemoryDumpConfig::MemoryDumpConfig() {}
+TraceConfig::MemoryDumpConfig::MemoryDumpConfig() = default;
 
 TraceConfig::MemoryDumpConfig::MemoryDumpConfig(
     const MemoryDumpConfig& other) = default;
 
-TraceConfig::MemoryDumpConfig::~MemoryDumpConfig() {}
+TraceConfig::MemoryDumpConfig::~MemoryDumpConfig() = default;
 
 void TraceConfig::MemoryDumpConfig::Clear() {
   allowed_dump_modes.clear();
@@ -115,11 +119,61 @@ void TraceConfig::MemoryDumpConfig::Merge(
                config.heap_profiler_options.breakdown_threshold_bytes);
 }
 
+TraceConfig::ProcessFilterConfig::ProcessFilterConfig() = default;
+
+TraceConfig::ProcessFilterConfig::ProcessFilterConfig(
+    const ProcessFilterConfig& other) = default;
+
+TraceConfig::ProcessFilterConfig::ProcessFilterConfig(
+    const std::unordered_set<base::ProcessId>& included_process_ids)
+    : included_process_ids_(included_process_ids) {}
+
+TraceConfig::ProcessFilterConfig::~ProcessFilterConfig() = default;
+
+void TraceConfig::ProcessFilterConfig::Clear() {
+  included_process_ids_.clear();
+}
+
+void TraceConfig::ProcessFilterConfig::Merge(
+    const ProcessFilterConfig& config) {
+  included_process_ids_.insert(config.included_process_ids_.begin(),
+                               config.included_process_ids_.end());
+}
+
+void TraceConfig::ProcessFilterConfig::InitializeFromConfigDict(
+    const base::DictionaryValue& dict) {
+  included_process_ids_.clear();
+  const Value* value =
+      dict.FindKeyOfType(kIncludedProcessesParam, Value::Type::LIST);
+  if (!value)
+    return;
+  for (auto& pid_value : value->GetList()) {
+    if (pid_value.is_int())
+      included_process_ids_.insert(pid_value.GetInt());
+  }
+}
+
+void TraceConfig::ProcessFilterConfig::ToDict(DictionaryValue* dict) const {
+  if (included_process_ids_.empty())
+    return;
+  Value* list = dict->SetKey(kIncludedProcessesParam, Value(Value::Type::LIST));
+  std::set<base::ProcessId> ordered_set(included_process_ids_.begin(),
+                                        included_process_ids_.end());
+  for (auto process_id : ordered_set)
+    list->GetList().emplace_back(static_cast<int>(process_id));
+}
+
+bool TraceConfig::ProcessFilterConfig::IsEnabled(
+    base::ProcessId process_id) const {
+  return included_process_ids_.empty() ||
+         included_process_ids_.count(process_id);
+}
+
 TraceConfig::EventFilterConfig::EventFilterConfig(
     const std::string& predicate_name)
     : predicate_name_(predicate_name) {}
 
-TraceConfig::EventFilterConfig::~EventFilterConfig() {}
+TraceConfig::EventFilterConfig::~EventFilterConfig() = default;
 
 TraceConfig::EventFilterConfig::EventFilterConfig(const EventFilterConfig& tc) {
   *this = tc;
@@ -182,6 +236,23 @@ bool TraceConfig::EventFilterConfig::IsCategoryGroupEnabled(
   return category_filter_.IsCategoryGroupEnabled(category_group_name);
 }
 
+// static
+std::string TraceConfig::TraceRecordModeToStr(TraceRecordMode record_mode) {
+  switch (record_mode) {
+    case RECORD_UNTIL_FULL:
+      return kRecordUntilFull;
+    case RECORD_CONTINUOUSLY:
+      return kRecordContinuously;
+    case RECORD_AS_MUCH_AS_POSSIBLE:
+      return kRecordAsMuchAsPossible;
+    case ECHO_TO_CONSOLE:
+      return kTraceToConsole;
+    default:
+      NOTREACHED();
+  }
+  return kRecordUntilFull;
+}
+
 TraceConfig::TraceConfig() {
   InitializeDefault();
 }
@@ -193,24 +264,8 @@ TraceConfig::TraceConfig(StringPiece category_filter_string,
 
 TraceConfig::TraceConfig(StringPiece category_filter_string,
                          TraceRecordMode record_mode) {
-  std::string trace_options_string;
-  switch (record_mode) {
-    case RECORD_UNTIL_FULL:
-      trace_options_string = kRecordUntilFull;
-      break;
-    case RECORD_CONTINUOUSLY:
-      trace_options_string = kRecordContinuously;
-      break;
-    case RECORD_AS_MUCH_AS_POSSIBLE:
-      trace_options_string = kRecordAsMuchAsPossible;
-      break;
-    case ECHO_TO_CONSOLE:
-      trace_options_string = kTraceToConsole;
-      break;
-    default:
-      NOTREACHED();
-  }
-  InitializeFromStrings(category_filter_string, trace_options_string);
+  InitializeFromStrings(category_filter_string,
+                        TraceConfig::TraceRecordModeToStr(record_mode));
 }
 
 TraceConfig::TraceConfig(const DictionaryValue& config) {
@@ -224,25 +279,20 @@ TraceConfig::TraceConfig(StringPiece config_string) {
     InitializeDefault();
 }
 
-TraceConfig::TraceConfig(const TraceConfig& tc)
-    : record_mode_(tc.record_mode_),
-      enable_systrace_(tc.enable_systrace_),
-      enable_argument_filter_(tc.enable_argument_filter_),
-      category_filter_(tc.category_filter_),
-      memory_dump_config_(tc.memory_dump_config_),
-      event_filters_(tc.event_filters_) {}
+TraceConfig::TraceConfig(const TraceConfig& tc) = default;
 
-TraceConfig::~TraceConfig() {
-}
+TraceConfig::~TraceConfig() = default;
 
 TraceConfig& TraceConfig::operator=(const TraceConfig& rhs) {
   if (this == &rhs)
     return *this;
 
   record_mode_ = rhs.record_mode_;
+  trace_buffer_size_in_events_ = rhs.trace_buffer_size_in_events_;
   enable_systrace_ = rhs.enable_systrace_;
   enable_argument_filter_ = rhs.enable_argument_filter_;
   category_filter_ = rhs.category_filter_;
+  process_filter_config_ = rhs.process_filter_config_;
   memory_dump_config_ = rhs.memory_dump_config_;
   event_filters_ = rhs.event_filters_;
   return *this;
@@ -257,7 +307,7 @@ std::string TraceConfig::ToString() const {
 
 std::unique_ptr<ConvertableToTraceFormat>
 TraceConfig::AsConvertableToTraceFormat() const {
-  return MakeUnique<ConvertableTraceConfigToTraceFormat>(*this);
+  return std::make_unique<ConvertableTraceConfigToTraceFormat>(*this);
 }
 
 std::string TraceConfig::ToCategoryFilterString() const {
@@ -278,10 +328,12 @@ void TraceConfig::Merge(const TraceConfig& config) {
     DLOG(ERROR) << "Attempting to merge trace config with a different "
                 << "set of options.";
   }
+  DCHECK_EQ(trace_buffer_size_in_events_, config.trace_buffer_size_in_events_)
+      << "Cannot change trace buffer size";
 
   category_filter_.Merge(config.category_filter_);
-
   memory_dump_config_.Merge(config.memory_dump_config_);
+  process_filter_config_.Merge(config.process_filter_config_);
 
   event_filters_.insert(event_filters_.end(), config.event_filters().begin(),
                         config.event_filters().end());
@@ -289,15 +341,18 @@ void TraceConfig::Merge(const TraceConfig& config) {
 
 void TraceConfig::Clear() {
   record_mode_ = RECORD_UNTIL_FULL;
+  trace_buffer_size_in_events_ = 0;
   enable_systrace_ = false;
   enable_argument_filter_ = false;
   category_filter_.Clear();
   memory_dump_config_.Clear();
+  process_filter_config_.Clear();
   event_filters_.clear();
 }
 
 void TraceConfig::InitializeDefault() {
   record_mode_ = RECORD_UNTIL_FULL;
+  trace_buffer_size_in_events_ = 0;
   enable_systrace_ = false;
   enable_argument_filter_ = false;
 }
@@ -316,6 +371,9 @@ void TraceConfig::InitializeFromConfigDict(const DictionaryValue& dict) {
       record_mode_ = RECORD_AS_MUCH_AS_POSSIBLE;
     }
   }
+  int buffer_size = 0;
+  trace_buffer_size_in_events_ =
+      dict.GetInteger(kTraceBufferSizeInEvents, &buffer_size) ? buffer_size : 0;
 
   bool val;
   enable_systrace_ = dict.GetBoolean(kEnableSystraceParam, &val) ? val : false;
@@ -323,6 +381,7 @@ void TraceConfig::InitializeFromConfigDict(const DictionaryValue& dict) {
       dict.GetBoolean(kEnableArgumentFilterParam, &val) ? val : false;
 
   category_filter_.InitializeFromConfigDict(dict);
+  process_filter_config_.InitializeFromConfigDict(dict);
 
   const base::ListValue* category_event_filters = nullptr;
   if (dict.GetList(kEventFiltersParam, &category_event_filters))
@@ -353,6 +412,7 @@ void TraceConfig::InitializeFromStrings(StringPiece category_filter_string,
     category_filter_.InitializeFromString(category_filter_string);
 
   record_mode_ = RECORD_UNTIL_FULL;
+  trace_buffer_size_in_events_ = 0;
   enable_systrace_ = false;
   enable_argument_filter_ = false;
   if (!trace_options_string.empty()) {
@@ -440,7 +500,7 @@ void TraceConfig::SetMemoryDumpConfigFromConfigDict(
                                          &min_size_bytes)
         && min_size_bytes >= 0) {
       memory_dump_config_.heap_profiler_options.breakdown_threshold_bytes =
-          static_cast<size_t>(min_size_bytes);
+          min_size_bytes;
     } else {
       memory_dump_config_.heap_profiler_options.breakdown_threshold_bytes =
           MemoryDumpConfig::HeapProfiler::kDefaultBreakdownThresholdBytes;
@@ -451,6 +511,10 @@ void TraceConfig::SetMemoryDumpConfigFromConfigDict(
 void TraceConfig::SetDefaultMemoryDumpConfig() {
   memory_dump_config_.Clear();
   memory_dump_config_.allowed_dump_modes = GetDefaultAllowedMemoryDumpModes();
+}
+
+void TraceConfig::SetProcessFilterConfig(const ProcessFilterConfig& config) {
+  process_filter_config_ = config;
 }
 
 void TraceConfig::SetEventFiltersFromConfigList(
@@ -476,28 +540,16 @@ void TraceConfig::SetEventFiltersFromConfigList(
 }
 
 std::unique_ptr<DictionaryValue> TraceConfig::ToDict() const {
-  auto dict = MakeUnique<DictionaryValue>();
-  switch (record_mode_) {
-    case RECORD_UNTIL_FULL:
-      dict->SetString(kRecordModeParam, kRecordUntilFull);
-      break;
-    case RECORD_CONTINUOUSLY:
-      dict->SetString(kRecordModeParam, kRecordContinuously);
-      break;
-    case RECORD_AS_MUCH_AS_POSSIBLE:
-      dict->SetString(kRecordModeParam, kRecordAsMuchAsPossible);
-      break;
-    case ECHO_TO_CONSOLE:
-      dict->SetString(kRecordModeParam, kTraceToConsole);
-      break;
-    default:
-      NOTREACHED();
-  }
-
+  auto dict = std::make_unique<DictionaryValue>();
+  dict->SetString(kRecordModeParam,
+                  TraceConfig::TraceRecordModeToStr(record_mode_));
   dict->SetBoolean(kEnableSystraceParam, enable_systrace_);
   dict->SetBoolean(kEnableArgumentFilterParam, enable_argument_filter_);
+  if (trace_buffer_size_in_events_ > 0)
+    dict->SetInteger(kTraceBufferSizeInEvents, trace_buffer_size_in_events_);
 
   category_filter_.ToDict(dict.get());
+  process_filter_config_.ToDict(dict.get());
 
   if (!event_filters_.empty()) {
     std::unique_ptr<base::ListValue> filter_list(new base::ListValue());
@@ -511,16 +563,16 @@ std::unique_ptr<DictionaryValue> TraceConfig::ToDict() const {
   }
 
   if (category_filter_.IsCategoryEnabled(MemoryDumpManager::kTraceCategory)) {
-    auto allowed_modes = MakeUnique<ListValue>();
+    auto allowed_modes = std::make_unique<ListValue>();
     for (auto dump_mode : memory_dump_config_.allowed_dump_modes)
       allowed_modes->AppendString(MemoryDumpLevelOfDetailToString(dump_mode));
 
-    auto memory_dump_config = MakeUnique<DictionaryValue>();
+    auto memory_dump_config = std::make_unique<DictionaryValue>();
     memory_dump_config->Set(kAllowedDumpModesParam, std::move(allowed_modes));
 
-    auto triggers_list = MakeUnique<ListValue>();
+    auto triggers_list = std::make_unique<ListValue>();
     for (const auto& config : memory_dump_config_.triggers) {
-      auto trigger_dict = MakeUnique<DictionaryValue>();
+      auto trigger_dict = std::make_unique<DictionaryValue>();
       trigger_dict->SetString(kTriggerTypeParam,
                               MemoryDumpTypeToString(config.trigger_type));
       trigger_dict->SetInteger(
@@ -538,7 +590,7 @@ std::unique_ptr<DictionaryValue> TraceConfig::ToDict() const {
 
     if (memory_dump_config_.heap_profiler_options.breakdown_threshold_bytes !=
         MemoryDumpConfig::HeapProfiler::kDefaultBreakdownThresholdBytes) {
-      auto options = MakeUnique<DictionaryValue>();
+      auto options = std::make_unique<DictionaryValue>();
       options->SetInteger(
           kBreakdownThresholdBytes,
           memory_dump_config_.heap_profiler_options.breakdown_threshold_bytes);

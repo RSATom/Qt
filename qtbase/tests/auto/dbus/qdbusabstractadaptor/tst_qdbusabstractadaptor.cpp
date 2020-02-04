@@ -768,9 +768,8 @@ void tst_QDBusAbstractAdaptor::scriptableSignalOrNot()
         con.connect(con.baseService(), "/p2", "local.MyObject", "nonScriptableSignalVoid", &spy, SLOT(slot(QDBusMessage)));
         obj.emitSignal("scriptableSignalVoid", QVariant());
         obj.emitSignal("nonScriptableSignalVoid", QVariant());
-        QTest::qWait(200);
 
-        QCOMPARE(spy.count, 1);     // only /p1 must have emitted
+        QTRY_COMPARE(spy.count, 1);     // only /p1 must have emitted
         QCOMPARE(spy.interface, QString("local.MyObject"));
         QCOMPARE(spy.name, QString("scriptableSignalVoid"));
         QCOMPARE(spy.path, QString("/p1"));
@@ -788,9 +787,8 @@ void tst_QDBusAbstractAdaptor::scriptableSignalOrNot()
         con.connect(con.baseService(), "/p1", "local.MyObject", "nonScriptableSignalVoid", &spy, SLOT(slot(QDBusMessage)));
         con.connect(con.baseService(), "/p2", "local.MyObject", "nonScriptableSignalVoid", &spy, SLOT(slot(QDBusMessage)));
         obj.emitSignal("nonScriptableSignalVoid", QVariant());
-        QTest::qWait(200);
 
-        QCOMPARE(spy.count, 1);     // only /p2 must have emitted now
+        QTRY_COMPARE(spy.count, 1);     // only /p2 must have emitted now
         QCOMPARE(spy.interface, QString("local.MyObject"));
         QCOMPARE(spy.name, QString("nonScriptableSignalVoid"));
         QCOMPARE(spy.path, QString("/p2"));
@@ -1083,6 +1081,7 @@ void tst_QDBusAbstractAdaptor::methodCallsPeer_data()
 
 void tst_QDBusAbstractAdaptor::methodCallsPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     if (QSysInfo::productType().compare("opensuse", Qt::CaseInsensitive) == 0
         && QSysInfo::productVersion() == QLatin1String("42.1")
         && qgetenv("QTEST_ENVIRONMENT").split(' ').contains("ci")) {
@@ -1150,6 +1149,7 @@ void tst_QDBusAbstractAdaptor::methodCallsPeer()
 
 void tst_QDBusAbstractAdaptor::methodCallScriptablePeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1169,6 +1169,7 @@ void tst_QDBusAbstractAdaptor::signalEmissionsPeer_data()
 
 void tst_QDBusAbstractAdaptor::signalEmissionsPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QFETCH(QString, interface);
     QFETCH(QString, name);
     QFETCH(QVariant, parameter);
@@ -1233,6 +1234,7 @@ void tst_QDBusAbstractAdaptor::signalEmissionsPeer()
 
 void tst_QDBusAbstractAdaptor::sameSignalDifferentPathsPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1261,6 +1263,7 @@ void tst_QDBusAbstractAdaptor::sameSignalDifferentPathsPeer()
 
 void tst_QDBusAbstractAdaptor::sameObjectDifferentPathsPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1283,6 +1286,7 @@ void tst_QDBusAbstractAdaptor::sameObjectDifferentPathsPeer()
 
 void tst_QDBusAbstractAdaptor::scriptableSignalOrNotPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");;
     QVERIFY(con.isConnected());
 
@@ -1300,9 +1304,8 @@ void tst_QDBusAbstractAdaptor::scriptableSignalOrNotPeer()
         con.connect(QString(), "/p2", "local.MyObject", "nonScriptableSignalVoid", &spy, SLOT(slot(QDBusMessage)));
         emitSignalPeer("local.MyObject", "scriptableSignalVoid", QVariant());
         emitSignalPeer("local.MyObject", "nonScriptableSignalVoid", QVariant());
-        QTest::qWait(200);
 
-        QCOMPARE(spy.count, 1);     // only /p1 must have emitted
+        QTRY_COMPARE(spy.count, 1);     // only /p1 must have emitted
         QCOMPARE(spy.interface, QString("local.MyObject"));
         QCOMPARE(spy.name, QString("scriptableSignalVoid"));
         QCOMPARE(spy.path, QString("/p1"));
@@ -1321,9 +1324,8 @@ void tst_QDBusAbstractAdaptor::scriptableSignalOrNotPeer()
         con.connect(QString(), "/p1", "local.MyObject", "nonScriptableSignalVoid", &spy, SLOT(slot(QDBusMessage)));
         con.connect(QString(), "/p2", "local.MyObject", "nonScriptableSignalVoid", &spy, SLOT(slot(QDBusMessage)));
         emitSignalPeer("local.MyObject", "nonScriptableSignalVoid", QVariant());
-        QTest::qWait(200);
 
-        QCOMPARE(spy.count, 1);     // only /p2 must have emitted now
+        QTRY_COMPARE(spy.count, 1);     // only /p2 must have emitted now
         QCOMPARE(spy.interface, QString("local.MyObject"));
         QCOMPARE(spy.name, QString("nonScriptableSignalVoid"));
         QCOMPARE(spy.path, QString("/p2"));
@@ -1356,6 +1358,7 @@ void tst_QDBusAbstractAdaptor::overloadedSignalEmissionPeer_data()
 
 void tst_QDBusAbstractAdaptor::overloadedSignalEmissionPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1407,6 +1410,7 @@ void tst_QDBusAbstractAdaptor::overloadedSignalEmissionPeer()
 
 void tst_QDBusAbstractAdaptor::readPropertiesPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1431,6 +1435,7 @@ void tst_QDBusAbstractAdaptor::readPropertiesPeer()
 
 void tst_QDBusAbstractAdaptor::readPropertiesInvalidInterfacePeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1451,6 +1456,7 @@ void tst_QDBusAbstractAdaptor::readPropertiesEmptyInterfacePeer_data()
 
 void tst_QDBusAbstractAdaptor::readPropertiesEmptyInterfacePeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1481,6 +1487,7 @@ void tst_QDBusAbstractAdaptor::readPropertiesEmptyInterfacePeer()
 
 void tst_QDBusAbstractAdaptor::readAllPropertiesPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1507,6 +1514,7 @@ void tst_QDBusAbstractAdaptor::readAllPropertiesPeer()
 
 void tst_QDBusAbstractAdaptor::readAllPropertiesInvalidInterfacePeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1572,6 +1580,7 @@ void tst_QDBusAbstractAdaptor::readAllPropertiesEmptyInterfacePeer()
 
 void tst_QDBusAbstractAdaptor::writePropertiesPeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 
@@ -1883,6 +1892,7 @@ void tst_QDBusAbstractAdaptor::methodWithMoreThanOneReturnValue()
 
 void tst_QDBusAbstractAdaptor::methodWithMoreThanOneReturnValuePeer()
 {
+    QSKIP("Test is currently too flaky (QTBUG-66223)");
     QDBusConnection con("peer");
     QVERIFY(con.isConnected());
 

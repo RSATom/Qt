@@ -7,7 +7,7 @@
  */
 
 /** @polymerBehavior */
-var CrPolicyPrefBehavior = {
+const CrPolicyPrefBehavior = {
   properties: {
     /**
      * Showing that an extension is controlling a pref is sometimes done with a
@@ -24,13 +24,17 @@ var CrPolicyPrefBehavior = {
    * @return {boolean} True if |this.pref| is controlled by an enforced policy.
    */
   isPrefEnforced: function() {
-    return this.pref.enforcement == chrome.settingsPrivate.Enforcement.ENFORCED;
+    return !!this.pref &&
+        this.pref.enforcement == chrome.settingsPrivate.Enforcement.ENFORCED;
   },
 
   /**
    * @return {boolean} True if |this.pref| has a recommended or enforced policy.
    */
   hasPrefPolicyIndicator: function() {
+    if (!this.pref) {
+      return false;
+    }
     if (this.noExtensionIndicator &&
         this.pref.controlledBy ==
             chrome.settingsPrivate.ControlledBy.EXTENSION) {

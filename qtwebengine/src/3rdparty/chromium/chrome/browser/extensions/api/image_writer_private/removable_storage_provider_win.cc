@@ -7,6 +7,10 @@
 
 #include <windows.h>
 #include <setupapi.h>
+
+// LogSeverity is both a macro in setupapi.h and a typedef in base/logging.h
+#undef LogSeverity
+
 #include <winioctl.h>
 
 #include <memory>
@@ -149,7 +153,7 @@ bool AddDeviceInfo(HANDLE interface_enumerator,
   }
 
   std::string drive_id = "\\\\.\\PhysicalDrive";
-  drive_id.append(base::Uint64ToString(device_number.DeviceNumber));
+  drive_id.append(base::NumberToString(device_number.DeviceNumber));
 
   api::image_writer_private::RemovableStorageDevice device;
   device.capacity = disk_capacity;
@@ -174,8 +178,9 @@ bool AddDeviceInfo(HANDLE interface_enumerator,
 
 }  // namespace
 
-bool RemovableStorageProvider::PopulateDeviceList(
-    scoped_refptr<StorageDeviceList> device_list) {
+// static
+scoped_refptr<StorageDeviceList>
+RemovableStorageProvider::PopulateDeviceList() {
   HDEVINFO interface_enumerator = SetupDiGetClassDevs(
       &DiskClassGuid,
       NULL, // Enumerator.
@@ -185,13 +190,14 @@ bool RemovableStorageProvider::PopulateDeviceList(
 
   if (interface_enumerator == INVALID_HANDLE_VALUE) {
     DPLOG(ERROR) << "SetupDiGetClassDevs failed.";
-    return false;
+    return nullptr;
   }
 
   DWORD index = 0;
   SP_DEVICE_INTERFACE_DATA interface_data;
   interface_data.cbSize = sizeof(SP_INTERFACE_DEVICE_DATA);
 
+  scoped_refptr<StorageDeviceList> device_list(new StorageDeviceList());
   while (SetupDiEnumDeviceInterfaces(
       interface_enumerator,
       NULL,                    // Device Info data.
@@ -207,11 +213,11 @@ bool RemovableStorageProvider::PopulateDeviceList(
   if (error_code != ERROR_NO_MORE_ITEMS) {
     PLOG(ERROR) << "SetupDiEnumDeviceInterfaces failed";
     SetupDiDestroyDeviceInfoList(interface_enumerator);
-    return false;
+    return nullptr;
   }
 
   SetupDiDestroyDeviceInfoList(interface_enumerator);
-  return true;
+  return device_list;
 }
 
 } // namespace extensions

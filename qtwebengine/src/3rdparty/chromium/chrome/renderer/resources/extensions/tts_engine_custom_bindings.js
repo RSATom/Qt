@@ -4,12 +4,15 @@
 
 // Custom binding for the ttsEngine API.
 
-var binding = require('binding').Binding.create('ttsEngine');
+var binding = apiBridge || require('binding').Binding.create('ttsEngine');
+var registerArgumentMassager = bindingUtil ?
+    $Function.bind(bindingUtil.registerEventArgumentMassager, bindingUtil) :
+    require('event_bindings').registerArgumentMassager;
+var sendRequest = bindingUtil ?
+    $Function.bind(bindingUtil.sendRequest, bindingUtil) :
+    require('sendRequest').sendRequest;
 
-var eventBindings = require('event_bindings');
-
-eventBindings.registerArgumentMassager('ttsEngine.onSpeak',
-    function(args, dispatch) {
+registerArgumentMassager('ttsEngine.onSpeak', function(args, dispatch) {
   var text = args[0];
   var options = args[1];
   var requestId = args[2];
@@ -19,4 +22,23 @@ eventBindings.registerArgumentMassager('ttsEngine.onSpeak',
   dispatch([text, options, sendTtsEvent]);
 });
 
-exports.$set('binding', binding.generate());
+binding.registerCustomHook(function(api) {
+  // Provide a warning if deprecated parameters are used.
+  api.apiFunctions.setHandleRequest('updateVoices', function(voices) {
+    for (var i = 0; i < voices.length; i++) {
+      if (voices[i].gender) {
+        console.warn(
+            'chrome.ttsEngine.updateVoices: ' +
+            'Voice gender is deprecated and values will be ignored ' +
+            'starting in Chrome 71.');
+        break;
+      }
+    }
+    sendRequest(
+        'ttsEngine.updateVoices', [voices],
+        bindingUtil ? undefined : this.definition.parameters, undefined);
+  });
+}.bind(this));
+
+if (!apiBridge)
+  exports.$set('binding', binding.generate());

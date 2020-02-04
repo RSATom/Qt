@@ -308,6 +308,10 @@ void ResourceManager::checkTextureAllocation(GLuint texture, TextureType type)
 		{
 			textureObject = new Texture2DArray(texture);
 		}
+		else if(type == TEXTURE_2D_RECT)
+		{
+			textureObject = new Texture2DRect(texture);
+		}
 		else
 		{
 			UNREACHABLE(type);
@@ -324,7 +328,7 @@ void ResourceManager::checkRenderbufferAllocation(GLuint handle)
 {
 	if(handle != 0 && !getRenderbuffer(handle))
 	{
-		Renderbuffer *renderbufferObject = new Renderbuffer(handle, new Colorbuffer(0, 0, GL_RGBA4_OES, 0));
+		Renderbuffer *renderbufferObject = new Renderbuffer(handle, new Colorbuffer(0, 0, GL_NONE, 0));
 		renderbufferObject->addRef();
 
 		mRenderbufferNameSpace.insert(handle, renderbufferObject);

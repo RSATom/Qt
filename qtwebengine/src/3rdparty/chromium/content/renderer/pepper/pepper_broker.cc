@@ -14,6 +14,10 @@
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/platform_file.h"
 
+#if defined(OS_POSIX)
+#include "base/posix/eintr_wrapper.h"
+#endif
+
 #if defined(OS_WIN)
 #include <windows.h>
 #endif
@@ -38,7 +42,7 @@ base::SyncSocket::Handle DuplicateHandle(base::SyncSocket::Handle handle) {
 #elif defined(OS_POSIX)
   // If asked to close the source, we can simply re-use the source fd instead of
   // dup()ing and close()ing.
-  out_handle = ::dup(handle);
+  out_handle = HANDLE_EINTR(::dup(handle));
 #else
 #error Not implemented.
 #endif
@@ -106,8 +110,8 @@ PepperBroker::PepperBroker(PluginModule* plugin_module)
 
 PepperBroker::~PepperBroker() {
   ReportFailureToClients(PP_ERROR_ABORTED);
-  plugin_module_->SetBroker(NULL);
-  plugin_module_ = NULL;
+  plugin_module_->SetBroker(nullptr);
+  plugin_module_ = nullptr;
 }
 
 // If the channel is not ready, queue the connection.
@@ -152,8 +156,7 @@ void PepperBroker::OnBrokerChannelConnected(
   dispatcher_.reset(dispatcher.release());
 
   // Process all pending channel requests from the plugins.
-  for (ClientMap::iterator i = pending_connects_.begin();
-       i != pending_connects_.end();) {
+  for (auto i = pending_connects_.begin(); i != pending_connects_.end();) {
     base::WeakPtr<PPB_Broker_Impl>& weak_ptr = i->second.client;
     if (!i->second.is_authorized) {
       ++i;
@@ -169,7 +172,7 @@ void PepperBroker::OnBrokerChannelConnected(
 
 void PepperBroker::OnBrokerPermissionResult(PPB_Broker_Impl* client,
                                             bool result) {
-  ClientMap::iterator entry = pending_connects_.find(client);
+  auto entry = pending_connects_.find(client);
   if (entry == pending_connects_.end())
     return;
 
@@ -209,9 +212,7 @@ PepperBroker::PendingConnection::~PendingConnection() {}
 
 void PepperBroker::ReportFailureToClients(int error_code) {
   DCHECK_NE(PP_OK, error_code);
-  for (ClientMap::iterator i = pending_connects_.begin();
-       i != pending_connects_.end();
-       ++i) {
+  for (auto i = pending_connects_.begin(); i != pending_connects_.end(); ++i) {
     base::WeakPtr<PPB_Broker_Impl>& weak_ptr = i->second.client;
     if (weak_ptr.get()) {
       weak_ptr->BrokerConnected(
@@ -242,7 +243,7 @@ void PepperBroker::ConnectPluginToBroker(PPB_Broker_Impl* client) {
     result = PP_ERROR_FAILED;
   }
 
-  // TOOD(ddorwin): Change the IPC to asynchronous: Queue an object containing
+  // TODO(ddorwin): Change the IPC to asynchronous: Queue an object containing
   // client and plugin_socket.release(), then return.
   // That message handler will then call client->BrokerConnected() with the
   // saved pipe handle.

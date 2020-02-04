@@ -13,8 +13,9 @@
 #include "extensions/renderer/extensions_renderer_client.h"
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/script_injection.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/web/blink.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "v8/include/v8.h"
 
 namespace extensions {
@@ -43,7 +44,7 @@ ScriptContext* ScriptContextSet::Register(
   const Extension* effective_extension =
       GetExtensionFromFrameAndWorld(frame, world_id, true);
 
-  GURL frame_url = ScriptContext::GetDataSourceURLForFrame(frame);
+  GURL frame_url = ScriptContext::GetDocumentLoaderURLForFrame(frame);
   Feature::Context context_type = ClassifyJavaScriptContext(
       extension, world_id, frame_url, frame->GetDocument().GetSecurityOrigin());
   Feature::Context effective_context_type = ClassifyJavaScriptContext(
@@ -91,6 +92,13 @@ ScriptContext* ScriptContextSet::GetContextByV8Context(
   return g_context_set ? g_context_set->GetByV8Context(v8_context) : nullptr;
 }
 
+ScriptContext* ScriptContextSet::GetMainWorldContextForFrame(
+    content::RenderFrame* render_frame) {
+  v8::HandleScope handle_scope(blink::MainThreadIsolate());
+  return GetContextByV8Context(
+      render_frame->GetWebFrame()->MainWorldScriptContext());
+}
+
 void ScriptContextSet::ForEach(
     const std::string& extension_id,
     content::RenderFrame* render_frame,
@@ -111,9 +119,6 @@ void ScriptContextSet::ForEach(
     }
 
     content::RenderFrame* context_render_frame = context->GetRenderFrame();
-    if (!context_render_frame)
-      continue;
-
     if (render_frame && render_frame != context_render_frame)
       continue;
 

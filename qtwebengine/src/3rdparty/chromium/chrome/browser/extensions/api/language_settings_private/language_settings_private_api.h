@@ -27,6 +27,8 @@ class LanguageSettingsPrivateGetLanguageListFunction
   ResponseAction Run() override;
 
  private:
+  ChromeExtensionFunctionDetails chrome_details_;
+
   DISALLOW_COPY_AND_ASSIGN(LanguageSettingsPrivateGetLanguageListFunction);
 };
 
@@ -68,6 +70,47 @@ class LanguageSettingsPrivateDisableLanguageFunction
   ChromeExtensionFunctionDetails chrome_details_;
 
   DISALLOW_COPY_AND_ASSIGN(LanguageSettingsPrivateDisableLanguageFunction);
+};
+
+// Implements the languageSettingsPrivate.setEnableTranslationForLanguage
+// method.
+class LanguageSettingsPrivateSetEnableTranslationForLanguageFunction
+    : public UIThreadExtensionFunction {
+ public:
+  LanguageSettingsPrivateSetEnableTranslationForLanguageFunction();
+  DECLARE_EXTENSION_FUNCTION(
+      "languageSettingsPrivate.setEnableTranslationForLanguage",
+      LANGUAGESETTINGSPRIVATE_SETENABLETRANSLATIONFORLANGUAGE)
+
+ protected:
+  ~LanguageSettingsPrivateSetEnableTranslationForLanguageFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  ChromeExtensionFunctionDetails chrome_details_;
+  DISALLOW_COPY_AND_ASSIGN(
+      LanguageSettingsPrivateSetEnableTranslationForLanguageFunction);
+};
+
+// Implements the languageSettingsPrivate.moveLanguage method.
+class LanguageSettingsPrivateMoveLanguageFunction
+    : public UIThreadExtensionFunction {
+ public:
+  LanguageSettingsPrivateMoveLanguageFunction();
+  DECLARE_EXTENSION_FUNCTION("languageSettingsPrivate.moveLanguage",
+                             LANGUAGESETTINGSPRIVATE_MOVELANGUAGE)
+
+ protected:
+  ~LanguageSettingsPrivateMoveLanguageFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  ChromeExtensionFunctionDetails chrome_details_;
+  DISALLOW_COPY_AND_ASSIGN(LanguageSettingsPrivateMoveLanguageFunction);
 };
 
 // Implements the languageSettingsPrivate.getSpellcheckDictionaryStatuses
@@ -232,6 +275,25 @@ class LanguageSettingsPrivateRemoveInputMethodFunction
   ChromeExtensionFunctionDetails chrome_details_;
 
   DISALLOW_COPY_AND_ASSIGN(LanguageSettingsPrivateRemoveInputMethodFunction);
+};
+
+// Implements the languageSettingsPrivate.retryDownloadDictionary method.
+class LanguageSettingsPrivateRetryDownloadDictionaryFunction
+    : public UIThreadExtensionFunction {
+ public:
+  LanguageSettingsPrivateRetryDownloadDictionaryFunction();
+  DECLARE_EXTENSION_FUNCTION("languageSettingsPrivate.retryDownloadDictionary",
+                             LANGUAGESETTINGSPRIVATE_RETRYDOWNLOADDICTIONARY)
+
+ protected:
+  ~LanguageSettingsPrivateRetryDownloadDictionaryFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(
+      LanguageSettingsPrivateRetryDownloadDictionaryFunction);
 };
 
 }  // namespace extensions

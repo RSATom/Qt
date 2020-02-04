@@ -14,12 +14,16 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/pickle.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/browser/histogram_controller.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/histogram_fetcher.h"
 #include "content/public/common/content_constants.h"
+
+namespace content {
 
 using base::Time;
 using base::TimeDelta;
@@ -35,8 +39,6 @@ namespace {
 static const int kNeverUsableSequenceNumber = -2;
 
 }  // anonymous namespace
-
-namespace content {
 
 // The "RequestContext" structure describes an individual request received from
 // the UI. All methods are accessible on UI thread.
@@ -94,10 +96,9 @@ class HistogramSynchronizer::RequestContext {
   static RequestContext* GetRequestContext(int sequence_number) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-    RequestContextMap::iterator it =
-        outstanding_requests_.Get().find(sequence_number);
+    auto it = outstanding_requests_.Get().find(sequence_number);
     if (it == outstanding_requests_.Get().end())
-      return NULL;
+      return nullptr;
 
     RequestContext* request = it->second;
     DCHECK_EQ(sequence_number, request->sequence_number_);
@@ -110,8 +111,7 @@ class HistogramSynchronizer::RequestContext {
   static void Unregister(int sequence_number) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-    RequestContextMap::iterator it =
-        outstanding_requests_.Get().find(sequence_number);
+    auto it = outstanding_requests_.Get().find(sequence_number);
     if (it == outstanding_requests_.Get().end())
       return;
 
@@ -127,15 +127,15 @@ class HistogramSynchronizer::RequestContext {
 
     UMA_HISTOGRAM_BOOLEAN("Histogram.ReceivedProcessGroupCount",
                           received_process_group_count);
-    UMA_HISTOGRAM_COUNTS("Histogram.PendingProcessNotResponding",
-                         unresponsive_processes);
+    UMA_HISTOGRAM_COUNTS_1M("Histogram.PendingProcessNotResponding",
+                            unresponsive_processes);
   }
 
   // Delete all the entries in |outstanding_requests_| map.
   static void OnShutdown() {
     // Just in case we have any pending tasks, clear them out.
     while (!outstanding_requests_.Get().empty()) {
-      RequestContextMap::iterator it = outstanding_requests_.Get().begin();
+      auto it = outstanding_requests_.Get().begin();
       delete it->second;
       outstanding_requests_.Get().erase(it);
     }
@@ -189,16 +189,16 @@ HistogramSynchronizer* HistogramSynchronizer::GetInstance() {
 // static
 void HistogramSynchronizer::FetchHistograms() {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(&HistogramSynchronizer::FetchHistograms));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(&HistogramSynchronizer::FetchHistograms));
     return;
   }
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   HistogramSynchronizer* current_synchronizer =
       HistogramSynchronizer::GetInstance();
-  if (current_synchronizer == NULL)
+  if (current_synchronizer == nullptr)
     return;
 
   current_synchronizer->RegisterAndNotifyAllProcesses(
@@ -242,17 +242,16 @@ void HistogramSynchronizer::RegisterAndNotifyAllProcesses(
       base::Unretained(this),
       sequence_number);
 
-  RequestContext::Register(callback, sequence_number);
+  RequestContext::Register(std::move(callback), sequence_number);
 
   // Get histogram data from renderer and browser child processes.
   HistogramController::GetInstance()->GetHistogramData(sequence_number);
 
   // Post a task that would be called after waiting for wait_time.  This acts
   // as a watchdog, to cancel the requests for non-responsive processes.
-  BrowserThread::PostDelayedTask(
-      BrowserThread::UI, FROM_HERE,
-      base::Bind(&RequestContext::Unregister, sequence_number),
-      wait_time);
+  base::PostDelayedTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
+      base::BindOnce(&RequestContext::Unregister, sequence_number), wait_time);
 }
 
 void HistogramSynchronizer::OnPendingProcesses(int sequence_number,
@@ -300,7 +299,7 @@ void HistogramSynchronizer::SetTaskRunnerAndCallback(
     async_sequence_number_ = kNeverUsableSequenceNumber;
   }
   // Just in case there was a task pending....
-  InternalPostTask(std::move(old_task_runner), old_callback);
+  InternalPostTask(std::move(old_task_runner), std::move(old_callback));
 }
 
 void HistogramSynchronizer::ForceHistogramSynchronizationDoneCallback(
@@ -315,7 +314,7 @@ void HistogramSynchronizer::ForceHistogramSynchronizationDoneCallback(
     task_runner = std::move(callback_task_runner_);
     callback_.Reset();
   }
-  InternalPostTask(std::move(task_runner), callback);
+  InternalPostTask(std::move(task_runner), std::move(callback));
 }
 
 void HistogramSynchronizer::InternalPostTask(

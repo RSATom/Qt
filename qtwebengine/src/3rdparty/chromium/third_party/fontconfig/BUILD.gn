@@ -15,7 +15,6 @@ if (use_bundled_fontconfig) {
     sources = [
       "src/src/fcarch.h",
       "src/src/fcatomic.c",
-      "src/src/fcblanks.c",
       "src/src/fccache.c",
       "src/src/fccfg.c",
       "src/src/fccharset.c",
@@ -35,9 +34,12 @@ if (use_bundled_fontconfig) {
       "src/src/fcname.c",
       "src/src/fcobjs.c",
       "src/src/fcpat.c",
+      "src/src/fcptrlist.c",
+      "src/src/fcrange.c",
       "src/src/fcserialize.c",
       "src/src/fcstat.c",
       "src/src/fcstr.c",
+      "src/src/fcweight.c",
       "src/src/fcxml.c",
       "src/src/ftglue.c",
       "src/src/ftglue.h",
@@ -51,8 +53,18 @@ if (use_bundled_fontconfig) {
     defines = [
       "HAVE_CONFIG_H",
       "FC_CACHEDIR=\"/var/cache/fontconfig\"",
+      "FC_TEMPLATEDIR=\"/usr/share/fontconfig/conf.avail\"",
       "FONTCONFIG_PATH=\"/etc/fonts\"",
     ]
+
+    # Fontconfig symbols should not be exported from chrome, nacl_helper, or
+    # anything else.
+    if (!is_component_build) {
+      defines += [
+        "FC_ATTRIBUTE_VISIBILITY_HIDDEN=__attribute((visibility(\"hidden\")))",
+        "FC_ATTRIBUTE_VISIBILITY_EXPORT=__attribute((visibility(\"hidden\")))",
+      ]
+    }
 
     deps = [
       "//build/config/freetype",
@@ -66,8 +78,17 @@ if (use_bundled_fontconfig) {
     public_configs = [ ":fontconfig_config" ]
 
     if (is_clang) {
-      # Work around a null-conversion warning. See crbug.com/358852.
-      cflags = [ "-Wno-non-literal-null-conversion" ]
+      cflags = [
+        # Work around a null-conversion warning. See crbug.com/358852.
+        "-Wno-non-literal-null-conversion",
+
+        # Work around a pointer-to-bool conversion.
+        "-Wno-pointer-bool-conversion",
+      ]
+    }
+
+    if (!is_win) {
+      libs = [ "uuid" ]
     }
   }
 } else {

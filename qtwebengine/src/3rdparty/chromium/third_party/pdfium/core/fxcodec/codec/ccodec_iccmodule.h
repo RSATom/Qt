@@ -12,22 +12,32 @@
 #include "core/fxcodec/fx_codec_def.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
-#include "third_party/base/ptr_util.h"
+#include "third_party/base/span.h"
 
 #if defined(USE_SYSTEM_LCMS2)
 #include <lcms2.h>
 #else
-#include "third_party/lcms2-2.6/include/lcms2.h"
+#include "third_party/lcms/include/lcms2.h"
 #endif
 
 class CLcmsCmm {
  public:
-  CLcmsCmm(int srcComponents, cmsHTRANSFORM transform, bool isLab);
+  CLcmsCmm(cmsHTRANSFORM transform,
+           int srcComponents,
+           bool bIsLab,
+           bool bNormal);
   ~CLcmsCmm();
 
-  cmsHTRANSFORM m_hTransform;
-  int m_nSrcComponents;
-  bool m_bLab;
+  cmsHTRANSFORM transform() const { return m_hTransform; }
+  int components() const { return m_nSrcComponents; }
+  bool IsLab() const { return m_bLab; }
+  bool IsNormal() const { return m_bNormal; }
+
+ private:
+  const cmsHTRANSFORM m_hTransform;
+  const int m_nSrcComponents;
+  const bool m_bLab;
+  const bool m_bNormal;
 };
 
 class CCodec_IccModule {
@@ -35,9 +45,8 @@ class CCodec_IccModule {
   CCodec_IccModule();
   ~CCodec_IccModule();
 
-  std::unique_ptr<CLcmsCmm> CreateTransform_sRGB(const uint8_t* pProfileData,
-                                                 uint32_t dwProfileSize,
-                                                 uint32_t* nComponents);
+  std::unique_ptr<CLcmsCmm> CreateTransform_sRGB(
+      pdfium::span<const uint8_t> span);
   void Translate(CLcmsCmm* pTransform,
                  const float* pSrcValues,
                  float* pDestValues);
@@ -48,7 +57,7 @@ class CCodec_IccModule {
   void SetComponents(uint32_t nComponents) { m_nComponents = nComponents; }
 
  protected:
-  uint32_t m_nComponents;
+  uint32_t m_nComponents = 0;
 };
 
 #endif  // CORE_FXCODEC_CODEC_CCODEC_ICCMODULE_H_

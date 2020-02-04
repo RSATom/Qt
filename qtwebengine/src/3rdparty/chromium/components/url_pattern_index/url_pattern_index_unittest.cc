@@ -5,11 +5,14 @@
 #include "components/url_pattern_index/url_pattern_index.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <vector>
 
 #include "base/macros.h"
+#include "base/rand_util.h"
 #include "base/strings/string_piece.h"
 #include "components/url_pattern_index/url_pattern.h"
 #include "components/url_pattern_index/url_rule_test_support.h"
@@ -27,10 +30,26 @@ class UrlPatternIndexTest : public ::testing::Test {
 
  protected:
   bool AddUrlRule(const proto::UrlRule& rule) {
-    auto offset = SerializeUrlRule(rule, flat_builder_.get());
+    auto offset = SerializeUrlRule(rule, flat_builder_.get(), &domain_map_);
     if (offset.o)
       index_builder_->IndexUrlRule(offset);
     return !!offset.o;
+  }
+
+  void AddSimpleUrlRule(std::string pattern,
+                        uint32_t id,
+                        uint32_t priority,
+                        uint8_t options) {
+    auto pattern_offset = flat_builder_->CreateString(pattern);
+
+    flat::UrlRuleBuilder rule_builder(*flat_builder_);
+    rule_builder.add_options(options);
+    rule_builder.add_url_pattern(pattern_offset);
+    rule_builder.add_id(id);
+    rule_builder.add_priority(priority);
+    auto rule_offset = rule_builder.Finish();
+
+    index_builder_->IndexUrlRule(rule_offset);
   }
 
   void Finish() {
@@ -47,12 +66,23 @@ class UrlPatternIndexTest : public ::testing::Test {
       base::StringPiece document_origin_string = base::StringPiece(),
       proto::ElementType element_type = kOther,
       proto::ActivationType activation_type = kNoActivation,
-      bool disable_generic_rules = false) {
+      bool disable_generic_rules = false) const {
     const GURL url(url_string);
     const url::Origin document_origin = GetOrigin(document_origin_string);
     return index_matcher_->FindMatch(
         url, document_origin, element_type, activation_type,
-        IsThirdParty(url, document_origin), disable_generic_rules);
+        IsThirdParty(url, document_origin), disable_generic_rules,
+        UrlPatternIndexMatcher::FindRuleStrategy::kAny);
+  }
+
+  const flat::UrlRule* FindHighestPriorityMatch(
+      base::StringPiece url_string) const {
+    return index_matcher_->FindMatch(
+        GURL(url_string), url::Origin(), kOther /*element_type*/,
+        kNoActivation /*activation_type*/, true /*is_third_party*/,
+        false /*disable_generic_rules*/,
+        UrlPatternIndexMatcher::FindRuleStrategy::
+            kHighestPriority /*strategy*/);
   }
 
   bool IsOutOfRange(const flat::UrlRule* rule) const {
@@ -68,12 +98,15 @@ class UrlPatternIndexTest : public ::testing::Test {
     index_builder_.reset();
     flat_builder_.reset(new flatbuffers::FlatBufferBuilder());
     index_builder_.reset(new UrlPatternIndexBuilder(flat_builder_.get()));
+    domain_map_.clear();
   }
 
  private:
   std::unique_ptr<flatbuffers::FlatBufferBuilder> flat_builder_;
   std::unique_ptr<UrlPatternIndexBuilder> index_builder_;
   std::unique_ptr<UrlPatternIndexMatcher> index_matcher_;
+
+  FlatDomainMap domain_map_;
 
   DISALLOW_COPY_AND_ASSIGN(UrlPatternIndexTest);
 };
@@ -101,6 +134,36 @@ TEST_F(UrlPatternIndexTest, NoRuleApplies) {
   EXPECT_FALSE(FindMatch("http://example.com"));
   EXPECT_FALSE(FindMatch("http://example.com?filter_not"));
   EXPECT_FALSE(FindMatch("http://example.com?k=v&filter_not"));
+}
+
+TEST_F(UrlPatternIndexTest, ProtoCaseSensitivity) {
+  ASSERT_TRUE(
+      AddUrlRule(MakeUrlRule(UrlPattern("case-sensitive", kSubstring))));
+  proto::UrlRule rule = MakeUrlRule(UrlPattern("case-INSENsitive"));
+  rule.set_match_case(false);
+  ASSERT_TRUE(AddUrlRule(rule));
+  Finish();
+
+  // We don't currently read case sensitivity from proto rules.
+  EXPECT_FALSE(FindMatch("http://abc.com/type=CASE-insEnsitIVe"));
+  EXPECT_FALSE(FindMatch("http://abc.com/type=case-INSENSITIVE"));
+  EXPECT_FALSE(FindMatch("http://abc.com?type=CASE-sensitive"));
+  EXPECT_TRUE(FindMatch("http://abc.com?type=case-sensitive"));
+}
+
+TEST_F(UrlPatternIndexTest, CaseSensitivity) {
+  uint8_t common_options = flat::OptionFlag_APPLIES_TO_FIRST_PARTY |
+                           flat::OptionFlag_APPLIES_TO_THIRD_PARTY;
+  AddSimpleUrlRule("case-insensitive", 0 /* id */, 0 /* priority */,
+                   common_options | flat::OptionFlag_IS_CASE_INSENSITIVE);
+  AddSimpleUrlRule("case-sensitive", 0 /* id */, 0 /* priority */,
+                   common_options);
+  Finish();
+
+  EXPECT_TRUE(FindMatch("http://abc.com/type=CASE-insEnsitIVe"));
+  EXPECT_TRUE(FindMatch("http://abc.com/type=case-INSENSITIVE"));
+  EXPECT_FALSE(FindMatch("http://abc.com?type=CASE-sensitive"));
+  EXPECT_TRUE(FindMatch("http://abc.com?type=case-sensitive"));
 }
 
 TEST_F(UrlPatternIndexTest, OneRuleWithoutMetaInfo) {
@@ -702,6 +765,67 @@ TEST_F(UrlPatternIndexTest, FindMatchReturnsCorrectRules) {
 
   EXPECT_FALSE(
       FindMatch("http://example." + std::to_string(kNumOfPatterns) + ".com"));
+}
+
+// Tests UrlPatternIndexMatcher::FindMatch works with the kHighestPriority match
+// strategy.
+TEST_F(UrlPatternIndexTest, FindMatchHighestPriority) {
+  const size_t kNumPatternTypes = 15;
+
+  int id = 1;
+  auto pattern_for_number = [](size_t num) {
+    return "http://" + std::to_string(num) + ".com";
+  };
+
+  for (size_t i = 1; i <= kNumPatternTypes; i++) {
+    // For pattern type |i|, add |i| rules with priority from 1 to |i|.
+    std::string pattern = pattern_for_number(i);
+
+    // Create a shuffled vector of priorities from 1 to |i|.
+    std::vector<uint32_t> priorities(i);
+    std::iota(priorities.begin(), priorities.end(), 1);
+    base::RandomShuffle(priorities.begin(), priorities.end());
+
+    for (size_t j = 0; j < i; j++) {
+      AddSimpleUrlRule(pattern, id, priorities[j],
+                       flat::OptionFlag_APPLIES_TO_FIRST_PARTY |
+                           flat::OptionFlag_APPLIES_TO_THIRD_PARTY);
+      id++;
+    }
+  }
+  Finish();
+
+  for (size_t i = 1; i <= kNumPatternTypes; i++) {
+    std::string pattern = pattern_for_number(i);
+    SCOPED_TRACE(::testing::Message() << "UrlPattern: " << pattern);
+
+    const flat::UrlRule* rule = FindHighestPriorityMatch(pattern);
+    ASSERT_TRUE(rule);
+
+    EXPECT_EQ(i, rule->priority());
+  }
+
+  EXPECT_FALSE(FindHighestPriorityMatch(pattern_for_number(0)));
+  EXPECT_FALSE(
+      FindHighestPriorityMatch(pattern_for_number(kNumPatternTypes + 1)));
+}
+
+TEST_F(UrlPatternIndexTest, LongUrl_NoMatch) {
+  std::string pattern = "http://example.com";
+  ASSERT_TRUE(AddUrlRule(MakeUrlRule(UrlPattern(pattern, kSubstring))));
+  Finish();
+
+  std::string url = "http://example.com/";
+  url.append(url::kMaxURLChars - url.size(), 'x');
+  EXPECT_EQ(url::kMaxURLChars, url.size());
+  EXPECT_TRUE(FindMatch(url));
+
+  // Add a single extra character, which should push this over the max URL
+  // limit. At this point, URL pattern matching should just give up since the
+  // URL load will be disallowed elsewhere in the stack.
+  url += "x";
+  EXPECT_GT(url.size(), url::kMaxURLChars);
+  EXPECT_FALSE(FindMatch(url));
 }
 
 }  // namespace url_pattern_index

@@ -7,205 +7,112 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <memory>
 
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/json/json_reader.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "components/search_provider_logos/features.h"
+#include "components/search_provider_logos/switches.h"
+#include "url/third_party/mozilla/url_parse.h"
 #include "url/url_constants.h"
 
 namespace search_provider_logos {
 
-GURL GetGoogleDoodleURL(const GURL& google_base_url) {
+namespace {
+
+const int kDefaultIframeWidthPx = 500;
+const int kDefaultIframeHeightPx = 200;
+
+// Appends the provided |value| to the "async" query param, according to the
+// format used by the Google doodle servers: "async=param:value,other:foo"
+// Derived from net::AppendOrReplaceQueryParameter, that can't be used because
+// it escapes ":" to "%3A", but the server requires the colon not to be escaped.
+// See: http://crbug.com/413845
+GURL AppendToAsyncQueryparam(const GURL& url, const std::string& value) {
+  const std::string param_name = "async";
+  bool replaced = false;
+  const std::string input = url.query();
+  url::Component cursor(0, input.size());
+  std::string output;
+  url::Component key_range, value_range;
+  while (url::ExtractQueryKeyValue(input.data(), &cursor, &key_range,
+                                   &value_range)) {
+    const base::StringPiece key(input.data() + key_range.begin, key_range.len);
+    std::string key_value_pair(input, key_range.begin,
+                               value_range.end() - key_range.begin);
+    if (!replaced && key == param_name) {
+      // Check |replaced| as only the first match should be replaced.
+      replaced = true;
+      key_value_pair += "," + value;
+    }
+    if (!output.empty()) {
+      output += "&";
+    }
+
+    output += key_value_pair;
+  }
+  if (!replaced) {
+    if (!output.empty()) {
+      output += "&";
+    }
+
+    output += (param_name + "=" + value);
+  }
   GURL::Replacements replacements;
-  replacements.SetPathStr(base::FeatureList::IsEnabled(features::kUseDdljsonApi)
-                              ? "async/ddljson"
-                              : "async/newtab_mobile");
+  replacements.SetQueryStr(output);
+  return url.ReplaceComponents(replacements);
+}
+
+}  // namespace
+
+GURL GetGoogleDoodleURL(const GURL& google_base_url) {
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kGoogleDoodleUrl)) {
+    return GURL(command_line->GetSwitchValueASCII(switches::kGoogleDoodleUrl));
+  }
+
+  GURL::Replacements replacements;
+  replacements.SetPathStr("async/ddljson");
+  // Make sure we use https rather than http (except for .cn).
+  if (google_base_url.SchemeIs(url::kHttpScheme) &&
+      !base::EndsWith(google_base_url.host_piece(), ".cn",
+                      base::CompareCase::INSENSITIVE_ASCII)) {
+    replacements.SetSchemeStr(url::kHttpsScheme);
+  }
   return google_base_url.ReplaceComponents(replacements);
 }
 
-AppendQueryparamsToLogoURL GetGoogleAppendQueryparamsCallback(
-    bool gray_background) {
-  if (base::FeatureList::IsEnabled(features::kUseDdljsonApi))
-    return base::Bind(&GoogleNewAppendQueryparamsToLogoURL, gray_background);
+GURL AppendFingerprintParamToDoodleURL(const GURL& logo_url,
+                                       const std::string& fingerprint) {
+  if (fingerprint.empty()) {
+    return logo_url;
+  }
 
-  return base::Bind(&GoogleLegacyAppendQueryparamsToLogoURL, gray_background);
+  return AppendToAsyncQueryparam(logo_url, "es_dfp:" + fingerprint);
 }
 
-ParseLogoResponse GetGoogleParseLogoResponseCallback(const GURL& base_url) {
-  if (base::FeatureList::IsEnabled(features::kUseDdljsonApi))
-    return base::Bind(&GoogleNewParseLogoResponse, base_url);
+GURL AppendPreliminaryParamsToDoodleURL(bool gray_background,
+                                        const GURL& logo_url) {
+  std::string api_params = "ntp:1";
+  if (gray_background) {
+    api_params += ",graybg:1";
+  }
 
-  return base::Bind(&GoogleLegacyParseLogoResponse);
+  return AppendToAsyncQueryparam(logo_url, api_params);
 }
 
 namespace {
 const char kResponsePreamble[] = ")]}'";
-}
-
-GURL GoogleLegacyAppendQueryparamsToLogoURL(bool gray_background,
-                                            const GURL& logo_url,
-                                            const std::string& fingerprint) {
-  // Note: we can't just use net::AppendQueryParameter() because it escapes
-  // ":" to "%3A", but the server requires the colon not to be escaped.
-  // See: http://crbug.com/413845
-
-  // TODO(newt): Switch to using net::AppendQueryParameter once it no longer
-  // escapes ":"
-  std::string query(logo_url.query());
-  if (!query.empty())
-    query += "&";
-
-  query += "async=";
-  std::vector<base::StringPiece> params;
-  std::string fingerprint_param;
-  if (!fingerprint.empty()) {
-    fingerprint_param = "es_dfp:" + fingerprint;
-    params.push_back(fingerprint_param);
-  }
-
-  params.push_back("cta:1");
-
-  if (gray_background) {
-    params.push_back("transp:1");
-    params.push_back("graybg:1");
-  }
-
-  query += base::JoinString(params, ",");
-  GURL::Replacements replacements;
-  replacements.SetQueryStr(query);
-  return logo_url.ReplaceComponents(replacements);
-}
-
-std::unique_ptr<EncodedLogo> GoogleLegacyParseLogoResponse(
-    std::unique_ptr<std::string> response,
-    base::Time response_time,
-    bool* parsing_failed) {
-  // Google doodles are sent as JSON with a prefix. Example:
-  //   )]}' {"update":{"logo":{
-  //     "data": "/9j/4QAYRXhpZgAASUkqAAgAAAAAAAAAAAAAAP/...",
-  //     "mime_type": "image/png",
-  //     "fingerprint": "db063e32",
-  //     "target": "http://www.google.com.au/search?q=Wilbur+Christiansen",
-  //     "url": "http://www.google.com/logos/doodle.png",
-  //     "alt": "Wilbur Christiansen's Birthday"
-  //     "time_to_live": 1389304799
-  //   }}}
-
-  // The response may start with )]}'. Ignore this.
-  base::StringPiece response_sp(*response);
-  if (response_sp.starts_with(kResponsePreamble))
-    response_sp.remove_prefix(strlen(kResponsePreamble));
-
-  // Default parsing failure to be true.
-  *parsing_failed = true;
-
-  int error_code;
-  std::string error_string;
-  int error_line;
-  int error_col;
-  std::unique_ptr<base::Value> value = base::JSONReader::ReadAndReturnError(
-      response_sp, 0, &error_code, &error_string, &error_line, &error_col);
-  if (!value) {
-    LOG(WARNING) << error_string << " at " << error_line << ":" << error_col;
-    return nullptr;
-  }
-  // The important data lives inside several nested dictionaries:
-  // {"update": {"logo": { "mime_type": ..., etc } } }
-  const base::DictionaryValue* outer_dict;
-  if (!value->GetAsDictionary(&outer_dict))
-    return nullptr;
-  const base::DictionaryValue* update_dict;
-  if (!outer_dict->GetDictionary("update", &update_dict))
-    return nullptr;
-
-  // If there is no logo today, the "update" dictionary will be empty.
-  if (update_dict->empty()) {
-    *parsing_failed = false;
-    return nullptr;
-  }
-
-  const base::DictionaryValue* logo_dict;
-  if (!update_dict->GetDictionary("logo", &logo_dict))
-    return nullptr;
-
-  std::unique_ptr<EncodedLogo> logo(new EncodedLogo());
-
-  std::string encoded_image_base64;
-  if (logo_dict->GetString("data", &encoded_image_base64)) {
-    // Data is optional, since we may be revalidating a cached logo.
-    base::RefCountedString* encoded_image_string = new base::RefCountedString();
-    if (!base::Base64Decode(encoded_image_base64,
-                            &encoded_image_string->data()))
-      return nullptr;
-    logo->encoded_image = encoded_image_string;
-    if (!logo_dict->GetString("mime_type", &logo->metadata.mime_type))
-      return nullptr;
-  }
-
-  // Don't check return values since these fields are optional.
-  logo_dict->GetString("target", &logo->metadata.on_click_url);
-  logo_dict->GetString("fingerprint", &logo->metadata.fingerprint);
-  logo_dict->GetString("alt", &logo->metadata.alt_text);
-
-  // Existance of url indicates |data| is a call to action image for an
-  // animated doodle. |url| points to that animated doodle.
-  logo_dict->GetString("url", &logo->metadata.animated_url);
-
-  base::TimeDelta time_to_live;
-  int time_to_live_ms;
-  if (logo_dict->GetInteger("time_to_live", &time_to_live_ms)) {
-    time_to_live = base::TimeDelta::FromMilliseconds(
-        std::min(static_cast<int64_t>(time_to_live_ms), kMaxTimeToLiveMS));
-    logo->metadata.can_show_after_expiration = false;
-  } else {
-    time_to_live = base::TimeDelta::FromMilliseconds(kMaxTimeToLiveMS);
-    logo->metadata.can_show_after_expiration = true;
-  }
-  logo->metadata.expiration_time = response_time + time_to_live;
-
-  // If this point is reached, parsing has succeeded.
-  *parsing_failed = false;
-  return logo;
-}
-
-GURL GoogleNewAppendQueryparamsToLogoURL(bool gray_background,
-                                         const GURL& logo_url,
-                                         const std::string& fingerprint) {
-  // Note: we can't just use net::AppendQueryParameter() because it escapes
-  // ":" to "%3A", but the server requires the colon not to be escaped.
-  // See: http://crbug.com/413845
-
-  std::string query(logo_url.query());
-  if (!query.empty())
-    query += "&";
-
-  query += "async=";
-
-  std::vector<base::StringPiece> params;
-  params.push_back("ntp:1");
-  if (gray_background) {
-    params.push_back("graybg:1");
-  }
-  if (!fingerprint.empty()) {
-    params.push_back("es_dfp:" + fingerprint);
-  }
-  query += base::JoinString(params, ",");
-
-  GURL::Replacements replacements;
-  replacements.SetQueryStr(query);
-  return logo_url.ReplaceComponents(replacements);
-}
-
-namespace {
 
 GURL ParseUrl(const base::DictionaryValue& parent_dict,
               const std::string& key,
@@ -214,12 +121,19 @@ GURL ParseUrl(const base::DictionaryValue& parent_dict,
   if (!parent_dict.GetString(key, &url_str) || url_str.empty()) {
     return GURL();
   }
-  return base_url.Resolve(url_str);
+  GURL result = base_url.Resolve(url_str);
+  // If the base URL is https:// (which should almost always be the case, see
+  // above), then we require all other URLs to be https:// too.
+  if (base_url.SchemeIs(url::kHttpsScheme) &&
+      !result.SchemeIs(url::kHttpsScheme)) {
+    return GURL();
+  }
+  return result;
 }
 
 }  // namespace
 
-std::unique_ptr<EncodedLogo> GoogleNewParseLogoResponse(
+std::unique_ptr<EncodedLogo> ParseDoodleLogoResponse(
     const GURL& base_url,
     std::unique_ptr<std::string> response,
     base::Time response_time,
@@ -258,28 +172,70 @@ std::unique_ptr<EncodedLogo> GoogleNewParseLogoResponse(
     return nullptr;
   }
 
-  auto logo = base::MakeUnique<EncodedLogo>();
+  auto logo = std::make_unique<EncodedLogo>();
 
-  // Check if the main image is animated.
-  bool is_animated = false;
-  const base::DictionaryValue* image = nullptr;
-  if (ddljson->GetDictionary("large_image", &image)) {
-    image->GetBoolean("is_animated", &is_animated);
-
-    // If animated, get the URL for the animated image.
-    if (is_animated) {
-      GURL animated_url = ParseUrl(*image, "url", base_url);
-      if (!animated_url.is_valid())
-        return nullptr;
-      logo->metadata.animated_url = animated_url.spec();
+  std::string doodle_type;
+  logo->metadata.type = LogoType::SIMPLE;
+  if (ddljson->GetString("doodle_type", &doodle_type)) {
+    if (doodle_type == "ANIMATED") {
+      logo->metadata.type = LogoType::ANIMATED;
+    } else if (doodle_type == "INTERACTIVE") {
+      logo->metadata.type = LogoType::INTERACTIVE;
+    } else if (doodle_type == "VIDEO") {
+      logo->metadata.type = LogoType::INTERACTIVE;
     }
   }
 
+  const bool is_animated = (logo->metadata.type == LogoType::ANIMATED);
+  bool is_interactive = (logo->metadata.type == LogoType::INTERACTIVE);
+
+  // Check if the main image is animated.
+  if (is_animated) {
+    // If animated, get the URL for the animated image.
+    const base::DictionaryValue* image = nullptr;
+    if (!ddljson->GetDictionary("large_image", &image))
+      return nullptr;
+    logo->metadata.animated_url = ParseUrl(*image, "url", base_url);
+    if (!logo->metadata.animated_url.is_valid())
+      return nullptr;
+  }
+
+  const bool is_eligible_for_share_button =
+      (logo->metadata.type == LogoType::ANIMATED ||
+       logo->metadata.type == LogoType::SIMPLE);
+
+  if (is_eligible_for_share_button) {
+    const base::DictionaryValue* share_button = nullptr;
+    std::string short_link_str;
+    // The short link in the doodle proto is an incomplete URL with the format
+    // //g.co/*, //doodle.gle/* or //google.com?doodle=*.
+    // Complete the URL if possible.
+    if (ddljson->GetDictionary("share_button", &share_button) &&
+        ddljson->GetString("short_link", &short_link_str) &&
+        short_link_str.find("//") == 0) {
+      short_link_str.insert(0, "https:");
+      logo->metadata.short_link = GURL(short_link_str);
+      if (logo->metadata.short_link.is_valid()) {
+        share_button->GetInteger("offset_x", &logo->metadata.share_button_x);
+        share_button->GetInteger("offset_y", &logo->metadata.share_button_y);
+        share_button->GetDouble("opacity",
+                                &logo->metadata.share_button_opacity);
+        share_button->GetString("icon_image",
+                                &logo->metadata.share_button_icon);
+        share_button->GetString("background_color",
+                                &logo->metadata.share_button_bg);
+      }
+    }
+  }
+
+  logo->metadata.full_page_url =
+      ParseUrl(*ddljson, "fullpage_interactive_url", base_url);
+
   // Data is optional, since we may be revalidating a cached logo.
-  // If this is an animated doodle, get the CTA image data.
+  // If there is a CTA image, get that; otherwise use the regular image.
   std::string encoded_image_data;
-  if (ddljson->GetString(is_animated ? "cta_data_uri" : "data_uri",
-                         &encoded_image_data)) {
+  if (ddljson->GetString("cta_data_uri", &encoded_image_data) ||
+      ddljson->GetString("data_uri", &encoded_image_data)) {
     GURL encoded_image_uri(encoded_image_data);
     if (!encoded_image_uri.is_valid() ||
         !encoded_image_uri.SchemeIs(url::kDataScheme)) {
@@ -309,11 +265,36 @@ std::unique_ptr<EncodedLogo> GoogleNewParseLogoResponse(
       return nullptr;
   }
 
-  logo->metadata.on_click_url =
-      ParseUrl(*ddljson, "target_url", base_url).spec();
+  logo->metadata.on_click_url = ParseUrl(*ddljson, "target_url", base_url);
   ddljson->GetString("alt_text", &logo->metadata.alt_text);
 
+  if (base::FeatureList::IsEnabled(features::kDoodleLogging)) {
+    logo->metadata.cta_log_url = ParseUrl(*ddljson, "cta_log_url", base_url);
+    logo->metadata.log_url = ParseUrl(*ddljson, "log_url", base_url);
+  }
+
   ddljson->GetString("fingerprint", &logo->metadata.fingerprint);
+
+  if (is_interactive) {
+    std::string behavior;
+    if (ddljson->GetString("launch_interactive_behavior", &behavior) &&
+        (behavior == "NEW_WINDOW")) {
+      logo->metadata.type = LogoType::SIMPLE;
+      logo->metadata.on_click_url = logo->metadata.full_page_url;
+      is_interactive = false;
+    }
+  }
+
+  logo->metadata.iframe_width_px = 0;
+  logo->metadata.iframe_height_px = 0;
+  if (is_interactive) {
+    if (!ddljson->GetInteger("iframe_width_px",
+                             &logo->metadata.iframe_width_px))
+      logo->metadata.iframe_width_px = kDefaultIframeWidthPx;
+    if (!ddljson->GetInteger("iframe_height_px",
+                             &logo->metadata.iframe_height_px))
+      logo->metadata.iframe_height_px = kDefaultIframeHeightPx;
+  }
 
   base::TimeDelta time_to_live;
   // The JSON doesn't guarantee the number to fit into an int.

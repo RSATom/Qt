@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/stream.h"
-#include "webrtc/rtc_base/fileutils.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/pathutils.h"
+#include "rtc_base/stream.h"
+
+#include <string.h>
+
+#include "test/gtest.h"
 
 namespace rtc {
 
@@ -21,11 +22,14 @@ namespace rtc {
 
 class TestStream : public StreamInterface {
  public:
-  TestStream() : pos_(0) { }
+  TestStream() : pos_(0) {}
 
-  virtual StreamState GetState() const { return SS_OPEN; }
-  virtual StreamResult Read(void* buffer, size_t buffer_len,
-                            size_t* read, int* error) {
+  StreamState GetState() const override { return SS_OPEN; }
+
+  StreamResult Read(void* buffer,
+                    size_t buffer_len,
+                    size_t* read,
+                    int* error) override {
     unsigned char* uc_buffer = static_cast<unsigned char*>(buffer);
     for (size_t i = 0; i < buffer_len; ++i) {
       uc_buffer[i] = static_cast<unsigned char>(pos_++);
@@ -34,34 +38,23 @@ class TestStream : public StreamInterface {
       *read = buffer_len;
     return SR_SUCCESS;
   }
-  virtual StreamResult Write(const void* data, size_t data_len,
-                             size_t* written, int* error) {
+
+  StreamResult Write(const void* data,
+                     size_t data_len,
+                     size_t* written,
+                     int* error) override {
     if (error)
       *error = -1;
     return SR_ERROR;
   }
-  virtual void Close() { }
-  virtual bool SetPosition(size_t position) {
-    pos_ = position;
-    return true;
-  }
-  virtual bool GetPosition(size_t* position) const {
-    if (position) *position = pos_;
-    return true;
-  }
-  virtual bool GetSize(size_t* size) const {
-    return false;
-  }
-  virtual bool GetAvailable(size_t* size) const {
-    return false;
-  }
+
+  void Close() override {}
 
  private:
   size_t pos_;
 };
 
-bool VerifyTestBuffer(unsigned char* buffer, size_t len,
-                      unsigned char value) {
+bool VerifyTestBuffer(unsigned char* buffer, size_t len, unsigned char value) {
   bool passed = true;
   for (size_t i = 0; i < len; ++i) {
     if (buffer[i] != value++) {
@@ -74,26 +67,6 @@ bool VerifyTestBuffer(unsigned char* buffer, size_t len,
   return passed;
 }
 
-void SeekTest(StreamInterface* stream, const unsigned char value) {
-  size_t bytes;
-  unsigned char buffer[13] = { 0 };
-  const size_t kBufSize = sizeof(buffer);
-
-  EXPECT_EQ(stream->Read(buffer, kBufSize, &bytes, nullptr), SR_SUCCESS);
-  EXPECT_EQ(bytes, kBufSize);
-  EXPECT_TRUE(VerifyTestBuffer(buffer, kBufSize, value));
-  EXPECT_TRUE(stream->GetPosition(&bytes));
-  EXPECT_EQ(13U, bytes);
-
-  EXPECT_TRUE(stream->SetPosition(7));
-
-  EXPECT_EQ(stream->Read(buffer, kBufSize, &bytes, nullptr), SR_SUCCESS);
-  EXPECT_EQ(bytes, kBufSize);
-  EXPECT_TRUE(VerifyTestBuffer(buffer, kBufSize, value + 7));
-  EXPECT_TRUE(stream->GetPosition(&bytes));
-  EXPECT_EQ(20U, bytes);
-}
-
 TEST(FifoBufferTest, TestAll) {
   const size_t kSize = 16;
   const char in[kSize * 2 + 1] = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
@@ -102,56 +75,52 @@ TEST(FifoBufferTest, TestAll) {
   const void* q;
   size_t bytes;
   FifoBuffer buf(kSize);
-  StreamInterface* stream = &buf;
 
   // Test assumptions about base state
-  EXPECT_EQ(SS_OPEN, stream->GetState());
-  EXPECT_EQ(SR_BLOCK, stream->Read(out, kSize, &bytes, nullptr));
-  EXPECT_TRUE(nullptr != stream->GetReadData(&bytes));
-  EXPECT_EQ((size_t)0, bytes);
-  stream->ConsumeReadData(0);
-  EXPECT_TRUE(nullptr != stream->GetWriteBuffer(&bytes));
+  EXPECT_EQ(SS_OPEN, buf.GetState());
+  EXPECT_EQ(SR_BLOCK, buf.Read(out, kSize, &bytes, nullptr));
+  EXPECT_TRUE(nullptr != buf.GetWriteBuffer(&bytes));
   EXPECT_EQ(kSize, bytes);
-  stream->ConsumeWriteBuffer(0);
+  buf.ConsumeWriteBuffer(0);
 
   // Try a full write
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
 
   // Try a write that should block
-  EXPECT_EQ(SR_BLOCK, stream->Write(in, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_BLOCK, buf.Write(in, kSize, &bytes, nullptr));
 
   // Try a full read
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize));
 
   // Try a read that should block
-  EXPECT_EQ(SR_BLOCK, stream->Read(out, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_BLOCK, buf.Read(out, kSize, &bytes, nullptr));
 
   // Try a too-big write
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize * 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize * 2, &bytes, nullptr));
   EXPECT_EQ(bytes, kSize);
 
   // Try a too-big read
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize * 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize * 2, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize));
 
   // Try some small writes and reads
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(kSize / 2, bytes);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
-  EXPECT_EQ(kSize / 2, bytes);
-  EXPECT_EQ(0, memcmp(in, out, kSize / 2));
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
-  EXPECT_EQ(kSize / 2, bytes);
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
-  EXPECT_EQ(kSize / 2, bytes);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize / 2));
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(kSize / 2, bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(kSize / 2, bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(kSize / 2, bytes);
+  EXPECT_EQ(0, memcmp(in, out, kSize / 2));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize / 2));
 
@@ -163,51 +132,51 @@ TEST(FifoBufferTest, TestAll) {
   // XXXXWWWWWWWWXXXX 4567012345670123
   // RRRRXXXXXXXXRRRR ....01234567....
   // ....RRRRRRRR.... ................
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize * 3 / 4, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize * 3 / 4, &bytes, nullptr));
   EXPECT_EQ(kSize * 3 / 4, bytes);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize / 2));
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(kSize / 2, bytes);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 4, &bytes, nullptr));
-  EXPECT_EQ(kSize / 4 , bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 4, &bytes, nullptr));
+  EXPECT_EQ(kSize / 4, bytes);
   EXPECT_EQ(0, memcmp(in + kSize / 2, out, kSize / 4));
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(kSize / 2, bytes);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
-  EXPECT_EQ(kSize / 2 , bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize / 2));
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
-  EXPECT_EQ(kSize / 2 , bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize / 2));
 
   // Use GetWriteBuffer to reset the read_position for the next tests
-  stream->GetWriteBuffer(&bytes);
-  stream->ConsumeWriteBuffer(0);
+  buf.GetWriteBuffer(&bytes);
+  buf.ConsumeWriteBuffer(0);
 
   // Try using GetReadData to do a full read
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize, &bytes, nullptr));
-  q = stream->GetReadData(&bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize, &bytes, nullptr));
+  q = buf.GetReadData(&bytes);
   EXPECT_TRUE(nullptr != q);
   EXPECT_EQ(kSize, bytes);
   EXPECT_EQ(0, memcmp(q, in, kSize));
-  stream->ConsumeReadData(kSize);
-  EXPECT_EQ(SR_BLOCK, stream->Read(out, kSize, &bytes, nullptr));
+  buf.ConsumeReadData(kSize);
+  EXPECT_EQ(SR_BLOCK, buf.Read(out, kSize, &bytes, nullptr));
 
   // Try using GetReadData to do some small reads
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize, &bytes, nullptr));
-  q = stream->GetReadData(&bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize, &bytes, nullptr));
+  q = buf.GetReadData(&bytes);
   EXPECT_TRUE(nullptr != q);
   EXPECT_EQ(kSize, bytes);
   EXPECT_EQ(0, memcmp(q, in, kSize / 2));
-  stream->ConsumeReadData(kSize / 2);
-  q = stream->GetReadData(&bytes);
+  buf.ConsumeReadData(kSize / 2);
+  q = buf.GetReadData(&bytes);
   EXPECT_TRUE(nullptr != q);
   EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(q, in + kSize / 2, kSize / 2));
-  stream->ConsumeReadData(kSize / 2);
-  EXPECT_EQ(SR_BLOCK, stream->Read(out, kSize, &bytes, nullptr));
+  buf.ConsumeReadData(kSize / 2);
+  EXPECT_EQ(SR_BLOCK, buf.Read(out, kSize, &bytes, nullptr));
 
   // Try using GetReadData in a wraparound case
   // WWWWWWWWWWWWWWWW 0123456789ABCDEF
@@ -215,46 +184,46 @@ TEST(FifoBufferTest, TestAll) {
   // WWWWWWWW....XXXX 01234567....CDEF
   // ............RRRR 01234567........
   // RRRRRRRR........ ................
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize, &bytes, nullptr));
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize * 3 / 4, &bytes, nullptr));
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
-  q = stream->GetReadData(&bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize * 3 / 4, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize / 2, &bytes, nullptr));
+  q = buf.GetReadData(&bytes);
   EXPECT_TRUE(nullptr != q);
   EXPECT_EQ(kSize / 4, bytes);
   EXPECT_EQ(0, memcmp(q, in + kSize * 3 / 4, kSize / 4));
-  stream->ConsumeReadData(kSize / 4);
-  q = stream->GetReadData(&bytes);
+  buf.ConsumeReadData(kSize / 4);
+  q = buf.GetReadData(&bytes);
   EXPECT_TRUE(nullptr != q);
   EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(q, in, kSize / 2));
-  stream->ConsumeReadData(kSize / 2);
+  buf.ConsumeReadData(kSize / 2);
 
   // Use GetWriteBuffer to reset the read_position for the next tests
-  stream->GetWriteBuffer(&bytes);
-  stream->ConsumeWriteBuffer(0);
+  buf.GetWriteBuffer(&bytes);
+  buf.ConsumeWriteBuffer(0);
 
   // Try using GetWriteBuffer to do a full write
-  p = stream->GetWriteBuffer(&bytes);
+  p = buf.GetWriteBuffer(&bytes);
   EXPECT_TRUE(nullptr != p);
   EXPECT_EQ(kSize, bytes);
   memcpy(p, in, kSize);
-  stream->ConsumeWriteBuffer(kSize);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize, &bytes, nullptr));
+  buf.ConsumeWriteBuffer(kSize);
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize));
 
   // Try using GetWriteBuffer to do some small writes
-  p = stream->GetWriteBuffer(&bytes);
+  p = buf.GetWriteBuffer(&bytes);
   EXPECT_TRUE(nullptr != p);
   EXPECT_EQ(kSize, bytes);
   memcpy(p, in, kSize / 2);
-  stream->ConsumeWriteBuffer(kSize / 2);
-  p = stream->GetWriteBuffer(&bytes);
+  buf.ConsumeWriteBuffer(kSize / 2);
+  p = buf.GetWriteBuffer(&bytes);
   EXPECT_TRUE(nullptr != p);
   EXPECT_EQ(kSize / 2, bytes);
   memcpy(p, in + kSize / 2, kSize / 2);
-  stream->ConsumeWriteBuffer(kSize / 2);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize, &bytes, nullptr));
+  buf.ConsumeWriteBuffer(kSize / 2);
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize));
 
@@ -264,53 +233,53 @@ TEST(FifoBufferTest, TestAll) {
   // ........XXXXWWWW ........89AB0123
   // WWWW....XXXXXXXX 4567....89AB0123
   // RRRR....RRRRRRRR ................
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize * 3 / 4, &bytes, nullptr));
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
-  p = stream->GetWriteBuffer(&bytes);
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize * 3 / 4, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 2, &bytes, nullptr));
+  p = buf.GetWriteBuffer(&bytes);
   EXPECT_TRUE(nullptr != p);
   EXPECT_EQ(kSize / 4, bytes);
   memcpy(p, in, kSize / 4);
-  stream->ConsumeWriteBuffer(kSize / 4);
-  p = stream->GetWriteBuffer(&bytes);
+  buf.ConsumeWriteBuffer(kSize / 4);
+  p = buf.GetWriteBuffer(&bytes);
   EXPECT_TRUE(nullptr != p);
   EXPECT_EQ(kSize / 2, bytes);
   memcpy(p, in + kSize / 4, kSize / 4);
-  stream->ConsumeWriteBuffer(kSize / 4);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize * 3 / 4, &bytes, nullptr));
+  buf.ConsumeWriteBuffer(kSize / 4);
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize * 3 / 4, &bytes, nullptr));
   EXPECT_EQ(kSize * 3 / 4, bytes);
   EXPECT_EQ(0, memcmp(in + kSize / 2, out, kSize / 4));
   EXPECT_EQ(0, memcmp(in, out + kSize / 4, kSize / 4));
 
   // Check that the stream is now empty
-  EXPECT_EQ(SR_BLOCK, stream->Read(out, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_BLOCK, buf.Read(out, kSize, &bytes, nullptr));
 
   // Try growing the buffer
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
   EXPECT_TRUE(buf.SetCapacity(kSize * 2));
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in + kSize, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in + kSize, kSize, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize * 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize * 2, &bytes, nullptr));
   EXPECT_EQ(kSize * 2, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize * 2));
 
   // Try shrinking the buffer
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
   EXPECT_TRUE(buf.SetCapacity(kSize));
-  EXPECT_EQ(SR_BLOCK, stream->Write(in, kSize, &bytes, nullptr));
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_BLOCK, buf.Write(in, kSize, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize, &bytes, nullptr));
   EXPECT_EQ(kSize, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize));
 
   // Write to the stream, close it, read the remaining bytes
-  EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
-  stream->Close();
-  EXPECT_EQ(SS_CLOSED, stream->GetState());
-  EXPECT_EQ(SR_EOS, stream->Write(in, kSize / 2, &bytes, nullptr));
-  EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Write(in, kSize / 2, &bytes, nullptr));
+  buf.Close();
+  EXPECT_EQ(SS_CLOSED, buf.GetState());
+  EXPECT_EQ(SR_EOS, buf.Write(in, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_SUCCESS, buf.Read(out, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(0, memcmp(in, out, kSize / 2));
-  EXPECT_EQ(SR_EOS, stream->Read(out, kSize / 2, &bytes, nullptr));
+  EXPECT_EQ(SR_EOS, buf.Read(out, kSize / 2, &bytes, nullptr));
 }
 
 TEST(FifoBufferTest, FullBufferCheck) {

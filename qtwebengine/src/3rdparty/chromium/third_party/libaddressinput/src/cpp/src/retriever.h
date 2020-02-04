@@ -18,9 +18,8 @@
 #define I18N_ADDRESSINPUT_RETRIEVER_H_
 
 #include <libaddressinput/callback.h>
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
 
+#include <memory>
 #include <string>
 
 namespace i18n {
@@ -34,13 +33,16 @@ class ValidatingStorage;
 //    Source* source = ...;
 //    Storage* storage = ...;
 //    Retriever retriever(source, storage);
-//    const scoped_ptr<const Retriever::Callback> retrieved(
+//    const std::unique_ptr<const Retriever::Callback> retrieved(
 //        BuildCallback(this, &MyClass::OnDataRetrieved));
 //    retriever.Retrieve("data/CA/AB--fr", *retrieved);
 class Retriever {
  public:
-  typedef i18n::addressinput::Callback<const std::string&,
-                                       const std::string&> Callback;
+  using Callback =
+      i18n::addressinput::Callback<const std::string&, const std::string&>;
+
+  Retriever(const Retriever&) = delete;
+  Retriever& operator=(const Retriever&) = delete;
 
   // Takes ownership of |source| and |storage|.
   Retriever(const Source* source, Storage* storage);
@@ -56,10 +58,8 @@ class Retriever {
   void Retrieve(const std::string& key, const Callback& retrieved) const;
 
  private:
-  scoped_ptr<const Source> source_;
-  scoped_ptr<ValidatingStorage> storage_;
-
-  DISALLOW_COPY_AND_ASSIGN(Retriever);
+  std::unique_ptr<const Source> source_;
+  std::unique_ptr<ValidatingStorage> storage_;
 };
 
 }  // namespace addressinput

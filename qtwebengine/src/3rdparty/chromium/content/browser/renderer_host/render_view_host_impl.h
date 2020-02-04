@@ -29,11 +29,11 @@
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/render_view_host.h"
 #include "net/base/load_states.h"
-#include "third_party/WebKit/public/web/WebAXEnums.h"
-#include "third_party/WebKit/public/web/WebConsoleMessage.h"
-#include "third_party/WebKit/public/web/WebPopupType.h"
+#include "third_party/blink/public/web/web_ax_enums.h"
+#include "third_party/blink/public/web/web_console_message.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/mojo/window_open_disposition.mojom.h"
+#include "ui/gl/gpu_switching_observer.h"
 
 namespace content {
 
@@ -60,13 +60,15 @@ class TimeoutMonitor;
 // (if frame specific) or WebContentsImpl (if page specific).
 //
 // For context, please see https://crbug.com/467770 and
-// http://www.chromium.org/developers/design-documents/site-isolation.
+// https://www.chromium.org/developers/design-documents/site-isolation.
 class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
                                           public RenderWidgetHostOwnerDelegate,
-                                          public RenderProcessHostObserver {
+                                          public RenderProcessHostObserver,
+                                          public ui::GpuSwitchingObserver,
+                                          public IPC::Listener {
  public:
   // Convenience function, just like RenderViewHost::FromID.
-  static RenderViewHostImpl* FromID(int render_process_id, int render_view_id);
+  static RenderViewHostImpl* FromID(int process_id, int routing_id);
 
   // Convenience function, just like RenderViewHost::From.
   static RenderViewHostImpl* From(RenderWidgetHost* rwh);
@@ -74,9 +76,12 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   RenderViewHostImpl(SiteInstance* instance,
                      std::unique_ptr<RenderWidgetHostImpl> widget,
                      RenderViewHostDelegate* delegate,
+                     int32_t routing_id,
                      int32_t main_frame_routing_id,
                      bool swapped_out,
                      bool has_initialized_audio_host);
+  // TODO(ajwong): Make destructor private. Deletion of this object should only
+  // be done via ShutdownAndDestroy(). https://crbug.com/545684
   ~RenderViewHostImpl() override;
 
   // Shuts down this RenderViewHost and deletes it.
@@ -88,17 +93,7 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   RenderProcessHost* GetProcess() const override;
   int GetRoutingID() const override;
   RenderFrameHost* GetMainFrame() override;
-  void DirectoryEnumerationFinished(
-      int request_id,
-      const std::vector<base::FilePath>& files) override;
-  void DisableScrollbarsForThreshold(const gfx::Size& size) override;
-  void EnableAutoResize(const gfx::Size& min_size,
-                        const gfx::Size& max_size) override;
-  void DisableAutoResize(const gfx::Size& new_size) override;
   void EnablePreferredSizeMode() override;
-  void ExecuteMediaPlayerActionAtLocation(
-      const gfx::Point& location,
-      const blink::WebMediaPlayerAction& action) override;
   void ExecutePluginActionAtLocation(
       const gfx::Point& location,
       const blink::WebPluginAction& action) override;
@@ -112,17 +107,13 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   WebPreferences GetWebkitPreferences() override;
   void UpdateWebkitPreferences(const WebPreferences& prefs) override;
   void OnWebkitPreferencesChanged() override;
-  void SelectWordAroundCaret() override;
 
   // RenderProcessHostObserver implementation
   void RenderProcessExited(RenderProcessHost* host,
-                           base::TerminationStatus status,
-                           int exit_code) override;
+                           const ChildProcessTerminationInfo& info) override;
 
-  void set_delegate(RenderViewHostDelegate* d) {
-    CHECK(d);  // http://crbug.com/82827
-    delegate_ = d;
-  }
+  // GpuSwitchingObserver implementation.
+  void OnGpuSwitched() override;
 
   // Set up the RenderView child process. Virtual because it is overridden by
   // TestRenderViewHost.
@@ -132,11 +123,14 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // created with an opener. (The opener may have been closed since.)
   // The |proxy_route_id| is only used when creating a RenderView in swapped out
   // state.
+  // |devtools_frame_token| contains the devtools token for tagging requests and
+  // attributing them to the context frame.
   // |replicated_frame_state| contains replicated data for the top-level frame,
   // such as its name and sandbox flags.
   virtual bool CreateRenderView(
       int opener_frame_route_id,
       int proxy_route_id,
+      const base::UnguessableToken& devtools_frame_token,
       const FrameReplicationState& replicated_frame_state,
       bool window_was_created_with_opener);
 
@@ -147,8 +141,7 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // Tracks whether this RenderViewHost is in an active state (rather than
   // pending swap out or swapped out), according to its main frame
   // RenderFrameHost.
-  bool is_active() const { return is_active_; }
-  void set_is_active(bool is_active) { is_active_ = is_active; }
+  bool is_active() const { return main_frame_routing_id_ != MSG_ROUTING_NONE; }
 
   // Tracks whether this RenderViewHost is swapped out, according to its main
   // frame RenderFrameHost.
@@ -158,6 +151,23 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
 
   // TODO(creis): Remove as part of http://crbug.com/418265.
   bool is_waiting_for_close_ack() const { return is_waiting_for_close_ack_; }
+
+  // Generate RenderViewCreated events for observers through the delegate.
+  // These events are only generated for active RenderViewHosts (which have a
+  // RenderFrameHost for the main frame) as well as inactive RenderViewHosts
+  // that have a pending main frame navigation; i.e., this is done only when
+  // GetMainFrame() is non-null.
+  //
+  // This function also ensures that a particular RenderViewHost never
+  // dispatches these events more than once.  For example, if a RenderViewHost
+  // transitions from active to inactive after a cross-process navigation
+  // (where it no longer has a main frame RenderFrameHost), and then back to
+  // active after another cross-process navigation, this function will filter
+  // out the second notification.
+  //
+  // TODO(alexmos): Deprecate RenderViewCreated and remove this.  See
+  // https://crbug.com/763548.
+  void DispatchRenderViewCreated();
 
   // Tells the renderer process to run the page's unload handler.
   // A ClosePage_ACK ack is sent back when the handler execution completes.
@@ -176,11 +186,8 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
     sudden_termination_allowed_ = enabled;
   }
 
-  // Creates a new RenderWidget with the given route id.  |popup_type| indicates
-  // if this widget is a popup and what kind of popup it is (select, autofill).
-  void CreateNewWidget(int32_t route_id,
-                       mojom::WidgetPtr widget,
-                       blink::WebPopupType popup_type);
+  // Creates a new RenderWidget with the given route id.
+  void CreateNewWidget(int32_t route_id, mojom::WidgetPtr widget);
 
   // Creates a full screen RenderWidget.
   void CreateNewFullscreenWidget(int32_t route_id, mojom::WidgetPtr widget);
@@ -189,9 +196,15 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // re-entrantly.
   void PostRenderViewReady();
 
-  void set_main_frame_routing_id(int routing_id) {
-    main_frame_routing_id_ = routing_id;
-  }
+  // Passes current web preferences to the renderer after recomputing all of
+  // them, including the slow-to-compute hardware preferences.
+  // (RenderViewHost::OnWebkitPreferencesChanged is a faster alternate that
+  // avoids slow recomputations.)
+  void OnHardwareConfigurationChanged();
+
+  // Sets the routing id for the main frame. When set to MSG_ROUTING_NONE, the
+  // view is not considered active.
+  void SetMainFrameRoutingId(int routing_id);
 
   // Increases the refcounting on this RVH. This is done by the FrameTree on
   // creation of a RenderFrameHost or RenderFrameProxyHost.
@@ -205,6 +218,10 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // and RenderFrameProxyHosts currently using it.
   int ref_count() { return frames_ref_count_; }
 
+  // Called during frame eviction to return all SurfaceIds in the frame tree.
+  // Marks all views in the frame tree as evicted.
+  std::vector<viz::SurfaceId> CollectSurfaceIdsForEviction();
+
   // NOTE: Do not add functions that just send an IPC message that are called in
   // one or two places. Have the caller send the IPC message directly (unless
   // the caller places are in different platforms, in which case it's better
@@ -212,31 +229,38 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
 
  protected:
   // RenderWidgetHostOwnerDelegate overrides.
-  bool OnMessageReceived(const IPC::Message& msg) override;
   void RenderWidgetDidInit() override;
-  void RenderWidgetWillSetIsLoading(bool is_loading) override;
+  void RenderWidgetDidClose() override;
+  void RenderWidgetNeedsToRouteCloseEvent() override;
+  void RenderWidgetDidFirstVisuallyNonEmptyPaint() override;
+  void RenderWidgetDidCommitAndDrawCompositorFrame() override;
   void RenderWidgetGotFocus() override;
   void RenderWidgetLostFocus() override;
   void RenderWidgetDidForwardMouseEvent(
       const blink::WebMouseEvent& mouse_event) override;
   bool MayRenderWidgetForwardKeyboardEvent(
       const NativeWebKeyboardEvent& key_event) override;
+  bool ShouldContributePriorityToProcess() override;
+  void RequestSetBounds(const gfx::Rect& bounds) override;
+  void SetBackgroundOpaque(bool opaque) override;
+  bool IsMainFrameActive() override;
+  bool IsNeverVisible() override;
+  WebPreferences GetWebkitPreferencesForWidget() override;
+  FrameTreeNode* GetFocusedFrame() override;
+  void ShowContextMenu(RenderFrameHost* render_frame_host,
+                       const ContextMenuParams& params) override;
 
   // IPC message handlers.
   void OnShowView(int route_id,
                   WindowOpenDisposition disposition,
                   const gfx::Rect& initial_rect,
                   bool user_gesture);
-  void OnShowWidget(int route_id, const gfx::Rect& initial_rect);
-  void OnShowFullscreenWidget(int route_id);
-  void OnRenderProcessGone(int status, int error_code);
+  void OnShowWidget(int widget_route_id, const gfx::Rect& initial_rect);
+  void OnShowFullscreenWidget(int widget_route_id);
   void OnUpdateTargetURL(const GURL& url);
-  void OnClose();
-  void OnRequestMove(const gfx::Rect& pos);
   void OnDocumentAvailableInMainFrame(bool uses_temporary_zoom_level);
   void OnDidContentsPreferredSizeChange(const gfx::Size& new_size);
   void OnPasteFromSelectionClipboard();
-  void OnRouteCloseEvent();
   void OnTakeFocus(bool reverse);
   void OnClosePageACK();
   void OnDidZoomURL(double zoom_level, const GURL& url);
@@ -257,6 +281,9 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   FRIEND_TEST_ALL_PREFIXES(SitePerProcessBrowserTest,
                            NavigateMainFrameToChildSite);
 
+  // IPC::Listener implementation.
+  bool OnMessageReceived(const IPC::Message& msg) override;
+
   void RenderViewReady();
 
   // Called by |close_timeout_| when the page closing timeout fires.
@@ -267,11 +294,20 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // to fire.
   static const int64_t kUnloadTimeoutMS;
 
-  // Returns the content specific prefs for this RenderViewHost.
+  // Returns the content specific preferences for this RenderViewHost.
+  // Recomputes only the "fast" preferences (those not requiring slow
+  // platform/device polling); the remaining "slow" ones are recomputed only if
+  // the preference cache is empty.
+  //
   // TODO(creis): Move most of this method to RenderProcessHost, since it's
   // mostly the same across all RVHs in a process.  Move the rest to RFH.
   // See https://crbug.com/304341.
-  WebPreferences ComputeWebkitPrefs();
+  const WebPreferences ComputeWebPreferences();
+
+  // Sets the hardware-related fields in |prefs| that are slow to compute.  The
+  // fields are set from cache if available, otherwise recomputed.
+  void SetSlowWebPreferences(const base::CommandLine& command_line,
+                             WebPreferences* prefs);
 
   // The RenderWidgetHost.
   std::unique_ptr<RenderWidgetHostImpl> render_widget_host_;
@@ -287,16 +323,14 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // over time.
   scoped_refptr<SiteInstanceImpl> instance_;
 
-  // Tracks whether this RenderViewHost is in an active state.  False if the
-  // main frame is pending swap out, pending deletion, or swapped out, because
-  // it is not visible to the user in any of these cases.
-  bool is_active_;
-
   // Tracks whether the main frame RenderFrameHost is swapped out.  Unlike
-  // is_active_, this is false when the frame is pending swap out or deletion.
-  // TODO(creis): Remove this when we no longer use swappedout://.
-  // See http://crbug.com/357747.
+  // is_active(), this is false when the frame is pending swap out or deletion.
+  // TODO(creis): Remove this when we no longer filter IPCs after swap out.
+  // See https://crbug.com/745091.
   bool is_swapped_out_;
+
+  // Routing ID for this RenderViewHost.
+  const int routing_id_;
 
   // Routing ID for the main frame's RenderFrameHost.
   int main_frame_routing_id_;
@@ -327,6 +361,13 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   std::unique_ptr<InputDeviceChangeObserver> input_device_change_observer_;
 
   bool updating_web_preferences_;
+
+  // This tracks whether this RenderViewHost has notified observers about its
+  // creation with RenderViewCreated.  RenderViewHosts may transition from
+  // active (with a RenderFrameHost for the main frame) to inactive state and
+  // then back to active, and for the latter transition, this avoids firing
+  // duplicate RenderViewCreated events.
+  bool has_notified_about_creation_;
 
   base::WeakPtrFactory<RenderViewHostImpl> weak_factory_;
 

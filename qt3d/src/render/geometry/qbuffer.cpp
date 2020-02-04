@@ -117,6 +117,12 @@ QBufferPrivate::QBufferPrivate()
  */
 
 /*!
+ * \fn void Qt3DRender::QBuffer::dataAvailable()
+ *
+ * This signal is emitted when data becomes available.
+ */
+
+/*!
     \class Qt3DRender::QBufferDataGenerator
     \inmodule Qt3DRender
 
@@ -155,12 +161,12 @@ QBufferPrivate::QBufferPrivate()
             , m_radius(radius)
         {}
 
-        QByteArray operator ()() Q_DECL_OVERRIDE
+        QByteArray operator ()() override
         {
             return createSphereMeshVertexData(m_radius, m_rings, m_slices);
         }
 
-        bool operator ==(const QBufferDataGenerator &other) const Q_DECL_OVERRIDE
+        bool operator ==(const QBufferDataGenerator &other) const override
         {
             const SphereVertexDataFunctor *otherFunctor = functor_cast<SphereVertexDataFunctor>(&other);
             if (otherFunctor != nullptr)
@@ -249,6 +255,17 @@ QBufferPrivate::QBufferPrivate()
  *        GL_DYNAMIC_READ
  * \value DynamicCopy
  *        GL_DYNAMIC_COPY
+ */
+
+/*!
+ * \enum QBuffer::AccessType
+ *
+ * \value Write
+ *        Write access
+ * \value Read
+ *        Read access
+ * \value ReadWrite
+ *        Write|Read
  */
 
 /*!
@@ -443,6 +460,13 @@ bool QBuffer::isSyncData() const
     return d->m_syncData;
 }
 
+/*!
+ * \property Qt3DRender::QBuffer::accessType
+ *
+ * Returns the \l {QBuffer::}{AccessType} of the buffer.
+ *
+ * \sa QBuffer::AccessType
+ */
 QBuffer::AccessType QBuffer::accessType() const
 {
     Q_D(const QBuffer);

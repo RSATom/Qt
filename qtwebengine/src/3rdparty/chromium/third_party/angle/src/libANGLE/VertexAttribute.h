@@ -10,6 +10,7 @@
 #define LIBANGLE_VERTEXATTRIBUTE_H_
 
 #include "libANGLE/Buffer.h"
+#include "libANGLE/angletypes.h"
 
 namespace gl
 {
@@ -23,7 +24,9 @@ class VertexBinding final : angle::NonCopyable
 {
   public:
     VertexBinding();
-    explicit VertexBinding(VertexBinding &&binding);
+    explicit VertexBinding(GLuint boundAttribute);
+    VertexBinding(VertexBinding &&binding);
+    ~VertexBinding();
     VertexBinding &operator=(VertexBinding &&binding);
 
     GLuint getStride() const { return mStride; }
@@ -36,7 +39,26 @@ class VertexBinding final : angle::NonCopyable
     void setOffset(GLintptr offsetIn) { mOffset = offsetIn; }
 
     const BindingPointer<Buffer> &getBuffer() const { return mBuffer; }
-    void setBuffer(const gl::Context *context, Buffer *bufferIn) { mBuffer.set(context, bufferIn); }
+
+    ANGLE_INLINE void setBuffer(const gl::Context *context, Buffer *bufferIn, bool containerIsBound)
+    {
+        if (containerIsBound)
+        {
+            if (mBuffer.get())
+                mBuffer->onNonTFBindingChanged(-1);
+            if (bufferIn)
+                bufferIn->onNonTFBindingChanged(1);
+        }
+        mBuffer.set(context, bufferIn);
+    }
+
+    void onContainerBindingChanged(const Context *context, int incr) const;
+
+    const AttributesMask &getBoundAttributesMask() const { return mBoundAttributesMask; }
+
+    void setBoundAttribute(size_t index) { mBoundAttributesMask.set(index); }
+
+    void resetBoundAttribute(size_t index) { mBoundAttributesMask.reset(index); }
 
   private:
     GLuint mStride;
@@ -44,6 +66,9 @@ class VertexBinding final : angle::NonCopyable
     GLintptr mOffset;
 
     BindingPointer<Buffer> mBuffer;
+
+    // Mapping from this binding to all of the attributes that are using this binding.
+    AttributesMask mBoundAttributesMask;
 };
 
 //
@@ -52,11 +77,15 @@ class VertexBinding final : angle::NonCopyable
 struct VertexAttribute final : private angle::NonCopyable
 {
     explicit VertexAttribute(GLuint bindingIndex);
-    explicit VertexAttribute(VertexAttribute &&attrib);
+    VertexAttribute(VertexAttribute &&attrib);
     VertexAttribute &operator=(VertexAttribute &&attrib);
 
+    // Called from VertexArray.
+    void updateCachedElementLimit(const VertexBinding &binding);
+    GLint64 getCachedElementLimit() const { return mCachedElementLimit; }
+
     bool enabled;  // For glEnable/DisableVertexAttribArray
-    GLenum type;
+    VertexAttribType type;
     GLuint size;
     bool normalized;
     bool pureInteger;
@@ -66,9 +95,48 @@ struct VertexAttribute final : private angle::NonCopyable
 
     GLuint vertexAttribArrayStride;  // ONLY for queries of VERTEX_ATTRIB_ARRAY_STRIDE
     GLuint bindingIndex;
+
+    // Special value for the cached element limit on the integer overflow case.
+    static constexpr GLint64 kIntegerOverflow = std::numeric_limits<GLint64>::min();
+
+  private:
+    // This is kept in sync by the VertexArray. It is used to optimize draw call validation.
+    GLint64 mCachedElementLimit;
 };
 
-size_t ComputeVertexAttributeTypeSize(const VertexAttribute &attrib);
+ANGLE_INLINE size_t ComputeVertexAttributeTypeSize(const VertexAttribute &attrib)
+{
+    switch (attrib.type)
+    {
+        case VertexAttribType::Byte:
+            return attrib.size * sizeof(GLbyte);
+        case VertexAttribType::UnsignedByte:
+            return attrib.size * sizeof(GLubyte);
+        case VertexAttribType::Short:
+            return attrib.size * sizeof(GLshort);
+        case VertexAttribType::UnsignedShort:
+            return attrib.size * sizeof(GLushort);
+        case VertexAttribType::Int:
+            return attrib.size * sizeof(GLint);
+        case VertexAttribType::UnsignedInt:
+            return attrib.size * sizeof(GLuint);
+        case VertexAttribType::Float:
+            return attrib.size * sizeof(GLfloat);
+        case VertexAttribType::HalfFloat:
+            return attrib.size * sizeof(GLhalf);
+        case VertexAttribType::Fixed:
+            return attrib.size * sizeof(GLfixed);
+        case VertexAttribType::Int2101010:
+            // Packed attribute types don't scale by their component size.
+            return 4;
+        case VertexAttribType::UnsignedInt2101010:
+            // Packed attribute types don't scale by their component size.
+            return 4;
+        default:
+            UNREACHABLE();
+            return 0;
+    }
+}
 
 // Warning: you should ensure binding really matches attrib.bindingIndex before using this function.
 size_t ComputeVertexAttributeStride(const VertexAttribute &attrib, const VertexBinding &binding);
@@ -76,20 +144,17 @@ size_t ComputeVertexAttributeStride(const VertexAttribute &attrib, const VertexB
 // Warning: you should ensure binding really matches attrib.bindingIndex before using this function.
 GLintptr ComputeVertexAttributeOffset(const VertexAttribute &attrib, const VertexBinding &binding);
 
-size_t ComputeVertexBindingElementCount(const VertexBinding &binding,
-                                        size_t drawCount,
-                                        size_t instanceCount);
-
-GLenum GetVertexAttributeBaseType(const VertexAttribute &attrib);
+size_t ComputeVertexBindingElementCount(GLuint divisor, size_t drawCount, size_t instanceCount);
 
 struct VertexAttribCurrentValueData
 {
-    union {
+    union
+    {
         GLfloat FloatValues[4];
         GLint IntValues[4];
         GLuint UnsignedIntValues[4];
     };
-    GLenum Type;
+    VertexAttribType Type;
 
     VertexAttribCurrentValueData();
 

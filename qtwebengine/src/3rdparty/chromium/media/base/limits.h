@@ -71,6 +71,13 @@ enum {
   kMinAudioBufferSize = 256,
   kMaxAudioBufferSize = 8192,
 #endif
+
+  // Maximum buffer size supported by Web Audio.
+  kMaxWebAudioBufferSize = 8192,
+
+  // Bounds for the number of threads used for software video decoding.
+  kMinVideoDecodeThreads = 2,
+  kMaxVideoDecodeThreads = 32,
 };
 
 }  // namespace limits

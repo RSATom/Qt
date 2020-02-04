@@ -51,10 +51,9 @@
 #ifndef TRAFFICLIGHT_H
 #define TRAFFICLIGHT_H
 
-#include <QScxmlStateMachine>
-
-#include <QWidget>
 #include <QAbstractButton>
+#include <QScxmlStateMachine>
+#include <QWidget>
 
 class TrafficLight : public QWidget
 {
@@ -85,8 +84,8 @@ public slots:
     void switchLight(bool onoff);
 
 protected:
-    virtual void paintEvent(QPaintEvent *) override;
-    virtual QSize sizeHint() const override;
+    void paintEvent(QPaintEvent *) override;
+    QSize sizeHint() const override;
 
 private:
     QImage m_image;
@@ -100,8 +99,8 @@ public:
     ButtonWidget(QWidget *parent = nullptr);
 
 protected:
-    virtual void paintEvent(QPaintEvent *) override;
-    virtual QSize sizeHint() const override;
+    void paintEvent(QPaintEvent *) override;
+    QSize sizeHint() const override;
 
 private:
     QImage m_playIcon;

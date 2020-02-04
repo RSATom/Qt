@@ -27,8 +27,10 @@
 **
 ****************************************************************************/
 
-#include "declarativecategoryaxis.h"
+#include "declarativecategoryaxis_p.h"
 #include <QtCore/QDebug>
+
+#include <algorithm>
 
 QT_CHARTS_BEGIN_NAMESPACE
 
@@ -62,6 +64,14 @@ DeclarativeCategoryRange::DeclarativeCategoryRange(QObject *parent) :
 {
 }
 
+void DeclarativeCategoryRange::setLabel(const QString &label)
+{
+    auto catAxis = qobject_cast<QCategoryAxis *>(parent());
+    if (catAxis)
+        catAxis->replaceLabel(m_label, label);
+    m_label = label;
+}
+
 DeclarativeCategoryAxis::DeclarativeCategoryAxis(QObject *parent) :
     QCategoryAxis(parent),
     m_labelsPosition(AxisLabelsPositionCenter)
@@ -83,7 +93,7 @@ void DeclarativeCategoryAxis::componentComplete()
     }
 
     // Sort and append the range objects according to end value
-    qSort(ranges.begin(), ranges.end(), endValueLessThan);
+    std::sort(ranges.begin(), ranges.end(), endValueLessThan);
     for (int i(0); i < ranges.count(); i++)
         append(ranges.at(i).first, ranges.at(i).second);
 }
@@ -133,6 +143,6 @@ void DeclarativeCategoryAxis::setLabelsPosition(AxisLabelsPosition position)
     }
 }
 
-#include "moc_declarativecategoryaxis.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_declarativecategoryaxis_p.cpp"

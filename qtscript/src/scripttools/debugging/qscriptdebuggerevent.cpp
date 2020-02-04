@@ -267,7 +267,6 @@ bool QScriptDebuggerEvent::operator!=(const QScriptDebuggerEvent &other) const
 }
 
 /*!
-  \fn QDataStream &operator<<(QDataStream &stream, const QScriptDebuggerEvent &event)
   \relates QScriptDebuggerEvent
 
   Writes the given \a event to the specified \a stream.
@@ -286,7 +285,6 @@ QDataStream &operator<<(QDataStream &out, const QScriptDebuggerEvent &event)
 }
 
 /*!
-  \fn QDataStream &operator>>(QDataStream &stream, QScriptDebuggerEvent &event)
   \relates QScriptDebuggerEvent
 
   Reads a QScriptDebuggerEvent from the specified \a stream into the

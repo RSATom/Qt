@@ -6,10 +6,11 @@
 #define COMPONENTS_UI_DEVTOOLS_VIEWS_WINDOW_ELEMENT_H_
 
 #include "base/macros.h"
-#include "components/ui_devtools/views/ui_element.h"
+#include "components/ui_devtools/ui_element.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace ui_devtools {
 
@@ -29,16 +30,21 @@ class WindowElement : public aura::WindowObserver, public UIElement {
   void OnWindowStackingChanged(aura::Window* window) override;
   void OnWindowBoundsChanged(aura::Window* window,
                              const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds) override;
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override;
 
   // UIElement:
+  std::vector<std::pair<std::string, std::string>> GetCustomProperties()
+      const override;
   void GetBounds(gfx::Rect* bounds) const override;
   void SetBounds(const gfx::Rect& bounds) override;
   void GetVisible(bool* visible) const override;
   void SetVisible(bool visible) override;
-  std::pair<aura::Window*, gfx::Rect> GetNodeWindowAndBounds() const override;
+  std::unique_ptr<protocol::Array<std::string>> GetAttributes() const override;
+  std::pair<gfx::NativeWindow, gfx::Rect> GetNodeWindowAndScreenBounds()
+      const override;
 
-  static aura::Window* From(UIElement* element);
+  static aura::Window* From(const UIElement* element);
 
  private:
   aura::Window* window_;

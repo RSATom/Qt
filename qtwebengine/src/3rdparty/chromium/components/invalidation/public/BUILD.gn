@@ -8,6 +8,10 @@ static_library("public") {
     "ack_handle.h",
     "ack_handler.cc",
     "ack_handler.h",
+    "active_account_access_token_fetcher_impl.cc",
+    "active_account_access_token_fetcher_impl.h",
+    "identity_provider.cc",
+    "identity_provider.h",
     "invalidation.cc",
     "invalidation.h",
     "invalidation_export.h",
@@ -22,11 +26,27 @@ static_library("public") {
     "object_id_invalidation_map.h",
     "single_object_invalidation_set.cc",
     "single_object_invalidation_set.h",
+    "topic_invalidation_map.cc",
+    "topic_invalidation_map.h",
   ]
   public_deps = [
+    "//google_apis",
     "//third_party/cacheinvalidation",
   ]
   deps = [
     "//base",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "invalidation_util_unittest.cc",
+  ]
+  deps = [
+    ":public",
+    "//base",
+    "//base/test:test_support",
+    "//testing/gtest",
   ]
 }

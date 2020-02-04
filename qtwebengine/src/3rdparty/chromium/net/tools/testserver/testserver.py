@@ -3,8 +3,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""This is a simple HTTP/FTP/TCP/UDP/BASIC_AUTH_PROXY/WEBSOCKET server used for
-testing Chrome.
+"""This is a simple HTTP/FTP/TCP/UDP/PROXY/BASIC_AUTH_PROXY/WEBSOCKET server
+used for testing Chrome.
 
 It supports several test URLs, as specified by the handlers in TestPageHandler.
 By default, it listens on an ephemeral port and sends the port number back to
@@ -39,21 +39,9 @@ import zlib
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(BASE_DIR)))
 
-# Temporary hack to deal with tlslite 0.3.8 -> 0.4.6 upgrade.
-#
-# TODO(davidben): Remove this when it has cycled through all the bots and
-# developer checkouts or when http://crbug.com/356276 is resolved.
-try:
-  os.remove(os.path.join(ROOT_DIR, 'third_party', 'tlslite',
-                         'tlslite', 'utils', 'hmac.pyc'))
-except Exception:
-  pass
-
-# Append at the end of sys.path, it's fine to use the system library.
-sys.path.append(os.path.join(ROOT_DIR, 'third_party', 'pyftpdlib', 'src'))
-
 # Insert at the beginning of the path, we want to use our copies of the library
-# unconditionally.
+# unconditionally (since they contain modifications from anything that might be
+# obtained from e.g. PyPi).
 sys.path.insert(0, os.path.join(ROOT_DIR, 'third_party', 'pywebsocket', 'src'))
 sys.path.insert(0, os.path.join(ROOT_DIR, 'third_party', 'tlslite'))
 
@@ -76,6 +64,7 @@ SERVER_TCP_ECHO = 2
 SERVER_UDP_ECHO = 3
 SERVER_BASIC_AUTH_PROXY = 4
 SERVER_WEBSOCKET = 5
+SERVER_PROXY = 6
 
 # Default request queue size for WebSocketServer.
 _DEFAULT_REQUEST_QUEUE_SIZE = 128
@@ -136,6 +125,13 @@ class HTTPServer(testserver_base.ClientRestrictingServerMixIn,
 
   pass
 
+class ThreadingHTTPServer(SocketServer.ThreadingMixIn,
+                          HTTPServer):
+  """This variant of HTTPServer creates a new thread for every connection. It
+  should only be used with handlers that are known to be threadsafe."""
+
+  pass
+
 class OCSPServer(testserver_base.ClientRestrictingServerMixIn,
                  testserver_base.BrokenPipeHandlerMixIn,
                  BaseHTTPServer.HTTPServer):
@@ -166,7 +162,8 @@ class HTTPSServer(tlslite.api.TLSSocketServerMixIn,
                tls_intolerance_type, signed_cert_timestamps,
                fallback_scsv_enabled, ocsp_response,
                alert_after_handshake, disable_channel_id, disable_ems,
-               token_binding_params):
+               simulate_tls13_downgrade, simulate_tls12_downgrade,
+               tls_max_version):
     self.cert_chain = tlslite.api.X509CertChain()
     self.cert_chain.parsePemList(pem_cert_and_key)
     # Force using only python implementation - otherwise behavior is different
@@ -213,8 +210,12 @@ class HTTPSServer(tlslite.api.TLSSocketServerMixIn,
       self.ssl_handshake_settings.enableChannelID = False
     if disable_ems:
       self.ssl_handshake_settings.enableExtendedMasterSecret = False
-    self.ssl_handshake_settings.supportedTokenBindingParams = \
-        token_binding_params
+    if simulate_tls13_downgrade:
+      self.ssl_handshake_settings.simulateTLS13Downgrade = True
+    if simulate_tls12_downgrade:
+      self.ssl_handshake_settings.simulateTLS12Downgrade = True
+    if tls_max_version != 0:
+      self.ssl_handshake_settings.maxVersion = (3, tls_max_version)
     self.ssl_handshake_settings.alpnProtos=alpn_protocols;
 
     if record_resume_info:
@@ -348,8 +349,6 @@ class TestPageHandler(testserver_base.BasePageHandler):
       self.GetSSLSessionCacheHandler,
       self.SSLManySmallRecords,
       self.GetChannelID,
-      self.GetTokenBindingEKM,
-      self.ForwardTokenBindingHeader,
       self.GetClientCert,
       self.ClientCipherListHandler,
       self.CloseSocketHandler,
@@ -630,7 +629,7 @@ class TestPageHandler(testserver_base.BasePageHandler):
 
   def EchoHeaderCache(self):
     """This function echoes back the value of a specific request header while
-    allowing caching for 16 hours."""
+    allowing caching for 10 hours."""
 
     return self.EchoHeaderHelper("/echoheadercache")
 
@@ -1526,41 +1525,6 @@ class TestPageHandler(testserver_base.BasePageHandler):
     self.wfile.write(hashlib.sha256(channel_id).digest().encode('base64'))
     return True
 
-  def GetTokenBindingEKM(self):
-    """Send a reply containing the EKM value for token binding from the TLS
-    layer."""
-
-    if not self._ShouldHandleRequest('/tokbind-ekm'):
-      return False
-
-    ekm = self.server.tlsConnection.exportKeyingMaterial(
-        "EXPORTER-Token-Binding", "", False, 32)
-    self.send_response(200)
-    self.send_header('Content-Type', 'application/octet-stream')
-    self.end_headers()
-    self.wfile.write(ekm)
-    return True
-
-  def ForwardTokenBindingHeader(self):
-    """Send a redirect that sets the Include-Referred-Token-Binding-ID
-    header."""
-
-    test_name = '/forward-tokbind'
-    if not self._ShouldHandleRequest(test_name):
-      return False
-
-    query_char = self.path.find('?')
-    if query_char < 0 or len(self.path) <= query_char + 1:
-      self.sendRedirectHelp(test_name)
-      return True
-    dest = urllib.unquote(self.path[query_char + 1:])
-
-    self.send_response(302)
-    self.send_header('Location', dest)
-    self.send_header('Include-Referred-Token-Binding-ID', 'true')
-    self.end_headers()
-    return True
-
   def GetClientCert(self):
     """Send a reply whether a client certificate was provided."""
 
@@ -1685,21 +1649,26 @@ class OCSPHandler(testserver_base.BasePageHandler):
   def __init__(self, request, client_address, socket_server):
     handlers = [self.OCSPResponse, self.CaIssuersResponse]
     self.ocsp_response = socket_server.ocsp_response
+    self.ocsp_response_intermediate = socket_server.ocsp_response_intermediate
     self.ca_issuers_response = socket_server.ca_issuers_response
     testserver_base.BasePageHandler.__init__(self, request, client_address,
                                              socket_server, [], handlers, [],
                                              handlers, [])
 
   def OCSPResponse(self):
-    if not self._ShouldHandleRequest("/ocsp"):
+    if self._ShouldHandleRequest("/ocsp"):
+      response = self.ocsp_response
+    elif self._ShouldHandleRequest("/ocsp_intermediate"):
+      response = self.ocsp_response_intermediate
+    else:
       return False
     print 'handling ocsp request'
     self.send_response(200)
     self.send_header('Content-Type', 'application/ocsp-response')
-    self.send_header('Content-Length', str(len(self.ocsp_response)))
+    self.send_header('Content-Length', str(len(response)))
     self.end_headers()
 
-    self.wfile.write(self.ocsp_response)
+    self.wfile.write(response)
 
   def CaIssuersResponse(self):
     if not self._ShouldHandleRequest("/ca_issuers"):
@@ -1759,27 +1728,12 @@ class UDPEchoHandler(SocketServer.BaseRequestHandler):
     request_socket.sendto(return_data, self.client_address)
 
 
-class BasicAuthProxyRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
-  """A request handler that behaves as a proxy server which requires
-  basic authentication. Only CONNECT, GET and HEAD is supported for now.
+class ProxyRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+  """A request handler that behaves as a proxy server. Only CONNECT, GET and
+  HEAD methods are supported.
   """
 
-  _AUTH_CREDENTIAL = 'Basic Zm9vOmJhcg==' # foo:bar
-
-  def parse_request(self):
-    """Overrides parse_request to check credential."""
-
-    if not BaseHTTPServer.BaseHTTPRequestHandler.parse_request(self):
-      return False
-
-    auth = self.headers.getheader('Proxy-Authorization')
-    if auth != self._AUTH_CREDENTIAL:
-      self.send_response(407)
-      self.send_header('Proxy-Authenticate', 'Basic realm="MyRealm1"')
-      self.end_headers()
-      return False
-
-    return True
+  redirect_connect_to_localhost = False;
 
   def _start_read_write(self, sock):
     sock.setblocking(0)
@@ -1799,6 +1753,10 @@ class BasicAuthProxyRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
           other = sock
         else:
           other = self.request
+        # This will lose data if the kernel write buffer fills up.
+        # TODO(ricea): Correctly use the return value to track how much was
+        # written and buffer the rest. Use select to determine when the socket
+        # becomes writable again.
         other.send(received)
 
   def _do_common_method(self):
@@ -1833,8 +1791,13 @@ class BasicAuthProxyRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
           continue
         sock.send('%s\r\n' % header)
       sock.send('\r\n')
+      # This is wrong: it will pass through connection-level headers and
+      # misbehave on connection reuse. The only reason it works at all is that
+      # our test servers have never supported connection reuse.
+      # TODO(ricea): Use a proper HTTP client library instead.
       self._start_read_write(sock)
     except Exception:
+      logging.exception('failure in common method: %s %s', self.command, path)
       self.send_response(500)
       self.end_headers()
     finally:
@@ -1850,22 +1813,50 @@ class BasicAuthProxyRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       self.send_response(400)
       self.end_headers()
 
+    if ProxyRequestHandler.redirect_connect_to_localhost:
+      host = "127.0.0.1"
+
+    sock = None
     try:
       sock = socket.create_connection((host, port))
       self.send_response(200, 'Connection established')
       self.end_headers()
       self._start_read_write(sock)
     except Exception:
+      logging.exception('failure in CONNECT: %s', path)
       self.send_response(500)
       self.end_headers()
     finally:
-      sock.close()
+      if sock is not None:
+        sock.close()
 
   def do_GET(self):
     self._do_common_method()
 
   def do_HEAD(self):
     self._do_common_method()
+
+class BasicAuthProxyRequestHandler(ProxyRequestHandler):
+  """A request handler that behaves as a proxy server which requires
+  basic authentication.
+  """
+
+  _AUTH_CREDENTIAL = 'Basic Zm9vOmJhcg==' # foo:bar
+
+  def parse_request(self):
+    """Overrides parse_request to check credential."""
+
+    if not ProxyRequestHandler.parse_request(self):
+      return False
+
+    auth = self.headers.getheader('Proxy-Authorization')
+    if auth != self._AUTH_CREDENTIAL:
+      self.send_response(407)
+      self.send_header('Proxy-Authenticate', 'Basic realm="MyRealm1"')
+      self.end_headers()
+      return False
+
+    return True
 
 
 class ServerRunner(testserver_base.TestServerRunner):
@@ -1891,17 +1882,100 @@ class ServerRunner(testserver_base.TestServerRunner):
 
     return my_data_dir
 
+  def __parse_ocsp_options(self, states_option, date_option, produced_option):
+    if states_option is None:
+      return None, None, None
+
+    ocsp_states = list()
+    for ocsp_state_arg in states_option.split(':'):
+      if ocsp_state_arg == 'ok':
+        ocsp_state = minica.OCSP_STATE_GOOD
+      elif ocsp_state_arg == 'revoked':
+        ocsp_state = minica.OCSP_STATE_REVOKED
+      elif ocsp_state_arg == 'invalid':
+        ocsp_state = minica.OCSP_STATE_INVALID_RESPONSE
+      elif ocsp_state_arg == 'unauthorized':
+        ocsp_state = minica.OCSP_STATE_UNAUTHORIZED
+      elif ocsp_state_arg == 'unknown':
+        ocsp_state = minica.OCSP_STATE_UNKNOWN
+      elif ocsp_state_arg == 'later':
+        ocsp_state = minica.OCSP_STATE_TRY_LATER
+      elif ocsp_state_arg == 'invalid_data':
+        ocsp_state = minica.OCSP_STATE_INVALID_RESPONSE_DATA
+      elif ocsp_state_arg == "mismatched_serial":
+        ocsp_state = minica.OCSP_STATE_MISMATCHED_SERIAL
+      else:
+        raise testserver_base.OptionError('unknown OCSP status: ' +
+            ocsp_state_arg)
+      ocsp_states.append(ocsp_state)
+
+    if len(ocsp_states) > 1:
+      if set(ocsp_states) & OCSP_STATES_NO_SINGLE_RESPONSE:
+        raise testserver_base.OptionError('Multiple OCSP responses '
+            'incompatible with states ' + str(ocsp_states))
+
+    ocsp_dates = list()
+    for ocsp_date_arg in date_option.split(':'):
+      if ocsp_date_arg == 'valid':
+        ocsp_date = minica.OCSP_DATE_VALID
+      elif ocsp_date_arg == 'old':
+        ocsp_date = minica.OCSP_DATE_OLD
+      elif ocsp_date_arg == 'early':
+        ocsp_date = minica.OCSP_DATE_EARLY
+      elif ocsp_date_arg == 'long':
+        ocsp_date = minica.OCSP_DATE_LONG
+      elif ocsp_date_arg == 'longer':
+        ocsp_date = minica.OCSP_DATE_LONGER
+      else:
+        raise testserver_base.OptionError('unknown OCSP date: ' +
+            ocsp_date_arg)
+      ocsp_dates.append(ocsp_date)
+
+    if len(ocsp_states) != len(ocsp_dates):
+      raise testserver_base.OptionError('mismatched ocsp and ocsp-date '
+          'count')
+
+    ocsp_produced = None
+    if produced_option == 'valid':
+      ocsp_produced = minica.OCSP_PRODUCED_VALID
+    elif produced_option == 'before':
+      ocsp_produced = minica.OCSP_PRODUCED_BEFORE_CERT
+    elif produced_option == 'after':
+      ocsp_produced = minica.OCSP_PRODUCED_AFTER_CERT
+    else:
+      raise testserver_base.OptionError('unknown OCSP produced: ' +
+          produced_option)
+
+    return ocsp_states, ocsp_dates, ocsp_produced
+
   def create_server(self, server_data):
     port = self.options.port
     host = self.options.host
 
+    logging.basicConfig()
+
     # Work around a bug in Mac OS 10.6. Spawning a WebSockets server
     # will result in a call to |getaddrinfo|, which fails with "nodename
     # nor servname provided" for localhost:0 on 10.6.
+    # TODO(ricea): Remove this if no longer needed.
     if self.options.server_type == SERVER_WEBSOCKET and \
        host == "localhost" and \
        port == 0:
       host = "127.0.0.1"
+
+    # Construct the subjectAltNames for any ad-hoc generated certificates.
+    # As host can be either a DNS name or IP address, attempt to determine
+    # which it is, so it can be placed in the appropriate SAN.
+    dns_sans = None
+    ip_sans = None
+    ip = None
+    try:
+      ip = socket.inet_aton(host)
+      ip_sans = [ip]
+    except socket.error:
+      pass
+    if ip is None:
+      dns_sans = [host]
 
     if self.options.server_type == SERVER_HTTP:
       if self.options.https:
@@ -1918,14 +1992,21 @@ class ServerRunner(testserver_base.TestServerRunner):
           print ('AIA server started on %s:%d...' %
               (host, self.__ocsp_server.server_port))
 
+          ocsp_server_port = self.__ocsp_server.server_port
+          if self.options.ocsp_proxy_port_number != 0:
+            ocsp_server_port = self.options.ocsp_proxy_port_number
+            server_data['ocsp_port'] = self.__ocsp_server.server_port
+
           (pem_cert_and_key, intermediate_cert_der) = \
               minica.GenerateCertKeyAndIntermediate(
-                  subject = "127.0.0.1",
-                  ca_issuers_url = ("http://%s:%d/ca_issuers" %
-                                    (host, self.__ocsp_server.server_port)),
+                  subject = self.options.cert_common_name,
+                  ip_sans=ip_sans, dns_sans=dns_sans,
+                  ca_issuers_url =
+                      ("http://%s:%d/ca_issuers" % (host, ocsp_server_port)),
                   serial = self.options.cert_serial)
 
           self.__ocsp_server.ocsp_response = None
+          self.__ocsp_server.ocsp_response_intermediate = None
           self.__ocsp_server.ca_issuers_response = intermediate_cert_der
         else:
           # generate a new certificate and run an OCSP server for it.
@@ -1933,78 +2014,47 @@ class ServerRunner(testserver_base.TestServerRunner):
           print ('OCSP server started on %s:%d...' %
               (host, self.__ocsp_server.server_port))
 
-          ocsp_states = list()
-          for ocsp_state_arg in self.options.ocsp.split(':'):
-            if ocsp_state_arg == 'ok':
-              ocsp_state = minica.OCSP_STATE_GOOD
-            elif ocsp_state_arg == 'revoked':
-              ocsp_state = minica.OCSP_STATE_REVOKED
-            elif ocsp_state_arg == 'invalid':
-              ocsp_state = minica.OCSP_STATE_INVALID_RESPONSE
-            elif ocsp_state_arg == 'unauthorized':
-              ocsp_state = minica.OCSP_STATE_UNAUTHORIZED
-            elif ocsp_state_arg == 'unknown':
-              ocsp_state = minica.OCSP_STATE_UNKNOWN
-            elif ocsp_state_arg == 'later':
-              ocsp_state = minica.OCSP_STATE_TRY_LATER
-            elif ocsp_state_arg == 'invalid_data':
-              ocsp_state = minica.OCSP_STATE_INVALID_RESPONSE_DATA
-            elif ocsp_state_arg == "mismatched_serial":
-              ocsp_state = minica.OCSP_STATE_MISMATCHED_SERIAL
-            else:
-              raise testserver_base.OptionError('unknown OCSP status: ' +
-                  ocsp_state_arg)
-            ocsp_states.append(ocsp_state)
+          ocsp_states, ocsp_dates, ocsp_produced =  self.__parse_ocsp_options(
+                  self.options.ocsp,
+                  self.options.ocsp_date,
+                  self.options.ocsp_produced)
 
-          if len(ocsp_states) > 1:
-            if set(ocsp_states) & OCSP_STATES_NO_SINGLE_RESPONSE:
-              raise testserver_base.OptionError('Multiple OCSP responses '
-                  'incompatible with states ' + str(ocsp_states))
+          (ocsp_intermediate_states, ocsp_intermediate_dates,
+           ocsp_intermediate_produced) =  self.__parse_ocsp_options(
+                  self.options.ocsp_intermediate,
+                  self.options.ocsp_intermediate_date,
+                  self.options.ocsp_intermediate_produced)
 
-          ocsp_dates = list()
-          for ocsp_date_arg in self.options.ocsp_date.split(':'):
-            if ocsp_date_arg == 'valid':
-              ocsp_date = minica.OCSP_DATE_VALID
-            elif ocsp_date_arg == 'old':
-              ocsp_date = minica.OCSP_DATE_OLD
-            elif ocsp_date_arg == 'early':
-              ocsp_date = minica.OCSP_DATE_EARLY
-            elif ocsp_date_arg == 'long':
-              ocsp_date = minica.OCSP_DATE_LONG
-            else:
-              raise testserver_base.OptionError('unknown OCSP date: ' +
-                  ocsp_date_arg)
-            ocsp_dates.append(ocsp_date)
+          ocsp_server_port = self.__ocsp_server.server_port
+          if self.options.ocsp_proxy_port_number != 0:
+            ocsp_server_port = self.options.ocsp_proxy_port_number
+            server_data['ocsp_port'] = self.__ocsp_server.server_port
 
-          if len(ocsp_states) != len(ocsp_dates):
-            raise testserver_base.OptionError('mismatched ocsp and ocsp-date '
-                'count')
-
-          ocsp_produced = None
-          if self.options.ocsp_produced == 'valid':
-            ocsp_produced = minica.OCSP_PRODUCED_VALID
-          elif self.options.ocsp_produced == 'before':
-            ocsp_produced = minica.OCSP_PRODUCED_BEFORE_CERT
-          elif self.options.ocsp_produced == 'after':
-            ocsp_produced = minica.OCSP_PRODUCED_AFTER_CERT
-          else:
-            raise testserver_base.OptionError('unknown OCSP produced: ' +
-                self.options.ocsp_produced)
-
-          (pem_cert_and_key, ocsp_der) = minica.GenerateCertKeyAndOCSP(
-              subject = "127.0.0.1",
-              ocsp_url = ("http://%s:%d/ocsp" %
-                  (host, self.__ocsp_server.server_port)),
+          pem_cert_and_key, (ocsp_der,
+           ocsp_intermediate_der) = minica.GenerateCertKeyAndOCSP(
+              subject = self.options.cert_common_name,
+              ip_sans = ip_sans,
+              dns_sans = dns_sans,
+              ocsp_url = ("http://%s:%d/ocsp" % (host, ocsp_server_port)),
               ocsp_states = ocsp_states,
               ocsp_dates = ocsp_dates,
               ocsp_produced = ocsp_produced,
+              ocsp_intermediate_url = (
+                  "http://%s:%d/ocsp_intermediate" % (host, ocsp_server_port)
+                  if ocsp_intermediate_states else None),
+              ocsp_intermediate_states = ocsp_intermediate_states,
+              ocsp_intermediate_dates = ocsp_intermediate_dates,
+              ocsp_intermediate_produced = ocsp_intermediate_produced,
               serial = self.options.cert_serial)
 
           if self.options.ocsp_server_unavailable:
             # SEQUENCE containing ENUMERATED with value 3 (tryLater).
-            self.__ocsp_server.ocsp_response = '30030a0103'.decode('hex')
+            self.__ocsp_server.ocsp_response_intermediate = \
+                self.__ocsp_server.ocsp_response = '30030a0103'.decode('hex')
           else:
             self.__ocsp_server.ocsp_response = ocsp_der
+            self.__ocsp_server.ocsp_response_intermediate = \
+                ocsp_intermediate_der
           self.__ocsp_server.ca_issuers_response = None
 
         for ca_cert in self.options.ssl_client_ca:
@@ -2015,6 +2065,8 @@ class ServerRunner(testserver_base.TestServerRunner):
 
         stapled_ocsp_response = None
         if self.options.staple_ocsp_response:
+          # TODO(mattm): Staple the intermediate response too (if applicable,
+          # and if chrome ever supports it).
           stapled_ocsp_response = ocsp_der
 
         server = HTTPSServer((host, port), TestPageHandler, pem_cert_and_key,
@@ -2035,7 +2087,9 @@ class ServerRunner(testserver_base.TestServerRunner):
                              self.options.alert_after_handshake,
                              self.options.disable_channel_id,
                              self.options.disable_extended_master_secret,
-                             self.options.token_binding_params)
+                             self.options.simulate_tls13_downgrade,
+                             self.options.simulate_tls12_downgrade,
+                             self.options.tls_max_version)
         print 'HTTPS server started on https://%s:%d...' % \
             (host, server.server_port)
       else:
@@ -2047,9 +2101,6 @@ class ServerRunner(testserver_base.TestServerRunner):
       server.file_root_url = self.options.file_root_url
       server_data['port'] = server.server_port
     elif self.options.server_type == SERVER_WEBSOCKET:
-      # Launch pywebsocket via WebSocketServer.
-      logger = logging.getLogger()
-      logger.addHandler(logging.StreamHandler())
       # TODO(toyoshim): Remove following os.chdir. Currently this operation
       # is required to work correctly. It should be fixed from pywebsocket side.
       os.chdir(self.__make_data_dir())
@@ -2058,8 +2109,14 @@ class ServerRunner(testserver_base.TestServerRunner):
       if self.options.cert_and_key_file:
         scheme = "wss"
         websocket_options.use_tls = True
-        websocket_options.private_key = self.options.cert_and_key_file
-        websocket_options.certificate = self.options.cert_and_key_file
+        key_path = os.path.join(ROOT_DIR, self.options.cert_and_key_file)
+        if not os.path.isfile(key_path):
+          raise testserver_base.OptionError(
+              'specified server cert file not found: ' +
+              self.options.cert_and_key_file + ' exiting...')
+        websocket_options.private_key = key_path
+        websocket_options.certificate = key_path
+
       if self.options.ssl_client_auth:
         websocket_options.tls_client_cert_optional = False
         websocket_options.tls_client_auth = True
@@ -2092,8 +2149,16 @@ class ServerRunner(testserver_base.TestServerRunner):
       server = UDPEchoServer((host, port), UDPEchoHandler)
       print 'Echo UDP server started on port %d...' % server.server_port
       server_data['port'] = server.server_port
+    elif self.options.server_type == SERVER_PROXY:
+      ProxyRequestHandler.redirect_connect_to_localhost = \
+          self.options.redirect_connect_to_localhost
+      server = ThreadingHTTPServer((host, port), ProxyRequestHandler)
+      print 'Proxy server started on port %d...' % server.server_port
+      server_data['port'] = server.server_port
     elif self.options.server_type == SERVER_BASIC_AUTH_PROXY:
-      server = HTTPServer((host, port), BasicAuthProxyRequestHandler)
+      ProxyRequestHandler.redirect_connect_to_localhost = \
+          self.options.redirect_connect_to_localhost
+      server = ThreadingHTTPServer((host, port), BasicAuthProxyRequestHandler)
       print 'BasicAuthProxy server started on port %d...' % server.server_port
       server_data['port'] = server.server_port
     elif self.options.server_type == SERVER_FTP:
@@ -2150,6 +2215,10 @@ class ServerRunner(testserver_base.TestServerRunner):
                                   const=SERVER_UDP_ECHO, default=SERVER_HTTP,
                                   dest='server_type',
                                   help='start up a udp echo server.')
+    self.option_parser.add_option('--proxy', action='store_const',
+                                  const=SERVER_PROXY,
+                                  default=SERVER_HTTP, dest='server_type',
+                                  help='start up a proxy server.')
     self.option_parser.add_option('--basic-auth-proxy', action='store_const',
                                   const=SERVER_BASIC_AUTH_PROXY,
                                   default=SERVER_HTTP, dest='server_type',
@@ -2182,10 +2251,28 @@ class ServerRunner(testserver_base.TestServerRunner):
     self.option_parser.add_option('--ocsp-produced', dest='ocsp_produced',
                                   default='valid', help='producedAt relative '
                                   'to certificate expiry')
+    self.option_parser.add_option('--ocsp-intermediate',
+                                  dest='ocsp_intermediate', default=None,
+                                  help='If specified, the automatically '
+                                  'generated chain will include an '
+                                  'intermediate certificate with this type '
+                                  'of OCSP response (see docs for --ocsp)')
+    self.option_parser.add_option('--ocsp-intermediate-date',
+                                  dest='ocsp_intermediate_date',
+                                  default='valid', help='The validity of the '
+                                  'range between thisUpdate and nextUpdate')
+    self.option_parser.add_option('--ocsp-intermediate-produced',
+                                  dest='ocsp_intermediate_produced',
+                                  default='valid', help='producedAt relative '
+                                  'to certificate expiry')
     self.option_parser.add_option('--cert-serial', dest='cert_serial',
                                   default=0, type=int,
                                   help='If non-zero then the generated '
                                   'certificate will have this serial number')
+    self.option_parser.add_option('--cert-common-name', dest='cert_common_name',
+                                  default="127.0.0.1",
+                                  help='The generated certificate will have '
+                                  'this common name')
     self.option_parser.add_option('--tls-intolerant', dest='tls_intolerant',
                                   default='0', type='int',
                                   help='If nonzero, certain TLS connections '
@@ -2285,6 +2372,10 @@ class ServerRunner(testserver_base.TestServerRunner):
                                   help='If set, the OCSP server will return '
                                   'a tryLater status rather than the actual '
                                   'OCSP response.')
+    self.option_parser.add_option('--ocsp-proxy-port-number', default=0,
+                                  type='int', dest='ocsp_proxy_port_number',
+                                  help='Port allocated for OCSP proxy '
+                                  'when connection is proxied.')
     self.option_parser.add_option('--alert-after-handshake',
                                   dest='alert_after_handshake',
                                   default=False, action='store_true',
@@ -2298,8 +2389,20 @@ class ServerRunner(testserver_base.TestServerRunner):
     self.option_parser.add_option('--disable-channel-id', action='store_true')
     self.option_parser.add_option('--disable-extended-master-secret',
                                   action='store_true')
-    self.option_parser.add_option('--token-binding-params', action='append',
-                                  default=[], type='int')
+    self.option_parser.add_option('--simulate-tls13-downgrade',
+                                  action='store_true')
+    self.option_parser.add_option('--simulate-tls12-downgrade',
+                                  action='store_true')
+    self.option_parser.add_option('--tls-max-version', default='0', type='int',
+                                  help='If non-zero, the maximum TLS version '
+                                  'to support. 1 means TLS 1.0, 2 means '
+                                  'TLS 1.1, and 3 means TLS 1.2.')
+    self.option_parser.add_option('--redirect-connect-to-localhost',
+                                  dest='redirect_connect_to_localhost',
+                                  default=False, action='store_true',
+                                  help='If set, the Proxy server will connect '
+                                  'to localhost instead of the requested URL '
+                                  'on CONNECT requests')
 
 
 if __name__ == '__main__':

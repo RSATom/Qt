@@ -18,7 +18,6 @@
 #include "base/mac/foundation_util.h"
 #include "base/mac/mach_logging.h"
 #include "base/threading/thread_id_name_manager.h"
-#include "base/tracked_objects.h"
 #include "build/build_config.h"
 
 namespace base {
@@ -50,8 +49,7 @@ void InitThreading() {
 
 // static
 void PlatformThread::SetName(const std::string& name) {
-  ThreadIdNameManager::GetInstance()->SetName(CurrentId(), name);
-  tracked_objects::ThreadData::InitializeThreadContext(name);
+  ThreadIdNameManager::GetInstance()->SetName(name);
 
   // Mac OS X does not expose the length limit of the name, so
   // hardcode it.
@@ -150,12 +148,12 @@ void SetPriorityRealtimeAudio() {
 }  // anonymous namespace
 
 // static
-bool PlatformThread::CanIncreaseCurrentThreadPriority() {
+bool PlatformThread::CanIncreaseThreadPriority(ThreadPriority priority) {
   return true;
 }
 
 // static
-void PlatformThread::SetCurrentThreadPriority(ThreadPriority priority) {
+void PlatformThread::SetCurrentThreadPriorityImpl(ThreadPriority priority) {
   // Changing the priority of the main thread causes performance regressions.
   // https://crbug.com/601270
   DCHECK(![[NSThread currentThread] isMainThread]);
@@ -174,15 +172,14 @@ void PlatformThread::SetCurrentThreadPriority(ThreadPriority priority) {
       break;
   }
 
-  [[[NSThread currentThread] threadDictionary]
-      setObject:@(static_cast<int>(priority))
-         forKey:kThreadPriorityKey];
+  [[NSThread currentThread] threadDictionary][kThreadPriorityKey] =
+      @(static_cast<int>(priority));
 }
 
 // static
 ThreadPriority PlatformThread::GetCurrentThreadPriority() {
-  NSNumber* priority = base::mac::ObjCCast<NSNumber>([[[NSThread currentThread]
-      threadDictionary] objectForKey:kThreadPriorityKey]);
+  NSNumber* priority = base::mac::ObjCCast<NSNumber>(
+      [[NSThread currentThread] threadDictionary][kThreadPriorityKey]);
 
   if (!priority)
     return ThreadPriority::NORMAL;

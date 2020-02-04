@@ -39,8 +39,8 @@ public:
 
     testsensor2impl(QSensor *sensor);
 
-    void start();
-    void stop();
+    void start() override;
+    void stop() override;
 
 private:
     TestSensor2Reading m_reading;

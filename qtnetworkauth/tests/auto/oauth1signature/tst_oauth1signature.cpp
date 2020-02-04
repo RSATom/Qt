@@ -101,6 +101,7 @@ void tst_OAuth1Signature::signatures_data()
 {
     QTest::addColumn<QUrl>("url");
     QTest::addColumn<QOAuth1Signature::HttpRequestMethod>("method");
+    QTest::addColumn<QByteArray>("customVerb");
     QTest::addColumn<QString>("version");
     QTest::addColumn<QString>("consumerKey");
     QTest::addColumn<QString>("consumerSecret");
@@ -113,6 +114,7 @@ void tst_OAuth1Signature::signatures_data()
 
     QTest::newRow("standard") << QUrl("http://example.net")
                               << QOAuth1Signature::HttpRequestMethod::Get
+                              << QByteArray()
                               << "1.0"
                               << "key"
                               << "secret"
@@ -124,6 +126,7 @@ void tst_OAuth1Signature::signatures_data()
                               << "mQaARxv7pqJyViuwNGtUfm6QSIQ=";
     QTest::newRow("post") << QUrl("http://example.net")
                           << QOAuth1Signature::HttpRequestMethod::Post
+                          << QByteArray()
                           << "1.0"
                           << "key"
                           << "secret"
@@ -135,6 +138,7 @@ void tst_OAuth1Signature::signatures_data()
                           << "L4blJKqYMTSNUEt32rCgDLhxQxM=";
     QTest::newRow("put") << QUrl("http://example.net")
                          << QOAuth1Signature::HttpRequestMethod::Put
+                         << QByteArray()
                          << "1.0"
                          << "key"
                          << "secret"
@@ -146,6 +150,7 @@ void tst_OAuth1Signature::signatures_data()
                          << "+eiZ+phNoYnETf6SqI+XSE43JSY=";
     QTest::newRow("delete") << QUrl("http://example.net")
                             << QOAuth1Signature::HttpRequestMethod::Delete
+                            << QByteArray()
                             << "1.0"
                             << "key"
                             << "secret"
@@ -157,6 +162,7 @@ void tst_OAuth1Signature::signatures_data()
                             << "enbOVNG7/vGliie2/L44NdccMaw=";
     QTest::newRow("head") << QUrl("http://example.net")
                           << QOAuth1Signature::HttpRequestMethod::Head
+                          << QByteArray()
                           << "1.0"
                           << "key"
                           << "secret"
@@ -168,6 +174,7 @@ void tst_OAuth1Signature::signatures_data()
                           << "6v74w0rRsVibJsJ796Nj8cJPqEU=";
     QTest::newRow("no-hmac-key") << QUrl("http://example.net")
                                  << QOAuth1Signature::HttpRequestMethod::Get
+                                 << QByteArray()
                                  << "1.0"
                                  << "key"
                                  << QString()
@@ -179,6 +186,7 @@ void tst_OAuth1Signature::signatures_data()
                                  << "N2qP+LJdLbjalZq71M7oxPdeUjc=";
     QTest::newRow("custom-values") << QUrl("http://example.net")
                                    << QOAuth1Signature::HttpRequestMethod::Get
+                                   << QByteArray()
                                    << "1.0"
                                    << "key"
                                    << "secret"
@@ -191,6 +199,30 @@ void tst_OAuth1Signature::signatures_data()
                                         { "secondKey", "secondValue" }
                                     }
                                    << "xNXgQaO0LrQMbJZGSfKFUmWwGDw=";
+    QTest::newRow("custom-verb-get") << QUrl("http://example.net")
+                                     << QOAuth1Signature::HttpRequestMethod::Custom
+                                     << QByteArray("GET")
+                                     << "1.0"
+                                     << "key"
+                                     << "secret"
+                                     << "accesskey"
+                                     << "accesssecret"
+                                     << "468167367"
+                                     << "1494852816"
+                                     << QVariantMap()
+                                     << "mQaARxv7pqJyViuwNGtUfm6QSIQ=";
+    QTest::newRow("custom-verb-patch") << QUrl("http://example.net")
+                                       << QOAuth1Signature::HttpRequestMethod::Custom
+                                       << QByteArray("PATCH")
+                                       << "1.0"
+                                       << "key"
+                                       << "secret"
+                                       << "accesskey"
+                                       << "accesssecret"
+                                       << "468167367"
+                                       << "1494852816"
+                                       << QVariantMap()
+                                       << "kcRO68D7IBQWlQvUR/jkhuF8AKM=";
 }
 
 void tst_OAuth1Signature::signatures()
@@ -200,6 +232,7 @@ void tst_OAuth1Signature::signatures()
 
     QFETCH(QUrl, url);
     QFETCH(QOAuth1Signature::HttpRequestMethod, method);
+    QFETCH(QByteArray, customVerb);
     QFETCH(QString, version);
     QFETCH(QString, consumerKey);
     QFETCH(QString, consumerSecret);
@@ -218,6 +251,8 @@ void tst_OAuth1Signature::signatures()
     parameters.insert(oauthToken, token);
 
     QOAuth1Signature signature(url, consumerSecret, tokenSecret, method, parameters);
+    if (method == QOAuth1Signature::HttpRequestMethod::Custom)
+        signature.setCustomMethodString(customVerb);
     const auto signatureData = signature.hmacSha1();
     QCOMPARE(signatureData.toBase64(), result);
 }

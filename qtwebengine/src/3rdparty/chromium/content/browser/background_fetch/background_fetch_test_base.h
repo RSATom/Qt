@@ -5,6 +5,7 @@
 #ifndef CONTENT_BROWSER_BACKGROUND_FETCH_BACKGROUND_FETCH_TEST_BASE_H_
 #define CONTENT_BROWSER_BACKGROUND_FETCH_BACKGROUND_FETCH_TEST_BASE_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -12,26 +13,25 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "content/browser/background_fetch/background_fetch_embedded_worker_test_helper.h"
+#include "content/browser/background_fetch/background_fetch_test_browser_context.h"
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/origin.h"
 
-namespace net {
-class HttpResponseHeaders;
-}
-
 namespace content {
 
-class BackgroundFetchRegistrationId;
-class MockDownloadManager;
 class ServiceWorkerRegistration;
+class StoragePartition;
 
 // Base class containing common functionality needed in unit tests written for
 // the Background Fetch feature.
 class BackgroundFetchTestBase : public ::testing::Test {
  public:
+  using TestResponse = MockBackgroundFetchDelegate::TestResponse;
+  using TestResponseBuilder = MockBackgroundFetchDelegate::TestResponseBuilder;
+
   BackgroundFetchTestBase();
   ~BackgroundFetchTestBase() override;
 
@@ -39,54 +39,33 @@ class BackgroundFetchTestBase : public ::testing::Test {
   void SetUp() override;
   void TearDown() override;
 
-  // Structure encapsulating the data for a injected response. Should only be
-  // created by the builder, which also defines the ownership semantics.
-  struct TestResponse {
-    TestResponse();
-    ~TestResponse();
+  // Registers a Service Worker for the testing origin and returns its
+  // |service_worker_registration_id|. If registration failed, this will be
+  // |blink::mojom::kInvalidServiceWorkerRegistrationId|. The
+  // ServiceWorkerRegistration will be kept alive for the test's lifetime.
+  int64_t RegisterServiceWorker();
 
-    scoped_refptr<net::HttpResponseHeaders> headers;
-    std::string data;
-  };
+  // Unregisters the test Service Worker and verifies that the unregistration
+  // succeeded.
+  void UnregisterServiceWorker(int64_t service_worker_registration_id);
 
-  // Builder for creating a TestResponse object with the given data. The faked
-  // download manager will respond to the corresponding request based on this.
-  class TestResponseBuilder {
-   public:
-    explicit TestResponseBuilder(int response_code);
-    ~TestResponseBuilder();
-
-    TestResponseBuilder& AddResponseHeader(const std::string& name,
-                                           const std::string& value);
-    TestResponseBuilder& SetResponseData(std::string data);
-
-    // Finalizes the builder and invalidates the underlying response.
-    std::unique_ptr<TestResponse> Build();
-
-   private:
-    std::unique_ptr<TestResponse> response_;
-
-    DISALLOW_COPY_AND_ASSIGN(TestResponseBuilder);
-  };
-
-  // Creates a Background Fetch registration backed by a Service Worker
-  // registration for the testing origin. The resulting registration will be
-  // stored in |*registration_id|. Returns whether creation was successful,
-  // which must be asserted by tests. The ServiceWorkerRegistration that
-  // backs the |*registration_id| will be kept alive for the test's lifetime.
-  bool CreateRegistrationId(const std::string& tag,
-                            BackgroundFetchRegistrationId* registration_id)
-      WARN_UNUSED_RESULT;
-
-  // Creates a ServiceWorkerFetchRequest instance for the given details and
-  // provides a faked |response| with the faked download manager.
-  ServiceWorkerFetchRequest CreateRequestWithProvidedResponse(
+  // Creates a FetchAPIRequestPtr instance for the given details and
+  // provides a faked |response|.
+  blink::mojom::FetchAPIRequestPtr CreateRequestWithProvidedResponse(
       const std::string& method,
-      const std::string& url,
+      const GURL& url,
       std::unique_ptr<TestResponse> response);
 
+  // Creates a blink::mojom::BackgroundFetchRegistrationPtr object.
+  blink::mojom::BackgroundFetchRegistrationPtr
+  CreateBackgroundFetchRegistration(
+      const std::string& developer_id,
+      const std::string& unique_id,
+      blink::mojom::BackgroundFetchResult result,
+      blink::mojom::BackgroundFetchFailureReason failure_reason);
+
   // Returns the embedded worker test helper instance, which can be used to
-  // influence the behaviour of the Service Worker events.
+  // influence the behavior of the Service Worker events.
   BackgroundFetchEmbeddedWorkerTestHelper* embedded_worker_test_helper() {
     return &embedded_worker_test_helper_;
   }
@@ -94,8 +73,8 @@ class BackgroundFetchTestBase : public ::testing::Test {
   // Returns the browser context that should be used for the tests.
   BrowserContext* browser_context() { return &browser_context_; }
 
-  // Returns the download manager used for the tests.
-  MockDownloadManager* download_manager();
+  // Returns the once-initialized default storage partition to be used in tests.
+  StoragePartition* storage_partition() { return storage_partition_; }
 
   // Returns the origin that should be used for Background Fetch tests.
   const url::Origin& origin() const { return origin_; }
@@ -104,15 +83,17 @@ class BackgroundFetchTestBase : public ::testing::Test {
   TestBrowserThreadBundle thread_bundle_;  // Must be first member.
 
  private:
-  class RespondingDownloadManager;
+  BackgroundFetchTestBrowserContext browser_context_;
 
-  TestBrowserContext browser_context_;
-
-  RespondingDownloadManager* download_manager_;  // owned by |browser_context_|
+  MockBackgroundFetchDelegate* delegate_;
 
   BackgroundFetchEmbeddedWorkerTestHelper embedded_worker_test_helper_;
 
   url::Origin origin_;
+
+  StoragePartition* storage_partition_;
+
+  int next_pattern_id_ = 0;
 
   // Vector of ServiceWorkerRegistration instances that have to be kept alive
   // for the lifetime of this test.

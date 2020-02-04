@@ -10,8 +10,7 @@
 
 namespace net {
 
-ChannelIDStore::ChannelID::ChannelID() {
-}
+ChannelIDStore::ChannelID::ChannelID() = default;
 
 ChannelIDStore::ChannelID::ChannelID(const std::string& server_identifier,
                                      base::Time creation_time,
@@ -37,17 +36,10 @@ ChannelIDStore::ChannelID& ChannelIDStore::ChannelID::operator=(
   return *this;
 }
 
-ChannelIDStore::ChannelID::~ChannelID() {}
+ChannelIDStore::ChannelID::~ChannelID() = default;
 
 ChannelIDStore::~ChannelIDStore() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-}
-
-void ChannelIDStore::InitializeFrom(const ChannelIDList& list) {
-  for (ChannelIDList::const_iterator i = list.begin(); i != list.end();
-      ++i) {
-    SetChannelID(std::unique_ptr<ChannelID>(new ChannelID(*i)));
-  }
 }
 
 }  // namespace net

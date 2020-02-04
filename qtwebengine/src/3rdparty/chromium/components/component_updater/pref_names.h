@@ -16,13 +16,14 @@ extern const char kRecoveryComponentUnpackPath[];
 // Local state prefs.
 extern const char kSwReporterLastExitCode[];
 extern const char kSwReporterLastTimeTriggered[];
-extern const char kSwReporterPendingPrompt[];
 extern const char kSwReporterLastTimeSentReport[];
+extern const char kSwReporterEnabled[];
 
 // Profile prefs.
 extern const char kSwReporterPromptReason[];
 extern const char kSwReporterPromptVersion[];
 extern const char kSwReporterPromptSeed[];
+extern const char kSwReporterReportingEnabled[];
 #endif
 
 }  // namespace prefs

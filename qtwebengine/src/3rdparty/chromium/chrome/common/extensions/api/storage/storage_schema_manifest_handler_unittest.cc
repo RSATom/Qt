@@ -10,7 +10,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "components/version_info/version_info.h"
 #include "extensions/common/extension.h"
@@ -89,7 +88,7 @@ TEST_F(StorageSchemaManifestHandlerTest, Parse) {
 TEST_F(StorageSchemaManifestHandlerTest, Validate) {
   base::ListValue permissions;
   permissions.AppendString("storage");
-  manifest_.Set("permissions", base::MakeUnique<base::Value>(permissions));
+  manifest_.SetKey("permissions", permissions.Clone());
 
   // Absolute path.
   manifest_.SetString("storage.managed_schema", "/etc/passwd");

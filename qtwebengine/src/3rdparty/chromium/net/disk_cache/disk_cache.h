@@ -17,18 +17,23 @@
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_split.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "net/base/cache_type.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_export.h"
+#include "net/base/request_priority.h"
 
 namespace base {
 class FilePath;
-class SingleThreadTaskRunner;
 
 namespace trace_event {
 class ProcessMemoryDump;
 }
+
+namespace android {
+class ApplicationStatusListener;
+}  // namespace android
 
 }  // namespace base
 
@@ -41,37 +46,81 @@ namespace disk_cache {
 
 class Entry;
 class Backend;
+struct EntryWithOpened;
 
 // Returns an instance of a Backend of the given |type|. |path| points to a
 // folder where the cached data will be stored (if appropriate). This cache
 // instance must be the only object that will be reading or writing files to
-// that folder. The returned object should be deleted when not needed anymore.
+// that folder (if another one exists, and |type| is not net::DISK_CACHE or
+// net::MEDIA_CACHE, this operation will not complete until the previous
+// duplicate gets destroyed and finishes all I/O).
+//
+// The returned object should be deleted when not needed anymore.
 // If |force| is true, and there is a problem with the cache initialization, the
 // files will be deleted and a new set will be created. |max_bytes| is the
 // maximum size the cache can grow to. If zero is passed in as |max_bytes|, the
-// cache will determine the value to use. |thread| can be used to perform IO
-// operations if a dedicated thread is required; a valid value is expected for
-// any backend that performs operations on a disk. The returned pointer can be
+// cache will determine the value to use. The returned pointer can be
 // NULL if a fatal error is found. The actual return value of the function is a
 // net error code. If this function returns ERR_IO_PENDING, the |callback| will
 // be invoked when a backend is available or a fatal error condition is reached.
 // The pointer to receive the |backend| must remain valid until the operation
 // completes (the callback is notified).
-NET_EXPORT int CreateCacheBackend(
+NET_EXPORT net::Error CreateCacheBackend(net::CacheType type,
+                                         net::BackendType backend_type,
+                                         const base::FilePath& path,
+                                         int64_t max_bytes,
+                                         bool force,
+                                         net::NetLog* net_log,
+                                         std::unique_ptr<Backend>* backend,
+                                         net::CompletionOnceCallback callback);
+
+#if defined(OS_ANDROID)
+// Similar to the function above, but takes an |app_status_listener| which is
+// used to listen for when the Android application status changes, so we can
+// flush the cache to disk when the app goes to the background.
+NET_EXPORT net::Error CreateCacheBackend(
     net::CacheType type,
     net::BackendType backend_type,
     const base::FilePath& path,
-    int max_bytes,
+    int64_t max_bytes,
     bool force,
-    const scoped_refptr<base::SingleThreadTaskRunner>& thread,
     net::NetLog* net_log,
     std::unique_ptr<Backend>* backend,
-    const net::CompletionCallback& callback);
+    net::CompletionOnceCallback callback,
+    base::android::ApplicationStatusListener* app_status_listener);
+#endif
+
+// Variant of the above that calls |post_cleanup_callback| once all the I/O
+// that was in flight has completed post-destruction. |post_cleanup_callback|
+// will get invoked even if the creation fails. The invocation will always be
+// via the event loop, and never direct.
+//
+// This is currently unsupported for |type| == net::DISK_CACHE or
+// net::MEDIA_CACHE.
+//
+// Note that this will not wait for |post_cleanup_callback| of a previous
+// instance for |path| to run.
+NET_EXPORT net::Error CreateCacheBackend(
+    net::CacheType type,
+    net::BackendType backend_type,
+    const base::FilePath& path,
+    int64_t max_bytes,
+    bool force,
+    net::NetLog* net_log,
+    std::unique_ptr<Backend>* backend,
+    base::OnceClosure post_cleanup_callback,
+    net::CompletionOnceCallback callback);
+
+// This will flush any internal threads used by backends created w/o an
+// externally injected thread specified, so tests can be sure that all I/O
+// has finished before inspecting the world.
+NET_EXPORT void FlushCacheThreadForTesting();
 
 // The root interface for a disk cache instance.
 class NET_EXPORT Backend {
  public:
-  typedef net::CompletionCallback CompletionCallback;
+  typedef net::CompletionOnceCallback CompletionOnceCallback;
+  typedef net::Int64CompletionOnceCallback Int64CompletionOnceCallback;
 
   class Iterator {
    public:
@@ -89,8 +138,8 @@ class NET_EXPORT Backend {
     //
     // Some cache backends make stronger guarantees about mutation during
     // iteration, see top comment in simple_backend_impl.h for details.
-    virtual int OpenNextEntry(Entry** next_entry,
-                              const CompletionCallback& callback) = 0;
+    virtual net::Error OpenNextEntry(Entry** next_entry,
+                                     CompletionOnceCallback callback) = 0;
   };
 
   // If the backend is destroyed when there are operations in progress (any
@@ -98,7 +147,11 @@ class NET_EXPORT Backend {
   // operations so the callbacks are not invoked, possibly leaving the work
   // half way (for instance, dooming just a few entries). Note that pending IO
   // for a given Entry (as opposed to the Backend) will still generate a
-  // callback from within this method.
+  // callback.
+  // Warning: there is some inconsistency in details between different backends
+  // on what will succeed and what will fail.  In particular the blockfile
+  // backend will leak entries closed after backend deletion, while others
+  // handle it properly.
   virtual ~Backend() {}
 
   // Returns the type of this cache.
@@ -107,55 +160,83 @@ class NET_EXPORT Backend {
   // Returns the number of entries in the cache.
   virtual int32_t GetEntryCount() const = 0;
 
+  // Atomically attempts to open an existing entry based on |key| or, if none
+  // already exists, to create a new entry. Upon success |entry_struct| contains
+  // a struct with 1) an entry pointer to either a preexisting or newly created
+  // entry 2) a bool indicting if the entry was opened or not. When the entry
+  // pointer is no longer needed, its Close method should be called. The return
+  // value is a net error code. If this method returns ERR_IO_PENDING, the
+  // |callback| will be invoked when the entry is available. The pointer to
+  // receive the |entry_struct| must remain valid until the operation completes.
+  // The |priority| of the entry determines its priority in the background
+  // worker pools.
+  //
+  // This method should be the preferred way to obtain an entry over using
+  // OpenEntry() or CreateEntry() separately in order to simplify consumer
+  // logic.
+  virtual net::Error OpenOrCreateEntry(const std::string& key,
+                                       net::RequestPriority priority,
+                                       EntryWithOpened* entry_struct,
+                                       CompletionOnceCallback callback);
+
   // Opens an existing entry. Upon success, |entry| holds a pointer to an Entry
   // object representing the specified disk cache entry. When the entry pointer
   // is no longer needed, its Close method should be called. The return value is
   // a net error code. If this method returns ERR_IO_PENDING, the |callback|
   // will be invoked when the entry is available. The pointer to receive the
-  // |entry| must remain valid until the operation completes.
-  virtual int OpenEntry(const std::string& key, Entry** entry,
-                        const CompletionCallback& callback) = 0;
+  // |entry| must remain valid until the operation completes. The |priority|
+  // of the entry determines its priority in the background worker pools.
+  virtual net::Error OpenEntry(const std::string& key,
+                               net::RequestPriority priority,
+                               Entry** entry,
+                               CompletionOnceCallback callback) = 0;
 
   // Creates a new entry. Upon success, the out param holds a pointer to an
   // Entry object representing the newly created disk cache entry. When the
   // entry pointer is no longer needed, its Close method should be called. The
   // return value is a net error code. If this method returns ERR_IO_PENDING,
   // the |callback| will be invoked when the entry is available. The pointer to
-  // receive the |entry| must remain valid until the operation completes.
-  virtual int CreateEntry(const std::string& key, Entry** entry,
-                          const CompletionCallback& callback) = 0;
+  // receive the |entry| must remain valid until the operation completes. The
+  // |priority| of the entry determines its priority in the background worker
+  // pools.
+  virtual net::Error CreateEntry(const std::string& key,
+                                 net::RequestPriority priority,
+                                 Entry** entry,
+                                 CompletionOnceCallback callback) = 0;
 
   // Marks the entry, specified by the given key, for deletion. The return value
   // is a net error code. If this method returns ERR_IO_PENDING, the |callback|
   // will be invoked after the entry is doomed.
-  virtual int DoomEntry(const std::string& key,
-                        const CompletionCallback& callback) = 0;
+  virtual net::Error DoomEntry(const std::string& key,
+                               net::RequestPriority priority,
+                               CompletionOnceCallback callback) = 0;
 
   // Marks all entries for deletion. The return value is a net error code. If
   // this method returns ERR_IO_PENDING, the |callback| will be invoked when the
   // operation completes.
-  virtual int DoomAllEntries(const CompletionCallback& callback) = 0;
+  virtual net::Error DoomAllEntries(CompletionOnceCallback callback) = 0;
 
   // Marks a range of entries for deletion. This supports unbounded deletes in
   // either direction by using null Time values for either argument. The return
   // value is a net error code. If this method returns ERR_IO_PENDING, the
   // |callback| will be invoked when the operation completes.
   // Entries with |initial_time| <= access time < |end_time| are deleted.
-  virtual int DoomEntriesBetween(base::Time initial_time,
-                                 base::Time end_time,
-                                 const CompletionCallback& callback) = 0;
+  virtual net::Error DoomEntriesBetween(base::Time initial_time,
+                                        base::Time end_time,
+                                        CompletionOnceCallback callback) = 0;
 
   // Marks all entries accessed since |initial_time| for deletion. The return
   // value is a net error code. If this method returns ERR_IO_PENDING, the
   // |callback| will be invoked when the operation completes.
   // Entries with |initial_time| <= access time are deleted.
-  virtual int DoomEntriesSince(base::Time initial_time,
-                               const CompletionCallback& callback) = 0;
+  virtual net::Error DoomEntriesSince(base::Time initial_time,
+                                      CompletionOnceCallback callback) = 0;
 
   // Calculate the total size of the cache. The return value is the size in
   // bytes or a net error code. If this method returns ERR_IO_PENDING,
   // the |callback| will be invoked when the operation completes.
-  virtual int CalculateSizeOfAllEntries(const CompletionCallback& callback) = 0;
+  virtual int64_t CalculateSizeOfAllEntries(
+      Int64CompletionOnceCallback callback) = 0;
 
   // Calculate the size of all cache entries accessed between |initial_time| and
   // |end_time|.
@@ -165,9 +246,10 @@ class NET_EXPORT Backend {
   // subset of the cache without reading the whole cache from disk.
   // If this method returns ERR_IO_PENDING, the |callback| will be invoked when
   // the operation completes.
-  virtual int CalculateSizeOfEntriesBetween(base::Time initial_time,
-                                            base::Time end_time,
-                                            const CompletionCallback& callback);
+  virtual int64_t CalculateSizeOfEntriesBetween(
+      base::Time initial_time,
+      base::Time end_time,
+      Int64CompletionOnceCallback callback);
 
   // Returns an iterator which will enumerate all entries of the cache in an
   // undefined order.
@@ -184,12 +266,30 @@ class NET_EXPORT Backend {
   virtual size_t DumpMemoryStats(
       base::trace_event::ProcessMemoryDump* pmd,
       const std::string& parent_absolute_name) const = 0;
+
+  // Backends can optionally permit one to store, probabilistically, up to a
+  // byte associated with a key of an existing entry in memory.
+
+  // GetEntryInMemoryData has the following behavior:
+  // - If the data is not available at this time for any reason, returns 0.
+  // - Otherwise, returns a value that was with very high probability
+  //   given to SetEntryInMemoryData(|key|) (and with a very low probability
+  //   to a different key that collides in the in-memory index).
+  //
+  // Due to the probability of collisions, including those that can be induced
+  // by hostile 3rd parties, this interface should not be used to make decisions
+  // that affect correctness (especially security).
+  virtual uint8_t GetEntryInMemoryData(const std::string& key);
+  virtual void SetEntryInMemoryData(const std::string& key, uint8_t data);
+
+  // Returns the maximum length an individual stream can have.
+  virtual int64_t MaxFileSize() const = 0;
 };
 
 // This interface represents an entry in the disk cache.
 class NET_EXPORT Entry {
  public:
-  typedef net::CompletionCallback CompletionCallback;
+  typedef net::CompletionOnceCallback CompletionOnceCallback;
   typedef net::IOBuffer IOBuffer;
 
   // Marks this cache entry for deletion.
@@ -221,8 +321,11 @@ class NET_EXPORT Entry {
   // after Close has been called; in other words, the caller may close this
   // entry without having to wait for all the callbacks, and still rely on the
   // cleanup performed from the callback code.
-  virtual int ReadData(int index, int offset, IOBuffer* buf, int buf_len,
-                       const CompletionCallback& callback) = 0;
+  virtual int ReadData(int index,
+                       int offset,
+                       IOBuffer* buf,
+                       int buf_len,
+                       CompletionOnceCallback callback) = 0;
 
   // Copies data from the given buffer of length |buf_len| into the cache.
   // Returns the number of bytes written or a network error code. If this
@@ -235,8 +338,11 @@ class NET_EXPORT Entry {
   // rely on the cleanup performed from the callback code.
   // If truncate is true, this call will truncate the stored data at the end of
   // what we are writing here.
-  virtual int WriteData(int index, int offset, IOBuffer* buf, int buf_len,
-                        const CompletionCallback& callback,
+  virtual int WriteData(int index,
+                        int offset,
+                        IOBuffer* buf,
+                        int buf_len,
+                        CompletionOnceCallback callback,
                         bool truncate) = 0;
 
   // Sparse entries support:
@@ -286,7 +392,7 @@ class NET_EXPORT Entry {
   virtual int ReadSparseData(int64_t offset,
                              IOBuffer* buf,
                              int buf_len,
-                             const CompletionCallback& callback) = 0;
+                             CompletionOnceCallback callback) = 0;
 
   // Behaves like WriteData() except that this method is used to access sparse
   // entries. |truncate| is not part of this interface because a sparse entry
@@ -297,7 +403,7 @@ class NET_EXPORT Entry {
   virtual int WriteSparseData(int64_t offset,
                               IOBuffer* buf,
                               int buf_len,
-                              const CompletionCallback& callback) = 0;
+                              CompletionOnceCallback callback) = 0;
 
   // Returns information about the currently stored portion of a sparse entry.
   // |offset| and |len| describe a particular range that should be scanned to
@@ -311,7 +417,7 @@ class NET_EXPORT Entry {
   virtual int GetAvailableRange(int64_t offset,
                                 int len,
                                 int64_t* start,
-                                const CompletionCallback& callback) = 0;
+                                CompletionOnceCallback callback) = 0;
 
   // Returns true if this entry could be a sparse entry or false otherwise. This
   // is a quick test that may return true even if the entry is not really
@@ -341,10 +447,25 @@ class NET_EXPORT Entry {
   // Note that CancelSparseIO may have been called on another instance of this
   // object that refers to the same physical disk entry.
   // Note: This method is deprecated.
-  virtual int ReadyForSparseIO(const CompletionCallback& callback) = 0;
+  virtual net::Error ReadyForSparseIO(CompletionOnceCallback callback) = 0;
+
+  // Used in tests to set the last used time. Note that backend might have
+  // limited precision. Also note that this call may modify the last modified
+  // time.
+  virtual void SetLastUsedTimeForTest(base::Time time) = 0;
 
  protected:
   virtual ~Entry() {}
+};
+
+// This struct is used to allow OpenOrCreateEntry() to return both an entry
+// pointer as well as a bool indicating whether the entry was opened or
+// not (i.e.: created).
+struct EntryWithOpened {
+  explicit EntryWithOpened(Entry* e) : entry(e), opened(false) {}
+  EntryWithOpened() : entry(nullptr), opened(false) {}
+  Entry* entry;
+  bool opened;
 };
 
 struct EntryDeleter {

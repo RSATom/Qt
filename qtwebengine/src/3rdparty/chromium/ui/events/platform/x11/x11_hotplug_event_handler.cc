@@ -5,9 +5,6 @@
 #include "ui/events/platform/x11/x11_hotplug_event_handler.h"
 
 #include <stdint.h>
-#include <X11/extensions/XInput.h>
-#include <X11/extensions/XInput2.h>
-#include <X11/Xatom.h>
 
 #include <algorithm>
 #include <cmath>
@@ -22,14 +19,15 @@
 #include "base/process/launch.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
-#include "base/sys_info.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/system/sys_info.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/events/devices/device_data_manager.h"
 #include "ui/events/devices/device_hotplug_event_observer.h"
 #include "ui/events/devices/device_util_linux.h"
 #include "ui/events/devices/input_device.h"
 #include "ui/events/devices/touchscreen_device.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/gfx/x/x11_types.h"
 
@@ -110,13 +108,9 @@ struct TouchClassInfo {
 struct DeviceInfo {
   DeviceInfo(const XIDeviceInfo& device,
              DeviceType type,
-             const base::FilePath& path,
-             uint16_t vendor,
-             uint16_t product)
+             const base::FilePath& path)
       : id(device.deviceid),
         name(device.name),
-        vendor_id(vendor),
-        product_id(product),
         use(device.use),
         type(type),
         path(path) {
@@ -144,10 +138,6 @@ struct DeviceInfo {
 
   // Internal device name.
   std::string name;
-
-  // USB-style device identifiers.
-  uint16_t vendor_id;
-  uint16_t product_id;
 
   // Device type (ie: XIMasterPointer)
   int use;
@@ -197,7 +187,7 @@ base::FilePath GetDevicePath(XDisplay* dpy, const XIDeviceInfo& device) {
   // Input device has a property "Device Node" pointing to its dev input node,
   // e.g.   Device Node (250): "/dev/input/event8"
   Atom device_node = gfx::GetAtom("Device Node");
-  if (device_node == None)
+  if (device_node == x11::None)
     return base::FilePath();
 
   Atom actual_type;
@@ -212,18 +202,9 @@ base::FilePath GetDevicePath(XDisplay* dpy, const XIDeviceInfo& device) {
   if (!dev || dev->device_id != base::checked_cast<XID>(device.deviceid))
     return base::FilePath();
 
-  if (XGetDeviceProperty(dpy,
-                         dev,
-                         device_node,
-                         0,
-                         1000,
-                         False,
-                         AnyPropertyType,
-                         &actual_type,
-                         &actual_format,
-                         &nitems,
-                         &bytes_after,
-                         &data) != Success) {
+  if (XGetDeviceProperty(dpy, dev, device_node, 0, 1000, x11::False,
+                         AnyPropertyType, &actual_type, &actual_format, &nitems,
+                         &bytes_after, &data) != x11::Success) {
     XCloseDevice(dpy, dev);
     return base::FilePath();
   }
@@ -259,7 +240,7 @@ void HandleKeyboardDevicesInWorker(
     devices.push_back(keyboard);
   }
 
-  reply_runner->PostTask(FROM_HERE, base::Bind(callback, devices));
+  reply_runner->PostTask(FROM_HERE, base::BindOnce(callback, devices));
 }
 
 // Helper used to parse mouse information. When it is done it uses
@@ -278,7 +259,7 @@ void HandleMouseDevicesInWorker(const std::vector<DeviceInfo>& device_infos,
     devices.push_back(InputDevice(device_info.id, type, device_info.name));
   }
 
-  reply_runner->PostTask(FROM_HERE, base::Bind(callback, devices));
+  reply_runner->PostTask(FROM_HERE, base::BindOnce(callback, devices));
 }
 
 // Helper used to parse touchpad information. When it is done it uses
@@ -297,7 +278,7 @@ void HandleTouchpadDevicesInWorker(const std::vector<DeviceInfo>& device_infos,
     devices.push_back(InputDevice(device_info.id, type, device_info.name));
   }
 
-  reply_runner->PostTask(FROM_HERE, base::Bind(callback, devices));
+  reply_runner->PostTask(FROM_HERE, base::BindOnce(callback, devices));
 }
 
 // Helper used to parse touchscreen information. When it is done it uses
@@ -308,8 +289,8 @@ void HandleTouchscreenDevicesInWorker(
     scoped_refptr<base::TaskRunner> reply_runner,
     const TouchscreenDeviceCallback& callback) {
   std::vector<TouchscreenDevice> devices;
-  if (display_state.mt_position_x == None ||
-      display_state.mt_position_y == None)
+  if (display_state.mt_position_x == x11::None ||
+      display_state.mt_position_y == x11::None)
     return;
 
   for (const DeviceInfo& device_info : device_infos) {
@@ -345,16 +326,18 @@ void HandleTouchscreenDevicesInWorker(
     // Touchscreens should have absolute X and Y axes.
     if (max_x > 0.0 && max_y > 0.0) {
       InputDeviceType type = GetInputDeviceTypeFromPath(device_info.path);
+      // TODO(jamescook): Detect pen/stylus.
+      const bool has_stylus = false;
       // |max_x| and |max_y| are inclusive values, so we need to add 1 to get
       // the size.
-      devices.push_back(
-          TouchscreenDevice(device_info.id, type, device_info.name,
-                            gfx::Size(max_x + 1, max_y + 1),
-                            device_info.touch_class_info.num_touches));
+      devices.push_back(TouchscreenDevice(
+          device_info.id, type, device_info.name,
+          gfx::Size(max_x + 1, max_y + 1),
+          device_info.touch_class_info.num_touches, has_stylus));
     }
   }
 
-  reply_runner->PostTask(FROM_HERE, base::Bind(callback, devices));
+  reply_runner->PostTask(FROM_HERE, base::BindOnce(callback, devices));
 }
 
 // Called on a worker thread to parse the device information.
@@ -442,31 +425,8 @@ void X11HotplugEventHandler::OnHotplugEvent() {
         (device.deviceid >= 0 && device.deviceid < kMaxDeviceNum)
             ? device_types[device.deviceid]
             : DEVICE_TYPE_OTHER;
-
-    // Obtain the USB-style vendor and product identifiers.
-    // (On Linux, XI2 makes this available for all evdev devices.
-    uint32_t* product_info;
-    Atom type;
-    int format_return;
-    unsigned long num_items_return;
-    unsigned long bytes_after_return;
-    uint16_t vendor = 0;
-    uint16_t product = 0;
-    if (XIGetProperty(gfx::GetXDisplay(), device.deviceid,
-                      gfx::GetAtom(XI_PROP_PRODUCT_ID), 0, 2, 0, XA_INTEGER,
-                      &type, &format_return, &num_items_return,
-                      &bytes_after_return,
-                      reinterpret_cast<unsigned char**>(&product_info)) == 0 &&
-        product_info) {
-      if (num_items_return == 2) {
-        vendor = product_info[0];
-        product = product_info[1];
-      }
-      XFree(product_info);
-    }
-
-    device_infos.push_back(DeviceInfo(
-        device, device_type, GetDevicePath(display, device), vendor, product));
+    device_infos.push_back(
+        DeviceInfo(device, device_type, GetDevicePath(display, device)));
   }
 
   // X11 is not thread safe, so first get all the required state.

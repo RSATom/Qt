@@ -52,6 +52,7 @@
 //
 
 #include "qquickanimation_p.h"
+#include <private/qanimationjobutil_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -66,10 +67,11 @@ public:
 
     bool isRunning() const;
 
-    void transition(const QList<QQuickStateAction> &, QQuickTransition *transition, QObject *defaultTarget = 0);
+    void transition(const QList<QQuickStateAction> &, QQuickTransition *transition, QObject *defaultTarget = nullptr);
 
     void cancel();
 
+    SelfDeletable m_selfDeletable;
 protected:
     virtual void finished();
 

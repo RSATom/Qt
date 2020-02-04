@@ -8,28 +8,57 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_API_VIDEO_VIDEO_FRAME_H_
-#define WEBRTC_API_VIDEO_VIDEO_FRAME_H_
+#ifndef API_VIDEO_VIDEO_FRAME_H_
+#define API_VIDEO_VIDEO_FRAME_H_
 
 #include <stdint.h>
 
-#include "webrtc/api/video/video_rotation.h"
-#include "webrtc/api/video/video_frame_buffer.h"
+#include "absl/types/optional.h"
+#include "api/video/color_space.h"
+#include "api/video/hdr_metadata.h"
+#include "api/video/video_frame_buffer.h"
+#include "api/video/video_rotation.h"
+#include "rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
-class VideoFrame {
+class RTC_EXPORT VideoFrame {
  public:
-  // TODO(nisse): This constructor is consistent with the now deleted
-  // cricket::WebRtcVideoFrame. We should consider whether or not we
-  // want to stick to this style and deprecate the other constructor.
+  // Preferred way of building VideoFrame objects.
+  class Builder {
+   public:
+    Builder();
+    ~Builder();
+
+    VideoFrame build();
+    Builder& set_video_frame_buffer(
+        const rtc::scoped_refptr<VideoFrameBuffer>& buffer);
+    Builder& set_timestamp_ms(int64_t timestamp_ms);
+    Builder& set_timestamp_us(int64_t timestamp_us);
+    Builder& set_timestamp_rtp(uint32_t timestamp_rtp);
+    Builder& set_ntp_time_ms(int64_t ntp_time_ms);
+    Builder& set_rotation(VideoRotation rotation);
+    Builder& set_color_space(const ColorSpace& color_space);
+    Builder& set_color_space(const ColorSpace* color_space);
+    Builder& set_id(uint16_t id);
+
+   private:
+    uint16_t id_ = 0;
+    rtc::scoped_refptr<webrtc::VideoFrameBuffer> video_frame_buffer_;
+    int64_t timestamp_us_ = 0;
+    uint32_t timestamp_rtp_ = 0;
+    int64_t ntp_time_ms_ = 0;
+    VideoRotation rotation_ = kVideoRotation_0;
+    absl::optional<ColorSpace> color_space_;
+  };
+
+  // To be deprecated. Migrate all use to Builder.
   VideoFrame(const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
              webrtc::VideoRotation rotation,
              int64_t timestamp_us);
-
-  // Preferred constructor.
   VideoFrame(const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
-             uint32_t timestamp,
+             uint32_t timestamp_rtp,
              int64_t render_time_ms,
              VideoRotation rotation);
 
@@ -47,6 +76,15 @@ class VideoFrame {
   int height() const;
   // Get frame size in pixels.
   uint32_t size() const;
+
+  // Get frame ID. Returns 0 if ID is not set. Not guarantee to be transferred
+  // from the sender to the receiver, but preserved on single side. The id
+  // should be propagated between all frame modifications during its lifetime
+  // from capturing to sending as encoded image. It is intended to be unique
+  // over a time window of a few minutes for peer connection, to which
+  // corresponding video stream belongs to.
+  uint16_t id() const { return id_; }
+  void set_id(uint16_t id) { id_ = id; }
 
   // System monotonic clock, same timebase as rtc::TimeMicros().
   int64_t timestamp_us() const { return timestamp_us_; }
@@ -87,6 +125,15 @@ class VideoFrame {
   VideoRotation rotation() const { return rotation_; }
   void set_rotation(VideoRotation rotation) { rotation_ = rotation; }
 
+  // Get color space when available.
+  const ColorSpace* color_space() const {
+    return color_space_ ? &*color_space_ : nullptr;
+  }
+  void set_color_space(ColorSpace* color_space) {
+    color_space_ =
+        color_space ? absl::make_optional(*color_space) : absl::nullopt;
+  }
+
   // Get render time in milliseconds.
   // TODO(nisse): Deprecated. Migrate all users to timestamp_us().
   int64_t render_time_ms() const;
@@ -102,14 +149,24 @@ class VideoFrame {
   }
 
  private:
+  VideoFrame(uint16_t id,
+             const rtc::scoped_refptr<VideoFrameBuffer>& buffer,
+             int64_t timestamp_us,
+             uint32_t timestamp_rtp,
+             int64_t ntp_time_ms,
+             VideoRotation rotation,
+             const absl::optional<ColorSpace>& color_space);
+
+  uint16_t id_;
   // An opaque reference counted handle that stores the pixel data.
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> video_frame_buffer_;
   uint32_t timestamp_rtp_;
   int64_t ntp_time_ms_;
   int64_t timestamp_us_;
   VideoRotation rotation_;
+  absl::optional<ColorSpace> color_space_;
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_API_VIDEO_VIDEO_FRAME_H_
+#endif  // API_VIDEO_VIDEO_FRAME_H_

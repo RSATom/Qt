@@ -26,7 +26,7 @@
 ****************************************************************************/
 
 /*!
-  \qmlmodule QtPurchasing 1.0
+  \qmlmodule QtPurchasing 1.\QtMinorVersion
   \title Qt Purchasing QML Types
   \ingroup qmlmodules
   \brief Provides QML types for in-app purchasing.

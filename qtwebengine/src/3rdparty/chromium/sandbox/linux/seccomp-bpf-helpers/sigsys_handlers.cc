@@ -14,6 +14,7 @@
 #include "base/debug/crash_logging.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "sandbox/linux/bpf_dsl/bpf_dsl.h"
 #include "sandbox/linux/seccomp-bpf/sandbox_bpf.h"
@@ -32,8 +33,13 @@
 #define SECCOMP_MESSAGE_IOCTL_CONTENT "ioctl() failure"
 #define SECCOMP_MESSAGE_KILL_CONTENT "(tg)kill() failure"
 #define SECCOMP_MESSAGE_FUTEX_CONTENT "futex() failure"
+#define SECCOMP_MESSAGE_PTRACE_CONTENT "ptrace() failure"
 
 namespace {
+
+#if !defined(OS_NACL_NONSFI)
+base::debug::CrashKeyString* seccomp_crash_key = nullptr;
+#endif
 
 inline bool IsArchitectureX86_64() {
 #if defined(__x86_64__)
@@ -95,7 +101,7 @@ void PrintSyscallError(uint32_t sysno) {
     sysno_base10[i] = '0' + mod;
   }
 
-#if defined(__mips__) && (_MIPS_SIM == _MIPS_SIM_ABI32)
+#if defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS)
   static const char kSeccompErrorPrefix[] = __FILE__
       ":**CRASHING**:" SECCOMP_MESSAGE_COMMON_CONTENT " in syscall 4000 + ";
 #else
@@ -176,7 +182,7 @@ void SetSeccompCrashKey(const struct sandbox::arch_seccomp_data& args) {
   memset(crash_key, '\0', crash_key_length);
 
   size_t offset = 0;
-  for (size_t i = 0; i < arraysize(values); ++i) {
+  for (size_t i = 0; i < base::size(values); ++i) {
     const char* strings[2] = { prefixes[i], values[i] };
     for (auto* string : strings) {
       size_t string_len = strlen(string);
@@ -185,7 +191,7 @@ void SetSeccompCrashKey(const struct sandbox::arch_seccomp_data& args) {
     }
   }
 
-  base::debug::SetCrashKeyValue("seccomp-sigsys", crash_key);
+  base::debug::SetCrashKeyString(seccomp_crash_key, crash_key);
 #endif
 }
 
@@ -300,6 +306,19 @@ intptr_t SIGSYSFutexFailure(const struct arch_seccomp_data& args,
     _exit(1);
 }
 
+intptr_t SIGSYSPtraceFailure(const struct arch_seccomp_data& args,
+                             void* /* aux */) {
+  static const char kSeccompPtraceError[] =
+      __FILE__ ":**CRASHING**:" SECCOMP_MESSAGE_PTRACE_CONTENT "\n";
+  WriteToStdErr(kSeccompPtraceError, sizeof(kSeccompPtraceError) - 1);
+  SetSeccompCrashKey(args);
+  volatile int ptrace_op = args.args[0];
+  volatile char* addr = reinterpret_cast<volatile char*>(ptrace_op & 0xFFF);
+  *addr = '\0';
+  for (;;)
+    _exit(1);
+}
+
 intptr_t SIGSYSSchedHandler(const struct arch_seccomp_data& args,
                             void* aux) {
   switch (args.nr) {
@@ -358,8 +377,22 @@ bpf_dsl::ResultExpr CrashSIGSYSFutex() {
   return bpf_dsl::Trap(SIGSYSFutexFailure, NULL);
 }
 
+bpf_dsl::ResultExpr CrashSIGSYSPtrace() {
+  return bpf_dsl::Trap(SIGSYSPtraceFailure, NULL);
+}
+
 bpf_dsl::ResultExpr RewriteSchedSIGSYS() {
   return bpf_dsl::Trap(SIGSYSSchedHandler, NULL);
+}
+
+void AllocateCrashKeys() {
+#if !defined(OS_NACL_NONSFI)
+  if (seccomp_crash_key)
+    return;
+
+  seccomp_crash_key = base::debug::AllocateCrashKeyString(
+      "seccomp-sigsys", base::debug::CrashKeySize::Size256);
+#endif
 }
 
 const char* GetErrorMessageContentForTests() {
@@ -384,6 +417,10 @@ const char* GetKillErrorMessageContentForTests() {
 
 const char* GetFutexErrorMessageContentForTests() {
   return SECCOMP_MESSAGE_FUTEX_CONTENT;
+}
+
+const char* GetPtraceErrorMessageContentForTests() {
+  return SECCOMP_MESSAGE_PTRACE_CONTENT;
 }
 
 }  // namespace sandbox.

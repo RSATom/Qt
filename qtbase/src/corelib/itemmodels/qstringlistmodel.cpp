@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -46,8 +46,6 @@
 #include <QtCore/qvector.h>
 
 #include <algorithm>
-
-#ifndef QT_NO_STRINGLISTMODEL
 
 QT_BEGIN_NAMESPACE
 
@@ -138,6 +136,42 @@ QModelIndex QStringListModel::sibling(int row, int column, const QModelIndex &id
 }
 
 /*!
+  \reimp
+  \since 5.13
+*/
+QMap<int, QVariant> QStringListModel::itemData(const QModelIndex &index) const
+{
+    if (!checkIndex(index, CheckIndexOption::IndexIsValid | CheckIndexOption::ParentIsInvalid))
+        return QMap<int, QVariant>{};
+    const QVariant displayData = lst.at(index.row());
+    return QMap<int, QVariant>{{
+        std::make_pair<int>(Qt::DisplayRole, displayData),
+        std::make_pair<int>(Qt::EditRole, displayData)
+    }};
+}
+
+/*!
+  \reimp
+  \since 5.13
+  If \a roles contains both Qt::DisplayRole and Qt::EditRole, the latter will take precedence
+*/
+bool QStringListModel::setItemData(const QModelIndex &index, const QMap<int, QVariant> &roles)
+{
+    if (roles.isEmpty())
+        return false;
+    if (std::any_of(roles.keyBegin(), roles.keyEnd(), [](int role) -> bool {
+        return role != Qt::DisplayRole && role != Qt::EditRole;
+    })) {
+        return false;
+    }
+    auto roleIter = roles.constFind(Qt::EditRole);
+    if (roleIter == roles.constEnd())
+        roleIter = roles.constFind(Qt::DisplayRole);
+    Q_ASSERT(roleIter != roles.constEnd());
+    return setData(index, roleIter.value(), roleIter.key());
+}
+
+/*!
     Returns data for the specified \a role, from the item with the
     given \a index.
 
@@ -186,18 +220,26 @@ bool QStringListModel::setData(const QModelIndex &index, const QVariant &value, 
 {
     if (index.row() >= 0 && index.row() < lst.size()
         && (role == Qt::EditRole || role == Qt::DisplayRole)) {
-        lst.replace(index.row(), value.toString());
-        QVector<int> roles;
-        roles.reserve(2);
-        roles.append(Qt::DisplayRole);
-        roles.append(Qt::EditRole);
-        emit dataChanged(index, index, roles);
-        // once Q_COMPILER_UNIFORM_INIT can be used, change to:
-        // emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        const QString valueString = value.toString();
+        if (lst.at(index.row()) == valueString)
+            return true;
+        lst.replace(index.row(), valueString);
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         return true;
     }
     return false;
 }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+/*!
+    \reimp
+    \since 6.0
+ */
+bool QStringListModel::clearItemData(const QModelIndex &index)
+{
+    return setData(index, QVariant(), Qt::EditRole);
+}
+#endif
 
 /*!
     Inserts \a count rows into the model, beginning at the given \a row.
@@ -248,6 +290,38 @@ bool QStringListModel::removeRows(int row, int count, const QModelIndex &parent)
 
     endRemoveRows();
 
+    return true;
+}
+
+/*!
+    \since 5.13
+    \reimp
+*/
+bool QStringListModel::moveRows(const QModelIndex &sourceParent, int sourceRow, int count, const QModelIndex &destinationParent, int destinationChild)
+{
+    if (sourceRow < 0
+        || sourceRow + count - 1 >= rowCount(sourceParent)
+        || destinationChild <= 0
+        || destinationChild > rowCount(destinationParent)
+        || sourceRow == destinationChild - 1
+        || count <= 0) {
+        return false;
+    }
+    if (!beginMoveRows(QModelIndex(), sourceRow, sourceRow + count - 1, QModelIndex(), destinationChild))
+        return false;
+    /*
+    QList::move assumes that the second argument is the index where the item will end up to
+    i.e. the valid range for that argument is from 0 to QList::size()-1
+    QAbstractItemModel::moveRows when source and destinations have the same parent assumes that
+    the item will end up being in the row BEFORE the one indicated by destinationChild
+    i.e. the valid range for that argument is from 1 to QList::size()
+    For this reason we remove 1 from destinationChild when using it inside QList
+    */
+    destinationChild--;
+    const int fromRow = destinationChild < sourceRow ? (sourceRow + count - 1) : sourceRow;
+    while (count--)
+        lst.move(fromRow, destinationChild);
+    endMoveRows();
     return true;
 }
 
@@ -329,5 +403,3 @@ Qt::DropActions QStringListModel::supportedDropActions() const
 QT_END_NAMESPACE
 
 #include "moc_qstringlistmodel.cpp"
-
-#endif // QT_NO_STRINGLISTMODEL

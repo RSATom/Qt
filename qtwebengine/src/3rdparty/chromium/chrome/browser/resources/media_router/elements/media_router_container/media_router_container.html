@@ -1,10 +1,10 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
+
+<link rel="import" href="chrome://resources/cr_elements/cr_checkbox/cr_checkbox.html">
+<link rel="import" href="chrome://resources/cr_elements/cr_input/cr_input.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-checkbox/paper-checkbox.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-input/paper-input.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-item/paper-item.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-menu/paper-menu.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-spinner/paper-spinner.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/iron-selector/iron-selector.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-spinner/paper-spinner-lite.html">
 <link rel="import" href="../media_router_header/media_router_header.html">
 <link rel="import" href="../route_details/route_details.html">
 <link rel="import" href="../../icons/media_router_icons.html">
@@ -19,26 +19,20 @@
         <div id="first-run-title">[[i18n('firstRunFlowTitle')]]</div>
         <div id="first-run-text">
           <span>[[i18n('firstRunFlowText')]]</span>
-          <a href="[[firstRunFlowLearnMoreUrl]]" target="_blank">
-            <span class="first-run-learn-more">
-              [[i18n('learnMoreText')]]
-            </span>
+          <a href="[[firstRunFlowLearnMoreUrl]]" class="first-run-learn-more"
+              target="_blank">
+            [[i18n('learnMoreText')]]
           </a>
         </div>
         <div id="first-run-flow-cloud-pref"
             hidden$="[[!showFirstRunFlowCloudPref]]">
-          <div>
-            <paper-checkbox checked id="first-run-cloud-checkbox">
-            </paper-checkbox>
-          </div>
-          <div>
+          <cr-checkbox checked id="first-run-cloud-checkbox">
             <span>[[getFirstRunFlowCloudPrefText_()]]</span>
-            <a href="[[firstRunFlowCloudPrefLearnMoreUrl]]" target="_blank">
-              <span class="first-run-learn-more">
-                [[i18n('learnMoreText')]]
-              </span>
+            <a href="[[firstRunFlowCloudPrefLearnMoreUrl]]"
+                class="first-run-learn-more" target="_blank">
+              [[i18n('learnMoreText')]]
             </a>
-          </div>
+          </cr-checkbox>
         </div>
         <div id="first-run-button-container">
           <paper-button id="first-run-button" class="button"
@@ -57,16 +51,17 @@
     </media-router-header>
     <div id="content">
       <template is="dom-if" if="[[!computeCastModeListHidden_(currentView_)]]">
-        <paper-menu id="cast-mode-list" role="presentation"
-            selectable="paper-item" selected="{{selectedCastModeMenuItem_}}">
+        <iron-selector id="cast-mode-list" role="presentation"
+            selectable=".selectable-item"
+            selected="{{selectedCastModeMenuItem_}}">
           <template is="dom-repeat" id="presentationCastModeList"
               items="[[computePresentationCastModeList_(castModeList)]]">
-            <paper-item on-tap="onCastModeClick_">
+            <button class="selectable-item" on-click="onCastModeClick_">
               <iron-icon class="cast-mode-icon"
                   icon="[[computeCastModeIcon_(item)]]">
               </iron-icon>
               <div><span>[[item.host]]</span></div>
-            </paper-item>
+            </button>
           </template>
           <div id="share-screen-text" class="subheading-text"
               hidden$="[[computeShareScreenSubheadingHidden_(castModeList)]]">
@@ -74,12 +69,12 @@
           </div>
           <template is="dom-repeat" id="shareScreenCastModeList"
               items="[[computeShareScreenCastModeList_(castModeList)]]">
-            <paper-item on-tap="onCastModeClick_">
+            <button class="selectable-item" on-click="onCastModeClick_">
               <iron-icon class="cast-mode-icon"
                   icon="[[computeCastModeIcon_(item)]]">
               </iron-icon>
               <div><span>[[item.description]]</span></div>
-            </paper-item>
+            </button>
           </template>
           <div id="cast-local-media-text" class="subheading-text"
               hidden$="[[computeLocalMediaSubheadingHidden_(castModeList)]]">
@@ -87,14 +82,14 @@
           </div>
           <template is="dom-repeat" id="localMediaCastModeList"
               items="[[computeLocalMediaCastModeList_(castModeList)]]">
-            <paper-item on-tap="onCastModeClick_">
+            <button class="selectable-item" on-click="onCastModeClick_">
               <iron-icon class="cast-mode-icon"
                   icon="[[computeCastModeIcon_(item)]]">
               </iron-icon>
               <div><span>[[item.description]]</span></div>
-            </paper-item>
+            </button>
           </template>
-        </paper-menu>
+        </iron-selector>
       </template>
       <template is="dom-if"
           if="[[!computeRouteDetailsHidden_(currentView_, issue)]]">
@@ -111,9 +106,9 @@
           hidden$="[[computeSinkListViewHidden_(currentView_, issue)]]">
         <div id="device-missing"
              hidden$="[[computeDeviceMissingHidden_(sinksToShow_)]]">
-          <paper-spinner id="searching-devices-spinner" active
+          <paper-spinner-lite id="searching-devices-spinner" active
               hidden$="[[computeSpinnerHidden_(justOpened_)]]">
-          </paper-spinner>
+          </paper-spinner-lite>
           <a href="[[deviceMissingUrl]]" target="_blank"
               hidden$="[[!computeSpinnerHidden_(justOpened_)]]">
             [[i18n('destinationMissingText')]]
@@ -121,9 +116,10 @@
         </div>
         <template is="dom-if" if="[[!computeSinkListHidden_(sinksToShow_)]]">
           <div id="sink-list" hidden$="[[hideSinkListForAnimation_]]">
-            <paper-menu id="sink-list-paper-menu" role="presentation">
+            <iron-selector id="sink-list-paper-menu" role="presentation"
+                selectable=".selectable-item">
               <template is="dom-repeat" id="sinkList" items="[[sinksToShow_]]">
-                <paper-item on-tap="onSinkClick_">
+                <button class="selectable-item" on-click="onSinkClick_">
                   <div class="sink-content">
                     <div>
                       <iron-icon icon="[[computeSinkIcon_(item)]]"
@@ -132,8 +128,8 @@
                       </iron-icon>
                       <template is="dom-if"
                           if="[[computeSinkIsLaunching_(currentLaunchingSinkId_, item.id)]]">
-                        <paper-spinner class="sink-icon" active>
-                        </paper-spinner>
+                        <paper-spinner-lite class="sink-icon" active>
+                        </paper-spinner-lite>
                       </template>
                     </div>
                     <div>
@@ -156,24 +152,21 @@
                       </template>
                     </div>
                   </div>
-                </paper-item>
+                </button>
               </template>
-            </paper-menu>
+            </iron-selector>
           </div>
         </template>
         <template is="dom-if" if="[[searchEnabled_]]">
           <div id="sink-search">
             <div class="sink-content">
-              <div>
-                <paper-icon-button id="sink-search-icon" icon="media-router:search"
-                    on-tap="searchButtonClick_" title="[[i18n('searchButtonTitle')]]">
-                </paper-icon-button>
-              </div>
-              <div id="search-input-container">
-                <paper-input id="sink-search-input" label="[[i18n('searchInputLabel')]]"
-                    no-label-float value="{{searchInputText_}}">
-                </paper-input>
-              </div>
+              <paper-icon-button id="sink-search-icon"
+                  icon="media-router:search" on-tap="searchButtonClick_"
+                  title="[[i18n('searchButtonTitle')]]">
+              </paper-icon-button>
+              <cr-input id="sink-search-input" value="{{searchInputText_}}"
+                  placeholder="[[i18n('searchInputLabel')]]">
+              </cr-input>
             </div>
           </div>
         </template>
@@ -185,10 +178,12 @@
             </div>
             <div id="search-results"
                 hidden$="[[computeSearchResultsHidden_(searchResultsToShow_, isSearchListHidden_)]]">
-              <paper-menu id="search-results-paper-menu" selected="0" role="presentation">
+              <iron-selector id="search-results-paper-menu" selected="0"
+                  role="presentation" selectable=".selectable-item">
                 <template is="dom-repeat" id="searchResults"
                     items="[[searchResultsToShow_]]">
-                  <paper-item class="search-item" on-tap="onSinkClick_">
+                  <button class="search-item selectable-item"
+                      on-click="onSinkClick_">
                     <div class="sink-content">
                       <div>
                         <iron-icon icon="[[computeSinkIcon_(item.sinkItem)]]"
@@ -197,8 +192,8 @@
                         </iron-icon>
                         <template is="dom-if"
                             if="[[computeSinkIsLaunching_(currentLaunchingSinkId_, item.sinkItem.id)]]">
-                          <paper-spinner class="sink-icon" active>
-                          </paper-spinner>
+                          <paper-spinner-lite class="sink-icon" active>
+                          </paper-spinner-lite>
                         </template>
                       </div>
                       <div>
@@ -224,9 +219,9 @@
                         </template>
                       </div>
                     </div>
-                  </paper-item>
+                  </button>
                 </template>
-              </paper-menu>
+              </iron-selector>
             </div>
           </div>
         </template>

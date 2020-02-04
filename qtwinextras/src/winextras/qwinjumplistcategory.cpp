@@ -38,7 +38,7 @@
  **
  ****************************************************************************/
 
-#include <QtCore/QtGlobal>
+#include <QtCore/qglobal.h>
 
 #ifdef Q_CC_MINGW // MinGW: Include the correct definition of SHARDAPPIDINFOLINK
 #  if defined(NTDDI_VERSION) && NTDDI_VERSION < 0x06010000
@@ -57,7 +57,7 @@
 #include "winshobjidl_p.h"
 #include "windowsguidsdefs_p.h"
 
-#include <QtCore/QDebug>
+#include <QtCore/qdebug.h>
 
 #include <shlobj.h>
 

@@ -10,6 +10,7 @@
 #include <set>
 
 #include "base/compiler_specific.h"
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -32,19 +33,20 @@ class MenuRunnerDestructionTest;
 namespace internal {
 
 // A menu runner implementation that uses views::MenuItemView to show a menu.
-class VIEWS_EXPORT MenuRunnerImpl
-    : NON_EXPORTED_BASE(public MenuRunnerImplInterface),
-      NON_EXPORTED_BASE(public MenuControllerDelegate) {
+class VIEWS_EXPORT MenuRunnerImpl : public MenuRunnerImplInterface,
+                                    public MenuControllerDelegate {
  public:
   explicit MenuRunnerImpl(MenuItemView* menu);
 
   bool IsRunning() const override;
   void Release() override;
-  void RunMenuAt(Widget* parent,
-                 MenuButton* button,
-                 const gfx::Rect& bounds,
-                 MenuAnchorPosition anchor,
-                 int32_t run_types) override;
+  void RunMenuAt(
+      Widget* parent,
+      MenuButton* button,
+      const gfx::Rect& bounds,
+      MenuAnchorPosition anchor,
+      int32_t run_types,
+      base::flat_set<int> alerted_commands = base::flat_set<int>()) override;
   void Cancel() override;
   base::TimeTicks GetClosingEventTime() const override;
 

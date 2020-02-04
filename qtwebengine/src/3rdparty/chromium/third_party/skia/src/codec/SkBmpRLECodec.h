@@ -22,7 +22,7 @@ public:
     /*
      * Creates an instance of the decoder
      *
-     * Called only by SkBmpCodec::NewFromStream
+     * Called only by SkBmpCodec::MakeFromStream
      * There should be no other callers despite this being public
      *
      * @param info contains properties of the encoded data
@@ -35,11 +35,13 @@ public:
      *               headers
      * @param rowOrder indicates whether rows are ordered top-down or bottom-up
      */
-    SkBmpRLECodec(int width, int height, const SkEncodedInfo& info, SkStream* stream,
+    SkBmpRLECodec(SkEncodedInfo&& info, std::unique_ptr<SkStream>,
             uint16_t bitsPerPixel, uint32_t numColors, uint32_t bytesPerColor,
             uint32_t offset, SkCodec::SkScanlineOrder rowOrder);
 
     int setSampleX(int);
+
+    int fillWidth() const;
 
 protected:
 

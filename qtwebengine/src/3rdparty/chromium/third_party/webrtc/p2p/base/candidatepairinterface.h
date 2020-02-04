@@ -1,5 +1,5 @@
 /*
- *  Copyright 2016 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,21 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_P2P_BASE_CANDIDATEPAIRINTERFACE_H_
-#define WEBRTC_P2P_BASE_CANDIDATEPAIRINTERFACE_H_
+#ifndef P2P_BASE_CANDIDATEPAIRINTERFACE_H_
+#define P2P_BASE_CANDIDATEPAIRINTERFACE_H_
 
-namespace cricket {
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-class Candidate;
+#include "p2p/base/candidate_pair_interface.h"
 
-class CandidatePairInterface {
- public:
-  virtual ~CandidatePairInterface() {}
-
-  virtual const Candidate& local_candidate() const = 0;
-  virtual const Candidate& remote_candidate() const = 0;
-};
-
-}  // namespace cricket
-
-#endif  // WEBRTC_P2P_BASE_CANDIDATEPAIRINTERFACE_H_
+#endif  // P2P_BASE_CANDIDATEPAIRINTERFACE_H_

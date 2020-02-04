@@ -9,11 +9,19 @@
 #include "qsqlfield.h"
 #include "qsqlindex.h"
 #include "qsqlquery.h"
+#if QT_CONFIG(sqlmodel)
 #include "qsqlquerymodel.h"
+#endif
 #include "qsqlrecord.h"
+#if QT_CONFIG(sqlmodel)
 #include "qsqlrelationaldelegate.h"
+#endif
+#if QT_CONFIG(sqlmodel)
 #include "qsqlrelationaltablemodel.h"
+#endif
 #include "qsqlresult.h"
+#if QT_CONFIG(sqlmodel)
 #include "qsqltablemodel.h"
+#endif
 #include "qtsqlversion.h"
 #endif

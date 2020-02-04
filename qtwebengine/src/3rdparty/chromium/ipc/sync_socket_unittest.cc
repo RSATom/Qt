@@ -12,10 +12,9 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "ipc/ipc_test_base.h"
@@ -52,7 +51,7 @@ IPC_MESSAGE_CONTROL0(MsgClassShutdown)
 namespace {
 
 const char kHelloString[] = "Hello, SyncSocket Client";
-const size_t kHelloStringLength = arraysize(kHelloString);
+const size_t kHelloStringLength = base::size(kHelloString);
 
 // The SyncSocket server listener class processes two sorts of
 // messages from the client.
@@ -101,7 +100,7 @@ class SyncSocketServerListener : public IPC::Listener {
 
   // When the client responds, it sends back a shutdown message,
   // which causes the message loop to exit.
-  void OnMsgClassShutdown() { base::MessageLoop::current()->QuitWhenIdle(); }
+  void OnMsgClassShutdown() { base::RunLoop::QuitCurrentWhenIdleDeprecated(); }
 
   IPC::Channel* chan_;
 
@@ -122,8 +121,7 @@ DEFINE_IPC_CHANNEL_MOJO_TEST_CLIENT(SyncSocketServerClient) {
 // a response from the server.
 class SyncSocketClientListener : public IPC::Listener {
  public:
-  SyncSocketClientListener() {
-  }
+  SyncSocketClientListener() = default;
 
   void Init(base::SyncSocket* socket, IPC::Channel* chan) {
     socket_ = socket;
@@ -154,7 +152,7 @@ class SyncSocketClientListener : public IPC::Listener {
     EXPECT_EQ(0U, socket_->Peek());
     IPC::Message* msg = new MsgClassShutdown();
     EXPECT_TRUE(chan_->Send(msg));
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   base::SyncSocket* socket_;
@@ -228,7 +226,7 @@ TEST_F(SyncSocketTest, DisconnectTest) {
   size_t received = 1U;  // Initialize to an unexpected value.
   worker.task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(&BlockingRead, &pair[0], &buf[0], arraysize(buf), &received));
+      base::Bind(&BlockingRead, &pair[0], &buf[0], base::size(buf), &received));
 
   // Wait for the worker thread to say hello.
   char hello[kHelloStringLength] = {0};

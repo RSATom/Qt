@@ -20,6 +20,7 @@
 */
 
 #include "../util.h"
+#include <QtWebEngineCore/qtwebenginecore-config.h>
 #include <QByteArray>
 #include <QClipboard>
 #include <QDir>
@@ -33,21 +34,26 @@
 #include <QOpenGLWidget>
 #include <QPaintEngine>
 #include <QPushButton>
-#include <QRegExp>
 #include <QScreen>
 #include <QStateMachine>
 #include <QtGui/QClipboard>
 #include <QtTest/QtTest>
 #include <QTextCharFormat>
+#if QT_CONFIG(webengine_webchannel)
 #include <QWebChannel>
+#endif
+#include <httpserver.h>
 #include <qnetworkcookiejar.h>
 #include <qnetworkreply.h>
 #include <qnetworkrequest.h>
 #include <qwebenginedownloaditem.h>
 #include <qwebenginefullscreenrequest.h>
 #include <qwebenginehistory.h>
+#include <qwebenginenotification.h>
 #include <qwebenginepage.h>
 #include <qwebengineprofile.h>
+#include <qwebenginequotarequest.h>
+#include <qwebengineregisterprotocolhandlerrequest.h>
 #include <qwebenginescript.h>
 #include <qwebenginescriptcollection.h>
 #include <qwebenginesettings.h>
@@ -84,11 +90,8 @@ public Q_SLOTS:
 private Q_SLOTS:
     void initTestCase();
     void cleanupTestCase();
-    void thirdPartyCookiePolicy();
     void comboBoxPopupPositionAfterMove();
     void comboBoxPopupPositionAfterChildMove();
-    void contextMenuCopy();
-    void contextMenuPopulatedOnce();
     void acceptNavigationRequest();
     void acceptNavigationRequestNavigationType();
     void geolocationRequestJS_data();
@@ -97,37 +100,23 @@ private Q_SLOTS:
     void actionStates();
     void pasteImage();
     void popupFormSubmission();
-    void userStyleSheet();
-    void userStyleSheetFromLocalFileUrl();
-    void userStyleSheetFromQrcUrl();
-    void modified();
-    void contextMenuCrash();
-    void updatePositionDependentActionsCrash();
     void callbackSpyDeleted();
     void multipleProfilesAndLocalStorage();
-    void cursorMovements();
     void textSelection();
-    void textEditing();
     void backActionUpdate();
-    void testOptionalJSObjects();
-    void testLocalStorageVisibility();
-    void testEnablePersistentStorage();
+    void localStorageVisibility();
     void consoleOutput();
-    void errorPageExtension();
-    void errorPageExtensionLoadFinished();
     void userAgentNewlineStripping();
-    void undoActionHaveCustomText();
     void renderWidgetHostViewNotShowTopLevel();
     void getUserMediaRequest_data();
     void getUserMediaRequest();
     void getUserMediaRequestDesktopAudio();
     void getUserMediaRequestSettingDisabled();
+    void getUserMediaRequestDesktopVideoManyPages();
+    void getUserMediaRequestDesktopVideoManyRequests();
     void savePage();
 
     void crashTests_LazyInitializationOfMainFrame();
-
-    void screenshot_data();
-    void screenshot();
 
 #if defined(ENABLE_WEBGL) && ENABLE_WEBGL
     void acceleratedWebGLScreenshotWithoutView();
@@ -135,32 +124,26 @@ private Q_SLOTS:
 #endif
 
     void testJSPrompt();
-    void testStopScheduledPageRefresh();
     void findText();
     void findTextResult();
     void findTextSuccessiveShouldCallAllCallbacks();
-    void supportedContentType();
-    // [Qt] tst_QWebEnginePage::infiniteLoopJS() timeouts with DFG JIT
-    // https://bugs.webkit.org/show_bug.cgi?id=79040
-    // void infiniteLoopJS();
     void deleteQWebEngineViewTwice();
-    void renderOnRepaintRequestedShouldNotRecurse();
     void loadSignalsOrder_data();
     void loadSignalsOrder();
     void openWindowDefaultSize();
-    void cssMediaTypeGlobalSetting();
-    void cssMediaTypePageSetting();
 
 #ifdef Q_OS_MAC
     void macCopyUnicodeToClipboard();
 #endif
 
     void runJavaScript();
+    void runJavaScriptDisabled();
+    void runJavaScriptFromSlot();
     void fullScreenRequested();
+    void quotaRequested();
 
 
     // Tests from tst_QWebEngineFrame
-    void horizontalScrollAfterBack();
     void symmetricUrl();
     void progressSignal();
     void urlChange();
@@ -172,8 +155,6 @@ private Q_SLOTS:
     void setHtmlWithStylesheetResource();
     void setHtmlWithBaseURL();
     void setHtmlWithJSAlert();
-    void inputFieldFocus();
-    void hitTestContent();
     void baseUrl_data();
     void baseUrl();
     void scrollPosition();
@@ -181,7 +162,6 @@ private Q_SLOTS:
     void evaluateWillCauseRepaint();
     void setContent_data();
     void setContent();
-    void setCacheLoadControlAttribute();
     void setUrlWithPendingLoads();
     void setUrlToEmpty();
     void setUrlToInvalid();
@@ -195,19 +175,38 @@ private Q_SLOTS:
     void loadInSignalHandlers_data();
     void loadInSignalHandlers();
     void loadFromQrc();
-
+#if QT_CONFIG(webengine_webchannel)
     void restoreHistory();
+#endif
     void toPlainTextLoadFinishedRace_data();
     void toPlainTextLoadFinishedRace();
     void setZoomFactor();
     void mouseButtonTranslation();
     void mouseMovementProperties();
 
-    void printToPdf();
     void viewSource();
     void viewSourceURL_data();
     void viewSourceURL();
+    void viewSourceCredentials();
     void proxyConfigWithUnexpectedHostPortPair();
+    void registerProtocolHandler_data();
+    void registerProtocolHandler();
+    void dataURLFragment();
+    void devTools();
+    void openLinkInDifferentProfile();
+    void triggerActionWithoutMenu();
+    void dynamicFrame();
+
+    void notificationRequest_data();
+    void notificationRequest();
+    void sendNotification();
+    void contentsSize();
+
+    void editActionsWithExplicitFocus();
+    void editActionsWithInitialFocus();
+    void editActionsWithFocusOnIframe();
+
+    void customUserAgentInNewTab();
 
 private:
     static QPoint elementCenter(QWebEnginePage *page, const QString &id);
@@ -283,43 +282,41 @@ void tst_QWebEnginePage::cleanupTestCase()
 class NavigationRequestOverride : public QWebEnginePage
 {
 public:
-    NavigationRequestOverride(QWebEngineView* parent, bool initialValue) : QWebEnginePage(parent), m_acceptNavigationRequest(initialValue) {}
+    NavigationRequestOverride(QWebEngineProfile* profile, bool initialValue) : QWebEnginePage(profile, nullptr), m_acceptNavigationRequest(initialValue) {}
 
     bool m_acceptNavigationRequest;
 protected:
     virtual bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame)
     {
         Q_UNUSED(url);
-        Q_UNUSED(type);
         Q_UNUSED(isMainFrame);
-
-        return m_acceptNavigationRequest;
+        if (type == QWebEnginePage::NavigationTypeFormSubmitted)
+            return m_acceptNavigationRequest;
+        return true;
     }
 };
 
 void tst_QWebEnginePage::acceptNavigationRequest()
 {
-    QWebEngineView view;
-    QSignalSpy loadSpy(&view, SIGNAL(loadFinished(bool)));
+    QWebEngineProfile profile;
+    NavigationRequestOverride page(&profile, false);
 
-    NavigationRequestOverride* newPage = new NavigationRequestOverride(&view, false);
-    view.setPage(newPage);
+    QSignalSpy loadSpy(&page, SIGNAL(loadFinished(bool)));
 
-    // acceptNavigationRequest and QWebEngineUrlRequestInterceptor::interceptRequest are not called
-    // for data: urls, which means the test is broken, aka setting
-    // newPage->m_acceptNavigationRequest to false does nothing to stop the page from loading.
-    // See QTBUG-50922 comments.
-    view.setHtml(QString("<html><body><form name='tstform' action='data:text/html,foo'method='get'>"
+    page.setHtml(QString("<html><body><form name='tstform' action='data:text/html,foo'method='get'>"
                             "<input type='text'><input type='submit'></form></body></html>"), QUrl());
     QTRY_COMPARE(loadSpy.count(), 1);
 
-    evaluateJavaScriptSync(view.page(), "tstform.submit();");
-
-    newPage->m_acceptNavigationRequest = true;
-    evaluateJavaScriptSync(view.page(), "tstform.submit();");
+    evaluateJavaScriptSync(&page, "tstform.submit();");
     QTRY_COMPARE(loadSpy.count(), 2);
 
-    QCOMPARE(toPlainTextSync(view.page()), QString("foo?"));
+    // Content hasn't changed so the form submit will still work
+    page.m_acceptNavigationRequest = true;
+    evaluateJavaScriptSync(&page, "tstform.submit();");
+    QTRY_COMPARE(loadSpy.count(), 3);
+
+    // Now the content has changed
+    QCOMPARE(toPlainTextSync(&page), QString("foo?"));
 }
 
 class JSTestPage : public QWebEnginePage
@@ -352,18 +349,6 @@ private:
     bool m_allowGeolocation;
 };
 
-// [Qt] tst_QWebEnginePage::infiniteLoopJS() timeouts with DFG JIT
-// https://bugs.webkit.org/show_bug.cgi?id=79040
-/*
-void tst_QWebEnginePage::infiniteLoopJS()
-{
-    JSTestPage newPage(m_view);
-    m_view->setPage(&newPage);
-    m_view->setHtml(QString("<html><body>test</body></html>"), QUrl());
-    m_view->page()->evaluateJavaScript("var run = true; var a = 1; while (run) { a++; }");
-}
-*/
-
 void tst_QWebEnginePage::geolocationRequestJS_data()
 {
     QTest::addColumn<bool>("allowed");
@@ -387,6 +372,11 @@ void tst_QWebEnginePage::geolocationRequestJS()
     QSignalSpy spyLoadFinished(newPage, SIGNAL(loadFinished(bool)));
     newPage->setHtml(QString("<html><body>test</body></html>"), QUrl("qrc://secure/origin"));
     QTRY_COMPARE(spyLoadFinished.count(), 1);
+
+    // Geolocation is only enabled for visible WebContents.
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
     if (evaluateJavaScriptSync(newPage, QLatin1String("!navigator.geolocation")).toBool())
         W_QSKIP("Geolocation is not supported.", SkipSingle);
 
@@ -579,11 +569,17 @@ void tst_QWebEnginePage::acceptNavigationRequestNavigationType()
     QTRY_COMPARE(loadSpy.count(), 4);
     QTRY_COMPARE(page.navigations.count(), 4);
 
+    page.load(QUrl("qrc:///resources/reload.html"));
+    QTRY_COMPARE(loadSpy.count(), 6);
+    QTRY_COMPARE(page.navigations.count(), 6);
+
     QList<QWebEnginePage::NavigationType> expectedList;
     expectedList << QWebEnginePage::NavigationTypeTyped
         << QWebEnginePage::NavigationTypeTyped
         << QWebEnginePage::NavigationTypeBackForward
-        << QWebEnginePage::NavigationTypeReload;
+        << QWebEnginePage::NavigationTypeReload
+        << QWebEnginePage::NavigationTypeTyped
+        << QWebEnginePage::NavigationTypeOther;
     QVERIFY(expectedList.count() == page.navigations.count());
     for (int i = 0; i < expectedList.count(); ++i) {
         QCOMPARE(page.navigations[i].type, expectedList[i]);
@@ -631,168 +627,6 @@ protected:
         return QNetworkAccessManager::createRequest(op, request, outgoingData);
     }
 };
-
-void tst_QWebEnginePage::userStyleSheet()
-{
-#if !defined(QWEBENGINEPAGE_SETNETWORKACCESSMANAGER)
-    QSKIP("QWEBENGINEPAGE_SETNETWORKACCESSMANAGER");
-#else
-    TestNetworkManager* networkManager = new TestNetworkManager(m_page);
-    m_page->setNetworkAccessManager(networkManager);
-
-    m_page->settings()->setUserStyleSheetUrl(QUrl("data:text/css;charset=utf-8;base64,"
-            + QByteArray("p { background-image: url('http://does.not/exist.png');}").toBase64()));
-    m_view->setHtml("<p>hello world</p>");
-    QSignalSpy spyFinished(m_view, &QWebEngineView::loadFinished);
-    QVERIFY(spyFinished.wait());
-
-    QVERIFY(networkManager->requestedUrls.count() >= 1);
-    QCOMPARE(networkManager->requestedUrls.at(0), QUrl("http://does.not/exist.png"));
-#endif
-}
-
-void tst_QWebEnginePage::userStyleSheetFromLocalFileUrl()
-{
-#if !defined(QWEBENGINEPAGE_SETNETWORKACCESSMANAGER)
-    QSKIP("QWEBENGINEPAGE_SETNETWORKACCESSMANAGER");
-#else
-    TestNetworkManager* networkManager = new TestNetworkManager(m_page);
-    m_page->setNetworkAccessManager(networkManager);
-
-    QUrl styleSheetUrl = QUrl::fromLocalFile(TESTS_SOURCE_DIR + QLatin1String("qwebenginepage/resources/user.css"));
-    m_page->settings()->setUserStyleSheetUrl(styleSheetUrl);
-    m_view->setHtml("<p>hello world</p>");
-    QSignalSpy spyFinished(m_view, &QWebEngineView::loadFinished);
-    QVERIFY(spyFinished.wait());
-
-    QVERIFY(networkManager->requestedUrls.count() >= 1);
-    QCOMPARE(networkManager->requestedUrls.at(0), QUrl("http://does.not/exist.png"));
-#endif
-}
-
-void tst_QWebEnginePage::userStyleSheetFromQrcUrl()
-{
-#if !defined(QWEBENGINEPAGE_SETNETWORKACCESSMANAGER)
-    QSKIP("QWEBENGINEPAGE_SETNETWORKACCESSMANAGER");
-#else
-    TestNetworkManager* networkManager = new TestNetworkManager(m_page);
-    m_page->setNetworkAccessManager(networkManager);
-
-    m_page->settings()->setUserStyleSheetUrl(QUrl("qrc:///resources/user.css"));
-    m_view->setHtml("<p>hello world</p>");
-    QSignalSpy spyFinished(m_view, &QWebEngineView::loadFinished);
-    QVERIFY(spyFinished.wait());
-
-    QVERIFY(networkManager->requestedUrls.count() >= 1);
-    QCOMPARE(networkManager->requestedUrls.at(0), QUrl("http://does.not/exist.png"));
-#endif
-}
-
-void tst_QWebEnginePage::modified()
-{
-#if !defined(QWEBENGINEPAGE_ISMODIFIED)
-    QSKIP("QWEBENGINEPAGE_ISMODIFIED");
-#else
-    m_page->setUrl(QUrl("data:text/html,<body>blub"));
-    QSignalSpy spyFinished(m_view, &QWebEngineView::loadFinished);
-    QVERIFY(spyFinished.wait());
-
-    m_page->setUrl(QUrl("data:text/html,<body id=foo contenteditable>blah"));
-    QSignalSpy spyFinished(m_view, &QWebEngineView::loadFinished);
-    QVERIFY(spyFinished.wait());
-
-    QVERIFY(!m_page->isModified());
-
-    m_page->runJavaScript("document.getElementById('foo').focus()");
-    evaluateJavaScriptSync(m_page, "document.execCommand('InsertText', true, 'Test');");
-
-    QVERIFY(m_page->isModified());
-
-    evaluateJavaScriptSync(m_page, "document.execCommand('Undo', true);");
-
-    QVERIFY(!m_page->isModified());
-
-    evaluateJavaScriptSync(m_page, "document.execCommand('Redo', true);");
-
-    QVERIFY(m_page->isModified());
-
-    QVERIFY(m_page->history()->canGoBack());
-    QVERIFY(!m_page->history()->canGoForward());
-    QCOMPARE(m_page->history()->count(), 2);
-    QVERIFY(m_page->history()->backItem().isValid());
-    QVERIFY(!m_page->history()->forwardItem().isValid());
-
-    m_page->history()->back();
-    QSignalSpy spyFinished(m_view, &QWebEngineView::loadFinished);
-    QVERIFY(spyFinished.wait());
-
-    QVERIFY(!m_page->history()->canGoBack());
-    QVERIFY(m_page->history()->canGoForward());
-
-    QVERIFY(!m_page->isModified());
-
-    QCOMPARE(m_page->history()->currentItemIndex(), 0);
-
-    m_page->history()->setMaximumItemCount(3);
-    QCOMPARE(m_page->history()->maximumItemCount(), 3);
-
-    QVariant variant("string test");
-    m_page->history()->currentItem().setUserData(variant);
-    QVERIFY(m_page->history()->currentItem().userData().toString() == "string test");
-
-    m_page->setUrl(QUrl("data:text/html,<body>This is second page"));
-    m_page->setUrl(QUrl("data:text/html,<body>This is third page"));
-    QCOMPARE(m_page->history()->count(), 2);
-    m_page->setUrl(QUrl("data:text/html,<body>This is fourth page"));
-    QCOMPARE(m_page->history()->count(), 2);
-    m_page->setUrl(QUrl("data:text/html,<body>This is fifth page"));
-    QSignalSpy spy(m_page, &QWebEnginePage::saveFrameStateRequested);
-    QVERIFY(spy.wait());
-#endif
-}
-
-// https://bugs.webkit.org/show_bug.cgi?id=51331
-void tst_QWebEnginePage::updatePositionDependentActionsCrash()
-{
-#if !defined(QWEBENGINEPAGE_UPDATEPOSITIONDEPENDENTACTIONS)
-    QSKIP("QWEBENGINEPAGE_UPDATEPOSITIONDEPENDENTACTIONS");
-#else
-    QWebEngineView view;
-    view.setHtml("<p>test");
-    QPoint pos(0, 0);
-    view.page()->updatePositionDependentActions(pos);
-    QMenu* contextMenu = 0;
-    foreach (QObject* child, view.children()) {
-        contextMenu = qobject_cast<QMenu*>(child);
-        if (contextMenu)
-            break;
-    }
-    QVERIFY(!contextMenu);
-#endif
-}
-
-// https://bugs.webkit.org/show_bug.cgi?id=20357
-void tst_QWebEnginePage::contextMenuCrash()
-{
-#if !defined(QWEBENGINEPAGE_SWALLOWCONTEXTMENUEVENT)
-    QSKIP("QWEBENGINEPAGE_SWALLOWCONTEXTMENUEVENT");
-#else
-    QWebEngineView view;
-    view.setHtml("<p>test");
-    QPoint pos(0, 0);
-    QContextMenuEvent event(QContextMenuEvent::Mouse, pos);
-    view.page()->swallowContextMenuEvent(&event);
-    view.page()->updatePositionDependentActions(pos);
-    QMenu* contextMenu = 0;
-    foreach (QObject* child, view.children()) {
-        contextMenu = qobject_cast<QMenu*>(child);
-        if (contextMenu)
-            break;
-    }
-    QVERIFY(contextMenu);
-    delete contextMenu;
-#endif
-}
 
 void tst_QWebEnginePage::multipleProfilesAndLocalStorage()
 {
@@ -866,204 +700,6 @@ public:
     }
 };
 
-void tst_QWebEnginePage::cursorMovements()
-{
-#if !defined(QWEBENGINEPAGE_SELECTEDTEXT)
-    QSKIP("QWEBENGINEPAGE_SELECTEDTEXT");
-#else
-    QScopedPointer<CursorTrackedPage> page(new CursorTrackedPage);
-    QString content("<html><body><p id=one>The quick brown fox</p><p id=two>jumps over the lazy dog</p><p>May the source<br/>be with you!</p></body></html>");
-    page->setHtml(content);
-
-    // this will select the first paragraph
-    QString script = "var range = document.createRange(); " \
-        "var node = document.getElementById(\"one\"); " \
-        "range.selectNode(node); " \
-        "getSelection().addRange(range);";
-    evaluateJavaScriptSync(page.data(), script);
-    QCOMPARE(page->selectedText().trimmed(), QString::fromLatin1("The quick brown fox"));
-
-    QRegExp regExp(" style=\".*\"");
-    regExp.setMinimal(true);
-    QCOMPARE(page->selectedHtml().trimmed().replace(regExp, ""), QString::fromLatin1("<p id=\"one\">The quick brown fox</p>"));
-
-    // these actions must exist
-    QVERIFY(page->action(QWebEnginePage::MoveToNextChar) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToPreviousChar) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToNextWord) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToPreviousWord) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToNextLine) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToPreviousLine) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToStartOfLine) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToEndOfLine) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToStartOfBlock) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToEndOfBlock) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToStartOfDocument) != 0);
-    QVERIFY(page->action(QWebEnginePage::MoveToEndOfDocument) != 0);
-
-    // right now they are disabled because contentEditable is false
-    QCOMPARE(page->action(QWebEnginePage::MoveToNextChar)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToPreviousChar)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToNextWord)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToPreviousWord)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToNextLine)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToPreviousLine)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToStartOfLine)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToEndOfLine)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToStartOfBlock)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToEndOfBlock)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToStartOfDocument)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::MoveToEndOfDocument)->isEnabled(), false);
-
-    // make it editable before navigating the cursor
-    page->setContentEditable(true);
-
-    // here the actions are enabled after contentEditable is true
-    QCOMPARE(page->action(QWebEnginePage::MoveToNextChar)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToPreviousChar)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToNextWord)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToPreviousWord)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToNextLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToPreviousLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToStartOfLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToEndOfLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToStartOfBlock)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToEndOfBlock)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToStartOfDocument)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::MoveToEndOfDocument)->isEnabled(), true);
-
-    // cursor will be before the word "jump"
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 0);
-
-    // cursor will be between 'j' and 'u' in the word "jump"
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 1);
-
-    // cursor will be between 'u' and 'm' in the word "jump"
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 2);
-
-    // cursor will be after the word "jump"
-    page->triggerAction(QWebEnginePage::MoveToNextWord);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 5);
-
-    // cursor will be after the word "lazy"
-    page->triggerAction(QWebEnginePage::MoveToNextWord);
-    page->triggerAction(QWebEnginePage::MoveToNextWord);
-    page->triggerAction(QWebEnginePage::MoveToNextWord);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 19);
-
-    // cursor will be between 'z' and 'y' in "lazy"
-    page->triggerAction(QWebEnginePage::MoveToPreviousChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 18);
-
-    // cursor will be between 'a' and 'z' in "lazy"
-    page->triggerAction(QWebEnginePage::MoveToPreviousChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 17);
-
-    // cursor will be before the word "lazy"
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 15);
-
-    // cursor will be before the word "quick"
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 4);
-
-    // cursor will be between 'p' and 's' in the word "jumps"
-    page->triggerAction(QWebEnginePage::MoveToNextWord);
-    page->triggerAction(QWebEnginePage::MoveToNextWord);
-    page->triggerAction(QWebEnginePage::MoveToNextWord);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 4);
-
-    // cursor will be before the word "jumps"
-    page->triggerAction(QWebEnginePage::MoveToStartOfLine);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 0);
-
-    // cursor will be after the word "dog"
-    page->triggerAction(QWebEnginePage::MoveToEndOfLine);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 23);
-
-    // cursor will be between 'w' and 'n' in "brown"
-    page->triggerAction(QWebEnginePage::MoveToStartOfLine);
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 14);
-
-    // cursor will be after the word "fox"
-    page->triggerAction(QWebEnginePage::MoveToEndOfLine);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 19);
-
-    // cursor will be before the word "The"
-    page->triggerAction(QWebEnginePage::MoveToStartOfDocument);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 0);
-
-    // cursor will be after the word "you!"
-    page->triggerAction(QWebEnginePage::MoveToEndOfDocument);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 12);
-
-    // cursor will be before the word "be"
-    page->triggerAction(QWebEnginePage::MoveToStartOfBlock);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 0);
-
-    // cursor will be after the word "you!"
-    page->triggerAction(QWebEnginePage::MoveToEndOfBlock);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 12);
-
-    // try to move before the document start
-    page->triggerAction(QWebEnginePage::MoveToStartOfDocument);
-    page->triggerAction(QWebEnginePage::MoveToPreviousChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 0);
-    page->triggerAction(QWebEnginePage::MoveToStartOfDocument);
-    page->triggerAction(QWebEnginePage::MoveToPreviousWord);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 0);
-
-    // try to move past the document end
-    page->triggerAction(QWebEnginePage::MoveToEndOfDocument);
-    page->triggerAction(QWebEnginePage::MoveToNextChar);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 12);
-    page->triggerAction(QWebEnginePage::MoveToEndOfDocument);
-    page->triggerAction(QWebEnginePage::MoveToNextWord);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 12);
-#endif
-}
-
 void tst_QWebEnginePage::textSelection()
 {
     QWebEngineView view;
@@ -1078,38 +714,9 @@ void tst_QWebEnginePage::textSelection()
 
     // these actions must exist
     QVERIFY(page->action(QWebEnginePage::SelectAll) != 0);
-#if defined(QWEBENGINEPAGE_SELECTACTIONS)
-    QVERIFY(page->action(QWebEnginePage::SelectNextChar) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectPreviousChar) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectNextWord) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectPreviousWord) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectNextLine) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectPreviousLine) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectStartOfLine) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectEndOfLine) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectStartOfBlock) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectEndOfBlock) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectStartOfDocument) != 0);
-    QVERIFY(page->action(QWebEnginePage::SelectEndOfDocument) != 0);
 
-    // right now they are disabled because contentEditable is false and
-    // there isn't an existing selection to modify
-    QCOMPARE(page->action(QWebEnginePage::SelectNextChar)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousChar)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectNextWord)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousWord)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectNextLine)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousLine)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfLine)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfLine)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfBlock)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfBlock)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfDocument)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfDocument)->isEnabled(), false);
-#endif
-
-    // ..but SelectAll is awalys enabled
-    QCOMPARE(page->action(QWebEnginePage::SelectAll)->isEnabled(), true);
+    // ..but SelectAll is disabled because the page has no focus due to disabled FocusOnNavigationEnabled.
+    QCOMPARE(page->action(QWebEnginePage::SelectAll)->isEnabled(), false);
 
     // Verify hasSelection returns false since there is no selection yet...
     QCOMPARE(page->hasSelection(), false);
@@ -1121,173 +728,10 @@ void tst_QWebEnginePage::textSelection()
         "getSelection().addRange(range);";
     evaluateJavaScriptSync(page, selectScript);
     QCOMPARE(page->selectedText().trimmed(), QString::fromLatin1("The quick brown fox"));
-#if defined(QWEBENGINEPAGE_SELECTEDHTML)
-    QRegExp regExp(" style=\".*\"");
-    regExp.setMinimal(true);
-    QCOMPARE(page->selectedHtml().trimmed().replace(regExp, ""), QString::fromLatin1("<p id=\"one\">The quick brown fox</p>"));
-#endif
     // Make sure hasSelection returns true, since there is selected text now...
     QCOMPARE(page->hasSelection(), true);
-
-#if defined(QWEBENGINEPAGE_SELECTACTIONS)
-    // here the actions are enabled after a selection has been created
-    QCOMPARE(page->action(QWebEnginePage::SelectNextChar)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousChar)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectNextWord)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousWord)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectNextLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfBlock)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfBlock)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfDocument)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfDocument)->isEnabled(), true);
-
-    // make it editable before navigating the cursor
-    page->setContentEditable(true);
-
-    // cursor will be before the word "The", this makes sure there is a charet
-    page->triggerAction(QWebEnginePage::MoveToStartOfDocument);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 0);
-
-    // here the actions are enabled after contentEditable is true
-    QCOMPARE(page->action(QWebEnginePage::SelectNextChar)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousChar)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectNextWord)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousWord)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectNextLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectPreviousLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfLine)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfBlock)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfBlock)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectStartOfDocument)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SelectEndOfDocument)->isEnabled(), true);
-#endif
 }
 
-void tst_QWebEnginePage::textEditing()
-{
-#if !defined(QWEBENGINEPAGE_EVALUATEJAVASCRIPT)
-    QSKIP("QWEBENGINEPAGE_EVALUATEJAVASCRIPT");
-#else
-    QScopedPointer<CursorTrackedPage> page(new CursorTrackedPage);
-    QString content("<html><body><p id=one>The quick brown fox</p>" \
-        "<p id=two>jumps over the lazy dog</p>" \
-        "<p>May the source<br/>be with you!</p></body></html>");
-    page->setHtml(content);
-
-    // these actions must exist
-    QVERIFY(page->action(QWebEnginePage::Cut) != 0);
-    QVERIFY(page->action(QWebEnginePage::Copy) != 0);
-    QVERIFY(page->action(QWebEnginePage::Paste) != 0);
-    QVERIFY(page->action(QWebEnginePage::DeleteStartOfWord) != 0);
-    QVERIFY(page->action(QWebEnginePage::DeleteEndOfWord) != 0);
-    QVERIFY(page->action(QWebEnginePage::SetTextDirectionDefault) != 0);
-    QVERIFY(page->action(QWebEnginePage::SetTextDirectionLeftToRight) != 0);
-    QVERIFY(page->action(QWebEnginePage::SetTextDirectionRightToLeft) != 0);
-    QVERIFY(page->action(QWebEnginePage::ToggleBold) != 0);
-    QVERIFY(page->action(QWebEnginePage::ToggleItalic) != 0);
-    QVERIFY(page->action(QWebEnginePage::ToggleUnderline) != 0);
-    QVERIFY(page->action(QWebEnginePage::InsertParagraphSeparator) != 0);
-    QVERIFY(page->action(QWebEnginePage::InsertLineSeparator) != 0);
-    QVERIFY(page->action(QWebEnginePage::PasteAndMatchStyle) != 0);
-    QVERIFY(page->action(QWebEnginePage::RemoveFormat) != 0);
-    QVERIFY(page->action(QWebEnginePage::ToggleStrikethrough) != 0);
-    QVERIFY(page->action(QWebEnginePage::ToggleSubscript) != 0);
-    QVERIFY(page->action(QWebEnginePage::ToggleSuperscript) != 0);
-    QVERIFY(page->action(QWebEnginePage::InsertUnorderedList) != 0);
-    QVERIFY(page->action(QWebEnginePage::InsertOrderedList) != 0);
-    QVERIFY(page->action(QWebEnginePage::Indent) != 0);
-    QVERIFY(page->action(QWebEnginePage::Outdent) != 0);
-    QVERIFY(page->action(QWebEnginePage::AlignCenter) != 0);
-    QVERIFY(page->action(QWebEnginePage::AlignJustified) != 0);
-    QVERIFY(page->action(QWebEnginePage::AlignLeft) != 0);
-    QVERIFY(page->action(QWebEnginePage::AlignRight) != 0);
-
-    // right now they are disabled because contentEditable is false
-    QCOMPARE(page->action(QWebEnginePage::Cut)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::Paste)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::DeleteStartOfWord)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::DeleteEndOfWord)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SetTextDirectionDefault)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SetTextDirectionLeftToRight)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::SetTextDirectionRightToLeft)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::ToggleBold)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::ToggleItalic)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::ToggleUnderline)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::InsertParagraphSeparator)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::InsertLineSeparator)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::PasteAndMatchStyle)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::RemoveFormat)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::ToggleStrikethrough)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::ToggleSubscript)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::ToggleSuperscript)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::InsertUnorderedList)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::InsertOrderedList)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::Indent)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::Outdent)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::AlignCenter)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::AlignJustified)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::AlignLeft)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::AlignRight)->isEnabled(), false);
-
-    // Select everything
-    page->triggerAction(QWebEnginePage::SelectAll);
-
-    // make sure it is enabled since there is a selection
-    QCOMPARE(page->action(QWebEnginePage::Copy)->isEnabled(), true);
-
-    // make it editable before navigating the cursor
-    page->setContentEditable(true);
-
-    // clear the selection
-    page->triggerAction(QWebEnginePage::MoveToStartOfDocument);
-    QVERIFY(page->isSelectionCollapsed());
-    QCOMPARE(page->selectionStartOffset(), 0);
-
-    // make sure it is disabled since there isn't a selection
-    QCOMPARE(page->action(QWebEnginePage::Copy)->isEnabled(), false);
-
-    // here the actions are enabled after contentEditable is true
-    QCOMPARE(page->action(QWebEnginePage::Paste)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::DeleteStartOfWord)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::DeleteEndOfWord)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SetTextDirectionDefault)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SetTextDirectionLeftToRight)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::SetTextDirectionRightToLeft)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::ToggleBold)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::ToggleItalic)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::ToggleUnderline)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::InsertParagraphSeparator)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::InsertLineSeparator)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::PasteAndMatchStyle)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::ToggleStrikethrough)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::ToggleSubscript)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::ToggleSuperscript)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::InsertUnorderedList)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::InsertOrderedList)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::Indent)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::Outdent)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::AlignCenter)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::AlignJustified)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::AlignLeft)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::AlignRight)->isEnabled(), true);
-
-    // make sure these are disabled since there isn't a selection
-    QCOMPARE(page->action(QWebEnginePage::Cut)->isEnabled(), false);
-    QCOMPARE(page->action(QWebEnginePage::RemoveFormat)->isEnabled(), false);
-
-    // make sure everything is selected
-    page->triggerAction(QWebEnginePage::SelectAll);
-
-    // this is only true if there is an editable selection
-    QCOMPARE(page->action(QWebEnginePage::Cut)->isEnabled(), true);
-    QCOMPARE(page->action(QWebEnginePage::RemoveFormat)->isEnabled(), true);
-#endif
-}
 
 void tst_QWebEnginePage::backActionUpdate()
 {
@@ -1308,243 +752,39 @@ void tst_QWebEnginePage::backActionUpdate()
     QVERIFY(action->isEnabled());
 }
 
-#if defined(QWEBENGINEPAGE_SETTINGS)
-static inline bool testFlag(QWebEnginePage& webPage, QWebEngineSettings::WebAttribute settingAttribute, const QString& jsObjectName, bool settingValue)
+void tst_QWebEnginePage::localStorageVisibility()
 {
-    webPage.settings()->setAttribute(settingAttribute, settingValue);
-    return evaluateJavaScriptSync(&webPage, QString("(window.%1 != undefined)").arg(jsObjectName)).toBool();
-}
-#endif
+    QWebEngineProfile profile;
+    QWebEnginePage webPage1(&profile);
+    QWebEnginePage webPage2(&profile);
 
-void tst_QWebEnginePage::testOptionalJSObjects()
-{
-#if !defined(QWEBENGINESETTINGS)
-    QSKIP("QWEBENGINSETTINGS");
-#else
-    // Once a feature is enabled and the JS object is accessed turning off the setting will not turn off
-    // the visibility of the JS object any more. For this reason this test uses two QWebEnginePage instances.
-    // Part of the test is to make sure that the QWebEnginePage instances do not interfere with each other so turning on
-    // a feature for one instance will not turn it on for another.
+    webPage1.settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled, true);
+    webPage2.settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled, false);
 
-    QWebEnginePage webPage1;
-    QWebEnginePage webPage2;
+    QSignalSpy loadSpy1(&webPage1, &QWebEnginePage::loadFinished);
+    QSignalSpy loadSpy2(&webPage2, &QWebEnginePage::loadFinished);
+    webPage1.setHtml(QString("<html><body>test</body></html>"), QUrl("http://www.example.com/"));
+    webPage2.setHtml(QString("<html><body>test</body></html>"), QUrl("http://www.example.com/"));
+    QTRY_COMPARE(loadSpy1.count(), 1);
+    QTRY_COMPARE(loadSpy2.count(), 1);
 
-    webPage1.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("http://www.example.com/"));
-    webPage2.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("http://www.example.com/"));
+    // The attribute determines the visibility of the window.localStorage object.
+    QVERIFY(evaluateJavaScriptSync(&webPage1, QString("(window.localStorage != undefined)")).toBool());
+    QVERIFY(!evaluateJavaScriptSync(&webPage2, QString("(window.localStorage != undefined)")).toBool());
 
-    QEXPECT_FAIL("","Feature enabled/disabled checking problem. Look at bugs.webkit.org/show_bug.cgi?id=29867", Continue);
-    QCOMPARE(testFlag(webPage1, QWebEngineSettings::OfflineWebApplicationCacheEnabled, "applicationCache", false), false);
-    QCOMPARE(testFlag(webPage2, QWebEngineSettings::OfflineWebApplicationCacheEnabled, "applicationCache", true),  true);
-    QEXPECT_FAIL("","Feature enabled/disabled checking problem. Look at bugs.webkit.org/show_bug.cgi?id=29867", Continue);
-    QCOMPARE(testFlag(webPage1, QWebEngineSettings::OfflineWebApplicationCacheEnabled, "applicationCache", false), false);
-    QCOMPARE(testFlag(webPage2, QWebEngineSettings::OfflineWebApplicationCacheEnabled, "applicationCache", false), true);
+    // Switching the feature off does not actively remove the object from webPage1.
+    webPage1.settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled, false);
+    webPage2.settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled, true);
+    QVERIFY(evaluateJavaScriptSync(&webPage1, QString("(window.localStorage != undefined)")).toBool());
+    QVERIFY(evaluateJavaScriptSync(&webPage2, QString("(window.localStorage != undefined)")).toBool());
 
-    QCOMPARE(testFlag(webPage1, QWebEngineSettings::LocalStorageEnabled, "localStorage", false), false);
-    QCOMPARE(testFlag(webPage2, QWebEngineSettings::LocalStorageEnabled, "localStorage", true),  true);
-    QCOMPARE(testFlag(webPage1, QWebEngineSettings::LocalStorageEnabled, "localStorage", false), false);
-    QCOMPARE(testFlag(webPage2, QWebEngineSettings::LocalStorageEnabled, "localStorage", false), true);
-#endif
-}
-
-#if defined(QWEBENGINEPAGE_SETTINGS)
-static inline bool checkLocalStorageVisibility(QWebEnginePage& webPage, bool localStorageEnabled)
-{
-    webPage.settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled, localStorageEnabled);
-    return evaluateJavaScriptSync(&webPage, QString("(window.localStorage != undefined)")).toBool();
-}
-#endif
-
-void tst_QWebEnginePage::testLocalStorageVisibility()
-{
-#if !defined(QWEBENGINEPAGE_SETTINGS)
-    QSKIP("QWEBENGINEPAGE_SETTINGS");
-#else
-    // Local storage's visibility depends on its security origin, which depends on base url.
-    // Initially, it will test it with base urls that get a globally unique origin, which may not
-    // be able to use local storage even if the feature is enabled. Then later the same test is
-    // done but with urls that would get a valid origin, so local storage could be used.
-    // Before every test case it checks if local storage is not already visible.
-
-    QWebEnginePage webPage;
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl());
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), false);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("invalid"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), false);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("://misparsed.com"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), false);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("http://"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), false);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("about:blank"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), false);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("data:text/html,test"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), false);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("file:///"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), true);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("http://www.example.com"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), true);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("https://www.example.com"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), true);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("ftp://files.example.com"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), true);
-
-    webPage.currentFrame()->setHtml(QString("<html><body>test</body></html>"), QUrl("file:///path/to/index.html"));
-
-    QCOMPARE(checkLocalStorageVisibility(webPage, false), false);
-    QCOMPARE(checkLocalStorageVisibility(webPage, true), true);
-#endif
-}
-
-void tst_QWebEnginePage::testEnablePersistentStorage()
-{
-#if !defined(QWEBENGINESETTINGS)
-    QSKIP("QWEBENGINESETTINGS");
-#else
-    QWebEnginePage webPage;
-
-    // By default all persistent options should be disabled
-    QCOMPARE(webPage.settings()->testAttribute(QWebEngineSettings::LocalStorageEnabled), false);
-    QCOMPARE(webPage.settings()->testAttribute(QWebEngineSettings::OfflineStorageDatabaseEnabled), false);
-    QCOMPARE(webPage.settings()->testAttribute(QWebEngineSettings::OfflineWebApplicationCacheEnabled), false);
-    QVERIFY(webPage.settings()->iconDatabasePath().isEmpty());
-
-    QWebEngineSettings::enablePersistentStorage();
-
-
-    QTRY_COMPARE(webPage.settings()->testAttribute(QWebEngineSettings::LocalStorageEnabled), true);
-    QTRY_COMPARE(webPage.settings()->testAttribute(QWebEngineSettings::OfflineStorageDatabaseEnabled), true);
-    QTRY_COMPARE(webPage.settings()->testAttribute(QWebEngineSettings::OfflineWebApplicationCacheEnabled), true);
-
-    QTRY_VERIFY(!webPage.settings()->offlineStoragePath().isEmpty());
-    QTRY_VERIFY(!webPage.settings()->offlineWebApplicationCachePath().isEmpty());
-    QTRY_VERIFY(!webPage.settings()->iconDatabasePath().isEmpty());
-#endif
-}
-
-
-#if defined(QWEBENGINEPAGE_ERRORPAGEEXTENSION)
-class ErrorPage : public QWebEnginePage
-{
-public:
-
-    ErrorPage(QWidget* parent = 0): QWebEnginePage(parent)
-    {
-    }
-
-    virtual bool supportsExtension(Extension extension) const
-    {
-        return extension == ErrorPageExtension;
-    }
-
-    virtual bool extension(Extension, const ExtensionOption* option, ExtensionReturn* output)
-    {
-        ErrorPageExtensionReturn* errorPage = static_cast<ErrorPageExtensionReturn*>(output);
-
-        errorPage->contentType = "text/html";
-        errorPage->content = "error";
-        return true;
-    }
-};
-#endif
-
-void tst_QWebEnginePage::errorPageExtension()
-{
-#if !defined(QWEBENGINEPAGE_ERRORPAGEEXTENSION)
-    QSKIP("QWEBENGINEPAGE_ERRORPAGEEXTENSION");
-#else
-    ErrorPage page;
-    m_view->setPage(&page);
-
-    QSignalSpy spyLoadFinished(m_view, SIGNAL(loadFinished(bool)));
-
-    m_view->setUrl(QUrl("data:text/html,foo"));
-    QTRY_COMPARE(spyLoadFinished.count(), 1);
-
-    page.setUrl(QUrl("http://non.existent/url"));
-    QTRY_COMPARE(spyLoadFinished.count(), 2);
-    QCOMPARE(toPlainTextSync(&page), QString("error"));
-    QCOMPARE(page.history()->count(), 2);
-    QCOMPARE(page.history()->currentItem().url(), QUrl("http://non.existent/url"));
-    QCOMPARE(page.history()->canGoBack(), true);
-    QCOMPARE(page.history()->canGoForward(), false);
-
-    page.triggerAction(QWebEnginePage::Back);
-    QTRY_COMPARE(page.history()->canGoBack(), false);
-    QTRY_COMPARE(page.history()->canGoForward(), true);
-
-    page.triggerAction(QWebEnginePage::Forward);
-    QTRY_COMPARE(page.history()->canGoBack(), true);
-    QTRY_COMPARE(page.history()->canGoForward(), false);
-
-    page.triggerAction(QWebEnginePage::Back);
-    QTRY_COMPARE(page.history()->canGoBack(), false);
-    QTRY_COMPARE(page.history()->canGoForward(), true);
-    QTRY_COMPARE(page.history()->currentItem().url(), QUrl("data:text/html,foo"));
-
-    m_view->setPage(0);
-#endif
-}
-
-void tst_QWebEnginePage::errorPageExtensionLoadFinished()
-{
-#if !defined(QWEBENGINEPAGE_ERRORPAGEEXTENSION)
-    QSKIP("QWEBENGINEPAGE_ERRORPAGEEXTENSION");
-#else
-    ErrorPage page;
-    m_view->setPage(&page);
-
-    QSignalSpy spyLoadFinished(m_view, SIGNAL(loadFinished(bool)));
-    QSignalSpy spyFrameLoadFinished(m_view->page(), SIGNAL(loadFinished(bool)));
-
-    m_view->setUrl(QUrl("data:text/html,foo"));
-    QTRY_COMPARE(spyLoadFinished.count(), 1);
-    QTRY_COMPARE(spyFrameLoadFinished.count(), 1);
-
-    const bool loadSucceded = spyLoadFinished.at(0).at(0).toBool();
-    QVERIFY(loadSucceded);
-    const bool frameLoadSucceded = spyFrameLoadFinished.at(0).at(0).toBool();
-    QVERIFY(frameLoadSucceded);
-
-    m_view->page()->setUrl(QUrl("http://non.existent/url"));
-    QTRY_COMPARE(spyLoadFinished.count(), 2);
-    QTRY_COMPARE(spyFrameLoadFinished.count(), 2);
-
-    const bool nonExistantLoadSucceded = spyLoadFinished.at(1).at(0).toBool();
-    QVERIFY(nonExistantLoadSucceded);
-    const bool nonExistantFrameLoadSucceded = spyFrameLoadFinished.at(1).at(0).toBool();
-    QVERIFY(nonExistantFrameLoadSucceded);
-
-    m_view->setPage(0);
-#endif
+    // The object disappears only after reloading.
+    webPage1.triggerAction(QWebEnginePage::Reload);
+    webPage2.triggerAction(QWebEnginePage::Reload);
+    QTRY_COMPARE(loadSpy1.count(), 2);
+    QTRY_COMPARE(loadSpy2.count(), 2);
+    QVERIFY(!evaluateJavaScriptSync(&webPage1, QString("(window.localStorage != undefined)")).toBool());
+    QVERIFY(evaluateJavaScriptSync(&webPage2, QString("(window.localStorage != undefined)")).toBool());
 }
 
 void tst_QWebEnginePage::userAgentNewlineStripping()
@@ -1556,7 +796,7 @@ void tst_QWebEnginePage::userAgentNewlineStripping()
     // The user agent will be updated after a page load.
     page.load(QUrl("about:blank"));
 
-    QCOMPARE(evaluateJavaScriptSync(&page, "navigator.userAgent").toString(), QStringLiteral("My User Agent X-New-Http-Header: Oh Noes!"));
+    QTRY_COMPARE(evaluateJavaScriptSync(&page, "navigator.userAgent").toString(), QStringLiteral("My User Agent X-New-Http-Header: Oh Noes!"));
 }
 
 void tst_QWebEnginePage::crashTests_LazyInitializationOfMainFrame()
@@ -1569,70 +809,9 @@ void tst_QWebEnginePage::crashTests_LazyInitializationOfMainFrame()
         webPage.selectedText();
     }
     {
-#if defined(QWEBENGINEPAGE_SELECTEDHTML)
-        QWebEnginePage webPage;
-        webPage.selectedHtml();
-#endif
-    }
-    {
         QWebEnginePage webPage;
         webPage.triggerAction(QWebEnginePage::Back, true);
     }
-    {
-#if defined(QWEBENGINEPAGE_UPDATEPOSITIONDEPENDENTACTIONS)
-        QWebEnginePage webPage;
-        QPoint pos(10,10);
-        webPage.updatePositionDependentActions(pos);
-#endif
-    }
-}
-
-#if defined(QWEBENGINEPAGE_RENDER)
-static void takeScreenshot(QWebEnginePage* page)
-{
-    page->setViewportSize(page->contentsSize());
-    QImage image(page->viewportSize(), QImage::Format_ARGB32);
-    QPainter painter(&image);
-    page->render(&painter);
-    painter.end();
-}
-#endif
-
-void tst_QWebEnginePage::screenshot_data()
-{
-    QTest::addColumn<QString>("html");
-    QTest::newRow("WithoutPlugin") << "<html><body id='b'>text</body></html>";
-    QTest::newRow("WindowedPlugin") << QString("<html><body id='b'>text<embed src='resources/test.swf'></embed></body></html>");
-    QTest::newRow("WindowlessPlugin") << QString("<html><body id='b'>text<embed src='resources/test.swf' wmode='transparent'></embed></body></html>");
-}
-
-void tst_QWebEnginePage::screenshot()
-{
-#if !defined(QWEBENGINESETTINGS)
-    QSKIP("QWEBENGINESETTINGS");
-#else
-    if (!QDir(TESTS_SOURCE_DIR).exists())
-        W_QSKIP(QString("This test requires access to resources found in '%1'").arg(TESTS_SOURCE_DIR).toLatin1().constData(), SkipAll);
-
-    QDir::setCurrent(TESTS_SOURCE_DIR);
-
-    QFETCH(QString, html);
-    QWebEnginePage page;
-    page.settings()->setAttribute(QWebEngineSettings::PluginsEnabled, true);
-    page.setHtml(html, QUrl::fromLocalFile(TESTS_SOURCE_DIR));
-    QVERIFY(spyFinished.wait(2000));
-
-    // take screenshot without a view
-    takeScreenshot(&page);
-
-    QWebEngineView view;
-    view.setPage(&page);
-
-    // take screenshot when attached to a view
-    takeScreenshot(&page);
-
-    QDir::setCurrent(QApplication::applicationDirPath());
-#endif
 }
 
 #if defined(ENABLE_WEBGL) && ENABLE_WEBGL
@@ -1731,37 +910,6 @@ void tst_QWebEnginePage::testJSPrompt()
     QVERIFY(res);
 }
 
-void tst_QWebEnginePage::testStopScheduledPageRefresh()
-{
-#if !defined(QWEBENGINEPAGE_SETNETWORKACCESSMANAGER)
-    QSKIP("QWEBENGINEPAGE_SETNETWORKACCESSMANAGER");
-#else
-    // Without QWebEnginePage::StopScheduledPageRefresh
-    QWebEnginePage page1;
-    page1.setNetworkAccessManager(new TestNetworkManager(&page1));
-    page1.setHtml("<html><head>"
-                                "<meta http-equiv=\"refresh\"content=\"0;URL=qrc:///resources/index.html\">"
-                                "</head><body><h1>Page redirects immediately...</h1>"
-                                "</body></html>");
-    QSignalSpy spyFinished(&page1, &QWebEnginePage::loadFinished);
-    QVERIFY(spyFinished.wait();
-    QTest::qWait(500);
-    QCOMPARE(page1.url(), QUrl(QLatin1String("qrc:///resources/index.html")));
-
-    // With QWebEnginePage::StopScheduledPageRefresh
-    QWebEnginePage page2;
-    page2.setNetworkAccessManager(new TestNetworkManager(&page2));
-    page2.setHtml("<html><head>"
-                               "<meta http-equiv=\"refresh\"content=\"1;URL=qrc:///resources/index.html\">"
-                               "</head><body><h1>Page redirect test with 1 sec timeout...</h1>"
-                               "</body></html>");
-    page2.triggerAction(QWebEnginePage::StopScheduledPageRefresh);
-    QTest::qWait(1500);
-    QEXPECT_FAIL("", "https://bugs.webkit.org/show_bug.cgi?id=118673", Continue);
-    QCOMPARE(page2.url().toString(), QLatin1String("about:blank"));
-#endif
-}
-
 void tst_QWebEnginePage::findText()
 {
     QSignalSpy loadSpy(m_view, SIGNAL(loadFinished(bool)));
@@ -1772,6 +920,7 @@ void tst_QWebEnginePage::findText()
     QTRY_COMPARE(loadSpy.count(), 1);
 
     // Select whole page contents.
+    QTRY_VERIFY(m_view->page()->action(QWebEnginePage::SelectAll)->isEnabled());
     m_view->page()->triggerAction(QWebEnginePage::SelectAll);
     QTRY_COMPARE(m_view->hasSelection(), true);
 
@@ -1828,8 +977,8 @@ void tst_QWebEnginePage::findTextResult()
 
     QCOMPARE(findTextSync(m_page, ""), false);
 
-    QStringList words = (QStringList() << "foo" << "bar");
-    foreach (QString subString, words) {
+    const QStringList words = { "foo", "bar" };
+    for (const QString &subString : words) {
         QCOMPARE(findTextSync(m_page, subString), true);
         QCOMPARE(findTextSync(m_page, ""), false);
     }
@@ -1861,94 +1010,6 @@ void tst_QWebEnginePage::findTextSuccessiveShouldCallAllCallbacks()
     QVERIFY(spy5.wasCalled());
 }
 
-#if defined(QWEBENGINEPAGE_SUPPORTEDCONTENTTYPES)
-static QString getMimeTypeForExtension(const QString &ext)
-{
-    QMimeType mimeType = QMimeDatabase().mimeTypeForFile(QStringLiteral("filename.") + ext.toLower(), QMimeDatabase::MatchExtension);
-    if (mimeType.isValid() && !mimeType.isDefault())
-        return mimeType.name();
-
-    return QString();
-}
-#endif
-
-void tst_QWebEnginePage::supportedContentType()
-{
-#if !defined(QWEBENGINEPAGE_SUPPORTEDCONTENTTYPES)
-    QSKIP("QWEBENGINEPAGE_SUPPORTEDCONTENTTYPES");
-#else
-    QStringList contentTypes;
-
-    // Add supported non image types...
-    contentTypes << "text/html" << "text/xml" << "text/xsl" << "text/plain" << "text/"
-                 << "application/xml" << "application/xhtml+xml" << "application/vnd.wap.xhtml+xml"
-                 << "application/rss+xml" << "application/atom+xml" << "application/json";
-
-#if ENABLE_MHTML
-    contentTypes << "application/x-mimearchive";
-#endif
-
-    // Add supported image types...
-    Q_FOREACH (const QByteArray& imageType, QImageWriter::supportedImageFormats()) {
-        const QString mimeType = getMimeTypeForExtension(imageType);
-        if (!mimeType.isEmpty())
-            contentTypes << mimeType;
-    }
-
-    // Get the mime types supported by webengine...
-    const QStringList supportedContentTypes = m_page->supportedContentTypes();
-
-    Q_FOREACH (const QString& mimeType, contentTypes)
-        QVERIFY2(supportedContentTypes.contains(mimeType), QString("'%1' is not a supported content type!").arg(mimeType).toLatin1());
-
-    Q_FOREACH (const QString& mimeType, contentTypes)
-        QVERIFY2(m_page->supportsContentType(mimeType), QString("Cannot handle content types '%1'!").arg(mimeType).toLatin1());
-#endif
-}
-
-void tst_QWebEnginePage::thirdPartyCookiePolicy()
-{
-#if !defined(DUMPRENDERTREESUPPORTQT)
-    QSKIP("DUMPRENDERTREESUPPORTQT");
-#else
-    QWebEngineSettings::globalSettings()->setThirdPartyCookiePolicy(QWebEngineSettings::AlwaysBlockThirdPartyCookies);
-    m_page->networkAccessManager()->setCookieJar(new QNetworkCookieJar());
-    QVERIFY(m_page->networkAccessManager()->cookieJar());
-
-    // These are all first-party cookies, so should pass.
-    QVERIFY(DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://www.example.com"), QUrl("http://example.com")));
-    QVERIFY(DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://www.example.com"), QUrl("http://doc.example.com")));
-    QVERIFY(DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://aaa.www.example.com"), QUrl("http://doc.example.com")));
-    QVERIFY(DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://example.com"), QUrl("http://www.example.com")));
-    QVERIFY(DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://www.example.co.uk"), QUrl("http://example.co.uk")));
-    QVERIFY(DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://www.example.co.uk"), QUrl("http://doc.example.co.uk")));
-    QVERIFY(DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://aaa.www.example.co.uk"), QUrl("http://doc.example.co.uk")));
-    QVERIFY(DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://example.co.uk"), QUrl("http://www.example.co.uk")));
-
-    // These are all third-party cookies, so should fail.
-    QVERIFY(!DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://www.example.com"), QUrl("http://slashdot.org")));
-    QVERIFY(!DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://example.com"), QUrl("http://anotherexample.com")));
-    QVERIFY(!DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://anotherexample.com"), QUrl("http://example.com")));
-    QVERIFY(!DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://www.example.co.uk"), QUrl("http://slashdot.co.uk")));
-    QVERIFY(!DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://example.co.uk"), QUrl("http://anotherexample.co.uk")));
-    QVERIFY(!DumpRenderTreeSupportQt::thirdPartyCookiePolicyAllows(m_page->handle(),
-            QUrl("http://anotherexample.co.uk"), QUrl("http://example.co.uk")));
-#endif
-}
-
 static QWindow *findNewTopLevelWindow(const QWindowList &oldTopLevelWindows)
 {
     const auto tlws = QGuiApplication::topLevelWindows();
@@ -1962,9 +1023,8 @@ static QWindow *findNewTopLevelWindow(const QWindowList &oldTopLevelWindows)
 
 void tst_QWebEnginePage::comboBoxPopupPositionAfterMove()
 {
-    QScreen *screen = QGuiApplication::primaryScreen();
     QWebEngineView view;
-    view.move(screen->availableGeometry().topLeft());
+    view.move(QGuiApplication::primaryScreen()->availableGeometry().topLeft());
     view.resize(640, 480);
     view.show();
 
@@ -1980,18 +1040,35 @@ void tst_QWebEnginePage::comboBoxPopupPositionAfterMove()
 
     QWindow *popup = nullptr;
     QTRY_VERIFY(popup = findNewTopLevelWindow(oldTlws));
+    QTRY_VERIFY(QGuiApplication::topLevelWindows().contains(popup));
+    QTRY_VERIFY(!popup->position().isNull());
     QPoint popupPos = popup->position();
 
     // Close the popup by clicking somewhere into the page.
     QTest::mouseClick(window, Qt::LeftButton, Qt::KeyboardModifiers(), QPoint(1, 1));
     QTRY_VERIFY(!QGuiApplication::topLevelWindows().contains(popup));
 
+    auto jsViewPosition = [&view]() {
+        QLatin1String script("(function() { return [window.screenX, window.screenY]; })()");
+        QVariantList posList = evaluateJavaScriptSync(view.page(), script).toList();
+
+        if (posList.count() != 2) {
+            qWarning("jsViewPosition failed.");
+            return QPoint();
+        }
+
+        return QPoint(posList.at(0).toInt(), posList.at(1).toInt());
+    };
+
     // Move the top-level QWebEngineView a little and check the popup's position.
     const QPoint offset(12, 13);
-    view.move(screen->availableGeometry().topLeft() + offset);
+    view.move(view.pos() + offset);
+    QTRY_COMPARE(jsViewPosition(), view.pos());
     QTest::mouseClick(window, Qt::LeftButton, Qt::KeyboardModifiers(),
                       elementCenter(view.page(), "foo"));
     QTRY_VERIFY(popup = findNewTopLevelWindow(oldTlws));
+    QTRY_VERIFY(QGuiApplication::topLevelWindows().contains(popup));
+    QTRY_VERIFY(!popup->position().isNull());
     QCOMPARE(popupPos + offset, popup->position());
 }
 
@@ -2001,7 +1078,6 @@ void tst_QWebEnginePage::comboBoxPopupPositionAfterChildMove()
     mainWidget.setLayout(new QHBoxLayout);
 
     QWidget spacer;
-    spacer.setMinimumWidth(50);
     mainWidget.layout()->addWidget(&spacer);
 
     QWebEngineView view;
@@ -2024,6 +1100,8 @@ void tst_QWebEnginePage::comboBoxPopupPositionAfterChildMove()
 
     QWindow *popup = nullptr;
     QTRY_VERIFY(popup = findNewTopLevelWindow(oldTlws));
+    QTRY_VERIFY(QGuiApplication::topLevelWindows().contains(popup));
+    QTRY_VERIFY(!popup->position().isNull());
     QPoint popupPos = popup->position();
 
     // Close the popup by clicking somewhere into the page.
@@ -2031,11 +1109,22 @@ void tst_QWebEnginePage::comboBoxPopupPositionAfterChildMove()
                       view.mapTo(view.window(), QPoint(1, 1)));
     QTRY_VERIFY(!QGuiApplication::topLevelWindows().contains(popup));
 
+    int originalViewWidth = view.size().width();
+    auto jsViewWidth = [&view]() {
+        QLatin1String script("(function() { return window.innerWidth; })()");
+        int viewWidth = evaluateJavaScriptSync(view.page(), script).toInt();
+        return viewWidth;
+    };
+
     // Resize the "spacer" widget, and implicitly change the global position of the QWebEngineView.
-    spacer.setMinimumWidth(100);
+    const int offset = 50;
+    spacer.setMinimumWidth(spacer.size().width() + offset);
+    QTRY_COMPARE(jsViewWidth(), originalViewWidth - offset);
+
     QTest::mouseClick(window, Qt::LeftButton, Qt::KeyboardModifiers(),
                       view.mapTo(view.window(), elementCenter(view.page(), "foo")));
     QTRY_VERIFY(popup = findNewTopLevelWindow(oldTlws));
+    QTRY_VERIFY(!popup->position().isNull());
     QCOMPARE(popupPos + QPoint(50, 0), popup->position());
 }
 
@@ -2054,66 +1143,6 @@ void tst_QWebEnginePage::macCopyUnicodeToClipboard()
 }
 #endif
 
-void tst_QWebEnginePage::contextMenuCopy()
-{
-#if !defined(QWEBENGINEELEMENT)
-    QSKIP("QWEBENGINEELEMENT");
-#else
-    QWebEngineView view;
-
-    view.setHtml("<a href=\"http://www.google.com\">You cant miss this</a>");
-
-    view.page()->triggerAction(QWebEnginePage::SelectAll);
-    QVERIFY(!view.page()->selectedText().isEmpty());
-
-    QWebEngineElement link = view.page()->mainFrame()->findFirstElement("a");
-    QPoint pos(link.geometry().center());
-    QContextMenuEvent event(QContextMenuEvent::Mouse, pos);
-    view.page()->swallowContextMenuEvent(&event);
-    view.page()->updatePositionDependentActions(pos);
-
-    QList<QMenu*> contextMenus = view.findChildren<QMenu*>();
-    QVERIFY(!contextMenus.isEmpty());
-    QMenu* contextMenu = contextMenus.first();
-    QVERIFY(contextMenu);
-
-    QList<QAction *> list = contextMenu->actions();
-    int index = list.indexOf(view.page()->action(QWebEnginePage::Copy));
-    QVERIFY(index != -1);
-#endif
-}
-
-// https://bugs.webkit.org/show_bug.cgi?id=62139
-void tst_QWebEnginePage::contextMenuPopulatedOnce()
-{
-#if !defined(QWEBENGINEELEMENT)
-    QSKIP("QWEBENGINEELEMENT");
-#else
-    QWebEngineView view;
-
-    view.setHtml("<input type=\"text\">");
-
-    QWebEngineElement link = view.page()->mainFrame()->findFirstElement("input");
-    QPoint pos(link.geometry().center());
-    QContextMenuEvent event(QContextMenuEvent::Mouse, pos);
-    view.page()->swallowContextMenuEvent(&event);
-    view.page()->updatePositionDependentActions(pos);
-
-    QList<QMenu*> contextMenus = view.findChildren<QMenu*>();
-    QVERIFY(!contextMenus.isEmpty());
-    QMenu* contextMenu = contextMenus.first();
-    QVERIFY(contextMenu);
-
-    QList<QAction *> list = contextMenu->actions();
-    QStringList entries;
-    while (!list.isEmpty()) {
-        QString entry = list.takeFirst()->text();
-        QVERIFY(!entries.contains(entry));
-        entries << entry;
-    }
-#endif
-}
-
 void tst_QWebEnginePage::deleteQWebEngineViewTwice()
 {
     for (int i = 0; i < 2; ++i) {
@@ -2127,62 +1156,6 @@ void tst_QWebEnginePage::deleteQWebEngineViewTwice()
     }
 }
 
-#if defined(QWEBENGINEPAGE_RENDER)
-class RepaintRequestedRenderer : public QObject {
-    Q_OBJECT
-public:
-    RepaintRequestedRenderer(QWebEnginePage* page, QPainter* painter)
-        : m_page(page)
-        , m_painter(painter)
-        , m_recursionCount(0)
-    {
-        connect(m_page, SIGNAL(repaintRequested(QRect)), this, SLOT(onRepaintRequested(QRect)));
-    }
-
-Q_SIGNALS:
-    void finished();
-
-private Q_SLOTS:
-    void onRepaintRequested(const QRect& rect)
-    {
-        QCOMPARE(m_recursionCount, 0);
-
-        m_recursionCount++;
-        m_page->render(m_painter, rect);
-        m_recursionCount--;
-
-        QMetaObject::invokeMethod(this, "finished", Qt::QueuedConnection);
-    }
-
-private:
-    QWebEnginePage* m_page;
-    QPainter* m_painter;
-    int m_recursionCount;
-};
-#endif
-
-void tst_QWebEnginePage::renderOnRepaintRequestedShouldNotRecurse()
-{
-#if !defined(QWEBENGINEPAGE_RENDER)
-    QSKIP("QWEBENGINEPAGE_RENDER");
-#else
-    QSize viewportSize(720, 576);
-    QWebEnginePage page;
-
-    QImage image(viewportSize, QImage::Format_ARGB32);
-    QPainter painter(&image);
-
-    page.setPreferredContentsSize(viewportSize);
-    page.setViewportSize(viewportSize);
-    RepaintRequestedRenderer r(&page, &painter);
-
-    page.setHtml("zalan loves trunk", QUrl());
-
-    QSignalSpy spyFinished(&r, &RepaintRequestedRenderer::finished);
-    QVERIFY(spyFinished.wait());
-#endif
-}
-
 class SpyForLoadSignalsOrder : public QStateMachine {
     Q_OBJECT
 public:
@@ -2192,11 +1165,13 @@ public:
         connect(page, SIGNAL(loadProgress(int)), SLOT(onLoadProgress(int)));
 
         QState* waitingForLoadStarted = new QState(this);
+        QState* waitingForFirstLoadProgress = new QState(this);
         QState* waitingForLastLoadProgress = new QState(this);
         QState* waitingForLoadFinished = new QState(this);
         QFinalState* final = new QFinalState(this);
 
-        waitingForLoadStarted->addTransition(page, SIGNAL(loadStarted()), waitingForLastLoadProgress);
+        waitingForLoadStarted->addTransition(page, SIGNAL(loadStarted()), waitingForFirstLoadProgress);
+        waitingForFirstLoadProgress->addTransition(this, SIGNAL(firstLoadProgress()), waitingForLastLoadProgress);
         waitingForLastLoadProgress->addTransition(this, SIGNAL(lastLoadProgress()), waitingForLoadFinished);
         waitingForLoadFinished->addTransition(page, SIGNAL(loadFinished(bool)), final);
 
@@ -2210,10 +1185,13 @@ public:
 public Q_SLOTS:
     void onLoadProgress(int progress)
     {
-        if (progress == 100)
+        if (progress == 0)
+            emit firstLoadProgress();
+        else if (progress == 100)
             emit lastLoadProgress();
     }
 Q_SIGNALS:
+    void firstLoadProgress();
     void lastLoadProgress();
 };
 
@@ -2236,24 +1214,6 @@ void tst_QWebEnginePage::loadSignalsOrder()
     QTRY_VERIFY(loadSpy.isFinished());
 }
 
-void tst_QWebEnginePage::undoActionHaveCustomText()
-{
-#if !defined(QWEBENGINEPAGE_UNDOACTION)
-    QSKIP("QWEBENGINEPAGE_UNDOACTION");
-#else
-    m_page->setHtml("<div id=test contenteditable></div>");
-    evaluateJavaScriptSync(m_page, "document.getElementById('test').focus()");
-
-    evaluateJavaScriptSync(m_page, "document.execCommand('insertText', true, 'Test');");
-    QString typingActionText = m_page->action(QWebEnginePage::Undo)->text();
-
-    evaluateJavaScriptSync(m_page, "document.execCommand('indent', true);");
-    QString alignActionText = m_page->action(QWebEnginePage::Undo)->text();
-
-    QVERIFY(typingActionText != alignActionText);
-#endif
-}
-
 void tst_QWebEnginePage::renderWidgetHostViewNotShowTopLevel()
 {
     QWebEnginePage page;
@@ -2272,7 +1232,8 @@ void tst_QWebEnginePage::renderWidgetHostViewNotShowTopLevel()
 
     // Make sure that RenderWidgetHostViewQtDelegateWidgets are not shown as top-level.
     // They should only be made visible when parented to a QWebEngineView.
-    foreach (QWidget *widget, QApplication::topLevelWidgets())
+    const QList<QWidget *> widgets = QApplication::topLevelWidgets();
+    for (QWidget *widget : widgets)
         QCOMPARE(widget->isVisible(), false);
 }
 
@@ -2292,16 +1253,21 @@ public:
         load(QUrl("qrc:///resources/content.html"));
     }
 
-    void jsGetUserMedia(const QString & constraints)
+    void jsGetMedia(const QString &call)
     {
         evaluateJavaScriptSync(this,
             QStringLiteral(
                 "var promiseFulfilled = false;"
                 "var promiseRejected = false;"
-                "navigator.mediaDevices.getUserMedia(%1)"
+                "navigator.mediaDevices.%1"
                 ".then(stream => { promiseFulfilled = true})"
                 ".catch(err => { promiseRejected = true})")
-            .arg(constraints));
+            .arg(call));
+    }
+
+    void jsGetUserMedia(const QString &constraints)
+    {
+        jsGetMedia(QStringLiteral("getUserMedia(%1)").arg(constraints));
     }
 
     bool jsPromiseFulfilled()
@@ -2358,34 +1324,45 @@ private:
 
 void tst_QWebEnginePage::getUserMediaRequest_data()
 {
-    QTest::addColumn<QString>("constraints");
+    QTest::addColumn<QString>("call");
     QTest::addColumn<QWebEnginePage::Feature>("feature");
 
     QTest::addRow("device audio")
-        << "{audio: true}" << QWebEnginePage::MediaAudioCapture;
+        << "getUserMedia({audio: true})" << QWebEnginePage::MediaAudioCapture;
     QTest::addRow("device video")
-        << "{video: true}" << QWebEnginePage::MediaVideoCapture;
+        << "getUserMedia({video: true})" << QWebEnginePage::MediaVideoCapture;
     QTest::addRow("device audio+video")
-        << "{audio: true, video: true}" << QWebEnginePage::MediaAudioVideoCapture;
+        << "getUserMedia({audio: true, video: true})" << QWebEnginePage::MediaAudioVideoCapture;
     QTest::addRow("desktop video")
-        << "{video: { mandatory: { chromeMediaSource: 'desktop' }}}"
+        << "getUserMedia({video: { mandatory: { chromeMediaSource: 'desktop' }}})"
         << QWebEnginePage::DesktopVideoCapture;
     QTest::addRow("desktop audio+video")
-        << "{audio: { mandatory: { chromeMediaSource: 'desktop' }}, video: { mandatory: { chromeMediaSource: 'desktop' }}}"
+        << "getUserMedia({audio: { mandatory: { chromeMediaSource: 'desktop' }}, video: { mandatory: { chromeMediaSource: 'desktop' }}})"
         << QWebEnginePage::DesktopAudioVideoCapture;
+    QTest::addRow("display video")
+        << "getDisplayMedia()" << QWebEnginePage::DesktopVideoCapture;
 }
 
 void tst_QWebEnginePage::getUserMediaRequest()
 {
-    QFETCH(QString, constraints);
+    QFETCH(QString, call);
     QFETCH(QWebEnginePage::Feature, feature);
 
     GetUserMediaTestPage page;
+    QWebEngineView view;
+    if (feature == QWebEnginePage::DesktopVideoCapture || feature == QWebEnginePage::DesktopAudioVideoCapture) {
+        // Desktop capture needs to be on a desktop.
+        view.setPage(&page);
+        view.resize(640, 480);
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+    }
+
     QTRY_VERIFY_WITH_TIMEOUT(page.loadSucceeded(), 20000);
     page.settings()->setAttribute(QWebEngineSettings::ScreenCaptureEnabled, true);
 
     // 1. Rejecting request on C++ side should reject promise on JS side.
-    page.jsGetUserMedia(constraints);
+    page.jsGetMedia(call);
     QTRY_VERIFY(page.gotFeatureRequest(feature));
     page.rejectPendingRequest();
     QTRY_VERIFY(!page.jsPromiseFulfilled() && page.jsPromiseRejected());
@@ -2395,13 +1372,13 @@ void tst_QWebEnginePage::getUserMediaRequest()
     // deeper in the content layer we cannot guarantee that the promise will
     // always be fulfilled, however in this case an error should be returned to
     // JS instead of leaving the Promise in limbo.
-    page.jsGetUserMedia(constraints);
+    page.jsGetMedia(call);
     QTRY_VERIFY(page.gotFeatureRequest(feature));
     page.acceptPendingRequest();
     QTRY_VERIFY(page.jsPromiseFulfilled() || page.jsPromiseRejected());
 
     // 3. Media feature permissions are not remembered.
-    page.jsGetUserMedia(constraints);
+    page.jsGetMedia(call);
     QTRY_VERIFY(page.gotFeatureRequest(feature));
     page.acceptPendingRequest();
     QTRY_VERIFY(page.jsPromiseFulfilled() || page.jsPromiseRejected());
@@ -2436,6 +1413,64 @@ void tst_QWebEnginePage::getUserMediaRequestSettingDisabled()
 
     page.jsGetUserMedia(QStringLiteral("{video: { mandatory: { chromeMediaSource: 'desktop' }}}"));
     QTRY_VERIFY(!page.jsPromiseFulfilled() && page.jsPromiseRejected());
+}
+
+// Try to trigger any possible race condition between the UI thread (permission
+// management) and the audio/device thread (desktop capture initialization).
+void tst_QWebEnginePage::getUserMediaRequestDesktopVideoManyPages()
+{
+    const QString constraints = QStringLiteral("{video: { mandatory: { chromeMediaSource: 'desktop' }}}");
+    const QWebEnginePage::Feature feature = QWebEnginePage::DesktopVideoCapture;
+    std::vector<GetUserMediaTestPage> pages(10);
+
+    // Desktop capture needs to be on a desktop
+    std::vector<QWebEngineView> views(10);
+    for (size_t i = 0; i < views.size(); ++i) {
+        QWebEngineView *view = &(views[i]);
+        GetUserMediaTestPage *page = &(pages[i]);
+        view->setPage(page);
+        view->resize(640, 480);
+        view->show();
+        QVERIFY(QTest::qWaitForWindowExposed(view));
+    }
+
+    for (GetUserMediaTestPage &page : pages)
+        QTRY_VERIFY_WITH_TIMEOUT(page.loadSucceeded(), 20000);
+    for (GetUserMediaTestPage &page : pages)
+        page.settings()->setAttribute(QWebEngineSettings::ScreenCaptureEnabled, true);
+    for (GetUserMediaTestPage &page : pages)
+        page.jsGetUserMedia(constraints);
+    for (GetUserMediaTestPage &page : pages)
+        QTRY_VERIFY(page.gotFeatureRequest(feature));
+    for (GetUserMediaTestPage &page : pages)
+        page.acceptPendingRequest();
+    for (GetUserMediaTestPage &page : pages)
+        QTRY_VERIFY(page.jsPromiseFulfilled() || page.jsPromiseRejected());
+}
+
+// Try to trigger any possible race condition between the UI or audio/device
+// threads and the desktop capture thread, where the capture actually happens.
+void tst_QWebEnginePage::getUserMediaRequestDesktopVideoManyRequests()
+{
+    const QString constraints = QStringLiteral("{video: { mandatory: { chromeMediaSource: 'desktop' }}}");
+    const QWebEnginePage::Feature feature = QWebEnginePage::DesktopVideoCapture;
+    GetUserMediaTestPage page;
+
+    // Desktop capture needs to be on a desktop
+    QWebEngineView view;
+    view.setPage(&page);
+    view.resize(640, 480);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QTRY_VERIFY_WITH_TIMEOUT(page.loadSucceeded(), 20000);
+    page.settings()->setAttribute(QWebEngineSettings::ScreenCaptureEnabled, true);
+    for (int i = 0; i != 100; ++i) {
+        page.jsGetUserMedia(constraints);
+        QTRY_VERIFY(page.gotFeatureRequest(feature));
+        page.acceptPendingRequest();
+        QTRY_VERIFY(page.jsPromiseFulfilled() || page.jsPromiseRejected());
+    }
 }
 
 void tst_QWebEnginePage::savePage()
@@ -2504,68 +1539,6 @@ void tst_QWebEnginePage::openWindowDefaultSize()
     QCOMPARE(requestedGeometry.height(), 100);
 }
 
-void tst_QWebEnginePage::cssMediaTypeGlobalSetting()
-{
-#if !defined(QWEBENGINESETTINGS_SETCSSMEDIATYPE)
-    QSKIP("QWEBENGINESETTINGS_SETCSSMEDIATYPE");
-#else
-    QString testHtml("<style>@media tv {body{background-color:red;}}@media handheld {body{background-color:green;}}@media screen {body{background-color:blue;}}</style>");
-    QSignalSpy loadSpy(m_view, SIGNAL(loadFinished(bool)));
-
-    QWebEngineSettings::globalSettings()->setCSSMediaType("tv");
-    // Clear page specific setting to read from global setting
-    m_view->page()->settings()->setCSSMediaType(QString());
-    m_view->setHtml(testHtml);
-    QTRY_COMPARE(loadSpy.count(), 1);
-    QVERIFY(evaluateJavaScriptSync(m_view->page(), "window.matchMedia('tv').matches == true").toBool());
-    QVERIFY(QWebEngineSettings::globalSettings()->cssMediaType() == "tv");
-
-    QWebEngineSettings::globalSettings()->setCSSMediaType("handheld");
-    // Clear page specific setting to read from global setting
-    m_view->page()->settings()->setCSSMediaType(QString());
-    m_view->setHtml(testHtml);
-    QTRY_COMPARE(loadSpy.count(), 2);
-    QVERIFY(evaluateJavaScriptSync(m_view->page(), "window.matchMedia('handheld').matches == true").toBool());
-    QVERIFY(QWebEngineSettings::globalSettings()->cssMediaType() == "handheld");
-
-    QWebEngineSettings::globalSettings()->setCSSMediaType("screen");
-    // Clear page specific setting to read from global setting
-    m_view->page()->settings()->setCSSMediaType(QString());
-    m_view->setHtml(testHtml);
-    QTRY_COMPARE(loadSpy.count(), 3);
-    QVERIFY(evaluateJavaScriptSync(m_view->page(), "window.matchMedia('screen').matches == true").toBool());
-    QVERIFY(QWebEngineSettings::globalSettings()->cssMediaType() == "screen");
-#endif
-}
-
-void tst_QWebEnginePage::cssMediaTypePageSetting()
-{
-#if !defined(QWEBENGINESETTINGS_SETCSSMEDIATYPE)
-    QSKIP("QWEBENGINESETTINGS_SETCSSMEDIATYPE");
-#else
-    QString testHtml("<style>@media tv {body{background-color:red;}}@media handheld {body{background-color:green;}}@media screen {body{background-color:blue;}}</style>");
-    QSignalSpy loadSpy(m_view, SIGNAL(loadFinished(bool)));
-
-    m_view->page()->settings()->setCSSMediaType("tv");
-    m_view->setHtml(testHtml);
-    QTRY_COMPARE(loadSpy.count(), 1);
-    QVERIFY(evaluateJavaScriptSync(m_view->page(), "window.matchMedia('tv').matches == true").toBool());
-    QVERIFY(m_view->page()->settings()->cssMediaType() == "tv");
-
-    m_view->page()->settings()->setCSSMediaType("handheld");
-    m_view->setHtml(testHtml);
-    QTRY_COMPARE(loadSpy.count(), 2);
-    QVERIFY(evaluateJavaScriptSync(m_view->page(), "window.matchMedia('handheld').matches == true").toBool());
-    QVERIFY(m_view->page()->settings()->cssMediaType() == "handheld");
-
-    m_view->page()->settings()->setCSSMediaType("screen");
-    m_view->setHtml(testHtml);
-    QTRY_COMPARE(loadSpy.count(), 3);
-    QVERIFY(evaluateJavaScriptSync(m_view->page(), "window.matchMedia('screen').matches == true").toBool());
-    QVERIFY(m_view->page()->settings()->cssMediaType() == "screen");
-#endif
-}
-
 class JavaScriptCallbackBase
 {
 public:
@@ -2598,7 +1571,7 @@ public:
     JavaScriptCallback() { }
     JavaScriptCallback(const QVariant& _expected) : expected(_expected) { }
 
-    void check(const QVariant& result) Q_DECL_OVERRIDE
+    void check(const QVariant& result) override
     {
         QVERIFY(result.isValid());
         QCOMPARE(result, expected);
@@ -2611,7 +1584,7 @@ private:
 class JavaScriptCallbackNull : public JavaScriptCallbackBase
 {
 public:
-    void check(const QVariant& result) Q_DECL_OVERRIDE
+    void check(const QVariant& result) override
     {
         QVERIFY(result.isNull());
 // FIXME: Returned null values are currently invalid QVariants.
@@ -2622,7 +1595,7 @@ public:
 class JavaScriptCallbackUndefined : public JavaScriptCallbackBase
 {
 public:
-    void check(const QVariant& result) Q_DECL_OVERRIDE
+    void check(const QVariant& result) override
     {
         QVERIFY(result.isNull());
         QVERIFY(!result.isValid());
@@ -2703,7 +1676,57 @@ void tst_QWebEnginePage::runJavaScript()
     JavaScriptCallbackUndefined callbackUndefined;
     page.runJavaScript("undefined", QWebEngineCallback<const QVariant&>(callbackUndefined));
 
+    JavaScriptCallback callbackDate(QVariant(42.0));
+    page.runJavaScript("new Date(42000)", QWebEngineCallback<const QVariant&>(callbackDate));
+
+    JavaScriptCallback callbackBlob(QVariant(QByteArray(8, 0)));
+    page.runJavaScript("new ArrayBuffer(8)", QWebEngineCallback<const QVariant&>(callbackBlob));
+
+    JavaScriptCallbackUndefined callbackFunction;
+    page.runJavaScript("(function(){})", QWebEngineCallback<const QVariant&>(callbackFunction));
+
+    JavaScriptCallback callbackPromise(QVariant(QVariantMap{}));
+    page.runJavaScript("new Promise(function(){})", QWebEngineCallback<const QVariant&>(callbackPromise));
+
     QVERIFY(watcher.wait());
+}
+
+void tst_QWebEnginePage::runJavaScriptDisabled()
+{
+    QWebEnginePage page;
+    QSignalSpy spy(&page, &QWebEnginePage::loadFinished);
+    page.settings()->setAttribute(QWebEngineSettings::JavascriptEnabled, false);
+    // Settings changes take effect asynchronously. The load and wait ensure
+    // that the settings are applied by the time we start to execute JavaScript.
+    page.load(QStringLiteral("about:blank"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(evaluateJavaScriptSyncInWorld(&page, QStringLiteral("1+1"), QWebEngineScript::MainWorld),
+             QVariant());
+    QCOMPARE(evaluateJavaScriptSyncInWorld(&page, QStringLiteral("1+1"), QWebEngineScript::ApplicationWorld),
+             QVariant(2));
+}
+
+// Based on https://bugreports.qt.io/browse/QTBUG-73876
+void tst_QWebEnginePage::runJavaScriptFromSlot()
+{
+    QWebEngineProfile profile;
+    QWebEnginePage page(&profile);
+
+    QSignalSpy loadFinishedSpy(&page, &QWebEnginePage::loadFinished);
+    page.setHtml("<html><body>"
+                 "  <input type='text' id='input1' value='QtWebEngine' size='50' />"
+                 "</body></html>");
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+
+    bool done = false;
+    connect(&page, &QWebEnginePage::selectionChanged, [&]() {
+        QTRY_COMPARE(evaluateJavaScriptSync(&page, QStringLiteral("2+2")), QVariant(4));
+        done = true;
+    });
+    evaluateJavaScriptSync(&page, QStringLiteral("const input = document.getElementById('input1');"
+                                                 "input.focus();"
+                                                 "input.select();"));
+    QTRY_VERIFY(done);
 }
 
 void tst_QWebEnginePage::fullScreenRequested()
@@ -2742,6 +1765,46 @@ void tst_QWebEnginePage::fullScreenRequested()
     QVERIFY(watcher.wait());
     page->runJavaScript("document.webkitIsFullScreen", JavaScriptCallback(false));
     QVERIFY(watcher.wait());
+}
+
+void tst_QWebEnginePage::quotaRequested()
+{
+    ConsolePage page;
+    QWebEngineView view;
+    view.setPage(&page);
+    QSignalSpy loadFinishedSpy(&page, SIGNAL(loadFinished(bool)));
+    page.load(QUrl("qrc:///resources/content.html"));
+    QVERIFY(loadFinishedSpy.wait());
+
+    connect(&page, &QWebEnginePage::quotaRequested,
+            [] (QWebEngineQuotaRequest request)
+    {
+        if (request.requestedSize() <= 5000)
+            request.accept();
+        else
+            request.reject();
+    });
+
+    evaluateJavaScriptSync(&page,
+        "navigator.webkitPersistentStorage.requestQuota(1024, function(grantedSize) {" \
+            "console.log(grantedSize);" \
+        "});");
+    QTRY_COMPARE(page.messages.count(), 1);
+    QTRY_COMPARE(page.messages[0], QString("1024"));
+
+    evaluateJavaScriptSync(&page,
+        "navigator.webkitPersistentStorage.requestQuota(6000, function(grantedSize) {" \
+            "console.log(grantedSize);" \
+        "});");
+    QTRY_COMPARE(page.messages.count(), 2);
+    QTRY_COMPARE(page.messages[1], QString("1024"));
+
+    evaluateJavaScriptSync(&page,
+        "navigator.webkitPersistentStorage.queryUsageAndQuota(function(usedBytes, grantedBytes) {" \
+            "console.log(usedBytes + ', ' + grantedBytes);" \
+        "});");
+    QTRY_COMPARE(page.messages.count(), 3);
+    QTRY_COMPARE(page.messages[2], QString("0, 1024"));
 }
 
 void tst_QWebEnginePage::symmetricUrl()
@@ -2830,6 +1893,12 @@ void tst_QWebEnginePage::urlChange()
 
     QTRY_COMPARE(urlSpy.size(), 1);
     QCOMPARE(urlSpy.takeFirst().value(0).toUrl(), dataUrl2);
+
+    QUrl testUrl("http://test.qt.io/");
+    m_view->setHtml(QStringLiteral("<h1>Test</h1"), testUrl);
+
+    QTRY_COMPARE(urlSpy.size(), 1);
+    QCOMPARE(urlSpy.takeFirst().value(0).toUrl(), testUrl);
 }
 
 class FakeReply : public QNetworkReply {
@@ -2930,7 +1999,7 @@ void tst_QWebEnginePage::requestedUrlAfterSetAndLoadFailures()
 
     const QUrl first("http://abcdef.abcdef/");
     page.setUrl(first);
-    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
     QCOMPARE(page.url(), first);
     QCOMPARE(page.requestedUrl(), first);
     QVERIFY(!spy.at(0).first().toBool());
@@ -2939,7 +2008,7 @@ void tst_QWebEnginePage::requestedUrlAfterSetAndLoadFailures()
     QVERIFY(first != second);
 
     page.load(second);
-    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 20000);
     QCOMPARE(page.url(), second);
     QCOMPARE(page.requestedUrl(), second);
     QVERIFY(!spy.at(1).first().toBool());
@@ -2985,7 +2054,7 @@ void tst_QWebEnginePage::setHtmlWithImageResource()
 
     QSignalSpy spy(&page, SIGNAL(loadFinished(bool)));
     page.setHtml(html, QUrl("file:///path/to/file"));
-    QTRY_COMPARE(spy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 12000);
 
     QCOMPARE(evaluateJavaScriptSync(&page, "document.images.length").toInt(), 1);
     QCOMPARE(evaluateJavaScriptSync(&page, "document.images[0].width").toInt(), 128);
@@ -3086,55 +2155,6 @@ void tst_QWebEnginePage::setHtmlWithJSAlert()
     QCOMPARE(toHtmlSync(&page), html);
 }
 
-void tst_QWebEnginePage::inputFieldFocus()
-{
-#if !defined(QWEBENGINEELEMENT)
-    QSKIP("QWEBENGINEELEMENT");
-#else
-    QWebEngineView view;
-    view.setHtml("<html><body><input type=\"text\"></input></body></html>");
-    view.resize(400, 100);
-    view.show();
-    QTest::qWaitForWindowExposed(&view);
-    view.activateWindow();
-    view.setFocus();
-    QTRY_VERIFY(view.hasFocus());
-
-    // double the flashing time, should at least blink once already
-    int delay = qApp->cursorFlashTime() * 2;
-
-    // focus the lineedit and check if it blinks
-    bool autoSipEnabled = qApp->autoSipEnabled();
-    qApp->setAutoSipEnabled(false);
-    const QWebEngineElement inputElement = view.page()->documentElement().findFirst(QLatin1String("input[type=text]"));
-    QTest::mouseClick(&view, Qt::LeftButton, 0, inputElement.geometry().center());
-    m_inputFieldsTestView = &view;
-    view.installEventFilter( this );
-    QTest::qWait(delay);
-    QVERIFY2(m_inputFieldTestPaintCount >= 3,
-             "The input field should have a blinking caret");
-    qApp->setAutoSipEnabled(autoSipEnabled);
-#endif
-}
-
-void tst_QWebEnginePage::hitTestContent()
-{
-#if !defined(QWEBENGINEELEMENT)
-    QSKIP("QWEBENGINEELEMENT");
-#else
-    QString html("<html><body><p>A paragraph</p><br/><br/><br/><a href=\"about:blank\" target=\"_foo\" id=\"link\">link text</a></body></html>");
-
-    QWebEnginePage page;
-    page.setHtml(html);
-    page.setViewportSize(QSize(200, 0)); //no height so link is not visible
-    const QWebEngineElement linkElement = page.documentElement().findFirst(QLatin1String("a#link"));
-    QWebEngineHitTestResult result = page.hitTestContent(linkElement.geometry().center());
-    QCOMPARE(result.linkText(), QString("link text"));
-    QWebEngineElement link = result.linkElement();
-    QCOMPARE(link.attribute("target"), QString("_foo"));
-#endif
-}
-
 void tst_QWebEnginePage::baseUrl_data()
 {
     QTest::addColumn<QString>("html");
@@ -3189,8 +2209,8 @@ void tst_QWebEnginePage::scrollPosition()
 
     // try to set the scroll offset programmatically
     view.page()->runJavaScript("window.scrollTo(23, 29);");
-    QTRY_COMPARE(view.page()->scrollPosition().x(), qreal(23));
-    QCOMPARE(view.page()->scrollPosition().y(), qreal(29));
+    QTRY_COMPARE(view.page()->scrollPosition().x(), 23 * view.windowHandle()->devicePixelRatio());
+    QCOMPARE(view.page()->scrollPosition().y(), 29 * view.windowHandle()->devicePixelRatio());
 
     int x = evaluateJavaScriptSync(view.page(), "window.scrollX").toInt();
     int y = evaluateJavaScriptSync(view.page(), "window.scrollY").toInt();
@@ -3215,32 +2235,6 @@ void tst_QWebEnginePage::scrollbarsOff()
     QVERIFY(evaluateJavaScriptSync(view.page(), "innerWidth == document.documentElement.offsetWidth").toBool());
 }
 
-void tst_QWebEnginePage::horizontalScrollAfterBack()
-{
-#if !defined(QWEBENGINESETTINGS)
-    QSKIP("QWEBENGINESETTINGS");
-#else
-    QWebEngineView view;
-    QSignalSpy loadSpy(view.page(), SIGNAL(loadFinished(bool)));
-
-    view.page()->settings()->setMaximumPagesInCache(2);
-    view.page()->setScrollBarPolicy(Qt::Vertical, Qt::ScrollBarAsNeeded);
-    view.page()->setScrollBarPolicy(Qt::Horizontal, Qt::ScrollBarAsNeeded);
-
-    view.load(QUrl("qrc:/resources/testiframe2.html"));
-    view.resize(200, 200);
-    QTRY_COMPARE(loadSpy.count(), 1);
-    QTRY_VERIFY((view.page()->scrollBarGeometry(Qt::Horizontal)).height());
-
-    view.load(QUrl("qrc:/resources/testiframe.html"));
-    QTRY_COMPARE(loadSpy.count(), 2);
-
-    view.page()->triggerAction(QWebEnginePage::Back);
-    QTRY_COMPARE(loadSpy.count(), 3);
-    QTRY_VERIFY((view.page()->scrollBarGeometry(Qt::Horizontal)).height());
-#endif
-}
-
 class WebView : public QWebEngineView
 {
     Q_OBJECT
@@ -3259,6 +2253,7 @@ protected:
 void tst_QWebEnginePage::evaluateWillCauseRepaint()
 {
     WebView view;
+    view.resize(640, 480);
     view.show();
     QVERIFY(QTest::qWaitForWindowExposed(&view));
 
@@ -3333,35 +2328,6 @@ public:
 private:
     QNetworkRequest::CacheLoadControl m_lastCacheLoad;
 };
-
-void tst_QWebEnginePage::setCacheLoadControlAttribute()
-{
-#if !defined(QWEBENGINEPAGE_SETNETWORKACCESSMANAGER)
-    QSKIP("QWEBENGINEPAGE_SETNETWORKACCESSMANAGER");
-#else
-    QWebEnginePage page;
-    CacheNetworkAccessManager* manager = new CacheNetworkAccessManager(&page);
-    page.setNetworkAccessManager(manager);
-
-    QNetworkRequest request(QUrl("http://abcdef.abcdef/"));
-
-    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysCache);
-    page.load(request);
-    QCOMPARE(manager->lastCacheLoad(), QNetworkRequest::AlwaysCache);
-
-    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
-    page.load(request);
-    QCOMPARE(manager->lastCacheLoad(), QNetworkRequest::PreferCache);
-
-    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-    page.load(request);
-    QCOMPARE(manager->lastCacheLoad(), QNetworkRequest::AlwaysNetwork);
-
-    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferNetwork);
-    page.load(request);
-    QCOMPARE(manager->lastCacheLoad(), QNetworkRequest::PreferNetwork);
-#endif
-}
 
 void tst_QWebEnginePage::setUrlWithPendingLoads()
 {
@@ -3472,7 +2438,7 @@ void tst_QWebEnginePage::setUrlToBadDomain()
     page.setUrl(url1);
 
     QTRY_COMPARE(urlSpy.count(), 1);
-    QTRY_COMPARE(titleSpy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(titleSpy.count(), 1, 20000);
     QTRY_COMPARE(loadSpy.count(), 1);
 
     QCOMPARE(urlSpy.takeFirst().value(0).toUrl(), url1);
@@ -3485,7 +2451,7 @@ void tst_QWebEnginePage::setUrlToBadDomain()
     page.setUrl(url2);
 
     QTRY_COMPARE(urlSpy.count(), 1);
-    QTRY_COMPARE(titleSpy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(titleSpy.count(), 1, 20000);
     QTRY_COMPARE(loadSpy.count(), 1);
 
     QCOMPARE(urlSpy.takeFirst().value(0).toUrl(), url2);
@@ -3540,7 +2506,8 @@ void tst_QWebEnginePage::setUrlToBadPort()
 static QStringList collectHistoryUrls(QWebEngineHistory *history)
 {
     QStringList urls;
-    foreach (const QWebEngineHistoryItem &i, history->items())
+    const QList<QWebEngineHistoryItem> items = history->items();
+    for (const QWebEngineHistoryItem &i : items)
         urls << i.url().toString();
     return urls;
 }
@@ -3621,7 +2588,6 @@ void tst_QWebEnginePage::setUrlHistory()
 
 void tst_QWebEnginePage::setUrlUsingStateObject()
 {
-    const QUrl aboutBlank("about:blank");
     QUrl url;
     QSignalSpy urlChangedSpy(m_page, SIGNAL(urlChanged(QUrl)));
     int expectedUrlChangeCount = 0;
@@ -3630,12 +2596,10 @@ void tst_QWebEnginePage::setUrlUsingStateObject()
 
     url = QUrl("qrc:/resources/test1.html");
     m_page->setUrl(url);
-    QSignalSpy spyFinished(m_page, &QWebEnginePage::loadFinished);
-    QVERIFY(spyFinished.wait());
     expectedUrlChangeCount++;
-    QCOMPARE(urlChangedSpy.count(), expectedUrlChangeCount);
+    QTRY_COMPARE(urlChangedSpy.count(), expectedUrlChangeCount);
     QCOMPARE(m_page->url(), url);
-    QCOMPARE(m_page->history()->count(), 1);
+    QTRY_COMPARE(m_page->history()->count(), 1);
 
     evaluateJavaScriptSync(m_page, "window.history.pushState(null, 'push', 'navigate/to/here')");
     expectedUrlChangeCount++;
@@ -3653,9 +2617,8 @@ void tst_QWebEnginePage::setUrlUsingStateObject()
     QVERIFY(m_page->history()->canGoBack());
 
     evaluateJavaScriptSync(m_page, "window.history.back()");
-    QTest::qWait(100);
     expectedUrlChangeCount++;
-    QCOMPARE(urlChangedSpy.count(), expectedUrlChangeCount);
+    QTRY_COMPARE(urlChangedSpy.count(), expectedUrlChangeCount);
     QCOMPARE(m_page->url(), QUrl("qrc:/resources/test1.html"));
     QVERIFY(m_page->history()->canGoForward());
     QVERIFY(!m_page->history()->canGoBack());
@@ -3732,11 +2695,11 @@ void tst_QWebEnginePage::loadFinishedAfterNotFoundError()
 
     page.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
     page.setUrl(QUrl("http://non.existent/url"));
-    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
 
     page.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, true);
     page.setUrl(QUrl("http://another.non.existent/url"));
-    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 20000);
 }
 
 class URLSetter : public QObject {
@@ -3746,7 +2709,6 @@ public:
     enum Signal {
         LoadStarted,
         LoadFinished,
-        ProvisionalLoad
     };
 
     enum Type {
@@ -3778,25 +2740,21 @@ URLSetter::URLSetter(QWebEnginePage* page, Signal signal, URLSetter::Type type, 
         connect(m_page, SIGNAL(loadStarted()), SLOT(execute()));
     else if (signal == LoadFinished)
         connect(m_page, SIGNAL(loadFinished(bool)), SLOT(execute()));
-    else
-        connect(m_page, SIGNAL(provisionalLoad()), SLOT(execute()));
 }
 
 void URLSetter::execute()
 {
     // We track only the first emission.
     m_page->disconnect(this);
+    connect(m_page, SIGNAL(loadFinished(bool)), SIGNAL(finished()));
     if (m_type == URLSetter::UseLoad)
         m_page->load(m_url);
     else
         m_page->setUrl(m_url);
-    connect(m_page, SIGNAL(loadFinished(bool)), SIGNAL(finished()));
 }
 
 void tst_QWebEnginePage::loadInSignalHandlers_data()
 {
-    QSKIP("FIXME: This crashes in content::WebContentsImpl::NavigateToEntry because of reentrancy. Should we require QueuedConnections or do it ourselves to support this?");
-
     QTest::addColumn<URLSetter::Type>("type");
     QTest::addColumn<URLSetter::Signal>("signal");
     QTest::addColumn<QUrl>("url");
@@ -3808,15 +2766,11 @@ void tst_QWebEnginePage::loadInSignalHandlers_data()
     QTest::newRow("call load() in loadStarted() after invalid url") << URLSetter::UseLoad << URLSetter::LoadStarted << invalidUrl;
     QTest::newRow("call load() in loadFinished() after valid url") << URLSetter::UseLoad << URLSetter::LoadFinished << validUrl;
     QTest::newRow("call load() in loadFinished() after invalid url") << URLSetter::UseLoad << URLSetter::LoadFinished << invalidUrl;
-    QTest::newRow("call load() in provisionalLoad() after valid url") << URLSetter::UseLoad << URLSetter::ProvisionalLoad << validUrl;
-    QTest::newRow("call load() in provisionalLoad() after invalid url") << URLSetter::UseLoad << URLSetter::ProvisionalLoad << invalidUrl;
 
     QTest::newRow("call setUrl() in loadStarted() after valid url") << URLSetter::UseSetUrl << URLSetter::LoadStarted << validUrl;
     QTest::newRow("call setUrl() in loadStarted() after invalid url") << URLSetter::UseSetUrl << URLSetter::LoadStarted << invalidUrl;
     QTest::newRow("call setUrl() in loadFinished() after valid url") << URLSetter::UseSetUrl << URLSetter::LoadFinished << validUrl;
     QTest::newRow("call setUrl() in loadFinished() after invalid url") << URLSetter::UseSetUrl << URLSetter::LoadFinished << invalidUrl;
-    QTest::newRow("call setUrl() in provisionalLoad() after valid url") << URLSetter::UseSetUrl << URLSetter::ProvisionalLoad << validUrl;
-    QTest::newRow("call setUrl() in provisionalLoad() after invalid url") << URLSetter::UseSetUrl << URLSetter::ProvisionalLoad << invalidUrl;
 }
 
 void tst_QWebEnginePage::loadInSignalHandlers()
@@ -3827,10 +2781,13 @@ void tst_QWebEnginePage::loadInSignalHandlers()
 
     const QUrl urlForSetter("qrc:/resources/test1.html");
     URLSetter setter(m_page, signal, type, urlForSetter);
-
-    m_page->load(url);
     QSignalSpy spy(&setter, &URLSetter::finished);
-    QVERIFY(spy.wait());
+    m_page->load(url);
+    // every loadStarted() call should have also loadFinished()
+    if (signal == URLSetter::LoadStarted)
+        QTRY_COMPARE(spy.count(), 2);
+    else
+        QTRY_COMPARE(spy.count(), 1);
     QCOMPARE(m_page->url(), urlForSetter);
 }
 
@@ -3869,6 +2826,7 @@ void tst_QWebEnginePage::loadFromQrc()
     QCOMPARE(spy.takeFirst().value(0).toBool(), false);
 }
 
+#if QT_CONFIG(webengine_webchannel)
 void tst_QWebEnginePage::restoreHistory()
 {
     QWebChannel channel;
@@ -3896,6 +2854,7 @@ void tst_QWebEnginePage::restoreHistory()
     QCOMPARE(page.webChannel(), &channel);
     QVERIFY(page.scripts().contains(script));
 }
+#endif
 
 void tst_QWebEnginePage::toPlainTextLoadFinishedRace_data()
 {
@@ -3916,8 +2875,8 @@ void tst_QWebEnginePage::toPlainTextLoadFinishedRace()
     QTRY_VERIFY(spy.count() == 1);
     QCOMPARE(toPlainTextSync(page.data()), QString("foobarbaz"));
 
-    page->load(QUrl("fail:unknown/scheme"));
-    QTRY_VERIFY(spy.count() == 2);
+    page->load(QUrl("http://fail.invalid/"));
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 20000);
     QString s = toPlainTextSync(page.data());
     QVERIFY(s.contains("foobarbaz") == !enableErrorPage);
 
@@ -3938,8 +2897,8 @@ void tst_QWebEnginePage::setZoomFactor()
 
     const QUrl urlToLoad("qrc:/resources/test1.html");
 
-    QSignalSpy finishedSpy(m_page, SIGNAL(loadFinished(bool)));
-    m_page->setUrl(urlToLoad);
+    QSignalSpy finishedSpy(&page, SIGNAL(loadFinished(bool)));
+    page.load(urlToLoad);
     QTRY_COMPARE(finishedSpy.count(), 1);
     QVERIFY(finishedSpy.at(0).first().toBool());
     QVERIFY(qFuzzyCompare(page.zoomFactor(), 2.5));
@@ -3949,50 +2908,6 @@ void tst_QWebEnginePage::setZoomFactor()
 
     page.setZoomFactor(0.1);
     QVERIFY(qFuzzyCompare(page.zoomFactor(), 2.5));
-}
-
-void tst_QWebEnginePage::printToPdf()
-{
-#if !defined(QWEBENGINEPAGE_PDFPRINTINGENABLED)
-    QSKIP("QWEBENGINEPAGE_PDFPRINTINGENABLED");
-#else
-    QTemporaryDir tempDir(QDir::tempPath() + "/tst_qwebengineview-XXXXXX");
-    QVERIFY(tempDir.isValid());
-    QWebEnginePage page;
-    QSignalSpy spy(&page, SIGNAL(loadFinished(bool)));
-    page.load(QUrl("qrc:///resources/basic_printing_page.html"));
-    QTRY_VERIFY(spy.count() == 1);
-
-    QSignalSpy savePdfSpy(&page, SIGNAL(pdfPrintingFinished(const QString&, bool)));
-    QPageLayout layout(QPageSize(QPageSize::A4), QPageLayout::Portrait, QMarginsF(0.0, 0.0, 0.0, 0.0));
-    QString path = tempDir.path() + "/print_1_success.pdf";
-    page.printToPdf(path, layout);
-    QTRY_VERIFY2(savePdfSpy.count() == 1, "Printing to PDF file failed without signal");
-
-    QList<QVariant> successArguments = savePdfSpy.takeFirst();
-    QVERIFY2(successArguments.at(0).toString() == path, "File path for first saved PDF does not match arguments");
-    QVERIFY2(successArguments.at(1).toBool() == true, "Printing to PDF file failed though it should succeed");
-
-#if !defined(Q_OS_WIN)
-    path = tempDir.path() + "/print_//2_failed.pdf";
-#else
-    path = tempDir.path() + "/print_|2_failed.pdf";
-#endif
-    page.printToPdf(path, QPageLayout());
-    QTRY_VERIFY2(savePdfSpy.count() == 1, "Printing to PDF file failed without signal");
-
-    QList<QVariant> failedArguments = savePdfSpy.takeFirst();
-    QVERIFY2(failedArguments.at(0).toString() == path, "File path for second saved PDF does not match arguments");
-    QVERIFY2(failedArguments.at(1).toBool() == false, "Printing to PDF file succeeded though it should fail");
-
-    CallbackSpy<QByteArray> successfulSpy;
-    page.printToPdf(successfulSpy.ref(), layout);
-    QVERIFY(successfulSpy.waitForResult().length() > 0);
-
-    CallbackSpy<QByteArray> failedInvalidLayoutSpy;
-    page.printToPdf(failedInvalidLayoutSpy.ref(), QPageLayout());
-    QCOMPARE(failedInvalidLayoutSpy.waitForResult().length(), 0);
-#endif
 }
 
 void tst_QWebEnginePage::mouseButtonTranslation()
@@ -4009,6 +2924,7 @@ void tst_QWebEnginePage::mouseButtonTranslation()
                       <div style=\"height:600px;\" onmousedown=\"saveLastEvent(event)\">\
                       </div>\
                       </body></html>"));
+    view.resize(640, 480);
     view.show();
     QVERIFY(QTest::qWaitForWindowExposed(&view));
     QTRY_VERIFY(spy.count() == 1);
@@ -4033,6 +2949,8 @@ void tst_QWebEnginePage::mouseMovementProperties()
     QWebEngineView view;
     ConsolePage page;
     view.setPage(&page);
+    view.resize(640, 480);
+    QTest::mouseMove(&view, QPoint(10, 10));
     view.show();
     QVERIFY(QTest::qWaitForWindowExposed(&view));
 
@@ -4149,6 +3067,39 @@ void tst_QWebEnginePage::viewSourceURL()
     QVERIFY(!page.action(QWebEnginePage::ViewSource)->isEnabled());
 }
 
+void tst_QWebEnginePage::viewSourceCredentials()
+{
+    TestPage page;
+    QSignalSpy loadFinishedSpy(&page, SIGNAL(loadFinished(bool)));
+    QSignalSpy windowCreatedSpy(&page, SIGNAL(windowCreated()));
+    QUrl url("http://user:passwd@httpbin.org/basic-auth/user/passwd");
+
+    // Test explicit view-source URL with credentials
+    page.load(QUrl(QString("view-source:" + url.toString())));
+    if (!loadFinishedSpy.wait(10000) || !loadFinishedSpy.at(0).at(0).toBool())
+        QSKIP("Couldn't load page from network, skipping test.");
+
+    QCOMPARE(page.url().toString(), QString("view-source:" + url.toDisplayString(QUrl::RemoveUserInfo)));
+    QCOMPARE(page.requestedUrl(), url);
+    QCOMPARE(page.title(), QString("view-source:" + url.toDisplayString(QUrl::RemoveScheme | QUrl::RemoveUserInfo).remove(0, 2)));
+    loadFinishedSpy.clear();
+    windowCreatedSpy.clear();
+
+    // Test ViewSource web action on URL with credentials
+    page.load(url);
+    if (!loadFinishedSpy.wait(10000) || !loadFinishedSpy.at(0).at(0).toBool())
+        QSKIP("Couldn't load page from network, skipping test.");
+    QVERIFY(page.action(QWebEnginePage::ViewSource)->isEnabled());
+
+    page.triggerAction(QWebEnginePage::ViewSource);
+    QTRY_COMPARE(windowCreatedSpy.count(), 1);
+    QCOMPARE(page.createdWindows.size(), 1);
+
+    QTRY_COMPARE(page.createdWindows[0]->url().toString(), QString("view-source:" + url.toDisplayString(QUrl::RemoveUserInfo)));
+    QTRY_COMPARE(page.createdWindows[0]->requestedUrl(), url);
+    QTRY_COMPARE(page.createdWindows[0]->title(), QString("view-source:" + url.toDisplayString(QUrl::RemoveScheme | QUrl::RemoveUserInfo).remove(0, 2)));
+}
+
 Q_DECLARE_METATYPE(QNetworkProxy::ProxyType);
 
 void tst_QWebEnginePage::proxyConfigWithUnexpectedHostPortPair()
@@ -4164,6 +3115,458 @@ void tst_QWebEnginePage::proxyConfigWithUnexpectedHostPortPair()
     QSignalSpy loadFinishedSpy(m_page, SIGNAL(loadFinished(bool)));
     m_page->load(QStringLiteral("http://127.0.0.1:245/"));
     QTRY_COMPARE(loadFinishedSpy.count(), 1);
+}
+
+void tst_QWebEnginePage::registerProtocolHandler_data()
+{
+    QTest::addColumn<bool>("permission");
+    QTest::newRow("accept") << true;
+    QTest::newRow("reject") << false;
+}
+
+void tst_QWebEnginePage::registerProtocolHandler()
+{
+    QFETCH(bool, permission);
+
+    HttpServer server;
+    int mailRequestCount = 0;
+    connect(&server, &HttpServer::newRequest, [&](HttpReqRep *rr) {
+        if (rr->requestMethod() == "GET" && rr->requestPath() == "/") {
+            rr->setResponseBody(QByteArrayLiteral("<html><body><a id=\"link\" href=\"mailto:foo@bar.com\">some text here</a></body></html>"));
+            rr->sendResponse();
+        } else if (rr->requestMethod() == "GET" && rr->requestPath() == "/mail?uri=mailto%3Afoo%40bar.com") {
+            mailRequestCount++;
+            rr->sendResponse();
+        } else {
+            rr->setResponseStatus(404);
+            rr->sendResponse();
+        }
+    });
+    QVERIFY(server.start());
+
+    QWebEnginePage page;
+    QSignalSpy loadSpy(&page, &QWebEnginePage::loadFinished);
+    QSignalSpy permissionSpy(&page, &QWebEnginePage::registerProtocolHandlerRequested);
+
+    page.setUrl(server.url("/"));
+    QTRY_COMPARE(loadSpy.count(), 1);
+    QCOMPARE(loadSpy.takeFirst().value(0).toBool(), true);
+
+    QString callFormat = QStringLiteral("window.navigator.registerProtocolHandler(\"%1\", \"%2\", \"%3\")");
+    QString scheme = QStringLiteral("mailto");
+    QString url = server.url("/mail").toString() + QStringLiteral("?uri=%s");
+    QString title;
+    QString call = callFormat.arg(scheme).arg(url).arg(title);
+    page.runJavaScript(call);
+
+    QTRY_COMPARE(permissionSpy.count(), 1);
+    auto request = permissionSpy.takeFirst().value(0).value<QWebEngineRegisterProtocolHandlerRequest>();
+    QCOMPARE(request.origin(), QUrl(url));
+    QCOMPARE(request.scheme(), scheme);
+    if (permission)
+        request.accept();
+    else
+        request.reject();
+
+    page.runJavaScript(QStringLiteral("document.getElementById(\"link\").click()"));
+
+    QTRY_COMPARE(loadSpy.count(), 1);
+    QCOMPARE(loadSpy.takeFirst().value(0).toBool(), permission);
+    QCOMPARE(mailRequestCount, permission ? 1 : 0);
+    QVERIFY(server.stop());
+}
+
+void tst_QWebEnginePage::dataURLFragment()
+{
+    m_view->resize(800, 600);
+    m_view->show();
+    QSignalSpy loadFinishedSpy(m_page, SIGNAL(loadFinished(bool)));
+
+    m_page->setHtml("<html><body>"
+                    "<a id='link' href='#anchor'>anchor</a>"
+                    "</body></html>");
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+
+    QSignalSpy urlChangedSpy(m_page, SIGNAL(urlChanged(QUrl)));
+    QTest::mouseClick(m_view->focusProxy(), Qt::LeftButton, 0, elementCenter(m_page, "link"));
+    QVERIFY(urlChangedSpy.wait());
+    QCOMPARE(m_page->url().fragment(), QStringLiteral("anchor"));
+
+
+    m_page->setHtml("<html><body>"
+                    "<a id='link' href='#anchor'>anchor</a>"
+                    "</body></html>", QUrl("http://test.qt.io/mytest.html"));
+    QTRY_COMPARE(loadFinishedSpy.count(), 2);
+
+    QTest::mouseClick(m_view->focusProxy(), Qt::LeftButton, 0, elementCenter(m_page, "link"));
+    QVERIFY(urlChangedSpy.wait());
+    QCOMPARE(m_page->url(), QUrl("http://test.qt.io/mytest.html#anchor"));
+}
+
+void tst_QWebEnginePage::devTools()
+{
+    QWebEngineProfile profile;
+    QWebEnginePage inspectedPage1(&profile);
+    QWebEnginePage inspectedPage2(&profile);
+    QWebEnginePage devToolsPage(&profile);
+    QSignalSpy spy(&devToolsPage, &QWebEnginePage::loadFinished);
+
+    inspectedPage1.setDevToolsPage(&devToolsPage);
+
+    QCOMPARE(inspectedPage1.devToolsPage(), &devToolsPage);
+    QCOMPARE(inspectedPage1.inspectedPage(), nullptr);
+    QCOMPARE(inspectedPage2.devToolsPage(), nullptr);
+    QCOMPARE(inspectedPage2.inspectedPage(), nullptr);
+    QCOMPARE(devToolsPage.devToolsPage(), nullptr);
+    QCOMPARE(devToolsPage.inspectedPage(), &inspectedPage1);
+
+    QTRY_COMPARE(spy.count(), 1);
+    QVERIFY(spy.takeFirst().value(0).toBool());
+
+    devToolsPage.setInspectedPage(&inspectedPage2);
+
+    QCOMPARE(inspectedPage1.devToolsPage(), nullptr);
+    QCOMPARE(inspectedPage1.inspectedPage(), nullptr);
+    QCOMPARE(inspectedPage2.devToolsPage(), &devToolsPage);
+    QCOMPARE(inspectedPage2.inspectedPage(), nullptr);
+    QCOMPARE(devToolsPage.devToolsPage(), nullptr);
+    QCOMPARE(devToolsPage.inspectedPage(), &inspectedPage2);
+
+    QTRY_COMPARE(spy.count(), 1);
+    QVERIFY(spy.takeFirst().value(0).toBool());
+
+    devToolsPage.setInspectedPage(nullptr);
+
+    QCOMPARE(inspectedPage1.devToolsPage(), nullptr);
+    QCOMPARE(inspectedPage1.inspectedPage(), nullptr);
+    QCOMPARE(inspectedPage2.devToolsPage(), nullptr);
+    QCOMPARE(inspectedPage2.inspectedPage(), nullptr);
+    QCOMPARE(devToolsPage.devToolsPage(), nullptr);
+    QCOMPARE(devToolsPage.inspectedPage(), nullptr);
+}
+
+void tst_QWebEnginePage::openLinkInDifferentProfile()
+{
+    class Page : public QWebEnginePage {
+    public:
+        QWebEnginePage *targetPage = nullptr;
+        Page(QWebEngineProfile *profile) : QWebEnginePage(profile) {}
+    private:
+        QWebEnginePage *createWindow(WebWindowType) override { return targetPage; }
+    };
+    QWebEngineProfile profile1, profile2;
+    Page page1(&profile1), page2(&profile2);
+    QWebEngineView view;
+    view.resize(500, 500);
+    view.setPage(&page1);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QSignalSpy spy1(&page1, &QWebEnginePage::loadFinished), spy2(&page2, &QWebEnginePage::loadFinished);
+    page1.setHtml("<html><body>"
+                  "<a id='link' href='data:,hello'>link</a>"
+                  "</body></html>");
+    QTRY_COMPARE(spy1.count(), 1);
+    QVERIFY(spy1.takeFirst().value(0).toBool());
+    page1.targetPage = &page2;
+    QTest::mouseClick(view.focusProxy(), Qt::MiddleButton, 0, elementCenter(&page1, "link"));
+    QTRY_COMPARE(spy2.count(), 1);
+    QVERIFY(spy2.takeFirst().value(0).toBool());
+}
+
+void tst_QWebEnginePage::triggerActionWithoutMenu()
+{
+    // Calling triggerAction should not crash even when for
+    // context-menu-specific actions without a context menu.
+    QWebEngineProfile profile;
+    QWebEnginePage page(&profile);
+    page.triggerAction(QWebEnginePage::DownloadLinkToDisk);
+}
+
+void tst_QWebEnginePage::dynamicFrame()
+{
+    QWebEnginePage page;
+    page.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
+    QSignalSpy spy(&page, &QWebEnginePage::loadFinished);
+    page.load(QStringLiteral("qrc:/resources/dynamicFrame.html"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(toPlainTextSync(&page).trimmed(), QStringLiteral("foo"));
+}
+
+struct NotificationPage : ConsolePage {
+    Q_OBJECT
+    const QWebEnginePage::PermissionPolicy policy;
+
+public:
+    NotificationPage(QWebEnginePage::PermissionPolicy ppolicy) : policy(ppolicy) {
+        connect(this, &QWebEnginePage::loadFinished, [load = spyLoad.ref()] (bool result) mutable { load(result); });
+
+        connect(this, &QWebEnginePage::featurePermissionRequested,
+                [this] (const QUrl &origin, QWebEnginePage::Feature feature) {
+            if (feature != QWebEnginePage::Notifications)
+                return;
+            if (spyRequest.wasCalled())
+                QFAIL("request executed twise!");
+            setFeaturePermission(origin, feature, policy);
+            spyRequest.ref()(origin);
+        });
+
+        load(QStringLiteral("qrc:///shared/notification.html"));
+    }
+
+    CallbackSpy<bool> spyLoad;
+    CallbackSpy<QUrl> spyRequest;
+
+    QString getPermission() { return evaluateJavaScriptSync(this, "getPermission()").toString(); }
+    void requestPermission() { runJavaScript("requestPermission()"); }
+    void resetPermission() { runJavaScript("resetPermission()"); }
+    void sendNotification(const QString &title, const QString &body) {
+        runJavaScript("sendNotification('" + title + "', '" + body + "')");
+    }
+};
+
+void tst_QWebEnginePage::notificationRequest_data()
+{
+    QTest::addColumn<QWebEnginePage::PermissionPolicy>("policy");
+    QTest::addColumn<QString>("permission");
+    QTest::newRow("deny") << QWebEnginePage::PermissionDeniedByUser << "denied";
+    QTest::newRow("grant") << QWebEnginePage::PermissionGrantedByUser << "granted";
+}
+
+void tst_QWebEnginePage::notificationRequest()
+{
+    QFETCH(QWebEnginePage::PermissionPolicy, policy);
+    QFETCH(QString, permission);
+
+    NotificationPage page(policy);
+    QVERIFY(page.spyLoad.waitForResult());
+
+    page.resetPermission();
+    QCOMPARE(page.getPermission(), "default");
+
+    page.requestPermission();
+    page.spyRequest.waitForResult();
+    QVERIFY(page.spyRequest.wasCalled());
+
+    QCOMPARE(page.getPermission(), permission);
+}
+
+void tst_QWebEnginePage::sendNotification()
+{
+    NotificationPage page(QWebEnginePage::PermissionGrantedByUser);
+    QVERIFY(page.spyLoad.waitForResult());
+
+    page.resetPermission();
+    page.requestPermission();
+    auto origin = page.spyRequest.waitForResult();
+    QVERIFY(page.spyRequest.wasCalled());
+    QCOMPARE(page.getPermission(), "granted");
+
+    std::unique_ptr<QWebEngineNotification> activeNotification;
+    CallbackSpy<bool> presenter;
+    page.profile()->setNotificationPresenter(
+                [&] (std::unique_ptr<QWebEngineNotification> notification)
+                {
+                    activeNotification = std::move(notification);
+                    presenter(true);
+                });
+
+    QString title("Title"), message("Message");
+    page.sendNotification(title, message);
+
+    presenter.waitForResult();
+    QVERIFY(presenter.wasCalled());
+    QVERIFY(activeNotification);
+    QCOMPARE(activeNotification->title(), title);
+    QCOMPARE(activeNotification->message(), message);
+    QCOMPARE(activeNotification->origin(), origin);
+    QCOMPARE(activeNotification->direction(), Qt::RightToLeft);
+    QCOMPARE(activeNotification->language(), "de");
+    QCOMPARE(activeNotification->tag(), "tst");
+
+    activeNotification->show();
+    QTRY_VERIFY2(page.messages.contains("onshow"), page.messages.join("\n").toLatin1().constData());
+    activeNotification->click();
+    QTRY_VERIFY2(page.messages.contains("onclick"), page.messages.join("\n").toLatin1().constData());
+    activeNotification->close();
+    QTRY_VERIFY2(page.messages.contains("onclose"), page.messages.join("\n").toLatin1().constData());
+}
+
+void tst_QWebEnginePage::contentsSize()
+{
+    m_view->resize(800, 600);
+    m_view->show();
+
+    QSignalSpy loadSpy(m_page, &QWebEnginePage::loadFinished);
+    QSignalSpy contentsSizeChangedSpy(m_page, &QWebEnginePage::contentsSizeChanged);
+
+    m_view->setHtml(QString("<html><body style=\"width: 1600px; height: 1200px;\"><p>hi</p></body></html>"));
+
+    QTRY_COMPARE(loadSpy.count(), 1);
+    QTRY_COMPARE(contentsSizeChangedSpy.count(), 1);
+
+    // Verify the page's contents size is not limited by the view's size.
+    QCOMPARE(m_page->contentsSize().width(), 1608);
+    QCOMPARE(m_page->contentsSize().height(), 1216);
+
+    // Verify resizing the view does not affect the contents size.
+    m_view->resize(2400, 1800);
+    QCOMPARE(m_page->contentsSize().width(), 1608);
+    QCOMPARE(m_page->contentsSize().height(), 1216);
+
+    // Verify resizing the view does not affect the contents size.
+    m_view->resize(1600, 1200);
+    QCOMPARE(m_page->contentsSize().width(), 1608);
+    QCOMPARE(m_page->contentsSize().height(), 1216);
+}
+
+void tst_QWebEnginePage::editActionsWithExplicitFocus()
+{
+    QWebEngineView view;
+    QWebEnginePage *page = view.page();
+    view.settings()->setAttribute(QWebEngineSettings::FocusOnNavigationEnabled, false);
+
+    QSignalSpy loadFinishedSpy(page, &QWebEnginePage::loadFinished);
+    QSignalSpy selectionChangedSpy(page, &QWebEnginePage::selectionChanged);
+    QSignalSpy actionChangedSpy(page->action(QWebEnginePage::SelectAll), &QAction::changed);
+
+    // The view is hidden and no focus on the page. Edit actions should be disabled.
+    QVERIFY(!view.isVisible());
+    QVERIFY(!page->action(QWebEnginePage::SelectAll)->isEnabled());
+
+    page->setHtml(QString("<html><body><div>foo bar</div></body></html>"));
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+
+    // Still no focus because focus on navigation is disabled. Edit actions don't do anything (should not crash).
+    QVERIFY(!page->action(QWebEnginePage::SelectAll)->isEnabled());
+    view.page()->triggerAction(QWebEnginePage::SelectAll);
+    QCOMPARE(selectionChangedSpy.count(), 0);
+    QCOMPARE(page->hasSelection(), false);
+
+    // Focus content by focusing window from JavaScript. Edit actions should be enabled and functional.
+    evaluateJavaScriptSync(page, "window.focus();");
+    QTRY_COMPARE(actionChangedSpy.count(), 1);
+    QVERIFY(page->action(QWebEnginePage::SelectAll)->isEnabled());
+    view.page()->triggerAction(QWebEnginePage::SelectAll);
+    QTRY_COMPARE(selectionChangedSpy.count(), 1);
+    QCOMPARE(page->hasSelection(), true);
+    QCOMPARE(page->selectedText(), QStringLiteral("foo bar"));
+}
+
+void tst_QWebEnginePage::editActionsWithInitialFocus()
+{
+    QWebEngineView view;
+    QWebEnginePage *page = view.page();
+    view.settings()->setAttribute(QWebEngineSettings::FocusOnNavigationEnabled, true);
+
+    QSignalSpy loadFinishedSpy(page, &QWebEnginePage::loadFinished);
+    QSignalSpy selectionChangedSpy(page, &QWebEnginePage::selectionChanged);
+    QSignalSpy actionChangedSpy(page->action(QWebEnginePage::SelectAll), &QAction::changed);
+
+    // The view is hidden and no focus on the page. Edit actions should be disabled.
+    QVERIFY(!view.isVisible());
+    QVERIFY(!page->action(QWebEnginePage::SelectAll)->isEnabled());
+
+    page->setHtml(QString("<html><body><div>foo bar</div></body></html>"));
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+
+    // Content gets initial focus.
+    QTRY_COMPARE(actionChangedSpy.count(), 1);
+    QVERIFY(page->action(QWebEnginePage::SelectAll)->isEnabled());
+    view.page()->triggerAction(QWebEnginePage::SelectAll);
+    QTRY_COMPARE(selectionChangedSpy.count(), 1);
+    QCOMPARE(page->hasSelection(), true);
+    QCOMPARE(page->selectedText(), QStringLiteral("foo bar"));
+}
+
+void tst_QWebEnginePage::editActionsWithFocusOnIframe()
+{
+    QWebEngineView view;
+    QWebEnginePage *page = view.page();
+    view.settings()->setAttribute(QWebEngineSettings::FocusOnNavigationEnabled, false);
+
+    QSignalSpy loadFinishedSpy(page, &QWebEnginePage::loadFinished);
+    QSignalSpy selectionChangedSpy(page, &QWebEnginePage::selectionChanged);
+    QSignalSpy actionChangedSpy(page->action(QWebEnginePage::SelectAll), &QAction::changed);
+
+    // The view is hidden and no focus on the page. Edit actions should be disabled.
+    QVERIFY(!view.isVisible());
+    QVERIFY(!page->action(QWebEnginePage::SelectAll)->isEnabled());
+
+    page->load(QUrl("qrc:///resources/iframe2.html"));
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+    QVERIFY(!page->action(QWebEnginePage::SelectAll)->isEnabled());
+
+    // Focusing an iframe.
+    evaluateJavaScriptSync(page, "document.getElementsByTagName('iframe')[0].contentWindow.focus()");
+    QTRY_COMPARE(actionChangedSpy.count(), 1);
+    QVERIFY(page->action(QWebEnginePage::SelectAll)->isEnabled());
+    view.page()->triggerAction(QWebEnginePage::SelectAll);
+    QTRY_COMPARE(selectionChangedSpy.count(), 1);
+    QCOMPARE(page->hasSelection(), true);
+    QCOMPARE(page->selectedText(), QStringLiteral("inner"));
+}
+
+void tst_QWebEnginePage::customUserAgentInNewTab()
+{
+    HttpServer server;
+    QByteArray lastUserAgent;
+    connect(&server, &HttpServer::newRequest, [&](HttpReqRep *rr) {
+        QCOMPARE(rr->requestMethod(), "GET");
+        lastUserAgent = rr->requestHeader("user-agent");
+        rr->setResponseBody(QByteArrayLiteral("<html><body>Test</body></html>"));
+        rr->sendResponse();
+    });
+    QVERIFY(server.start());
+
+    class Page : public QWebEnginePage {
+    public:
+        QWebEngineProfile *targetProfile = nullptr;
+        QScopedPointer<QWebEnginePage> newPage;
+        Page(QWebEngineProfile *profile) : QWebEnginePage(profile) {}
+    private:
+        QWebEnginePage *createWindow(WebWindowType) override
+        {
+            newPage.reset(new QWebEnginePage(targetProfile ? targetProfile : profile(), nullptr));
+            return newPage.data();
+        }
+    };
+    QWebEngineProfile profile1, profile2;
+    profile1.setHttpUserAgent(QStringLiteral("custom 1"));
+    profile2.setHttpUserAgent(QStringLiteral("custom 2"));
+    Page page(&profile1);
+    QWebEngineView view;
+    view.resize(500, 500);
+    view.setPage(&page);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QSignalSpy spy(&page, &QWebEnginePage::loadFinished);
+
+    // First check we can get the user-agent passed through normally
+    page.setHtml(QString("<html><body><a id='link' target='_blank' href='") +
+                 server.url("/test1").toEncoded() +
+                 QString("'>link</a></body></html>"));
+    QTRY_COMPARE(spy.count(), 1);
+    QVERIFY(spy.takeFirst().value(0).toBool());
+    QCOMPARE(evaluateJavaScriptSync(&page, QStringLiteral("navigator.userAgent")).toString(), profile1.httpUserAgent());
+    QTest::mouseClick(view.focusProxy(), Qt::LeftButton, 0, elementCenter(&page, "link"));
+    QTRY_VERIFY(page.newPage);
+    QTRY_VERIFY(!lastUserAgent.isEmpty());
+    QCOMPARE(lastUserAgent, profile1.httpUserAgent().toUtf8());
+
+    // Now check we can get the new user-agent of the profile
+    page.newPage.reset();
+    page.targetProfile = &profile2;
+    spy.clear();
+    lastUserAgent = { };
+    page.setHtml(QString("<html><body><a id='link' target='_blank' href='") +
+                 server.url("/test2").toEncoded() +
+                 QString("'>link</a></body></html>"));
+    QTRY_COMPARE(spy.count(), 1);
+    QVERIFY(spy.takeFirst().value(0).toBool());
+    QTest::mouseClick(view.focusProxy(), Qt::LeftButton, 0, elementCenter(&page, "link"));
+    QTRY_VERIFY(page.newPage);
+    QTRY_VERIFY(!lastUserAgent.isEmpty());
+    QCOMPARE(lastUserAgent, profile2.httpUserAgent().toUtf8());
 }
 
 static QByteArrayList params = {QByteArrayLiteral("--use-fake-device-for-media-stream")};

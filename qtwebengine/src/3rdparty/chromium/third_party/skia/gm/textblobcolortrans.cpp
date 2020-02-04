@@ -29,24 +29,21 @@ protected:
 
         // make textblob
         // Large text is used to trigger atlas eviction
-        SkPaint paint;
-        paint.setTextSize(256);
+        SkFont font(sk_tool_utils::create_portable_typeface(), 256);
+        font.setEdging(SkFont::Edging::kAlias);
         const char* text = "AB";
-        sk_tool_utils::set_portable_typeface(&paint);
 
         SkRect bounds;
-        paint.measureText(text, strlen(text), &bounds);
+        font.measureText(text, strlen(text), kUTF8_SkTextEncoding, &bounds);
 
         SkScalar yOffset = bounds.height();
-        sk_tool_utils::add_to_text_blob(&builder, text, paint, 0, yOffset - 30);
+        sk_tool_utils::add_to_text_blob(&builder, text, font, 0, yOffset - 30);
 
         // A8
-        paint.setTextSize(28);
+        font.setSize(28);
         text = "The quick brown fox jumps over the lazy dog.";
-        paint.setSubpixelText(false);
-        paint.setLCDRenderText(false);
-        paint.measureText(text, strlen(text), &bounds);
-        sk_tool_utils::add_to_text_blob(&builder, text, paint, 0, yOffset - 8);
+        font.measureText(text, strlen(text), kUTF8_SkTextEncoding, &bounds);
+        sk_tool_utils::add_to_text_blob(&builder, text, font, 0, yOffset - 8);
 
         // build
         fBlob = builder.make();
@@ -62,7 +59,7 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
 
-        canvas->drawColor(sk_tool_utils::color_to_565(SK_ColorGRAY));
+        canvas->drawColor(SK_ColorGRAY);
 
         SkPaint paint;
         canvas->translate(10, 40);
@@ -72,8 +69,7 @@ protected:
         // Colors were chosen to map to pairs of canonical colors.  The GPU Backend will cache A8
         // Texture Blobs based on the canonical color they map to.  Canonical colors are used to
         // create masks.  For A8 there are 8 of them.
-        SkColor colors[] = {SK_ColorCYAN, sk_tool_utils::color_to_565(SK_ColorLTGRAY),
-                SK_ColorYELLOW, SK_ColorWHITE};
+        SkColor colors[] = {SK_ColorCYAN, SK_ColorLTGRAY, SK_ColorYELLOW, SK_ColorWHITE};
 
         size_t count = SK_ARRAY_COUNT(colors);
         size_t colorIndex = 0;

@@ -5,8 +5,8 @@
 #include "chrome/browser/ui/webui/theme_source.h"
 
 #include "base/memory/ref_counted_memory.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/post_task.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resources_util.h"
 #include "chrome/browser/search/instant_io_context.h"
@@ -20,6 +20,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/url_request/url_request.h"
 #include "ui/base/layout.h"
@@ -50,7 +51,7 @@ void ProcessImageOnUiThread(const gfx::ImageSkia& image,
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   const gfx::ImageSkiaRep& rep = image.GetRepresentation(scale);
   gfx::PNGCodec::EncodeBGRASkBitmap(
-      rep.sk_bitmap(), false /* discard transparency */, &data->data());
+      rep.GetBitmap(), false /* discard transparency */, &data->data());
 }
 
 void ProcessResourceOnUiThread(int resource_id,
@@ -58,7 +59,7 @@ void ProcessResourceOnUiThread(int resource_id,
                                scoped_refptr<base::RefCountedBytes> data) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   ProcessImageOnUiThread(
-      *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id),
+      *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id),
       scale, data);
 }
 
@@ -117,6 +118,7 @@ void ThemeSource::StartDataRequest(
       case version_info::Channel::BETA:
       case version_info::Channel::STABLE:
         NOTREACHED();
+        FALLTHROUGH;
 #endif
       case version_info::Channel::UNKNOWN:
         resource_id = IDR_PRODUCT_LOGO_32;
@@ -132,7 +134,7 @@ void ThemeSource::StartDataRequest(
   // use 2x scale without 2x data packs, as well as omnibox requests for larger
   // (but still reasonable) scales (see below).
   const float max_scale = ui::GetScaleForScaleFactor(
-      ResourceBundle::GetSharedInstance().GetMaxScaleFactor());
+      ui::ResourceBundle::GetSharedInstance().GetMaxScaleFactor());
   const float unreasonable_scale = max_scale * 32;
   // TODO(reveman): Add support frames beyond 0 (crbug.com/750064).
   if ((resource_id == -1) || (scale >= unreasonable_scale) || (frame > 0)) {
@@ -209,7 +211,7 @@ void ThemeSource::SendThemeBitmap(
     callback.Run(image_data.get());
   } else {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-    const ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+    const ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
     callback.Run(rb.LoadDataResourceBytesForScale(resource_id, scale_factor));
   }
 }
@@ -229,8 +231,8 @@ void ThemeSource::SendThemeImage(
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
     // Fetching image data in ResourceBundle should happen on the UI thread. See
     // crbug.com/449277
-    content::BrowserThread::PostTaskAndReply(
-        content::BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraitsAndReply(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(&ProcessResourceOnUiThread, resource_id, scale, data),
         base::BindOnce(callback, data));
   }

@@ -53,6 +53,7 @@
 #include "qwaylandquickitem.h"
 #include "qwaylandoutput.h"
 #include <QtWaylandCompositor/private/qwaylandcompositor_p.h>
+#include <QtWaylandCompositor/QWaylandViewporter>
 #include "qwaylandsurfacegrabber.h"
 
 QT_BEGIN_NAMESPACE
@@ -60,8 +61,9 @@ QT_BEGIN_NAMESPACE
 class QWaylandQuickCompositorPrivate : public QWaylandCompositorPrivate
 {
 public:
-    QWaylandQuickCompositorPrivate(QWaylandCompositor *compositor)
+    explicit QWaylandQuickCompositorPrivate(QWaylandCompositor *compositor)
         : QWaylandCompositorPrivate(compositor)
+        , m_viewporter(new QWaylandViewporter(compositor))
     {
     }
 protected:
@@ -69,6 +71,8 @@ protected:
     {
         return new QWaylandQuickSurface();
     }
+private:
+    QScopedPointer<QWaylandViewporter> m_viewporter;
 };
 
 QWaylandQuickCompositor::QWaylandQuickCompositor(QObject *parent)
@@ -86,15 +90,15 @@ QWaylandQuickCompositor::QWaylandQuickCompositor(QObject *parent)
  * For instance, the following code would allow the clients to request \c wl_shell
  * surfaces in the compositor using the \c wl_shell interface.
  *
- * \code
- * import QtWayland.Compositor 1.0
+ * \qml \QtMinorVersion
+ * import QtWayland.Compositor 1.\1
  *
  * WaylandCompositor {
  *     WlShell {
  *         // ...
  *     }
  * }
- * \endcode
+ * \endqml
  */
 
 void QWaylandQuickCompositor::create()
@@ -135,7 +139,7 @@ void QWaylandQuickCompositor::grabSurface(QWaylandSurfaceGrabber *grabber, const
     class GrabState : public QRunnable
     {
     public:
-        QWaylandSurfaceGrabber *grabber;
+        QWaylandSurfaceGrabber *grabber = nullptr;
         QWaylandBufferRef buffer;
 
         void run() override

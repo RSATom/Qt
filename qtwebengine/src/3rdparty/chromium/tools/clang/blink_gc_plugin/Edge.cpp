@@ -16,7 +16,6 @@ bool Collection::NeedsFinalization() { return info_->NeedsFinalization(); }
 void RecursiveEdgeVisitor::AtValue(Value*) {}
 void RecursiveEdgeVisitor::AtRawPtr(RawPtr*) {}
 void RecursiveEdgeVisitor::AtRefPtr(RefPtr*) {}
-void RecursiveEdgeVisitor::AtOwnPtr(OwnPtr*) {}
 void RecursiveEdgeVisitor::AtUniquePtr(UniquePtr*) {}
 void RecursiveEdgeVisitor::AtMember(Member*) {}
 void RecursiveEdgeVisitor::AtWeakMember(WeakMember*) {}
@@ -24,6 +23,8 @@ void RecursiveEdgeVisitor::AtPersistent(Persistent*) {}
 void RecursiveEdgeVisitor::AtCrossThreadPersistent(CrossThreadPersistent*) {}
 void RecursiveEdgeVisitor::AtCollection(Collection*) {}
 void RecursiveEdgeVisitor::AtIterator(Iterator*) {}
+void RecursiveEdgeVisitor::AtTraceWrapperV8Reference(TraceWrapperV8Reference*) {
+}
 
 void RecursiveEdgeVisitor::VisitValue(Value* e) {
   AtValue(e);
@@ -38,12 +39,6 @@ void RecursiveEdgeVisitor::VisitRawPtr(RawPtr* e) {
 
 void RecursiveEdgeVisitor::VisitRefPtr(RefPtr* e) {
   AtRefPtr(e);
-  Enter(e);
-  e->ptr()->Accept(this);
-  Leave();
-}
-void RecursiveEdgeVisitor::VisitOwnPtr(OwnPtr* e) {
-  AtOwnPtr(e);
   Enter(e);
   e->ptr()->Accept(this);
   Leave();
@@ -94,4 +89,12 @@ void RecursiveEdgeVisitor::VisitCollection(Collection* e) {
 
 void RecursiveEdgeVisitor::VisitIterator(Iterator* e) {
   AtIterator(e);
+}
+
+void RecursiveEdgeVisitor::VisitTraceWrapperV8Reference(
+    TraceWrapperV8Reference* e) {
+  AtTraceWrapperV8Reference(e);
+  Enter(e);
+  e->ptr()->Accept(this);
+  Leave();
 }

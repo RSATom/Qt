@@ -2,57 +2,85 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "media/gpu/android/codec_wrapper.h"
+#include <memory>
+
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
+#include "base/synchronization/waitable_event.h"
+#include "base/test/mock_callback.h"
+#include "base/test/scoped_task_environment.h"
+#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/threading/thread.h"
 #include "media/base/android/media_codec_bridge.h"
 #include "media/base/android/mock_media_codec_bridge.h"
 #include "media/base/encryption_scheme.h"
 #include "media/base/subsample_entry.h"
+#include "media/gpu/android/codec_wrapper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using testing::Invoke;
-using testing::Return;
 using testing::DoAll;
-using testing::SetArgPointee;
+using testing::Invoke;
 using testing::NiceMock;
+using testing::Return;
+using testing::SetArgPointee;
 using testing::_;
 
 namespace media {
 
 class CodecWrapperTest : public testing::Test {
  public:
-  CodecWrapperTest() {
-    auto codec = base::MakeUnique<NiceMock<MockMediaCodecBridge>>();
+  CodecWrapperTest() : other_thread_("Other thread") {
+    auto codec = std::make_unique<NiceMock<MockMediaCodecBridge>>();
     codec_ = codec.get();
-    wrapper_ = base::MakeUnique<CodecWrapper>(std::move(codec));
+    surface_bundle_ = base::MakeRefCounted<AVDASurfaceBundle>();
+    wrapper_ = std::make_unique<CodecWrapper>(
+        CodecSurfacePair(std::move(codec), surface_bundle_),
+        output_buffer_release_cb_.Get(),
+        // Unrendered output buffers are released on our thread.
+        base::SequencedTaskRunnerHandle::Get());
     ON_CALL(*codec_, DequeueOutputBuffer(_, _, _, _, _, _, _))
         .WillByDefault(Return(MEDIA_CODEC_OK));
+    ON_CALL(*codec_, DequeueInputBuffer(_, _))
+        .WillByDefault(DoAll(SetArgPointee<1>(12), Return(MEDIA_CODEC_OK)));
+    ON_CALL(*codec_, QueueInputBuffer(_, _, _, _))
+        .WillByDefault(Return(MEDIA_CODEC_OK));
+
+    uint8_t data = 0;
+    fake_decoder_buffer_ = DecoderBuffer::CopyFrom(&data, 1);
+
+    // May fail.
+    other_thread_.Start();
   }
 
   ~CodecWrapperTest() override {
     // ~CodecWrapper asserts that the codec was taken.
-    wrapper_->TakeCodec();
+    wrapper_->TakeCodecSurfacePair();
   }
 
   std::unique_ptr<CodecOutputBuffer> DequeueCodecOutputBuffer() {
     std::unique_ptr<CodecOutputBuffer> codec_buffer;
-    wrapper_->DequeueOutputBuffer(base::TimeDelta(), nullptr, nullptr,
-                                  &codec_buffer);
+    wrapper_->DequeueOutputBuffer(nullptr, nullptr, &codec_buffer);
     return codec_buffer;
   }
 
+  // So that we can get the thread's task runner.
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+
   NiceMock<MockMediaCodecBridge>* codec_;
   std::unique_ptr<CodecWrapper> wrapper_;
+  scoped_refptr<AVDASurfaceBundle> surface_bundle_;
+  NiceMock<base::MockCallback<CodecWrapper::OutputReleasedCB>>
+      output_buffer_release_cb_;
+  scoped_refptr<DecoderBuffer> fake_decoder_buffer_;
+
+  base::Thread other_thread_;
 };
 
 TEST_F(CodecWrapperTest, TakeCodecReturnsTheCodecFirstAndNullLater) {
-  ASSERT_EQ(wrapper_->TakeCodec().get(), codec_);
-  ASSERT_EQ(wrapper_->TakeCodec(), nullptr);
+  ASSERT_EQ(wrapper_->TakeCodecSurfacePair().first.get(), codec_);
+  ASSERT_EQ(wrapper_->TakeCodecSurfacePair().first, nullptr);
 }
 
 TEST_F(CodecWrapperTest, NoCodecOutputBufferReturnedIfDequeueFails) {
@@ -63,7 +91,7 @@ TEST_F(CodecWrapperTest, NoCodecOutputBufferReturnedIfDequeueFails) {
 }
 
 TEST_F(CodecWrapperTest, InitiallyThereAreNoValidCodecOutputBuffers) {
-  ASSERT_FALSE(wrapper_->HasValidCodecOutputBuffers());
+  ASSERT_FALSE(wrapper_->HasUnreleasedOutputBuffers());
 }
 
 TEST_F(CodecWrapperTest, FlushInvalidatesCodecOutputBuffers) {
@@ -74,13 +102,13 @@ TEST_F(CodecWrapperTest, FlushInvalidatesCodecOutputBuffers) {
 
 TEST_F(CodecWrapperTest, TakingTheCodecInvalidatesCodecOutputBuffers) {
   auto codec_buffer = DequeueCodecOutputBuffer();
-  wrapper_->TakeCodec();
+  wrapper_->TakeCodecSurfacePair();
   ASSERT_FALSE(codec_buffer->ReleaseToSurface());
 }
 
 TEST_F(CodecWrapperTest, SetSurfaceInvalidatesCodecOutputBuffers) {
   auto codec_buffer = DequeueCodecOutputBuffer();
-  wrapper_->SetSurface(0);
+  wrapper_->SetSurface(base::MakeRefCounted<AVDASurfaceBundle>());
   ASSERT_FALSE(codec_buffer->ReleaseToSurface());
 }
 
@@ -90,7 +118,7 @@ TEST_F(CodecWrapperTest, CodecOutputBuffersAreAllInvalidatedTogether) {
   wrapper_->Flush();
   ASSERT_FALSE(codec_buffer1->ReleaseToSurface());
   ASSERT_FALSE(codec_buffer2->ReleaseToSurface());
-  ASSERT_FALSE(wrapper_->HasValidCodecOutputBuffers());
+  ASSERT_FALSE(wrapper_->HasUnreleasedOutputBuffers());
 }
 
 TEST_F(CodecWrapperTest, CodecOutputBuffersAfterFlushAreValid) {
@@ -130,13 +158,13 @@ TEST_F(CodecWrapperTest, CodecOutputBuffersDoNotReleaseIfAlreadyReleased) {
 
 TEST_F(CodecWrapperTest, ReleasingCodecOutputBuffersAfterTheCodecIsSafe) {
   auto codec_buffer = DequeueCodecOutputBuffer();
-  wrapper_->TakeCodec();
+  wrapper_->TakeCodecSurfacePair();
   codec_buffer->ReleaseToSurface();
 }
 
 TEST_F(CodecWrapperTest, DeletingCodecOutputBuffersAfterTheCodecIsSafe) {
   auto codec_buffer = DequeueCodecOutputBuffer();
-  wrapper_->TakeCodec();
+  wrapper_->TakeCodecSurfacePair();
   // This test ensures the destructor doesn't crash.
   codec_buffer = nullptr;
 }
@@ -160,9 +188,8 @@ TEST_F(CodecWrapperTest, FormatChangedStatusIsSwallowed) {
       .WillOnce(Return(MEDIA_CODEC_OUTPUT_FORMAT_CHANGED))
       .WillOnce(Return(MEDIA_CODEC_TRY_AGAIN_LATER));
   std::unique_ptr<CodecOutputBuffer> codec_buffer;
-  auto status = wrapper_->DequeueOutputBuffer(base::TimeDelta(), nullptr,
-                                              nullptr, &codec_buffer);
-  ASSERT_EQ(status, MEDIA_CODEC_TRY_AGAIN_LATER);
+  auto status = wrapper_->DequeueOutputBuffer(nullptr, nullptr, &codec_buffer);
+  ASSERT_EQ(status, CodecWrapper::DequeueStatus::kTryAgainLater);
 }
 
 TEST_F(CodecWrapperTest, BuffersChangedStatusIsSwallowed) {
@@ -170,18 +197,16 @@ TEST_F(CodecWrapperTest, BuffersChangedStatusIsSwallowed) {
       .WillOnce(Return(MEDIA_CODEC_OUTPUT_BUFFERS_CHANGED))
       .WillOnce(Return(MEDIA_CODEC_TRY_AGAIN_LATER));
   std::unique_ptr<CodecOutputBuffer> codec_buffer;
-  auto status = wrapper_->DequeueOutputBuffer(base::TimeDelta(), nullptr,
-                                              nullptr, &codec_buffer);
-  ASSERT_EQ(status, MEDIA_CODEC_TRY_AGAIN_LATER);
+  auto status = wrapper_->DequeueOutputBuffer(nullptr, nullptr, &codec_buffer);
+  ASSERT_EQ(status, CodecWrapper::DequeueStatus::kTryAgainLater);
 }
 
 TEST_F(CodecWrapperTest, MultipleFormatChangedStatusesIsAnError) {
   EXPECT_CALL(*codec_, DequeueOutputBuffer(_, _, _, _, _, _, _))
       .WillRepeatedly(Return(MEDIA_CODEC_OUTPUT_FORMAT_CHANGED));
   std::unique_ptr<CodecOutputBuffer> codec_buffer;
-  auto status = wrapper_->DequeueOutputBuffer(base::TimeDelta(), nullptr,
-                                              nullptr, &codec_buffer);
-  ASSERT_EQ(status, MEDIA_CODEC_ERROR);
+  auto status = wrapper_->DequeueOutputBuffer(nullptr, nullptr, &codec_buffer);
+  ASSERT_EQ(status, CodecWrapper::DequeueStatus::kError);
 }
 
 TEST_F(CodecWrapperTest, CodecOutputBuffersHaveTheCorrectSize) {
@@ -195,17 +220,141 @@ TEST_F(CodecWrapperTest, CodecOutputBuffersHaveTheCorrectSize) {
   ASSERT_EQ(codec_buffer->size(), gfx::Size(42, 42));
 }
 
-#if DCHECK_IS_ON()
-TEST_F(CodecWrapperTest, CallsDcheckAfterTakingTheCodec) {
-  wrapper_->TakeCodec();
-  ASSERT_DEATH(wrapper_->Flush(), "");
+TEST_F(CodecWrapperTest, OutputBufferReleaseCbIsCalledWhenRendering) {
+  auto codec_buffer = DequeueCodecOutputBuffer();
+  EXPECT_CALL(output_buffer_release_cb_, Run(false)).Times(1);
+  codec_buffer->ReleaseToSurface();
 }
 
-TEST_F(CodecWrapperTest, CallsDcheckAfterAnError) {
-  EXPECT_CALL(*codec_, Flush()).WillOnce(Return(MEDIA_CODEC_ERROR));
-  wrapper_->Flush();
-  ASSERT_DEATH(wrapper_->SetSurface(0), "");
+TEST_F(CodecWrapperTest, OutputBufferReleaseCbIsCalledWhenDestructing) {
+  auto codec_buffer = DequeueCodecOutputBuffer();
+  EXPECT_CALL(output_buffer_release_cb_, Run(false)).Times(1);
 }
-#endif
+
+TEST_F(CodecWrapperTest, OutputBufferReflectsDrainingOrDrainedStatus) {
+  wrapper_->QueueInputBuffer(*fake_decoder_buffer_, EncryptionScheme());
+  auto eos = DecoderBuffer::CreateEOSBuffer();
+  wrapper_->QueueInputBuffer(*eos, EncryptionScheme());
+  ASSERT_TRUE(wrapper_->IsDraining());
+  auto codec_buffer = DequeueCodecOutputBuffer();
+  EXPECT_CALL(output_buffer_release_cb_, Run(true)).Times(1);
+}
+
+TEST_F(CodecWrapperTest, CodecStartsInFlushedState) {
+  ASSERT_TRUE(wrapper_->IsFlushed());
+  ASSERT_FALSE(wrapper_->IsDraining());
+  ASSERT_FALSE(wrapper_->IsDrained());
+}
+
+TEST_F(CodecWrapperTest, CodecIsNotInFlushedStateAfterAnInputIsQueued) {
+  wrapper_->QueueInputBuffer(*fake_decoder_buffer_, EncryptionScheme());
+  ASSERT_FALSE(wrapper_->IsFlushed());
+  ASSERT_FALSE(wrapper_->IsDraining());
+  ASSERT_FALSE(wrapper_->IsDrained());
+}
+
+TEST_F(CodecWrapperTest, FlushTransitionsToFlushedState) {
+  wrapper_->QueueInputBuffer(*fake_decoder_buffer_, EncryptionScheme());
+  wrapper_->Flush();
+  ASSERT_TRUE(wrapper_->IsFlushed());
+}
+
+TEST_F(CodecWrapperTest, EosTransitionsToDrainingState) {
+  wrapper_->QueueInputBuffer(*fake_decoder_buffer_, EncryptionScheme());
+  auto eos = DecoderBuffer::CreateEOSBuffer();
+  wrapper_->QueueInputBuffer(*eos, EncryptionScheme());
+  ASSERT_TRUE(wrapper_->IsDraining());
+}
+
+TEST_F(CodecWrapperTest, DequeuingEosTransitionsToDrainedState) {
+  // Set EOS on next dequeue.
+  codec_->ProduceOneOutput(MockMediaCodecBridge::kEos);
+  DequeueCodecOutputBuffer();
+  ASSERT_FALSE(wrapper_->IsFlushed());
+  ASSERT_TRUE(wrapper_->IsDrained());
+  wrapper_->Flush();
+  ASSERT_FALSE(wrapper_->IsDrained());
+}
+
+TEST_F(CodecWrapperTest, RejectedInputBuffersAreReused) {
+  // If we get a MEDIA_CODEC_NO_KEY status, the next time we try to queue a
+  // buffer the previous input buffer should be reused.
+  EXPECT_CALL(*codec_, DequeueInputBuffer(_, _))
+      .WillOnce(DoAll(SetArgPointee<1>(666), Return(MEDIA_CODEC_OK)));
+  EXPECT_CALL(*codec_, QueueInputBuffer(666, _, _, _))
+      .WillOnce(Return(MEDIA_CODEC_NO_KEY))
+      .WillOnce(Return(MEDIA_CODEC_OK));
+  auto status =
+      wrapper_->QueueInputBuffer(*fake_decoder_buffer_, EncryptionScheme());
+  ASSERT_EQ(status, CodecWrapper::QueueStatus::kNoKey);
+  wrapper_->QueueInputBuffer(*fake_decoder_buffer_, EncryptionScheme());
+}
+
+TEST_F(CodecWrapperTest, SurfaceBundleIsInitializedByConstructor) {
+  ASSERT_EQ(surface_bundle_.get(), wrapper_->SurfaceBundle());
+}
+
+TEST_F(CodecWrapperTest, SurfaceBundleIsUpdatedBySetSurface) {
+  auto new_bundle = base::MakeRefCounted<AVDASurfaceBundle>();
+  EXPECT_CALL(*codec_, SetSurface(_)).WillOnce(Return(true));
+  wrapper_->SetSurface(new_bundle);
+  ASSERT_EQ(new_bundle.get(), wrapper_->SurfaceBundle());
+}
+
+TEST_F(CodecWrapperTest, SurfaceBundleIsTaken) {
+  ASSERT_EQ(wrapper_->TakeCodecSurfacePair().second, surface_bundle_);
+  ASSERT_EQ(wrapper_->SurfaceBundle(), nullptr);
+}
+
+TEST_F(CodecWrapperTest, EOSWhileFlushedOrDrainedIsElided) {
+  // Nothing should call QueueEOS.
+  EXPECT_CALL(*codec_, QueueEOS(_)).Times(0);
+
+  // Codec starts in the flushed state.
+  auto eos = DecoderBuffer::CreateEOSBuffer();
+  wrapper_->QueueInputBuffer(*eos, EncryptionScheme());
+  std::unique_ptr<CodecOutputBuffer> codec_buffer;
+  bool is_eos = false;
+  wrapper_->DequeueOutputBuffer(nullptr, &is_eos, &codec_buffer);
+  ASSERT_TRUE(is_eos);
+
+  // Since we also just got the codec into the drained state, make sure that
+  // it is elided here too.
+  ASSERT_TRUE(wrapper_->IsDrained());
+  eos = DecoderBuffer::CreateEOSBuffer();
+  wrapper_->QueueInputBuffer(*eos, EncryptionScheme());
+  is_eos = false;
+  wrapper_->DequeueOutputBuffer(nullptr, &is_eos, &codec_buffer);
+  ASSERT_TRUE(is_eos);
+}
+
+TEST_F(CodecWrapperTest, CodecWrapperPostsReleaseToProvidedThread) {
+  // Releasing an output buffer without rendering on some other thread should
+  // post back to the main thread.
+  scoped_refptr<base::SequencedTaskRunner> task_runner =
+      other_thread_.task_runner();
+  // If the thread failed to start, pass.
+  if (!task_runner)
+    return;
+
+  base::WaitableEvent event(base::WaitableEvent::ResetPolicy::AUTOMATIC,
+                            base::WaitableEvent::InitialState::NOT_SIGNALED);
+  auto cb = base::BindOnce(
+      [](std::unique_ptr<CodecOutputBuffer> codec_buffer,
+         base::WaitableEvent* event) {
+        codec_buffer.reset();
+        event->Signal();
+      },
+      DequeueCodecOutputBuffer(), base::Unretained(&event));
+  task_runner->PostTask(FROM_HERE, std::move(cb));
+
+  // Wait until the CodecOutputBuffer is released.  It should not release the
+  // underlying buffer, but should instead post a task to release it.
+  event.Wait();
+
+  // The underlying buffer should not be released until we RunUntilIdle.
+  EXPECT_CALL(*codec_, ReleaseOutputBuffer(_, false));
+  base::RunLoop().RunUntilIdle();
+}
 
 }  // namespace media

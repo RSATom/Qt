@@ -29,7 +29,7 @@ public:
                             const GrSurfaceDesc& desc,
                             const GrGLTexture::IDDesc& texIDDesc,
                             const GrGLRenderTarget::IDDesc& rtIDDesc,
-                            bool wasMipMapDataProvided);
+                            GrMipMapsStatus);
 
     bool canAttemptStencilAttachment() const override;
 
@@ -37,7 +37,14 @@ public:
 
     static sk_sp<GrGLTextureRenderTarget> MakeWrapped(GrGLGpu* gpu, const GrSurfaceDesc& desc,
                                                       const GrGLTexture::IDDesc& texIDDesc,
-                                                      const GrGLRenderTarget::IDDesc& rtIDDesc);
+                                                      const GrGLRenderTarget::IDDesc& rtIDDesc,
+                                                      GrMipMapsStatus);
+
+    GrBackendFormat backendFormat() const override {
+        // It doesn't matter if we take the texture or render target path, so just pick texture.
+        return GrGLTexture::backendFormat();
+    }
+
 protected:
     void onAbandon() override {
         GrGLRenderTarget::onAbandon();
@@ -55,7 +62,7 @@ private:
                             const GrSurfaceDesc& desc,
                             const GrGLTexture::IDDesc& texIDDesc,
                             const GrGLRenderTarget::IDDesc& rtIDDesc,
-                            bool wasMipMapDataProvided);
+                            GrMipMapsStatus);
 
     size_t onGpuMemorySize() const override;
 };

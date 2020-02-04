@@ -38,7 +38,7 @@ using StrongBindingPtr = base::WeakPtr<StrongBinding<Interface>>;
 // To use, call StrongBinding<T>::Create() (see below) or the helper
 // MakeStrongBinding function:
 //
-//   mojo::MakeStrongBinding(base::MakeUnique<FooImpl>(),
+//   mojo::MakeStrongBinding(std::make_unique<FooImpl>(),
 //                           std::move(foo_request));
 //
 template <typename Interface>
@@ -49,9 +49,10 @@ class StrongBinding {
   // StrongBinding instance.
   static StrongBindingPtr<Interface> Create(
       std::unique_ptr<Interface> impl,
-      InterfaceRequest<Interface> request) {
-    StrongBinding* binding =
-        new StrongBinding(std::move(impl), std::move(request));
+      InterfaceRequest<Interface> request,
+      scoped_refptr<base::SequencedTaskRunner> task_runner = nullptr) {
+    StrongBinding* binding = new StrongBinding(
+        std::move(impl), std::move(request), std::move(task_runner));
     return binding->weak_factory_.GetWeakPtr();
   }
 
@@ -72,6 +73,21 @@ class StrongBinding {
     connection_error_handler_.Reset();
   }
 
+  // Stops processing incoming messages until
+  // ResumeIncomingMethodCallProcessing().
+  // Outgoing messages are still sent.
+  //
+  // No errors are detected on the message pipe while paused.
+  //
+  // This method may only be called if the object has been bound to a message
+  // pipe and there are no associated interfaces running.
+  void PauseIncomingMethodCallProcessing() {
+    binding_.PauseIncomingMethodCallProcessing();
+  }
+  void ResumeIncomingMethodCallProcessing() {
+    binding_.ResumeIncomingMethodCallProcessing();
+  }
+
   // Forces the binding to close. This destroys the StrongBinding instance.
   void Close() { delete this; }
 
@@ -85,9 +101,10 @@ class StrongBinding {
 
  private:
   StrongBinding(std::unique_ptr<Interface> impl,
-                InterfaceRequest<Interface> request)
+                InterfaceRequest<Interface> request,
+                scoped_refptr<base::SequencedTaskRunner> task_runner)
       : impl_(std::move(impl)),
-        binding_(impl_.get(), std::move(request)),
+        binding_(impl_.get(), std::move(request), std::move(task_runner)),
         weak_factory_(this) {
     binding_.set_connection_error_with_reason_handler(
         base::Bind(&StrongBinding::OnConnectionError, base::Unretained(this)));
@@ -118,8 +135,10 @@ class StrongBinding {
 template <typename Interface, typename Impl>
 StrongBindingPtr<Interface> MakeStrongBinding(
     std::unique_ptr<Impl> impl,
-    InterfaceRequest<Interface> request) {
-  return StrongBinding<Interface>::Create(std::move(impl), std::move(request));
+    InterfaceRequest<Interface> request,
+    scoped_refptr<base::SequencedTaskRunner> task_runner = nullptr) {
+  return StrongBinding<Interface>::Create(std::move(impl), std::move(request),
+                                          std::move(task_runner));
 }
 
 }  // namespace mojo

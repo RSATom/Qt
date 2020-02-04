@@ -1,10 +1,18 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtactiveqt.qdocconf)
 
 project                 = ActiveQt
 description             = ActiveQt
 version                 = $QT_VERSION
 
 qhp.projects            = ActiveQt
+
+moduleheader            = ActiveQtDoc
+
+includepaths            = -I . \
+                          -I ../container \
+                          -I ../control \
+                          -I ../shared
 
 qhp.ActiveQt.file         = activeqt.qhp
 qhp.ActiveQt.namespace           = org.qt-project.activeqt.$QT_VERSION_TAG
@@ -33,11 +41,9 @@ depends                 += qtcore qtdesigner qtdoc qtopengl qtscript qtwidgets q
 
 headerdirs  += ..
 
-sourcedirs  += .. \
-               src/examples
+sourcedirs  += ..
 
 exampledirs += ../../../examples/ \
-               src/examples/ \
                snippets
 
 imagedirs   += images

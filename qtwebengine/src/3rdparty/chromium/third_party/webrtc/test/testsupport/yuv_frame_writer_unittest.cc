@@ -8,11 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include <memory>
+#include <string>
 
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/testsupport/fileutils.h"
-#include "webrtc/test/testsupport/frame_writer.h"
+#include "test/gtest.h"
+#include "test/testsupport/file_utils.h"
+#include "test/testsupport/frame_writer.h"
 
 namespace webrtc {
 namespace test {

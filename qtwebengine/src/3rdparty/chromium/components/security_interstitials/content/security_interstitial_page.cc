@@ -29,7 +29,7 @@ SecurityInterstitialPage::SecurityInterstitialPage(
     std::unique_ptr<SecurityInterstitialControllerClient> controller)
     : web_contents_(web_contents),
       request_url_(request_url),
-      interstitial_page_(NULL),
+      interstitial_page_(nullptr),
       create_view_(true),
       on_show_extended_reporting_pref_exists_(false),
       on_show_extended_reporting_pref_value_(false),
@@ -41,6 +41,7 @@ SecurityInterstitialPage::SecurityInterstitialPage(
     safe_browsing::UpdatePrefsBeforeSecurityInterstitial(
         controller_->GetPrefService());
   }
+  SetUpMetrics();
 
   // Creating interstitial_page_ without showing it leaks memory, so don't
   // create it here.
@@ -65,6 +66,18 @@ void SecurityInterstitialPage::DontCreateViewForTesting() {
   create_view_ = false;
 }
 
+std::string SecurityInterstitialPage::GetHTMLContents() {
+  base::DictionaryValue load_time_data;
+  PopulateInterstitialStrings(&load_time_data);
+  webui::SetLoadTimeDataDefaults(controller()->GetApplicationLocale(),
+                                 &load_time_data);
+  std::string html = ui::ResourceBundle::GetSharedInstance()
+                         .GetRawDataResource(GetHTMLTemplateId())
+                         .as_string();
+  webui::AppendWebUiCssTextDefaults(&html);
+  return webui::GetI18nTemplateHtml(html, &load_time_data);
+}
+
 void SecurityInterstitialPage::Show() {
   DCHECK(!interstitial_page_);
   interstitial_page_ = content::InterstitialPage::Create(
@@ -74,18 +87,7 @@ void SecurityInterstitialPage::Show() {
 
   interstitial_page_->Show();
 
-  // Remember the initial state of the extended reporting pref, to be compared
-  // to the same data when the interstitial is closed.
-  PrefService* prefs = controller_->GetPrefService();
-  if (prefs) {
-    on_show_extended_reporting_pref_exists_ =
-        safe_browsing::ExtendedReportingPrefExists(*prefs);
-    on_show_extended_reporting_pref_value_ =
-        safe_browsing::IsExtendedReportingEnabled(*prefs);
-  }
-
   controller_->set_interstitial_page(interstitial_page_);
-  AfterShow();
 }
 
 SecurityInterstitialControllerClient* SecurityInterstitialPage::controller()
@@ -101,6 +103,18 @@ void SecurityInterstitialPage::UpdateMetricsAfterSecurityInterstitial() {
   }
 }
 
+void SecurityInterstitialPage::SetUpMetrics() {
+  // Remember the initial state of the extended reporting pref, to be compared
+  // to the same data when the interstitial is closed.
+  PrefService* prefs = controller_->GetPrefService();
+  if (prefs) {
+    on_show_extended_reporting_pref_exists_ =
+        safe_browsing::ExtendedReportingPrefExists(*prefs);
+    on_show_extended_reporting_pref_value_ =
+        safe_browsing::IsExtendedReportingEnabled(*prefs);
+  }
+}
+
 base::string16 SecurityInterstitialPage::GetFormattedHostName() const {
   return security_interstitials::common_string_util::GetFormattedHostName(
       request_url_);
@@ -108,18 +122,6 @@ base::string16 SecurityInterstitialPage::GetFormattedHostName() const {
 
 int SecurityInterstitialPage::GetHTMLTemplateId() {
   return IDR_SECURITY_INTERSTITIAL_HTML;
-}
-
-std::string SecurityInterstitialPage::GetHTMLContents() {
-  base::DictionaryValue load_time_data;
-  PopulateInterstitialStrings(&load_time_data);
-  webui::SetLoadTimeDataDefaults(
-      controller()->GetApplicationLocale(), &load_time_data);
-  std::string html = ResourceBundle::GetSharedInstance()
-                         .GetRawDataResource(GetHTMLTemplateId())
-                         .as_string();
-  webui::AppendWebUiCssTextDefaults(&html);
-  return webui::GetI18nTemplateHtml(html, &load_time_data);
 }
 
 }  // security_interstitials

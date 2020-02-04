@@ -6,7 +6,6 @@
 
 #include "base/big_endian.h"
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
 #include "base/numerics/safe_conversions.h"
 
 namespace media {
@@ -37,7 +36,7 @@ PacketKey::PacketKey(base::TimeTicks capture_time,
 
 PacketKey::PacketKey(const PacketKey& other) = default;
 
-PacketKey::~PacketKey() {}
+PacketKey::~PacketKey() = default;
 
 struct PacedSender::PacketSendRecord {
   PacketSendRecord()
@@ -54,7 +53,7 @@ struct PacedSender::PacketSendRecord {
 struct PacedSender::RtpSession {
   explicit RtpSession(bool is_audio_stream)
       : last_byte_sent(0), is_audio(is_audio_stream) {}
-  RtpSession() {}
+  RtpSession() = default;
 
   // Tracks recently-logged RTP timestamps so that it can expand the truncated
   // values found in packets.
@@ -66,7 +65,7 @@ struct PacedSender::RtpSession {
 PacedSender::PacedSender(
     size_t target_burst_size,
     size_t max_burst_size,
-    base::TickClock* clock,
+    const base::TickClock* clock,
     std::vector<PacketEvent>* recent_packet_events,
     PacketTransport* transport,
     const scoped_refptr<base::SingleThreadTaskRunner>& transport_task_runner)
@@ -84,7 +83,7 @@ PacedSender::PacedSender(
       state_(State_Unblocked),
       weak_factory_(this) {}
 
-PacedSender::~PacedSender() {}
+PacedSender::~PacedSender() = default;
 
 void PacedSender::RegisterSsrc(uint32_t ssrc, bool is_audio) {
   if (sessions_.find(ssrc) != sessions_.end())
@@ -241,7 +240,7 @@ void PacedSender::CancelSendingPacket(const PacketKey& packet_key) {
   priority_packet_list_.erase(packet_key);
 
   if (VLOG_IS_ON(2)) {
-    PacketSendHistory::iterator history_it = send_history_.find(packet_key);
+    auto history_it = send_history_.find(packet_key);
     if (history_it != send_history_.end())
       ++history_it->second.cancel_count;
   }
@@ -258,14 +257,14 @@ PacketRef PacedSender::PopNextPacket(PacketType* packet_type,
   // |send_history_| for prior transmission attempts.  Packets that have never
   // been transmitted will be popped first.  If all packets have transmitted
   // before, pop the one that has not been re-attempted for the longest time.
-  PacketList::iterator it = list->begin();
+  auto it = list->begin();
   PacketKey last_key = it->first;
   last_key.packet_id = UINT16_C(0xffff);
   PacketSendHistory::const_iterator history_it =
       send_history_.lower_bound(it->first);
   base::TimeTicks earliest_send_time =
       base::TimeTicks() + base::TimeDelta::Max();
-  PacketList::iterator found_it = it;
+  auto found_it = it;
   while (true) {
     if (history_it == send_history_.end() || it->first < history_it->first) {
       // There is no send history for this packet, which means it has not been

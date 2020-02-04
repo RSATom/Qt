@@ -46,9 +46,15 @@ $ cd ~/.ycmd
 $ ./build.py --clang-completer
 ```
 
+On Mac, replace the last command above with the following.
+
+```
+$ ./build.py --clang-completer --system-libclang
+```
+
 ## JavaScript lint
 
-Install JavaScript linter for Blink layout tests.
+Install JavaScript linter for Blink web tests.
 
 ```
 $ npm install -g eslint eslint-config-google

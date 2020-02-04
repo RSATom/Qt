@@ -140,6 +140,11 @@ private slots:
     void findBackwardWithRegExp();
     void findWithRegExpReturnsFalseIfNoMoreResults();
 #endif
+#if QT_CONFIG(regularexpression)
+    void findWithRegularExpression();
+    void findBackwardWithRegularExpression();
+    void findWithRegularExpressionReturnsFalseIfNoMoreResults();
+#endif
     void layoutAfterMultiLineRemove();
     void undoCommandRemovesAndReinsertsBlock();
     void taskQTBUG_43562_lineCountCrash();
@@ -147,6 +152,9 @@ private slots:
     void contextMenu();
 #endif
     void inputMethodCursorRect();
+#if QT_CONFIG(scrollbar)
+    void updateAfterChangeCenterOnScroll();
+#endif
 
 private:
     void createSelection();
@@ -201,12 +209,12 @@ void tst_QPlainTextEdit::getSetCheck()
 
     // int QPlainTextEdit::tabStopWidth()
     // void QPlainTextEdit::setTabStopWidth(int)
-    obj1.setTabStopWidth(0);
-    QCOMPARE(0, obj1.tabStopWidth());
-    obj1.setTabStopWidth(INT_MIN);
-    QCOMPARE(0, obj1.tabStopWidth()); // Makes no sense to set a negative tabstop value
-    obj1.setTabStopWidth(INT_MAX);
-    QCOMPARE(INT_MAX, obj1.tabStopWidth());
+    obj1.setTabStopDistance(0);
+    QCOMPARE(0, obj1.tabStopDistance());
+    obj1.setTabStopDistance(-1);
+    QCOMPARE(0, obj1.tabStopDistance()); // Makes no sense to set a negative tabstop value
+    obj1.setTabStopDistance(std::numeric_limits<qreal>::max());
+    QCOMPARE(std::numeric_limits<qreal>::max(), obj1.tabStopDistance());
 }
 
 class QtTestDocumentLayout : public QAbstractTextDocumentLayout
@@ -870,7 +878,7 @@ void tst_QPlainTextEdit::lineWrapModes()
     // QPlainTextEdit does lazy line layout on resize, only for the visible blocks.
     // We thus need to make it wide enough to show something visible.
     int minimumWidth = 2 * ed->document()->documentMargin();
-    minimumWidth += ed->fontMetrics().width(QLatin1Char('a'));
+    minimumWidth += ed->fontMetrics().horizontalAdvance(QLatin1Char('a'));
     minimumWidth += ed->frameWidth();
     ed->resize(minimumWidth, 1000);
     QCOMPARE(lineCount(), 26);
@@ -1352,6 +1360,9 @@ void tst_QPlainTextEdit::adjustScrollbars()
     QLatin1String txt("\nabc def ghi jkl mno pqr stu vwx");
     ed->setPlainText(txt + txt + txt + txt);
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "WinRT does not support setMinimum/MaximumSize", Abort);
+#endif
     QVERIFY(ed->verticalScrollBar()->maximum() > 0);
 
     ed->moveCursor(QTextCursor::End);
@@ -1576,6 +1587,45 @@ void tst_QPlainTextEdit::findWithRegExpReturnsFalseIfNoMoreResults()
 }
 #endif
 
+#if QT_CONFIG(regularexpression)
+void tst_QPlainTextEdit::findWithRegularExpression()
+{
+    ed->setPlainText(QStringLiteral("arbitrary text"));
+    QRegularExpression rx("\\w{2}xt");
+
+    bool found = ed->find(rx);
+
+    QVERIFY(found);
+    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("text"));
+}
+
+void tst_QPlainTextEdit::findBackwardWithRegularExpression()
+{
+    ed->setPlainText(QStringLiteral("arbitrary text"));
+    QTextCursor cursor = ed->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    ed->setTextCursor(cursor);
+    QRegularExpression rx("a\\w*t");
+
+    bool found = ed->find(rx, QTextDocument::FindBackward);
+
+    QVERIFY(found);
+    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("arbit"));
+}
+
+void tst_QPlainTextEdit::findWithRegularExpressionReturnsFalseIfNoMoreResults()
+{
+    ed->setPlainText(QStringLiteral("arbitrary text"));
+    QRegularExpression rx("t.xt");
+    ed->find(rx);
+
+    bool found = ed->find(rx);
+
+    QVERIFY(!found);
+    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("text"));
+}
+#endif
+
 void tst_QPlainTextEdit::layoutAfterMultiLineRemove()
 {
     ed->setVisible(true); // The widget must be visible to reproduce this bug.
@@ -1723,6 +1773,21 @@ void tst_QPlainTextEdit::inputMethodCursorRect()
     QCOMPARE(cursorRectV.type(), QVariant::RectF);
     QCOMPARE(cursorRectV.toRect(), cursorRect.toRect());
 }
+
+#if QT_CONFIG(scrollbar)
+// QTBUG-64730: Verify that the scrollbar is updated after center on scroll was set
+void tst_QPlainTextEdit::updateAfterChangeCenterOnScroll()
+{
+    ed->setPlainText("Line1\nLine2Line3\nLine3");
+    ed->show();
+    ed->setCenterOnScroll(true);
+    const int maxWithCenterOnScroll = ed->verticalScrollBar()->maximum();
+    ed->setCenterOnScroll(false);
+    const int maxWithoutCenterOnScroll = ed->verticalScrollBar()->maximum();
+    QVERIFY(maxWithCenterOnScroll > maxWithoutCenterOnScroll);
+}
+
+#endif
 
 QTEST_MAIN(tst_QPlainTextEdit)
 #include "tst_qplaintextedit.moc"

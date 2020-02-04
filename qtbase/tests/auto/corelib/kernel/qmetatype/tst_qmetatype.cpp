@@ -29,6 +29,7 @@
 
 #include <QtCore>
 #include <QtTest/QtTest>
+#include <QtCore/private/qmetaobjectbuilder_p.h>
 
 #include "tst_qmetatype.h"
 #include "tst_qvariant_common.h"
@@ -38,12 +39,7 @@
 #endif
 
 #include <algorithm>
-
-// At least these specific versions of MSVC2010 has a severe performance problem with this file,
-// taking about 1 hour to compile if the portion making use of variadic macros is enabled.
-#if defined(_MSC_FULL_VER) && (_MSC_FULL_VER >= 160030319) && (_MSC_FULL_VER <= 160040219)
-# define TST_QMETATYPE_BROKEN_COMPILER
-#endif
+#include <memory>
 
 // mingw gcc 4.8 also takes way too long, letting the CI system abort the test
 #if defined(__MINGW32__)
@@ -58,18 +54,26 @@ class tst_QMetaType: public QObject
     Q_PROPERTY(QList<QVariant> prop READ prop WRITE setProp)
 
 public:
+    struct GadgetPropertyType {
+        QByteArray type;
+        QByteArray name;
+        QVariant testData;
+    };
+
     tst_QMetaType() { propList << 42 << "Hello"; }
 
     QList<QVariant> prop() const { return propList; }
     void setProp(const QList<QVariant> &list) { propList = list; }
 
 private:
+    void registerGadget(const char * name, const QVector<GadgetPropertyType> &gadgetProperties);
     QList<QVariant> propList;
 
 private slots:
     void defined();
     void threadSafety();
     void namespaces();
+    void id();
     void qMetaTypeId();
     void properties();
     void normalizedTypes();
@@ -95,6 +99,7 @@ private slots:
     void flagsBinaryCompatibility5_0();
     void construct_data();
     void construct();
+    void typedConstruct();
     void constructCopy_data();
     void constructCopy();
     void typedefs();
@@ -119,7 +124,130 @@ private slots:
     void compareCustomType();
     void compareCustomEqualOnlyType();
     void customDebugStream();
+    void unknownType();
 };
+
+struct BaseGenericType
+{
+    int m_typeId = -1;
+    virtual void *constructor(int typeId, void *where, const void *copy) = 0;
+    virtual void staticMetacallFunction(QMetaObject::Call _c, int _id, void **_a) = 0;
+    virtual void saveOperator(QDataStream & out) const = 0;
+    virtual void loadOperator(QDataStream &in) = 0;
+    virtual ~BaseGenericType() {}
+};
+
+struct GenericGadgetType : BaseGenericType
+{
+    void *constructor(int typeId, void *where, const void *copy) override
+    {
+        GenericGadgetType *ret = where ? new(where) GenericGadgetType : new GenericGadgetType;
+        ret->m_typeId = typeId;
+        if (copy) {
+            Q_ASSERT(ret->m_typeId == reinterpret_cast<const GenericGadgetType*>(copy)->m_typeId);
+            *ret = *reinterpret_cast<const GenericGadgetType*>(copy);
+        } else {
+            ret->properties = properties;
+        }
+        return ret;
+    }
+
+    void staticMetacallFunction(QMetaObject::Call _c, int _id, void **_a) override
+    {
+        if (_c == QMetaObject::ReadProperty) {
+            if (_id < properties.size()) {
+                const auto &prop = properties.at(_id);
+                QMetaType::destruct(int(prop.userType()), _a[0]);
+                QMetaType::construct(int(prop.userType()), _a[0], prop.constData());
+            }
+        } else if (_c == QMetaObject::WriteProperty) {
+            if (_id < properties.size()) {
+                auto & prop = properties[_id];
+                prop = QVariant(prop.userType(), _a[0]);
+            }
+        }
+    }
+
+    void saveOperator(QDataStream & out) const override
+    {
+        for (const auto &prop : properties)
+            out << prop;
+    }
+
+    void loadOperator(QDataStream &in) override
+    {
+        for (auto &prop : properties)
+            in >> prop;
+    }
+    QVector<QVariant> properties;
+};
+
+struct GenericPODType : BaseGenericType
+{
+    // BaseGenericType interface
+    void *constructor(int typeId, void *where, const void *copy) override
+    {
+        GenericPODType *ret = where ? new(where) GenericPODType : new GenericPODType;
+        ret->m_typeId = typeId;
+        if (copy) {
+            Q_ASSERT(ret->m_typeId == reinterpret_cast<const GenericPODType*>(copy)->m_typeId);
+            *ret = *reinterpret_cast<const GenericPODType*>(copy);
+        } else {
+            ret->podData = podData;
+        }
+        return ret;
+    }
+
+    void staticMetacallFunction(QMetaObject::Call _c, int _id, void **_a) override
+    {
+        Q_UNUSED(_c);
+        Q_UNUSED(_id);
+        Q_UNUSED(_a);
+        Q_ASSERT(false);
+    }
+
+    void saveOperator(QDataStream &out) const override
+    {
+        out << podData;
+    }
+    void loadOperator(QDataStream &in) override
+    {
+        in >> podData;
+    }
+    QByteArray podData;
+};
+
+using RegisteredType = QPair<std::shared_ptr<BaseGenericType>, std::shared_ptr<QMetaObject>>;
+static QHash<int, RegisteredType> s_managedTypes;
+
+static void GadgetsStaticMetacallFunction(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    reinterpret_cast<BaseGenericType*>(_o)->staticMetacallFunction(_c, _id, _a);
+}
+
+static void GadgetTypedDestructor(int typeId, void *ptr)
+{
+    QCOMPARE(typeId, reinterpret_cast<BaseGenericType*>(ptr)->m_typeId);
+    reinterpret_cast<BaseGenericType*>(ptr)->~BaseGenericType();
+}
+
+static void *GadgetTypedConstructor(int type, void *where, const void *copy)
+{
+    auto it = s_managedTypes.find(type);
+    if (it == s_managedTypes.end())
+        return nullptr; // crash the test
+    return it->first->constructor(type, where, copy);
+}
+
+static void GadgetSaveOperator(QDataStream & out, const void *data)
+{
+    reinterpret_cast<const BaseGenericType *>(data)->saveOperator(out);
+}
+
+static void GadgetLoadOperator(QDataStream &in, void *data)
+{
+    reinterpret_cast<BaseGenericType *>(data)->loadOperator(in);
+}
 
 struct Foo { int i; };
 
@@ -147,6 +275,42 @@ public:
 class CustomNonQObject {};
 class GadgetDerived : public CustomGadget {};
 
+// cannot use Q_GADGET due to moc limitations but wants to behave like
+// a Q_GADGET in Qml land
+template<typename T>
+class GadgetDerivedAndTyped : public CustomGadget {};
+
+Q_DECLARE_METATYPE(GadgetDerivedAndTyped<int>)
+Q_DECLARE_METATYPE(GadgetDerivedAndTyped<int>*)
+
+void tst_QMetaType::registerGadget(const char *name, const QVector<GadgetPropertyType> &gadgetProperties)
+{
+    QMetaObjectBuilder gadgetBuilder;
+    gadgetBuilder.setClassName(name);
+    QMetaObjectBuilder::MetaObjectFlags metaObjectflags = QMetaObjectBuilder::DynamicMetaObject | QMetaObjectBuilder::PropertyAccessInStaticMetaCall;
+    gadgetBuilder.setFlags(metaObjectflags);
+    auto dynamicGadgetProperties = std::make_shared<GenericGadgetType>();
+    for (const auto &prop : gadgetProperties) {
+        int propertyType = QMetaType::type(prop.type);
+        dynamicGadgetProperties->properties.push_back(QVariant(QVariant::Type(propertyType)));
+        auto dynamicPropery = gadgetBuilder.addProperty(prop.name, prop.type);
+        dynamicPropery.setWritable(true);
+        dynamicPropery.setReadable(true);
+    }
+    auto meta = gadgetBuilder.toMetaObject();
+    meta->d.static_metacall = &GadgetsStaticMetacallFunction;
+    meta->d.superdata = nullptr;
+    const auto flags = QMetaType::WasDeclaredAsMetaType | QMetaType::IsGadget | QMetaType::NeedsConstruction | QMetaType::NeedsDestruction;
+    int gadgetTypeId = QMetaType::registerType(name,
+                                               &GadgetTypedDestructor,
+                                               &GadgetTypedConstructor,
+                                               sizeof(GenericGadgetType),
+                                               flags, meta);
+    QVERIFY(gadgetTypeId > 0);
+    QMetaType::registerStreamOperators(gadgetTypeId, &GadgetSaveOperator, &GadgetLoadOperator);
+    s_managedTypes[gadgetTypeId] = qMakePair(dynamicGadgetProperties, std::shared_ptr<QMetaObject>{meta, [](QMetaObject *ptr){ ::free(ptr); }});
+}
+
 void tst_QMetaType::defined()
 {
     QCOMPARE(int(QMetaTypeId2<QString>::Defined), 1);
@@ -163,6 +327,10 @@ void tst_QMetaType::defined()
     QVERIFY(!QMetaTypeId2<CustomNonQObject>::Defined);
     QVERIFY(!QMetaTypeId2<CustomNonQObject*>::Defined);
     QVERIFY(!QMetaTypeId2<CustomGadget_NonDefaultConstructible>::Defined);
+
+    // registered with Q_DECLARE_METATYPE
+    QVERIFY(QMetaTypeId2<GadgetDerivedAndTyped<int>>::Defined);
+    QVERIFY(QMetaTypeId2<GadgetDerivedAndTyped<int>*>::Defined);
 }
 
 struct Bar
@@ -175,6 +343,7 @@ struct Bar
             ++failureCount;
         }
     }
+    ~Bar() {}
 
 public:
     static int failureCount;
@@ -291,7 +460,7 @@ void tst_QMetaType::threadSafety()
 
 namespace TestSpace
 {
-    struct Foo { double d; };
+    struct Foo { double d; public: ~Foo() {} };
     struct QungTfu {};
 }
 Q_DECLARE_METATYPE(TestSpace::Foo)
@@ -307,6 +476,12 @@ void tst_QMetaType::namespaces()
 
     int qungTfuId = qRegisterMetaType<ADD_TESTSPACE(QungTfu)>();
     QCOMPARE(QMetaType::typeName(qungTfuId), "TestSpace::QungTfu");
+}
+
+void tst_QMetaType::id()
+{
+    QCOMPARE(QMetaType(QMetaType::QString).id(), QMetaType::QString);
+    QCOMPARE(QMetaType(::qMetaTypeId<TestSpace::Foo>()).id(), ::qMetaTypeId<TestSpace::Foo>());
 }
 
 void tst_QMetaType::qMetaTypeId()
@@ -342,10 +517,16 @@ void tst_QMetaType::properties()
 }
 
 template <typename T>
-struct Whity { T t; };
+struct Whity { T t; Whity() {} };
 
 Q_DECLARE_METATYPE( Whity < int > )
 Q_DECLARE_METATYPE(Whity<double>)
+
+#if !defined(Q_CC_CLANG) && defined(Q_CC_GNU) && Q_CC_GNU < 501
+QT_BEGIN_NAMESPACE
+Q_DECLARE_TYPEINFO(Whity<double>, Q_MOVABLE_TYPE);
+QT_END_NAMESPACE
+#endif
 
 void tst_QMetaType::normalizedTypes()
 {
@@ -402,6 +583,10 @@ void tst_QMetaType::typeName_data()
     QTest::newRow("CustomGadget*") << ::qMetaTypeId<CustomGadget*>() << QString::fromLatin1("CustomGadget*");
     QTest::newRow("CustomQObject::CustomQEnum") << ::qMetaTypeId<CustomQObject::CustomQEnum>() << QString::fromLatin1("CustomQObject::CustomQEnum");
     QTest::newRow("Qt::ArrowType") << ::qMetaTypeId<Qt::ArrowType>() << QString::fromLatin1("Qt::ArrowType");
+
+    // template instance class derived from Q_GADGET enabled class
+    QTest::newRow("GadgetDerivedAndTyped<int>") << ::qMetaTypeId<GadgetDerivedAndTyped<int>>() << QString::fromLatin1("GadgetDerivedAndTyped<int>");
+    QTest::newRow("GadgetDerivedAndTyped<int>*") << ::qMetaTypeId<GadgetDerivedAndTyped<int>*>() << QString::fromLatin1("GadgetDerivedAndTyped<int>*");
 }
 
 void tst_QMetaType::typeName()
@@ -641,10 +826,13 @@ void tst_QMetaType::sizeOfStaticLess()
     QCOMPARE(size_t(QMetaType(type).sizeOf()), size);
 }
 
-struct CustomMovable {};
+struct CustomMovable { CustomMovable() {} };
+#if !defined(Q_CC_CLANG) && defined(Q_CC_GNU) && Q_CC_GNU < 501
 QT_BEGIN_NAMESPACE
 Q_DECLARE_TYPEINFO(CustomMovable, Q_MOVABLE_TYPE);
 QT_END_NAMESPACE
+#endif
+
 Q_DECLARE_METATYPE(CustomMovable);
 
 class CustomObject : public QObject
@@ -673,13 +861,15 @@ public:
 };
 Q_DECLARE_METATYPE(CustomMultiInheritanceObject*);
 
-class C { char _[4]; };
-class M { char _[4]; };
+class C { char _[4]; public: C() = default; C(const C&) {} };
+class M { char _[4]; public: M() {} };
 class P { char _[4]; };
 
 QT_BEGIN_NAMESPACE
+#if defined(Q_CC_GNU) && Q_CC_GNU < 501
 Q_DECLARE_TYPEINFO(M, Q_MOVABLE_TYPE);
 Q_DECLARE_TYPEINFO(P, Q_PRIMITIVE_TYPE);
+#endif
 QT_END_NAMESPACE
 
 // avoid the comma:
@@ -725,7 +915,7 @@ QT_FOR_EACH_STATIC_PRIMITIVE_POINTER(ADD_METATYPE_TEST_ROW)
 QT_FOR_EACH_STATIC_CORE_POINTER(ADD_METATYPE_TEST_ROW)
 #undef ADD_METATYPE_TEST_ROW
     QTest::newRow("TestSpace::Foo") << ::qMetaTypeId<TestSpace::Foo>() << false << true << false << false;
-    QTest::newRow("Whity<double>") << ::qMetaTypeId<Whity<double> >() << false << true << false << false;
+    QTest::newRow("Whity<double>") << ::qMetaTypeId<Whity<double> >() << true << true << false << false;
     QTest::newRow("CustomMovable") << ::qMetaTypeId<CustomMovable>() << true << true << false << false;
     QTest::newRow("CustomObject*") << ::qMetaTypeId<CustomObject*>() << true << false << true << false;
     QTest::newRow("CustomMultiInheritanceObject*") << ::qMetaTypeId<CustomMultiInheritanceObject*>() << true << false << true << false;
@@ -894,6 +1084,90 @@ FOR_EACH_CORE_METATYPE(RETURN_CONSTRUCT_FUNCTION)
 
     QFETCH(int, type);
     TypeTestFunctionGetter::get(type)();
+}
+
+void tst_QMetaType::typedConstruct()
+{
+    auto testMetaObjectWriteOnGadget = [](QVariant &gadget, const QVector<GadgetPropertyType> &properties)
+    {
+        auto metaObject = QMetaType::metaObjectForType(gadget.userType());
+        QVERIFY(metaObject != nullptr);
+        QCOMPARE(metaObject->methodCount(), 0);
+        QCOMPARE(metaObject->propertyCount(), properties.size());
+        for (int i = 0; i < metaObject->propertyCount(); ++i) {
+            auto prop = metaObject->property(i);
+            QCOMPARE(properties[i].name, prop.name());
+            QCOMPARE(properties[i].type, prop.typeName());
+            prop.writeOnGadget(gadget.data(), properties[i].testData);
+        }
+    };
+
+    auto testMetaObjectReadOnGadget = [](QVariant gadget, const QVector<GadgetPropertyType> &properties)
+    {
+        auto metaObject = QMetaType::metaObjectForType(gadget.userType());
+        QVERIFY(metaObject != nullptr);
+        QCOMPARE(metaObject->methodCount(), 0);
+        QCOMPARE(metaObject->propertyCount(), properties.size());
+        for (int i = 0; i < metaObject->propertyCount(); ++i) {
+            auto prop = metaObject->property(i);
+            QCOMPARE(properties[i].name, prop.name());
+            QCOMPARE(properties[i].type, prop.typeName());
+            if (!QMetaType::typeFlags(prop.userType()).testFlag(QMetaType::IsGadget))
+                QCOMPARE(properties[i].testData, prop.readOnGadget(gadget.constData()));
+        }
+    };
+
+    QVector<GadgetPropertyType> dynamicGadget1 = {
+        {"int", "int_prop", 34526},
+        {"float", "float_prop", 1.23f},
+        {"QString", "string_prop", QString{"Test QString"}}
+    };
+    registerGadget("DynamicGadget1", dynamicGadget1);
+
+    QVariant testGadget1(QVariant::Type(QMetaType::type("DynamicGadget1")));
+    testMetaObjectWriteOnGadget(testGadget1, dynamicGadget1);
+    testMetaObjectReadOnGadget(testGadget1, dynamicGadget1);
+
+
+    QVector<GadgetPropertyType> dynamicGadget2 = {
+        {"int", "int_prop", 512},
+        {"double", "double_prop", 4.56},
+        {"QString", "string_prop", QString{"Another String"}},
+        {"DynamicGadget1", "dynamicGadget1_prop", testGadget1}
+    };
+    registerGadget("DynamicGadget2", dynamicGadget2);
+    QVariant testGadget2(QVariant::Type(QMetaType::type("DynamicGadget2")));
+    testMetaObjectWriteOnGadget(testGadget2, dynamicGadget2);
+    testMetaObjectReadOnGadget(testGadget2, dynamicGadget2);
+    auto g2mo = QMetaType::metaObjectForType(testGadget2.userType());
+    auto dynamicGadget1_prop = g2mo->property(g2mo->indexOfProperty("dynamicGadget1_prop"));
+    testMetaObjectReadOnGadget(dynamicGadget1_prop.readOnGadget(testGadget2.constData()), dynamicGadget1);
+
+
+    // Register POD
+    const QByteArray myPodTesData = "My POD test data";
+    const char podTypeName[] = "DynamicPOD";
+    auto dynamicGadgetProperties = std::make_shared<GenericPODType>();
+    dynamicGadgetProperties->podData = myPodTesData;
+    const auto flags = QMetaType::NeedsConstruction | QMetaType::NeedsDestruction;
+    int podTypeId = QMetaType::registerType(podTypeName,
+                                               &GadgetTypedDestructor,
+                                               &GadgetTypedConstructor,
+                                               sizeof(GenericGadgetType),
+                                               flags, nullptr);
+    QVERIFY(podTypeId > 0);
+    QMetaType::registerStreamOperators(podTypeId, &GadgetSaveOperator, &GadgetLoadOperator);
+    s_managedTypes[podTypeId] = qMakePair(dynamicGadgetProperties, std::shared_ptr<QMetaObject>{});
+
+    // Test POD
+    QCOMPARE(podTypeId, QMetaType::type(podTypeName));
+    QVariant podVariant{QVariant::Type(podTypeId)};
+    QCOMPARE(myPodTesData, static_cast<const GenericPODType *>(reinterpret_cast<const BaseGenericType *>(podVariant.constData()))->podData);
+
+    QVariant podVariant1{podVariant};
+    podVariant1.detach(); // Test stream operators
+    static_cast<GenericPODType *>(reinterpret_cast<BaseGenericType *>(podVariant.data()))->podData.clear();
+    QCOMPARE(myPodTesData, static_cast<const GenericPODType *>(reinterpret_cast<const BaseGenericType *>(podVariant1.constData()))->podData);
 }
 
 template<int ID>
@@ -1560,10 +1834,6 @@ DECLARE_NONSTREAMABLE(void)
 DECLARE_NONSTREAMABLE(void*)
 DECLARE_NONSTREAMABLE(QModelIndex)
 DECLARE_NONSTREAMABLE(QPersistentModelIndex)
-DECLARE_NONSTREAMABLE(QJsonValue)
-DECLARE_NONSTREAMABLE(QJsonObject)
-DECLARE_NONSTREAMABLE(QJsonArray)
-DECLARE_NONSTREAMABLE(QJsonDocument)
 DECLARE_NONSTREAMABLE(QObject*)
 DECLARE_NONSTREAMABLE(QWidget*)
 
@@ -1686,11 +1956,21 @@ public:
     Q_ENUM(MyEnum)
 };
 
+class MyQObjectFromGadget : public QObject, public MyGadget
+{
+    Q_OBJECT
+public:
+    MyQObjectFromGadget(QObject *parent = 0)
+        : QObject(parent)
+    {}
+};
+
 Q_DECLARE_METATYPE(MyGadget);
 Q_DECLARE_METATYPE(MyGadget*);
 Q_DECLARE_METATYPE(const QMetaObject *);
 Q_DECLARE_METATYPE(Qt::ScrollBarPolicy);
 Q_DECLARE_METATYPE(MyGadget::MyEnum);
+Q_DECLARE_METATYPE(MyQObjectFromGadget*);
 
 void tst_QMetaType::metaObject_data()
 {
@@ -1709,6 +1989,10 @@ void tst_QMetaType::metaObject_data()
     QTest::newRow("MyGadget*") << ::qMetaTypeId<MyGadget*>() << &MyGadget::staticMetaObject << false << true << false;
     QTest::newRow("MyEnum") << ::qMetaTypeId<MyGadget::MyEnum>() <<  &MyGadget::staticMetaObject << false << false << false;
     QTest::newRow("Qt::ScrollBarPolicy") << ::qMetaTypeId<Qt::ScrollBarPolicy>() <<  &QObject::staticQtMetaObject << false << false << false;
+    QTest::newRow("MyQObjectFromGadget*") << ::qMetaTypeId<MyQObjectFromGadget*>() << &MyQObjectFromGadget::staticMetaObject << false << false << true;
+
+    QTest::newRow("GadgetDerivedAndTyped<int>") << ::qMetaTypeId<GadgetDerivedAndTyped<int>>() <<  &GadgetDerivedAndTyped<int>::staticMetaObject << true << false << false;
+    QTest::newRow("GadgetDerivedAndTyped<int>*") << ::qMetaTypeId<GadgetDerivedAndTyped<int>*>() <<  &GadgetDerivedAndTyped<int>::staticMetaObject << false << true << false;
 }
 
 
@@ -2258,6 +2542,16 @@ void tst_QMetaType::customDebugStream()
     qDebug() << v1;
 }
 
+void tst_QMetaType::unknownType()
+{
+    QMetaType invalid(QMetaType::UnknownType);
+    QVERIFY(!invalid.create());
+    QVERIFY(!invalid.sizeOf());
+    QVERIFY(!invalid.metaObject());
+    int buffer = 0xBAD;
+    invalid.construct(&buffer);
+    QCOMPARE(buffer, 0xBAD);
+}
 // Compile-time test, it should be possible to register function pointer types
 class Undefined;
 

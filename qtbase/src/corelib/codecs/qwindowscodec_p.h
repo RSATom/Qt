@@ -53,6 +53,8 @@
 #include <QtCore/private/qglobal_p.h>
 #include "qtextcodec.h"
 
+QT_REQUIRE_CONFIG(textcodec);
+
 QT_BEGIN_NAMESPACE
 
 class QWindowsLocalCodec: public QTextCodec
@@ -61,12 +63,12 @@ public:
     QWindowsLocalCodec();
     ~QWindowsLocalCodec();
 
-    QString convertToUnicode(const char *, int, ConverterState *) const;
-    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const;
+    QString convertToUnicode(const char *, int, ConverterState *) const override;
+    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override;
     QString convertToUnicodeCharByChar(const char *chars, int length, ConverterState *state) const;
 
-    QByteArray name() const;
-    int mibEnum() const;
+    QByteArray name() const override;
+    int mibEnum() const override;
 
 };
 

@@ -1,4 +1,11 @@
-#!/usr/bin/env perl
+#! /usr/bin/env perl
+# Copyright 2010-2016 The OpenSSL Project Authors. All Rights Reserved.
+#
+# Licensed under the OpenSSL license (the "License").  You may not use
+# this file except in compliance with the License.  You can obtain a copy
+# in the file LICENSE in the source distribution or at
+# https://www.openssl.org/source/license.html
+
 #
 # ====================================================================
 # Written by Andy Polyakov <appro@openssl.org> for the OpenSSL
@@ -37,9 +44,8 @@
 # See ghash-x86.pl for background information and details about coding
 # techniques.
 #
-# Special thanks to David Woodhouse <dwmw2@infradead.org> for
-# providing access to a Westmere-based system on behalf of Intel
-# Open Source Technology Centre.
+# Special thanks to David Woodhouse for providing access to a
+# Westmere-based system on behalf of Intel Open Source Technology Centre.
 
 # December 2012
 #
@@ -67,6 +73,7 @@
 # Skylake	0.44(+110%)(if system doesn't support AVX)
 # Bulldozer	1.49(+27%)
 # Silvermont	2.88(+13%)
+# Knights L	2.12(-)    (if system doesn't support AVX)
 # Goldmont	1.08(+24%)
 
 # March 2013
@@ -78,6 +85,8 @@
 # to Ilya Albrekht and Max Locktyukhin of Intel Corp. we knew that
 # it performs in 0.41 cycles per byte on Haswell processor, in
 # 0.29 on Broadwell, and in 0.36 on Skylake.
+#
+# Knights Landing achieves 1.09 cpb.
 #
 # [1] http://rt.openssl.org/Ticket/Display.html?id=2900&user=guest&pass=guest
 
@@ -218,13 +227,21 @@ $code=<<___;
 .type	gcm_gmult_4bit,\@function,2
 .align	16
 gcm_gmult_4bit:
+.cfi_startproc
 	push	%rbx
+.cfi_push	%rbx
 	push	%rbp		# %rbp and others are pushed exclusively in
+.cfi_push	%rbp
 	push	%r12		# order to reuse Win64 exception handler...
+.cfi_push	%r12
 	push	%r13
+.cfi_push	%r13
 	push	%r14
+.cfi_push	%r14
 	push	%r15
+.cfi_push	%r15
 	sub	\$280,%rsp
+.cfi_adjust_cfa_offset	280
 .Lgmult_prologue:
 
 	movzb	15($Xi),$Zlo
@@ -236,10 +253,14 @@ $code.=<<___;
 	mov	$Zhi,($Xi)
 
 	lea	280+48(%rsp),%rsi
+.cfi_def_cfa	%rsi,8
 	mov	-8(%rsi),%rbx
+.cfi_restore	%rbx
 	lea	(%rsi),%rsp
+.cfi_def_cfa_register	%rsp
 .Lgmult_epilogue:
 	ret
+.cfi_endproc
 .size	gcm_gmult_4bit,.-gcm_gmult_4bit
 ___
 
@@ -253,13 +274,21 @@ $code.=<<___;
 .type	gcm_ghash_4bit,\@function,4
 .align	16
 gcm_ghash_4bit:
+.cfi_startproc
 	push	%rbx
+.cfi_push	%rbx
 	push	%rbp
+.cfi_push	%rbp
 	push	%r12
+.cfi_push	%r12
 	push	%r13
+.cfi_push	%r13
 	push	%r14
+.cfi_push	%r14
 	push	%r15
+.cfi_push	%r15
 	sub	\$280,%rsp
+.cfi_adjust_cfa_offset	280
 .Lghash_prologue:
 	mov	$inp,%r14		# reassign couple of args
 	mov	$len,%r15
@@ -388,15 +417,24 @@ $code.=<<___;
 	mov	$Zhi,($Xi)
 
 	lea	280+48(%rsp),%rsi
+.cfi_def_cfa	%rsi,8
 	mov	-48(%rsi),%r15
+.cfi_restore	%r15
 	mov	-40(%rsi),%r14
+.cfi_restore	%r14
 	mov	-32(%rsi),%r13
+.cfi_restore	%r13
 	mov	-24(%rsi),%r12
+.cfi_restore	%r12
 	mov	-16(%rsi),%rbp
+.cfi_restore	%rbp
 	mov	-8(%rsi),%rbx
+.cfi_restore	%rbx
 	lea	0(%rsi),%rsp
+.cfi_def_cfa_register	%rsp
 .Lghash_epilogue:
 	ret
+.cfi_endproc
 .size	gcm_ghash_4bit,.-gcm_ghash_4bit
 ___
 

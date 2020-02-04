@@ -13,31 +13,34 @@
 #include "base/cpu.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_flattener.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/histogram_snapshot_manager.h"
 #include "base/metrics/metrics_hashes.h"
 #include "base/strings/string_piece.h"
-#include "base/sys_info.h"
+#include "base/strings/stringprintf.h"
+#include "base/system/sys_info.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/metrics/delegating_provider.h"
 #include "components/metrics/environment_recorder.h"
 #include "components/metrics/histogram_encoder.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_provider.h"
 #include "components/metrics/metrics_service_client.h"
-#include "components/metrics/persistent_system_profile.h"
-#include "components/metrics/proto/histogram_event.pb.h"
-#include "components/metrics/proto/system_profile.pb.h"
-#include "components/metrics/proto/user_action_event.pb.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
+#include "third_party/metrics_proto/histogram_event.pb.h"
+#include "third_party/metrics_proto/system_profile.pb.h"
+#include "third_party/metrics_proto/user_action_event.pb.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/build_info.h"
 #endif
 
 #if defined(OS_WIN)
+#include <windows.h>
 #include "base/win/current_module.h"
 #endif
 
@@ -45,29 +48,19 @@ using base::SampleCountIterator;
 
 namespace metrics {
 
-namespace internal {
-// Maximum number of events before truncation.
-extern const int kOmniboxEventLimit = 5000;
-extern const int kUserActionEventLimit = 5000;
-}
-
 namespace {
 
 // A simple class to write histogram data to a log.
 class IndependentFlattener : public base::HistogramFlattener {
  public:
   explicit IndependentFlattener(MetricsLog* log) : log_(log) {}
+  ~IndependentFlattener() override {}
 
   // base::HistogramFlattener:
   void RecordDelta(const base::HistogramBase& histogram,
                    const base::HistogramSamples& snapshot) override {
     log_->RecordHistogramDelta(histogram.histogram_name(), snapshot);
   }
-  void InconsistencyDetected(
-      base::HistogramBase::Inconsistency problem) override {}
-  void UniqueInconsistencyDetected(
-      base::HistogramBase::Inconsistency problem) override {}
-  void InconsistencyDetectedInLoggedCount(int amount) override {}
 
  private:
   MetricsLog* const log_;
@@ -80,25 +73,37 @@ bool IsTestingID(const std::string& id) {
   return id.size() < 16;
 }
 
-// Round a timestamp measured in seconds since epoch to one with a granularity
-// of an hour. This can be used before uploaded potentially sensitive
-// timestamps.
-int64_t RoundSecondsToHour(int64_t time_in_seconds) {
-  return 3600 * (time_in_seconds / 3600);
+}  // namespace
+
+MetricsLog::IndependentMetricsLoader::IndependentMetricsLoader(
+    std::unique_ptr<MetricsLog> log)
+    : log_(std::move(log)),
+      flattener_(new IndependentFlattener(log_.get())),
+      snapshot_manager_(new base::HistogramSnapshotManager(flattener_.get())) {}
+
+MetricsLog::IndependentMetricsLoader::~IndependentMetricsLoader() = default;
+
+void MetricsLog::IndependentMetricsLoader::Run(
+    base::OnceCallback<void(bool)> done_callback,
+    MetricsProvider* metrics_provider) {
+  metrics_provider->ProvideIndependentMetrics(
+      std::move(done_callback), log_->uma_proto()->mutable_system_profile(),
+      snapshot_manager_.get());
 }
 
-}  // namespace
+std::unique_ptr<MetricsLog> MetricsLog::IndependentMetricsLoader::ReleaseLog() {
+  return std::move(log_);
+}
 
 MetricsLog::MetricsLog(const std::string& client_id,
                        int session_id,
                        LogType log_type,
-                       MetricsServiceClient* client,
-                       PrefService* local_state)
+                       MetricsServiceClient* client)
     : closed_(false),
       log_type_(log_type),
       client_(client),
       creation_time_(base::TimeTicks::Now()),
-      local_state_(local_state) {
+      has_environment_(false) {
   if (IsTestingID(client_id))
     uma_proto_.set_client_id(0);
   else
@@ -113,10 +118,6 @@ MetricsLog::MetricsLog(const std::string& client_id,
 
   SystemProfileProto* system_profile = uma_proto()->mutable_system_profile();
   RecordCoreSystemProfile(client_, system_profile);
-  if (log_type_ == ONGOING_LOG) {
-    GlobalPersistentSystemProfile::GetInstance()->SetSystemProfile(
-        *system_profile, /*complete=*/false);
-  }
 }
 
 MetricsLog::~MetricsLog() {
@@ -160,7 +161,7 @@ void MetricsLog::RecordUserAction(const std::string& key) {
 
   UserActionEventProto* user_action = uma_proto_.add_user_action_event();
   user_action->set_name_hash(Hash(key));
-  user_action->set_time(GetCurrentTime());
+  user_action->set_time_sec(GetCurrentTime());
 }
 
 void MetricsLog::RecordCoreSystemProfile(MetricsServiceClient* client,
@@ -170,8 +171,9 @@ void MetricsLog::RecordCoreSystemProfile(MetricsServiceClient* client,
   system_profile->set_channel(client->GetChannel());
   system_profile->set_application_locale(client->GetApplicationLocale());
 
-#if defined(SYZYASAN)
-  system_profile->set_is_asan_build(true);
+#if defined(ADDRESS_SANITIZER) || DCHECK_IS_ON()
+  // Set if a build is instrumented (e.g. built with ASAN, or with DCHECKs).
+  system_profile->set_is_instrumented_build(true);
 #endif
 
   metrics::SystemProfileProto::Hardware* hardware =
@@ -191,9 +193,25 @@ void MetricsLog::RecordCoreSystemProfile(MetricsServiceClient* client,
   metrics::SystemProfileProto::OS* os = system_profile->mutable_os();
   os->set_name(base::SysInfo::OperatingSystemName());
   os->set_version(base::SysInfo::OperatingSystemVersion());
+
+// On ChromeOS, KernelVersion refers to the Linux kernel version and
+// OperatingSystemVersion refers to the ChromeOS release version.
+#if defined(OS_CHROMEOS)
+  os->set_kernel_version(base::SysInfo::KernelVersion());
+#elif defined(OS_LINUX)
+  // Linux operating system version is copied over into kernel version to be
+  // consistent.
+  os->set_kernel_version(base::SysInfo::OperatingSystemVersion());
+#endif
+
 #if defined(OS_ANDROID)
-  os->set_fingerprint(
+  os->set_build_fingerprint(
       base::android::BuildInfo::GetInstance()->android_build_fp());
+  std::string package_name = client->GetAppPackageName();
+  if (!package_name.empty() && package_name != "com.android.chrome")
+    system_profile->set_app_package_name(package_name);
+#elif defined(OS_IOS)
+  os->set_build_number(base::SysInfo::GetIOSBuildNumber());
 #endif
 }
 
@@ -203,13 +221,17 @@ void MetricsLog::RecordHistogramDelta(const std::string& histogram_name,
   EncodeHistogramDelta(histogram_name, snapshot, &uma_proto_);
 }
 
-void MetricsLog::RecordStabilityMetrics(
-    const std::vector<std::unique_ptr<MetricsProvider>>& metrics_providers,
+void MetricsLog::RecordPreviousSessionData(
+    DelegatingProvider* delegating_provider) {
+  delegating_provider->ProvidePreviousSessionData(uma_proto());
+}
+
+void MetricsLog::RecordCurrentSessionData(
+    DelegatingProvider* delegating_provider,
     base::TimeDelta incremental_uptime,
     base::TimeDelta uptime) {
   DCHECK(!closed_);
-  DCHECK(HasEnvironment());
-  DCHECK(!HasStabilityMetrics());
+  DCHECK(has_environment_);
 
   // Record recent delta for critical stability metrics.  We can't wait for a
   // restart to gather these, as that delay biases our observation away from
@@ -217,25 +239,7 @@ void MetricsLog::RecordStabilityMetrics(
   // uma log upload, just as we send histogram data.
   WriteRealtimeStabilityAttributes(incremental_uptime, uptime);
 
-  SystemProfileProto* system_profile = uma_proto()->mutable_system_profile();
-  for (size_t i = 0; i < metrics_providers.size(); ++i) {
-    if (log_type() == INITIAL_STABILITY_LOG)
-      metrics_providers[i]->ProvideInitialStabilityMetrics(system_profile);
-    metrics_providers[i]->ProvideStabilityMetrics(system_profile);
-  }
-}
-
-void MetricsLog::RecordGeneralMetrics(
-    const std::vector<std::unique_ptr<MetricsProvider>>& metrics_providers) {
-  if (local_state_->GetBoolean(prefs::kMetricsResetIds))
-    UMA_HISTOGRAM_BOOLEAN("UMA.IsClonedInstall", true);
-
-  for (size_t i = 0; i < metrics_providers.size(); ++i)
-    metrics_providers[i]->ProvideGeneralMetrics(uma_proto());
-}
-
-bool MetricsLog::HasEnvironment() const {
-  return uma_proto()->system_profile().has_uma_enabled_date();
+  delegating_provider->ProvideCurrentSessionData(uma_proto());
 }
 
 void MetricsLog::WriteMetricsEnableDefault(EnableMetricsDefault metrics_default,
@@ -262,10 +266,6 @@ void MetricsLog::WriteMetricsEnableDefault(EnableMetricsDefault metrics_default,
   }
 }
 
-bool MetricsLog::HasStabilityMetrics() const {
-  return uma_proto()->system_profile().stability().has_launch_count();
-}
-
 void MetricsLog::WriteRealtimeStabilityAttributes(
     base::TimeDelta incremental_uptime,
     base::TimeDelta uptime) {
@@ -284,11 +284,10 @@ void MetricsLog::WriteRealtimeStabilityAttributes(
     stability->set_uptime_sec(uptime_sec);
 }
 
-std::string MetricsLog::RecordEnvironment(
-    const std::vector<std::unique_ptr<MetricsProvider>>& metrics_providers,
-    int64_t install_date,
-    int64_t metrics_reporting_enabled_date) {
-  DCHECK(!HasEnvironment());
+const SystemProfileProto& MetricsLog::RecordEnvironment(
+    DelegatingProvider* delegating_provider) {
+  DCHECK(!has_environment_);
+  has_environment_ = true;
 
   SystemProfileProto* system_profile = uma_proto()->mutable_system_profile();
 
@@ -299,50 +298,19 @@ std::string MetricsLog::RecordEnvironment(
   if (client_->GetBrand(&brand_code))
     system_profile->set_brand_code(brand_code);
 
-  // Reduce granularity of the enabled_date field to nearest hour.
-  system_profile->set_uma_enabled_date(
-      RoundSecondsToHour(metrics_reporting_enabled_date));
+  delegating_provider->ProvideSystemProfileMetrics(system_profile);
 
-  // Reduce granularity of the install_date field to nearest hour.
-  system_profile->set_install_date(RoundSecondsToHour(install_date));
-
-  SystemProfileProto::Hardware::CPU* cpu =
-      system_profile->mutable_hardware()->mutable_cpu();
-  base::CPU cpu_info;
-  cpu->set_vendor_name(cpu_info.vendor_name());
-  cpu->set_signature(cpu_info.signature());
-  cpu->set_num_cores(base::SysInfo::NumberOfProcessors());
-
-  for (size_t i = 0; i < metrics_providers.size(); ++i)
-    metrics_providers[i]->ProvideSystemProfileMetrics(system_profile);
-
-  EnvironmentRecorder recorder(local_state_);
-  std::string serialized_proto =
-      recorder.SerializeAndRecordEnvironmentToPrefs(*system_profile);
-
-  if (log_type_ == ONGOING_LOG) {
-    GlobalPersistentSystemProfile::GetInstance()->SetSystemProfile(
-        serialized_proto, /*complete=*/true);
-  }
-
-  return serialized_proto;
+  return *system_profile;
 }
 
-bool MetricsLog::LoadIndependentMetrics(MetricsProvider* metrics_provider) {
-  SystemProfileProto* system_profile = uma_proto()->mutable_system_profile();
-  IndependentFlattener flattener(this);
-  base::HistogramSnapshotManager snapshot_manager(&flattener);
-
-  return metrics_provider->ProvideIndependentMetrics(system_profile,
-                                                     &snapshot_manager);
-}
-
-bool MetricsLog::LoadSavedEnvironmentFromPrefs(std::string* app_version) {
-  DCHECK(app_version);
+bool MetricsLog::LoadSavedEnvironmentFromPrefs(PrefService* local_state,
+                                               std::string* app_version) {
+  DCHECK(!has_environment_);
+  has_environment_ = true;
   app_version->clear();
 
   SystemProfileProto* system_profile = uma_proto()->mutable_system_profile();
-  EnvironmentRecorder recorder(local_state_);
+  EnvironmentRecorder recorder(local_state);
   bool success = recorder.LoadEnvironmentFromPrefs(system_profile);
   if (success)
     *app_version = system_profile->app_version();
@@ -359,6 +327,18 @@ void MetricsLog::TruncateEvents() {
   if (uma_proto_.user_action_event_size() > internal::kUserActionEventLimit) {
     UMA_HISTOGRAM_COUNTS_100000("UMA.TruncatedEvents.UserAction",
                                 uma_proto_.user_action_event_size());
+    for (int i = internal::kUserActionEventLimit;
+         i < uma_proto_.user_action_event_size(); ++i) {
+      // No histograms.xml entry is added for this histogram because it uses an
+      // enum that is generated from actions.xml in our processing pipelines.
+      // Instead, a histogram description will also be produced in our
+      // pipelines.
+      base::UmaHistogramSparse(
+          "UMA.TruncatedEvents.UserAction.Type",
+          // Truncate the unsigned 64-bit hash to 31 bits, to make it a suitable
+          // histogram sample.
+          uma_proto_.user_action_event(i).name_hash() & 0x7fffffff);
+    }
     uma_proto_.mutable_user_action_event()->DeleteSubrange(
         internal::kUserActionEventLimit,
         uma_proto_.user_action_event_size() - internal::kUserActionEventLimit);

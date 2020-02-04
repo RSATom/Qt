@@ -55,6 +55,8 @@
 #include <QtWaylandClient/qtwaylandclientglobal.h>
 
 #include <QtWaylandClient/private/qwayland-wayland.h>
+#include <QtWaylandClient/private/qwayland-xdg-output-unstable-v1.h>
+
 
 QT_BEGIN_NAMESPACE
 
@@ -63,13 +65,16 @@ namespace QtWaylandClient {
 class QWaylandDisplay;
 class QWaylandCursor;
 
-class Q_WAYLAND_CLIENT_EXPORT QWaylandScreen : public QPlatformScreen, QtWayland::wl_output
+class Q_WAYLAND_CLIENT_EXPORT QWaylandScreen : public QPlatformScreen, QtWayland::wl_output, QtWayland::zxdg_output_v1
 {
 public:
     QWaylandScreen(QWaylandDisplay *waylandDisplay, int version, uint32_t id);
-    ~QWaylandScreen();
+    ~QWaylandScreen() override;
 
-    void init();
+    void maybeInitialize();
+
+    void initXdgOutput(QtWayland::zxdg_output_manager_v1 *xdgOutputManager);
+
     QWaylandDisplay *display() const;
 
     QString manufacturer() const override;
@@ -95,11 +100,10 @@ public:
 
 #if QT_CONFIG(cursor)
     QPlatformCursor *cursor() const override;
-    QWaylandCursor *waylandCursor() const { return mWaylandCursor; }
 #endif
 
     uint32_t outputId() const { return m_outputId; }
-    ::wl_output *output() { return object(); }
+    ::wl_output *output() { return QtWayland::wl_output::object(); }
 
     static QWaylandScreen *waylandScreenFromWindow(QWindow *window);
     static QWaylandScreen *fromWlOutput(::wl_output *output);
@@ -114,23 +118,35 @@ private:
                          int32_t transform) override;
     void output_scale(int32_t factor) override;
     void output_done() override;
+    void updateOutputProperties();
+
+    // XdgOutput
+    void zxdg_output_v1_logical_position(int32_t x, int32_t y) override;
+    void zxdg_output_v1_logical_size(int32_t width, int32_t height) override;
+    void zxdg_output_v1_done() override;
+    void zxdg_output_v1_name(const QString &name) override;
+    void updateXdgOutputProperties();
 
     int m_outputId;
-    QWaylandDisplay *mWaylandDisplay;
+    QWaylandDisplay *mWaylandDisplay = nullptr;
     QString mManufacturer;
     QString mModel;
     QRect mGeometry;
-    int mScale;
-    int mDepth;
-    int mRefreshRate;
-    int mTransform;
-    QImage::Format mFormat;
+    QRect mXdgGeometry;
+    int mScale = 1;
+    int mDepth = 32;
+    int mRefreshRate = 60000;
+    int mTransform = -1;
+    QImage::Format mFormat = QImage::Format_ARGB32_Premultiplied;
     QSize mPhysicalSize;
     QString mOutputName;
-    Qt::ScreenOrientation m_orientation;
+    Qt::ScreenOrientation m_orientation = Qt::PrimaryOrientation;
+    bool mOutputDone = false;
+    bool mXdgOutputDone = false;
+    bool mInitialized = false;
 
 #if QT_CONFIG(cursor)
-    QWaylandCursor *mWaylandCursor;
+    QScopedPointer<QWaylandCursor> mWaylandCursor;
 #endif
 };
 

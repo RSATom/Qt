@@ -335,13 +335,15 @@ Regexp* Regexp::NewCharClass(CharClass* cc, ParseFlags flags) {
   return re;
 }
 
-// Swaps this and that in place.
 void Regexp::Swap(Regexp* that) {
-  // Can use memmove because Regexp is just a struct (no vtable).
+  // Regexp is not trivially copyable, so we cannot freely copy it with
+  // memmove(3), but swapping objects like so is safe for our purposes.
   char tmp[sizeof *this];
-  memmove(tmp, this, sizeof tmp);
-  memmove(this, that, sizeof tmp);
-  memmove(that, tmp, sizeof tmp);
+  void* vthis = reinterpret_cast<void*>(this);
+  void* vthat = reinterpret_cast<void*>(that);
+  memmove(tmp, vthis, sizeof *this);
+  memmove(vthis, vthat, sizeof *this);
+  memmove(vthat, tmp, sizeof *this);
 }
 
 // Tests equality of all top-level structure but not subregexps.
@@ -653,7 +655,7 @@ std::map<int, string>* Regexp::CaptureNames() {
 // with a fixed string prefix.  If so, returns the prefix and
 // the regexp that remains after the prefix.  The prefix might
 // be ASCII case-insensitive.
-bool Regexp::RequiredPrefix(string *prefix, bool *foldcase, Regexp** suffix) {
+bool Regexp::RequiredPrefix(string* prefix, bool* foldcase, Regexp** suffix) {
   // No need for a walker: the regexp must be of the form
   // 1. some number of ^ anchors
   // 2. a literal char or string

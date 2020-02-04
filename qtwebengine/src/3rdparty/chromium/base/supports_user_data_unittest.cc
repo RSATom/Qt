@@ -21,7 +21,7 @@ struct UsesItself : public SupportsUserData::Data {
   }
 
   ~UsesItself() override {
-    EXPECT_EQ(NULL, supports_user_data_->GetUserData(key_));
+    EXPECT_EQ(nullptr, supports_user_data_->GetUserData(key_));
   }
 
   SupportsUserData* supports_user_data_;
@@ -32,7 +32,7 @@ TEST(SupportsUserDataTest, ClearWorksRecursively) {
   TestSupportsUserData supports_user_data;
   char key = 0;
   supports_user_data.SetUserData(
-      &key, base::MakeUnique<UsesItself>(&supports_user_data, &key));
+      &key, std::make_unique<UsesItself>(&supports_user_data, &key));
   // Destruction of supports_user_data runs the actual test.
 }
 

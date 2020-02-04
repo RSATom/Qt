@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "cc/paint/paint_canvas.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "content/public/common/web_preferences.h"
 #include "ppapi/proxy/connection.h"
@@ -18,13 +19,12 @@
 #include "ppapi/thunk/ppb_image_data_api.h"
 #include "ppapi/thunk/thunk.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/WebKit/public/platform/WebCanvas.h"
-#include "third_party/WebKit/public/platform/WebFloatPoint.h"
-#include "third_party/WebKit/public/platform/WebFloatRect.h"
-#include "third_party/WebKit/public/platform/WebFont.h"
-#include "third_party/WebKit/public/platform/WebFontDescription.h"
-#include "third_party/WebKit/public/platform/WebRect.h"
-#include "third_party/WebKit/public/platform/WebTextRun.h"
+#include "third_party/blink/public/platform/web_float_point.h"
+#include "third_party/blink/public/platform/web_float_rect.h"
+#include "third_party/blink/public/platform/web_font.h"
+#include "third_party/blink/public/platform/web_font_description.h"
+#include "third_party/blink/public/platform/web_rect.h"
+#include "third_party/blink/public/platform/web_text_run.h"
 #include "third_party/icu/source/common/unicode/ubidi.h"
 #include "third_party/skia/include/core/SkRect.h"
 
@@ -37,7 +37,6 @@ using blink::WebFont;
 using blink::WebFontDescription;
 using blink::WebRect;
 using blink::WebTextRun;
-using blink::WebCanvas;
 
 namespace content {
 
@@ -62,8 +61,7 @@ base::string16 GetFontFromMap(const ScriptFontFamilyMap& map,
 class TextRunCollection {
  public:
   explicit TextRunCollection(const PP_BrowserFont_Trusted_TextRun& run)
-      : bidi_(NULL),
-        num_runs_(0) {
+      : bidi_(nullptr), num_runs_(0) {
     StringVar* text_string = StringVar::FromPPVar(run.text);
     if (!text_string)
       return;  // Leave num_runs_ = 0 so we'll do nothing.
@@ -77,7 +75,7 @@ class TextRunCollection {
     } else {
       bidi_ = ubidi_open();
       UErrorCode uerror = U_ZERO_ERROR;
-      ubidi_setPara(bidi_, text_.data(), text_.size(), run.rtl, NULL, &uerror);
+      ubidi_setPara(bidi_, reinterpret_cast<const UChar*>(text_.data()), text_.size(), run.rtl, nullptr, &uerror);
       if (U_SUCCESS(uerror))
         num_runs_ = ubidi_countRuns(bidi_, &uerror);
     }

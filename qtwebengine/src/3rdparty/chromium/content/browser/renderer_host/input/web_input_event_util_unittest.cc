@@ -2,15 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Needed on Windows to get |M_PI| from <cmath>.
-#ifdef _WIN32
-#define _USE_MATH_DEFINES
-#endif
-
 #include <stddef.h>
 
-#include <cmath>
-
+#include "base/numerics/math_constants.h"
 #include "content/common/input/synthetic_web_input_event_builders.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/blink/blink_event_util.h"
@@ -30,30 +24,31 @@ using ui::MotionEventGeneric;
 namespace content {
 
 TEST(WebInputEventUtilTest, MotionEventConversion) {
-
-  const MotionEvent::ToolType tool_types[] = {MotionEvent::TOOL_TYPE_FINGER,
-                                              MotionEvent::TOOL_TYPE_STYLUS,
-                                              MotionEvent::TOOL_TYPE_MOUSE};
+  const MotionEvent::ToolType tool_types[] = {MotionEvent::ToolType::FINGER,
+                                              MotionEvent::ToolType::STYLUS,
+                                              MotionEvent::ToolType::MOUSE};
   ui::PointerProperties pointer(5, 10, 40);
   pointer.id = 15;
   pointer.raw_x = 20;
   pointer.raw_y = 25;
   pointer.pressure = 30;
   pointer.touch_minor = 35;
-  pointer.orientation = static_cast<float>(-M_PI / 2);
+  pointer.orientation = -base::kPiFloat / 2;
   pointer.tilt_x = 60;
   pointer.tilt_y = 70;
+  pointer.twist = 160;
+  pointer.tangential_pressure = 0;
   for (MotionEvent::ToolType tool_type : tool_types) {
     pointer.tool_type = tool_type;
-    MotionEventGeneric event(
-        MotionEvent::ACTION_DOWN, base::TimeTicks::Now(), pointer);
+    MotionEventGeneric event(MotionEvent::Action::DOWN, base::TimeTicks::Now(),
+                             pointer);
     event.set_flags(ui::EF_SHIFT_DOWN | ui::EF_ALT_DOWN);
     event.set_unique_event_id(123456U);
 
     WebTouchEvent expected_event(
         WebInputEvent::kTouchStart,
         WebInputEvent::kShiftKey | WebInputEvent::kAltKey,
-        (event.GetEventTime() - base::TimeTicks()).InSecondsF());
+        event.GetEventTime());
     expected_event.touches_length = 1;
     WebTouchPoint expected_pointer;
     expected_pointer.id = pointer.id;
@@ -64,18 +59,21 @@ TEST(WebInputEventUtilTest, MotionEventConversion) {
     expected_pointer.radius_y = pointer.touch_minor / 2.f;
     expected_pointer.rotation_angle = 0.f;
     expected_pointer.force = pointer.pressure;
-    if (tool_type == MotionEvent::TOOL_TYPE_STYLUS) {
+    if (tool_type == MotionEvent::ToolType::STYLUS) {
       expected_pointer.tilt_x = 60;
       expected_pointer.tilt_y = 70;
+      expected_pointer.twist = 160;
+      expected_pointer.tangential_pressure = 0;
     } else {
       expected_pointer.tilt_x = 0;
       expected_pointer.tilt_y = 0;
     }
     expected_event.touches[0] = expected_pointer;
     expected_event.unique_touch_event_id = 123456U;
+    expected_event.hovering = true;
 
-    WebTouchEvent actual_event =
-        ui::CreateWebTouchEventFromMotionEvent(event, false);
+    WebTouchEvent actual_event = ui::CreateWebTouchEventFromMotionEvent(
+        event, false /* may_cause_scrolling */, true /* hovering */);
     EXPECT_EQ(ui::WebInputEventTraits::ToString(expected_event),
               ui::WebInputEventTraits::ToString(actual_event));
   }
@@ -83,7 +81,7 @@ TEST(WebInputEventUtilTest, MotionEventConversion) {
 
 TEST(WebInputEventUtilTest, ScrollUpdateConversion) {
   int motion_event_id = 0;
-  MotionEvent::ToolType tool_type = MotionEvent::TOOL_TYPE_UNKNOWN;
+  MotionEvent::ToolType tool_type = MotionEvent::ToolType::UNKNOWN;
   base::TimeTicks timestamp = base::TimeTicks::Now();
   gfx::Vector2dF delta(-5.f, 10.f);
   gfx::PointF pos(1.f, 2.f);
@@ -113,13 +111,12 @@ TEST(WebInputEventUtilTest, ScrollUpdateConversion) {
       ui::CreateWebGestureEventFromGestureEventData(event);
   EXPECT_EQ(WebInputEvent::kGestureScrollUpdate, web_event.GetType());
   EXPECT_EQ(0, web_event.GetModifiers());
-  EXPECT_EQ((timestamp - base::TimeTicks()).InSecondsF(),
-            web_event.TimeStampSeconds());
-  EXPECT_EQ(gfx::ToFlooredInt(pos.x()), web_event.x);
-  EXPECT_EQ(gfx::ToFlooredInt(pos.y()), web_event.y);
-  EXPECT_EQ(gfx::ToFlooredInt(raw_pos.x()), web_event.global_x);
-  EXPECT_EQ(gfx::ToFlooredInt(raw_pos.y()), web_event.global_y);
-  EXPECT_EQ(blink::kWebGestureDeviceTouchscreen, web_event.source_device);
+  EXPECT_EQ(timestamp, web_event.TimeStamp());
+  EXPECT_EQ(pos.x(), web_event.PositionInWidget().x);
+  EXPECT_EQ(pos.y(), web_event.PositionInWidget().y);
+  EXPECT_EQ(raw_pos.x(), web_event.PositionInScreen().x);
+  EXPECT_EQ(raw_pos.y(), web_event.PositionInScreen().y);
+  EXPECT_EQ(blink::kWebGestureDeviceTouchscreen, web_event.SourceDevice());
   EXPECT_EQ(delta.x(), web_event.data.scroll_update.delta_x);
   EXPECT_EQ(delta.y(), web_event.data.scroll_update.delta_y);
   EXPECT_TRUE(

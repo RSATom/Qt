@@ -2,7 +2,9 @@
 #define QT_QTCONCURRENT_MODULE_H
 #include <QtConcurrent/QtConcurrentDepends>
 #include "qtconcurrentcompilertest.h"
+#if QT_CONFIG(concurrent)
 #include "qtconcurrentexception.h"
+#endif
 #include "qtconcurrentfilter.h"
 #include "qtconcurrentfilterkernel.h"
 #include "qtconcurrentfunctionwrappers.h"

@@ -34,20 +34,21 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Templates 2.3 as T
+import QtQuick 2.12
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Templates 2.12 as T
 
 T.ToolSeparator {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0, contentItem.implicitWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0, contentItem.implicitHeight + topPadding + bottomPadding)
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding)
 
     padding: vertical ? 6 : 2
-    topPadding: vertical ? 2 : 6
-    bottomPadding: vertical ? 2 : 6
+    verticalPadding: vertical ? 2 : 6
 
     contentItem: Rectangle {
         implicitWidth: vertical ? 1 : 30

@@ -16,6 +16,7 @@
 #include "base/process/memory.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 #include <linux/dma-buf.h>
@@ -59,6 +60,79 @@ void PrimeSyncEnd(int dmabuf_fd) {
 }  // namespace
 
 // static
+bool ClientNativePixmapDmaBuf::IsConfigurationSupported(
+    gfx::BufferFormat format,
+    gfx::BufferUsage usage) {
+#if defined(CHROMECAST_BUILD)
+  switch (usage) {
+    case gfx::BufferUsage::GPU_READ_CPU_READ_WRITE:
+    case gfx::BufferUsage::GPU_READ_CPU_READ_WRITE_PERSISTENT:
+      // TODO(spang): Fix b/121148905 and turn these back on.
+      return false;
+    default:
+      break;
+  }
+#endif
+
+  switch (usage) {
+    case gfx::BufferUsage::GPU_READ:
+      return format == gfx::BufferFormat::BGR_565 ||
+             format == gfx::BufferFormat::RGBA_8888 ||
+             format == gfx::BufferFormat::RGBX_8888 ||
+             format == gfx::BufferFormat::BGRA_8888 ||
+             format == gfx::BufferFormat::BGRX_8888 ||
+             format == gfx::BufferFormat::YVU_420;
+    case gfx::BufferUsage::SCANOUT:
+      return format == gfx::BufferFormat::BGRX_8888 ||
+             format == gfx::BufferFormat::RGBX_8888 ||
+             format == gfx::BufferFormat::RGBA_8888 ||
+             format == gfx::BufferFormat::BGRA_8888;
+    case gfx::BufferUsage::SCANOUT_CPU_READ_WRITE:
+      return
+#if defined(ARCH_CPU_X86_FAMILY)
+          // Currently only Intel driver (i.e. minigbm and Mesa) supports R_8
+          // RG_88, NV12 and XB30. https://crbug.com/356871
+          format == gfx::BufferFormat::R_8 ||
+          format == gfx::BufferFormat::RG_88 ||
+          format == gfx::BufferFormat::YUV_420_BIPLANAR ||
+          format == gfx::BufferFormat::RGBX_1010102 ||
+#endif
+
+          format == gfx::BufferFormat::BGRX_8888 ||
+          format == gfx::BufferFormat::BGRA_8888 ||
+          format == gfx::BufferFormat::RGBX_8888 ||
+          format == gfx::BufferFormat::RGBA_8888;
+    case gfx::BufferUsage::SCANOUT_VDA_WRITE:
+      return false;
+
+    case gfx::BufferUsage::GPU_READ_CPU_READ_WRITE:
+    case gfx::BufferUsage::GPU_READ_CPU_READ_WRITE_PERSISTENT:
+      return
+#if defined(ARCH_CPU_X86_FAMILY)
+          // Currently only Intel driver (i.e. minigbm and
+          // Mesa) supports R_8 RG_88 and NV12.
+          // https://crbug.com/356871
+          format == gfx::BufferFormat::R_8 ||
+          format == gfx::BufferFormat::RG_88 ||
+          format == gfx::BufferFormat::YUV_420_BIPLANAR ||
+#endif
+          format == gfx::BufferFormat::BGRA_8888;
+    case gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE:
+      // Each platform only supports one camera buffer type. We list the
+      // supported buffer formats on all platforms here. When allocating a
+      // camera buffer the caller is responsible for making sure a buffer is
+      // successfully allocated. For example, allocating YUV420_BIPLANAR
+      // for SCANOUT_CAMERA_READ_WRITE may only work on Intel boards.
+      return format == gfx::BufferFormat::YUV_420_BIPLANAR;
+    case gfx::BufferUsage::CAMERA_AND_CPU_READ_WRITE:
+      // R_8 is used as the underlying pixel format for BLOB buffers.
+      return format == gfx::BufferFormat::R_8;
+  }
+  NOTREACHED();
+  return false;
+}
+
+// static
 std::unique_ptr<gfx::ClientNativePixmap>
 ClientNativePixmapDmaBuf::ImportFromDmabuf(
     const gfx::NativePixmapHandle& handle,
@@ -85,24 +159,8 @@ ClientNativePixmapDmaBuf::ClientNativePixmapDmaBuf(
     if (mmap_error == ENOMEM)
       base::TerminateBecauseOutOfMemory(map_size);
 
-    bool fd_valid = fcntl(dmabuf_fd_.get(), F_GETFD) != -1 ||
-                    logging::GetLastSystemErrorCode() != EBADF;
-    std::string mmap_params = base::StringPrintf(
-        "(addr=nullptr, length=%zu, prot=(PROT_READ | PROT_WRITE), "
-        "flags=MAP_SHARED, fd=%d[valid=%d], offset=0)",
-        map_size, dmabuf_fd_.get(), fd_valid);
-    std::string errno_str = logging::SystemErrorCodeToString(mmap_error);
-    LOG(ERROR) << "Failed to mmap dmabuf; mmap_params: " << mmap_params
-               << ", buffer_size: (" << size.ToString()
-               << "),  errno: " << errno_str;
-    LOG(ERROR) << "NativePixmapHandle:";
-    LOG(ERROR) << "Number of fds: " << handle.fds.size();
-    LOG(ERROR) << "Number of planes: " << handle.planes.size();
-    for (const auto& plane : handle.planes) {
-      LOG(ERROR) << "stride  " << plane.stride << " offset " << plane.offset
-                 << " size " << plane.size;
-    }
-    CHECK(false) << "Failed to mmap dmabuf.";
+    CHECK(false) << "Failed to mmap dmabuf: "
+                 << logging::SystemErrorCodeToString(mmap_error);
   }
 }
 

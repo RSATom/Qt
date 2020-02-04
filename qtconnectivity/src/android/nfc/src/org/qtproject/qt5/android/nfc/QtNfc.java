@@ -54,6 +54,7 @@ import android.content.IntentFilter.MalformedMimeTypeException;
 import android.os.Bundle;
 import android.util.Log;
 import android.content.BroadcastReceiver;
+import android.content.pm.PackageManager;
 
 public class QtNfc
 {
@@ -106,7 +107,9 @@ public class QtNfc
 
     static public boolean start()
     {
-        if (m_adapter == null || m_activity == null) return false;
+        if (m_adapter == null || m_activity == null
+               || !m_activity.getPackageManager().hasSystemFeature(PackageManager.FEATURE_NFC))
+            return false;
 
         m_activity.runOnUiThread(new Runnable() {
             public void run() {
@@ -143,7 +146,9 @@ public class QtNfc
 
     static public boolean stop()
     {
-        if (m_adapter == null || m_activity == null) return false;
+        if (m_adapter == null || m_activity == null
+               || !m_activity.getPackageManager().hasSystemFeature(PackageManager.FEATURE_NFC))
+            return false;
 
         m_activity.runOnUiThread(new Runnable() {
             public void run() {
@@ -167,6 +172,11 @@ public class QtNfc
         }
 
         return m_adapter.isEnabled();
+    }
+
+    static public boolean isSupported()
+    {
+        return (m_adapter != null);
     }
 
     static public Intent getStartIntent()

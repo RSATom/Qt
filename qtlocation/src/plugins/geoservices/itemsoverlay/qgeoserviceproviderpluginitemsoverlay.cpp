@@ -42,9 +42,9 @@ QT_BEGIN_NAMESPACE
 QGeoCodingManagerEngine *QGeoServiceProviderFactoryItemsOverlay::createGeocodingManagerEngine(
     const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -58,9 +58,9 @@ QGeoMappingManagerEngine *QGeoServiceProviderFactoryItemsOverlay::createMappingM
 QGeoRoutingManagerEngine *QGeoServiceProviderFactoryItemsOverlay::createRoutingManagerEngine(
     const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }
@@ -68,9 +68,9 @@ QGeoRoutingManagerEngine *QGeoServiceProviderFactoryItemsOverlay::createRoutingM
 QPlaceManagerEngine *QGeoServiceProviderFactoryItemsOverlay::createPlaceManagerEngine(
     const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
+    Q_UNUSED(parameters);
+    Q_UNUSED(error);
+    Q_UNUSED(errorString);
 
     return 0;
 }

@@ -100,6 +100,10 @@ static inline int themeDialogType(const QDialog *dialog)
     if (qobject_cast<const QErrorMessage *>(dialog))
         return QPlatformTheme::MessageDialog;
 #endif
+#if !QT_CONFIG(filedialog) && !QT_CONFIG(colordialog) && !QT_CONFIG(fontdialog) && \
+    !QT_CONFIG(messagebox) && !QT_CONFIG(errormessage)
+    Q_UNUSED(dialog);
+#endif
     return -1;
 }
 
@@ -141,10 +145,48 @@ bool QDialogPrivate::canBeNativeDialog() const
     return false;
 }
 
-QWindow *QDialogPrivate::parentWindow() const
+/*!
+    \internal
+
+    Properly hides dialog and sets the \a resultCode.
+ */
+void QDialogPrivate::hide(int resultCode)
 {
-    if (const QWidget *parent = q_func()->nativeParentWidget())
+    Q_Q(QDialog);
+
+    q->setResult(resultCode);
+    q->hide();
+
+    close_helper(QWidgetPrivate::CloseNoEvent);
+    resetModalitySetByOpen();
+}
+
+/*!
+    \internal
+
+    Emits finished() signal with \a resultCode. If the \a dialogCode
+    is equal to 0 emits rejected(), if the \a dialogCode is equal to
+    1 emits accepted().
+ */
+void QDialogPrivate::finalize(int resultCode, int dialogCode)
+{
+    Q_Q(QDialog);
+
+    if (dialogCode == QDialog::Accepted)
+        emit q->accepted();
+    else if (dialogCode == QDialog::Rejected)
+        emit q->rejected();
+
+    emit q->finished(resultCode);
+}
+
+QWindow *QDialogPrivate::transientParentWindow() const
+{
+    Q_Q(const QDialog);
+    if (const QWidget *parent = q->nativeParentWidget())
         return parent->windowHandle();
+    else if (q->windowHandle())
+        return q->windowHandle()->transientParent();
     return 0;
 }
 
@@ -154,7 +196,7 @@ bool QDialogPrivate::setNativeDialogVisible(bool visible)
         if (visible) {
             Q_Q(QDialog);
             helperPrepareShow(helper);
-            nativeDialogInUse = helper->show(q->windowFlags(), q->windowModality(), parentWindow());
+            nativeDialogInUse = helper->show(q->windowFlags(), q->windowModality(), transientParentWindow());
         } else if (nativeDialogInUse) {
             helper->hide();
         }
@@ -203,6 +245,13 @@ void QDialogPrivate::deletePlatformHelper()
     the overloaded function will clear the window flags specifying the
     window-system properties for the widget (in particular it will
     reset the Qt::Dialog flag).
+
+    \note The parent relationship of the dialog does \e{not} imply
+    that the dialog will always be stacked on top of the parent
+    window. To ensure that the dialog is always on top, make the
+    dialog modal. This also applies for child windows of the dialog
+    itself. To ensure that child windows of the dialog stay on top
+    of the dialog, make the child windows modal as well.
 
     \section1 Modal Dialogs
 
@@ -380,7 +429,7 @@ QDialog::~QDialog()
 /*!
   \internal
   This function is called by the push button \a pushButton when it
-  becomes the default button. If \a pushButton is 0, the dialogs
+  becomes the default button. If \a pushButton is \nullptr, the dialogs
   default default button becomes the default button. This is what a
   push button calls when it loses focus.
 */
@@ -514,6 +563,13 @@ void QDialog::open()
     interaction with the parent window is blocked while the dialog is open.
     By default, the dialog is application modal.
 
+    \note Avoid using this function; instead, use \c{open()}. Unlike exec(),
+    open() is asynchronous, and does not spin an additional event loop. This
+    prevents a series of dangerous bugs from happening (e.g. deleting the
+    dialog's parent while the dialog is open via exec()). When using open() you
+    can connect to the finished() signal of QDialog to be notified when the
+    dialog is closed.
+
     \sa open(), show(), result(), setWindowModality()
 */
 
@@ -560,9 +616,12 @@ int QDialog::exec()
 }
 
 /*!
-  Closes the dialog and sets its result code to \a r. If this dialog
-  is shown with exec(), done() causes the local event loop to finish,
-  and exec() to return \a r.
+  Closes the dialog and sets its result code to \a r. The finished() signal
+  will emit \a r; if \a r is QDialog::Accepted or QDialog::Rejected, the
+  accepted() or the rejected() signals will also be emitted, respectively.
+
+  If this dialog is shown with exec(), done() also causes the local event loop
+  to finish, and exec() to return \a r.
 
   As with QWidget::close(), done() deletes the dialog if the
   Qt::WA_DeleteOnClose flag is set. If the dialog is the application's
@@ -576,17 +635,8 @@ int QDialog::exec()
 void QDialog::done(int r)
 {
     Q_D(QDialog);
-    setResult(r);
-    hide();
-
-    d->close_helper(QWidgetPrivate::CloseNoEvent);
-    d->resetModalitySetByOpen();
-
-    emit finished(r);
-    if (r == Accepted)
-        emit accepted();
-    else if (r == Rejected)
-        emit rejected();
+    d->hide(r);
+    d->finalize(r, r);
 }
 
 /*!
@@ -717,12 +767,31 @@ void QDialog::setVisible(bool visible)
     if (!testAttribute(Qt::WA_DontShowOnScreen) && d->canBeNativeDialog() && d->setNativeDialogVisible(visible))
         return;
 
+    // We should not block windows by the invisible modal dialog
+    // if a platform-specific dialog is implemented as an in-process
+    // Qt window, because in this case it will also be blocked.
+    const bool dontBlockWindows = testAttribute(Qt::WA_DontShowOnScreen)
+            && d->styleHint(QPlatformDialogHelper::DialogIsQtWindow).toBool();
+    Qt::WindowModality oldModality;
+    bool wasModalitySet;
+
+    if (dontBlockWindows) {
+        oldModality = windowModality();
+        wasModalitySet = testAttribute(Qt::WA_SetWindowModality);
+        setWindowModality(Qt::NonModal);
+    }
+
     if (visible) {
         if (testAttribute(Qt::WA_WState_ExplicitShowHide) && !testAttribute(Qt::WA_WState_Hidden))
             return;
 
         QWidget::setVisible(visible);
+#if QT_DEPRECATED_SINCE(5, 13)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
         showExtension(d->doShowExtension);
+QT_WARNING_POP
+#endif
         QWidget *fw = window()->focusWidget();
         if (!fw)
             fw = this;
@@ -781,6 +850,11 @@ void QDialog::setVisible(bool visible)
         QWidget::setVisible(visible);
         if (d->eventLoop)
             d->eventLoop->exit();
+    }
+
+    if (dontBlockWindows) {
+        setWindowModality(oldModality);
+        setAttribute(Qt::WA_SetWindowModality, wasModalitySet);
     }
 
 #if QT_CONFIG(pushbutton)
@@ -884,6 +958,7 @@ void QDialog::adjustPosition(QWidget* w)
     move(p);
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -926,7 +1001,7 @@ Qt::Orientation QDialog::orientation() const
 
     Sets the widget, \a extension, to be the dialog's extension,
     deleting any previous extension. The dialog takes ownership of the
-    extension. Note that if 0 is passed any existing extension will be
+    extension. Note that if \nullptr is passed, any existing extension will be
     deleted. This function must only be called while the dialog is hidden.
 
     Instead of using this functionality, we recommend that you simply call
@@ -952,7 +1027,7 @@ void QDialog::setExtension(QWidget* extension)
 /*!
     \obsolete
 
-    Returns the dialog's extension or 0 if no extension has been
+    Returns the dialog's extension or \nullptr if no extension has been
     defined.
 
     Instead of using this functionality, we recommend that you simply call
@@ -1028,7 +1103,7 @@ void QDialog::showExtension(bool showIt)
 #endif
     }
 }
-
+#endif
 
 /*! \reimp */
 QSize QDialog::sizeHint() const

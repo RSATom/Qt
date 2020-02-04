@@ -8,21 +8,21 @@ namespace device {
 
 GamepadButton AxisToButton(float input) {
   float value = (input + 1.f) / 2.f;
-  bool pressed = value > kDefaultButtonPressedThreshold;
+  bool pressed = value > GamepadButton::kDefaultButtonPressedThreshold;
   bool touched = value > 0.0f;
   return GamepadButton(pressed, touched, value);
 }
 
 GamepadButton AxisNegativeAsButton(float input) {
   float value = (input < -0.5f) ? 1.f : 0.f;
-  bool pressed = value > kDefaultButtonPressedThreshold;
+  bool pressed = value > GamepadButton::kDefaultButtonPressedThreshold;
   bool touched = value > 0.0f;
   return GamepadButton(pressed, touched, value);
 }
 
 GamepadButton AxisPositiveAsButton(float input) {
   float value = (input > 0.5f) ? 1.f : 0.f;
-  bool pressed = value > kDefaultButtonPressedThreshold;
+  bool pressed = value > GamepadButton::kDefaultButtonPressedThreshold;
   bool touched = value > 0.0f;
   return GamepadButton(pressed, touched, value);
 }
@@ -65,6 +65,11 @@ void DpadFromAxis(Gamepad* mapped, float dir) {
   mapped->buttons[BUTTON_INDEX_DPAD_LEFT].pressed = left;
   mapped->buttons[BUTTON_INDEX_DPAD_LEFT].touched = left;
   mapped->buttons[BUTTON_INDEX_DPAD_LEFT].value = left ? 1.f : 0.f;
+}
+
+float RenormalizeAndClampAxis(float value, float min, float max) {
+  value = (2.f * (value - min) / (max - min)) - 1.f;
+  return value < -1.f ? -1.f : (value > 1.f ? 1.f : value);
 }
 
 }  // namespace device

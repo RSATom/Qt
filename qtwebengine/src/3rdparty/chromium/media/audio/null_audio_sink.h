@@ -20,10 +20,10 @@ class AudioBus;
 class AudioHash;
 class FakeAudioWorker;
 
-class MEDIA_EXPORT NullAudioSink
-    : NON_EXPORTED_BASE(public SwitchableAudioRendererSink) {
+class MEDIA_EXPORT NullAudioSink : public SwitchableAudioRendererSink {
  public:
-  NullAudioSink(const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
+  explicit NullAudioSink(
+      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
 
   // AudioRendererSink implementation.
   void Initialize(const AudioParameters& params,
@@ -34,11 +34,11 @@ class MEDIA_EXPORT NullAudioSink
   void Play() override;
   bool SetVolume(double volume) override;
   OutputDeviceInfo GetOutputDeviceInfo() override;
+  void GetOutputDeviceInfoAsync(OutputDeviceInfoCB info_cb) override;
   bool IsOptimizedForHardwareParameters() override;
   bool CurrentThreadIsRenderingThread() override;
   void SwitchOutputDevice(const std::string& device_id,
-                          const url::Origin& security_origin,
-                          const OutputDeviceStatusCB& callback) override;
+                          OutputDeviceStatusCB callback) override;
 
   // Enables audio frame hashing.  Must be called prior to Initialize().
   void StartAudioHashForTesting();

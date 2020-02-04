@@ -7,7 +7,7 @@
 #include <algorithm>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "media/audio/cras/audio_manager_cras.h"
 
@@ -94,12 +94,6 @@ bool CrasUnifiedStream::Open() {
     return false;
   }
 
-  if (AudioManagerCras::BitsToFormat(params_.bits_per_sample()) ==
-      SND_PCM_FORMAT_UNKNOWN) {
-    LOG(WARNING) << "Unsupported pcm format";
-    return false;
-  }
-
   // Create the client and connect to the CRAS server.
   if (cras_client_create(&client_)) {
     LOG(WARNING) << "Couldn't create CRAS client.\n";
@@ -165,9 +159,7 @@ void CrasUnifiedStream::Start(AudioSourceCallback* callback) {
   // Prepare |audio_format| and |stream_params| for the stream we
   // will create.
   cras_audio_format* audio_format = cras_audio_format_create(
-      AudioManagerCras::BitsToFormat(params_.bits_per_sample()),
-      params_.sample_rate(),
-      params_.channels());
+      SND_PCM_FORMAT_S16, params_.sample_rate(), params_.channels());
   if (!audio_format) {
     LOG(WARNING) << "Error setting up audio parameters.";
     callback->OnError();
@@ -180,7 +172,7 @@ void CrasUnifiedStream::Start(AudioSourceCallback* callback) {
 
   // Converts to CRAS defined channels. ChannelOrder will return -1
   // for channels that does not present in params_.channel_layout().
-  for (size_t i = 0; i < arraysize(kChannelMap); ++i)
+  for (size_t i = 0; i < base::size(kChannelMap); ++i)
     layout[kChannelMap[i]] = ChannelOrder(params_.channel_layout(),
                                           static_cast<Channels>(i));
 
@@ -315,8 +307,8 @@ uint32_t CrasUnifiedStream::WriteAudio(size_t frames,
 
   // Note: If this ever changes to output raw float the data must be clipped and
   // sanitized since it may come from an untrusted source such as NaCl.
-  output_bus_->ToInterleaved(
-      frames_filled, bytes_per_frame_ / params_.channels(), buffer);
+  output_bus_->ToInterleaved<SignedInt16SampleTypeTraits>(
+      frames_filled, reinterpret_cast<int16_t*>(buffer));
 
   return frames_filled;
 }

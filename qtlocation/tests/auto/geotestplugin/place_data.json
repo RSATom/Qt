@@ -130,7 +130,8 @@
             "location": {
                 "latitude": 0.1002,
                 "longitude": 0.1002
-            }
+            },
+            "alternateImplementation": true
         },
         {
             "name": "Country Gardens",

@@ -11,17 +11,14 @@
 
 class CBC_EncoderContext;
 
-class CBC_ASCIIEncoder : public CBC_Encoder {
+class CBC_ASCIIEncoder final : public CBC_Encoder {
  public:
   CBC_ASCIIEncoder();
   ~CBC_ASCIIEncoder() override;
 
   // CBC_Encoder
-  int32_t getEncodingMode() override;
-  void Encode(CBC_EncoderContext& context, int32_t& e) override;
-
- private:
-  static wchar_t encodeASCIIDigits(wchar_t digit1, wchar_t digit2, int32_t& e);
+  CBC_HighLevelEncoder::Encoding GetEncodingMode() override;
+  bool Encode(CBC_EncoderContext* context) override;
 };
 
 #endif  // FXBARCODE_DATAMATRIX_BC_ASCIIENCODER_H_

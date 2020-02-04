@@ -13,16 +13,19 @@
 
 #include "base/time/time.h"
 #include "components/autofill/core/common/form_data.h"
+#include "components/autofill/core/common/submission_indicator_event.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
 namespace autofill {
 
-// Pair of possible username value and field name that contained this value.
-using PossibleUsernamePair = std::pair<base::string16, base::string16>;
+enum class SubmissionSource;
+
+// Pair of a value and the name of the element that contained this value.
+using ValueElementPair = std::pair<base::string16, base::string16>;
 
 // Vector of possible username values and corresponding field names.
-using PossibleUsernamesVector = std::vector<PossibleUsernamePair>;
+using ValueElementVector = std::vector<ValueElementPair>;
 
 // The PasswordForm struct encapsulates information about a login form,
 // which can be an HTML form or a dialog with username/password text fields.
@@ -69,39 +72,6 @@ struct PasswordForm {
 
     SCHEME_LAST = SCHEME_USERNAME_ONLY
   } scheme;
-
-  // During form parsing, Chrome tries to partly understand the type of the form
-  // based on the layout of its fields. The result of this analysis helps to
-  // treat the form correctly once the low-level information is lost by
-  // converting the web form into a PasswordForm. It is only used for observed
-  // HTML forms, not for stored credentials.
-  enum class Layout {
-    // Forms which either do not need to be classified, or cannot be classified
-    // meaningfully.
-    LAYOUT_OTHER,
-    // Login and signup forms combined in one <form>, to distinguish them from,
-    // e.g., change-password forms.
-    LAYOUT_LOGIN_AND_SIGNUP,
-    LAYOUT_LAST = LAYOUT_LOGIN_AND_SIGNUP
-  };
-
-  // Events observed by the Password Manager that indicate either that a form is
-  // potentially being submitted, or that a form has already been successfully
-  // submitted. Recorded into a UMA histogram, so order of enumerators should
-  // not be changed.
-  enum class SubmissionIndicatorEvent {
-    NONE,
-    HTML_FORM_SUBMISSION,
-    SAME_DOCUMENT_NAVIGATION,
-    XHR_SUCCEEDED,
-    FRAME_DETACHED,
-    MANUAL_SAVE,
-    DOM_MUTATION_AFTER_XHR,
-    PROVISIONALLY_SAVED_FORM_ON_START_PROVISIONAL_LOAD,
-    FILLED_FORM_ON_START_PROVISIONAL_LOAD,
-    FILLED_INPUT_ELEMENTS_ON_START_PROVISIONAL_LOAD,
-    SUBMISSION_INDICATOR_EVENT_COUNT
-  };
 
   // The "Realm" for the sign-on. This is scheme, host, port for SCHEME_HTML.
   // Dialog based forms also contain the HTTP realm. Android based forms will
@@ -161,10 +131,26 @@ struct PasswordForm {
   // When parsing an HTML form, this must always be set.
   base::string16 submit_element;
 
+  // True if renderer ids for username and password fields are present. Only set
+  // on form parsing, and not persisted.
+  // TODO(https://crbug.com/831123): Remove this field when old parsing is
+  // removed and filling by renderer ids is by default.
+  bool has_renderer_ids = false;
+
   // The name of the username input element. Optional (improves scoring).
   //
   // When parsing an HTML form, this must always be set.
   base::string16 username_element;
+
+  // The renderer id of the username input element. It is set during the new
+  // form parsing and not persisted.
+  uint32_t username_element_renderer_id =
+      FormFieldData::kNotSetFormControlRendererId;
+
+  // True if the server-side classification believes that the field may be
+  // pre-filled with a placeholder in the value attribute. It is set during
+  // form parsing and not persisted.
+  bool username_may_use_prefilled_placeholder = false;
 
   // Whether the |username_element| has an autocomplete=username attribute. This
   // is only used in parsed HTML forms.
@@ -181,7 +167,15 @@ struct PasswordForm {
   // determining the username are incorrect. Optional.
   //
   // When parsing an HTML form, this is typically empty.
-  PossibleUsernamesVector other_possible_usernames;
+  ValueElementVector other_possible_usernames;
+
+  // This member is populated in cases where we there are multiple possible
+  // password values. Used in pending password state, to populate a dropdown
+  // for possible passwords. Contains all possible passwords. Optional.
+  ValueElementVector all_possible_passwords;
+
+  // True if |all_possible_passwords| have autofilled value or its part.
+  bool form_has_autofilled_value;
 
   // The name of the input element corresponding to the current password.
   // Optional (improves scoring).
@@ -191,30 +185,37 @@ struct PasswordForm {
   // In these two cases the |new_password_element| will always be set.
   base::string16 password_element;
 
+  // The renderer id of the password input element. It is set during the new
+  // form parsing and not persisted.
+  uint32_t password_element_renderer_id =
+      FormFieldData::kNotSetFormControlRendererId;
+
   // The current password. Must be non-empty for PasswordForm instances that are
   // meant to be persisted to the password store.
   //
   // When parsing an HTML form, this is typically empty.
   base::string16 password_value;
 
-  // Whether the password value is the same as specified in the "value"
-  // attribute of the input element. Only used in the renderer.
-  bool password_value_is_default;
-
   // If the form was a sign-up or a change password form, the name of the input
   // element corresponding to the new password. Optional, and not persisted.
   base::string16 new_password_element;
+
+  // The renderer id of the new password input element. It is set during the new
+  // form parsing and not persisted.
+  uint32_t new_password_element_renderer_id =
+      FormFieldData::kNotSetFormControlRendererId;
 
   // The confirmation password element. Optional, only set on form parsing, and
   // not persisted.
   base::string16 confirmation_password_element;
 
+  // The renderer id of the confirmation password input element. It is set
+  // during the new form parsing and not persisted.
+  uint32_t confirmation_password_element_renderer_id =
+      FormFieldData::kNotSetFormControlRendererId;
+
   // The new password. Optional, and not persisted.
   base::string16 new_password_value;
-
-  // Whether the password value is the same as specified in the "value"
-  // attribute of the input element. Only used in the renderer.
-  bool new_password_value_is_default;
 
   // Whether the |new_password_element| has an autocomplete=new-password
   // attribute. This is only used in parsed HTML forms.
@@ -296,9 +297,6 @@ struct PasswordForm {
   // Once user selects this credential the flag is reseted.
   bool skip_zero_click;
 
-  // The layout as determined during parsing. Default value is LAYOUT_OTHER.
-  Layout layout;
-
   // If true, this form was parsed using Autofill predictions.
   bool was_parsed_using_autofill_predictions;
 
@@ -309,13 +307,23 @@ struct PasswordForm {
   // found using affiliation-based match.
   bool is_affiliation_based_match;
 
-  // If true, this form looks like SignUp form according to local heuristics.
-  bool does_look_like_signup_form;
-
   // The type of the event that was taken as an indication that this form is
   // being or has already been submitted. This field is not persisted and filled
   // out only for submitted forms.
   SubmissionIndicatorEvent submission_event;
+
+  // True iff heuristics declined this form for normal saving or filling (e.g.
+  // only credit card fields were found). But this form can be saved or filled
+  // only with the fallback.
+  bool only_for_fallback;
+
+  // True iff this is Gaia form which should be skipped on saving.
+  bool is_gaia_with_skip_save_password_form;
+
+  // True iff the new password field was found with server hints or autocomplete
+  // attributes. Only set on form parsing for filling, and not persisted. Used
+  // as signal for password generation eligibility.
+  bool is_new_password_reliable = false;
 
   // Return true if we consider this form to be a change password form.
   // We use only client heuristics, so it could include signup forms.
@@ -326,13 +334,20 @@ struct PasswordForm {
   // include signup forms.
   bool IsPossibleChangePasswordFormWithoutUsername() const;
 
+  // Returns true if current password element is set.
+  bool HasPasswordElement() const;
+
   // Equality operators for testing.
   bool operator==(const PasswordForm& form) const;
   bool operator!=(const PasswordForm& form) const;
 
   PasswordForm();
   PasswordForm(const PasswordForm& other);
+  PasswordForm(PasswordForm&& other);
   ~PasswordForm();
+
+  PasswordForm& operator=(const PasswordForm& form);
+  PasswordForm& operator=(PasswordForm&& form);
 };
 
 // True if the unique keys for the forms are the same. The unique key is
@@ -346,17 +361,13 @@ struct LessThanUniqueKey {
                   const std::unique_ptr<PasswordForm>& right) const;
 };
 
-// Converts a vector of possible usernames to string.
-base::string16 OtherPossibleUsernamesToString(
-    const PossibleUsernamesVector& possible_usernames);
+// Converts a vector of ValueElementPair to string.
+base::string16 ValueElementVectorToString(
+    const ValueElementVector& value_element_pairs);
 
 // For testing.
-std::ostream& operator<<(std::ostream& os, PasswordForm::Layout layout);
 std::ostream& operator<<(std::ostream& os, const PasswordForm& form);
 std::ostream& operator<<(std::ostream& os, PasswordForm* form);
-std::ostream& operator<<(
-    std::ostream& os,
-    PasswordForm::SubmissionIndicatorEvent submission_event);
 
 }  // namespace autofill
 

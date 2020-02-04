@@ -30,6 +30,7 @@ cr.define('login', function() {
   var SCROLL_MASK_HEIGHT = 112;
   var CROS_POD_HEIGHT_WITH_PIN = 618;
   var PUBLIC_SESSION_ICON_WIDTH = 12;
+  var CROS_POD_WARNING_BANNER_OFFSET_Y = 270;
 
   /**
    * The maximum number of users that each pod placement method can handle.
@@ -37,13 +38,6 @@ cr.define('login', function() {
   var POD_ROW_LIMIT = 2;
   var LANDSCAPE_MODE_LIMIT = 6;
   var PORTRAIT_MODE_LIMIT = 9;
-
-  /**
-   * Minimal padding between user pod and virtual keyboard.
-   * @type {number}
-   * @const
-   */
-  var USER_POD_KEYBOARD_MIN_PADDING = 20;
 
   /**
    * Distance between the bubble and user pod.
@@ -435,7 +429,7 @@ cr.define('login', function() {
         parentPod.passwordEntryContainerElement.classList.toggle(
             'custom-icon-shown', validIcon);
       }
-      this.hidden = validIcon ? false : true;
+      this.hidden = !validIcon;
     },
 
     /**
@@ -783,6 +777,15 @@ cr.define('login', function() {
      * also being displayed.
      */
     pinEnabled: false,
+
+    /**
+     * If set, a function which hides a persistent detachable base warning
+     * bubble. This will be set if a detachable base warning bubble is shown for
+     * this pod.
+     * @type {?function()}
+     * @private
+     */
+    detachableBaseWarningBubbleHider_: null,
 
     /** @override */
     decorate: function() {
@@ -1580,7 +1583,7 @@ cr.define('login', function() {
       // global focus change event. Sometimes focus requests are ignored while
       // loading the page. See crbug.com/725622.
       if (opt_ensureFocus) {
-        var INTERVAL_REPEAT_MS = 10
+        var INTERVAL_REPEAT_MS = 10;
         var input = this.mainInput;
         var intervalId = setInterval(function() {
           input.focus();
@@ -1622,8 +1625,9 @@ cr.define('login', function() {
         if (!password)
           return false;
         Oobe.disableSigninUI();
-        chrome.send('authenticateUser', [this.user.username, password,
-                                         this.isPinShown()]);
+        chrome.send('authenticateUser', [
+          this.user.username, password, this.isPinShown() && !isNaN(password)
+        ]);
       } else {
         console.error('Activating user pod with invalid authentication type: ' +
             this.authType);
@@ -1680,29 +1684,63 @@ cr.define('login', function() {
     },
 
     /**
+     * Returns the element that should be used as the anchor for error bubbles
+     * associated with the pod.
+     *
+     * @return {HTMLElement} The anchor for error bubbles.
+     * @private
+     */
+    getBubbleAnchor_: function() {
+      var bubbleAnchor = this.getElementsByClassName('auth-container')[0];
+      if (!bubbleAnchor) {
+        console.error('auth-container not found!');
+        bubbleAnchor = this.mainInput;
+      }
+      return bubbleAnchor;
+    },
+
+    /**
      * Shows a bubble under the auth-container of the user pod.
      * @param {HTMLElement} content Content to show in bubble.
+     * @param {!{bubble: (HTMLElement|undefined),
+     *           anchor: (HTMLElement|undefined),
+     *           timeout: (number|undefined)}|undefined} opt_options The custom
+     *     options describing how the bubble should be shown:
+     *     <ul>
+     *       <li>bubble: The element that hosts the bubble content.</li>
+     *       <li>
+     *           anchor: The element to which the bubble should be anchored.
+     *       </li>
+     *       <li>
+     *           timeout: Amount of time in ms after which the bubble
+     *           should be hidden. Note: this should only be used for
+     *           {@code $('bubble')} bubble element. The timeout will get
+     *           cleared if the bubble is shown again.
+     *       </li>
+     *     </ul>
+     * @return {function()} Function that, when called, hides the shown bubble.
      */
-    showBubble: function(content) {
+    showBubble: function(content, opt_options) {
       /** @const */ var BUBBLE_OFFSET = 25;
       // -8 = 4(BUBBLE_POD_OFFSET) - 2(bubble margin)
       //      - 10(internal bubble adjustment)
       var bubblePositioningPadding = -8;
 
-      var bubbleAnchor;
-      var attachment;
-      // Anchor the bubble to the input field.
-      bubbleAnchor = this.getElementsByClassName('auth-container')[0];
-      if (!bubbleAnchor) {
-        console.error('auth-container not found!');
-        bubbleAnchor = this.mainInput;
+      var options = opt_options || {};
+      var bubble = options.bubble || $('bubble');
+
+      // Make sure bubble timeout is changed only for $('bubble') element.
+      if (options.timeout && bubble != $('bubble')) {
+        console.error('Timeout can be set only when showing #bubble element.');
+        return;
       }
+
+      var bubbleAnchor = options.anchor || this.getBubbleAnchor_();
+      var attachment;
       if (this.pinContainer && this.pinContainer.style.visibility == 'visible')
         attachment = cr.ui.Bubble.Attachment.RIGHT;
       else
         attachment = cr.ui.Bubble.Attachment.BOTTOM;
-
-      var bubble = $('bubble');
 
       // Cannot use cr.ui.LoginUITools.get* on bubble until it is attached to
       // the element. getMaxHeight/Width rely on the correct up/left element
@@ -1740,14 +1778,89 @@ cr.define('login', function() {
           attachment = cr.ui.Bubble.Attachment.LEFT;
         }
       }
+
+      if (bubble == $('bubble'))
+        this.clearBubbleHideTimeout_();
+
+      var state = {shown: false, hidden: false};
+
       var showBubbleCallback = function() {
         this.removeEventListener('transitionend', showBubbleCallback);
-        $('bubble').showContentForElement(
+        // If the bubble was requested to be hidden while the transition was in
+        // progress, do not show the bubble.
+        if (state.hidden)
+          return;
+
+        state.shown = true;
+
+        bubble.showContentForElement(
             bubbleAnchor, attachment, content, BUBBLE_OFFSET,
             bubblePositioningPadding, true);
-      };
+
+        if (options.timeout != undefined) {
+          this.hideBubbleTimeout_ = setTimeout(() => {
+            this.hideBubbleTimeout_ = undefined;
+            bubble.hideForElement(bubbleAnchor);
+          }, options.timeout);
+        }
+      }.bind(this);
       this.addEventListener('transitionend', showBubbleCallback);
       ensureTransitionEndEvent(this);
+
+      return function() {
+        if (state.hidden)
+          return;
+
+        state.hidden = true;
+        if (state.shown)
+          bubble.hideForElement(bubbleAnchor);
+      };
+    },
+
+    /**
+     * Clears the timeout to hide a bubble, if a bubble timeout was set.
+     * @private
+     */
+    clearBubbleHideTimeout_: function() {
+      if (this.hideBubbleTimeout_) {
+        clearTimeout(this.hideBubbleTimeout_);
+        this.hideBubbleTimeout_ = null;
+      }
+    },
+
+    /**
+     * Shows persistent bubble for detachable base change warning.
+     * @param {HTMLElement} content The bubble contens.
+     */
+    showDetachableBaseWarningBubble: function(content) {
+      var anchor = this.getBubbleAnchor_();
+      if (!anchor)
+        return;
+      this.clearBubbleHideTimeout_();
+      $('bubble').hideForElement(anchor);
+      this.detachableBaseWarningBubbleHider_ = this.showBubble(
+          content, {bubble: $('bubble-persistent'), anchor: anchor});
+    },
+
+    /**
+     * If a peristent bubble for detachable base change warning is shown (and
+     * anchored at this pod), hides the bubble.
+     */
+    hideDetachableBaseWarningBubble: function() {
+      if (this.detachableBaseWarningBubbleHider_) {
+        this.detachableBaseWarningBubbleHider_();
+        this.detachableBaseWarningBubbleHider_ = null;
+      }
+    },
+
+    /**
+     * Whether a detachable base warning bubble is being shown for this pod.
+     * @return {boolean}
+     */
+    showingDetachableBaseWarningBubble: function() {
+      return this.detachableBaseWarningBubbleHider_ &&
+          !$('bubble-persistent').hidden &&
+          $('bubble-persistent').anchor == this.getBubbleAnchor_();
     },
 
     /**
@@ -1762,8 +1875,8 @@ cr.define('login', function() {
       this.classList.toggle('signing-in', false);
       if (takeFocus) {
         if (!this.multiProfilesPolicyApplied) {
-          // This will set a custom tab order.
-          this.focusInput(true /*opt_ensureFocus*/);
+          this.focusInput(
+              this.mainInput.tagName == 'INPUT' /*opt_ensureFocus*/);
         }
       }
       else
@@ -2297,6 +2410,25 @@ cr.define('login', function() {
     lastPosition: {left: 'unset', top: 'unset'},
 
     /**
+     * If true, the public session should be launched directly without showing
+     * the expanded view when the pod is activated.
+     * @type {boolean}
+     */
+    skipExpandedView: false,
+
+    /**
+     * If true, further attempts of entering public session should bail out.
+     * @type {boolean}
+     */
+    isEnteringPublicSession_: false,
+
+    /**
+     * The Learn more dialog.
+     * @type {HTMLDivElement}
+     */
+    learnMoreDialog_: undefined,
+
+    /**
      * "Enter" button in expanded side pane.
      * @type {!HTMLButtonElement}
      */
@@ -2399,22 +2531,12 @@ cr.define('login', function() {
       var monitoringLearnMore = this.querySelector('.monitoring-learn-more');
       monitoringLearnMore.tabIndex = UserPodTabOrder.POD_INPUT;
       monitoringLearnMore.addEventListener(
-          'click', this.onMonitoringLearnMoreClicked_.bind(this));
+          'click', this.onLearnMoreClicked_.bind(this));
 
       this.enterButtonElement.tabIndex = UserPodTabOrder.POD_INPUT;
       this.enterButtonElement.addEventListener('click', (function(e) {
         this.enterButtonElement.disabled = true;
-        var locale = this.querySelector('.language-select').value;
-        var keyboardSelect = this.querySelector('.keyboard-select');
-        // The contents of |keyboardSelect| is updated asynchronously. If its
-        // locale does not match |locale|, it has not updated yet and the
-        // currently selected keyboard layout may not be applicable to |locale|.
-        // Do not return any keyboard layout in this case and let the backend
-        // choose a suitable layout.
-        var keyboardLayout =
-            keyboardSelect.loadedLocale == locale ? keyboardSelect.value : '';
-        chrome.send('launchPublicSession',
-                    [this.user.username, locale, keyboardLayout]);
+        this.enterPublicSession_();
       }).bind(this));
     },
 
@@ -2464,8 +2586,12 @@ cr.define('login', function() {
     /** @override */
     activate: function(e) {
       if (!this.expanded) {
-        this.expanded = true;
-        this.focusInput();
+        if (this.skipExpandedView) {
+          this.enterPublicSession_();
+        } else {
+          this.expanded = true;
+          this.focusInput();
+        }
       }
       return true;
     },
@@ -2532,19 +2658,24 @@ cr.define('login', function() {
     },
 
     /**
-     * Show a dialog when user clicks on learn more (monitoring) button.
+     * Show a dialog when user clicks on Learn more button.
      */
-    onMonitoringLearnMoreClicked_: function() {
-      if (!this.dialogContainer_) {
-        this.dialogContainer_ = document.createElement('div');
-        this.dialogContainer_.classList.add('monitoring-dialog-container');
-        var topContainer = document.querySelector('#scroll-container');
-        topContainer.appendChild(this.dialogContainer_);
+    onLearnMoreClicked_: function() {
+      // Ignore if the Learn more dialog is already open.
+      if (this.learnMoreDialog_)
+        return;
+
+      var topContainer = document.querySelector('#scroll-container');
+      var dialogContainer =
+          topContainer.querySelector('.monitoring-dialog-container');
+      if (!dialogContainer) {
+        // Add a dummy parent element to enable different CSS settings.
+        dialogContainer = document.createElement('div');
+        dialogContainer.classList.add('monitoring-dialog-container');
+        topContainer.appendChild(dialogContainer);
       }
-      // Public Session POD in advanced view has a different size so add a dummy
-      // parent element to enable different CSS settings.
-      this.dialogContainer_.classList.toggle(
-          'advanced', this.classList.contains('advanced'))
+      dialogContainer.classList.toggle(
+          'advanced', this.classList.contains('advanced'));
       var html = '';
       var infoItems = ['publicAccountMonitoringInfoItem1',
                        'publicAccountMonitoringInfoItem2',
@@ -2556,18 +2687,18 @@ cr.define('login', function() {
         html += '</p>';
       }
       var title = loadTimeData.getString('publicAccountMonitoringInfo');
-      this.dialog_ = new cr.ui.dialogs.BaseDialog(this.dialogContainer_);
-      this.dialog_.showHtml(title, html, undefined,
-                            this.onMonitoringDialogClosed_.bind(this));
+      this.learnMoreDialog_ = new cr.ui.dialogs.BaseDialog(dialogContainer);
+      this.learnMoreDialog_.showHtml(
+          title, html, undefined, this.onLearnMoreDialogClosed_.bind(this));
       this.parentNode.disabled = true;
     },
 
     /**
-     * Cleanup after the monitoring warning dialog is closed.
+     * Clean up after the Learn more dialog is closed.
      */
-    onMonitoringDialogClosed_: function() {
+    onLearnMoreDialogClosed_: function() {
       this.parentNode.disabled = false;
-      this.dialog_ = undefined;
+      this.learnMoreDialog_ = undefined;
     },
 
     /**
@@ -2617,9 +2748,8 @@ cr.define('login', function() {
      * @param {boolean} multipleRecommendedLocales Whether |locales| contains
      *     two or more recommended locales
      */
-    populateLanguageSelect: function(locales,
-                                     defaultLocale,
-                                     multipleRecommendedLocales) {
+    populateLanguageSelect: function(
+        locales, defaultLocale, multipleRecommendedLocales) {
       var languageSelect = this.querySelector('.language-select');
       // If the user manually selected a locale, do not change the selection.
       // Otherwise, select the new |defaultLocale|.
@@ -2645,6 +2775,28 @@ cr.define('login', function() {
       // Retrieve a list of keyboard layouts applicable to the locale that is
       // now selected.
       this.getPublicSessionKeyboardLayouts_();
+    },
+
+    /**
+     * Launches the public session with the user-selected locale and keyboard
+     * layout (if available).
+     * @private
+     */
+    enterPublicSession_: function() {
+      if (this.isEnteringPublicSession_)
+        return;
+      this.isEnteringPublicSession_ = true;
+      var locale = this.querySelector('.language-select').value;
+      var keyboardSelect = this.querySelector('.keyboard-select');
+      // The contents of |keyboardSelect| is updated asynchronously. If its
+      // locale does not match |locale|, it has not updated yet and the
+      // currently selected keyboard layout may not be applicable to |locale|.
+      // Do not return any keyboard layout in this case and let the backend
+      // choose a suitable layout.
+      var keyboardLayout =
+          keyboardSelect.loadedLocale == locale ? keyboardSelect.value : '';
+      chrome.send(
+          'launchPublicSession', [this.user.username, locale, keyboardLayout]);
     }
   };
 
@@ -2909,8 +3061,8 @@ cr.define('login', function() {
     // Array of users that are shown (public/supervised/regular).
     users_: [],
 
-    // If we're in Touch View mode.
-    touchViewEnabled_: false,
+    // If we're in tablet mode.
+    tabletModeEnabled_: false,
 
     // If testing mode is enabled.
     testingModeEnabled_: false,
@@ -2918,6 +3070,9 @@ cr.define('login', function() {
     // The color used by the scroll list when the user count exceeds
     // LANDSCAPE_MODE_LIMIT or PORTRAIT_MODE_LIMIT.
     overlayColors_: {maskColor: undefined, scrollColor: undefined},
+
+    // Whether we should add background behind user pods.
+    showPodBackground_: false,
 
     /** @override */
     decorate: function() {
@@ -2957,15 +3112,12 @@ cr.define('login', function() {
 
     /**
      * Return true if user pod row has only single user pod in it, which should
-     * always be focused except desktop and touch view modes.
+     * always be focused except desktop mode.
      * @type {boolean}
      */
     get alwaysFocusSinglePod() {
-      var isDesktopUserManager = Oobe.getInstance().displayType ==
-          DISPLAY_TYPE.DESKTOP_USER_MANAGER;
-
-      return (isDesktopUserManager || this.touchViewEnabled_) ?
-          false :
+      return Oobe.getInstance().displayType !=
+          DISPLAY_TYPE.DESKTOP_USER_MANAGER &&
           this.pods.length == 1;
     },
 
@@ -3175,33 +3327,6 @@ cr.define('login', function() {
       this.users_ = users;
 
       this.rebuildPods();
-    },
-
-    /**
-     * Scrolls focused user pod into view.
-     */
-    scrollFocusedPodIntoView: function() {
-      var pod = this.focusedPod_;
-      if (!pod)
-        return;
-
-      // First check whether focused pod is already fully visible.
-      var visibleArea = $('scroll-container');
-      // Visible area may not defined at user manager screen on all platforms.
-      // Windows, Mac and Linux do not have visible area.
-      if (!visibleArea)
-        return;
-      var scrollTop = visibleArea.scrollTop;
-      var clientHeight = visibleArea.clientHeight;
-      var podTop = $('oobe').offsetTop + pod.offsetTop;
-      var padding = USER_POD_KEYBOARD_MIN_PADDING;
-      if (podTop + pod.height + padding <= scrollTop + clientHeight &&
-          podTop - padding >= scrollTop) {
-        return;
-      }
-
-      // Scroll so that user pod is as centered as possible.
-      visibleArea.scrollTop = podTop - (clientHeight - pod.offsetHeight) / 2;
     },
 
     /**
@@ -3519,17 +3644,30 @@ cr.define('login', function() {
     },
 
     /**
-     * Sets the state of touch view mode.
-     * @param {boolean} isTouchViewEnabled true if the mode is on.
+     * Sets the state of tablet mode.
+     * @param {boolean} isTabletModeEnabled
      */
-    setTouchViewState: function(isTouchViewEnabled) {
-      this.touchViewEnabled_ = isTouchViewEnabled;
+    setTabletModeState: function(isTabletModeEnabled) {
+      this.tabletModeEnabled_ = isTabletModeEnabled;
       this.pods.forEach(function(pod, index) {
-        pod.actionBoxAreaElement.classList.toggle('forced', isTouchViewEnabled);
-        if (pod.isPublicSessionPod)
+        pod.actionBoxAreaElement.classList.toggle(
+            'forced', isTabletModeEnabled);
+        if (pod.isPublicSessionPod) {
           pod.querySelector('.button-container')
-              .classList.toggle('forced', isTouchViewEnabled);
+              .classList.toggle('forced', isTabletModeEnabled);
+        }
       });
+    },
+
+    /**
+     * Sets whether the device is in demo mode.
+     * @param {boolean} isDeviceInDemoMode
+     */
+    setDemoModeState: function(isDeviceInDemoMode) {
+      for (let pod of this.pods) {
+        if (pod.isPublicSessionPod)
+          pod.skipExpandedView = isDeviceInDemoMode;
+      }
     },
 
     /**
@@ -3677,6 +3815,8 @@ cr.define('login', function() {
       // apply to account picker.
       // This is a hacky solution: we can make #scroll-container hide the
       // overflow area and manully position #inner-container.
+      // NOTE: The global states set here might need to be cleared in
+      //   handleHide. Please update the code there when adding new stuff here.
       var isScreenShrinked = this.isScreenShrinked_();
       $('scroll-container')
           .classList.toggle('disable-scroll', isScreenShrinked);
@@ -3756,16 +3896,15 @@ cr.define('login', function() {
       var smallPodsTotalHeight = (pods.length - 1) * CROS_SMALL_POD_HEIGHT +
           (pods.length - 2) * actualSmallPodPadding;
 
+      // SCROLL_TOP_PADDING denotes the smallest top padding we can tolerate
+      // before allowing the container to overflow and show the scroll bar.
       var SCROLL_TOP_PADDING = this.isPortraitMode_() ? 66 : 72;
       if (smallPodsTotalHeight + SCROLL_TOP_PADDING * 2 >
           this.screenSize.height) {
-        // Edge case: the design spec assumes that the screen height is large
-        // enough if the pod count limits set above are not exceeded, but for
-        // smaller screens the contents may still overflow.
-        // SCROLL_TOP_PADDING denotes the smallest top padding we can tolerate
-        // before allowing the container to overflow and show the scroll bar.
-        // If virtual keyboard is shown, we will first try a smaller padding
-        // and recalculate the total height.
+        // In case the contents overflow for any reason (it shouldn't if the
+        // pod count is within limits), fall to the scrollable container case.
+        // But before that we'll try a smaller top padding and recalculate the
+        // total height if virtual keyboard is shown.
         if (this.isScreenShrinked_()) {
           actualSmallPodPadding = 32;
           smallPodsTotalHeight = (pods.length - 1) * CROS_SMALL_POD_HEIGHT +
@@ -4074,6 +4213,7 @@ cr.define('login', function() {
         }
       }
       this.updateSigninBannerPosition_();
+      this.togglePodBackground(this.showPodBackground_);
     },
 
     /**
@@ -4086,7 +4226,12 @@ cr.define('login', function() {
       var bannerContainer = $('signin-banner-container1');
       if (bannerContainer.hidden)
         return;
-      bannerContainer.style.top = cr.ui.toCssPx(this.mainPod_.top / 2);
+      if ($('signin-banner').classList.contains('warning')) {
+        bannerContainer.style.top =
+            cr.ui.toCssPx(this.mainPod_.top + CROS_POD_WARNING_BANNER_OFFSET_Y);
+      } else {
+        bannerContainer.style.top = cr.ui.toCssPx(this.mainPod_.top / 2);
+      }
       if (this.pods.length <= POD_ROW_LIMIT) {
         bannerContainer.style.left = cr.ui.toCssPx(
             (this.screenSize.width - bannerContainer.offsetWidth) / 2);
@@ -4204,7 +4349,7 @@ cr.define('login', function() {
 
       this.removeChild(this.mainPod_);
       // It must have the same index with the original small pod, instead
-      // of being appended as the last child, in order to maintain the 'Tab'
+      // of being appended as the last child, in order to maintain the tab
       // order.
       parent.insertBefore(this.mainPod_, children[insert]);
       this.mainPod_.left = left;
@@ -4230,11 +4375,13 @@ cr.define('login', function() {
      * Displays a banner containing |message|. If the banner is already present
      * this function updates the message in the banner.
      * @param {string} message Text to be displayed or empty to hide the banner.
+     * @param {boolean} isWarning True if the given message is a warning.
      */
-    showBannerMessage: function(message) {
+    showBannerMessage: function(message, isWarning) {
       var banner = $('signin-banner');
       banner.textContent = message;
       banner.classList.toggle('message-set', !!message);
+      banner.classList.toggle('warning', isWarning);
       $('signin-banner-container1').hidden = banner.textContent.length == 0;
       this.updateSigninBannerPosition_();
     },
@@ -4266,6 +4413,41 @@ cr.define('login', function() {
      */
     getMaskGradient_: function(maskColor) {
       return 'linear-gradient(' + maskColor + ', transparent)';
+    },
+
+    /**
+     * Toggles the background behind user pods.
+     * @param {boolean} showPodBackground Whether to add background behind user
+     *     pods.
+     */
+    togglePodBackground: function(showPodBackground) {
+      this.showPodBackground_ = showPodBackground;
+      var pods = this.pods;
+      for (var pod of pods)
+        pod.classList.toggle('show-pod-background', showPodBackground);
+      $('login-header-bar')
+          .classList.toggle('translucent-background', showPodBackground);
+
+      var isShowingScrollList =
+          this.smallPodsContainer.classList.contains('scroll');
+      if (isShowingScrollList) {
+        if (showPodBackground) {
+          // The scroll list should use a fixed color to make sure the pods are
+          // legible.
+          this.smallPodsContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+        } else if (this.overlayColors_.scrollColor) {
+          // Change the background back to the color extracted from wallpaper.
+          this.smallPodsContainer.style.backgroundColor =
+              this.overlayColors_.scrollColor;
+        }
+      }
+      // Edge case: when we add pod background, we also need to add extra
+      // padding to the pods if they are not placed on top of the scroll list.
+      // The padding may result in overflow, so we allow showing overflow here.
+      // An alternative is to adjust the size of the small pods container, but
+      // we want to avoid changing the pod placement for this edge case.
+      this.smallPodsContainer.classList.toggle(
+          'show-overflow', showPodBackground && !isShowingScrollList);
     },
 
     /**
@@ -4763,8 +4945,10 @@ cr.define('login', function() {
             event, this.listeners_[event][0], this.listeners_[event][1]);
       }
       $('login-header-bar').buttonsTabIndex = UserPodTabOrder.HEADER_BAR;
-      // Header bar should be hidden when virtual keyboard is shown.
-      Oobe.getInstance().headerHidden = this.isScreenShrinked_();
+      // Header bar should be hidden when virtual keyboard is shown, or
+      // views-based shelf is shown.
+      Oobe.getInstance().headerHidden =
+          this.isScreenShrinked_() || Oobe.getInstance().showingViewsBasedShelf;
 
       if (this.podPlacementPostponed_) {
         this.podPlacementPostponed_ = false;
@@ -4773,6 +4957,9 @@ cr.define('login', function() {
       }
 
       this.handleAfterPodPlacement_();
+      // This is a hack for https://crbug.com/875128.
+      if (Oobe.getInstance().displayType == DISPLAY_TYPE.OOBE)
+        document.documentElement.removeAttribute('full-screen-dialog');
     },
 
     /**
@@ -4784,6 +4971,11 @@ cr.define('login', function() {
             event, this.listeners_[event][0], this.listeners_[event][1]);
       }
       $('login-header-bar').buttonsTabIndex = 0;
+
+      // Clear global states that should only applies to account picker.
+      $('scroll-container').classList.remove('disable-scroll');
+      $('inner-container').classList.remove('disable-scroll');
+      $('inner-container').style.top = 'unset';
     },
 
     /**
@@ -4809,7 +5001,8 @@ cr.define('login', function() {
      */
     maybePreselectPod: function() {
       var pod = this.preselectedPod;
-      this.focusPod(pod);
+      // Force a focus update to ensure the correct wallpaper is loaded.
+      this.focusPod(pod, true /* force */);
 
       // Hide user-type-bubble in case all user pods are disabled and we focus
       // first pod.

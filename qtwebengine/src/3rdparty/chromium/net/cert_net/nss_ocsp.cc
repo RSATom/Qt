@@ -31,7 +31,8 @@
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
-#include "base/threading/thread_checker.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "net/base/elements_upload_data_stream.h"
 #include "net/base/host_port_pair.h"
@@ -69,57 +70,31 @@ class OCSPIOLoop {
 
   void StartUsing() {
     base::AutoLock autolock(lock_);
-    used_ = true;
-    io_loop_ = base::MessageLoopForIO::current();
-    DCHECK(io_loop_);
+    DCHECK(base::MessageLoopCurrentForIO::IsSet());
+    io_task_runner_ = base::ThreadTaskRunnerHandle::Get();
   }
 
   // Called on IO loop.
   void Shutdown();
 
-  bool used() const {
-    base::AutoLock autolock(lock_);
-    return used_;
-  }
-
   // Called from worker thread.
-  void PostTaskToIOLoop(const tracked_objects::Location& from_here,
+  void PostTaskToIOLoop(const base::Location& from_here,
                         const base::Closure& task);
 
   void AddRequest(OCSPRequestSession* request);
   void RemoveRequest(OCSPRequestSession* request);
 
-  // Clears internal state and calls |StartUsing()|. Should be called only in
-  // the context of testing.
-  void ReuseForTesting() {
-    {
-      base::AutoLock autolock(lock_);
-      DCHECK(base::MessageLoopForIO::current());
-      thread_checker_.DetachFromThread();
-
-      // CalledOnValidThread is the only available API to reassociate
-      // thread_checker_ with the current thread. Result ignored intentionally.
-      ignore_result(thread_checker_.CalledOnValidThread());
-      shutdown_ = false;
-      used_ = false;
-    }
-    StartUsing();
-  }
-
  private:
   friend struct base::LazyInstanceTraitsBase<OCSPIOLoop>;
 
-  OCSPIOLoop();
+  OCSPIOLoop() = default;
 
   void CancelAllRequests();
 
+  // Protects all members below.
   mutable base::Lock lock_;
-  bool shutdown_;  // Protected by |lock_|.
-  std::set<OCSPRequestSession*> requests_;  // Protected by |lock_|.
-  bool used_;  // Protected by |lock_|.
-  // This should not be modified after |used_|.
-  base::MessageLoopForIO* io_loop_;  // Protected by |lock_|.
-  base::ThreadChecker thread_checker_;
+  std::set<OCSPRequestSession*> requests_;
+  scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(OCSPIOLoop);
 };
@@ -195,10 +170,9 @@ class OCSPRequestSession
       : url_(url),
         http_request_method_(http_request_method),
         timeout_(timeout),
-        buffer_(new IOBuffer(kRecvBufferSize)),
+        buffer_(base::MakeRefCounted<IOBuffer>(kRecvBufferSize)),
         response_code_(-1),
         cv_(&lock_),
-        io_loop_(NULL),
         finished_(false) {}
 
   void SetPostData(const char* http_data, PRUint32 http_data_len,
@@ -216,9 +190,9 @@ class OCSPRequestSession
 
   void Start() {
     // At this point, it runs on worker thread.
-    // |io_loop_| was initialized to be NULL in constructor, and
-    // set only in StartURLRequest, so no need to lock |lock_| here.
-    DCHECK(!io_loop_);
+    // |io_task_runner_| is only initialized in StartURLRequest, so no need to
+    // lock |lock_| here.
+    DCHECK(!io_task_runner_);
     g_ocsp_io_loop.Get().PostTaskToIOLoop(
         FROM_HERE,
         base::Bind(&OCSPRequestSession::StartURLRequest, this));
@@ -229,7 +203,7 @@ class OCSPRequestSession
   }
 
   void Cancel() {
-    // IO thread may set |io_loop_| to NULL, so protect by |lock_|.
+    // IO thread may reset |io_task_runner_|, so protect by |lock_|.
     base::AutoLock autolock(lock_);
     CancelLocked();
   }
@@ -294,7 +268,7 @@ class OCSPRequestSession
                           const RedirectInfo& redirect_info,
                           bool* defer_redirect) override {
     DCHECK_EQ(request_.get(), request);
-    DCHECK_EQ(base::MessageLoopForIO::current(), io_loop_);
+    DCHECK(io_task_runner_->BelongsToCurrentThread());
 
     if (!redirect_info.new_url.SchemeIs("http")) {
       // Prevent redirects to non-HTTP schemes, including HTTPS. This matches
@@ -305,7 +279,7 @@ class OCSPRequestSession
 
   void OnResponseStarted(URLRequest* request, int net_error) override {
     DCHECK_EQ(request_.get(), request);
-    DCHECK_EQ(base::MessageLoopForIO::current(), io_loop_);
+    DCHECK(io_task_runner_->BelongsToCurrentThread());
     DCHECK_NE(ERR_IO_PENDING, net_error);
 
     int bytes_read = 0;
@@ -320,7 +294,7 @@ class OCSPRequestSession
 
   void OnReadCompleted(URLRequest* request, int bytes_read) override {
     DCHECK_EQ(request_.get(), request);
-    DCHECK_EQ(base::MessageLoopForIO::current(), io_loop_);
+    DCHECK(io_task_runner_->BelongsToCurrentThread());
 
     while (bytes_read > 0) {
       data_.append(buffer_->data(), bytes_read);
@@ -333,7 +307,7 @@ class OCSPRequestSession
       {
         base::AutoLock autolock(lock_);
         finished_ = true;
-        io_loop_ = NULL;
+        io_task_runner_ = nullptr;
       }
       cv_.Signal();
       Release();  // Balanced with StartURLRequest().
@@ -345,8 +319,8 @@ class OCSPRequestSession
 #ifndef NDEBUG
     {
       base::AutoLock autolock(lock_);
-      if (io_loop_)
-        DCHECK_EQ(base::MessageLoopForIO::current(), io_loop_);
+      if (io_task_runner_)
+        DCHECK(io_task_runner_->BelongsToCurrentThread());
     }
 #endif
     if (request_) {
@@ -355,7 +329,7 @@ class OCSPRequestSession
       {
         base::AutoLock autolock(lock_);
         finished_ = true;
-        io_loop_ = NULL;
+        io_task_runner_ = nullptr;
       }
       cv_.Signal();
       Release();  // Balanced with StartURLRequest().
@@ -370,14 +344,14 @@ class OCSPRequestSession
     // a reference to this object, and so that thread doesn't need to lock
     // |lock_| here.
     DCHECK(!request_);
-    DCHECK(!io_loop_);
+    DCHECK(!io_task_runner_);
   }
 
   // Must call this method while holding |lock_|.
   void CancelLocked() {
     lock_.AssertAcquired();
-    if (io_loop_) {
-      io_loop_->task_runner()->PostTask(
+    if (io_task_runner_) {
+      io_task_runner_->PostTask(
           FROM_HERE, base::Bind(&OCSPRequestSession::CancelURLRequest, this));
     }
   }
@@ -395,8 +369,9 @@ class OCSPRequestSession
 
     {
       base::AutoLock autolock(lock_);
-      DCHECK(!io_loop_);
-      io_loop_ = base::MessageLoopForIO::current();
+      DCHECK(!io_task_runner_);
+      DCHECK(base::MessageLoopCurrentForIO::IsSet());
+      io_task_runner_ = base::ThreadTaskRunnerHandle::Get();
       g_ocsp_io_loop.Get().AddRequest(this);
     }
 
@@ -416,7 +391,7 @@ class OCSPRequestSession
           destination: OTHER
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting: "This feature cannot be disabled by settings."
           policy_exception_justification: "Not implemented."
         })");
@@ -462,11 +437,13 @@ class OCSPRequestSession
   scoped_refptr<HttpResponseHeaders> response_headers_;
   std::string data_;              // Results of the request
 
-  // |lock_| protects |finished_| and |io_loop_|.
+  // |lock_| protects |finished_| and |io_task_runner_|.
   mutable base::Lock lock_;
   base::ConditionVariable cv_;
 
-  base::MessageLoop* io_loop_;  // Message loop of the IO thread
+  // TaskRunner for the IO thread. Set when StartURLRequest() is invoked (on the
+  // IO thread).
+  scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
   bool finished_;
 
   DISALLOW_COPY_AND_ASSIGN(OCSPRequestSession);
@@ -477,7 +454,7 @@ class OCSPServerSession {
  public:
   OCSPServerSession(const char* host, PRUint16 port)
       : host_and_port_(host, port) {}
-  ~OCSPServerSession() {}
+  ~OCSPServerSession() = default;
 
   OCSPRequestSession* CreateRequest(const char* http_protocol_variant,
                                     const char* path_and_query_string,
@@ -515,22 +492,14 @@ class OCSPServerSession {
   DISALLOW_COPY_AND_ASSIGN(OCSPServerSession);
 };
 
-OCSPIOLoop::OCSPIOLoop()
-    : shutdown_(false),
-      used_(false),
-      io_loop_(NULL) {
-}
-
 void OCSPIOLoop::Shutdown() {
   // Safe to read outside lock since we only write on IO thread anyway.
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
 
-  // Prevent the worker thread from trying to access |io_loop_|.
+  // Prevent the worker thread from trying to access |io_task_runner_|.
   {
     base::AutoLock autolock(lock_);
-    io_loop_ = NULL;
-    used_ = false;
-    shutdown_ = true;
+    io_task_runner_ = nullptr;
   }
 
   CancelAllRequests();
@@ -540,11 +509,11 @@ void OCSPIOLoop::Shutdown() {
   pthread_mutex_unlock(&g_request_context_lock);
 }
 
-void OCSPIOLoop::PostTaskToIOLoop(
-    const tracked_objects::Location& from_here, const base::Closure& task) {
+void OCSPIOLoop::PostTaskToIOLoop(const base::Location& from_here,
+                                  const base::Closure& task) {
   base::AutoLock autolock(lock_);
-  if (io_loop_)
-    io_loop_->task_runner()->PostTask(from_here, task);
+  if (io_task_runner_)
+    io_task_runner_->PostTask(from_here, task);
 }
 
 void OCSPIOLoop::AddRequest(OCSPRequestSession* request) {
@@ -610,7 +579,7 @@ SECStatus OCSPCreateSession(const char* host, PRUint16 portnum,
   URLRequestContext* request_context = g_request_context;
   pthread_mutex_unlock(&g_request_context_lock);
   if (request_context == NULL) {
-    LOG(ERROR) << "No URLRequestContext for NSS HTTP handler. host: " << host;
+    LOG(INFO) << "No URLRequestContext for NSS HTTP handler. host: " << host;
     // The application failed to call SetURLRequestContextForNSSHttpIO or
     // has already called ShutdownNSSHttpIO, so we can't create and use
     // URLRequest.  PR_NOT_IMPLEMENTED_ERROR is not an accurate error
@@ -790,14 +759,16 @@ const unsigned char network_solutions_ca_name[] = {
   0x65, 0x72, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x65,
   0x20, 0x41, 0x75, 0x74, 0x68, 0x6f, 0x72, 0x69, 0x74, 0x79
 };
-const unsigned int network_solutions_ca_name_len = 100;
+const unsigned int network_solutions_ca_name_len =
+    base::size(network_solutions_ca_name);
 
 // This CA is an intermediate CA, subordinate to UTN-USERFirst-Hardware.
 const unsigned char network_solutions_ca_key_id[] = {
   0x3c, 0x41, 0xe2, 0x8f, 0x08, 0x08, 0xa9, 0x4c, 0x25, 0x89,
   0x8d, 0x6d, 0xc5, 0x38, 0xd0, 0xfc, 0x85, 0x8c, 0x62, 0x17
 };
-const unsigned int network_solutions_ca_key_id_len = 20;
+const unsigned int network_solutions_ca_key_id_len =
+    base::size(network_solutions_ca_key_id);
 
 // This CA is a root CA.  It is also cross-certified by
 // UTN-USERFirst-Hardware.
@@ -805,7 +776,8 @@ const unsigned char network_solutions_ca_key_id2[] = {
   0x21, 0x30, 0xc9, 0xfb, 0x00, 0xd7, 0x4e, 0x98, 0xda, 0x87,
   0xaa, 0x2a, 0xd0, 0xa7, 0x2e, 0xb1, 0x40, 0x31, 0xa7, 0x4c
 };
-const unsigned int network_solutions_ca_key_id2_len = 20;
+const unsigned int network_solutions_ca_key_id2_len =
+    base::size(network_solutions_ca_key_id2);
 
 // An entry in our OCSP responder table.  |issuer| and |issuer_key_id| are
 // the key.  |ocsp_url| is the value.
@@ -846,12 +818,12 @@ const OCSPResponderTableEntry g_ocsp_responder_table[] = {
 
 char* GetAlternateOCSPAIAInfo(CERTCertificate *cert) {
   if (cert && !cert->isRoot && cert->authKeyID) {
-    for (unsigned int i=0; i < arraysize(g_ocsp_responder_table); i++) {
-      if (SECITEM_CompareItem(&g_ocsp_responder_table[i].issuer,
-                              &cert->derIssuer) == SECEqual &&
-          SECITEM_CompareItem(&g_ocsp_responder_table[i].issuer_key_id,
+    for (const auto& responder : g_ocsp_responder_table) {
+      if (SECITEM_CompareItem(&responder.issuer, &cert->derIssuer) ==
+              SECEqual &&
+          SECITEM_CompareItem(&responder.issuer_key_id,
                               &cert->authKeyID->keyID) == SECEqual) {
-        return PORT_Strdup(g_ocsp_responder_table[i].ocsp_url);
+        return PORT_Strdup(responder.ocsp_url);
       }
     }
   }
@@ -861,30 +833,10 @@ char* GetAlternateOCSPAIAInfo(CERTCertificate *cert) {
 
 }  // anonymous namespace
 
-void SetMessageLoopForNSSHttpIO() {
-  // Must have a MessageLoopForIO.
-  DCHECK(base::MessageLoopForIO::current());
-
-  bool used = g_ocsp_io_loop.Get().used();
-
-  // Should not be called when g_ocsp_io_loop has already been used.
-  DCHECK(!used);
-}
-
 void EnsureNSSHttpIOInit() {
-  g_ocsp_io_loop.Get().StartUsing();
   g_ocsp_nss_initialization.Get();
 }
 
-void ShutdownNSSHttpIO() {
-  g_ocsp_io_loop.Get().Shutdown();
-}
-
-void ResetNSSHttpIOForTesting() {
-  g_ocsp_io_loop.Get().ReuseForTesting();
-}
-
-// This function would be called before NSS initialization.
 void SetURLRequestContextForNSSHttpIO(URLRequestContext* request_context) {
   pthread_mutex_lock(&g_request_context_lock);
   if (request_context) {
@@ -892,6 +844,12 @@ void SetURLRequestContextForNSSHttpIO(URLRequestContext* request_context) {
   }
   g_request_context = request_context;
   pthread_mutex_unlock(&g_request_context_lock);
+
+  if (request_context) {
+    g_ocsp_io_loop.Get().StartUsing();
+  } else {
+    g_ocsp_io_loop.Get().Shutdown();
+  }
 }
 
 }  // namespace net

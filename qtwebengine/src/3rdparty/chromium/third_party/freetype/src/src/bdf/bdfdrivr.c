@@ -41,14 +41,14 @@ THE SOFTWARE.
 #include "bdferror.h"
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* The macro FT_COMPONENT is used in trace mode.  It is an implicit      */
-  /* parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log  */
-  /* messages during execution.                                            */
-  /*                                                                       */
+  /**************************************************************************
+   *
+   * The macro FT_COMPONENT is used in trace mode.  It is an implicit
+   * parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log
+   * messages during execution.
+   */
 #undef  FT_COMPONENT
-#define FT_COMPONENT  trace_bdfdriver
+#define FT_COMPONENT  bdfdriver
 
 
   typedef struct  BDF_CMapRec_
@@ -99,14 +99,17 @@ THE SOFTWARE.
 
     min = 0;
     max = cmap->num_encodings;
+    mid = ( min + max ) >> 1;
 
     while ( min < max )
     {
       FT_ULong  code;
 
 
-      mid  = ( min + max ) >> 1;
-      code = (FT_ULong)encodings[mid].enc;
+      if ( mid > max || mid < min )
+        mid = ( min + max ) >> 1;
+
+      code = encodings[mid].enc;
 
       if ( charcode == code )
       {
@@ -120,6 +123,9 @@ THE SOFTWARE.
         max = mid;
       else
         min = mid + 1;
+
+      /* prediction in a continuous block */
+      mid += charcode - code;
     }
 
     return result;
@@ -139,14 +145,17 @@ THE SOFTWARE.
 
     min = 0;
     max = cmap->num_encodings;
+    mid = ( min + max ) >> 1;
 
     while ( min < max )
     {
       FT_ULong  code; /* same as BDF_encoding_el.enc */
 
 
-      mid  = ( min + max ) >> 1;
-      code = (FT_ULong)encodings[mid].enc;
+      if ( mid > max || mid < min )
+        mid = ( min + max ) >> 1;
+
+      code = encodings[mid].enc;
 
       if ( charcode == code )
       {
@@ -160,12 +169,15 @@ THE SOFTWARE.
         max = mid;
       else
         min = mid + 1;
+
+      /* prediction in a continuous block */
+      mid += charcode - code;
     }
 
     charcode = 0;
     if ( min < cmap->num_encodings )
     {
-      charcode = (FT_ULong)encodings[min].enc;
+      charcode = encodings[min].enc;
       result   = encodings[min].glyph + 1;
     }
 
@@ -401,8 +413,7 @@ THE SOFTWARE.
       bdfface->face_index = 0;
 
       bdfface->face_flags |= FT_FACE_FLAG_FIXED_SIZES |
-                             FT_FACE_FLAG_HORIZONTAL  |
-                             FT_FACE_FLAG_FAST_GLYPHS;
+                             FT_FACE_FLAG_HORIZONTAL;
 
       prop = bdf_get_font_property( font, "SPACING" );
       if ( prop && prop->format == BDF_ATOM                             &&
@@ -437,6 +448,7 @@ THE SOFTWARE.
       {
         FT_Bitmap_Size*  bsize = bdfface->available_sizes;
         FT_Short         resolution_x = 0, resolution_y = 0;
+        long             value;
 
 
         FT_ZERO( bsize );
@@ -500,6 +512,17 @@ THE SOFTWARE.
                                      64 * 7200,
                                      72270L );
         }
+        else if ( font->point_size )
+        {
+          if ( font->point_size > 0x7FFF )
+          {
+            bsize->size = 0x7FFF;
+            FT_TRACE0(( "BDF_Face_Init: clamping point size to value %d\n",
+                        bsize->size ));
+          }
+          else
+            bsize->size = (FT_Pos)font->point_size << 6;
+        }
         else
         {
           /* this is a heuristical value */
@@ -525,36 +548,44 @@ THE SOFTWARE.
 
         prop = bdf_get_font_property( font, "RESOLUTION_X" );
         if ( prop )
+          value = prop->value.l;
+        else
+          value = (long)font->resolution_x;
+        if ( value )
         {
 #ifdef FT_DEBUG_LEVEL_TRACE
-          if ( prop->value.l < 0 )
+          if ( value < 0 )
             FT_TRACE0(( "BDF_Face_Init: negative X resolution\n" ));
 #endif
-          if ( prop->value.l > 0x7FFF || prop->value.l < -0x7FFF )
+          if ( value > 0x7FFF || value < -0x7FFF )
           {
             resolution_x = 0x7FFF;
             FT_TRACE0(( "BDF_Face_Init: clamping X resolution to value %d\n",
                         resolution_x ));
           }
           else
-            resolution_x = FT_ABS( (FT_Short)prop->value.l );
+            resolution_x = FT_ABS( (FT_Short)value );
         }
 
         prop = bdf_get_font_property( font, "RESOLUTION_Y" );
         if ( prop )
+          value = prop->value.l;
+        else
+          value = (long)font->resolution_y;
+        if ( value )
         {
 #ifdef FT_DEBUG_LEVEL_TRACE
-          if ( prop->value.l < 0 )
+          if ( value < 0 )
             FT_TRACE0(( "BDF_Face_Init: negative Y resolution\n" ));
 #endif
-          if ( prop->value.l > 0x7FFF || prop->value.l < -0x7FFF )
+          if ( value > 0x7FFF || value < -0x7FFF )
           {
             resolution_y = 0x7FFF;
             FT_TRACE0(( "BDF_Face_Init: clamping Y resolution to value %d\n",
                         resolution_y ));
           }
           else
-            resolution_y = FT_ABS( (FT_Short)prop->value.l );
+            resolution_y = FT_ABS( (FT_Short)value );
         }
 
         if ( bsize->y_ppem == 0 )
@@ -793,7 +824,7 @@ THE SOFTWARE.
 
     bitmap->rows  = glyph.bbx.height;
     bitmap->width = glyph.bbx.width;
-    if ( glyph.bpr > INT_MAX )
+    if ( glyph.bpr > FT_INT_MAX )
       FT_TRACE1(( "BDF_Glyph_Load: too large pitch %d is truncated\n",
                    glyph.bpr ));
     bitmap->pitch = (int)glyph.bpr; /* same as FT_Bitmap.pitch */
@@ -843,7 +874,7 @@ THE SOFTWARE.
 
  /*
   *
-  *  BDF SERVICE
+  * BDF SERVICE
   *
   */
 
@@ -919,7 +950,7 @@ THE SOFTWARE.
 
  /*
   *
-  *  SERVICES LIST
+  * SERVICES LIST
   *
   */
 

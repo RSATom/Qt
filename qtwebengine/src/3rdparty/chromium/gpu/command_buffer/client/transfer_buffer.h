@@ -11,43 +11,36 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
+#include "base/unguessable_token.h"
 #include "gpu/command_buffer/client/ring_buffer.h"
 #include "gpu/command_buffer/common/buffer.h"
-#include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/gpu_export.h"
-
-namespace base {
-
-class SharedMemoryHandle;
-
-}  // namespace base
 
 namespace gpu {
 
 class CommandBufferHelper;
+template <typename>
+class ScopedResultPtr;
 
 // Interface for managing the transfer buffer.
 class GPU_EXPORT TransferBufferInterface {
  public:
-  TransferBufferInterface() { }
-  virtual ~TransferBufferInterface() { }
+  TransferBufferInterface() = default;
+  virtual ~TransferBufferInterface() = default;
 
-  // Returns the shared memory's handle when the back end is base::SharedMemory.
-  // Otherwise, this returns an invalid handle.
-  virtual base::SharedMemoryHandle shared_memory_handle() const = 0;
+  // Returns 128-bit GUID of the shared memory's region when the back end is
+  // base::UnsafeSharedMemoryRegion. Otherwise, this returns an empty GUID.
+  virtual base::UnguessableToken shared_memory_guid() const = 0;
 
-  virtual bool Initialize(
-      unsigned int buffer_size,
-      unsigned int result_size,
-      unsigned int min_buffer_size,
-      unsigned int max_buffer_size,
-      unsigned int alignment,
-      unsigned int size_to_flush) = 0;
+  virtual bool Initialize(unsigned int buffer_size,
+                          unsigned int result_size,
+                          unsigned int min_buffer_size,
+                          unsigned int max_buffer_size,
+                          unsigned int alignment) = 0;
 
   virtual int GetShmId() = 0;
-  virtual void* GetResultBuffer() = 0;
-  virtual int GetResultOffset() = 0;
 
   virtual void Free() = 0;
 
@@ -69,6 +62,21 @@ class GPU_EXPORT TransferBufferInterface {
   virtual unsigned int GetSize() const = 0;
 
   virtual unsigned int GetFreeSize() const = 0;
+
+  virtual unsigned int GetFragmentedFreeSize() const = 0;
+
+  virtual void ShrinkLastBlock(unsigned int new_size) = 0;
+
+ protected:
+  template <typename>
+  friend class ScopedResultPtr;
+  // Use ScopedResultPtr instead of calling these directly. The acquire/release
+  // semantics allow TransferBuffer to detect if there is an outstanding result
+  // pointer when the buffer is resized, which would otherwise cause a
+  // use-after-free bug.
+  virtual void* AcquireResultBuffer() = 0;
+  virtual void ReleaseResultBuffer() = 0;
+  virtual int GetResultOffset() = 0;
 };
 
 // Class that manages the transfer buffer.
@@ -78,15 +86,15 @@ class GPU_EXPORT TransferBuffer : public TransferBufferInterface {
   ~TransferBuffer() override;
 
   // Overridden from TransferBufferInterface.
-  base::SharedMemoryHandle shared_memory_handle() const override;
+  base::UnguessableToken shared_memory_guid() const override;
   bool Initialize(unsigned int default_buffer_size,
                   unsigned int result_size,
                   unsigned int min_buffer_size,
                   unsigned int max_buffer_size,
-                  unsigned int alignment,
-                  unsigned int size_to_flush) override;
+                  unsigned int alignment) override;
   int GetShmId() override;
-  void* GetResultBuffer() override;
+  void* AcquireResultBuffer() override;
+  void ReleaseResultBuffer() override;
   int GetResultOffset() override;
   void Free() override;
   bool HaveBuffer() const override;
@@ -97,19 +105,32 @@ class GPU_EXPORT TransferBuffer : public TransferBufferInterface {
   void FreePendingToken(void* p, unsigned int token) override;
   unsigned int GetSize() const override;
   unsigned int GetFreeSize() const override;
+  unsigned int GetFragmentedFreeSize() const override;
+  void ShrinkLastBlock(unsigned int new_size) override;
 
   // These are for testing.
   unsigned int GetCurrentMaxAllocationWithoutRealloc() const;
   unsigned int GetMaxAllocation() const;
 
+  // We will attempt to shrink the ring buffer once the number of bytes
+  // allocated reaches this threshold times the high water mark.
+  static const int kShrinkThreshold = 120;
+
  private:
   // Tries to reallocate the ring buffer if it's not large enough for size.
-  void ReallocateRingBuffer(unsigned int size);
+  void ReallocateRingBuffer(unsigned int size, bool shrink = false);
 
   void AllocateRingBuffer(unsigned int size);
 
+  void ShrinkOrExpandRingBufferIfNecessary(unsigned int size);
+
+  // Returns the number of bytes that are still in use in ring buffers that we
+  // previously freed.
+  unsigned int GetPreviousRingBufferUsedBytes();
+
   CommandBufferHelper* helper_;
   std::unique_ptr<RingBuffer> ring_buffer_;
+  base::circular_deque<std::unique_ptr<RingBuffer>> previous_ring_buffers_;
 
   // size reserved for results
   unsigned int result_size_;
@@ -123,14 +144,17 @@ class GPU_EXPORT TransferBuffer : public TransferBufferInterface {
   // max size we'll let the buffer grow
   unsigned int max_buffer_size_;
 
+  // Size of the currently allocated ring buffer.
+  unsigned int last_allocated_size_ = 0;
+
+  // The size to shrink the ring buffer to next time shrinking happens.
+  unsigned int high_water_mark_ = 0;
+
   // alignment for allocations
   unsigned int alignment_;
 
-  // Size at which to do an async flush. 0 = never.
-  unsigned int size_to_flush_;
-
-  // Number of bytes since we last flushed.
-  unsigned int bytes_since_last_flush_;
+  // Number of bytes since we last attempted to shrink the ring buffer.
+  unsigned int bytes_since_last_shrink_ = 0;
 
   // the current buffer.
   scoped_refptr<gpu::Buffer> buffer_;
@@ -146,16 +170,19 @@ class GPU_EXPORT TransferBuffer : public TransferBufferInterface {
 
   // false if we failed to allocate min_buffer_size
   bool usable_;
+
+  // While a ScopedResultPtr exists, we can't resize the transfer buffer. Only
+  // one ScopedResultPtr should exist at a time. This tracks whether one exists.
+  bool outstanding_result_pointer_ = false;
 };
 
 // A class that will manage the lifetime of a transferbuffer allocation.
 class GPU_EXPORT ScopedTransferBufferPtr {
  public:
-  ScopedTransferBufferPtr(
-      unsigned int size,
-      CommandBufferHelper* helper,
-      TransferBufferInterface* transfer_buffer)
-      : buffer_(NULL),
+  ScopedTransferBufferPtr(unsigned int size,
+                          CommandBufferHelper* helper,
+                          TransferBufferInterface* transfer_buffer)
+      : buffer_(nullptr),
         size_(0),
         helper_(helper),
         transfer_buffer_(transfer_buffer) {
@@ -165,7 +192,7 @@ class GPU_EXPORT ScopedTransferBufferPtr {
   // Constructs an empty and invalid allocation that should be Reset() later.
   ScopedTransferBufferPtr(CommandBufferHelper* helper,
                           TransferBufferInterface* transfer_buffer)
-      : buffer_(NULL),
+      : buffer_(nullptr),
         size_(0),
         helper_(helper),
         transfer_buffer_(transfer_buffer) {}
@@ -174,9 +201,9 @@ class GPU_EXPORT ScopedTransferBufferPtr {
     Release();
   }
 
-  bool valid() const {
-    return buffer_ != NULL;
-  }
+  ScopedTransferBufferPtr(ScopedTransferBufferPtr&& other);
+
+  bool valid() const { return buffer_ != nullptr; }
 
   unsigned int size() const {
     return size_;
@@ -194,11 +221,17 @@ class GPU_EXPORT ScopedTransferBufferPtr {
     return buffer_;
   }
 
+  // Returns true if |memory| lies inside this buffer.
+  bool BelongsToBuffer(char* memory) const;
+
   void Release();
 
   void Discard();
 
   void Reset(unsigned int new_size);
+
+  // Shrinks this transfer buffer to a given size.
+  void Shrink(unsigned int new_size);
 
  private:
   void* buffer_;
@@ -225,6 +258,42 @@ class ScopedTransferBufferArray : public ScopedTransferBufferPtr {
   unsigned int num_elements() const {
     return size() / sizeof(T);
   }
+};
+
+// ScopedResultPtr is a move-only smart pointer that calls AcquireResultBuffer
+// and ReleaseResultBuffer for you.
+template <typename T>
+class ScopedResultPtr {
+ public:
+  explicit ScopedResultPtr(TransferBufferInterface* tb)
+      : result_(static_cast<T*>(tb->AcquireResultBuffer())),
+        transfer_buffer_(tb) {}
+  ~ScopedResultPtr() {
+    if (transfer_buffer_)
+      transfer_buffer_->ReleaseResultBuffer();
+  }
+
+  int offset() const { return transfer_buffer_->GetResultOffset(); }
+
+  // Make this a move-only class like unique_ptr.
+  DISALLOW_COPY_AND_ASSIGN(ScopedResultPtr);
+  ScopedResultPtr(ScopedResultPtr<T>&& other) { *this = std::move(other); }
+  ScopedResultPtr& operator=(ScopedResultPtr<T>&& other) {
+    this->result_ = other.result_;
+    this->transfer_buffer_ = other.transfer_buffer_;
+    other.result_ = nullptr;
+    other.transfer_buffer_ = nullptr;
+    return *this;
+  };
+
+  // Dereferencing behaviors
+  T& operator*() const { return *result_; }
+  T* operator->() const { return result_; }
+  explicit operator bool() { return result_; }
+
+ private:
+  T* result_;
+  TransferBufferInterface* transfer_buffer_;
 };
 
 }  // namespace gpu

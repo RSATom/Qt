@@ -65,11 +65,9 @@ class GPU_EXPORT CommandBuffer {
     std::string message;
   };
 
-  CommandBuffer() {
-  }
+  CommandBuffer() = default;
 
-  virtual ~CommandBuffer() {
-  }
+  virtual ~CommandBuffer() = default;
 
   // Check if a value is between a start and end value, inclusive, allowing
   // for wrapping if start > end.
@@ -112,10 +110,12 @@ class GPU_EXPORT CommandBuffer {
 
   // Create a transfer buffer of the given size. Returns its ID or -1 on
   // error.
-  virtual scoped_refptr<gpu::Buffer> CreateTransferBuffer(size_t size,
+  virtual scoped_refptr<gpu::Buffer> CreateTransferBuffer(uint32_t size,
                                                           int32_t* id) = 0;
 
   // Destroy a transfer buffer. The ID must be positive.
+  // An ordering barrier must be placed after any commands that use the buffer
+  // before it is safe to call this function to destroy it.
   virtual void DestroyTransferBuffer(int32_t id) = 0;
 
  private:

@@ -8,28 +8,28 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/account_info.h"
 #include "components/signin/core/browser/account_tracker_service.h"
+#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_client.h"
-#include "components/signin/core/common/signin_pref_names.h"
-#include "components/signin/core/common/signin_switches.h"
+#include "components/signin/core/browser/signin_pref_names.h"
+#include "components/signin/core/browser/signin_switches.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_urls.h"
 
-using namespace signin_internals_util;
-
 SigninManagerBase::SigninManagerBase(
     SigninClient* client,
+    ProfileOAuth2TokenService* token_service,
     AccountTrackerService* account_tracker_service)
     : client_(client),
+      token_service_(token_service),
       account_tracker_service_(account_tracker_service),
       initialized_(false),
       weak_pointer_factory_(this) {
@@ -40,29 +40,23 @@ SigninManagerBase::SigninManagerBase(
 SigninManagerBase::~SigninManagerBase() {}
 
 // static
-void SigninManagerBase::RegisterProfilePrefs(
-    user_prefs::PrefRegistrySyncable* registry) {
+void SigninManagerBase::RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterStringPref(prefs::kGoogleServicesHostedDomain,
                                std::string());
   registry->RegisterStringPref(prefs::kGoogleServicesLastAccountId,
                                std::string());
   registry->RegisterStringPref(prefs::kGoogleServicesLastUsername,
                                std::string());
-  registry->RegisterInt64Pref(
-      prefs::kGoogleServicesRefreshTokenAnnotateScheduledTime,
-      base::Time().ToInternalValue());
-  registry->RegisterStringPref(prefs::kGoogleServicesSigninScopedDeviceId,
-                               std::string());
   registry->RegisterStringPref(prefs::kGoogleServicesAccountId, std::string());
   registry->RegisterStringPref(prefs::kGoogleServicesUserAccountId,
                                std::string());
   registry->RegisterBooleanPref(prefs::kAutologinEnabled, true);
-  registry->RegisterBooleanPref(prefs::kReverseAutologinEnabled, true);
   registry->RegisterListPref(prefs::kReverseAutologinRejectedEmailList,
-                             base::MakeUnique<base::ListValue>());
+                             std::make_unique<base::ListValue>());
   registry->RegisterBooleanPref(prefs::kSigninAllowed, true);
   registry->RegisterInt64Pref(prefs::kSignedInTime,
                               base::Time().ToInternalValue());
+  registry->RegisterBooleanPref(prefs::kSignedInWithCredentialProvider, false);
 
   // Deprecated prefs: will be removed in a future release.
   registry->RegisterStringPref(prefs::kGoogleServicesUsername, std::string());
@@ -154,7 +148,12 @@ void SigninManagerBase::Initialize(PrefService* local_state) {
     }
     SetAuthenticatedAccountId(account_id);
   }
+  FinalizeInitBeforeLoadingRefreshTokens(local_state);
+  token_service()->LoadCredentials(GetAuthenticatedAccountId());
 }
+
+void SigninManagerBase::FinalizeInitBeforeLoadingRefreshTokens(
+    PrefService* local_state) {}
 
 bool SigninManagerBase::IsInitialized() const { return initialized_; }
 
@@ -184,9 +183,9 @@ void SigninManagerBase::SetAuthenticatedAccountId(
     const std::string& account_id) {
   DCHECK(!account_id.empty());
   if (!authenticated_account_id_.empty()) {
-    DLOG_IF(ERROR, account_id != authenticated_account_id_)
-        << "Tried to change the authenticated id to something different: "
-        << "Current: " << authenticated_account_id_ << ", New: " << account_id;
+    DCHECK_EQ(account_id, authenticated_account_id_)
+        << "Changing the authenticated account while authenticated is not "
+           "allowed.";
     return;
   }
 
@@ -223,6 +222,10 @@ void SigninManagerBase::SetAuthenticatedAccountId(
   client_->GetPrefs()->CommitPendingWrite();
 }
 
+void SigninManagerBase::ClearAuthenticatedAccountId() {
+  authenticated_account_id_.clear();
+}
+
 bool SigninManagerBase::IsAuthenticated() const {
   return !authenticated_account_id_.empty();
 }
@@ -242,21 +245,4 @@ void SigninManagerBase::AddObserver(Observer* observer) {
 
 void SigninManagerBase::RemoveObserver(Observer* observer) {
   observer_list_.RemoveObserver(observer);
-}
-
-void SigninManagerBase::AddSigninDiagnosticsObserver(
-    SigninDiagnosticsObserver* observer) {
-  signin_diagnostics_observers_.AddObserver(observer);
-}
-
-void SigninManagerBase::RemoveSigninDiagnosticsObserver(
-    SigninDiagnosticsObserver* observer) {
-  signin_diagnostics_observers_.RemoveObserver(observer);
-}
-
-void SigninManagerBase::NotifyDiagnosticsObservers(
-    const TimedSigninStatusField& field,
-    const std::string& value) {
-  for (auto& observer : signin_diagnostics_observers_)
-    observer.NotifySigninValueChanged(field, value);
 }

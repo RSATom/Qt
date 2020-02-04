@@ -114,6 +114,7 @@ EVP_PKEY *PEM_read_bio_PrivateKey(BIO *bp, EVP_PKEY **x, pem_password_cb *cb,
         }
         p8inf = PKCS8_decrypt(p8, psbuf, klen);
         X509_SIG_free(p8);
+        OPENSSL_cleanse(psbuf, klen);
         if (!p8inf)
             goto p8err;
         ret = EVP_PKCS82PKEY(p8inf);
@@ -139,7 +140,6 @@ EVP_PKEY *PEM_read_bio_PrivateKey(BIO *bp, EVP_PKEY **x, pem_password_cb *cb,
 
  err:
     OPENSSL_free(nm);
-    OPENSSL_cleanse(data, len);
     OPENSSL_free(data);
     return (ret);
 }
@@ -155,31 +155,26 @@ int PEM_write_bio_PrivateKey(BIO *bp, EVP_PKEY *x, const EVP_CIPHER *enc,
 EVP_PKEY *PEM_read_PrivateKey(FILE *fp, EVP_PKEY **x, pem_password_cb *cb,
                               void *u)
 {
-    BIO *b;
-    EVP_PKEY *ret;
-
-    if ((b = BIO_new(BIO_s_file())) == NULL) {
+    BIO *b = BIO_new_fp(fp, BIO_NOCLOSE);
+    if (b == NULL) {
         OPENSSL_PUT_ERROR(PEM, ERR_R_BUF_LIB);
-        return (0);
+        return NULL;
     }
-    BIO_set_fp(b, fp, BIO_NOCLOSE);
-    ret = PEM_read_bio_PrivateKey(b, x, cb, u);
+    EVP_PKEY *ret = PEM_read_bio_PrivateKey(b, x, cb, u);
     BIO_free(b);
-    return (ret);
+    return ret;
 }
 
 int PEM_write_PrivateKey(FILE *fp, EVP_PKEY *x, const EVP_CIPHER *enc,
                          unsigned char *kstr, int klen,
                          pem_password_cb *cb, void *u)
 {
-    BIO *b;
-    int ret;
-
-    if ((b = BIO_new_fp(fp, BIO_NOCLOSE)) == NULL) {
+    BIO *b = BIO_new_fp(fp, BIO_NOCLOSE);
+    if (b == NULL) {
         OPENSSL_PUT_ERROR(PEM, ERR_R_BUF_LIB);
         return 0;
     }
-    ret = PEM_write_bio_PrivateKey(b, x, enc, kstr, klen, cb, u);
+    int ret = PEM_write_bio_PrivateKey(b, x, enc, kstr, klen, cb, u);
     BIO_free(b);
     return ret;
 }
@@ -212,16 +207,13 @@ DH *PEM_read_bio_DHparams(BIO *bp, DH **x, pem_password_cb *cb, void *u)
 #ifndef OPENSSL_NO_FP_API
 DH *PEM_read_DHparams(FILE *fp, DH **x, pem_password_cb *cb, void *u)
 {
-    BIO *b;
-    DH *ret;
-
-    if ((b = BIO_new(BIO_s_file())) == NULL) {
+    BIO *b = BIO_new_fp(fp, BIO_NOCLOSE);
+    if (b == NULL) {
         OPENSSL_PUT_ERROR(PEM, ERR_R_BUF_LIB);
-        return (0);
+        return NULL;
     }
-    BIO_set_fp(b, fp, BIO_NOCLOSE);
-    ret = PEM_read_bio_DHparams(b, x, cb, u);
+    DH *ret = PEM_read_bio_DHparams(b, x, cb, u);
     BIO_free(b);
-    return (ret);
+    return ret;
 }
 #endif

@@ -93,7 +93,7 @@ public:
     void itemDestroyed(QQuickItem *item) override;
     void itemGeometryChanged(QQuickItem *, QQuickGeometryChange change, const QRectF &diff) override;
 
-    void reposition() override;
+    QQuickPopupPositioner *getPositioner() override;
     bool prepareEnterTransition() override;
     bool prepareExitTransition() override;
     bool blockInput(QQuickItem *item, const QPointF &point) const override;
@@ -115,21 +115,23 @@ public:
     bool activateNextItem();
     bool activatePreviousItem();
 
+    QQuickMenuItem *firstEnabledMenuItem() const;
+
     static void contentData_append(QQmlListProperty<QObject> *prop, QObject *obj);
     static int contentData_count(QQmlListProperty<QObject> *prop);
     static QObject *contentData_at(QQmlListProperty<QObject> *prop, int index);
     static void contentData_clear(QQmlListProperty<QObject> *prop);
 
-    bool cascade;
-    int hoverTimer;
-    int currentIndex;
-    qreal overlap;
+    bool cascade = false;
+    int hoverTimer = 0;
+    int currentIndex = -1;
+    qreal overlap = 0;
     QPointer<QQuickMenu> parentMenu;
     QPointer<QQuickMenuItem> currentItem;
-    QQuickItem *contentItem; // TODO: cleanup
+    QQuickItem *contentItem = nullptr; // TODO: cleanup
     QVector<QObject *> contentData;
     QQmlObjectModel *contentModel;
-    QQmlComponent *delegate;
+    QQmlComponent *delegate = nullptr;
     QString title;
 };
 

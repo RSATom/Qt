@@ -1,7 +1,8 @@
-CONFIG += testcase
-TARGET = tst_qmlplugindump
-QT += testlib gui-private
-macx:CONFIG -= app_bundle
+TEMPLATE = subdirs
 
-DEFINES += QT_QMLTEST_DIR=\\\"$${_PRO_FILE_PWD_}\\\"
-SOURCES += tst_qmlplugindump.cpp
+SUBDIRS += \
+  tst_qmlplugindump.pro \
+  data/dumper/Dummy/dummy.pro \
+  data/dumper/Imports/imports.pro \
+  data/dumper/Versions/versions.pro \
+  data/dumper/ExtendedType/extendedtype.pro

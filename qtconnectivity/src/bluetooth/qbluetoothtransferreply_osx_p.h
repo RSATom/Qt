@@ -73,11 +73,11 @@ public:
                                QBluetoothTransferManager *parent);
     ~QBluetoothTransferReplyOSX();
 
-    TransferError error() const Q_DECL_OVERRIDE;
-    QString errorString() const Q_DECL_OVERRIDE;
+    TransferError error() const override;
+    QString errorString() const override;
 
-    bool isFinished() const Q_DECL_OVERRIDE;
-    bool isRunning() const Q_DECL_OVERRIDE;
+    bool isFinished() const override;
+    bool isRunning() const override;
 
 Q_SIGNALS:
     void error(QBluetoothTransferReply::TransferError lastError);

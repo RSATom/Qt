@@ -38,8 +38,6 @@
 **
 ****************************************************************************/
 
-#ifndef Q_QDOC
-
 #ifndef QOBJECTDEFS_H
 #error Do not include qobjectdefs_impl.h directly
 #include <QtCore/qnamespace.h>
@@ -114,13 +112,31 @@ namespace QtPrivate {
        The Functor<Func,N> struct is the helper to call a functor of N argument.
        its call function is the same as the FunctionPointer::call function.
      */
-    template <int...> struct IndexesList {};
-    template <typename IndexList, int Right> struct IndexesAppend;
-    template <int... Left, int Right> struct IndexesAppend<IndexesList<Left...>, Right>
-    { typedef IndexesList<Left..., Right> Value; };
-    template <int N> struct Indexes
-    { typedef typename IndexesAppend<typename Indexes<N - 1>::Value, N - 1>::Value Value; };
-    template <> struct Indexes<0> { typedef IndexesList<> Value; };
+    template<class T> using InvokeGenSeq = typename T::Type;
+
+    template<int...> struct IndexesList { using Type = IndexesList; };
+
+    template<int N, class S1, class S2> struct ConcatSeqImpl;
+
+    template<int N, int... I1, int... I2>
+    struct ConcatSeqImpl<N, IndexesList<I1...>, IndexesList<I2...>>
+        : IndexesList<I1..., (N + I2)...>{};
+
+    template<int N, class S1, class S2>
+    using ConcatSeq = InvokeGenSeq<ConcatSeqImpl<N, S1, S2>>;
+
+    template<int N> struct GenSeq;
+    template<int N> using makeIndexSequence = InvokeGenSeq<GenSeq<N>>;
+
+    template<int N>
+    struct GenSeq : ConcatSeq<N/2, makeIndexSequence<N/2>, makeIndexSequence<N - N/2>>{};
+
+    template<> struct GenSeq<0> : IndexesList<>{};
+    template<> struct GenSeq<1> : IndexesList<0>{};
+
+    template<int N>
+    struct Indexes { using Value = makeIndexSequence<N>; };
+
     template<typename Func> struct FunctionPointer { enum {ArgumentCount = -1, IsPointerToMemberFunction = false}; };
 
     template <typename, typename, typename, typename> struct FunctorCall;
@@ -372,14 +388,14 @@ namespace QtPrivate {
 
         inline int ref() Q_DECL_NOTHROW { return m_ref.ref(); }
         inline void destroyIfLastRef() Q_DECL_NOTHROW
-        { if (!m_ref.deref()) m_impl(Destroy, this, Q_NULLPTR, Q_NULLPTR, Q_NULLPTR); }
+        { if (!m_ref.deref()) m_impl(Destroy, this, nullptr, nullptr, nullptr); }
 
-        inline bool compare(void **a) { bool ret = false; m_impl(Compare, this, Q_NULLPTR, a, &ret); return ret; }
-        inline void call(QObject *r, void **a)  { m_impl(Call,    this, r, a, Q_NULLPTR); }
+        inline bool compare(void **a) { bool ret = false; m_impl(Compare, this, nullptr, a, &ret); return ret; }
+        inline void call(QObject *r, void **a)  { m_impl(Call,    this, r, a, nullptr); }
     protected:
         ~QSlotObjectBase() {}
     private:
-        Q_DISABLE_COPY(QSlotObjectBase)
+        Q_DISABLE_COPY_MOVE(QSlotObjectBase)
     };
 
     // implementation of QSlotObjectBase for which the slot is a pointer to member function of a QObject
@@ -446,4 +462,3 @@ namespace QtPrivate {
 
 QT_END_NAMESPACE
 
-#endif

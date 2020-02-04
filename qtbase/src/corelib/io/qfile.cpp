@@ -454,7 +454,13 @@ QFile::exists(const QString &fileName)
 
     \sa fileName(), setFileName()
 */
+QString QFile::symLinkTarget() const
+{
+    Q_D(const QFile);
+    return d->engine()->fileName(QAbstractFileEngine::LinkName);
+}
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -463,9 +469,9 @@ QFile::exists(const QString &fileName)
 QString
 QFile::readLink() const
 {
-    Q_D(const QFile);
-    return d->engine()->fileName(QAbstractFileEngine::LinkName);
+    return symLinkTarget();
 }
+#endif
 
 /*!
     \fn static QString QFile::symLinkTarget(const QString &fileName)
@@ -478,7 +484,12 @@ QFile::readLink() const
     This name may not represent an existing file; it is only a string.
     QFile::exists() returns \c true if the symlink points to an existing file.
 */
+QString QFile::symLinkTarget(const QString &fileName)
+{
+    return QFileInfo(fileName).symLinkTarget();
+}
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -487,8 +498,9 @@ QFile::readLink() const
 QString
 QFile::readLink(const QString &fileName)
 {
-    return QFileInfo(fileName).readLink();
+    return symLinkTarget(fileName);
 }
+#endif
 
 /*!
     Removes the file specified by fileName(). Returns \c true if successful;
@@ -676,8 +688,11 @@ QFile::rename(const QString &newName)
                 return !error;
             }
             close();
+            d->setError(QFile::RenameError,
+                        tr("Cannot open destination file: %1").arg(out.errorString()));
+        } else {
+            d->setError(QFile::RenameError, errorString());
         }
-        d->setError(QFile::RenameError, out.isOpen() ? errorString() : out.errorString());
     }
     return false;
 }
@@ -805,7 +820,7 @@ QFile::copy(const QString &newName)
                 if (error) {
                     out.close();
                     close();
-                    d->setError(QFile::CopyError, tr("Cannot open for output"));
+                    d->setError(QFile::CopyError, tr("Cannot open for output: %1").arg(out.errorString()));
                 } else {
                     if (!d->engine()->cloneTo(out.d_func()->engine())) {
                         char block[4096];
@@ -829,10 +844,16 @@ QFile::copy(const QString &newName)
                             error = true;
                         }
                     }
-                    if (!error && !out.rename(newName)) {
-                        error = true;
-                        close();
-                        d->setError(QFile::CopyError, tr("Cannot create %1 for output").arg(newName));
+
+                    if (!error) {
+                        // Sync to disk if possible. Ignore errors (e.g. not supported).
+                        d->fileEngine->syncToDisk();
+
+                        if (!out.rename(newName)) {
+                            error = true;
+                            close();
+                            d->setError(QFile::CopyError, tr("Cannot create %1 for output").arg(newName));
+                        }
                     }
 #ifdef QT_NO_TEMPORARYFILE
                     if (error)
@@ -893,9 +914,9 @@ bool QFile::open(OpenMode mode)
         qWarning("QFile::open: File (%s) already open", qPrintable(fileName()));
         return false;
     }
-    if (mode & Append)
+    // Either Append or NewOnly implies WriteOnly
+    if (mode & (Append | NewOnly))
         mode |= WriteOnly;
-
     unsetError();
     if ((mode & (ReadOnly | WriteOnly)) == 0) {
         qWarning("QIODevice::open: File access not specified");
@@ -965,7 +986,8 @@ bool QFile::open(FILE *fh, OpenMode mode, FileHandleFlags handleFlags)
         qWarning("QFile::open: File (%s) already open", qPrintable(fileName()));
         return false;
     }
-    if (mode & Append)
+    // Either Append or NewOnly implies WriteOnly
+    if (mode & (Append | NewOnly))
         mode |= WriteOnly;
     unsetError();
     if ((mode & (ReadOnly | WriteOnly)) == 0) {
@@ -1023,7 +1045,8 @@ bool QFile::open(int fd, OpenMode mode, FileHandleFlags handleFlags)
         qWarning("QFile::open: File (%s) already open", qPrintable(fileName()));
         return false;
     }
-    if (mode & Append)
+    // Either Append or NewOnly implies WriteOnly
+    if (mode & (Append | NewOnly))
         mode |= WriteOnly;
     unsetError();
     if ((mode & (ReadOnly | WriteOnly)) == 0) {

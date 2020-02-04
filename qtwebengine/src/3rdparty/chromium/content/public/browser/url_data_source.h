@@ -5,6 +5,7 @@
 #ifndef CONTENT_PUBLIC_BROWSER_URL_DATA_SOURCE_H_
 #define CONTENT_PUBLIC_BROWSER_URL_DATA_SOURCE_H_
 
+#include <memory>
 #include <string>
 
 #include "base/callback.h"
@@ -14,6 +15,7 @@
 #include "content/public/browser/resource_request_info.h"
 
 class GURL;
+
 namespace base {
 class RefCountedMemory;
 }
@@ -30,7 +32,8 @@ class ResourceContext;
 class CONTENT_EXPORT URLDataSource {
  public:
   // Adds a URL data source to |browser_context|.
-  static void Add(BrowserContext* browser_context, URLDataSource* source);
+  static void Add(BrowserContext* browser_context,
+                  std::unique_ptr<URLDataSource> source);
 
   virtual ~URLDataSource() {}
 
@@ -103,8 +106,8 @@ class CONTENT_EXPORT URLDataSource {
   // may be marginally better than disabling CSP outright.
   // Do not override this method without first contacting the chrome security
   // team.
-  // By default, "script-src chrome://resources 'self' 'unsafe-eval';" is added
-  // to CSP. Override to change this.
+  // By default, "script-src chrome://resources 'self';" is added to CSP.
+  // Override to change this.
   virtual std::string GetContentSecurityPolicyScriptSrc() const;
 
   // It is OK to override the following methods to a custom CSP directive

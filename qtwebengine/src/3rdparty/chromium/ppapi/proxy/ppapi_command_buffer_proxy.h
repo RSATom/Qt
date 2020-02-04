@@ -11,7 +11,6 @@
 #include <memory>
 
 #include "base/callback.h"
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "gpu/command_buffer/client/gpu_control.h"
 #include "gpu/command_buffer/common/command_buffer.h"
@@ -34,9 +33,10 @@ class PPAPI_PROXY_EXPORT PpapiCommandBufferProxy : public gpu::CommandBuffer,
                                                    public gpu::GpuControl {
  public:
   PpapiCommandBufferProxy(const HostResource& resource,
-                          PluginDispatcher* dispatcher,
+                          InstanceData::FlushInfo* flush_info,
+                          LockedSender* sender,
                           const gpu::Capabilities& capabilities,
-                          const SerializedHandle& shared_state,
+                          SerializedHandle shared_state,
                           gpu::CommandBufferId command_buffer_id);
   ~PpapiCommandBufferProxy() override;
 
@@ -49,36 +49,33 @@ class PPAPI_PROXY_EXPORT PpapiCommandBufferProxy : public gpu::CommandBuffer,
                                 int32_t start,
                                 int32_t end) override;
   void SetGetBuffer(int32_t transfer_buffer_id) override;
-  scoped_refptr<gpu::Buffer> CreateTransferBuffer(size_t size,
+  scoped_refptr<gpu::Buffer> CreateTransferBuffer(uint32_t size,
                                                   int32_t* id) override;
   void DestroyTransferBuffer(int32_t id) override;
 
   // gpu::GpuControl implementation:
   void SetGpuControlClient(gpu::GpuControlClient*) override;
-  gpu::Capabilities GetCapabilities() override;
+  const gpu::Capabilities& GetCapabilities() const override;
   int32_t CreateImage(ClientBuffer buffer,
                       size_t width,
-                      size_t height,
-                      unsigned internalformat) override;
+                      size_t height) override;
   void DestroyImage(int32_t id) override;
-  void SignalQuery(uint32_t query, const base::Closure& callback) override;
+  void SignalQuery(uint32_t query, base::OnceClosure callback) override;
+  void CreateGpuFence(uint32_t gpu_fence_id, ClientGpuFence source) override;
+  void GetGpuFence(uint32_t gpu_fence_id,
+                   base::OnceCallback<void(std::unique_ptr<gfx::GpuFence>)>
+                       callback) override;
   void SetLock(base::Lock*) override;
   void EnsureWorkVisible() override;
   gpu::CommandBufferNamespace GetNamespaceID() const override;
   gpu::CommandBufferId GetCommandBufferID() const override;
-  int32_t GetStreamId() const override;
-  void FlushOrderingBarrierOnStream(int32_t stream_id) override;
+  void FlushPendingWork() override;
   uint64_t GenerateFenceSyncRelease() override;
-  bool IsFenceSyncRelease(uint64_t release) override;
-  bool IsFenceSyncFlushed(uint64_t release) override;
-  bool IsFenceSyncFlushReceived(uint64_t release) override;
   bool IsFenceSyncReleased(uint64_t release) override;
   void SignalSyncToken(const gpu::SyncToken& sync_token,
-                       const base::Closure& callback) override;
-  void WaitSyncTokenHint(const gpu::SyncToken& sync_token) override;
+                       base::OnceClosure callback) override;
+  void WaitSyncToken(const gpu::SyncToken& sync_token) override;
   bool CanWaitUnverifiedSyncToken(const gpu::SyncToken& sync_token) override;
-  void AddLatencyInfo(
-      const std::vector<ui::LatencyInfo>& latency_info) override;
 
  private:
   bool Send(IPC::Message* msg);
@@ -96,14 +93,13 @@ class PPAPI_PROXY_EXPORT PpapiCommandBufferProxy : public gpu::CommandBuffer,
 
   gpu::Capabilities capabilities_;
   State last_state_;
-  std::unique_ptr<base::SharedMemory> shared_state_shm_;
+  base::WritableSharedMemoryMapping shared_state_mapping_;
 
   HostResource resource_;
-  PluginDispatcher* dispatcher_;
+  InstanceData::FlushInfo* flush_info_;
+  LockedSender* sender_;
 
   base::Closure channel_error_callback_;
-
-  InstanceData::FlushInfo *flush_info_;
 
   uint64_t next_fence_sync_release_;
   uint64_t pending_fence_sync_release_;

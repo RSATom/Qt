@@ -1,7 +1,7 @@
 TEMPLATE = app
 TARGET = geoflickr
 
-QT += qml quick network positioning
+QT += qml quick network positioning xmlpatterns
 SOURCES += qmllocationflickr.cpp
 
 RESOURCES += \

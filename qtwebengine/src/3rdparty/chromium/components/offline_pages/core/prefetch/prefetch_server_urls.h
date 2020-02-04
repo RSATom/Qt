@@ -12,6 +12,8 @@
 namespace offline_pages {
 
 extern const char kPrefetchServer[];
+extern const char kPrefetchExperimentHeaderName[];
+extern const char kPrefetchOperationHeaderName[];
 
 // Returns the URL to send a request to generate page bundle.
 GURL GeneratePageBundleRequestURL(version_info::Channel channel);
@@ -23,6 +25,9 @@ GURL GetOperationRequestURL(const std::string& name,
 // Returns the URL to download an archive.
 GURL PrefetchDownloadURL(const std::string& download_location,
                          version_info::Channel channel);
+
+// Returns the experiment header to be passed to the server.
+std::string PrefetchExperimentHeader();
 
 }  // namespace offline_pages
 

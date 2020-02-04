@@ -5,17 +5,21 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_bypass_stats.h"
 
 #include "base/callback.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_util.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_bypass_protocol.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_type_info.h"
+#include "components/data_reduction_proxy/core/common/uma_util.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
+#include "net/base/proxy_server.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
-#include "net/proxy/proxy_server.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 
@@ -27,31 +31,6 @@ const int kMinFailedRequestsWhenUnavailable = 1;
 const int kMaxSuccessfulRequestsWhenUnavailable = 0;
 const int kMaxFailedRequestsBeforeReset = 3;
 
-// Scheme of the data reduction proxy used.
-enum ProxyScheme {
-  PROXY_SCHEME_UNKNOWN = 0,
-  PROXY_SCHEME_HTTP,
-  PROXY_SCHEME_HTTPS,
-  PROXY_SCHEME_QUIC,
-  PROXY_SCHEME_MAX
-};
-
-// Converts net::ProxyServer::Scheme to type ProxyScheme.
-ProxyScheme ConvertNetProxySchemeToProxyScheme(
-    net::ProxyServer::Scheme scheme) {
-  switch (scheme) {
-    case net::ProxyServer::SCHEME_HTTP:
-      return PROXY_SCHEME_HTTP;
-    case net::ProxyServer::SCHEME_HTTPS:
-      return PROXY_SCHEME_HTTPS;
-    case net::ProxyServer::SCHEME_QUIC:
-      return PROXY_SCHEME_QUIC;
-    default:
-      NOTREACHED() << scheme;
-      return PROXY_SCHEME_UNKNOWN;
-  }
-}
-
 // Records a net error code that resulted in bypassing the data reduction
 // proxy (|is_primary| is true) or the data reduction proxy fallback.
 void RecordDataReductionProxyBypassOnNetworkError(
@@ -59,68 +38,23 @@ void RecordDataReductionProxyBypassOnNetworkError(
     const net::ProxyServer& proxy_server,
     int net_error) {
   if (is_primary) {
-    UMA_HISTOGRAM_SPARSE_SLOWLY(
-        "DataReductionProxy.BypassOnNetworkErrorPrimary",
-        std::abs(net_error));
+    base::UmaHistogramSparse("DataReductionProxy.BypassOnNetworkErrorPrimary",
+                             std::abs(net_error));
     return;
   }
-  UMA_HISTOGRAM_SPARSE_SLOWLY(
-      "DataReductionProxy.BypassOnNetworkErrorFallback",
-      std::abs(net_error));
+  base::UmaHistogramSparse("DataReductionProxy.BypassOnNetworkErrorFallback",
+                           std::abs(net_error));
 }
 
 }  // namespace
 
-// static
-void DataReductionProxyBypassStats::RecordDataReductionProxyBypassInfo(
-    bool is_primary,
-    bool bypass_all,
-    const net::ProxyServer& proxy_server,
-    DataReductionProxyBypassType bypass_type) {
-  if (bypass_all) {
-    if (is_primary) {
-      UMA_HISTOGRAM_ENUMERATION("DataReductionProxy.BlockTypePrimary",
-                                bypass_type, BYPASS_EVENT_TYPE_MAX);
-    } else {
-      UMA_HISTOGRAM_ENUMERATION("DataReductionProxy.BlockTypeFallback",
-                                bypass_type, BYPASS_EVENT_TYPE_MAX);
-    }
-  } else {
-    if (is_primary) {
-      UMA_HISTOGRAM_ENUMERATION("DataReductionProxy.BypassTypePrimary",
-                                bypass_type, BYPASS_EVENT_TYPE_MAX);
-    } else {
-      UMA_HISTOGRAM_ENUMERATION("DataReductionProxy.BypassTypeFallback",
-                                bypass_type, BYPASS_EVENT_TYPE_MAX);
-    }
-  }
-}
-
-// static
-void DataReductionProxyBypassStats::DetectAndRecordMissingViaHeaderResponseCode(
-    bool is_primary,
-    const net::HttpResponseHeaders& headers) {
-  if (HasDataReductionProxyViaHeader(headers, nullptr)) {
-    // The data reduction proxy via header is present, so don't record anything.
-    return;
-  }
-
-  if (is_primary) {
-    UMA_HISTOGRAM_SPARSE_SLOWLY(
-        "DataReductionProxy.MissingViaHeader.ResponseCode.Primary",
-        headers.response_code());
-  } else {
-    UMA_HISTOGRAM_SPARSE_SLOWLY(
-        "DataReductionProxy.MissingViaHeader.ResponseCode.Fallback",
-        headers.response_code());
-  }
-}
-
 DataReductionProxyBypassStats::DataReductionProxyBypassStats(
     DataReductionProxyConfig* config,
-    UnreachableCallback unreachable_callback)
+    UnreachableCallback unreachable_callback,
+    network::NetworkConnectionTracker* network_connection_tracker)
     : data_reduction_proxy_config_(config),
       unreachable_callback_(unreachable_callback),
+      network_connection_tracker_(network_connection_tracker),
       last_bypass_type_(BYPASS_EVENT_TYPE_MAX),
       triggering_request_(true),
       successful_requests_through_proxy_count_(0),
@@ -132,12 +66,12 @@ DataReductionProxyBypassStats::DataReductionProxyBypassStats(
 }
 
 DataReductionProxyBypassStats::~DataReductionProxyBypassStats() {
-  net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
+  network_connection_tracker_->RemoveNetworkConnectionObserver(this);
 }
 
 void DataReductionProxyBypassStats::InitializeOnIOThread() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
+  network_connection_tracker_->AddNetworkConnectionObserver(this);
 }
 
 void DataReductionProxyBypassStats::OnUrlRequestCompleted(
@@ -145,41 +79,25 @@ void DataReductionProxyBypassStats::OnUrlRequestCompleted(
     bool started,
     int net_error) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DataReductionProxyTypeInfo proxy_info;
+
+  base::Optional<DataReductionProxyTypeInfo> proxy_info =
+      data_reduction_proxy_config_->FindConfiguredDataReductionProxy(
+          request->proxy_server());
+
   // Ignore requests that did not use the data reduction proxy. The check for
   // LOAD_BYPASS_PROXY is necessary because the proxy_server() in the |request|
   // might still be set to the data reduction proxy if |request| was retried
   // over direct and a network error occurred while retrying it.
-  if (!data_reduction_proxy_config_->WasDataReductionProxyUsed(request,
-                                                               &proxy_info) ||
-      (request->load_flags() & net::LOAD_BYPASS_PROXY) != 0 ||
+  if (!proxy_info || (request->load_flags() & net::LOAD_BYPASS_PROXY) != 0 ||
       net_error != net::OK) {
     return;
   }
   successful_requests_through_proxy_count_++;
   NotifyUnavailabilityIfChanged();
 
-  // Report the success counts.
-  UMA_HISTOGRAM_COUNTS_100(
-      "DataReductionProxy.SuccessfulRequestCompletionCounts",
-      proxy_info.proxy_index);
-
-  DCHECK(request->proxy_server().host_port_pair().Equals(
-      proxy_info.proxy_servers.front().host_port_pair()));
-
-  // It is possible that the scheme of request->proxy_server() is different
-  // from the scheme of proxy_info.proxy_servers.front(). The former may be set
-  // to QUIC by the network stack, while the latter may be set to HTTPS.
-
-  UMA_HISTOGRAM_ENUMERATION(
-      "DataReductionProxy.ProxySchemeUsed",
-      ConvertNetProxySchemeToProxyScheme(request->proxy_server().scheme()),
-      PROXY_SCHEME_MAX);
-  if (request->load_flags() & net::LOAD_MAIN_FRAME_DEPRECATED) {
-    UMA_HISTOGRAM_COUNTS_100(
-        "DataReductionProxy.SuccessfulRequestCompletionCounts.MainFrame",
-        proxy_info.proxy_index);
-    }
+  LogSuccessfulProxyUMAs(
+      proxy_info.value(), request->proxy_server(),
+      request->load_flags() & net::LOAD_MAIN_FRAME_DEPRECATED);
 }
 
 void DataReductionProxyBypassStats::SetBypassType(
@@ -195,49 +113,37 @@ DataReductionProxyBypassStats::GetBypassType() const {
   return last_bypass_type_;
 }
 
-void DataReductionProxyBypassStats::RecordBytesHistograms(
-    const net::URLRequest& request,
-    bool data_reduction_proxy_enabled,
-    const net::ProxyConfig& data_reduction_proxy_config) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  RecordBypassedBytesHistograms(request, data_reduction_proxy_enabled,
-                                data_reduction_proxy_config);
-  RecordMissingViaHeaderBytes(request);
-}
-
 void DataReductionProxyBypassStats::OnProxyFallback(
     const net::ProxyServer& bypassed_proxy,
     int net_error) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DataReductionProxyTypeInfo data_reduction_proxy_info;
-  if (bypassed_proxy.is_valid() && !bypassed_proxy.is_direct() &&
-      data_reduction_proxy_config_->IsDataReductionProxy(
-          bypassed_proxy, &data_reduction_proxy_info)) {
-    proxy_net_errors_count_++;
+  if (!bypassed_proxy.is_valid() || bypassed_proxy.is_direct())
+    return;
 
-    // To account for the case when the proxy is reachable for sometime, and
-    // then gets blocked, we reset counts when number of errors exceed
-    // the threshold.
-    if (proxy_net_errors_count_ >= kMaxFailedRequestsBeforeReset &&
-        successful_requests_through_proxy_count_ >
-            kMaxSuccessfulRequestsWhenUnavailable) {
-      ClearRequestCounts();
-    } else {
-      NotifyUnavailabilityIfChanged();
-    }
+  base::Optional<DataReductionProxyTypeInfo> proxy_type_info =
+      data_reduction_proxy_config_->FindConfiguredDataReductionProxy(
+          bypassed_proxy);
+  if (!proxy_type_info)
+    return;
 
-    if (data_reduction_proxy_info.proxy_index == 0) {
-      RecordDataReductionProxyBypassInfo(
-          true, false, bypassed_proxy, BYPASS_EVENT_TYPE_NETWORK_ERROR);
-      RecordDataReductionProxyBypassOnNetworkError(
-          true, bypassed_proxy, net_error);
-    } else {
-      RecordDataReductionProxyBypassInfo(
-          false, false, bypassed_proxy, BYPASS_EVENT_TYPE_NETWORK_ERROR);
-      RecordDataReductionProxyBypassOnNetworkError(
-          false, bypassed_proxy, net_error);
-    }
+  proxy_net_errors_count_++;
+
+  // To account for the case when the proxy is reachable for sometime, and
+  // then gets blocked, we reset counts when number of errors exceed
+  // the threshold.
+  if (proxy_net_errors_count_ >= kMaxFailedRequestsBeforeReset &&
+      successful_requests_through_proxy_count_ >
+          kMaxSuccessfulRequestsWhenUnavailable) {
+    ClearRequestCounts();
+  } else {
+    NotifyUnavailabilityIfChanged();
   }
+
+  const bool is_first_proxy = proxy_type_info->proxy_index == 0U;
+  RecordDataReductionProxyBypassInfo(is_first_proxy, false,
+                                     BYPASS_EVENT_TYPE_NETWORK_ERROR);
+  RecordDataReductionProxyBypassOnNetworkError(is_first_proxy, bypassed_proxy,
+                                               net_error);
 }
 
 void DataReductionProxyBypassStats::ClearRequestCounts() {
@@ -273,9 +179,8 @@ void DataReductionProxyBypassStats::RecordBypassedBytesHistograms(
   if (!request.url().SchemeIsHTTPOrHTTPS())
     return;
 
-  DataReductionProxyTypeInfo data_reduction_proxy_type_info;
-  if (data_reduction_proxy_config_->WasDataReductionProxyUsed(
-          &request, &data_reduction_proxy_type_info)) {
+  if (data_reduction_proxy_config_->FindConfiguredDataReductionProxy(
+          request.proxy_server())) {
     RecordBypassedBytes(last_bypass_type_,
                         DataReductionProxyBypassStats::NOT_BYPASSED,
                         content_length);
@@ -292,7 +197,6 @@ void DataReductionProxyBypassStats::RecordBypassedBytesHistograms(
   // Now that the data reduction proxy is a best effort proxy, if the effective
   // proxy configuration resolves to anything other than direct:// for a URL,
   // the data reduction proxy will not be used.
-  DCHECK(data_reduction_proxy_type_info.proxy_servers.empty());
   if (!request.proxy_server().is_valid() ||
       !request.proxy_server().is_direct()) {
     RecordBypassedBytes(last_bypass_type_,
@@ -356,41 +260,15 @@ void DataReductionProxyBypassStats::RecordBypassedBytesHistograms(
   }
 
   if (data_reduction_proxy_config_->AreDataReductionProxiesBypassed(
-          request, data_reduction_proxy_config, NULL)) {
+          request, data_reduction_proxy_config, nullptr)) {
     RecordBypassedBytes(last_bypass_type_,
                         DataReductionProxyBypassStats::NETWORK_ERROR,
                         content_length);
   }
 }
 
-void DataReductionProxyBypassStats::RecordMissingViaHeaderBytes(
-    const net::URLRequest& request) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  // Responses that were served from cache should have been filtered out
-  // already.
-  DCHECK(!request.was_cached());
-
-  if (!data_reduction_proxy_config_->WasDataReductionProxyUsed(&request,
-                                                               NULL) ||
-      HasDataReductionProxyViaHeader(*request.response_headers(), NULL)) {
-    // Only track requests that used the data reduction proxy and had responses
-    // that were missing the data reduction proxy via header.
-    return;
-  }
-
-  if (request.GetResponseCode() >= net::HTTP_BAD_REQUEST &&
-      request.GetResponseCode() < net::HTTP_INTERNAL_SERVER_ERROR) {
-    // Track 4xx responses that are missing via headers separately.
-    UMA_HISTOGRAM_COUNTS("DataReductionProxy.MissingViaHeader.Bytes.4xx",
-                         request.received_response_content_length());
-  } else {
-    UMA_HISTOGRAM_COUNTS("DataReductionProxy.MissingViaHeader.Bytes.Other",
-                         request.received_response_content_length());
-  }
-}
-
-void DataReductionProxyBypassStats::OnNetworkChanged(
-    net::NetworkChangeNotifier::ConnectionType type) {
+void DataReductionProxyBypassStats::OnConnectionChanged(
+    network::mojom::ConnectionType type) {
   DCHECK(thread_checker_.CalledOnValidThread());
   ClearRequestCounts();
 }
@@ -405,32 +283,30 @@ void DataReductionProxyBypassStats::RecordBypassedBytes(
   // remove outliers that would skew the sum of bypassed bytes for each type.
   switch (bypassed_bytes_type) {
     case DataReductionProxyBypassStats::NOT_BYPASSED:
-      UMA_HISTOGRAM_COUNTS(
-          "DataReductionProxy.BypassedBytes.NotBypassed", content_length);
+      UMA_HISTOGRAM_COUNTS_1M("DataReductionProxy.BypassedBytes.NotBypassed",
+                              content_length);
       break;
     case DataReductionProxyBypassStats::SSL:
-      UMA_HISTOGRAM_COUNTS(
-          "DataReductionProxy.BypassedBytes.SSL", content_length);
+      UMA_HISTOGRAM_COUNTS_1M("DataReductionProxy.BypassedBytes.SSL",
+                              content_length);
       break;
     case DataReductionProxyBypassStats::LOCAL_BYPASS_RULES:
-      UMA_HISTOGRAM_COUNTS(
-          "DataReductionProxy.BypassedBytes.LocalBypassRules",
-          content_length);
+      UMA_HISTOGRAM_COUNTS_1M(
+          "DataReductionProxy.BypassedBytes.LocalBypassRules", content_length);
       break;
     case DataReductionProxyBypassStats::PROXY_OVERRIDDEN:
-      UMA_HISTOGRAM_COUNTS(
-          "DataReductionProxy.BypassedBytes.ProxyOverridden",
-          content_length);
+      UMA_HISTOGRAM_COUNTS_1M(
+          "DataReductionProxy.BypassedBytes.ProxyOverridden", content_length);
       break;
     case DataReductionProxyBypassStats::AUDIO_VIDEO:
       switch (bypass_type) {
         case BYPASS_EVENT_TYPE_CURRENT:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.CurrentAudioVideo",
               content_length);
           break;
         case BYPASS_EVENT_TYPE_SHORT:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.ShortAudioVideo",
               content_length);
           break;
@@ -441,7 +317,7 @@ void DataReductionProxyBypassStats::RecordBypassedBytes(
     case DataReductionProxyBypassStats::APPLICATION_OCTET_STREAM:
       switch (bypass_type) {
         case BYPASS_EVENT_TYPE_CURRENT:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.CurrentApplicationOctetStream",
               content_length);
           break;
@@ -452,17 +328,17 @@ void DataReductionProxyBypassStats::RecordBypassedBytes(
     case DataReductionProxyBypassStats::TRIGGERING_REQUEST:
       switch (bypass_type) {
         case BYPASS_EVENT_TYPE_SHORT:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.ShortTriggeringRequest",
               content_length);
           break;
         case BYPASS_EVENT_TYPE_MEDIUM:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.MediumTriggeringRequest",
               content_length);
           break;
         case BYPASS_EVENT_TYPE_LONG:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.LongTriggeringRequest",
               content_length);
           break;
@@ -471,61 +347,60 @@ void DataReductionProxyBypassStats::RecordBypassedBytes(
       }
       break;
     case DataReductionProxyBypassStats::NETWORK_ERROR:
-      UMA_HISTOGRAM_COUNTS(
-          "DataReductionProxy.BypassedBytes.NetworkErrorOther",
-          content_length);
+      UMA_HISTOGRAM_COUNTS_1M(
+          "DataReductionProxy.BypassedBytes.NetworkErrorOther", content_length);
       break;
     case DataReductionProxyBypassStats::BYPASSED_BYTES_TYPE_MAX:
       switch (bypass_type) {
         case BYPASS_EVENT_TYPE_CURRENT:
-          UMA_HISTOGRAM_COUNTS("DataReductionProxy.BypassedBytes.Current",
-                               content_length);
+          UMA_HISTOGRAM_COUNTS_1M("DataReductionProxy.BypassedBytes.Current",
+                                  content_length);
           break;
         case BYPASS_EVENT_TYPE_SHORT:
-          UMA_HISTOGRAM_COUNTS("DataReductionProxy.BypassedBytes.ShortAll",
-                               content_length);
+          UMA_HISTOGRAM_COUNTS_1M("DataReductionProxy.BypassedBytes.ShortAll",
+                                  content_length);
           break;
         case BYPASS_EVENT_TYPE_MEDIUM:
-          UMA_HISTOGRAM_COUNTS("DataReductionProxy.BypassedBytes.MediumAll",
-                               content_length);
+          UMA_HISTOGRAM_COUNTS_1M("DataReductionProxy.BypassedBytes.MediumAll",
+                                  content_length);
           break;
         case BYPASS_EVENT_TYPE_LONG:
-          UMA_HISTOGRAM_COUNTS("DataReductionProxy.BypassedBytes.LongAll",
-                               content_length);
+          UMA_HISTOGRAM_COUNTS_1M("DataReductionProxy.BypassedBytes.LongAll",
+                                  content_length);
           break;
         case BYPASS_EVENT_TYPE_MISSING_VIA_HEADER_4XX:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.MissingViaHeader4xx",
               content_length);
           break;
         case BYPASS_EVENT_TYPE_MISSING_VIA_HEADER_OTHER:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.MissingViaHeaderOther",
               content_length);
           break;
         case BYPASS_EVENT_TYPE_MALFORMED_407:
-          UMA_HISTOGRAM_COUNTS("DataReductionProxy.BypassedBytes.Malformed407",
-                               content_length);
+          UMA_HISTOGRAM_COUNTS_1M(
+              "DataReductionProxy.BypassedBytes.Malformed407", content_length);
           break;
         case BYPASS_EVENT_TYPE_STATUS_500_HTTP_INTERNAL_SERVER_ERROR:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes."
               "Status500HttpInternalServerError",
               content_length);
           break;
         case BYPASS_EVENT_TYPE_STATUS_502_HTTP_BAD_GATEWAY:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.Status502HttpBadGateway",
               content_length);
           break;
         case BYPASS_EVENT_TYPE_STATUS_503_HTTP_SERVICE_UNAVAILABLE:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes."
               "Status503HttpServiceUnavailable",
               content_length);
           break;
         case BYPASS_EVENT_TYPE_URL_REDIRECT_CYCLE:
-          UMA_HISTOGRAM_COUNTS(
+          UMA_HISTOGRAM_COUNTS_1M(
               "DataReductionProxy.BypassedBytes.URLRedirectCycle",
               content_length);
           break;

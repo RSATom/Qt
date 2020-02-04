@@ -7,10 +7,10 @@
 
 #include <stddef.h>
 
-#include <deque>
 #include <memory>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "components/viz/service/viz_service_export.h"
@@ -34,8 +34,6 @@ class GLES2Interface;
 
 namespace viz {
 
-class GLHelper;
-
 // Provides a surface that manages its own buffers, backed by GpuMemoryBuffers
 // created using CHROMIUM_image. Double/triple buffering is implemented
 // internally. Doublebuffering occurs if PageFlipComplete is called before the
@@ -46,7 +44,6 @@ class VIZ_SERVICE_EXPORT BufferQueue {
               uint32_t texture_target,
               uint32_t internal_format,
               gfx::BufferFormat format,
-              GLHelper* gl_helper,
               gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
               gpu::SurfaceHandle surface_handle);
   virtual ~BufferQueue();
@@ -124,8 +121,7 @@ class VIZ_SERVICE_EXPORT BufferQueue {
   std::vector<std::unique_ptr<AllocatedSurface>> available_surfaces_;
   // These have been swapped but are not displayed yet. Entries of this deque
   // may be nullptr, if they represent frames that have been destroyed.
-  std::deque<std::unique_ptr<AllocatedSurface>> in_flight_surfaces_;
-  GLHelper* gl_helper_;
+  base::circular_deque<std::unique_ptr<AllocatedSurface>> in_flight_surfaces_;
   gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager_;
   gpu::SurfaceHandle surface_handle_;
 

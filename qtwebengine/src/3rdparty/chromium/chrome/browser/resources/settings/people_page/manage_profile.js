@@ -36,7 +36,7 @@ Polymer({
 
     /**
      * The available icons for selection.
-     * @type {!Array<string>}
+     * @type {!Array<!AvatarIcon>}
      */
     availableIcons: {
       type: Array,
@@ -67,9 +67,9 @@ Polymer({
 
   /** @override */
   attached: function() {
-    var setIcons = function(icons) {
+    const setIcons = icons => {
       this.availableIcons = icons;
-    }.bind(this);
+    };
 
     this.addWebUIListener('available-icons-changed', setIcons);
     this.browserProxy_.getAvailableIcons().then(setIcons);
@@ -78,10 +78,11 @@ Polymer({
   /** @protected */
   currentRouteChanged: function() {
     if (settings.getCurrentRoute() == settings.routes.MANAGE_PROFILE) {
-      this.$.name.value = this.profileName;
-
+      if (this.profileName) {
+        this.$.name.value = this.profileName;
+      }
       if (loadTimeData.getBoolean('profileShortcutsEnabled')) {
-        this.browserProxy_.getProfileShortcutStatus().then(function(status) {
+        this.browserProxy_.getProfileShortcutStatus().then(status => {
           if (status == ProfileShortcutStatus.PROFILE_SHORTCUT_SETTING_HIDDEN) {
             this.isProfileShortcutSettingVisible_ = false;
             return;
@@ -90,7 +91,7 @@ Polymer({
           this.isProfileShortcutSettingVisible_ = true;
           this.hasProfileShortcut_ =
               status == ProfileShortcutStatus.PROFILE_SHORTCUT_FOUND;
-        }.bind(this));
+        });
       }
     }
   },
@@ -101,8 +102,9 @@ Polymer({
    * @private
    */
   onProfileNameChanged_: function(event) {
-    if (event.target.invalid)
+    if (event.target.invalid) {
       return;
+    }
 
     this.browserProxy_.setProfileName(event.target.value);
   },
@@ -124,10 +126,11 @@ Polymer({
    * @private
    */
   profileAvatarChanged_: function() {
-    if (this.profileAvatar_.isGaiaAvatar)
+    if (this.profileAvatar_.isGaiaAvatar) {
       this.browserProxy_.setProfileIconToGaiaAvatar();
-    else
+    } else {
       this.browserProxy_.setProfileIconToDefaultAvatar(this.profileAvatar_.url);
+    }
   },
 
   /**

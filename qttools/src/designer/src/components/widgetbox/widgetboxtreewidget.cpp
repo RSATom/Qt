@@ -37,23 +37,23 @@
 #include <pluginmanager_p.h>
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerDnDItemInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractdnditem.h>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtUiPlugin/QDesignerCustomWidgetInterface>
+#include <QtUiPlugin/customwidget.h>
 
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QTreeWidgetItem>
-#include <QtGui/QContextMenuEvent>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtWidgets/QMenu>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qtreewidget.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qactiongroup.h>
+#include <QtWidgets/qmenu.h>
 
-#include <QtCore/QFile>
-#include <QtCore/QTimer>
-#include <QtCore/QDebug>
+#include <QtCore/qfile.h>
+#include <QtCore/qtimer.h>
+#include <QtCore/qdebug.h>
 
 static const char *widgetBoxRootElementC = "widgetbox";
 static const char *widgetElementC = "widget";
@@ -106,7 +106,7 @@ WidgetBoxTreeWidget::WidgetBoxTreeWidget(QDesignerFormEditorInterface *core, QWi
             this, &WidgetBoxTreeWidget::handleMousePress);
 }
 
-QIcon WidgetBoxTreeWidget::iconForWidget(QString iconName) const
+QIcon WidgetBoxTreeWidget::iconForWidget(const QString &iconName) const
 {
     if (iconName.isEmpty())
         return qdesigner_internal::qtLogoIcon();
@@ -139,7 +139,7 @@ void WidgetBoxTreeWidget::saveExpandedState() const
     if (const int numCategories = categoryCount()) {
         for (int i = 0; i < numCategories; ++i) {
             const QTreeWidgetItem *cat_item = topLevelItem(i);
-            if (!isItemExpanded(cat_item))
+            if (!cat_item->isExpanded())
                 closedCategories.append(cat_item->text(0));
         }
     }
@@ -224,7 +224,7 @@ void WidgetBoxTreeWidget::handleMousePress(QTreeWidgetItem *item)
         return;
 
     if (item->parent() == 0) {
-        setItemExpanded(item, !isItemExpanded(item));
+        item->setExpanded(!item->isExpanded());
         return;
     }
 }
@@ -721,7 +721,7 @@ void WidgetBoxTreeWidget::addCategory(const Category &cat)
             } else {
                 insertTopLevelItem(scratchPadIndex, cat_item);
             }
-            setItemExpanded(cat_item, true);
+            cat_item->setExpanded(true);
             categoryView = addCategoryView(cat_item, m_iconMode);
         } else {
             categoryView = categoryViewAt(existingIndex);
@@ -947,7 +947,7 @@ void WidgetBoxTreeWidget::dropWidgets(const QList<QDesignerDnDItemInterface*> &i
 
         const Widget wgt = Widget(w->objectName(), xml);
         categoryView->addWidget(wgt, iconForWidget(wgt.iconName()), true);
-        setItemExpanded(scratch_item, true);
+        scratch_item->setExpanded(true);
         added = true;
     }
 

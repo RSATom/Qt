@@ -13,65 +13,25 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
-#include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
+#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
+#include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
-#include "net/test/spawned_test_server/spawner_communicator.h"
+#include "net/test/spawned_test_server/remote_test_server_spawner_request.h"
+#include "net/test/tcp_socket_proxy.h"
 #include "url/gurl.h"
 
 namespace net {
 
 namespace {
 
-// Based on how the Android runner sets things up, it is only valid for one
-// RemoteTestServer to be active on the device at a time.
-class RemoteTestServerTracker {
- public:
-  void StartingServer() {
-    base::AutoLock lock(lock_);
-    CHECK_EQ(count_, 0);
-    count_++;
-  }
-
-  void StoppingServer() {
-    base::AutoLock lock(lock_);
-    CHECK_EQ(count_, 1);
-    count_--;
-  }
-
- private:
-  // |lock_| protects access to |count_|.
-  base::Lock lock_;
-  int count_ = 0;
-};
-
-base::LazyInstance<RemoteTestServerTracker>::Leaky tracker =
-    LAZY_INSTANCE_INITIALIZER;
-
-// To reduce the running time of tests, tests may be sharded across several
-// devices. This means that it may be necessary to support multiple instances
-// of the test server spawner and the Python test server simultaneously on the
-// same host. Each pair of (test server spawner, Python test server) correspond
-// to a single testing device.
-// The mapping between the test server spawner and the individual Python test
-// servers is written to a file on the device prior to executing any tests.
-base::FilePath GetTestServerPortInfoFile() {
-#if !defined(OS_ANDROID)
-  return base::FilePath("/tmp/net-test-server-ports");
-#else
-  base::FilePath test_data_dir;
-  PathService::Get(base::DIR_ANDROID_EXTERNAL_STORAGE, &test_data_dir);
-  return test_data_dir.Append("net-test-server-ports");
-#endif
-}
-
-// Please keep it sync with dictionary SERVER_TYPES in testserver.py
+// Please keep in sync with dictionary SERVER_TYPES in testserver.py
 std::string GetServerTypeString(BaseTestServer::Type type) {
   switch (type) {
     case BaseTestServer::TYPE_FTP:
@@ -95,10 +55,8 @@ std::string GetServerTypeString(BaseTestServer::Type type) {
 }  // namespace
 
 RemoteTestServer::RemoteTestServer(Type type,
-                                   const std::string& host,
                                    const base::FilePath& document_root)
-    : BaseTestServer(type, host),
-      spawner_server_port_(0) {
+    : BaseTestServer(type), io_thread_("RemoteTestServer IO Thread") {
   if (!Init(document_root))
     NOTREACHED();
 }
@@ -107,7 +65,7 @@ RemoteTestServer::RemoteTestServer(Type type,
                                    const SSLOptions& ssl_options,
                                    const base::FilePath& document_root)
     : BaseTestServer(type, ssl_options),
-      spawner_server_port_(0) {
+      io_thread_("RemoteTestServer IO Thread") {
   if (!Init(document_root))
     NOTREACHED();
 }
@@ -116,23 +74,37 @@ RemoteTestServer::~RemoteTestServer() {
   Stop();
 }
 
-bool RemoteTestServer::Start() {
-  if (spawner_communicator_.get())
-    return true;
-
-  tracker.Get().StartingServer();
-
-  spawner_communicator_.reset(new SpawnerCommunicator(spawner_server_port_));
+bool RemoteTestServer::StartInBackground() {
+  DCHECK(!started());
+  DCHECK(!start_request_);
 
   base::DictionaryValue arguments_dict;
   if (!GenerateArguments(&arguments_dict))
     return false;
 
-  arguments_dict.Set("on-remote-server", base::MakeUnique<base::Value>());
+  arguments_dict.Set("on-remote-server", std::make_unique<base::Value>());
 
   // Append the 'server-type' argument which is used by spawner server to
   // pass right server type to Python test server.
   arguments_dict.SetString("server-type", GetServerTypeString(type()));
+
+  // If the server is expected to handle OCSP, it needs to know what port
+  // number to write into the AIA urls. Initialize the ocsp proxy to
+  // reserve a port, and pass it to the testserver so it can generate
+  // certificates for the OCSP server valid for the proxied port. Note that
+  // the test spawer may forward OCSP a second time, from the device to the
+  // host.
+  bool ocsp_server_enabled =
+      type() == TYPE_HTTPS && (ssl_options().server_certificate ==
+                                   SSLOptions::CERT_AUTO_AIA_INTERMEDIATE ||
+                               !ssl_options().GetOCSPArgument().empty());
+  if (ocsp_server_enabled) {
+    ocsp_proxy_ = std::make_unique<TcpSocketProxy>(io_thread_.task_runner());
+    bool initialized = ocsp_proxy_->Initialize();
+    CHECK(initialized);
+    arguments_dict.SetKey("ocsp-proxy-port-number",
+                          base::Value(ocsp_proxy_->local_port()));
+  }
 
   // Generate JSON-formatted argument string.
   std::string arguments_string;
@@ -140,56 +112,76 @@ bool RemoteTestServer::Start() {
   if (arguments_string.empty())
     return false;
 
-  // Start the Python test server on the remote machine.
-  uint16_t test_server_port;
-  if (!spawner_communicator_->StartServer(arguments_string,
-                                          &test_server_port)) {
-    return false;
-  }
-  if (0 == test_server_port)
+  start_request_ = std::make_unique<RemoteTestServerSpawnerRequest>(
+      io_thread_.task_runner(), config_.GetSpawnerUrl("start"),
+      arguments_string);
+
+  return true;
+}
+
+bool RemoteTestServer::BlockUntilStarted() {
+  DCHECK(start_request_);
+
+  std::string server_data_json;
+  bool request_result = start_request_->WaitForCompletion(&server_data_json);
+  start_request_.reset();
+  if (!request_result)
     return false;
 
-  // Construct server data to initialize BaseTestServer::server_data_.
-  base::DictionaryValue server_data_dict;
-  // At this point, the test server should be spawned on the host. Update the
-  // local port to real port of Python test server, which will be forwarded to
-  // the remote server.
-  server_data_dict.SetInteger("port", test_server_port);
-  std::string server_data;
-  base::JSONWriter::Write(server_data_dict, &server_data);
-  if (server_data.empty() || !ParseServerData(server_data)) {
-    LOG(ERROR) << "Could not parse server_data: " << server_data;
+  // Parse server_data_json.
+  if (server_data_json.empty() ||
+      !SetAndParseServerData(server_data_json, &remote_port_)) {
+    LOG(ERROR) << "Could not parse server_data: " << server_data_json;
     return false;
+  }
+
+  // If the server is not on localhost then start a proxy on localhost to
+  // forward connections to the server.
+  if (config_.address() != IPAddress::IPv4Localhost()) {
+    test_server_proxy_ =
+        std::make_unique<TcpSocketProxy>(io_thread_.task_runner());
+    bool initialized = test_server_proxy_->Initialize();
+    CHECK(initialized);
+    test_server_proxy_->Start(IPEndPoint(config_.address(), remote_port_));
+
+    SetPort(test_server_proxy_->local_port());
+  } else {
+    SetPort(remote_port_);
+  }
+
+  if (ocsp_proxy_) {
+    const base::Value* ocsp_port_value = server_data().FindKey("ocsp_port");
+    if (ocsp_port_value && ocsp_port_value->is_int()) {
+      ocsp_proxy_->Start(
+          IPEndPoint(config_.address(), ocsp_port_value->GetInt()));
+    } else {
+      LOG(WARNING) << "testserver.py didn't return ocsp_port.";
+    }
   }
 
   return SetupWhenServerStarted();
 }
 
-bool RemoteTestServer::StartInBackground() {
-  NOTIMPLEMENTED();
-  return false;
-}
-
-bool RemoteTestServer::BlockUntilStarted() {
-  NOTIMPLEMENTED();
-  return false;
-}
-
 bool RemoteTestServer::Stop() {
-  if (!spawner_communicator_.get())
-    return true;
+  DCHECK(!start_request_);
 
-  tracker.Get().StoppingServer();
+  if (remote_port_) {
+    std::unique_ptr<RemoteTestServerSpawnerRequest> kill_request =
+        std::make_unique<RemoteTestServerSpawnerRequest>(
+            io_thread_.task_runner(),
+            config_.GetSpawnerUrl(
+                base::StringPrintf("kill?port=%d", remote_port_)),
+            std::string());
+
+    if (!kill_request->WaitForCompletion(nullptr))
+      LOG(FATAL) << "Failed stopping RemoteTestServer";
+
+    remote_port_ = 0;
+  }
 
   CleanUpWhenStoppingServer();
-  bool stopped = spawner_communicator_->StopServer();
 
-  if (!stopped)
-    LOG(ERROR) << "Failed stopping RemoteTestServer";
-
-  // Explicitly reset |spawner_communicator_| to avoid reusing the stopped one.
-  spawner_communicator_.reset(NULL);
-  return stopped;
+  return true;
 }
 
 // On Android, the document root in the device is not the same as the document
@@ -198,7 +190,7 @@ bool RemoteTestServer::Stop() {
 // device.
 base::FilePath RemoteTestServer::GetDocumentRoot() const {
   base::FilePath src_dir;
-  PathService::Get(base::DIR_SOURCE_ROOT, &src_dir);
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir);
   return src_dir.Append(document_root());
 }
 
@@ -206,45 +198,22 @@ bool RemoteTestServer::Init(const base::FilePath& document_root) {
   if (document_root.IsAbsolute())
     return false;
 
-  // Gets ports information used by test server spawner and Python test server.
-  int test_server_port = 0;
+  config_ = RemoteTestServerConfig::Load();
 
-  // Parse file to extract the ports information.
-  std::string port_info;
-  if (!base::ReadFileToString(GetTestServerPortInfoFile(), &port_info) ||
-      port_info.empty()) {
-    return false;
-  }
-
-  std::vector<std::string> ports = base::SplitString(
-      port_info, ":", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
-  if (ports.size() != 2u)
-    return false;
-
-  // Verify the ports information.
-  base::StringToInt(ports[0], &spawner_server_port_);
-  if (!spawner_server_port_ ||
-      static_cast<uint32_t>(spawner_server_port_) >=
-          std::numeric_limits<uint16_t>::max())
-    return false;
-
-  // Allow the test_server_port to be 0, which means the test server spawner
-  // will pick up a random port to run the test server.
-  base::StringToInt(ports[1], &test_server_port);
-  if (static_cast<uint32_t>(test_server_port) >=
-      std::numeric_limits<uint16_t>::max())
-    return false;
-  SetPort(test_server_port);
+  bool thread_started = io_thread_.StartWithOptions(
+      base::Thread::Options(base::MessageLoop::TYPE_IO, 0));
+  CHECK(thread_started);
 
   // Unlike LocalTestServer, RemoteTestServer passes relative paths to the test
   // server. The test server fails on empty strings in some configurations.
   base::FilePath fixed_root = document_root;
   if (fixed_root.empty())
     fixed_root = base::FilePath(base::FilePath::kCurrentDirectory);
-  SetResourcePath(fixed_root, base::FilePath().AppendASCII("net")
-                                           .AppendASCII("data")
-                                           .AppendASCII("ssl")
-                                           .AppendASCII("certificates"));
+  SetResourcePath(fixed_root, base::FilePath()
+                                  .AppendASCII("net")
+                                  .AppendASCII("data")
+                                  .AppendASCII("ssl")
+                                  .AppendASCII("certificates"));
   return true;
 }
 

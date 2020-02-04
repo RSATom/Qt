@@ -5,12 +5,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/stl_util.h"
 #include "gpu/command_buffer/client/client_test_helper.h"
 #include "gpu/command_buffer/service/error_state_mock.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/framebuffer_manager.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_mock.h"
 #include "gpu/command_buffer/service/gpu_service_test.h"
+#include "gpu/command_buffer/service/gpu_tracer.h"
 #include "gpu/command_buffer/service/renderbuffer_manager.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
 #include "gpu/command_buffer/service/test_helper.h"
@@ -54,7 +56,8 @@ class FramebufferManagerTest : public GpuServiceTest {
   }
   ~FramebufferManagerTest() override {
     manager_.Destroy(false);
-    texture_manager_->Destroy(false);
+    texture_manager_->MarkContextLost();
+    texture_manager_->Destroy();
     renderbuffer_manager_->Destroy(false);
   }
 
@@ -132,7 +135,8 @@ class FramebufferInfoTestBase : public GpuServiceTest {
   }
   ~FramebufferInfoTestBase() override {
     manager_.Destroy(false);
-    texture_manager_->Destroy(false);
+    texture_manager_->MarkContextLost();
+    texture_manager_->Destroy();
     renderbuffer_manager_->Destroy(false);
   }
 
@@ -150,7 +154,7 @@ class FramebufferInfoTestBase : public GpuServiceTest {
     TestHelper::SetupFeatureInfoInitExpectationsWithGLVersion(gl_.get(),
         extensions, "", gl_version, context_type_);
     feature_info_->InitializeForTesting(context_type_);
-    decoder_.reset(new MockGLES2Decoder(&command_buffer_service_));
+    decoder_.reset(new MockGLES2Decoder(&command_buffer_service_, &outputter_));
     manager_.CreateFramebuffer(kClient1Id, kService1Id);
     error_state_.reset(new ::testing::StrictMock<gles2::MockErrorState>());
     framebuffer_ = manager_.GetFramebuffer(kClient1Id);
@@ -167,6 +171,7 @@ class FramebufferInfoTestBase : public GpuServiceTest {
   std::unique_ptr<RenderbufferManager> renderbuffer_manager_;
   std::unique_ptr<MockErrorState> error_state_;
   FakeCommandBufferServiceBase command_buffer_service_;
+  TraceOutputter outputter_;
   std::unique_ptr<MockGLES2Decoder> decoder_;
 };
 
@@ -1077,7 +1082,7 @@ TEST_F(FramebufferInfoTest, DrawBuffers) {
               framebuffer_->GetDrawBuffer(i));
   }
 
-  for (size_t ii = 0; ii < arraysize(kTextureClientId); ++ii) {
+  for (size_t ii = 0; ii < base::size(kTextureClientId); ++ii) {
     texture_manager_->CreateTexture(
         kTextureClientId[ii], kTextureServiceId[ii]);
     scoped_refptr<TextureRef> texture(
@@ -1180,7 +1185,7 @@ TEST_F(FramebufferInfoTest, DrawBufferMasks) {
       GL_FLOAT,
       GL_UNSIGNED_INT};
 
-  for (size_t ii = 0; ii < arraysize(kTextureClientId); ++ii) {
+  for (size_t ii = 0; ii < base::size(kTextureClientId); ++ii) {
     texture_manager_->CreateTexture(
         kTextureClientId[ii], kTextureServiceId[ii]);
     scoped_refptr<TextureRef> texture(
@@ -1293,7 +1298,7 @@ class FramebufferInfoFloatTest : public FramebufferInfoTestBase {
  public:
   FramebufferInfoFloatTest()
       : FramebufferInfoTestBase(CONTEXT_TYPE_OPENGLES3) {}
-  ~FramebufferInfoFloatTest() override {}
+  ~FramebufferInfoFloatTest() override = default;
 
  protected:
   void SetUp() override {

@@ -30,6 +30,7 @@ using mkvmuxer::Frame;
 using mkvmuxer::MkvWriter;
 using mkvmuxer::Segment;
 using mkvmuxer::SegmentInfo;
+using mkvmuxer::Tag;
 using mkvmuxer::Track;
 using mkvmuxer::VideoTrack;
 
@@ -197,7 +198,6 @@ TEST_F(MuxerTest, AddChapters) {
 
 TEST_F(MuxerTest, SimpleBlock) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   // Valid Frame
@@ -226,7 +226,6 @@ TEST_F(MuxerTest, SimpleBlock) {
 
 TEST_F(MuxerTest, SimpleBlockWithAddGenericFrame) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   Frame frame;
@@ -310,7 +309,6 @@ TEST_F(MuxerTest, TrackType) {
 
 TEST_F(MuxerTest, BlockWithAdditional) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   // Valid Frame
@@ -352,7 +350,6 @@ TEST_F(MuxerTest, BlockWithAdditional) {
 
 TEST_F(MuxerTest, BlockAdditionalWithAddGenericFrame) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   Frame frame;
@@ -432,7 +429,6 @@ TEST_F(MuxerTest, SetSegmentDuration) {
 
 TEST_F(MuxerTest, ForceNewCluster) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   EXPECT_TRUE(segment_.AddFrame(dummy_data_, kFrameLength, kVideoTrackNumber, 0,
@@ -455,7 +451,6 @@ TEST_F(MuxerTest, ForceNewCluster) {
 
 TEST_F(MuxerTest, OutputCues) {
   EXPECT_TRUE(SegmentInit(true, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   EXPECT_TRUE(
@@ -476,7 +471,6 @@ TEST_F(MuxerTest, OutputCues) {
 
 TEST_F(MuxerTest, CuesBeforeClusters) {
   EXPECT_TRUE(SegmentInit(true, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   EXPECT_TRUE(
@@ -517,7 +511,6 @@ TEST_F(MuxerTest, CuesBeforeClusters) {
 
 TEST_F(MuxerTest, MaxClusterSize) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
   const uint64_t kMaxClusterSize = 20;
   segment_.set_max_cluster_size(kMaxClusterSize);
@@ -543,7 +536,6 @@ TEST_F(MuxerTest, MaxClusterSize) {
 
 TEST_F(MuxerTest, MaxClusterDuration) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
   const uint64_t kMaxClusterDuration = 4000000;
   segment_.set_max_cluster_duration(kMaxClusterDuration);
@@ -601,7 +593,6 @@ TEST_F(MuxerTest, SetCuesTrackNumber) {
 
 TEST_F(MuxerTest, BlockWithDiscardPadding) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddAudioTrack();
 
   int timecode = 1000;
@@ -625,7 +616,6 @@ TEST_F(MuxerTest, BlockWithDiscardPadding) {
 
 TEST_F(MuxerTest, AccurateClusterDuration) {
   EXPECT_TRUE(SegmentInit(false, true, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   Frame frame;
@@ -760,7 +750,6 @@ TEST_F(MuxerTest, AccurateClusterDurationWithoutFinalizingCluster) {
 
 TEST_F(MuxerTest, UseFixedSizeClusterTimecode) {
   EXPECT_TRUE(SegmentInit(false, false, true));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
 
   Frame frame;
@@ -953,6 +942,7 @@ TEST_F(MuxerTest, Projection) {
 
 TEST_F(MuxerTest, EstimateDuration) {
   EXPECT_TRUE(SegmentInit(false, false, false));
+  segment_.set_estimate_file_duration(true);
   AddVideoTrack();
   EXPECT_TRUE(segment_.AddFrame(dummy_data_, kFrameLength, kVideoTrackNumber, 0,
                                 false));
@@ -976,7 +966,6 @@ TEST_F(MuxerTest, EstimateDuration) {
 
 TEST_F(MuxerTest, SetPixelWidthPixelHeight) {
   EXPECT_TRUE(SegmentInit(false, false, false));
-  segment_.set_estimate_file_duration(false);
   AddVideoTrack();
   VideoTrack* const video_track =
       static_cast<VideoTrack*>(segment_.GetTrackByNumber(kVideoTrackNumber));
@@ -994,6 +983,23 @@ TEST_F(MuxerTest, SetPixelWidthPixelHeight) {
 
   EXPECT_TRUE(CompareFiles(GetTestFilePath("set_pixelwidth_pixelheight.webm"),
                            filename_));
+}
+
+TEST_F(MuxerTest, LongTagString) {
+  EXPECT_TRUE(SegmentInit(false, false, false));
+  AddVideoTrack();
+  Tag* const tag = segment_.AddTag();
+  // 160 needs two bytes when varint encoded.
+  const std::string dummy_string(160, '0');
+  tag->add_simple_tag("long_tag", dummy_string.c_str());
+
+  EXPECT_TRUE(segment_.AddFrame(dummy_data_, kFrameLength, kVideoTrackNumber, 0,
+                                false));
+
+  segment_.Finalize();
+  CloseWriter();
+
+  EXPECT_TRUE(CompareFiles(GetTestFilePath("long_tag_string.webm"), filename_));
 }
 
 }  // namespace test

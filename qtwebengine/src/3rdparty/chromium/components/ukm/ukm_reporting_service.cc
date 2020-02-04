@@ -6,9 +6,12 @@
 
 #include "components/ukm/ukm_reporting_service.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "base/metrics/field_trial_params.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "components/metrics/metrics_service_client.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/ukm/persisted_logs_metrics_impl.h"
 #include "components/ukm/ukm_pref_names.h"
@@ -58,12 +61,13 @@ void UkmReportingService::RegisterPrefs(PrefRegistrySimple* registry) {
 UkmReportingService::UkmReportingService(metrics::MetricsServiceClient* client,
                                          PrefService* local_state)
     : ReportingService(client, local_state, kMaxLogRetransmitSize),
-      persisted_logs_(base::MakeUnique<ukm::PersistedLogsMetricsImpl>(),
+      persisted_logs_(std::make_unique<ukm::PersistedLogsMetricsImpl>(),
                       local_state,
                       prefs::kUkmPersistedLogs,
                       kMinPersistedLogs,
                       kMinPersistedBytes,
-                      kMaxLogRetransmitSize) {}
+                      kMaxLogRetransmitSize,
+                      client->GetUploadSigningKey()) {}
 
 UkmReportingService::~UkmReportingService() {}
 
@@ -73,6 +77,10 @@ metrics::LogStore* UkmReportingService::log_store() {
 
 std::string UkmReportingService::GetUploadUrl() const {
   return GetServerUrl();
+}
+
+std::string UkmReportingService::GetInsecureUploadUrl() const {
+  return "";
 }
 
 base::StringPiece UkmReportingService::upload_mime_type() const {
@@ -90,9 +98,11 @@ void UkmReportingService::LogCellularConstraint(bool upload_canceled) {
 }
 
 void UkmReportingService::LogResponseOrErrorCode(int response_code,
-                                                 int error_code) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("UKM.LogUpload.ResponseOrErrorCode",
-                              response_code >= 0 ? response_code : error_code);
+                                                 int error_code,
+                                                 bool was_https) {
+  // |was_https| is ignored since all UKM logs are received over HTTPS.
+  base::UmaHistogramSparse("UKM.LogUpload.ResponseOrErrorCode",
+                           response_code >= 0 ? response_code : error_code);
 }
 
 void UkmReportingService::LogSuccess(size_t log_size) {

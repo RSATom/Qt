@@ -6,7 +6,9 @@
 
 import argparse
 import collections
+import contextlib
 import json
+import logging
 import tempfile
 import os
 import sys
@@ -266,20 +268,29 @@ def create_suite_table(results_dict):
 
 
 def feedback_url(result_details_link):
-  url_args = urllib.urlencode([
+  # pylint: disable=redefined-variable-type
+  url_args = [
       ('labels', 'Pri-2,Type-Bug,Restrict-View-Google'),
       ('summary', 'Result Details Feedback:'),
       ('components', 'Test>Android'),
-      ('comment', 'Please check out: %s' % result_details_link)])
+  ]
+  if result_details_link:
+    url_args.append(('comment', 'Please check out: %s' % result_details_link))
+  url_args = urllib.urlencode(url_args)
+  # pylint: enable=redefined-variable-type
   return 'https://bugs.chromium.org/p/chromium/issues/entry?%s' % url_args
 
 
 def results_to_html(results_dict, cs_base_url, bucket, test_name,
-                    builder_name, build_number):
-  """Convert list of test results into html format."""
+                    builder_name, build_number, local_output):
+  """Convert list of test results into html format.
 
-  test_rows_header, test_rows = create_test_table(results_dict, cs_base_url,
-                                                  test_name)
+  Args:
+    local_output: Whether this results file is uploaded to Google Storage or
+        just a local file.
+  """
+  test_rows_header, test_rows = create_test_table(
+      results_dict, cs_base_url, test_name)
   suite_rows_header, suite_rows, suite_row_footer = create_suite_table(
       results_dict)
 
@@ -298,21 +309,35 @@ def results_to_html(results_dict, cs_base_url, bucket, test_name,
 
   main_template = JINJA_ENVIRONMENT.get_template(
       os.path.join('template', 'main.html'))
-  dest = google_storage_helper.unique_name(
-      '%s_%s_%s' % (test_name, builder_name, build_number))
 
-  result_details_link = google_storage_helper.get_url_link(
-      dest, '%s/html' % bucket)
+  if local_output:
+    html_render = main_template.render(  #  pylint: disable=no-member
+        {
+          'tb_values': [suite_table_values, test_table_values],
+          'feedback_url': feedback_url(None),
+        })
+    return (html_render, None, None)
+  else:
+    dest = google_storage_helper.unique_name(
+        '%s_%s_%s' % (test_name, builder_name, build_number))
+    result_details_link = google_storage_helper.get_url_link(
+        dest, '%s/html' % bucket)
+    html_render = main_template.render(  #  pylint: disable=no-member
+        {
+          'tb_values': [suite_table_values, test_table_values],
+          'feedback_url': feedback_url(result_details_link),
+        })
+    return (html_render, dest, result_details_link)
 
-  return (main_template.render(  #  pylint: disable=no-member
-      {'tb_values': [suite_table_values, test_table_values],
-       'feedback_url': feedback_url(result_details_link)
-      }), dest, result_details_link)
 
+def result_details(json_path, test_name, cs_base_url, bucket=None,
+                   builder_name=None, build_number=None, local_output=False):
+  """Get result details from json path and then convert results to html.
 
-def result_details(json_path, cs_base_url, bucket, test_name,
-                   builder_name, build_number):
-  """Get result details from json path and then convert results to html."""
+  Args:
+    local_output: Whether this results file is uploaded to Google Storage or
+        just a local file.
+  """
 
   with open(json_path) as json_file:
     json_object = json.loads(json_file.read())
@@ -324,8 +349,8 @@ def result_details(json_path, cs_base_url, bucket, test_name,
   for testsuite_run in json_object['per_iteration_data']:
     for test, test_runs in testsuite_run.iteritems():
       results_dict[test].extend(test_runs)
-  return results_to_html(results_dict, cs_base_url, bucket,
-                         test_name, builder_name, build_number)
+  return results_to_html(results_dict, cs_base_url, bucket, test_name,
+                         builder_name, build_number, local_output)
 
 
 def upload_to_google_bucket(html, bucket, dest):
@@ -337,6 +362,58 @@ def upload_to_google_bucket(html, bucket, dest):
         filepath=temp_file.name,
         bucket='%s/html' % bucket,
         content_type='text/html',
+        authenticated_link=True)
+
+
+def ui_screenshot_set(json_path):
+  with open(json_path) as json_file:
+    json_object = json.loads(json_file.read())
+  if not 'per_iteration_data' in json_object:
+    # This will be reported as an error by result_details, no need to duplicate.
+    return None
+  ui_screenshots = []
+  # pylint: disable=too-many-nested-blocks
+  for testsuite_run in json_object['per_iteration_data']:
+    for _, test_runs in testsuite_run.iteritems():
+      for test_run in test_runs:
+        if 'ui screenshot' in test_run['links']:
+          screenshot_link = test_run['links']['ui screenshot']
+          if screenshot_link.startswith('file:'):
+            with contextlib.closing(urllib.urlopen(screenshot_link)) as f:
+              test_screenshots = json.load(f)
+          else:
+            # Assume anything that isn't a file link is a google storage link
+            screenshot_string = google_storage_helper.read_from_link(
+                screenshot_link)
+            if not screenshot_string:
+              logging.error('Bad screenshot link %s', screenshot_link)
+              continue
+            test_screenshots = json.loads(
+                screenshot_string)
+          ui_screenshots.extend(test_screenshots)
+  # pylint: enable=too-many-nested-blocks
+
+  if ui_screenshots:
+    return json.dumps(ui_screenshots)
+  return None
+
+
+def upload_screenshot_set(json_path, test_name, bucket, builder_name,
+                          build_number):
+  screenshot_set = ui_screenshot_set(json_path)
+  if not screenshot_set:
+    return None
+  dest = google_storage_helper.unique_name(
+    'screenshots_%s_%s_%s' % (test_name, builder_name, build_number),
+    suffix='.json')
+  with tempfile.NamedTemporaryFile(suffix='.json') as temp_file:
+    temp_file.write(screenshot_set)
+    temp_file.flush()
+    return google_storage_helper.upload(
+        name=dest,
+        filepath=temp_file.name,
+        bucket='%s/json' % bucket,
+        content_type='application/json',
         authenticated_link=True)
 
 
@@ -352,18 +429,22 @@ def main():
                       required=True)
   parser.add_argument(
       '-o', '--output-json',
-      help='(Swarming Merge Script API)'
-           ' Output JSON file to create.')
+      help='(Swarming Merge Script API) '
+           'Output JSON file to create.')
   parser.add_argument(
       '--build-properties',
       help='(Swarming Merge Script API) '
            'Build property JSON file provided by recipes.')
   parser.add_argument(
       '--summary-json',
-      help='(Swarming Merge Script API)'
-           ' Summary of shard state running on swarming.'
-           ' (Output of the swarming.py collect'
-           ' --task-summary-json=XXX command.)')
+      help='(Swarming Merge Script API) '
+           'Summary of shard state running on swarming. '
+           '(Output of the swarming.py collect '
+           '--task-summary-json=XXX command.)')
+  parser.add_argument(
+      '--task-output-dir',
+      help='(Swarming Merge Script API) '
+           'Directory containing all swarming task results.')
   parser.add_argument(
       'positional', nargs='*',
       help='output.json from shards.')
@@ -420,25 +501,43 @@ def main():
 
   # Link to result details presentation page is a part of the page.
   result_html_string, dest, result_details_link = result_details(
-      json_file, args.cs_base_url, args.bucket,
-      args.test_name, builder_name, build_number)
+      json_file, args.test_name, args.cs_base_url, args.bucket,
+      builder_name, build_number)
 
   result_details_link_2 = upload_to_google_bucket(
       result_html_string.encode('UTF-8'),
       args.bucket, dest)
-
   assert result_details_link == result_details_link_2, (
       'Result details link do not match. The link returned by get_url_link'
       ' should be the same as that returned by upload.')
 
+  ui_screenshot_set_link = upload_screenshot_set(json_file, args.test_name,
+      args.bucket, builder_name, build_number)
+
+  if ui_screenshot_set_link:
+    ui_catalog_url = 'https://chrome-ui-catalog.appspot.com/'
+    ui_catalog_query = urllib.urlencode(
+        {'screenshot_source': ui_screenshot_set_link})
+    ui_screenshot_link = '%s?%s' % (ui_catalog_url, ui_catalog_query)
+
   if args.output_json:
     with open(json_file) as original_json_file:
       json_object = json.load(original_json_file)
-      json_object['links'] = {'result_details': result_details_link}
+      json_object['links'] = {
+          'result_details (logcats, flakiness links)': result_details_link
+      }
+
+      if ui_screenshot_set_link:
+        json_object['links']['ui screenshots'] = ui_screenshot_link
+
       with open(args.output_json, 'w') as f:
         json.dump(json_object, f)
   else:
-    print result_details_link
+    print 'Result Details: %s' % result_details_link
+
+    if ui_screenshot_set_link:
+      print 'UI Screenshots %s' % ui_screenshot_link
+
 
 if __name__ == '__main__':
   sys.exit(main())

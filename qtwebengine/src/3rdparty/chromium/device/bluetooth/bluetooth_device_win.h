@@ -8,35 +8,34 @@
 #include <stdint.h>
 
 #include <memory>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/macros.h"
 #include "base/observer_list.h"
+#include "base/sequenced_task_runner.h"
 #include "device/bluetooth/bluetooth_device.h"
 #include "device/bluetooth/bluetooth_export.h"
 #include "device/bluetooth/bluetooth_task_manager_win.h"
-#include "net/log/net_log_source.h"
-
-namespace net {
-class NetLog;
-}
 
 namespace device {
 
 class BluetoothAdapterWin;
+class BluetoothRemoteGattServiceWin;
 class BluetoothServiceRecordWin;
 class BluetoothSocketThread;
 
-class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
+class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin
+    : public BluetoothDevice,
+      public BluetoothAdapter::Observer {
  public:
   explicit BluetoothDeviceWin(
       BluetoothAdapterWin* adapter,
       const BluetoothTaskManagerWin::DeviceState& device_state,
-      const scoped_refptr<base::SequencedTaskRunner>& ui_task_runner,
-      const scoped_refptr<BluetoothSocketThread>& socket_thread,
-      net::NetLog* net_log,
-      const net::NetLogSource& net_log_source);
+      scoped_refptr<base::SequencedTaskRunner> ui_task_runner,
+      scoped_refptr<BluetoothSocketThread> socket_thread);
   ~BluetoothDeviceWin() override;
 
   // BluetoothDevice override
@@ -83,9 +82,6 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
       const BluetoothUUID& uuid,
       const ConnectToServiceCallback& callback,
       const ConnectToServiceErrorCallback& error_callback) override;
-  void CreateGattConnection(
-      const GattConnectionCallback& callback,
-      const ConnectErrorCallback& error_callback) override;
 
   // Used by BluetoothProfileWin to retrieve the service record for the given
   // |uuid|.
@@ -99,6 +95,10 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
   // Updates this instance with all fields and properties stored in
   // |device_state|.
   void Update(const BluetoothTaskManagerWin::DeviceState& device_state);
+
+  // Notify |service| discovery complete, |service| is a remote GATT service of
+  // this device.
+  void GattServiceDiscoveryComplete(BluetoothRemoteGattServiceWin* service);
 
  protected:
   // BluetoothDevice override
@@ -117,7 +117,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
 
   // Checks if GATT service with |uuid| and |attribute_handle| has already been
   // discovered.
-  bool IsGattServiceDiscovered(BluetoothUUID& uuid, uint16_t attribute_handle);
+  bool IsGattServiceDiscovered(const BluetoothUUID& uuid,
+                               uint16_t attribute_handle);
 
   // Checks if |service| still exist on device according to newly discovered
   // |service_state|.
@@ -134,8 +135,6 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
 
   scoped_refptr<base::SequencedTaskRunner> ui_task_runner_;
   scoped_refptr<BluetoothSocketThread> socket_thread_;
-  net::NetLog* net_log_;
-  net::NetLogSource net_log_source_;
 
   // The Bluetooth class of the device, a bitmask that may be decoded using
   // https://www.bluetooth.org/Technical/AssignedNumbers/baseband.htm
@@ -151,6 +150,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
   // the device.
   bool paired_;
   bool connected_;
+  bool gatt_connected_;
 
   // Used to send change notifications when a device disappears during
   // discovery.
@@ -161,6 +161,11 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceWin : public BluetoothDevice {
 
   // The service records retrieved from SDP.
   std::vector<std::unique_ptr<BluetoothServiceRecordWin>> service_record_list_;
+
+  // The element of the set is the uuid / attribute handle pair of the
+  // BluetoothRemoteGattServiceWin instance.
+  std::set<std::pair<BluetoothUUID, uint16_t>>
+      discovery_completed_included_services_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothDeviceWin);
 };

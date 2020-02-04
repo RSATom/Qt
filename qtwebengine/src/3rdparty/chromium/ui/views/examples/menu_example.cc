@@ -155,7 +155,7 @@ void ExampleMenuModel::ExecuteCommand(int command_id, int event_flags) {
         checked_fruit = "Kiwi";
 
       // Update the check status.
-      std::set<int>::iterator iter = checked_fruits_.find(command_id);
+      auto iter = checked_fruits_.find(command_id);
       if (iter == checked_fruits_.end()) {
         DVLOG(1) << "Checked " << checked_fruit;
         checked_fruits_.insert(command_id);
@@ -171,10 +171,9 @@ void ExampleMenuModel::ExecuteCommand(int command_id, int event_flags) {
 // ExampleMenuButton -----------------------------------------------------------
 
 ExampleMenuButton::ExampleMenuButton(const base::string16& test)
-    : MenuButton(test, this, true) {}
+    : MenuButton(test, this) {}
 
-ExampleMenuButton::~ExampleMenuButton() {
-}
+ExampleMenuButton::~ExampleMenuButton() {}
 
 void ExampleMenuButton::OnMenuButtonClicked(MenuButton* source,
                                             const gfx::Point& point,
@@ -204,7 +203,7 @@ void MenuExample::CreateExampleView(View* container) {
   // We add a button to open a menu.
   ExampleMenuButton* menu_button = new ExampleMenuButton(
       ASCIIToUTF16("Open a menu"));
-  container->SetLayoutManager(new FillLayout);
+  container->SetLayoutManager(std::make_unique<FillLayout>());
   container->AddChildView(menu_button);
 }
 

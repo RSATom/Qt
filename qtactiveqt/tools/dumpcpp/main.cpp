@@ -198,7 +198,7 @@ void generateClassDecl(QTextStream &out, const QString &controlID, const QMetaOb
             out << "        if (licenseKey.isEmpty())" << endl;
             out << "            setControl(QStringLiteral(\"" << controlID << "\"));" << endl;
             out << "        else" << endl;
-            out << "            setControl(QStringLiteral(\"" << controlID << ":\" + licenseKey));" << endl;
+            out << "            setControl(QStringLiteral(\"" << controlID << ":\") + licenseKey);" << endl;
         } else {
             out << "        setControl(QStringLiteral(\"" << controlID << "\"));" << endl;
         }
@@ -692,7 +692,7 @@ void generateMethodParameters(QTextStream &out, const QMetaObject *mo, const QMe
 void generateClassImpl(QTextStream &out, const QMetaObject *mo, const QByteArray &className,
                        const QByteArray &nameSpace, ObjectCategories category)
 {
-    Q_STATIC_ASSERT_X(QMetaObjectPrivate::OutputRevision == 7, "dumpcpp should generate the same version as moc");
+    Q_STATIC_ASSERT_X(QMetaObjectPrivate::OutputRevision == 8, "dumpcpp should generate the same version as moc");
 
     QByteArray qualifiedClassName;
     if (!nameSpace.isEmpty())
@@ -925,7 +925,7 @@ static QByteArrayList vTableOnlyStubsFromTypeLib(ITypeLib *typelib, const QStrin
     for (UINT i = 0, typeCount = typelib->GetTypeInfoCount(); i < typeCount; ++i) {
         TYPEKIND typekind;
         if (SUCCEEDED(typelib->GetTypeInfoType(i, &typekind)) && typekind == TKIND_INTERFACE) {
-            ITypeInfo *typeinfo = Q_NULLPTR;
+            ITypeInfo *typeinfo = nullptr;
             if (SUCCEEDED(typelib->GetTypeInfo(i, &typeinfo) && typeinfo)) {
                 result.append(nameSpacePrefix + classNameFromTypeInfo(typeinfo));
                 typeinfo->Release();
@@ -933,6 +933,19 @@ static QByteArrayList vTableOnlyStubsFromTypeLib(ITypeLib *typelib, const QStrin
         }
     }
     return result;
+}
+
+static void writeForwardDeclaration(QTextStream &declOut, const QByteArray &className)
+{
+    if (className.startsWith("enum ")) {
+        declOut << "#ifndef Q_CC_MINGW\n"
+                << "    " << className << ';' << endl // Only MSVC accepts this
+                << "#else\n"
+                << "    " << className << " {};" << endl
+                << "#endif\n";
+    } else {
+        declOut << "    " << className << ';' << endl;
+    }
 }
 
 bool generateTypeLibrary(QString typeLibFile, QString outname,
@@ -949,7 +962,7 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
 
     QString libName = nameSpace;
     if (libName.isEmpty()) {
-        BSTR nameString = Q_NULLPTR;
+        BSTR nameString = nullptr;
         if (SUCCEEDED(typelib->GetDocumentation(-1, &nameString, 0, 0, 0))) {
             libName = QString::fromWCharArray(nameString);
             SysFreeString(nameString);
@@ -1116,7 +1129,7 @@ bool generateTypeLibrary(QString typeLibFile, QString outname,
                     for (int c = 0; c < classList.count(); ++c) {
                         QByteArray className = classList.at(c);
                         if (className.contains(' ')) {
-                            declOut << "    " << className << ';' << endl;
+                            writeForwardDeclaration(declOut, className);
                             namespaceForType.insert(className.mid(className.indexOf(' ') + 1), nspace);
                         } else {
                             declOut << "    class " << className << ';' << endl;
@@ -1519,8 +1532,8 @@ static void parseOptions(Options *options)
 
 int main(int argc, char **argv)
 {
-    if (FAILED(CoInitialize(0))) {
-        qErrnoWarning("CoInitialize() failed.");
+    if (FAILED(CoInitializeEx(0, COINIT_APARTMENTTHREADED))) {
+        qErrnoWarning("CoInitializeEx() failed.");
         return -1;
     }
     QCoreApplication app(argc, argv);

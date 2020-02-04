@@ -83,11 +83,12 @@ protected:
     QRegion optimizeRenderList();
 
     void setBackgroundColor(const QColor &color);
-    void setBackgroundRect(const QRect &rect);
+    void setBackgroundRect(const QRect &rect, qreal devicePixelRatio);
     QColor backgroundColor();
     QRect backgroundRect();
     // only known after calling optimizeRenderList()
     bool isOpaque() const { return m_isOpaque; }
+    const QLinkedList<QSGSoftwareRenderableNode*> &renderableNodes() const;
 
 private:
     void nodeAdded(QSGNode *node);
@@ -104,6 +105,7 @@ private:
 
     QRegion m_dirtyRegion;
     QRegion m_obscuredRegion;
+    qreal m_devicePixelRatio = 1;
     bool m_isOpaque = false;
 
     QSGSoftwareRenderableNodeUpdater *m_nodeUpdater;

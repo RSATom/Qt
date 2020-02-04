@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'Widget.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,11 +10,8 @@
 #define WIDGET_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QGroupBox>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QVBoxLayout>
@@ -33,22 +30,22 @@ public:
     void setupUi(QWidget *Form)
     {
         if (Form->objectName().isEmpty())
-            Form->setObjectName(QStringLiteral("Form"));
+            Form->setObjectName(QString::fromUtf8("Form"));
         Form->resize(400, 300);
         vboxLayout = new QVBoxLayout(Form);
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         Alabel = new QLabel(Form);
-        Alabel->setObjectName(QStringLiteral("Alabel"));
+        Alabel->setObjectName(QString::fromUtf8("Alabel"));
 
         vboxLayout->addWidget(Alabel);
 
         groupBox = new QGroupBox(Form);
-        groupBox->setObjectName(QStringLiteral("groupBox"));
+        groupBox->setObjectName(QString::fromUtf8("groupBox"));
 
         vboxLayout->addWidget(groupBox);
 
         pushButton = new QPushButton(Form);
-        pushButton->setObjectName(QStringLiteral("pushButton"));
+        pushButton->setObjectName(QString::fromUtf8("pushButton"));
 
         vboxLayout->addWidget(pushButton);
 
@@ -60,13 +57,13 @@ public:
 
     void retranslateUi(QWidget *Form)
     {
-        Form->setWindowTitle(QApplication::translate("Form", "Form", nullptr));
-        Alabel->setText(QApplication::translate("Form", "A label.\n"
+        Form->setWindowTitle(QCoreApplication::translate("Form", "Form", nullptr));
+        Alabel->setText(QCoreApplication::translate("Form", "A label.\n"
 "One new line.\n"
 "Another new line.\n"
 "Last line.", nullptr));
-        groupBox->setTitle(QApplication::translate("Form", "A Group Box", nullptr));
-        pushButton->setText(QApplication::translate("Form", "PushButton", nullptr));
+        groupBox->setTitle(QCoreApplication::translate("Form", "A Group Box", nullptr));
+        pushButton->setText(QCoreApplication::translate("Form", "PushButton", nullptr));
     } // retranslateUi
 
 };

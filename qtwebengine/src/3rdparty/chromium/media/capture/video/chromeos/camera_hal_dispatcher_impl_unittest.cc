@@ -7,10 +7,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/test/scoped_task_environment.h"
-#include "media/capture/video/chromeos/mojo/arc_camera3_service.mojom.h"
+#include "media/capture/video/chromeos/mojo/cros_camera_service.mojom.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -21,54 +21,56 @@ using testing::InvokeWithoutArgs;
 namespace media {
 namespace {
 
-class MockCameraHalServer : public arc::mojom::CameraHalServer {
+class MockCameraHalServer : public cros::mojom::CameraHalServer {
  public:
   MockCameraHalServer() : binding_(this) {}
 
-  ~MockCameraHalServer() {}
+  ~MockCameraHalServer() = default;
 
   void CreateChannel(
-      arc::mojom::CameraModuleRequest camera_module_request) override {
+      cros::mojom::CameraModuleRequest camera_module_request) override {
     DoCreateChannel(camera_module_request);
   }
   MOCK_METHOD1(DoCreateChannel,
-               void(arc::mojom::CameraModuleRequest& camera_module_request));
+               void(cros::mojom::CameraModuleRequest& camera_module_request));
 
-  arc::mojom::CameraHalServerPtrInfo GetInterfacePtrInfo() {
-    arc::mojom::CameraHalServerPtrInfo camera_hal_server_ptr_info;
-    arc::mojom::CameraHalServerRequest camera_hal_server_request =
+  MOCK_METHOD1(SetTracingEnabled, void(bool enabled));
+
+  cros::mojom::CameraHalServerPtrInfo GetInterfacePtrInfo() {
+    cros::mojom::CameraHalServerPtrInfo camera_hal_server_ptr_info;
+    cros::mojom::CameraHalServerRequest camera_hal_server_request =
         mojo::MakeRequest(&camera_hal_server_ptr_info);
     binding_.Bind(std::move(camera_hal_server_request));
     return camera_hal_server_ptr_info;
   }
 
  private:
-  mojo::Binding<arc::mojom::CameraHalServer> binding_;
+  mojo::Binding<cros::mojom::CameraHalServer> binding_;
   DISALLOW_COPY_AND_ASSIGN(MockCameraHalServer);
 };
 
-class MockCameraHalClient : public arc::mojom::CameraHalClient {
+class MockCameraHalClient : public cros::mojom::CameraHalClient {
  public:
   MockCameraHalClient() : binding_(this) {}
 
-  ~MockCameraHalClient() {}
+  ~MockCameraHalClient() = default;
 
-  void SetUpChannel(arc::mojom::CameraModulePtr camera_module_ptr) override {
+  void SetUpChannel(cros::mojom::CameraModulePtr camera_module_ptr) override {
     DoSetUpChannel(camera_module_ptr);
   }
   MOCK_METHOD1(DoSetUpChannel,
-               void(arc::mojom::CameraModulePtr& camera_module_ptr));
+               void(cros::mojom::CameraModulePtr& camera_module_ptr));
 
-  arc::mojom::CameraHalClientPtrInfo GetInterfacePtrInfo() {
-    arc::mojom::CameraHalClientPtrInfo camera_hal_client_ptr_info;
-    arc::mojom::CameraHalClientRequest camera_hal_client_request =
+  cros::mojom::CameraHalClientPtrInfo GetInterfacePtrInfo() {
+    cros::mojom::CameraHalClientPtrInfo camera_hal_client_ptr_info;
+    cros::mojom::CameraHalClientRequest camera_hal_client_request =
         mojo::MakeRequest(&camera_hal_client_ptr_info);
     binding_.Bind(std::move(camera_hal_client_request));
     return camera_hal_client_ptr_info;
   }
 
  private:
-  mojo::Binding<arc::mojom::CameraHalClient> binding_;
+  mojo::Binding<cros::mojom::CameraHalClient> binding_;
   DISALLOW_COPY_AND_ASSIGN(MockCameraHalClient);
 };
 
@@ -76,9 +78,9 @@ class MockCameraHalClient : public arc::mojom::CameraHalClient {
 
 class CameraHalDispatcherImplTest : public ::testing::Test {
  public:
-  CameraHalDispatcherImplTest() {}
+  CameraHalDispatcherImplTest() = default;
 
-  ~CameraHalDispatcherImplTest() override {}
+  ~CameraHalDispatcherImplTest() override = default;
 
   void SetUp() override {
     dispatcher_ = new CameraHalDispatcherImpl();
@@ -103,12 +105,12 @@ class CameraHalDispatcherImplTest : public ::testing::Test {
   }
 
   static void RegisterServer(CameraHalDispatcherImpl* dispatcher,
-                             arc::mojom::CameraHalServerPtrInfo server) {
+                             cros::mojom::CameraHalServerPtrInfo server) {
     dispatcher->RegisterServer(mojo::MakeProxy(std::move(server)));
   }
 
   static void RegisterClient(CameraHalDispatcherImpl* dispatcher,
-                             arc::mojom::CameraHalClientPtrInfo client) {
+                             cros::mojom::CameraHalClientPtrInfo client) {
     dispatcher->RegisterClient(mojo::MakeProxy(std::move(client)));
   }
 
@@ -128,8 +130,8 @@ class CameraHalDispatcherImplTest : public ::testing::Test {
 TEST_F(CameraHalDispatcherImplTest, ServerConnectionError) {
   // First verify that a the CameraHalDispatcherImpl establishes a Mojo channel
   // between the server and the client.
-  auto mock_server = base::MakeUnique<MockCameraHalServer>();
-  auto mock_client = base::MakeUnique<MockCameraHalClient>();
+  auto mock_server = std::make_unique<MockCameraHalServer>();
+  auto mock_client = std::make_unique<MockCameraHalClient>();
 
   EXPECT_CALL(*mock_server, DoCreateChannel(_)).Times(1);
   EXPECT_CALL(*mock_client, DoSetUpChannel(_))
@@ -152,7 +154,7 @@ TEST_F(CameraHalDispatcherImplTest, ServerConnectionError) {
   DoLoop();
 
   // Re-create a new server to simulate a server crash.
-  mock_server = base::MakeUnique<MockCameraHalServer>();
+  mock_server = std::make_unique<MockCameraHalServer>();
 
   // Make sure we creates a new Mojo channel from the new server to the same
   // client.
@@ -177,8 +179,8 @@ TEST_F(CameraHalDispatcherImplTest, ServerConnectionError) {
 TEST_F(CameraHalDispatcherImplTest, ClientConnectionError) {
   // First verify that a the CameraHalDispatcherImpl establishes a Mojo channel
   // between the server and the client.
-  auto mock_server = base::MakeUnique<MockCameraHalServer>();
-  auto mock_client = base::MakeUnique<MockCameraHalClient>();
+  auto mock_server = std::make_unique<MockCameraHalServer>();
+  auto mock_client = std::make_unique<MockCameraHalClient>();
 
   EXPECT_CALL(*mock_server, DoCreateChannel(_)).Times(1);
   EXPECT_CALL(*mock_client, DoSetUpChannel(_))
@@ -201,7 +203,7 @@ TEST_F(CameraHalDispatcherImplTest, ClientConnectionError) {
   DoLoop();
 
   // Re-create a new server to simulate a server crash.
-  mock_client = base::MakeUnique<MockCameraHalClient>();
+  mock_client = std::make_unique<MockCameraHalClient>();
 
   // Make sure we re-create the Mojo channel from the same server to the new
   // client.

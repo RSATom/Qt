@@ -4,8 +4,9 @@
 
 #include "components/content_settings/core/browser/website_settings_registry.h"
 
+#include <memory>
+
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "components/content_settings/core/browser/website_settings_info.h"
 #include "components/content_settings/core/common/content_settings.h"
@@ -50,7 +51,7 @@ TEST_F(WebsiteSettingsRegistryTest, GetByName) {
   registry()->Register(static_cast<ContentSettingsType>(10), "test", nullptr,
                        WebsiteSettingsInfo::UNSYNCABLE,
                        WebsiteSettingsInfo::LOSSY,
-                       WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+                       WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
                        WebsiteSettingsRegistry::ALL_PLATFORMS,
                        WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   info = registry()->GetByName("test");
@@ -87,13 +88,12 @@ TEST_F(WebsiteSettingsRegistryTest, Properties) {
             info->GetPrefRegistrationFlags());
 
   // Register a new setting.
-  registry()->Register(static_cast<ContentSettingsType>(10), "test",
-                       base::MakeUnique<base::Value>(999),
-                       WebsiteSettingsInfo::SYNCABLE,
-                       WebsiteSettingsInfo::LOSSY,
-                       WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
-                       WebsiteSettingsRegistry::ALL_PLATFORMS,
-                       WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+  registry()->Register(
+      static_cast<ContentSettingsType>(10), "test",
+      std::make_unique<base::Value>(999), WebsiteSettingsInfo::SYNCABLE,
+      WebsiteSettingsInfo::LOSSY, WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
+      WebsiteSettingsRegistry::ALL_PLATFORMS,
+      WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   info = registry()->Get(static_cast<ContentSettingsType>(10));
   ASSERT_TRUE(info);
   EXPECT_EQ("profile.content_settings.exceptions.test", info->pref_name());
@@ -109,20 +109,19 @@ TEST_F(WebsiteSettingsRegistryTest, Properties) {
                 user_prefs::PrefRegistrySyncable::SYNCABLE_PREF,
             info->GetPrefRegistrationFlags());
 #endif
-  EXPECT_EQ(WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+  EXPECT_EQ(WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
             info->scoping_type());
   EXPECT_EQ(WebsiteSettingsInfo::INHERIT_IN_INCOGNITO,
             info->incognito_behavior());
 }
 
 TEST_F(WebsiteSettingsRegistryTest, Iteration) {
-  registry()->Register(static_cast<ContentSettingsType>(10), "test",
-                       base::MakeUnique<base::Value>(999),
-                       WebsiteSettingsInfo::SYNCABLE,
-                       WebsiteSettingsInfo::LOSSY,
-                       WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
-                       WebsiteSettingsRegistry::ALL_PLATFORMS,
-                       WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+  registry()->Register(
+      static_cast<ContentSettingsType>(10), "test",
+      std::make_unique<base::Value>(999), WebsiteSettingsInfo::SYNCABLE,
+      WebsiteSettingsInfo::LOSSY, WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
+      WebsiteSettingsRegistry::ALL_PLATFORMS,
+      WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
 
   bool found = false;
   for (const WebsiteSettingsInfo* info : *registry()) {

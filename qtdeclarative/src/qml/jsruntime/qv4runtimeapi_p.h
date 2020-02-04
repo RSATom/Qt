@@ -58,7 +58,6 @@ namespace QV4 {
 
 typedef uint Bool;
 struct NoThrowEngine;
-
 namespace {
 template <typename T>
 struct ExceptionCheck {
@@ -93,84 +92,82 @@ struct ExceptionCheck<void (*)(QV4::NoThrowEngine *, A, B, C)> {
 
 #define FOR_EACH_RUNTIME_METHOD(F) \
     /* call */ \
-    F(ReturnedValue, callGlobalLookup, (ExecutionEngine *engine, uint index, CallData *callData)) \
-    F(ReturnedValue, callActivationProperty, (ExecutionEngine *engine, int nameIndex, CallData *callData)) \
-    F(ReturnedValue, callQmlScopeObjectProperty, (ExecutionEngine *engine, int propertyIndex, CallData *callData)) \
-    F(ReturnedValue, callQmlContextObjectProperty, (ExecutionEngine *engine, int propertyIndex, CallData *callData)) \
-    F(ReturnedValue, callProperty, (ExecutionEngine *engine, int nameIndex, CallData *callData)) \
-    F(ReturnedValue, callPropertyLookup, (ExecutionEngine *engine, uint index, CallData *callData)) \
-    F(ReturnedValue, callElement, (ExecutionEngine *engine, const Value &index, CallData *callData)) \
-    F(ReturnedValue, callValue, (ExecutionEngine *engine, const Value &func, CallData *callData)) \
+    F(ReturnedValue, callGlobalLookup, (ExecutionEngine *engine, uint index, Value *argv, int argc)) \
+    F(ReturnedValue, callQmlContextPropertyLookup, (ExecutionEngine *engine, uint index, Value *argv, int argc)) \
+    F(ReturnedValue, callName, (ExecutionEngine *engine, int nameIndex, Value *argv, int argc)) \
+    F(ReturnedValue, callProperty, (ExecutionEngine *engine, Value *base, int nameIndex, Value *argv, int argc)) \
+    F(ReturnedValue, callPropertyLookup, (ExecutionEngine *engine, Value *base, uint index, Value *argv, int argc)) \
+    F(ReturnedValue, callElement, (ExecutionEngine *engine, Value *base, const Value &index, Value *argv, int argc)) \
+    F(ReturnedValue, callValue, (ExecutionEngine *engine, const Value &func, Value *argv, int argc)) \
+    F(ReturnedValue, callWithReceiver, (ExecutionEngine *engine, const Value &func, const Value *thisObject, Value *argv, int argc)) \
+    F(ReturnedValue, callPossiblyDirectEval, (ExecutionEngine *engine, Value *argv, int argc)) \
+    F(ReturnedValue, callWithSpread, (ExecutionEngine *engine, const Value &func, const Value &thisObject, Value *argv, int argc)) \
+    F(ReturnedValue, tailCall, (CppStackFrame *frame, ExecutionEngine *engine)) \
     \
     /* construct */ \
-    F(ReturnedValue, constructGlobalLookup, (ExecutionEngine *engine, uint index, CallData *callData)) \
-    F(ReturnedValue, constructActivationProperty, (ExecutionEngine *engine, int nameIndex, CallData *callData)) \
-    F(ReturnedValue, constructProperty, (ExecutionEngine *engine, int nameIndex, CallData *callData)) \
-    F(ReturnedValue, constructPropertyLookup, (ExecutionEngine *engine, uint index, CallData *callData)) \
-    F(ReturnedValue, constructValue, (ExecutionEngine *engine, const Value &func, CallData *callData)) \
+    F(ReturnedValue, construct, (ExecutionEngine *engine, const Value &func, const Value &newTarget, Value *argv, int argc)) \
+    F(ReturnedValue, constructWithSpread, (ExecutionEngine *engine, const Value &func, const Value &newTarget, Value *argv, int argc)) \
     \
-    /* set & get */ \
-    F(void, setActivationProperty, (ExecutionEngine *engine, int nameIndex, const Value &value)) \
-    F(void, setProperty, (ExecutionEngine *engine, const Value &object, int nameIndex, const Value &value)) \
-    F(void, setElement, (ExecutionEngine *engine, const Value &object, const Value &index, const Value &value)) \
-    F(ReturnedValue, getProperty, (ExecutionEngine *engine, const Value &object, int nameIndex)) \
-    F(ReturnedValue, getActivationProperty, (ExecutionEngine *engine, int nameIndex)) \
-    F(ReturnedValue, getElement, (ExecutionEngine *engine, const Value &object, const Value &index)) \
+    /* load & store */ \
+    F(void, storeNameStrict, (ExecutionEngine *engine, int nameIndex, const Value &value)) \
+    F(void, storeNameSloppy, (ExecutionEngine *engine, int nameIndex, const Value &value)) \
+    F(void, storeProperty, (ExecutionEngine *engine, const Value &object, int nameIndex, const Value &value)) \
+    F(void, storeElement, (ExecutionEngine *engine, const Value &object, const Value &index, const Value &value)) \
+    F(void, storeElement_traced, (ExecutionEngine *engine, const Value &object, const Value &index, const Value &value, quint8 *traceSlot)) \
+    F(ReturnedValue, loadProperty, (ExecutionEngine *engine, const Value &object, int nameIndex)) \
+    F(ReturnedValue, loadName, (ExecutionEngine *engine, int nameIndex)) \
+    F(ReturnedValue, loadElement, (ExecutionEngine *engine, const Value &object, const Value &index)) \
+    F(ReturnedValue, loadElement_traced, (ExecutionEngine *engine, const Value &object, const Value &index, quint8 *traceSlot)) \
+    F(ReturnedValue, loadSuperProperty, (ExecutionEngine *engine, const Value &property)) \
+    F(void, storeSuperProperty, (ExecutionEngine *engine, const Value &property, const Value &value)) \
+    F(ReturnedValue, loadSuperConstructor, (ExecutionEngine *engine, const Value &t)) \
     \
     /* typeof */  \
     F(ReturnedValue, typeofValue, (ExecutionEngine *engine, const Value &val)) \
     F(ReturnedValue, typeofName, (ExecutionEngine *engine, int nameIndex)) \
-    F(ReturnedValue, typeofScopeObjectProperty, (ExecutionEngine *engine, const Value &context, int propertyIndex)) \
-    F(ReturnedValue, typeofContextObjectProperty, (ExecutionEngine *engine, const Value &context, int propertyIndex)) \
-    F(ReturnedValue, typeofMember, (ExecutionEngine *engine, const Value &base, int nameIndex)) \
-    F(ReturnedValue, typeofElement, (ExecutionEngine *engine, const Value &base, const Value &index)) \
     \
     /* delete */ \
-    F(ReturnedValue, deleteElement, (ExecutionEngine *engine, const Value &base, const Value &index)) \
-    F(ReturnedValue, deleteMember, (ExecutionEngine *engine, const Value &base, int nameIndex)) \
-    F(ReturnedValue, deleteMemberString, (ExecutionEngine *engine, const Value &base, String *name)) \
-    F(ReturnedValue, deleteName, (ExecutionEngine *engine, int nameIndex)) \
+    F(bool, deleteProperty, (ExecutionEngine *engine, const Value &base, const Value &index)) \
+    F(bool, deleteName, (ExecutionEngine *engine, int nameIndex)) \
     \
     /* exceptions & scopes */ \
     F(void, throwException, (ExecutionEngine *engine, const Value &value)) \
-    F(ReturnedValue, unwindException, (ExecutionEngine *engine)) \
-    F(void, pushWithScope, (const Value &o, NoThrowEngine *engine)) \
-    F(void, pushCatchScope, (NoThrowEngine *engine, int exceptionVarNameIndex)) \
-    F(void, popScope, (NoThrowEngine *engine)) \
+    F(ReturnedValue, createWithContext, (ExecutionEngine *, Value *jsStackFrame)) \
+    F(ReturnedValue, createCatchContext, (ExecutionContext *parent, int blockIndex, int exceptionVarNameIndex)) \
+    F(ReturnedValue, createBlockContext, (ExecutionContext *parent, int index)) \
+    F(ReturnedValue, createScriptContext, (ExecutionEngine *engine, int index)) \
+    F(ReturnedValue, cloneBlockContext, (ExecutionContext *previous)) \
+    F(ReturnedValue, popScriptContext, (ExecutionEngine *engine)) \
+    F(void, throwReferenceError, (ExecutionEngine *engine, int nameIndex)) \
     \
     /* closures */ \
     F(ReturnedValue, closure, (ExecutionEngine *engine, int functionId)) \
     \
     /* function header */ \
     F(void, declareVar, (ExecutionEngine *engine, bool deletable, int nameIndex)) \
-    F(ReturnedValue, setupArgumentsObject, (ExecutionEngine *engine)) \
-    F(void, convertThisToObject, (ExecutionEngine *engine)) \
+    F(ReturnedValue, createMappedArgumentsObject, (ExecutionEngine *engine)) \
+    F(ReturnedValue, createUnmappedArgumentsObject, (ExecutionEngine *engine)) \
+    F(ReturnedValue, createRestParameter, (ExecutionEngine *engine, int argIndex)) \
     \
     /* literals */ \
     F(ReturnedValue, arrayLiteral, (ExecutionEngine *engine, Value *values, uint length)) \
-    F(ReturnedValue, objectLiteral, (ExecutionEngine *engine, const Value *args, int classId, int arrayValueCount, int arrayGetterSetterCountAndFlags)) \
-    F(ReturnedValue, regexpLiteral, (ExecutionEngine *engine, int id)) \
+    F(ReturnedValue, objectLiteral, (ExecutionEngine *engine, int classId, const Value *args, int argc)) \
+    F(ReturnedValue, createClass, (ExecutionEngine *engine, int classIndex, const Value &heritage, const Value *computedNames)) \
     \
-    /* foreach */ \
-    F(ReturnedValue, foreachIterator, (ExecutionEngine *engine, const Value &in)) \
-    F(ReturnedValue, foreachNextPropertyName, (const Value &foreach_iterator)) \
+    /* for-in, for-of and array destructuring */ \
+    F(ReturnedValue, getIterator, (ExecutionEngine *engine, const Value &in, int iterator)) \
+    F(ReturnedValue, iteratorNext, (ExecutionEngine *engine, const Value &iterator, Value *value)) \
+    F(ReturnedValue, iteratorNextForYieldStar, (ExecutionEngine *engine, const Value &received, const Value &iterator, Value *object)) \
+    F(ReturnedValue, iteratorClose, (ExecutionEngine *engine, const Value &iterator, const Value &done)) \
+    F(ReturnedValue, destructureRestElement, (ExecutionEngine *engine, const Value &iterator)) \
     \
     /* unary operators */ \
-    F(ReturnedValue, uPlus, (const Value &value)) \
     F(ReturnedValue, uMinus, (const Value &value)) \
-    F(ReturnedValue, uNot, (const Value &value)) \
-    F(ReturnedValue, complement, (const Value &value)) \
-    F(ReturnedValue, increment, (const Value &value)) \
-    F(ReturnedValue, decrement, (const Value &value)) \
     \
     /* binary operators */ \
     F(ReturnedValue, instanceof, (ExecutionEngine *engine, const Value &left, const Value &right)) \
     F(ReturnedValue, in, (ExecutionEngine *engine, const Value &left, const Value &right)) \
     F(ReturnedValue, add, (ExecutionEngine *engine, const Value &left, const Value &right)) \
-    F(ReturnedValue, addString, (ExecutionEngine *engine, const Value &left, const Value &right)) \
-    F(ReturnedValue, bitOr, (const Value &left, const Value &right)) \
-    F(ReturnedValue, bitXor, (const Value &left, const Value &right)) \
-    F(ReturnedValue, bitAnd, (const Value &left, const Value &right)) \
     F(ReturnedValue, sub, (const Value &left, const Value &right)) \
     F(ReturnedValue, mul, (const Value &left, const Value &right)) \
     F(ReturnedValue, div, (const Value &left, const Value &right)) \
@@ -200,28 +197,7 @@ struct ExceptionCheck<void (*)(QV4::NoThrowEngine *, A, B, C)> {
     F(Bool, compareInstanceof, (ExecutionEngine *engine, const Value &left, const Value &right)) \
     F(Bool, compareIn, (ExecutionEngine *engine, const Value &left, const Value &right)) \
     \
-    /* conversions */ \
-    F(Bool, toBoolean, (const Value &value)) \
-    F(ReturnedValue, toDouble, (const Value &value)) \
-    F(int, toInt, (const Value &value)) \
-    F(int, doubleToInt, (const double &d)) \
-    F(unsigned, toUInt, (const Value &value)) \
-    F(unsigned, doubleToUInt, (const double &d)) \
-    \
-    /* qml */ \
-    F(ReturnedValue, getQmlContext, (NoThrowEngine *engine)) \
-    F(ReturnedValue, getQmlImportedScripts, (NoThrowEngine *engine)) \
-    F(ReturnedValue, getQmlSingleton, (NoThrowEngine *engine, int nameIndex)) \
-    F(ReturnedValue, getQmlAttachedProperty, (ExecutionEngine *engine, int attachedPropertiesId, int propertyIndex)) \
-    F(ReturnedValue, getQmlScopeObjectProperty, (ExecutionEngine *engine, const Value &context, int propertyIndex, bool captureRequired)) \
-    F(ReturnedValue, getQmlContextObjectProperty, (ExecutionEngine *engine, const Value &context, int propertyIndex, bool captureRequired)) \
-    F(ReturnedValue, getQmlQObjectProperty, (ExecutionEngine *engine, const Value &object, int propertyIndex, bool captureRequired)) \
-    F(ReturnedValue, getQmlSingletonQObjectProperty, (ExecutionEngine *engine, const Value &object, int propertyIndex, bool captureRequired)) \
-    F(ReturnedValue, getQmlIdObject, (ExecutionEngine *engine, const Value &context, uint index)) \
-    \
-    F(void, setQmlScopeObjectProperty, (ExecutionEngine *engine, const Value &context, int propertyIndex, const Value &value)) \
-    F(void, setQmlContextObjectProperty, (ExecutionEngine *engine, const Value &context, int propertyIndex, const Value &value)) \
-    F(void, setQmlQObjectProperty, (ExecutionEngine *engine, const Value &object, int propertyIndex, const Value &value))
+    F(ReturnedValue, regexpLiteral, (ExecutionEngine *engine, int id))
 
 struct Q_QML_PRIVATE_EXPORT Runtime {
     Runtime();
@@ -249,6 +225,12 @@ struct Q_QML_PRIVATE_EXPORT Runtime {
     FOR_EACH_RUNTIME_METHOD(RUNTIME_METHOD)
 #undef RUNTIME_METHOD
 
+    struct StackOffsets {
+        static const int tailCall_function   = -1;
+        static const int tailCall_thisObject = -2;
+        static const int tailCall_argv       = -3;
+        static const int tailCall_argc       = -4;
+    };
 };
 
 static_assert(std::is_standard_layout<Runtime>::value, "Runtime needs to be standard layout in order for us to be able to use offsetof");

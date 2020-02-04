@@ -66,29 +66,32 @@ static QUrl startupUrl()
     QUrl ret;
     QStringList args(qApp->arguments());
     args.takeFirst();
-    Q_FOREACH (const QString& arg, args) {
+    for (const QString &arg : qAsConst(args)) {
         if (arg.startsWith(QLatin1Char('-')))
              continue;
         ret = Utils::fromUserInput(arg);
         if (ret.isValid())
             return ret;
     }
-    return QUrl(QStringLiteral("http://qt.io/"));
+    return QUrl(QStringLiteral("https://www.qt.io"));
 }
 
 int main(int argc, char **argv)
 {
+    QCoreApplication::setOrganizationName("QtExamples");
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QtWebEngine::initialize();
 
     Application app(argc, argv);
-
-    QtWebEngine::initialize();
 
     QQmlApplicationEngine appEngine;
     Utils utils;
     appEngine.rootContext()->setContextProperty("utils", &utils);
     appEngine.load(QUrl("qrc:/ApplicationRoot.qml"));
-    QMetaObject::invokeMethod(appEngine.rootObjects().first(), "load", Q_ARG(QVariant, startupUrl()));
+    if (!appEngine.rootObjects().isEmpty())
+        QMetaObject::invokeMethod(appEngine.rootObjects().first(), "load", Q_ARG(QVariant, startupUrl()));
+    else
+        qFatal("Failed to load sources");
 
     return app.exec();
 }

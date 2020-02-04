@@ -9,26 +9,35 @@
 
 #include "base/macros.h"
 #include "ui/views/accessibility/ax_aura_obj_wrapper.h"
+#include "ui/views/view_observer.h"
 
 namespace views {
+class AXAuraObjCache;
 class View;
 
 // Describes a |View| for use with other AX classes.
-class AXViewObjWrapper : public AXAuraObjWrapper {
+class AXViewObjWrapper : public AXAuraObjWrapper, public ViewObserver {
  public:
-  explicit AXViewObjWrapper(View* view);
+  // |aura_obj_cache| must outlive this object.
+  AXViewObjWrapper(AXAuraObjCache* aura_obj_cache, View* view);
   ~AXViewObjWrapper() override;
 
   View* view() { return view_; }
 
   // AXAuraObjWrapper overrides.
+  bool IsIgnored() override;
   AXAuraObjWrapper* GetParent() override;
   void GetChildren(std::vector<AXAuraObjWrapper*>* out_children) override;
   void Serialize(ui::AXNodeData* out_node_data) override;
-  int32_t GetID() override;
+  int32_t GetUniqueId() const final;
   bool HandleAccessibleAction(const ui::AXActionData& action) override;
 
+  // ViewObserver overrides.
+  void OnViewIsDeleting(View* observed_view) override;
+
  private:
+  AXAuraObjCache* const aura_obj_cache_;
+
   View* view_;
 
   DISALLOW_COPY_AND_ASSIGN(AXViewObjWrapper);

@@ -35,7 +35,7 @@
 
 . "$PSScriptRoot\helpers.ps1"
 
-$archive = "C:\users\qt\downloads\libusb-1.0.21-ife3db79196-msvc2015.7z"
+$archive = Get-DownloadLocation "libusb-1.0.21-ife3db79196-msvc2015.7z"
 $libusb_location = "C:\Utils\libusb-1.0"
 
 Copy-Item \\ci-files01-hki.intra.qt.io\provisioning\libusb-1.0\libusb-1.0.21-ife3db79196-msvc2015.7z $archive
@@ -44,4 +44,6 @@ Verify-Checksum $archive "396a3224c306480f24a583850d923d06aa4377c1"
 Extract-7Zip $archive $libusb_location
 
 # Tell qt-apps/qdb build system where to find libusb
-[Environment]::SetEnvironmentVariable("LIBUSB_PATH", $libusb_location, "Machine")
+Set-EnvironmentVariable "LIBUSB_PATH" $libusb_location
+
+Write-Output "libusb = libusb-1.0.21" >> ~/versions.txt

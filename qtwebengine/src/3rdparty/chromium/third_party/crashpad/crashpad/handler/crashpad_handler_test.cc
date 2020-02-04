@@ -28,14 +28,17 @@
 #include "test/test_paths.h"
 #include "test/win/win_multiprocess_with_temp_dir.h"
 #include "util/file/file_reader.h"
+#include "util/misc/capture_context.h"
 
 namespace crashpad {
 namespace test {
 namespace {
 
+constexpr DWORD kExpectedExitCode = 0x1CEB00DA;
+
 void StartAndCrashWithExtendedHandler(const base::FilePath& temp_dir) {
-  base::FilePath handler_path = TestPaths::Executable().DirName().Append(
-      FILE_PATH_LITERAL("crashpad_handler_test_extended_handler.exe"));
+  base::FilePath handler_path = TestPaths::BuildArtifact(
+      L"handler", L"extended_handler", TestPaths::FileType::kExecutable);
 
   CrashpadClient client;
   ASSERT_TRUE(client.StartHandler(handler_path,
@@ -47,7 +50,14 @@ void StartAndCrashWithExtendedHandler(const base::FilePath& temp_dir) {
                                   false,
                                   false));
 
-  __debugbreak();
+  // It appears that the GoogleTest fixture will catch and handle exceptions
+  // from here. Hence the fabricated crash in favor of raising an exception.
+  EXCEPTION_RECORD exception_record = {kExpectedExitCode,
+                                       EXCEPTION_NONCONTINUABLE};
+  CONTEXT context;
+  CaptureContext(&context);
+  EXCEPTION_POINTERS exception_pointers = {&exception_record, &context};
+  CrashpadClient::DumpAndCrash(&exception_pointers);
 }
 
 class CrashWithExtendedHandler final : public WinMultiprocessWithTempDir {
@@ -59,7 +69,7 @@ class CrashWithExtendedHandler final : public WinMultiprocessWithTempDir {
   void ValidateGeneratedDump();
 
   void WinMultiprocessParent() override {
-    SetExpectedChildExitCode(EXCEPTION_BREAKPOINT);
+    SetExpectedChildExitCode(kExpectedExitCode);
   }
 
   void WinMultiprocessChild() override {
@@ -83,7 +93,7 @@ void CrashWithExtendedHandler::ValidateGeneratedDump() {
   ASSERT_TRUE(database);
 
   std::vector<CrashReportDatabase::Report> reports;
-  ASSERT_EQ(database->GetCompletedReports(&reports),
+  ASSERT_EQ(database->GetPendingReports(&reports),
             CrashReportDatabase::kNoError);
   ASSERT_EQ(reports.size(), 1u);
 
@@ -115,7 +125,7 @@ void CrashWithExtendedHandler::ValidateGeneratedDump() {
 
       ASSERT_TRUE(reader.ReadExactly(data.data(), data.size()));
 
-      static const char kExpectedData[] = "Injected extension stream!";
+      static constexpr char kExpectedData[] = "Injected extension stream!";
       EXPECT_EQ(memcmp(kExpectedData, data.data(), sizeof(kExpectedData)), 0);
     }
   }
@@ -123,7 +133,13 @@ void CrashWithExtendedHandler::ValidateGeneratedDump() {
   EXPECT_EQ(found_extension_streams, 1u);
 }
 
-TEST(CrashpadHandler, ExtensibilityCalloutsWork) {
+#if defined(ADDRESS_SANITIZER)
+// https://crbug.com/845011
+#define MAYBE_ExtensibilityCalloutsWork DISABLED_ExtensibilityCalloutsWork
+#else
+#define MAYBE_ExtensibilityCalloutsWork ExtensibilityCalloutsWork
+#endif
+TEST(CrashpadHandler, MAYBE_ExtensibilityCalloutsWork) {
   WinMultiprocessWithTempDir::Run<CrashWithExtendedHandler>();
 }
 

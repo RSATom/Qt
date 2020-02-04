@@ -9,10 +9,11 @@
 #include <string>
 #include <vector>
 
+#include "base/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/user_manager/user_image/user_image.h"
 #include "components/user_manager/user_info.h"
 #include "components/user_manager/user_manager_export.h"
@@ -28,6 +29,10 @@ class SupervisedUserManagerImpl;
 class UserAddingScreenTest;
 class UserImageManagerImpl;
 class UserSessionManager;
+}
+
+namespace policy {
+class ProfilePolicyConnectorTest;
 }
 
 namespace user_manager {
@@ -82,8 +87,8 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   // Returns the user type.
   virtual UserType GetType() const = 0;
 
-  // Allows managing child status of the user. Used for RegularUser.
-  virtual void SetIsChild(bool is_child);
+  // Will LOG(FATAL) unless overridden.
+  virtual void UpdateType(UserType user_type);
 
   // Returns true if user has gaia account. True for users of types
   // USER_TYPE_REGULAR and USER_TYPE_CHILD.
@@ -94,6 +99,9 @@ class USER_MANAGER_EXPORT User : public UserInfo {
 
   // Returns true if user is supervised.
   virtual bool IsSupervised() const;
+
+  // Returns true if user is child.
+  virtual bool IsChild() const;
 
   // True if user image can be synced.
   virtual bool CanSyncImage() const;
@@ -156,6 +164,11 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   // Whether the user's session has completed initialization yet.
   bool profile_ever_initialized() const { return profile_ever_initialized_; }
 
+  // Public so it can be called via tests.
+  void set_profile_ever_initialized(bool profile_ever_initialized) {
+    profile_ever_initialized_ = profile_ever_initialized;
+  }
+
   // True if the user's session can be locked (i.e. the user has a password with
   // which to unlock the session).
   bool can_lock() const;
@@ -172,9 +185,20 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   // True if the user Profile is created.
   bool is_profile_created() const { return profile_is_created_; }
 
+  // True if user has google account (not a guest or managed user).
+  bool has_gaia_account() const;
+
   static User* CreatePublicAccountUserForTesting(const AccountId& account_id) {
     return CreatePublicAccountUser(account_id);
   }
+
+  static User* CreateRegularUserForTesting(const AccountId& account_id) {
+    User* user = CreateRegularUser(account_id, USER_TYPE_REGULAR);
+    user->SetImage(std::unique_ptr<UserImage>(new UserImage), 0);
+    return user;
+  }
+
+  void AddProfileCreatedObserver(base::OnceClosure on_profile_created);
 
  protected:
   friend class UserManagerBase;
@@ -188,11 +212,13 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   friend class chromeos::FakeChromeUserManager;
   friend class chromeos::MockUserManager;
   friend class chromeos::UserAddingScreenTest;
+  friend class policy::ProfilePolicyConnectorTest;
   FRIEND_TEST_ALL_PREFIXES(UserTest, DeviceLocalAccountAffiliation);
   FRIEND_TEST_ALL_PREFIXES(UserTest, UserSessionInitialized);
 
   // Do not allow anyone else to create new User instances.
-  static User* CreateRegularUser(const AccountId& account_id);
+  static User* CreateRegularUser(const AccountId& account_id,
+                                 const UserType user_type);
   static User* CreateGuestUser(const AccountId& guest_account_id);
   static User* CreateKioskAppUser(const AccountId& kiosk_app_account_id);
   static User* CreateArcKioskAppUser(const AccountId& arc_kiosk_account_id);
@@ -239,10 +265,6 @@ class USER_MANAGER_EXPORT User : public UserInfo {
     force_online_signin_ = force_online_signin;
   }
 
-  void set_profile_ever_initialized(bool profile_ever_initialized) {
-    profile_ever_initialized_ = profile_ever_initialized;
-  }
-
   void set_username_hash(const std::string& username_hash) {
     username_hash_ = username_hash;
   }
@@ -253,10 +275,7 @@ class USER_MANAGER_EXPORT User : public UserInfo {
 
   void set_is_active(bool is_active) { is_active_ = is_active; }
 
-  void set_profile_is_created() { profile_is_created_ = true; }
-
-  // True if user has google account (not a guest or managed user).
-  bool has_gaia_account() const;
+  void SetProfileIsCreated();
 
   virtual void SetAffiliation(bool is_affiliated);
 
@@ -305,6 +324,8 @@ class USER_MANAGER_EXPORT User : public UserInfo {
 
   // True if the user is affiliated to the device.
   bool is_affiliated_ = false;
+
+  std::vector<base::OnceClosure> on_profile_created_observers_;
 
   DISALLOW_COPY_AND_ASSIGN(User);
 };

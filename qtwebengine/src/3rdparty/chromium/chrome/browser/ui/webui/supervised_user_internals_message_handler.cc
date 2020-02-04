@@ -4,18 +4,18 @@
 
 #include "chrome/browser/ui/webui/supervised_user_internals_message_handler.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/account_tracker_service_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/supervised_user/child_accounts/child_account_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
@@ -23,11 +23,12 @@
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_url_filter.h"
 #include "chrome/common/channel_info.h"
-#include "components/signin/core/browser/account_tracker_service.h"
 #include "components/supervised_user_error_page/supervised_user_error_page.h"
 #include "components/url_formatter/url_fixer.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_ui.h"
+#include "services/identity/public/cpp/identity_manager.h"
 
 using content::BrowserThread;
 
@@ -126,18 +127,22 @@ SupervisedUserInternalsMessageHandler::
 void SupervisedUserInternalsMessageHandler::RegisterMessages() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  web_ui()->RegisterMessageCallback("registerForEvents",
-      base::Bind(&SupervisedUserInternalsMessageHandler::
-                     HandleRegisterForEvents,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "registerForEvents",
+      base::BindRepeating(
+          &SupervisedUserInternalsMessageHandler::HandleRegisterForEvents,
+          base::Unretained(this)));
 
-  web_ui()->RegisterMessageCallback("getBasicInfo",
-      base::Bind(&SupervisedUserInternalsMessageHandler::HandleGetBasicInfo,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getBasicInfo",
+      base::BindRepeating(
+          &SupervisedUserInternalsMessageHandler::HandleGetBasicInfo,
+          base::Unretained(this)));
 
-  web_ui()->RegisterMessageCallback("tryURL",
-      base::Bind(&SupervisedUserInternalsMessageHandler::HandleTryURL,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "tryURL",
+      base::BindRepeating(&SupervisedUserInternalsMessageHandler::HandleTryURL,
+                          base::Unretained(this)));
 }
 
 void SupervisedUserInternalsMessageHandler::OnURLFilterChanged() {
@@ -211,11 +216,12 @@ void SupervisedUserInternalsMessageHandler::SendBasicInfo() {
                   FilteringBehaviorToString(
                       filter->GetDefaultFilteringBehavior()));
 
-  AccountTrackerService* account_tracker =
-      AccountTrackerServiceFactory::GetForProfile(profile);
-  // |account_tracker| is null in incognito and guest profiles.
-  if (account_tracker) {
-    for (const auto& account: account_tracker->GetAccounts()) {
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  // |identity_manager| is null in incognito and guest profiles.
+  if (identity_manager) {
+    for (const auto& account :
+         identity_manager->GetAccountsWithRefreshTokens()) {
       base::ListValue* section_user = AddSection(section_list.get(),
           "User Information for " + account.full_name);
       AddSectionEntry(section_user, "Account id", account.account_id);
@@ -246,7 +252,7 @@ void SupervisedUserInternalsMessageHandler::SendSupervisedUserSettings(
     const base::DictionaryValue* settings) {
   web_ui()->CallJavascriptFunctionUnsafe(
       "chrome.supervised_user_internals.receiveUserSettings",
-      *(settings ? settings : base::MakeUnique<base::Value>().get()));
+      *(settings ? settings : std::make_unique<base::Value>().get()));
 }
 
 void SupervisedUserInternalsMessageHandler::OnTryURLResult(

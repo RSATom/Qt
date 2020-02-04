@@ -35,8 +35,6 @@
 
 QT_BEGIN_NAMESPACE
 
-class QHelpEngine;
-class QHelpContentItem;
 class QHelpContentWidget;
 
 class ContentWindow : public QWidget
@@ -45,7 +43,7 @@ class ContentWindow : public QWidget
 
 public:
     ContentWindow();
-    ~ContentWindow();
+    ~ContentWindow() override;
 
     bool syncToContent(const QUrl &url);
     void expandToDepth(int depth);

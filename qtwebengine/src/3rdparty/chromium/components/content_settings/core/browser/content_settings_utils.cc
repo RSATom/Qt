@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/values.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -31,7 +31,7 @@ const ContentSettingsStringMapping kContentSettingsStringMapping[] = {
     {CONTENT_SETTING_SESSION_ONLY, "session_only"},
     {CONTENT_SETTING_DETECT_IMPORTANT_CONTENT, "detect_important_content"},
 };
-static_assert(arraysize(kContentSettingsStringMapping) ==
+static_assert(base::size(kContentSettingsStringMapping) ==
                   CONTENT_SETTING_NUM_SETTINGS,
               "kContentSettingsToFromString should have "
               "CONTENT_SETTING_NUM_SETTINGS elements");
@@ -50,8 +50,8 @@ const ContentSetting kContentSettingOrder[] = {
     CONTENT_SETTING_BLOCK
 };
 
-static_assert(arraysize(kContentSettingOrder) ==
-              CONTENT_SETTING_NUM_SETTINGS - 1,
+static_assert(base::size(kContentSettingOrder) ==
+                  CONTENT_SETTING_NUM_SETTINGS - 1,
               "kContentSettingOrder should have CONTENT_SETTING_NUM_SETTINGS-1"
               "entries");
 
@@ -69,9 +69,7 @@ std::string ContentSettingToString(ContentSetting setting) {
 
 bool ContentSettingFromString(const std::string& name,
                               ContentSetting* setting) {
-  // We are starting the index from 1, as |CONTENT_SETTING_DEFAULT| is not
-  // a recognized content setting.
-  for (size_t i = 1; i < arraysize(kContentSettingsStringMapping); ++i) {
+  for (size_t i = 0; i < base::size(kContentSettingsStringMapping); ++i) {
     if (name == kContentSettingsStringMapping[i].content_setting_str) {
       *setting = kContentSettingsStringMapping[i].content_setting;
       return true;
@@ -131,8 +129,9 @@ void GetRendererContentSettingRules(const HostContentSettingsMap* map,
   // all origins.
   rules->image_rules.push_back(ContentSettingPatternSource(
       ContentSettingsPattern::Wildcard(), ContentSettingsPattern::Wildcard(),
-      ContentSettingToValue(CONTENT_SETTING_ALLOW), std::string(),
-      map->is_incognito()));
+      base::Value::FromUniquePtrValue(
+          ContentSettingToValue(CONTENT_SETTING_ALLOW)),
+      std::string(), map->is_incognito()));
 #endif
   map->GetSettingsForOneType(
       CONTENT_SETTINGS_TYPE_JAVASCRIPT,
@@ -142,6 +141,11 @@ void GetRendererContentSettingRules(const HostContentSettingsMap* map,
       CONTENT_SETTINGS_TYPE_AUTOPLAY,
       ResourceIdentifier(),
       &(rules->autoplay_rules));
+  map->GetSettingsForOneType(CONTENT_SETTINGS_TYPE_CLIENT_HINTS,
+                             ResourceIdentifier(),
+                             &(rules->client_hints_rules));
+  map->GetSettingsForOneType(CONTENT_SETTINGS_TYPE_POPUPS, ResourceIdentifier(),
+                             &(rules->popup_redirect_rules));
 }
 
 bool IsMorePermissive(ContentSetting a, ContentSetting b) {

@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-#include "pinball.h"
 #include "mainwindow.h"
+#include "pinball.h"
 
 #include <QApplication>
 

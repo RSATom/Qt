@@ -29,7 +29,7 @@
     \example webenginewidgets/minimal
     \title WebEngine Widgets Minimal Example
     \ingroup webengine-widgetexamples
-    \brief Displays a web page using Qt WebEngine Widgets
+    \brief Displays a web page using \QWE Widgets.
 
     \image minimal-example.png
 
@@ -42,17 +42,29 @@
 
     \section1 The Code
 
-    In the \c main function we first set the Qt::AA_EnableHighDpiScaling.
-    This lets the web view automatically scale on high-dpi displays.
-
-    Next, we instantiate a QApplication and a QWebEngineView. The URL
-    to load is taken from the command-line in \l commandLineUrlArgument and
-    loaded by calling \l QWebEngineView::setUrl. The view widget is
-    given a reasonable default size, and shown.
-    Finally, QApplication::exec() launches the main event loop.
+    We first define a \c commandLineUrlArgument function that returns the URL to open.
+    This is either the first positional argument given on the command line, or
+    \c https://www.qt.io as a fallback.
 
     \quotefromfile webenginewidgets/minimal/main.cpp
     \skipto #include
+
+    \printto int main
+
+    In the \c main function we first set the
+    \l{QCoreApplication::organizationName} property. This affects the locations
+    where \QWE stores persistent and cached data (see also
+    \l{QWebEngineProfile::cachePath} and
+    \l{QWebEngineProfile::persistentStoragePath}).
+
+    We also set the Qt::AA_EnableHighDpiScaling attribute. This lets the web
+    view automatically scale on high-dpi displays.
+
+    Next, we instantiate a QApplication and a QWebEngineView. The URL
+    to load is taken from \c commandLineUrlArgument and
+    loaded by calling \l QWebEngineView::setUrl. The view widget is
+    given a reasonable default size, and shown.
+    Finally, QApplication::exec() launches the main event loop.
 
     \printuntil }
 

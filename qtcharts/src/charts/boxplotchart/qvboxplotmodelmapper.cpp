@@ -33,7 +33,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QVBoxPlotModelMapper
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QVBoxPlotModelMapper is a vertical model mapper for box plot
     series.
 
@@ -300,7 +300,6 @@ void QVBoxPlotModelMapper::setRowCount(int rowCount)
     }
 }
 
-#include "moc_qvboxplotmodelmapper.cpp"
-
 QT_CHARTS_END_NAMESPACE
 
+#include "moc_qvboxplotmodelmapper.cpp"

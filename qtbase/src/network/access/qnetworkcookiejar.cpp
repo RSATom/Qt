@@ -45,6 +45,14 @@
 #include "QtCore/qdatetime.h"
 #if QT_CONFIG(topleveldomain)
 #include "private/qtldurl_p.h"
+#else
+QT_BEGIN_NAMESPACE
+static bool qIsEffectiveTLD(QString domain)
+{
+    // provide minimal checking by not accepting cookies on real TLDs
+    return !domain.contains(QLatin1Char('.'));
+}
+QT_END_NAMESPACE
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -54,7 +62,7 @@ QT_BEGIN_NAMESPACE
     \since 4.4
     \inmodule QtNetwork
 
-    \brief The QNetworkCookieJar class implements a simple jar of QNetworkCookie objects
+    \brief The QNetworkCookieJar class implements a simple jar of QNetworkCookie objects.
 
     Cookies are small bits of information that stateless protocols
     like HTTP use to maintain some persistent information across
@@ -241,6 +249,17 @@ QList<QNetworkCookie> QNetworkCookieJar::cookiesForUrl(const QUrl &url) const
         if ((*it).isSecure() && !isEncrypted)
             continue;
 
+        QString domain = it->domain();
+        if (domain.startsWith(QLatin1Char('.'))) /// Qt6?: remove when compliant with RFC6265
+            domain = domain.mid(1);
+#if QT_CONFIG(topleveldomain)
+        if (qIsEffectiveTLD(domain) && url.host() != domain)
+            continue;
+#else
+        if (!domain.contains(QLatin1Char('.')) && url.host() != domain)
+            continue;
+#endif // topleveldomain
+
         // insert this cookie into result, sorted by path
         QList<QNetworkCookie>::Iterator insertIt = result.begin();
         while (insertIt != result.end()) {
@@ -340,19 +359,17 @@ bool QNetworkCookieJar::validateCookie(const QNetworkCookie &cookie, const QUrl 
     if (domain.startsWith(QLatin1Char('.')))
         domain = domain.mid(1);
 
-#if QT_CONFIG(topleveldomain)
+    // We shouldn't reject if:
+    // "[...] the domain-attribute is identical to the canonicalized request-host"
+    // https://tools.ietf.org/html/rfc6265#section-5.3 step 5
+    if (host == domain)
+        return true;
     // the check for effective TLDs makes the "embedded dot" rule from RFC 2109 section 4.3.2
     // redundant; the "leading dot" rule has been relaxed anyway, see QNetworkCookie::normalize()
     // we remove the leading dot for this check if it's present
-    if (qIsEffectiveTLD(domain))
-        return false; // not accepted
-#else
-    // provide minimal checking by not accepting cookies on real TLDs
-    if (!domain.contains(QLatin1Char('.')))
-        return false;
-#endif
-
-    return true;
+    // Normally defined in qtldurl_p.h, but uses fall-back in this file when topleveldomain isn't
+    // configured:
+    return !qIsEffectiveTLD(domain);
 }
 
 QT_END_NAMESPACE

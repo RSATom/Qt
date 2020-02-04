@@ -4,11 +4,12 @@
 
 #include "content/browser/indexed_db/cursor_impl.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/sequenced_task_runner.h"
 #include "content/browser/indexed_db/indexed_db_callbacks.h"
 #include "content/browser/indexed_db/indexed_db_cursor.h"
 #include "content/browser/indexed_db/indexed_db_dispatcher_host.h"
+
+using blink::IndexedDBKey;
 
 namespace content {
 
@@ -18,7 +19,9 @@ class CursorImpl::IDBSequenceHelper {
   explicit IDBSequenceHelper(std::unique_ptr<IndexedDBCursor> cursor);
   ~IDBSequenceHelper();
 
-  void Advance(uint32_t count, scoped_refptr<IndexedDBCallbacks> callbacks);
+  void Advance(uint32_t count,
+               base::WeakPtr<IndexedDBDispatcherHost> dispatcher_host,
+               blink::mojom::IDBCursor::AdvanceCallback callback);
   void Continue(const IndexedDBKey& key,
                 const IndexedDBKey& primary_key,
                 scoped_refptr<IndexedDBCallbacks> callbacks);
@@ -44,50 +47,41 @@ CursorImpl::~CursorImpl() {
   idb_runner_->DeleteSoon(FROM_HERE, helper_);
 }
 
-void CursorImpl::Advance(
-    uint32_t count,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
-  scoped_refptr<IndexedDBCallbacks> callbacks(
-      new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
-                             std::move(callbacks_info), idb_runner_));
+void CursorImpl::Advance(uint32_t count,
+                         blink::mojom::IDBCursor::AdvanceCallback callback) {
   idb_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&IDBSequenceHelper::Advance, base::Unretained(helper_),
-                     count, base::Passed(&callbacks)));
+                     count, dispatcher_host_->AsWeakPtr(),
+                     std::move(callback)));
 }
 
-void CursorImpl::Continue(
+void CursorImpl::CursorContinue(
     const IndexedDBKey& key,
     const IndexedDBKey& primary_key,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   scoped_refptr<IndexedDBCallbacks> callbacks(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
   idb_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&IDBSequenceHelper::Continue, base::Unretained(helper_),
-                     key, primary_key, base::Passed(&callbacks)));
+                     key, primary_key, std::move(callbacks)));
 }
 
 void CursorImpl::Prefetch(
     int32_t count,
-    ::indexed_db::mojom::CallbacksAssociatedPtrInfo callbacks_info) {
+    blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks_info) {
   scoped_refptr<IndexedDBCallbacks> callbacks(
       new IndexedDBCallbacks(dispatcher_host_->AsWeakPtr(), origin_,
                              std::move(callbacks_info), idb_runner_));
-  idb_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&IDBSequenceHelper::Prefetch, base::Unretained(helper_),
-                     count, base::Passed(&callbacks)));
+  idb_runner_->PostTask(FROM_HERE, base::BindOnce(&IDBSequenceHelper::Prefetch,
+                                                  base::Unretained(helper_),
+                                                  count, std::move(callbacks)));
 }
 
-void CursorImpl::PrefetchReset(
-    int32_t used_prefetches,
-    int32_t unused_prefetches,
-    const std::vector<std::string>& unused_blob_uuids) {
-  for (const auto& uuid : unused_blob_uuids)
-    dispatcher_host_->DropBlobData(uuid);
-
+void CursorImpl::PrefetchReset(int32_t used_prefetches,
+                               int32_t unused_prefetches) {
   idb_runner_->PostTask(
       FROM_HERE, base::BindOnce(&IDBSequenceHelper::PrefetchReset,
                                 base::Unretained(helper_), used_prefetches,
@@ -102,8 +96,9 @@ CursorImpl::IDBSequenceHelper::~IDBSequenceHelper() {}
 
 void CursorImpl::IDBSequenceHelper::Advance(
     uint32_t count,
-    scoped_refptr<IndexedDBCallbacks> callbacks) {
-  cursor_->Advance(count, std::move(callbacks));
+    base::WeakPtr<content::IndexedDBDispatcherHost> dispatcher_host,
+    blink::mojom::IDBCursor::AdvanceCallback callback) {
+  cursor_->Advance(count, std::move(dispatcher_host), std::move(callback));
 }
 
 void CursorImpl::IDBSequenceHelper::Continue(
@@ -111,8 +106,8 @@ void CursorImpl::IDBSequenceHelper::Continue(
     const IndexedDBKey& primary_key,
     scoped_refptr<IndexedDBCallbacks> callbacks) {
   cursor_->Continue(
-      key.IsValid() ? base::MakeUnique<IndexedDBKey>(key) : nullptr,
-      primary_key.IsValid() ? base::MakeUnique<IndexedDBKey>(primary_key)
+      key.IsValid() ? std::make_unique<IndexedDBKey>(key) : nullptr,
+      primary_key.IsValid() ? std::make_unique<IndexedDBKey>(primary_key)
                             : nullptr,
       std::move(callbacks));
 }

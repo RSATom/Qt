@@ -14,7 +14,9 @@
 #include "qcolor.h"
 #include "qcursor.h"
 #include "qdesktopservices.h"
+#if QT_CONFIG(draganddrop)
 #include "qdrag.h"
+#endif
 #include "qevent.h"
 #include "qfont.h"
 #include "qfontdatabase.h"
@@ -81,7 +83,9 @@
 #include "qrgba64.h"
 #include "qscreen.h"
 #include "qsessionmanager.h"
+#if QT_CONFIG(standarditemmodel)
 #include "qstandarditemmodel.h"
+#endif
 #include "qstatictext.h"
 #include "qstylehints.h"
 #include "qsurface.h"

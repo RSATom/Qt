@@ -7,10 +7,11 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_GENERALSTATE_H_
 #define CORE_FPDFAPI_PAGE_CPDF_GENERALSTATE_H_
 
-#include "core/fxcrt/cfx_shared_copy_on_write.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
-#include "core/fxcrt/fx_basic.h"
+#include "constants/transparency.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/shared_copy_on_write.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/fx_dib.h"
 
 class CPDF_Object;
@@ -25,11 +26,11 @@ class CPDF_GeneralState {
   void Emplace() { m_Ref.Emplace(); }
   bool HasRef() const { return !!m_Ref; }
 
-  void SetRenderIntent(const CFX_ByteString& ri);
+  void SetRenderIntent(const ByteString& ri);
 
-  CFX_ByteString GetBlendMode() const;
-  int GetBlendType() const;
-  void SetBlendType(int type);
+  ByteString GetBlendMode() const;
+  BlendMode GetBlendType() const;
+  void SetBlendType(BlendMode type);
 
   float GetFillAlpha() const;
   void SetFillAlpha(float alpha);
@@ -40,13 +41,13 @@ class CPDF_GeneralState {
   CPDF_Object* GetSoftMask() const;
   void SetSoftMask(CPDF_Object* pObject);
 
-  CPDF_Object* GetTR() const;
+  const CPDF_Object* GetTR() const;
   void SetTR(CPDF_Object* pObject);
 
-  CFX_RetainPtr<CPDF_TransferFunc> GetTransferFunc() const;
-  void SetTransferFunc(const CFX_RetainPtr<CPDF_TransferFunc>& pFunc);
+  RetainPtr<CPDF_TransferFunc> GetTransferFunc() const;
+  void SetTransferFunc(const RetainPtr<CPDF_TransferFunc>& pFunc);
 
-  void SetBlendMode(const CFX_ByteString& mode);
+  void SetBlendMode(const ByteString& mode);
 
   const CFX_Matrix* GetSMaskMatrix() const;
   void SetSMaskMatrix(const CFX_Matrix& matrix);
@@ -77,36 +78,36 @@ class CPDF_GeneralState {
   CFX_Matrix* GetMutableMatrix();
 
  private:
-  class StateData {
+  class StateData final : public Retainable {
    public:
     StateData();
     StateData(const StateData& that);
-    ~StateData();
+    ~StateData() override;
 
-    CFX_ByteString m_BlendMode;
-    int m_BlendType;
-    CFX_UnownedPtr<CPDF_Object> m_pSoftMask;
+    ByteString m_BlendMode = pdfium::transparency::kNormal;
+    BlendMode m_BlendType = BlendMode::kNormal;
+    UnownedPtr<CPDF_Object> m_pSoftMask;
     CFX_Matrix m_SMaskMatrix;
-    float m_StrokeAlpha;
-    float m_FillAlpha;
-    CFX_UnownedPtr<CPDF_Object> m_pTR;
-    CFX_RetainPtr<CPDF_TransferFunc> m_pTransferFunc;
+    float m_StrokeAlpha = 1.0f;
+    float m_FillAlpha = 1.0f;
+    UnownedPtr<const CPDF_Object> m_pTR;
+    RetainPtr<CPDF_TransferFunc> m_pTransferFunc;
     CFX_Matrix m_Matrix;
-    int m_RenderIntent;
-    bool m_StrokeAdjust;
-    bool m_AlphaSource;
-    bool m_TextKnockout;
-    bool m_StrokeOP;
-    bool m_FillOP;
-    int m_OPMode;
-    CFX_UnownedPtr<CPDF_Object> m_pBG;
-    CFX_UnownedPtr<CPDF_Object> m_pUCR;
-    CFX_UnownedPtr<CPDF_Object> m_pHT;
-    float m_Flatness;
-    float m_Smoothness;
+    int m_RenderIntent = 0;
+    bool m_StrokeAdjust = false;
+    bool m_AlphaSource = false;
+    bool m_TextKnockout = false;
+    bool m_StrokeOP = false;
+    bool m_FillOP = false;
+    int m_OPMode = 0;
+    UnownedPtr<const CPDF_Object> m_pBG;
+    UnownedPtr<const CPDF_Object> m_pUCR;
+    UnownedPtr<const CPDF_Object> m_pHT;
+    float m_Flatness = 1.0f;
+    float m_Smoothness = 0.0f;
   };
 
-  CFX_SharedCopyOnWrite<StateData> m_Ref;
+  SharedCopyOnWrite<StateData> m_Ref;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_GENERALSTATE_H_

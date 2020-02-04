@@ -65,7 +65,7 @@ public:
     QMapQuickItemMatrix4x4(QObject *parent = nullptr);
 
     void setMatrix(const QMatrix4x4& matrix);
-    void applyTo(QMatrix4x4 *matrix) const Q_DECL_OVERRIDE;
+    void applyTo(QMatrix4x4 *matrix) const override;
 
     QMatrix4x4 m_matrix;
 };
@@ -82,7 +82,7 @@ public:
     explicit QDeclarativeGeoMapQuickItem(QQuickItem *parent = 0);
     ~QDeclarativeGeoMapQuickItem();
 
-    virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) Q_DECL_OVERRIDE;
+    virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) override;
 
     void setCoordinate(const QGeoCoordinate &coordinate);
     QGeoCoordinate coordinate();
@@ -96,8 +96,8 @@ public:
     void setZoomLevel(qreal zoomLevel);
     qreal zoomLevel() const;
 
-    const QGeoShape &geoShape() const Q_DECL_OVERRIDE;
-    QGeoMap::ItemType itemType() const Q_DECL_OVERRIDE;
+    const QGeoShape &geoShape() const override;
+    void setGeoShape(const QGeoShape &shape) override;
 
 Q_SIGNALS:
     void coordinateChanged();
@@ -106,13 +106,13 @@ Q_SIGNALS:
     void zoomLevelChanged();
 
 protected:
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) Q_DECL_OVERRIDE;
-    void updatePolish() Q_DECL_OVERRIDE;
-    bool childMouseEventFilter(QQuickItem *item, QEvent *event) Q_DECL_OVERRIDE;
+    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void updatePolish() override;
+    bool childMouseEventFilter(QQuickItem *item, QEvent *event) override;
 
 protected Q_SLOTS:
-    virtual void afterChildrenChanged() Q_DECL_OVERRIDE;
-    virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) Q_DECL_OVERRIDE;
+    virtual void afterChildrenChanged() override;
+    virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) override;
 
 private:
     qreal scaleFactor();

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -48,8 +48,7 @@
 **
 ****************************************************************************/
 //![0]
-import QtQuick 2.10
-import Qt.labs.handlers 1.0
+import QtQuick 2.12
 
 Item {
     width: 640
@@ -62,9 +61,9 @@ Item {
 
     Text {
         color: handler.active ? "darkgreen" : "black"
-        text: handler.point.position.x.toFixed(1) + "," + handler.point.position.y.toFixed(1)
-        x: handler.point.position.x - width / 2
-        y: handler.point.position.y - height
+        text: handler.centroid.position.x.toFixed(1) + "," + handler.centroid.position.y.toFixed(1)
+        x: handler.centroid.position.x - width / 2
+        y: handler.centroid.position.y - height
     }
 }
 //![0]

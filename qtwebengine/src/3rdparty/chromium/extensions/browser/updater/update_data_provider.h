@@ -5,12 +5,17 @@
 #ifndef EXTENSIONS_BROWSER_UPDATER_UPDATE_DATA_PROVIDER_H_
 #define EXTENSIONS_BROWSER_UPDATER_UPDATE_DATA_PROVIDER_H_
 
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
+#include "extensions/browser/updater/extension_installer.h"
+#include "extensions/browser/updater/extension_update_data.h"
 
 namespace base {
 class FilePath;
@@ -30,36 +35,36 @@ namespace extensions {
 // extensions it is doing an update check for.
 class UpdateDataProvider : public base::RefCounted<UpdateDataProvider> {
  public:
-  typedef base::Callback<void(content::BrowserContext* context,
-                              const std::string& /* extension_id */,
-                              const base::FilePath& /* temp_dir */)>
-      InstallCallback;
+  using UpdateClientCallback = ExtensionInstaller::UpdateClientCallback;
 
   // We need a browser context to use when retrieving data for a set of
-  // extension ids, as well as a callback for proceeding with installation
-  // steps once the UpdateClient has downloaded and unpacked an update for an
-  // extension.
-  UpdateDataProvider(content::BrowserContext* context,
-                     const InstallCallback& callback);
+  // extension ids, as well as an install callback for proceeding with
+  // installation steps once the UpdateClient has downloaded and unpacked
+  // an update for an extension.
+  explicit UpdateDataProvider(content::BrowserContext* browser_context);
 
   // Notify this object that the associated browser context is being shut down
   // the pointer to the context should be dropped and no more work should be
   // done.
   void Shutdown();
 
-  // Matches update_client::UpdateClient::CrxDataCallback
-  void GetData(const std::vector<std::string>& ids,
-               std::vector<update_client::CrxComponent>* data);
+  std::vector<base::Optional<update_client::CrxComponent>> GetData(
+      bool install_immediately,
+      const ExtensionUpdateDataMap& update_info,
+      const std::vector<std::string>& ids);
 
  private:
   friend class base::RefCounted<UpdateDataProvider>;
   ~UpdateDataProvider();
 
+  // This function should be called on the browser UI thread.
   void RunInstallCallback(const std::string& extension_id,
-                          const base::FilePath& temp_dir);
+                          const std::string& public_key,
+                          const base::FilePath& unpacked_dir,
+                          bool install_immediately,
+                          UpdateClientCallback update_client_callback);
 
-  content::BrowserContext* context_;
-  InstallCallback callback_;
+  content::BrowserContext* browser_context_;
 
   DISALLOW_COPY_AND_ASSIGN(UpdateDataProvider);
 };

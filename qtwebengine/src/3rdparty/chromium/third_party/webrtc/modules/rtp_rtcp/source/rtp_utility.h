@@ -8,34 +8,33 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_UTILITY_H_
-#define WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_UTILITY_H_
+#ifndef MODULES_RTP_RTCP_SOURCE_RTP_UTILITY_H_
+#define MODULES_RTP_RTCP_SOURCE_RTP_UTILITY_H_
 
-#include <map>
+#include <stdint.h>
+#include <algorithm>
 
-#include "webrtc/modules/rtp_rtcp/include/receive_statistics.h"
-#include "webrtc/modules/rtp_rtcp/include/rtp_header_extension_map.h"
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_rtcp_config.h"
-#include "webrtc/rtc_base/deprecation.h"
-#include "webrtc/typedefs.h"
+#include "absl/strings/string_view.h"
+#include "api/rtp_headers.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 
 namespace webrtc {
 
 const uint8_t kRtpMarkerBitMask = 0x80;
 
-RtpFeedback* NullObjectRtpFeedback();
-ReceiveStatistics* NullObjectReceiveStatistics();
-
 namespace RtpUtility {
 
 struct Payload {
+  Payload(absl::string_view payload_name, const PayloadUnion& pu)
+      : typeSpecific(pu) {
+    size_t clipped_size = payload_name.copy(name, sizeof(name) - 1);
+    name[clipped_size] = '\0';
+  }
   char name[RTP_PAYLOAD_NAME_SIZE];
-  bool audio;
   PayloadUnion typeSpecific;
 };
-
-bool StringCompare(const char* str1, const char* str2, const uint32_t length);
 
 // Round up to the nearest size that is a multiple of 4.
 size_t Word32Align(size_t size);
@@ -48,7 +47,7 @@ class RtpHeaderParser {
   bool RTCP() const;
   bool ParseRtcp(RTPHeader* header) const;
   bool Parse(RTPHeader* parsedPacket,
-             RtpHeaderExtensionMap* ptrExtensionMap = nullptr) const;
+             const RtpHeaderExtensionMap* ptrExtensionMap = nullptr) const;
 
  private:
   void ParseOneByteExtensionHeader(RTPHeader* parsedPacket,
@@ -62,4 +61,4 @@ class RtpHeaderParser {
 }  // namespace RtpUtility
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_UTILITY_H_
+#endif  // MODULES_RTP_RTCP_SOURCE_RTP_UTILITY_H_

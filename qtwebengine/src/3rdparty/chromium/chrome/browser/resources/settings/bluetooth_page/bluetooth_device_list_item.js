@@ -36,15 +36,15 @@ Polymer({
    * @private
    */
   onMenuButtonTap_: function(event) {
-    var button = /** @type {!HTMLElement} */ (event.target);
-    var menu = /** @type {!CrActionMenuElement} */ (this.$.dotsMenu);
+    const button = /** @type {!HTMLElement} */ (event.target);
+    const menu = /** @type {!CrActionMenuElement} */ (this.$.dotsMenu);
     menu.showAt(button);
     event.stopPropagation();
   },
 
   /** @private */
   onConnectActionTap_: function() {
-    var action = this.isDisconnected_(this.device) ? 'connect' : 'disconnect';
+    const action = this.isDisconnected_(this.device) ? 'connect' : 'disconnect';
     this.fire('device-event', {
       action: action,
       device: this.device,
@@ -85,8 +85,9 @@ Polymer({
    * @private
    */
   getConnectionStatusText_: function(device) {
-    if (!this.hasConnectionStatusText_(device))
+    if (!this.hasConnectionStatusText_(device)) {
       return '';
+    }
     return this.i18n(
         device.connected ? 'bluetoothConnected' : 'bluetoothNotConnected');
   },
@@ -129,7 +130,7 @@ Polymer({
       case 'carAudio':
         return 'settings:headset';
       case 'video':
-        return 'settings:videocam';
+        return 'cr:videocam';
       case 'joystick':
       case 'gamepad':
         return 'settings:gamepad';
@@ -142,7 +143,7 @@ Polymer({
         return 'settings:mouse';
       default:
         return device.connected ? 'settings:bluetooth-connected' :
-                                  'settings:bluetooth';
+                                  'cr:bluetooth';
     }
   },
 });

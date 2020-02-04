@@ -17,6 +17,9 @@ class GuestViewInternalCustomBindings : public ObjectBackedNativeHandler {
   explicit GuestViewInternalCustomBindings(ScriptContext* context);
   ~GuestViewInternalCustomBindings() override;
 
+  // ObjectBackedNativeHandler:
+  void AddRoutes() override;
+
  private:
   // ResetMapEntry is called as a callback to SetWeak(). It resets the
   // weak view reference held in |view_map_|.
@@ -89,6 +92,11 @@ class GuestViewInternalCustomBindings : public ObjectBackedNativeHandler {
   // triggered by a user gesture and we get to this point if embedder allows
   // the fullscreen request to proceed.
   void RunWithGesture(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+
+  // Runs a JavaScript function that may use window.customElements.define
+  // with whitelisted custom element names.
+  void AllowGuestViewElementDefinition(
       const v8::FunctionCallbackInfo<v8::Value>& args);
 };
 

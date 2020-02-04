@@ -41,9 +41,18 @@ class NET_EXPORT URLRequestFileJob : public URLRequestJob {
   void Start() override;
   void Kill() override;
   int ReadRawData(IOBuffer* buf, int buf_size) override;
-  bool IsRedirectResponse(GURL* location, int* http_status_code) override;
+  bool IsRedirectResponse(GURL* location,
+                          int* http_status_code,
+                          bool* insecure_scheme_was_upgraded) override;
   bool GetMimeType(std::string* mime_type) const override;
   void SetExtraRequestHeaders(const HttpRequestHeaders& headers) override;
+  void ShouldServeMimeTypeAsContentTypeHeader() {
+    serve_mime_type_as_content_type_ = true;
+  };
+  void GetResponseInfo(HttpResponseInfo* info) override;
+
+  // base::PowerObserver:
+  void OnSuspend() override;
 
   // An interface for subclasses who wish to monitor read operations.
   //
@@ -122,6 +131,7 @@ class NET_EXPORT URLRequestFileJob : public URLRequestJob {
   std::vector<HttpByteRange> byte_ranges_;
   HttpByteRange byte_range_;
   int64_t remaining_bytes_;
+  bool serve_mime_type_as_content_type_ = false;
 
   Error range_parse_result_;
 

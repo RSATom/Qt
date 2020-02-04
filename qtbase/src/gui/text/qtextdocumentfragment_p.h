@@ -109,7 +109,7 @@ public:
 
     uint importedFromPlainText : 1;
 private:
-    Q_DISABLE_COPY(QTextDocumentFragmentPrivate)
+    Q_DISABLE_COPY_MOVE(QTextDocumentFragmentPrivate)
 };
 
 #ifndef QT_NO_TEXTHTMLPARSER
@@ -152,6 +152,7 @@ private:
     friend class QTypeInfo<List>;
     QVector<List> lists;
     int indent;
+    int headingLevel;
 
     // insert a named anchor the next time we emit a char format,
     // either in a block or in regular text

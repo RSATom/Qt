@@ -4,8 +4,8 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
+#include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkPaint.h"
 #include "SkShader.h"
@@ -32,29 +32,28 @@ static SkBitmap createBitmap(int n) {
     return bitmap;
 }
 
-class AARectView : public SampleView {
+class AARectView : public Sample {
     SkBitmap fBitmap;
     enum {
         N = 64
     };
-public:
-    AARectView() {
+
+protected:
+    void onOnceBeforeDraw() override {
         fBitmap = createBitmap(N);
 
         fWidth = N;
     }
 
-protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt) {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "AA Rects");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "AA Rects");
             return true;
         }
         return this->INHERITED::onQuery(evt);
     }
 
-    virtual void onDrawContent(SkCanvas* canvas) {
+    void onDrawContent(SkCanvas* canvas) override {
         canvas->translate(SkIntToScalar(10), SkIntToScalar(10));
 
         SkPaint bluePaint;
@@ -183,10 +182,9 @@ protected:
 private:
     int fWidth;
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new AARectView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new AARectView(); )

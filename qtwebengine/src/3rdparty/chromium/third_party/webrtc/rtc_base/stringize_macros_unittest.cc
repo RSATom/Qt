@@ -8,9 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/stringize_macros.h"
+#include "rtc_base/stringize_macros.h"
 
-#include "webrtc/test/gtest.h"
+#include "test/gtest.h"
 
 // Macros as per documentation in header file.
 #define PREPROCESSOR_UTIL_UNITTEST_A FOO
@@ -18,15 +18,12 @@
 #define PREPROCESSOR_UTIL_UNITTEST_C "foo"
 
 TEST(StringizeTest, Ansi) {
-  EXPECT_STREQ(
-      "PREPROCESSOR_UTIL_UNITTEST_A",
-      STRINGIZE_NO_EXPANSION(PREPROCESSOR_UTIL_UNITTEST_A));
-  EXPECT_STREQ(
-      "PREPROCESSOR_UTIL_UNITTEST_B(y)",
-      STRINGIZE_NO_EXPANSION(PREPROCESSOR_UTIL_UNITTEST_B(y)));
-  EXPECT_STREQ(
-      "PREPROCESSOR_UTIL_UNITTEST_C",
-      STRINGIZE_NO_EXPANSION(PREPROCESSOR_UTIL_UNITTEST_C));
+  EXPECT_STREQ("PREPROCESSOR_UTIL_UNITTEST_A",
+               STRINGIZE_NO_EXPANSION(PREPROCESSOR_UTIL_UNITTEST_A));
+  EXPECT_STREQ("PREPROCESSOR_UTIL_UNITTEST_B(y)",
+               STRINGIZE_NO_EXPANSION(PREPROCESSOR_UTIL_UNITTEST_B(y)));
+  EXPECT_STREQ("PREPROCESSOR_UTIL_UNITTEST_C",
+               STRINGIZE_NO_EXPANSION(PREPROCESSOR_UTIL_UNITTEST_C));
 
   EXPECT_STREQ("FOO", STRINGIZE(PREPROCESSOR_UTIL_UNITTEST_A));
   EXPECT_STREQ("myobj->FunctionCall(y)",

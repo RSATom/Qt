@@ -47,7 +47,7 @@ namespace Qt3DRender {
 class QRenderCapturePrivate;
 class QRenderCaptureReplyPrivate;
 
-class QT3DRENDERSHARED_EXPORT QRenderCaptureReply : public QObject
+class Q_3DRENDERSHARED_EXPORT QRenderCaptureReply : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QImage image READ image CONSTANT)
@@ -78,7 +78,7 @@ private:
     friend class QRenderCapturePrivate;
 };
 
-class QT3DRENDERSHARED_EXPORT QRenderCapture : public QFrameGraphNode
+class Q_3DRENDERSHARED_EXPORT QRenderCapture : public QFrameGraphNode
 {
     Q_OBJECT
 public:
@@ -90,11 +90,11 @@ public:
     Q_REVISION(10) Q_INVOKABLE Qt3DRender::QRenderCaptureReply *requestCapture(const QRect &rect);
 
 protected:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QRenderCapture)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DRender

@@ -55,7 +55,7 @@
 #include <QtQml/QQmlPropertyMap>
 #include <QtLocation/QPlace>
 
-#include <QtPositioning/private/qdeclarativegeolocation_p.h>
+#include <QtPositioningQuick/private/qdeclarativegeolocation_p.h>
 #include <QtLocation/private/qdeclarativecategory_p.h>
 #include <QtLocation/private/qdeclarativecontactdetail_p.h>
 #include <QtLocation/private/qdeclarativesupplier_p.h>
@@ -216,7 +216,7 @@ private Q_SLOTS:
     void cleanupDeletedCategories();
 private:
     void synchronizeCategories();
-    void synchronizeExtendedAttributes();
+    void pullExtendedAttributes();
     void synchronizeContacts();
     void primarySignalsEmission(const QString &type = QString());
     QString primaryValue(const QString &contactType) const;

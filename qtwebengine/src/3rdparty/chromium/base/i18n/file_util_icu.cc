@@ -54,7 +54,7 @@ class IllegalCharacters {
   friend struct DefaultSingletonTraits<IllegalCharacters>;
 
   IllegalCharacters();
-  ~IllegalCharacters() { }
+  ~IllegalCharacters() = default;
 
   // set of characters considered invalid anywhere inside a filename.
   std::unique_ptr<icu::UnicodeSet> illegal_anywhere_;
@@ -115,23 +115,18 @@ void ReplaceIllegalCharactersInPath(FilePath::StringType* file_name,
   while (cursor < static_cast<int>(file_name->size())) {
     int char_begin = cursor;
     uint32_t code_point;
-#if defined(OS_MACOSX)
-    // Mac uses UTF-8 encoding for filenames.
-    U8_NEXT(file_name->data(), cursor, static_cast<int>(file_name->length()),
-            code_point);
-#elif defined(OS_WIN)
+#if defined(OS_WIN)
     // Windows uses UTF-16 encoding for filenames.
     U16_NEXT(file_name->data(), cursor, static_cast<int>(file_name->length()),
              code_point);
-#elif defined(OS_POSIX)
-    // Linux doesn't actually define an encoding. It basically allows anything
-    // except for a few special ASCII characters.
-    unsigned char cur_char = static_cast<unsigned char>((*file_name)[cursor++]);
-    if (cur_char >= 0x80)
-      continue;
-    code_point = cur_char;
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+    // Mac and Chrome OS use UTF-8 encoding for filenames.
+    // Linux doesn't actually define file system encoding. Try to parse as
+    // UTF-8.
+    U8_NEXT(file_name->data(), cursor, static_cast<int>(file_name->length()),
+            code_point);
 #else
-    NOTREACHED();
+#error Unsupported platform
 #endif
 
     if (illegal->DisallowedEverywhere(code_point) ||
@@ -160,14 +155,12 @@ bool LocaleAwareCompareFilenames(const FilePath& a, const FilePath& b) {
   return CompareString16WithCollator(*collator, WideToUTF16(a.value()),
                                      WideToUTF16(b.value())) == UCOL_LESS;
 
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   // On linux, the file system encoding is not defined. We assume
   // SysNativeMBToWide takes care of it.
   return CompareString16WithCollator(
              *collator, WideToUTF16(SysNativeMBToWide(a.value())),
              WideToUTF16(SysNativeMBToWide(b.value()))) == UCOL_LESS;
-#else
-  #error Not implemented on your system
 #endif
 }
 

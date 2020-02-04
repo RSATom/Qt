@@ -27,13 +27,14 @@
 **
 ****************************************************************************/
 
-#include "declarativepolarchart.h"
+#include "declarativepolarchart_p.h"
 #include <QtCharts/QChart>
 
 QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \qmltype PolarChartView
+    \inherits ChartView
     \instantiates DeclarativePolarChart
     \inqmlmodule QtCharts
 
@@ -78,6 +79,6 @@ DeclarativePolarChart::~DeclarativePolarChart()
 {
 }
 
-#include "moc_declarativepolarchart.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_declarativepolarchart_p.cpp"

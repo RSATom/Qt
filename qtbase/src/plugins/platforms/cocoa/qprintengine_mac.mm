@@ -117,7 +117,7 @@ bool QMacPrintEngine::end()
     if (d->paintEngine->type() == QPaintEngine::CoreGraphics) {
         // We don't need the paint engine to call restoreGraphicsState()
         static_cast<QCoreGraphicsPaintEngine*>(d->paintEngine)->d_func()->stackCount = 0;
-        static_cast<QCoreGraphicsPaintEngine*>(d->paintEngine)->d_func()->hd = 0;
+        static_cast<QCoreGraphicsPaintEngine*>(d->paintEngine)->d_func()->hd = nullptr;
     }
     d->paintEngine->end();
     if (d->state != QPrinter::Idle)
@@ -247,7 +247,7 @@ void QMacPrintEnginePrivate::initialize()
 
     QList<int> resolutions = m_printDevice->supportedResolutions();
     if (!resolutions.isEmpty() && mode != QPrinter::ScreenResolution) {
-        qSort(resolutions);
+        std::sort(resolutions.begin(), resolutions.end());
         if (resolutions.count() > 1 && mode == QPrinter::HighResolution)
             resolution.hRes = resolution.vRes = resolutions.last();
         else
@@ -271,7 +271,7 @@ void QMacPrintEnginePrivate::releaseSession()
     PMSessionEndPageNoDialog(session());
     PMSessionEndDocumentNoDialog(session());
     [printInfo release];
-    printInfo = 0;
+    printInfo = nil;
 }
 
 bool QMacPrintEnginePrivate::newPage_helper()
@@ -291,7 +291,7 @@ bool QMacPrintEnginePrivate::newPage_helper()
     while (cgEngine->d_func()->stackCount > 0)
         cgEngine->d_func()->restoreGraphicsState();
 
-    OSStatus status = PMSessionBeginPageNoDialog(session(), format(), 0);
+    OSStatus status = PMSessionBeginPageNoDialog(session(), format(), nullptr);
     if (status != noErr) {
         state = QPrinter::Error;
         return false;
@@ -318,7 +318,7 @@ bool QMacPrintEnginePrivate::newPage_helper()
     if (m_pageLayout.mode() != QPageLayout::FullPageMode)
         CGContextTranslateCTM(cgContext, page.x() - paper.x(), page.y() - paper.y());
     cgEngine->d_func()->orig_xform = CGContextGetCTM(cgContext);
-    cgEngine->d_func()->setClip(0);
+    cgEngine->d_func()->setClip(nullptr);
     cgEngine->state->dirtyFlags = QPaintEngine::DirtyFlag(QPaintEngine::AllDirty
                                                           & ~(QPaintEngine::DirtyClipEnabled
                                                               | QPaintEngine::DirtyClipRegion
@@ -340,7 +340,7 @@ void QMacPrintEnginePrivate::setPageSize(const QPageSize &pageSize)
 
     // Get the PMPaper and check it is valid
     PMPaper macPaper = m_printDevice->macPaper(usePageSize);
-    if (macPaper == 0) {
+    if (!macPaper) {
         qWarning() << "QMacPrintEngine: Invalid PMPaper returned for " << pageSize;
         return;
     }
@@ -522,16 +522,16 @@ void QMacPrintEngine::setProperty(PrintEnginePropertyKey key, const QVariant &va
         if (mode == property(PPK_Duplex).toInt() || !d->m_printDevice->supportedDuplexModes().contains(mode))
             break;
         switch (mode) {
-        case QPrinter::DuplexNone:
+        case QPrint::DuplexNone:
             PMSetDuplex(d->settings(), kPMDuplexNone);
             break;
-        case QPrinter::DuplexAuto:
+        case QPrint::DuplexAuto:
             PMSetDuplex(d->settings(), d->m_pageLayout.orientation() == QPageLayout::Landscape ? kPMDuplexTumble : kPMDuplexNoTumble);
             break;
-        case QPrinter::DuplexLongSide:
+        case QPrint::DuplexLongSide:
             PMSetDuplex(d->settings(), kPMDuplexNoTumble);
             break;
-        case QPrinter::DuplexShortSide:
+        case QPrint::DuplexShortSide:
             PMSetDuplex(d->settings(), kPMDuplexTumble);
             break;
         default:
@@ -574,6 +574,11 @@ void QMacPrintEngine::setProperty(PrintEnginePropertyKey key, const QVariant &va
         d->setPageSize(QPageSize(QPageSize::id(value.toInt())));
         break;
     case PPK_PrinterName: {
+        QVariant pageSize = QVariant::fromValue(d->m_pageLayout.pageSize());
+        const bool isFullPage = d->m_pageLayout.mode() == QPageLayout::FullPageMode;
+        QVariant orientation = QVariant::fromValue(d->m_pageLayout.orientation());
+        QVariant margins = QVariant::fromValue(QPair<QMarginsF, QPageLayout::Unit>(d->m_pageLayout.margins(),
+                                                                                   d->m_pageLayout.units()));
         QString id = value.toString();
         if (id.isEmpty())
             id = QCocoaPrinterSupport().defaultPrintDeviceId();
@@ -583,7 +588,14 @@ void QMacPrintEngine::setProperty(PrintEnginePropertyKey key, const QVariant &va
         PMPrinter printer = d->m_printDevice->macPrinter();
         PMRetain(printer);
         PMSessionSetCurrentPMPrinter(d->session(), printer);
-        // TODO Do we need to check if the page size, etc, are valid on new printer?
+        // Ensure the settings are up to date and valid
+        if (d->m_printDevice->supportedPageSize(pageSize.value<QPageSize>()).isValid())
+            setProperty(PPK_QPageSize, pageSize);
+        else
+            setProperty(PPK_CustomPaperSize, pageSize.value<QPageSize>().size(QPageSize::Point));
+        setProperty(PPK_FullPage, QVariant(isFullPage));
+        setProperty(PPK_Orientation, orientation);
+        setProperty(PPK_QPageMargins, margins);
         break;
     }
     case PPK_CustomPaperSize:

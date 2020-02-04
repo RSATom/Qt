@@ -39,15 +39,6 @@ class CONTENT_EXPORT ChildThread : public IPC::Sender {
 
   ~ChildThread() override {}
 
-#if defined(OS_WIN)
-  // Request that the given font be loaded by the browser so it's cached by the
-  // OS. Please see ChildProcessHost::PreCacheFont for details.
-  virtual void PreCacheFont(const LOGFONT& log_font) = 0;
-
-  // Release cached font.
-  virtual void ReleaseCachedFonts() = 0;
-#endif
-
   // Sends over a base::UserMetricsAction to be recorded by user metrics as
   // an action. Once a new user metric is added, run
   //   tools/metrics/actions/extract_actions.py
@@ -80,6 +71,15 @@ class CONTENT_EXPORT ChildThread : public IPC::Sender {
   // Tells the child process that a field trial was activated.
   virtual void SetFieldTrialGroup(const std::string& trial_name,
                                   const std::string& group_name) = 0;
+
+#if defined(OS_WIN)
+  // Request that the given font be loaded by the browser so it's cached by the
+  // OS. Please see ChildProcessHost::PreCacheFont for details.
+  virtual void PreCacheFont(const LOGFONT& log_font) = 0;
+
+  // Release cached font.
+  virtual void ReleaseCachedFonts() = 0;
+#endif
 };
 
 }  // namespace content

@@ -4,20 +4,6 @@
 
 import("//mojo/public/tools/bindings/mojom.gni")
 
-static_library("ipc_traits") {
-  sources = [
-    "autofill_message_generator.cc",
-    "autofill_param_traits_macros.h",
-  ]
-
-  deps = [
-    "//components/autofill/core/common",
-    "//ipc",
-    "//url",
-    "//url/ipc:url_ipc",
-  ]
-}
-
 mojom("mojo_interfaces") {
   sources = [
     "autofill_agent.mojom",
@@ -26,9 +12,9 @@ mojom("mojo_interfaces") {
 
   public_deps = [
     ":mojo_types",
-    "//mojo/common:common_custom_types",
+    "//mojo/public/mojom/base",
     "//ui/gfx/geometry/mojo",
-    "//url/mojo:url_mojom_gurl",
+    "//url/mojom:url_mojom_gurl",
   ]
 }
 
@@ -38,9 +24,10 @@ mojom("mojo_types") {
   ]
 
   public_deps = [
-    "//mojo/common:common_custom_types",
-    "//url/mojo:url_mojom_gurl",
-    "//url/mojo:url_mojom_origin",
+    "//mojo/public/mojom/base",
+    "//ui/gfx/geometry/mojo",
+    "//url/mojom:url_mojom_gurl",
+    "//url/mojom:url_mojom_origin",
   ]
 }
 
@@ -66,6 +53,7 @@ source_set("unit_tests") {
 
   deps = [
     "//base",
+    "//base/test:test_support",
     "//components/autofill/core/browser:test_support",
     "//components/password_manager/core/common",
     "//mojo/public/cpp/bindings",

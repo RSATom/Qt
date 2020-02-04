@@ -11,24 +11,23 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_api.pb.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_utils.h"
+#include "components/password_manager/core/browser/android_affiliation/lookup_affiliation_response_parser.h"
 #include "components/password_manager/core/browser/android_affiliation/test_affiliation_fetcher_factory.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/load_flags.h"
 #include "net/base/url_util.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/simple_url_loader.h"
 #include "url/gurl.h"
 
 namespace password_manager {
-
-namespace {
 
 // Enumeration listing the possible outcomes of fetching affiliation information
 // from the Affiliation API. This is used in UMA histograms, so do not change
@@ -40,32 +39,13 @@ enum AffiliationFetchResult {
   AFFILIATION_FETCH_RESULT_MAX
 };
 
-// Records the given fetch |result| into the respective UMA histogram, as well
-// as the response and error codes of |fetcher| if it is non-null.
-void ReportStatistics(AffiliationFetchResult result,
-                      const net::URLFetcher* fetcher) {
-  UMA_HISTOGRAM_ENUMERATION("PasswordManager.AffiliationFetcher.FetchResult",
-                            result, AFFILIATION_FETCH_RESULT_MAX);
-  if (fetcher) {
-    UMA_HISTOGRAM_SPARSE_SLOWLY(
-        "PasswordManager.AffiliationFetcher.FetchHttpResponseCode",
-        fetcher->GetResponseCode());
-    // Network error codes are negative. See: src/net/base/net_error_list.h.
-    UMA_HISTOGRAM_SPARSE_SLOWLY(
-        "PasswordManager.AffiliationFetcher.FetchErrorCode",
-        -fetcher->GetStatus().error());
-  }
-}
-
-}  // namespace
-
 static TestAffiliationFetcherFactory* g_testing_factory = nullptr;
 
 AffiliationFetcher::AffiliationFetcher(
-    net::URLRequestContextGetter* request_context_getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const std::vector<FacetURI>& facet_uris,
     AffiliationFetcherDelegate* delegate)
-    : request_context_getter_(request_context_getter),
+    : url_loader_factory_(std::move(url_loader_factory)),
       requested_facet_uris_(facet_uris),
       delegate_(delegate) {
   for (const FacetURI& uri : requested_facet_uris_) {
@@ -73,19 +53,19 @@ AffiliationFetcher::AffiliationFetcher(
   }
 }
 
-AffiliationFetcher::~AffiliationFetcher() {
-}
+AffiliationFetcher::~AffiliationFetcher() = default;
 
 // static
 AffiliationFetcher* AffiliationFetcher::Create(
-    net::URLRequestContextGetter* context_getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const std::vector<FacetURI>& facet_uris,
     AffiliationFetcherDelegate* delegate) {
   if (g_testing_factory) {
-    return g_testing_factory->CreateInstance(context_getter, facet_uris,
-                                             delegate);
+    return g_testing_factory->CreateInstance(std::move(url_loader_factory),
+                                             facet_uris, delegate);
   }
-  return new AffiliationFetcher(context_getter, facet_uris, delegate);
+  return new AffiliationFetcher(std::move(url_loader_factory), facet_uris,
+                                delegate);
 }
 
 // static
@@ -95,7 +75,7 @@ void AffiliationFetcher::SetFactoryForTesting(
 }
 
 void AffiliationFetcher::StartRequest() {
-  DCHECK(!fetcher_);
+  DCHECK(!simple_url_loader_);
 
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("affiliation_lookup", R"(
@@ -114,7 +94,7 @@ void AffiliationFetcher::StartRequest() {
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "Users can enable or disable this feature either by stoping "
             "syncing passwords to Google (via unchecking 'Passwords' in "
@@ -128,20 +108,25 @@ void AffiliationFetcher::StartRequest() {
             }
           }
         })");
-  fetcher_ = net::URLFetcher::Create(BuildQueryURL(), net::URLFetcher::POST,
-                                     this, traffic_annotation);
-  fetcher_->SetRequestContext(request_context_getter_.get());
-  fetcher_->SetUploadData("application/x-protobuf", PreparePayload());
-  fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES |
-                         net::LOAD_DO_NOT_SEND_COOKIES |
-                         net::LOAD_DO_NOT_SEND_AUTH_DATA |
-                         net::LOAD_BYPASS_CACHE | net::LOAD_DISABLE_CACHE);
-  fetcher_->SetAutomaticallyRetryOn5xx(false);
-  fetcher_->SetAutomaticallyRetryOnNetworkChanges(0);
-  fetcher_->Start();
+  auto resource_request = std::make_unique<network::ResourceRequest>();
+  resource_request->url = BuildQueryURL();
+  resource_request->load_flags =
+      net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES |
+      net::LOAD_DO_NOT_SEND_AUTH_DATA | net::LOAD_BYPASS_CACHE |
+      net::LOAD_DISABLE_CACHE;
+  resource_request->method = "POST";
+  simple_url_loader_ = network::SimpleURLLoader::Create(
+      std::move(resource_request), traffic_annotation);
+  simple_url_loader_->AttachStringForUpload(PreparePayload(),
+                                            "application/x-protobuf");
+  simple_url_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      url_loader_factory_.get(),
+      base::BindOnce(&AffiliationFetcher::OnSimpleLoaderComplete,
+                     base::Unretained(this)));
 }
 
-GURL AffiliationFetcher::BuildQueryURL() const {
+// static
+GURL AffiliationFetcher::BuildQueryURL() {
   return net::AppendQueryParameter(
       GURL("https://www.googleapis.com/affiliation/v1/affiliation:lookup"),
       "key", google_apis::GetAPIKey());
@@ -153,7 +138,7 @@ std::string AffiliationFetcher::PreparePayload() const {
     lookup_request.add_facet(uri.canonical_spec());
 
   // Enable request for branding information.
-  auto mask = base::MakeUnique<affiliation_pb::LookupAffiliationMask>();
+  auto mask = std::make_unique<affiliation_pb::LookupAffiliationMask>();
   mask->set_branding_info(true);
   lookup_request.set_allocated_mask(mask.release());
 
@@ -164,6 +149,7 @@ std::string AffiliationFetcher::PreparePayload() const {
 }
 
 bool AffiliationFetcher::ParseResponse(
+    const std::string& serialized_response,
     AffiliationFetcherDelegate::Result* result) const {
   // This function parses the response protocol buffer message for a list of
   // equivalence classes, and stores them into |results| after performing some
@@ -179,84 +165,49 @@ bool AffiliationFetcher::ParseResponse(
   //     case so the caller can be notified and it can act accordingly.
   //   * The |result| will be free of duplicate or empty equivalence classes.
 
-  std::string serialized_response;
-  if (!fetcher_->GetResponseAsString(&serialized_response)) {
-    NOTREACHED();
-  }
-
   affiliation_pb::LookupAffiliationResponse response;
   if (!response.ParseFromString(serialized_response))
     return false;
 
-  result->reserve(requested_facet_uris_.size());
-
-  std::map<FacetURI, size_t> facet_uri_to_class_index;
-  for (int i = 0; i < response.affiliation_size(); ++i) {
-    const affiliation_pb::Affiliation& equivalence_class(
-        response.affiliation(i));
-
-    AffiliatedFacets affiliated_facets;
-    for (int j = 0; j < equivalence_class.facet_size(); ++j) {
-      const affiliation_pb::Facet& facet(equivalence_class.facet(j));
-      const std::string& uri_spec(facet.id());
-      FacetURI uri = FacetURI::FromPotentiallyInvalidSpec(uri_spec);
-      // Ignore potential future kinds of facet URIs (e.g. for new platforms).
-      if (!uri.is_valid())
-        continue;
-      affiliated_facets.push_back(
-          {uri, FacetBrandingInfo{facet.branding_info().name(),
-                                  GURL(facet.branding_info().icon_url())}});
-    }
-
-    // Be lenient and ignore empty (after filtering) equivalence classes.
-    if (affiliated_facets.empty())
-      continue;
-
-    // Ignore equivalence classes that are duplicates of earlier ones. However,
-    // fail in the case of a partial overlap, which violates the invariant that
-    // affiliations must form an equivalence relation.
-    for (const Facet& facet : affiliated_facets) {
-      if (!facet_uri_to_class_index.count(facet.uri))
-        facet_uri_to_class_index[facet.uri] = result->size();
-      if (facet_uri_to_class_index[facet.uri] !=
-          facet_uri_to_class_index[affiliated_facets[0].uri]) {
-        return false;
-      }
-    }
-
-    // Filter out duplicate equivalence classes in the response.
-    if (facet_uri_to_class_index[affiliated_facets[0].uri] == result->size())
-      result->push_back(affiliated_facets);
-  }
-
-  // Synthesize an equivalence class (of size one) for each facet that did not
-  // appear in the server response due to not being affiliated with any others.
-  for (const FacetURI& uri : requested_facet_uris_) {
-    if (!facet_uri_to_class_index.count(uri))
-      result->push_back({{uri}});
-  }
-
-  return true;
+  return ParseLookupAffiliationResponse(requested_facet_uris_, response,
+                                        result);
 }
 
-void AffiliationFetcher::OnURLFetchComplete(const net::URLFetcher* source) {
-  DCHECK_EQ(source, fetcher_.get());
-
+void AffiliationFetcher::OnSimpleLoaderComplete(
+    std::unique_ptr<std::string> response_body) {
   // Note that invoking the |delegate_| may destroy |this| synchronously, so the
   // invocation must happen last.
   std::unique_ptr<AffiliationFetcherDelegate::Result> result_data(
       new AffiliationFetcherDelegate::Result);
-  if (fetcher_->GetStatus().status() == net::URLRequestStatus::SUCCESS &&
-      fetcher_->GetResponseCode() == net::HTTP_OK) {
-    if (ParseResponse(result_data.get())) {
-      ReportStatistics(AFFILIATION_FETCH_RESULT_SUCCESS, nullptr);
+  if (response_body) {
+    if (ParseResponse(*response_body, result_data.get())) {
+      UMA_HISTOGRAM_ENUMERATION(
+          "PasswordManager.AffiliationFetcher.FetchResult",
+          AFFILIATION_FETCH_RESULT_SUCCESS, AFFILIATION_FETCH_RESULT_MAX);
       delegate_->OnFetchSucceeded(std::move(result_data));
     } else {
-      ReportStatistics(AFFILIATION_FETCH_RESULT_MALFORMED, nullptr);
+      UMA_HISTOGRAM_ENUMERATION(
+          "PasswordManager.AffiliationFetcher.FetchResult",
+          AFFILIATION_FETCH_RESULT_MALFORMED, AFFILIATION_FETCH_RESULT_MAX);
       delegate_->OnMalformedResponse();
     }
   } else {
-    ReportStatistics(AFFILIATION_FETCH_RESULT_FAILURE, fetcher_.get());
+    UMA_HISTOGRAM_ENUMERATION("PasswordManager.AffiliationFetcher.FetchResult",
+                              AFFILIATION_FETCH_RESULT_FAILURE,
+                              AFFILIATION_FETCH_RESULT_MAX);
+    int response_code = -1;
+    if (simple_url_loader_->ResponseInfo() &&
+        simple_url_loader_->ResponseInfo()->headers) {
+      response_code =
+          simple_url_loader_->ResponseInfo()->headers->response_code();
+    }
+    base::UmaHistogramSparse(
+        "PasswordManager.AffiliationFetcher.FetchHttpResponseCode",
+        response_code);
+    // Network error codes are negative. See: src/net/base/net_error_list.h.
+    base::UmaHistogramSparse(
+        "PasswordManager.AffiliationFetcher.FetchErrorCode",
+        -simple_url_loader_->NetError());
     delegate_->OnFetchFailed();
   }
 }

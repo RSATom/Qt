@@ -60,12 +60,38 @@ class Q_WIDGETS_EXPORT QMenuBar : public QWidget
     Q_PROPERTY(bool nativeMenuBar READ isNativeMenuBar WRITE setNativeMenuBar)
 
 public:
-    explicit QMenuBar(QWidget *parent = Q_NULLPTR);
+    explicit QMenuBar(QWidget *parent = nullptr);
     ~QMenuBar();
 
     using QWidget::addAction;
     QAction *addAction(const QString &text);
     QAction *addAction(const QString &text, const QObject *receiver, const char* member);
+
+#ifdef Q_CLANG_QDOC
+    template<typename Obj, typename PointerToMemberFunctionOrFunctor>
+    QAction *addAction(const QString &text, const Obj *receiver, PointerToMemberFunctionOrFunctor method);
+    template<typename Functor>
+    QAction *addAction(const QString &text, Functor functor);
+#else
+    // addAction(QString): Connect to a QObject slot / functor or function pointer (with context)
+    template<typename Obj, typename Func1>
+    inline typename std::enable_if<!std::is_same<const char*, Func1>::value
+        && QtPrivate::IsPointerToTypeDerivedFromQObject<Obj*>::Value, QAction *>::type
+        addAction(const QString &text, const Obj *object, Func1 slot)
+    {
+        QAction *result = addAction(text);
+        connect(result, &QAction::triggered, object, std::move(slot));
+        return result;
+    }
+    // addAction(QString): Connect to a functor or function pointer (without context)
+    template <typename Func1>
+    inline QAction *addAction(const QString &text, Func1 slot)
+    {
+        QAction *result = addAction(text);
+        connect(result, &QAction::triggered, std::move(slot));
+        return result;
+    }
+#endif // !Q_CLANG_QDOC
 
     QAction *addMenu(QMenu *menu);
     QMenu *addMenu(const QString &title);
@@ -95,7 +121,7 @@ public:
     void setCornerWidget(QWidget *w, Qt::Corner corner = Qt::TopRightCorner);
     QWidget *cornerWidget(Qt::Corner corner = Qt::TopRightCorner) const;
 
-#ifdef Q_OS_OSX
+#if defined(Q_OS_MACOS) || defined(Q_CLANG_QDOC)
     NSMenu* toNSMenu();
 #endif
 

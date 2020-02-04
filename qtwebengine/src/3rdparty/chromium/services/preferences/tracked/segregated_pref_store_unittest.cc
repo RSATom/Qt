@@ -11,9 +11,9 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/values.h"
 #include "components/prefs/persistent_pref_store.h"
@@ -57,8 +57,13 @@ class MockReadErrorDelegate : public PersistentPrefStore::ReadErrorDelegate {
 };
 
 enum class CommitPendingWriteMode {
+  // Basic mode.
   WITHOUT_CALLBACK,
+  // With reply callback.
   WITH_CALLBACK,
+  // With synchronous notify callback (synchronous after the write -- shouldn't
+  // require pumping messages to observe).
+  WITH_SYNCHRONOUS_CALLBACK,
 };
 
 class SegregatedPrefStoreTest
@@ -115,10 +120,10 @@ TEST_P(SegregatedPrefStoreTest, StoreValues) {
 
   // Properly stores new values.
   segregated_store_->SetValue(kSelectedPref,
-                              base::MakeUnique<base::Value>(kValue1),
+                              std::make_unique<base::Value>(kValue1),
                               WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   segregated_store_->SetValue(kUnselectedPref,
-                              base::MakeUnique<base::Value>(kValue2),
+                              std::make_unique<base::Value>(kValue2),
                               WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   ASSERT_TRUE(selected_store_->GetValue(kSelectedPref, NULL));
@@ -132,13 +137,28 @@ TEST_P(SegregatedPrefStoreTest, StoreValues) {
   ASSERT_FALSE(selected_store_->committed());
   ASSERT_FALSE(default_store_->committed());
 
-  if (GetParam() == CommitPendingWriteMode::WITHOUT_CALLBACK) {
-    segregated_store_->CommitPendingWrite(base::OnceClosure());
-    base::RunLoop().RunUntilIdle();
-  } else {
-    base::RunLoop run_loop;
-    segregated_store_->CommitPendingWrite(run_loop.QuitClosure());
-    run_loop.Run();
+  switch (GetParam()) {
+    case CommitPendingWriteMode::WITHOUT_CALLBACK: {
+      segregated_store_->CommitPendingWrite();
+      base::RunLoop().RunUntilIdle();
+      break;
+    }
+
+    case CommitPendingWriteMode::WITH_CALLBACK: {
+      base::RunLoop run_loop;
+      segregated_store_->CommitPendingWrite(run_loop.QuitClosure());
+      run_loop.Run();
+      break;
+    }
+
+    case CommitPendingWriteMode::WITH_SYNCHRONOUS_CALLBACK: {
+      base::WaitableEvent written;
+      segregated_store_->CommitPendingWrite(
+          base::OnceClosure(),
+          base::BindOnce(&base::WaitableEvent::Signal, Unretained(&written)));
+      written.Wait();
+      break;
+    }
   }
 
   ASSERT_TRUE(selected_store_->committed());
@@ -147,10 +167,10 @@ TEST_P(SegregatedPrefStoreTest, StoreValues) {
 
 TEST_F(SegregatedPrefStoreTest, ReadValues) {
   selected_store_->SetValue(kSelectedPref,
-                            base::MakeUnique<base::Value>(kValue1),
+                            std::make_unique<base::Value>(kValue1),
                             WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   default_store_->SetValue(kUnselectedPref,
-                           base::MakeUnique<base::Value>(kValue2),
+                           std::make_unique<base::Value>(kValue2),
                            WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   // Works properly with values that are already there.
@@ -175,11 +195,11 @@ TEST_F(SegregatedPrefStoreTest, Observer) {
   EXPECT_TRUE(observer_.initialization_success);
   EXPECT_TRUE(observer_.changed_keys.empty());
   segregated_store_->SetValue(kSelectedPref,
-                              base::MakeUnique<base::Value>(kValue1),
+                              std::make_unique<base::Value>(kValue1),
                               WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   observer_.VerifyAndResetChangedKey(kSelectedPref);
   segregated_store_->SetValue(kUnselectedPref,
-                              base::MakeUnique<base::Value>(kValue2),
+                              std::make_unique<base::Value>(kValue2),
                               WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   observer_.VerifyAndResetChangedKey(kUnselectedPref);
 }
@@ -297,12 +317,12 @@ TEST_F(SegregatedPrefStoreTest, GetValues) {
   // To check merge behavior, create selected and default stores so each has a
   // key the other doesn't have and they have one key in common.
   selected_store_->SetValue(kSelectedPref,
-                            base::MakeUnique<base::Value>(kValue1),
+                            std::make_unique<base::Value>(kValue1),
                             WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   default_store_->SetValue(kUnselectedPref,
-                           base::MakeUnique<base::Value>(kValue2),
+                           std::make_unique<base::Value>(kValue2),
                            WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
-  selected_store_->SetValue(kSharedPref, base::MakeUnique<base::Value>(kValue1),
+  selected_store_->SetValue(kSharedPref, std::make_unique<base::Value>(kValue1),
                             WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
 
   auto values = segregated_store_->GetValues();
@@ -328,3 +348,7 @@ INSTANTIATE_TEST_CASE_P(
     WithCallback,
     SegregatedPrefStoreTest,
     ::testing::Values(CommitPendingWriteMode::WITH_CALLBACK));
+INSTANTIATE_TEST_CASE_P(
+    WithSynchronousCallback,
+    SegregatedPrefStoreTest,
+    ::testing::Values(CommitPendingWriteMode::WITH_SYNCHRONOUS_CALLBACK));

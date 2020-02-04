@@ -17,16 +17,19 @@
 #include "extensions/browser/api/system_display/system_display_api.h"
 #include "extensions/browser/api_test_utils.h"
 #include "extensions/common/api/system_display.h"
+#include "extensions/common/extension_builder.h"
 #include "extensions/shell/test/shell_apitest.h"
 #include "extensions/test/result_catcher.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
+#include "ui/display/test/scoped_screen_override.h"
 
 namespace extensions {
 
 using api::system_display::Bounds;
 using api::system_display::DisplayUnitInfo;
 using display::Screen;
+using display::test::ScopedScreenOverride;
 
 class MockScreen : public Screen {
  public:
@@ -82,14 +85,16 @@ class MockDisplayInfoProvider : public DisplayInfoProvider {
 
   ~MockDisplayInfoProvider() override {}
 
-  bool SetInfo(const std::string& display_id,
-               const api::system_display::DisplayProperties& params,
-               std::string* error) override {
+  void SetDisplayProperties(
+      const std::string& display_id,
+      const api::system_display::DisplayProperties& properties,
+      ErrorCallback callback) override {
     // Should get called only once per test case.
     EXPECT_FALSE(set_info_value_);
-    set_info_value_ = params.ToValue();
+    set_info_value_ = properties.ToValue();
     set_info_display_id_ = display_id;
-    return true;
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), base::nullopt));
   }
 
   void EnableUnifiedDesktop(bool enable) override {
@@ -142,21 +147,28 @@ class MockDisplayInfoProvider : public DisplayInfoProvider {
     return base::ContainsKey(overscan_adjusted_, id);
   }
 
+  const api::system_display::MirrorMode& mirror_mode() const {
+    return mirror_mode_;
+  }
+
   void SetTouchCalibrationWillSucceed(bool success) {
     native_touch_calibration_success_ = success;
   }
 
-  bool IsNativeTouchCalibrationActive(std::string* error) override {
-    return false;
+  void ShowNativeTouchCalibration(const std::string& id,
+                                  ErrorCallback callback) override {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback),
+                                  native_touch_calibration_success_
+                                      ? base::nullopt
+                                      : base::Optional<std::string>("failed")));
   }
 
-  bool ShowNativeTouchCalibration(
-      const std::string& id,
-      std::string* error,
-      const DisplayInfoProvider::TouchCalibrationCallback& callback) override {
+  void SetMirrorMode(const api::system_display::MirrorModeInfo& info,
+                     ErrorCallback callback) override {
+    mirror_mode_ = info.mode;
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, native_touch_calibration_success_));
-    return true;
+        FROM_HERE, base::BindOnce(std::move(callback), base::nullopt));
   }
 
  private:
@@ -191,6 +203,9 @@ class MockDisplayInfoProvider : public DisplayInfoProvider {
 
   bool native_touch_calibration_success_ = false;
 
+  api::system_display::MirrorMode mirror_mode_ =
+      api::system_display::MIRROR_MODE_OFF;
+
   DISALLOW_COPY_AND_ASSIGN(MockDisplayInfoProvider);
 };
 
@@ -204,13 +219,21 @@ class SystemDisplayApiTest : public ShellApiTest {
   void SetUpOnMainThread() override {
     ShellApiTest::SetUpOnMainThread();
     ANNOTATE_LEAKING_OBJECT_PTR(display::Screen::GetScreen());
-    display::Screen::SetScreenInstance(screen_.get());
+    scoped_screen_override_ =
+        std::make_unique<ScopedScreenOverride>(screen_.get());
     DisplayInfoProvider::InitializeForTesting(provider_.get());
   }
 
  protected:
+  void SetInfo(const std::string& display_id,
+               const api::system_display::DisplayProperties& properties) {
+    provider_->SetDisplayProperties(
+        display_id, properties,
+        base::BindOnce([](base::Optional<std::string>) {}));
+  }
   std::unique_ptr<MockDisplayInfoProvider> provider_;
   std::unique_ptr<display::Screen> screen_;
+  std::unique_ptr<ScopedScreenOverride> scoped_screen_override_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SystemDisplayApiTest);
@@ -229,7 +252,7 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, SetDisplay) {
   set_info_function->set_has_callback(true);
 
   EXPECT_EQ(
-      SystemDisplayFunction::kCrosOnlyError,
+      SystemDisplayCrOSRestrictedFunction::kCrosOnlyError,
       api_test_utils::RunFunctionAndReturnError(
           set_info_function.get(), "[\"display_id\", {}]", browser_context()));
 
@@ -240,37 +263,12 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, SetDisplay) {
 
 #else  // !defined(OS_CHROMEOS)
 
-constexpr char kTestManifest[] =
-    "{\n"
-    "  \"name\": \"Test\",\n"
-    "  \"version\": \"1.0\",\n"
-    "  \"app\": {\n"
-    "    \"background\": {\n"
-    "      \"scripts\": [\"background.js\"]\n"
-    "    }\n"
-    "  }\n"
-    "}";
-
-constexpr char kTestManifestKiosk[] =
-    "{\n"
-    "  \"name\": \"Test\",\n"
-    "  \"version\": \"1.0\",\n"
-    "  \"app\": {\n"
-    "    \"background\": {\n"
-    "      \"scripts\": [\"background.js\"]\n"
-    "    }\n"
-    "  },\n"
-    "  \"kiosk_enabled\": true\n"
-    "}";
-
 // TODO(stevenjb): Add API tests for {GS}etDisplayLayout. That code currently
 // lives in src/chrome but should be getting moved soon.
 
 IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, SetDisplayNotKioskEnabled) {
-  std::unique_ptr<base::DictionaryValue> test_extension_value(
-      api_test_utils::ParseDictionary(kTestManifest));
-  scoped_refptr<Extension> test_extension(
-      api_test_utils::CreateExtension(test_extension_value.get()));
+  scoped_refptr<const Extension> test_extension =
+      ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP).Build();
 
   scoped_refptr<SystemDisplaySetDisplayPropertiesFunction> set_info_function(
       new SystemDisplaySetDisplayPropertiesFunction());
@@ -279,7 +277,7 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, SetDisplayNotKioskEnabled) {
   set_info_function->set_has_callback(true);
 
   EXPECT_EQ(
-      SystemDisplayFunction::kKioskOnlyError,
+      SystemDisplayCrOSRestrictedFunction::kKioskOnlyError,
       api_test_utils::RunFunctionAndReturnError(
           set_info_function.get(), "[\"display_id\", {}]", browser_context()));
 
@@ -289,10 +287,10 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, SetDisplayNotKioskEnabled) {
 }
 
 IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, SetDisplayKioskEnabled) {
-  std::unique_ptr<base::DictionaryValue> test_extension_value(
-      api_test_utils::ParseDictionary(kTestManifestKiosk));
-  scoped_refptr<Extension> test_extension(
-      api_test_utils::CreateExtension(test_extension_value.get()));
+  scoped_refptr<const Extension> test_extension =
+      ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+          .SetManifestKey("kiosk_enabled", true)
+          .Build();
 
   scoped_refptr<SystemDisplaySetDisplayPropertiesFunction> set_info_function(
       new SystemDisplaySetDisplayPropertiesFunction());
@@ -332,10 +330,10 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, SetDisplayKioskEnabled) {
 }
 
 IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, EnableUnifiedDesktop) {
-  std::unique_ptr<base::DictionaryValue> test_extension_value(
-      api_test_utils::ParseDictionary(kTestManifestKiosk));
-  scoped_refptr<Extension> test_extension(
-      api_test_utils::CreateExtension(test_extension_value.get()));
+  scoped_refptr<const Extension> test_extension =
+      ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+          .SetManifestKey("kiosk_enabled", true)
+          .Build();
   {
     scoped_refptr<SystemDisplayEnableUnifiedDesktopFunction>
         enable_unified_function(
@@ -365,14 +363,14 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, EnableUnifiedDesktop) {
 
 IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, OverscanCalibrationStart) {
   const std::string id = "display0";
-  std::unique_ptr<base::DictionaryValue> test_extension_value(
-      api_test_utils::ParseDictionary(kTestManifestKiosk));
-  scoped_refptr<Extension> test_extension(
-      api_test_utils::CreateExtension(test_extension_value.get()));
+  scoped_refptr<const Extension> test_extension =
+      ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+          .SetManifestKey("kiosk_enabled", true)
+          .Build();
 
   // Setup MockDisplayInfoProvider.
   api::system_display::DisplayProperties params;
-  provider_->SetInfo(id, params, nullptr);
+  SetInfo(id, params);
 
   // Call OverscanCalibrationStart.
   scoped_refptr<SystemDisplayOverscanCalibrationStartFunction> start_function(
@@ -399,7 +397,7 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, OverscanCalibrationApp) {
   // Setup MockDisplayInfoProvider.
   const std::string id = "display0";
   api::system_display::DisplayProperties params;
-  provider_->SetInfo(id, params, nullptr);
+  SetInfo(id, params);
 
   ASSERT_TRUE(RunAppTest("system/display/overscan")) << message_;
 
@@ -411,7 +409,7 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, OverscanCalibrationAppNoComplete) {
   // Setup MockDisplayInfoProvider.
   const std::string id = "display0";
   api::system_display::DisplayProperties params;
-  provider_->SetInfo(id, params, nullptr);
+  SetInfo(id, params);
 
   ResultCatcher catcher;
   const Extension* extension = LoadApp("system/display/overscan_no_complete");
@@ -429,10 +427,10 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, OverscanCalibrationAppNoComplete) {
 
 IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, ShowNativeTouchCalibrationFail) {
   const std::string id = "display0";
-  std::unique_ptr<base::DictionaryValue> test_extension_value(
-      api_test_utils::ParseDictionary(kTestManifestKiosk));
-  scoped_refptr<Extension> test_extension(
-      api_test_utils::CreateExtension(test_extension_value.get()));
+  scoped_refptr<const Extension> test_extension =
+      ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+          .SetManifestKey("kiosk_enabled", true)
+          .Build();
 
   scoped_refptr<SystemDisplayShowNativeTouchCalibrationFunction>
       show_native_calibration(
@@ -446,17 +444,15 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, ShowNativeTouchCalibrationFail) {
   std::string result(api_test_utils::RunFunctionAndReturnError(
       show_native_calibration.get(), "[\"" + id + "\"]", browser_context()));
 
-  EXPECT_EQ(
-      result,
-      SystemDisplayShowNativeTouchCalibrationFunction::kTouchCalibrationError);
+  EXPECT_FALSE(result.empty());
 }
 
 IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, ShowNativeTouchCalibration) {
   const std::string id = "display0";
-  std::unique_ptr<base::DictionaryValue> test_extension_value(
-      api_test_utils::ParseDictionary(kTestManifestKiosk));
-  scoped_refptr<Extension> test_extension(
-      api_test_utils::CreateExtension(test_extension_value.get()));
+  scoped_refptr<const Extension> test_extension =
+      ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+          .SetManifestKey("kiosk_enabled", true)
+          .Build();
 
   scoped_refptr<SystemDisplayShowNativeTouchCalibrationFunction>
       show_native_calibration(
@@ -475,6 +471,58 @@ IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, ShowNativeTouchCalibration) {
   bool callback_result;
   ASSERT_TRUE(result->GetAsBoolean(&callback_result));
   ASSERT_TRUE(callback_result);
+}
+
+IN_PROC_BROWSER_TEST_F(SystemDisplayApiTest, SetMirrorMode) {
+  scoped_refptr<const Extension> test_extension =
+      ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+          .SetManifestKey("kiosk_enabled", true)
+          .Build();
+  {
+    auto set_mirror_mode_function =
+        base::MakeRefCounted<SystemDisplaySetMirrorModeFunction>();
+
+    set_mirror_mode_function->set_has_callback(true);
+    set_mirror_mode_function->set_extension(test_extension.get());
+
+    ASSERT_TRUE(api_test_utils::RunFunction(set_mirror_mode_function.get(),
+                                            "[{\n"
+                                            "  \"mode\": \"normal\"\n"
+                                            "}]",
+                                            browser_context()));
+    EXPECT_EQ(api::system_display::MIRROR_MODE_NORMAL,
+              provider_->mirror_mode());
+  }
+  {
+    auto set_mirror_mode_function =
+        base::MakeRefCounted<SystemDisplaySetMirrorModeFunction>();
+
+    set_mirror_mode_function->set_has_callback(true);
+    set_mirror_mode_function->set_extension(test_extension.get());
+    ASSERT_TRUE(
+        api_test_utils::RunFunction(set_mirror_mode_function.get(),
+                                    "[{\n"
+                                    "  \"mode\": \"mixed\",\n"
+                                    "  \"mirroringSourceId\": \"10\",\n"
+                                    "  \"mirroringDestinationIds\": [\"11\"]\n"
+                                    "}]",
+                                    browser_context()));
+    EXPECT_EQ(api::system_display::MIRROR_MODE_MIXED, provider_->mirror_mode());
+  }
+  {
+    auto set_mirror_mode_function =
+        base::MakeRefCounted<SystemDisplaySetMirrorModeFunction>();
+
+    set_mirror_mode_function->set_has_callback(true);
+    set_mirror_mode_function->set_extension(test_extension.get());
+
+    ASSERT_TRUE(api_test_utils::RunFunction(set_mirror_mode_function.get(),
+                                            "[{\n"
+                                            "  \"mode\": \"off\"\n"
+                                            "}]",
+                                            browser_context()));
+    EXPECT_EQ(api::system_display::MIRROR_MODE_OFF, provider_->mirror_mode());
+  }
 }
 
 #endif  // !defined(OS_CHROMEOS)

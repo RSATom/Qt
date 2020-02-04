@@ -9,21 +9,22 @@
 
 #include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/dib/cfx_scanlinecompositor.h"
-#include "core/fxge/dib/ifx_scanlinecomposer.h"
+#include "core/fxge/dib/scanlinecomposer_iface.h"
+#include "core/fxge/fx_dib.h"
 
 class CFX_ClipRgn;
 class CFX_DIBitmap;
 
-class CFX_BitmapComposer : public IFX_ScanlineComposer {
+class CFX_BitmapComposer final : public ScanlineComposerIface {
  public:
   CFX_BitmapComposer();
   ~CFX_BitmapComposer() override;
 
-  void Compose(const CFX_RetainPtr<CFX_DIBitmap>& pDest,
+  void Compose(const RetainPtr<CFX_DIBitmap>& pDest,
                const CFX_ClipRgn* pClipRgn,
                int bitmap_alpha,
                uint32_t mask_color,
@@ -33,9 +34,9 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
                bool bFlipY,
                bool bRgbByteOrder,
                int alpha_flag,
-               int blend_type);
+               BlendMode blend_type);
 
-  // IFX_ScanlineComposer
+  // ScanlineComposerIface
   bool SetInfo(int width,
                int height,
                FXDIB_Format src_format,
@@ -56,8 +57,8 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
                         const uint8_t* scanline,
                         const uint8_t* scan_extra_alpha);
 
-  CFX_RetainPtr<CFX_DIBitmap> m_pBitmap;
-  CFX_UnownedPtr<const CFX_ClipRgn> m_pClipRgn;
+  RetainPtr<CFX_DIBitmap> m_pBitmap;
+  UnownedPtr<const CFX_ClipRgn> m_pClipRgn;
   FXDIB_Format m_SrcFormat;
   int m_DestLeft;
   int m_DestTop;
@@ -65,14 +66,14 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
   int m_DestHeight;
   int m_BitmapAlpha;
   uint32_t m_MaskColor;
-  CFX_RetainPtr<CFX_DIBitmap> m_pClipMask;
+  RetainPtr<CFX_DIBitmap> m_pClipMask;
   CFX_ScanlineCompositor m_Compositor;
   bool m_bVertical;
   bool m_bFlipX;
   bool m_bFlipY;
   int m_AlphaFlag;
-  bool m_bRgbByteOrder;
-  int m_BlendType;
+  bool m_bRgbByteOrder = false;
+  BlendMode m_BlendType = BlendMode::kNormal;
   std::vector<uint8_t> m_pScanlineV;
   std::vector<uint8_t> m_pClipScanV;
   std::vector<uint8_t> m_pAddClipScan;

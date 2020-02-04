@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2016 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,58 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MEDIA_ENGINE_NULLWEBRTCVIDEOENGINE_H_
-#define WEBRTC_MEDIA_ENGINE_NULLWEBRTCVIDEOENGINE_H_
+#ifndef MEDIA_ENGINE_NULLWEBRTCVIDEOENGINE_H_
+#define MEDIA_ENGINE_NULLWEBRTCVIDEOENGINE_H_
 
-#include <vector>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "webrtc/media/base/mediachannel.h"
-#include "webrtc/media/base/mediaengine.h"
+#include "media/engine/null_webrtc_video_engine.h"
 
-namespace webrtc {
-
-class Call;
-
-}  // namespace webrtc
-
-
-namespace cricket {
-
-class VideoMediaChannel;
-class WebRtcVideoDecoderFactory;
-class WebRtcVideoEncoderFactory;
-
-// Video engine implementation that does nothing and can be used in
-// CompositeMediaEngine.
-class NullWebRtcVideoEngine {
- public:
-  NullWebRtcVideoEngine() {}
-  ~NullWebRtcVideoEngine() {}
-
-  void SetExternalDecoderFactory(WebRtcVideoDecoderFactory* decoder_factory) {}
-  void SetExternalEncoderFactory(WebRtcVideoEncoderFactory* encoder_factory) {}
-
-  void Init() {}
-
-  const std::vector<VideoCodec>& codecs() {
-    return codecs_;
-  }
-
-  RtpCapabilities GetCapabilities() {
-    RtpCapabilities capabilities;
-    return capabilities;
-  }
-
-  VideoMediaChannel* CreateChannel(webrtc::Call* call,
-                                   const MediaConfig& config,
-                                   const VideoOptions& options) {
-    return nullptr;
-  }
-
- private:
-  std::vector<VideoCodec> codecs_;
-};
-
-}  // namespace cricket
-
-#endif  // WEBRTC_MEDIA_ENGINE_NULLWEBRTCVIDEOENGINE_H_
+#endif  // MEDIA_ENGINE_NULLWEBRTCVIDEOENGINE_H_

@@ -147,7 +147,7 @@ QDBusConnectionManager::QDBusConnectionManager()
     // prevent the library from being unloaded on Windows. See comments in the function.
     preventDllUnload();
 #endif
-    defaultBuses[0] = defaultBuses[1] = Q_NULLPTR;
+    defaultBuses[0] = defaultBuses[1] = nullptr;
     start();
 }
 
@@ -186,13 +186,13 @@ void QDBusConnectionManager::run()
             delete d;
         } else {
             d->closeConnection();
-            d->moveToThread(Q_NULLPTR);     // allow it to be deleted in another thread
+            d->moveToThread(nullptr);     // allow it to be deleted in another thread
         }
     }
     connectionHash.clear();
 
     // allow deletion from any thread without warning
-    moveToThread(Q_NULLPTR);
+    moveToThread(nullptr);
 }
 
 QDBusConnectionPrivate *QDBusConnectionManager::connectToBus(QDBusConnection::BusType type, const QString &name,
@@ -870,8 +870,12 @@ bool QDBusConnection::disconnect(const QString &service, const QString &path, co
     This function does not replace existing objects: if there is already an object registered at
     path \a path, this function will return false. Use unregisterObject() to unregister it first.
 
+    The ExportChildObjects flag exports child objects on D-Bus based on the
+    path of the registered objects and the QObject::objectName of the child.
+    Therefore, it is important for the child object to have an object name.
+
     You cannot register an object as a child object of an object that
-    was registered with QDBusConnection::ExportChildObjects.
+    was registered with ExportChildObjects.
 */
 bool QDBusConnection::registerObject(const QString &path, QObject *object, RegisterOptions options)
 {
@@ -890,8 +894,12 @@ bool QDBusConnection::registerObject(const QString &path, QObject *object, Regis
     This function does not replace existing objects: if there is already an object registered at
     path \a path, this function will return false. Use unregisterObject() to unregister it first.
 
+    The ExportChildObjects flag exports child objects on D-Bus based on the
+    path of the registered objects and the QObject::objectName of the child.
+    Therefore, it is important for the child object to have an object name.
+
     You cannot register an object as a child object of an object that
-    was registered with QDBusConnection::ExportChildObjects.
+    was registered with ExportChildObjects.
 */
 bool QDBusConnection::registerObject(const QString &path, const QString &interface, QObject *object, RegisterOptions options)
 {
@@ -1175,7 +1183,7 @@ bool QDBusConnection::unregisterService(const QString &serviceName)
 QDBusConnection QDBusConnection::sessionBus()
 {
     if (_q_manager.isDestroyed())
-        return QDBusConnection(Q_NULLPTR);
+        return QDBusConnection(nullptr);
     return QDBusConnection(_q_manager()->busConnection(SessionBus));
 }
 
@@ -1189,7 +1197,7 @@ QDBusConnection QDBusConnection::sessionBus()
 QDBusConnection QDBusConnection::systemBus()
 {
     if (_q_manager.isDestroyed())
-        return QDBusConnection(Q_NULLPTR);
+        return QDBusConnection(nullptr);
     return QDBusConnection(_q_manager()->busConnection(SystemBus));
 }
 
@@ -1270,6 +1278,12 @@ QByteArray QDBusConnection::localMachineId()
     \value AutoDetect           Automatically detect if the called function has a reply.
 
     When using BlockWithGui, applications must be prepared for reentrancy in any function.
+*/
+
+/*!
+    \fn void QDBusConnection::swap(QDBusConnection &other)
+
+    Swaps this QDBusConnection instance with \a other.
 */
 
 QT_END_NAMESPACE

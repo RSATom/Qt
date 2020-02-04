@@ -5,11 +5,11 @@
 #include "content/browser/android/java/gin_java_bridge_message_filter.h"
 
 #include "base/auto_reset.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "content/browser/android/java/gin_java_bridge_dispatcher_host.h"
 #include "content/browser/android/java/java_bridge_thread.h"
 #include "content/common/gin_java_bridge_messages.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
@@ -84,25 +84,43 @@ void GinJavaBridgeMessageFilter::RemoveHost(GinJavaBridgeDispatcherHost* host) {
   }
 }
 
+void GinJavaBridgeMessageFilter::RenderProcessExited(
+    RenderProcessHost* rph,
+    const ChildProcessTerminationInfo& info) {
+#if DCHECK_IS_ON()
+  {
+    scoped_refptr<GinJavaBridgeMessageFilter> filter =
+        base::UserDataAdapter<GinJavaBridgeMessageFilter>::Get(
+            rph, kGinJavaBridgeMessageFilterKey);
+    DCHECK_EQ(this, filter.get());
+  }
+#endif
+  rph->RemoveObserver(this);
+  rph->RemoveUserData(kGinJavaBridgeMessageFilterKey);
+}
+
 // static
 scoped_refptr<GinJavaBridgeMessageFilter> GinJavaBridgeMessageFilter::FromHost(
     GinJavaBridgeDispatcherHost* host, bool create_if_not_exists) {
-  RenderProcessHost* rph = host->web_contents()->GetRenderProcessHost();
+  RenderProcessHost* rph = host->web_contents()->GetMainFrame()->GetProcess();
   scoped_refptr<GinJavaBridgeMessageFilter> filter =
       base::UserDataAdapter<GinJavaBridgeMessageFilter>::Get(
           rph, kGinJavaBridgeMessageFilterKey);
   if (!filter && create_if_not_exists) {
     filter = new GinJavaBridgeMessageFilter();
     rph->AddFilter(filter.get());
+    rph->AddObserver(filter.get());
+
     rph->SetUserData(
         kGinJavaBridgeMessageFilterKey,
-        base::MakeUnique<base::UserDataAdapter<GinJavaBridgeMessageFilter>>(
+        std::make_unique<base::UserDataAdapter<GinJavaBridgeMessageFilter>>(
             filter.get()));
   }
   return filter;
 }
 
-GinJavaBridgeDispatcherHost* GinJavaBridgeMessageFilter::FindHost() {
+scoped_refptr<GinJavaBridgeDispatcherHost>
+GinJavaBridgeMessageFilter::FindHost() {
   base::AutoLock locker(hosts_lock_);
   auto iter = hosts_.find(current_routing_id_);
   if (iter != hosts_.end())
@@ -110,7 +128,7 @@ GinJavaBridgeDispatcherHost* GinJavaBridgeMessageFilter::FindHost() {
   // Not being able to find a host is OK -- we can receive messages from
   // RenderFrames for which the corresponding host part has already been
   // destroyed. That means, any references to Java objects that the host was
-  // holding were already released (with the death of ContentViewCore), so we
+  // holding were already released (with the death of WebContents), so we
   // can just ignore such messages.
   // RenderProcessHostImpl does the same -- if it can't find a listener
   // for the message's routing id, it just drops the message silently.
@@ -124,7 +142,7 @@ void GinJavaBridgeMessageFilter::OnGetMethods(
     GinJavaBoundObject::ObjectID object_id,
     std::set<std::string>* returned_method_names) {
   DCHECK(JavaBridgeThread::CurrentlyOn());
-  GinJavaBridgeDispatcherHost* host = FindHost();
+  scoped_refptr<GinJavaBridgeDispatcherHost> host = FindHost();
   if (host) {
     host->OnGetMethods(object_id, returned_method_names);
   } else {
@@ -137,7 +155,7 @@ void GinJavaBridgeMessageFilter::OnHasMethod(
     const std::string& method_name,
     bool* result) {
   DCHECK(JavaBridgeThread::CurrentlyOn());
-  GinJavaBridgeDispatcherHost* host = FindHost();
+  scoped_refptr<GinJavaBridgeDispatcherHost> host = FindHost();
   if (host) {
     host->OnHasMethod(object_id, method_name, result);
   } else {
@@ -152,12 +170,12 @@ void GinJavaBridgeMessageFilter::OnInvokeMethod(
     base::ListValue* wrapped_result,
     content::GinJavaBridgeError* error_code) {
   DCHECK(JavaBridgeThread::CurrentlyOn());
-  GinJavaBridgeDispatcherHost* host = FindHost();
+  scoped_refptr<GinJavaBridgeDispatcherHost> host = FindHost();
   if (host) {
     host->OnInvokeMethod(current_routing_id_, object_id, method_name, arguments,
                          wrapped_result, error_code);
   } else {
-    wrapped_result->Append(base::MakeUnique<base::Value>());
+    wrapped_result->Append(std::make_unique<base::Value>());
     *error_code = kGinJavaBridgeRenderFrameDeleted;
   }
 }
@@ -165,16 +183,9 @@ void GinJavaBridgeMessageFilter::OnInvokeMethod(
 void GinJavaBridgeMessageFilter::OnObjectWrapperDeleted(
     GinJavaBoundObject::ObjectID object_id) {
   DCHECK(JavaBridgeThread::CurrentlyOn());
-  GinJavaBridgeDispatcherHost* host = FindHost();
+  scoped_refptr<GinJavaBridgeDispatcherHost> host = FindHost();
   if (host)
     host->OnObjectWrapperDeleted(current_routing_id_, object_id);
-}
-
-// static
-void GinJavaBridgeMessageFilter::RemoveFilter(
-    GinJavaBridgeDispatcherHost* host) {
-  RenderProcessHost* rph = host->web_contents()->GetRenderProcessHost();
-  rph->RemoveUserData(kGinJavaBridgeMessageFilterKey);
 }
 
 }  // namespace content

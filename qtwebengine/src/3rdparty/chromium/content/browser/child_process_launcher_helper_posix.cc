@@ -9,14 +9,14 @@
 #include "base/posix/global_descriptors.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "content/browser/file_descriptor_info_impl.h"
+#include "build/build_config.h"
+#include "content/browser/posix_file_descriptor_info_impl.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_descriptor_keys.h"
 #include "content/public/common/content_descriptors.h"
 #include "content/public/common/content_switches.h"
-#include "mojo/edk/embedder/platform_handle.h"
-#include "services/catalog/public/cpp/manifest_parsing_util.h"
+#include "mojo/public/cpp/platform/platform_channel_endpoint.h"
 #include "services/service_manager/embedder/shared_file_util.h"
 #include "services/service_manager/embedder/switches.h"
 
@@ -26,7 +26,7 @@ namespace internal {
 namespace {
 
 using RequiredFilesByServiceMap =
-    std::map<std::string, catalog::RequiredFileMap>;
+    std::map<std::string, std::map<std::string, base::FilePath>>;
 
 RequiredFilesByServiceMap& GetRequiredFilesByServiceMap() {
   static auto* required_files_by_service = new RequiredFilesByServiceMap();
@@ -72,24 +72,29 @@ base::PlatformFile OpenFileIfNecessary(const base::FilePath& path,
 
 }  // namespace
 
-std::unique_ptr<FileDescriptorInfo> CreateDefaultPosixFilesToMap(
+std::unique_ptr<PosixFileDescriptorInfo> CreateDefaultPosixFilesToMap(
     int child_process_id,
-    const mojo::edk::PlatformHandle& mojo_client_handle,
+    const mojo::PlatformChannelEndpoint& mojo_channel_remote_endpoint,
     bool include_service_required_files,
     const std::string& process_type,
     base::CommandLine* command_line) {
-  std::unique_ptr<FileDescriptorInfo> files_to_register(
-      FileDescriptorInfoImpl::Create());
+  std::unique_ptr<PosixFileDescriptorInfo> files_to_register(
+      PosixFileDescriptorInfoImpl::Create());
 
+// Mac shared memory doesn't use file descriptors.
+#if !defined(OS_MACOSX)
   base::SharedMemoryHandle shm = base::FieldTrialList::GetFieldTrialHandle();
   if (shm.IsValid()) {
     files_to_register->Share(
-        kFieldTrialDescriptor,
+        service_manager::kFieldTrialDescriptor,
         base::SharedMemory::GetFdFromSharedMemoryHandle(shm));
   }
+#endif
 
-  DCHECK(mojo_client_handle.is_valid());
-  files_to_register->Share(kMojoIPCChannel, mojo_client_handle.handle);
+  DCHECK(mojo_channel_remote_endpoint.is_valid());
+  files_to_register->Share(
+      service_manager::kMojoIPCChannel,
+      mojo_channel_remote_endpoint.platform_handle().GetFD().get());
 
   // TODO(jcivelli): remove this "if defined" by making
   // GetAdditionalMappedFilesForChildProcess a no op on Mac.
@@ -108,14 +113,16 @@ std::unique_ptr<FileDescriptorInfo> CreateDefaultPosixFilesToMap(
   const std::string& service_name = service_name_iter->second;
   auto files_iter = GetRequiredFilesByServiceMap().find(service_name);
   if (files_iter != GetRequiredFilesByServiceMap().end()) {
-    const catalog::RequiredFileMap& required_files_map = files_iter->second;
+    const std::map<std::string, base::FilePath>& required_files_map =
+        files_iter->second;
     base::GlobalDescriptors::Key key = kContentDynamicDescriptorStart;
     service_manager::SharedFileSwitchValueBuilder file_switch_value_builder;
     for (const auto& key_path_iter : required_files_map) {
 
 #if !defined(V8_USE_EXTERNAL_STARTUP_DATA)
       if (key_path_iter.first == content::kV8NativesDataDescriptor ||
-          key_path_iter.first == content::kV8SnapshotDataDescriptor) {
+          key_path_iter.first == content::kV8SnapshotDataDescriptor ||
+          key_path_iter.first == content::kV8ContextSnapshotDataDescriptor) {
         continue;
       }
 #endif  // !V8_USE_EXTERNAL_STARTUP_DATA
@@ -140,8 +147,9 @@ std::unique_ptr<FileDescriptorInfo> CreateDefaultPosixFilesToMap(
   return files_to_register;
 }
 
-void SetFilesToShareForServicePosix(const std::string& service_name,
-                                    catalog::RequiredFileMap required_files) {
+void SetFilesToShareForServicePosix(
+    const std::string& service_name,
+    std::map<std::string, base::FilePath> required_files) {
   if (required_files.empty())
     return;
 

@@ -21,29 +21,34 @@ a service is embedded within the content layer).
 ## Questions to Answer When Getting Started
 
 For the basic nuts and bolts of how to create a new service, see [the
-documentation on adding a new service](/services#Adding-a-new-service). This 
-section gives questions that you should answer in order to shape the design of 
-your service, as well as hints as to which answers make sense given your 
+documentation on adding a new service](/services#Adding-a-new-service). This
+section gives questions that you should answer in order to shape the design of
+your service, as well as hints as to which answers make sense given your
 situation.
 
 ### Is your service global or per-BrowserContext?
 The Service Manager can either:
 
-- create one service instance per user ID or
+- create one service instance per instance group or
 - field all connection requests for a given service via the same instance
 
 Which of these policies the Service Manager employs is determined by the
 contents of your service manifest: the former is the default, while the latter
-is selected by informing the Service Manager that your service requires the
-service_manager:all_users capability([example](https://cs.chromium.org/chromium/src/services/device/manifest.json)).
+is selected by informing the Service Manager that your service has the
+"instance_sharing" option value set to "shared_across_instance_groups"
+([example](https://cs.chromium.org/chromium/src/services/device/manifest.json)).
 
-In practice, there is one user ID per-BrowserContext, so the question becomes:
-Is your Service a global or keyed by BrowserContext?  In considering this
-question, there is one obvious hint: If you are converting per-Profile classes
-(e.g., KeyedServices), then your service is almost certainly going to be
-per-user. More generally, if you envision needing to use *any* state related to
-the user (e.g., you need to store files in the user's home directory), then your
-service should be per-user.
+Service manifests are described in more detail in this
+[document](https://chromium.googlesource.com/chromium/src/+/master/services/service_manager/service_manifests.md).
+
+In practice, there is one instance group per-BrowserContext, so the question
+becomes: Is your Service a global or keyed by BrowserContext?  In considering
+this question, there is one obvious hint: If you are converting per-Profile
+classes (e.g., KeyedServices), then your service is almost certainly going to
+want an instance per BrowserContext. More generally, if you envision needing to
+use *any* state related to the profile (e.g., you need to store files in the
+user's home directory), then your service should have an instance
+per-BrowserContext.
 
 Conversely, your service could be a good fit for being global if it is a utility
 that is unconcerned with the identity of the requesting client (e.g., the [data
@@ -59,25 +64,22 @@ existing browser-process code.
 
 You then have a question: Where should it be embedded? The answer to this
 question hinges on the nature and location of the code that you are converting:
- 
+
 - //content is the obvious choice if you are converting existing //content code
   (e.g., the Device Service). Global services
-  are embedded by [content::ServiceManagerContext](https://cs.chromium.org/chromium/src/content/browser/service_manager/service_manager_context.cc?type=cs&q=CreateDeviceService), 
-  while per-user services are naturally embedded by [content::BrowserContext](https://cs.chromium.org/chromium/src/content/browser/browser_context.cc?type=cs&q=CreateFileService).
+  are embedded by [content::ServiceManagerContext](https://cs.chromium.org/chromium/src/content/browser/service_manager/service_manager_context.cc?type=cs&q=CreateDeviceService),
+  while per-BrowserContext services are naturally embedded by [content::BrowserContext](https://cs.chromium.org/chromium/src/content/browser/browser_context.cc?type=cs&q=CreateFileService).
 
 - If your service is converting existing //chrome code, then you will need
   to embed your service in //chrome rather than //content. Global services
-  are embedded by [ChromeContentBrowserClient](https://cs.chromium.org/chromium/src/chrome/browser/chrome_content_browser_client.cc?type=cs&q=CreateMediaService), 
-  while per-user services are embedded by [ProfileImpl](https://cs.chromium.org/chromium/src/chrome/browser/profiles/profile_impl.cc?type=cs&q=CreateIdentityService).
+  are embedded by [ChromeContentBrowserClient](https://cs.chromium.org/chromium/src/chrome/browser/chrome_content_browser_client.cc?type=cs&q=CreateMediaService),
+  while per-Profile services are embedded by [ProfileImpl](https://cs.chromium.org/chromium/src/chrome/browser/profiles/profile_impl.cc?type=cs&q=CreateIdentityService).
 
 - If you are looking to convert all or part of a component (i.e., a feature in
   //components) into a service, the question arises of whether your new service
   is worthy of being in //services (i.e., is it a foundational service?). If
-  not, then it can be placed in an appropriate subdirectory of the component
-  itself. See this [email
-  thread](https://groups.google.com/a/chromium.org/forum/#!topic/services-dev/3AJx3gjHbZE) and its [resulting CL](https://codereview.chromium.org/2832633002)
-  for discussion of this point, and if in doubt, start a similar email thread
-  discussing your feature.
+  not, then it can be placed in //components/services. See this
+  [document](https://docs.google.com/document/d/1Zati5ZohwjUM0vz5qj6sWg5r-_I0iisUoSoAMNdd7C8/edit#) for discussion of this point.
 
 ### If your service is embedded in the browser process, what is its threading model?
 
@@ -124,7 +126,7 @@ services:
 
 These all have tradeoffs:
 
-- The first lets you incrementally validate your API and implementation, but 
+- The first lets you incrementally validate your API and implementation, but
   leaves the service depending on external code for a long period of time.
 - The second can create a self-contained service more quickly, but leaves
   all the existing clients in place as potential cleanup work.
@@ -140,7 +142,7 @@ about doing the servicification cleanly as you go.
 ## Platform-Specific Issues
 
 ### Android
-As you servicify code running on Android, you might find that you need to port 
+As you servicify code running on Android, you might find that you need to port
 interfaces that are served in Java. Here is an [example CL](https://codereview.chromium.org/2643713002) that gives a basic
 pattern to follow in doing this.
 
@@ -155,13 +157,31 @@ Finally, it is possible that your feature will have coupling to UI process state
 issue, see the section on [Coupling to UI](#Coupling-to-UI).
 
 ### iOS
-The high-level [servicification design doc](https://docs.google.com/document/d/15I7sQyQo6zsqXVNAlVd520tdGaS8FCicZHrN0yRu-oU/edit) gives the motivations and 
-vision for supporting services on iOS (in particular, search for the mentions 
-of iOS within the doc).
 
-Services are not *yet* supported, but this support is being actively being 
-worked on; see [this bug](crbug.com/705982) for the current status. If you have 
-a use case or need for services on iOS, contact blundell@chromium.org.
+Services are supported on iOS, with the usage model in //ios/web being very
+close to the usage model in //content. More specifically:
+
+* To embed a global service in the browser service, override
+  [WebClient::RegisterServices](https://cs.chromium.org/chromium/src/ios/web/public/web_client.h?q=WebClient::Register&sq=package:chromium&l=136). For an
+  example usage, see
+  [ShellWebClient](https://cs.chromium.org/chromium/src/ios/web/shell/shell_web_client.mm?q=ShellWebClient::RegisterS&sq=package:chromium&l=91)
+  and the related integration test that [connects to the embedded service](https://cs.chromium.org/chromium/src/ios/web/shell/test/service_manager_egtest.mm?q=service_manager_eg&sq=package:chromium&l=89).
+* To embed a per-BrowserState service, override
+  [BrowserState::RegisterServices](https://cs.chromium.org/chromium/src/ios/web/public/browser_state.h?q=BrowserState::RegisterServices&sq=package:chromium&l=89). For an
+  example usage, see
+  [ShellBrowserState](https://cs.chromium.org/chromium/src/ios/web/shell/shell_browser_state.mm?q=ShellBrowserState::RegisterServices&sq=package:chromium&l=48)
+  and the related integration test that [connects to the embedded service](https://cs.chromium.org/chromium/src/ios/web/shell/test/service_manager_egtest.mm?q=service_manager_eg&sq=package:chromium&l=110).
+* To register a per-frame Mojo interface, override
+  [WebClient::BindInterfaceRequestFromMainFrame](https://cs.chromium.org/chromium/src/ios/web/public/web_client.h?q=WebClient::BindInterfaceRequestFromMainFrame&sq=package:chromium&l=148). For an
+  example usage, see
+  [ShellWebClient](https://cs.chromium.org/chromium/src/ios/web/shell/shell_web_client.mm?type=cs&q=ShellWebClient::BindInterfaceRequestFromMainFrame&sq=package:chromium&l=115)
+  and the related integration test that [connects to the interface](https://cs.chromium.org/chromium/src/ios/web/shell/test/service_manager_egtest.mm?q=service_manager_eg&sq=package:chromium&l=130). Note that this is the
+  equivalent of [ContentBrowserClient::BindInterfaceRequestFromFrame()](https://cs.chromium.org/chromium/src/content/public/browser/content_browser_client.h?type=cs&q=ContentBrowserClient::BindInterfaceRequestFromFrame&sq=package:chromium&l=667), as on iOS all operation "in the content area" is implicitly
+  operating in the context of the page's main frame.
+
+If you have a use case or need for services on iOS, contact
+blundell@chromium.org. For general information on the motivations and vision for supporting services on iOS, see the high-level [servicification design doc](https://docs.google.com/document/d/15I7sQyQo6zsqXVNAlVd520tdGaS8FCicZHrN0yRu-oU/edit) (in particular, search for the mentions
+of iOS within the doc).
 
 ## Client-Specific Issues
 
@@ -175,7 +195,7 @@ Below, we go through strategies for some common challenges encountered when
 servicifying features that have Blink as a client.
 
 #### Mocking Interface Impls in JS
-It is a common pattern in Blink's layout tests to mock a remote Mojo interface
+It is a common pattern in Blink's web tests to mock a remote Mojo interface
 in JS. [This CL](https://codereview.chromium.org/2643713002) illustrates the
 basic pattern for porting such mocking of an interface hosted by
 //content/browser to an interface hosted by an arbitrary service (see the
@@ -187,14 +207,14 @@ encounter cases where the feature implementation has dependencies on Blink
 public headers (e.g., defining POD structs that are used both by the client and
 by the feature implementation). These dependencies pose a challenge:
 
-- Services should not depend on Blink, as this is a dependency inversion (Blink 
+- Services should not depend on Blink, as this is a dependency inversion (Blink
 is a client of services).
 - However, Blink is very careful about accepting dependencies from Chromium.
 
 To meet this challenge, you have two options:
 
 1. Move the code in question from C++ to mojom (e.g., if it is simple structs).
-2. Move the code into the service's C++ client library, being very explicit 
+2. Move the code into the service's C++ client library, being very explicit
    about its usage by Blink. See [this CL](https://codereview.chromium.org/2415083002) for a basic pattern to follow.
 
 #### Frame-Scoped Connections
@@ -267,10 +287,10 @@ either ported into your service or eliminated:
 - In general, as Chromium is moving away from graceful shutdown, the first
   question to analyze is: Do the singletons actually need to be shut down at
   all?
-- If you need to preserve shutdown of the singleton, the naive approach is to 
+- If you need to preserve shutdown of the singleton, the naive approach is to
   move the shutdown of the singleton to the destructor of your service
-- However, you should carefully examine when your service is destroyed compared 
-  to when the previous code was executing, and ensure that any differences 
+- However, you should carefully examine when your service is destroyed compared
+  to when the previous code was executing, and ensure that any differences
   introduced do not impact correctness.
 
 See [this thread](https://groups.google.com/a/chromium.org/forum/#!topic/services-dev/Y9FKZf9n1ls) for more discussion of this issue.
@@ -288,11 +308,11 @@ To answer this question, there are several different strategies. These
 strategies are not mutually-exclusive; they can and should be combined to
 preserve the full breadth of coverage.
 
-- Blink client-side behavior can be tested via [layout tests](https://codereview.chromium.org/2731953003)
+- Blink client-side behavior can be tested via [web tests](https://codereview.chromium.org/2731953003)
 - To test service impl behavior, create [service tests](https://codereview.chromium.org/2774783003).
 - To preserve tests of end-to-end behavior (e.g., that when Blink makes a
   request via a Web API in JS, the relevant feature impl receives a connection
-  request), we are planning on introducing the ability to register mock 
+  request), we are planning on introducing the ability to register mock
   implementations with the Service Manager.
 
 To emphasize one very important point: it is in general necessary to leave

@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_LANGUAGE_SETTINGS_PRIVATE_LANGUAGE_SETTINGS_PRIVATE_DELEGATE_H_
 #define CHROME_BROWSER_EXTENSIONS_API_LANGUAGE_SETTINGS_PRIVATE_LANGUAGE_SETTINGS_PRIVATE_DELEGATE_H_
 
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
@@ -18,6 +19,10 @@
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/event_router.h"
 
+#if defined(OS_CHROMEOS)
+#include "ui/base/ime/chromeos/input_method_manager.h"
+#endif
+
 namespace content {
 class BrowserContext;
 }
@@ -30,6 +35,9 @@ class LanguageSettingsPrivateDelegate
     : public KeyedService,
       public EventRouter::Observer,
       public content::NotificationObserver,
+#if defined(OS_CHROMEOS)
+      public chromeos::input_method::InputMethodManager::Observer,
+#endif  // defined(OS_CHROMEOS)
       public SpellcheckHunspellDictionary::Observer,
       public SpellcheckCustomDictionary::Observer {
  public:
@@ -38,8 +46,17 @@ class LanguageSettingsPrivateDelegate
   ~LanguageSettingsPrivateDelegate() override;
 
   // Returns the languages and statuses of the enabled spellcheck dictionaries.
-  std::vector<api::language_settings_private::SpellcheckDictionaryStatus>
+  virtual std::vector<
+      api::language_settings_private::SpellcheckDictionaryStatus>
   GetHunspellDictionaryStatuses();
+
+  // Retry downloading the spellcheck dictionary.
+  virtual void RetryDownloadHunspellDictionary(const std::string& language);
+
+  // content::NotificationObserver implementation.
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
 
  protected:
   explicit LanguageSettingsPrivateDelegate(content::BrowserContext* context);
@@ -51,10 +68,14 @@ class LanguageSettingsPrivateDelegate
   void OnListenerAdded(const EventListenerInfo& details) override;
   void OnListenerRemoved(const EventListenerInfo& details) override;
 
-  // content::NotificationObserver implementation.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
+#if defined(OS_CHROMEOS)
+  // chromeos::input_method::InputMethodManager::Observer implementation.
+  void InputMethodChanged(chromeos::input_method::InputMethodManager* manager,
+                          Profile* profile,
+                          bool show_message) override;
+  void OnInputMethodExtensionAdded(const std::string& extension_id) override;
+  void OnInputMethodExtensionRemoved(const std::string& extension_id) override;
+#endif  // defined(OS_CHROMEOS)
 
   // SpellcheckHunspellDictionary::Observer implementation.
   void OnHunspellDictionaryInitialized(const std::string& language) override;
@@ -84,6 +105,13 @@ class LanguageSettingsPrivateDelegate
   // any observers.
   void StartOrStopListeningForSpellcheckChanges();
 
+#if defined(OS_CHROMEOS)
+  // If there are any JavaScript listeners registered for input method events,
+  // ensures we are registered for change notifications. Otherwise, unregisters
+  // any observers.
+  void StartOrStopListeningForInputMethodChanges();
+#endif  // defined(OS_CHROMEOS)
+
   // Handles the preference for which languages should be used for spellcheck
   // by resetting the dictionaries and broadcasting an event.
   void OnSpellcheckDictionariesChanged();
@@ -95,6 +123,8 @@ class LanguageSettingsPrivateDelegate
   void RemoveDictionaryObservers();
 
   // The hunspell dictionaries that are used for spellchecking.
+  // TODO(aee): Consider replacing with
+  // |SpellcheckService::GetHunspellDictionaries()|.
   WeakDictionaries hunspell_dictionaries_;
 
   // The custom dictionary that is used for spellchecking.
@@ -104,6 +134,8 @@ class LanguageSettingsPrivateDelegate
 
   // True if there are observers listening for spellcheck events.
   bool listening_spellcheck_;
+  // True if there are observers listening for input method events.
+  bool listening_input_method_;
 
   // True if the profile has finished initializing.
   bool profile_added_;

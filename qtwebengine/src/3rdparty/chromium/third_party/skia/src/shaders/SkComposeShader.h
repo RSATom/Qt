@@ -23,7 +23,7 @@ public:
     }
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(const AsFPArgs&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(const GrFPArgs&) const override;
 #endif
 
 #ifdef SK_DEBUGx
@@ -35,19 +35,15 @@ public:
     bool asACompose(ComposeRec* rec) const override;
 #endif
 
-    SK_TO_STRING_OVERRIDE()
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkComposeShader)
-
 protected:
     SkComposeShader(SkReadBuffer&);
     void flatten(SkWriteBuffer&) const override;
     sk_sp<SkShader> onMakeColorSpace(SkColorSpaceXformer* xformer) const override;
-    bool onAppendStages(SkRasterPipeline*, SkColorSpace* dstCS, SkArenaAlloc*,
-                        const SkMatrix&, const SkPaint&, const SkMatrix* localM) const override;
-
-    bool onIsRasterPipelineOnly() const override { return true; }
+    bool onAppendStages(const StageRec&) const override;
 
 private:
+    SK_FLATTENABLE_HOOKS(SkComposeShader)
+
     sk_sp<SkShader>     fDst;
     sk_sp<SkShader>     fSrc;
     const float         fLerpT;

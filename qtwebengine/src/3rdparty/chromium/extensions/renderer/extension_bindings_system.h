@@ -7,12 +7,17 @@
 
 #include <string>
 
+#include "base/time/time.h"
+#include "extensions/common/extension_id.h"
+#include "extensions/common/features/feature.h"
+
 namespace base {
 class ListValue;
 }
 
 namespace extensions {
 class IPCMessageSender;
+class RendererMessagingService;
 class RequestSender;
 class ScriptContext;
 struct EventFilteringInfo;
@@ -62,11 +67,25 @@ class ExtensionBindingsSystem {
   // TODO(devlin): Factor this out.
   virtual RequestSender* GetRequestSender() = 0;
 
+  // Returns the associated RendererMessagingService.
+  virtual RendererMessagingService* GetMessagingService() = 0;
+
+  // Called when an extension is removed.
+  virtual void OnExtensionRemoved(const ExtensionId& id) {}
+
+  // Called when an extension's permissions are updated.
+  virtual void OnExtensionPermissionsUpdated(const ExtensionId& id) {}
+
   // Returns true if any portion of the runtime API is available to the given
   // |context|. This is different than just checking features because runtime's
   // availability depends on the installed extensions and the active URL (in the
   // case of extensions communicating with external websites).
   static bool IsRuntimeAvailableToContext(ScriptContext* context);
+
+  // Logs the amount of time taken to update the bindings for a given context
+  // (i.e., UpdateBindingsForContext()).
+  static void LogUpdateBindingsForContextTime(Feature::Context context_type,
+                                              base::TimeDelta elapsed);
 
   // The APIs that could potentially be available to webpage-like contexts.
   // This is the list of possible features; most web pages will not have access
@@ -74,7 +93,7 @@ class ExtensionBindingsSystem {
   // Note: `runtime` is not included here, since it's handled specially above.
   // Note: We specify the size of the array to allow for its use in for loops
   // without needing to expose a separate "kNumWebAvailableFeatures".
-  static const char* kWebAvailableFeatures[3];
+  static const char* const kWebAvailableFeatures[2];
 };
 
 }  // namespace extensions

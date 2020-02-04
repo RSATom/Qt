@@ -20,23 +20,24 @@ Polymer({
   },
 
   close: function() {
-    if (this.active)
+    if (this.active) {
       this.$.dialog.close();
+    }
   },
 
   deny: function() {
-    var password = /** @type {!PaperInputElement} */ (this.$.password);
+    const password = /** @type {!CrInputElement} */ (this.$.password);
     password.disabled = false;
     this.$.submit.disabled = false;
     this.invalid = true;
-    password.focus();
-    password.inputElement.select();
+    password.select();
   },
 
   submit: function() {
-    var password = /** @type {!PaperInputElement} */ (this.$.password);
-    if (password.value.length == 0)
+    const password = /** @type {!CrInputElement} */ (this.$.password);
+    if (password.value.length == 0) {
       return;
+    }
     password.disabled = true;
     this.$.submit.disabled = true;
     this.fire('password-submitted', {password: password.value});

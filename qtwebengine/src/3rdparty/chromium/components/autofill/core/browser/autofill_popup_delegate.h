@@ -5,7 +5,9 @@
 #ifndef COMPONENTS_AUTOFILL_CORE_BROWSER_AUTOFILL_POPUP_DELEGATE_H_
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_AUTOFILL_POPUP_DELEGATE_H_
 
+#include "base/callback_forward.h"
 #include "base/strings/string16.h"
+#include "components/autofill/core/browser/popup_types.h"
 
 namespace autofill {
 
@@ -20,6 +22,8 @@ class AutofillPopupDelegate {
 
   // Called when the Autofill popup is hidden.
   virtual void OnPopupHidden() = 0;
+
+  virtual void OnPopupSuppressed() = 0;
 
   // Called when the autofill suggestion indicated by |identifier| has been
   // temporarily selected (e.g., hovered).
@@ -46,11 +50,17 @@ class AutofillPopupDelegate {
   // Informs the delegate that the Autofill previewed form should be cleared.
   virtual void ClearPreviewedForm() = 0;
 
-  // Returns true if popup is for credit card.
-  virtual bool IsCreditCardPopup() = 0;
+  // Returns the type of the popup being shown.
+  virtual PopupType GetPopupType() const = 0;
 
   // Returns the associated AutofillDriver.
   virtual AutofillDriver* GetAutofillDriver() = 0;
+
+  // Sets |deletion_callback| to be called from the delegate's destructor.
+  // Useful for deleting objects which cannot be owned by the delegate but
+  // should not outlive it.
+  virtual void RegisterDeletionCallback(
+      base::OnceClosure deletion_callback) = 0;
 };
 
 }  // namespace autofill

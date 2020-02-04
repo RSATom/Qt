@@ -6,41 +6,34 @@
 #define SERVICES_SERVICE_MANAGER_STANDALONE_CONTEXT_H_
 
 #include <memory>
+#include <vector>
 
+#include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/ref_counted.h"
 #include "base/time/time.h"
-#include "base/values.h"
+#include "services/service_manager/public/cpp/manifest.h"
 #include "services/service_manager/runner/host/service_process_launcher_delegate.h"
-
-namespace base {
-class SequencedWorkerPool;
-class Value;
-}
 
 namespace service_manager {
 
 class ServiceManager;
 
-constexpr size_t kThreadPoolMaxThreads = 3;
-
 // The "global" context for the service manager's main process.
 class Context {
  public:
   Context(ServiceProcessLauncherDelegate* launcher_delegate,
-          std::unique_ptr<base::Value> catalog_content);
+          const std::vector<Manifest>& manifests);
   ~Context();
 
-  // Run the application specified on the command line.
-  void RunCommandLineApplication();
+  // Run the application specified on the command line, and run |on_quit| when
+  // the application instance quits.
+  void RunCommandLineApplication(base::RepeatingClosure on_quit);
 
   ServiceManager* service_manager() { return service_manager_.get(); }
 
  private:
   // Runs the app specified by |name|.
-  void Run(const std::string& name);
-
-  scoped_refptr<base::SequencedWorkerPool> blocking_pool_;
+  void Run(const std::string& name, base::RepeatingClosure on_quit);
 
   std::unique_ptr<ServiceManager> service_manager_;
   base::Time main_entry_time_;

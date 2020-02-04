@@ -85,7 +85,7 @@ class CWelsH264SVCEncoder : public ISVCEncoder {
   /*
    * return: 0 - success; otherwise - failed;
    */
-  virtual int EXTAPI ForceIntraFrame (bool bIDR);
+  virtual int EXTAPI ForceIntraFrame (bool bIDR,int32_t iLayerId = -1);
 
   /************************************************************************
    * InDataFormat, IDRInterval, SVC Encode Param, Frame Rate, Bitrate,..
@@ -123,7 +123,7 @@ class CWelsH264SVCEncoder : public ISVCEncoder {
 #endif//REC_FRAME_COUNT
 
   void    InitEncoder (void);
-  void    DumpSrcPicture (const uint8_t* pSrc);
+  void    DumpSrcPicture (const SSourcePicture*  pSrcPic, const int iUsageType);
 };
 }
 #endif // !defined(WELS_PLUS_WELSENCODEREXT_H)

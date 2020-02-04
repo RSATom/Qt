@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtwinextras.qdocconf)
 
 project                 = QtWinExtras
 description             = Qt Windows Extras Reference Documentation
@@ -8,6 +9,11 @@ exampledirs += ../../../examples/winextras \
                snippets
 
 examplesinstallpath     = winextras
+
+moduleheader = QtWinExtrasDoc
+
+includepaths = -I . \
+               -I ..
 
 headerdirs = .. ../../imports/winextras
 sourcedirs = .. ../../imports/winextras

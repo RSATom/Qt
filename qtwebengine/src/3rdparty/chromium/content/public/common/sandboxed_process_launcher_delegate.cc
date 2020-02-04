@@ -5,19 +5,17 @@
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 
 #include "build/build_config.h"
+#include "services/service_manager/zygote/common/zygote_buildflags.h"
 
 namespace content {
 
 #if defined(OS_WIN)
-bool SandboxedProcessLauncherDelegate::ShouldLaunchElevated() {
+bool SandboxedProcessLauncherDelegate::DisableDefaultPolicy() {
   return false;
 }
 
-bool SandboxedProcessLauncherDelegate::ShouldSandbox() {
-  return true;
-}
-
-bool SandboxedProcessLauncherDelegate::DisableDefaultPolicy() {
+bool SandboxedProcessLauncherDelegate::GetAppContainerId(
+    std::string* appcontainer_id) {
   return false;
 }
 
@@ -26,21 +24,24 @@ bool SandboxedProcessLauncherDelegate::PreSpawnTarget(
   return true;
 }
 
-#elif(OS_POSIX)
+void SandboxedProcessLauncherDelegate::PostSpawnTarget(
+    base::ProcessHandle process) {}
 
-#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
-ZygoteHandle SandboxedProcessLauncherDelegate::GetZygote() {
+bool SandboxedProcessLauncherDelegate::ShouldLaunchElevated() {
+  return false;
+}
+#endif  // defined(OS_WIN)
+
+#if BUILDFLAG(USE_ZYGOTE_HANDLE)
+service_manager::ZygoteHandle SandboxedProcessLauncherDelegate::GetZygote() {
   return nullptr;
 }
-#endif  // !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
 
+#if defined(OS_POSIX)
 base::EnvironmentMap SandboxedProcessLauncherDelegate::GetEnvironment() {
   return base::EnvironmentMap();
 }
-#endif
-
-SandboxType SandboxedProcessLauncherDelegate::GetSandboxType() {
-  return SANDBOX_TYPE_INVALID;
-}
+#endif  // defined(OS_POSIX)
 
 }  // namespace content

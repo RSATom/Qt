@@ -102,7 +102,7 @@ QEvdevMouseManager::QEvdevMouseManager(const QString &key, const QString &specif
     }
 
     QInputDeviceManager *manager = QGuiApplicationPrivate::inputDeviceManager();
-    connect(manager, &QInputDeviceManager::cursorPositionChangeRequested, [=](const QPoint &pos) {
+    connect(manager, &QInputDeviceManager::cursorPositionChangeRequested, [this](const QPoint &pos) {
         m_x = pos.x();
         m_y = pos.y();
         clampPosition();
@@ -131,7 +131,8 @@ void QEvdevMouseManager::clampPosition()
         m_y = g.bottom() - m_yoffset;
 }
 
-void QEvdevMouseManager::handleMouseEvent(int x, int y, bool abs, Qt::MouseButtons buttons)
+void QEvdevMouseManager::handleMouseEvent(int x, int y, bool abs, Qt::MouseButtons buttons,
+                                          Qt::MouseButton button, QEvent::Type type)
 {
     // update current absolute coordinates
     if (!abs) {
@@ -147,13 +148,13 @@ void QEvdevMouseManager::handleMouseEvent(int x, int y, bool abs, Qt::MouseButto
     QPoint pos(m_x + m_xoffset, m_y + m_yoffset);
     // Cannot track the keyboard modifiers ourselves here. Instead, report the
     // modifiers from the last key event that has been seen by QGuiApplication.
-    QWindowSystemInterface::handleMouseEvent(0, pos, pos, buttons, QGuiApplication::keyboardModifiers());
+    QWindowSystemInterface::handleMouseEvent(0, pos, pos, buttons, button, type, QGuiApplicationPrivate::inputDeviceManager()->keyboardModifiers());
 }
 
 void QEvdevMouseManager::handleWheelEvent(QPoint delta)
 {
     QPoint pos(m_x + m_xoffset, m_y + m_yoffset);
-    QWindowSystemInterface::handleWheelEvent(0, pos, pos, QPoint(), delta, QGuiApplication::keyboardModifiers());
+    QWindowSystemInterface::handleWheelEvent(0, pos, pos, QPoint(), delta, QGuiApplicationPrivate::inputDeviceManager()->keyboardModifiers());
 }
 
 void QEvdevMouseManager::addMouse(const QString &deviceNode)

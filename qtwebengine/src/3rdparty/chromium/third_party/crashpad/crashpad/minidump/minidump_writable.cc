@@ -16,15 +16,14 @@
 
 #include <stdint.h>
 
-#include <limits>
-
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "util/file/file_writer.h"
 #include "util/numeric/safe_assignment.h"
 
 namespace {
 
-const size_t kMaximumAlignment = 16;
+constexpr size_t kMaximumAlignment = 16;
 
 }  // namespace
 
@@ -81,9 +80,6 @@ void MinidumpWritable::RegisterLocationDescriptor(
 
   registered_location_descriptors_.push_back(location_descriptor);
 }
-
-const size_t MinidumpWritable::kInvalidSize =
-    std::numeric_limits<size_t>::max();
 
 MinidumpWritable::MinidumpWritable()
     : registered_rvas_(),
@@ -248,8 +244,8 @@ bool MinidumpWritable::WritePaddingAndObject(FileWriterInterface* file_writer) {
 
   // The number of elements in kZeroes must be at least one less than the
   // maximum Alignment() ever encountered.
-  const uint8_t kZeroes[kMaximumAlignment - 1] = {};
-  DCHECK_LE(leading_pad_bytes_, arraysize(kZeroes));
+  static constexpr uint8_t kZeroes[kMaximumAlignment - 1] = {};
+  DCHECK_LE(leading_pad_bytes_, base::size(kZeroes));
 
   if (leading_pad_bytes_) {
     if (!file_writer->Write(&kZeroes, leading_pad_bytes_)) {

@@ -7,8 +7,8 @@
 #include "base/logging.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/gfx/canvas.h"
-#include "ui/views/accessibility/native_view_accessibility.h"
 #include "ui/views/controls/native/native_view_host_wrapper.h"
+#include "ui/views/painter.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
@@ -49,9 +49,34 @@ void NativeViewHost::Detach() {
   Detach(false);
 }
 
-void NativeViewHost::SetPreferredSize(const gfx::Size& size) {
-  preferred_size_ = size;
-  PreferredSizeChanged();
+void NativeViewHost::SetParentAccessible(gfx::NativeViewAccessible accessible) {
+  native_wrapper_->SetParentAccessible(accessible);
+}
+
+bool NativeViewHost::SetCornerRadius(int corner_radius) {
+  return SetCustomMask(views::Painter::CreatePaintedLayer(
+      views::Painter::CreateSolidRoundRectPainter(SK_ColorBLACK,
+                                                  corner_radius)));
+}
+
+bool NativeViewHost::SetCustomMask(std::unique_ptr<ui::LayerOwner> mask) {
+  DCHECK(native_wrapper_);
+  return native_wrapper_->SetCustomMask(std::move(mask));
+}
+
+void NativeViewHost::SetHitTestTopInset(int top_inset) {
+  native_wrapper_->SetHitTestTopInset(top_inset);
+}
+
+void NativeViewHost::SetNativeViewSize(const gfx::Size& size) {
+  if (native_view_size_ == size)
+    return;
+  native_view_size_ = size;
+  InvalidateLayout();
+}
+
+gfx::NativeView NativeViewHost::GetNativeViewContainer() const {
+  return native_view_ ? native_wrapper_->GetNativeViewContainer() : nullptr;
 }
 
 void NativeViewHost::NativeViewDestroyed() {
@@ -62,10 +87,6 @@ void NativeViewHost::NativeViewDestroyed() {
 
 ////////////////////////////////////////////////////////////////////////////////
 // NativeViewHost, View overrides:
-
-gfx::Size NativeViewHost::CalculatePreferredSize() const {
-  return preferred_size_;
-}
 
 void NativeViewHost::Layout() {
   if (!native_view_ || !native_wrapper_.get())
@@ -95,9 +116,12 @@ void NativeViewHost::Layout() {
     // view.  Also, they should be positioned respecting the border insets
     // of the native view.
     gfx::Rect local_bounds = ConvertRectToWidget(GetContentsBounds());
+    gfx::Size native_view_size =
+        native_view_size_.IsEmpty() ? local_bounds.size() : native_view_size_;
     native_wrapper_->ShowWidget(local_bounds.x(), local_bounds.y(),
-                                local_bounds.width(),
-                                local_bounds.height());
+                                local_bounds.width(), local_bounds.height(),
+                                native_view_size.width(),
+                                native_view_size.height());
   } else {
     native_wrapper_->HideWidget();
   }
@@ -160,7 +184,7 @@ void NativeViewHost::ViewHierarchyChanged(
     if (!native_wrapper_.get())
       native_wrapper_.reset(NativeViewHostWrapper::CreateWrapper(this));
     native_wrapper_->AddedToWidget();
-  } else if (!details.is_add) {
+  } else if (!details.is_add && native_wrapper_) {
     native_wrapper_->RemovedFromWidget();
   }
 }
@@ -172,7 +196,7 @@ const char* NativeViewHost::GetClassName() const {
 void NativeViewHost::OnFocus() {
   if (native_view_)
     native_wrapper_->SetFocus();
-  NotifyAccessibilityEvent(ui::AX_EVENT_FOCUS, true);
+  NotifyAccessibilityEvent(ax::mojom::Event::kFocus, true);
 }
 
 gfx::NativeViewAccessible NativeViewHost::GetNativeViewAccessible() {
@@ -188,6 +212,11 @@ gfx::NativeViewAccessible NativeViewHost::GetNativeViewAccessible() {
 
 gfx::NativeCursor NativeViewHost::GetCursor(const ui::MouseEvent& event) {
   return native_wrapper_->GetCursor(event.x(), event.y());
+}
+
+void NativeViewHost::SetVisible(bool visible) {
+  native_wrapper_->SetVisible(visible);
+  View::SetVisible(visible);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -213,7 +242,7 @@ void NativeViewHost::ClearFocus() {
 
   Widget::Widgets widgets;
   Widget::GetAllChildWidgets(native_view(), &widgets);
-  for (Widget::Widgets::iterator i = widgets.begin(); i != widgets.end(); ++i) {
+  for (auto i = widgets.begin(); i != widgets.end(); ++i) {
     focus_manager->ViewRemoved((*i)->GetRootView());
     if (!focus_manager->GetFocusedView())
       return;

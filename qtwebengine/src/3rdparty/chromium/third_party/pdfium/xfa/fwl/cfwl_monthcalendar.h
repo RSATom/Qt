@@ -15,14 +15,12 @@
 #include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fwl/cfwl_widgetproperties.h"
 
-#define FWL_ITEMSTATE_MCD_Nomal 0
 #define FWL_ITEMSTATE_MCD_Flag (1L << 0)
 #define FWL_ITEMSTATE_MCD_Selected (1L << 1)
 
 class CFWL_MessageMouse;
-class CFWL_Widget;
 
-class CFWL_MonthCalendar : public CFWL_Widget {
+class CFWL_MonthCalendar final : public CFWL_Widget {
  public:
   CFWL_MonthCalendar(const CFWL_App* app,
                      std::unique_ptr<CFWL_WidgetProperties> properties,
@@ -33,10 +31,10 @@ class CFWL_MonthCalendar : public CFWL_Widget {
   FWL_Type GetClassID() const override;
   CFX_RectF GetAutosizedWidgetRect() override;
   void Update() override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
   void OnDrawWidget(CXFA_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+                    const CFX_Matrix& matrix) override;
 
   void SetSelect(int32_t iYear, int32_t iMonth, int32_t iDay);
 
@@ -80,14 +78,14 @@ class CFWL_MonthCalendar : public CFWL_Widget {
              int32_t dayofweek,
              uint32_t dwSt,
              CFX_RectF rc,
-             CFX_WideString& wsday);
+             const WideString& wsday);
     ~DATEINFO();
 
     int32_t iDay;
     int32_t iDayOfWeek;
     uint32_t dwStates;
     CFX_RectF rect;
-    CFX_WideString wsDay;
+    WideString wsDay;
   };
 
   void DrawBackground(CXFA_Graphics* pGraphics,
@@ -141,17 +139,16 @@ class CFWL_MonthCalendar : public CFWL_Widget {
   void RemoveSelDay();
   void AddSelDay(int32_t iDay);
   void JumpToToday();
-  CFX_WideString GetHeadText(int32_t iYear, int32_t iMonth);
-  CFX_WideString GetTodayText(int32_t iYear, int32_t iMonth, int32_t iDay);
+  WideString GetHeadText(int32_t iYear, int32_t iMonth);
+  WideString GetTodayText(int32_t iYear, int32_t iMonth, int32_t iDay);
   int32_t GetDayAtPoint(const CFX_PointF& point) const;
   CFX_RectF GetDayRect(int32_t iDay);
   void OnLButtonDown(CFWL_MessageMouse* pMsg);
   void OnLButtonUp(CFWL_MessageMouse* pMsg);
-  void DisForm_OnLButtonUp(CFWL_MessageMouse* pMsg);
   void OnMouseMove(CFWL_MessageMouse* pMsg);
   void OnMouseLeave(CFWL_MessageMouse* pMsg);
 
-  bool m_bInitialized;
+  bool m_bInitialized = false;
   CFX_RectF m_rtHead;
   CFX_RectF m_rtWeek;
   CFX_RectF m_rtLBtn;
@@ -161,19 +158,17 @@ class CFWL_MonthCalendar : public CFWL_Widget {
   CFX_RectF m_rtHeadText;
   CFX_RectF m_rtToday;
   CFX_RectF m_rtTodayFlag;
-  CFX_RectF m_rtWeekNum;
-  CFX_RectF m_rtWeekNumSep;
-  CFX_WideString m_wsHead;
-  CFX_WideString m_wsToday;
+  WideString m_wsHead;
+  WideString m_wsToday;
   std::vector<std::unique_ptr<DATEINFO>> m_arrDates;
-  int32_t m_iCurYear;
-  int32_t m_iCurMonth;
-  int32_t m_iYear;
-  int32_t m_iMonth;
-  int32_t m_iDay;
-  int32_t m_iHovered;
-  int32_t m_iLBtnPartStates;
-  int32_t m_iRBtnPartStates;
+  int32_t m_iCurYear = 2011;
+  int32_t m_iCurMonth = 1;
+  int32_t m_iYear = 2011;
+  int32_t m_iMonth = 1;
+  int32_t m_iDay = 1;
+  int32_t m_iHovered = -1;
+  int32_t m_iLBtnPartStates = CFWL_PartState_Normal;
+  int32_t m_iRBtnPartStates = CFWL_PartState_Normal;
   DATE m_dtMin;
   DATE m_dtMax;
   CFX_SizeF m_szHead;
@@ -181,7 +176,6 @@ class CFWL_MonthCalendar : public CFWL_Widget {
   CFX_SizeF m_szToday;
   std::vector<int32_t> m_arrSelDays;
   CFX_RectF m_rtClient;
-  bool m_bFlag;
 };
 
 #endif  // XFA_FWL_CFWL_MONTHCALENDAR_H_

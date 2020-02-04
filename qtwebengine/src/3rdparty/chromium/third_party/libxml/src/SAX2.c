@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <stddef.h>
 #include <libxml/xmlmemory.h>
 #include <libxml/tree.h>
 #include <libxml/parser.h>
@@ -1181,6 +1182,8 @@ xmlSAX2AttributeInternal(void *ctx, const xmlChar *fullname,
 	        xmlSAX2ErrMemory(ctxt, "xmlSAX2StartElement");
 		if (name != NULL)
 		    xmlFree(name);
+                if (nval != NULL)
+                    xmlFree(nval);
 		return;
 	    }
 	} else {
@@ -1242,6 +1245,8 @@ xmlSAX2AttributeInternal(void *ctx, const xmlChar *fullname,
 	        xmlFree(ns);
 		if (name != NULL)
 		    xmlFree(name);
+                if (nval != NULL)
+                    xmlFree(nval);
 		return;
 	    }
 	} else {
@@ -1311,6 +1316,8 @@ xmlSAX2AttributeInternal(void *ctx, const xmlChar *fullname,
                                              name, namespace->href);
                         ctxt->wellFormed = 0;
                         if (ctxt->recovery == 0) ctxt->disableSAX = 1;
+                        if (name != NULL)
+                            xmlFree(name);
                         goto error;
                     }
                 }
@@ -1658,7 +1665,13 @@ xmlSAX2StartElement(void *ctx, const xmlChar *fullname, const xmlChar **atts)
 #ifdef DEBUG_SAX_TREE
     xmlGenericError(xmlGenericErrorContext, "pushing(%s)\n", name);
 #endif
-    nodePush(ctxt, ret);
+    if (nodePush(ctxt, ret) < 0) {
+        xmlUnlinkNode(ret);
+        xmlFreeNode(ret);
+        if (prefix != NULL)
+            xmlFree(prefix);
+        return;
+    }
 
     /*
      * Link the child element
@@ -1908,7 +1921,7 @@ skip:
 	    else {
 	        ret->line = 65535;
 		if (ctxt->options & XML_PARSE_BIG_LINES)
-		    ret->psvi = (void *) (long) ctxt->input->line;
+		    ret->psvi = (void *) (ptrdiff_t) ctxt->input->line;
 	    }
 	}
     }
@@ -2250,6 +2263,7 @@ xmlSAX2StartElementNs(void *ctx,
 	ctxt->freeElems = ret->next;
 	ctxt->freeElemsNr--;
 	memset(ret, 0, sizeof(xmlNode));
+        ret->doc = ctxt->myDoc;
 	ret->type = XML_ELEMENT_NODE;
 
 	if (ctxt->dictNames)
@@ -2329,7 +2343,11 @@ xmlSAX2StartElementNs(void *ctx,
     /*
      * We are parsing a new node.
      */
-    nodePush(ctxt, ret);
+    if (nodePush(ctxt, ret) < 0) {
+        xmlUnlinkNode(ret);
+        xmlFreeNode(ret);
+        return;
+    }
 
     /*
      * Link the child element

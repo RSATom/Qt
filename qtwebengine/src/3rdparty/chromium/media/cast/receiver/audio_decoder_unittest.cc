@@ -7,11 +7,12 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
 #include "base/sys_byteorder.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "media/cast/cast_config.h"
 #include "media/cast/receiver/audio_decoder.h"
 #include "media/cast/test/utility/audio_utility.h"
@@ -58,7 +59,7 @@ class AudioDecoderTest : public ::testing::TestWithParam<TestScenario> {
                                 TestAudioBusFactory::kMiddleANoteFreq,
                                 0.5f));
     last_frame_id_ = FrameId::first();
-    seen_a_decoded_frame_ = false;
+    decoded_frames_seen_ = 0;
 
     if (GetParam().codec == CODEC_AUDIO_OPUS) {
       opus_encoder_memory_.reset(
@@ -159,12 +160,12 @@ class AudioDecoderTest : public ::testing::TestWithParam<TestScenario> {
     EXPECT_EQ(should_be_continuous, is_continuous);
 
     // Does the audio data seem to be intact?  For Opus, we have to ignore the
-    // first frame seen at the start (and immediately after dropped packet
+    // first two frames seen at the start (and immediately after dropped packet
     // recovery) because it introduces a tiny, significant delay.
     bool examine_signal = true;
     if (GetParam().codec == CODEC_AUDIO_OPUS) {
-      examine_signal = seen_a_decoded_frame_ && should_be_continuous;
-      seen_a_decoded_frame_ = true;
+      ++decoded_frames_seen_;
+      examine_signal = (decoded_frames_seen_ > 2) && should_be_continuous;
     }
     if (examine_signal) {
       for (int ch = 0; ch < audio_bus->channels(); ++ch) {
@@ -187,7 +188,7 @@ class AudioDecoderTest : public ::testing::TestWithParam<TestScenario> {
   std::unique_ptr<AudioDecoder> audio_decoder_;
   std::unique_ptr<TestAudioBusFactory> audio_bus_factory_;
   FrameId last_frame_id_;
-  bool seen_a_decoded_frame_;
+  int decoded_frames_seen_;
   std::unique_ptr<uint8_t[]> opus_encoder_memory_;
 
   base::Lock lock_;
@@ -212,7 +213,7 @@ TEST_P(AudioDecoderTest, DecodesFramesWithVaryingDuration) {
   const int kFrameDurationMs[] = { 5, 10, 20, 40, 60 };
 
   const int kNumFrames = 10;
-  for (size_t i = 0; i < arraysize(kFrameDurationMs); ++i)
+  for (size_t i = 0; i < base::size(kFrameDurationMs); ++i)
     for (int j = 0; j < kNumFrames; ++j)
       FeedMoreAudio(base::TimeDelta::FromMilliseconds(kFrameDurationMs[i]), 0);
   WaitForAllAudioToBeDecoded();
@@ -237,6 +238,7 @@ TEST_P(AudioDecoderTest, RecoversFromDroppedFrames) {
   WaitForAllAudioToBeDecoded();
 }
 
+#if !defined(OS_ANDROID)  // https://crbug.com/831999
 INSTANTIATE_TEST_CASE_P(
     AudioDecoderTestScenarios,
     AudioDecoderTest,
@@ -245,6 +247,7 @@ INSTANTIATE_TEST_CASE_P(
          TestScenario(CODEC_AUDIO_PCM16, 2, 48000),
          TestScenario(CODEC_AUDIO_OPUS, 1, 8000),
          TestScenario(CODEC_AUDIO_OPUS, 2, 48000)));
+#endif
 
 }  // namespace cast
 }  // namespace media

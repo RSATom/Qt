@@ -95,7 +95,7 @@ public:
 
     EGLNativeWindowType eglWindow() const;
     EGLSurface surface() const;
-    QEglFSScreen *screen() const;
+    QEglFSScreen *screen() const override;
 
     bool hasNativeWindow() const { return m_flags.testFlag(HasNativeWindow); }
 
@@ -116,8 +116,8 @@ public:
 protected:
 #ifndef QT_NO_OPENGL
     QOpenGLCompositorBackingStore *m_backingStore;
+    QOpenGLContext *m_rasterCompositingContext;
 #endif
-    bool m_raster;
     WId m_winId;
 
     EGLSurface m_surface;

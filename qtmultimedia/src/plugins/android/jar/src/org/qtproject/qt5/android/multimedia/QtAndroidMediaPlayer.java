@@ -41,11 +41,13 @@ package org.qtproject.qt5.android.multimedia;
 
 import java.io.IOException;
 import java.lang.String;
+import java.util.HashMap;
 import java.io.FileInputStream;
 
 // API is level is < 9 unless marked otherwise.
 import android.content.Context;
 import android.media.MediaPlayer;
+import android.media.AudioAttributes;
 import android.net.Uri;
 import android.util.Log;
 import java.io.FileDescriptor;
@@ -65,6 +67,8 @@ public class QtAndroidMediaPlayer
     native public void onStateChangedNative(int state, long id);
 
     private MediaPlayer mMediaPlayer = null;
+    private AudioAttributes mAudioAttributes = null;
+    private HashMap<String, String> mHeaders = null;
     private Uri mUri = null;
     private final long mID;
     private final Context mContext;
@@ -212,6 +216,11 @@ public class QtAndroidMediaPlayer
         mContext = context;
     }
 
+    public MediaPlayer getMediaPlayerHandle()
+    {
+        return mMediaPlayer;
+    }
+
     private void setState(int state)
     {
         if (mState == state)
@@ -230,6 +239,7 @@ public class QtAndroidMediaPlayer
             setState(State.Idle);
             // Make sure the new media player has the volume that was set on the QMediaPlayer
             setVolumeHelper(mMuted ? 0 : mVolume);
+            setAudioAttributes(mMediaPlayer, mAudioAttributes);
         }
     }
 
@@ -336,6 +346,16 @@ public class QtAndroidMediaPlayer
         }
     }
 
+    public void initHeaders()
+    {
+        mHeaders = new HashMap<String, String>();
+    }
+
+    public void setHeader(final String header, final String value)
+    {
+        mHeaders.put(header, value);
+    }
+
     public void setDataSource(final String path)
     {
         if ((mState & State.Uninitialized) != 0)
@@ -373,7 +393,10 @@ public class QtAndroidMediaPlayer
                 FileDescriptor fd = fis.getFD();
                 mMediaPlayer.setDataSource(fd);
             } else {
-                mMediaPlayer.setDataSource(mContext, mUri);
+                if (mHeaders.isEmpty())
+                    mMediaPlayer.setDataSource(path);
+                else
+                    mMediaPlayer.setDataSource(mContext, mUri, mHeaders);
             }
             setState(State.Initialized);
         } catch (final IOException e) {
@@ -541,5 +564,27 @@ public class QtAndroidMediaPlayer
         }
 
         setState(State.Uninitialized);
+    }
+
+    public void setAudioAttributes(int type, int usage)
+    {
+        mAudioAttributes = new AudioAttributes.Builder()
+            .setUsage(usage)
+            .setContentType(type)
+            .build();
+
+        setAudioAttributes(mMediaPlayer, mAudioAttributes);
+    }
+
+    static private void setAudioAttributes(MediaPlayer player, AudioAttributes attr)
+    {
+        if (player == null || attr == null)
+            return;
+
+        try {
+            player.setAudioAttributes(attr);
+        } catch (final IllegalArgumentException e) {
+            Log.d(TAG, "" + e.getMessage());
+        }
     }
 }

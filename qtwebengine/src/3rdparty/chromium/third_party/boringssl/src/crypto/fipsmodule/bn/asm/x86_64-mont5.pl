@@ -1,4 +1,11 @@
-#!/usr/bin/env perl
+#! /usr/bin/env perl
+# Copyright 2011-2016 The OpenSSL Project Authors. All Rights Reserved.
+#
+# Licensed under the OpenSSL license (the "License").  You may not use
+# this file except in compliance with the License.  You can obtain a copy
+# in the file LICENSE in the source distribution or at
+# https://www.openssl.org/source/license.html
+
 
 # ====================================================================
 # Written by Andy Polyakov <appro@openssl.org> for the OpenSSL
@@ -41,9 +48,7 @@ open OUT,"| \"$^X\" \"$xlate\" $flavour \"$output\"";
 # In upstream, this is controlled by shelling out to the compiler to check
 # versions, but BoringSSL is intended to be used with pre-generated perlasm
 # output, so this isn't useful anyway.
-#
-# TODO(davidben): Enable this after testing. $addx goes up to 1.
-$addx = 0;
+$addx = 1;
 
 # int bn_mul_mont_gather5(
 $rp="%rdi";	# BN_ULONG *rp,
@@ -396,27 +401,27 @@ $code.=<<___;
 	mov	$num,$j			# j=num
 	jmp	.Lsub
 .align	16
-.Lsub:
-	sbb	($np,$i,8),%rax
+.Lsub:	sbb	($np,$i,8),%rax
 	mov	%rax,($rp,$i,8)		# rp[i]=tp[i]-np[i]
 	mov	8($ap,$i,8),%rax	# tp[i+1]
 	lea	1($i),$i		# i++
-	dec	$j			# doesnn't affect CF!
+	dec	$j			# doesn't affect CF!
 	jnz	.Lsub
 
 	sbb	\$0,%rax		# handle upmost overflow bit
+	mov	\$-1,%rbx
+	xor	%rax,%rbx
 	xor	$i,$i
-	and	%rax,$ap
-	not	%rax
-	mov	$rp,$np
-	and	%rax,$np
 	mov	$num,$j			# j=num
-	or	$np,$ap			# ap=borrow?tp:rp
-.align	16
-.Lcopy:					# copy or in-place refresh
-	mov	($ap,$i,8),%rax
+
+.Lcopy:					# conditional copy
+	mov	($rp,$i,8),%rcx
+	mov	(%rsp,$i,8),%rdx
+	and	%rbx,%rcx
+	and	%rax,%rdx
 	mov	$i,(%rsp,$i,8)		# zap temporary vector
-	mov	%rax,($rp,$i,8)		# rp[i]=tp[i]
+	or	%rcx,%rdx
+	mov	%rdx,($rp,$i,8)		# rp[i]=tp[i]
 	lea	1($i),$i
 	sub	\$1,$j
 	jnz	.Lcopy
@@ -1063,7 +1068,7 @@ ___
 # void bn_power5(
 my $rptr="%rdi";	# BN_ULONG *rptr,
 my $aptr="%rsi";	# const BN_ULONG *aptr,
-my $bptr="%rdx";	# const void *table,
+my $bptr="%rdx";	# const BN_ULONG *table,
 my $nptr="%rcx";	# const BN_ULONG *nptr,
 my $n0  ="%r8";		# const BN_ULONG *n0);
 my $num ="%r9";		# int num, has to be divisible by 8
@@ -2405,7 +2410,7 @@ my $N=$STRIDE/4;		# should match cache line size
 $code.=<<___;
 	movdqa	0(%rax),%xmm0		# 00000001000000010000000000000000
 	movdqa	16(%rax),%xmm1		# 00000002000000020000000200000002
-	lea	88-112(%rsp,%r10),%r10	# place the mask after tp[num+1] (+ICache optimizaton)
+	lea	88-112(%rsp,%r10),%r10	# place the mask after tp[num+1] (+ICache optimization)
 	lea	128($bp),$bptr		# size optimization
 
 	pshufd	\$0,%xmm5,%xmm5		# broadcast index
@@ -2740,7 +2745,7 @@ ___
 # void bn_power5(
 my $rptr="%rdi";	# BN_ULONG *rptr,
 my $aptr="%rsi";	# const BN_ULONG *aptr,
-my $bptr="%rdx";	# const void *table,
+my $bptr="%rdx";	# const BN_ULONG *table,
 my $nptr="%rcx";	# const BN_ULONG *nptr,
 my $n0  ="%r8";		# const BN_ULONG *n0);
 my $num ="%r9";		# int num, has to be divisible by 8
@@ -3190,11 +3195,19 @@ $code.=<<___;
 
 .align	32
 .Lsqrx8x_break:
-	sub	16+8(%rsp),%r8		# consume last carry
+	xor	$zero,$zero
+	sub	16+8(%rsp),%rbx		# mov 16(%rsp),%cf
+	adcx	$zero,%r8
 	mov	24+8(%rsp),$carry	# initial $tptr, borrow $carry
+	adcx	$zero,%r9
 	mov	0*8($aptr),%rdx		# a[8], modulo-scheduled
-	xor	%ebp,%ebp		# xor	$zero,$zero
+	adc	\$0,%r10
 	mov	%r8,0*8($tptr)
+	adc	\$0,%r11
+	adc	\$0,%r12
+	adc	\$0,%r13
+	adc	\$0,%r14
+	adc	\$0,%r15
 	cmp	$carry,$tptr		# cf=0, of=0
 	je	.Lsqrx8x_outer_loop
 

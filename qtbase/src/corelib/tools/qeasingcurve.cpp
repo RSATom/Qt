@@ -72,24 +72,15 @@
     curve is a linear curve. This is the default behaviour.
 
     For example,
-    \code
-    QEasingCurve easing(QEasingCurve::InOutQuad);
 
-    for(qreal t = 0.0; t < 1.0; t+=0.1)
-        qWarning() << "Effective progress" << t << " is
-                   << easing.valueForProgress(t);
-    \endcode
+    \snippet code/src_corelib_tools_qeasingcurve.cpp 0
+
     will print the effective progress of the interpolation between 0 and 1.
 
     When using a QPropertyAnimation, the associated easing curve will be used to control the
     progress of the interpolation between startValue and endValue:
-    \code
-    QPropertyAnimation animation;
-    animation.setStartValue(0);
-    animation.setEndValue(1000);
-    animation.setDuration(1000);
-    animation.setEasingCurve(QEasingCurve::InOutQuad);
-    \endcode
+
+    \snippet code/src_corelib_tools_qeasingcurve.cpp 1
 
     The ability to set an amplitude, overshoot, or period depends on
     the QEasingCurve type. Amplitude access is available to curves
@@ -301,7 +292,7 @@
     This is a typedef for a pointer to a function with the following
     signature:
 
-    \snippet code/src_corelib_tools_qeasingcurve.cpp 0
+    \snippet code/src_corelib_tools_qeasingcurve.cpp typedef
 */
 
 #include "qeasingcurve.h"
@@ -496,7 +487,7 @@ struct BezierEase : public QEasingCurveFunction
         }
     }
 
-    QEasingCurveFunction *copy() const Q_DECL_OVERRIDE
+    QEasingCurveFunction *copy() const override
     {
         BezierEase *rv = new BezierEase();
         rv->_t = _t;
@@ -532,7 +523,7 @@ struct BezierEase : public QEasingCurveFunction
         return newT;
     }
 
-    qreal value(qreal x) Q_DECL_OVERRIDE
+    qreal value(qreal x) override
     {
         Q_ASSERT(_bezierCurves.count() % 3 == 0);
 
@@ -797,27 +788,60 @@ struct BezierEase : public QEasingCurveFunction
         return t3;
     }
 
-     qreal static inline findTForX(const SingleCubicBezier &singleCubicBezier, qreal x)
-     {
-         const qreal p0 = singleCubicBezier.p0x;
-         const qreal p1 = singleCubicBezier.p1x;
-         const qreal p2 = singleCubicBezier.p2x;
-         const qreal p3 = singleCubicBezier.p3x;
+    bool static inline almostZero(qreal value)
+    {
+        // 1e-3 might seem excessively fuzzy, but any smaller value will make the
+        // factors a, b, and c large enough to knock out the cubic solver.
+        return value > -1e-3 && value < 1e-3;
+    }
 
-         const qreal factorT3 = p3 - p0 + 3 * p1 - 3 * p2;
-         const qreal factorT2 = 3 * p0 - 6 * p1 + 3 * p2;
-         const qreal factorT1 = -3 * p0 + 3 * p1;
-         const qreal factorT0 = p0 - x;
+    qreal static inline findTForX(const SingleCubicBezier &singleCubicBezier, qreal x)
+    {
+        const qreal p0 = singleCubicBezier.p0x;
+        const qreal p1 = singleCubicBezier.p1x;
+        const qreal p2 = singleCubicBezier.p2x;
+        const qreal p3 = singleCubicBezier.p3x;
 
-         const qreal a = factorT2 / factorT3;
-         const qreal b = factorT1 / factorT3;
-         const qreal c = factorT0 / factorT3;
+        const qreal factorT3 = p3 - p0 + 3 * p1 - 3 * p2;
+        const qreal factorT2 = 3 * p0 - 6 * p1 + 3 * p2;
+        const qreal factorT1 = -3 * p0 + 3 * p1;
+        const qreal factorT0 = p0 - x;
 
-         return singleRealSolutionForCubic(a, b, c);
+        // Cases for quadratic, linear and invalid equations
+        if (almostZero(factorT3)) {
+            if (almostZero(factorT2)) {
+                if (almostZero(factorT1))
+                    return 0.0;
 
-         //one new iteration to increase numeric stability
-         //return newtonIteration(singleCubicBezier, t, x);
-     }
+                return -factorT0 / factorT1;
+            }
+            const qreal discriminant = factorT1 * factorT1 - 4.0 * factorT2 * factorT0;
+            if (discriminant < 0.0)
+                return 0.0;
+
+            if (discriminant == 0.0)
+                return -factorT1 / (2.0 * factorT2);
+
+            const qreal solution1 = (-factorT1 + std::sqrt(discriminant)) / (2.0 * factorT2);
+            if (solution1 >= 0.0 && solution1 <= 1.0)
+                return solution1;
+
+            const qreal solution2 = (-factorT1 - std::sqrt(discriminant)) / (2.0 * factorT2);
+            if (solution2 >= 0.0 && solution2 <= 1.0)
+                return solution2;
+
+            return 0.0;
+        }
+
+        const qreal a = factorT2 / factorT3;
+        const qreal b = factorT1 / factorT3;
+        const qreal c = factorT0 / factorT3;
+
+        return singleRealSolutionForCubic(a, b, c);
+
+        //one new iteration to increase numeric stability
+        //return newtonIteration(singleCubicBezier, t, x);
+    }
 };
 
 struct TCBEase : public BezierEase
@@ -826,7 +850,7 @@ struct TCBEase : public BezierEase
         : BezierEase(QEasingCurve::TCBSpline)
     { }
 
-    qreal value(qreal x) Q_DECL_OVERRIDE
+    qreal value(qreal x) override
     {
         Q_ASSERT(_bezierCurves.count() % 3 == 0);
 
@@ -846,7 +870,7 @@ struct ElasticEase : public QEasingCurveFunction
         : QEasingCurveFunction(type, qreal(0.3), qreal(1.0))
     { }
 
-    QEasingCurveFunction *copy() const Q_DECL_OVERRIDE
+    QEasingCurveFunction *copy() const override
     {
         ElasticEase *rv = new ElasticEase(_t);
         rv->_p = _p;
@@ -856,7 +880,7 @@ struct ElasticEase : public QEasingCurveFunction
         return rv;
     }
 
-    qreal value(qreal t) Q_DECL_OVERRIDE
+    qreal value(qreal t) override
     {
         qreal p = (_p < 0) ? qreal(0.3) : _p;
         qreal a = (_a < 0) ? qreal(1.0) : _a;
@@ -881,7 +905,7 @@ struct BounceEase : public QEasingCurveFunction
         : QEasingCurveFunction(type, qreal(0.3), qreal(1.0))
     { }
 
-    QEasingCurveFunction *copy() const Q_DECL_OVERRIDE
+    QEasingCurveFunction *copy() const override
     {
         BounceEase *rv = new BounceEase(_t);
         rv->_a = _a;
@@ -890,7 +914,7 @@ struct BounceEase : public QEasingCurveFunction
         return rv;
     }
 
-    qreal value(qreal t) Q_DECL_OVERRIDE
+    qreal value(qreal t) override
     {
         qreal a = (_a < 0) ? qreal(1.0) : _a;
         switch(_t) {
@@ -914,7 +938,7 @@ struct BackEase : public QEasingCurveFunction
         : QEasingCurveFunction(type, qreal(0.3), qreal(1.0), qreal(1.70158))
     { }
 
-    QEasingCurveFunction *copy() const Q_DECL_OVERRIDE
+    QEasingCurveFunction *copy() const override
     {
         BackEase *rv = new BackEase(_t);
         rv->_o = _o;
@@ -923,7 +947,7 @@ struct BackEase : public QEasingCurveFunction
         return rv;
     }
 
-    qreal value(qreal t) Q_DECL_OVERRIDE
+    qreal value(qreal t) override
     {
         qreal o = (_o < 0) ? qreal(1.70158) : _o;
         switch(_t) {
@@ -1488,7 +1512,7 @@ QDataStream &operator>>(QDataStream &stream, QEasingCurve &easing)
     bool hasConfig;
     stream >> hasConfig;
     delete easing.d_ptr->config;
-    easing.d_ptr->config = Q_NULLPTR;
+    easing.d_ptr->config = nullptr;
     if (hasConfig) {
         QEasingCurveFunction *config = curveToFunctionObject(type);
         stream >> config->_p;

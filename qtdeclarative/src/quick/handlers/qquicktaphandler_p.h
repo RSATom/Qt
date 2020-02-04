@@ -58,7 +58,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class Q_AUTOTEST_EXPORT QQuickTapHandler : public QQuickSinglePointHandler
+class Q_QUICK_PRIVATE_EXPORT QQuickTapHandler : public QQuickSinglePointHandler
 {
     Q_OBJECT
     Q_PROPERTY(bool pressed READ isPressed NOTIFY pressedChanged)
@@ -75,8 +75,7 @@ public:
     };
     Q_ENUM(GesturePolicy)
 
-    explicit QQuickTapHandler(QObject *parent = 0);
-    ~QQuickTapHandler();
+    explicit QQuickTapHandler(QQuickItem *parent = nullptr);
 
     bool isPressed() const { return m_pressed; }
 
@@ -95,11 +94,13 @@ Q_SIGNALS:
     void timeHeldChanged();
     void longPressThresholdChanged();
     void gesturePolicyChanged();
-    void tapped();
+    void tapped(QQuickEventPoint *eventPoint);
+    void singleTapped(QQuickEventPoint *eventPoint);
+    void doubleTapped(QQuickEventPoint *eventPoint);
     void longPressed();
 
 protected:
-    void onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabState stateChange, QQuickEventPoint *point) override;
+    void onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *point) override;
     void timerEvent(QTimerEvent *event) override;
     bool wantsEventPoint(QQuickEventPoint *point) override;
     void handleEventPoint(QQuickEventPoint *point) override;
@@ -111,14 +112,14 @@ private:
     void updateTimeHeld();
 
 private:
-    bool m_pressed;
-    GesturePolicy m_gesturePolicy;
-    int m_tapCount;
-    int m_longPressThreshold;
-    QBasicTimer m_longPressTimer;
-    QElapsedTimer m_holdTimer;
     QPointF m_lastTapPos;
-    qreal m_lastTapTimestamp;
+    qreal m_lastTapTimestamp = 0;
+    QElapsedTimer m_holdTimer;
+    QBasicTimer m_longPressTimer;
+    int m_tapCount = 0;
+    int m_longPressThreshold = -1;
+    GesturePolicy m_gesturePolicy = GesturePolicy::DragThreshold;
+    bool m_pressed = false;
 
     static qreal m_multiTapInterval;
     static int m_mouseMultiClickDistanceSquared;

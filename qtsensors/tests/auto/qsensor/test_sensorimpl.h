@@ -41,8 +41,8 @@ public:
     testsensorimpl(QSensor *sensor);
     ~testsensorimpl();
 
-    void start();
-    void stop();
+    void start() override;
+    void stop() override;
     bool isFeatureSupported(QSensor::Feature feature) const override;
 
 signals:

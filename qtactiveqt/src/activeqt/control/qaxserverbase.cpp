@@ -66,7 +66,7 @@
 #include <qmenu.h>
 #include <qmetaobject.h>
 #include <qpixmap.h>
-#include <qregexp.h>
+#include <qregularexpression.h>
 #include <qstatusbar.h>
 #include <qwhatsthis.h>
 #include <ocidl.h>
@@ -151,7 +151,7 @@ class QAxServerBase :
 #if defined Q_CC_GNU
 #   if (__W32API_MAJOR_VERSION < 2 || (__W32API_MAJOR_VERSION == 2 && __W32API_MINOR_VERSION < 5))
     public IViewObject, // this should not be needed as IViewObject2 is meant to inherit from this,
-                        // untill the mingw headers are fixed this will need to stay.
+                        // until the mingw headers are fixed this will need to stay.
 #   endif
 #endif
     public IViewObject2,
@@ -175,7 +175,7 @@ public:
 
     void init();
 
-    ~QAxServerBase();
+    ~QAxServerBase() override;
 
 // Window creation
     HWND create(HWND hWndParent, RECT& rcPos);
@@ -190,14 +190,14 @@ public:
     void revokeActiveObject();
 
 // IUnknown
-    unsigned long WINAPI AddRef()
+    unsigned long WINAPI AddRef() override
     {
         if (m_outerUnknown)
             return m_outerUnknown->AddRef();
 
         return InterlockedIncrement(&ref);
     }
-    unsigned long WINAPI Release()
+    unsigned long WINAPI Release() override
     {
         if (m_outerUnknown)
             return m_outerUnknown->Release();
@@ -208,28 +208,28 @@ public:
 
         return refCount;
     }
-    HRESULT WINAPI QueryInterface(REFIID iid, void **iface);
+    HRESULT WINAPI QueryInterface(REFIID iid, void **iface) override;
     HRESULT InternalQueryInterface(REFIID iid, void **iface);
 
 // IAxServerBase
-    IUnknown *clientSite() const
+    IUnknown *clientSite() const override
     {
         return m_spClientSite;
     }
 
-    void emitPropertyChanged(const char*);
-    bool emitRequestPropertyChange(const char*);
-    QObject *qObject() const
+    void emitPropertyChanged(const char *) override;
+    bool emitRequestPropertyChange(const char *) override;
+    QObject *qObject() const override
     {
         return theObject;
     }
     void ensureMetaData();
     bool isPropertyExposed(int index);
 
-    void reportError(int code, const QString &src, const QString &desc, const QString &context)
+    void reportError(int code, const QString &src, const QString &desc,
+                     const QString &context) override
     {
-        if (exception)
-            delete exception;
+        delete exception;
         exception = new QAxExceptInfo(code, src, desc, context);
     }
 
@@ -355,9 +355,9 @@ public:
     STDMETHOD(EnumDAdvise)(IEnumSTATDATA **ppenumAdvise);
 
 // QObject
-    int qt_metacall(QMetaObject::Call, int index, void **argv);
+    int qt_metacall(QMetaObject::Call, int index, void **argv) override;
 
-    bool eventFilter(QObject *o, QEvent *e);
+    bool eventFilter(QObject *o, QEvent *e) override;
 
     RECT rcPosRect() const
     {
@@ -448,6 +448,7 @@ static inline QAxServerBase *axServerBaseFromWindow(HWND hWnd)
 
 class QAxServerAggregate : public IUnknown
 {
+    Q_DISABLE_COPY(QAxServerAggregate)
 public:
     QAxServerAggregate(const QString &className, IUnknown *outerUnknown)
         : ref(0)
@@ -467,11 +468,11 @@ public:
     }
 
 // IUnknown
-    unsigned long WINAPI AddRef()
+    unsigned long WINAPI AddRef() override
     {
         return InterlockedIncrement(&ref);
     }
-    unsigned long WINAPI Release()
+    unsigned long WINAPI Release() override
     {
         LONG refCount = InterlockedDecrement(&ref);
         if (!refCount)
@@ -479,7 +480,7 @@ public:
 
         return refCount;
     }
-    HRESULT WINAPI QueryInterface(REFIID iid, void **iface)
+    HRESULT WINAPI QueryInterface(REFIID iid, void **iface) override
     {
         *iface = 0;
 
@@ -518,6 +519,10 @@ bool QAxFactory::createObjectWrapper(QObject *object, IDispatch **wrapper)
 class QAxSignalVec : public IEnumConnectionPoints
 {
 public:
+    QAxSignalVec &operator=(const QAxSignalVec &) = delete;
+    QAxSignalVec &operator=(QAxSignalVec &&) = delete;
+    QAxSignalVec(QAxSignalVec &&) = delete;
+
     QAxSignalVec(const QAxServerBase::ConnectionPoints &points)
         : cpoints(points.values())
         , current(0)
@@ -638,6 +643,10 @@ class QAxConnection : public IConnectionPoint,
                       public IEnumConnections
 {
 public:
+    QAxConnection &operator=(const QAxConnection &) = delete;
+    QAxConnection(QAxConnection &&) = delete;
+    QAxConnection &operator=(QAxConnection &&) = delete;
+
     typedef QList<CONNECTDATA> Connections;
     typedef QList<CONNECTDATA>::Iterator Iterator;
 
@@ -662,11 +671,11 @@ public:
         DeleteCriticalSection(&refCountSection);
     }
 
-    unsigned long __stdcall AddRef()
+    unsigned long __stdcall AddRef() override
     {
         return InterlockedIncrement(&ref);
     }
-    unsigned long __stdcall Release()
+    unsigned long __stdcall Release() override
     {
         LONG refCount = InterlockedDecrement(&ref);
         if (!refCount)
@@ -693,6 +702,8 @@ public:
     }
     STDMETHOD(GetConnectionInterface)(IID *pIID)
     {
+        if (!pIID)
+            return E_POINTER;
         *pIID = iid;
         return S_OK;
     }
@@ -816,7 +827,7 @@ LRESULT QT_WIN_CALLBACK axs_FilterProc(int nCode, WPARAM wParam, LPARAM lParam)
 class QAxWinEventFilter : public QAbstractNativeEventFilter
 {
 public:
-    bool nativeEventFilter(const QByteArray &, void *message, long *) Q_DECL_OVERRIDE;
+    bool nativeEventFilter(const QByteArray &, void *message, long *) override;
 };
 
 bool QAxWinEventFilter::nativeEventFilter(const QByteArray &, void *message, long *)
@@ -1040,7 +1051,7 @@ HRESULT GetClassObject(REFIID clsid, REFIID iid, void **ppUnk)
 }
 
 
-/*!
+/*! \internal
     Constructs a QAxServerBase object wrapping the QWidget \a
     classname into an ActiveX control.
 
@@ -1058,7 +1069,7 @@ QAxServerBase::QAxServerBase(const QString &classname, IUnknown *outerUnknown)
     internalCreate();
 }
 
-/*!
+/*! \internal
     Constructs a QAxServerBase object wrapping \a o.
 */
 QAxServerBase::QAxServerBase(QObject *o)
@@ -1082,7 +1093,7 @@ QAxServerBase::QAxServerBase(QObject *o)
     internalConnect();
 }
 
-/*!
+/*! \internal
     Initializes data members.
 */
 void QAxServerBase::init()
@@ -1124,7 +1135,7 @@ void QAxServerBase::init()
     points[IID_IPropertyNotifySink] = new QAxConnection(this, IID_IPropertyNotifySink);
 }
 
-/*!
+/*! \internal
     Destroys the QAxServerBase object, releasing all allocated
     resources and interfaces.
 */
@@ -1176,7 +1187,7 @@ QAxServerBase::~QAxServerBase()
     qAxUnlock();
 }
 
-/*
+/*  \internal
     Registering with OLE
 */
 void QAxServerBase::registerActiveObject(IUnknown *object)
@@ -1198,7 +1209,7 @@ void QAxServerBase::revokeActiveObject()
     ole_ref = 0;
 }
 
-/*
+/* \internal
     QueryInterface implementation.
 */
 HRESULT WINAPI QAxServerBase::QueryInterface(REFIID iid, void **iface)
@@ -1275,7 +1286,7 @@ HRESULT QAxServerBase::InternalQueryInterface(REFIID iid, void **iface)
     return S_OK;
 }
 
-/*!
+/*! \internal
     Detects and initilaizes implementation of QAxBindable in objects.
 */
 void QAxServerBase::internalBind()
@@ -1293,7 +1304,7 @@ void QAxServerBase::internalBind()
     }
 }
 
-/*!
+/*! \internal
     Connects object signals to event dispatcher.
 */
 void QAxServerBase::internalConnect()
@@ -1312,7 +1323,7 @@ void QAxServerBase::internalConnect()
     }
 }
 
-/*!
+/*! \internal
     Creates the QWidget for the classname passed to the c'tor.
 
     All signals of the widget class are connected to the internal event mapper.
@@ -1598,7 +1609,7 @@ LRESULT QT_WIN_CALLBACK QAxServerBase::ActiveXProc(HWND hWnd, UINT uMsg, WPARAM 
     return ::DefWindowProc(hWnd, uMsg, wParam, lParam);
 }
 
-/*!
+/*! \internal
     Creates the window hosting the QWidget.
 */
 HWND QAxServerBase::create(HWND hWndParent, RECT& rcPos)
@@ -1635,11 +1646,24 @@ HWND QAxServerBase::create(HWND hWndParent, RECT& rcPos)
     }
 
     Q_ASSERT(!m_hWnd);
+    // will fail if parent window belongs to a higher integrity level process
     HWND hWnd = ::CreateWindow(reinterpret_cast<const wchar_t *>(cn.utf16()), 0,
                                WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                                rcPos.left, rcPos.top, rcPos.right - rcPos.left,
                                rcPos.bottom - rcPos.top, hWndParent, 0, hInst, this);
     // m_hWnd is assigned in reponse to WM_CREATE
+    if (!hWnd) {
+        DWORD err = GetLastError();
+        if (err == ERROR_ACCESS_DENIED) {
+            // retry without parent window
+            // the window will now need to be re-parented in the container process
+            hWnd = ::CreateWindow(reinterpret_cast<const wchar_t *>(cn.utf16()), 0,
+                                  WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+                                  rcPos.left, rcPos.top, rcPos.right - rcPos.left,
+                                  rcPos.bottom - rcPos.top, nullptr, 0, hInst, this);
+        }
+    }
+
     if (!hWnd) {
         qErrnoWarning("%s: CreateWindow() failed", __FUNCTION__);
         return nullptr;
@@ -1653,7 +1677,7 @@ HWND QAxServerBase::create(HWND hWndParent, RECT& rcPos)
     return hWnd;
 }
 
-/*
+/* \internal
     Recoursively creates Win32 submenus.
 */
 HMENU QAxServerBase::createPopup(QMenu *popup, HMENU oldMenu)
@@ -1696,7 +1720,7 @@ HMENU QAxServerBase::createPopup(QMenu *popup, HMENU oldMenu)
     return popupMenu;
 }
 
-/*!
+/*! \internal
     Creates a Win32 menubar.
 */
 void QAxServerBase::createMenu(QMenuBar *menuBar)
@@ -1757,7 +1781,7 @@ void QAxServerBase::createMenu(QMenuBar *menuBar)
     }
 }
 
-/*!
+/*! \internal
     Remove the Win32 menubar.
 */
 void QAxServerBase::removeMenu()
@@ -1777,7 +1801,7 @@ void QAxServerBase::removeMenu()
 extern bool ignoreSlots(const char *test);
 extern bool ignoreProps(const char *test);
 
-/*!
+/*! \internal
     Makes sure the type info is loaded
 */
 void QAxServerBase::ensureMetaData()
@@ -1837,7 +1861,7 @@ void QAxServerBase::update()
     }
 }
 
-/*!
+/*! \internal
     Resizes the control, faking a QResizeEvent if required
 */
 void QAxServerBase::resize(const QSize &size)
@@ -1927,7 +1951,7 @@ static inline QByteArray paramType(const QByteArray &ptype, bool *out)
     return ptype;
 }
 
-/*!
+/*! \internal
     Catches all signals emitted by the Qt widget and fires the respective COM event.
 
     \a isignal is the Qt Meta Object index of the received signal, and \a _o the
@@ -2121,7 +2145,7 @@ int QAxServerBase::qt_metacall(QMetaObject::Call call, int index, void **argv)
     return true;
 }
 
-/*!
+/*! \internal
     Call IPropertyNotifySink of connected clients.
     \a dispId specifies the ID of the property that changed.
 */
@@ -2169,7 +2193,7 @@ bool QAxServerBase::emitRequestPropertyChange(const char *property)
     return true;
 }
 
-/*!
+/*! \internal
     Call IPropertyNotifySink of connected clients.
     \a dispId specifies the ID of the property that changed.
 */
@@ -2370,9 +2394,9 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                 else
                     res = S_OK;
                 break;
-            } else if (wFlags == DISPATCH_PROPERTYGET) {
-                break;
             }
+            if (wFlags == DISPATCH_PROPERTYGET)
+                break;
         }
         Q_FALLTHROUGH(); // Fall through if wFlags == DISPATCH_PROPERTYGET|DISPATCH_METHOD AND not a property.
     case DISPATCH_METHOD:
@@ -2395,11 +2419,13 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                     }
                     // resolve overloads
                     if (index == -1) {
-                        QRegExp regexp(QLatin1String("_([0-9])\\("));
-                        if (regexp.lastIndexIn(QString::fromLatin1(name.constData())) != -1) {
-                            name.chop(regexp.cap(0).length());
+                        QRegularExpression regexp(QLatin1String("_([0-9])\\("));
+                        QRegularExpressionMatch rmatch;
+                        QString::fromLatin1(name.constData()).lastIndexOf(regexp, -1, &rmatch);
+                        if (rmatch.hasMatch()) {
+                            name.chop(rmatch.capturedLength(0));
                             name += '(';
-                            int overload = regexp.cap(1).toInt() + 1;
+                            int overload = rmatch.capturedRef(1).toInt() + 1;
 
                             for (int s = 0; s < qt.object->metaObject()->methodCount(); ++s) {
                                 QMetaMethod slot = qt.object->metaObject()->method(s);
@@ -2519,7 +2545,7 @@ HRESULT WINAPI QAxServerBase::Invoke(DISPID dispidMember, REFIID riid,
                         vt = QVariant::Int;
                     varp[0] = QVariant(vt);
                     if (varp[0].type() == QVariant::Invalid)
-                        argv[0] = Q_NULLPTR;
+                        argv[0] = nullptr;
                     else
                         argv[0] = const_cast<void*>(varp[0].constData());
                 }
@@ -3066,7 +3092,7 @@ HRESULT WINAPI QAxServerBase::Load(LPCOLESTR fileName, DWORD /* mode */)
     QString mimeType = QLatin1String(mo->classInfo(mimeIndex).value());
     QStringList mimeTypes = mimeType.split(QLatin1Char(';'));
     for (int m = 0; m < mimeTypes.count(); ++m) {
-        QString mime = mimeTypes.at(m);
+        const QString &mime = mimeTypes.at(m);
         if (mime.count(QLatin1Char(':')) != 2) {
             qWarning() << class_name << ": Invalid syntax in Q_CLASSINFO for MIME";
             continue;
@@ -3111,7 +3137,7 @@ HRESULT WINAPI QAxServerBase::Save(LPCOLESTR fileName, BOOL fRemember)
     QString mimeType = QLatin1String(mo->classInfo(mimeIndex).value());
     QStringList mimeTypes = mimeType.split(QLatin1Char(';'));
     for (int m = 0; m < mimeTypes.count(); ++m) {
-        QString mime = mimeTypes.at(m);
+        const QString &mime = mimeTypes.at(m);
         if (mime.count(QLatin1Char(':')) != 2) {
             qWarning() << class_name << ": Invalid syntax in Q_CLASSINFO for MIME";
             continue;
@@ -3564,7 +3590,7 @@ HRESULT WINAPI QAxServerBase::TranslateAcceleratorW(MSG *pMsg)
                     }
                 } else {
                     QWidget *nextFocus = curFocus;
-                    while (1) {
+                    while (true) {
                         nextFocus = nextFocus->nextInFocusChain();
                         if (nextFocus->isWindow())
                             break;

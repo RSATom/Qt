@@ -53,8 +53,8 @@ static int next_qopengltextureglyphcache_serial_number()
     return 1 + serial.fetchAndAddRelaxed(1);
 }
 
-QOpenGLTextureGlyphCache::QOpenGLTextureGlyphCache(QFontEngine::GlyphFormat format, const QTransform &matrix)
-    : QImageTextureGlyphCache(format, matrix)
+QOpenGLTextureGlyphCache::QOpenGLTextureGlyphCache(QFontEngine::GlyphFormat format, const QTransform &matrix, const QColor &color)
+    : QImageTextureGlyphCache(format, matrix, color)
     , m_textureResource(0)
     , pex(0)
     , m_blitProgram(0)
@@ -344,15 +344,25 @@ void QOpenGLTextureGlyphCache::resizeTextureData(int width, int height)
 
             {
                 QString source;
+#ifdef Q_OS_WASM
+                source.append(QLatin1String(isCoreProfile ? qopenglslUntransformedPositionVertexShader_core : qopenglslUntransformedPositionVertexShader));
+                source.append(QLatin1String(isCoreProfile ? qopenglslMainWithTexCoordsVertexShader_core : qopenglslMainWithTexCoordsVertexShader));
+#else
                 source.append(QLatin1String(isCoreProfile ? qopenglslMainWithTexCoordsVertexShader_core : qopenglslMainWithTexCoordsVertexShader));
                 source.append(QLatin1String(isCoreProfile ? qopenglslUntransformedPositionVertexShader_core : qopenglslUntransformedPositionVertexShader));
+#endif
                 m_blitProgram->addCacheableShaderFromSourceCode(QOpenGLShader::Vertex, source);
             }
 
             {
                 QString source;
+#ifdef Q_OS_WASM
+                source.append(QLatin1String(isCoreProfile ? qopenglslImageSrcFragmentShader_core : qopenglslImageSrcFragmentShader));
+                source.append(QLatin1String(isCoreProfile ? qopenglslMainFragmentShader_core : qopenglslMainFragmentShader));
+#else
                 source.append(QLatin1String(isCoreProfile ? qopenglslMainFragmentShader_core : qopenglslMainFragmentShader));
                 source.append(QLatin1String(isCoreProfile ? qopenglslImageSrcFragmentShader_core : qopenglslImageSrcFragmentShader));
+#endif
                 m_blitProgram->addCacheableShaderFromSourceCode(QOpenGLShader::Fragment, source);
             }
 

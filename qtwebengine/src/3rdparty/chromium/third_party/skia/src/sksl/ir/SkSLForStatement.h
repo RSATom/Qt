@@ -18,15 +18,21 @@ namespace SkSL {
  * A 'for' statement.
  */
 struct ForStatement : public Statement {
-    ForStatement(Position position, std::unique_ptr<Statement> initializer,
+    ForStatement(int offset, std::unique_ptr<Statement> initializer,
                  std::unique_ptr<Expression> test, std::unique_ptr<Expression> next,
                  std::unique_ptr<Statement> statement, std::shared_ptr<SymbolTable> symbols)
-    : INHERITED(position, kFor_Kind)
+    : INHERITED(offset, kFor_Kind)
     , fSymbols(symbols)
     , fInitializer(std::move(initializer))
     , fTest(std::move(test))
     , fNext(std::move(next))
     , fStatement(std::move(statement)) {}
+
+    std::unique_ptr<Statement> clone() const override {
+        return std::unique_ptr<Statement>(new ForStatement(fOffset, fInitializer->clone(),
+                                                           fTest->clone(), fNext->clone(),
+                                                           fStatement->clone(), fSymbols));
+    }
 
     String description() const override {
         String result("for (");

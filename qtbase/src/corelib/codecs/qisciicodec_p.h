@@ -54,9 +54,9 @@
 #include <QtCore/private/qglobal_p.h>
 #include "QtCore/qtextcodec.h"
 
-QT_BEGIN_NAMESPACE
+QT_REQUIRE_CONFIG(codecs);
 
-#ifndef QT_NO_CODECS
+QT_BEGIN_NAMESPACE
 
 class QIsciiCodec : public QTextCodec {
 public:
@@ -65,17 +65,15 @@ public:
 
     static QTextCodec *create(const char *name);
 
-    QByteArray name() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    int mibEnum() const override;
 
-    QString convertToUnicode(const char *, int, ConverterState *) const Q_DECL_OVERRIDE;
-    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const Q_DECL_OVERRIDE;
+    QString convertToUnicode(const char *, int, ConverterState *) const override;
+    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override;
 
 private:
     int idx;
 };
-
-#endif // QT_NO_CODECS
 
 QT_END_NAMESPACE
 

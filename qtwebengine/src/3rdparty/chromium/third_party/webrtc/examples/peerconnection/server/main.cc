@@ -8,16 +8,31 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
+#if defined(WEBRTC_POSIX)
+#include <sys/select.h>
+#endif
+#include <time.h>
+#include <string>
 #include <vector>
 
-#include "webrtc/examples/peerconnection/server/data_socket.h"
-#include "webrtc/examples/peerconnection/server/peer_channel.h"
-#include "webrtc/examples/peerconnection/server/utils.h"
-#include "webrtc/rtc_tools/simple_command_line_parser.h"
+#include "examples/peerconnection/server/data_socket.h"
+#include "examples/peerconnection/server/peer_channel.h"
+#include "rtc_base/flags.h"
+#include "rtc_tools/simple_command_line_parser.h"
+#include "system_wrappers/include/field_trial.h"
+#include "test/field_trial.h"
+
+WEBRTC_DEFINE_string(
+    force_fieldtrials,
+    "",
+    "Field trials control experimental features. This flag specifies the field "
+    "trials in effect. E.g. running with "
+    "--force_fieldtrials=WebRTC-FooFeature/Enabled/ "
+    "will assign the group Enabled to field trial WebRTC-FooFeature. Multiple "
+    "trials are separated by \"/\"");
 
 static const size_t kMaxConnections = (FD_SETSIZE - 2);
 
@@ -46,7 +61,7 @@ void HandleBrowserRequest(DataSocket* ds, bool* quit) {
   }
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
   std::string program_name = argv[0];
   std::string usage = "Example usage: " + program_name + " --port=8888";
   webrtc::test::CommandLineParser parser;
@@ -60,6 +75,11 @@ int main(int argc, char** argv) {
     parser.PrintUsageMessage();
     return 0;
   }
+
+  webrtc::test::ValidateFieldTrialsStringOrDie(FLAG_force_fieldtrials);
+  // InitFieldTrialsFromString stores the char*, so the char array must outlive
+  // the application.
+  webrtc::field_trial::InitFieldTrialsFromString(FLAG_force_fieldtrials);
 
   int port = strtol((parser.GetFlag("port")).c_str(), NULL, 10);
 
@@ -94,7 +114,7 @@ int main(int argc, char** argv) {
     for (SocketArray::iterator i = sockets.begin(); i != sockets.end(); ++i)
       FD_SET((*i)->socket(), &socket_set);
 
-    struct timeval timeout = { 10, 0 };
+    struct timeval timeout = {10, 0};
     if (select(FD_SETSIZE, &socket_set, NULL, NULL, &timeout) == SOCKET_ERROR) {
       printf("select failed\n");
       break;
@@ -111,8 +131,7 @@ int main(int argc, char** argv) {
               if (s->PathEquals("/sign_in")) {
                 clients.AddMember(s);
               } else {
-                printf("No member found for: %s\n",
-                    s->request_path().c_str());
+                printf("No member found for: %s\n", s->request_path().c_str());
                 s->Send("500 Error", true, "text/plain", "",
                         "Peer most likely gone.");
               }
@@ -127,7 +146,7 @@ int main(int argc, char** argv) {
                 s->Send("200 OK", true, "text/plain", "", "");
               } else {
                 printf("Couldn't find target for request: %s\n",
-                    s->request_path().c_str());
+                       s->request_path().c_str());
                 s->Send("500 Error", true, "text/plain", "",
                         "Peer most likely gone.");
               }

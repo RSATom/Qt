@@ -13,40 +13,37 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/version.h"
-#include "extensions/browser/content_verifier_delegate.h"
+#include "extensions/browser/content_verifier/content_verifier_key.h"
+#include "extensions/common/extension_id.h"
 
 namespace extensions {
+
+class ContentHash;
 
 // This class creates an object that will read expected hashes that may have
 // been fetched/calculated by the ContentHashFetcher, and vends them out for
 // use in ContentVerifyJob's.
-class ContentHashReader : public base::RefCountedThreadSafe<ContentHashReader> {
+class ContentHashReader {
  public:
-  // Create one of these to get expected hashes for the file at |relative_path|
-  // within an extension.
-  ContentHashReader(const std::string& extension_id,
-                    const base::Version& extension_version,
-                    const base::FilePath& extension_root,
-                    const base::FilePath& relative_path,
-                    const ContentVerifierKey& key);
+  ~ContentHashReader();
 
-  const std::string& extension_id() const { return extension_id_; }
-  const base::FilePath& relative_path() const { return relative_path_; }
+  // Factory to create ContentHashReader to get expected hashes for the file at
+  // |relative_path| within an extension.
+  // Must be called on a thread that is allowed to do file I/O. Returns an
+  // instance whose succees/failure can be determined by calling succeeded()
+  // method. On failure, this object should likely be discarded.
+  static std::unique_ptr<const ContentHashReader> Create(
+      const base::FilePath& relative_path,
+      const scoped_refptr<const ContentHash>& content_hash);
 
-  // This should be called to initialize this object (reads the expected hashes
-  // from storage, etc.). Must be called on a thread that is allowed to do file
-  // I/O. Returns a boolean indicating success/failure. On failure, this object
-  // should likely be discarded.
-  bool Init();
+  bool succeeded() const { return status_ == SUCCESS; }
 
-  // These return whether we found valid verified_contents.json /
-  // computed_hashes.json files respectively. Note that both of these can be
-  // true but we still didn't find an entry for |relative_path_| in them.
-  bool have_verified_contents() const { return have_verified_contents_; }
-  bool have_computed_hashes() const { return have_computed_hashes_; }
+  // Returns true if we found valid verified_contents.json and
+  // computed_hashes.json files. Note that this can be true even if we didn't
+  // find an entry for |relative_path| in them.
+  bool has_content_hashes() const { return has_content_hashes_; }
   // Returns whether or not this resource's entry exists in
-  // verified_contents.json (given that both |have_verified_contents_| and
-  // |have_computed_hashes_| are true).
+  // verified_contents.json (given that |has_content_hashes_| is true.
   bool file_missing_from_verified_contents() const {
     return file_missing_from_verified_contents_;
   }
@@ -61,25 +58,17 @@ class ContentHashReader : public base::RefCountedThreadSafe<ContentHashReader> {
   bool GetHashForBlock(int block_index, const std::string** result) const;
 
  private:
-  friend class base::RefCountedThreadSafe<ContentHashReader>;
-  virtual ~ContentHashReader();
+  enum InitStatus { SUCCESS, FAILURE };
 
-  enum InitStatus { NOT_INITIALIZED, SUCCESS, FAILURE };
+  ContentHashReader();
 
-  std::string extension_id_;
-  base::Version extension_version_;
-  base::FilePath extension_root_;
-  base::FilePath relative_path_;
-  ContentVerifierKey key_;
+  InitStatus status_ = FAILURE;
 
-  InitStatus status_;
-
-  bool have_verified_contents_;
-  bool have_computed_hashes_;
-  bool file_missing_from_verified_contents_;
+  bool has_content_hashes_ = false;
+  bool file_missing_from_verified_contents_ = false;
 
   // The blocksize used for generating the hashes.
-  int block_size_;
+  int block_size_ = 0;
 
   std::vector<std::string> hashes_;
 

@@ -8,14 +8,17 @@
 #include <map>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
+#include "components/autofill/core/common/filling_status.h"
 #include "components/autofill/core/common/password_form_field_prediction_map.h"
 
 namespace autofill {
 class AutofillDriver;
 struct FormData;
+struct NewPasswordFormGenerationData;
 struct PasswordForm;
 struct PasswordFormGenerationData;
 struct PasswordFormFillData;
@@ -39,6 +42,11 @@ class PasswordManagerDriver
   virtual void FillPasswordForm(
       const autofill::PasswordFormFillData& form_data) = 0;
 
+  // Informs the driver that there are no saved credentials in the password
+  // store for the current page.
+  // TODO(https://crbug.com/621355): Remove and observe FormFetcher instead.
+  virtual void InformNoSavedCredentials() {}
+
   // Informs the driver that |form| can be used for password generation.
   virtual void AllowPasswordGenerationForForm(
       const autofill::PasswordForm& form) = 0;
@@ -47,6 +55,11 @@ class PasswordManagerDriver
   // generated.
   virtual void FormsEligibleForGenerationFound(
       const std::vector<autofill::PasswordFormGenerationData>& forms) = 0;
+
+  // Notifies the driver that a password can be generated on the fields
+  // identified by |form|.
+  virtual void FormEligibleForGenerationFound(
+      const autofill::NewPasswordFormGenerationData& form) {}
 
   // Notifies the driver that username and password predictions from autofill
   // have been received.
@@ -61,6 +74,13 @@ class PasswordManagerDriver
   virtual void FillSuggestion(const base::string16& username,
                               const base::string16& password) = 0;
 
+  // Tells the renderer to fill the given credential into the focused element.
+  // Always calls |completed_callback| with a status indicating success/error.
+  virtual void FillIntoFocusedField(
+      bool is_password,
+      const base::string16& user_provided_credential,
+      base::OnceCallback<void(autofill::FillingStatus)> compeleted_callback) {}
+
   // Tells the driver to preview filling form with the |username| and
   // |password|.
   virtual void PreviewSuggestion(const base::string16& username,
@@ -73,14 +93,6 @@ class PasswordManagerDriver
 
   // Tells the driver to clear previewed password and username fields.
   virtual void ClearPreviewedForm() = 0;
-
-  // Tells the driver to find the focused password field and report back
-  // the corresponding password form, so that it can be saved.
-  virtual void ForceSavePassword() {}
-
-  // Tells the driver to find the focused password field and to show generation
-  // popup at it.
-  virtual void GeneratePassword() {}
 
   // Returns the PasswordGenerationManager associated with this instance.
   virtual PasswordGenerationManager* GetPasswordGenerationManager() = 0;
@@ -95,14 +107,14 @@ class PasswordManagerDriver
   // chrome://password-manager-internals is available.
   virtual void SendLoggingAvailability() {}
 
-  // Allows the form classifier to find generation fields.
-  virtual void AllowToRunFormClassifier() {}
-
   // Return the associated AutofillDriver.
   virtual autofill::AutofillDriver* GetAutofillDriver() = 0;
 
   // Return true iff the driver corresponds to the main frame.
   virtual bool IsMainFrame() const = 0;
+
+  // Returns the last committed URL of the frame.
+  virtual GURL GetLastCommittedURL() const = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(PasswordManagerDriver);

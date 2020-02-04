@@ -1,4 +1,4 @@
 [moveCursorBiggerJump]
 osx
-[resizeColumnsToContents]
-ubuntu-14.04
+[columnViewportPosition]
+winrt # QTBUG-72853

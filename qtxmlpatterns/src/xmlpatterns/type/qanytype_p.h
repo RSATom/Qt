@@ -71,31 +71,31 @@ namespace QPatternist
         typedef QExplicitlySharedDataPointer<AnyType> Ptr;
         friend class BuiltinTypes;
 
-        virtual ~AnyType();
+        ~AnyType();
 
-        virtual QXmlName name(const NamePool::Ptr &np) const;
+        QXmlName name(const NamePool::Ptr &np) const override;
 
         /**
          * @returns always "xs:anyType"
          */
-        virtual QString displayName(const NamePool::Ptr &np) const;
+        QString displayName(const NamePool::Ptr &np) const override;
 
         /**
          * @returns always @c false
          */
-        virtual bool isAbstract() const;
+        bool isAbstract() const override;
 
         /**
          * @returns @c null, since <tt>xs:anyType</tt> has no base type, it is the ur-type.
          *
          * @returns always @c null
          */
-        virtual SchemaType::Ptr wxsSuperType() const;
+        SchemaType::Ptr wxsSuperType() const override;
 
         /**
          * @returns @c true only if @p other is xsAnyType.
          */
-        virtual bool wxsTypeMatches(const SchemaType::Ptr &other) const;
+        bool wxsTypeMatches(const SchemaType::Ptr &other) const override;
 
         /**
          * <tt>xs:anyType</tt> is the "ur-type" and special. Therefore, this function
@@ -103,22 +103,22 @@ namespace QPatternist
          *
          * @returns SchemaType::None
          */
-        virtual TypeCategory category() const;
+        TypeCategory category() const override;
 
         /**
          * @returns always NoDerivation.
          */
-        virtual DerivationMethod derivationMethod() const;
+        DerivationMethod derivationMethod() const override;
 
         /**
          * @returns an empty set of derivation constraint flags.
          */
-        virtual DerivationConstraints derivationConstraints() const;
+        DerivationConstraints derivationConstraints() const override;
 
         /**
          * Always returns @c true.
          */
-        virtual bool isComplexType() const;
+        bool isComplexType() const override;
 
     protected:
         /**

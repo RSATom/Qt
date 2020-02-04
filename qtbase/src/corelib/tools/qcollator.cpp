@@ -77,10 +77,8 @@ QT_BEGIN_NAMESPACE
     \sa setLocale()
  */
 QCollator::QCollator(const QLocale &locale)
-    : d(new QCollatorPrivate)
+    : d(new QCollatorPrivate(locale))
 {
-    d->locale = locale;
-    d->init();
 }
 
 /*!
@@ -89,7 +87,12 @@ QCollator::QCollator(const QLocale &locale)
 QCollator::QCollator(const QCollator &other)
     : d(other.d)
 {
-    d->ref.ref();
+    if (d) {
+        // Ensure clean, lest both copies try to init() at the same time:
+        if (d->dirty)
+            d->init();
+        d->ref.ref();
+    }
 }
 
 /*!
@@ -110,7 +113,12 @@ QCollator &QCollator::operator=(const QCollator &other)
         if (d && !d->ref.deref())
             delete d;
         d = other.d;
-        if (d) d->ref.ref();
+        if (d) {
+            // Ensure clean, lest both copies try to init() at the same time:
+            if (d->dirty)
+                d->init();
+            d->ref.ref();
+        }
     }
     return *this;
 }
@@ -148,15 +156,13 @@ QCollator &QCollator::operator=(const QCollator &other)
 void QCollator::detach()
 {
     if (d->ref.load() != 1) {
-        QCollatorPrivate *x = new QCollatorPrivate;
-        x->ref.store(1);
-        x->locale = d->locale;
-        x->collator = 0;
+        QCollatorPrivate *x = new QCollatorPrivate(d->locale);
         if (!d->ref.deref())
             delete d;
         d = x;
-        d->init();
     }
+    // All callers need this, because about to modify the object:
+    d->dirty = true;
 }
 
 /*!
@@ -169,7 +175,6 @@ void QCollator::setLocale(const QLocale &locale)
 
     detach();
     d->locale = locale;
-    d->dirty = true;
 }
 
 /*!
@@ -194,7 +199,6 @@ void QCollator::setCaseSensitivity(Qt::CaseSensitivity cs)
 
     detach();
     d->caseSensitivity = cs;
-    d->dirty = true;
 }
 
 /*!
@@ -218,11 +222,6 @@ Qt::CaseSensitivity QCollator::caseSensitivity() const
 
     By default this mode is off.
 
-    \note On Windows, this functionality makes use of the \l{ICU} library. If Qt was
-    compiled without ICU support, it falls back to code using native Windows API,
-    which only works from Windows 7 onwards. On older versions of Windows, it will not work
-    and a warning will be emitted at runtime.
-
     \sa numericMode()
  */
 void QCollator::setNumericMode(bool on)
@@ -232,7 +231,6 @@ void QCollator::setNumericMode(bool on)
 
     detach();
     d->numericMode = on;
-    d->dirty = true;
 }
 
 /*!
@@ -265,7 +263,6 @@ void QCollator::setIgnorePunctuation(bool on)
 
     detach();
     d->ignorePunctuation = on;
-    d->dirty = true;
 }
 
 /*!
@@ -320,6 +317,8 @@ bool QCollator::ignorePunctuation() const
     methods directly. But if the string is compared repeatedly (e.g. when sorting
     a whole list of strings), it's usually faster to create the sort keys for each
     string and then sort using the keys.
+
+    \note Not supported with the C (a.k.a. POSIX) locale on Darwin.
  */
 
 /*!

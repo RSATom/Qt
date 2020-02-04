@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtCore module of the Qt Toolkit.
+** This file is part of the QtConcurrent module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -42,7 +42,7 @@
 
 #include <QtConcurrent/qtconcurrent_global.h>
 
-#ifndef QT_NO_CONCURRENT
+#if !defined(QT_NO_CONCURRENT) ||defined(Q_CLANG_QDOC)
 
 #include <QtCore/qthreadpool.h>
 #include <QtCore/qfuture.h>
@@ -54,8 +54,6 @@
 
 QT_BEGIN_NAMESPACE
 
-
-#ifndef Q_QDOC
 
 namespace QtConcurrent {
 
@@ -113,7 +111,7 @@ private:
     void startThreads();
     void threadExit();
     bool threadThrottleExit();
-    void run() Q_DECL_OVERRIDE;
+    void run() override;
     virtual void asynchronousFinish() = 0;
 #ifndef QT_NO_EXCEPTIONS
     void handleException(const QException &exception);
@@ -132,7 +130,7 @@ class ThreadEngine : public virtual ThreadEngineBase
 public:
     typedef T ResultType;
 
-    virtual T *result() { return Q_NULLPTR; }
+    virtual T *result() { return nullptr; }
 
     QFutureInterface<T> *futureInterfaceTyped()
     {
@@ -173,7 +171,7 @@ public:
         return future;
     }
 
-    void asynchronousFinish() Q_DECL_OVERRIDE
+    void asynchronousFinish() override
     {
         finish();
         futureInterfaceTyped()->reportFinished(result());
@@ -259,6 +257,7 @@ public:
     }
 };
 
+//! [qtconcurrentthreadengine-1]
 template <typename ThreadEngine>
 inline ThreadEngineStarter<typename ThreadEngine::ResultType> startThreadEngine(ThreadEngine *threadEngine)
 {
@@ -267,7 +266,6 @@ inline ThreadEngineStarter<typename ThreadEngine::ResultType> startThreadEngine(
 
 } // namespace QtConcurrent
 
-#endif //Q_QDOC
 
 QT_END_NAMESPACE
 

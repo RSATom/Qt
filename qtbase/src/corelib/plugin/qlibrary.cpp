@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -63,6 +63,8 @@
 #include <qjsonvalue.h>
 #include "qelfparser_p.h"
 #include "qmachparser_p.h"
+
+#include <qtcore_tracepoints_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -131,8 +133,8 @@ QT_BEGIN_NAMESPACE
     The following code snippet loads a library, resolves the symbol
     "mysymbol", and calls the function if everything succeeded. If
     something goes wrong, e.g. the library file does not exist or the
-    symbol is not defined, the function pointer will be 0 and won't be
-    called.
+    symbol is not defined, the function pointer will be \nullptr and
+    won't be called.
 
     \snippet code/src_corelib_plugin_qlibrary.cpp 0
 
@@ -184,7 +186,7 @@ QT_BEGIN_NAMESPACE
 */
 
 
-static long qt_find_pattern(const char *s, ulong s_len,
+static qsizetype qt_find_pattern(const char *s, qsizetype s_len,
                              const char *pattern, ulong p_len)
 {
     /*
@@ -199,8 +201,10 @@ static long qt_find_pattern(const char *s, ulong s_len,
       because we have to skip over all the debugging symbols first
     */
 
-    if (! s || ! pattern || p_len > s_len) return -1;
-    ulong i, hs = 0, hp = 0, delta = s_len - p_len;
+    if (!s || !pattern || qsizetype(p_len) > s_len)
+        return -1;
+
+    size_t i, hs = 0, hp = 0, delta = s_len - p_len;
 
     for (i = 0; i < p_len; ++i) {
         hs += s[delta + i];
@@ -209,7 +213,7 @@ static long qt_find_pattern(const char *s, ulong s_len,
     i = delta;
     for (;;) {
         if (hs == hp && qstrncmp(s + i, pattern, p_len) == 0)
-            return i;
+            return i;   // can't overflow, by construction
         if (i == 0)
             break;
         --i;
@@ -243,36 +247,28 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
         return false;
     }
 
+    // Files can be bigger than the virtual memory size on 32-bit systems, so
+    // we limit to 512 MB there. For 64-bit, we allow up to 2^40 bytes.
+    constexpr qint64 MaxMemoryMapSize =
+            Q_INT64_C(1) << (sizeof(qsizetype) > 4 ? 40 : 29);
+
     QByteArray data;
-    ulong fdlen = file.size();
+    qsizetype fdlen = qMin(file.size(), MaxMemoryMapSize);
     const char *filedata = reinterpret_cast<char *>(file.map(0, fdlen));
 
     if (filedata == 0) {
-        if (uchar *mapdata = file.map(0, 1)) {
-            file.unmap(mapdata);
-            // Mapping is supported, but failed for the entire file, likely due to OOM.
-            // Return false, as readAll() would cause a bad_alloc and terminate the process.
-            if (lib)
-                lib->errorString = QLibrary::tr("Out of memory while loading plugin '%1'.").arg(library);
-            if (qt_debug_component()) {
-                qWarning("%s: %s", QFile::encodeName(library).constData(),
-                    qPrintable(QSystemError::stdString(ENOMEM)));
-            }
-            return false;
-        } else {
-            // Try reading the data into memory instead.
-            data = file.readAll();
-            filedata = data.constData();
-            fdlen = data.size();
-        }
+        // Try reading the data into memory instead (up to 64 MB).
+        data = file.read(64 * 1024 * 1024);
+        filedata = data.constData();
+        fdlen = data.size();
     }
 
     /*
        ELF and Mach-O binaries with GCC have .qplugin sections.
     */
     bool hasMetaData = false;
-    long pos = 0;
-    char pattern[] = "qTMETADATA  ";
+    qsizetype pos = 0;
+    char pattern[] = "qTMETADATA ";
     pattern[0] = 'Q'; // Ensure the pattern "QTMETADATA" is not found in this library should QPluginLoader ever encounter it.
     const ulong plen = qstrlen(pattern);
 #if defined (Q_OF_ELF) && defined(Q_CC_GNU)
@@ -283,7 +279,7 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
             }
             return false;
     } else if (r == QElfParser::QtMetaDataSection) {
-        long rel = qt_find_pattern(filedata + pos, fdlen, pattern, plen);
+        qsizetype rel = qt_find_pattern(filedata + pos, fdlen, pattern, plen);
         if (rel < 0)
             pos = -1;
         else
@@ -303,7 +299,7 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
         }
         // even if the metadata section was not found, the Mach-O parser will
         // at least return the boundaries of the right architecture
-        long rel = qt_find_pattern(filedata + pos, fdlen, pattern, plen);
+        qsizetype rel = qt_find_pattern(filedata + pos, fdlen, pattern, plen);
         if (rel < 0)
             pos = -1;
         else
@@ -318,10 +314,14 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
 
     bool ret = false;
 
-    if (pos >= 0) {
-        if (hasMetaData) {
-            const char *data = filedata + pos;
-            QJsonDocument doc = qJsonFromRawLibraryMetaData(data);
+    if (pos >= 0 && hasMetaData) {
+        const char *data = filedata + pos;
+        QString errMsg;
+        QJsonDocument doc = qJsonFromRawLibraryMetaData(data, fdlen, &errMsg);
+        if (doc.isNull()) {
+            qWarning("Found invalid metadata in lib %s: %s",
+                     qPrintable(library), qPrintable(errMsg));
+        } else {
             lib->metaData = doc.object();
             if (qt_debug_component())
                 qWarning("Found metadata in lib %s, metadata=\n%s\n",
@@ -548,6 +548,8 @@ bool QLibraryPrivate::load()
     if (fileName.isEmpty())
         return false;
 
+    Q_TRACE(QLibraryPrivate_load_entry, fileName);
+
     bool ret = load_sys();
     if (qt_debug_component()) {
         if (ret) {
@@ -563,6 +565,8 @@ bool QLibraryPrivate::load()
         libraryRefCount.ref();
         installCoverageTool(this);
     }
+
+    Q_TRACE(QLibraryPrivate_load_exit, ret);
 
     return ret;
 }
@@ -679,19 +683,26 @@ bool QLibrary::isLibrary(const QString &fileName)
 #endif
 }
 
-typedef const char * (*QtPluginQueryVerificationDataFunction)();
-
-static bool qt_get_metadata(QtPluginQueryVerificationDataFunction pfn, QLibraryPrivate *priv)
+static bool qt_get_metadata(QLibraryPrivate *priv, QString *errMsg)
 {
-    const char *szData = 0;
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    auto getMetaData = [](QFunctionPointer fptr) {
+        auto f = reinterpret_cast<const char * (*)()>(fptr);
+        return qMakePair<const char *, size_t>(f(), INT_MAX);
+    };
+#else
+    auto getMetaData = [](QFunctionPointer fptr) {
+        auto f = reinterpret_cast<QPair<const char *, size_t> (*)()>(fptr);
+        return f();
+    };
+#endif
+
+    QFunctionPointer pfn = priv->resolve("qt_plugin_query_metadata");
     if (!pfn)
         return false;
 
-    szData = pfn();
-    if (!szData)
-        return false;
-
-    QJsonDocument doc = qJsonFromRawLibraryMetaData(szData);
+    auto metaData = getMetaData(pfn);
+    QJsonDocument doc = qJsonFromRawLibraryMetaData(metaData.first, metaData.second, errMsg);
     if (doc.isNull())
         return false;
     priv->metaData = doc.object();
@@ -734,9 +745,7 @@ void QLibraryPrivate::updatePluginState()
     } else {
         // library is already loaded (probably via QLibrary)
         // simply get the target function and call it.
-        QtPluginQueryVerificationDataFunction getMetaData = NULL;
-        getMetaData = (QtPluginQueryVerificationDataFunction) resolve("qt_plugin_query_metadata");
-        success = qt_get_metadata(getMetaData, this);
+        success = qt_get_metadata(this, &errorString);
     }
 
     if (!success) {
@@ -990,7 +999,7 @@ void QLibrary::setFileNameAndVersion(const QString &fileName, const QString &ver
 
 /*!
     Returns the address of the exported symbol \a symbol. The library is
-    loaded if necessary. The function returns 0 if the symbol could
+    loaded if necessary. The function returns \nullptr if the symbol could
     not be resolved or if the library could not be loaded.
 
     Example:
@@ -1023,7 +1032,7 @@ QFunctionPointer QLibrary::resolve(const char *symbol)
     include the platform-specific file suffix; (see \l{fileName}). The
     library remains loaded until the application exits.
 
-    The function returns 0 if the symbol could not be resolved or if
+    The function returns \nullptr if the symbol could not be resolved or if
     the library could not be loaded.
 
     \sa resolve()
@@ -1043,7 +1052,7 @@ QFunctionPointer QLibrary::resolve(const QString &fileName, const char *symbol)
     (see \l{fileName}). The library remains loaded until the application exits.
     \a verNum is ignored on Windows.
 
-    The function returns 0 if the symbol could not be resolved or if
+    The function returns \nullptr if the symbol could not be resolved or if
     the library could not be loaded.
 
     \sa resolve()
@@ -1064,7 +1073,7 @@ QFunctionPointer QLibrary::resolve(const QString &fileName, int verNum, const ch
     (see \l{fileName}). The library remains loaded until the application exits.
     \a version is ignored on Windows.
 
-    The function returns 0 if the symbol could not be resolved or if
+    The function returns \nullptr if the symbol could not be resolved or if
     the library could not be loaded.
 
     \sa resolve()

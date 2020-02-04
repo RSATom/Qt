@@ -15,12 +15,14 @@
 #include "ui/display/display_export.h"
 #include "ui/display/screen.h"
 #include "ui/display/win/color_profile_reader.h"
+#include "ui/display/win/uwp_text_scale_factor.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/win/singleton_hwnd_observer.h"
 
 namespace gfx {
 class Display;
 class Point;
+class PointF;
 class Rect;
 class Size;
 }   // namespace gfx
@@ -32,7 +34,8 @@ class DisplayInfo;
 class ScreenWinDisplay;
 
 class DISPLAY_EXPORT ScreenWin : public Screen,
-                                 public ColorProfileReader::Client {
+                                 public ColorProfileReader::Client,
+                                 public UwpTextScaleFactor::Observer {
  public:
   ScreenWin();
   ~ScreenWin() override;
@@ -40,7 +43,7 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
   // Converts a screen physical point to a screen DIP point.
   // The DPI scale is performed relative to the display containing the physical
   // point.
-  static gfx::Point ScreenToDIPPoint(const gfx::Point& pixel_point);
+  static gfx::PointF ScreenToDIPPoint(const gfx::PointF& pixel_point);
 
   // Converts a screen DIP point to a screen physical point.
   // The DPI scale is performed relative to the display containing the DIP
@@ -91,18 +94,30 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
   // The DPI scale is performed relative to the display nearest to |hwnd|.
   static gfx::Size DIPToScreenSize(HWND hwnd, const gfx::Size& dip_size);
 
-  // Returns the result of GetSystemMetrics for |metric| scaled to |hwnd|'s DPI.
-  // Use this function if you're already working with screen pixels, as this
-  // helps reduce any cascading rounding errors from DIP to the |hwnd|'s DPI.
-  static int GetSystemMetricsForHwnd(HWND hwnd, int metric);
+  // Returns the result of GetSystemMetrics for |metric| scaled to |monitor|'s
+  // DPI. Use this function if you're already working with screen pixels, as
+  // this helps reduce any cascading rounding errors from DIP to the |monitor|'s
+  // DPI.
+  //
+  // Note that metrics which correspond to elements drawn by Windows
+  // (specifically frame and resize handles) will be scaled by DPI only and not
+  // by Text Zoom or other accessibility features.
+  static int GetSystemMetricsForMonitor(HMONITOR monitor, int metric);
 
   // Returns the result of GetSystemMetrics for |metric| in DIP.
   // Use this function if you need to work in DIP and can tolerate cascading
   // rounding errors towards screen pixels.
   static int GetSystemMetricsInDIP(int metric);
 
-  // Returns |hwnd|'s scale factor.
+  // Returns |hwnd|'s scale factor, including accessibility adjustments.
   static float GetScaleFactorForHWND(HWND hwnd);
+
+  // Returns the unmodified DPI for a particular |hwnd|, without accessibility
+  // adjustments.
+  static int GetDPIForHWND(HWND hwnd);
+
+  // Converts dpi to scale factor, including accessibility adjustments.
+  static float GetScaleFactorForDPI(int dpi);
 
   // Returns the system's global scale factor, ignoring the value of
   // --force-device-scale-factor. Only use this if you are working with Windows
@@ -110,6 +125,20 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
   // GetScaleFactorForHWND() to get the correct scale factor for the monitor
   // you are targeting.
   static float GetSystemScaleFactor();
+
+  // Set a callback to use to query the status of HDR. This callback will be
+  // called when the status of HDR may have changed.
+  using RequestHDRStatusCallback = base::RepeatingCallback<void()>;
+  static void SetRequestHDRStatusCallback(
+      RequestHDRStatusCallback request_hdr_status_callback);
+
+  // Set whether or not to treat all displays as HDR capable. Note that
+  // more precise information about which displays are HDR capable is
+  // available. We make a conscious choice to force all displays to HDR mode if
+  // any display is in HDR mode, under the assumption that the user will be
+  // using the HDR display to view media, and thus will want all media queries
+  // to return that HDR is supported.
+  static void SetHDREnabled(bool hdr_enabled);
 
   // Returns the HWND associated with the NativeView.
   virtual HWND GetHWNDFromNativeView(gfx::NativeView view) const;
@@ -155,6 +184,7 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
  private:
   void Initialize();
   void OnWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
+  void UpdateAllDisplaysAndNotify();
 
   // Returns the ScreenWinDisplay closest to or enclosing |hwnd|.
   ScreenWinDisplay GetScreenWinDisplayNearestHWND(HWND hwnd) const;
@@ -186,7 +216,17 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
   static ScreenWinDisplay GetScreenWinDisplayVia(Getter getter,
                                                  GetterType value);
 
+  // Returns the result of GetSystemMetrics for |metric| scaled to the specified
+  // |scale_factor|.
+  static int GetSystemMetricsForScaleFactor(float scale_factor, int metric);
+
   void RecordDisplayScaleFactors() const;
+
+  //-----------------------------------------------------------------
+  // UwpTextScaleFactor::Observer:
+
+  void OnUwpTextScaleFactorChanged() override;
+  void OnUwpTextScaleFactorCleanup(UwpTextScaleFactor* source) override;
 
   // Helper implementing the DisplayObserver handling.
   DisplayChangeNotifier change_notifier_;
@@ -202,6 +242,15 @@ class DISPLAY_EXPORT ScreenWin : public Screen,
 
   // A helper to read color profiles from the filesystem.
   std::unique_ptr<ColorProfileReader> color_profile_reader_;
+
+  // Callback to use to query when the HDR status may have changed.
+  RequestHDRStatusCallback request_hdr_status_callback_;
+
+  // Whether or not HDR mode is enabled for any monitor via the "HDR and
+  // advanced color" setting.
+  bool hdr_enabled_ = false;
+
+  UwpTextScaleFactor* uwp_text_scale_factor_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(ScreenWin);
 };

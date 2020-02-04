@@ -35,6 +35,15 @@ struct aead_aes_ctr_hmac_sha256_ctx {
   SHA256_CTX outer_init_state;
 };
 
+OPENSSL_STATIC_ASSERT(sizeof(((EVP_AEAD_CTX *)NULL)->state) >=
+                          sizeof(struct aead_aes_ctr_hmac_sha256_ctx),
+                      "AEAD state is too small");
+#if defined(__GNUC__) || defined(__clang__)
+OPENSSL_STATIC_ASSERT(alignof(union evp_aead_ctx_st_state) >=
+                          alignof(struct aead_aes_ctr_hmac_sha256_ctx),
+                      "AEAD state has insufficient alignment");
+#endif
+
 static void hmac_init(SHA256_CTX *out_inner, SHA256_CTX *out_outer,
                       const uint8_t hmac_key[32]) {
   static const size_t hmac_key_len = 32;
@@ -61,18 +70,19 @@ static void hmac_init(SHA256_CTX *out_inner, SHA256_CTX *out_outer,
 
 static int aead_aes_ctr_hmac_sha256_init(EVP_AEAD_CTX *ctx, const uint8_t *key,
                                          size_t key_len, size_t tag_len) {
-  struct aead_aes_ctr_hmac_sha256_ctx *aes_ctx;
+  struct aead_aes_ctr_hmac_sha256_ctx *aes_ctx =
+      (struct aead_aes_ctr_hmac_sha256_ctx *)&ctx->state;
   static const size_t hmac_key_len = 32;
 
   if (key_len < hmac_key_len) {
     OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_BAD_KEY_LENGTH);
-    return 0; /* EVP_AEAD_CTX_init should catch this. */
+    return 0;  // EVP_AEAD_CTX_init should catch this.
   }
 
   const size_t aes_key_len = key_len - hmac_key_len;
   if (aes_key_len != 16 && aes_key_len != 32) {
     OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_BAD_KEY_LENGTH);
-    return 0; /* EVP_AEAD_CTX_init should catch this. */
+    return 0;  // EVP_AEAD_CTX_init should catch this.
   }
 
   if (tag_len == EVP_AEAD_DEFAULT_TAG_LENGTH) {
@@ -84,28 +94,16 @@ static int aead_aes_ctr_hmac_sha256_init(EVP_AEAD_CTX *ctx, const uint8_t *key,
     return 0;
   }
 
-  aes_ctx = OPENSSL_malloc(sizeof(struct aead_aes_ctr_hmac_sha256_ctx));
-  if (aes_ctx == NULL) {
-    OPENSSL_PUT_ERROR(CIPHER, ERR_R_MALLOC_FAILURE);
-    return 0;
-  }
-
   aes_ctx->ctr =
       aes_ctr_set_key(&aes_ctx->ks.ks, NULL, &aes_ctx->block, key, aes_key_len);
   ctx->tag_len = tag_len;
   hmac_init(&aes_ctx->inner_init_state, &aes_ctx->outer_init_state,
             key + aes_key_len);
 
-  ctx->aead_state = aes_ctx;
-
   return 1;
 }
 
-static void aead_aes_ctr_hmac_sha256_cleanup(EVP_AEAD_CTX *ctx) {
-  struct aead_aes_ctr_hmac_sha256_ctx *aes_ctx = ctx->aead_state;
-  OPENSSL_cleanse(aes_ctx, sizeof(struct aead_aes_ctr_hmac_sha256_ctx));
-  OPENSSL_free(aes_ctx);
-}
+static void aead_aes_ctr_hmac_sha256_cleanup(EVP_AEAD_CTX *ctx) {}
 
 static void hmac_update_uint64(SHA256_CTX *sha256, uint64_t value) {
   unsigned i;
@@ -131,7 +129,7 @@ static void hmac_calculate(uint8_t out[SHA256_DIGEST_LENGTH],
   SHA256_Update(&sha256, nonce, EVP_AEAD_AES_CTR_HMAC_SHA256_NONCE_LEN);
   SHA256_Update(&sha256, ad, ad_len);
 
-  /* Pad with zeros to the end of the SHA-256 block. */
+  // Pad with zeros to the end of the SHA-256 block.
   const unsigned num_padding =
       (SHA256_CBLOCK - ((sizeof(uint64_t)*2 +
                          EVP_AEAD_AES_CTR_HMAC_SHA256_NONCE_LEN + ad_len) %
@@ -154,8 +152,8 @@ static void hmac_calculate(uint8_t out[SHA256_DIGEST_LENGTH],
 static void aead_aes_ctr_hmac_sha256_crypt(
     const struct aead_aes_ctr_hmac_sha256_ctx *aes_ctx, uint8_t *out,
     const uint8_t *in, size_t len, const uint8_t *nonce) {
-  /* Since the AEAD operation is one-shot, keeping a buffer of unused keystream
-   * bytes is pointless. However, |CRYPTO_ctr128_encrypt| requires it. */
+  // Since the AEAD operation is one-shot, keeping a buffer of unused keystream
+  // bytes is pointless. However, |CRYPTO_ctr128_encrypt| requires it.
   uint8_t partial_block_buffer[AES_BLOCK_SIZE];
   unsigned partial_block_offset = 0;
   OPENSSL_memset(partial_block_buffer, 0, sizeof(partial_block_buffer));
@@ -180,11 +178,12 @@ static int aead_aes_ctr_hmac_sha256_seal_scatter(
     size_t *out_tag_len, size_t max_out_tag_len, const uint8_t *nonce,
     size_t nonce_len, const uint8_t *in, size_t in_len, const uint8_t *extra_in,
     size_t extra_in_len, const uint8_t *ad, size_t ad_len) {
-  const struct aead_aes_ctr_hmac_sha256_ctx *aes_ctx = ctx->aead_state;
+  const struct aead_aes_ctr_hmac_sha256_ctx *aes_ctx =
+      (struct aead_aes_ctr_hmac_sha256_ctx *) &ctx->state;
   const uint64_t in_len_64 = in_len;
 
   if (in_len_64 >= (UINT64_C(1) << 32) * AES_BLOCK_SIZE) {
-     /* This input is so large it would overflow the 32-bit block counter. */
+     // This input is so large it would overflow the 32-bit block counter.
     OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_TOO_LARGE);
     return 0;
   }
@@ -214,7 +213,8 @@ static int aead_aes_ctr_hmac_sha256_open_gather(
     const EVP_AEAD_CTX *ctx, uint8_t *out, const uint8_t *nonce,
     size_t nonce_len, const uint8_t *in, size_t in_len, const uint8_t *in_tag,
     size_t in_tag_len, const uint8_t *ad, size_t ad_len) {
-  const struct aead_aes_ctr_hmac_sha256_ctx *aes_ctx = ctx->aead_state;
+  const struct aead_aes_ctr_hmac_sha256_ctx *aes_ctx =
+      (struct aead_aes_ctr_hmac_sha256_ctx *) &ctx->state;
 
   if (in_tag_len != ctx->tag_len) {
     OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_BAD_DECRYPT);
@@ -242,10 +242,10 @@ static int aead_aes_ctr_hmac_sha256_open_gather(
 
 static const EVP_AEAD aead_aes_128_ctr_hmac_sha256 = {
     16 /* AES key */ + 32 /* HMAC key */,
-    12,                                   /* nonce length */
-    EVP_AEAD_AES_CTR_HMAC_SHA256_TAG_LEN, /* overhead */
-    EVP_AEAD_AES_CTR_HMAC_SHA256_TAG_LEN, /* max tag length */
-    0,                                    /* seal_scatter_supports_extra_in */
+    12,                                    // nonce length
+    EVP_AEAD_AES_CTR_HMAC_SHA256_TAG_LEN,  // overhead
+    EVP_AEAD_AES_CTR_HMAC_SHA256_TAG_LEN,  // max tag length
+    0,                                     // seal_scatter_supports_extra_in
 
     aead_aes_ctr_hmac_sha256_init,
     NULL /* init_with_direction */,
@@ -254,14 +254,15 @@ static const EVP_AEAD aead_aes_128_ctr_hmac_sha256 = {
     aead_aes_ctr_hmac_sha256_seal_scatter,
     aead_aes_ctr_hmac_sha256_open_gather,
     NULL /* get_iv */,
+    NULL /* tag_len */,
 };
 
 static const EVP_AEAD aead_aes_256_ctr_hmac_sha256 = {
     32 /* AES key */ + 32 /* HMAC key */,
-    12,                                   /* nonce length */
-    EVP_AEAD_AES_CTR_HMAC_SHA256_TAG_LEN, /* overhead */
-    EVP_AEAD_AES_CTR_HMAC_SHA256_TAG_LEN, /* max tag length */
-    0,                                    /* seal_scatter_supports_extra_in */
+    12,                                    // nonce length
+    EVP_AEAD_AES_CTR_HMAC_SHA256_TAG_LEN,  // overhead
+    EVP_AEAD_AES_CTR_HMAC_SHA256_TAG_LEN,  // max tag length
+    0,                                     // seal_scatter_supports_extra_in
 
     aead_aes_ctr_hmac_sha256_init,
     NULL /* init_with_direction */,
@@ -270,6 +271,7 @@ static const EVP_AEAD aead_aes_256_ctr_hmac_sha256 = {
     aead_aes_ctr_hmac_sha256_seal_scatter,
     aead_aes_ctr_hmac_sha256_open_gather,
     NULL /* get_iv */,
+    NULL /* tag_len */,
 };
 
 const EVP_AEAD *EVP_aead_aes_128_ctr_hmac_sha256(void) {

@@ -5,21 +5,22 @@
 #ifndef COMPONENTS_SIGNIN_IOS_BROWSER_ACCOUNT_CONSISTENCY_SERVICE_H_
 #define COMPONENTS_SIGNIN_IOS_BROWSER_ACCOUNT_CONSISTENCY_SERVICE_H_
 
-#include <deque>
 #include <map>
 #include <memory>
 #include <set>
 #include <string>
 
+#include "base/callback.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/signin/core/browser/gaia_cookie_manager_service.h"
-#include "components/signin/core/browser/signin_manager.h"
+#include "components/signin/ios/browser/active_state_manager.h"
 #import "components/signin/ios/browser/manage_accounts_delegate.h"
-#include "ios/web/public/active_state_manager.h"
+#import "services/identity/public/cpp/identity_manager.h"
 
 namespace web {
 class BrowserState;
@@ -40,8 +41,8 @@ class SigninClient;
 // This is currently only used when WKWebView is enabled.
 class AccountConsistencyService : public KeyedService,
                                   public GaiaCookieManagerService::Observer,
-                                  public SigninManagerBase::Observer,
-                                  public web::ActiveStateManager::Observer {
+                                  public identity::IdentityManager::Observer,
+                                  public ActiveStateManager::Observer {
  public:
   // Name of the preference property that persists the domains that have a
   // CHROME_CONNECTED cookie set by this service.
@@ -53,11 +54,11 @@ class AccountConsistencyService : public KeyedService,
       scoped_refptr<content_settings::CookieSettings> cookie_settings,
       GaiaCookieManagerService* gaia_cookie_manager_service,
       SigninClient* signin_client,
-      SigninManager* signin_manager);
+      identity::IdentityManager* identity_manager);
   ~AccountConsistencyService() override;
 
   // Registers the preferences used by AccountConsistencyService.
-  static void RegisterPrefs(user_prefs::PrefRegistrySyncable* registry);
+  static void RegisterPrefs(PrefRegistrySimple* registry);
 
   // Sets the handler for |web_state| that reacts on Gaia responses with the
   // X-Chrome-Manage-Accounts header and notifies |delegate|.
@@ -65,6 +66,10 @@ class AccountConsistencyService : public KeyedService,
                           id<ManageAccountsDelegate> delegate);
   // Removes the handler associated with |web_state|.
   void RemoveWebStateHandler(web::WebState* web_state);
+
+  // Removes CHROME_CONNECTED cookies on all the Google domains where it was
+  // set. Calls callback once all cookies were removed.
+  void RemoveChromeConnectedCookies(base::OnceClosure callback);
 
   // Enqueues a request to add the CHROME_CONNECTED cookie to |domain|. If the
   // cookie is already on |domain|, this function will do nothing unless
@@ -75,7 +80,8 @@ class AccountConsistencyService : public KeyedService,
 
   // Enqueues a request to remove the CHROME_CONNECTED cookie to |domain|.
   // Does nothing if the cookie is not set on |domain|.
-  void RemoveChromeConnectedCookieFromDomain(const std::string& domain);
+  void RemoveChromeConnectedCookieFromDomain(const std::string& domain,
+                                             base::OnceClosure callback);
 
   // Notifies the AccountConsistencyService that browsing data has been removed
   // for any time period.
@@ -94,9 +100,20 @@ class AccountConsistencyService : public KeyedService,
   // AccountConsistencyService.
   struct CookieRequest {
     static CookieRequest CreateAddCookieRequest(const std::string& domain);
-    static CookieRequest CreateRemoveCookieRequest(const std::string& domain);
+    static CookieRequest CreateRemoveCookieRequest(const std::string& domain,
+                                                   base::OnceClosure callback);
+    CookieRequest();
+    ~CookieRequest();
+
+    // Movable, not copyable.
+    CookieRequest(CookieRequest&&);
+    CookieRequest& operator=(CookieRequest&&) = default;
+    CookieRequest(const CookieRequest&) = delete;
+    CookieRequest& operator=(const CookieRequest&) = delete;
+
     CookieRequestType request_type;
     std::string domain;
+    base::OnceClosure callback;
   };
 
   // Loads the domains with a CHROME_CONNECTED cookie from the prefs.
@@ -128,9 +145,6 @@ class AccountConsistencyService : public KeyedService,
 
   // Adds CHROME_CONNECTED cookies on all the main Google domains.
   void AddChromeConnectedCookies();
-  // Removes CHROME_CONNECTED cookies on all the Google domains where it was
-  // set.
-  void RemoveChromeConnectedCookies();
 
   // GaiaCookieManagerService::Observer implementation.
   void OnAddAccountToCookieCompleted(
@@ -141,11 +155,10 @@ class AccountConsistencyService : public KeyedService,
       const std::vector<gaia::ListedAccount>& signed_out_accounts,
       const GoogleServiceAuthError& error) override;
 
-  // SigninManagerBase::Observer implementation.
-  void GoogleSigninSucceeded(const std::string& account_id,
-                             const std::string& username) override;
-  void GoogleSignedOut(const std::string& account_id,
-                       const std::string& username) override;
+  // IdentityManager::Observer implementation.
+  void OnPrimaryAccountSet(const AccountInfo& account_info) override;
+  void OnPrimaryAccountCleared(
+      const AccountInfo& previous_account_info) override;
 
   // ActiveStateManager::Observer implementation.
   void OnActive() override;
@@ -164,13 +177,14 @@ class AccountConsistencyService : public KeyedService,
   GaiaCookieManagerService* gaia_cookie_manager_service_;
   // Signin client, used to access prefs.
   SigninClient* signin_client_;
-  // Signin manager, observed to be notified of signin and signout events.
-  SigninManager* signin_manager_;
+  // Identity manager, observed to be notified of primary account signin and
+  // signout events.
+  identity::IdentityManager* identity_manager_;
 
   // Whether a CHROME_CONNECTED cookie request is currently being applied.
   bool applying_cookie_requests_;
   // The queue of CHROME_CONNECTED cookie requests to be applied.
-  std::deque<CookieRequest> cookie_requests_;
+  base::circular_deque<CookieRequest> cookie_requests_;
   // The map between domains where a CHROME_CONNECTED cookie is present and
   // the time when the cookie was last updated.
   std::map<std::string, base::Time> last_cookie_update_map_;

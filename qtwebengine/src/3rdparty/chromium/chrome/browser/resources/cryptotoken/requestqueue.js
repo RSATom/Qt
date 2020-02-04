@@ -33,8 +33,10 @@ function RequestToken(queue, id, beginCb, opt_prev, opt_next) {
   this.queue_ = queue;
   /** @private {number} */
   this.id_ = id;
-  /** @type {function(QueuedRequestToken)} */
-  this.beginCb = beginCb;
+  /** @private {boolean} */
+  this.begun_ = false;
+  /** @private {function(QueuedRequestToken)} */
+  this.beginCb_ = beginCb;
   /** @type {RequestToken} */
   this.prev = null;
   /** @type {RequestToken} */
@@ -42,6 +44,17 @@ function RequestToken(queue, id, beginCb, opt_prev, opt_next) {
   /** @private {boolean} */
   this.completed_ = false;
 }
+
+/** Begins work on this queued request. */
+RequestToken.prototype.begin = function() {
+  this.begun_ = true;
+  this.beginCb_(this);
+};
+
+/** @return {boolean} Whether this token has already begun. */
+RequestToken.prototype.begun = function() {
+  return this.begun_;
+};
 
 /** Completes (or cancels) this queued request. */
 RequestToken.prototype.complete = function() {
@@ -58,6 +71,12 @@ RequestToken.prototype.complete = function() {
 RequestToken.prototype.completed = function() {
   return this.completed_;
 };
+
+/** @return {number} This token's id. */
+RequestToken.prototype.id = function() {
+  return this.id_;
+};
+
 
 /**
  * @param {!SystemTimer} sysTimer A system timer implementation.
@@ -85,8 +104,9 @@ RequestQueue.prototype.insertToken_ = function(token) {
     this.head_ = token;
     this.tail_ = token;
   } else {
-    if (!this.tail_)
+    if (!this.tail_) {
       throw 'Non-empty list missing tail';
+    }
     this.tail_.next = token;
     token.prev = this.tail_;
     this.tail_ = token;
@@ -96,15 +116,32 @@ RequestQueue.prototype.insertToken_ = function(token) {
 /**
  * Removes this token from the queue.
  * @param {RequestToken} token Queue token
+ * @return {RequestToken?} The next token in the queue to run, if any.
  * @private
  */
 RequestQueue.prototype.removeToken_ = function(token) {
+  var nextTokenToRun = null;
+  // If this token has been begun, find the next token to run.
+  if (token.begun()) {
+    // Find the first token in the queue which has not yet been begun, and which
+    // is not the token being removed.
+    for (var nextToken = this.head_; nextToken; nextToken = nextToken.next) {
+      if (nextToken !== token && !nextToken.begun()) {
+        nextTokenToRun = nextToken;
+        break;
+      }
+    }
+  }
+
+  // Remove this token from the queue
   if (token.next) {
     token.next.prev = token.prev;
   }
   if (token.prev) {
     token.prev.next = token.next;
   }
+
+  // Update head and tail of queue.
   if (this.head_ === token && this.tail_ === token) {
     this.head_ = this.tail_ = null;
   } else {
@@ -117,7 +154,12 @@ RequestQueue.prototype.removeToken_ = function(token) {
       this.tail_.next = null;
     }
   }
+
+  // Isolate this token to prevent it from manipulating the queue, e.g. if
+  // complete() is called a second time with it.
   token.prev = token.next = null;
+
+  return nextTokenToRun;
 };
 
 /**
@@ -126,11 +168,16 @@ RequestQueue.prototype.removeToken_ = function(token) {
  * @param {RequestToken} token Queue token
  */
 RequestQueue.prototype.complete = function(token) {
-  console.log(UTIL_fmt('token ' + this.id_ + ' completed'));
-  var next = token.next;
-  this.removeToken_(token);
+  var next = this.removeToken_(token);
   if (next) {
-    next.beginCb(next);
+    console.log(
+        UTIL_fmt('token ' + token.id() + ' completed, starting ' + next.id()));
+    next.begin();
+  } else if (this.empty()) {
+    console.log(UTIL_fmt('token ' + token.id() + ' completed, queue empty'));
+  } else {
+    console.log(UTIL_fmt(
+        'token ' + token.id() + ' completed (earlier token still running)'));
   }
 };
 
@@ -156,7 +203,7 @@ RequestQueue.prototype.queueRequest = function(beginCb, timer) {
   if (startNow) {
     this.sysTimer_.setTimeout(function() {
       if (!token.completed()) {
-        token.beginCb(token);
+        token.begin();
       }
     }, 0);
   }

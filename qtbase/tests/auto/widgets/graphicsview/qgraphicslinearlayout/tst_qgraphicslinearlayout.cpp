@@ -150,7 +150,7 @@ public:
         Q_UNUSED(option);
         Q_UNUSED(widget);
         painter->setBrush(m_brush);
-        painter->drawRoundRect(rect());
+        painter->drawRoundedRect(rect(), 25, 25, Qt::RelativeSize);
     }
 
     void setSizeHint(Qt::SizeHint which, const QSizeF &size) {
@@ -612,7 +612,6 @@ void tst_QGraphicsLinearLayout::insertStretch()
         }
     }
 
-    //QTest::qWait(1000);
     delete widget;
 }
 
@@ -639,7 +638,6 @@ void tst_QGraphicsLinearLayout::invalidate()
     layout.setContentsMargins(0, 0, 0, 0);
     view.show();
     widget->show();
-    //QTest::qWait(1000);
     QVERIFY(QTest::qWaitForWindowExposed(&view));
     qApp->processEvents();
     layout.layoutRequest = 0;
@@ -894,7 +892,7 @@ public:
         : QProxyStyle(key),
             horizontalSpacing(-1), verticalSpacing(-1) {}
 
-    virtual int pixelMetric(QStyle::PixelMetric pm, const QStyleOption *option = 0, const QWidget *widget = 0) const Q_DECL_OVERRIDE
+    virtual int pixelMetric(QStyle::PixelMetric pm, const QStyleOption *option = 0, const QWidget *widget = 0) const override
     {
         if (pm == QStyle::PM_LayoutHorizontalSpacing && horizontalSpacing >= 0) {
             return horizontalSpacing;
@@ -1218,7 +1216,6 @@ void tst_QGraphicsLinearLayout::testStretch()
     //view->setSceneRect(-50, -50, 800, 800);
     //view->show();
     //QVERIFY(QTest::qWaitForWindowExposed(view));
-    //QTest::qWait(5000);
     QCOMPARE(form->geometry().size(), QSizeF(600,600));
     QCOMPARE(w1->geometry(), QRectF(0, 0, 100, 100));
     QCOMPARE(w2->geometry(), QRectF(400, 0, 200, 200));
@@ -1521,7 +1518,7 @@ void tst_QGraphicsLinearLayout::removeLayout()
 
     QGraphicsView view(&scene);
     view.show();
-    QTest::qWait(20);
+    QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QRectF r1 = textEdit->geometry();
     QRectF r2 = pushButton->geometry();

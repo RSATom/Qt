@@ -34,11 +34,11 @@ class PluginPrivateFileSystemBackend::FileSystemIDToPluginMap {
  public:
   explicit FileSystemIDToPluginMap(base::SequencedTaskRunner* task_runner)
       : task_runner_(task_runner) {}
-  ~FileSystemIDToPluginMap() {}
+  ~FileSystemIDToPluginMap() = default;
 
   std::string GetPluginIDForURL(const FileSystemURL& url) {
     DCHECK(task_runner_->RunsTasksInCurrentSequence());
-    Map::iterator found = map_.find(url.filesystem_id());
+    auto found = map_.find(url.filesystem_id());
     if (url.type() != kFileSystemTypePluginPrivate || found == map_.end()) {
       NOTREACHED() << "Unsupported url is given: " << url.DebugString();
       return std::string();
@@ -60,7 +60,7 @@ class PluginPrivateFileSystemBackend::FileSystemIDToPluginMap {
   }
 
  private:
-  typedef std::map<std::string, std::string> Map;
+  using Map = std::map<std::string, std::string>;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   Map map_;
 };
@@ -94,22 +94,19 @@ PluginPrivateFileSystemBackend::PluginPrivateFileSystemBackend(
     base::SequencedTaskRunner* file_task_runner,
     const base::FilePath& profile_path,
     storage::SpecialStoragePolicy* special_storage_policy,
-    const FileSystemOptions& file_system_options)
+    const FileSystemOptions& file_system_options,
+    leveldb::Env* env_override)
     : file_task_runner_(file_task_runner),
       file_system_options_(file_system_options),
       base_path_(profile_path.Append(kFileSystemDirectory)
                      .Append(kPluginPrivateDirectory)),
       plugin_map_(new FileSystemIDToPluginMap(file_task_runner)),
       weak_factory_(this) {
-  file_util_.reset(
-      new AsyncFileUtilAdapter(new ObfuscatedFileUtil(
-          special_storage_policy,
-          base_path_, file_system_options.env_override(),
-          file_task_runner,
-          base::Bind(&FileSystemIDToPluginMap::GetPluginIDForURL,
-                     base::Owned(plugin_map_)),
-          std::set<std::string>(),
-          NULL)));
+  file_util_ = std::make_unique<AsyncFileUtilAdapter>(new ObfuscatedFileUtil(
+      special_storage_policy, base_path_, env_override,
+      base::BindRepeating(&FileSystemIDToPluginMap::GetPluginIDForURL,
+                          base::Owned(plugin_map_)),
+      std::set<std::string>(), nullptr));
 }
 
 PluginPrivateFileSystemBackend::~PluginPrivateFileSystemBackend() {
@@ -126,20 +123,19 @@ void PluginPrivateFileSystemBackend::OpenPrivateFileSystem(
     const std::string& filesystem_id,
     const std::string& plugin_id,
     OpenFileSystemMode mode,
-    const StatusCallback& callback) {
+    StatusCallback callback) {
   if (!CanHandleType(type) || file_system_options_.is_incognito()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, base::File::FILE_ERROR_SECURITY));
+        FROM_HERE,
+        base::BindOnce(std::move(callback), base::File::FILE_ERROR_SECURITY));
     return;
   }
 
   PostTaskAndReplyWithResult(
-      file_task_runner_.get(),
-      FROM_HERE,
-      base::Bind(&OpenFileSystemOnFileTaskRunner,
-                 obfuscated_file_util(), plugin_map_,
-                 origin_url, filesystem_id, plugin_id, mode),
-      callback);
+      file_task_runner_.get(), FROM_HERE,
+      base::BindOnce(&OpenFileSystemOnFileTaskRunner, obfuscated_file_util(),
+                     plugin_map_, origin_url, filesystem_id, plugin_id, mode),
+      std::move(callback));
 }
 
 bool PluginPrivateFileSystemBackend::CanHandleType(FileSystemType type) const {
@@ -152,13 +148,12 @@ void PluginPrivateFileSystemBackend::Initialize(FileSystemContext* context) {
 void PluginPrivateFileSystemBackend::ResolveURL(
     const FileSystemURL& url,
     OpenFileSystemMode mode,
-    const OpenFileSystemCallback& callback) {
+    OpenFileSystemCallback callback) {
   // We never allow opening a new plugin-private filesystem via usual
   // ResolveURL.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(callback, GURL(), std::string(),
-                 base::File::FILE_ERROR_SECURITY));
+      FROM_HERE, base::BindOnce(std::move(callback), GURL(), std::string(),
+                                base::File::FILE_ERROR_SECURITY));
 }
 
 AsyncFileUtil*
@@ -168,7 +163,7 @@ PluginPrivateFileSystemBackend::GetAsyncFileUtil(FileSystemType type) {
 
 WatcherManager* PluginPrivateFileSystemBackend::GetWatcherManager(
     FileSystemType type) {
-  return NULL;
+  return nullptr;
 }
 
 CopyOrMoveFileValidatorFactory*
@@ -177,7 +172,7 @@ PluginPrivateFileSystemBackend::GetCopyOrMoveFileValidatorFactory(
     base::File::Error* error_code) {
   DCHECK(error_code);
   *error_code = base::File::FILE_OK;
-  return NULL;
+  return nullptr;
 }
 
 FileSystemOperation* PluginPrivateFileSystemBackend::CreateFileSystemOperation(
@@ -235,6 +230,15 @@ PluginPrivateFileSystemBackend::DeleteOriginDataOnFileTaskRunner(
   if (result)
     return base::File::FILE_OK;
   return base::File::FILE_ERROR_FAILED;
+}
+
+void PluginPrivateFileSystemBackend::PerformStorageCleanupOnFileTaskRunner(
+    FileSystemContext* context,
+    storage::QuotaManagerProxy* proxy,
+    FileSystemType type) {
+  if (!CanHandleType(type))
+    return;
+  obfuscated_file_util()->RewriteDatabases();
 }
 
 void PluginPrivateFileSystemBackend::GetOriginsForTypeOnFileTaskRunner(
@@ -350,17 +354,17 @@ PluginPrivateFileSystemBackend::CreateQuotaReservationOnFileTaskRunner(
 
 const UpdateObserverList* PluginPrivateFileSystemBackend::GetUpdateObservers(
     FileSystemType type) const {
-  return NULL;
+  return nullptr;
 }
 
 const ChangeObserverList* PluginPrivateFileSystemBackend::GetChangeObservers(
     FileSystemType type) const {
-  return NULL;
+  return nullptr;
 }
 
 const AccessObserverList* PluginPrivateFileSystemBackend::GetAccessObservers(
     FileSystemType type) const {
-  return NULL;
+  return nullptr;
 }
 
 ObfuscatedFileUtil* PluginPrivateFileSystemBackend::obfuscated_file_util() {

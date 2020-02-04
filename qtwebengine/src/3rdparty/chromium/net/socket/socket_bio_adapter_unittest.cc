@@ -8,19 +8,21 @@
 
 #include <memory>
 
+#include "base/containers/span.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "crypto/openssl_util.h"
 #include "net/base/address_list.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_source.h"
 #include "net/socket/socket_test_util.h"
 #include "net/socket/stream_socket.h"
 #include "net/ssl/openssl_ssl_util.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/boringssl/src/include/openssl/bio.h"
 #include "third_party/boringssl/src/include/openssl/err.h"
@@ -38,13 +40,16 @@ enum ReadIfReadySupport {
 };
 
 class SocketBIOAdapterTest : public testing::TestWithParam<ReadIfReadySupport>,
-                             public SocketBIOAdapter::Delegate {
+                             public SocketBIOAdapter::Delegate,
+                             public WithScopedTaskEnvironment {
  protected:
   void SetUp() override {
-    if (GetParam() != READ_IF_READY_DISABLED)
-      scoped_feature_list_.InitAndEnableFeature(Socket::kReadIfReadyExperiment);
-    if (GetParam() == READ_IF_READY_ENABLED_SUPPORTED)
+    if (GetParam() == READ_IF_READY_DISABLED) {
+      scoped_feature_list_.InitAndDisableFeature(
+          Socket::kReadIfReadyExperiment);
+    } else if (GetParam() == READ_IF_READY_ENABLED_SUPPORTED) {
       factory_.set_enable_read_if_ready(true);
+    }
   }
 
   std::unique_ptr<StreamSocket> MakeTestSocket(SocketDataProvider* data) {
@@ -52,7 +57,7 @@ class SocketBIOAdapterTest : public testing::TestWithParam<ReadIfReadySupport>,
     factory_.AddSocketDataProvider(data);
     std::unique_ptr<StreamSocket> socket = factory_.CreateTransportClientSocket(
         AddressList(), nullptr, nullptr, NetLogSource());
-    CHECK_EQ(OK, socket->Connect(net::CompletionCallback()));
+    CHECK_EQ(OK, socket->Connect(CompletionOnceCallback()));
     return socket;
   }
 
@@ -174,10 +179,10 @@ TEST_P(SocketBIOAdapterTest, ReadSync) {
       MockRead(SYNCHRONOUS, ERR_CONNECTION_RESET, 2),
   };
 
-  SequencedSocketData data(reads, arraysize(reads), nullptr, 0);
+  SequencedSocketData data(reads, base::span<MockWrite>());
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 100, 100, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 100, 100, this);
   BIO* bio = adapter->bio();
   EXPECT_FALSE(adapter->HasPendingReadData());
 
@@ -215,10 +220,10 @@ TEST_P(SocketBIOAdapterTest, ReadAsync) {
       MockRead(ASYNC, ERR_CONNECTION_RESET, 2),
   };
 
-  SequencedSocketData data(reads, arraysize(reads), nullptr, 0);
+  SequencedSocketData data(reads, base::span<MockWrite>());
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 100, 100, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 100, 100, this);
   BIO* bio = adapter->bio();
   EXPECT_FALSE(adapter->HasPendingReadData());
 
@@ -278,10 +283,10 @@ TEST_P(SocketBIOAdapterTest, ReadEOFSync) {
       MockRead(SYNCHRONOUS, 0, 0),
   };
 
-  SequencedSocketData data(reads, arraysize(reads), nullptr, 0);
+  SequencedSocketData data(reads, base::span<MockWrite>());
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 100, 100, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 100, 100, this);
 
   ExpectReadError(adapter->bio(), ERR_CONNECTION_CLOSED, tracer);
 }
@@ -294,10 +299,10 @@ TEST_P(SocketBIOAdapterTest, ReadEOFAsync) {
       MockRead(ASYNC, 0, 0),
   };
 
-  SequencedSocketData data(reads, arraysize(reads), nullptr, 0);
+  SequencedSocketData data(reads, base::span<MockWrite>());
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 100, 100, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 100, 100, this);
 
   char buf;
   ExpectBlockingRead(adapter->bio(), &buf, 1);
@@ -317,10 +322,10 @@ TEST_P(SocketBIOAdapterTest, WriteSync) {
       MockWrite(SYNCHRONOUS, ERR_CONNECTION_RESET, 4),
   };
 
-  SequencedSocketData data(nullptr, 0, writes, arraysize(writes));
+  SequencedSocketData data(base::span<MockRead>(), writes);
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 10, 10, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 10, 10, this);
   BIO* bio = adapter->bio();
 
   // Test data entering and leaving the buffer synchronously. The second write
@@ -362,10 +367,10 @@ TEST_P(SocketBIOAdapterTest, WriteAsync) {
       MockWrite(ASYNC, ERR_CONNECTION_RESET, 14),
   };
 
-  SequencedSocketData data(nullptr, 0, writes, arraysize(writes));
+  SequencedSocketData data(base::span<MockRead>(), writes);
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 10, 10, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 10, 10, this);
   BIO* bio = adapter->bio();
 
   // Data which fits in the buffer is returned synchronously, even if not
@@ -477,10 +482,10 @@ TEST_P(SocketBIOAdapterTest, WriteStopsRead) {
       MockWrite(SYNCHRONOUS, ERR_CONNECTION_RESET, 0),
   };
 
-  SequencedSocketData data(nullptr, 0, writes, arraysize(writes));
+  SequencedSocketData data(base::span<MockRead>(), writes);
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 100, 100, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 100, 100, this);
   BIO* bio = adapter->bio();
 
   // The write fails, but there is a write buffer, so errors are delayed.
@@ -504,10 +509,10 @@ TEST_P(SocketBIOAdapterTest, SyncWriteInterruptsRead) {
       MockWrite(SYNCHRONOUS, ERR_CONNECTION_RESET, 1),
   };
 
-  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  SequencedSocketData data(reads, writes);
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 100, 100, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 100, 100, this);
   BIO* bio = adapter->bio();
 
   // Attempt to read from the transport. It will block indefinitely.
@@ -537,10 +542,10 @@ TEST_P(SocketBIOAdapterTest, AsyncWriteInterruptsRead) {
       MockWrite(ASYNC, ERR_CONNECTION_RESET, 1),
   };
 
-  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  SequencedSocketData data(reads, writes);
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 100, 100, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 100, 100, this);
   BIO* bio = adapter->bio();
 
   // Attempt to read from the transport. It will block indefinitely.
@@ -572,10 +577,10 @@ TEST_P(SocketBIOAdapterTest, AsyncWriteInterruptsBoth) {
       MockWrite(ASYNC, ERR_CONNECTION_RESET, 1),
   };
 
-  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  SequencedSocketData data(reads, writes);
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 5, 5, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 5, 5, this);
   BIO* bio = adapter->bio();
 
   // Attempt to read from the transport. It will block indefinitely.
@@ -607,10 +612,10 @@ TEST_P(SocketBIOAdapterTest, DeleteOnWriteReady) {
       MockWrite(ASYNC, ERR_CONNECTION_RESET, 1),
   };
 
-  SequencedSocketData data(reads, arraysize(reads), writes, arraysize(writes));
+  SequencedSocketData data(reads, writes);
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 5, 5, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 5, 5, this);
   BIO* bio = adapter->bio();
 
   // Arrange for OnReadReady and OnWriteReady to both be signaled due to write
@@ -632,14 +637,13 @@ TEST_P(SocketBIOAdapterTest, DeleteOnWriteReady) {
 TEST_P(SocketBIOAdapterTest, Detached) {
   crypto::OpenSSLErrStackTracer tracer(FROM_HERE);
 
-  SequencedSocketData data(nullptr, 0, nullptr, 0);
+  SequencedSocketData data;
   std::unique_ptr<StreamSocket> socket = MakeTestSocket(&data);
   std::unique_ptr<SocketBIOAdapter> adapter =
-      base::MakeUnique<SocketBIOAdapter>(socket.get(), 100, 100, this);
+      std::make_unique<SocketBIOAdapter>(socket.get(), 100, 100, this);
 
   // Retain an additional reference to the BIO.
-  bssl::UniquePtr<BIO> bio(adapter->bio());
-  BIO_up_ref(bio.get());
+  bssl::UniquePtr<BIO> bio = bssl::UpRef(adapter->bio());
 
   // Release the adapter.
   adapter.reset();

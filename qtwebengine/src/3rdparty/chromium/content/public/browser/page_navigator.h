@@ -10,16 +10,20 @@
 #define CONTENT_PUBLIC_BROWSER_PAGE_NAVIGATOR_H_
 
 #include <string>
+#include <vector>
 
 #include "base/memory/ref_counted.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
+#include "content/public/browser/reload_type.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/referrer.h"
-#include "content/public/common/resource_request_body.h"
 #include "ipc/ipc_message.h"
-#include "third_party/WebKit/public/web/WebTriggeringEventInfo.h"
+#include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "third_party/blink/public/web/web_triggering_event_info.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
@@ -53,6 +57,9 @@ struct CONTENT_EXPORT OpenURLParams {
   GURL url;
   Referrer referrer;
 
+  // The origin of the initiator of the navigation.
+  base::Optional<url::Origin> initiator_origin;
+
   // SiteInstance of the frame that initiated the navigation or null if we
   // don't know it.
   scoped_refptr<content::SiteInstance> source_site_instance;
@@ -64,14 +71,15 @@ struct CONTENT_EXPORT OpenURLParams {
   bool uses_post;
 
   // The post data when the navigation uses POST.
-  scoped_refptr<ResourceRequestBody> post_data;
+  scoped_refptr<network::ResourceRequestBody> post_data;
 
   // Extra headers to add to the request for this page.  Headers are
   // represented as "<name>: <value>" and separated by \r\n.  The entire string
   // is terminated by \r\n.  May be empty if no extra headers are needed.
   std::string extra_headers;
 
-  // The browser-global FrameTreeNode ID or -1 to indicate the main frame.
+  // The browser-global FrameTreeNode ID or RenderFrameHost::kNoFrameTreeNodeId
+  // to indicate the main frame.
   int frame_tree_node_id;
 
   // Routing id of the source RenderFrameHost.
@@ -82,12 +90,6 @@ struct CONTENT_EXPORT OpenURLParams {
 
   // The disposition requested by the navigation source.
   WindowOpenDisposition disposition;
-
-  // Controls creation of new web contents (in case |disposition| asks for a new
-  // tab or window).  If |force_new_process_for_new_contents| is true, then we
-  // try to put the new contents in a new renderer, even if they are same-site
-  // as |source_site_instance| (this is subject to renderer process limits).
-  bool force_new_process_for_new_contents;
 
   // The transition type of navigation.
   ui::PageTransition transition;
@@ -110,6 +112,21 @@ struct CONTENT_EXPORT OpenURLParams {
 
   // Indicates whether this navigation was started via context menu.
   bool started_from_context_menu;
+
+  // Optional URLLoaderFactory to facilitate navigation to a blob URL.
+  scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory;
+
+  // Indicates that the navigation should happen in an app window if
+  // possible, i.e. if an app for the URL is installed.
+  bool open_app_window_if_possible;
+
+  // If this navigation was initiated from a link that specified the
+  // hrefTranslate attribute, this contains the attribute's value (a BCP47
+  // language code). Empty otherwise.
+  std::string href_translate;
+
+  // Indicates if this navigation is a reload.
+  ReloadType reload_type;
 
  private:
   OpenURLParams();

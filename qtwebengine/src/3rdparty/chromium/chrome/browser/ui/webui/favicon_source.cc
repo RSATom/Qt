@@ -13,12 +13,12 @@
 #include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search/instant_io_context.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/session_sync_service_factory.h"
 #include "chrome/common/url_constants.h"
-#include "components/browser_sync/profile_sync_service.h"
 #include "components/favicon_base/favicon_url_parser.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/sync_sessions/open_tabs_ui_delegate.h"
+#include "components/sync_sessions/session_sync_service.h"
 #include "net/url_request/url_request.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -75,6 +75,11 @@ void FaviconSource::StartDataRequest(
   }
 
   GURL url(parsed.url);
+  if (!url.is_valid()) {
+    SendDefaultResponse(callback);
+    return;
+  }
+
   int desired_size_in_pixel =
       std::ceil(parsed.size_in_dip * parsed.device_scale_factor);
 
@@ -82,14 +87,11 @@ void FaviconSource::StartDataRequest(
     // TODO(michaelbai): Change GetRawFavicon to support combination of
     // IconType.
     favicon_service->GetRawFavicon(
-        url,
-        favicon_base::FAVICON,
-        desired_size_in_pixel,
-        base::Bind(
-            &FaviconSource::OnFaviconDataAvailable,
-            base::Unretained(this),
-            IconRequest(
-                callback, url, parsed.size_in_dip, parsed.device_scale_factor)),
+        url, favicon_base::IconType::kFavicon, desired_size_in_pixel,
+        base::Bind(&FaviconSource::OnFaviconDataAvailable,
+                   base::Unretained(this),
+                   IconRequest(callback, url, parsed.size_in_dip,
+                               parsed.device_scale_factor)),
         &cancelable_task_tracker_);
   } else {
     // Intercept requests for prepopulated pages if TopSites exists.
@@ -101,15 +103,25 @@ void FaviconSource::StartDataRequest(
           ui::ScaleFactor resource_scale_factor =
               ui::GetSupportedScaleFactor(parsed.device_scale_factor);
           callback.Run(
-              ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
-                  prepopulated_page.favicon_id, resource_scale_factor));
+              ui::ResourceBundle::GetSharedInstance()
+                  .LoadDataResourceBytesForScale(prepopulated_page.favicon_id,
+                                                 resource_scale_factor));
           return;
         }
       }
     }
 
+    // |url| is an origin, and it may not have had a favicon associated with it.
+    // A trickier case is when |url| only has domain-scoped cookies, but
+    // visitors are redirected to HTTPS on visiting. Then |url| defaults to a
+    // HTTP scheme, but the favicon will be associated with the HTTPS URL and
+    // hence won't be found if we include the scheme in the lookup. Set
+    // |fallback_to_host|=true so the favicon database will fall back to
+    // matching only the hostname to have the best chance of finding a favicon.
+    const bool fallback_to_host = true;
     favicon_service->GetRawFaviconForPageURL(
-        url, favicon_base::FAVICON, desired_size_in_pixel,
+        url, {favicon_base::IconType::kFavicon}, desired_size_in_pixel,
+        fallback_to_host,
         base::Bind(&FaviconSource::OnFaviconDataAvailable,
                    base::Unretained(this),
                    IconRequest(callback, url, parsed.size_in_dip,
@@ -148,10 +160,10 @@ bool FaviconSource::ShouldServiceRequest(
 
 bool FaviconSource::HandleMissingResource(const IconRequest& request) {
   // If the favicon is not available, try to use the synced favicon.
-  browser_sync::ProfileSyncService* sync_service =
-      ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile_);
+  sync_sessions::SessionSyncService* service =
+      SessionSyncServiceFactory::GetInstance()->GetForProfile(profile_);
   sync_sessions::OpenTabsUIDelegate* open_tabs =
-      sync_service ? sync_service->GetOpenTabsUIDelegate() : nullptr;
+      service ? service->GetOpenTabsUIDelegate() : nullptr;
 
   scoped_refptr<base::RefCountedMemory> response;
   if (open_tabs &&
@@ -194,7 +206,7 @@ void FaviconSource::SendDefaultResponse(const IconRequest& icon_request) {
   }
 
   base::RefCountedMemory* default_favicon =
-      ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
+      ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
           resource_id,
           ui::GetSupportedScaleFactor(icon_request.device_scale_factor));
 

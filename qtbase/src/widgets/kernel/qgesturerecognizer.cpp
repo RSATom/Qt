@@ -41,6 +41,7 @@
 
 #include "private/qgesture_p.h"
 #include "private/qgesturemanager_p.h"
+#include "private/qapplication_p.h"
 
 #ifndef QT_NO_GESTURES
 
@@ -193,7 +194,7 @@ void QGestureRecognizer::reset(QGesture *gesture)
 }
 
 /*!
-    \fn QGestureRecognizer::recognize(QGesture *gesture, QObject *watched, QEvent *event)
+    \fn QGestureRecognizer::Result QGestureRecognizer::recognize(QGesture *gesture, QObject *watched, QEvent *event)
 
     Handles the given \a event for the \a watched object, updating the state of the \a gesture
     object as required, and returns a suitable result for the current recognition step.
@@ -231,6 +232,11 @@ Qt::GestureType QGestureRecognizer::registerRecognizer(QGestureRecognizer *recog
 */
 void QGestureRecognizer::unregisterRecognizer(Qt::GestureType type)
 {
+    auto qAppPriv = QApplicationPrivate::instance();
+    if (!qAppPriv)
+        return;
+    if (!qAppPriv->gestureManager)
+        return;
     QGestureManager::instance()->unregisterGestureRecognizer(type);
 }
 

@@ -1,38 +1,40 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/neon-animation/web-animations.html">
+
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
+<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
 
 <dom-module id="viewer-toolbar-dropdown">
   <template>
     <style>
       :host {
+        position: relative;
         text-align: start;
+        --dropdown-width: 260px;
+      }
+
+      :host([dropdown-centered]) {
+        --container-offset: calc(50% - var(--dropdown-width) / 2);
       }
 
       #container {
         position: absolute;
-        /* Controls the position of the dropdown relative to the right of the
-         * screen. Default is aligned with the right of the toolbar buttons.
-         * TODO(tsergeant): Change the layout of the dropdown so this is not
-         * required.
-         */
-        right: var(--viewer-toolbar-dropdown-right-distance, 28px);
+        right: var(--container-offset, 0);
       }
 
       :host-context([dir=rtl]) #container {
-        left: var(--viewer-toolbar-dropdown-right-distance, 28px);
+        left: var(--container-offset, 0);
         right: auto;
       }
 
       #dropdown {
-        @apply(--shadow-elevation-2dp);
+        @apply --shadow-elevation-2dp;
         background-color: rgb(256, 256, 256);
         border-radius: 4px;
-        color: var(--primary-text-color);
+        color: var(--cr-primary-text-color);
         overflow-y: hidden;
         padding-bottom: 2px;
-        width: 260px;
+        width: var(--dropdown-width);
       }
 
       #scroll-container {
@@ -46,19 +48,20 @@
         display: inline-block;
       }
 
-      :host([dropdown-open]) #icon {
-        background-color: rgb(25, 27, 29);
+      :host([dropdown-open]) #icon,
+      :host([selected]) #icon {
+        background-color: var(--dropdown-open-background, rgb(25, 27, 29));
         border-radius: 4px;
       }
 
       #arrow {
-        -webkit-margin-start: -12px;
-        -webkit-padding-end: 4px;
+        margin-inline-start: -12px;
+        padding-inline-end: 4px;
       }
 
       h1 {
         border-bottom: 1px solid rgb(219, 219, 219);
-        font-size: 107.6%;
+        font-size: 0.87rem;
         font-weight: 500;
         margin: 0;
         padding: 14px 28px;
@@ -66,16 +69,18 @@
     </style>
     <div on-click="toggleDropdown" id="icon">
       <paper-icon-button id="main-icon" icon="[[dropdownIcon]]"
-          aria-label$="{{header}}" title$="{{header}}">
+         aria-label$="{{header}}" title$="{{header}}">
       </paper-icon-button>
       <iron-icon icon="cr:arrow-drop-down" id="arrow"></iron-icon>
     </div>
 
     <div id="container">
       <div id="dropdown" style="display: none">
-        <h1>{{header}}</h1>
+        <template is="dom-if" if="[[!hideHeader]]">
+          <h1>{{header}}</h1>
+        </template>
         <div id="scroll-container">
-          <content></content>
+          <slot></slot>
         </div>
       </div>
     </div>

@@ -64,6 +64,9 @@
 #if QT_CONFIG(quick_pathview)
 #include "qquickpathview_p.h"
 #endif
+#if QT_CONFIG(quick_tableview)
+#include "qquicktableview_p.h"
+#endif
 #if QT_CONFIG(quick_viewtransitions)
 #include "qquickitemviewtransition_p.h"
 #endif
@@ -74,7 +77,9 @@
 #if QT_CONFIG(quick_positioners)
 #include "qquickpositioners_p.h"
 #endif
+#if QT_CONFIG(quick_repeater)
 #include "qquickrepeater_p.h"
+#endif
 #include "qquickloader_p.h"
 #if QT_CONFIG(quick_animatedimage)
 #include "qquickanimatedimage_p.h"
@@ -111,6 +116,12 @@
 #include <private/qqmlmetatype_p.h>
 #include <QtQuick/private/qquickaccessibleattached_p.h>
 
+#include "handlers/qquickdraghandler_p.h"
+#include "handlers/qquickhoverhandler_p.h"
+#include "handlers/qquickpinchhandler_p.h"
+#include "handlers/qquickpointhandler_p.h"
+#include "handlers/qquicktaphandler_p.h"
+
 QT_BEGIN_NAMESPACE
 Q_DECLARE_LOGGING_CATEGORY(lcTransient)
 QT_END_NAMESPACE
@@ -133,6 +144,10 @@ static QQmlPrivate::AutoParentResult qquickitem_autoParent(QObject *obj, QObject
                 win->setTransientParent(parentItem->window());
                 return QQmlPrivate::Parented;
             }
+        } else if (QQuickPointerHandler *handler = qmlobject_cast<QQuickPointerHandler *>(obj)) {
+            QQuickItemPrivate::get(parentItem)->addPointerHandler(handler);
+            handler->setParent(parent);
+            return QQmlPrivate::Parented;
         }
         return QQmlPrivate::IncompatibleObject;
     } else if (QQuickWindow *parentWindow = qmlobject_cast<QQuickWindow *>(parent)) {
@@ -142,13 +157,14 @@ static QQmlPrivate::AutoParentResult qquickitem_autoParent(QObject *obj, QObject
             qCDebug(lcTransient) << win << "is transient for" << parentWindow;
             win->setTransientParent(parentWindow);
             return QQmlPrivate::Parented;
-        } else {
-            QQuickItem *item = qmlobject_cast<QQuickItem *>(obj);
-            if (item) {
-                // The parent of an Item inside a Window is actually the implicit content Item
-                item->setParentItem(parentWindow->contentItem());
-                return QQmlPrivate::Parented;
-            }
+        } else if (QQuickItem *item = qmlobject_cast<QQuickItem *>(obj)) {
+            // The parent of an Item inside a Window is actually the implicit content Item
+            item->setParentItem(parentWindow->contentItem());
+            return QQmlPrivate::Parented;
+        } else if (QQuickPointerHandler *handler = qmlobject_cast<QQuickPointerHandler *>(obj)) {
+            QQuickItemPrivate::get(parentWindow->contentItem())->addPointerHandler(handler);
+            handler->setParent(parentWindow->contentItem());
+            return QQmlPrivate::Parented;
         }
         return QQmlPrivate::IncompatibleObject;
     } else if (qmlobject_cast<QQuickItem *>(obj)) {
@@ -161,6 +177,9 @@ static void qt_quickitems_defineModule(const char *uri, int major, int minor)
 {
     QQmlPrivate::RegisterAutoParent autoparent = { 0, &qquickitem_autoParent };
     QQmlPrivate::qmlregister(QQmlPrivate::AutoParentRegistration, &autoparent);
+
+    // Register the latest version, even if there are no new types or new revisions for existing types yet.
+    qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
 
 #if !QT_CONFIG(quick_animatedimage)
     qmlRegisterTypeNotAvailable(uri,major,minor,"AnimatedImage", QCoreApplication::translate("QQuickAnimatedImage","Qt was built without support for QMovie"));
@@ -210,7 +229,9 @@ static void qt_quickitems_defineModule(const char *uri, int major, int minor)
     qmlRegisterType<QQuickPathView>(uri,major,minor,"PathView");
 #endif
     qmlRegisterType<QQuickRectangle>(uri,major,minor,"Rectangle");
+#if QT_CONFIG(quick_repeater)
     qmlRegisterType<QQuickRepeater>(uri,major,minor,"Repeater");
+#endif
     qmlRegisterType<QQuickTranslate>(uri,major,minor,"Translate");
     qmlRegisterType<QQuickRotation>(uri,major,minor,"Rotation");
     qmlRegisterType<QQuickScale>(uri,major,minor,"Scale");
@@ -406,6 +427,57 @@ static void qt_quickitems_defineModule(const char *uri, int major, int minor)
     qmlRegisterType<QQuickFlickable, 10>(uri, 2, 10, "Flickable");
     qmlRegisterType<QQuickTextEdit, 10>(uri, 2, 10, "TextEdit");
     qmlRegisterType<QQuickText, 10>(uri, 2, 10, "Text");
+
+#if QT_CONFIG(quick_path)
+    qmlRegisterType<QQuickPathAngleArc>(uri, 2, 11, "PathAngleArc");
+#endif
+
+#if QT_CONFIG(quick_animatedimage)
+    qmlRegisterType<QQuickAnimatedImage, 11>(uri, 2, 11,"AnimatedImage");
+#endif
+    qmlRegisterType<QQuickItem, 11>(uri, 2, 11,"Item");
+    qmlRegisterType<QQuickFlickable, 12>(uri, 2, 12, "Flickable");
+
+    // classes related to Input Handlers which are newly exposed since 5.12
+    qmlRegisterUncreatableType<QQuickPointerEvent>(uri, 2, 12, "PointerEvent",
+        QQuickPointerHandler::tr("PointerEvent is only available as a parameter of several signals in PointerHandler"));
+    qmlRegisterUncreatableType<QQuickPointerMouseEvent>(uri, 2, 12, "PointerMouseEvent",
+        QQuickPointerHandler::tr("PointerMouseEvent is only available as a parameter of several signals in PointerHandler"));
+    qmlRegisterUncreatableType<QQuickPointerTouchEvent>(uri, 2, 12, "PointerTouchEvent",
+        QQuickPointerHandler::tr("PointerTouchEvent is only available as a parameter of several signals in PointerHandler"));
+    qmlRegisterUncreatableType<QQuickEventPoint>(uri, 2, 12, "EventPoint",
+        QQuickPointerHandler::tr("EventPoint is only available as a member of PointerEvent"));
+    qmlRegisterUncreatableType<QQuickEventTouchPoint>(uri, 2, 12, "EventTouchPoint",
+        QQuickPointerHandler::tr("EventTouchPoint is only available as a member of PointerEvent"));
+    qmlRegisterUncreatableType<QQuickPointerDevice>(uri, 2, 12, "PointerDevice",
+        QQuickPointerHandler::tr("PointerDevice is only available as a property of PointerEvent"));
+
+    // Input Handlers are part of QtQuick, not a separate module, since 5.12
+    qmlRegisterUncreatableType<QQuickPointerHandler>(uri, 2, 12, "PointerHandler",
+        QQuickPointerHandler::tr("PointerHandler is an abstract base class"));
+    qmlRegisterType<QQuickPointHandler>(uri, 2, 12, "PointHandler");
+    qmlRegisterType<QQuickDragHandler>(uri, 2, 12, "DragHandler");
+    qmlRegisterUncreatableType<QQuickDragAxis>(uri, 2, 12, "DragAxis",
+        QQuickDragHandler::tr("DragAxis is only available as a grouped property of DragHandler"));
+    qmlRegisterType<QQuickHoverHandler>(uri, 2, 12, "HoverHandler");
+    qmlRegisterType<QQuickPinchHandler>(uri, 2, 12, "PinchHandler");
+    qmlRegisterType<QQuickTapHandler>(uri, 2, 12, "TapHandler");
+    qRegisterMetaType<QQuickHandlerPoint>();
+
+    // The rest of the 5.12 revisions
+#if QT_CONFIG(quick_sprite)
+    qmlRegisterType<QQuickAnimatedSprite, 12>("QtQuick", 2, 12, "AnimatedSprite");
+#endif
+    qmlRegisterType<QQuickGradient, 12>(uri, 2, 12, "Gradient");
+    qmlRegisterType<QQuickFlickable, 12>(uri, 2, 12, "Flickable");
+    qmlRegisterType<QQuickText, 12>(uri, 2, 12, "Text");
+#if QT_CONFIG(quick_tableview)
+    qmlRegisterType<QQuickTableView>(uri, 2, 12, "TableView");
+#endif
+
+    qmlRegisterUncreatableType<QQuickItemView, 13>(uri, 2, 13, itemViewName, itemViewMessage);
+    qmlRegisterType<QQuickPathView, 13>(uri, 2, 13, "PathView");
+    qmlRegisterType<QQuickGridView, 13>(uri, 2, 13, "GridView");
 }
 
 static void initResources()

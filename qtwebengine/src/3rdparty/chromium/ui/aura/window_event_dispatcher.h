@@ -6,13 +6,14 @@
 #define UI_AURA_WINDOW_EVENT_DISPATCHER_H_
 
 #include <memory>
+#include <queue>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/scoped_observer.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/client/capture_delegate.h"
@@ -29,6 +30,7 @@
 #include "ui/gfx/native_widget_types.h"
 
 namespace ui {
+class Event;
 class GestureEvent;
 class GestureRecognizer;
 class MouseEvent;
@@ -36,6 +38,7 @@ class TouchEvent;
 }
 
 namespace aura {
+class Env;
 class MusMouseLocationUpdater;
 class TestScreen;
 class WindowTargeter;
@@ -55,11 +58,24 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
                                           public WindowObserver,
                                           public EnvObserver {
  public:
-  explicit WindowEventDispatcher(WindowTreeHost* host);
+  // |are_events_in_pixels| indicates if events are
+  // received in pixels. If |are_events_in_pixels| is false, events are
+  // received in DIPs.
+  WindowEventDispatcher(WindowTreeHost* host, bool are_events_in_pixels);
   ~WindowEventDispatcher() override;
+
+  bool are_events_in_pixels() const { return are_events_in_pixels_; }
+
+  // Stops dispatching/synthesizing mouse events.
+  void Shutdown();
+
+  WindowTreeHost* host() { return host_; }
 
   Window* mouse_pressed_handler() { return mouse_pressed_handler_; }
   Window* mouse_moved_handler() { return mouse_moved_handler_; }
+  Window* touchpad_pinch_handler() { return touchpad_pinch_handler_; }
+
+  WindowTargeter* event_targeter() { return event_targeter_.get(); }
 
   // Overridden from ui::EventProcessor:
   ui::EventTargeter* GetDefaultEventTargeter() override;
@@ -135,6 +151,22 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   friend class Window;
   friend class TestScreen;
 
+  // Used to call WindowEventDispatcherObserver when event processing starts
+  // (from the constructor) and finishes (from the destructor). Notification is
+  // handled by this object to ensure notification happens if the associated
+  // WindowEventDispatcher is destroyed during processing of the event.
+  class ObserverNotifier {
+   public:
+    ObserverNotifier(WindowEventDispatcher* dispatcher, const ui::Event& event);
+    ~ObserverNotifier();
+
+   private:
+    Env* env_;
+    WindowEventDispatcher* dispatcher_;
+
+    DISALLOW_COPY_AND_ASSIGN(ObserverNotifier);
+  };
+
   // The parameter for OnWindowHidden() to specify why window is hidden.
   enum WindowHiddenReason {
     WINDOW_DESTROYED,  // Window is destroyed.
@@ -145,6 +177,10 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
 
   Window* window();
   const Window* window() const;
+
+  // Converts a point from screen coordinates to the coordinate space used by
+  // the Window returned from window().
+  void ConvertPointFromScreen(gfx::Point* screen_point) const;
 
   // Updates the event with the appropriate transform for the device scale
   // factor. The WindowEventDispatcher dispatches events in the physical pixel
@@ -184,6 +220,7 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   void ReleaseNativeCapture() override;
 
   // Overridden from ui::EventProcessor:
+  ui::EventTarget* GetInitialEventTarget(ui::Event* event) override;
   ui::EventTarget* GetRootForEvent(ui::Event* event) override;
   void OnEventProcessingStarted(ui::Event* event) override;
   void OnEventProcessingFinished(ui::Event* event) override;
@@ -211,9 +248,13 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   void OnWindowVisibilityChanged(Window* window, bool visible) override;
   void OnWindowBoundsChanged(Window* window,
                              const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds) override;
-  void OnWindowTransforming(Window* window) override;
-  void OnWindowTransformed(Window* window) override;
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override;
+  void OnWindowTargetTransformChanging(
+      Window* window,
+      const gfx::Transform& new_transform) override;
+  void OnWindowTransformed(Window* window,
+                           ui::PropertyChangeReason reason) override;
 
   // Overridden from EnvObserver:
   void OnWindowInitialized(Window* window) override;
@@ -243,25 +284,38 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
                                                    ui::LocatedEvent* event);
   ui::EventDispatchDetails PreDispatchMouseEvent(Window* target,
                                                  ui::MouseEvent* event);
+  ui::EventDispatchDetails PreDispatchPinchEvent(Window* target,
+                                                 ui::GestureEvent* event);
   ui::EventDispatchDetails PreDispatchTouchEvent(Window* target,
                                                  ui::TouchEvent* event);
   ui::EventDispatchDetails PreDispatchKeyEvent(ui::KeyEvent* event);
 
+  // Comes from host_->window()->env(). Cached as it's needed in the destructor
+  // and at that time the window has been deleted.
+  Env* env_;
+
   WindowTreeHost* host_;
 
-  Window* mouse_pressed_handler_;
-  Window* mouse_moved_handler_;
-  Window* event_dispatch_target_;
-  Window* old_dispatch_target_;
+  const bool are_events_in_pixels_;
+
+  Window* mouse_pressed_handler_ = nullptr;
+  Window* mouse_moved_handler_ = nullptr;
+  Window* touchpad_pinch_handler_ = nullptr;
+  Window* event_dispatch_target_ = nullptr;
+  Window* old_dispatch_target_ = nullptr;
 
   ui::FractionOfTimeWithoutUserInputRecorder
       fraction_of_time_without_user_input_recorder_;
 
-  bool synthesize_mouse_move_;
+  bool synthesize_mouse_move_ = false;
+
+  // Whether a OnWindowTargetTransformChanging() call didn't have its
+  // corresponding OnWindowTransformed() call yet.
+  bool window_transforming_ = false;
 
   // How many move holds are outstanding. We try to defer dispatching
   // touch/mouse moves while the count is > 0.
-  int move_hold_count_;
+  int move_hold_count_ = 0;
   // The location of |held_move_event_| is in |window_|'s coordinate.
   std::unique_ptr<ui::LocatedEvent> held_move_event_;
 
@@ -269,7 +323,7 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   std::unique_ptr<ui::LocatedEvent> held_repostable_event_;
 
   // Set when dispatching a held event.
-  ui::LocatedEvent* dispatching_held_event_;
+  ui::LocatedEvent* dispatching_held_event_ = nullptr;
 
   ScopedObserver<aura::Window, aura::WindowObserver> observer_manager_;
 
@@ -278,13 +332,23 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   // The default EventTargeter for WindowEventDispatcher generated events.
   std::unique_ptr<WindowTargeter> event_targeter_;
 
-  bool skip_ime_;
+  bool skip_ime_ = false;
+
+  // This callback is called when the held move event is dispatched, or when
+  // pointer moves are released and there is no held move event.
+  base::OnceClosure did_dispatch_held_move_event_callback_;
+
+  // See ObserverNotifier for details. This is a queue to handle the case of
+  // nested event dispatch.
+  std::queue<std::unique_ptr<ObserverNotifier>> observer_notifiers_;
+
+  bool in_shutdown_ = false;
 
   // Used to schedule reposting an event.
-  base::WeakPtrFactory<WindowEventDispatcher> repost_event_factory_;
+  base::WeakPtrFactory<WindowEventDispatcher> repost_event_factory_{this};
 
   // Used to schedule DispatchHeldEvents() when |move_hold_count_| goes to 0.
-  base::WeakPtrFactory<WindowEventDispatcher> held_event_factory_;
+  base::WeakPtrFactory<WindowEventDispatcher> held_event_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WindowEventDispatcher);
 };

@@ -11,16 +11,19 @@
 #include <string>
 #include <vector>
 
+#include "base/auto_reset.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
+#include "base/version.h"
+#include "extensions/buildflags/buildflags.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/extension_resource.h"
+#include "extensions/common/hashed_extension_id.h"
 #include "extensions/common/install_warning.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/url_pattern_set.h"
-#include "extensions/features/features.h"
 #include "url/gurl.h"
 
 #if !BUILDFLAG(ENABLE_EXTENSIONS)
@@ -43,48 +46,22 @@ class PermissionsParser;
 // RuntimeData is protected by a lock.
 class Extension : public base::RefCountedThreadSafe<Extension> {
  public:
+  // Do not renumber or reorder these values, as they are stored on-disk in the
+  // user's preferences.
   enum State {
     DISABLED = 0,
-    ENABLED,
+    ENABLED = 1,
+
     // An external extension that the user uninstalled. We should not reinstall
     // such extensions on startup.
-    EXTERNAL_EXTENSION_UNINSTALLED,
-    // DEPRECATED: Special state for component extensions.
-    // Maintained as a placeholder since states may be stored to disk.
-    ENABLED_COMPONENT_DEPRECATED,
-    // Add new states here as this enum is stored in prefs.
-    NUM_STATES
-  };
+    EXTERNAL_EXTENSION_UNINSTALLED = 2,
 
-  // Reasons an extension may be disabled. These are used in histograms, so do
-  // not remove/reorder entries - only add at the end just before
-  // DISABLE_REASON_LAST (and update the shift value for it). Also remember to
-  // update the enum listing in tools/metrics/histograms.xml.
-  // Also carefully consider if your reason should sync to other devices, and if
-  // so, add it to kKnownSyncableDisableReasons in extension_sync_service.cc.
-  enum DisableReason {
-    DISABLE_NONE = 0,
-    DISABLE_USER_ACTION = 1 << 0,
-    DISABLE_PERMISSIONS_INCREASE = 1 << 1,
-    DISABLE_RELOAD = 1 << 2,
-    DISABLE_UNSUPPORTED_REQUIREMENT = 1 << 3,
-    DISABLE_SIDELOAD_WIPEOUT = 1 << 4,
-    DEPRECATED_DISABLE_UNKNOWN_FROM_SYNC = 1 << 5,
-    // DISABLE_PERMISSIONS_CONSENT = 1 << 6,  // Deprecated.
-    // DISABLE_KNOWN_DISABLED = 1 << 7,  // Deprecated.
-    DISABLE_NOT_VERIFIED = 1 << 8,  // Disabled because we could not verify
-                                    // the install.
-    DISABLE_GREYLIST = 1 << 9,
-    DISABLE_CORRUPTED = 1 << 10,
-    DISABLE_REMOTE_INSTALL = 1 << 11,
-    // DISABLE_INACTIVE_EPHEMERAL_APP = 1 << 12,  // Deprecated.
-    DISABLE_EXTERNAL_EXTENSION = 1 << 13,  // External extensions might be
-                                           // disabled for user prompting.
-    DISABLE_UPDATE_REQUIRED_BY_POLICY = 1 << 14,  // Doesn't meet minimum
-                                                  // version requirement.
-    DISABLE_CUSTODIAN_APPROVAL_REQUIRED = 1 << 15,  // Supervised user needs
-                                                    // approval by custodian.
-    DISABLE_REASON_LAST = 1 << 16,  // This should always be the last value
+    // DEPRECATED: Special state for component extensions.
+    // ENABLED_COMPONENT_DEPRECATED = 3,
+
+    // Do not add more values. State is being removed.
+    // https://crbug.com/794205.
+    NUM_STATES = 4,
   };
 
   // A base class for parsed manifest data that APIs want to store on
@@ -181,7 +158,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Valid schemes for web extent URLPatterns.
   static const int kValidWebExtentSchemes;
 
-  // Valid schemes for bookmark app installs.
+  // Valid schemes for bookmark app installs by the user.
   static const int kValidBookmarkAppSchemes;
 
   // Valid schemes for host permission URLPatterns.
@@ -270,11 +247,12 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   const GURL& url() const { return extension_url_; }
   Manifest::Location location() const;
   const ExtensionId& id() const;
-  const base::Version* version() const { return version_.get(); }
+  const HashedExtensionId& hashed_id() const;
+  const base::Version& version() const { return version_; }
   const std::string& version_name() const { return version_name_; }
   const std::string VersionString() const;
   const std::string GetVersionForDisplay() const;
-  const std::string& name() const { return name_; }
+  const std::string& name() const { return display_name_; }
   const std::string& short_name() const { return short_name_; }
   const std::string& non_localized_name() const { return non_localized_name_; }
   // Base64-encoded version of the key used to sign this extension.
@@ -296,8 +274,8 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   }
 
   // Appends |new_warning[s]| to install_warnings_.
-  void AddInstallWarning(const InstallWarning& new_warning);
-  void AddInstallWarnings(const std::vector<InstallWarning>& new_warnings);
+  void AddInstallWarning(InstallWarning new_warning);
+  void AddInstallWarnings(std::vector<InstallWarning> new_warnings);
   const std::vector<InstallWarning>& install_warnings() const {
     return install_warnings_;
   }
@@ -389,7 +367,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // might be wrapped with unicode bidi control characters so that it is
   // displayed correctly in RTL context.
   // NOTE: Name is UTF-8 and may contain non-ascii characters.
-  std::string name_;
+  std::string display_name_;
 
   // A non-localized version of the extension's name. This is useful for
   // debug output.
@@ -430,7 +408,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   GURL extension_url_;
 
   // The extension's version.
-  std::unique_ptr<base::Version> version_;
+  base::Version version_;
 
   // The extension's user visible version name.
   std::string version_name_;
@@ -489,7 +467,10 @@ struct ExtensionInfo {
                 Manifest::Location location);
   ~ExtensionInfo();
 
+  // Note: This may be null (e.g. for unpacked extensions retrieved from the
+  // Preferences file).
   std::unique_ptr<base::DictionaryValue> extension_manifest;
+
   ExtensionId extension_id;
   base::FilePath extension_path;
   Manifest::Location extension_location;

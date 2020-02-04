@@ -4,14 +4,17 @@
 
 #include "chrome/browser/ui/webui/net_export_ui.h"
 
+#include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/memory/ref_counted.h"
 #include "base/scoped_observer.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
@@ -21,13 +24,13 @@
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/net_export_helper.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/url_constants.h"
 #include "components/grit/components_resources.h"
-#include "components/net_log/chrome_net_log.h"
 #include "components/net_log/net_export_file_writer.h"
 #include "components/net_log/net_export_ui_constants.h"
 #include "content/public/browser/browser_thread.h"
@@ -37,9 +40,8 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "net/log/net_log_capture_mode.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
 #if defined(OS_ANDROID)
@@ -63,6 +65,7 @@ content::WebUIDataSource* CreateNetExportHTMLSource() {
   source->SetJsonPath("strings.js");
   source->AddResourcePath(net_log::kNetExportUIJS, IDR_NET_LOG_NET_EXPORT_JS);
   source->SetDefaultResource(IDR_NET_LOG_NET_EXPORT_HTML);
+  source->UseGzip();
   return source;
 }
 
@@ -106,9 +109,6 @@ class NetExportMessageHandler
   void OnNewState(const base::DictionaryValue& state) override;
 
  private:
-  using URLRequestContextGetterList =
-      std::vector<scoped_refptr<net::URLRequestContextGetter>>;
-
   // Send NetLog data via email.
   static void SendEmail(const base::FilePath& file_to_send);
 
@@ -137,12 +137,7 @@ class NetExportMessageHandler
   // NetLog file.
   void ShowSelectFileDialog(const base::FilePath& default_path);
 
-  // Returns a list of context getters used to retrieve ongoing events when
-  // logging starts so that net log entries can be added for those events.
-  URLRequestContextGetterList GetURLRequestContexts() const;
-
-  // Cache of g_browser_process->net_log()->net_export_file_writer(). This
-  // is owned by ChromeNetLog which is owned by BrowserProcessImpl.
+  // Cached pointer to SystemNetworkContextManager's NetExportFileWriter.
   net_log::NetExportFileWriter* file_writer_;
 
   ScopedObserver<net_log::NetExportFileWriter,
@@ -154,7 +149,7 @@ class NetExportMessageHandler
   // the save dialog. Their values are only valid while the save dialog is open
   // on the desktop UI.
   net::NetLogCaptureMode capture_mode_;
-  size_t max_log_file_size_;
+  uint64_t max_log_file_size_;
 
   scoped_refptr<ui::SelectFileDialog> select_file_dialog_;
 
@@ -164,12 +159,11 @@ class NetExportMessageHandler
 };
 
 NetExportMessageHandler::NetExportMessageHandler()
-    : file_writer_(g_browser_process->net_log()->net_export_file_writer()),
+    : file_writer_(g_browser_process->system_network_context_manager()
+                       ->GetNetExportFileWriter()),
       state_observer_manager_(this),
       weak_ptr_factory_(this) {
-  file_writer_->Initialize(
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::FILE_USER_BLOCKING),
-      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
+  file_writer_->Initialize();
 }
 
 NetExportMessageHandler::~NetExportMessageHandler() {
@@ -178,7 +172,7 @@ NetExportMessageHandler::~NetExportMessageHandler() {
   if (select_file_dialog_)
     select_file_dialog_->ListenerDestroyed();
 
-  file_writer_->StopNetLog(nullptr, nullptr);
+  file_writer_->StopNetLog(nullptr);
 }
 
 void NetExportMessageHandler::RegisterMessages() {
@@ -186,23 +180,24 @@ void NetExportMessageHandler::RegisterMessages() {
 
   web_ui()->RegisterMessageCallback(
       net_log::kEnableNotifyUIWithStateHandler,
-      base::Bind(&NetExportMessageHandler::OnEnableNotifyUIWithState,
-                 base::Unretained(this)));
+      base::BindRepeating(&NetExportMessageHandler::OnEnableNotifyUIWithState,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       net_log::kStartNetLogHandler,
-      base::Bind(&NetExportMessageHandler::OnStartNetLog,
-                 base::Unretained(this)));
+      base::BindRepeating(&NetExportMessageHandler::OnStartNetLog,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       net_log::kStopNetLogHandler,
-      base::Bind(&NetExportMessageHandler::OnStopNetLog,
-                 base::Unretained(this)));
+      base::BindRepeating(&NetExportMessageHandler::OnStopNetLog,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       net_log::kSendNetLogHandler,
-      base::Bind(&NetExportMessageHandler::OnSendNetLog,
-                 base::Unretained(this)));
+      base::BindRepeating(&NetExportMessageHandler::OnSendNetLog,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       net_log::kShowFile,
-      base::Bind(&NetExportMessageHandler::OnShowFile, base::Unretained(this)));
+      base::BindRepeating(&NetExportMessageHandler::OnShowFile,
+                          base::Unretained(this)));
 }
 
 // The net-export UI is not notified of state changes until this function runs.
@@ -255,14 +250,8 @@ void NetExportMessageHandler::OnStopNetLog(const base::ListValue* list) {
       new base::DictionaryValue());
 
   Profile* profile = Profile::FromWebUI(web_ui());
-  SetIfNotNull(ui_thread_polled_data.get(), "dataReductionProxyInfo",
-               chrome_browser_net::GetDataReductionProxyInfo(profile));
-  SetIfNotNull(ui_thread_polled_data.get(), "historicNetworkStats",
-               chrome_browser_net::GetHistoricNetworkStats(profile));
   SetIfNotNull(ui_thread_polled_data.get(), "prerenderInfo",
                chrome_browser_net::GetPrerenderInfo(profile));
-  SetIfNotNull(ui_thread_polled_data.get(), "sessionNetworkStats",
-               chrome_browser_net::GetSessionNetworkStats(profile));
   SetIfNotNull(ui_thread_polled_data.get(), "extensionInfo",
                chrome_browser_net::GetExtensionInfo(profile));
 #if defined(OS_WIN)
@@ -270,8 +259,7 @@ void NetExportMessageHandler::OnStopNetLog(const base::ListValue* list) {
                chrome_browser_net::GetWindowsServiceProviders());
 #endif
 
-  file_writer_->StopNetLog(std::move(ui_thread_polled_data),
-                           Profile::FromWebUI(web_ui())->GetRequestContext());
+  file_writer_->StopNetLog(std::move(ui_thread_polled_data));
 }
 
 void NetExportMessageHandler::OnSendNetLog(const base::ListValue* list) {
@@ -334,7 +322,10 @@ void NetExportMessageHandler::StartNetLog(const base::FilePath& path) {
   file_writer_->StartNetLog(
       path, capture_mode_, max_log_file_size_,
       base::CommandLine::ForCurrentProcess()->GetCommandLineString(),
-      chrome::GetChannelString(), GetURLRequestContexts());
+      chrome::GetChannelName(),
+      content::BrowserContext::GetDefaultStoragePartition(
+          Profile::FromWebUI(web_ui()))
+          ->GetNetworkContext());
 }
 
 void NetExportMessageHandler::ShowFileInShell(const base::FilePath& path) {
@@ -375,7 +366,7 @@ void NetExportMessageHandler::ShowSelectFileDialog(
   WebContents* webcontents = web_ui()->GetWebContents();
 
   select_file_dialog_ = ui::SelectFileDialog::Create(
-      this, new ChromeSelectFilePolicy(webcontents));
+      this, std::make_unique<ChromeSelectFilePolicy>(webcontents));
   ui::SelectFileDialog::FileTypeInfo file_type_info;
   file_type_info.extensions = {{FILE_PATH_LITERAL("json")}};
   gfx::NativeWindow owning_window = webcontents->GetTopLevelNativeWindow();
@@ -384,28 +375,10 @@ void NetExportMessageHandler::ShowSelectFileDialog(
       &file_type_info, 0, base::FilePath::StringType(), owning_window, nullptr);
 }
 
-NetExportMessageHandler::URLRequestContextGetterList
-NetExportMessageHandler::GetURLRequestContexts() const {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-  URLRequestContextGetterList context_getters;
-
-  Profile* profile = Profile::FromWebUI(web_ui());
-
-  context_getters.push_back(profile->GetRequestContext());
-  context_getters.push_back(
-      content::BrowserContext::GetDefaultStoragePartition(profile)
-          ->GetMediaURLRequestContext());
-  context_getters.push_back(
-      g_browser_process->io_thread()->system_url_request_context_getter());
-
-  return context_getters;
-}
-
 }  // namespace
 
 NetExportUI::NetExportUI(content::WebUI* web_ui) : WebUIController(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<NetExportMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<NetExportMessageHandler>());
 
   // Set up the chrome://net-export/ source.
   Profile* profile = Profile::FromWebUI(web_ui);

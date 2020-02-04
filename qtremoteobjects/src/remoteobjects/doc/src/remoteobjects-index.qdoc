@@ -3,9 +3,9 @@
 ** Copyright (C) 2017 Ford Motor Company
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtRemoteObjects module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,25 +14,13 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -41,74 +29,113 @@
 \page qtremoteobjects-index.html
 \title Qt Remote Objects
 \ingroup overviews
-\brief Provides APIs for inter-process communication using Qt Remote Objects
+\brief Provides APIs for inter-process communication.
 
 \target Qt Remote Objects
 \section1 Remote Object Concepts
 
-Qt Remote Objects (QtRO) is an inter-process communication (IPC) module
-developed for Qt. The idea is to extend existing Qt's functionalities to enable
-an easy exchange of information between processes or computers.
+Qt Remote Objects (QtRO) is an Inter-Process Communication (IPC) module
+developed for Qt. This module extends Qt's existing functionalities to enable
+information exchange between processes or computers, easily.
 
-One of the key features of Qt to enable this is the distinction between an
-objects API (defined by its Q_Property, Signals and Slots) and the
-implementation of that API. The purpose of QtRO is to meet the expected API, even
-if the true QObject is in a different process. A Slot called on a copy of an
-object (called a \l {Replica} in QtRO) is forwarded to the true object (called
-a \l {Source} in QtRO) for handling. Updates to the \l {Source} (either
-property changes or emitted Signals) are forwarded to every \l {Replica}.
+One of Qt's key features, to enable this information exchange, is the
+distinction between an object's API (defined by its properties, signals, and
+slots) and the implementation of that API. QtRO's purpose is to meet that
+expected API, even if the true QObject is in a different process. A slot
+called on a copy of an object (the \l {Replica} in QtRO) is forwarded to the
+true object (the \l {Source} in QtRO) for handling. Every Replica receives
+updates to the Source, either property changes or emitted signals.
 
-A \l {Replica} is a light-weight proxy for the \l {Source} object, but one that
-supports the same connections and behavior of QObjects, which makes them as
-easy to use as any other QObject provided by Qt. Everything needed for the \l
-{Replica} to look like the \l {Source} object is handled behind the scenes by
-QtRO.
+A \l {Replica} is a light-weight proxy for the \l {Source} object, but a
+Replica supports the same connections and behavior of QObjects, which makes it
+usable in the same way as any other QObject that Qt provides. Behind the
+scenes, QtRO handles everything that's necessary for the Replica to look like
+its Source.
 
-Note that Remote Objects behave differently from traditional remote procedure
-call (RPC) implementations. In RPC, the client makes a request and waits for
-the response. In RPC, the server does not push anything to the client unless it
-is in response to a request. The design of RPC is often such that different
-clients are independent of each other (for instance, two clients can ask a
-mapping service for directions and get different results). While it is possible
-to implement this in QtRO (as \l {Source} without properties, and Slots that
-have return values), it is designed more to hide the fact that the processing
-is really remote. You let a node give you the \l {Replica} instead of creating
-it yourself, possibly use the status signals (\l {QRemoteObjectReplica::} {isReplicaValid()}),
-but then interact with the object like you would with any other QObject-based type.
+Note that Remote Objects behave differently from traditional Remote Procedure
+Call (RPC) implementations, for example:
 
-\section1 Related Information
+\list
+   \li In RPC, the client makes a request and waits for the response.
+   \li In RPC, the server doesn't push anything to the client unless it's in
+       response to a request.
+   \li Often, the design of RPC is such that different clients are independent
+       of each other: for instance, two clients can ask a mapping service for
+       directions and get different results.
+\endlist
 
-\section2 Getting Started
+While it is possible to implement this RPC-style behavior in QtRO, as Sources
+without properties, and slots that have return values, QtRO hides the fact that
+the processing is really remote. You let a node give you the Replica instead of
+creating it yourself, possibly use the status signals
+(\l {QRemoteObjectReplica::} {isReplicaValid()}), but then interact with the
+object like you would with any other QObject-based type.
 
-To enable \e {Qt Remote Objects} in a project, add this directive into
-the C++ files:
+\section1 Use Case: GPS
 
-\code
-#include <QtRemoteObjects>
-\endcode
+Consider a sensor such as a Global Positioning System (GPS) receiver. In
+QtRO terms:
 
-To link against the \e {Qt Remote Objects} module, add this line to the project file:
-\code
-QT += remoteobjects
-\endcode
+\list
+    \li The \l{Source} would be the process that directly interacts with the
+        GPS hardware and derives your current location.
+    \li The location would be exposed as QObject properties; the periodic
+        updates to the location would update these properties and emit property
+        changed signals.
+    \li \l{Replica}{Replicas} would be created in other processes and would
+        always know your current location, but wouldn't need any of the logic
+        to compute the location from the sensor data.
+    \li Connecting to the location changed signal on the Replica would work as
+        expected: the signal emitted from the Source would trigger the signal
+        emission on every Replica.
+\endlist
 
-\section2 Guides
+\section1 Use Case: Printer Access
+
+Consider a service that provides access to a printer. In QtRO terms:
+
+\list
+    \li The \l{Source} would be the process controlling the printer directly.
+    \li The ink levels and printer status would be monitored by QObject
+        properties. Updates to these properties would emit property changed
+        signals.
+    \li The key feature -- being able to print something -- needs to be passed
+        back to the printer. Incidentally, this aligns with the Qt slot mechanism,
+        which QtRO uses as the way for \l{Replica}{Replicas} to make calls on the
+        Source. In effect, properties and signals go from Source to Replicas;
+        slots go from Replica to Source.
+    \li When a print request is accepted, the printer status would change,
+        triggering a change in the status property. This would then be reported
+        to all Replicas.
+\endlist
+
+\section1 Guides
  \list
-    \li \l {Overview Qt Remote Objects}
-    \li \l {Qt Remote Objects C++ Classes}
-    \li \l {Qt Remote Objects Nodes}
-    \li \l {Source Objects}{Qt Remote Objects Source Objects}
-    \li \l {Replica Objects}{Qt Remote Objects Replica Objects}
-    \li \l {Qt Remote Objects Registry}
-    \li \l {Qt Remote Objects Compiler}
+    \li \l {Getting Started with Qt Remote Objects}
+    \li \l {Qt Remote Objects Nodes}{Nodes}
+    \li \l {Qt Remote Objects Source}{Sources}
+    \li \l {Qt Remote Objects Replica}{Replicas}
+    \li \l {Qt Remote Objects Registry}{Registry}
+    \li \l {Qt Remote Objects - External QIODevices}{External QIODevices}
+    \li \l {Qt Remote Objects Compiler}{Compiler}
     \li \l {Remote Object Interaction}
-    \li \l {Using Qt Remote Objects}
-    \li \l {Troubleshooting Qt Remote Objects}
-
+    \li \l {Troubleshooting Qt Remote Objects}{Troubleshooting}
+    \li \l {Qt Remote Objects Protocol Versioning}{Protocol Versioning}
  \endlist
 
 \section2 Reference
 
-\l {Qt Remote Objects C++ Classes}
+\list
+    \li \l {Qt Remote Objects C++ Classes}
+    \li \l {Qt Remote Objects QML Types}
+\endlist
+
+\section1 Licenses
+
+Qt Remote Objects is available under commercial licenses from \l{The Qt Company}.
+In addition, it is available under the
+\l{GNU Lesser General Public License, version 3}, or the
+\l{GNU General Public License, version 2}.
+See \l{Qt Licensing} for further details.
 
 */

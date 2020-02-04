@@ -20,7 +20,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "gtest/gtest.h"
 #include "util/mac/mac_util.h"
@@ -31,13 +31,12 @@ namespace test {
 namespace {
 
 TEST(ExceptionTypes, ExcCrashRecoverOriginalException) {
-  struct TestData {
+  static constexpr struct {
     mach_exception_code_t code_0;
     exception_type_t exception;
     mach_exception_code_t original_code_0;
     int signal;
-  };
-  const TestData kTestData[] = {
+  } kTestData[] = {
       {0xb100001, EXC_BAD_ACCESS, KERN_INVALID_ADDRESS, SIGSEGV},
       {0xb100002, EXC_BAD_ACCESS, KERN_PROTECTION_FAILURE, SIGSEGV},
       {0xa100002, EXC_BAD_ACCESS, KERN_PROTECTION_FAILURE, SIGBUS},
@@ -68,8 +67,8 @@ TEST(ExceptionTypes, ExcCrashRecoverOriginalException) {
       {0, 0, 0, 0},
   };
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
-    const TestData& test_data = kTestData[index];
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
+    const auto& test_data = kTestData[index];
     SCOPED_TRACE(base::StringPrintf(
         "index %zu, code_0 0x%llx", index, test_data.code_0));
 
@@ -85,8 +84,8 @@ TEST(ExceptionTypes, ExcCrashRecoverOriginalException) {
 
   // Now make sure that ExcCrashRecoverOriginalException() properly ignores
   // optional arguments.
-  static_assert(arraysize(kTestData) >= 1, "must have something to test");
-  const TestData& test_data = kTestData[0];
+  static_assert(base::size(kTestData) >= 1, "must have something to test");
+  const auto& test_data = kTestData[0];
   EXPECT_EQ(
       ExcCrashRecoverOriginalException(test_data.code_0, nullptr, nullptr),
       test_data.exception);
@@ -133,12 +132,11 @@ TEST(ExceptionTypes, ExcCrashCouldContainException) {
        (static_cast<uint64_t>(flavor) & 0x7ull) << 58)))
 
 TEST(ExceptionTypes, ExceptionCodeForMetrics) {
-  struct TestData {
+  static constexpr struct {
     exception_type_t exception;
     mach_exception_code_t code_0;
     int32_t metrics_code;
-  };
-  const TestData kTestData[] = {
+  } kTestData[] = {
 #define ENCODE_EXC(type, code_0) \
   { (type), (code_0), ((type) << 16) | (code_0) }
       ENCODE_EXC(EXC_BAD_ACCESS, KERN_INVALID_ADDRESS),
@@ -240,8 +238,8 @@ TEST(ExceptionTypes, ExceptionCodeForMetrics) {
       {0x00010000, 0x00010000, static_cast<int32_t>(0xffffffff)},
   };
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
-    const TestData& test_data = kTestData[index];
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
+    const auto& test_data = kTestData[index];
     SCOPED_TRACE(base::StringPrintf("index %zu, exception 0x%x, code_0 0x%llx",
                                     index,
                                     test_data.exception,

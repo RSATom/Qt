@@ -19,8 +19,13 @@ static base::TimeDelta CalculateDuration(int frames, double sample_rate) {
       frames * base::Time::kMicrosecondsPerSecond / sample_rate);
 }
 
-AudioBufferMemoryPool::AudioBufferMemoryPool() {}
-AudioBufferMemoryPool::~AudioBufferMemoryPool() {}
+AudioBufferMemoryPool::AudioBufferMemoryPool() = default;
+AudioBufferMemoryPool::~AudioBufferMemoryPool() = default;
+
+size_t AudioBufferMemoryPool::GetPoolSizeForTesting() {
+  base::AutoLock al(entry_lock_);
+  return entries_.size();
+}
 
 AudioBufferMemoryPool::AudioMemory AudioBufferMemoryPool::CreateBuffer(
     size_t size) {
@@ -146,7 +151,7 @@ scoped_refptr<AudioBuffer> AudioBuffer::CopyFrom(
   // If you hit this CHECK you likely have a bug in a demuxer. Go fix it.
   CHECK_GT(frame_count, 0);  // Otherwise looks like an EOF buffer.
   CHECK(data[0]);
-  return make_scoped_refptr(
+  return base::WrapRefCounted(
       new AudioBuffer(sample_format, channel_layout, channel_count, sample_rate,
                       frame_count, true, data, 0, timestamp, std::move(pool)));
 }
@@ -165,7 +170,7 @@ scoped_refptr<AudioBuffer> AudioBuffer::CopyBitstreamFrom(
   // If you hit this CHECK you likely have a bug in a demuxer. Go fix it.
   CHECK_GT(frame_count, 0);  // Otherwise looks like an EOF buffer.
   CHECK(data[0]);
-  return make_scoped_refptr(new AudioBuffer(
+  return base::WrapRefCounted(new AudioBuffer(
       sample_format, channel_layout, channel_count, sample_rate, frame_count,
       true, data, data_size, timestamp, std::move(pool)));
 }
@@ -179,7 +184,7 @@ scoped_refptr<AudioBuffer> AudioBuffer::CreateBuffer(
     int frame_count,
     scoped_refptr<AudioBufferMemoryPool> pool) {
   CHECK_GT(frame_count, 0);  // Otherwise looks like an EOF buffer.
-  return make_scoped_refptr(new AudioBuffer(
+  return base::WrapRefCounted(new AudioBuffer(
       sample_format, channel_layout, channel_count, sample_rate, frame_count,
       true, nullptr, 0, kNoTimestamp, std::move(pool)));
 }
@@ -194,7 +199,7 @@ scoped_refptr<AudioBuffer> AudioBuffer::CreateBitstreamBuffer(
     size_t data_size,
     scoped_refptr<AudioBufferMemoryPool> pool) {
   CHECK_GT(frame_count, 0);  // Otherwise looks like an EOF buffer.
-  return make_scoped_refptr(new AudioBuffer(
+  return base::WrapRefCounted(new AudioBuffer(
       sample_format, channel_layout, channel_count, sample_rate, frame_count,
       true, nullptr, data_size, kNoTimestamp, std::move(pool)));
 }
@@ -208,16 +213,16 @@ scoped_refptr<AudioBuffer> AudioBuffer::CreateEmptyBuffer(
     const base::TimeDelta timestamp) {
   CHECK_GT(frame_count, 0);  // Otherwise looks like an EOF buffer.
   // Since data == nullptr, format doesn't matter.
-  return make_scoped_refptr(new AudioBuffer(
+  return base::WrapRefCounted(new AudioBuffer(
       kSampleFormatF32, channel_layout, channel_count, sample_rate, frame_count,
       false, nullptr, 0, timestamp, nullptr));
 }
 
 // static
 scoped_refptr<AudioBuffer> AudioBuffer::CreateEOSBuffer() {
-  return make_scoped_refptr(new AudioBuffer(kUnknownSampleFormat,
-                                            CHANNEL_LAYOUT_NONE, 0, 0, 0, false,
-                                            nullptr, 0, kNoTimestamp, nullptr));
+  return base::WrapRefCounted(
+      new AudioBuffer(kUnknownSampleFormat, CHANNEL_LAYOUT_NONE, 0, 0, 0, false,
+                      nullptr, 0, kNoTimestamp, nullptr));
 }
 
 // Convert int16_t values in the range [INT16_MIN, INT16_MAX] to [-1.0, 1.0].
@@ -244,13 +249,28 @@ void AudioBuffer::ReadFrames(int frames_to_copy,
   DCHECK(!end_of_stream());
   DCHECK_EQ(dest->channels(), channel_count_);
   DCHECK_LE(source_frame_offset + frames_to_copy, adjusted_frame_count_);
+  DCHECK_LE(dest_frame_offset + frames_to_copy, dest->frames());
+
+  dest->set_is_bitstream_format(IsBitstreamFormat());
 
   if (IsBitstreamFormat()) {
-    // TODO(tsunghung): Implement it along with AudioBus changes.
-    NOTREACHED() << "Invalid sample format!";
-  }
+    // For bitstream formats, we only support 2 modes: 1) Overwrite the data to
+    // the beginning of the destination buffer. 2) Append new data to the end of
+    // the existing data.
+    DCHECK(!source_frame_offset);
+    DCHECK(!dest_frame_offset ||
+           dest_frame_offset == dest->GetBitstreamFrames());
 
-  DCHECK_LE(dest_frame_offset + frames_to_copy, dest->frames());
+    size_t bitstream_size =
+        dest_frame_offset ? dest->GetBitstreamDataSize() : 0;
+    uint8_t* dest_data =
+        reinterpret_cast<uint8_t*>(dest->channel(0)) + bitstream_size;
+
+    memcpy(dest_data, channel_data_[0], data_size());
+    dest->SetBitstreamDataSize(bitstream_size + data_size());
+    dest->SetBitstreamFrames(dest_frame_offset + frame_count());
+    return;
+  }
 
   if (!data_) {
     // Special case for an empty buffer.
@@ -351,7 +371,8 @@ void AudioBuffer::TrimRange(int start, int end) {
   CHECK_LE(frames_to_trim, adjusted_frame_count_);
 
   const int bytes_per_channel = SampleFormatToBytesPerChannel(sample_format_);
-  const int frames_to_copy = adjusted_frame_count_ - end;
+  // Empty buffers do not have frames to copy backed by data_.
+  const int frames_to_copy = data_ ? adjusted_frame_count_ - end : 0;
   if (frames_to_copy > 0) {
     switch (sample_format_) {
       case kSampleFormatPlanarS16:
@@ -379,6 +400,7 @@ void AudioBuffer::TrimRange(int start, int end) {
       case kUnknownSampleFormat:
       case kSampleFormatAc3:
       case kSampleFormatEac3:
+      case kSampleFormatMpegHAudio:
         NOTREACHED() << "Invalid sample format!";
     }
   } else {

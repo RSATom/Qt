@@ -17,7 +17,7 @@ namespace {
 const uint8_t kGreen[] = {0x0, 0xFF, 0x0, 0xFF};
 
 template <gfx::BufferFormat format>
-class GLImageRefCountedMemoryTestDelegate {
+class GLImageRefCountedMemoryTestDelegate : public GLImageTestDelegateBase {
  public:
   scoped_refptr<GLImage> CreateSolidColorImage(const gfx::Size& size,
                                                const uint8_t color[4]) const {
@@ -28,8 +28,7 @@ class GLImageRefCountedMemoryTestDelegate {
         size.width(), size.height(),
         static_cast<int>(RowSizeForBufferFormat(size.width(), format, 0)), 0,
         format, color, &bytes->data().front());
-    scoped_refptr<GLImageRefCountedMemory> image(new GLImageRefCountedMemory(
-        size, GLImageMemory::GetInternalFormatForTesting(format)));
+    auto image = base::MakeRefCounted<GLImageRefCountedMemory>(size);
     bool rv = image->Initialize(bytes.get(), format);
     EXPECT_TRUE(rv);
     return image;
@@ -37,6 +36,7 @@ class GLImageRefCountedMemoryTestDelegate {
 
   unsigned GetTextureTarget() const { return GL_TEXTURE_2D; }
   const uint8_t* GetImageColor() { return kGreen; }
+  int GetAdmissibleError() const { return 0; }
 };
 
 using GLImageTestTypes = testing::Types<

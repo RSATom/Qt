@@ -6,9 +6,11 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "net/base/auth.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/load_timing_info_test_util.h"
@@ -26,16 +28,23 @@
 #include "net/http/transport_security_state.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/next_proto.h"
+#include "net/socket/socket_tag.h"
 #include "net/socket/socket_test_util.h"
-#include "net/spdy/chromium/spdy_session.h"
-#include "net/spdy/chromium/spdy_session_pool.h"
-#include "net/spdy/chromium/spdy_test_util_common.h"
+#include "net/socket/socks_connect_job.h"
+#include "net/socket/transport_client_socket_pool.h"
+#include "net/socket/transport_connect_job.h"
+#include "net/spdy/spdy_session.h"
+#include "net/spdy/spdy_session_pool.h"
+#include "net/spdy/spdy_test_util_common.h"
 #include "net/ssl/ssl_config_service_defaults.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_certificate_data.h"
+#include "net/test/test_with_scoped_task_environment.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -48,6 +57,7 @@ namespace {
 
 const int kMaxSockets = 32;
 const int kMaxSocketsPerGroup = 6;
+const char kGroupName[] = "a";
 
 // Make sure |handle|'s load times are set correctly.  DNS and connect start
 // times comes from mock client sockets in these tests, so primarily serves to
@@ -82,56 +92,57 @@ void TestLoadTimingInfoNoDns(const ClientSocketHandle& handle) {
   ExpectLoadTimingHasOnlyConnectionTimes(load_timing_info);
 }
 
-class SSLClientSocketPoolTest : public testing::Test {
+class SSLClientSocketPoolTest : public TestWithScopedTaskEnvironment {
  protected:
   SSLClientSocketPoolTest()
       : cert_verifier_(new MockCertVerifier),
         transport_security_state_(new TransportSecurityState),
-        proxy_service_(ProxyService::CreateDirect()),
+        proxy_resolution_service_(ProxyResolutionService::CreateDirect()),
         ssl_config_service_(new SSLConfigServiceDefaults),
         http_auth_handler_factory_(
             HttpAuthHandlerFactory::CreateDefault(&host_resolver_)),
         http_server_properties_(new HttpServerPropertiesImpl),
         session_(CreateNetworkSession()),
-        direct_transport_socket_params_(new TransportSocketParams(
-            HostPortPair("host", 443),
-            false,
-            OnHostResolutionCallback(),
-            TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT)),
+        direct_transport_socket_params_(
+            new TransportSocketParams(HostPortPair("host", 443),
+                                      false,
+                                      OnHostResolutionCallback())),
         transport_socket_pool_(kMaxSockets,
                                kMaxSocketsPerGroup,
                                &socket_factory_),
-        proxy_transport_socket_params_(new TransportSocketParams(
-            HostPortPair("proxy", 443),
-            false,
-            OnHostResolutionCallback(),
-            TransportSocketParams::COMBINE_CONNECT_AND_WRITE_DEFAULT)),
+        proxy_transport_socket_params_(
+            new TransportSocketParams(HostPortPair("proxy", 443),
+                                      false,
+                                      OnHostResolutionCallback())),
         socks_socket_params_(
             new SOCKSSocketParams(proxy_transport_socket_params_,
                                   true,
-                                  HostPortPair("sockshost", 443))),
+                                  HostPortPair("sockshost", 443),
+                                  TRAFFIC_ANNOTATION_FOR_TESTS)),
         socks_socket_pool_(kMaxSockets,
                            kMaxSocketsPerGroup,
                            &transport_socket_pool_),
         http_proxy_socket_params_(
             new HttpProxySocketParams(proxy_transport_socket_params_,
                                       NULL,
+                                      quic::QUIC_VERSION_UNSUPPORTED,
                                       std::string(),
                                       HostPortPair("host", 80),
                                       session_->http_auth_cache(),
                                       session_->http_auth_handler_factory(),
                                       session_->spdy_session_pool(),
-                                      true,
-                                      NULL)),
+                                      session_->quic_stream_factory(),
+                                      /*is_trusted_proxy=*/false,
+                                      /*tunnel=*/true,
+                                      TRAFFIC_ANNOTATION_FOR_TESTS)),
         http_proxy_socket_pool_(kMaxSockets,
                                 kMaxSocketsPerGroup,
                                 &transport_socket_pool_,
                                 NULL,
                                 NULL,
+                                NULL,
                                 NULL) {
-    scoped_refptr<SSLConfigService> ssl_config_service(
-        new SSLConfigServiceDefaults);
-    ssl_config_service->GetSSLConfig(&ssl_config_);
+    ssl_config_service_->GetSSLConfig(&ssl_config_);
   }
 
   void CreatePool(bool transport_pool, bool http_proxy_pool, bool socks_pool) {
@@ -140,20 +151,20 @@ class SSLClientSocketPoolTest : public testing::Test {
         NULL /* channel_id_service */, transport_security_state_.get(),
         &ct_verifier_, &ct_policy_enforcer_,
         std::string() /* ssl_session_cache_shard */, &socket_factory_,
-        transport_pool ? &transport_socket_pool_ : NULL,
-        socks_pool ? &socks_socket_pool_ : NULL,
-        http_proxy_pool ? &http_proxy_socket_pool_ : NULL, NULL, NULL));
+        transport_pool ? &transport_socket_pool_ : nullptr,
+        socks_pool ? &socks_socket_pool_ : nullptr,
+        http_proxy_pool ? &http_proxy_socket_pool_ : nullptr,
+        nullptr /* ssl_config_service */,
+        nullptr /* network_quality_estimator */, nullptr /* net_log */));
   }
 
-  scoped_refptr<SSLSocketParams> SSLParams(ProxyServer::Scheme proxy,
-                                           bool expect_spdy) {
-    return make_scoped_refptr(new SSLSocketParams(
+  scoped_refptr<SSLSocketParams> SSLParams(ProxyServer::Scheme proxy) {
+    return base::MakeRefCounted<SSLSocketParams>(
         proxy == ProxyServer::SCHEME_DIRECT ? direct_transport_socket_params_
                                             : NULL,
         proxy == ProxyServer::SCHEME_SOCKS5 ? socks_socket_params_ : NULL,
         proxy == ProxyServer::SCHEME_HTTP ? http_proxy_socket_params_ : NULL,
-        HostPortPair("host", 443), ssl_config_, PRIVACY_MODE_DISABLED, 0,
-        expect_spdy));
+        HostPortPair("host", 443), ssl_config_, PRIVACY_MODE_DISABLED);
   }
 
   void AddAuthToCache() {
@@ -174,7 +185,7 @@ class SSLClientSocketPoolTest : public testing::Test {
     session_context.transport_security_state = transport_security_state_.get();
     session_context.cert_transparency_verifier = &ct_verifier_;
     session_context.ct_policy_enforcer = &ct_policy_enforcer_;
-    session_context.proxy_service = proxy_service_.get();
+    session_context.proxy_resolution_service = proxy_resolution_service_.get();
     session_context.client_socket_factory = &socket_factory_;
     session_context.ssl_config_service = ssl_config_service_.get();
     session_context.http_auth_handler_factory =
@@ -188,12 +199,12 @@ class SSLClientSocketPoolTest : public testing::Test {
 
   MockClientSocketFactory socket_factory_;
   MockCachingHostResolver host_resolver_;
-  std::unique_ptr<CertVerifier> cert_verifier_;
+  std::unique_ptr<MockCertVerifier> cert_verifier_;
   std::unique_ptr<TransportSecurityState> transport_security_state_;
   MultiLogCTVerifier ct_verifier_;
-  CTPolicyEnforcer ct_policy_enforcer_;
-  const std::unique_ptr<ProxyService> proxy_service_;
-  const scoped_refptr<SSLConfigService> ssl_config_service_;
+  DefaultCTPolicyEnforcer ct_policy_enforcer_;
+  const std::unique_ptr<ProxyResolutionService> proxy_resolution_service_;
+  const std::unique_ptr<SSLConfigService> ssl_config_service_;
   const std::unique_ptr<HttpAuthHandlerFactory> http_auth_handler_factory_;
   const std::unique_ptr<HttpServerPropertiesImpl> http_server_properties_;
   const std::unique_ptr<HttpNetworkSession> session_;
@@ -219,13 +230,13 @@ TEST_F(SSLClientSocketPoolTest, TCPFail) {
   socket_factory_.AddSocketDataProvider(&data);
 
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   ClientSocketHandle handle;
   int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  CompletionCallback(), pool_.get(), NetLogWithSource());
+      handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                  ClientSocketPool::RespectLimits::ENABLED,
+                  CompletionOnceCallback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_CONNECTION_FAILED));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -241,14 +252,13 @@ TEST_F(SSLClientSocketPoolTest, TCPFailAsync) {
   socket_factory_.AddSocketDataProvider(&data);
 
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -270,17 +280,17 @@ TEST_F(SSLClientSocketPoolTest, BasicDirect) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(handle.is_initialized());
   EXPECT_TRUE(handle.socket());
+  EXPECT_EQ(MEDIUM, transport_socket_pool_.requests()[0]->priority());
   TestLoadTimingInfo(handle);
   EXPECT_EQ(0u, handle.connection_attempts().size());
 }
@@ -289,8 +299,7 @@ TEST_F(SSLClientSocketPoolTest, BasicDirect) {
 // socket request on Init (for the DIRECT case).
 TEST_F(SSLClientSocketPoolTest, SetSocketRequestPriorityOnInitDirect) {
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params =
-      SSLParams(ProxyServer::SCHEME_DIRECT, false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   for (int i = MINIMUM_PRIORITY; i <= MAXIMUM_PRIORITY; ++i) {
     RequestPriority priority = static_cast<RequestPriority>(i);
@@ -303,12 +312,42 @@ TEST_F(SSLClientSocketPoolTest, SetSocketRequestPriorityOnInitDirect) {
     ClientSocketHandle handle;
     TestCompletionCallback callback;
     EXPECT_EQ(
-        OK, handle.Init("a", params, priority,
+        OK, handle.Init(kGroupName, params, priority, SocketTag(),
                         ClientSocketPool::RespectLimits::ENABLED,
                         callback.callback(), pool_.get(), NetLogWithSource()));
     EXPECT_EQ(priority, transport_socket_pool_.last_request_priority());
+    EXPECT_EQ(priority, transport_socket_pool_.requests()[i]->priority());
     handle.socket()->Disconnect();
   }
+}
+
+// Test that the SSLConnectJob passes priority changes down to the transport
+// socket pool (for the DIRECT case).
+TEST_F(SSLClientSocketPoolTest, SetSocketRequestPriorityDirect) {
+  StaticSocketDataProvider data;
+  socket_factory_.AddSocketDataProvider(&data);
+  SSLSocketDataProvider ssl(ASYNC, OK);
+  socket_factory_.AddSSLSocketDataProvider(&ssl);
+
+  CreatePool(true /* tcp pool */, false, false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
+
+  ClientSocketHandle handle;
+  TestCompletionCallback callback;
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
+  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
+  EXPECT_FALSE(handle.is_initialized());
+  EXPECT_FALSE(handle.socket());
+  EXPECT_EQ(MEDIUM, transport_socket_pool_.requests()[0]->priority());
+
+  pool_->SetPriority(kGroupName, &handle, LOWEST);
+  EXPECT_EQ(LOWEST, transport_socket_pool_.requests()[0]->priority());
+
+  EXPECT_THAT(callback.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle.is_initialized());
+  EXPECT_TRUE(handle.socket());
 }
 
 TEST_F(SSLClientSocketPoolTest, BasicDirectAsync) {
@@ -318,14 +357,13 @@ TEST_F(SSLClientSocketPoolTest, BasicDirectAsync) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -343,14 +381,13 @@ TEST_F(SSLClientSocketPoolTest, DirectCertError) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -368,14 +405,13 @@ TEST_F(SSLClientSocketPoolTest, DirectSSLError) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -394,14 +430,13 @@ TEST_F(SSLClientSocketPoolTest, DirectWithNPN) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -410,34 +445,7 @@ TEST_F(SSLClientSocketPoolTest, DirectWithNPN) {
   EXPECT_TRUE(handle.is_initialized());
   EXPECT_TRUE(handle.socket());
   TestLoadTimingInfo(handle);
-  SSLClientSocket* ssl_socket = static_cast<SSLClientSocket*>(handle.socket());
-  EXPECT_TRUE(ssl_socket->WasAlpnNegotiated());
-}
-
-TEST_F(SSLClientSocketPoolTest, DirectNoSPDY) {
-  StaticSocketDataProvider data;
-  socket_factory_.AddSocketDataProvider(&data);
-  SSLSocketDataProvider ssl(ASYNC, OK);
-  ssl.next_proto = kProtoHTTP11;
-  socket_factory_.AddSSLSocketDataProvider(&ssl);
-
-  CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    true);
-
-  ClientSocketHandle handle;
-  TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsError(ERR_ALPN_NEGOTIATION_FAILED));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-  EXPECT_TRUE(handle.is_ssl_error());
+  EXPECT_TRUE(handle.socket()->WasAlpnNegotiated());
 }
 
 TEST_F(SSLClientSocketPoolTest, DirectGotSPDY) {
@@ -448,14 +456,13 @@ TEST_F(SSLClientSocketPoolTest, DirectGotSPDY) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    true);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -465,39 +472,8 @@ TEST_F(SSLClientSocketPoolTest, DirectGotSPDY) {
   EXPECT_TRUE(handle.socket());
   TestLoadTimingInfo(handle);
 
-  SSLClientSocket* ssl_socket = static_cast<SSLClientSocket*>(handle.socket());
-  EXPECT_TRUE(ssl_socket->WasAlpnNegotiated());
-  EXPECT_EQ(kProtoHTTP2, ssl_socket->GetNegotiatedProtocol());
-}
-
-TEST_F(SSLClientSocketPoolTest, DirectGotBonusSPDY) {
-  StaticSocketDataProvider data;
-  socket_factory_.AddSocketDataProvider(&data);
-  SSLSocketDataProvider ssl(ASYNC, OK);
-  ssl.next_proto = kProtoHTTP2;
-  socket_factory_.AddSSLSocketDataProvider(&ssl);
-
-  CreatePool(true /* tcp pool */, false, false);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_DIRECT,
-                                                    true);
-
-  ClientSocketHandle handle;
-  TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
-  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  EXPECT_FALSE(handle.is_initialized());
-  EXPECT_FALSE(handle.socket());
-
-  EXPECT_THAT(callback.WaitForResult(), IsOk());
-  EXPECT_TRUE(handle.is_initialized());
-  EXPECT_TRUE(handle.socket());
-  TestLoadTimingInfo(handle);
-
-  SSLClientSocket* ssl_socket = static_cast<SSLClientSocket*>(handle.socket());
-  EXPECT_TRUE(ssl_socket->WasAlpnNegotiated());
-  EXPECT_EQ(kProtoHTTP2, ssl_socket->GetNegotiatedProtocol());
+  EXPECT_TRUE(handle.socket()->WasAlpnNegotiated());
+  EXPECT_EQ(kProtoHTTP2, handle.socket()->GetNegotiatedProtocol());
 }
 
 TEST_F(SSLClientSocketPoolTest, SOCKSFail) {
@@ -506,14 +482,13 @@ TEST_F(SSLClientSocketPoolTest, SOCKSFail) {
   socket_factory_.AddSocketDataProvider(&data);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_CONNECTION_FAILED));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -526,14 +501,13 @@ TEST_F(SSLClientSocketPoolTest, SOCKSFailAsync) {
   socket_factory_.AddSocketDataProvider(&data);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -552,14 +526,13 @@ TEST_F(SSLClientSocketPoolTest, SOCKSBasic) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(handle.is_initialized());
   EXPECT_TRUE(handle.socket());
@@ -578,16 +551,45 @@ TEST_F(SSLClientSocketPoolTest, SetTransportPriorityOnInitSOCKS) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params =
-      SSLParams(ProxyServer::SCHEME_SOCKS5, false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
   EXPECT_EQ(OK,
-            handle.Init("a", params, HIGHEST,
+            handle.Init(kGroupName, params, HIGHEST, SocketTag(),
                         ClientSocketPool::RespectLimits::ENABLED,
                         callback.callback(), pool_.get(), NetLogWithSource()));
   EXPECT_EQ(HIGHEST, transport_socket_pool_.last_request_priority());
+  EXPECT_EQ(HIGHEST, transport_socket_pool_.requests()[0]->priority());
+}
+
+// Test that the SSLConnectJob passes priority changes down to the transport
+// socket pool (for the SOCKS_PROXY case).
+TEST_F(SSLClientSocketPoolTest, SetTransportPrioritySOCKS) {
+  StaticSocketDataProvider data;
+  socket_factory_.AddSocketDataProvider(&data);
+  SSLSocketDataProvider ssl(ASYNC, OK);
+  socket_factory_.AddSSLSocketDataProvider(&ssl);
+
+  CreatePool(false, true /* http proxy pool */, true /* socks pool */);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5);
+
+  ClientSocketHandle handle;
+  TestCompletionCallback callback;
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
+  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
+  EXPECT_FALSE(handle.is_initialized());
+  EXPECT_FALSE(handle.socket());
+  EXPECT_EQ(MEDIUM, transport_socket_pool_.requests()[0]->priority());
+
+  pool_->SetPriority(kGroupName, &handle, LOWEST);
+  EXPECT_EQ(LOWEST, transport_socket_pool_.requests()[0]->priority());
+
+  EXPECT_THAT(callback.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle.is_initialized());
+  EXPECT_TRUE(handle.socket());
 }
 
 TEST_F(SSLClientSocketPoolTest, SOCKSBasicAsync) {
@@ -597,14 +599,13 @@ TEST_F(SSLClientSocketPoolTest, SOCKSBasicAsync) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_SOCKS5);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -623,14 +624,13 @@ TEST_F(SSLClientSocketPoolTest, HttpProxyFail) {
   socket_factory_.AddSocketDataProvider(&data);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_PROXY_CONNECTION_FAILED));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -643,14 +643,13 @@ TEST_F(SSLClientSocketPoolTest, HttpProxyFailAsync) {
   socket_factory_.AddSocketDataProvider(&data);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -672,8 +671,7 @@ TEST_F(SSLClientSocketPoolTest, HttpProxyBasic) {
   MockRead reads[] = {
       MockRead(SYNCHRONOUS, "HTTP/1.1 200 Connection Established\r\n\r\n"),
   };
-  StaticSocketDataProvider data(reads, arraysize(reads), writes,
-                                arraysize(writes));
+  StaticSocketDataProvider data(reads, writes);
   data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
   socket_factory_.AddSocketDataProvider(&data);
   AddAuthToCache();
@@ -681,14 +679,13 @@ TEST_F(SSLClientSocketPoolTest, HttpProxyBasic) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(handle.is_initialized());
   EXPECT_TRUE(handle.socket());
@@ -708,8 +705,7 @@ TEST_F(SSLClientSocketPoolTest, SetTransportPriorityOnInitHTTP) {
   MockRead reads[] = {
       MockRead(SYNCHRONOUS, "HTTP/1.1 200 Connection Established\r\n\r\n"),
   };
-  StaticSocketDataProvider data(reads, arraysize(reads), writes,
-                                arraysize(writes));
+  StaticSocketDataProvider data(reads, writes);
   data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
   socket_factory_.AddSocketDataProvider(&data);
   AddAuthToCache();
@@ -717,16 +713,57 @@ TEST_F(SSLClientSocketPoolTest, SetTransportPriorityOnInitHTTP) {
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params =
-      SSLParams(ProxyServer::SCHEME_HTTP, false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
   EXPECT_EQ(OK,
-            handle.Init("a", params, HIGHEST,
+            handle.Init(kGroupName, params, HIGHEST, SocketTag(),
                         ClientSocketPool::RespectLimits::ENABLED,
                         callback.callback(), pool_.get(), NetLogWithSource()));
   EXPECT_EQ(HIGHEST, transport_socket_pool_.last_request_priority());
+  EXPECT_EQ(HIGHEST, transport_socket_pool_.requests()[0]->priority());
+}
+
+// Test that the SSLConnectJob passes priority changes down to the transport
+// socket pool (for the HTTP_PROXY case).
+TEST_F(SSLClientSocketPoolTest, SetSocketRequestPriorityHTTP) {
+  MockWrite writes[] = {
+      MockWrite("CONNECT host:80 HTTP/1.1\r\n"
+                "Host: host:80\r\n"
+                "Proxy-Connection: keep-alive\r\n"
+                "Proxy-Authorization: Basic Zm9vOmJhcg==\r\n\r\n"),
+  };
+  MockRead reads[] = {
+      MockRead("HTTP/1.1 200 Connection Established\r\n\r\n"),
+  };
+  StaticSocketDataProvider data(reads, writes);
+  socket_factory_.AddSocketDataProvider(&data);
+  AddAuthToCache();
+  SSLSocketDataProvider ssl(ASYNC, OK);
+  socket_factory_.AddSSLSocketDataProvider(&ssl);
+
+  CreatePool(false, true /* http proxy pool */, true /* socks pool */);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP);
+
+  ClientSocketHandle handle;
+  TestCompletionCallback callback;
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
+  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
+  EXPECT_FALSE(handle.is_initialized());
+  EXPECT_FALSE(handle.socket());
+
+  EXPECT_EQ(MEDIUM, transport_socket_pool_.last_request_priority());
+  EXPECT_EQ(MEDIUM, transport_socket_pool_.requests()[0]->priority());
+
+  handle.SetPriority(HIGHEST);
+  EXPECT_EQ(HIGHEST, transport_socket_pool_.requests()[0]->priority());
+
+  EXPECT_THAT(callback.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle.is_initialized());
+  EXPECT_TRUE(handle.socket());
 }
 
 TEST_F(SSLClientSocketPoolTest, HttpProxyBasicAsync) {
@@ -740,22 +777,20 @@ TEST_F(SSLClientSocketPoolTest, HttpProxyBasicAsync) {
   MockRead reads[] = {
       MockRead("HTTP/1.1 200 Connection Established\r\n\r\n"),
   };
-  StaticSocketDataProvider data(reads, arraysize(reads), writes,
-                                arraysize(writes));
+  StaticSocketDataProvider data(reads, writes);
   socket_factory_.AddSocketDataProvider(&data);
   AddAuthToCache();
   SSLSocketDataProvider ssl(ASYNC, OK);
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -779,21 +814,19 @@ TEST_F(SSLClientSocketPoolTest, NeedProxyAuth) {
       MockRead("Content-Length: 10\r\n\r\n"),
       MockRead("0123456789"),
   };
-  StaticSocketDataProvider data(reads, arraysize(reads), writes,
-                                arraysize(writes));
+  StaticSocketDataProvider data(reads, writes);
   socket_factory_.AddSocketDataProvider(&data);
   SSLSocketDataProvider ssl(ASYNC, OK);
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
   CreatePool(false, true /* http proxy pool */, true /* socks pool */);
-  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP,
-                                                    false);
+  scoped_refptr<SSLSocketParams> params = SSLParams(ProxyServer::SCHEME_HTTP);
 
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  int rv =
-      handle.Init("a", params, MEDIUM, ClientSocketPool::RespectLimits::ENABLED,
-                  callback.callback(), pool_.get(), NetLogWithSource());
+  int rv = handle.Init(kGroupName, params, MEDIUM, SocketTag(),
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), pool_.get(), NetLogWithSource());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -804,8 +837,8 @@ TEST_F(SSLClientSocketPoolTest, NeedProxyAuth) {
   EXPECT_FALSE(handle.is_ssl_error());
   const HttpResponseInfo& tunnel_info = handle.ssl_error_response_info();
   EXPECT_EQ(tunnel_info.headers->response_code(), 407);
-  std::unique_ptr<ClientSocketHandle> tunnel_handle(
-      handle.release_pending_http_proxy_connection());
+  std::unique_ptr<ClientSocketHandle> tunnel_handle =
+      handle.release_pending_http_proxy_connection();
   EXPECT_TRUE(tunnel_handle->socket());
   EXPECT_FALSE(tunnel_handle->socket()->IsConnected());
 }
@@ -824,32 +857,35 @@ TEST_F(SSLClientSocketPoolTest, IPPooling) {
   };
 
   host_resolver_.set_synchronous_mode(true);
-  std::unique_ptr<HostResolver::Request> req[arraysize(test_hosts)];
-  for (size_t i = 0; i < arraysize(test_hosts); i++) {
+  for (size_t i = 0; i < base::size(test_hosts); i++) {
     host_resolver_.rules()->AddIPLiteralRule(
         test_hosts[i].name, test_hosts[i].iplist, std::string());
 
     // This test requires that the HostResolver cache be populated.  Normal
     // code would have done this already, but we do it manually.
     HostResolver::RequestInfo info(HostPortPair(test_hosts[i].name, kTestPort));
-    host_resolver_.Resolve(info, DEFAULT_PRIORITY, &test_hosts[i].addresses,
-                           CompletionCallback(), &req[i], NetLogWithSource());
+    std::unique_ptr<HostResolver::Request> request;
+    int rv = host_resolver_.Resolve(
+        info, DEFAULT_PRIORITY, &test_hosts[i].addresses,
+        CompletionOnceCallback(), &request, NetLogWithSource());
+    EXPECT_THAT(rv, IsOk());
 
     // Setup a SpdySessionKey
-    test_hosts[i].key = SpdySessionKey(
-        HostPortPair(test_hosts[i].name, kTestPort), ProxyServer::Direct(),
-        PRIVACY_MODE_DISABLED);
+    test_hosts[i].key =
+        SpdySessionKey(HostPortPair(test_hosts[i].name, kTestPort),
+                       ProxyServer::Direct(), PRIVACY_MODE_DISABLED,
+                       SpdySessionKey::IsProxySession::kFalse, SocketTag());
   }
 
   MockRead reads[] = {
       MockRead(ASYNC, ERR_IO_PENDING),
   };
-  StaticSocketDataProvider data(reads, arraysize(reads), NULL, 0);
+  StaticSocketDataProvider data(reads, base::span<MockWrite>());
   socket_factory_.AddSocketDataProvider(&data);
   SSLSocketDataProvider ssl(ASYNC, OK);
-  ssl.cert = X509Certificate::CreateFromBytes(
+  ssl.ssl_info.cert = X509Certificate::CreateFromBytes(
       reinterpret_cast<const char*>(webkit_der), sizeof(webkit_der));
-  ASSERT_TRUE(ssl.cert);
+  ASSERT_TRUE(ssl.ssl_info.cert);
   ssl.next_proto = kProtoHTTP2;
   socket_factory_.AddSSLSocketDataProvider(&ssl);
 
@@ -880,31 +916,31 @@ void SSLClientSocketPoolTest::TestIPPoolingDisabled(
     { "js.webkit.com",     "192.168.0.4,192.168.0.1,192.0.2.33" },
   };
 
-  TestCompletionCallback callback;
-  int rv;
-  std::unique_ptr<HostResolver::Request> req[arraysize(test_hosts)];
-  for (size_t i = 0; i < arraysize(test_hosts); i++) {
+  host_resolver_.set_synchronous_mode(true);
+  for (size_t i = 0; i < base::size(test_hosts); i++) {
     host_resolver_.rules()->AddIPLiteralRule(
         test_hosts[i].name, test_hosts[i].iplist, std::string());
 
     // This test requires that the HostResolver cache be populated.  Normal
     // code would have done this already, but we do it manually.
     HostResolver::RequestInfo info(HostPortPair(test_hosts[i].name, kTestPort));
-    rv = host_resolver_.Resolve(info, DEFAULT_PRIORITY,
-                                &test_hosts[i].addresses, callback.callback(),
-                                &req[i], NetLogWithSource());
-    EXPECT_THAT(callback.GetResult(rv), IsOk());
+    std::unique_ptr<HostResolver::Request> request;
+    int rv = host_resolver_.Resolve(
+        info, DEFAULT_PRIORITY, &test_hosts[i].addresses,
+        CompletionOnceCallback(), &request, NetLogWithSource());
+    EXPECT_THAT(rv, IsOk());
 
     // Setup a SpdySessionKey
-    test_hosts[i].key = SpdySessionKey(
-        HostPortPair(test_hosts[i].name, kTestPort), ProxyServer::Direct(),
-        PRIVACY_MODE_DISABLED);
+    test_hosts[i].key =
+        SpdySessionKey(HostPortPair(test_hosts[i].name, kTestPort),
+                       ProxyServer::Direct(), PRIVACY_MODE_DISABLED,
+                       SpdySessionKey::IsProxySession::kFalse, SocketTag());
   }
 
   MockRead reads[] = {
       MockRead(ASYNC, ERR_IO_PENDING),
   };
-  StaticSocketDataProvider data(reads, arraysize(reads), NULL, 0);
+  StaticSocketDataProvider data(reads, base::span<MockWrite>());
   socket_factory_.AddSocketDataProvider(&data);
   socket_factory_.AddSSLSocketDataProvider(ssl);
 
@@ -924,10 +960,10 @@ void SSLClientSocketPoolTest::TestIPPoolingDisabled(
 // pooling.
 TEST_F(SSLClientSocketPoolTest, IPPoolingClientCert) {
   SSLSocketDataProvider ssl(ASYNC, OK);
-  ssl.cert = X509Certificate::CreateFromBytes(
+  ssl.ssl_info.cert = X509Certificate::CreateFromBytes(
       reinterpret_cast<const char*>(webkit_der), sizeof(webkit_der));
-  ASSERT_TRUE(ssl.cert);
-  ssl.client_cert_sent = true;
+  ASSERT_TRUE(ssl.ssl_info.cert);
+  ssl.ssl_info.client_cert_sent = true;
   ssl.next_proto = kProtoHTTP2;
   TestIPPoolingDisabled(&ssl);
 }
@@ -935,13 +971,234 @@ TEST_F(SSLClientSocketPoolTest, IPPoolingClientCert) {
 // Verifies that an SSL connection with channel ID disables SPDY IP pooling.
 TEST_F(SSLClientSocketPoolTest, IPPoolingChannelID) {
   SSLSocketDataProvider ssl(ASYNC, OK);
-  ssl.channel_id_sent = true;
+  ssl.ssl_info.channel_id_sent = true;
   ssl.next_proto = kProtoHTTP2;
   TestIPPoolingDisabled(&ssl);
 }
 
 // It would be nice to also test the timeouts in SSLClientSocketPool.
 
+// Test that SocketTag passed into SSLClientSocketPool is applied to returned
+// sockets.
+#if defined(OS_ANDROID)
+TEST_F(SSLClientSocketPoolTest, Tag) {
+  // Start test server.
+  EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  test_server.SetSSLConfig(net::EmbeddedTestServer::CERT_OK, SSLServerConfig());
+  test_server.AddDefaultHandlers(base::FilePath());
+  ASSERT_TRUE(test_server.Start());
+
+  // TLS 1.3 sockets aren't reused until the read side has been pumped.
+  // TODO(crbug.com/906668): Support pumping the read side and setting the
+  // socket to be reusable.
+  ssl_config_.version_max = SSL_PROTOCOL_VERSION_TLS1_2;
+
+  TransportClientSocketPool tcp_pool(
+      kMaxSockets, kMaxSocketsPerGroup, &host_resolver_,
+      ClientSocketFactory::GetDefaultFactory(), NULL, NULL);
+  cert_verifier_->set_default_result(OK);
+  SSLClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
+                           cert_verifier_.get(), NULL /* channel_id_service */,
+                           transport_security_state_.get(), &ct_verifier_,
+                           &ct_policy_enforcer_,
+                           std::string() /* ssl_session_cache_shard */,
+                           ClientSocketFactory::GetDefaultFactory(), &tcp_pool,
+                           NULL, NULL, NULL, NULL, NULL);
+  TestCompletionCallback callback;
+  ClientSocketHandle handle;
+  int32_t tag_val1 = 0x12345678;
+  SocketTag tag1(SocketTag::UNSET_UID, tag_val1);
+  int32_t tag_val2 = 0x87654321;
+  SocketTag tag2(getuid(), tag_val2);
+  scoped_refptr<TransportSocketParams> tcp_params(new TransportSocketParams(
+      test_server.host_port_pair(), false, OnHostResolutionCallback()));
+  scoped_refptr<SSLSocketParams> params(
+      new SSLSocketParams(tcp_params, NULL, NULL, test_server.host_port_pair(),
+                          ssl_config_, PRIVACY_MODE_DISABLED));
+
+  // Test socket is tagged before connected.
+  uint64_t old_traffic = GetTaggedBytes(tag_val1);
+  int rv = handle.Init(kGroupName, params, LOW, tag1,
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), &pool, NetLogWithSource());
+  EXPECT_THAT(callback.GetResult(rv), IsOk());
+  EXPECT_TRUE(handle.socket());
+  EXPECT_TRUE(handle.socket()->IsConnected());
+  EXPECT_GT(GetTaggedBytes(tag_val1), old_traffic);
+
+  // Test reused socket is retagged.
+  StreamSocket* socket = handle.socket();
+  handle.Reset();
+  old_traffic = GetTaggedBytes(tag_val2);
+  TestCompletionCallback callback2;
+  rv = handle.Init(kGroupName, params, LOW, tag2,
+                   ClientSocketPool::RespectLimits::ENABLED,
+                   callback2.callback(), &pool, NetLogWithSource());
+  EXPECT_THAT(rv, IsOk());
+  EXPECT_TRUE(handle.socket());
+  EXPECT_TRUE(handle.socket()->IsConnected());
+  EXPECT_EQ(handle.socket(), socket);
+  const char kRequest[] = "GET / HTTP/1.1\r\n\r\n";
+  scoped_refptr<IOBuffer> write_buffer =
+      base::MakeRefCounted<StringIOBuffer>(kRequest);
+  rv =
+      handle.socket()->Write(write_buffer.get(), strlen(kRequest),
+                             callback.callback(), TRAFFIC_ANNOTATION_FOR_TESTS);
+  EXPECT_EQ(static_cast<int>(strlen(kRequest)), callback.GetResult(rv));
+  scoped_refptr<IOBufferWithSize> read_buffer =
+      base::MakeRefCounted<IOBufferWithSize>(1);
+  rv = handle.socket()->Read(read_buffer.get(), read_buffer->size(),
+                             callback.callback());
+  EXPECT_EQ(read_buffer->size(), callback.GetResult(rv));
+  EXPECT_GT(GetTaggedBytes(tag_val2), old_traffic);
+  // Disconnect socket to prevent reuse.
+  handle.socket()->Disconnect();
+  handle.Reset();
+}
+
+TEST_F(SSLClientSocketPoolTest, TagTwoSockets) {
+  // Start test server.
+  EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  test_server.SetSSLConfig(net::EmbeddedTestServer::CERT_OK, SSLServerConfig());
+  test_server.AddDefaultHandlers(base::FilePath());
+  ASSERT_TRUE(test_server.Start());
+
+  TransportClientSocketPool tcp_pool(
+      kMaxSockets, kMaxSocketsPerGroup, &host_resolver_,
+      ClientSocketFactory::GetDefaultFactory(), NULL, NULL);
+  cert_verifier_->set_default_result(OK);
+  SSLClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
+                           cert_verifier_.get(), NULL /* channel_id_service */,
+                           transport_security_state_.get(), &ct_verifier_,
+                           &ct_policy_enforcer_,
+                           std::string() /* ssl_session_cache_shard */,
+                           ClientSocketFactory::GetDefaultFactory(), &tcp_pool,
+                           NULL, NULL, NULL, NULL, NULL);
+  ClientSocketHandle handle;
+  int32_t tag_val1 = 0x12345678;
+  SocketTag tag1(SocketTag::UNSET_UID, tag_val1);
+  int32_t tag_val2 = 0x87654321;
+  SocketTag tag2(getuid(), tag_val2);
+  scoped_refptr<TransportSocketParams> tcp_params(new TransportSocketParams(
+      test_server.host_port_pair(), false, OnHostResolutionCallback()));
+  scoped_refptr<SSLSocketParams> params(
+      new SSLSocketParams(tcp_params, NULL, NULL, test_server.host_port_pair(),
+                          ssl_config_, PRIVACY_MODE_DISABLED));
+
+  // Test connect jobs that are orphaned and then adopted, appropriately apply
+  // new tag. Request socket with |tag1|.
+  TestCompletionCallback callback;
+  int rv = handle.Init(kGroupName, params, LOW, tag1,
+                       ClientSocketPool::RespectLimits::ENABLED,
+                       callback.callback(), &pool, NetLogWithSource());
+  EXPECT_TRUE(rv == OK || rv == ERR_IO_PENDING) << "Result: " << rv;
+  // Abort and request socket with |tag2|.
+  handle.Reset();
+  TestCompletionCallback callback2;
+  rv = handle.Init(kGroupName, params, LOW, tag2,
+                   ClientSocketPool::RespectLimits::ENABLED,
+                   callback2.callback(), &pool, NetLogWithSource());
+  EXPECT_THAT(callback2.GetResult(rv), IsOk());
+  EXPECT_TRUE(handle.socket());
+  EXPECT_TRUE(handle.socket()->IsConnected());
+  // Verify socket has |tag2| applied.
+  uint64_t old_traffic = GetTaggedBytes(tag_val2);
+  const char kRequest[] = "GET / HTTP/1.1\r\n\r\n";
+  scoped_refptr<IOBuffer> write_buffer =
+      base::MakeRefCounted<StringIOBuffer>(kRequest);
+  rv = handle.socket()->Write(write_buffer.get(), strlen(kRequest),
+                              callback2.callback(),
+                              TRAFFIC_ANNOTATION_FOR_TESTS);
+  EXPECT_EQ(static_cast<int>(strlen(kRequest)), callback2.GetResult(rv));
+  scoped_refptr<IOBufferWithSize> read_buffer =
+      base::MakeRefCounted<IOBufferWithSize>(1);
+  rv = handle.socket()->Read(read_buffer.get(), read_buffer->size(),
+                             callback2.callback());
+  EXPECT_EQ(read_buffer->size(), callback2.GetResult(rv));
+  EXPECT_GT(GetTaggedBytes(tag_val2), old_traffic);
+}
+
+TEST_F(SSLClientSocketPoolTest, TagTwoSocketsFullPool) {
+  // Start test server.
+  EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  test_server.SetSSLConfig(net::EmbeddedTestServer::CERT_OK, SSLServerConfig());
+  test_server.AddDefaultHandlers(base::FilePath());
+  ASSERT_TRUE(test_server.Start());
+
+  TransportClientSocketPool tcp_pool(
+      kMaxSockets, kMaxSocketsPerGroup, &host_resolver_,
+      ClientSocketFactory::GetDefaultFactory(), NULL, NULL);
+  cert_verifier_->set_default_result(OK);
+  SSLClientSocketPool pool(kMaxSockets, kMaxSocketsPerGroup,
+                           cert_verifier_.get(), NULL /* channel_id_service */,
+                           transport_security_state_.get(), &ct_verifier_,
+                           &ct_policy_enforcer_,
+                           std::string() /* ssl_session_cache_shard */,
+                           ClientSocketFactory::GetDefaultFactory(), &tcp_pool,
+                           NULL, NULL, NULL, NULL, NULL);
+  TestCompletionCallback callback;
+  ClientSocketHandle handle;
+  int32_t tag_val1 = 0x12345678;
+  SocketTag tag1(SocketTag::UNSET_UID, tag_val1);
+  int32_t tag_val2 = 0x87654321;
+  SocketTag tag2(getuid(), tag_val2);
+  scoped_refptr<TransportSocketParams> tcp_params(new TransportSocketParams(
+      test_server.host_port_pair(), false, OnHostResolutionCallback()));
+  scoped_refptr<SSLSocketParams> params(
+      new SSLSocketParams(tcp_params, NULL, NULL, test_server.host_port_pair(),
+                          ssl_config_, PRIVACY_MODE_DISABLED));
+
+  // Test that sockets paused by a full underlying socket pool are properly
+  // connected and tagged when underlying pool is freed up.
+  // Fill up all slots in TCP pool.
+  ClientSocketHandle tcp_handles[kMaxSocketsPerGroup];
+  int rv;
+  for (auto& tcp_handle : tcp_handles) {
+    rv = tcp_handle.Init(kGroupName,
+                         TransportClientSocketPool::SocketParams::
+                             CreateFromTransportSocketParams(tcp_params),
+                         LOW, tag1, ClientSocketPool::RespectLimits::ENABLED,
+                         callback.callback(), &tcp_pool, NetLogWithSource());
+    EXPECT_THAT(callback.GetResult(rv), IsOk());
+    EXPECT_TRUE(tcp_handle.socket());
+    EXPECT_TRUE(tcp_handle.socket()->IsConnected());
+  }
+  // Request two SSL sockets.
+  ClientSocketHandle handle_to_be_canceled;
+  rv = handle_to_be_canceled.Init(
+      kGroupName, params, LOW, tag1, ClientSocketPool::RespectLimits::ENABLED,
+      callback.callback(), &pool, NetLogWithSource());
+  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
+  rv = handle.Init(kGroupName, params, LOW, tag2,
+                   ClientSocketPool::RespectLimits::ENABLED,
+                   callback.callback(), &pool, NetLogWithSource());
+  EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
+  // Cancel first request.
+  handle_to_be_canceled.Reset();
+  // Disconnect a TCP socket to free up a slot.
+  tcp_handles[0].socket()->Disconnect();
+  tcp_handles[0].Reset();
+  // Verify |handle| gets a valid tagged socket.
+  EXPECT_THAT(callback.WaitForResult(), IsOk());
+  EXPECT_TRUE(handle.socket());
+  EXPECT_TRUE(handle.socket()->IsConnected());
+  uint64_t old_traffic = GetTaggedBytes(tag_val2);
+  const char kRequest[] = "GET / HTTP/1.1\r\n\r\n";
+  scoped_refptr<IOBuffer> write_buffer =
+      base::MakeRefCounted<StringIOBuffer>(kRequest);
+  rv =
+      handle.socket()->Write(write_buffer.get(), strlen(kRequest),
+                             callback.callback(), TRAFFIC_ANNOTATION_FOR_TESTS);
+  EXPECT_EQ(static_cast<int>(strlen(kRequest)), callback.GetResult(rv));
+  scoped_refptr<IOBufferWithSize> read_buffer =
+      base::MakeRefCounted<IOBufferWithSize>(1);
+  EXPECT_EQ(handle.socket()->Read(read_buffer.get(), read_buffer->size(),
+                                  callback.callback()),
+            ERR_IO_PENDING);
+  EXPECT_THAT(callback.WaitForResult(), read_buffer->size());
+  EXPECT_GT(GetTaggedBytes(tag_val2), old_traffic);
+}
+#endif
 }  // namespace
 
 }  // namespace net

@@ -12,14 +12,14 @@ CFX_FilteredDIB::CFX_FilteredDIB() {}
 
 CFX_FilteredDIB::~CFX_FilteredDIB() {}
 
-void CFX_FilteredDIB::LoadSrc(const CFX_RetainPtr<CFX_DIBSource>& pSrc) {
+void CFX_FilteredDIB::LoadSrc(const RetainPtr<CFX_DIBBase>& pSrc) {
   m_pSrc = pSrc;
   m_Width = pSrc->GetWidth();
   m_Height = pSrc->GetHeight();
   FXDIB_Format format = GetDestFormat();
-  m_bpp = static_cast<uint8_t>(format);
+  m_bpp = GetBppFromFormat(format);
   m_AlphaFlag = static_cast<uint8_t>(format >> 8);
-  m_Pitch = (m_Width * (format & 0xff) + 31) / 32 * 4;
+  m_Pitch = (m_Width * m_bpp + 31) / 32 * 4;
   m_pPalette.reset(GetDestPalette());
   m_Scanline.resize(m_Pitch);
 }

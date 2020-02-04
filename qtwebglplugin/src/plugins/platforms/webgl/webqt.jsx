@@ -7,7 +7,7 @@ function getBrowserSize() {
                       document.documentElement.clientHeight ||
                       document.body.clientHeight ||
                       document.body.offsetHeight;
-    return { "width": actualWidth, "height" : actualHeight };
+    return { "width": actualWidth, "height": actualHeight };
 }
 
 function getContext(canvas) {
@@ -27,13 +27,14 @@ function physicalSizeRatio() {
     var physicalHeight = document.defaultView.getComputedStyle(div, null).getPropertyValue('height');
     body.removeChild(div);
     return {
-        'width' : parseFloat(physicalWidth),
-        'height' : parseFloat(physicalHeight)
+        "width": parseFloat(physicalWidth),
+        "height": parseFloat(physicalHeight)
     };
 }
 
 window.onload = function () {
     var DEBUG = 0;
+    var MOUSETRACKING = 0;
     var LOADINGSCREEN = 1;
     var canvas;
     var socket = new WebSocket("ws://" + host + ":" + port);
@@ -48,7 +49,6 @@ window.onload = function () {
     var SWAP_DELAY = 16; //${swap_delay};
     var contextData = { }; // context -> { shaderMap, programMap, ... }
     var currentContext = 0;
-    var binaryDataBuffer = new Uint8Array(0);
     var currentWindowId = "";
     var windowData = {};
     var currentZIndex = 1;
@@ -58,7 +58,7 @@ window.onload = function () {
         textDecoder = new TextDecoder("utf8");
     } else {
     textDecoder = {
-            "decode" : function (buffer)
+            "decode": function (buffer)
             {
                 var string = String.fromCharCode.apply(String, buffer);
                 return string;
@@ -67,7 +67,7 @@ window.onload = function () {
     }
     var supportedFunctions;
 
-    var sendObject = function (obj) { socket.send(JSON.stringify(obj)); }
+    var sendObject = function (obj) { socket.send(JSON.stringify(obj)); };
 
     var connect = function () {
         var size = getBrowserSize();
@@ -75,10 +75,10 @@ window.onload = function () {
         var height = size.height;
         var physicalSize = physicalSizeRatio();
 
-        var object = { "type" : "connect",
-            "width" : width, "height" : height,
-            "physicalWidth" : width / physicalSize.width,
-            "physicalHeight" : height / physicalSize.height
+        var object = { "type": "connect",
+            "width": width, "height": height,
+            "physicalWidth": width / physicalSize.width,
+            "physicalHeight": height / physicalSize.height
         };
         sendObject(object);
         initialLoadingCanvas = createLoadingCanvas('loadingCanvas', 0, 0, width, height);
@@ -88,16 +88,6 @@ window.onload = function () {
         if (DEBUG)
             console.log("Response to " + id + " = " + value);
         sendObject({ "type": "gl_response", "id": id, "value": value });
-    };
-
-    var sendResize = function (width, height, physicalWidth, physicalHeight) {
-        if (DEBUG)
-            console.log("Resizing canvas to " + width + " x " + height);
-        var object = { "type": "canvas_resize",
-            "width": width, "height": height,
-            "physicalWidth" : physicalWidth, "physicalHeight" : physicalHeight
-        };
-        sendObject(socket);
     };
 
     var createLoadingCanvas = function(name, x, y, width, height) {
@@ -188,20 +178,18 @@ window.onload = function () {
         var time = 0.0;
 
         function draw() {
-            if (canvas) {
-                gl.uniform1f(timeLocation, time);
-                time += 0.01;
-                gl.drawArrays(gl.TRIANGLES, 0, 6);
-                setTimeout(draw, 16);
-            }
+            gl.uniform1f(timeLocation, time);
+            time += 0.01;
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
         }
-        draw();
+        canvas.timerId = setInterval(draw, 16);
         return canvas;
     };
 
     var createCanvas = function (name, x, y, width, height, title) {
+        var body = document.getElementsByTagName("body")[0];
         if (initialLoadingCanvas) {
-            var body = document.getElementsByTagName("body")[0];
+            clearInterval(initialLoadingCanvas.timerId);
             body.removeChild(initialLoadingCanvas);
             initialLoadingCanvas = undefined;
         }
@@ -215,16 +203,15 @@ window.onload = function () {
         canvas.style.zIndex = currentZIndex++;
         canvas.width = width;
         canvas.height = height;
-        var body = document.getElementsByTagName("body")[0];
         body.appendChild(canvas);
 
         var qtButtons = 0;
         var sendMouseEvent = function (buttons, layerX, layerY, clientX, clientY, name) {
             var object = { "type": "mouse",
                 "buttons": buttons,
-                "layerX": layerX, "layerY": layerY, "clientX" : clientX, "clientY" : clientY,
-                "time" : new Date().getTime(),
-                "name" : name
+                "layerX": layerX, "layerY": layerY, "clientX": clientX, "clientY": clientY,
+                "time": new Date().getTime(),
+                "name": name
             };
             sendObject(object);
         };
@@ -239,17 +226,20 @@ window.onload = function () {
         };
 
         canvas.onmousedown = function (event) {
+            /* jslint bitwise: true */
             qtButtons |= mapButton(event.button);
             sendMouseEvent(qtButtons, event.layerX, event.layerY, event.clientX, event.clientY,
                            name);
         };
 
         canvas.onmousemove = function (event) {
-            sendMouseEvent(qtButtons, event.layerX, event.layerY, event.clientX, event.clientY,
-                           name);
+            if (MOUSETRACKING || event.buttons > 0)
+                sendMouseEvent(qtButtons, event.layerX, event.layerY, event.clientX, event.clientY,
+                               name);
         };
 
         canvas.onmouseup = function (event) {
+            /* jslint bitwise: true */
             qtButtons &= ~mapButton(event.button);
             sendMouseEvent(qtButtons, event.layerX, event.layerY, event.clientX, event.clientY,
                            name);
@@ -264,12 +254,12 @@ window.onload = function () {
             else if (event.detail)
                 deltaY = event.detail * 40;
             if (deltaY) {
-                var object = { "type" : "wheel",
-                    "layerX" : event.layerX, "layerY" : event.layerY,
-                    "clientX" : event.clientX, "clientY" : event.clientY,
-                    "deltaX" : event.deltaX, "deltaY" : deltaY, "deltaZ" : event.deltaZ,
-                    "time" : new Date().getTime(),
-                    "name" : name
+                var object = { "type": "wheel",
+                    "layerX": event.layerX, "layerY": event.layerY,
+                    "clientX": event.clientX, "clientY": event.clientY,
+                    "deltaX": event.deltaX, "deltaY": deltaY, "deltaZ": event.deltaZ,
+                    "time": new Date().getTime(),
+                    "name": name
                 };
                 sendObject(object);
             }
@@ -278,35 +268,35 @@ window.onload = function () {
             event.returnValue = false;
         }
 
-        if ("onmousewheel" in canvas)
-            canvas.onmousewheel = handleMouseWheel;
-        else
-            canvas.addEventListener('DOMMouseScroll', handleMouseWheel, false);
+        // Internet Explorer, Opera, Chrome and Safari
+        canvas.addEventListener('mousewheel', handleMouseWheel, { passive: true });
+        // Firefox
+        canvas.addEventListener('DOMMouseScroll', handleMouseWheel, { passive: true });
 
         function handleTouch(event) {
-            var object = {};
-            object["type"] = "touch";
-            object["name"] = name;
-            object["time"] = new Date().getTime();
-            object["event"] = event.type;
-            object["changedTouches"] = [];
-            object["stationaryTouches"] = [];
-
+            var object = {
+                "type": "touch",
+                "name": name,
+                "time": new Date().getTime(),
+                "event": event.type,
+                "changedTouches": [],
+                "stationaryTouches": [],
+            };
             var addTouch = function(changedTouch, isChanged) {
-                var touch = {};
-                touch["clientX"] = changedTouch.clientX;
-                touch["clientY"] = changedTouch.clientY;
-                touch["force"] = changedTouch.force;
-                touch["identifier"] = changedTouch.identifier;
-                touch["pageX"] = changedTouch.pageX;
-                touch["pageY"] = changedTouch.pageY;
-                touch["radiousX"] = changedTouch.radiousX;
-                touch["radiousY"] = changedTouch.radiousY;
-                touch["rotatingAngle"] = changedTouch.rotatingAngle;
-                touch["screenX"] = changedTouch.screenX;
-                touch["screenY"] = changedTouch.screenY;
-                touch["normalPositionX"] = changedTouch.screenX / screen.width;
-                touch["normalPositionY"] = changedTouch.screenY / screen.height;
+                var touch = {
+                    "clientX": changedTouch.clientX,
+                    "clientY": changedTouch.clientY,
+                    "force": changedTouch.force,
+                    "identifier": changedTouch.identifier,
+                    "pageX": changedTouch.pageX,
+                    "pageY": changedTouch.pageY,
+                    "radiusX": changedTouch.radiusX,
+                    "radiusY": changedTouch.radiusY,
+                    "screenX": changedTouch.screenX,
+                    "screenY": changedTouch.screenY,
+                    "normalPositionX": changedTouch.screenX / screen.width,
+                    "normalPositionY": changedTouch.screenY / screen.height,
+                };
                 if (isChanged)
                     object.changedTouches.push(touch);
                 else
@@ -334,10 +324,10 @@ window.onload = function () {
             event.returnValue = false;
         }
 
-        canvas.addEventListener("touchstart", handleTouch, false);
-        canvas.addEventListener("touchend", handleTouch, false);
-        canvas.addEventListener("touchcancel", handleTouch, false);
-        canvas.addEventListener("touchmove", handleTouch, false);
+        canvas.addEventListener("touchstart", handleTouch, { passive: true });
+        canvas.addEventListener("touchend", handleTouch, { passive: true });
+        canvas.addEventListener("touchcancel", handleTouch, { passive: true });
+        canvas.addEventListener("touchmove", handleTouch, { passive: true });
 
         canvas.oncontextmenu = function (event) {
             event.preventDefault();
@@ -345,16 +335,17 @@ window.onload = function () {
 
 
         var gl = getContext(canvas);
+        /* jslint bitwise: true */
         gl.clear([ gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT]);
-        var data = windowData[name] = {
-            "canvas" : canvas,
-            "gl" : gl,
-            "loadingCanvas" : createLoadingCanvas(name, x, y, width, height)
+        windowData[name] = {
+            "canvas": canvas,
+            "gl": gl,
+            "loadingCanvas": createLoadingCanvas(name, x, y, width, height)
         };
 
-        var defaultValuesObject = { 'type' : 'default_context_parameters', 'name' : name,
-            '7939' : "GL_OES_element_index_uint GL_OES_standard_derivatives " + // GL_EXTENSIONS
-                     "GL_OES_depth_texture GL_OES_packed_depth_stencil" };
+        var defaultValuesObject = { "type": "default_context_parameters", "name": name,
+            "7939": "GL_OES_element_index_uint GL_OES_standard_derivatives " + // GL_EXTENSIONS
+                    "GL_OES_depth_texture GL_OES_packed_depth_stencil" };
         [
             gl.BLEND,
             gl.DEPTH_TEST,
@@ -416,7 +407,7 @@ window.onload = function () {
         gl._clearColor = gl.clearColor;
         gl.clearColor = function (red, green, blue, alpha) {
             gl._clearColor(red, green, blue, alpha);
-        }
+        };
 
         gl.clearDepthf = function(depth) {
             gl.clearDepth(depth);
@@ -516,7 +507,7 @@ window.onload = function () {
             var d = contextData[currentContext];
             var data = [];
             for (var i = 0; i < n; ++i) {
-                var remoteBuf = d.nextBufferId++
+                var remoteBuf = d.nextBufferId++;
                 var localBuf = gl.createBuffer();
                 data.push(remoteBuf);
                 d.bufferMap[remoteBuf] = localBuf;
@@ -590,7 +581,6 @@ window.onload = function () {
 
         gl.getShaderiv = function(shader, pname) {
             var d = contextData[currentContext];
-            var p;
             if (pname === 0x8B88)
                 return d.shaderMap[shader].source.length;
             else
@@ -604,7 +594,6 @@ window.onload = function () {
         };
 
         gl.getString = function(pname) {
-            var result = "";
             return gl.getParameter(pname);
         };
 
@@ -655,7 +644,7 @@ window.onload = function () {
                 return gl._isRenderBuffer(renderbuffer);
             var d = contextData[currentContext];
             return gl._isRenderbuffer(d.renderbufferMap[renderbuffer]);
-        }
+        };
 
         gl._linkProgram = gl.linkProgram;
         gl.linkProgram = function(program) {
@@ -735,7 +724,7 @@ window.onload = function () {
 
         gl._uniform3fv = gl.uniform3fv;
         gl.uniform3fv = function(location, value) {
-            var d = contextData[context];
+            var d = contextData[currentContext];
             gl._uniform3fv(d.uniformLocationMap[location], value);
         };
 
@@ -773,19 +762,19 @@ window.onload = function () {
         gl.vertexAttrib1fv = function (index, v0) {
             var values = new Float32Array([v0]);
             gl._vertexAttrib1fv(index, values);
-        }
+        };
 
         gl._vertexAttrib2fv = gl.vertexAttrib2fv;
         gl.vertexAttrib2fv = function (index, v0, v1) {
             var values = new Float32Array([v0, v1]);
             gl._vertexAttrib2fv(index, values);
-        }
+        };
 
         gl._vertexAttrib3fv = gl.vertexAttrib3fv;
         gl.vertexAttrib3fv = function (index, v0, v1, v2) {
             var values = new Float32Array([v0, v1, v2]);
             gl._vertexAttrib3fv(index, values);
-        }
+        };
 
         gl._drawArrays = gl.drawArrays;
         gl.drawArrays = function (mode, first, count/*, size*/) {
@@ -797,14 +786,15 @@ window.onload = function () {
                 d.drawArrayBuf = gl.createBuffer();
             gl._bindBuffer(gl.ARRAY_BUFFER, d.drawArrayBuf);
             for (var i = 4; i < arguments.length; i += 6) {
-                var subData = {};
-                subData["index"] = arguments[i + 0];
-                subData["size"] = arguments[i + 1];
-                subData["type"] = arguments[i + 2];
-                subData["normalized"] = arguments[i + 3];
-                subData["stride"] = arguments[i + 4];
-                subData["offset"] = 0;
-                subData["data"] = arguments[i + 5];
+                var subData = {
+                    "index": arguments[i + 0],
+                    "size": arguments[i + 1],
+                    "type": arguments[i + 2],
+                    "normalized": arguments[i + 3],
+                    "stride": arguments[i + 4],
+                    "offset": 0,
+                    "data": arguments[i + 5],
+                };
                 subDataParts.push(subData);
                 bufferSize += subData.data.length;
             }
@@ -820,48 +810,46 @@ window.onload = function () {
                 offset += subDataParts[part].data.length;
             }
             gl._drawArrays(mode, first, count);
-        }
+        };
 
         gl._vertexAttribPointer = gl.vertexAttribPointer;
         gl.vertexAttribPointer = function (index, size, type, normalized, stride, pointer) {
             gl._vertexAttribPointer(index, size, type, normalized, stride, pointer);
-        }
-
-
-    }
+        };
+    };
 
     var commandsNeedingResponse = {
-        "swapBuffers" : undefined,
-        "checkFramebufferStatus" : undefined,
-        "createProgram" : undefined,
-        "createShader" : undefined,
-        "genBuffers" : undefined,
-        "genFramebuffers" : undefined,
-        "genRenderbuffers" : undefined,
-        "genTextures" : undefined,
-        "getAttachedShaders" : undefined,
-        "getAttribLocation" : undefined,
-        "getBooleanv" : undefined,
-        "getError" : undefined,
-        "getFramebufferAttachmentParameteriv" : undefined,
-        "getIntegerv" : undefined,
-        "getParameter" : undefined,
-        "getProgramInfoLog" : undefined,
-        "getProgramiv" : undefined,
-        "getRenderbufferParameteriv" : undefined,
-        "getShaderiv" : undefined,
-        "getShaderPrecisionFormat" : undefined,
-        "getString" : undefined,
-        "getTexParameterfv" : undefined,
-        "getTexParameteriv" : undefined,
-        "getUniformfv" : undefined,
-        "getUniformLocation" : undefined,
-        "getUniformiv" : undefined,
-        "getVertexAttribfv" : undefined,
-        "getVertexAttribiv" : undefined,
-        "getShaderSource" : undefined,
-        "getShaderInfoLog" : undefined,
-        "isRenderbuffer" : undefined
+        "swapBuffers": undefined,
+        "checkFramebufferStatus": undefined,
+        "createProgram": undefined,
+        "createShader": undefined,
+        "genBuffers": undefined,
+        "genFramebuffers": undefined,
+        "genRenderbuffers": undefined,
+        "genTextures": undefined,
+        "getAttachedShaders": undefined,
+        "getAttribLocation": undefined,
+        "getBooleanv": undefined,
+        "getError": undefined,
+        "getFramebufferAttachmentParameteriv": undefined,
+        "getIntegerv": undefined,
+        "getParameter": undefined,
+        "getProgramInfoLog": undefined,
+        "getProgramiv": undefined,
+        "getRenderbufferParameteriv": undefined,
+        "getShaderiv": undefined,
+        "getShaderPrecisionFormat": undefined,
+        "getString": undefined,
+        "getTexParameterfv": undefined,
+        "getTexParameteriv": undefined,
+        "getUniformfv": undefined,
+        "getUniformLocation": undefined,
+        "getUniformiv": undefined,
+        "getVertexAttribfv": undefined,
+        "getVertexAttribiv": undefined,
+        "getShaderSource": undefined,
+        "getShaderInfoLog": undefined,
+        "isRenderbuffer": undefined
     };
 
     var ensureContextData = function (context) {
@@ -931,39 +919,25 @@ window.onload = function () {
     };
 
     var handleBinaryMessage = function (event) {
-        var appendBuffer = function(buffer1, buffer2) {
-          var tmp = new Uint8Array(buffer1.byteLength + buffer2.byteLength);
-          tmp.set(new Uint8Array(buffer1), 0);
-          tmp.set(new Uint8Array(buffer2), buffer1.byteLength);
-          return tmp.buffer;
-        };
-
-        var buffer = appendBuffer(binaryDataBuffer, event.data);
-        var view = new DataView(buffer);
-        if (view.getUint32(buffer.byteLength - 4) !== 0xbaadf00d) {
-            binaryDataBuffer = buffer;
-            return;
-        }
-        binaryDataBuffer = new ArrayBuffer(0);
-
+        var view = new DataView(event.data);
         var offset = 0;
-        var obj = { "parameters" : [] };
-        obj["function"] = supportedFunctions[view.getUint8(offset)];
+        var obj = { "parameters": [] };
+        obj.function = supportedFunctions[view.getUint8(offset)];
         offset += 1;
         if (obj.function in commandsNeedingResponse) {
-            obj["id"] = view.getUint32(offset);
+            obj.id = view.getUint32(offset);
             offset += 4;
         }
-        if (obj["function"] === "makeCurrent")
-            obj["parameterCount"] = 4;
-        else if (obj["function"] === "swapBuffers")
-            obj["parameterCount"] = 0;
-        else if (obj["function"] == "drawArrays")
-            obj["parameterCount"] = null; // glDrawArrays has a variable number of arguments
+        if (obj.function === "makeCurrent")
+            obj.parameterCount = 4;
+        else if (obj.function === "swapBuffers")
+            obj.parameterCount = 0;
+        else if (obj.function == "drawArrays")
+            obj.parameterCount = null; // glDrawArrays has a variable number of arguments
         else
-            obj["parameterCount"] = gl[obj["function"]].length;
+            obj.parameterCount = gl[obj.function].length;
         function deserialize(container, count) {
-            for (var i = 0; count != null ? i < count : offset + 4 < buffer.byteLength; ++i) {
+            for (var i = 0; count != null ? i < count : offset + 4 < event.data.byteLength; ++i) {
                 var character = view.getUint8(offset);
                 offset += 1;
                 var parameterType = String.fromCharCode(character);
@@ -983,13 +957,13 @@ window.onload = function () {
                 } else if (parameterType === 's') {
                     var stringSize = view.getUint32(offset);
                     offset += 4;
-                    var string = textDecoder.decode(new Uint8Array(buffer, offset, stringSize));
+                    var string = textDecoder.decode(new Uint8Array(event.data, offset, stringSize));
                     container.push(string);
                     offset += stringSize;
                 } else if (parameterType === 'x') {
                     var dataSize = view.getUint32(offset);
                     offset += 4;
-                    var data = new Uint8Array(buffer, offset, dataSize);
+                    var data = new Uint8Array(event.data, offset, dataSize);
                     var bytesRead = data.byteLength;
                     if (bytesRead !== dataSize)
                         console.error("invalid data");
@@ -1005,14 +979,14 @@ window.onload = function () {
                     console.error("Unsupported type :" + character);
                 }
             }
-        };
+        }
         deserialize(obj.parameters, obj.parameterCount);
         var magic = view.getUint32(offset);
         if (magic !== 0xbaadf00d) // sentinel expected at end of buffer
             console.error('Invalid magic');
         offset += 4;
-        if (offset !== buffer.byteLength)
-            console.error("Invalid buffer")
+        if (offset !== event.data.byteLength)
+            console.error("Invalid buffer");
 
         if (!("function" in obj)) {
             console.error("Function not found");
@@ -1044,6 +1018,7 @@ window.onload = function () {
             var data =  windowData[currentWindowId];
             if (data.loadingCanvas) {
                 var body = document.getElementsByTagName("body")[0];
+                clearInterval(data.loadingCanvas.timerId);
                 body.removeChild(data.loadingCanvas);
                 data.loadingCanvas = undefined;
             }
@@ -1052,7 +1027,7 @@ window.onload = function () {
                 var t0 = performance.now();
             execGL(currentContext);
             if (startTime) {
-                console.log((new Date() - startTime) + "ms to first frame.")
+                console.log((new Date() - startTime) + "ms to first frame.");
                 startTime = undefined;
             }
             var frameTime = performance.now() - t0;
@@ -1064,7 +1039,7 @@ window.onload = function () {
         } else {
             handleGlesMessage(obj);
         }
-    }
+    };
 
     var handleGlesMessage = function (obj) {
         // A GLES call. Unfortunately WebGL swaps when the control gets back to
@@ -1089,13 +1064,13 @@ window.onload = function () {
                 var width = size.width;
                 var height = size.height;
                 var physicalSize = physicalSizeRatio();
-
-                var object = { "type" : "canvas_resize",
-                    "width" : width, "height" : height,
-                    "physicalWidth" : width / physicalSize.width,
-                    "physicalHeight" : height / physicalSize.height
-                };
-                sendObject(object);
+                if (DEBUG)
+                    console.log("Resizing canvas to " + width + " x " + height);
+                sendObject({ "type": "canvas_resize",
+                    "width": width, "height": height,
+                    "physicalWidth": width / physicalSize.width,
+                    "physicalHeight": height / physicalSize.height
+                });
             };
             window.addEventListener("resize",(function(){
                 if(doCheck){
@@ -1104,7 +1079,7 @@ window.onload = function () {
                     setTimeout((function(){
                         doCheck = true;
                         check();
-                    }), 1000)
+                    }), 1000);
                 }
             }));
         })();
@@ -1112,6 +1087,7 @@ window.onload = function () {
     };
     socket.onclose = function (event) {
         console.log("Socket Closed (" + event.code + "): " + event.reason);
+        window.location.reload();
     };
     socket.onerror = function (error) {
         console.log("Socket error: " + error.toString());
@@ -1147,11 +1123,13 @@ window.onload = function () {
         } else if (obj.type === "change_title") {
             document.title = obj.text;
         } else if (obj.type === "connect") {
-            supportedFunctions = obj["supportedFunctions"];
-            var sysinfo = obj["sysinfo"];
-            if (obj["debug"])
+            supportedFunctions = obj.supportedFunctions;
+            var sysinfo = obj.sysinfo;
+            if (obj.debug)
                 DEBUG = 1;
-            if (obj["loadingScreen"] === "0")
+            if (obj.mouseTracking)
+                MOUSETRACKING = 1;
+            if (obj.loadingScreen === "0")
                 LOADINGSCREEN = 0;
             console.log(sysinfo);
         } else {
@@ -1161,19 +1139,19 @@ window.onload = function () {
 
     var setupInput = function () {
         var keyHandler = function (event) {
-            var object = { "type" : event.type,
-                "char" : event.char,
-                "key" : event.key,
-                "which" : event.which,
-                "location" : event.location,
-                "repeat" : event.repeat,
-                "locale" : event.locale,
-                "ctrlKey" : event.ctrlKey, "shiftKey" : event.shiftKey, "altKey" : event.altKey,
-                "metaKey" : event.metaKey,
-                "string" : String.fromCharCode(event.which ||
+            var object = { "type": event.type,
+                "char": event.char,
+                "key": event.key,
+                "which": event.which,
+                "location": event.location,
+                "repeat": event.repeat,
+                "locale": event.locale,
+                "ctrlKey": event.ctrlKey, "shiftKey": event.shiftKey, "altKey": event.altKey,
+                "metaKey": event.metaKey,
+                "string": String.fromCharCode(event.which ||
                                                event.keyCode),
-                "keyCode" : event.keyCode, "charCode" : event.charCode, "code" : event.code,
-                "time" : new Date().getTime(),
+                "keyCode": event.keyCode, "charCode": event.charCode, "code": event.code,
+                "time": new Date().getTime(),
             };
             sendObject(object);
         }

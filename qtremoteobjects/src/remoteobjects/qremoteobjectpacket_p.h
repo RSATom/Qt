@@ -55,21 +55,24 @@
 #include "qremoteobjectsource.h"
 #include "qconnectionfactories_p.h"
 
-#include <QtCore/QHash>
-#include <QtCore/QMap>
-#include <QtCore/QPair>
-#include <QtCore/QUrl>
-#include <QtCore/QVariant>
-#include <QtCore/QLoggingCategory>
+#include <QtCore/qhash.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qurl.h>
+#include <QtCore/qvariant.h>
+#include <QtCore/qloggingcategory.h>
 
 #include <cstdlib>
 
 QT_BEGIN_NAMESPACE
 
 class QMetaObjectBuilder;
-class QRemoteObjectSource;
+class QRemoteObjectSourceBase;
+class QRemoteObjectRootSource;
 
 namespace QRemoteObjectPackets {
+
+Q_NAMESPACE
 
 class DataStreamPacket;
 
@@ -97,6 +100,36 @@ inline QDataStream& operator>>(QDataStream &stream, ObjectInfo &info)
 }
 
 typedef QVector<ObjectInfo> ObjectInfoList;
+
+enum class ObjectType : quint8 { CLASS, MODEL, GADGET };
+Q_ENUM_NS(ObjectType)
+
+// Use a short name, as QVariant::save writes the name every time a qvariant of
+// this type is serialized
+class QRO_
+{
+public:
+    QRO_() : type(ObjectType::CLASS), isNull(true) {}
+    explicit QRO_(QRemoteObjectSourceBase *source);
+    explicit QRO_(const QVariant &value);
+    QString name, typeName;
+    ObjectType type;
+    bool isNull;
+    QByteArray classDefinition;
+    QByteArray parameters;
+};
+
+inline QDebug operator<<(QDebug dbg, const QRO_ &info)
+{
+    dbg.nospace() << "QRO_(name: " << info.name << ", typeName: " << info.typeName << ", type: " << info.type
+                  << ", valid: " << (info.isNull ? "true" : "false") << ", paremeters: {" << info.parameters <<")"
+                  << (info.classDefinition.isEmpty() ? " no definitions)" : " with definitions)");
+    return dbg.space();
+}
+
+QDataStream& operator<<(QDataStream &stream, const QRO_ &info);
+
+QDataStream& operator>>(QDataStream &stream, QRO_ &info);
 
 void serializeObjectListPacket(DataStreamPacket&, const ObjectInfoList&);
 void deserializeObjectListPacket(QDataStream&, ObjectInfoList&);
@@ -135,18 +168,21 @@ private:
     Q_DISABLE_COPY(DataStreamPacket)
 };
 
-QVariant serializedProperty(const QMetaProperty &property, const QObject *object);
-QVariant deserializedProperty(const QVariant &in, const QMetaProperty &property);
+const QVariant encodeVariant(const QVariant &value);
+QVariant &decodeVariant(QVariant &value, int type);
 
-void serializeHandshakePacket(DataStreamPacket &ds);
-void serializeInitPacket(DataStreamPacket&, const QRemoteObjectSource*);
-void deserializeInitPacket(QDataStream&, QVariantList&);
+void serializeProperty(QDataStream &, const QRemoteObjectSourceBase *source, int internalIndex);
 
-void serializeInitDynamicPacket(DataStreamPacket&, const QRemoteObjectSource*);
-void deserializeInitDynamicPacket(QDataStream&, QMetaObjectBuilder&, QVariantList&);
+void serializeHandshakePacket(DataStreamPacket &);
+void serializeInitPacket(DataStreamPacket &, const QRemoteObjectRootSource*);
+void serializeProperties(DataStreamPacket &, const QRemoteObjectSourceBase*);
+void deserializeInitPacket(QDataStream &, QVariantList&);
 
-void serializeAddObjectPacket(DataStreamPacket&, const QString &name, bool isDynamic);
-void deserializeAddObjectPacket(QDataStream &ds, bool &isDynamic);
+void serializeInitDynamicPacket(DataStreamPacket &, const QRemoteObjectRootSource*);
+void serializeDefinition(QDataStream &, const QRemoteObjectSourceBase*);
+
+void serializeAddObjectPacket(DataStreamPacket &, const QString &name, bool isDynamic);
+void deserializeAddObjectPacket(QDataStream &, bool &isDynamic);
 
 void serializeRemoveObjectPacket(DataStreamPacket&, const QString &name);
 //There is no deserializeRemoveObjectPacket - no parameters other than id and name
@@ -158,11 +194,18 @@ void serializeInvokeReplyPacket(DataStreamPacket&, const QString &name, int acke
 void deserializeInvokeReplyPacket(QDataStream& in, int &ackedSerialId, QVariant &value);
 
 //TODO do we need the object name or could we go with an id in backend code, this could be a costly allocation
-void serializePropertyChangePacket(DataStreamPacket&, const QString &name, int index, const QVariant &value);
+void serializePropertyChangePacket(QRemoteObjectSourceBase *source, int signalIndex);
 void deserializePropertyChangePacket(QDataStream& in, int &index, QVariant &value);
+
+// Heartbeat packets
+void serializePingPacket(DataStreamPacket &ds, const QString &name);
+void serializePongPacket(DataStreamPacket &ds, const QString &name);
+
 
 } // namespace QRemoteObjectPackets
 
 QT_END_NAMESPACE
+
+Q_DECLARE_METATYPE(QRemoteObjectPackets::QRO_)
 
 #endif

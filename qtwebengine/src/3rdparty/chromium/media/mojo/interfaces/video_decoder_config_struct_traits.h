@@ -32,10 +32,6 @@ struct StructTraits<media::mojom::VideoDecoderConfigDataView,
     return input.format();
   }
 
-  static media::ColorSpace color_space(const media::VideoDecoderConfig& input) {
-    return input.color_space();
-  }
-
   static const gfx::Size& coded_size(const media::VideoDecoderConfig& input) {
     return input.coded_size();
   }
@@ -61,6 +57,11 @@ struct StructTraits<media::mojom::VideoDecoderConfigDataView,
   static const media::VideoColorSpace& color_space_info(
       const media::VideoDecoderConfig& input) {
     return input.color_space_info();
+  }
+
+  static media::VideoRotation video_rotation(
+      const media::VideoDecoderConfig& input) {
+    return input.video_rotation();
   }
 
   static const base::Optional<media::HDRMetadata>& hdr_metadata(

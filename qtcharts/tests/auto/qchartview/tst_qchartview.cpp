@@ -98,7 +98,7 @@ void tst_QChartView::qchartview()
     QVERIFY(m_view->chart());
     QCOMPARE(m_view->rubberBand(), QChartView::NoRubberBand);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
     delete(new QChartView());
 
@@ -163,15 +163,17 @@ void tst_QChartView::rubberBand()
     m_view->chart()->addSeries(line);
     m_view->chart()->createDefaultAxes();
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
     QRectF plotArea = m_view->chart()->plotArea();
     //this is hack since view does not get events otherwise
     m_view->setMouseTracking(true);
 
-    QAbstractAxis* axisY = m_view->chart()->axisY();
+    QAbstractAxis *axisY = m_view->chart()->axes(Qt::Vertical).value(0);
+    QVERIFY(axisY);
     QSignalSpy spy0(axisY, SIGNAL(rangeChanged(qreal,qreal)));
-    QAbstractAxis* axisX = m_view->chart()->axisX();
+    QAbstractAxis *axisX = m_view->chart()->axes(Qt::Horizontal).value(0);
+    QVERIFY(axisX);
     QSignalSpy spy1(axisX, SIGNAL(rangeChanged(qreal,qreal)));
     QValueAxis* vaxisX = qobject_cast<QValueAxis*>(axisX);
     QValueAxis* vaxisY = qobject_cast<QValueAxis*>(axisY);
@@ -223,7 +225,7 @@ void tst_QChartView::setChart()
 
     // show current chart
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QTest::qWait(1000);
 
     // set new chart

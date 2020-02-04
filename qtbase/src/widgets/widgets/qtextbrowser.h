@@ -63,7 +63,7 @@ class Q_WIDGETS_EXPORT QTextBrowser : public QTextEdit
     Q_PROPERTY(bool openLinks READ openLinks WRITE setOpenLinks)
 
 public:
-    explicit QTextBrowser(QWidget* parent = Q_NULLPTR);
+    explicit QTextBrowser(QWidget* parent = nullptr);
     virtual ~QTextBrowser();
 
     QUrl source() const;
@@ -71,7 +71,7 @@ public:
     QStringList searchPaths() const;
     void setSearchPaths(const QStringList &paths);
 
-    virtual QVariant loadResource(int type, const QUrl &name) Q_DECL_OVERRIDE;
+    virtual QVariant loadResource(int type, const QUrl &name) override;
 
     bool isBackwardAvailable() const;
     bool isForwardAvailable() const;
@@ -104,14 +104,14 @@ Q_SIGNALS:
     void anchorClicked(const QUrl &);
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
-    virtual void keyPressEvent(QKeyEvent *ev) Q_DECL_OVERRIDE;
-    virtual void mouseMoveEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
-    virtual void mousePressEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
-    virtual void mouseReleaseEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
-    virtual void focusOutEvent(QFocusEvent *ev) Q_DECL_OVERRIDE;
-    virtual bool focusNextPrevChild(bool next) Q_DECL_OVERRIDE;
-    virtual void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
+    virtual void keyPressEvent(QKeyEvent *ev) override;
+    virtual void mouseMoveEvent(QMouseEvent *ev) override;
+    virtual void mousePressEvent(QMouseEvent *ev) override;
+    virtual void mouseReleaseEvent(QMouseEvent *ev) override;
+    virtual void focusOutEvent(QFocusEvent *ev) override;
+    virtual bool focusNextPrevChild(bool next) override;
+    virtual void paintEvent(QPaintEvent *e) override;
 
 private:
     Q_DISABLE_COPY(QTextBrowser)

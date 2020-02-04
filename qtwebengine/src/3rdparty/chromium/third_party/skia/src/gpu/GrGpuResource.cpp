@@ -7,23 +7,25 @@
 
 #include "GrGpuResource.h"
 #include "GrContext.h"
+#include "GrContextPriv.h"
 #include "GrResourceCache.h"
 #include "GrGpu.h"
 #include "GrGpuResourcePriv.h"
 #include "SkTraceMemoryDump.h"
+#include <atomic>
 
 static inline GrResourceCache* get_resource_cache(GrGpu* gpu) {
     SkASSERT(gpu);
     SkASSERT(gpu->getContext());
-    SkASSERT(gpu->getContext()->getResourceCache());
-    return gpu->getContext()->getResourceCache();
+    SkASSERT(gpu->getContext()->contextPriv().getResourceCache());
+    return gpu->getContext()->contextPriv().getResourceCache();
 }
 
 GrGpuResource::GrGpuResource(GrGpu* gpu)
-    : fExternalFlushCntWhenBecamePurgeable(0)
-    , fGpu(gpu)
+    : fGpu(gpu)
     , fGpuMemorySize(kInvalidGpuMemorySize)
     , fBudgeted(SkBudgeted::kNo)
+    , fShouldPurgeImmediately(false)
     , fRefsWrappedObjects(false)
     , fUniqueID(CreateUniqueID()) {
     SkDEBUGCODE(fCacheArrayIndex = -1);
@@ -31,14 +33,16 @@ GrGpuResource::GrGpuResource(GrGpu* gpu)
 
 void GrGpuResource::registerWithCache(SkBudgeted budgeted) {
     SkASSERT(fBudgeted == SkBudgeted::kNo);
+    SkASSERT(!fShouldPurgeImmediately);
     fBudgeted = budgeted;
     this->computeScratchKey(&fScratchKey);
     get_resource_cache(fGpu)->resourceAccess().insertResource(this);
 }
 
-void GrGpuResource::registerWithCacheWrapped() {
+void GrGpuResource::registerWithCacheWrapped(bool purgeImmediately) {
     SkASSERT(fBudgeted == SkBudgeted::kNo);
     // Currently resources referencing wrapped objects are not budgeted.
+    fShouldPurgeImmediately = purgeImmediately;
     fRefsWrappedObjects = true;
     get_resource_cache(fGpu)->resourceAccess().insertResource(this);
 }
@@ -68,20 +72,37 @@ void GrGpuResource::abandon() {
 }
 
 void GrGpuResource::dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump) const {
-    // Dump resource as "skia/gpu_resources/resource_#".
-    SkString dumpName("skia/gpu_resources/resource_");
-    dumpName.appendU32(this->uniqueID().asUInt());
-
-    traceMemoryDump->dumpNumericValue(dumpName.c_str(), "size", "bytes", this->gpuMemorySize());
-
-    if (this->isPurgeable()) {
-        traceMemoryDump->dumpNumericValue(dumpName.c_str(), "purgeable_size", "bytes",
-                                          this->gpuMemorySize());
+    if (this->fRefsWrappedObjects && !traceMemoryDump->shouldDumpWrappedObjects()) {
+        return;
     }
 
-    // Call setMemoryBacking to allow sub-classes with implementation specific backings (such as GL
-    // objects) to provide additional information.
-    this->setMemoryBacking(traceMemoryDump, dumpName);
+    this->dumpMemoryStatisticsPriv(traceMemoryDump, this->getResourceName(),
+                                   this->getResourceType(), this->gpuMemorySize());
+}
+
+void GrGpuResource::dumpMemoryStatisticsPriv(SkTraceMemoryDump* traceMemoryDump,
+                                             const SkString& resourceName,
+                                             const char* type, size_t size) const {
+    const char* tag = "Scratch";
+    if (fUniqueKey.isValid()) {
+        tag = (fUniqueKey.tag() != nullptr) ? fUniqueKey.tag() : "Other";
+    }
+
+    traceMemoryDump->dumpNumericValue(resourceName.c_str(), "size", "bytes", size);
+    traceMemoryDump->dumpStringValue(resourceName.c_str(), "type", type);
+    traceMemoryDump->dumpStringValue(resourceName.c_str(), "category", tag);
+    if (this->isPurgeable()) {
+        traceMemoryDump->dumpNumericValue(resourceName.c_str(), "purgeable_size", "bytes", size);
+    }
+
+    this->setMemoryBacking(traceMemoryDump, resourceName);
+}
+
+SkString GrGpuResource::getResourceName() const {
+    // Dump resource as "skia/gpu_resources/resource_#".
+    SkString resourceName("skia/gpu_resources/resource_");
+    resourceName.appendU32(this->uniqueID().asUInt());
+    return resourceName;
 }
 
 const GrContext* GrGpuResource::getContext() const {
@@ -98,17 +119,6 @@ GrContext* GrGpuResource::getContext() {
     } else {
         return nullptr;
     }
-}
-
-void GrGpuResource::didChangeGpuMemorySize() const {
-    if (this->wasDestroyed()) {
-        return;
-    }
-
-    size_t oldSize = fGpuMemorySize;
-    SkASSERT(kInvalidGpuMemorySize != oldSize);
-    fGpuMemorySize = kInvalidGpuMemorySize;
-    get_resource_cache(fGpu)->resourceAccess().didChangeGpuMemorySize(this, oldSize);
 }
 
 void GrGpuResource::removeUniqueKey() {
@@ -197,10 +207,10 @@ void GrGpuResource::makeUnbudgeted() {
 }
 
 uint32_t GrGpuResource::CreateUniqueID() {
-    static int32_t gUniqueID = SK_InvalidUniqueID;
+    static std::atomic<uint32_t> nextID{1};
     uint32_t id;
     do {
-        id = static_cast<uint32_t>(sk_atomic_inc(&gUniqueID) + 1);
+        id = nextID++;
     } while (id == SK_InvalidUniqueID);
     return id;
 }

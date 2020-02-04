@@ -26,6 +26,8 @@ config("libxslt_warnings") {
 
 static_library("bundled_libxslt") {
   sources = [
+    "linux/config.h",
+    "mac/config.h",
     "src/libxslt/attributes.c",
     "src/libxslt/attributes.h",
     "src/libxslt/attrvt.c",
@@ -70,9 +72,7 @@ static_library("bundled_libxslt") {
     "src/libxslt/xsltlocale.h",
     "src/libxslt/xsltutils.c",
     "src/libxslt/xsltutils.h",
-    "src/libxslt/xsltwin32config.h",
-    "linux/config.h",
-    "mac/config.h",
+    "src/libxslt/xsltwin32config.h.in",
     "win32/config.h",
   ]
 
@@ -86,7 +86,7 @@ static_library("bundled_libxslt") {
   public_configs = [ ":libxslt_config" ]
 
   cflags = []
-  if (is_linux || is_android) {
+  if (is_linux || is_android || is_fuchsia) {
     include_dirs = [ "linux" ]
   } else if (is_win) {
     include_dirs = [ "win32" ]

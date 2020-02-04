@@ -20,7 +20,8 @@ DesktopDragDropClientWin::DesktopDragDropClientWin(
     : drag_drop_in_progress_(false),
       drag_operation_(0),
       weak_factory_(this) {
-  drop_target_ = new DesktopDropTargetWin(root_window, window);
+  drop_target_ = new DesktopDropTargetWin(root_window);
+  drop_target_->Init(window);
 }
 
 DesktopDragDropClientWin::~DesktopDragDropClientWin() {
@@ -40,7 +41,7 @@ int DesktopDragDropClientWin::StartDragAndDrop(
 
   base::WeakPtr<DesktopDragDropClientWin> alive(weak_factory_.GetWeakPtr());
 
-  drag_source_ = Microsoft::WRL::Make<ui::DragSourceWin>();
+  drag_source_ = ui::DragSourceWin::Create();
   Microsoft::WRL::ComPtr<ui::DragSourceWin> drag_source_copy = drag_source_;
   drag_source_copy->set_data(&data);
   ui::OSExchangeDataProviderWin::GetDataObjectImpl(data)
@@ -82,6 +83,16 @@ void DesktopDragDropClientWin::DragCancel() {
 
 bool DesktopDragDropClientWin::IsDragDropInProgress() {
   return drag_drop_in_progress_;
+}
+
+void DesktopDragDropClientWin::AddObserver(
+    aura::client::DragDropClientObserver* observer) {
+  NOTIMPLEMENTED();
+}
+
+void DesktopDragDropClientWin::RemoveObserver(
+    aura::client::DragDropClientObserver* observer) {
+  NOTIMPLEMENTED();
 }
 
 void DesktopDragDropClientWin::OnNativeWidgetDestroying(HWND window) {

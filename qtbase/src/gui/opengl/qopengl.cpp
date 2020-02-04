@@ -54,12 +54,14 @@
 #include <QtCore/QFile>
 #include <QtCore/QDir>
 
-#include <set>
-
 QT_BEGIN_NAMESPACE
 
 #if defined(QT_OPENGL_3)
 typedef const GLubyte * (QOPENGLF_APIENTRYP qt_glGetStringi)(GLenum, GLuint);
+#endif
+
+#ifndef GL_CONTEXT_LOST
+#define GL_CONTEXT_LOST                   0x0507
 #endif
 
 QOpenGLExtensionMatcher::QOpenGLExtensionMatcher()
@@ -82,8 +84,13 @@ QOpenGLExtensionMatcher::QOpenGLExtensionMatcher()
     } else {
 #ifdef QT_OPENGL_3
         // clear error state
-        while (funcs->glGetError()) {}
-
+        while (true) { // Clear error state.
+            GLenum error = funcs->glGetError();
+            if (error == GL_NO_ERROR)
+                break;
+            if (error == GL_CONTEXT_LOST)
+                return;
+        };
         qt_glGetStringi glGetStringi = (qt_glGetStringi)ctx->getProcAddress("glGetStringi");
 
         if (!glGetStringi)
@@ -143,7 +150,7 @@ typedef QJsonArray::ConstIterator JsonArrayConstIt;
 static inline bool contains(const QJsonArray &haystack, unsigned needle)
 {
     for (JsonArrayConstIt it = haystack.constBegin(), cend = haystack.constEnd(); it != cend; ++it) {
-        if (needle == it->toString().toUInt(Q_NULLPTR, /* base */ 0))
+        if (needle == it->toString().toUInt(nullptr, /* base */ 0))
             return true;
     }
     return false;
@@ -331,7 +338,7 @@ static bool matches(const QJsonObject &object,
 
     const QJsonValue vendorV = object.value(QLatin1String("vendor_id"));
     if (vendorV.isString()) {
-        if (gpu.vendorId != vendorV.toString().toUInt(Q_NULLPTR, /* base */ 0))
+        if (gpu.vendorId != vendorV.toString().toUInt(nullptr, /* base */ 0))
             return false;
     } else {
         if (object.contains(QLatin1String("gl_vendor"))) {
@@ -525,15 +532,6 @@ QOpenGLConfig::Gpu QOpenGLConfig::Gpu::fromContext()
         gpu.glVendor = QByteArray(reinterpret_cast<const char *>(p));
 
     return gpu;
-}
-
-Q_GUI_EXPORT std::set<QByteArray> *qgpu_features(const QString &filename)
-{
-    const QSet<QString> features = QOpenGLConfig::gpuFeatures(QOpenGLConfig::Gpu::fromContext(), filename);
-    std::set<QByteArray> *result = new std::set<QByteArray>;
-    for (const QString &feature : features)
-        result->insert(feature.toUtf8());
-    return result;
 }
 
 QT_END_NAMESPACE

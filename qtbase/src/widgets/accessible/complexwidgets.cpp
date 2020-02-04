@@ -93,16 +93,16 @@ public:
         : m_parent(parent), m_index(index)
     {}
 
-    void *interface_cast(QAccessible::InterfaceType t) Q_DECL_OVERRIDE {
+    void *interface_cast(QAccessible::InterfaceType t) override {
         if (t == QAccessible::ActionInterface) {
             return static_cast<QAccessibleActionInterface*>(this);
         }
         return 0;
     }
 
-    QObject *object() const Q_DECL_OVERRIDE { return 0; }
-    QAccessible::Role role() const Q_DECL_OVERRIDE { return QAccessible::PageTab; }
-    QAccessible::State state() const Q_DECL_OVERRIDE {
+    QObject *object() const override { return 0; }
+    QAccessible::Role role() const override { return QAccessible::PageTab; }
+    QAccessible::State state() const override {
         if (!isValid()) {
             QAccessible::State s;
             s.invalid = true;
@@ -110,7 +110,7 @@ public:
         }
         return parent()->state();
     }
-    QRect rect() const Q_DECL_OVERRIDE {
+    QRect rect() const override {
         if (!isValid())
             return QRect();
 
@@ -120,13 +120,20 @@ public:
         return rec;
     }
 
-    bool isValid() const Q_DECL_OVERRIDE { return m_parent.data() && m_parent->count() > m_index; }
+    bool isValid() const override {
+        if (m_parent) {
+            if (static_cast<QWidget *>(m_parent.data())->d_func()->data.in_destructor)
+                return false;
+            return m_parent->count() > m_index;
+        }
+        return false;
+    }
 
-    QAccessibleInterface *childAt(int, int) const Q_DECL_OVERRIDE { return 0; }
-    int childCount() const Q_DECL_OVERRIDE { return 0; }
-    int indexOfChild(const QAccessibleInterface *) const Q_DECL_OVERRIDE  { return -1; }
+    QAccessibleInterface *childAt(int, int) const override { return 0; }
+    int childCount() const override { return 0; }
+    int indexOfChild(const QAccessibleInterface *) const override  { return -1; }
 
-    QString text(QAccessible::Text t) const Q_DECL_OVERRIDE
+    QString text(QAccessible::Text t) const override
     {
         if (!isValid())
             return QString();
@@ -156,26 +163,26 @@ public:
         return str;
     }
 
-    void setText(QAccessible::Text, const QString &) Q_DECL_OVERRIDE {}
+    void setText(QAccessible::Text, const QString &) override {}
 
-    QAccessibleInterface *parent() const Q_DECL_OVERRIDE {
+    QAccessibleInterface *parent() const override {
         return QAccessible::queryAccessibleInterface(m_parent.data());
     }
-    QAccessibleInterface *child(int) const Q_DECL_OVERRIDE { return 0; }
+    QAccessibleInterface *child(int) const override { return 0; }
 
     // action interface
-    QStringList actionNames() const Q_DECL_OVERRIDE
+    QStringList actionNames() const override
     {
         return QStringList(pressAction());
     }
 
-    void doAction(const QString &actionName) Q_DECL_OVERRIDE
+    void doAction(const QString &actionName) override
     {
         if (isValid() && actionName == pressAction())
             m_parent->setCurrentIndex(m_index);
     }
 
-    QStringList keyBindingsForAction(const QString &) const Q_DECL_OVERRIDE
+    QStringList keyBindingsForAction(const QString &) const override
     {
         return QStringList();
     }
@@ -199,7 +206,7 @@ QAccessibleTabBar::QAccessibleTabBar(QWidget *w)
 
 QAccessibleTabBar::~QAccessibleTabBar()
 {
-    foreach (QAccessible::Id id, m_childInterfaces)
+    for (QAccessible::Id id : qAsConst(m_childInterfaces))
         QAccessible::deleteAccessibleInterface(id);
 }
 

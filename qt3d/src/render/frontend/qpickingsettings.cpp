@@ -52,12 +52,16 @@ namespace Qt3DRender {
     \inherits Qt3DCore::QNode
 
     The picking settings determine how the entity picking is handled. For more details about
-    entity picking, see QObjectPicker component documentation.
+    entity picking, see QObjectPicker and QRayCaster component documentation.
 
-    Picking is triggered by mouse events. It will cast a ray through the scene and look for
-    geometry intersecting the ray.
+    When using QObjectPicker components, picking is triggered by mouse events.
 
-    \sa QObjectPicker, QPickEvent, QPickTriangleEvent
+    When using QRayCaster or QScreenRayCaster components, picking can be explicitly triggered by
+    the application.
+
+    In both cases, a ray will be cast through the scene to find geometry intersecting the ray.
+
+   \sa QObjectPicker, QPickEvent, QPickTriangleEvent, QRayCaster, QScreenRayCaster
  */
 
 /*!
@@ -68,12 +72,16 @@ namespace Qt3DRender {
     \instantiates Qt3DRender::QPickingSettings
 
     The picking settings determine how the entity picking is handled. For more details about
-    entity picking, see Qt3DRender::QObjectPicker component documentation.
+    entity picking, see Qt3D.Render::ObjectPicker or Qt3D.Render::RayCaster component documentation.
 
-    Picking is triggered by mouse events. It will cast a ray through the scene and look for
-    geometry intersecting the ray.
+    When using ObjectPicker components, picking is triggered by mouse events.
 
-    \sa ObjectPicker
+    When using RayCaster or ScreenRayCaster components, picking can be explicitly triggered by
+    the application.
+
+    In both cases, a ray will be cast through the scene to find geometry intersecting the ray.
+
+    \sa ObjectPicker, RayCaster, ScreenRayCaster
  */
 
 QPickingSettingsPrivate::QPickingSettingsPrivate()
@@ -139,6 +147,12 @@ float QPickingSettings::worldSpaceTolerance() const
  * the bounding volume of the entity (default).
  * \value TrianglePicking An entity is considered picked if the picking ray intersects with
  * any triangle of the entity's mesh component.
+ * \value LinePicking An entity is considered picked if the picking ray intersects with
+ * any edge of the entity's mesh component.
+ * \value PointPicking An entity is considered picked if the picking ray intersects with
+ * any point of the entity's mesh component.
+ * \value PrimitivePicking An entity is considered picked if the picking ray intersects with
+ * any point, edge or triangle of the entity's mesh component.
  */
 
 /*!
@@ -149,6 +163,9 @@ float QPickingSettings::worldSpaceTolerance() const
     \list
         \li PickingSettings.BoundingVolumePicking
         \li PickingSettings.TrianglePicking
+        \li PickingSettings.LinePicking
+        \li PickingSettings.PointPicking
+        \li PickingSettings.PrimitivePicking: picks either points, lines or triangles
     \endlist
 
     \sa Qt3DRender::QPickingSettings::PickMethod
@@ -182,6 +199,9 @@ void QPickingSettings::setPickMethod(QPickingSettings::PickMethod pickMethod)
  * \value NearestPick Only the nearest entity to picking ray origin intersected by the picking ray
  * is picked (default).
  * \value AllPicks All entities that intersect the picking ray are picked.
+ * \value PriorityPick Selects the entity whose object picker has the highest
+ * value. If several object pickers have the same priority, the closest one on
+ * the ray is selected.
  *
  * \sa Qt3DRender::QPickEvent
  */
@@ -194,6 +214,7 @@ void QPickingSettings::setPickMethod(QPickingSettings::PickMethod pickMethod)
     \list
         \li PickingSettings.NearestPick
         \li PickingSettings.AllPicks
+        \li PickingSettings.NearestPriorityPick
     \endlist
 
     \sa Qt3DRender::QPickingSettings::PickResultMode
@@ -207,6 +228,10 @@ void QPickingSettings::setPickMethod(QPickingSettings::PickMethod pickMethod)
 
     When setting the pick method to AllPicks, events will be triggered for all the
     entities with a QObjectPicker along the ray.
+
+    When setting the pick method to NearestPriorityPick, events will be
+    triggered for the nearest highest priority picker. This can be used when a
+    given element should always be selected even if others are in front of it.
 
     If a QObjectPicker is assigned to an entity with multiple children, an event will
     be triggered for each child entity that intersects the ray.
@@ -258,7 +283,7 @@ void QPickingSettings::setFaceOrientationPickingMode(QPickingSettings::FaceOrien
 }
 
 /*!
-    \qmlproperty qreal worldSpaceTolerance
+    \qmlproperty qreal PickingSettings::worldSpaceTolerance
 
     Holds the threshold, in model space coordinates, used to evaluate line and point picking.
 */
@@ -268,7 +293,7 @@ void QPickingSettings::setFaceOrientationPickingMode(QPickingSettings::FaceOrien
     Holds the threshold, in model space coordinates, used to evaluate line and point picking.
 */
 /*!
- * Set the threshold used for line and point picking
+ * Sets the threshold used for line and point picking to \a worldSpaceTolerance.
  */
 void QPickingSettings::setWorldSpaceTolerance(float worldSpaceTolerance)
 {

@@ -13,6 +13,10 @@
 #include "base/memory/weak_ptr.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 
+namespace network {
+class SharedURLLoaderFactory;
+}
+
 // Helper class to simplify writing unittests that depend on an instance of
 // ProfileOAuth2TokenService.
 //
@@ -43,12 +47,14 @@ class FakeProfileOAuth2TokenService : public ProfileOAuth2TokenService {
     std::string account_id;
     std::string client_id;
     std::string client_secret;
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory;
     ScopeSet scopes;
     base::WeakPtr<RequestImpl> request;
   };
 
-  FakeProfileOAuth2TokenService();
-  explicit FakeProfileOAuth2TokenService(
+  explicit FakeProfileOAuth2TokenService(PrefService* user_prefs);
+  FakeProfileOAuth2TokenService(
+      PrefService* user_prefs,
       std::unique_ptr<OAuth2TokenServiceDelegate> delegate);
   ~FakeProfileOAuth2TokenService() override;
 
@@ -61,6 +67,11 @@ class FakeProfileOAuth2TokenService : public ProfileOAuth2TokenService {
                                 const std::string& access_token,
                                 const base::Time& expiration);
 
+  // Helper routines to issue token for pending requests based on TokenResponse.
+  void IssueAllTokensForAccount(
+      const std::string& account_id,
+      const OAuth2AccessTokenConsumer::TokenResponse& token_response);
+
   void IssueErrorForAllPendingRequestsForAccount(
       const std::string& account_id,
       const GoogleServiceAuthError& error);
@@ -69,11 +80,18 @@ class FakeProfileOAuth2TokenService : public ProfileOAuth2TokenService {
                           const std::string& access_token,
                           const base::Time& expiration);
 
+  void IssueTokenForScope(
+      const ScopeSet& scopes,
+      const OAuth2AccessTokenConsumer::TokenResponse& token_response);
+
   void IssueErrorForScope(const ScopeSet& scopes,
                           const GoogleServiceAuthError& error);
 
   void IssueTokenForAllPendingRequests(const std::string& access_token,
                                        const base::Time& expiration);
+
+  void IssueTokenForAllPendingRequests(
+      const OAuth2AccessTokenConsumer::TokenResponse& token_response);
 
   void IssueErrorForAllPendingRequests(const GoogleServiceAuthError& error);
 
@@ -81,14 +99,23 @@ class FakeProfileOAuth2TokenService : public ProfileOAuth2TokenService {
     auto_post_fetch_response_on_message_loop_ = auto_post_response;
   }
 
+  // Calls ProfileOAuth2TokenService::UpdateAuthError(). Exposed for testing.
+  void UpdateAuthErrorForTesting(const std::string& account_id,
+                                 const GoogleServiceAuthError& error);
+
  protected:
   // OAuth2TokenService overrides.
-  void FetchOAuth2Token(RequestImpl* request,
-                        const std::string& account_id,
-                        net::URLRequestContextGetter* getter,
-                        const std::string& client_id,
-                        const std::string& client_secret,
-                        const ScopeSet& scopes) override;
+  void CancelAllRequests() override;
+
+  void CancelRequestsForAccount(const std::string& account_id) override;
+
+  void FetchOAuth2Token(
+      RequestImpl* request,
+      const std::string& account_id,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      const std::string& client_id,
+      const std::string& client_secret,
+      const ScopeSet& scopes) override;
 
   void InvalidateAccessTokenImpl(const std::string& account_id,
                                  const std::string& client_id,
@@ -101,12 +128,12 @@ class FakeProfileOAuth2TokenService : public ProfileOAuth2TokenService {
   // matching |scopes| are completed.  If |account_id| is empty, then pending
   // requests for all accounts are completed, otherwise only requests for the
   // given account.
-  void CompleteRequests(const std::string& account_id,
-                        bool all_scopes,
-                        const ScopeSet& scopes,
-                        const GoogleServiceAuthError& error,
-                        const std::string& access_token,
-                        const base::Time& expiration);
+  void CompleteRequests(
+      const std::string& account_id,
+      bool all_scopes,
+      const ScopeSet& scopes,
+      const GoogleServiceAuthError& error,
+      const OAuth2AccessTokenConsumer::TokenResponse& token_response);
 
   std::vector<PendingRequest> pending_requests_;
 

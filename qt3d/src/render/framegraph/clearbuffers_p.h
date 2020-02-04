@@ -67,7 +67,7 @@ class ClearBuffers : public FrameGraphNode
 public:
     ClearBuffers();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     QClearBuffers::BufferType type() const;
     float clearDepthValue() const;
@@ -87,7 +87,7 @@ public:
     bool clearsAllColorBuffers() const;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     QClearBuffers::BufferType m_type;
     QVector4D m_clearColor;

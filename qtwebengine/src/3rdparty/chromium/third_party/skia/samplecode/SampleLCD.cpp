@@ -4,21 +4,20 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
-#include "SkView.h"
+#include <SkFont.h>
+#include "Sample.h"
 #include "SkCanvas.h"
 #include "SkPaint.h"
 #include "SkShader.h"
 
-class LCDView : public SkView {
+class LCDView : public Sample {
 public:
     LCDView() {}
 
 protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt) {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "LCD Text");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "LCD Text");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -28,11 +27,10 @@ protected:
         canvas->drawColor(SK_ColorWHITE);
     }
 
-    virtual void onDraw(SkCanvas* canvas) {
+    void onDrawContent(SkCanvas* canvas) override {
         this->drawBG(canvas);
 
         SkPaint paint;
-        paint.setAntiAlias(true);
 
         SkScalar textSize = SkIntToScalar(6);
         SkScalar delta = SK_Scalar1;
@@ -42,24 +40,24 @@ protected:
         SkScalar x1 = SkIntToScalar(310);
         SkScalar y = SkIntToScalar(20);
 
+        SkFont font;
         for (int i = 0; i < 20; i++) {
-            paint.setTextSize(textSize);
+            font.setSize(textSize);
             textSize += delta;
 
-            paint.setLCDRenderText(false);
-            canvas->drawText(text, len, x0, y, paint);
-            paint.setLCDRenderText(true);
-            canvas->drawText(text, len, x1, y, paint);
+            font.setEdging(SkFont::Edging::kAntiAlias);
+            canvas->drawSimpleText(text, len, kUTF8_SkTextEncoding, x0, y, font, paint);
+            font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+            canvas->drawSimpleText(text, len, kUTF8_SkTextEncoding, x1, y, font, paint);
 
-            y += paint.getFontSpacing();
+            y += font.getSpacing();
         }
     }
 
 private:
-    typedef SkView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new LCDView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new LCDView(); )

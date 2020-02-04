@@ -25,20 +25,20 @@ void CPDF_ColorState::SetDefault() {
   m_Ref.GetPrivateCopy()->SetDefault();
 }
 
-uint32_t CPDF_ColorState::GetFillRGB() const {
-  return m_Ref.GetObject()->m_FillRGB;
+FX_COLORREF CPDF_ColorState::GetFillColorRef() const {
+  return m_Ref.GetObject()->m_FillColorRef;
 }
 
-void CPDF_ColorState::SetFillRGB(uint32_t rgb) {
-  m_Ref.GetPrivateCopy()->m_FillRGB = rgb;
+void CPDF_ColorState::SetFillColorRef(FX_COLORREF colorref) {
+  m_Ref.GetPrivateCopy()->m_FillColorRef = colorref;
 }
 
-uint32_t CPDF_ColorState::GetStrokeRGB() const {
-  return m_Ref.GetObject()->m_StrokeRGB;
+FX_COLORREF CPDF_ColorState::GetStrokeColorRef() const {
+  return m_Ref.GetObject()->m_StrokeColorRef;
 }
 
-void CPDF_ColorState::SetStrokeRGB(uint32_t rgb) {
-  m_Ref.GetPrivateCopy()->m_StrokeRGB = rgb;
+void CPDF_ColorState::SetStrokeColorRef(FX_COLORREF colorref) {
+  m_Ref.GetPrivateCopy()->m_StrokeColorRef = colorref;
 }
 
 const CPDF_Color* CPDF_ColorState::GetFillColor() const {
@@ -70,89 +70,86 @@ bool CPDF_ColorState::HasStrokeColor() const {
 }
 
 void CPDF_ColorState::SetFillColor(CPDF_ColorSpace* pCS,
-                                   float* pValue,
-                                   uint32_t nValues) {
+                                   const std::vector<float>& values) {
   ColorData* pData = m_Ref.GetPrivateCopy();
-  SetColor(pData->m_FillColor, pData->m_FillRGB, pCS, pValue, nValues);
+  SetColor(pCS, values, &pData->m_FillColor, &pData->m_FillColorRef);
 }
 
 void CPDF_ColorState::SetStrokeColor(CPDF_ColorSpace* pCS,
-                                     float* pValue,
-                                     uint32_t nValues) {
+                                     const std::vector<float>& values) {
   ColorData* pData = m_Ref.GetPrivateCopy();
-  SetColor(pData->m_StrokeColor, pData->m_StrokeRGB, pCS, pValue, nValues);
+  SetColor(pCS, values, &pData->m_StrokeColor, &pData->m_StrokeColorRef);
 }
 
 void CPDF_ColorState::SetFillPattern(CPDF_Pattern* pPattern,
-                                     float* pValue,
-                                     uint32_t nValues) {
+                                     const std::vector<float>& values) {
   ColorData* pData = m_Ref.GetPrivateCopy();
-  pData->m_FillColor.SetValue(pPattern, pValue, nValues);
-  int R;
-  int G;
-  int B;
-  bool ret = pData->m_FillColor.GetRGB(&R, &G, &B);
-  if (CPDF_TilingPattern* pTilingPattern = pPattern->AsTilingPattern()) {
-    if (!ret && pTilingPattern->colored()) {
-      pData->m_FillRGB = 0x00BFBFBF;
-      return;
-    }
-  }
-  pData->m_FillRGB = ret ? FXSYS_RGB(R, G, B) : 0xFFFFFFFF;
+  SetPattern(pPattern, values, &pData->m_FillColor, &pData->m_FillColorRef);
 }
 
 void CPDF_ColorState::SetStrokePattern(CPDF_Pattern* pPattern,
-                                       float* pValue,
-                                       uint32_t nValues) {
+                                       const std::vector<float>& values) {
   ColorData* pData = m_Ref.GetPrivateCopy();
-  pData->m_StrokeColor.SetValue(pPattern, pValue, nValues);
+  SetPattern(pPattern, values, &pData->m_StrokeColor, &pData->m_StrokeColorRef);
+}
+
+void CPDF_ColorState::SetColor(CPDF_ColorSpace* pCS,
+                               const std::vector<float>& values,
+                               CPDF_Color* color,
+                               FX_COLORREF* colorref) {
+  ASSERT(color);
+  ASSERT(colorref);
+
+  if (pCS)
+    color->SetColorSpace(pCS);
+  else if (color->IsNull())
+    color->SetColorSpace(CPDF_ColorSpace::GetStockCS(PDFCS_DEVICEGRAY));
+
+  if (color->CountComponents() > values.size())
+    return;
+
+  if (!color->IsPattern())
+    color->SetValueForNonPattern(values);
   int R;
   int G;
   int B;
-  bool ret = pData->m_StrokeColor.GetRGB(&R, &G, &B);
+  *colorref = color->GetRGB(&R, &G, &B) ? FXSYS_BGR(B, G, R) : 0xFFFFFFFF;
+}
+
+void CPDF_ColorState::SetPattern(CPDF_Pattern* pPattern,
+                                 const std::vector<float>& values,
+                                 CPDF_Color* color,
+                                 FX_COLORREF* colorref) {
+  ASSERT(color);
+  ASSERT(colorref);
+
+  color->SetValueForPattern(pPattern, values);
+  int R;
+  int G;
+  int B;
+  bool ret = color->GetRGB(&R, &G, &B);
   if (CPDF_TilingPattern* pTilingPattern = pPattern->AsTilingPattern()) {
     if (!ret && pTilingPattern->colored()) {
-      pData->m_StrokeRGB = 0x00BFBFBF;
+      *colorref = 0x00BFBFBF;
       return;
     }
   }
-  pData->m_StrokeRGB =
-      pData->m_StrokeColor.GetRGB(&R, &G, &B) ? FXSYS_RGB(R, G, B) : 0xFFFFFFFF;
+  *colorref = ret ? FXSYS_BGR(B, G, R) : 0xFFFFFFFF;
 }
 
-void CPDF_ColorState::SetColor(CPDF_Color& color,
-                               uint32_t& rgb,
-                               CPDF_ColorSpace* pCS,
-                               float* pValue,
-                               uint32_t nValues) {
-  if (pCS)
-    color.SetColorSpace(pCS);
-  else if (color.IsNull())
-    color.SetColorSpace(CPDF_ColorSpace::GetStockCS(PDFCS_DEVICEGRAY));
-
-  if (color.GetColorSpace()->CountComponents() > nValues)
-    return;
-
-  color.SetValue(pValue);
-  int R;
-  int G;
-  int B;
-  rgb = color.GetRGB(&R, &G, &B) ? FXSYS_RGB(R, G, B) : 0xFFFFFFFF;
-}
-
-CPDF_ColorState::ColorData::ColorData() : m_FillRGB(0), m_StrokeRGB(0) {}
+CPDF_ColorState::ColorData::ColorData() = default;
 
 CPDF_ColorState::ColorData::ColorData(const ColorData& src)
-    : m_FillRGB(src.m_FillRGB), m_StrokeRGB(src.m_StrokeRGB) {
-  m_FillColor.Copy(&src.m_FillColor);
-  m_StrokeColor.Copy(&src.m_StrokeColor);
-}
+    : m_FillColorRef(src.m_FillColorRef),
+      m_StrokeColorRef(src.m_StrokeColorRef),
+      m_FillColor(src.m_FillColor),
+      m_StrokeColor(src.m_StrokeColor) {}
 
-CPDF_ColorState::ColorData::~ColorData() {}
+CPDF_ColorState::ColorData::~ColorData() = default;
 
 void CPDF_ColorState::ColorData::SetDefault() {
-  m_FillRGB = 0;
-  m_StrokeRGB = 0;
+  m_FillColorRef = 0;
+  m_StrokeColorRef = 0;
   m_FillColor.SetColorSpace(CPDF_ColorSpace::GetStockCS(PDFCS_DEVICEGRAY));
   m_StrokeColor.SetColorSpace(CPDF_ColorSpace::GetStockCS(PDFCS_DEVICEGRAY));
 }

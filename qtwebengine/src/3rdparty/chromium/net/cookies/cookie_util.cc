@@ -8,6 +8,8 @@
 #include <cstdlib>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
@@ -54,35 +56,15 @@ bool SaturatedTimeFromUTCExploded(const base::Time::Exploded& exploded,
   // some invalid calendar dates in the out-of-range case.
   if (!exploded.HasValidValues())
     return false;
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
-  // Allow dates prior to unix epoch (which fail on non-Mac/iOS POSIX).
-  if (exploded.year < 1970) {
-    *out = MinNonNullTime();
-    return true;
-  }
 
-  // On 32-bit non-Mac/iOS POSIX systems, the time_t value that FromExploded()
-  // returns overflows in the middle of year 2038. In that case, return
-  // Time::Max().
-  if (sizeof(time_t) == 4u && exploded.year >= 2038) {
+  if (exploded.year > base::Time::kExplodedMaxYear) {
     *out = base::Time::Max();
     return true;
   }
-#endif  // defined(OS_POSIX) && !defined(OS_MACOSX)
-
-#if defined(OS_WIN)
-  // Allow dates prior to Windows epoch.
-  if (exploded.year < 1601) {
+  if (exploded.year < base::Time::kExplodedMinYear) {
     *out = MinNonNullTime();
     return true;
   }
-
-  // Allow dates after the Windows epoch.
-  if (exploded.year >= 30827) {
-    *out = base::Time::Max();
-    return true;
-  }
-#endif  //  defined(OS_WIN)
 
   return false;
 }
@@ -120,6 +102,12 @@ bool GetCookieDomainWithString(const GURL& url,
     *result = url_host;
     DCHECK(DomainIsHostOnly(*result));
     return true;
+  }
+
+  // Disallow domain names with %-escaped characters.
+  for (char c : domain_string) {
+    if (c == '%')
+      return false;
   }
 
   // Get the normalized domain specified in cookie line.
@@ -178,7 +166,6 @@ base::Time ParseCookieExpirationTime(const std::string& time_string) {
   static const char* const kMonths[] = {
     "jan", "feb", "mar", "apr", "may", "jun",
     "jul", "aug", "sep", "oct", "nov", "dec" };
-  static const int kMonthsLen = arraysize(kMonths);
   // We want to be pretty liberal, and support most non-ascii and non-digit
   // characters as a delimiter.  We can't treat : as a delimiter, because it
   // is the delimiter for hh:mm:ss, and we want to keep this field together.
@@ -205,11 +192,11 @@ base::Time ParseCookieExpirationTime(const std::string& time_string) {
     // String field
     if (!numerical) {
       if (!found_month) {
-        for (int i = 0; i < kMonthsLen; ++i) {
+        for (size_t i = 0; i < base::size(kMonths); ++i) {
           // Match prefix, so we could match January, etc
           if (base::StartsWith(token, base::StringPiece(kMonths[i], 3),
                                base::CompareCase::INSENSITIVE_ASCII)) {
-            exploded.month = i + 1;
+            exploded.month = static_cast<int>(i) + 1;
             found_month = true;
             break;
           }
@@ -293,6 +280,39 @@ GURL CookieOriginToURL(const std::string& domain, bool is_https) {
   return GURL(scheme + "://" + host);
 }
 
+bool IsDomainMatch(const std::string& domain, const std::string& host) {
+  // Can domain match in two ways; as a domain cookie (where the cookie
+  // domain begins with ".") or as a host cookie (where it doesn't).
+
+  // Some consumers of the CookieMonster expect to set cookies on
+  // URLs like http://.strange.url.  To retrieve cookies in this instance,
+  // we allow matching as a host cookie even when the domain_ starts with
+  // a period.
+  if (host == domain)
+    return true;
+
+  // Domain cookie must have an initial ".".  To match, it must be
+  // equal to url's host with initial period removed, or a suffix of
+  // it.
+
+  // Arguably this should only apply to "http" or "https" cookies, but
+  // extension cookie tests currently use the funtionality, and if we
+  // ever decide to implement that it should be done by preventing
+  // such cookies from being set.
+  if (domain.empty() || domain[0] != '.')
+    return false;
+
+  // The host with a "." prefixed.
+  if (domain.compare(1, std::string::npos, host) == 0)
+    return true;
+
+  // A pure suffix of the host (ok since we know the domain already
+  // starts with a ".")
+  return (host.length() > domain.length() &&
+          host.compare(host.length() - domain.length(), domain.length(),
+                       domain) == 0);
+}
+
 void ParseRequestCookieLine(const std::string& header_value,
                             ParsedRequestCookies* parsed_cookies) {
   std::string::const_iterator i = header_value.begin();
@@ -327,7 +347,8 @@ void ParseRequestCookieLine(const std::string& header_value,
         // i points to ';' or end of string.
       }
     }
-    parsed_cookies->push_back(std::make_pair(cookie_name, cookie_value));
+    parsed_cookies->emplace_back(cookie_name.as_string(),
+                                 cookie_value.as_string());
     // Eat ';'.
     if (i != header_value.end()) ++i;
   }
@@ -336,8 +357,7 @@ void ParseRequestCookieLine(const std::string& header_value,
 std::string SerializeRequestCookieLine(
     const ParsedRequestCookies& parsed_cookies) {
   std::string buffer;
-  for (ParsedRequestCookies::const_iterator i = parsed_cookies.begin();
-       i != parsed_cookies.end(); ++i) {
+  for (auto i = parsed_cookies.begin(); i != parsed_cookies.end(); ++i) {
     if (!buffer.empty())
       buffer.append("; ");
     buffer.append(i->first.begin(), i->first.end());

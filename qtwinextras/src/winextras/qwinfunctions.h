@@ -81,7 +81,9 @@ namespace QtWin
     Q_WINEXTRAS_EXPORT HBITMAP toHBITMAP(const QPixmap &p, HBitmapFormat format = HBitmapNoAlpha);
     Q_WINEXTRAS_EXPORT QPixmap fromHBITMAP(HBITMAP bitmap, HBitmapFormat format = HBitmapNoAlpha);
     Q_WINEXTRAS_EXPORT HICON toHICON(const QPixmap &p);
+    Q_WINEXTRAS_EXPORT HBITMAP imageToHBITMAP(const QImage &image, QtWin::HBitmapFormat format = HBitmapNoAlpha);
     Q_WINEXTRAS_EXPORT QImage imageFromHBITMAP(HDC hdc, HBITMAP bitmap, int width, int height);
+    Q_WINEXTRAS_EXPORT QImage imageFromHBITMAP(HBITMAP bitmap, QtWin::HBitmapFormat format = HBitmapNoAlpha);
     Q_WINEXTRAS_EXPORT QPixmap fromHICON(HICON icon);
     Q_WINEXTRAS_EXPORT HRGN toHRGN(const QRegion &region);
     Q_WINEXTRAS_EXPORT QRegion fromHRGN(HRGN hrgn);
@@ -89,7 +91,7 @@ namespace QtWin
     Q_WINEXTRAS_EXPORT QString stringFromHresult(HRESULT hresult);
     Q_WINEXTRAS_EXPORT QString errorStringFromHresult(HRESULT hresult);
 
-    Q_WINEXTRAS_EXPORT QColor colorizationColor(bool *opaqueBlend = Q_NULLPTR);
+    Q_WINEXTRAS_EXPORT QColor colorizationColor(bool *opaqueBlend = nullptr);
     Q_WINEXTRAS_EXPORT QColor realColorizationColor();
 
     Q_WINEXTRAS_EXPORT void setWindowExcludedFromPeek(QWindow *window, bool exclude);

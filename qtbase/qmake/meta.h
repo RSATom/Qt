@@ -41,20 +41,14 @@ class QMakeProject;
 
 class QMakeMetaInfo
 {
-    bool readLibtoolFile(const QString &f);
-    bool readPkgCfgFile(const QString &f);
-    QMakeProject *conf;
     ProValueMap vars;
-    QString meta_type;
     static QHash<QString, ProValueMap> cache_vars;
 public:
-    QMakeMetaInfo(QMakeProject *_conf);
 
     // These functions expect the path to be normalized
-    static QString findLib(const QString &lib);
+    static QString checkLib(const QString &lib);
     bool readLib(const QString &meta_file);
 
-    QString type() const;
     bool isEmpty(const ProKey &v);
     ProStringList &values(const ProKey &v);
     ProString first(const ProKey &v);
@@ -63,9 +57,6 @@ public:
 
 inline bool QMakeMetaInfo::isEmpty(const ProKey &v)
 { return !vars.contains(v) || vars[v].isEmpty(); }
-
-inline QString QMakeMetaInfo::type() const
-{ return meta_type; }
 
 inline ProStringList &QMakeMetaInfo::values(const ProKey &v)
 { return vars[v]; }

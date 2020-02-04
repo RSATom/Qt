@@ -1,7 +1,7 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html#License
 ne{
-    Version{"2.1.32.59"}
+    Version{"2.1.43.50"}
     durationUnits{
         hm{"h:mm"}
         hms{"h:mm:ss"}
@@ -27,9 +27,9 @@ ne{
                 other{"{0}आर्क मिनेट"}
             }
             arc-second{
-                dnam{"आर्क सेकेण्ड"}
-                one{"{0}आर्क सेकेण्ड"}
-                other{"{0}आर्क सेकेण्ड"}
+                dnam{"आर्क सेकेन्ड"}
+                one{"{0}आर्क सेकेन्ड"}
+                other{"{0}आर्क सेकेन्ड"}
             }
             degree{
                 dnam{"डिग्री"}
@@ -123,6 +123,16 @@ ne{
                 one{"{0} ppm"}
                 other{"{0} ppm"}
             }
+            percent{
+                dnam{"प्रतिशत"}
+                one{"{0} प्रतिशत"}
+                other{"{0} प्रतिशत"}
+            }
+            permille{
+                dnam{"प्रति मिल"}
+                one{"{0} प्रति मिल"}
+                other{"{0} प्रति मिल"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -147,6 +157,7 @@ ne{
             }
         }
         coordinate{
+            dnam{"मुख्य दिशा"}
             east{"{0}पूर्व"}
             north{"{0}उत्तर"}
             south{"{0}दक्षिण"}
@@ -193,6 +204,11 @@ ne{
                 one{"{0}मेगाबाइट"}
                 other{"{0}मेगाबाइट"}
             }
+            petabyte{
+                dnam{"पिटाबाइटहरू"}
+                one{"{0} पिटाबाइट"}
+                other{"{0} पिटाबाइटहरू"}
+            }
             terabit{
                 dnam{"टेराबिट"}
                 one{"{0}टेराबिट"}
@@ -207,14 +223,14 @@ ne{
         duration{
             century{
                 dnam{"शताब्दी"}
-                one{"{0}शताब्दी"}
-                other{"{0}शताब्दी"}
+                one{"{0} शताब्दी"}
+                other{"{0} शताब्दी"}
             }
             day{
                 dnam{"दिन"}
                 one{"{0} दिन"}
                 other{"{0} दिन"}
-                per{"{0}/दिन"}
+                per{"{0} प्रति दिन"}
             }
             hour{
                 dnam{"घण्टा"}
@@ -223,49 +239,49 @@ ne{
                 per{"{0}प्रति घण्टा"}
             }
             microsecond{
-                dnam{"माइक्रोसेकेण्ड"}
-                one{"{0}माइक्रोसेकेण्ड"}
-                other{"{0}माइक्रोसेकेण्ड"}
+                dnam{"माइक्रोसेकेन्ड"}
+                one{"{0} माइक्रोसेकेन्ड"}
+                other{"{0} माइक्रोसेकेन्ड"}
             }
             millisecond{
-                dnam{"मिली सेकेण्ड"}
-                one{"{0} मिली सेकेण्ड"}
-                other{"{0} मिली सेकेण्ड"}
+                dnam{"मिली सेकेन्ड"}
+                one{"{0} मिली सेकेन्ड"}
+                other{"{0} मिली सेकेन्ड"}
             }
             minute{
                 dnam{"मिनेट"}
                 one{"{0} मिनेट"}
                 other{"{0} मिनेट"}
-                per{"{0}प्रति मिनेट"}
+                per{"{0} प्रति मिनेट"}
             }
             month{
                 dnam{"महिना"}
                 one{"{0} महिना"}
                 other{"{0} महिना"}
-                per{"{0}/महिना"}
+                per{"{0} प्रति महिना"}
             }
             nanosecond{
-                dnam{"न्यानोसेकेण्ड"}
-                one{"{0}न्यानोसेकेण्ड"}
-                other{"{0}न्यानोसेकेण्ड"}
+                dnam{"न्यानोसेकेन्ड"}
+                one{"{0} न्यानोसेकेन्ड"}
+                other{"{0} न्यानोसेकेन्ड"}
             }
             second{
-                dnam{"सेकेण्ड"}
-                one{"{0} सेकेण्ड"}
-                other{"{0} सेकेण्ड"}
-                per{"{0}प्रति सेकेण्ड"}
+                dnam{"सेकेन्ड"}
+                one{"{0} सेकेन्ड"}
+                other{"{0} सेकेन्ड"}
+                per{"{0} प्रति सेकेन्ड"}
             }
             week{
                 dnam{"हप्ता"}
                 one{"{0} हप्ता"}
                 other{"{0} हप्ता"}
-                per{"{0}प्रति हप्ता"}
+                per{"{0} प्रति हप्ता"}
             }
             year{
                 dnam{"वर्ष"}
                 one{"{0} वर्ष"}
                 other{"{0} वर्ष"}
-                per{"{0}प्रति वर्ष"}
+                per{"{0} प्रति वर्ष"}
             }
         }
         electric{
@@ -421,14 +437,19 @@ ne{
                 other{"{0}नउटिकल माइल"}
             }
             parsec{
-                dnam{"पारसेकेण्ड"}
-                one{"{0}पारसेकेण्ड"}
-                other{"{0}पारसेकेण्ड"}
+                dnam{"पारसेकेन्ड"}
+                one{"{0}पारसेकेन्ड"}
+                other{"{0}पारसेकेन्ड"}
             }
             picometer{
                 dnam{"पिकोमिटर"}
                 one{"{0} पिकोमिटर"}
                 other{"{0} पिकोमिटर"}
+            }
+            point{
+                dnam{"pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
             }
             yard{
                 dnam{"गज"}
@@ -532,6 +553,11 @@ ne{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"वायुमण्डल"}
+                one{"{0} वायुमण्डल"}
+                other{"{0} वायुमण्डलहरू"}
+            }
             hectopascal{
                 dnam{"हेक्टो पास्कल"}
                 one{"{0} हेक्टो पास्कल"}
@@ -780,6 +806,13 @@ ne{
         compound{
             per{"{0}प्रति {1}"}
         }
+        concentr{
+            percent{
+                dnam{"प्रतिशत"}
+                one{"{0}प्रतिशत"}
+                other{"{0}प्रतिशत"}
+            }
+        }
         consumption{
             liter-per-100kilometers{
                 dnam{"लि./१००कि.मि."}
@@ -788,6 +821,7 @@ ne{
             }
         }
         coordinate{
+            dnam{"दिशा"}
             east{"{0}पूर्व"}
             north{"{0}उत्तर"}
             south{"{0}दक्षिण"}
@@ -805,7 +839,7 @@ ne{
                 other{"{0} घण्टा"}
             }
             millisecond{
-                dnam{"मिली सेकेण्ड"}
+                dnam{"मिली सेकेन्ड"}
                 one{"{0}मि.से."}
                 other{"{0}मि.से."}
             }
@@ -820,9 +854,9 @@ ne{
                 other{"{0} महिना"}
             }
             second{
-                dnam{"सेकेण्ड"}
-                one{"{0} सेकेण्ड"}
-                other{"{0} सेकेण्ड"}
+                dnam{"सेकेन्ड"}
+                one{"{0} सेकेन्ड"}
+                other{"{0} सेकेन्ड"}
             }
             week{
                 dnam{"हप्ता"}
@@ -993,9 +1027,9 @@ ne{
                 other{"{0}आर्क मिनेट"}
             }
             arc-second{
-                dnam{"आर्क सेकेण्ड"}
-                one{"{0}आर्क सेकेण्ड"}
-                other{"{0}आर्क सेकेण्ड"}
+                dnam{"आर्क सेकेन्ड"}
+                one{"{0}आर्क सेकेन्ड"}
+                other{"{0}आर्क सेकेन्ड"}
             }
             degree{
                 dnam{"डिग्री"}
@@ -1089,6 +1123,16 @@ ne{
                 one{"{0} ppm"}
                 other{"{0} ppm"}
             }
+            percent{
+                dnam{"प्रतिशत"}
+                one{"{0}प्रतिशत"}
+                other{"{0}प्रतिशत"}
+            }
+            permille{
+                dnam{"प्रति मिल"}
+                one{"{0}प्रति मिल"}
+                other{"{0}प्रतिशत १"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -1113,6 +1157,7 @@ ne{
             }
         }
         coordinate{
+            dnam{"दिशा"}
             east{"{0}पूर्व"}
             north{"{0}उत्तर"}
             south{"{0}दक्षिण"}
@@ -1159,6 +1204,11 @@ ne{
                 one{"{0} MB"}
                 other{"{0} MB"}
             }
+            petabyte{
+                dnam{"पिटाबाइट"}
+                one{"{0} पिटा"}
+                other{"{0} पिटा"}
+            }
             terabit{
                 dnam{"Tb"}
                 one{"{0} Tb"}
@@ -1173,8 +1223,8 @@ ne{
         duration{
             century{
                 dnam{"शताब्दी"}
-                one{"{0}शताब्दी"}
-                other{"{0}शताब्दी"}
+                one{"{0} शताब्दी"}
+                other{"{0} शताब्दी"}
             }
             day{
                 dnam{"दिन"}
@@ -1189,14 +1239,14 @@ ne{
                 per{"{0}प्रति घण्टा"}
             }
             microsecond{
-                dnam{"μs"}
-                one{"{0} μs"}
-                other{"{0} μs"}
+                dnam{"माइक्रोसेकेन्ड"}
+                one{"{0} मा.से."}
+                other{"{0} मा.से."}
             }
             millisecond{
-                dnam{"मिली सेकेण्ड"}
-                one{"{0} मिली से."}
-                other{"{0} मिली से."}
+                dnam{"मिली सेकेन्ड"}
+                one{"{0} मि.से."}
+                other{"{0} मि.से."}
             }
             minute{
                 dnam{"मिनेट"}
@@ -1211,15 +1261,15 @@ ne{
                 per{"{0}/महिना"}
             }
             nanosecond{
-                dnam{"ns"}
-                one{"{0} ns"}
-                other{"{0} ns"}
+                dnam{"न्यानोसेकेन्ड"}
+                one{"{0} न.से."}
+                other{"{0} न.से."}
             }
             second{
-                dnam{"सेकेण्ड"}
-                one{"{0} सेकेण्ड"}
-                other{"{0} सेकेण्ड"}
-                per{"{0}प्रति सेकेण्ड"}
+                dnam{"सेकेन्ड"}
+                one{"{0} सेकेन्ड"}
+                other{"{0} सेकेन्ड"}
+                per{"{0}/सेकेन्ड"}
             }
             week{
                 dnam{"हप्ता"}
@@ -1387,7 +1437,7 @@ ne{
                 other{"{0} nmi"}
             }
             parsec{
-                dnam{"पारसेकेण्ड"}
+                dnam{"पारसेकेन्ड"}
                 one{"{0} pc"}
                 other{"{0} pc"}
             }
@@ -1395,6 +1445,11 @@ ne{
                 dnam{"पिकोमिटर"}
                 one{"{0}पिकोमिटर"}
                 other{"{0}पिकोमिटर"}
+            }
+            point{
+                dnam{"pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
             }
             yard{
                 dnam{"गज"}
@@ -1498,6 +1553,11 @@ ne{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"वायु"}
+                one{"{0} वायु"}
+                other{"{0} वायु"}
+            }
             hectopascal{
                 dnam{"हेक्टो पास्कल"}
                 one{"{0}hPa"}

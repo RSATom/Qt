@@ -29,8 +29,6 @@
 
 // console IO
 
-#if U_IOSTREAM_SOURCE >= 199711
-
 #define STD_NAMESPACE std::
 
 #define STD_OSTREAM STD_NAMESPACE ostream
@@ -125,7 +123,7 @@ operator>>(STD_ISTREAM& stream, UnicodeString& str)
             /* Was the character consumed? */
             if (us != uBuffer) {
                 /* Reminder: ibm-1390 & JISX0213 can output 2 Unicode code points */
-                int32_t uBuffSize = us-uBuffer;
+                int32_t uBuffSize = static_cast<int32_t>(us-uBuffer);
                 int32_t uBuffIdx = 0;
                 while (uBuffIdx < uBuffSize) {
                     U16_NEXT(uBuffer, uBuffIdx, uBuffSize, ch32);
@@ -169,5 +167,4 @@ STOP_READING:
 
 U_NAMESPACE_END
 
-#endif
 #endif

@@ -15,7 +15,9 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/native_library.h"
+#include "base/optional.h"
 #include "base/process/process.h"
+#include "base/single_thread_task_runner.h"
 #include "content/common/content_export.h"
 #include "content/public/common/pepper_plugin_info.h"
 #include "ppapi/c/pp_bool.h"
@@ -23,6 +25,7 @@
 #include "ppapi/c/ppb_core.h"
 #include "ppapi/c/private/ppb_instance_private.h"
 #include "ppapi/shared_impl/ppapi_permissions.h"
+#include "url/origin.h"
 
 typedef void* NPIdentifier;
 
@@ -193,7 +196,8 @@ class CONTENT_EXPORT PluginModule : public base::RefCounted<PluginModule>,
       const IPC::ChannelHandle& channel_handle,
       base::ProcessId plugin_pid,
       int plugin_child_id,
-      bool is_external);
+      bool is_external,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
   // In production we purposely leak the HostGlobals object but in unittest
   // code, this can interfere with subsequent tests. This deletes the
@@ -210,9 +214,12 @@ class CONTENT_EXPORT PluginModule : public base::RefCounted<PluginModule>,
   // the second is that the plugin failed to initialize. In this case,
   // |*pepper_plugin_was_registered| will be set to true and the caller should
   // not fall back on any other plugin types.
-  static scoped_refptr<PluginModule> Create(RenderFrameImpl* render_frame,
-                                            const WebPluginInfo& webplugin_info,
-                                            bool* pepper_plugin_was_registered);
+  static scoped_refptr<PluginModule> Create(
+      RenderFrameImpl* render_frame,
+      const WebPluginInfo& webplugin_info,
+      const base::Optional<url::Origin>& origin_lock,
+      bool* pepper_plugin_was_registered,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
  private:
   friend class base::RefCounted<PluginModule>;

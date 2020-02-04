@@ -4,7 +4,6 @@
 
 #include "extensions/common/permissions/mock_manifest_permission.h"
 
-#include "base/memory/ptr_util.h"
 #include "extensions/common/permissions/api_permission_set.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -30,10 +29,10 @@ bool MockManifestPermission::FromValue(const base::Value* value) {
 }
 
 std::unique_ptr<base::Value> MockManifestPermission::ToValue() const {
-  return base::MakeUnique<base::Value>();
+  return std::make_unique<base::Value>();
 }
 
-ManifestPermission* MockManifestPermission::Diff(
+std::unique_ptr<ManifestPermission> MockManifestPermission::Diff(
     const ManifestPermission* rhs) const {
   const MockManifestPermission* other =
       static_cast<const MockManifestPermission*>(rhs);
@@ -41,20 +40,20 @@ ManifestPermission* MockManifestPermission::Diff(
   return nullptr;
 }
 
-ManifestPermission* MockManifestPermission::Union(
+std::unique_ptr<ManifestPermission> MockManifestPermission::Union(
     const ManifestPermission* rhs) const {
   const MockManifestPermission* other =
       static_cast<const MockManifestPermission*>(rhs);
   EXPECT_EQ(name_, other->name_);
-  return new MockManifestPermission(name_);
+  return std::make_unique<MockManifestPermission>(name_);
 }
 
-ManifestPermission* MockManifestPermission::Intersect(
+std::unique_ptr<ManifestPermission> MockManifestPermission::Intersect(
     const ManifestPermission* rhs) const {
   const MockManifestPermission* other =
       static_cast<const MockManifestPermission*>(rhs);
   EXPECT_EQ(name_, other->name_);
-  return new MockManifestPermission(name_);
+  return std::make_unique<MockManifestPermission>(name_);
 }
 
 }  // namespace extensions

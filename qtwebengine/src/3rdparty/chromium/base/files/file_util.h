@@ -16,6 +16,11 @@
 #include <string>
 #include <vector>
 
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 #include "base/base_export.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
@@ -23,13 +28,8 @@
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
-#include <windows.h>
-#elif defined(OS_POSIX)
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
-
-#if defined(OS_POSIX)
+#include "base/win/windows_types.h"
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include "base/file_descriptor_posix.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
@@ -95,11 +95,26 @@ BASE_EXPORT bool ReplaceFile(const FilePath& from_path,
                              const FilePath& to_path,
                              File::Error* error);
 
-// Copies a single file. Use CopyDirectory to copy directories.
+// Copies a single file. Use CopyDirectory() to copy directories.
 // This function fails if either path contains traversal components ('..').
+// This function also fails if |to_path| is a directory.
 //
-// This function keeps the metadata on Windows. The read only bit on Windows is
-// not kept.
+// On POSIX, if |to_path| is a symlink, CopyFile() will follow the symlink. This
+// may have security implications. Use with care.
+//
+// If |to_path| already exists and is a regular file, it will be overwritten,
+// though its permissions will stay the same.
+//
+// If |to_path| does not exist, it will be created. The new file's permissions
+// varies per platform:
+//
+// - This function keeps the metadata on Windows. The read only bit is not kept.
+// - On Mac and iOS, |to_path| retains |from_path|'s permissions, except user
+//   read/write permissions are always set.
+// - On Linux and Android, |to_path| has user read/write permissions only. i.e.
+//   Always 0600.
+// - On ChromeOS, |to_path| has user read/write permissions and group/others
+//   read permissions. i.e. Always 0644.
 BASE_EXPORT bool CopyFile(const FilePath& from_path, const FilePath& to_path);
 
 // Copies the given path, and optionally all subdirectories and their contents
@@ -108,13 +123,18 @@ BASE_EXPORT bool CopyFile(const FilePath& from_path, const FilePath& to_path);
 // If there are files existing under to_path, always overwrite. Returns true
 // if successful, false otherwise. Wildcards on the names are not supported.
 //
-// This function calls into CopyFile() so the same behavior w.r.t. metadata
-// applies.
+// This function has the same metadata behavior as CopyFile().
 //
 // If you only need to copy a file use CopyFile, it's faster.
 BASE_EXPORT bool CopyDirectory(const FilePath& from_path,
                                const FilePath& to_path,
                                bool recursive);
+
+// Like CopyDirectory() except trying to overwrite an existing file will not
+// work and will return false.
+BASE_EXPORT bool CopyDirectoryExcl(const FilePath& from_path,
+                                   const FilePath& to_path,
+                                   bool recursive);
 
 // Returns true if the given path exists on the local filesystem,
 // false otherwise.
@@ -158,16 +178,22 @@ BASE_EXPORT bool ReadFileToStringWithMaxSize(const FilePath& path,
                                              std::string* contents,
                                              size_t max_size);
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 // Read exactly |bytes| bytes from file descriptor |fd|, storing the result
 // in |buffer|. This function is protected against EINTR and partial reads.
 // Returns true iff |bytes| bytes have been successfully read from |fd|.
 BASE_EXPORT bool ReadFromFD(int fd, char* buffer, size_t bytes);
 
-// The following functions use POSIX functionality that isn't supported by
-// Fuchsia.
-#if !defined(OS_FUCHSIA)
+// Performs the same function as CreateAndOpenTemporaryFileInDir(), but returns
+// the file-descriptor directly, rather than wrapping it into a FILE. Returns
+// -1 on failure.
+BASE_EXPORT int CreateAndOpenFdForTemporaryFileInDir(const FilePath& dir,
+                                                     FilePath* path);
+
+#endif  // OS_POSIX || OS_FUCHSIA
+
+#if defined(OS_POSIX)
 
 // Creates a symbolic link at |symlink| pointing to |target|.  Returns
 // false on failure.
@@ -209,7 +235,15 @@ BASE_EXPORT bool SetPosixFilePermissions(const FilePath& path, int mode);
 BASE_EXPORT bool ExecutableExistsInPath(Environment* env,
                                         const FilePath::StringType& executable);
 
-#endif  // !OS_FUCHSIA
+#if defined(OS_LINUX) || defined(OS_AIX)
+// Determine if files under a given |path| can be mapped and then mprotect'd
+// PROT_EXEC. This depends on the mount options used for |path|, which vary
+// among different Linux distributions and possibly local configuration. It also
+// depends on details of kernel--ChromeOS uses the noexec option for /dev/shm
+// but its kernel allows mprotect with PROT_EXEC anyway.
+BASE_EXPORT bool IsPathExecutable(const FilePath& path);
+#endif  // OS_LINUX || OS_AIX
+
 #endif  // OS_POSIX
 
 // Returns true if the given directory is empty
@@ -337,7 +371,7 @@ BASE_EXPORT int ReadFile(const FilePath& filename, char* data, int max_size);
 BASE_EXPORT int WriteFile(const FilePath& filename, const char* data,
                           int size);
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 // Appends |data| to |fd|. Does not close |fd| when done.  Returns true iff
 // |size| bytes of |data| were written to |fd|.
 BASE_EXPORT bool WriteFileDescriptor(const int fd, const char* data, int size);
@@ -367,7 +401,7 @@ BASE_EXPORT int GetUniquePathNumber(const FilePath& path,
 // false.
 BASE_EXPORT bool SetNonBlocking(int fd);
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 // Creates a non-blocking, close-on-exec pipe.
 // This creates a non-blocking pipe that is not intended to be shared with any
 // child process. This will be done atomically if the operating system supports
@@ -394,7 +428,7 @@ BASE_EXPORT bool VerifyPathControlledByUser(const base::FilePath& base,
                                             const base::FilePath& path,
                                             uid_t owner_uid,
                                             const std::set<gid_t>& group_gids);
-#endif  // defined(OS_POSIX)
+#endif  // defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
 // Is |path| writable only by a user with administrator privileges?
@@ -431,7 +465,7 @@ enum FileSystemType {
 BASE_EXPORT bool GetFileSystemType(const FilePath& path, FileSystemType* type);
 #endif
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 // Get a temporary directory for shared memory files. The directory may depend
 // on whether the destination is intended for executable files, which in turn
 // depends on how /dev/shmem was mounted. As a result, you must supply whether

@@ -19,6 +19,21 @@ various tools available to help with conversion of legacy IPC messages to Mojo.
 It assumes familiarity with [Mojom](/mojo/public/tools/bindings) syntax and
 general use of Mojo [C++ bindings](/mojo/public/cpp/bindings).
 
+The existing messages that still need to be converted are tracked in two
+spreadsheets:
+
+[Chrome IPC to Mojo migration](
+https://docs.google.com/spreadsheets/d/1pGWX_wxGdjAVtQOmlDDfhuIc3Pbwg9FtvFXAXYu7b7c/edit#gid=0) -
+for non-web platform messages
+
+[Mojoifying Platform Features](
+https://docs.google.com/spreadsheets/d/1VIINt17Dg2cJjPpoJ_HY3HI0uLpidql-1u8pBJtpbGk/edit#gid=1603373208) -
+for web platform messages
+
+Ownership of items is claimed by specifying a username in the 'Owner' field to
+prevent duplication of effort. If you are not very familiar with the messages
+you plan to convert, it might be worth asking the owner first.
+
 In traditional Chrome IPC, we have One Big Pipe (the `IPC::Channel`) between
 each connected process. Sending an IPC from one process to another means knowing
 how to get a handle to the Channel interface (*e.g.,*
@@ -48,13 +63,13 @@ of life?
 ### Moving Messages to Services
 
 We have a small but growing number of services defined in
-[`//services`](https://cs.chromium.org/chromium/src/services), each of which has
+[`//services`](https://cs.chromium.org/chromium/src/services/), each of which has
 some set of public interfaces defined in their `public/interfaces` subdirectory.
 In the limit, this is the preferred destination for any message conversions
 pertaining to foundational system services (more info at
 [https://www.chromium.org/servicification](https://www.chromium.org/servicification).)
 For other code it may make sense to introduce services elsewhere (*e.g.*, in
-`//chrome/services` or `//components/foo/service`), or to simply
+`//chrome/services` or `//components/services`), or to simply
 avoid using services altogether for now and instead define some one-off Mojom
 interface alongside the old messages file.
 
@@ -128,7 +143,7 @@ others still on the Channel.
 If ordering really matters with respect to other legacy messages in the system,
 as is often the case for *e.g.* frame and navigation-related messages, you
 almost certainly want to take advantage of
-[Channel-associated interfaces](#Using-Channel-associated-Interfaces) to
+[Channel-associated interfaces](#Using-Channel_associated-Interfaces) to
 eliminate any risk of introducing subtle behavioral changes.
 
 Even if ordering only matters among a small set of messages which you intend to
@@ -157,7 +172,7 @@ service. Your first order of business is to translate this into a suitable
 public interface definition within that service:
 
 ``` cpp
-// src/services/data_decoder/public/interfaces/png_decoder.mojom
+// src/services/data_decoder/public/mojom/png_decoder.mojom
 module data_decoder.mojom;
 
 interface PngDecoder {
@@ -166,8 +181,13 @@ interface PngDecoder {
 };
 ```
 
-and you'll also want to define the implementation within
-`//services/data_decoder`, pluging in some appropriate binder so the service
+You will need to update the relevant BUILD.gn target with the newly added mojom
+file. See [this section](
+https://chromium.googlesource.com/chromium/src/+/master/mojo/public/cpp/bindings/README.md#getting-started)
+for details.
+
+You'll also want to define the implementation within
+`//services/data_decoder`, plugging in some appropriate binder so the service
 knows how to bind incoming interface requests to your implementation:
 
 ``` cpp
@@ -191,10 +211,12 @@ DataDecoderService::DataDecoderService() {
 ```
 
 and finally you need to update the usage of the old IPC by probably deleting
-lots of ugly code which sets up a `UtilityProcessHostImpl` and replacing it
-with something like:
+lots of ugly code which sets up a `UtilityProcessHost` and replacing it with
+something like:
 
 ``` cpp
+#include "services/data_decoder/public/mojom/png_decoder.mojom.h"
+...
 void OnDecodedPng(const std::vector<uint8_t>& rgba_data) { /* ... */ }
 
 data_decoder::mojom::PngDecoderPtr png_decoder;
@@ -237,11 +259,17 @@ For example, any interfaces registered in
 can be acquired by a renderer as follows:
 
 ``` cpp
-mojom::FooPtr foo;
+mojom::LoggerPtr logger;
 content::RenderThread::Get()->GetConnector()->BindInterface(
-    content::mojom::kBrowserServiceName, &foo);
-foo->DoSomePrettyCoolIPC();
+    content::mojom::kBrowserServiceName, &logger);
+logger->Log("Message to log here");
 ```
+
+Usually `logger` will be saved in a field at construction time, so the
+connection is only created once. There may be situations where you want to
+create one connection per request, e.g. a new instance of the Mojo
+implementation is created with some information about the request, and any
+responses for this request go straight to that instance.
 
 ### On Other Threads
 
@@ -255,20 +283,21 @@ which may be used immediately and retained on that thread -- and asynchronously
 associate it with the main-thread `Connector` like so:
 
 ``` cpp
-class Thinger {
+class Logger {
  public:
-  explicit Thinger(scoped_refptr<base::TaskRunner> main_thread_task_runner) {
+  explicit Logger(scoped_refptr<base::TaskRunner> main_thread_task_runner) {
     service_manager::mojom::ConnectorRequest request;
 
     // Of course we could also retain |connector| if we intend to use it again.
     auto connector = service_manager::Connector::Create(&request);
-    connector->BindInterface("best_service_ever", &thinger_);
-    thinger_->DoTheThing();
+    // Replace service_name with the name of the service to bind on, e.g.
+    // content::mojom::kBrowserServiceName.
+    connector->BindInterface("service_name", &logger_);
+    logger_->Log("Test Message.");
 
-    // Doesn't really matter when this happens, as long as it eventually
-    // happens.
+    // Doesn't matter when this happens, as long as it happens eventually.
     main_thread_task_runner->PostTask(
-        FROM_HERE, base::BindOnce(&Thinger::BindConnectorOnMainThread,
+        FROM_HERE, base::BindOnce(&Logger::BindConnectorOnMainThread,
                                   std::move(request)));
   }
 
@@ -280,9 +309,9 @@ class Thinger {
         std::move(request));
   }
 
-  mojom::ThingerPtr thinger_;
+  mojom::LoggerPtr logger_;
 
-  DISALLOW_COPY_AND_ASSIGN(Thinger);
+  DISALLOW_COPY_AND_ASSIGN(Logger);
 };
 ```
 
@@ -294,16 +323,16 @@ directly.
 
 For convenience the Service Manager's
 [client library](https://cs.chromium.org/chromium/src/services/service_manager/public/cpp/)
-exposes two useful types: `InterfaceRegistry` and `InterfaceProvider`. These
-objects generally exist as an intertwined pair with an `InterfaceRegistry` in
+exposes two useful types: `BinderRegistry` and `InterfaceProvider`. These
+objects generally exist as an intertwined pair with a `BinderRegistry` in
 one process and a corresponding `InterfaceProvider` in another process.
 
-The `InterfaceRegistry` is essentially just a mapping from interface name
+The `BinderRegistry` is essentially just a mapping from interface name
 to binder function:
 
 ``` cpp
 void BindFrobinator(mojom::FrobinatorRequest request) {
-  mojo::MakeStrongBinding(base::MakeUnique<FrobinatorImpl>, std::move(request));
+  mojo::MakeStrongBinding(std::make_unique<FrobinatorImpl>, std::move(request));
 }
 
 // |registry| will hereby handle all incoming requests for "mojom::Frobinator"
@@ -313,7 +342,7 @@ registry->AddInterface(base::Bind(&BindFrobinator));
 ```
 
 while an `InterfaceProvider` exposes a means of requesting interfaces from a
-remote `InterfaceRegistry`:
+remote `BinderRegistry`:
 
 ``` cpp
 mojom::FrobinatorPtr frob;
@@ -326,18 +355,193 @@ provider->GetInterface(mojo::MakeRequest(&frob));
 frob->DoTheFrobinator();
 ```
 
-For convenience, we stick an `InterfaceRegistry` and corresponding
-`InterfaceProvider` in several places at the Content layer to facilitate
-interface connection between browser and renderer processes:
+`RenderFrameHostImpl`'s binder registry corresponds to the `InterfaceProvider`
+returned by `RenderFrameImpl::GetRemoteInterfaces()`, and `RenderFrameImpl`'s
+binder registry corresponds to the `InterfaceProvider` returned by
+`RenderFrameHostImpl::GetRemoteInterfaces()`.
 
-| `InterfaceRegistry`                         | `InterfaceProvider`                        |
-|---------------------------------------------|--------------------------------------------|
-| `RenderProcessHost::GetInterfaceRegistry()` | `RenderThreadImpl::GetRemoteInterfaces()`  |
-| `RenderThreadImpl::GetInterfaceRegistry()`  | `RenderProcessHost::GetRemoteInterfaces()` |
-| `RenderFrameHost::GetInterfaceRegistry()`   | `RenderFrame::GetRemoteInterfaces()`       |
-| `RenderFrame::GetInterfaceRegistry()`       | `RenderFrameHost::GetRemoteInterfaces()`   |
+**NOTE:** this mechanism is being replaced with explicit interface factory
+approach described in [this document](
+https://docs.google.com/document/d/1e0qqv3ZGQYskE4XhtuGrYJeThjYXu8xozl7zIlwjSD0).
 
 As noted above, use of these registries is generally discouraged.
+
+### Deciding Which Interface Registry to Use
+
+Once you have an implementation of a Mojo interface, the next thing to decide is
+which registry and service to register it on.
+
+For browser/renderer communication, you can register your Mojo interface
+implementation in either the Browser or Renderer process (whichever side the
+interface was implemented on). Usually, this involves calling `AddInterface()`
+on the correct registry, passing a method that takes the Mojo Request object
+(e.g. `sample::mojom::LoggerRequest`) and binding it (e.g.
+`mojo::MakeStrongBinding()`, `bindings_.AddBinding()`, etc). Then the class that
+needs this API can call `BindInterface()` on the connector for that process,
+e.g.
+`ChildThreadImpl::current()->GetConnector()->BindInterface(mojom::kBrowserServiceName, std::move(&mojo_interface_))`.
+
+**NOTE:** `content::ServiceManagerConnection::GetForProcess()` must be called in
+the browser process on the main thread, and its connector can only be used on
+the main thread; but you can clone connectors and move the clones around to
+other threads. A `Connector` is only bound to the thread which first calls into
+it.
+
+Depending on what resources you need access to, the main classes are:
+
+| Renderer Class  | Corresponding Browser Class |  Explanation                                                                                                       |
+|-----------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `RenderFrame`   | `RenderFrameHost`           | A single frame. Use this for frame-to-frame messages.                                                             |
+| `RenderView`    | `RenderViewHost`            | A view (conceptually a 'tab'). You cannot send Mojo messages to a `RenderView` directly, since frames in a tab can be in multiple processes (and the classes are deprecated). Migrate these to `RenderFrame` instead, or see section [Migrating IPC calls to `RenderView` or `RenderViewHost`](#other-routed-messages-to-the-browser).  |
+| `RenderProcess` | `RenderProcessHost`         | A process, containing multiple frames (probably from the same origin, but not always).                             |
+
+**NOTE:** Previously, classes that ended with `Host` were implemented on the
+browser side; the equivalent classes on the renderer side had the same name
+without the `Host` suffix. We have since deviated from this convention since
+Mojo interfaces are not intended to prescribe where their endpoints live, so
+future classes should omit such suffixes and just describe the interface they
+are providing.
+
+Of course, any combination of the above is possible, e.g. `RenderProcessHost`
+can register a Mojo interface that can be called by a `RenderFrame` (this would
+be a way of the browser communicating with multiple frames at once).
+
+Once you know which class you want the implementation to be registered in, find
+the corresponding `Impl` class (e.g. `RenderProcessImpl`). There should be a
+`RegisterMojoInterfaces()` method where you can add calls to `AddInterface`,
+e.g. For a strong binding:
+
+```cpp
+  registry->AddInterface(base::Bind(&Logger::Create, GetID()));
+```
+
+Then in `Logger` we add a static `Create()` method that takes the
+`LoggerRequest` object:
+
+```cpp
+// static
+void Logger::Create(int render_process_id,
+                        mojom::LoggerRequest request) {
+  mojo::MakeStrongBinding(std::make_unique<Logger>(render_process_id),
+                          std::move(request));
+}
+```
+
+For a `BindingSet`, we can store a `std::unique_ptr<Logger>` on the
+`RenderProcessHost` instead, e.g.:
+
+```cpp
+// render_process_host_impl.h:
+std::unique_ptr<Logger> logger_;
+
+// render_process_host_impl.cc:
+logger_ = std::make_unique<Logger>(GetID());
+registry->AddInterface(base::Bind(&Logger::BindRequest,
+                       base::Unretained(logger_.get())));
+```
+
+Then in `Logger` we define the `BindRequest` method:
+
+```h
+class Logger : public sample::mojom::Logger {
+ public:
+  explicit Logger(int render_process_id);
+  ~Logger() override;
+
+  void BindRequest(mojom::LoggerRequest request);
+
+  // sample::mojom::Logger:
+  void Log(const std::string& message) override;
+  void GetTail(GetTailCallback callback) override;
+
+ private:
+  mojo::BindingSet<sample::mojom::Logger> bindings_;
+
+  DISALLOW_COPY_AND_ASSIGN(Logger);
+};
+```
+
+```cpp
+void Logger::BindRequest(mojom::LoggerRequest request) {
+  bindings_.AddBinding(this, std::move(request));
+}
+```
+
+As you can see above, `MakeStrongBinding()` is used to lazily create an
+interface implementation when a connection is created. The lifetime of this
+implementation spans the lifetime of the connection. This is done to not
+unnecessarily create instances that might not be used.
+
+Because strong binding lifetime is not tracked or easily observable, any
+implementation bound with a strong binding must be very careful to avoid
+dependencies on things which it might outlive. As a general rule, if your
+implementation depends on any state outside of itself, please consider avoiding
+strong bindings in favor of explicit object ownership.
+
+Alternatively, the relevant registry owner class can own the implementation
+instance and dispatch the connection requests that the implementation will
+bind.
+
+#### Setting up Capabilities
+
+Once you've registered your interface, you need to add capabilities (resolved at
+runtime) to the corresponding capabilities manifest json file.
+
+The service manifest files (which contain the capability spec) are located in
+[/content/public/app/mojo/](/content/public/app/mojo/). As a general rule, the
+file you want to edit is the service which *provides* the interface (the side
+which instantiates the implementation), and the part of the file you want to add
+the name of the interface to is the service which *calls* the interface (i.e.
+the side containing `LoggerPtr`).
+
+You can usually just run your Mojo code and look at the error messages. The
+errors look like:
+
+```sh
+[ERROR:service_manager.cc(158)] Connection InterfaceProviderSpec prevented
+service: content_renderer from binding interface: content.mojom.Logger
+exposed by: content_browser
+```
+
+This means something in the renderer process (called "content_renderer") was
+trying to bind to `content.mojom.Logger` in the browser process (called
+"content_browser"). To add a capability for this, we need to find the json file
+with the capabilities for "content_browser", and add our new interface with name
+`content.mojom.Logger` to the "renderer" section.
+
+In this example, the capabilities for "content_browser" are implemented in
+[content_browser_manifest.json](/content/public/app/mojo/content_browser_manifest.json).
+It should look like:
+
+```json
+{
+  "name": "content_browser",
+  "display_name": "Content (browser process)",
+  "interface_provider_specs": {
+    "service_manager:connector": {
+      "provides": {
+        // ...
+        "renderer": [
+          //...
+```
+
+To add permission for `content.mojom.Logger`, add the string
+`"content.mojom.Logger"` to the "renderer" list.
+
+Similarly, if the error was:
+
+```sh
+[ERROR:service_manager.cc(158)] Connection InterfaceProviderSpec prevented
+service: content_browser from binding interface: content.mojom.Logger exposed
+by: content_renderer
+```
+
+We would want the
+`interface_provider_specs.service_manager:connector.provides.browser` section in
+[content_renderer_manifest.json](/content/public/app/mojo/content_renderer_manifest.json)
+(which defines the capabilities for `content_renderer`).
+
+TODO: Add more details on permission manifests here
 
 ## Using Channel-associated Interfaces
 
@@ -438,7 +642,9 @@ existing `BrowserMessageFilter` is to define a similiarly named Mojom interface
 in an inner `mojom` namespace (*e.g.,* a `content::FooMessageFilter` would have
 a corresponding `content::mojom::FooMessageFilter` interface), and have the
 `BrowserMessageFilter` implementation also implement
-`BrowserAssociatedInterface<T>`.
+`BrowserAssociatedInterface<T>` (optionally overriding methods such as
+`BrowserMessageFilter::OnDestruct()` if it needs to be deleted on a certain
+thread).
 
 Real code is probably the most useful explanation, so here are some example
 conversion CLs which demonstrate practical `BrowserAssociatedInterface` usage.
@@ -482,6 +688,10 @@ When a message is received by an interface implementation using a
 to retrieve the `RenderFrameHostImpl` targeted by the message. See the above CL
 for additional clarity.
 
+**NOTE:** When the ordering of messages doesn't matter, the `InterfaceProvider`
+of the relevant `RenderFrameHost` should be used to replace the routing ID. It
+can be obtained by calling `RenderFrame::GetRemoteInterfaces()`.
+
 ### Other Routed Messages To the Browser
 
 Other routing IDs are used when targeting either specific `RenderViewHost` or
@@ -518,7 +728,7 @@ if such a use case is blocking your work.
 
 ### Using Legacy IPC Traits
 
-InsSome circumstances there may be a C++ enum, struct, or class that you want
+In some circumstances there may be a C++ enum, struct, or class that you want
 to use in a Mojom via [type mapping](/mojo/public/cpp/bindings#Type-Mapping),
 and that type may already have `IPC::ParamTraits` defined (possibly via
 `IPC_STRUCT_TRAITS*` macros) for legacy IPC.
@@ -548,19 +758,6 @@ the wire format used is defined entirely by `IPC::ParamTraits<T>` for whatever
 `foo::mojom::MyGiganticStructure` to `foo::MyGiganticStructure`, your typemap
 must point to some header which defines
 `IPC::ParamTraits<foo::MyGiganticStructure>`.
-
-Note that if your `ParamTraits` are defined manually (*i.e.* not by invocation
-of `IPC_STRUCT_TRAITS*` macros) you must also ensure that they define the new
-`GetSize` method:
-
-``` cpp
-static void GetSize(base::PickleSizer* sizer, const param_type& p) {
-  // ...
-}
-```
-
-`base::PickleSizer` has an interface analogous to `base::Pickle`, except that it
-merely accumulates a byte count rather than accumulating serialized data.
 
 There are several examples of this traits implementation in common IPC traits
 defined [here](https://code.google.com/p/chromium/codesearch#chromium/src/ipc/ipc_message_utils.h).
@@ -660,9 +857,4 @@ with ideas, questions, suggestions, etc.
 :    A slightly dated but still valuable document covering some details
      regarding the conceptual mapping between legacy IPC and Mojo.
 
-[Mojo Migration Guide](https://www.chromium.org/developers/design-documents/mojo/mojo-migration-guide)
-:    Another slightly (more) data document covering the basics of IPC conversion
-     to Mojo.
-
-     TODO: The migration guide above should probably be deleted and the good
-     parts merged into this document.
+[Additional example CLs](https://docs.google.com/document/d/1GCi08AVMV96cD-tI8kW3xfRir3aNMb5U2yJFU3iAFSU)

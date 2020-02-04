@@ -7,16 +7,18 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_file_util.h"
 #include "base/threading/simple_thread.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/browser/printing/print_view_manager.h"
@@ -45,7 +47,7 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
  public:
   PrintingLayoutTest() {
     base::FilePath browser_directory;
-    PathService::Get(chrome::DIR_APP, &browser_directory);
+    base::PathService::Get(chrome::DIR_APP, &browser_directory);
     emf_path_ = browser_directory.AppendASCII("metafile_dumps");
   }
 
@@ -84,7 +86,7 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
       case printing::JobEventDetails::JOB_DONE: {
         // Succeeded.
         base::ThreadTaskRunnerHandle::Get()->PostTask(
-            FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+            FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
         break;
       }
       case printing::JobEventDetails::USER_INIT_CANCELED:
@@ -92,14 +94,15 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
         // Failed.
         ASSERT_TRUE(false);
         base::ThreadTaskRunnerHandle::Get()->PostTask(
-            FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+            FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
         break;
       }
       case printing::JobEventDetails::NEW_DOC:
       case printing::JobEventDetails::USER_INIT_DONE:
       case printing::JobEventDetails::DEFAULT_INIT_DONE:
-      case printing::JobEventDetails::NEW_PAGE:
+#if defined(OS_WIN)
       case printing::JobEventDetails::PAGE_DONE:
+#endif
       case printing::JobEventDetails::DOC_DONE:
       case printing::JobEventDetails::ALL_PAGES_REQUESTED: {
         // Don't care.
@@ -376,11 +379,11 @@ IN_PROC_BROWSER_TEST_F(PrintingLayoutTest, DISABLED_ManyTimes) {
 
   DismissTheWindow dismisser;
 
-  ASSERT_GT(arraysize(kTestPool), 0u);
-  for (int i = 0; i < arraysize(kTestPool); ++i) {
+  ASSERT_GT(base::size(kTestPool), 0u);
+  for (int i = 0; i < base::size(kTestPool); ++i) {
     if (i)
       CleanupDumpDirectory();
-    const TestPool& test = kTestPool[i % arraysize(kTestPool)];
+    const TestPool& test = kTestPool[i % base::size(kTestPool)];
     ui_test_utils::NavigateToURL(browser(),
                                  embedded_test_server()->GetURL(test.source));
     base::DelegateSimpleThread close_printdlg_thread1(&dismisser,

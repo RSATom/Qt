@@ -31,7 +31,7 @@
 #include <QJsonDocument>
 
 #include <QtScxml/qscxmlcompiler.h>
-#include <QtScxml/qscxmlecmascriptdatamodel.h>
+#include <QtScxml/qscxmlstatemachine.h>
 
 #include <functional>
 
@@ -92,7 +92,7 @@ public:
     DynamicLoader();
     QByteArray load(const QString &name,
                     const QString &baseDir,
-                    QStringList *errors) Q_DECL_OVERRIDE Q_DECL_FINAL;
+                    QStringList *errors) override final;
 
 };
 
@@ -209,7 +209,7 @@ void TestScion::dynamic()
     QVERIFY(compiler.errors().isEmpty());
     scxmlFile.close();
 
-    QVERIFY(stateMachine != Q_NULLPTR);
+    QVERIFY(stateMachine != nullptr);
     stateMachine->setLoader(&loader);
 
     const bool runResult = runTest(stateMachine.data(), testDescription.object());
@@ -251,10 +251,10 @@ void TestScion::compiled()
     jsonFile.close();
 
     QScopedPointer<QScxmlStateMachine> stateMachine(creator());
-    if (stateMachine == Q_NULLPTR && testStatus == TestFailsOnRun) {
+    if (stateMachine == nullptr && testStatus == TestFailsOnRun) {
         QEXPECT_FAIL("", "This is expected to fail", Abort);
     }
-    QVERIFY(stateMachine != Q_NULLPTR);
+    QVERIFY(stateMachine != nullptr);
     DynamicLoader loader;
     stateMachine->setLoader(&loader);
 

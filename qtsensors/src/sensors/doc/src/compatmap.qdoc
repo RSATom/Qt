@@ -59,6 +59,7 @@
     <td><b>Universal Windows Platform</b></td>
     <td><b>Generic</b></td>
     <td><b>Sensorfw</b></td>
+    <td><b>TI Sensor Tag</b></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Accelerometer</td>
@@ -67,6 +68,7 @@
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
+    <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     </tr>
     <tr>
@@ -77,9 +79,11 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Ambient Light Sensor</td>
+    <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
@@ -95,6 +99,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
+    <td bgcolor="green"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Compass</td>
@@ -104,9 +109,11 @@
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Distance</td>
+    <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
@@ -122,9 +129,11 @@
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="green"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Holster Sensor</td>
+    <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
@@ -140,6 +149,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
+    <td bgcolor="green"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">IR Proximity Sensor</td>
@@ -149,6 +159,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Lid Sensor</td>
@@ -158,6 +169,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Light Sensor</td>
@@ -166,6 +178,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
+    <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     </tr>
     <tr>
@@ -176,6 +189,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="green"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Orientation Sensor</td>
@@ -185,6 +199,7 @@
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Pressure Sensor</td>
@@ -194,6 +209,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
+    <td bgcolor="green"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Proximity Sensor</td>
@@ -203,6 +219,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Rotation Sensor</td>
@@ -212,9 +229,11 @@
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Tap Sensor</td>
+    <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
@@ -230,6 +249,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
     <td bgcolor="gray"></td>
+    <td bgcolor="gray"></td>
     </tr>
     <tr>
     <td nowrap="nowrap">Sensor Gestures</td>
@@ -239,6 +259,7 @@
     <td bgcolor="gray"></td>
     <td bgcolor="gray"></td>
     <td bgcolor="green"></td>
+    <td bgcolor="gray"></td>
     </tr>
     </table>
 

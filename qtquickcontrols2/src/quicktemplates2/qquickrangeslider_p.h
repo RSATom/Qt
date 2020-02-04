@@ -70,9 +70,12 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickRangeSlider : public QQuickControl
     Q_PROPERTY(bool horizontal READ isHorizontal NOTIFY orientationChanged FINAL REVISION 3)
     // 2.3 (Qt 5.10)
     Q_PROPERTY(bool vertical READ isVertical NOTIFY orientationChanged FINAL REVISION 3)
+    // 2.5 (Qt 5.12)
+    Q_PROPERTY(qreal touchDragThreshold READ touchDragThreshold WRITE setTouchDragThreshold RESET resetTouchDragThreshold NOTIFY touchDragThresholdChanged FINAL REVISION 5)
 
 public:
     explicit QQuickRangeSlider(QQuickItem *parent = nullptr);
+    ~QQuickRangeSlider();
 
     qreal from() const;
     void setFrom(qreal from);
@@ -109,6 +112,12 @@ public:
     bool isHorizontal() const;
     bool isVertical() const;
 
+    // 2.5 (Qt 5.12)
+    qreal touchDragThreshold() const;
+    void setTouchDragThreshold(qreal touchDragThreshold);
+    void resetTouchDragThreshold();
+    Q_REVISION(5) Q_INVOKABLE qreal valueAt(qreal position) const;
+
 Q_SIGNALS:
     void fromChanged();
     void toChanged();
@@ -117,6 +126,8 @@ Q_SIGNALS:
     void orientationChanged();
     // 2.2 (Qt 5.9)
     Q_REVISION(2) void liveChanged();
+    // 2.5 (Qt 5.12)
+    Q_REVISION(5) void touchDragThresholdChanged();
 
 protected:
     void focusInEvent(QFocusEvent *event) override;
@@ -126,7 +137,6 @@ protected:
     void keyPressEvent(QKeyEvent *event) override;
     void keyReleaseEvent(QKeyEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent(QMouseEvent *event) override;
 #if QT_CONFIG(quicktemplates2_multitouch)
     void touchEvent(QTouchEvent *event) override;
 #endif
@@ -157,6 +167,9 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickRangeSliderNode : public QObject
     Q_PROPERTY(bool pressed READ isPressed WRITE setPressed NOTIFY pressedChanged FINAL)
     // 2.1 (Qt 5.8)
     Q_PROPERTY(bool hovered READ isHovered WRITE setHovered NOTIFY hoveredChanged FINAL REVISION 1)
+    // 2.5 (Qt 5.12)
+    Q_PROPERTY(qreal implicitHandleWidth READ implicitHandleWidth NOTIFY implicitHandleWidthChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal implicitHandleHeight READ implicitHandleHeight NOTIFY implicitHandleHeightChanged FINAL REVISION 5)
     Q_CLASSINFO("DeferredPropertyNames", "handle")
 
 public:
@@ -179,6 +192,10 @@ public:
     bool isHovered() const;
     void setHovered(bool hovered);
 
+    // 2.5 (Qt 5.12)
+    qreal implicitHandleWidth() const;
+    qreal implicitHandleHeight() const;
+
 public Q_SLOTS:
     void increase();
     void decrease();
@@ -191,6 +208,10 @@ Q_SIGNALS:
     void pressedChanged();
     // 2.1 (Qt 5.8)
     Q_REVISION(1) void hoveredChanged();
+    // 2.5 (Qt 5.12)
+    /*Q_REVISION(5)*/ void moved();
+    /*Q_REVISION(5)*/ void implicitHandleWidthChanged();
+    /*Q_REVISION(5)*/ void implicitHandleHeightChanged();
 
 private:
     Q_DISABLE_COPY(QQuickRangeSliderNode)

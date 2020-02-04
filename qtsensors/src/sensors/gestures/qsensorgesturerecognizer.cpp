@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtSensors module of the Qt Toolkit.
@@ -104,8 +104,12 @@ QT_BEGIN_NAMESPACE
   */
 
 /*!
-  \fn QSensorGestureRecognizer::detected(const QString &gestureId)
-  Signals when the \a gestureId gesture has been recognized.
+  \fn QSensorGestureRecognizer::detected(const QString &)
+  Signals when a gesture is recognized. Implementors can use this signal to send
+  recognizer-specific gestures, such as \c detected("shake_left") or implement
+  custom signals such as \c shakeLeft().
+
+  The custom signals are available in the QSensorGesture object at runtime.
   */
 
 class QSensorGestureRecognizerPrivate

@@ -61,7 +61,7 @@ namespace Qt3DRender {
 
 namespace Render {
 
-class Q_AUTOTEST_EXPORT ShaderBuilder : public BackendNode
+class Q_3DRENDERSHARED_PRIVATE_EXPORT ShaderBuilder : public BackendNode
 {
 public:
     enum ShaderType {
@@ -95,10 +95,10 @@ public:
 
     void generateCode(ShaderType type);
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
     void setEnabledLayers(const QStringList &layers);
 
     GraphicsApiFilterData m_graphicsApi;

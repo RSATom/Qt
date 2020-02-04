@@ -2,22 +2,19 @@
 
 <link rel="import" href="chrome://resources/cr_elements/policy/cr_policy_pref_behavior.html">
 <link rel="import" href="chrome://resources/html/assert.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-slider/paper-slider.html">
+<link rel="import" href="chrome://resources/cr_elements/cr_slider/cr_slider.html">
 
 <dom-module id="settings-slider">
   <template>
     <style>
       :host {
-        --calculated-paper-slider-height: var(--paper-slider-height, 2px);
-        /* Counteract the margin on #sliderContainer in paper-slider.html. */
-        -webkit-margin-end:
-            calc(-15px - var(--calculated-paper-slider-height) / 2);
         display: inline-flex;
+        margin-inline-end: -16px;
       }
 
       cr-policy-pref-indicator {
-        -webkit-margin-start: var(--settings-controlled-by-spacing);
         align-self: center;
+        margin-inline-start: var(--settings-controlled-by-spacing);
       }
 
       #labels[disabled] {
@@ -44,31 +41,20 @@
       }
 
       #label-begin {
-        -webkit-margin-end: 4px;
+        margin-inline-end: 4px;
       }
 
       #label-end {
         -webkit-margin-begin: 4px;
-      }
-
-      paper-slider {
-        /* Make the slider bar always grey. */
-        --paper-slider-active-color: var(--paper-grey-400);
-        /* Make the knob always blue. */
-        --paper-slider-knob-start-color: var(--google-blue-700);
-        --paper-slider-knob-start-border-color: var(--google-blue-700);
-        width: 100%;
       }
     </style>
     <template is="dom-if" if="[[pref.controlledBy]]" restamp>
       <cr-policy-pref-indicator pref="[[pref]]"></cr-policy-pref-indicator>
     </template>
     <div class="outer">
-      <paper-slider id="slider"
-          disabled$="[[disableSlider_]]" snaps
-          on-immediate-value-changed="onSliderChanged_" max="[[max]]"
-          min="[[min]]" on-up="resetTrackLock_">
-      </paper-slider>
+      <cr-slider id="slider" disabled$="[[disableSlider_]]" ticks="[[ticks]]"
+          on-cr-slider-value-changed="onSliderChanged_" max="[[max]]"
+          min="[[min]]" on-dragging-changed="onSliderChanged_"></cr-slider>
       <div id="labels" disabled$="[[disableSlider_]]">
         <div id="label-begin">[[labelMin]]</div>
         <div id="label-end">[[labelMax]]</div>

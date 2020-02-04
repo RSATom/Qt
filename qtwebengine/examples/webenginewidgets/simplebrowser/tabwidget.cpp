@@ -51,6 +51,7 @@
 #include "tabwidget.h"
 #include "webpage.h"
 #include "webview.h"
+#include <QLabel>
 #include <QMenu>
 #include <QTabBar>
 #include <QWebEngineProfile>
@@ -75,6 +76,14 @@ TabWidget::TabWidget(QWebEngineProfile *profile, QWidget *parent)
     setElideMode(Qt::ElideRight);
 
     connect(this, &QTabWidget::currentChanged, this, &TabWidget::handleCurrentChanged);
+
+    if (profile->isOffTheRecord()) {
+        QLabel *icon = new QLabel(this);
+        QPixmap pixmap(QStringLiteral(":ninja.png"));
+        icon->setPixmap(pixmap.scaledToHeight(tabBar->height()));
+        setStyleSheet(QStringLiteral("QTabWidget::tab-bar { left: %1px; }").
+                      arg(icon->pixmap()->width()));
+    }
 }
 
 void TabWidget::handleCurrentChanged(int index)
@@ -190,6 +199,7 @@ void TabWidget::setupView(WebView *webView)
         if (index >= 0)
             closeTab(index);
     });
+    connect(webView, &WebView::devToolsRequested, this, &TabWidget::devToolsRequested);
 }
 
 WebView *TabWidget::createTab()

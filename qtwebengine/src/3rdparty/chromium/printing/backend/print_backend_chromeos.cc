@@ -11,7 +11,6 @@
 #include "url/gurl.h"
 
 #if defined(USE_CUPS)
-#include "base/memory/ptr_util.h"
 #include "printing/backend/print_backend_cups_ipp.h"
 #endif  // defined(USE_CUPS)
 
@@ -32,7 +31,7 @@ std::unique_ptr<CupsConnection> CreateConnection(
   }
   GURL print_server_url(print_server_url_str);
 
-  return base::MakeUnique<CupsConnection>(
+  return std::make_unique<CupsConnection>(
       print_server_url, static_cast<http_encryption_t>(encryption),
       cups_blocking == kValueTrue);
 }
@@ -54,16 +53,14 @@ class PrintBackendChromeOS : public PrintBackend {
   bool GetPrinterSemanticCapsAndDefaults(
       const std::string& printer_name,
       PrinterSemanticCapsAndDefaults* printer_info) override;
-  bool GetPrinterCapsAndDefaults(const std::string& printer_name,
-                                 PrinterCapsAndDefaults* printer_info) override;
   std::string GetPrinterDriverInfo(const std::string& printer_name) override;
   bool IsValidPrinter(const std::string& printer_name) override;
 
  protected:
-  ~PrintBackendChromeOS() override {}
+  ~PrintBackendChromeOS() override = default;
 };
 
-PrintBackendChromeOS::PrintBackendChromeOS() {}
+PrintBackendChromeOS::PrintBackendChromeOS() = default;
 
 bool PrintBackendChromeOS::EnumeratePrinters(PrinterList* printer_list) {
   return true;
@@ -77,13 +74,6 @@ bool PrintBackendChromeOS::GetPrinterBasicInfo(const std::string& printer_name,
 bool PrintBackendChromeOS::GetPrinterSemanticCapsAndDefaults(
     const std::string& printer_name,
     PrinterSemanticCapsAndDefaults* printer_info) {
-  NOTREACHED();
-  return false;
-}
-
-bool PrintBackendChromeOS::GetPrinterCapsAndDefaults(
-    const std::string& printer_name,
-    PrinterCapsAndDefaults* printer_info) {
   NOTREACHED();
   return false;
 }
@@ -107,10 +97,10 @@ bool PrintBackendChromeOS::IsValidPrinter(const std::string& printer_name) {
 scoped_refptr<PrintBackend> PrintBackend::CreateInstanceImpl(
     const base::DictionaryValue* print_backend_settings) {
 #if defined(USE_CUPS)
-  return make_scoped_refptr(
+  return base::WrapRefCounted(
       new PrintBackendCupsIpp(CreateConnection(print_backend_settings)));
 #else
-  return make_scoped_refptr(new PrintBackendChromeOS());
+  return base::MakeRefCounted<PrintBackendChromeOS>();
 #endif  // defined(USE_CUPS)
 }
 

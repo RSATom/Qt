@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -33,18 +33,17 @@
 
     Qt's support for different Linux platforms is extensive and mature.
 
-    \section1 Downloading and Installing Qt
+    To download and install Qt for Linux, follow the instructions on the
+    \l{Getting Started with Qt} page.
 
-    There are two ways to install Qt:
-    \list 1
-    \li through the Qt Installers - downloads and installs Qt
-    \li through the \e{Qt sources}.
-    \endlist
+    \target linux-supported-configurations
+    \section1 Supported Configurations
 
-    You can download the Qt 5 installers and sources from the \l Downloads page.
-    For more information, visit the \l{Getting Started with Qt} page.
+    The following configurations are supported.
 
-    \section2 Requirements for Development Host
+    \include supported-platforms.qdocinc linux
+
+    \section1 Requirements for Development Host
 
     The Qt installers for Linux assume that a C++ compiler, debugger,
     make, and other development tools are provided by the host
@@ -75,7 +74,7 @@
     sudo zypper install -t pattern devel_basis
     \endcode
 
-    \section2 Building Qt 5 from Source
+    \section1 Building Qt 5 from Source
 
     You can also build Qt 5 from the source package and configure it according
     to your target platform. The source packages are obtained from
@@ -150,7 +149,7 @@
     \li libxcb-render
     \li X C Bindings for Render extension
     \li auto-detected or provided by -qt-xcb
-    \li 1.8.1
+    \li 1.9
     \row {id="OptionalColor"}
     \li xcb-render-util
     \li libxcb-render-util
@@ -162,31 +161,31 @@
     \li libxcb-shape
     \li X C Bindings for Shape extension
     \li auto-detected or provided by -qt-xcb
-    \li 1.8.1
+    \li 1.9
     \row {id="DefaultColor"}
     \li xcb-randr
     \li libxcb-randr
     \li X C Bindings for Resize and Rotate Extension
     \li auto-detected or provided by -qt-xcb
-    \li 1.8.1
+    \li 1.9
     \row {id="DefaultColor"}
     \li xcb-xfixes
     \li libxcb-xfixes
     \li X C Bindings for Fixes Extension
     \li auto-detected or provided by -qt-xcb
-    \li 1.8.1
+    \li 1.9
     \row {id="DefaultColor"}
     \li xcb-sync
     \li libxcb-sync
     \li X C Bindings for Sync Extension
     \li auto-detected or provided by -qt-xcb
-    \li 1.8.1
+    \li 1.9
     \row {id="DefaultColor"}
     \li xcb-shm
     \li libxcb-shm
     \li X C Bindings for Shared Memory Extension
     \li auto-detected or provided by -qt-xcb
-    \li 1.8.1
+    \li 1.9
     \row {id="DefaultColor"}
     \li xcb-icccm
     \li libxcb-icccm
@@ -207,6 +206,13 @@
     \li 0.3.9
 
     \row {id="OptionalColor"}
+    \li xkbcommon
+    \li libxkbcommon
+    \li Keymap handling
+    \li \tt{-xkbcommon} or auto-detected
+    \li 0.5.0
+
+    \row {id="OptionalColor"}
     \li Fontconfig
     \li libfontconfig
     \li Font customization and configuration
@@ -217,7 +223,7 @@
     \li libfreetype
     \li Font engine
     \li
-    \li 2.2.0
+    \li 2.3.0
 
     \row {id="DefaultColor"}
     \li Xi
@@ -242,7 +248,7 @@
     \li libxcb
     \li X C Binding library
     \li
-    \li 1.8.1
+    \li 1.9
     \row {id="DefaultColor"}
     \li X11-xcb
     \li libX11-xcb
@@ -293,6 +299,7 @@
     \li libxcb1-dev
     \li libx11-xcb-dev
     \li libxcb-glx0-dev
+    \li libxkbcommon-x11-dev
     \endlist
 
     Additionally, if you do not configure with -qt-xcb, you should also
@@ -342,6 +349,11 @@
 
     \l{Qt WebEngine} has additional build requirements which are listed in the
     \l{Qt WebEngine Platform Notes}.
+
+    \section1 QDoc Dependencies
+    Since version 5.11, \l {QDoc Manual}{QDoc} uses Clang to parse C++ code.
+    If you wish to build QDoc manually, refer to \l {Installing Clang for QDoc}
+    for specific build requirements.
 */
 
 /*!
@@ -404,40 +416,43 @@
 
     \snippet snippets/code/doc_src_installation.qdoc 3
 
-        Note that on some systems the make utility is named differently,
-        e.g. gmake. The configure script tells you which make utility to
-        use.
+        Note that on some systems the make utility is named differently, like gmake.
+        The configure script tells you which make utility to use.
 
-        \note If you later need to reconfigure and rebuild Qt from the
-        same location, ensure that all traces of the previous configuration are
-        removed by entering the build directory and typing \c{make confclean}
-        before running \c configure again.
+        \note Later, if you need to reconfigure and rebuild Qt from the same location,
+        ensure that all traces of the previous configuration are removed. To do so, from
+        the build directory, type \c{make confclean} before running \c configure again.
 
     \section1 Step 4: Set the Environment Variables
 
-        In order to use Qt, some environment variables needs to be
-        extended.
+        To use Qt, some environment variables need to be extended.
 
     \snippet snippets/code/doc_src_installation.qdoc 4
 
-        This is done like this:
+        This is done as follows:
 
         In \c{.profile} (if your shell is bash, ksh, zsh or sh), add the
         following lines:
 
     \snippet snippets/code/doc_src_installation.qdoc 5
 
-        In \c{.login} (in case your shell is csh or tcsh), add the following line:
+        In \c{.login} (if your shell is csh or tcsh), add the following line:
 
     \snippet snippets/code/doc_src_installation.qdoc 6
 
-        If you use a different shell, please modify your environment
-        variables accordingly.
+        If you use a different shell, modify your environment variables accordingly.
 
-        For compilers that do not support rpath you must also extended the
+        For compilers that do not support rpath you must also extend the
         \c LD_LIBRARY_PATH environment variable to include
         \c{/usr/local/Qt-%VERSION%/lib}. On Linux with GCC this step
         is not needed.
+
+    \section1 Step 5: Build the Qt Documentation
+
+        For the Qt reference documentation to be available in \l {Qt Assistant},
+        you must build it separately:
+
+    \snippet snippets/code/doc_src_installation.qdoc 24
 */
 
 /*!
@@ -780,7 +795,7 @@
     Linux/x86, Linux/ppc, Linux/amd64 and Linux/ia64 (including Altix(R)).
 
     For information about the specific compilers supported, visit the
-    \l{Community Supported Platforms#Reference Configurations}{supported platforms} page.
+    \l{Supported Platforms#Reference Configurations}{supported platforms} page.
 
     \section2 Installation problems
 

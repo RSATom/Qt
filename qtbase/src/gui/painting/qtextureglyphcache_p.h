@@ -74,8 +74,8 @@ class QTextItemInt;
 class Q_GUI_EXPORT QTextureGlyphCache : public QFontEngineGlyphCache
 {
 public:
-    QTextureGlyphCache(QFontEngine::GlyphFormat format, const QTransform &matrix)
-        : QFontEngineGlyphCache(format, matrix), m_current_fontengine(0),
+    QTextureGlyphCache(QFontEngine::GlyphFormat format, const QTransform &matrix, const QColor &color = QColor())
+        : QFontEngineGlyphCache(format, matrix, color), m_current_fontengine(0),
                                                m_w(0), m_h(0), m_cx(0), m_cy(0), m_currentRowHeight(0)
         { }
 
@@ -165,13 +165,13 @@ inline uint qHash(const QTextureGlyphCache::GlyphAndSubPixelPosition &g)
 class Q_GUI_EXPORT QImageTextureGlyphCache : public QTextureGlyphCache
 {
 public:
-    QImageTextureGlyphCache(QFontEngine::GlyphFormat format, const QTransform &matrix)
-        : QTextureGlyphCache(format, matrix) { }
+    QImageTextureGlyphCache(QFontEngine::GlyphFormat format, const QTransform &matrix, const QColor &color = QColor())
+        : QTextureGlyphCache(format, matrix, color) { }
     ~QImageTextureGlyphCache();
 
-    virtual void createTextureData(int width, int height) Q_DECL_OVERRIDE;
-    virtual void resizeTextureData(int width, int height) Q_DECL_OVERRIDE;
-    virtual void fillTexture(const Coord &c, glyph_t glyph, QFixed subPixelPosition) Q_DECL_OVERRIDE;
+    virtual void createTextureData(int width, int height) override;
+    virtual void resizeTextureData(int width, int height) override;
+    virtual void fillTexture(const Coord &c, glyph_t glyph, QFixed subPixelPosition) override;
 
     inline const QImage &image() const { return m_image; }
 

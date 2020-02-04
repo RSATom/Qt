@@ -70,17 +70,12 @@ QQmlAnimationTimer::QQmlAnimationTimer() :
 QQmlAnimationTimer *QQmlAnimationTimer::instance(bool create)
 {
     QQmlAnimationTimer *inst;
-#ifndef QT_NO_THREAD
     if (create && !animationTimer()->hasLocalData()) {
         inst = new QQmlAnimationTimer;
         animationTimer()->setLocalData(inst);
     } else {
         inst = animationTimer() ? animationTimer()->localData() : 0;
     }
-#else
-    static QAnimationTimer unifiedTimer;
-    inst = &unifiedTimer;
-#endif
     return inst;
 }
 
@@ -258,7 +253,7 @@ int QQmlAnimationTimer::closestPauseAnimationTimeToFinish()
 
 QAbstractAnimationJob::QAbstractAnimationJob()
     : m_loopCount(1)
-    , m_group(0)
+    , m_group(nullptr)
     , m_direction(QAbstractAnimationJob::Forward)
     , m_state(QAbstractAnimationJob::Stopped)
     , m_totalCurrentTime(0)
@@ -266,9 +261,8 @@ QAbstractAnimationJob::QAbstractAnimationJob()
     , m_currentLoop(0)
     , m_uncontrolledFinishTime(-1)
     , m_currentLoopStartTime(0)
-    , m_nextSibling(0)
-    , m_previousSibling(0)
-    , m_wasDeleted(0)
+    , m_nextSibling(nullptr)
+    , m_previousSibling(nullptr)
     , m_hasRegisteredTimer(false)
     , m_isPause(false)
     , m_isGroup(false)
@@ -282,9 +276,6 @@ QAbstractAnimationJob::QAbstractAnimationJob()
 
 QAbstractAnimationJob::~QAbstractAnimationJob()
 {
-    if (m_wasDeleted)
-        *m_wasDeleted = true;
-
     //we can't call stop here. Otherwise we get pure virtual calls
     if (m_state != Stopped) {
         State oldState = m_state;

@@ -6,12 +6,13 @@
 
 #include <stddef.h>
 
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "content/browser/renderer_host/pepper/browser_ppapi_host_impl.h"
 #include "content/browser/renderer_host/pepper/pepper_socket_utils.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/network_service_instance.h"
 #include "content/public/common/socket_permission_request.h"
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/private/net_address_private_impl.h"
@@ -47,28 +48,34 @@ PepperNetworkMonitorHost::PepperNetworkMonitorHost(BrowserPpapiHostImpl* host,
                                                    PP_Instance instance,
                                                    PP_Resource resource)
     : ResourceHost(host->GetPpapiHost(), instance, resource),
+      network_connection_tracker_(nullptr),
       weak_factory_(this) {
   int render_process_id;
   int render_frame_id;
   host->GetRenderFrameIDsForInstance(
       instance, &render_process_id, &render_frame_id);
 
-  BrowserThread::PostTaskAndReplyWithResult(
-      BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(&CanUseNetworkMonitor,
-                 host->external_plugin(),
-                 render_process_id,
-                 render_frame_id),
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE, {BrowserThread::UI},
+      base::Bind(&CanUseNetworkMonitor, host->external_plugin(),
+                 render_process_id, render_frame_id),
       base::Bind(&PepperNetworkMonitorHost::OnPermissionCheckResult,
                  weak_factory_.GetWeakPtr()));
 }
 
 PepperNetworkMonitorHost::~PepperNetworkMonitorHost() {
-  net::NetworkChangeNotifier::RemoveIPAddressObserver(this);
+  if (network_connection_tracker_)
+    network_connection_tracker_->RemoveNetworkConnectionObserver(this);
 }
 
-void PepperNetworkMonitorHost::OnIPAddressChanged() { GetAndSendNetworkList(); }
+void PepperNetworkMonitorHost::OnConnectionChanged(
+    network::mojom::ConnectionType type) {
+  auto current_type = network::mojom::ConnectionType::CONNECTION_UNKNOWN;
+  network_connection_tracker_->GetConnectionType(&current_type,
+                                                 base::DoNothing());
+  if (type == current_type)
+    GetAndSendNetworkList();
+}
 
 void PepperNetworkMonitorHost::OnPermissionCheckResult(
     bool can_use_network_monitor) {
@@ -78,8 +85,19 @@ void PepperNetworkMonitorHost::OnPermissionCheckResult(
     return;
   }
 
-  net::NetworkChangeNotifier::AddIPAddressObserver(this);
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE, {BrowserThread::UI},
+      base::BindOnce(&content::GetNetworkConnectionTracker),
+      base::BindOnce(&PepperNetworkMonitorHost::SetNetworkConnectionTracker,
+                     weak_factory_.GetWeakPtr()));
   GetAndSendNetworkList();
+}
+
+void PepperNetworkMonitorHost::SetNetworkConnectionTracker(
+    network::NetworkConnectionTracker* network_connection_tracker) {
+  DCHECK_EQ(network_connection_tracker_, nullptr);
+  network_connection_tracker_ = network_connection_tracker;
+  network_connection_tracker_->AddNetworkConnectionObserver(this);
 }
 
 void PepperNetworkMonitorHost::GetAndSendNetworkList() {
@@ -87,7 +105,7 @@ void PepperNetworkMonitorHost::GetAndSendNetworkList() {
 
   // Call GetNetworkList() on a thread that allows blocking IO.
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::Bind(&GetNetworkList),
       base::Bind(&PepperNetworkMonitorHost::SendNetworkList,
                  weak_factory_.GetWeakPtr()));

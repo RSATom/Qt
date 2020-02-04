@@ -21,7 +21,6 @@
 /* The page block within the outer container. */
 #metro-setup-outer-container .page {
   -webkit-box-orient: vertical;
-  -webkit-user-select: none;
   background: white;
   background-color: white;
   border-radius: 3px;
@@ -30,6 +29,7 @@
   min-width: 40px;
   padding-top: 90px;
   position: relative;
+  user-select: none;
   width: 500px;
 }
 
@@ -81,17 +81,17 @@
 
 /* Action buttons. */
 #metro-action-box button {
-  -webkit-margin-end: 0.4em;
-  -webkit-margin-start: 0;
-  -webkit-user-select: none;
   border-radius: 2px;
   display: inline-block;
   font-size: 13px;
   height: 32px;
   line-height: 27px;
+  margin-inline-end: 0.4em;
+  margin-inline-start: 0;
   margin-top: 0;
   min-width: 80px;
   transition: all 218ms;
+  user-select: none;
 }
 
 #metro-action-box button:hover {

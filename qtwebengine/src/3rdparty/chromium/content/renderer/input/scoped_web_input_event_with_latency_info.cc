@@ -29,13 +29,17 @@ void ScopedWebInputEventWithLatencyInfo::CoalesceWith(
 
   // New events get coalesced into older events, and the newer timestamp
   // should always be preserved.
-  const double time_stamp_seconds = other.event().TimeStampSeconds();
+  const base::TimeTicks time_stamp = other.event().TimeStamp();
   ui::Coalesce(other.event(), event_->EventPointer());
-  event_->EventPointer()->SetTimeStampSeconds(time_stamp_seconds);
+  event_->EventPointer()->SetTimeStamp(time_stamp);
   event_->AddCoalescedEvent(other.event());
 
   // When coalescing two input events, we keep the oldest LatencyInfo
-  // since it will represent the longest latency.
+  // since it will represent the longest latency. If it's a GestureScrollUpdate
+  // event, update the old event's last timestamp and scroll delta using the
+  // newer event's latency info.
+  if (event().GetType() == WebInputEvent::kGestureScrollUpdate)
+    latency_.CoalesceScrollUpdateWith(other.latency_);
   other.latency_ = latency_;
   other.latency_.set_coalesced();
 }
@@ -50,6 +54,11 @@ blink::WebInputEvent& ScopedWebInputEventWithLatencyInfo::event() {
 
 const blink::WebCoalescedInputEvent&
 ScopedWebInputEventWithLatencyInfo::coalesced_event() const {
+  return *event_;
+}
+
+blink::WebCoalescedInputEvent&
+ScopedWebInputEventWithLatencyInfo::coalesced_event() {
   return *event_;
 }
 

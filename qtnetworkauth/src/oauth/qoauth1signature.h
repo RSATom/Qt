@@ -70,6 +70,9 @@ public:
     HttpRequestMethod httpRequestMethod() const;
     void setHttpRequestMethod(HttpRequestMethod method);
 
+    QByteArray customMethodString() const;
+    void setCustomMethodString(const QByteArray &verb);
+
     QUrl url() const;
     void setUrl(const QUrl &url);
 

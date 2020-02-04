@@ -8,27 +8,29 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_VIDEO_SEND_DELAY_STATS_H_
-#define WEBRTC_VIDEO_SEND_DELAY_STATS_H_
+#ifndef VIDEO_SEND_DELAY_STATS_H_
+#define VIDEO_SEND_DELAY_STATS_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <map>
 #include <memory>
 #include <set>
 
-#include "webrtc/common_types.h"
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/thread_annotations.h"
-#include "webrtc/system_wrappers/include/clock.h"
-#include "webrtc/video/stats_counter.h"
-#include "webrtc/video_send_stream.h"
+#include "call/video_send_stream.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "modules/include/module_common_types_public.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/thread_annotations.h"
+#include "system_wrappers/include/clock.h"
+#include "video/stats_counter.h"
 
 namespace webrtc {
 
 class SendDelayStats : public SendPacketObserver {
  public:
   explicit SendDelayStats(Clock* clock);
-  virtual ~SendDelayStats();
+  ~SendDelayStats() override;
 
   // Adds the configured ssrcs for the rtp streams.
   // Stats will be calculated for these streams.
@@ -64,23 +66,23 @@ class SendDelayStats : public SendPacketObserver {
 
   void UpdateHistograms();
   void RemoveOld(int64_t now, PacketMap* packets)
-      EXCLUSIVE_LOCKS_REQUIRED(crit_);
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
   AvgCounter* GetSendDelayCounter(uint32_t ssrc)
-      EXCLUSIVE_LOCKS_REQUIRED(crit_);
+      RTC_EXCLUSIVE_LOCKS_REQUIRED(crit_);
 
   Clock* const clock_;
   rtc::CriticalSection crit_;
 
-  PacketMap packets_ GUARDED_BY(crit_);
-  size_t num_old_packets_ GUARDED_BY(crit_);
-  size_t num_skipped_packets_ GUARDED_BY(crit_);
+  PacketMap packets_ RTC_GUARDED_BY(crit_);
+  size_t num_old_packets_ RTC_GUARDED_BY(crit_);
+  size_t num_skipped_packets_ RTC_GUARDED_BY(crit_);
 
-  std::set<uint32_t> ssrcs_ GUARDED_BY(crit_);
+  std::set<uint32_t> ssrcs_ RTC_GUARDED_BY(crit_);
 
   // Mapped by SSRC.
   std::map<uint32_t, std::unique_ptr<AvgCounter>> send_delay_counters_
-      GUARDED_BY(crit_);
+      RTC_GUARDED_BY(crit_);
 };
 
 }  // namespace webrtc
-#endif  // WEBRTC_VIDEO_SEND_DELAY_STATS_H_
+#endif  // VIDEO_SEND_DELAY_STATS_H_

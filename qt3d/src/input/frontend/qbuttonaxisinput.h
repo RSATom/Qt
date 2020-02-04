@@ -49,7 +49,7 @@ namespace Qt3DInput {
 
 class QButtonAxisInputPrivate;
 
-class QT3DINPUTSHARED_EXPORT QButtonAxisInput : public QAbstractAxisInput
+class Q_3DINPUTSHARED_EXPORT QButtonAxisInput : public QAbstractAxisInput
 {
     Q_OBJECT
     Q_PROPERTY(float scale READ scale WRITE setScale NOTIFY scaleChanged)
@@ -83,7 +83,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QButtonAxisInput)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

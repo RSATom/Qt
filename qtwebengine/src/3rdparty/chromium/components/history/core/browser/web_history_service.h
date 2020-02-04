@@ -25,16 +25,17 @@ namespace base {
 class DictionaryValue;
 }
 
-namespace net {
-class URLRequestContextGetter;
+namespace identity {
+class IdentityManager;
+}
+
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace version_info {
 enum class Channel;
 }
-
-class OAuth2TokenService;
-class SigninManagerBase;
 
 namespace history {
 
@@ -96,9 +97,8 @@ class WebHistoryService : public KeyedService {
   typedef base::Callback<void(Request*, bool success)> CompletionCallback;
 
   WebHistoryService(
-      OAuth2TokenService* token_service,
-      SigninManagerBase* signin_manager,
-      const scoped_refptr<net::URLRequestContextGetter>& request_context);
+      identity::IdentityManager* identity_manager,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
   ~WebHistoryService() override;
 
   void AddObserver(WebHistoryServiceObserver* observer);
@@ -218,13 +218,12 @@ class WebHistoryService : public KeyedService {
  private:
   friend class WebHistoryServiceTest;
 
-  // Stores pointer to OAuth2TokenService and SigninManagerBase instance. They
-  // must outlive the WebHistoryService and can be null during tests.
-  OAuth2TokenService* token_service_;
-  SigninManagerBase* signin_manager_;
+  // Stores pointer to IdentityManager instance. It must outlive the
+  // WebHistoryService and can be null during tests.
+  identity::IdentityManager* identity_manager_;
 
   // Request context getter to use.
-  scoped_refptr<net::URLRequestContextGetter> request_context_;
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 
   // Stores the version_info token received from the server in response to
   // a mutation operation (e.g., deleting history). This is used to ensure that
@@ -249,7 +248,7 @@ class WebHistoryService : public KeyedService {
       pending_other_forms_of_browsing_history_requests_;
 
   // Observers.
-  base::ObserverList<WebHistoryServiceObserver, true> observer_list_;
+  base::ObserverList<WebHistoryServiceObserver, true>::Unchecked observer_list_;
 
   base::WeakPtrFactory<WebHistoryService> weak_ptr_factory_;
 

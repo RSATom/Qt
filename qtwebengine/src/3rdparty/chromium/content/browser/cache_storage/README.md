@@ -1,14 +1,19 @@
 # Architecture (as of July 29th 2016)
-This document descibes the browser-process implementation of the [Cache
+This document describes the browser-process implementation of the [Cache
 Storage specification](
 https://slightlyoff.github.io/ServiceWorker/spec/service_worker/index.html).
+
+As of June 2018, Chrome components can use the Cache Storage interface via
+`CacheStorageManager` to store Request/Response key-value pairs. The concept of
+`CacheStorageOwner` was added to distinguish and isolate the different
+components.
 
 ## Major Classes and Ownership
 ### Ownership
 Where '=>' represents ownership, '->' is a reference, and '~>' is a weak
 reference.
 
-##### `CacheStorageContextImpl`=>`CacheStorageManager`=>`CacheStorage`=>`CacheStorageCache`
+##### `CacheStorageContextImpl`->`CacheStorageManager`=>`CacheStorage`=>`CacheStorageCache`
 * A `CacheStorageManager` can own multiple `CacheStorage` objects.
 * A `CacheStorage` can own multiple `CacheStorageCache` objects.
 
@@ -44,12 +49,12 @@ reference.
    mitigate rapid opening/closing/opening churn.
 
 ### CacheStorageManager
-1. Forwards calls to the appropriate `CacheStorage` for a given origin,
-   loading `CacheStorage`s on demand.
+1. Forwards calls to the appropriate `CacheStorage` for a given origin-owner
+   pair, loading `CacheStorage`s on demand.
 2. Handles `QuotaManager` and `BrowsingData` calls.
 
 ### CacheStorage
-1. Manages the caches for a single origin.
+1. Manages the caches for a single origin-owner pair.
 2. Handles creation/deletion of caches and updates the index on disk
    accordingly.
 3. Manages operations that span multiple caches (e.g., `CacheStorage::Match`).
@@ -152,3 +157,25 @@ operation. The idiom for this in CacheStorage/ is to wrap the operation's
 callback with a function that will run the callback as well as advance the
 scheduler. So long as the operation runs its wrapped callback the scheduler
 will advance.
+
+## Opaque Resource Size Obfuscation
+Applications can cache cross-origin resources as per
+[Cross-Origin Resources and CORS](https://www.w3.org/TR/service-workers-1/#cross-origin-resources).
+Opaque responses are also cached, but in order to prevent "leaking" the size
+of opaque responses their sizes are obfuscated. Random padding is added to the
+actual size making it difficult for an attacker to ascertain the actual resource
+size via quota APIs.
+
+When Chromium starts, a new random padding key is generated and used
+for all new caches created. This key is used by each cache to calculate padding
+for opaque resources. Each cache's key is persisted to disk in the cache index file
+
+Each cache maintains the total padding for all opaque resources within the
+cache. This padding is added to the actual resource size when reporting sizes
+to the quota manager.
+
+The padding algorithm version is also written to each cache allowing for it
+to be changed at a future date. CacheStorage will use the persisted key and
+padding from the cache's index unless the padding algorithm has been changed,
+one of values is missing, or deemed to be incorrect. In this situation the cache
+is enumerated and the padding recalculated during open.

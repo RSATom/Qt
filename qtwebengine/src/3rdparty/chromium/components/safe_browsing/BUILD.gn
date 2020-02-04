@@ -6,7 +6,13 @@ import("//third_party/protobuf/proto_library.gni")
 
 proto_library("csd_proto") {
   sources = [
-    "csd.proto",
+    "proto/csd.proto",
+  ]
+}
+
+proto_library("webui_proto") {
+  sources = [
+    "proto/webui.proto",
   ]
 }
 
@@ -14,8 +20,6 @@ source_set("safe_browsing") {
   sources = [
     "base_blocking_page.cc",
     "base_blocking_page.h",
-    "base_resource_throttle.cc",
-    "base_resource_throttle.h",
     "base_ui_manager.cc",
     "base_ui_manager.h",
   ]
@@ -23,13 +27,14 @@ source_set("safe_browsing") {
     "//components/security_interstitials/content:security_interstitial_page",
   ]
   deps = [
-    ":base_ping_manager",
     ":features",
+    ":ping_manager",
     "//base:base",
     "//base:i18n",
+    "//components/safe_browsing/common:common",
     "//components/safe_browsing/common:safe_browsing_prefs",
+    "//components/safe_browsing/db:database_manager",
     "//components/safe_browsing/web_ui:constants",
-    "//components/safe_browsing_db:database_manager",
     "//components/security_interstitials/core:core",
     "//content/public/browser:browser",
     "//content/public/common:common",
@@ -37,10 +42,10 @@ source_set("safe_browsing") {
   ]
 }
 
-static_library("base_ping_manager") {
+static_library("ping_manager") {
   sources = [
-    "base_ping_manager.cc",
-    "base_ping_manager.h",
+    "ping_manager.cc",
+    "ping_manager.h",
   ]
 
   public_deps = [
@@ -50,22 +55,23 @@ static_library("base_ping_manager") {
   deps = [
     "//base:base",
     "//components/data_use_measurement/core:core",
-    "//components/safe_browsing_db:hit_report",
-    "//components/safe_browsing_db:util",
+    "//components/safe_browsing/db:hit_report",
+    "//components/safe_browsing/db:util",
     "//content/public/browser:browser",
     "//net:net",
   ]
 }
 
-source_set("base_ping_manager_unittest") {
+source_set("ping_manager_unittest") {
   testonly = true
   sources = [
-    "base_ping_manager_unittest.cc",
+    "ping_manager_unittest.cc",
   ]
 
   deps = [
-    ":base_ping_manager",
+    ":ping_manager",
     "//base:base",
+    "//components/safe_browsing/db:v4_test_util",
     "//net:net",
     "//net:test_support",
     "//testing/gtest",

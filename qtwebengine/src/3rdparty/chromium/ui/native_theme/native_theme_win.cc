@@ -10,8 +10,11 @@
 #include <vsstyle.h>
 #include <vssym32.h>
 
+#include "base/bind.h"
+#include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/scoped_hdc.h"
 #include "base/win/scoped_select_object.h"
@@ -27,7 +30,8 @@
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkShader.h"
 #include "third_party/skia/include/core/SkSurface.h"
-#include "ui/base/material_design/material_design_controller.h"
+#include "ui/base/ui_base_features.h"
+#include "ui/base/ui_base_switches.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
@@ -150,19 +154,14 @@ NativeTheme* NativeTheme::GetInstanceForNativeUi() {
 }
 
 // static
-bool NativeThemeWin::IsUsingHighContrastTheme() {
-  return instance()->IsUsingHighContrastThemeInternal();
-}
-
-// static
 void NativeThemeWin::CloseHandles() {
   instance()->CloseHandlesInternal();
 }
 
 // static
 NativeThemeWin* NativeThemeWin::instance() {
-  CR_DEFINE_STATIC_LOCAL(NativeThemeWin, s_native_theme, ());
-  return &s_native_theme;
+  static base::NoDestructor<NativeThemeWin> s_native_theme;
+  return s_native_theme.get();
 }
 
 gfx::Size NativeThemeWin::GetPartSize(Part part,
@@ -257,6 +256,19 @@ NativeThemeWin::NativeThemeWin()
     close_theme_ = reinterpret_cast<CloseThemeDataPtr>(
         GetProcAddress(theme_dll_, "CloseThemeData"));
   }
+  if (base::FeatureList::IsEnabled(features::kDarkMode)) {
+    // Dark Mode currently targets UWP apps, which means Win32 apps need to use
+    // alternate, less reliable means of detecting the state. The following
+    // can break in future Windows versions.
+    bool key_open_succeeded =
+        hkcu_themes_regkey_.Open(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\"
+            L"Themes\\Personalize",
+            KEY_READ | KEY_NOTIFY) == ERROR_SUCCESS;
+    if (key_open_succeeded)
+      RegisterThemeRegkeyObserver();
+  }
   memset(theme_handles_, 0, sizeof(theme_handles_));
 
   // Initialize the cached system colors.
@@ -265,14 +277,14 @@ NativeThemeWin::NativeThemeWin()
 
 NativeThemeWin::~NativeThemeWin() {
   if (theme_dll_) {
-    // todo (cpu): fix this soon.  Making a call to CloseHandles() here breaks
+    // TODO(https://crbug.com/787692): Calling CloseHandles() here breaks
     // certain tests and the reliability bots.
     // CloseHandles();
     FreeLibrary(theme_dll_);
   }
 }
 
-bool NativeThemeWin::IsUsingHighContrastThemeInternal() {
+bool NativeThemeWin::IsUsingHighContrastThemeInternal() const {
   if (is_using_high_contrast_valid_)
     return is_using_high_contrast_;
   HIGHCONTRAST result;
@@ -420,26 +432,16 @@ void NativeThemeWin::PaintDirect(SkCanvas* destination_canvas,
 }
 
 SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
-  // TODO: Obtain the correct colors using GetSysColor.
-  // Dialogs:
-  const SkColor kDialogBackgroundColor = SkColorSetRGB(251, 251, 251);
-  // FocusableBorder:
-  const SkColor kFocusedBorderColor = SkColorSetRGB(0x4d, 0x90, 0xfe);
-  const SkColor kUnfocusedBorderColor = SkColorSetRGB(0xd9, 0xd9, 0xd9);
+  // TODO: Obtain the correct colors for these using GetSysColor.
   // Button:
-  const SkColor kButtonHoverColor = SkColorSetRGB(6, 45, 117);
-  const SkColor kProminentButtonColorInvert = gfx::kGoogleBlue300;
+  constexpr SkColor kButtonHoverColor = SkColorSetRGB(6, 45, 117);
+  constexpr SkColor kProminentButtonColorInvert = gfx::kGoogleBlue300;
   // MenuItem:
-  const SkColor kMenuSchemeHighlightBackgroundColorInvert =
+  constexpr SkColor kMenuSchemeHighlightBackgroundColorInvert =
       SkColorSetRGB(0x30, 0x30, 0x30);
-  // Table:
-  const SkColor kPositiveTextColor = SkColorSetRGB(0x0b, 0x80, 0x43);
-  const SkColor kNegativeTextColor = SkColorSetRGB(0xc5, 0x39, 0x29);
-  // Results Tables:
-  const SkColor kResultsTableUrlColor = gfx::kGoogleBlue700;
-  const SkColor kResultsTableSelectedUrlColor = SK_ColorWHITE;
   // Label:
-  const SkColor kLabelTextSelectionBackgroundFocusedColor = gfx::kGoogleBlue700;
+  constexpr SkColor kLabelTextSelectionBackgroundFocusedColor =
+      gfx::kGoogleBlue700;
 
   switch (color_id) {
     // Windows
@@ -449,17 +451,12 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
     // Dialogs
     case kColorId_DialogBackground:
     case kColorId_BubbleBackground:
-      if (ui::MaterialDesignController::IsSecondaryUiMaterial())
-        break;
-      return color_utils::IsInvertedColorScheme() ?
-          color_utils::InvertColor(kDialogBackgroundColor) :
-          kDialogBackgroundColor;
+      break;
 
     // FocusableBorder
     case kColorId_FocusedBorderColor:
-      return kFocusedBorderColor;
     case kColorId_UnfocusedBorderColor:
-      return kUnfocusedBorderColor;
+      break;
 
     // Button
     case kColorId_ButtonEnabledColor:
@@ -510,8 +507,8 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
     case kColorId_TreeSelectionBackgroundFocused:
       return system_colors_[COLOR_HIGHLIGHT];
     case kColorId_TreeSelectionBackgroundUnfocused:
-      return system_colors_[IsUsingHighContrastTheme() ?
-                              COLOR_MENUHIGHLIGHT : COLOR_BTNFACE];
+      return system_colors_[UsesHighContrastColors() ? COLOR_MENUHIGHLIGHT
+                                                     : COLOR_BTNFACE];
 
     // Table
     case kColorId_TableBackground:
@@ -525,8 +522,8 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
     case kColorId_TableSelectionBackgroundFocused:
       return system_colors_[COLOR_HIGHLIGHT];
     case kColorId_TableSelectionBackgroundUnfocused:
-      return system_colors_[IsUsingHighContrastTheme() ?
-                              COLOR_MENUHIGHLIGHT : COLOR_BTNFACE];
+      return system_colors_[UsesHighContrastColors() ? COLOR_MENUHIGHLIGHT
+                                                     : COLOR_BTNFACE];
     case kColorId_TableGroupingIndicatorColor:
       return system_colors_[COLOR_GRAYTEXT];
 
@@ -535,58 +532,12 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
       return system_colors_[COLOR_WINDOW];
     case kColorId_ResultsTableHoveredBackground:
       return color_utils::AlphaBlend(system_colors_[COLOR_HIGHLIGHT],
-                                     system_colors_[COLOR_WINDOW], 0x40);
-    case kColorId_ResultsTableSelectedBackground:
-      return system_colors_[COLOR_HIGHLIGHT];
+                                     system_colors_[COLOR_WINDOW], 0.25f);
     case kColorId_ResultsTableNormalText:
       return system_colors_[COLOR_WINDOWTEXT];
-    case kColorId_ResultsTableHoveredText:
-      return color_utils::GetReadableColor(
-          system_colors_[COLOR_WINDOWTEXT],
-          GetSystemColor(kColorId_ResultsTableHoveredBackground));
-    case kColorId_ResultsTableSelectedText:
-      return system_colors_[COLOR_HIGHLIGHTTEXT];
-    case kColorId_ResultsTableNormalDimmedText:
+    case kColorId_ResultsTableDimmedText:
       return color_utils::AlphaBlend(system_colors_[COLOR_WINDOWTEXT],
-                                     system_colors_[COLOR_WINDOW], 0x80);
-    case kColorId_ResultsTableHoveredDimmedText:
-      return color_utils::AlphaBlend(
-          system_colors_[COLOR_WINDOWTEXT],
-          GetSystemColor(kColorId_ResultsTableHoveredBackground), 0x80);
-    case kColorId_ResultsTableSelectedDimmedText:
-      return color_utils::AlphaBlend(system_colors_[COLOR_HIGHLIGHTTEXT],
-                                     system_colors_[COLOR_HIGHLIGHT], 0x80);
-    case kColorId_ResultsTableNormalUrl:
-      return color_utils::GetReadableColor(kResultsTableUrlColor,
-                                            system_colors_[COLOR_WINDOW]);
-    case kColorId_ResultsTableHoveredUrl:
-      return color_utils::PickContrastingColor(
-          kResultsTableUrlColor, kResultsTableSelectedUrlColor,
-          GetSystemColor(kColorId_ResultsTableHoveredBackground));
-    case kColorId_ResultsTableSelectedUrl:
-      return color_utils::PickContrastingColor(
-          kResultsTableUrlColor, kResultsTableSelectedUrlColor,
-          system_colors_[COLOR_HIGHLIGHT]);
-    case kColorId_ResultsTablePositiveText:
-      return color_utils::GetReadableColor(kPositiveTextColor,
-                                           system_colors_[COLOR_WINDOW]);
-    case kColorId_ResultsTablePositiveHoveredText:
-      return color_utils::GetReadableColor(
-          kPositiveTextColor,
-          GetSystemColor(kColorId_ResultsTableHoveredBackground));
-    case kColorId_ResultsTablePositiveSelectedText:
-      return color_utils::GetReadableColor(kPositiveTextColor,
-                                           system_colors_[COLOR_HIGHLIGHT]);
-    case kColorId_ResultsTableNegativeText:
-      return color_utils::GetReadableColor(kNegativeTextColor,
-                                           system_colors_[COLOR_WINDOW]);
-    case kColorId_ResultsTableNegativeHoveredText:
-      return color_utils::GetReadableColor(
-          kNegativeTextColor,
-          GetSystemColor(kColorId_ResultsTableHoveredBackground));
-    case kColorId_ResultsTableNegativeSelectedText:
-      return color_utils::GetReadableColor(kNegativeTextColor,
-                                           system_colors_[COLOR_HIGHLIGHT]);
+                                     system_colors_[COLOR_WINDOW], 0.5f);
     default:
       break;
   }
@@ -619,6 +570,23 @@ gfx::Size NativeThemeWin::GetNinePatchCanvasSize(Part part) const {
 gfx::Rect NativeThemeWin::GetNinePatchAperture(Part part) const {
   NOTREACHED() << "NativeThemeWin doesn't support nine-patch resources.";
   return gfx::Rect();
+}
+
+bool NativeThemeWin::UsesHighContrastColors() const {
+  bool force_enabled = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kForceHighContrast);
+  return force_enabled || IsUsingHighContrastThemeInternal();
+}
+
+bool NativeThemeWin::SystemDarkModeEnabled() const {
+  bool fDarkModeEnabled = false;
+  if (hkcu_themes_regkey_.Valid()) {
+    DWORD apps_use_light_theme = 1;
+    hkcu_themes_regkey_.ReadValueDW(L"AppsUseLightTheme",
+                                    &apps_use_light_theme);
+    fDarkModeEnabled = (apps_use_light_theme == 0);
+  }
+  return fDarkModeEnabled || NativeTheme::SystemDarkModeEnabled();
 }
 
 void NativeThemeWin::PaintIndirect(cc::PaintCanvas* destination_canvas,
@@ -673,7 +641,7 @@ void NativeThemeWin::PaintIndirect(cc::PaintCanvas* destination_canvas,
   // To work-around this, mark all pixels with a placeholder value, to detect
   // which pixels get touched by the paint operation. After paint, set any
   // pixels that have alpha 0 to opaque and placeholders to fully-transparent.
-  const SkColor placeholder = SkColorSetARGB(1, 0, 0, 0);
+  constexpr SkColor placeholder = SkColorSetARGB(1, 0, 0, 0);
   offscreen_canvas->clear(placeholder);
 
   // Offset destination rects to have origin (0,0).
@@ -715,7 +683,9 @@ void NativeThemeWin::PaintIndirect(cc::PaintCanvas* destination_canvas,
     }
   }
 
-  destination_canvas->drawBitmap(offscreen_bitmap, rect.x(), rect.y());
+  destination_canvas->drawImage(
+      cc::PaintImage::CreateFromBitmap(std::move(offscreen_bitmap)), rect.x(),
+      rect.y());
 }
 
 HRESULT NativeThemeWin::GetThemePartSize(ThemeName theme_name,
@@ -1037,7 +1007,7 @@ HRESULT NativeThemeWin::PaintScrollbarArrow(
   if (handle && draw_theme_) {
     int index = part - kScrollbarDownArrow;
     DCHECK_GE(index, 0);
-    DCHECK_LT(static_cast<size_t>(index), arraysize(state_id_matrix));
+    DCHECK_LT(static_cast<size_t>(index), base::size(state_id_matrix));
     int state_id = state_id_matrix[index][state];
 
     // Hovering means that the cursor is over the scroolbar, but not over the
@@ -1945,6 +1915,18 @@ HANDLE NativeThemeWin::GetThemeHandle(ThemeName theme_name) const {
   }
   theme_handles_[theme_name] = handle;
   return handle;
+}
+
+void NativeThemeWin::RegisterThemeRegkeyObserver() {
+  DCHECK(hkcu_themes_regkey_.Valid());
+  hkcu_themes_regkey_.StartWatching(base::BindOnce(
+      [](NativeThemeWin* native_theme) {
+        native_theme->NotifyObservers();
+        // RegKey::StartWatching only provides one notification. Reregistration
+        // is required to get future notifications.
+        native_theme->RegisterThemeRegkeyObserver();
+      },
+      base::Unretained(this)));
 }
 
 }  // namespace ui

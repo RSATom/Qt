@@ -13,9 +13,9 @@ enum IsolatedWorldIDs {
   ISOLATED_WORLD_ID_GLOBAL = 0,
   // Custom isolated world ids used by other embedders should start from here.
   ISOLATED_WORLD_ID_CONTENT_END,
-  // If any embedder has more than 10 custom isolated worlds that will be run
+  // If any embedder has more than 255 custom isolated worlds that will be run
   // via RenderFrameImpl::OnJavaScriptExecuteRequestInIsolatedWorld update this.
-  ISOLATED_WORLD_ID_MAX = ISOLATED_WORLD_ID_CONTENT_END + 10,
+  ISOLATED_WORLD_ID_MAX = ISOLATED_WORLD_ID_CONTENT_END + 255,
 };
 
 }  // namespace content

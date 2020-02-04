@@ -2,7 +2,7 @@
 # due to required Qt modules being missing.
 !isEmpty(QMAKE_FAILED_REQUIREMENTS): return()
 
-CONFIG *= thread
+qtConfig(thread): CONFIG *= thread
 
 #handle defines
 win32 {
@@ -145,12 +145,14 @@ import_plugins:qtConfig(static) {
         # the plugin path. Unknown plugins must rely on the default link path.
         plug_type = $$eval(QT_PLUGIN.$${plug}.TYPE)
         !isEmpty(plug_type) {
+            plug_name = $$QMAKE_PREFIX_STATICLIB$${plug}$$qtPlatformTargetSuffix().$$QMAKE_EXTENSION_STATICLIB
             plug_path = $$eval(QT_PLUGIN.$${plug}.PATH)
             isEmpty(plug_path): \
                 plug_path = $$[QT_INSTALL_PLUGINS/get]
-            LIBS += -L$$plug_path/$$plug_type
+            LIBS += $$plug_path/$$plug_type/$$plug_name
+        } else {
+            LIBS += -l$${plug}$$qtPlatformTargetSuffix()
         }
-        LIBS += -l$${plug}$$qtPlatformTargetSuffix()
     }
 }
 
@@ -195,30 +197,6 @@ for(ever) {
         qtProcessModuleFlags(DEFINES, QT.$${QTLIB}.DEFINES)
 
         MODULE_INCLUDES -= $$QMAKE_DEFAULT_INCDIRS
-        MODULE_LIBS_ADD = $$MODULE_LIBS
-        MODULE_LIBS_ADD -= $$QMAKE_DEFAULT_LIBDIRS
-
-        !contains(MODULE_CONFIG, v2) {
-            # Backwards compatibility with pre-5.6 module .pri files
-
-            contains(MODULE_CONFIG, lib_bundle) {
-                MODULE_FRAMEWORKS = $$MODULE_LIBS
-                inc = $$MODULE_LIBS/$${MODULE_NAME}.framework/Headers
-                MODULE_INCLUDES = $$inc
-                contains(MODULE_CONFIG, internal_module): \
-                    MODULE_INCLUDES += \
-                        $$inc/$$eval(QT.$${QTLIB}.VERSION) \
-                        $$inc/$$eval(QT.$${QTLIB}.VERSION)/$$MODULE_NAME
-            } else {
-                # Re-insert the major version in the library name (cf qt5LibraryTarget above)
-                MODULE_NAME ~= s,^Qt,Qt$$QT_MAJOR_VERSION,
-            }
-
-            # Only link to this module if a libs directory is set, else this is just a module
-            # to give access to sources or include files, and not for linking.
-            !isEmpty(MODULE_LIBS):!contains(MODULE_CONFIG, no_link): \
-                MODULE_MODULE = $${MODULE_NAME}$${QT_LIBINFIX}
-        }
 
         # Frameworks shouldn't need include paths, but much code does not use
         # module-qualified #includes, so by default we add paths which point
@@ -230,23 +208,18 @@ for(ever) {
         QMAKE_FRAMEWORKPATH *= $$MODULE_FRAMEWORKS
         !isEmpty(MODULE_MODULE) {
             contains(MODULE_CONFIG, lib_bundle) {
-                LIBS$$var_sfx += -framework $$MODULE_MODULE
+                framework = $$MODULE_MODULE
+                # Linking frameworks by absolute path does not work.
+                LIBS$$var_sfx += -framework $$framework
             } else {
-                !isEmpty(MODULE_LIBS_ADD): \
-                    LIBS$$var_sfx += -L$$MODULE_LIBS_ADD
-
                 lib = $$MODULE_MODULE$$qtPlatformTargetSuffix()
-                LIBS$$var_sfx += -l$$lib
-
-                contains(MODULE_CONFIG, staticlib): \
-                    PRE_TARGETDEPS *= $$MODULE_LIBS/$${QMAKE_PREFIX_STATICLIB}$${lib}.$${QMAKE_EXTENSION_STATICLIB}
-
-                !isEmpty(QMAKE_LSB) {
-                    !isEmpty(MODULE_LIBS_ADD): \
-                        QMAKE_LFLAGS *= --lsb-libpath=$$MODULE_LIBS_ADD
-                    QMAKE_LFLAGS *= --lsb-shared-libs=$$lib
-                    QMAKE_LIBDIR *= /opt/lsb/lib
+                win32|contains(MODULE_CONFIG, staticlib) {
+                    lib = $$MODULE_LIBS/$$QMAKE_PREFIX_STATICLIB$${lib}.$$QMAKE_EXTENSION_STATICLIB
+                    PRE_TARGETDEPS += $$lib
+                } else {
+                    lib = $$MODULE_LIBS/$$QMAKE_PREFIX_SHLIB$${lib}.$$QMAKE_EXTENSION_SHLIB
                 }
+                LIBS$$var_sfx += $$lib
             }
         }
         QMAKE_USE$$var_sfx += $$MODULE_USES
@@ -316,7 +289,8 @@ contains(all_qt_module_deps, qml): \
         for (key, IMPORTS._KEYS_) {
             PATH = $$eval(IMPORTS.$${key}.path)
             PLUGIN = $$eval(IMPORTS.$${key}.plugin)
-            !isEmpty(PATH):!isEmpty(PLUGIN): LIBS *= -L$$PATH -l$${PLUGIN}$$qtPlatformTargetSuffix()
+            !isEmpty(PATH):!isEmpty(PLUGIN): \
+                LIBS += $$PATH/$$QMAKE_PREFIX_STATICLIB$${PLUGIN}$$qtPlatformTargetSuffix().$$QMAKE_EXTENSION_STATICLIB
         }
 
         # create qml_plugin_import.cpp

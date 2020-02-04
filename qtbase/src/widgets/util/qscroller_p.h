@@ -64,7 +64,9 @@
 #include <qscroller.h>
 #include <qscrollerproperties.h>
 #include <private/qscrollerproperties_p.h>
+#if QT_CONFIG(animation)
 #include <QAbstractAnimation>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -72,7 +74,7 @@ QT_BEGIN_NAMESPACE
 class QFlickGestureRecognizer;
 #endif
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
 class QScrollTimer;
 #endif
 class QScrollerPrivate : public QObject
@@ -119,7 +121,6 @@ public:
     bool prepareScrolling(const QPointF &position);
     void handleDrag(const QPointF &position, qint64 timestamp);
 
-    QPointF realDpi(int screen) const;
     QPointF dpi() const;
     void setDpi(const QPointF &dpi);
     void setDpiFromWidget(QWidget *widget);
@@ -197,7 +198,7 @@ public:
     QElapsedTimer monotonicTimer;
 
     QPointF releaseVelocity; // the starting velocity of the scrolling state
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     QScrollTimer *scrollTimer;
 #endif
 

@@ -9,7 +9,10 @@
 
 #include <memory>
 
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fxfa/fxfa.h"
+
+class CXFA_Graphics;
 
 class CXFA_RenderContext {
  public:
@@ -22,7 +25,7 @@ class CXFA_RenderContext {
 
  private:
   std::unique_ptr<IXFA_WidgetIterator> m_pWidgetIterator;
-  CXFA_FFWidget* m_pWidget;
+  UnownedPtr<CXFA_FFWidget> m_pWidget;
   CFX_Matrix m_matrix;
   CFX_RectF m_rtClipRect;
 };

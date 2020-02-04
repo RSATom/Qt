@@ -17,19 +17,18 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "gtest/gtest.h"
 #include "minidump/minidump_context.h"
 #include "minidump/minidump_context_writer.h"
 #include "minidump/minidump_extensions.h"
 #include "minidump/minidump_file_writer.h"
-#include "minidump/minidump_thread_id_map.h"
 #include "minidump/test/minidump_context_test_util.h"
 #include "minidump/test/minidump_file_writer_test_util.h"
 #include "minidump/test/minidump_writable_test_util.h"
 #include "snapshot/test/test_cpu_context.h"
 #include "snapshot/test/test_exception_snapshot.h"
-#include "test/gtest_death_check.h"
+#include "test/gtest_death.h"
 #include "util/file/string_file.h"
 
 namespace crashpad {
@@ -39,12 +38,12 @@ namespace {
 // This returns the MINIDUMP_EXCEPTION_STREAM stream in |exception_stream|.
 void GetExceptionStream(const std::string& file_contents,
                         const MINIDUMP_EXCEPTION_STREAM** exception_stream) {
-  const size_t kDirectoryOffset = sizeof(MINIDUMP_HEADER);
-  const size_t kExceptionStreamOffset =
+  constexpr size_t kDirectoryOffset = sizeof(MINIDUMP_HEADER);
+  constexpr size_t kExceptionStreamOffset =
       kDirectoryOffset + sizeof(MINIDUMP_DIRECTORY);
-  const size_t kContextOffset =
+  constexpr size_t kContextOffset =
       kExceptionStreamOffset + sizeof(MINIDUMP_EXCEPTION_STREAM);
-  const size_t kFileSize = kContextOffset + sizeof(MinidumpContextX86);
+  constexpr size_t kFileSize = kContextOffset + sizeof(MinidumpContextX86);
   ASSERT_EQ(kFileSize, file_contents.size());
 
   const MINIDUMP_DIRECTORY* directory;
@@ -82,7 +81,7 @@ void ExpectExceptionStream(const MINIDUMP_EXCEPTION_STREAM* expected,
             expected->ExceptionRecord.NumberParameters);
   EXPECT_EQ(observed->ExceptionRecord.__unusedAlignment, 0u);
   for (size_t index = 0;
-       index < arraysize(observed->ExceptionRecord.ExceptionInformation);
+       index < base::size(observed->ExceptionRecord.ExceptionInformation);
        ++index) {
     EXPECT_EQ(observed->ExceptionRecord.ExceptionInformation[index],
               expected->ExceptionRecord.ExceptionInformation[index]);
@@ -94,11 +93,11 @@ void ExpectExceptionStream(const MINIDUMP_EXCEPTION_STREAM* expected,
 
 TEST(MinidumpExceptionWriter, Minimal) {
   MinidumpFileWriter minidump_file_writer;
-  auto exception_writer = base::WrapUnique(new MinidumpExceptionWriter());
+  auto exception_writer = std::make_unique<MinidumpExceptionWriter>();
 
-  const uint32_t kSeed = 100;
+  constexpr uint32_t kSeed = 100;
 
-  auto context_x86_writer = base::WrapUnique(new MinidumpContextX86Writer());
+  auto context_x86_writer = std::make_unique<MinidumpContextX86Writer>();
   InitializeMinidumpContextX86(context_x86_writer->context(), kSeed);
   exception_writer->SetContext(std::move(context_x86_writer));
 
@@ -126,19 +125,19 @@ TEST(MinidumpExceptionWriter, Minimal) {
 
 TEST(MinidumpExceptionWriter, Standard) {
   MinidumpFileWriter minidump_file_writer;
-  auto exception_writer = base::WrapUnique(new MinidumpExceptionWriter());
+  auto exception_writer = std::make_unique<MinidumpExceptionWriter>();
 
-  const uint32_t kSeed = 200;
-  const uint32_t kThreadID = 1;
-  const uint32_t kExceptionCode = 2;
-  const uint32_t kExceptionFlags = 3;
-  const uint32_t kExceptionRecord = 4;
-  const uint32_t kExceptionAddress = 5;
-  const uint64_t kExceptionInformation0 = 6;
-  const uint64_t kExceptionInformation1 = 7;
-  const uint64_t kExceptionInformation2 = 7;
+  constexpr uint32_t kSeed = 200;
+  constexpr uint32_t kThreadID = 1;
+  constexpr uint32_t kExceptionCode = 2;
+  constexpr uint32_t kExceptionFlags = 3;
+  constexpr uint32_t kExceptionRecord = 4;
+  constexpr uint32_t kExceptionAddress = 5;
+  constexpr uint64_t kExceptionInformation0 = 6;
+  constexpr uint64_t kExceptionInformation1 = 7;
+  constexpr uint64_t kExceptionInformation2 = 7;
 
-  auto context_x86_writer = base::WrapUnique(new MinidumpContextX86Writer());
+  auto context_x86_writer = std::make_unique<MinidumpContextX86Writer>();
   InitializeMinidumpContextX86(context_x86_writer->context(), kSeed);
   exception_writer->SetContext(std::move(context_x86_writer));
 
@@ -212,8 +211,8 @@ TEST(MinidumpExceptionWriter, InitializeFromSnapshot) {
     expect_exception.ExceptionRecord.ExceptionInformation[index] =
         exception_codes[index];
   }
-  const uint64_t kThreadID = 0xaaaaaaaaaaaaaaaa;
-  const uint32_t kSeed = 65;
+  constexpr uint64_t kThreadID = 0xaaaaaaaaaaaaaaaa;
+  constexpr uint32_t kSeed = 65;
 
   TestExceptionSnapshot exception_snapshot;
   exception_snapshot.SetThreadID(kThreadID);
@@ -230,7 +229,7 @@ TEST(MinidumpExceptionWriter, InitializeFromSnapshot) {
   MinidumpThreadIDMap thread_id_map;
   thread_id_map[kThreadID] = expect_exception.ThreadId;
 
-  auto exception_writer = base::WrapUnique(new MinidumpExceptionWriter());
+  auto exception_writer = std::make_unique<MinidumpExceptionWriter>();
   exception_writer->InitializeFromSnapshot(&exception_snapshot, thread_id_map);
 
   MinidumpFileWriter minidump_file_writer;
@@ -254,7 +253,7 @@ TEST(MinidumpExceptionWriter, InitializeFromSnapshot) {
 
 TEST(MinidumpExceptionWriterDeathTest, NoContext) {
   MinidumpFileWriter minidump_file_writer;
-  auto exception_writer = base::WrapUnique(new MinidumpExceptionWriter());
+  auto exception_writer = std::make_unique<MinidumpExceptionWriter>();
 
   ASSERT_TRUE(minidump_file_writer.AddStream(std::move(exception_writer)));
 

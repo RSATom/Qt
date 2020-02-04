@@ -17,9 +17,9 @@
 #include "content/renderer/dom_storage/webstoragenamespace_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "ipc/message_filter.h"
-#include "third_party/WebKit/public/platform/Platform.h"
-#include "third_party/WebKit/public/web/WebKit.h"
-#include "third_party/WebKit/public/web/WebStorageEventDispatcher.h"
+#include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/public/web/blink.h"
+#include "third_party/blink/public/web/web_storage_event_dispatcher.h"
 
 namespace content {
 
@@ -36,7 +36,7 @@ class MessageThrottlingFilter : public IPC::MessageFilter {
       : pending_count_(0), sender_(sender) {}
 
   void SendThrottled(IPC::Message* message);
-  void Shutdown() { sender_ = NULL; }
+  void Shutdown() { sender_ = nullptr; }
 
  private:
   ~MessageThrottlingFilter() override {}
@@ -99,10 +99,10 @@ class DomStorageDispatcher::ProxyImpl : public DOMStorageProxy {
   explicit ProxyImpl(RenderThreadImpl* sender);
 
   // Methods for use by DomStorageDispatcher directly.
-  DOMStorageCachedArea* OpenCachedArea(int64_t namespace_id,
+  DOMStorageCachedArea* OpenCachedArea(const std::string& namespace_id,
                                        const GURL& origin);
   void CloseCachedArea(DOMStorageCachedArea* area);
-  DOMStorageCachedArea* LookupCachedArea(int64_t namespace_id,
+  DOMStorageCachedArea* LookupCachedArea(const std::string& namespace_id,
                                          const GURL& origin);
   void CompleteOnePendingCallback(bool success);
   void Shutdown();
@@ -110,19 +110,21 @@ class DomStorageDispatcher::ProxyImpl : public DOMStorageProxy {
   // DOMStorageProxy interface for use by DOMStorageCachedArea.
   void LoadArea(int connection_id,
                 DOMStorageValuesMap* values,
-                const CompletionCallback& callback) override;
+                CompletionCallback callback) override;
   void SetItem(int connection_id,
                const base::string16& key,
                const base::string16& value,
+               const base::NullableString16& old_value,
                const GURL& page_url,
-               const CompletionCallback& callback) override;
+               CompletionCallback callback) override;
   void RemoveItem(int connection_id,
                   const base::string16& key,
+                  const base::NullableString16& old_value,
                   const GURL& page_url,
-                  const CompletionCallback& callback) override;
+                  CompletionCallback callback) override;
   void ClearArea(int connection_id,
                  const GURL& page_url,
-                 const CompletionCallback& callback) override;
+                 CompletionCallback callback) override;
 
  private:
   // Struct to hold references to our contained areas and
@@ -139,7 +141,7 @@ class DomStorageDispatcher::ProxyImpl : public DOMStorageProxy {
 
   ~ProxyImpl() override {}
 
-  void PushPendingCallback(const CompletionCallback& callback) {
+  void PushPendingCallback(CompletionCallback callback) {
     // Terminate the renderer if an excessive number of calls are made,
     // This is indicative of script in an infinite loop or being malicious.
     // It's better to crash intentionally than by running the system OOM
@@ -152,25 +154,26 @@ class DomStorageDispatcher::ProxyImpl : public DOMStorageProxy {
     // to more reliably commit changes during shutdown.
     if (pending_callbacks_.empty())
       blink::Platform::Current()->SuddenTerminationChanged(false);
-    pending_callbacks_.push_back(callback);
+    pending_callbacks_.push_back(std::move(callback));
   }
 
   CompletionCallback PopPendingCallback() {
-    CompletionCallback callback = pending_callbacks_.front();
+    CompletionCallback callback = std::move(pending_callbacks_.front());
     pending_callbacks_.pop_front();
     if (pending_callbacks_.empty())
       blink::Platform::Current()->SuddenTerminationChanged(true);
     return callback;
   }
 
-  std::string GetCachedAreaKey(int64_t namespace_id, const GURL& origin) {
-    return base::Int64ToString(namespace_id) + origin.spec();
+  std::string GetCachedAreaKey(const std::string& namespace_id,
+                               const GURL& origin) {
+    return namespace_id + origin.spec();
   }
 
   CachedAreaHolder* GetAreaHolder(const std::string& key) {
-    CachedAreaMap::iterator found = cached_areas_.find(key);
+    auto found = cached_areas_.find(key);
     if (found == cached_areas_.end())
-      return NULL;
+      return nullptr;
     return &(found->second);
   }
 
@@ -187,15 +190,16 @@ DomStorageDispatcher::ProxyImpl::ProxyImpl(RenderThreadImpl* sender)
 }
 
 DOMStorageCachedArea* DomStorageDispatcher::ProxyImpl::OpenCachedArea(
-    int64_t namespace_id,
+    const std::string& namespace_id,
     const GURL& origin) {
   std::string key = GetCachedAreaKey(namespace_id, origin);
   if (CachedAreaHolder* holder = GetAreaHolder(key)) {
     ++(holder->open_count_);
     return holder->area_.get();
   }
-  scoped_refptr<DOMStorageCachedArea> area =
-      new DOMStorageCachedArea(namespace_id, origin, this);
+  scoped_refptr<DOMStorageCachedArea> area = new DOMStorageCachedArea(
+      namespace_id, origin, this,
+      content::RenderThreadImpl::current()->GetWebMainThreadScheduler());
   cached_areas_[key] = CachedAreaHolder(area.get(), 1);
   return area.get();
 }
@@ -213,12 +217,12 @@ void DomStorageDispatcher::ProxyImpl::CloseCachedArea(
 }
 
 DOMStorageCachedArea* DomStorageDispatcher::ProxyImpl::LookupCachedArea(
-    int64_t namespace_id,
+    const std::string& namespace_id,
     const GURL& origin) {
   std::string key = GetCachedAreaKey(namespace_id, origin);
   CachedAreaHolder* holder = GetAreaHolder(key);
   if (!holder)
-    return NULL;
+    return nullptr;
   return holder->area_.get();
 }
 
@@ -229,40 +233,46 @@ void DomStorageDispatcher::ProxyImpl::CompleteOnePendingCallback(bool success) {
 void DomStorageDispatcher::ProxyImpl::Shutdown() {
   throttling_filter_->Shutdown();
   sender_->RemoveFilter(throttling_filter_.get());
-  sender_ = NULL;
+  sender_ = nullptr;
   cached_areas_.clear();
   pending_callbacks_.clear();
 }
 
-void DomStorageDispatcher::ProxyImpl::LoadArea(
-    int connection_id, DOMStorageValuesMap* values,
-    const CompletionCallback& callback) {
-  PushPendingCallback(callback);
+void DomStorageDispatcher::ProxyImpl::LoadArea(int connection_id,
+                                               DOMStorageValuesMap* values,
+                                               CompletionCallback callback) {
+  PushPendingCallback(std::move(callback));
   throttling_filter_->SendThrottled(new DOMStorageHostMsg_LoadStorageArea(
       connection_id, values));
 }
 
 void DomStorageDispatcher::ProxyImpl::SetItem(
-    int connection_id, const base::string16& key,
-    const base::string16& value, const GURL& page_url,
-    const CompletionCallback& callback) {
-  PushPendingCallback(callback);
+    int connection_id,
+    const base::string16& key,
+    const base::string16& value,
+    const base::NullableString16& old_value,
+    const GURL& page_url,
+    CompletionCallback callback) {
+  PushPendingCallback(std::move(callback));
   throttling_filter_->SendThrottled(new DOMStorageHostMsg_SetItem(
-      connection_id, key, value, page_url));
+      connection_id, key, value, old_value, page_url));
 }
 
 void DomStorageDispatcher::ProxyImpl::RemoveItem(
-    int connection_id, const base::string16& key,  const GURL& page_url,
-    const CompletionCallback& callback) {
-  PushPendingCallback(callback);
+    int connection_id,
+    const base::string16& key,
+    const base::NullableString16& old_value,
+    const GURL& page_url,
+    CompletionCallback callback) {
+  PushPendingCallback(std::move(callback));
   throttling_filter_->SendThrottled(new DOMStorageHostMsg_RemoveItem(
-      connection_id, key, page_url));
+      connection_id, key, old_value, page_url));
 }
 
 void DomStorageDispatcher::ProxyImpl::ClearArea(int connection_id,
-                      const GURL& page_url,
-                      const CompletionCallback& callback) {
-  PushPendingCallback(callback);
+                                                const GURL& page_url,
+                                                CompletionCallback callback) {
+  PushPendingCallback(std::move(callback));
   throttling_filter_->SendThrottled(new DOMStorageHostMsg_Clear(
       connection_id, page_url));
 }
@@ -279,7 +289,7 @@ DomStorageDispatcher::~DomStorageDispatcher() {
 
 scoped_refptr<DOMStorageCachedArea> DomStorageDispatcher::OpenCachedArea(
     int connection_id,
-    int64_t namespace_id,
+    const std::string& namespace_id,
     const GURL& origin) {
   RenderThreadImpl::current()->Send(
       new DOMStorageHostMsg_OpenStorageArea(
@@ -307,7 +317,7 @@ bool DomStorageDispatcher::OnMessageReceived(const IPC::Message& msg) {
 
 void DomStorageDispatcher::OnStorageEvent(
     const DOMStorageMsg_Event_Params& params) {
-  WebStorageAreaImpl* originating_area = NULL;
+  WebStorageAreaImpl* originating_area = nullptr;
   if (params.connection_id) {
     originating_area = WebStorageAreaImpl::FromConnectionId(
         params.connection_id);
@@ -318,22 +328,14 @@ void DomStorageDispatcher::OnStorageEvent(
       cached_area->ApplyMutation(params.key, params.new_value);
   }
 
-  if (params.namespace_id == kLocalStorageNamespaceId) {
-    blink::WebStorageEventDispatcher::DispatchLocalStorageEvent(
-        blink::WebString::FromUTF16(params.key),
-        blink::WebString::FromUTF16(params.old_value),
-        blink::WebString::FromUTF16(params.new_value), params.origin,
-        params.page_url, originating_area);
-  } else {
-    WebStorageNamespaceImpl
-        session_namespace_for_event_dispatch(params.namespace_id);
-    blink::WebStorageEventDispatcher::DispatchSessionStorageEvent(
-        blink::WebString::FromUTF16(params.key),
-        blink::WebString::FromUTF16(params.old_value),
-        blink::WebString::FromUTF16(params.new_value), params.origin,
-        params.page_url, session_namespace_for_event_dispatch,
-        originating_area);
-  }
+  DCHECK(!params.namespace_id.empty());
+  WebStorageNamespaceImpl session_namespace_for_event_dispatch(
+      params.namespace_id);
+  blink::WebStorageEventDispatcher::DispatchSessionStorageEvent(
+      blink::WebString::FromUTF16(params.key),
+      blink::WebString::FromUTF16(params.old_value),
+      blink::WebString::FromUTF16(params.new_value), params.origin,
+      params.page_url, session_namespace_for_event_dispatch, originating_area);
 }
 
 void DomStorageDispatcher::OnAsyncOperationComplete(bool success) {

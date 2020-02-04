@@ -7,6 +7,8 @@
 
 #include "base/macros.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "content/public/browser/browser_thread.h"
+#include "extensions/common/extension_id.h"
 
 struct ExtensionHostMsg_Request_Params;
 
@@ -42,6 +44,15 @@ class ExtensionServiceWorkerMessageFilter
                                         const std::string& request_uuid);
   void OnDecrementServiceWorkerActivity(int64_t service_worker_version_id,
                                         const std::string& request_uuid);
+  void OnEventAckWorker(int64_t service_worker_version_id, int event_id);
+  void OnDidStartServiceWorkerContext(const ExtensionId& extension_id,
+                                      int64_t service_worker_version_id);
+  void OnDidStopServiceWorkerContext(const ExtensionId& extension_id,
+                                     int64_t service_worker_version_id);
+
+  void DidFailDecrementInflightEvent();
+
+  content::BrowserContext* const browser_context_;
 
   const int render_process_id_;
 

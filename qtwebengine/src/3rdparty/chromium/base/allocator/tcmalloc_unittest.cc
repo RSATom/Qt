@@ -8,7 +8,7 @@
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/process/process_metrics.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -68,15 +68,14 @@ static int NextSize(int size) {
 
     CHECK_EQ(size, power);
     return power + 1;
-  } else {
-    return -1;
   }
+  return -1;
 }
 
 static void TestCalloc(size_t n, size_t s, bool ok) {
   char* p = reinterpret_cast<char*>(calloc(n, s));
   if (!ok) {
-    EXPECT_EQ(NULL, p) << "calloc(n, s) should not succeed";
+    EXPECT_EQ(nullptr, p) << "calloc(n, s) should not succeed";
   } else {
     EXPECT_NE(reinterpret_cast<void*>(NULL), p)
         << "calloc(n, s) should succeed";
@@ -154,7 +153,7 @@ TEST(TCMallocTest, Realloc) {
       EXPECT_TRUE(Valid(dst, min(src_size, dst_size)));
       Fill(dst, dst_size);
       EXPECT_TRUE(Valid(dst, dst_size));
-      if (dst != NULL)
+      if (dst != nullptr)
         free(dst);
     }
   }

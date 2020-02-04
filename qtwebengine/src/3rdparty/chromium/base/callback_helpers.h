@@ -6,10 +6,6 @@
 // are implemented using templates, with a class per callback signature, adding
 // methods to Callback<> itself is unattractive (lots of extra code gets
 // generated).  Instead, consider adding methods here.
-//
-// ResetAndReturn(&cb) is like cb.Reset() but allows executing a callback (via a
-// move or copy) after the original callback is Reset().  This can be handy if
-// Run() reads/writes the variable holding the Callback.
 
 #ifndef BASE_CALLBACK_HELPERS_H_
 #define BASE_CALLBACK_HELPERS_H_
@@ -25,12 +21,10 @@
 
 namespace base {
 
-template <typename Signature,
-          internal::CopyMode copy_mode,
-          internal::RepeatMode repeat_mode>
-Callback<Signature, copy_mode, repeat_mode> ResetAndReturn(
-    Callback<Signature, copy_mode, repeat_mode>* cb) {
-  Callback<Signature, copy_mode, repeat_mode> ret(std::move(*cb));
+// Prefer std::move() over ResetAndReturn().
+template <typename CallbackType>
+CallbackType ResetAndReturn(CallbackType* cb) {
+  CallbackType ret(std::move(*cb));
   DCHECK(!*cb);
   return ret;
 }
@@ -64,12 +58,16 @@ class AdaptCallbackForRepeatingHelper final {
 // Wraps the given OnceCallback into a RepeatingCallback that relays its
 // invocation to the original OnceCallback on the first invocation. The
 // following invocations are just ignored.
+//
+// Note that this deliberately subverts the Once/Repeating paradigm of Callbacks
+// but helps ease the migration from old-style Callbacks. Avoid if possible; use
+// if necessary for migration. TODO(tzik): Remove it. https://crbug.com/730593
 template <typename... Args>
 RepeatingCallback<void(Args...)> AdaptCallbackForRepeating(
     OnceCallback<void(Args...)> callback) {
   using Helper = internal::AdaptCallbackForRepeatingHelper<Args...>;
   return base::BindRepeating(&Helper::Run,
-                             base::MakeUnique<Helper>(std::move(callback)));
+                             std::make_unique<Helper>(std::move(callback)));
 }
 
 // ScopedClosureRunner is akin to std::unique_ptr<> for Closures. It ensures
@@ -77,7 +75,7 @@ RepeatingCallback<void(Args...)> AdaptCallbackForRepeating(
 class BASE_EXPORT ScopedClosureRunner {
  public:
   ScopedClosureRunner();
-  explicit ScopedClosureRunner(const Closure& closure);
+  explicit ScopedClosureRunner(OnceClosure closure);
   ~ScopedClosureRunner();
 
   ScopedClosureRunner(ScopedClosureRunner&& other);
@@ -90,13 +88,13 @@ class BASE_EXPORT ScopedClosureRunner {
   void RunAndReset();
 
   // Replaces closure with the new one releasing the old one without calling it.
-  void ReplaceClosure(const Closure& closure);
+  void ReplaceClosure(OnceClosure closure);
 
   // Releases the Closure without calling.
-  Closure Release() WARN_UNUSED_RESULT;
+  OnceClosure Release() WARN_UNUSED_RESULT;
 
  private:
-  Closure closure_;
+  OnceClosure closure_;
 
   DISALLOW_COPY_AND_ASSIGN(ScopedClosureRunner);
 };

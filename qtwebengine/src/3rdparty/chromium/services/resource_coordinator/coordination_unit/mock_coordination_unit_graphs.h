@@ -5,100 +5,109 @@
 #ifndef SERVICES_RESOURCE_COORDINATOR_COORDINATION_UNIT_MOCK_COORDINATION_UNIT_GRAPHS_H_
 #define SERVICES_RESOURCE_COORDINATOR_COORDINATION_UNIT_MOCK_COORDINATION_UNIT_GRAPHS_H_
 
-#include <memory>
-
-#include "services/resource_coordinator/coordination_unit/coordination_unit_impl_unittest_util.h"
+#include "services/resource_coordinator/coordination_unit/coordination_unit_test_harness.h"
 
 namespace resource_coordinator {
 
+class CoordinationUnitGraph;
+class FrameCoordinationUnitImpl;
+class PageCoordinationUnitImpl;
+class ProcessCoordinationUnitImpl;
+class SystemCoordinationUnitImpl;
+
 // The following coordination unit graph topology is created to emulate a
-// scenario when a single tab are executes in a single process:
+// scenario when a single page executes in a single process:
 //
-// T   P
+// Pr  Pg
 //  \ /
 //   F
 //
 // Where:
-// T: tab
 // F: frame
-// P: process
-struct MockSingleTabInSingleProcessCoordinationUnitGraph {
-  MockSingleTabInSingleProcessCoordinationUnitGraph();
-  ~MockSingleTabInSingleProcessCoordinationUnitGraph();
-  TestCoordinationUnitWrapper frame;
-  TestCoordinationUnitWrapper process;
-  TestCoordinationUnitWrapper tab;
+// Pr: process(pid:1)
+// Pg: page
+struct MockSinglePageInSingleProcessCoordinationUnitGraph {
+  MockSinglePageInSingleProcessCoordinationUnitGraph(
+      CoordinationUnitGraph* graph);
+  ~MockSinglePageInSingleProcessCoordinationUnitGraph();
+  TestCoordinationUnitWrapper<SystemCoordinationUnitImpl> system;
+  TestCoordinationUnitWrapper<FrameCoordinationUnitImpl> frame;
+  TestCoordinationUnitWrapper<ProcessCoordinationUnitImpl> process;
+  TestCoordinationUnitWrapper<PageCoordinationUnitImpl> page;
 };
 
 // The following coordination unit graph topology is created to emulate a
-// scenario where multiple tabs are executing in a single process:
+// scenario where multiple pages are executing in a single process:
 //
-// T   P  OT
+// Pg  Pr OPg
 //  \ / \ /
 //   F  OF
 //
 // Where:
-// T: tab
-// OT: other_tab
 // F: frame
 // OF: other_frame
-// P: process
-struct MockMultipleTabsInSingleProcessCoordinationUnitGraph
-    : public MockSingleTabInSingleProcessCoordinationUnitGraph {
-  MockMultipleTabsInSingleProcessCoordinationUnitGraph();
-  ~MockMultipleTabsInSingleProcessCoordinationUnitGraph();
-  TestCoordinationUnitWrapper other_frame;
-  TestCoordinationUnitWrapper other_tab;
+// Pg: page
+// OPg: other_page
+// Pr: process(pid:1)
+struct MockMultiplePagesInSingleProcessCoordinationUnitGraph
+    : public MockSinglePageInSingleProcessCoordinationUnitGraph {
+  MockMultiplePagesInSingleProcessCoordinationUnitGraph(
+      CoordinationUnitGraph* graph);
+  ~MockMultiplePagesInSingleProcessCoordinationUnitGraph();
+  TestCoordinationUnitWrapper<FrameCoordinationUnitImpl> other_frame;
+  TestCoordinationUnitWrapper<PageCoordinationUnitImpl> other_page;
 };
 
 // The following coordination unit graph topology is created to emulate a
-// scenario where a single tab that has frames executing in different
+// scenario where a single page that has frames is executing in different
 // processes (e.g. out-of-process iFrames):
 //
-// T   P
-//  \ /
-//   F  OP
-//    \ /
-//    CF
+// Pg  Pr
+// |\ /
+// | F  OPr
+// |  \ /
+// |__CF
 //
 // Where:
-// T: tab
 // F: frame
-// CF: chid_frame
-// P: process
-// OP: other_process
-struct MockSingleTabWithMultipleProcessesCoordinationUnitGraph
-    : public MockSingleTabInSingleProcessCoordinationUnitGraph {
-  MockSingleTabWithMultipleProcessesCoordinationUnitGraph();
-  ~MockSingleTabWithMultipleProcessesCoordinationUnitGraph();
-  TestCoordinationUnitWrapper child_frame;
-  TestCoordinationUnitWrapper other_process;
+// CF: child_frame
+// Pg: page
+// Pr: process(pid:1)
+// OPr: other_process(pid:2)
+struct MockSinglePageWithMultipleProcessesCoordinationUnitGraph
+    : public MockSinglePageInSingleProcessCoordinationUnitGraph {
+  MockSinglePageWithMultipleProcessesCoordinationUnitGraph(
+      CoordinationUnitGraph* graph);
+  ~MockSinglePageWithMultipleProcessesCoordinationUnitGraph();
+  TestCoordinationUnitWrapper<FrameCoordinationUnitImpl> child_frame;
+  TestCoordinationUnitWrapper<ProcessCoordinationUnitImpl> other_process;
 };
 
 // The following coordination unit graph topology is created to emulate a
-// scenario where multiple tabs are utilizing multiple processes (e.g.
-// out-of-process iFrames and multiple tabs in a process):
+// scenario where multiple pages are utilizing multiple processes (e.g.
+// out-of-process iFrames and multiple pages in a process):
 //
-// T   P  OT
-//  \ / \ /
-//  F    OF  OP
-//        \ /
-//         CF
+// Pg  Pr OPg___
+//  \ / \ /     |
+//   F   OF OPr |
+//        \ /   |
+//         CF___|
 //
 // Where:
-// T: tab_coordination_unit
-// OT: other_tab_coordination_unit
-// F: frame_coordination_unit
-// OF: other_frame_coordination_unit
-// CF: another_frame_coordination_unit
-// P: process_coordination_unit
-// OP: other_process_coordination_unit
-struct MockMultipleTabsWithMultipleProcessesCoordinationUnitGraph
-    : public MockMultipleTabsInSingleProcessCoordinationUnitGraph {
-  MockMultipleTabsWithMultipleProcessesCoordinationUnitGraph();
-  ~MockMultipleTabsWithMultipleProcessesCoordinationUnitGraph();
-  TestCoordinationUnitWrapper child_frame;
-  TestCoordinationUnitWrapper other_process;
+// F: frame
+// OF: other_frame
+// CF: another_frame
+// Pg: page
+// OPg: other_page
+// Pr: process(pid:1)
+// OPr: other_process(pid:2)
+struct MockMultiplePagesWithMultipleProcessesCoordinationUnitGraph
+    : public MockMultiplePagesInSingleProcessCoordinationUnitGraph {
+  MockMultiplePagesWithMultipleProcessesCoordinationUnitGraph(
+      CoordinationUnitGraph* graph);
+  ~MockMultiplePagesWithMultipleProcessesCoordinationUnitGraph();
+  TestCoordinationUnitWrapper<FrameCoordinationUnitImpl> child_frame;
+  TestCoordinationUnitWrapper<ProcessCoordinationUnitImpl> other_process;
 };
 
 }  // namespace resource_coordinator

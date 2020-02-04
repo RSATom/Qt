@@ -260,6 +260,17 @@ ScrollView {
         if (index >= 0 && index <= columnCount && object.Accessible.role === Accessible.ColumnHeader) {
             object.__view = root
             columnModel.insert(index, {columnItem: object})
+            if (root.__columns[index] !== object) {
+                // The new column needs to be put into __columns at the specified index
+                // so the list needs to be recreated to be correct
+                var arr = []
+                for (var i = 0; i < index; ++i)
+                    arr.push(root.__columns[i])
+                arr.push(object)
+                for (i = index; i < root.__columns.length; ++i)
+                    arr.push(root.__columns[i])
+                root.__columns = arr
+            }
             return object
         }
 
@@ -330,7 +341,6 @@ ScrollView {
             var col = getColumn(i)
             var header = __listView.headerItem.headerRepeater.itemAt(i)
             if (col) {
-                col.__index = i
                 col.resizeToContents()
                 if (col.width < header.implicitWidth)
                     col.width = header.implicitWidth
@@ -411,9 +421,9 @@ ScrollView {
         interactive: Settings.hasTouchScreen
         property var rowItemStack: [] // Used as a cache for rowDelegates
 
-        readonly property bool transientScrollbars: __style && !!__style.transientScrollBars
+        readonly property bool transientScrollBars: __style && !!__style.transientScrollBars
         readonly property real vScrollbarPadding: __scroller.verticalScrollBar.visible
-                                                  && !transientScrollbars && Qt.platform.os === "osx" ?
+                                                  && !transientScrollBars && Qt.platform.os === "osx" ?
                                                   __verticalScrollBar.width + __scroller.scrollBarSpacing + root.__style.padding.right : 0
 
         Binding {
@@ -482,7 +492,7 @@ ScrollView {
             y: listView.contentHeight - listView.contentY + listView.originY
             width: parent.width
             visible: alternatingRowColors
-            height: viewport.height - listView.contentHeight
+            height: listView.model && listView.model.count ? (viewport.height - listView.contentHeight) : 0
             Repeater {
                 model: visible ? parent.paddedRowCount : 0
                 Loader {
@@ -602,7 +612,6 @@ ScrollView {
 
                         onItemAdded: {
                             var columnItem = columnModel.get(index).columnItem
-                            item.__index = index
                             item.__rowItem = rowitem
                             item.__column = columnItem
                         }

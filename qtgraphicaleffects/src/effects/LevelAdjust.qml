@@ -37,8 +37,8 @@
 **
 *****************************************************************************/
 
-import QtQuick 2.0
-import QtGraphicalEffects.private 1.0
+import QtQuick 2.12
+import QtGraphicalEffects.private 1.12
 
 /*!
     \qmltype LevelAdjust
@@ -84,7 +84,9 @@ Item {
         This property defines the change factor for how the value of each pixel
         color channel is altered according to the equation:
 
-        \code result.rgb = pow(original.rgb, 1.0 / gamma.rgb); \endcode
+        \code
+        result.rgb = pow(original.rgb, 1.0 / gamma.rgb);
+        \endcode
 
         Setting the gamma values under QtVector3d(1.0, 1.0, 1.0) makes the image
         darker, the values above QtVector3d(1.0, 1.0, 1.0) lighten it.
@@ -406,6 +408,8 @@ Item {
     SourceProxy {
         id: sourceProxy
         input: rootItem.source
+        interpolation: rootItem.smooth || (rootItem.layer.enabled && rootItem.layer.smooth)
+            ? SourceProxy.NearestInterpolation :  SourceProxy.LinearInterpolation
     }
 
     ShaderEffectSource {

@@ -64,8 +64,8 @@ public:
         PartialUpdateBlend
     };
 
-    explicit QOpenGLWindow(UpdateBehavior updateBehavior = NoPartialUpdate, QWindow *parent = Q_NULLPTR);
-    explicit QOpenGLWindow(QOpenGLContext *shareContext, UpdateBehavior updateBehavior = NoPartialUpdate, QWindow *parent = Q_NULLPTR);
+    explicit QOpenGLWindow(UpdateBehavior updateBehavior = NoPartialUpdate, QWindow *parent = nullptr);
+    explicit QOpenGLWindow(QOpenGLContext *shareContext, UpdateBehavior updateBehavior = NoPartialUpdate, QWindow *parent = nullptr);
     ~QOpenGLWindow();
 
     UpdateBehavior updateBehavior() const;
@@ -91,10 +91,10 @@ protected:
     virtual void paintUnderGL();
     virtual void paintOverGL();
 
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *event) Q_DECL_OVERRIDE;
-    int metric(PaintDeviceMetric metric) const Q_DECL_OVERRIDE;
-    QPaintDevice *redirected(QPoint *) const Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+    int metric(PaintDeviceMetric metric) const override;
+    QPaintDevice *redirected(QPoint *) const override;
 
 private:
     Q_DISABLE_COPY(QOpenGLWindow)

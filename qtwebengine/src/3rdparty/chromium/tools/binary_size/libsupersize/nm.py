@@ -2,30 +2,35 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Functions that rely on parsing output of "nm" tool."""
+"""Runs nm on specified .a and .o file, plus some analysis.
 
-import atexit
+CollectAliasesByAddress():
+  Runs nm on the elf to collect all symbol names. This reveals symbol names of
+  identical-code-folded functions.
+
+CollectAliasesByAddressAsync():
+  Runs CollectAliasesByAddress in a subprocess and returns a promise.
+
+RunNmOnIntermediates():
+  BulkForkAndCall() target: Runs nm on a .a file or a list of .o files, parses
+  the output, extracts symbol information, and (if available) extracts string
+  offset information.
+"""
+
 import collections
-import errno
-import logging
-import os
 import subprocess
-import sys
 
 import concurrent
-
-_active_subprocesses = None
+import demangle
+import path_util
 
 
 def _IsRelevantNmName(name):
   # Skip lines like:
   # 00000000 t $t
-  # 00000000 r $d
-  # 0000041b r .L.str
-  # 0000041b r .L.str.38
+  # 00000000 r $d.23
   # 00000344 N
-  return name and not name.startswith('.L.str') and not (
-      len(name) == 2 and name.startswith('$'))
+  return name and not name.startswith('$')
 
 
 def _IsRelevantObjectFileName(name):
@@ -47,6 +52,10 @@ def _IsRelevantObjectFileName(name):
   #   __compound_literal.12
   #   .L.ref.tmp.1
   #   .L.str, .L.str.3
+  #   .L__func__.main:  (when using __func__)
+  #   .L__FUNCTION__._ZN6webrtc17AudioDeviceBuffer11StopPlayoutEv
+  #   .L__PRETTY_FUNCTION__._Unwind_Resume
+  #   .L_ZZ24ScaleARGBFilterCols_NEONE9dx_offset  (an array literal)
   if name in ('__tcf_0', 'startup'):
     return False
   if name.startswith('._') and name[2:].isdigit():
@@ -59,46 +68,73 @@ def _IsRelevantObjectFileName(name):
     return True
   name = name[:dot_idx]
 
-  return name not in (
-      'CSWTCH', 'lock', '__compound_literal', '__func__', 'table')
+  return name not in ('CSWTCH', 'lock', '__compound_literal', 'table')
 
 
 def CollectAliasesByAddress(elf_path, tool_prefix):
   """Runs nm on |elf_path| and returns a dict of address->[names]"""
-  names_by_address = collections.defaultdict(list)
+  # Constructors often show up twice, so use sets to ensure no duplicates.
+  names_by_address = collections.defaultdict(set)
+
+  # Many OUTLINED_FUNCTION_* entries can coexist on a single address, possibly
+  # mixed with regular symbols. However, naively keeping these is bad because:
+  # * OUTLINED_FUNCTION_* can have many duplicates. Keeping them would cause
+  #   false associations downstream, when looking up object_paths from names.
+  # * For addresses with multiple OUTLINED_FUNCTION_* entries, we can't get the
+  #   associated object_path (exception: the one entry in the .map file, for LLD
+  #   without ThinLTO). So keeping copies around is rather useless.
+  # Our solution is to merge OUTLINED_FUNCTION_* entries at the same address
+  # into a single symbol. We'd also like to keep track of the number of copies
+  # (although it will not be used to compute PSS computation). This is done by
+  # writing the count in the name, e.g., '** outlined function * 5'.
+  num_outlined_functions_at_address = collections.Counter()
 
   # About 60mb of output, but piping takes ~30s, and loading it into RAM
   # directly takes 3s.
-  args = [tool_prefix + 'nm', '--no-sort', '--defined-only', '--demangle',
+  args = [path_util.GetNmPath(tool_prefix), '--no-sort', '--defined-only',
           elf_path]
-  output = subprocess.check_output(args)
-  for line in output.splitlines():
+  proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  # llvm-nm may write to stderr. Discard to denoise.
+  stdout, _ = proc.communicate()
+  assert proc.returncode == 0
+  for line in stdout.splitlines():
     space_idx = line.find(' ')
     address_str = line[:space_idx]
     section = line[space_idx + 1]
-    name = line[space_idx + 3:]
+    mangled_name = line[space_idx + 3:]
 
     # To verify that rodata does not have aliases:
     #   nm --no-sort --defined-only libchrome.so > nm.out
     #   grep -v '\$' nm.out | grep ' r ' | sort | cut -d' ' -f1 > addrs
     #   wc -l < addrs; uniq < addrs | wc -l
-    if section not in 'tT' or not _IsRelevantNmName(name):
+    if section not in 'tTW' or not _IsRelevantNmName(mangled_name):
       continue
 
     address = int(address_str, 16)
     if not address:
       continue
-    # Constructors often show up twice.
-    name_list = names_by_address[address]
-    if name not in name_list:
-      name_list.append(name)
+    if mangled_name.startswith('OUTLINED_FUNCTION_'):
+      num_outlined_functions_at_address[address] += 1
+    else:
+      names_by_address[address].add(mangled_name)
+
+  # Need to add before demangling because |names_by_address| changes type.
+  for address, count in num_outlined_functions_at_address.iteritems():
+    name = '** outlined function' + (' * %d' % count if count > 1 else '')
+    names_by_address[address].add(name)
+
+  # Demangle all names.
+  names_by_address = demangle.DemangleSetsInDicts(names_by_address, tool_prefix)
 
   # Since this is run in a separate process, minimize data passing by returning
   # only aliased symbols.
-  names_by_address = {k: v for k, v in names_by_address.iteritems()
-                      if len(v) > 1}
+  # Also: Sort to ensure stable ordering.
+  return {
+      addr: sorted(names)
+      for addr, names in names_by_address.iteritems()
+      if len(names) > 1 or num_outlined_functions_at_address.get(addr, 0) > 1
+  }
 
-  return names_by_address
 
 
 def _CollectAliasesByAddressAsyncHelper(elf_path, tool_prefix):
@@ -109,42 +145,60 @@ def _CollectAliasesByAddressAsyncHelper(elf_path, tool_prefix):
 def CollectAliasesByAddressAsync(elf_path, tool_prefix):
   """Calls CollectAliasesByAddress in a helper process. Returns a Result."""
   def decode(encoded):
-    return concurrent.DecodeDictOfLists(
-        encoded[0], encoded[1], key_transform=int)
+    return concurrent.DecodeDictOfLists(encoded, key_transform=int)
   return concurrent.ForkAndCall(
       _CollectAliasesByAddressAsyncHelper, (elf_path, tool_prefix),
       decode_func=decode)
 
 
-def _ParseOneObjectFileOutput(lines):
-  ret = []
+def _ParseOneObjectFileNmOutput(lines):
+  # Constructors are often repeated because they have the same unmangled
+  # name, but multiple mangled names. See:
+  # https://stackoverflow.com/questions/6921295/dual-emission-of-constructor-symbols
+  symbol_names = set()
+  string_addresses = []
   for line in lines:
     if not line:
       break
     space_idx = line.find(' ')  # Skip over address.
-    name = line[space_idx + 3:]
-    if _IsRelevantNmName(name) and _IsRelevantObjectFileName(name):
-      ret.append(name)
-  return ret
+    section = line[space_idx + 1]
+    mangled_name = line[space_idx + 3:]
+    if _IsRelevantNmName(mangled_name):
+      # Refer to _IsRelevantObjectFileName() for examples of names.
+      if section == 'r' and (
+          mangled_name.startswith('.L.str') or
+          mangled_name.startswith('.L__') and mangled_name.find('.', 3) != -1):
+        # Leave as a string for easier marshalling.
+        string_addresses.append(line[:space_idx].lstrip('0') or '0')
+      elif _IsRelevantObjectFileName(mangled_name):
+        symbol_names.add(mangled_name)
+  return symbol_names, string_addresses
 
 
-def _BatchCollectNames(target, tool_prefix, output_directory):
+# This is a target for BulkForkAndCall().
+def RunNmOnIntermediates(target, tool_prefix, output_directory):
+  """Returns encoded_symbol_names_by_path, encoded_string_addresses_by_path.
+
+  Args:
+    target: Either a single path to a .a (as a string), or a list of .o paths.
+  """
   is_archive = isinstance(target, basestring)
-  # Ensure tool_prefix is absolute so that CWD does not affect it
-  if os.path.sep in tool_prefix:
-    # Use abspath() on the dirname to avoid it stripping a trailing /.
-    dirname = os.path.dirname(tool_prefix)
-    tool_prefix = os.path.abspath(dirname) + tool_prefix[len(dirname):]
-
-  args = [tool_prefix + 'nm', '--no-sort', '--defined-only', '--demangle']
+  args = [path_util.GetNmPath(tool_prefix), '--no-sort', '--defined-only']
   if is_archive:
     args.append(target)
   else:
     args.extend(target)
-  output = subprocess.check_output(args, cwd=output_directory)
-  lines = output.splitlines()
+  proc = subprocess.Popen(args, cwd=output_directory, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE)
+  # llvm-nm can print 'no symbols' to stderr. Capture and count the number of
+  # lines, to be returned to the caller.
+  stdout, stderr = proc.communicate()
+  assert proc.returncode == 0
+  num_no_symbols = len(stderr.splitlines())
+  lines = stdout.splitlines()
+  # Empty .a file has no output.
   if not lines:
-    return '', ''
+    return concurrent.EMPTY_ENCODED_DICT, concurrent.EMPTY_ENCODED_DICT
   is_multi_file = not lines[0]
   lines = iter(lines)
   if is_multi_file:
@@ -154,150 +208,23 @@ def _BatchCollectNames(target, tool_prefix, output_directory):
     assert not is_archive
     path = target[0]
 
-  ret = {}
-  while True:
+  symbol_names_by_path = {}
+  string_addresses_by_path = {}
+  while path:
     if is_archive:
       # E.g. foo/bar.a(baz.o)
       path = '%s(%s)' % (target, path)
-    # The multiprocess API uses pickle, which is ridiculously slow. More than 2x
-    # faster to use join & split.
-    ret[path] = _ParseOneObjectFileOutput(lines)
+
+    mangled_symbol_names, string_addresses = _ParseOneObjectFileNmOutput(lines)
+    symbol_names_by_path[path] = mangled_symbol_names
+    if string_addresses:
+      string_addresses_by_path[path] = string_addresses
     path = next(lines, ':')[:-1]
-    if not path:
-      return concurrent.EncodeDictOfLists(ret)
 
-
-class _BulkObjectFileAnalyzerWorker(object):
-  """Runs nm on all given paths and returns a dict of name->[paths]"""
-
-  def __init__(self, tool_prefix, output_directory):
-    self._tool_prefix = tool_prefix
-    self._output_directory = output_directory
-    self._batches = []
-    self._result = None
-
-  def AnalyzePaths(self, paths):
-    def iter_job_params():
-      object_paths = []
-      for path in paths:
-        if path.endswith('.a'):
-          yield path, self._tool_prefix, self._output_directory
-        else:
-          object_paths.append(path)
-
-      BATCH_SIZE = 50  # Chosen arbitrarily.
-      for i in xrange(0, len(object_paths), BATCH_SIZE):
-        batch = object_paths[i:i + BATCH_SIZE]
-        yield batch, self._tool_prefix, self._output_directory
-
-    paths_by_name = collections.defaultdict(list)
-    params = list(iter_job_params())
-    for encoded_ret in concurrent.BulkForkAndCall(_BatchCollectNames, params):
-      names_by_path = concurrent.DecodeDictOfLists(*encoded_ret)
-      for path, names in names_by_path.iteritems():
-        for name in names:
-          paths_by_name[name].append(path)
-    self._batches.append(paths_by_name)
-
-  def Close(self):
-    assert self._result is None
-    assert self._batches
-    paths_by_name = self._batches[0]
-    for batch in self._batches[1:]:
-      for name, path_list in batch.iteritems():
-        paths_by_name.setdefault(name, []).extend(path_list)
-
-    # It would speed up mashalling of the values by removing all entries
-    # that have only 1 path. However, these entries are needed to give
-    # path information to symbol aliases.
-    self._result = paths_by_name
-
-  def Get(self):
-    assert self._result is not None
-    return self._result
-
-
-def _TerminateSubprocesses():
-  for proc in _active_subprocesses:
-    proc.kill()
-
-
-class _BulkObjectFileAnalyzerMaster(object):
-  """Runs BulkObjectFileAnalyzer in a subprocess."""
-
-  def __init__(self, tool_prefix, output_directory):
-    self._process = None
-    self._tool_prefix = tool_prefix
-    self._output_directory = output_directory
-
-  def _Spawn(self):
-    global _active_subprocesses
-    log_level = str(logging.getLogger().getEffectiveLevel())
-    args = [sys.executable, __file__, log_level, self._tool_prefix,
-            self._output_directory]
-    self._process = subprocess.Popen(
-        args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    if _active_subprocesses is None:
-      _active_subprocesses = []
-      atexit.register(_TerminateSubprocesses)
-    _active_subprocesses.append(self._process)
-
-  def AnalyzePaths(self, paths):
-    if self._process is None:
-      self._Spawn()
-
-    logging.debug('Sending batch of %d paths to subprocess', len(paths))
-    payload = '\x01'.join(paths)
-    self._process.stdin.write('{:08x}'.format(len(payload)))
-    self._process.stdin.write(payload)
-
-  def Close(self):
-    assert not self._process.stdin.closed
-    self._process.stdin.close()
-    _active_subprocesses.remove(self._process)
-
-  def Get(self):
-    assert self._process.stdin.closed
-    logging.debug('Decoding nm results from forked process')
-
-    encoded_keys_len = int(self._process.stdout.read(8), 16)
-    encoded_keys = self._process.stdout.read(encoded_keys_len)
-    encoded_values = self._process.stdout.read()
-    return concurrent.DecodeDictOfLists(encoded_keys, encoded_values)
-
-
-BulkObjectFileAnalyzer = _BulkObjectFileAnalyzerMaster
-if concurrent.DISABLE_ASYNC:
-  BulkObjectFileAnalyzer = _BulkObjectFileAnalyzerWorker
-
-
-def _SubMain(log_level, tool_prefix, output_directory):
-  logging.basicConfig(
-      level=int(log_level),
-      format='nm: %(levelname).1s %(relativeCreated)6d %(message)s')
-  bulk_analyzer = _BulkObjectFileAnalyzerWorker(tool_prefix, output_directory)
-  while True:
-    payload_len = int(sys.stdin.read(8) or '0', 16)
-    if not payload_len:
-      logging.debug('nm bulk subprocess received eof.')
-      break
-    paths = sys.stdin.read(payload_len).split('\x01')
-    bulk_analyzer.AnalyzePaths(paths)
-
-  bulk_analyzer.Close()
-  paths_by_name = bulk_analyzer.Get()
-  encoded_keys, encoded_values = concurrent.EncodeDictOfLists(paths_by_name)
-  try:
-    sys.stdout.write('%08x' % len(encoded_keys))
-    sys.stdout.write(encoded_keys)
-    sys.stdout.write(encoded_values)
-  except IOError, e:
-    # Parent process exited.
-    if e.errno == errno.EPIPE:
-      sys.exit(1)
-
-  logging.debug('nm bulk subprocess finished.')
-
-
-if __name__ == '__main__':
-  _SubMain(*sys.argv[1:])
+  # The multiprocess API uses pickle, which is ridiculously slow. More than 2x
+  # faster to use join & split.
+  # TODO(agrieve): We could use path indices as keys rather than paths to cut
+  #     down on marshalling overhead.
+  return (concurrent.EncodeDictOfLists(symbol_names_by_path),
+          concurrent.EncodeDictOfLists(string_addresses_by_path),
+          num_no_symbols)

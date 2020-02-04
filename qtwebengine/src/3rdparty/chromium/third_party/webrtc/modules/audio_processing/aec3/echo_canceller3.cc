@@ -7,12 +7,15 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "webrtc/modules/audio_processing/aec3/echo_canceller3.h"
+#include "modules/audio_processing/aec3/echo_canceller3.h"
 
-#include <sstream>
+#include <algorithm>
+#include <utility>
 
-#include "webrtc/modules/audio_processing/logging/apm_data_dumper.h"
-#include "webrtc/rtc_base/atomicops.h"
+#include "modules/audio_processing/aec3/aec3_common.h"
+#include "modules/audio_processing/logging/apm_data_dumper.h"
+#include "rtc_base/atomic_ops.h"
+#include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
 
@@ -27,6 +30,141 @@ bool DetectSaturation(rtc::ArrayView<const float> y) {
     }
   }
   return false;
+}
+
+bool UseShortDelayEstimatorWindow() {
+  return field_trial::IsEnabled("WebRTC-Aec3UseShortDelayEstimatorWindow");
+}
+
+bool EnableReverbBasedOnRender() {
+  return !field_trial::IsEnabled("WebRTC-Aec3ReverbBasedOnRenderKillSwitch");
+}
+
+bool EnableReverbModelling() {
+  return !field_trial::IsEnabled("WebRTC-Aec3ReverbModellingKillSwitch");
+}
+
+bool EnableUnityInitialRampupGain() {
+  return field_trial::IsEnabled("WebRTC-Aec3EnableUnityInitialRampupGain");
+}
+
+bool EnableUnityNonZeroRampupGain() {
+  return field_trial::IsEnabled("WebRTC-Aec3EnableUnityNonZeroRampupGain");
+}
+
+bool EnableLongReverb() {
+  return field_trial::IsEnabled("WebRTC-Aec3ShortReverbKillSwitch");
+}
+
+bool EnableNewFilterParams() {
+  return !field_trial::IsEnabled("WebRTC-Aec3NewFilterParamsKillSwitch");
+}
+
+bool EnableLegacyDominantNearend() {
+  return field_trial::IsEnabled("WebRTC-Aec3EnableLegacyDominantNearend");
+}
+
+bool UseLegacyNormalSuppressorTuning() {
+  return field_trial::IsEnabled("WebRTC-Aec3UseLegacyNormalSuppressorTuning");
+}
+
+bool ActivateStationarityProperties() {
+  return field_trial::IsEnabled("WebRTC-Aec3UseStationarityProperties");
+}
+
+bool ActivateStationarityPropertiesAtInit() {
+  return field_trial::IsEnabled("WebRTC-Aec3UseStationarityPropertiesAtInit");
+}
+
+bool EnableNewRenderBuffering() {
+  return !field_trial::IsEnabled("WebRTC-Aec3NewRenderBufferingKillSwitch");
+}
+
+bool UseEarlyDelayDetection() {
+  return !field_trial::IsEnabled("WebRTC-Aec3EarlyDelayDetectionKillSwitch");
+}
+
+// Method for adjusting config parameter dependencies..
+EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config) {
+  EchoCanceller3Config adjusted_cfg = config;
+  const EchoCanceller3Config default_cfg;
+
+  if (!EnableReverbModelling()) {
+    adjusted_cfg.ep_strength.default_len = 0.f;
+  }
+
+  if (UseShortDelayEstimatorWindow()) {
+    adjusted_cfg.delay.num_filters =
+        std::min(adjusted_cfg.delay.num_filters, static_cast<size_t>(5));
+  }
+
+  bool use_new_render_buffering =
+      EnableNewRenderBuffering() && config.buffering.use_new_render_buffering;
+  // Old render buffering needs one more filter to cover the same delay.
+  if (!use_new_render_buffering) {
+    adjusted_cfg.delay.num_filters += 1;
+  }
+
+  if (EnableReverbBasedOnRender() == false) {
+    adjusted_cfg.ep_strength.reverb_based_on_render = false;
+  }
+
+  if (!EnableNewFilterParams()) {
+    adjusted_cfg.filter.main.leakage_diverged = 0.01f;
+    adjusted_cfg.filter.main.error_floor = 0.1f;
+    adjusted_cfg.filter.main.error_ceil = 1E10f;
+    adjusted_cfg.filter.main_initial.error_ceil = 1E10f;
+  }
+
+  if (EnableUnityInitialRampupGain() &&
+      adjusted_cfg.echo_removal_control.gain_rampup.initial_gain ==
+          default_cfg.echo_removal_control.gain_rampup.initial_gain) {
+    adjusted_cfg.echo_removal_control.gain_rampup.initial_gain = 1.f;
+  }
+
+  if (EnableUnityNonZeroRampupGain() &&
+      adjusted_cfg.echo_removal_control.gain_rampup.first_non_zero_gain ==
+          default_cfg.echo_removal_control.gain_rampup.first_non_zero_gain) {
+    adjusted_cfg.echo_removal_control.gain_rampup.first_non_zero_gain = 1.f;
+  }
+
+  if (EnableLongReverb()) {
+    adjusted_cfg.ep_strength.default_len = 0.88f;
+  }
+
+  if (EnableLegacyDominantNearend()) {
+    adjusted_cfg.suppressor.nearend_tuning =
+        EchoCanceller3Config::Suppressor::Tuning(
+            EchoCanceller3Config::Suppressor::MaskingThresholds(.2f, .3f, .3f),
+            EchoCanceller3Config::Suppressor::MaskingThresholds(.07f, .1f, .3f),
+            2.0f, 0.25f);
+  }
+
+  if (UseLegacyNormalSuppressorTuning()) {
+    adjusted_cfg.suppressor.normal_tuning =
+        EchoCanceller3Config::Suppressor::Tuning(
+            EchoCanceller3Config::Suppressor::MaskingThresholds(.2f, .3f, .3f),
+            EchoCanceller3Config::Suppressor::MaskingThresholds(.07f, .1f, .3f),
+            2.0f, 0.25f);
+
+    adjusted_cfg.suppressor.dominant_nearend_detection.enr_threshold = 0.1f;
+    adjusted_cfg.suppressor.dominant_nearend_detection.snr_threshold = 10.f;
+    adjusted_cfg.suppressor.dominant_nearend_detection.hold_duration = 25;
+  }
+
+  if (ActivateStationarityProperties()) {
+    adjusted_cfg.echo_audibility.use_stationary_properties = true;
+  }
+
+  if (ActivateStationarityPropertiesAtInit()) {
+    adjusted_cfg.echo_audibility.use_stationarity_properties_at_init = true;
+  }
+
+  if (!UseEarlyDelayDetection()) {
+    adjusted_cfg.delay.delay_selection_thresholds = {25, 25};
+  }
+
+  return adjusted_cfg;
 }
 
 void FillSubFrameView(AudioBuffer* frame,
@@ -146,7 +284,7 @@ class EchoCanceller3::RenderWriter {
                int frame_length,
                int num_bands);
   ~RenderWriter();
-  void Insert(AudioBuffer* render);
+  void Insert(AudioBuffer* input);
 
  private:
   ApmDataDumper* data_dumper_;
@@ -184,6 +322,12 @@ EchoCanceller3::RenderWriter::~RenderWriter() = default;
 void EchoCanceller3::RenderWriter::Insert(AudioBuffer* input) {
   RTC_DCHECK_EQ(1, input->num_channels());
   RTC_DCHECK_EQ(frame_length_, input->num_frames_per_band());
+  RTC_DCHECK_EQ(num_bands_, input->num_bands());
+
+  // TODO(bugs.webrtc.org/8759) Temporary work-around.
+  if (num_bands_ != static_cast<int>(input->num_bands()))
+    return;
+
   data_dumper_->DumpWav("aec3_render_input", frame_length_,
                         &input->split_bands_f(0)[0][0],
                         LowestBandRate(sample_rate_hz_), 1);
@@ -200,19 +344,26 @@ void EchoCanceller3::RenderWriter::Insert(AudioBuffer* input) {
 
 int EchoCanceller3::instance_count_ = 0;
 
-EchoCanceller3::EchoCanceller3(
-    const AudioProcessing::Config::EchoCanceller3& config,
-    int sample_rate_hz,
-    bool use_highpass_filter)
-    : EchoCanceller3(sample_rate_hz,
+EchoCanceller3::EchoCanceller3(const EchoCanceller3Config& config,
+                               int sample_rate_hz,
+                               bool use_highpass_filter)
+    : EchoCanceller3(AdjustConfig(config),
+                     sample_rate_hz,
                      use_highpass_filter,
                      std::unique_ptr<BlockProcessor>(
-                         BlockProcessor::Create(config, sample_rate_hz))) {}
-EchoCanceller3::EchoCanceller3(int sample_rate_hz,
+                         EnableNewRenderBuffering() &&
+                                 config.buffering.use_new_render_buffering
+                             ? BlockProcessor::Create2(AdjustConfig(config),
+                                                       sample_rate_hz)
+                             : BlockProcessor::Create(AdjustConfig(config),
+                                                      sample_rate_hz))) {}
+EchoCanceller3::EchoCanceller3(const EchoCanceller3Config& config,
+                               int sample_rate_hz,
                                bool use_highpass_filter,
                                std::unique_ptr<BlockProcessor> block_processor)
     : data_dumper_(
           new ApmDataDumper(rtc::AtomicOps::Increment(&instance_count_))),
+      config_(config),
       sample_rate_hz_(sample_rate_hz),
       num_bands_(NumBandsForRate(sample_rate_hz_)),
       frame_length_(rtc::CheckedDivExact(LowestBandRate(sample_rate_hz_), 100)),
@@ -220,7 +371,7 @@ EchoCanceller3::EchoCanceller3(int sample_rate_hz,
       capture_blocker_(num_bands_),
       render_blocker_(num_bands_),
       render_transfer_queue_(
-          kRenderTransferQueueSize,
+          kRenderTransferQueueSizeFrames,
           std::vector<std::vector<float>>(
               num_bands_,
               std::vector<float>(frame_length_, 0.f)),
@@ -229,7 +380,10 @@ EchoCanceller3::EchoCanceller3(int sample_rate_hz,
       render_queue_output_frame_(num_bands_,
                                  std::vector<float>(frame_length_, 0.f)),
       block_(num_bands_, std::vector<float>(kBlockSize, 0.f)),
-      sub_frame_view_(num_bands_) {
+      sub_frame_view_(num_bands_),
+      block_delay_buffer_(num_bands_,
+                          frame_length_,
+                          config_.delay.fixed_capture_delay_samples) {
   RTC_DCHECK(ValidFullBandRate(sample_rate_hz_));
 
   std::unique_ptr<CascadedBiQuadFilter> render_highpass_filter;
@@ -292,6 +446,15 @@ void EchoCanceller3::ProcessCapture(AudioBuffer* capture, bool level_change) {
   data_dumper_->DumpRaw("aec3_call_order",
                         static_cast<int>(EchoCanceller3ApiCall::kCapture));
 
+  // Report capture call in the metrics and periodically update API call
+  // metrics.
+  api_call_metrics_.ReportCaptureCall();
+
+  // Optionally delay the capture signal.
+  if (config_.delay.fixed_capture_delay_samples > 0) {
+    block_delay_buffer_.DelaySignal(capture);
+  }
+
   rtc::ArrayView<float> capture_lower_band =
       rtc::ArrayView<float>(&capture->split_bands_f(0)[0][0], frame_length_);
 
@@ -324,17 +487,16 @@ void EchoCanceller3::ProcessCapture(AudioBuffer* capture, bool level_change) {
                         LowestBandRate(sample_rate_hz_), 1);
 }
 
-std::string EchoCanceller3::ToString(
-    const AudioProcessing::Config::EchoCanceller3& config) {
-  std::stringstream ss;
-  ss << "{"
-     << "enabled: " << (config.enabled ? "true" : "false") << "}";
-  return ss.str();
+EchoControl::Metrics EchoCanceller3::GetMetrics() const {
+  RTC_DCHECK_RUNS_SERIALIZED(&capture_race_checker_);
+  Metrics metrics;
+  block_processor_->GetMetrics(&metrics);
+  return metrics;
 }
 
-bool EchoCanceller3::Validate(
-    const AudioProcessing::Config::EchoCanceller3& config) {
-  return true;
+void EchoCanceller3::SetAudioBufferDelay(size_t delay_ms) {
+  RTC_DCHECK_RUNS_SERIALIZED(&capture_race_checker_);
+  block_processor_->SetAudioBufferDelay(delay_ms);
 }
 
 void EchoCanceller3::EmptyRenderQueue() {
@@ -342,6 +504,9 @@ void EchoCanceller3::EmptyRenderQueue() {
   bool frame_to_buffer =
       render_transfer_queue_.Remove(&render_queue_output_frame_);
   while (frame_to_buffer) {
+    // Report render call in the metrics.
+    api_call_metrics_.ReportRenderCall();
+
     BufferRenderFrameContent(&render_queue_output_frame_, 0, &render_blocker_,
                              block_processor_.get(), &block_, &sub_frame_view_);
 
@@ -358,5 +523,4 @@ void EchoCanceller3::EmptyRenderQueue() {
         render_transfer_queue_.Remove(&render_queue_output_frame_);
   }
 }
-
 }  // namespace webrtc

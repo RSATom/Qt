@@ -111,13 +111,12 @@ V8InspectorSessionImpl::V8InspectorSessionImpl(V8InspectorImpl* inspector,
 }
 
 V8InspectorSessionImpl::~V8InspectorSessionImpl() {
+  discardInjectedScripts();
   m_consoleAgent->disable();
   m_profilerAgent->disable();
   m_heapProfilerAgent->disable();
   m_debuggerAgent->disable();
   m_runtimeAgent->disable();
-
-  discardInjectedScripts();
   m_inspector->disconnect(this);
 }
 
@@ -171,6 +170,12 @@ void V8InspectorSessionImpl::sendProtocolNotification(
   m_channel->sendNotification(MessageBuffer::create(std::move(message)));
 }
 
+void V8InspectorSessionImpl::fallThrough(int callId, const String16& method,
+                                         const String16& message) {
+  // There's no other layer to handle the command.
+  UNREACHABLE();
+}
+
 void V8InspectorSessionImpl::flushProtocolNotifications() {
   m_channel->flushProtocolNotifications();
 }
@@ -198,9 +203,7 @@ Response V8InspectorSessionImpl::findInjectedScript(
   if (!context) return Response::Error("Cannot find context with specified id");
   injectedScript = context->getInjectedScript(m_sessionId);
   if (!injectedScript) {
-    if (!context->createInjectedScript(m_sessionId))
-      return Response::Error("Cannot access specified execution context");
-    injectedScript = context->getInjectedScript(m_sessionId);
+    injectedScript = context->createInjectedScript(m_sessionId);
     if (m_customObjectFormatterEnabled)
       injectedScript->setCustomObjectFormatterEnabled(true);
   }
@@ -263,8 +266,9 @@ Response V8InspectorSessionImpl::unwrapObject(const String16& objectId,
 std::unique_ptr<protocol::Runtime::API::RemoteObject>
 V8InspectorSessionImpl::wrapObject(v8::Local<v8::Context> context,
                                    v8::Local<v8::Value> value,
-                                   const StringView& groupName) {
-  return wrapObject(context, value, toString16(groupName), false);
+                                   const StringView& groupName,
+                                   bool generatePreview) {
+  return wrapObject(context, value, toString16(groupName), generatePreview);
 }
 
 std::unique_ptr<protocol::Runtime::RemoteObject>
@@ -276,14 +280,16 @@ V8InspectorSessionImpl::wrapObject(v8::Local<v8::Context> context,
   findInjectedScript(InspectedContext::contextId(context), injectedScript);
   if (!injectedScript) return nullptr;
   std::unique_ptr<protocol::Runtime::RemoteObject> result;
-  injectedScript->wrapObject(value, groupName, false, generatePreview, &result);
+  injectedScript->wrapObject(
+      value, groupName,
+      generatePreview ? WrapMode::kWithPreview : WrapMode::kNoPreview, &result);
   return result;
 }
 
 std::unique_ptr<protocol::Runtime::RemoteObject>
 V8InspectorSessionImpl::wrapTable(v8::Local<v8::Context> context,
-                                  v8::Local<v8::Value> table,
-                                  v8::Local<v8::Value> columns) {
+                                  v8::Local<v8::Object> table,
+                                  v8::MaybeLocal<v8::Array> columns) {
   InjectedScript* injectedScript = nullptr;
   findInjectedScript(InspectedContext::contextId(context), injectedScript);
   if (!injectedScript) return nullptr;
@@ -310,7 +316,15 @@ void V8InspectorSessionImpl::reportAllContexts(V8RuntimeAgentImpl* agent) {
 
 void V8InspectorSessionImpl::dispatchProtocolMessage(
     const StringView& message) {
-  m_dispatcher.dispatch(protocol::StringUtil::parseJSON(message));
+  int callId;
+  String16 method;
+  std::unique_ptr<protocol::Value> parsedMessage =
+      protocol::StringUtil::parseJSON(message);
+  if (m_dispatcher.parseCommand(parsedMessage.get(), &callId, &method)) {
+    // Pass empty string instead of the actual message to save on a conversion.
+    // We're allowed to do so because fall-through is not implemented.
+    m_dispatcher.dispatch(callId, method, std::move(parsedMessage), "");
+  }
 }
 
 std::unique_ptr<StringBuffer> V8InspectorSessionImpl::stateJSON() {

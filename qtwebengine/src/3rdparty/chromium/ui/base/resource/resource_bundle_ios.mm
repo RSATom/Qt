@@ -59,6 +59,7 @@ void ResourceBundle::LoadCommonResources() {
   }
 }
 
+// static
 base::FilePath ResourceBundle::GetLocaleFilePath(const std::string& app_locale,
                                                  bool test_file_exists) {
   NSString* mac_locale = base::SysUTF8ToNSString(app_locale);
@@ -74,9 +75,9 @@ base::FilePath ResourceBundle::GetLocaleFilePath(const std::string& app_locale,
   base::FilePath locale_file_path =
       GetResourcesPakFilePath(@"locale", mac_locale);
 
-  if (delegate_) {
-    locale_file_path =
-        delegate_->GetPathForLocalePack(locale_file_path, app_locale);
+  if (HasSharedInstance() && GetSharedInstance().delegate_) {
+    locale_file_path = GetSharedInstance().delegate_->GetPathForLocalePack(
+        locale_file_path, app_locale);
   }
 
   // Don't try to load empty values or values that are not absolute paths.
@@ -90,7 +91,7 @@ base::FilePath ResourceBundle::GetLocaleFilePath(const std::string& app_locale,
 }
 
 gfx::Image& ResourceBundle::GetNativeImageNamed(int resource_id) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // Check to see if the image is already in the cache.
   ImageMap::iterator found = images_.find(resource_id);
@@ -161,11 +162,10 @@ gfx::Image& ResourceBundle::GetNativeImageNamed(int resource_id) {
       return GetEmptyImage();
     }
 
-    // The gfx::Image takes ownership.
-    image = gfx::Image(ui_image, base::scoped_policy::RETAIN);
+    image = gfx::Image(ui_image);
   }
 
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   auto inserted = images_.insert(std::make_pair(resource_id, image));
   DCHECK(inserted.second);

@@ -10,7 +10,7 @@
 
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
-#include "base/memory/ptr_util.h"
+#include "build/build_config.h"
 #include "storage/browser/fileapi/file_system_operation_context.h"
 #include "storage/browser/fileapi/file_system_url.h"
 #include "storage/common/fileapi/file_system_mount_option.h"
@@ -85,7 +85,7 @@ class NativeFileEnumerator : public FileSystemFileUtil::AbstractFileEnumerator {
     : file_enum_(root_path, recursive, file_type) {
   }
 
-  ~NativeFileEnumerator() override {}
+  ~NativeFileEnumerator() override = default;
 
   base::FilePath Next() override;
   int64_t Size() override;
@@ -211,7 +211,7 @@ base::File::Error NativeFileUtil::GetFileInfo(
 std::unique_ptr<FileSystemFileUtil::AbstractFileEnumerator>
 NativeFileUtil::CreateFileEnumerator(const base::FilePath& root_path,
                                      bool recursive) {
-  return base::MakeUnique<NativeFileEnumerator>(
+  return std::make_unique<NativeFileEnumerator>(
       root_path, recursive,
       base::FileEnumerator::FILES | base::FileEnumerator::DIRECTORIES);
 }
@@ -254,16 +254,26 @@ base::File::Error NativeFileUtil::CopyOrMoveFile(
   base::File::Error error = NativeFileUtil::GetFileInfo(src_path, &info);
   if (error != base::File::FILE_OK)
     return error;
-  if (info.is_directory)
+  if (info.is_directory && mode != MOVE)
     return base::File::FILE_ERROR_NOT_A_FILE;
+  bool src_is_directory = info.is_directory;
   base::Time last_modified = info.last_modified;
 
   error = NativeFileUtil::GetFileInfo(dest_path, &info);
   if (error != base::File::FILE_OK &&
       error != base::File::FILE_ERROR_NOT_FOUND)
     return error;
-  if (info.is_directory)
-    return base::File::FILE_ERROR_INVALID_OPERATION;
+  if (error == base::File::FILE_OK) {
+    if (info.is_directory != src_is_directory)
+      return base::File::FILE_ERROR_INVALID_OPERATION;
+#if defined(OS_WIN)
+    // Overwriting an empty directory with another directory isn't supported
+    // natively on Windows, so treat this an unsupported. A higher layer is
+    // responsible for handling it.
+    if (info.is_directory)
+      return base::File::FILE_ERROR_NOT_A_FILE;
+#endif
+  }
   if (error == base::File::FILE_ERROR_NOT_FOUND) {
     error = NativeFileUtil::GetFileInfo(dest_path.DirName(), &info);
     if (error != base::File::FILE_OK)

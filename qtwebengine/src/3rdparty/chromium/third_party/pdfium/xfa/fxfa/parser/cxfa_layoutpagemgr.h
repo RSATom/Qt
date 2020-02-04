@@ -45,15 +45,15 @@ class CXFA_LayoutPageMgr {
   bool ProcessOverflow(CXFA_Node* pFormNode,
                        CXFA_Node*& pLeaderNode,
                        CXFA_Node*& pTrailerNode,
-                       bool bDataMerge = false,
-                       bool bCreatePage = true);
+                       bool bDataMerge,
+                       bool bCreatePage);
   CXFA_Node* QueryOverflow(CXFA_Node* pFormNode);
   bool ProcessBookendLeaderOrTrailer(CXFA_Node* pBookendNode,
                                      bool bLeader,
                                      CXFA_Node*& pBookendAppendNode);
 
  private:
-  bool AppendNewPage(bool bFirstTemPage = false);
+  bool AppendNewPage(bool bFirstTemPage);
   void ReorderPendingLayoutRecordToTail(CXFA_ContainerRecord* pNewRecord,
                                         CXFA_ContainerRecord* pPrevRecord);
   void RemoveLayoutRecord(CXFA_ContainerRecord* pNewRecord,
@@ -65,20 +65,20 @@ class CXFA_LayoutPageMgr {
     auto iter = m_ProposedContainerRecords.end();
     return !m_ProposedContainerRecords.empty() ? std::prev(iter) : iter;
   }
-  CXFA_ContainerRecord* CreateContainerRecord(CXFA_Node* pPageNode = nullptr,
-                                              bool bCreateNew = false);
+  CXFA_ContainerRecord* CreateContainerRecord(CXFA_Node* pPageNode,
+                                              bool bCreateNew);
   void AddPageAreaLayoutItem(CXFA_ContainerRecord* pNewRecord,
                              CXFA_Node* pNewPageArea);
   void AddContentAreaLayoutItem(CXFA_ContainerRecord* pNewRecord,
                                 CXFA_Node* pContentArea);
   bool RunBreak(XFA_Element eBreakType,
-                XFA_ATTRIBUTEENUM eTargetType,
+                XFA_AttributeValue eTargetType,
                 CXFA_Node* pTarget,
                 bool bStartNew);
   CXFA_Node* BreakOverflow(CXFA_Node* pOverflowNode,
                            CXFA_Node*& pLeaderTemplate,
                            CXFA_Node*& pTrailerTemplate,
-                           bool bCreatePage = true);
+                           bool bCreatePage);
   bool ResolveBookendLeaderOrTrailer(CXFA_Node* pBookendNode,
                                      bool bLeader,
                                      CXFA_Node*& pBookendAppendTemplate);
@@ -89,21 +89,21 @@ class CXFA_LayoutPageMgr {
 
   int32_t CreateMinPageRecord(CXFA_Node* pPageArea,
                               bool bTargetPageArea,
-                              bool bCreateLast = false);
-  void CreateMinPageSetRecord(CXFA_Node* pPageSet, bool bCreateAll = false);
+                              bool bCreateLast);
+  void CreateMinPageSetRecord(CXFA_Node* pPageSet, bool bCreateAll);
   void CreateNextMinRecord(CXFA_Node* pRecordNode);
   bool FindPageAreaFromPageSet(CXFA_Node* pPageSet,
                                CXFA_Node* pStartChild,
-                               CXFA_Node* pTargetPageArea = nullptr,
-                               CXFA_Node* pTargetContentArea = nullptr,
-                               bool bNewPage = false,
-                               bool bQuery = false);
+                               CXFA_Node* pTargetPageArea,
+                               CXFA_Node* pTargetContentArea,
+                               bool bNewPage,
+                               bool bQuery);
   bool FindPageAreaFromPageSet_Ordered(CXFA_Node* pPageSet,
                                        CXFA_Node* pStartChild,
-                                       CXFA_Node* pTargetPageArea = nullptr,
-                                       CXFA_Node* pTargetContentArea = nullptr,
-                                       bool bNewPage = false,
-                                       bool bQuery = false);
+                                       CXFA_Node* pTargetPageArea,
+                                       CXFA_Node* pTargetContentArea,
+                                       bool bNewPage,
+                                       bool bQuery);
   bool FindPageAreaFromPageSet_SimplexDuplex(
       CXFA_Node* pPageSet,
       CXFA_Node* pStartChild,
@@ -111,17 +111,17 @@ class CXFA_LayoutPageMgr {
       CXFA_Node* pTargetContentArea = nullptr,
       bool bNewPage = false,
       bool bQuery = false,
-      XFA_ATTRIBUTEENUM ePreferredPosition = XFA_ATTRIBUTEENUM_First);
-  bool MatchPageAreaOddOrEven(CXFA_Node* pPageArea, bool bLastMatch);
+      XFA_AttributeValue ePreferredPosition = XFA_AttributeValue::First);
+  bool MatchPageAreaOddOrEven(CXFA_Node* pPageArea);
   CXFA_Node* GetNextAvailPageArea(CXFA_Node* pTargetPageArea,
-                                  CXFA_Node* pTargetContentArea = nullptr,
-                                  bool bNewPage = false,
-                                  bool bQuery = false);
+                                  CXFA_Node* pTargetContentArea,
+                                  bool bNewPage,
+                                  bool bQuery);
   bool GetNextContentArea(CXFA_Node* pTargetContentArea);
   void InitPageSetMap();
   void ProcessLastPageSet();
   bool IsPageSetRootOrderedOccurrence() const {
-    return m_ePageSetMode == XFA_ATTRIBUTEENUM_OrderedOccurrence;
+    return m_ePageSetMode == XFA_AttributeValue::OrderedOccurrence;
   }
   void ClearData();
   void MergePageSetContents();
@@ -138,7 +138,7 @@ class CXFA_LayoutPageMgr {
   CXFA_Node* m_pCurPageArea;
   int32_t m_nAvailPages;
   int32_t m_nCurPageCount;
-  XFA_ATTRIBUTEENUM m_ePageSetMode;
+  XFA_AttributeValue m_ePageSetMode;
   bool m_bCreateOverFlowPage;
   std::map<CXFA_Node*, int32_t> m_pPageSetMap;
   std::vector<CXFA_ContainerLayoutItem*> m_PageArray;

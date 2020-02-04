@@ -34,13 +34,13 @@ Polymer({
 
   /** @override */
   created: function() {
-    chrome.usersPrivate.isCurrentUserOwner(function(isOwner) {
-      this.isOwner_ = isOwner;
-    }.bind(this));
+    chrome.usersPrivate.getCurrentUser(user => {
+      this.isOwner_ = user.isOwner;
+    });
 
-    chrome.usersPrivate.isWhitelistManaged(function(isWhitelistManaged) {
+    chrome.usersPrivate.isWhitelistManaged(isWhitelistManaged => {
       this.isWhitelistManaged_ = isWhitelistManaged;
-    }.bind(this));
+    });
   },
 
   /**
@@ -76,5 +76,10 @@ Polymer({
    */
   isEditingUsersDisabled_: function(isOwner, isWhitelistManaged, allowGuest) {
     return !isOwner || isWhitelistManaged || allowGuest;
-  }
+  },
+
+  /** @return {boolean} */
+  shouldHideModifiedByOwnerLabel_: function() {
+    return this.isWhitelistManaged_ || this.isOwner_;
+  },
 });

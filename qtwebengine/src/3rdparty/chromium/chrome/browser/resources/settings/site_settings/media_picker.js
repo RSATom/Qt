@@ -42,17 +42,18 @@ Polymer({
    * @param {string} defaultDevice The unique id of the current default device.
    */
   updateDevicesMenu_: function(type, devices, defaultDevice) {
-    if (type != this.type)
+    if (type != this.type) {
       return;
+    }
 
     this.$.picker.hidden = devices.length == 0;
     if (devices.length > 0) {
       this.devices = devices;
 
       // Wait for <select> to be populated.
-      this.async(function() {
+      this.async(() => {
         this.$.mediaPicker.value = defaultDevice;
-      }.bind(this));
+      });
     }
   },
 

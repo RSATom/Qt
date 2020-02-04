@@ -15,8 +15,8 @@
 #include "components/webcrypto/jwk.h"
 #include "components/webcrypto/status.h"
 #include "crypto/openssl_util.h"
-#include "third_party/WebKit/public/platform/WebCryptoAlgorithmParams.h"
-#include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/blink/public/platform/web_crypto_algorithm_params.h"
+#include "third_party/blink/public/platform/web_crypto_key_algorithm.h"
 #include "third_party/boringssl/src/include/openssl/bn.h"
 #include "third_party/boringssl/src/include/openssl/evp.h"
 #include "third_party/boringssl/src/include/openssl/rsa.h"
@@ -213,8 +213,8 @@ Status ImportRsaPublicKey(const blink::WebCryptoAlgorithm& algorithm,
                           blink::WebCryptoKey* key) {
   bssl::UniquePtr<RSA> rsa(RSA_new());
 
-  rsa->n = BN_bin2bn(n.bytes(), n.byte_length(), NULL);
-  rsa->e = BN_bin2bn(e.bytes(), e.byte_length(), NULL);
+  rsa->n = BN_bin2bn(n.bytes(), n.byte_length(), nullptr);
+  rsa->e = BN_bin2bn(e.bytes(), e.byte_length(), nullptr);
 
   if (!rsa->n || !rsa->e)
     return Status::OperationError();
@@ -297,7 +297,7 @@ Status RsaHashedAlgorithm::GenerateKey(
   }
 
   if (!RSA_generate_key_ex(rsa_private_key.get(), modulus_length_bits, bn.get(),
-                           NULL)) {
+                           nullptr)) {
     return Status::OperationError();
   }
 
@@ -554,6 +554,9 @@ Status RsaHashedAlgorithm::DeserializeKeyForClone(
     default:
       return Status::ErrorUnexpected();
   }
+
+  if (!status.IsSuccess())
+    return status;
 
   // There is some duplicated information in the serialized format used by
   // structured clone (since the KeyAlgorithm is serialized separately from the

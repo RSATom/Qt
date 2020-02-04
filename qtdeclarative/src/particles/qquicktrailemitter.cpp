@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
     \instantiates QQuickTrailEmitter
     \inqmlmodule QtQuick.Particles
     \inherits QQuickParticleEmitter
-    \brief Emits logical particles from other logical particles
+    \brief Emits logical particles from other logical particles.
     \ingroup qtquick-particles
 
     This element emits logical particles into the ParticleSystem, with the
@@ -62,7 +62,7 @@ QQuickTrailEmitter::QQuickTrailEmitter(QQuickItem *parent) :
   , m_emitterXVariation(0)
   , m_emitterYVariation(0)
   , m_followCount(0)
-  , m_emissionExtruder(0)
+  , m_emissionExtruder(nullptr)
   , m_defaultEmissionExtruder(new QQuickParticleExtruder(this))
 {
     //TODO: If followed increased their size
@@ -150,7 +150,7 @@ void QQuickTrailEmitter::reset()
 
 void QQuickTrailEmitter::emitWindow(int timeStamp)
 {
-    if (m_system == 0)
+    if (m_system == nullptr)
         return;
     if (!m_enabled && !m_pulseLeft && m_burstQueue.isEmpty())
         return;
@@ -267,13 +267,13 @@ void QQuickTrailEmitter::emitWindow(int timeStamp)
 
         if (isEmitConnected() || isEmitFollowConnected()) {
             QQmlEngine *qmlEngine = ::qmlEngine(this);
-            QV4::ExecutionEngine *v4 = QV8Engine::getV4(qmlEngine->handle());
+            QV4::ExecutionEngine *v4 = qmlEngine->handle();
 
             QV4::Scope scope(v4);
             QV4::ScopedArrayObject array(scope, v4->newArrayObject(toEmit.size()));
             QV4::ScopedValue v(scope);
             for (int i=0; i<toEmit.size(); i++)
-                array->putIndexed(i, (v = toEmit[i]->v4Value(m_system)));
+                array->put(i, (v = toEmit[i]->v4Value(m_system)));
 
             if (isEmitFollowConnected())
                 emitFollowParticles(QQmlV4Handle(array), d->v4Value(m_system));//A chance for many arbitrary JS changes

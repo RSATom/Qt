@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtlocation.qdocconf)
 
 project           = QtPositioning
 description    = Qt Positioning Reference Documentation
@@ -32,13 +33,15 @@ qhp.QtPositioning.subprojects.examples.selectors = fake:example
 
 tagfile                 = ../../../doc/qtpositioning/qtpositioning.tags
 
-depends += qtcore qtdoc qtquick qtqml qtnetwork qtlocation
+depends += qtcore qtdoc qtquick qtqml qtnetwork qtlocation qtxmlpatterns
 
 headerdirs  += .. \
-                ../../imports/positioning
+                ../../imports/positioning \
+                ../../positioningquick
 
 sourcedirs  += .. \
-                ../../imports/positioning
+                ../../imports/positioning \
+                ../../positioningquick
 
 examplesinstallpath = positioning
 

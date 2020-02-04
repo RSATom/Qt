@@ -36,7 +36,7 @@
 
 #include <gtest/gtest.h>
 
-#include "StandAlone/DefaultResourceLimits.h"
+#include "StandAlone/ResourceLimits.h"
 #include "TestFixture.h"
 
 namespace glslangtest {
@@ -46,7 +46,7 @@ using DefaultResourceTest = GlslangTest<::testing::Test>;
 
 TEST_F(DefaultResourceTest, FromFile)
 {
-    const std::string path = GLSLANG_TEST_DIRECTORY "/baseResults/test.conf";
+    const std::string path = GlobalTestSettings.testRoot + "/baseResults/test.conf";
     std::string expectedConfig;
     tryLoadFile(path, "expected resource limit", &expectedConfig);
     const std::string realConfig = glslang::GetDefaultTBuiltInResourceString();

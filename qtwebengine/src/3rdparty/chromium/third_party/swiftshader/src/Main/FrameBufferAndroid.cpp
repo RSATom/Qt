@@ -13,9 +13,10 @@
 // limitations under the License.
 
 #include "FrameBufferAndroid.hpp"
-#include "GrallocAndroid.hpp"
 
-#include <cutils/log.h>
+#include "Common/GrallocAndroid.hpp"
+
+#include <system/window.h>
 
 namespace sw
 {
@@ -59,15 +60,15 @@ namespace sw
 		nativeWindow->common.decRef(&nativeWindow->common);
 	}
 
-	void FrameBufferAndroid::blit(void *source, const Rect *sourceRect, const Rect *destRect, Format sourceFormat, size_t sourceStride)
+	void FrameBufferAndroid::blit(sw::Surface *source, const Rect *sourceRect, const Rect *destRect)
 	{
-		copy(source, sourceFormat, sourceStride);
+		copy(source);
 
 		if(buffer)
 		{
-			if(locked)
+			if(framebuffer)
 			{
-				locked = nullptr;
+				framebuffer = nullptr;
 				unlock();
 			}
 
@@ -84,49 +85,56 @@ namespace sw
 
 		if(GrallocModule::getInstance()->lock(buffer->handle,
 		                 GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN,
-		                 0, 0, buffer->width, buffer->height, &locked) != 0)
+		                 0, 0, buffer->width, buffer->height, &framebuffer) != 0)
 		{
-			ALOGE("%s failed to lock buffer %p", __FUNCTION__, buffer);
+			TRACE("%s failed to lock buffer %p", __FUNCTION__, buffer);
 			return nullptr;
 		}
 
 		if((buffer->width < width) || (buffer->height < height))
 		{
-			ALOGI("lock failed: buffer of %dx%d too small for window of %dx%d",
-				  buffer->width, buffer->height, width, height);
+			TRACE("lock failed: buffer of %dx%d too small for window of %dx%d",
+			      buffer->width, buffer->height, width, height);
 			return nullptr;
 		}
 
 		switch(buffer->format)
 		{
-		default: ALOGE("Unsupported buffer format %d", buffer->format); ASSERT(false);
-		case HAL_PIXEL_FORMAT_RGB_565: destFormat = FORMAT_R5G6B5; break;
-		case HAL_PIXEL_FORMAT_RGB_888: destFormat = FORMAT_R8G8B8; break;
-		case HAL_PIXEL_FORMAT_RGBA_8888: destFormat = FORMAT_A8B8G8R8; break;
+		case HAL_PIXEL_FORMAT_RGB_565:   format = FORMAT_R5G6B5; break;
+		case HAL_PIXEL_FORMAT_RGBA_8888: format = FORMAT_A8B8G8R8; break;
 #if ANDROID_PLATFORM_SDK_VERSION > 16
-		case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED: destFormat = FORMAT_X8B8G8R8; break;
+		case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED: format = FORMAT_X8B8G8R8; break;
 #endif
-		case HAL_PIXEL_FORMAT_RGBX_8888: destFormat = FORMAT_X8B8G8R8; break;
-		case HAL_PIXEL_FORMAT_BGRA_8888: destFormat = FORMAT_A8R8G8B8; break;
+		case HAL_PIXEL_FORMAT_RGBX_8888: format = FORMAT_X8B8G8R8; break;
+		case HAL_PIXEL_FORMAT_BGRA_8888: format = FORMAT_A8R8G8B8; break;
+		case HAL_PIXEL_FORMAT_RGB_888:
+			// Frame buffers are expected to have 16-bit or 32-bit colors, not 24-bit.
+			TRACE("Unsupported frame buffer format RGB_888"); ASSERT(false);
+			format = FORMAT_R8G8B8;   // Wrong component order.
+			break;
+		default:
+			TRACE("Unsupported frame buffer format %d", buffer->format); ASSERT(false);
+			format = FORMAT_NULL;
+			break;
 		}
 
-		stride = buffer->stride * Surface::bytes(destFormat);
-		return locked;
+		stride = buffer->stride * Surface::bytes(format);
+		return framebuffer;
 	}
 
 	void FrameBufferAndroid::unlock()
 	{
 		if(!buffer)
 		{
-			ALOGE("%s: badness unlock with no active buffer", __FUNCTION__);
+			TRACE("%s: badness unlock with no active buffer", __FUNCTION__);
 			return;
 		}
 
-		locked = nullptr;
+		framebuffer = nullptr;
 
 		if(GrallocModule::getInstance()->unlock(buffer->handle) != 0)
 		{
-			ALOGE("%s: badness unlock failed", __FUNCTION__);
+			TRACE("%s: badness unlock failed", __FUNCTION__);
 		}
 	}
 }

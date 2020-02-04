@@ -42,6 +42,10 @@
 #include <QGuiApplication>
 #ifndef QT_NO_OPENGL
 # include <QOpenGLContext>
+#ifdef Q_OS_MACOS
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
 #endif
 #include <QThread>
 
@@ -52,12 +56,32 @@ Q_GUI_EXPORT QOpenGLContext *qt_gl_global_share_context();
 QT_END_NAMESPACE
 #endif
 
+#ifndef QT_NO_OPENGL
+#ifdef Q_OS_MACOS
+static bool needsOfflineRendererWorkaround()
+{
+    size_t hwmodelsize = 0;
+
+    if (sysctlbyname("hw.model", nullptr, &hwmodelsize, nullptr, 0) == -1)
+        return false;
+
+    char hwmodel[hwmodelsize];
+    if (sysctlbyname("hw.model", &hwmodel, &hwmodelsize, nullptr, 0) == -1)
+        return false;
+
+    return QString::fromLatin1(hwmodel) == QLatin1String("MacPro6,1");
+}
+#endif
+#endif
+
 namespace QtWebEngineCore {
 #ifndef QT_NO_OPENGL
 static QOpenGLContext *shareContext;
 
 static void deleteShareContext()
 {
+    if (qt_gl_global_share_context() == shareContext)
+        qt_gl_set_global_share_context(nullptr);
     delete shareContext;
     shareContext = 0;
 }
@@ -68,20 +92,23 @@ static void deleteShareContext()
 // after the QGuiApplication creation, when AA_ShareOpenGLContexts fills
 // the same need but the flag has to be set earlier.
 
-QWEBENGINE_PRIVATE_EXPORT void initialize()
+Q_WEBENGINECORE_PRIVATE_EXPORT void initialize()
 {
 #ifndef QT_NO_OPENGL
 #ifdef Q_OS_WIN32
     qputenv("QT_D3DCREATE_MULTITHREADED", "1");
 #endif
-
+#ifdef Q_OS_MACOS
+    if (needsOfflineRendererWorkaround())
+        qputenv("QT_MAC_PRO_WEBENGINE_WORKAROUND", "1");
+#endif
     // No need to override the shared context if QApplication already set one (e.g with Qt::AA_ShareOpenGLContexts).
     if (qt_gl_global_share_context())
         return;
 
     QCoreApplication *app = QCoreApplication::instance();
     if (!app) {
-        qFatal("QtWebEngine::initialize() must be called after the construction of the application object.");
+        qFatal("QtWebEngine::initialize() but no core application instance.");
         return;
     }
 

@@ -1,8 +1,9 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+import("//build/config/jumbo.gni")
 
-static_library("common") {
+jumbo_static_library("common") {
   sources = [
     "autofill_clock.cc",
     "autofill_clock.h",
@@ -10,10 +11,12 @@ static_library("common") {
     "autofill_constants.h",
     "autofill_data_validation.cc",
     "autofill_data_validation.h",
+    "autofill_features.cc",
+    "autofill_features.h",
     "autofill_l10n_util.cc",
     "autofill_l10n_util.h",
-    "autofill_pref_names.cc",
-    "autofill_pref_names.h",
+    "autofill_prefs.cc",
+    "autofill_prefs.h",
     "autofill_regex_constants.cc",
     "autofill_regex_constants.h",
     "autofill_regexes.cc",
@@ -22,6 +25,8 @@ static_library("common") {
     "autofill_switches.h",
     "autofill_util.cc",
     "autofill_util.h",
+    "button_title_type.h",
+    "filling_status.h",
     "form_data.cc",
     "form_data.h",
     "form_data_predictions.cc",
@@ -43,19 +48,22 @@ static_library("common") {
     "save_password_progress_logger.h",
     "signatures_util.cc",
     "signatures_util.h",
+    "submission_indicator_event.cc",
+    "submission_indicator_event.h",
+    "submission_source.h",
   ]
 
   deps = [
     "//base",
     "//base:i18n",
+    "//components/pref_registry",
+    "//components/prefs",
     "//components/variations",
-    "//third_party/re2",
+    "//crypto",
+    "//ui/base",
+    "//ui/gfx/geometry",
     "//url",
   ]
-
-  if (is_android) {
-    # deps += [ 'autofill_jni_headers' ]  TODO(GYP)
-  }
 
   configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 }
@@ -64,6 +72,7 @@ source_set("unit_tests") {
   testonly = true
   sources = [
     "autofill_l10n_util_unittest.cc",
+    "autofill_prefs_unittest.cc",
     "autofill_regexes_unittest.cc",
     "autofill_util_unittest.cc",
     "form_data_unittest.cc",
@@ -77,6 +86,9 @@ source_set("unit_tests") {
     "//base",
     "//base:i18n",
     "//base/test:test_support",
+    "//components/pref_registry",
+    "//components/prefs",
+    "//components/prefs:test_support",
     "//testing/gmock",
     "//testing/gtest",
     "//url",

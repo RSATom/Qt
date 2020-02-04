@@ -95,10 +95,10 @@ public:
                        QScxmlInvokableServiceFactory *parent);
     ~QScxmlScxmlService();
 
-    bool start() Q_DECL_OVERRIDE;
-    QString id() const Q_DECL_OVERRIDE;
-    QString name() const Q_DECL_OVERRIDE;
-    void postEvent(QScxmlEvent *event) Q_DECL_OVERRIDE;
+    bool start() override;
+    QString id() const override;
+    QString name() const override;
+    void postEvent(QScxmlEvent *event) override;
     QScxmlStateMachine *stateMachine() const;
 
 private:

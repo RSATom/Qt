@@ -59,9 +59,10 @@ class WebstorePrivateBeginInstallWithManifest3Function
   ExtensionFunction::ResponseAction Run() override;
 
   // WebstoreInstallHelper::Delegate:
-  void OnWebstoreParseSuccess(const std::string& id,
-                              const SkBitmap& icon,
-                              base::DictionaryValue* parsed_manifest) override;
+  void OnWebstoreParseSuccess(
+      const std::string& id,
+      const SkBitmap& icon,
+      std::unique_ptr<base::DictionaryValue> parsed_manifest) override;
   void OnWebstoreParseFailure(const std::string& id,
                               InstallHelperResultCode result,
                               const std::string& error_message) override;
@@ -302,6 +303,25 @@ class WebstorePrivateIsPendingCustodianApprovalFunction
   ExtensionFunction::ResponseValue BuildResponse(bool result);
 
   ChromeExtensionFunctionDetails chrome_details_;
+};
+
+class WebstorePrivateGetReferrerChainFunction
+    : public UIThreadExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("webstorePrivate.getReferrerChain",
+                             WEBSTOREPRIVATE_GETREFERRERCHAIN)
+
+  WebstorePrivateGetReferrerChainFunction();
+
+ private:
+  ~WebstorePrivateGetReferrerChainFunction() override;
+
+  // ExtensionFunction:
+  ExtensionFunction::ResponseAction Run() override;
+
+  ChromeExtensionFunctionDetails chrome_details_;
+
+  DISALLOW_COPY_AND_ASSIGN(WebstorePrivateGetReferrerChainFunction);
 };
 
 }  // namespace extensions

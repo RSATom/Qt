@@ -6,6 +6,7 @@
 #include <string>
 
 #include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/ipc/common/gpu_feature_info.mojom.h"
 #include "gpu/ipc/common/gpu_feature_info_struct_traits.h"
@@ -19,7 +20,7 @@ namespace {
 
 class StructTraitsTest : public testing::Test, public mojom::TraitsTestService {
  public:
-  StructTraitsTest() {}
+  StructTraitsTest() = default;
 
  protected:
   mojom::TraitsTestServicePtr GetTraitsTestProxy() {
@@ -150,17 +151,13 @@ TEST_F(StructTraitsTest, GpuInfo) {
   const bool software_rendering = true;
   const bool direct_rendering = true;
   const bool sandboxed = true;
-  const int process_crash_count = 0xdead;
   const bool in_process_gpu = true;
   const bool passthrough_cmd_decoder = true;
-  const bool supports_overlays = true;
-  const gpu::CollectInfoResult basic_info_state =
-      gpu::CollectInfoResult::kCollectInfoSuccess;
-  const gpu::CollectInfoResult context_info_state =
-      gpu::CollectInfoResult::kCollectInfoSuccess;
 #if defined(OS_WIN)
-  const gpu::CollectInfoResult dx_diagnostics_info_state =
-      gpu::CollectInfoResult::kCollectInfoSuccess;
+  const bool direct_composition = true;
+  const bool supports_overlays = true;
+  const gpu::OverlayCapabilities overlay_capabilities = {
+      {OverlayFormat::kBGRA, false}, {OverlayFormat::kNV12, true}};
   const DxDiagNode dx_diagnostics;
 #endif
   const gpu::VideoDecodeAcceleratorCapabilities
@@ -168,7 +165,7 @@ TEST_F(StructTraitsTest, GpuInfo) {
   const std::vector<gpu::VideoEncodeAcceleratorSupportedProfile>
       video_encode_accelerator_supported_profiles;
   const bool jpeg_decode_accelerator_supported = true;
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
   const VisualID system_visual = 0x1234;
   const VisualID rgba_visual = 0x5678;
 #endif
@@ -179,9 +176,9 @@ TEST_F(StructTraitsTest, GpuInfo) {
   input.amd_switchable = amd_switchable;
   input.gpu = gpu;
   input.secondary_gpus = secondary_gpus;
-  input.driver_vendor = driver_vendor;
-  input.driver_version = driver_version;
-  input.driver_date = driver_date;
+  input.gpu.driver_vendor = driver_vendor;
+  input.gpu.driver_version = driver_version;
+  input.gpu.driver_date = driver_date;
   input.pixel_shader_version = pixel_shader_version;
   input.vertex_shader_version = vertex_shader_version;
   input.max_msaa_samples = max_msaa_samples;
@@ -198,14 +195,12 @@ TEST_F(StructTraitsTest, GpuInfo) {
   input.software_rendering = software_rendering;
   input.direct_rendering = direct_rendering;
   input.sandboxed = sandboxed;
-  input.process_crash_count = process_crash_count;
   input.in_process_gpu = in_process_gpu;
   input.passthrough_cmd_decoder = passthrough_cmd_decoder;
-  input.supports_overlays = supports_overlays;
-  input.basic_info_state = basic_info_state;
-  input.context_info_state = context_info_state;
 #if defined(OS_WIN)
-  input.dx_diagnostics_info_state = dx_diagnostics_info_state;
+  input.direct_composition = direct_composition;
+  input.supports_overlays = supports_overlays;
+  input.overlay_capabilities = overlay_capabilities;
   input.dx_diagnostics = dx_diagnostics;
 #endif
   input.video_decode_accelerator_capabilities =
@@ -213,7 +208,7 @@ TEST_F(StructTraitsTest, GpuInfo) {
   input.video_encode_accelerator_supported_profiles =
       video_encode_accelerator_supported_profiles;
   input.jpeg_decode_accelerator_supported = jpeg_decode_accelerator_supported;
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
   input.system_visual = system_visual;
   input.rgba_visual = rgba_visual;
 #endif
@@ -239,9 +234,9 @@ TEST_F(StructTraitsTest, GpuInfo) {
     EXPECT_EQ(expected_gpu.vendor_string, actual_gpu.vendor_string);
     EXPECT_EQ(expected_gpu.device_string, actual_gpu.device_string);
   }
-  EXPECT_EQ(driver_vendor, output.driver_vendor);
-  EXPECT_EQ(driver_version, output.driver_version);
-  EXPECT_EQ(driver_date, output.driver_date);
+  EXPECT_EQ(driver_vendor, output.gpu.driver_vendor);
+  EXPECT_EQ(driver_version, output.gpu.driver_version);
+  EXPECT_EQ(driver_date, output.gpu.driver_date);
   EXPECT_EQ(pixel_shader_version, output.pixel_shader_version);
   EXPECT_EQ(vertex_shader_version, output.vertex_shader_version);
   EXPECT_EQ(max_msaa_samples, output.max_msaa_samples);
@@ -259,14 +254,12 @@ TEST_F(StructTraitsTest, GpuInfo) {
   EXPECT_EQ(software_rendering, output.software_rendering);
   EXPECT_EQ(direct_rendering, output.direct_rendering);
   EXPECT_EQ(sandboxed, output.sandboxed);
-  EXPECT_EQ(process_crash_count, output.process_crash_count);
   EXPECT_EQ(in_process_gpu, output.in_process_gpu);
   EXPECT_EQ(passthrough_cmd_decoder, output.passthrough_cmd_decoder);
-  EXPECT_EQ(supports_overlays, output.supports_overlays);
-  EXPECT_EQ(basic_info_state, output.basic_info_state);
-  EXPECT_EQ(context_info_state, output.context_info_state);
 #if defined(OS_WIN)
-  EXPECT_EQ(output.dx_diagnostics_info_state, dx_diagnostics_info_state);
+  EXPECT_EQ(direct_composition, output.direct_composition);
+  EXPECT_EQ(supports_overlays, output.supports_overlays);
+  EXPECT_EQ(overlay_capabilities, output.overlay_capabilities);
   EXPECT_EQ(dx_diagnostics.values, output.dx_diagnostics.values);
 #endif
   EXPECT_EQ(output.video_decode_accelerator_capabilities.flags,
@@ -288,7 +281,7 @@ TEST_F(StructTraitsTest, GpuInfo) {
       video_decode_accelerator_capabilities.supported_profiles.size());
   EXPECT_EQ(output.video_encode_accelerator_supported_profiles.size(),
             video_encode_accelerator_supported_profiles.size());
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
   EXPECT_EQ(system_visual, output.system_visual);
   EXPECT_EQ(rgba_visual, output.rgba_visual);
 #endif
@@ -316,18 +309,21 @@ TEST_F(StructTraitsTest, Mailbox) {
 
 TEST_F(StructTraitsTest, MailboxHolder) {
   gpu::MailboxHolder input;
+
   const int8_t mailbox_name[GL_MAILBOX_SIZE_CHROMIUM] = {
       0, 9, 8, 7, 6, 5, 4, 3, 2, 1, 9, 7, 5, 3, 1, 2};
   gpu::Mailbox mailbox;
   mailbox.SetName(mailbox_name);
+
   const gpu::CommandBufferNamespace namespace_id = gpu::IN_PROCESS;
-  const int32_t extra_data_field = 0xbeefbeef;
   const gpu::CommandBufferId command_buffer_id(
       gpu::CommandBufferId::FromUnsafeValue(0xdeadbeef));
   const uint64_t release_count = 0xdeadbeefdeadL;
-  const gpu::SyncToken sync_token(namespace_id, extra_data_field,
-                                  command_buffer_id, release_count);
+  gpu::SyncToken sync_token(namespace_id, command_buffer_id, release_count);
+  sync_token.SetVerifyFlush();
+
   const uint32_t texture_target = 1337;
+
   input.mailbox = mailbox;
   input.sync_token = sync_token;
   input.texture_target = texture_target;
@@ -342,21 +338,18 @@ TEST_F(StructTraitsTest, MailboxHolder) {
 
 TEST_F(StructTraitsTest, SyncToken) {
   const gpu::CommandBufferNamespace namespace_id = gpu::IN_PROCESS;
-  const int32_t extra_data_field = 0xbeefbeef;
   const gpu::CommandBufferId command_buffer_id(
       gpu::CommandBufferId::FromUnsafeValue(0xdeadbeef));
   const uint64_t release_count = 0xdeadbeefdead;
-  const bool verified_flush = false;
-  gpu::SyncToken input(namespace_id, extra_data_field, command_buffer_id,
-                       release_count);
+  gpu::SyncToken input(namespace_id, command_buffer_id, release_count);
+  input.SetVerifyFlush();
   mojom::TraitsTestServicePtr proxy = GetTraitsTestProxy();
   gpu::SyncToken output;
   proxy->EchoSyncToken(input, &output);
   EXPECT_EQ(namespace_id, output.namespace_id());
-  EXPECT_EQ(extra_data_field, output.extra_data_field());
   EXPECT_EQ(command_buffer_id, output.command_buffer_id());
   EXPECT_EQ(release_count, output.release_count());
-  EXPECT_EQ(verified_flush, output.verified_flush());
+  EXPECT_TRUE(output.verified_flush());
 }
 
 TEST_F(StructTraitsTest, VideoDecodeAcceleratorSupportedProfile) {
@@ -427,8 +420,6 @@ TEST_F(StructTraitsTest, GpuPreferences) {
   GpuPreferences prefs;
   prefs.single_process = true;
   prefs.in_process_gpu = true;
-  prefs.ui_prioritize_in_gpu_process = true;
-  prefs.enable_gpu_scheduler = true;
 #if defined(OS_WIN)
   const GpuPreferences::VpxDecodeVendors vendor =
       GpuPreferences::VPX_VENDOR_AMD;
@@ -441,8 +432,6 @@ TEST_F(StructTraitsTest, GpuPreferences) {
   proxy->EchoGpuPreferences(prefs, &echo);
   EXPECT_TRUE(echo.single_process);
   EXPECT_TRUE(echo.in_process_gpu);
-  EXPECT_TRUE(echo.ui_prioritize_in_gpu_process);
-  EXPECT_TRUE(echo.enable_gpu_scheduler);
   EXPECT_TRUE(echo.enable_gpu_driver_debug_logging);
 #if defined(OS_WIN)
   EXPECT_EQ(vendor, echo.enable_accelerated_vpx_decode);
@@ -453,9 +442,11 @@ TEST_F(StructTraitsTest, GpuFeatureInfo) {
   GpuFeatureInfo input;
   input.status_values[GPU_FEATURE_TYPE_FLASH3D] =
       gpu::kGpuFeatureStatusBlacklisted;
-  input.status_values[GPU_FEATURE_TYPE_PANEL_FITTING] =
+  input.status_values[GPU_FEATURE_TYPE_ACCELERATED_WEBGL] =
       gpu::kGpuFeatureStatusUndefined;
   input.status_values[GPU_FEATURE_TYPE_GPU_RASTERIZATION] =
+      gpu::kGpuFeatureStatusDisabled;
+  input.status_values[GPU_FEATURE_TYPE_OOP_RASTERIZATION] =
       gpu::kGpuFeatureStatusDisabled;
 
   GpuFeatureInfo output;

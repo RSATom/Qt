@@ -31,7 +31,7 @@ FakeBluetoothGattDescriptorClient::Properties::Properties(
           bluetooth_gatt_descriptor::kBluetoothGattDescriptorInterface,
           callback) {}
 
-FakeBluetoothGattDescriptorClient::Properties::~Properties() {}
+FakeBluetoothGattDescriptorClient::Properties::~Properties() = default;
 
 void FakeBluetoothGattDescriptorClient::Properties::Get(
     dbus::PropertyBase* property,
@@ -51,20 +51,21 @@ void FakeBluetoothGattDescriptorClient::Properties::Set(
   callback.Run(false);
 }
 
-FakeBluetoothGattDescriptorClient::DescriptorData::DescriptorData() {}
+FakeBluetoothGattDescriptorClient::DescriptorData::DescriptorData() = default;
 
-FakeBluetoothGattDescriptorClient::DescriptorData::~DescriptorData() {}
+FakeBluetoothGattDescriptorClient::DescriptorData::~DescriptorData() = default;
 
 FakeBluetoothGattDescriptorClient::FakeBluetoothGattDescriptorClient()
     : weak_ptr_factory_(this) {}
 
 FakeBluetoothGattDescriptorClient::~FakeBluetoothGattDescriptorClient() {
-  for (PropertiesMap::iterator iter = properties_.begin();
-       iter != properties_.end(); iter++)
+  for (auto iter = properties_.begin(); iter != properties_.end(); iter++)
     delete iter->second;
 }
 
-void FakeBluetoothGattDescriptorClient::Init(dbus::Bus* bus) {}
+void FakeBluetoothGattDescriptorClient::Init(
+    dbus::Bus* bus,
+    const std::string& bluetooth_service_name) {}
 
 void FakeBluetoothGattDescriptorClient::AddObserver(Observer* observer) {
   observers_.AddObserver(observer);
@@ -97,7 +98,7 @@ void FakeBluetoothGattDescriptorClient::ReadValue(
     const dbus::ObjectPath& object_path,
     const ValueCallback& callback,
     const ErrorCallback& error_callback) {
-  PropertiesMap::iterator iter = properties_.find(object_path);
+  auto iter = properties_.find(object_path);
   if (iter == properties_.end()) {
     error_callback.Run(kUnknownDescriptorError, "");
     return;
@@ -136,7 +137,7 @@ void FakeBluetoothGattDescriptorClient::WriteValue(
 
   // Since the only fake descriptor is "Client Characteristic Configuration"
   // and BlueZ doesn't allow writing to it, return failure.
-  error_callback.Run(bluetooth_gatt_service::kErrorWriteNotPermitted,
+  error_callback.Run(bluetooth_gatt_service::kErrorNotPermitted,
                      "Writing to the Client Characteristic Configuration "
                      "descriptor not allowed");
 }
@@ -178,7 +179,7 @@ dbus::ObjectPath FakeBluetoothGattDescriptorClient::ExposeDescriptor(
 
 void FakeBluetoothGattDescriptorClient::HideDescriptor(
     const dbus::ObjectPath& descriptor_path) {
-  PropertiesMap::iterator iter = properties_.find(descriptor_path);
+  auto iter = properties_.find(descriptor_path);
   if (iter == properties_.end()) {
     VLOG(1) << "Descriptor not exposed: " << descriptor_path.value();
     return;

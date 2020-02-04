@@ -41,33 +41,26 @@ class ScreenOrientationBrowserTest : public ContentBrowserTest  {
   }
 
  protected:
-  void SendFakeScreenOrientation(unsigned angle, const std::string& strType) {
-    RenderWidgetHost* main_frame_rwh =
-        web_contents()->GetMainFrame()->GetRenderWidgetHost();
-    ScreenInfo screen_info;
-    main_frame_rwh->GetScreenInfo(&screen_info);
-    screen_info.orientation_angle = angle;
+  void SendFakeScreenOrientation(unsigned angle, const std::string& str_type) {
+    RenderWidgetHostImpl* main_frame_rwh = static_cast<RenderWidgetHostImpl*>(
+        web_contents()->GetMainFrame()->GetRenderWidgetHost());
 
     ScreenOrientationValues type = SCREEN_ORIENTATION_VALUES_DEFAULT;
-    if (strType == "portrait-primary") {
+    if (str_type == "portrait-primary") {
       type = SCREEN_ORIENTATION_VALUES_PORTRAIT_PRIMARY;
-    } else if (strType == "portrait-secondary") {
+    } else if (str_type == "portrait-secondary") {
       type = SCREEN_ORIENTATION_VALUES_PORTRAIT_SECONDARY;
-    } else if (strType == "landscape-primary") {
+    } else if (str_type == "landscape-primary") {
       type = SCREEN_ORIENTATION_VALUES_LANDSCAPE_PRIMARY;
-    } else if (strType == "landscape-secondary") {
+    } else if (str_type == "landscape-secondary") {
       type = SCREEN_ORIENTATION_VALUES_LANDSCAPE_SECONDARY;
     }
     ASSERT_NE(SCREEN_ORIENTATION_VALUES_DEFAULT, type);
-    screen_info.orientation_type = type;
 
-    ResizeParams params;
-    params.screen_info = screen_info;
-    params.new_size = gfx::Size(0, 0);
-    params.physical_backing_size = gfx::Size(300, 300);
-    params.top_controls_height = 0.f;
-    params.browser_controls_shrink_blink_size = false;
-    params.is_fullscreen_granted = false;
+    ScreenInfo screen_info;
+    main_frame_rwh->GetScreenInfo(&screen_info);
+    screen_info.orientation_angle = angle;
+    screen_info.orientation_type = type;
 
     std::set<RenderWidgetHost*> rwhs;
     for (RenderFrameHost* rfh : web_contents()->GetAllFrames()) {
@@ -83,21 +76,14 @@ class ScreenOrientationBrowserTest : public ContentBrowserTest  {
 
     // This simulates what the browser process does when the screen orientation
     // is changed:
-    // 1. The top-level frame is resized and a ViweMsg_Resize is sent to the
-    // top-level frame.
-    main_frame_rwh->Send(
-        new ViewMsg_Resize(main_frame_rwh->GetRoutingID(), params));
+    // 1. RenderWidgetHostImpl is notified which sends a ViweMsg_Resize message
+    // to the top-level frame.
+    main_frame_rwh->SetScreenOrientationForTesting(angle, type);
 
     // 2. The WebContents sends a PageMsg_UpdateScreenInfo to all the renderers
     // involved in the FrameTree.
     web_contents()->GetFrameTree()->root()->render_manager()->SendPageMessage(
         new PageMsg_UpdateScreenInfo(MSG_ROUTING_NONE, screen_info), nullptr);
-
-    // 3. When the top-level frame gets the ViewMsg_Resize, it'll dispatch a
-    // FrameHostMsg_FrameRectsChanged IPC that causes the remote subframes to
-    // receive the ViewMsg_Resize from the browser.
-    for (auto* rwh : rwhs)
-      rwh->Send(new ViewMsg_Resize(rwh->GetRoutingID(), params));
   }
 
   int GetOrientationAngle() {
@@ -255,7 +241,7 @@ IN_PROC_BROWSER_TEST_F(ScreenOrientationBrowserTest, DISABLED_LockSmoke) {
 
 // Check that using screen orientation after a frame is detached doesn't crash
 // the renderer process.
-// This could be a LayoutTest if they were not using a mock screen orientation
+// This could be a web test if they were not using a mock screen orientation
 // controller.
 IN_PROC_BROWSER_TEST_F(ScreenOrientationBrowserTest, CrashTest_UseAfterDetach) {
   GURL test_url = GetTestUrl("screen_orientation",
@@ -354,6 +340,58 @@ IN_PROC_BROWSER_TEST_F(ScreenOrientationOOPIFBrowserTest, ScreenOrientation) {
         &orientation_type));
     EXPECT_EQ(types[i], orientation_type);
   }
+}
+
+// Regression test for triggering a screen orientation change for a pending
+// main frame RenderFrameHost.  See https://crbug.com/764202.  In the bug, this
+// was triggered via the DevTools audit panel and
+// WidgetMsg_EnableDeviceEmulation, which calls RenderWidget::Resize on the
+// renderer side.  The test fakes this by directly sending the resize message
+// to the widget.
+IN_PROC_BROWSER_TEST_F(ScreenOrientationOOPIFBrowserTest,
+                       ScreenOrientationInPendingMainFrame) {
+  GURL main_url(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), main_url));
+#if USE_AURA || defined(OS_ANDROID)
+  WaitForResizeComplete(shell()->web_contents());
+#endif  // USE_AURA || defined(OS_ANDROID)
+
+  // Set up a fake Resize message with a screen orientation change.
+  RenderWidgetHost* main_frame_rwh =
+      web_contents()->GetMainFrame()->GetRenderWidgetHost();
+  ScreenInfo screen_info;
+  main_frame_rwh->GetScreenInfo(&screen_info);
+  int expected_angle = (screen_info.orientation_angle + 90) % 360;
+
+  // Start a cross-site navigation, but don't commit yet.
+  GURL second_url(embedded_test_server()->GetURL("b.com", "/title1.html"));
+  TestNavigationManager delayer(shell()->web_contents(), second_url);
+  shell()->LoadURL(second_url);
+  EXPECT_TRUE(delayer.WaitForRequestStart());
+
+  FrameTreeNode* root = web_contents()->GetFrameTree()->root();
+  RenderFrameHostImpl* pending_rfh =
+      root->render_manager()->speculative_frame_host();
+
+  // Send the orientation change to the pending RFH's widget.
+  static_cast<RenderWidgetHostImpl*>(pending_rfh->GetRenderWidgetHost())
+      ->SetScreenOrientationForTesting(expected_angle,
+                                       screen_info.orientation_type);
+
+  // Let the navigation finish and make sure it succeeded.
+  delayer.WaitForNavigationFinished();
+  EXPECT_EQ(second_url, web_contents()->GetMainFrame()->GetLastCommittedURL());
+
+#if USE_AURA || defined(OS_ANDROID)
+  WaitForResizeComplete(shell()->web_contents());
+#endif  // USE_AURA || defined(OS_ANDROID)
+
+  int orientation_angle;
+  EXPECT_TRUE(ExecuteScriptAndExtractInt(
+      root->current_frame_host(),
+      "window.domAutomationController.send(screen.orientation.angle)",
+      &orientation_angle));
+  EXPECT_EQ(expected_angle, orientation_angle);
 }
 
 #ifdef OS_ANDROID

@@ -36,11 +36,14 @@
 
 #include "qquickdefaulttheme_p.h"
 
+#include <QtQuickTemplates2/private/qquicktheme_p.h>
+
 QT_BEGIN_NAMESPACE
 
-QQuickDefaultTheme::QQuickDefaultTheme()
-    : QQuickTheme(QStringLiteral("Default"))
+void QQuickDefaultTheme::initialize(QQuickTheme *theme)
 {
+    QPalette systemPalette;
+
     systemPalette.setColor(QPalette::Base, QColor::fromRgba(0xFFFFFFFF));
     systemPalette.setColor(QPalette::Disabled, QPalette::Base, QColor::fromRgba(0xFFD6D6D6));
 
@@ -57,7 +60,7 @@ QQuickDefaultTheme::QQuickDefaultTheme()
     systemPalette.setColor(QPalette::Highlight, QColor::fromRgba(0xFF0066FF));
     systemPalette.setColor(QPalette::Disabled, QPalette::Highlight, QColor::fromRgba(0xFFF0F6FF));
 
-    systemPalette.setColor(QPalette::HighlightedText, QColor::fromRgba(0xFFFFFFFF));
+    systemPalette.setColor(QPalette::HighlightedText, QColor::fromRgba(0xFF090909));
 
     systemPalette.setColor(QPalette::Light, QColor::fromRgba(0xFFF6F6F6));
 
@@ -80,13 +83,7 @@ QQuickDefaultTheme::QQuickDefaultTheme()
     systemPalette.setColor(QPalette::WindowText, QColor::fromRgba(0xFF26282A));
     systemPalette.setColor(QPalette::Disabled, QPalette::WindowText, QColor::fromRgba(0xFFBDBEBF));
 
-    systemPalette = resolvePalette(systemPalette);
-}
-
-const QPalette *QQuickDefaultTheme::palette(QPlatformTheme::Palette type) const
-{
-    Q_UNUSED(type);
-    return &systemPalette;
+    theme->setPalette(QQuickTheme::System, systemPalette);
 }
 
 QT_END_NAMESPACE

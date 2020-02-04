@@ -77,7 +77,7 @@ public:
     GeometriesTestView() : QTableView(), updateGeometriesCalled(false) {}
     bool updateGeometriesCalled;
 protected slots:
-    void updateGeometries() Q_DECL_OVERRIDE { updateGeometriesCalled = true; QTableView::updateGeometries(); }
+    void updateGeometries() override { updateGeometriesCalled = true; QTableView::updateGeometries(); }
 };
 
 class tst_QAbstractItemView : public QObject
@@ -147,6 +147,10 @@ private slots:
     void testClearModelInClickedSignal();
     void inputMethodEnabled_data();
     void inputMethodEnabled();
+    void currentFollowsIndexWidget_data();
+    void currentFollowsIndexWidget();
+    void checkFocusAfterActivationChanges_data();
+    void checkFocusAfterActivationChanges();
 };
 
 class MyAbstractItemDelegate : public QAbstractItemDelegate
@@ -234,7 +238,7 @@ void tst_QAbstractItemView::getSetCheck()
 
     // bool QAbstractItemView::dragEnabled()
     // void QAbstractItemView::setDragEnabled(bool)
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     obj1->setDragEnabled(false);
     QCOMPARE(false, obj1->dragEnabled());
     obj1->setDragEnabled(true);
@@ -411,7 +415,7 @@ void tst_QAbstractItemView::basic_tests(QAbstractItemView *view)
     view->setTabKeyNavigation(true);
     QCOMPARE(view->tabKeyNavigation(), true);
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     // setDropIndicatorShown
     view->setDropIndicatorShown(false);
     QCOMPARE(view->showDropIndicator(), false);
@@ -498,11 +502,6 @@ void tst_QAbstractItemView::basic_tests(QAbstractItemView *view)
     view->commitData(0);
     view->editorDestroyed(0);
 
-    view->setHorizontalStepsPerItem(2);
-    view->horizontalStepsPerItem();
-    view->setVerticalStepsPerItem(2);
-    view->verticalStepsPerItem();
-
     // Will assert as it should
     // view->setIndexWidget(QModelIndex(), 0);
 
@@ -523,7 +522,7 @@ void tst_QAbstractItemView::basic_tests(QAbstractItemView *view)
 
     view->selectionCommand(QModelIndex(), 0);
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     if (!view->model())
         view->startDrag(Qt::CopyAction);
 
@@ -1164,8 +1163,7 @@ void tst_QAbstractItemView::task221955_selectedEditor()
 
     //We set the focus to the button, the index need to be selected
     button->setFocus();
-    QTest::qWait(100);
-    QVERIFY(tree.selectionModel()->selectedIndexes().contains(tree.model()->index(3,0)));
+    QTRY_VERIFY(tree.selectionModel()->selectedIndexes().contains(tree.model()->index(3,0)));
 
     tree.setCurrentIndex(tree.model()->index(1,0));
     QVERIFY(! tree.selectionModel()->selectedIndexes().contains(tree.model()->index(3,0)));
@@ -1175,7 +1173,6 @@ void tst_QAbstractItemView::task221955_selectedEditor()
     tree.setSelectionMode(QAbstractItemView::NoSelection);
     tree.clearSelection();
     QVERIFY(tree.selectionModel()->selectedIndexes().isEmpty());
-    QTest::qWait(10);
     button->setFocus();
     QTest::qWait(50);
     QVERIFY(tree.selectionModel()->selectedIndexes().isEmpty());
@@ -1215,6 +1212,9 @@ void tst_QAbstractItemView::task250754_fontChange()
 
     font.setPixelSize(60);
     tree.setFont(font);
+#ifdef Q_OS_WINRT
+    QSKIP("Resizing the widget does not work as expected for WinRT, so the scroll bar might not be visible");
+#endif
     //now with the huge items, the scrollbar must be visible
     QTRY_VERIFY(tree.verticalScrollBar()->isVisible());
 
@@ -1263,14 +1263,10 @@ void tst_QAbstractItemView::task257481_emptyEditor()
     QCOMPARE(lineEditors.count(), 1);
     QVERIFY(!lineEditors.first()->size().isEmpty());
 
-    QTest::qWait(30);
-
     treeView.edit(model.index(1,0));
     lineEditors = treeView.viewport()->findChildren<QLineEdit *>();
     QCOMPARE(lineEditors.count(), 1);
     QVERIFY(!lineEditors.first()->size().isEmpty());
-
-    QTest::qWait(30);
 
     treeView.edit(model.index(2,0));
     lineEditors = treeView.viewport()->findChildren<QLineEdit *>();
@@ -1458,7 +1454,6 @@ void tst_QAbstractItemView::QTBUG6407_extendedSelection()
     QCOMPARE(static_cast<QWidget *>(&view), QApplication::activeWindow());
 
     view.verticalScrollBar()->setValue(view.verticalScrollBar()->maximum());
-    QTest::qWait(20);
 
     QModelIndex index49 = view.model()->index(49,0);
     QPoint p = view.visualRect(index49).center();
@@ -1502,7 +1497,6 @@ void tst_QAbstractItemView::QTBUG6753_selectOnSelection()
     QRect itemRect = table.visualRect(item);
     QTest::mouseMove(table.viewport(), itemRect.center());
     QTest::mouseClick(table.viewport(), Qt::LeftButton, Qt::NoModifier, itemRect.center());
-    QTest::qWait(20);
 
     QCOMPARE(table.selectedItems().count(), 1);
     QCOMPARE(table.selectedItems().first(), table.item(item.row(), item.column()));
@@ -1538,6 +1532,9 @@ void tst_QAbstractItemView::testClickedSignal()
     QSignalSpy clickedSpy(&view, SIGNAL(clicked(QModelIndex)));
 
     QTest::mouseClick(view.viewport(), Qt::LeftButton, 0, p);
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QCOMPARE(clickedSpy.count(), 1);
 
     QTest::mouseClick(view.viewport(), Qt::RightButton, 0, p);
@@ -1555,7 +1552,7 @@ public:
     QItemDelegate(parent)
   {}
 
-  void setEditorData(QWidget *editor, const QModelIndex &index) const Q_DECL_OVERRIDE {
+  void setEditorData(QWidget *editor, const QModelIndex &index) const override {
       Q_UNUSED(index);
       static bool w = true;
       editor->setEnabled(w);
@@ -1999,7 +1996,7 @@ void tst_QAbstractItemView::QTBUG50535_update_on_new_selection_model()
         {
         }
 
-        void setSelectionModel(QItemSelectionModel *model) Q_DECL_OVERRIDE
+        void setSelectionModel(QItemSelectionModel *model) override
         {
             m_deselectedMustBeEmpty = !selectionModel() || !model || selectionModel()->model() != model->model();
             QListView::setSelectionModel(model);
@@ -2009,7 +2006,7 @@ void tst_QAbstractItemView::QTBUG50535_update_on_new_selection_model()
         bool selectionChangedOk() const { return m_selectionChangedOk; }
 
     protected:
-        bool viewportEvent(QEvent *event) Q_DECL_OVERRIDE
+        bool viewportEvent(QEvent *event) override
         {
             if (event->type() == QEvent::Paint)
                 ++m_paintEventsCount;
@@ -2017,7 +2014,7 @@ void tst_QAbstractItemView::QTBUG50535_update_on_new_selection_model()
         }
 
         void selectionChanged(const QItemSelection &selected,
-                              const QItemSelection &deselected) Q_DECL_OVERRIDE
+                              const QItemSelection &deselected) override
         {
             if (m_deselectedMustBeEmpty && !deselected.isEmpty())
                 m_selectionChangedOk = false;
@@ -2140,7 +2137,7 @@ signals:
     void setSelectionCalled(const QRect &rect);
 
 protected:
-    void setSelection(const QRect &rect, QItemSelectionModel::SelectionFlags flags) Q_DECL_OVERRIDE
+    void setSelection(const QRect &rect, QItemSelectionModel::SelectionFlags flags) override
     {
         emit setSelectionCalled(rect);
         QListView::setSelection(rect, flags);
@@ -2261,6 +2258,9 @@ void tst_QAbstractItemView::QTBUG46785_mouseout_hover_state()
 
     QTest::mouseMove(table.viewport(), QPoint(-50, 0));
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "QTest::mouseMove does not work on WinRT", Abort);
+#endif
     QTRY_VERIFY(delegate.m_paintedWithoutHover);
 }
 
@@ -2388,6 +2388,133 @@ void tst_QAbstractItemView::inputMethodEnabled()
     QApplication::setActiveWindow(view.data());
     QVERIFY(QTest::qWaitForWindowActive(view.data()));
     QCOMPARE(view->testAttribute(Qt::WA_InputMethodEnabled), result);
+}
+
+void tst_QAbstractItemView::currentFollowsIndexWidget_data()
+{
+    QTest::addColumn<QByteArray>("viewType");
+
+    QList<QByteArray> widgets;
+    widgets << "QListView" << "QTreeView" << "QTableView";
+    for (const QByteArray &widget : qAsConst(widgets))
+        QTest::newRow(widget) << widget;
+}
+
+void tst_QAbstractItemView::currentFollowsIndexWidget()
+{
+    QFETCH(QByteArray, viewType);
+
+    QScopedPointer<QAbstractItemView> view;
+    if (viewType == "QListView")
+        view.reset(new QListView());
+    else if (viewType == "QTableView")
+        view.reset(new QTableView());
+    else if (viewType == "QTreeView")
+        view.reset(new QTreeView());
+    else
+        QVERIFY(0);
+
+    centerOnScreen(view.data());
+    view->show();
+    QVERIFY(QTest::qWaitForWindowExposed(view.data()));
+
+    QStandardItemModel *model = new QStandardItemModel(view.data());
+    QStandardItem *item1 = new QStandardItem("first item");
+    item1->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+    model->appendRow(item1);
+
+    QStandardItem *item2 = new QStandardItem("test item");
+    item2->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+    model->appendRow(item2);
+
+    view->setModel(model);
+    QLineEdit *lineEdit1 = new QLineEdit;
+    QLineEdit *lineEdit2 = new QLineEdit;
+    view->setIndexWidget(item1->index(), lineEdit1);
+    view->setIndexWidget(item2->index(), lineEdit2);
+
+    lineEdit2->setFocus();
+    QTRY_VERIFY(lineEdit2->hasFocus());
+    QCOMPARE(view->currentIndex(), item2->index());
+    lineEdit1->setFocus();
+    QTRY_VERIFY(lineEdit1->hasFocus());
+    QCOMPARE(view->currentIndex(), item1->index());
+}
+
+class EditorItemDelegate : public QItemDelegate
+{
+public:
+    EditorItemDelegate() : QItemDelegate(), openedEditor(nullptr) { }
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &,
+                          const QModelIndex &) const override
+    {
+        openedEditor = new QLineEdit(parent);
+        return openedEditor;
+    }
+    mutable QPointer<QWidget> openedEditor;
+};
+
+// Testing the case reported in QTBUG-62253.
+// When an itemview with an editor that has focus loses focus
+// due to a change in the active window then we need to check
+// that the itemview gets focus once the activation is back
+// on the original window.
+void tst_QAbstractItemView::checkFocusAfterActivationChanges_data()
+{
+    QTest::addColumn<QString>("viewType");
+
+    QTest::newRow("QListView") << "QListView";
+    QTest::newRow("QTableView") << "QTableView";
+    QTest::newRow("QTreeView") << "QTreeView";
+}
+
+void tst_QAbstractItemView::checkFocusAfterActivationChanges()
+{
+    QFETCH(QString, viewType);
+
+    const QRect availableGeo = qApp->primaryScreen()->availableGeometry();
+    const int halfWidth = availableGeo.width() / 2;
+    QWidget otherTopLevel;
+    otherTopLevel.setGeometry(availableGeo.x(), availableGeo.y(),
+                              halfWidth, availableGeo.height());
+    otherTopLevel.show();
+
+    QWidget w;
+    w.setGeometry(availableGeo.x() + halfWidth, availableGeo.y(),
+                              halfWidth, availableGeo.height());
+    QLineEdit *le = new QLineEdit(&w);
+    QAbstractItemView *view = 0;
+    if (viewType == "QListView")
+        view = new QListView(&w);
+    else if (viewType == "QTableView")
+        view = new QTableView(&w);
+    else if (viewType == "QTreeView")
+        view = new QTreeView(&w);
+
+    QStandardItemModel model(5, 5);
+    view->setModel(&model);
+    view->move(0, 50);
+    EditorItemDelegate delegate;
+    view->setItemDelegate(&delegate);
+    w.show();
+
+    QVERIFY(QTest::qWaitForWindowActive(&w));
+    QVERIFY(le->hasFocus());
+
+    view->setFocus();
+    QVERIFY(view->hasFocus());
+
+    view->edit(model.index(0,0));
+    QVERIFY(QTest::qWaitForWindowExposed(delegate.openedEditor));
+    QVERIFY(delegate.openedEditor->hasFocus());
+
+    QApplication::setActiveWindow(&otherTopLevel);
+    otherTopLevel.setFocus();
+    QTRY_VERIFY(!delegate.openedEditor);
+
+    QApplication::setActiveWindow(&w);
+    QVERIFY(QTest::qWaitForWindowActive(&w));
+    QVERIFY(view->hasFocus());
 }
 
 QTEST_MAIN(tst_QAbstractItemView)

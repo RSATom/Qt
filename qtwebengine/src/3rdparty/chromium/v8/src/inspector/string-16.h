@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_INSPECTOR_STRING16_H_
-#define V8_INSPECTOR_STRING16_H_
+#ifndef V8_INSPECTOR_STRING_16_H_
+#define V8_INSPECTOR_STRING_16_H_
 
 #include <stdint.h>
 #include <cctype>
@@ -11,6 +11,8 @@
 #include <cstring>
 #include <string>
 #include <vector>
+
+#include "src/base/compiler-specific.h"
 
 namespace v8_inspector {
 
@@ -20,23 +22,24 @@ class String16 {
  public:
   static const size_t kNotFound = static_cast<size_t>(-1);
 
-  String16();
-  String16(const String16& other);
-  String16(String16&& other);
+  String16() = default;
+  String16(const String16&) V8_NOEXCEPT = default;
+  String16(String16&&) V8_NOEXCEPT = default;
   String16(const UChar* characters, size_t size);
   String16(const UChar* characters);  // NOLINT(runtime/explicit)
   String16(const char* characters);   // NOLINT(runtime/explicit)
   String16(const char* characters, size_t size);
   explicit String16(const std::basic_string<UChar>& impl);
 
-  String16& operator=(const String16& other);
-  String16& operator=(String16&& other);
+  String16& operator=(const String16&) V8_NOEXCEPT = default;
+  String16& operator=(String16&&) V8_NOEXCEPT = default;
 
   static String16 fromInteger(int);
   static String16 fromInteger(size_t);
   static String16 fromDouble(double);
   static String16 fromDouble(double, int precision);
 
+  int64_t toInteger64(bool* ok = nullptr) const;
   int toInteger(bool* ok = nullptr) const;
   String16 stripWhiteSpace() const;
   const UChar* characters16() const { return m_impl.c_str(); }
@@ -111,6 +114,8 @@ class String16Builder {
   void append(const char*, size_t);
   void appendNumber(int);
   void appendNumber(size_t);
+  void appendUnsignedAsHex(uint64_t);
+  void appendUnsignedAsHex(uint32_t);
   String16 toString();
   void reserveCapacity(size_t);
 
@@ -148,4 +153,4 @@ struct hash<v8_inspector::String16> {
 
 #endif  // !defined(__APPLE__) || defined(_LIBCPP_VERSION)
 
-#endif  // V8_INSPECTOR_STRING16_H_
+#endif  // V8_INSPECTOR_STRING_16_H_

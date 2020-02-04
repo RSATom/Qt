@@ -17,7 +17,7 @@ namespace content {
 
 namespace {
 
-static int32_t next_id;
+static int32_t g_next_indexed_db_connection_id;
 
 }  // namespace
 
@@ -25,7 +25,7 @@ IndexedDBConnection::IndexedDBConnection(
     int child_process_id,
     scoped_refptr<IndexedDBDatabase> database,
     scoped_refptr<IndexedDBDatabaseCallbacks> callbacks)
-    : id_(next_id++),
+    : id_(g_next_indexed_db_connection_id++),
       child_process_id_(child_process_id),
       database_(database),
       callbacks_(callbacks),
@@ -68,7 +68,7 @@ void IndexedDBConnection::VersionChangeIgnored() {
 }
 
 bool IndexedDBConnection::IsConnected() {
-  return database_.get() != NULL;
+  return database_.get() != nullptr;
 }
 
 // The observers begin listening to changes only once they are activated.
@@ -105,7 +105,7 @@ void IndexedDBConnection::RemoveObservers(
 IndexedDBTransaction* IndexedDBConnection::CreateTransaction(
     int64_t id,
     const std::set<int64_t>& scope,
-    blink::WebIDBTransactionMode mode,
+    blink::mojom::IDBTransactionMode mode,
     IndexedDBBackingStore::Transaction* backing_store_transaction) {
   CHECK_EQ(GetTransaction(id), nullptr) << "Duplicate transaction id." << id;
   std::unique_ptr<IndexedDBTransaction> transaction =
@@ -123,13 +123,21 @@ void IndexedDBConnection::AbortTransaction(
   transaction->Abort(error);
 }
 
-void IndexedDBConnection::AbortAllTransactions(
+void IndexedDBConnection::FinishAllTransactions(
     const IndexedDBDatabaseError& error) {
   std::unordered_map<int64_t, std::unique_ptr<IndexedDBTransaction>> temp_map;
   std::swap(temp_map, transactions_);
   for (const auto& pair : temp_map) {
-    IDB_TRACE1("IndexedDBDatabase::Abort(error)", "txn.id", pair.second->id());
-    pair.second->Abort(error);
+    auto& transaction = pair.second;
+    if (transaction->is_commit_pending()) {
+      IDB_TRACE1("IndexedDBDatabase::Commit", "transaction.id",
+                 transaction->id());
+      transaction->ForcePendingCommit();
+    } else {
+      IDB_TRACE1("IndexedDBDatabase::Abort(error)", "transaction.id",
+                 transaction->id());
+      transaction->Abort(error);
+    }
   }
 }
 
@@ -152,14 +160,6 @@ IndexedDBConnection::AddTransactionForTesting(
 
 void IndexedDBConnection::RemoveTransaction(int64_t id) {
   transactions_.erase(id);
-}
-
-int64_t IndexedDBConnection::NewObserverTransactionId() {
-  // When we overflow to 0, reset the ID to 1 (id of 0 is reserved for upgrade
-  // transactions).
-  if (next_observer_transaction_id_ == 0)
-    next_observer_transaction_id_ = 1;
-  return static_cast<int64_t>(next_observer_transaction_id_++) << 32;
 }
 
 }  // namespace content

@@ -11,6 +11,10 @@
 #include "cc/trees/proxy.h"
 #include "cc/trees/proxy_common.h"
 
+namespace viz {
+class LocalSurfaceIdAllocation;
+}
+
 namespace cc {
 
 class MutatorEvents;
@@ -18,7 +22,9 @@ class CompletionEvent;
 class LayerTreeFrameSink;
 class LayerTreeHost;
 class LayerTreeMutator;
+class PaintWorkletLayerPainter;
 class ProxyImpl;
+class RenderFrameMetadataObserver;
 
 // This class aggregates all interactions that the impl side of the compositor
 // needs to have with the main side.
@@ -51,6 +57,12 @@ class CC_EXPORT ProxyMain : public Proxy {
   void DidCompletePageScaleAnimation();
   void BeginMainFrame(
       std::unique_ptr<BeginMainFrameAndCommitState> begin_main_frame_state);
+  void DidPresentCompositorFrame(
+      uint32_t frame_token,
+      std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
+      const gfx::PresentationFeedback& feedback);
+  void DidGenerateLocalSurfaceIdAllocation(
+      const viz::LocalSurfaceIdAllocation& allocation);
 
   CommitPipelineStage max_requested_pipeline_stage() const {
     return max_requested_pipeline_stage_;
@@ -74,20 +86,26 @@ class CC_EXPORT ProxyMain : public Proxy {
   void SetNeedsCommit() override;
   void SetNeedsRedraw(const gfx::Rect& damage_rect) override;
   void SetNextCommitWaitsForActivation() override;
+  bool RequestedAnimatePending() override;
   void NotifyInputThrottledUntilCommit() override;
-  void SetDeferCommits(bool defer_commits) override;
+  void SetDeferMainFrameUpdate(bool defer_main_frame_update) override;
   bool CommitRequested() const override;
-  void MainThreadHasStoppedFlinging() override;
   void Start() override;
   void Stop() override;
   bool SupportsImplScrolling() const override;
   void SetMutator(std::unique_ptr<LayerTreeMutator> mutator) override;
+  void SetPaintWorkletLayerPainter(
+      std::unique_ptr<PaintWorkletLayerPainter> painter) override;
   bool MainFrameWillHappenForTesting() override;
   void ReleaseLayerTreeFrameSink() override;
   void UpdateBrowserControlsState(BrowserControlsState constraints,
                                   BrowserControlsState current,
                                   bool animate) override;
   void RequestBeginMainFrameNotExpected(bool new_state) override;
+  void SetURLForUkm(const GURL& url) override;
+  void ClearHistory() override;
+  void SetRenderFrameObserver(
+      std::unique_ptr<RenderFrameMetadataObserver> observer) override;
 
   // Returns |true| if the request was actually sent, |false| if one was
   // already outstanding.
@@ -115,6 +133,9 @@ class CC_EXPORT ProxyMain : public Proxy {
   // will stop. Only valid while we are executing the pipeline (i.e.,
   // |current_pipeline_stage| is set to a pipeline stage).
   CommitPipelineStage final_pipeline_stage_;
+  // The final_pipeline_stage_ that was requested before the last commit was
+  // deferred.
+  CommitPipelineStage deferred_final_pipeline_stage_;
 
   bool commit_waits_for_activation_;
 
@@ -122,7 +143,7 @@ class CC_EXPORT ProxyMain : public Proxy {
   // stopped using Proxy::Stop().
   bool started_;
 
-  bool defer_commits_;
+  bool defer_main_frame_update_;
 
   // ProxyImpl is created and destroyed on the impl thread, and should only be
   // accessed on the impl thread.

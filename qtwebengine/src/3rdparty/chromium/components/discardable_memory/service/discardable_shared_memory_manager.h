@@ -9,25 +9,29 @@
 #include <stdint.h>
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "base/callback.h"
-#include "base/containers/hash_tables.h"
 #include "base/format_macros.h"
 #include "base/macros.h"
 #include "base/memory/discardable_memory_allocator.h"
 #include "base/memory/discardable_shared_memory.h"
-#include "base/memory/memory_coordinator_client.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/shared_memory.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/memory/weak_ptr.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/process/process_handle.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "components/discardable_memory/common/discardable_memory_export.h"
 #include "components/discardable_memory/public/interfaces/discardable_shared_memory_manager.mojom.h"
+
+namespace base {
+class WaitableEvent;
+}
 
 namespace service_manager {
 struct BindSourceInfo;
@@ -43,7 +47,7 @@ namespace discardable_memory {
 class DISCARDABLE_MEMORY_EXPORT DiscardableSharedMemoryManager
     : public base::DiscardableMemoryAllocator,
       public base::trace_event::MemoryDumpProvider,
-      public base::MemoryCoordinatorClient {
+      public base::MessageLoopCurrent::DestructionObserver {
  public:
   DiscardableSharedMemoryManager();
   ~DiscardableSharedMemoryManager() override;
@@ -61,12 +65,12 @@ class DISCARDABLE_MEMORY_EXPORT DiscardableSharedMemoryManager
                     base::trace_event::ProcessMemoryDump* pmd) override;
 
   // This allocates a discardable memory segment for |process_handle|.
-  // A valid shared memory handle is returned on success.
+  // A valid shared memory region is returned on success.
   void AllocateLockedDiscardableSharedMemoryForClient(
       int client_id,
       size_t size,
       int32_t id,
-      base::SharedMemoryHandle* shared_memory_handle);
+      base::UnsafeSharedMemoryRegion* shared_memory_region);
 
   // Call this to notify the manager that client process associated with
   // |client_id| has deleted discardable memory segment with |id|.
@@ -110,15 +114,14 @@ class DISCARDABLE_MEMORY_EXPORT DiscardableSharedMemoryManager
     return a->memory()->last_known_usage() > b->memory()->last_known_usage();
   }
 
-  // base::MemoryCoordinatorClient implementation:
-  void OnMemoryStateChange(base::MemoryState state) override;
-  void OnPurgeMemory() override;
+  // base::MessageLoopCurrent::DestructionObserver implementation:
+  void WillDestroyCurrentMessageLoop() override;
 
   void AllocateLockedDiscardableSharedMemory(
       int client_id,
       size_t size,
       int32_t id,
-      base::SharedMemoryHandle* shared_memory_handle);
+      base::UnsafeSharedMemoryRegion* shared_memory_region);
   void DeletedDiscardableSharedMemory(int32_t id, int client_id);
   void OnMemoryPressure(
       base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level);
@@ -131,12 +134,15 @@ class DISCARDABLE_MEMORY_EXPORT DiscardableSharedMemoryManager
   virtual base::Time Now() const;
   virtual void ScheduleEnforceMemoryPolicy();
 
+  // Invalidate weak pointers for the mojo thread.
+  void InvalidateMojoThreadWeakPtrs(base::WaitableEvent* event);
+
   int32_t next_client_id_;
 
   base::Lock lock_;
   using MemorySegmentMap =
-      base::hash_map<int32_t, scoped_refptr<MemorySegment>>;
-  using ClientMap = base::hash_map<int, MemorySegmentMap>;
+      std::unordered_map<int32_t, scoped_refptr<MemorySegment>>;
+  using ClientMap = std::unordered_map<int, MemorySegmentMap>;
   ClientMap clients_;
   // Note: The elements in |segments_| are arranged in such a way that they form
   // a heap. The LRU memory segment always first.
@@ -150,7 +156,20 @@ class DISCARDABLE_MEMORY_EXPORT DiscardableSharedMemoryManager
       enforce_memory_policy_task_runner_;
   base::Closure enforce_memory_policy_callback_;
   bool enforce_memory_policy_pending_;
+
+  // The message loop for running mojom::DiscardableSharedMemoryManager
+  // implementations.
+  // TODO(altimin,gab): Allow weak pointers to be deleted on other threads
+  // when the thread is gone and remove this.
+  // A prerequisite for this is allowing objects to be bound to the lifetime
+  // of a sequence directly.
+  base::MessageLoopCurrent mojo_thread_message_loop_;
+
   base::WeakPtrFactory<DiscardableSharedMemoryManager> weak_ptr_factory_;
+
+  // WeakPtrFractory for generating weak pointers used in the mojo thread.
+  base::WeakPtrFactory<DiscardableSharedMemoryManager>
+      mojo_thread_weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DiscardableSharedMemoryManager);
 };

@@ -78,7 +78,7 @@ class Q_GRUE_EXPORT GrueFilter : public QSensorFilter
 public:
     virtual bool filter(GrueSensorReading *reading) = 0;
 private:
-    bool filter(QSensorReading *reading) { return filter(static_cast<GrueSensorReading*>(reading)); }
+    bool filter(QSensorReading *reading) override { return filter(static_cast<GrueSensorReading*>(reading)); }
 };
 
 class Q_GRUE_EXPORT GrueSensor : public QSensor

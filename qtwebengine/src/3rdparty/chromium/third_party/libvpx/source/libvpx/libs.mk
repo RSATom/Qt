@@ -88,7 +88,6 @@ ifeq ($(CONFIG_VP9_ENCODER),yes)
   CODEC_EXPORTS-yes += $(addprefix $(VP9_PREFIX),$(VP9_CX_EXPORTS))
   CODEC_SRCS-yes += $(VP9_PREFIX)vp9cx.mk vpx/vp8.h vpx/vp8cx.h
   INSTALL-LIBS-yes += include/vpx/vp8.h include/vpx/vp8cx.h
-  INSTALL-LIBS-$(CONFIG_SPATIAL_SVC) += include/vpx/svc_context.h
   INSTALL_MAPS += include/vpx/% $(SRC_PATH_BARE)/$(VP9_PREFIX)/%
   CODEC_DOC_SRCS += vpx/vp8.h vpx/vp8cx.h
   CODEC_DOC_SECTIONS += vp9 vp9_encoder
@@ -112,13 +111,6 @@ endif
 ifeq ($(CONFIG_DECODERS),yes)
   CODEC_DOC_SECTIONS += decoder
 endif
-
-# Suppress -Wextra warnings in third party code.
-$(BUILD_PFX)third_party/googletest/%.cc.o: CXXFLAGS += -Wno-missing-field-initializers
-# Suppress -Wextra warnings in first party code pending investigation.
-# https://bugs.chromium.org/p/webm/issues/detail?id=1069
-$(BUILD_PFX)vp8/encoder/onyx_if.c.o: CFLAGS += -Wno-unknown-warning-option -Wno-clobbered
-$(BUILD_PFX)vp8/decoder/onyxd_if.c.o: CFLAGS += -Wno-unknown-warning-option -Wno-clobbered
 
 ifeq ($(CONFIG_MSVS),yes)
 CODEC_LIB=$(if $(CONFIG_STATIC_MSVCRT),vpxmt,vpxmd)
@@ -153,9 +145,7 @@ INSTALL-SRCS-$(CONFIG_CODEC_SRCS) += vpx_dsp/x86/bitdepth_conversion_sse2.asm
 endif
 CODEC_EXPORTS-yes += vpx/exports_com
 CODEC_EXPORTS-$(CONFIG_ENCODERS) += vpx/exports_enc
-ifeq ($(CONFIG_SPATIAL_SVC),yes)
-CODEC_EXPORTS-$(CONFIG_ENCODERS) += vpx/exports_spatial_svc
-endif
+CODEC_EXPORTS-$(CONFIG_VP9_ENCODER) += vpx/exports_spatial_svc
 CODEC_EXPORTS-$(CONFIG_DECODERS) += vpx/exports_dec
 
 INSTALL-LIBS-yes += include/vpx/vpx_codec.h
@@ -188,6 +178,13 @@ libvpx_srcs.txt:
 	@echo $(CODEC_SRCS) | xargs -n1 echo | LC_ALL=C sort -u > $@
 CLEAN-OBJS += libvpx_srcs.txt
 
+# Assembly files that are included, but don't define symbols themselves.
+# Filtered out to avoid Windows build warnings.
+ASM_INCLUDES := \
+    third_party/x86inc/x86inc.asm \
+    vpx_config.asm \
+    vpx_ports/x86_abi_support.asm \
+    vpx_dsp/x86/bitdepth_conversion_sse2.asm \
 
 ifeq ($(CONFIG_EXTERNAL_BUILD),yes)
 ifeq ($(CONFIG_MSVS),yes)
@@ -199,13 +196,7 @@ vpx.def: $(call enabled,CODEC_EXPORTS)
             --out=$@ $^
 CLEAN-OBJS += vpx.def
 
-# Assembly files that are included, but don't define symbols themselves.
-# Filtered out to avoid Visual Studio build warnings.
-ASM_INCLUDES := \
-    third_party/x86inc/x86inc.asm \
-    vpx_config.asm \
-    vpx_ports/x86_abi_support.asm \
-    vpx_dsp/x86/bitdepth_conversion_sse2.asm \
+vpx.$(VCPROJ_SFX): VCPROJ_SRCS=$(filter-out $(addprefix %, $(ASM_INCLUDES)), $^)
 
 vpx.$(VCPROJ_SFX): $(CODEC_SRCS) vpx.def
 	@echo "    [CREATE] $@"
@@ -219,7 +210,15 @@ vpx.$(VCPROJ_SFX): $(CODEC_SRCS) vpx.def
             --ver=$(CONFIG_VS_VERSION) \
             --src-path-bare="$(SRC_PATH_BARE)" \
             --out=$@ $(CFLAGS) \
-            $(filter-out $(addprefix %, $(ASM_INCLUDES)), $^) \
+            $(filter $(SRC_PATH_BARE)/vp8/%.c, $(VCPROJ_SRCS)) \
+            $(filter $(SRC_PATH_BARE)/vp8/%.h, $(VCPROJ_SRCS)) \
+            $(filter $(SRC_PATH_BARE)/vp9/%.c, $(VCPROJ_SRCS)) \
+            $(filter $(SRC_PATH_BARE)/vp9/%.h, $(VCPROJ_SRCS)) \
+            $(filter $(SRC_PATH_BARE)/vpx/%, $(VCPROJ_SRCS)) \
+            $(filter $(SRC_PATH_BARE)/vpx_dsp/%, $(VCPROJ_SRCS)) \
+            $(filter-out $(addprefix $(SRC_PATH_BARE)/, \
+                           vp8/%.c vp8/%.h vp9/%.c vp9/%.h vpx/% vpx_dsp/%), \
+              $(VCPROJ_SRCS)) \
             --src-path-bare="$(SRC_PATH_BARE)" \
 
 PROJECTS-yes += vpx.$(VCPROJ_SFX)
@@ -229,13 +228,13 @@ vpx.$(VCPROJ_SFX): $(RTCD)
 
 endif
 else
-LIBVPX_OBJS=$(call objs,$(CODEC_SRCS))
+LIBVPX_OBJS=$(call objs, $(filter-out $(ASM_INCLUDES), $(CODEC_SRCS)))
 OBJS-yes += $(LIBVPX_OBJS)
 LIBS-$(if yes,$(CONFIG_STATIC)) += $(BUILD_PFX)libvpx.a $(BUILD_PFX)libvpx_g.a
 $(BUILD_PFX)libvpx_g.a: $(LIBVPX_OBJS)
 
-SO_VERSION_MAJOR := 4
-SO_VERSION_MINOR := 1
+SO_VERSION_MAJOR := 5
+SO_VERSION_MINOR := 0
 SO_VERSION_PATCH := 0
 ifeq ($(filter darwin%,$(TGT_OS)),$(TGT_OS))
 LIBVPX_SO               := libvpx.$(SO_VERSION_MAJOR).dylib
@@ -274,18 +273,6 @@ $(BUILD_PFX)$(LIBVPX_SO): $(LIBVPX_OBJS) $(EXPORT_FILE)
 $(BUILD_PFX)$(LIBVPX_SO): extralibs += -lm
 $(BUILD_PFX)$(LIBVPX_SO): SONAME = libvpx.so.$(SO_VERSION_MAJOR)
 $(BUILD_PFX)$(LIBVPX_SO): EXPORTS_FILE = $(EXPORT_FILE)
-
-libvpx.ver: $(call enabled,CODEC_EXPORTS)
-	@echo "    [CREATE] $@"
-	$(qexec)echo "{ global:" > $@
-	$(qexec)for f in $?; do awk '{print $$2";"}' < $$f >>$@; done
-	$(qexec)echo "local: *; };" >> $@
-CLEAN-OBJS += libvpx.ver
-
-libvpx.syms: $(call enabled,CODEC_EXPORTS)
-	@echo "    [CREATE] $@"
-	$(qexec)awk '{print "_"$$2}' $^ >$@
-CLEAN-OBJS += libvpx.syms
 
 libvpx.def: $(call enabled,CODEC_EXPORTS)
 	@echo "    [CREATE] $@"
@@ -345,6 +332,18 @@ INSTALL-LIBS-yes += $(LIBSUBDIR)/pkgconfig/vpx.pc
 INSTALL_MAPS += $(LIBSUBDIR)/pkgconfig/%.pc %.pc
 CLEAN-OBJS += vpx.pc
 endif
+
+libvpx.ver: $(call enabled,CODEC_EXPORTS)
+	@echo "    [CREATE] $@"
+	$(qexec)echo "{ global:" > $@
+	$(qexec)for f in $?; do awk '{print $$2";"}' < $$f >>$@; done
+	$(qexec)echo "local: *; };" >> $@
+CLEAN-OBJS += libvpx.ver
+
+libvpx.syms: $(call enabled,CODEC_EXPORTS)
+	@echo "    [CREATE] $@"
+	$(qexec)awk '{print "_"$$2}' $^ >$@
+CLEAN-OBJS += libvpx.syms
 
 #
 # Rule to make assembler configuration file from C configuration file

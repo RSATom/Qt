@@ -13,7 +13,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/threading/thread_checker.h"
+#include "base/sequence_checker.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/sync/model/change_processor.h"
@@ -119,12 +119,8 @@ class BookmarkChangeProcessor : public bookmarks::BookmarkModelObserver,
       int index);
 
   // Sets the favicon of the given bookmark node from the given sync node.
-  // Returns whether the favicon was set in the bookmark node.
-  // |profile| is the profile that contains the HistoryService and BookmarkModel
-  // for the bookmark in question.
-  static bool SetBookmarkFavicon(const syncer::BaseNode* sync_node,
+  static void SetBookmarkFavicon(const syncer::BaseNode* sync_node,
                                  const bookmarks::BookmarkNode* bookmark_node,
-                                 bookmarks::BookmarkModel* model,
                                  syncer::SyncClient* sync_client);
 
   // Applies the 1x favicon |bitmap_data| and |icon_url| to |bookmark_node|.
@@ -239,7 +235,7 @@ class BookmarkChangeProcessor : public bookmarks::BookmarkModelObserver,
   // Returns false if |node| should not be synced.
   bool CanSyncNode(const bookmarks::BookmarkNode* node);
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   // The bookmark model we are processing changes from.  Non-null when
   // |running_| is true.

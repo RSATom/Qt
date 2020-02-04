@@ -12,6 +12,8 @@
 Polymer({
   is: 'cr-picture-list',
 
+  behaviors: [CrPngBehavior],
+
   properties: {
     cameraPresent: Boolean,
 
@@ -28,7 +30,6 @@ Polymer({
     chooseFileLabel: String,
     oldImageLabel: String,
     profileImageLabel: String,
-    profileImageLoadingLabel: String,
     takePhotoLabel: String,
 
     /**
@@ -118,8 +119,9 @@ Polymer({
   setProfileImageUrl: function(imageUrl, selected) {
     this.profileImageUrl_ = imageUrl;
     this.$.profileImage.title = this.profileImageLabel;
-    if (!selected)
+    if (!selected) {
       return;
+    }
     this.setSelectedImage_(this.$.profileImage);
   },
 
@@ -127,7 +129,7 @@ Polymer({
    * @param {string} imageUrl
    */
   setSelectedImageUrl(imageUrl) {
-    var image = this.$.selector.items.find(function(image) {
+    const image = this.$.selector.items.find(function(image) {
       return image.dataset.url == imageUrl;
     });
     if (image) {
@@ -180,8 +182,9 @@ Polymer({
 
   /** @private */
   onDefaultImagesChanged_: function() {
-    if (this.selectedImageUrl_)
+    if (this.selectedImageUrl_) {
       this.setSelectedImageUrl(this.selectedImageUrl_);
+    }
   },
 
   /**
@@ -189,12 +192,13 @@ Polymer({
    * @param {!{detail: !{key: string, keyboardEvent: Object}}} e
    */
   onKeysPressed_: function(e) {
-    if (!this.selectedItem)
+    if (!this.selectedItem) {
       return;
+    }
 
-    var selector = /** @type {IronSelectorElement} */ (this.$.selector);
-    var prevSelected = this.selectedItem;
-    var activate = false;
+    const selector = /** @type {IronSelectorElement} */ (this.$.selector);
+    const prevSelected = this.selectedItem;
+    let activate = false;
     switch (e.detail.key) {
       case 'enter':
       case 'space':
@@ -228,10 +232,15 @@ Polymer({
     this.cameraSelected_ =
         selected.dataset.type == CrPicture.SelectionTypes.CAMERA;
     this.selectedItem = selected;
-    if (activate && selected.dataset.type == CrPicture.SelectionTypes.OLD)
-      this.fire('discard-image');
-    else if (activate || selected.dataset.type != CrPicture.SelectionTypes.FILE)
+
+    if (selected.dataset.type == CrPicture.SelectionTypes.CAMERA) {
+      if (activate) {
+        this.fire('focus-action', selected);
+      }
+    } else if (
+        activate || selected.dataset.type != CrPicture.SelectionTypes.FILE) {
       this.fire('image-activate', selected);
+    }
   },
 
   /**
@@ -239,9 +248,9 @@ Polymer({
    * @private
    */
   onIronActivate_: function(event) {
-    var type = event.detail.item.dataset.type;
-    // When clicking on the 'old' (current) image, do not activate (discard) it.
-    var activate = type != CrPicture.SelectionTypes.OLD;
+    const type = event.detail.item.dataset.type;
+    // Don't change focus when activating the camera via mouse.
+    const activate = type != CrPicture.SelectionTypes.CAMERA;
     this.selectImage_(event.detail.item, activate);
   },
 
@@ -250,8 +259,9 @@ Polymer({
    * @private
    */
   onSelectedItemChanged_: function(event) {
-    if (event.target.selectedItem)
+    if (event.target.selectedItem) {
       event.target.selectedItem.scrollIntoViewIfNeeded(false);
+    }
   },
 
   /**
@@ -262,8 +272,17 @@ Polymer({
    */
   getImgSrc_: function(url) {
     // Use first frame of animated user images.
-    if (url.startsWith('chrome://theme'))
+    if (url.startsWith('chrome://theme')) {
       return url + '[0]';
+    }
+
+    /**
+     * Extract first frame from image by creating a single frame PNG using
+     * url as input if base64 encoded and potentially animated.
+     */
+    if (url.split(',')[0] == 'data:image/png;base64') {
+      return CrPngBehavior.convertImageSequenceToPng([url]);
+    }
 
     return url;
   },
@@ -277,8 +296,9 @@ Polymer({
    * @private
    */
   getImgSrc2x_: function(url) {
-    if (!url.startsWith('chrome://theme'))
+    if (!url.startsWith('chrome://theme')) {
       return '';
+    }
     return url + '[0]@2x 2x';
   },
 });

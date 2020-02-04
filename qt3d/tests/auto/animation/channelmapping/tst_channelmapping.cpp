@@ -41,6 +41,18 @@
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include "testpostmanarbiter.h"
 
+class tst_TargetEntity : public Qt3DCore::QEntity
+{
+    Q_OBJECT
+    Q_PROPERTY(QVector2D foo MEMBER m_foo NOTIFY fooChanged)
+
+signals:
+    void fooChanged();
+
+private:
+    QVector2D m_foo;
+};
+
 class tst_ChannelMapping : public Qt3DCore::QBackendNodeTester
 {
     Q_OBJECT
@@ -53,7 +65,7 @@ private Q_SLOTS:
         Qt3DAnimation::Animation::ChannelMapping backendMapping;
         backendMapping.setHandler(&handler);
         Qt3DAnimation::QChannelMapping mapping;
-        auto target = new Qt3DCore::QEntity;
+        auto target = new tst_TargetEntity;
 
         mapping.setChannelName(QLatin1String("Location"));
         mapping.setTarget(target);
@@ -67,7 +79,10 @@ private Q_SLOTS:
         QCOMPARE(backendMapping.isEnabled(), mapping.isEnabled());
         QCOMPARE(backendMapping.channelName(), mapping.channelName());
         QCOMPARE(backendMapping.targetId(), mapping.target()->id());
-        QCOMPARE(backendMapping.property(), mapping.property());
+        QVERIFY(qstrcmp(backendMapping.propertyName(), mapping.property().toLatin1().constData()) == 0);
+        QVERIFY(qstrcmp(backendMapping.propertyName(), "foo") == 0);
+        QCOMPARE(backendMapping.componentCount(), 2);
+        QCOMPARE(backendMapping.type(), static_cast<int>(QVariant::Vector2D));
         QCOMPARE(backendMapping.mappingType(), Qt3DAnimation::Animation::ChannelMapping::ChannelMappingType);
 
         // GIVEN
@@ -99,13 +114,15 @@ private Q_SLOTS:
         QCOMPARE(backendMapping.isEnabled(), false);
         QCOMPARE(backendMapping.channelName(), QString());
         QCOMPARE(backendMapping.targetId(), Qt3DCore::QNodeId());
-        QCOMPARE(backendMapping.property(), QString());
+        QCOMPARE(backendMapping.propertyName(), nullptr);
+        QCOMPARE(backendMapping.componentCount(), 0);
+        QCOMPARE(backendMapping.type(), static_cast<int>(QVariant::Invalid));
         QCOMPARE(backendMapping.skeletonId(), Qt3DCore::QNodeId());
         QCOMPARE(backendMapping.mappingType(), Qt3DAnimation::Animation::ChannelMapping::ChannelMappingType);
 
         // GIVEN
         Qt3DAnimation::QChannelMapping mapping;
-        auto target = new Qt3DCore::QEntity;
+        auto target = new tst_TargetEntity;
         mapping.setChannelName(QLatin1String("Location"));
         mapping.setTarget(target);
         mapping.setProperty(QLatin1String("foo"));
@@ -119,7 +136,9 @@ private Q_SLOTS:
         QCOMPARE(backendMapping.isEnabled(), false);
         QCOMPARE(backendMapping.channelName(), QString());
         QCOMPARE(backendMapping.targetId(), Qt3DCore::QNodeId());
-        QCOMPARE(backendMapping.property(), QString());
+        QCOMPARE(backendMapping.propertyName(), nullptr);
+        QCOMPARE(backendMapping.componentCount(), 0);
+        QCOMPARE(backendMapping.type(), static_cast<int>(QVariant::Invalid));
         QCOMPARE(backendMapping.skeletonId(), Qt3DCore::QNodeId());
         QCOMPARE(backendMapping.mappingType(), Qt3DAnimation::Animation::ChannelMapping::ChannelMappingType);
     }
@@ -162,14 +181,32 @@ private Q_SLOTS:
         QCOMPARE(backendMapping.targetId(), id);
 
         // WHEN
-        const QString property(QLatin1String("bar"));
         updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setPropertyName("property");
-        updateChange->setValue(property);
+        updateChange->setPropertyName("type");
+        updateChange->setValue(QVariant(static_cast<int>(QVariant::Vector3D)));
         backendMapping.sceneChangeEvent(updateChange);
 
         // THEN
-        QCOMPARE(backendMapping.property(), property);
+        QCOMPARE(backendMapping.type(), static_cast<int>(QVariant::Vector3D));
+
+        // WHEN
+        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
+        updateChange->setPropertyName("componentCount");
+        updateChange->setValue(4);
+        backendMapping.sceneChangeEvent(updateChange);
+
+        // THEN
+        QCOMPARE(backendMapping.componentCount(), 4);
+
+        // WHEN
+        const char *testName = "883";
+        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
+        updateChange->setPropertyName("propertyName");
+        updateChange->setValue(QVariant::fromValue(reinterpret_cast<void *>(const_cast<char *>(testName))));
+        backendMapping.sceneChangeEvent(updateChange);
+
+        // THEN
+        QCOMPARE(backendMapping.propertyName(), testName);
 
         // WHEN
         const auto skeletonId = Qt3DCore::QNodeId::createId();

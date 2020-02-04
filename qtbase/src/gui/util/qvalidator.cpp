@@ -411,13 +411,15 @@ QValidator::State QIntValidator::validate(QString & input, int&) const
     if (buff.isEmpty())
         return Intermediate;
 
-    if (b >= 0 && buff.startsWith('-'))
+    const bool startsWithMinus(buff[0] == '-');
+    if (b >= 0 && startsWithMinus)
         return Invalid;
 
-    if (t < 0 && buff.startsWith('+'))
+    const bool startsWithPlus(buff[0] == '+');
+    if (t < 0 && startsWithPlus)
         return Invalid;
 
-    if (buff.size() == 1 && (buff.at(0) == '+' || buff.at(0) == '-'))
+    if (buff.size() == 1 && (startsWithPlus || startsWithMinus))
         return Intermediate;
 
     bool ok;
@@ -433,7 +435,15 @@ QValidator::State QIntValidator::validate(QString & input, int&) const
     if (entered >= 0) {
         // the -entered < b condition is necessary to allow people to type
         // the minus last (e.g. for right-to-left languages)
-        return (entered > t && -entered < b) ? Invalid : Intermediate;
+        // The buffLength > tLength condition validates values consisting
+        // of a number of digits equal to or less than the max value as intermediate.
+
+        int buffLength = buff.size();
+        if (startsWithPlus)
+            buffLength--;
+        const int tLength = t != 0 ? static_cast<int>(std::log10(qAbs(t))) + 1 : 1;
+
+        return (entered > t && -entered < b && buffLength > tLength) ? Invalid : Intermediate;
     } else {
         return (entered < b) ? Invalid : Intermediate;
     }
@@ -624,10 +634,10 @@ QDoubleValidator::~QDoubleValidator()
     that is within the valid range and is in the correct format.
 
     Returns \l Intermediate if \a input contains a double that is
-    outside the range or is in the wrong format; e.g. with too many
-    digits after the decimal point or is empty.
+    outside the range or is in the wrong format; e.g. is empty.
 
-    Returns \l Invalid if the \a input is not a double.
+    Returns \l Invalid if the \a input is not a double or with too many
+    digits after the decimal point.
 
     Note: If the valid range consists of just positive doubles (e.g. 0.0 to 100.0)
     and \a input is a negative double then \l Invalid is returned. If notation()
@@ -690,8 +700,16 @@ QValidator::State QDoubleValidatorPrivate::validateWithLocale(QString &input, QL
     if (notation == QDoubleValidator::StandardNotation) {
         double max = qMax(qAbs(q->b), qAbs(q->t));
         if (max < LLONG_MAX) {
-            qlonglong n = pow10(numDigits(qlonglong(max))) - 1;
-            if (qAbs(i) > n)
+            qlonglong n = pow10(numDigits(qlonglong(max)));
+            // In order to get the highest possible number in the intermediate
+            // range we need to get 10 to the power of the number of digits
+            // after the decimal's and subtract that from the top number.
+            //
+            // For example, where q->dec == 2 and with a range of 0.0 - 9.0
+            // then the minimum possible number is 0.00 and the maximum
+            // possible is 9.99. Therefore 9.999 and 10.0 should be seen as
+            // invalid.
+            if (qAbs(i) > (n - std::pow(10, -q->dec)))
                 return QValidator::Invalid;
         }
     }
@@ -916,7 +934,7 @@ void QRegExpValidator::setRegExp(const QRegExp& rx)
 
 #endif
 
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
 
 /*!
     \class QRegularExpressionValidator
@@ -1061,13 +1079,13 @@ void QRegularExpressionValidatorPrivate::setRegularExpression(const QRegularExpr
 
     if (origRe != re) {
         usedRe = origRe = re; // copies also the pattern options
-        usedRe.setPattern(QLatin1String("\\A(?:") + re.pattern() + QLatin1String(")\\z"));
+        usedRe.setPattern(QRegularExpression::anchoredPattern(re.pattern()));
         emit q->regularExpressionChanged(re);
         emit q->changed();
     }
 }
 
-#endif // QT_NO_REGULAREXPRESSION
+#endif // QT_CONFIG(regularexpression)
 
 QT_END_NAMESPACE
 

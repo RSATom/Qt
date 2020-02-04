@@ -50,16 +50,6 @@ namespace ABI {
         namespace Foundation {
             struct IAsyncAction;
         }
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
-        namespace Phone {
-            namespace UI {
-                namespace Input {
-                    struct IBackPressedEventArgs;
-                    struct ICameraEventArgs;
-                }
-            }
-        }
-#endif
     }
 }
 struct IAsyncInfo;
@@ -75,7 +65,7 @@ class QWinRTIntegration : public QPlatformIntegration
 private:
     explicit QWinRTIntegration();
 public:
-    ~QWinRTIntegration();
+    ~QWinRTIntegration() override;
 
     static QWinRTIntegration *create()
     {
@@ -97,8 +87,11 @@ public:
     QPlatformInputContext *inputContext() const override;
     QPlatformServices *services() const override;
     QPlatformClipboard *clipboard() const override;
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QPlatformDrag *drag() const override;
+#endif
+#if QT_CONFIG(accessibility)
+    QPlatformAccessibility *accessibility() const override;
 #endif
 
     Qt::KeyboardModifiers queryKeyboardModifiers() const override;
@@ -108,12 +101,6 @@ public:
 
     QPlatformOffscreenSurface *createPlatformOffscreenSurface(QOffscreenSurface *surface) const override;
 private:
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
-    HRESULT onBackButtonPressed(IInspectable *, ABI::Windows::Phone::UI::Input::IBackPressedEventArgs *args);
-    HRESULT onCameraPressed(IInspectable *, ABI::Windows::Phone::UI::Input::ICameraEventArgs *);
-    HRESULT onCameraHalfPressed(IInspectable *, ABI::Windows::Phone::UI::Input::ICameraEventArgs *);
-    HRESULT onCameraReleased(IInspectable *, ABI::Windows::Phone::UI::Input::ICameraEventArgs *);
-#endif
     HRESULT onSuspended(IInspectable *, ABI::Windows::ApplicationModel::ISuspendingEventArgs *);
     HRESULT onResume(IInspectable *, IInspectable *);
 

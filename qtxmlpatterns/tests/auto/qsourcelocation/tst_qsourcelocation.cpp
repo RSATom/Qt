@@ -186,7 +186,7 @@ void tst_QSourceLocation::equalnessOperator() const
     QFETCH(bool, True);
 
     QCOMPARE(v1 == v2, True);
-    QCOMPARE(v1 != v2, True);
+    QCOMPARE(v1 != v2, !True);
 }
 
 void tst_QSourceLocation::equalnessOperator_data() const
@@ -273,7 +273,7 @@ void tst_QSourceLocation::constCorrectness() const
     QCOMPARE(def, def2);
 
     /* Inverse equalness operator. */
-    QVERIFY(def != def2);
+    QVERIFY(!(def != def2));
 }
 
 void tst_QSourceLocation::objectSize() const

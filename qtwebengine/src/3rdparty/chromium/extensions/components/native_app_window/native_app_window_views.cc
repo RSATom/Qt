@@ -4,7 +4,6 @@
 
 #include "extensions/components/native_app_window/native_app_window_views.h"
 
-#include "base/threading/sequenced_worker_pool.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -12,7 +11,6 @@
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/common/draggable_region.h"
 #include "third_party/skia/include/core/SkRegion.h"
-#include "ui/gfx/path.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
@@ -129,6 +127,10 @@ void NativeAppWindowViews::Hide() {
   widget_->Hide();
 }
 
+bool NativeAppWindowViews::IsVisible() const {
+  return widget_->IsVisible();
+}
+
 void NativeAppWindowViews::Close() {
   widget_->Close();
 }
@@ -215,7 +217,7 @@ bool NativeAppWindowViews::CanResize() const {
 
 bool NativeAppWindowViews::CanMaximize() const {
   return resizable_ && !size_constraints_.HasMaximumSize() &&
-         !app_window_->window_type_is_panel() && !WidgetHasHitTestMask();
+         !WidgetHasHitTestMask();
 }
 
 bool NativeAppWindowViews::CanMinimize() const {
@@ -372,14 +374,14 @@ SkRegion* NativeAppWindowViews::GetDraggableRegion() {
   return draggable_region_.get();
 }
 
-void NativeAppWindowViews::UpdateShape(std::unique_ptr<SkRegion> region) {
+void NativeAppWindowViews::UpdateShape(std::unique_ptr<ShapeRects> rects) {
   // Stub implementation. See also ChromeNativeAppWindowViews.
 }
 
-void NativeAppWindowViews::HandleKeyboardEvent(
+bool NativeAppWindowViews::HandleKeyboardEvent(
     const content::NativeWebKeyboardEvent& event) {
-  unhandled_keyboard_event_handler_.HandleKeyboardEvent(event,
-                                                        GetFocusManager());
+  return unhandled_keyboard_event_handler_.HandleKeyboardEvent(
+      event, GetFocusManager());
 }
 
 bool NativeAppWindowViews::IsFrameless() const {

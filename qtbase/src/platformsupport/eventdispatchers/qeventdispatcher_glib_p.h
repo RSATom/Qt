@@ -67,15 +67,18 @@ public:
     explicit QPAEventDispatcherGlib(QObject *parent = 0);
     ~QPAEventDispatcherGlib();
 
-    bool processEvents(QEventLoop::ProcessEventsFlags flags) Q_DECL_OVERRIDE;
+    bool processEvents(QEventLoop::ProcessEventsFlags flags) override;
     QEventLoop::ProcessEventsFlags m_flags;
 };
+
+struct GUserEventSource;
 
 class QPAEventDispatcherGlibPrivate : public QEventDispatcherGlibPrivate
 {
     Q_DECLARE_PUBLIC(QPAEventDispatcherGlib)
 public:
     QPAEventDispatcherGlibPrivate(GMainContext *context = 0);
+    GUserEventSource *userEventSource;
 };
 
 

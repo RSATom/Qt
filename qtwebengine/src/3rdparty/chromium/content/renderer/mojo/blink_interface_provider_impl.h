@@ -8,8 +8,9 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "content/common/content_export.h"
 #include "mojo/public/cpp/system/message_pipe.h"
-#include "third_party/WebKit/public/platform/InterfaceProvider.h"
+#include "third_party/blink/public/platform/interface_provider.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -23,10 +24,10 @@ namespace content {
 
 // An implementation of blink::InterfaceProvider that forwards to a
 // service_manager::InterfaceProvider.
-class BlinkInterfaceProviderImpl : public blink::InterfaceProvider {
+class CONTENT_EXPORT BlinkInterfaceProviderImpl final
+    : public blink::InterfaceProvider {
  public:
-  explicit BlinkInterfaceProviderImpl(
-      base::WeakPtr<service_manager::Connector> connector);
+  explicit BlinkInterfaceProviderImpl(service_manager::Connector* connector);
   ~BlinkInterfaceProviderImpl();
 
   // blink::InterfaceProvider override.
@@ -34,17 +35,8 @@ class BlinkInterfaceProviderImpl : public blink::InterfaceProvider {
                     mojo::ScopedMessagePipeHandle handle) override;
 
  private:
-  void GetInterfaceInternal(const std::string& name,
-                            mojo::ScopedMessagePipeHandle handle);
-
   const base::WeakPtr<service_manager::Connector> connector_;
-
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
-
-  // Should only be accessed by Web Worker threads that are using the
-  // blink::Platform-level interface provider.
-  base::WeakPtr<BlinkInterfaceProviderImpl> weak_ptr_;
-  base::WeakPtrFactory<BlinkInterfaceProviderImpl> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(BlinkInterfaceProviderImpl);
 };

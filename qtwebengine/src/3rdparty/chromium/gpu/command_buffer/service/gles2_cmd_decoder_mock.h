@@ -13,7 +13,7 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "gpu/command_buffer/common/gles2_cmd_utils.h"
+#include "gpu/command_buffer/common/context_creation_attribs.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
 #include "gpu/command_buffer/service/shader_translator.h"
@@ -26,27 +26,29 @@ class GLSurface;
 }
 
 namespace gpu {
+class QueryManager;
 
 namespace gles2 {
 
 class ContextGroup;
 class ErrorState;
-class QueryManager;
+class GpuFenceManager;
 struct ContextState;
 
 class MockGLES2Decoder : public GLES2Decoder {
  public:
-  explicit MockGLES2Decoder(CommandBufferServiceBase* command_buffer_service);
-  virtual ~MockGLES2Decoder();
+  MockGLES2Decoder(CommandBufferServiceBase* command_buffer_service,
+                   Outputter* outputter);
+  ~MockGLES2Decoder() override;
 
-  base::WeakPtr<GLES2Decoder> AsWeakPtr() override;
+  base::WeakPtr<DecoderContext> AsWeakPtr() override;
 
   MOCK_METHOD5(Initialize,
-               bool(const scoped_refptr<gl::GLSurface>& surface,
-                    const scoped_refptr<gl::GLContext>& context,
-                    bool offscreen,
-                    const DisallowedFeatures& disallowed_features,
-                    const ContextCreationAttribHelper& attrib_helper));
+               gpu::ContextResult(const scoped_refptr<gl::GLSurface>& surface,
+                                  const scoped_refptr<gl::GLContext>& context,
+                                  bool offscreen,
+                                  const DisallowedFeatures& disallowed_features,
+                                  const ContextCreationAttribs& attrib_helper));
   MOCK_METHOD1(Destroy, void(bool have_context));
   MOCK_METHOD1(SetSurface, void(const scoped_refptr<gl::GLSurface>& surface));
   MOCK_METHOD0(ReleaseSurface, void());
@@ -85,19 +87,20 @@ class MockGLES2Decoder : public GLES2Decoder {
   MOCK_CONST_METHOD0(RestoreGlobalState, void());
   MOCK_CONST_METHOD0(RestoreProgramBindings, void());
   MOCK_METHOD0(RestoreRenderbufferBindings, void());
-  MOCK_CONST_METHOD1(RestoreTextureState, void(unsigned service_id));
+  MOCK_METHOD1(RestoreTextureState, void(unsigned service_id));
   MOCK_CONST_METHOD1(RestoreTextureUnitBindings, void(unsigned unit));
   MOCK_METHOD1(RestoreVertexAttribArray, void(unsigned index));
+  MOCK_CONST_METHOD0(RestoreDeviceWindowRectangles, void());
   MOCK_CONST_METHOD0(ClearAllAttributes, void());
   MOCK_CONST_METHOD0(RestoreAllAttributes, void());
-  MOCK_METHOD0(GetQueryManager, gpu::gles2::QueryManager*());
+  MOCK_METHOD0(GetQueryManager, gpu::QueryManager*());
+  MOCK_METHOD2(SetQueryCallback, void(unsigned int, base::OnceClosure));
+  MOCK_METHOD0(GetGpuFenceManager, gpu::gles2::GpuFenceManager*());
   MOCK_METHOD0(GetFramebufferManager, gpu::gles2::FramebufferManager*());
   MOCK_METHOD0(
       GetTransformFeedbackManager, gpu::gles2::TransformFeedbackManager*());
   MOCK_METHOD0(GetVertexArrayManager, gpu::gles2::VertexArrayManager*());
   MOCK_METHOD0(GetImageManagerForTest, gpu::gles2::ImageManager*());
-  MOCK_METHOD1(
-      SetResizeCallback, void(const base::Callback<void(gfx::Size, float)>&));
   MOCK_METHOD1(SetIgnoreCachedStateForTest, void(bool ignore));
   MOCK_METHOD1(SetForceShaderNameHashingForTest, void(bool force));
   MOCK_METHOD1(SetAllowExit, void(bool allow));
@@ -137,13 +140,40 @@ class MockGLES2Decoder : public GLES2Decoder {
                     int height,
                     int depth));
   MOCK_METHOD0(GetErrorState, ErrorState *());
+  MOCK_METHOD8(CreateAbstractTexture,
+               std::unique_ptr<gpu::gles2::AbstractTexture>(
+                   unsigned /* GLenum */ target,
+                   unsigned /* GLenum */ internal_format,
+                   int /* GLsizei */ width,
+                   int /* GLsizei */ height,
+                   int /* GLsizei */ depth,
+                   int /* GLint */ border,
+                   unsigned /* GLenum */ format,
+                   unsigned /* GLenum */ type));
 
   MOCK_METHOD0(GetLogger, Logger*());
-  MOCK_METHOD1(WaitForReadPixels,
-               void(base::Closure callback));
+
+  // Workaround for move-only args in GMock.
+  MOCK_METHOD1(DoWaitForReadPixels, void(base::OnceClosure* callback));
+  void WaitForReadPixels(base::OnceClosure callback) override {
+    DoWaitForReadPixels(&callback);
+  }
+
   MOCK_CONST_METHOD0(WasContextLost, bool());
   MOCK_CONST_METHOD0(WasContextLostByRobustnessExtension, bool());
   MOCK_METHOD1(MarkContextLost, void(gpu::error::ContextLostReason reason));
+  MOCK_METHOD0(CheckResetStatus, bool());
+  MOCK_METHOD4(BindImage,
+               void(uint32_t client_texture_id,
+                    uint32_t texture_target,
+                    gl::GLImage* image,
+                    bool can_bind_to_sampler));
+  MOCK_METHOD1(
+      SetCopyTextureResourceManagerForTest,
+      void(CopyTextureCHROMIUMResourceManager* copy_texture_resource_manager));
+  MOCK_METHOD1(
+      SetCopyTexImageBlitterForTest,
+      void(CopyTexImageResourceManager* copy_texture_resource_manager));
 
  private:
   base::WeakPtrFactory<MockGLES2Decoder> weak_ptr_factory_;

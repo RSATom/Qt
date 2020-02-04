@@ -22,21 +22,34 @@
 #include "../vpx_ports/vpx_timer.h"
 #include "vpx/vp8cx.h"
 #include "vpx/vpx_encoder.h"
+#include "vpx_ports/bitops.h"
 
 #include "../tools_common.h"
 #include "../video_writer.h"
+
+#define ROI_MAP 0
+
+#define zero(Dest) memset(&Dest, 0, sizeof(Dest));
 
 static const char *exec_name;
 
 void usage_exit(void) { exit(EXIT_FAILURE); }
 
-// Denoiser states, for temporal denoising.
-enum denoiserState {
-  kDenoiserOff,
-  kDenoiserOnYOnly,
-  kDenoiserOnYUV,
-  kDenoiserOnYUVAggressive,
-  kDenoiserOnAdaptive
+// Denoiser states for vp8, for temporal denoising.
+enum denoiserStateVp8 {
+  kVp8DenoiserOff,
+  kVp8DenoiserOnYOnly,
+  kVp8DenoiserOnYUV,
+  kVp8DenoiserOnYUVAggressive,
+  kVp8DenoiserOnAdaptive
+};
+
+// Denoiser states for vp9, for temporal denoising.
+enum denoiserStateVp9 {
+  kVp9DenoiserOff,
+  kVp9DenoiserOnYOnly,
+  // For SVC: denoise the top two spatial layers.
+  kVp9DenoiserOnYTwoSpatialLayers
 };
 
 static int mode_to_num_layers[13] = { 1, 2, 2, 3, 3, 3, 3, 5, 2, 3, 3, 3, 3 };
@@ -89,9 +102,10 @@ static void set_rate_control_metrics(struct RateControlMetrics *rc,
   for (i = 0; i < cfg->ts_number_layers; ++i) {
     if (i > 0) {
       rc->layer_framerate[i] = framerate / cfg->ts_rate_decimator[i];
-      rc->layer_pfb[i] = 1000.0 * (rc->layer_target_bitrate[i] -
-                                   rc->layer_target_bitrate[i - 1]) /
-                         (rc->layer_framerate[i] - rc->layer_framerate[i - 1]);
+      rc->layer_pfb[i] =
+          1000.0 *
+          (rc->layer_target_bitrate[i] - rc->layer_target_bitrate[i - 1]) /
+          (rc->layer_framerate[i] - rc->layer_framerate[i - 1]);
     }
     rc->layer_input_frames[i] = 0;
     rc->layer_enc_frames[i] = 0;
@@ -153,6 +167,75 @@ static void printout_rate_control_summary(struct RateControlMetrics *rc,
   if ((frame_cnt - 1) != tot_num_frames)
     die("Error: Number of input frames not equal to output! \n");
 }
+
+#if ROI_MAP
+static void set_roi_map(const char *enc_name, vpx_codec_enc_cfg_t *cfg,
+                        vpx_roi_map_t *roi) {
+  unsigned int i, j;
+  int block_size = 0;
+  uint8_t is_vp8 = strncmp(enc_name, "vp8", 3) == 0 ? 1 : 0;
+  uint8_t is_vp9 = strncmp(enc_name, "vp9", 3) == 0 ? 1 : 0;
+  if (!is_vp8 && !is_vp9) {
+    die("unsupported codec.");
+  }
+  zero(*roi);
+
+  block_size = is_vp9 && !is_vp8 ? 8 : 16;
+
+  // ROI is based on the segments (4 for vp8, 8 for vp9), smallest unit for
+  // segment is 16x16 for vp8, 8x8 for vp9.
+  roi->rows = (cfg->g_h + block_size - 1) / block_size;
+  roi->cols = (cfg->g_w + block_size - 1) / block_size;
+
+  // Applies delta QP on the segment blocks, varies from -63 to 63.
+  // Setting to negative means lower QP (better quality).
+  // Below we set delta_q to the extreme (-63) to show strong effect.
+  // VP8 uses the first 4 segments. VP9 uses all 8 segments.
+  zero(roi->delta_q);
+  roi->delta_q[1] = -63;
+
+  // Applies delta loopfilter strength on the segment blocks, varies from -63 to
+  // 63. Setting to positive means stronger loopfilter. VP8 uses the first 4
+  // segments. VP9 uses all 8 segments.
+  zero(roi->delta_lf);
+
+  if (is_vp8) {
+    // Applies skip encoding threshold on the segment blocks, varies from 0 to
+    // UINT_MAX. Larger value means more skipping of encoding is possible.
+    // This skip threshold only applies on delta frames.
+    zero(roi->static_threshold);
+  }
+
+  if (is_vp9) {
+    // Apply skip segment. Setting to 1 means this block will be copied from
+    // previous frame.
+    zero(roi->skip);
+  }
+
+  if (is_vp9) {
+    // Apply ref frame segment.
+    // -1 : Do not apply this segment.
+    //  0 : Froce using intra.
+    //  1 : Force using last.
+    //  2 : Force using golden.
+    //  3 : Force using alfref but not used in non-rd pickmode for 0 lag.
+    memset(roi->ref_frame, -1, sizeof(roi->ref_frame));
+    roi->ref_frame[1] = 1;
+  }
+
+  // Use 2 states: 1 is center square, 0 is the rest.
+  roi->roi_map =
+      (uint8_t *)calloc(roi->rows * roi->cols, sizeof(*roi->roi_map));
+  for (i = 0; i < roi->rows; ++i) {
+    for (j = 0; j < roi->cols; ++j) {
+      if (i > (roi->rows >> 2) && i < ((roi->rows * 3) >> 2) &&
+          j > (roi->cols >> 2) && j < ((roi->cols * 3) >> 2)) {
+        roi->roi_map[i * roi->cols + j] = 1;
+      }
+    }
+  }
+}
+#endif
 
 // Temporal scaling parameters:
 // NOTE: The 3 prediction frames cannot be used interchangeably due to
@@ -506,11 +589,10 @@ int main(int argc, char **argv) {
   int layering_mode = 0;
   int layer_flags[VPX_TS_MAX_PERIODICITY] = { 0 };
   int flag_periodicity = 1;
-#if VPX_ENCODER_ABI_VERSION > (4 + VPX_CODEC_ABI_VERSION)
-  vpx_svc_layer_id_t layer_id = { 0, 0 };
-#else
-  vpx_svc_layer_id_t layer_id = { 0 };
+#if ROI_MAP
+  vpx_roi_map_t roi;
 #endif
+  vpx_svc_layer_id_t layer_id;
   const VpxInterface *encoder = NULL;
   FILE *infile = NULL;
   struct RateControlMetrics rc;
@@ -527,6 +609,8 @@ int main(int argc, char **argv) {
   double sum_bitrate2 = 0.0;
   double framerate = 30.0;
 
+  zero(rc.layer_target_bitrate);
+  memset(&layer_id, 0, sizeof(vpx_svc_layer_id_t));
   exec_name = argv[0];
   // Check usage and arguments.
   if (argc < min_args) {
@@ -707,9 +791,15 @@ int main(int argc, char **argv) {
 
   if (strncmp(encoder->name, "vp8", 3) == 0) {
     vpx_codec_control(&codec, VP8E_SET_CPUUSED, -speed);
-    vpx_codec_control(&codec, VP8E_SET_NOISE_SENSITIVITY, kDenoiserOff);
+    vpx_codec_control(&codec, VP8E_SET_NOISE_SENSITIVITY, kVp8DenoiserOff);
     vpx_codec_control(&codec, VP8E_SET_STATIC_THRESHOLD, 1);
     vpx_codec_control(&codec, VP8E_SET_GF_CBR_BOOST_PCT, 0);
+#if ROI_MAP
+    set_roi_map(encoder->name, &cfg, &roi);
+    if (vpx_codec_control(&codec, VP8E_SET_ROI_MAP, &roi))
+      die_codec(&codec, "Failed to set ROI map");
+#endif
+
   } else if (strncmp(encoder->name, "vp9", 3) == 0) {
     vpx_svc_extra_cfg_t svc_params;
     memset(&svc_params, 0, sizeof(svc_params));
@@ -718,10 +808,16 @@ int main(int argc, char **argv) {
     vpx_codec_control(&codec, VP9E_SET_GF_CBR_BOOST_PCT, 0);
     vpx_codec_control(&codec, VP9E_SET_FRAME_PARALLEL_DECODING, 0);
     vpx_codec_control(&codec, VP9E_SET_FRAME_PERIODIC_BOOST, 0);
-    vpx_codec_control(&codec, VP9E_SET_NOISE_SENSITIVITY, kDenoiserOff);
+    vpx_codec_control(&codec, VP9E_SET_NOISE_SENSITIVITY, kVp9DenoiserOff);
     vpx_codec_control(&codec, VP8E_SET_STATIC_THRESHOLD, 1);
     vpx_codec_control(&codec, VP9E_SET_TUNE_CONTENT, 0);
-    vpx_codec_control(&codec, VP9E_SET_TILE_COLUMNS, (cfg.g_threads >> 1));
+    vpx_codec_control(&codec, VP9E_SET_TILE_COLUMNS, get_msb(cfg.g_threads));
+#if ROI_MAP
+    set_roi_map(encoder->name, &cfg, &roi);
+    if (vpx_codec_control(&codec, VP9E_SET_ROI_MAP, &roi))
+      die_codec(&codec, "Failed to set ROI map");
+    vpx_codec_control(&codec, VP9E_SET_AQ_MODE, 0);
+#endif
     // TODO(marpan/jianj): There is an issue with row-mt for low resolutons at
     // high speed settings, disable its use for those cases for now.
     if (cfg.g_threads > 1 && ((cfg.g_w > 320 && cfg.g_h > 240) || speed < 7))
@@ -756,12 +852,11 @@ int main(int argc, char **argv) {
     struct vpx_usec_timer timer;
     vpx_codec_iter_t iter = NULL;
     const vpx_codec_cx_pkt_t *pkt;
-#if VPX_ENCODER_ABI_VERSION > (4 + VPX_CODEC_ABI_VERSION)
     // Update the temporal layer_id. No spatial layers in this test.
     layer_id.spatial_layer_id = 0;
-#endif
     layer_id.temporal_layer_id =
         cfg.ts_layer_id[frame_cnt % cfg.ts_periodicity];
+    layer_id.temporal_layer_id_per_spatial[0] = layer_id.temporal_layer_id;
     if (strncmp(encoder->name, "vp9", 3) == 0) {
       vpx_codec_control(&codec, VP9E_SET_SVC_LAYER_ID, &layer_id);
     } else if (strncmp(encoder->name, "vp8", 3) == 0) {
@@ -851,5 +946,8 @@ int main(int argc, char **argv) {
   for (i = 0; i < cfg.ts_number_layers; ++i) vpx_video_writer_close(outfile[i]);
 
   vpx_img_free(&raw);
+#if ROI_MAP
+  free(roi.roi_map);
+#endif
   return EXIT_SUCCESS;
 }

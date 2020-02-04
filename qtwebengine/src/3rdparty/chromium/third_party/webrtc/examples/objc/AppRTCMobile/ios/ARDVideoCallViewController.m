@@ -10,34 +10,37 @@
 
 #import "ARDVideoCallViewController.h"
 
-#import "WebRTC/RTCAudioSession.h"
+#import <WebRTC/RTCAudioSession.h>
+#import <WebRTC/RTCCameraVideoCapturer.h>
+#import <WebRTC/RTCDispatcher.h>
+#import <WebRTC/RTCLogging.h>
+#import <WebRTC/RTCMediaConstraints.h>
 
 #import "ARDAppClient.h"
 #import "ARDCaptureController.h"
+#import "ARDFileCaptureController.h"
 #import "ARDSettingsModel.h"
 #import "ARDVideoCallView.h"
-#import "WebRTC/RTCAVFoundationVideoSource.h"
-#import "WebRTC/RTCDispatcher.h"
-#import "WebRTC/RTCLogging.h"
-#import "WebRTC/RTCMediaConstraints.h"
 
 @interface ARDVideoCallViewController () <ARDAppClientDelegate,
                                           ARDVideoCallViewDelegate,
                                           RTCAudioSessionDelegate>
 @property(nonatomic, strong) RTCVideoTrack *remoteVideoTrack;
 @property(nonatomic, readonly) ARDVideoCallView *videoCallView;
+@property(nonatomic, assign) AVAudioSessionPortOverride portOverride;
 @end
 
 @implementation ARDVideoCallViewController {
   ARDAppClient *_client;
   RTCVideoTrack *_remoteVideoTrack;
   ARDCaptureController *_captureController;
-  AVAudioSessionPortOverride _portOverride;
+  ARDFileCaptureController *_fileCaptureController NS_AVAILABLE_IOS(10);
 }
 
 @synthesize videoCallView = _videoCallView;
 @synthesize remoteVideoTrack = _remoteVideoTrack;
 @synthesize delegate = _delegate;
+@synthesize portOverride = _portOverride;
 
 - (instancetype)initForRoom:(NSString *)room
                  isLoopback:(BOOL)isLoopback
@@ -61,6 +64,10 @@
 
   RTCAudioSession *session = [RTCAudioSession sharedInstance];
   [session addDelegate:self];
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+  return UIInterfaceOrientationMaskAll;
 }
 
 #pragma mark - ARDAppClientDelegate
@@ -102,13 +109,27 @@
 }
 
 - (void)appClient:(ARDAppClient *)client
+    didCreateLocalFileCapturer:(RTCFileVideoCapturer *)fileCapturer {
+#if defined(__IPHONE_11_0) && (__IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_11_0)
+  if (@available(iOS 10, *)) {
+    _fileCaptureController = [[ARDFileCaptureController alloc] initWithCapturer:fileCapturer];
+    [_fileCaptureController startCapture];
+  }
+#endif
+}
+
+- (void)appClient:(ARDAppClient *)client
     didReceiveLocalVideoTrack:(RTCVideoTrack *)localVideoTrack {
 }
 
 - (void)appClient:(ARDAppClient *)client
     didReceiveRemoteVideoTrack:(RTCVideoTrack *)remoteVideoTrack {
   self.remoteVideoTrack = remoteVideoTrack;
-  _videoCallView.statusLabel.hidden = YES;
+  __weak ARDVideoCallViewController *weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    ARDVideoCallViewController *strongSelf = weakSelf;
+    strongSelf.videoCallView.statusLabel.hidden = YES;
+  });
 }
 
 - (void)appClient:(ARDAppClient *)client
@@ -148,7 +169,7 @@
     [session lockForConfiguration];
     NSError *error = nil;
     if ([session overrideOutputAudioPort:override error:&error]) {
-      _portOverride = override;
+      self.portOverride = override;
     } else {
       RTCLogError(@"Error overriding output port: %@",
                   error.localizedDescription);
@@ -187,6 +208,8 @@
   _videoCallView.localVideoView.captureSession = nil;
   [_captureController stopCapture];
   _captureController = nil;
+  [_fileCaptureController stopCapture];
+  _fileCaptureController = nil;
   [_client disconnect];
   [_delegate viewControllerDidFinish:self];
 }

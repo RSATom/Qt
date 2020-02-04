@@ -10,13 +10,23 @@
 Polymer({
   is: 'settings-about-page',
 
-  behaviors: [WebUIListenerBehavior, MainPageBehavior, I18nBehavior],
+  behaviors: [
+    WebUIListenerBehavior,
+    settings.MainPageBehavior,
+    settings.RouteObserverBehavior,
+    I18nBehavior,
+  ],
 
   properties: {
     /** @private {?UpdateStatusChangedEvent} */
     currentUpdateStatusEvent_: {
       type: Object,
-      value: {message: '', progress: 0, status: UpdateStatus.DISABLED},
+      value: {
+        message: '',
+        progress: 0,
+        rollback: false,
+        status: UpdateStatus.DISABLED
+      },
     },
 
     // <if expr="chromeos">
@@ -34,6 +44,21 @@ Polymer({
 
     /** @private {?RegulatoryInfo} */
     regulatoryInfo_: Object,
+
+    /** @private */
+    hasEndOfLife_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private */
+    showCrostini: Boolean,
+
+    /** @private */
+    showCrostiniLicense_: {
+      type: Boolean,
+      value: false,
+    },
     // </if>
 
     // <if expr="_google_chrome and is_macosx">
@@ -41,6 +66,7 @@ Polymer({
     promoteUpdaterStatus_: Object,
     // </if>
 
+    // <if expr="not chromeos">
     /** @private {!{obsolete: boolean, endOfLine: boolean}} */
     obsoleteSystemInfo_: {
       type: Object,
@@ -51,20 +77,28 @@ Polymer({
         };
       },
     },
+    // </if>
 
     /** @private */
-    showUpdateStatus_: Boolean,
+    showUpdateStatus_: {
+      type: Boolean,
+      value: false,
+    },
 
     /** @private */
     showButtonContainer_: Boolean,
 
     /** @private */
-    showRelaunch_: Boolean,
+    showRelaunch_: {
+      type: Boolean,
+      value: false,
+    },
 
     // <if expr="chromeos">
     /** @private */
     showRelaunchAndPowerwash_: {
       type: Boolean,
+      value: false,
       computed: 'computeShowRelaunchAndPowerwash_(' +
           'currentUpdateStatusEvent_, targetChannel_, currentChannel_)',
     },
@@ -73,14 +107,14 @@ Polymer({
     showCheckUpdates_: {
       type: Boolean,
       computed: 'computeShowCheckUpdates_(' +
-          'currentUpdateStatusEvent_, hasCheckedForUpdates_)',
+          'currentUpdateStatusEvent_, hasCheckedForUpdates_, hasEndOfLife_)',
     },
 
     /** @private {!Map<string, string>} */
     focusConfig_: {
       type: Object,
       value: function() {
-        var map = new Map();
+        const map = new Map();
         if (settings.routes.DETAILED_BUILD_INFO) {
           map.set(
               settings.routes.DETAILED_BUILD_INFO.path,
@@ -95,6 +129,12 @@ Polymer({
       type: Boolean,
       value: false,
     },
+
+    /** @private */
+    showTPMFirmwareUpdateLineItem_: Boolean,
+
+    /** @private */
+    showTPMFirmwareUpdateDialog_: Boolean,
 
     /** @private {!AboutPageUpdateInfo|undefined} */
     updateInfo_: Object,
@@ -111,15 +151,15 @@ Polymer({
 
     // <if expr="chromeos">
     'updateShowUpdateStatus_(' +
-        'obsoleteSystemInfo_, currentUpdateStatusEvent_,' +
+        'hasEndOfLife_, currentUpdateStatusEvent_,' +
         'hasCheckedForUpdates_)',
     'updateShowRelaunch_(currentUpdateStatusEvent_, targetChannel_,' +
         'currentChannel_)',
     'updateShowButtonContainer_(' +
         'showRelaunch_, showRelaunchAndPowerwash_, showCheckUpdates_)',
+    'handleCrostiniEnabledChanged_(prefs.crostini.enabled.value)',
     // </if>
   ],
-
 
   /** @private {?settings.AboutPageBrowserProxy} */
   aboutBrowserProxy_: null,
@@ -136,19 +176,24 @@ Polymer({
         settings.LifetimeBrowserProxyImpl.getInstance();
 
     // <if expr="chromeos">
-    this.addEventListener('target-channel-changed', function(e) {
+    this.addEventListener('target-channel-changed', e => {
       this.targetChannel_ = e.detail;
-    }.bind(this));
+    });
 
-    this.aboutBrowserProxy_.getChannelInfo().then(function(info) {
+    this.aboutBrowserProxy_.getChannelInfo().then(info => {
       this.currentChannel_ = info.currentChannel;
       this.targetChannel_ = info.targetChannel;
       this.startListening_();
-    }.bind(this));
+    });
 
-    this.aboutBrowserProxy_.getRegulatoryInfo().then(function(info) {
+    this.aboutBrowserProxy_.getRegulatoryInfo().then(info => {
       this.regulatoryInfo_ = info;
-    }.bind(this));
+    });
+
+    this.aboutBrowserProxy_.getHasEndOfLife().then(result => {
+      this.hasEndOfLife_ = result;
+    });
+
     // </if>
     // <if expr="not chromeos">
     this.startListening_();
@@ -156,6 +201,20 @@ Polymer({
     if (settings.getQueryParameters().get('checkForUpdate') == 'true') {
       this.onCheckUpdatesTap_();
     }
+  },
+
+  /**
+   * @param {!settings.Route} newRoute
+   * @param {settings.Route} oldRoute
+   */
+  currentRouteChanged: function(newRoute, oldRoute) {
+    settings.MainPageBehavior.currentRouteChanged.call(
+        this, newRoute, oldRoute);
+  },
+
+  // Override settings.MainPageBehavior method.
+  containsRoute: function(route) {
+    return !route || settings.routes.ABOUT.contains(route);
   },
 
   /** @private */
@@ -168,6 +227,12 @@ Polymer({
         this.onPromoteUpdaterStatusChanged_.bind(this));
     // </if>
     this.aboutBrowserProxy_.refreshUpdateStatus();
+    // <if expr="chromeos">
+    this.addWebUIListener(
+        'tpm-firmware-update-status-changed',
+        this.onTPMFirmwareUpdateStatusChanged_.bind(this));
+    this.aboutBrowserProxy_.refreshTPMFirmwareUpdateStatus();
+    // </if>
   },
 
   /**
@@ -202,10 +267,12 @@ Polymer({
   onPromoteUpdaterTap_: function() {
     // This is necessary because #promoteUpdater is not a button, so by default
     // disable doesn't do anything.
-    if (this.promoteUpdaterStatus_.disabled)
+    if (this.promoteUpdaterStatus_.disabled) {
       return;
+    }
     this.aboutBrowserProxy_.promoteUpdater();
   },
+  // </if>
 
   /**
    * @param {!Event} event
@@ -216,7 +283,6 @@ Polymer({
     // actionable items won't trigger action.
     event.stopPropagation();
   },
-  // </if>
 
   /** @private */
   onHelpTap_: function() {
@@ -238,10 +304,22 @@ Polymer({
       this.showUpdateStatus_ = false;
       return;
     }
+
+    // Do not show "updated" status if the device is end of life.
+    if (this.hasEndOfLife_) {
+      this.showUpdateStatus_ = false;
+      return;
+    }
+    // </if>
+
+    // <if expr="not chromeos">
+    if (this.obsoleteSystemInfo_.endOfLine) {
+      this.showUpdateStatus_ = false;
+      return;
+    }
     // </if>
     this.showUpdateStatus_ =
-        this.currentUpdateStatusEvent_.status != UpdateStatus.DISABLED &&
-        !this.obsoleteSystemInfo_.endOfLine;
+        this.currentUpdateStatusEvent_.status != UpdateStatus.DISABLED;
   },
 
   /**
@@ -265,9 +343,17 @@ Polymer({
     this.showRelaunch_ = this.checkStatus_(UpdateStatus.NEARLY_UPDATED);
     // </if>
     // <if expr="chromeos">
-    this.showRelaunch_ = this.checkStatus_(UpdateStatus.NEARLY_UPDATED) &&
-        !this.isTargetChannelMoreStable_();
+    this.showRelaunch_ =
+        this.checkStatus_(UpdateStatus.NEARLY_UPDATED) && !this.isRollback_();
     // </if>
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  shouldShowLearnMoreLink_: function() {
+    return this.currentUpdateStatusEvent_.status == UpdateStatus.FAILED;
   },
 
   /**
@@ -281,15 +367,19 @@ Polymer({
         return this.i18nAdvanced('aboutUpgradeCheckStarted');
       case UpdateStatus.NEARLY_UPDATED:
         // <if expr="chromeos">
-        if (this.currentChannel_ != this.targetChannel_)
+        if (this.currentChannel_ != this.targetChannel_) {
           return this.i18nAdvanced('aboutUpgradeSuccessChannelSwitch');
+        }
+        if (this.currentUpdateStatusEvent_.rollback) {
+          return this.i18nAdvanced('aboutRollbackSuccess');
+        }
         // </if>
         return this.i18nAdvanced('aboutUpgradeRelaunch');
       case UpdateStatus.UPDATED:
         return this.i18nAdvanced('aboutUpgradeUpToDate');
       case UpdateStatus.UPDATING:
         assert(typeof this.currentUpdateStatusEvent_.progress == 'number');
-        var progressPercent = this.currentUpdateStatusEvent_.progress + '%';
+        const progressPercent = this.currentUpdateStatusEvent_.progress + '%';
 
         // <if expr="chromeos">
         if (this.currentChannel_ != this.targetChannel_) {
@@ -299,6 +389,11 @@ Polymer({
                   settings.browserChannelToI18nId(this.targetChannel_)),
               progressPercent
             ]
+          });
+        }
+        if (this.currentUpdateStatusEvent_.rollback) {
+          return this.i18nAdvanced('aboutRollbackInProgress', {
+            substitutions: [progressPercent],
           });
         }
         // </if>
@@ -318,13 +413,15 @@ Polymer({
           return parseHtmlSubset('<b>' + msg + '</b>', ['br', 'pre'])
               .firstChild.innerHTML;
         }
-        var result = '';
-        var message = this.currentUpdateStatusEvent_.message;
-        if (message)
+        let result = '';
+        const message = this.currentUpdateStatusEvent_.message;
+        if (message) {
           result += formatMessage(message);
-        var connectMessage = this.currentUpdateStatusEvent_.connectionTypes;
-        if (connectMessage)
+        }
+        const connectMessage = this.currentUpdateStatusEvent_.connectionTypes;
+        if (connectMessage) {
           result += '<div>' + formatMessage(connectMessage) + '</div>';
+        }
         return result;
     }
   },
@@ -333,17 +430,28 @@ Polymer({
    * @return {?string}
    * @private
    */
-  getIcon_: function() {
+  getUpdateStatusIcon_: function() {
+    // <if expr="chromeos">
+    // If Chrome OS has reached end of life, display a special icon and
+    // ignore UpdateStatus.
+    if (this.hasEndOfLife_) {
+      return 'settings:end-of-life';
+    }
+    // </if>
+
+    // <if expr="not chromeos">
     // If this platform has reached the end of the line, display an error icon
     // and ignore UpdateStatus.
-    if (this.obsoleteSystemInfo_.endOfLine)
-      return 'settings:error';
+    if (this.obsoleteSystemInfo_.endOfLine) {
+      return 'cr:error';
+    }
+    // </if>
 
     switch (this.currentUpdateStatusEvent_.status) {
       case UpdateStatus.DISABLED_BY_ADMIN:
         return 'cr20:domain';
       case UpdateStatus.FAILED:
-        return 'settings:error';
+        return 'cr:error';
       case UpdateStatus.UPDATED:
       case UpdateStatus.NEARLY_UPDATED:
         return 'settings:check-circle';
@@ -356,9 +464,18 @@ Polymer({
    * @return {?string}
    * @private
    */
-  getIconSrc_: function() {
-    if (this.obsoleteSystemInfo_.endOfLine)
+  getThrobberSrcIfUpdating_: function() {
+    // <if expr="chromeos">
+    if (this.hasEndOfLife_) {
       return null;
+    }
+    // </if>
+
+    // <if expr="not chromeos">
+    if (this.obsoleteSystemInfo_.endOfLine) {
+      return null;
+    }
+    // </if>
 
     switch (this.currentUpdateStatusEvent_.status) {
       case UpdateStatus.CHECKING:
@@ -383,9 +500,13 @@ Polymer({
    * @return {boolean}
    * @private
    */
-  isTargetChannelMoreStable_: function() {
+  isRollback_: function() {
     assert(this.currentChannel_.length > 0);
     assert(this.targetChannel_.length > 0);
+    if (this.currentUpdateStatusEvent_.rollback) {
+      return true;
+    }
+    // Channel switch to a more stable channel is also a rollback
     return settings.isTargetChannelMoreStable(
         this.currentChannel_, this.targetChannel_);
   },
@@ -397,7 +518,13 @@ Polymer({
 
   /** @private */
   onRelaunchAndPowerwashTap_: function() {
-    this.lifetimeBrowserProxy_.factoryReset();
+    if (this.currentUpdateStatusEvent_.rollback) {
+      // Wipe already initiated, simply relaunch.
+      this.lifetimeBrowserProxy_.relaunch();
+    } else {
+      this.lifetimeBrowserProxy_.factoryReset(
+          /* requestTpmFirmwareUpdate= */ false);
+    }
   },
 
   /**
@@ -405,8 +532,7 @@ Polymer({
    * @private
    */
   computeShowRelaunchAndPowerwash_: function() {
-    return this.checkStatus_(UpdateStatus.NEARLY_UPDATED) &&
-        this.isTargetChannelMoreStable_();
+    return this.checkStatus_(UpdateStatus.NEARLY_UPDATED) && this.isRollback_();
   },
 
   /** @private */
@@ -420,12 +546,45 @@ Polymer({
    * @private
    */
   computeShowCheckUpdates_: function() {
+    // Disable update button if the device is end of life.
+    if (this.hasEndOfLife_) {
+      return false;
+    }
+
     // Enable the update button if we are in a stale 'updated' status or
     // update has failed. Disable it otherwise.
-    var staleUpdatedStatus =
+    const staleUpdatedStatus =
         !this.hasCheckedForUpdates_ && this.checkStatus_(UpdateStatus.UPDATED);
 
     return staleUpdatedStatus || this.checkStatus_(UpdateStatus.FAILED);
+  },
+
+  /**
+   * @param {boolean} showCrostiniLicense True if Crostini is enabled and
+   * Crostini UI is allowed.
+   * @return {string}
+   * @private
+   */
+  getAboutProductOsLicense_: function(showCrostiniLicense) {
+    return showCrostiniLicense ?
+        this.i18nAdvanced('aboutProductOsWithLinuxLicense') :
+        this.i18nAdvanced('aboutProductOsLicense');
+  },
+
+  /**
+   * @param {boolean} enabled True if Crostini is enabled.
+   * @private
+   */
+  handleCrostiniEnabledChanged_: function(enabled) {
+    this.showCrostiniLicense_ = enabled && this.showCrostini;
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  shouldShowSafetyInfo_: function() {
+    return loadTimeData.getBoolean('shouldShowSafetyInfo');
   },
 
   /**
@@ -436,12 +595,38 @@ Polymer({
     return this.regulatoryInfo_ !== null;
   },
 
+  /**
+   * @return {boolean}
+   * @private
+   */
+  shouldShowRegulatoryOrSafetyInfo_: function() {
+    return this.shouldShowSafetyInfo_() || this.shouldShowRegulatoryInfo_();
+  },
+
   /** @private */
   onUpdateWarningDialogClose_: function() {
     this.showUpdateWarningDialog_ = false;
     // Shows 'check for updates' button in case that the user cancels the
     // dialog and then intends to check for update again.
     this.hasCheckedForUpdates_ = false;
+  },
+
+  /**
+   * @param {!TPMFirmwareUpdateStatusChangedEvent} event
+   * @private
+   */
+  onTPMFirmwareUpdateStatusChanged_: function(event) {
+    this.showTPMFirmwareUpdateLineItem_ = event.updateAvailable;
+  },
+
+  /** @private */
+  onTPMFirmwareUpdateTap_: function() {
+    this.showTPMFirmwareUpdateDialog_ = true;
+  },
+
+  /** @private */
+  onPowerwashDialogClose_: function() {
+    this.showTPMFirmwareUpdateDialog_ = false;
   },
   // </if>
 
@@ -463,4 +648,22 @@ Polymer({
     this.aboutBrowserProxy_.openFeedbackDialog();
   },
   // </if>
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  shouldShowIcons_: function() {
+    // <if expr="chromeos">
+    if (this.hasEndOfLife_) {
+      return true;
+    }
+    // </if>
+    // <if expr="not chromeos">
+    if (this.obsoleteSystemInfo_.endOfLine) {
+      return true;
+    }
+    // </if>
+    return this.showUpdateStatus_;
+  },
 });

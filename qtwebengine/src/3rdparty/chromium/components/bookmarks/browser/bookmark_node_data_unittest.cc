@@ -11,6 +11,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_task_environment.h"
+#include "build/build_config.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/bookmarks/test/test_bookmark_client.h"
@@ -139,7 +140,7 @@ TEST_F(BookmarkNodeDataTest, URL) {
   base::ScopedTempDir other_profile_dir;
   EXPECT_TRUE(other_profile_dir.CreateUniqueTempDir());
   EXPECT_TRUE(read_data.GetFirstNode(model(), other_profile_dir.GetPath()) ==
-              NULL);
+              nullptr);
 
   // Writing should also put the URL and title on the clipboard.
   GURL read_url;
@@ -188,7 +189,7 @@ TEST_F(BookmarkNodeDataTest, Folder) {
   base::ScopedTempDir other_profile_dir;
   EXPECT_TRUE(other_profile_dir.CreateUniqueTempDir());
   EXPECT_TRUE(read_data.GetFirstNode(model(), other_profile_dir.GetPath()) ==
-              NULL);
+              nullptr);
 }
 
 // Tests reading/writing a folder with children.
@@ -275,7 +276,7 @@ TEST_F(BookmarkNodeDataTest, MultipleNodes) {
 
   // Asking for the first node should return NULL with more than one element
   // present.
-  EXPECT_TRUE(read_data.GetFirstNode(model(), GetProfilePath()) == NULL);
+  EXPECT_TRUE(read_data.GetFirstNode(model(), GetProfilePath()) == nullptr);
 }
 
 TEST_F(BookmarkNodeDataTest, WriteToClipboardURL) {
@@ -284,7 +285,7 @@ TEST_F(BookmarkNodeDataTest, WriteToClipboardURL) {
   const base::string16 title(ASCIIToUTF16("blah"));
 
   data.ReadFromTuple(url, title);
-  data.WriteToClipboard(ui::CLIPBOARD_TYPE_COPY_PASTE);
+  data.WriteToClipboard();
 
   // Now read the data back in.
   base::string16 clipboard_result;
@@ -306,11 +307,15 @@ TEST_F(BookmarkNodeDataTest, WriteToClipboardMultipleURLs) {
   nodes.push_back(url_node2);
 
   data.ReadFromVector(nodes);
-  data.WriteToClipboard(ui::CLIPBOARD_TYPE_COPY_PASTE);
+  data.WriteToClipboard();
 
   // Now read the data back in.
   base::string16 combined_text;
+#if defined(OS_WIN)
+  base::string16 new_line = base::ASCIIToUTF16("\r\n");
+#else
   base::string16 new_line = base::ASCIIToUTF16("\n");
+#endif
   combined_text = base::UTF8ToUTF16(url.spec()) + new_line
     + base::UTF8ToUTF16(url2.spec());
   base::string16 clipboard_result;
@@ -326,7 +331,7 @@ TEST_F(BookmarkNodeDataTest, WriteToClipboardEmptyFolder) {
   nodes.push_back(folder);
 
   data.ReadFromVector(nodes);
-  data.WriteToClipboard(ui::CLIPBOARD_TYPE_COPY_PASTE);
+  data.WriteToClipboard();
 
   // Now read the data back in.
   base::string16 clipboard_result;
@@ -345,7 +350,7 @@ TEST_F(BookmarkNodeDataTest, WriteToClipboardFolderWithChildren) {
   nodes.push_back(folder);
 
   data.ReadFromVector(nodes);
-  data.WriteToClipboard(ui::CLIPBOARD_TYPE_COPY_PASTE);
+  data.WriteToClipboard();
 
   // Now read the data back in.
   base::string16 clipboard_result;
@@ -365,11 +370,15 @@ TEST_F(BookmarkNodeDataTest, WriteToClipboardFolderAndURL) {
   nodes.push_back(folder);
 
   data.ReadFromVector(nodes);
-  data.WriteToClipboard(ui::CLIPBOARD_TYPE_COPY_PASTE);
+  data.WriteToClipboard();
 
   // Now read the data back in.
   base::string16 combined_text;
+#if defined(OS_WIN)
+  base::string16 new_line = base::ASCIIToUTF16("\r\n");
+#else
   base::string16 new_line = base::ASCIIToUTF16("\n");
+#endif
   base::string16 folder_title = ASCIIToUTF16("g1");
   combined_text = base::ASCIIToUTF16(url.spec()) + new_line + folder_title;
   base::string16 clipboard_result;

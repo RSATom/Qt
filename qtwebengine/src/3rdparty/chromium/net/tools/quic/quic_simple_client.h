@@ -19,51 +19,31 @@
 #include "net/base/ip_endpoint.h"
 #include "net/http/http_response_headers.h"
 #include "net/log/net_log.h"
-#include "net/quic/chromium/quic_chromium_packet_reader.h"
-#include "net/quic/core/quic_config.h"
-#include "net/quic/core/quic_spdy_stream.h"
-#include "net/quic/platform/impl/quic_chromium_clock.h"
-#include "net/tools/quic/quic_client_base.h"
+#include "net/quic/quic_chromium_packet_reader.h"
+#include "net/third_party/quic/core/http/quic_spdy_stream.h"
+#include "net/third_party/quic/core/quic_config.h"
+#include "net/third_party/quic/platform/impl/quic_chromium_clock.h"
+#include "net/third_party/quic/tools/quic_spdy_client_base.h"
+#include "net/tools/quic/quic_client_message_loop_network_helper.h"
 
 namespace net {
 
 class QuicChromiumAlarmFactory;
 class QuicChromiumConnectionHelper;
-class UDPClientSocket;
-
 
 namespace test {
 class QuicClientPeer;
 }  // namespace test
 
-class QuicSimpleClient : public QuicClientBase,
-                         public QuicChromiumPacketReader::Visitor {
+class QuicSimpleClient : public quic::QuicSpdyClientBase {
  public:
   // Create a quic client, which will have events managed by the message loop.
-  QuicSimpleClient(QuicSocketAddress server_address,
-                   const QuicServerId& server_id,
-                   const QuicVersionVector& supported_versions,
-                   std::unique_ptr<ProofVerifier> proof_verifier);
+  QuicSimpleClient(quic::QuicSocketAddress server_address,
+                   const quic::QuicServerId& server_id,
+                   const quic::ParsedQuicVersionVector& supported_versions,
+                   std::unique_ptr<quic::ProofVerifier> proof_verifier);
 
   ~QuicSimpleClient() override;
-
-  // QuicChromiumPacketReader::Visitor
-  void OnReadError(int result, const DatagramClientSocket* socket) override;
-  bool OnPacket(const QuicReceivedPacket& packet,
-                const QuicSocketAddress& local_address,
-                const QuicSocketAddress& peer_address) override;
-
-  // From QuicClientBase
-  QuicSocketAddress GetLatestClientAddress() const override;
-
- protected:
-  // From QuicClientBase
-  QuicPacketWriter* CreateQuicPacketWriter() override;
-  void RunEventLoop() override;
-  bool CreateUDPSocketAndBind(QuicSocketAddress server_address,
-                              QuicIpAddress bind_to_address,
-                              int bind_to_port) override;
-  void CleanUpAllUDPSockets() override;
 
  private:
   friend class net::test::QuicClientPeer;
@@ -71,29 +51,11 @@ class QuicSimpleClient : public QuicClientBase,
   QuicChromiumAlarmFactory* CreateQuicAlarmFactory();
   QuicChromiumConnectionHelper* CreateQuicConnectionHelper();
 
-  // Read a UDP packet and hand it to the framer.
-  bool ReadAndProcessPacket();
-
-  void StartPacketReaderIfNotStarted();
-
   //  Used by |helper_| to time alarms.
-  QuicChromiumClock clock_;
-
-  // Address of the client if the client is connected to the server.
-  QuicSocketAddress client_address_;
-
-  // UDP socket connected to the server.
-  std::unique_ptr<UDPClientSocket> socket_;
+  quic::QuicChromiumClock clock_;
 
   // Tracks if the client is initialized to connect.
   bool initialized_;
-
-  // The log used for the sockets.
-  NetLog net_log_;
-
-  std::unique_ptr<QuicChromiumPacketReader> packet_reader_;
-
-  bool packet_reader_started_;
 
   base::WeakPtrFactory<QuicSimpleClient> weak_factory_;
 

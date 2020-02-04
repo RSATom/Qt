@@ -7,6 +7,7 @@
 
 #include <string>
 #include <vector>
+
 #include "media/base/media_export.h"
 
 namespace media {
@@ -38,6 +39,9 @@ struct MEDIA_EXPORT AudioDeviceDescription {
   // Returns true if |device_id| represents the default device.
   static bool IsDefaultDevice(const std::string& device_id);
 
+  // Returns true if |device_id| represents the communications device.
+  static bool IsCommunicationsDevice(const std::string& device_id);
+
   // Returns true if |device_id| represents a loopback audio capture device.
   static bool IsLoopbackDevice(const std::string& device_id);
 
@@ -49,17 +53,34 @@ struct MEDIA_EXPORT AudioDeviceDescription {
   static bool UseSessionIdToSelectDevice(int session_id,
                                          const std::string& device_id);
 
+  // The functions dealing with localization are not reliable in the audio
+  // service, and should be avoided there.
   // Returns the localized name of the generic "default" device.
   static std::string GetDefaultDeviceName();
+
+  // Returns a localized version of name of the generic "default" device that
+  // includes the given |real_device_name|.
+  static std::string GetDefaultDeviceName(const std::string& real_device_name);
 
   // Returns the localized name of the generic default communications device.
   // This device is not supported on all platforms.
   static std::string GetCommunicationsDeviceName();
 
+  // Returns a localized version of name of the generic communications device
+  // that includes the given |real_device_name|.
+  static std::string GetCommunicationsDeviceName(
+      const std::string& real_device_name);
+
+  // This prepends localized "Default" or "Communications" strings to
+  // default and communications device names in |device_descriptions|.
+  static void LocalizeDeviceDescriptions(
+      std::vector<AudioDeviceDescription>* device_descriptions);
+
+  AudioDeviceDescription() = default;
   AudioDeviceDescription(const AudioDeviceDescription& other) = default;
-  AudioDeviceDescription(const std::string& device_name,
-                         const std::string& unique_id,
-                         const std::string& group_id);
+  AudioDeviceDescription(std::string device_name,
+                         std::string unique_id,
+                         std::string group_id);
 
   ~AudioDeviceDescription() = default;
 

@@ -74,7 +74,7 @@ template <typename T>
 class QTypeModuleInfo
 {
 public:
-    enum Module {
+    enum Module : bool {
         IsCore = false,
         IsWidget = false,
         IsGui = false,
@@ -87,7 +87,7 @@ template<> \
 class QTypeModuleInfo<TYPE > \
 { \
 public: \
-    enum Module { \
+    enum Module : bool { \
         IsCore = (((MODULE) == (QModulesPrivate::Core))), \
         IsWidget = (((MODULE) == (QModulesPrivate::Widgets))), \
         IsGui = (((MODULE) == (QModulesPrivate::Gui))), \
@@ -126,11 +126,13 @@ class QMetaTypeInterface
 public:
     QMetaType::SaveOperator saveOp;
     QMetaType::LoadOperator loadOp;
-    QMetaType::Constructor constructor;
+    QMetaType::Constructor constructor; // TODO Qt6: remove me
     QMetaType::Destructor destructor;
     int size;
     QMetaType::TypeFlags::Int flags;
     const QMetaObject *metaObject;
+    QMetaType::TypedConstructor typedConstructor;
+    QMetaType::TypedDestructor typedDestructor;
 };
 
 #ifndef QT_NO_DATASTREAM
@@ -161,7 +163,9 @@ public:
     /*destructor*/(QtMetaTypePrivate::QMetaTypeFunctionHelper<Type, QtMetaTypePrivate::TypeDefinition<Type>::IsAvailable>::Destruct), \
     /*size*/(QTypeInfo<Type>::sizeOf), \
     /*flags*/QtPrivate::QMetaTypeTypeFlags<Type>::Flags, \
-    /*metaObject*/METAOBJECT_DELEGATE(Type) \
+    /*metaObject*/METAOBJECT_DELEGATE(Type), \
+    /*typedConstructor*/ nullptr, \
+    /*typedDestructor*/ nullptr \
 }
 
 
@@ -184,7 +188,9 @@ public:
     /*destructor*/ 0, \
     /*size*/ 0, \
     /*flags*/ 0, \
-    /*metaObject*/ 0 \
+    /*metaObject*/ 0 , \
+    /*typedConstructor*/ nullptr, \
+    /*typedDestructor*/ nullptr \
 }
 
 namespace QtMetaTypePrivate {
@@ -196,13 +202,15 @@ struct TypeDefinition {
 // Ignore these types, as incomplete
 #ifdef QT_BOOTSTRAPPED
 template<> struct TypeDefinition<QBitArray> { static const bool IsAvailable = false; };
+template<> struct TypeDefinition<QCborArray> { static const bool IsAvailable = false; };
+template<> struct TypeDefinition<QCborMap> { static const bool IsAvailable = false; };
+template<> struct TypeDefinition<QCborSimpleType> { static const bool IsAvailable = false; };
+template<> struct TypeDefinition<QCborValue> { static const bool IsAvailable = false; };
 template<> struct TypeDefinition<QEasingCurve> { static const bool IsAvailable = false; };
 template<> struct TypeDefinition<QJsonArray> { static const bool IsAvailable = false; };
 template<> struct TypeDefinition<QJsonDocument> { static const bool IsAvailable = false; };
 template<> struct TypeDefinition<QJsonObject> { static const bool IsAvailable = false; };
 template<> struct TypeDefinition<QJsonValue> { static const bool IsAvailable = false; };
-template<> struct TypeDefinition<QModelIndex> { static const bool IsAvailable = false; };
-template<> struct TypeDefinition<QPersistentModelIndex> { static const bool IsAvailable = false; };
 template<> struct TypeDefinition<QUrl> { static const bool IsAvailable = false; };
 template<> struct TypeDefinition<QByteArrayList> { static const bool IsAvailable = false; };
 #endif
@@ -219,7 +227,7 @@ template<> struct TypeDefinition<QPointF> { static const bool IsAvailable = fals
 #ifdef QT_NO_REGEXP
 template<> struct TypeDefinition<QRegExp> { static const bool IsAvailable = false; };
 #endif
-#if defined(QT_BOOTSTRAPPED) || defined(QT_NO_REGULAREXPRESSION)
+#if !QT_CONFIG(regularexpression)
 template<> struct TypeDefinition<QRegularExpression> { static const bool IsAvailable = false; };
 #endif
 #ifdef QT_NO_SHORTCUT

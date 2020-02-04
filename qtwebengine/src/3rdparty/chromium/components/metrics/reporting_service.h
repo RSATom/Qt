@@ -16,6 +16,7 @@
 #include "build/build_config.h"
 #include "components/metrics/data_use_tracker.h"
 #include "components/metrics/metrics_log_uploader.h"
+#include "third_party/metrics_proto/reporting_info.pb.h"
 
 class PrefService;
 class PrefRegistrySimple;
@@ -65,11 +66,6 @@ class ReportingService {
   // True iff reporting is currently enabled.
   bool reporting_active() const;
 
-  // Updates data usage tracking prefs with the specified values.
-  void UpdateMetricsUsagePrefs(const std::string& service_name,
-                               int message_size,
-                               bool is_cellular);
-
   // Registers local state prefs used by this class. This should only be called
   // once.
   static void RegisterPrefs(PrefRegistrySimple* registry);
@@ -83,13 +79,16 @@ class ReportingService {
 
   // Getters for MetricsLogUploader parameters.
   virtual std::string GetUploadUrl() const = 0;
+  virtual std::string GetInsecureUploadUrl() const = 0;
   virtual base::StringPiece upload_mime_type() const = 0;
   virtual MetricsLogUploader::MetricServiceType service_type() const = 0;
 
   // Methods for recording data to histograms.
   virtual void LogActualUploadInterval(base::TimeDelta interval) {}
   virtual void LogCellularConstraint(bool upload_canceled) {}
-  virtual void LogResponseOrErrorCode(int response_code, int error_code) {}
+  virtual void LogResponseOrErrorCode(int response_code,
+                                      int error_code,
+                                      bool was_https) {}
   virtual void LogSuccess(size_t log_size) {}
   virtual void LogLargeRejection(size_t log_size) {}
 
@@ -101,7 +100,7 @@ class ReportingService {
   void SendStagedLog();
 
   // Called after transmission completes (either successfully or with failure).
-  void OnLogUploadComplete(int response_code, int error_code);
+  void OnLogUploadComplete(int response_code, int error_code, bool was_https);
 
   // Used to interact with the embedder. Weak pointer; must outlive |this|
   // instance.
@@ -131,7 +130,10 @@ class ReportingService {
   // upload has been done yet.
   base::TimeTicks last_upload_finish_time_;
 
-  base::ThreadChecker thread_checker_;
+  // Info on current reporting state to send along with reports.
+  ReportingInfo reporting_info_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   // Weak pointers factory used to post task on different threads. All weak
   // pointers managed by this factory have the same lifetime as

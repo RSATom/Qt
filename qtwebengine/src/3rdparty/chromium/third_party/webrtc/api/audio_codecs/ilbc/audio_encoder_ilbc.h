@@ -8,33 +8,34 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_API_AUDIO_CODECS_ILBC_AUDIO_ENCODER_ILBC_H_
-#define WEBRTC_API_AUDIO_CODECS_ILBC_AUDIO_ENCODER_ILBC_H_
+#ifndef API_AUDIO_CODECS_ILBC_AUDIO_ENCODER_ILBC_H_
+#define API_AUDIO_CODECS_ILBC_AUDIO_ENCODER_ILBC_H_
 
 #include <memory>
 #include <vector>
 
-#include "webrtc/api/audio_codecs/audio_encoder.h"
-#include "webrtc/api/audio_codecs/audio_format.h"
-#include "webrtc/api/audio_codecs/ilbc/audio_encoder_ilbc_config.h"
-#include "webrtc/rtc_base/optional.h"
+#include "absl/types/optional.h"
+#include "api/audio_codecs/audio_codec_pair_id.h"
+#include "api/audio_codecs/audio_encoder.h"
+#include "api/audio_codecs/audio_format.h"
+#include "api/audio_codecs/ilbc/audio_encoder_ilbc_config.h"
 
 namespace webrtc {
 
 // ILBC encoder API for use as a template parameter to
 // CreateAudioEncoderFactory<...>().
-//
-// NOTE: This struct is still under development and may change without notice.
 struct AudioEncoderIlbc {
-  static rtc::Optional<AudioEncoderIlbcConfig> SdpToConfig(
+  using Config = AudioEncoderIlbcConfig;
+  static absl::optional<AudioEncoderIlbcConfig> SdpToConfig(
       const SdpAudioFormat& audio_format);
   static void AppendSupportedEncoders(std::vector<AudioCodecSpec>* specs);
   static AudioCodecInfo QueryAudioEncoder(const AudioEncoderIlbcConfig& config);
   static std::unique_ptr<AudioEncoder> MakeAudioEncoder(
       const AudioEncoderIlbcConfig& config,
-      int payload_type);
+      int payload_type,
+      absl::optional<AudioCodecPairId> codec_pair_id = absl::nullopt);
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_API_AUDIO_CODECS_ILBC_AUDIO_ENCODER_ILBC_H_
+#endif  // API_AUDIO_CODECS_ILBC_AUDIO_ENCODER_ILBC_H_

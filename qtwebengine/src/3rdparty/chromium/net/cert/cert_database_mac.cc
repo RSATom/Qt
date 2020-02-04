@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "base/mac/mac_logging.h"
 #include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/observer_list_threadsafe.h"
 #include "base/process/process_handle.h"
 #include "base/single_thread_task_runner.h"
@@ -27,13 +28,15 @@ class CertDatabase::Notifier {
   // Creates a new Notifier that will forward Keychain events to |cert_db|.
   // |message_loop| must refer to a thread with an associated CFRunLoop - a
   // TYPE_UI thread. Events will be dispatched from this message loop.
-  Notifier(CertDatabase* cert_db, base::MessageLoop* message_loop)
+  Notifier(CertDatabase* cert_db,
+           scoped_refptr<base::SingleThreadTaskRunner> task_runner)
       : cert_db_(cert_db),
+        task_runner_(std::move(task_runner)),
         registered_(false),
         called_shutdown_(false) {
     // Ensure an associated CFRunLoop.
-    DCHECK(base::MessageLoopForUI::IsCurrent());
-    task_runner_ = message_loop->task_runner();
+    DCHECK(base::MessageLoopCurrentForUI::IsSet());
+    DCHECK(task_runner_->BelongsToCurrentThread());
     task_runner_->PostTask(FROM_HERE,
                            base::Bind(&Notifier::Init,
                                       base::Unretained(this)));
@@ -114,22 +117,17 @@ OSStatus CertDatabase::Notifier::KeychainCallback(
   return errSecSuccess;
 }
 
-void CertDatabase::SetMessageLoopForKeychainEvents() {
-  // Shutdown will take care to delete the notifier on the right thread.
-  if (notifier_.get())
-    notifier_.release()->Shutdown();
-
-  notifier_.reset(new Notifier(this, base::MessageLoopForUI::current()));
+void CertDatabase::StartListeningForKeychainEvents() {
+  ReleaseNotifier();
+  notifier_ = new Notifier(this, base::ThreadTaskRunnerHandle::Get());
 }
 
-CertDatabase::CertDatabase()
-    : observer_list_(new base::ObserverListThreadSafe<Observer>) {
-}
-
-CertDatabase::~CertDatabase() {
+void CertDatabase::ReleaseNotifier() {
   // Shutdown will take care to delete the notifier on the right thread.
-  if (notifier_.get())
-    notifier_.release()->Shutdown();
+  if (notifier_) {
+    notifier_->Shutdown();
+    notifier_ = nullptr;
+  }
 }
 
 }  // namespace net

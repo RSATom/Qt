@@ -76,16 +76,26 @@ public:
     QSize svgSize() const;
     QSvgRenderer *renderer() const;
 
+    qreal zoomFactor() const;
+
 public slots:
     void setHighQualityAntialiasing(bool highQualityAntialiasing);
     void setViewBackground(bool enable);
     void setViewOutline(bool enable);
+    void zoomIn();
+    void zoomOut();
+    void resetZoom();
+
+signals:
+    void zoomChanged();
 
 protected:
     void wheelEvent(QWheelEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
 
 private:
+    void zoomBy(qreal factor);
+
     RendererType m_renderer;
 
     QGraphicsSvgItem *m_svgItem;

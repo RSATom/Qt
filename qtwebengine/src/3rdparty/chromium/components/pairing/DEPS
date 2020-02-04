@@ -1,6 +1,8 @@
 include_rules = [
-  "+chromeos/system",
+  "+chromeos/constants",
   "+device/bluetooth",
-  "+device/hid",
+  "+mojo/public/cpp",
   "+net",  # For IOBuffer
+  "+services/device/public/mojom",
+  "+services/service_manager/public/cpp",
 ]

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2004 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,36 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_PROXYINFO_H_
-#define WEBRTC_RTC_BASE_PROXYINFO_H_
+#ifndef RTC_BASE_PROXYINFO_H_
+#define RTC_BASE_PROXYINFO_H_
 
-#include <string>
-#include "webrtc/rtc_base/cryptstring.h"
-#include "webrtc/rtc_base/socketaddress.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
+#include "rtc_base/proxy_info.h"
 
-enum ProxyType {
-  PROXY_NONE,
-  PROXY_HTTPS,
-  PROXY_SOCKS5,
-  PROXY_UNKNOWN
-};
-const char * ProxyToString(ProxyType proxy);
-
-struct ProxyInfo {
-  ProxyType type;
-  SocketAddress address;
-  std::string autoconfig_url;
-  bool autodetect;
-  std::string bypass_list;
-  std::string username;
-  CryptString password;
-
-  ProxyInfo();
-  ~ProxyInfo();
-};
-
-} // namespace rtc
-
-#endif // WEBRTC_RTC_BASE_PROXYINFO_H_
+#endif  // RTC_BASE_PROXYINFO_H_

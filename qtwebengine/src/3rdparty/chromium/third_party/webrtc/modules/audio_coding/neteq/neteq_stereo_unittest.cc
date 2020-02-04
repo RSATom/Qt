@@ -11,19 +11,19 @@
 // Test to verify correct stereo and multi-channel operation.
 
 #include <algorithm>
+#include <list>
 #include <memory>
 #include <string>
-#include <list>
 
-#include "webrtc/api/audio_codecs/builtin_audio_decoder_factory.h"
-#include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/codecs/pcm16b/pcm16b.h"
-#include "webrtc/modules/audio_coding/neteq/include/neteq.h"
-#include "webrtc/modules/audio_coding/neteq/tools/input_audio_file.h"
-#include "webrtc/modules/audio_coding/neteq/tools/rtp_generator.h"
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "api/audio/audio_frame.h"
+#include "api/audio_codecs/builtin_audio_decoder_factory.h"
+#include "modules/audio_coding/codecs/pcm16b/pcm16b.h"
+#include "modules/audio_coding/neteq/include/neteq.h"
+#include "modules/audio_coding/neteq/tools/input_audio_file.h"
+#include "modules/audio_coding/neteq/tools/rtp_generator.h"
+#include "rtc_base/strings/string_builder.h"
+#include "test/gtest.h"
+#include "test/testsupport/file_utils.h"
 
 namespace webrtc {
 
@@ -72,68 +72,29 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
     input_ = new int16_t[frame_size_samples_];
     encoded_ = new uint8_t[2 * frame_size_samples_];
     input_multi_channel_ = new int16_t[frame_size_samples_ * num_channels_];
-    encoded_multi_channel_ = new uint8_t[frame_size_samples_ * 2 *
-                                         num_channels_];
+    encoded_multi_channel_ =
+        new uint8_t[frame_size_samples_ * 2 * num_channels_];
   }
 
   ~NetEqStereoTest() {
     delete neteq_mono_;
     delete neteq_;
-    delete [] input_;
-    delete [] encoded_;
-    delete [] input_multi_channel_;
-    delete [] encoded_multi_channel_;
+    delete[] input_;
+    delete[] encoded_;
+    delete[] input_multi_channel_;
+    delete[] encoded_multi_channel_;
   }
 
   virtual void SetUp() {
     const std::string file_name =
         webrtc::test::ResourcePath("audio_coding/testfile32kHz", "pcm");
     input_file_.reset(new test::InputAudioFile(file_name));
-    NetEqDecoder mono_decoder;
-    NetEqDecoder multi_decoder;
-    switch (sample_rate_hz_) {
-      case 8000:
-        mono_decoder = NetEqDecoder::kDecoderPCM16B;
-        if (num_channels_ == 2) {
-          multi_decoder = NetEqDecoder::kDecoderPCM16B_2ch;
-        } else if (num_channels_ == 5) {
-          multi_decoder = NetEqDecoder::kDecoderPCM16B_5ch;
-        } else {
-          FAIL() << "Only 2 and 5 channels supported for 8000 Hz.";
-        }
-        break;
-      case 16000:
-        mono_decoder = NetEqDecoder::kDecoderPCM16Bwb;
-        if (num_channels_ == 2) {
-          multi_decoder = NetEqDecoder::kDecoderPCM16Bwb_2ch;
-        } else {
-          FAIL() << "More than 2 channels is not supported for 16000 Hz.";
-        }
-        break;
-      case 32000:
-        mono_decoder = NetEqDecoder::kDecoderPCM16Bswb32kHz;
-        if (num_channels_ == 2) {
-          multi_decoder = NetEqDecoder::kDecoderPCM16Bswb32kHz_2ch;
-        } else {
-          FAIL() << "More than 2 channels is not supported for 32000 Hz.";
-        }
-        break;
-      case 48000:
-        mono_decoder = NetEqDecoder::kDecoderPCM16Bswb48kHz;
-        if (num_channels_ == 2) {
-          multi_decoder = NetEqDecoder::kDecoderPCM16Bswb48kHz_2ch;
-        } else {
-          FAIL() << "More than 2 channels is not supported for 48000 Hz.";
-        }
-        break;
-      default:
-        FAIL() << "We shouldn't get here.";
-    }
-    ASSERT_EQ(NetEq::kOK, neteq_mono_->RegisterPayloadType(mono_decoder, "mono",
-                                                           kPayloadTypeMono));
-    ASSERT_EQ(NetEq::kOK,
-              neteq_->RegisterPayloadType(multi_decoder, "multi-channel",
-                                          kPayloadTypeMulti));
+    RTC_CHECK_GE(num_channels_, 2);
+    ASSERT_TRUE(neteq_mono_->RegisterPayloadType(
+        kPayloadTypeMono, SdpAudioFormat("l16", sample_rate_hz_, 1)));
+    ASSERT_TRUE(neteq_->RegisterPayloadType(
+        kPayloadTypeMulti,
+        SdpAudioFormat("l16", sample_rate_hz_, num_channels_)));
   }
 
   virtual void TearDown() {}
@@ -142,17 +103,15 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
     if (!input_file_->Read(frame_size_samples_, input_)) {
       return -1;
     }
-    payload_size_bytes_ = WebRtcPcm16b_Encode(input_, frame_size_samples_,
-                                             encoded_);
+    payload_size_bytes_ =
+        WebRtcPcm16b_Encode(input_, frame_size_samples_, encoded_);
     if (frame_size_samples_ * 2 != payload_size_bytes_) {
       return -1;
     }
-    int next_send_time = rtp_generator_mono_.GetRtpHeader(kPayloadTypeMono,
-                                                          frame_size_samples_,
-                                                          &rtp_header_mono_);
-    test::InputAudioFile::DuplicateInterleaved(input_, frame_size_samples_,
-                                               num_channels_,
-                                               input_multi_channel_);
+    int next_send_time = rtp_generator_mono_.GetRtpHeader(
+        kPayloadTypeMono, frame_size_samples_, &rtp_header_mono_);
+    test::InputAudioFile::DuplicateInterleaved(
+        input_, frame_size_samples_, num_channels_, input_multi_channel_);
     multi_payload_size_bytes_ = WebRtcPcm16b_Encode(
         input_multi_channel_, frame_size_samples_ * num_channels_,
         encoded_multi_channel_);
@@ -230,7 +189,7 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
       EXPECT_EQ(num_channels_, output_multi_channel_.num_channels_);
       EXPECT_EQ(output_size_samples_,
                 output_multi_channel_.samples_per_channel_);
-      std::ostringstream ss;
+      rtc::StringBuilder ss;
       ss << "Lap number " << k << ".";
       SCOPED_TRACE(ss.str());  // Print out the parameter values on failure.
       // Compare mono and multi-channel.
@@ -267,8 +226,7 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
 
 class NetEqStereoTestNoJitter : public NetEqStereoTest {
  protected:
-  NetEqStereoTestNoJitter()
-      : NetEqStereoTest() {
+  NetEqStereoTestNoJitter() : NetEqStereoTest() {
     // Start the sender 100 ms before the receiver to pre-fill the buffer.
     // This is to avoid doing preemptive expand early in the test.
     // TODO(hlundin): Mock the decision making instead to control the modes.
@@ -282,17 +240,15 @@ TEST_P(NetEqStereoTestNoJitter, RunTest) {
 
 class NetEqStereoTestPositiveDrift : public NetEqStereoTest {
  protected:
-  NetEqStereoTestPositiveDrift()
-      : NetEqStereoTest(),
-        drift_factor(0.9) {
+  NetEqStereoTestPositiveDrift() : NetEqStereoTest(), drift_factor(0.9) {
     // Start the sender 100 ms before the receiver to pre-fill the buffer.
     // This is to avoid doing preemptive expand early in the test.
     // TODO(hlundin): Mock the decision making instead to control the modes.
     last_arrival_time_ = -100;
   }
   virtual int GetArrivalTime(int send_time) {
-    int arrival_time = last_arrival_time_ +
-        drift_factor * (send_time - last_send_time_);
+    int arrival_time =
+        last_arrival_time_ + drift_factor * (send_time - last_send_time_);
     last_send_time_ = send_time;
     last_arrival_time_ = arrival_time;
     return arrival_time;
@@ -307,8 +263,7 @@ TEST_P(NetEqStereoTestPositiveDrift, RunTest) {
 
 class NetEqStereoTestNegativeDrift : public NetEqStereoTestPositiveDrift {
  protected:
-  NetEqStereoTestNegativeDrift()
-      : NetEqStereoTestPositiveDrift() {
+  NetEqStereoTestNegativeDrift() : NetEqStereoTestPositiveDrift() {
     drift_factor = 1.1;
     last_arrival_time_ = 0;
   }
@@ -322,10 +277,7 @@ class NetEqStereoTestDelays : public NetEqStereoTest {
  protected:
   static const int kDelayInterval = 10;
   static const int kDelay = 1000;
-  NetEqStereoTestDelays()
-      : NetEqStereoTest(),
-        frame_index_(0) {
-  }
+  NetEqStereoTestDelays() : NetEqStereoTest(), frame_index_(0) {}
 
   virtual int GetArrivalTime(int send_time) {
     // Deliver immediately, unless we have a back-log.
@@ -349,22 +301,16 @@ TEST_P(NetEqStereoTestDelays, RunTest) {
 class NetEqStereoTestLosses : public NetEqStereoTest {
  protected:
   static const int kLossInterval = 10;
-  NetEqStereoTestLosses()
-      : NetEqStereoTest(),
-        frame_index_(0) {
-  }
+  NetEqStereoTestLosses() : NetEqStereoTest(), frame_index_(0) {}
 
-  virtual bool Lost() {
-    return (++frame_index_) % kLossInterval == 0;
-  }
+  virtual bool Lost() { return (++frame_index_) % kLossInterval == 0; }
 
   // TODO(hlundin): NetEq is not giving bitexact results for these cases.
   virtual void VerifyOutput(size_t num_samples) {
     for (size_t i = 0; i < num_samples; ++i) {
       const int16_t* output_data = output_.data();
       const int16_t* output_multi_channel_data = output_multi_channel_.data();
-      auto first_channel_sample =
-          output_multi_channel_data[i * num_channels_];
+      auto first_channel_sample = output_multi_channel_data[i * num_channels_];
       for (size_t j = 0; j < num_channels_; ++j) {
         const int kErrorMargin = 200;
         EXPECT_NEAR(output_data[i],
@@ -383,7 +329,6 @@ class NetEqStereoTestLosses : public NetEqStereoTest {
 TEST_P(NetEqStereoTestLosses, RunTest) {
   RunTest(100);
 }
-
 
 // Creates a list of parameter sets.
 std::list<TestParameters> GetTestParameters() {
@@ -412,9 +357,9 @@ std::list<TestParameters> GetTestParameters() {
 
 // Pretty-printing the test parameters in case of an error.
 void PrintTo(const TestParameters& p, ::std::ostream* os) {
-  *os << "{frame_size = " << p.frame_size <<
-      ", num_channels = " << p.num_channels <<
-      ", sample_rate = " << p.sample_rate << "}";
+  *os << "{frame_size = " << p.frame_size
+      << ", num_channels = " << p.num_channels
+      << ", sample_rate = " << p.sample_rate << "}";
 }
 
 // Instantiate the tests. Each test is instantiated using the function above,

@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_DEPRECATION_H_
-#define WEBRTC_RTC_BASE_DEPRECATION_H_
+#ifndef RTC_BASE_DEPRECATION_H_
+#define RTC_BASE_DEPRECATION_H_
 
 // Annotate the declarations of deprecated functions with this to cause a
 // compiler warning when they're used. Like so:
@@ -37,9 +37,9 @@
 // (https://bugs.chromium.org/p/webrtc/issues/detail?id=5368).
 #define RTC_DEPRECATED __declspec(deprecated)
 #elif defined(__GNUC__)
-#define RTC_DEPRECATED __attribute__ ((__deprecated__))
+#define RTC_DEPRECATED __attribute__((__deprecated__))
 #else
 #define RTC_DEPRECATED
 #endif
 
-#endif  // WEBRTC_RTC_BASE_DEPRECATION_H_
+#endif  // RTC_BASE_DEPRECATION_H_

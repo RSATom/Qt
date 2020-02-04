@@ -38,7 +38,7 @@ class SafeBrowsingQuietErrorUI
   // when creating the HTML.
   void PopulateStringsForHtml(base::DictionaryValue* load_time_data) override;
 
-  void HandleCommand(SecurityInterstitialCommands command) override;
+  void HandleCommand(SecurityInterstitialCommand command) override;
 
   // Manually set whether displaying in a giant WebView. Specifially used in
   // tests.
@@ -47,6 +47,11 @@ class SafeBrowsingQuietErrorUI
   int GetHTMLTemplateId() const override;
 
  private:
+  void PopulateMalwareLoadTimeData(base::DictionaryValue* load_time_data);
+  void PopulateHarmfulLoadTimeData(base::DictionaryValue* load_time_data);
+  void PopulatePhishingLoadTimeData(base::DictionaryValue* load_time_data);
+  void PopulateBillingLoadTimeData(base::DictionaryValue* load_time_data);
+
   bool is_giant_webview_;
 
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingQuietErrorUI);

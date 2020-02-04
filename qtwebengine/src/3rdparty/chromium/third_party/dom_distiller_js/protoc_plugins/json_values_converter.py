@@ -32,7 +32,6 @@ class CppConverterWriter(writer.CodeWriter):
     assert [] == proto_file.GetDependencies()
 
     self.Output('// base dependencies')
-    self.Output('#include "base/memory/ptr_util.h"')
     self.Output('#include "base/values.h"')
     self.Output('')
     self.Output('#include <memory>')
@@ -117,7 +116,7 @@ class CppConverterWriter(writer.CodeWriter):
 
   def RepeatedMemberFieldWriteToValue(self, field):
     prologue = (
-        'auto field_list = base::MakeUnique<base::ListValue>();\n'
+        'auto field_list = std::make_unique<base::ListValue>();\n'
         'for (int i = 0; i < message.{field_name}_size(); ++i) {{\n'
     )
 

@@ -84,14 +84,15 @@ struct TextureProperties
     int mipLevels = 1;
     int samples = 1;
     QAbstractTexture::Target target = QAbstractTexture::Target2D;
-    QAbstractTexture::TextureFormat format = QAbstractTexture::RGBA8_UNorm;
+    QAbstractTexture::TextureFormat format = QAbstractTexture::NoFormat;
     bool generateMipMaps = false;
+    QAbstractTexture::Status status = QAbstractTexture::None;
 
     bool operator==(const TextureProperties &o) const {
         return (width == o.width) && (height == o.height) && (depth == o.depth)
             && (layers == o.layers) && (mipLevels == o.mipLevels) && (target == o.target)
             && (format == o.format) && (generateMipMaps == o.generateMipMaps)
-            && (samples == o.samples);
+            && (samples == o.samples) && (status == o.status);
     }
     inline bool operator!=(const TextureProperties &o) const { return !(*this == o); }
 };
@@ -136,11 +137,17 @@ public:
         DirtyProperties = 0x1,
         DirtyParameters = 0x2,
         DirtyImageGenerators = 0x4,
-        DirtyDataGenerator = 0x8
+        DirtyDataGenerator = 0x8,
+        DirtySharedTextureId = 0x16
     };
     Q_DECLARE_FLAGS(DirtyFlags, DirtyFlag)
 
-    void setTextureImageManager(TextureImageManager *manager);
+    struct TextureUpdateInfo
+    {
+        TextureProperties properties;
+        QVariant handle;
+        QAbstractTexture::HandleType handleType;
+    };
 
     void addDirtyFlag(DirtyFlags flags);
     DirtyFlags dirtyFlags();
@@ -150,52 +157,50 @@ public:
     void removeTextureImage(Qt3DCore::QNodeId id);
     void cleanup();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     inline const TextureProperties& properties() const { return m_properties; }
     inline const TextureParameters& parameters() const { return m_parameters; }
-    inline const QVector<HTextureImage>& textureImages() const { return m_textureImages; }
+    inline const Qt3DCore::QNodeIdVector textureImageIds() const { return m_textureImageIds; }
     inline const QTextureGeneratorPtr& dataGenerator() const { return m_dataFunctor; }
+    inline int sharedTextureId() const { return m_sharedTextureId; }
 
-    void notifyStatus(QAbstractTexture::Status status);
-    void updateFromData(QTextureDataPtr data);
-
-    bool isValid() const;
+    void setDataGenerator(const QTextureGeneratorPtr &generator);
+    void updatePropertiesAndNotify(const TextureUpdateInfo &updateInfo);
+    bool isValid(TextureImageManager *manager) const;
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     DirtyFlags m_dirty;
     TextureProperties m_properties;
     TextureParameters m_parameters;
+    int m_sharedTextureId;
 
     QTextureGeneratorPtr m_dataFunctor;
-    QVector<HTextureImage> m_textureImages;
+    Qt3DCore::QNodeIdVector m_textureImageIds;
 
-    TextureImageManager *m_textureImageManager;
     QMutex m_flagsMutex;
 };
 
-class TextureFunctor : public Qt3DCore::QBackendNodeMapper
+class Q_AUTOTEST_EXPORT TextureFunctor : public Qt3DCore::QBackendNodeMapper
 {
 public:
     explicit TextureFunctor(AbstractRenderer *renderer,
-                            TextureManager *textureNodeManager,
-                            TextureImageManager *textureImageManager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const Q_DECL_FINAL;
-    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const Q_DECL_FINAL;
-    void destroy(Qt3DCore::QNodeId id) const Q_DECL_FINAL;
+                            TextureManager *textureNodeManager);
+    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const final;
+    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const final;
+    void destroy(Qt3DCore::QNodeId id) const final;
 
 private:
     AbstractRenderer *m_renderer;
     TextureManager *m_textureNodeManager;
-    TextureImageManager *m_textureImageManager;
 };
 
 #ifndef QT_NO_DEBUG_STREAM
 inline QDebug operator<<(QDebug dbg, const Texture &texture)
 {
     QDebugStateSaver saver(dbg);
-    dbg << "QNodeId =" << texture.peerId() << "imageCount =" << texture.textureImages().size() << endl;
+    dbg << "QNodeId =" << texture.peerId() << "imageCount =" << texture.textureImageIds().size() << endl;
     return dbg;
 }
 #endif

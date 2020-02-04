@@ -7,10 +7,9 @@
 #include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "device/usb/public/cpp/filter_utils.h"
-#include "device/usb/public/interfaces/device_manager.mojom.h"
+#include "device/usb/public/cpp/usb_utils.h"
+#include "device/usb/public/mojom/device_manager.mojom.h"
 #include "device/usb/usb_device.h"
 #include "extensions/common/api/extensions_manifest_types.h"
 #include "extensions/common/manifest_constants.h"
@@ -40,7 +39,7 @@ std::unique_ptr<UsbPrinterManifestData> UsbPrinterManifestData::FromValue(
     return nullptr;
   }
 
-  auto result = base::MakeUnique<UsbPrinterManifestData>();
+  auto result = std::make_unique<UsbPrinterManifestData>();
   for (const auto& input : usb_printers->filters) {
     if (input.product_id && input.interface_class) {
       *error = base::ASCIIToUTF16(

@@ -7,9 +7,6 @@
 #ifndef GPU_COMMAND_BUFFER_COMMON_GLES2_CMD_FORMAT_H_
 #define GPU_COMMAND_BUFFER_COMMON_GLES2_CMD_FORMAT_H_
 
-
-#include <KHR/khrplatform.h>
-
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -17,44 +14,15 @@
 #include "base/atomicops.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/rand_util.h"
+#include "base/trace_event/trace_event.h"
 #include "gpu/command_buffer/common/bitfield_helpers.h"
 #include "gpu/command_buffer/common/cmd_buffer_common.h"
+#include "gpu/command_buffer/common/common_cmd_format.h"
 #include "gpu/command_buffer/common/constants.h"
+#include "gpu/command_buffer/common/gl2_types.h"
 #include "gpu/command_buffer/common/gles2_cmd_ids.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
-
-#ifndef GL_VERSION_1_5
-// GL types are forward declared to avoid including the GL headers. The problem
-// is determining which GL headers to include from code that is common to the
-// client and service sides (GLES2 or one of several GL implementations).
-typedef unsigned int GLenum;
-typedef unsigned int GLbitfield;
-typedef unsigned int GLuint;
-typedef int GLint;
-typedef int GLsizei;
-typedef unsigned char GLboolean;
-typedef signed char GLbyte;
-typedef short GLshort;
-typedef unsigned char GLubyte;
-typedef unsigned short GLushort;
-typedef unsigned long GLulong;
-typedef float GLfloat;
-typedef float GLclampf;
-typedef double GLdouble;
-typedef double GLclampd;
-typedef void GLvoid;
-
-#ifdef _WIN64
-typedef signed long long int GLintptr;
-typedef signed long long int GLsizeiptr;
-#else
-typedef khronos_intptr_t GLintptr;
-typedef khronos_ssize_t  GLsizeiptr;
-#endif
-#endif
-typedef struct __GLsync *GLsync;
-typedef int64_t GLint64;
-typedef uint64_t GLuint64;
 
 namespace gpu {
 namespace gles2 {
@@ -83,6 +51,7 @@ enum class IdNamespaces {
   kQueries,
   kVertexArrays,
   kTransformFeedbacks,
+  kGpuFences,
   kNumIdNamespaces
 };
 
@@ -109,58 +78,11 @@ static_assert(static_cast<int>(IdNamespaces::kVertexArrays) == 2,
               "kVertexArrays should equal 2");
 static_assert(static_cast<int>(IdNamespaces::kTransformFeedbacks) == 3,
               "kTransformFeedbacks should equal 3");
+static_assert(static_cast<int>(IdNamespaces::kGpuFences) == 4,
+              "kGpuFences should equal 4");
 static_assert(kPaths == 0, "kPaths should equal 0");
 
 }  // namespace id_namespaces
-
-// Used for some glGetXXX commands that return a result through a pointer. We
-// need to know if the command succeeded or not and the size of the result. If
-// the command failed its result size will 0.
-template <typename T>
-struct SizedResult {
-  typedef T Type;
-
-  T* GetData() {
-    return static_cast<T*>(static_cast<void*>(&data));
-  }
-
-  // Returns the total size in bytes of the SizedResult for a given number of
-  // results including the size field.
-  static size_t ComputeSize(size_t num_results) {
-    return sizeof(T) * num_results + sizeof(uint32_t);  // NOLINT
-  }
-
-  // Returns the maximum number of results for a given buffer size.
-  static uint32_t ComputeMaxResults(size_t size_of_buffer) {
-    return (size_of_buffer >= sizeof(uint32_t)) ?
-        ((size_of_buffer - sizeof(uint32_t)) / sizeof(T)) : 0;  // NOLINT
-  }
-
-  // Set the size for a given number of results.
-  void SetNumResults(size_t num_results) {
-    size = sizeof(T) * num_results;  // NOLINT
-  }
-
-  // Get the number of elements in the result
-  int32_t GetNumResults() const {
-    return size / sizeof(T);  // NOLINT
-  }
-
-  // Copy the result.
-  void CopyResult(void* dst) const {
-    memcpy(dst, &data, size);
-  }
-
-  uint32_t size;  // in bytes.
-  int32_t data;  // this is just here to get an offset.
-};
-
-static_assert(sizeof(SizedResult<int8_t>) == 8,
-              "size of SizedResult<int8_t> should be 8");
-static_assert(offsetof(SizedResult<int8_t>, size) == 0,
-              "offset of SizedResult<int8_t>.size should be 0");
-static_assert(offsetof(SizedResult<int8_t>, data) == 4,
-              "offset of SizedResult<int8_t>.data should be 4");
 
 // The data for one attrib or uniform from GetProgramInfoCHROMIUM.
 struct ProgramInput {
@@ -231,17 +153,6 @@ struct UniformES3Info {
 struct UniformsES3Header {
   uint32_t num_uniforms;
   // UniformES3Info uniforms[num_uniforms];
-};
-
-// The format of QuerySync used by EXT_occlusion_query_boolean
-struct QuerySync {
-  void Reset() {
-    process_count = 0;
-    result = 0;
-  }
-
-  base::subtle::Atomic32 process_count;
-  uint64_t result;
 };
 
 struct DisjointValueSync {

@@ -1,10 +1,10 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html#License
 mn{
-    Version{"2.1.32.59"}
+    Version{"2.1.43.94"}
     durationUnits{
-        hm{"h:mm"}
-        hms{"h:mm:ss"}
+        hm{"hh:mm"}
+        hms{"hh:mm:ss"}
         ms{"m:ss"}
     }
     units{
@@ -123,6 +123,14 @@ mn{
                 one{"{0} хэсэг/саяд"}
                 other{"{0} хэсэг/саяд"}
             }
+            percent{
+                dnam{"хувь"}
+                one{"{0} хувь"}
+                other{"{0} хувь"}
+            }
+            permille{
+                dnam{"‰"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -147,7 +155,7 @@ mn{
             }
         }
         coordinate{
-            east{"{0}E"}
+            east{"{0}Зүүн"}
             north{"{0}Умард"}
             south{"{0}Өмнөд"}
             west{"{0}Өрнөд"}
@@ -192,6 +200,11 @@ mn{
                 dnam{"мегабайт"}
                 one{"{0} мегабайт"}
                 other{"{0} мегабайт"}
+            }
+            petabyte{
+                dnam{"петабайт"}
+                one{"{0} петабайт"}
+                other{"{0} петабайт"}
             }
             terabit{
                 dnam{"терабит"}
@@ -430,6 +443,11 @@ mn{
                 one{"{0} пикометр"}
                 other{"{0} пикометр"}
             }
+            point{
+                dnam{"оноо"}
+                one{"{0} оноо"}
+                other{"{0} оноо"}
+            }
             yard{
                 dnam{"ярд"}
                 one{"{0} ярд"}
@@ -532,6 +550,11 @@ mn{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"уур амьсгал"}
+                one{"{0} уур амьсгал"}
+                other{"{0} уур амьсгал"}
+            }
             hectopascal{
                 dnam{"гектопаскал"}
                 one{"{0} гектопаскал"}
@@ -780,6 +803,13 @@ mn{
         compound{
             per{"{0}/{1}"}
         }
+        concentr{
+            percent{
+                dnam{"%"}
+                one{"{0}%"}
+                other{"{0}%"}
+            }
+        }
         consumption{
             liter-per-100kilometers{
                 dnam{"л/100км"}
@@ -788,6 +818,7 @@ mn{
             }
         }
         coordinate{
+            dnam{"чиглэл"}
             east{"{0}Зүүн"}
             north{"{0}Умард"}
             south{"{0}Өмнөд"}
@@ -1035,8 +1066,8 @@ mn{
             }
             square-inch{
                 dnam{"инч²"}
-                one{"{0} ин²"}
-                other{"{0} ин²"}
+                one{"{0} инч²"}
+                other{"{0} инч²"}
                 per{"{0}/инч²"}
             }
             square-kilometer{
@@ -1087,6 +1118,16 @@ mn{
                 one{"{0} ppm"}
                 other{"{0} ppm"}
             }
+            percent{
+                dnam{"хувь"}
+                one{"{0}%"}
+                other{"{0}%"}
+            }
+            permille{
+                dnam{"‰"}
+                one{"{0}‰"}
+                other{"{0}‰"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -1111,6 +1152,7 @@ mn{
             }
         }
         coordinate{
+            dnam{"чиглэл"}
             east{"{0}Зүүн"}
             north{"{0}Умард"}
             south{"{0}Өмнөд"}
@@ -1156,6 +1198,11 @@ mn{
                 dnam{"Мбайт"}
                 one{"{0} МБ"}
                 other{"{0} МБ"}
+            }
+            petabyte{
+                dnam{"ПБайт"}
+                one{"{0} ПБ"}
+                other{"{0} ПБ"}
             }
             terabit{
                 dnam{"Тбит"}
@@ -1394,6 +1441,11 @@ mn{
                 one{"{0} пм"}
                 other{"{0} пм"}
             }
+            point{
+                dnam{"оноо"}
+                one{"{0} оноо"}
+                other{"{0} оноо"}
+            }
             yard{
                 dnam{"ярд"}
                 one{"{0} ярд"}
@@ -1496,13 +1548,18 @@ mn{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atm"}
+                one{"{0} atm"}
+                other{"{0} atm"}
+            }
             hectopascal{
                 dnam{"гПа"}
                 one{"{0} гПа"}
                 other{"{0} гПа"}
             }
             inch-hg{
-                dnam{"МөУсИн"}
+                dnam{"МөУс инч"}
                 one{"{0} МөУсИн"}
                 other{"{0} МөУсИн"}
             }
@@ -1683,14 +1740,14 @@ mn{
                 other{"{0} крц"}
             }
             tablespoon{
-                dnam{"ххалбага"}
-                one{"{0} ххалбага"}
-                other{"{0} ххалбага"}
+                dnam{"х/халбага"}
+                one{"{0} х/халбага"}
+                other{"{0} х/халбага"}
             }
             teaspoon{
-                dnam{"цхалбага"}
-                one{"{0} цхалбага"}
-                other{"{0} цхалбага"}
+                dnam{"ц/халбага"}
+                one{"{0} ц/халбага"}
+                other{"{0} ц/халбага"}
             }
         }
     }

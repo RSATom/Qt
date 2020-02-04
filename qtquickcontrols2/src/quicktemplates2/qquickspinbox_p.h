@@ -76,9 +76,12 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickSpinBox : public QQuickControl
     Q_PROPERTY(bool inputMethodComposing READ isInputMethodComposing NOTIFY inputMethodComposingChanged FINAL REVISION 2)
     // 2.3 (Qt 5.10)
     Q_PROPERTY(bool wrap READ wrap WRITE setWrap NOTIFY wrapChanged FINAL REVISION 3)
+    // 2.4 (Qt 5.11)
+    Q_PROPERTY(QString displayText READ displayText NOTIFY displayTextChanged FINAL REVISION 4)
 
 public:
     explicit QQuickSpinBox(QQuickItem *parent = nullptr);
+    ~QQuickSpinBox();
 
     int from() const;
     void setFrom(int from);
@@ -117,6 +120,9 @@ public:
     bool wrap() const;
     void setWrap(bool wrap);
 
+    // 2.4 (Qt 5.11)
+    QString displayText() const;
+
 public Q_SLOTS:
     void increase();
     void decrease();
@@ -136,6 +142,8 @@ Q_SIGNALS:
     Q_REVISION(2) void inputMethodComposingChanged();
     // 2.3 (Qt 5.10)
     Q_REVISION(3) void wrapChanged();
+    // 2.4 (Qt 5.11)
+    Q_REVISION(4) void displayTextChanged();
 
 protected:
     void focusInEvent(QFocusEvent *event) override;
@@ -153,6 +161,7 @@ protected:
     void componentComplete() override;
     void itemChange(ItemChange change, const ItemChangeData &value) override;
     void contentItemChange(QQuickItem *newItem, QQuickItem *oldItem) override;
+    void localeChange(const QLocale &newLocale, const QLocale &oldLocale) override;
 
     QFont defaultFont() const override;
     QPalette defaultPalette() const override;
@@ -174,6 +183,9 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickSpinButton : public QObject
     Q_PROPERTY(QQuickItem *indicator READ indicator WRITE setIndicator NOTIFY indicatorChanged FINAL)
     // 2.1 (Qt 5.8)
     Q_PROPERTY(bool hovered READ isHovered WRITE setHovered NOTIFY hoveredChanged FINAL REVISION 1)
+    // 2.5 (Qt 5.12)
+    Q_PROPERTY(qreal implicitIndicatorWidth READ implicitIndicatorWidth NOTIFY implicitIndicatorWidthChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal implicitIndicatorHeight READ implicitIndicatorHeight NOTIFY implicitIndicatorHeightChanged FINAL REVISION 5)
     Q_CLASSINFO("DeferredPropertyNames", "indicator")
 
 public:
@@ -189,11 +201,18 @@ public:
     bool isHovered() const;
     void setHovered(bool hovered);
 
+    // 2.5 (Qt 5.12)
+    qreal implicitIndicatorWidth() const;
+    qreal implicitIndicatorHeight() const;
+
 Q_SIGNALS:
     void pressedChanged();
     void indicatorChanged();
     // 2.1 (Qt 5.8)
     Q_REVISION(1) void hoveredChanged();
+    // 2.5 (Qt 5.12)
+    Q_REVISION(5) void implicitIndicatorWidthChanged();
+    Q_REVISION(5) void implicitIndicatorHeightChanged();
 
 private:
     Q_DISABLE_COPY(QQuickSpinButton)

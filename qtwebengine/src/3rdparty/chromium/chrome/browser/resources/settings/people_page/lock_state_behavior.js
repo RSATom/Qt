@@ -9,14 +9,27 @@
  */
 
 /** @enum {string} */
-var LockScreenUnlockType = {
+const LockScreenUnlockType = {
   VALUE_PENDING: 'value_pending',
   PASSWORD: 'password',
   PIN_PASSWORD: 'pin+password'
 };
 
+/**
+ * Determining if the device supports PIN sign-in takes time, as it may require
+ * a cryptohome call. This means incorrect strings may be shown for a brief
+ * period, and updating them causes UI flicker.
+ *
+ * Cache the value since the behavior is instantiated multiple times. Caching
+ * is safe because PIN login support depends only on hardware capabilities. The
+ * value does not change after discovered.
+ *
+ * @type {boolean|undefined}
+ */
+let cachedHasPinLogin = undefined;
+
 /** @polymerBehavior */
-var LockStateBehavior = {
+const LockStateBehaviorImpl = {
   properties: {
     /**
      * The currently selected unlock type.
@@ -34,24 +47,42 @@ var LockStateBehavior = {
     hasPin: {type: Boolean, notify: true},
 
     /**
-     * Interface for chrome.quickUnlockPrivate calls. May be overriden by tests.
-     * @private
+     * True if the PIN backend supports signin. undefined iff the value is still
+     * resolving.
+     * @type {boolean|undefined}
      */
-    quickUnlockPrivate_: {type: Object, value: chrome.quickUnlockPrivate},
+    hasPinLogin: {type: Boolean, notify: true},
+
+    /**
+     * Interface for chrome.quickUnlockPrivate calls. May be overridden by
+     * tests.
+     * @type {QuickUnlockPrivate}
+     */
+    quickUnlockPrivate: {type: Object, value: chrome.quickUnlockPrivate},
   },
 
   /** @override */
   attached: function() {
-    this.boundOnActiveModesChanged_ = this.updateUnlockType_.bind(this);
-    this.quickUnlockPrivate_.onActiveModesChanged.addListener(
+    this.boundOnActiveModesChanged_ = this.updateUnlockType.bind(this);
+    this.quickUnlockPrivate.onActiveModesChanged.addListener(
         this.boundOnActiveModesChanged_);
 
-    this.updateUnlockType_();
+    // See comment on |cachedHasPinLogin| declaration.
+    if (cachedHasPinLogin === undefined) {
+      this.addWebUIListener(
+          'pin-login-available-changed',
+          this.handlePinLoginAvailableChanged_.bind(this));
+      chrome.send('RequestPinLoginState');
+    } else {
+      this.hasPinLogin = cachedHasPinLogin;
+    }
+
+    this.updateUnlockType();
   },
 
   /** @override */
   detached: function() {
-    this.quickUnlockPrivate_.onActiveModesChanged.removeListener(
+    this.quickUnlockPrivate.onActiveModesChanged.removeListener(
         this.boundOnActiveModesChanged_);
   },
 
@@ -59,11 +90,9 @@ var LockStateBehavior = {
    * Updates the selected unlock type radio group. This function will get called
    * after preferences are initialized, after the quick unlock mode has been
    * changed, and after the lockscreen preference has changed.
-   *
-   * @private
    */
-  updateUnlockType_: function() {
-    this.quickUnlockPrivate_.getActiveModes(function(modes) {
+  updateUnlockType: function() {
+    this.quickUnlockPrivate.getActiveModes(modes => {
       if (modes.includes(chrome.quickUnlockPrivate.QuickUnlockMode.PIN)) {
         this.hasPin = true;
         this.selectedUnlockType = LockScreenUnlockType.PIN_PASSWORD;
@@ -71,6 +100,24 @@ var LockStateBehavior = {
         this.hasPin = false;
         this.selectedUnlockType = LockScreenUnlockType.PASSWORD;
       }
-    }.bind(this));
+    });
+  },
+
+  /** Sets the lock screen enabled state. */
+  setLockScreenEnabled(authToken, enabled) {
+    this.quickUnlockPrivate.setLockScreenEnabled(authToken, enabled);
+  },
+
+  /**
+   * Handler for when the pin login available state has been updated.
+   * @private
+   */
+  handlePinLoginAvailableChanged_: function(isAvailable) {
+    this.hasPinLogin = isAvailable;
+    cachedHasPinLogin = this.hasPinLogin;
   },
 };
+
+/** @polymerBehavior */
+const LockStateBehavior =
+    [I18nBehavior, WebUIListenerBehavior, LockStateBehaviorImpl];

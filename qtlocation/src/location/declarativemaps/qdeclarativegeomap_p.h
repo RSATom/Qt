@@ -101,6 +101,7 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoMap : public QQuickItem
     Q_PROPERTY(bool copyrightsVisible READ copyrightsVisible WRITE setCopyrightsVisible NOTIFY copyrightsVisibleChanged)
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
     Q_PROPERTY(bool mapReady READ mapReady NOTIFY mapReadyChanged)
+    Q_PROPERTY(QRectF visibleArea READ visibleArea WRITE setVisibleArea NOTIFY visibleAreaChanged  REVISION 12)
     Q_INTERFACES(QQmlParserStatus)
 
 public:
@@ -116,6 +117,8 @@ public:
 
     void setMinimumZoomLevel(qreal minimumZoomLevel, bool userSet = true);
     qreal minimumZoomLevel() const;
+    qreal implicitMinimumZoomLevel() const;
+    qreal effectiveMinimumZoomLevel() const;
 
     void setMaximumZoomLevel(qreal maximumZoomLevel, bool userSet = true);
     qreal maximumZoomLevel() const;
@@ -152,6 +155,9 @@ public:
     void setColor(const QColor &color);
     QColor color() const;
 
+    QRectF visibleArea() const;
+    void setVisibleArea(const QRectF &visibleArea);
+
     bool mapReady() const;
 
     QQmlListProperty<QDeclarativeGeoMapType> supportedMapTypes();
@@ -176,6 +182,12 @@ public:
     Q_INVOKABLE void clearMapParameters();
     QList<QObject *> mapParameters();
 
+    void addMapObject(QGeoMapObject *object);
+    void removeMapObject(QGeoMapObject *object);
+    void clearMapObjects();
+    QList<QGeoMapObject *> mapObjects();
+
+
     Q_INVOKABLE QGeoCoordinate toCoordinate(const QPointF &position, bool clipToViewPort = true) const;
     Q_INVOKABLE QPointF fromCoordinate(const QGeoCoordinate &coordinate, bool clipToViewPort = true) const;
 
@@ -186,9 +198,12 @@ public:
     Q_INVOKABLE void pan(int dx, int dy);
     Q_INVOKABLE void prefetchData(); // optional hint for prefetch
     Q_INVOKABLE void clearData();
+    Q_REVISION(13) Q_INVOKABLE void fitViewportToGeoShape(const QGeoShape &shape, QVariant margins);
+    void fitViewportToGeoShape(const QGeoShape &shape, const QMargins &borders = QMargins(10, 10, 10, 10));
 
     QString errorString() const;
     QGeoServiceProvider::Error error() const;
+    QGeoMap* map() const;
 
     // From QQuickItem
     void itemChange(ItemChange, const ItemChangeData &) override;
@@ -216,29 +231,41 @@ Q_SIGNALS:
     void copyrightsChanged(const QImage &copyrightsImage);
     void copyrightsChanged(const QString &copyrightsHtml);
     void mapReadyChanged(bool ready);
+    Q_REVISION(11) void mapObjectsChanged();
+    void visibleAreaChanged();
 
 protected:
-    void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE ;
-    void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE ;
-    void mouseReleaseEvent(QMouseEvent *event) Q_DECL_OVERRIDE ;
-    void mouseUngrabEvent() Q_DECL_OVERRIDE ;
-    void touchUngrabEvent() Q_DECL_OVERRIDE;
-    void touchEvent(QTouchEvent *event) Q_DECL_OVERRIDE ;
+    void mousePressEvent(QMouseEvent *event) override ;
+    void mouseMoveEvent(QMouseEvent *event) override ;
+    void mouseReleaseEvent(QMouseEvent *event) override ;
+    void mouseUngrabEvent() override ;
+    void touchUngrabEvent() override;
+    void touchEvent(QTouchEvent *event) override ;
 #if QT_CONFIG(wheelevent)
-    void wheelEvent(QWheelEvent *event) Q_DECL_OVERRIDE ;
+    void wheelEvent(QWheelEvent *event) override ;
 #endif
 
-    bool childMouseEventFilter(QQuickItem *item, QEvent *event) Q_DECL_OVERRIDE;
+    bool childMouseEventFilter(QQuickItem *item, QEvent *event) override;
     bool sendMouseEvent(QMouseEvent *event);
     bool sendTouchEvent(QTouchEvent *event);
 
-    void componentComplete() Q_DECL_OVERRIDE;
-    QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) Q_DECL_OVERRIDE;
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) Q_DECL_OVERRIDE;
+    void componentComplete() override;
+    QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *) override;
+    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
     void setError(QGeoServiceProvider::Error error, const QString &errorString);
     void initialize();
     void setZoomLevel(qreal zoomLevel, bool overzoom);
+    bool addMapChild(QObject *child);
+    bool removeMapChild(QObject *child);
+    bool isGroupNested(QDeclarativeGeoMapItemGroup *group);
+
+    bool addMapItem_real(QDeclarativeGeoMapItemBase *item);
+    bool removeMapItem_real(QDeclarativeGeoMapItemBase *item);
+    bool addMapItemGroup_real(QDeclarativeGeoMapItemGroup *itemGroup);
+    bool removeMapItemGroup_real(QDeclarativeGeoMapItemGroup *itemGroup);
+    bool addMapItemView_real(QDeclarativeGeoMapItemView *itemView);
+    bool removeMapItemView_real(QDeclarativeGeoMapItemView *itemView);
 
 private Q_SLOTS:
     void mappingManagerInitialized();
@@ -246,16 +273,17 @@ private Q_SLOTS:
     void onSupportedMapTypesChanged();
     void onCameraCapabilitiesChanged(const QGeoCameraCapabilities &oldCameraCapabilities);
     void onAttachedCopyrightNoticeVisibilityChanged();
+    void onCameraDataChanged(const QGeoCameraData &cameraData);
 
 private:
     void setupMapView(QDeclarativeGeoMapItemView *view);
     void populateMap();
     void populateParameters();
     void fitViewportToMapItemsRefine(bool refine, bool onlyVisible);
-    void fitViewportToGeoShape();
     bool isInteractive();
     void attachCopyrightNotice(bool initialVisibility);
     void detachCopyrightNotice(bool currentVisibility);
+    QMargins mapMargins() const;
 
 private:
     QDeclarativeGeoServiceProvider *m_plugin;
@@ -264,7 +292,7 @@ private:
     QList<QDeclarativeGeoMapType *> m_supportedMapTypes;
     QList<QDeclarativeGeoMapItemView *> m_mapViews;
     QQuickGeoMapGestureArea *m_gestureArea;
-    QGeoMap* m_map = nullptr;
+    QPointer<QGeoMap> m_map;
     QPointer<QDeclarativeGeoMapCopyrightNotice> m_copyrights;
     QList<QPointer<QDeclarativeGeoMapItemBase> > m_mapItems;
     QList<QPointer<QDeclarativeGeoMapItemGroup> > m_mapItemGroups;
@@ -277,8 +305,10 @@ private:
     bool m_pendingFitViewport;
     bool m_copyrightsVisible;
     double m_maximumViewportLatitude;
+    double m_minimumViewportLatitude = 0.0;
     bool m_initialized;
     QList<QDeclarativeGeoMapParameter *> m_mapParameters;
+    QList<QGeoMapObject*> m_pendingMapObjects; // Used only in the initialization phase
     QGeoCameraCapabilities m_cameraCapabilities;
     qreal m_userMinimumZoomLevel;
     qreal m_userMaximumZoomLevel;
@@ -295,6 +325,7 @@ private:
 
     int m_copyNoticesVisible = 0;
     qreal m_maxChildZ = 0;
+    QRectF m_visibleArea;
 
 
     friend class QDeclarativeGeoMapItem;

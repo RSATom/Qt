@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'icontheme.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,10 +10,8 @@
 #define ICONTHEME_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
+#include <QtGui/QIcon>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QWidget>
@@ -31,39 +29,39 @@ public:
     void setupUi(QWidget *Form)
     {
         if (Form->objectName().isEmpty())
-            Form->setObjectName(QStringLiteral("Form"));
+            Form->setObjectName(QString::fromUtf8("Form"));
         Form->resize(122, 117);
         verticalLayout = new QVBoxLayout(Form);
-        verticalLayout->setObjectName(QStringLiteral("verticalLayout"));
+        verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
         fileicon = new QPushButton(Form);
-        fileicon->setObjectName(QStringLiteral("fileicon"));
+        fileicon->setObjectName(QString::fromUtf8("fileicon"));
         QIcon icon;
-        icon.addFile(QStringLiteral("image1.png"), QSize(), QIcon::Normal, QIcon::Off);
+        icon.addFile(QString::fromUtf8("image1.png"), QSize(), QIcon::Normal, QIcon::Off);
         fileicon->setIcon(icon);
 
         verticalLayout->addWidget(fileicon);
 
         fileandthemeicon = new QPushButton(Form);
-        fileandthemeicon->setObjectName(QStringLiteral("fileandthemeicon"));
+        fileandthemeicon->setObjectName(QString::fromUtf8("fileandthemeicon"));
         QIcon icon1;
-        QString iconThemeName = QStringLiteral("edit-copy");
+        QString iconThemeName = QString::fromUtf8("edit-copy");
         if (QIcon::hasThemeIcon(iconThemeName)) {
             icon1 = QIcon::fromTheme(iconThemeName);
         } else {
-            icon1.addFile(QStringLiteral("image7.png"), QSize(), QIcon::Normal, QIcon::Off);
+            icon1.addFile(QString::fromUtf8("image7.png"), QSize(), QIcon::Normal, QIcon::Off);
         }
         fileandthemeicon->setIcon(icon1);
 
         verticalLayout->addWidget(fileandthemeicon);
 
         themeicon = new QPushButton(Form);
-        themeicon->setObjectName(QStringLiteral("themeicon"));
+        themeicon->setObjectName(QString::fromUtf8("themeicon"));
         QIcon icon2;
-        iconThemeName = QStringLiteral("edit-copy");
+        iconThemeName = QString::fromUtf8("edit-copy");
         if (QIcon::hasThemeIcon(iconThemeName)) {
             icon2 = QIcon::fromTheme(iconThemeName);
         } else {
-            icon2.addFile(QStringLiteral(""), QSize(), QIcon::Normal, QIcon::Off);
+            icon2.addFile(QString::fromUtf8(""), QSize(), QIcon::Normal, QIcon::Off);
         }
         themeicon->setIcon(icon2);
 
@@ -77,10 +75,10 @@ public:
 
     void retranslateUi(QWidget *Form)
     {
-        Form->setWindowTitle(QApplication::translate("Form", "Form", nullptr));
-        fileicon->setText(QApplication::translate("Form", "fileicon", nullptr));
-        fileandthemeicon->setText(QApplication::translate("Form", "PushButton", nullptr));
-        themeicon->setText(QApplication::translate("Form", "PushButton", nullptr));
+        Form->setWindowTitle(QCoreApplication::translate("Form", "Form", nullptr));
+        fileicon->setText(QCoreApplication::translate("Form", "fileicon", nullptr));
+        fileandthemeicon->setText(QCoreApplication::translate("Form", "PushButton", nullptr));
+        themeicon->setText(QCoreApplication::translate("Form", "PushButton", nullptr));
     } // retranslateUi
 
 };

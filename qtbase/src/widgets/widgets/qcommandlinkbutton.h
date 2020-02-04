@@ -58,20 +58,26 @@ class Q_WIDGETS_EXPORT QCommandLinkButton: public QPushButton
     Q_PROPERTY(bool flat READ isFlat WRITE setFlat DESIGNABLE false)
 
 public:
-    explicit QCommandLinkButton(QWidget *parent = Q_NULLPTR);
-    explicit QCommandLinkButton(const QString &text, QWidget *parent = Q_NULLPTR);
-    explicit QCommandLinkButton(const QString &text, const QString &description, QWidget *parent = Q_NULLPTR);
+    explicit QCommandLinkButton(QWidget *parent = nullptr);
+    explicit QCommandLinkButton(const QString &text, QWidget *parent = nullptr);
+    explicit QCommandLinkButton(const QString &text, const QString &description, QWidget *parent = nullptr);
     ~QCommandLinkButton();
 
     QString description() const;
     void setDescription(const QString &description);
 
+    // QTBUG-68722
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 protected:
-    QSize sizeHint() const Q_DECL_OVERRIDE;
-    int heightForWidth(int) const Q_DECL_OVERRIDE;
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE;
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE;
+#else
+public:
+#endif
+    QSize sizeHint() const override;
+    int heightForWidth(int) const override;
+    QSize minimumSizeHint() const override;
+protected:
+    bool event(QEvent *e) override;
+    void paintEvent(QPaintEvent *) override;
 
 private:
     Q_DISABLE_COPY(QCommandLinkButton)

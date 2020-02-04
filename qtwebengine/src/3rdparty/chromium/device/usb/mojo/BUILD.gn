@@ -8,8 +8,8 @@ source_set("mojo") {
     "device_impl.h",
     "device_manager_impl.cc",
     "device_manager_impl.h",
-    "permission_provider.cc",
-    "permission_provider.h",
+    "device_manager_test.cc",
+    "device_manager_test.h",
     "type_converters.cc",
     "type_converters.h",
   ]
@@ -18,9 +18,13 @@ source_set("mojo") {
     "//device/base",
     "//device/usb",
     "//device/usb/public/cpp",
-    "//device/usb/public/interfaces",
-    "//mojo/common",
+    "//device/usb/public/mojom",
+    "//device/usb/public/mojom:test",
     "//mojo/public/cpp/bindings",
     "//net",
   ]
+
+  if (is_chromeos) {
+    deps += [ "//chromeos/dbus" ]
+  }
 }

@@ -2,17 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "media/blink/url_index.h"
+
 #include <set>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "media/base/media_switches.h"
 #include "media/blink/resource_multibuffer_data_provider.h"
-#include "media/blink/url_index.h"
 
 namespace media {
 
@@ -23,14 +26,15 @@ ResourceMultiBuffer::ResourceMultiBuffer(UrlData* url_data, int block_shift)
     : MultiBuffer(block_shift, url_data->url_index_->lru_),
       url_data_(url_data) {}
 
-ResourceMultiBuffer::~ResourceMultiBuffer() {}
+ResourceMultiBuffer::~ResourceMultiBuffer() = default;
 
 std::unique_ptr<MultiBuffer::DataProvider> ResourceMultiBuffer::CreateWriter(
-    const MultiBufferBlockId& pos) {
-  ResourceMultiBufferDataProvider* ret =
-      new ResourceMultiBufferDataProvider(url_data_, pos);
-  ret->Start();
-  return std::unique_ptr<MultiBuffer::DataProvider>(ret);
+    const MultiBufferBlockId& pos,
+    bool is_client_audio_element) {
+  auto writer = std::make_unique<ResourceMultiBufferDataProvider>(
+      url_data_, pos, is_client_audio_element);
+  writer->Start();
+  return std::move(writer);
 }
 
 bool ResourceMultiBuffer::RangeSupported() const {
@@ -41,9 +45,7 @@ void ResourceMultiBuffer::OnEmpty() {
   url_data_->OnEmpty();
 }
 
-UrlData::UrlData(const GURL& url,
-                 CORSMode cors_mode,
-                 const base::WeakPtr<UrlIndex>& url_index)
+UrlData::UrlData(const GURL& url, CorsMode cors_mode, UrlIndex* url_index)
     : url_(url),
       have_data_origin_(false),
       cors_mode_(cors_mode),
@@ -52,8 +54,7 @@ UrlData::UrlData(const GURL& url,
       range_supported_(false),
       cacheable_(false),
       last_used_(),
-      multibuffer_(this, url_index_->block_shift_),
-      frame_(url_index->frame()) {}
+      multibuffer_(this, url_index_->block_shift_) {}
 
 UrlData::~UrlData() {
   UMA_HISTOGRAM_MEMORY_KB("Media.BytesReadFromCache",
@@ -62,7 +63,7 @@ UrlData::~UrlData() {
                           BytesReadFromNetwork() >> 10);
 }
 
-std::pair<GURL, UrlData::CORSMode> UrlData::key() const {
+std::pair<GURL, UrlData::CorsMode> UrlData::key() const {
   DCHECK(thread_checker_.CalledOnValidThread());
   return std::make_pair(url(), cors_mode());
 }
@@ -87,6 +88,8 @@ void UrlData::MergeFrom(const scoped_refptr<UrlData>& other) {
       last_modified_ = other->last_modified_;
     }
     bytes_read_from_cache_ += other->bytes_read_from_cache_;
+    // is_cors_corss_origin_ will not relax from true to false.
+    set_is_cors_cross_origin(other->is_cors_cross_origin_);
     multibuffer()->MergeFrom(other->multibuffer());
   }
 }
@@ -103,10 +106,22 @@ void UrlData::set_length(int64_t length) {
   }
 }
 
+void UrlData::set_is_cors_cross_origin(bool is_cors_cross_origin) {
+  if (is_cors_cross_origin_)
+    return;
+  is_cors_cross_origin_ = is_cors_cross_origin;
+}
+
 void UrlData::RedirectTo(const scoped_refptr<UrlData>& url_data) {
   DCHECK(thread_checker_.CalledOnValidThread());
   // Copy any cached data over to the new location.
   url_data->multibuffer()->MergeFrom(multibuffer());
+
+  // All |bytes_received_callbacks_| should also listen for bytes on the
+  // redirect UrlData.
+  for (const auto& cb : bytes_received_callbacks_) {
+    url_data->AddBytesReceivedCallback(cb);
+  }
 
   std::vector<RedirectCB> redirect_callbacks;
   redirect_callbacks.swap(redirect_callbacks_);
@@ -150,9 +165,7 @@ bool UrlData::ValidateDataOrigin(const GURL& origin) {
 
 void UrlData::OnEmpty() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&UrlIndex::RemoveUrlDataIfEmpty, url_index_,
-                            scoped_refptr<UrlData>(this)));
+  url_index_->RemoveUrlData(this);
 }
 
 bool UrlData::FullyCached() {
@@ -198,43 +211,78 @@ ResourceMultiBuffer* UrlData::multibuffer() {
   return &multibuffer_;
 }
 
+void UrlData::AddBytesReceivedCallback(BytesReceivedCB bytes_received_cb) {
+  bytes_received_callbacks_.emplace_back(std::move(bytes_received_cb));
+}
+
+void UrlData::AddBytesReadFromNetwork(int64_t b) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  bytes_read_from_network_ += b;
+  for (const auto& cb : bytes_received_callbacks_) {
+    cb.Run(b);
+  }
+}
+
 size_t UrlData::CachedSize() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return multibuffer()->map().size();
 }
 
-UrlIndex::UrlIndex(blink::WebLocalFrame* frame)
-    : UrlIndex(frame, kBlockSizeShift) {}
+UrlIndex::UrlIndex(ResourceFetchContext* fetch_context)
+    : UrlIndex(fetch_context, kBlockSizeShift) {}
 
-UrlIndex::UrlIndex(blink::WebLocalFrame* frame, int block_shift)
-    : frame_(frame),
+UrlIndex::UrlIndex(ResourceFetchContext* fetch_context, int block_shift)
+    : fetch_context_(fetch_context),
       lru_(new MultiBuffer::GlobalLRU(base::ThreadTaskRunnerHandle::Get())),
       block_shift_(block_shift),
-      weak_factory_(this) {}
+      memory_pressure_listener_(
+          base::Bind(&UrlIndex::OnMemoryPressure, base::Unretained(this))) {}
 
-UrlIndex::~UrlIndex() {}
+UrlIndex::~UrlIndex() {
+#if DCHECK_IS_ON()
+  // Verify that only |this| holds reference to UrlData instances.
+  auto dcheck_has_one_ref = [](const UrlDataMap::value_type& entry) {
+    DCHECK(entry.second->HasOneRef());
+  };
+  std::for_each(indexed_data_.begin(), indexed_data_.end(), dcheck_has_one_ref);
+#endif
+}
 
-void UrlIndex::RemoveUrlDataIfEmpty(const scoped_refptr<UrlData>& url_data) {
-  if (!url_data->multibuffer()->map().empty())
-    return;
+void UrlIndex::RemoveUrlData(const scoped_refptr<UrlData>& url_data) {
+  DCHECK(url_data->multibuffer()->map().empty());
 
-  auto i = by_url_.find(url_data->key());
-  if (i != by_url_.end() && i->second == url_data)
-    by_url_.erase(i);
+  auto i = indexed_data_.find(url_data->key());
+  if (i != indexed_data_.end() && i->second == url_data)
+    indexed_data_.erase(i);
 }
 
 scoped_refptr<UrlData> UrlIndex::GetByUrl(const GURL& gurl,
-                                          UrlData::CORSMode cors_mode) {
-  auto i = by_url_.find(std::make_pair(gurl, cors_mode));
-  if (i != by_url_.end() && i->second->Valid()) {
+                                          UrlData::CorsMode cors_mode) {
+  auto i = indexed_data_.find(std::make_pair(gurl, cors_mode));
+  if (i != indexed_data_.end() && i->second->Valid()) {
     return i->second;
   }
+
   return NewUrlData(gurl, cors_mode);
 }
 
 scoped_refptr<UrlData> UrlIndex::NewUrlData(const GURL& url,
-                                            UrlData::CORSMode cors_mode) {
-  return new UrlData(url, cors_mode, weak_factory_.GetWeakPtr());
+                                            UrlData::CorsMode cors_mode) {
+  return new UrlData(url, cors_mode, this);
+}
+
+void UrlIndex::OnMemoryPressure(
+    base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
+  switch (memory_pressure_level) {
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE:
+      break;
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE:
+      lru_->TryFree(128);  // try to free 128 32kb blocks if possible
+      break;
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL:
+      lru_->TryFreeAll();  // try to free as many blocks as possible
+      break;
+  }
 }
 
 namespace {
@@ -254,41 +302,44 @@ bool IsNewDataForSameResource(const scoped_refptr<UrlData>& new_entry,
   }
   return false;
 }
-};
+}  // namespace
 
 scoped_refptr<UrlData> UrlIndex::TryInsert(
     const scoped_refptr<UrlData>& url_data) {
-  scoped_refptr<UrlData>* by_url_slot;
-  bool urldata_valid = url_data->Valid();
-  if (urldata_valid) {
-    by_url_slot = &by_url_.insert(std::make_pair(url_data->key(), url_data))
-                       .first->second;
-  } else {
-    std::map<UrlData::KeyType, scoped_refptr<UrlData>>::iterator iter;
-    iter = by_url_.find(url_data->key());
-    if (iter == by_url_.end())
-      return url_data;
-    by_url_slot = &iter->second;
-  }
-  if (*by_url_slot == url_data)
-    return url_data;
-
-  if (IsNewDataForSameResource(url_data, *by_url_slot)) {
-    if (urldata_valid)
-      *by_url_slot = url_data;
+  auto iter = indexed_data_.find(url_data->key());
+  if (iter == indexed_data_.end()) {
+    // If valid and not already indexed, index it.
+    if (url_data->Valid()) {
+      indexed_data_.insert(iter, std::make_pair(url_data->key(), url_data));
+    }
     return url_data;
   }
 
-  // Check if we should replace the in-cache url data with our url data.
-  if (urldata_valid) {
-    if ((!(*by_url_slot)->Valid() ||
-         url_data->CachedSize() > (*by_url_slot)->CachedSize())) {
-      *by_url_slot = url_data;
+  // A UrlData instance for the same key is already indexed.
+
+  // If the indexed instance is the same as |url_data|,
+  // nothing needs to be done.
+  if (iter->second == url_data)
+    return url_data;
+
+  // The indexed instance is different.
+  // Check if it should be replaced with |url_data|.
+  if (IsNewDataForSameResource(url_data, iter->second)) {
+    if (url_data->Valid()) {
+      iter->second = url_data;
+    }
+    return url_data;
+  }
+
+  if (url_data->Valid()) {
+    if ((!iter->second->Valid() ||
+         url_data->CachedSize() > iter->second->CachedSize())) {
+      iter->second = url_data;
     } else {
-      (*by_url_slot)->MergeFrom(url_data);
+      iter->second->MergeFrom(url_data);
     }
   }
-  return *by_url_slot;
+  return iter->second;
 }
 
 }  // namespace media

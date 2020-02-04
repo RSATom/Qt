@@ -13,10 +13,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
+namespace appcache_storage_unittest {
 
-namespace {
-const storage::StorageType kTemp = storage::kStorageTypeTemporary;
-}
+const blink::mojom::StorageType kTemp = blink::mojom::StorageType::kTemporary;
 
 class AppCacheStorageTest : public testing::Test {
  public:
@@ -30,7 +29,8 @@ class AppCacheStorageTest : public testing::Test {
 
 TEST_F(AppCacheStorageTest, AddRemoveCache) {
   MockAppCacheService service;
-  scoped_refptr<AppCache> cache(new AppCache(service.storage(), 111));
+  scoped_refptr<AppCache> cache =
+      base::MakeRefCounted<AppCache>(service.storage(), 111);
 
   EXPECT_EQ(cache.get(),
             service.storage()->working_set()->GetCache(111));
@@ -46,14 +46,16 @@ TEST_F(AppCacheStorageTest, AddRemoveCache) {
 
 TEST_F(AppCacheStorageTest, AddRemoveGroup) {
   MockAppCacheService service;
-  scoped_refptr<AppCacheGroup> group(
-      new AppCacheGroup(service.storage(), GURL(), 111));
+  const GURL kManifestUrl("http://origin/");
+  scoped_refptr<AppCacheGroup> group =
+      base::MakeRefCounted<AppCacheGroup>(service.storage(), kManifestUrl, 111);
 
-  EXPECT_EQ(group.get(), service.storage()->working_set()->GetGroup(GURL()));
+  EXPECT_EQ(group.get(),
+            service.storage()->working_set()->GetGroup(kManifestUrl));
 
   service.storage()->working_set()->RemoveGroup(group.get());
 
-  EXPECT_TRUE(!service.storage()->working_set()->GetGroup(GURL()));
+  EXPECT_TRUE(!service.storage()->working_set()->GetGroup(kManifestUrl));
 
   // Removing non-existing group from service should not fail.
   MockAppCacheService dummy;
@@ -62,26 +64,44 @@ TEST_F(AppCacheStorageTest, AddRemoveGroup) {
 
 TEST_F(AppCacheStorageTest, AddRemoveResponseInfo) {
   MockAppCacheService service;
-  scoped_refptr<AppCacheResponseInfo> info(
-      new AppCacheResponseInfo(service.storage(), GURL(),
-                               111, new net::HttpResponseInfo,
-                               kUnkownResponseDataSize));
+  const GURL kManifestUrl("http://origin/");
+  scoped_refptr<AppCacheResponseInfo> info =
+      base::MakeRefCounted<AppCacheResponseInfo>(
+          service.storage()->GetWeakPtr(), kManifestUrl, 111,
+          std::make_unique<net::HttpResponseInfo>(), kUnknownResponseDataSize);
 
   EXPECT_EQ(info.get(),
             service.storage()->working_set()->GetResponseInfo(111));
 
   service.storage()->working_set()->RemoveResponseInfo(info.get());
 
-  EXPECT_TRUE(!service.storage()->working_set()->GetResponseInfo(111));
+  EXPECT_FALSE(service.storage()->working_set()->GetResponseInfo(111));
 
   // Removing non-existing info from service should not fail.
   MockAppCacheService dummy;
   dummy.storage()->working_set()->RemoveResponseInfo(info.get());
 }
 
+TEST_F(AppCacheStorageTest, ResponseInfoLifetime) {
+  scoped_refptr<AppCacheResponseInfo> info;
+  {
+    MockAppCacheService service;
+    const GURL kManifestUrl("http://origin/");
+    info = base::MakeRefCounted<AppCacheResponseInfo>(
+        service.storage()->GetWeakPtr(), kManifestUrl, 111,
+        std::make_unique<net::HttpResponseInfo>(), kUnknownResponseDataSize);
+
+    EXPECT_EQ(info.get(),
+              service.storage()->working_set()->GetResponseInfo(111));
+  }
+
+  // Outliving the AppCacheService should not be fatal.
+  info.reset();
+}
+
 TEST_F(AppCacheStorageTest, DelegateReferences) {
-  typedef scoped_refptr<AppCacheStorage::DelegateReference>
-      ScopedDelegateReference;
+  using ScopedDelegateReference =
+      scoped_refptr<AppCacheStorage::DelegateReference>;
   MockAppCacheService service;
   MockStorageDelegate delegate;
   ScopedDelegateReference delegate_reference1;
@@ -98,7 +118,7 @@ TEST_F(AppCacheStorageTest, DelegateReferences) {
             service.storage()->GetDelegateReference(&delegate)->delegate);
   EXPECT_EQ(service.storage()->GetDelegateReference(&delegate),
             service.storage()->GetOrCreateDelegateReference(&delegate));
-  delegate_reference1 = NULL;
+  delegate_reference1 = nullptr;
   EXPECT_FALSE(service.storage()->GetDelegateReference(&delegate));
 
   delegate_reference1 =
@@ -118,12 +138,12 @@ TEST_F(AppCacheStorageTest, DelegateReferences) {
 }
 
 TEST_F(AppCacheStorageTest, UsageMap) {
-  const GURL kOrigin("http://origin/");
-  const GURL kOrigin2("http://origin2/");
+  const url::Origin kOrigin(url::Origin::Create(GURL("http://origin/")));
+  const url::Origin kOrigin2(url::Origin::Create(GURL("http://origin2/")));
 
   MockAppCacheService service;
-  scoped_refptr<MockQuotaManagerProxy> mock_proxy(
-      new MockQuotaManagerProxy(NULL, NULL));
+  scoped_refptr<MockQuotaManagerProxy> mock_proxy =
+      base::MakeRefCounted<MockQuotaManagerProxy>(nullptr, nullptr);
   service.set_quota_manager_proxy(mock_proxy.get());
 
   service.storage()->UpdateUsageMapAndNotify(kOrigin, 0);
@@ -166,4 +186,5 @@ TEST_F(AppCacheStorageTest, UsageMap) {
   EXPECT_TRUE(service.storage()->usage_map_.empty());
 }
 
+}  // namespace appcache_storage_unittest
 }  // namespace content

@@ -17,11 +17,20 @@
 #define MOJO_STATIC_ASSERT(expr, msg)
 #endif
 
+// Defines a pointer-sized struct field of the given type. This ensures that the
+// field has an 8-byte footprint on both 32-bit and 64-bit systems, using an
+// anonymous bitfield of either 32 or 0 bits, depending on pointer size. Weird
+// formatting here courtesy of clang-format.
+#define MOJO_POINTER_FIELD(type, name) \
+  type name;                           \
+  uint32_t:                            \
+  (sizeof(void*) == 4 ? 32 : 0)
+
 // Like the C++11 |alignof| operator.
-#if __cplusplus >= 201103L
-#define MOJO_ALIGNOF(type) alignof(type)
-#elif defined(__GNUC__)
+#if defined(__GNUC__)
 #define MOJO_ALIGNOF(type) __alignof__(type)
+#elif __cplusplus >= 201103L
+#define MOJO_ALIGNOF(type) alignof(type)
 #elif defined(_MSC_VER)
 // The use of |sizeof| is to work around a bug in MSVC 2010 (see
 // http://goo.gl/isH0C; supposedly fixed since then).

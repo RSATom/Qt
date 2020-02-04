@@ -6,6 +6,11 @@
  * @fileoverview 'settings-edit-dictionary-page' is a sub-page for editing
  * the "dictionary" of custom words used for spell check.
  */
+
+// Max valid word size defined in
+// https://cs.chromium.org/chromium/src/components/spellcheck/common/spellcheck_common.h?l=28
+const MAX_CUSTOM_DICTIONARY_WORD_BYTES = 99;
+
 Polymer({
   is: 'settings-edit-dictionary-page',
 
@@ -31,6 +36,12 @@ Polymer({
         return [];
       },
     },
+
+    /** @private {boolean} */
+    hasWords_: {
+      type: Boolean,
+      value: false,
+    },
   },
 
   /** @type {LanguageSettingsPrivate} */
@@ -42,25 +53,46 @@ Polymer({
         /** @type {!LanguageSettingsPrivate} */
         (chrome.languageSettingsPrivate);
 
-    this.languageSettingsPrivate.getSpellcheckWords(function(words) {
+    this.languageSettingsPrivate.getSpellcheckWords(words => {
+      this.hasWords_ = words.length > 0;
       this.words_ = words;
-    }.bind(this));
+    });
 
     this.languageSettingsPrivate.onCustomDictionaryChanged.addListener(
         this.onCustomDictionaryChanged_.bind(this));
 
-    // Add a key handler for the paper-input.
+    // Add a key handler for the new-word input.
     this.$.keys.target = this.$.newWord;
   },
 
   /**
-   * Check if the new word text-field is empty.
+   * Check if the field is empty or invalid.
+   * @param {string} word
+   * @return {boolean}
    * @private
-   * @param {string} value
-   * @return {boolean} true if value is empty, false otherwise.
    */
-  validateWord_: function(value) {
-    return !!value.trim();
+  disableAddButton_: function(word) {
+    return word.trim().length == 0 || this.isWordInvalid_(word);
+  },
+
+  /**
+   * If the word is invalid, returns true (or a message if one is provided).
+   * Otherwise returns false.
+   * @param {string} word
+   * @param {string} duplicateError
+   * @param {string} lengthError
+   * @return {string|boolean}
+   * @private
+   */
+  isWordInvalid_: function(word, duplicateError, lengthError) {
+    const trimmedWord = word.trim();
+    if (this.words_.indexOf(trimmedWord) != -1) {
+      return duplicateError || true;
+    } else if (trimmedWord.length > MAX_CUSTOM_DICTIONARY_WORD_BYTES) {
+      return lengthError || true;
+    }
+
+    return false;
   },
 
   /**
@@ -70,14 +102,27 @@ Polymer({
    * @param {!Array<string>} removed
    */
   onCustomDictionaryChanged_: function(added, removed) {
-    var wasEmpty = this.words_.length == 0;
+    const wasEmpty = this.words_.length == 0;
 
-    for (var i = 0; i < removed.length; i++)
-      this.arrayDelete('words_', removed[i]);
+    for (const word of removed) {
+      this.arrayDelete('words_', word);
+    }
 
-    for (var i = 0; i < added.length; i++) {
-      if (this.words_.indexOf(added[i]) == -1)
-        this.unshift('words_', added[i]);
+    if (this.words_.length === 0 && added.length === 0 && !wasEmpty) {
+      this.hasWords_ = false;
+    }
+
+    // This is a workaround to ensure the dom-if is set to true before items
+    // are rendered so that focus works correctly in Polymer 2; see
+    // https://crbug.com/912523.
+    if (wasEmpty && added.length > 0) {
+      this.hasWords_ = true;
+    }
+
+    for (const word of added) {
+      if (this.words_.indexOf(word) == -1) {
+        this.unshift('words_', word);
+      }
     }
 
     // When adding a word to an _empty_ list, the template is expanded. This
@@ -92,14 +137,16 @@ Polymer({
   },
 
   /**
-   * Handles Enter and Escape key presses for the paper-input.
-   * @param {!{detail: !{key: string}}} e
+   * Handles Enter and Escape key presses for the new-word input.
+   * @param {!CustomEvent<!{key: string}>} e
    */
   onKeysPress_: function(e) {
-    if (e.detail.key == 'enter')
+    if (e.detail.key == 'enter' &&
+        !this.disableAddButton_(this.newWordValue_)) {
       this.addWordFromInput_();
-    else if (e.detail.key == 'esc')
+    } else if (e.detail.key == 'esc') {
       e.detail.keyboardEvent.target.value = '';
+    }
   },
 
   /**
@@ -119,27 +166,16 @@ Polymer({
   },
 
   /**
-   * Adds the word in the paper-input to the dictionary.
+   * Adds the word in the new-word input to the dictionary.
    */
   addWordFromInput_: function() {
     // Spaces are allowed, but removing leading and trailing whitespace.
-    var word = this.newWordValue_.trim();
+    const word = this.newWordValue_.trim();
     this.newWordValue_ = '';
-    if (!word)
+    if (!word) {
       return;
-
-    var index = this.words_.indexOf(word);
-    if (index == -1) {
-      this.languageSettingsPrivate.addSpellcheckWord(word);
     }
-  },
 
-  /**
-   * Checks if any words exists in the dictionary.
-   * @private
-   * @return {boolean}
-   */
-  hasWords_: function() {
-    return this.words_.length > 0;
-  }
+    this.languageSettingsPrivate.addSpellcheckWord(word);
+  },
 });

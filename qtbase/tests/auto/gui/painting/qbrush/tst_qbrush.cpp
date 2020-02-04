@@ -58,6 +58,7 @@ private slots:
     void testQGradientCopyConstructor();
 
     void gradientStops();
+    void gradientPresets();
 
     void textures();
 
@@ -326,6 +327,28 @@ void tst_QBrush::gradientStops()
     QCOMPARE(gradient.stops().at(0).second, QColor());
 }
 
+void tst_QBrush::gradientPresets()
+{
+    QGradient gradient(QGradient::WarmFlame);
+    QCOMPARE(gradient.type(), QGradient::LinearGradient);
+    QCOMPARE(gradient.coordinateMode(), QGradient::ObjectMode);
+
+    QLinearGradient *lg = static_cast<QLinearGradient *>(&gradient);
+    QCOMPARE(lg->start(), QPointF(0, 1));
+    QCOMPARE(lg->finalStop(), QPointF(1, 0));
+
+    QCOMPARE(lg->stops().size(), 3);
+    QCOMPARE(lg->stops().at(0), QGradientStop(0, QColor(QLatin1Literal("#ff9a9e"))));
+    QCOMPARE(lg->stops().at(1), QGradientStop(0.99, QColor(QLatin1Literal("#fad0c4"))));
+    QCOMPARE(lg->stops().at(2), QGradientStop(1, QColor(QLatin1Literal("#fad0c4"))));
+
+
+    QGradient invalidPreset(QGradient::Preset(-1));
+    QCOMPARE(invalidPreset.type(), QGradient::NoGradient);
+    QBrush brush(invalidPreset);
+    QCOMPARE(brush.style(), Qt::NoBrush);
+}
+
 void fill(QPaintDevice *pd) {
     QPainter p(pd);
 
@@ -439,6 +462,9 @@ void tst_QBrush::textureBrushStream()
 
     QCOMPARE(loadedBrush1.style(), Qt::TexturePattern);
     QCOMPARE(loadedBrush2.style(), Qt::TexturePattern);
+#ifdef Q_OS_ANDROID
+    QEXPECT_FAIL("", "QTBUG-69193", Continue);
+#endif
     QCOMPARE(loadedBrush1.texture(), pixmap_source);
     QCOMPARE(loadedBrush2.textureImage(), image_source);
 }

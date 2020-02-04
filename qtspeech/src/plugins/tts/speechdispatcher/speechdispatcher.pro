@@ -4,7 +4,7 @@ PLUGIN_CLASS_NAME = QTextToSpeechPluginSpeechd
 
 load(qt_plugin)
 
-QT += core texttospeech
+QT = core texttospeech
 
 CONFIG += link_pkgconfig
 packagesExist(speech-dispatcher): PKGCONFIG = speech-dispatcher

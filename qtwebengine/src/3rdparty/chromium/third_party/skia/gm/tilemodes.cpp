@@ -11,12 +11,13 @@
 #include "SkPath.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
-
-
+#include "SkTextUtils.h"
+#include "SkUTF.h"
 // effects
 #include "SkGradientShader.h"
 #include "SkBlurDrawLooper.h"
+
+#include "Resources.h"
 
 static void makebm(SkBitmap* bm, SkColorType ct, int w, int h) {
     bm->allocPixels(SkImageInfo::Make(w, h, ct, kPremul_SkAlphaType));
@@ -78,6 +79,8 @@ protected:
     }
 
     void onDraw(SkCanvas* canvas) override {
+        SkPaint textPaint;
+        SkFont font(sk_tool_utils::create_portable_typeface(), 12);
 
         int size = fPowerOfTwoSize ? kPOTSize : kNPOTSize;
 
@@ -98,14 +101,13 @@ protected:
         for (size_t kx = 0; kx < SK_ARRAY_COUNT(gModes); kx++) {
             for (size_t ky = 0; ky < SK_ARRAY_COUNT(gModes); ky++) {
                 SkPaint p;
-                SkString str;
-                p.setAntiAlias(true);
-                sk_tool_utils::set_portable_typeface(&p);
                 p.setDither(true);
+                SkString str;
+                SkFont font(sk_tool_utils::create_portable_typeface());
                 str.printf("[%s,%s]", gModeNames[kx], gModeNames[ky]);
 
-                p.setTextAlign(SkPaint::kCenter_Align);
-                canvas->drawString(str, x + r.width()/2, y, p);
+                SkTextUtils::DrawString(canvas, str.c_str(), x + r.width()/2, y, font, p,
+                                        SkTextUtils::kCenter_Align);
 
                 x += r.width() * 4 / 3;
             }
@@ -136,14 +138,8 @@ protected:
                         x += r.width() * 4 / 3;
                     }
                 }
-                {
-                    SkPaint p;
-                    SkString str;
-                    p.setAntiAlias(true);
-                    sk_tool_utils::set_portable_typeface(&p);
-                    str.printf("%s, %s", gConfigNames[i], gFilterNames[j]);
-                    canvas->drawString(str, x, y + r.height() * 2 / 3, p);
-                }
+                canvas->drawString(SkStringPrintf("%s, %s", gConfigNames[i], gFilterNames[j]),
+                                   x, y + r.height() * 2 / 3, font, textPaint);
 
                 y += r.height() * 4 / 3;
             }
@@ -154,6 +150,8 @@ private:
     bool fPowerOfTwoSize;
     typedef skiagm::GM INHERITED;
 };
+DEF_GM( return new TilingGM(true); )
+DEF_GM( return new TilingGM(false); )
 
 constexpr int gWidth = 32;
 constexpr int gHeight = 32;
@@ -177,7 +175,8 @@ static sk_sp<SkShader> make_grad(SkShader::TileMode tx, SkShader::TileMode ty) {
         case 1:
             return SkGradientShader::MakeRadial(center, rad, colors, nullptr, SK_ARRAY_COUNT(colors), tx);
         case 2:
-            return SkGradientShader::MakeSweep(center.fX, center.fY, colors, nullptr, SK_ARRAY_COUNT(colors));
+            return SkGradientShader::MakeSweep(center.fX, center.fY, colors, nullptr,
+                                               SK_ARRAY_COUNT(colors), tx, 135, 225, 0, nullptr);
     }
     return nullptr;
 }
@@ -217,25 +216,23 @@ protected:
         SkScalar y = SkIntToScalar(24);
         SkScalar x = SkIntToScalar(66);
 
-        SkPaint p;
-        p.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&p);
-        p.setTextAlign(SkPaint::kCenter_Align);
+        SkFont font(sk_tool_utils::create_portable_typeface());
 
         for (size_t kx = 0; kx < SK_ARRAY_COUNT(gModes); kx++) {
             SkString str(gModeNames[kx]);
-            canvas->drawString(str, x + r.width()/2, y, p);
+            SkTextUtils::DrawString(canvas, str.c_str(), x + r.width()/2, y, font, SkPaint(),
+                                    SkTextUtils::kCenter_Align);
             x += r.width() * 4 / 3;
         }
 
         y += SkIntToScalar(16) + h;
-        p.setTextAlign(SkPaint::kRight_Align);
 
         for (size_t ky = 0; ky < SK_ARRAY_COUNT(gModes); ky++) {
             x = SkIntToScalar(16) + w;
 
             SkString str(gModeNames[ky]);
-            canvas->drawString(str, x, y + h/2, p);
+            SkTextUtils::DrawString(canvas, str.c_str(), x, y + h/2, font, SkPaint(),
+                                    SkTextUtils::kRight_Align);
 
             x += SkIntToScalar(50);
             for (size_t kx = 0; kx < SK_ARRAY_COUNT(gModes); kx++) {
@@ -256,10 +253,78 @@ protected:
 private:
     typedef skiagm::GM INHERITED;
 };
-
-//////////////////////////////////////////////////////////////////////////////
-
-DEF_GM( return new TilingGM(true); )
-DEF_GM( return new TilingGM(false); )
 DEF_GM( return new Tiling2GM(make_bm, "bitmap"); )
 DEF_GM( return new Tiling2GM(make_grad, "gradient"); )
+
+////////////////////
+
+#include "SkGradientShader.h"
+
+DEF_SIMPLE_GM(tilemode_decal, canvas, 720, 1100) {
+    auto img = GetResourceAsImage("images/mandrill_128.png");
+    SkPaint bgpaint;
+    bgpaint.setColor(SK_ColorYELLOW);
+
+    SkRect r = { -20, -20, img->width() + 20.0f, img->height() + 20.0f };
+    canvas->translate(45, 45);
+
+    std::function<void(SkPaint*, SkShader::TileMode, SkShader::TileMode)> shader_procs[] = {
+        [img](SkPaint* paint, SkShader::TileMode tx, SkShader::TileMode ty) {
+            // Test no filtering with decal mode
+            paint->setShader(img->makeShader(tx, ty));
+            paint->setFilterQuality(kNone_SkFilterQuality);
+        },
+        [img](SkPaint* paint, SkShader::TileMode tx, SkShader::TileMode ty) {
+            // Test bilerp approximation for decal mode (or clamp to border HW)
+            paint->setShader(img->makeShader(tx, ty));
+            paint->setFilterQuality(kLow_SkFilterQuality);
+        },
+        [img](SkPaint* paint, SkShader::TileMode tx, SkShader::TileMode ty) {
+            // Test bicubic filter with decal mode
+            paint->setShader(img->makeShader(tx, ty));
+            paint->setFilterQuality(kHigh_SkFilterQuality);
+        },
+        [img](SkPaint* paint, SkShader::TileMode tx, SkShader::TileMode ty) {
+            SkColor colors[] = { SK_ColorRED, SK_ColorBLUE };
+            const SkPoint pts[] = {{ 0, 0 }, {img->width()*1.0f, img->height()*1.0f }};
+            const SkScalar* pos = nullptr;
+            const int count = SK_ARRAY_COUNT(colors);
+            paint->setShader(SkGradientShader::MakeLinear(pts, colors, pos, count, tx));
+        },
+        [img](SkPaint* paint, SkShader::TileMode tx, SkShader::TileMode ty) {
+            SkColor colors[] = { SK_ColorRED, SK_ColorBLUE };
+            const SkScalar* pos = nullptr;
+            const int count = SK_ARRAY_COUNT(colors);
+            paint->setShader(SkGradientShader::MakeRadial({ img->width()*0.5f, img->width()*0.5f },
+                                                      img->width()*0.5f, colors, pos, count, tx));
+        },
+    };
+
+    const struct XY {
+        SkShader::TileMode  fX;
+        SkShader::TileMode  fY;
+    } pairs[] = {
+        { SkShader::kClamp_TileMode,    SkShader::kClamp_TileMode },
+        { SkShader::kClamp_TileMode,    SkShader::kDecal_TileMode },
+        { SkShader::kDecal_TileMode,    SkShader::kClamp_TileMode },
+        { SkShader::kDecal_TileMode,    SkShader::kDecal_TileMode },
+    };
+    for (const auto& p : pairs) {
+        SkPaint paint;
+        canvas->save();
+        for (const auto& proc : shader_procs) {
+            canvas->save();
+            // Apply a slight rotation to highlight the differences between filtered and unfiltered
+            // decal edges
+            canvas->rotate(4);
+            canvas->drawRect(r, bgpaint);
+            proc(&paint, p.fX, p.fY);
+            canvas->drawRect(r, paint);
+            canvas->restore();
+            canvas->translate(0, r.height() + 20);
+        }
+        canvas->restore();
+        canvas->translate(r.width() + 10, 0);
+    }
+}
+

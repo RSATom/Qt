@@ -386,7 +386,7 @@ bool add_sequence_attribute(const QVariant &var, AttributeId key, NSMutableArray
         return false;
 
     const Sequence sequence(var.value<Sequence>());
-    foreach (const QVariant &var, sequence) {
+    for (const QVariant &var : sequence) {
         if (var.canConvert<Sequence>()) {
             NSMutableArray *const nested = [NSMutableArray array];
             add_sequence_attribute(var, key, nested);
@@ -411,7 +411,7 @@ bool add_sequence_attribute(const QBluetoothServiceInfo &serviceInfo, AttributeI
 
     NSMutableArray *const list = [NSMutableArray array];
     const Sequence sequence(var.value<Sequence>());
-    foreach (const QVariant &element, sequence) {
+    for (const QVariant &element : sequence) {
         if (!add_sequence_attribute(element, key, list))
             add_attribute(element, key, list);
     }
@@ -433,7 +433,7 @@ Dictionary iobluetooth_service_dictionary(const QBluetoothServiceInfo &serviceIn
 
     dict.reset([[NSMutableDictionary alloc] init]);
 
-    foreach (quint16 key, attributeIds) {
+    for (quint16 key : attributeIds) {
         if (key == QSInfo::ProtocolDescriptorList) // We handle it in a special way.
             continue;
         // TODO: check if non-sequence QVariant still must be

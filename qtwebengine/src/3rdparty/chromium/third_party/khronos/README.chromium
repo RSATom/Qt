@@ -2,7 +2,8 @@ Name: Khronos header files
 Short Name: khronos_headers
 URL: http://www.khronos.org/registry
 Version: unknown
-Date: 2017-04-01
+GLES Date: 2018-07-25
+EGL Date: 2017-10-13
 License: MIT/X11, SGI Free Software License B
 Security Critical: no
 
@@ -31,10 +32,9 @@ GLES2/gl2ext.h
 EGL/eglplatform.h
  - Added EGLNative*Type for Mac.
  - Added EGLNative*Type for native linux framebuffers.
- - Added EGLNative*Type for Fuchsia.
 EGL/eglext.h
  - Added support for EGL_EXT_image_flush_external extension
- - Added support for EGL_ANGLE_stream_producer_d3d_texture_nv12
+ - Added support for EGL_ANGLE_stream_producer_d3d_texture
 KHR/khrplatform.h
  - Modified KHRONOS_APICALL
 DEPS

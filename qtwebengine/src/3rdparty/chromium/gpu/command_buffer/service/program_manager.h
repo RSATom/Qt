@@ -19,16 +19,16 @@
 #include "gpu/command_buffer/service/common_decoder.h"
 #include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/shader_manager.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 
+class DecoderClient;
 struct GpuPreferences;
 
 namespace gles2 {
 
 class FeatureInfo;
-class GLES2DecoderClient;
 class ProgramCache;
 class ProgramManager;
 class ProgressReporter;
@@ -38,7 +38,7 @@ class ShaderManager;
 // This is used to track which attributes a particular program needs
 // so we can verify at glDrawXXX time that every attribute is either disabled
 // or if enabled that it points to a valid source.
-class GPU_EXPORT Program : public base::RefCounted<Program> {
+class GPU_GLES2_EXPORT Program : public base::RefCounted<Program> {
  public:
   static const int kMaxAttachedShaders = 2;
 
@@ -213,8 +213,9 @@ class GPU_EXPORT Program : public base::RefCounted<Program> {
   }
 
   const VertexAttrib* GetAttribInfo(GLint index) const {
-    return (static_cast<size_t>(index) < attrib_infos_.size()) ?
-       &attrib_infos_[index] : NULL;
+    return (static_cast<size_t>(index) < attrib_infos_.size())
+               ? &attrib_infos_[index]
+               : nullptr;
   }
 
   GLint GetAttribLocation(const std::string& original_name) const;
@@ -226,28 +227,28 @@ class GPU_EXPORT Program : public base::RefCounted<Program> {
         return &attrib_infos_[index];
       }
     }
-    return NULL;
+    return nullptr;
   }
 
   const UniformInfo* GetUniformInfo(GLint index) const;
 
-  // If the original name is not found, return NULL.
+  // If the original name is not found, return nullptr.
   const std::string* GetAttribMappedName(
       const std::string& original_name) const;
 
-  // If the original name is not found, return NULL.
+  // If the original name is not found, return nullptr.
   const std::string* GetUniformMappedName(
       const std::string& original_name) const;
 
-  // If the hashed name name is not found, return NULL.
+  // If the hashed name name is not found, return nullptr.
   // Use this only when one of the more specific Get*Info methods can't be used.
   const std::string* GetOriginalNameFromHashedName(
       const std::string& hashed_name) const;
 
-  // If the hashed name is not found, return NULL.
+  // If the hashed name is not found, return nullptr.
   const sh::Varying* GetVaryingInfo(const std::string& hashed_name) const;
 
-  // If the hashed name is not found, return NULL.
+  // If the hashed name is not found, return nullptr.
   const sh::InterfaceBlock* GetInterfaceBlockInfo(
       const std::string& hashed_name) const;
 
@@ -327,7 +328,7 @@ class GPU_EXPORT Program : public base::RefCounted<Program> {
   // Performs glLinkProgram and related activities.
   bool Link(ShaderManager* manager,
             VaryingsPackingOption varyings_packing_option,
-            GLES2DecoderClient* client);
+            DecoderClient* client);
 
   // Performs glValidateProgram and related activities.
   void Validate();
@@ -428,6 +429,8 @@ class GPU_EXPORT Program : public base::RefCounted<Program> {
     return effective_transform_feedback_buffer_mode_;
   }
 
+  GLint draw_id_uniform_location() const { return draw_id_uniform_location_; }
+
   // See member declaration for details.
   // The data are only valid after a successful link.
   uint32_t fragment_output_type_mask() const {
@@ -466,7 +469,7 @@ class GPU_EXPORT Program : public base::RefCounted<Program> {
   ~Program();
 
   void set_log_info(const char* str) {
-    log_info_.reset(str ? new std::string(str) : NULL);
+    log_info_.reset(str ? new std::string(str) : nullptr);
   }
 
   void ClearLinkStatus() {
@@ -508,6 +511,9 @@ class GPU_EXPORT Program : public base::RefCounted<Program> {
 
   // Clears all the uniforms.
   void ClearUniforms(std::vector<uint8_t>* zero_buffer);
+
+  // Updates the draw id uniform location used by ANGLE_multi_draw
+  void UpdateDrawIDUniformLocation();
 
   // If long attribate names are mapped during shader translation, call
   // glBindAttribLocation() again with the mapped names.
@@ -587,6 +593,9 @@ class GPU_EXPORT Program : public base::RefCounted<Program> {
   // True if the uniforms have been cleared.
   bool uniforms_cleared_;
 
+  // ANGLE_multi_draw
+  GLint draw_id_uniform_location_;
+
   // Log info
   std::unique_ptr<std::string> log_info_;
 
@@ -642,7 +651,7 @@ class GPU_EXPORT Program : public base::RefCounted<Program> {
 //
 // NOTE: To support shared resources an instance of this class will
 // need to be shared by multiple GLES2Decoders.
-class GPU_EXPORT ProgramManager {
+class GPU_GLES2_EXPORT ProgramManager {
  public:
   ProgramManager(ProgramCache* program_cache,
                  uint32_t max_varying_vectors,
@@ -651,7 +660,7 @@ class GPU_EXPORT ProgramManager {
                  uint32_t max_vertex_attribs,
                  const GpuPreferences& gpu_preferences,
                  FeatureInfo* feature_info,
-                 ProgressReporter* progress_reporter);
+                 gl::ProgressReporter* progress_reporter);
   ~ProgramManager();
 
   // Must call before destruction.
@@ -680,6 +689,9 @@ class GPU_EXPORT ProgramManager {
 
   // Clears the uniforms for this program.
   void ClearUniforms(Program* program);
+
+  // Updates the draw id location for this program for ANGLE_multi_draw
+  void UpdateDrawIDUniformLocation(Program* program);
 
   // Returns true if |name| has a prefix that is intended for GL built-in shader
   // variables.
@@ -736,7 +748,7 @@ class GPU_EXPORT ProgramManager {
   // Used to notify the watchdog thread of progress during destruction,
   // preventing time-outs when destruction takes a long time. May be null when
   // using in-process command buffer.
-  ProgressReporter* progress_reporter_;
+  gl::ProgressReporter* progress_reporter_;
 
   DISALLOW_COPY_AND_ASSIGN(ProgramManager);
 };

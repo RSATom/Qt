@@ -21,6 +21,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "storage/browser/fileapi/quota/quota_reservation.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/origin.h"
 
 using storage::QuotaReservationManager;
 
@@ -44,26 +45,26 @@ class FakeBackend : public QuotaReservationManager::QuotaBackend {
   ~FakeBackend() override {}
 
   void ReserveQuota(
-      const GURL& origin,
+      const url::Origin& origin,
       storage::FileSystemType type,
       int64_t delta,
-      const QuotaReservationManager::ReserveQuotaCallback& callback) override {
+      QuotaReservationManager::ReserveQuotaCallback callback) override {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::Bind(base::IgnoreResult(callback), base::File::FILE_OK, delta));
+        FROM_HERE, base::BindOnce(base::IgnoreResult(std::move(callback)),
+                                  base::File::FILE_OK, delta));
   }
 
-  void ReleaseReservedQuota(const GURL& origin,
+  void ReleaseReservedQuota(const url::Origin& origin,
                             storage::FileSystemType type,
                             int64_t size) override {}
 
-  void CommitQuotaUsage(const GURL& origin,
+  void CommitQuotaUsage(const url::Origin& origin,
                         storage::FileSystemType type,
                         int64_t delta) override {}
 
-  void IncrementDirtyCount(const GURL& origin,
+  void IncrementDirtyCount(const url::Origin& origin,
                            storage::FileSystemType type) override {}
-  void DecrementDirtyCount(const GURL& origin,
+  void DecrementDirtyCount(const url::Origin& origin,
                            storage::FileSystemType type) override {}
 
  private:
@@ -80,9 +81,8 @@ class QuotaReservationTest : public testing::Test {
   void SetUp() override {
     ASSERT_TRUE(work_dir_.CreateUniqueTempDir());
 
-    reservation_manager_.reset(new QuotaReservationManager(
-        std::unique_ptr<QuotaReservationManager::QuotaBackend>(
-            new FakeBackend)));
+    reservation_manager_ = std::make_unique<QuotaReservationManager>(
+        std::make_unique<FakeBackend>());
   }
 
   void TearDown() override {
@@ -135,9 +135,8 @@ void GotReservedQuota(int64_t* reserved_quota_ptr,
   *reserved_quota_ptr = reserved_quota;
 
   file_growths_ptr->clear();
-  for (ppapi::FileSizeMap::const_iterator it = maximum_written_offsets.begin();
-       it != maximum_written_offsets.end();
-       ++it)
+  for (auto it = maximum_written_offsets.begin();
+       it != maximum_written_offsets.end(); ++it)
     (*file_growths_ptr)[it->first] = ppapi::FileGrowth(it->second, 0);
 }
 
@@ -160,7 +159,8 @@ TEST_F(QuotaReservationTest, ReserveQuota) {
   storage::FileSystemType type = kType;
 
   scoped_refptr<storage::QuotaReservation> reservation(
-      reservation_manager()->CreateReservation(origin, type));
+      reservation_manager()->CreateReservation(url::Origin::Create(origin),
+                                               type));
   scoped_refptr<QuotaReservation> test =
       CreateQuotaReservation(reservation, origin, type);
 
@@ -201,7 +201,8 @@ TEST_F(QuotaReservationTest, MultipleFiles) {
   storage::FileSystemType type = kType;
 
   scoped_refptr<storage::QuotaReservation> reservation(
-      reservation_manager()->CreateReservation(origin, type));
+      reservation_manager()->CreateReservation(url::Origin::Create(origin),
+                                               type));
   scoped_refptr<QuotaReservation> test =
       CreateQuotaReservation(reservation, origin, type);
 

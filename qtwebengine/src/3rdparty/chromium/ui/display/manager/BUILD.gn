@@ -2,34 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
+import("//ui/display/display.gni")
 
-component("manager") {
+jumbo_component("manager") {
   sources = [
-    "chromeos/apply_content_protection_task.cc",
-    "chromeos/apply_content_protection_task.h",
-    "chromeos/configure_displays_task.cc",
-    "chromeos/configure_displays_task.h",
-    "chromeos/default_touch_transform_setter.cc",
-    "chromeos/default_touch_transform_setter.h",
-    "chromeos/display_change_observer.cc",
-    "chromeos/display_change_observer.h",
-    "chromeos/display_configurator.cc",
-    "chromeos/display_configurator.h",
-    "chromeos/display_layout_manager.h",
-    "chromeos/display_util.cc",
-    "chromeos/display_util.h",
-    "chromeos/query_content_protection_task.cc",
-    "chromeos/query_content_protection_task.h",
-    "chromeos/touch_device_transform.cc",
-    "chromeos/touch_device_transform.h",
-    "chromeos/touch_transform_controller.cc",
-    "chromeos/touch_transform_controller.h",
-    "chromeos/touch_transform_setter.h",
-    "chromeos/touchscreen_util.cc",
-    "chromeos/touchscreen_util.h",
-    "chromeos/update_display_configuration_task.cc",
-    "chromeos/update_display_configuration_task.h",
     "display_layout_store.cc",
     "display_layout_store.h",
     "display_manager.cc",
@@ -37,14 +15,44 @@ component("manager") {
     "display_manager_export.h",
     "display_manager_utilities.cc",
     "display_manager_utilities.h",
-    "display_pref_util.h",
-    "forwarding_display_delegate.cc",
-    "forwarding_display_delegate.h",
+    "fake_display_delegate.cc",
+    "fake_display_delegate.h",
+    "fake_display_snapshot.cc",
+    "fake_display_snapshot.h",
     "json_converter.cc",
     "json_converter.h",
     "managed_display_info.cc",
     "managed_display_info.h",
   ]
+
+  if (build_display_configuration) {
+    sources += [
+      "apply_content_protection_task.cc",
+      "apply_content_protection_task.h",
+      "configure_displays_task.cc",
+      "configure_displays_task.h",
+      "default_touch_transform_setter.cc",
+      "default_touch_transform_setter.h",
+      "display_change_observer.cc",
+      "display_change_observer.h",
+      "display_configurator.cc",
+      "display_configurator.h",
+      "display_layout_manager.h",
+      "display_util.cc",
+      "display_util.h",
+      "query_content_protection_task.cc",
+      "query_content_protection_task.h",
+      "touch_device_manager.cc",
+      "touch_device_manager.h",
+      "touch_transform_controller.cc",
+      "touch_transform_controller.h",
+      "touch_transform_setter.h",
+      "update_display_configuration_task.cc",
+      "update_display_configuration_task.h",
+    ]
+  }
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   public_deps = [
     "//ui/display",
@@ -52,9 +60,11 @@ component("manager") {
 
   deps = [
     "//base",
+    "//third_party/re2",
     "//ui/base",
     "//ui/display/mojo:interfaces",
     "//ui/display/util",
+    "//ui/events:platform_event",
     "//ui/events/devices",
     "//ui/strings",
   ]
@@ -63,33 +73,5 @@ component("manager") {
 
   if (is_chromeos) {
     deps += [ "//chromeos" ]
-  }
-
-  if (use_x11) {
-    deps += [ "//ui/gfx/x" ]
-  }
-
-  if (is_chromeos && use_x11) {
-    sources += [
-      "chromeos/x11/display_mode_x11.cc",
-      "chromeos/x11/display_mode_x11.h",
-      "chromeos/x11/display_snapshot_x11.cc",
-      "chromeos/x11/display_snapshot_x11.h",
-      "chromeos/x11/display_util_x11.cc",
-      "chromeos/x11/display_util_x11.h",
-      "chromeos/x11/native_display_delegate_x11.cc",
-      "chromeos/x11/native_display_delegate_x11.h",
-      "chromeos/x11/native_display_event_dispatcher_x11.cc",
-      "chromeos/x11/native_display_event_dispatcher_x11.h",
-    ]
-
-    configs += [
-      "//build/config/linux:x11",
-      "//build/config/linux:xext",
-      "//build/config/linux:xi",
-      "//build/config/linux:xrandr",
-    ]
-
-    deps += [ "//ui/events/platform" ]
   }
 }

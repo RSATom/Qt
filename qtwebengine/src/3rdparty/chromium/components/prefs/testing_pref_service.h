@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "components/prefs/pref_registry.h"
 #include "components/prefs/pref_service.h"
@@ -29,16 +28,16 @@ class TestingPrefServiceBase : public SuperPrefService {
  public:
   virtual ~TestingPrefServiceBase();
 
-  // Read the value of a preference from the managed layer. Returns NULL if the
+  // Reads the value of a preference from the managed layer. Returns NULL if the
   // preference is not defined at the managed layer.
   const base::Value* GetManagedPref(const std::string& path) const;
 
-  // Set a preference on the managed layer and fire observers if the preference
-  // changed.
+  // Sets a preference on the managed layer and fires observers if the
+  // preference changed.
   void SetManagedPref(const std::string& path,
                       std::unique_ptr<base::Value> value);
 
-  // Clear the preference on the managed layer and fire observers if the
+  // Clears the preference on the managed layer and fire observers if the
   // preference has been defined previously.
   void RemoveManagedPref(const std::string& path);
 

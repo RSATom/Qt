@@ -9,6 +9,9 @@
 #include "base/macros.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_event_dispatcher.h"
+#include "ui/aura/window_targeter.h"
+#include "ui/aura/window_tree_host.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/events/event_utils.h"
 #include "ui/views/controls/native/native_view_host.h"
@@ -63,7 +66,8 @@ class NativeViewHostWindowObserver : public aura::WindowObserver {
 
   void OnWindowBoundsChanged(aura::Window* window,
                              const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds) override {
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override {
     EventDetails event;
     event.type = EVENT_BOUNDS_CHANGED;
     event.window = window;
@@ -96,7 +100,9 @@ class NativeViewHostAuraTest : public test::NativeViewHostTestBase {
     return child_.get();
   }
 
-  aura::Window* clipping_window() { return &(native_host()->clipping_window_); }
+  aura::Window* clipping_window() {
+    return native_host()->clipping_window_.get();
+  }
 
   void CreateHost() {
     CreateTopLevel();
@@ -192,7 +198,7 @@ TEST_F(NativeViewHostAuraTest, FastResizePath) {
   // with the native view positioned at the origin of the clipping window and
   // the clipping window positioned where the native view was requested.
   host()->set_fast_resize(false);
-  native_host()->ShowWidget(5, 10, 100, 100);
+  native_host()->ShowWidget(5, 10, 100, 100, 100, 100);
   EXPECT_EQ(gfx::Rect(0, 0, 100, 100).ToString(),
             host()->native_view()->bounds().ToString());
   EXPECT_EQ(gfx::Rect(5, 10, 100, 100).ToString(),
@@ -201,7 +207,7 @@ TEST_F(NativeViewHostAuraTest, FastResizePath) {
   // With fast resize, the native view should remain the same size but be
   // clipped the requested size.
   host()->set_fast_resize(true);
-  native_host()->ShowWidget(10, 25, 50, 50);
+  native_host()->ShowWidget(10, 25, 50, 50, 50, 50);
   EXPECT_EQ(gfx::Rect(0, 0, 100, 100).ToString(),
             host()->native_view()->bounds().ToString());
   EXPECT_EQ(gfx::Rect(10, 25, 50, 50).ToString(),
@@ -209,11 +215,66 @@ TEST_F(NativeViewHostAuraTest, FastResizePath) {
 
   // Turning off fast resize should make the native view start resizing again.
   host()->set_fast_resize(false);
-  native_host()->ShowWidget(10, 25, 50, 50);
+  native_host()->ShowWidget(10, 25, 50, 50, 50, 50);
   EXPECT_EQ(gfx::Rect(0, 0, 50, 50).ToString(),
             host()->native_view()->bounds().ToString());
   EXPECT_EQ(gfx::Rect(10, 25, 50, 50).ToString(),
             clipping_window()->bounds().ToString());
+
+  DestroyHost();
+}
+
+// Test that the clipping and content windows' bounds are set to the correct
+// values while the native size is not equal to the View size. During fast
+// resize, the size and transform of the NativeView should not be modified.
+TEST_F(NativeViewHostAuraTest, BoundsWhileScaling) {
+  CreateHost();
+  toplevel()->SetBounds(gfx::Rect(20, 20, 100, 100));
+  EXPECT_EQ(gfx::Transform(), host()->native_view()->transform());
+
+  // Without fast resize, the clipping window should size to the native view
+  // with the native view positioned at the origin of the clipping window and
+  // the clipping window positioned where the native view was requested. The
+  // size of the native view should be 200x200 (so it's content will be
+  // shown at half-size).
+  host()->set_fast_resize(false);
+  native_host()->ShowWidget(5, 10, 100, 100, 200, 200);
+  EXPECT_EQ(gfx::Rect(0, 0, 200, 200).ToString(),
+            host()->native_view()->bounds().ToString());
+  EXPECT_EQ(gfx::Rect(5, 10, 100, 100).ToString(),
+            clipping_window()->bounds().ToString());
+  gfx::Transform expected_transform;
+  expected_transform.Scale(0.5, 0.5);
+  EXPECT_EQ(expected_transform, host()->native_view()->transform());
+
+  // With fast resize, the native view should remain the same size but be
+  // clipped the requested size. Also, its transform should not be changed.
+  host()->set_fast_resize(true);
+  native_host()->ShowWidget(10, 25, 50, 50, 200, 200);
+  EXPECT_EQ(gfx::Rect(0, 0, 200, 200).ToString(),
+            host()->native_view()->bounds().ToString());
+  EXPECT_EQ(gfx::Rect(10, 25, 50, 50).ToString(),
+            clipping_window()->bounds().ToString());
+  EXPECT_EQ(expected_transform, host()->native_view()->transform());
+
+  // Turning off fast resize should make the native view start resizing again,
+  // and its transform modified to show at the new quarter-size.
+  host()->set_fast_resize(false);
+  native_host()->ShowWidget(10, 25, 50, 50, 200, 200);
+  EXPECT_EQ(gfx::Rect(0, 0, 200, 200).ToString(),
+            host()->native_view()->bounds().ToString());
+  EXPECT_EQ(gfx::Rect(10, 25, 50, 50).ToString(),
+            clipping_window()->bounds().ToString());
+  expected_transform = gfx::Transform();
+  expected_transform.Scale(0.25, 0.25);
+  EXPECT_EQ(expected_transform, host()->native_view()->transform());
+
+  // When the NativeView is detached, its original transform should be restored.
+  auto* const detached_view = host()->native_view();
+  host()->Detach();
+  EXPECT_EQ(gfx::Transform(), detached_view->transform());
+  // Attach it again so it's torn down with everything else at the end.
+  host()->Attach(detached_view);
 
   DestroyHost();
 }
@@ -226,7 +287,7 @@ TEST_F(NativeViewHostAuraTest, InstallClip) {
   // Without a clip, the clipping window should always be positioned at the
   // requested coordinates with the native view positioned at the origin of the
   // clipping window.
-  native_host()->ShowWidget(10, 20, 100, 100);
+  native_host()->ShowWidget(10, 20, 100, 100, 100, 100);
   EXPECT_EQ(gfx::Rect(0, 0, 100, 100).ToString(),
             host()->native_view()->bounds().ToString());
   EXPECT_EQ(gfx::Rect(10, 20, 100, 100).ToString(),
@@ -234,7 +295,7 @@ TEST_F(NativeViewHostAuraTest, InstallClip) {
 
   // Clip to the bottom right quarter of the native view.
   native_host()->InstallClip(60, 70, 50, 50);
-  native_host()->ShowWidget(10, 20, 100, 100);
+  native_host()->ShowWidget(10, 20, 100, 100, 100, 100);
   EXPECT_EQ(gfx::Rect(-50, -50, 100, 100).ToString(),
             host()->native_view()->bounds().ToString());
   EXPECT_EQ(gfx::Rect(60, 70, 50, 50).ToString(),
@@ -242,7 +303,7 @@ TEST_F(NativeViewHostAuraTest, InstallClip) {
 
   // Clip to the center of the native view.
   native_host()->InstallClip(35, 45, 50, 50);
-  native_host()->ShowWidget(10, 20, 100, 100);
+  native_host()->ShowWidget(10, 20, 100, 100, 100, 100);
   EXPECT_EQ(gfx::Rect(-25, -25, 100, 100).ToString(),
             host()->native_view()->bounds().ToString());
   EXPECT_EQ(gfx::Rect(35, 45, 50, 50).ToString(),
@@ -251,7 +312,7 @@ TEST_F(NativeViewHostAuraTest, InstallClip) {
   // Uninstalling the clip should make the clipping window match the native view
   // again.
   native_host()->UninstallClip();
-  native_host()->ShowWidget(10, 20, 100, 100);
+  native_host()->ShowWidget(10, 20, 100, 100, 100, 100);
   EXPECT_EQ(gfx::Rect(0, 0, 100, 100).ToString(),
             host()->native_view()->bounds().ToString());
   EXPECT_EQ(gfx::Rect(10, 20, 100, 100).ToString(),
@@ -277,18 +338,12 @@ TEST_F(NativeViewHostAuraTest, ParentAfterDetach) {
 
   DestroyHost();
   DestroyTopLevel();
-  if (!IsMus()) {
-    // The window is detached, so no longer associated with any Widget
-    // hierarchy. The root window still owns it, but the test harness checks
-    // for orphaned windows during TearDown().
-    EXPECT_EQ(0u, test_observer.events().size())
-        << (*test_observer.events().begin()).type;
-    delete child_win;
-  } else {
-    // In mus and aura-mus, the child window is still attached to the
-    // aura::WindowTreeHost for the Widget. So destroying the toplevel Widget
-    // takes down the child window with it.
-  }
+  // The window is detached, so no longer associated with any Widget
+  // hierarchy. The root window still owns it, but the test harness checks
+  // for orphaned windows during TearDown().
+  EXPECT_EQ(0u, test_observer.events().size())
+      << (*test_observer.events().begin()).type;
+  delete child_win;
 
   ASSERT_EQ(1u, test_observer.events().size());
   EXPECT_EQ(NativeViewHostWindowObserver::EVENT_DESTROYED,
@@ -300,7 +355,7 @@ TEST_F(NativeViewHostAuraTest, ParentAfterDetach) {
 TEST_F(NativeViewHostAuraTest, RemoveClippingWindowOrder) {
   CreateHost();
   toplevel()->SetBounds(gfx::Rect(20, 20, 100, 100));
-  native_host()->ShowWidget(10, 20, 100, 100);
+  native_host()->ShowWidget(10, 20, 100, 100, 100, 100);
 
   NativeViewHostWindowObserver test_observer;
   clipping_window()->AddObserver(&test_observer);
@@ -421,12 +476,12 @@ TEST_F(NativeViewHostAuraTest, FocusManagerUpdatedDuringDestruction) {
   toplevel()->Show();
 
   std::unique_ptr<aura::Window> window =
-      base::MakeUnique<aura::Window>(nullptr);
+      std::make_unique<aura::Window>(nullptr);
   window->Init(ui::LAYER_NOT_DRAWN);
   window->set_owned_by_parent(false);
 
   std::unique_ptr<NativeViewHost> native_view_host =
-      base::MakeUnique<NativeViewHost>();
+      std::make_unique<NativeViewHost>();
   toplevel()->GetContentsView()->AddChildView(native_view_host.get());
 
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_CONTROL);
@@ -435,7 +490,7 @@ TEST_F(NativeViewHostAuraTest, FocusManagerUpdatedDuringDestruction) {
   params.child = true;
   params.bounds = gfx::Rect(10, 10, 100, 100);
   params.parent = window.get();
-  std::unique_ptr<Widget> child_widget = base::MakeUnique<Widget>();
+  std::unique_ptr<Widget> child_widget = std::make_unique<Widget>();
   child_widget->Init(params);
 
   native_view_host->Attach(window.get());
@@ -458,6 +513,42 @@ TEST_F(NativeViewHostAuraTest, FocusManagerUpdatedDuringDestruction) {
 
   child_widget.reset();
   EXPECT_EQ(nullptr, toplevel()->GetFocusManager()->GetFocusedView());
+}
+
+namespace {
+
+ui::EventTarget* GetTarget(aura::Window* window, const gfx::Point& location) {
+  gfx::Point root_location = location;
+  aura::Window::ConvertPointToTarget(window, window->GetRootWindow(),
+                                     &root_location);
+  ui::MouseEvent event(ui::ET_MOUSE_MOVED, root_location, root_location,
+                       base::TimeTicks::Now(), 0, 0);
+  return window->GetHost()->dispatcher()->event_targeter()->FindTargetForEvent(
+      window->GetRootWindow(), &event);
+}
+
+}  // namespace
+
+TEST_F(NativeViewHostAuraTest, TopInsets) {
+  CreateHost();
+  toplevel()->SetBounds(gfx::Rect(20, 20, 100, 100));
+  toplevel()->Show();
+
+  aura::Window* toplevel_window = toplevel()->GetNativeWindow();
+  aura::Window* child_window = child()->GetNativeWindow();
+  EXPECT_EQ(child_window, GetTarget(toplevel_window, gfx::Point(1, 1)));
+  EXPECT_EQ(child_window, GetTarget(toplevel_window, gfx::Point(1, 11)));
+
+  host()->SetHitTestTopInset(10);
+  EXPECT_EQ(toplevel_window, GetTarget(toplevel_window, gfx::Point(1, 1)));
+  EXPECT_EQ(child_window, GetTarget(toplevel_window, gfx::Point(1, 11)));
+
+  host()->SetHitTestTopInset(0);
+  EXPECT_EQ(child_window, GetTarget(toplevel_window, gfx::Point(1, 1)));
+  EXPECT_EQ(child_window, GetTarget(toplevel_window, gfx::Point(1, 11)));
+
+  DestroyHost();
+  DestroyTopLevel();
 }
 
 }  // namespace views

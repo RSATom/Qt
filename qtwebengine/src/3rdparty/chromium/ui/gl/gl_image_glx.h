@@ -34,7 +34,10 @@ class GL_EXPORT GLImageGLX : public GLImage {
                             int z_order,
                             gfx::OverlayTransform transform,
                             const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect) override;
+                            const gfx::RectF& crop_rect,
+                            bool enable_blend,
+                            std::unique_ptr<gfx::GpuFence> gpu_fence) override;
+  void SetColorSpace(const gfx::ColorSpace& color_space) override {}
   void Flush() override {}
   void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                     uint64_t process_tracing_id,
@@ -44,6 +47,8 @@ class GL_EXPORT GLImageGLX : public GLImage {
   ~GLImageGLX() override;
 
  private:
+  static bool ValidFormat(unsigned internalformat);
+
   XID glx_pixmap_;
   const gfx::Size size_;
   unsigned internalformat_;

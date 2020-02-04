@@ -122,7 +122,6 @@ const base::FilePath::CharType kFrameworkExecutableName[] =
 
 #if defined(OS_WIN)
 const base::FilePath::CharType kBrowserResourcesDll[] = FPL("chrome.dll");
-const base::FilePath::CharType kChromeElfDllName[] = FPL("chrome_elf.dll");
 const base::FilePath::CharType kStatusTrayWindowClass[] =
     FPL("Chrome_StatusTrayWindow");
 #endif  // defined(OS_WIN)
@@ -151,8 +150,9 @@ const base::FilePath::CharType kFeatureEngagementTrackerStorageDirname[] =
 const base::FilePath::CharType kFirstRunSentinel[] = FPL("First Run");
 const base::FilePath::CharType kGCMStoreDirname[] = FPL("GCM Store");
 const base::FilePath::CharType kLocalStateFilename[] = FPL("Local State");
-const base::FilePath::CharType kLocalStorePoolName[] = FPL("LocalStorePool");
 const base::FilePath::CharType kMediaCacheDirname[] = FPL("Media Cache");
+const base::FilePath::CharType kNetworkPersistentStateFilename[] =
+    FPL("Network Persistent State");
 const base::FilePath::CharType kOfflinePageArchivesDirname[] =
     FPL("Offline Pages/archives");
 const base::FilePath::CharType kOfflinePageMetadataDirname[] =
@@ -161,6 +161,8 @@ const base::FilePath::CharType kOfflinePagePrefetchStoreDirname[] =
     FPL("Offline Pages/prefech_store");
 const base::FilePath::CharType kOfflinePageRequestQueueDirname[] =
     FPL("Offline Pages/request_queue");
+const base::FilePath::CharType kPageLoadCappingOptOutDBFilename[] =
+    FPL("page_load_capping_opt_out.db");
 const base::FilePath::CharType kPreferencesFilename[] = FPL("Preferences");
 const base::FilePath::CharType kPreviewsOptOutDBFilename[] =
     FPL("previews_opt_out.db");

@@ -38,8 +38,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtGraphicalEffects.private 1.0
+import QtQuick 2.12
+import QtGraphicalEffects.private 1.12
 
 /*!
     \qmltype DropShadow
@@ -104,7 +104,7 @@ Item {
         Radius defines the softness of the shadow. A larger radius causes the
         edges of the shadow to appear more blurry.
 
-        The ideal blur is acheived by selecting \c samples and \c radius such
+        The ideal blur is achieved by selecting \c samples and \c radius such
         that \c {samples = 1 + radius * 2}, such as:
 
         \table

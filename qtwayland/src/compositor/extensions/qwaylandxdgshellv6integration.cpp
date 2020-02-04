@@ -44,6 +44,12 @@ QT_BEGIN_NAMESPACE
 
 namespace QtWayland {
 
+static void handlePopupCreated(QWaylandQuickShellSurfaceItem *parentItem, QWaylandXdgPopupV6 *popup)
+{
+    if (parentItem->shellSurface() == popup->parentXdgSurface())
+        QWaylandQuickShellSurfaceItemPrivate::get(parentItem)->maybeCreateAutoPopup(popup->xdgSurface());
+}
+
 XdgToplevelV6Integration::XdgToplevelV6Integration(QWaylandQuickShellSurfaceItem *item)
     : QWaylandQuickShellIntegration(item)
     , m_item(item)
@@ -54,13 +60,21 @@ XdgToplevelV6Integration::XdgToplevelV6Integration(QWaylandQuickShellSurfaceItem
     Q_ASSERT(m_toplevel);
 
     m_item->setSurface(m_xdgSurface->surface());
+
     connect(m_toplevel, &QWaylandXdgToplevelV6::startMove, this, &XdgToplevelV6Integration::handleStartMove);
     connect(m_toplevel, &QWaylandXdgToplevelV6::startResize, this, &XdgToplevelV6Integration::handleStartResize);
     connect(m_toplevel, &QWaylandXdgToplevelV6::setMaximized, this, &XdgToplevelV6Integration::handleSetMaximized);
     connect(m_toplevel, &QWaylandXdgToplevelV6::unsetMaximized, this, &XdgToplevelV6Integration::handleUnsetMaximized);
     connect(m_toplevel, &QWaylandXdgToplevelV6::maximizedChanged, this, &XdgToplevelV6Integration::handleMaximizedChanged);
+    connect(m_toplevel, &QWaylandXdgToplevelV6::setFullscreen, this, &XdgToplevelV6Integration::handleSetFullscreen);
+    connect(m_toplevel, &QWaylandXdgToplevelV6::unsetFullscreen, this, &XdgToplevelV6Integration::handleUnsetFullscreen);
+    connect(m_toplevel, &QWaylandXdgToplevelV6::fullscreenChanged, this, &XdgToplevelV6Integration::handleFullscreenChanged);
     connect(m_toplevel, &QWaylandXdgToplevelV6::activatedChanged, this, &XdgToplevelV6Integration::handleActivatedChanged);
-    connect(m_xdgSurface->surface(), &QWaylandSurface::sizeChanged, this, &XdgToplevelV6Integration::handleSurfaceSizeChanged);
+    connect(m_xdgSurface->shell(), &QWaylandXdgShellV6::popupCreated, this, [item](QWaylandXdgPopupV6 *popup, QWaylandXdgSurfaceV6 *){
+        handlePopupCreated(item, popup);
+    });
+    connect(m_xdgSurface->surface(), &QWaylandSurface::destinationSizeChanged, this, &XdgToplevelV6Integration::handleSurfaceSizeChanged);
+    connect(m_toplevel, &QObject::destroyed, this, &XdgToplevelV6Integration::handleToplevelDestroyed);
 }
 
 bool XdgToplevelV6Integration::mouseMoveEvent(QMouseEvent *event)
@@ -95,7 +109,7 @@ bool XdgToplevelV6Integration::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_UNUSED(event);
 
-    if (grabberState == GrabberState::Move) {
+    if (grabberState != GrabberState::Default) {
         grabberState = GrabberState::Default;
         return true;
     }
@@ -116,7 +130,7 @@ void XdgToplevelV6Integration::handleStartResize(QWaylandSeat *seat, Qt::Edges e
     resizeState.resizeEdges = edges;
     resizeState.initialWindowSize = m_xdgSurface->windowGeometry().size();
     resizeState.initialPosition = m_item->moveItem()->position();
-    resizeState.initialSurfaceSize = m_item->surface()->size();
+    resizeState.initialSurfaceSize = m_item->surface()->destinationSize();
     resizeState.initialized = false;
 }
 
@@ -125,11 +139,28 @@ void XdgToplevelV6Integration::handleSetMaximized()
     if (!m_item->view()->isPrimary())
         return;
 
-    maximizeState.initialWindowSize = m_xdgSurface->windowGeometry().size();
-    maximizeState.initialPosition = m_item->moveItem()->position();
+    QVector<QWaylandXdgToplevelV6::State> states = m_toplevel->states();
 
-    QWaylandOutput *output = m_item->view()->output();
-    m_toplevel->sendMaximized(output->availableGeometry().size() / output->scaleFactor());
+    if (!states.contains(QWaylandXdgToplevelV6::State::FullscreenState) && !states.contains(QWaylandXdgToplevelV6::State::MaximizedState)) {
+        windowedGeometry.initialWindowSize = m_xdgSurface->windowGeometry().size();
+        windowedGeometry.initialPosition = m_item->moveItem()->position();
+    }
+
+    // Any prior output-resize handlers are irrelevant at this point.
+    disconnect(nonwindowedState.sizeChangedConnection);
+    nonwindowedState.output = m_item->view()->output();
+    nonwindowedState.sizeChangedConnection = connect(nonwindowedState.output, &QWaylandOutput::availableGeometryChanged, this, &XdgToplevelV6Integration::handleMaximizedSizeChanged);
+    handleMaximizedSizeChanged();
+}
+
+void XdgToplevelV6Integration::handleMaximizedSizeChanged()
+{
+    // Insurance against handleToplevelDestroyed() not managing to disconnect this
+    // handler in time.
+    if (m_toplevel == nullptr)
+        return;
+
+    m_toplevel->sendMaximized(nonwindowedState.output->availableGeometry().size() / nonwindowedState.output->scaleFactor());
 }
 
 void XdgToplevelV6Integration::handleUnsetMaximized()
@@ -137,7 +168,12 @@ void XdgToplevelV6Integration::handleUnsetMaximized()
     if (!m_item->view()->isPrimary())
         return;
 
-    m_toplevel->sendUnmaximized(maximizeState.initialWindowSize);
+    // If no prior windowed size was recorded, send a 0x0 configure event
+    // to allow the client to choose its preferred size.
+    if (windowedGeometry.initialWindowSize.isValid())
+        m_toplevel->sendUnmaximized(windowedGeometry.initialWindowSize);
+    else
+        m_toplevel->sendUnmaximized();
 }
 
 void XdgToplevelV6Integration::handleMaximizedChanged()
@@ -146,7 +182,59 @@ void XdgToplevelV6Integration::handleMaximizedChanged()
         QWaylandOutput *output = m_item->view()->output();
         m_item->moveItem()->setPosition(output->position() + output->availableGeometry().topLeft());
     } else {
-        m_item->moveItem()->setPosition(maximizeState.initialPosition);
+        m_item->moveItem()->setPosition(windowedGeometry.initialPosition);
+    }
+}
+
+void XdgToplevelV6Integration::handleSetFullscreen()
+{
+    if (!m_item->view()->isPrimary())
+        return;
+
+    QVector<QWaylandXdgToplevelV6::State> states = m_toplevel->states();
+
+    if (!states.contains(QWaylandXdgToplevelV6::State::FullscreenState) && !states.contains(QWaylandXdgToplevelV6::State::MaximizedState)) {
+        windowedGeometry.initialWindowSize = m_xdgSurface->windowGeometry().size();
+        windowedGeometry.initialPosition = m_item->moveItem()->position();
+    }
+
+    // Any prior output-resize handlers are irrelevant at this point.
+    disconnect(nonwindowedState.sizeChangedConnection);
+    nonwindowedState.output = m_item->view()->output();
+    nonwindowedState.sizeChangedConnection = connect(nonwindowedState.output, &QWaylandOutput::geometryChanged, this, &XdgToplevelV6Integration::handleFullscreenSizeChanged);
+    handleFullscreenSizeChanged();
+}
+
+void XdgToplevelV6Integration::handleFullscreenSizeChanged()
+{
+    // Insurance against handleToplevelDestroyed() not managing to disconnect this
+    // handler in time.
+    if (m_toplevel == nullptr)
+        return;
+
+    m_toplevel->sendFullscreen(nonwindowedState.output->geometry().size() / nonwindowedState.output->scaleFactor());
+}
+
+void XdgToplevelV6Integration::handleUnsetFullscreen()
+{
+    if (!m_item->view()->isPrimary())
+        return;
+
+    // If no prior windowed size was recorded, send a 0x0 configure event
+    // to allow the client to choose its preferred size.
+    if (windowedGeometry.initialWindowSize.isValid())
+        m_toplevel->sendUnmaximized(windowedGeometry.initialWindowSize);
+    else
+        m_toplevel->sendUnmaximized();
+}
+
+void XdgToplevelV6Integration::handleFullscreenChanged()
+{
+    if (m_toplevel->fullscreen()) {
+        QWaylandOutput *output = m_item->view()->output();
+        m_item->moveItem()->setPosition(output->position() + output->geometry().topLeft());
+    } else {
+        m_item->moveItem()->setPosition(windowedGeometry.initialPosition);
     }
 }
 
@@ -159,15 +247,22 @@ void XdgToplevelV6Integration::handleActivatedChanged()
 void XdgToplevelV6Integration::handleSurfaceSizeChanged()
 {
     if (grabberState == GrabberState::Resize) {
-        qreal x = resizeState.initialPosition.x();
-        qreal y = resizeState.initialPosition.y();
+        qreal dx = 0;
+        qreal dy = 0;
         if (resizeState.resizeEdges & Qt::TopEdge)
-            y += resizeState.initialSurfaceSize.height() - m_item->surface()->size().height();
-
+            dy = resizeState.initialSurfaceSize.height() - m_item->surface()->destinationSize().height();
         if (resizeState.resizeEdges & Qt::LeftEdge)
-            x += resizeState.initialSurfaceSize.width() - m_item->surface()->size().width();
-        m_item->moveItem()->setPosition(QPointF(x, y));
+            dx = resizeState.initialSurfaceSize.width() - m_item->surface()->destinationSize().width();
+        QPointF offset = m_item->mapFromSurface({dx, dy});
+        m_item->moveItem()->setPosition(resizeState.initialPosition + offset);
     }
+}
+
+void XdgToplevelV6Integration::handleToplevelDestroyed()
+{
+    // Disarm any handlers that might fire on the now-stale toplevel pointer
+    nonwindowedState.output = nullptr;
+    disconnect(nonwindowedState.sizeChangedConnection);
 }
 
 XdgPopupV6Integration::XdgPopupV6Integration(QWaylandQuickShellSurfaceItem *item)
@@ -181,17 +276,20 @@ XdgPopupV6Integration::XdgPopupV6Integration(QWaylandQuickShellSurfaceItem *item
     handleGeometryChanged();
 
     connect(m_popup, &QWaylandXdgPopupV6::configuredGeometryChanged, this, &XdgPopupV6Integration::handleGeometryChanged);
+    connect(m_xdgSurface->shell(), &QWaylandXdgShellV6::popupCreated, this, [item](QWaylandXdgPopupV6 *popup, QWaylandXdgSurfaceV6 *){
+        handlePopupCreated(item, popup);
+    });
 }
 
 void XdgPopupV6Integration::handleGeometryChanged()
 {
     if (m_item->view()->output()) {
         const QPoint windowOffset = m_popup->parentXdgSurface()->windowGeometry().topLeft();
-        const QPoint position = m_popup->unconstrainedPosition() + windowOffset;
+        const QPoint surfacePosition = m_popup->unconstrainedPosition() + windowOffset;
+        const QPoint itemPosition = m_item->mapFromSurface(surfacePosition).toPoint();
         //TODO: positioner size or other size...?
-        const float scaleFactor = m_item->view()->output()->scaleFactor();
         //TODO check positioner constraints etc... sliding, flipping
-        m_item->moveItem()->setPosition(position * scaleFactor);
+        m_item->moveItem()->setPosition(itemPosition);
     } else {
         qWarning() << "XdgPopupV6Integration popup item without output" << m_item;
     }

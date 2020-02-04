@@ -8,15 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_tools/network_tester/packet_sender.h"
+#include "rtc_tools/network_tester/packet_sender.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <utility>
 
-#include "webrtc/rtc_base/timeutils.h"
-#include "webrtc/rtc_tools/network_tester/config_reader.h"
-#include "webrtc/rtc_tools/network_tester/test_controller.h"
+#include "absl/types/optional.h"
+#include "rtc_base/time_utils.h"
+#include "rtc_tools/network_tester/config_reader.h"
+#include "rtc_tools/network_tester/test_controller.h"
 
 namespace webrtc {
 
@@ -115,7 +117,7 @@ void PacketSender::SendPacket() {
   packet.set_type(NetworkTesterPacket::TEST_DATA);
   packet.set_sequence_number(sequence_number_++);
   packet.set_send_timestamp(rtc::TimeMicros());
-  test_controller_->SendData(packet, rtc::Optional<size_t>(packet_size_));
+  test_controller_->SendData(packet, packet_size_);
 }
 
 int64_t PacketSender::GetSendIntervalMs() const {

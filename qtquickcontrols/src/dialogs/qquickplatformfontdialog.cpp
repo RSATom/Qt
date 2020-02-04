@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype FontDialog
-    \instantiates QQuickPlatformFontDialog
+    \instantiates QQuickPlatformFontDialog1
     \inqmlmodule QtQuick.Dialogs
     \ingroup qtquick-visual
     \ingroup qtquickdialogs
@@ -126,13 +126,13 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \class QQuickPlatformFontDialog
+    \class QQuickPlatformFontDialog1
     \inmodule QtQuick.Dialogs
     \internal
 
-    \brief The QQuickPlatformFontDialog class provides a font dialog
+    \brief The QQuickPlatformFontDialog1 class provides a font dialog
 
-    The dialog is implemented via the QQuickPlatformFontDialogHelper when possible;
+    The dialog is implemented via the QQuickPlatformFontDialog1Helper when possible;
     otherwise it falls back to a QFontDialog or a QML implementation.
 
     \since 5.2
@@ -141,7 +141,7 @@ QT_BEGIN_NAMESPACE
 /*!
     Constructs a file dialog with parent window \a parent.
 */
-QQuickPlatformFontDialog::QQuickPlatformFontDialog(QObject *parent) :
+QQuickPlatformFontDialog1::QQuickPlatformFontDialog1(QObject *parent) :
     QQuickAbstractFontDialog(parent)
 {
 }
@@ -149,14 +149,14 @@ QQuickPlatformFontDialog::QQuickPlatformFontDialog(QObject *parent) :
 /*!
     Destroys the file dialog.
 */
-QQuickPlatformFontDialog::~QQuickPlatformFontDialog()
+QQuickPlatformFontDialog1::~QQuickPlatformFontDialog1()
 {
     if (m_dlgHelper)
         m_dlgHelper->hide();
     delete m_dlgHelper;
 }
 
-QPlatformFontDialogHelper *QQuickPlatformFontDialog::helper()
+QPlatformFontDialogHelper *QQuickPlatformFontDialog1::helper()
 {
     QQuickItem *parentItem = qobject_cast<QQuickItem *>(parent());
     if (parentItem)

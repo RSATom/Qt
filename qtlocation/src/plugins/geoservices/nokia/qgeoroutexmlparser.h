@@ -45,6 +45,7 @@
 #include <QtLocation/QGeoRouteRequest>
 #include <QtLocation/QGeoRouteSegment>
 #include <QtLocation/QGeoManeuver>
+#include <QtLocation/qgeoroute.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,7 +59,12 @@ class QGeoManeuverContainer
 public:
     QGeoManeuver maneuver;
     QString id;
-    QString toId;
+    QString toLink; // Id of the link this maneuver brings into
+    int legIndex = 0;
+    int index = 0;
+    QList<QGeoCoordinate> path;
+    bool first = false;
+    bool last = false;
 };
 
 class QGeoRouteSegmentContainer
@@ -67,6 +73,11 @@ public:
     QGeoRouteSegment segment;
     QString id;
     QString maneuverId;
+
+    bool operator ==(const QGeoRouteSegmentContainer &other) const
+    {
+        return ( segment == other.segment && id == other.id && maneuverId == other.maneuverId );
+    }
 };
 
 class QGeoDynamicSpeedInfoContainer
@@ -104,9 +115,9 @@ private:
     bool parseMode(QGeoRoute *route);
     bool parseSummary(QGeoRoute *route);
     bool parseGeoPoints(const QString &strPoints, QList<QGeoCoordinate> *geoPoints, const QString &elementName);
-    bool parseLeg();
-    bool parseManeuver();
-    bool parseLink();
+    bool parseLeg(int legIndex);
+    bool parseManeuver(QList<QGeoManeuverContainer> &maneuvers);
+    bool parseLink(QList<QGeoRouteSegmentContainer> &links);
     bool postProcessRoute(QGeoRoute *route);
 
     bool parseBoundingBox(QGeoRectangle &bounds);
@@ -117,8 +128,9 @@ private:
     QXmlStreamReader *m_reader;
 
     QList<QGeoRoute> m_results;
-    QList<QGeoManeuverContainer> m_maneuvers;
-    QList<QGeoRouteSegmentContainer> m_segments;
+    QList<QGeoRouteLeg> m_legs;
+    QList<QList<QGeoManeuverContainer>> m_maneuvers;
+    //QList<QList<QGeoRouteSegmentContainer>> m_segments;
 };
 
 QT_END_NAMESPACE

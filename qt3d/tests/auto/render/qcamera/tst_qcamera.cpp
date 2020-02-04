@@ -35,6 +35,7 @@
 
 #include <Qt3DCore/QEntity>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
+#include <Qt3DRender/private/updateentityhierarchyjob_p.h>
 #include <Qt3DCore/private/qaspectjobmanager_p.h>
 #include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/qnodecreatedchange.h>
@@ -99,8 +100,13 @@ namespace {
 
 void runRequiredJobs(Qt3DRender::TestAspect *test)
 {
+    Qt3DRender::Render::UpdateEntityHierarchyJob updateEntitiesJob;
+    updateEntitiesJob.setManager(test->nodeManagers());
+    updateEntitiesJob.run();
+
     Qt3DRender::Render::UpdateWorldTransformJob updateWorldTransform;
     updateWorldTransform.setRoot(test->sceneRoot());
+    updateWorldTransform.setManagers(test->nodeManagers());
     updateWorldTransform.run();
 }
 
@@ -165,7 +171,7 @@ private Q_SLOTS:
         Qt3DRender::Render::Entity *cameraEntity = test->nodeManagers()->lookupResource<Qt3DRender::Render::Entity, Qt3DRender::Render::EntityManager>(camera->id());
 
         // THEN
-        QVERIFY(qFuzzyCompare(*cameraEntity->worldTransform(), parentTransform->matrix()));
+        QVERIFY(qFuzzyCompare(convertToQMatrix4x4(*cameraEntity->worldTransform()), convertToQMatrix4x4(parentTransform->matrix())));
     }
 
     void checkTransformWithParentAndLookAt()
@@ -193,7 +199,7 @@ private Q_SLOTS:
         m.translate(0.f, 1.f, 0.f); // 90 deg z-rotation + x-translation = y-translation
         m.rotate(90.f, QVector3D(0.f, 0.f, 1.f));
 
-        const QMatrix4x4 worldTransform = *cameraEntity->worldTransform();
+        const QMatrix4x4 worldTransform = convertToQMatrix4x4(*cameraEntity->worldTransform());
         fuzzyCompareMatrix(worldTransform, m);
 
     }
@@ -234,7 +240,7 @@ private Q_SLOTS:
         m.translate(3.f, 2.f, -1.f); // child's world translation
         m.rotate(90.f, QVector3D(0.f, 1.f, 0.f)); // camera's rotation
 
-        fuzzyCompareMatrix(*childEntity->worldTransform(), m);
+        fuzzyCompareMatrix(convertToQMatrix4x4(*childEntity->worldTransform()), m);
     }
 };
 

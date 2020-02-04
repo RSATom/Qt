@@ -8,10 +8,13 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
+#include "base/run_loop.h"
+#include "base/strings/stringprintf.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+#include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
-#include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_action_icon_factory.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
@@ -25,19 +28,21 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/extensions/browser_action_test_util.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/extensions/extension_process_policy.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/picture_in_picture_window_controller.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
+#include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -70,19 +75,6 @@ void ExecuteExtensionAction(Browser* browser, const Extension* extension) {
       ->RunAction(extension, true);
 }
 
-std::unique_ptr<base::ScopedTempDir> CreateAndSetDownloadsDirectory(
-    PrefService* pref_service) {
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
-  std::unique_ptr<base::ScopedTempDir> dir(new base::ScopedTempDir);
-
-  if (!dir->CreateUniqueTempDir())
-    return nullptr;
-
-  pref_service->SetFilePath(prefs::kDownloadDefaultDirectory, dir->GetPath());
-  pref_service->SetFilePath(prefs::kSaveFileDefaultDirectory, dir->GetPath());
-  return dir;
-}
-
 // An ImageSkia source that will do nothing (i.e., have a blank skia). We need
 // this because we need a blank canvas at a certain size, and that can't be done
 // by just using a null ImageSkia.
@@ -111,11 +103,11 @@ void VerifyIconsMatch(const gfx::Image& bar_rendering,
   icon_portion.ClampToCenteredSize(model_icon.Size());
 
   EXPECT_TRUE(gfx::test::AreBitmapsEqual(
-      model_icon.AsImageSkia().GetRepresentation(1.0f).sk_bitmap(),
+      model_icon.AsImageSkia().GetRepresentation(1.0f).GetBitmap(),
       gfx::ImageSkiaOperations::ExtractSubset(bar_rendering.AsImageSkia(),
                                               icon_portion)
           .GetRepresentation(1.0f)
-          .sk_bitmap()));
+          .GetBitmap()));
 }
 
 class BrowserActionApiTest : public ExtensionApiTest {
@@ -131,7 +123,7 @@ class BrowserActionApiTest : public ExtensionApiTest {
  protected:
   BrowserActionTestUtil* GetBrowserActionsBar() {
     if (!browser_action_test_util_)
-      browser_action_test_util_.reset(new BrowserActionTestUtil(browser()));
+      browser_action_test_util_ = BrowserActionTestUtil::Create(browser());
     return browser_action_test_util_.get();
   }
 
@@ -379,6 +371,66 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, DynamicBrowserAction) {
   EXPECT_EQ(kEmptyPathError, catcher.message());
 }
 
+IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, InvisibleIconBrowserAction) {
+  // Turn this on so errors are reported.
+  ExtensionActionSetIconFunction::SetReportErrorForInvisibleIconForTesting(
+      true);
+  ASSERT_TRUE(RunExtensionTest("browser_action/invisible_icon")) << message_;
+  const Extension* extension = GetSingleLoadedExtension();
+  ASSERT_TRUE(extension) << message_;
+
+  // Test there is a browser action in the toolbar.
+  ASSERT_EQ(1, GetBrowserActionsBar()->NumberOfBrowserActions());
+  EXPECT_TRUE(GetBrowserActionsBar()->HasIcon(0));
+  gfx::Image initial_bar_icon = GetBrowserActionsBar()->GetIcon(0);
+
+  ExtensionHost* background_page =
+      ProcessManager::Get(profile())->GetBackgroundHostForExtension(
+          extension->id());
+  ASSERT_TRUE(background_page);
+
+  static constexpr char kScript[] =
+      "setIcon(%s).then(function(arg) {"
+      "  domAutomationController.send(arg);"
+      "});";
+
+  const std::string histogram_name =
+      "Extensions.DynamicExtensionActionIconWasVisible";
+  const std::string new_histogram_name =
+      "Extensions.DynamicExtensionActionIconWasVisibleRendered";
+  {
+    base::HistogramTester histogram_tester;
+    std::string result;
+    EXPECT_TRUE(ExecuteScriptAndExtractString(
+        background_page->host_contents(),
+        base::StringPrintf(kScript, "invisible"), &result));
+    EXPECT_EQ("Icon not sufficiently visible.", result);
+    // The icon should not have changed.
+    EXPECT_TRUE(gfx::test::AreImagesEqual(initial_bar_icon,
+                                          GetBrowserActionsBar()->GetIcon(0)));
+    EXPECT_THAT(histogram_tester.GetAllSamples(histogram_name),
+                testing::ElementsAre(base::Bucket(0, 1)));
+    EXPECT_THAT(histogram_tester.GetAllSamples(new_histogram_name),
+                testing::ElementsAre(base::Bucket(0, 1)));
+  }
+
+  {
+    base::HistogramTester histogram_tester;
+    std::string result;
+    EXPECT_TRUE(ExecuteScriptAndExtractString(
+        background_page->host_contents(),
+        base::StringPrintf(kScript, "visible"), &result));
+    EXPECT_EQ("", result);
+    // The icon should have changed.
+    EXPECT_FALSE(gfx::test::AreImagesEqual(initial_bar_icon,
+                                           GetBrowserActionsBar()->GetIcon(0)));
+    EXPECT_THAT(histogram_tester.GetAllSamples(histogram_name),
+                testing::ElementsAre(base::Bucket(1, 1)));
+    EXPECT_THAT(histogram_tester.GetAllSamples(new_histogram_name),
+                testing::ElementsAre(base::Bucket(1, 1)));
+  }
+}
+
 IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, TabSpecificBrowserActionState) {
   ASSERT_TRUE(RunExtensionTest("browser_action/tab_specific_state")) <<
       message_;
@@ -419,9 +471,9 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, DISABLED_BrowserActionPopup) {
 
   // The extension's popup's size grows by |growFactor| each click.
   const int growFactor = 500;
-  gfx::Size minSize = BrowserActionTestUtil::GetMinPopupSize();
+  gfx::Size minSize = actions_bar->GetMinPopupSize();
   gfx::Size middleSize = gfx::Size(growFactor, growFactor);
-  gfx::Size maxSize = BrowserActionTestUtil::GetMaxPopupSize();
+  gfx::Size maxSize = actions_bar->GetMaxPopupSize();
 
   // Ensure that two clicks will exceed the maximum allowed size.
   ASSERT_GT(minSize.height() + growFactor * 2, maxSize.height());
@@ -551,8 +603,8 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, IncognitoBasic) {
   Browser* incognito_browser =
       new Browser(Browser::CreateParams(incognito_profile, true));
 
-  ASSERT_EQ(0,
-            BrowserActionTestUtil(incognito_browser).NumberOfBrowserActions());
+  ASSERT_EQ(0, BrowserActionTestUtil::Create(incognito_browser)
+                   ->NumberOfBrowserActions());
 
   // Now enable the extension in incognito mode, and test that the browser
   // action shows up.
@@ -564,8 +616,8 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, IncognitoBasic) {
       extension->id(), browser()->profile(), true);
   registry_observer.WaitForExtensionLoaded();
 
-  ASSERT_EQ(1,
-            BrowserActionTestUtil(incognito_browser).NumberOfBrowserActions());
+  ASSERT_EQ(1, BrowserActionTestUtil::Create(incognito_browser)
+                   ->NumberOfBrowserActions());
 
   // TODO(mpcomplete): simulate a click and have it do the right thing in
   // incognito.
@@ -587,8 +639,8 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, IncognitoSplit) {
   base::RunLoop().RunUntilIdle();  // Wait for profile initialization.
   // Navigate just to have a tab in this window, otherwise wonky things happen.
   OpenURLOffTheRecord(browser()->profile(), GURL("about:blank"));
-  ASSERT_EQ(1,
-            BrowserActionTestUtil(incognito_browser).NumberOfBrowserActions());
+  ASSERT_EQ(1, BrowserActionTestUtil::Create(incognito_browser)
+                   ->NumberOfBrowserActions());
 
   // A click in the regular profile should open a tab in the regular profile.
   ExecuteExtensionAction(browser(), extension);
@@ -798,10 +850,10 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, BrowserActionWithRectangularIcon) {
 // Regression test for crbug.com/584747.
 IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, BrowserActionOpenPopupOnPopup) {
   // Open a new web popup window.
-  chrome::NavigateParams params(browser(), GURL("http://www.google.com/"),
-                                ui::PAGE_TRANSITION_LINK);
+  NavigateParams params(browser(), GURL("http://www.google.com/"),
+                        ui::PAGE_TRANSITION_LINK);
   params.disposition = WindowOpenDisposition::NEW_POPUP;
-  params.window_action = chrome::NavigateParams::SHOW_WINDOW;
+  params.window_action = NavigateParams::SHOW_WINDOW;
   ui_test_utils::NavigateToURL(&params);
   Browser* popup_browser = params.browser;
   // Verify it is a popup, and it is the active window.
@@ -829,6 +881,39 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, BrowserActionOpenPopupOnPopup) {
   EXPECT_TRUE(catcher.GetNextResult()) << message_;
 }
 
+// Test that a browser action popup can download data URLs. See
+// https://crbug.com/821219
+// Fails consistently on Win7. https://crbug.com/827160
+#if defined(OS_WIN)
+#define MAYBE_BrowserActionPopupDownload DISABLED_BrowserActionPopupDownload
+#else
+#define MAYBE_BrowserActionPopupDownload BrowserActionPopupDownload
+#endif
+IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, MAYBE_BrowserActionPopupDownload) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  ASSERT_TRUE(LoadExtension(
+      test_data_dir_.AppendASCII("browser_action/popup_download")));
+  const Extension* extension = GetSingleLoadedExtension();
+  ASSERT_TRUE(extension) << message_;
+
+  content::DownloadTestObserverTerminal downloads_observer(
+      content::BrowserContext::GetDownloadManager(browser()->profile()), 1,
+      content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL);
+
+  // Simulate a click on the browser action to open the popup.
+  content::WebContents* popup = OpenPopup(0);
+  ASSERT_TRUE(popup);
+  content::ExecuteScriptAsync(popup, "run_tests()");
+
+  // Wait for the download that this should have triggered to finish.
+  downloads_observer.WaitForFinished();
+
+  EXPECT_EQ(1u, downloads_observer.NumDownloadsSeenInState(
+                    download::DownloadItem::COMPLETE));
+  EXPECT_TRUE(GetBrowserActionsBar()->HidePopup());
+}
+
 class NavigatingExtensionPopupBrowserTest : public BrowserActionApiTest {
  public:
   const Extension& popup_extension() { return *popup_extension_; }
@@ -851,6 +936,7 @@ class NavigatingExtensionPopupBrowserTest : public BrowserActionApiTest {
   enum ExpectedNavigationStatus {
     EXPECTING_NAVIGATION_SUCCESS,
     EXPECTING_NAVIGATION_FAILURE,
+    EXPECTING_NO_NAVIGATION,
   };
 
   void TestPopupNavigationViaGet(
@@ -898,6 +984,7 @@ class NavigatingExtensionPopupBrowserTest : public BrowserActionApiTest {
     // Try to navigate the pop-up.
     bool ignored_script_result = false;
     content::WebContentsDestroyedWatcher popup_destruction_watcher(popup);
+    content::TestNavigationObserver popup_navigation_observer(popup);
     EXPECT_TRUE(ExecuteScriptAndExtractBool(popup, script_to_execute,
                                             &ignored_script_result));
     popup = popup_destruction_watcher.web_contents();
@@ -911,7 +998,14 @@ class NavigatingExtensionPopupBrowserTest : public BrowserActionApiTest {
     } else {
       // If the extension popup is still opened, then wait until there is no
       // load in progress, and verify whether the navigation succeeded or not.
-      WaitForLoadStop(popup);
+      if (expected_navigation_status != EXPECTING_NO_NAVIGATION) {
+        popup_navigation_observer.Wait();
+      } else {
+        EXPECT_FALSE(popup->IsLoading());
+      }
+      // The popup should still be alive.
+      ASSERT_TRUE(popup_destruction_watcher.web_contents());
+
       if (expected_navigation_status == EXPECTING_NAVIGATION_SUCCESS) {
         EXPECT_EQ(target_url, popup->GetLastCommittedURL())
             << "Navigation to " << target_url
@@ -955,7 +1049,7 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest, Webpage) {
 
   // The GET request will be blocked in ExtensionViewHost::OpenURLFromTab
   // (which silently drops navigations with CURRENT_TAB disposition).
-  TestPopupNavigationViaGet(web_url, EXPECTING_NAVIGATION_FAILURE);
+  TestPopupNavigationViaGet(web_url, EXPECTING_NO_NAVIGATION);
 
   // POST requests don't go through ExtensionViewHost::OpenURLFromTab.
   TestPopupNavigationViaPost(web_url, EXPECTING_NAVIGATION_FAILURE);
@@ -963,8 +1057,9 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest, Webpage) {
 
 // Tests that an extension pop-up can be navigated to another page
 // in the same extension.
+// Times out on all platforms: https://crbug.com/882200
 IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest,
-                       PageInSameExtension) {
+                       DISABLED_PageInSameExtension) {
   GURL other_page_in_same_extension =
       popup_extension().GetResourceURL("other_page.html");
   TestPopupNavigationViaGet(other_page_in_same_extension,
@@ -978,7 +1073,7 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest,
 IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest,
                        PageInOtherExtension) {
   GURL other_extension_url = other_extension().GetResourceURL("other.html");
-  TestPopupNavigationViaGet(other_extension_url, EXPECTING_NAVIGATION_FAILURE);
+  TestPopupNavigationViaGet(other_extension_url, EXPECTING_NO_NAVIGATION);
   TestPopupNavigationViaPost(other_extension_url, EXPECTING_NAVIGATION_FAILURE);
 }
 
@@ -995,14 +1090,6 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest,
 // TODO(lukasza): https://crbug.com/650694: Add a "Get" flavour of the test once
 // the download works both for GET and POST requests.
 IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest, DownloadViaPost) {
-  // Override the default downloads directory, so that the test can cleanup
-  // after itself.  This section is based on CreateAndSetDownloadsDirectory
-  // method defined in a few other source files with tests.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
-  std::unique_ptr<base::ScopedTempDir> downloads_directory =
-      CreateAndSetDownloadsDirectory(browser()->profile()->GetPrefs());
-  ASSERT_TRUE(downloads_directory);
-
   // Setup monitoring of the downloads.
   content::DownloadTestObserverTerminal downloads_observer(
       content::BrowserContext::GetDownloadManager(browser()->profile()),
@@ -1020,9 +1107,13 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest, DownloadViaPost) {
   downloads_observer.WaitForFinished();
   EXPECT_EQ(0u, downloads_observer.NumDangerousDownloadsSeen());
   EXPECT_EQ(1u, downloads_observer.NumDownloadsSeenInState(
-                    content::DownloadItem::COMPLETE));
-  EXPECT_TRUE(base::PathExists(downloads_directory->GetPath().AppendASCII(
-      "download-test3-attachment.gif")));
+                    download::DownloadItem::COMPLETE));
+
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  base::FilePath downloads_directory =
+      DownloadPrefs(browser()->profile()).DownloadPath();
+  EXPECT_TRUE(base::PathExists(
+      downloads_directory.AppendASCII("download-test3-attachment.gif")));
 
   // The test verification below is applicable only to scenarios where the
   // download shelf is supported - on ChromeOS, instead of the download shelf,
@@ -1030,6 +1121,49 @@ IN_PROC_BROWSER_TEST_F(NavigatingExtensionPopupBrowserTest, DownloadViaPost) {
 #if !defined(OS_CHROMEOS)
   EXPECT_TRUE(browser()->window()->IsDownloadShelfVisible());
 #endif
+}
+
+// Verify video can enter and exit Picture-in_Picture when browser action icon
+// is clicked.
+IN_PROC_BROWSER_TEST_F(BrowserActionApiTest,
+                       TestPictureInPictureOnBrowserActionIconClick) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+
+  ASSERT_TRUE(
+      RunExtensionTest("trigger_actions/browser_action_picture_in_picture"))
+      << message_;
+  const Extension* extension = GetSingleLoadedExtension();
+  ASSERT_TRUE(extension) << message_;
+
+  // Test that there is a browser action in the toolbar.
+  ASSERT_EQ(1, GetBrowserActionsBar()->NumberOfBrowserActions());
+
+  ExtensionAction* browser_action = GetBrowserAction(*extension);
+  EXPECT_TRUE(browser_action);
+
+  // Find the background page.
+  ProcessManager* process_manager =
+      extensions::ProcessManager::Get(browser()->profile());
+  content::WebContents* web_contents =
+      process_manager->GetBackgroundHostForExtension(extension->id())
+          ->web_contents();
+  ASSERT_TRUE(web_contents);
+  content::PictureInPictureWindowController* window_controller =
+      content::PictureInPictureWindowController::GetOrCreateForWebContents(
+          web_contents);
+  ASSERT_TRUE(window_controller->GetWindowForTesting());
+  EXPECT_FALSE(window_controller->GetWindowForTesting()->IsVisible());
+
+  // Click on the browser action icon to enter Picture-in-Picture.
+  ResultCatcher catcher;
+  GetBrowserActionsBar()->Press(0);
+  EXPECT_TRUE(catcher.GetNextResult());
+  EXPECT_TRUE(window_controller->GetWindowForTesting()->IsVisible());
+
+  // Click on the browser action icon to exit Picture-in-Picture.
+  GetBrowserActionsBar()->Press(0);
+  EXPECT_TRUE(catcher.GetNextResult());
+  EXPECT_FALSE(window_controller->GetWindowForTesting()->IsVisible());
 }
 
 }  // namespace

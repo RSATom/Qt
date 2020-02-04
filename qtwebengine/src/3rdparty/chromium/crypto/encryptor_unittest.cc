@@ -9,14 +9,14 @@
 #include <memory>
 #include <string>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "crypto/symmetric_key.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 TEST(EncryptorTest, EncryptDecrypt) {
   std::unique_ptr<crypto::SymmetricKey> key(
-      crypto::SymmetricKey::DeriveKeyFromPassword(
+      crypto::SymmetricKey::DeriveKeyFromPasswordUsingPbkdf2(
           crypto::SymmetricKey::AES, "password", "saltiest", 1000, 256));
   EXPECT_TRUE(key.get());
 
@@ -40,27 +40,27 @@ TEST(EncryptorTest, EncryptDecrypt) {
 
 TEST(EncryptorTest, DecryptWrongKey) {
   std::unique_ptr<crypto::SymmetricKey> key(
-      crypto::SymmetricKey::DeriveKeyFromPassword(
+      crypto::SymmetricKey::DeriveKeyFromPasswordUsingPbkdf2(
           crypto::SymmetricKey::AES, "password", "saltiest", 1000, 256));
   EXPECT_TRUE(key.get());
 
   // A wrong key that can be detected by implementations that validate every
   // byte in the padding.
   std::unique_ptr<crypto::SymmetricKey> wrong_key(
-      crypto::SymmetricKey::DeriveKeyFromPassword(
+      crypto::SymmetricKey::DeriveKeyFromPasswordUsingPbkdf2(
           crypto::SymmetricKey::AES, "wrongword", "sweetest", 1000, 256));
   EXPECT_TRUE(wrong_key.get());
 
   // A wrong key that can't be detected by any implementation.  The password
   // "wrongword;" would also work.
   std::unique_ptr<crypto::SymmetricKey> wrong_key2(
-      crypto::SymmetricKey::DeriveKeyFromPassword(
+      crypto::SymmetricKey::DeriveKeyFromPasswordUsingPbkdf2(
           crypto::SymmetricKey::AES, "wrongword+", "sweetest", 1000, 256));
   EXPECT_TRUE(wrong_key2.get());
 
   // A wrong key that can be detected by all implementations.
   std::unique_ptr<crypto::SymmetricKey> wrong_key3(
-      crypto::SymmetricKey::DeriveKeyFromPassword(
+      crypto::SymmetricKey::DeriveKeyFromPasswordUsingPbkdf2(
           crypto::SymmetricKey::AES, "wrongwordx", "sweetest", 1000, 256));
   EXPECT_TRUE(wrong_key3.get());
 
@@ -81,7 +81,7 @@ TEST(EncryptorTest, DecryptWrongKey) {
     0x48, 0x1D, 0x42, 0xB0, 0xBA, 0x21, 0xB2, 0x0C
   };
 
-  ASSERT_EQ(arraysize(expected_ciphertext), ciphertext.size());
+  ASSERT_EQ(base::size(expected_ciphertext), ciphertext.size());
   for (size_t i = 0; i < ciphertext.size(); ++i) {
     ASSERT_EQ(expected_ciphertext[i],
               static_cast<unsigned char>(ciphertext[i]));
@@ -236,7 +236,7 @@ void TestAESCTRMultipleDecrypt(
   int kTestDecryptSizes[] = { 32, 16, 8 };
 
   int offset = 0;
-  for (size_t i = 0; i < arraysize(kTestDecryptSizes); ++i) {
+  for (size_t i = 0; i < base::size(kTestDecryptSizes); ++i) {
     std::string decrypted;
     size_t len = kTestDecryptSizes[i];
     EXPECT_TRUE(
@@ -250,35 +250,33 @@ void TestAESCTRMultipleDecrypt(
 }  // namespace
 
 TEST(EncryptorTest, EncryptAES128CTR) {
-  TestAESCTREncrypt(
-      kAES128CTRKey, arraysize(kAES128CTRKey),
-      kAESCTRInitCounter, arraysize(kAESCTRInitCounter),
-      kAESCTRPlaintext, arraysize(kAESCTRPlaintext),
-      kAES128CTRCiphertext, arraysize(kAES128CTRCiphertext));
+  TestAESCTREncrypt(kAES128CTRKey, base::size(kAES128CTRKey),
+                    kAESCTRInitCounter, base::size(kAESCTRInitCounter),
+                    kAESCTRPlaintext, base::size(kAESCTRPlaintext),
+                    kAES128CTRCiphertext, base::size(kAES128CTRCiphertext));
 }
 
 TEST(EncryptorTest, EncryptAES256CTR) {
-  TestAESCTREncrypt(
-      kAES256CTRKey, arraysize(kAES256CTRKey),
-      kAESCTRInitCounter, arraysize(kAESCTRInitCounter),
-      kAESCTRPlaintext, arraysize(kAESCTRPlaintext),
-      kAES256CTRCiphertext, arraysize(kAES256CTRCiphertext));
+  TestAESCTREncrypt(kAES256CTRKey, base::size(kAES256CTRKey),
+                    kAESCTRInitCounter, base::size(kAESCTRInitCounter),
+                    kAESCTRPlaintext, base::size(kAESCTRPlaintext),
+                    kAES256CTRCiphertext, base::size(kAES256CTRCiphertext));
 }
 
 TEST(EncryptorTest, EncryptAES128CTR_MultipleDecrypt) {
-  TestAESCTRMultipleDecrypt(
-      kAES128CTRKey, arraysize(kAES128CTRKey),
-      kAESCTRInitCounter, arraysize(kAESCTRInitCounter),
-      kAESCTRPlaintext, arraysize(kAESCTRPlaintext),
-      kAES128CTRCiphertext, arraysize(kAES128CTRCiphertext));
+  TestAESCTRMultipleDecrypt(kAES128CTRKey, base::size(kAES128CTRKey),
+                            kAESCTRInitCounter, base::size(kAESCTRInitCounter),
+                            kAESCTRPlaintext, base::size(kAESCTRPlaintext),
+                            kAES128CTRCiphertext,
+                            base::size(kAES128CTRCiphertext));
 }
 
 TEST(EncryptorTest, EncryptAES256CTR_MultipleDecrypt) {
-  TestAESCTRMultipleDecrypt(
-      kAES256CTRKey, arraysize(kAES256CTRKey),
-      kAESCTRInitCounter, arraysize(kAESCTRInitCounter),
-      kAESCTRPlaintext, arraysize(kAESCTRPlaintext),
-      kAES256CTRCiphertext, arraysize(kAES256CTRCiphertext));
+  TestAESCTRMultipleDecrypt(kAES256CTRKey, base::size(kAES256CTRKey),
+                            kAESCTRInitCounter, base::size(kAESCTRInitCounter),
+                            kAESCTRPlaintext, base::size(kAESCTRPlaintext),
+                            kAES256CTRCiphertext,
+                            base::size(kAES256CTRCiphertext));
 }
 
 TEST(EncryptorTest, EncryptDecryptCTR) {

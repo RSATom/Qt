@@ -15,7 +15,7 @@
 #endif
 
 #include "base/logging.h"
-#include "base/numerics/saturated_arithmetic.h"
+#include "base/numerics/clamped_math.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "ui/gfx/geometry/insets.h"
@@ -27,7 +27,7 @@ Rect::Rect(const RECT& r)
     : origin_(r.left, r.top),
       size_(std::abs(r.right - r.left), std::abs(r.bottom - r.top)) {
 }
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
 Rect::Rect(const CGRect& r)
     : origin_(r.origin.x, r.origin.y), size_(r.size.width, r.size.height) {
 }
@@ -42,7 +42,7 @@ RECT Rect::ToRECT() const {
   r.bottom = bottom();
   return r;
 }
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
 CGRect Rect::ToCGRect() const {
   return CGRectMake(x(), y(), width(), height());
 }
@@ -69,8 +69,8 @@ static void SaturatedClampRange(int min, int max, int* origin, int* span) {
     return;
   }
 
-  int effective_span = base::SaturatedSubtraction(max, min);
-  int span_loss = base::SaturatedSubtraction(max, min + effective_span);
+  int effective_span = base::ClampSub(max, min);
+  int span_loss = base::ClampSub(max, min + effective_span);
 
   // If the desired width is within the limits of ints, we can just
   // use the simple computations to represent the range precisely.
@@ -83,12 +83,12 @@ static void SaturatedClampRange(int min, int max, int* origin, int* span) {
   // Now we have to approximate. If one of min or max is close enough
   // to zero we choose to represent that one precisely. The other side is
   // probably practically "infinite", so we move it.
-  if (base::SaturatedAbsolute(max) < std::numeric_limits<int>::max() / 2) {
+  constexpr unsigned kMaxDimension = std::numeric_limits<int>::max() / 2;
+  if (base::SafeUnsignedAbs(max) < kMaxDimension) {
     // Maintain origin + span == max.
     *span = effective_span;
     *origin = max - effective_span;
-  } else if (base::SaturatedAbsolute(min) <
-             std::numeric_limits<int>::max() / 2) {
+  } else if (base::SafeUnsignedAbs(min) < kMaxDimension) {
     // Maintain origin == min.
     *span = effective_span;
     *origin = min;
@@ -116,10 +116,8 @@ void Rect::Inset(int left, int top, int right, int bottom) {
   origin_ += Vector2d(left, top);
   // left+right might overflow/underflow, but width() - (left+right) might
   // overflow as well.
-  set_width(base::SaturatedSubtraction(width(),
-                                       base::SaturatedAddition(left, right)));
-  set_height(base::SaturatedSubtraction(height(),
-                                        base::SaturatedAddition(top, bottom)));
+  set_width(base::ClampSub(width(), base::ClampAdd(left, right)));
+  set_height(base::ClampSub(height(), base::ClampAdd(top, bottom)));
 }
 
 void Rect::Offset(int horizontal, int vertical) {
@@ -257,6 +255,10 @@ void Rect::ClampToCenteredSize(const Size& size) {
   int new_x = x() + (width() - new_width) / 2;
   int new_y = y() + (height() - new_height) / 2;
   SetRect(new_x, new_y, new_width, new_height);
+}
+
+void Rect::Transpose() {
+  SetRect(y(), x(), height(), width());
 }
 
 void Rect::SplitVertically(Rect* left_half, Rect* right_half) const {

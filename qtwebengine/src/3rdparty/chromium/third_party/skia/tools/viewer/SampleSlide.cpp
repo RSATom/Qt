@@ -12,43 +12,81 @@
 #include "SkOSFile.h"
 #include "SkStream.h"
 
-SampleSlide::SampleSlide(const SkViewFactory* factory) : fViewFactory(factory) {
-    SkView* view = (*factory)();
-    SampleCode::RequestTitle(view, &fName);
-    view->unref();
+using namespace sk_app;
+
+SampleSlide::SampleSlide(const SampleFactory factory)
+    : fSampleFactory(factory)
+    , fClick(nullptr) {
+    sk_sp<Sample> sample(factory());
+    Sample::RequestTitle(sample.get(), &fName);
 }
 
-SampleSlide::~SampleSlide() {}
+SampleSlide::~SampleSlide() { delete fClick; }
+
+SkISize SampleSlide::getDimensions() const  {
+    return SkISize::Make(SkScalarCeilToInt(fSample->width()), SkScalarCeilToInt(fSample->height()));
+}
 
 void SampleSlide::draw(SkCanvas* canvas) {
-    SkASSERT(fView);
-    fView->draw(canvas);
+    SkASSERT(fSample);
+    fSample->draw(canvas);
 }
 
 void SampleSlide::load(SkScalar winWidth, SkScalar winHeight) {
-    fView.reset((*fViewFactory)());
-    fView->setVisibleP(true);
-    fView->setClipToBounds(false);
-    fView->setSize(winWidth, winHeight);
+    fSample.reset(fSampleFactory());
+    fSample->setSize(winWidth, winHeight);
 }
 
 void SampleSlide::unload() {
-    fView.reset();
+    fSample.reset();
 }
 
 bool SampleSlide::onChar(SkUnichar c) {
-    if (!fView) {
+    if (!fSample) {
         return false;
     }
-    SkEvent evt(gCharEvtName);
+    Sample::Event evt(Sample::kCharEvtName);
     evt.setFast32(c);
-    return fView->doQuery(&evt);
+    return fSample->doQuery(&evt);
 }
 
-#if defined(SK_BUILD_FOR_ANDROID)
-// these are normally defined in SkOSWindow_unix, but we don't
-// want to include that
-void SkEvent::SignalNonEmptyQueue() {}
+bool SampleSlide::onMouse(SkScalar x, SkScalar y, Window::InputState state,
+                          uint32_t modifiers) {
+    // map to Sample::Click modifiers
+    unsigned modifierKeys = 0;
+    modifierKeys |= (modifiers & Window::kShift_ModifierKey) ? Sample::Click::kShift_ModifierKey : 0;
+    modifierKeys |= (modifiers & Window::kControl_ModifierKey) ? Sample::Click::kControl_ModifierKey : 0;
+    modifierKeys |= (modifiers & Window::kOption_ModifierKey) ? Sample::Click::kOption_ModifierKey : 0;
+    modifierKeys |= (modifiers & Window::kCommand_ModifierKey) ? Sample::Click::kCommand_ModifierKey : 0;
 
-void SkEvent::SignalQueueTimer(SkMSec delay) {}
-#endif
+    bool handled = false;
+    switch (state) {
+        case Window::kDown_InputState: {
+            delete fClick;
+            fClick = fSample->findClickHandler(SkIntToScalar(x), SkIntToScalar(y), modifierKeys);
+            if (fClick) {
+                Sample::DoClickDown(fClick, x, y, modifierKeys);
+                handled = true;
+            }
+            break;
+        }
+        case Window::kMove_InputState: {
+            if (fClick) {
+                Sample::DoClickMoved(fClick, x, y, modifierKeys);
+                handled = true;
+            }
+            break;
+        }
+        case Window::kUp_InputState: {
+            if (fClick) {
+                Sample::DoClickUp(fClick, x, y, modifierKeys);
+                delete fClick;
+                fClick = nullptr;
+                handled = true;
+            }
+            break;
+        }
+    }
+
+    return handled;
+}

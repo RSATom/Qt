@@ -4,72 +4,60 @@
 
 #include "ui/events/mojo/event_struct_traits.h"
 
+#include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
+#include "ui/events/gesture_event_details.h"
+#include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/mojo/event_constants.mojom.h"
 #include "ui/latency/mojo/latency_info_struct_traits.h"
 
 namespace mojo {
+
 namespace {
 
-ui::mojom::EventType UIEventTypeToMojo(ui::EventType type) {
-  switch (type) {
-    case ui::ET_POINTER_DOWN:
-      return ui::mojom::EventType::POINTER_DOWN;
-
-    case ui::ET_POINTER_MOVED:
-      return ui::mojom::EventType::POINTER_MOVE;
-
-    case ui::ET_POINTER_EXITED:
-      return ui::mojom::EventType::MOUSE_EXIT;
-
-    case ui::ET_POINTER_UP:
-      return ui::mojom::EventType::POINTER_UP;
-
-    case ui::ET_POINTER_CANCELLED:
-      return ui::mojom::EventType::POINTER_CANCEL;
-
-    case ui::ET_POINTER_WHEEL_CHANGED:
-      return ui::mojom::EventType::POINTER_WHEEL_CHANGED;
-
-    case ui::ET_KEY_PRESSED:
-      return ui::mojom::EventType::KEY_PRESSED;
-
-    case ui::ET_KEY_RELEASED:
-      return ui::mojom::EventType::KEY_RELEASED;
-
-    default:
-      break;
-  }
-  return ui::mojom::EventType::UNKNOWN;
+ui::mojom::LocationDataPtr CreateLocationData(const ui::LocatedEvent* event) {
+  ui::mojom::LocationDataPtr location_data(ui::mojom::LocationData::New());
+  location_data->relative_location = event->location_f();
+  location_data->root_location = event->root_location_f();
+  return location_data;
 }
 
-ui::EventType MojoPointerEventTypeToUIEvent(ui::mojom::EventType action) {
-  switch (action) {
-    case ui::mojom::EventType::POINTER_DOWN:
-      return ui::ET_POINTER_DOWN;
+bool ReadScrollData(ui::mojom::EventDataView* event,
+                    base::TimeTicks time_stamp,
+                    EventUniquePtr* out) {
+  ui::mojom::ScrollDataPtr scroll_data;
+  if (!event->ReadScrollData<ui::mojom::ScrollDataPtr>(&scroll_data))
+    return false;
 
-    case ui::mojom::EventType::POINTER_UP:
-      return ui::ET_POINTER_UP;
+  *out = std::make_unique<ui::ScrollEvent>(
+      mojo::ConvertTo<ui::EventType>(event->action()),
+      gfx::Point(scroll_data->location->relative_location.x(),
+                 scroll_data->location->relative_location.y()),
+      time_stamp, event->flags(), scroll_data->x_offset, scroll_data->y_offset,
+      scroll_data->x_offset_ordinal, scroll_data->y_offset_ordinal,
+      scroll_data->finger_count, scroll_data->momentum_phase);
+  return true;
+}
 
-    case ui::mojom::EventType::POINTER_MOVE:
-      return ui::ET_POINTER_MOVED;
+bool ReadGestureData(ui::mojom::EventDataView* event,
+                     base::TimeTicks time_stamp,
+                     EventUniquePtr* out) {
+  ui::mojom::GestureDataPtr gesture_data;
+  if (!event->ReadGestureData<ui::mojom::GestureDataPtr>(&gesture_data))
+    return false;
 
-    case ui::mojom::EventType::POINTER_CANCEL:
-      return ui::ET_POINTER_CANCELLED;
+  ui::GestureEventDetails details(ConvertTo<ui::EventType>(event->action()));
+  details.set_device_type(gesture_data->device_type);
+  if (details.type() == ui::ET_GESTURE_PINCH_UPDATE)
+    details.set_scale(gesture_data->scale);
 
-    case ui::mojom::EventType::MOUSE_EXIT:
-      return ui::ET_POINTER_EXITED;
-
-    case ui::mojom::EventType::POINTER_WHEEL_CHANGED:
-      return ui::ET_POINTER_WHEEL_CHANGED;
-
-    default:
-      NOTREACHED();
-  }
-
-  return ui::ET_UNKNOWN;
+  *out = std::make_unique<ui::GestureEvent>(
+      gesture_data->location->relative_location.x(),
+      gesture_data->location->relative_location.y(), event->flags(), time_stamp,
+      details);
+  return true;
 }
 
 }  // namespace
@@ -122,28 +110,150 @@ static_assert(ui::mojom::kEventFlagForwardMouseButton ==
                   static_cast<int32_t>(ui::EF_FORWARD_MOUSE_BUTTON),
               "EVENT_FLAGS must match");
 
+// static
+ui::mojom::EventType TypeConverter<ui::mojom::EventType,
+                                   ui::EventType>::Convert(ui::EventType type) {
+  switch (type) {
+    case ui::ET_UNKNOWN:
+      return ui::mojom::EventType::UNKNOWN;
+    case ui::ET_KEY_PRESSED:
+      return ui::mojom::EventType::KEY_PRESSED;
+    case ui::ET_KEY_RELEASED:
+      return ui::mojom::EventType::KEY_RELEASED;
+    case ui::ET_GESTURE_TAP:
+      return ui::mojom::EventType::GESTURE_TAP;
+    case ui::ET_GESTURE_SWIPE:
+      return ui::mojom::EventType::GESTURE_SWIPE;
+    case ui::ET_GESTURE_PINCH_BEGIN:
+      return ui::mojom::EventType::GESTURE_PINCH_BEGIN;
+    case ui::ET_GESTURE_PINCH_END:
+      return ui::mojom::EventType::GESTURE_PINCH_END;
+    case ui::ET_GESTURE_PINCH_UPDATE:
+      return ui::mojom::EventType::GESTURE_PINCH_UPDATE;
+    case ui::ET_SCROLL:
+      return ui::mojom::EventType::SCROLL;
+    case ui::ET_SCROLL_FLING_START:
+      return ui::mojom::EventType::SCROLL_FLING_START;
+    case ui::ET_SCROLL_FLING_CANCEL:
+      return ui::mojom::EventType::SCROLL_FLING_CANCEL;
+    case ui::ET_CANCEL_MODE:
+      return ui::mojom::EventType::CANCEL_MODE;
+    case ui::ET_MOUSE_PRESSED:
+      return ui::mojom::EventType::MOUSE_PRESSED_EVENT;
+    case ui::ET_MOUSE_DRAGGED:
+      return ui::mojom::EventType::MOUSE_DRAGGED_EVENT;
+    case ui::ET_MOUSE_RELEASED:
+      return ui::mojom::EventType::MOUSE_RELEASED_EVENT;
+    case ui::ET_MOUSE_MOVED:
+      return ui::mojom::EventType::MOUSE_MOVED_EVENT;
+    case ui::ET_MOUSE_ENTERED:
+      return ui::mojom::EventType::MOUSE_ENTERED_EVENT;
+    case ui::ET_MOUSE_EXITED:
+      return ui::mojom::EventType::MOUSE_EXITED_EVENT;
+    case ui::ET_MOUSEWHEEL:
+      return ui::mojom::EventType::MOUSE_WHEEL_EVENT;
+    case ui::ET_MOUSE_CAPTURE_CHANGED:
+      return ui::mojom::EventType::MOUSE_CAPTURE_CHANGED_EVENT;
+    case ui::ET_TOUCH_RELEASED:
+      return ui::mojom::EventType::TOUCH_RELEASED;
+    case ui::ET_TOUCH_PRESSED:
+      return ui::mojom::EventType::TOUCH_PRESSED;
+    case ui::ET_TOUCH_MOVED:
+      return ui::mojom::EventType::TOUCH_MOVED;
+    case ui::ET_TOUCH_CANCELLED:
+      return ui::mojom::EventType::TOUCH_CANCELLED;
+    default:
+      NOTREACHED() << "Using unknown event types closes connections:"
+                   << ui::EventTypeName(type);
+      break;
+  }
+  return ui::mojom::EventType::UNKNOWN;
+}
+
+// static
+ui::EventType TypeConverter<ui::EventType, ui::mojom::EventType>::Convert(
+    ui::mojom::EventType type) {
+  switch (type) {
+    case ui::mojom::EventType::UNKNOWN:
+      return ui::ET_UNKNOWN;
+    case ui::mojom::EventType::KEY_PRESSED:
+      return ui::ET_KEY_PRESSED;
+    case ui::mojom::EventType::KEY_RELEASED:
+      return ui::ET_KEY_RELEASED;
+    case ui::mojom::EventType::GESTURE_TAP:
+      return ui::ET_GESTURE_TAP;
+    case ui::mojom::EventType::GESTURE_SWIPE:
+      return ui::ET_GESTURE_SWIPE;
+    case ui::mojom::EventType::GESTURE_PINCH_BEGIN:
+      return ui::ET_GESTURE_PINCH_BEGIN;
+    case ui::mojom::EventType::GESTURE_PINCH_END:
+      return ui::ET_GESTURE_PINCH_END;
+    case ui::mojom::EventType::GESTURE_PINCH_UPDATE:
+      return ui::ET_GESTURE_PINCH_UPDATE;
+    case ui::mojom::EventType::SCROLL:
+      return ui::ET_SCROLL;
+    case ui::mojom::EventType::SCROLL_FLING_START:
+      return ui::ET_SCROLL_FLING_START;
+    case ui::mojom::EventType::SCROLL_FLING_CANCEL:
+      return ui::ET_SCROLL_FLING_CANCEL;
+    case ui::mojom::EventType::MOUSE_PRESSED_EVENT:
+      return ui::ET_MOUSE_PRESSED;
+    case ui::mojom::EventType::MOUSE_DRAGGED_EVENT:
+      return ui::ET_MOUSE_DRAGGED;
+    case ui::mojom::EventType::MOUSE_RELEASED_EVENT:
+      return ui::ET_MOUSE_RELEASED;
+    case ui::mojom::EventType::MOUSE_MOVED_EVENT:
+      return ui::ET_MOUSE_MOVED;
+    case ui::mojom::EventType::MOUSE_ENTERED_EVENT:
+      return ui::ET_MOUSE_ENTERED;
+    case ui::mojom::EventType::MOUSE_EXITED_EVENT:
+      return ui::ET_MOUSE_EXITED;
+    case ui::mojom::EventType::MOUSE_WHEEL_EVENT:
+      return ui::ET_MOUSEWHEEL;
+    case ui::mojom::EventType::MOUSE_CAPTURE_CHANGED_EVENT:
+      return ui::ET_MOUSE_CAPTURE_CHANGED;
+    case ui::mojom::EventType::TOUCH_RELEASED:
+      return ui::ET_TOUCH_RELEASED;
+    case ui::mojom::EventType::TOUCH_PRESSED:
+      return ui::ET_TOUCH_PRESSED;
+    case ui::mojom::EventType::TOUCH_MOVED:
+      return ui::ET_TOUCH_MOVED;
+    case ui::mojom::EventType::TOUCH_CANCELLED:
+      return ui::ET_TOUCH_CANCELLED;
+    default:
+      NOTREACHED();
+  }
+  return ui::ET_UNKNOWN;
+}
+
+// static
 ui::mojom::EventType
 StructTraits<ui::mojom::EventDataView, EventUniquePtr>::action(
     const EventUniquePtr& event) {
-  return UIEventTypeToMojo(event->type());
+  return mojo::ConvertTo<ui::mojom::EventType>(event->type());
 }
 
+// static
 int32_t StructTraits<ui::mojom::EventDataView, EventUniquePtr>::flags(
     const EventUniquePtr& event) {
   return event->flags();
 }
 
-int64_t StructTraits<ui::mojom::EventDataView, EventUniquePtr>::time_stamp(
+// static
+base::TimeTicks
+StructTraits<ui::mojom::EventDataView, EventUniquePtr>::time_stamp(
     const EventUniquePtr& event) {
-  return event->time_stamp().ToInternalValue();
+  return event->time_stamp();
 }
 
+// static
 const ui::LatencyInfo&
 StructTraits<ui::mojom::EventDataView, EventUniquePtr>::latency(
     const EventUniquePtr& event) {
   return *event->latency();
 }
 
+// static
 ui::mojom::KeyDataPtr
 StructTraits<ui::mojom::EventDataView, EventUniquePtr>::key_data(
     const EventUniquePtr& event) {
@@ -152,95 +262,99 @@ StructTraits<ui::mojom::EventDataView, EventUniquePtr>::key_data(
 
   const ui::KeyEvent* key_event = event->AsKeyEvent();
   ui::mojom::KeyDataPtr key_data(ui::mojom::KeyData::New());
-  key_data->key_code = key_event->GetConflatedWindowsKeyCode();
-  key_data->native_key_code =
-      ui::KeycodeConverter::DomCodeToNativeKeycode(key_event->code());
-  key_data->is_char = key_event->is_char();
-  key_data->character = key_event->GetCharacter();
-  key_data->windows_key_code = static_cast<ui::mojom::KeyboardCode>(
-      key_event->GetLocatedWindowsKeyboardCode());
-  key_data->text = key_event->GetText();
-  key_data->unmodified_text = key_event->GetUnmodifiedText();
-  if (key_event->properties())
-    key_data->properties = *(key_event->properties());
 
+  key_data->key_code = static_cast<int32_t>(key_event->key_code());
+  key_data->is_char = key_event->is_char();
+  key_data->dom_code = static_cast<uint32_t>(key_event->code());
+  key_data->dom_key = static_cast<int32_t>(key_event->GetDomKey());
   return key_data;
 }
 
-ui::mojom::PointerDataPtr
-StructTraits<ui::mojom::EventDataView, EventUniquePtr>::pointer_data(
+// static
+ui::mojom::MouseDataPtr
+StructTraits<ui::mojom::EventDataView, EventUniquePtr>::mouse_data(
     const EventUniquePtr& event) {
-  if (!event->IsPointerEvent())
+  if (!event->IsMouseEvent())
     return nullptr;
 
-  const ui::PointerEvent* pointer_event = event->AsPointerEvent();
-  ui::mojom::PointerDataPtr pointer_data(ui::mojom::PointerData::New());
-  pointer_data->pointer_id = pointer_event->pointer_details().id;
-  pointer_data->changed_button_flags = pointer_event->changed_button_flags();
-  const ui::PointerDetails* pointer_details = &pointer_event->pointer_details();
-
-  switch (pointer_details->pointer_type) {
-    case ui::EventPointerType::POINTER_TYPE_MOUSE:
-      pointer_data->kind = ui::mojom::PointerKind::MOUSE;
-      break;
-    case ui::EventPointerType::POINTER_TYPE_TOUCH:
-      pointer_data->kind = ui::mojom::PointerKind::TOUCH;
-      break;
-    default:
-      NOTREACHED();
-  }
-
-  ui::mojom::BrushDataPtr brush_data(ui::mojom::BrushData::New());
-  // TODO(rjk): this is in the wrong coordinate system
-  brush_data->width = pointer_details->radius_x;
-  brush_data->height = pointer_details->radius_y;
-  // TODO(rjk): update for touch_event->rotation_angle();
-  brush_data->pressure = pointer_details->force;
-  brush_data->tilt_x = pointer_details->tilt_x;
-  brush_data->tilt_y = pointer_details->tilt_y;
-  pointer_data->brush_data = std::move(brush_data);
-
-  // TODO(rjkroege): Plumb raw pointer events on windows.
-  // TODO(rjkroege): Handle force-touch on MacOS
-  // TODO(rjkroege): Adjust brush data appropriately for Android.
-
-  ui::mojom::LocationDataPtr location_data(ui::mojom::LocationData::New());
-  const ui::LocatedEvent* located_event = event->AsLocatedEvent();
-  location_data->x = located_event->location_f().x();
-  location_data->y = located_event->location_f().y();
-  location_data->screen_x = located_event->root_location_f().x();
-  location_data->screen_y = located_event->root_location_f().y();
-  pointer_data->location = std::move(location_data);
-
-  if (event->type() == ui::ET_POINTER_WHEEL_CHANGED) {
-    ui::mojom::WheelDataPtr wheel_data(ui::mojom::WheelData::New());
-
-    // TODO(rjkroege): Support page scrolling on windows by directly
-    // cracking into a mojo event when the native event is available.
-    wheel_data->mode = ui::mojom::WheelMode::LINE;
-    // TODO(rjkroege): Support precise scrolling deltas.
-
-    if ((event->flags() & ui::EF_SHIFT_DOWN) != 0 &&
-        pointer_details->offset.x() == 0) {
-      wheel_data->delta_x = pointer_details->offset.y();
-      wheel_data->delta_y = 0;
-      wheel_data->delta_z = 0;
-    } else {
-      // TODO(rjkroege): support z in ui::Events.
-      wheel_data->delta_x = pointer_details->offset.x();
-      wheel_data->delta_y = pointer_details->offset.y();
-      wheel_data->delta_z = 0;
-    }
-    pointer_data->wheel_data = std::move(wheel_data);
-  }
-
-  return pointer_data;
+  const ui::MouseEvent* mouse_event = event->AsMouseEvent();
+  ui::mojom::MouseDataPtr mouse_data(ui::mojom::MouseData::New());
+  mouse_data->changed_button_flags = mouse_event->changed_button_flags();
+  mouse_data->pointer_details = mouse_event->pointer_details();
+  mouse_data->location = CreateLocationData(mouse_event);
+  if (mouse_event->IsMouseWheelEvent())
+    mouse_data->wheel_offset = mouse_event->AsMouseWheelEvent()->offset();
+  return mouse_data;
 }
 
+// static
+ui::mojom::GestureDataPtr
+StructTraits<ui::mojom::EventDataView, EventUniquePtr>::gesture_data(
+    const EventUniquePtr& event) {
+  if (!event->IsGestureEvent())
+    return nullptr;
+
+  const ui::GestureEvent* gesture_event = event->AsGestureEvent();
+  ui::mojom::GestureDataPtr gesture_data(ui::mojom::GestureData::New());
+  gesture_data->location = CreateLocationData(gesture_event);
+  gesture_data->device_type = gesture_event->details().device_type();
+  gesture_data->scale = (event->type() == ui::ET_GESTURE_PINCH_UPDATE)
+                            ? gesture_event->details().scale()
+                            : 1.f;
+  return gesture_data;
+}
+
+// static
+ui::mojom::ScrollDataPtr
+StructTraits<ui::mojom::EventDataView, EventUniquePtr>::scroll_data(
+    const EventUniquePtr& event) {
+  if (!event->IsScrollEvent())
+    return nullptr;
+
+  ui::mojom::ScrollDataPtr scroll_data(ui::mojom::ScrollData::New());
+  scroll_data->location = CreateLocationData(event->AsLocatedEvent());
+  const ui::ScrollEvent* scroll_event = event->AsScrollEvent();
+  scroll_data->x_offset = scroll_event->x_offset();
+  scroll_data->y_offset = scroll_event->y_offset();
+  scroll_data->x_offset_ordinal = scroll_event->x_offset_ordinal();
+  scroll_data->y_offset_ordinal = scroll_event->y_offset_ordinal();
+  scroll_data->finger_count = scroll_event->finger_count();
+  scroll_data->momentum_phase = scroll_event->momentum_phase();
+  return scroll_data;
+}
+
+// static
+ui::mojom::TouchDataPtr
+StructTraits<ui::mojom::EventDataView, EventUniquePtr>::touch_data(
+    const EventUniquePtr& event) {
+  if (!event->IsTouchEvent())
+    return nullptr;
+
+  const ui::TouchEvent* touch_event = event->AsTouchEvent();
+  ui::mojom::TouchDataPtr touch_data(ui::mojom::TouchData::New());
+  touch_data->may_cause_scrolling = touch_event->may_cause_scrolling();
+  touch_data->hovering = touch_event->hovering();
+  touch_data->location = CreateLocationData(touch_event);
+  touch_data->pointer_details = touch_event->pointer_details();
+  return touch_data;
+}
+
+// static
+base::flat_map<std::string, std::vector<uint8_t>>
+StructTraits<ui::mojom::EventDataView, EventUniquePtr>::properties(
+    const EventUniquePtr& event) {
+  return event->properties() ? *(event->properties()) : ui::Event::Properties();
+}
+
+// static
 bool StructTraits<ui::mojom::EventDataView, EventUniquePtr>::Read(
     ui::mojom::EventDataView event,
     EventUniquePtr* out) {
   DCHECK(!out->get());
+
+  base::TimeTicks time_stamp;
+  if (!event.ReadTimeStamp(&time_stamp))
+    return false;
 
   switch (event.action()) {
     case ui::mojom::EventType::KEY_PRESSED:
@@ -249,87 +363,148 @@ bool StructTraits<ui::mojom::EventDataView, EventUniquePtr>::Read(
       if (!event.ReadKeyData<ui::mojom::KeyDataPtr>(&key_data))
         return false;
 
-      if (key_data->is_char) {
-        out->reset(new ui::KeyEvent(
-            static_cast<base::char16>(key_data->character),
-            static_cast<ui::KeyboardCode>(key_data->key_code), event.flags(),
-            base::TimeTicks::FromInternalValue(event.time_stamp())));
-
-      } else {
-        out->reset(new ui::KeyEvent(
-            event.action() == ui::mojom::EventType::KEY_PRESSED
-                ? ui::ET_KEY_PRESSED
-                : ui::ET_KEY_RELEASED,
-            static_cast<ui::KeyboardCode>(key_data->key_code), event.flags(),
-            base::TimeTicks::FromInternalValue(event.time_stamp())));
-      }
-      if (key_data->properties)
-        (*out)->AsKeyEvent()->SetProperties(*key_data->properties);
-      break;
-    }
-    case ui::mojom::EventType::POINTER_DOWN:
-    case ui::mojom::EventType::POINTER_UP:
-    case ui::mojom::EventType::POINTER_MOVE:
-    case ui::mojom::EventType::POINTER_CANCEL:
-    case ui::mojom::EventType::MOUSE_EXIT:
-    case ui::mojom::EventType::POINTER_WHEEL_CHANGED: {
-      ui::mojom::PointerDataPtr pointer_data;
-      if (!event.ReadPointerData<ui::mojom::PointerDataPtr>(&pointer_data))
+      base::Optional<ui::DomKey> dom_key =
+          ui::DomKey::FromBase(key_data->dom_key);
+      if (!dom_key)
         return false;
 
-      const gfx::Point location(pointer_data->location->x,
-                                pointer_data->location->y);
-      const gfx::Point screen_location(pointer_data->location->screen_x,
-                                       pointer_data->location->screen_y);
-
-      switch (pointer_data->kind) {
-        case ui::mojom::PointerKind::MOUSE: {
-          out->reset(new ui::PointerEvent(
-              MojoPointerEventTypeToUIEvent(event.action()), location,
-              screen_location, event.flags(),
-              pointer_data->changed_button_flags,
-              event.action() == ui::mojom::EventType::POINTER_WHEEL_CHANGED
-                  ? ui::PointerDetails(
-                        ui::EventPointerType::POINTER_TYPE_MOUSE,
-                        gfx::Vector2d(
-                            static_cast<int>(pointer_data->wheel_data->delta_x),
-                            static_cast<int>(
-                                pointer_data->wheel_data->delta_y)),
-                        ui::MouseEvent::kMousePointerId)
-                  : ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_MOUSE,
-                                       ui::MouseEvent::kMousePointerId),
-              ui::EventTimeForNow()));
-          break;
-        }
-        case ui::mojom::PointerKind::TOUCH: {
-          out->reset(new ui::PointerEvent(
-              MojoPointerEventTypeToUIEvent(event.action()), location,
-              screen_location, event.flags(),
-              pointer_data->changed_button_flags,
-              ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH,
-                                 /* pointer_id*/ pointer_data->pointer_id,
-                                 pointer_data->brush_data->width,
-                                 pointer_data->brush_data->height,
-                                 pointer_data->brush_data->pressure,
-                                 pointer_data->brush_data->tilt_x,
-                                 pointer_data->brush_data->tilt_y),
-              ui::EventTimeForNow()));
-          break;
-        }
-        case ui::mojom::PointerKind::PEN:
-          NOTIMPLEMENTED();
-          return false;
+      if (!key_data->is_char &&
+          (key_data->key_code < 0 || key_data->key_code > 255)) {
+        return false;
       }
+      if (event.flags() > ui::EF_MAX_KEY_EVENT_FLAGS_VALUE)
+        return false;
+
+      const ui::KeyboardCode key_code =
+          static_cast<ui::KeyboardCode>(key_data->key_code);
+      // Deserialization uses UsbKeycodeToDomCode() rather than a direct cast
+      // to ensure the value is valid. Invalid values are mapped to
+      // DomCode::NONE.
+      const ui::DomCode dom_code =
+          ui::KeycodeConverter::UsbKeycodeToDomCode(key_data->dom_code);
+      const ui::EventType event_type =
+          (event.action() == ui::mojom::EventType::KEY_PRESSED)
+              ? ui::ET_KEY_PRESSED
+              : ui::ET_KEY_RELEASED;
+      *out = std::make_unique<ui::KeyEvent>(event_type, key_code, dom_code,
+                                            event.flags(), *dom_key, time_stamp,
+                                            key_data->is_char);
+      break;
+    }
+    case ui::mojom::EventType::GESTURE_TAP:
+    case ui::mojom::EventType::GESTURE_SWIPE:
+    case ui::mojom::EventType::GESTURE_PINCH_BEGIN:
+    case ui::mojom::EventType::GESTURE_PINCH_END:
+    case ui::mojom::EventType::GESTURE_PINCH_UPDATE:
+      if (!ReadGestureData(&event, time_stamp, out))
+        return false;
+      break;
+    case ui::mojom::EventType::SCROLL:
+      if (!ReadScrollData(&event, time_stamp, out))
+        return false;
+      break;
+    case ui::mojom::EventType::SCROLL_FLING_START:
+    case ui::mojom::EventType::SCROLL_FLING_CANCEL:
+      // SCROLL_FLING_START/CANCEL is represented by a GestureEvent if
+      // EF_FROM_TOUCH is set.
+      if ((event.flags() & ui::EF_FROM_TOUCH) != 0) {
+        if (!ReadGestureData(&event, time_stamp, out))
+          return false;
+      } else if (!ReadScrollData(&event, time_stamp, out)) {
+        return false;
+      }
+      break;
+    case ui::mojom::EventType::CANCEL_MODE:
+      *out = std::make_unique<ui::CancelModeEvent>();
+      break;
+    case ui::mojom::EventType::MOUSE_PRESSED_EVENT:
+    case ui::mojom::EventType::MOUSE_RELEASED_EVENT:
+    case ui::mojom::EventType::MOUSE_DRAGGED_EVENT:
+    case ui::mojom::EventType::MOUSE_MOVED_EVENT:
+    case ui::mojom::EventType::MOUSE_ENTERED_EVENT:
+    case ui::mojom::EventType::MOUSE_EXITED_EVENT:
+    case ui::mojom::EventType::MOUSE_WHEEL_EVENT:
+    case ui::mojom::EventType::MOUSE_CAPTURE_CHANGED_EVENT: {
+      ui::mojom::MouseDataPtr mouse_data;
+      if (!event.ReadMouseData(&mouse_data))
+        return false;
+
+      std::unique_ptr<ui::MouseEvent> mouse_event;
+      if (event.action() == ui::mojom::EventType::MOUSE_WHEEL_EVENT) {
+        mouse_event = std::make_unique<ui::MouseWheelEvent>(
+            mouse_data->wheel_offset,
+            gfx::Point(),  // Real location set below.
+            gfx::Point(),  // Real location set below.
+            time_stamp, event.flags(), mouse_data->changed_button_flags);
+      } else {
+        mouse_event = std::make_unique<ui::MouseEvent>(
+            mojo::ConvertTo<ui::EventType>(event.action()),
+            gfx::Point(),  // Real location set below.
+            gfx::Point(),  // Real location set below.
+            time_stamp, event.flags(), mouse_data->changed_button_flags,
+            mouse_data->pointer_details);
+      }
+      mouse_event->set_location_f(mouse_data->location->relative_location);
+      mouse_event->set_root_location_f(mouse_data->location->root_location);
+      *out = std::move(mouse_event);
+      break;
+    }
+    case ui::mojom::EventType::TOUCH_RELEASED:
+    case ui::mojom::EventType::TOUCH_PRESSED:
+    case ui::mojom::EventType::TOUCH_MOVED:
+    case ui::mojom::EventType::TOUCH_CANCELLED: {
+      ui::mojom::TouchDataPtr touch_data;
+      if (!event.ReadTouchData(&touch_data))
+        return false;
+      std::unique_ptr<ui::TouchEvent> touch_event =
+          std::make_unique<ui::TouchEvent>(
+              mojo::ConvertTo<ui::EventType>(event.action()),
+              gfx::Point(),  // Real location set below.
+              time_stamp, touch_data->pointer_details, event.flags());
+      touch_event->set_location_f(touch_data->location->relative_location);
+      touch_event->set_root_location_f(touch_data->location->root_location);
+      touch_event->set_may_cause_scrolling(touch_data->may_cause_scrolling);
+      touch_event->set_hovering(touch_data->hovering);
+      *out = std::move(touch_event);
       break;
     }
     case ui::mojom::EventType::UNKNOWN:
+      NOTREACHED() << "Using unknown event types closes connections";
       return false;
   }
 
   if (!out->get())
     return false;
 
-  return event.ReadLatency((*out)->latency());
+  if (!event.ReadLatency((*out)->latency()))
+    return false;
+
+  ui::Event::Properties properties;
+  if (!event.ReadProperties(&properties))
+    return false;
+  if (!properties.empty())
+    (*out)->SetProperties(properties);
+
+  return true;
+}
+
+// static
+bool StructTraits<ui::mojom::PointerDetailsDataView, ui::PointerDetails>::Read(
+    ui::mojom::PointerDetailsDataView data,
+    ui::PointerDetails* out) {
+  if (!data.ReadPointerType(&out->pointer_type))
+    return false;
+  out->radius_x = data.radius_x();
+  out->radius_y = data.radius_y();
+  out->force = data.force();
+  out->tilt_x = data.tilt_x();
+  out->tilt_y = data.tilt_y();
+  out->tangential_pressure = data.tangential_pressure();
+  out->twist = data.twist();
+  out->id = data.id();
+  out->offset.set_x(data.offset_x());
+  out->offset.set_y(data.offset_y());
+  return true;
 }
 
 }  // namespace mojo

@@ -42,7 +42,7 @@ class QLegendPrivate;
 class QLegendMarker;
 class QAbstractSeries;
 
-class QT_CHARTS_EXPORT QLegend : public QGraphicsWidget
+class Q_CHARTS_EXPORT QLegend : public QGraphicsWidget
 {
     Q_OBJECT
     Q_PROPERTY(Qt::Alignment alignment READ alignment WRITE setAlignment)
@@ -69,7 +69,7 @@ public:
 
     ~QLegend();
 
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = Q_NULLPTR);
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = nullptr);
 
     void setBrush(const QBrush &brush);
     QBrush brush() const;
@@ -99,7 +99,7 @@ public:
     void setBackgroundVisible(bool visible = true);
     bool isBackgroundVisible() const;
 
-    QList <QLegendMarker*> markers(QAbstractSeries *series = Q_NULLPTR) const;
+    QList <QLegendMarker*> markers(QAbstractSeries *series = nullptr) const;
 
     bool reverseMarkers();
     void setReverseMarkers(bool reverseMarkers = true);

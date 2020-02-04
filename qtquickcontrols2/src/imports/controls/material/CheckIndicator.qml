@@ -34,20 +34,22 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Controls.Material 2.3
-import QtQuick.Controls.Material.impl 2.3
+import QtQuick 2.12
+import QtQuick.Controls.Material 2.12
+import QtQuick.Controls.Material.impl 2.12
 
 Rectangle {
     id: indicatorItem
     implicitWidth: 18
     implicitHeight: 18
     color: "transparent"
-    border.color: control.checked && control.enabled ? control.Material.accentColor : control.Material.secondaryTextColor
-    border.width: control.checked ? width / 2 : 2
+    border.color: !control.enabled ? control.Material.hintTextColor
+        : checkState !== Qt.Unchecked ? control.Material.accentColor : control.Material.secondaryTextColor
+    border.width: checkState !== Qt.Unchecked ? width / 2 : 2
     radius: 2
 
     property Item control
+    property int checkState: control.checkState
 
     Behavior on border.width {
         NumberAnimation {
@@ -73,7 +75,7 @@ Rectangle {
         source: "qrc:/qt-project.org/imports/QtQuick/Controls.2/Material/images/check.png"
         fillMode: Image.PreserveAspectFit
 
-        scale: control.checkState === Qt.Checked ? 1 : 0
+        scale: checkState === Qt.Checked ? 1 : 0
         Behavior on scale { NumberAnimation { duration: 100 } }
     }
 
@@ -83,18 +85,18 @@ Rectangle {
         width: 12
         height: 3
 
-        scale: control.checkState === Qt.PartiallyChecked ? 1 : 0
+        scale: checkState === Qt.PartiallyChecked ? 1 : 0
         Behavior on scale { NumberAnimation { duration: 100 } }
     }
 
     states: [
         State {
             name: "checked"
-            when: control.checkState === Qt.Checked
+            when: checkState === Qt.Checked
         },
         State {
             name: "partiallychecked"
-            when: control.checkState === Qt.PartiallyChecked
+            when: checkState === Qt.PartiallyChecked
         }
     ]
 

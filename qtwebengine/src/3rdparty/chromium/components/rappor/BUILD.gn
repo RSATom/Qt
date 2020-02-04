@@ -2,9 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//testing/test.gni")
 
-static_library("rappor") {
+jumbo_static_library("rappor") {
   sources = [
     "bloom_filter.cc",
     "bloom_filter.h",
@@ -43,11 +44,12 @@ static_library("rappor") {
     "//components/variations",
     "//crypto",
     "//net",
+    "//services/network/public/cpp:cpp",
     "//third_party/smhasher:cityhash",
   ]
 }
 
-static_library("rappor_recorder") {
+jumbo_static_library("rappor_recorder") {
   sources = [
     "rappor_recorder_impl.cc",
     "rappor_recorder_impl.h",
@@ -64,7 +66,7 @@ static_library("rappor_recorder") {
   ]
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   sources = [
     "test_log_uploader.cc",
@@ -82,7 +84,7 @@ static_library("test_support") {
   ]
 }
 
-source_set("unit_tests") {
+jumbo_source_set("unit_tests") {
   testonly = true
   sources = [
     "bloom_filter_unittest.cc",
@@ -104,6 +106,8 @@ source_set("unit_tests") {
     "//components/metrics",
     "//components/prefs:test_support",
     "//net:test_support",
+    "//services/network:test_support",
+    "//services/network/public/cpp:cpp",
     "//testing/gtest",
     "//url",
   ]

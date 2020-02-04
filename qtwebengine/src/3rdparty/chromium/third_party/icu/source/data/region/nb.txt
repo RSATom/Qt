@@ -31,6 +31,7 @@ nb{
         151{"Øst-Europa"}
         154{"Nord-Europa"}
         155{"Vest-Europa"}
+        202{"Afrika sør for Sahara"}
         419{"Latin-Amerika"}
         AC{"Ascension"}
         AD{"Andorra"}
@@ -106,6 +107,7 @@ nb{
         ES{"Spania"}
         ET{"Etiopia"}
         EU{"EU"}
+        EZ{"eurosonen"}
         FI{"Finland"}
         FJ{"Fiji"}
         FK{"Falklandsøyene (Islas Malvinas)"}
@@ -217,8 +219,8 @@ nb{
         PH{"Filippinene"}
         PK{"Pakistan"}
         PL{"Polen"}
-        PM{"St. Pierre og Miquelon"}
-        PN{"Pitcairn"}
+        PM{"Saint-Pierre-et-Miquelon"}
+        PN{"Pitcairnøyene"}
         PR{"Puerto Rico"}
         PS{"Palestina"}
         PT{"Portugal"}
@@ -301,7 +303,6 @@ nb{
     Countries%variant{
         CD{"Den demokratiske republikken Kongo"}
         CG{"Republikken Kongo"}
-        CZ{"Den tsjekkiske republikk"}
     }
-    Version{"2.1.32.59"}
+    Version{"2.1.44.2"}
 }

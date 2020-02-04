@@ -11,13 +11,6 @@
 
 #include <stdlib.h>
 
-#if defined(GOOGLE3) && defined(SK_BUILD_FOR_IOS)
-    // This is defined by //base only for iOS (I don't know why).
-    DECLARE_bool(undefok)
-#else
-    DEFINE_bool(undefok, false, "Silently ignore unknown flags instead of crashing.");
-#endif
-
 template <typename T> static void ignore_result(const T&) {}
 
 bool SkFlagInfo::CreateStringFlag(const char* name, const char* shortName,
@@ -222,7 +215,7 @@ struct CompareFlagsByName {
 };
 }  // namespace
 
-void SkCommandLineFlags::Parse(int argc, char** argv) {
+void SkCommandLineFlags::Parse(int argc, const char* const * argv) {
     // Only allow calling this function once.
     static bool gOnce;
     if (gOnce) {
@@ -258,7 +251,7 @@ void SkCommandLineFlags::Parse(int argc, char** argv) {
                 SkTDArray<SkFlagInfo*> allFlags;
                 for (SkFlagInfo* flag = SkCommandLineFlags::gHead; flag;
                      flag = flag->next()) {
-                    allFlags.push(flag);
+                    allFlags.push_back(flag);
                 }
                 SkTQSort(&allFlags[0], &allFlags[allFlags.count() - 1],
                          CompareFlagsByName());
@@ -333,6 +326,10 @@ void SkCommandLineFlags::Parse(int argc, char** argv) {
                             i++;
                             flag->setInt(atoi(argv[i]));
                             break;
+                        case SkFlagInfo::kUint_FlagType:
+                            i++;
+                            flag->setUint(strtoul(argv[i], nullptr, 0));
+                            break;
                         case SkFlagInfo::kDouble_FlagType:
                             i++;
                             flag->setDouble(atof(argv[i]));
@@ -350,12 +347,8 @@ void SkCommandLineFlags::Parse(int argc, char** argv) {
                     i++;  // skip YES
                 } else
 #endif
-                if (FLAGS_undefok) {
-                    SkDebugf("FYI: ignoring unknown flag '%s'.\n", argv[i]);
-                } else {
-                    SkDebugf("Got unknown flag '%s'. Exiting.\n", argv[i]);
-                    exit(-1);
-                }
+                SkDebugf("Got unknown flag '%s'. Exiting.\n", argv[i]);
+                exit(-1);
             }
         }
     }
@@ -400,7 +393,7 @@ bool ShouldSkipImpl(const Strings& strings, const char* name) {
                 && strncmp(name, matchName, matchLen) == 0
                 : matchEnd ? matchLen <= testLen
                 && strncmp(name + testLen - matchLen, matchName, matchLen) == 0
-                : strstr(name, matchName) != 0) {
+                : strstr(name, matchName) != nullptr) {
             return matchExclude;
         }
     }

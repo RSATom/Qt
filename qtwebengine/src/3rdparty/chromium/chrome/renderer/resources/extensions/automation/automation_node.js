@@ -4,167 +4,171 @@
 
 var AutomationEvent = require('automationEvent').AutomationEvent;
 var automationInternal =
-    require('binding').Binding.create('automationInternal').generate();
+    getInternalApi ?
+        getInternalApi('automationInternal') :
+        require('binding').Binding.create('automationInternal').generate();
 var exceptionHandler = require('uncaught_exception_handler');
-var IsInteractPermitted =
-    requireNative('automationInternal').IsInteractPermitted;
+
+var natives = requireNative('automationInternal');
+
+var IsInteractPermitted = natives.IsInteractPermitted;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?number} The id of the root node.
  */
-var GetRootID = requireNative('automationInternal').GetRootID;
+var GetRootID = natives.GetRootID;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?string} The title of the document.
  */
-var GetDocTitle = requireNative('automationInternal').GetDocTitle;
+var GetDocTitle = natives.GetDocTitle;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?string} The url of the document.
  */
-var GetDocURL = requireNative('automationInternal').GetDocURL;
+var GetDocURL = natives.GetDocURL;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?boolean} True if the document has finished loading.
  */
-var GetDocLoaded = requireNative('automationInternal').GetDocLoaded;
+var GetDocLoaded = natives.GetDocLoaded;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?number} The loading progress, from 0.0 to 1.0 (fully loaded).
  */
 var GetDocLoadingProgress =
-    requireNative('automationInternal').GetDocLoadingProgress;
+    natives.GetDocLoadingProgress;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?number} The ID of the selection anchor object.
  */
-var GetAnchorObjectID = requireNative('automationInternal').GetAnchorObjectID;
+var GetAnchorObjectID = natives.GetAnchorObjectID;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?number} The selection anchor offset.
  */
-var GetAnchorOffset = requireNative('automationInternal').GetAnchorOffset;
+var GetAnchorOffset = natives.GetAnchorOffset;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?string} The selection anchor affinity.
  */
-var GetAnchorAffinity = requireNative('automationInternal').GetAnchorAffinity;
+var GetAnchorAffinity = natives.GetAnchorAffinity;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?number} The ID of the selection focus object.
  */
-var GetFocusObjectID = requireNative('automationInternal').GetFocusObjectID;
+var GetFocusObjectID = natives.GetFocusObjectID;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?number} The selection focus offset.
  */
-var GetFocusOffset = requireNative('automationInternal').GetFocusOffset;
+var GetFocusOffset = natives.GetFocusOffset;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @return {?string} The selection focus affinity.
  */
-var GetFocusAffinity = requireNative('automationInternal').GetFocusAffinity;
+var GetFocusAffinity = natives.GetFocusAffinity;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {?number} The id of the node's parent, or undefined if it's the
  *    root of its tree or if the tree or node wasn't found.
  */
-var GetParentID = requireNative('automationInternal').GetParentID;
+var GetParentID = natives.GetParentID;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {?number} The number of children of the node, or undefined if
  *     the tree or node wasn't found.
  */
-var GetChildCount = requireNative('automationInternal').GetChildCount;
+var GetChildCount = natives.GetChildCount;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @param {number} childIndex An index of a child of this node.
  * @return {?number} The id of the child at the given index, or undefined
  *     if the tree or node or child at that index wasn't found.
  */
-var GetChildIDAtIndex = requireNative('automationInternal').GetChildIDAtIndex;
+var GetChildIDAtIndex = natives.GetChildIDAtIndex;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {?number} The ids of the children of the node, or undefined
  *     if the tree or node wasn't found.
  */
-var GetChildIds = requireNative('automationInternal').GetChildIDs;
+var GetChildIds = natives.GetChildIDs;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {?Object} An object mapping html attributes to values.
  */
-var GetHtmlAttributes = requireNative('automationInternal').GetHtmlAttributes;
+var GetHtmlAttributes = natives.GetHtmlAttributes;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {?number} The index of this node in its parent, or undefined if
  *     the tree or node or node parent wasn't found.
  */
-var GetIndexInParent = requireNative('automationInternal').GetIndexInParent;
+var GetIndexInParent = natives.GetIndexInParent;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {?Object} An object with a string key for every state flag set,
  *     or undefined if the tree or node or node parent wasn't found.
  */
-var GetState = requireNative('automationInternal').GetState;
+var GetState = natives.GetState;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {string} The restriction, one of
  * "disabled", "readOnly" or undefined if enabled or other object not disabled
  */
-var GetRestriction = requireNative('automationInternal').GetRestriction;
+var GetRestriction = natives.GetRestriction;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {string} The checked state, as undefined, "true", "false" or "mixed".
  */
-var GetChecked = requireNative('automationInternal').GetChecked;
+var GetChecked = natives.GetChecked;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {string} The role of the node, or undefined if the tree or
  *     node wasn't found.
  */
-var GetRole = requireNative('automationInternal').GetRole;
+var GetRole = natives.GetRole;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {?automation.Rect} The location of the node, or undefined if
  *     the tree or node wasn't found.
  */
-var GetLocation = requireNative('automationInternal').GetLocation;
+var GetLocation = natives.GetLocation;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @param {number} startIndex The start index of the range.
  * @param {number} endIndex The end index of the range.
@@ -172,12 +176,32 @@ var GetLocation = requireNative('automationInternal').GetLocation;
  *     or the location if there are no subranges, or undefined if
  *     the tree or node wasn't found.
  */
-var GetBoundsForRange = requireNative('automationInternal').GetBoundsForRange;
+var GetBoundsForRange = natives.GetBoundsForRange;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {number} left The left location of the text range.
+ * @param {number} top The top location of the text range.
+ * @param {number} width The width of text range.
+ * @param {number} height The height of the text range.
+ * @param {number} requestID The request id associated with the query
+ *    for this range.
+ * @return {?automation.Rect} The bounding box of the subrange of this node,
+ *     specified by arguments provided to the function.
+ */
+var ComputeGlobalBounds = natives.ComputeGlobalBounds;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
- * @return {!Array.<number>} The text offset where each line starts, or an empty
+ * @return {?automation.Rect} The unclipped location of the node, or
+ * undefined if the tree or node wasn't found.
+ */
+var GetUnclippedLocation = natives.GetUnclippedLocation;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {!Array<number>} The text offset where each line starts, or an empty
  *     array if this node has no text content, or undefined if the tree or node
  *     was not found.
  */
@@ -185,104 +209,177 @@ var GetLineStartOffsets = requireNative(
     'automationInternal').GetLineStartOffsets;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @param {string} attr The name of a string attribute.
  * @return {?string} The value of this attribute, or undefined if the tree,
  *     node, or attribute wasn't found.
  */
-var GetStringAttribute = requireNative('automationInternal').GetStringAttribute;
+var GetStringAttribute = natives.GetStringAttribute;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @param {string} attr The name of an attribute.
  * @return {?boolean} The value of this attribute, or undefined if the tree,
  *     node, or attribute wasn't found.
  */
-var GetBoolAttribute = requireNative('automationInternal').GetBoolAttribute;
+var GetBoolAttribute = natives.GetBoolAttribute;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @param {string} attr The name of an attribute.
  * @return {?number} The value of this attribute, or undefined if the tree,
  *     node, or attribute wasn't found.
  */
-var GetIntAttribute = requireNative('automationInternal').GetIntAttribute;
+var GetIntAttribute = natives.GetIntAttribute;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @param {string} attr The name of an attribute.
+ * @return {?Array<number>} The ids of nodes who have a relationship pointing
+ *     to |nodeID| (a reverse relationship).
+ */
+var GetIntAttributeReverseRelations =
+    natives.GetIntAttributeReverseRelations;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @param {string} attr The name of an attribute.
  * @return {?number} The value of this attribute, or undefined if the tree,
  *     node, or attribute wasn't found.
  */
-var GetFloatAttribute = requireNative('automationInternal').GetFloatAttribute;
+var GetFloatAttribute = natives.GetFloatAttribute;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @param {string} attr The name of an attribute.
- * @return {?Array.<number>} The value of this attribute, or undefined
+ * @return {?Array<number>} The value of this attribute, or undefined
  *     if the tree, node, or attribute wasn't found.
  */
 var GetIntListAttribute =
-    requireNative('automationInternal').GetIntListAttribute;
+    natives.GetIntListAttribute;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @param {string} attr The name of an attribute.
+ * @return {?Array<number>} The ids of nodes who have a relationship pointing
+ *     to |nodeID| (a reverse relationship).
+ */
+var GetIntListAttributeReverseRelations =
+    natives.GetIntListAttributeReverseRelations;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @param {string} attr The name of an HTML attribute.
  * @return {?string} The value of this attribute, or undefined if the tree,
  *     node, or attribute wasn't found.
  */
-var GetHtmlAttribute = requireNative('automationInternal').GetHtmlAttribute;
+var GetHtmlAttribute = natives.GetHtmlAttribute;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {automation.NameFromType} The source of the node's name.
  */
-var GetNameFrom = requireNative('automationInternal').GetNameFrom;
+var GetNameFrom = natives.GetNameFrom;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {boolean}
  */
-var GetBold = requireNative('automationInternal').GetBold;
+var GetBold = natives.GetBold;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {boolean}
  */
-var GetItalic = requireNative('automationInternal').GetItalic;
+var GetItalic = natives.GetItalic;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {boolean}
  */
-var GetUnderline = requireNative('automationInternal').GetUnderline;
+var GetUnderline = natives.GetUnderline;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {boolean}
  */
-var GetLineThrough = requireNative('automationInternal').GetLineThrough;
+var GetLineThrough = natives.GetLineThrough;
 
 /**
- * @param {number} axTreeID The id of the accessibility tree.
+ * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
- * @return {?Array.<automation.CustomAction>} List of custom actions of the
+ * @return {?Array<automation.CustomAction>} List of custom actions of the
  *     node.
  */
-var GetCustomActions = requireNative('automationInternal').GetCustomActions;
+var GetCustomActions = natives.GetCustomActions;
 
-var lastError = require('lastError');
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {?Array<string>} List of standard actions of the node.
+ */
+var GetStandardActions = natives.GetStandardActions;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {automation.NameFromType} The source of the node's name.
+ */
+var GetDefaultActionVerb = natives.GetDefaultActionVerb;
+
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @param {string} searchStr
+ * @param {boolean} backward
+ * @return {{treeId: string, nodeId: number}}
+ */
+var GetNextTextMatch = natives.GetNextTextMatch;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {?Array<number>} A list of column header ids.
+
+ * @return {?number} The id of the column header, if it exists.
+ */
+var GetTableCellColumnHeaders = natives.GetTableCellColumnHeaders;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {?Array<number>} A list of row header ids.
+ */
+var GetTableCellRowHeaders = natives.GetTableCellRowHeaders;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {number} Column index for this cell.
+ */
+var GetTableCellColumnIndex = natives.GetTableCellColumnIndex;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {number} Row index for this cell.
+ */
+var GetTableCellRowIndex = natives.GetTableCellRowIndex;
+
 var logging = requireNative('logging');
 var utils = require('utils');
 
@@ -293,19 +390,17 @@ var utils = require('utils');
  */
 function AutomationNodeImpl(root) {
   this.rootImpl = root;
-  this.hostNode_ = null;
   this.listeners = {__proto__: null};
 }
 
 AutomationNodeImpl.prototype = {
   __proto__: null,
-  treeID: -1,
+  treeID: '',
   id: -1,
   isRootNode: false,
 
   detach: function() {
     this.rootImpl = null;
-    this.hostNode_ = null;
     this.listeners = {__proto__: null};
   },
 
@@ -314,12 +409,10 @@ AutomationNodeImpl.prototype = {
   },
 
   get parent() {
-    if (!this.rootImpl)
-      return undefined;
-    if (this.hostNode_)
-      return this.hostNode_;
-    var parentID = GetParentID(this.treeID, this.id);
-    return this.rootImpl.get(parentID);
+    var info = GetParentID(this.treeID, this.id);
+    if (!info)
+      return;
+    return AutomationRootNodeImpl.getNodeFromTree(info.treeId, info.nodeId);
   },
 
   get htmlAttributes() {
@@ -346,8 +439,40 @@ AutomationNodeImpl.prototype = {
     return GetLocation(this.treeID, this.id);
   },
 
-  boundsForRange: function(startIndex, endIndex) {
-    return GetBoundsForRange(this.treeID, this.id, startIndex, endIndex);
+  boundsForRange: function(startIndex, endIndex, callback) {
+    if (!this.rootImpl)
+      return;
+
+    // Not yet initialized.
+    if (this.rootImpl.treeID === undefined || this.id === undefined) {
+      return;
+    }
+
+    if (!callback)
+      return;
+
+    if (!GetBoolAttribute(this.treeID, this.id, 'supportsTextLocation')) {
+      try {
+        callback(
+            GetBoundsForRange(this.treeID, this.id, startIndex, endIndex));
+        return;
+      } catch (e) {
+        logging.WARNING('Error with bounds for range callback' + e);
+      }
+      return;
+    }
+
+    this.performAction_(
+        'getTextLocation', {startIndex: startIndex, endIndex: endIndex},
+        callback);
+    return;
+  },
+
+  get unclippedLocation() {
+    var result = GetUnclippedLocation(this.treeID, this.id);
+    if (result === undefined)
+      result = GetLocation(this.treeID, this.id);
+    return result;
   },
 
   get indexInParent() {
@@ -359,47 +484,40 @@ AutomationNodeImpl.prototype = {
   },
 
   get childTree() {
-    var childTreeID = GetIntAttribute(this.treeID, this.id, 'childTreeId');
+    var childTreeID = GetStringAttribute(this.treeID, this.id, 'childTreeId');
     if (childTreeID)
       return AutomationRootNodeImpl.get(childTreeID);
   },
 
   get firstChild() {
-    if (!this.rootImpl)
+    if (GetChildCount(this.treeID, this.id) == 0)
       return undefined;
-    if (this.childTree)
-      return this.childTree;
-    if (!GetChildCount(this.treeID, this.id))
-      return undefined;
-    var firstChildID = GetChildIDAtIndex(this.treeID, this.id, 0);
-    return this.rootImpl.get(firstChildID);
+    var info = GetChildIDAtIndex(this.treeID, this.id, 0);
+    if (info)
+      return AutomationRootNodeImpl.getNodeFromTree(info.treeId, info.nodeId);
   },
 
   get lastChild() {
-    if (!this.rootImpl)
-      return undefined;
-    if (this.childTree)
-      return this.childTree;
     var count = GetChildCount(this.treeID, this.id);
-    if (!count)
-      return undefined;
-    var lastChildID = GetChildIDAtIndex(this.treeID, this.id, count - 1);
-    return this.rootImpl.get(lastChildID);
+    if (count == 0)
+      return;
+
+    var info = GetChildIDAtIndex(this.treeID, this.id, count - 1);
+    if (info)
+      return AutomationRootNodeImpl.getNodeFromTree(info.treeId, info.nodeId);
   },
 
   get children() {
-    if (!this.rootImpl)
+    var info = GetChildIds(this.treeID, this.id);
+    if (!info)
       return [];
 
-    if (this.childTree)
-      return [this.childTree];
-
     var children = [];
-    var childIds = GetChildIds(this.treeID, this.id);
-    for (var i = 0; i < childIds.length; ++i) {
-      var childID = childIds[i];
-      var child = this.rootImpl.get(childID);
-      $Array.push(children, child);
+    for (var i = 0; i < info.nodeIds.length; ++i) {
+      var childID = info.nodeIds[i];
+      var child = AutomationRootNodeImpl.getNodeFromTree(info.treeId, childID);
+      if (child)
+        $Array.push(children, child);
     }
     return children;
   },
@@ -410,8 +528,9 @@ AutomationNodeImpl.prototype = {
       return undefined;
     parent = privates(parent).impl;
     var indexInParent = GetIndexInParent(this.treeID, this.id);
-    return this.rootImpl.get(
-        GetChildIDAtIndex(parent.treeID, parent.id, indexInParent - 1));
+    var info = GetChildIDAtIndex(parent.treeID, parent.id, indexInParent - 1);
+    if (info)
+      return AutomationRootNodeImpl.getNodeFromTree(info.treeId, info.nodeId);
   },
 
   get nextSibling() {
@@ -420,8 +539,9 @@ AutomationNodeImpl.prototype = {
       return undefined;
     parent = privates(parent).impl;
     var indexInParent = GetIndexInParent(this.treeID, this.id);
-    return this.rootImpl.get(
-        GetChildIDAtIndex(parent.treeID, parent.id, indexInParent + 1));
+    var info = GetChildIDAtIndex(parent.treeID, parent.id, indexInParent + 1);
+    if (info)
+      return AutomationRootNodeImpl.getNodeFromTree(info.treeId, info.nodeId);
   },
 
   get nameFrom() {
@@ -448,6 +568,42 @@ AutomationNodeImpl.prototype = {
     return GetCustomActions(this.treeID, this.id);
   },
 
+  get standardActions() {
+    return GetStandardActions(this.treeID, this.id);
+  },
+
+  get defaultActionVerb() {
+    return GetDefaultActionVerb(this.treeID, this.id);
+  },
+
+  get tableCellColumnHeaders() {
+    var ids = GetTableCellColumnHeaders(this.treeID, this.id);
+    if (ids && this.rootImpl) {
+      var result = [];
+      for (var i = 0; i < ids.length; i++)
+        result.push(this.rootImpl.get(ids[i]));
+      return result;
+    }
+  },
+
+  get tableCellRowHeaders() {
+    var id = GetTableCellRowHeaders(this.treeID, this.id);
+    if (ids && this.rootImpl) {
+      var result = [];
+      for (var i = 0; i < ids.length; i++)
+        result.push(this.rootImpl.get(ids[i]));
+      return result;
+    }
+  },
+
+  get tableCellColumnIndex() {
+    return GetTableCellColumnIndex(this.treeID, this.id);
+  },
+
+  get tableCellRowIndex() {
+    return GetTableCellRowIndex(this.treeID, this.id);
+  },
+
   doDefault: function() {
     this.performAction_('doDefault');
   },
@@ -463,28 +619,76 @@ AutomationNodeImpl.prototype = {
   },
 
   hitTest: function(x, y, eventToFire) {
+    this.hitTestInternal(x, y, eventToFire);
+  },
+
+  hitTestWithReply: function(x, y, opt_callback) {
+    this.hitTestInternal(x, y, 'hitTestResult', opt_callback);
+  },
+
+  hitTestInternal: function(x, y, eventToFire, opt_callback) {
     // Convert from global to tree-relative coordinates.
     var location = GetLocation(this.treeID, GetRootID(this.treeID));
     this.performAction_('hitTest',
                         { x: Math.floor(x - location.left),
                           y: Math.floor(y - location.top),
-                          eventToFire: eventToFire });
+                          eventToFire: eventToFire },
+                        opt_callback);
   },
 
   makeVisible: function() {
-    this.performAction_('makeVisible');
+    this.performAction_('scrollToMakeVisible');
   },
 
   performCustomAction: function(customActionId) {
     this.performAction_('customAction', { customActionID: customActionId });
   },
 
+  performStandardAction: function(action) {
+    var standardActions = GetStandardActions(this.treeID, this.id);
+    if (!standardActions ||
+        !standardActions.find(item => action == item)) {
+      throw 'Inapplicable action for node: ' + action;
+    }
+    this.performAction_(action);
+  },
+
+  replaceSelectedText: function(value) {
+    if (this.state.editable) {
+      this.performAction_('replaceSelectedText', { value: value});
+    }
+  },
+
   resumeMedia: function() {
     this.performAction_('resumeMedia');
   },
 
+  scrollBackward: function(opt_callback) {
+    this.performAction_('scrollBackward', {}, opt_callback);
+  },
+
+  scrollForward: function(opt_callback) {
+    this.performAction_('scrollForward', {}, opt_callback);
+  },
+
+  scrollUp: function(opt_callback) {
+    this.performAction_('scrollUp', {}, opt_callback);
+  },
+
+  scrollDown: function(opt_callback) {
+    this.performAction_('scrollDown', {}, opt_callback);
+  },
+
+  scrollLeft: function(opt_callback) {
+    this.performAction_('scrollLeft', {}, opt_callback);
+  },
+
+  scrollRight: function(opt_callback) {
+    this.performAction_('scrollRight', {}, opt_callback);
+  },
+
   setSelection: function(startIndex, endIndex) {
-    if (this.role == 'textField' || this.role == 'textBox') {
+    if (this.state.editable) {
       this.performAction_('setSelection',
                           { focusNodeID: this.id,
                             anchorOffset: startIndex,
@@ -494,6 +698,12 @@ AutomationNodeImpl.prototype = {
 
   setSequentialFocusNavigationStartingPoint: function() {
     this.performAction_('setSequentialFocusNavigationStartingPoint');
+  },
+
+  setValue: function(value) {
+    if (this.state.editable) {
+      this.performAction_('setValue', { value: value});
+    }
   },
 
   showContextMenu: function() {
@@ -532,6 +742,17 @@ AutomationNodeImpl.prototype = {
 
   matches: function(params) {
     return this.matchInternal_(params);
+  },
+
+  getNextTextMatch: function(searchStr, backward) {
+    var info = GetNextTextMatch(this.treeID, this.id, searchStr, backward);
+
+    if (!info)
+      return;
+
+    var impl = privates(AutomationRootNodeImpl.get(info.treeId)).impl;
+    if (impl)
+      return impl.get(info.nodeId);
   },
 
   addEventListener: function(eventType, callback, capture) {
@@ -588,26 +809,25 @@ AutomationNodeImpl.prototype = {
 
   toString: function() {
     var parentID = GetParentID(this.treeID, this.id);
-    var childTreeID = GetIntAttribute(this.treeID, this.id, 'childTreeId');
+    parentID = parentID ? parentID.nodeId : null;
+    var childTreeID = GetStringAttribute(this.treeID, this.id, 'childTreeId');
     var count = GetChildCount(this.treeID, this.id);
     var childIDs = [];
     for (var i = 0; i < count; ++i) {
-      var childID = GetChildIDAtIndex(this.treeID, this.id, i);
+      var childID = GetChildIDAtIndex(this.treeID, this.id, i).nodeId;
       $Array.push(childIDs, childID);
     }
+    var name = GetStringAttribute(this.treeID, this.id, 'name');
 
     var result = 'node id=' + this.id +
         ' role=' + this.role +
         ' state=' + $JSON.stringify(this.state) +
         ' parentID=' + parentID +
         ' childIds=' + $JSON.stringify(childIDs);
-    if (this.hostNode_) {
-      var hostNodeImpl = privates(this.hostNode_).impl;
-      result += ' host treeID=' + hostNodeImpl.treeID +
-          ' host nodeID=' + hostNodeImpl.id;
-    }
     if (childTreeID)
       result += ' childTreeID=' + childTreeID;
+    if (name)
+      result += ' name=' + name;
     return result;
   },
 
@@ -661,7 +881,7 @@ AutomationNodeImpl.prototype = {
     }
   },
 
-  performAction_: function(actionType, opt_args) {
+  performAction_: function(actionType, opt_args, opt_callback) {
     if (!this.rootImpl)
       return;
 
@@ -676,10 +896,15 @@ AutomationNodeImpl.prototype = {
       throw new Error(actionType + ' requires {"desktop": true} or' +
           ' {"interact": true} in the "automation" manifest key.');
     }
+    var requestID = -1;
+    if (opt_callback) {
+      requestID = this.rootImpl.addActionResultCallback(opt_callback);
+    }
 
     automationInternal.performAction({ treeID: this.rootImpl.treeID,
                                        automationNodeID: this.id,
-                                       actionType: actionType },
+                                       actionType: actionType,
+                                       requestID: requestID},
                                      opt_args || {});
   },
 
@@ -740,7 +965,7 @@ AutomationNodeImpl.prototype = {
       return false;
 
     if ('role' in params && this.role != params.role)
-        return false;
+      return false;
 
     if ('state' in params) {
       for (var state in params.state) {
@@ -772,12 +997,15 @@ AutomationNodeImpl.prototype = {
 var stringAttributes = [
     'accessKey',
     'ariaInvalidValue',
+    'autoComplete',
+    'className',
     'containerLiveRelevant',
     'containerLiveStatus',
     'description',
     'display',
     'htmlTag',
     'imageDataUrl',
+    'innerHtml',
     'language',
     'liveRelevant',
     'liveStatus',
@@ -789,10 +1017,9 @@ var stringAttributes = [
     'value'];
 
 var boolAttributes = [
-    'containerLiveAtomic',
-    'containerLiveBusy',
-    'liveAtomic',
-    'liveBusy'];
+  'busy', 'clickable', 'containerLiveAtomic', 'containerLiveBusy', 'liveAtomic',
+  'modal', 'scrollable', 'selected', 'supportsTextLocation'
+];
 
 var intAttributes = [
     'backgroundColor',
@@ -807,10 +1034,8 @@ var intAttributes = [
     'scrollYMax',
     'scrollYMin',
     'setSize',
-    'tableCellColumnIndex',
     'ariaCellColumnIndex',
     'tableCellColumnSpan',
-    'tableCellRowIndex',
     'ariaCellRowIndex',
     'tableCellRowSpan',
     'tableColumnCount',
@@ -822,14 +1047,19 @@ var intAttributes = [
     'textSelEnd',
     'textSelStart'];
 
+// Int attribute, relation property to expose, reverse relation to expose.
 var nodeRefAttributes = [
-    ['activedescendantId', 'activeDescendant'],
-    ['inPageLinkTargetId', 'inPageLinkTarget'],
-    ['nextOnLineId', 'nextOnLine'],
-    ['previousOnLineId', 'previousOnLine'],
-    ['tableColumnHeaderId', 'tableColumnHeader'],
-    ['tableHeaderId', 'tableHeader'],
-    ['tableRowHeaderId', 'tableRowHeader']];
+    ['activedescendantId', 'activeDescendant', 'activeDescendantFor'],
+    ['detailsId', 'details', 'detailsFor'],
+    ['errorMessageId', 'errorMessage', 'errorMessageFor'],
+    ['inPageLinkTargetId', 'inPageLinkTarget', null],
+    ['nextFocusId', 'nextFocus', null],
+    ['nextOnLineId', 'nextOnLine', null],
+    ['previousFocusId', 'previousFocus', null],
+    ['previousOnLineId', 'previousOnLine', null],
+    ['tableColumnHeaderId', 'tableColumnHeader', null],
+    ['tableHeaderId', 'tableHeader', null],
+    ['tableRowHeaderId', 'tableRowHeader', null]];
 
 var intListAttributes = [
     'lineBreaks',
@@ -839,11 +1069,12 @@ var intListAttributes = [
     'wordEnds',
     'wordStarts'];
 
+// Intlist attribute, relation property to expose, reverse relation to expose.
 var nodeRefListAttributes = [
-    ['controlsIds', 'controls'],
-    ['describedbyIds', 'describedBy'],
-    ['flowtoIds', 'flowTo'],
-    ['labelledbyIds', 'labelledBy']];
+    ['controlsIds', 'controls', 'controlledBy'],
+    ['describedbyIds', 'describedBy', 'descriptionFor'],
+    ['flowtoIds', 'flowTo', 'flowFrom'],
+    ['labelledbyIds', 'labelledBy', 'labelFor']];
 
 var floatAttributes = [
     'valueForRange',
@@ -888,6 +1119,7 @@ $Array.forEach(intAttributes, function(attributeName) {
 $Array.forEach(nodeRefAttributes, function(params) {
   var srcAttributeName = params[0];
   var dstAttributeName = params[1];
+  var dstReverseAttributeName = params[2];
   $Array.push(publicAttributes, dstAttributeName);
   $Object.defineProperty(AutomationNodeImpl.prototype, dstAttributeName, {
     __proto__: null,
@@ -899,6 +1131,26 @@ $Array.forEach(nodeRefAttributes, function(params) {
         return undefined;
     }
   });
+  if (dstReverseAttributeName) {
+    $Array.push(publicAttributes, dstReverseAttributeName);
+    $Object.defineProperty(AutomationNodeImpl.prototype,
+                           dstReverseAttributeName, {
+      __proto__: null,
+      get: function() {
+        var ids = GetIntAttributeReverseRelations(
+            this.treeID, this.id, srcAttributeName);
+        if (!ids || !this.rootImpl)
+          return undefined;
+        var result = [];
+        for (var i = 0; i < ids.length; ++i) {
+          var node = this.rootImpl.get(ids[i]);
+          if (node)
+          $Array.push(result, node);
+        }
+        return result;
+      }
+    });
+  }
 });
 
 $Array.forEach(intListAttributes, function(attributeName) {
@@ -914,6 +1166,7 @@ $Array.forEach(intListAttributes, function(attributeName) {
 $Array.forEach(nodeRefListAttributes, function(params) {
   var srcAttributeName = params[0];
   var dstAttributeName = params[1];
+  var dstReverseAttributeName = params[2];
   $Array.push(publicAttributes, dstAttributeName);
   $Object.defineProperty(AutomationNodeImpl.prototype, dstAttributeName, {
     __proto__: null,
@@ -930,6 +1183,26 @@ $Array.forEach(nodeRefListAttributes, function(params) {
       return result;
     }
   });
+  if (dstReverseAttributeName) {
+    $Array.push(publicAttributes, dstReverseAttributeName);
+    $Object.defineProperty(AutomationNodeImpl.prototype,
+                           dstReverseAttributeName, {
+      __proto__: null,
+      get: function() {
+        var ids = GetIntListAttributeReverseRelations(
+            this.treeID, this.id, srcAttributeName);
+        if (!ids || !this.rootImpl)
+          return undefined;
+        var result = [];
+        for (var i = 0; i < ids.length; ++i) {
+          var node = this.rootImpl.get(ids[i]);
+          if (node)
+          $Array.push(result, node);
+        }
+        return result;
+      }
+    });
+  }
 });
 
 $Array.forEach(floatAttributes, function(attributeName) {
@@ -993,9 +1266,31 @@ utils.defineProperty(AutomationRootNodeImpl, 'getOrCreate', function(treeID) {
   return result;
 });
 
+utils.defineProperty(
+    AutomationRootNodeImpl, 'getNodeFromTree', function(treeId, nodeId) {
+  var tree = AutomationRootNodeImpl.get(treeId);
+  if (!tree)
+    return;
+  var impl = privates(tree).impl;
+  if (impl)
+    return impl.get(nodeId);
+});
+
 utils.defineProperty(AutomationRootNodeImpl, 'destroy', function(treeID) {
   delete AutomationRootNodeImpl.idToAutomationRootNode_[treeID];
 });
+
+/**
+ * A counter keeping track of IDs to use for mapping action requests to
+ * their callback function.
+ */
+AutomationRootNodeImpl.actionRequestCounter = 0;
+
+/**
+ * A map from a request ID to the corresponding callback function to call
+ * when the action response event is received.
+ */
+AutomationRootNodeImpl.actionRequestIDToCallback = {};
 
 AutomationRootNodeImpl.prototype = {
   __proto__: AutomationNodeImpl.prototype,
@@ -1006,16 +1301,9 @@ AutomationRootNodeImpl.prototype = {
   isRootNode: true,
 
   /**
-   * @type {number}
+   * @type {string}
    */
-  treeID: -1,
-
-  /**
-   * The parent of this node from a different tree.
-   * @type {?AutomationNode}
-   * @private
-   */
-  hostNode_: null,
+  treeID: '',
 
   /**
    * A map from id to AutomationNode.
@@ -1033,10 +1321,6 @@ AutomationRootNodeImpl.prototype = {
       return -1;
 
     return result;
-  },
-
-  get chromeChannel() {
-    return GetStringAttribute(this.treeID, this.id, 'chromeChannel');
   },
 
   get docUrl() {
@@ -1106,6 +1390,10 @@ AutomationRootNodeImpl.prototype = {
     if (obj)
       return obj;
 
+    // Validate the backing AXTree has the specified node.
+    if (!GetRole(this.treeID, id))
+      return;
+
     obj = new AutomationNode(this);
     privates(obj).impl.treeID = this.treeID;
     privates(obj).impl.id = id;
@@ -1127,10 +1415,6 @@ AutomationRootNodeImpl.prototype = {
     this.detach();
   },
 
-  setHostNode(hostNode) {
-    this.hostNode_ = hostNode;
-  },
-
   onAccessibilityEvent: function(eventParams) {
     var targetNode = this.get(eventParams.targetID);
     if (targetNode) {
@@ -1138,12 +1422,51 @@ AutomationRootNodeImpl.prototype = {
       targetNodeImpl.dispatchEvent(
           eventParams.eventType, eventParams.eventFrom,
           eventParams.mouseX, eventParams.mouseY);
+
+      if (eventParams.actionRequestID != -1) {
+        this.onActionResult(eventParams.actionRequestID, targetNode);
+      }
     } else {
       logging.WARNING('Got ' + eventParams.eventType +
                       ' event on unknown node: ' + eventParams.targetID +
                       '; this: ' + this.id);
     }
     return true;
+  },
+
+  addActionResultCallback: function(callback) {
+    AutomationRootNodeImpl.actionRequestIDToCallback[
+        ++AutomationRootNodeImpl.actionRequestCounter] = callback;
+    return AutomationRootNodeImpl.actionRequestCounter;
+  },
+
+  onGetTextLocationResult: function(textLocationParams) {
+    let requestID = textLocationParams.requestID;
+    if (requestID in AutomationRootNodeImpl.actionRequestIDToCallback) {
+      let callback =
+          AutomationRootNodeImpl.actionRequestIDToCallback[requestID];
+      try {
+        if (textLocationParams.result) {
+          callback(ComputeGlobalBounds(
+              this.treeID, textLocationParams.nodeID, textLocationParams.left,
+              textLocationParams.top, textLocationParams.width,
+              textLocationParams.height));
+        } else {
+          callback(undefined);
+        }
+      } catch (e) {
+        logging.WARNING('Error with onGetTextLocationResult callback:' + e);
+      }
+      delete AutomationNodeImpl.actionRequestIDToCallback[requestID];
+    }
+  },
+
+
+  onActionResult: function(requestID, result) {
+    if (requestID in AutomationRootNodeImpl.actionRequestIDToCallback) {
+      AutomationRootNodeImpl.actionRequestIDToCallback[requestID](result);
+      delete AutomationRootNodeImpl.actionRequestIDToCallback[requestID];
+    }
   },
 
   toString: function() {
@@ -1175,13 +1498,24 @@ utils.expose(AutomationNode, AutomationNodeImpl, {
     'findAll',
     'focus',
     'getImageData',
+    'getNextTextMatch',
     'hitTest',
+    'hitTestWithReply',
     'makeVisible',
     'matches',
     'performCustomAction',
+    'performStandardAction',
+    'replaceSelectedText',
     'resumeMedia',
+    'scrollBackward',
+    'scrollForward',
+    'scrollUp',
+    'scrollDown',
+    'scrollLeft',
+    'scrollRight',
     'setSelection',
     'setSequentialFocusNavigationStartingPoint',
+    'setValue',
     'showContextMenu',
     'startDuckingMedia',
     'stopDuckingMedia',
@@ -1192,30 +1526,39 @@ utils.expose(AutomationNode, AutomationNodeImpl, {
     'toString',
     'boundsForRange',
   ],
-  readonly: $Array.concat(publicAttributes, [
-      'parent',
-      'firstChild',
-      'lastChild',
-      'children',
-      'previousSibling',
-      'nextSibling',
-      'isRootNode',
-      'role',
-      'checked',
-      'restriction',
-      'state',
-      'location',
-      'indexInParent',
-      'lineStartOffsets',
-      'root',
-      'htmlAttributes',
-      'nameFrom',
-      'bold',
-      'italic',
-      'underline',
-      'lineThrough',
-      'customActions',
-  ]),
+  readonly: $Array.concat(
+      publicAttributes,
+      [
+        'parent',
+        'firstChild',
+        'lastChild',
+        'children',
+        'previousSibling',
+        'nextSibling',
+        'isRootNode',
+        'role',
+        'checked',
+        'defaultActionVerb',
+        'restriction',
+        'state',
+        'location',
+        'indexInParent',
+        'lineStartOffsets',
+        'root',
+        'htmlAttributes',
+        'nameFrom',
+        'bold',
+        'italic',
+        'underline',
+        'lineThrough',
+        'customActions',
+        'standardActions',
+        'unclippedLocation',
+        'tableCellColumnHeaders',
+        'tableCellRowHeaders',
+        'tableCellColumnIndex',
+        'tableCellRowIndex',
+      ]),
 });
 
 function AutomationRootNode() {
@@ -1224,7 +1567,6 @@ function AutomationRootNode() {
 utils.expose(AutomationRootNode, AutomationRootNodeImpl, {
   superclass: AutomationNode,
   readonly: [
-    'chromeChannel',
     'docTitle',
     'docUrl',
     'docLoaded',

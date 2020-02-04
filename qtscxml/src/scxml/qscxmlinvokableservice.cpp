@@ -419,7 +419,7 @@ QScxmlInvokableService *QScxmlDynamicScxmlServiceFactory::invoke(
     bool ok = true;
     auto srcexpr = calculateSrcexpr(parentStateMachine, invokeInfo().expr, &ok);
     if (!ok)
-        return Q_NULLPTR;
+        return nullptr;
 
     return invokeDynamicScxmlService(srcexpr, parentStateMachine, this);
 }

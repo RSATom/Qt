@@ -261,6 +261,10 @@ HttpAuthSSPI::~HttpAuthSSPI() {
   }
 }
 
+bool HttpAuthSSPI::Init() {
+  return true;
+}
+
 bool HttpAuthSSPI::NeedsIdentity() const {
   return decoded_server_auth_token_.empty();
 }
@@ -294,7 +298,7 @@ int HttpAuthSSPI::GenerateAuthToken(const AuthCredentials* credentials,
                                     const std::string& spn,
                                     const std::string& channel_bindings,
                                     std::string* auth_token,
-                                    const CompletionCallback& /*callback*/) {
+                                    CompletionOnceCallback /*callback*/) {
   // Initial challenge.
   if (!SecIsValidHandle(&cred_)) {
     int rv = OnFirstRound(credentials);

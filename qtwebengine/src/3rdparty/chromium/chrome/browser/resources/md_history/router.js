@@ -18,6 +18,18 @@ Polymer({
     path_: String,
 
     queryParams_: Object,
+
+    /** @private {string} */
+    query_: {
+      type: String,
+      observer: 'onQueryChanged_',
+    },
+
+    /** @private {string} */
+    urlQuery_: {
+      type: String,
+      observer: 'onUrlQueryChanged_',
+    },
   },
 
   /** @private {boolean} */
@@ -37,13 +49,30 @@ Polymer({
   },
 
   /**
+   * @param {?string} current Current value of the query.
+   * @param {?string} previous Previous value of the query.
+   * @private
+   */
+  onQueryChanged_: function(current, previous) {
+    if (previous !== undefined) {
+      this.urlQuery_ = this.query_;
+    }
+  },
+
+  /** @private */
+  onUrlQueryChanged_: function() {
+    this.query_ = this.urlQuery_;
+  },
+
+  /**
    * Write all relevant page state to the URL.
    */
   serializeUrl: function() {
-    var path = this.selectedPage;
+    let path = this.selectedPage;
 
-    if (path == 'history')
+    if (path == 'history') {
       path = '';
+    }
 
     // Make all modifications at the end of the method so observers can't change
     // the outcome.
@@ -55,16 +84,17 @@ Polymer({
   selectedPageChanged_: function() {
     // Update the URL if the page was changed externally, but ignore the update
     // if it came from parseUrl_().
-    if (!this.parsing_)
+    if (!this.parsing_) {
       this.serializeUrl();
+    }
   },
 
   /** @private */
   parseUrl_: function() {
     this.parsing_ = true;
-    var changes = {};
-    var sections = this.path_.substr(1).split('/');
-    var page = sections[0] || 'history';
+    const changes = {};
+    const sections = this.path_.substr(1).split('/');
+    const page = sections[0] || 'history';
 
     changes.search = this.queryParams_.q || '';
 

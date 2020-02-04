@@ -5,7 +5,10 @@
 #ifndef V8_FLAGS_H_
 #define V8_FLAGS_H_
 
+#include <vector>
+
 #include "src/globals.h"
+#include "src/wasm/wasm-limits.h"
 
 namespace v8 {
 namespace internal {
@@ -24,14 +27,15 @@ class V8_EXPORT_PRIVATE FlagList {
   //
   // The caller is responsible for disposing the list, as well
   // as every element of it.
-  static List<const char*>* argv();
+  static std::vector<const char*>* argv();
 
   // Set the flag values by parsing the command line. If remove_flags is
-  // set, the flags and associated values are removed from (argc,
-  // argv). Returns 0 if no error occurred. Otherwise, returns the argv
-  // index > 0 for the argument where an error occurred. In that case,
-  // (argc, argv) will remain unchanged independent of the remove_flags
-  // value, and no assumptions about flag settings should be made.
+  // set, the recognized flags and associated values are removed from (argc,
+  // argv) and only unknown arguments remain. Returns 0 if no error occurred.
+  // Otherwise, returns the argv index > 0 for the argument where an error
+  // occurred. In that case, (argc, argv) will remain unchanged independent of
+  // the remove_flags value, and no assumptions about flag settings should be
+  // made.
   //
   // The following syntax for flags is accepted (both '-' and '--' are ok):
   //

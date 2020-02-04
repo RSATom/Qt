@@ -7,10 +7,12 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/feature_list.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/macros.h"
-#include "base/threading/thread_local_storage.h"
+#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
+#include "base/threading/thread_local.h"
 
 #include "ui/events/event_constants.h"
 #include "ui/events/event_utils.h"
@@ -24,25 +26,15 @@ namespace {
 // List of modifiers mentioned in https://w3c.github.io/uievents/#keys-modifiers
 // Some modifiers are commented out because they usually don't change keys.
 const EventFlags modifier_flags[] = {
-    EF_SHIFT_DOWN,
-    EF_CONTROL_DOWN,
-    EF_ALT_DOWN,
+    EF_SHIFT_DOWN, EF_CONTROL_DOWN, EF_ALT_DOWN,
     // EF_COMMAND_DOWN,
-    EF_ALTGR_DOWN,
     // EF_NUM_LOCK_ON,
     EF_CAPS_LOCK_ON,
-    // EF_SCROLL_LOCK_ON
-};
-const int kModifierFlagsCombinations = (1 << arraysize(modifier_flags)) - 1;
+    // EF_SCROLL_LOCK_ON,
 
-int GetModifierFlags(int combination) {
-  int flags = EF_NONE;
-  for (size_t i = 0; i < arraysize(modifier_flags); ++i) {
-    if (combination & (1 << i))
-      flags |= modifier_flags[i];
-  }
-  return flags;
-}
+    // Simulated as Control+Alt.
+    // EF_ALTGR_DOWN,
+};
 
 void SetModifierState(BYTE* keyboard_state, int flags) {
   // According to MSDN GetKeyState():
@@ -60,24 +52,35 @@ void SetModifierState(BYTE* keyboard_state, int flags) {
   if (flags & EF_ALT_DOWN)
     keyboard_state[VK_MENU] |= 0x80;
 
-  if (flags & EF_ALTGR_DOWN) {
-    // AltGr should be RightAlt+LeftControl within Windows, but actually only
-    // the non-located keys will work here.
-    keyboard_state[VK_MENU] |= 0x80;
-    keyboard_state[VK_CONTROL] |= 0x80;
-  }
-
-  if (flags & EF_COMMAND_DOWN)
-    keyboard_state[VK_LWIN] |= 0x80;
-
-  if (flags & EF_NUM_LOCK_ON)
-    keyboard_state[VK_NUMLOCK] |= 0x01;
-
   if (flags & EF_CAPS_LOCK_ON)
     keyboard_state[VK_CAPITAL] |= 0x01;
 
-  if (flags & EF_SCROLL_LOCK_ON)
-    keyboard_state[VK_SCROLL] |= 0x01;
+  DCHECK_EQ(flags & ~(EF_SHIFT_DOWN | EF_CONTROL_DOWN | EF_ALT_DOWN |
+                      EF_CAPS_LOCK_ON),
+            0);
+}
+
+constexpr int kControlAndAltFlags = EF_CONTROL_DOWN | EF_ALT_DOWN;
+
+bool HasControlAndAlt(int flags) {
+  return (flags & kControlAndAltFlags) == kControlAndAltFlags;
+}
+
+int ReplaceAltGraphWithControlAndAlt(int flags) {
+  return (flags & EF_ALTGR_DOWN)
+             ? ((flags & ~EF_ALTGR_DOWN) | kControlAndAltFlags)
+             : flags;
+}
+
+const int kModifierFlagsCombinations = (1 << base::size(modifier_flags)) - 1;
+
+int GetModifierFlags(int combination) {
+  int flags = EF_NONE;
+  for (size_t i = 0; i < base::size(modifier_flags); ++i) {
+    if (combination & (1 << i))
+      flags |= modifier_flags[i];
+  }
+  return flags;
 }
 
 // This table must be sorted by |key_code| for binary search.
@@ -190,7 +193,7 @@ const struct NonPrintableKeyEntry {
     {VKEY_EREOF, DomKey::ERASE_EOF},
     {VKEY_PLAY, DomKey::PLAY},
     {VKEY_ZOOM, DomKey::ZOOM_TOGGLE},
-    // TODO(chongz): Handle VKEY_NONAME, VKEY_PA1.
+    // TODO(input-dev): Handle VKEY_NONAME, VKEY_PA1.
     // https://crbug.com/616910
     {VKEY_OEM_CLEAR, DomKey::CLEAR},
 };
@@ -256,25 +259,6 @@ DomKey NonPrintableKeyboardCodeToDomKey(KeyboardCode key_code, HKL layout) {
   return DomKey::NONE;
 }
 
-void CleanupKeyMapTls(void* data) {
-  PlatformKeyMap* key_map = reinterpret_cast<PlatformKeyMap*>(data);
-  delete key_map;
-}
-
-struct PlatformKeyMapInstanceTlsTraits
-    : public base::internal::DestructorAtExitLazyInstanceTraits<
-          base::ThreadLocalStorage::Slot> {
-  static base::ThreadLocalStorage::Slot* New(void* instance) {
-    // Use placement new to initialize our instance in our preallocated space.
-    // TODO(chongz): Use std::default_delete instead of providing own function.
-    return new (instance) base::ThreadLocalStorage::Slot(CleanupKeyMapTls);
-  }
-};
-
-base::LazyInstance<base::ThreadLocalStorage::Slot,
-                   PlatformKeyMapInstanceTlsTraits>
-    g_platform_key_map_tls_lazy = LAZY_INSTANCE_INITIALIZER;
-
 }  // anonymous namespace
 
 PlatformKeyMap::PlatformKeyMap() {}
@@ -285,27 +269,44 @@ PlatformKeyMap::PlatformKeyMap(HKL layout) {
 
 PlatformKeyMap::~PlatformKeyMap() {}
 
+// static
+PlatformKeyMap* PlatformKeyMap::GetThreadLocalPlatformKeyMap() {
+  // DestructorAtExit so the main thread's instance is cleaned up between tests
+  // in the same process.
+  static base::LazyInstance<base::ThreadLocalOwnedPointer<PlatformKeyMap>>::
+      DestructorAtExit platform_key_map_tls_instance =
+          LAZY_INSTANCE_INITIALIZER;
+
+  auto& platform_key_map_tls = platform_key_map_tls_instance.Get();
+  PlatformKeyMap* platform_key_map = platform_key_map_tls.Get();
+  if (!platform_key_map) {
+    auto new_platform_key_map = base::WrapUnique(new PlatformKeyMap);
+    platform_key_map = new_platform_key_map.get();
+    platform_key_map_tls.Set(std::move(new_platform_key_map));
+  }
+
+  return platform_key_map;
+}
+
 DomKey PlatformKeyMap::DomKeyFromKeyboardCodeImpl(KeyboardCode key_code,
-                                                  int flags) const {
+                                                  int* flags) const {
   // Windows expresses right-Alt as VKEY_MENU with the extended flag set.
   // This key should generate AltGraph under layouts which use that modifier.
-  if (key_code == VKEY_MENU && (flags & EF_IS_EXTENDED_KEY) && has_alt_graph_) {
+  if (key_code == VKEY_MENU && has_alt_graph_ && (*flags & EF_IS_EXTENDED_KEY))
     return DomKey::ALT_GRAPH;
-  }
 
   DomKey key = NonPrintableKeyboardCodeToDomKey(key_code, keyboard_layout_);
   if (key != DomKey::NONE)
     return key;
 
+  // AltGraph is expressed as Control & Alt modifiers in the lookup below.
+  const int lookup_flags = ReplaceAltGraphWithControlAndAlt(*flags);
   const int flags_to_try[] = {
       // Trying to match Firefox's behavior and UIEvents DomKey guidelines.
       // If the combination doesn't produce a printable character, the key value
       // should be the key with no modifiers except for Shift and AltGr.
       // See https://w3c.github.io/uievents/#keys-guidelines
-      flags,
-      flags & (EF_SHIFT_DOWN | EF_ALTGR_DOWN | EF_CAPS_LOCK_ON),
-      flags & (EF_SHIFT_DOWN | EF_CAPS_LOCK_ON),
-      EF_NONE,
+      lookup_flags, lookup_flags & (EF_SHIFT_DOWN | EF_CAPS_LOCK_ON), EF_NONE,
   };
 
   for (auto try_flags : flags_to_try) {
@@ -313,9 +314,18 @@ DomKey PlatformKeyMap::DomKeyFromKeyboardCodeImpl(KeyboardCode key_code,
         std::make_pair(static_cast<int>(key_code), try_flags));
     if (it != printable_keycode_to_key_.end()) {
       key = it->second;
-      if (key != DomKey::NONE)
+      if (key != DomKey::NONE) {
+        // If we find a character with |try_flags| including Control and Alt
+        // then this is an AltGraph-shifted event.
+        if (HasControlAndAlt(try_flags))
+          *flags = ReplaceControlAndAltWithAltGraph(*flags);
         return key;
+      }
     }
+
+    // If we found nothing with no flags set, there is nothing left to try.
+    if (try_flags == EF_NONE)
+      break;
   }
 
   // Return DomKey::UNIDENTIFIED to prevent US layout fall-back.
@@ -324,22 +334,31 @@ DomKey PlatformKeyMap::DomKeyFromKeyboardCodeImpl(KeyboardCode key_code,
 
 // static
 DomKey PlatformKeyMap::DomKeyFromKeyboardCode(KeyboardCode key_code,
-                                              int flags) {
+                                              int* flags) {
   // Use TLS because KeyboardLayout is per thread.
   // However currently PlatformKeyMap will only be used by the host application,
   // which is just one process and one thread.
-  base::ThreadLocalStorage::Slot* platform_key_map_tls =
-      g_platform_key_map_tls_lazy.Pointer();
-  PlatformKeyMap* platform_key_map =
-      reinterpret_cast<PlatformKeyMap*>(platform_key_map_tls->Get());
-  if (!platform_key_map) {
-    platform_key_map = new PlatformKeyMap();
-    platform_key_map_tls->Set(platform_key_map);
-  }
+  PlatformKeyMap* platform_key_map = GetThreadLocalPlatformKeyMap();
 
   HKL current_layout = ::GetKeyboardLayout(0);
   platform_key_map->UpdateLayout(current_layout);
   return platform_key_map->DomKeyFromKeyboardCodeImpl(key_code, flags);
+}
+
+// static
+int PlatformKeyMap::ReplaceControlAndAltWithAltGraph(int flags) {
+  if (!HasControlAndAlt(flags))
+    return flags;
+  return (flags & ~kControlAndAltFlags) | EF_ALTGR_DOWN;
+}
+
+// static
+bool PlatformKeyMap::UsesAltGraph() {
+  PlatformKeyMap* platform_key_map = GetThreadLocalPlatformKeyMap();
+
+  HKL current_layout = ::GetKeyboardLayout(0);
+  platform_key_map->UpdateLayout(current_layout);
+  return platform_key_map->has_alt_graph_;
 }
 
 void PlatformKeyMap::UpdateLayout(HKL layout) {
@@ -350,7 +369,7 @@ void PlatformKeyMap::UpdateLayout(HKL layout) {
   if (!::GetKeyboardState(keyboard_state_to_restore))
     return;
 
-  // TODO(chongz): Optimize layout switching (see crbug.com/587147).
+  // TODO(input-dev): Optimize layout switching (see crbug.com/587147).
   keyboard_layout_ = layout;
   printable_keycode_to_key_.clear();
   has_alt_graph_ = false;
@@ -372,21 +391,21 @@ void PlatformKeyMap::UpdateLayout(HKL layout) {
     for (int key_code = 0; key_code <= 0xFF; ++key_code) {
       wchar_t translated_chars[5];
       int rv = ::ToUnicodeEx(key_code, 0, keyboard_state, translated_chars,
-                             arraysize(translated_chars), 0, keyboard_layout_);
+                             base::size(translated_chars), 0, keyboard_layout_);
 
       if (rv == -1) {
         // Dead key, injecting VK_SPACE to get character representation.
         BYTE empty_state[256];
         memset(empty_state, 0, sizeof(empty_state));
         rv = ::ToUnicodeEx(VK_SPACE, 0, empty_state, translated_chars,
-                           arraysize(translated_chars), 0, keyboard_layout_);
+                           base::size(translated_chars), 0, keyboard_layout_);
         // Expecting a dead key character (not followed by a space).
         if (rv == 1) {
           printable_keycode_to_key_[std::make_pair(static_cast<int>(key_code),
                                                    flags)] =
               DomKey::DeadKeyFromCombiningCharacter(translated_chars[0]);
         } else {
-          // TODO(chongz): Check if this will actually happen.
+          // TODO(input-dev): Check if this will actually happen.
         }
       } else if (rv == 1) {
         if (translated_chars[0] >= 0x20) {
@@ -395,14 +414,14 @@ void PlatformKeyMap::UpdateLayout(HKL layout) {
               DomKey::FromCharacter(translated_chars[0]);
 
           // Detect whether the layout makes use of AltGraph.
-          if (flags & EF_ALTGR_DOWN) {
+          if (HasControlAndAlt(flags)) {
             has_alt_graph_ = true;
           }
         } else {
           // Ignores legacy non-printable control characters.
         }
       } else {
-        // TODO(chongz): Handle rv <= -2 and rv >= 2.
+        // TODO(input-dev): Handle rv <= -2 and rv >= 2.
       }
     }
   }

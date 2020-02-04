@@ -15,6 +15,7 @@ HEADERS += \
     $$PWD/qquickcombobox_p.h \
     $$PWD/qquickcontainer_p.h \
     $$PWD/qquickcontainer_p_p.h \
+    $$PWD/qquickcontentitem_p.h \
     $$PWD/qquickcontrol_p.h \
     $$PWD/qquickcontrol_p_p.h \
     $$PWD/qquickdeferredexecute_p_p.h \
@@ -47,14 +48,16 @@ HEADERS += \
     $$PWD/qquickoverlay_p.h \
     $$PWD/qquickoverlay_p_p.h \
     $$PWD/qquickpage_p.h \
+    $$PWD/qquickpage_p_p.h \
     $$PWD/qquickpageindicator_p.h \
-    $$PWD/qquickpagelayout_p_p.h \
     $$PWD/qquickpalette_p.h \
     $$PWD/qquickpaletteprovider_p.h \
     $$PWD/qquickpane_p.h \
     $$PWD/qquickpane_p_p.h \
     $$PWD/qquickpopup_p.h \
     $$PWD/qquickpopup_p_p.h \
+    $$PWD/qquickpopupanchors_p.h \
+    $$PWD/qquickpopupanchors_p_p.h \
     $$PWD/qquickpopupitem_p_p.h \
     $$PWD/qquickpopuppositioner_p_p.h \
     $$PWD/qquickpresshandler_p_p.h \
@@ -70,6 +73,7 @@ HEADERS += \
     $$PWD/qquickshortcutcontext_p_p.h \
     $$PWD/qquickslider_p.h \
     $$PWD/qquickspinbox_p.h \
+    $$PWD/qquicksplitview_p.h \
     $$PWD/qquickstackelement_p_p.h \
     $$PWD/qquickstacktransition_p_p.h \
     $$PWD/qquickstackview_p.h \
@@ -86,6 +90,8 @@ HEADERS += \
     $$PWD/qquicktextarea_p_p.h \
     $$PWD/qquicktextfield_p.h \
     $$PWD/qquicktextfield_p_p.h \
+    $$PWD/qquicktheme_p.h \
+    $$PWD/qquicktheme_p_p.h \
     $$PWD/qquicktoolbar_p.h \
     $$PWD/qquicktoolbutton_p.h \
     $$PWD/qquicktoolseparator_p.h \
@@ -104,6 +110,7 @@ SOURCES += \
     $$PWD/qquickcheckdelegate.cpp \
     $$PWD/qquickcombobox.cpp \
     $$PWD/qquickcontainer.cpp \
+    $$PWD/qquickcontentitem.cpp \
     $$PWD/qquickcontrol.cpp \
     $$PWD/qquickdeferredexecute.cpp \
     $$PWD/qquickdelaybutton.cpp \
@@ -124,11 +131,11 @@ SOURCES += \
     $$PWD/qquickoverlay.cpp \
     $$PWD/qquickpage.cpp \
     $$PWD/qquickpageindicator.cpp \
-    $$PWD/qquickpagelayout.cpp \
     $$PWD/qquickpalette.cpp \
     $$PWD/qquickpaletteprovider.cpp \
     $$PWD/qquickpane.cpp \
     $$PWD/qquickpopup.cpp \
+    $$PWD/qquickpopupanchors.cpp \
     $$PWD/qquickpopupitem.cpp \
     $$PWD/qquickpopuppositioner.cpp \
     $$PWD/qquickpresshandler.cpp \
@@ -143,6 +150,7 @@ SOURCES += \
     $$PWD/qquickshortcutcontext.cpp \
     $$PWD/qquickslider.cpp \
     $$PWD/qquickspinbox.cpp \
+    $$PWD/qquicksplitview.cpp \
     $$PWD/qquickstackelement.cpp \
     $$PWD/qquickstacktransition.cpp \
     $$PWD/qquickstackview.cpp \
@@ -155,6 +163,7 @@ SOURCES += \
     $$PWD/qquicktabbutton.cpp \
     $$PWD/qquicktextarea.cpp \
     $$PWD/qquicktextfield.cpp \
+    $$PWD/qquicktheme.cpp \
     $$PWD/qquicktoolbar.cpp \
     $$PWD/qquicktoolbutton.cpp \
     $$PWD/qquicktoolseparator.cpp \

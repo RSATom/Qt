@@ -12,9 +12,9 @@ PopupAlignmentDelegate::PopupAlignmentDelegate() : collection_(NULL) {}
 
 PopupAlignmentDelegate::~PopupAlignmentDelegate() {}
 
-void PopupAlignmentDelegate::DoUpdateIfPossible() {
+void PopupAlignmentDelegate::ResetBounds() {
   if (collection_)
-    collection_->DoUpdateIfPossible();
+    collection_->ResetBounds();
 }
 
 }  // namespace message_center

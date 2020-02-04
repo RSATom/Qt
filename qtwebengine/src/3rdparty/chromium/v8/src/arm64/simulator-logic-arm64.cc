@@ -2,15 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#if V8_TARGET_ARCH_ARM64
+#include "src/arm64/simulator-arm64.h"
+
+#if defined(USE_SIMULATOR)
 
 #include <cmath>
-#include "src/arm64/simulator-arm64.h"
 
 namespace v8 {
 namespace internal {
-
-#if defined(USE_SIMULATOR)
 
 namespace {
 
@@ -2159,7 +2158,7 @@ LogicVRegister Simulator::Table(VectorFormat vform, LogicVRegister dst,
     uint64_t j = ind.Uint(vform, i);
     int tab_idx = static_cast<int>(j >> 4);
     int j_idx = static_cast<int>(j & 15);
-    if ((tab_idx < 4) && (tab[tab_idx] != NULL)) {
+    if ((tab_idx < 4) && (tab[tab_idx] != nullptr)) {
       result[i] = tab[tab_idx]->Uint(kFormat16B, j_idx);
     }
   }
@@ -3986,9 +3985,9 @@ T Simulator::FPRecipEstimate(T op, FPRounding rounding) {
     } else {
       // Return FPMaxNormal(sign).
       if (sizeof(T) == sizeof(float)) {
-        return float_pack(sign, 0xfe, 0x07fffff);
+        return float_pack(sign, 0xFE, 0x07FFFFF);
       } else {
-        return double_pack(sign, 0x7fe, 0x0fffffffffffffl);
+        return double_pack(sign, 0x7FE, 0x0FFFFFFFFFFFFFl);
       }
     }
   } else {
@@ -4183,9 +4182,7 @@ LogicVRegister Simulator::ucvtf(VectorFormat vform, LogicVRegister dst,
   return dst;
 }
 
-#endif  // USE_SIMULATOR
-
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_TARGET_ARCH_ARM64
+#endif  // USE_SIMULATOR

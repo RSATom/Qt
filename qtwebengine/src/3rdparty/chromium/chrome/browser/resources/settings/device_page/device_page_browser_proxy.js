@@ -6,18 +6,9 @@
 cr.exportPath('settings');
 
 /**
- * Mirrors DeviceType from ash/system/power/power_status.h.
- * @enum {number}
- */
-settings.PowerDeviceType = {
-  DEDICATED_CHARGER: 0,
-  DUAL_ROLE_USB: 1,
-};
-
-/**
  * @typedef {{
  *   id: string,
- *   type: settings.PowerDeviceType,
+ *   is_dedicated_charger: boolean,
  *   description: string
  * }}
  */
@@ -25,6 +16,7 @@ settings.PowerSource;
 
 /**
  * @typedef {{
+ *   present: boolean,
  *   charging: boolean,
  *   calculating: boolean,
  *   percent: number,
@@ -95,18 +87,11 @@ cr.define('settings', function() {
     /** Initializes the stylus handler. */
     initializeStylus() {}
 
-    /**
-     * Override to interact with the on-tap/on-keydown event on the Learn More
-     * link.
-     * @param {!Event} e
-     */
-    handleLinkEvent(e) {}
-
     /** Initializes the keyboard WebUI handler. */
     initializeKeyboard() {}
 
-    /** Shows the Ash keyboard shortcuts overlay. */
-    showKeyboardShortcutsOverlay() {}
+    /** Shows the Ash keyboard shortcut viewer. */
+    showKeyboardShortcutViewer() {}
 
     /** Requests a power status update. */
     updatePowerStatus() {}
@@ -182,22 +167,14 @@ cr.define('settings', function() {
       chrome.send('initializeStylusSettings');
     }
 
-    /** override */
-    handleLinkEvent(e) {
-      // Prevent the link from activating its parent element when tapped or
-      // when Enter is pressed.
-      if (e.type != 'keydown' || e.keyCode == 13)
-        e.stopPropagation();
-    }
-
     /** @override */
     initializeKeyboard() {
       chrome.send('initializeKeyboardSettings');
     }
 
     /** @override */
-    showKeyboardShortcutsOverlay() {
-      chrome.send('showKeyboardShortcutsOverlay');
+    showKeyboardShortcutViewer() {
+      chrome.send('showKeyboardShortcutViewer');
     }
 
     /** @override */

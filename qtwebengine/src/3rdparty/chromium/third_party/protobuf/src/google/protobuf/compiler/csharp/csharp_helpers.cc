@@ -38,6 +38,7 @@
 #include <vector>
 
 #include <google/protobuf/compiler/csharp/csharp_helpers.h>
+#include <google/protobuf/compiler/csharp/csharp_names.h>
 #include <google/protobuf/descriptor.pb.h>
 #include <google/protobuf/io/printer.h>
 #include <google/protobuf/wire_format.h>
@@ -168,7 +169,7 @@ std::string UnderscoresToCamelCase(const std::string& input,
     }
   }
   // Add a trailing "_" if the name should be altered.
-  if (input[input.size() - 1] == '#') {
+  if (input.size() > 0 && input[input.size() - 1] == '#') {
     result += '_';
   }
   return result;

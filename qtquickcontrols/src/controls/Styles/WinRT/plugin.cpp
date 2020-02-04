@@ -39,15 +39,9 @@
 
 #include <QtCore/qglobal.h>
 
-static void initResources()
-{
-    Q_INIT_RESOURCE(WinRT);
-}
-
 extern "C" {
     Q_DECL_EXPORT bool qt_quick_controls_style_init()
     {
-        initResources();
         return true;
     }
 

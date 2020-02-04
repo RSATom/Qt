@@ -8,23 +8,19 @@
 
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 
 // static
 std::string ValueStoreChange::ToJson(
     const ValueStoreChangeList& changes) {
   base::DictionaryValue changes_value;
-  for (ValueStoreChangeList::const_iterator it = changes.begin();
-      it != changes.end(); ++it) {
+  for (auto it = changes.cbegin(); it != changes.cend(); ++it) {
     std::unique_ptr<base::DictionaryValue> change_value =
-        base::MakeUnique<base::DictionaryValue>();
+        std::make_unique<base::DictionaryValue>();
     if (it->old_value()) {
-      change_value->Set("oldValue",
-                        base::MakeUnique<base::Value>(*it->old_value()));
+      change_value->SetKey("oldValue", it->old_value()->Clone());
     }
     if (it->new_value()) {
-      change_value->Set("newValue",
-                        base::MakeUnique<base::Value>(*it->new_value()));
+      change_value->SetKey("newValue", it->new_value()->Clone());
     }
     changes_value.SetWithoutPathExpansion(it->key(), std::move(change_value));
   }

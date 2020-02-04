@@ -8,11 +8,13 @@
 #include "base/bind_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/common/view_messages.h"
+#include "content/public/browser/browser_task_traits.h"
 
 namespace content {
 namespace {
@@ -32,16 +34,14 @@ void AddWidgetHelper(int render_process_id,
 }  // namespace
 
 RenderWidgetHelper::RenderWidgetHelper()
-    : render_process_id_(-1),
-      resource_dispatcher_host_(NULL) {
-}
+    : render_process_id_(-1), resource_dispatcher_host_(nullptr) {}
 
 RenderWidgetHelper::~RenderWidgetHelper() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   // Delete this RWH from the map if it is found.
   WidgetHelperMap& widget_map = g_widget_helpers.Get();
-  WidgetHelperMap::iterator it = widget_map.find(render_process_id_);
+  auto it = widget_map.find(render_process_id_);
   if (it != widget_map.end() && it->second == this)
     widget_map.erase(it);
 }
@@ -52,10 +52,9 @@ void RenderWidgetHelper::Init(
   render_process_id_ = render_process_id;
   resource_dispatcher_host_ = resource_dispatcher_host;
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&AddWidgetHelper,
-                 render_process_id_, make_scoped_refptr(this)));
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
+                           base::BindOnce(&AddWidgetHelper, render_process_id_,
+                                          base::WrapRefCounted(this)));
 }
 
 int RenderWidgetHelper::GetNextRoutingID() {
@@ -71,52 +70,36 @@ RenderWidgetHelper* RenderWidgetHelper::FromProcessHostID(
   return (ci == g_widget_helpers.Get().end())? NULL : ci->second;
 }
 
-void RenderWidgetHelper::ResumeDeferredNavigation(
-    const GlobalRequestID& request_id) {
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&RenderWidgetHelper::OnResumeDeferredNavigation,
-                 this,
-                 request_id));
-}
-
-void RenderWidgetHelper::OnResumeDeferredNavigation(
-    const GlobalRequestID& request_id) {
-  resource_dispatcher_host_->ResumeDeferredNavigation(request_id);
-}
-
 void RenderWidgetHelper::CreateNewWidget(int opener_id,
-                                         blink::WebPopupType popup_type,
                                          mojom::WidgetPtr widget,
                                          int* route_id) {
   *route_id = GetNextRoutingID();
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&RenderWidgetHelper::OnCreateWidgetOnUI, this, opener_id,
-                     *route_id, widget.PassInterface(), popup_type));
+                     *route_id, widget.PassInterface()));
 }
 
 void RenderWidgetHelper::CreateNewFullscreenWidget(int opener_id,
                                                    mojom::WidgetPtr widget,
                                                    int* route_id) {
   *route_id = GetNextRoutingID();
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&RenderWidgetHelper::OnCreateFullscreenWidgetOnUI, this,
                      opener_id, *route_id, widget.PassInterface()));
 }
 
 void RenderWidgetHelper::OnCreateWidgetOnUI(int32_t opener_id,
                                             int32_t route_id,
-                                            mojom::WidgetPtrInfo widget_info,
-                                            blink::WebPopupType popup_type) {
+                                            mojom::WidgetPtrInfo widget_info) {
   mojom::WidgetPtr widget;
   widget.Bind(std::move(widget_info));
   RenderViewHostImpl* host = RenderViewHostImpl::FromID(
       render_process_id_, opener_id);
   if (host)
-    host->CreateNewWidget(route_id, std::move(widget), popup_type);
+    host->CreateNewWidget(route_id, std::move(widget));
 }
 
 void RenderWidgetHelper::OnCreateFullscreenWidgetOnUI(

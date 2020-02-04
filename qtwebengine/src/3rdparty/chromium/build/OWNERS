@@ -5,6 +5,11 @@ jochen@chromium.org
 scottmg@chromium.org
 thakis@chromium.org
 brucedawson@chromium.org
+thomasanderson@chromium.org
+tikuta@chromium.org
+
+# Clang build config changes
+hans@chromium.org
 
 per-file .gitignore=*
 per-file check_gn_headers_whitelist.txt=*

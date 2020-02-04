@@ -17,19 +17,18 @@
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/user_metrics.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -55,13 +54,15 @@ using base::UserMetricsAction;
 using content::BrowserThread;
 using content::PluginService;
 using content::WebUIMessageHandler;
+using webui::webui_util::AddPair;
 
 namespace {
 
 content::WebUIDataSource* CreateNaClUIHTMLSource() {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUINaClHost);
-
+  source->OverrideContentSecurityPolicyScriptSrc(
+      "script-src chrome://resources 'self' 'unsafe-eval';");
   source->SetJsonPath("strings.js");
   source->AddResourcePath("about_nacl.css", IDR_ABOUT_NACL_CSS);
   source->AddResourcePath("about_nacl.js", IDR_ABOUT_NACL_JS);
@@ -119,8 +120,8 @@ class NaClDomHandler : public WebUIMessageHandler {
   // Adds the information relevant to NaCl to list.
   void AddNaClInfo(base::ListValue* list);
 
-  // Whether the page has requested data.
-  bool page_has_requested_data_;
+  // The callback ID for requested data.
+  std::string callback_id_;
 
   // Whether the plugin information is ready.
   bool has_plugin_info_;
@@ -138,8 +139,7 @@ class NaClDomHandler : public WebUIMessageHandler {
 };
 
 NaClDomHandler::NaClDomHandler()
-    : page_has_requested_data_(false),
-      has_plugin_info_(false),
+    : has_plugin_info_(false),
       pnacl_path_validated_(false),
       pnacl_path_exists_(false),
       weak_ptr_factory_(this) {
@@ -153,19 +153,8 @@ NaClDomHandler::~NaClDomHandler() {
 void NaClDomHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "requestNaClInfo",
-      base::Bind(&NaClDomHandler::HandleRequestNaClInfo,
-                 base::Unretained(this)));
-}
-
-// Helper functions for collecting a list of key-value pairs that will
-// be displayed.
-void AddPair(base::ListValue* list,
-             const base::string16& key,
-             const base::string16& value) {
-  std::unique_ptr<base::DictionaryValue> results(new base::DictionaryValue());
-  results->SetString("key", key);
-  results->SetString("value", value);
-  list->Append(std::move(results));
+      base::BindRepeating(&NaClDomHandler::HandleRequestNaClInfo,
+                          base::Unretained(this)));
 }
 
 // Generate an empty data-pair which acts as a line break.
@@ -185,10 +174,9 @@ bool NaClDomHandler::isPluginEnabled(size_t plugin_index) {
 
 void NaClDomHandler::AddOperatingSystemInfo(base::ListValue* list) {
   // Obtain the Chrome version info.
-  AddPair(list,
-          l10n_util::GetStringUTF16(IDS_PRODUCT_NAME),
+  AddPair(list, l10n_util::GetStringUTF16(IDS_PRODUCT_NAME),
           ASCIIToUTF16(version_info::GetVersionNumber() + " (" +
-                       chrome::GetChannelString() + ")"));
+                       chrome::GetChannelName() + ")"));
 
   // OS version information.
   // TODO(jvoung): refactor this to share the extra windows labeling
@@ -262,7 +250,8 @@ void NaClDomHandler::AddPnaclInfo(base::ListValue* list) {
 
   // Obtain the version of the PNaCl translator.
   base::FilePath pnacl_path;
-  bool got_path = PathService::Get(chrome::DIR_PNACL_COMPONENT, &pnacl_path);
+  bool got_path =
+      base::PathService::Get(chrome::DIR_PNACL_COMPONENT, &pnacl_path);
   if (!got_path || pnacl_path.empty() || !pnacl_path_exists_) {
     AddPair(list,
             ASCIIToUTF16("PNaCl translator"),
@@ -292,11 +281,15 @@ void NaClDomHandler::AddNaClInfo(base::ListValue* list) {
 }
 
 void NaClDomHandler::HandleRequestNaClInfo(const base::ListValue* args) {
-  page_has_requested_data_ = true;
+  CHECK(callback_id_.empty());
+  CHECK_EQ(1U, args->GetSize());
+  callback_id_ = args->GetList()[0].GetString();
+
   // Force re-validation of PNaCl's path in the next call to
   // MaybeRespondToPage(), in case PNaCl went from not-installed
   // to installed since the request.
   pnacl_path_validated_ = false;
+  AllowJavascript();
   MaybeRespondToPage();
 }
 
@@ -336,7 +329,7 @@ void CheckVersion(const base::FilePath& pnacl_path, std::string* version) {
   JSONFileValueDeserializer deserializer(pnacl_json_path);
   std::string error;
   std::unique_ptr<base::Value> root = deserializer.Deserialize(NULL, &error);
-  if (!root || !root->IsType(base::Value::Type::DICTIONARY))
+  if (!root || !root->is_dict())
     return;
 
   // Now try to get the field. This may leave version empty if the
@@ -347,7 +340,8 @@ void CheckVersion(const base::FilePath& pnacl_path, std::string* version) {
 
 bool CheckPathAndVersion(std::string* version) {
   base::FilePath pnacl_path;
-  bool got_path = PathService::Get(chrome::DIR_PNACL_COMPONENT, &pnacl_path);
+  bool got_path =
+      base::PathService::Get(chrome::DIR_PNACL_COMPONENT, &pnacl_path);
   if (got_path && !pnacl_path.empty() && base::PathExists(pnacl_path)) {
     CheckVersion(pnacl_path, version);
     return true;
@@ -358,13 +352,13 @@ bool CheckPathAndVersion(std::string* version) {
 void NaClDomHandler::MaybeRespondToPage() {
   // Don't reply until everything is ready.  The page will show a 'loading'
   // message until then.
-  if (!page_has_requested_data_ || !has_plugin_info_)
+  if (callback_id_.empty() || !has_plugin_info_)
     return;
 
   if (!pnacl_path_validated_) {
     std::string* version_string = new std::string;
     base::PostTaskWithTraitsAndReplyWithResult(
-        FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
         base::Bind(&CheckPathAndVersion, version_string),
         base::Bind(&NaClDomHandler::DidCheckPathAndVersion,
                    weak_ptr_factory_.GetWeakPtr(),
@@ -374,7 +368,8 @@ void NaClDomHandler::MaybeRespondToPage() {
 
   base::DictionaryValue naclInfo;
   PopulatePageInformation(&naclInfo);
-  web_ui()->CallJavascriptFunctionUnsafe("nacl.returnNaClInfo", naclInfo);
+  ResolveJavascriptCallback(base::Value(callback_id_), naclInfo);
+  callback_id_.clear();
 }
 
 }  // namespace
@@ -388,7 +383,7 @@ void NaClDomHandler::MaybeRespondToPage() {
 NaClUI::NaClUI(content::WebUI* web_ui) : WebUIController(web_ui) {
   base::RecordAction(UserMetricsAction("ViewAboutNaCl"));
 
-  web_ui->AddMessageHandler(base::MakeUnique<NaClDomHandler>());
+  web_ui->AddMessageHandler(std::make_unique<NaClDomHandler>());
 
   // Set up the about:nacl source.
   Profile* profile = Profile::FromWebUI(web_ui);

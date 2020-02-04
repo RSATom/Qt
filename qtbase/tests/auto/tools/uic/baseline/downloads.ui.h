@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'downloads.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,9 +10,7 @@
 #define DOWNLOADS_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QHBoxLayout>
@@ -38,21 +36,21 @@ public:
     void setupUi(QDialog *DownloadDialog)
     {
         if (DownloadDialog->objectName().isEmpty())
-            DownloadDialog->setObjectName(QStringLiteral("DownloadDialog"));
+            DownloadDialog->setObjectName(QString::fromUtf8("DownloadDialog"));
         DownloadDialog->resize(332, 252);
         gridLayout = new QGridLayout(DownloadDialog);
         gridLayout->setSpacing(0);
         gridLayout->setContentsMargins(0, 0, 0, 0);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         downloadsView = new EditTableView(DownloadDialog);
-        downloadsView->setObjectName(QStringLiteral("downloadsView"));
+        downloadsView->setObjectName(QString::fromUtf8("downloadsView"));
 
         gridLayout->addWidget(downloadsView, 0, 0, 1, 3);
 
         horizontalLayout = new QHBoxLayout();
-        horizontalLayout->setObjectName(QStringLiteral("horizontalLayout"));
+        horizontalLayout->setObjectName(QString::fromUtf8("horizontalLayout"));
         cleanupButton = new QPushButton(DownloadDialog);
-        cleanupButton->setObjectName(QStringLiteral("cleanupButton"));
+        cleanupButton->setObjectName(QString::fromUtf8("cleanupButton"));
         cleanupButton->setEnabled(false);
 
         horizontalLayout->addWidget(cleanupButton);
@@ -65,7 +63,7 @@ public:
         gridLayout->addLayout(horizontalLayout, 1, 0, 1, 1);
 
         itemCount = new QLabel(DownloadDialog);
-        itemCount->setObjectName(QStringLiteral("itemCount"));
+        itemCount->setObjectName(QString::fromUtf8("itemCount"));
 
         gridLayout->addWidget(itemCount, 1, 1, 1, 1);
 
@@ -81,9 +79,9 @@ public:
 
     void retranslateUi(QDialog *DownloadDialog)
     {
-        DownloadDialog->setWindowTitle(QApplication::translate("DownloadDialog", "Downloads", nullptr));
-        cleanupButton->setText(QApplication::translate("DownloadDialog", "Clean up", nullptr));
-        itemCount->setText(QApplication::translate("DownloadDialog", "0 Items", nullptr));
+        DownloadDialog->setWindowTitle(QCoreApplication::translate("DownloadDialog", "Downloads", nullptr));
+        cleanupButton->setText(QCoreApplication::translate("DownloadDialog", "Clean up", nullptr));
+        itemCount->setText(QCoreApplication::translate("DownloadDialog", "0 Items", nullptr));
     } // retranslateUi
 
 };

@@ -18,45 +18,46 @@ class ConvertableToTraceFormat;
 }
 }
 
+namespace gpu {
+class GpuMemoryBufferManager;
+}
+
 namespace cc {
-class ResourceProvider;
 
 class CC_EXPORT ZeroCopyRasterBufferProvider : public RasterBufferProvider {
  public:
+  ZeroCopyRasterBufferProvider(
+      gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
+      viz::ContextProvider* compositor_context_provider,
+      viz::ResourceFormat tile_format);
   ~ZeroCopyRasterBufferProvider() override;
-
-  static std::unique_ptr<RasterBufferProvider> Create(
-      ResourceProvider* resource_provider,
-      viz::ResourceFormat preferred_tile_format);
 
   // Overridden from RasterBufferProvider:
   std::unique_ptr<RasterBuffer> AcquireBufferForRaster(
-      const Resource* resource,
+      const ResourcePool::InUsePoolResource& resource,
       uint64_t resource_content_id,
       uint64_t previous_content_id) override;
-  void ReleaseBufferForRaster(std::unique_ptr<RasterBuffer> buffer) override;
-  void OrderingBarrier() override;
   void Flush() override;
-  viz::ResourceFormat GetResourceFormat(bool must_support_alpha) const override;
-  bool IsResourceSwizzleRequired(bool must_support_alpha) const override;
+  viz::ResourceFormat GetResourceFormat() const override;
+  bool IsResourceSwizzleRequired() const override;
+  bool IsResourcePremultiplied() const override;
   bool CanPartialRasterIntoProvidedResource() const override;
-  bool IsResourceReadyToDraw(ResourceId id) const override;
+  bool IsResourceReadyToDraw(
+      const ResourcePool::InUsePoolResource& resource) const override;
   uint64_t SetReadyToDrawCallback(
-      const ResourceProvider::ResourceIdArray& resource_ids,
-      const base::Closure& callback,
+      const std::vector<const ResourcePool::InUsePoolResource*>& resources,
+      base::OnceClosure callback,
       uint64_t pending_callback_id) const override;
   void Shutdown() override;
-
- protected:
-  ZeroCopyRasterBufferProvider(ResourceProvider* resource_provider,
-                               viz::ResourceFormat preferred_tile_format);
+  bool CheckRasterFinishedQueries() override;
 
  private:
   std::unique_ptr<base::trace_event::ConvertableToTraceFormat> StateAsValue()
       const;
 
-  ResourceProvider* resource_provider_;
-  viz::ResourceFormat preferred_tile_format_;
+  gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager_;
+  viz::ContextProvider* compositor_context_provider_;
+  viz::ResourceFormat tile_format_;
 
   DISALLOW_COPY_AND_ASSIGN(ZeroCopyRasterBufferProvider);
 };

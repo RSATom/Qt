@@ -61,7 +61,7 @@ class BASE_EXPORT MemoryMappedFile {
     int64_t offset;
 
     // Length of the region in bytes.
-    int64_t size;
+    size_t size;
   };
 
   // Opens an existing file and maps it into memory. |access| can be read-only
@@ -69,8 +69,8 @@ class BASE_EXPORT MemoryMappedFile {
   // to a valid memory mapped file then this method will fail and return
   // false. If it cannot open the file, the file does not exist, or the
   // memory mapping fails, it will return false.
-  bool Initialize(const FilePath& file_name, Access access);
-  bool Initialize(const FilePath& file_name) {
+  WARN_UNUSED_RESULT bool Initialize(const FilePath& file_name, Access access);
+  WARN_UNUSED_RESULT bool Initialize(const FilePath& file_name) {
     return Initialize(file_name, READ_ONLY);
   }
 
@@ -79,8 +79,8 @@ class BASE_EXPORT MemoryMappedFile {
   // of |file| and closes it when done. |file| must have been opened with
   // permissions suitable for |access|. If the memory mapping fails, it will
   // return false.
-  bool Initialize(File file, Access access);
-  bool Initialize(File file) {
+  WARN_UNUSED_RESULT bool Initialize(File file, Access access);
+  WARN_UNUSED_RESULT bool Initialize(File file) {
     return Initialize(std::move(file), READ_ONLY);
   }
 
@@ -88,8 +88,10 @@ class BASE_EXPORT MemoryMappedFile {
   // |access| are allowed. If READ_WRITE_EXTEND is specified then |region|
   // provides the maximum size of the file. If the memory mapping fails, it
   // return false.
-  bool Initialize(File file, const Region& region, Access access);
-  bool Initialize(File file, const Region& region) {
+  WARN_UNUSED_RESULT bool Initialize(File file,
+                                     const Region& region,
+                                     Access access);
+  WARN_UNUSED_RESULT bool Initialize(File file, const Region& region) {
     return Initialize(std::move(file), region, READ_ONLY);
   }
 
@@ -108,9 +110,9 @@ class BASE_EXPORT MemoryMappedFile {
   // - |aligned_size| is a multiple of the VM granularity and >= |size|.
   // - |offset| is the displacement of |start| w.r.t |aligned_start|.
   static void CalculateVMAlignedBoundaries(int64_t start,
-                                           int64_t size,
+                                           size_t size,
                                            int64_t* aligned_start,
-                                           int64_t* aligned_size,
+                                           size_t* aligned_size,
                                            int32_t* offset);
 
   // Map the file to memory, set data_ to that memory address. Return true on

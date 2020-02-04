@@ -20,13 +20,14 @@ namespace device {
 BluetoothRemoteGattCharacteristicWin::BluetoothRemoteGattCharacteristicWin(
     BluetoothRemoteGattServiceWin* parent_service,
     BTH_LE_GATT_CHARACTERISTIC* characteristic_info,
-    scoped_refptr<base::SequencedTaskRunner>& ui_task_runner)
+    scoped_refptr<base::SequencedTaskRunner> ui_task_runner)
     : parent_service_(parent_service),
       characteristic_info_(characteristic_info),
-      ui_task_runner_(ui_task_runner),
+      ui_task_runner_(std::move(ui_task_runner)),
       characteristic_added_notified_(false),
       characteristic_value_read_or_write_in_progress_(false),
       gatt_event_handle_(nullptr),
+      discovery_pending_count_(0),
       weak_ptr_factory_(this) {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(parent_service_);
@@ -134,23 +135,6 @@ bool BluetoothRemoteGattCharacteristicWin::IsNotifying() const {
   return gatt_event_handle_ != nullptr;
 }
 
-std::vector<BluetoothRemoteGattDescriptor*>
-BluetoothRemoteGattCharacteristicWin::GetDescriptors() const {
-  std::vector<BluetoothRemoteGattDescriptor*> descriptors;
-  for (const auto& descriptor : included_descriptors_)
-    descriptors.push_back(descriptor.second.get());
-  return descriptors;
-}
-
-BluetoothRemoteGattDescriptor*
-BluetoothRemoteGattCharacteristicWin::GetDescriptor(
-    const std::string& identifier) const {
-  GattDescriptorMap::const_iterator it = included_descriptors_.find(identifier);
-  if (it != included_descriptors_.end())
-    return it->second.get();
-  return nullptr;
-}
-
 void BluetoothRemoteGattCharacteristicWin::ReadRemoteCharacteristic(
     const ValueCallback& callback,
     const ErrorCallback& error_callback) {
@@ -182,7 +166,8 @@ void BluetoothRemoteGattCharacteristicWin::WriteRemoteCharacteristic(
     const ErrorCallback& error_callback) {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
 
-  if (!characteristic_info_.get()->IsWritable) {
+  if (!characteristic_info_->IsWritable &&
+      !characteristic_info_->IsWritableWithoutResponse) {
     error_callback.Run(BluetoothRemoteGattService::GATT_ERROR_NOT_PERMITTED);
     return;
   }
@@ -205,6 +190,7 @@ void BluetoothRemoteGattCharacteristicWin::WriteRemoteCharacteristic(
 void BluetoothRemoteGattCharacteristicWin::Update() {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
 
+  ++discovery_pending_count_;
   task_manager_->PostGetGattIncludedDescriptors(
       parent_service_->GetServicePath(), characteristic_info_.get(),
       base::Bind(&BluetoothRemoteGattCharacteristicWin::
@@ -251,29 +237,36 @@ void BluetoothRemoteGattCharacteristicWin::OnGetIncludedDescriptorsCallback(
     characteristic_added_notified_ = true;
     parent_service_->GetWinAdapter()->NotifyGattCharacteristicAdded(this);
   }
+
+  // Report discovery complete.
+  if (--discovery_pending_count_ == 0)
+    parent_service_->GattCharacteristicDiscoveryComplete(this);
 }
 
 void BluetoothRemoteGattCharacteristicWin::UpdateIncludedDescriptors(
     PBTH_LE_GATT_DESCRIPTOR descriptors,
     uint16_t num) {
   if (num == 0) {
-    included_descriptors_.clear();
+    descriptors_.clear();
     return;
   }
 
   // First, remove descriptors that no longer exist.
   std::vector<std::string> to_be_removed;
-  for (const auto& d : included_descriptors_) {
-    if (!DoesDescriptorExist(descriptors, num, d.second.get()))
+  for (const auto& d : descriptors_) {
+    if (!DoesDescriptorExist(
+            descriptors, num,
+            static_cast<BluetoothRemoteGattDescriptorWin*>(d.second.get())))
       to_be_removed.push_back(d.second->GetIdentifier());
   }
-  for (auto id : to_be_removed) {
-    included_descriptors_[id].reset();
-    included_descriptors_.erase(id);
+  for (const auto& id : to_be_removed) {
+    auto iter = descriptors_.find(id);
+    auto pair = std::move(*iter);
+    descriptors_.erase(iter);
   }
 
   // Return if no new descriptors have been added.
-  if (included_descriptors_.size() == num)
+  if (descriptors_.size() == num)
     return;
 
   // Add new descriptors.
@@ -286,20 +279,21 @@ void BluetoothRemoteGattCharacteristicWin::UpdateIncludedDescriptors(
       BluetoothRemoteGattDescriptorWin* descriptor =
           new BluetoothRemoteGattDescriptorWin(this, win_descriptor_info,
                                                ui_task_runner_);
-      included_descriptors_[descriptor->GetIdentifier()] =
-          base::WrapUnique(descriptor);
+      AddDescriptor(base::WrapUnique(descriptor));
     }
   }
 }
 
 bool BluetoothRemoteGattCharacteristicWin::IsDescriptorDiscovered(
-    BTH_LE_UUID& uuid,
+    const BTH_LE_UUID& uuid,
     uint16_t attribute_handle) {
   BluetoothUUID bt_uuid =
       BluetoothTaskManagerWin::BluetoothLowEnergyUuidToBluetoothUuid(uuid);
-  for (const auto& d : included_descriptors_) {
+  for (const auto& d : descriptors_) {
     if (bt_uuid == d.second->GetUUID() &&
-        attribute_handle == d.second->GetAttributeHandle()) {
+        attribute_handle ==
+            static_cast<BluetoothRemoteGattDescriptorWin*>(d.second.get())
+                ->GetAttributeHandle()) {
       return true;
     }
   }
@@ -327,6 +321,7 @@ void BluetoothRemoteGattCharacteristicWin::
         std::unique_ptr<BTH_LE_GATT_CHARACTERISTIC_VALUE> value,
         HRESULT hr) {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
+  characteristic_value_read_or_write_in_progress_ = false;
 
   std::pair<ValueCallback, ErrorCallback> callbacks;
   callbacks.swap(read_characteristic_value_callbacks_);
@@ -339,12 +334,12 @@ void BluetoothRemoteGattCharacteristicWin::
 
     callbacks.first.Run(characteristic_value_);
   }
-  characteristic_value_read_or_write_in_progress_ = false;
 }
 
 void BluetoothRemoteGattCharacteristicWin::
     OnWriteRemoteCharacteristicValueCallback(HRESULT hr) {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
+  characteristic_value_read_or_write_in_progress_ = false;
 
   std::pair<base::Closure, ErrorCallback> callbacks;
   callbacks.swap(write_characteristic_value_callbacks_);
@@ -353,7 +348,6 @@ void BluetoothRemoteGattCharacteristicWin::
   } else {
     callbacks.first.Run();
   }
-  characteristic_value_read_or_write_in_progress_ = false;
 }
 
 BluetoothRemoteGattService::GattErrorCode
@@ -402,9 +396,7 @@ void BluetoothRemoteGattCharacteristicWin::GattEventRegistrationCallback(
 void BluetoothRemoteGattCharacteristicWin::ClearIncludedDescriptors() {
   // Explicitly reset to null to ensure that calling GetDescriptor() on the
   // removed descriptor in GattDescriptorRemoved() returns null.
-  for (auto& entry : included_descriptors_)
-    entry.second.reset();
-  included_descriptors_.clear();
+  std::exchange(descriptors_, {});
 }
 
 }  // namespace device.

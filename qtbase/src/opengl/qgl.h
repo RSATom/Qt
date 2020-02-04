@@ -51,16 +51,6 @@
 
 #include <QtGui/QSurfaceFormat>
 
-#if defined(Q_CLANG_QDOC)
-#undef GLint
-typedef int GLint;
-#undef GLuint
-typedef unsigned int GLuint;
-#undef GLenum
-typedef unsigned int GLenum;
-#endif
-
-
 QT_BEGIN_NAMESPACE
 
 
@@ -250,7 +240,7 @@ public:
     QGLContext(const QGLFormat& format);
     virtual ~QGLContext();
 
-    virtual bool create(const QGLContext* shareContext = Q_NULLPTR);
+    virtual bool create(const QGLContext* shareContext = nullptr);
     bool isValid() const;
     bool isSharing() const;
     void reset();
@@ -318,7 +308,7 @@ public:
     QOpenGLContext *contextHandle() const;
 
 protected:
-    virtual bool chooseContext(const QGLContext* shareContext = Q_NULLPTR);
+    virtual bool chooseContext(const QGLContext* shareContext = nullptr);
 
     bool deviceIsPixmap() const;
     bool windowCreated() const;
@@ -371,12 +361,12 @@ class Q_OPENGL_EXPORT QGLWidget : public QWidget
     Q_OBJECT
     Q_DECLARE_PRIVATE(QGLWidget)
 public:
-    explicit QGLWidget(QWidget* parent=Q_NULLPTR,
-                       const QGLWidget* shareWidget = Q_NULLPTR, Qt::WindowFlags f=Qt::WindowFlags());
-    explicit QGLWidget(QGLContext *context, QWidget* parent=Q_NULLPTR,
-                       const QGLWidget* shareWidget = Q_NULLPTR, Qt::WindowFlags f=Qt::WindowFlags());
-    explicit QGLWidget(const QGLFormat& format, QWidget* parent=Q_NULLPTR,
-                       const QGLWidget* shareWidget = Q_NULLPTR, Qt::WindowFlags f=Qt::WindowFlags());
+    explicit QGLWidget(QWidget* parent=nullptr,
+                       const QGLWidget* shareWidget = nullptr, Qt::WindowFlags f=Qt::WindowFlags());
+    explicit QGLWidget(QGLContext *context, QWidget* parent=nullptr,
+                       const QGLWidget* shareWidget = nullptr, Qt::WindowFlags f=Qt::WindowFlags());
+    explicit QGLWidget(const QGLFormat& format, QWidget* parent=nullptr,
+                       const QGLWidget* shareWidget = nullptr, Qt::WindowFlags f=Qt::WindowFlags());
     ~QGLWidget();
 
     void qglColor(const QColor& c) const;
@@ -395,7 +385,7 @@ public:
     void setFormat(const QGLFormat& format);
 
     QGLContext* context() const;
-    void setContext(QGLContext* context, const QGLContext* shareContext = Q_NULLPTR,
+    void setContext(QGLContext* context, const QGLContext* shareContext = nullptr,
                     bool deleteOldContext = true);
 
     QPixmap renderPixmap(int w = 0, int h = 0, bool useContext = false);
@@ -413,7 +403,7 @@ public:
                     const QFont & fnt = QFont());
     void renderText(double x, double y, double z, const QString & str,
                     const QFont & fnt = QFont());
-    QPaintEngine *paintEngine() const Q_DECL_OVERRIDE;
+    QPaintEngine *paintEngine() const override;
 
     GLuint bindTexture(const QImage &image, GLenum target, GLint format,
                        QGLContext::BindOptions options);
@@ -437,7 +427,7 @@ public Q_SLOTS:
     virtual void updateOverlayGL();
 
 protected:
-    bool event(QEvent *) Q_DECL_OVERRIDE;
+    bool event(QEvent *) override;
     virtual void initializeGL();
     virtual void resizeGL(int w, int h);
     virtual void paintGL();
@@ -449,16 +439,16 @@ protected:
     void setAutoBufferSwap(bool on);
     bool autoBufferSwap() const;
 
-    void paintEvent(QPaintEvent*) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent*) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent*) override;
+    void resizeEvent(QResizeEvent*) override;
 
     virtual void glInit();
     virtual void glDraw();
 
     QGLWidget(QGLWidgetPrivate &dd,
               const QGLFormat &format = QGLFormat(),
-              QWidget *parent = Q_NULLPTR,
-              const QGLWidget* shareWidget = Q_NULLPTR,
+              QWidget *parent = nullptr,
+              const QGLWidget* shareWidget = nullptr,
               Qt::WindowFlags f = Qt::WindowFlags());
 private:
     Q_DISABLE_COPY(QGLWidget)

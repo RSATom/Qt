@@ -5,6 +5,10 @@
 // This module implements a wrapper for a guestview that manages its
 // creation, attaching, and destruction.
 
+// Methods ending with $ will be overwritten by guest_view_iframe.js
+// TODO(mcnee): When BrowserPlugin is removed, merge
+// guest_view_iframe.js into this file.
+
 var CreateEvent = require('guestViewEvents').CreateEvent;
 var GuestViewInternal = getInternalApi ?
     getInternalApi('guestViewInternal') :
@@ -47,8 +51,8 @@ function GuestViewImpl(guestView, viewType, guestInstanceId) {
 
 // Prevent GuestViewImpl inadvertently inheriting code from the global Object,
 // allowing a pathway for executing unintended user code execution.
-// TODO(wjmaclean): Use utils.expose() here instead? Track down other issues
-// of Object inheritance. https://crbug.com/701034
+// TODO(wjmaclean): Track down other issues of Object inheritance.
+// https://crbug.com/701034
 GuestViewImpl.prototype.__proto__ = null;
 
 // Possible states.
@@ -145,9 +149,8 @@ GuestViewImpl.prototype.weakWrapper = function(func, viewInstanceId) {
   return function() {
     var view = GuestViewInternalNatives.GetViewFromID(viewInstanceId);
     if (view && view.guest) {
-      return $Function.apply(func,
-                             privates(view.guest).internal,
-                             $Array.slice(arguments));
+      return $Function.apply(
+          func, view.guest.internal, $Array.slice(arguments));
     }
   };
 };
@@ -238,7 +241,7 @@ GuestViewImpl.prototype.sendCreateRequest = function(
 };
 
 // Internal implementation of destroy().
-GuestViewImpl.prototype.destroyImpl = function(callback) {
+GuestViewImpl.prototype.destroyImpl$ = function(callback) {
   // Check the current state.
   if (!this.checkState('destroy')) {
     this.handleCallback(callback);
@@ -259,7 +262,10 @@ GuestViewImpl.prototype.destroyImpl = function(callback) {
   GuestViewInternal.destroyGuest(
       this.id, $Function.bind(this.handleCallback, this, callback));
 
-  // Reset the state of the destroyed guest;
+  // Reset the state of the destroyed guest; it's ok to do this after shipping
+  // the callback to the GuestViewInternal api, since it runs asynchronously,
+  // and the changes below will happen before the next item from the action
+  // queue is executed.
   this.contentWindow = null;
   this.id = 0;
   this.internalInstanceId = 0;
@@ -302,13 +308,15 @@ GuestViewImpl.prototype.setSizeImpl = function(sizeParams, callback) {
 // attach(), create(), destroy(), and getId(). All other implementation details
 // are hidden.
 function GuestView(viewType, guestInstanceId) {
-  privates(this).internal = new GuestViewImpl(this, viewType, guestInstanceId);
+  this.internal = new GuestViewImpl(this, viewType, guestInstanceId);
 }
+
+GuestView.prototype.__proto__ = null;
 
 // Attaches the guestview to the container with ID |internalInstanceId|.
 GuestView.prototype.attach = function(
     internalInstanceId, viewInstanceId, attachParams, callback) {
-  var internal = privates(this).internal;
+  var internal = this.internal;
   $Array.push(internal.actionQueue, $Function.bind(internal.attachImpl$,
       internal, internalInstanceId, viewInstanceId, attachParams, callback));
   internal.performNextAction();
@@ -316,7 +324,7 @@ GuestView.prototype.attach = function(
 
 // Creates the guestview.
 GuestView.prototype.create = function(createParams, callback) {
-  var internal = privates(this).internal;
+  var internal = this.internal;
   $Array.push(internal.actionQueue, $Function.bind(internal.createImpl$,
       internal, createParams, callback));
   internal.performNextAction();
@@ -325,16 +333,17 @@ GuestView.prototype.create = function(createParams, callback) {
 // Destroys the guestview. Nothing can be done with the guestview after it has
 // been destroyed.
 GuestView.prototype.destroy = function(callback) {
-  var internal = privates(this).internal;
-  $Array.push(internal.actionQueue,
-      $Function.bind(internal.destroyImpl, internal, callback));
+  var internal = this.internal;
+  $Array.push(
+      internal.actionQueue,
+      $Function.bind(internal.destroyImpl$, internal, callback));
   internal.performNextAction();
 };
 
 // Detaches the guestview from its container.
 // Note: This is not currently used.
 GuestView.prototype.detach = function(callback) {
-  var internal = privates(this).internal;
+  var internal = this.internal;
   $Array.push(internal.actionQueue,
       $Function.bind(internal.detachImpl, internal, callback));
   internal.performNextAction();
@@ -342,7 +351,7 @@ GuestView.prototype.detach = function(callback) {
 
 // Adjusts the guestview's sizing parameters.
 GuestView.prototype.setSize = function(sizeParams, callback) {
-  var internal = privates(this).internal;
+  var internal = this.internal;
   $Array.push(internal.actionQueue,
       $Function.bind(internal.setSizeImpl, internal, sizeParams, callback));
   internal.performNextAction();
@@ -350,19 +359,20 @@ GuestView.prototype.setSize = function(sizeParams, callback) {
 
 // Returns the contentWindow for this guestview.
 GuestView.prototype.getContentWindow = function() {
-  var internal = privates(this).internal;
+  var internal = this.internal;
   return internal.contentWindow;
 };
 
 // Returns the ID for this guestview.
 GuestView.prototype.getId = function() {
-  var internal = privates(this).internal;
+  var internal = this.internal;
   return internal.id;
 };
 
 // Exports
 if (!apiBridge) {
   exports.$set('GuestView', GuestView);
+  // TODO(mcnee): Don't export GuestViewImpl once guest_view_iframe.js is gone.
   exports.$set('GuestViewImpl', GuestViewImpl);
   exports.$set('ResizeEvent', ResizeEvent);
 }

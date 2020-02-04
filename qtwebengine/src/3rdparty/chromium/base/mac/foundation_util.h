@@ -5,6 +5,7 @@
 #ifndef BASE_MAC_FOUNDATION_UTIL_H_
 #define BASE_MAC_FOUNDATION_UTIL_H_
 
+#include <AvailabilityMacros.h>
 #include <CoreFoundation/CoreFoundation.h>
 
 #include <string>
@@ -52,12 +53,16 @@ typedef CR_FORWARD_ENUM(unsigned int, NSSearchPathDirectory);
 typedef unsigned int NSSearchPathDomainMask;
 #endif
 
-typedef struct OpaqueSecTrustRef* SecACLRef;
-typedef struct OpaqueSecTrustedApplicationRef* SecTrustedApplicationRef;
-
-#if defined(OS_IOS)
+// The CSSM_DEPRECATED check is a workaround for a presumably wrong MacOSX SDK detection.
+// This macro was added to the Security.framework in the 10.15 SDK:
+// http://codeworkshop.net/objc-diff/sdkdiffs/macos/10.15/Security.html at SecBase.h
+#if defined(OS_IOS) || (defined(MAC_OS_X_VERSION_10_15) && defined(CSSM_DEPRECATED))
+typedef struct CF_BRIDGED_TYPE(id) __SecCertificate* SecCertificateRef;
+typedef struct CF_BRIDGED_TYPE(id) __SecKey* SecKeyRef;
 typedef struct CF_BRIDGED_TYPE(id) __SecPolicy* SecPolicyRef;
 #else
+typedef struct OpaqueSecCertificateRef* SecCertificateRef;
+typedef struct OpaqueSecKeyRef* SecKeyRef;
 typedef struct OpaqueSecPolicyRef* SecPolicyRef;
 #endif
 
@@ -147,6 +152,8 @@ TYPE_NAME_FOR_CF_TYPE_DECL(CGColor);
 TYPE_NAME_FOR_CF_TYPE_DECL(CTFont);
 TYPE_NAME_FOR_CF_TYPE_DECL(CTRun);
 
+TYPE_NAME_FOR_CF_TYPE_DECL(SecCertificate);
+TYPE_NAME_FOR_CF_TYPE_DECL(SecKey);
 TYPE_NAME_FOR_CF_TYPE_DECL(SecPolicy);
 
 #undef TYPE_NAME_FOR_CF_TYPE_DECL
@@ -308,9 +315,9 @@ CF_CAST_DECL(CTFont);
 CF_CAST_DECL(CTFontDescriptor);
 CF_CAST_DECL(CTRun);
 
-CF_CAST_DECL(SecACL);
+CF_CAST_DECL(SecCertificate);
+CF_CAST_DECL(SecKey);
 CF_CAST_DECL(SecPolicy);
-CF_CAST_DECL(SecTrustedApplication);
 
 #undef CF_CAST_DECL
 
@@ -376,6 +383,9 @@ T GetValueFromDictionary(CFDictionaryRef dict, CFStringRef key) {
 
   return value_specific;
 }
+
+// Converts |path| to an autoreleased NSURL. Returns nil if |path| is empty.
+BASE_EXPORT NSURL* FilePathToNSURL(const FilePath& path);
 
 // Converts |path| to an autoreleased NSString. Returns nil if |path| is empty.
 BASE_EXPORT NSString* FilePathToNSString(const FilePath& path);

@@ -61,10 +61,10 @@
 
 QPixmap cached(const QString &img)
 {
-    if (QPixmap *p = QPixmapCache::find(img))
-        return *p;
-
     QPixmap pm;
+    if (QPixmapCache::find(img, &pm))
+        return pm;
+
     pm = QPixmap::fromImage(QImage(img), Qt::OrderedDither | Qt::OrderedAlphaDither);
     if (pm.isNull())
         return QPixmap();
@@ -294,7 +294,7 @@ void ArthurStyle::drawComplexControl(ComplexControl control, const QStyleOptionC
                 QPixmap titleLeft = cached(":res/images/title_cap_left.png");
                 QPixmap titleRight = cached(":res/images/title_cap_right.png");
                 QPixmap titleStretch = cached(":res/images/title_stretch.png");
-                int txt_width = groupBox->fontMetrics.width(groupBox->text) + 20;
+                int txt_width = groupBox->fontMetrics.horizontalAdvance(groupBox->text) + 20;
                 painter->drawPixmap(r.center().x() - txt_width/2, 0, titleLeft);
                 QRect tileRect = subControlRect(control, groupBox, SC_GroupBoxLabel, widget);
                 painter->drawTiledPixmap(tileRect, titleStretch);
@@ -385,7 +385,7 @@ QRect ArthurStyle::subControlRect(ComplexControl control, const QStyleOptionComp
                 QPixmap titleLeft = cached(":res/images/title_cap_left.png");
                 QPixmap titleRight = cached(":res/images/title_cap_right.png");
                 QPixmap titleStretch = cached(":res/images/title_stretch.png");
-                int txt_width = group->fontMetrics.width(group->text) + 20;
+                int txt_width = group->fontMetrics.horizontalAdvance(group->text) + 20;
                 rect = QRect(group->rect.center().x() - txt_width/2 + titleLeft.width(), 0,
                              txt_width - titleLeft.width() - titleRight.width(),
                              titleStretch.height());
@@ -443,9 +443,9 @@ void ArthurStyle::polish(QWidget *widget)
     if (widget->layout() && qobject_cast<QGroupBox *>(widget)) {
         if (widget->findChildren<QGroupBox *>().size() == 0) {
             widget->layout()->setSpacing(0);
-            widget->layout()->setMargin(12);
+            widget->layout()->setContentsMargins(12, 12, 12, 12);
         } else {
-            widget->layout()->setMargin(13);
+            widget->layout()->setContentsMargins(13, 13, 13, 13);
         }
     }
 

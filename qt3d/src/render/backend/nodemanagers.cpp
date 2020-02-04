@@ -85,11 +85,13 @@ NodeManagers::NodeManagers()
     , m_parameterManager(new ParameterManager())
     , m_shaderDataManager(new ShaderDataManager())
     , m_glBufferManager(new GLBufferManager())
+    , m_glFenceManager(new GLFenceManager())
     , m_bufferManager(new BufferManager())
     , m_attributeManager(new AttributeManager())
     , m_geometryManager(new GeometryManager())
     , m_geometryRendererManager(new GeometryRendererManager)
     , m_objectPickerManager(new ObjectPickerManager())
+    , m_rayCasterManager(new RayCasterManager())
 //    , m_boundingVolumeDebugManager(new BoundingVolumeDebugManager())
     , m_lightManager(new LightManager())
     , m_environmentLightManager(new EnvironmentLightManager())
@@ -127,12 +129,14 @@ NodeManagers::~NodeManagers()
     delete m_parameterManager;
     delete m_shaderDataManager;
     delete m_glBufferManager;
+    delete m_glFenceManager;
     delete m_textureImageManager;
     delete m_bufferManager;
     delete m_attributeManager;
     delete m_geometryManager;
     delete m_geometryRendererManager;
     delete m_objectPickerManager;
+    delete m_rayCasterManager;
 
     // Delete after m_objectPickerManager as that manager's shutdown needs to access
     // the frame graph manager still.
@@ -172,7 +176,7 @@ MaterialManager *NodeManagers::manager<Material>() const Q_DECL_NOTHROW
 }
 
 template<>
-MatrixManager *NodeManagers::manager<QMatrix4x4*>() const Q_DECL_NOTHROW
+MatrixManager *NodeManagers::manager<Matrix4x4>() const Q_DECL_NOTHROW
 {
     return m_worldMatrixManager;
 }
@@ -325,6 +329,12 @@ template<>
 ObjectPickerManager *NodeManagers::manager<ObjectPicker>() const Q_DECL_NOTHROW
 {
     return m_objectPickerManager;
+}
+
+template<>
+RayCasterManager *NodeManagers::manager<RayCaster>() const Q_DECL_NOTHROW
+{
+    return m_rayCasterManager;
 }
 
 //template<>

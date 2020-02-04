@@ -67,6 +67,7 @@ ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateWeakKey, net::ERR_CERT
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateNameConstraintViolation, net::ERR_CERT_NAME_CONSTRAINT_VIOLATION)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateValidityTooLong, net::ERR_CERT_VALIDITY_TOO_LONG)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateTransparencyRequired, net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED)
+ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateSymantecLegacy, net::ERR_CERT_SYMANTEC_LEGACY)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateErrorEnd, net::ERR_CERT_END)
 
 void CertificateErrorControllerPrivate::accept(bool accepted)
@@ -78,14 +79,14 @@ CertificateErrorControllerPrivate::CertificateErrorControllerPrivate(int cert_er
                                                                      const net::SSLInfo& ssl_info,
                                                                      const GURL &request_url,
                                                                      content::ResourceType resource_type,
-                                                                     bool _overridable,
+                                                                     bool fatal_error,
                                                                      bool strict_enforcement,
                                                                      const base::Callback<void(content::CertificateRequestResultType)>& cb
                                                                     )
     : certError(CertificateErrorController::CertificateError(cert_error))
     , requestUrl(toQt(request_url))
     , resourceType(CertificateErrorController::ResourceType(resource_type))
-    , overridable(_overridable)
+    , fatalError(fatal_error)
     , strictEnforcement(strict_enforcement)
     , callback(cb)
 {
@@ -117,7 +118,7 @@ QUrl CertificateErrorController::url() const
 
 bool CertificateErrorController::overridable() const
 {
-    return d->overridable;
+    return !d->fatalError && !d->strictEnforcement;
 }
 
 bool CertificateErrorController::strictEnforcement() const

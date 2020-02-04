@@ -69,6 +69,7 @@ extern "C" {
 #include <qstandardpaths.h>
 #include <qfunctions_winrt.h>
 #include <qcoreapplication.h>
+#include <qmutex.h>
 
 #include <wrl.h>
 #include <Windows.ApplicationModel.core.h>
@@ -87,27 +88,68 @@ using namespace Microsoft::WRL::Wrappers;
 #define CoreApplicationClass RuntimeClass_Windows_ApplicationModel_Core_CoreApplication
 typedef ITypedEventHandler<CoreApplicationView *, Activation::IActivatedEventArgs *> ActivatedHandler;
 
+const quint32 resizeMessageType = QtInfoMsg + 1;
+
+const PCWSTR shmemName = L"qdebug-shmem";
+const PCWSTR eventName = L"qdebug-event";
+const PCWSTR ackEventName = L"qdebug-event-ack";
+
 static QtMessageHandler defaultMessageHandler;
 static void devMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
     static HANDLE shmem = 0;
     static HANDLE event = 0;
+    static HANDLE ackEvent = 0;
+
+    static QMutex messageMutex;
+    QMutexLocker locker(&messageMutex);
+
+    static quint64 mappingSize = 4096;
+    const quint32 copiedMessageLength = message.length() + 1;
+    // Message format is message type + message. We need the message's length + 4 bytes for the type
+    const quint64 copiedMessageSize = copiedMessageLength * sizeof(wchar_t) + sizeof(quint32);
+    if (copiedMessageSize > mappingSize) {
+        if (!shmem)
+            shmem = CreateFileMappingFromApp(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, mappingSize, shmemName);
+        Q_ASSERT_X(shmem, Q_FUNC_INFO, "Could not create file mapping");
+
+        quint32 *data = reinterpret_cast<quint32 *>(MapViewOfFileFromApp(shmem, FILE_MAP_WRITE, 0, mappingSize));
+        Q_ASSERT_X(data, Q_FUNC_INFO, "Could not map size file");
+
+        mappingSize = copiedMessageSize;
+
+        memcpy(data, (void *)&resizeMessageType, sizeof(quint32));
+        memcpy(data + 1, (void *)&mappingSize, sizeof(quint64));
+        UnmapViewOfFile(data);
+        SetEvent(event);
+        WaitForSingleObjectEx(ackEvent, INFINITE, false);
+        if (shmem) {
+            if (!CloseHandle(shmem))
+                Q_ASSERT_X(false, Q_FUNC_INFO, "Could not close shared file handle");
+            shmem = 0;
+        }
+    }
+
     if (!shmem)
-        shmem = CreateFileMappingFromApp(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 4096, L"qdebug-shmem");
+        shmem = CreateFileMappingFromApp(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, mappingSize, shmemName);
     if (!event)
-        event = CreateEventEx(NULL, L"qdebug-event", 0, EVENT_ALL_ACCESS);
+        event = CreateEventEx(NULL, eventName, 0, EVENT_ALL_ACCESS);
+    if (!ackEvent)
+        ackEvent = CreateEventEx(NULL, ackEventName, 0, EVENT_ALL_ACCESS);
 
     Q_ASSERT_X(shmem, Q_FUNC_INFO, "Could not create file mapping");
     Q_ASSERT_X(event, Q_FUNC_INFO, "Could not create debug event");
 
-    void *data = MapViewOfFileFromApp(shmem, FILE_MAP_WRITE, 0, 4096);
+    void *data = MapViewOfFileFromApp(shmem, FILE_MAP_WRITE, 0, mappingSize);
     Q_ASSERT_X(data, Q_FUNC_INFO, "Could not map file");
 
     memset(data, quint32(type), sizeof(quint32));
-    memcpy_s(static_cast<quint32 *>(data) + 1, 4096 - sizeof(quint32),
-             message.data(), (message.length() + 1) * sizeof(wchar_t));
+    memcpy_s(static_cast<quint32 *>(data) + 1, mappingSize - sizeof(quint32),
+             message.data(), copiedMessageLength * sizeof(wchar_t));
     UnmapViewOfFile(data);
     SetEvent(event);
+    WaitForSingleObjectEx(ackEvent, INFINITE, false);
+    locker.unlock();
     defaultMessageHandler(type, context, message);
 }
 
@@ -149,15 +191,11 @@ public:
     {
     }
 
-    int exec(int argc, char **argv)
+    int exec()
     {
-        args.reserve(argc);
-        for (int i = 0; i < argc; ++i)
-            args.append(argv[i]);
-
         mainThread = CreateThread(NULL, 0, [](void *param) -> DWORD {
             AppContainer *app = reinterpret_cast<AppContainer *>(param);
-            int argc = app->args.count();
+            int argc = app->args.count() - 1;
             char **argv = app->args.data();
             const int res = main(argc, argv);
             if (app->pidFile != INVALID_HANDLE_VALUE) {
@@ -229,12 +267,12 @@ private:
         return S_OK;
     }
 
-    HRESULT __stdcall OnActivated(IActivatedEventArgs *args) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnActivated(IActivatedEventArgs *args) override
     {
         return activatedLaunch(args);
     }
 
-    HRESULT __stdcall OnLaunched(ILaunchActivatedEventArgs *launchArgs) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnLaunched(ILaunchActivatedEventArgs *launchArgs) override
     {
         ComPtr<IPrelaunchActivatedEventArgs> preArgs;
         HRESULT hr = launchArgs->QueryInterface(preArgs.GetAddressOf());
@@ -279,23 +317,26 @@ private:
                 if (quote)
                     break;
                 commandLine[i] = '\0';
-                if (args.last()[0] != '\0')
+                if (!args.isEmpty() && args.last() && args.last()[0] != '\0')
                     args.append(commandLine.data() + i + 1);
                 // fall through
             default:
-                if (args.last()[0] == '\0')
+                if (!args.isEmpty() && args.last() && args.last()[0] == '\0')
                     args.last() = commandLine.data() + i;
                 escape = false; // only quotes are escaped
                 break;
             }
         }
 
-        if (args.count() >= 2 && strncmp(args.at(1), "-ServerName:", 12) == 0)
+        if (args.count() >= 2 && args.at(1) && strncmp(args.at(1), "-ServerName:", 12) == 0)
             args.remove(1);
 
         bool develMode = false;
         bool debugWait = false;
         for (int i = args.count() - 1; i >= 0; --i) {
+            if (!args.at(i))
+                continue;
+
             const char *arg = args.at(i);
             if (strcmp(arg, "-qdevel") == 0) {
                 develMode = true;
@@ -305,6 +346,8 @@ private:
                 args.remove(i);
             }
         }
+        args.append(nullptr);
+
         if (develMode) {
             // Write a PID file to help runner
             const QString pidFileName = QDir(QStandardPaths::writableLocation(QStandardPaths::DataLocation))
@@ -328,41 +371,41 @@ private:
         return S_OK;
     }
 
-    HRESULT __stdcall OnFileActivated(IFileActivatedEventArgs *args) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnFileActivated(IFileActivatedEventArgs *args) override
     {
         return activatedLaunch(args);
     }
 
-    HRESULT __stdcall OnSearchActivated(ISearchActivatedEventArgs *args) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnSearchActivated(ISearchActivatedEventArgs *args) override
     {
         Q_UNUSED(args);
         return S_OK;
     }
 
-    HRESULT __stdcall OnShareTargetActivated(IShareTargetActivatedEventArgs *args) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnShareTargetActivated(IShareTargetActivatedEventArgs *args) override
     {
         return activatedLaunch(args);
     }
 
-    HRESULT __stdcall OnFileOpenPickerActivated(IFileOpenPickerActivatedEventArgs *args) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnFileOpenPickerActivated(IFileOpenPickerActivatedEventArgs *args) override
     {
         Q_UNUSED(args);
         return S_OK;
     }
 
-    HRESULT __stdcall OnFileSavePickerActivated(IFileSavePickerActivatedEventArgs *args) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnFileSavePickerActivated(IFileSavePickerActivatedEventArgs *args) override
     {
         Q_UNUSED(args);
         return S_OK;
     }
 
-    HRESULT __stdcall OnCachedFileUpdaterActivated(ICachedFileUpdaterActivatedEventArgs *args) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnCachedFileUpdaterActivated(ICachedFileUpdaterActivatedEventArgs *args) override
     {
         Q_UNUSED(args);
         return S_OK;
     }
 
-    HRESULT __stdcall OnWindowCreated(Xaml::IWindowCreatedEventArgs *args) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnWindowCreated(Xaml::IWindowCreatedEventArgs *args) override
     {
         Q_UNUSED(args);
         return S_OK;
@@ -379,18 +422,9 @@ private:
 // Main entry point for Appx containers
 int __stdcall WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
-    int argc = 0;
-    char **argv = 0, **env = 0;
-    for (int i = 0; env && env[i]; ++i) {
-        QByteArray var(env[i]);
-        int split = var.indexOf('=');
-        if (split > 0)
-            qputenv(var.mid(0, split), var.mid(split + 1));
-    }
-
     if (FAILED(RoInitialize(RO_INIT_MULTITHREADED)))
         return 1;
 
     ComPtr<AppContainer> app = Make<AppContainer>();
-    return app->exec(argc, argv);
+    return app->exec();
 }

@@ -39,24 +39,11 @@
 
 #include "resource_context_qt.h"
 
-#include "content/public/browser/storage_partition.h"
-#include "net/url_request/url_request_context_getter.h"
-
-#include "browser_context_qt.h"
-
 namespace QtWebEngineCore {
 
-net::HostResolver *ResourceContextQt::GetHostResolver()
+ResourceContextQt::ResourceContextQt(ProfileIODataQt *io_data)
+    : m_io_data(io_data)
 {
-    return GetRequestContext()->host_resolver();
-}
-
-net::URLRequestContext* ResourceContextQt::GetRequestContext()
-{
-    Q_ASSERT(context);
-    // FIXME: This is the only remaining use of GetRequestContext(),
-    // but we are on the wrong thread for calling BrowserContext::GetDefaultStoragePartition
-    return context->GetRequestContext()->GetURLRequestContext();
 }
 
 } // namespace QtWebEngineCore

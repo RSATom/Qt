@@ -8,21 +8,25 @@
 #include <memory>
 #include <string>
 
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "components/exo/wayland/scoped_wl.h"
+#include "ui/display/display_observer.h"
 
 namespace exo {
 class Display;
 
 namespace wayland {
 
+class WaylandDisplayOutput;
+
 // This class is a thin wrapper around a Wayland display server. All Wayland
 // requests are dispatched into the given Exosphere display.
-class Server {
+class Server : public display::DisplayObserver {
  public:
   explicit Server(Display* display);
-  ~Server();
+  ~Server() override;
 
   // Creates a Wayland display server that clients can connect to using the
   // default socket name.
@@ -44,9 +48,14 @@ class Server {
   // Send all buffered events to the clients.
   void Flush();
 
+  // Overridden from display::DisplayObserver:
+  void OnDisplayAdded(const display::Display& new_display) override;
+  void OnDisplayRemoved(const display::Display& old_display) override;
+
  private:
   Display* const display_;
   std::unique_ptr<wl_display, WlDisplayDeleter> wl_display_;
+  base::flat_map<int64_t, std::unique_ptr<WaylandDisplayOutput>> outputs_;
 
   DISALLOW_COPY_AND_ASSIGN(Server);
 };

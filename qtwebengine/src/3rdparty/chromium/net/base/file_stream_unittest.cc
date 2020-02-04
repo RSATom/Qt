@@ -11,20 +11,23 @@
 #include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
 #include "net/log/test_net_log.h"
 #include "net/test/gtest_util.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
@@ -40,19 +43,20 @@ namespace net {
 
 namespace {
 
-const char kTestData[] = "0123456789";
-const int kTestDataSize = arraysize(kTestData) - 1;
+constexpr char kTestData[] = "0123456789";
+constexpr int kTestDataSize = base::size(kTestData) - 1;
 
 // Creates an IOBufferWithSize that contains the kTestDataSize.
-IOBufferWithSize* CreateTestDataBuffer() {
-  IOBufferWithSize* buf = new IOBufferWithSize(kTestDataSize);
+scoped_refptr<IOBufferWithSize> CreateTestDataBuffer() {
+  scoped_refptr<IOBufferWithSize> buf =
+      base::MakeRefCounted<IOBufferWithSize>(kTestDataSize);
   memcpy(buf->data(), kTestData, kTestDataSize);
   return buf;
 }
 
 }  // namespace
 
-class FileStreamTest : public PlatformTest {
+class FileStreamTest : public PlatformTest, public WithScopedTaskEnvironment {
  public:
   void SetUp() override {
     PlatformTest::SetUp();
@@ -130,7 +134,7 @@ TEST_F(FileStreamTest, UseFileHandle) {
   ASSERT_EQ(0, callback64.WaitForResult());
   // Read into buffer and compare.
   scoped_refptr<IOBufferWithSize> read_buffer =
-      new IOBufferWithSize(kTestDataSize);
+      base::MakeRefCounted<IOBufferWithSize>(kTestDataSize);
   rv = read_stream->Read(read_buffer.get(), kTestDataSize, callback.callback());
   ASSERT_EQ(kTestDataSize, callback.GetResult(rv));
   ASSERT_EQ(0, memcmp(kTestData, read_buffer->data(), kTestDataSize));
@@ -174,7 +178,8 @@ TEST_F(FileStreamTest, UseClosedStream) {
   EXPECT_THAT(callback64.GetResult(rv), IsError(ERR_UNEXPECTED));
 
   // Try reading...
-  scoped_refptr<IOBufferWithSize> buf = new IOBufferWithSize(10);
+  scoped_refptr<IOBufferWithSize> buf =
+      base::MakeRefCounted<IOBufferWithSize>(10);
   rv = stream.Read(buf.get(), buf->size(), callback.callback());
   EXPECT_THAT(callback.GetResult(rv), IsError(ERR_UNEXPECTED));
 }
@@ -194,7 +199,8 @@ TEST_F(FileStreamTest, Read) {
 
   std::string data_read;
   for (;;) {
-    scoped_refptr<IOBufferWithSize> buf = new IOBufferWithSize(4);
+    scoped_refptr<IOBufferWithSize> buf =
+        base::MakeRefCounted<IOBufferWithSize>(4);
     rv = stream.Read(buf.get(), buf->size(), callback.callback());
     rv = callback.GetResult(rv);
     EXPECT_LE(0, rv);
@@ -220,7 +226,8 @@ TEST_F(FileStreamTest, Read_EarlyDelete) {
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
   EXPECT_THAT(callback.WaitForResult(), IsOk());
 
-  scoped_refptr<IOBufferWithSize> buf = new IOBufferWithSize(4);
+  scoped_refptr<IOBufferWithSize> buf =
+      base::MakeRefCounted<IOBufferWithSize>(4);
   rv = stream->Read(buf.get(), buf->size(), callback.callback());
   stream.reset();  // Delete instead of closing it.
   if (rv < 0) {
@@ -256,7 +263,8 @@ TEST_F(FileStreamTest, Read_FromOffset) {
 
   std::string data_read;
   for (;;) {
-    scoped_refptr<IOBufferWithSize> buf = new IOBufferWithSize(4);
+    scoped_refptr<IOBufferWithSize> buf =
+        base::MakeRefCounted<IOBufferWithSize>(4);
     rv = stream.Read(buf.get(), buf->size(), callback.callback());
     if (rv == ERR_IO_PENDING)
       rv = callback.WaitForResult();
@@ -344,9 +352,10 @@ TEST_F(FileStreamTest, Write_FromOffset) {
 
   int total_bytes_written = 0;
 
-  scoped_refptr<IOBufferWithSize> buf = CreateTestDataBuffer();
+  scoped_refptr<IOBufferWithSize> buffer = CreateTestDataBuffer();
+  int buffer_size = buffer->size();
   scoped_refptr<DrainableIOBuffer> drainable =
-      new DrainableIOBuffer(buf.get(), buf->size());
+      base::MakeRefCounted<DrainableIOBuffer>(std::move(buffer), buffer_size);
   while (total_bytes_written != kTestDataSize) {
     rv = stream.Write(drainable.get(), drainable->BytesRemaining(),
                       callback.callback());
@@ -379,7 +388,8 @@ TEST_F(FileStreamTest, BasicReadWrite) {
 
   std::string data_read;
   for (;;) {
-    scoped_refptr<IOBufferWithSize> buf = new IOBufferWithSize(4);
+    scoped_refptr<IOBufferWithSize> buf =
+        base::MakeRefCounted<IOBufferWithSize>(4);
     rv = stream->Read(buf.get(), buf->size(), callback.callback());
     if (rv == ERR_IO_PENDING)
       rv = callback.WaitForResult();
@@ -394,9 +404,10 @@ TEST_F(FileStreamTest, BasicReadWrite) {
 
   int total_bytes_written = 0;
 
-  scoped_refptr<IOBufferWithSize> buf = CreateTestDataBuffer();
+  scoped_refptr<IOBufferWithSize> buffer = CreateTestDataBuffer();
+  int buffer_size = buffer->size();
   scoped_refptr<DrainableIOBuffer> drainable =
-      new DrainableIOBuffer(buf.get(), buf->size());
+      base::MakeRefCounted<DrainableIOBuffer>(std::move(buffer), buffer_size);
   while (total_bytes_written != kTestDataSize) {
     rv = stream->Write(drainable.get(), drainable->BytesRemaining(),
                        callback.callback());
@@ -436,9 +447,10 @@ TEST_F(FileStreamTest, BasicWriteRead) {
 
   int total_bytes_written = 0;
 
-  scoped_refptr<IOBufferWithSize> buf = CreateTestDataBuffer();
+  scoped_refptr<IOBufferWithSize> buffer = CreateTestDataBuffer();
+  int buffer_size = buffer->size();
   scoped_refptr<DrainableIOBuffer> drainable =
-      new DrainableIOBuffer(buf.get(), buf->size());
+      base::MakeRefCounted<DrainableIOBuffer>(std::move(buffer), buffer_size);
   while (total_bytes_written != kTestDataSize) {
     rv = stream->Write(drainable.get(), drainable->BytesRemaining(),
                        callback.callback());
@@ -462,7 +474,8 @@ TEST_F(FileStreamTest, BasicWriteRead) {
 
   std::string data_read;
   for (;;) {
-    scoped_refptr<IOBufferWithSize> buf = new IOBufferWithSize(4);
+    scoped_refptr<IOBufferWithSize> buf =
+        base::MakeRefCounted<IOBufferWithSize>(4);
     rv = stream->Read(buf.get(), buf->size(), callback.callback());
     if (rv == ERR_IO_PENDING)
       rv = callback.WaitForResult();
@@ -496,10 +509,9 @@ class TestWriteReadCompletionCallback {
         total_bytes_written_(total_bytes_written),
         total_bytes_read_(total_bytes_read),
         data_read_(data_read),
-        callback_(base::Bind(&TestWriteReadCompletionCallback::OnComplete,
-                             base::Unretained(this))),
-        test_data_(CreateTestDataBuffer()),
-        drainable_(new DrainableIOBuffer(test_data_.get(), kTestDataSize)) {}
+        drainable_(
+            base::MakeRefCounted<DrainableIOBuffer>(CreateTestDataBuffer(),
+                                                    kTestDataSize)) {}
 
   int WaitForResult() {
     DCHECK(!waiting_for_result_);
@@ -512,17 +524,20 @@ class TestWriteReadCompletionCallback {
     return result_;
   }
 
-  const CompletionCallback& callback() const { return callback_; }
+  CompletionOnceCallback callback() {
+    return base::BindOnce(&TestWriteReadCompletionCallback::OnComplete,
+                          base::Unretained(this));
+  }
 
   void ValidateWrittenData() {
     TestCompletionCallback callback;
     int rv = 0;
     for (;;) {
-      scoped_refptr<IOBufferWithSize> buf = new IOBufferWithSize(4);
+      scoped_refptr<IOBufferWithSize> buf =
+          base::MakeRefCounted<IOBufferWithSize>(4);
       rv = stream_->Read(buf.get(), buf->size(), callback.callback());
       if (rv == ERR_IO_PENDING) {
-        base::MessageLoop::ScopedNestableTaskAllower allow(
-            base::MessageLoop::current());
+        base::MessageLoopCurrent::ScopedNestableTaskAllower allow;
         rv = callback.WaitForResult();
       }
       EXPECT_LE(0, rv);
@@ -559,8 +574,7 @@ class TestWriteReadCompletionCallback {
       EXPECT_THAT(stream_->Seek(0, callback64.callback()),
                   IsError(ERR_IO_PENDING));
       {
-        base::MessageLoop::ScopedNestableTaskAllower allow(
-            base::MessageLoop::current());
+        base::MessageLoopCurrent::ScopedNestableTaskAllower allow;
         EXPECT_LE(0, callback64.WaitForResult());
       }
     }
@@ -568,7 +582,7 @@ class TestWriteReadCompletionCallback {
     result_ = *total_bytes_written_;
     have_result_ = true;
     if (waiting_for_result_)
-      base::MessageLoop::current()->QuitWhenIdle();
+      base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   int result_;
@@ -578,8 +592,6 @@ class TestWriteReadCompletionCallback {
   int* total_bytes_written_;
   int* total_bytes_read_;
   std::string* data_read_;
-  const CompletionCallback callback_;
-  scoped_refptr<IOBufferWithSize> test_data_;
   scoped_refptr<DrainableIOBuffer> drainable_;
 
   DISALLOW_COPY_AND_ASSIGN(TestWriteReadCompletionCallback);
@@ -637,10 +649,9 @@ class TestWriteCloseCompletionCallback {
         waiting_for_result_(false),
         stream_(stream),
         total_bytes_written_(total_bytes_written),
-        callback_(base::Bind(&TestWriteCloseCompletionCallback::OnComplete,
-                             base::Unretained(this))),
-        test_data_(CreateTestDataBuffer()),
-        drainable_(new DrainableIOBuffer(test_data_.get(), kTestDataSize)) {}
+        drainable_(
+            base::MakeRefCounted<DrainableIOBuffer>(CreateTestDataBuffer(),
+                                                    kTestDataSize)) {}
 
   int WaitForResult() {
     DCHECK(!waiting_for_result_);
@@ -653,7 +664,10 @@ class TestWriteCloseCompletionCallback {
     return result_;
   }
 
-  const CompletionCallback& callback() const { return callback_; }
+  CompletionOnceCallback callback() {
+    return base::BindOnce(&TestWriteCloseCompletionCallback::OnComplete,
+                          base::Unretained(this));
+  }
 
  private:
   void OnComplete(int result) {
@@ -677,7 +691,7 @@ class TestWriteCloseCompletionCallback {
     result_ = *total_bytes_written_;
     have_result_ = true;
     if (waiting_for_result_)
-      base::MessageLoop::current()->QuitWhenIdle();
+      base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   int result_;
@@ -685,8 +699,6 @@ class TestWriteCloseCompletionCallback {
   bool waiting_for_result_;
   FileStream* stream_;
   int* total_bytes_written_;
-  const CompletionCallback callback_;
-  scoped_refptr<IOBufferWithSize> test_data_;
   scoped_refptr<DrainableIOBuffer> drainable_;
 
   DISALLOW_COPY_AND_ASSIGN(TestWriteCloseCompletionCallback);
@@ -769,7 +781,7 @@ TEST_F(FileStreamTest, WriteError) {
   std::unique_ptr<FileStream> stream(
       new FileStream(std::move(file), base::ThreadTaskRunnerHandle::Get()));
 
-  scoped_refptr<IOBuffer> buf = new IOBuffer(1);
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(1);
   buf->data()[0] = 0;
 
   TestCompletionCallback callback;
@@ -794,7 +806,7 @@ TEST_F(FileStreamTest, ReadError) {
   std::unique_ptr<FileStream> stream(
       new FileStream(std::move(file), base::ThreadTaskRunnerHandle::Get()));
 
-  scoped_refptr<IOBuffer> buf = new IOBuffer(1);
+  scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(1);
   TestCompletionCallback callback;
   int rv = stream->Read(buf.get(), 1, callback.callback());
   if (rv == ERR_IO_PENDING)
@@ -805,10 +817,31 @@ TEST_F(FileStreamTest, ReadError) {
   base::RunLoop().RunUntilIdle();
 }
 
+#if defined(OS_WIN)
+// Verifies that a FileStream will close itself if it receives a File whose
+// async flag doesn't match the async state of the underlying handle.
+TEST_F(FileStreamTest, AsyncFlagMismatch) {
+  // Open the test file without async, then make a File with the same sync
+  // handle but with the async flag set to true.
+  uint32_t flags = base::File::FLAG_OPEN | base::File::FLAG_READ;
+  base::File file(temp_file_path(), flags);
+  base::File lying_file(file.TakePlatformFile(), true);
+  ASSERT_TRUE(lying_file.IsValid());
+
+  FileStream stream(std::move(lying_file), base::ThreadTaskRunnerHandle::Get());
+  ASSERT_FALSE(stream.IsOpen());
+  TestCompletionCallback callback;
+  scoped_refptr<IOBufferWithSize> buf =
+      base::MakeRefCounted<IOBufferWithSize>(4);
+  int rv = stream.Read(buf.get(), buf->size(), callback.callback());
+  EXPECT_THAT(callback.GetResult(rv), IsError(ERR_UNEXPECTED));
+}
+#endif
+
 #if defined(OS_ANDROID)
 TEST_F(FileStreamTest, ContentUriRead) {
   base::FilePath test_dir;
-  PathService::Get(base::DIR_SOURCE_ROOT, &test_dir);
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &test_dir);
   test_dir = test_dir.AppendASCII("net");
   test_dir = test_dir.AppendASCII("data");
   test_dir = test_dir.AppendASCII("file_stream_unittest");
@@ -836,7 +869,8 @@ TEST_F(FileStreamTest, ContentUriRead) {
 
   std::string data_read;
   for (;;) {
-    scoped_refptr<IOBufferWithSize> buf = new IOBufferWithSize(4);
+    scoped_refptr<IOBufferWithSize> buf =
+        base::MakeRefCounted<IOBufferWithSize>(4);
     rv = stream.Read(buf.get(), buf->size(), callback.callback());
     if (rv == ERR_IO_PENDING)
       rv = callback.WaitForResult();

@@ -34,21 +34,21 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Fusion 2.3
-import QtQuick.Controls.Fusion.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Fusion 2.12
+import QtQuick.Controls.Fusion.impl 2.12
 
 T.TextArea {
     id: control
 
     implicitWidth: Math.max(contentWidth + leftPadding + rightPadding,
-                            background ? background.implicitWidth : 0,
+                            implicitBackgroundWidth + leftInset + rightInset,
                             placeholder.implicitWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(contentHeight + topPadding + bottomPadding,
-                             background ? background.implicitHeight : 0,
+                             implicitBackgroundHeight + topInset + bottomInset,
                              placeholder.implicitHeight + topPadding + bottomPadding)
 
     padding: 6
@@ -57,6 +57,7 @@ T.TextArea {
     color: control.palette.text
     selectionColor: control.palette.highlight
     selectedTextColor: control.palette.highlightedText
+    placeholderTextColor: Color.transparent(control.color, 0.5)
 
     PlaceholderText {
         id: placeholder
@@ -65,12 +66,12 @@ T.TextArea {
         width: control.width - (control.leftPadding + control.rightPadding)
         height: control.height - (control.topPadding + control.bottomPadding)
 
-        opacity: 0.5
         text: control.placeholderText
         font: control.font
-        color: control.palette.text
+        color: control.placeholderTextColor
         verticalAlignment: control.verticalAlignment
         visible: !control.length && !control.preeditText && (!control.activeFocus || control.horizontalAlignment !== Qt.AlignHCenter)
         elide: Text.ElideRight
+        renderType: control.renderType
     }
 }

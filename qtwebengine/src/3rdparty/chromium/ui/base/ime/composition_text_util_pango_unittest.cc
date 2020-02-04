@@ -12,7 +12,7 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/ime/composition_text.h"
 
@@ -25,18 +25,18 @@ struct AttributeInfo {
   int end_offset;
 };
 
-struct Underline {
+struct ImeTextSpan {
   unsigned start_offset;
   unsigned end_offset;
-  uint32_t color;
-  bool thick;
+  uint32_t underline_color;
+  ui::ImeTextSpan::Thickness thickness;
   uint32_t background_color;
 };
 
 struct TestData {
   const char* text;
   const AttributeInfo attrs[10];
-  const Underline underlines[10];
+  const ImeTextSpan ime_text_spans[10];
 };
 
 const TestData kTestData[] = {
@@ -47,10 +47,13 @@ const TestData kTestData[] = {
       {PANGO_ATTR_BACKGROUND, 0, 4, 7},
       {PANGO_ATTR_UNDERLINE, PANGO_UNDERLINE_SINGLE, 8, 13},
       {0, 0, 0, 0}},
-     {{0, 3, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {4, 7, SK_ColorBLACK, true, SK_ColorTRANSPARENT},
-      {8, 13, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {0, 0, 0, false, SK_ColorTRANSPARENT}}},
+     {{0, 3, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {4, 7, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThick,
+       SK_ColorTRANSPARENT},
+      {8, 13, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {0, 0, 0, ui::ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT}}},
 
     // Offset overflow.
     {"One Two Three",
@@ -58,10 +61,13 @@ const TestData kTestData[] = {
       {PANGO_ATTR_BACKGROUND, 0, 4, 7},
       {PANGO_ATTR_UNDERLINE, PANGO_UNDERLINE_SINGLE, 8, 20},
       {0, 0, 0, 0}},
-     {{0, 3, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {4, 7, SK_ColorBLACK, true, SK_ColorTRANSPARENT},
-      {8, 13, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {0, 0, 0, false, SK_ColorTRANSPARENT}}},
+     {{0, 3, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {4, 7, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThick,
+       SK_ColorTRANSPARENT},
+      {8, 13, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {0, 0, 0, ui::ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT}}},
 
     // Error underline.
     {"One Two Three",
@@ -69,16 +75,20 @@ const TestData kTestData[] = {
       {PANGO_ATTR_UNDERLINE, PANGO_UNDERLINE_ERROR, 4, 7},
       {PANGO_ATTR_UNDERLINE, PANGO_UNDERLINE_SINGLE, 8, 13},
       {0, 0, 0, 0}},
-     {{0, 3, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {4, 7, SK_ColorRED, false, SK_ColorTRANSPARENT},
-      {8, 13, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {0, 0, 0, false, SK_ColorTRANSPARENT}}},
+     {{0, 3, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {4, 7, SK_ColorRED, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {8, 13, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {0, 0, 0, ui::ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT}}},
 
     // Default underline.
     {"One Two Three",
      {{0, 0, 0, 0}},
-     {{0, 13, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {0, 0, 0, false, SK_ColorTRANSPARENT}}},
+     {{0, 13, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {0, 0, 0, ui::ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT}}},
 
     // Unicode, including non-BMP characters: "123你好𠀀𠀁一丁 456"
     {"123\xE4\xBD\xA0\xE5\xA5\xBD\xF0\xA0\x80\x80\xF0\xA0\x80\x81\xE4\xB8\x80"
@@ -88,24 +98,27 @@ const TestData kTestData[] = {
       {PANGO_ATTR_BACKGROUND, 0, 5, 7},
       {PANGO_ATTR_UNDERLINE, PANGO_UNDERLINE_SINGLE, 7, 13},
       {0, 0, 0, 0}},
-     {{0, 3, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {3, 5, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {5, 9, SK_ColorBLACK, true, SK_ColorTRANSPARENT},
-      {9, 15, SK_ColorBLACK, false, SK_ColorTRANSPARENT},
-      {0, 0, 0, false, SK_ColorTRANSPARENT}}},
+     {{0, 3, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {3, 5, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {5, 9, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThick,
+       SK_ColorTRANSPARENT},
+      {9, 15, SK_ColorTRANSPARENT, ui::ImeTextSpan::Thickness::kThin,
+       SK_ColorTRANSPARENT},
+      {0, 0, 0, ui::ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT}}},
 };
 
-void CompareUnderline(const Underline& a,
-                      const ui::CompositionUnderline& b) {
+void CompareImeTextSpan(const ImeTextSpan& a, const ui::ImeTextSpan& b) {
   EXPECT_EQ(a.start_offset, b.start_offset);
   EXPECT_EQ(a.end_offset, b.end_offset);
-  EXPECT_EQ(a.color, b.color);
-  EXPECT_EQ(a.thick, b.thick);
+  EXPECT_EQ(a.underline_color, b.underline_color);
+  EXPECT_EQ(a.thickness, b.thickness);
   EXPECT_EQ(a.background_color, b.background_color);
 }
 
 TEST(CompositionTextUtilPangoTest, ExtractCompositionText) {
-  for (size_t i = 0; i < arraysize(kTestData); ++i) {
+  for (size_t i = 0; i < base::size(kTestData); ++i) {
     const char* text = kTestData[i].text;
     const AttributeInfo* attrs = kTestData[i].attrs;
     SCOPED_TRACE(testing::Message() << "Testing:" << i
@@ -135,11 +148,12 @@ TEST(CompositionTextUtilPangoTest, ExtractCompositionText) {
     ui::CompositionText result;
     ui::ExtractCompositionTextFromGtkPreedit(text, pango_attrs, 0, &result);
 
-    const Underline* underlines = kTestData[i].underlines;
-    for (size_t u = 0; underlines[u].color &&
-         u < result.underlines.size(); ++u) {
-      SCOPED_TRACE(testing::Message() << "Underline:" << u);
-      CompareUnderline(underlines[u], result.underlines[u]);
+    const ImeTextSpan* ime_text_spans = kTestData[i].ime_text_spans;
+    for (size_t u = 0;
+         ime_text_spans[u].underline_color && u < result.ime_text_spans.size();
+         ++u) {
+      SCOPED_TRACE(testing::Message() << "ImeTextSpan:" << u);
+      CompareImeTextSpan(ime_text_spans[u], result.ime_text_spans[u]);
     }
 
     pango_attr_list_unref(pango_attrs);

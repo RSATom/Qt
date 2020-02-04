@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "gpu/vulkan/buildflags.h"
 #include "ui/gl/gl_surface.h"
 #include "ui/ozone/public/gl_ozone.h"
 #include "ui/ozone/public/surface_factory_ozone.h"
@@ -24,11 +25,14 @@ class X11SurfaceFactory : public SurfaceFactoryOzone {
   // SurfaceFactoryOzone:
   std::vector<gl::GLImplementation> GetAllowedGLImplementations() override;
   GLOzone* GetGLOzone(gl::GLImplementation implementation) override;
+#if BUILDFLAG(ENABLE_VULKAN)
+  std::unique_ptr<gpu::VulkanImplementation> CreateVulkanImplementation()
+      override;
+#endif
 
  private:
   std::unique_ptr<GLOzone> glx_implementation_;
   std::unique_ptr<GLOzone> egl_implementation_;
-  std::unique_ptr<GLOzone> osmesa_implementation_;
 
   DISALLOW_COPY_AND_ASSIGN(X11SurfaceFactory);
 };

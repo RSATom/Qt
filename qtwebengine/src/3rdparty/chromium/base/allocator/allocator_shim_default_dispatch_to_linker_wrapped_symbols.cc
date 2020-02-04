@@ -9,6 +9,9 @@
 
 #if defined(OS_ANDROID) && __ANDROID_API__ < 17
 #include <dlfcn.h>
+// This is defined in malloc.h on other platforms. We just need the definition
+// for the decltype(malloc_usable_size)* call to work.
+size_t malloc_usable_size(const void*);
 #endif
 
 // This translation unit defines a default dispatch for the allocator shim which
@@ -106,5 +109,8 @@ const AllocatorDispatch AllocatorDispatch::default_dispatch = {
     nullptr,           /* batch_malloc_function */
     nullptr,           /* batch_free_function */
     nullptr,           /* free_definite_size_function */
+    nullptr,           /* aligned_malloc_function */
+    nullptr,           /* aligned_realloc_function */
+    nullptr,           /* aligned_free_function */
     nullptr,           /* next */
 };

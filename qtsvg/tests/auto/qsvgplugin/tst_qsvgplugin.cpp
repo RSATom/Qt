@@ -39,6 +39,16 @@
 #endif
 
 
+QStringList logMessages;
+
+static void messageHandler(QtMsgType pType, const QMessageLogContext& pContext, const QString& pMsg)
+{
+    Q_UNUSED(pType);
+    Q_UNUSED(pContext);
+    logMessages.append(pMsg);
+}
+
+
 class tst_QSvgPlugin : public QObject
 {
 Q_OBJECT
@@ -50,6 +60,7 @@ public:
 private slots:
     void checkSize_data();
     void checkSize();
+    void checkImageInclude();
 };
 
 
@@ -68,18 +79,18 @@ void tst_QSvgPlugin::checkSize_data()
     QTest::addColumn<int>("imageHeight");
     QTest::addColumn<int>("imageWidth");
 
-    QTest::newRow("square")              << SRCDIR "square.svg"              <<  50 <<  50;
-    QTest::newRow("square_size")         << SRCDIR "square_size.svg"         << 200 << 200;
-    QTest::newRow("square_size_viewbox") << SRCDIR "square_size_viewbox.svg" << 200 << 200;
-    QTest::newRow("square_viewbox")      << SRCDIR "square_viewbox.svg"      << 100 << 100;
-    QTest::newRow("tall")                << SRCDIR "tall.svg"                <<  50 <<  25;
-    QTest::newRow("tall_size")           << SRCDIR "tall_size.svg"           << 200 << 100;
-    QTest::newRow("tall_size_viewbox")   << SRCDIR "tall_size_viewbox.svg"   << 200 << 100;
-    QTest::newRow("tall_viewbox")        << SRCDIR "tall_viewbox.svg"        << 100 <<  50;
-    QTest::newRow("wide")                << SRCDIR "wide.svg"                <<  25 <<  50;
-    QTest::newRow("wide_size")           << SRCDIR "wide_size.svg"           << 100 << 200;
-    QTest::newRow("wide_size_viewbox")   << SRCDIR "wide_size_viewbox.svg"   << 100 << 200;
-    QTest::newRow("wide_viewbox")        << SRCDIR "wide_viewbox.svg"        <<  50 << 100;
+    QTest::newRow("square")              << QFINDTESTDATA("square.svg")              <<  50 <<  50;
+    QTest::newRow("square_size")         << QFINDTESTDATA("square_size.svg")         << 200 << 200;
+    QTest::newRow("square_size_viewbox") << QFINDTESTDATA("square_size_viewbox.svg") << 200 << 200;
+    QTest::newRow("square_viewbox")      << QFINDTESTDATA("square_viewbox.svg")      << 100 << 100;
+    QTest::newRow("tall")                << QFINDTESTDATA("tall.svg")                <<  50 <<  25;
+    QTest::newRow("tall_size")           << QFINDTESTDATA("tall_size.svg")           << 200 << 100;
+    QTest::newRow("tall_size_viewbox")   << QFINDTESTDATA("tall_size_viewbox.svg")   << 200 << 100;
+    QTest::newRow("tall_viewbox")        << QFINDTESTDATA("tall_viewbox.svg")        << 100 <<  50;
+    QTest::newRow("wide")                << QFINDTESTDATA("wide.svg")                <<  25 <<  50;
+    QTest::newRow("wide_size")           << QFINDTESTDATA("wide_size.svg")           << 100 << 200;
+    QTest::newRow("wide_size_viewbox")   << QFINDTESTDATA("wide_size_viewbox.svg")   << 100 << 200;
+    QTest::newRow("wide_viewbox")        << QFINDTESTDATA("wide_viewbox.svg")        <<  50 << 100;
 }
 
 void tst_QSvgPlugin::checkSize()
@@ -101,6 +112,37 @@ void tst_QSvgPlugin::checkSize()
 
     QCOMPARE(imageHeight, image.height());
     QCOMPARE(imageWidth, image.width());
+}
+
+void tst_QSvgPlugin::checkImageInclude()
+{
+    const QString filename(QFINDTESTDATA("imageInclude.svg"));
+    const QString path = filename.left(filename.size() - strlen("imageInclude.svg"));
+
+    QFile file(filename);
+    file.open(QIODevice::ReadOnly);
+
+    QSvgIOHandler plugin;
+    plugin.setDevice(&file);
+
+    QImage image;
+    qInstallMessageHandler(messageHandler);
+    plugin.read(&image);
+    qInstallMessageHandler(nullptr);
+
+    file.close();
+
+    QCOMPARE(logMessages.size(), 8);
+    QCOMPARE(logMessages.at(0), QString("Could not create image from \"%1notExisting.svg\"").arg(path));
+    QCOMPARE(logMessages.at(1), QString("Could not create image from \"%1./notExisting.svg\"").arg(path));
+    QCOMPARE(logMessages.at(2), QString("Could not create image from \"%1../notExisting.svg\"").arg(path));
+    QCOMPARE(logMessages.at(3), QString("Could not create image from \"%1notExisting.svg\"").arg(QDir::rootPath()));
+    QCOMPARE(logMessages.at(4), QLatin1String("Could not create image from \":/notExisting.svg\""));
+    QCOMPARE(logMessages.at(5), QLatin1String("Could not create image from \"qrc:///notExisting.svg\""));
+    QCOMPARE(logMessages.at(6), QLatin1String("Could not create image from \"file:///notExisting.svg\""));
+    QCOMPARE(logMessages.at(7), QLatin1String("Could not create image from \"http://qt.io/notExisting.svg\""));
+
+    logMessages.clear();
 }
 
 

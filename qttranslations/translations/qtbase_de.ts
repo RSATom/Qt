@@ -40,6 +40,20 @@
     </message>
 </context>
 <context>
+    <name>Print Device Input Slot</name>
+    <message>
+        <source>Automatic</source>
+        <translation>Automatisch</translation>
+    </message>
+</context>
+<context>
+    <name>Print Device Output Bin</name>
+    <message>
+        <source>Automatic</source>
+        <translation>Automatisch</translation>
+    </message>
+</context>
+<context>
     <name>QAbstractSocket</name>
     <message>
         <source>Socket operation timed out</source>
@@ -522,6 +536,29 @@ Drücken Sie ESC, um abzubrechen</translation>
     </message>
 </context>
 <context>
+    <name>QCupsPrinterSupport</name>
+    <message>
+        <source>Authentication Needed</source>
+        <translation>Authentifizierung erforderlich</translation>
+    </message>
+    <message>
+        <source>Authentication needed to use %1.</source>
+        <translation>Die Benutzung von %1 erfordert eine Authentifizierung.</translation>
+    </message>
+    <message>
+        <source>Authentication needed to use %1 on %2.</source>
+        <translation>Die Benutzung von %1 auf %2 erfordert eine Authentifizierung.</translation>
+    </message>
+    <message>
+        <source>Username:</source>
+        <translation>Benutzername:</translation>
+    </message>
+    <message>
+        <source>Password:</source>
+        <translation>Passwort:</translation>
+    </message>
+</context>
+<context>
     <name>QDB2Driver</name>
     <message>
         <source>Unable to connect</source>
@@ -760,6 +797,133 @@ Drücken Sie ESC, um abzubrechen</translation>
     </message>
 </context>
 <context>
+    <name>QDtls</name>
+    <message>
+        <source>Invalid (empty) secret</source>
+        <translation>Ungültiges (leeres) Secret</translation>
+    </message>
+    <message>
+        <source>Invalid address</source>
+        <translation>Ungültige Adresse</translation>
+    </message>
+    <message>
+        <source>Multicast and broadcast addresses are not supported</source>
+        <translation>Multicast- und Broadcast-Adressen werden nicht unterstützt</translation>
+    </message>
+    <message>
+        <source>Cannot set peer after handshake started</source>
+        <translation>Nach Beginn des Handshake kann keine Gegenseite gesetzt werden</translation>
+    </message>
+    <message>
+        <source>Cannot set verification name after handshake started</source>
+        <translation>Nach Beginn des Handshake kann kein Prüfname gesetzt werden</translation>
+    </message>
+    <message>
+        <source>Cannot set configuration after handshake started</source>
+        <translation>Nach Beginn des Handshake kann keine Konfiguration gesetzt werden</translation>
+    </message>
+    <message>
+        <source>Cannot start/continue handshake, invalid handshake state</source>
+        <translation>Der Handshake kann nicht begonnen oder fortgesetzt werden; er befindet sich in einem ungültigen Zustand</translation>
+    </message>
+    <message>
+        <source>Invalid (nullptr) socket</source>
+        <translation>Ungültiger (nullptr) Socket</translation>
+    </message>
+    <message>
+        <source>To start a handshake, DTLS server requires non-empty datagram (client hello)</source>
+        <translation>Der DTLS-Server verlangt ein nicht-leeres Datagram (client hello), um einen Handshake zu beginnen</translation>
+    </message>
+    <message>
+        <source>Cannot start handshake, already done/in progress</source>
+        <translation>Es kann kein Handshake begonnen werden, da er bereits läuft oder beendet wurde</translation>
+    </message>
+    <message>
+        <source>No handshake in progress, nothing to abort</source>
+        <translation>Es kann nichts abgebrochen werden, da kein Handshake läuft</translation>
+    </message>
+    <message>
+        <source>To start a handshake you must set peer&apos;s address and port first</source>
+        <translation>Adresse und Port der Gegenseite müssen gesetzt werden, um einen Handshake zu beginnen</translation>
+    </message>
+    <message>
+        <source>A valid QUdpSocket and non-empty datagram are needed to continue the handshake</source>
+        <translation>Eine gültige Instanz von QUdpSocket und ein nicht-leeres Datagram sind erforderlich, um den Handshake fortzusetzen</translation>
+    </message>
+    <message>
+        <source>Cannot continue handshake, not in InProgress state</source>
+        <translation>Der Handshake kann nicht fortgesetzt werden, nicht im Status InProgress</translation>
+    </message>
+    <message>
+        <source>Cannot resume, not in VerificationError state</source>
+        <translation>Kann nicht fortsetzen, nicht im Status VerificationError</translation>
+    </message>
+    <message>
+        <source>Cannot send shutdown alert, not encrypted</source>
+        <translation>Es kann keine shutdown Benachrichtigung gesendet werden, fehlende Verschlüsselung</translation>
+    </message>
+    <message>
+        <source>Cannot write a datagram, not in encrypted state</source>
+        <translation>Es kann kein Datagram geschrieben werden, fehlende Verschlüsselung</translation>
+    </message>
+    <message>
+        <source>Cannot read a datagram, not in encrypted state</source>
+        <translation>Es kann kein Datagram gelesen werden, fehlende Verschlüsselung</translation>
+    </message>
+    <message>
+        <source>%1 failed</source>
+        <extracomment>%1: Some function</extracomment>
+        <translation>%1 schlug fehl</translation>
+    </message>
+    <message>
+        <source>Invalid SslMode, SslServerMode or SslClientMode expected</source>
+        <translation>Ungültiger SslMode, es wird SslServerMode oder SslClientMode erwartet</translation>
+    </message>
+    <message>
+        <source>Invalid protocol version, DTLS protocol expected</source>
+        <translation>Ungültige Protokollversion, es wird DTLS-Protokoll erwartet</translation>
+    </message>
+    <message>
+        <source>BIO_ADD_new failed, cannot start handshake</source>
+        <translation>BIO_ADD_new schlug fehl, es kann kein Handshake begonnen werden</translation>
+    </message>
+    <message>
+        <source>Cannot start the handshake, verified client hello expected</source>
+        <translation>Der Handshake kann nicht begonnen werden; es ist ein verifiziertes client hello erforderlich</translation>
+    </message>
+    <message>
+        <source>Error while writing: %1</source>
+        <translation>Beim Schreiben ist ein Fehler aufgetreten: %1</translation>
+    </message>
+    <message>
+        <source>Error while reading: %1</source>
+        <translation>Beim Lesen ist ein Fehler aufgetreten: %1</translation>
+    </message>
+    <message>
+        <source>Peer verification failed</source>
+        <translation>Die Überprüfung der Gegenseite schlug fehl</translation>
+    </message>
+    <message>
+        <source>The DTLS connection has been closed</source>
+        <translation>Die DTLS-Verbindung wurde geschlossen</translation>
+    </message>
+    <message>
+        <source>The DTLS connection has been shutdown</source>
+        <translation>Die DTLS-Verbindung wurde beendet</translation>
+    </message>
+</context>
+<context>
+    <name>QDtlsClientVerifier</name>
+    <message>
+        <source>A valid UDP socket, non-empty datagram, valid address/port were expected</source>
+        <translation>Es werden ein gültiger UDP-Socket, ein nicht leeres Datagram, eine gültige Adresse sowie ein gültiger Port vorausgesetzt</translation>
+    </message>
+    <message>
+        <source>BIO_ADDR_new failed, ignoring client hello</source>
+        <translation>BIO_ADDR_new schlug fehl, die Hello-Nachricht des Client wird ignoriert</translation>
+    </message>
+</context>
+<context>
     <name>QErrorMessage</name>
     <message>
         <source>Debug Message:</source>
@@ -821,12 +985,16 @@ Drücken Sie ESC, um abzubrechen</translation>
         <translation>Die Quelldatei kann nicht entfernt werden</translation>
     </message>
     <message>
+        <source>Cannot open destination file: %1</source>
+        <translation>Die Zieldatei kann nicht geöffnet werden: %1</translation>
+    </message>
+    <message>
         <source>Cannot open %1 for input</source>
         <translation>%1 kann nicht zum Lesen geöffnet werden</translation>
     </message>
     <message>
-        <source>Cannot open for output</source>
-        <translation>Öffnen zum Schreiben fehlgeschlagen</translation>
+        <source>Cannot open for output: %1</source>
+        <translation>Kann nicht zum Schreiben geöffnet werden: %1</translation>
     </message>
     <message>
         <source>Failure to write block</source>
@@ -1095,7 +1263,7 @@ Möchten Sie die Datei trotzdem löschen?</translation>
         <translation>Ungültiger Dateiname</translation>
     </message>
     <message>
-        <source>&lt;b&gt;The name &quot;%1&quot; can not be used.&lt;/b&gt;&lt;p&gt;Try using another name, with fewer characters or no punctuations marks.</source>
+        <source>&lt;b&gt;The name &quot;%1&quot; cannot be used.&lt;/b&gt;&lt;p&gt;Try using another name, with fewer characters or no punctuation marks.</source>
         <translation>&lt;b&gt;Der Name &quot;%1&quot; kann nicht verwendet werden.&lt;/b&gt;&lt;p&gt;Versuchen Sie, die Satzzeichen zu entfernen oder einen kürzeren Namen zu verwenden.</translation>
     </message>
     <message>
@@ -1511,10 +1679,6 @@ Möchten Sie die Datei trotzdem löschen?</translation>
     <message>
         <source>Host not found</source>
         <translation>Host konnte nicht gefunden werden</translation>
-    </message>
-    <message>
-        <source>Unknown error</source>
-        <translation>Unbekannter Fehler</translation>
     </message>
     <message>
         <source>Unknown error (%1)</source>
@@ -2259,12 +2423,13 @@ Möchten Sie die Datei trotzdem löschen?</translation>
         <translation>Details ausblenden...</translation>
     </message>
     <message>
-        <source>&lt;p&gt;Qt is a C++ toolkit for cross-platform application development.&lt;/p&gt;&lt;p&gt;Qt provides single-source portability across all major desktop operating systems. It is also available for embedded Linux and other embedded and mobile operating systems.&lt;/p&gt;&lt;p&gt;Qt is available under three different licensing options designed to accommodate the needs of our various users.&lt;/p&gt;&lt;p&gt;Qt licensed under our commercial license agreement is appropriate for development of proprietary/commercial software where you do not want to share any source code with third parties or otherwise cannot comply with the terms of the GNU LGPL version 3.&lt;/p&gt;&lt;p&gt;Qt licensed under the GNU LGPL version 3 is appropriate for the development of Qt&amp;nbsp;applications provided you can comply with the terms and conditions of the GNU LGPL version 3.&lt;/p&gt;&lt;p&gt;Please see &lt;a href=&quot;http://%2/&quot;&gt;%2&lt;/a&gt; for an overview of Qt licensing.&lt;/p&gt;&lt;p&gt;Copyright (C) %1 The Qt Company Ltd and other contributors.&lt;/p&gt;&lt;p&gt;Qt and the Qt logo are trademarks of The Qt Company Ltd.&lt;/p&gt;&lt;p&gt;Qt is The Qt Company Ltd product developed as an open source project. See &lt;a href=&quot;http://%3/&quot;&gt;%3&lt;/a&gt; for more information.&lt;/p&gt;</source>
-        <translation>&lt;p&gt;Qt is a C++ toolkit for cross-platform application development.&lt;/p&gt;&lt;p&gt;Qt provides single-source portability across all major desktop operating systems. It is also available for embedded Linux and other embedded and mobile operating systems.&lt;/p&gt;&lt;p&gt;Qt is available under three different licensing options designed to accommodate the needs of our various users.&lt;/p&gt;&lt;p&gt;Qt licensed under our commercial license agreement is appropriate for development of proprietary/commercial software where you do not want to share any source code with third parties or otherwise cannot comply with the terms of the GNU LGPL version 3.&lt;/p&gt;&lt;p&gt;Qt licensed under the GNU LGPL version 3 is appropriate for the development of Qt&amp;nbsp;applications provided you can comply with the terms and conditions of the GNU LGPL version 3.&lt;/p&gt;&lt;p&gt;Please see &lt;a href=&quot;http://%2/&quot;&gt;%2&lt;/a&gt; for an overview of Qt licensing.&lt;/p&gt;&lt;p&gt;Copyright (C) %1 The Qt Company Ltd and other contributors.&lt;/p&gt;&lt;p&gt;Qt and the Qt logo are trademarks of The Qt Company Ltd.&lt;/p&gt;&lt;p&gt;Qt is The Qt Company Ltd product developed as an open source project. See &lt;a href=&quot;http://%3/&quot;&gt;%3&lt;/a&gt; for more information.&lt;/p&gt;</translation>
-    </message>
-    <message>
         <source>&lt;h3&gt;About Qt&lt;/h3&gt;&lt;p&gt;This program uses Qt version %1.&lt;/p&gt;</source>
         <translation>&lt;h3&gt;Über Qt&lt;/h3&gt;&lt;p&gt;Dieses Programm verwendet Qt Version %1.&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <source>&lt;p&gt;Qt is a C++ toolkit for cross-platform application development.&lt;/p&gt;&lt;p&gt;Qt provides single-source portability across all major desktop operating systems. It is also available for embedded Linux and other embedded and mobile operating systems.&lt;/p&gt;&lt;p&gt;Qt is available under multiple licensing options designed to accommodate the needs of our various users.&lt;/p&gt;&lt;p&gt;Qt licensed under our commercial license agreement is appropriate for development of proprietary/commercial software where you do not want to share any source code with third parties or otherwise cannot comply with the terms of GNU (L)GPL.&lt;/p&gt;&lt;p&gt;Qt licensed under GNU (L)GPL is appropriate for the development of Qt&amp;nbsp;applications provided you can comply with the terms and conditions of the respective licenses.&lt;/p&gt;&lt;p&gt;Please see &lt;a href=&quot;http://%2/&quot;&gt;%2&lt;/a&gt; for an overview of Qt licensing.&lt;/p&gt;&lt;p&gt;Copyright (C) %1 The Qt Company Ltd and other contributors.&lt;/p&gt;&lt;p&gt;Qt and the Qt logo are trademarks of The Qt Company Ltd.&lt;/p&gt;&lt;p&gt;Qt is The Qt Company Ltd product developed as an open source project. See &lt;a href=&quot;http://%3/&quot;&gt;%3&lt;/a&gt; for more information.&lt;/p&gt;</source>
+        <extracomment>Leave this text untranslated or include a verbatim copy of it below and note that it is the authoritative version in case of doubt.</extracomment>
+        <translation>&lt;p&gt;Qt is a C++ toolkit for cross-platform application development.&lt;/p&gt;&lt;p&gt;Qt provides single-source portability across all major desktop operating systems. It is also available for embedded Linux and other embedded and mobile operating systems.&lt;/p&gt;&lt;p&gt;Qt is available under multiple licensing options designed to accommodate the needs of our various users.&lt;/p&gt;&lt;p&gt;Qt licensed under our commercial license agreement is appropriate for development of proprietary/commercial software where you do not want to share any source code with third parties or otherwise cannot comply with the terms of GNU (L)GPL.&lt;/p&gt;&lt;p&gt;Qt licensed under GNU (L)GPL is appropriate for the development of Qt&amp;nbsp;applications provided you can comply with the terms and conditions of the respective licenses.&lt;/p&gt;&lt;p&gt;Please see &lt;a href=&quot;http://%2/&quot;&gt;%2&lt;/a&gt; for an overview of Qt licensing.&lt;/p&gt;&lt;p&gt;Copyright (C) %1 The Qt Company Ltd and other contributors.&lt;/p&gt;&lt;p&gt;Qt and the Qt logo are trademarks of The Qt Company Ltd.&lt;/p&gt;&lt;p&gt;Qt is The Qt Company Ltd product developed as an open source project. See &lt;a href=&quot;http://%3/&quot;&gt;%3&lt;/a&gt; for more information.&lt;/p&gt;</translation>
     </message>
     <message>
         <source>About Qt</source>
@@ -2702,8 +2867,20 @@ Möchten Sie die Datei trotzdem löschen?</translation>
 <context>
     <name>QPSQLResult</name>
     <message>
+        <source>Query results lost - probably discarded on executing another SQL query.</source>
+        <translation>Die Ergebnisse der Abfrage sind nicht länger verfügbar - wahrscheinlich wurden sie durch Ausführung einer anderen SQL-Abfrage gelöscht.</translation>
+    </message>
+    <message>
         <source>Unable to create query</source>
         <translation>Es konnte keine Abfrage erzeugt werden</translation>
+    </message>
+    <message>
+        <source>Unable to get result</source>
+        <translation>Es kann kein Ergebnis erhalten werden</translation>
+    </message>
+    <message>
+        <source>Unable to send query</source>
+        <translation>Die Abfrage kann nicht gesendet werden</translation>
     </message>
     <message>
         <source>Unable to prepare statement</source>
@@ -3498,6 +3675,22 @@ Möchten Sie die Datei trotzdem löschen?</translation>
         <translation>&amp;Einstellungen &lt;&lt; </translation>
     </message>
     <message>
+        <source>Invalid Pages Definition</source>
+        <translation>Ungültige Seitendefinition</translation>
+    </message>
+    <message>
+        <source>%1 does not follow the correct syntax. Please use &apos;,&apos; to separate ranges and pages, &apos;-&apos; to define ranges and make sure ranges do not intersect with each other.</source>
+        <translation>%1 entspricht nicht der richtigen Schreibweise. Bitte benutzen Sie &apos;,&apos; um Bereiche und Seitennummern voneinander abzugrenzen, &apos;-&apos; um Bereiche festzulegen, und stellen Sie sicher, dass sich die Bereiche nicht überschneiden.</translation>
+    </message>
+    <message>
+        <source>Duplex Settings Conflicts</source>
+        <translation>Widersprüchliche Duplexeinstellungen</translation>
+    </message>
+    <message>
+        <source>There are conflicts in duplex settings. Do you want to fix them?</source>
+        <translation>Die Duplexeinstellungen sind widersprüchlich. Möchten Sie diese korrigieren?</translation>
+    </message>
+    <message>
         <source>Print to File (PDF)</source>
         <translation>In PDF-Datei drucken</translation>
     </message>
@@ -3544,10 +3737,6 @@ Bitte deaktivieren Sie eine der beiden.</translation>
     <message>
         <source>OK</source>
         <translation>OK</translation>
-    </message>
-    <message>
-        <source>Automatic</source>
-        <translation>Automatisch</translation>
     </message>
 </context>
 <context>
@@ -3639,6 +3828,22 @@ Bitte deaktivieren Sie eine der beiden.</translation>
         <source>Job Options</source>
         <translation>Einstellungen zum Druckauftrag</translation>
     </message>
+    <message>
+        <source>Page Setup Conflicts</source>
+        <translation>Widersprüchliche Seiteneinstellungen</translation>
+    </message>
+    <message>
+        <source>There are conflicts in page setup options. Do you want to fix them?</source>
+        <translation>Die Seiteneinstellungen sind widersprüchlich. Möchten Sie diese korrigieren?</translation>
+    </message>
+    <message>
+        <source>Advanced Option Conflicts</source>
+        <translation>Widersprüchliche erweiterte Einstellungen</translation>
+    </message>
+    <message>
+        <source>There are conflicts in some advanced options. Do you want to fix them?</source>
+        <translation>Die erweiterten Einstellungen sind widersprüchlich. Möchten Sie diese korrigieren?</translation>
+    </message>
 </context>
 <context>
     <name>QPrintPropertiesWidget</name>
@@ -3649,6 +3854,14 @@ Bitte deaktivieren Sie eine der beiden.</translation>
     <message>
         <source>Page</source>
         <translation>Seite</translation>
+    </message>
+    <message>
+        <source>Advanced</source>
+        <translation>Erweitert</translation>
+    </message>
+    <message>
+        <source>There are conflicts in some options. Please fix them.</source>
+        <translation>Einige Einstellungen sind widersprüchlich. Bitte korrigieren Sie diese.</translation>
     </message>
 </context>
 <context>
@@ -3736,6 +3949,14 @@ Bitte deaktivieren Sie eine der beiden.</translation>
     <message>
         <source>Page Set:</source>
         <translation>Seiten-Satz:</translation>
+    </message>
+    <message>
+        <source>Pages</source>
+        <translation>Seiten</translation>
+    </message>
+    <message>
+        <source>Specify pages or ranges separated by commas. Ranges are specified by two numbers separated by a hyphen. E.g: 3,5-7,9 prints pages 3, 5, 6, 7 and 9.</source>
+        <translation>Geben Sie die Seiten oder Bereiche durch Kommata getrennt ein. Bereiche werden durch zwei durch einen Bindestrich getrennte Zahlen festgelegt. Beispiel: 3,5-7,9 druckt die Seiten 3, 5, 6, 7 und 9.</translation>
     </message>
 </context>
 <context>
@@ -5720,6 +5941,7 @@ Bitte deaktivieren Sie eine der beiden.</translation>
     </message>
     <message>
         <source>+</source>
+        <extracomment>Key separator in shortcut string</extracomment>
         <translation>+</translation>
     </message>
     <message>
@@ -6233,7 +6455,7 @@ Role of an accessible object</extracomment>
     </message>
     <message>
         <source>The root CA certificate is marked to reject the specified purpose</source>
-        <translation>Das oberste Zertifikat der Zertifizierungsstelle weist diesen Fall auf Grund einer speziellen Kennzeichnung zurück</translation>
+        <translation>Das oberste Zertifikat der Zertifizierungsstelle weist diesen Fall aufgrund einer speziellen Kennzeichnung zurück</translation>
     </message>
     <message>
         <source>The current candidate issuer certificate was rejected because its subject name did not match the issuer name of the current certificate</source>
@@ -6256,6 +6478,50 @@ Role of an accessible object</extracomment>
         <translation>Das Zertifikat der Gegenstelle ist in einer Schwarzen Liste enthalten</translation>
     </message>
     <message>
+        <source>No OCSP status response found</source>
+        <translation>Es wurde keine OCSP-Status-Antwort gefunden</translation>
+    </message>
+    <message>
+        <source>The OCSP status request had invalid syntax</source>
+        <translation>Die OCSP Status-Anforderung hatte eine ungültige Syntax</translation>
+    </message>
+    <message>
+        <source>OCSP response contains an unexpected number of SingleResponse structures</source>
+        <translation>Die OCSP-Antwort enthält eine unerwartete Anzahl von SingleResponse-Strukturen</translation>
+    </message>
+    <message>
+        <source>OCSP responder reached an inconsistent internal state</source>
+        <translation>Der OCSP-Responder ist in einen inkonsistenten internen Zustand gelangt</translation>
+    </message>
+    <message>
+        <source>OCSP responder was unable to return a status for the requested certificate</source>
+        <translation>Der OCSP-Responder konnte keinen Status für das angeforderte Zertifikat zurückgeben</translation>
+    </message>
+    <message>
+        <source>The server requires the client to sign the OCSP request in order to construct a response</source>
+        <translation>Der Server verlangt, dass der Client die OCSP-Anforderung signiert, um eine Antwort zu erstellen</translation>
+    </message>
+    <message>
+        <source>The client is not authorized to request OCSP status from this server</source>
+        <translation>Der Client ist nicht berechtigt, einen OCSP-Status von diesem Server anzufordern</translation>
+    </message>
+    <message>
+        <source>OCSP responder&apos;s identity cannot be verified</source>
+        <translation>Die Identität des OCSP-Responders konnte nicht verifiziert werden</translation>
+    </message>
+    <message>
+        <source>The identity of a certificate in an OCSP response cannot be established</source>
+        <translation>Die Identität eines Zertifikats in einer OCSP-Antwort konnte nicht bestimmt werden</translation>
+    </message>
+    <message>
+        <source>The certificate status response has expired</source>
+        <translation>Die Gültigkeit der Status-Antwort des Zertifikats ist abgelaufen</translation>
+    </message>
+    <message>
+        <source>The certificate&apos;s status is unknown</source>
+        <translation>Der Status des Zertifikats ist unbekannt</translation>
+    </message>
+    <message>
         <source>Unknown error</source>
         <translation>Unbekannter Fehler</translation>
     </message>
@@ -6266,6 +6532,14 @@ Role of an accessible object</extracomment>
     <message>
         <source>unsupported protocol</source>
         <translation>Nicht unterstütztes Protokoll</translation>
+    </message>
+    <message>
+        <source>Error while setting the minimal protocol version</source>
+        <translation>Fehler beim Setzen der minimalen Protokollversion</translation>
+    </message>
+    <message>
+        <source>Error while setting the maximum protocol version</source>
+        <translation>Fehler beim Setzen der maximalen Protokollversion</translation>
     </message>
     <message>
         <source>Invalid or empty cipher list (%1)</source>
@@ -6296,6 +6570,34 @@ Role of an accessible object</extracomment>
         <translation>Elliptische Kurven sind in dieser Version von OpenSSL nicht verfügbar</translation>
     </message>
     <message>
+        <source>Error when setting the OpenSSL configuration (%1)</source>
+        <translation>Fehler beim Setzen der OpenSSL-Konfiguration (%1)</translation>
+    </message>
+    <message>
+        <source>Expecting QByteArray for %1</source>
+        <translation>Es wird der Typ QByteArray für %1 erwartet</translation>
+    </message>
+    <message>
+        <source>An error occurred attempting to set %1 to %2</source>
+        <translation>Beim Setzen von %1 auf %2 trat ein Fehler auf</translation>
+    </message>
+    <message>
+        <source>Wrong value for %1 (%2)</source>
+        <translation>Falscher Wert für %1 (%2)</translation>
+    </message>
+    <message>
+        <source>Unrecognized command %1 = %2</source>
+        <translation>Nicht erkanntes Kommando %1 = %2</translation>
+    </message>
+    <message>
+        <source>SSL_CONF_finish() failed</source>
+        <translation>SSL_CONF_finish() schlug fehl</translation>
+    </message>
+    <message>
+        <source>SSL_CONF_CTX_new() failed</source>
+        <translation>SSL_CONF_CTX_new() schlug fehl</translation>
+    </message>
+    <message>
         <source>OpenSSL version too old, need at least v1.0.2</source>
         <translation>Die verwendete Version von OpenSSL ist zu alt, es muss v1.0.2 oder neuer sein</translation>
     </message>
@@ -6312,6 +6614,18 @@ Role of an accessible object</extracomment>
         <translation>Es konnte keine SSL-Sitzung erzeugt werden: %1</translation>
     </message>
     <message>
+        <source>Server-side QSslSocket does not support OCSP stapling</source>
+        <translation>Der serverseitige QSslSocket unterstützt das Anheften von OCSP nicht</translation>
+    </message>
+    <message>
+        <source>Failed to enable OCSP stapling</source>
+        <translation>Das OCSP-Anheften konnte nicht aktiviert werden</translation>
+    </message>
+    <message>
+        <source>Client-side sockets do not send OCSP responses</source>
+        <translation>Die clientseitigen Sockets senden keine OCSP-Antworten</translation>
+    </message>
+    <message>
         <source>Unable to init SSL Context: %1</source>
         <translation>Der SSL-Kontext konnte nicht initialisiert werden: %1</translation>
     </message>
@@ -6324,6 +6638,26 @@ Role of an accessible object</extracomment>
         <translation>Die Daten konnten nicht entschlüsselt werden: %1</translation>
     </message>
     <message>
+        <source>Failed to decode OCSP response</source>
+        <translation>Die OCSP-Antworten konnten nicht dekodiert werden</translation>
+    </message>
+    <message>
+        <source>Failed to extract basic OCSP response</source>
+        <translation>Es konnte keine grundlegende OCSP-Antwort extrahiert werden</translation>
+    </message>
+    <message>
+        <source>No certificate verification store, cannot verify OCSP response</source>
+        <translation>Es ist kein Store zur Zertifikatsverifikation vorhanden; die OCSP-Antwort kann nicht überprüft werden</translation>
+    </message>
+    <message>
+        <source>Failed to decode a SingleResponse from OCSP status response</source>
+        <translation>Es konnte keine SingleResponse aus der OCSP-Status-Antwort dekodiert werden</translation>
+    </message>
+    <message>
+        <source>Failed to extract &apos;this update time&apos; from the SingleResponse</source>
+        <translation>&apos;this update time&apos; konnte nicht aus der SingleResponse extrahiert werden</translation>
+    </message>
+    <message>
         <source>The TLS/SSL connection has been closed</source>
         <translation>Die TLS/SSL-Verbindung wurde geschlossen</translation>
     </message>
@@ -6334,6 +6668,138 @@ Role of an accessible object</extracomment>
     <message>
         <source>Error during SSL handshake: %1</source>
         <translation>Im Ablauf des SSL-Protokolls ist ein Fehler aufgetreten: %1</translation>
+    </message>
+    <message>
+        <source>DTLS server requires a &apos;VerifyNone&apos; mode with your version of OpenSSL</source>
+        <translation>Der DTLS-Server verlangt für Ihre Version der OpenSSL-Bibliothek den &apos;VerifyNone&apos;-Modus</translation>
+    </message>
+    <message>
+        <source>TLS initialization failed</source>
+        <translation>Die Initialisierung von TLS schlug fehl</translation>
+    </message>
+    <message>
+        <source>Attempted to use an unsupported protocol.</source>
+        <translation>Es wurde versucht, ein nicht unterstütztes Protokoll zu verwenden.</translation>
+    </message>
+    <message>
+        <source>Insufficient memory</source>
+        <translation>Zu wenig Speicher</translation>
+    </message>
+    <message>
+        <source>Internal error</source>
+        <translation>Interner Fehler</translation>
+    </message>
+    <message>
+        <source>An internal handle was invalid</source>
+        <translation>Ein interner Handle war ungültig</translation>
+    </message>
+    <message>
+        <source>An internal token was invalid</source>
+        <translation>Ein internes Token war ungültig</translation>
+    </message>
+    <message>
+        <source>Access denied</source>
+        <translation>Zugriff verweigert</translation>
+    </message>
+    <message>
+        <source>No authority could be contacted for authorization</source>
+        <translation>Es konnte keine Authentifizierungsstelle für eine Autorisierung erreicht werden</translation>
+    </message>
+    <message>
+        <source>No credentials</source>
+        <translation>Keine Zugangsdaten</translation>
+    </message>
+    <message>
+        <source>The target is unknown or unreachable</source>
+        <translation>Das Ziel ist unbekannt oder nicht erreichbar</translation>
+    </message>
+    <message>
+        <source>An unsupported function was requested</source>
+        <translation>Es wurde eine nicht unterstützte Funktion angefordert</translation>
+    </message>
+    <message>
+        <source>The hostname provided does not match the one received from the peer</source>
+        <translation>Der angegebene Hostname entspricht nicht dem der Gegenseite</translation>
+    </message>
+    <message>
+        <source>No common protocol exists between the client and the server</source>
+        <translation>Es gibt kein gemeinsames Protokoll zwischen Client und Server</translation>
+    </message>
+    <message>
+        <source>Unexpected or badly-formatted message received</source>
+        <translation>Die Nachricht ist unerwartet oder in einem fehlerhaften Format</translation>
+    </message>
+    <message>
+        <source>The data could not be encrypted</source>
+        <translation>Die Daten konnten nicht verschlüsselt werden</translation>
+    </message>
+    <message>
+        <source>No cipher suites in common</source>
+        <translation>Keine gemeinsamen Cipher Suites</translation>
+    </message>
+    <message>
+        <source>The credentials were not recognized / Invalid argument</source>
+        <translation>Die Zugangsdaten wurden nicht erkannt / Ungültiges Argument</translation>
+    </message>
+    <message>
+        <source>The message was tampered with, damaged or out of sequence.</source>
+        <translation>Die Nachricht wurde korrumpiert, beschädigt oder erscheint außerhalb der Reihenfolge.</translation>
+    </message>
+    <message>
+        <source>A message was received out of sequence.</source>
+        <translation>Die Nachricht wurde außerhalb der Reihenfolge empfangen.</translation>
+    </message>
+    <message>
+        <source>Unknown error occurred: %1</source>
+        <translation>Es ist ein unbekannter Fehler aufgetreten: %1</translation>
+    </message>
+    <message>
+        <source>Invalid protocol chosen</source>
+        <translation>Es wurde ein ungültiges Protokoll gewählt</translation>
+    </message>
+    <message>
+        <source>The certificate provided cannot be used for a client.</source>
+        <translation>Das bereitgestellte Zertifikat kann nicht für einen Client verwendet werden.</translation>
+    </message>
+    <message>
+        <source>The certificate provided cannot be used for a server.</source>
+        <translation>Das bereitgestellte Zertifikat kann nicht für einen Server verwendet werden.</translation>
+    </message>
+    <message>
+        <source>Server did not accept any certificate we could present.</source>
+        <translation>Der Server hat keines der angegebenen Zertifikate akzeptiert.</translation>
+    </message>
+    <message>
+        <source>Algorithm mismatch</source>
+        <translation>Algorithmen stimmen nicht überein</translation>
+    </message>
+    <message>
+        <source>Handshake failed: %1</source>
+        <translation>Der Handshake schlug fehl: %1</translation>
+    </message>
+    <message>
+        <source>Failed to query the TLS context: %1</source>
+        <translation>Der TLS-Kontext konnte nicht abgefragt werden: %1</translation>
+    </message>
+    <message>
+        <source>Did not get the required attributes for the connection.</source>
+        <translation>Die für die Verbindung erforderlichen Attribute konnten nicht erhalten werden.</translation>
+    </message>
+    <message>
+        <source>Unwanted protocol was negotiated</source>
+        <translation>Es wurde ein unerwünschtes Protokoll ausgehandelt</translation>
+    </message>
+    <message>
+        <source>Renegotiation was unsuccessful: %1</source>
+        <translation>Die Neuverhandlung schlug fehl: %1</translation>
+    </message>
+    <message>
+        <source>Schannel failed to encrypt data: %1</source>
+        <translation>Schannel konnte die Daten nicht verschlüsseln: %1</translation>
+    </message>
+    <message>
+        <source>Cannot provide a certificate with no key</source>
+        <translation>Es kann kein Zertifikat ohne Schlüssel bereitgestellt werden</translation>
     </message>
 </context>
 <context>
@@ -6507,6 +6973,10 @@ Role of an accessible object</extracomment>
     <message>
         <source>Image depth not valid</source>
         <translation>Ungültige Tiefenangabe in Bilddaten</translation>
+    </message>
+    <message>
+        <source>Image size exceeds limit</source>
+        <translation>Das Bild ist zu groß</translation>
     </message>
     <message>
         <source>Could not seek to image read footer</source>
@@ -6702,10 +7172,10 @@ Role of an accessible object</extracomment>
     <message>
         <source>Qt cannot load the direct2d platform plugin because the Direct2D version on this system is too old. The minimum system requirement for this platform plugin is Windows 7 SP1 with Platform Update.
 
-The minimum Direct2D version required is %1.%2.%3.%4. The Direct2D version on this system is %5.%6.%7.%8.</source>
+The minimum Direct2D version required is %1. The Direct2D version on this system is %2.</source>
         <translation>Qt kann das Direct2D-Plattform-Plugin nicht laden, weil die auf dem System installierte Version von Direct2D veraltet ist. Dieses Plattform-Plugin erfordert mindestens Windows 7 SP1 mit Plattform Update.
 
-Die minimal erforderliche Version von Direct2D ist %1.%2.%3.%4. Die auf diesem System installierte Version von Direct2D ist %5.%6.%7.%8.</translation>
+Die minimal erforderliche Version von Direct2D ist %1 Die auf diesem System installierte Version von Direct2D ist %2.</translation>
     </message>
     <message>
         <source>Cannot load direct2d platform plugin</source>

@@ -61,8 +61,6 @@
 #include <QtGui/QImage>
 #include <QtWaylandClient/qtwaylandclientglobal.h>
 
-#include <wayland-client.h>
-
 #include <QtCore/QDebug>
 
 QT_BEGIN_NAMESPACE
@@ -85,7 +83,7 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandAbstractDecoration : public QObject
     Q_DECLARE_PRIVATE(QWaylandAbstractDecoration)
 public:
     QWaylandAbstractDecoration();
-    virtual ~QWaylandAbstractDecoration();
+    ~QWaylandAbstractDecoration() override;
 
     void setWaylandWindow(QWaylandWindow *window);
     QWaylandWindow *waylandWindow() const;
@@ -105,10 +103,12 @@ protected:
 
     void setMouseButtons(Qt::MouseButtons mb);
 
-    void startResize(QWaylandInputDevice *inputDevice,enum wl_shell_surface_resize resize, Qt::MouseButtons buttons);
+    void startResize(QWaylandInputDevice *inputDevice, Qt::Edges edges, Qt::MouseButtons buttons);
     void startMove(QWaylandInputDevice *inputDevice, Qt::MouseButtons buttons);
+    void showWindowMenu(QWaylandInputDevice *inputDevice);
 
     bool isLeftClicked(Qt::MouseButtons newMouseButtonState);
+    bool isRightClicked(Qt::MouseButtons newMouseButtonState);
     bool isLeftReleased(Qt::MouseButtons newMouseButtonState);
 };
 

@@ -6,21 +6,25 @@
 #define SYSTEM_API_DBUS_CRYPTOHOME_DBUS_CONSTANTS_H_
 
 namespace cryptohome {
+
+// Interface exposed by the cryptohome daemon.
+
 const char kCryptohomeInterface[] = "org.chromium.CryptohomeInterface";
 const char kCryptohomeServicePath[] = "/org/chromium/Cryptohome";
 const char kCryptohomeServiceName[] = "org.chromium.Cryptohome";
-// Methods
-const char kCryptohomeAsyncAddKey[] = "AsyncAddKey";
-const char kCryptohomeCheckKey[] = "CheckKey";
+
+// Methods of the |kCryptohomeInterface| interface:
 const char kCryptohomeMigrateKey[] = "MigrateKey";
-const char kCryptohomeRemove[] = "Remove";
+const char kCryptohomeMigrateKeyEx[] = "MigrateKeyEx";
+const char kCryptohomeRemoveEx[] = "RemoveEx";
 const char kCryptohomeGetSystemSalt[] = "GetSystemSalt";
 const char kCryptohomeGetSanitizedUsername[] = "GetSanitizedUsername";
 const char kCryptohomeIsMounted[] = "IsMounted";
 const char kCryptohomeMount[] = "Mount";
 const char kCryptohomeMountGuest[] = "MountGuest";
-const char kCryptohomeMountPublic[] = "MountPublic";
+const char kCryptohomeMountGuestEx[] = "MountGuestEx";
 const char kCryptohomeUnmount[] = "Unmount";
+const char kCryptohomeUnmountEx[] = "UnmountEx";
 const char kCryptohomeTpmIsReady[] = "TpmIsReady";
 const char kCryptohomeTpmIsEnabled[] = "TpmIsEnabled";
 const char kCryptohomeTpmIsOwned[] = "TpmIsOwned";
@@ -32,23 +36,15 @@ const char kCryptohomePkcs11GetTpmTokenInfo[] = "Pkcs11GetTpmTokenInfo";
 const char kCryptohomePkcs11GetTpmTokenInfoForUser[] =
     "Pkcs11GetTpmTokenInfoForUser";
 const char kCryptohomePkcs11IsTpmTokenReady[] = "Pkcs11IsTpmTokenReady";
-const char kCryptohomePkcs11IsTpmTokenReadyForUser[] =
-    "Pkcs11IsTpmTokenReadyForUser";
-const char kCryptohomeAsyncCheckKey[] = "AsyncCheckKey";
 const char kCryptohomeAsyncMigrateKey[] = "AsyncMigrateKey";
 const char kCryptohomeAsyncMount[] = "AsyncMount";
 const char kCryptohomeAsyncMountGuest[] = "AsyncMountGuest";
-const char kCryptohomeAsyncMountPublic[] = "AsyncMountPublic";
 const char kCryptohomeAsyncRemove[] = "AsyncRemove";
 const char kCryptohomeGetStatusString[] = "GetStatusString";
 const char kCryptohomeRemoveTrackedSubdirectories[] =
     "RemoveTrackedSubdirectories";
 const char kCryptohomeAsyncRemoveTrackedSubdirectories[] =
     "AsyncRemoveTrackedSubdirectories";
-const char kCryptohomeDoAutomaticFreeDiskSpaceControl[] =
-    "DoAutomaticFreeDiskSpaceControl";
-const char kCryptohomeAsyncDoAutomaticFreeDiskSpaceControl[] =
-    "AsyncDoAutomaticFreeDiskSpaceControl";
 const char kCryptohomeAsyncDoesUsersExist[] = "AsyncDoesUsersExist";
 const char kCryptohomeInstallAttributesGet[] = "InstallAttributesGet";
 const char kCryptohomeInstallAttributesSet[] = "InstallAttributesSet";
@@ -62,23 +58,26 @@ const char kCryptohomeInstallAttributesIsInvalid[] =
     "InstallAttributesIsInvalid";
 const char kCryptohomeInstallAttributesIsFirstInstall[] =
     "InstallAttributesIsFirstInstall";
-const char kCryptohomeStoreEnrollmentState[] =
-    "StoreEnrollmentState";
-const char kCryptohomeLoadEnrollmentState[] =
-    "LoadEnrollmentState";
 const char kCryptohomeTpmIsAttestationPrepared[] = "TpmIsAttestationPrepared";
 const char kCryptohomeTpmIsAttestationEnrolled[] = "TpmIsAttestationEnrolled";
+const char kCryptohomeTpmAttestationCreateEnrollRequest[] =
+    "TpmAttestationCreateEnrollRequest";
 const char kCryptohomeAsyncTpmAttestationCreateEnrollRequest[] =
     "AsyncTpmAttestationCreateEnrollRequest";
 const char kCryptohomeAsyncTpmAttestationCreateEnrollRequestNew[] =
     "AsyncTpmAttestationCreateEnrollRequestNew";
+const char kCryptohomeTpmAttestationEnroll[] = "TpmAttestationEnroll";
 const char kCryptohomeAsyncTpmAttestationEnroll[] = "AsyncTpmAttestationEnroll";
 const char kCryptohomeAsyncTpmAttestationEnrollNew[] =
     "AsyncTpmAttestationEnrollNew";
+const char kCryptohomeTpmAttestationCreateCertRequest[] =
+    "TpmAttestationCreateCertRequest";
 const char kCryptohomeAsyncTpmAttestationCreateCertRequest[] =
     "AsyncTpmAttestationCreateCertRequest";
 const char kCryptohomeAsyncTpmAttestationCreateCertRequestByProfile[] =
     "AsyncTpmAttestationCreateCertRequestByProfile";
+const char kCryptohomeTpmAttestationFinishCertRequest[] =
+    "TpmAttestationFinishCertRequest";
 const char kCryptohomeAsyncTpmAttestationFinishCertRequest[] =
     "AsyncTpmAttestationFinishCertRequest";
 const char kCryptohomeTpmAttestationDoesKeyExist[] =
@@ -88,8 +87,11 @@ const char kCryptohomeTpmAttestationGetCertificate[] =
 const char kCryptohomeTpmAttestationGetPublicKey[] =
     "TpmAttestationGetPublicKey";
 const char kCryptohomeTpmAttestationRegisterKey[] = "TpmAttestationRegisterKey";
+// TODO(crbug.com/789419): Remove this deprecated API.
 const char kCryptohomeTpmAttestationSignEnterpriseChallenge[] =
     "TpmAttestationSignEnterpriseChallenge";
+const char kCryptohomeTpmAttestationSignEnterpriseVaChallenge[] =
+    "TpmAttestationSignEnterpriseVaChallenge";
 const char kCryptohomeTpmAttestationSignSimpleChallenge[] =
     "TpmAttestationSignSimpleChallenge";
 const char kCryptohomeTpmAttestationGetKeyPayload[] =
@@ -98,7 +100,9 @@ const char kCryptohomeTpmAttestationSetKeyPayload[] =
     "TpmAttestationSetKeyPayload";
 const char kCryptohomeTpmAttestationDeleteKeys[] =
     "TpmAttestationDeleteKeys";
-const char kCryptohomeTpmGetVersion[] = "TpmGetVersion";
+const char kCryptohomeTpmAttestationGetEnrollmentId[] =
+    "TpmAttestationGetEnrollmentId";
+const char kCryptohomeTpmGetVersionStructured[] = "TpmGetVersionStructured";
 const char kCryptohomeGetKeyDataEx[] = "GetKeyDataEx";
 const char kCryptohomeCheckKeyEx[] = "CheckKeyEx";
 const char kCryptohomeMountEx[] = "MountEx";
@@ -124,16 +128,20 @@ const char kCryptohomeSetFirmwareManagementParameters[] =
 const char kCryptohomeRemoveFirmwareManagementParameters[] =
     "RemoveFirmwareManagementParameters";
 const char kCryptohomeMigrateToDircrypto[] = "MigrateToDircrypto";
-const char kCryptohomeMigrateToDircryptoEx[] = "MigrateToDircryptoEx";
 const char kCryptohomeNeedsDircryptoMigration[] = "NeedsDircryptoMigration";
+const char kCryptohomeGetSupportedKeyPolicies[] = "GetSupportedKeyPolicies";
+const char kCryptohomeIsQuotaSupported[] = "IsQuotaSupported";
+const char kCryptohomeGetCurrentSpaceForUid[] = "GetCurrentSpaceForUid";
+const char kCryptohomeGetCurrentSpaceForGid[] = "GetCurrentSpaceForGid";
 
-// Signals
+// Signals of the |kCryptohomeInterface| interface:
 const char kSignalAsyncCallStatus[] = "AsyncCallStatus";
 const char kSignalAsyncCallStatusWithData[] = "AsyncCallStatusWithData";
 const char kSignalTpmInitStatus[] = "TpmInitStatus";
 const char kSignalCleanupUsersRemoved[] = "CleanupUsersRemoved";
 const char kSignalLowDiskSpace[] = "LowDiskSpace";
 const char kSignalDircryptoMigrationProgress[] = "DircryptoMigrationProgress";
+
 // Error code
 enum MountError {
   MOUNT_ERROR_NONE = 0,
@@ -148,6 +156,8 @@ enum MountError {
   MOUNT_ERROR_OLD_ENCRYPTION = 1 << 7,
   // Previous migration attempt was aborted in the middle. Must resume it first.
   MOUNT_ERROR_PREVIOUS_MIGRATION_INCOMPLETE = 1 << 8,
+  // The operation to remove a key failed.
+  MOUNT_ERROR_REMOVE_FAILED = 1 << 9,
   MOUNT_ERROR_RECREATED = 1 << 31,
 };
 // Status code signaled from MigrateToDircrypto().
@@ -162,6 +172,15 @@ enum DircryptoMigrationStatus {
   DIRCRYPTO_MIGRATION_INITIALIZING = 1,
   DIRCRYPTO_MIGRATION_IN_PROGRESS = 2,
 };
+
+// Interface for key delegate service to be used by the cryptohome daemon.
+
+const char kCryptohomeKeyDelegateInterface[] =
+    "org.chromium.CryptohomeKeyDelegateInterface";
+
+// Methods of the |kCryptohomeKeyDelegateInterface| interface:
+const char kCryptohomeKeyDelegateChallengeKey[] = "ChallengeKey";
+
 }  // namespace cryptohome
 
 #endif  // SYSTEM_API_DBUS_CRYPTOHOME_DBUS_CONSTANTS_H_

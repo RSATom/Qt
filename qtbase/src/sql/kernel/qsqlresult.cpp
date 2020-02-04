@@ -386,7 +386,7 @@ const QSqlDriver *QSqlResult::driver() const
 void QSqlResult::setActive(bool active)
 {
     Q_D(QSqlResult);
-    if (active && d->executedQuery.isEmpty())
+    if (active)
         d->executedQuery = d->sql;
 
     d->active = active;
@@ -565,6 +565,14 @@ bool QSqlResult::isForwardOnly() const
     \note Calling setForwardOnly after execution of the query will result
     in unexpected results at best, and crashes at worst.
 
+    \note To make sure the forward-only query completed successfully,
+    the application should check lastError() for an error not only after
+    executing the query, but also after navigating the query results.
+
+    \warning PostgreSQL: While navigating the query results in forward-only
+    mode, do not execute any other SQL command on the same database
+    connection. This will cause the query results to be lost.
+
     \sa isForwardOnly(), fetchNext(), QSqlQuery::setForwardOnly()
 */
 void QSqlResult::setForwardOnly(bool forward)
@@ -682,7 +690,7 @@ void QSqlResult::bindValue(int index, const QVariant& val, QSql::ParamType param
 {
     Q_D(QSqlResult);
     d->binds = PositionalBinding;
-    QList<int>& indexes = d->indexes[d->fieldSerial(index)];
+    QVector<int> &indexes = d->indexes[d->fieldSerial(index)];
     if (!indexes.contains(index))
         indexes.append(index);
     if (d->values.count() <= index)
@@ -709,7 +717,7 @@ void QSqlResult::bindValue(const QString& placeholder, const QVariant& val,
     d->binds = NamedBinding;
     // if the index has already been set when doing emulated named
     // bindings - don't reset it
-    const QList<int> indexes = d->indexes.value(placeholder);
+    const QVector<int> indexes = d->indexes.value(placeholder);
     for (int idx : indexes) {
         if (d->values.count() <= idx)
             d->values.resize(idx + 1);
@@ -756,7 +764,7 @@ QVariant QSqlResult::boundValue(int index) const
 QVariant QSqlResult::boundValue(const QString& placeholder) const
 {
     Q_D(const QSqlResult);
-    QList<int> indexes = d->indexes.value(placeholder);
+    const QVector<int> indexes = d->indexes.value(placeholder);
     return d->values.value(indexes.value(0,-1));
 }
 
@@ -1001,6 +1009,10 @@ bool QSqlResult::nextResult()
     is modified (for example, if you clear it).
 
     \warning The handle can be NULL if the result was not executed yet.
+
+    \warning PostgreSQL: in forward-only mode, the handle of QSqlResult can change
+    after calling fetch(), fetchFirst(), fetchLast(), fetchNext(), fetchPrevious(),
+    nextResult().
 
     The handle returned here is database-dependent, you should query the type
     name of the variant before accessing it.

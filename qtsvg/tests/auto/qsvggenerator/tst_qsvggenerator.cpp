@@ -122,7 +122,7 @@ static void checkFile(const QString &fileName)
     QFile file(fileName);
     QVERIFY(file.open(QIODevice::ReadOnly));
 
-    QFile referenceFile(SRCDIR "referenceSvgs/" + fileName);
+    QFile referenceFile(QFINDTESTDATA("referenceSvgs/" + fileName));
     QVERIFY(referenceFile.open(QIODevice::ReadOnly));
 
     compareWithoutFontInfo(file.readAll(), referenceFile.readAll());

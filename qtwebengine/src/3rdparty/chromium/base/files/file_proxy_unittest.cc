@@ -13,9 +13,10 @@
 #include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -26,7 +27,9 @@ namespace base {
 class FileProxyTest : public testing::Test {
  public:
   FileProxyTest()
-      : file_thread_("FileProxyTestFileThread"),
+      : scoped_task_environment_(
+            test::ScopedTaskEnvironment::MainThreadType::IO),
+        file_thread_("FileProxyTestFileThread"),
         error_(File::FILE_OK),
         bytes_written_(-1),
         weak_factory_(this) {}
@@ -38,26 +41,26 @@ class FileProxyTest : public testing::Test {
 
   void DidFinish(File::Error error) {
     error_ = error;
-    MessageLoop::current()->QuitWhenIdle();
+    RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   void DidCreateOrOpen(File::Error error) {
     error_ = error;
-    MessageLoop::current()->QuitWhenIdle();
+    RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   void DidCreateTemporary(File::Error error,
                           const FilePath& path) {
     error_ = error;
     path_ = path;
-    MessageLoop::current()->QuitWhenIdle();
+    RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   void DidGetFileInfo(File::Error error,
                       const File::Info& file_info) {
     error_ = error;
     file_info_ = file_info;
-    MessageLoop::current()->QuitWhenIdle();
+    RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   void DidRead(File::Error error,
@@ -66,20 +69,21 @@ class FileProxyTest : public testing::Test {
     error_ = error;
     buffer_.resize(bytes_read);
     memcpy(&buffer_[0], data, bytes_read);
-    MessageLoop::current()->QuitWhenIdle();
+    RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   void DidWrite(File::Error error,
                 int bytes_written) {
     error_ = error;
     bytes_written_ = bytes_written;
-    MessageLoop::current()->QuitWhenIdle();
+    RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
  protected:
   void CreateProxy(uint32_t flags, FileProxy* proxy) {
-    proxy->CreateOrOpen(TestPath(), flags, Bind(&FileProxyTest::DidCreateOrOpen,
-                                                weak_factory_.GetWeakPtr()));
+    proxy->CreateOrOpen(
+        TestPath(), flags,
+        BindOnce(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
     RunLoop().Run();
     EXPECT_TRUE(proxy->IsValid());
   }
@@ -91,7 +95,7 @@ class FileProxyTest : public testing::Test {
   const FilePath TestPath() const { return dir_.GetPath().AppendASCII("test"); }
 
   ScopedTempDir dir_;
-  MessageLoopForIO message_loop_;
+  test::ScopedTaskEnvironment scoped_task_environment_;
   Thread file_thread_;
 
   File::Error error_;
@@ -106,7 +110,7 @@ TEST_F(FileProxyTest, CreateOrOpen_Create) {
   FileProxy proxy(file_task_runner());
   proxy.CreateOrOpen(
       TestPath(), File::FLAG_CREATE | File::FLAG_READ,
-      Bind(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
+      BindOnce(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
 
   EXPECT_EQ(File::FILE_OK, error_);
@@ -117,14 +121,14 @@ TEST_F(FileProxyTest, CreateOrOpen_Create) {
 
 TEST_F(FileProxyTest, CreateOrOpen_Open) {
   // Creates a file.
-  base::WriteFile(TestPath(), NULL, 0);
+  base::WriteFile(TestPath(), nullptr, 0);
   ASSERT_TRUE(PathExists(TestPath()));
 
   // Opens the created file.
   FileProxy proxy(file_task_runner());
   proxy.CreateOrOpen(
       TestPath(), File::FLAG_OPEN | File::FLAG_READ,
-      Bind(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
+      BindOnce(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
 
   EXPECT_EQ(File::FILE_OK, error_);
@@ -136,7 +140,7 @@ TEST_F(FileProxyTest, CreateOrOpen_OpenNonExistent) {
   FileProxy proxy(file_task_runner());
   proxy.CreateOrOpen(
       TestPath(), File::FLAG_OPEN | File::FLAG_READ,
-      Bind(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
+      BindOnce(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
   EXPECT_EQ(File::FILE_ERROR_NOT_FOUND, error_);
   EXPECT_FALSE(proxy.IsValid());
@@ -150,7 +154,7 @@ TEST_F(FileProxyTest, CreateOrOpen_AbandonedCreate) {
     FileProxy proxy(file_task_runner());
     proxy.CreateOrOpen(
         TestPath(), File::FLAG_CREATE | File::FLAG_READ,
-        Bind(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
+        BindOnce(&FileProxyTest::DidCreateOrOpen, weak_factory_.GetWeakPtr()));
   }
   RunLoop().Run();
   ThreadRestrictions::SetIOAllowed(prev);
@@ -168,7 +172,7 @@ TEST_F(FileProxyTest, Close) {
   EXPECT_FALSE(base::Move(TestPath(), TestDirPath().AppendASCII("new")));
 #endif
 
-  proxy.Close(Bind(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
+  proxy.Close(BindOnce(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
   EXPECT_EQ(File::FILE_OK, error_);
   EXPECT_FALSE(proxy.IsValid());
@@ -180,9 +184,9 @@ TEST_F(FileProxyTest, Close) {
 TEST_F(FileProxyTest, CreateTemporary) {
   {
     FileProxy proxy(file_task_runner());
-    proxy.CreateTemporary(
-        0 /* additional_file_flags */,
-        Bind(&FileProxyTest::DidCreateTemporary, weak_factory_.GetWeakPtr()));
+    proxy.CreateTemporary(0 /* additional_file_flags */,
+                          BindOnce(&FileProxyTest::DidCreateTemporary,
+                                   weak_factory_.GetWeakPtr()));
     RunLoop().Run();
 
     EXPECT_TRUE(proxy.IsValid());
@@ -191,7 +195,7 @@ TEST_F(FileProxyTest, CreateTemporary) {
 
     // The file should be writable.
     proxy.Write(0, "test", 4,
-                Bind(&FileProxyTest::DidWrite, weak_factory_.GetWeakPtr()));
+                BindOnce(&FileProxyTest::DidWrite, weak_factory_.GetWeakPtr()));
     RunLoop().Run();
     EXPECT_EQ(File::FILE_OK, error_);
     EXPECT_EQ(4, bytes_written_);
@@ -247,7 +251,7 @@ TEST_F(FileProxyTest, GetInfo) {
   FileProxy proxy(file_task_runner());
   CreateProxy(File::FLAG_OPEN | File::FLAG_READ, &proxy);
   proxy.GetInfo(
-      Bind(&FileProxyTest::DidGetFileInfo, weak_factory_.GetWeakPtr()));
+      BindOnce(&FileProxyTest::DidGetFileInfo, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
 
   // Verify.
@@ -262,7 +266,7 @@ TEST_F(FileProxyTest, GetInfo) {
 TEST_F(FileProxyTest, Read) {
   // Setup.
   const char expected_data[] = "bleh";
-  int expected_bytes = arraysize(expected_data);
+  int expected_bytes = base::size(expected_data);
   ASSERT_EQ(expected_bytes,
             base::WriteFile(TestPath(), expected_data, expected_bytes));
 
@@ -270,7 +274,8 @@ TEST_F(FileProxyTest, Read) {
   FileProxy proxy(file_task_runner());
   CreateProxy(File::FLAG_OPEN | File::FLAG_READ, &proxy);
 
-  proxy.Read(0, 128, Bind(&FileProxyTest::DidRead, weak_factory_.GetWeakPtr()));
+  proxy.Read(0, 128,
+             BindOnce(&FileProxyTest::DidRead, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
 
   // Verify.
@@ -286,16 +291,16 @@ TEST_F(FileProxyTest, WriteAndFlush) {
   CreateProxy(File::FLAG_CREATE | File::FLAG_WRITE, &proxy);
 
   const char data[] = "foo!";
-  int data_bytes = arraysize(data);
+  int data_bytes = base::size(data);
   proxy.Write(0, data, data_bytes,
-              Bind(&FileProxyTest::DidWrite, weak_factory_.GetWeakPtr()));
+              BindOnce(&FileProxyTest::DidWrite, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
   EXPECT_EQ(File::FILE_OK, error_);
   EXPECT_EQ(data_bytes, bytes_written_);
 
   // Flush the written data.  (So that the following read should always
   // succeed.  On some platforms it may work with or without this flush.)
-  proxy.Flush(Bind(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
+  proxy.Flush(BindOnce(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
   EXPECT_EQ(File::FILE_OK, error_);
 
@@ -307,8 +312,10 @@ TEST_F(FileProxyTest, WriteAndFlush) {
   }
 }
 
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA)
 // Flaky on Android, see http://crbug.com/489602
+// TODO(crbug.com/851734): Implementation depends on stat, which is not
+// implemented on Fuchsia
 #define MAYBE_SetTimes DISABLED_SetTimes
 #else
 #define MAYBE_SetTimes SetTimes
@@ -322,8 +329,9 @@ TEST_F(FileProxyTest, MAYBE_SetTimes) {
   Time last_accessed_time = Time::Now() - TimeDelta::FromDays(12345);
   Time last_modified_time = Time::Now() - TimeDelta::FromHours(98765);
 
-  proxy.SetTimes(last_accessed_time, last_modified_time,
-                 Bind(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
+  proxy.SetTimes(
+      last_accessed_time, last_modified_time,
+      BindOnce(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
   EXPECT_EQ(File::FILE_OK, error_);
 
@@ -349,8 +357,8 @@ TEST_F(FileProxyTest, SetLength_Shrink) {
   // Run.
   FileProxy proxy(file_task_runner());
   CreateProxy(File::FLAG_OPEN | File::FLAG_WRITE, &proxy);
-  proxy.SetLength(7,
-                  Bind(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
+  proxy.SetLength(
+      7, BindOnce(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
 
   // Verify.
@@ -375,8 +383,8 @@ TEST_F(FileProxyTest, SetLength_Expand) {
   // Run.
   FileProxy proxy(file_task_runner());
   CreateProxy(File::FLAG_OPEN | File::FLAG_WRITE, &proxy);
-  proxy.SetLength(53,
-                  Bind(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
+  proxy.SetLength(
+      53, BindOnce(&FileProxyTest::DidFinish, weak_factory_.GetWeakPtr()));
   RunLoop().Run();
 
   // Verify.

@@ -8,19 +8,26 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_DESKTOP_CAPTURE_CROPPED_DESKTOP_FRAME_H_
-#define WEBRTC_MODULES_DESKTOP_CAPTURE_CROPPED_DESKTOP_FRAME_H_
+#ifndef MODULES_DESKTOP_CAPTURE_CROPPED_DESKTOP_FRAME_H_
+#define MODULES_DESKTOP_CAPTURE_CROPPED_DESKTOP_FRAME_H_
 
-#include "webrtc/modules/desktop_capture/desktop_frame.h"
+#include <memory>
+
+#include "modules/desktop_capture/desktop_frame.h"
+#include "modules/desktop_capture/desktop_geometry.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
+// Creates a DesktopFrame to contain only the area of |rect| in the original
+// |frame|.
+// |frame| should not be nullptr. |rect| is in |frame| coordinate, i.e.
+// |frame|->top_left() does not impact the area of |rect|.
 // Returns nullptr frame if |rect| is not contained by the bounds of |frame|.
-std::unique_ptr<DesktopFrame> CreateCroppedDesktopFrame(
-    std::unique_ptr<DesktopFrame> frame,
-    const DesktopRect& rect);
+std::unique_ptr<DesktopFrame> RTC_EXPORT
+CreateCroppedDesktopFrame(std::unique_ptr<DesktopFrame> frame,
+                          const DesktopRect& rect);
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_DESKTOP_CAPTURE_CROPPED_DESKTOP_FRAME_H_
-
+#endif  // MODULES_DESKTOP_CAPTURE_CROPPED_DESKTOP_FRAME_H_

@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtDeclarative module of the Qt Toolkit.
+** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -94,7 +94,6 @@ public:
     QDistanceField(const QRawFont &font, glyph_t glyph, bool doubleResolution = false);
     QDistanceField(QFontEngine *fontEngine, glyph_t glyph, bool doubleResolution = false);
     QDistanceField(const QPainterPath &path, glyph_t glyph, bool doubleResolution = false);
-    QDistanceField(const QDistanceField &other);
 
     bool isNull() const;
 

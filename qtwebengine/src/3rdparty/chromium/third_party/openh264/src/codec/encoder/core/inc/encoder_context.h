@@ -199,7 +199,7 @@ typedef struct TagWelsEncCtx {
   int32_t           iSliceBufferSize[MAX_DEPENDENCY_LAYER];
 
   bool              bRefOfCurTidIsLtr[MAX_DEPENDENCY_LAYER][MAX_TEMPORAL_LEVEL];
-  uint16_t          uiIdrPicId;           // IDR picture id: [0, 65535], this one is used for LTR
+ // uint16_t          uiIdrPicId;           // IDR picture id: [0, 65535], this one is used for LTR
   int32_t           iMaxSliceCount;// maximal count number of slices for all layers observation
   int16_t           iActiveThreadsNum;      // number of threads active so far
 
@@ -225,9 +225,6 @@ typedef struct TagWelsEncCtx {
   SEncoderStatistics sEncoderStatistics[MAX_DEPENDENCY_LAYER];
   int32_t            iStatisticsLogInterval;
   int64_t            iLastStatisticsLogTs;
-  int64_t            iTotalEncodedBytes[MAX_DEPENDENCY_LAYER];
-  int64_t            iLastStatisticsBytes[MAX_DEPENDENCY_LAYER];
-  int64_t            iLastStatisticsFrameCount[MAX_DEPENDENCY_LAYER];
 
   int32_t iEncoderError;
   WELS_MUTEX mutexEncoderError;
@@ -237,7 +234,7 @@ typedef struct TagWelsEncCtx {
   bool bDependencyRecFlag[MAX_DEPENDENCY_LAYER];
 #endif
   int64_t            uiLastTimestamp;
-
+  uint8_t*           pDynamicBsBuffer[MAX_THREADS_NUM];
 } sWelsEncCtx/*, *PWelsEncCtx*/;
 }
 #endif//sWelsEncCtx_H__

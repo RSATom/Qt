@@ -4,23 +4,17 @@
 
 #include "gpu/config/gpu_driver_bug_workarounds.h"
 
-#include "base/command_line.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/strings/string_split.h"
-#include "gpu/config/gpu_switches.h"
+#include <algorithm>
+
+#include "base/logging.h"
 
 namespace {
-// Process a string of wordaround type IDs (seperated by ',') and set up
-// the corresponding Workaround flags.
-void StringToWorkarounds(const std::string& types,
+// Construct GpuDriverBugWorkarounds from a set of enabled workaround IDs.
+void IntSetToWorkarounds(const std::vector<int32_t>& enabled_workarounds,
                          gpu::GpuDriverBugWorkarounds* workarounds) {
   DCHECK(workarounds);
-  for (const base::StringPiece& piece : base::SplitStringPiece(
-           types, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
-    int number = 0;
-    bool succeed = base::StringToInt(piece, &number);
-    DCHECK(succeed);
-    switch (number) {
+  for (auto ID : enabled_workarounds) {
+    switch (ID) {
 #define GPU_OP(type, name)    \
   case gpu::type:             \
     workarounds->name = true; \
@@ -34,57 +28,54 @@ void StringToWorkarounds(const std::string& types,
   if (workarounds->max_texture_size_limit_4096)
     workarounds->max_texture_size = 4096;
 
-  if (workarounds->max_fragment_uniform_vectors_32)
-    workarounds->max_fragment_uniform_vectors = 32;
-  if (workarounds->max_varying_vectors_16)
-    workarounds->max_varying_vectors = 16;
-  if (workarounds->max_vertex_uniform_vectors_256)
-    workarounds->max_vertex_uniform_vectors = 256;
-
   if (workarounds->max_copy_texture_chromium_size_1048576)
     workarounds->max_copy_texture_chromium_size = 1048576;
   if (workarounds->max_copy_texture_chromium_size_262144)
     workarounds->max_copy_texture_chromium_size = 262144;
 }
 
+GLint LowerMax(GLint max0, GLint max1) {
+  if (max0 > 0 && max1 > 0)
+    return std::min(max0, max1);
+  if (max0 > 0)
+    return max0;
+  return max1;
+}
+
 }  // anonymous namespace
 
 namespace gpu {
 
-GpuDriverBugWorkarounds::GpuDriverBugWorkarounds()
-    :
-#define GPU_OP(type, name) name(false),
-      GPU_DRIVER_BUG_WORKAROUNDS(GPU_OP)
-#undef GPU_OP
-          max_texture_size(0),
-      max_fragment_uniform_vectors(0),
-      max_varying_vectors(0),
-      max_vertex_uniform_vectors(0),
-      max_copy_texture_chromium_size(0) {
-}
+GpuDriverBugWorkarounds::GpuDriverBugWorkarounds() = default;
 
 GpuDriverBugWorkarounds::GpuDriverBugWorkarounds(
-    const base::CommandLine* command_line)
-    :
-#define GPU_OP(type, name) name(false),
-      GPU_DRIVER_BUG_WORKAROUNDS(GPU_OP)
-#undef GPU_OP
-          max_texture_size(0),
-      max_fragment_uniform_vectors(0),
-      max_varying_vectors(0),
-      max_vertex_uniform_vectors(0),
-      max_copy_texture_chromium_size(0) {
-  if (!command_line)
-    return;
-
-  std::string types =
-      command_line->GetSwitchValueASCII(switches::kGpuDriverBugWorkarounds);
-  StringToWorkarounds(types, this);
+    const std::vector<int>& enabled_driver_bug_workarounds) {
+  IntSetToWorkarounds(enabled_driver_bug_workarounds, this);
 }
 
 GpuDriverBugWorkarounds::GpuDriverBugWorkarounds(
     const GpuDriverBugWorkarounds& other) = default;
 
-GpuDriverBugWorkarounds::~GpuDriverBugWorkarounds() {}
+GpuDriverBugWorkarounds::~GpuDriverBugWorkarounds() = default;
+
+std::vector<int32_t> GpuDriverBugWorkarounds::ToIntSet() const {
+  std::vector<int32_t> result;
+#define GPU_OP(type, name) \
+  if (name)                \
+    result.push_back(type);
+  GPU_DRIVER_BUG_WORKAROUNDS(GPU_OP)
+#undef GPU_OP
+  return result;
+}
+
+void GpuDriverBugWorkarounds::Append(const GpuDriverBugWorkarounds& extra) {
+#define GPU_OP(type, name) name |= extra.name;
+  GPU_DRIVER_BUG_WORKAROUNDS(GPU_OP)
+#undef GPU_OP
+
+  max_texture_size = LowerMax(max_texture_size, extra.max_texture_size);
+  max_copy_texture_chromium_size = LowerMax(
+      max_copy_texture_chromium_size, extra.max_copy_texture_chromium_size);
+}
 
 }  // namespace gpu

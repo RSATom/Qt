@@ -10,8 +10,8 @@
 #include "base/macros.h"
 #include "cc/input/touch_action.h"
 #include "content/common/content_export.h"
-#include "content/common/input/input_event_ack_state.h"
-#include "third_party/WebKit/public/platform/WebInputEventResult.h"
+#include "content/public/common/input_event_ack_state.h"
+#include "third_party/blink/public/platform/web_input_event_result.h"
 #include "ui/events/blink/web_input_event_traits.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
@@ -49,13 +49,15 @@ class CONTENT_EXPORT InputHandlerManagerClient {
   // Otherwise |DidOverscroll| will be fired.
   virtual void DidOverscroll(int routing_id,
                              const ui::DidOverscrollParams& params) = 0;
-  virtual void DidStopFlinging(int routing_id) = 0;
+  virtual void DidStartScrollingViewport(int routing_id) = 0;
   virtual void DispatchNonBlockingEventToMainThread(
       int routing_id,
       ui::WebScopedInputEvent event,
       const ui::LatencyInfo& latency_info) = 0;
   virtual void SetWhiteListedTouchAction(int routing_id,
-                                         cc::TouchAction touch_action) = 0;
+                                         cc::TouchAction touch_action,
+                                         uint32_t unique_touch_event_id,
+                                         InputEventAckState ack_state) = 0;
 
  protected:
   InputHandlerManagerClient() {}

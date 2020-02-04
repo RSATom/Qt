@@ -22,9 +22,9 @@ using base::android::ScopedJavaLocalRef;
 
 namespace l10n_util {
 
-jint GetFirstStrongCharacterDirection(JNIEnv* env,
-                                      const JavaParamRef<jclass>& clazz,
-                                      const JavaParamRef<jstring>& string) {
+jint JNI_LocalizationUtils_GetFirstStrongCharacterDirection(
+    JNIEnv* env,
+    const JavaParamRef<jstring>& string) {
   return base::i18n::GetFirstStrongCharacterDirection(
       base::android::ConvertJavaStringToUTF16(env, string));
 }
@@ -64,7 +64,7 @@ std::string GetLocaleComponent(const std::string& locale,
   return result;
 }
 
-ScopedJavaLocalRef<jobject> NewJavaLocale(
+ScopedJavaLocalRef<jobject> JNI_LocalizationUtils_NewJavaLocale(
     JNIEnv* env,
     const std::string& locale) {
   // TODO(wangxianzhu): Use new Locale API once Android supports scripts.
@@ -86,9 +86,9 @@ base::string16 GetDisplayNameForLocale(const std::string& locale,
                                        const std::string& display_locale) {
   JNIEnv* env = base::android::AttachCurrentThread();
   ScopedJavaLocalRef<jobject> java_locale =
-      NewJavaLocale(env, locale);
+      JNI_LocalizationUtils_NewJavaLocale(env, locale);
   ScopedJavaLocalRef<jobject> java_display_locale =
-      NewJavaLocale(env, display_locale);
+      JNI_LocalizationUtils_NewJavaLocale(env, display_locale);
 
   ScopedJavaLocalRef<jstring> java_result(
       Java_LocalizationUtils_getDisplayNameForLocale(env, java_locale,
@@ -96,9 +96,9 @@ base::string16 GetDisplayNameForLocale(const std::string& locale,
   return ConvertJavaStringToUTF16(java_result);
 }
 
-ScopedJavaLocalRef<jstring> GetDurationString(JNIEnv* env,
-                                              const JavaParamRef<jclass>& clazz,
-                                              jlong timeInMillis) {
+ScopedJavaLocalRef<jstring> JNI_LocalizationUtils_GetDurationString(
+    JNIEnv* env,
+    jlong timeInMillis) {
   ScopedJavaLocalRef<jstring> jtime_remaining =
       base::android::ConvertUTF16ToJavaString(
           env,
@@ -106,10 +106,6 @@ ScopedJavaLocalRef<jstring> GetDurationString(JNIEnv* env,
               ui::TimeFormat::FORMAT_REMAINING, ui::TimeFormat::LENGTH_SHORT,
               base::TimeDelta::FromMilliseconds(timeInMillis)));
   return jtime_remaining;
-}
-
-bool RegisterLocalizationUtil(JNIEnv* env) {
-  return RegisterNativesImpl(env);
 }
 
 }  // namespace l10n_util

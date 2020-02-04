@@ -13,7 +13,9 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 
 namespace base {
@@ -75,7 +77,7 @@ FilePathWatcherFSEvents::FilePathWatcherFSEvents()
       weak_factory_(this) {}
 
 FilePathWatcherFSEvents::~FilePathWatcherFSEvents() {
-  DCHECK(!task_runner() || task_runner()->RunsTasksOnCurrentThread());
+  DCHECK(!task_runner() || task_runner()->RunsTasksInCurrentSequence());
   DCHECK(callback_.is_null())
       << "Cancel() must be called before FilePathWatcher is destroyed.";
 }
@@ -110,6 +112,7 @@ void FilePathWatcherFSEvents::Cancel() {
   set_cancelled();
   callback_.Reset();
 
+  ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
   // Switch to the dispatch queue to tear down the event stream. As the queue is
   // owned by |this|, and this method is called from the destructor, execute the
   // block synchronously.
@@ -188,7 +191,7 @@ void FilePathWatcherFSEvents::OnFilePathsChanged(
 void FilePathWatcherFSEvents::DispatchEvents(const std::vector<FilePath>& paths,
                                              const FilePath& target,
                                              const FilePath& resolved_target) {
-  DCHECK(task_runner()->RunsTasksOnCurrentThread());
+  DCHECK(task_runner()->RunsTasksInCurrentSequence());
 
   // Don't issue callbacks after Cancel() has been called.
   if (is_cancelled() || callback_.is_null()) {
@@ -219,9 +222,9 @@ void FilePathWatcherFSEvents::UpdateEventStream(
       NULL, resolved_target_.DirName().value().c_str(),
       kCFStringEncodingMacHFS));
   CFStringRef paths_array[] = { cf_path.get(), cf_dir_path.get() };
-  ScopedCFTypeRef<CFArrayRef> watched_paths(CFArrayCreate(
-      NULL, reinterpret_cast<const void**>(paths_array), arraysize(paths_array),
-      &kCFTypeArrayCallBacks));
+  ScopedCFTypeRef<CFArrayRef> watched_paths(
+      CFArrayCreate(NULL, reinterpret_cast<const void**>(paths_array),
+                    base::size(paths_array), &kCFTypeArrayCallBacks));
 
   FSEventStreamContext context;
   context.version = 0;
@@ -257,7 +260,7 @@ bool FilePathWatcherFSEvents::ResolveTargetPath() {
 }
 
 void FilePathWatcherFSEvents::ReportError(const FilePath& target) {
-  DCHECK(task_runner()->RunsTasksOnCurrentThread());
+  DCHECK(task_runner()->RunsTasksInCurrentSequence());
   if (!callback_.is_null()) {
     callback_.Run(target, true);
   }

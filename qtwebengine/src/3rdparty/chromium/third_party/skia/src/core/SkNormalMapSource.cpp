@@ -11,28 +11,34 @@
 #include "SkLightingShader.h"
 #include "SkMatrix.h"
 #include "SkNormalSource.h"
-#include "SkPM4f.h"
 #include "SkReadBuffer.h"
 #include "SkWriteBuffer.h"
 
 #if SK_SUPPORT_GPU
 #include "GrCoordTransform.h"
-#include "GrSamplerParams.h"
 #include "glsl/GrGLSLFragmentProcessor.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
 #include "SkGr.h"
 
 class NormalMapFP : public GrFragmentProcessor {
 public:
-    static sk_sp<GrFragmentProcessor> Make(sk_sp<GrFragmentProcessor> mapFP,
-                                           const SkMatrix& invCTM) {
-        return sk_sp<GrFragmentProcessor>(new NormalMapFP(std::move(mapFP), invCTM));
+    static std::unique_ptr<GrFragmentProcessor> Make(std::unique_ptr<GrFragmentProcessor> mapFP,
+                                                     const SkMatrix& invCTM) {
+        return std::unique_ptr<GrFragmentProcessor>(new NormalMapFP(std::move(mapFP), invCTM));
     }
 
+    const char* name() const override { return "NormalMapFP"; }
+
+    const SkMatrix& invCTM() const { return fInvCTM; }
+
+    std::unique_ptr<GrFragmentProcessor> clone() const override {
+        return Make(this->childProcessor(0).clone(), fInvCTM);
+    }
+
+private:
     class GLSLNormalMapFP : public GrGLSLFragmentProcessor {
     public:
-        GLSLNormalMapFP()
-            : fColumnMajorInvCTM22{0.0f} {}
+        GLSLNormalMapFP() : fColumnMajorInvCTM22{0.0f} {}
 
         void emitCode(EmitArgs& args) override {
             GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
@@ -40,17 +46,17 @@ public:
 
             // add uniform
             const char* xformUniName = nullptr;
-            fXformUni = uniformHandler->addUniform(kFragment_GrShaderFlag, kMat22f_GrSLType,
+            fXformUni = uniformHandler->addUniform(kFragment_GrShaderFlag, kFloat2x2_GrSLType,
                                                    kDefault_GrSLPrecision, "Xform", &xformUniName);
 
             SkString dstNormalColorName("dstNormalColor");
             this->emitChild(0, &dstNormalColorName, args);
-            fragBuilder->codeAppendf("vec3 normal = normalize(%s.rgb - vec3(0.5));",
+            fragBuilder->codeAppendf("float3 normal = normalize(%s.rgb - float3(0.5));",
                                      dstNormalColorName.c_str());
 
             // If there's no x & y components, return (0, 0, +/- 1) instead to avoid division by 0
             fragBuilder->codeAppend( "if (abs(normal.z) > 0.999) {");
-            fragBuilder->codeAppendf("    %s = normalize(vec4(0.0, 0.0, normal.z, 0.0));",
+            fragBuilder->codeAppendf("    %s = normalize(float4(0.0, 0.0, normal.z, 0.0));",
                     args.fOutputColor);
             // Else, Normalizing the transformed X and Y, while keeping constant both Z and the
             // vector's angle in the XY plane. This maintains the "slope" for the surface while
@@ -58,13 +64,13 @@ public:
             // Here, we call 'scaling factor' the number that must divide the transformed X and Y so
             // that the normal's length remains equal to 1.
             fragBuilder->codeAppend( "} else {");
-            fragBuilder->codeAppendf("    vec2 transformed = %s * normal.xy;",
+            fragBuilder->codeAppendf("    float2 transformed = %s * normal.xy;",
                     xformUniName);
             fragBuilder->codeAppend( "    float scalingFactorSquared = "
                                                  "( (transformed.x * transformed.x) "
                                                    "+ (transformed.y * transformed.y) )"
                                                  "/(1.0 - (normal.z * normal.z));");
-            fragBuilder->codeAppendf("    %s = vec4(transformed*inversesqrt(scalingFactorSquared),"
+            fragBuilder->codeAppendf("    %s = float4(transformed*inversesqrt(scalingFactorSquared),"
                                                    "normal.z, 0.0);",
                     args.fOutputColor);
             fragBuilder->codeAppend( "}");
@@ -96,17 +102,10 @@ public:
     void onGetGLSLProcessorKey(const GrShaderCaps& caps, GrProcessorKeyBuilder* b) const override {
         GLSLNormalMapFP::GenKey(*this, caps, b);
     }
-
-    const char* name() const override { return "NormalMapFP"; }
-
-    const SkMatrix& invCTM() const { return fInvCTM; }
-
-private:
-    NormalMapFP(sk_sp<GrFragmentProcessor> mapFP, const SkMatrix& invCTM)
-            : INHERITED(kNone_OptimizationFlags), fInvCTM(invCTM) {
-        this->registerChildProcessor(mapFP);
-
-        this->initClassID<NormalMapFP>();
+    NormalMapFP(std::unique_ptr<GrFragmentProcessor> mapFP, const SkMatrix& invCTM)
+            : INHERITED(kMappedNormalsFP_ClassID, kNone_OptimizationFlags)
+            , fInvCTM(invCTM) {
+        this->registerChildProcessor(std::move(mapFP));
     }
 
     GrGLSLFragmentProcessor* onCreateGLSLInstance() const override { return new GLSLNormalMapFP; }
@@ -121,9 +120,9 @@ private:
     typedef GrFragmentProcessor INHERITED;
 };
 
-sk_sp<GrFragmentProcessor> SkNormalMapSourceImpl::asFragmentProcessor(
-        const SkShaderBase::AsFPArgs& args) const {
-    sk_sp<GrFragmentProcessor> mapFP = as_SB(fMapShader)->asFragmentProcessor(args);
+std::unique_ptr<GrFragmentProcessor> SkNormalMapSourceImpl::asFragmentProcessor(
+                                                                       const GrFPArgs& args) const {
+    std::unique_ptr<GrFragmentProcessor> mapFP = as_SB(fMapShader)->asFragmentProcessor(args);
     if (!mapFP) {
         return nullptr;
     }
@@ -151,7 +150,7 @@ SkNormalSource::Provider* SkNormalMapSourceImpl::asProvider(const SkShaderBase::
     SkPaint overridePaint {*(rec.fPaint)};
     overridePaint.setAlpha(0xFF);
     SkShaderBase::ContextRec overrideRec(overridePaint, *(rec.fMatrix), rec.fLocalMatrix,
-                                         rec.fPreferredDstType, rec.fDstColorSpace);
+                                         rec.fDstColorType, rec.fDstColorSpace);
 
     auto* context = as_SB(fMapShader)->makeContext(overrideRec, alloc);
     if (!context) {

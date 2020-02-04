@@ -7,6 +7,7 @@
 
 #include <sys/types.h>
 #include "src/globals.h"
+#include "src/third_party/utf8-decoder/utf8-decoder.h"
 #include "src/utils.h"
 /**
  * \file
@@ -27,7 +28,7 @@ const int kMaxMappingSize = 4;
 template <class T, int size = 256>
 class Predicate {
  public:
-  inline Predicate() { }
+  inline Predicate() = default;
   inline bool get(uchar c);
 
  private:
@@ -38,8 +39,12 @@ class Predicate {
     inline CacheEntry()
         : bit_field_(CodePointField::encode(0) | ValueField::encode(0)) {}
     inline CacheEntry(uchar code_point, bool value)
-        : bit_field_(CodePointField::encode(code_point) |
-                     ValueField::encode(value)) {}
+        : bit_field_(
+              CodePointField::encode(CodePointField::kMask & code_point) |
+              ValueField::encode(value)) {
+      DCHECK_IMPLIES((CodePointField::kMask & code_point) != code_point,
+                     code_point == static_cast<uchar>(-1));
+    }
 
     uchar code_point() const { return CodePointField::decode(bit_field_); }
     bool value() const { return ValueField::decode(bit_field_); }
@@ -63,7 +68,7 @@ class Predicate {
 template <class T, int size = 256>
 class Mapping {
  public:
-  inline Mapping() { }
+  inline Mapping() = default;
   inline int get(uchar c, uchar n, uchar* result);
  private:
   friend class Test;
@@ -93,22 +98,20 @@ class UnicodeData {
 
 class Utf16 {
  public:
+  static const int kNoPreviousCharacter = -1;
   static inline bool IsSurrogatePair(int lead, int trail) {
     return IsLeadSurrogate(lead) && IsTrailSurrogate(trail);
   }
   static inline bool IsLeadSurrogate(int code) {
-    if (code == kNoPreviousCharacter) return false;
     return (code & 0xfc00) == 0xd800;
   }
   static inline bool IsTrailSurrogate(int code) {
-    if (code == kNoPreviousCharacter) return false;
     return (code & 0xfc00) == 0xdc00;
   }
 
   static inline int CombineSurrogatePair(uchar lead, uchar trail) {
     return 0x10000 + ((lead & 0x3ff) << 10) + (trail & 0x3ff);
   }
-  static const int kNoPreviousCharacter = -1;
   static const uchar kMaxNonSurrogateCharCode = 0xffff;
   // Encoding a single UTF-16 code unit will produce 1, 2 or 3 bytes
   // of UTF-8 data.  The special case where the unit is a surrogate
@@ -127,9 +130,10 @@ class Utf16 {
   }
 };
 
-
-class Utf8 {
+class V8_EXPORT_PRIVATE Utf8 {
  public:
+  using State = Utf8DfaDecoder::State;
+
   static inline uchar Length(uchar chr, int previous);
   static inline unsigned EncodeOneByte(char* out, uint8_t c);
   static inline unsigned Encode(char* out,
@@ -159,9 +163,9 @@ class Utf8 {
   static inline uchar ValueOf(const byte* str, size_t length, size_t* cursor);
 
   typedef uint32_t Utf8IncrementalBuffer;
-  static uchar ValueOfIncremental(byte next_byte,
+  static uchar ValueOfIncremental(byte next_byte, size_t* cursor, State* state,
                                   Utf8IncrementalBuffer* buffer);
-  static uchar ValueOfIncrementalFinish(Utf8IncrementalBuffer* buffer);
+  static uchar ValueOfIncrementalFinish(State* state);
 
   // Excludes non-characters from the set of valid code points.
   static inline bool IsValidCharacter(uchar c);
@@ -194,9 +198,18 @@ struct V8_EXPORT_PRIVATE WhiteSpace {
   static bool Is(uchar c);
 };
 #endif  // !V8_INTL_SUPPORT
-struct V8_EXPORT_PRIVATE LineTerminator {
-  static bool Is(uchar c);
-};
+
+// LineTerminator:       'JS_Line_Terminator' in point.properties
+// ES#sec-line-terminators lists exactly 4 code points:
+// LF (U+000A), CR (U+000D), LS(U+2028), PS(U+2029)
+V8_INLINE bool IsLineTerminator(uchar c) {
+  return c == 0x000A || c == 0x000D || c == 0x2028 || c == 0x2029;
+}
+
+V8_INLINE bool IsStringLiteralLineTerminator(uchar c) {
+  return c == 0x000A || c == 0x000D;
+}
+
 #ifndef V8_INTL_SUPPORT
 struct ToLowercase {
   static const int kMaxWidth = 3;

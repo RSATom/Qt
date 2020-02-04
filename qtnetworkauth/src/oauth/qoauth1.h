@@ -120,6 +120,9 @@ protected:
     void setup(QNetworkRequest *request,
                const QVariantMap &signingParameters,
                QNetworkAccessManager::Operation operation);
+    void setup(QNetworkRequest *request,
+               const QVariantMap &signingParameters,
+               const QByteArray &operationVerb);
 
     static QByteArray nonce();
     static QByteArray generateAuthorizationHeader(const QVariantMap &oauthParams);

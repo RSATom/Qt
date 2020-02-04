@@ -9,16 +9,20 @@
 #include <string>
 #include <vector>
 
+#include "base/callback_forward.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
-#include "services/service_manager/background/background_service_manager.h"
 #include "services/service_manager/embedder/process_type.h"
-#include "services/service_manager/public/cpp/identity.h"
-#include "services/service_manager/public/cpp/service.h"
 
 namespace base {
-class Value;
+class CommandLine;
 }
+
+namespace service_manager {
+class BackgroundServiceManager;
+class Identity;
+class ZygoteForkDelegate;
+}  // namespace service_manager
 
 namespace content {
 
@@ -26,7 +30,6 @@ class ContentBrowserClient;
 class ContentGpuClient;
 class ContentRendererClient;
 class ContentUtilityClient;
-class ZygoteForkDelegate;
 struct MainFunctionParams;
 
 class CONTENT_EXPORT ContentMainDelegate {
@@ -73,42 +76,32 @@ class CONTENT_EXPORT ContentMainDelegate {
   // want it at all.
   virtual bool DelaySandboxInitialization(const std::string& process_type);
 
-#elif defined(OS_POSIX) && !defined(OS_ANDROID)
+#elif defined(OS_LINUX)
   // Tells the embedder that the zygote process is starting, and allows it to
   // specify one or more zygote delegates if it wishes by storing them in
   // |*delegates|.
   virtual void ZygoteStarting(
-      std::vector<std::unique_ptr<ZygoteForkDelegate>>* delegates);
+      std::vector<std::unique_ptr<service_manager::ZygoteForkDelegate>>*
+          delegates);
 
   // Called every time the zygote process forks.
   virtual void ZygoteForked() {}
-#endif  // OS_MACOSX
+#endif  // defined(OS_LINUX)
 
-  // TODO(vadimt, yiyaoliu): Remove this function once crbug.com/453640 is
-  // fixed.
-  // Returns whether or not profiler recording should be enabled.
-  virtual bool ShouldEnableProfilerRecording();
+  // Fatal errors during initialization are reported by this function, so that
+  // the embedder can implement graceful exit by displaying some message and
+  // returning initialization error code. Default behavior is CHECK(false).
+  virtual int TerminateForFatalInitializationError();
 
   // Overrides the Service Manager process type to use for the currently running
   // process.
   virtual service_manager::ProcessType OverrideProcessType();
-
-  // Creates a service catalog for the Service Manager to use when embedded by
-  // content.
-  virtual std::unique_ptr<base::Value> CreateServiceCatalog();
 
   // Allows the content embedder to adjust arbitrary command line arguments for
   // any service process started by the Service Manager.
   virtual void AdjustServiceProcessCommandLine(
       const service_manager::Identity& identity,
       base::CommandLine* command_line);
-
-  // Indicates if the Service Manager should be terminated in response to a
-  // specific service instance quitting. If this returns |true|, the value in
-  // |*exit_code| will be returned from the Service Manager's process on exit.
-  virtual bool ShouldTerminateServiceManagerOnInstanceQuit(
-      const service_manager::Identity& identity,
-      int* exit_code);
 
   // Allows the embedder to perform arbitrary initialization within the Service
   // Manager process immediately before the Service Manager runs its main loop.
@@ -119,10 +112,27 @@ class CONTENT_EXPORT ContentMainDelegate {
       const base::Closure& quit_closure,
       service_manager::BackgroundServiceManager* service_manager);
 
-  // Allows the embedder to instantiate one of its own embedded services by
-  // name. If the named service is unknown, this should return null.
-  virtual std::unique_ptr<service_manager::Service> CreateEmbeddedService(
-      const std::string& service_name);
+  // Allows the embedder to perform platform-specific initializatioion before
+  // creating the main message loop.
+  virtual void PreCreateMainMessageLoop() {}
+
+  // Returns true if content should create field trials and initialize the
+  // FeatureList instance for this process. Default implementation returns true.
+  // Embedders that need to control when and/or how FeatureList should be
+  // created should override and return false.
+  virtual bool ShouldCreateFeatureList();
+
+  // Allows the embedder to perform its own initialization after content
+  // performed its own and already brought up MessageLoop, TaskScheduler, field
+  // trials and FeatureList (by default).
+  // |is_running_tests| indicates whether it is running in tests.
+  virtual void PostEarlyInitialization(bool is_running_tests) {}
+
+  // Allows the embedder to perform initialization once field trials/FeatureList
+  // initialization has completed if ShouldCreateFeatureList() returns true.
+  // Otherwise, the embedder is responsible for calling this method once feature
+  // list initialization is complete.
+  virtual void PostFieldTrialInitialization() {}
 
  protected:
   friend class ContentClientInitializer;

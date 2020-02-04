@@ -46,6 +46,10 @@ class TestShaderEffect : public QQuickShaderEffect
     Q_PROPERTY(QMatrix4x4 mat4x4 READ mat4x4Read NOTIFY dummyChanged)
 
 public:
+    TestShaderEffect(QQuickItem* parent = nullptr) : QQuickShaderEffect(parent)
+    {
+    }
+
     QMatrix4x4 mat4x4Read() const { return QMatrix4x4(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1); }
     QVariant dummyRead() const { return QVariant(); }
 
@@ -78,6 +82,8 @@ private slots:
     void deleteSourceItem();
     void deleteShaderEffectSource();
     void twoImagesOneShaderEffect();
+
+    void withoutQmlEngine();
 
 private:
     enum PresenceFlags {
@@ -280,7 +286,7 @@ void tst_qquickshadereffect::lookThroughShaderCode()
 void tst_qquickshadereffect::deleteSourceItem()
 {
     // purely to ensure that deleting the sourceItem of a shader doesn't cause a crash
-    QQuickView *view = new QQuickView(0);
+    QQuickView *view = new QQuickView(nullptr);
     view->setSource(QUrl::fromLocalFile(testFile("deleteSourceItem.qml")));
     view->show();
     QVERIFY(QTest::qWaitForWindowExposed(view));
@@ -295,7 +301,7 @@ void tst_qquickshadereffect::deleteSourceItem()
 void tst_qquickshadereffect::deleteShaderEffectSource()
 {
     // purely to ensure that deleting the sourceItem of a shader doesn't cause a crash
-    QQuickView *view = new QQuickView(0);
+    QQuickView *view = new QQuickView(nullptr);
     view->setSource(QUrl::fromLocalFile(testFile("deleteShaderEffectSource.qml")));
     view->show();
     QVERIFY(QTest::qWaitForWindowExposed(view));
@@ -310,7 +316,7 @@ void tst_qquickshadereffect::deleteShaderEffectSource()
 void tst_qquickshadereffect::twoImagesOneShaderEffect()
 {
     // purely to ensure that deleting the sourceItem of a shader doesn't cause a crash
-    QQuickView *view = new QQuickView(0);
+    QQuickView *view = new QQuickView(nullptr);
     view->setSource(QUrl::fromLocalFile(testFile("twoImagesOneShaderEffect.qml")));
     view->show();
     QVERIFY(QTest::qWaitForWindowExposed(view));
@@ -318,6 +324,16 @@ void tst_qquickshadereffect::twoImagesOneShaderEffect()
     QObject *obj = view->rootObject();
     QVERIFY(obj);
     delete view;
+}
+
+void tst_qquickshadereffect::withoutQmlEngine()
+{
+    // using a shader without QML engine used to crash
+    auto window = new QQuickWindow;
+    auto shaderEffect = new TestShaderEffect(window->contentItem());
+    shaderEffect->setVertexShader("");
+    QVERIFY(shaderEffect->isComponentComplete());
+    delete window;
 }
 
 QTEST_MAIN(tst_qquickshadereffect)

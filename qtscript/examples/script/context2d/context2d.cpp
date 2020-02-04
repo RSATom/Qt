@@ -470,7 +470,7 @@ void Context2D::clearRect(qreal x, qreal y, qreal w, qreal h)
 {
     beginPainting();
     m_painter.save();
-    m_painter.setMatrix(m_state.matrix, false);
+    m_painter.setTransform(QTransform(m_state.matrix), false);
     m_painter.setCompositionMode(QPainter::CompositionMode_Source);
     m_painter.fillRect(QRectF(x, y, w, h), QColor(0, 0, 0, 0));
     m_painter.restore();
@@ -483,7 +483,7 @@ void Context2D::fillRect(qreal x, qreal y, qreal w, qreal h)
 {
     beginPainting();
     m_painter.save();
-    m_painter.setMatrix(m_state.matrix, false);
+    m_painter.setTransform(QTransform(m_state.matrix), false);
     m_painter.fillRect(QRectF(x, y, w, h), m_painter.brush());
     m_painter.restore();
     scheduleChange();
@@ -497,7 +497,7 @@ void Context2D::strokeRect(qreal x, qreal y, qreal w, qreal h)
     path.addRect(x, y, w, h);
     beginPainting();
     m_painter.save();
-    m_painter.setMatrix(m_state.matrix, false);
+    m_painter.setTransform(QTransform(m_state.matrix), false);
     m_painter.strokePath(path, m_painter.pen());
     m_painter.restore();
     scheduleChange();
@@ -624,7 +624,7 @@ void Context2D::stroke()
 {
     beginPainting();
     m_painter.save();
-    m_painter.setMatrix(m_state.matrix, false);
+    m_painter.setTransform(QTransform(m_state.matrix), false);
     QPainterPath tmp = m_state.matrix.inverted().map(m_path);
     m_painter.strokePath(tmp, m_painter.pen());
     m_painter.restore();

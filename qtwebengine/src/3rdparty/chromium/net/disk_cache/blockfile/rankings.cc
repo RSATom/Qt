@@ -9,6 +9,8 @@
 #include <limits>
 
 #include "base/macros.h"
+#include "base/process/process.h"
+#include "build/build_config.h"
 #include "net/base/net_export.h"
 #include "net/disk_cache/blockfile/backend_impl.h"
 #include "net/disk_cache/blockfile/disk_format.h"
@@ -16,6 +18,10 @@
 #include "net/disk_cache/blockfile/errors.h"
 #include "net/disk_cache/blockfile/histogram_macros.h"
 #include "net/disk_cache/blockfile/stress_support.h"
+
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
 
 // Provide a BackendImpl object to macros from histogram_macros.h.
 #define CACHE_UMA_BACKEND_IMPL_OBJ backend_
@@ -42,7 +48,7 @@ enum Operation {
 // data on the file header) can be used to finish the operation.
 class Transaction {
  public:
-  // addr is the cache addres of the node being inserted or removed. We want to
+  // addr is the cache address of the node being inserted or removed. We want to
   // avoid having the compiler doing optimizations on when to read or write
   // from user_data because it is the basis of the crash detection. Maybe
   // volatile is not enough for that, but it should be a good hint.
@@ -77,23 +83,11 @@ enum CrashLocation {
   ON_REMOVE_3, ON_REMOVE_4, ON_REMOVE_5, ON_REMOVE_6, ON_REMOVE_7, ON_REMOVE_8
 };
 
-#ifndef NDEBUG
-void TerminateSelf() {
-#if defined(OS_WIN)
-  // Windows does more work on _exit() than we would like, so we force exit.
-  TerminateProcess(GetCurrentProcess(), 0);
-#elif defined(OS_POSIX)
-  // On POSIX, _exit() will terminate the process with minimal cleanup,
-  // and it is cleaner than killing.
-  _exit(0);
-#endif
-}
-#endif  // NDEBUG
-
-// Generates a crash on debug builds, acording to the value of g_rankings_crash.
-// This used by crash_cache.exe to generate unit-test files.
+// Simulates a crash (by exiting the process without graceful shutdown) on debug
+// builds, according to the value of g_rankings_crash. This used by
+// crash_cache.exe to generate unit-test files.
 void GenerateCrash(CrashLocation location) {
-#ifndef NDEBUG
+#if !defined(NDEBUG) && !defined(OS_IOS)
   if (disk_cache::NO_CRASH == disk_cache::g_rankings_crash)
     return;
   switch (location) {
@@ -101,21 +95,21 @@ void GenerateCrash(CrashLocation location) {
       switch (disk_cache::g_rankings_crash) {
         case disk_cache::INSERT_ONE_1:
         case disk_cache::INSERT_LOAD_1:
-          TerminateSelf();
+          base::Process::TerminateCurrentProcessImmediately(0);
         default:
           break;
       }
       break;
     case ON_INSERT_2:
       if (disk_cache::INSERT_EMPTY_1 == disk_cache::g_rankings_crash)
-        TerminateSelf();
+        base::Process::TerminateCurrentProcessImmediately(0);
       break;
     case ON_INSERT_3:
       switch (disk_cache::g_rankings_crash) {
         case disk_cache::INSERT_EMPTY_2:
         case disk_cache::INSERT_ONE_2:
         case disk_cache::INSERT_LOAD_2:
-          TerminateSelf();
+          base::Process::TerminateCurrentProcessImmediately(0);
         default:
           break;
       }
@@ -124,7 +118,7 @@ void GenerateCrash(CrashLocation location) {
       switch (disk_cache::g_rankings_crash) {
         case disk_cache::INSERT_EMPTY_3:
         case disk_cache::INSERT_ONE_3:
-          TerminateSelf();
+          base::Process::TerminateCurrentProcessImmediately(0);
         default:
           break;
       }
@@ -135,37 +129,37 @@ void GenerateCrash(CrashLocation location) {
         case disk_cache::REMOVE_HEAD_1:
         case disk_cache::REMOVE_TAIL_1:
         case disk_cache::REMOVE_LOAD_1:
-          TerminateSelf();
+          base::Process::TerminateCurrentProcessImmediately(0);
         default:
           break;
       }
       break;
     case ON_REMOVE_2:
       if (disk_cache::REMOVE_ONE_2 == disk_cache::g_rankings_crash)
-        TerminateSelf();
+        base::Process::TerminateCurrentProcessImmediately(0);
       break;
     case ON_REMOVE_3:
       if (disk_cache::REMOVE_ONE_3 == disk_cache::g_rankings_crash)
-        TerminateSelf();
+        base::Process::TerminateCurrentProcessImmediately(0);
       break;
     case ON_REMOVE_4:
       if (disk_cache::REMOVE_HEAD_2 == disk_cache::g_rankings_crash)
-        TerminateSelf();
+        base::Process::TerminateCurrentProcessImmediately(0);
       break;
     case ON_REMOVE_5:
       if (disk_cache::REMOVE_TAIL_2 == disk_cache::g_rankings_crash)
-        TerminateSelf();
+        base::Process::TerminateCurrentProcessImmediately(0);
       break;
     case ON_REMOVE_6:
       if (disk_cache::REMOVE_TAIL_3 == disk_cache::g_rankings_crash)
-        TerminateSelf();
+        base::Process::TerminateCurrentProcessImmediately(0);
       break;
     case ON_REMOVE_7:
       switch (disk_cache::g_rankings_crash) {
         case disk_cache::REMOVE_ONE_4:
         case disk_cache::REMOVE_LOAD_2:
         case disk_cache::REMOVE_HEAD_3:
-          TerminateSelf();
+          base::Process::TerminateCurrentProcessImmediately(0);
         default:
           break;
       }
@@ -174,7 +168,7 @@ void GenerateCrash(CrashLocation location) {
       switch (disk_cache::g_rankings_crash) {
         case disk_cache::REMOVE_HEAD_4:
         case disk_cache::REMOVE_LOAD_3:
-          TerminateSelf();
+          base::Process::TerminateCurrentProcessImmediately(0);
         default:
           break;
       }
@@ -221,7 +215,7 @@ void Rankings::Iterator::Reset() {
 
 Rankings::Rankings() : init_(false) {}
 
-Rankings::~Rankings() {}
+Rankings::~Rankings() = default;
 
 bool Rankings::Init(BackendImpl* backend, bool count_lists) {
   DCHECK(!init_);
@@ -326,8 +320,6 @@ void Rankings::Remove(CacheRankingsBlock* node, List list, bool strict) {
   Trace("Remove 0x%x (0x%x 0x%x) l %d", node->address().value(),
         node->Data()->next, node->Data()->prev, list);
   DCHECK(node->HasData());
-  if (strict)
-    InvalidateIterators(node);
 
   Addr next_addr(node->Data()->next);
   Addr prev_addr(node->Data()->prev);
@@ -398,6 +390,9 @@ void Rankings::Remove(CacheRankingsBlock* node, List list, bool strict) {
   GenerateCrash(ON_REMOVE_8);
   node->Store();
   DecrementCounter(list);
+  if (strict)
+    UpdateIteratorsForRemoved(node_value, &next);
+
   UpdateIterators(&next);
   UpdateIterators(&prev);
   backend_->FlushIndex();
@@ -891,8 +886,7 @@ bool Rankings::IsTail(CacheAddr addr, List* list) const {
 // of cache iterators and update all that are pointing to the given node.
 void Rankings::UpdateIterators(CacheRankingsBlock* node) {
   CacheAddr address = node->address().value();
-  for (IteratorList::iterator it = iterators_.begin(); it != iterators_.end();
-       ++it) {
+  for (auto it = iterators_.begin(); it != iterators_.end(); ++it) {
     if (it->first == address && it->second->HasData()) {
       CacheRankingsBlock* other = it->second;
       *other->Data() = *node->Data();
@@ -900,12 +894,14 @@ void Rankings::UpdateIterators(CacheRankingsBlock* node) {
   }
 }
 
-void Rankings::InvalidateIterators(CacheRankingsBlock* node) {
-  CacheAddr address = node->address().value();
-  for (IteratorList::iterator it = iterators_.begin(); it != iterators_.end();
-       ++it) {
-    if (it->first == address)
-      it->second->Discard();
+void Rankings::UpdateIteratorsForRemoved(CacheAddr address,
+                                         CacheRankingsBlock* next) {
+  CacheAddr next_addr = next->address().value();
+  for (auto it = iterators_.begin(); it != iterators_.end(); ++it) {
+    if (it->first == address) {
+      it->first = next_addr;
+      it->second->CopyFrom(next);
+    }
   }
 }
 

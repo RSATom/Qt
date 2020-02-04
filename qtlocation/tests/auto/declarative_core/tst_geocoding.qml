@@ -272,6 +272,14 @@ Item {
         ]
     }
 
+    Plugin {
+        id: extendedPlugin;
+        name: "qmlgeo.test.plugin";
+        allowExperimental: true
+        PluginParameter { name: "finishRequestImmediately"; value: false}
+        PluginParameter { name: "includeExtendedData"; value: true }
+    }
+
     GeocodeModel {id: testModel; plugin: testPlugin2}
     SignalSpy {id: locationsSpy; target: testModel; signalName: "locationsChanged"}
     SignalSpy {id: countSpy; target: testModel; signalName: "countChanged"}
@@ -296,6 +304,9 @@ Item {
 
     GeocodeModel {id: automaticModel; plugin: autoPlugin; query: automaticAddress1; autoUpdate: true}
     SignalSpy {id: automaticLocationsSpy; target: automaticModel; signalName: "locationsChanged"}
+
+    GeocodeModel {id: extendedModel; plugin: extendedPlugin; query: automaticAddress1; autoUpdate: true}
+    SignalSpy {id: extendedLocationsSpy; target: extendedModel; signalName: "locationsChanged"}
 
     TestCase {
         name: "GeocodeModelGeocoding"
@@ -544,6 +555,19 @@ Item {
             automaticModel.query = automaticCoordinate1
             tryCompare(automaticLocationsSpy, "count", 4)
             compare (automaticModel.count, 3)
+        }
+
+        function test_geocode_extended_attributes() {
+            compare (extendedModel.count, 6) // should be something already
+            compare (extendedLocationsSpy.count, 3)
+            compare(extendedModel.get(0).extendedAttributes
+                    ["QGeoCodingManagerEngineTest_locationExtendedAttribute"], 42)
+            // change query and its contents and verify that autoupdate occurs
+            extendedModel.query = automaticCoordinate1
+            tryCompare(extendedLocationsSpy, "count", 4)
+            compare (extendedModel.count, 3)
+            compare(extendedModel.get(0).extendedAttributes
+                    ["QGeoCodingManagerEngineTest_locationExtendedAttribute"], 42)
         }
 
         function test_delayed_geocode() {

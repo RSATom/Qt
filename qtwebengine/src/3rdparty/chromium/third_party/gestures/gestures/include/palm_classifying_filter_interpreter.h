@@ -53,8 +53,9 @@ class PalmClassifyingFilterInterpreter : public FilterInterpreter {
   // pressure required depends on exactly how close to the edge the contact is.
   bool FingerInPalmEnvelope(const FingerState& fs);
 
-  // Returns true iff fs represents a contact that is in the bottom area.
-  bool FingerInBottomArea(const FingerState& fs);
+  // Returns true iff fs represents a contact that is in the bottom area, or
+  // top area if top edge filtering is enabled.
+  bool FingerInFilteredHorizontalEdge(const FingerState& fs);
 
   // Updates *palm_, pointing_ below.
   void UpdatePalmState(const HardwareState& hwstate);
@@ -120,6 +121,9 @@ class PalmClassifyingFilterInterpreter : public FilterInterpreter {
   DoubleProperty palm_pressure_;
   // Maximum width_major above which a finger is considered a palm
   DoubleProperty palm_width_;
+  // Maximum width_major above which a finger is considered a palm if there are
+  // other contacts
+  DoubleProperty multi_palm_width_;
   // If a finger was previously classified as palm, but its lifetime max
   // pressure is less than palm_pressure_ * fat_finger_pressure_ratio_,
   // lifetime max width is less than palm_width_ * fat_finger_width_ratio_,
@@ -154,6 +158,8 @@ class PalmClassifyingFilterInterpreter : public FilterInterpreter {
   // high enough to identify the palm.  If two fingers on the edge of the pad
   // are closer together than this value, then they are likely a split palm.
   DoubleProperty palm_split_max_distance_;
+  // Determines whether we look for palms at the top edge of the touchpad.
+  BoolProperty filter_top_edge_;
 
   DISALLOW_COPY_AND_ASSIGN(PalmClassifyingFilterInterpreter);
 };

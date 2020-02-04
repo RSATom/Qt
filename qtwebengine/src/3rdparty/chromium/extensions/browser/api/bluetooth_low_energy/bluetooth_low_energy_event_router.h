@@ -19,6 +19,7 @@
 #include "base/scoped_observer.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_device.h"
+#include "device/bluetooth/bluetooth_gatt_characteristic.h"
 #include "device/bluetooth/bluetooth_gatt_connection.h"
 #include "device/bluetooth/bluetooth_gatt_notify_session.h"
 #include "device/bluetooth/bluetooth_local_gatt_service.h"
@@ -120,7 +121,7 @@ class BluetoothLowEnergyEventRouter
   // it and invokes |callback|. Until the first successful call to this method,
   // none of the methods in this class will succeed and no device::Bluetooth*
   // API events will be observed.
-  bool InitializeAdapterAndInvokeCallback(const base::Closure& callback);
+  bool InitializeAdapterAndInvokeCallback(base::OnceClosure callback);
 
   // Returns true, if the BluetoothAdapter was initialized.
   bool HasAdapter() const;
@@ -318,6 +319,14 @@ class BluetoothLowEnergyEventRouter
       int offset,
       const base::Closure& callback,
       const Delegate::ErrorCallback& error_callback) override;
+  void OnCharacteristicPrepareWriteRequest(
+      const device::BluetoothDevice* device,
+      const device::BluetoothLocalGattCharacteristic* characteristic,
+      const std::vector<uint8_t>& value,
+      int offset,
+      bool has_subsequent_request,
+      const base::Closure& callback,
+      const Delegate::ErrorCallback& error_callback) override;
   void OnDescriptorReadRequest(
       const device::BluetoothDevice* device,
       const device::BluetoothLocalGattDescriptor* descriptor,
@@ -333,6 +342,7 @@ class BluetoothLowEnergyEventRouter
       const Delegate::ErrorCallback& error_callback) override;
   void OnNotificationsStart(
       const device::BluetoothDevice* device,
+      device::BluetoothGattCharacteristic::NotificationType notification_type,
       const device::BluetoothLocalGattCharacteristic* characteristic) override;
   void OnNotificationsStop(
       const device::BluetoothDevice* device,
@@ -381,7 +391,7 @@ class BluetoothLowEnergyEventRouter
 
  private:
   // Called by BluetoothAdapterFactory.
-  void OnGetAdapter(const base::Closure& callback,
+  void OnGetAdapter(base::OnceClosure callback,
                     scoped_refptr<device::BluetoothAdapter> adapter);
 
   // Initializes the identifier for all existing GATT objects and devices.

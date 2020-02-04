@@ -9,12 +9,11 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
-#include "cc/output/overlay_strategy_fullscreen.h"
-#include "cc/output/overlay_strategy_single_on_top.h"
-#include "cc/output/overlay_strategy_underlay.h"
-#include "cc/output/overlay_strategy_underlay_cast.h"
+#include "components/viz/service/display/overlay_strategy_fullscreen.h"
+#include "components/viz/service/display/overlay_strategy_single_on_top.h"
+#include "components/viz/service/display/overlay_strategy_underlay.h"
+#include "components/viz/service/display/overlay_strategy_underlay_cast.h"
 #include "ui/ozone/public/overlay_candidates_ozone.h"
 
 namespace viz {
@@ -22,16 +21,16 @@ namespace {
 // Templated function used to create an OverlayProcessor::Strategy
 // of type |S|.
 template <typename S>
-std::unique_ptr<cc::OverlayProcessor::Strategy> MakeOverlayStrategy(
+std::unique_ptr<OverlayProcessor::Strategy> MakeOverlayStrategy(
     CompositorOverlayCandidateValidatorOzone* capability_checker) {
-  return base::MakeUnique<S>(capability_checker);
+  return std::make_unique<S>(capability_checker);
 }
 
 }  // namespace
 
 // |overlay_candidates| is an object used to answer questions about possible
-// overlays configuarations.
-// |strategies_string| is a comma-separated string containing all the overaly
+// overlays configurations.
+// |strategies_string| is a comma-separated string containing all the overlay
 // strategies that should be returned by GetStrategies.
 // If |strategies_string| is empty "single-on-top,underlay" will be used as
 // default.
@@ -49,16 +48,16 @@ CompositorOverlayCandidateValidatorOzone::
                               base::SPLIT_WANT_NONEMPTY)) {
     if (strategy_name == "single-fullscreen") {
       strategies_instantiators_.push_back(
-          base::Bind(MakeOverlayStrategy<cc::OverlayStrategyFullscreen>));
+          base::BindRepeating(MakeOverlayStrategy<OverlayStrategyFullscreen>));
     } else if (strategy_name == "single-on-top") {
       strategies_instantiators_.push_back(
-          base::Bind(MakeOverlayStrategy<cc::OverlayStrategySingleOnTop>));
+          base::BindRepeating(MakeOverlayStrategy<OverlayStrategySingleOnTop>));
     } else if (strategy_name == "underlay") {
       strategies_instantiators_.push_back(
-          base::Bind(MakeOverlayStrategy<cc::OverlayStrategyUnderlay>));
+          base::BindRepeating(MakeOverlayStrategy<OverlayStrategyUnderlay>));
     } else if (strategy_name == "cast") {
-      strategies_instantiators_.push_back(
-          base::Bind(MakeOverlayStrategy<cc::OverlayStrategyUnderlayCast>));
+      strategies_instantiators_.push_back(base::BindRepeating(
+          MakeOverlayStrategy<OverlayStrategyUnderlayCast>));
     } else {
       LOG(WARNING) << "Unrecognized overlay strategy " << strategy_name;
     }
@@ -69,7 +68,7 @@ CompositorOverlayCandidateValidatorOzone::
     ~CompositorOverlayCandidateValidatorOzone() {}
 
 void CompositorOverlayCandidateValidatorOzone::GetStrategies(
-    cc::OverlayProcessor::StrategyList* strategies) {
+    OverlayProcessor::StrategyList* strategies) {
   for (auto& instantiator : strategies_instantiators_)
     strategies->push_back(instantiator.Run(this));
 }
@@ -83,7 +82,7 @@ bool CompositorOverlayCandidateValidatorOzone::AllowDCLayerOverlays() {
 }
 
 void CompositorOverlayCandidateValidatorOzone::CheckOverlaySupport(
-    cc::OverlayCandidateList* surfaces) {
+    OverlayCandidateList* surfaces) {
   // SW mirroring copies out of the framebuffer, so we can't remove any
   // quads for overlaying, otherwise the output is incorrect.
   if (software_mirror_active_) {

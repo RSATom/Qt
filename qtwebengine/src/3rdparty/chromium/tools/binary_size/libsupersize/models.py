@@ -24,6 +24,8 @@ Description of common properties:
         are removed from both full_name and name during normalization).
   * section_name: E.g. ".text", ".rodata", ".data.rel.local"
   * section: The second character of |section_name|. E.g. "t", "r", "d".
+  * component: The team that owns this feature.
+        Never None, but will be '' when no component exists.
 """
 
 import collections
@@ -36,119 +38,218 @@ import match_util
 
 METADATA_GIT_REVISION = 'git_revision'
 METADATA_APK_FILENAME = 'apk_file_name'  # Path relative to output_directory.
+METADATA_APK_SIZE = 'apk_size'  # File size of apk in bytes.
 METADATA_MAP_FILENAME = 'map_file_name'  # Path relative to output_directory.
 METADATA_ELF_ARCHITECTURE = 'elf_arch'  # "Machine" field from readelf -h
 METADATA_ELF_FILENAME = 'elf_file_name'  # Path relative to output_directory.
 METADATA_ELF_MTIME = 'elf_mtime'  # int timestamp in utc.
 METADATA_ELF_BUILD_ID = 'elf_build_id'
 METADATA_GN_ARGS = 'gn_args'
+METADATA_LINKER_NAME = 'linker_name'
 METADATA_TOOL_PREFIX = 'tool_prefix'  # Path relative to SRC_ROOT.
 
-
-SECTION_TO_SECTION_NAME = {
-    'b': '.bss',
-    'd': '.data',
-    'r': '.rodata',
-    't': '.text',
-}
+# New sections should also be added to the SuperSize UI.
+SECTION_BSS = '.bss'
+SECTION_DATA = '.data'
+SECTION_DATA_REL_RO = '.data.rel.ro'
+SECTION_DATA_REL_RO_LOCAL = '.data.rel.ro.local'
+SECTION_DEX = '.dex'
+SECTION_DEX_METHOD = '.dex.method'
+SECTION_OTHER = '.other'
+SECTION_PAK_NONTRANSLATED = '.pak.nontranslated'
+SECTION_PAK_TRANSLATIONS = '.pak.translations'
+SECTION_RODATA = '.rodata'
+SECTION_TEXT = '.text'
 # Used by SymbolGroup when they contain a mix of sections.
-SECTION_NAME_MULTIPLE = '.*'
+SECTION_MULTIPLE = '.*'
 
+APK_PREFIX_PATH = '$APK'
+
+DEX_SECTIONS = (
+    SECTION_DEX,
+    SECTION_DEX_METHOD,
+)
+NATIVE_SECTIONS = (
+    SECTION_BSS,
+    SECTION_DATA,
+    SECTION_DATA_REL_RO,
+    SECTION_DATA_REL_RO_LOCAL,
+    SECTION_RODATA,
+    SECTION_TEXT,
+)
+PAK_SECTIONS = (
+    SECTION_PAK_NONTRANSLATED,
+    SECTION_PAK_TRANSLATIONS,
+)
+
+SECTION_NAME_TO_SECTION = {
+    SECTION_BSS: 'b',
+    SECTION_DATA: 'd',
+    SECTION_DATA_REL_RO_LOCAL: 'R',
+    SECTION_DATA_REL_RO: 'R',
+    SECTION_DEX: 'x',
+    SECTION_DEX_METHOD: 'm',
+    SECTION_OTHER: 'o',
+    SECTION_PAK_NONTRANSLATED: 'P',
+    SECTION_PAK_TRANSLATIONS: 'p',
+    SECTION_RODATA: 'r',
+    SECTION_TEXT: 't',
+    SECTION_MULTIPLE: '*',
+}
+
+SECTION_TO_SECTION_NAME = collections.OrderedDict((
+    ('t', SECTION_TEXT),
+    ('r', SECTION_RODATA),
+    ('R', SECTION_DATA_REL_RO),
+    ('d', SECTION_DATA),
+    ('b', SECTION_BSS),
+    ('x', SECTION_DEX),
+    ('m', SECTION_DEX_METHOD),
+    ('p', SECTION_PAK_TRANSLATIONS),
+    ('P', SECTION_PAK_NONTRANSLATED),
+    ('o', SECTION_OTHER),
+))
+
+
+# Relevant for native symbols. All anonymous:: namespaces are removed during
+# name normalization. This flag means that the name had one or more anonymous::
+# namespaces stripped from it.
 FLAG_ANONYMOUS = 1
+# Relevant for .text symbols. The actual symbol name had a "startup." prefix on
+# it, which was removed by name normalization.
 FLAG_STARTUP = 2
+# Relevant for .text symbols. The actual symbol name had a "unlikely." prefix on
+# it, which was removed by name normalization.
 FLAG_UNLIKELY = 4
+# Relevant to .data & .rodata symbols. The actual symbol name had a "rel."
+# prefix on it, which was removed by name normalization.
 FLAG_REL = 8
+# Relevant to .data & .rodata symbols. The actual symbol name had a "rel.local."
+# prefix on it, which was removed by name normalization.
 FLAG_REL_LOCAL = 16
+# The source path did not have the usual "../.." prefix, but instead had a
+# prefix of "gen", meaning that the symbol is from a source file that was
+# generated during the build (the "gen" prefix is removed during normalization).
 FLAG_GENERATED_SOURCE = 32
+# Relevant for .text symbols. The actual symbol name had a " [clone .####]"
+# suffix, which was removed by name normalization. Cloned symbols are created by
+# compiler optimizations (e.g. partial inlining).
 FLAG_CLONE = 64
+# Relevant for .text symbols. The actual symbol name had a "hot." prefix on it,
+# which was removed by name normalization. Occurs when an AFDO profile is
+# supplied to the linker.
+FLAG_HOT = 128
+# Relevant for .text symbols. If a method has this flag, then it was run
+# according to the code coverage.
+FLAG_COVERED = 256
+# Relevant for non-locale .pak symbols. Indicates a pak entry is stored
+# uncompressed.
+FLAG_UNCOMPRESSED = 512
+
 
 DIFF_STATUS_UNCHANGED = 0
 DIFF_STATUS_CHANGED = 1
 DIFF_STATUS_ADDED = 2
 DIFF_STATUS_REMOVED = 3
 DIFF_PREFIX_BY_STATUS = ['= ', '~ ', '+ ', '- ']
+DIFF_COUNT_DELTA = [0, 0, 1, -1]
 
 
-class SizeInfo(object):
-  """Represents all size information for a single binary.
+STRING_LITERAL_NAME = 'string literal'
+
+
+class BaseSizeInfo(object):
+  """Base class for SizeInfo and DeltaSizeInfo.
 
   Fields:
     section_sizes: A dict of section_name -> size.
     raw_symbols: A SymbolGroup containing all top-level symbols (no groups).
-    symbols: A SymbolGroup where symbols have been grouped by full_name (where
-        applicable). May be re-assigned when it is desirable to show custom
-        groupings while still printing metadata and section_sizes.
+    symbols: A SymbolGroup of all symbols, where symbols have been
+        grouped by full_name (where applicable). May be re-assigned when it is
+        desirable to show custom groupings while still printing metadata and
+        section_sizes.
+    native_symbols: Subset of |symbols| that are from native code.
+    pak_symbols: Subset of |symbols| that are from pak files.
+  """
+  __slots__ = (
+      'section_sizes',
+      'raw_symbols',
+      '_symbols',
+      '_native_symbols',
+      '_pak_symbols',
+  )
+
+  def __init__(self, section_sizes, raw_symbols, symbols=None):
+    if isinstance(raw_symbols, list):
+      raw_symbols = SymbolGroup(raw_symbols)
+    self.section_sizes = section_sizes  # E.g. {SECTION_TEXT: 0}
+    self.raw_symbols = raw_symbols
+    self._symbols = symbols
+    self._native_symbols = None
+    self._pak_symbols = None
+
+  @property
+  def symbols(self):
+    if self._symbols is None:
+      logging.debug('Clustering symbols')
+      self._symbols = self.raw_symbols._Clustered()
+      logging.debug('Done clustering symbols')
+    return self._symbols
+
+  @symbols.setter
+  def symbols(self, value):
+    self._symbols = value
+
+  @property
+  def native_symbols(self):
+    if self._native_symbols is None:
+      # Use self.symbols rather than raw_symbols here so that _Clustered()
+      # is not performed twice (slow) if accessing both properties.
+      self._native_symbols = self.symbols.WhereIsNative()
+    return self._native_symbols
+
+  @property
+  def pak_symbols(self):
+    if self._pak_symbols is None:
+      self._pak_symbols = self.raw_symbols.WhereIsPak()
+    return self._pak_symbols
+
+
+class SizeInfo(BaseSizeInfo):
+  """Represents all size information for a single binary.
+
+  Fields:
     metadata: A dict.
     size_path: Path to .size file this was loaded from (or None).
   """
   __slots__ = (
-      'section_sizes',
-      'raw_symbols',
-      '_symbols',
       'metadata',
       'size_path',
   )
 
-  """Root size information."""
   def __init__(self, section_sizes, raw_symbols, metadata=None, symbols=None,
                size_path=None):
-    if isinstance(raw_symbols, list):
-      raw_symbols = SymbolGroup(raw_symbols)
-    self.section_sizes = section_sizes  # E.g. {'.text': 0}
-    self.raw_symbols = raw_symbols
-    self._symbols = symbols
+    super(SizeInfo, self).__init__(section_sizes, raw_symbols, symbols=symbols)
     self.metadata = metadata or {}
     self.size_path = size_path
 
-  @property
-  def symbols(self):
-    if self._symbols is None:
-      self._symbols = self.raw_symbols._Clustered()
-    return self._symbols
 
-  @symbols.setter
-  def symbols(self, value):
-    self._symbols = value
-
-
-class DeltaSizeInfo(object):
+class DeltaSizeInfo(BaseSizeInfo):
   """What you get when you Diff() two SizeInfo objects.
 
   Fields:
-    section_sizes: A dict of section_name -> size delta.
-    raw_symbols: A DeltaSymbolGroup with all top-level symbols in it
-        (no groups).
-    symbols: A DeltaSymbolGroup where symbols have been grouped by full_name
-        (where applicable). May be re-assigned when it is desirable to show
-        custom groupings while still printing metadata and section_sizes.
-    before_metadata: metadata of the "before" SizeInfo.
-    after_metadata: metadata of the "after" SizeInfo.
+    before: SizeInfo for "before".
+    after: SizeInfo for "after".
   """
   __slots__ = (
-      'section_sizes',
-      'raw_symbols',
-      '_symbols',
-      'before_metadata',
-      'after_metadata',
+      'before',
+      'after',
   )
 
-  def __init__(self, section_sizes, raw_symbols, before_metadata,
-               after_metadata):
-    self.section_sizes = section_sizes
-    self.raw_symbols = raw_symbols
-    self.before_metadata = before_metadata
-    self.after_metadata = after_metadata
-    self._symbols = None
-
-  @property
-  def symbols(self):
-    if self._symbols is None:
-      self._symbols = self.raw_symbols._Clustered()
-    return self._symbols
-
-  @symbols.setter
-  def symbols(self, value):
-    self._symbols = value
+  def __init__(self, before, after, section_sizes, raw_symbols):
+    super(DeltaSizeInfo, self).__init__(section_sizes, raw_symbols)
+    self.before = before
+    self.after = after
 
 
 class BaseSymbol(object):
@@ -160,11 +261,8 @@ class BaseSymbol(object):
 
   @property
   def section(self):
-    """Returns the one-letter section.
-
-    E.g. If section_name == '.rodata', then section == 'r'.
-    """
-    return self.section_name[1]
+    """Returns the one-letter section."""
+    return SECTION_NAME_TO_SECTION[self.section_name]
 
   @property
   def size_without_padding(self):
@@ -213,10 +311,31 @@ class BaseSymbol(object):
       parts.append('gen')
     if flags & FLAG_CLONE:
       parts.append('clone')
+    if flags & FLAG_HOT:
+      parts.append('hot')
+    if flags & FLAG_COVERED:
+      parts.append('covered')
+    if flags & FLAG_UNCOMPRESSED:
+      parts.append('uncompressed')
     return '{%s}' % ','.join(parts)
 
   def IsBss(self):
-    return self.section_name == '.bss'
+    return self.section_name == SECTION_BSS
+
+  def IsDex(self):
+    return self.section_name in DEX_SECTIONS
+
+  def IsOther(self):
+    return self.section_name == SECTION_OTHER
+
+  def IsPak(self):
+    return self.section_name in PAK_SECTIONS
+
+  def IsNative(self):
+    return self.section_name in NATIVE_SECTIONS
+
+  def IsOverhead(self):
+    return self.full_name.startswith('Overhead: ')
 
   def IsGroup(self):
     return False
@@ -227,6 +346,12 @@ class BaseSymbol(object):
   def IsGeneratedByToolchain(self):
     return '.' in self.name or (
         self.name.endswith(']') and not self.name.endswith('[]'))
+
+  def IsStringLiteral(self):
+    return self.full_name == STRING_LITERAL_NAME
+
+  def IterLeafSymbols(self):
+    yield self
 
 
 class Symbol(BaseSymbol):
@@ -247,6 +372,7 @@ class Symbol(BaseSymbol):
       'section_name',
       'source_path',
       'size',
+      'component',
   )
 
   def __init__(self, section_name, size_without_padding, address=None,
@@ -263,14 +389,16 @@ class Symbol(BaseSymbol):
     self.flags = flags
     self.aliases = aliases
     self.padding = 0
+    self.component = ''
 
   def __repr__(self):
     template = ('{}@{:x}(size_without_padding={},padding={},full_name={},'
-                'object_path={},source_path={},flags={},num_aliases={})')
+                'object_path={},source_path={},flags={},num_aliases={},'
+                'component={})')
     return template.format(
         self.section_name, self.address, self.size_without_padding,
         self.padding, self.full_name, self.object_path, self.source_path,
-        self.FlagsString(), self.num_aliases)
+        self.FlagsString(), self.num_aliases, self.component)
 
   @property
   def pss(self):
@@ -320,9 +448,16 @@ class DeltaSymbol(BaseSymbol):
       return DIFF_STATUS_ADDED
     if self.after_symbol is None:
       return DIFF_STATUS_REMOVED
-    if self.size == 0:
-      return DIFF_STATUS_UNCHANGED
-    return DIFF_STATUS_CHANGED
+    # Use delta size and delta PSS as indicators of change. Delta size = 0 with
+    # delta PSS != 0 can be caused by:
+    # (1) Alias addition / removal without actual binary change.
+    # (2) Alias merging / splitting along with binary changes, where matched
+    #     symbols all happen the same size (hence delta size = 0).
+    # The purpose of checking PSS is to account for (2). However, this means (1)
+    # would produce much more diffs than before!
+    if self.size != 0 or self.pss != 0:
+      return DIFF_STATUS_CHANGED
+    return DIFF_STATUS_UNCHANGED
 
   @property
   def address(self):
@@ -361,6 +496,10 @@ class DeltaSymbol(BaseSymbol):
   @property
   def section_name(self):
     return (self.after_symbol or self.before_symbol).section_name
+
+  @property
+  def component(self):
+    return (self.after_symbol or self.before_symbol).component
 
   @property
   def padding_pss(self):
@@ -438,12 +577,13 @@ class SymbolGroup(BaseSymbol):
       'template_name',
       'name',
       'section_name',
-      'is_sorted',
+      'is_default_sorted',  # True for groups created by Sorted()
   )
 
   # template_name and full_name are useful when clustering symbol clones.
   def __init__(self, symbols, filtered_symbols=None, full_name=None,
-               template_name=None, name='', section_name=None, is_sorted=False):
+               template_name=None, name='', section_name=None,
+               is_default_sorted=False):
     self._padding = None
     self._size = None
     self._pss = None
@@ -452,8 +592,8 @@ class SymbolGroup(BaseSymbol):
     self.full_name = full_name if full_name is not None else name
     self.template_name = template_name if template_name is not None else name
     self.name = name or ''
-    self.section_name = section_name or SECTION_NAME_MULTIPLE
-    self.is_sorted = is_sorted
+    self.section_name = section_name or SECTION_MULTIPLE
+    self.is_default_sorted = is_default_sorted
 
   def __repr__(self):
     return 'Group(full_name=%s,count=%d,size=%d)' % (
@@ -493,7 +633,7 @@ class SymbolGroup(BaseSymbol):
   def __add__(self, other):
     self_ids = set(id(s) for s in self)
     after_symbols = self._symbols + [s for s in other if id(s) not in self_ids]
-    return self._CreateTransformed(after_symbols, is_sorted=False)
+    return self._CreateTransformed(after_symbols, is_default_sorted=False)
 
   def index(self, item):
     return self._symbols.index(item)
@@ -527,6 +667,11 @@ class SymbolGroup(BaseSymbol):
         self._size = sum(
             s.size for s in self.IterUniqueSymbols() if not s.IsBss())
     return self._size
+
+  @property
+  def component(self):
+    first = self._symbols[0].component if self else ''
+    return first if all(s.component == first for s in self._symbols) else ''
 
   @property
   def pss(self):
@@ -568,36 +713,36 @@ class SymbolGroup(BaseSymbol):
   def IterLeafSymbols(self):
     """Yields all symbols, recursing into subgroups."""
     for s in self:
-      if s.IsGroup():
-        for x in s.IterLeafSymbols():
-          yield x
-      else:
-        yield s
+      for x in s.IterLeafSymbols():
+        yield x
 
   def CountUniqueSymbols(self):
     return sum(1 for s in self.IterUniqueSymbols())
 
   def _CreateTransformed(self, symbols, filtered_symbols=None, full_name=None,
                          template_name=None, name=None, section_name=None,
-                         is_sorted=None):
-    if is_sorted is None:
-      is_sorted = self.is_sorted
+                         is_default_sorted=None):
+    if is_default_sorted is None:
+      is_default_sorted = self.is_default_sorted
     if section_name is None:
       section_name = self.section_name
     return self.__class__(symbols, filtered_symbols=filtered_symbols,
                           full_name=full_name, template_name=template_name,
                           name=name, section_name=section_name,
-                          is_sorted=is_sorted)
+                          is_default_sorted=is_default_sorted)
 
   def Sorted(self, cmp_func=None, key=None, reverse=False):
+    """Sorts by abs(PSS)."""
+    is_default_sorted = False
     if cmp_func is None and key is None:
-      cmp_func = lambda a, b: cmp((a.IsBss(), abs(b.pss), a.name),
-                                  (b.IsBss(), abs(a.pss), b.name))
+      is_default_sorted = not reverse
+      # Sort by PSS, but ensure ties are broken in a consistent manner.
+      key = lambda s: (-abs(s.pss), s.full_name, s.object_path, s.section_name)
 
     after_symbols = sorted(self._symbols, cmp_func, key, reverse)
     return self._CreateTransformed(
         after_symbols, filtered_symbols=self._filtered_symbols,
-        is_sorted=True)
+        is_default_sorted=is_default_sorted)
 
   def SortedByName(self, reverse=False):
     return self.Sorted(key=(lambda s:s.name), reverse=reverse)
@@ -633,16 +778,33 @@ class SymbolGroup(BaseSymbol):
     return self.Filter(lambda s: s.pss >= min_pss)
 
   def WhereInSection(self, section):
-    if len(section) == 1:
-      ret = self.Filter(lambda s: s.section == section)
-      ret.section_name = SECTION_TO_SECTION_NAME[section]
-    else:
+    """|section| can be section_name ('.bss'), or section chars ('bdr')."""
+    if section.startswith('.'):
       ret = self.Filter(lambda s: s.section_name == section)
       ret.section_name = section
+    else:
+      ret = self.Filter(lambda s: s.section in section)
+      if section in SECTION_TO_SECTION_NAME:
+        ret.section_name = SECTION_TO_SECTION_NAME[section]
     return ret
+
+  def WhereIsDex(self):
+    return self.WhereInSection(
+        ''.join(SECTION_NAME_TO_SECTION[s] for s in DEX_SECTIONS))
+
+  def WhereIsNative(self):
+    return self.WhereInSection(
+        ''.join(SECTION_NAME_TO_SECTION[s] for s in NATIVE_SECTIONS))
+
+  def WhereIsPak(self):
+    return self.WhereInSection(
+        ''.join(SECTION_NAME_TO_SECTION[s] for s in PAK_SECTIONS))
 
   def WhereIsTemplate(self):
     return self.Filter(lambda s: s.template_name is not s.name)
+
+  def WhereHasComponent(self):
+    return self.Filter(lambda s: s.component)
 
   def WhereSourceIsGenerated(self):
     return self.Filter(lambda s: s.generated_source)
@@ -674,6 +836,10 @@ class SymbolGroup(BaseSymbol):
     regex = re.compile(match_util.ExpandRegexIdentifierPlaceholder(pattern))
     return self.Filter(lambda s: (regex.search(s.source_path) or
                                   regex.search(s.object_path)))
+
+  def WhereComponentMatches(self, pattern):
+    regex = re.compile(match_util.ExpandRegexIdentifierPlaceholder(pattern))
+    return self.Filter(lambda s: regex.search(s.component))
 
   def WhereMatches(self, pattern):
     """Looks for |pattern| within all paths & names."""
@@ -715,7 +881,7 @@ class SymbolGroup(BaseSymbol):
     """
     return self._CreateTransformed(
         self._filtered_symbols, filtered_symbols=self._symbols,
-        section_name=SECTION_NAME_MULTIPLE, is_sorted=False)
+        section_name=SECTION_MULTIPLE)
 
   def GroupedBy(self, func, min_count=0, group_factory=None):
     """Returns a SymbolGroup of SymbolGroups, indexed by |func|.
@@ -731,6 +897,9 @@ class SymbolGroup(BaseSymbol):
           Use a negative value to omit symbols entirely rather than
           include them outside of a group.
       group_factory: Function to create SymbolGroup from a list of Symbols.
+
+    Returns:
+      SymbolGroup of SymbolGroups
     """
     if group_factory is None:
       group_factory = lambda token, symbols: self._CreateTransformed(
@@ -783,14 +952,17 @@ class SymbolGroup(BaseSymbol):
 
     The main function of clustering is to put symbols that were broken into
     multiple parts under a group so that they once again look like a single
-    symbol. It also groups together symbols like "** merge strings".
+    symbol. This is to prevent someone thinking that a symbol got smaller, when
+    all it did was get split into parts.
+
+    It also groups together "** symbol gap", since these are mostly just noise.
 
     To view created groups:
       Print(size_info.symbols.WhereIsGroup())
     """
     def cluster_func(symbol):
       name = symbol.full_name
-      if not name:
+      if not name or symbol.IsStringLiteral():
         # min_count=2 will ensure order is maintained while not being grouped.
         # "&" to distinguish from real symbol names, id() to ensure uniqueness.
         name = '&' + hex(id(symbol))
@@ -799,7 +971,10 @@ class SymbolGroup(BaseSymbol):
         name = re.sub(r'\s+\d+( \(.*\))?$', 's', name)
       # Never cluster symbols that span multiple paths so that all groups return
       # non-None path information.
-      return (symbol.object_path, name)
+      diff_status = None
+      if symbol.IsDelta():
+        diff_status = symbol.diff_status
+      return (symbol.object_path, name, diff_status)
 
     # Use a custom factory to fill in name & template_name.
     def group_factory(token, symbols):
@@ -822,8 +997,35 @@ class SymbolGroup(BaseSymbol):
 
     return self._CreateTransformed(ret)
 
+  def GroupedByAliases(self, same_name_only=False, min_count=2):
+    """Groups by symbol.aliases (leaving non-aliases alone).
+
+    Useful when wanting an overview of symbol sizes without having their PSS
+    divided by number of aliases.
+
+    Args:
+      same_name_only: When True, groups only aliases with the same full_name
+                      (those that differ only by path).
+      min_count: Miniumum number of symbols for a group. If fewer than this many
+                 symbols end up in a group, they will not be put within a group.
+                 Use a negative value to omit symbols entirely rather than
+                 include them outside of a group.
+    """
+    def group_factory(_, symbols):
+      sym = symbols[0]
+      return self._CreateTransformed(
+          symbols, full_name=sym.full_name, template_name=sym.template_name,
+          name=sym.name, section_name=sym.section_name)
+
+    return self.GroupedBy(
+        lambda s: (same_name_only and s.full_name, id(s.aliases or s)),
+        min_count=min_count, group_factory=group_factory)
+
   def GroupedBySectionName(self):
     return self.GroupedBy(lambda s: s.section_name)
+
+  def GroupedByComponent(self):
+    return self.GroupedBy(lambda s: s.component)
 
   def GroupedByFullName(self, min_count=2):
     """Groups by symbol.full_name.
@@ -864,7 +1066,7 @@ class SymbolGroup(BaseSymbol):
     return self.GroupedBy(extract_namespace, min_count=min_count)
 
   def GroupedByPath(self, depth=0, fallback='{no path}',
-                  fallback_to_object_path=True, min_count=0):
+                    fallback_to_object_path=True, min_count=0):
     """Groups by source_path.
 
     Due to path sharing (symbols where path looks like foo/bar/{shared}/3),
@@ -873,7 +1075,8 @@ class SymbolGroup(BaseSymbol):
     Args:
       depth: When 0 (default), groups by entire path. When 1, groups by
              top-level directory, when 2, groups by top 2 directories, etc.
-      fallback: Use this value when no namespace exists.
+      fallback: Use this value when no path exists. Pass None here to omit
+             symbols that do not path information.
       fallback_to_object_path: When True (default), uses object_path when
              source_path is missing.
       min_count: Miniumum number of symbols for a group. If fewer than this many
@@ -886,6 +1089,8 @@ class SymbolGroup(BaseSymbol):
       if fallback_to_object_path and not path:
         path = symbol.object_path
       path = path or fallback
+      if path is None:
+        return None
       # Group by base of foo/bar/{shared}/2
       shared_idx = path.find('{shared}')
       if shared_idx != -1:

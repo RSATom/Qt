@@ -4,9 +4,8 @@
 
 #include "components/cdm/common/widevine_drm_delegate_android.h"
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "media/cdm/cenc_utils.h"
-#include "media/media_features.h"
 
 namespace cdm {
 
@@ -24,7 +23,7 @@ WidevineDrmDelegateAndroid::~WidevineDrmDelegateAndroid() {}
 
 const std::vector<uint8_t> WidevineDrmDelegateAndroid::GetUUID() const {
   return std::vector<uint8_t>(kWidevineUuid,
-                              kWidevineUuid + arraysize(kWidevineUuid));
+                              kWidevineUuid + base::size(kWidevineUuid));
 }
 
 bool WidevineDrmDelegateAndroid::OnCreateSession(
@@ -35,13 +34,9 @@ bool WidevineDrmDelegateAndroid::OnCreateSession(
   if (init_data_type != media::EmeInitDataType::CENC)
     return true;
 
-#if BUILDFLAG(USE_PROPRIETARY_CODECS)
   // Widevine MediaDrm plugin only accepts the "data" part of the PSSH box as
   // the init data when using MP4 container.
   return media::GetPsshData(init_data, GetUUID(), init_data_out);
-#else
-  return false;
-#endif
 }
 
 }  // namespace cdm

@@ -52,7 +52,7 @@ function MultipleGnubbySigner(
   /** @private {string|undefined} */
   this.logMsgUrl_ = opt_logMsgUrl;
 
-  /** @private {Array<SignHelperChallenge>} */
+  /** @private {Array<DecodedSignHelperChallenge>} */
   this.challenges_ = [];
   /** @private {boolean} */
   this.challengesSet_ = false;
@@ -107,12 +107,12 @@ MultipleGnubbySigner.prototype.doSign = function(challenges) {
 
   if (challenges) {
     for (var i = 0; i < challenges.length; i++) {
-      var decodedChallenge = {};
       var challenge = challenges[i];
-      decodedChallenge['challengeHash'] =
-          B64_decode(challenge['challengeHash']);
-      decodedChallenge['appIdHash'] = B64_decode(challenge['appIdHash']);
-      decodedChallenge['keyHandle'] = B64_decode(challenge['keyHandle']);
+      var decodedChallenge = {
+        challengeHash: B64_decode(challenge['challengeHash']),
+        appIdHash: B64_decode(challenge['appIdHash']),
+        keyHandle: B64_decode(challenge['keyHandle'])
+      };
       if (challenge['version']) {
         decodedChallenge['version'] = challenge['version'];
       }
@@ -308,8 +308,9 @@ MultipleGnubbySigner.prototype.anyPending_ = function() {
  * @private
  */
 MultipleGnubbySigner.prototype.timeout_ = function(anyPending) {
-  if (this.complete_)
+  if (this.complete_) {
     return;
+  }
   this.complete_ = true;
   // Defer notifying the caller that all are complete, in case the caller is
   // doing work in response to a gnubbyFound callback and has an inconsistent
@@ -338,9 +339,11 @@ MultipleGnubbySigner.prototype.notifyGnubbyComplete_ = function(
     'gnubby': result.gnubby,
     'gnubbyId': tracker.signer.getDeviceId()
   };
-  if (result['challenge'])
+  if (result['challenge']) {
     signResult['challenge'] = result['challenge'];
-  if (result['info'])
+  }
+  if (result['info']) {
     signResult['info'] = result['info'];
+  }
   this.gnubbyCompleteCb_(signResult, moreExpected);
 };

@@ -4,83 +4,92 @@
 
 #include "media/base/mime_util_internal.h"
 
-#include <map>
-
 #include "base/command_line.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "media/base/media.h"
-#include "media/base/media_client.h"
 #include "media/base/media_switches.h"
+#include "media/base/supported_types.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_color_space.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
+#include "third_party/libaom/av1_buildflags.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/build_info.h"
-#include "media/base/android/media_codec_util.h"
+
+// TODO(dalecurtis): This include is not allowed by media/base since
+// media/base/android is technically a different component. We should move
+// mime_util*.{cc,h} out of media/base to fix this.
+#include "media/base/android/media_codec_util.h"  // nogncheck
 #endif
 
 namespace media {
 namespace internal {
 
-// Wrapped to avoid static initializer startup cost.
-const std::map<std::string, MimeUtil::Codec>& GetStringToCodecMap() {
-  static const std::map<std::string, MimeUtil::Codec> kStringToCodecMap = {
-    // We only allow this for WAV so it isn't ambiguous.
-    {"1", MimeUtil::PCM},
-    // avc1/avc3.XXXXXX may be unambiguous; handled by ParseAVCCodecId().
-    // hev1/hvc1.XXXXXX may be unambiguous; handled by ParseHEVCCodecID().
-    // vp9, vp9.0, vp09.xx.xx.xx.xx.xx.xx.xx may be unambiguous; handled by
-    // ParseVp9CodecID().
-    {"mp3", MimeUtil::MP3},
-    // Following is the list of RFC 6381 compliant audio codec strings:
-    //   mp4a.66     - MPEG-2 AAC MAIN
-    //   mp4a.67     - MPEG-2 AAC LC
-    //   mp4a.68     - MPEG-2 AAC SSR
-    //   mp4a.69     - MPEG-2 extension to MPEG-1 (MP3)
-    //   mp4a.6B     - MPEG-1 audio (MP3)
-    //   mp4a.40.2   - MPEG-4 AAC LC
-    //   mp4a.40.02  - MPEG-4 AAC LC (leading 0 in aud-oti for compatibility)
-    //   mp4a.40.5   - MPEG-4 HE-AAC v1 (AAC LC + SBR)
-    //   mp4a.40.05  - MPEG-4 HE-AAC v1 (AAC LC + SBR) (leading 0 in aud-oti
-    //                 for compatibility)
-    //   mp4a.40.29  - MPEG-4 HE-AAC v2 (AAC LC + SBR + PS)
-    {"mp4a.66", MimeUtil::MPEG2_AAC},
-    {"mp4a.67", MimeUtil::MPEG2_AAC},
-    {"mp4a.68", MimeUtil::MPEG2_AAC},
-    {"mp4a.69", MimeUtil::MP3},
-    {"mp4a.6B", MimeUtil::MP3},
-    {"mp4a.40.2", MimeUtil::MPEG4_AAC},
-    {"mp4a.40.02", MimeUtil::MPEG4_AAC},
-    {"mp4a.40.5", MimeUtil::MPEG4_AAC},
-    {"mp4a.40.05", MimeUtil::MPEG4_AAC},
-    {"mp4a.40.29", MimeUtil::MPEG4_AAC},
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
-    // TODO(servolk): Strictly speaking only mp4a.A5 and mp4a.A6 codec ids are
-    // valid according to RFC 6381 section 3.3, 3.4. Lower-case oti (mp4a.a5
-    // and mp4a.a6) should be rejected. But we used to allow those in older
-    // versions of Chromecast firmware and some apps (notably MPL) depend on
-    // those codec types being supported, so they should be allowed for now
-    // (crbug.com/564960).
-    {"ac-3", MimeUtil::AC3},
-    {"mp4a.a5", MimeUtil::AC3},
-    {"mp4a.A5", MimeUtil::AC3},
-    {"ec-3", MimeUtil::EAC3},
-    {"mp4a.a6", MimeUtil::EAC3},
-    {"mp4a.A6", MimeUtil::EAC3},
-#endif
-    {"vorbis", MimeUtil::VORBIS},
-    {"opus", MimeUtil::OPUS},
-    {"flac", MimeUtil::FLAC},
-    {"vp8", MimeUtil::VP8},
-    {"vp8.0", MimeUtil::VP8},
-    {"theora", MimeUtil::THEORA}
-  };
+// A map from codec string to MimeUtil::Codec.
+using StringToCodecMap = base::flat_map<std::string, MimeUtil::Codec>;
 
-  return kStringToCodecMap;
+// Wrapped to avoid static initializer startup cost.
+const StringToCodecMap& GetStringToCodecMap() {
+  static const base::NoDestructor<StringToCodecMap> kStringToCodecMap({
+      // We only allow this for WAV so it isn't ambiguous.
+      {"1", MimeUtil::PCM},
+      // avc1/avc3.XXXXXX may be unambiguous; handled by
+      // ParseAVCCodecId(). hev1/hvc1.XXXXXX may be unambiguous;
+      // handled by ParseHEVCCodecID(). vp9, vp9.0,
+      // vp09.xx.xx.xx.xx.xx.xx.xx may be unambiguous; handled by
+      // ParseVp9CodecID().
+      {"mp3", MimeUtil::MP3},
+      // Following is the list of RFC 6381 compliant audio codec
+      // strings:
+      //   mp4a.66     - MPEG-2 AAC MAIN
+      //   mp4a.67     - MPEG-2 AAC LC
+      //   mp4a.68     - MPEG-2 AAC SSR
+      //   mp4a.69     - MPEG-2 extension to MPEG-1 (MP3)
+      //   mp4a.6B     - MPEG-1 audio (MP3)
+      //   mp4a.40.2   - MPEG-4 AAC LC
+      //   mp4a.40.02  - MPEG-4 AAC LC (leading 0 in aud-oti for
+      //                 compatibility)
+      //   mp4a.40.5   - MPEG-4 HE-AAC v1 (AAC LC + SBR)
+      //   mp4a.40.05  - MPEG-4 HE-AAC v1 (AAC LC + SBR) (leading 0
+      //                 in aud-oti for compatibility)
+      //   mp4a.40.29  - MPEG-4 HE-AAC v2 (AAC LC + SBR + PS)
+      {"mp4a.66", MimeUtil::MPEG2_AAC},
+      {"mp4a.67", MimeUtil::MPEG2_AAC},
+      {"mp4a.68", MimeUtil::MPEG2_AAC},
+      {"mp4a.69", MimeUtil::MP3},
+      {"mp4a.6B", MimeUtil::MP3},
+      {"mp4a.40.2", MimeUtil::MPEG4_AAC},
+      {"mp4a.40.02", MimeUtil::MPEG4_AAC},
+      {"mp4a.40.5", MimeUtil::MPEG4_AAC},
+      {"mp4a.40.05", MimeUtil::MPEG4_AAC},
+      {"mp4a.40.29", MimeUtil::MPEG4_AAC},
+      // TODO(servolk): Strictly speaking only mp4a.A5 and mp4a.A6
+      // codec ids are valid according to RFC 6381 section 3.3, 3.4.
+      // Lower-case oti (mp4a.a5 and mp4a.a6) should be rejected. But
+      // we used to allow those in older versions of Chromecast
+      // firmware and some apps (notably MPL) depend on those codec
+      // types being supported, so they should be allowed for now
+      // (crbug.com/564960).
+      {"ac-3", MimeUtil::AC3},
+      {"mp4a.a5", MimeUtil::AC3},
+      {"mp4a.A5", MimeUtil::AC3},
+      {"ec-3", MimeUtil::EAC3},
+      {"mp4a.a6", MimeUtil::EAC3},
+      {"mp4a.A6", MimeUtil::EAC3},
+      {"vorbis", MimeUtil::VORBIS},
+      {"opus", MimeUtil::OPUS},
+      {"flac", MimeUtil::FLAC},
+      {"vp8", MimeUtil::VP8},
+      {"vp8.0", MimeUtil::VP8},
+      {"theora", MimeUtil::THEORA},
+  });
+
+  return *kStringToCodecMap;
 }
 
 static bool ParseVp9CodecID(const std::string& mime_type_lower_case,
@@ -111,10 +120,10 @@ static bool IsValidH264Level(uint8_t level_idc) {
           (level_idc >= 20 && level_idc <= 22) ||
           (level_idc >= 30 && level_idc <= 32) ||
           (level_idc >= 40 && level_idc <= 42) ||
-          (level_idc >= 50 && level_idc <= 51));
+          (level_idc >= 50 && level_idc <= 52));
 }
 
-MimeUtil::MimeUtil() : allow_proprietary_codecs_(false) {
+MimeUtil::MimeUtil() {
 #if defined(OS_ANDROID)
   // When the unified media pipeline is enabled, we need support for both GPU
   // video decoders and MediaCodec; indicated by HasPlatformDecoderSupport().
@@ -130,7 +139,7 @@ MimeUtil::MimeUtil() : allow_proprietary_codecs_(false) {
   InitializeMimeTypeMaps();
 }
 
-MimeUtil::~MimeUtil() {}
+MimeUtil::~MimeUtil() = default;
 
 AudioCodec MimeUtilToAudioCodec(MimeUtil::Codec codec) {
   switch (codec) {
@@ -145,6 +154,8 @@ AudioCodec MimeUtilToAudioCodec(MimeUtil::Codec codec) {
     case MimeUtil::MPEG2_AAC:
     case MimeUtil::MPEG4_AAC:
       return kCodecAAC;
+    case MimeUtil::MPEG_H_AUDIO:
+      return kCodecMpegHAudio;
     case MimeUtil::VORBIS:
       return kCodecVorbis;
     case MimeUtil::OPUS:
@@ -159,6 +170,8 @@ AudioCodec MimeUtilToAudioCodec(MimeUtil::Codec codec) {
 
 VideoCodec MimeUtilToVideoCodec(MimeUtil::Codec codec) {
   switch (codec) {
+    case MimeUtil::AV1:
+      return kCodecAV1;
     case MimeUtil::H264:
       return kCodecH264;
     case MimeUtil::HEVC:
@@ -242,137 +255,134 @@ SupportsType MimeUtil::AreSupportedCodecs(
 }
 
 void MimeUtil::InitializeMimeTypeMaps() {
-#if BUILDFLAG(USE_PROPRIETARY_CODECS)
-  allow_proprietary_codecs_ = true;
-#endif
-
   AddSupportedMediaFormats();
 }
 
 // Each call to AddContainerWithCodecs() contains a media type
 // (https://en.wikipedia.org/wiki/Media_type) and corresponding media codec(s)
 // supported by these types/containers.
-// TODO(ddorwin): Replace insert() calls with initializer_list when allowed.
 void MimeUtil::AddSupportedMediaFormats() {
-  CodecSet implicit_codec;
-  CodecSet wav_codecs;
-  wav_codecs.insert(PCM);
+  const CodecSet wav_codecs{PCM};
+  const CodecSet ogg_audio_codecs{FLAC, OPUS, VORBIS};
 
-  CodecSet ogg_audio_codecs;
-  ogg_audio_codecs.insert(FLAC);
-  ogg_audio_codecs.insert(OPUS);
-  ogg_audio_codecs.insert(VORBIS);
-  CodecSet ogg_video_codecs;
 #if !defined(OS_ANDROID)
-  ogg_video_codecs.insert(THEORA);
+  CodecSet ogg_video_codecs{THEORA, VP8};
+#else
+  CodecSet ogg_video_codecs;
 #endif  // !defined(OS_ANDROID)
+
   CodecSet ogg_codecs(ogg_audio_codecs);
   ogg_codecs.insert(ogg_video_codecs.begin(), ogg_video_codecs.end());
 
-  CodecSet webm_audio_codecs;
-  webm_audio_codecs.insert(OPUS);
-  webm_audio_codecs.insert(VORBIS);
-  CodecSet webm_video_codecs;
-  webm_video_codecs.insert(VP8);
-  webm_video_codecs.insert(VP9);
+  const CodecSet webm_audio_codecs{OPUS, VORBIS};
+  CodecSet webm_video_codecs{VP8, VP9};
+#if BUILDFLAG(ENABLE_AV1_DECODER)
+  webm_video_codecs.emplace(AV1);
+#endif
+
   CodecSet webm_codecs(webm_audio_codecs);
   webm_codecs.insert(webm_video_codecs.begin(), webm_video_codecs.end());
 
-#if BUILDFLAG(USE_PROPRIETARY_CODECS)
-  CodecSet mp3_codecs;
-  mp3_codecs.insert(MP3);
+  const CodecSet mp3_codecs{MP3};
 
-  CodecSet aac;
-  aac.insert(MPEG2_AAC);
-  aac.insert(MPEG4_AAC);
+  CodecSet mp4_audio_codecs{FLAC, MP3, OPUS};
 
-  CodecSet avc_and_aac(aac);
-  avc_and_aac.insert(H264);
-
-  CodecSet mp4_audio_codecs(aac);
-  mp4_audio_codecs.insert(MP3);
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
-  mp4_audio_codecs.insert(AC3);
-  mp4_audio_codecs.insert(EAC3);
-#endif  // BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
-
-  CodecSet mp4_video_codecs;
-  mp4_video_codecs.insert(H264);
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
-  mp4_video_codecs.insert(HEVC);
-#endif  // BUILDFLAG(ENABLE_HEVC_DEMUXING)
   // Only VP9 with valid codec string vp09.xx.xx.xx.xx.xx.xx.xx is supported.
   // See ParseVp9CodecID for details.
-  mp4_video_codecs.insert(VP9);
+  CodecSet mp4_video_codecs;
+  mp4_video_codecs.emplace(VP9);
+
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+  const CodecSet aac{MPEG2_AAC, MPEG4_AAC};
+  mp4_audio_codecs.insert(aac.begin(), aac.end());
+
+  CodecSet avc_and_aac(aac);
+  avc_and_aac.emplace(H264);
+
+#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+  mp4_audio_codecs.emplace(AC3);
+  mp4_audio_codecs.emplace(EAC3);
+#endif  // BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+
+#if BUILDFLAG(ENABLE_MPEG_H_AUDIO_DEMUXING)
+  mp4_audio_codecs.emplace(MPEG_H_AUDIO);
+#endif  // BUILDFLAG(ENABLE_MPEG_H_AUDIO_DEMUXING)
+
+  mp4_video_codecs.emplace(H264);
+#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+  mp4_video_codecs.emplace(HEVC);
+#endif  // BUILDFLAG(ENABLE_HEVC_DEMUXING)
+
 #if BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
-  mp4_video_codecs.insert(DOLBY_VISION);
+  mp4_video_codecs.emplace(DOLBY_VISION);
 #endif  // BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
+#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
+#if BUILDFLAG(ENABLE_AV1_DECODER)
+  mp4_video_codecs.emplace(AV1);
+#endif
+
   CodecSet mp4_codecs(mp4_audio_codecs);
   mp4_codecs.insert(mp4_video_codecs.begin(), mp4_video_codecs.end());
-#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
-  AddContainerWithCodecs("audio/wav", wav_codecs, false);
-  AddContainerWithCodecs("audio/x-wav", wav_codecs, false);
-  AddContainerWithCodecs("audio/webm", webm_audio_codecs, false);
+  const CodecSet implicit_codec;
+  AddContainerWithCodecs("audio/wav", wav_codecs);
+  AddContainerWithCodecs("audio/x-wav", wav_codecs);
+  AddContainerWithCodecs("audio/webm", webm_audio_codecs);
   DCHECK(!webm_video_codecs.empty());
-  AddContainerWithCodecs("video/webm", webm_codecs, false);
-  AddContainerWithCodecs("audio/ogg", ogg_audio_codecs, false);
+  AddContainerWithCodecs("video/webm", webm_codecs);
+  AddContainerWithCodecs("audio/ogg", ogg_audio_codecs);
   // video/ogg is only supported if an appropriate video codec is supported.
   // Note: This assumes such codecs cannot be later excluded.
   if (!ogg_video_codecs.empty())
-    AddContainerWithCodecs("video/ogg", ogg_codecs, false);
+    AddContainerWithCodecs("video/ogg", ogg_codecs);
   // TODO(ddorwin): Should the application type support Opus?
-  AddContainerWithCodecs("application/ogg", ogg_codecs, false);
-  AddContainerWithCodecs("audio/flac", implicit_codec, false);
+  AddContainerWithCodecs("application/ogg", ogg_codecs);
+  AddContainerWithCodecs("audio/flac", implicit_codec);
+  AddContainerWithCodecs("audio/mpeg", mp3_codecs);  // Allow "mp3".
+  AddContainerWithCodecs("audio/mp3", implicit_codec);
+  AddContainerWithCodecs("audio/x-mp3", implicit_codec);
+  AddContainerWithCodecs("audio/mp4", mp4_audio_codecs);
+  DCHECK(!mp4_video_codecs.empty());
+  AddContainerWithCodecs("video/mp4", mp4_codecs);
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
-  AddContainerWithCodecs("audio/mpeg", mp3_codecs, true);  // Allow "mp3".
-  AddContainerWithCodecs("audio/mp3", implicit_codec, true);
-  AddContainerWithCodecs("audio/x-mp3", implicit_codec, true);
-  AddContainerWithCodecs("audio/aac", implicit_codec, true);  // AAC / ADTS.
-  AddContainerWithCodecs("audio/mp4", mp4_audio_codecs, true);
-  DCHECK(!mp4_video_codecs.empty());
-  AddContainerWithCodecs("video/mp4", mp4_codecs, true);
+  AddContainerWithCodecs("audio/aac", implicit_codec);  // AAC / ADTS.
   // These strings are supported for backwards compatibility only and thus only
   // support the codecs needed for compatibility.
-  AddContainerWithCodecs("audio/x-m4a", aac, true);
-  AddContainerWithCodecs("video/x-m4v", avc_and_aac, true);
+  AddContainerWithCodecs("audio/x-m4a", aac);
+  AddContainerWithCodecs("video/x-m4v", avc_and_aac);
+
+  CodecSet video_3gpp_codecs(aac);
+  video_3gpp_codecs.emplace(H264);
+  AddContainerWithCodecs("video/3gpp", video_3gpp_codecs);
 
 #if BUILDFLAG(ENABLE_MSE_MPEG2TS_STREAM_PARSER)
-  // TODO(ddorwin): Exactly which codecs should be supported?
-  DCHECK(!mp4_video_codecs.empty());
-  AddContainerWithCodecs("video/mp2t", mp4_codecs, true);
+  CodecSet mp2t_codecs{H264, MPEG2_AAC, MPEG4_AAC, MP3};
+  AddContainerWithCodecs("video/mp2t", mp2t_codecs);
 #endif  // BUILDFLAG(ENABLE_MSE_MPEG2TS_STREAM_PARSER)
 #if defined(OS_ANDROID)
   // HTTP Live Streaming (HLS).
-  CodecSet hls_codecs;
-  hls_codecs.insert(H264);
-  // TODO(ddorwin): Is any MP3 codec string variant included in real queries?
-  hls_codecs.insert(MP3);
-  // Android HLS only supports MPEG4_AAC (missing demuxer support for MPEG2_AAC)
-  hls_codecs.insert(MPEG4_AAC);
-  AddContainerWithCodecs("application/x-mpegurl", hls_codecs, true);
-  AddContainerWithCodecs("application/vnd.apple.mpegurl", hls_codecs, true);
-  AddContainerWithCodecs("audio/mpegurl", hls_codecs, true);
+  CodecSet hls_codecs{H264,
+                      // TODO(ddorwin): Is any MP3 codec string variant included
+                      // in real queries?
+                      MP3,
+                      // Android HLS only supports MPEG4_AAC (missing demuxer
+                      // support for MPEG2_AAC)
+                      MPEG4_AAC};
+  AddContainerWithCodecs("application/x-mpegurl", hls_codecs);
+  AddContainerWithCodecs("application/vnd.apple.mpegurl", hls_codecs);
+  AddContainerWithCodecs("audio/mpegurl", hls_codecs);
   // Not documented by Apple, but unfortunately used extensively by Apple and
   // others for both audio-only and audio+video playlists. See
   // https://crbug.com/675552 for details and examples.
-  AddContainerWithCodecs("audio/x-mpegurl", hls_codecs, true);
+  AddContainerWithCodecs("audio/x-mpegurl", hls_codecs);
 #endif  // defined(OS_ANDROID)
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 }
 
 void MimeUtil::AddContainerWithCodecs(const std::string& mime_type,
-                                      const CodecSet& codecs,
-                                      bool is_proprietary_mime_type) {
-#if !BUILDFLAG(USE_PROPRIETARY_CODECS)
-  DCHECK(!is_proprietary_mime_type);
-#endif
-
+                                      const CodecSet& codecs) {
   media_format_map_[mime_type] = codecs;
-
-  if (is_proprietary_mime_type)
-    proprietary_media_containers_.push_back(mime_type);
 }
 
 bool MimeUtil::IsSupportedMediaMimeType(const std::string& mime_type) const {
@@ -380,9 +390,8 @@ bool MimeUtil::IsSupportedMediaMimeType(const std::string& mime_type) const {
          media_format_map_.end();
 }
 
-void MimeUtil::SplitCodecsToVector(const std::string& codecs,
-                                   std::vector<std::string>* codecs_out,
-                                   bool strip) {
+void MimeUtil::SplitCodecs(const std::string& codecs,
+                           std::vector<std::string>* codecs_out) {
   *codecs_out =
       base::SplitString(base::TrimString(codecs, "\"", base::TRIM_ALL), ",",
                         base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
@@ -390,13 +399,11 @@ void MimeUtil::SplitCodecsToVector(const std::string& codecs,
   // Convert empty or all-whitespace input to 0 results.
   if (codecs_out->size() == 1 && (*codecs_out)[0].empty())
     codecs_out->clear();
+}
 
-  if (!strip)
-    return;
-
+void MimeUtil::StripCodecs(std::vector<std::string>* codecs) {
   // Strip everything past the first '.'
-  for (std::vector<std::string>::iterator it = codecs_out->begin();
-       it != codecs_out->end(); ++it) {
+  for (auto it = codecs->begin(); it != codecs->end(); ++it) {
     size_t found = it->find_first_of('.');
     if (found != std::string::npos)
       it->resize(found);
@@ -508,12 +515,6 @@ SupportsType MimeUtil::IsSupportedMediaFormat(
   return AreSupportedCodecs(parsed_results, mime_type_lower_case, is_encrypted);
 }
 
-void MimeUtil::RemoveProprietaryMediaTypesAndCodecs() {
-  for (const auto& container : proprietary_media_containers_)
-    media_format_map_.erase(container);
-  allow_proprietary_codecs_ = false;
-}
-
 // static
 bool MimeUtil::IsCodecSupportedOnAndroid(
     Codec codec,
@@ -539,6 +540,10 @@ bool MimeUtil::IsCodecSupportedOnAndroid(
     case THEORA:
       return false;
 
+    // AV1 is not supported on Android yet.
+    case AV1:
+      return false;
+
     // ----------------------------------------------------------------------
     // The remaining codecs may be supported depending on platform abilities.
     // ----------------------------------------------------------------------
@@ -548,6 +553,7 @@ bool MimeUtil::IsCodecSupportedOnAndroid(
       // valid codecs to be used with HLS mime types.
       DCHECK(!base::EndsWith(mime_type_lower_case, "mpegurl",
                              base::CompareCase::SENSITIVE));
+      FALLTHROUGH;
     case PCM:
     case MP3:
     case MPEG4_AAC:
@@ -558,6 +564,9 @@ bool MimeUtil::IsCodecSupportedOnAndroid(
       // MediaPlayer.
       DCHECK(!is_encrypted || platform_info.has_platform_decoders);
       return true;
+
+    case MPEG_H_AUDIO:
+      return false;
 
     case OPUS:
       // If clear, the unified pipeline can always decode Opus in software.
@@ -592,7 +601,8 @@ bool MimeUtil::IsCodecSupportedOnAndroid(
 #if defined(OS_ANDROID)
       // HEVC/H.265 is supported in Lollipop+ (API Level 21), according to
       // http://developer.android.com/reference/android/media/MediaFormat.html
-      return base::android::BuildInfo::GetInstance()->sdk_int() >= 21;
+      return base::android::BuildInfo::GetInstance()->sdk_int() >=
+             base::android::SDK_VERSION_LOLLIPOP;
 #else
       return true;
 #endif  // defined(OS_ANDROID)
@@ -668,8 +678,7 @@ bool MimeUtil::ParseCodecStrings(
   DCHECK(out_results);
 
   // Reject unrecognized mime types.
-  MediaFormatMappings::const_iterator it_media_format_map =
-      media_format_map_.find(mime_type_lower_case);
+  auto it_media_format_map = media_format_map_.find(mime_type_lower_case);
   if (it_media_format_map == media_format_map_.end()) {
     DVLOG(3) << __func__ << " Unrecognized mime type: " << mime_type_lower_case;
     return false;
@@ -747,10 +756,24 @@ bool MimeUtil::ParseCodecHelper(const std::string& mime_type_lower_case,
   *out_result = MakeDefaultParsedCodecResult();
 
   // Simple codecs can be found in the codec map.
-  std::map<std::string, Codec>::const_iterator itr =
-      GetStringToCodecMap().find(codec_id);
+  auto itr = GetStringToCodecMap().find(codec_id);
   if (itr != GetStringToCodecMap().end()) {
     out_result->codec = itr->second;
+
+    // Even "simple" video codecs should have an associated profile.
+    if (MimeUtilToVideoCodec(out_result->codec) != kUnknownVideoCodec) {
+      switch (out_result->codec) {
+        case Codec::VP8:
+          out_result->video_profile = VP8PROFILE_ANY;
+          break;
+        case Codec::THEORA:
+          out_result->video_profile = THEORAPROFILE_ANY;
+          break;
+        default:
+          NOTREACHED();
+      }
+    }
+
     return true;
   }
 
@@ -787,6 +810,13 @@ bool MimeUtil::ParseCodecHelper(const std::string& mime_type_lower_case,
     return true;
   }
 
+#if BUILDFLAG(ENABLE_AV1_DECODER)
+  if (ParseAv1CodecId(codec_id, out_profile, out_level, out_color_space)) {
+    out_result->codec = MimeUtil::AV1;
+    return true;
+  }
+#endif
+
   if (ParseAVCCodecId(codec_id, out_profile, out_level)) {
     out_result->codec = MimeUtil::H264;
     // Allowed string ambiguity since 2014. DO NOT ADD NEW CASES FOR AMBIGUITY.
@@ -808,26 +838,15 @@ bool MimeUtil::ParseCodecHelper(const std::string& mime_type_lower_case,
   }
 #endif
 
+#if BUILDFLAG(ENABLE_MPEG_H_AUDIO_DEMUXING)
+  if (base::StartsWith(codec_id, "mhm1.", base::CompareCase::SENSITIVE)) {
+    out_result->codec = MimeUtil::MPEG_H_AUDIO;
+    return true;
+  }
+#endif
+
   DVLOG(2) << __func__ << ": Unrecognized codec id \"" << codec_id << "\"";
   return false;
-}
-
-SupportsType MimeUtil::IsSimpleCodecSupported(
-    const std::string& mime_type_lower_case,
-    Codec codec,
-    bool is_encrypted) const {
-  // Video codecs are not "simple" because they require a profile and level to
-  // be specified. There is no "default" video codec for a given container.
-  DCHECK_EQ(MimeUtilToVideoCodec(codec), kUnknownVideoCodec);
-
-  SupportsType result = IsCodecSupported(
-      mime_type_lower_case, codec, VIDEO_CODEC_PROFILE_UNKNOWN,
-      0 /* video_level */, VideoColorSpace::REC709(), is_encrypted);
-
-  // Platform support should never be ambiguous for simple codecs (no range of
-  // profiles to consider).
-  DCHECK_NE(result, MayBeSupported);
-  return result;
 }
 
 SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
@@ -844,14 +863,12 @@ SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
   VideoCodec video_codec = MimeUtilToVideoCodec(codec);
   if (video_codec != kUnknownVideoCodec &&
       // Theora and VP8 do not have profiles/levels.
-      video_codec != kCodecTheora && video_codec != kCodecVP8) {
+      video_codec != kCodecTheora && video_codec != kCodecVP8 &&
+      // TODO(dalecurtis): AV1 has levels, but they aren't supported yet;
+      // http://crbug.com/784993
+      video_codec != kCodecAV1) {
     DCHECK_NE(video_profile, VIDEO_CODEC_PROFILE_UNKNOWN);
     DCHECK_GT(video_level, 0);
-  }
-
-  // Bail early for disabled proprietary codecs
-  if (!allow_proprietary_codecs_ && IsCodecProprietary(codec)) {
-    return IsNotSupported;
   }
 
   // Check for cases of ambiguous platform support.
@@ -867,7 +884,7 @@ SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
         break;
 // HIGH10PROFILE is supported through fallback to the ffmpeg decoder
 // which is not available on Android, or if FFMPEG is not used.
-#if !defined(MEDIA_DISABLE_FFMPEG) && !defined(OS_ANDROID)
+#if BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
       case H264PROFILE_HIGH10PROFILE:
         // FFmpeg is not generally used for encrypted videos, so we do not
         // know whether 10-bit is supported.
@@ -877,48 +894,23 @@ SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
       default:
         ambiguous_platform_support = true;
     }
-  } else if (codec == MimeUtil::VP9 && video_profile != VP9PROFILE_PROFILE0 &&
-             is_encrypted) {
-    // LibVPX is not generally used for encrypted videos, so we do not know
-    // whether higher profiles are supported.
-    // TODO(chcunningham/xhwang): Add details to indicate which key system will
-    // be used and check support by querying the matching KeySystemProperties.
-    ambiguous_platform_support = true;
   }
 
   AudioCodec audio_codec = MimeUtilToAudioCodec(codec);
   if (audio_codec != kUnknownAudioCodec) {
-    AudioConfig audio_config = {audio_codec};
-
-    // If MediaClient is provided use it to check for decoder support.
-    MediaClient* media_client = GetMediaClient();
-    if (media_client && !media_client->IsSupportedAudioConfig(audio_config))
-      return IsNotSupported;
-
-    // When no MediaClient is provided, assume default decoders are available
-    // as described by media::IsSupportedAudioConfig().
-    if (!media_client && !IsSupportedAudioConfig(audio_config))
+    if (!IsSupportedAudioType({audio_codec}))
       return IsNotSupported;
   }
 
   if (video_codec != kUnknownVideoCodec) {
-    VideoConfig video_config = {video_codec, video_profile, video_level,
-                                color_space};
-
-    // If MediaClient is provided use it to check for decoder support.
-    MediaClient* media_client = GetMediaClient();
-    if (media_client && !media_client->IsSupportedVideoConfig(video_config))
-      return IsNotSupported;
-
-    // When no MediaClient is provided, assume default decoders are available
-    // as described by media::IsSupportedVideoConfig().
-    if (!media_client && !IsSupportedVideoConfig(video_config))
+    if (!IsSupportedVideoType(
+            {video_codec, video_profile, video_level, color_space}))
       return IsNotSupported;
   }
 
 #if defined(OS_ANDROID)
   // TODO(chcunningham): Delete this. Android platform support should be
-  // handled by (android specific) media::IsSupportedVideoConfig() above.
+  // handled by (android specific) media::IsSupportedVideoType() above.
   if (!IsCodecSupportedOnAndroid(codec, mime_type_lower_case, is_encrypted,
                                  platform_info_)) {
     return IsNotSupported;
@@ -926,32 +918,6 @@ SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
 #endif
 
   return ambiguous_platform_support ? MayBeSupported : IsSupported;
-}
-
-bool MimeUtil::IsCodecProprietary(Codec codec) const {
-  switch (codec) {
-    case INVALID_CODEC:
-    case AC3:
-    case EAC3:
-    case MP3:
-    case MPEG2_AAC:
-    case MPEG4_AAC:
-    case H264:
-    case HEVC:
-    case DOLBY_VISION:
-      return true;
-
-    case PCM:
-    case VORBIS:
-    case OPUS:
-    case FLAC:
-    case VP8:
-    case VP9:
-    case THEORA:
-      return false;
-  }
-
-  return true;
 }
 
 bool MimeUtil::GetDefaultCodec(const std::string& mime_type,

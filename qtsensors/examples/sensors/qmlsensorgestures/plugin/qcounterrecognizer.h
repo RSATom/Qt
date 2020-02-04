@@ -63,12 +63,12 @@ public:
     QCounterGestureRecognizer(QObject *parent = 0);
     ~QCounterGestureRecognizer();
 
-    void create();
+    void create() override;
 
-    QString id() const;
-    bool start();
-    bool stop();
-    bool isActive();
+    QString id() const override;
+    bool start() override;
+    bool stop() override;
+    bool isActive() override;
 
 private slots:
     void timeout();

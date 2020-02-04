@@ -569,7 +569,7 @@ QCalendarWidget *QAccessibleCalendarWidget::calendarWidget() const
 
 QAbstractItemView *QAccessibleCalendarWidget::calendarView() const
 {
-    foreach (QObject *child, calendarWidget()->children()) {
+    for (QObject *child : calendarWidget()->children()) {
         if (child->objectName() == QLatin1String("qt_calendar_calendarview"))
             return static_cast<QAbstractItemView *>(child);
     }
@@ -578,7 +578,7 @@ QAbstractItemView *QAccessibleCalendarWidget::calendarView() const
 
 QWidget *QAccessibleCalendarWidget::navigationBar() const
 {
-    foreach (QObject *child, calendarWidget()->children()) {
+    for (QObject *child : calendarWidget()->children()) {
         if (child->objectName() == QLatin1String("qt_calendar_navigationbar"))
             return static_cast<QWidget *>(child);
     }
@@ -716,7 +716,7 @@ QRect QAccessibleTextWidget::characterRect(int offset) const
         QFontMetrics fm(format.font());
         const QString ch = text(offset, offset + 1);
         if (!ch.isEmpty()) {
-            int w = fm.width(ch);
+            int w = fm.horizontalAdvance(ch);
             int h = fm.height();
             r = QRect(layoutPosition.x() + x, layoutPosition.y() + line.y() + line.ascent() + fm.descent() - h,
                       w, h);

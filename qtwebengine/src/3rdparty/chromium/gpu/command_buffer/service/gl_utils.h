@@ -8,16 +8,20 @@
 #ifndef GPU_COMMAND_BUFFER_SERVICE_GL_UTILS_H_
 #define GPU_COMMAND_BUFFER_SERVICE_GL_UTILS_H_
 
+#include <string>
 #include <vector>
 
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/constants.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/transform.h"
 #include "ui/gl/gl_bindings.h"
 
 // Define this for extra GL error debugging (slower).
 // #define GL_ERROR_DEBUGGING
 #ifdef GL_ERROR_DEBUGGING
-#define CHECK_GL_ERROR() do {                                           \
+#define CHECK_GL_ERROR()                                                \
+  do {                                                                  \
     GLenum gl_error = glGetError();                                     \
     LOG_IF(ERROR, gl_error != GL_NO_ERROR) << "GL Error :" << gl_error; \
   } while (0)
@@ -32,9 +36,29 @@ struct GLVersionInfo;
 namespace gpu {
 
 struct Capabilities;
-class FeatureInfo;
 
 namespace gles2 {
+
+class ErrorState;
+class FeatureInfo;
+class Logger;
+class Texture;
+enum class CopyTextureMethod;
+
+// clang-format off
+constexpr GLfloat kIdentityMatrix[16] = { 1.0f, 0.0f, 0.0f, 0.0f,
+                                          0.0f, 1.0f, 0.0f, 0.0f,
+                                          0.0f, 0.0f, 1.0f, 0.0f,
+                                          0.0f, 0.0f, 0.0f, 1.0f };
+// clang-format on
+
+struct CALayerSharedState {
+  float opacity;
+  bool is_clipped;
+  gfx::Rect clip_rect;
+  int sorting_context_id;
+  gfx::Transform transform;
+};
 
 std::vector<int> GetAllGLErrors();
 
@@ -59,21 +83,75 @@ const char* GetServiceVersionString(const FeatureInfo* feature_info);
 const char* GetServiceShadingLanguageVersionString(
     const FeatureInfo* feature_info);
 
-void APIENTRY LogGLDebugMessage(GLenum source,
-                                GLenum type,
-                                GLuint id,
-                                GLenum severity,
-                                GLsizei length,
-                                const GLchar* message,
-                                GLvoid* user_param);
-
-void InitializeGLDebugLogging();
+void LogGLDebugMessage(GLenum source,
+                       GLenum type,
+                       GLuint id,
+                       GLenum severity,
+                       GLsizei length,
+                       const GLchar* message,
+                       Logger* error_logger);
+void InitializeGLDebugLogging(bool log_non_errors,
+                              GLDEBUGPROC callback,
+                              const void* user_param);
 
 bool ValidContextLostReason(GLenum reason);
 error::ContextLostReason GetContextLostReasonFromResetStatus(
     GLenum reset_status);
 
-} // gles2
-} // gpu
+bool GetCompressedTexSizeInBytes(const char* function_name,
+                                 GLsizei width,
+                                 GLsizei height,
+                                 GLsizei depth,
+                                 GLenum format,
+                                 GLsizei* size_in_bytes,
+                                 ErrorState* error_state);
+
+bool ValidateCompressedTexSubDimensions(GLenum target,
+                                        GLint level,
+                                        GLint xoffset,
+                                        GLint yoffset,
+                                        GLint zoffset,
+                                        GLsizei width,
+                                        GLsizei height,
+                                        GLsizei depth,
+                                        GLenum format,
+                                        Texture* texture,
+                                        bool restrict_for_webgl,
+                                        const char** error_message);
+
+bool ValidateCompressedTexDimensions(GLenum target,
+                                     GLint level,
+                                     GLsizei width,
+                                     GLsizei height,
+                                     GLsizei depth,
+                                     GLenum format,
+                                     bool restrict_for_webgl,
+                                     const char** error_message);
+
+bool ValidateCopyTexFormatHelper(const FeatureInfo* feature_info,
+                                 GLenum internal_format,
+                                 GLenum read_format,
+                                 GLenum read_type,
+                                 std::string* output_error_msg);
+
+CopyTextureMethod GetCopyTextureCHROMIUMMethod(const FeatureInfo* feature_info,
+                                               GLenum source_target,
+                                               GLint source_level,
+                                               GLenum source_internal_format,
+                                               GLenum source_type,
+                                               GLenum dest_target,
+                                               GLint dest_level,
+                                               GLenum dest_internal_format,
+                                               bool flip_y,
+                                               bool premultiply_alpha,
+                                               bool unpremultiply_alpha,
+                                               bool dither);
+
+bool ValidateCopyTextureCHROMIUMInternalFormats(const FeatureInfo* feature_info,
+                                                GLenum source_internal_format,
+                                                GLenum dest_internal_format,
+                                                std::string* output_error_msg);
+}  // namespace gles2
+}  // namespace gpu
 
 #endif  // GPU_COMMAND_BUFFER_SERVICE_GL_UTILS_H_

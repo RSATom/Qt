@@ -139,7 +139,7 @@ namespace {
                         expected = TypeIdentifier;
                         break;
                     }
-                    // Fall through.
+                    Q_FALLTHROUGH();
                 case TypeIdentifier:
                     typeIndex = idIndex;
                     typeLength = idLength;
@@ -245,7 +245,11 @@ void QQuickOpenGLShaderEffectCommon::connectPropertySignals(QQuickItem *item,
                                                             const QMetaObject *itemMetaObject,
                                                             Key::ShaderType shaderType)
 {
-    QQmlPropertyCache *propCache = QQmlData::ensurePropertyCache(qmlEngine(item), item);
+    auto engine = qmlEngine(item);
+    if (!engine)
+        return;
+
+    QQmlPropertyCache *propCache = QQmlData::ensurePropertyCache(engine, item);
     for (int i = 0; i < uniformData[shaderType].size(); ++i) {
         if (signalMappers[shaderType].at(i) == 0)
             continue;
@@ -317,7 +321,8 @@ void QQuickOpenGLShaderEffectCommon::lookThroughShaderCode(QQuickItem *item,
                                                            Key::ShaderType shaderType,
                                                            const QByteArray &code)
 {
-    QQmlPropertyCache *propCache = QQmlData::ensurePropertyCache(qmlEngine(item), item);
+    auto engine = qmlEngine(item);
+    QQmlPropertyCache *propCache = (engine) ? QQmlData::ensurePropertyCache(engine, item) : nullptr;
     int index = 0;
     int typeIndex = -1;
     int typeLength = 0;
@@ -350,9 +355,11 @@ void QQuickOpenGLShaderEffectCommon::lookThroughShaderCode(QQuickItem *item,
             } else if (nameLength > srLen && qstrncmp("qt_SubRect_", s + nameIndex, srLen) == 0) {
                 d.specialType = UniformData::SubRect;
             } else {
-                if (QQmlPropertyData *pd = propCache->property(QString::fromUtf8(d.name), nullptr, nullptr)) {
-                    if (!pd->isFunction())
-                        d.propertyIndex = pd->coreIndex();
+                if (propCache) {
+                    if (QQmlPropertyData *pd = propCache->property(QString::fromUtf8(d.name), nullptr, nullptr)) {
+                        if (!pd->isFunction())
+                            d.propertyIndex = pd->coreIndex();
+                    }
                 }
                 const int mappedId = uniformData[shaderType].size() | (shaderType << 16);
                 mapper = new QtPrivate::MappedSlotObject([this, mappedId](){
@@ -422,8 +429,9 @@ void QQuickOpenGLShaderEffectCommon::updateShader(QQuickItem *item,
             d.specialType = UniformData::Opacity;
             uniformData[Key::FragmentShader].append(d);
             signalMappers[Key::FragmentShader].append(0);
-            const int mappedId = 1 | (Key::FragmentShader << 16);
-            auto mapper = new QtPrivate::MappedSlotObject([this, mappedId](){mappedPropertyChanged(mappedId);});
+            auto mapper = new QtPrivate::MappedSlotObject([this](){
+                mappedPropertyChanged(1 | (Key::FragmentShader << 16));
+            });
             const char *sourceName = "source";
             d.name = sourceName;
             d.setValueFromProperty(item, itemMetaObject);
@@ -483,7 +491,7 @@ void QQuickOpenGLShaderEffectCommon::updateMaterial(QQuickOpenGLShaderEffectNode
                 if (d.specialType != UniformData::Sampler && d.specialType != UniformData::SamplerExternal)
                     continue;
                 QSGTextureProvider *oldProvider = material->textureProviders.at(index);
-                QSGTextureProvider *newProvider = 0;
+                QSGTextureProvider *newProvider = nullptr;
                 QQuickItem *source = qobject_cast<QQuickItem *>(qvariant_cast<QObject *>(d.value));
                 if (source && source->isTextureProvider())
                     newProvider = source->textureProvider();
@@ -623,7 +631,7 @@ QQuickOpenGLShaderEffect::QQuickOpenGLShaderEffect(QQuickShaderEffect *item, QOb
     , m_item(item)
     , m_itemMetaObject(nullptr)
     , m_meshResolution(1, 1)
-    , m_mesh(0)
+    , m_mesh(nullptr)
     , m_cullMode(QQuickShaderEffect::NoCulling)
     , m_status(QQuickShaderEffect::Uncompiled)
     , m_common(this, [this](int mappedId){this->propertyChanged(mappedId);})
@@ -712,7 +720,7 @@ void QQuickOpenGLShaderEffect::setMesh(const QVariant &mesh)
     if (newMesh && newMesh == m_mesh)
         return;
     if (m_mesh)
-        disconnect(m_mesh, SIGNAL(geometryChanged()), this, 0);
+        disconnect(m_mesh, SIGNAL(geometryChanged()), this, nullptr);
     m_mesh = newMesh;
     if (m_mesh) {
         connect(m_mesh, SIGNAL(geometryChanged()), this, SLOT(updateGeometry()));
@@ -765,7 +773,7 @@ QString QQuickOpenGLShaderEffect::parseLog()
     maybeUpdateShaders(true);
 
     if (m_dirtyParseLog) {
-        m_common.updateParseLog(m_mesh != 0);
+        m_common.updateParseLog(m_mesh != nullptr);
         m_dirtyParseLog = false;
     }
     return m_common.parseLog;
@@ -837,7 +845,7 @@ QSGNode *QQuickOpenGLShaderEffect::handleUpdatePaintNode(QSGNode *oldNode, QQuic
     if (m_common.attributes.isEmpty() || m_item->width() <= 0 || m_item->height() <= 0) {
         if (node)
             delete node;
-        return 0;
+        return nullptr;
     }
 
     if (!node) {
@@ -913,7 +921,7 @@ QSGNode *QQuickOpenGLShaderEffect::handleUpdatePaintNode(QSGNode *oldNode, QQuic
     }
 
     if (m_dirtyMesh) {
-        node->setGeometry(0);
+        node->setGeometry(nullptr);
         m_dirtyMesh = false;
         m_dirtyGeometry = true;
     }
@@ -934,7 +942,7 @@ QSGNode *QQuickOpenGLShaderEffect::handleUpdatePaintNode(QSGNode *oldNode, QQuic
                 emit m_item->statusChanged();
             }
             delete node;
-            return 0;
+            return nullptr;
         }
 
         geometry = mesh->updateGeometry(geometry, m_common.attributes.count(), posIndex, srcRect, rect);

@@ -48,14 +48,14 @@ PaintManager::PaintManager(pp::Instance* instance,
   DCHECK(client);
 }
 
-PaintManager::~PaintManager() {}
+PaintManager::~PaintManager() = default;
 
 // static
 pp::Size PaintManager::GetNewContextSize(const pp::Size& current_context_size,
                                          const pp::Size& plugin_size) {
   // The amount of additional space in pixels to allocate to the right/bottom of
   // the context.
-  const int kBufferSize = 50;
+  constexpr int kBufferSize = 50;
 
   // Default to returning the same size.
   pp::Size result = current_context_size;

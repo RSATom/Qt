@@ -85,10 +85,10 @@ class Q_QML_PRIVATE_EXPORT QQmlObjectCreator
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlObjectCreator)
 public:
-    QQmlObjectCreator(QQmlContextData *parentContext, QV4::CompiledData::CompilationUnit *compilationUnit, QQmlContextData *creationContext, QQmlIncubatorPrivate  *incubator = 0);
+    QQmlObjectCreator(QQmlContextData *parentContext, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, QQmlContextData *creationContext, QQmlIncubatorPrivate  *incubator = nullptr);
     ~QQmlObjectCreator();
 
-    QObject *create(int subComponentIndex = -1, QObject *parent = 0, QQmlInstantiationInterrupt *interrupt = 0);
+    QObject *create(int subComponentIndex = -1, QObject *parent = nullptr, QQmlInstantiationInterrupt *interrupt = nullptr);
     bool populateDeferredProperties(QObject *instance, QQmlData::DeferredData *deferredData);
     bool populateDeferredBinding(const QQmlProperty &qmlProperty, QQmlData::DeferredData *deferredData, const QV4::CompiledData::Binding *binding);
     QQmlContextData *finalize(QQmlInstantiationInterrupt &interrupt);
@@ -104,11 +104,11 @@ public:
     QFiniteStack<QPointer<QObject> > &allCreatedObjects() const { return sharedState->allCreatedObjects; }
 
 private:
-    QQmlObjectCreator(QQmlContextData *contextData, QV4::CompiledData::CompilationUnit *compilationUnit, QQmlObjectCreatorSharedState *inheritedSharedState);
+    QQmlObjectCreator(QQmlContextData *contextData, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, QQmlObjectCreatorSharedState *inheritedSharedState);
 
     void init(QQmlContextData *parentContext);
 
-    QObject *createInstance(int index, QObject *parent = 0, bool isContextObject = false);
+    QObject *createInstance(int index, QObject *parent = nullptr, bool isContextObject = false);
 
     bool populateInstance(int index, QObject *instance,
                           QObject *bindingTarget, const QQmlPropertyData *valueTypeProperty);
@@ -118,13 +118,17 @@ private:
     void setPropertyValue(const QQmlPropertyData *property, const QV4::CompiledData::Binding *binding);
     void setupFunctions();
 
-    QString stringAt(int idx) const { return qmlUnit->stringAt(idx); }
+    QString stringAt(int idx) const { return compilationUnit->stringAt(idx); }
     void recordError(const QV4::CompiledData::Location &location, const QString &description);
 
     void registerObjectWithContextById(const QV4::CompiledData::Object *object, QObject *instance) const;
 
     inline QV4::QmlContext *currentQmlContext();
     Q_NEVER_INLINE void createQmlContext();
+    QV4::CompiledData::ResolvedTypeReference *resolvedType(int id) const
+    {
+        return compilationUnit->resolvedType(id);
+    }
 
     enum Phase {
         Startup,
@@ -137,11 +141,10 @@ private:
 
     QQmlEngine *engine;
     QV4::ExecutionEngine *v4;
-    QV4::CompiledData::CompilationUnit *compilationUnit;
+    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit;
     const QV4::CompiledData::Unit *qmlUnit;
     QQmlGuardedContextData parentContext;
     QQmlContextData *context;
-    const QV4::CompiledData::ResolvedTypeReferenceMap &resolvedTypes;
     const QQmlPropertyCacheVector *propertyCaches;
     QExplicitlySharedDataPointer<QQmlObjectCreatorSharedState> sharedState;
     bool topLevelCreator;
@@ -161,6 +164,9 @@ private:
     QV4::QmlContext *_qmlContext;
 
     friend struct QQmlObjectCreatorRecursionWatcher;
+
+    typedef std::function<bool(QQmlObjectCreatorSharedState *sharedState)> PendingAliasBinding;
+    std::vector<PendingAliasBinding> pendingAliasBindings;
 };
 
 struct QQmlObjectCreatorRecursionWatcher

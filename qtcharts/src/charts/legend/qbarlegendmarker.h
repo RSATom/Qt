@@ -39,11 +39,11 @@ QT_CHARTS_BEGIN_NAMESPACE
 class QLegend;
 class QBarLegendMarkerPrivate;
 
-class QT_CHARTS_EXPORT QBarLegendMarker : public QLegendMarker
+class Q_CHARTS_EXPORT QBarLegendMarker : public QLegendMarker
 {
     Q_OBJECT
 public:
-    explicit QBarLegendMarker(QAbstractBarSeries *series, QBarSet *barset, QLegend *legend, QObject *parent = Q_NULLPTR);
+    explicit QBarLegendMarker(QAbstractBarSeries *series, QBarSet *barset, QLegend *legend, QObject *parent = nullptr);
     virtual ~QBarLegendMarker();
 
     virtual LegendMarkerType type() { return LegendMarkerTypeBar; }
@@ -53,7 +53,7 @@ public:
     QBarSet* barset();
 
 protected:
-    QBarLegendMarker(QBarLegendMarkerPrivate &d, QObject *parent = Q_NULLPTR);
+    QBarLegendMarker(QBarLegendMarkerPrivate &d, QObject *parent = nullptr);
 
 private:
     Q_DECLARE_PRIVATE(QBarLegendMarker)

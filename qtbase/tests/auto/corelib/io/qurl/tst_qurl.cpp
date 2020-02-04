@@ -47,6 +47,7 @@ class tst_QUrl : public QObject
 
 private slots:
     void initTestCase();
+    void cleanupTestCase();
     void effectiveTLDs_data();
     void effectiveTLDs();
     void getSetCheck();
@@ -180,16 +181,27 @@ private slots:
     void testThreading();
     void matches_data();
     void matches();
+    void ipv6_zoneId_data();
+    void ipv6_zoneId();
+    void normalizeRemotePaths_data();
+    void normalizeRemotePaths();
 
 private:
     void testThreadingHelper();
 
+    const QString m_currentPath = QDir::currentPath();
     QTemporaryDir m_tempDir;
 };
 
 void tst_QUrl::initTestCase()
 {
     QVERIFY2(m_tempDir.isValid(), qPrintable(m_tempDir.errorString()));
+}
+
+void tst_QUrl::cleanupTestCase()
+{
+    // Restore working directory changed in fromUserInputWithCwd()
+    QDir::setCurrent(m_currentPath);
 }
 
 // Testing get/set functions
@@ -321,7 +333,7 @@ void tst_QUrl::comparison()
 
     QUrl url3bis = QUrl::fromEncoded("example://a/b/c/%7Bfoo%7D/");
     QUrl url3bisNoSlash = QUrl::fromEncoded("example://a/b/c/%7Bfoo%7D");
-    QUrl url4bis = QUrl::fromEncoded("example://a/.//b/../b/c//%7Bfoo%7D/");
+    QUrl url4bis = QUrl::fromEncoded("example://a/./b/../b/c/%7Bfoo%7D/");
     QCOMPARE(url4bis.adjusted(QUrl::NormalizePathSegments), url3bis);
     QCOMPARE(url4bis.adjusted(QUrl::NormalizePathSegments | QUrl::StripTrailingSlash), url3bisNoSlash);
     QVERIFY(url3bis.matches(url4bis, QUrl::NormalizePathSegments));
@@ -333,7 +345,7 @@ void tst_QUrl::comparison()
     QCOMPARE(url4EncodedDots.path(QUrl::FullyDecoded), QString("/.//b/..//b/c/"));
     QCOMPARE(QString::fromLatin1(url4EncodedDots.toEncoded()), QString::fromLatin1("example://a/.//b/..%2F/b/c/"));
     QCOMPARE(url4EncodedDots.toString(), QString("example://a/.//b/..%2F/b/c/"));
-    QCOMPARE(url4EncodedDots.adjusted(QUrl::NormalizePathSegments).toString(), QString("example://a/b/..%2F/b/c/"));
+    QCOMPARE(url4EncodedDots.adjusted(QUrl::NormalizePathSegments).toString(), QString("example://a//b/..%2F/b/c/"));
 
     // 6.2.2.1 Make sure hexdecimal characters in percent encoding are
     // treated case-insensitively
@@ -1876,6 +1888,24 @@ void tst_QUrl::ipv6_data()
 
     QTest::newRow("encoded-digit") << "//[::%31]" << true << "//[::1]";
     QTest::newRow("encoded-colon") << "//[%3A%3A]" << true << "//[::]";
+
+    QTest::newRow("full ipv6 with zone id (decoded %)") << QString::fromLatin1("//[56:56:56:56:56:56:56:56%eth0]") << true
+            << "//[56:56:56:56:56:56:56:56%25eth0]";
+
+    QTest::newRow("full ipv6 with zone id (encoded %)") << QString::fromLatin1("//[56:56:56:56:56:56:56:56%25eth0]") << true
+            << "//[56:56:56:56:56:56:56:56%25eth0]";
+
+    QTest::newRow("full ipv6 with invalid zone id") << QString::fromLatin1("//[56:56:56:56:56:56:56:56%]") << false << "";
+
+    QTest::newRow("full ipv6 with invalid zone id (encoded)") << QString::fromLatin1("//[56:56:56:56:56:56:56:56%25]") << false << "";
+
+    QTest::newRow("full ipv6 with zone id 25 (encoded)") << QString::fromLatin1("//[56:56:56:56:56:56:56:56%2525]") << true << "//[56:56:56:56:56:56:56:56%2525]";
+
+    QTest::newRow("case 4 with less and ip4 and port and useinfo and zone id")
+            << QString::fromLatin1("//user:pass@[56::56:56:56:127.0.0.1%ethernet_1]:99") << true
+            << "//user:pass@[56::56:56:56:7f00:1%25ethernet_1]:99";
+
+    QTest::newRow("encoded-digit including zone id") << "//[::%31%25eth0]" << true << "//[::1%25eth0]";
 }
 
 void tst_QUrl::ipv6()
@@ -2041,6 +2071,21 @@ void tst_QUrl::isValid()
         QVERIFY(url.isValid());
         QVERIFY(!url.toString().isEmpty());
         url.setHost("stuff;1");
+        QVERIFY(!url.isValid());
+        QVERIFY(url.toString().isEmpty());
+        QVERIFY2(url.errorString().contains("Invalid hostname"),
+                 qPrintable(url.errorString()));
+    }
+
+    {
+        QUrl url = QUrl::fromEncoded("foo://%f0%9f%93%99.example.la/g");
+        QVERIFY(!url.isValid());
+        QVERIFY(url.toString().isEmpty());
+        QCOMPARE(url.path(), QString("/g"));
+        url.setHost("%f0%9f%93%99.example.la/");
+        QVERIFY(!url.isValid());
+        QVERIFY(url.toString().isEmpty());
+        url.setHost("\xf0\x9f\x93\x99.example.la/");
         QVERIFY(!url.isValid());
         QVERIFY(url.toString().isEmpty());
         QVERIFY2(url.errorString().contains("Invalid hostname"),
@@ -2778,7 +2823,9 @@ void tst_QUrl::hosts()
 {
     QFETCH(QString, url);
 
-    QTEST(QUrl(url).host(), "host");
+    QUrl u(url);
+    QTEST(u.host(), "host");
+    QVERIFY(u.isEmpty() || u.isValid());
 }
 
 void tst_QUrl::hostFlags_data()
@@ -3363,6 +3410,21 @@ void tst_QUrl::effectiveTLDs_data()
     QTest::newRow("yes16") << QUrl::fromEncoded("http://anything.pagespeedmobilizer.com") << ".pagespeedmobilizer.com";
     QTest::newRow("yes17") << QUrl::fromEncoded("http://anything.eu-central-1.compute.amazonaws.com") << ".eu-central-1.compute.amazonaws.com";
     QTest::newRow("yes18") << QUrl::fromEncoded("http://anything.ltd.hk") << ".ltd.hk";
+    QTest::newRow("trentino.it")
+        << QUrl::fromEncoded("http://any.thing.trentino.it") << ".trentino.it";
+    QTest::newRow("net.ni") << QUrl::fromEncoded("http://test.net.ni") << ".net.ni";
+    QTest::newRow("dyn.cosidns.de")
+        << QUrl::fromEncoded("http://test.dyn.cosidns.de") << ".dyn.cosidns.de";
+    QTest::newRow("freeddns.org")
+        << QUrl::fromEncoded("http://test.freeddns.org") << ".freeddns.org";
+    QTest::newRow("app.os.stg.fedoraproject.org")
+        << QUrl::fromEncoded("http://test.app.os.stg.fedoraproject.org")
+        << ".app.os.stg.fedoraproject.org";
+    QTest::newRow("development.run") << QUrl::fromEncoded("http://test.development.run") << ".development.run";
+    QTest::newRow("crafting.xyz") << QUrl::fromEncoded("http://test.crafting.xyz") << ".crafting.xyz";
+    QTest::newRow("nym.ie") << QUrl::fromEncoded("http://shamus.nym.ie") << ".nym.ie";
+    QTest::newRow("vapor.cloud") << QUrl::fromEncoded("http://test.vapor.cloud") << ".vapor.cloud";
+    QTest::newRow("official.academy") << QUrl::fromEncoded("http://acredited.official.academy") << ".official.academy";
 }
 
 void tst_QUrl::effectiveTLDs()
@@ -4106,6 +4168,18 @@ void tst_QUrl::matches_data()
         << "http://user:pass@www.website.com/directory"
         << "http://otheruser:otherpass@www.website.com/directory"
         << uint(QUrl::RemovePath | QUrl::RemoveAuthority) << true;
+    QTest::newRow("matchingHost-removePort") << "http://example.com" << "http://example.com"
+                                             << uint(QUrl::RemovePort) << true;
+    QTest::newRow("nonMatchingHost-removePort") << "http://example.com" << "http://example.net"
+                                                << uint(QUrl::RemovePort) << false;
+    QTest::newRow("matchingHost-removePassword") << "http://example.com" << "http://example.com"
+                                                 << uint(QUrl::RemovePassword) << true;
+    QTest::newRow("nonMatchingHost-removePassword") << "http://example.com" << "http://example.net"
+                                                    << uint(QUrl::RemovePassword) << false;
+    QTest::newRow("matchingUserName-removePassword") << "http://user@example.com" << "http://user@example.com"
+                                                 << uint(QUrl::RemovePassword) << true;
+    QTest::newRow("nonMatchingUserName-removePassword") << "http://user@example.com" << "http://user2@example.com"
+                                                    << uint(QUrl::RemovePassword) << false;
 }
 
 void tst_QUrl::matches()
@@ -4118,6 +4192,68 @@ void tst_QUrl::matches()
     QUrl urlOne(urlStrOne);
     QUrl urlTwo(urlStrTwo);
     QCOMPARE(urlOne.matches(urlTwo, QUrl::FormattingOptions(options)), matches);
+}
+
+void tst_QUrl::ipv6_zoneId_data()
+{
+    QTest::addColumn<QUrl>("url");
+    QTest::addColumn<QString>("decodedHost");
+    QTest::addColumn<QString>("prettyHost");
+    QTest::addColumn<QString>("encodedHost");
+
+    QTest::newRow("digit") << QUrl("x://[::%251]") << "::%1" << "::%251" << "::%251";
+    QTest::newRow("eth0") << QUrl("x://[::%25eth0]") << "::%eth0" << "::%25eth0" << "::%25eth0";
+    QTest::newRow("space") << QUrl("x://[::%25%20]") << "::% " << "::%25 " << "::%25%20";
+    QTest::newRow("subdelims") << QUrl("x://[::%25eth%2B]") << "::%eth+" << "::%25eth%2B" << "::%25eth%2B";
+    QTest::newRow("other") << QUrl("x://[::%25^]") << "::%^" << "::%25%5E" << "::%25%5E";
+    QTest::newRow("control") << QUrl("x://[::%25%7F]") << "::%\x7f" << "::%25%7F" << "::%25%7F";
+    QTest::newRow("unicode") << QUrl("x://[::%25wlán0]") << "::%wlán0" << "::%25wlán0" << "::%25wl%C3%A1n0";
+    QTest::newRow("non-utf8") << QUrl("x://[::%25%80]") << QString("::%") + QChar(QChar::ReplacementCharacter) << "::%25%80" << "::%25%80";
+  }
+
+void tst_QUrl::ipv6_zoneId()
+{
+    QFETCH(QUrl, url);
+    QFETCH(QString, decodedHost);
+    QFETCH(QString, prettyHost);
+    QFETCH(QString, encodedHost);
+
+    QVERIFY2(url.isValid(), qPrintable(url.errorString()));
+    QCOMPARE(url.host(QUrl::FullyDecoded), decodedHost);
+    QCOMPARE(url.host(), decodedHost);
+    QCOMPARE(url.host(QUrl::FullyEncoded), encodedHost);
+    QCOMPARE(url.toString(), "x://[" + prettyHost + "]");
+    QCOMPARE(url.toString(QUrl::FullyEncoded), "x://[" + encodedHost + "]");
+}
+
+void tst_QUrl::normalizeRemotePaths_data()
+{
+    QTest::addColumn<QUrl>("url");
+    QTest::addColumn<QString>("expected");
+
+    QTest::newRow("dotdot-slashslash") << QUrl("http://qt-project.org/some/long/..//path") << "http://qt-project.org/some//path";
+    QTest::newRow("slashslash-dotdot") << QUrl("http://qt-project.org/some//../path") << "http://qt-project.org/some/path";
+    QTest::newRow("slashslash-dotdot2") << QUrl("http://qt-project.org/some//path/../") << "http://qt-project.org/some//";
+    QTest::newRow("dot-slash") << QUrl("http://qt-project.org/some/./path") << "http://qt-project.org/some/path";
+    QTest::newRow("slashslash-dot-slashslash") << QUrl("http://qt-project.org/some//.//path") << "http://qt-project.org/some///path";
+    QTest::newRow("dot-slashslash") << QUrl("http://qt-project.org/some/.//path") << "http://qt-project.org/some//path";
+    QTest::newRow("multiple-slashes") << QUrl("http://qt-project.org/some//path") << "http://qt-project.org/some//path";
+    QTest::newRow("multiple-slashes4") << QUrl("http://qt-project.org/some////path") << "http://qt-project.org/some////path";
+    QTest::newRow("slashes-at-end") << QUrl("http://qt-project.org/some//") << "http://qt-project.org/some//";
+    QTest::newRow("dot-dotdot") << QUrl("http://qt-project.org/path/./../") << "http://qt-project.org/";
+    QTest::newRow("slash-dot-slash-dot-slash") << QUrl("http://qt-project.org/path//.//.//") << "http://qt-project.org/path////";
+    QTest::newRow("dotdot") << QUrl("http://qt-project.org/../") << "http://qt-project.org/";
+    QTest::newRow("dotdot-dotdot") << QUrl("http://qt-project.org/path/../../") << "http://qt-project.org/";
+    QTest::newRow("dot-dotdot-tail") << QUrl("http://qt-project.org/stem/path/./../tail") << "http://qt-project.org/stem/tail";
+    QTest::newRow("slash-dotdot-slash-tail") << QUrl("http://qt-project.org/stem/path//..//tail") << "http://qt-project.org/stem/path//tail";
+}
+
+void tst_QUrl::normalizeRemotePaths()
+{
+    QFETCH(QUrl, url);
+    QFETCH(QString, expected);
+
+    QCOMPARE(url.adjusted(QUrl::NormalizePathSegments).toString(), expected);
 }
 
 QTEST_MAIN(tst_QUrl)

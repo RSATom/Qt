@@ -20,23 +20,33 @@
 #include "gpu/gpu_export.h"
 #include "ui/gfx/geometry/size.h"
 
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
 typedef unsigned long VisualID;
 #endif
 
 namespace gpu {
 
-// Result for the various Collect*Info* functions below.
-// Fatal failures are for cases where we can't create a context at all or
-// something, making the use of the GPU impossible.
-// Non-fatal failures are for cases where we could gather most info, but maybe
-// some is missing (e.g. unable to parse a version string or to detect the exact
-// model).
-enum CollectInfoResult {
-  kCollectInfoNone = 0,
-  kCollectInfoSuccess = 1,
-  kCollectInfoNonFatalFailure = 2,
-  kCollectInfoFatalFailure = 3
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class GpuSeriesType {
+  kUnknown = 0,
+  // Intel 6th gen
+  kIntelSandyBridge = 1,
+  // Intel 7th gen
+  kIntelValleyView = 2,  // BayTrail
+  kIntelIvyBridge = 3,
+  kIntelHaswell = 4,
+  // Intel 8th gen
+  kIntelCherryView = 5,  // Braswell
+  kIntelBroadwell = 6,
+  // Intel 9th gen
+  kIntelApolloLake = 7,
+  kIntelSkyLake = 8,
+  kIntelGeminiLake = 9,
+  kIntelKabyLake = 10,
+  kIntelCoffeeLake = 11,
+  // Please also update |gpu_series_map| in process_json.py.
+  kMaxValue = kIntelCoffeeLake,
 };
 
 // Video profile.  This *must* match media::VideoCodecProfile.
@@ -66,7 +76,11 @@ enum VideoCodecProfile {
   DOLBYVISION_PROFILE4,
   DOLBYVISION_PROFILE5,
   DOLBYVISION_PROFILE7,
-  VIDEO_CODEC_PROFILE_MAX = DOLBYVISION_PROFILE7,
+  THEORAPROFILE_ANY,
+  AV1PROFILE_PROFILE_MAIN,
+  AV1PROFILE_PROFILE_HIGH,
+  AV1PROFILE_PROFILE_PRO,
+  VIDEO_CODEC_PROFILE_MAX = AV1PROFILE_PROFILE_PRO,
 };
 
 // Specification of a decoding profile supported by a hardware decoder.
@@ -99,10 +113,46 @@ struct GPU_EXPORT VideoEncodeAcceleratorSupportedProfile {
 using VideoEncodeAcceleratorSupportedProfiles =
     std::vector<VideoEncodeAcceleratorSupportedProfile>;
 
+#if defined(OS_WIN)
+// Common overlay formats that we're interested in. Must match the OverlayFormat
+// enum in //tools/metrics/histograms/enums.xml. Mapped to corresponding DXGI
+// formats in DirectCompositionSurfaceWin.
+enum class OverlayFormat { kBGRA = 0, kYUY2 = 1, kNV12 = 2, kMaxValue = kNV12 };
+
+GPU_EXPORT const char* OverlayFormatToString(OverlayFormat format);
+
+struct GPU_EXPORT OverlayCapability {
+  OverlayFormat format;
+  bool is_scaling_supported;
+  bool operator==(const OverlayCapability& other) const;
+};
+using OverlayCapabilities = std::vector<OverlayCapability>;
+
+struct GPU_EXPORT Dx12VulkanVersionInfo {
+  bool IsEmpty() const { return !d3d12_feature_level && !vulkan_version; }
+
+  // True if the GPU driver supports DX12.
+  bool supports_dx12 = false;
+
+  // True if the GPU driver supports Vulkan.
+  bool supports_vulkan = false;
+
+  // The supported d3d feature level in the gpu driver;
+  uint32_t d3d12_feature_level = 0;
+
+  // The support Vulkan API version in the gpu driver;
+  uint32_t vulkan_version = 0;
+};
+#endif
+
 struct GPU_EXPORT GPUInfo {
   struct GPU_EXPORT GPUDevice {
     GPUDevice();
-    ~GPUDevice();
+    GPUDevice(const GPUDevice& other);
+    GPUDevice(GPUDevice&& other) noexcept;
+    ~GPUDevice() noexcept;
+    GPUDevice& operator=(const GPUDevice& other);
+    GPUDevice& operator=(GPUDevice&& other) noexcept;
 
     // The DWORD (uint32_t) representing the graphics card vendor id.
     uint32_t vendor_id;
@@ -121,11 +171,25 @@ struct GPU_EXPORT GPUInfo {
     // In Android, these are respectively GL_VENDOR and GL_RENDERER.
     std::string vendor_string;
     std::string device_string;
+
+    std::string driver_vendor;
+    std::string driver_version;
+    std::string driver_date;
+
+    // NVIDIA CUDA compute capability, major version. 0 if undetermined. Can be
+    // used to determine the hardware generation that the GPU belongs to.
+    int cuda_compute_capability_major;
   };
 
   GPUInfo();
   GPUInfo(const GPUInfo& other);
   ~GPUInfo();
+
+  // The currently active gpu.
+  GPUDevice& active_gpu();
+  const GPUDevice& active_gpu() const;
+
+  bool IsInitialized() const;
 
   // The amount of time taken to get from the process starting to the message
   // loop being pumped.
@@ -142,18 +206,6 @@ struct GPU_EXPORT GPUInfo {
 
   // Secondary GPUs, for example, the integrated GPU in a dual GPU machine.
   std::vector<GPUDevice> secondary_gpus;
-
-  // The currently active gpu.
-  const GPUDevice& active_gpu() const;
-
-  // The vendor of the graphics driver currently installed.
-  std::string driver_vendor;
-
-  // The version of the graphics driver currently installed.
-  std::string driver_version;
-
-  // The date of the graphics driver currently installed.
-  std::string driver_date;
 
   // The version of the pixel/fragment shader used by the gpu.
   std::string pixel_shader_version;
@@ -211,35 +263,30 @@ struct GPU_EXPORT GPUInfo {
   // Whether the gpu process is running in a sandbox.
   bool sandboxed;
 
-  // Number of GPU process crashes recorded.
-  int process_crash_count;
-
   // True if the GPU is running in the browser process instead of its own.
   bool in_process_gpu;
 
   // True if the GPU process is using the passthrough command decoder.
   bool passthrough_cmd_decoder;
 
-  // True if the current set of outputs supports overlays.
-  bool supports_overlays = false;
-
-  // True if the current set of outputs supports HDR.
-  bool hdr = false;
-
   // True only on android when extensions for threaded mailbox sharing are
   // present. Threaded mailbox sharing is used on Android only, so this check
   // is only implemented on Android.
   bool can_support_threaded_texture_mailbox = false;
 
-  // The state of whether the basic/context/DxDiagnostics info is collected and
-  // if the collection fails or not.
-  CollectInfoResult basic_info_state;
-  CollectInfoResult context_info_state;
 #if defined(OS_WIN)
-  CollectInfoResult dx_diagnostics_info_state;
+  // True if we use direct composition surface on Windows.
+  bool direct_composition = false;
+
+  // True if we use direct composition surface overlays on Windows.
+  bool supports_overlays = false;
+
+  OverlayCapabilities overlay_capabilities;
 
   // The information returned by the DirectX Diagnostics Tool.
   DxDiagNode dx_diagnostics;
+
+  Dx12VulkanVersionInfo dx12_vulkan_version_info;
 #endif
 
   VideoDecodeAcceleratorCapabilities video_decode_accelerator_capabilities;
@@ -247,10 +294,12 @@ struct GPU_EXPORT GPUInfo {
       video_encode_accelerator_supported_profiles;
   bool jpeg_decode_accelerator_supported;
 
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
   VisualID system_visual;
   VisualID rgba_visual;
 #endif
+
+  bool oop_rasterization_supported;
 
   // Note: when adding new members, please remember to update EnumerateFields
   // in gpu_info.cc.
@@ -291,8 +340,14 @@ struct GPU_EXPORT GPUInfo {
     virtual void BeginAuxAttributes() = 0;
     virtual void EndAuxAttributes() = 0;
 
+    virtual void BeginOverlayCapability() = 0;
+    virtual void EndOverlayCapability() = 0;
+
+    virtual void BeginDx12VulkanVersionInfo() = 0;
+    virtual void EndDx12VulkanVersionInfo() = 0;
+
    protected:
-    virtual ~Enumerator() {}
+    virtual ~Enumerator() = default;
   };
 
   // Outputs the fields in this structure to the provided enumerator.

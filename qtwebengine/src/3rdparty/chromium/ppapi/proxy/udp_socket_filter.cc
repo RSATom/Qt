@@ -6,10 +6,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/proxy/error_conversion.h"
 #include "ppapi/proxy/plugin_globals.h"
@@ -66,7 +66,7 @@ void UDPSocketFilter::AddUDPResource(
   ProxyLock::AssertAcquired();
   base::AutoLock acquire(lock_);
   DCHECK(queues_.find(resource) == queues_.end());
-  queues_[resource] = base::MakeUnique<RecvQueue>(instance, private_api,
+  queues_[resource] = std::make_unique<RecvQueue>(instance, private_api,
                                                   slot_available_callback);
 }
 
@@ -226,11 +226,11 @@ int32_t UDPSocketFilter::RecvQueue::RequestData(
     if (static_cast<size_t>(num_bytes) < front.data.size())
       return PP_ERROR_MESSAGE_TOO_BIG;
 
-    int32_t result = static_cast<int32_t>(front.data.size());
     std::unique_ptr<std::string> data_to_pass(new std::string);
     data_to_pass->swap(front.data);
-    SetRecvFromOutput(pp_instance_, std::move(data_to_pass), front.addr,
-                      buffer_out, num_bytes, addr_out, PP_OK);
+    int32_t result =
+        SetRecvFromOutput(pp_instance_, std::move(data_to_pass), front.addr,
+                          buffer_out, num_bytes, addr_out, front.result);
     last_recvfrom_addr_ = front.addr;
     recv_buffers_.pop();
     slot_available_callback_.Run();

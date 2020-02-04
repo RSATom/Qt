@@ -254,7 +254,7 @@ bool QGraphicsVideoItem::setMediaObject(QMediaObject *object)
                 d->rendererControl = qobject_cast<QVideoRendererControl *>(control);
 
                 if (d->rendererControl) {
-                    //don't set the surface untill the item is painted
+                    //don't set the surface until the item is painted
                     //at least once and the surface is configured
                     if (!d->updatePaintDevice)
                         d->rendererControl->setSurface(d->surface);
@@ -376,11 +376,15 @@ void QGraphicsVideoItem::paint(
         if (widget)
             connect(widget, SIGNAL(destroyed()), d->surface, SLOT(viewportDestroyed()));
 
-        d->surface->setGLContext(const_cast<QGLContext *>(QGLContext::currentContext()));
-        if (d->surface->supportedShaderTypes() & QPainterVideoSurface::GlslShader) {
-            d->surface->setShaderType(QPainterVideoSurface::GlslShader);
-        } else {
-            d->surface->setShaderType(QPainterVideoSurface::FragmentProgramShader);
+        if (painter->paintEngine()->type() == QPaintEngine::OpenGL
+            || painter->paintEngine()->type() == QPaintEngine::OpenGL2)
+        {
+            d->surface->setGLContext(const_cast<QGLContext *>(QGLContext::currentContext()));
+            if (d->surface->supportedShaderTypes() & QPainterVideoSurface::GlslShader) {
+                d->surface->setShaderType(QPainterVideoSurface::GlslShader);
+            } else {
+                d->surface->setShaderType(QPainterVideoSurface::FragmentProgramShader);
+            }
         }
 #endif
         if (d->rendererControl && d->rendererControl->surface() != d->surface)
@@ -411,5 +415,6 @@ void QGraphicsVideoItem::timerEvent(QTimerEvent *event)
     QGraphicsObject::timerEvent(event);
 }
 
-#include "moc_qgraphicsvideoitem.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qgraphicsvideoitem.cpp"

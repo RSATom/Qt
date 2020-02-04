@@ -81,7 +81,7 @@ class QQmlVMEVariantQObjectPtr : public QQmlGuard<QObject>
 {
 public:
     inline QQmlVMEVariantQObjectPtr();
-    inline ~QQmlVMEVariantQObjectPtr();
+    inline ~QQmlVMEVariantQObjectPtr() override;
 
     inline void objectDestroyed(QObject *) override;
     inline void setGuardedValue(QObject *obj, QQmlVMEMetaObject *target, int index);
@@ -94,17 +94,17 @@ public:
 class Q_QML_PRIVATE_EXPORT QQmlInterceptorMetaObject : public QAbstractDynamicMetaObject
 {
 public:
-    QQmlInterceptorMetaObject(QObject *obj, QQmlPropertyCache *cache);
-    ~QQmlInterceptorMetaObject();
+    QQmlInterceptorMetaObject(QObject *obj, const QQmlRefPointer<QQmlPropertyCache> &cache);
+    ~QQmlInterceptorMetaObject() override;
 
     void registerInterceptor(QQmlPropertyIndex index, QQmlPropertyValueInterceptor *interceptor);
 
     static QQmlInterceptorMetaObject *get(QObject *obj);
 
-    QAbstractDynamicMetaObject *toDynamicMetaObject(QObject *o) Q_DECL_OVERRIDE;
+    QAbstractDynamicMetaObject *toDynamicMetaObject(QObject *o) override;
 
     // Used by auto-tests for inspection
-    QQmlPropertyCache *propertyCache() const { return cache; }
+    QQmlPropertyCache *propertyCache() const { return cache.data(); }
 
     bool intercepts(QQmlPropertyIndex propertyIndex) const
     {
@@ -112,13 +112,13 @@ public:
             if (it->m_propertyIndex == propertyIndex)
                 return true;
         }
-        if (auto parentInterceptor = ((parent.isT1() && parent.flag()) ? static_cast<QQmlInterceptorMetaObject *>(parent.asT1()) : 0))
+        if (auto parentInterceptor = ((parent.isT1() && parent.flag()) ? static_cast<QQmlInterceptorMetaObject *>(parent.asT1()) : nullptr))
             return parentInterceptor->intercepts(propertyIndex);
         return false;
     }
 
 protected:
-    int metaCall(QObject *o, QMetaObject::Call c, int id, void **a) Q_DECL_OVERRIDE;
+    int metaCall(QObject *o, QMetaObject::Call c, int id, void **a) override;
     bool intercept(QMetaObject::Call c, int id, void **a);
 
 public:
@@ -139,15 +139,15 @@ inline QQmlInterceptorMetaObject *QQmlInterceptorMetaObject::get(QObject *obj)
         }
     }
 
-    return 0;
+    return nullptr;
 }
 
 class QQmlVMEMetaObjectEndpoint;
 class Q_QML_PRIVATE_EXPORT QQmlVMEMetaObject : public QQmlInterceptorMetaObject
 {
 public:
-    QQmlVMEMetaObject(QV4::ExecutionEngine *engine, QObject *obj, QQmlPropertyCache *cache, QV4::CompiledData::CompilationUnit *qmlCompilationUnit, int qmlObjectId);
-    ~QQmlVMEMetaObject();
+    QQmlVMEMetaObject(QV4::ExecutionEngine *engine, QObject *obj, const QQmlRefPointer<QQmlPropertyCache> &cache, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &qmlCompilationUnit, int qmlObjectId);
+    ~QQmlVMEMetaObject() override;
 
     bool aliasTarget(int index, QObject **target, int *coreIndex, int *valueTypeIndex) const;
     QV4::ReturnedValue vmeMethod(int index) const;
@@ -163,7 +163,7 @@ public:
     static QQmlVMEMetaObject *getForSignal(QObject *o, int coreIndex);
 
 protected:
-    int metaCall(QObject *o, QMetaObject::Call _c, int _id, void **_a) Q_DECL_OVERRIDE;
+    int metaCall(QObject *o, QMetaObject::Call _c, int _id, void **_a) override;
 
 public:
     QV4::ExecutionEngine *engine;
@@ -241,7 +241,7 @@ QQmlVMEMetaObject *QQmlVMEMetaObject::get(QObject *obj)
         }
     }
 
-    return 0;
+    return nullptr;
 }
 
 int QQmlVMEMetaObject::propOffset() const
@@ -269,7 +269,7 @@ QQmlVMEMetaObject *QQmlVMEMetaObject::parentVMEMetaObject() const
     if (parent.isT1() && parent.flag())
         return static_cast<QQmlVMEMetaObject *>(parent.asT1());
 
-    return 0;
+    return nullptr;
 }
 
 QT_END_NAMESPACE

@@ -8,15 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_TEST_TESTSUPPORT_FRAME_READER_H_
-#define WEBRTC_TEST_TESTSUPPORT_FRAME_READER_H_
+#ifndef TEST_TESTSUPPORT_FRAME_READER_H_
+#define TEST_TESTSUPPORT_FRAME_READER_H_
 
 #include <stdio.h>
 
 #include <string>
 
-#include "webrtc/rtc_base/scoped_ref_ptr.h"
-#include "webrtc/typedefs.h"
+#include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
 class I420Buffer;
@@ -60,8 +59,9 @@ class YuvFrameReaderImpl : public FrameReader {
   size_t FrameLength() override;
   int NumberOfFrames() override;
 
- private:
+ protected:
   const std::string input_filename_;
+  // It is not const, so subclasses will be able to add frame header size.
   size_t frame_length_in_bytes_;
   const int width_;
   const int height_;
@@ -69,7 +69,23 @@ class YuvFrameReaderImpl : public FrameReader {
   FILE* input_file_;
 };
 
+class Y4mFrameReaderImpl : public YuvFrameReaderImpl {
+ public:
+  // Creates a file handler. The input file is assumed to exist and be readable.
+  // Parameters:
+  //   input_filename          The file to read from.
+  //   width, height           Size of each frame to read.
+  Y4mFrameReaderImpl(std::string input_filename, int width, int height);
+  ~Y4mFrameReaderImpl() override;
+  bool Init() override;
+  rtc::scoped_refptr<I420Buffer> ReadFrame() override;
+
+ private:
+  // Buffer that is used to read file and frame headers.
+  uint8_t* buffer_;
+};
+
 }  // namespace test
 }  // namespace webrtc
 
-#endif  // WEBRTC_TEST_TESTSUPPORT_FRAME_READER_H_
+#endif  // TEST_TESTSUPPORT_FRAME_READER_H_

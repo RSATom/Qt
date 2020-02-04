@@ -8,10 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_VIDEO_CAPTURE_WINDOWS_DEVICE_INFO_MF_H_
-#define WEBRTC_MODULES_VIDEO_CAPTURE_WINDOWS_DEVICE_INFO_MF_H_
+#ifndef MODULES_VIDEO_CAPTURE_WINDOWS_DEVICE_INFO_MF_H_
+#define MODULES_VIDEO_CAPTURE_WINDOWS_DEVICE_INFO_MF_H_
 
-#include "webrtc/modules/video_capture/device_info_impl.h"
+#include "modules/video_capture/device_info_impl.h"
 
 namespace webrtc {
 namespace videocapturemodule {
@@ -20,24 +20,27 @@ namespace videocapturemodule {
 class DeviceInfoMF : public DeviceInfoImpl {
  public:
   DeviceInfoMF();
-  virtual ~DeviceInfoMF();
+  ~DeviceInfoMF() override;
 
-  int32_t Init();
-  virtual uint32_t NumberOfDevices();
+  int32_t Init() override;
+  uint32_t NumberOfDevices() override;
 
-  virtual int32_t GetDeviceName(uint32_t deviceNumber, char* deviceNameUTF8,
-                                uint32_t deviceNameLength,
-                                char* deviceUniqueIdUTF8,
-                                uint32_t deviceUniqueIdUTF8Length,
-                                char* productUniqueIdUTF8,
-                                uint32_t productUniqueIdUTF8Length);
+  int32_t GetDeviceName(uint32_t deviceNumber,
+                        char* deviceNameUTF8,
+                        uint32_t deviceNameLength,
+                        char* deviceUniqueIdUTF8,
+                        uint32_t deviceUniqueIdUTF8Length,
+                        char* productUniqueIdUTF8,
+                        uint32_t productUniqueIdUTF8Length) override;
 
-  virtual int32_t DisplayCaptureSettingsDialogBox(
-      const char* deviceUniqueIdUTF8, const char* dialogTitleUTF8,
-      void* parentWindow, uint32_t positionX, uint32_t positionY);
+  int32_t DisplayCaptureSettingsDialogBox(const char* deviceUniqueIdUTF8,
+                                          const char* dialogTitleUTF8,
+                                          void* parentWindow,
+                                          uint32_t positionX,
+                                          uint32_t positionY) override;
 };
 
 }  // namespace videocapturemodule
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_VIDEO_CAPTURE_WINDOWS_DEVICE_INFO_MF_H_
+#endif  // MODULES_VIDEO_CAPTURE_WINDOWS_DEVICE_INFO_MF_H_

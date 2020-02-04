@@ -47,49 +47,54 @@
 #include <qdesigner_formwindowmanager_p.h>
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerFormEditorPluginInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/abstractformeditorplugin.h>
+#include <QtDesigner/qextensionmanager.h>
 
 #include <QtDesigner/private/shared_settings_p.h>
 #include <QtDesigner/private/formwindowbase_p.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtWidgets/QStyleFactory>
-#include <QtGui/QCloseEvent>
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QPushButton>
-#include <QtGui/QIcon>
-#include <QtGui/QImage>
-#include <QtGui/QPixmap>
-#include <QtWidgets/QMdiSubWindow>
-#ifndef QT_NO_PRINTER
-#include <QtPrintSupport/QPrintDialog>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qactiongroup.h>
+#include <QtWidgets/qstylefactory.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qmdisubwindow.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qicon.h>
+#include <QtGui/qimage.h>
+#include <QtGui/qpixmap.h>
+#if defined(QT_PRINTSUPPORT_LIB) // Some platforms may not build QtPrintSupport
+#  include <QtPrintSupport/qtprintsupportglobal.h>
+#  if QT_CONFIG(printer) && QT_CONFIG(printdialog)
+#    include <QtPrintSupport/qprinter.h>
+#    include <QtPrintSupport/qprintdialog.h>
+#    define HAS_PRINTER
+#  endif
 #endif
-#include <QtGui/QPainter>
-#include <QtGui/QTransform>
-#include <QtGui/QCursor>
-#include <QtCore/QSizeF>
+#include <QtGui/qpainter.h>
+#include <QtGui/qtransform.h>
+#include <QtGui/qcursor.h>
+#include <QtCore/qsize.h>
 
-#include <QtCore/QLibraryInfo>
-#include <QtCore/QBuffer>
-#include <QtCore/QPluginLoader>
+#include <QtCore/qlibraryinfo.h>
+#include <QtCore/qbuffer.h>
+#include <QtCore/qpluginloader.h>
 #include <QtCore/qdebug.h>
-#include <QtCore/QTimer>
-#include <QtCore/QMetaObject>
-#include <QtCore/QFileInfo>
-#include <QtWidgets/QStatusBar>
-#include <QtWidgets/QDesktopWidget>
-#include <QtXml/QDomDocument>
+#include <QtCore/qtimer.h>
+#include <QtCore/qmetaobject.h>
+#include <QtCore/qfileinfo.h>
+#include <QtWidgets/qstatusbar.h>
+#include <QtWidgets/qdesktopwidget.h>
+#include <QtXml/qdom.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -169,8 +174,6 @@ QDesignerActions::QDesignerActions(QDesignerWorkbench *workbench)
       m_settingsActions(createActionGroup(this)),
       m_windowActions(createActionGroup(this)),
       m_toolActions(createActionGroup(this, true)),
-      m_helpActions(0),
-      m_styleActions(0),
       m_editWidgetsAction(new QAction(tr("Edit Widgets"), this)),
       m_newFormAction(new QAction(qdesigner_internal::createIconSet(QStringLiteral("filenew.png")), tr("&New..."), this)),
       m_openFormAction(new QAction(qdesigner_internal::createIconSet(QStringLiteral("fileopen.png")), tr("&Open..."), this)),
@@ -182,19 +185,13 @@ QDesignerActions::QDesignerActions(QDesignerWorkbench *workbench)
       m_savePreviewImageAction(new QAction(tr("Save &Image..."), this)),
       m_printPreviewAction(new QAction(tr("&Print..."), this)),
       m_quitAction(new QAction(tr("&Quit"), this)),
-      m_previewFormAction(0),
       m_viewCodeAction(new QAction(tr("View &Code..."), this)),
       m_minimizeAction(new QAction(tr("&Minimize"), this)),
       m_bringAllToFrontSeparator(createSeparator(this)),
       m_bringAllToFrontAction(new QAction(tr("Bring All to Front"), this)),
       m_windowListSeparatorAction(createSeparator(this)),
       m_preferencesAction(new QAction(tr("Preferences..."), this)),
-      m_appFontAction(new QAction(tr("Additional Fonts..."), this)),
-      m_appFontDialog(0),
-#ifndef QT_NO_PRINTER
-      m_printer(0),
-#endif
-      m_previewManager(0)
+      m_appFontAction(new QAction(tr("Additional Fonts..."), this))
 {
     typedef void (QDesignerActions::*VoidSlot)();
 
@@ -487,7 +484,7 @@ QActionGroup *QDesignerActions::createHelpActions()
 
 QDesignerActions::~QDesignerActions()
 {
-#ifndef QT_NO_PRINTER
+#ifdef HAS_PRINTER
     delete m_printer;
 #endif
 }
@@ -863,7 +860,7 @@ bool QDesignerActions::writeOutForm(QDesignerFormWindowInterface *fw, const QStr
         box.setInformativeText(tr("The file %1 could not be opened."
                                "\nReason: %2"
                                "\nWould you like to retry or select a different file?")
-                                .arg(f.fileName()).arg(f.errorString()));
+                                .arg(f.fileName(), f.errorString()));
         QPushButton *retryButton = box.addButton(QMessageBox::Retry);
         retryButton->setDefault(true);
         QPushButton *switchButton = box.addButton(tr("Select New File"), QMessageBox::AcceptRole);
@@ -873,7 +870,8 @@ bool QDesignerActions::writeOutForm(QDesignerFormWindowInterface *fw, const QStr
         if (box.clickedButton() == cancelButton) {
             removeBackup(backupFile);
             return false;
-        } else if (box.clickedButton() == switchButton) {
+        }
+        if (box.clickedButton() == switchButton) {
             QString extension = uiExtension();
             const QString fileName = QFileDialog::getSaveFileName(fw, tr("Save Form As"),
                                                                   QDir::current().absolutePath(),
@@ -901,7 +899,7 @@ bool QDesignerActions::writeOutForm(QDesignerFormWindowInterface *fw, const QStr
         box.setWindowModality(Qt::WindowModal);
         box.setInformativeText(tr("It was not possible to write the entire file %1 to disk."
                                 "\nReason:%2\nWould you like to retry?")
-                                .arg(f.fileName()).arg(f.errorString()));
+                                .arg(f.fileName(), f.errorString()));
         box.setDefaultButton(QMessageBox::Retry);
         switch (box.exec()) {
         case QMessageBox::Retry:
@@ -1362,7 +1360,7 @@ void QDesignerActions::formWindowCountChanged()
 
 void QDesignerActions::printPreviewImage()
 {
-#if !defined(QT_NO_PRINTER) && !defined(QT_NO_PRINTDIALOG)
+#ifdef HAS_PRINTER
     QDesignerFormWindowInterface *fw = core()->formWindowManager()->activeFormWindow();
     if (!fw)
         return;
@@ -1408,7 +1406,7 @@ void QDesignerActions::printPreviewImage()
     core()->topLevel()->setCursor(oldCursor);
 
     showStatusBarMessage(tr("Printed %1.").arg(QFileInfo(fw->fileName()).fileName()));
-#endif
+#endif // HAS_PRINTER
 }
 
 QT_END_NAMESPACE

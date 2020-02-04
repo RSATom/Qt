@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/macros.h"
-#include "extensions/renderer/bindings/api_binding_types.h"
 #include "gin/wrappable.h"
 #include "v8/include/v8.h"
 
@@ -30,8 +29,7 @@ class APIBindingJSUtil final : public gin::Wrappable<APIBindingJSUtil> {
   APIBindingJSUtil(APITypeReferenceMap* type_refs,
                    APIRequestHandler* request_handler,
                    APIEventHandler* event_handler,
-                   ExceptionHandler* exception_handler,
-                   const binding::RunJSFunction& run_js);
+                   ExceptionHandler* exception_handler);
   ~APIBindingJSUtil() override;
 
   static gin::WrapperInfo kWrapperInfo;
@@ -102,6 +100,28 @@ class APIBindingJSUtil final : public gin::Wrappable<APIBindingJSUtil> {
   void SetExceptionHandler(gin::Arguments* arguments,
                            v8::Local<v8::Function> handler);
 
+  // Validates a given |value| against the specification for the type with
+  // |type_name|. Throws an error if the validation fails; otherwise returns
+  // undefined.
+  void ValidateType(gin::Arguments* arguments,
+                    const std::string& type_name,
+                    v8::Local<v8::Value> value);
+
+  // Allows custom bindings to add a signature with the given
+  // |custom_signature_name| to use later in argument validation. The signature
+  // is expected to be an array of expected types, that can be passed to
+  // construct an APISignature.
+  void AddCustomSignature(gin::Arguments* arguments,
+                          const std::string& custom_signature_name,
+                          v8::Local<v8::Value> signature);
+
+  // Looks up the signature with the given |custom_signature_name| and validates
+  // |arguments_to_validate| against it, throwing an error if the arguments
+  // don't match.
+  void ValidateCustomSignature(gin::Arguments* arguments,
+                               const std::string& custom_signature_name,
+                               v8::Local<v8::Value> arguments_to_validate);
+
   // Type references. Guaranteed to outlive this object.
   APITypeReferenceMap* const type_refs_;
 
@@ -113,8 +133,6 @@ class APIBindingJSUtil final : public gin::Wrappable<APIBindingJSUtil> {
 
   // The exception handler. Guaranteed to outlive this object.
   ExceptionHandler* const exception_handler_;
-
-  binding::RunJSFunction run_js_;
 
   DISALLOW_COPY_AND_ASSIGN(APIBindingJSUtil);
 };

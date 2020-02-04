@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -47,7 +47,7 @@ TEST(CommandLineTest, CommandLineConstructor) {
       FILE_PATH_LITERAL("--not-a-switch"),
       FILE_PATH_LITERAL("\"in the time of submarines...\""),
       FILE_PATH_LITERAL("unquoted arg-with-space")};
-  CommandLine cl(arraysize(argv), argv);
+  CommandLine cl(base::size(argv), argv);
 
   EXPECT_FALSE(cl.GetCommandLineString().empty());
   EXPECT_FALSE(cl.HasSwitch("cruller"));
@@ -84,7 +84,7 @@ TEST(CommandLineTest, CommandLineConstructor) {
   const CommandLine::StringVector& args = cl.GetArgs();
   ASSERT_EQ(8U, args.size());
 
-  std::vector<CommandLine::StringType>::const_iterator iter = args.begin();
+  auto iter = args.begin();
   EXPECT_EQ(FILE_PATH_LITERAL("flim"), *iter);
   ++iter;
   EXPECT_EQ(FILE_PATH_LITERAL("-"), *iter);
@@ -176,7 +176,7 @@ TEST(CommandLineTest, EmptyString) {
   EXPECT_EQ(1U, cl_from_string.argv().size());
   EXPECT_TRUE(cl_from_string.GetArgs().empty());
 #endif
-  CommandLine cl_from_argv(0, NULL);
+  CommandLine cl_from_argv(0, nullptr);
   EXPECT_TRUE(cl_from_argv.GetCommandLineString().empty());
   EXPECT_TRUE(cl_from_argv.GetProgram().empty());
   EXPECT_EQ(1U, cl_from_argv.argv().size());
@@ -208,7 +208,7 @@ TEST(CommandLineTest, GetArgumentsString) {
   CommandLine::StringType expected_third_arg(UTF8ToUTF16(kThirdArgName));
   CommandLine::StringType expected_fourth_arg(UTF8ToUTF16(kFourthArgName));
   CommandLine::StringType expected_fifth_arg(UTF8ToUTF16(kFifthArgName));
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   CommandLine::StringType expected_first_arg(kFirstArgName);
   CommandLine::StringType expected_second_arg(kSecondArgName);
   CommandLine::StringType expected_third_arg(kThirdArgName);
@@ -307,22 +307,22 @@ TEST(CommandLineTest, AppendSwitchesDashDash) {
  const CommandLine::CharType* raw_argv[] = { FILE_PATH_LITERAL("prog"),
                                              FILE_PATH_LITERAL("--"),
                                              FILE_PATH_LITERAL("--arg1") };
-  CommandLine cl(arraysize(raw_argv), raw_argv);
+ CommandLine cl(base::size(raw_argv), raw_argv);
 
-  cl.AppendSwitch("switch1");
-  cl.AppendSwitchASCII("switch2", "foo");
+ cl.AppendSwitch("switch1");
+ cl.AppendSwitchASCII("switch2", "foo");
 
-  cl.AppendArg("--arg2");
+ cl.AppendArg("--arg2");
 
-  EXPECT_EQ(FILE_PATH_LITERAL("prog --switch1 --switch2=foo -- --arg1 --arg2"),
-            cl.GetCommandLineString());
-  CommandLine::StringVector cl_argv = cl.argv();
-  EXPECT_EQ(FILE_PATH_LITERAL("prog"), cl_argv[0]);
-  EXPECT_EQ(FILE_PATH_LITERAL("--switch1"), cl_argv[1]);
-  EXPECT_EQ(FILE_PATH_LITERAL("--switch2=foo"), cl_argv[2]);
-  EXPECT_EQ(FILE_PATH_LITERAL("--"), cl_argv[3]);
-  EXPECT_EQ(FILE_PATH_LITERAL("--arg1"), cl_argv[4]);
-  EXPECT_EQ(FILE_PATH_LITERAL("--arg2"), cl_argv[5]);
+ EXPECT_EQ(FILE_PATH_LITERAL("prog --switch1 --switch2=foo -- --arg1 --arg2"),
+           cl.GetCommandLineString());
+ CommandLine::StringVector cl_argv = cl.argv();
+ EXPECT_EQ(FILE_PATH_LITERAL("prog"), cl_argv[0]);
+ EXPECT_EQ(FILE_PATH_LITERAL("--switch1"), cl_argv[1]);
+ EXPECT_EQ(FILE_PATH_LITERAL("--switch2=foo"), cl_argv[2]);
+ EXPECT_EQ(FILE_PATH_LITERAL("--"), cl_argv[3]);
+ EXPECT_EQ(FILE_PATH_LITERAL("--arg1"), cl_argv[4]);
+ EXPECT_EQ(FILE_PATH_LITERAL("--arg2"), cl_argv[5]);
 }
 
 // Tests that when AppendArguments is called that the program is set correctly
@@ -382,9 +382,9 @@ TEST(CommandLineTest, ProgramQuotes) {
 TEST(CommandLineTest, Init) {
   // Call Init without checking output once so we know it's been called
   // whether or not the test runner does so.
-  CommandLine::Init(0, NULL);
+  CommandLine::Init(0, nullptr);
   CommandLine* initial = CommandLine::ForCurrentProcess();
-  EXPECT_FALSE(CommandLine::Init(0, NULL));
+  EXPECT_FALSE(CommandLine::Init(0, nullptr));
   CommandLine* current = CommandLine::ForCurrentProcess();
   EXPECT_EQ(initial, current);
 }
@@ -435,6 +435,27 @@ TEST(CommandLineTest, PrependComplexWrapper) {
   EXPECT_EQ(FILE_PATH_LITERAL("Program"), cl.argv()[3]);
   EXPECT_EQ(FILE_PATH_LITERAL("--a"), cl.argv()[4]);
   EXPECT_EQ(FILE_PATH_LITERAL("--b"), cl.argv()[5]);
+}
+
+TEST(CommandLineTest, RemoveSwitch) {
+  std::string switch1 = "switch1";
+  std::string switch2 = "switch2";
+  std::string value2 = "value";
+
+  CommandLine cl(FilePath(FILE_PATH_LITERAL("Program")));
+
+  cl.AppendSwitch(switch1);
+  cl.AppendSwitchASCII(switch2, value2);
+
+  EXPECT_TRUE(cl.HasSwitch(switch1));
+  EXPECT_TRUE(cl.HasSwitch(switch2));
+  EXPECT_EQ(value2, cl.GetSwitchValueASCII(switch2));
+
+  cl.RemoveSwitch(switch1);
+
+  EXPECT_FALSE(cl.HasSwitch(switch1));
+  EXPECT_TRUE(cl.HasSwitch(switch2));
+  EXPECT_EQ(value2, cl.GetSwitchValueASCII(switch2));
 }
 
 } // namespace base

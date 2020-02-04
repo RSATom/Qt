@@ -68,22 +68,18 @@
 
 View::View(Compositor *compositor)
     : m_compositor(compositor)
-    , m_textureTarget(GL_TEXTURE_2D)
-    , m_texture(0)
-    , m_wlShellSurface(nullptr)
-    , m_xdgSurface(nullptr)
-    , m_xdgPopup(nullptr)
-    , m_parentView(nullptr)
-    , m_animationFactor(1.0)
 {}
 
 QOpenGLTexture *View::getTexture()
 {
-    if (advance()) {
-        QWaylandBufferRef buf = currentBuffer();
+    bool newContent = advance();
+    QWaylandBufferRef buf = currentBuffer();
+    if (!buf.hasContent())
+        m_texture = nullptr;
+    if (newContent) {
         m_texture = buf.toOpenGLTexture();
         if (surface()) {
-            m_size = surface()->size();
+            m_size = surface()->destinationSize();
             m_origin = buf.origin() == QWaylandSurface::OriginTopLeft
                     ? QOpenGLTextureBlitter::OriginTopLeft
                     : QOpenGLTextureBlitter::OriginBottomLeft;
@@ -100,7 +96,7 @@ QOpenGLTextureBlitter::Origin View::textureOrigin() const
 
 QSize View::size() const
 {
-    return surface() ? surface()->size() : m_size;
+    return surface() ? surface()->destinationSize() : m_size;
 }
 
 bool View::isCursor() const
@@ -190,8 +186,7 @@ void View::onXdgUnsetFullscreen()
 }
 
 Compositor::Compositor(QWindow *window)
-    : QWaylandCompositor()
-    , m_window(window)
+    : m_window(window)
     , m_wlShell(new QWaylandWlShell(this))
     , m_xdgShell(new QWaylandXdgShellV5(this))
 {
@@ -275,7 +270,7 @@ View * Compositor::findView(const QWaylandSurface *s) const
         if (view->surface() == s)
             return view;
     }
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 void Compositor::onWlShellSurfaceCreated(QWaylandWlShellSurface *wlShellSurface)
@@ -448,25 +443,25 @@ void Compositor::handleMouseEvent(QWaylandView *target, QMouseEvent *me)
         closePopups();
     }
 
-    QWaylandSeat *input = defaultSeat();
+    QWaylandSeat *seat = defaultSeat();
     QWaylandSurface *surface = target ? target->surface() : nullptr;
     switch (me->type()) {
         case QEvent::MouseButtonPress:
-            input->sendMousePressEvent(me->button());
-            if (surface != input->keyboardFocus()) {
+            seat->sendMousePressEvent(me->button());
+            if (surface != seat->keyboardFocus()) {
                 if (surface == nullptr
                         || surface->role() == QWaylandWlShellSurface::role()
                         || surface->role() == QWaylandXdgSurfaceV5::role()
                         || surface->role() == QWaylandXdgPopupV5::role()) {
-                    input->setKeyboardFocus(surface);
+                    seat->setKeyboardFocus(surface);
                 }
             }
             break;
     case QEvent::MouseButtonRelease:
-         input->sendMouseReleaseEvent(me->button());
+         seat->sendMouseReleaseEvent(me->button());
          break;
     case QEvent::MouseMove:
-        input->sendMouseMoveEvent(target, me->localPos(), me->globalPos());
+        seat->sendMouseMoveEvent(target, me->localPos(), me->globalPos());
     default:
         break;
     }
@@ -502,7 +497,7 @@ void Compositor::startDrag()
 void Compositor::handleDrag(View *target, QMouseEvent *me)
 {
     QPointF pos = me->localPos();
-    QWaylandSurface *surface = 0;
+    QWaylandSurface *surface = nullptr;
     if (target) {
         pos -= target->position();
         surface = target->surface();

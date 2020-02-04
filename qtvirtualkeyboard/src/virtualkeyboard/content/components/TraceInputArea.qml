@@ -52,9 +52,9 @@ MultiPointTouchArea {
 
     /*! Pattern recognition mode of this input area.
 
-        The default value is \l {QtVirtualKeyboard::InputEngine::PatternRecognitionDisabled} {InputEngine.PatternRecognitionDisabled}.
+        The default value is \l {InputEngine::patternRecognitionModes} {InputEngine.PatternRecognitionMode.None}.
     */
-    property int patternRecognitionMode: InputEngine.PatternRecognitionDisabled
+    property int patternRecognitionMode: InputEngine.PatternRecognitionMode.None
 
     /*! List of horizontal rulers in the input area.
 
@@ -127,7 +127,7 @@ MultiPointTouchArea {
              canvasType: traceInputArea.canvasType
          })
 
-    enabled: patternRecognitionMode !== InputEngine.PatternRecognitionDisabled && InputContext.inputEngine.patternRecognitionModes.indexOf(patternRecognitionMode) !== -1
+    enabled: patternRecognitionMode !== InputEngine.PatternRecognitionMode.None && InputContext.inputEngine.patternRecognitionModes.indexOf(patternRecognitionMode) !== -1
 
     onPressed: {
         if (!keyboard.style.traceCanvasDelegate)
@@ -165,7 +165,7 @@ MultiPointTouchArea {
         for (var i = 0; i < touchPoints.length; i++) {
             var traceCanvas = findTraceCanvasById(touchPoints[i].pointId)
             if (traceCanvas) {
-                traceCanvas.trace.isFinal = true
+                traceCanvas.trace.final = true
                 __traceCanvasList.splice(__traceCanvasList.indexOf(traceCanvas), 1)
                 InputContext.inputEngine.traceEnd(traceCanvas.trace)
             }
@@ -176,8 +176,8 @@ MultiPointTouchArea {
         for (var i = 0; i < touchPoints.length; i++) {
             var traceCanvas = findTraceCanvasById(touchPoints[i].pointId)
             if (traceCanvas) {
-                traceCanvas.trace.isFinal = true
-                traceCanvas.trace.isCanceled = true
+                traceCanvas.trace.final = true
+                traceCanvas.trace.canceled = true
                 __traceCanvasList.splice(__traceCanvasList.indexOf(traceCanvas), 1)
                 InputContext.inputEngine.traceEnd(traceCanvas.trace)
             }

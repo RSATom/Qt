@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
@@ -20,7 +19,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "third_party/cld/cld_version.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {
@@ -34,8 +32,7 @@ void GetLanguages(base::DictionaryValue* dict) {
   std::vector<std::string> language_codes;
   l10n_util::GetAcceptLanguagesForLocale(app_locale, &language_codes);
 
-  for (std::vector<std::string>::iterator it = language_codes.begin();
-       it != language_codes.end(); ++it) {
+  for (auto it = language_codes.begin(); it != language_codes.end(); ++it) {
     const std::string& lang_code = *it;
     base::string16 lang_name =
         l10n_util::GetDisplayNameForLocale(lang_code, app_locale, false);
@@ -51,7 +48,7 @@ content::WebUIDataSource* CreateTranslateInternalsHTMLSource() {
   source->SetJsonPath("strings.js");
   source->AddResourcePath("translate_internals.js",
                           IDR_TRANSLATE_INTERNALS_TRANSLATE_INTERNALS_JS);
-  source->UseGzip(std::unordered_set<std::string>());
+  source->UseGzip();
 
   base::DictionaryValue langs;
   GetLanguages(&langs);
@@ -62,17 +59,8 @@ content::WebUIDataSource* CreateTranslateInternalsHTMLSource() {
     source->AddString(key, value);
   }
 
-  std::string cld_version = "";
-  // The version string is hardcoded here to avoid linking with the CLD
-  // library, see http://crbug.com/297777.
-#if BUILDFLAG(CLD_VERSION) == 2
-  cld_version = "2";
-#elif BUILDFLAG(CLD_VERSION) == 3
-  cld_version = "3";
-#else
-# error "CLD_VERSION must be 2 or 3"
-#endif
-  source->AddString("cld-version", cld_version);
+  // Current cld-version is "3".
+  source->AddString("cld-version", "3");
 
   return source;
 }
@@ -81,7 +69,7 @@ content::WebUIDataSource* CreateTranslateInternalsHTMLSource() {
 
 TranslateInternalsUI::TranslateInternalsUI(content::WebUI* web_ui)
     : WebUIController(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<TranslateInternalsHandler>());
+  web_ui->AddMessageHandler(std::make_unique<TranslateInternalsHandler>());
 
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, CreateTranslateInternalsHTMLSource());

@@ -10,7 +10,7 @@ qtHaveModule(widgets) {
     SUBDIRS +=  sudoku
 }
 
-qtHaveModule(qml) {
+qtHaveModule(quick) {
     SUBDIRS +=  calculator-qml
     SUBDIRS +=  trafficlight-qml-static
     SUBDIRS +=  trafficlight-qml-dynamic

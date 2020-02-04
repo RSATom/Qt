@@ -7,11 +7,9 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/strings/utf_string_conversions.h"
 #include "cc/paint/paint_flags.h"
-#include "ui/accessibility/ax_node_data.h"
+#include "skia/ext/image_operations.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/geometry/insets.h"
 
 namespace views {
 
@@ -20,7 +18,7 @@ namespace {
 // Returns the pixels for the bitmap in |image| at scale |image_scale|.
 void* GetBitmapPixels(const gfx::ImageSkia& img, float image_scale) {
   DCHECK_NE(0.0f, image_scale);
-  return img.GetRepresentation(image_scale).sk_bitmap().getPixels();
+  return img.GetRepresentation(image_scale).GetBitmap().getPixels();
 }
 
 }  // namespace
@@ -28,22 +26,18 @@ void* GetBitmapPixels(const gfx::ImageSkia& img, float image_scale) {
 // static
 const char ImageView::kViewClassName[] = "ImageView";
 
-ImageView::ImageView()
-    : image_size_set_(false),
-      horiz_alignment_(CENTER),
-      vert_alignment_(CENTER),
-      last_paint_scale_(0.f),
-      last_painted_bitmap_pixels_(NULL) {}
+ImageView::ImageView() = default;
 
-ImageView::~ImageView() {}
+ImageView::~ImageView() = default;
 
 void ImageView::SetImage(const gfx::ImageSkia& img) {
   if (IsImageEqual(img))
     return;
 
-  last_painted_bitmap_pixels_ = NULL;
+  last_painted_bitmap_pixels_ = nullptr;
   gfx::Size pref_size(GetPreferredSize());
   image_ = img;
+  scaled_image_ = gfx::ImageSkia();
   if (pref_size != GetPreferredSize())
     PreferredSizeChanged();
   SchedulePaint();
@@ -62,21 +56,6 @@ const gfx::ImageSkia& ImageView::GetImage() const {
   return image_;
 }
 
-void ImageView::SetImageSize(const gfx::Size& image_size) {
-  image_size_set_ = true;
-  image_size_ = image_size;
-  PreferredSizeChanged();
-}
-
-gfx::Rect ImageView::GetImageBounds() const {
-  gfx::Size image_size = GetImageSize();
-  return gfx::Rect(ComputeImageOrigin(image_size), image_size);
-}
-
-void ImageView::ResetImageSize() {
-  image_size_set_ = false;
-}
-
 bool ImageView::IsImageEqual(const gfx::ImageSkia& img) const {
   // Even though we copy ImageSkia in SetImage() the backing store
   // (ImageSkiaStorage) is not copied and may have changed since the last call
@@ -89,36 +68,7 @@ bool ImageView::IsImageEqual(const gfx::ImageSkia& img) const {
 }
 
 gfx::Size ImageView::GetImageSize() const {
-  return image_size_set_ ? image_size_ : image_.size();
-}
-
-gfx::Point ImageView::ComputeImageOrigin(const gfx::Size& image_size) const {
-  gfx::Insets insets = GetInsets();
-
-  int x;
-  // In order to properly handle alignment of images in RTL locales, we need
-  // to flip the meaning of trailing and leading. For example, if the
-  // horizontal alignment is set to trailing, then we'll use left alignment for
-  // the image instead of right alignment if the UI layout is RTL.
-  Alignment actual_horiz_alignment = horiz_alignment_;
-  if (base::i18n::IsRTL() && (horiz_alignment_ != CENTER))
-    actual_horiz_alignment = (horiz_alignment_ == LEADING) ? TRAILING : LEADING;
-  switch (actual_horiz_alignment) {
-    case LEADING:  x = insets.left();                                 break;
-    case TRAILING: x = width() - insets.right() - image_size.width(); break;
-    case CENTER:   x = (width() - image_size.width()) / 2;            break;
-    default:       NOTREACHED(); x = 0;                               break;
-  }
-
-  int y;
-  switch (vert_alignment_) {
-    case LEADING:  y = insets.top();                                     break;
-    case TRAILING: y = height() - insets.bottom() - image_size.height(); break;
-    case CENTER:   y = (height() - image_size.height()) / 2;             break;
-    default:       NOTREACHED(); y = 0;                                  break;
-  }
-
-  return gfx::Point(x, y);
+  return image_size_.value_or(image_.size());
 }
 
 void ImageView::OnPaint(gfx::Canvas* canvas) {
@@ -126,83 +76,58 @@ void ImageView::OnPaint(gfx::Canvas* canvas) {
   OnPaintImage(canvas);
 }
 
-void ImageView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ui::AX_ROLE_IMAGE;
-  node_data->SetName(tooltip_text_);
-}
-
 const char* ImageView::GetClassName() const {
   return kViewClassName;
 }
 
-void ImageView::SetHorizontalAlignment(Alignment ha) {
-  if (ha != horiz_alignment_) {
-    horiz_alignment_ = ha;
-    SchedulePaint();
-  }
-}
-
-ImageView::Alignment ImageView::GetHorizontalAlignment() const {
-  return horiz_alignment_;
-}
-
-void ImageView::SetVerticalAlignment(Alignment va) {
-  if (va != vert_alignment_) {
-    vert_alignment_ = va;
-    SchedulePaint();
-  }
-}
-
-ImageView::Alignment ImageView::GetVerticalAlignment() const {
-  return vert_alignment_;
-}
-
-void ImageView::SetTooltipText(const base::string16& tooltip) {
-  tooltip_text_ = tooltip;
-}
-
-base::string16 ImageView::GetTooltipText() const {
-  return tooltip_text_;
-}
-
-bool ImageView::GetTooltipText(const gfx::Point& p,
-                               base::string16* tooltip) const {
-  if (tooltip_text_.empty())
-    return false;
-
-  *tooltip = GetTooltipText();
-  return true;
-}
-
-gfx::Size ImageView::CalculatePreferredSize() const {
-  gfx::Size size = GetImageSize();
-  size.Enlarge(GetInsets().width(), GetInsets().height());
-  return size;
-}
-
 void ImageView::OnPaintImage(gfx::Canvas* canvas) {
   last_paint_scale_ = canvas->image_scale();
-  last_painted_bitmap_pixels_ = NULL;
+  last_painted_bitmap_pixels_ = nullptr;
 
-  if (image_.isNull())
+  gfx::ImageSkia image = GetPaintImage(last_paint_scale_);
+  if (image.isNull())
     return;
 
   gfx::Rect image_bounds(GetImageBounds());
   if (image_bounds.IsEmpty())
     return;
 
-  if (image_bounds.size() != gfx::Size(image_.width(), image_.height())) {
+  if (image_bounds.size() != gfx::Size(image.width(), image.height())) {
     // Resize case
     cc::PaintFlags flags;
     flags.setFilterQuality(kLow_SkFilterQuality);
-    canvas->DrawImageInt(image_, 0, 0, image_.width(), image_.height(),
+    canvas->DrawImageInt(image, 0, 0, image.width(), image.height(),
                          image_bounds.x(), image_bounds.y(),
                          image_bounds.width(), image_bounds.height(), true,
                          flags);
   } else {
-    canvas->DrawImageInt(image_, image_bounds.x(), image_bounds.y());
+    canvas->DrawImageInt(image, image_bounds.x(), image_bounds.y());
   }
-  last_painted_bitmap_pixels_ = GetBitmapPixels(image_, last_paint_scale_);
+  last_painted_bitmap_pixels_ = GetBitmapPixels(image, last_paint_scale_);
+}
+
+gfx::ImageSkia ImageView::GetPaintImage(float scale) {
+  if (image_.isNull())
+    return image_;
+
+  const gfx::ImageSkiaRep& rep = image_.GetRepresentation(scale);
+  if (rep.scale() == scale)
+    return image_;
+
+  if (scaled_image_.HasRepresentation(scale))
+    return scaled_image_;
+
+  // Only caches one image rep for the current scale.
+  scaled_image_ = gfx::ImageSkia();
+
+  gfx::Size scaled_size =
+      gfx::ScaleToCeiledSize(rep.pixel_size(), scale / rep.scale());
+  scaled_image_.AddRepresentation(gfx::ImageSkiaRep(
+      skia::ImageOperations::Resize(rep.GetBitmap(),
+                                    skia::ImageOperations::RESIZE_BEST,
+                                    scaled_size.width(), scaled_size.height()),
+      scale));
+  return scaled_image_;
 }
 
 }  // namespace views

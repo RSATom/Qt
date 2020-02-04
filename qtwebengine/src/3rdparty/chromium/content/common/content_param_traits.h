@@ -17,12 +17,26 @@
 #include "content/common/content_param_traits_macros.h"
 #include "content/common/cursors/webcursor.h"
 #include "ipc/ipc_mojo_param_traits.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "storage/common/blob_storage/blob_handle.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "ui/accessibility/ax_mode.h"
+
+namespace blink {
+class MessagePortChannel;
+struct TransferableMessage;
+}
 
 namespace content {
-class AccessibilityMode;
-class MessagePort;
+struct FrameMsg_ViewChanged_Params;
 }
+
+namespace viz {
+class FrameSinkId;
+class LocalSurfaceId;
+class LocalSurfaceIdAllocation;
+class SurfaceId;
+class SurfaceInfo;
+}  // namespace viz
 
 namespace IPC {
 
@@ -44,7 +58,6 @@ typedef const blink::WebInputEvent* WebInputEventPointer;
 template <>
 struct ParamTraits<WebInputEventPointer> {
   typedef WebInputEventPointer param_type;
-  static void GetSize(base::PickleSizer* s, const param_type& p);
   static void Write(base::Pickle* m, const param_type& p);
   // Note: upon read, the event has the lifetime of the message.
   static bool Read(const base::Pickle* m,
@@ -54,9 +67,8 @@ struct ParamTraits<WebInputEventPointer> {
 };
 
 template <>
-struct CONTENT_EXPORT ParamTraits<content::MessagePort> {
-  typedef content::MessagePort param_type;
-  static void GetSize(base::PickleSizer* sizer, const param_type& p);
+struct CONTENT_EXPORT ParamTraits<blink::MessagePortChannel> {
+  typedef blink::MessagePortChannel param_type;
   static void Write(base::Pickle* m, const param_type& p);
   static bool Read(const base::Pickle* m, base::PickleIterator* iter,
                    param_type* r);
@@ -64,9 +76,90 @@ struct CONTENT_EXPORT ParamTraits<content::MessagePort> {
 };
 
 template <>
-struct CONTENT_EXPORT ParamTraits<content::AccessibilityMode> {
-  typedef content::AccessibilityMode param_type;
-  static void GetSize(base::PickleSizer* sizer, const param_type& p);
+struct CONTENT_EXPORT ParamTraits<ui::AXMode> {
+  typedef ui::AXMode param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<scoped_refptr<storage::BlobHandle>> {
+  typedef scoped_refptr<storage::BlobHandle> param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<
+    scoped_refptr<base::RefCountedData<blink::TransferableMessage>>> {
+  typedef scoped_refptr<base::RefCountedData<blink::TransferableMessage>>
+      param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<content::FrameMsg_ViewChanged_Params> {
+  using param_type = content::FrameMsg_ViewChanged_Params;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<viz::FrameSinkId> {
+  typedef viz::FrameSinkId param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<viz::LocalSurfaceId> {
+  typedef viz::LocalSurfaceId param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<viz::LocalSurfaceIdAllocation> {
+  typedef viz::LocalSurfaceIdAllocation param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<viz::SurfaceId> {
+  typedef viz::SurfaceId param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<viz::SurfaceInfo> {
+  typedef viz::SurfaceInfo param_type;
   static void Write(base::Pickle* m, const param_type& p);
   static bool Read(const base::Pickle* m,
                    base::PickleIterator* iter,

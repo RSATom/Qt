@@ -6,11 +6,11 @@
 #define CONTENT_BROWSER_RENDERER_HOST_INPUT_SYNTHETIC_GESTURE_CONTROLLER_H_
 
 #include <memory>
-#include <queue>
 #include <utility>
 #include <vector>
 
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -41,22 +41,23 @@ class CONTENT_EXPORT SyntheticGestureController {
       std::unique_ptr<SyntheticGestureTarget> gesture_target);
   virtual ~SyntheticGestureController();
 
-  typedef base::Callback<void(SyntheticGesture::Result)>
+  typedef base::OnceCallback<void(SyntheticGesture::Result)>
       OnGestureCompleteCallback;
   void QueueSyntheticGesture(
       std::unique_ptr<SyntheticGesture> synthetic_gesture,
-      const OnGestureCompleteCallback& completion_callback);
+      OnGestureCompleteCallback completion_callback);
 
   bool DispatchNextEvent(base::TimeTicks = base::TimeTicks::Now());
 
  private:
   friend class SyntheticGestureControllerTestBase;
 
-  void StartTimer();
+  void StartTimer(bool high_frequency);
   void StartGesture(const SyntheticGesture& gesture);
   void StopGesture(const SyntheticGesture& gesture,
-                   const OnGestureCompleteCallback& completion_callback,
                    SyntheticGesture::Result result);
+  void GestureCompleted(SyntheticGesture::Result result);
+  void ResolveCompletionCallback();
 
   Delegate* const delegate_;
   std::unique_ptr<SyntheticGestureTarget> gesture_target_;
@@ -68,9 +69,9 @@ class CONTENT_EXPORT SyntheticGestureController {
     GestureAndCallbackQueue();
     ~GestureAndCallbackQueue();
     void Push(std::unique_ptr<SyntheticGesture> gesture,
-              const OnGestureCompleteCallback& callback) {
+              OnGestureCompleteCallback callback) {
       gestures_.push_back(std::move(gesture));
-      callbacks_.push(callback);
+      callbacks_.push(std::move(callback));
     }
     void Pop() {
       gestures_.erase(gestures_.begin());
@@ -78,8 +79,11 @@ class CONTENT_EXPORT SyntheticGestureController {
       result_of_current_gesture_ = SyntheticGesture::GESTURE_RUNNING;
     }
     SyntheticGesture* FrontGesture() { return gestures_.front().get(); }
-    OnGestureCompleteCallback& FrontCallback() {
-      return callbacks_.front();
+    OnGestureCompleteCallback FrontCallback() {
+      // TODO(dtapuska): This is odd moving the top callback. Pop really
+      // should be rewritten to take two output parameters then we can
+      // remove FrontGesture/FrontCallback.
+      return std::move(callbacks_.front());
     }
     bool IsEmpty() const {
       CHECK(gestures_.empty() == callbacks_.empty());
@@ -102,7 +106,7 @@ class CONTENT_EXPORT SyntheticGestureController {
     SyntheticGesture::Result result_of_current_gesture_ =
         SyntheticGesture::GESTURE_RUNNING;
     std::vector<std::unique_ptr<SyntheticGesture>> gestures_;
-    std::queue<OnGestureCompleteCallback> callbacks_;
+    base::queue<OnGestureCompleteCallback> callbacks_;
 
     DISALLOW_COPY_AND_ASSIGN(GestureAndCallbackQueue);
   } pending_gesture_queue_;

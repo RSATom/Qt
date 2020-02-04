@@ -5,7 +5,12 @@
 #ifndef CONTENT_BROWSER_LOADER_RESOURCE_CONTROLLER_H_
 #define CONTENT_BROWSER_LOADER_RESOURCE_CONTROLLER_H_
 
+#include "base/optional.h"
 #include "content/common/content_export.h"
+
+namespace net {
+class HttpRequestHeaders;
+};
 
 namespace content {
 
@@ -19,13 +24,19 @@ class CONTENT_EXPORT ResourceController {
   virtual ~ResourceController() {}
 
   virtual void Cancel() = 0;
-  virtual void CancelAndIgnore() = 0;
   virtual void CancelWithError(int error_code) = 0;
 
   // Resumes the request. May only be called if the request was previously
   // deferred. Guaranteed not to call back into the ResourceHandler, or destroy
   // it, synchronously.
   virtual void Resume() = 0;
+
+  // Similar to |Resume()| but can only be called if the request was previously
+  // redirected. |removed_headers| and |modified_headers| are
+  // applied to the request header after updating them for the redirect.
+  virtual void ResumeForRedirect(
+      const std::vector<std::string>& removed_headers,
+      const net::HttpRequestHeaders& modified_headers) = 0;
 };
 
 }  // namespace content

@@ -15,12 +15,17 @@ namespace ui {
 
 class PlatformWindowDelegate;
 
-class STUB_WINDOW_EXPORT StubWindow : NON_EXPORTED_BASE(public PlatformWindow) {
+// StubWindow is useful for tests, as well as implementations that only care
+// about bounds.
+class STUB_WINDOW_EXPORT StubWindow : public PlatformWindow {
  public:
   explicit StubWindow(PlatformWindowDelegate* delegate,
                       bool use_default_accelerated_widget = true,
                       const gfx::Rect& bounds = gfx::Rect());
   ~StubWindow() override;
+
+ protected:
+  PlatformWindowDelegate* delegate() { return delegate_; }
 
  private:
   // PlatformWindow:
@@ -34,13 +39,17 @@ class STUB_WINDOW_EXPORT StubWindow : NON_EXPORTED_BASE(public PlatformWindow) {
   void SetCapture() override;
   void ReleaseCapture() override;
   void ToggleFullscreen() override;
+  bool HasCapture() const override;
   void Maximize() override;
   void Minimize() override;
   void Restore() override;
+  PlatformWindowState GetPlatformWindowState() const override;
   void SetCursor(PlatformCursor cursor) override;
   void MoveCursorTo(const gfx::Point& location) override;
   void ConfineCursorToBounds(const gfx::Rect& bounds) override;
   PlatformImeController* GetPlatformImeController() override;
+  void SetRestoredBoundsInPixels(const gfx::Rect& bounds) override;
+  gfx::Rect GetRestoredBoundsInPixels() const override;
 
   PlatformWindowDelegate* delegate_;
   gfx::Rect bounds_;

@@ -17,11 +17,10 @@
 #include <libaddressinput/callback.h>
 #include <libaddressinput/source.h>
 #include <libaddressinput/storage.h>
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
 
 #include <cassert>
 #include <cstddef>
+#include <memory>
 #include <string>
 
 #include "validating_storage.h"
@@ -33,6 +32,9 @@ namespace {
 
 class Helper {
  public:
+  Helper(const Helper&) = delete;
+  Helper& operator=(const Helper&) = delete;
+
   // Does not take ownership of its parameters.
   Helper(const std::string& key,
          const Retriever::Callback& retrieved,
@@ -45,24 +47,24 @@ class Helper {
         validated_data_ready_(
             BuildCallback(this, &Helper::OnValidatedDataReady)),
         stale_data_() {
-    assert(storage_ != NULL);
+    assert(storage_ != nullptr);
     storage_->Get(key, *validated_data_ready_);
   }
 
  private:
-  ~Helper() {}
+  ~Helper() = default;
 
   void OnValidatedDataReady(bool success,
                             const std::string& key,
                             std::string* data) {
     if (success) {
-      assert(data != NULL);
+      assert(data != nullptr);
       retrieved_(success, key, *data);
       delete this;
     } else {
       // Validating storage returns (false, key, stale-data) for valid but stale
       // data. If |data| is empty, however, then it's either missing or invalid.
-      if (data != NULL && !data->empty()) {
+      if (data != nullptr && !data->empty()) {
         stale_data_ = *data;
       }
       source_.Get(key, *fresh_data_ready_);
@@ -74,10 +76,10 @@ class Helper {
                         const std::string& key,
                         std::string* data) {
     if (success) {
-      assert(data != NULL);
+      assert(data != nullptr);
       retrieved_(true, key, *data);
       storage_->Put(key, data);
-      data = NULL;  // Deleted by Storage::Put().
+      data = nullptr;  // Deleted by Storage::Put().
     } else if (!stale_data_.empty()) {
       // Reuse the stale data if a download fails. It's better to have slightly
       // outdated validation rules than to suddenly lose validation ability.
@@ -92,22 +94,20 @@ class Helper {
   const Retriever::Callback& retrieved_;
   const Source& source_;
   ValidatingStorage* storage_;
-  const scoped_ptr<const Source::Callback> fresh_data_ready_;
-  const scoped_ptr<const Storage::Callback> validated_data_ready_;
+  const std::unique_ptr<const Source::Callback> fresh_data_ready_;
+  const std::unique_ptr<const Storage::Callback> validated_data_ready_;
   std::string stale_data_;
-
-  DISALLOW_COPY_AND_ASSIGN(Helper);
 };
 
 }  // namespace
 
 Retriever::Retriever(const Source* source, Storage* storage)
     : source_(source), storage_(new ValidatingStorage(storage)) {
-  assert(source_ != NULL);
-  assert(storage_ != NULL);
+  assert(source_ != nullptr);
+  assert(storage_ != nullptr);
 }
 
-Retriever::~Retriever() {}
+Retriever::~Retriever() = default;
 
 void Retriever::Retrieve(const std::string& key,
                          const Callback& retrieved) const {

@@ -110,6 +110,8 @@ def PrintUsage():
 
 
 def DoMain(argv):
+  os.environ['cwd'] = os.getcwd()
+
   parser = optparse.OptionParser()
   parser.add_option("--inputs", action="store_true", dest="inputs")
   parser.add_option("--outputs", action="store_true", dest="outputs")
@@ -119,12 +121,6 @@ def DoMain(argv):
   parser.add_option("-E", action="append", dest="build_env", default=[])
   parser.add_option("-p", action="store", dest="predetermined_ids_file")
   parser.add_option("-w", action="append", dest="whitelist_files", default=[])
-  parser.add_option("--output-all-resource-defines", action="store_true",
-                    dest="output_all_resource_defines", default=True,
-                    help="Unused")
-  parser.add_option("--no-output-all-resource-defines", action="store_false",
-                    dest="output_all_resource_defines", default=True,
-                    help="Unused")
   parser.add_option("-f", dest="ids_file", default="")
   parser.add_option("-t", dest="target_platform", default=None)
 
@@ -175,10 +171,6 @@ def DoMain(argv):
 
 
 def main(argv):
-  if sys.version_info < (2, 6):
-    print "GRIT requires Python 2.6 or later."
-    return 1
-
   try:
     result = DoMain(argv[1:])
   except WrongNumberOfArguments, e:

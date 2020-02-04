@@ -39,6 +39,7 @@
 #include "qdeclarativeplaceicon_p.h"
 #include "qgeoserviceprovider.h"
 #include "error_messages_p.h"
+#include <QtCore/private/qobject_p.h>
 
 #include <QCoreApplication>
 #include <QtQml/QQmlInfo>
@@ -53,7 +54,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-places
     \ingroup qml-QtLocation5-places-models
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The CategoryModel type provides a model of the categories supported by a \l Plugin.
 
@@ -121,6 +122,15 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
+    \qmlmethod void QtLocation::CategoryModel::update()
+    \internal
+
+    Updates the model.
+
+    \note The CategoryModel auto updates automatically when needed. Calling this method explicitly is normally not necessary.
+*/
+
+/*!
     \internal
     \enum QDeclarativeSupportedCategoriesModel::Roles
 */
@@ -143,6 +153,8 @@ QDeclarativeSupportedCategoriesModel::~QDeclarativeSupportedCategoriesModel()
 void QDeclarativeSupportedCategoriesModel::componentComplete()
 {
     m_complete = true;
+    if (m_plugin) // do not try to load or change status when trying to update in componentComplete() if the plugin hasn't been set yet even once.
+        update();
 }
 
 /*!
@@ -167,7 +179,7 @@ int QDeclarativeSupportedCategoriesModel::rowCount(const QModelIndex &parent) co
 */
 int QDeclarativeSupportedCategoriesModel::columnCount(const QModelIndex &parent) const
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     return 1;
 }
@@ -255,6 +267,7 @@ void QDeclarativeSupportedCategoriesModel::setPlugin(QDeclarativeGeoServiceProvi
 
     //disconnect the manager of the old plugin if we have one
     if (m_plugin) {
+        disconnect(m_plugin, nullptr, this, nullptr);
         QGeoServiceProvider *serviceProvider = m_plugin->sharedGeoServiceProvider();
         if (serviceProvider) {
             QPlaceManager *placeManager = serviceProvider->placeManager();
@@ -273,13 +286,16 @@ void QDeclarativeSupportedCategoriesModel::setPlugin(QDeclarativeGeoServiceProvi
 
     m_plugin = plugin;
 
-    // handle plugin name changes -> update categories
+    // handle plugin attached changes -> update categories
     if (m_plugin) {
-        connect(m_plugin, SIGNAL(nameChanged(QString)), this, SLOT(connectNotificationSignals()));
-        connect(m_plugin, SIGNAL(nameChanged(QString)), this, SLOT(update()));
+        if (m_plugin->isAttached()) {
+            connectNotificationSignals();
+            update();
+        } else {
+            connect(m_plugin, &QDeclarativeGeoServiceProvider::attached, this, &QDeclarativeSupportedCategoriesModel::update);
+            connect(m_plugin, &QDeclarativeGeoServiceProvider::attached, this, &QDeclarativeSupportedCategoriesModel::connectNotificationSignals);
+        }
     }
-
-    connectNotificationSignals();
 
     if (m_complete)
         emit pluginChanged();
@@ -499,6 +515,9 @@ void QDeclarativeSupportedCategoriesModel::connectNotificationSignals()
 */
 void QDeclarativeSupportedCategoriesModel::update()
 {
+    if (!m_complete)
+        return;
+
     if (m_response)
         return;
 

@@ -4,8 +4,11 @@
 
 source_set("cells") {
   sources = [
+    "content_suggestions_gesture_commands.h",
     "content_suggestions_item.h",
     "content_suggestions_item.mm",
+    "content_suggestions_most_visited_action_item.h",
+    "content_suggestions_most_visited_action_item.mm",
     "content_suggestions_most_visited_item.h",
     "content_suggestions_most_visited_item.mm",
   ]
@@ -16,7 +19,8 @@ source_set("cells") {
     "//ios/chrome/app/strings",
     "//ios/chrome/browser/ui/collection_view",
     "//ios/chrome/browser/ui/content_suggestions/identifier",
-    "//ios/chrome/browser/ui/favicon:favicon_ui",
+    "//ios/chrome/browser/ui/ntp_tile_views:constants",
+    "//ios/chrome/common/favicon",
     "//ui/base",
     "//url",
   ]
@@ -25,14 +29,22 @@ source_set("cells") {
 
 source_set("cells_ui") {
   sources = [
+    "content_suggestions_articles_header_item.h",
+    "content_suggestions_articles_header_item.mm",
     "content_suggestions_cell.h",
     "content_suggestions_cell.mm",
     "content_suggestions_footer_item.h",
     "content_suggestions_footer_item.mm",
     "content_suggestions_header_item.h",
     "content_suggestions_header_item.mm",
+    "content_suggestions_learn_more_item.h",
+    "content_suggestions_learn_more_item.mm",
+    "content_suggestions_most_visited_action_cell.h",
+    "content_suggestions_most_visited_action_cell.mm",
     "content_suggestions_most_visited_cell.h",
     "content_suggestions_most_visited_cell.mm",
+    "content_suggestions_most_visited_constants.h",
+    "content_suggestions_most_visited_constants.mm",
     "content_suggestions_text_item.h",
     "content_suggestions_text_item.mm",
     "content_suggestions_whats_new_item.h",
@@ -41,14 +53,21 @@ source_set("cells_ui") {
   ]
   deps = [
     "//base",
+    "//ios/chrome/app/strings",
     "//ios/chrome/browser/ui",
     "//ios/chrome/browser/ui/collection_view",
     "//ios/chrome/browser/ui/colors",
     "//ios/chrome/browser/ui/content_suggestions/identifier",
-    "//ios/chrome/browser/ui/favicon:favicon_ui",
+    "//ios/chrome/browser/ui/material_components",
+    "//ios/chrome/browser/ui/ntp_tile_views",
+    "//ios/chrome/browser/ui/ntp_tile_views:constants",
     "//ios/chrome/browser/ui/util",
     "//ios/chrome/common",
+    "//ios/chrome/common/favicon",
     "//ui/base",
+  ]
+  public_deps = [
+    "//ios/third_party/material_components_ios",
   ]
   configs += [ "//build/config/compiler:enable_arc" ]
 }
@@ -59,6 +78,7 @@ source_set("unit_tests") {
     "content_suggestions_footer_item_unittest.mm",
     "content_suggestions_header_item_unittest.mm",
     "content_suggestions_item_unittest.mm",
+    "content_suggestions_learn_more_item_unittest.mm",
     "content_suggestions_most_visited_item_unittest.mm",
     "content_suggestions_whats_new_item_unittest.mm",
   ]
@@ -69,7 +89,7 @@ source_set("unit_tests") {
     "//ios/chrome/app/strings",
     "//ios/chrome/browser/ui",
     "//ios/chrome/browser/ui/collection_view",
-    "//ios/chrome/browser/ui/favicon:favicon_ui",
+    "//ios/chrome/common/favicon",
     "//testing/gtest",
     "//third_party/ocmock",
     "//ui/base",

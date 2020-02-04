@@ -4,12 +4,15 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_data_use_observer.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+#include <string>
+
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_configurator.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_metrics.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_util.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_util.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/data_reduction_proxy/core/common/lofi_decider.h"
 #include "components/data_use_measurement/core/data_use.h"
 #include "components/data_use_measurement/core/data_use_ascriber.h"
@@ -22,7 +25,7 @@ namespace {
 class DataUseUserDataBytes : public base::SupportsUserData::Data {
  public:
   // Key used to store data usage in userdata until the page URL is available.
-  static const void* kUserDataKey;
+  static const void* const kUserDataKey;
 
   DataUseUserDataBytes(int64_t network_bytes, int64_t original_bytes)
       : network_bytes_(network_bytes), original_bytes_(original_bytes) {}
@@ -40,12 +43,8 @@ class DataUseUserDataBytes : public base::SupportsUserData::Data {
   int64_t original_bytes_;
 };
 
-// Hostname used for the other bucket which consists of chrome-services traffic.
-// This should be in sync with the same in DataReductionSiteBreakdownView.java
-const char kOtherHostName[] = "Other";
-
 // static
-const void* DataUseUserDataBytes::kUserDataKey =
+const void* const DataUseUserDataBytes::kUserDataKey =
     &DataUseUserDataBytes::kUserDataKey;
 
 }  // namespace
@@ -58,7 +57,8 @@ DataReductionProxyDataUseObserver::DataReductionProxyDataUseObserver(
     : data_reduction_proxy_io_data_(data_reduction_proxy_io_data),
       data_use_ascriber_(data_use_ascriber) {
   DCHECK(data_reduction_proxy_io_data_);
-  data_use_ascriber_->AddObserver(this);
+  if (!data_reduction_proxy::params::IsDataSaverSiteBreakdownUsingPLMEnabled())
+    data_use_ascriber_->AddObserver(this);
 }
 
 DataReductionProxyDataUseObserver::~DataReductionProxyDataUseObserver() {
@@ -97,15 +97,11 @@ void DataReductionProxyDataUseObserver::OnPageResourceLoad(
     return;
 
   int64_t network_bytes = request.GetTotalReceivedBytes();
-  DataReductionProxyRequestType request_type = GetDataReductionProxyRequestType(
-      request, data_reduction_proxy_io_data_->configurator()->GetProxyConfig(),
-      *data_reduction_proxy_io_data_->config());
 
   // Estimate how many bytes would have been used if the DataReductionProxy was
   // not used, and record the data usage.
   int64_t original_bytes = util::EstimateOriginalReceivedBytes(
-      request, request_type == VIA_DATA_REDUCTION_PROXY,
-      data_reduction_proxy_io_data_->lofi_decider());
+      request, data_reduction_proxy_io_data_->lofi_decider());
 
   if (data_use->traffic_type() ==
           data_use_measurement::DataUse::TrafficType::USER_TRAFFIC &&
@@ -119,17 +115,23 @@ void DataReductionProxyDataUseObserver::OnPageResourceLoad(
       bytes->IncrementBytes(network_bytes, original_bytes);
     } else {
       data_use->SetUserData(DataUseUserDataBytes::kUserDataKey,
-                            base::MakeUnique<DataUseUserDataBytes>(
+                            std::make_unique<DataUseUserDataBytes>(
                                 network_bytes, original_bytes));
     }
   } else {
+    // Report the datause that cannot be scoped to a page load to the other
+    // host. These include chrome services, service-worker, Downloads, etc.
     data_reduction_proxy_io_data_->UpdateDataUseForHost(
         network_bytes, original_bytes,
         data_use->traffic_type() ==
                 data_use_measurement::DataUse::TrafficType::USER_TRAFFIC
             ? data_use->url().HostNoBrackets()
-            : kOtherHostName);
+            : util::GetSiteBreakdownOtherHostName());
   }
+}
+
+void DataReductionProxyDataUseObserver::OnPageDidFinishLoad(
+    data_use_measurement::DataUse* data_use) {
 }
 
 }  // namespace data_reduction_proxy

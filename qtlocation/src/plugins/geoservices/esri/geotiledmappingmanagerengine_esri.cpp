@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -52,11 +52,6 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
-
-static void initResources()
-{
-    Q_INIT_RESOURCE(esri);
-}
 
 QT_BEGIN_NAMESPACE
 
@@ -241,7 +236,6 @@ bool GeoTiledMappingManagerEngineEsri::initializeMapSources(QGeoServiceProvider:
                                                             QString *errorString,
                                                             const QGeoCameraCapabilities &cameraCaps)
 {
-    initResources();
     QFile mapsFile(":/esri/maps.json");
 
     if (!mapsFile.open(QIODevice::ReadOnly)) {
@@ -298,7 +292,7 @@ GeoMapSource *GeoTiledMappingManagerEngineEsri::mapSource(int mapId) const
             return mapSource;
     }
 
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 QT_END_NAMESPACE

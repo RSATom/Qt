@@ -34,32 +34,30 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls.Imagine 2.3
-import QtQuick.Controls.Imagine.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls.Imagine 2.12
+import QtQuick.Controls.Imagine.impl 2.12
 
 T.Popup {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            contentWidth > 0 ? contentWidth + leftPadding + rightPadding : 0)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             contentHeight > 0 ? contentHeight + topPadding + bottomPadding : 0)
-
-    contentWidth: contentItem.implicitWidth || (contentChildren.length === 1 ? contentChildren[0].implicitWidth : 0)
-    contentHeight: contentItem.implicitHeight || (contentChildren.length === 1 ? contentChildren[0].implicitHeight : 0)
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            contentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             contentHeight + topPadding + bottomPadding)
 
     topPadding: background ? background.topPadding : undefined
     leftPadding: background ? background.leftPadding : undefined
     rightPadding: background ? background.rightPadding : undefined
     bottomPadding: background ? background.bottomPadding : undefined
 
-    background: NinePatchImage {
-        x: -leftInset; y: -topInset
-        width: control.width + leftInset + rightInset
-        height: control.height + topInset + bottomInset
+    topInset: background ? -background.topInset || 0 : 0
+    leftInset: background ? -background.leftInset || 0 : 0
+    rightInset: background ? -background.rightInset || 0 : 0
+    bottomInset: background ? -background.bottomInset || 0 : 0
 
+    background: NinePatchImage {
         source: Imagine.url + "popup-background"
         NinePatchImageSelector on source {
             states: [

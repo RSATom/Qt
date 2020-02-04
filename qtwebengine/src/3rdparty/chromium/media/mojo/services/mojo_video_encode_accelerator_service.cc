@@ -21,7 +21,7 @@ void MojoVideoEncodeAcceleratorService::Create(
     const CreateAndInitializeVideoEncodeAcceleratorCallback&
         create_vea_callback,
     const gpu::GpuPreferences& gpu_preferences) {
-  mojo::MakeStrongBinding(base::MakeUnique<MojoVideoEncodeAcceleratorService>(
+  mojo::MakeStrongBinding(std::make_unique<MojoVideoEncodeAcceleratorService>(
                               create_vea_callback, gpu_preferences),
                           std::move(request));
 }
@@ -44,20 +44,14 @@ MojoVideoEncodeAcceleratorService::~MojoVideoEncodeAcceleratorService() {
 }
 
 void MojoVideoEncodeAcceleratorService::Initialize(
-    VideoPixelFormat input_format,
-    const gfx::Size& input_visible_size,
-    VideoCodecProfile output_profile,
-    uint32_t initial_bitrate,
+    const media::VideoEncodeAccelerator::Config& config,
     mojom::VideoEncodeAcceleratorClientPtr client,
     InitializeCallback success_callback) {
-  DVLOG(1) << __func__
-           << " input_format=" << VideoPixelFormatToString(input_format)
-           << ", input_visible_size=" << input_visible_size.ToString()
-           << ", output_profile=" << GetProfileName(output_profile)
-           << ", initial_bitrate=" << initial_bitrate;
+  DVLOG(1) << __func__ << " " << config.AsHumanReadableString();
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!encoder_);
-  DCHECK_EQ(PIXEL_FORMAT_I420, input_format) << "Only I420 format supported";
+  DCHECK_EQ(PIXEL_FORMAT_I420, config.input_format)
+      << "Only I420 format supported";
 
   if (!client) {
     DLOG(ERROR) << __func__ << "null |client|";
@@ -66,29 +60,21 @@ void MojoVideoEncodeAcceleratorService::Initialize(
   }
   vea_client_ = std::move(client);
 
-  if (input_visible_size.width() > limits::kMaxDimension ||
-      input_visible_size.height() > limits::kMaxDimension ||
-      input_visible_size.GetArea() > limits::kMaxCanvas) {
+  if (config.input_visible_size.width() > limits::kMaxDimension ||
+      config.input_visible_size.height() > limits::kMaxDimension ||
+      config.input_visible_size.GetArea() > limits::kMaxCanvas) {
     DLOG(ERROR) << __func__ << "too large input_visible_size "
-                << input_visible_size.ToString();
-    NotifyError(::media::VideoEncodeAccelerator::kInvalidArgumentError);
+                << config.input_visible_size.ToString();
     std::move(success_callback).Run(false);
     return;
   }
 
-  encoder_ =
-      create_vea_callback_.Run(input_format, input_visible_size, output_profile,
-                               initial_bitrate, this, gpu_preferences_);
+  encoder_ = create_vea_callback_.Run(config, this, gpu_preferences_);
   if (!encoder_) {
     DLOG(ERROR) << __func__ << " Error creating or initializing VEA";
-    NotifyError(::media::VideoEncodeAccelerator::kPlatformFailureError);
     std::move(success_callback).Run(false);
     return;
   }
-
-  // TODO(mcasas): We could still TryToSetupEncodeOnSeparateThread() with an
-  // ad-hoc background worker thread, but for the time being this doesn't seem
-  // necessary since we're already on a background thread.
 
   std::move(success_callback).Run(true);
   return;
@@ -138,9 +124,8 @@ void MojoVideoEncodeAcceleratorService::UseOutputBitstreamBuffer(
 
   base::SharedMemoryHandle handle;
   size_t memory_size = 0;
-  bool read_only = false;
   auto result = mojo::UnwrapSharedMemoryHandle(std::move(buffer), &handle,
-                                               &memory_size, &read_only);
+                                               &memory_size, nullptr);
   if (result != MOJO_RESULT_OK || memory_size == 0u) {
     DLOG(ERROR) << __func__ << " mojo::UnwrapSharedMemoryHandle() failed";
     NotifyError(::media::VideoEncodeAccelerator::kPlatformFailureError);
@@ -160,14 +145,17 @@ void MojoVideoEncodeAcceleratorService::UseOutputBitstreamBuffer(
 }
 
 void MojoVideoEncodeAcceleratorService::RequestEncodingParametersChange(
-    uint32_t bitrate,
+    const media::VideoBitrateAllocation& bitrate_allocation,
     uint32_t framerate) {
-  DVLOG(2) << __func__ << " bitrate=" << bitrate << " framerate=" << framerate;
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (!encoder_)
     return;
-  encoder_->RequestEncodingParametersChange(bitrate, framerate);
+
+  DVLOG(2) << __func__ << " bitrate=" << bitrate_allocation.GetSumBps()
+           << " framerate=" << framerate;
+
+  encoder_->RequestEncodingParametersChange(bitrate_allocation, framerate);
 }
 
 void MojoVideoEncodeAcceleratorService::RequireBitstreamBuffers(
@@ -190,18 +178,15 @@ void MojoVideoEncodeAcceleratorService::RequireBitstreamBuffers(
 
 void MojoVideoEncodeAcceleratorService::BitstreamBufferReady(
     int32_t bitstream_buffer_id,
-    size_t payload_size,
-    bool key_frame,
-    base::TimeDelta timestamp) {
+    const media::BitstreamBufferMetadata& metadata) {
   DVLOG(2) << __func__ << " bitstream_buffer_id=" << bitstream_buffer_id
-           << ", payload_size=" << payload_size
-           << "B,  key_frame=" << key_frame;
+           << ", payload_size=" << metadata.payload_size_bytes
+           << "B,  key_frame=" << metadata.key_frame;
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!vea_client_)
     return;
 
-  vea_client_->BitstreamBufferReady(bitstream_buffer_id, payload_size,
-                                    key_frame, timestamp);
+  vea_client_->BitstreamBufferReady(bitstream_buffer_id, metadata);
 }
 
 void MojoVideoEncodeAcceleratorService::NotifyError(

@@ -14,22 +14,25 @@
 #include "chrome/browser/chromeos/login/screens/gaia_view.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
-#include "chromeos/dbus/auth_policy_client.h"
+#include "chromeos/login/auth/authpolicy_login_helper.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
 #include "net/base/net_errors.h"
 
 class AccountId;
 
-namespace authpolicy {
-class ActiveDirectoryAccountInfo;
+namespace net {
+class CanonicalCookie;
+}
+
+namespace network {
+class NSSTempCertsCacheChromeOS;
 }
 
 namespace chromeos {
 
-class AuthPolicyLoginHelper;
+class ActiveDirectoryPasswordChangeScreenHandler;
 class Key;
 class SigninScreenHandler;
-class SigninScreenHandlerDelegate;
 
 // A class that handles WebUI hooks in Gaia screen.
 class GaiaScreenHandler : public BaseScreenHandler,
@@ -45,24 +48,44 @@ class GaiaScreenHandler : public BaseScreenHandler,
 
   GaiaScreenHandler(
       CoreOobeView* core_oobe_view,
-      const scoped_refptr<NetworkStateInformer>& network_state_informer);
+      const scoped_refptr<NetworkStateInformer>& network_state_informer,
+      ActiveDirectoryPasswordChangeScreenHandler*
+          active_directory_password_change_screen_handler);
   ~GaiaScreenHandler() override;
 
   // GaiaView:
   void MaybePreloadAuthExtension() override;
   void DisableRestrictiveProxyCheckForTest() override;
+  void ShowGaiaAsync(const base::Optional<AccountId>& account_id) override;
+  void ShowSigninScreenForTest(const std::string& username,
+                               const std::string& password,
+                               const std::string& services) override;
 
  private:
-  // TODO (antrim@): remove this dependency.
+  // TODO (xiaoyinh): remove this dependency.
   friend class SigninScreenHandler;
 
   struct GaiaContext;
 
   void LoadGaia(const GaiaContext& context);
 
-  // Callback that loads GAIA after version information has been retrieved.
-  void LoadGaiaWithVersion(const GaiaContext& context,
-                           const std::string& platform_version);
+  // Callback that loads GAIA after version and stat consent information has
+  // been retrieved.
+  void LoadGaiaWithPartition(const GaiaContext& context,
+                             const std::string& partition_name);
+
+  // Called after the GAPS cookie, if present, is added to the cookie store.
+  void OnSetCookieForLoadGaiaWithPartition(const GaiaContext& context,
+                                           const std::string& partition_name,
+                                           bool success);
+
+  // Callback that loads GAIA after version and stat consent information has
+  // been retrieved.
+  void LoadGaiaWithPartitionAndVersionAndConsent(
+      const GaiaContext& context,
+      const std::string& partition_name,
+      const std::string* platform_version,
+      const bool* collect_stats_consent);
 
   // Sends request to reload Gaia. If |force_reload| is true, request
   // will be sent in any case, otherwise it will be sent only when Gaia is
@@ -94,10 +117,15 @@ class GaiaScreenHandler : public BaseScreenHandler,
   void HandleCompleteAuthentication(const std::string& gaia_id,
                                     const std::string& email,
                                     const std::string& password,
-                                    const std::string& auth_code,
                                     bool using_saml,
-                                    const std::string& gaps_cookie);
-  void HandleCompleteAuthenticationAuthCodeOnly(const std::string& auth_code);
+                                    const ::login::StringList& services);
+  void OnGetCookiesForCompleteAuthentication(
+      const std::string& gaia_id,
+      const std::string& email,
+      const std::string& password,
+      bool using_saml,
+      const ::login::StringList& services,
+      const std::vector<net::CanonicalCookie>& cookies);
   void HandleCompleteLogin(const std::string& gaia_id,
                            const std::string& typed_email,
                            const std::string& password,
@@ -105,10 +133,6 @@ class GaiaScreenHandler : public BaseScreenHandler,
 
   void HandleCompleteAdAuthentication(const std::string& username,
                                       const std::string& password);
-
-  void HandleCompleteAdPasswordChange(const std::string& username,
-                                      const std::string& old_password,
-                                      const std::string& new_password);
 
   void HandleCancelActiveDirectoryAuth();
 
@@ -118,11 +142,22 @@ class GaiaScreenHandler : public BaseScreenHandler,
 
   void HandleGaiaUIReady();
 
-  void HandleToggleEasyBootstrap();
-
   void HandleIdentifierEntered(const std::string& account_identifier);
 
   void HandleAuthExtensionLoaded();
+  void HandleUpdateOobeDialogSize(int width, int height);
+  void HandleHideOobeDialog();
+  void HandleShowAddUser(const base::ListValue* args);
+  void HandleGetIsSamlUserPasswordless(const std::string& callback_id,
+                                       const std::string& typed_email,
+                                       const std::string& gaia_id);
+  void HandleUpdateSigninUIState(int state);
+
+  // Allows WebUI to control the login shelf's guest button visibility during
+  // OOBE.
+  void HandleShowGuestInOobe(bool show);
+
+  void OnShowAddUser();
 
   // Really handles the complete login message.
   void DoCompleteLogin(const std::string& gaia_id,
@@ -149,27 +184,12 @@ class GaiaScreenHandler : public BaseScreenHandler,
                 authpolicy::ErrorType error,
                 const authpolicy::ActiveDirectoryAccountInfo& account_info);
 
-  // Callback for writing password into pipe.
-  void OnPasswordPipeReady(const std::string& username,
-                           const Key& key,
-                           base::ScopedFD password_fd);
-
-  // Show sign-in screen for the given credentials.
-  void ShowSigninScreenForTest(const std::string& username,
-                               const std::string& password);
   // Attempts login for test.
   void SubmitLoginFormForTest();
 
   // Updates the member variable and UMA histogram indicating whether the
   // principals API was used during SAML login.
   void SetSAMLPrincipalsAPIUsed(bool api_used);
-
-  // Show the sign-in screen. Depending on internal state, the screen will
-  // either be shown immediately or after an asynchronous clean-up process that
-  // cleans DNS cache and cookies. In the latter case, the request to show the
-  // screen can be canceled by calling CancelShowGaiaAsync() while the clean-up
-  // is in progress.
-  void ShowGaiaAsync();
 
   // Cancels the request to show the sign-in screen while the asynchronous
   // clean-up process that precedes the screen showing is in progress.
@@ -194,8 +214,6 @@ class GaiaScreenHandler : public BaseScreenHandler,
 
   // Are we on a restrictive proxy?
   bool IsRestrictiveProxy() const;
-
-  SigninScreenHandlerDelegate* Delegate();
 
   // Returns temporary unused device Id.
   std::string GetTemporaryDeviceId();
@@ -224,6 +242,9 @@ class GaiaScreenHandler : public BaseScreenHandler,
   scoped_refptr<NetworkStateInformer> network_state_informer_;
 
   CoreOobeView* core_oobe_view_ = nullptr;
+
+  ActiveDirectoryPasswordChangeScreenHandler*
+      active_directory_password_change_screen_handler_ = nullptr;
 
   // Email to pre-populate with.
   std::string populated_email_;
@@ -254,10 +275,9 @@ class GaiaScreenHandler : public BaseScreenHandler,
   // Test credentials.
   std::string test_user_;
   std::string test_pass_;
+  // Test result of userInfo.
+  std::string test_services_;
   bool test_expects_complete_login_ = false;
-
-  // True if Easy bootstrap is enabled.
-  bool use_easy_bootstrap_ = false;
 
   // True if proxy doesn't allow access to google.com/generate_204.
   NetworkPortalDetector::CaptivePortalStatus captive_portal_status_ =
@@ -281,6 +301,11 @@ class GaiaScreenHandler : public BaseScreenHandler,
   // Helper to call AuthPolicyClient and cancel calls if needed. Used to
   // authenticate users against Active Directory server.
   std::unique_ptr<AuthPolicyLoginHelper> authpolicy_login_helper_;
+
+  // Makes untrusted authority certificates from device policy available for
+  // client certificate discovery.
+  std::unique_ptr<network::NSSTempCertsCacheChromeOS>
+      untrusted_authority_certs_cache_;
 
   base::WeakPtrFactory<GaiaScreenHandler> weak_factory_;
 

@@ -103,7 +103,42 @@ buildbot output and a link to the trace file taken during the buildbot run.
 
 ## How to run the benchmarks
 
-Benchmarks may be run on a local platform/device or remotely on a try job.
+Benchmarks may be run on a local platform/device or remotely on a pinpoint
+try job.
+
+### How to run a pinpoint try job
+
+Given a patch already uploaded to code review, try jobs provide a convenient
+way to evaluate its memory implications on devices or platforms which
+may not be immediately available to developers.
+
+![New pinpoint try job dialog](https://storage.googleapis.com/chromium-docs.appspot.com/yHRMmUqraqJ.png)
+
+To start a try job go to the [pinpoint][] website, click on the `+` button to
+create a new job, and fill in the required details:
+
+[pinpoint]: https://pinpoint-dot-chromeperf.appspot.com/
+
+* **Bug ID** (optional): The id of a crbug.com issue where pinpoint can post
+  updates when the job finishes.
+* **Gerrit URL**: URL to the patch you want to test. Note that your patch can
+  live in chromium or any of its sub-repositories!
+* **Bot**: Select a suitable device/platform from the drop-down menu on which
+  to run your job.
+* **Benchmark**: The name of the benchmark to run. If you are interested in
+  memory try `system_health.memory_mobile` or `system_health.memory_desktop`
+  as appropriate.
+* **Story** (optional): A pattern passed to Telemetry's `--story-filter`
+  option to only run stories that match the pattern.
+* **Extra Test Arguments** (optional): Additional command line arguments for
+  Telemetry's `run_benchmark`. Of note, if you are interested in running a
+  small but representative sample of system health stories you can pass
+  `--story-tag-filter health_check`.
+
+If you have more specific needs, or need to automate the creation of jobs, you
+can also consider using [pinpoint_cli][].
+
+[pinpoint_cli]: https://cs.chromium.org/chromium/src/third_party/catapult/experimental/soundwave/bin/pinpoint_cli
 
 ### How to run locally
 
@@ -117,16 +152,16 @@ $SRC/tools/perf/run_benchmark run system_health.memory_mobile \
 
 This will run the story with a default of 3 repetitions and produce a
 `results.html` file comparing results from this and any previous benchmark
-runs.
+runs. In addition, you'll also get individual [trace files][memory-infra]
+for each story run by the benchmark. **Note:** by default only high level
+metrics are shown, you may need to tick the "Show all" check box in order to
+view some of the lower level memory metrics.
 
 ![Example results.html file](https://storage.googleapis.com/chromium-docs.appspot.com/ea60207d9bb4809178fe75923d6d1a2b241170ef.png)
 
 Other useful options for this command are:
 
 *   `--pageset-repeat [n]` - override the default number of repetitions
-*   `--output-format html --output-format json` - select *both* output formats
-     to get individual [trace files][memory-infra] in addition to the
-     `results.html` file.
 *   `--reset-results` - clear results from any previous benchmark runs in the
     `results.html` file.
 *   `--results-label [label]` - give meaningful names to your benchmark runs,
@@ -137,31 +172,6 @@ on your device and use `--browser android-webview`.
 
 [memory-infra]: /docs/memory-infra/README.md
 [webview_install]: https://www.chromium.org/developers/how-tos/build-instructions-android-webview
-
-### How to run a try job
-
-Given a patch on a chromium checkout, try jobs provide a convenient way to
-evaluate its memory implications on devices or platforms which
-may not be immediately available to developers.
-
-To start a try job [upload a CL][contributing] and run the command, e.g.:
-
-```
-$SRC/tools/perf/run_benchmark try android-nexus5 system_health.memory_mobile
-```
-
-This will run all of the system health stories for you, and conveniently
-provide a `results.html` file comparing measurements with/without your patch.
-Options like `--story-filter` and `--pageset-repeat` may also be passed to
-this command.
-
-To see the full list of available try bots run the command:
-
-```
-$SRC/tools/perf/run_benchmark try list
-```
-
-[contributing]: https://www.chromium.org/developers/contributing-code
 
 ## Understanding memory metrics
 

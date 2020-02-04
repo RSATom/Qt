@@ -32,8 +32,7 @@ void AppWindowRegistry::Observer::OnAppWindowHidden(AppWindow* app_window) {
 }
 
 void AppWindowRegistry::Observer::OnAppWindowShown(AppWindow* app_window,
-                                                   bool was_shown) {
-}
+                                                   bool was_hidden) {}
 
 void AppWindowRegistry::Observer::OnAppWindowActivated(AppWindow* app_window) {
 }
@@ -90,6 +89,10 @@ void AppWindowRegistry::AddObserver(Observer* observer) {
   observers_.AddObserver(observer);
 }
 
+bool AppWindowRegistry::HasObserver(const Observer* observer) const {
+  return observers_.HasObserver(observer);
+}
+
 void AppWindowRegistry::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
@@ -97,9 +100,7 @@ void AppWindowRegistry::RemoveObserver(Observer* observer) {
 AppWindowRegistry::AppWindowList AppWindowRegistry::GetAppWindowsForApp(
     const std::string& app_id) const {
   AppWindowList app_windows;
-  for (AppWindowList::const_iterator i = app_windows_.begin();
-       i != app_windows_.end();
-       ++i) {
+  for (auto i = app_windows_.cbegin(); i != app_windows_.cend(); ++i) {
     if ((*i)->extension_id() == app_id)
       app_windows.push_back(*i);
   }
@@ -108,9 +109,7 @@ AppWindowRegistry::AppWindowList AppWindowRegistry::GetAppWindowsForApp(
 
 void AppWindowRegistry::CloseAllAppWindowsForApp(const std::string& app_id) {
   const AppWindowList windows = GetAppWindowsForApp(app_id);
-  for (AppWindowRegistry::const_iterator it = windows.begin();
-       it != windows.end();
-       ++it) {
+  for (auto it = windows.cbegin(); it != windows.cend(); ++it) {
     (*it)->GetBaseWindow()->Close();
   }
 }
@@ -126,9 +125,7 @@ AppWindow* AppWindowRegistry::GetAppWindowForWebContents(
 
 AppWindow* AppWindowRegistry::GetAppWindowForNativeWindow(
     gfx::NativeWindow window) const {
-  for (AppWindowList::const_iterator i = app_windows_.begin();
-       i != app_windows_.end();
-       ++i) {
+  for (auto i = app_windows_.cbegin(); i != app_windows_.cend(); ++i) {
     if ((*i)->GetNativeWindow() == window)
       return *i;
   }
@@ -139,9 +136,7 @@ AppWindow* AppWindowRegistry::GetAppWindowForNativeWindow(
 AppWindow* AppWindowRegistry::GetCurrentAppWindowForApp(
     const std::string& app_id) const {
   AppWindow* result = NULL;
-  for (AppWindowList::const_iterator i = app_windows_.begin();
-       i != app_windows_.end();
-       ++i) {
+  for (auto i = app_windows_.cbegin(); i != app_windows_.cend(); ++i) {
     if ((*i)->extension_id() == app_id) {
       result = *i;
       if (result->GetBaseWindow()->IsActive())
@@ -156,9 +151,7 @@ AppWindow* AppWindowRegistry::GetAppWindowForAppAndKey(
     const std::string& app_id,
     const std::string& window_key) const {
   AppWindow* result = NULL;
-  for (AppWindowList::const_iterator i = app_windows_.begin();
-       i != app_windows_.end();
-       ++i) {
+  for (auto i = app_windows_.cbegin(); i != app_windows_.cend(); ++i) {
     if ((*i)->extension_id() == app_id && (*i)->window_key() == window_key) {
       result = *i;
       if (result->GetBaseWindow()->IsActive())

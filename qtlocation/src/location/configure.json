@@ -5,6 +5,12 @@
     ],
 
     "features": {
+        "location-labs-plugin": {
+            "label": "Qt.labs.location experimental QML plugin",
+            "purpose": "Provides experimental QtLocation QML types",
+            "section": "Location",
+            "output": [ "privateFeature" ]
+        },
         "geoservices_osm": {
             "label": "OpenStreetMap",
             "purpose": "Provides access to OpenStreetMap geoservices",
@@ -35,9 +41,10 @@
             "purpose": "Provides access to the Mapbox vector maps",
             "section": "Location",
             "condition": [
+                "features.gui",
                 "features.opengl",
                 "features.c++14",
-                "!config.qnx && !config.intel_icc && (!config.win32 || config.mingw)"
+                "!config.intel_icc && (!config.win32 || config.mingw)"
             ],
             "output": [ "privateFeature" ]
         },
@@ -53,6 +60,7 @@
         {
             "section": "Qt Location",
             "entries": [
+                "location-labs-plugin",
                 {
                     "section": "Geoservice plugins",
                     "entries": [

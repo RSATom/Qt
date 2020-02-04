@@ -18,6 +18,7 @@
  *                         canBeDisabled: boolean,
  *                         icon: string}|undefined),
  *            iconURL: (string|undefined),
+ *            id: number,
  *            isOmniboxExtension: boolean,
  *            keyword: string,
  *            modelIndex: number,
@@ -26,7 +27,7 @@
  *            urlLocked: boolean}}
  * @see chrome/browser/ui/webui/settings/search_engine_manager_handler.cc
  */
-var SearchEngine;
+let SearchEngine;
 
 /**
  * @typedef {{
@@ -35,19 +36,7 @@ var SearchEngine;
  *   extensions: !Array<!SearchEngine>
  * }}
  */
-var SearchEnginesInfo;
-
-/**
- * @typedef {{
- *   allowed: boolean,
- *   enabled: boolean,
- *   alwaysOn: boolean,
- *   errorMessage: string,
- *   userName: string,
- *   historyEnabled: boolean
- * }}
- */
-var SearchPageHotwordInfo;
+let SearchEnginesInfo;
 
 cr.define('settings', function() {
   /** @interface */
@@ -80,14 +69,7 @@ cr.define('settings', function() {
      */
     validateSearchEngineInput(fieldName, fieldValue) {}
 
-    /** @return {!Promise<!SearchPageHotwordInfo>} */
-    getHotwordInfo() {}
-
-    /** @param {boolean} enabled */
-    setHotwordSearchEnabled(enabled) {}
-
-    /** @return {!Promise<boolean>} */
-    getGoogleNowAvailability() {}
+    turnOnGoogleAssistant() {}
   }
 
   /**
@@ -135,18 +117,8 @@ cr.define('settings', function() {
     }
 
     /** @override */
-    getHotwordInfo() {
-      return cr.sendWithPromise('getHotwordInfo');
-    }
-
-    /** @override */
-    setHotwordSearchEnabled(enabled) {
-      chrome.send('setHotwordSearchEnabled', [enabled]);
-    }
-
-    /** @override */
-    getGoogleNowAvailability() {
-      return cr.sendWithPromise('getGoogleNowAvailability');
+    turnOnGoogleAssistant() {
+      chrome.send('turnOnGoogleAssistant');
     }
   }
 

@@ -7,6 +7,7 @@
 #include <limits>
 
 #include "core/fxcodec/codec/codec_int.h"
+#include "core/fxcodec/fx_codec.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libopenjpeg20/opj_malloc.h"
 
@@ -431,14 +432,17 @@ TEST(fxcodec, YUV420ToRGB) {
     bool expected;
   } cases[] = {{0, false}, {1, false},  {30, false}, {31, true},
                {32, true}, {33, false}, {34, false}, {UINT_MAX, false}};
-  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
-    y.w = cases[i].w;
+  for (const auto& testcase : cases) {
+    y.w = testcase.w;
     y.h = y.w;
     img.x1 = y.w;
     img.y1 = y.h;
-    y.data = static_cast<OPJ_INT32*>(opj_calloc(y.w * y.h, sizeof(OPJ_INT32)));
-    v.data = static_cast<OPJ_INT32*>(opj_calloc(v.w * v.h, sizeof(OPJ_INT32)));
-    u.data = static_cast<OPJ_INT32*>(opj_calloc(u.w * u.h, sizeof(OPJ_INT32)));
+    y.data = static_cast<OPJ_INT32*>(
+        opj_image_data_alloc(y.w * y.h * sizeof(OPJ_INT32)));
+    v.data = static_cast<OPJ_INT32*>(
+        opj_image_data_alloc(v.w * v.h * sizeof(OPJ_INT32)));
+    u.data = static_cast<OPJ_INT32*>(
+        opj_image_data_alloc(u.w * u.h * sizeof(OPJ_INT32)));
     memset(y.data, 1, y.w * y.h * sizeof(OPJ_INT32));
     memset(u.data, 0, u.w * u.h * sizeof(OPJ_INT32));
     memset(v.data, 0, v.w * v.h * sizeof(OPJ_INT32));
@@ -446,7 +450,7 @@ TEST(fxcodec, YUV420ToRGB) {
     img.comps[1] = u;
     img.comps[2] = v;
     sycc420_to_rgb(&img);
-    if (cases[i].expected) {
+    if (testcase.expected) {
       EXPECT_EQ(img.comps[0].w, img.comps[1].w);
       EXPECT_EQ(img.comps[0].h, img.comps[1].h);
       EXPECT_EQ(img.comps[0].w, img.comps[2].w);
@@ -457,9 +461,9 @@ TEST(fxcodec, YUV420ToRGB) {
       EXPECT_NE(img.comps[0].w, img.comps[2].w);
       EXPECT_NE(img.comps[0].h, img.comps[2].h);
     }
-    opj_free(img.comps[0].data);
-    opj_free(img.comps[1].data);
-    opj_free(img.comps[2].data);
+    opj_image_data_free(img.comps[0].data);
+    opj_image_data_free(img.comps[1].data);
+    opj_image_data_free(img.comps[2].data);
   }
   FX_Free(img.comps);
 }

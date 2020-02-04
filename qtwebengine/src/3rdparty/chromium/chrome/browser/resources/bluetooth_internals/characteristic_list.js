@@ -44,16 +44,17 @@ cr.define('characteristic_list', function() {
    * properties, 'id' and 'uuid', and one for the 'properties' bitfield in the
    * CharacteristicInfo object.
    * @constructor
-   * @param {!interfaces.BluetoothDevice.CharacteristicInfo} characteristicInfo
+   * @param {!bluetooth.mojom.CharacteristicInfo} characteristicInfo
    * @param {string} deviceAddress
    * @param {string} serviceId
+   * @extends {expandable_list.ExpandableListItem}
    */
   function CharacteristicListItem(
       characteristicInfo, deviceAddress, serviceId) {
     var listItem = new ExpandableListItem();
     listItem.__proto__ = CharacteristicListItem.prototype;
 
-    /** @type {!interfaces.BluetoothDevice.CharacteristicInfo} */
+    /** @type {!bluetooth.mojom.CharacteristicInfo} */
     listItem.info = characteristicInfo;
     /** @private {string} */
     listItem.deviceAddress_ = deviceAddress;
@@ -76,7 +77,7 @@ cr.define('characteristic_list', function() {
       this.classList.add('characteristic-list-item');
 
       /** @private {!object_fieldset.ObjectFieldSet} */
-      this.characteristicFieldSet_ = object_fieldset.ObjectFieldSet();
+      this.characteristicFieldSet_ = new object_fieldset.ObjectFieldSet();
       this.characteristicFieldSet_.setPropertyDisplayNames(INFO_PROPERTY_NAMES);
       this.characteristicFieldSet_.setObject({
         id: this.info.id,
@@ -87,7 +88,8 @@ cr.define('characteristic_list', function() {
       this.propertiesFieldSet_ = new object_fieldset.ObjectFieldSet();
       this.propertiesFieldSet_.setPropertyDisplayNames(
           PROPERTIES_PROPERTY_NAMES);
-      var Property = interfaces.BluetoothDevice.Property;
+      var Property = bluetooth.mojom.Property;
+      this.propertiesFieldSet_.showAll = false;
       this.propertiesFieldSet_.setObject({
         broadcast: (this.info.properties & Property.BROADCAST) > 0,
         read: (this.info.properties & Property.READ) > 0,
@@ -120,7 +122,7 @@ cr.define('characteristic_list', function() {
         characteristicId: this.info.id,
         properties: this.info.properties,
       });
-      this.valueControl_.setValue(this.info.last_known_value);
+      this.valueControl_.setValue(this.info.lastKnownValue);
 
       /** @private {!descriptor_list.DescriptorList} */
       this.descriptorList_ = new descriptor_list.DescriptorList();
@@ -147,6 +149,17 @@ cr.define('characteristic_list', function() {
 
       var propertiesHeader = document.createElement('h4');
       propertiesHeader.textContent = 'Properties';
+
+      var propertiesBtn = document.createElement('button');
+      propertiesBtn.textContent = 'Show All';
+      propertiesBtn.classList.add('show-all-properties');
+      propertiesBtn.addEventListener('click', () => {
+        this.propertiesFieldSet_.showAll = !this.propertiesFieldSet_.showAll;
+        propertiesBtn.textContent =
+            this.propertiesFieldSet_.showAll ? 'Hide' : 'Show all';
+        this.propertiesFieldSet_.redraw();
+      });
+      propertiesHeader.appendChild(propertiesBtn);
 
       var propertiesDiv = document.createElement('div');
       propertiesDiv.classList.add('flex');
@@ -183,6 +196,7 @@ cr.define('characteristic_list', function() {
   /**
    * A list that displays CharacteristicListItems.
    * @constructor
+   * @extends {expandable_list.ExpandableList}
    */
   var CharacteristicList = cr.ui.define('list');
 
@@ -204,10 +218,9 @@ cr.define('characteristic_list', function() {
       this.setEmptyMessage('No Characteristics Found');
     },
 
-    /** @override */
     createItem: function(data) {
       return new CharacteristicListItem(
-          data, this.deviceAddress_, this.serviceId_);
+          data, assert(this.deviceAddress_), assert(this.serviceId_));
     },
 
     /**
@@ -218,8 +231,9 @@ cr.define('characteristic_list', function() {
      * @param {string} serviceId
      */
     load: function(deviceAddress, serviceId) {
-      if (this.characteristicsRequested_ || !this.isSpinnerShowing())
+      if (this.characteristicsRequested_ || !this.isSpinnerShowing()) {
         return;
+      }
 
       this.deviceAddress_ = deviceAddress;
       this.serviceId_ = serviceId;

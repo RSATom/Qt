@@ -21,4 +21,9 @@ SOURCES += \
     qnearfieldmanager_emulator.cpp \
     targetemulator.cpp
 
-DEFINES += SRCDIR=\\\"$$PWD\\\"
+DEFINES += SRCDIR=\\\"$$PWD/nfcdata\\\"
+
+TESTDATA += "$$PWD/nfcdata/Dynamic Empty Tag.nfc" \
+            "$$PWD/nfcdata/Empty Tag.nfc"
+
+builtin_testdata: DEFINES += BUILTIN_TESTDATA

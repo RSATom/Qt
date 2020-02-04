@@ -12,8 +12,8 @@
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
 #include "components/download/content/public/all_download_item_notifier.h"
-#include "components/download/internal/download_driver.h"
-#include "components/download/public/download_params.h"
+#include "components/download/internal/background_service/download_driver.h"
+#include "components/download/public/background_service/download_params.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_manager.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
@@ -28,7 +28,7 @@ class DownloadDriverImpl : public DownloadDriver,
                            public AllDownloadItemNotifier::Observer {
  public:
   // Creates a driver entry based on a download item.
-  static DriverEntry CreateDriverEntry(const content::DownloadItem* item);
+  static DriverEntry CreateDriverEntry(const download::DownloadItem* item);
 
   // Create the driver.
   DownloadDriverImpl(content::DownloadManager* manager);
@@ -42,28 +42,32 @@ class DownloadDriverImpl : public DownloadDriver,
       const RequestParams& request_params,
       const std::string& guid,
       const base::FilePath& file_path,
+      scoped_refptr<network::ResourceRequestBody> post_body,
       const net::NetworkTrafficAnnotationTag& traffic_annotation) override;
-  void Remove(const std::string& guid) override;
+  void Remove(const std::string& guid, bool remove_file) override;
   void Pause(const std::string& guid) override;
   void Resume(const std::string& guid) override;
   base::Optional<DriverEntry> Find(const std::string& guid) override;
   std::set<std::string> GetActiveDownloads() override;
+  size_t EstimateMemoryUsage() const override;
 
  private:
   // content::AllDownloadItemNotifier::Observer implementation.
   void OnManagerInitialized(content::DownloadManager* manager) override;
   void OnManagerGoingDown(content::DownloadManager* manager) override;
   void OnDownloadCreated(content::DownloadManager* manager,
-                         content::DownloadItem* item) override;
+                         download::DownloadItem* item) override;
   void OnDownloadUpdated(content::DownloadManager* manager,
-                         content::DownloadItem* item) override;
+                         download::DownloadItem* item) override;
   void OnDownloadRemoved(content::DownloadManager* manager,
-                         content::DownloadItem* item) override;
+                         download::DownloadItem* item) override;
+
+  void OnUploadProgress(const std::string& guid, uint64_t bytes_uploaded);
 
   void OnHardRecoverComplete(bool success);
 
   // Remove the download, used to be posted to the task queue.
-  void DoRemoveDownload(const std::string& guid);
+  void DoRemoveDownload(const std::string& guid, bool remove_file);
 
   // Low level download handle.
   content::DownloadManager* download_manager_;

@@ -14,6 +14,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/net_export.h"
 #include "net/http/http_auth.h"
@@ -22,7 +23,8 @@
 #include "net/socket/client_socket_pool.h"
 #include "net/socket/client_socket_pool_base.h"
 #include "net/socket/ssl_client_socket.h"
-#include "net/spdy/chromium/spdy_session.h"
+#include "net/spdy/spdy_session.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace net {
 
@@ -30,8 +32,9 @@ class HttpAuthCache;
 class HttpAuthHandlerFactory;
 class HttpProxyClientSocketWrapper;
 class NetLog;
-class NetworkQualityProvider;
+class NetworkQualityEstimator;
 class ProxyDelegate;
+class QuicStreamFactory;
 class SSLClientSocketPool;
 class SSLSocketParams;
 class SpdySessionPool;
@@ -39,22 +42,26 @@ class TransportClientSocketPool;
 class TransportSocketParams;
 
 // HttpProxySocketParams only needs the socket params for one of the proxy
-// types.  The other param must be NULL.  When using an HTTP Proxy,
-// |transport_params| must be set.  When using an HTTPS Proxy, |ssl_params|
-// must be set.
+// types.  The other param must be NULL.  When using an HTTP proxy,
+// |transport_params| must be set.  When using an HTTPS proxy or QUIC proxy,
+// |ssl_params| must be set. Also, if using a QUIC proxy, |quic_version| must
+// not be quic::QUIC_VERSION_UNSUPPORTED.
 class NET_EXPORT_PRIVATE HttpProxySocketParams
     : public base::RefCounted<HttpProxySocketParams> {
  public:
   HttpProxySocketParams(
       const scoped_refptr<TransportSocketParams>& transport_params,
       const scoped_refptr<SSLSocketParams>& ssl_params,
+      quic::QuicTransportVersion quic_version,
       const std::string& user_agent,
       const HostPortPair& endpoint,
       HttpAuthCache* http_auth_cache,
       HttpAuthHandlerFactory* http_auth_handler_factory,
       SpdySessionPool* spdy_session_pool,
+      QuicStreamFactory* quic_stream_factory,
+      bool is_trusted_proxy,
       bool tunnel,
-      ProxyDelegate* proxy_delegate);
+      const NetworkTrafficAnnotationTag traffic_annotation);
 
   const scoped_refptr<TransportSocketParams>& transport_params() const {
     return transport_params_;
@@ -62,6 +69,7 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
   const scoped_refptr<SSLSocketParams>& ssl_params() const {
     return ssl_params_;
   }
+  quic::QuicTransportVersion quic_version() const { return quic_version_; }
   const std::string& user_agent() const { return user_agent_; }
   const HostPortPair& endpoint() const { return endpoint_; }
   HttpAuthCache* http_auth_cache() const { return http_auth_cache_; }
@@ -71,11 +79,13 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
   SpdySessionPool* spdy_session_pool() {
     return spdy_session_pool_;
   }
-  const HostResolver::RequestInfo& destination() const;
+  QuicStreamFactory* quic_stream_factory() const {
+    return quic_stream_factory_;
+  }
+  bool is_trusted_proxy() const { return is_trusted_proxy_; }
   bool tunnel() const { return tunnel_; }
-
-  ProxyDelegate* proxy_delegate() const {
-    return proxy_delegate_;
+  const NetworkTrafficAnnotationTag traffic_annotation() const {
+    return traffic_annotation_;
   }
 
  private:
@@ -84,13 +94,16 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
 
   const scoped_refptr<TransportSocketParams> transport_params_;
   const scoped_refptr<SSLSocketParams> ssl_params_;
+  quic::QuicTransportVersion quic_version_;
   SpdySessionPool* spdy_session_pool_;
+  QuicStreamFactory* quic_stream_factory_;
   const std::string user_agent_;
   const HostPortPair endpoint_;
   HttpAuthCache* const http_auth_cache_;
   HttpAuthHandlerFactory* const http_auth_handler_factory_;
+  const bool is_trusted_proxy_;
   const bool tunnel_;
-  ProxyDelegate* proxy_delegate_;
+  const NetworkTrafficAnnotationTag traffic_annotation_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpProxySocketParams);
 };
@@ -101,11 +114,13 @@ class HttpProxyConnectJob : public ConnectJob {
  public:
   HttpProxyConnectJob(const std::string& group_name,
                       RequestPriority priority,
+                      const SocketTag& socket_tag,
                       ClientSocketPool::RespectLimits respect_limits,
                       const scoped_refptr<HttpProxySocketParams>& params,
-                      const base::TimeDelta& timeout_duration,
+                      ProxyDelegate* proxy_delegate,
                       TransportClientSocketPool* transport_pool,
                       SSLClientSocketPool* ssl_pool,
+                      NetworkQualityEstimator* network_quality_estimator,
                       Delegate* delegate,
                       NetLog* net_log);
   ~HttpProxyConnectJob() override;
@@ -114,6 +129,15 @@ class HttpProxyConnectJob : public ConnectJob {
   LoadState GetLoadState() const override;
 
   void GetAdditionalErrorState(ClientSocketHandle* handle) override;
+
+  // Returns the connection timeout that will be used by a HttpProxyConnectJob
+  // created with the specified parameters, given current network conditions.
+  NET_EXPORT_PRIVATE static base::TimeDelta ConnectionTimeout(
+      const HttpProxySocketParams& params,
+      const NetworkQualityEstimator* network_quality_estimator);
+
+  // Updates the field trial parameters used in calculating timeouts.
+  NET_EXPORT_PRIVATE static void UpdateFieldTrialParametersForTesting();
 
  private:
   // Begins the tcp connection and the optional Http proxy tunnel.  If the
@@ -124,6 +148,8 @@ class HttpProxyConnectJob : public ConnectJob {
   // returned in this case, and must be release back to the pool; or
   // a standard net error code will be returned.
   int ConnectInternal() override;
+
+  void ChangePriorityInternal(RequestPriority priority) override;
 
   void OnConnectComplete(int result);
 
@@ -146,7 +172,8 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketPool
                             int max_sockets_per_group,
                             TransportClientSocketPool* transport_pool,
                             SSLClientSocketPool* ssl_pool,
-                            NetworkQualityProvider* network_quality_provider,
+                            ProxyDelegate* proxy_delegate,
+                            NetworkQualityEstimator* network_quality_estimator,
                             NetLog* net_log);
 
   ~HttpProxyClientSocketPool() override;
@@ -155,9 +182,10 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketPool
   int RequestSocket(const std::string& group_name,
                     const void* connect_params,
                     RequestPriority priority,
+                    const SocketTag& socket_tag,
                     RespectLimits respect_limits,
                     ClientSocketHandle* handle,
-                    const CompletionCallback& callback,
+                    CompletionOnceCallback callback,
                     const NetLogWithSource& net_log) override;
 
   void RequestSockets(const std::string& group_name,
@@ -194,8 +222,6 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketPool
       const std::string& type,
       bool include_nested_pools) const override;
 
-  base::TimeDelta ConnectionTimeout() const override;
-
   // LowerLayeredPool implementation.
   bool IsStalled() const override;
 
@@ -207,14 +233,20 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketPool
   bool CloseOneIdleConnection() override;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(HttpProxyClientSocketPoolTest,
+                           ProxyPoolTimeoutWithConnectionProperty);
+
   typedef ClientSocketPoolBase<HttpProxySocketParams> PoolBase;
 
-  class HttpProxyConnectJobFactory : public PoolBase::ConnectJobFactory {
+  class NET_EXPORT_PRIVATE HttpProxyConnectJobFactory
+      : public PoolBase::ConnectJobFactory {
    public:
-    HttpProxyConnectJobFactory(TransportClientSocketPool* transport_pool,
-                               SSLClientSocketPool* ssl_pool,
-                               NetworkQualityProvider* network_quality_provider,
-                               NetLog* net_log);
+    HttpProxyConnectJobFactory(
+        TransportClientSocketPool* transport_pool,
+        SSLClientSocketPool* ssl_pool,
+        ProxyDelegate* proxy_delegate,
+        NetworkQualityEstimator* network_quality_estimator,
+        NetLog* net_log);
 
     // ClientSocketPoolBase::ConnectJobFactory methods.
     std::unique_ptr<ConnectJob> NewConnectJob(
@@ -222,15 +254,15 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocketPool
         const PoolBase::Request& request,
         ConnectJob::Delegate* delegate) const override;
 
-    base::TimeDelta ConnectionTimeout() const override;
-
    private:
+    FRIEND_TEST_ALL_PREFIXES(HttpProxyClientSocketPoolTest,
+                             ProxyPoolTimeoutWithConnectionProperty);
+
     TransportClientSocketPool* const transport_pool_;
     SSLClientSocketPool* const ssl_pool_;
-    NetworkQualityProvider* network_quality_provider_;
-    const int32_t transport_rtt_multiplier_;
-    const base::TimeDelta min_proxy_connection_timeout_;
-    const base::TimeDelta max_proxy_connection_timeout_;
+    ProxyDelegate* const proxy_delegate_;
+    NetworkQualityEstimator* const network_quality_estimator_;
+
     NetLog* net_log_;
 
     DISALLOW_COPY_AND_ASSIGN(HttpProxyConnectJobFactory);

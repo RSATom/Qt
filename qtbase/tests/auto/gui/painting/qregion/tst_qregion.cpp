@@ -84,6 +84,8 @@ private slots:
 #endif
 
     void regionFromPath();
+    void scaleRegions_data();
+    void scaleRegions();
 
 #ifdef QT_BUILD_INTERNAL
     void regionToPath_data();
@@ -158,15 +160,19 @@ void tst_QRegion::rects()
         QRegion region(rect);
         QVERIFY(region.isEmpty());
         QCOMPARE(region.begin(), region.end());
+#if QT_DEPRECATED_SINCE(5, 11)
         QVERIFY(region.rects().isEmpty());
+#endif
     }
     {
         QRect rect(10, -20, 30, 40);
         QRegion region(rect);
         QCOMPARE(region.end(), region.begin() + 1);
         QCOMPARE(*region.begin(), rect);
+#if QT_DEPRECATED_SINCE(5, 11)
         QCOMPARE(region.rects().count(), 1);
         QCOMPARE(region.rects()[0], rect);
+#endif
     }
     {
         QRect r(QPoint(10, 10), QPoint(40, 40));
@@ -193,8 +199,8 @@ void tst_QRegion::swap()
     QRegion r1(QRect(0, 0,10,10));
     QRegion r2(QRect(10,10,10,10));
     r1.swap(r2);
-    QCOMPARE(r1.rects().front(), QRect(10,10,10,10));
-    QCOMPARE(r2.rects().front(), QRect(0, 0,10,10));
+    QCOMPARE(*r1.begin(), QRect(10,10,10,10));
+    QCOMPARE(*r2.begin(), QRect(0, 0,10,10));
 }
 
 void tst_QRegion::setRects()
@@ -202,7 +208,8 @@ void tst_QRegion::setRects()
     {
         QRegion region;
         region.setRects(0, 0);
-        QVERIFY(region.rects().isEmpty());
+        QVERIFY(region.isEmpty());
+        QCOMPARE(region.begin(), region.end());
     }
     {
         QRegion region;
@@ -212,7 +219,9 @@ void tst_QRegion::setRects()
         QCOMPARE(region, QRegion());
         QCOMPARE(region.begin(), region.end());
         QVERIFY(!region.boundingRect().isValid());
+#if QT_DEPRECATED_SINCE(5, 11)
         QVERIFY(region.rects().isEmpty());
+#endif
     }
     {
         QRegion region;
@@ -220,15 +229,19 @@ void tst_QRegion::setRects()
         region.setRects(&rect, 1);
         QCOMPARE(region.begin(), region.end());
         QVERIFY(!region.boundingRect().isValid());
+#if QT_DEPRECATED_SINCE(5, 11)
         QVERIFY(region.rects().isEmpty());
+#endif
     }
     {
         QRegion region;
         QRect rect(10, -20, 30, 40);
         region.setRects(&rect, 1);
         QCOMPARE(region.end(), region.begin() + 1);
+#if QT_DEPRECATED_SINCE(5, 11)
         QCOMPARE(region.rects().count(), 1);
         QCOMPARE(region.rects()[0], rect);
+#endif
         QCOMPARE(*region.begin(), rect);
     }
 }
@@ -345,9 +358,11 @@ void tst_QRegion::emptyPolygonRegion()
     QTEST(int(std::distance(r.begin(), r.end())), "numRects");
     QVector<QRect> rects;
     std::copy(r.begin(), r.end(), std::back_inserter(rects));
-    QTEST(r.rects().count(), "numRects");
-    QTEST(r.rects(), "rects");
+    QTEST(rects.size(), "numRects");
+    QTEST(rects, "rects");
+#if QT_DEPRECATED_SINCE(5, 11)
     QCOMPARE(r.rects(), rects);
+#endif
 }
 
 
@@ -890,7 +905,9 @@ void tst_QRegion::isEmpty()
     QCOMPARE(region, QRegion());
     QCOMPARE(region.rectCount(), 0);
     QCOMPARE(region.boundingRect(), QRect());
+#if QT_DEPRECATED_SINCE(5, 11)
     QVERIFY(region.rects().isEmpty());
+#endif
 }
 
 #if 0 /* Used to be included in Qt4 for Q_WS_X11 */ && defined(QT_BUILD_INTERNAL)
@@ -924,9 +941,11 @@ void tst_QRegion::regionFromPath()
         QCOMPARE(rgn.begin()[0], QRect(0, 0, 10, 10));
         QCOMPARE(rgn.begin()[1], QRect(0, 100, 100, 1000));
 
+#if QT_DEPRECATED_SINCE(5, 11)
         QCOMPARE(rgn.rects().size(), 2);
         QCOMPARE(rgn.rects().at(0), QRect(0, 0, 10, 10));
         QCOMPARE(rgn.rects().at(1), QRect(0, 100, 100, 1000));
+#endif
 
         QCOMPARE(rgn.boundingRect(), QRect(0, 0, 100, 1100));
     }
@@ -944,14 +963,69 @@ void tst_QRegion::regionFromPath()
         QCOMPARE(rgn.begin()[2], QRect(90, 10, 10, 80));
         QCOMPARE(rgn.begin()[3], QRect(0, 90, 100, 10));
 
+#if QT_DEPRECATED_SINCE(5, 11)
         QCOMPARE(rgn.rects().size(), 4);
         QCOMPARE(rgn.rects().at(0), QRect(0, 0, 100, 10));
         QCOMPARE(rgn.rects().at(1), QRect(0, 10, 10, 80));
         QCOMPARE(rgn.rects().at(2), QRect(90, 10, 10, 80));
         QCOMPARE(rgn.rects().at(3), QRect(0, 90, 100, 10));
+#endif
 
         QCOMPARE(rgn.boundingRect(), QRect(0, 0, 100, 100));
     }
+}
+
+void tst_QRegion::scaleRegions_data()
+{
+    QTest::addColumn<qreal>("scale");
+    QTest::addColumn<QVector<QRect>>("inputRects");
+    QTest::addColumn<QVector<QRect>>("expectedRects");
+
+    QTest::newRow("1.0 single")  << 1.0
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20) }
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20) };
+    QTest::newRow("1.0 multi")   << 1.0
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20), QRect(40, 10, 20, 20) }
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20), QRect(40, 10, 20, 20) };
+    QTest::newRow("2.0 single")  << 2.0
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20) }
+                                 << QVector<QRect>{ QRect(20, 20, 40, 40) };
+    QTest::newRow("2.0 multi")   << 2.0
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20), QRect(40, 10, 20, 20) }
+                                 << QVector<QRect>{ QRect(20, 20, 40, 40), QRect(80, 20, 40, 40) };
+    QTest::newRow("-1.0 single") << -1.0
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20) }
+                                 << QVector<QRect>{ QRect(-30, -30, 20, 20) };
+    QTest::newRow("-1.0 multi")  << -1.0
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20), QRect(40, 10, 20, 20) }
+                                 << QVector<QRect>{ QRect(-60, -30, 20, 20), QRect(-30, -30, 20, 20) };
+    QTest::newRow("-2.0 single") << -2.0
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20) }
+                                 << QVector<QRect>{ QRect(-60, -60, 40, 40) };
+    QTest::newRow("-2.0 multi")  << -2.0
+                                 << QVector<QRect>{ QRect(10, 10, 20, 20), QRect(40, 10, 20, 20) }
+                                 << QVector<QRect>{ QRect(-120, -60, 40, 40), QRect(-60, -60, 40, 40) };
+}
+
+void tst_QRegion::scaleRegions()
+{
+    QFETCH(qreal, scale);
+    QFETCH(QVector<QRect>, inputRects);
+    QFETCH(QVector<QRect>, expectedRects);
+
+    QRegion region;
+    region.setRects(inputRects.constData(), inputRects.size());
+
+    QRegion expected(expectedRects.first());
+    expected.setRects(expectedRects.constData(), expectedRects.size());
+
+    QTransform t;
+    t.scale(scale, scale);
+
+    auto result = t.map(region);
+
+    QCOMPARE(result.rectCount(), expectedRects.size());
+    QCOMPARE(result, expected);
 }
 
 Q_DECLARE_METATYPE(QPainterPath)

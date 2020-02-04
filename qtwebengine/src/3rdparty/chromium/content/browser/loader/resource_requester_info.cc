@@ -4,13 +4,20 @@
 
 #include "content/browser/loader/resource_requester_info.h"
 
+#include <utility>
+
+#include "base/feature_list.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
+#include "content/browser/web_package/signed_exchange_utils.h"
 #include "content/public/browser/resource_context.h"
-#include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/common/child_process_host.h"
+#include "content/public/common/content_features.h"
+#include "content/public/common/navigation_policy.h"
+#include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/features.h"
 #include "storage/browser/fileapi/file_system_context.h"
 
 namespace content {
@@ -19,11 +26,12 @@ namespace {
 
 void GetContextsCallbackForNavigationPreload(
     scoped_refptr<ServiceWorkerContextWrapper> service_worker_context,
+    net::URLRequestContext* url_request_context,
     ResourceType resource_type,
     ResourceContext** resource_context_out,
     net::URLRequestContext** request_context_out) {
   *resource_context_out = service_worker_context->resource_context();
-  *request_context_out = (*resource_context_out)->GetRequestContext();
+  *request_context_out = url_request_context;
 }
 
 }  // namespace
@@ -83,10 +91,10 @@ scoped_refptr<ResourceRequesterInfo>
 ResourceRequesterInfo::CreateForBrowserSideNavigation(
     scoped_refptr<ServiceWorkerContextWrapper> service_worker_context) {
   return scoped_refptr<ResourceRequesterInfo>(new ResourceRequesterInfo(
-      RequesterType::BROWSER_SIDE_NAVIGATION, -1,
-      nullptr /* appcache_service */, nullptr /* blob_storage_context */,
-      nullptr /* file_system_context */, service_worker_context.get(),
-      GetContextsCallback()));
+      RequesterType::BROWSER_SIDE_NAVIGATION,
+      ChildProcessHost::kInvalidUniqueID, nullptr /* appcache_service */,
+      nullptr /* blob_storage_context */, nullptr /* file_system_context */,
+      service_worker_context.get(), GetContextsCallback()));
 }
 
 scoped_refptr<ResourceRequesterInfo>
@@ -100,29 +108,38 @@ ResourceRequesterInfo::CreateForDownloadOrPageSave(int child_id) {
 
 scoped_refptr<ResourceRequesterInfo>
 ResourceRequesterInfo::CreateForNavigationPreload(
-    ResourceRequesterInfo* original_request_info) {
-  GetContextsCallback get_contexts_callback =
-      original_request_info->get_contexts_callback_;
-  if (IsBrowserSideNavigationEnabled()) {
-    DCHECK(original_request_info->IsBrowserSideNavigation());
-    DCHECK(!get_contexts_callback);
-    DCHECK(original_request_info->service_worker_context());
-    // The requester info for browser side navigation doesn't have the
-    // get_contexts_callback. So create the callback here which gets the
-    // ResourceContext and the URLRequestContext form ServiceWorkerContext.
-    get_contexts_callback =
-        base::Bind(&GetContextsCallbackForNavigationPreload,
-                   scoped_refptr<ServiceWorkerContextWrapper>(
-                       original_request_info->service_worker_context()));
-  } else {
-    DCHECK(original_request_info->IsRenderer());
-    DCHECK(get_contexts_callback);
-  }
+    ResourceRequesterInfo* original_request_info,
+    net::URLRequestContext* url_request_context) {
+  DCHECK(original_request_info->IsBrowserSideNavigation());
+  DCHECK(original_request_info->service_worker_context());
+  DCHECK(!original_request_info->get_contexts_callback_);
+  // The requester info for browser side navigation doesn't have the
+  // get_contexts_callback. So create the callback here which gets the
+  // ResourceContext and the URLRequestContext from ServiceWorkerContext.
+  auto get_contexts_callback =
+      base::BindRepeating(&GetContextsCallbackForNavigationPreload,
+                          scoped_refptr<ServiceWorkerContextWrapper>(
+                              original_request_info->service_worker_context()),
+                          url_request_context);
 
   return scoped_refptr<ResourceRequesterInfo>(new ResourceRequesterInfo(
-      RequesterType::NAVIGATION_PRELOAD, -1, nullptr /* appcache_service */,
+      RequesterType::NAVIGATION_PRELOAD, ChildProcessHost::kInvalidUniqueID,
+      nullptr /* appcache_service */, nullptr /* blob_storage_context */,
+      nullptr /* file_system_context */,
+      original_request_info->service_worker_context(),
+      std::move(get_contexts_callback)));
+}
+
+scoped_refptr<ResourceRequesterInfo>
+ResourceRequesterInfo::CreateForCertificateFetcherForSignedExchange(
+    const GetContextsCallback& get_contexts_callback) {
+  DCHECK(!base::FeatureList::IsEnabled(network::features::kNetworkService));
+  DCHECK(signed_exchange_utils::IsSignedExchangeHandlingEnabled());
+  return scoped_refptr<ResourceRequesterInfo>(new ResourceRequesterInfo(
+      RequesterType::CERTIFICATE_FETCHER_FOR_SIGNED_EXCHANGE,
+      ChildProcessHost::kInvalidUniqueID, nullptr /* appcache_service */,
       nullptr /* blob_storage_context */, nullptr /* file_system_context */,
-      original_request_info->service_worker_context(), get_contexts_callback));
+      nullptr /* service_worker_context */, get_contexts_callback));
 }
 
 }  // namespace content

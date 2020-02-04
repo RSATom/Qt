@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
@@ -161,7 +162,6 @@ BluetoothDeviceBlueZ::BluetoothDeviceBlueZ(
     : BluetoothDevice(adapter),
       object_path_(object_path),
       num_connecting_calls_(0),
-      connection_monitor_started_(false),
       ui_task_runner_(ui_task_runner),
       socket_thread_(socket_thread),
       weak_ptr_factory_(this) {
@@ -199,6 +199,14 @@ BluetoothDeviceBlueZ::~BluetoothDeviceBlueZ() {
     DCHECK(adapter());
     adapter()->NotifyGattServiceRemoved(
         static_cast<BluetoothRemoteGattServiceBlueZ*>(iter.second.get()));
+  }
+
+  // We pause discovery when trying to connect. Ensure discovery is unpaused if
+  // we get destroyed during a pending connection.
+  if (IsConnecting()) {
+    BLUETOOTH_LOG(EVENT) << object_path_.value()
+                         << ": Unpausing discovery. Device removed.";
+    UnpauseDiscovery();
   }
 }
 
@@ -276,7 +284,7 @@ void BluetoothDeviceBlueZ::DisconnectGatt() {
     return;
   }
 
-  Disconnect(base::Bind(&base::DoNothing), base::Bind(&base::DoNothing));
+  Disconnect(base::DoNothing(), base::DoNothing());
 }
 
 std::string BluetoothDeviceBlueZ::GetAddress() const {
@@ -503,8 +511,31 @@ void BluetoothDeviceBlueZ::Connect(
                        << num_connecting_calls_ << " in progress";
 
   if (IsPaired() || !pairing_delegate) {
+    BLUETOOTH_LOG(EVENT) << object_path_.value() << ": Pausing discovery";
     // No need to pair, or unable to, skip straight to connection.
-    ConnectInternal(false, callback, error_callback);
+    bluez::BluezDBusManager::Get()->GetBluetoothAdapterClient()->PauseDiscovery(
+        adapter()->object_path(),
+        base::Bind(
+            [](base::WeakPtr<BluetoothDeviceBlueZ> weak_ptr,
+               const base::Closure& callback,
+               const ConnectErrorCallback& error_callback) {
+              BLUETOOTH_LOG(EVENT) << "Successfully paused discovery";
+              if (weak_ptr)
+                weak_ptr->ConnectInternal(false /* after_pairing */, callback,
+                                          error_callback);
+            },
+            weak_ptr_factory_.GetWeakPtr(), callback, error_callback),
+        base::Bind(
+            [](base::WeakPtr<BluetoothDeviceBlueZ> weak_ptr,
+               const base::Closure& callback,
+               const ConnectErrorCallback& error_callback,
+               const std::string& error_name,
+               const std::string& error_message) {
+              BLUETOOTH_LOG(EVENT) << "Failed to pause discovery";
+              if (weak_ptr)
+                weak_ptr->ConnectInternal(false, callback, error_callback);
+            },
+            weak_ptr_factory_.GetWeakPtr(), callback, error_callback));
   } else {
     // Initiate high-security connection with pairing.
     BeginPairing(pairing_delegate);
@@ -577,7 +608,7 @@ void BluetoothDeviceBlueZ::CancelPairing() {
                          << ": No pairing context or callback. "
                          << "Sending explicit cancel";
     bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->CancelPairing(
-        object_path_, base::Bind(&base::DoNothing),
+        object_path_, base::DoNothing(),
         base::Bind(&BluetoothDeviceBlueZ::OnCancelPairingError,
                    weak_ptr_factory_.GetWeakPtr()));
   }
@@ -665,6 +696,26 @@ void BluetoothDeviceBlueZ::GetServiceRecords(
       base::Bind(&BluetoothDeviceBlueZ::OnGetServiceRecordsError,
                  weak_ptr_factory_.GetWeakPtr(), error_callback));
 }
+
+#if defined(OS_CHROMEOS)
+void BluetoothDeviceBlueZ::ExecuteWrite(
+    const base::Closure& callback,
+    const ExecuteWriteErrorCallback& error_callback) {
+  bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->ExecuteWrite(
+      object_path_, callback,
+      base::Bind(&BluetoothDeviceBlueZ::OnExecuteWriteError,
+                 weak_ptr_factory_.GetWeakPtr(), error_callback));
+}
+
+void BluetoothDeviceBlueZ::AbortWrite(
+    const base::Closure& callback,
+    const AbortWriteErrorCallback& error_callback) {
+  bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->AbortWrite(
+      object_path_, callback,
+      base::Bind(&BluetoothDeviceBlueZ::OnAbortWriteError,
+                 weak_ptr_factory_.GetWeakPtr(), error_callback));
+}
+#endif
 
 void BluetoothDeviceBlueZ::UpdateServiceData() {
   bluez::BluetoothDeviceClient::Properties* properties =
@@ -863,6 +914,30 @@ void BluetoothDeviceBlueZ::OnGetServiceRecordsError(
   error_callback.Run(code);
 }
 
+#if defined(OS_CHROMEOS)
+void BluetoothDeviceBlueZ::OnExecuteWriteError(
+    const ExecuteWriteErrorCallback& error_callback,
+    const std::string& error_name,
+    const std::string& error_message) {
+  BLUETOOTH_LOG(EVENT) << object_path_.value()
+                       << ": Failed to execute write: " << error_name << ": "
+                       << error_message;
+  error_callback.Run(
+      BluetoothGattServiceBlueZ::DBusErrorToServiceError(error_name));
+}
+
+void BluetoothDeviceBlueZ::OnAbortWriteError(
+    const AbortWriteErrorCallback& error_callback,
+    const std::string& error_name,
+    const std::string& error_message) {
+  BLUETOOTH_LOG(EVENT) << object_path_.value()
+                       << ": Failed to abort write: " << error_name << ": "
+                       << error_message;
+  error_callback.Run(
+      BluetoothGattServiceBlueZ::DBusErrorToServiceError(error_name));
+}
+#endif
+
 void BluetoothDeviceBlueZ::ConnectInternal(
     bool after_pairing,
     const base::Closure& callback,
@@ -879,6 +954,9 @@ void BluetoothDeviceBlueZ::ConnectInternal(
 
 void BluetoothDeviceBlueZ::OnConnect(bool after_pairing,
                                      const base::Closure& callback) {
+  BLUETOOTH_LOG(EVENT) << object_path_.value()
+                       << ": Unpausing discovery after connection";
+  UnpauseDiscovery();
   if (--num_connecting_calls_ == 0)
     adapter()->NotifyDeviceChanged(this);
 
@@ -908,6 +986,10 @@ void BluetoothDeviceBlueZ::OnConnectError(
     const ConnectErrorCallback& error_callback,
     const std::string& error_name,
     const std::string& error_message) {
+  BLUETOOTH_LOG(EVENT) << object_path_.value()
+                       << ": Unpausing discovery after failed connection";
+  UnpauseDiscovery();
+
   if (--num_connecting_calls_ == 0)
     adapter()->NotifyDeviceChanged(this);
 
@@ -1035,6 +1117,17 @@ void BluetoothDeviceBlueZ::OnForgetError(const ErrorCallback& error_callback,
                        << ": Failed to remove device: " << error_name << ": "
                        << error_message;
   error_callback.Run();
+}
+
+void BluetoothDeviceBlueZ::UnpauseDiscovery() {
+  bluez::BluezDBusManager::Get()->GetBluetoothAdapterClient()->UnpauseDiscovery(
+      adapter()->object_path(), base::Bind([]() {
+        BLUETOOTH_LOG(EVENT) << "Successfully un-paused discovery";
+      }),
+      base::Bind(
+          [](const std::string& error_name, const std::string& error_message) {
+            BLUETOOTH_LOG(EVENT) << "Failed to un-pause discovery";
+          }));
 }
 
 }  // namespace bluez

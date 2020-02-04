@@ -35,8 +35,8 @@ QT_USE_NAMESPACE
 
 int main(int argc, char **argv)
 {
-    if (FAILED(CoInitialize(0))) {
-        qErrnoWarning("CoInitialize() failed.");
+    if (FAILED(CoInitializeEx(0, COINIT_APARTMENTTHREADED))) {
+        qErrnoWarning("CoInitializeEx() failed.");
         return -1;
     }
 

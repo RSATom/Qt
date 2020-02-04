@@ -13,6 +13,7 @@
 #include "media/base/decode_status.h"
 #include "media/base/media_export.h"
 #include "media/base/pipeline_status.h"
+#include "media/base/waiting.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace media {
@@ -25,30 +26,33 @@ class VideoFrame;
 class MEDIA_EXPORT VideoDecoder {
  public:
   // Callback for VideoDecoder initialization.
-  typedef base::Callback<void(bool success)> InitCB;
+  using InitCB = base::Callback<void(bool success)>;
 
   // Callback for VideoDecoder to return a decoded frame whenever it becomes
   // available. Only non-EOS frames should be returned via this callback.
-  typedef base::Callback<void(const scoped_refptr<VideoFrame>&)> OutputCB;
+  using OutputCB = base::Callback<void(const scoped_refptr<VideoFrame>&)>;
 
   // Callback type for Decode(). Called after the decoder has completed decoding
   // corresponding DecoderBuffer, indicating that it's ready to accept another
   // buffer to decode.
-  typedef base::Callback<void(DecodeStatus)> DecodeCB;
+  using DecodeCB = base::Callback<void(DecodeStatus)>;
 
   VideoDecoder();
-
-  // Fires any pending callbacks, stops and destroys the decoder.
-  // Note: Since this is a destructor, |this| will be destroyed after this call.
-  // Make sure the callbacks fired from this call doesn't post any task that
-  // depends on |this|.
-  virtual ~VideoDecoder();
 
   // Returns the name of the decoder for logging and decoder selection purposes.
   // This name should be available immediately after construction (e.g. before
   // Initialize() is called). It should also be stable in the sense that the
   // name does not change across multiple constructions.
   virtual std::string GetDisplayName() const = 0;
+
+  // Returns true if the implementation is expected to be implemented by the
+  // platform. The value should be available immediately after construction and
+  // should not change within the lifetime of a decoder instance. The value is
+  // used for logging and metrics recording.
+  //
+  // TODO(sandersd): Use this to decide when to switch to software decode for
+  // low-resolution videos. https://crbug.com/684792
+  virtual bool IsPlatformDecoder() const;
 
   // Initializes a VideoDecoder with the given |config|, executing the
   // |init_cb| upon completion. |output_cb| is called for each output frame
@@ -63,6 +67,10 @@ class MEDIA_EXPORT VideoDecoder {
   // |cdm_context| can be used to handle encrypted buffers. May be null if the
   // stream is not encrypted.
   //
+  // |waiting_cb| is called whenever the decoder is stalled waiting for
+  // something, e.g. decryption key. May be called at any time after
+  // Initialize().
+  //
   // Note:
   // 1) The VideoDecoder will be reinitialized if it was initialized before.
   //    Upon reinitialization, all internal buffered frames will be dropped.
@@ -72,11 +80,13 @@ class MEDIA_EXPORT VideoDecoder {
   // is ready (i.e. w/o thread trampolining) since it can strongly affect frame
   // delivery times with high-frame-rate material.  See Decode() for additional
   // notes.
+  // 5) |init_cb| may be called before this returns.
   virtual void Initialize(const VideoDecoderConfig& config,
                           bool low_delay,
                           CdmContext* cdm_context,
                           const InitCB& init_cb,
-                          const OutputCB& output_cb) = 0;
+                          const OutputCB& output_cb,
+                          const WaitingCB& waiting_cb) = 0;
 
   // Requests a |buffer| to be decoded. The status of the decoder and decoded
   // frame are returned via the provided callback. Some decoders may allow
@@ -96,7 +106,7 @@ class MEDIA_EXPORT VideoDecoder {
   // |output_cb| must be called for each frame pending in the queue and
   // |decode_cb| must be called after that. Callers will not call Decode()
   // again until after the flush completes.
-  virtual void Decode(const scoped_refptr<DecoderBuffer>& buffer,
+  virtual void Decode(scoped_refptr<DecoderBuffer> buffer,
                       const DecodeCB& decode_cb) = 0;
 
   // Resets decoder state. All pending Decode() requests will be finished or
@@ -116,10 +126,46 @@ class MEDIA_EXPORT VideoDecoder {
   // Returns maximum number of parallel decode requests.
   virtual int GetMaxDecodeRequests() const;
 
+  // Returns the recommended number of threads for software video decoding. If
+  // the --video-threads command line option is specified and is valid, that
+  // value is returned. Otherwise |desired_threads| is clamped to the number of
+  // logical processors and then further clamped to
+  // [|limits::kMinVideoDecodeThreads|, |limits::kMaxVideoDecodeThreads|].
+  static int GetRecommendedThreadCount(int desired_threads);
+
+ protected:
+  // Deletion is only allowed via Destroy().
+  virtual ~VideoDecoder();
+
  private:
+  friend struct std::default_delete<VideoDecoder>;
+
+  // Fires any pending callbacks, stops and destroys the decoder. After this
+  // call, external resources (e.g. raw pointers) |this| holds might be
+  // invalidated immediately. So if the decoder is destroyed asynchronously
+  // (e.g. DeleteSoon), external resources must be released in this call.
+  virtual void Destroy();
+
   DISALLOW_COPY_AND_ASSIGN(VideoDecoder);
 };
 
 }  // namespace media
+
+namespace std {
+
+// Specialize std::default_delete to call Destroy().
+template <>
+struct MEDIA_EXPORT default_delete<media::VideoDecoder> {
+  constexpr default_delete() = default;
+
+  template <typename U,
+            typename = typename std::enable_if<
+                std::is_convertible<U*, media::VideoDecoder*>::value>::type>
+  default_delete(const default_delete<U>& d) {}
+
+  void operator()(media::VideoDecoder* ptr) const;
+};
+
+}  // namespace std
 
 #endif  // MEDIA_BASE_VIDEO_DECODER_H_

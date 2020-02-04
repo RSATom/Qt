@@ -32,6 +32,72 @@ namespace es1
                format == GL_ETC1_RGB8_OES;
 	}
 
+	bool IsSizedInternalFormat(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_ALPHA8_EXT:
+		case GL_LUMINANCE8_ALPHA8_EXT:
+		case GL_LUMINANCE8_EXT:
+		case GL_RGBA4_OES:
+		case GL_RGB5_A1_OES:
+		case GL_RGB565_OES:
+		case GL_RGB8_OES:
+		case GL_RGBA8_OES:
+		case GL_BGRA8_EXT:   // GL_APPLE_texture_format_BGRA8888
+		case GL_DEPTH_COMPONENT16_OES:
+		case GL_STENCIL_INDEX8_OES:
+		case GL_DEPTH24_STENCIL8_OES:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	GLenum ValidateSubImageParams(bool compressed, bool copy, GLenum target, GLint level, GLint xoffset, GLint yoffset,
+	                              GLsizei width, GLsizei height, GLenum format, GLenum type, Texture *texture)
+	{
+		if(!texture)
+		{
+			return GL_INVALID_OPERATION;
+		}
+
+		GLenum sizedInternalFormat = texture->getFormat(target, level);
+
+		if(compressed)
+		{
+			if(format != sizedInternalFormat)
+			{
+				return GL_INVALID_OPERATION;
+			}
+		}
+		else if(!copy)   // CopyTexSubImage doesn't have format/type parameters.
+		{
+			GLenum validationError = ValidateTextureFormatType(format, type, sizedInternalFormat, target);
+			if(validationError != GL_NO_ERROR)
+			{
+				return validationError;
+			}
+		}
+
+		if(compressed)
+		{
+			if((width % 4 != 0 && width != texture->getWidth(target, 0)) ||
+			   (height % 4 != 0 && height != texture->getHeight(target, 0)))
+			{
+				return GL_INVALID_OPERATION;
+			}
+		}
+
+		if(xoffset + width > texture->getWidth(target, level) ||
+		   yoffset + height > texture->getHeight(target, level))
+		{
+			return GL_INVALID_VALUE;
+		}
+
+		return GL_NO_ERROR;
+	}
+
 	bool IsDepthTexture(GLenum format)
 	{
 		return format == GL_DEPTH_STENCIL_OES;
@@ -68,120 +134,366 @@ namespace es1
 	}
 
 	// Verify that format/type are one of the combinations from table 3.4.
-	bool CheckTextureFormatType(GLenum format, GLenum type)
+	GLenum ValidateTextureFormatType(GLenum format, GLenum type, GLint internalformat, GLenum target)
 	{
 		switch(type)
 		{
 		case GL_UNSIGNED_BYTE:
+		case GL_UNSIGNED_SHORT_4_4_4_4:
+		case GL_UNSIGNED_SHORT_5_5_5_1:
+		case GL_UNSIGNED_SHORT_5_6_5:
+		case GL_UNSIGNED_INT_24_8_OES:   // GL_OES_packed_depth_stencil
+			break;
+		default:
+			return GL_INVALID_ENUM;
+		}
+
+		switch(format)
+		{
+		case GL_ALPHA:
+		case GL_RGB:
+		case GL_RGBA:
+		case GL_LUMINANCE:
+		case GL_LUMINANCE_ALPHA:
+		case GL_BGRA_EXT:            // GL_EXT_texture_format_BGRA8888
+			break;
+		case GL_DEPTH_STENCIL_OES:   // GL_OES_packed_depth_stencil (GL_DEPTH_STENCIL_OES)
+			switch(target)
+			{
+			case GL_TEXTURE_2D:
+				break;
+			default:
+				return GL_INVALID_OPERATION;
+			}
+			break;
+		default:
+			return GL_INVALID_ENUM;
+		}
+
+		if((GLenum)internalformat != format)
+		{
+			if(gl::IsUnsizedInternalFormat(internalformat))
+			{
+				return GL_INVALID_OPERATION;
+			}
+
+			if(!IsSizedInternalFormat(internalformat))
+			{
+				return GL_INVALID_VALUE;
+			}
+		}
+
+		if((GLenum)internalformat == format)
+		{
+			// Validate format, type, and unsized internalformat combinations [OpenGL ES 1.1 Table 3.3]
 			switch(format)
 			{
 			case GL_RGBA:
-			case GL_BGRA_EXT:
+				switch(type)
+				{
+				case GL_UNSIGNED_BYTE:
+				case GL_UNSIGNED_SHORT_4_4_4_4:
+				case GL_UNSIGNED_SHORT_5_5_5_1:
+					break;
+				default:
+					return GL_INVALID_OPERATION;
+				}
+				break;
 			case GL_RGB:
-			case GL_ALPHA:
-			case GL_LUMINANCE:
+				switch(type)
+				{
+				case GL_UNSIGNED_BYTE:
+				case GL_UNSIGNED_SHORT_5_6_5:
+					break;
+				default:
+					return GL_INVALID_OPERATION;
+				}
+				break;
 			case GL_LUMINANCE_ALPHA:
-				return true;
+			case GL_LUMINANCE:
+			case GL_ALPHA:
+				switch(type)
+				{
+				case GL_UNSIGNED_BYTE:
+					break;
+				default:
+					return GL_INVALID_OPERATION;
+				}
+				break;
+			case GL_DEPTH_STENCIL_OES:
+				switch(type)
+				{
+				case GL_UNSIGNED_INT_24_8_OES:   // GL_OES_packed_depth_stencil
+					break;
+				default:
+					return GL_INVALID_OPERATION;
+				}
+				break;
+			case GL_BGRA_EXT:
+				if(type != GL_UNSIGNED_BYTE)   // GL_APPLE_texture_format_BGRA8888 / GL_EXT_texture_format_BGRA8888
+				{
+					return GL_INVALID_OPERATION;
+				}
+				break;
 			default:
-				return false;
+				UNREACHABLE(format);
+				return GL_INVALID_ENUM;
 			}
-		case GL_FLOAT:
-		case GL_UNSIGNED_SHORT_4_4_4_4:
-		case GL_UNSIGNED_SHORT_5_5_5_1:
-			return (format == GL_RGBA);
-		case GL_UNSIGNED_SHORT_5_6_5:
-			return (format == GL_RGB);
-		case GL_UNSIGNED_INT_24_8_OES:
-			return (format == GL_DEPTH_STENCIL_OES);
-		default:
-			return false;
-		}
-	}
 
-	bool IsColorRenderable(GLenum internalformat)
-	{
-		switch(internalformat)
+			return GL_NO_ERROR;
+		}
+
+		// Validate format, type, and sized internalformat combinations [OpenGL ES 3.0 Table 3.2]
+		bool validSizedInternalformat = false;
+		#define VALIDATE_INTERNALFORMAT(...) { GLint validInternalformats[] = {__VA_ARGS__}; for(GLint v : validInternalformats) {if(internalformat == v) validSizedInternalformat = true;} } break;
+
+		switch(format)
 		{
-		case GL_RGB:
 		case GL_RGBA:
-		case GL_RGBA4_OES:
-		case GL_RGB5_A1_OES:
-		case GL_RGB565_OES:
-		case GL_RGB8_OES:
-		case GL_RGBA8_OES:
-			return true;
-		case GL_DEPTH_COMPONENT16_OES:
-		case GL_STENCIL_INDEX8_OES:
-		case GL_DEPTH24_STENCIL8_OES:
-			return false;
-		default:
-			UNIMPLEMENTED();
-		}
-
-		return false;
-	}
-
-	bool IsDepthRenderable(GLenum internalformat)
-	{
-		switch(internalformat)
-		{
-		case GL_DEPTH_COMPONENT16_OES:
-		case GL_DEPTH24_STENCIL8_OES:
-			return true;
-		case GL_STENCIL_INDEX8_OES:
-		case GL_RGBA4_OES:
-		case GL_RGB5_A1_OES:
-		case GL_RGB565_OES:
-		case GL_RGB8_OES:
-		case GL_RGBA8_OES:
-			return false;
-		default:
-			UNIMPLEMENTED();
-		}
-
-		return false;
-	}
-
-	bool IsStencilRenderable(GLenum internalformat)
-	{
-		switch(internalformat)
-		{
-		case GL_STENCIL_INDEX8_OES:
-		case GL_DEPTH24_STENCIL8_OES:
-			return true;
-		case GL_RGBA4_OES:
-		case GL_RGB5_A1_OES:
-		case GL_RGB565_OES:
-		case GL_RGB8_OES:
-		case GL_RGBA8_OES:
-		case GL_DEPTH_COMPONENT16_OES:
-			return false;
-		default:
-			UNIMPLEMENTED();
-		}
-
-		return false;
-	}
-
-	bool IsAlpha(GLenum texFormat)
-	{
-		switch(texFormat)
-		{
-		case GL_ALPHA:
-			return true;
-		default:
-			return false;
-		}
-	}
-
-	bool IsRGB(GLenum texFormat)
-	{
-		switch(texFormat)
-		{
-		case GL_LUMINANCE:
+			switch(type)
+			{
+			case GL_UNSIGNED_BYTE:               VALIDATE_INTERNALFORMAT(GL_RGBA8_OES, GL_RGB5_A1_OES, GL_RGBA4_OES)
+			case GL_UNSIGNED_SHORT_4_4_4_4:      VALIDATE_INTERNALFORMAT(GL_RGBA4_OES)
+			case GL_UNSIGNED_SHORT_5_5_5_1:      VALIDATE_INTERNALFORMAT(GL_RGB5_A1_OES)
+			default:                             return GL_INVALID_OPERATION;
+			}
+			break;
 		case GL_RGB:
-		case GL_RGB565_OES:   // GL_OES_framebuffer_object
-		case GL_RGB8_OES:     // GL_OES_rgb8_rgba8
+			switch(type)
+			{
+			case GL_UNSIGNED_BYTE:                VALIDATE_INTERNALFORMAT(GL_RGB8_OES, GL_RGB565_OES)
+			case GL_UNSIGNED_SHORT_5_6_5:         VALIDATE_INTERNALFORMAT(GL_RGB565_OES)
+			default:                              return GL_INVALID_OPERATION;
+			}
+			break;
+		case GL_DEPTH_STENCIL_OES:
+			switch(type)
+			{
+			case GL_UNSIGNED_INT_24_8_OES: VALIDATE_INTERNALFORMAT(GL_DEPTH24_STENCIL8_OES)
+			default:                       return GL_INVALID_OPERATION;
+			}
+			break;
+		case GL_LUMINANCE_ALPHA:
+			switch(type)
+			{
+			case GL_UNSIGNED_BYTE:  VALIDATE_INTERNALFORMAT(GL_LUMINANCE8_ALPHA8_EXT)
+			default:
+				return GL_INVALID_OPERATION;
+			}
+			break;
+		case GL_LUMINANCE:
+			switch(type)
+			{
+			case GL_UNSIGNED_BYTE:  VALIDATE_INTERNALFORMAT(GL_LUMINANCE8_EXT)
+			default:
+				return GL_INVALID_OPERATION;
+			}
+			break;
+		case GL_ALPHA:
+			switch(type)
+			{
+			case GL_UNSIGNED_BYTE:  VALIDATE_INTERNALFORMAT(GL_ALPHA8_EXT)
+			default:
+				return GL_INVALID_OPERATION;
+			}
+			break;
+		case GL_BGRA_EXT:   // GL_APPLE_texture_format_BGRA8888
+			switch(type)
+			{
+			case GL_UNSIGNED_BYTE: VALIDATE_INTERNALFORMAT(GL_BGRA8_EXT)
+			default:               return GL_INVALID_OPERATION;
+			}
+			break;
+		default:
+			UNREACHABLE(format);
+			return GL_INVALID_ENUM;
+		}
+
+		#undef VALIDATE_INTERNALFORMAT
+
+		if(!validSizedInternalformat)
+		{
+			return GL_INVALID_OPERATION;
+		}
+
+		return GL_NO_ERROR;
+	}
+
+	bool IsColorRenderable(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_RGBA4_OES:
+		case GL_RGB5_A1_OES:
+		case GL_RGB565_OES:
+		case GL_RGB8_OES:
+		case GL_RGBA8_OES:
+			return true;
+		case GL_DEPTH_COMPONENT16_OES:
+		case GL_STENCIL_INDEX8_OES:
+		case GL_DEPTH24_STENCIL8_OES:
+			return false;
+		default:
+			UNIMPLEMENTED();
+		}
+
+		return false;
+	}
+
+	bool IsDepthRenderable(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_DEPTH_COMPONENT16_OES:
+		case GL_DEPTH24_STENCIL8_OES:
+			return true;
+		case GL_STENCIL_INDEX8_OES:
+		case GL_RGBA4_OES:
+		case GL_RGB5_A1_OES:
+		case GL_RGB565_OES:
+		case GL_RGB8_OES:
+		case GL_RGBA8_OES:
+			return false;
+		default:
+			UNIMPLEMENTED();
+		}
+
+		return false;
+	}
+
+	bool IsStencilRenderable(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_STENCIL_INDEX8_OES:
+		case GL_DEPTH24_STENCIL8_OES:
+			return true;
+		case GL_RGBA4_OES:
+		case GL_RGB5_A1_OES:
+		case GL_RGB565_OES:
+		case GL_RGB8_OES:
+		case GL_RGBA8_OES:
+		case GL_DEPTH_COMPONENT16_OES:
+			return false;
+		default:
+			UNIMPLEMENTED();
+		}
+
+		return false;
+	}
+
+	GLuint GetAlphaSize(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_NONE_OES:    return 0;
+		case GL_RGBA4_OES:   return 4;
+		case GL_RGB5_A1_OES: return 1;
+		case GL_RGB565_OES:  return 0;
+		case GL_RGB8_OES:    return 0;
+		case GL_RGBA8_OES:   return 8;
+		case GL_BGRA8_EXT:   return 8;
+		default:
+		//	UNREACHABLE(internalformat);
+			return 0;
+		}
+	}
+
+	GLuint GetRedSize(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_NONE_OES:    return 0;
+		case GL_RGBA4_OES:   return 4;
+		case GL_RGB5_A1_OES: return 5;
+		case GL_RGB565_OES:  return 5;
+		case GL_RGB8_OES:    return 8;
+		case GL_RGBA8_OES:   return 8;
+		case GL_BGRA8_EXT:   return 8;
+		default:
+		//	UNREACHABLE(internalformat);
+			return 0;
+		}
+	}
+
+	GLuint GetGreenSize(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_NONE_OES:    return 0;
+		case GL_RGBA4_OES:   return 4;
+		case GL_RGB5_A1_OES: return 5;
+		case GL_RGB565_OES:  return 6;
+		case GL_RGB8_OES:    return 8;
+		case GL_RGBA8_OES:   return 8;
+		case GL_BGRA8_EXT:   return 8;
+		default:
+		//	UNREACHABLE(internalformat);
+			return 0;
+		}
+	}
+
+	GLuint GetBlueSize(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_NONE_OES:    return 0;
+		case GL_RGBA4_OES:   return 4;
+		case GL_RGB5_A1_OES: return 5;
+		case GL_RGB565_OES:  return 5;
+		case GL_RGB8_OES:    return 8;
+		case GL_RGBA8_OES:   return 8;
+		case GL_BGRA8_EXT:   return 8;
+		default:
+		//	UNREACHABLE(internalformat);
+			return 0;
+		}
+	}
+
+	GLuint GetDepthSize(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_STENCIL_INDEX8_OES:    return 0;
+		case GL_DEPTH_COMPONENT16_OES: return 16;
+		case GL_DEPTH24_STENCIL8_OES:  return 24;
+		default:
+		//	UNREACHABLE(internalformat);
+			return 0;
+		}
+	}
+
+	GLuint GetStencilSize(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_STENCIL_INDEX8_OES:    return 8;
+		case GL_DEPTH_COMPONENT16_OES: return 0;
+		case GL_DEPTH24_STENCIL8_OES:  return 8;
+		default:
+		//	UNREACHABLE(internalformat);
+			return 0;
+		}
+	}
+
+	bool IsAlpha(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_ALPHA8_EXT:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	bool IsRGB(GLint internalformat)
+	{
+		switch(internalformat)
+		{
+		case GL_LUMINANCE8_EXT:
+		case GL_RGB565_OES:
+		case GL_RGB8_OES:
 		case SW_YV12_BT601:
 		case SW_YV12_BT709:
 		case SW_YV12_JFIF:
@@ -191,16 +503,16 @@ namespace es1
 		}
 	}
 
-	bool IsRGBA(GLenum texFormat)
+	bool IsRGBA(GLint internalformat)
 	{
-		switch(texFormat)
+		switch(internalformat)
 		{
-		case GL_LUMINANCE_ALPHA:
+		case GL_LUMINANCE8_ALPHA8_EXT:
 		case GL_RGBA:
-		case GL_BGRA_EXT:      // GL_EXT_texture_format_BGRA8888
-		case GL_RGBA4_OES:     // GL_OES_framebuffer_object
-		case GL_RGB5_A1_OES:   // GL_OES_framebuffer_object
-		case GL_RGBA8_OES:     // GL_OES_rgb8_rgba8
+		case GL_BGRA8_EXT:     // GL_EXT_texture_format_BGRA8888
+		case GL_RGBA4_OES:
+		case GL_RGB5_A1_OES:
+		case GL_RGBA8_OES:
 			return true;
 		default:
 			return false;
@@ -478,7 +790,7 @@ namespace es2sw
 		sw::DrawType elementSize;
 		switch(elementType)
 		{
-		case GL_NONE:           elementSize = sw::DRAW_NONINDEXED; break;
+		case GL_NONE_OES:       elementSize = sw::DRAW_NONINDEXED; break;
 		case GL_UNSIGNED_BYTE:  elementSize = sw::DRAW_INDEXED8;   break;
 		case GL_UNSIGNED_SHORT: elementSize = sw::DRAW_INDEXED16;  break;
 		case GL_UNSIGNED_INT:   elementSize = sw::DRAW_INDEXED32;  break;
@@ -488,22 +800,6 @@ namespace es2sw
 		drawType = sw::DrawType(drawType | elementSize);
 
 		return true;
-	}
-
-	sw::Format ConvertRenderbufferFormat(GLenum format)
-	{
-		switch(format)
-		{
-		case GL_RGBA4_OES:
-		case GL_RGB5_A1_OES:
-		case GL_RGBA8_OES:            return sw::FORMAT_A8B8G8R8;
-		case GL_RGB565_OES:           return sw::FORMAT_R5G6B5;
-		case GL_RGB8_OES:             return sw::FORMAT_X8B8G8R8;
-		case GL_DEPTH_COMPONENT16_OES:
-		case GL_STENCIL_INDEX8_OES:
-		case GL_DEPTH24_STENCIL8_OES: return sw::FORMAT_D24S8;
-		default: UNREACHABLE(format); return sw::FORMAT_A8B8G8R8;
-		}
 	}
 
 	sw::TextureStage::StageOperation ConvertCombineOperation(GLenum operation)
@@ -549,145 +845,6 @@ namespace es2sw
 
 namespace sw2es
 {
-	unsigned int GetStencilSize(sw::Format stencilFormat)
-	{
-		switch(stencilFormat)
-		{
-		case sw::FORMAT_D24FS8:
-		case sw::FORMAT_D24S8:
-		case sw::FORMAT_D32FS8_TEXTURE:
-			return 8;
-	//	case sw::FORMAT_D24X4S4:
-	//		return 4;
-	//	case sw::FORMAT_D15S1:
-	//		return 1;
-	//	case sw::FORMAT_D16_LOCKABLE:
-		case sw::FORMAT_D32:
-		case sw::FORMAT_D24X8:
-		case sw::FORMAT_D32F_LOCKABLE:
-		case sw::FORMAT_D16:
-			return 0;
-	//	case sw::FORMAT_D32_LOCKABLE:  return 0;
-	//	case sw::FORMAT_S8_LOCKABLE:   return 8;
-		default:
-			return 0;
-		}
-	}
-
-	unsigned int GetAlphaSize(sw::Format colorFormat)
-	{
-		switch(colorFormat)
-		{
-		case sw::FORMAT_A16B16G16R16F:
-			return 16;
-		case sw::FORMAT_A32B32G32R32F:
-			return 32;
-		case sw::FORMAT_A2R10G10B10:
-			return 2;
-		case sw::FORMAT_A8R8G8B8:
-		case sw::FORMAT_A8B8G8R8:
-			return 8;
-		case sw::FORMAT_A1R5G5B5:
-			return 1;
-		case sw::FORMAT_X8R8G8B8:
-		case sw::FORMAT_X8B8G8R8:
-		case sw::FORMAT_R5G6B5:
-			return 0;
-		default:
-			return 0;
-		}
-	}
-
-	unsigned int GetRedSize(sw::Format colorFormat)
-	{
-		switch(colorFormat)
-		{
-		case sw::FORMAT_A16B16G16R16F:
-			return 16;
-		case sw::FORMAT_A32B32G32R32F:
-			return 32;
-		case sw::FORMAT_A2R10G10B10:
-			return 10;
-		case sw::FORMAT_A8R8G8B8:
-		case sw::FORMAT_A8B8G8R8:
-		case sw::FORMAT_X8R8G8B8:
-		case sw::FORMAT_X8B8G8R8:
-			return 8;
-		case sw::FORMAT_A1R5G5B5:
-		case sw::FORMAT_R5G6B5:
-			return 5;
-		default:
-			return 0;
-		}
-	}
-
-	unsigned int GetGreenSize(sw::Format colorFormat)
-	{
-		switch(colorFormat)
-		{
-		case sw::FORMAT_A16B16G16R16F:
-			return 16;
-		case sw::FORMAT_A32B32G32R32F:
-			return 32;
-		case sw::FORMAT_A2R10G10B10:
-			return 10;
-		case sw::FORMAT_A8R8G8B8:
-		case sw::FORMAT_A8B8G8R8:
-		case sw::FORMAT_X8R8G8B8:
-		case sw::FORMAT_X8B8G8R8:
-			return 8;
-		case sw::FORMAT_A1R5G5B5:
-			return 5;
-		case sw::FORMAT_R5G6B5:
-			return 6;
-		default:
-			return 0;
-		}
-	}
-
-	unsigned int GetBlueSize(sw::Format colorFormat)
-	{
-		switch(colorFormat)
-		{
-		case sw::FORMAT_A16B16G16R16F:
-			return 16;
-		case sw::FORMAT_A32B32G32R32F:
-			return 32;
-		case sw::FORMAT_A2R10G10B10:
-			return 10;
-		case sw::FORMAT_A8R8G8B8:
-		case sw::FORMAT_A8B8G8R8:
-		case sw::FORMAT_X8R8G8B8:
-		case sw::FORMAT_X8B8G8R8:
-			return 8;
-		case sw::FORMAT_A1R5G5B5:
-		case sw::FORMAT_R5G6B5:
-			return 5;
-		default:
-			return 0;
-		}
-	}
-
-	unsigned int GetDepthSize(sw::Format depthFormat)
-	{
-		switch(depthFormat)
-		{
-	//	case sw::FORMAT_D16_LOCKABLE:   return 16;
-		case sw::FORMAT_D32:            return 32;
-	//	case sw::FORMAT_D15S1:          return 15;
-		case sw::FORMAT_D24S8:          return 24;
-		case sw::FORMAT_D24X8:          return 24;
-	//	case sw::FORMAT_D24X4S4:        return 24;
-		case sw::FORMAT_D16:            return 16;
-		case sw::FORMAT_D32F_LOCKABLE:  return 32;
-		case sw::FORMAT_D24FS8:         return 24;
-	//	case sw::FORMAT_D32_LOCKABLE:   return 32;
-	//	case sw::FORMAT_S8_LOCKABLE:    return 0;
-		case sw::FORMAT_D32FS8_TEXTURE: return 32;
-		default:                        return 0;
-		}
-	}
-
 	GLenum ConvertBackBufferFormat(sw::Format format)
 	{
 		switch(format)

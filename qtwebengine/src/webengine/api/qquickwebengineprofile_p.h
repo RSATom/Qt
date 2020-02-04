@@ -51,10 +51,9 @@
 // We mean it.
 //
 
-#include "browser_context_adapter_client.h"
-#include "browser_context_adapter.h"
-#include "qwebenginebrowsercontext_p.h"
-#include "qquickwebengineprofile_p.h"
+#include "profile_adapter_client.h"
+#include "profile_adapter.h"
+#include "qquickwebengineprofile.h"
 
 #include <QExplicitlySharedDataPointer>
 #include <QMap>
@@ -65,21 +64,30 @@ QT_BEGIN_NAMESPACE
 
 class QQuickWebEngineDownloadItem;
 class QQuickWebEngineSettings;
+class QQuickWebEngineViewPrivate;
 
-class QQuickWebEngineProfilePrivate : public QtWebEngineCore::BrowserContextAdapterClient {
+class QQuickWebEngineProfilePrivate : public QtWebEngineCore::ProfileAdapterClient {
 public:
     Q_DECLARE_PUBLIC(QQuickWebEngineProfile)
-    QQuickWebEngineProfilePrivate(QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContext);
+    QQuickWebEngineProfilePrivate(QtWebEngineCore::ProfileAdapter *profileAdapter);
     ~QQuickWebEngineProfilePrivate();
+    void addWebContentsAdapterClient(QtWebEngineCore::WebContentsAdapterClient *adapter) override;
+    void removeWebContentsAdapterClient(QtWebEngineCore::WebContentsAdapterClient *adapter) override;
 
-    QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContext() const;
-    QQuickWebEngineSettings *settings() const { return m_settings.data(); }
+    QtWebEngineCore::ProfileAdapter* profileAdapter() const;
+    QQuickWebEngineSettings *settings() const;
 
     void cancelDownload(quint32 downloadId);
     void downloadDestroyed(quint32 downloadId);
 
-    void downloadRequested(DownloadItemInfo &info) Q_DECL_OVERRIDE;
-    void downloadUpdated(const DownloadItemInfo &info) Q_DECL_OVERRIDE;
+    void cleanDownloads();
+
+    void downloadRequested(DownloadItemInfo &info) override;
+    void downloadUpdated(const DownloadItemInfo &info) override;
+
+    void useForGlobalCertificateVerificationChanged() override;
+
+    void showNotification(QSharedPointer<QtWebEngineCore::UserNotificationController> &controller) override;
 
     // QQmlListPropertyHelpers
     static void userScripts_append(QQmlListProperty<QQuickWebEngineScript> *p, QQuickWebEngineScript *script);
@@ -88,10 +96,10 @@ public:
     static void userScripts_clear(QQmlListProperty<QQuickWebEngineScript> *p);
 
 private:
-    friend class QQuickWebEngineViewPrivate;
+    friend class QQuickWebEngineView;
     QQuickWebEngineProfile *q_ptr;
     QScopedPointer<QQuickWebEngineSettings> m_settings;
-    QPointer<QWebEngineBrowserContext> m_browserContext;
+    QPointer<QtWebEngineCore::ProfileAdapter> m_profileAdapter;
     QMap<quint32, QPointer<QQuickWebEngineDownloadItem> > m_ongoingDownloads;
     QList<QQuickWebEngineScript *> m_userScripts;
 };

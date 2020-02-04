@@ -23,6 +23,10 @@
         <source>&lt;img src=&quot;:/qt-project.org/shared/images/wrap.png&quot;&gt;&amp;nbsp;Search wrapped</source>
         <translation>&lt;img src=&quot;:/qt-project.org/shared/images/wrap.png&quot;&gt;&amp;nbsp;Die Suche hat das Ende erreicht</translation>
     </message>
+    <message>
+        <source>&amp;Find in Text...</source>
+        <translation>&amp;Suchen...</translation>
+    </message>
 </context>
 <context>
     <name>AbstractItemEditor</name>
@@ -961,6 +965,14 @@
         <source>Grid</source>
         <translation>Raster</translation>
     </message>
+    <message>
+        <source>Translations</source>
+        <translation>Übersetzungen</translation>
+    </message>
+    <message>
+        <source>ID-based</source>
+        <translation>ID-basiert</translation>
+    </message>
 </context>
 <context>
     <name>IconSelector</name>
@@ -1104,20 +1116,20 @@
         <translation>Lesefehler</translation>
     </message>
     <message>
+        <source>A temporary form file could not be created in %1: %2</source>
+        <translation>Es konnte keine temporäre Formular-Datei in %1 erzeugt werden: %2</translation>
+    </message>
+    <message>
+        <source>The temporary form file %1 could not be written: %2</source>
+        <translation>Die temporäre Formulardatei %1 konnte nicht geschrieben werden: %2</translation>
+    </message>
+    <message>
         <source>New Form</source>
         <translation>Neues Formular</translation>
     </message>
     <message>
         <source>Show this Dialog on Startup</source>
         <translation>Diesen Dialog zu Beginn anzeigen</translation>
-    </message>
-    <message>
-        <source>A temporary form file could not be created in %1.</source>
-        <translation>In dem Verzeichnis %1 konnte keine temporäre Formulardatei angelegt werden.</translation>
-    </message>
-    <message>
-        <source>The temporary form file %1 could not be written.</source>
-        <translation>Die temporäre Formulardatei %1 konnte nicht geschrieben werden.</translation>
     </message>
 </context>
 <context>
@@ -1693,7 +1705,7 @@ Möchten Sie es noch einmal versuchen?</translation>
     </message>
     <message>
         <source>Remove Menu &apos;%1&apos;</source>
-        <translation>Menü &apos;%1&apos; öschen</translation>
+        <translation>Menü &apos;%1&apos; löschen</translation>
     </message>
     <message>
         <source>Remove Menu Bar</source>
@@ -3455,10 +3467,6 @@ Möchten Sie sie überschreiben?</translation>
         <translation>Alles kopieren</translation>
     </message>
     <message>
-        <source>&amp;Find in Text...</source>
-        <translation>&amp;Suchen...</translation>
-    </message>
-    <message>
         <source>A temporary form file could not be created in %1.</source>
         <translation>In dem Verzeichnis %1 konnte keine temporäre Formulardatei angelegt werden.</translation>
     </message>
@@ -3628,6 +3636,10 @@ Möchten Sie sie überschreiben?</translation>
 </context>
 <context>
     <name>qdesigner_internal::DesignerPropertyManager</name>
+    <message>
+        <source>id</source>
+        <translation>id</translation>
+    </message>
     <message>
         <source>AlignLeft</source>
         <translation>Linksbündig ausrichten</translation>
@@ -4512,12 +4524,12 @@ Please select another name.</source>
 <context>
     <name>qdesigner_internal::ObjectInspector</name>
     <message>
-        <source>Change Current Page</source>
-        <translation>Seite wechseln</translation>
+        <source>Filter</source>
+        <translation>Filter</translation>
     </message>
     <message>
-        <source>&amp;Find in Text...</source>
-        <translation>&amp;Suchen...</translation>
+        <source>Change Current Page</source>
+        <translation>Seite wechseln</translation>
     </message>
 </context>
 <context>

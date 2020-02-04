@@ -9,15 +9,15 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/render_frame.h"
 #include "skia/ext/platform_canvas.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
-#include "third_party/WebKit/public/platform/WebMouseEvent.h"
-#include "third_party/WebKit/public/web/WebPluginParams.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/platform/web_mouse_event.h"
+#include "third_party/blink/public/web/web_plugin_params.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/gfx/canvas.h"
 #include "url/gurl.h"
@@ -43,7 +43,8 @@ class PluginInstanceThrottlerImplTest
   void SetUp() override {
     throttler_.reset(
         new PluginInstanceThrottlerImpl(RenderFrame::DONT_RECORD_DECISION));
-    throttler_->Initialize(nullptr, url::Origin(GURL("http://example.com")),
+    throttler_->Initialize(nullptr,
+                           url::Origin::Create(GURL("http://example.com")),
                            "Shockwave Flash", gfx::Size(100, 100));
     throttler_->AddObserver(this);
   }
@@ -66,9 +67,9 @@ class PluginInstanceThrottlerImplTest
                         bool expect_consumed,
                         bool expect_throttled,
                         int expect_change_callback_count) {
-    blink::WebMouseEvent event(
-        event_type, blink::WebInputEvent::Modifiers::kLeftButtonDown,
-        ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
+    blink::WebMouseEvent event(event_type,
+                               blink::WebInputEvent::Modifiers::kLeftButtonDown,
+                               ui::EventTimeForNow());
     EXPECT_EQ(expect_consumed, throttler()->ConsumeInputEvent(event));
     EXPECT_EQ(expect_throttled, throttler()->IsThrottled());
     EXPECT_EQ(expect_change_callback_count, change_callback_calls());
@@ -82,7 +83,7 @@ class PluginInstanceThrottlerImplTest
 
   int change_callback_calls_;
 
-  base::MessageLoop loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
 };
 
 TEST_F(PluginInstanceThrottlerImplTest, ThrottleAndUnthrottleByClick) {
@@ -205,10 +206,9 @@ TEST_F(PluginInstanceThrottlerImplTest, ThrottleOnLeftClickOnly) {
   EXPECT_TRUE(throttler()->IsThrottled());
   EXPECT_EQ(1, change_callback_calls());
 
-  blink::WebMouseEvent event(
-      blink::WebInputEvent::Type::kMouseUp,
-      blink::WebInputEvent::Modifiers::kRightButtonDown,
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
+  blink::WebMouseEvent event(blink::WebInputEvent::Type::kMouseUp,
+                             blink::WebInputEvent::Modifiers::kRightButtonDown,
+                             ui::EventTimeForNow());
   EXPECT_FALSE(throttler()->ConsumeInputEvent(event));
   EXPECT_TRUE(throttler()->IsThrottled());
 

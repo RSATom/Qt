@@ -10,17 +10,20 @@
 #include <memory>
 
 #include "core/fpdfapi/render/cpdf_imageloader.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/dib/cfx_imagerenderer.h"
+#include "core/fxge/fx_dib.h"
+#include "third_party/base/optional.h"
 
 class CFX_DIBitmap;
-class CFX_DIBSource;
+class CFX_DIBBase;
 class CFX_DefaultRenderDevice;
 class CFX_ImageTransformer;
 class CPDF_ImageObject;
 class CPDF_PageObject;
 class CPDF_Pattern;
+class CPDF_RenderOptions;
 class CPDF_RenderStatus;
 
 class CPDF_ImageRenderer {
@@ -29,58 +32,64 @@ class CPDF_ImageRenderer {
   ~CPDF_ImageRenderer();
 
   bool Start(CPDF_RenderStatus* pStatus,
-             CPDF_PageObject* pObj,
-             const CFX_Matrix* pObj2Device,
+             CPDF_ImageObject* pImageObject,
+             const CFX_Matrix& mtObj2Device,
              bool bStdCS,
-             int blendType);
+             BlendMode blendType);
 
   bool Start(CPDF_RenderStatus* pStatus,
-             const CFX_RetainPtr<CFX_DIBSource>& pDIBSource,
+             const RetainPtr<CFX_DIBBase>& pDIBBase,
              FX_ARGB bitmap_argb,
              int bitmap_alpha,
-             const CFX_Matrix* pImage2Device,
-             uint32_t flags,
+             const CFX_Matrix& mtImage2Device,
+             const FXDIB_ResampleOptions& options,
              bool bStdCS,
-             int blendType);
+             BlendMode blendType);
 
-  bool Continue(IFX_Pause* pPause);
+  bool Continue(PauseIndicatorIface* pPause);
   bool GetResult() const { return m_Result; }
 
  private:
   bool StartBitmapAlpha();
-  bool StartDIBSource();
-  bool StartRenderDIBSource();
-  bool StartLoadDIBSource();
+  bool StartDIBBase();
+  bool StartRenderDIBBase();
+  bool StartLoadDIBBase();
   bool DrawMaskedImage();
-  bool DrawPatternImage(const CFX_Matrix* pObj2Device);
+  bool DrawPatternImage();
   bool NotDrawing() const;
   FX_RECT GetDrawRect() const;
   CFX_Matrix GetDrawMatrix(const FX_RECT& rect) const;
   void CalculateDrawImage(CFX_DefaultRenderDevice* bitmap_device1,
                           CFX_DefaultRenderDevice* bitmap_device2,
-                          const CFX_RetainPtr<CFX_DIBSource>& pDIBSource,
-                          CFX_Matrix* pNewMatrix,
+                          const RetainPtr<CFX_DIBBase>& pDIBBase,
+                          const CFX_Matrix& mtNewMatrix,
                           const FX_RECT& rect) const;
+  const CPDF_RenderOptions& GetRenderOptions() const;
   void HandleFilters();
+  Optional<FX_RECT> GetUnitRect() const;
+  bool GetDimensionsFromUnitRect(const FX_RECT& rect,
+                                 int* left,
+                                 int* top,
+                                 int* width,
+                                 int* height) const;
 
-  CFX_UnownedPtr<CPDF_RenderStatus> m_pRenderStatus;
-  CFX_UnownedPtr<CPDF_ImageObject> m_pImageObject;
-  int m_Status;
-  CFX_UnownedPtr<const CFX_Matrix> m_pObj2Device;
+  UnownedPtr<CPDF_RenderStatus> m_pRenderStatus;
+  UnownedPtr<CPDF_ImageObject> m_pImageObject;
+  UnownedPtr<CPDF_Pattern> m_pPattern;
+  RetainPtr<CFX_DIBBase> m_pDIBBase;
+  CFX_Matrix m_mtObj2Device;
   CFX_Matrix m_ImageMatrix;
   CPDF_ImageLoader m_Loader;
-  CFX_RetainPtr<CFX_DIBSource> m_pDIBSource;
-  CFX_RetainPtr<CFX_DIBitmap> m_pClone;
-  int m_BitmapAlpha;
-  bool m_bPatternColor;
-  CFX_UnownedPtr<CPDF_Pattern> m_pPattern;
-  FX_ARGB m_FillArgb;
-  uint32_t m_Flags;
   std::unique_ptr<CFX_ImageTransformer> m_pTransformer;
   std::unique_ptr<CFX_ImageRenderer> m_DeviceHandle;
-  bool m_bStdCS;
-  int m_BlendType;
-  bool m_Result;
+  int m_Status = 0;
+  int m_BitmapAlpha = 0;
+  BlendMode m_BlendType = BlendMode::kNormal;
+  FX_ARGB m_FillArgb = 0;
+  FXDIB_ResampleOptions m_ResampleOptions;
+  bool m_bPatternColor = false;
+  bool m_bStdCS = false;
+  bool m_Result = true;
 };
 
 #endif  // CORE_FPDFAPI_RENDER_CPDF_IMAGERENDERER_H_

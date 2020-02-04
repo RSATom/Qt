@@ -8,12 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_processing/gain_control_for_experimental_agc.h"
+#include "modules/audio_processing/gain_control_for_experimental_agc.h"
 
-#include "webrtc/modules/audio_processing/include/audio_processing.h"
-#include "webrtc/modules/audio_processing/logging/apm_data_dumper.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/criticalsection.h"
+#include "modules/audio_processing/include/audio_processing.h"
+#include "modules/audio_processing/logging/apm_data_dumper.h"
+#include "rtc_base/atomic_ops.h"
+#include "rtc_base/critical_section.h"
 
 namespace webrtc {
 
@@ -22,12 +22,11 @@ int GainControlForExperimentalAgc::instance_counter_ = 0;
 GainControlForExperimentalAgc::GainControlForExperimentalAgc(
     GainControl* gain_control,
     rtc::CriticalSection* crit_capture)
-    : data_dumper_(new ApmDataDumper(instance_counter_)),
+    : data_dumper_(
+          new ApmDataDumper(rtc::AtomicOps::Increment(&instance_counter_))),
       real_gain_control_(gain_control),
       volume_(0),
-      crit_capture_(crit_capture) {
-  instance_counter_++;
-}
+      crit_capture_(crit_capture) {}
 
 GainControlForExperimentalAgc::~GainControlForExperimentalAgc() = default;
 
@@ -43,14 +42,18 @@ int GainControlForExperimentalAgc::set_stream_analog_level(int level) {
   rtc::CritScope cs_capture(crit_capture_);
   data_dumper_->DumpRaw("experimental_gain_control_set_stream_analog_level", 1,
                         &level);
+  do_log_level_ = true;
   volume_ = level;
   return AudioProcessing::kNoError;
 }
 
 int GainControlForExperimentalAgc::stream_analog_level() {
   rtc::CritScope cs_capture(crit_capture_);
-  data_dumper_->DumpRaw("experimental_gain_control_stream_analog_level", 1,
-                        &volume_);
+  if (do_log_level_) {
+    data_dumper_->DumpRaw("experimental_gain_control_stream_analog_level", 1,
+                          &volume_);
+    do_log_level_ = false;
+  }
   return volume_;
 }
 

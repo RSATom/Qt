@@ -10,7 +10,11 @@
 
 #import <UIKit/UIKit.h>
 
-#include "webrtc/test/ios/test_support.h"
+#include "test/ios/coverage_util_ios.h"
+#include "test/ios/test_support.h"
+#include "test/testsupport/perf_test.h"
+
+#import "sdk/objc/helpers/NSString+StdString.h"
 
 // Springboard will kill any iOS app that fails to check in after launch within
 // a given time. Starting a UIApplication before invoking TestSuite::Run
@@ -29,6 +33,7 @@
 static int (*g_test_suite)(void) = NULL;
 static int g_argc;
 static char **g_argv;
+static bool g_save_chartjson_result;
 
 @interface UIApplication (Testing)
 - (void)_terminateWithStatus:(int)status;
@@ -66,7 +71,23 @@ static char **g_argv;
 }
 
 - (void)runTests {
+  rtc::test::ConfigureCoverageReportPath();
+
   int exitStatus = g_test_suite();
+
+  if (g_save_chartjson_result) {
+    // Stores data into a json file under the app's document directory.
+    NSString* fileName = @"perf_result.json";
+    NSArray<NSString*>* outputDirectories = NSSearchPathForDirectoriesInDomains(
+        NSDocumentDirectory, NSUserDomainMask, YES);
+    if ([outputDirectories count] != 0) {
+      NSString* outputPath =
+          [outputDirectories[0] stringByAppendingPathComponent:fileName];
+
+      webrtc::test::WritePerfResults(
+          [NSString stdStringForString:outputPath]);
+    }
+  }
 
   // If a test app is too fast, it will exit before Instruments has has a
   // a chance to initialize and no test results will be seen.
@@ -86,10 +107,14 @@ static char **g_argv;
 namespace rtc {
 namespace test {
 
-void InitTestSuite(int (*test_suite)(void), int argc, char *argv[]) {
+// Note: This is not thread safe, and must be called from the same thread as
+// runTests above.
+void InitTestSuite(int (*test_suite)(void), int argc, char *argv[],
+                   bool save_chartjson_result) {
   g_test_suite = test_suite;
   g_argc = argc;
   g_argv = argv;
+  g_save_chartjson_result = save_chartjson_result;
 }
 
 void RunTestsFromIOSApp() {

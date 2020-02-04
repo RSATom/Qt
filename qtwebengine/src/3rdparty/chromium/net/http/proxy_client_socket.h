@@ -9,7 +9,9 @@
 #include <string>
 
 #include "base/macros.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
+#include "net/base/request_priority.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/stream_socket.h"
 
@@ -41,12 +43,15 @@ class NET_EXPORT_PRIVATE ProxyClientSocket : public StreamSocket {
   virtual const scoped_refptr<HttpAuthController>& GetAuthController() const
       = 0;
 
-  // If Connect (or its callback) returns PROXY_AUTH_REQUESTED, then
-  // credentials should be added to the HttpAuthController before calling
-  // RestartWithAuth.  Not all ProxyClientSocket implementations will be
-  // restartable.  Such implementations should disconnect themselves and
-  // return OK.
-  virtual int RestartWithAuth(const CompletionCallback& callback) = 0;
+  // If Connect (or its callback) returns PROXY_AUTH_REQUESTED, then an
+  // auth challenge was received.  If the HttpAuthController's HaveAuth()
+  // method returns true, then the request just needs to be restarted with
+  // this method to try with those credentials, and new credentials cannot
+  // be provided.  Otherwise, credentials should be added to the
+  // HttpAuthController before calling RestartWithAuth.  Not all
+  // ProxyClientSocket implementations will be restartable.  Such
+  // implementations should disconnect themselves and return OK.
+  virtual int RestartWithAuth(CompletionOnceCallback callback) = 0;
 
   // Returns true of the connection to the proxy is using SPDY.
   virtual bool IsUsingSpdy() const = 0;
@@ -54,12 +59,15 @@ class NET_EXPORT_PRIVATE ProxyClientSocket : public StreamSocket {
   // Returns the protocol negotiated with the proxy.
   virtual NextProto GetProxyNegotiatedProtocol() const = 0;
 
+  // Set the priority of the underlying stream (for SPDY and QUIC)
+  virtual void SetStreamPriority(RequestPriority priority);
+
  protected:
   // The HTTP CONNECT method for establishing a tunnel connection is documented
   // in draft-luotonen-web-proxy-tunneling-01.txt and RFC 2817, Sections 5.2
   // and 5.3.
   static void BuildTunnelRequest(const HostPortPair& endpoint,
-                                 const HttpRequestHeaders& auth_headers,
+                                 const HttpRequestHeaders& extra_headers,
                                  const std::string& user_agent,
                                  std::string* request_line,
                                  HttpRequestHeaders* request_headers);
@@ -69,10 +77,6 @@ class NET_EXPORT_PRIVATE ProxyClientSocket : public StreamSocket {
   static int HandleProxyAuthChallenge(HttpAuthController* auth,
                                       HttpResponseInfo* response,
                                       const NetLogWithSource& net_log);
-
-  // Logs (to the log and in a histogram) a blocked CONNECT response.
-  static void LogBlockedTunnelResponse(int http_response_code,
-                                       bool is_https_proxy);
 
   // When a proxy authentication response is received during tunnel
   // construction, this method should be called to strip everything

@@ -4,28 +4,27 @@
 
 #include "headless/lib/renderer/headless_content_renderer_client.h"
 
-#include "base/memory/ptr_util.h"
-#include "headless/lib/renderer/headless_render_frame_controller_impl.h"
-#include "printing/features/features.h"
+#include <memory>
 
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
-#include "components/printing/renderer/print_web_view_helper.h"
-#include "headless/lib/renderer/headless_print_web_view_helper_delegate.h"
+#include "printing/buildflags/buildflags.h"
+
+#if BUILDFLAG(ENABLE_PRINTING)
+#include "components/printing/renderer/print_render_frame_helper.h"
+#include "headless/lib/renderer/headless_print_render_frame_helper_delegate.h"
 #endif
 
 namespace headless {
 
-HeadlessContentRendererClient::HeadlessContentRendererClient() {}
+HeadlessContentRendererClient::HeadlessContentRendererClient() = default;
 
-HeadlessContentRendererClient::~HeadlessContentRendererClient() {}
+HeadlessContentRendererClient::~HeadlessContentRendererClient() = default;
 
 void HeadlessContentRendererClient::RenderFrameCreated(
     content::RenderFrame* render_frame) {
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
-  new printing::PrintWebViewHelper(
-      render_frame, base::MakeUnique<HeadlessPrintWebViewHelperDelegate>());
+#if BUILDFLAG(ENABLE_PRINTING)
+  new printing::PrintRenderFrameHelper(
+      render_frame, std::make_unique<HeadlessPrintRenderFrameHelperDelegate>());
 #endif
-  new HeadlessRenderFrameControllerImpl(render_frame);
 }
 
 }  // namespace headless

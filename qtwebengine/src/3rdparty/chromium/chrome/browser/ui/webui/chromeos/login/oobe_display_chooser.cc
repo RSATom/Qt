@@ -6,14 +6,17 @@
 
 #include <stdint.h>
 
-#include "ash/display/window_tree_host_manager.h"
-#include "ash/shell.h"
-#include "base/stl_util.h"
+#include "ash/public/interfaces/constants.mojom.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/task/post_task.h"
+#include "chrome/browser/ui/ash/ash_util.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/service_manager_connection.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "ui/display/display.h"
-#include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
-#include "ui/events/devices/device_data_manager.h"
+#include "ui/events/devices/input_device_manager.h"
 #include "ui/events/devices/touchscreen_device.h"
 
 using content::BrowserThread;
@@ -23,16 +26,29 @@ namespace chromeos {
 namespace {
 
 bool TouchSupportAvailable(const display::Display& display) {
-  return display.touch_support() ==
-         display::Display::TouchSupport::TOUCH_SUPPORT_AVAILABLE;
+  return display.touch_support() == display::Display::TouchSupport::AVAILABLE;
 }
 
 // TODO(felixe): More context at crbug.com/738885
-const uint16_t kDeviceIds[] = {0x0457, 0x266e};
+const uint16_t kDeviceIds[] = {0x0457, 0x266e, 0x222a};
+
+// Returns true if |vendor_id| is a valid vendor id that may be made the primary
+// display.
+bool IsWhiteListedVendorId(uint16_t vendor_id) {
+  return base::ContainsValue(kDeviceIds, vendor_id);
+}
 
 }  // namespace
 
-OobeDisplayChooser::OobeDisplayChooser() : weak_ptr_factory_(this) {}
+OobeDisplayChooser::OobeDisplayChooser()
+    : scoped_observer_(this), weak_ptr_factory_(this) {
+  // |connector| may be null in tests.
+  auto* connector = ash_util::GetServiceManagerConnector();
+  if (connector) {
+    connector->BindInterface(ash::mojom::kServiceName,
+                             &cros_display_config_ptr_);
+  }
+}
 
 OobeDisplayChooser::~OobeDisplayChooser() {}
 
@@ -48,32 +64,58 @@ void OobeDisplayChooser::TryToPlaceUiOnTouchDisplay() {
       display::Screen::GetScreen()->GetPrimaryDisplay();
 
   if (primary_display.is_valid() && !TouchSupportAvailable(primary_display)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::BindOnce(&OobeDisplayChooser::MoveToTouchDisplay,
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(&OobeDisplayChooser::MaybeMoveToTouchDisplay,
                        weak_ptr_factory_.GetWeakPtr()));
+  }
+}
+
+void OobeDisplayChooser::MaybeMoveToTouchDisplay() {
+  ui::InputDeviceManager* input_device_manager =
+      ui::InputDeviceManager::GetInstance();
+  if (input_device_manager->AreDeviceListsComplete() &&
+      input_device_manager->AreTouchscreenTargetDisplaysValid()) {
+    MoveToTouchDisplay();
+  } else if (!scoped_observer_.IsObserving(input_device_manager)) {
+    scoped_observer_.Add(input_device_manager);
   }
 }
 
 void OobeDisplayChooser::MoveToTouchDisplay() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  const ui::DeviceDataManager* device_manager =
-      ui::DeviceDataManager::GetInstance();
+  scoped_observer_.RemoveAll();
+
+  const ui::InputDeviceManager* input_device_manager =
+      ui::InputDeviceManager::GetInstance();
   for (const ui::TouchscreenDevice& device :
-       device_manager->GetTouchscreenDevices()) {
-    if (!base::ContainsValue(kDeviceIds, device.vendor_id))
-      continue;
-
-    int64_t display_id =
-        device_manager->GetTargetDisplayForTouchDevice(device.id);
-    if (display_id == display::kInvalidDisplayId)
-      continue;
-
-    ash::Shell::Get()->window_tree_host_manager()->SetPrimaryDisplayId(
-        display_id);
-    break;
+       input_device_manager->GetTouchscreenDevices()) {
+    if (IsWhiteListedVendorId(device.vendor_id) &&
+        device.target_display_id != display::kInvalidDisplayId) {
+      auto config_properties = ash::mojom::DisplayConfigProperties::New();
+      config_properties->set_primary = true;
+      cros_display_config_ptr_->SetDisplayProperties(
+          base::Int64ToString(device.target_display_id),
+          std::move(config_properties), base::DoNothing());
+      break;
+    }
   }
+}
+
+void OobeDisplayChooser::OnTouchDeviceAssociationChanged() {
+  MaybeMoveToTouchDisplay();
+}
+
+void OobeDisplayChooser::OnInputDeviceConfigurationChanged(
+    uint8_t input_device_types) {
+  if (input_device_types & ui::InputDeviceEventObserver::kTouchscreen) {
+    MaybeMoveToTouchDisplay();
+  }
+}
+
+void OobeDisplayChooser::OnDeviceListsComplete() {
+  MaybeMoveToTouchDisplay();
 }
 
 }  // namespace chromeos

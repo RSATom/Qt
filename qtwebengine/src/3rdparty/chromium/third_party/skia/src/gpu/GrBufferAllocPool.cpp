@@ -5,15 +5,17 @@
  * found in the LICENSE file.
  */
 
-
 #include "GrBufferAllocPool.h"
+
 #include "GrBuffer.h"
 #include "GrCaps.h"
 #include "GrContext.h"
+#include "GrContextPriv.h"
 #include "GrGpu.h"
 #include "GrResourceProvider.h"
 #include "GrTypes.h"
-
+#include "SkMacros.h"
+#include "SkSafeMath.h"
 #include "SkTraceEvent.h"
 
 #ifdef SK_DEBUG
@@ -22,15 +24,9 @@
     static void VALIDATE(bool = false) {}
 #endif
 
-static const size_t MIN_VERTEX_BUFFER_SIZE = 1 << 15;
-static const size_t MIN_INDEX_BUFFER_SIZE = 1 << 12;
-
-// page size
-#define GrBufferAllocPool_MIN_BLOCK_SIZE ((size_t)1 << 15)
-
 #define UNMAP_BUFFER(block)                                                               \
 do {                                                                                      \
-    TRACE_EVENT_INSTANT1(TRACE_DISABLED_BY_DEFAULT("skia.gpu"),                           \
+    TRACE_EVENT_INSTANT1("skia.gpu",                                                      \
                          "GrBufferAllocPool Unmapping Buffer",                            \
                          TRACE_EVENT_SCOPE_THREAD,                                        \
                          "percent_unwritten",                                             \
@@ -38,20 +34,14 @@ do {                                                                            
     (block).fBuffer->unmap();                                                             \
 } while (false)
 
-GrBufferAllocPool::GrBufferAllocPool(GrGpu* gpu,
-                                     GrBufferType bufferType,
-                                     size_t blockSize)
-    : fBlocks(8) {
+constexpr size_t GrBufferAllocPool::kDefaultBufferSize;
 
-    fGpu = SkRef(gpu);
-    fCpuData = nullptr;
-    fBufferType = bufferType;
-    fBufferPtr = nullptr;
-    fMinBlockSize = SkTMax(GrBufferAllocPool_MIN_BLOCK_SIZE, blockSize);
-
-    fBytesInUse = 0;
-
-    fBufferMapThreshold = gpu->caps()->bufferMapThreshold();
+GrBufferAllocPool::GrBufferAllocPool(GrGpu* gpu, GrBufferType bufferType, void* initialBuffer)
+        : fBlocks(8), fGpu(gpu), fBufferType(bufferType), fInitialCpuData(initialBuffer) {
+    if (fInitialCpuData) {
+        fCpuDataSize = kDefaultBufferSize;
+        fCpuData = fInitialCpuData;
+    }
 }
 
 void GrBufferAllocPool::deleteBlocks() {
@@ -70,15 +60,16 @@ void GrBufferAllocPool::deleteBlocks() {
 GrBufferAllocPool::~GrBufferAllocPool() {
     VALIDATE();
     this->deleteBlocks();
-    sk_free(fCpuData);
-    fGpu->unref();
+    if (fCpuData != fInitialCpuData) {
+        sk_free(fCpuData);
+    }
 }
 
 void GrBufferAllocPool::reset() {
     VALIDATE();
     fBytesInUse = 0;
     this->deleteBlocks();
-    this->resetCpuData(0);      // delete all the cpu-side memory
+    this->resetCpuData(0);
     VALIDATE();
 }
 
@@ -151,13 +142,18 @@ void* GrBufferAllocPool::makeSpace(size_t size,
         BufferBlock& back = fBlocks.back();
         size_t usedBytes = back.fBuffer->gpuMemorySize() - back.fBytesFree;
         size_t pad = GrSizeAlignUpPad(usedBytes, alignment);
-        if ((size + pad) <= back.fBytesFree) {
+        SkSafeMath safeMath;
+        size_t alignedSize = safeMath.add(pad, size);
+        if (!safeMath.ok()) {
+            return nullptr;
+        }
+        if (alignedSize <= back.fBytesFree) {
             memset((void*)(reinterpret_cast<intptr_t>(fBufferPtr) + usedBytes), 0, pad);
             usedBytes += pad;
             *offset = usedBytes;
             *buffer = back.fBuffer;
-            back.fBytesFree -= size + pad;
-            fBytesInUse += size + pad;
+            back.fBytesFree -= alignedSize;
+            fBytesInUse += alignedSize;
             VALIDATE();
             return (void*)(reinterpret_cast<intptr_t>(fBufferPtr) + usedBytes);
         }
@@ -208,8 +204,15 @@ void* GrBufferAllocPool::makeSpaceAtLeast(size_t minSize,
             back.fBytesFree -= pad;
             fBytesInUse += pad;
 
-            // Give caller all remaining space in this block (but aligned correctly)
-            size_t size = GrSizeAlignDown(back.fBytesFree, alignment);
+            // Give caller all remaining space in this block up to fallbackSize (but aligned
+            // correctly)
+            size_t size;
+            if (back.fBytesFree >= fallbackSize) {
+                SkASSERT(GrSizeAlignDown(fallbackSize, alignment) == fallbackSize);
+                size = fallbackSize;
+            } else {
+                size = GrSizeAlignDown(back.fBytesFree, alignment);
+            }
             *offset = usedBytes;
             *buffer = back.fBuffer;
             *actualSize = size;
@@ -272,9 +275,7 @@ void GrBufferAllocPool::putBack(size_t bytes) {
 }
 
 bool GrBufferAllocPool::createBlock(size_t requestSize) {
-
-    size_t size = SkTMax(requestSize, fMinBlockSize);
-    SkASSERT(size >= GrBufferAllocPool_MIN_BLOCK_SIZE);
+    size_t size = SkTMax(requestSize, kDefaultBufferSize);
 
     VALIDATE();
 
@@ -305,7 +306,7 @@ bool GrBufferAllocPool::createBlock(size_t requestSize) {
     // threshold.
     bool attemptMap = block.fBuffer->isCPUBacked();
     if (!attemptMap && GrCaps::kNone_MapFlags != fGpu->caps()->mapBufferFlags()) {
-        attemptMap = size > fBufferMapThreshold;
+        attemptMap = size > fGpu->caps()->bufferMapThreshold();
     }
 
     if (attemptMap) {
@@ -333,16 +334,19 @@ void GrBufferAllocPool::destroyBlock() {
 }
 
 void* GrBufferAllocPool::resetCpuData(size_t newSize) {
-    sk_free(fCpuData);
-    if (newSize) {
-        if (fGpu->caps()->mustClearUploadedBufferData()) {
-            fCpuData = sk_calloc_throw(newSize);
-        } else {
-            fCpuData = sk_malloc_throw(newSize);
-        }
-    } else {
-        fCpuData = nullptr;
+    if (newSize <= fCpuDataSize) {
+        SkASSERT(!newSize || fCpuData);
+        return fCpuData;
     }
+    if (fCpuData != fInitialCpuData) {
+        sk_free(fCpuData);
+    }
+    if (fGpu->caps()->mustClearUploadedBufferData()) {
+        fCpuData = sk_calloc_throw(newSize);
+    } else {
+        fCpuData = sk_malloc_throw(newSize);
+    }
+    fCpuDataSize = newSize;
     return fCpuData;
 }
 
@@ -356,7 +360,7 @@ void GrBufferAllocPool::flushCpuData(const BufferBlock& block, size_t flushSize)
     VALIDATE(true);
 
     if (GrCaps::kNone_MapFlags != fGpu->caps()->mapBufferFlags() &&
-        flushSize > fBufferMapThreshold) {
+        flushSize > fGpu->caps()->bufferMapThreshold()) {
         void* data = buffer->map();
         if (data) {
             memcpy(data, fBufferPtr, flushSize);
@@ -370,18 +374,17 @@ void GrBufferAllocPool::flushCpuData(const BufferBlock& block, size_t flushSize)
 
 GrBuffer* GrBufferAllocPool::getBuffer(size_t size) {
 
-    GrResourceProvider* rp = fGpu->getContext()->resourceProvider();
+    auto resourceProvider = fGpu->getContext()->contextPriv().resourceProvider();
 
     // Shouldn't have to use this flag (https://bug.skia.org/4156)
-    static const uint32_t kFlags = GrResourceProvider::kNoPendingIO_Flag;
-    return rp->createBuffer(size, fBufferType, kDynamic_GrAccessPattern, kFlags);
+    static const auto kFlags = GrResourceProvider::Flags::kNoPendingIO;
+    return resourceProvider->createBuffer(size, fBufferType, kDynamic_GrAccessPattern, kFlags);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-GrVertexBufferAllocPool::GrVertexBufferAllocPool(GrGpu* gpu)
-    : GrBufferAllocPool(gpu, kVertex_GrBufferType, MIN_VERTEX_BUFFER_SIZE) {
-}
+GrVertexBufferAllocPool::GrVertexBufferAllocPool(GrGpu* gpu, void* initialCpuBuffer)
+        : GrBufferAllocPool(gpu, kVertex_GrBufferType, initialCpuBuffer) {}
 
 void* GrVertexBufferAllocPool::makeSpace(size_t vertexSize,
                                          int vertexCount,
@@ -393,7 +396,7 @@ void* GrVertexBufferAllocPool::makeSpace(size_t vertexSize,
     SkASSERT(startVertex);
 
     size_t offset SK_INIT_TO_AVOID_WARNING;
-    void* ptr = INHERITED::makeSpace(vertexSize * vertexCount,
+    void* ptr = INHERITED::makeSpace(SkSafeMath::Mul(vertexSize, vertexCount),
                                      vertexSize,
                                      buffer,
                                      &offset);
@@ -415,8 +418,8 @@ void* GrVertexBufferAllocPool::makeSpaceAtLeast(size_t vertexSize, int minVertex
 
     size_t offset SK_INIT_TO_AVOID_WARNING;
     size_t actualSize SK_INIT_TO_AVOID_WARNING;
-    void* ptr = INHERITED::makeSpaceAtLeast(vertexSize * minVertexCount,
-                                            vertexSize * fallbackVertexCount,
+    void* ptr = INHERITED::makeSpaceAtLeast(SkSafeMath::Mul(vertexSize, minVertexCount),
+                                            SkSafeMath::Mul(vertexSize, fallbackVertexCount),
                                             vertexSize,
                                             buffer,
                                             &offset,
@@ -434,9 +437,8 @@ void* GrVertexBufferAllocPool::makeSpaceAtLeast(size_t vertexSize, int minVertex
 
 ////////////////////////////////////////////////////////////////////////////////
 
-GrIndexBufferAllocPool::GrIndexBufferAllocPool(GrGpu* gpu)
-    : GrBufferAllocPool(gpu, kIndex_GrBufferType, MIN_INDEX_BUFFER_SIZE) {
-}
+GrIndexBufferAllocPool::GrIndexBufferAllocPool(GrGpu* gpu, void* initialCpuBuffer)
+        : GrBufferAllocPool(gpu, kIndex_GrBufferType, initialCpuBuffer) {}
 
 void* GrIndexBufferAllocPool::makeSpace(int indexCount,
                                         const GrBuffer** buffer,
@@ -447,7 +449,7 @@ void* GrIndexBufferAllocPool::makeSpace(int indexCount,
     SkASSERT(startIndex);
 
     size_t offset SK_INIT_TO_AVOID_WARNING;
-    void* ptr = INHERITED::makeSpace(indexCount * sizeof(uint16_t),
+    void* ptr = INHERITED::makeSpace(SkSafeMath::Mul(indexCount, sizeof(uint16_t)),
                                      sizeof(uint16_t),
                                      buffer,
                                      &offset);
@@ -468,8 +470,8 @@ void* GrIndexBufferAllocPool::makeSpaceAtLeast(int minIndexCount, int fallbackIn
 
     size_t offset SK_INIT_TO_AVOID_WARNING;
     size_t actualSize SK_INIT_TO_AVOID_WARNING;
-    void* ptr = INHERITED::makeSpaceAtLeast(minIndexCount * sizeof(uint16_t),
-                                            fallbackIndexCount * sizeof(uint16_t),
+    void* ptr = INHERITED::makeSpaceAtLeast(SkSafeMath::Mul(minIndexCount, sizeof(uint16_t)),
+                                            SkSafeMath::Mul(fallbackIndexCount, sizeof(uint16_t)),
                                             sizeof(uint16_t),
                                             buffer,
                                             &offset,

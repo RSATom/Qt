@@ -17,9 +17,36 @@
 namespace angle
 {
 
+GPUDeviceInfo::GPUDeviceInfo() = default;
+
+GPUDeviceInfo::~GPUDeviceInfo() = default;
+
+GPUDeviceInfo::GPUDeviceInfo(const GPUDeviceInfo &other) = default;
+
+SystemInfo::SystemInfo() = default;
+
+SystemInfo::~SystemInfo() = default;
+
+SystemInfo::SystemInfo(const SystemInfo &other) = default;
+
 bool IsAMD(VendorID vendorId)
 {
     return vendorId == kVendorID_AMD;
+}
+
+bool IsARM(VendorID vendorId)
+{
+    return vendorId == kVendorID_ARM;
+}
+
+bool IsImgTec(VendorID vendorId)
+{
+    return vendorId == kVendorID_ImgTec;
+}
+
+bool IsKazan(VendorID vendorId)
+{
+    return vendorId == kVendorID_Kazan;
 }
 
 bool IsIntel(VendorID vendorId)
@@ -35,6 +62,16 @@ bool IsNvidia(VendorID vendorId)
 bool IsQualcomm(VendorID vendorId)
 {
     return vendorId == kVendorID_Qualcomm;
+}
+
+bool IsVeriSilicon(VendorID vendorId)
+{
+    return vendorId == kVendorID_VeriSilicon;
+}
+
+bool IsVivante(VendorID vendorId)
+{
+    return vendorId == kVendorID_Vivante;
 }
 
 bool ParseAMDBrahmaDriverVersion(const std::string &content, std::string *version)

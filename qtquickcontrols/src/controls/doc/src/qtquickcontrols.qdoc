@@ -27,15 +27,15 @@
 
 /*!
     \qmlmodule QtQuick.Controls 1.4
-    \title Qt Quick Controls QML Types
+    \title Qt Quick Controls 1 QML Types
     \ingroup qmlmodules
     \brief Provides QML types for user interfaces.
 
-    The \l{Qt Quick Controls} module provides QML types for creating user
+    The \l{Qt Quick Controls 1} module provides QML types for creating user
     interfaces. These QML types work in conjunction with \l{Qt Quick} and
     \l{Qt Quick Layouts}.
 
-    Controls can be styled using the \l{Qt Quick Controls Styles QML Types}{Styles QML Types}.
+    Controls can be styled using the \l{Qt Quick Controls 1 Styles QML Types}{Styles QML Types}.
 
     The QML types can be imported into your application using the
     following import statement in your .qml file.

@@ -302,18 +302,18 @@ void WelsDecoderDefaults (PWelsDecoderContext pCtx, SLogContext* pLogCtx) {
 
   pCtx->pDec                      = NULL;
 
+  pCtx->pTempDec                  = NULL;
+
   WelsResetRefPic (pCtx);
 
   pCtx->iActiveFmoNum             = 0;
 
-  pCtx->pPicBuff[LIST_0]          = NULL;
-  pCtx->pPicBuff[LIST_1]          = NULL;
+  pCtx->pPicBuff          = NULL;
 
   pCtx->bAvcBasedFlag             = true;
-  pCtx->eErrorConMethod = ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE;
   pCtx->pPreviousDecodedPictureInDpb = NULL;
   pCtx->sDecoderStatistics.iAvgLumaQp = -1;
-  pCtx->bSpsLatePps = false;
+  pCtx->sDecoderStatistics.iStatisticsLogInterval = 1000;
   pCtx->bUseScalingList = false;
   pCtx->iSpsErrorIgnored = 0;
   pCtx->iSubSpsErrorIgnored = 0;
@@ -324,6 +324,10 @@ void WelsDecoderDefaults (PWelsDecoderContext pCtx, SLogContext* pLogCtx) {
   pCtx->iSPSLastInvalidId = -1;
   pCtx->iSubSPSInvalidNum = 0;
   pCtx->iSubSPSLastInvalidId = -1;
+  pCtx->iFeedbackNalRefIdc = -1; //initialize
+  pCtx->iPrevPicOrderCntMsb = 0;
+  pCtx->iPrevPicOrderCntLsb = 0;
+
 }
 
 /*
@@ -362,7 +366,6 @@ int32_t WelsRequestMem (PWelsDecoderContext pCtx, const int32_t kiMbWidth, const
   const int32_t kiPicHeight     = kiMbHeight << 4;
   int32_t iErr = ERR_NONE;
 
-  int32_t iListIdx              = 0;    //, mb_blocks   = 0;
   int32_t iPicQueueSize         = 0;    // adaptive size of picture queue, = (pSps->iNumRefFrames x 2)
   bReallocFlag                  = false;
   bool  bNeedChangePicQueue     = true;
@@ -374,8 +377,8 @@ int32_t WelsRequestMem (PWelsDecoderContext pCtx, const int32_t kiMbWidth, const
   // get picture queue size currently
   iPicQueueSize = GetTargetRefListSize (pCtx);  // adaptive size of picture queue, = (pSps->iNumRefFrames x 2)
   pCtx->iPicQueueNumber = iPicQueueSize;
-  if (pCtx->pPicBuff[LIST_0] != NULL
-      && pCtx->pPicBuff[LIST_0]->iCapacity ==
+  if (pCtx->pPicBuff != NULL
+      && pCtx->pPicBuff->iCapacity ==
       iPicQueueSize) // comparing current picture queue size requested and previous allocation picture queue
     bNeedChangePicQueue = false;
   // HD based pic buffer need consider memory size consumed when switch from 720p to other lower size
@@ -386,39 +389,39 @@ int32_t WelsRequestMem (PWelsDecoderContext pCtx, const int32_t kiMbWidth, const
   WelsResetRefPic (pCtx); // added to sync update ref list due to pictures are free
 
   if (pCtx->bHaveGotMemory && (kiPicWidth == pCtx->iImgWidthInPixel && kiPicHeight == pCtx->iImgHeightInPixel)
-      && pCtx->pPicBuff[LIST_0] != NULL && pCtx->pPicBuff[LIST_0]->iCapacity != iPicQueueSize) {
+      && pCtx->pPicBuff != NULL && pCtx->pPicBuff->iCapacity != iPicQueueSize) {
     // currently only active for LIST_0 due to have no B frames
+    // Actually just need one memory allocation for the PicBuff. While it needs two pointer list (LIST_0 and LIST_1).
     WelsLog (& (pCtx->sLogCtx), WELS_LOG_INFO,
              "WelsRequestMem(): memory re-alloc for no resolution change (size = %d * %d), ref list size change from %d to %d",
-             kiPicWidth, kiPicHeight, pCtx->pPicBuff[LIST_0]->iCapacity, iPicQueueSize);
-    if (pCtx->pPicBuff[LIST_0]->iCapacity < iPicQueueSize) {
-      iErr = IncreasePicBuff (pCtx, &pCtx->pPicBuff[LIST_0], pCtx->pPicBuff[LIST_0]->iCapacity, kiPicWidth, kiPicHeight,
+             kiPicWidth, kiPicHeight, pCtx->pPicBuff->iCapacity, iPicQueueSize);
+    if (pCtx->pPicBuff->iCapacity < iPicQueueSize) {
+      iErr = IncreasePicBuff (pCtx, &pCtx->pPicBuff, pCtx->pPicBuff->iCapacity, kiPicWidth, kiPicHeight,
                               iPicQueueSize);
     } else {
-      iErr = DecreasePicBuff (pCtx, &pCtx->pPicBuff[LIST_0], pCtx->pPicBuff[LIST_0]->iCapacity, kiPicWidth, kiPicHeight,
+      iErr = DecreasePicBuff (pCtx, &pCtx->pPicBuff, pCtx->pPicBuff->iCapacity, kiPicWidth, kiPicHeight,
                               iPicQueueSize);
     }
   } else {
     if (pCtx->bHaveGotMemory)
       WelsLog (& (pCtx->sLogCtx), WELS_LOG_INFO,
                "WelsRequestMem(): memory re-alloc for resolution change, size change from %d * %d to %d * %d, ref list size change from %d to %d",
-               pCtx->iImgWidthInPixel, pCtx->iImgHeightInPixel, kiPicWidth, kiPicHeight, pCtx->pPicBuff[LIST_0]->iCapacity,
+               pCtx->iImgWidthInPixel, pCtx->iImgHeightInPixel, kiPicWidth, kiPicHeight, pCtx->pPicBuff->iCapacity,
                iPicQueueSize);
     else
       WelsLog (& (pCtx->sLogCtx), WELS_LOG_INFO, "WelsRequestMem(): memory alloc size = %d * %d, ref list size = %d",
                kiPicWidth, kiPicHeight, iPicQueueSize);
     // for Recycled_Pic_Queue
-    for (iListIdx = LIST_0; iListIdx < LIST_A; ++ iListIdx) {
-      PPicBuff* ppPic = &pCtx->pPicBuff[iListIdx];
-      if (NULL != ppPic && NULL != *ppPic) {
-        DestroyPicBuff (ppPic, pMa);
-      }
+    PPicBuff* ppPic = &pCtx->pPicBuff;
+    if (NULL != ppPic && NULL != *ppPic) {
+      DestroyPicBuff (ppPic, pMa);
     }
+
 
     pCtx->pPreviousDecodedPictureInDpb = NULL;
 
     // currently only active for LIST_0 due to have no B frames
-    iErr = CreatePicBuff (pCtx, &pCtx->pPicBuff[LIST_0], iPicQueueSize, kiPicWidth, kiPicHeight);
+    iErr = CreatePicBuff (pCtx, &pCtx->pPicBuff, iPicQueueSize, kiPicWidth, kiPicHeight);
   }
 
   if (iErr != ERR_NONE)
@@ -443,7 +446,7 @@ int32_t WelsRequestMem (PWelsDecoderContext pCtx, const int32_t kiMbWidth, const
  *  free memory dynamically allocated during decoder
  */
 void WelsFreeDynamicMemory (PWelsDecoderContext pCtx) {
-  int32_t iListIdx = 0;
+
   CMemoryAlign* pMa = pCtx->pMemAlign;
 
   //free dq layer memory
@@ -454,11 +457,15 @@ void WelsFreeDynamicMemory (PWelsDecoderContext pCtx) {
 
   //free ref-pic list & picture memory
   WelsResetRefPic (pCtx);
-  for (iListIdx = LIST_0; iListIdx < LIST_A; ++ iListIdx) {
-    PPicBuff* pPicBuff = &pCtx->pPicBuff[iListIdx];
-    if (NULL != pPicBuff && NULL != *pPicBuff) {
-      DestroyPicBuff (pPicBuff, pMa);
-    }
+
+  PPicBuff* pPicBuff = &pCtx->pPicBuff;
+  if (NULL != pPicBuff && NULL != *pPicBuff) {
+    DestroyPicBuff (pPicBuff, pMa);
+  }
+
+  if (pCtx->pTempDec) {
+    FreePicture (pCtx->pTempDec, pCtx->pMemAlign);
+    pCtx->pTempDec = NULL;
   }
 
   // added for safe memory
@@ -476,7 +483,7 @@ void WelsFreeDynamicMemory (PWelsDecoderContext pCtx) {
 /*!
  * \brief   Open decoder
  */
-int32_t WelsOpenDecoder (PWelsDecoderContext pCtx) {
+int32_t WelsOpenDecoder (PWelsDecoderContext pCtx, SLogContext* pLogCtx) {
   int iRet = ERR_NONE;
   // function pointers
   InitDecFuncs (pCtx, pCtx->uiCpuFlag);
@@ -486,8 +493,11 @@ int32_t WelsOpenDecoder (PWelsDecoderContext pCtx) {
 
   // static memory
   iRet = WelsInitStaticMemory (pCtx);
-  if (ERR_NONE != iRet)
+  if (ERR_NONE != iRet) {
+    pCtx->iErrorCode |= dsOutOfMemory;
+    WelsLog (pLogCtx, WELS_LOG_ERROR, "WelsInitStaticMemory() failed in WelsOpenDecoder().");
     return iRet;
+  }
 
 #ifdef LONG_TERM_REF
   pCtx->bParamSetsLostFlag = true;
@@ -534,10 +544,9 @@ int32_t DecoderConfigParam (PWelsDecoderContext pCtx, const SDecodingParam* kpPa
              ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE);
     pCtx->pParam->eEcActiveIdc = ERROR_CON_SLICE_MV_COPY_CROSS_IDR_FREEZE_RES_CHANGE;
   }
-  pCtx->eErrorConMethod = pCtx->pParam->eEcActiveIdc;
 
   if (pCtx->pParam->bParseOnly) //parse only, disable EC method
-    pCtx->eErrorConMethod = ERROR_CON_DISABLE;
+    pCtx->pParam->eEcActiveIdc = ERROR_CON_DISABLE;
   InitErrorCon (pCtx);
 
   if (VIDEO_BITSTREAM_SVC == pCtx->pParam->sVideoProperty.eVideoBsType ||
@@ -570,7 +579,7 @@ int32_t WelsInitDecoder (PWelsDecoderContext pCtx, SLogContext* pLogCtx) {
   }
 
   // open decoder
-  return WelsOpenDecoder (pCtx);
+  return WelsOpenDecoder (pCtx, pLogCtx);
 }
 
 /*!
@@ -595,6 +604,7 @@ void GetVclNalTemporalId (PWelsDecoderContext pCtx) {
 
   pCtx->iFeedbackVclNalInAu = FEEDBACK_VCL_NAL;
   pCtx->iFeedbackTidInAu    = pAccessUnit->pNalUnitsList[idx]->sNalHeaderExt.uiTemporalId;
+  pCtx->iFeedbackNalRefIdc  = pAccessUnit->pNalUnitsList[idx]->sNalHeaderExt.sNalUnitHeader.uiNalRefIdc;
 }
 
 /*!
@@ -819,17 +829,17 @@ int32_t SyncPictureResolutionExt (PWelsDecoderContext pCtx, const int32_t kiMbWi
   bool bReallocFlag = false;
   iErr = WelsRequestMem (pCtx, kiMbWidth, kiMbHeight, bReallocFlag); // common memory used
   if (ERR_NONE != iErr) {
-    WelsLog (& (pCtx->sLogCtx), WELS_LOG_WARNING,
+    WelsLog (& (pCtx->sLogCtx), WELS_LOG_ERROR,
              "SyncPictureResolutionExt()::WelsRequestMem--buffer allocated failure.");
-    pCtx->iErrorCode = dsOutOfMemory;
+    pCtx->iErrorCode |= dsOutOfMemory;
     return iErr;
   }
 
   iErr = InitialDqLayersContext (pCtx, kiPicWidth, kiPicHeight);
   if (ERR_NONE != iErr) {
-    WelsLog (& (pCtx->sLogCtx), WELS_LOG_WARNING,
+    WelsLog (& (pCtx->sLogCtx), WELS_LOG_ERROR,
              "SyncPictureResolutionExt()::InitialDqLayersContext--buffer allocated failure.");
-    pCtx->iErrorCode = dsOutOfMemory;
+    pCtx->iErrorCode |= dsOutOfMemory;
   }
 #if defined(MEMORY_MONITOR)
   if (bReallocFlag) {
@@ -1013,6 +1023,24 @@ void InitPredFunc (PWelsDecoderContext pCtx, uint32_t uiCpuFlag) {
 #endif
 
 #endif
+
+#if defined(HAVE_MMI)
+  if (uiCpuFlag & WELS_CPU_MMI) {
+    pCtx->pIdctResAddPredFunc   = IdctResAddPred_mmi;
+    pCtx->pIdctFourResAddPredFunc = IdctFourResAddPred_<IdctResAddPred_mmi>;
+
+    pCtx->pGetI16x16LumaPredFunc[I16_PRED_DC] = WelsDecoderI16x16LumaPredDc_mmi;
+    pCtx->pGetI16x16LumaPredFunc[I16_PRED_P]  = WelsDecoderI16x16LumaPredPlane_mmi;
+    pCtx->pGetI16x16LumaPredFunc[I16_PRED_H]  = WelsDecoderI16x16LumaPredH_mmi;
+    pCtx->pGetI16x16LumaPredFunc[I16_PRED_V]  = WelsDecoderI16x16LumaPredV_mmi;
+    pCtx->pGetI16x16LumaPredFunc[I16_PRED_DC_T  ] = WelsDecoderI16x16LumaPredDcTop_mmi;
+    pCtx->pGetI16x16LumaPredFunc[I16_PRED_DC_128] = WelsDecoderI16x16LumaPredDcNA_mmi;
+    pCtx->pGetIChromaPredFunc[C_PRED_P ]      = WelsDecoderIChromaPredPlane_mmi;
+    pCtx->pGetIChromaPredFunc[C_PRED_DC]      = WelsDecoderIChromaPredDc_mmi;
+    pCtx->pGetIChromaPredFunc[C_PRED_DC_T]    = WelsDecoderIChromaPredDcTop_mmi;
+    pCtx->pGetI4x4LumaPredFunc[I4_PRED_H]     = WelsDecoderI4x4LumaPredH_mmi;
+  }
+#endif//HAVE_MMI
 }
 
 //reset decoder number related statistics info
@@ -1020,10 +1048,16 @@ void ResetDecStatNums (SDecoderStatistics* pDecStat) {
   uint32_t uiWidth = pDecStat->uiWidth;
   uint32_t uiHeight = pDecStat->uiHeight;
   int32_t iAvgLumaQp = pDecStat->iAvgLumaQp;
+  uint32_t iLogInterval = pDecStat->iStatisticsLogInterval;
+  uint32_t uiProfile = pDecStat->uiProfile;
+  uint32_t uiLevel = pDecStat->uiLevel;
   memset (pDecStat, 0, sizeof (SDecoderStatistics));
   pDecStat->uiWidth = uiWidth;
   pDecStat->uiHeight = uiHeight;
   pDecStat->iAvgLumaQp = iAvgLumaQp;
+  pDecStat->iStatisticsLogInterval = iLogInterval;
+  pDecStat->uiProfile = uiProfile;
+  pDecStat->uiLevel = uiLevel;
 }
 
 //update information when freezing occurs, including IDR/non-IDR number
@@ -1046,15 +1080,22 @@ void UpdateDecStatNoFreezingInfo (PWelsDecoderContext pCtx) {
   //update QP info
   int32_t iTotalQp = 0;
   const int32_t kiMbNum = pCurDq->iMbWidth * pCurDq->iMbHeight;
-  int32_t iCorrectMbNum = 0;
-  for (int32_t iMb = 0; iMb < kiMbNum; ++iMb) {
-    iCorrectMbNum += (int32_t) pCurDq->pMbCorrectlyDecodedFlag[iMb];
-    iTotalQp += pCurDq->pLumaQp[iMb] * pCurDq->pMbCorrectlyDecodedFlag[iMb];
+  if (pCtx->pParam->eEcActiveIdc == ERROR_CON_DISABLE) { //all correct
+    for (int32_t iMb = 0; iMb < kiMbNum; ++iMb) {
+      iTotalQp += pCurDq->pLumaQp[iMb];
+    }
+    iTotalQp /= kiMbNum;
+  } else {
+    int32_t iCorrectMbNum = 0;
+    for (int32_t iMb = 0; iMb < kiMbNum; ++iMb) {
+      iCorrectMbNum += (int32_t) pCurDq->pMbCorrectlyDecodedFlag[iMb];
+      iTotalQp += pCurDq->pLumaQp[iMb] * pCurDq->pMbCorrectlyDecodedFlag[iMb];
+    }
+    if (iCorrectMbNum == 0) //non MB is correct, should remain QP statistic info
+      iTotalQp = pDecStat->iAvgLumaQp;
+    else
+      iTotalQp /= iCorrectMbNum;
   }
-  if (iCorrectMbNum == 0) //non MB is correct, should remain QP statistic info
-    iTotalQp = pDecStat->iAvgLumaQp;
-  else
-    iTotalQp /= iCorrectMbNum;
   if (pDecStat->uiDecodedFrameCount + 1 == 0) { //maximum uint32_t reached
     ResetDecStatNums (pDecStat);
     pDecStat->iAvgLumaQp = iTotalQp;
@@ -1065,7 +1106,8 @@ void UpdateDecStatNoFreezingInfo (PWelsDecoderContext pCtx) {
   //update IDR number
   if (pCurDq->sLayerInfo.sNalHeaderExt.bIdrFlag) {
     pDecStat->uiIDRCorrectNum += (pPic->bIsComplete);
-    pDecStat->uiEcIDRNum += (!pPic->bIsComplete);
+    if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE)
+      pDecStat->uiEcIDRNum += (!pPic->bIsComplete);
   }
 }
 

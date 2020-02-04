@@ -9,12 +9,12 @@
 
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "chrome/browser/extensions/chrome_extension_function.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/extension_event_histogram_value.h"
+#include "extensions/browser/extension_function.h"
 #include "third_party/skia/include/core/SkColor.h"
 
 namespace base {
@@ -25,6 +25,8 @@ namespace content {
 class BrowserContext;
 class WebContents;
 }
+
+class Browser;
 
 namespace extensions {
 class ExtensionPrefs;
@@ -126,7 +128,7 @@ class ExtensionActionAPI : public BrowserContextKeyedAPI {
   static const char* service_name() { return "ExtensionActionAPI"; }
   static const bool kServiceRedirectedInIncognito = true;
 
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
   content::BrowserContext* browser_context_;
 
@@ -195,6 +197,9 @@ class ExtensionActionHideFunction : public ExtensionActionFunction {
 
 // setIcon
 class ExtensionActionSetIconFunction : public ExtensionActionFunction {
+ public:
+  static void SetReportErrorForInvisibleIconForTesting(bool value);
+
  protected:
   ~ExtensionActionSetIconFunction() override {}
   ResponseAction RunExtensionAction() override;
@@ -358,7 +363,7 @@ class BrowserActionDisableFunction : public ExtensionActionHideFunction {
   ~BrowserActionDisableFunction() override {}
 };
 
-class BrowserActionOpenPopupFunction : public ChromeAsyncExtensionFunction,
+class BrowserActionOpenPopupFunction : public UIThreadExtensionFunction,
                                        public content::NotificationObserver {
  public:
   DECLARE_EXTENSION_FUNCTION("browserAction.openPopup",
@@ -369,7 +374,7 @@ class BrowserActionOpenPopupFunction : public ChromeAsyncExtensionFunction,
   ~BrowserActionOpenPopupFunction() override {}
 
   // ExtensionFunction:
-  bool RunAsync() override;
+  ResponseAction Run() override;
 
   void Observe(int type,
                const content::NotificationSource& source,
@@ -377,7 +382,6 @@ class BrowserActionOpenPopupFunction : public ChromeAsyncExtensionFunction,
   void OpenPopupTimedOut();
 
   content::NotificationRegistrar registrar_;
-  bool response_sent_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserActionOpenPopupFunction);
 };

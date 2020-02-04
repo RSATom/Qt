@@ -6,17 +6,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <utility>
 
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "components/webcrypto/algorithm_dispatch.h"
 #include "components/webcrypto/algorithms/test_helpers.h"
 #include "components/webcrypto/crypto_data.h"
 #include "components/webcrypto/status.h"
-#include "third_party/WebKit/public/platform/WebCryptoAlgorithmParams.h"
-#include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/blink/public/platform/web_crypto_algorithm_params.h"
+#include "third_party/blink/public/platform/web_crypto_key_algorithm.h"
 
 namespace webcrypto {
 
@@ -168,7 +168,7 @@ TEST_F(WebCryptoAesCbcTest, GenerateKeyIsRandom) {
   // Check key generation for each allowed key length.
   std::vector<blink::WebCryptoAlgorithm> algorithm;
   const unsigned short kKeyLength[] = {128, 256};
-  for (size_t key_length_i = 0; key_length_i < arraysize(kKeyLength);
+  for (size_t key_length_i = 0; key_length_i < base::size(kKeyLength);
        ++key_length_i) {
     blink::WebCryptoKey key;
 
@@ -198,7 +198,7 @@ TEST_F(WebCryptoAesCbcTest, GenerateKeyIsRandom) {
 TEST_F(WebCryptoAesCbcTest, GenerateKeyBadLength) {
   const unsigned short kKeyLen[] = {0, 127, 257};
   blink::WebCryptoKey key;
-  for (size_t i = 0; i < arraysize(kKeyLen); ++i) {
+  for (size_t i = 0; i < base::size(kKeyLen); ++i) {
     SCOPED_TRACE(i);
     EXPECT_EQ(Status::ErrorGenerateAesKeyLength(),
               GenerateSecretKey(CreateAesCbcKeyGenAlgorithm(kKeyLen[i]), true,
@@ -222,7 +222,7 @@ TEST_F(WebCryptoAesCbcTest, ImportKeyJwkEmptyKeyOps) {
   dict.SetString("kty", "oct");
   dict.SetBoolean("ext", false);
   dict.SetString("k", "GADWrMRHwQfoNaXU5fZvTg");
-  dict.Set("key_ops", base::MakeUnique<base::ListValue>());
+  dict.Set("key_ops", std::make_unique<base::ListValue>());
 
   // The JWK does not contain encrypt usages.
   EXPECT_EQ(Status::ErrorJwkKeyopsInconsistent(),
@@ -264,7 +264,7 @@ TEST_F(WebCryptoAesCbcTest, ImportKeyJwkKeyOpsEncryptDecrypt) {
   dict.SetString("kty", "oct");
   dict.SetString("k", "GADWrMRHwQfoNaXU5fZvTg");
   base::ListValue* key_ops =
-      dict.SetList("key_ops", base::MakeUnique<base::ListValue>());
+      dict.SetList("key_ops", std::make_unique<base::ListValue>());
 
   key_ops->AppendString("encrypt");
 
@@ -301,7 +301,7 @@ TEST_F(WebCryptoAesCbcTest, ImportKeyJwkKeyOpsNotSuperset) {
   base::DictionaryValue dict;
   dict.SetString("kty", "oct");
   dict.SetString("k", "GADWrMRHwQfoNaXU5fZvTg");
-  auto key_ops = base::MakeUnique<base::ListValue>();
+  auto key_ops = std::make_unique<base::ListValue>();
   key_ops->AppendString("encrypt");
   dict.Set("key_ops", std::move(key_ops));
 
@@ -366,7 +366,7 @@ TEST_F(WebCryptoAesCbcTest, ImportJwkKeyOpsLacksUsages) {
   dict.SetString("kty", "oct");
   dict.SetString("k", "GADWrMRHwQfoNaXU5fZvTg");
 
-  auto key_ops = base::MakeUnique<base::ListValue>();
+  auto key_ops = std::make_unique<base::ListValue>();
   key_ops->AppendString("foo");
   dict.Set("key_ops", std::move(key_ops));
   EXPECT_EQ(Status::ErrorJwkKeyopsInconsistent(),
@@ -440,7 +440,7 @@ TEST_F(WebCryptoAesCbcTest, ImportKeyBadUsage_Raw) {
 
   std::vector<uint8_t> key_bytes(16);
 
-  for (size_t i = 0; i < arraysize(bad_usages); ++i) {
+  for (size_t i = 0; i < base::size(bad_usages); ++i) {
     SCOPED_TRACE(i);
 
     blink::WebCryptoKey key;
@@ -458,7 +458,7 @@ TEST_F(WebCryptoAesCbcTest, GenerateKeyBadUsages) {
       blink::kWebCryptoKeyUsageDecrypt | blink::kWebCryptoKeyUsageVerify,
   };
 
-  for (size_t i = 0; i < arraysize(bad_usages); ++i) {
+  for (size_t i = 0; i < base::size(bad_usages); ++i) {
     SCOPED_TRACE(i);
 
     blink::WebCryptoKey key;

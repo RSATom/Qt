@@ -48,21 +48,23 @@
 
 QT_REQUIRE_CONFIG(processenvironment);
 
+#ifdef Q_OS_WIN
+typedef struct _PROCESS_INFORMATION *Q_PID;
+#endif
+
+#if defined(Q_OS_WIN) || defined(Q_CLANG_QDOC)
+typedef struct _SECURITY_ATTRIBUTES Q_SECURITY_ATTRIBUTES;
+typedef struct _STARTUPINFOW Q_STARTUPINFO;
+#endif
+
 QT_BEGIN_NAMESPACE
 
 class QProcessPrivate;
-
-#if !defined(Q_OS_WIN) || defined(Q_CLANG_QDOC)
-typedef qint64 Q_PID;
-#else
-QT_END_NAMESPACE
-typedef struct _PROCESS_INFORMATION *Q_PID;
-typedef struct _SECURITY_ATTRIBUTES Q_SECURITY_ATTRIBUTES;
-typedef struct _STARTUPINFOW Q_STARTUPINFO;
-QT_BEGIN_NAMESPACE
-#endif
-
 class QProcessEnvironmentPrivate;
+
+#ifndef Q_OS_WIN
+typedef qint64 Q_PID;
+#endif
 
 class Q_CORE_EXPORT QProcessEnvironment
 {
@@ -155,7 +157,7 @@ public:
     };
     Q_ENUM(ExitStatus)
 
-    explicit QProcess(QObject *parent = Q_NULLPTR);
+    explicit QProcess(QObject *parent = nullptr);
     virtual ~QProcess();
 
     void start(const QString &program, const QStringList &arguments, OpenMode mode = ReadWrite);
@@ -164,7 +166,7 @@ public:
 #endif
     void start(OpenMode mode = ReadWrite);
     bool startDetached(qint64 *pid = nullptr);
-    bool open(OpenMode mode = ReadWrite) Q_DECL_OVERRIDE;
+    bool open(OpenMode mode = ReadWrite) override;
 
     QString program() const;
     void setProgram(const QString &program);
@@ -172,8 +174,12 @@ public:
     QStringList arguments() const;
     void setArguments(const QStringList & arguments);
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QProcess::processChannelMode() instead")
     ProcessChannelMode readChannelMode() const;
+    QT_DEPRECATED_X("Use QProcess::setProcessChannelMode() instead")
     void setReadChannelMode(ProcessChannelMode mode);
+#endif
     ProcessChannelMode processChannelMode() const;
     void setProcessChannelMode(ProcessChannelMode mode);
     InputChannelMode inputChannelMode() const;
@@ -227,8 +233,8 @@ public:
     qint64 processId() const;
 
     bool waitForStarted(int msecs = 30000);
-    bool waitForReadyRead(int msecs = 30000) Q_DECL_OVERRIDE;
-    bool waitForBytesWritten(int msecs = 30000) Q_DECL_OVERRIDE;
+    bool waitForReadyRead(int msecs = 30000) override;
+    bool waitForBytesWritten(int msecs = 30000) override;
     bool waitForFinished(int msecs = 30000);
 
     QByteArray readAllStandardOutput();
@@ -238,12 +244,12 @@ public:
     QProcess::ExitStatus exitStatus() const;
 
     // QIODevice
-    qint64 bytesAvailable() const Q_DECL_OVERRIDE; // ### Qt6: remove trivial override
-    qint64 bytesToWrite() const Q_DECL_OVERRIDE;
-    bool isSequential() const Q_DECL_OVERRIDE;
-    bool canReadLine() const Q_DECL_OVERRIDE; // ### Qt6: remove trivial override
-    void close() Q_DECL_OVERRIDE;
-    bool atEnd() const Q_DECL_OVERRIDE; // ### Qt6: remove trivial override
+    qint64 bytesAvailable() const override; // ### Qt6: remove trivial override
+    qint64 bytesToWrite() const override;
+    bool isSequential() const override;
+    bool canReadLine() const override; // ### Qt6: remove trivial override
+    void close() override;
+    bool atEnd() const override; // ### Qt6: remove trivial override
 
     static int execute(const QString &program, const QStringList &arguments);
     static int execute(const QString &command);
@@ -253,7 +259,7 @@ public:
 #if defined(Q_QDOC)
                               = QString()
 #endif
-                              , qint64 *pid = Q_NULLPTR);
+                              , qint64 *pid = nullptr);
 #if !defined(Q_QDOC)
     static bool startDetached(const QString &program, const QStringList &arguments); // ### Qt6: merge overloads
 #endif
@@ -269,7 +275,10 @@ public Q_SLOTS:
 
 Q_SIGNALS:
     void started(QPrivateSignal);
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QProcess::finished(int, QProcess::ExitStatus) instead")
     void finished(int exitCode); // ### Qt 6: merge the two signals with a default value
+#endif
     void finished(int exitCode, QProcess::ExitStatus exitStatus);
 #if QT_DEPRECATED_SINCE(5,6)
     void error(QProcess::ProcessError error);
@@ -286,8 +295,8 @@ protected:
     virtual void setupChildProcess();
 
     // QIODevice
-    qint64 readData(char *data, qint64 maxlen) Q_DECL_OVERRIDE;
-    qint64 writeData(const char *data, qint64 len) Q_DECL_OVERRIDE;
+    qint64 readData(char *data, qint64 maxlen) override;
+    qint64 writeData(const char *data, qint64 len) override;
 
 private:
     Q_DECLARE_PRIVATE(QProcess)

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "components/google/core/common/google_util.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
-#include "components/google/core/browser/google_switches.h"
 #include "components/google/core/browser/google_url_tracker.h"
-#include "components/google/core/browser/google_util.h"
+#include "components/google/core/common/google_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using google_util::IsGoogleDomainUrl;
@@ -147,6 +147,8 @@ TEST(GoogleUtilTest, GoodSearches) {
       "%s://www.google.co.uk/search?%s=something",
       // It's actually valid for both to have the query parameter.
       "%s://www.google.com/search?%s=something#q=other",
+      // Also valid to have an empty query parameter
+      "%s://www.google.com/search?%s=",
 
       // Queries with path "/webhp", "/" or "" need to have the query parameter
       // in the hash fragment.
@@ -216,12 +218,6 @@ TEST(GoogleUtilTest, BadSearches) {
   }
 
   const std::string patterns_q[] = {
-    // Can't have an empty query parameter.
-    "%s://www.google.com/search?%s=",
-    "%s://www.google.com/search?name=bob&%s=",
-    "%s://www.google.com/webhp#%s=",
-    "%s://www.google.com/webhp#name=bob&%s=",
-
     // Home page searches without a hash fragment query parameter are invalid.
     "%s://www.google.com/webhp?%s=something",
     "%s://www.google.com/webhp?%s=something#no=good",

@@ -1,0 +1,51 @@
+{#--- Constants #}
+{%- for constant in module.constants %}
+/**
+ * @const { {{constant.kind|lite_closure_type_with_nullability}} }
+ * @export
+ */
+{{module.namespace}}.{{constant.name}} =
+    {{constant.value|expression_to_text_lite}};
+{%- endfor %}
+
+{#--- Enums #}
+{% from "lite/enum_definition.tmpl" import enum_def %}
+{%- for enum in enums %}
+{{enum_def("%s.%s"|format(module.namespace, enum.name), enum)}}
+{%  endfor %}
+
+{#--- Interface definitions #}
+{%- for interface in interfaces %}
+{%   include "lite/interface_definition.tmpl" %}
+{%- endfor %}
+
+{#--- Struct and Union forward declarations #}
+{# Note that we do an evil type cast here because we know that
+ # mojo.internal.Struct and mojo.internal.Union will fix-up the object
+ # appropriately, and we don't want Closure to complain. #}
+{%  for struct in structs %}
+/**
+ * @const {!Object}
+ * @export
+ */
+{{module.namespace}}.{{struct.name}} =
+    { $: /** @type {!mojo.internal.MojomType} */ ({}) };
+{% endfor %}
+{%- for union in unions %}
+/**
+ * @const {!Object}
+ * @export
+ */
+{{module.namespace}}.{{union.name}} =
+    { $: /** @type {!mojo.internal.MojomType} */ ({}) };
+{% endfor %}
+
+{#--- Struct definitions #}
+{%  for struct in structs %}
+{%-   include "lite/struct_definition.tmpl" %}
+{% endfor -%}
+
+{#--- Union definitions #}
+{%  for union in unions %}
+{%-   include "lite/union_definition.tmpl" %}
+{% endfor %}

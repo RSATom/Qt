@@ -8,8 +8,8 @@
 #include "content/public/renderer/render_frame.h"
 #include "gin/handle.h"
 #include "gin/object_template_builder.h"
-#include "third_party/WebKit/public/web/WebKit.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/web/blink.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 
 using web_restrictions::mojom::WebRestrictionsPtr;
 
@@ -100,7 +100,8 @@ void GinWrapper::OnAccessRequestAdded(bool success) {
   v8::MicrotasksScope microtasks(isolate,
                                  v8::MicrotasksScope::kDoNotRunMicrotasks);
 
-  callback->Call(context->Global(), 1, &args);
+  callback->Call(context, context->Global(), 1, &args)
+      .FromMaybe(v8::Local<v8::Value>());
 }
 
 gin::ObjectTemplateBuilder GinWrapper::GetObjectTemplateBuilder(

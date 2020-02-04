@@ -12,10 +12,6 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 
-#if !defined(__STDC_FORMAT_MACROS)
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include <openssl/base.h>
 
 #include <stdio.h>
@@ -24,9 +20,15 @@
 #include <gtest/gtest.h>
 
 #include <openssl/bn.h>
+#include <openssl/cpu.h>
+#include <openssl/ec.h>
 #include <openssl/mem.h>
+#include <openssl/nid.h>
 
+#include "internal.h"
 #include "../bn/internal.h"
+#include "../../internal.h"
+#include "../../test/abi_test.h"
 #include "../../test/file_test.h"
 #include "../../test/test_util.h"
 #include "p256-x86_64.h"
@@ -39,7 +41,7 @@
 
 TEST(P256_X86_64Test, SelectW5) {
   // Fill a table with some garbage input.
-  P256_POINT table[16];
+  alignas(64) P256_POINT table[16];
   for (size_t i = 0; i < 16; i++) {
     OPENSSL_memset(table[i].X, 3 * i, sizeof(table[i].X));
     OPENSSL_memset(table[i].Y, 3 * i + 1, sizeof(table[i].Y));
@@ -48,7 +50,7 @@ TEST(P256_X86_64Test, SelectW5) {
 
   for (int i = 0; i <= 16; i++) {
     P256_POINT val;
-    ecp_nistz256_select_w5(&val, table, i);
+    CHECK_ABI(ecp_nistz256_select_w5, &val, table, i);
 
     P256_POINT expected;
     if (i == 0) {
@@ -64,7 +66,7 @@ TEST(P256_X86_64Test, SelectW5) {
 
 TEST(P256_X86_64Test, SelectW7) {
   // Fill a table with some garbage input.
-  P256_POINT_AFFINE table[64];
+  alignas(64) P256_POINT_AFFINE table[64];
   for (size_t i = 0; i < 64; i++) {
     OPENSSL_memset(table[i].X, 2 * i, sizeof(table[i].X));
     OPENSSL_memset(table[i].Y, 2 * i + 1, sizeof(table[i].Y));
@@ -72,7 +74,7 @@ TEST(P256_X86_64Test, SelectW7) {
 
   for (int i = 0; i <= 64; i++) {
     P256_POINT_AFFINE val;
-    ecp_nistz256_select_w7(&val, table, i);
+    CHECK_ABI(ecp_nistz256_select_w7, &val, table, i);
 
     P256_POINT_AFFINE expected;
     if (i == 0) {
@@ -83,6 +85,64 @@ TEST(P256_X86_64Test, SelectW7) {
 
     EXPECT_EQ(Bytes(reinterpret_cast<const char *>(&expected), sizeof(expected)),
               Bytes(reinterpret_cast<const char *>(&val), sizeof(val)));
+  }
+}
+
+TEST(P256_X86_64Test, BEEU) {
+  if ((OPENSSL_ia32cap_P[1] & (1 << 28)) == 0) {
+    // No AVX support; cannot run the BEEU code.
+    return;
+  }
+
+  bssl::UniquePtr<EC_GROUP> group(
+      EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1));
+  ASSERT_TRUE(group);
+
+  BN_ULONG order_words[P256_LIMBS];
+  ASSERT_TRUE(
+      bn_copy_words(order_words, P256_LIMBS, EC_GROUP_get0_order(group.get())));
+
+  BN_ULONG in[P256_LIMBS], out[P256_LIMBS];
+  EC_SCALAR in_scalar, out_scalar, result;
+  OPENSSL_memset(in, 0, sizeof(in));
+
+  // Trying to find the inverse of zero should fail.
+  ASSERT_FALSE(CHECK_ABI(beeu_mod_inverse_vartime, out, in, order_words));
+
+  // kOneMont is 1, in Montgomery form.
+  static const BN_ULONG kOneMont[P256_LIMBS] = {
+      TOBN(0xc46353d, 0x039cdaaf), TOBN(0x43190552, 0x58e8617b),
+      0, 0xffffffff,
+  };
+
+  for (BN_ULONG i = 1; i < 2000; i++) {
+    SCOPED_TRACE(i);
+
+    in[0] = i;
+    if (i >= 1000) {
+      in[1] = i << 8;
+      in[2] = i << 32;
+      in[3] = i << 48;
+    } else {
+      in[1] = in[2] = in[3] = 0;
+    }
+
+    EXPECT_TRUE(bn_less_than_words(in, order_words, P256_LIMBS));
+    ASSERT_TRUE(CHECK_ABI(beeu_mod_inverse_vartime, out, in, order_words));
+    EXPECT_TRUE(bn_less_than_words(out, order_words, P256_LIMBS));
+
+    // Calculate out*in and confirm that it equals one, modulo the order.
+    OPENSSL_memcpy(in_scalar.bytes, in, sizeof(in));
+    OPENSSL_memcpy(out_scalar.bytes, out, sizeof(out));
+    ec_scalar_to_montgomery(group.get(), &in_scalar, &in_scalar);
+    ec_scalar_to_montgomery(group.get(), &out_scalar, &out_scalar);
+    ec_scalar_mul_montgomery(group.get(), &result, &in_scalar, &out_scalar);
+
+    EXPECT_EQ(0, OPENSSL_memcmp(kOneMont, &result, sizeof(kOneMont)));
+
+    // Invert the result and expect to get back to the original value.
+    ASSERT_TRUE(CHECK_ABI(beeu_mod_inverse_vartime, out, out, order_words));
+    EXPECT_EQ(0, OPENSSL_memcmp(in, out, sizeof(in)));
   }
 }
 
@@ -159,17 +219,16 @@ static bool PointToAffine(P256_POINT_AFFINE *out, const P256_POINT *in) {
     return false;
   }
 
-  OPENSSL_memset(out, 0, sizeof(P256_POINT_AFFINE));
-
   if (BN_is_zero(z.get())) {
     // The point at infinity is represented as (0, 0).
+    OPENSSL_memset(out, 0, sizeof(P256_POINT_AFFINE));
     return true;
   }
 
   bssl::UniquePtr<BN_CTX> ctx(BN_CTX_new());
-  bssl::UniquePtr<BN_MONT_CTX> mont(BN_MONT_CTX_new());
+  bssl::UniquePtr<BN_MONT_CTX> mont(
+      BN_MONT_CTX_new_for_modulus(p.get(), ctx.get()));
   if (!ctx || !mont ||
-      !BN_MONT_CTX_set(mont.get(), p.get(), ctx.get()) ||
       // Invert Z.
       !BN_from_montgomery(z.get(), z.get(), mont.get(), ctx.get()) ||
       !BN_mod_inverse(z.get(), z.get(), p.get(), ctx.get()) ||
@@ -184,12 +243,11 @@ static bool PointToAffine(P256_POINT_AFFINE *out, const P256_POINT *in) {
       !BN_mod_mul_montgomery(y.get(), y.get(), z.get(), mont.get(),
                              ctx.get()) ||
       !BN_mod_mul_montgomery(y.get(), y.get(), z.get(), mont.get(),
-                             ctx.get())) {
+                             ctx.get()) ||
+      !bn_copy_words(out->X, P256_LIMBS, x.get()) ||
+      !bn_copy_words(out->Y, P256_LIMBS, y.get())) {
     return false;
   }
-
-  OPENSSL_memcpy(out->X, x->d, sizeof(BN_ULONG) * x->top);
-  OPENSSL_memcpy(out->Y, y->d, sizeof(BN_ULONG) * y->top);
   return true;
 }
 
@@ -228,19 +286,19 @@ static void TestNegate(FileTest *t) {
 
   // Test that -A = B.
   BN_ULONG ret[P256_LIMBS];
-  ecp_nistz256_neg(ret, a);
+  CHECK_ABI(ecp_nistz256_neg, ret, a);
   EXPECT_FIELD_ELEMENTS_EQUAL(b, ret);
 
   OPENSSL_memcpy(ret, a, sizeof(ret));
-  ecp_nistz256_neg(ret, ret /* a */);
+  CHECK_ABI(ecp_nistz256_neg, ret, ret /* a */);
   EXPECT_FIELD_ELEMENTS_EQUAL(b, ret);
 
   // Test that -B = A.
-  ecp_nistz256_neg(ret, b);
+  CHECK_ABI(ecp_nistz256_neg, ret, b);
   EXPECT_FIELD_ELEMENTS_EQUAL(a, ret);
 
   OPENSSL_memcpy(ret, b, sizeof(ret));
-  ecp_nistz256_neg(ret, ret /* b */);
+  CHECK_ABI(ecp_nistz256_neg, ret, ret /* b */);
   EXPECT_FIELD_ELEMENTS_EQUAL(a, ret);
 }
 
@@ -251,34 +309,34 @@ static void TestMulMont(FileTest *t) {
   ASSERT_TRUE(GetFieldElement(t, result, "Result"));
 
   BN_ULONG ret[P256_LIMBS];
-  ecp_nistz256_mul_mont(ret, a, b);
+  CHECK_ABI(ecp_nistz256_mul_mont, ret, a, b);
   EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
 
-  ecp_nistz256_mul_mont(ret, b, a);
-  EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
-
-  OPENSSL_memcpy(ret, a, sizeof(ret));
-  ecp_nistz256_mul_mont(ret, ret /* a */, b);
+  CHECK_ABI(ecp_nistz256_mul_mont, ret, b, a);
   EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
 
   OPENSSL_memcpy(ret, a, sizeof(ret));
-  ecp_nistz256_mul_mont(ret, b, ret);
+  CHECK_ABI(ecp_nistz256_mul_mont, ret, ret /* a */, b);
+  EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
+
+  OPENSSL_memcpy(ret, a, sizeof(ret));
+  CHECK_ABI(ecp_nistz256_mul_mont, ret, b, ret);
   EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
 
   OPENSSL_memcpy(ret, b, sizeof(ret));
-  ecp_nistz256_mul_mont(ret, a, ret /* b */);
+  CHECK_ABI(ecp_nistz256_mul_mont, ret, a, ret /* b */);
   EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
 
   OPENSSL_memcpy(ret, b, sizeof(ret));
-  ecp_nistz256_mul_mont(ret, ret /* b */, a);
+  CHECK_ABI(ecp_nistz256_mul_mont, ret, ret /* b */, a);
   EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
 
   if (OPENSSL_memcmp(a, b, sizeof(a)) == 0) {
-    ecp_nistz256_sqr_mont(ret, a);
+    CHECK_ABI(ecp_nistz256_sqr_mont, ret, a);
     EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
 
     OPENSSL_memcpy(ret, a, sizeof(ret));
-    ecp_nistz256_sqr_mont(ret, ret /* a */);
+    CHECK_ABI(ecp_nistz256_sqr_mont, ret, ret /* a */);
     EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
   }
 }
@@ -289,11 +347,11 @@ static void TestFromMont(FileTest *t) {
   ASSERT_TRUE(GetFieldElement(t, result, "Result"));
 
   BN_ULONG ret[P256_LIMBS];
-  ecp_nistz256_from_mont(ret, a);
+  CHECK_ABI(ecp_nistz256_from_mont, ret, a);
   EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
 
   OPENSSL_memcpy(ret, a, sizeof(ret));
-  ecp_nistz256_from_mont(ret, ret /* a */);
+  CHECK_ABI(ecp_nistz256_from_mont, ret, ret /* a */);
   EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
 }
 
@@ -310,26 +368,26 @@ static void TestPointAdd(FileTest *t) {
   ASSERT_TRUE(GetFieldElement(t, result.Y, "Result.Y"));
 
   P256_POINT ret;
-  ecp_nistz256_point_add(&ret, &a, &b);
+  CHECK_ABI(ecp_nistz256_point_add, &ret, &a, &b);
   EXPECT_POINTS_EQUAL(&result, &ret);
 
-  ecp_nistz256_point_add(&ret, &b, &a);
-  EXPECT_POINTS_EQUAL(&result, &ret);
-
-  OPENSSL_memcpy(&ret, &a, sizeof(ret));
-  ecp_nistz256_point_add(&ret, &ret /* a */, &b);
+  CHECK_ABI(ecp_nistz256_point_add, &ret, &b, &a);
   EXPECT_POINTS_EQUAL(&result, &ret);
 
   OPENSSL_memcpy(&ret, &a, sizeof(ret));
-  ecp_nistz256_point_add(&ret, &b, &ret /* a */);
+  CHECK_ABI(ecp_nistz256_point_add, &ret, &ret /* a */, &b);
+  EXPECT_POINTS_EQUAL(&result, &ret);
+
+  OPENSSL_memcpy(&ret, &a, sizeof(ret));
+  CHECK_ABI(ecp_nistz256_point_add, &ret, &b, &ret /* a */);
   EXPECT_POINTS_EQUAL(&result, &ret);
 
   OPENSSL_memcpy(&ret, &b, sizeof(ret));
-  ecp_nistz256_point_add(&ret, &a, &ret /* b */);
+  CHECK_ABI(ecp_nistz256_point_add, &ret, &a, &ret /* b */);
   EXPECT_POINTS_EQUAL(&result, &ret);
 
   OPENSSL_memcpy(&ret, &b, sizeof(ret));
-  ecp_nistz256_point_add(&ret, &ret /* b */, &a);
+  CHECK_ABI(ecp_nistz256_point_add, &ret, &ret /* b */, &a);
   EXPECT_POINTS_EQUAL(&result, &ret);
 
   P256_POINT_AFFINE a_affine, b_affine, infinity;
@@ -341,28 +399,69 @@ static void TestPointAdd(FileTest *t) {
   // point at infinity.
   if (OPENSSL_memcmp(&a_affine, &b_affine, sizeof(a_affine)) != 0 ||
       OPENSSL_memcmp(&a_affine, &infinity, sizeof(a_affine)) == 0) {
-    ecp_nistz256_point_add_affine(&ret, &a, &b_affine);
+    CHECK_ABI(ecp_nistz256_point_add_affine, &ret, &a, &b_affine);
     EXPECT_POINTS_EQUAL(&result, &ret);
 
     OPENSSL_memcpy(&ret, &a, sizeof(ret));
-    ecp_nistz256_point_add_affine(&ret, &ret /* a */, &b_affine);
+    CHECK_ABI(ecp_nistz256_point_add_affine, &ret, &ret /* a */, &b_affine);
     EXPECT_POINTS_EQUAL(&result, &ret);
 
-    ecp_nistz256_point_add_affine(&ret, &b, &a_affine);
+    CHECK_ABI(ecp_nistz256_point_add_affine, &ret, &b, &a_affine);
     EXPECT_POINTS_EQUAL(&result, &ret);
 
     OPENSSL_memcpy(&ret, &b, sizeof(ret));
-    ecp_nistz256_point_add_affine(&ret, &ret /* b */, &a_affine);
+    CHECK_ABI(ecp_nistz256_point_add_affine, &ret, &ret /* b */, &a_affine);
     EXPECT_POINTS_EQUAL(&result, &ret);
   }
 
   if (OPENSSL_memcmp(&a, &b, sizeof(a)) == 0) {
-    ecp_nistz256_point_double(&ret, &a);
+    CHECK_ABI(ecp_nistz256_point_double, &ret, &a);
     EXPECT_POINTS_EQUAL(&result, &ret);
 
     ret = a;
-    ecp_nistz256_point_double(&ret, &ret /* a */);
+    CHECK_ABI(ecp_nistz256_point_double, &ret, &ret /* a */);
     EXPECT_POINTS_EQUAL(&result, &ret);
+  }
+}
+
+static void TestOrdMulMont(FileTest *t) {
+  // This test works on scalars rather than field elements, but the
+  // representation is the same.
+  BN_ULONG a[P256_LIMBS], b[P256_LIMBS], result[P256_LIMBS];
+  ASSERT_TRUE(GetFieldElement(t, a, "A"));
+  ASSERT_TRUE(GetFieldElement(t, b, "B"));
+  ASSERT_TRUE(GetFieldElement(t, result, "Result"));
+
+  BN_ULONG ret[P256_LIMBS];
+  CHECK_ABI(ecp_nistz256_ord_mul_mont, ret, a, b);
+  EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
+
+  CHECK_ABI(ecp_nistz256_ord_mul_mont, ret, b, a);
+  EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
+
+  OPENSSL_memcpy(ret, a, sizeof(ret));
+  CHECK_ABI(ecp_nistz256_ord_mul_mont, ret, ret /* a */, b);
+  EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
+
+  OPENSSL_memcpy(ret, a, sizeof(ret));
+  CHECK_ABI(ecp_nistz256_ord_mul_mont, ret, b, ret);
+  EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
+
+  OPENSSL_memcpy(ret, b, sizeof(ret));
+  CHECK_ABI(ecp_nistz256_ord_mul_mont, ret, a, ret /* b */);
+  EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
+
+  OPENSSL_memcpy(ret, b, sizeof(ret));
+  CHECK_ABI(ecp_nistz256_ord_mul_mont, ret, ret /* b */, a);
+  EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
+
+  if (OPENSSL_memcmp(a, b, sizeof(a)) == 0) {
+    CHECK_ABI(ecp_nistz256_ord_sqr_mont, ret, a, 1);
+    EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
+
+    OPENSSL_memcpy(ret, a, sizeof(ret));
+    CHECK_ABI(ecp_nistz256_ord_sqr_mont, ret, ret /* a */, 1);
+    EXPECT_FIELD_ELEMENTS_EQUAL(result, ret);
   }
 }
 
@@ -377,6 +476,8 @@ TEST(P256_X86_64Test, TestVectors) {
       TestFromMont(t);
     } else if (t->GetParameter() == "PointAdd") {
       TestPointAdd(t);
+    } else if (t->GetParameter() == "OrdMulMont") {
+      TestOrdMulMont(t);
     } else {
       FAIL() << "Unknown test type:" << t->GetParameter();
     }

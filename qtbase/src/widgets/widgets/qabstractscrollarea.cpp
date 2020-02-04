@@ -185,7 +185,7 @@ QAbstractScrollAreaScrollBarContainer::QAbstractScrollAreaScrollBarContainer(Qt:
      orientation(orientation)
 {
     setLayout(layout);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->setSpacing(0);
     layout->addWidget(scrollBar);
     layout->setSizeConstraint(QLayout::SetMaximumSize);
@@ -820,7 +820,7 @@ QWidget *QAbstractScrollArea::cornerWidget() const
 
     All widgets set here will be deleted by the scroll area when it is
     destroyed unless you separately reparent the widget after setting
-    some other corner widget (or 0).
+    some other corner widget (or \nullptr).
 
     Any \e newly set widget should have no current parent.
 
@@ -1065,7 +1065,7 @@ bool QAbstractScrollArea::event(QEvent *e)
     case QEvent::MouseButtonDblClick:
     case QEvent::MouseMove:
     case QEvent::Wheel:
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     case QEvent::Drop:
     case QEvent::DragEnter:
     case QEvent::DragMove:
@@ -1163,7 +1163,7 @@ bool QAbstractScrollArea::event(QEvent *e)
     case QEvent::ApplicationLayoutDirectionChange:
     case QEvent::LayoutRequest:
         d->layoutChildren();
-        // fall through
+        Q_FALLTHROUGH();
     default:
         return QFrame::event(e);
     }
@@ -1206,7 +1206,7 @@ bool QAbstractScrollArea::viewportEvent(QEvent *e)
 #if QT_CONFIG(wheelevent)
     case QEvent::Wheel:
 #endif
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     case QEvent::Drop:
     case QEvent::DragEnter:
     case QEvent::DragMove:
@@ -1409,7 +1409,7 @@ void QAbstractScrollArea::keyPressEvent(QKeyEvent * e)
 }
 
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     \fn void QAbstractScrollArea::dragEnterEvent(QDragEnterEvent *event)
 
@@ -1604,8 +1604,10 @@ QSize QAbstractScrollArea::sizeHint() const
     if (!d->sizeHint.isValid() || d->sizeAdjustPolicy == QAbstractScrollArea::AdjustToContents) {
         const int f = 2 * d->frameWidth;
         const QSize frame( f, f );
-        const QSize scrollbars(d->vbarpolicy == Qt::ScrollBarAlwaysOn ? d->vbar->sizeHint().width() : 0,
-                               d->hbarpolicy == Qt::ScrollBarAlwaysOn ? d->hbar->sizeHint().height() : 0);
+        const bool vbarHidden = d->vbar->isHidden() || d->vbarpolicy == Qt::ScrollBarAlwaysOff;
+        const bool hbarHidden = d->hbar->isHidden() || d->hbarpolicy == Qt::ScrollBarAlwaysOff;
+        const QSize scrollbars(vbarHidden ? 0 : d->vbar->sizeHint().width(),
+                               hbarHidden ? 0 : d->hbar->sizeHint().height());
         d->sizeHint = frame + scrollbars + viewportSizeHint();
     }
     return d->sizeHint;

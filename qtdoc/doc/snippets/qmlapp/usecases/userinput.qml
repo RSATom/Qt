@@ -49,7 +49,7 @@
 ****************************************************************************/
 
 //![0]
-import QtQuick 2.3
+import QtQuick 2.12
 
 Item {
     id: root
@@ -71,9 +71,8 @@ Item {
         height: 120
         color: "red"
 
-        MouseArea {
-            anchors.fill: parent
-            onClicked: rectangle.width += 10
+        TapHandler {
+            onTapped: rectangle.width += 10
         }
     }
 }

@@ -43,7 +43,6 @@
 #include "qtextlist.h"
 
 #include <qdebug.h>
-#include <qtextcodec.h>
 #include <qbytearray.h>
 #include <qdatastream.h>
 #include <qdatetime.h>
@@ -420,7 +419,7 @@ static QTextListFormat::Style nextListStyle(QTextListFormat::Style style)
 }
 
 QTextHtmlImporter::QTextHtmlImporter(QTextDocument *_doc, const QString &_html, ImportMode mode, const QTextDocument *resourceProvider)
-    : indent(0), compressNextWhitespace(PreserveWhiteSpace), doc(_doc), importMode(mode)
+    : indent(0), headingLevel(0), compressNextWhitespace(PreserveWhiteSpace), doc(_doc), importMode(mode)
 {
     cursor = QTextCursor(doc);
     wsm = QTextHtmlParserNode::WhiteSpaceNormal;
@@ -543,8 +542,10 @@ void QTextHtmlImporter::import()
             }
         }
 
-        if (currentNode->charFormat.isAnchor() && !currentNode->charFormat.anchorName().isEmpty()) {
-            namedAnchors.append(currentNode->charFormat.anchorName());
+        if (currentNode->charFormat.isAnchor()) {
+            const auto names = currentNode->charFormat.anchorNames();
+            if (!names.isEmpty())
+                namedAnchors.append(names.constFirst());
         }
 
         if (appendNodeText())
@@ -724,9 +725,9 @@ QTextHtmlImporter::ProcessNodeResult QTextHtmlImporter::processSpecialNodes()
 
             cursor.insertImage(fmt, QTextFrameFormat::Position(currentNode->cssFloat));
 
-            cursor.movePosition(QTextCursor::Left, QTextCursor::KeepAnchor);
+            cursor.movePosition(QTextCursor::PreviousCharacter, QTextCursor::KeepAnchor);
             cursor.mergeCharFormat(currentNode->charFormat);
-            cursor.movePosition(QTextCursor::Right);
+            cursor.movePosition(QTextCursor::NextCharacter);
             compressNextWhitespace = CollapseWhiteSpace;
 
             hasBlock = false;
@@ -747,8 +748,28 @@ QTextHtmlImporter::ProcessNodeResult QTextHtmlImporter::processSpecialNodes()
             return ContinueWithNextNode;
         }
 
+        case Html_h1:
+            headingLevel = 1;
+            break;
+        case Html_h2:
+            headingLevel = 2;
+            break;
+        case Html_h3:
+            headingLevel = 3;
+            break;
+        case Html_h4:
+            headingLevel = 4;
+            break;
+        case Html_h5:
+            headingLevel = 5;
+            break;
+        case Html_h6:
+            headingLevel = 6;
+            break;
+
         default: break;
     }
+
     return ContinueWithCurrentNode;
 }
 
@@ -831,6 +852,15 @@ bool QTextHtmlImporter::closeTag()
                         blockTagClosed = true;
                     }
                 }
+                break;
+            case Html_h1:
+            case Html_h2:
+            case Html_h3:
+            case Html_h4:
+            case Html_h5:
+            case Html_h6:
+                headingLevel = 0;
+                blockTagClosed = true;
                 break;
             default:
                 if (closedNode->isBlock())
@@ -1093,6 +1123,11 @@ QTextHtmlImporter::ProcessNodeResult QTextHtmlImporter::processBlockNode()
         modifiedBlockFormat = true;
     }
 
+    if (headingLevel) {
+        block.setHeadingLevel(headingLevel);
+        modifiedBlockFormat = true;
+    }
+
     if (currentNode->blockFormat.propertyCount() > 0) {
         modifiedBlockFormat = true;
         block.merge(currentNode->blockFormat);
@@ -1106,7 +1141,8 @@ QTextHtmlImporter::ProcessNodeResult QTextHtmlImporter::processBlockNode()
     // ####################
     //                block.setFloatPosition(node->cssFloat);
 
-    if (wsm == QTextHtmlParserNode::WhiteSpacePre) {
+    if (wsm == QTextHtmlParserNode::WhiteSpacePre
+            || wsm == QTextHtmlParserNode::WhiteSpaceNoWrap) {
         block.setNonBreakableLines(true);
         modifiedBlockFormat = true;
     }

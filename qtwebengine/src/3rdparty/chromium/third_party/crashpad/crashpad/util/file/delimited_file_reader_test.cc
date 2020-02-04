@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "base/format_macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "gtest/gtest.h"
 #include "util/file/string_file.h"
@@ -257,9 +258,9 @@ TEST(DelimitedFileReader, ReallyLongMultiLineFile) {
 }
 
 TEST(DelimitedFileReader, EmbeddedNUL) {
-  const char kString[] = "embedded\0NUL\n";
+  static constexpr char kString[] = "embedded\0NUL\n";
   StringFile string_file;
-  string_file.SetString(std::string(kString, arraysize(kString) - 1));
+  string_file.SetString(std::string(kString, base::size(kString) - 1));
   DelimitedFileReader delimited_file_reader(&string_file);
 
   std::string line;
@@ -275,9 +276,9 @@ TEST(DelimitedFileReader, EmbeddedNUL) {
 }
 
 TEST(DelimitedFileReader, NULDelimiter) {
-  const char kString[] = "aa\0b\0ccc\0";
+  static constexpr char kString[] = "aa\0b\0ccc\0";
   StringFile string_file;
-  string_file.SetString(std::string(kString, arraysize(kString) - 1));
+  string_file.SetString(std::string(kString, base::size(kString) - 1));
   DelimitedFileReader delimited_file_reader(&string_file);
 
   std::string field;
@@ -299,8 +300,9 @@ TEST(DelimitedFileReader, NULDelimiter) {
 }
 
 TEST(DelimitedFileReader, EdgeCases) {
-  const size_t kSizes[] = {4094, 4095, 4096, 4097, 8190, 8191, 8192, 8193};
-  for (size_t index = 0; index < arraysize(kSizes); ++index) {
+  static constexpr size_t kSizes[] =
+      {4094, 4095, 4096, 4097, 8190, 8191, 8192, 8193};
+  for (size_t index = 0; index < base::size(kSizes); ++index) {
     size_t size = kSizes[index];
     SCOPED_TRACE(
         base::StringPrintf("index %" PRIuS ", size %" PRIuS, index, size));

@@ -1,28 +1,21 @@
 // Copyright (c) 2015-2016 The Khronos Group Inc.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS
-// KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS
-// SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT
-//    https://www.khronos.org/registry/
-//
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
+#include <stdio.h>  // Need fileno
+#include <unistd.h>
+#endif
 
 #include <cstdio>
 #include <cstring>
@@ -30,6 +23,7 @@
 #include <vector>
 
 #include "spirv-tools/libspirv.h"
+#include "tools/io.h"
 
 static void print_usage(char* argv0) {
   printf(
@@ -49,26 +43,42 @@ Options:
                   Output goes to standard output if this option is
                   not specified, or if the filename is "-".
 
-  --no-color      Don't print in color.
-                  The default when output goes to a file.
+  --color         Force color output.  The default when printing to a terminal.
+                  Overrides a previous --no-color option.
+  --no-color      Don't print in color.  Overrides a previous --color option.
+                  The default when output goes to something other than a
+                  terminal (e.g. a file, a pipe, or a shell redirection).
 
   --no-indent     Don't indent instructions.
+
+  --no-header     Don't output the header as leading comments.
+
+  --raw-id        Show raw Id values instead of friendly names.
 
   --offsets       Show byte offsets for each instruction.
 )",
       argv0, argv0);
 }
 
+static const auto kDefaultEnvironment = SPV_ENV_UNIVERSAL_1_3;
+
 int main(int argc, char** argv) {
   const char* inFile = nullptr;
   const char* outFile = nullptr;
 
-  bool allow_color = false;
-#ifdef SPIRV_COLOR_TERMINAL
-  allow_color = true;
+  bool color_is_possible =
+#if SPIRV_COLOR_TERMINAL
+      true;
+#else
+      false;
 #endif
+  bool force_color = false;
+  bool force_no_color = false;
+
   bool allow_indent = true;
   bool show_byte_offsets = false;
+  bool no_header = false;
+  bool friendly_names = true;
 
   for (int argi = 1; argi < argc; ++argi) {
     if ('-' == argv[argi][0]) {
@@ -87,18 +97,26 @@ int main(int argc, char** argv) {
         case '-': {
           // Long options
           if (0 == strcmp(argv[argi], "--no-color")) {
-            allow_color = false;
+            force_no_color = true;
+            force_color = false;
+          } else if (0 == strcmp(argv[argi], "--color")) {
+            force_no_color = false;
+            force_color = true;
           } else if (0 == strcmp(argv[argi], "--no-indent")) {
             allow_indent = false;
           } else if (0 == strcmp(argv[argi], "--offsets")) {
             show_byte_offsets = true;
+          } else if (0 == strcmp(argv[argi], "--no-header")) {
+            no_header = true;
+          } else if (0 == strcmp(argv[argi], "--raw-id")) {
+            friendly_names = false;
           } else if (0 == strcmp(argv[argi], "--help")) {
             print_usage(argv[0]);
             return 0;
           } else if (0 == strcmp(argv[argi], "--version")) {
             printf("%s\n", spvSoftwareVersionDetailsString());
             printf("Target: %s\n",
-                   spvTargetEnvDescription(SPV_ENV_UNIVERSAL_1_1));
+                   spvTargetEnvDescription(kDefaultEnvironment));
             return 0;
           } else {
             print_usage(argv[0]);
@@ -134,34 +152,28 @@ int main(int argc, char** argv) {
 
   if (show_byte_offsets) options |= SPV_BINARY_TO_TEXT_OPTION_SHOW_BYTE_OFFSET;
 
+  if (no_header) options |= SPV_BINARY_TO_TEXT_OPTION_NO_HEADER;
+
+  if (friendly_names) options |= SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES;
+
   if (!outFile || (0 == strcmp("-", outFile))) {
     // Print to standard output.
     options |= SPV_BINARY_TO_TEXT_OPTION_PRINT;
-    if (allow_color) {
-      options |= SPV_BINARY_TO_TEXT_OPTION_COLOR;
+
+    if (color_is_possible && !force_no_color) {
+      bool output_is_tty = true;
+#if defined(_POSIX_VERSION)
+      output_is_tty = isatty(fileno(stdout));
+#endif
+      if (output_is_tty || force_color) {
+        options |= SPV_BINARY_TO_TEXT_OPTION_COLOR;
+      }
     }
   }
 
   // Read the input binary.
   std::vector<uint32_t> contents;
-  {
-    FILE* input = stdin;
-    const bool use_file = inFile && strcmp("-", inFile);
-    if (use_file) {
-      input = fopen(inFile, "rb");
-      if (!input) {
-        auto msg =
-            std::string("error: Can't open file ") + inFile + " for reading";
-        perror(msg.c_str());
-        return 1;
-      }
-    }
-    uint32_t buf[1024];
-    while (size_t len = fread(buf, sizeof(uint32_t), 1024, input)) {
-      contents.insert(contents.end(), buf, buf + len);
-    }
-    if (use_file) fclose(input);
-  }
+  if (!ReadFile<uint32_t>(inFile, "rb", &contents)) return 1;
 
   // If printing to standard output, then spvBinaryToText should
   // do the printing.  In particular, colour printing on Windows is
@@ -171,10 +183,10 @@ int main(int argc, char** argv) {
   // If the printing option is off, then save the text in memory, so
   // it can be emitted later in this function.
   const bool print_to_stdout = SPV_BINARY_TO_TEXT_OPTION_PRINT & options;
-  spv_text text;
+  spv_text text = nullptr;
   spv_text* textOrNull = print_to_stdout ? nullptr : &text;
   spv_diagnostic diagnostic = nullptr;
-  spv_context context = spvContextCreate(SPV_ENV_UNIVERSAL_1_1);
+  spv_context context = spvContextCreate(kDefaultEnvironment);
   spv_result_t error =
       spvBinaryToText(context, contents.data(), contents.size(), options,
                       textOrNull, &diagnostic);
@@ -185,22 +197,13 @@ int main(int argc, char** argv) {
     return error;
   }
 
-  // Output the result.
   if (!print_to_stdout) {
-    if (FILE* fp = fopen(outFile, "w")) {
-      size_t written =
-          fwrite(text->str, sizeof(char), (size_t)text->length, fp);
-      if (text->length != written) {
-        spvTextDestroy(text);
-        fprintf(stderr, "error: Could not write to file '%s'\n", outFile);
-        return 1;
-      }
-    } else {
+    if (!WriteFile<char>(outFile, "w", text->str, text->length)) {
       spvTextDestroy(text);
-      fprintf(stderr, "error: Could not open file '%s'\n", outFile);
       return 1;
     }
   }
+  spvTextDestroy(text);
 
   return 0;
 }

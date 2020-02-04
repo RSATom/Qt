@@ -19,7 +19,6 @@ class PrefService;
 
 namespace content {
 class BrowserContext;
-class ContentBrowserClient;
 class ContentUtilityClient;
 class RenderViewHostTestEnabler;
 }
@@ -36,12 +35,17 @@ class TestExtensionsBrowserClient;
 // cause crashes if it is not. http://crbug.com/395820
 class ExtensionsTest : public testing::Test {
  public:
-  ExtensionsTest();
-  // If the test uses a TestBrowserThreadBundle, then it must be given to the
-  // constructor here so that this class can use its MessageLoop.
-  explicit ExtensionsTest(
-      std::unique_ptr<content::TestBrowserThreadBundle> thread_bundle);
+  template <typename... Args>
+  constexpr ExtensionsTest(Args... args)
+      : ExtensionsTest(
+            std::make_unique<content::TestBrowserThreadBundle>(args...)) {}
+
   ~ExtensionsTest() override;
+
+  // Allows setting a custom TestExtensionsBrowserClient. Must only be called
+  // before SetUp().
+  void SetExtensionsBrowserClient(
+      std::unique_ptr<TestExtensionsBrowserClient> extensions_browser_client);
 
   // Returned as a BrowserContext since most users don't need methods from
   // TestBrowserContext.
@@ -65,8 +69,12 @@ class ExtensionsTest : public testing::Test {
   void TearDown() override;
 
  private:
+  // The template constructor has to be in the header but it delegates to this
+  // constructor to initialize all other members out-of-line.
+  explicit ExtensionsTest(
+      std::unique_ptr<content::TestBrowserThreadBundle> thread_bundle);
+
   content::TestContentClientInitializer content_client_initializer_;
-  std::unique_ptr<content::ContentBrowserClient> content_browser_client_;
   std::unique_ptr<content::ContentUtilityClient> content_utility_client_;
   std::unique_ptr<content::BrowserContext> browser_context_;
   std::unique_ptr<content::BrowserContext> incognito_context_;
@@ -76,8 +84,6 @@ class ExtensionsTest : public testing::Test {
 
   MockExtensionSystemFactory<MockExtensionSystem> extension_system_factory_;
 
-  // Optional thread bundle for some subclasses. Needs to exist before
-  // the RenderViewHostTestEnabler if it is going to exist.
   std::unique_ptr<content::TestBrowserThreadBundle> thread_bundle_;
 
   // The existence of this object enables tests via

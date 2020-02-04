@@ -4,21 +4,21 @@
  * This package is an SSL implementation written
  * by Eric Young (eay@cryptsoft.com).
  * The implementation was written so as to conform with Netscapes SSL.
- * 
+ *
  * This library is free for commercial and non-commercial use as long as
  * the following conditions are aheared to.  The following conditions
  * apply to all code found in this distribution, be it the RC4, RSA,
  * lhash, DES, etc., code; not just the SSL code.  The SSL documentation
  * included with this distribution is covered by the same copyright terms
  * except that the holder is Tim Hudson (tjh@cryptsoft.com).
- * 
+ *
  * Copyright remains Eric Young's, and as such any Copyright notices in
  * the code are not to be removed.
  * If this package is used in a product, Eric Young should be given attribution
  * as the author of the parts of the library used.
  * This can be in the form of a textual message at program startup or
  * in documentation (online or textual) provided with the package.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -33,10 +33,10 @@
  *     Eric Young (eay@cryptsoft.com)"
  *    The word 'cryptographic' can be left out if the rouines from the library
  *    being used are not cryptographic related :-).
- * 4. If you include any Windows specific code (or a derivative thereof) from 
+ * 4. If you include any Windows specific code (or a derivative thereof) from
  *    the apps directory (application code) you must include an acknowledgement:
  *    "This product includes software written by Tim Hudson (tjh@cryptsoft.com)"
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY ERIC YOUNG ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -48,7 +48,7 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- * 
+ *
  * The licence and distribution terms for any publically available version or
  * derivative of this code cannot be changed.  i.e. this code cannot simply be
  * copied and put under another distribution licence
@@ -88,216 +88,17 @@
 #include "internal.h"
 
 
-static int ssl_state(const SSL *ssl) {
-  if (ssl->s3->hs == NULL) {
-    assert(ssl->s3->initial_handshake_complete);
-    return SSL_ST_OK;
-  }
-
-  return ssl->s3->hs->state;
-}
-
 const char *SSL_state_string_long(const SSL *ssl) {
-  switch (ssl_state(ssl)) {
-    case SSL_ST_ACCEPT:
-      return "before accept initialization";
-
-    case SSL_ST_CONNECT:
-      return "before connect initialization";
-
-    case SSL_ST_OK:
-      return "SSL negotiation finished successfully";
-
-    case SSL_ST_RENEGOTIATE:
-      return "SSL renegotiate ciphers";
-
-    /* SSLv3 additions */
-    case SSL3_ST_CW_CLNT_HELLO_A:
-      return "SSLv3 write client hello A";
-
-    case SSL3_ST_CR_SRVR_HELLO_A:
-      return "SSLv3 read server hello A";
-
-    case SSL3_ST_CR_CERT_A:
-      return "SSLv3 read server certificate A";
-
-    case SSL3_ST_CR_KEY_EXCH_A:
-      return "SSLv3 read server key exchange A";
-
-    case SSL3_ST_CR_CERT_REQ_A:
-      return "SSLv3 read server certificate request A";
-
-    case SSL3_ST_CR_SESSION_TICKET_A:
-      return "SSLv3 read server session ticket A";
-
-    case SSL3_ST_CR_SRVR_DONE_A:
-      return "SSLv3 read server done A";
-
-    case SSL3_ST_CW_CERT_A:
-      return "SSLv3 write client certificate A";
-
-    case SSL3_ST_CW_KEY_EXCH_A:
-      return "SSLv3 write client key exchange A";
-
-    case SSL3_ST_CW_CERT_VRFY_A:
-      return "SSLv3 write certificate verify A";
-
-    case SSL3_ST_CW_CHANGE:
-      return "SSLv3 write change cipher spec";
-
-    case SSL3_ST_CW_FINISHED_A:
-    case SSL3_ST_SW_FINISHED_A:
-      return "SSLv3 write finished A";
-
-    case SSL3_ST_CR_CHANGE:
-    case SSL3_ST_SR_CHANGE:
-      return "SSLv3 read change cipher spec";
-
-    case SSL3_ST_CR_FINISHED_A:
-    case SSL3_ST_SR_FINISHED_A:
-      return "SSLv3 read finished A";
-
-    case SSL3_ST_CW_FLUSH:
-    case SSL3_ST_SW_FLUSH:
-      return "SSLv3 flush data";
-
-    case SSL3_ST_SR_CLNT_HELLO_A:
-      return "SSLv3 read client hello A";
-
-    case SSL3_ST_SR_CLNT_HELLO_B:
-      return "SSLv3 read client hello B";
-
-    case SSL3_ST_SR_CLNT_HELLO_C:
-      return "SSLv3 read client hello C";
-
-    case SSL3_ST_SW_SRVR_HELLO_A:
-      return "SSLv3 write server hello A";
-
-    case SSL3_ST_SW_CERT_A:
-      return "SSLv3 write certificate A";
-
-    case SSL3_ST_SW_KEY_EXCH_A:
-      return "SSLv3 write key exchange A";
-
-    case SSL3_ST_SW_SRVR_DONE_A:
-      return "SSLv3 write server done A";
-
-    case SSL3_ST_SR_CERT_A:
-      return "SSLv3 read client certificate A";
-
-    case SSL3_ST_SR_KEY_EXCH_A:
-      return "SSLv3 read client key exchange A";
-
-    case SSL3_ST_SR_KEY_EXCH_B:
-      return "SSLv3 read client key exchange B";
-
-    case SSL3_ST_SR_CERT_VRFY_A:
-      return "SSLv3 read certificate verify A";
-
-    /* DTLS */
-    case DTLS1_ST_CR_HELLO_VERIFY_REQUEST_A:
-      return "DTLS1 read hello verify request A";
-
-    default:
-      return "unknown state";
+  if (ssl->s3->hs == nullptr) {
+    return "SSL negotiation finished successfully";
   }
+
+  return ssl->server ? ssl_server_handshake_state(ssl->s3->hs.get())
+                     : ssl_client_handshake_state(ssl->s3->hs.get());
 }
 
 const char *SSL_state_string(const SSL *ssl) {
-  switch (ssl_state(ssl)) {
-    case SSL_ST_ACCEPT:
-      return "AINIT ";
-
-    case SSL_ST_CONNECT:
-      return "CINIT ";
-
-    case SSL_ST_OK:
-      return "SSLOK ";
-
-    /* SSLv3 additions */
-    case SSL3_ST_SW_FLUSH:
-    case SSL3_ST_CW_FLUSH:
-      return "3FLUSH";
-
-    case SSL3_ST_CW_CLNT_HELLO_A:
-      return "3WCH_A";
-
-    case SSL3_ST_CR_SRVR_HELLO_A:
-      return "3RSH_A";
-
-    case SSL3_ST_CR_CERT_A:
-      return "3RSC_A";
-
-    case SSL3_ST_CR_KEY_EXCH_A:
-      return "3RSKEA";
-
-    case SSL3_ST_CR_CERT_REQ_A:
-      return "3RCR_A";
-
-    case SSL3_ST_CR_SRVR_DONE_A:
-      return "3RSD_A";
-
-    case SSL3_ST_CW_CERT_A:
-      return "3WCC_A";
-
-    case SSL3_ST_CW_KEY_EXCH_A:
-      return "3WCKEA";
-
-    case SSL3_ST_CW_CERT_VRFY_A:
-      return "3WCV_A";
-
-    case SSL3_ST_CW_CHANGE:
-      return "3WCCS_";
-
-    case SSL3_ST_SW_FINISHED_A:
-    case SSL3_ST_CW_FINISHED_A:
-      return "3WFINA";
-
-    case SSL3_ST_CR_CHANGE:
-    case SSL3_ST_SR_CHANGE:
-      return "3RCCS_";
-
-    case SSL3_ST_SR_FINISHED_A:
-    case SSL3_ST_CR_FINISHED_A:
-      return "3RFINA";
-
-    case SSL3_ST_SR_CLNT_HELLO_A:
-      return "3RCH_A";
-
-    case SSL3_ST_SR_CLNT_HELLO_B:
-      return "3RCH_B";
-
-    case SSL3_ST_SR_CLNT_HELLO_C:
-      return "3RCH_C";
-
-    case SSL3_ST_SW_SRVR_HELLO_A:
-      return "3WSH_A";
-
-    case SSL3_ST_SW_CERT_A:
-      return "3WSC_A";
-
-    case SSL3_ST_SW_KEY_EXCH_A:
-      return "3WSKEA";
-
-    case SSL3_ST_SW_SRVR_DONE_A:
-      return "3WSD_A";
-
-    case SSL3_ST_SR_CERT_A:
-      return "3RCC_A";
-
-    case SSL3_ST_SR_KEY_EXCH_A:
-      return "3RCKEA";
-
-    case SSL3_ST_SR_CERT_VRFY_A:
-      return "3RCV_A";
-
-    /* DTLS */
-    case DTLS1_ST_CR_HELLO_VERIFY_REQUEST_A:
-      return "DRCHVA";
-
-    default:
-      return "UNKWN ";
-  }
+  return "!!!!!!";
 }
 
 const char *SSL_alert_type_string_long(int value) {

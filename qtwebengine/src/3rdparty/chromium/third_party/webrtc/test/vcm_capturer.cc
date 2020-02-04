@@ -8,15 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/test/vcm_capturer.h"
+#include "test/vcm_capturer.h"
 
-#include "webrtc/modules/video_capture/video_capture_factory.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/video_send_stream.h"
+#include <stdint.h>
+#include <memory>
+
+#include "modules/video_capture/video_capture_factory.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
+
 namespace webrtc {
 namespace test {
 
-VcmCapturer::VcmCapturer() : started_(false), sink_(nullptr), vcm_(nullptr) {}
+VcmCapturer::VcmCapturer() : vcm_(nullptr) {}
 
 bool VcmCapturer::Init(size_t width,
                        size_t height,
@@ -60,36 +64,12 @@ VcmCapturer* VcmCapturer::Create(size_t width,
                                  size_t capture_device_index) {
   std::unique_ptr<VcmCapturer> vcm_capturer(new VcmCapturer());
   if (!vcm_capturer->Init(width, height, target_fps, capture_device_index)) {
-    LOG(LS_WARNING) << "Failed to create VcmCapturer(w = " << width
-                    << ", h = " << height << ", fps = " << target_fps << ")";
+    RTC_LOG(LS_WARNING) << "Failed to create VcmCapturer(w = " << width
+                        << ", h = " << height << ", fps = " << target_fps
+                        << ")";
     return nullptr;
   }
   return vcm_capturer.release();
-}
-
-
-void VcmCapturer::Start() {
-  rtc::CritScope lock(&crit_);
-  started_ = true;
-}
-
-void VcmCapturer::Stop() {
-  rtc::CritScope lock(&crit_);
-  started_ = false;
-}
-
-void VcmCapturer::AddOrUpdateSink(rtc::VideoSinkInterface<VideoFrame>* sink,
-                                  const rtc::VideoSinkWants& wants) {
-  rtc::CritScope lock(&crit_);
-  RTC_CHECK(!sink_ || sink_ == sink);
-  sink_ = sink;
-  VideoCapturer::AddOrUpdateSink(sink, wants);
-}
-
-void VcmCapturer::RemoveSink(rtc::VideoSinkInterface<VideoFrame>* sink) {
-  rtc::CritScope lock(&crit_);
-  RTC_CHECK(sink_ == sink);
-  sink_ = nullptr;
 }
 
 void VcmCapturer::Destroy() {
@@ -102,16 +82,13 @@ void VcmCapturer::Destroy() {
   vcm_ = nullptr;
 }
 
-VcmCapturer::~VcmCapturer() { Destroy(); }
-
-void VcmCapturer::OnFrame(const VideoFrame& frame) {
-  rtc::CritScope lock(&crit_);
-  if (started_ && sink_) {
-    rtc::Optional<VideoFrame> out_frame = AdaptFrame(frame);
-    if (out_frame)
-      sink_->OnFrame(*out_frame);
-  }
+VcmCapturer::~VcmCapturer() {
+  Destroy();
 }
 
-}  // test
-}  // webrtc
+void VcmCapturer::OnFrame(const VideoFrame& frame) {
+  TestVideoCapturer::OnFrame(frame);
+}
+
+}  // namespace test
+}  // namespace webrtc

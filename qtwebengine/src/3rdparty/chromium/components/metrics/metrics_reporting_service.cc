@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/persisted_logs_metrics_impl.h"
@@ -35,7 +36,9 @@ void MetricsReportingService::RegisterPrefs(PrefRegistrySimple* registry) {
 MetricsReportingService::MetricsReportingService(MetricsServiceClient* client,
                                                  PrefService* local_state)
     : ReportingService(client, local_state, kUploadLogAvoidRetransmitSize),
-      metrics_log_store_(local_state, kUploadLogAvoidRetransmitSize) {}
+      metrics_log_store_(local_state,
+                         kUploadLogAvoidRetransmitSize,
+                         client->GetUploadSigningKey()) {}
 
 MetricsReportingService::~MetricsReportingService() {}
 
@@ -45,6 +48,10 @@ LogStore* MetricsReportingService::log_store() {
 
 std::string MetricsReportingService::GetUploadUrl() const {
   return client()->GetMetricsServerUrl();
+}
+
+std::string MetricsReportingService::GetInsecureUploadUrl() const {
+  return client()->GetInsecureMetricsServerUrl();
 }
 
 base::StringPiece MetricsReportingService::upload_mime_type() const {
@@ -69,9 +76,15 @@ void MetricsReportingService::LogCellularConstraint(bool upload_canceled) {
 }
 
 void MetricsReportingService::LogResponseOrErrorCode(int response_code,
-                                                     int error_code) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("UMA.LogUpload.ResponseOrErrorCode",
-                              response_code >= 0 ? response_code : error_code);
+                                                     int error_code,
+                                                     bool was_https) {
+  if (was_https) {
+    base::UmaHistogramSparse("UMA.LogUpload.ResponseOrErrorCode",
+                             response_code >= 0 ? response_code : error_code);
+  } else {
+    base::UmaHistogramSparse("UMA.LogUpload.ResponseOrErrorCode.HTTP",
+                             response_code >= 0 ? response_code : error_code);
+  }
 }
 
 void MetricsReportingService::LogSuccess(size_t log_size) {

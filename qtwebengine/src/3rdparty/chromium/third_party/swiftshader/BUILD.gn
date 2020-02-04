@@ -12,35 +12,46 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("//build/config/c++/c++.gni")
 import("//build/config/compiler/compiler.gni")
+import("//build/config/mips.gni")
 
 config("swiftshader_config") {
-  defines = [ "STRICT_CONFORMANCE" ]  # Disables OpenGL ES 3.0
+  defines = []
 
   if (is_win) {
     cflags = [
       "/GS",  # Detects some buffer overruns
       "/Zc:wchar_t",
-      "/EHsc",
+      "/EHs-c-",  # Disable C++ exceptions
       "/nologo",
       "/Gd",  # Default calling convention
     ]
+
+    if (!use_custom_libcxx) {
+      # Disable EH usage in STL headers.
+      # libc++ uses a predefined macro to control whether to use exceptions, so
+      # defining this macro is unnecessary. Defining _HAS_EXCEPTIONS to 0 also
+      # breaks libc++ because it depends on MSVC headers that only provide
+      # certain declarations if _HAS_EXCEPTIONS is 1.
+      defines += [
+        "_HAS_EXCEPTIONS=0",
+      ]
+    }
 
     defines += [
       "_CRT_SECURE_NO_DEPRECATE",
       "NOMINMAX",
       "_WINDLL",
+      "NO_SANITIZE_FUNCTION=",
     ]
 
-    if (is_debug) {
-      cflags += [ "/RTC1" ]  # Run-Time Error Checks
-    } else {
+    if (!is_debug) {
       defines += [ "ANGLE_DISABLE_TRACE" ]
     }
   } else {
     cflags = [
       "-std=c++11",
-      "-Wall",
       "-fno-exceptions",
       "-fno-operator-names",
     ]
@@ -48,6 +59,7 @@ config("swiftshader_config") {
     defines += [
       "__STDC_CONSTANT_MACROS",
       "__STDC_LIMIT_MACROS",
+      "NO_SANITIZE_FUNCTION=__attribute__((no_sanitize(\"function\")))",
     ]
 
     if (is_debug) {
@@ -74,29 +86,92 @@ config("swiftshader_config") {
       cflags += [
         "-m64",
         "-fPIC",
-        "-march=core2",
+        "-march=x86-64",
+        "-mtune=generic",
       ]
-    } else {  # 32 bit version
+    } else if (target_cpu == "x86") {  # 32 bit version
       cflags += [
         "-m32",
         "-msse2",
-        "-march=i686",
+        "-mfpmath=sse",
+        "-march=pentium4",
+        "-mtune=generic",
+      ]
+    } else if (target_cpu == "mipsel" && current_cpu == target_cpu) {
+      cflags += [
+        "-march=mipsel",
+        "-fPIC",
+        "-mhard-float",
+        "-mfp32",
+      ]
+      if (mips_arch_variant == "r1") {
+        cflags += [
+          "-mcpu=mips32",
+        ]
+      } else {
+        cflags += [
+          "-mcpu=mips32r2",
+        ]
+      }
+    } else if (target_cpu == "mips64el" && current_cpu == target_cpu) {
+      cflags += [
+        "-march=mips64el",
+        "-mcpu=mips64r2",
+        "-mabi=64",
+        "-fPIC",
       ]
     }
 
     if (is_linux) {
-      ldflags = [
-        "-Wl,--hash-style=both",
-        "-Wl,--gc-sections",
-      ]
-      # A bug in the gold linker prevents using ICF on 32-bit (crbug.com/729532)
-      if (use_gold && target_cpu == "x86") {
+      ldflags = [ "-Wl,--gc-sections" ]
+
+      if (target_cpu == "mipsel") {
         ldflags += [
-          "-Wl,--icf=none",
+          "-Wl,--hash-style=sysv",
         ]
+        if (mips_arch_variant == "r1") {
+          ldflags += [
+            "-mips32",
+          ]
+        } else {
+          ldflags += [
+            "-mips32r2",
+          ]
+        }
+      } else if (target_cpu == "mips64el") {
+        ldflags += [
+          "-Wl,--hash-style=sysv",
+          "-mips64r2",
+        ]
+      } else {
+        ldflags += [ "-Wl,--hash-style=both" ]
+      }
+
+      # A bug in the gold linker prevents using ICF on 32-bit (crbug.com/729532)
+      if (use_gold && (target_cpu == "x86" || target_cpu == "mipsel")) {
+        ldflags += [ "-Wl,--icf=none" ]
       }
     }
   }
+}
+
+source_set("vertex_routine_fuzzer") {
+  sources = [
+    "tests/fuzzers/VertexRoutineFuzzer.cpp"
+  ]
+  if (is_win) {
+    cflags = [
+      "/wd4201",  # nameless struct/union
+      "/wd4065",  # switch statement contains 'default' but no 'case' labels
+      "/wd5030",  # attribute is not recognized
+    ]
+  }
+  include_dirs = [
+    "src/",
+  ]
+  deps = [
+    "src/OpenGL/libGLESv2:swiftshader_libGLESv2_static",
+  ]
 }
 
 group("swiftshader") {
@@ -110,6 +185,6 @@ group("swiftshader_tests") {
   testonly = true
 
   data_deps = [
-    "tests/unittests:swiftshader_unittests",
+    "tests/GLESUnitTests:swiftshader_unittests",
   ]
 }

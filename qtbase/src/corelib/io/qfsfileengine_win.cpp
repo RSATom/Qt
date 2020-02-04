@@ -45,7 +45,6 @@
 
 #include "qfile.h"
 #include "qdir.h"
-#include "private/qmutexpool_p.h"
 #include "qvarlengtharray.h"
 #include "qdatetime.h"
 #include "qt_windows.h"
@@ -117,9 +116,12 @@ bool QFSFileEnginePrivate::nativeOpen(QIODevice::OpenMode openMode)
     if (openMode & QIODevice::WriteOnly)
         accessRights |= GENERIC_WRITE;
 
-
     // WriteOnly can create files, ReadOnly cannot.
-    DWORD creationDisp = (openMode & QIODevice::WriteOnly) ? OPEN_ALWAYS : OPEN_EXISTING;
+    DWORD creationDisp = (openMode & QIODevice::NewOnly)
+                            ? CREATE_NEW
+                            : openModeCanCreate(openMode)
+                                ? OPEN_ALWAYS
+                                : OPEN_EXISTING;
     // Create the file handle.
 #ifndef Q_OS_WINRT
     SECURITY_ATTRIBUTES securityAtts = { sizeof(SECURITY_ATTRIBUTES), NULL, FALSE };
@@ -543,23 +545,33 @@ QString QFSFileEngine::tempPath()
     return QFileSystemEngine::tempPath();
 }
 
+#if !defined(Q_OS_WINRT)
+// cf QStorageInfo::isReady
+static inline bool isDriveReady(const wchar_t *path)
+{
+    DWORD fileSystemFlags;
+    const UINT driveType = GetDriveType(path);
+    return (driveType != DRIVE_REMOVABLE && driveType != DRIVE_CDROM)
+        || GetVolumeInformation(path, nullptr, 0, nullptr, nullptr,
+                                &fileSystemFlags, nullptr, 0) == TRUE;
+}
+#endif // !Q_OS_WINRT
+
 QFileInfoList QFSFileEngine::drives()
 {
     QFileInfoList ret;
 #if !defined(Q_OS_WINRT)
-#  if defined(Q_OS_WIN32)
     const UINT oldErrorMode = ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
     quint32 driveBits = (quint32) GetLogicalDrives() & 0x3ffffff;
-    ::SetErrorMode(oldErrorMode);
-#  endif
-    char driveName[] = "A:/";
+    wchar_t driveName[] = L"A:\\";
 
     while (driveBits) {
-        if (driveBits & 1)
-            ret.append(QFileInfo(QLatin1String(driveName)));
+        if ((driveBits & 1) && isDriveReady(driveName))
+            ret.append(QFileInfo(QString::fromWCharArray(driveName)));
         driveName[0]++;
         driveBits = driveBits >> 1;
     }
+    ::SetErrorMode(oldErrorMode);
     return ret;
 #else // !Q_OS_WINRT
     ret.append(QFileInfo(QLatin1String("/")));
@@ -588,7 +600,6 @@ bool QFSFileEnginePrivate::doStat(QFileSystemMetaData::MetaDataFlags flags) cons
 bool QFSFileEngine::link(const QString &newName)
 {
 #if !defined(Q_OS_WINRT)
-#  if QT_CONFIG(library)
     bool ret = false;
 
     QString linkName = newName;
@@ -597,23 +608,27 @@ bool QFSFileEngine::link(const QString &newName)
     IShellLink *psl;
     bool neededCoInit = false;
 
-    HRESULT hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (void **)&psl);
+    HRESULT hres = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLink,
+                                    reinterpret_cast<void **>(&psl));
 
     if (hres == CO_E_NOTINITIALIZED) { // COM was not initialized
         neededCoInit = true;
-        CoInitialize(NULL);
-        hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (void **)&psl);
+        CoInitialize(nullptr);
+        hres = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLink,
+                                reinterpret_cast<void **>(&psl));
     }
 
     if (SUCCEEDED(hres)) {
-        hres = psl->SetPath((wchar_t *)fileName(AbsoluteName).replace(QLatin1Char('/'), QLatin1Char('\\')).utf16());
+        const QString nativeAbsoluteName = fileName(AbsoluteName).replace(QLatin1Char('/'), QLatin1Char('\\'));
+        hres = psl->SetPath(reinterpret_cast<const wchar_t *>(nativeAbsoluteName.utf16()));
         if (SUCCEEDED(hres)) {
-            hres = psl->SetWorkingDirectory((wchar_t *)fileName(AbsolutePathName).replace(QLatin1Char('/'), QLatin1Char('\\')).utf16());
+            const QString nativeAbsolutePathName = fileName(AbsolutePathName).replace(QLatin1Char('/'), QLatin1Char('\\'));
+            hres = psl->SetWorkingDirectory(reinterpret_cast<const wchar_t *>(nativeAbsolutePathName.utf16()));
             if (SUCCEEDED(hres)) {
                 IPersistFile *ppf;
-                hres = psl->QueryInterface(IID_IPersistFile, (void **)&ppf);
+                hres = psl->QueryInterface(IID_IPersistFile, reinterpret_cast<void **>(&ppf));
                 if (SUCCEEDED(hres)) {
-                    hres = ppf->Save((wchar_t*)linkName.utf16(), TRUE);
+                    hres = ppf->Save(reinterpret_cast<const wchar_t *>(linkName.utf16()), TRUE);
                     if (SUCCEEDED(hres))
                          ret = true;
                     ppf->Release();
@@ -629,10 +644,6 @@ bool QFSFileEngine::link(const QString &newName)
         CoUninitialize();
 
     return ret;
-#  else // QT_CONFIG(library)
-    Q_UNUSED(newName);
-    return false;
-#  endif // QT_CONFIG(library)
 #else // !Q_OS_WINRT
     Q_UNUSED(newName);
     Q_UNIMPLEMENTED();
@@ -765,10 +776,9 @@ QString QFSFileEngine::fileName(FileName file) const
             int slash = ret.lastIndexOf(QLatin1Char('/'));
             if (slash < 0)
                 return ret;
-            else if (ret.at(0) != QLatin1Char('/') && slash == 2)
+            if (ret.at(0) != QLatin1Char('/') && slash == 2)
                 return ret.left(3);      // include the slash
-            else
-                return ret.left(slash > 0 ? slash : 1);
+            return ret.left(slash > 0 ? slash : 1);
         }
         return ret;
     } else if (file == CanonicalName || file == CanonicalPathName) {

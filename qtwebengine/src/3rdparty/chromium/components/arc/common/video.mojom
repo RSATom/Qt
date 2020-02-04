@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// Next MinVersion: 8
+
 module arc.mojom;
 
-import "video_decode_accelerator.mojom";
-import "video_encode_accelerator.mojom";
+import "components/arc/common/video_decode_accelerator.mojom";
+import "components/arc/common/video_encode_accelerator.mojom";
+import "components/arc/common/video_protected_buffer_allocator.mojom";
 
-// Next MinVersion: 5
 // Deprecated method IDs: 0
 // Next method ID: 2
 interface VideoHost {
@@ -19,18 +21,25 @@ interface VideoHost {
                                              string token);
 };
 
-// Next MinVersion: 1
-// Next method ID: 1
+// Next method ID: 2
 interface VideoInstance {
+  // DEPRECATED: Please use Init@1 instead.
+  InitDeprecated@0(VideoHost host_ptr);
+
   // Establishes full-duplex communication with the host.
-  Init@0(VideoHost host_ptr);
+  [MinVersion=5] Init@1(VideoHost host_ptr) => ();
 };
 
-// Next MinVersion: 2
-// Next method ID: 3
+// Deprecated method IDs: 0
+// Next method ID: 4
 interface VideoAcceleratorFactory {
-  CreateDecodeAccelerator@0(VideoDecodeAccelerator& decoder);
-
   [MinVersion=1]
-  CreateEncodeAccelerator@1(VideoEncodeAccelerator& encoder);
+  CreateEncodeAccelerator@1(VideoEncodeAccelerator& video_encoder);
+
+  [MinVersion=6]
+  CreateDecodeAccelerator@2(VideoDecodeAccelerator& video_decoder);
+
+  [Minversion=7]
+  CreateProtectedBufferAllocator@3(
+      VideoProtectedBufferAllocator& video_protected_buffer_allocator);
 };

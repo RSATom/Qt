@@ -7,11 +7,14 @@
 //   Tests for ANGLE's internal varying packing algorithm.
 //
 
-#include "libANGLE/VaryingPacking.h"
-
 #include <gtest/gtest.h>
+// 'None' is defined as 'struct None {};' in
+// third_party/googletest/src/googletest/include/gtest/internal/gtest-type-util.h.
+// But 'None' is also define as a numberic constant 0L in <X11/X.h>.
+// So we need to include gtest first to avoid such conflict.
 
 #include "libANGLE/Program.h"
+#include "libANGLE/VaryingPacking.h"
 
 using namespace gl;
 
@@ -35,7 +38,7 @@ class VaryingPackingTest : public ::testing::TestWithParam<GLuint>
         InfoLog infoLog;
         std::vector<std::string> transformFeedbackVaryings;
 
-        return varyingPacking->packUserVaryings(infoLog, packedVaryings, transformFeedbackVaryings);
+        return varyingPacking->packUserVaryings(infoLog, packedVaryings);
     }
 
     // Uses the "relaxed" ANGLE packing mode.
@@ -65,11 +68,14 @@ std::vector<sh::Varying> MakeVaryings(GLenum type, size_t count, size_t arraySiz
         strstr << type << index;
 
         sh::Varying varying;
-        varying.type          = type;
-        varying.precision     = GL_MEDIUM_FLOAT;
-        varying.name          = strstr.str();
-        varying.mappedName    = strstr.str();
-        varying.arraySize     = static_cast<unsigned int>(arraySize);
+        varying.type       = type;
+        varying.precision  = GL_MEDIUM_FLOAT;
+        varying.name       = strstr.str();
+        varying.mappedName = strstr.str();
+        if (arraySize > 0)
+        {
+            varying.arraySizes.push_back(static_cast<unsigned int>(arraySize));
+        }
         varying.staticUse     = true;
         varying.interpolation = sh::INTERPOLATION_FLAT;
         varying.isInvariant   = false;

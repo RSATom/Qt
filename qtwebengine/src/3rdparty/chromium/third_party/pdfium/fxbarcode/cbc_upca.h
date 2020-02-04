@@ -9,26 +9,19 @@
 
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxge/fx_dib.h"
-#include "fxbarcode/cbc_onecode.h"
+#include "fxbarcode/cbc_eancode.h"
 
 class CBC_OnedUPCAWriter;
 
-class CBC_UPCA : public CBC_OneCode {
+class CBC_UPCA final : public CBC_EANCode {
  public:
   CBC_UPCA();
   ~CBC_UPCA() override;
 
-  // CBC_CodeBase:
-  bool Encode(const CFX_WideStringC& contents, bool isDevice) override;
-  bool RenderDevice(CFX_RenderDevice* device,
-                    const CFX_Matrix* matrix) override;
+  // CBC_EANCode:
   BC_TYPE GetType() override;
-
- private:
-  CBC_OnedUPCAWriter* GetOnedUPCAWriter();
-  CFX_WideString Preprocess(const CFX_WideStringC& contents);
-  CFX_WideString m_renderContents;
+  BCFORMAT GetFormat() const override;
+  size_t GetMaxLength() const override;
 };
 
 #endif  // FXBARCODE_CBC_UPCA_H_

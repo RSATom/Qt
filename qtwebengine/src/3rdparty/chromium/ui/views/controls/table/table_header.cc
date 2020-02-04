@@ -22,19 +22,22 @@ namespace views {
 
 namespace {
 
-const int kVerticalPadding = 4;
-
 // The minimum width we allow a column to go down to.
-const int kMinColumnWidth = 10;
+constexpr int kMinColumnWidth = 10;
+
+// Amount that a column is resized when using the keyboard.
+constexpr int kResizeKeyboardAmount = 5;
+
+constexpr int kVerticalPadding = 4;
 
 // Distace from edge columns can be resized by.
-const int kResizePadding = 5;
+constexpr int kResizePadding = 5;
 
 // Amount of space above/below the separator.
-const int kSeparatorPadding = 4;
+constexpr int kSeparatorPadding = 4;
 
 // Size of the sort indicator (doesn't include padding).
-const int kSortIndicatorSize = 8;
+constexpr int kSortIndicatorSize = 8;
 
 }  // namespace
 
@@ -231,6 +234,29 @@ void TableHeader::OnNativeThemeChanged(const ui::NativeTheme* theme) {
       theme->GetSystemColor(ui::NativeTheme::kColorId_TableHeaderBackground)));
 }
 
+void TableHeader::ResizeColumnViaKeyboard(
+    int index,
+    TableView::AdvanceDirection direction) {
+  DCHECK_GE(index, 0);
+  const TableView::VisibleColumn& column = table_->GetVisibleColumn(index);
+  const int needed_for_title =
+      gfx::GetStringWidth(column.column.title, font_list_) +
+      2 * kHorizontalPadding;
+
+  int new_width = column.width;
+  switch (direction) {
+    case TableView::ADVANCE_INCREMENT:
+      new_width += kResizeKeyboardAmount;
+      break;
+    case TableView::ADVANCE_DECREMENT:
+      new_width -= kResizeKeyboardAmount;
+      break;
+  }
+
+  table_->SetVisibleColumnWidth(
+      index, std::max({kMinColumnWidth, needed_for_title, new_width}));
+}
+
 bool TableHeader::StartResize(const ui::LocatedEvent& event) {
   if (is_resizing())
     return false;
@@ -242,7 +268,7 @@ bool TableHeader::StartResize(const ui::LocatedEvent& event) {
   resize_details_.reset(new ColumnResizeDetails);
   resize_details_->column_index = index;
   resize_details_->initial_x = event.root_location().x();
-  resize_details_->initial_width = table_->visible_columns()[index].width;
+  resize_details_->initial_width = table_->GetVisibleColumn(index).width;
   return true;
 }
 
@@ -253,9 +279,15 @@ void TableHeader::ContinueResize(const ui::LocatedEvent& event) {
   const int scale = base::i18n::IsRTL() ? -1 : 1;
   const int delta = scale *
       (event.root_location().x() - resize_details_->initial_x);
+  const TableView::VisibleColumn& column =
+      table_->GetVisibleColumn(resize_details_->column_index);
+  const int needed_for_title =
+      gfx::GetStringWidth(column.column.title, font_list_) +
+      2 * kHorizontalPadding;
   table_->SetVisibleColumnWidth(
       resize_details_->column_index,
-      std::max(kMinColumnWidth, resize_details_->initial_width + delta));
+      std::max({kMinColumnWidth, needed_for_title,
+                resize_details_->initial_width + delta}));
 }
 
 void TableHeader::ToggleSortOrder(const ui::LocatedEvent& event) {
@@ -264,7 +296,7 @@ void TableHeader::ToggleSortOrder(const ui::LocatedEvent& event) {
 
   const int x = GetMirroredXInView(event.x());
   const int index = GetClosestVisibleColumnIndex(table_, x);
-  const TableView::VisibleColumn& column(table_->visible_columns()[index]);
+  const TableView::VisibleColumn& column(table_->GetVisibleColumn(index));
   if (x >= column.x && x < column.x + column.width && event.y() >= 0 &&
       event.y() < height())
     table_->ToggleSortOrder(index);
@@ -277,7 +309,7 @@ int TableHeader::GetResizeColumn(int x) const {
 
   const int index = GetClosestVisibleColumnIndex(table_, x);
   DCHECK_NE(-1, index);
-  const TableView::VisibleColumn& column(table_->visible_columns()[index]);
+  const TableView::VisibleColumn& column(table_->GetVisibleColumn(index));
   if (index > 0 && x >= column.x - kResizePadding &&
       x <= column.x + kResizePadding) {
     return index - 1;

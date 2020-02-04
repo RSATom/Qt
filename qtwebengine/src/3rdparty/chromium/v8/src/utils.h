@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cmath>
+#include <string>
+#include <type_traits>
 
 #include "include/v8.h"
 #include "src/allocation.h"
@@ -17,10 +19,14 @@
 #include "src/base/logging.h"
 #include "src/base/macros.h"
 #include "src/base/platform/platform.h"
+#include "src/base/v8-fallthrough.h"
 #include "src/globals.h"
-#include "src/list.h"
+#include "src/third_party/siphash/halfsiphash.h"
 #include "src/vector.h"
-#include "src/zone/zone.h"
+
+#if defined(V8_OS_AIX)
+#include <fenv.h>  // NOLINT(build/c++11)
+#endif
 
 namespace v8 {
 namespace internal {
@@ -46,10 +52,31 @@ inline char HexCharOfValue(int value) {
 
 inline int BoolToInt(bool b) { return b ? 1 : 0; }
 
-
 // Same as strcmp, but can handle NULL arguments.
 inline bool CStringEquals(const char* s1, const char* s2) {
-  return (s1 == s2) || (s1 != NULL && s2 != NULL && strcmp(s1, s2) == 0);
+  return (s1 == s2) || (s1 != nullptr && s2 != nullptr && strcmp(s1, s2) == 0);
+}
+
+// Checks if value is in range [lower_limit, higher_limit] using a single
+// branch.
+template <typename T, typename U>
+inline constexpr bool IsInRange(T value, U lower_limit, U higher_limit) {
+#if V8_CAN_HAVE_DCHECK_IN_CONSTEXPR
+  DCHECK(lower_limit <= higher_limit);
+#endif
+  STATIC_ASSERT(sizeof(U) <= sizeof(T));
+  typedef typename std::make_unsigned<T>::type unsigned_T;
+  // Use static_cast to support enum classes.
+  return static_cast<unsigned_T>(static_cast<unsigned_T>(value) -
+                                 static_cast<unsigned_T>(lower_limit)) <=
+         static_cast<unsigned_T>(static_cast<unsigned_T>(higher_limit) -
+                                 static_cast<unsigned_T>(lower_limit));
+}
+
+// Checks if [index, index+length) is in range [0, max). Note that this check
+// works even if {index+length} would wrap around.
+inline constexpr bool IsInBounds(size_t index, size_t length, size_t max) {
+  return length <= max && index <= (max - length);
 }
 
 // X must be a power of 2.  Returns the number of trailing zeros.
@@ -76,9 +103,15 @@ inline int WhichPowerOf2(T x) {
 #undef CHECK_BIGGER
   switch (x) {
     default: UNREACHABLE();
-    case 8: bits++;  // Fall through.
-    case 4: bits++;  // Fall through.
-    case 2: bits++;  // Fall through.
+    case 8:
+      bits++;
+      V8_FALLTHROUGH;
+    case 4:
+      bits++;
+      V8_FALLTHROUGH;
+    case 2:
+      bits++;
+      V8_FALLTHROUGH;
     case 1: break;
   }
   DCHECK_EQ(T{1} << bits, original_x);
@@ -136,22 +169,6 @@ int HandleObjectPointerCompare(const Handle<T>* a, const Handle<T>* b) {
   return Compare<T*>(*(*a), *(*b));
 }
 
-
-template <typename T, typename U>
-inline bool IsAligned(T value, U alignment) {
-  return (value & (alignment - 1)) == 0;
-}
-
-
-// Returns true if (addr + offset) is aligned.
-inline bool IsAddressAligned(Address addr,
-                             intptr_t alignment,
-                             int offset = 0) {
-  intptr_t offs = OffsetFrom(addr + offset);
-  return IsAligned(offs, alignment);
-}
-
-
 // Returns the maximum of the two parameters.
 template <typename T>
 constexpr T Max(T a, T b) {
@@ -185,9 +202,22 @@ T JSMin(T x, T y) {
 
 // Returns the absolute value of its argument.
 template <typename T,
-          typename = typename std::enable_if<std::is_integral<T>::value>::type>
+          typename = typename std::enable_if<std::is_signed<T>::value>::type>
 typename std::make_unsigned<T>::type Abs(T a) {
-  return a < 0 ? -a : a;
+  // This is a branch-free implementation of the absolute value function and is
+  // described in Warren's "Hacker's Delight", chapter 2. It avoids undefined
+  // behavior with the arithmetic negation operation on signed values as well.
+  typedef typename std::make_unsigned<T>::type unsignedT;
+  unsignedT x = static_cast<unsignedT>(a);
+  unsignedT y = static_cast<unsignedT>(a >> (sizeof(T) * 8 - 1));
+  return (x ^ y) - y;
+}
+
+// Returns the negative absolute value of its argument.
+template <typename T,
+          typename = typename std::enable_if<std::is_signed<T>::value>::type>
+T Nabs(T a) {
+  return a < 0 ? a : -a;
 }
 
 // Floor(-0.0) == 0.0
@@ -196,6 +226,31 @@ inline double Floor(double x) {
   if (x == 0) return x;  // Fix for issue 3477.
 #endif
   return std::floor(x);
+}
+
+inline double Modulo(double x, double y) {
+#if defined(V8_OS_WIN)
+  // Workaround MS fmod bugs. ECMA-262 says:
+  // dividend is finite and divisor is an infinity => result equals dividend
+  // dividend is a zero and divisor is nonzero finite => result equals dividend
+  if (!(std::isfinite(x) && (!std::isfinite(y) && !std::isnan(y))) &&
+      !(x == 0 && (y != 0 && std::isfinite(y)))) {
+    double result = fmod(x, y);
+    // Workaround MS bug in VS CRT in some OS versions, https://crbug.com/915045
+    // fmod(-17, +/-1) should equal -0.0 but now returns 0.0.
+    if (x < 0 && result == 0) result = -0.0;
+    x = result;
+  }
+  return x;
+#elif defined(V8_OS_AIX)
+  // AIX raises an underflow exception for (Number.MIN_VALUE % Number.MAX_VALUE)
+  feclearexcept(FE_ALL_EXCEPT);
+  double result = std::fmod(x, y);
+  int exception = fetestexcept(FE_UNDERFLOW);
+  return (exception ? x : result);
+#else
+  return std::fmod(x, y);
+#endif
 }
 
 inline double Pow(double x, double y) {
@@ -227,6 +282,47 @@ inline double Pow(double x, double y) {
   return std::pow(x, y);
 }
 
+template <typename T>
+T SaturateAdd(T a, T b) {
+  if (std::is_signed<T>::value) {
+    if (a > 0 && b > 0) {
+      if (a > std::numeric_limits<T>::max() - b) {
+        return std::numeric_limits<T>::max();
+      }
+    } else if (a < 0 && b < 0) {
+      if (a < std::numeric_limits<T>::min() - b) {
+        return std::numeric_limits<T>::min();
+      }
+    }
+  } else {
+    CHECK(std::is_unsigned<T>::value);
+    if (a > std::numeric_limits<T>::max() - b) {
+      return std::numeric_limits<T>::max();
+    }
+  }
+  return a + b;
+}
+
+template <typename T>
+T SaturateSub(T a, T b) {
+  if (std::is_signed<T>::value) {
+    if (a >= 0 && b < 0) {
+      if (a > std::numeric_limits<T>::max() + b) {
+        return std::numeric_limits<T>::max();
+      }
+    } else if (a < 0 && b > 0) {
+      if (a < std::numeric_limits<T>::min() + b) {
+        return std::numeric_limits<T>::min();
+      }
+    }
+  } else {
+    CHECK(std::is_unsigned<T>::value);
+    if (a < b) {
+      return static_cast<T>(0);
+    }
+  }
+  return a - b;
+}
 
 // ----------------------------------------------------------------------------
 // BitField is a help template for encoding and decode bitfield with
@@ -245,9 +341,10 @@ class BitFieldBase {
   static const U kShift = shift;
   static const U kSize = size;
   static const U kNext = kShift + kSize;
+  static const U kNumValues = kOne << size;
 
   // Value for the field with all bits set.
-  static const T kMax = static_cast<T>((kOne << size) - 1);
+  static const T kMax = static_cast<T>(kNumValues - 1);
 
   // Tells whether the provided value fits into the bit field.
   static constexpr bool is_valid(T value) {
@@ -255,18 +352,20 @@ class BitFieldBase {
   }
 
   // Returns a type U with the bit field value encoded.
-  static U encode(T value) {
+  static constexpr U encode(T value) {
+#if V8_CAN_HAVE_DCHECK_IN_CONSTEXPR
     DCHECK(is_valid(value));
+#endif
     return static_cast<U>(value) << shift;
   }
 
   // Returns a type U with the bit field value updated.
-  static U update(U previous, T value) {
+  static constexpr U update(U previous, T value) {
     return (previous & ~kMask) | encode(value);
   }
 
   // Extracts the bit field from the value.
-  static T decode(U value) {
+  static constexpr T decode(U value) {
     return static_cast<T>((value & kMask) >> shift);
   }
 
@@ -305,9 +404,9 @@ class BitField64 : public BitFieldBase<T, shift, size, uint64_t> { };
 #define DEFINE_BIT_FIELD_RANGE_TYPE(Name, Type, Size, _) \
   k##Name##Start, k##Name##End = k##Name##Start + Size - 1,
 
-#define DEFINE_BIT_RANGES(LIST_MACRO)                    \
-  struct LIST_MACRO##_Ranges {                           \
-    enum { LIST_MACRO(DEFINE_BIT_FIELD_RANGE_TYPE, _) }; \
+#define DEFINE_BIT_RANGES(LIST_MACRO)                               \
+  struct LIST_MACRO##_Ranges {                                      \
+    enum { LIST_MACRO(DEFINE_BIT_FIELD_RANGE_TYPE, _) kBitsCount }; \
   };
 
 #define DEFINE_BIT_FIELD_TYPE(Name, Type, Size, RangesName) \
@@ -368,15 +467,15 @@ class BitSetComputer {
 // macro definition are omitted here to please the compiler)
 //
 // #define MAP_FIELDS(V)
-//   V(kField1Offset, kPointerSize)
+//   V(kField1Offset, kTaggedSize)
 //   V(kField2Offset, kIntSize)
 //   V(kField3Offset, kIntSize)
-//   V(kField4Offset, kPointerSize)
+//   V(kField4Offset, kSystemPointerSize)
 //   V(kSize, 0)
 //
 // DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize, MAP_FIELDS)
 //
-#define DEFINE_ONE_FIELD_OFFSET(Name, Size) Name, Name##End = Name + Size - 1,
+#define DEFINE_ONE_FIELD_OFFSET(Name, Size) Name, Name##End = Name + (Size)-1,
 
 #define DEFINE_FIELD_OFFSET_CONSTANTS(StartOffset, LIST_MACRO) \
   enum {                                                       \
@@ -384,16 +483,18 @@ class BitSetComputer {
     LIST_MACRO(DEFINE_ONE_FIELD_OFFSET)                        \
   };
 
+// Size of the field defined by DEFINE_FIELD_OFFSET_CONSTANTS
+#define FIELD_SIZE(Name) (Name##End + 1 - Name)
+
 // ----------------------------------------------------------------------------
 // Hash function.
 
-static const uint32_t kZeroHashSeed = 0;
+static const uint64_t kZeroHashSeed = 0;
 
 // Thomas Wang, Integer Hash Functions.
-// http://www.concentric.net/~Ttwang/tech/inthash.htm
-inline uint32_t ComputeIntegerHash(uint32_t key, uint32_t seed) {
+// http://www.concentric.net/~Ttwang/tech/inthash.htm`
+inline uint32_t ComputeUnseededHash(uint32_t key) {
   uint32_t hash = key;
-  hash = hash ^ seed;
   hash = ~hash + (hash << 15);  // hash = (hash << 15) - hash - 1;
   hash = hash ^ (hash >> 12);
   hash = hash + (hash << 2);
@@ -401,10 +502,6 @@ inline uint32_t ComputeIntegerHash(uint32_t key, uint32_t seed) {
   hash = hash * 2057;  // hash = (hash + (hash << 3)) + (hash << 11);
   hash = hash ^ (hash >> 16);
   return hash & 0x3fffffff;
-}
-
-inline uint32_t ComputeIntegerHash(uint32_t key) {
-  return ComputeIntegerHash(key, kZeroHashSeed);
 }
 
 inline uint32_t ComputeLongHash(uint64_t key) {
@@ -415,96 +512,25 @@ inline uint32_t ComputeLongHash(uint64_t key) {
   hash = hash ^ (hash >> 11);
   hash = hash + (hash << 6);
   hash = hash ^ (hash >> 22);
-  return static_cast<uint32_t>(hash);
+  return static_cast<uint32_t>(hash & 0x3fffffff);
 }
 
+inline uint32_t ComputeSeededHash(uint32_t key, uint64_t seed) {
+#ifdef V8_USE_SIPHASH
+  return halfsiphash(key, seed);
+#else
+  return ComputeLongHash(static_cast<uint64_t>(key) ^ seed);
+#endif  // V8_USE_SIPHASH
+}
 
 inline uint32_t ComputePointerHash(void* ptr) {
-  return ComputeIntegerHash(
+  return ComputeUnseededHash(
       static_cast<uint32_t>(reinterpret_cast<intptr_t>(ptr)));
 }
 
-
-// ----------------------------------------------------------------------------
-// Generated memcpy/memmove
-
-// Initializes the codegen support that depends on CPU features.
-void init_memcopy_functions(Isolate* isolate);
-
-#if defined(V8_TARGET_ARCH_IA32)
-// Limit below which the extra overhead of the MemCopy function is likely
-// to outweigh the benefits of faster copying.
-const int kMinComplexMemCopy = 64;
-
-// Copy memory area. No restrictions.
-V8_EXPORT_PRIVATE void MemMove(void* dest, const void* src, size_t size);
-typedef void (*MemMoveFunction)(void* dest, const void* src, size_t size);
-
-// Keep the distinction of "move" vs. "copy" for the benefit of other
-// architectures.
-V8_INLINE void MemCopy(void* dest, const void* src, size_t size) {
-  MemMove(dest, src, size);
+inline uint32_t ComputeAddressHash(Address address) {
+  return ComputeUnseededHash(static_cast<uint32_t>(address & 0xFFFFFFFFul));
 }
-#elif defined(V8_HOST_ARCH_ARM)
-typedef void (*MemCopyUint8Function)(uint8_t* dest, const uint8_t* src,
-                                     size_t size);
-V8_EXPORT_PRIVATE extern MemCopyUint8Function memcopy_uint8_function;
-V8_INLINE void MemCopyUint8Wrapper(uint8_t* dest, const uint8_t* src,
-                                   size_t chars) {
-  memcpy(dest, src, chars);
-}
-// For values < 16, the assembler function is slower than the inlined C code.
-const int kMinComplexMemCopy = 16;
-V8_INLINE void MemCopy(void* dest, const void* src, size_t size) {
-  (*memcopy_uint8_function)(reinterpret_cast<uint8_t*>(dest),
-                            reinterpret_cast<const uint8_t*>(src), size);
-}
-V8_EXPORT_PRIVATE V8_INLINE void MemMove(void* dest, const void* src,
-                                         size_t size) {
-  memmove(dest, src, size);
-}
-
-typedef void (*MemCopyUint16Uint8Function)(uint16_t* dest, const uint8_t* src,
-                                           size_t size);
-extern MemCopyUint16Uint8Function memcopy_uint16_uint8_function;
-void MemCopyUint16Uint8Wrapper(uint16_t* dest, const uint8_t* src,
-                               size_t chars);
-// For values < 12, the assembler function is slower than the inlined C code.
-const int kMinComplexConvertMemCopy = 12;
-V8_INLINE void MemCopyUint16Uint8(uint16_t* dest, const uint8_t* src,
-                                  size_t size) {
-  (*memcopy_uint16_uint8_function)(dest, src, size);
-}
-#elif defined(V8_HOST_ARCH_MIPS)
-typedef void (*MemCopyUint8Function)(uint8_t* dest, const uint8_t* src,
-                                     size_t size);
-V8_EXPORT_PRIVATE extern MemCopyUint8Function memcopy_uint8_function;
-V8_INLINE void MemCopyUint8Wrapper(uint8_t* dest, const uint8_t* src,
-                                   size_t chars) {
-  memcpy(dest, src, chars);
-}
-// For values < 16, the assembler function is slower than the inlined C code.
-const int kMinComplexMemCopy = 16;
-V8_INLINE void MemCopy(void* dest, const void* src, size_t size) {
-  (*memcopy_uint8_function)(reinterpret_cast<uint8_t*>(dest),
-                            reinterpret_cast<const uint8_t*>(src), size);
-}
-V8_EXPORT_PRIVATE V8_INLINE void MemMove(void* dest, const void* src,
-                                         size_t size) {
-  memmove(dest, src, size);
-}
-#else
-// Copy memory area to disjoint memory area.
-V8_INLINE void MemCopy(void* dest, const void* src, size_t size) {
-  memcpy(dest, src, size);
-}
-V8_EXPORT_PRIVATE V8_INLINE void MemMove(void* dest, const void* src,
-                                         size_t size) {
-  memmove(dest, src, size);
-}
-const int kMinComplexMemCopy = 8;
-#endif  // V8_TARGET_ARCH_IA32
-
 
 // ----------------------------------------------------------------------------
 // Miscellaneous
@@ -546,8 +572,8 @@ class Access {
 
   ~Access() {
     resource_->is_reserved_ = false;
-    resource_ = NULL;
-    instance_ = NULL;
+    resource_ = nullptr;
+    instance_ = nullptr;
   }
 
   T* value()  { return instance_; }
@@ -558,27 +584,34 @@ class Access {
   T* instance_;
 };
 
-
 // A pointer that can only be set once and doesn't allow NULL values.
 template<typename T>
 class SetOncePointer {
  public:
-  SetOncePointer() : pointer_(NULL) { }
+  SetOncePointer() = default;
 
-  bool is_set() const { return pointer_ != NULL; }
+  bool is_set() const { return pointer_ != nullptr; }
 
   T* get() const {
-    DCHECK(pointer_ != NULL);
+    DCHECK_NOT_NULL(pointer_);
     return pointer_;
   }
 
   void set(T* value) {
-    DCHECK(pointer_ == NULL && value != NULL);
+    DCHECK(pointer_ == nullptr && value != nullptr);
     pointer_ = value;
   }
 
+  T* operator=(T* value) {
+    set(value);
+    return value;
+  }
+
+  bool operator==(std::nullptr_t) const { return pointer_ == nullptr; }
+  bool operator!=(std::nullptr_t) const { return pointer_ != nullptr; }
+
  private:
-  T* pointer_;
+  T* pointer_ = nullptr;
 };
 
 
@@ -594,13 +627,12 @@ class EmbeddedVector : public Vector<T> {
   }
 
   // When copying, make underlying Vector to reference our buffer.
-  EmbeddedVector(const EmbeddedVector& rhs)
-      : Vector<T>(rhs) {
+  EmbeddedVector(const EmbeddedVector& rhs) V8_NOEXCEPT : Vector<T>(rhs) {
     MemCopy(buffer_, rhs.buffer_, sizeof(T) * kSize);
     this->set_start(buffer_);
   }
 
-  EmbeddedVector& operator=(const EmbeddedVector& rhs) {
+  EmbeddedVector& operator=(const EmbeddedVector& rhs) V8_NOEXCEPT {
     if (this == &rhs) return *this;
     Vector<T>::operator=(rhs);
     MemCopy(buffer_, rhs.buffer_, sizeof(T) * kSize);
@@ -633,8 +665,8 @@ inline int CompareCharsUnsigned(const lchar* lhs, const rchar* rhs,
 
 template <typename lchar, typename rchar>
 inline int CompareChars(const lchar* lhs, const rchar* rhs, size_t chars) {
-  DCHECK(sizeof(lchar) <= 2);
-  DCHECK(sizeof(rchar) <= 2);
+  DCHECK_LE(sizeof(lchar), 2);
+  DCHECK_LE(sizeof(rchar), 2);
   if (sizeof(lchar) == 1) {
     if (sizeof(rchar) == 1) {
       return CompareCharsUnsigned(reinterpret_cast<const uint8_t*>(lhs),
@@ -661,8 +693,8 @@ inline int CompareChars(const lchar* lhs, const rchar* rhs, size_t chars) {
 
 // Calculate 10^exponent.
 inline int TenToThe(int exponent) {
-  DCHECK(exponent <= 9);
-  DCHECK(exponent >= 1);
+  DCHECK_LE(exponent, 9);
+  DCHECK_GE(exponent, 1);
   int answer = 10;
   for (int i = 1; i < exponent; i++) answer *= 10;
   return answer;
@@ -737,7 +769,7 @@ class SimpleStringBuilder {
   // 0-characters; use the Finalize() method to terminate the string
   // instead.
   void AddCharacter(char c) {
-    DCHECK(c != '\0');
+    DCHECK_NE(c, '\0');
     DCHECK(!is_finalized() && position_ < buffer_.length());
     buffer_[position_++] = c;
   }
@@ -768,42 +800,6 @@ class SimpleStringBuilder {
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(SimpleStringBuilder);
-};
-
-
-// A poor man's version of STL's bitset: A bit set of enums E (without explicit
-// values), fitting into an integral type T.
-template <class E, class T = int>
-class EnumSet {
- public:
-  explicit EnumSet(T bits = 0) : bits_(bits) {}
-  bool IsEmpty() const { return bits_ == 0; }
-  bool Contains(E element) const { return (bits_ & Mask(element)) != 0; }
-  bool ContainsAnyOf(const EnumSet& set) const {
-    return (bits_ & set.bits_) != 0;
-  }
-  void Add(E element) { bits_ |= Mask(element); }
-  void Add(const EnumSet& set) { bits_ |= set.bits_; }
-  void Remove(E element) { bits_ &= ~Mask(element); }
-  void Remove(const EnumSet& set) { bits_ &= ~set.bits_; }
-  void RemoveAll() { bits_ = 0; }
-  void Intersect(const EnumSet& set) { bits_ &= set.bits_; }
-  T ToIntegral() const { return bits_; }
-  bool operator==(const EnumSet& set) { return bits_ == set.bits_; }
-  bool operator!=(const EnumSet& set) { return bits_ != set.bits_; }
-  EnumSet<E, T> operator|(const EnumSet& set) const {
-    return EnumSet<E, T>(bits_ | set.bits_);
-  }
-
- private:
-  T Mask(E element) const {
-    // The strange typing in DCHECK is necessary to avoid stupid warnings, see:
-    // http://gcc.gnu.org/bugzilla/show_bug.cgi?id=43680
-    DCHECK(static_cast<int>(element) < static_cast<int>(sizeof(T) * CHAR_BIT));
-    return static_cast<T>(1) << element;
-  }
-
-  T bits_;
 };
 
 // Bit field extraction.
@@ -866,6 +862,23 @@ INT_1_TO_63_LIST(DECLARE_TRUNCATE_TO_INT_N)
 #undef DECLARE_IS_INT_N
 #undef DECLARE_IS_UINT_N
 #undef DECLARE_TRUNCATE_TO_INT_N
+
+// clang-format off
+#define INT_0_TO_127_LIST(V)                                          \
+V(0)   V(1)   V(2)   V(3)   V(4)   V(5)   V(6)   V(7)   V(8)   V(9)   \
+V(10)  V(11)  V(12)  V(13)  V(14)  V(15)  V(16)  V(17)  V(18)  V(19)  \
+V(20)  V(21)  V(22)  V(23)  V(24)  V(25)  V(26)  V(27)  V(28)  V(29)  \
+V(30)  V(31)  V(32)  V(33)  V(34)  V(35)  V(36)  V(37)  V(38)  V(39)  \
+V(40)  V(41)  V(42)  V(43)  V(44)  V(45)  V(46)  V(47)  V(48)  V(49)  \
+V(50)  V(51)  V(52)  V(53)  V(54)  V(55)  V(56)  V(57)  V(58)  V(59)  \
+V(60)  V(61)  V(62)  V(63)  V(64)  V(65)  V(66)  V(67)  V(68)  V(69)  \
+V(70)  V(71)  V(72)  V(73)  V(74)  V(75)  V(76)  V(77)  V(78)  V(79)  \
+V(80)  V(81)  V(82)  V(83)  V(84)  V(85)  V(86)  V(87)  V(88)  V(89)  \
+V(90)  V(91)  V(92)  V(93)  V(94)  V(95)  V(96)  V(97)  V(98)  V(99)  \
+V(100) V(101) V(102) V(103) V(104) V(105) V(106) V(107) V(108) V(109) \
+V(110) V(111) V(112) V(113) V(114) V(115) V(116) V(117) V(118) V(119) \
+V(120) V(121) V(122) V(123) V(124) V(125) V(126) V(127)
+// clang-format on
 
 class FeedbackSlot {
  public:
@@ -984,12 +997,6 @@ inline void Flush() {
 char* ReadLine(const char* prompt);
 
 
-// Read and return the raw bytes in a file. the size of the buffer is returned
-// in size.
-// The returned buffer must be freed by the caller.
-byte* ReadBytes(const char* filename, int* size, bool verbose = true);
-
-
 // Append size chars from str to the file given by filename.
 // The file is overwritten. Returns the number of chars written.
 int AppendChars(const char* filename,
@@ -1022,437 +1029,11 @@ int WriteAsCFile(const char* filename, const char* varname,
                  const char* str, int size, bool verbose = true);
 
 
-// ----------------------------------------------------------------------------
-// Memory
-
-// Copies words from |src| to |dst|. The data spans must not overlap.
-template <typename T>
-inline void CopyWords(T* dst, const T* src, size_t num_words) {
-  STATIC_ASSERT(sizeof(T) == kPointerSize);
-  DCHECK(Min(dst, const_cast<T*>(src)) + num_words <=
-         Max(dst, const_cast<T*>(src)));
-  DCHECK(num_words > 0);
-
-  // Use block copying MemCopy if the segment we're copying is
-  // enough to justify the extra call/setup overhead.
-  static const size_t kBlockCopyLimit = 16;
-
-  if (num_words < kBlockCopyLimit) {
-    do {
-      num_words--;
-      *dst++ = *src++;
-    } while (num_words > 0);
-  } else {
-    MemCopy(dst, src, num_words * kPointerSize);
-  }
-}
-
-
-// Copies words from |src| to |dst|. No restrictions.
-template <typename T>
-inline void MoveWords(T* dst, const T* src, size_t num_words) {
-  STATIC_ASSERT(sizeof(T) == kPointerSize);
-  DCHECK(num_words > 0);
-
-  // Use block copying MemCopy if the segment we're copying is
-  // enough to justify the extra call/setup overhead.
-  static const size_t kBlockCopyLimit = 16;
-
-  if (num_words < kBlockCopyLimit &&
-      ((dst < src) || (dst >= (src + num_words * kPointerSize)))) {
-    T* end = dst + num_words;
-    do {
-      num_words--;
-      *dst++ = *src++;
-    } while (num_words > 0);
-  } else {
-    MemMove(dst, src, num_words * kPointerSize);
-  }
-}
-
-
-// Copies data from |src| to |dst|.  The data spans must not overlap.
-template <typename T>
-inline void CopyBytes(T* dst, const T* src, size_t num_bytes) {
-  STATIC_ASSERT(sizeof(T) == 1);
-  DCHECK(Min(dst, const_cast<T*>(src)) + num_bytes <=
-         Max(dst, const_cast<T*>(src)));
-  if (num_bytes == 0) return;
-
-  // Use block copying MemCopy if the segment we're copying is
-  // enough to justify the extra call/setup overhead.
-  static const int kBlockCopyLimit = kMinComplexMemCopy;
-
-  if (num_bytes < static_cast<size_t>(kBlockCopyLimit)) {
-    do {
-      num_bytes--;
-      *dst++ = *src++;
-    } while (num_bytes > 0);
-  } else {
-    MemCopy(dst, src, num_bytes);
-  }
-}
-
-
-template <typename T, typename U>
-inline void MemsetPointer(T** dest, U* value, int counter) {
-#ifdef DEBUG
-  T* a = NULL;
-  U* b = NULL;
-  a = b;  // Fake assignment to check assignability.
-  USE(a);
-#endif  // DEBUG
-#if V8_HOST_ARCH_IA32
-#define STOS "stosl"
-#elif V8_HOST_ARCH_X64
-#if V8_HOST_ARCH_32_BIT
-#define STOS "addr32 stosl"
-#else
-#define STOS "stosq"
-#endif
-#endif
-
-#if defined(MEMORY_SANITIZER)
-  // MemorySanitizer does not understand inline assembly.
-#undef STOS
-#endif
-
-#if defined(__GNUC__) && defined(STOS)
-  asm volatile(
-      "cld;"
-      "rep ; " STOS
-      : "+&c" (counter), "+&D" (dest)
-      : "a" (value)
-      : "memory", "cc");
-#else
-  for (int i = 0; i < counter; i++) {
-    dest[i] = value;
-  }
-#endif
-
-#undef STOS
-}
-
-
-// Simple support to read a file into a 0-terminated C-string.
-// The returned buffer must be freed by the caller.
+// Simple support to read a file into std::string.
 // On return, *exits tells whether the file existed.
-V8_EXPORT_PRIVATE Vector<const char> ReadFile(const char* filename,
-                                              bool* exists,
-                                              bool verbose = true);
-Vector<const char> ReadFile(FILE* file,
-                            bool* exists,
-                            bool verbose = true);
-
-
-template <typename sourcechar, typename sinkchar>
-INLINE(static void CopyCharsUnsigned(sinkchar* dest, const sourcechar* src,
-                                     size_t chars));
-#if defined(V8_HOST_ARCH_ARM)
-INLINE(void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars));
-INLINE(void CopyCharsUnsigned(uint16_t* dest, const uint8_t* src,
-                              size_t chars));
-INLINE(void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
-                              size_t chars));
-#elif defined(V8_HOST_ARCH_MIPS)
-INLINE(void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars));
-INLINE(void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
-                              size_t chars));
-#elif defined(V8_HOST_ARCH_PPC) || defined(V8_HOST_ARCH_S390)
-INLINE(void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars));
-INLINE(void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
-                              size_t chars));
-#endif
-
-// Copy from 8bit/16bit chars to 8bit/16bit chars.
-template <typename sourcechar, typename sinkchar>
-INLINE(void CopyChars(sinkchar* dest, const sourcechar* src, size_t chars));
-
-template <typename sourcechar, typename sinkchar>
-void CopyChars(sinkchar* dest, const sourcechar* src, size_t chars) {
-  DCHECK(sizeof(sourcechar) <= 2);
-  DCHECK(sizeof(sinkchar) <= 2);
-  if (sizeof(sinkchar) == 1) {
-    if (sizeof(sourcechar) == 1) {
-      CopyCharsUnsigned(reinterpret_cast<uint8_t*>(dest),
-                        reinterpret_cast<const uint8_t*>(src),
-                        chars);
-    } else {
-      CopyCharsUnsigned(reinterpret_cast<uint8_t*>(dest),
-                        reinterpret_cast<const uint16_t*>(src),
-                        chars);
-    }
-  } else {
-    if (sizeof(sourcechar) == 1) {
-      CopyCharsUnsigned(reinterpret_cast<uint16_t*>(dest),
-                        reinterpret_cast<const uint8_t*>(src),
-                        chars);
-    } else {
-      CopyCharsUnsigned(reinterpret_cast<uint16_t*>(dest),
-                        reinterpret_cast<const uint16_t*>(src),
-                        chars);
-    }
-  }
-}
-
-template <typename sourcechar, typename sinkchar>
-void CopyCharsUnsigned(sinkchar* dest, const sourcechar* src, size_t chars) {
-  sinkchar* limit = dest + chars;
-  if ((sizeof(*dest) == sizeof(*src)) &&
-      (chars >= static_cast<int>(kMinComplexMemCopy / sizeof(*dest)))) {
-    MemCopy(dest, src, chars * sizeof(*dest));
-  } else {
-    while (dest < limit) *dest++ = static_cast<sinkchar>(*src++);
-  }
-}
-
-
-#if defined(V8_HOST_ARCH_ARM)
-void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars) {
-  switch (static_cast<unsigned>(chars)) {
-    case 0:
-      break;
-    case 1:
-      *dest = *src;
-      break;
-    case 2:
-      memcpy(dest, src, 2);
-      break;
-    case 3:
-      memcpy(dest, src, 3);
-      break;
-    case 4:
-      memcpy(dest, src, 4);
-      break;
-    case 5:
-      memcpy(dest, src, 5);
-      break;
-    case 6:
-      memcpy(dest, src, 6);
-      break;
-    case 7:
-      memcpy(dest, src, 7);
-      break;
-    case 8:
-      memcpy(dest, src, 8);
-      break;
-    case 9:
-      memcpy(dest, src, 9);
-      break;
-    case 10:
-      memcpy(dest, src, 10);
-      break;
-    case 11:
-      memcpy(dest, src, 11);
-      break;
-    case 12:
-      memcpy(dest, src, 12);
-      break;
-    case 13:
-      memcpy(dest, src, 13);
-      break;
-    case 14:
-      memcpy(dest, src, 14);
-      break;
-    case 15:
-      memcpy(dest, src, 15);
-      break;
-    default:
-      MemCopy(dest, src, chars);
-      break;
-  }
-}
-
-
-void CopyCharsUnsigned(uint16_t* dest, const uint8_t* src, size_t chars) {
-  if (chars >= static_cast<size_t>(kMinComplexConvertMemCopy)) {
-    MemCopyUint16Uint8(dest, src, chars);
-  } else {
-    MemCopyUint16Uint8Wrapper(dest, src, chars);
-  }
-}
-
-
-void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src, size_t chars) {
-  switch (static_cast<unsigned>(chars)) {
-    case 0:
-      break;
-    case 1:
-      *dest = *src;
-      break;
-    case 2:
-      memcpy(dest, src, 4);
-      break;
-    case 3:
-      memcpy(dest, src, 6);
-      break;
-    case 4:
-      memcpy(dest, src, 8);
-      break;
-    case 5:
-      memcpy(dest, src, 10);
-      break;
-    case 6:
-      memcpy(dest, src, 12);
-      break;
-    case 7:
-      memcpy(dest, src, 14);
-      break;
-    default:
-      MemCopy(dest, src, chars * sizeof(*dest));
-      break;
-  }
-}
-
-
-#elif defined(V8_HOST_ARCH_MIPS)
-void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars) {
-  if (chars < kMinComplexMemCopy) {
-    memcpy(dest, src, chars);
-  } else {
-    MemCopy(dest, src, chars);
-  }
-}
-
-void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src, size_t chars) {
-  if (chars < kMinComplexMemCopy) {
-    memcpy(dest, src, chars * sizeof(*dest));
-  } else {
-    MemCopy(dest, src, chars * sizeof(*dest));
-  }
-}
-#elif defined(V8_HOST_ARCH_PPC) || defined(V8_HOST_ARCH_S390)
-#define CASE(n)           \
-  case n:                 \
-    memcpy(dest, src, n); \
-    break
-void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars) {
-  switch (static_cast<unsigned>(chars)) {
-    case 0:
-      break;
-    case 1:
-      *dest = *src;
-      break;
-      CASE(2);
-      CASE(3);
-      CASE(4);
-      CASE(5);
-      CASE(6);
-      CASE(7);
-      CASE(8);
-      CASE(9);
-      CASE(10);
-      CASE(11);
-      CASE(12);
-      CASE(13);
-      CASE(14);
-      CASE(15);
-      CASE(16);
-      CASE(17);
-      CASE(18);
-      CASE(19);
-      CASE(20);
-      CASE(21);
-      CASE(22);
-      CASE(23);
-      CASE(24);
-      CASE(25);
-      CASE(26);
-      CASE(27);
-      CASE(28);
-      CASE(29);
-      CASE(30);
-      CASE(31);
-      CASE(32);
-      CASE(33);
-      CASE(34);
-      CASE(35);
-      CASE(36);
-      CASE(37);
-      CASE(38);
-      CASE(39);
-      CASE(40);
-      CASE(41);
-      CASE(42);
-      CASE(43);
-      CASE(44);
-      CASE(45);
-      CASE(46);
-      CASE(47);
-      CASE(48);
-      CASE(49);
-      CASE(50);
-      CASE(51);
-      CASE(52);
-      CASE(53);
-      CASE(54);
-      CASE(55);
-      CASE(56);
-      CASE(57);
-      CASE(58);
-      CASE(59);
-      CASE(60);
-      CASE(61);
-      CASE(62);
-      CASE(63);
-      CASE(64);
-    default:
-      memcpy(dest, src, chars);
-      break;
-  }
-}
-#undef CASE
-
-#define CASE(n)               \
-  case n:                     \
-    memcpy(dest, src, n * 2); \
-    break
-void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src, size_t chars) {
-  switch (static_cast<unsigned>(chars)) {
-    case 0:
-      break;
-    case 1:
-      *dest = *src;
-      break;
-      CASE(2);
-      CASE(3);
-      CASE(4);
-      CASE(5);
-      CASE(6);
-      CASE(7);
-      CASE(8);
-      CASE(9);
-      CASE(10);
-      CASE(11);
-      CASE(12);
-      CASE(13);
-      CASE(14);
-      CASE(15);
-      CASE(16);
-      CASE(17);
-      CASE(18);
-      CASE(19);
-      CASE(20);
-      CASE(21);
-      CASE(22);
-      CASE(23);
-      CASE(24);
-      CASE(25);
-      CASE(26);
-      CASE(27);
-      CASE(28);
-      CASE(29);
-      CASE(30);
-      CASE(31);
-      CASE(32);
-    default:
-      memcpy(dest, src, chars * 2);
-      break;
-  }
-}
-#undef CASE
-#endif
-
+V8_EXPORT_PRIVATE std::string ReadFile(const char* filename, bool* exists,
+                                       bool verbose = true);
+std::string ReadFile(FILE* file, bool* exists, bool verbose = true);
 
 class StringBuilder : public SimpleStringBuilder {
  public:
@@ -1472,210 +1053,72 @@ class StringBuilder : public SimpleStringBuilder {
 
 bool DoubleToBoolean(double d);
 
+template <typename Char>
+bool TryAddIndexChar(uint32_t* index, Char c);
+
 template <typename Stream>
 bool StringToArrayIndex(Stream* stream, uint32_t* index);
 
-// Returns current value of top of the stack. Works correctly with ASAN.
-DISABLE_ASAN
-inline uintptr_t GetCurrentStackPosition() {
-  // Takes the address of the limit variable in order to find out where
-  // the top of stack is right now.
-  uintptr_t limit = reinterpret_cast<uintptr_t>(&limit);
-  return limit;
-}
+// Returns the current stack top. Works correctly with ASAN and SafeStack.
+// GetCurrentStackPosition() should not be inlined, because it works on stack
+// frames if it were inlined into a function with a huge stack frame it would
+// return an address significantly above the actual current stack position.
+V8_NOINLINE uintptr_t GetCurrentStackPosition();
 
 template <typename V>
-static inline V ReadUnalignedValue(const void* p) {
-#if !(V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM)
-  return *reinterpret_cast<const V*>(p);
-#else   // V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM
-  V r;
-  memmove(&r, p, sizeof(V));
-  return r;
-#endif  // V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM
-}
-
-template <typename V>
-static inline void WriteUnalignedValue(void* p, V value) {
-#if !(V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM)
-  *(reinterpret_cast<V*>(p)) = value;
-#else   // V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM
-  memmove(p, &value, sizeof(V));
-#endif  // V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM
-}
-
-static inline double ReadFloatValue(const void* p) {
-  return ReadUnalignedValue<float>(p);
-}
-
-static inline double ReadDoubleValue(const void* p) {
-  return ReadUnalignedValue<double>(p);
-}
-
-static inline void WriteDoubleValue(void* p, double value) {
-  WriteUnalignedValue(p, value);
-}
-
-static inline uint16_t ReadUnalignedUInt16(const void* p) {
-  return ReadUnalignedValue<uint16_t>(p);
-}
-
-static inline void WriteUnalignedUInt16(void* p, uint16_t value) {
-  WriteUnalignedValue(p, value);
-}
-
-static inline uint32_t ReadUnalignedUInt32(const void* p) {
-  return ReadUnalignedValue<uint32_t>(p);
-}
-
-static inline void WriteUnalignedUInt32(void* p, uint32_t value) {
-  WriteUnalignedValue(p, value);
-}
-
-template <typename V>
-static inline V ReadLittleEndianValue(const void* p) {
-#if defined(V8_TARGET_LITTLE_ENDIAN)
-  return ReadUnalignedValue<V>(p);
-#elif defined(V8_TARGET_BIG_ENDIAN)
-  V ret = 0;
-  const byte* src = reinterpret_cast<const byte*>(p);
-  byte* dst = reinterpret_cast<byte*>(&ret);
-  for (size_t i = 0; i < sizeof(V); i++) {
-    dst[i] = src[sizeof(V) - i - 1];
-  }
-  return ret;
-#endif  // V8_TARGET_LITTLE_ENDIAN
-}
-
-template <typename V>
-static inline void WriteLittleEndianValue(void* p, V value) {
-#if defined(V8_TARGET_LITTLE_ENDIAN)
-  WriteUnalignedValue<V>(p, value);
-#elif defined(V8_TARGET_BIG_ENDIAN)
-  byte* src = reinterpret_cast<byte*>(&value);
-  byte* dst = reinterpret_cast<byte*>(p);
-  for (size_t i = 0; i < sizeof(V); i++) {
-    dst[i] = src[sizeof(V) - i - 1];
-  }
-#endif  // V8_TARGET_LITTLE_ENDIAN
-}
-
-// Represents a linked list that threads through the nodes in the linked list.
-// Entries in the list are pointers to nodes. The nodes need to have a T**
-// next() method that returns the location where the next value is stored.
-template <typename T>
-class ThreadedList final {
- public:
-  ThreadedList() : head_(nullptr), tail_(&head_) {}
-  void Add(T* v) {
-    DCHECK_NULL(*tail_);
-    DCHECK_NULL(*v->next());
-    *tail_ = v;
-    tail_ = v->next();
-  }
-
-  void Clear() {
-    head_ = nullptr;
-    tail_ = &head_;
-  }
-
-  class Iterator final {
-   public:
-    Iterator& operator++() {
-      entry_ = (*entry_)->next();
-      return *this;
+static inline V ByteReverse(V value) {
+  size_t size_of_v = sizeof(value);
+  switch (size_of_v) {
+    case 2:
+#if V8_HAS_BUILTIN_BSWAP16
+      return static_cast<V>(__builtin_bswap16(static_cast<uint16_t>(value)));
+#else
+      return value << 8 | (value >> 8 & 0x00FF);
+#endif
+    case 4:
+#if V8_HAS_BUILTIN_BSWAP32
+      return static_cast<V>(__builtin_bswap32(static_cast<uint32_t>(value)));
+#else
+    {
+      size_t bits_of_v = size_of_v * kBitsPerByte;
+      return value << (bits_of_v - 8) |
+             ((value << (bits_of_v - 24)) & 0x00FF0000) |
+             ((value >> (bits_of_v - 24)) & 0x0000FF00) |
+             ((value >> (bits_of_v - 8)) & 0x00000FF);
     }
-    bool operator!=(const Iterator& other) { return entry_ != other.entry_; }
-    T* operator*() { return *entry_; }
-    T* operator->() { return *entry_; }
-    Iterator& operator=(T* entry) {
-      T* next = *(*entry_)->next();
-      *entry->next() = next;
-      *entry_ = entry;
-      return *this;
+#endif
+    case 8:
+#if V8_HAS_BUILTIN_BSWAP64
+      return static_cast<V>(__builtin_bswap64(static_cast<uint64_t>(value)));
+#else
+    {
+      size_t bits_of_v = size_of_v * kBitsPerByte;
+      return value << (bits_of_v - 8) |
+             ((value << (bits_of_v - 24)) & 0x00FF000000000000) |
+             ((value << (bits_of_v - 40)) & 0x0000FF0000000000) |
+             ((value << (bits_of_v - 56)) & 0x000000FF00000000) |
+             ((value >> (bits_of_v - 56)) & 0x00000000FF000000) |
+             ((value >> (bits_of_v - 40)) & 0x0000000000FF0000) |
+             ((value >> (bits_of_v - 24)) & 0x000000000000FF00) |
+             ((value >> (bits_of_v - 8)) & 0x00000000000000FF);
     }
-
-   private:
-    explicit Iterator(T** entry) : entry_(entry) {}
-
-    T** entry_;
-
-    friend class ThreadedList;
-  };
-
-  class ConstIterator final {
-   public:
-    ConstIterator& operator++() {
-      entry_ = (*entry_)->next();
-      return *this;
-    }
-    bool operator!=(const ConstIterator& other) {
-      return entry_ != other.entry_;
-    }
-    const T* operator*() const { return *entry_; }
-
-   private:
-    explicit ConstIterator(T* const* entry) : entry_(entry) {}
-
-    T* const* entry_;
-
-    friend class ThreadedList;
-  };
-
-  Iterator begin() { return Iterator(&head_); }
-  Iterator end() { return Iterator(tail_); }
-
-  ConstIterator begin() const { return ConstIterator(&head_); }
-  ConstIterator end() const { return ConstIterator(tail_); }
-
-  void Rewind(Iterator reset_point) {
-    tail_ = reset_point.entry_;
-    *tail_ = nullptr;
+#endif
+    default:
+      UNREACHABLE();
   }
+}
 
-  void MoveTail(ThreadedList<T>* parent, Iterator location) {
-    if (parent->end() != location) {
-      DCHECK_NULL(*tail_);
-      *tail_ = *location;
-      tail_ = parent->tail_;
-      parent->Rewind(location);
-    }
-  }
+V8_EXPORT_PRIVATE bool PassesFilter(Vector<const char> name,
+                                    Vector<const char> filter);
 
-  bool is_empty() const { return head_ == nullptr; }
-
-  // Slow. For testing purposes.
-  int LengthForTest() {
-    int result = 0;
-    for (Iterator t = begin(); t != end(); ++t) ++result;
-    return result;
-  }
-  T* AtForTest(int i) {
-    Iterator t = begin();
-    while (i-- > 0) ++t;
-    return *t;
-  }
-
- private:
-  T* head_;
-  T** tail_;
-  DISALLOW_COPY_AND_ASSIGN(ThreadedList);
-};
-
-// Can be used to create a threaded list of |T|.
-template <typename T>
-class ThreadedListZoneEntry final : public ZoneObject {
- public:
-  explicit ThreadedListZoneEntry(T value) : value_(value), next_(nullptr) {}
-
-  T value() { return value_; }
-  ThreadedListZoneEntry<T>** next() { return &next_; }
-
- private:
-  T value_;
-  ThreadedListZoneEntry<T>* next_;
-  DISALLOW_COPY_AND_ASSIGN(ThreadedListZoneEntry);
-};
+// Zap the specified area with a specific byte pattern. This currently defaults
+// to int3 on x64 and ia32. On other architectures this will produce unspecified
+// instruction sequences.
+// TODO(jgruber): Better support for other architectures.
+V8_INLINE void ZapCode(Address addr, size_t size_in_bytes) {
+  static constexpr int kZapByte = 0xCC;
+  std::memset(reinterpret_cast<void*>(addr), kZapByte, size_in_bytes);
+}
 
 }  // namespace internal
 }  // namespace v8

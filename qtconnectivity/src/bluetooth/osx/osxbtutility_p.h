@@ -82,7 +82,7 @@ public:
     // add a default ctor??? This will make the semantics more
     // transparent + will simplify the future transition to ARC
     // (if it will ever happen).
-    explicit ObjCScopedPointer(T *ptr = Q_NULLPTR) : QScopedPointer(ptr){}
+    explicit ObjCScopedPointer(T *ptr = nullptr) : QScopedPointer(ptr){}
     operator T*() const
     {
         return data();
@@ -196,7 +196,7 @@ template<class T>
 class CFStrongReference {
 public:
     CFStrongReference()
-        : m_ptr(Q_NULLPTR)
+        : m_ptr(nullptr)
     {
     }
 
@@ -230,13 +230,13 @@ public:
     CFStrongReference(CFStrongReference &&xval)
     {
         m_ptr = xval.m_ptr;
-        xval.m_ptr = Q_NULLPTR;
+        xval.m_ptr = nullptr;
     }
 
     CFStrongReference &operator = (CFStrongReference &&xval)
     {
         m_ptr = xval.m_ptr;
-        xval.m_ptr = Q_NULLPTR;
+        xval.m_ptr = nullptr;
         return *this;
     }
 #endif
@@ -270,7 +270,7 @@ public:
     T take()
     {
         T p = m_ptr;
-        m_ptr = Q_NULLPTR;
+        m_ptr = nullptr;
         return p;
     }
 private:

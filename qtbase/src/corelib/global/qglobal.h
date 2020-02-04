@@ -47,6 +47,7 @@
 #  include <utility>
 #endif
 #ifndef __ASSEMBLER__
+#  include <assert.h>
 #  include <stddef.h>
 #endif
 
@@ -87,6 +88,11 @@
 
 #if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
 #  define QT_NO_UNSHARABLE_CONTAINERS
+#  define QT6_VIRTUAL virtual
+#  define QT6_NOT_VIRTUAL
+#else
+#  define QT6_VIRTUAL
+#  define QT6_NOT_VIRTUAL virtual
 #endif
 
 /* These two macros makes it possible to turn the builtin line expander into a
@@ -103,6 +109,32 @@
 #endif
 #if defined (__MACH__) && defined (__APPLE__)
 #  define Q_OF_MACH_O
+#endif
+
+/*
+   Avoid "unused parameter" warnings
+*/
+#define Q_UNUSED(x) (void)x;
+
+#if defined(__cplusplus) && defined(Q_COMPILER_STATIC_ASSERT)
+#  define Q_STATIC_ASSERT(Condition) static_assert(bool(Condition), #Condition)
+#  define Q_STATIC_ASSERT_X(Condition, Message) static_assert(bool(Condition), Message)
+#elif defined(Q_COMPILER_STATIC_ASSERT)
+// C11 mode - using the _S version in case <assert.h> doesn't do the right thing
+#  define Q_STATIC_ASSERT(Condition) _Static_assert(!!(Condition), #Condition)
+#  define Q_STATIC_ASSERT_X(Condition, Message) _Static_assert(!!(Condition), Message)
+#else
+// C89 & C99 version
+#  define Q_STATIC_ASSERT_PRIVATE_JOIN(A, B) Q_STATIC_ASSERT_PRIVATE_JOIN_IMPL(A, B)
+#  define Q_STATIC_ASSERT_PRIVATE_JOIN_IMPL(A, B) A ## B
+#  ifdef __COUNTER__
+#  define Q_STATIC_ASSERT(Condition) \
+    typedef char Q_STATIC_ASSERT_PRIVATE_JOIN(q_static_assert_result, __COUNTER__) [(Condition) ? 1 : -1];
+#  else
+#  define Q_STATIC_ASSERT(Condition) \
+    typedef char Q_STATIC_ASSERT_PRIVATE_JOIN(q_static_assert_result, __LINE__) [(Condition) ? 1 : -1];
+#  endif /* __COUNTER__ */
+#  define Q_STATIC_ASSERT_X(Condition, Message) Q_STATIC_ASSERT(Condition)
 #endif
 
 #ifdef __cplusplus
@@ -210,14 +242,28 @@ typedef unsigned int quint32;      /* 32 bit unsigned */
 typedef __int64 qint64;            /* 64 bit signed */
 typedef unsigned __int64 quint64;  /* 64 bit unsigned */
 #else
+#ifdef __cplusplus
 #  define Q_INT64_C(c) static_cast<long long>(c ## LL)     /* signed 64 bit constant */
 #  define Q_UINT64_C(c) static_cast<unsigned long long>(c ## ULL) /* unsigned 64 bit constant */
+#else
+#  define Q_INT64_C(c) ((long long)(c ## LL))               /* signed 64 bit constant */
+#  define Q_UINT64_C(c) ((unsigned long long)(c ## ULL))    /* unsigned 64 bit constant */
+#endif
 typedef long long qint64;           /* 64 bit signed */
 typedef unsigned long long quint64; /* 64 bit unsigned */
 #endif
 
 typedef qint64 qlonglong;
 typedef quint64 qulonglong;
+
+#ifndef __cplusplus
+// In C++ mode, we define below using QIntegerForSize template
+Q_STATIC_ASSERT_X(sizeof(ptrdiff_t) == sizeof(size_t), "Weird ptrdiff_t and size_t definitions");
+typedef ptrdiff_t qptrdiff;
+typedef ptrdiff_t qsizetype;
+typedef ptrdiff_t qintptr;
+typedef size_t quintptr;
+#endif
 
 /*
    Useful type definitions for Qt
@@ -241,7 +287,7 @@ typedef double qreal;
 #  undef QT_DEPRECATED_X
 #  undef QT_DEPRECATED_VARIABLE
 #  undef QT_DEPRECATED_CONSTRUCTOR
-#elif defined(QT_DEPRECATED_WARNINGS)
+#elif !defined(QT_NO_DEPRECATED_WARNINGS)
 #  undef QT_DEPRECATED
 #  define QT_DEPRECATED Q_DECL_DEPRECATED
 #  undef QT_DEPRECATED_X
@@ -325,6 +371,14 @@ typedef double qreal;
 #define Q_DISABLE_COPY(Class) \
     Class(const Class &) Q_DECL_EQ_DELETE;\
     Class &operator=(const Class &) Q_DECL_EQ_DELETE;
+
+#define Q_DISABLE_MOVE(Class) \
+    Class(Class &&) = delete; \
+    Class &operator=(Class &&) = delete;
+
+#define Q_DISABLE_COPY_MOVE(Class) \
+    Q_DISABLE_COPY(Class) \
+    Q_DISABLE_MOVE(Class)
 
 /*
    No, this is not an evil backdoor. QT_BUILD_INTERNAL just exports more symbols
@@ -508,7 +562,7 @@ using qsizetype = QIntegerForSizeof<std::size_t>::Signed;
 #  define Q_ALWAYS_INLINE inline
 #endif
 
-#ifdef Q_CC_GNU
+#if defined(Q_CC_GNU) && defined(Q_OS_WIN)
 #  define QT_INIT_METAOBJECT __attribute__((init_priority(101)))
 #else
 #  define QT_INIT_METAOBJECT
@@ -545,11 +599,11 @@ Q_DECL_CONSTEXPR inline qint64 qRound64(float d)
 { return d >= 0.0f ? qint64(d + 0.5f) : qint64(d - float(qint64(d-1)) + 0.5f) + qint64(d-1); }
 
 template <typename T>
-Q_DECL_CONSTEXPR inline const T &qMin(const T &a, const T &b) { return (a < b) ? a : b; }
+constexpr inline const T &qMin(const T &a, const T &b) { return (a < b) ? a : b; }
 template <typename T>
-Q_DECL_CONSTEXPR inline const T &qMax(const T &a, const T &b) { return (a < b) ? b : a; }
+constexpr inline const T &qMax(const T &a, const T &b) { return (a < b) ? b : a; }
 template <typename T>
-Q_DECL_CONSTEXPR inline const T &qBound(const T &min, const T &val, const T &max)
+constexpr inline const T &qBound(const T &min, const T &val, const T &max)
 { return qMax(min, qMin(max, val)); }
 
 #ifndef Q_FORWARD_DECLARE_OBJC_CLASS
@@ -676,7 +730,7 @@ inline void qt_noop(void) {}
 #  define QT_CATCH(A) catch (A)
 #  define QT_THROW(A) throw A
 #  define QT_RETHROW throw
-Q_NORETURN Q_CORE_EXPORT void qTerminate() Q_DECL_NOTHROW;
+Q_NORETURN Q_DECL_COLD_FUNCTION Q_CORE_EXPORT void qTerminate() Q_DECL_NOTHROW;
 #  ifdef Q_COMPILER_NOEXCEPT
 #    define QT_TERMINATE_ON_EXCEPTION(expr) do { expr; } while (false)
 #  else
@@ -694,11 +748,6 @@ Q_CORE_EXPORT Q_DECL_CONST_FUNCTION bool qSharedBuild() Q_DECL_NOTHROW;
 #endif
 
 /*
-   Avoid "unused parameter" warnings
-*/
-#define Q_UNUSED(x) (void)x;
-
-/*
    Debugging and error handling
 */
 
@@ -706,12 +755,13 @@ Q_CORE_EXPORT Q_DECL_CONST_FUNCTION bool qSharedBuild() Q_DECL_NOTHROW;
 #  define QT_DEBUG
 #endif
 
+// QtPrivate::asString defined in qstring.h
 #ifndef qPrintable
-#  define qPrintable(string) QString(string).toLocal8Bit().constData()
+#  define qPrintable(string) QtPrivate::asString(string).toLocal8Bit().constData()
 #endif
 
 #ifndef qUtf8Printable
-#  define qUtf8Printable(string) QString(string).toUtf8().constData()
+#  define qUtf8Printable(string) QtPrivate::asString(string).toUtf8().constData()
 #endif
 
 /*
@@ -724,11 +774,13 @@ Q_CORE_EXPORT Q_DECL_CONST_FUNCTION bool qSharedBuild() Q_DECL_NOTHROW;
 #endif
 
 class QString;
+Q_DECL_COLD_FUNCTION
 Q_CORE_EXPORT QString qt_error_string(int errorCode = -1);
 
 #ifndef Q_CC_MSVC
 Q_NORETURN
 #endif
+Q_DECL_COLD_FUNCTION
 Q_CORE_EXPORT void qt_assert(const char *assertion, const char *file, int line) Q_DECL_NOTHROW;
 
 #if !defined(Q_ASSERT)
@@ -746,6 +798,7 @@ Q_CORE_EXPORT void qt_assert(const char *assertion, const char *file, int line) 
 #ifndef Q_CC_MSVC
 Q_NORETURN
 #endif
+Q_DECL_COLD_FUNCTION
 Q_CORE_EXPORT void qt_assert_x(const char *where, const char *what, const char *file, int line) Q_DECL_NOTHROW;
 
 #if !defined(Q_ASSERT_X)
@@ -756,28 +809,8 @@ Q_CORE_EXPORT void qt_assert_x(const char *where, const char *what, const char *
 #  endif
 #endif
 
-
-#ifdef Q_COMPILER_STATIC_ASSERT
-#define Q_STATIC_ASSERT(Condition) static_assert(bool(Condition), #Condition)
-#define Q_STATIC_ASSERT_X(Condition, Message) static_assert(bool(Condition), Message)
-#else
-// Intentionally undefined
-template <bool Test> class QStaticAssertFailure;
-template <> class QStaticAssertFailure<true> {};
-
-#define Q_STATIC_ASSERT_PRIVATE_JOIN(A, B) Q_STATIC_ASSERT_PRIVATE_JOIN_IMPL(A, B)
-#define Q_STATIC_ASSERT_PRIVATE_JOIN_IMPL(A, B) A ## B
-#ifdef __COUNTER__
-#define Q_STATIC_ASSERT(Condition) \
-    enum {Q_STATIC_ASSERT_PRIVATE_JOIN(q_static_assert_result, __COUNTER__) = sizeof(QStaticAssertFailure<!!(Condition)>)}
-#else
-#define Q_STATIC_ASSERT(Condition) \
-    enum {Q_STATIC_ASSERT_PRIVATE_JOIN(q_static_assert_result, __LINE__) = sizeof(QStaticAssertFailure<!!(Condition)>)}
-#endif /* __COUNTER__ */
-#define Q_STATIC_ASSERT_X(Condition, Message) Q_STATIC_ASSERT(Condition)
-#endif
-
 Q_NORETURN Q_CORE_EXPORT void qt_check_pointer(const char *, int) Q_DECL_NOTHROW;
+Q_DECL_COLD_FUNCTION
 Q_CORE_EXPORT void qBadAlloc();
 
 #ifdef QT_NO_EXCEPTIONS
@@ -919,13 +952,7 @@ QT_WARNING_DISABLE_MSVC(4514) /* unreferenced inline function has been removed *
 QT_WARNING_DISABLE_MSVC(4800) /* 'type' : forcing value to bool 'true' or 'false' (performance warning) */
 QT_WARNING_DISABLE_MSVC(4097) /* typedef-name 'identifier1' used as synonym for class-name 'identifier2' */
 QT_WARNING_DISABLE_MSVC(4706) /* assignment within conditional expression */
-#    if _MSC_VER <= 1310 // MSVC 2003
-QT_WARNING_DISABLE_MSVC(4786) /* 'identifier' : identifier was truncated to 'number' characters in the debug information */
-#    endif
 QT_WARNING_DISABLE_MSVC(4355) /* 'this' : used in base member initializer list */
-#    if _MSC_VER < 1800 // MSVC 2013
-QT_WARNING_DISABLE_MSVC(4231) /* nonstandard extension used : 'identifier' before template explicit instantiation */
-#    endif
 QT_WARNING_DISABLE_MSVC(4710) /* function not inlined */
 QT_WARNING_DISABLE_MSVC(4530) /* C++ exception handler used, but unwind semantics are not enabled. Specify /EHsc */
 #  elif defined(Q_CC_BOR)
@@ -986,6 +1013,15 @@ QForeachContainer<typename std::decay<T>::type> qMakeForeachContainer(T &&t)
 }
 
 }
+
+#if __cplusplus >= 201703L
+// Use C++17 if statement with initializer. User's code ends up in a else so
+// scoping of different ifs is not broken
+#define Q_FOREACH(variable, container)                                   \
+for (auto _container_ = QtPrivate::qMakeForeachContainer(container);     \
+     _container_.i != _container_.e;  ++_container_.i)                   \
+    if (variable = *_container_.i; false) {} else
+#else
 // Explanation of the control word:
 //  - it's initialized to 1
 //  - that means both the inner and outer loops start
@@ -1000,7 +1036,7 @@ for (auto _container_ = QtPrivate::qMakeForeachContainer(container); \
      _container_.control && _container_.i != _container_.e;         \
      ++_container_.i, _container_.control ^= 1)                     \
     for (variable = *_container_.i; _container_.control; _container_.control = 0)
-
+#endif
 #endif // QT_NO_FOREACH
 
 #define Q_FOREVER for(;;)
@@ -1015,17 +1051,23 @@ for (auto _container_ = QtPrivate::qMakeForeachContainer(container); \
 #  endif
 #endif
 
-template <typename T> static inline T *qGetPtrHelper(T *ptr) { return ptr; }
-template <typename Wrapper> static inline typename Wrapper::pointer qGetPtrHelper(const Wrapper &p) { return p.data(); }
+template <typename T> inline T *qGetPtrHelper(T *ptr) { return ptr; }
+template <typename Ptr> inline auto qGetPtrHelper(const Ptr &ptr) -> decltype(ptr.operator->()) { return ptr.operator->(); }
 
+// The body must be a statement:
+#define Q_CAST_IGNORE_ALIGN(body) QT_WARNING_PUSH QT_WARNING_DISABLE_GCC("-Wcast-align") body QT_WARNING_POP
 #define Q_DECLARE_PRIVATE(Class) \
-    inline Class##Private* d_func() { return reinterpret_cast<Class##Private *>(qGetPtrHelper(d_ptr)); } \
-    inline const Class##Private* d_func() const { return reinterpret_cast<const Class##Private *>(qGetPtrHelper(d_ptr)); } \
+    inline Class##Private* d_func() \
+    { Q_CAST_IGNORE_ALIGN(return reinterpret_cast<Class##Private *>(qGetPtrHelper(d_ptr));) } \
+    inline const Class##Private* d_func() const \
+    { Q_CAST_IGNORE_ALIGN(return reinterpret_cast<const Class##Private *>(qGetPtrHelper(d_ptr));) } \
     friend class Class##Private;
 
 #define Q_DECLARE_PRIVATE_D(Dptr, Class) \
-    inline Class##Private* d_func() { return reinterpret_cast<Class##Private *>(qGetPtrHelper(Dptr)); } \
-    inline const Class##Private* d_func() const { return reinterpret_cast<const Class##Private *>(qGetPtrHelper(Dptr)); } \
+    inline Class##Private* d_func() \
+    { Q_CAST_IGNORE_ALIGN(return reinterpret_cast<Class##Private *>(qGetPtrHelper(Dptr));) } \
+    inline const Class##Private* d_func() const \
+    { Q_CAST_IGNORE_ALIGN(return reinterpret_cast<const Class##Private *>(qGetPtrHelper(Dptr));) } \
     friend class Class##Private;
 
 #define Q_DECLARE_PUBLIC(Class)                                    \
@@ -1043,7 +1085,11 @@ template <typename Wrapper> static inline typename Wrapper::pointer qGetPtrHelpe
 #define QT_TRANSLATE_NOOP3(scope, x, comment) {x, comment}
 #define QT_TRANSLATE_NOOP3_UTF8(scope, x, comment) {x, comment}
 
-#ifndef QT_NO_TRANSLATION // ### This should enclose the NOOPs above
+#ifndef QT_NO_TRANSLATION // ### Qt6: This should enclose the NOOPs above
+
+#define QT_TR_N_NOOP(x) x
+#define QT_TRANSLATE_N_NOOP(scope, x) x
+#define QT_TRANSLATE_N_NOOP3(scope, x, comment) {x, comment}
 
 // Defined in qcoreapplication.cpp
 // The better name qTrId() is reserved for an upcoming function which would
@@ -1132,19 +1178,15 @@ template <typename... Args> Q_CONSTEXPR Q_DECL_UNUSED QNonConstOverload<Args...>
 
 class QByteArray;
 Q_CORE_EXPORT QByteArray qgetenv(const char *varName);
-#ifdef Q_QDOC
-Q_CORE_EXPORT QString qEnvironmentVariable(const char *varName,
-                                           const QString &defaultValue = QString());
-#else // need it as two functions because QString is only forward-declared here
+// need it as two functions because QString is only forward-declared here
 Q_CORE_EXPORT QString qEnvironmentVariable(const char *varName);
 Q_CORE_EXPORT QString qEnvironmentVariable(const char *varName, const QString &defaultValue);
-#endif
 Q_CORE_EXPORT bool qputenv(const char *varName, const QByteArray& value);
 Q_CORE_EXPORT bool qunsetenv(const char *varName);
 
 Q_CORE_EXPORT bool qEnvironmentVariableIsEmpty(const char *varName) Q_DECL_NOEXCEPT;
 Q_CORE_EXPORT bool qEnvironmentVariableIsSet(const char *varName) Q_DECL_NOEXCEPT;
-Q_CORE_EXPORT int  qEnvironmentVariableIntValue(const char *varName, bool *ok=Q_NULLPTR) Q_DECL_NOEXCEPT;
+Q_CORE_EXPORT int  qEnvironmentVariableIntValue(const char *varName, bool *ok=nullptr) Q_DECL_NOEXCEPT;
 
 inline int qIntCast(double f) { return int(f); }
 inline int qIntCast(float f) { return int(f); }
@@ -1167,9 +1209,6 @@ namespace QtPrivate {
 //like std::enable_if
 template <bool B, typename T = void> struct QEnableIf;
 template <typename T> struct QEnableIf<true, T> { typedef T Type; };
-
-template <bool B, typename T, typename F> struct QConditional { typedef T Type; };
-template <typename T, typename F> struct QConditional<false, T, F> { typedef F Type; };
 }
 
 QT_END_NAMESPACE

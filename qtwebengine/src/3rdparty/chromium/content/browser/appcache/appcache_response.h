@@ -14,7 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/common/content_export.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/http/http_response_info.h"
 #include "url/gurl.h"
 
@@ -23,39 +23,42 @@ class IOBuffer;
 }
 
 namespace content {
+class AppCacheDiskCache;
+class AppCacheDiskCacheEntry;
 class AppCacheStorage;
 class MockAppCacheStorage;
 
-static const int kUnkownResponseDataSize = -1;
+static const int kUnknownResponseDataSize = -1;
+
+using OnceCompletionCallback = base::OnceCallback<void(int)>;
 
 // Response info for a particular response id. Instances are tracked in
 // the working set.
 class CONTENT_EXPORT AppCacheResponseInfo
     : public base::RefCounted<AppCacheResponseInfo> {
  public:
-  // AppCacheResponseInfo takes ownership of the http_info.
-  AppCacheResponseInfo(AppCacheStorage* storage,
+  AppCacheResponseInfo(base::WeakPtr<AppCacheStorage> storage,
                        const GURL& manifest_url,
                        int64_t response_id,
-                       net::HttpResponseInfo* http_info,
+                       std::unique_ptr<net::HttpResponseInfo> http_info,
                        int64_t response_data_size);
 
   const GURL& manifest_url() const { return manifest_url_; }
   int64_t response_id() const { return response_id_; }
-  const net::HttpResponseInfo* http_response_info() const {
-    return http_response_info_.get();
+  const net::HttpResponseInfo& http_response_info() const {
+    return *http_response_info_;
   }
   int64_t response_data_size() const { return response_data_size_; }
 
  private:
   friend class base::RefCounted<AppCacheResponseInfo>;
-  virtual ~AppCacheResponseInfo();
+  ~AppCacheResponseInfo();
 
   const GURL manifest_url_;
   const int64_t response_id_;
   const std::unique_ptr<net::HttpResponseInfo> http_response_info_;
   const int64_t response_data_size_;
-  AppCacheStorage* storage_;
+  base::WeakPtr<AppCacheStorage> storage_;
 };
 
 // A refcounted wrapper for HttpResponseInfo so we can apply the
@@ -66,54 +69,12 @@ struct CONTENT_EXPORT HttpResponseInfoIOBuffer
   int response_data_size;
 
   HttpResponseInfoIOBuffer();
-  explicit HttpResponseInfoIOBuffer(net::HttpResponseInfo* info);
+  explicit HttpResponseInfoIOBuffer(
+      std::unique_ptr<net::HttpResponseInfo> info);
 
- protected:
+ private:
   friend class base::RefCountedThreadSafe<HttpResponseInfoIOBuffer>;
-  virtual ~HttpResponseInfoIOBuffer();
-};
-
-// Low level storage API used by the response reader and writer.
-class CONTENT_EXPORT AppCacheDiskCacheInterface {
- public:
-  class Entry {
-   public:
-    virtual int Read(int index,
-                     int64_t offset,
-                     net::IOBuffer* buf,
-                     int buf_len,
-                     const net::CompletionCallback& callback) = 0;
-    virtual int Write(int index,
-                      int64_t offset,
-                      net::IOBuffer* buf,
-                      int buf_len,
-                      const net::CompletionCallback& callback) = 0;
-    virtual int64_t GetSize(int index) = 0;
-    virtual void Close() = 0;
-   protected:
-    virtual ~Entry() {}
-  };
-
-  // The uma_name pointer must remain valid for the life of the object.
-  AppCacheDiskCacheInterface(const char* uma_name);
-
-  virtual int CreateEntry(int64_t key,
-                          Entry** entry,
-                          const net::CompletionCallback& callback) = 0;
-  virtual int OpenEntry(int64_t key,
-                        Entry** entry,
-                        const net::CompletionCallback& callback) = 0;
-  virtual int DoomEntry(int64_t key,
-                        const net::CompletionCallback& callback) = 0;
-
-  const char* uma_name() const { return uma_name_; }
-  base::WeakPtr<AppCacheDiskCacheInterface> GetWeakPtr();
-
- protected:
-  virtual ~AppCacheDiskCacheInterface();
-
-  const char* uma_name_;
-  base::WeakPtrFactory<AppCacheDiskCacheInterface> weak_factory_;
+  ~HttpResponseInfoIOBuffer();
 };
 
 // Common base class for response reader and writer.
@@ -123,41 +84,44 @@ class CONTENT_EXPORT AppCacheResponseIO {
   int64_t response_id() const { return response_id_; }
 
  protected:
-  AppCacheResponseIO(
-      int64_t response_id,
-      const base::WeakPtr<AppCacheDiskCacheInterface>& disk_cache);
+  AppCacheResponseIO(int64_t response_id,
+                     base::WeakPtr<AppCacheDiskCache> disk_cache);
 
   virtual void OnIOComplete(int result) = 0;
   virtual void OnOpenEntryComplete() {}
 
-  bool IsIOPending() { return !callback_.is_null(); }
+  bool IsIOPending() const { return !callback_.is_null(); }
   void ScheduleIOCompletionCallback(int result);
   void InvokeUserCompletionCallback(int result);
   void ReadRaw(int index, int offset, net::IOBuffer* buf, int buf_len);
   void WriteRaw(int index, int offset, net::IOBuffer* buf, int buf_len);
   void OpenEntryIfNeeded();
 
+  // Methods in this class use weak pointers. The weak pointer factories must be
+  // defined in the subclasses, to avoid use-after-free situations.
+  virtual base::WeakPtr<AppCacheResponseIO> GetWeakPtr() = 0;
+
   const int64_t response_id_;
-  base::WeakPtr<AppCacheDiskCacheInterface> disk_cache_;
-  AppCacheDiskCacheInterface::Entry* entry_;
+  base::WeakPtr<AppCacheDiskCache> disk_cache_;
+  AppCacheDiskCacheEntry* entry_;
   scoped_refptr<HttpResponseInfoIOBuffer> info_buffer_;
   scoped_refptr<net::IOBuffer> buffer_;
   int buffer_len_;
-  net::CompletionCallback callback_;
-  net::CompletionCallback open_callback_;
-  base::WeakPtrFactory<AppCacheResponseIO> weak_factory_;
+  OnceCompletionCallback callback_;
+  net::CompletionOnceCallback open_callback_;
 
  private:
   void OnRawIOComplete(int result);
-  void OpenEntryCallback(AppCacheDiskCacheInterface::Entry** entry, int rv);
+  static void OpenEntryCallback(base::WeakPtr<AppCacheResponseIO> response,
+                                AppCacheDiskCacheEntry** entry,
+                                int rv);
 };
 
 // Reads existing response data from storage. If the object is deleted
 // and there is a read in progress, the implementation will return
 // immediately but will take care of any side effect of cancelling the
 // operation.  In other words, instances are safe to delete at will.
-class CONTENT_EXPORT AppCacheResponseReader
-    : public AppCacheResponseIO {
+class CONTENT_EXPORT AppCacheResponseReader : public AppCacheResponseIO {
  public:
   ~AppCacheResponseReader() override;
 
@@ -172,7 +136,7 @@ class CONTENT_EXPORT AppCacheResponseReader
   // Should only be called where there is no Read operation in progress.
   // (virtual for testing)
   virtual void ReadInfo(HttpResponseInfoIOBuffer* info_buf,
-                        const net::CompletionCallback& callback);
+                        OnceCompletionCallback callback);
 
   // Reads data from storage. Always returns the result of the read
   // asynchronously through the 'callback'. Returns the number of bytes read
@@ -182,8 +146,9 @@ class CONTENT_EXPORT AppCacheResponseReader
   // or the number of bytes read. The 'callback' is a required parameter.
   // Should only be called where there is no Read operation in progress.
   // (virtual for testing)
-  virtual void ReadData(net::IOBuffer* buf, int buf_len,
-                        const net::CompletionCallback& callback);
+  virtual void ReadData(net::IOBuffer* buf,
+                        int buf_len,
+                        OnceCompletionCallback callback);
 
   // Returns true if there is a read operation, for data or info, pending.
   bool IsReadPending() { return IsIOPending(); }
@@ -197,13 +162,14 @@ class CONTENT_EXPORT AppCacheResponseReader
   friend class AppCacheStorageImpl;
   friend class content::MockAppCacheStorage;
 
-  // Should only be constructed by the storage class and derivatives.
-  AppCacheResponseReader(
-      int64_t response_id,
-      const base::WeakPtr<AppCacheDiskCacheInterface>& disk_cache);
+  // Use AppCacheStorage::CreateResponse() instead of calling directly.
+  AppCacheResponseReader(int64_t response_id,
+                         base::WeakPtr<AppCacheDiskCache> disk_cache);
 
   void OnIOComplete(int result) override;
   void OnOpenEntryComplete() override;
+  base::WeakPtr<AppCacheResponseIO> GetWeakPtr() override;
+
   void ContinueReadInfo();
   void ContinueReadData();
 
@@ -211,6 +177,7 @@ class CONTENT_EXPORT AppCacheResponseReader
   int range_length_;
   int read_position_;
   int reading_metadata_size_;
+
   base::WeakPtrFactory<AppCacheResponseReader> weak_factory_;
 };
 
@@ -218,8 +185,7 @@ class CONTENT_EXPORT AppCacheResponseReader
 // and there is a write in progress, the implementation will return
 // immediately but will take care of any side effect of cancelling the
 // operation. In other words, instances are safe to delete at will.
-class CONTENT_EXPORT AppCacheResponseWriter
-    : public AppCacheResponseIO {
+class CONTENT_EXPORT AppCacheResponseWriter : public AppCacheResponseIO {
  public:
   ~AppCacheResponseWriter() override;
 
@@ -232,7 +198,7 @@ class CONTENT_EXPORT AppCacheResponseWriter
   // Should only be called where there is no Write operation in progress.
   // (virtual for testing)
   virtual void WriteInfo(HttpResponseInfoIOBuffer* info_buf,
-                         const net::CompletionCallback& callback);
+                         OnceCompletionCallback callback);
 
   // Writes data to storage. Always returns the result of the write
   // asynchronously through the 'callback'. Returns the number of bytes written
@@ -245,7 +211,7 @@ class CONTENT_EXPORT AppCacheResponseWriter
   // (virtual for testing)
   virtual void WriteData(net::IOBuffer* buf,
                          int buf_len,
-                         const net::CompletionCallback& callback);
+                         OnceCompletionCallback callback);
 
   // Returns true if there is a write pending.
   bool IsWritePending() { return IsIOPending(); }
@@ -255,9 +221,8 @@ class CONTENT_EXPORT AppCacheResponseWriter
 
  protected:
   // Should only be constructed by the storage class and derivatives.
-  AppCacheResponseWriter(
-      int64_t response_id,
-      const base::WeakPtr<AppCacheDiskCacheInterface>& disk_cache);
+  AppCacheResponseWriter(int64_t response_id,
+                         base::WeakPtr<AppCacheDiskCache> disk_cache);
 
  private:
   friend class AppCacheStorageImpl;
@@ -271,16 +236,20 @@ class CONTENT_EXPORT AppCacheResponseWriter
   };
 
   void OnIOComplete(int result) override;
+  base::WeakPtr<AppCacheResponseIO> GetWeakPtr() override;
+
   void ContinueWriteInfo();
   void ContinueWriteData();
   void CreateEntryIfNeededAndContinue();
-  void OnCreateEntryComplete(AppCacheDiskCacheInterface::Entry** entry, int rv);
+  static void OnCreateEntryComplete(
+      base::WeakPtr<AppCacheResponseWriter> writer,
+      AppCacheDiskCacheEntry** entry,
+      int rv);
 
   int info_size_;
   int write_position_;
   int write_amount_;
   CreationPhase creation_phase_;
-  net::CompletionCallback create_callback_;
   base::WeakPtrFactory<AppCacheResponseWriter> weak_factory_;
 };
 
@@ -304,7 +273,7 @@ class CONTENT_EXPORT AppCacheResponseMetadataWriter
   // progress.
   void WriteMetadata(net::IOBuffer* buf,
                      int buf_len,
-                     const net::CompletionCallback& callback);
+                     net::CompletionOnceCallback callback);
 
   // Returns true if there is a write pending.
   bool IsWritePending() { return IsIOPending(); }
@@ -314,13 +283,13 @@ class CONTENT_EXPORT AppCacheResponseMetadataWriter
   friend class content::MockAppCacheStorage;
 
   // Should only be constructed by the storage class and derivatives.
-  AppCacheResponseMetadataWriter(
-      int64_t response_id,
-      const base::WeakPtr<AppCacheDiskCacheInterface>& disk_cache);
+  AppCacheResponseMetadataWriter(int64_t response_id,
+                                 base::WeakPtr<AppCacheDiskCache> disk_cache);
 
  private:
   void OnIOComplete(int result) override;
   void OnOpenEntryComplete() override;
+  base::WeakPtr<AppCacheResponseIO> GetWeakPtr() override;
 
   int write_amount_;
   base::WeakPtrFactory<AppCacheResponseMetadataWriter> weak_factory_;

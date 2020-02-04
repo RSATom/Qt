@@ -32,6 +32,7 @@
 #include "generator.h"
 #include <qdir.h>
 #include <qregexp.h>
+#include <QTime>
 #include <stdlib.h>
 #include <limits.h>
 
@@ -42,8 +43,11 @@ QT_BEGIN_NAMESPACE
 const Location Location::null;
 
 int Location::tabSize;
+int Location::warningCount = 0;
+int Location::warningLimit = -1;
 QString Location::programName;
-QRegExp *Location::spuriousRegExp = 0;
+QString Location::project;
+QRegExp *Location::spuriousRegExp = nullptr;
 bool Location::logProgress_ = false;
 
 /*!
@@ -61,7 +65,7 @@ bool Location::logProgress_ = false;
   Constructs an empty location.
  */
 Location::Location()
-    : stk(0), stkTop(&stkBottom), stkDepth(0), etcetera(false)
+    : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
 {
     // nothing.
 }
@@ -71,7 +75,7 @@ Location::Location()
   position stack.
  */
 Location::Location(const QString& fileName)
-    : stk(0), stkTop(&stkBottom), stkDepth(0), etcetera(false)
+    : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
 {
     push(fileName);
 }
@@ -81,7 +85,7 @@ Location::Location(const QString& fileName)
   this Location using the assignment operator.
  */
 Location::Location(const Location& other)
-    : stk(0), stkTop(&stkBottom), stkDepth(0), etcetera(false)
+    : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
 {
     *this = other;
 }
@@ -95,8 +99,8 @@ Location& Location::operator=(const Location& other)
     QStack<StackEntry> *oldStk = stk;
 
     stkBottom = other.stkBottom;
-    if (other.stk == 0) {
-        stk = 0;
+    if (other.stk == nullptr) {
+        stk = nullptr;
         stkTop = &stkBottom;
     }
     else {
@@ -154,7 +158,7 @@ void Location::advance(QChar ch)
 void Location::push(const QString& filePath)
 {
     if (stkDepth++ >= 1) {
-        if (stk == 0)
+        if (stk == nullptr)
             stk = new QStack<StackEntry>;
         stk->push(StackEntry());
         stkTop = &stk->top();
@@ -180,7 +184,7 @@ void Location::pop()
         stk->pop();
         if (stk->isEmpty()) {
             delete stk;
-            stk = 0;
+            stk = nullptr;
             stkTop = &stkBottom;
         }
         else {
@@ -276,6 +280,24 @@ void Location::error(const QString& message, const QString& details) const
 }
 
 /*!
+  Returns the error code QDoc should exit with; EXIT_SUCCESS
+  or the number of documentation warnings if they exceeded
+  the limit set by warninglimit configuration variable.
+ */
+int Location::exitCode()
+{
+    if (warningLimit < 0 || warningCount <= warningLimit)
+        return EXIT_SUCCESS;
+
+    Location::null.emitMessage(Error,
+        tr("Documentation warnings (%1) exceeded the limit (%2) for '%3'.")
+            .arg(QString::number(warningCount),
+                 QString::number(warningLimit),
+                 project), QString());
+    return warningCount;
+}
+
+/*!
   Writes \a message and \a detals to stderr as a formatted
   error message and then exits the program. qdoc prints fatal
   errors in either phase (Prepare or Generate).
@@ -308,6 +330,11 @@ void Location::initialize(const Config& config)
 {
     tabSize = config.getInt(CONFIG_TABSIZE);
     programName = config.programName();
+    project = config.getString(CONFIG_PROJECT);
+    warningCount = 0;
+    if (qEnvironmentVariableIsSet("QDOC_ENABLE_WARNINGLIMIT")
+        || config.getBool(CONFIG_WARNINGLIMIT + Config::dot + "enabled"))
+        warningLimit = config.getInt(CONFIG_WARNINGLIMIT);
 
     QRegExp regExp = config.getRegExp(CONFIG_SPURIOUS);
     if (regExp.isValid()) {
@@ -327,7 +354,7 @@ void Location::initialize(const Config& config)
 void Location::terminate()
 {
     delete spuriousRegExp;
-    spuriousRegExp = 0;
+    spuriousRegExp = nullptr;
 }
 
 /*!
@@ -352,6 +379,21 @@ void Location::logToStdErr(const QString& message)
 }
 
 /*!
+  Always prints the current time and \a message to \c stderr
+  followed by a \c{'\n'}.
+ */
+void Location::logToStdErrAlways(const QString& message)
+{
+    if (Generator::useTimestamps()) {
+        QTime t = QTime::currentTime();
+        fprintf(stderr, "%s LOG: %s\n", t.toString().toLatin1().constData(), message.toLatin1().data());
+    } else {
+        fprintf(stderr, "LOG: %s\n", message.toLatin1().constData());
+    }
+    fflush(stderr);
+}
+
+/*!
   Report a program bug, including the \a hint.
  */
 void Location::internalError(const QString& hint)
@@ -372,7 +414,7 @@ void Location::emitMessage(MessageType type,
                            const QString& details) const
 {
     if (type == Warning &&
-            spuriousRegExp != 0 &&
+            spuriousRegExp != nullptr &&
             spuriousRegExp->exactMatch(message))
         return;
 
@@ -380,10 +422,21 @@ void Location::emitMessage(MessageType type,
     if (!details.isEmpty())
         result += "\n[" + details + QLatin1Char(']');
     result.replace("\n", "\n    ");
-    if (type == Error)
-        result.prepend(tr(": error: "));
-    else if (type == Warning)
-        result.prepend(tr(": warning: "));
+    if (isEmpty()) {
+        if (type == Error)
+            result.prepend(tr(": error: "));
+        else if (type == Warning) {
+            result.prepend(tr(": warning: "));
+            ++warningCount;
+        }
+    } else {
+        if (type == Error)
+            result.prepend(tr(": (qdoc) error: "));
+        else if (type == Warning) {
+            result.prepend(tr(": (qdoc) warning: "));
+            ++warningCount;
+        }
+    }
     if (type != Report)
         result.prepend(toString());
     fprintf(stderr, "%s\n", result.toLatin1().data());
@@ -426,11 +479,8 @@ QString Location::toString() const
 
 QString Location::top() const
 {
-    QString str = filePath();
-    if (!QDir::isAbsolutePath(str)) {
-        QDir path(str);
-        str = path.absolutePath();
-    }
+    QDir path(filePath());
+    QString str = path.absolutePath();
     if (lineNo() >= 1) {
         str += QLatin1Char(':');
         str += QString::number(lineNo());

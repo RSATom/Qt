@@ -7,69 +7,51 @@
 #ifndef CORE_FXCRT_XML_CFX_XMLNODE_H_
 #define CORE_FXCRT_XML_CFX_XMLNODE_H_
 
-#include <memory>
-
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_seekablestreamproxy.h"
+#include "core/fxcrt/fx_stream.h"
+#include "core/fxcrt/retain_ptr.h"
 
 enum FX_XMLNODETYPE {
-  FX_XMLNODE_Unknown = 0,
-  FX_XMLNODE_Instruction,
+  FX_XMLNODE_Instruction = 0,
   FX_XMLNODE_Element,
   FX_XMLNODE_Text,
   FX_XMLNODE_CharData,
 };
 
-struct FX_XMLNODE {
-  int32_t iNodeNum;
-  FX_XMLNODETYPE eNodeType;
-};
+class CFX_XMLDocument;
 
 class CFX_XMLNode {
  public:
-  enum NodeItem {
-    Root = 0,
-    Parent,
-    FirstSibling,
-    PriorSibling,
-    NextSibling,
-    LastSibling,
-    FirstNeighbor,
-    PriorNeighbor,
-    NextNeighbor,
-    LastNeighbor,
-    FirstChild,
-    LastChild
-  };
-
   CFX_XMLNode();
   virtual ~CFX_XMLNode();
 
-  virtual FX_XMLNODETYPE GetType() const;
-  virtual std::unique_ptr<CFX_XMLNode> Clone();
+  virtual FX_XMLNODETYPE GetType() const = 0;
+  virtual CFX_XMLNode* Clone(CFX_XMLDocument* doc) = 0;
+  virtual void Save(const RetainPtr<IFX_SeekableWriteStream>& pXMLStream) = 0;
 
-  int32_t CountChildNodes() const;
-  CFX_XMLNode* GetChildNode(int32_t index) const;
-  int32_t GetChildNodeIndex(CFX_XMLNode* pNode) const;
-  int32_t InsertChildNode(CFX_XMLNode* pNode, int32_t index = -1);
+  CFX_XMLNode* GetRoot();
+  CFX_XMLNode* GetParent() const { return parent_; }
+  CFX_XMLNode* GetFirstChild() const { return first_child_; }
+  CFX_XMLNode* GetNextSibling() const { return next_sibling_; }
+
+  void AppendChild(CFX_XMLNode* pNode);
+  void InsertChildNode(CFX_XMLNode* pNode, int32_t index);
   void RemoveChildNode(CFX_XMLNode* pNode);
   void DeleteChildren();
 
-  CFX_XMLNode* GetPath(const wchar_t* pPath,
-                       int32_t iLength = -1,
-                       bool bQualifiedName = true) const;
+  CFX_XMLNode* GetLastChildForTesting() const { return last_child_; }
+  CFX_XMLNode* GetPrevSiblingForTesting() const { return prev_sibling_; }
 
-  int32_t GetNodeLevel() const;
-  CFX_XMLNode* GetNodeItem(CFX_XMLNode::NodeItem eItem) const;
-  bool InsertNodeItem(CFX_XMLNode::NodeItem eItem, CFX_XMLNode* pNode);
-  CFX_XMLNode* RemoveNodeItem(CFX_XMLNode::NodeItem eItem);
+ protected:
+  WideString EncodeEntities(const WideString& value);
 
-  void SaveXMLNode(const CFX_RetainPtr<CFX_SeekableStreamProxy>& pXMLStream);
-
-  CFX_XMLNode* m_pParent;
-  CFX_XMLNode* m_pChild;
-  CFX_XMLNode* m_pPrior;
-  CFX_XMLNode* m_pNext;
+ private:
+  // The nodes are owned by the XML document. We do not know what order the
+  // nodes will be destroyed in so they can not be UnownedPtrs.
+  CFX_XMLNode* parent_ = nullptr;
+  CFX_XMLNode* first_child_ = nullptr;
+  CFX_XMLNode* last_child_ = nullptr;
+  CFX_XMLNode* next_sibling_ = nullptr;
+  CFX_XMLNode* prev_sibling_ = nullptr;
 };
 
 #endif  // CORE_FXCRT_XML_CFX_XMLNODE_H_

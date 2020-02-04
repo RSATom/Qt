@@ -57,6 +57,7 @@ public:
 
     void run() override;
 
+    inline QMutex &mutex() { return _mutex; }
     inline void lock() { _mutex.lock(); }
     inline void unlock() { _mutex.unlock(); }
     inline void wait() { _wait.wait(&_mutex); }
@@ -103,14 +104,18 @@ QQmlThreadPrivate::MainObject::MainObject(QQmlThreadPrivate *p)
 // Trigger mainEvent in main thread.  Must be called from thread.
 void QQmlThreadPrivate::triggerMainEvent()
 {
+#if QT_CONFIG(thread)
     Q_ASSERT(q->isThisThread());
+#endif
     QCoreApplication::postEvent(&m_mainObject, new QEvent(QEvent::User));
 }
 
 // Trigger even in thread.  Must be called from main thread.
 void QQmlThreadPrivate::triggerThreadEvent()
 {
+#if QT_CONFIG(thread)
     Q_ASSERT(!q->isThisThread());
+#endif
     QCoreApplication::postEvent(this, new QEvent(QEvent::User));
 }
 
@@ -123,7 +128,7 @@ bool QQmlThreadPrivate::MainObject::event(QEvent *e)
 
 QQmlThreadPrivate::QQmlThreadPrivate(QQmlThread *q)
 : q(q), m_threadProcessing(false), m_mainProcessing(false), m_shutdown(false),
-  m_mainThreadWaiting(false), mainSync(0), m_mainObject(this)
+  m_mainThreadWaiting(false), mainSync(nullptr), m_mainObject(this)
 {
     setObjectName(QStringLiteral("QQmlThread"));
 }
@@ -155,7 +160,7 @@ void QQmlThreadPrivate::mainEvent()
     m_mainProcessing = true;
 
     while (!mainList.isEmpty() || mainSync) {
-        bool isSync = mainSync != 0;
+        bool isSync = mainSync != nullptr;
         QQmlThread::Message *message = isSync?mainSync:mainList.takeFirst();
         unlock();
 
@@ -165,7 +170,7 @@ void QQmlThreadPrivate::mainEvent()
         lock();
 
         if (isSync) {
-            mainSync = 0;
+            mainSync = nullptr;
             wakeOne();
         }
     }
@@ -263,6 +268,11 @@ bool QQmlThread::isShutdown() const
     return d->m_shutdown;
 }
 
+QMutex &QQmlThread::mutex()
+{
+    return d->mutex();
+}
+
 void QQmlThread::lock()
 {
     d->lock();
@@ -310,6 +320,12 @@ void QQmlThread::shutdownThread()
 
 void QQmlThread::internalCallMethodInThread(Message *message)
 {
+#if !QT_CONFIG(thread)
+    message->call(this);
+    delete message;
+    return;
+#endif
+
     Q_ASSERT(!isThisThread());
     d->lock();
     Q_ASSERT(d->m_mainThreadWaiting == false);
@@ -328,7 +344,7 @@ void QQmlThread::internalCallMethodInThread(Message *message)
             message->call(this);
             delete message;
             lock();
-            d->mainSync = 0;
+            d->mainSync = nullptr;
             wakeOne();
         } else {
             d->wait();
@@ -341,11 +357,17 @@ void QQmlThread::internalCallMethodInThread(Message *message)
 
 void QQmlThread::internalCallMethodInMain(Message *message)
 {
+#if !QT_CONFIG(thread)
+    message->call(this);
+    delete message;
+    return;
+#endif
+
     Q_ASSERT(isThisThread());
 
     d->lock();
 
-    Q_ASSERT(d->mainSync == 0);
+    Q_ASSERT(d->mainSync == nullptr);
     d->mainSync = message;
 
     if (d->m_mainThreadWaiting) {
@@ -359,7 +381,7 @@ void QQmlThread::internalCallMethodInMain(Message *message)
     while (d->mainSync) {
         if (d->m_shutdown) {
             delete d->mainSync;
-            d->mainSync = 0;
+            d->mainSync = nullptr;
             break;
         }
         d->wait();
@@ -370,6 +392,10 @@ void QQmlThread::internalCallMethodInMain(Message *message)
 
 void QQmlThread::internalPostMethodToThread(Message *message)
 {
+#if !QT_CONFIG(thread)
+    internalPostMethodToMain(message);
+    return;
+#endif
     Q_ASSERT(!isThisThread());
     d->lock();
     bool wasEmpty = d->threadList.isEmpty();
@@ -381,7 +407,9 @@ void QQmlThread::internalPostMethodToThread(Message *message)
 
 void QQmlThread::internalPostMethodToMain(Message *message)
 {
+#if QT_CONFIG(thread)
     Q_ASSERT(isThisThread());
+#endif
     d->lock();
     bool wasEmpty = d->mainList.isEmpty();
     d->mainList.append(message);
@@ -392,7 +420,9 @@ void QQmlThread::internalPostMethodToMain(Message *message)
 
 void QQmlThread::waitForNextMessage()
 {
+#if QT_CONFIG(thread)
     Q_ASSERT(!isThisThread());
+#endif
     d->lock();
     Q_ASSERT(d->m_mainThreadWaiting == false);
 
@@ -405,7 +435,7 @@ void QQmlThread::waitForNextMessage()
             message->call(this);
             delete message;
             lock();
-            d->mainSync = 0;
+            d->mainSync = nullptr;
             wakeOne();
         } else {
             d->wait();

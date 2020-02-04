@@ -25,7 +25,7 @@
 
 #if defined(OS_WIN)
 typedef struct tagRECT RECT;
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
 typedef struct CGRect CGRect;
 #endif
 
@@ -33,7 +33,7 @@ namespace gfx {
 
 class Insets;
 
-class GFX_EXPORT Rect {
+class GEOMETRY_EXPORT Rect {
  public:
   constexpr Rect() = default;
   constexpr Rect(int width, int height) : size_(width, height) {}
@@ -48,25 +48,27 @@ class GFX_EXPORT Rect {
 
 #if defined(OS_WIN)
   explicit Rect(const RECT& r);
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
   explicit Rect(const CGRect& r);
 #endif
 
 #if defined(OS_WIN)
   // Construct an equivalent Win32 RECT object.
   RECT ToRECT() const;
-#elif defined(OS_MACOSX)
+#elif defined(OS_MACOSX) || defined(OS_IOS)
   // Construct an equivalent CoreGraphics object.
   CGRect ToCGRect() const;
 #endif
 
   constexpr int x() const { return origin_.x(); }
+  // Sets the X position while preserving the width.
   void set_x(int x) {
     origin_.set_x(x);
     size_.set_width(GetClampedValue(x, width()));
   }
 
   constexpr int y() const { return origin_.y(); }
+  // Sets the Y position while preserving the height.
   void set_y(int y) {
     origin_.set_y(y);
     size_.set_height(GetClampedValue(y, height()));
@@ -100,6 +102,15 @@ class GFX_EXPORT Rect {
   constexpr Point top_right() const { return Point(right(), y()); }
   constexpr Point bottom_left() const { return Point(x(), bottom()); }
   constexpr Point bottom_right() const { return Point(right(), bottom()); }
+
+  constexpr Point left_center() const { return Point(x(), y() + height() / 2); }
+  constexpr Point top_center() const { return Point(x() + width() / 2, y()); }
+  constexpr Point right_center() const {
+    return Point(right(), y() + height() / 2);
+  }
+  constexpr Point bottom_center() const {
+    return Point(x() + width() / 2, bottom());
+  }
 
   Vector2d OffsetFromOrigin() const { return Vector2d(x(), y()); }
 
@@ -187,6 +198,9 @@ class GFX_EXPORT Rect {
   // at given |size|.
   void ClampToCenteredSize(const Size& size);
 
+  // Transpose x and y axis.
+  void Transpose();
+
   // Splits |this| in two halves, |left_half| and |right_half|.
   void SplitVertically(Rect* left_half, Rect* right_half) const;
 
@@ -227,7 +241,7 @@ class GFX_EXPORT Rect {
 
   // Clamp the size to avoid integer overflow in bottom() and right().
   // This returns the width given an origin and a width.
-  // TODO(enne): this should probably use base::SaturatedAddition, but that
+  // TODO(enne): this should probably use base::ClampAdd, but that
   // function is not a constexpr.
   static constexpr int GetClampedValue(int origin, int size) {
     return AddWouldOverflow(origin, size)
@@ -244,16 +258,16 @@ inline bool operator!=(const Rect& lhs, const Rect& rhs) {
   return !(lhs == rhs);
 }
 
-GFX_EXPORT Rect operator+(const Rect& lhs, const Vector2d& rhs);
-GFX_EXPORT Rect operator-(const Rect& lhs, const Vector2d& rhs);
+GEOMETRY_EXPORT Rect operator+(const Rect& lhs, const Vector2d& rhs);
+GEOMETRY_EXPORT Rect operator-(const Rect& lhs, const Vector2d& rhs);
 
 inline Rect operator+(const Vector2d& lhs, const Rect& rhs) {
   return rhs + lhs;
 }
 
-GFX_EXPORT Rect IntersectRects(const Rect& a, const Rect& b);
-GFX_EXPORT Rect UnionRects(const Rect& a, const Rect& b);
-GFX_EXPORT Rect SubtractRects(const Rect& a, const Rect& b);
+GEOMETRY_EXPORT Rect IntersectRects(const Rect& a, const Rect& b);
+GEOMETRY_EXPORT Rect UnionRects(const Rect& a, const Rect& b);
+GEOMETRY_EXPORT Rect SubtractRects(const Rect& a, const Rect& b);
 
 // Constructs a rectangle with |p1| and |p2| as opposite corners.
 //
@@ -261,7 +275,7 @@ GFX_EXPORT Rect SubtractRects(const Rect& a, const Rect& b);
 // points", except that we consider points on the right/bottom edges of the
 // rect to be outside the rect.  So technically one or both points will not be
 // contained within the rect, because they will appear on one of these edges.
-GFX_EXPORT Rect BoundingRect(const Point& p1, const Point& p2);
+GEOMETRY_EXPORT Rect BoundingRect(const Point& p1, const Point& p2);
 
 // Scales the rect and returns the enclosing rect.  Use this only the inputs are
 // known to not overflow.  Use ScaleToEnclosingRectSafe if the inputs are
@@ -338,6 +352,41 @@ inline Rect ScaleToEnclosedRect(const Rect& rect,
 
 inline Rect ScaleToEnclosedRect(const Rect& rect, float scale) {
   return ScaleToEnclosedRect(rect, scale, scale);
+}
+
+// Scales |rect| by scaling its four corner points. If the corner points lie on
+// non-integral coordinate after scaling, their values are rounded to the
+// nearest integer.
+// This is helpful during layout when relative positions of multiple gfx::Rect
+// in a given coordinate space needs to be same after scaling as it was before
+// scaling. ie. this gives a lossless relative positioning of rects.
+inline Rect ScaleToRoundedRect(const Rect& rect, float x_scale, float y_scale) {
+  if (x_scale == 1.f && y_scale == 1.f)
+    return rect;
+
+  DCHECK(
+      base::IsValueInRangeForNumericType<int>(std::round(rect.x() * x_scale)));
+  DCHECK(
+      base::IsValueInRangeForNumericType<int>(std::round(rect.y() * y_scale)));
+  DCHECK(base::IsValueInRangeForNumericType<int>(
+      std::round(rect.right() * x_scale)));
+  DCHECK(base::IsValueInRangeForNumericType<int>(
+      std::round(rect.bottom() * y_scale)));
+
+  int x = static_cast<int>(std::round(rect.x() * x_scale));
+  int y = static_cast<int>(std::round(rect.y() * y_scale));
+  int r = rect.width() == 0
+              ? x
+              : static_cast<int>(std::round(rect.right() * x_scale));
+  int b = rect.height() == 0
+              ? y
+              : static_cast<int>(std::round(rect.bottom() * y_scale));
+
+  return Rect(x, y, r - x, b - y);
+}
+
+inline Rect ScaleToRoundedRect(const Rect& rect, float scale) {
+  return ScaleToRoundedRect(rect, scale, scale);
 }
 
 // This is declared here for use in gtest-based unit tests but is defined in

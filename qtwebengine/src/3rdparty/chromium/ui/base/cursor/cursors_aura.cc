@@ -6,7 +6,8 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
+#include "build/build_config.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/point.h"
@@ -79,7 +80,7 @@ const CursorData kNormalCursors[] = {
     {CursorType::kAlias, IDR_AURA_CURSOR_ALIAS, {8, 6}, {15, 11}},
     {CursorType::kCell, IDR_AURA_CURSOR_CELL, {11, 11}, {24, 23}},
     {CursorType::kContextMenu, IDR_AURA_CURSOR_CONTEXT_MENU, {4, 4}, {8, 9}},
-    {CursorType::kCross, IDR_AURA_CURSOR_CROSSHAIR, {12, 12}, {25, 23}},
+    {CursorType::kCross, IDR_AURA_CURSOR_CROSSHAIR, {12, 12}, {24, 24}},
     {CursorType::kHelp, IDR_AURA_CURSOR_HELP, {4, 4}, {8, 9}},
     {CursorType::kVerticalText,
      IDR_AURA_CURSOR_XTERM_HORIZ,
@@ -161,7 +162,7 @@ const CursorData kLargeCursors[] = {
      IDR_AURA_CURSOR_BIG_CONTEXT_MENU,
      {11, 11},
      {22, 22}},
-    {CursorType::kCross, IDR_AURA_CURSOR_BIG_CROSSHAIR, {31, 30}, {62, 60}},
+    {CursorType::kCross, IDR_AURA_CURSOR_BIG_CROSSHAIR, {30, 32}, {60, 64}},
     {CursorType::kHelp, IDR_AURA_CURSOR_BIG_HELP, {10, 11}, {20, 22}},
     {CursorType::kVerticalText,
      IDR_AURA_CURSOR_BIG_XTERM_HORIZ,
@@ -203,16 +204,16 @@ const CursorData kAnimatedCursors[] = {
 };
 
 const CursorSizeData kCursorSizes[] = {
-    {CursorSize::kNormal, kNormalCursors, arraysize(kNormalCursors),
-     kAnimatedCursors, arraysize(kAnimatedCursors)},
-    {CursorSize::kLarge, kLargeCursors, arraysize(kLargeCursors),
+    {CursorSize::kNormal, kNormalCursors, base::size(kNormalCursors),
+     kAnimatedCursors, base::size(kAnimatedCursors)},
+    {CursorSize::kLarge, kLargeCursors, base::size(kLargeCursors),
      // TODO(yoshiki): Replace animated cursors with big assets.
      // crbug.com/247254
-     kAnimatedCursors, arraysize(kAnimatedCursors)},
+     kAnimatedCursors, base::size(kAnimatedCursors)},
 };
 
 const CursorSizeData* GetCursorSizeByType(CursorSize cursor_size) {
-  for (size_t i = 0; i < arraysize(kCursorSizes); ++i) {
+  for (size_t i = 0; i < base::size(kCursorSizes); ++i) {
     if (kCursorSizes[i].id == cursor_size)
       return &kCursorSizes[i];
   }
@@ -286,31 +287,40 @@ bool GetAnimatedCursorDataFor(CursorSize cursor_size,
                      id, scale_factor, resource_id, point);
 }
 
-bool GetCursorBitmap(const Cursor& cursor,
-                     SkBitmap* bitmap,
-                     gfx::Point* point) {
-  DCHECK(bitmap && point);
+SkBitmap Cursor::GetDefaultBitmap() const {
 #if defined(OS_WIN)
-  Cursor cursor_copy = cursor;
+  Cursor cursor_copy = *this;
   ui::CursorLoaderWin cursor_loader;
   cursor_loader.SetPlatformCursor(&cursor_copy);
-  const std::unique_ptr<SkBitmap> cursor_bitmap(
-      IconUtil::CreateSkBitmapFromHICON(cursor_copy.platform()));
-  *point = IconUtil::GetHotSpotFromHICON(cursor_copy.platform());
+  return IconUtil::CreateSkBitmapFromHICON(cursor_copy.platform());
 #else
   int resource_id;
-  if (!GetCursorDataFor(ui::CursorSize::kNormal, cursor.native_type(),
-                        cursor.device_scale_factor(), &resource_id, point)) {
-    return false;
+  gfx::Point hotspot;
+  if (!GetCursorDataFor(ui::CursorSize::kNormal, native_type(),
+                        device_scale_factor(), &resource_id, &hotspot)) {
+    return SkBitmap();
   }
-
-  const SkBitmap* cursor_bitmap = ResourceBundle::GetSharedInstance().
-      GetImageSkiaNamed(resource_id)->bitmap();
+  return *ResourceBundle::GetSharedInstance()
+              .GetImageSkiaNamed(resource_id)
+              ->bitmap();
 #endif
-  if (!cursor_bitmap)
-    return false;
-  *bitmap = *cursor_bitmap;
-  return true;
+}
+
+gfx::Point Cursor::GetDefaultHotspot() const {
+#if defined(OS_WIN)
+  Cursor cursor_copy = *this;
+  ui::CursorLoaderWin cursor_loader;
+  cursor_loader.SetPlatformCursor(&cursor_copy);
+  return IconUtil::GetHotSpotFromHICON(cursor_copy.platform());
+#else
+  int resource_id;
+  gfx::Point hotspot;
+  if (!GetCursorDataFor(ui::CursorSize::kNormal, native_type(),
+                        device_scale_factor(), &resource_id, &hotspot)) {
+    return gfx::Point();
+  }
+  return hotspot;
+#endif
 }
 
 }  // namespace ui

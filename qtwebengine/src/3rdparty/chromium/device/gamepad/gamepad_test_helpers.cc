@@ -11,7 +11,7 @@ MockGamepadDataFetcher::MockGamepadDataFetcher(const Gamepads& test_data)
       read_data_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
                  base::WaitableEvent::InitialState::NOT_SIGNALED) {}
 
-MockGamepadDataFetcher::~MockGamepadDataFetcher() {}
+MockGamepadDataFetcher::~MockGamepadDataFetcher() = default;
 
 GamepadSource MockGamepadDataFetcher::source() {
   return GAMEPAD_SOURCE_TEST;
@@ -21,7 +21,7 @@ void MockGamepadDataFetcher::GetGamepadData(bool devices_changed_hint) {
   {
     base::AutoLock lock(lock_);
 
-    for (unsigned int i = 0; i < Gamepads::kItemsLengthCap; ++i) {
+    for (size_t i = 0; i < Gamepads::kItemsLengthCap; ++i) {
       if (test_data_.items[i].connected) {
         PadState* pad = GetPadState(i);
         if (pad)
@@ -50,9 +50,9 @@ void MockGamepadDataFetcher::SetTestData(const Gamepads& new_data) {
   test_data_ = new_data;
 }
 
-GamepadTestHelper::GamepadTestHelper() {}
+GamepadTestHelper::GamepadTestHelper() = default;
 
-GamepadTestHelper::~GamepadTestHelper() {}
+GamepadTestHelper::~GamepadTestHelper() = default;
 
 GamepadServiceTestConstructor::GamepadServiceTestConstructor(
     const Gamepads& test_data) {

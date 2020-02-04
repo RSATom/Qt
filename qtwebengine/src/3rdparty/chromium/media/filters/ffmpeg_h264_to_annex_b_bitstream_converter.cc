@@ -19,25 +19,31 @@ FFmpegH264ToAnnexBBitstreamConverter::FFmpegH264ToAnnexBBitstreamConverter(
   CHECK(stream_codec_parameters_);
 }
 
-FFmpegH264ToAnnexBBitstreamConverter::~FFmpegH264ToAnnexBBitstreamConverter() {}
+FFmpegH264ToAnnexBBitstreamConverter::~FFmpegH264ToAnnexBBitstreamConverter() =
+    default;
 
 bool FFmpegH264ToAnnexBBitstreamConverter::ConvertPacket(AVPacket* packet) {
   std::unique_ptr<mp4::AVCDecoderConfigurationRecord> avc_config;
 
-  if (packet == NULL || !packet->data)
+  if (packet == NULL || !packet->data) {
+    DVLOG(2) << __func__ << ": Null or empty packet";
     return false;
+  }
 
   // Calculate the needed output buffer size.
   if (!configuration_processed_) {
     if (!stream_codec_parameters_->extradata ||
-        stream_codec_parameters_->extradata_size <= 0)
+        stream_codec_parameters_->extradata_size <= 0) {
+      DVLOG(2) << __func__ << ": Empty extra data";
       return false;
+    }
 
     avc_config.reset(new mp4::AVCDecoderConfigurationRecord());
 
     if (!converter_.ParseConfiguration(stream_codec_parameters_->extradata,
                                        stream_codec_parameters_->extradata_size,
                                        avc_config.get())) {
+      DVLOG(2) << __func__ << ": ParseConfiguration() failure";
       return false;
     }
   }
@@ -45,13 +51,17 @@ bool FFmpegH264ToAnnexBBitstreamConverter::ConvertPacket(AVPacket* packet) {
   uint32_t output_packet_size = converter_.CalculateNeededOutputBufferSize(
       packet->data, packet->size, avc_config.get());
 
-  if (output_packet_size == 0)
+  if (output_packet_size == 0) {
+    DVLOG(2) << __func__ << ": zero |output_packet_size|";
     return false;  // Invalid input packet.
+  }
 
   // Allocate new packet for the output.
   AVPacket dest_packet;
-  if (av_new_packet(&dest_packet, output_packet_size) != 0)
-    return false;  // Memory allocation failure.
+  if (av_new_packet(&dest_packet, output_packet_size) != 0) {
+    DVLOG(2) << __func__ << ": Memory allocation failure";
+    return false;
+  }
 
   // This is a bit tricky: since the interface does not allow us to replace
   // the pointer of the old packet with a new one, we will initially copy the
@@ -65,6 +75,7 @@ bool FFmpegH264ToAnnexBBitstreamConverter::ConvertPacket(AVPacket* packet) {
           packet->data, packet->size,
           avc_config.get(),
           dest_packet.data, &io_size)) {
+    DVLOG(2) << __func__ << ": ConvertNalUnitStreamToByteStream() failure";
     return false;
   }
 
@@ -73,8 +84,9 @@ bool FFmpegH264ToAnnexBBitstreamConverter::ConvertPacket(AVPacket* packet) {
 
   // At the end we must destroy the old packet.
   av_packet_unref(packet);
-  *packet = dest_packet;  // Finally, replace the values in the input packet.
 
+  // Finally, replace the values in the input packet.
+  memcpy(packet, &dest_packet, sizeof(*packet));
   return true;
 }
 

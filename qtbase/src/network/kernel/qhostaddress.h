@@ -148,12 +148,18 @@ public:
     bool isInSubnet(const QPair<QHostAddress, int> &subnet) const;
 
     bool isLoopback() const;
+    bool isGlobal() const;
+    bool isLinkLocal() const;
+    bool isSiteLocal() const;
+    bool isUniqueLocalUnicast() const;
     bool isMulticast() const;
+    bool isBroadcast() const;
 
     static QPair<QHostAddress, int> parseSubnet(const QString &subnet);
 
     friend Q_NETWORK_EXPORT uint qHash(const QHostAddress &key, uint seed) Q_DECL_NOTHROW;
 protected:
+    friend class QHostAddressPrivate;
     QExplicitlySharedDataPointer<QHostAddressPrivate> d;
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(QHostAddress::ConversionMode)

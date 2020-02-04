@@ -37,31 +37,28 @@
 **
 ****************************************************************************/
 
-#include "chromium_overrides.h"
-
-#include "gl_context_qt.h"
+#include "ozone/gl_context_qt.h"
 #include "qtwebenginecoreglobal_p.h"
 #include "web_contents_view_qt.h"
 
 #include "base/values.h"
 #include "content/browser/renderer_host/pepper/pepper_truetype_font_list.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/font_list.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_factory.h"
 #include "ui/events/devices/device_data_manager.h"
 #include "ui/events/platform/platform_event_source.h"
-#include "ppapi/features/features.h"
+#include "ui/snapshot/snapshot.h"
+#include "ppapi/buildflags/buildflags.h"
 
 #include <QGuiApplication>
 #include <QScreen>
 #include <QWindow>
 #include <QFontDatabase>
 #include <QStringList>
-
-#if defined(USE_X11)
-#include "ui/gfx/x/x11_types.h"
-#endif
+#include <QLibraryInfo>
 
 #if defined(USE_AURA) && !defined(USE_OZONE)
 #include "ui/base/dragdrop/os_exchange_data.h"
@@ -74,46 +71,10 @@
 #include "net/ssl/openssl_client_key_store.h"
 #endif
 
-namespace QtWebEngineCore {
-void GetScreenInfoFromNativeWindow(QWindow* window, content::ScreenInfo* results)
+void *GetQtXDisplay()
 {
-    QScreen* screen = window->screen();
-
-    content::ScreenInfo r;
-    r.device_scale_factor = screen->devicePixelRatio();
-    r.depth_per_component = 8;
-    r.depth = screen->depth();
-    r.is_monochrome = (r.depth == 1);
-
-    QRect screenGeometry = screen->geometry();
-    r.rect = gfx::Rect(screenGeometry.x(), screenGeometry.y(), screenGeometry.width(), screenGeometry.height());
-    QRect available = screen->availableGeometry();
-    r.available_rect = gfx::Rect(available.x(), available.y(), available.width(), available.height());
-    *results = r;
+    return GLContextHelper::getXDisplay();
 }
-
-} // namespace QtWebEngineCore
-
-#if defined(USE_X11)
-XDisplay* GetQtXDisplay()
-{
-    return static_cast<XDisplay*>(GLContextHelper::getXDisplay());
-}
-
-namespace ui {
-class DummyPlatformEventSource : public PlatformEventSource
-{
-public:
-    DummyPlatformEventSource() {
-        DeviceDataManager::CreateInstance();
-    }
-};
-
-std::unique_ptr<PlatformEventSource> PlatformEventSource::CreateDefault() {
-  return base::MakeUnique<DummyPlatformEventSource>();
-}
-} // namespace ui
-#endif // defined(USE_X11)
 
 namespace content {
 class WebContentsImpl;
@@ -130,12 +91,13 @@ WebContentsView* CreateWebContentsView(WebContentsImpl *web_contents,
     return rv;
 }
 
-// static
-void WebContentsView::GetDefaultScreenInfo(content::ScreenInfo* results)
+#if defined(Q_OS_MACOS)
+std::string getQtPrefix()
 {
-    QWindow dummy;
-    QtWebEngineCore::GetScreenInfoFromNativeWindow(&dummy, results);
+    const QString prefix = QLibraryInfo::location(QLibraryInfo::PrefixPath);
+    return prefix.toStdString();
 }
+#endif
 
 } // namespace content
 
@@ -158,7 +120,7 @@ std::unique_ptr<base::ListValue> GetFontList_SlowBlocking()
     return std::move(font_list);
 }
 
-#if BUILDFLAG(ENABLE_PLUGINS)
+#if QT_CONFIG(webengine_pepper_plugins)
 // content/browser/renderer_host/pepper/pepper_truetype_font_list.h
 void GetFontFamilies_SlowBlocking(std::vector<std::string> *font_families)
 {
@@ -172,7 +134,7 @@ void GetFontsInFamily_SlowBlocking(const std::string &, std::vector<ppapi::proxy
 {
     QT_NOT_USED
 }
-#endif // BUILDFLAG(ENABLE_PLUGINS)
+#endif // QT_CONFIG(webengine_pepper_plugins)
 
 } // namespace content
 
@@ -191,19 +153,54 @@ ActivationClient *GetActivationClient(aura::Window *)
 } // namespace wm
 #endif // defined(USE_AURA) || defined(USE_OZONE)
 
+#if defined(USE_AURA)
+namespace ui {
+
+bool GrabWindowSnapshot(gfx::NativeWindow window,
+                        const gfx::Rect& snapshot_bounds,
+                        gfx::Image* image)
+{
+    NOTIMPLEMENTED();
+    return false;
+}
+
+bool GrabViewSnapshot(gfx::NativeView view,
+                      const gfx::Rect& snapshot_bounds,
+                      gfx::Image* image)
+{
+    NOTIMPLEMENTED();
+    return false;
+}
+
+void GrabWindowSnapshotAndScaleAsync(gfx::NativeWindow window,
+                                     const gfx::Rect& source_rect,
+                                     const gfx::Size& target_size,
+                                     const GrabWindowSnapshotAsyncCallback& callback)
+{
+    NOTIMPLEMENTED();
+    callback.Run(gfx::Image());
+}
+
+void GrabWindowSnapshotAsync(gfx::NativeWindow window,
+                             const gfx::Rect& source_rect,
+                             const GrabWindowSnapshotAsyncCallback& callback)
+{
+    NOTIMPLEMENTED();
+    callback.Run(gfx::Image());
+}
+
+void GrabViewSnapshotAsync(gfx::NativeView view,
+                           const gfx::Rect& source_rect,
+                           const GrabWindowSnapshotAsyncCallback& callback)
+{
+    NOTIMPLEMENTED();
+    callback.Run(gfx::Image());
+}
+
+} // namespace ui
+#endif // defined(USE_AURA)
+
 std::unique_ptr<ui::OSExchangeData::Provider>
 ui::OSExchangeDataProviderFactory::CreateProvider() {
     return nullptr;
 }
-
-
-#if defined(USE_OPENSSL_CERTS)
-namespace net {
-
-scoped_refptr<SSLPrivateKey> FetchClientCertPrivateKey(const X509Certificate* certificate)
-{
-    return OpenSSLClientKeyStore::GetInstance()->FetchClientCertPrivateKey(certificate);
-}
-
-}  // namespace net
-#endif

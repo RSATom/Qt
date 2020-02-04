@@ -7,8 +7,10 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "build/build_config.h"
+#include "components/nacl/common/buildflags.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/content_switches.h"
 #include "content/shell/common/shell_switches.h"
@@ -17,27 +19,22 @@
 #include "extensions/shell/browser/shell_content_browser_client.h"
 #include "extensions/shell/common/shell_content_client.h"
 #include "extensions/shell/renderer/shell_content_renderer_client.h"
-#include "extensions/shell/utility/shell_content_utility_client.h"
+#include "services/service_manager/embedder/switches.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
-#include "chromeos/chromeos_paths.h"
+#include "chromeos/constants/chromeos_paths.h"
 #endif
 
-#if defined(OS_MACOSX)
-#include "base/mac/foundation_util.h"
-#include "extensions/shell/app/paths_mac.h"
-#endif
-
-#if !defined(DISABLE_NACL)
-#include "components/nacl/common/nacl_switches.h"
+#if BUILDFLAG(ENABLE_NACL)
+#include "components/nacl/common/nacl_switches.h"  // nogncheck
 #if defined(OS_LINUX)
-#include "components/nacl/common/nacl_paths.h"
+#include "components/nacl/common/nacl_paths.h"  // nogncheck
 #endif  // OS_LINUX
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
 #include "components/nacl/zygote/nacl_fork_delegate_linux.h"
 #endif  // OS_POSIX && !OS_MACOSX && !OS_ANDROID
-#endif  // !DISABLE_NACL
+#endif  // BUILDFLAG(ENABLE_NACL)
 
 #if defined(OS_WIN)
 #include "base/base_paths_win.h"
@@ -47,7 +44,20 @@
 #include "base/base_paths_mac.h"
 #endif
 
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#include "components/crash/content/app/breakpad_linux.h"         // nogncheck
+#include "components/crash/content/app/crash_reporter_client.h"  // nogncheck
+#include "extensions/shell/app/shell_crash_reporter_client.h"
+#endif
+
 namespace {
+
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+extensions::ShellCrashReporterClient* GetCrashReporterClient() {
+  static base::NoDestructor<extensions::ShellCrashReporterClient> instance;
+  return instance.get();
+}
+#endif
 
 // Returns the same directory that the browser context will later be
 // initialized with.
@@ -65,9 +75,9 @@ base::FilePath GetDataPath() {
   data_dir = base::nix::GetXDGDirectory(
       env.get(), base::nix::kXdgConfigHomeEnvVar, base::nix::kDotConfigDir);
 #elif defined(OS_WIN)
-  CHECK(PathService::Get(base::DIR_LOCAL_APP_DATA, &data_dir));
+  CHECK(base::PathService::Get(base::DIR_LOCAL_APP_DATA, &data_dir));
 #elif defined(OS_MACOSX)
-  CHECK(PathService::Get(base::DIR_APP_DATA, &data_dir));
+  CHECK(base::PathService::Get(base::DIR_APP_DATA, &data_dir));
 #else
   NOTIMPLEMENTED();
 #endif
@@ -78,8 +88,13 @@ base::FilePath GetDataPath() {
 }
 
 void InitLogging() {
-  const base::FilePath log_path =
-      GetDataPath().Append(FILE_PATH_LITERAL("app_shell.log"));
+  base::FilePath log_path;
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kLogFile)) {
+    log_path = base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+        switches::kLogFile);
+  } else {
+    log_path = GetDataPath().Append(FILE_PATH_LITERAL("app_shell.log"));
+  }
 
   // Set up log initialization settings.
   logging::LoggingSettings settings;
@@ -99,17 +114,12 @@ void InitLogging() {
 
 // Returns the path to the extensions_shell_and_test.pak file.
 base::FilePath GetResourcesPakFilePath() {
-#if defined(OS_MACOSX)
-  return base::mac::PathForFrameworkBundleResource(
-      CFSTR("extensions_shell_and_test.pak"));
-#else
   base::FilePath extensions_shell_and_test_pak_path;
-  PathService::Get(base::DIR_MODULE, &extensions_shell_and_test_pak_path);
+  base::PathService::Get(base::DIR_MODULE, &extensions_shell_and_test_pak_path);
   extensions_shell_and_test_pak_path =
       extensions_shell_and_test_pak_path.AppendASCII(
           "extensions_shell_and_test.pak");
   return extensions_shell_and_test_pak_path;
-#endif  // OS_MACOSX
 }
 
 }  // namespace
@@ -124,19 +134,13 @@ ShellMainDelegate::~ShellMainDelegate() {
 
 bool ShellMainDelegate::BasicStartupComplete(int* exit_code) {
   InitLogging();
-  content_client_.reset(CreateContentClient());
+  content_client_.reset(new ShellContentClient);
   SetContentClient(content_client_.get());
-
-#if defined(OS_MACOSX)
-  OverrideChildProcessFilePath();
-  // This must happen before InitializeResourceBundle.
-  OverrideFrameworkBundlePath();
-#endif
 
 #if defined(OS_CHROMEOS)
   chromeos::RegisterPathProvider();
 #endif
-#if !defined(DISABLE_NACL) && defined(OS_LINUX)
+#if BUILDFLAG(ENABLE_NACL) && defined(OS_LINUX)
   nacl::RegisterPathProvider();
 #endif
   extensions::RegisterPathProvider();
@@ -147,24 +151,28 @@ void ShellMainDelegate::PreSandboxStartup() {
   std::string process_type =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kProcessType);
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+  crash_reporter::SetCrashReporterClient(GetCrashReporterClient());
+  // Reporting for sub-processes will be initialized in ZygoteForked.
+  if (process_type != service_manager::switches::kZygoteProcess)
+    breakpad::InitCrashReporter(process_type);
+#endif
+
   if (ProcessNeedsResourceBundle(process_type))
-    InitializeResourceBundle();
+    ui::ResourceBundle::InitSharedInstanceWithPakPath(
+        GetResourcesPakFilePath());
 }
 
 content::ContentBrowserClient* ShellMainDelegate::CreateContentBrowserClient() {
-  browser_client_.reset(CreateShellContentBrowserClient());
+  browser_client_ = std::make_unique<ShellContentBrowserClient>(
+      new DefaultShellBrowserMainDelegate);
   return browser_client_.get();
 }
 
 content::ContentRendererClient*
 ShellMainDelegate::CreateContentRendererClient() {
-  renderer_client_.reset(CreateShellContentRendererClient());
+  renderer_client_ = std::make_unique<ShellContentRendererClient>();
   return renderer_client_.get();
-}
-
-content::ContentUtilityClient* ShellMainDelegate::CreateContentUtilityClient() {
-  utility_client_.reset(CreateShellContentUtilityClient());
-  return utility_client_.get();
 }
 
 void ShellMainDelegate::ProcessExiting(const std::string& process_type) {
@@ -173,36 +181,22 @@ void ShellMainDelegate::ProcessExiting(const std::string& process_type) {
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
 void ShellMainDelegate::ZygoteStarting(
-    std::vector<std::unique_ptr<content::ZygoteForkDelegate>>* delegates) {
-#if !defined(DISABLE_NACL)
+    std::vector<std::unique_ptr<service_manager::ZygoteForkDelegate>>*
+        delegates) {
+#if BUILDFLAG(ENABLE_NACL)
   nacl::AddNaClZygoteForkDelegates(delegates);
-#endif  // DISABLE_NACL
+#endif  // BUILDFLAG(ENABLE_NACL)
 }
 #endif  // OS_POSIX && !OS_MACOSX && !OS_ANDROID
 
-content::ContentClient* ShellMainDelegate::CreateContentClient() {
-  return new ShellContentClient();
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+void ShellMainDelegate::ZygoteForked() {
+  std::string process_type =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kProcessType);
+  breakpad::InitCrashReporter(process_type);
 }
-
-content::ContentBrowserClient*
-ShellMainDelegate::CreateShellContentBrowserClient() {
-  return new ShellContentBrowserClient(new DefaultShellBrowserMainDelegate());
-}
-
-content::ContentRendererClient*
-ShellMainDelegate::CreateShellContentRendererClient() {
-  return new ShellContentRendererClient();
-}
-
-content::ContentUtilityClient*
-ShellMainDelegate::CreateShellContentUtilityClient() {
-  return new ShellContentUtilityClient();
-}
-
-void ShellMainDelegate::InitializeResourceBundle() {
-  ui::ResourceBundle::InitSharedInstanceWithPakPath(
-      GetResourcesPakFilePath());
-}
+#endif
 
 // static
 bool ShellMainDelegate::ProcessNeedsResourceBundle(
@@ -210,9 +204,9 @@ bool ShellMainDelegate::ProcessNeedsResourceBundle(
   // The browser process has no process type flag, but needs resources.
   // On Linux the zygote process opens the resources for the renderers.
   return process_type.empty() ||
-         process_type == switches::kZygoteProcess ||
+         process_type == service_manager::switches::kZygoteProcess ||
          process_type == switches::kRendererProcess ||
-#if !defined(DISABLE_NACL)
+#if BUILDFLAG(ENABLE_NACL)
          process_type == switches::kNaClLoaderProcess ||
 #endif
 #if defined(OS_MACOSX)

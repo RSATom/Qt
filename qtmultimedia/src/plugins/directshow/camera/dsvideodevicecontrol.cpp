@@ -129,10 +129,10 @@ void DSVideoDeviceControl::updateDevices()
 
     deviceList->clear();
 
-    ICreateDevEnum* pDevEnum = NULL;
-    IEnumMoniker* pEnum = NULL;
+    ICreateDevEnum* pDevEnum = nullptr;
+    IEnumMoniker* pEnum = nullptr;
     // Create the System device enumerator
-    HRESULT hr = CoCreateInstance(CLSID_SystemDeviceEnum, NULL,
+    HRESULT hr = CoCreateInstance(CLSID_SystemDeviceEnum, nullptr,
             CLSCTX_INPROC_SERVER, IID_ICreateDevEnum,
             reinterpret_cast<void**>(&pDevEnum));
     if (SUCCEEDED(hr)) {
@@ -142,12 +142,12 @@ void DSVideoDeviceControl::updateDevices()
         if (S_OK == hr) {
             pEnum->Reset();
             // go through and find all video capture devices
-            IMoniker* pMoniker = NULL;
+            IMoniker* pMoniker = nullptr;
             IMalloc *mallocInterface = 0;
             CoGetMalloc(1, (LPMALLOC*)&mallocInterface);
-            while (pEnum->Next(1, &pMoniker, NULL) == S_OK) {
+            while (pEnum->Next(1, &pMoniker, nullptr) == S_OK) {
                 BSTR strName = 0;
-                hr = pMoniker->GetDisplayName(NULL, NULL, &strName);
+                hr = pMoniker->GetDisplayName(nullptr, nullptr, &strName);
                 if (SUCCEEDED(hr)) {
                     QString output(QString::fromWCharArray(strName));
                     mallocInterface->Free(strName);
@@ -156,7 +156,8 @@ void DSVideoDeviceControl::updateDevices()
                     devInfo.first = output.toUtf8();
 
                     IPropertyBag *pPropBag;
-                    hr = pMoniker->BindToStorage(0, 0, IID_IPropertyBag, (void**)(&pPropBag));
+                    hr = pMoniker->BindToStorage(nullptr, nullptr, IID_IPropertyBag,
+                                                 reinterpret_cast<void**>(&pPropBag));
                     if (SUCCEEDED(hr)) {
                         // Find the description
                         VARIANT varName;

@@ -10,14 +10,15 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
+#include "net/base/completion_once_callback.h"
 #include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_system_url.h"
-#include "storage/browser/storage_browser_export.h"
 
 namespace base {
 class FilePath;
@@ -36,16 +37,16 @@ class FileSystemContext;
 // remote filesystem should implement its own reader rather than relying
 // on FileSystemOperation::GetSnapshotFile() which may force downloading
 // the entire contents for remote files.
-class STORAGE_EXPORT FileSystemFileStreamReader
-    : public NON_EXPORTED_BASE(storage::FileStreamReader) {
+class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemFileStreamReader
+    : public storage::FileStreamReader {
  public:
   ~FileSystemFileStreamReader() override;
 
   // FileStreamReader overrides.
   int Read(net::IOBuffer* buf,
            int buf_len,
-           const net::CompletionCallback& callback) override;
-  int64_t GetLength(const net::Int64CompletionCallback& callback) override;
+           net::CompletionOnceCallback callback) override;
+  int64_t GetLength(net::Int64CompletionOnceCallback callback) override;
 
  private:
   friend class storage::FileStreamReader;
@@ -56,16 +57,19 @@ class STORAGE_EXPORT FileSystemFileStreamReader
                              int64_t initial_offset,
                              const base::Time& expected_modification_time);
 
-  int CreateSnapshot(const base::Closure& callback,
-                     const net::CompletionCallback& error_callback);
+  int CreateSnapshot();
   void DidCreateSnapshot(
-      const base::Closure& callback,
-      const net::CompletionCallback& error_callback,
       base::File::Error file_error,
       const base::File::Info& file_info,
       const base::FilePath& platform_path,
-      const scoped_refptr<storage::ShareableFileReference>& file_ref);
+      scoped_refptr<storage::ShareableFileReference> file_ref);
+  void OnRead(int rv);
+  void OnGetLength(int64_t rv);
 
+  net::IOBuffer* read_buf_;
+  int read_buf_len_;
+  net::CompletionOnceCallback read_callback_;
+  net::Int64CompletionOnceCallback get_length_callback_;
   scoped_refptr<FileSystemContext> file_system_context_;
   FileSystemURL url_;
   const int64_t initial_offset_;

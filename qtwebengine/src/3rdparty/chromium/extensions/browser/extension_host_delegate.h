@@ -7,16 +7,23 @@
 
 #include <string>
 
-#include "content/public/common/media_stream_request.h"
+#include "content/public/browser/media_stream_request.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "ui/base/window_open_disposition.h"
 
 namespace content {
 class JavaScriptDialogManager;
+class RenderFrameHost;
 class WebContents;
 }
 
 namespace gfx {
 class Rect;
+class Size;
+}  // namespace gfx
+
+namespace viz {
+class SurfaceId;
 }
 
 namespace extensions {
@@ -44,7 +51,7 @@ class ExtensionHostDelegate {
 
   // Creates a new tab or popup window with |web_contents|. The embedder may
   // choose to do nothing if tabs and popups are not supported.
-  virtual void CreateTab(content::WebContents* web_contents,
+  virtual void CreateTab(std::unique_ptr<content::WebContents> web_contents,
                          const std::string& extension_id,
                          WindowOpenDisposition disposition,
                          const gfx::Rect& initial_rect,
@@ -55,20 +62,32 @@ class ExtensionHostDelegate {
   virtual void ProcessMediaAccessRequest(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
-      const content::MediaResponseCallback& callback,
+      content::MediaResponseCallback callback,
       const Extension* extension) = 0;
 
   // Checks if we have permission to access the microphone or camera. Note that
   // this does not query the user. |type| must be MEDIA_DEVICE_AUDIO_CAPTURE
   // or MEDIA_DEVICE_VIDEO_CAPTURE.
-  virtual bool CheckMediaAccessPermission(content::WebContents* web_contents,
-                                          const GURL& security_origin,
-                                          content::MediaStreamType type,
-                                          const Extension* extension) = 0;
+  virtual bool CheckMediaAccessPermission(
+      content::RenderFrameHost* render_frame_host,
+      const GURL& security_origin,
+      blink::MediaStreamType type,
+      const Extension* extension) = 0;
 
   // Returns the ExtensionHostQueue implementation to use for creating
   // ExtensionHost renderers.
   virtual ExtensionHostQueue* GetExtensionHostQueue() const = 0;
+
+  // Notifies the Picture-in-Picture controller that there is a new player
+  // entering Picture-in-Picture.
+  // Returns the size of the Picture-in-Picture window.
+  virtual gfx::Size EnterPictureInPicture(content::WebContents* web_contents,
+                                          const viz::SurfaceId& surface_id,
+                                          const gfx::Size& natural_size) = 0;
+
+  // Updates the Picture-in-Picture controller with a signal that
+  // Picture-in-Picture mode has ended.
+  virtual void ExitPictureInPicture() = 0;
 };
 
 }  // namespace extensions

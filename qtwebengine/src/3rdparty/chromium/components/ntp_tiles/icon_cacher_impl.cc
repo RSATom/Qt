@@ -6,9 +6,9 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
+#include "components/favicon/core/favicon_server_fetcher_params.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon/core/favicon_util.h"
 #include "components/favicon/core/large_icon_service.h"
@@ -40,8 +40,8 @@ constexpr char kTileIconMinSizePxFieldParam[] = "min_size";
 constexpr char kTileIconDesiredSizePxFieldParam[] = "desired_size";
 
 favicon_base::IconType IconType(const PopularSites::Site& site) {
-  return site.large_icon_url.is_valid() ? favicon_base::TOUCH_ICON
-                                        : favicon_base::FAVICON;
+  return site.large_icon_url.is_valid() ? favicon_base::IconType::kTouchIcon
+                                        : favicon_base::IconType::kFavicon;
 }
 
 const GURL& IconURL(const PopularSites::Site& site) {
@@ -133,15 +133,15 @@ void IconCacherImpl::OnGetFaviconImageForPageURLFinished(
           destination: WEBSITE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting: "This feature cannot be disabled in settings."
           policy_exception_justification: "Not implemented."
         })");
-  image_fetcher_->StartOrQueueNetworkRequest(
+  image_fetcher_->FetchImage(
       std::string(), IconURL(site),
-      base::Bind(&IconCacherImpl::OnPopularSitesFaviconDownloaded,
-                 base::Unretained(this), site,
-                 base::Passed(std::move(preliminary_callback))),
+      base::BindOnce(&IconCacherImpl::OnPopularSitesFaviconDownloaded,
+                     base::Unretained(this), site,
+                     std::move(preliminary_callback)),
       traffic_annotation);
 }
 
@@ -184,7 +184,7 @@ void IconCacherImpl::SaveIconForSite(const PopularSites::Site& site,
   gfx::Image img(image);
   favicon_base::SetFaviconColorSpace(&img);
 
-  favicon_service_->SetFavicons(site.url, IconURL(site), IconType(site),
+  favicon_service_->SetFavicons({site.url}, IconURL(site), IconType(site),
                                 std::move(img));
 }
 
@@ -200,7 +200,7 @@ IconCacherImpl::MaybeProvideDefaultIcon(
           &IconCacherImpl::SaveAndNotifyDefaultIconForSite,
           weak_ptr_factory_.GetWeakPtr(), site, preliminary_icon_available)));
   image_fetcher_->GetImageDecoder()->DecodeImage(
-      ResourceBundle::GetSharedInstance()
+      ui::ResourceBundle::GetSharedInstance()
           .GetRawDataResource(site.default_icon_resource)
           .as_string(),
       gfx::Size(kDesiredFrameSize, kDesiredFrameSize),
@@ -216,7 +216,7 @@ void IconCacherImpl::StartFetchMostLikely(const GURL& page_url,
 
   // Desired size 0 means that we do not want the service to resize the image
   // (as we will not use it anyway).
-  large_icon_service_->GetLargeIconOrFallbackStyle(
+  large_icon_service_->GetLargeIconRawBitmapOrFallbackStyleForPageUrl(
       page_url, GetMinimumFetchingSizeForChromeSuggestionsFaviconsFromServer(),
       /*desired_size_in_pixel=*/0,
       base::Bind(&IconCacherImpl::OnGetLargeIconOrFallbackStyleFinished,
@@ -252,7 +252,7 @@ void IconCacherImpl::OnGetLargeIconOrFallbackStyleFinished(
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "Users can disable this feature via 'History' setting under "
             "'Advanced sync settings'."
@@ -265,9 +265,10 @@ void IconCacherImpl::OnGetLargeIconOrFallbackStyleFinished(
         })");
   large_icon_service_
       ->GetLargeIconOrFallbackStyleFromGoogleServerSkippingLocalCache(
-          page_url,
-          GetMinimumFetchingSizeForChromeSuggestionsFaviconsFromServer(),
-          GetDesiredFetchingSizeForChromeSuggestionsFaviconsFromServer(),
+          favicon::FaviconServerFetcherParams::CreateForMobile(
+              page_url,
+              GetMinimumFetchingSizeForChromeSuggestionsFaviconsFromServer(),
+              GetDesiredFetchingSizeForChromeSuggestionsFaviconsFromServer()),
           /*may_page_url_be_private=*/true, traffic_annotation,
           base::Bind(&IconCacherImpl::OnMostLikelyFaviconDownloaded,
                      weak_ptr_factory_.GetWeakPtr(), page_url));

@@ -50,6 +50,12 @@ Polymer({
       reflectToAttribute: true,
       computed: 'getItemName_(item)',
     },
+
+    /**
+     * The cached ConnectionState for the network.
+     * @type {!CrOnc.ConnectionState|undefined}
+     */
+    connectionState_: String,
   },
 
   behaviors: [CrPolicyNetworkBehavior],
@@ -66,10 +72,15 @@ Polymer({
 
   /** @private */
   networkStateChanged_: function() {
-    if (this.networkState &&
-        this.networkState.ConnectionState == CrOnc.ConnectionState.CONNECTED) {
-      this.fire('network-connected', this.networkState);
+    if (!this.networkState) {
+      return;
     }
+    const connectionState = this.networkState.ConnectionState;
+    if (connectionState == this.connectionState_) {
+      return;
+    }
+    this.connectionState_ = connectionState;
+    this.fire('network-connect-changed', this.networkState);
   },
 
   /**
@@ -79,13 +90,14 @@ Polymer({
    */
   getItemName_: function() {
     if (this.item.hasOwnProperty('customItemName')) {
-      var item = /** @type {!CrNetworkList.CustomItemState} */ (this.item);
-      var name = item.customItemName || '';
-      if (CrOncStrings.hasOwnProperty(item.customItemName))
+      const item = /** @type {!CrNetworkList.CustomItemState} */ (this.item);
+      let name = item.customItemName || '';
+      if (CrOncStrings.hasOwnProperty(item.customItemName)) {
         name = CrOncStrings[item.customItemName];
+      }
       return name;
     }
-    var network = /** @type {!CrOnc.NetworkStateProperties} */ (this.item);
+    const network = /** @type {!CrOnc.NetworkStateProperties} */ (this.item);
     return CrOnc.getNetworkName(network);
   },
 
@@ -94,9 +106,7 @@ Polymer({
    * @private
    */
   isStateTextVisible_: function() {
-    return !!this.networkState &&
-        (this.networkState.ConnectionState !=
-         CrOnc.ConnectionState.NOT_CONNECTED);
+    return !!this.networkState && !!this.getNetworkStateText_();
   },
 
   /**
@@ -105,13 +115,26 @@ Polymer({
    * @private
    */
   getNetworkStateText_: function() {
-    if (!this.isStateTextVisible_())
+    if (!this.networkState) {
       return '';
-    var state = this.networkState.ConnectionState;
-    if (state == CrOnc.ConnectionState.CONNECTED)
+    }
+    const connectionState = this.networkState.ConnectionState;
+    if (this.networkState.Type == CrOnc.Type.CELLULAR) {
+      // For Cellular, an empty ConnectionState indicates that the device is
+      // still initializing.
+      if (!connectionState) {
+        return CrOncStrings.networkListItemInitializing;
+      }
+      if (this.networkState.Cellular && this.networkState.Cellular.Scanning) {
+        return CrOncStrings.networkListItemScanning;
+      }
+    }
+    if (connectionState == CrOnc.ConnectionState.CONNECTED) {
       return CrOncStrings.networkListItemConnected;
-    if (state == CrOnc.ConnectionState.CONNECTING)
+    }
+    if (connectionState == CrOnc.ConnectionState.CONNECTING) {
       return CrOncStrings.networkListItemConnecting;
+    }
     return '';
   },
 

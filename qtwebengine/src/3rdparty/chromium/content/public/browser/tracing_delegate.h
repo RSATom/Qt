@@ -15,8 +15,8 @@ namespace base {
 class DictionaryValue;
 }
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace content {
@@ -34,7 +34,7 @@ class CONTENT_EXPORT TracingDelegate {
 
   // Provide trace uploading functionality; see trace_uploader.h.
   virtual std::unique_ptr<TraceUploader> GetTraceUploader(
-      net::URLRequestContextGetter* request_context) = 0;
+      scoped_refptr<network::SharedURLLoaderFactory>) = 0;
 
   // This can be used to veto a particular background tracing scenario.
   virtual bool IsAllowedToBeginBackgroundScenario(
@@ -45,8 +45,10 @@ class CONTENT_EXPORT TracingDelegate {
       const content::BackgroundTracingConfig& config,
       bool requires_anonymized_data);
 
+  virtual bool IsProfileLoaded();
+
   // Used to add any additional metadata to traces.
-  virtual void GenerateMetadataDict(base::DictionaryValue* metadata_dict) {}
+  virtual std::unique_ptr<base::DictionaryValue> GenerateMetadataDict();
 
   virtual MetadataFilterPredicate GetMetadataFilterPredicate();
 };

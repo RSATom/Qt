@@ -11,7 +11,9 @@ unix:!embedded:QMAKE_PKGCONFIG_DESCRIPTION = Qt \
 
 QMAKE_DOCS = $$PWD/doc/qttestlib.qdocconf
 
-HEADERS = qbenchmark.h \
+HEADERS = \
+    qabstracttestlogger_p.h \
+    qbenchmark.h \
     qbenchmark_p.h \
     qbenchmarkmeasurement_p.h \
     qbenchmarktimemeasurers_p.h \
@@ -20,27 +22,43 @@ HEADERS = qbenchmark.h \
     qbenchmarkperfevents_p.h \
     qbenchmarkmetric.h \
     qbenchmarkmetric_p.h \
+    qcsvbenchmarklogger_p.h \
+    qplaintestlogger_p.h \
+    qsignaldumper_p.h \
     qsignalspy.h \
+    qteamcitylogger_p.h \
     qtestaccessible.h \
     qtestassert.h \
     qtestcase.h \
+    qtestcoreelement_p.h \
+    qtestcorelist_p.h \
     qtestdata.h \
     qtestevent.h \
     qtesteventloop.h \
-    qtest_global.h \
     qtest_gui.h \
     qtest_network.h \
     qtest_widgets.h \
     qtest.h \
+    qtestelement_p.h \
+    qtestelementattribute_p.h \
     qtestkeyboard.h \
+    qtestlog_p.h \
     qtestmouse.h \
+    qtestresult_p.h \
     qtestspontaneevent.h \
     qtestsystem.h \
+    qtesttable_p.h \
     qtesttouch.h \
     qtestblacklist_p.h \
-    qtesthelpers_p.h
+    qtesthelpers_p.h \
+    qttestglobal.h \
+    qtestxunitstreamer_p.h \
+    qtaptestlogger_p.h \
+    qxmltestlogger_p.h \
+    qxunittestlogger_p.h
 
-SOURCES = qtestcase.cpp \
+SOURCES = \
+    qtestcase.cpp \
     qtestlog.cpp \
     qtesttable.cpp \
     qtestdata.cpp \
@@ -63,7 +81,16 @@ SOURCES = qtestcase.cpp \
     qtestmouse.cpp \
     qtestxunitstreamer.cpp \
     qxunittestlogger.cpp \
-    qtestblacklist.cpp
+    qtestblacklist.cpp \
+    qtaptestlogger.cpp
+
+qtConfig(itemmodeltester) {
+    HEADERS += \
+        qabstractitemmodeltester.h
+
+    SOURCES += \
+        qabstractitemmodeltester.cpp
+}
 
 DEFINES *= QT_NO_CAST_TO_ASCII \
     QT_NO_CAST_FROM_ASCII \
@@ -73,6 +100,9 @@ embedded:QMAKE_CXXFLAGS += -fno-rtti
 
 mac {
     LIBS += -framework Security
+
+    SOURCES += qappletestlogger.cpp
+    HEADERS += qappletestlogger_p.h
 
     macos {
         HEADERS += qtestutil_macos_p.h
@@ -116,4 +146,5 @@ mac {
 
 !qtHaveModule(network): HEADERSCLEAN_EXCLUDE += qtest_network.h
 
+include(selfcover.pri)
 load(qt_module)

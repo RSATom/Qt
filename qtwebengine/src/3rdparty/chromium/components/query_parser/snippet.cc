@@ -54,9 +54,8 @@ void AddMatch(size_t start,
   }
   // There's at least one match. Find the position of the new match,
   // potentially extending pairs around it.
-  Snippet::MatchPositions::iterator i =
-      std::lower_bound(match_positions->begin(), match_positions->end(),
-                       pair, &PairFirstLessThan);
+  auto i = std::lower_bound(match_positions->begin(), match_positions->end(),
+                            pair, &PairFirstLessThan);
   if (i != match_positions->end() && i->first == start) {
     // Match not at the end and there is already a pair with the same
     // start.
@@ -194,8 +193,7 @@ void Snippet::ConvertMatchPositionsToWide(
   size_t utf16_pos = 0;
   const char* utf8_cstring = utf8_string.c_str();
   const int32_t utf8_length = static_cast<int32_t>(utf8_string.size());
-  for (Snippet::MatchPositions::iterator i = match_positions->begin();
-       i != match_positions->end(); ++i) {
+  for (auto i = match_positions->begin(); i != match_positions->end(); ++i) {
     i->first = AdvanceAndReturnUTF16Pos(utf8_cstring, utf8_length,
                                         static_cast<int32_t>(i->first),
                                         &utf8_pos, &utf16_pos);
@@ -210,10 +208,7 @@ Snippet::Snippet() {
 
 Snippet::Snippet(const Snippet& other) = default;
 
-// TODO(bug 706963) this should be implemented as "= default" when Android
-// toolchain is updated.
-Snippet::Snippet(Snippet&& other) noexcept
-    : text_(std::move(other.text_)), matches_(std::move(other.matches_)) {}
+Snippet::Snippet(Snippet&& other) noexcept = default;
 
 Snippet::~Snippet() {
 }
@@ -227,7 +222,7 @@ void Snippet::ComputeSnippet(const MatchPositions& match_positions,
   const size_t kSnippetMaxLength = 200;
   const base::string16 kEllipsis = base::ASCIIToUTF16(" ... ");
 
-  UText* document_utext = NULL;
+  UText* document_utext = nullptr;
   UErrorCode status = U_ZERO_ERROR;
   document_utext = utext_openUTF8(document_utext, document.data(),
                                   document.size(), &status);

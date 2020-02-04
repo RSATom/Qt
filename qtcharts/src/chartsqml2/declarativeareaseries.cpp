@@ -27,8 +27,8 @@
 **
 ****************************************************************************/
 
-#include "declarativeareaseries.h"
-#include "declarativelineseries.h"
+#include "declarativeareaseries_p.h"
+#include "declarativelineseries_p.h"
 
 QT_CHARTS_BEGIN_NAMESPACE
 
@@ -119,6 +119,6 @@ QBrush DeclarativeAreaSeries::brush() const
     return QAreaSeries::brush();
 }
 
-#include "moc_declarativeareaseries.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_declarativeareaseries_p.cpp"

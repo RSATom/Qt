@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtgamepad.qdocconf)
 
 project                                         = QtGamepad
 description                                     = Qt Gamepad Reference Documentation
@@ -49,7 +50,6 @@ Cpp.ignoredirectives     += Q_DECLARE_LOGGING_CATEGORY
 navigation.landingpage    = "Qt Gamepad"
 navigation.qmltypespage   = "Qt Gamepad QML Types"
 navigation.cppclassespage = "Qt Gamepad C++ Classes"
-navigation.homepage       = "Qt Documentation (Technology Preview)"
 
 manifestmeta.thumbnail.names = "QtGamepad/Qt Gamepad Mouse Item Example" \
                                "QtGamepad/Qt Gamepad Simple Example"

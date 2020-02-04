@@ -5,9 +5,11 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_MEDIA_SERVICE_VIDEO_CAPTURE_DEVICE_LAUNCHER_H_
 #define CONTENT_BROWSER_RENDERER_HOST_MEDIA_SERVICE_VIDEO_CAPTURE_DEVICE_LAUNCHER_H_
 
+#include "content/browser/renderer_host/media/ref_counted_video_capture_factory.h"
 #include "content/browser/renderer_host/media/video_capture_provider.h"
-#include "content/public/common/media_stream_request.h"
-#include "services/video_capture/public/interfaces/device_factory.mojom.h"
+#include "content/public/browser/video_capture_device_launcher.h"
+#include "services/video_capture/public/mojom/device_factory.mojom.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
 namespace content {
 
@@ -16,14 +18,17 @@ namespace content {
 class CONTENT_EXPORT ServiceVideoCaptureDeviceLauncher
     : public VideoCaptureDeviceLauncher {
  public:
+  // Receives an instance via output parameter |factory|.
+  using ConnectToDeviceFactoryCB = base::RepeatingCallback<void(
+      scoped_refptr<RefCountedVideoCaptureFactory>*)>;
+
   explicit ServiceVideoCaptureDeviceLauncher(
-      video_capture::mojom::DeviceFactoryPtr* device_factory,
-      base::OnceClosure destruction_cb);
+      ConnectToDeviceFactoryCB connect_to_device_factory_cb);
   ~ServiceVideoCaptureDeviceLauncher() override;
 
   // VideoCaptureDeviceLauncher implementation.
   void LaunchDeviceAsync(const std::string& device_id,
-                         MediaStreamType stream_type,
+                         blink::MediaStreamType stream_type,
                          const media::VideoCaptureParams& params,
                          base::WeakPtr<media::VideoFrameReceiver> receiver,
                          base::OnceClosure connection_lost_cb,
@@ -49,8 +54,8 @@ class CONTENT_EXPORT ServiceVideoCaptureDeviceLauncher
 
   void OnConnectionLostWhileWaitingForCallback();
 
-  video_capture::mojom::DeviceFactoryPtr* const device_factory_;
-  base::OnceClosure destruction_cb_;
+  ConnectToDeviceFactoryCB connect_to_device_factory_cb_;
+  scoped_refptr<RefCountedVideoCaptureFactory> device_factory_;
   State state_;
   base::SequenceChecker sequence_checker_;
   base::OnceClosure done_cb_;

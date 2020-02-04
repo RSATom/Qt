@@ -1,32 +1,81 @@
-param([Int32]$archVer=32)
+param(
+    [Int32]$archVer=32,
+    [string]$toolchain="vs2015",
+    [bool]$setDefault=$true
+)
 . "$PSScriptRoot\helpers.ps1"
+
+$libclang_version="6.0"
+Write-Output "libClang = $libclang_version" >> ~/versions.txt
 
 # PySide versions following 5.6 use a C++ parser based on Clang (http://clang.org/).
 # The Clang library (C-bindings), version 3.9 or higher is required for building.
 
-Get-Content "$PSScriptRoot\..\shared\sw_versions.txt" | Foreach-Object {
-    $var = $_.Split('=')
-    New-Variable -Name $var[0] -Value $var[1]
-    $libclang_version = $libclang_version -replace '["."]'
+# Starting from Qt 5.11 QDoc requires Clang to parse C++
+
+$baseDestination = "C:\Utils\libclang-" + $libclang_version + "-" + $toolchain
+$libclang_version = $libclang_version -replace '["."]'
+
+function install() {
+
+    param(
+        [string]$sha1=$1,
+        [string]$destination=$2
+    )
+
+    $zip = "c:\users\qt\downloads\libclang.7z"
+
+    $script:OfficialUrl = "https://download.qt.io/development_releases/prebuilt/libclang/qt/libclang-release_$libclang_version-windows-$toolchain`_$archVer.7z"
+    $script:CachedUrl = "http://ci-files01-hki.intra.qt.io/input/libclang/qt/libclang-release_$libclang_version-windows-$toolchain`_$archVer.7z"
+
+    Download $OfficialUrl $CachedUrl $zip
+    Verify-Checksum $zip $sha1
+    Extract-7Zip $zip C:\Utils\
+    Rename-Item C:\Utils\libclang $destination
+    Remove-Item -Force -Path $zip
 }
 
-if ( $archVer -eq 64 ) {
-    $sha1 = "dc42beb0efff130c4d7dfef3c97adf26f1ab04e0"
-    $url = "https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_$libclang_version-windows-vs2015_64.7z"
-} else {
-    $sha1 = "64e826c00ae632fbb28655e6e1fa9194980e1205"
-    $url = "https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_$libclang_version-windows-vs2015_32.7z"
+$toolchainSuffix = ""
+
+if ( $toolchain -eq "vs2015" ) {
+    if ( $archVer -eq 64 ) {
+        $sha1 = "a399af949271e6d3bfc578ea2c17ff1d6c6318b9"
+        $destination = $baseDestination + "-64"
+
+        install $sha1 $destination
+    }
+
+    $archVer=32
+    $sha1 = "aa3f68f1cfa87780a4631a98ce883d3d9cb94330"
+    $destination = $baseDestination + "-32"
+
+    install $sha1 $destination
+    $toolchainSuffix = "msvc"
 }
 
-$zip = "c:\users\qt\downloads\libclang.7z"
-$destination = "C:\Utils\libclang-" + $libclang_version
+if ( $toolchain -eq "mingw" ) {
+    if ( $archVer -eq 64 ) {
+        $sha1 = "b382502f82d1cfa7d3cc3016d909d37edc19c22c"
+        $destination = $baseDestination + "-64"
 
-Download $url $url $zip
-Verify-Checksum $zip $sha1
+        install $sha1 $destination
+    }
 
-C:\Utils\sevenzip\7z.exe x $zip -oC:\Utils\
-Rename-Item C:\Utils\libclang $destination
+    $archVer=32
+    $sha1 = "cbc68e0f93f4cb0ed7084a045b7c07a1980a2a44"
+    $destination = $baseDestination + "-32"
 
-[Environment]::SetEnvironmentVariable("LLVM_INSTALL_DIR", $destination, [EnvironmentVariableTarget]::Machine)
-del $zip
-echo "libClang = $libclang_version" >> ~/versions.txt
+    install $sha1 $destination
+    $toolchainSuffix = "mingw"
+}
+
+if ( $setDefault ) {
+    Set-EnvironmentVariable "LLVM_INSTALL_DIR" ($baseDestination + "-_ARCH_")
+}
+Set-EnvironmentVariable ("LLVM_INSTALL_DIR_" + $toolchainSuffix) ($baseDestination + "-_ARCH_")
+
+if ( $libclang_version -eq "60" ) {
+    # This is a hacked static build of libclang which requires special
+    # handling on the qdoc side.
+    Set-EnvironmentVariable "QDOC_USE_STATIC_LIBCLANG" "1"
+}

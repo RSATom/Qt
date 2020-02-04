@@ -37,10 +37,21 @@
 **
 ****************************************************************************/
 
+//
+//  W A R N I N G
+//  -------------
+//
+// This file is not part of the Qt API.  It exists purely as an
+// implementation detail.  This header file may change from version to
+// version without notice, or even be removed.
+//
+// We mean it.
+//
+
 #ifndef WEB_CONTENTS_ADAPTER_CLIENT_H
 #define WEB_CONTENTS_ADAPTER_CLIENT_H
 
-#include "qtwebenginecoreglobal.h"
+#include "qtwebenginecoreglobal_p.h"
 
 #include <QFlags>
 #include <QRect>
@@ -49,9 +60,13 @@
 #include <QStringList>
 #include <QUrl>
 
+QT_FORWARD_DECLARE_CLASS(CertificateErrorController)
+QT_FORWARD_DECLARE_CLASS(ClientCertSelectController)
 QT_FORWARD_DECLARE_CLASS(QKeyEvent)
 QT_FORWARD_DECLARE_CLASS(QVariant)
-QT_FORWARD_DECLARE_CLASS(CertificateErrorController)
+QT_FORWARD_DECLARE_CLASS(QWebEngineQuotaRequest)
+QT_FORWARD_DECLARE_CLASS(QWebEngineRegisterProtocolHandlerRequest)
+QT_FORWARD_DECLARE_CLASS(QWebEngineUrlRequestInfo)
 
 namespace content {
 struct DropData;
@@ -60,13 +75,15 @@ struct DropData;
 namespace QtWebEngineCore {
 
 class AuthenticationDialogController;
-class BrowserContextAdapter;
+class ProfileAdapter;
 class ColorChooserController;
 class FilePickerController;
 class JavaScriptDialogController;
 class RenderWidgetHostViewQt;
 class RenderWidgetHostViewQtDelegate;
 class RenderWidgetHostViewQtDelegateClient;
+class TouchHandleDrawableClient;
+class TouchSelectionMenuController;
 class WebContentsAdapter;
 class WebContentsDelegateQt;
 class WebEngineSettings;
@@ -94,6 +111,7 @@ public:
         , isSpellCheckerEnabled(false)
         , mediaType(0)
         , mediaFlags(0)
+        , editFlags(0)
     {
     }
     bool hasImageContent;
@@ -101,6 +119,7 @@ public:
     bool isSpellCheckerEnabled;
     uint mediaType;
     uint mediaFlags;
+    uint editFlags;
     QPoint pos;
     QUrl linkUrl;
     QUrl unfilteredLinkUrl;
@@ -152,6 +171,20 @@ public:
         MediaControls = 0x80,
         MediaCanPrint = 0x100,
         MediaCanRotate = 0x200,
+    };
+
+    // Must match blink::WebContextMenuData::EditFlags:
+    enum EditFlags {
+        CanDoNone = 0x0,
+        CanUndo = 0x1,
+        CanRedo = 0x2,
+        CanCut = 0x4,
+        CanCopy = 0x8,
+        CanPaste = 0x10,
+        CanDelete = 0x20,
+        CanSelectAll = 0x40,
+        CanTranslate = 0x80,
+        CanEditRichly = 0x100,
     };
 
     WebEngineContextMenuData():d(new WebEngineContextMenuSharedData) {
@@ -229,6 +262,14 @@ public:
         return MediaFlags(d->mediaFlags);
     }
 
+    void setEditFlags(EditFlags flags) {
+        d->editFlags = flags;
+    }
+
+    EditFlags editFlags() const {
+        return EditFlags(d->editFlags);
+    }
+
     void setSuggestedFileName(const QString &filename) {
         d->suggestedFileName = filename;
     }
@@ -302,7 +343,7 @@ private:
 };
 
 
-class QWEBENGINE_EXPORT WebContentsAdapterClient {
+class Q_WEBENGINECORE_PRIVATE_EXPORT WebContentsAdapterClient {
 public:
     // This must match window_open_disposition_list.h.
     enum WindowOpenDisposition {
@@ -356,6 +397,11 @@ public:
         KilledTerminationStatus
     };
 
+    enum ClientType {
+        QmlClient,
+        WidgetsClient
+    };
+
     enum MediaRequestFlag {
         MediaNone = 0,
         MediaAudioCapture = 0x01,
@@ -369,6 +415,7 @@ public:
 
     virtual RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegate(RenderWidgetHostViewQtDelegateClient *client) = 0;
     virtual RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegateForPopup(RenderWidgetHostViewQtDelegateClient *client) = 0;
+    virtual void initializationFinished() = 0;
     virtual void titleChanged(const QString&) = 0;
     virtual void urlChanged(const QUrl&) = 0;
     virtual void iconChanged(const QUrl&) = 0;
@@ -377,7 +424,6 @@ public:
     virtual void selectionChanged() = 0;
     virtual void recentlyAudibleChanged(bool recentlyAudible) = 0;
     virtual QRectF viewportRect() const = 0;
-    virtual qreal dpiScale() const = 0;
     virtual QColor backgroundColor() const = 0;
     virtual void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) = 0;
     virtual void loadCommitted() = 0;
@@ -400,9 +446,9 @@ public:
     virtual void didFetchDocumentMarkup(quint64 requestId, const QString& result) = 0;
     virtual void didFetchDocumentInnerText(quint64 requestId, const QString& result) = 0;
     virtual void didFindText(quint64 requestId, int matchCount) = 0;
-    virtual void didPrintPage(quint64 requestId, const QByteArray &result) = 0;
+    virtual void didPrintPage(quint64 requestId, QSharedPointer<QByteArray>) = 0;
     virtual void didPrintPageToPdf(const QString &filePath, bool success) = 0;
-    virtual void passOnFocus(bool reverse) = 0;
+    virtual bool passOnFocus(bool reverse) = 0;
     // returns the last QObject (QWidget/QQuickItem) based object in the accessibility
     // hierarchy before going into the BrowserAccessibility tree
     virtual QObject *accessibilityParentObject() = 0;
@@ -411,24 +457,36 @@ public:
     virtual void runGeolocationPermissionRequest(const QUrl &securityOrigin) = 0;
     virtual void runMediaAccessPermissionRequest(const QUrl &securityOrigin, MediaRequestFlags requestFlags) = 0;
     virtual void runMouseLockPermissionRequest(const QUrl &securityOrigin) = 0;
+    virtual void runQuotaRequest(QWebEngineQuotaRequest) = 0;
+    virtual void runRegisterProtocolHandlerRequest(QWebEngineRegisterProtocolHandlerRequest) = 0;
+    virtual void runUserNotificationPermissionRequest(const QUrl &securityOrigin) = 0;
     virtual WebEngineSettings *webEngineSettings() const = 0;
-    virtual void showValidationMessage(const QRect &anchor, const QString &mainText, const QString &subText) = 0;
-    virtual void hideValidationMessage() = 0;
-    virtual void moveValidationMessage(const QRect &anchor) = 0;
     RenderProcessTerminationStatus renderProcessExitStatus(int);
     virtual void renderProcessTerminated(RenderProcessTerminationStatus terminationStatus, int exitCode) = 0;
-    virtual void requestGeometryChange(const QRect &geometry) = 0;
+    virtual void requestGeometryChange(const QRect &geometry, const QRect &frameGeometry) = 0;
     virtual void allowCertificateError(const QSharedPointer<CertificateErrorController> &errorController) = 0;
+    virtual void selectClientCert(const QSharedPointer<ClientCertSelectController> &selectController) = 0;
     virtual void updateScrollPosition(const QPointF &position) = 0;
     virtual void updateContentsSize(const QSizeF &size) = 0;
+    virtual void updateNavigationActions() = 0;
+    virtual void updateEditActions() = 0;
     virtual void startDragging(const content::DropData &dropData, Qt::DropActions allowedActions,
                                const QPixmap &pixmap, const QPoint &offset) = 0;
+    virtual bool supportsDragging() const = 0;
     virtual bool isEnabled() const = 0;
     virtual const QObject *holdingQObject() const = 0;
     virtual void setToolTip(const QString& toolTipText) = 0;
+    virtual ClientType clientType() = 0;
+    virtual void printRequested() = 0;
+    virtual void widgetChanged(RenderWidgetHostViewQtDelegate *newWidget) = 0;
+    virtual void interceptRequest(QWebEngineUrlRequestInfo &) { }
+    virtual TouchHandleDrawableClient *createTouchHandle(const QMap<int, QImage> &images) = 0;
+    virtual void showTouchSelectionMenu(TouchSelectionMenuController *menuController, const QRect &bounds, const QSize &handleSize) = 0;
+    virtual void hideTouchSelectionMenu() = 0;
 
-    virtual QSharedPointer<BrowserContextAdapter> browserContextAdapter() = 0;
+    virtual ProfileAdapter *profileAdapter() = 0;
     virtual WebContentsAdapter* webContentsAdapter() = 0;
+    virtual void releaseProfile() = 0;
 
 };
 

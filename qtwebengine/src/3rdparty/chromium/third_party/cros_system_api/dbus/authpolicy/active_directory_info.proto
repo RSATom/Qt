@@ -11,6 +11,10 @@ package authpolicy;
 // D-Bus call error codes. These values are written to logs. New enum values can
 // be added, but existing enums must never be renumbered or deleted and reused.
 enum ErrorType {
+  // TODO(ljusten): Remove this and ERROR_NO_WINDOWS_POLICY when Chrome is
+  // switched over, see crbug.com/807999.
+  option allow_alias = true;
+
   // Everything is A-OK!
   ERROR_NONE = 0;
   // Unspecified error.
@@ -45,7 +49,7 @@ enum ErrorType {
   ERROR_NOT_JOINED = 15;
   // User is not logged in yet.
   ERROR_NOT_LOGGED_IN = 16;
-  // Failed to send policy to Session Manager.
+  // Failed to send policy to session_manager.
   ERROR_STORE_POLICY_FAILED = 17;
   // User doesn't have the right to join machines to the domain.
   ERROR_JOIN_ACCESS_DENIED = 18;
@@ -67,11 +71,39 @@ enum ErrorType {
   ERROR_KLIST_FAILED = 26;
   // Kinit failed because of bad machine name.
   ERROR_BAD_MACHINE_NAME = 27;
+  // Kinit failed to change the password because the password was rejected.
+  ERROR_PASSWORD_REJECTED = 28;
+  // Returned by RefreshDevicePolicy when policy fetch succeeded but policy
+  // cannot be sent to session_manager because install attributes are not locked
+  // yet. authpolicyd caches policy in this case and returns it in the next
+  // RefreshDevicePolicy call. Should happen during enrollment only.
+  ERROR_DEVICE_POLICY_CACHED_BUT_NOT_SENT = 29;
+  // Join failed because computer organizational unit does not exist.
+  ERROR_OU_DOES_NOT_EXIST = 30;
+  // Join failed because computer organizational unit is invalid.
+  ERROR_INVALID_OU = 31;
+  // Setting computer organizational unit failed with insufficient permissions.
+  ERROR_OU_ACCESS_DENIED = 32;
+  // Setting computer organizational unit failed with unspecified error.
+  ERROR_SETTING_OU_FAILED = 33;
+  // Fetching user policy failed because device policy was unavailable.
+  ERROR_NO_DEVICE_POLICY = 34;
+  ERROR_NO_WINDOWS_POLICY = 34;
+  // Domain join failed because the device is already joined.
+  ERROR_ALREADY_JOINED = 35;
+  // Domain join failed because KDC does not support the encryption enforced in
+  // the Samba configuration, e.g. if 'kerberos encryption types' is set to
+  // 'strong' to enforce AES encryption, but KDC does not support AES.
+  ERROR_KDC_DOES_NOT_SUPPORT_ENCRYPTION_TYPE = 36;
+  // Kpasswd exited with unspecified error.
+  ERROR_KPASSWD_FAILED = 37;
+  // Setting computer organizational unit failed with constraint violation.
+  ERROR_OU_CONSTRAINT_VIOLATION = 38;
   // Should be the last.
-  ERROR_COUNT = 28;
+  ERROR_COUNT = 39;
 }
 
-// Message sent to Chromium by authpolicy service as a response of a successful
+// Message sent to Chrome by authpolicyd as a response of a successful
 // AuthenticateUser call. Contains information about authenticated user fetched
 // from Active Directory server with "net ads search ...".
 message ActiveDirectoryAccountInfo {
@@ -103,7 +135,7 @@ message ActiveDirectoryAccountInfo {
   // Next ID to use: 8
 }
 
-// Message sent to Chromium by authpolicy service as a response to a successful
+// Message sent to Chrome by authpolicyd as a response to a successful
 // GetUserStatus call.
 message ActiveDirectoryUserStatus {
   // Ticket-granting-ticket status.
@@ -128,7 +160,75 @@ message ActiveDirectoryUserStatus {
   optional TgtStatus tgt_status = 2;
   // Status of the user's password.
   optional PasswordStatus password_status = 3;
-  // Last error returned from AuthenticateUser D-Bus call.
-  optional ErrorType last_auth_error = 4;
+  reserved 4;
   // Next ID to use: 5
+}
+
+// Message sent to Chrome by authpolicyd as a response to a successful
+// GetUserKerberosFiles call.
+message KerberosFiles {
+  // Kerberos credential cache.
+  optional bytes krb5cc = 1;
+  // Kerberos configuration file.
+  optional bytes krb5conf = 2;
+  // Next ID to use: 3
+}
+
+// What Kerberos encryption types kinit should use.
+enum KerberosEncryptionTypes {
+  ENC_TYPES_ALL = 0;     // AES + RC4_HMAC.
+  ENC_TYPES_STRONG = 1;  // AES only.
+  ENC_TYPES_LEGACY = 2;  // RC4_HMAC only.
+  // Next ID to use: 3
+}
+
+// Message sent by Chrome to authpolicyd with JoinAdDomain call.
+message JoinDomainRequest {
+  // Logon name of the user (with @realm) who joins the machine to the domain.
+  optional string user_principal_name = 1;
+  // Netbios computer (aka machine) name for the joining device.
+  // https://technet.microsoft.com/en-us/library/cc959322.aspx
+  optional string machine_name = 2;
+  // Domain (realm) the machine should be joined to.
+  optional string machine_domain = 3;
+  // Organizational unit the machine should be put into. Goes from leaf to root,
+  // i.e. the OU at index 1 is the parent of OU at index 0, etc.
+  repeated string machine_ou = 4;
+  // Supported Kerberos encryption types for domain join. By default, only
+  // strong types are allowed during negotiation. However, some Active Directory
+  // setups might be configured to not allow strong types, in particular for
+  // cross-domain authentication (join machine to domain A using credentials
+  // from domain B), where at the time of writing the default settings do not
+  // allow strong encryption. In this case, domain join fails. Likewise, there
+  // might also be rare use cases that require legacy encryption only. If the
+  // server supports strong encryption, it is always preferred.
+  // On the sign-in screen and during user sessions the device policy
+  // DeviceKerberosEncryptionTypes policy is used to determine encryption types.
+  optional KerberosEncryptionTypes kerberos_encryption_types = 5
+      [default = ENC_TYPES_STRONG];
+  // The DM token used by Chrome to authenticate to DM server. Passed during
+  // domain join so authpolicyd can set it in device policy as it's done for
+  // cloud management.
+  optional string dm_token = 6;
+  // Next ID to use: 7
+}
+
+// Message sent by Chrome to authpolicyd with AuthenticateUser call.
+message AuthenticateUserRequest {
+  // Logon name of the user (with @realm).
+  optional string user_principal_name = 1;
+  // Unique id of the user account. Taken from the objectGUID property of the
+  // Active Directory user account information.
+  optional string account_id = 2;
+  // Next ID to use: 3
+}
+
+// Message sent by Chrome to authpolicyd with GetUserStatus call.
+message GetUserStatusRequest {
+  // Logon name of the user (with @realm).
+  optional string user_principal_name = 1;
+  // Unique id of the user account. Taken from the objectGUID property of the
+  // Active Directory user account information.
+  optional string account_id = 2;
+  // Next ID to use: 3
 }

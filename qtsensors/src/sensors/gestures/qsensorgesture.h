@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtSensors module of the Qt Toolkit.
@@ -74,17 +74,16 @@ public:
 private:
     QSensorGesturePrivate * d_ptr;
 
+    // ### fixme: Qt 6: Make public to enable Qt for Python bindings
 private:
     // Pretend to be a Q_OBJECT
-    const QMetaObject *metaObject() const;
-    int qt_metacall(QMetaObject::Call, int, void **);
+    const QMetaObject *metaObject() const override;
+    int qt_metacall(QMetaObject::Call, int, void **) override;
 
-#ifdef Q_QDOC
 Q_SIGNALS:
     // these signals are created at runtime, along with
     // gesture recognizer specific signals.
      void detected(QString);
-#endif
 };
 
 QT_END_NAMESPACE

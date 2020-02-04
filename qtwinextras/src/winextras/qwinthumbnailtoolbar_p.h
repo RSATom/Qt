@@ -53,11 +53,11 @@
 
 #include "qwinthumbnailtoolbar.h"
 
-#include <QtCore/QHash>
-#include <QtCore/QList>
-#include <QtGui/QIcon>
-#include <QtGui/QPixmap>
-#include <QtCore/QAbstractNativeEventFilter>
+#include <QtCore/qhash.h>
+#include <QtCore/qlist.h>
+#include <QtGui/qicon.h>
+#include <QtGui/qpixmap.h>
+#include <QtCore/qabstractnativeeventfilter.h>
 
 #include "winshobjidl_p.h"
 

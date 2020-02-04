@@ -22,13 +22,25 @@ template<typename T> StorageBlock<T>::StorageBlock(MappedFile* file,
       own_data_(false), extended_(false) {
   if (address.num_blocks() > 1)
     extended_ = true;
-  DCHECK(!address.is_initialized() || sizeof(*data_) == address.BlockSize());
+  DCHECK(!address.is_initialized() || sizeof(*data_) == address.BlockSize())
+      << address.value();
 }
 
 template<typename T> StorageBlock<T>::~StorageBlock() {
   if (modified_)
     Store();
   DeleteData();
+}
+
+template <typename T>
+void StorageBlock<T>::CopyFrom(StorageBlock<T>* other) {
+  DCHECK(!modified_);
+  DCHECK(!other->modified_);
+  Discard();
+  *Data() = *other->Data();
+  file_ = other->file_;
+  address_ = other->address_;
+  extended_ = other->extended_;
 }
 
 template<typename T> void* StorageBlock<T>::buffer() const {
@@ -201,7 +213,7 @@ template<typename T> void StorageBlock<T>::DeleteData() {
 
 template <typename T>
 uint32_t StorageBlock<T>::CalculateHash() const {
-  return base::Hash(reinterpret_cast<char*>(data_), offsetof(T, self_hash));
+  return base::Hash(data_, offsetof(T, self_hash));
 }
 
 }  // namespace disk_cache

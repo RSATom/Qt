@@ -4,6 +4,7 @@
 
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -25,7 +26,7 @@ std::unique_ptr<AutofillDriver> CreateDriver(
     const std::string& app_locale,
     AutofillManager::AutofillDownloadManagerState enable_download_manager,
     AutofillProvider* provider) {
-  return base::MakeUnique<ContentAutofillDriver>(
+  return std::make_unique<ContentAutofillDriver>(
       render_frame_host, client, app_locale, enable_download_manager, provider);
 }
 
@@ -56,8 +57,8 @@ void ContentAutofillDriverFactory::CreateForWebContentsAndDelegate(
   if (FromWebContents(contents))
     return;
 
-  auto new_factory = base::WrapUnique(new ContentAutofillDriverFactory(
-      contents, client, app_locale, enable_download_manager, provider));
+  auto new_factory = std::make_unique<ContentAutofillDriverFactory>(
+      contents, client, app_locale, enable_download_manager, provider);
   const std::vector<content::RenderFrameHost*> frames =
       contents->GetAllFrames();
   for (content::RenderFrameHost* frame : frames) {
@@ -78,7 +79,7 @@ ContentAutofillDriverFactory* ContentAutofillDriverFactory::FromWebContents(
 
 // static
 void ContentAutofillDriverFactory::BindAutofillDriver(
-    mojom::AutofillDriverRequest request,
+    mojom::AutofillDriverAssociatedRequest request,
     content::RenderFrameHost* render_frame_host) {
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(render_frame_host);
@@ -134,16 +135,24 @@ void ContentAutofillDriverFactory::RenderFrameDeleted(
 
 void ContentAutofillDriverFactory::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->HasCommitted())
+  // For the purposes of this code, a navigation is not important if it has not
+  // committed yet or if it's in a subframe.
+  if (!navigation_handle->HasCommitted() ||
+      !navigation_handle->IsInMainFrame()) {
     return;
+  }
 
+  // A main frame navigation has occured. We suppress the autofill popup and
+  // tell the autofill driver.
   NavigationFinished();
   DriverForFrame(navigation_handle->GetRenderFrameHost())
-      ->DidNavigateFrame(navigation_handle);
+      ->DidNavigateMainFrame(navigation_handle);
 }
 
-void ContentAutofillDriverFactory::WasHidden() {
-  TabHidden();
+void ContentAutofillDriverFactory::OnVisibilityChanged(
+    content::Visibility visibility) {
+  if (visibility == content::Visibility::HIDDEN)
+    TabHidden();
 }
 
 }  // namespace autofill

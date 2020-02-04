@@ -6,6 +6,7 @@
 
 #include <tuple>
 
+#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/media_util.h"
@@ -41,7 +42,7 @@ class AudioTimestampValidatorTest
     : public testing::Test,
       public ::testing::WithParamInterface<ValidatorTestParams> {
  public:
-  AudioTimestampValidatorTest() {}
+  AudioTimestampValidatorTest() = default;
 
  protected:
   void SetUp() override {
@@ -87,7 +88,7 @@ TEST_P(AudioTimestampValidatorTest, WarnForEraticTimes) {
     // Ping-pong between two random offsets to prevent validator from
     // stabilizing timestamp pattern.
     base::TimeDelta randomOffset =
-        kRandomOffsets[i % arraysize(kRandomOffsets)];
+        kRandomOffsets[i % base::size(kRandomOffsets)];
     encoded_buffer->set_timestamp(i * kBufferDuration + randomOffset);
 
     if (i == 0) {
@@ -95,7 +96,7 @@ TEST_P(AudioTimestampValidatorTest, WarnForEraticTimes) {
           std::make_pair(front_discard_, base::TimeDelta()));
     }
 
-    validator.CheckForTimestampGap(encoded_buffer);
+    validator.CheckForTimestampGap(*encoded_buffer);
 
     if (i >= output_delay_) {
       // kFramesPerBuffer is derived to perfectly match kBufferDuration, so
@@ -134,7 +135,7 @@ TEST_P(AudioTimestampValidatorTest, NoWarningForValidTimes) {
           std::make_pair(front_discard_, base::TimeDelta()));
     }
 
-    validator.CheckForTimestampGap(encoded_buffer);
+    validator.CheckForTimestampGap(*encoded_buffer);
 
     if (i >= output_delay_) {
       // kFramesPerBuffer is derived to perfectly match kBufferDuration, so
@@ -179,7 +180,7 @@ TEST_P(AudioTimestampValidatorTest, SingleWarnForSingleLargeGap) {
           std::make_pair(front_discard_, base::TimeDelta()));
     }
 
-    validator.CheckForTimestampGap(encoded_buffer);
+    validator.CheckForTimestampGap(*encoded_buffer);
 
     if (i >= output_delay_) {
       // kFramesPerBuffer is derived to perfectly match kBufferDuration, so
@@ -204,6 +205,9 @@ TEST_P(AudioTimestampValidatorTest, RepeatedWarnForSlowAccumulatingDrift) {
                              "with decoded output."))
       .Times(0);
 
+  int num_timestamp_gap_warnings = 0;
+  const int kMaxTimestampGapWarnings = 10;  // Must be the same as in .cc
+
   for (int i = 0; i < 100; ++i) {
     // Wait for delayed output to begin plus an additional two iterations to
     // start using drift offset. The the two iterations without offset will
@@ -218,12 +222,15 @@ TEST_P(AudioTimestampValidatorTest, RepeatedWarnForSlowAccumulatingDrift) {
     encoded_buffer->set_timestamp((i * kBufferDuration) + offset);
 
     // Expect gap warnings to start when drift hits 50 milliseconds. Warnings
-    // should continue as the gap widens.
+    // should continue as the gap widens until log limit is hit.
+
     if (offset > base::TimeDelta::FromMilliseconds(50)) {
-      EXPECT_MEDIA_LOG(HasSubstr("timestamp gap detected"));
+      EXPECT_LIMITED_MEDIA_LOG(HasSubstr("timestamp gap detected"),
+                               num_timestamp_gap_warnings,
+                               kMaxTimestampGapWarnings);
     }
 
-    validator.CheckForTimestampGap(encoded_buffer);
+    validator.CheckForTimestampGap(*encoded_buffer);
 
     if (i >= output_delay_) {
       // kFramesPerBuffer is derived to perfectly match kBufferDuration, so

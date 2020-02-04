@@ -1,44 +1,29 @@
 # OSX QTBUG-25300 QTBUG-45502
 [normalGeometry]
-ubuntu-14.04
 ubuntu-16.04
 [saveRestoreGeometry]
-ubuntu-14.04
-ubuntu-16.04
+xcb
 b2qt
 [restoreVersion1Geometry]
-xcb
 osx
 [updateWhileMinimized]
-ubuntu-14.04
 ubuntu-16.04
-rhel-7.1
-rhel-7.2
-rhel-7.3
+ubuntu-18.04
 rhel-7.4
+rhel-7.6
 osx
 [focusProxyAndInputMethods]
 linux
-[touchEventSynthesizedMouseEvent]
-ubuntu-14.04
-[grabMouse]
-ubuntu-14.04
-[largerThanScreen_QTBUG30142]
-ubuntu-14.04
-[showMaximized]
-osx
-[setGeometry]
-osx
 [raise]
-osx
-[resizeEvent]
-osx
+# QTBUG-68175
+opensuse
+opensuse-leap
 [setWindowGeometry]
 osx
 [windowMoveResize]
 osx
 [childEvents]
-osx
+osx ci
 [renderInvisible]
 osx
 [optimizedResizeMove]
@@ -48,38 +33,19 @@ osx
 [render_systemClip]
 osx
 [showMinimizedKeepsFocus]
-osx-10.10
-osx-10.11 ci
 osx-10.12 ci
-[moveWindowInShowEvent:1]
-osx
-[moveWindowInShowEvent:2]
-osx
-[taskQTBUG_4055_sendSyntheticEnterLeave]
-osx
-[syntheticEnterLeave]
-osx
+osx-10.13 ci
 [maskedUpdate]
-osx
-opensuse-42.1
-opensuse-42.3
-[hideWhenFocusWidgetIsChild]
-osx-10.10
-[hideOpaqueChildWhileHidden]
-osx
-[resizeStaticContentsChildWidget_QTBUG35282]
-osx
-[lower]
-osx
-[setClearAndResizeMask]
-osx
-[setToolTip]
-osx
+opensuse
+opensuse-leap
 [moveInResizeEvent]
-ubuntu-14.04
+ubuntu-16.04
 [moveChild:right]
 osx
 [activateWindow]
 osx-10.12 ci
 [multipleToplevelFocusCheck]
 linux
+[windowState]
+# QTBUG-75270
+winrt

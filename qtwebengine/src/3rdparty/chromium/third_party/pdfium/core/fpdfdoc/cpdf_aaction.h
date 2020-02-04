@@ -14,40 +14,43 @@ class CPDF_Dictionary;
 class CPDF_AAction {
  public:
   enum AActionType {
-    CursorEnter = 0,
-    CursorExit,
-    ButtonDown,
-    ButtonUp,
-    GetFocus,
-    LoseFocus,
-    PageOpen,
-    PageClose,
-    PageVisible,
-    PageInvisible,
-    OpenPage,
-    ClosePage,
-    KeyStroke,
-    Format,
-    Validate,
-    Calculate,
-    CloseDocument,
-    SaveDocument,
-    DocumentSaved,
-    PrintDocument,
-    DocumentPrinted
+    kCursorEnter = 0,
+    kCursorExit,
+    kButtonDown,
+    kButtonUp,
+    kGetFocus,
+    kLoseFocus,
+    kPageOpen,
+    kPageClose,
+    kPageVisible,
+    kPageInvisible,
+    kOpenPage,
+    kClosePage,
+    kKeyStroke,
+    kFormat,
+    kValidate,
+    kCalculate,
+    kCloseDocument,
+    kSaveDocument,
+    kDocumentSaved,
+    kPrintDocument,
+    kDocumentPrinted,
+    kDocumentOpen,
+    kNumberOfActions  // Must be last.
   };
 
-  CPDF_AAction();
-  explicit CPDF_AAction(CPDF_Dictionary* pDict);
+  explicit CPDF_AAction(const CPDF_Dictionary* pDict);
   CPDF_AAction(const CPDF_AAction& that);
   ~CPDF_AAction();
 
   bool ActionExist(AActionType eType) const;
   CPDF_Action GetAction(AActionType eType) const;
-  CPDF_Dictionary* GetDict() const { return m_pDict.Get(); }
+  const CPDF_Dictionary* GetDict() const { return m_pDict.Get(); }
+
+  static bool IsUserClick(AActionType eType);
 
  private:
-  CFX_UnownedPtr<CPDF_Dictionary> const m_pDict;
+  UnownedPtr<const CPDF_Dictionary> const m_pDict;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_AACTION_H_

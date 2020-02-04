@@ -10,8 +10,7 @@ mojom("interfaces") {
   ]
 
   public_deps = [
-    "//mojo/common:common_custom_types",
-    "//ui/gfx/geometry/mojo",
+    "//mojo/public/mojom/base",
   ]
 }
 

@@ -198,8 +198,13 @@ void AreaChartItem::handleUpdated()
     m_pointLabelsVisible = m_series->pointLabelsVisible();
     m_pointLabelsFont = m_series->pointLabelsFont();
     m_pointLabelsColor = m_series->pointLabelsColor();
+    bool labelClippingChanged = m_pointLabelsClipping != m_series->pointLabelsClipping();
     m_pointLabelsClipping = m_series->pointLabelsClipping();
-    update();
+    // Update whole chart in case label clipping changed as labels can be outside series area
+    if (labelClippingChanged)
+        m_series->chart()->update();
+    else
+        update();
 }
 
 void AreaChartItem::handleDomainUpdated()
@@ -261,7 +266,9 @@ void AreaChartItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
         else
             painter->setClipping(false);
 
-        painter->setFont(m_pointLabelsFont);
+        QFont f(m_pointLabelsFont);
+        f.setPixelSize(QFontInfo(m_pointLabelsFont).pixelSize());
+        painter->setFont(f);
         painter->setPen(QPen(m_pointLabelsColor));
         QFontMetrics fm(painter->font());
 
@@ -276,7 +283,7 @@ void AreaChartItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                                    presenter()->numberToString(m_series->upperSeries()->at(i).y()));
 
                 // Position text in relation to the point
-                int pointLabelWidth = fm.width(pointLabel);
+                int pointLabelWidth = fm.horizontalAdvance(pointLabel);
                 QPointF position(m_upper->geometryPoints().at(i));
                 position.setX(position.x() - pointLabelWidth / 2);
                 position.setY(position.y() - m_series->upperSeries()->pen().width() / 2
@@ -294,7 +301,7 @@ void AreaChartItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                                    presenter()->numberToString(m_series->lowerSeries()->at(i).y()));
 
                 // Position text in relation to the point
-                int pointLabelWidth = fm.width(pointLabel);
+                int pointLabelWidth = fm.horizontalAdvance(pointLabel);
                 QPointF position(m_lower->geometryPoints().at(i));
                 position.setX(position.x() - pointLabelWidth / 2);
                 position.setY(position.y() - m_series->lowerSeries()->pen().width() / 2
@@ -344,6 +351,6 @@ void AreaChartItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event)
     ChartItem::mouseDoubleClickEvent(event);
 }
 
-#include "moc_areachartitem_p.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_areachartitem_p.cpp"

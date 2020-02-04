@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_DATAFLOW_H_
-#define V8_DATAFLOW_H_
+#ifndef V8_BIT_VECTOR_H_
+#define V8_BIT_VECTOR_H_
 
 #include "src/allocation.h"
 #include "src/zone/zone.h"
@@ -21,7 +21,7 @@ class BitVector : public ZoneObject {
   };
 
   // Iterator for the elements of this BitVector.
-  class Iterator BASE_EMBEDDED {
+  class Iterator {
    public:
     explicit Iterator(BitVector* target)
         : target_(target),
@@ -31,7 +31,7 @@ class BitVector : public ZoneObject {
           current_(-1) {
       Advance();
     }
-    ~Iterator() {}
+    ~Iterator() = default;
 
     bool Done() const { return current_index_ >= target_->data_length_; }
     void Advance();
@@ -66,8 +66,8 @@ class BitVector : public ZoneObject {
   };
 
   static const int kDataLengthForInline = 1;
-  static const int kDataBits = kPointerSize * 8;
-  static const int kDataBitShift = kPointerSize == 8 ? 6 : 5;
+  static const int kDataBits = kSystemPointerSize * 8;
+  static const int kDataBitShift = kSystemPointerSize == 8 ? 6 : 5;
   static const uintptr_t kOne = 1;  // This saves some static_casts.
 
   BitVector() : length_(0), data_length_(kDataLengthForInline), data_(0) {}
@@ -305,10 +305,9 @@ class BitVector : public ZoneObject {
   DISALLOW_COPY_AND_ASSIGN(BitVector);
 };
 
-
-class GrowableBitVector BASE_EMBEDDED {
+class GrowableBitVector {
  public:
-  class Iterator BASE_EMBEDDED {
+  class Iterator {
    public:
     Iterator(const GrowableBitVector* target, Zone* zone)
         : it_(target->bits_ == nullptr ? new (zone) BitVector(1, zone)
@@ -370,4 +369,4 @@ class GrowableBitVector BASE_EMBEDDED {
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_DATAFLOW_H_
+#endif  // V8_BIT_VECTOR_H_

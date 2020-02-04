@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 // IPC messages for extensions GuestViews.
-// Multiply-included message file, hence no include guard.
+
+#ifndef EXTENSIONS_COMMON_GUEST_VIEW_EXTENSIONS_GUEST_VIEW_MESSAGES_H_
+#define EXTENSIONS_COMMON_GUEST_VIEW_EXTENSIONS_GUEST_VIEW_MESSAGES_H_
 
 #include <string>
 
@@ -23,6 +25,16 @@ IPC_MESSAGE_CONTROL1(ExtensionsGuestViewMsg_CreateMimeHandlerViewGuestACK,
 IPC_MESSAGE_CONTROL1(ExtensionsGuestViewMsg_MimeHandlerViewGuestOnLoadCompleted,
                      int /* element_instance_id */)
 
+// Notifies the embedder to the destroy the MimeHandlerViewFrameContainer
+// associated with |element_instance_id|.
+IPC_MESSAGE_CONTROL1(ExtensionsGuestViewMsg_DestroyFrameContainer,
+                     int /* element_instance_id */)
+
+// Notifies the embedder that the current guest creation has failed and it
+// should retry creating a MimeHandlerViewGuest.
+IPC_MESSAGE_CONTROL1(ExtensionsGuestViewMsg_RetryCreatingMimeHandlerViewGuest,
+                     int /* element_instance_id */)
+
 // Messages sent from the renderer to the browser.
 
 // Queries whether the RenderView of the provided |routing_id| is allowed to
@@ -33,15 +45,10 @@ IPC_SYNC_MESSAGE_CONTROL2_1(
     int /* script_id */,
     bool /* allowed */)
 
-// Tells the browser to create a mime handler guest view for a plugin.
-IPC_MESSAGE_CONTROL4(ExtensionsGuestViewHostMsg_CreateMimeHandlerViewGuest,
-                     int /* render_frame_id */,
-                     std::string /* view_id */,
-                     int /* element_instance_id */,
-                     gfx::Size /* element_size */)
-
 // A renderer sends this message when it wants to resize a guest.
 IPC_MESSAGE_CONTROL3(ExtensionsGuestViewHostMsg_ResizeGuest,
                      int /* routing_id */,
                      int /* element_instance_id*/,
                      gfx::Size /* new_size */)
+
+#endif  // EXTENSIONS_COMMON_GUEST_VIEW_EXTENSIONS_GUEST_VIEW_MESSAGES_H_

@@ -11,35 +11,24 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/timer/timer.h"
 #include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "components/subresource_filter/content/browser/content_activation_list_utils.h"
-#include "components/subresource_filter/content/browser/content_subresource_filter_driver_factory.h"
+#include "components/subresource_filter/content/browser/navigation_console_logger.h"
 #include "components/subresource_filter/content/browser/subresource_filter_client.h"
+#include "components/subresource_filter/content/browser/subresource_filter_observer_manager.h"
 #include "components/subresource_filter/content/browser/subresource_filter_safe_browsing_client.h"
+#include "components/subresource_filter/core/browser/subresource_filter_constants.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/console_message_level.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
+#include "services/metrics/public/cpp/ukm_recorder.h"
+#include "services/metrics/public/cpp/ukm_source.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 
 namespace subresource_filter {
-
-namespace {
-
-// Records histograms about the pattern of redirect chains, and about the
-// pattern of whether the last URL in the chain matched the activation list.
-#define REPORT_REDIRECT_PATTERN_FOR_SUFFIX(suffix, is_matched, chain_size)    \
-  do {                                                                        \
-    UMA_HISTOGRAM_BOOLEAN("SubresourceFilter.PageLoad.FinalURLMatch." suffix, \
-                          is_matched);                                        \
-    if (is_matched) {                                                         \
-      UMA_HISTOGRAM_COUNTS(                                                   \
-          "SubresourceFilter.PageLoad.RedirectChainLength." suffix,           \
-          chain_size);                                                        \
-    };                                                                        \
-  } while (0)
-
-}  // namespace
 
 SubresourceFilterSafeBrowsingActivationThrottle::
     SubresourceFilterSafeBrowsingActivationThrottle(
@@ -50,71 +39,39 @@ SubresourceFilterSafeBrowsingActivationThrottle::
             database_manager)
     : NavigationThrottle(handle),
       io_task_runner_(std::move(io_task_runner)),
-      // The throttle can be created without a valid database manager. If so, it
-      // becomes a pass-through throttle and should never defer.
-      database_client_(database_manager
-                           ? new SubresourceFilterSafeBrowsingClient(
-                                 std::move(database_manager),
-                                 AsWeakPtr(),
-                                 io_task_runner_,
-                                 base::ThreadTaskRunnerHandle::Get())
-                           : nullptr,
+      database_client_(new SubresourceFilterSafeBrowsingClient(
+                           std::move(database_manager),
+                           AsWeakPtr(),
+                           io_task_runner_,
+                           base::ThreadTaskRunnerHandle::Get()),
                        base::OnTaskRunnerDeleter(io_task_runner_)),
       client_(client) {
   DCHECK(handle->IsInMainFrame());
 
   CheckCurrentUrl();
-  // Check added to investigate crbug.com/733099.
-  CHECK(!database_client_ || !check_results_.empty());
+  DCHECK(!check_results_.empty());
 }
 
 SubresourceFilterSafeBrowsingActivationThrottle::
-    ~SubresourceFilterSafeBrowsingActivationThrottle() {
-  // The last check could be ongoing when the navigation is cancelled.
-  if (check_results_.empty() || !check_results_.back().finished)
-    return;
-  // TODO(csharrison): Log more metrics based on check_results_.
-  RecordRedirectChainMatchPatternForList(
-      ActivationList::SOCIAL_ENG_ADS_INTERSTITIAL);
-  RecordRedirectChainMatchPatternForList(ActivationList::PHISHING_INTERSTITIAL);
-  RecordRedirectChainMatchPatternForList(ActivationList::SUBRESOURCE_FILTER);
-}
-
-bool SubresourceFilterSafeBrowsingActivationThrottle::NavigationIsPageReload(
-    content::NavigationHandle* handle) {
-  return ui::PageTransitionCoreTypeIs(handle->GetPageTransition(),
-                                      ui::PAGE_TRANSITION_RELOAD) ||
-         // Some pages 'reload' from JavaScript by navigating to themselves.
-         handle->GetURL() == handle->GetReferrer().url;
-}
-
-content::NavigationThrottle::ThrottleCheckResult
-SubresourceFilterSafeBrowsingActivationThrottle::WillStartRequest() {
-  will_start_request_called_ = true;
-  return content::NavigationThrottle::ThrottleCheckResult::PROCEED;
-}
+    ~SubresourceFilterSafeBrowsingActivationThrottle() = default;
 
 content::NavigationThrottle::ThrottleCheckResult
 SubresourceFilterSafeBrowsingActivationThrottle::WillRedirectRequest() {
   CheckCurrentUrl();
-  // Check added to investigate crbug.com/733099.
-  CHECK(!database_client_ || !check_results_.empty());
-  return content::NavigationThrottle::ThrottleCheckResult::PROCEED;
+  return PROCEED;
 }
 
 content::NavigationThrottle::ThrottleCheckResult
 SubresourceFilterSafeBrowsingActivationThrottle::WillProcessResponse() {
-  // Checks added to investigate crbug.com/733099.
-  CHECK(will_start_request_called_);
-  CHECK(!database_client_ || !check_results_.empty());
-
   // No need to defer the navigation if the check already happened.
-  if (!database_client_ || check_results_.back().finished) {
+  if (HasFinishedAllSafeBrowsingChecks()) {
     NotifyResult();
-    return content::NavigationThrottle::ThrottleCheckResult::PROCEED;
+    return PROCEED;
   }
+  CHECK(!deferring_);
+  deferring_ = true;
   defer_time_ = base::TimeTicks::Now();
-  return content::NavigationThrottle::ThrottleCheckResult::DEFER;
+  return DEFER;
 }
 
 const char*
@@ -127,127 +84,246 @@ void SubresourceFilterSafeBrowsingActivationThrottle::OnCheckUrlResultOnUI(
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   size_t request_id = result.request_id;
   DCHECK_LT(request_id, check_results_.size());
+  DCHECK_LT(request_id, check_start_times_.size());
 
   auto& stored_result = check_results_.at(request_id);
-  DCHECK(!stored_result.finished);
+  CHECK(!stored_result.finished);
   stored_result = result;
-  if (!defer_time_.is_null() && request_id == check_results_.size() - 1) {
+
+  UMA_HISTOGRAM_TIMES("SubresourceFilter.SafeBrowsing.TotalCheckTime",
+                      base::TimeTicks::Now() - check_start_times_[request_id]);
+  if (deferring_ && HasFinishedAllSafeBrowsingChecks()) {
     NotifyResult();
+
+    deferring_ = false;
     Resume();
   }
 }
 
+SubresourceFilterSafeBrowsingActivationThrottle::ConfigResult::ConfigResult(
+    Configuration config,
+    bool warning,
+    bool matched_valid_configuration,
+    ActivationList matched_list)
+    : config(config),
+      warning(warning),
+      matched_valid_configuration(matched_valid_configuration),
+      matched_list(matched_list) {}
+
+SubresourceFilterSafeBrowsingActivationThrottle::ConfigResult::ConfigResult() =
+    default;
+
+SubresourceFilterSafeBrowsingActivationThrottle::ConfigResult::ConfigResult(
+    const ConfigResult&) = default;
+
+SubresourceFilterSafeBrowsingActivationThrottle::ConfigResult::~ConfigResult() =
+    default;
+
 void SubresourceFilterSafeBrowsingActivationThrottle::CheckCurrentUrl() {
-  if (!database_client_)
-    return;
+  DCHECK(database_client_);
+  check_start_times_.push_back(base::TimeTicks::Now());
   check_results_.emplace_back();
   size_t id = check_results_.size() - 1;
   io_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&SubresourceFilterSafeBrowsingClient::CheckUrlOnIO,
-                            base::Unretained(database_client_.get()),
-                            navigation_handle()->GetURL(), id));
+      FROM_HERE,
+      base::BindOnce(&SubresourceFilterSafeBrowsingClient::CheckUrlOnIO,
+                     base::Unretained(database_client_.get()),
+                     navigation_handle()->GetURL(), id));
 }
 
 void SubresourceFilterSafeBrowsingActivationThrottle::NotifyResult() {
-  auto* driver_factory = ContentSubresourceFilterDriverFactory::FromWebContents(
-      navigation_handle()->GetWebContents());
-  DCHECK(driver_factory);
-  if (driver_factory->GetActivationOptionsForLastCommittedPageLoad()
-          .should_whitelist_site_on_reload &&
-      NavigationIsPageReload(navigation_handle())) {
-    // Whitelist this host for the current as well as subsequent navigations.
-    client_->WhitelistInCurrentWebContents(navigation_handle()->GetURL());
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("loading"),
+               "SubresourceFilterSafeBrowsingActivationThrottle::NotifyResult");
+  DCHECK(!check_results_.empty());
+
+  // Determine which results to consider for safebrowsing/abusive.
+  std::vector<SubresourceFilterSafeBrowsingClient::CheckResult>
+      check_results_to_consider = {check_results_.back()};
+  if (check_results_.size() >= 2 &&
+      base::FeatureList::IsEnabled(
+          kSafeBrowsingSubresourceFilterConsiderRedirects)) {
+    check_results_to_consider = {check_results_[0], check_results_.back()};
   }
 
-  Configuration::ActivationOptions matched_options;
-  ActivationDecision activation_decision = ComputeActivation(&matched_options);
-
-  // Check for whitelisted status last, so that the client gets an accurate
-  // indication of whether there would be activation otherwise.
-  bool whitelisted = client_->OnPageActivationComputed(
-      navigation_handle(),
-      matched_options.activation_level == ActivationLevel::ENABLED);
-
-  // Only reset the activation decision reason if we would have activated.
-  if (whitelisted && activation_decision == ActivationDecision::ACTIVATED) {
-    TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("loading"), "ActivationWhitelisted");
-    activation_decision = ActivationDecision::URL_WHITELISTED;
-    matched_options = Configuration::ActivationOptions();
+  // Find the ConfigResult for each safe browsing check.
+  std::vector<ConfigResult> matched_configurations;
+  for (const auto& current_result : check_results_to_consider) {
+    matched_configurations.push_back(
+        GetHighestPriorityConfiguration(current_result));
   }
 
-  driver_factory->NotifyPageActivationComputed(
-      navigation_handle(), activation_decision, matched_options);
+  // Get the activation decision with the associated ConfigResult.
+  ConfigResult selection;
+  ActivationDecision activation_decision =
+      GetActivationDecision(matched_configurations, &selection);
+  DCHECK_NE(activation_decision, ActivationDecision::UNKNOWN);
+
+  // Notify the observers of the check results.
+  SubresourceFilterObserverManager::FromWebContents(
+      navigation_handle()->GetWebContents())
+      ->NotifySafeBrowsingChecksComplete(navigation_handle(),
+                                         check_results_to_consider);
+
+  // Compute the activation level.
+  mojom::ActivationLevel activation_level =
+      selection.config.activation_options.activation_level;
+
+  if (selection.warning &&
+      activation_level == mojom::ActivationLevel::kEnabled) {
+    NavigationConsoleLogger::LogMessageOnCommit(
+        navigation_handle(), content::CONSOLE_MESSAGE_LEVEL_WARNING,
+        kActivationWarningConsoleMessage);
+    activation_level = mojom::ActivationLevel::kDisabled;
+  }
+
+  // Let the embedder get the last word when it comes to activation level.
+  // TODO(csharrison): Move all ActivationDecision code to the embedder.
+  activation_level = client_->OnPageActivationComputed(
+      navigation_handle(), activation_level, &activation_decision);
+
+  LogMetricsOnChecksComplete(selection.matched_list, activation_decision,
+                             activation_level);
+
+  SubresourceFilterObserverManager::FromWebContents(
+      navigation_handle()->GetWebContents())
+      ->NotifyPageActivationComputed(
+          navigation_handle(),
+          selection.config.GetActivationState(activation_level));
+}
+
+void SubresourceFilterSafeBrowsingActivationThrottle::
+    LogMetricsOnChecksComplete(ActivationList matched_list,
+                               ActivationDecision decision,
+                               mojom::ActivationLevel level) const {
+  DCHECK(HasFinishedAllSafeBrowsingChecks());
 
   base::TimeDelta delay = defer_time_.is_null()
                               ? base::TimeDelta::FromMilliseconds(0)
                               : base::TimeTicks::Now() - defer_time_;
   UMA_HISTOGRAM_TIMES("SubresourceFilter.PageLoad.SafeBrowsingDelay", delay);
 
-  // Log a histogram for the delay we would have introduced if the throttle only
-  // speculatively checks URLs on WillStartRequest. This is only different from
-  // the actual delay if there was at least one redirect.
-  base::TimeDelta no_redirect_speculation_delay =
-      check_results_.size() > 1 ? check_results_.back().check_time : delay;
-  UMA_HISTOGRAM_TIMES(
-      "SubresourceFilter.PageLoad.SafeBrowsingDelay.NoRedirectSpeculation",
-      no_redirect_speculation_delay);
+  ukm::SourceId source_id = ukm::ConvertToSourceId(
+      navigation_handle()->GetNavigationId(), ukm::SourceIdType::NAVIGATION_ID);
+  ukm::builders::SubresourceFilter builder(source_id);
+  builder.SetActivationDecision(static_cast<int64_t>(decision));
+  if (level == mojom::ActivationLevel::kDryRun) {
+    DCHECK_EQ(ActivationDecision::ACTIVATED, decision);
+    builder.SetDryRun(true);
+  }
+  builder.Record(ukm::UkmRecorder::Get());
+
+  UMA_HISTOGRAM_ENUMERATION("SubresourceFilter.PageLoad.ActivationDecision",
+                            decision,
+                            ActivationDecision::ACTIVATION_DECISION_MAX);
+  UMA_HISTOGRAM_ENUMERATION("SubresourceFilter.PageLoad.ActivationList",
+                            matched_list,
+                            static_cast<int>(ActivationList::LAST) + 1);
+}
+
+bool SubresourceFilterSafeBrowsingActivationThrottle::
+    HasFinishedAllSafeBrowsingChecks() const {
+  for (const auto& check_result : check_results_) {
+    if (!check_result.finished) {
+      return false;
+    }
+  }
+  return true;
+}
+
+SubresourceFilterSafeBrowsingActivationThrottle::ConfigResult
+SubresourceFilterSafeBrowsingActivationThrottle::
+    GetHighestPriorityConfiguration(
+        const SubresourceFilterSafeBrowsingClient::CheckResult& result) {
+  DCHECK(result.finished);
+  Configuration selected_config;
+  bool warning = false;
+  bool matched = false;
+  ActivationList matched_list = GetListForThreatTypeAndMetadata(
+      result.threat_type, result.threat_metadata, &warning);
+  // If it's http or https, find the best config.
+  if (navigation_handle()->GetURL().SchemeIsHTTPOrHTTPS()) {
+    const auto& decreasing_configs =
+        GetEnabledConfigurations()->configs_by_decreasing_priority();
+    const auto selected_config_itr =
+        std::find_if(decreasing_configs.begin(), decreasing_configs.end(),
+                     [matched_list, this](const Configuration& config) {
+                       return DoesMainFrameURLSatisfyActivationConditions(
+                           config.activation_conditions, matched_list);
+                     });
+    if (selected_config_itr != decreasing_configs.end()) {
+      selected_config = *selected_config_itr;
+      matched = true;
+    }
+  }
+  TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("loading"),
+               "SubresourceFilterSafeBrowsingActivationThrottle::"
+               "GetHighestPriorityConfiguration",
+               "selected_config",
+               !matched ? selected_config.ToTracedValue()
+                        : std::make_unique<base::trace_event::TracedValue>());
+  return ConfigResult(selected_config, warning, matched, matched_list);
 }
 
 ActivationDecision
-SubresourceFilterSafeBrowsingActivationThrottle::ComputeActivation(
-    Configuration::ActivationOptions* options) {
-  const GURL& url(navigation_handle()->GetURL());
-  ActivationList matched_list = ActivationList::NONE;
-  DCHECK(!database_client_ || !check_results_.empty());
-  if (!check_results_.empty()) {
-    DCHECK(check_results_.back().finished);
-    matched_list = GetListForThreatTypeAndMetadata(
-        check_results_.back().threat_type, check_results_.back().pattern_type);
+SubresourceFilterSafeBrowsingActivationThrottle::GetActivationDecision(
+    const std::vector<ConfigResult>& configs,
+    ConfigResult* selected_config) {
+  size_t selected_index = 0;
+  for (size_t current_index = 0; current_index < configs.size();
+       current_index++) {
+    // Prefer later configs when there's a tie.
+    // Rank no matching config slightly below priority zero.
+    const int selected_priority =
+        configs[selected_index].matched_valid_configuration
+            ? configs[selected_index].config.activation_conditions.priority
+            : -1;
+    const int current_priority =
+        configs[current_index].matched_valid_configuration
+            ? configs[current_index].config.activation_conditions.priority
+            : -1;
+    if (current_priority >= selected_priority) {
+      selected_index = current_index;
+    }
   }
+  // Ensure that the list was not empty, and assign the configuration.
+  DCHECK(selected_index != configs.size());
+  *selected_config = configs[selected_index];
 
-  const auto config_list = GetEnabledConfigurations();
-  bool scheme_is_http_or_https = url.SchemeIsHTTPOrHTTPS();
-  const auto highest_priority_activated_config =
-      std::find_if(config_list->configs_by_decreasing_priority().begin(),
-                   config_list->configs_by_decreasing_priority().end(),
-                   [&url, scheme_is_http_or_https, matched_list,
-                    this](const Configuration& config) {
-                     return DoesMainFrameURLSatisfyActivationConditions(
-                         url, scheme_is_http_or_https,
-                         config.activation_conditions, matched_list);
-                   });
-
-  bool has_activated_config =
-      highest_priority_activated_config !=
-      config_list->configs_by_decreasing_priority().end();
-  TRACE_EVENT1(
-      TRACE_DISABLED_BY_DEFAULT("loading"),
-      "SubresourceFilterSafeBrowsingActivationThrottle::ComputeActivation",
-      "highest_priority_activated_config",
-      has_activated_config
-          ? highest_priority_activated_config->ToTracedValue()
-          : base::MakeUnique<base::trace_event::TracedValue>());
-
-  if (!has_activated_config)
+  if (!selected_config->matched_valid_configuration) {
     return ActivationDecision::ACTIVATION_CONDITIONS_NOT_MET;
-
-  const Configuration::ActivationOptions activation_options =
-      highest_priority_activated_config->activation_options;
-  if (!scheme_is_http_or_https &&
-      activation_options.activation_level != ActivationLevel::DISABLED) {
-    return ActivationDecision::UNSUPPORTED_SCHEME;
   }
 
-  *options = activation_options;
-  return activation_options.activation_level == ActivationLevel::DISABLED
+  // Get the activation level for the matching configuration.
+  auto activation_level =
+      selected_config->config.activation_options.activation_level;
+
+  // If there is an activation triggered by the activation list (not a dry run),
+  // report where in the redirect chain it was triggered.
+  if (selected_config->config.activation_conditions.activation_scope ==
+          ActivationScope::ACTIVATION_LIST &&
+      activation_level == mojom::ActivationLevel::kEnabled) {
+    ActivationPosition position;
+    if (configs.size() == 1) {
+      position = ActivationPosition::kOnly;
+    } else if (selected_index == 0) {
+      position = ActivationPosition::kFirst;
+    } else if (selected_index == configs.size() - 1) {
+      position = ActivationPosition::kLast;
+    } else {
+      position = ActivationPosition::kMiddle;
+    }
+    UMA_HISTOGRAM_ENUMERATION(
+        "SubresourceFilter.PageLoad.Activation.RedirectPosition", position);
+  }
+
+  // Compute and return the activation decision.
+  return activation_level == mojom::ActivationLevel::kDisabled
              ? ActivationDecision::ACTIVATION_DISABLED
              : ActivationDecision::ACTIVATED;
 }
 
 bool SubresourceFilterSafeBrowsingActivationThrottle::
     DoesMainFrameURLSatisfyActivationConditions(
-        const GURL& url,
-        bool scheme_is_http_or_https,
         const Configuration::ActivationConditions& conditions,
         ActivationList matched_list) const {
   // Avoid copies when tracing disabled.
@@ -265,15 +341,23 @@ bool SubresourceFilterSafeBrowsingActivationThrottle::
     case ActivationScope::ALL_SITES:
       return true;
     case ActivationScope::ACTIVATION_LIST:
-      // ACTIVATION_LIST does not support non http/s URLs.
-      if (!scheme_is_http_or_https)
+      if (matched_list == ActivationList::NONE)
         return false;
       if (conditions.activation_list == matched_list)
         return true;
+
       if (conditions.activation_list == ActivationList::PHISHING_INTERSTITIAL &&
           matched_list == ActivationList::SOCIAL_ENG_ADS_INTERSTITIAL) {
         // Handling special case, where activation on the phishing sites also
         // mean the activation on the sites with social engineering metadata.
+        return true;
+      }
+      if (conditions.activation_list == ActivationList::BETTER_ADS &&
+          matched_list == ActivationList::ABUSIVE &&
+          base::FeatureList::IsEnabled(kFilterAdsOnAbusiveSites)) {
+        // Trigger activation on abusive sites if the condition says to trigger
+        // on Better Ads sites. This removes the need for adding a separate
+        // Configuration for Abusive enforcement.
         return true;
       }
       return false;
@@ -282,32 +366,6 @@ bool SubresourceFilterSafeBrowsingActivationThrottle::
   }
   NOTREACHED();
   return false;
-}
-
-void SubresourceFilterSafeBrowsingActivationThrottle::
-    RecordRedirectChainMatchPatternForList(ActivationList activation_list) {
-  DCHECK(check_results_.back().finished);
-  ActivationList matched_list = GetListForThreatTypeAndMetadata(
-      check_results_.back().threat_type, check_results_.back().pattern_type);
-  bool is_matched = matched_list == activation_list;
-  size_t chain_size = check_results_.size();
-  switch (activation_list) {
-    case ActivationList::SOCIAL_ENG_ADS_INTERSTITIAL:
-      REPORT_REDIRECT_PATTERN_FOR_SUFFIX("SocialEngineeringAdsInterstitial",
-                                         is_matched, chain_size);
-      break;
-    case ActivationList::PHISHING_INTERSTITIAL:
-      REPORT_REDIRECT_PATTERN_FOR_SUFFIX("PhishingInterstitial", is_matched,
-                                         chain_size);
-      break;
-    case ActivationList::SUBRESOURCE_FILTER:
-      REPORT_REDIRECT_PATTERN_FOR_SUFFIX("SubresourceFilterOnly", is_matched,
-                                         chain_size);
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
 }
 
 }  //  namespace subresource_filter

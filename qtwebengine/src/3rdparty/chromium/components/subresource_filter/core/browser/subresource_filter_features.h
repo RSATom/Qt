@@ -6,15 +6,16 @@
 #define COMPONENTS_SUBRESOURCE_FILTER_CORE_BROWSER_SUBRESOURCE_FILTER_FEATURES_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_piece.h"
-#include "components/subresource_filter/core/common/activation_level.h"
 #include "components/subresource_filter/core/common/activation_list.h"
 #include "components/subresource_filter/core/common/activation_scope.h"
+#include "components/subresource_filter/core/mojom/subresource_filter.mojom.h"
 
 namespace base {
 namespace trace_event {
@@ -72,26 +73,11 @@ struct Configuration {
     // any RenderFrame. When set to DISABLED, this configuration will cause
     // subresource filtering to be de-activated for a navigation if this is the
     // highest priority configuration with its activation conditions met.
-    ActivationLevel activation_level = ActivationLevel::DISABLED;
+    mojom::ActivationLevel activation_level = mojom::ActivationLevel::kDisabled;
 
     // A number in the range [0, 1], indicating the fraction of page loads that
     // should have extended performance measurements enabled.
     double performance_measurement_rate = 0.0;
-
-    // Whether notifications indicating that a subresource was disallowed should
-    // be suppressed in the UI.
-    bool should_suppress_notifications = false;
-
-    // Whether to whitelist a site when a page loaded from that site is
-    // reloaded.
-    bool should_whitelist_site_on_reload = false;
-
-    // Whether to apply a more powerful popup blocker on pages with activation.
-    bool should_strengthen_popup_blocker = false;
-
-    // Whether to disable rules from the ruleset. In practice this might be used
-    // if e.g. only popup blocking behavior is desired.
-    bool should_disable_ruleset_rules = false;
   };
 
   // General settings that apply outside of the scope of a navigation.
@@ -105,7 +91,7 @@ struct Configuration {
   // methods when adding new fields here!
 
   Configuration();
-  Configuration(ActivationLevel activation_level,
+  Configuration(mojom::ActivationLevel activation_level,
                 ActivationScope activation_scope,
                 ActivationList activation_list = ActivationList::NONE);
   Configuration(const Configuration&);
@@ -119,6 +105,13 @@ struct Configuration {
 
   std::unique_ptr<base::trace_event::TracedValue> ToTracedValue() const;
 
+  // Returns the mojom::ActivationState that page loads that match this
+  // configuration should activate with. |effective_activation_level| can be
+  // different from this config's activation level due to things like warning
+  // mode or client whitelisting.
+  mojom::ActivationState GetActivationState(
+      mojom::ActivationLevel effective_activation_level) const;
+
   // Factory methods for preset configurations.
   //
   // To add a new preset:
@@ -128,11 +121,14 @@ struct Configuration {
   //  4.) Update unittests to cover the new preset.
   static Configuration MakePresetForLiveRunOnPhishingSites();
   static Configuration MakePresetForPerformanceTestingDryRunOnAllSites();
+  static Configuration MakePresetForLiveRunForBetterAds();
 
   ActivationConditions activation_conditions;
   ActivationOptions activation_options;
   GeneralSettings general_settings;
 };
+
+std::ostream& operator<<(std::ostream& os, const Configuration& config);
 
 // Thread-safe, ref-counted wrapper around an immutable list of configurations.
 class ConfigurationList : public base::RefCountedThreadSafe<ConfigurationList> {
@@ -169,6 +165,8 @@ class ConfigurationList : public base::RefCountedThreadSafe<ConfigurationList> {
 // callers should not hold on to the result for long.
 scoped_refptr<ConfigurationList> GetEnabledConfigurations();
 
+bool HasEnabledConfiguration(const Configuration& config);
+
 namespace testing {
 
 // Returns the currently cached enabled ConfigurationList, if any, and replaces
@@ -183,8 +181,11 @@ scoped_refptr<ConfigurationList> GetAndSetActivateConfigurations(
 // The master toggle to enable/disable the Safe Browsing Subresource Filter.
 extern const base::Feature kSafeBrowsingSubresourceFilter;
 
-// Enables the new experimental UI for the Subresource Filter.
-extern const base::Feature kSafeBrowsingSubresourceFilterExperimentalUI;
+// Safe Browsing Activation Throttle considers all checks in a redirect chain.
+extern const base::Feature kSafeBrowsingSubresourceFilterConsiderRedirects;
+
+// Enables the blocking of ads on sites that are abusive.
+extern const base::Feature kFilterAdsOnAbusiveSites;
 
 // Name/values of the variation parameter controlling maximum activation level.
 extern const char kActivationLevelParameterName[];
@@ -201,6 +202,7 @@ extern const char kActivationListsParameterName[];
 extern const char kActivationListSocialEngineeringAdsInterstitial[];
 extern const char kActivationListPhishingInterstitial[];
 extern const char kActivationListSubresourceFilter[];
+extern const char kActivationListBetterAds[];
 
 extern const char kActivationPriorityParameterName[];
 
@@ -210,16 +212,13 @@ extern const char kSuppressNotificationsParameterName[];
 
 extern const char kWhitelistSiteOnReloadParameterName[];
 
-extern const char kStrengthenPopupBlockerParameterName[];
-
-extern const char kDisableRulesetRules[];
-
 extern const char kRulesetFlavorParameterName[];
 
 extern const char kEnablePresetsParameterName[];
 extern const char kDisablePresetsParameterName[];
 extern const char kPresetLiveRunOnPhishingSites[];
 extern const char kPresetPerformanceTestingDryRunOnAllSites[];
+extern const char kPresetLiveRunForBetterAds[];
 
 }  // namespace subresource_filter
 

@@ -13,7 +13,10 @@ var keyPressState = 0;
  * @param {string} e The key that was just pressed.
  */
 function handleKeypress(e) {
-  var BYPASS_SEQUENCE = 'badidea';
+  // HTTPS errors are serious and should not be ignored. For testing purposes,
+  // other approaches are both safer and have fewer side-effects.
+  // See https://goo.gl/ZcZixP for more details.
+  var BYPASS_SEQUENCE = window.atob('dGhpc2lzdW5zYWZl');
   if (BYPASS_SEQUENCE.charCodeAt(keyPressState) == e.keyCode) {
     keyPressState++;
     if (keyPressState == BYPASS_SEQUENCE.length) {
@@ -65,7 +68,11 @@ function setupEvents() {
   var ssl = interstitialType == 'SSL';
   var captivePortal = interstitialType == 'CAPTIVE_PORTAL';
   var badClock = ssl && loadTimeData.getBoolean('bad_clock');
+  var billing = interstitialType == 'SAFEBROWSING' &&
+                    loadTimeData.getBoolean('billing');
   var hidePrimaryButton = loadTimeData.getBoolean('hide_primary_button');
+  var showRecurrentErrorParagraph = loadTimeData.getBoolean(
+    'show_recurrent_error_paragraph');
 
   if (ssl) {
     $('body').classList.add(badClock ? 'bad-clock' : 'ssl');
@@ -73,8 +80,13 @@ function setupEvents() {
     $('error-code').classList.remove(HIDDEN_CLASS);
   } else if (captivePortal) {
     $('body').classList.add('captive-portal');
+  } else if (billing) {
+    $('body').classList.add('safe-browsing-billing');
   } else {
     $('body').classList.add('safe-browsing');
+    // Override the default theme color.
+    document.querySelector('meta[name=theme-color]').setAttribute('content',
+      'rgb(206, 52, 38)');
   }
 
   $('icon').classList.add('icon');
@@ -108,16 +120,28 @@ function setupEvents() {
   }
 
   if (overridable) {
+    var overrideElement = billing ? 'proceed-button' : 'proceed-link';
     // Captive portal page isn't overridable.
-    $('proceed-link').addEventListener('click', function(event) {
+    $(overrideElement).addEventListener('click', function(event) {
       sendCommand(SecurityInterstitialCommandId.CMD_PROCEED);
     });
+
+    if (ssl) {
+      $(overrideElement).classList.add('small-link');
+    } else if (billing) {
+      $(overrideElement).classList.remove(HIDDEN_CLASS);
+      $(overrideElement).textContent =
+          loadTimeData.getString('proceedButtonText');
+    }
   } else if (!ssl) {
     $('final-paragraph').classList.add(HIDDEN_CLASS);
   }
 
-  if (ssl && overridable) {
-    $('proceed-link').classList.add('small-link');
+
+  if (!ssl || !showRecurrentErrorParagraph) {
+    $('recurrent-error-message').classList.add(HIDDEN_CLASS);
+  } else {
+    $('body').classList.add('showing-recurrent-error-message');
   }
 
   if ($('diagnostic-link')) {
@@ -132,8 +156,8 @@ function setupEvents() {
     });
   }
 
-  if (captivePortal) {
-    // Captive portal page doesn't have details button.
+  if (captivePortal || billing) {
+    // Captive portal and billing pages don't have details button.
     $('details-button').classList.add('hidden');
   } else {
     $('details-button').addEventListener('click', function(event) {

@@ -27,11 +27,11 @@
 
 /*!
     \page qtquickcontrols-platformnotes.html
-    \title Qt Quick Controls Platform Notes
+    \title Qt Quick Controls 1 Platform Notes
     \brief Platform specific notes for Qt Quick Controls.
 
     This page contains platform specific notes for creating applications
-    that use \l{Qt Quick Controls}.
+    that use \l{Qt Quick Controls 1}.
 
     \section1 Android Style
 
@@ -71,7 +71,7 @@
     including various navigation modes, actions, an options menu, a back
     button, and also displays the application icon and title.
 
-    Unlike \l{Qt Widgets}, Qt Quick Controls do not use the native action
+    Unlike \l{Qt Widgets}, Qt Quick Controls 1 do not use the native action
     bar on Android. ToolBar and MenuBar are offered as a cross-platform
     replacement. They are unified to a single "action bar" when assigned to
     the appropriate ApplicationWindow properties.

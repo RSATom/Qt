@@ -5,51 +5,88 @@
 #ifndef CONTENT_BROWSER_PAYMENTS_PAYMENT_APP_INFO_FETCHER_H_
 #define CONTENT_BROWSER_PAYMENTS_PAYMENT_APP_INFO_FETCHER_H_
 
+#include <memory>
 #include <string>
 
 #include "base/macros.h"
-#include "base/memory/ref_counted.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
-#include "content/public/common/manifest.h"
+#include "content/public/browser/global_routing_id.h"
+#include "content/public/browser/stored_payment_app.h"
+#include "content/public/browser/web_contents_observer.h"
+#include "third_party/blink/public/common/manifest/manifest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace content {
 
-class PaymentAppInfoFetcher
-    : public base::RefCountedThreadSafe<PaymentAppInfoFetcher> {
+class PaymentAppInfoFetcher {
  public:
-  PaymentAppInfoFetcher();
+  struct PaymentAppInfo {
+    PaymentAppInfo();
+    ~PaymentAppInfo();
 
+    std::string name;
+    std::string icon;
+    bool prefer_related_applications = false;
+    std::vector<StoredRelatedApplication> related_applications;
+  };
   using PaymentAppInfoFetchCallback =
-      base::OnceCallback<void(const std::string&, const std::string&)>;
-  void Start(const GURL& context_url,
-             scoped_refptr<ServiceWorkerContextWrapper> service_worker_context,
-             PaymentAppInfoFetchCallback callback);
+      base::OnceCallback<void(std::unique_ptr<PaymentAppInfo> app_info)>;
+
+  // Only accessed on the IO thread.
+  static void Start(
+      const GURL& context_url,
+      scoped_refptr<ServiceWorkerContextWrapper> service_worker_context,
+      PaymentAppInfoFetchCallback callback);
 
  private:
-  friend class base::RefCountedThreadSafe<PaymentAppInfoFetcher>;
-  ~PaymentAppInfoFetcher();
+  // Only accessed on the UI thread.
+  static void StartOnUI(
+      const GURL& context_url,
+      const std::unique_ptr<std::vector<GlobalFrameRoutingId>>& provider_hosts,
+      PaymentAppInfoFetchCallback callback);
 
-  void StartFromUIThread(
-      const std::unique_ptr<std::vector<std::pair<int, int>>>& provider_hosts);
+  // Keeps track of the web contents.
+  // Only accessed on the UI thread.
+  class WebContentsHelper : public WebContentsObserver {
+   public:
+    explicit WebContentsHelper(WebContents* web_contents);
+    ~WebContentsHelper() override;
+  };
 
-  // The WebContents::GetManifestCallback.
-  void FetchPaymentAppManifestCallback(const GURL& url,
-                                       const Manifest& manifest);
+  // Only accessed on the UI thread.
+  class SelfDeleteFetcher {
+   public:
+    explicit SelfDeleteFetcher(PaymentAppInfoFetchCallback callback);
+    ~SelfDeleteFetcher();
 
-  // The ManifestIconDownloader::IconFetchCallback.
-  void OnIconFetched(const SkBitmap& icon);
-  void PostPaymentAppInfoFetchResultToIOThread();
+    void Start(const GURL& context_url,
+               const std::unique_ptr<std::vector<GlobalFrameRoutingId>>&
+                   provider_hosts);
 
-  GURL context_url_;
-  PaymentAppInfoFetchCallback callback_;
+   private:
+    void RunCallbackAndDestroy();
 
-  int context_process_id_;
-  int context_frame_id_;
-  std::string fetched_payment_app_name_;
-  std::string fetched_payment_app_icon_;
+    // The WebContents::GetManifestCallback.
+    void FetchPaymentAppManifestCallback(const GURL& url,
+                                         const blink::Manifest& manifest);
 
-  DISALLOW_COPY_AND_ASSIGN(PaymentAppInfoFetcher);
+    // The ManifestIconDownloader::IconFetchCallback.
+    void OnIconFetched(const SkBitmap& icon);
+
+    // Prints the warning |message| in the DevTools console, if possible.
+    // Otherwise logs the warning on command line.
+    void WarnIfPossible(const std::string& message);
+
+    GURL manifest_url_;
+    GURL icon_url_;
+    std::unique_ptr<WebContentsHelper> web_contents_helper_;
+    std::unique_ptr<PaymentAppInfo> fetched_payment_app_info_;
+    PaymentAppInfoFetchCallback callback_;
+
+    DISALLOW_COPY_AND_ASSIGN(SelfDeleteFetcher);
+  };
+
+  DISALLOW_IMPLICIT_CONSTRUCTORS(PaymentAppInfoFetcher);
 };
 
 }  // namespace content

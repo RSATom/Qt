@@ -107,16 +107,16 @@ class QSQLite2Result : public QSqlCachedResult
 public:
     explicit QSQLite2Result(const QSQLite2Driver* db);
     ~QSQLite2Result();
-    QVariant handle() const Q_DECL_OVERRIDE;
+    QVariant handle() const override;
 
 protected:
-    bool gotoNext(QSqlCachedResult::ValueCache &row, int idx) Q_DECL_OVERRIDE;
-    bool reset(const QString &query) Q_DECL_OVERRIDE;
-    int size() Q_DECL_OVERRIDE;
-    int numRowsAffected() Q_DECL_OVERRIDE;
-    QSqlRecord record() const Q_DECL_OVERRIDE;
-    void detachFromResultSet() Q_DECL_OVERRIDE;
-    void virtual_hook(int id, void *data) Q_DECL_OVERRIDE;
+    bool gotoNext(QSqlCachedResult::ValueCache &row, int idx) override;
+    bool reset(const QString &query) override;
+    int size() override;
+    int numRowsAffected() override;
+    QSqlRecord record() const override;
+    void detachFromResultSet() override;
+    void virtual_hook(int id, void *data) override;
 };
 
 class QSQLite2ResultPrivate: public QSqlCachedResultPrivate
@@ -178,7 +178,8 @@ void QSQLite2ResultPrivate::finalize()
     if (err) {
         q->setLastError(QSqlError(QCoreApplication::translate("QSQLite2Result",
                                   "Unable to fetch results"), QString::fromLatin1(err),
-                                  QSqlError::StatementError, res));
+                                  QSqlError::StatementError,
+                                  res != -1 ? QString::number(res) : QString()));
         sqlite_freemem(err);
     }
     currentMachine = 0;

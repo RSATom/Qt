@@ -141,8 +141,10 @@ public:
         PE_FrameGroupBox,
         PE_FrameLineEdit,
         PE_FrameMenu,
-        PE_FrameStatusBar, // ### Qt 6: remove
-        PE_FrameStatusBarItem = PE_FrameStatusBar,
+        PE_FrameStatusBarItem,
+#if QT_DEPRECATED_SINCE(5, 13) // ### Qt 6: remove
+        PE_FrameStatusBar Q_DECL_ENUMERATOR_DEPRECATED = PE_FrameStatusBarItem,
+#endif
         PE_FrameTabWidget,
         PE_FrameWindow,
         PE_FrameButtonBevel,
@@ -162,8 +164,10 @@ public:
         PE_IndicatorArrowUp,
         PE_IndicatorBranch,
         PE_IndicatorButtonDropDown,
-        PE_IndicatorViewItemCheck, // ### Qt 6: remove
-        PE_IndicatorItemViewItemCheck = PE_IndicatorViewItemCheck,
+        PE_IndicatorItemViewItemCheck,
+#if QT_DEPRECATED_SINCE(5, 13) // ### Qt 6: remove
+        PE_IndicatorViewItemCheck Q_DECL_ENUMERATOR_DEPRECATED = PE_IndicatorItemViewItemCheck,
+#endif
         PE_IndicatorCheckBox,
         PE_IndicatorDockWidgetResizeHandle,
         PE_IndicatorHeaderArrow,
@@ -202,7 +206,7 @@ public:
     Q_ENUM(PrimitiveElement)
 
     virtual void drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPainter *p,
-                               const QWidget *w = Q_NULLPTR) const = 0;
+                               const QWidget *w = nullptr) const = 0;
     enum ControlElement {
         CE_PushButton,
         CE_PushButtonBevel,
@@ -273,7 +277,7 @@ public:
     Q_ENUM(ControlElement)
 
     virtual void drawControl(ControlElement element, const QStyleOption *opt, QPainter *p,
-                             const QWidget *w = Q_NULLPTR) const = 0;
+                             const QWidget *w = nullptr) const = 0;
 
     enum SubElement {
         SE_PushButtonContents,
@@ -308,9 +312,10 @@ public:
         SE_TabWidgetLeftCorner,
         SE_TabWidgetRightCorner,
 
-        SE_ViewItemCheckIndicator, // ### Qt 6: remove
-        SE_ItemViewItemCheckIndicator = SE_ViewItemCheckIndicator,
-
+        SE_ItemViewItemCheckIndicator,
+#if QT_DEPRECATED_SINCE(5, 13) // ### Qt 6: remove
+        SE_ViewItemCheckIndicator Q_DECL_ENUMERATOR_DEPRECATED = SE_ItemViewItemCheckIndicator,
+#endif
         SE_TabBarTearIndicator,
         SE_TabBarTearIndicatorLeft = SE_TabBarTearIndicator,
 
@@ -362,7 +367,7 @@ public:
     Q_ENUM(SubElement)
 
     virtual QRect subElementRect(SubElement subElement, const QStyleOption *option,
-                                 const QWidget *widget = Q_NULLPTR) const = 0;
+                                 const QWidget *widget = nullptr) const = 0;
 
 
     enum ComplexControl {
@@ -441,11 +446,11 @@ public:
 
 
     virtual void drawComplexControl(ComplexControl cc, const QStyleOptionComplex *opt, QPainter *p,
-                                    const QWidget *widget = Q_NULLPTR) const = 0;
+                                    const QWidget *widget = nullptr) const = 0;
     virtual SubControl hitTestComplexControl(ComplexControl cc, const QStyleOptionComplex *opt,
-                                             const QPoint &pt, const QWidget *widget = Q_NULLPTR) const = 0;
+                                             const QPoint &pt, const QWidget *widget = nullptr) const = 0;
     virtual QRect subControlRect(ComplexControl cc, const QStyleOptionComplex *opt,
-                                 SubControl sc, const QWidget *widget = Q_NULLPTR) const = 0;
+                                 SubControl sc, const QWidget *widget = nullptr) const = 0;
 
     enum PixelMetric {
         PM_ButtonMargin,
@@ -506,9 +511,11 @@ public:
         PM_DialogButtonsButtonHeight,
 
         PM_MdiSubWindowFrameWidth,
-        PM_MDIFrameWidth = PM_MdiSubWindowFrameWidth,         // ### Qt 6: remove
         PM_MdiSubWindowMinimizedWidth,
-        PM_MDIMinimizedWidth = PM_MdiSubWindowMinimizedWidth, // ### Qt 6: remove
+#if QT_DEPRECATED_SINCE(5, 13) // ### Qt 6: remove
+        PM_MDIFrameWidth Q_DECL_ENUMERATOR_DEPRECATED = PM_MdiSubWindowFrameWidth,
+        PM_MDIMinimizedWidth Q_DECL_ENUMERATOR_DEPRECATED = PM_MdiSubWindowMinimizedWidth,
+#endif
 
         PM_HeaderMargin,
         PM_HeaderMarkSize,
@@ -579,8 +586,8 @@ public:
     };
     Q_ENUM(PixelMetric)
 
-    virtual int pixelMetric(PixelMetric metric, const QStyleOption *option = Q_NULLPTR,
-                            const QWidget *widget = Q_NULLPTR) const = 0;
+    virtual int pixelMetric(PixelMetric metric, const QStyleOption *option = nullptr,
+                            const QWidget *widget = nullptr) const = 0;
 
     enum ContentsType {
         CT_PushButton,
@@ -612,7 +619,7 @@ public:
     Q_ENUM(ContentsType)
 
     virtual QSize sizeFromContents(ContentsType ct, const QStyleOption *opt,
-                                   const QSize &contentsSize, const QWidget *w = Q_NULLPTR) const = 0;
+                                   const QSize &contentsSize, const QWidget *w = nullptr) const = 0;
 
     enum RequestSoftwareInputPanel {
         RSIP_OnMouseClickAndAlreadyFocused,
@@ -649,7 +656,9 @@ public:
         SH_ComboBox_Popup,
         SH_TitleBar_NoBorder,
         SH_Slider_StopMouseOverSlider,
-        SH_ScrollBar_StopMouseOverSlider = SH_Slider_StopMouseOverSlider, // ### Qt 6: remove
+#if QT_DEPRECATED_SINCE(5, 13) // ### Qt 6: remove
+        SH_ScrollBar_StopMouseOverSlider Q_DECL_ENUMERATOR_DEPRECATED = SH_Slider_StopMouseOverSlider,
+#endif
         SH_BlinkCursorWhenTextSelected,
         SH_RichText_FullWidthSelection,
         SH_Menu_Scrollable,
@@ -739,14 +748,17 @@ public:
         SH_ItemView_ScrollMode,
         SH_TitleBar_ShowToolTipsOnButtons,
         SH_Widget_Animation_Duration,
+        SH_ComboBox_AllowWheelScrolling,
+        SH_SpinBox_ButtonsInsideFrame,
+        SH_SpinBox_StepModifier,
         // Add new style hint values here
 
         SH_CustomBase = 0xf0000000
     };
     Q_ENUM(StyleHint)
 
-    virtual int styleHint(StyleHint stylehint, const QStyleOption *opt = Q_NULLPTR,
-                          const QWidget *widget = Q_NULLPTR, QStyleHintReturn* returnData = Q_NULLPTR) const = 0;
+    virtual int styleHint(StyleHint stylehint, const QStyleOption *opt = nullptr,
+                          const QWidget *widget = nullptr, QStyleHintReturn* returnData = nullptr) const = 0;
 
     enum StandardPixmap {
         SP_TitleBarMenuButton,
@@ -825,11 +837,11 @@ public:
     };
     Q_ENUM(StandardPixmap)
 
-    virtual QPixmap standardPixmap(StandardPixmap standardPixmap, const QStyleOption *opt = Q_NULLPTR,
-                                   const QWidget *widget = Q_NULLPTR) const = 0;
+    virtual QPixmap standardPixmap(StandardPixmap standardPixmap, const QStyleOption *opt = nullptr,
+                                   const QWidget *widget = nullptr) const = 0;
 
-    virtual QIcon standardIcon(StandardPixmap standardIcon, const QStyleOption *option = Q_NULLPTR,
-                               const QWidget *widget = Q_NULLPTR) const = 0;
+    virtual QIcon standardIcon(StandardPixmap standardIcon, const QStyleOption *option = nullptr,
+                               const QWidget *widget = nullptr) const = 0;
 
     virtual QPixmap generatedIconPixmap(QIcon::Mode iconMode, const QPixmap &pixmap,
                                         const QStyleOption *opt) const = 0;
@@ -848,10 +860,10 @@ public:
 
     virtual int layoutSpacing(QSizePolicy::ControlType control1,
                               QSizePolicy::ControlType control2, Qt::Orientation orientation,
-                              const QStyleOption *option = Q_NULLPTR, const QWidget *widget = Q_NULLPTR) const = 0;
+                              const QStyleOption *option = nullptr, const QWidget *widget = nullptr) const = 0;
     int combinedLayoutSpacing(QSizePolicy::ControlTypes controls1,
                               QSizePolicy::ControlTypes controls2, Qt::Orientation orientation,
-                              QStyleOption *option = Q_NULLPTR, QWidget *widget = Q_NULLPTR) const;
+                              QStyleOption *option = nullptr, QWidget *widget = nullptr) const;
 
     const QStyle * proxy() const;
 

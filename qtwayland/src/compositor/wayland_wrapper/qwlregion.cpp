@@ -39,6 +39,8 @@
 
 #include "qwlregion_p.h"
 
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
+
 QT_BEGIN_NAMESPACE
 
 namespace QtWayland {
@@ -54,7 +56,7 @@ Region::~Region()
 
 Region *Region::fromResource(struct ::wl_resource *resource)
 {
-    return static_cast<Region *>(Resource::fromResource(resource)->region_object);
+    return QtWayland::fromResource<Region *>(resource);
 }
 
 void Region::region_destroy_resource(Resource *)

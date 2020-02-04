@@ -12,27 +12,27 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "storage/browser/blob/blob_memory_controller.h"
-#include "storage/browser/storage_browser_export.h"
 
 namespace storage {
 class BlobDataHandle;
 class ShareableBlobDataItem;
 
 // Represents a blob in BlobStorageRegistry. Exported only for unit tests.
-class STORAGE_EXPORT BlobEntry {
+class COMPONENT_EXPORT(STORAGE_BROWSER) BlobEntry {
  public:
-  using TransportAllowedCallback =
-      base::Callback<void(BlobStatus,
-                          std::vector<BlobMemoryController::FileCreationInfo>)>;
+  using TransportAllowedCallback = base::OnceCallback<
+      void(BlobStatus, std::vector<BlobMemoryController::FileCreationInfo>)>;
+  using BuildAbortedCallback = base::OnceClosure;
 
   // Records a copy from a referenced blob. Copies happen after referenced blobs
   // are complete & quota for the copies is granted.
-  struct STORAGE_EXPORT ItemCopyEntry {
+  struct COMPONENT_EXPORT(STORAGE_BROWSER) ItemCopyEntry {
     ItemCopyEntry(scoped_refptr<ShareableBlobDataItem> source_item,
                   size_t source_item_offset,
                   scoped_refptr<ShareableBlobDataItem> dest_item);
@@ -52,8 +52,8 @@ class STORAGE_EXPORT BlobEntry {
   // 1. Waiting for quota to be granted for transport data (PENDING_QUOTA)
   // 2. Waiting for user population of data after quota (PENDING_TRANSPORT)
   // 3. Waiting for blobs we reference to complete & quota granted for possible
-  //    copies. (PENDING_INTERNALS)
-  struct STORAGE_EXPORT BuildingState {
+  //    copies. (PENDING_REFERENCED_BLOBS)
+  struct COMPONENT_EXPORT(STORAGE_BROWSER) BuildingState {
     // |transport_allowed_callback| is not null when data needs population. See
     // BlobStorageContext::BuildBlob for when the callback is called.
     BuildingState(bool transport_items_present,
@@ -61,14 +61,17 @@ class STORAGE_EXPORT BlobEntry {
                   size_t num_building_dependent_blobs);
     ~BuildingState();
 
-    // Cancels pending memory or file requests.
-    void CancelRequests();
+    // Cancels pending memory or file requests, and calls aborted callback if it
+    // is set.
+    void CancelRequestsAndAbort();
 
     const bool transport_items_present;
     // We can have trasnport data that's either populated or unpopulated. If we
     // need population, this is populated.
     TransportAllowedCallback transport_allowed_callback;
     std::vector<ShareableBlobDataItem*> transport_items;
+
+    BuildAbortedCallback build_aborted_callback;
 
     // Stores all blobs that we're depending on for building. This keeps the
     // blobs alive while we build our blob.
@@ -102,11 +105,13 @@ class STORAGE_EXPORT BlobEntry {
 
   // Appends the given shared blob data item to this object.
   void AppendSharedBlobItem(scoped_refptr<ShareableBlobDataItem> item);
+  void SetSharedBlobItems(
+      std::vector<scoped_refptr<ShareableBlobDataItem>> items);
 
   // Returns if we're a pending blob that can finish building.
   bool CanFinishBuilding() const {
-    // PENDING_INTERNALS means transport is finished.
-    return status_ == BlobStatus::PENDING_INTERNALS && building_state_ &&
+    // PENDING_REFERENCED_BLOBS means transport is finished.
+    return status_ == BlobStatus::PENDING_REFERENCED_BLOBS && building_state_ &&
            !building_state_->copy_quota_request &&
            building_state_->num_building_dependent_blobs == 0;
   }

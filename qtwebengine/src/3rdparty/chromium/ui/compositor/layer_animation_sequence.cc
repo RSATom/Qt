@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <iterator>
 
+#include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/animation/animation_id_provider.h"
 #include "ui/compositor/layer_animation_delegate.h"
@@ -194,9 +195,10 @@ bool LayerAnimationSequence::HasConflictingProperty(
   return (properties_ & other) != LayerAnimationElement::UNKNOWN;
 }
 
-bool LayerAnimationSequence::IsFirstElementThreaded() const {
+bool LayerAnimationSequence::IsFirstElementThreaded(
+    LayerAnimationDelegate* delegate) const {
   if (!elements_.empty())
-    return elements_[0]->IsThreaded();
+    return elements_[0]->IsThreaded(delegate);
 
   return false;
 }
@@ -288,6 +290,25 @@ LayerAnimationElement* LayerAnimationSequence::CurrentElement() const {
 
   size_t current_index = last_element_ % elements_.size();
   return elements_[current_index].get();
+}
+
+std::string LayerAnimationSequence::ElementsToString() const {
+  std::string str;
+  for (size_t i = 0; i < elements_.size(); i++) {
+    if (i > 0)
+      str.append(", ");
+    str.append(elements_[i]->ToString());
+  }
+  return str;
+}
+
+std::string LayerAnimationSequence::ToString() const {
+  return base::StringPrintf(
+      "LayerAnimationSequence{size=%zu, properties=%s, "
+      "elements=[%s], is_cyclic=%d, group_id=%d}",
+      size(),
+      LayerAnimationElement::AnimatablePropertiesToString(properties_).c_str(),
+      ElementsToString().c_str(), is_cyclic_, animation_group_id_);
 }
 
 }  // namespace ui

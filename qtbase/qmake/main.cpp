@@ -242,7 +242,41 @@ static int doLink(int argc, char **argv)
 
 #endif
 
-static int installFile(const QString &source, const QString &target, bool exe = false)
+static bool setFilePermissions(QFile &file, QFileDevice::Permissions permissions)
+{
+    if (file.setPermissions(permissions))
+        return true;
+    fprintf(stderr, "Error setting permissions on %s: %s\n",
+            qPrintable(file.fileName()), qPrintable(file.errorString()));
+    return false;
+}
+
+static bool copyFileTimes(QFile &targetFile, const QString &sourceFilePath,
+                          bool mustEnsureWritability, QString *errorString)
+{
+#ifdef Q_OS_WIN
+    bool mustRestorePermissions = false;
+    QFileDevice::Permissions targetPermissions;
+    if (mustEnsureWritability) {
+        targetPermissions = targetFile.permissions();
+        if (!targetPermissions.testFlag(QFileDevice::WriteUser)) {
+            mustRestorePermissions = true;
+            if (!setFilePermissions(targetFile, targetPermissions | QFileDevice::WriteUser))
+                return false;
+        }
+    }
+#endif
+    if (!IoUtils::touchFile(targetFile.fileName(), sourceFilePath, errorString))
+        return false;
+#ifdef Q_OS_WIN
+    if (mustRestorePermissions && !setFilePermissions(targetFile, targetPermissions))
+        return false;
+#endif
+    return true;
+}
+
+static int installFile(const QString &source, const QString &target, bool exe = false,
+                       bool preservePermissions = false)
 {
     QFile sourceFile(source);
     QFile targetFile(target);
@@ -260,35 +294,29 @@ static int installFile(const QString &source, const QString &target, bool exe = 
         return 3;
     }
 
+    QFileDevice::Permissions targetPermissions = preservePermissions
+            ? sourceFile.permissions()
+            : (QFileDevice::ReadOwner | QFileDevice::WriteOwner
+               | QFileDevice::ReadUser | QFileDevice::WriteUser
+               | QFileDevice::ReadGroup | QFileDevice::ReadOther);
     if (exe) {
-        if (!targetFile.setPermissions(sourceFile.permissions() | QFileDevice::ExeOwner | QFileDevice::ExeUser |
-                                       QFileDevice::ExeGroup | QFileDevice::ExeOther)) {
-            fprintf(stderr, "Error setting execute permissions on %s: %s\n",
-                    qPrintable(target), qPrintable(targetFile.errorString()));
-            return 3;
-        }
+        targetPermissions |= QFileDevice::ExeOwner | QFileDevice::ExeUser |
+                QFileDevice::ExeGroup | QFileDevice::ExeOther;
     }
+    if (!setFilePermissions(targetFile, targetPermissions))
+        return 3;
 
-    // Copy file times
     QString error;
-#ifdef Q_OS_WIN
-    const QFile::Permissions permissions = targetFile.permissions();
-    const bool readOnly = !(permissions & QFile::WriteUser);
-    if (readOnly)
-        targetFile.setPermissions(permissions | QFile::WriteUser);
-#endif
-    if (!IoUtils::touchFile(target, sourceFile.fileName(), &error)) {
+    if (!copyFileTimes(targetFile, sourceFile.fileName(), preservePermissions, &error)) {
         fprintf(stderr, "%s", qPrintable(error));
         return 3;
     }
-#ifdef Q_OS_WIN
-    if (readOnly)
-        targetFile.setPermissions(permissions);
-#endif
+
     return 0;
 }
 
-static int installFileOrDirectory(const QString &source, const QString &target)
+static int installFileOrDirectory(const QString &source, const QString &target,
+                                  bool preservePermissions = false)
 {
     QFileInfo fi(source);
     if (false) {
@@ -308,18 +336,18 @@ static int installFileOrDirectory(const QString &source, const QString &target)
     } else if (fi.isDir()) {
         QDir::current().mkpath(target);
 
-        QDirIterator it(source, QDir::AllEntries | QDir::NoDotAndDotDot);
+        QDirIterator it(source, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden);
         while (it.hasNext()) {
             it.next();
             const QFileInfo &entry = it.fileInfo();
             const QString &entryTarget = target + QDir::separator() + entry.fileName();
 
-            const int recursionResult = installFileOrDirectory(entry.filePath(), entryTarget);
+            const int recursionResult = installFileOrDirectory(entry.filePath(), entryTarget, true);
             if (recursionResult != 0)
                 return recursionResult;
         }
     } else {
-        const int fileCopyResult = installFile(source, target);
+        const int fileCopyResult = installFile(source, target, /*exe*/ false, preservePermissions);
         if (fileCopyResult != 0)
             return fileCopyResult;
     }
@@ -455,28 +483,22 @@ int runQMake(int argc, char **argv)
     QString oldpwd = qmake_getpwd();
 
     Option::output_dir = oldpwd; //for now this is the output dir
-    if(Option::output.fileName() != "-") {
+    if (!Option::output.fileName().isEmpty() && Option::output.fileName() != "-") {
+        // The output 'filename', as given by the -o option, might include one
+        // or more directories, so we may need to rebase the output directory.
         QFileInfo fi(Option::output);
-        QString dir;
-        if(fi.isDir()) {
-            dir = fi.filePath();
-        } else {
-            QString tmp_dir = fi.path();
-            if(!tmp_dir.isEmpty() && QFile::exists(tmp_dir))
-                dir = tmp_dir;
+
+        QDir dir(QDir::cleanPath(fi.isDir() ? fi.absoluteFilePath() : fi.absolutePath()));
+
+        // Don't treat Xcode project directory as part of OUT_PWD
+        if (dir.dirName().endsWith(QLatin1String(".xcodeproj"))) {
+            // Note: we're intentionally not using cdUp(), as the dir may not exist
+            dir.setPath(QDir::cleanPath(dir.filePath("..")));
         }
-#ifdef Q_OS_MAC
-        if (fi.fileName().endsWith(QLatin1String(".pbxproj"))
-            && dir.endsWith(QLatin1String(".xcodeproj")))
-            dir += QStringLiteral("/..");
-#endif
-        if(!dir.isNull() && dir != ".")
-            Option::output_dir = dir;
-        if (QDir::isRelativePath(Option::output_dir)) {
-            Option::output.setFileName(fi.fileName());
-            Option::output_dir.prepend(oldpwd + QLatin1Char('/'));
-        }
-        Option::output_dir = QDir::cleanPath(Option::output_dir);
+
+        Option::output_dir = dir.path();
+        QString absoluteFilePath = QDir::cleanPath(fi.absoluteFilePath());
+        Option::output.setFileName(absoluteFilePath.mid(Option::output_dir.length() + 1));
     }
 
     QMakeProperty prop;
@@ -552,7 +574,7 @@ int runQMake(int argc, char **argv)
             exit_val = 5;
         }
         delete mkfile;
-        mkfile = NULL;
+        mkfile = nullptr;
     }
     qmakeClearCaches();
     return exit_val;

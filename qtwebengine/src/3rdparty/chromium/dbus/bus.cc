@@ -14,6 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -151,8 +152,7 @@ Bus::Options::Options()
     connection_type(PRIVATE) {
 }
 
-Bus::Options::~Options() {
-}
+Bus::Options::~Options() = default;
 
 Bus::Bus(const Options& options)
     : bus_type_(options.bus_type),
@@ -312,7 +312,7 @@ ObjectManager* Bus::GetObjectManager(const std::string& service_name,
   }
 
   scoped_refptr<ObjectManager> object_manager =
-      new ObjectManager(this, service_name, object_path);
+      ObjectManager::Create(this, service_name, object_path);
   object_manager_table_[key] = object_manager;
 
   return object_manager.get();
@@ -371,6 +371,7 @@ void Bus::RemoveObjectManagerInternalHelper(
 bool Bus::Connect() {
   // dbus_bus_get_private() and dbus_bus_get() are blocking calls.
   AssertOnDBusThread();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   // Check if it's already initialized.
   if (connection_)
@@ -424,6 +425,7 @@ void Bus::ClosePrivateConnection() {
   AssertOnDBusThread();
   DCHECK_EQ(PRIVATE, connection_type_)
       << "non-private connection should not be closed";
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   dbus_connection_close(connection_);
 }
 
@@ -472,6 +474,9 @@ void Bus::ShutdownAndBlock() {
 
   // Private connection should be closed.
   if (connection_) {
+    base::ScopedBlockingCall scoped_blocking_call(
+        base::BlockingType::MAY_BLOCK);
+
     // Remove Disconnected watcher.
     ScopedDBusError error;
     RemoveFilterFunction(Bus::OnConnectionDisconnectedFilter, this);
@@ -496,7 +501,7 @@ void Bus::ShutdownOnDBusThreadAndBlock() {
       base::Bind(&Bus::ShutdownOnDBusThreadAndBlockInternal, this));
 
   // http://crbug.com/125222
-  base::ThreadRestrictions::ScopedAllowWait allow_wait;
+  base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
 
   // Wait until the shutdown is complete on the D-Bus thread.
   // The shutdown should not hang, but set timeout just in case.
@@ -543,6 +548,7 @@ bool Bus::RequestOwnershipAndBlock(const std::string& service_name,
     return true;
   }
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   ScopedDBusError error;
   const int result = dbus_bus_request_name(connection_,
                                            service_name.c_str(),
@@ -559,7 +565,7 @@ bool Bus::RequestOwnershipAndBlock(const std::string& service_name,
 
 bool Bus::ReleaseOwnership(const std::string& service_name) {
   DCHECK(connection_);
-  // dbus_bus_request_name() is a blocking call.
+  // dbus_bus_release_name() is a blocking call.
   AssertOnDBusThread();
 
   // Check if we already own the service name.
@@ -570,6 +576,7 @@ bool Bus::ReleaseOwnership(const std::string& service_name) {
     return false;
   }
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   ScopedDBusError error;
   const int result = dbus_bus_release_name(connection_, service_name.c_str(),
                                            error.get());
@@ -595,6 +602,7 @@ bool Bus::SetUpAsyncOperations() {
   // be called when the incoming data is ready.
   ProcessAllIncomingDataIfAny();
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   bool success = dbus_connection_set_watch_functions(
       connection_, &Bus::OnAddWatchThunk, &Bus::OnRemoveWatchThunk,
       &Bus::OnToggleWatchThunk, this, nullptr);
@@ -619,6 +627,7 @@ DBusMessage* Bus::SendWithReplyAndBlock(DBusMessage* request,
   DCHECK(connection_);
   AssertOnDBusThread();
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   return dbus_connection_send_with_reply_and_block(
       connection_, request, timeout_ms, error);
 }
@@ -629,6 +638,7 @@ void Bus::SendWithReply(DBusMessage* request,
   DCHECK(connection_);
   AssertOnDBusThread();
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   const bool success = dbus_connection_send_with_reply(
       connection_, request, pending_call, timeout_ms);
   CHECK(success) << "Unable to allocate memory";
@@ -638,6 +648,7 @@ void Bus::Send(DBusMessage* request, uint32_t* serial) {
   DCHECK(connection_);
   AssertOnDBusThread();
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   const bool success = dbus_connection_send(connection_, request, serial);
   CHECK(success) << "Unable to allocate memory";
 }
@@ -656,6 +667,7 @@ void Bus::AddFilterFunction(DBusHandleMessageFunction filter_function,
     return;
   }
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   const bool success = dbus_connection_add_filter(connection_, filter_function,
                                                   user_data, nullptr);
   CHECK(success) << "Unable to allocate memory";
@@ -677,6 +689,7 @@ void Bus::RemoveFilterFunction(DBusHandleMessageFunction filter_function,
     return;
   }
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   dbus_connection_remove_filter(connection_, filter_function, user_data);
   filter_functions_added_.erase(filter_data_pair);
 }
@@ -695,6 +708,7 @@ void Bus::AddMatch(const std::string& match_rule, DBusError* error) {
     return;
   }
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   dbus_bus_add_match(connection_, match_rule.c_str(), error);
   match_rules_added_[match_rule] = 1;
 }
@@ -710,6 +724,7 @@ bool Bus::RemoveMatch(const std::string& match_rule, DBusError* error) {
     return false;
   }
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   // The rule's counter is decremented and the rule is deleted when reachs 0.
   iter->second--;
   if (iter->second == 0) {
@@ -723,8 +738,28 @@ bool Bus::TryRegisterObjectPath(const ObjectPath& object_path,
                                 const DBusObjectPathVTable* vtable,
                                 void* user_data,
                                 DBusError* error) {
+  return TryRegisterObjectPathInternal(
+      object_path, vtable, user_data, error,
+      dbus_connection_try_register_object_path);
+}
+
+bool Bus::TryRegisterFallback(const ObjectPath& object_path,
+                              const DBusObjectPathVTable* vtable,
+                              void* user_data,
+                              DBusError* error) {
+  return TryRegisterObjectPathInternal(object_path, vtable, user_data, error,
+                                       dbus_connection_try_register_fallback);
+}
+
+bool Bus::TryRegisterObjectPathInternal(
+    const ObjectPath& object_path,
+    const DBusObjectPathVTable* vtable,
+    void* user_data,
+    DBusError* error,
+    TryRegisterObjectPathFunction* register_function) {
   DCHECK(connection_);
   AssertOnDBusThread();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   if (registered_object_paths_.find(object_path) !=
       registered_object_paths_.end()) {
@@ -732,12 +767,8 @@ bool Bus::TryRegisterObjectPath(const ObjectPath& object_path,
     return false;
   }
 
-  const bool success = dbus_connection_try_register_object_path(
-      connection_,
-      object_path.value().c_str(),
-      vtable,
-      user_data,
-      error);
+  const bool success = register_function(
+      connection_, object_path.value().c_str(), vtable, user_data, error);
   if (success)
     registered_object_paths_.insert(object_path);
   return success;
@@ -754,6 +785,7 @@ void Bus::UnregisterObjectPath(const ObjectPath& object_path) {
     return;
   }
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   const bool success = dbus_connection_unregister_object_path(
       connection_,
       object_path.value().c_str());
@@ -774,6 +806,8 @@ void Bus::ProcessAllIncomingDataIfAny() {
   // As mentioned at the class comment in .h file, connection_ can be NULL.
   if (!connection_)
     return;
+
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   // It is safe and necessary to call dbus_connection_get_dispatch_status even
   // if the connection is lost.
@@ -806,8 +840,6 @@ void Bus::AssertOnOriginThread() {
 }
 
 void Bus::AssertOnDBusThread() {
-  base::ThreadRestrictions::AssertIOAllowed();
-
   if (dbus_task_runner_) {
     DCHECK(dbus_task_runner_->RunsTasksInCurrentSequence());
   } else {
@@ -983,6 +1015,10 @@ std::string Bus::GetConnectionName() {
   return dbus_bus_get_unique_name(connection_);
 }
 
+bool Bus::IsConnected() {
+  return connection_ != nullptr;
+}
+
 dbus_bool_t Bus::OnAddWatch(DBusWatch* raw_watch) {
   AssertOnDBusThread();
 
@@ -998,6 +1034,7 @@ dbus_bool_t Bus::OnAddWatch(DBusWatch* raw_watch) {
 void Bus::OnRemoveWatch(DBusWatch* raw_watch) {
   AssertOnDBusThread();
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   Watch* watch = static_cast<Watch*>(dbus_watch_get_data(raw_watch));
   delete watch;
   --num_pending_watches_;
@@ -1006,6 +1043,7 @@ void Bus::OnRemoveWatch(DBusWatch* raw_watch) {
 void Bus::OnToggleWatch(DBusWatch* raw_watch) {
   AssertOnDBusThread();
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   Watch* watch = static_cast<Watch*>(dbus_watch_get_data(raw_watch));
   if (watch->IsReadyToBeWatched())
     watch->StartWatching();
@@ -1028,6 +1066,7 @@ dbus_bool_t Bus::OnAddTimeout(DBusTimeout* raw_timeout) {
 void Bus::OnRemoveTimeout(DBusTimeout* raw_timeout) {
   AssertOnDBusThread();
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   Timeout* timeout = static_cast<Timeout*>(dbus_timeout_get_data(raw_timeout));
   delete timeout;
   --num_pending_timeouts_;
@@ -1036,6 +1075,7 @@ void Bus::OnRemoveTimeout(DBusTimeout* raw_timeout) {
 void Bus::OnToggleTimeout(DBusTimeout* raw_timeout) {
   AssertOnDBusThread();
 
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   Timeout* timeout = static_cast<Timeout*>(dbus_timeout_get_data(raw_timeout));
   if (timeout->IsReadyToBeMonitored()) {
     timeout->StartMonitoring(this);

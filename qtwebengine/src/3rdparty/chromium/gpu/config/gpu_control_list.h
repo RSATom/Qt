@@ -9,10 +9,11 @@
 
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
 #include "base/values.h"
+#include "gpu/config/gpu_info.h"
 #include "gpu/gpu_export.h"
 
 namespace gpu {
@@ -21,9 +22,17 @@ struct GPUInfo;
 
 class GPU_EXPORT GpuControlList {
  public:
-  typedef base::hash_map<int, std::string> FeatureMap;
+  typedef std::unordered_map<int, std::string> FeatureMap;
 
-  enum OsType { kOsLinux, kOsMacosx, kOsWin, kOsChromeOS, kOsAndroid, kOsAny };
+  enum OsType {
+    kOsLinux,
+    kOsMacosx,
+    kOsWin,
+    kOsChromeOS,
+    kOsAndroid,
+    kOsFuchsia,
+    kOsAny
+  };
 
   enum OsFilter {
     // In loading, ignore all entries that belong to other OS.
@@ -76,6 +85,12 @@ class GPU_EXPORT GpuControlList {
     kVersionStyleUnknown
   };
 
+  enum SupportedOrNot {
+    kSupported,
+    kUnsupported,
+    kDontCare,
+  };
+
   struct GPU_EXPORT Version {
     NumericOp op;
     VersionStyle style;
@@ -124,7 +139,7 @@ class GPU_EXPORT GpuControlList {
 
   struct GPU_EXPORT MachineModelInfo {
     size_t machine_model_name_size;
-    const char** machine_model_names;
+    const char* const* machine_model_names;
     Version machine_model_version;
 
     bool Contains(const GPUInfo& gpu_info) const;
@@ -140,6 +155,9 @@ class GPU_EXPORT GpuControlList {
     uint32_t gl_reset_notification_strategy;
     bool direct_rendering;
     Version gpu_count;
+    SupportedOrNot hardware_overlay;
+
+    uint32_t test_group;
 
     // Return true if GL_VERSION string does not fit the entry info
     // on GL type and GL version.
@@ -163,6 +181,8 @@ class GPU_EXPORT GpuControlList {
     const DriverInfo* driver_info;
     const GLStrings* gl_strings;
     const MachineModelInfo* machine_model_info;
+    size_t gpu_series_list_size;
+    const GpuSeriesType* gpu_series_list;
     const More* more;
 
     bool Contains(OsType os_type,
@@ -180,7 +200,9 @@ class GPU_EXPORT GpuControlList {
     size_t feature_size;
     const int* features;
     size_t disabled_extension_size;
-    const char** disabled_extensions;
+    const char* const* disabled_extensions;
+    size_t disabled_webgl_extension_size;
+    const char* const* disabled_webgl_extensions;
     size_t cr_bug_size;
     const uint32_t* cr_bugs;
     Conditions conditions;
@@ -190,6 +212,8 @@ class GPU_EXPORT GpuControlList {
     bool Contains(OsType os_type,
                   const std::string& os_version,
                   const GPUInfo& gpu_info) const;
+
+    bool AppliesToTestGroup(uint32_t target_test_group) const;
 
     // Determines whether we needs more gpu info to make the blacklisting
     // decision.  It should only be checked if Contains() returns true.
@@ -212,31 +236,42 @@ class GPU_EXPORT GpuControlList {
   // system and returns the union of features specified in each entry.
   // If os is kOsAny, use the current OS; if os_version is empty, use the
   // current OS version.
-  std::set<int> MakeDecision(OsType os,
-                             const std::string& os_version,
-                             const GPUInfo& gpu_info);
+  std::set<int32_t> MakeDecision(OsType os,
+                                 const std::string& os_version,
+                                 const GPUInfo& gpu_info);
+  // Same as the above function, but instead of using the entries with no
+  // "test_group" specified or "test_group" = 0, using the entries with
+  // "test_group" = |target_test_group|.
+  std::set<int32_t> MakeDecision(OsType os,
+                                 const std::string& os_version,
+                                 const GPUInfo& gpu_info,
+                                 uint32_t target_test_group);
 
-  // Collects the active entries from the last MakeDecision() call.
-  void GetDecisionEntries(std::vector<uint32_t>* entry_ids) const;
+  // Return the active entry indices from the last MakeDecision() call.
+  const std::vector<uint32_t>& GetActiveEntries() const;
+  // Return corresponding entry IDs from entry indices.
+  std::vector<uint32_t> GetEntryIDsFromIndices(
+      const std::vector<uint32_t>& entry_indices) const;
 
   // Collects all disabled extensions.
   std::vector<std::string> GetDisabledExtensions();
+  // Collects all disabled WebGL extensions.
+  std::vector<std::string> GetDisabledWebGLExtensions();
 
-  // Returns the description and bugs from active entries from the last
-  // MakeDecision() call.
-  //
+  // Returns the description and bugs from active entries provided.
   // Each problems has:
   // {
   //    "description": "Your GPU is too old",
   //    "crBugs": [1234],
   // }
-  void GetReasons(base::ListValue* problem_list, const std::string& tag) const;
+  // The use case is we compute the entries from GPU process and send them to
+  // browser process, and call GetReasons() in browser process.
+  void GetReasons(base::ListValue* problem_list,
+                  const std::string& tag,
+                  const std::vector<uint32_t>& entries) const;
 
   // Return the largest entry id.  This is used for histogramming.
   uint32_t max_entry_id() const;
-
-  // Returns the version of the control list.
-  std::string version() const;
 
   // Check if we need more gpu info to make the decisions.
   // This is computed from the last MakeDecision() call.
@@ -255,6 +290,11 @@ class GPU_EXPORT GpuControlList {
     control_list_logging_name_ = control_list_logging_name;
   }
 
+ protected:
+  // Return false if an entry index goes beyond |total_entries|.
+  static bool AreEntryIndicesValid(const std::vector<uint32_t>& entry_indices,
+                                   size_t total_entries);
+
  private:
   friend class GpuControlListEntryTest;
   friend class VersionInfoTest;
@@ -262,13 +302,12 @@ class GPU_EXPORT GpuControlList {
   // Gets the current OS type.
   static OsType GetOsType();
 
-  std::string version_;
   size_t entry_count_;
   const Entry* entries_;
   // This records all the entries that are appliable to the current user
   // machine.  It is updated everytime MakeDecision() is called and is used
   // later by GetDecisionEntries().
-  std::vector<size_t> active_entries_;
+  std::vector<uint32_t> active_entries_;
 
   uint32_t max_entry_id_;
 
@@ -282,16 +321,14 @@ class GPU_EXPORT GpuControlList {
 };
 
 struct GPU_EXPORT GpuControlListData {
-  const char* version;
   size_t entry_count;
   const GpuControlList::Entry* entries;
 
-  GpuControlListData() : version(nullptr), entry_count(0u), entries(nullptr) {}
+  GpuControlListData() : entry_count(0u), entries(nullptr) {}
 
-  GpuControlListData(const char* a_version,
-                     size_t a_entry_count,
+  GpuControlListData(size_t a_entry_count,
                      const GpuControlList::Entry* a_entries)
-      : version(a_version), entry_count(a_entry_count), entries(a_entries) {}
+      : entry_count(a_entry_count), entries(a_entries) {}
 };
 
 }  // namespace gpu

@@ -12,19 +12,6 @@
 
 
 /**
- * The different types of events that are logged from the NTP. The multi-iframe
- * version of the NTP does *not* actually log any statistics anymore; this is
- * only required as a workaround for crbug.com/698675.
- * Note: Keep in sync with common/ntp_logging_events.h
- * @enum {number}
- * @const
- */
-var NTP_LOGGING_EVENT_TYPE = {
-  NTP_ALL_TILES_RECEIVED: 12,
-};
-
-
-/**
  * The origin of this request.
  * @const {string}
  */
@@ -69,10 +56,12 @@ function createMostVisitedLink(params, href, title, text, direction) {
   var link = document.createElement('a');
   link.style.color = styles.color;
   link.style.fontSize = styles.fontSize + 'px';
-  if (styles.fontFamily)
+  if (styles.fontFamily) {
     link.style.fontFamily = styles.fontFamily;
-  if (styles.textAlign)
+  }
+  if (styles.textAlign) {
     link.style.textAlign = styles.textAlign;
+  }
   if (styles.textFadePos) {
     var dir = /^rtl$/i.test(direction) ? 'to left' : 'to right';
     // The fading length in pixels is passed by the caller.
@@ -104,18 +93,6 @@ function createMostVisitedLink(params, href, title, text, direction) {
     window.parent.postMessage('linkBlurred', DOMAIN_ORIGIN);
   });
 
-  var navigateFunction = function handleNavigation(e) {
-    var isServerSuggestion = 'url' in params;
-
-    // Ping are only populated for server-side suggestions, never for MV.
-    if (isServerSuggestion && params.ping) {
-      generatePing(DOMAIN_ORIGIN + params.ping);
-    }
-
-    // Follow <a> normally, so transition type will be LINK.
-  };
-
-  link.addEventListener('click', navigateFunction);
   link.addEventListener('keydown', function(event) {
     if (event.keyCode == 46 /* DELETE */ ||
         event.keyCode == 8 /* BACKSPACE */) {
@@ -184,24 +161,39 @@ function getMostVisitedStyles(params, isTitle) {
     fontFamily: '',
     fontSize: 11
   };
-  if ('f' in params && /^[-0-9a-zA-Z ,]+$/.test(params.f))
+  if ('f' in params && /^[-0-9a-zA-Z ,]+$/.test(params.f)) {
     styles.fontFamily = params.f;
-  if ('fs' in params && isFinite(parseInt(params.fs, 10)))
+  }
+  if ('fs' in params && isFinite(parseInt(params.fs, 10))) {
     styles.fontSize = parseInt(params.fs, 10);
-  if ('ta' in params && /^[-0-9a-zA-Z ,]+$/.test(params.ta))
+  }
+  if ('ta' in params && /^[-0-9a-zA-Z ,]+$/.test(params.ta)) {
     styles.textAlign = params.ta;
+  }
   if ('tf' in params) {
     var tf = parseInt(params.tf, 10);
-    if (isFinite(tf))
+    if (isFinite(tf)) {
       styles.textFadePos = tf;
+    }
   }
   if ('ntl' in params) {
     var ntl = parseInt(params.ntl, 10);
-    if (isFinite(ntl))
+    if (isFinite(ntl)) {
       styles.numTitleLines = ntl;
+    }
   }
   return styles;
 }
+
+
+/**
+ * Returns whether the given URL has a known, safe scheme.
+ * @param {string} url URL to check.
+ */
+var isSchemeAllowed = function(url) {
+  return url.startsWith('http://') || url.startsWith('https://') ||
+      url.startsWith('ftp://') || url.startsWith('chrome-extension://');
+};
 
 
 /**
@@ -212,53 +204,24 @@ function getMostVisitedStyles(params, isTitle) {
 function fillMostVisited(location, fill) {
   var params = parseQueryParams(location);
   params.rid = parseInt(params.rid, 10);
-  if (!isFinite(params.rid) && !params.url)
+  if (!isFinite(params.rid)) {
     return;
-  var data;
-  if (params.url) {
-    // Means that the suggestion data comes from the server. Create data object.
-    data = {
-      url: params.url,
-      thumbnailUrl: params.tu || '',
-      title: params.ti || '',
-      direction: params.di || '',
-      domain: params.dom || ''
-    };
-  } else {
-    var apiHandle = chrome.embeddedSearch.newTabPage;
-    // Note: This does not actually result in any logging; it's a workaround for
-    // crbug.com/698675. It effectively sets the "instant support" state of the
-    // tab to true, which makes later calls to fetch the most visited items
-    // succeed.
-    apiHandle.logEvent(NTP_LOGGING_EVENT_TYPE.NTP_ALL_TILES_RECEIVED);
-    data = apiHandle.getMostVisitedItemData(params.rid);
-    if (!data)
-      return;
+  }
+  var data =
+      chrome.embeddedSearch.newTabPage.getMostVisitedItemData(params.rid);
+  if (!data) {
+    return;
+  }
+  if (data.url && !isSchemeAllowed(data.url)) {
+    return;
   }
 
   if (isFinite(params.dummy) && parseInt(params.dummy, 10)) {
     data.dummy = true;
   }
-  if (/^javascript:/i.test(data.url) || /^javascript:/i.test(data.thumbnailUrl))
-    return;
-  if (data.direction)
+
+  if (data.direction) {
     document.body.dir = data.direction;
-  fill(params, data);
-}
-
-
-/**
- * Sends a POST request to ping url.
- * @param {string} url URL to be pinged.
- */
-function generatePing(url) {
-  if (navigator.sendBeacon) {
-    navigator.sendBeacon(url);
-  } else {
-    // if sendBeacon is not enabled, we fallback for "a ping".
-    var a = document.createElement('a');
-    a.href = '#';
-    a.ping = url;
-    a.click();
   }
+  fill(params, data);
 }

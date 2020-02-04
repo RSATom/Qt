@@ -23,6 +23,10 @@ bool allowsIdeographicBreaking(const std::u16string& string);
     by the given Unicode codepoint due to ideographic breaking. */
 bool allowsIdeographicBreaking(char16_t chr);
 
+/** Conservative set of characters expected to have relatively fixed sizes and
+    advances */
+bool allowsFixedWidthGlyphGeneration(char16_t chr);
+
 /** Returns whether any substring of the given string can be drawn as vertical
     text with upright glyphs. */
 bool allowsVerticalWritingMode(const std::u16string& string);
@@ -68,6 +72,8 @@ std::u16string verticalizePunctuation(const std::u16string& input);
 
     @return The character’s specialized vertical form; 0 if not applicable. */
 char16_t verticalizePunctuation(char16_t chr);
+    
+bool isStringInSupportedScript(const std::string& input);
 
 } // namespace i18n
 } // namespace util

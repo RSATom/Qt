@@ -8,12 +8,14 @@
 #include <set>
 
 #include "base/bind.h"
-#include "base/test/test_simple_task_runner.h"
+#include "base/test/test_mock_time_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/offline_pages/core/background/request_coordinator.h"
-#include "components/offline_pages/core/background/request_queue_in_memory_store.h"
 #include "components/offline_pages/core/background/request_queue_store.h"
+#include "components/offline_pages/core/background/request_queue_task_test_base.h"
 #include "components/offline_pages/core/background/save_page_request.h"
+#include "components/offline_pages/core/background/test_request_queue_store.h"
+#include "components/offline_pages/core/offline_clock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace offline_pages {
@@ -35,17 +37,13 @@ const SavePageRequest kEmptyRequest(0UL,
                                     ClientId("", ""),
                                     base::Time(),
                                     true);
-}  // namespace
 
-class ReconcileTaskTest : public testing::Test {
+class ReconcileTaskTest : public RequestQueueTaskTestBase {
  public:
-  ReconcileTaskTest();
-
-  ~ReconcileTaskTest() override;
+  ReconcileTaskTest() {}
+  ~ReconcileTaskTest() override {}
 
   void SetUp() override;
-
-  void PumpLoop();
 
   void AddRequestDone(ItemActionStatus status);
 
@@ -53,7 +51,7 @@ class ReconcileTaskTest : public testing::Test {
       bool success,
       std::vector<std::unique_ptr<SavePageRequest>> requests);
 
-  void ReconcileCallback(std::unique_ptr<UpdateRequestsResult> result);
+  void ReconcileCallback(UpdateRequestsResult result);
 
   void QueueRequests(const SavePageRequest& request1,
                      const SavePageRequest& request2);
@@ -62,43 +60,22 @@ class ReconcileTaskTest : public testing::Test {
   void MakeTask();
 
   ReconcileTask* task() { return task_.get(); }
-  RequestQueueStore* store() { return store_.get(); }
   std::vector<std::unique_ptr<SavePageRequest>>& found_requests() {
     return found_requests_;
   }
 
  protected:
-  void InitializeStoreDone(bool success);
 
-  std::unique_ptr<RequestQueueStore> store_;
   std::unique_ptr<ReconcileTask> task_;
   std::vector<std::unique_ptr<SavePageRequest>> found_requests_;
-  bool reconcile_called_;
-
- private:
-  scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle task_runner_handle_;
+  bool reconcile_called_ = false;
 };
-
-ReconcileTaskTest::ReconcileTaskTest()
-    : reconcile_called_(false),
-      task_runner_(new base::TestSimpleTaskRunner),
-      task_runner_handle_(task_runner_) {}
-
-ReconcileTaskTest::~ReconcileTaskTest() {}
 
 void ReconcileTaskTest::SetUp() {
   DeviceConditions conditions;
-  store_.reset(new RequestQueueInMemoryStore());
   MakeTask();
 
-  store_->Initialize(base::Bind(&ReconcileTaskTest::InitializeStoreDone,
-                                base::Unretained(this)));
-  PumpLoop();
-}
-
-void ReconcileTaskTest::PumpLoop() {
-  task_runner_->RunUntilIdle();
+  InitializeStore();
 }
 
 void ReconcileTaskTest::AddRequestDone(ItemActionStatus status) {
@@ -111,12 +88,11 @@ void ReconcileTaskTest::GetRequestsCallback(
   found_requests_ = std::move(requests);
 }
 
-void ReconcileTaskTest::ReconcileCallback(
-    std::unique_ptr<UpdateRequestsResult> result) {
+void ReconcileTaskTest::ReconcileCallback(UpdateRequestsResult result) {
   reconcile_called_ = true;
   // Make sure the item in the callback is now AVAILABLE.
   EXPECT_EQ(SavePageRequest::RequestState::AVAILABLE,
-            result->updated_items.at(0).request_state());
+            result.updated_items.at(0).request_state());
 }
 
 // Test helper to queue the two given requests.
@@ -125,10 +101,10 @@ void ReconcileTaskTest::QueueRequests(const SavePageRequest& request1,
   DeviceConditions conditions;
   std::set<int64_t> disabled_requests;
   // Add test requests on the Queue.
-  store_->AddRequest(request1, base::Bind(&ReconcileTaskTest::AddRequestDone,
-                                          base::Unretained(this)));
-  store_->AddRequest(request2, base::Bind(&ReconcileTaskTest::AddRequestDone,
-                                          base::Unretained(this)));
+  store_.AddRequest(request1, base::BindOnce(&ReconcileTaskTest::AddRequestDone,
+                                             base::Unretained(this)));
+  store_.AddRequest(request2, base::BindOnce(&ReconcileTaskTest::AddRequestDone,
+                                             base::Unretained(this)));
 
   // Pump the loop to give the async queue the opportunity to do the adds.
   PumpLoop();
@@ -136,16 +112,12 @@ void ReconcileTaskTest::QueueRequests(const SavePageRequest& request1,
 
 void ReconcileTaskTest::MakeTask() {
   task_.reset(new ReconcileTask(
-      store_.get(), base::Bind(&ReconcileTaskTest::ReconcileCallback,
-                               base::Unretained(this))));
-}
-
-void ReconcileTaskTest::InitializeStoreDone(bool success) {
-  ASSERT_TRUE(success);
+      &store_, base::BindOnce(&ReconcileTaskTest::ReconcileCallback,
+                              base::Unretained(this))));
 }
 
 TEST_F(ReconcileTaskTest, Reconcile) {
-  base::Time creation_time = base::Time::Now();
+  base::Time creation_time = OfflineTimeNow();
   // Request2 will be expired, request1 will be current.
   SavePageRequest request1(kRequestId1, kUrl1, kClientId1, creation_time,
                            kUserRequested);
@@ -160,8 +132,8 @@ TEST_F(ReconcileTaskTest, Reconcile) {
   PumpLoop();
 
   // See what is left in the queue, should be just the other request.
-  store()->GetRequests(base::Bind(&ReconcileTaskTest::GetRequestsCallback,
-                                  base::Unretained(this)));
+  store_.GetRequests(base::BindOnce(&ReconcileTaskTest::GetRequestsCallback,
+                                    base::Unretained(this)));
   PumpLoop();
   EXPECT_EQ(2UL, found_requests().size());
 
@@ -180,7 +152,7 @@ TEST_F(ReconcileTaskTest, Reconcile) {
 }
 
 TEST_F(ReconcileTaskTest, NothingToReconcile) {
-  base::Time creation_time = base::Time::Now();
+  base::Time creation_time = OfflineTimeNow();
   // Request2 will be expired, request1 will be current.
   SavePageRequest request1(kRequestId1, kUrl1, kClientId1, creation_time,
                            kUserRequested);
@@ -195,8 +167,8 @@ TEST_F(ReconcileTaskTest, NothingToReconcile) {
   PumpLoop();
 
   // See what is left in the queue, should be just the other request.
-  store()->GetRequests(base::Bind(&ReconcileTaskTest::GetRequestsCallback,
-                                  base::Unretained(this)));
+  store_.GetRequests(base::BindOnce(&ReconcileTaskTest::GetRequestsCallback,
+                                    base::Unretained(this)));
   PumpLoop();
   EXPECT_EQ(2UL, found_requests().size());
 
@@ -216,4 +188,5 @@ TEST_F(ReconcileTaskTest, NothingToReconcile) {
   EXPECT_FALSE(reconcile_called_);
 }
 
+}  // namespace
 }  // namespace offline_pages

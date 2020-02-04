@@ -8,27 +8,23 @@
 #define CORE_FXCODEC_CODEC_CCODEC_GIFMODULE_H_
 
 #include <memory>
+#include <utility>
 
-#include "core/fxcodec/lgif/fx_gif.h"
+#include "core/fxcodec/codec/codec_module_iface.h"
+#include "core/fxcodec/gif/cfx_gif.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_system.h"
 
 class CFX_DIBAttribute;
 
-class CCodec_GifModule {
+class CCodec_GifModule final : public CodecModuleIface {
  public:
-  class Context {
-   public:
-    virtual ~Context() {}
-  };
-
   class Delegate {
    public:
     virtual void GifRecordCurrentPosition(uint32_t& cur_pos) = 0;
     virtual bool GifInputRecordPositionBuf(uint32_t rcd_pos,
                                            const FX_RECT& img_rc,
                                            int32_t pal_num,
-                                           void* pal_ptr,
+                                           CFX_GifPalette* pal_ptr,
                                            int32_t delay_time,
                                            bool user_input,
                                            int32_t trans_index,
@@ -38,22 +34,26 @@ class CCodec_GifModule {
   };
 
   CCodec_GifModule();
-  ~CCodec_GifModule();
+  ~CCodec_GifModule() override;
+
+  // CodecModuleIface:
+  FX_FILESIZE GetAvailInput(Context* context) const override;
+  bool Input(Context* context,
+             RetainPtr<CFX_CodecMemory> codec_memory,
+             CFX_DIBAttribute* pAttribute) override;
 
   std::unique_ptr<Context> Start(Delegate* pDelegate);
-  uint32_t GetAvailInput(Context* context, uint8_t** avail_buf_ptr = nullptr);
-  void Input(Context* context, const uint8_t* src_buf, uint32_t src_size);
-  GifDecodeStatus ReadHeader(Context* context,
-                             int* width,
-                             int* height,
-                             int* pal_num,
-                             void** pal_pp,
-                             int* bg_index,
-                             CFX_DIBAttribute* pAttribute);
-  GifDecodeStatus LoadFrameInfo(Context* context, int* frame_num);
-  GifDecodeStatus LoadFrame(Context* context,
-                            int frame_num,
-                            CFX_DIBAttribute* pAttribute);
+  CFX_GifDecodeStatus ReadHeader(Context* context,
+                                 int* width,
+                                 int* height,
+                                 int* pal_num,
+                                 CFX_GifPalette** pal_pp,
+                                 int* bg_index,
+                                 CFX_DIBAttribute* pAttribute);
+  std::pair<CFX_GifDecodeStatus, size_t> LoadFrameInfo(Context* context);
+  CFX_GifDecodeStatus LoadFrame(Context* context,
+                                size_t frame_num,
+                                CFX_DIBAttribute* pAttribute);
 };
 
 #endif  // CORE_FXCODEC_CODEC_CCODEC_GIFMODULE_H_

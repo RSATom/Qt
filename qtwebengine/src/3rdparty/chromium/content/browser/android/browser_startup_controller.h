@@ -5,14 +5,11 @@
 #ifndef CONTENT_BROWSER_ANDROID_BROWSER_STARTUP_CONTROLLER_H_
 #define CONTENT_BROWSER_ANDROID_BROWSER_STARTUP_CONTROLLER_H_
 
-#include <jni.h>
-
 namespace content {
 
 void BrowserStartupComplete(int result);
 bool ShouldStartGpuProcessOnBrowserStartup();
-
-bool RegisterBrowserStartupController(JNIEnv* env);
+void ServiceManagerStartupComplete();
 
 }  // namespace content
 #endif  // CONTENT_BROWSER_ANDROID_BROWSER_STARTUP_CONTROLLER_H_

@@ -77,7 +77,7 @@ public:
     QDBusArgument();
     QDBusArgument(const QDBusArgument &other);
 #ifdef Q_COMPILER_RVALUE_REFS
-    QDBusArgument(QDBusArgument &&other) Q_DECL_NOTHROW : d(other.d) { other.d = Q_NULLPTR; }
+    QDBusArgument(QDBusArgument &&other) Q_DECL_NOTHROW : d(other.d) { other.d = nullptr; }
     QDBusArgument &operator=(QDBusArgument &&other) Q_DECL_NOTHROW { swap(other); return *this; }
 #endif
     QDBusArgument &operator=(const QDBusArgument &other);
@@ -158,22 +158,15 @@ QT_END_NAMESPACE
 Q_DECLARE_METATYPE(QDBusArgument)
 QT_BEGIN_NAMESPACE
 
-template<typename T> inline T qdbus_cast(const QDBusArgument &arg
-#ifndef Q_QDOC
-, T * = Q_NULLPTR
-#endif
-    )
+// ### Qt6: remove the defaulted T * = nullptr from these two (MSVC6 work-around):
+template<typename T> inline T qdbus_cast(const QDBusArgument &arg, T * = nullptr)
 {
     T item;
     arg >> item;
     return item;
 }
 
-template<typename T> inline T qdbus_cast(const QVariant &v
-#ifndef Q_QDOC
-, T * = Q_NULLPTR
-#endif
-    )
+template<typename T> inline T qdbus_cast(const QVariant &v, T * = nullptr)
 {
     int id = v.userType();
     if (id == qMetaTypeId<QDBusArgument>())

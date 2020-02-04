@@ -29,13 +29,16 @@
  *   networkListItemConnected: string,
  *   networkListItemConnecting: string,
  *   networkListItemConnectingTo: string,
+ *   networkListItemInitializing: string,
+ *   networkListItemScanning: string,
  *   networkListItemNotConnected: string,
+ *   networkListItemNoNetwork: string,
  *   vpnNameTemplate: string,
  * }}
  */
-var CrOncStrings;
+let CrOncStrings;
 
-var CrOnc = {};
+const CrOnc = {};
 
 /** @typedef {chrome.networkingPrivate.NetworkStateProperties} */
 CrOnc.NetworkStateProperties;
@@ -43,7 +46,7 @@ CrOnc.NetworkStateProperties;
 /** @typedef {chrome.networkingPrivate.ManagedProperties} */
 CrOnc.NetworkProperties;
 
-/** @typedef {string|number|boolean|Object|Array<Object>} */
+/** @typedef {string|number|boolean|Array<string>|Object|Array<Object>} */
 CrOnc.NetworkPropertyType;
 
 /**
@@ -122,6 +125,18 @@ CrOnc.ProxySettingsType = chrome.networkingPrivate.ProxySettingsType;
 CrOnc.Type = chrome.networkingPrivate.NetworkType;
 
 /** @enum {string} */
+CrOnc.Authentication = {
+  NONE: 'None',
+  WEP_8021X: '8021X',
+};
+
+/** @enum {string} */
+CrOnc.IPsecAuthenticationType = {
+  CERT: 'Cert',
+  PSK: 'PSK',
+};
+
+/** @enum {string} */
 CrOnc.IPType = {
   IPV4: 'IPv4',
   IPV6: 'IPv6',
@@ -184,6 +199,22 @@ CrOnc.Source = {
   ACTIVE_EXTENSION: 'ActiveExtension',
 };
 
+/** @enum {string} */
+CrOnc.UserAuthenticationType = {
+  NONE: 'None',
+  OTP: 'OTP',
+  PASSWORD: 'Password',
+  PASSWORD_AND_OTP: 'PasswordAndOTP',
+};
+
+/** @enum {string} */
+CrOnc.VPNType = {
+  L2TP_IPSEC: 'L2TP-IPsec',
+  OPEN_VPN: 'OpenVPN',
+  THIRD_PARTY_VPN: 'ThirdPartyVPN',
+  ARCVPN: 'ARCVPN',
+};
+
 /**
  * Helper function to retrieve the active ONC property value from a managed
  * dictionary.
@@ -193,31 +224,43 @@ CrOnc.Source = {
  *     if it exists, otherwise undefined.
  */
 CrOnc.getActiveValue = function(property) {
-  if (property == undefined)
+  if (property == undefined) {
     return undefined;
+  }
 
-  if (typeof property != 'object') {
+  if (typeof property != 'object' || Array.isArray(property)) {
     console.error(
         'getActiveValue called on non object: ' + JSON.stringify(property));
     return undefined;
   }
 
   // Return the Active value if it exists.
-  if ('Active' in property)
+  if ('Active' in property) {
     return property['Active'];
+  }
 
   // If no Active value is defined, return the effective value.
   if ('Effective' in property) {
-    var effective = property.Effective;
-    if (effective in property)
+    const effective = property.Effective;
+    if (effective in property) {
       return property[effective];
+    }
   }
 
-  // If no Effective value, return the UserSetting or DeviceSetting.
-  if ('UserSetting' in property)
+  // If no Effective value, return the UserSetting or SharedSetting.
+  if ('UserSetting' in property) {
     return property['UserSetting'];
-  if ('DeviceSetting' in property)
-    return property['DeviceSetting'];
+  }
+  if ('SharedSetting' in property) {
+    return property['SharedSetting'];
+  }
+
+  // Effective, UserEditable or DeviceEditable properties may not have a value
+  // set.
+  if ('Effective' in property || 'UserEditable' in property ||
+      'DeviceEditable' in property) {
+    return undefined;
+  }
 
   console.error(
       'getActiveValue called on invalid ONC object: ' +
@@ -231,37 +274,61 @@ CrOnc.getActiveValue = function(property) {
  * @return {string}
  */
 CrOnc.getStateOrActiveString = function(property) {
-  if (property === undefined)
+  if (property === undefined) {
     return '';
-  if (typeof property == 'string')
+  }
+  if (typeof property == 'string') {
     return property;
+  }
   return /** @type {string} */ (CrOnc.getActiveValue(property));
+};
+
+/**
+ * Return if the property is simple, i.e. doesn't contain any nested
+ * dictionaries.
+ * @param property {!Object|undefined}
+ * @return {boolean}
+ */
+CrOnc.isSimpleProperty = function(property) {
+  const requiredProperties = [
+    'Active', 'Effective', 'UserSetting', 'SharedSetting', 'UserEditable',
+    'DeviceEditable'
+  ];
+  for (const prop of requiredProperties) {
+    if (prop in property) {
+      return true;
+    }
+  }
+  return false;
 };
 
 /**
  * Converts a managed ONC dictionary into an unmanaged dictionary (i.e. a
  * dictionary of active values).
- * NOTE: This is not intended to be used with dictionaries that contain
- * nested dictionaries. This will fail and return undefined in that case.
  * @param {!Object|undefined} properties A managed ONC dictionary
  * @return {!Object|undefined} An unmanaged version of |properties|.
  */
-CrOnc.getSimpleActiveProperties = function(properties) {
+CrOnc.getActiveProperties = function(properties) {
   'use strict';
-  if (!properties)
+  if (!properties) {
     return undefined;
-  var result = {};
-  var keys = Object.keys(properties);
-  for (var i = 0; i < keys.length; ++i) {
-    var k = keys[i];
-    var prop = CrOnc.getActiveValue(properties[k]);
-    if (prop == undefined) {
-      console.error(
-          'getSimpleActiveProperties called on invalid ONC object: ' +
-          JSON.stringify(properties));
-      return undefined;
+  }
+  const result = {};
+  const keys = Object.keys(properties);
+  for (let i = 0; i < keys.length; ++i) {
+    const k = keys[i];
+    const property = properties[k];
+    let propertyValue;
+    if (typeof property === 'object') {
+      if (CrOnc.isSimpleProperty(property)) {
+        propertyValue = CrOnc.getActiveValue(property);
+      } else {
+        propertyValue = CrOnc.getActiveProperties(property);
+      }
+    } else {
+      propertyValue = property;
     }
-    result[k] = prop;
+    result[k] = propertyValue;
   }
   return result;
 };
@@ -276,27 +343,34 @@ CrOnc.getSimpleActiveProperties = function(properties) {
  */
 CrOnc.getIPConfigForType = function(properties, type) {
   'use strict';
-  /** @type {!CrOnc.IPConfigProperties|undefined} */ var ipConfig = undefined;
-  var ipConfigs = properties.IPConfigs;
+  /** @type {!CrOnc.IPConfigProperties|undefined} */ let ipConfig = undefined;
+  /** @type {!CrOnc.IPType|undefined} */ let ipType = undefined;
+  const ipConfigs = properties.IPConfigs;
   if (ipConfigs) {
-    for (var i = 0; i < ipConfigs.length; ++i) {
+    for (let i = 0; i < ipConfigs.length; ++i) {
       ipConfig = ipConfigs[i];
-      if (ipConfig.Type == type)
+      ipType = ipConfig.Type ? /** @type {CrOnc.IPType} */ (ipConfig.Type) :
+                               undefined;
+      if (ipType == type) {
         break;
+      }
     }
   }
-  if (type != CrOnc.IPType.IPV4)
-    return ipConfig;
+  if (type != CrOnc.IPType.IPV4) {
+    return type == ipType ? ipConfig : undefined;
+  }
 
-  var staticIpConfig =
+  const staticIpConfig =
       /** @type {!CrOnc.IPConfigProperties|undefined} */ (
-          CrOnc.getSimpleActiveProperties(properties.StaticIPConfig));
-  if (!staticIpConfig)
+          CrOnc.getActiveProperties(properties.StaticIPConfig));
+  if (!staticIpConfig) {
     return ipConfig;
+  }
 
   // If there is no entry in IPConfigs for |type|, return the static config.
-  if (!ipConfig)
+  if (!ipConfig) {
     return staticIpConfig;
+  }
 
   // Otherwise, merge the appropriate static values into the result.
   if (staticIpConfig.IPAddress &&
@@ -320,15 +394,19 @@ CrOnc.getIPConfigForType = function(properties, type) {
  * @return {number} The signal strength value if it exists or 0.
  */
 CrOnc.getSignalStrength = function(properties) {
-  var type = properties.Type;
-  if (type == CrOnc.Type.CELLULAR && properties.Cellular)
+  const type = properties.Type;
+  if (type == CrOnc.Type.CELLULAR && properties.Cellular) {
     return properties.Cellular.SignalStrength || 0;
-  if (type == CrOnc.Type.TETHER && properties.Tether)
+  }
+  if (type == CrOnc.Type.TETHER && properties.Tether) {
     return properties.Tether.SignalStrength || 0;
-  if (type == CrOnc.Type.WI_FI && properties.WiFi)
+  }
+  if (type == CrOnc.Type.WI_FI && properties.WiFi) {
     return properties.WiFi.SignalStrength || 0;
-  if (type == CrOnc.Type.WI_MAX && properties.WiMAX)
+  }
+  if (type == CrOnc.Type.WI_MAX && properties.WiMAX) {
     return properties.WiMAX.SignalStrength || 0;
+  }
   return 0;
 };
 
@@ -341,15 +419,19 @@ CrOnc.getSignalStrength = function(properties) {
  *     managed dictionary or undefined.
  */
 CrOnc.getManagedAutoConnect = function(properties) {
-  var type = properties.Type;
-  if (type == CrOnc.Type.CELLULAR && properties.Cellular)
+  const type = properties.Type;
+  if (type == CrOnc.Type.CELLULAR && properties.Cellular) {
     return properties.Cellular.AutoConnect;
-  if (type == CrOnc.Type.VPN && properties.VPN)
+  }
+  if (type == CrOnc.Type.VPN && properties.VPN) {
     return properties.VPN.AutoConnect;
-  if (type == CrOnc.Type.WI_FI && properties.WiFi)
+  }
+  if (type == CrOnc.Type.WI_FI && properties.WiFi) {
     return properties.WiFi.AutoConnect;
-  if (type == CrOnc.Type.WI_MAX && properties.WiMAX)
+  }
+  if (type == CrOnc.Type.WI_MAX && properties.WiMAX) {
     return properties.WiMAX.AutoConnect;
+  }
   return undefined;
 };
 
@@ -360,7 +442,7 @@ CrOnc.getManagedAutoConnect = function(properties) {
  * @return {boolean} The AutoConnect value if it exists or false.
  */
 CrOnc.getAutoConnect = function(properties) {
-  var autoconnect = CrOnc.getManagedAutoConnect(properties);
+  const autoconnect = CrOnc.getManagedAutoConnect(properties);
   return !!CrOnc.getActiveValue(autoconnect);
 };
 
@@ -370,16 +452,18 @@ CrOnc.getAutoConnect = function(properties) {
  * @return {string} The name to display for |network|.
  */
 CrOnc.getNetworkName = function(properties) {
-  if (!properties)
+  if (!properties) {
     return '';
-  var name = CrOnc.getStateOrActiveString(properties.Name);
-  var type = CrOnc.getStateOrActiveString(properties.Type);
-  if (!name)
+  }
+  const name = CrOnc.getStateOrActiveString(properties.Name);
+  const type = CrOnc.getStateOrActiveString(properties.Type);
+  if (!name) {
     return CrOncStrings['OncType' + type];
+  }
   if (type == 'VPN' && properties.VPN) {
-    var vpnType = CrOnc.getStateOrActiveString(properties.VPN.Type);
+    const vpnType = CrOnc.getStateOrActiveString(properties.VPN.Type);
     if (vpnType == 'ThirdPartyVPN' && properties.VPN.ThirdPartyVPN) {
-      var providerName = properties.VPN.ThirdPartyVPN.ProviderName;
+      const providerName = properties.VPN.ThirdPartyVPN.ProviderName;
       if (providerName) {
         return CrOncStrings.vpnNameTemplate.replace('$1', providerName)
             .replace('$2', name);
@@ -391,16 +475,27 @@ CrOnc.getNetworkName = function(properties) {
 
 /**
  * @param {!CrOnc.NetworkProperties|!CrOnc.NetworkStateProperties|undefined}
+ *     properties The ONC network properties or state properties.
+ * @return {string} The name to display for |network|.
+ */
+CrOnc.getEscapedNetworkName = function(properties) {
+  return HTMLEscape(CrOnc.getNetworkName(properties));
+};
+
+/**
+ * @param {!CrOnc.NetworkProperties|!CrOnc.NetworkStateProperties|undefined}
  *   properties The ONC network properties or state properties.
  * @return {boolean} True if |properties| is a Cellular network with a
  *   locked SIM.
  */
 CrOnc.isSimLocked = function(properties) {
-  if (!properties.Cellular)
+  if (!properties.Cellular) {
     return false;
-  var simLockStatus = properties.Cellular.SIMLockStatus;
-  if (simLockStatus == undefined)
+  }
+  const simLockStatus = properties.Cellular.SIMLockStatus;
+  if (simLockStatus == undefined) {
     return false;
+  }
   return simLockStatus.LockType == CrOnc.LockType.PIN ||
       simLockStatus.LockType == CrOnc.LockType.PUK;
 };
@@ -415,19 +510,20 @@ CrOnc.isSimLocked = function(properties) {
  */
 CrOnc.setValidStaticIPConfig = function(config, properties) {
   if (!config.IPAddressConfigType) {
-    var ipConfigType = /** @type {chrome.networkingPrivate.IPConfigType} */ (
+    const ipConfigType = /** @type {chrome.networkingPrivate.IPConfigType} */ (
         CrOnc.getActiveValue(properties.IPAddressConfigType));
     config.IPAddressConfigType = ipConfigType || CrOnc.IPConfigType.DHCP;
   }
   if (!config.NameServersConfigType) {
-    var nsConfigType = /** @type {chrome.networkingPrivate.IPConfigType} */ (
+    const nsConfigType = /** @type {chrome.networkingPrivate.IPConfigType} */ (
         CrOnc.getActiveValue(properties.NameServersConfigType));
     config.NameServersConfigType = nsConfigType || CrOnc.IPConfigType.DHCP;
   }
   if (config.IPAddressConfigType != CrOnc.IPConfigType.STATIC &&
       config.NameServersConfigType != CrOnc.IPConfigType.STATIC) {
-    if (config.hasOwnProperty('StaticIPConfig'))
+    if (config.hasOwnProperty('StaticIPConfig')) {
       delete config.StaticIPConfig;
+    }
     return;
   }
 
@@ -435,8 +531,8 @@ CrOnc.setValidStaticIPConfig = function(config, properties) {
     config.StaticIPConfig =
         /** @type {chrome.networkingPrivate.IPConfigProperties} */ ({});
   }
-  var staticIP = config.StaticIPConfig;
-  var stateIPConfig = CrOnc.getIPConfigForType(properties, CrOnc.IPType.IPV4);
+  const staticIP = config.StaticIPConfig;
+  const stateIPConfig = CrOnc.getIPConfigForType(properties, CrOnc.IPType.IPV4);
   if (config.IPAddressConfigType == 'Static') {
     staticIP.Gateway = staticIP.Gateway || stateIPConfig.Gateway || '';
     staticIP.IPAddress = staticIP.IPAddress || stateIPConfig.IPAddress || '';
@@ -456,20 +552,27 @@ CrOnc.setValidStaticIPConfig = function(config, properties) {
  * @param {!chrome.networkingPrivate.NetworkConfigProperties} properties
  *     The ONC property dictionary to modify.
  * @param {string} key The property key which may be nested, e.g. 'Foo.Bar'.
- * @param {!CrOnc.NetworkPropertyType} value The property value to set.
+ * @param {!CrOnc.NetworkPropertyType|undefined} value The property value to
+ *     set. If undefined the property will be removed.
  */
 CrOnc.setProperty = function(properties, key, value) {
   while (true) {
-    var index = key.indexOf('.');
-    if (index < 0)
+    const index = key.indexOf('.');
+    if (index < 0) {
       break;
-    var keyComponent = key.substr(0, index);
-    if (!properties.hasOwnProperty(keyComponent))
+    }
+    const keyComponent = key.substr(0, index);
+    if (!properties.hasOwnProperty(keyComponent)) {
       properties[keyComponent] = {};
+    }
     properties = properties[keyComponent];
     key = key.substr(index + 1);
   }
-  properties[key] = value;
+  if (value === undefined) {
+    delete properties[key];
+  } else {
+    properties[key] = value;
+  }
 };
 
 /**
@@ -477,7 +580,8 @@ CrOnc.setProperty = function(properties, key, value) {
  * @param {!chrome.networkingPrivate.NetworkConfigProperties} properties The
  *     ONC properties to set. properties.Type must be set already.
  * @param {string} key The type property key, e.g. 'AutoConnect'.
- * @param {!CrOnc.NetworkPropertyType} value The property value to set.
+ * @param {!CrOnc.NetworkPropertyType|undefined} value The property value to
+ *     set. If undefined the property will be removed.
  */
 CrOnc.setTypeProperty = function(properties, key, value) {
   if (properties.Type == undefined) {
@@ -485,7 +589,7 @@ CrOnc.setTypeProperty = function(properties, key, value) {
         'Type not defined in properties: ' + JSON.stringify(properties));
     return;
   }
-  var typeKey = properties.Type + '.' + key;
+  const typeKey = properties.Type + '.' + key;
   CrOnc.setProperty(properties, typeKey, value);
 };
 
@@ -497,22 +601,25 @@ CrOnc.setTypeProperty = function(properties, key, value) {
 CrOnc.getRoutingPrefixAsNetmask = function(prefixLength) {
   'use strict';
   // Return the empty string for invalid inputs.
-  if (prefixLength < 0 || prefixLength > 32)
+  if (prefixLength < 0 || prefixLength > 32) {
     return '';
-  var netmask = '';
-  for (var i = 0; i < 4; ++i) {
-    var remainder = 8;
+  }
+  let netmask = '';
+  for (let i = 0; i < 4; ++i) {
+    let remainder = 8;
     if (prefixLength >= 8) {
       prefixLength -= 8;
     } else {
       remainder = prefixLength;
       prefixLength = 0;
     }
-    if (i > 0)
+    if (i > 0) {
       netmask += '.';
-    var value = 0;
-    if (remainder != 0)
+    }
+    let value = 0;
+    if (remainder != 0) {
       value = ((2 << (remainder - 1)) - 1) << (8 - remainder);
+    }
     netmask += value.toString();
   }
   return netmask;
@@ -525,17 +632,19 @@ CrOnc.getRoutingPrefixAsNetmask = function(prefixLength) {
  */
 CrOnc.getRoutingPrefixAsLength = function(netmask) {
   'use strict';
-  var prefixLength = 0;
-  var tokens = netmask.split('.');
-  if (tokens.length != 4)
+  let prefixLength = 0;
+  const tokens = netmask.split('.');
+  if (tokens.length != 4) {
     return -1;
-  for (var i = 0; i < tokens.length; ++i) {
-    var token = tokens[i];
+  }
+  for (let i = 0; i < tokens.length; ++i) {
+    const token = tokens[i];
     // If we already found the last mask and the current one is not
     // '0' then the netmask is invalid. For example, 255.224.255.0
     if (prefixLength / 8 != i) {
-      if (token != '0')
+      if (token != '0') {
         return -1;
+      }
     } else if (token == '255') {
       prefixLength += 8;
     } else if (token == '254') {
@@ -578,8 +687,9 @@ CrOnc.proxyMatches = function(a, b) {
  */
 CrOnc.shouldShowTetherDialogBeforeConnection = function(networkProperties) {
   // Only show for Tether networks.
-  if (networkProperties.Type != CrOnc.Type.TETHER)
+  if (networkProperties.Type != CrOnc.Type.TETHER) {
     return false;
+  }
 
   // Show if there are no Tether properties or if there are Tether properties
   // and they indicate that a connection has not yet occurred to this host.
@@ -593,7 +703,8 @@ CrOnc.shouldShowTetherDialogBeforeConnection = function(networkProperties) {
  * @return {!CrOnc.Type|undefined}
  */
 CrOnc.getValidType = function(typeStr) {
-  if (Object.values(CrOnc.Type).indexOf(typeStr) >= 0)
+  if (Object.values(CrOnc.Type).indexOf(typeStr) >= 0) {
     return /** @type {!CrOnc.Type} */ (typeStr);
+  }
   return undefined;
 };

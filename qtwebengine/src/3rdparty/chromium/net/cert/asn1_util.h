@@ -14,6 +14,13 @@ namespace net {
 
 namespace asn1 {
 
+// ExtractSubjectFromDERCert parses the DER encoded certificate in |cert| and
+// extracts the bytes of the X.501 Subject. On successful return, |subject_out|
+// is set to contain the Subject, pointing into |cert|.
+NET_EXPORT_PRIVATE bool ExtractSubjectFromDERCert(
+    base::StringPiece cert,
+    base::StringPiece* subject_out);
+
 // ExtractSPKIFromDERCert parses the DER encoded certificate in |cert| and
 // extracts the bytes of the SubjectPublicKeyInfo. On successful return,
 // |spki_out| is set to contain the SPKI, pointing into |cert|.
@@ -27,28 +34,19 @@ NET_EXPORT_PRIVATE bool ExtractSubjectPublicKeyFromSPKI(
     base::StringPiece spki,
     base::StringPiece* spk_out);
 
-// ExtractCRLURLsFromDERCert parses the DER encoded certificate in |cert| and
-// extracts the URL of each CRL. On successful return, the elements of
-// |urls_out| point into |cert|.
-//
-// CRLs that only cover a subset of the reasons are omitted as the spec
-// requires that at least one CRL be included that covers all reasons.
-//
-// CRLs that use an alternative issuer are also omitted.
-//
-// The nested set of GeneralNames is flattened into a single list because
-// having several CRLs with one location is equivalent to having one CRL with
-// several locations as far as a CRL filter is concerned.
-NET_EXPORT_PRIVATE bool ExtractCRLURLsFromDERCert(
-    base::StringPiece cert,
-    std::vector<base::StringPiece>* urls_out);
-
 // HasTLSFeatureExtension parses the DER encoded certificate in |cert|
 // and extracts the TLS feature extension
 // (https://tools.ietf.org/html/rfc7633) if present. Returns true if the
 // TLS feature extension was present, and false if the extension was not
 // present or if there was a parsing failure.
 NET_EXPORT_PRIVATE bool HasTLSFeatureExtension(base::StringPiece cert);
+
+// HasCanSignHttpExchangesDraftExtension parses the DER encoded certificate
+// in |cert| and extracts the canSignHttpExchangesDraft extension
+// (https://wicg.github.io/webpackage/draft-yasskin-http-origin-signed-responses.html)
+// if present. Returns true if the extension was present, and false if
+// the extension was not present or if there was a parsing failure.
+NET_EXPORT bool HasCanSignHttpExchangesDraftExtension(base::StringPiece cert);
 
 // Extracts the two (SEQUENCE) tag-length-values for the signature
 // AlgorithmIdentifiers in a DER encoded certificate. Does not use strict
@@ -66,6 +64,20 @@ NET_EXPORT_PRIVATE bool ExtractSignatureAlgorithmsFromDERCert(
     base::StringPiece cert,
     base::StringPiece* cert_signature_algorithm_sequence,
     base::StringPiece* tbs_signature_algorithm_sequence);
+
+// Extracts the contents of the extension (if any) with OID |extension_oid| from
+// the DER-encoded, X.509 certificate in |cert|.
+//
+// Returns false on parse error or true if the parse was successful. Sets
+// |*out_extension_present| to whether or not the extension was found. If found,
+// sets |*out_extension_critical| to match the extension's "critical" flag, and
+// sets |*out_contents| to the contents of the extension (after unwrapping the
+// OCTET STRING).
+NET_EXPORT bool ExtractExtensionFromDERCert(base::StringPiece cert,
+                                            base::StringPiece extension_oid,
+                                            bool* out_extension_present,
+                                            bool* out_extension_critical,
+                                            base::StringPiece* out_contents);
 
 } // namespace asn1
 

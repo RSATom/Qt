@@ -4,15 +4,20 @@
 
 #include "content/browser/child_process_launcher.h"
 
+#include <utility>
+
 #include "base/bind.h"
+#include "base/clang_coverage_buildflags.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/i18n/icu_util.h"
 #include "base/logging.h"
 #include "base/process/launch.h"
 #include "build/build_config.h"
-#include "content/public/common/result_codes.h"
+#include "content/public/browser/child_process_launcher_utils.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
+#include "services/service_manager/embedder/result_codes.h"
 
 namespace content {
 
@@ -23,19 +28,15 @@ ChildProcessLauncher::ChildProcessLauncher(
     std::unique_ptr<base::CommandLine> command_line,
     int child_process_id,
     Client* client,
-    std::unique_ptr<mojo::edk::OutgoingBrokerClientInvitation>
-        broker_client_invitation,
-    const mojo::edk::ProcessErrorCallback& process_error_callback,
+    mojo::OutgoingInvitation mojo_invitation,
+    const mojo::ProcessErrorCallback& process_error_callback,
     bool terminate_on_shutdown)
     : client_(client),
-      termination_status_(base::TERMINATION_STATUS_NORMAL_TERMINATION),
-      exit_code_(RESULT_CODE_NORMAL_EXIT),
       starting_(true),
-      broker_client_invitation_(std::move(broker_client_invitation)),
-      process_error_callback_(process_error_callback),
+      start_time_(base::TimeTicks::Now()),
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) ||  \
     defined(MEMORY_SANITIZER) || defined(THREAD_SANITIZER) || \
-    defined(UNDEFINED_SANITIZER)
+    defined(UNDEFINED_SANITIZER) || BUILDFLAG(CLANG_COVERAGE)
       terminate_child_on_shutdown_(false),
 #else
       terminate_child_on_shutdown_(terminate_on_shutdown),
@@ -45,9 +46,9 @@ ChildProcessLauncher::ChildProcessLauncher(
   CHECK(BrowserThread::GetCurrentThreadIdentifier(&client_thread_id_));
 
   helper_ = new ChildProcessLauncherHelper(
-                child_process_id, client_thread_id_,
-              std::move(command_line), std::move(delegate),
-                       weak_factory_.GetWeakPtr(), terminate_on_shutdown);
+      child_process_id, client_thread_id_, std::move(command_line),
+      std::move(delegate), weak_factory_.GetWeakPtr(), terminate_on_shutdown,
+      std::move(mojo_invitation), process_error_callback);
   helper_->StartLaunchOnClientThread();
 }
 
@@ -60,41 +61,28 @@ ChildProcessLauncher::~ChildProcessLauncher() {
   }
 }
 
-void ChildProcessLauncher::SetProcessPriority(bool background,
-                                              bool boost_for_pending_views) {
+void ChildProcessLauncher::SetProcessPriority(
+    const ChildProcessLauncherPriority& priority) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::Process to_pass = process_.process.Duplicate();
-  BrowserThread::PostTask(
-      BrowserThread::PROCESS_LAUNCHER, FROM_HERE,
-      base::Bind(
+  GetProcessLauncherTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
           &ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread,
-          helper_, base::Passed(&to_pass), background,
-          boost_for_pending_views));
+          helper_, std::move(to_pass), priority));
 }
 
 void ChildProcessLauncher::Notify(
     ChildProcessLauncherHelper::Process process,
-    mojo::edk::ScopedPlatformHandle server_handle,
     int error_code) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   starting_ = false;
   process_ = std::move(process);
 
-  // Take ownership of the broker client invitation here so it's destroyed when
-  // we go out of scope regardless of the outcome below.
-  std::unique_ptr<mojo::edk::OutgoingBrokerClientInvitation> invitation =
-      std::move(broker_client_invitation_);
   if (process_.process.IsValid()) {
-    // Set up Mojo IPC to the new process.
-    DCHECK(invitation);
-    invitation->Send(
-        process_.process.Handle(),
-        mojo::edk::ConnectionParams(mojo::edk::TransportProtocol::kLegacy,
-                                    std::move(server_handle)),
-        process_error_callback_);
     client_->OnProcessLaunched();
   } else {
-    termination_status_ = base::TERMINATION_STATUS_LAUNCH_FAILED;
+    termination_info_.status = base::TERMINATION_STATUS_LAUNCH_FAILED;
 
     // NOTE: May delete |this|.
     client_->OnProcessLaunchFailed(error_code);
@@ -113,51 +101,57 @@ const base::Process& ChildProcessLauncher::GetProcess() const {
   return process_.process;
 }
 
-base::TerminationStatus ChildProcessLauncher::GetChildTerminationStatus(
-    bool known_dead,
-    int* exit_code) {
+ChildProcessTerminationInfo ChildProcessLauncher::GetChildTerminationInfo(
+    bool known_dead) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   if (!process_.process.IsValid()) {
-    // Process is already gone, so return the cached termination status.
-    if (exit_code)
-      *exit_code = exit_code_;
-    return termination_status_;
+    // Make sure to avoid using the default termination status if the process
+    // hasn't even started yet.
+    if (IsStarting()) {
+      termination_info_.status = base::TERMINATION_STATUS_STILL_RUNNING;
+      termination_info_.uptime = base::TimeTicks::Now() - start_time_;
+      DCHECK_LE(base::TimeDelta::FromSeconds(0), termination_info_.uptime);
+    }
+
+    // Process doesn't exist, so return the cached termination info.
+    return termination_info_;
   }
 
-  termination_status_ =
-      helper_->GetTerminationStatus(process_, known_dead, &exit_code_);
-  if (exit_code)
-    *exit_code = exit_code_;
+  termination_info_ = helper_->GetTerminationInfo(process_, known_dead);
+  termination_info_.uptime = base::TimeTicks::Now() - start_time_;
+  DCHECK_LE(base::TimeDelta::FromSeconds(0), termination_info_.uptime);
 
   // POSIX: If the process crashed, then the kernel closed the socket for it and
   // so the child has already died by the time we get here. Since
-  // GetTerminationStatus called waitpid with WNOHANG, it'll reap the process.
-  // However, if GetTerminationStatus didn't reap the child (because it was
+  // GetTerminationInfo called waitpid with WNOHANG, it'll reap the process.
+  // However, if GetTerminationInfo didn't reap the child (because it was
   // still running), we'll need to Terminate via ProcessWatcher. So we can't
   // close the handle here.
-  if (termination_status_ != base::TERMINATION_STATUS_STILL_RUNNING)
+  if (termination_info_.status != base::TERMINATION_STATUS_STILL_RUNNING) {
+    process_.process.Exited(termination_info_.exit_code);
     process_.process.Close();
+  }
 
-  return termination_status_;
+  return termination_info_;
 }
 
-bool ChildProcessLauncher::Terminate(int exit_code, bool wait) {
+bool ChildProcessLauncher::Terminate(int exit_code) {
   return IsStarting() ? false
                       : ChildProcessLauncherHelper::TerminateProcess(
-                            GetProcess(), exit_code, wait);
+                            GetProcess(), exit_code);
 }
 
 // static
 bool ChildProcessLauncher::TerminateProcess(const base::Process& process,
-                                            int exit_code,
-                                            bool wait) {
-  return ChildProcessLauncherHelper::TerminateProcess(process, exit_code, wait);
+                                            int exit_code) {
+  return ChildProcessLauncherHelper::TerminateProcess(process, exit_code);
 }
 
 // static
 void ChildProcessLauncher::SetRegisteredFilesForService(
     const std::string& service_name,
-    catalog::RequiredFileMap required_files) {
+    std::map<std::string, base::FilePath> required_files) {
   ChildProcessLauncherHelper::SetRegisteredFilesForService(
       service_name, std::move(required_files));
 }
@@ -167,18 +161,37 @@ void ChildProcessLauncher::ResetRegisteredFilesForTesting() {
   ChildProcessLauncherHelper::ResetRegisteredFilesForTesting();
 }
 
-#if defined(OS_ANDROID)
-// static
-size_t ChildProcessLauncher::GetNumberOfRendererSlots() {
-  return ChildProcessLauncherHelper::GetNumberOfRendererSlots();
-}
-#endif  // OS_ANDROID
-
 ChildProcessLauncher::Client* ChildProcessLauncher::ReplaceClientForTest(
     Client* client) {
   Client* ret = client_;
   client_ = client;
   return ret;
+}
+
+bool ChildProcessLauncherPriority::is_background() const {
+  return !visible && !has_media_stream &&
+         !(should_boost_for_pending_views && boost_for_pending_views) &&
+         !(has_foreground_service_worker &&
+           base::FeatureList::IsEnabled(
+               features::kServiceWorkerForegroundPriority));
+}
+
+bool ChildProcessLauncherPriority::operator==(
+    const ChildProcessLauncherPriority& other) const {
+  // |should_boost_for_pending_views| is temporary and constant for all
+  // ChildProcessLauncherPriority throughout a session (experiment driven).
+  DCHECK_EQ(should_boost_for_pending_views,
+            other.should_boost_for_pending_views);
+  return visible == other.visible &&
+         has_media_stream == other.has_media_stream &&
+         has_foreground_service_worker == other.has_foreground_service_worker &&
+         frame_depth == other.frame_depth &&
+         intersects_viewport == other.intersects_viewport &&
+         boost_for_pending_views == other.boost_for_pending_views
+#if defined(OS_ANDROID)
+         && importance == other.importance
+#endif
+      ;
 }
 
 }  // namespace content

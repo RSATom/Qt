@@ -90,8 +90,8 @@ class RegExpMacroAssemblerARM: public NativeRegExpMacroAssembler {
   // Called from RegExp if the stack-guard is triggered.
   // If the code object is relocated, the return address is fixed before
   // returning.
-  static int CheckStackGuardState(Address* return_address,
-                                  Code* re_code,
+  // {raw_code} is an Address because this is called via ExternalReference.
+  static int CheckStackGuardState(Address* return_address, Address raw_code,
                                   Address re_frame);
 
  private:
@@ -124,7 +124,7 @@ class RegExpMacroAssemblerARM: public NativeRegExpMacroAssembler {
   static const int kRegisterZero = kStringStartMinusOne - kPointerSize;
 
   // Initial size of code buffer.
-  static const size_t kRegExpCodeSize = 1024;
+  static const int kRegExpCodeSize = 1024;
 
   static const int kBacktrackConstantPoolSize = 4;
 
@@ -170,7 +170,7 @@ class RegExpMacroAssemblerARM: public NativeRegExpMacroAssembler {
   inline int char_size() { return static_cast<int>(mode_); }
 
   // Equivalent to a conditional branch to the label, unless the label
-  // is NULL, in which case it is a conditional Backtrack.
+  // is nullptr, in which case it is a conditional Backtrack.
   void BranchOrBacktrack(Condition condition, Label* to);
 
   // Call and return internally in the generated code in a way that

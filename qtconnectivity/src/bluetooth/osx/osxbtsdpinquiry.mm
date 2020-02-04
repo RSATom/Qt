@@ -53,6 +53,64 @@ SDPInquiryDelegate::~SDPInquiryDelegate()
 {
 }
 
+namespace {
+
+QBluetoothUuid sdp_element_to_uuid(IOBluetoothSDPDataElement *element)
+{
+    QT_BT_MAC_AUTORELEASEPOOL;
+
+    if (!element || [element getTypeDescriptor] != kBluetoothSDPDataElementTypeUUID)
+        return {};
+
+    return qt_uuid([[element getUUIDValue] getUUIDWithLength:16]);
+}
+
+QBluetoothUuid extract_service_ID(IOBluetoothSDPServiceRecord *record)
+{
+    Q_ASSERT(record);
+
+    QT_BT_MAC_AUTORELEASEPOOL;
+
+    return sdp_element_to_uuid([record getAttributeDataElement:kBluetoothSDPAttributeIdentifierServiceID]);
+}
+
+QVector<QBluetoothUuid> extract_service_class_ID_list(IOBluetoothSDPServiceRecord *record)
+{
+    Q_ASSERT(record);
+
+    QT_BT_MAC_AUTORELEASEPOOL;
+
+    IOBluetoothSDPDataElement *const idList = [record getAttributeDataElement:kBluetoothSDPAttributeIdentifierServiceClassIDList];
+    if (!idList || [idList getTypeDescriptor] != kBluetoothSDPDataElementTypeDataElementSequence)
+        return {};
+
+    QVector<QBluetoothUuid> uuids;
+    NSArray *const arr = [idList getArrayValue];
+    for (IOBluetoothSDPDataElement *dataElement in arr) {
+        const auto qtUuid = sdp_element_to_uuid(dataElement);
+        if (!qtUuid.isNull())
+            uuids.push_back(qtUuid);
+    }
+
+    return uuids;
+}
+
+QBluetoothServiceInfo::Sequence service_class_ID_list_to_sequence(const QVector<QBluetoothUuid> &uuids)
+{
+    if (uuids.isEmpty())
+        return {};
+
+    QBluetoothServiceInfo::Sequence sequence;
+    for (const auto &uuid : uuids) {
+        Q_ASSERT(!uuid.isNull());
+        sequence.append(QVariant::fromValue(uuid));
+    }
+
+    return sequence;
+}
+
+} // unnamed namespace
+
 QVariant extract_attribute_value(IOBluetoothSDPDataElement *dataElement)
 {
     Q_ASSERT_X(dataElement, Q_FUNC_INFO, "invalid data element (nil)");
@@ -72,7 +130,7 @@ QVariant extract_attribute_value(IOBluetoothSDPDataElement *dataElement)
     case kBluetoothSDPDataElementTypeSignedInt:
         return [[dataElement getNumberValue] intValue];
     case kBluetoothSDPDataElementTypeUUID:
-        return QVariant::fromValue(qt_uuid([[dataElement getUUIDValue] getUUIDWithLength:16]));
+        return QVariant::fromValue(sdp_element_to_uuid(dataElement));
     case kBluetoothSDPDataElementTypeString:
     case kBluetoothSDPDataElementTypeURL:
         return QString::fromNSString([dataElement getStringValue]);
@@ -110,11 +168,20 @@ void extract_service_record(IOBluetoothSDPServiceRecord *record, QBluetoothServi
         const QVariant attributeValue = OSXBluetooth::extract_attribute_value(element);
         serviceInfo.setAttribute(attributeID, attributeValue);
     }
+
+    const QBluetoothUuid serviceUuid = extract_service_ID(record);
+    if (!serviceUuid.isNull())
+        serviceInfo.setServiceUuid(serviceUuid);
+
+    const QVector<QBluetoothUuid> uuids(extract_service_class_ID_list(record));
+    const auto sequence = service_class_ID_list_to_sequence(uuids);
+    if (!sequence.isEmpty())
+        serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceClassIds, sequence);
 }
 
-QList<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device)
+QVector<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device)
 {
-    QList<QBluetoothUuid> uuids;
+    QVector<QBluetoothUuid> uuids;
 
     // All "temporary" obj-c objects are autoreleased.
     QT_BT_MAC_AUTORELEASEPOOL;
@@ -124,11 +191,13 @@ QList<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device)
 
     NSArray * const records = device.services;
     for (IOBluetoothSDPServiceRecord *record in records) {
-        IOBluetoothSDPDataElement *const element =
-            [record getAttributeDataElement:kBluetoothSDPAttributeIdentifierServiceClassIDList];
+        const QBluetoothUuid serviceID = extract_service_ID(record);
+        if (!serviceID.isNull())
+            uuids.push_back(serviceID);
 
-        if (element && [element getTypeDescriptor] == kBluetoothSDPDataElementTypeUUID)
-            uuids.append(qt_uuid([[element getUUIDValue] getUUIDWithLength:16]));
+        const QVector<QBluetoothUuid> idList(extract_service_class_ID_list(record));
+        if (idList.size())
+            uuids.append(idList);
     }
 
     return uuids;
@@ -143,6 +212,11 @@ QT_USE_NAMESPACE
 using namespace OSXBluetooth;
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTSDPInquiry)
+{
+    QT_PREPEND_NAMESPACE(OSXBluetooth::SDPInquiryDelegate) *delegate;
+    IOBluetoothDevice *device;
+    bool isActive;
+}
 
 - (id)initWithDelegate:(SDPInquiryDelegate *)aDelegate
 {
@@ -188,7 +262,7 @@ using namespace OSXBluetooth;
             return kIOReturnError;
         }
 
-        foreach (const QBluetoothUuid &qUuid, qtFilters) {
+        for (const QBluetoothUuid &qUuid : qtFilters) {
             ObjCStrongReference<IOBluetoothSDPUUID> uuid(iobluetooth_uuid(qUuid));
             if (uuid)
                 [array addObject:uuid];

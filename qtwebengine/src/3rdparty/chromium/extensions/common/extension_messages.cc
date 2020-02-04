@@ -7,8 +7,8 @@
 #include <stddef.h>
 
 #include <memory>
+#include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "content/public/common/common_param_traits.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
@@ -32,22 +32,25 @@ ExtensionMsg_PermissionSetStruct::ExtensionMsg_PermissionSetStruct() {
 
 ExtensionMsg_PermissionSetStruct::ExtensionMsg_PermissionSetStruct(
     const PermissionSet& permissions)
-    : apis(permissions.apis()),
-      manifest_permissions(permissions.manifest_permissions()),
-      explicit_hosts(permissions.explicit_hosts()),
-      scriptable_hosts(permissions.scriptable_hosts()) {
-}
+    : apis(permissions.apis().Clone()),
+      manifest_permissions(permissions.manifest_permissions().Clone()),
+      explicit_hosts(permissions.explicit_hosts().Clone()),
+      scriptable_hosts(permissions.scriptable_hosts().Clone()) {}
+
+ExtensionMsg_PermissionSetStruct::~ExtensionMsg_PermissionSetStruct() {}
 
 ExtensionMsg_PermissionSetStruct::ExtensionMsg_PermissionSetStruct(
-    const ExtensionMsg_PermissionSetStruct& other) = default;
+    ExtensionMsg_PermissionSetStruct&& other) = default;
 
-ExtensionMsg_PermissionSetStruct::~ExtensionMsg_PermissionSetStruct() {
-}
+ExtensionMsg_PermissionSetStruct& ExtensionMsg_PermissionSetStruct::operator=(
+    ExtensionMsg_PermissionSetStruct&& other) = default;
 
 std::unique_ptr<const PermissionSet>
 ExtensionMsg_PermissionSetStruct::ToPermissionSet() const {
-  return base::WrapUnique(new PermissionSet(apis, manifest_permissions,
-                                            explicit_hosts, scriptable_hosts));
+  // TODO(devlin): Make this destructive so we can std::move() the members.
+  return std::make_unique<PermissionSet>(apis.Clone(),
+                                         manifest_permissions.Clone(),
+                                         explicit_hosts, scriptable_hosts);
 }
 
 ExtensionMsg_Loaded_Params::ExtensionMsg_Loaded_Params()
@@ -59,16 +62,17 @@ ExtensionMsg_Loaded_Params::~ExtensionMsg_Loaded_Params() {}
 ExtensionMsg_Loaded_Params::ExtensionMsg_Loaded_Params(
     const Extension* extension,
     bool include_tab_permissions)
-    : manifest(extension->manifest()->value()->DeepCopy()),
+    : manifest(static_cast<base::DictionaryValue&&>(
+          extension->manifest()->value()->Clone())),
       location(extension->location()),
       path(extension->path()),
       active_permissions(extension->permissions_data()->active_permissions()),
       withheld_permissions(
           extension->permissions_data()->withheld_permissions()),
       policy_blocked_hosts(
-          extension->permissions_data()->policy_blocked_hosts()),
+          extension->permissions_data()->policy_blocked_hosts().Clone()),
       policy_allowed_hosts(
-          extension->permissions_data()->policy_allowed_hosts()),
+          extension->permissions_data()->policy_allowed_hosts().Clone()),
       uses_default_policy_blocked_allowed_hosts(
           extension->permissions_data()->UsesDefaultPolicyHostRestrictions()),
       id(extension->id()),
@@ -83,7 +87,9 @@ ExtensionMsg_Loaded_Params::ExtensionMsg_Loaded_Params(
 }
 
 ExtensionMsg_Loaded_Params::ExtensionMsg_Loaded_Params(
-    const ExtensionMsg_Loaded_Params& other) = default;
+    ExtensionMsg_Loaded_Params&& other) = default;
+ExtensionMsg_Loaded_Params& ExtensionMsg_Loaded_Params::operator=(
+    ExtensionMsg_Loaded_Params&& other) = default;
 
 scoped_refptr<Extension> ExtensionMsg_Loaded_Params::ConvertToExtension(
     std::string* error) const {
@@ -91,7 +97,7 @@ scoped_refptr<Extension> ExtensionMsg_Loaded_Params::ConvertToExtension(
   // normal case, and because in tests, extensions may not have paths or keys,
   // but it's important to retain the same id.
   scoped_refptr<Extension> extension =
-      Extension::Create(path, location, *manifest, creation_flags, id, error);
+      Extension::Create(path, location, manifest, creation_flags, id, error);
   if (extension.get()) {
     const extensions::PermissionsData* permissions_data =
         extension->permissions_data();
@@ -112,12 +118,6 @@ scoped_refptr<Extension> ExtensionMsg_Loaded_Params::ConvertToExtension(
 }
 
 namespace IPC {
-
-void ParamTraits<URLPattern>::GetSize(base::PickleSizer* s,
-                                      const param_type& p) {
-  GetParamSize(s, p.valid_schemes());
-  GetParamSize(s, p.GetAsString());
-}
 
 void ParamTraits<URLPattern>::Write(base::Pickle* m, const param_type& p) {
   WriteParam(m, p.valid_schemes());
@@ -144,16 +144,11 @@ bool ParamTraits<URLPattern>::Read(const base::Pickle* m,
   URLPattern::ParseResult result =
       p->Parse(spec, URLPattern::ALLOW_WILDCARD_FOR_EFFECTIVE_TLD);
   p->SetValidSchemes(valid_schemes);
-  return URLPattern::PARSE_SUCCESS == result;
+  return URLPattern::ParseResult::kSuccess == result;
 }
 
 void ParamTraits<URLPattern>::Log(const param_type& p, std::string* l) {
   LogParam(p.GetAsString(), l);
-}
-
-void ParamTraits<URLPatternSet>::GetSize(base::PickleSizer* s,
-                                         const param_type& p) {
-  GetParamSize(s, p.patterns());
 }
 
 void ParamTraits<URLPatternSet>::Write(base::Pickle* m, const param_type& p) {
@@ -167,19 +162,13 @@ bool ParamTraits<URLPatternSet>::Read(const base::Pickle* m,
   if (!ReadParam(m, iter, &patterns))
     return false;
 
-  for (std::set<URLPattern>::iterator i = patterns.begin();
-       i != patterns.end(); ++i)
+  for (auto i = patterns.begin(); i != patterns.end(); ++i)
     p->AddPattern(*i);
   return true;
 }
 
 void ParamTraits<URLPatternSet>::Log(const param_type& p, std::string* l) {
   LogParam(p.patterns(), l);
-}
-
-void ParamTraits<APIPermission::ID>::GetSize(base::PickleSizer* s,
-                                             const param_type& p) {
-  GetParamSize(s, static_cast<int>(p));
 }
 
 void ParamTraits<APIPermission::ID>::Write(base::Pickle* m,
@@ -201,17 +190,6 @@ bool ParamTraits<APIPermission::ID>::Read(const base::Pickle* m,
 void ParamTraits<APIPermission::ID>::Log(
     const param_type& p, std::string* l) {
   LogParam(static_cast<int>(p), l);
-}
-
-void ParamTraits<APIPermissionSet>::GetSize(base::PickleSizer* s,
-                                            const param_type& p) {
-  APIPermissionSet::const_iterator it = p.begin();
-  const APIPermissionSet::const_iterator end = p.end();
-  GetParamSize(s, static_cast<uint32_t>(p.size()));
-  for (; it != end; ++it) {
-    GetParamSize(s, it->id());
-    it->GetSize(s);
-  }
 }
 
 void ParamTraits<APIPermissionSet>::Write(base::Pickle* m,
@@ -242,7 +220,7 @@ bool ParamTraits<APIPermissionSet>::Read(const base::Pickle* m,
     std::unique_ptr<APIPermission> p(permission_info->CreateAPIPermission());
     if (!p->Read(m, iter))
       return false;
-    r->insert(p.release());
+    r->insert(std::move(p));
   }
   return true;
 }
@@ -250,17 +228,6 @@ bool ParamTraits<APIPermissionSet>::Read(const base::Pickle* m,
 void ParamTraits<APIPermissionSet>::Log(
     const param_type& p, std::string* l) {
   LogParam(p.map(), l);
-}
-
-void ParamTraits<ManifestPermissionSet>::GetSize(base::PickleSizer* s,
-                                                 const param_type& p) {
-  ManifestPermissionSet::const_iterator it = p.begin();
-  const ManifestPermissionSet::const_iterator end = p.end();
-  GetParamSize(s, static_cast<uint32_t>(p.size()));
-  for (; it != end; ++it) {
-    GetParamSize(s, it->name());
-    it->GetSize(s);
-  }
 }
 
 void ParamTraits<ManifestPermissionSet>::Write(base::Pickle* m,
@@ -290,7 +257,7 @@ bool ParamTraits<ManifestPermissionSet>::Read(const base::Pickle* m,
       return false;
     if (!p->Read(m, iter))
       return false;
-    r->insert(p.release());
+    r->insert(std::move(p));
   }
   return true;
 }
@@ -298,11 +265,6 @@ bool ParamTraits<ManifestPermissionSet>::Read(const base::Pickle* m,
 void ParamTraits<ManifestPermissionSet>::Log(
     const param_type& p, std::string* l) {
   LogParam(p.map(), l);
-}
-
-void ParamTraits<HostID>::GetSize(base::PickleSizer* s, const param_type& p) {
-  GetParamSize(s, p.type());
-  GetParamSize(s, p.id());
 }
 
 void ParamTraits<HostID>::Write(base::Pickle* m, const param_type& p) {
@@ -327,14 +289,6 @@ void ParamTraits<HostID>::Log(
     const param_type& p, std::string* l) {
   LogParam(p.type(), l);
   LogParam(p.id(), l);
-}
-
-void ParamTraits<ExtensionMsg_PermissionSetStruct>::GetSize(
-    base::PickleSizer* s, const param_type& p) {
-  GetParamSize(s, p.apis);
-  GetParamSize(s, p.manifest_permissions);
-  GetParamSize(s, p.explicit_hosts);
-  GetParamSize(s, p.scriptable_hosts);
 }
 
 void ParamTraits<ExtensionMsg_PermissionSetStruct>::Write(base::Pickle* m,
@@ -367,7 +321,7 @@ void ParamTraits<ExtensionMsg_Loaded_Params>::Write(base::Pickle* m,
                                                     const param_type& p) {
   WriteParam(m, p.location);
   WriteParam(m, p.path);
-  WriteParam(m, *(p.manifest));
+  WriteParam(m, p.manifest);
   WriteParam(m, p.creation_flags);
   WriteParam(m, p.id);
   WriteParam(m, p.active_permissions);
@@ -381,9 +335,9 @@ void ParamTraits<ExtensionMsg_Loaded_Params>::Write(base::Pickle* m,
 bool ParamTraits<ExtensionMsg_Loaded_Params>::Read(const base::Pickle* m,
                                                    base::PickleIterator* iter,
                                                    param_type* p) {
-  p->manifest.reset(new base::DictionaryValue());
+  p->manifest.Clear();
   return ReadParam(m, iter, &p->location) && ReadParam(m, iter, &p->path) &&
-         ReadParam(m, iter, p->manifest.get()) &&
+         ReadParam(m, iter, &p->manifest) &&
          ReadParam(m, iter, &p->creation_flags) && ReadParam(m, iter, &p->id) &&
          ReadParam(m, iter, &p->active_permissions) &&
          ReadParam(m, iter, &p->withheld_permissions) &&

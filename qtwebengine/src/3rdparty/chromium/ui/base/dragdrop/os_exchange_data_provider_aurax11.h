@@ -6,11 +6,6 @@
 #define UI_BASE_DRAGDROP_OS_EXCHANGE_DATA_PROVIDER_AURAX11_H_
 
 #include <stdint.h>
-#include <X11/Xlib.h>
-
-// Get rid of a macro from Xlib.h that conflicts with Aura's RootWindow class.
-#undef RootWindow
-
 #include <map>
 
 #include "base/files/file_path.h"
@@ -23,17 +18,17 @@
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/x/x11.h"
 #include "url/gurl.h"
 
 namespace ui {
 
-class Clipboard;
 class OSExchangeDataProviderAuraX11Test;
 
 // OSExchangeData::Provider implementation for aura on linux.
 class UI_BASE_EXPORT OSExchangeDataProviderAuraX11
     : public OSExchangeData::Provider,
-      public ui::PlatformEventDispatcher {
+      public PlatformEventDispatcher {
  public:
   // |x_window| is the window the cursor is over, and |selection| is the set of
   // data being offered.
@@ -69,7 +64,7 @@ class UI_BASE_EXPORT OSExchangeDataProviderAuraX11
   void SetURL(const GURL& url, const base::string16& title) override;
   void SetFilename(const base::FilePath& path) override;
   void SetFilenames(const std::vector<FileInfo>& filenames) override;
-  void SetPickledData(const Clipboard::FormatType& format,
+  void SetPickledData(const ClipboardFormatType& format,
                       const base::Pickle& pickle) override;
   bool GetString(base::string16* data) const override;
   bool GetURLAndTitle(OSExchangeData::FilenameToURLPolicy policy,
@@ -77,12 +72,12 @@ class UI_BASE_EXPORT OSExchangeDataProviderAuraX11
                       base::string16* title) const override;
   bool GetFilename(base::FilePath* path) const override;
   bool GetFilenames(std::vector<FileInfo>* filenames) const override;
-  bool GetPickledData(const Clipboard::FormatType& format,
+  bool GetPickledData(const ClipboardFormatType& format,
                       base::Pickle* pickle) const override;
   bool HasString() const override;
   bool HasURL(OSExchangeData::FilenameToURLPolicy policy) const override;
   bool HasFile() const override;
-  bool HasCustomFormat(const Clipboard::FormatType& format) const override;
+  bool HasCustomFormat(const ClipboardFormatType& format) const override;
 
   void SetFileContents(const base::FilePath& filename,
                        const std::string& file_contents) override;
@@ -95,13 +90,13 @@ class UI_BASE_EXPORT OSExchangeDataProviderAuraX11
   gfx::ImageSkia GetDragImage() const override;
   gfx::Vector2d GetDragImageOffset() const override;
 
-  // ui::PlatformEventDispatcher:
+  // PlatformEventDispatcher:
   bool CanDispatchEvent(const PlatformEvent& event) override;
   uint32_t DispatchEvent(const PlatformEvent& event) override;
 
  private:
   friend class OSExchangeDataProviderAuraX11Test;
-  typedef std::map<Clipboard::FormatType, base::Pickle> PickleData;
+  typedef std::map<ClipboardFormatType, base::Pickle> PickleData;
 
   // Returns true if |formats_| contains a string format and the string can be
   // parsed as a URL.

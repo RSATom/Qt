@@ -1,6 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -41,6 +42,10 @@
 
 #include <algorithm>
 
+#if QT_CONFIG(zstd)
+#  include <zstd.h>
+#endif
+
 // Note: A copy of this file is used in Qt Designer (qttools/src/designer/src/lib/shared/rcc.cpp)
 
 QT_BEGIN_NAMESPACE
@@ -48,9 +53,18 @@ QT_BEGIN_NAMESPACE
 enum {
     CONSTANT_USENAMESPACE = 1,
     CONSTANT_COMPRESSLEVEL_DEFAULT = -1,
+    CONSTANT_ZSTDCOMPRESSLEVEL_CHECK = 1,   // Zstd level to check if compressing is a good idea
+    CONSTANT_ZSTDCOMPRESSLEVEL_STORE = 14,  // Zstd level to actually store the data
     CONSTANT_COMPRESSTHRESHOLD_DEFAULT = 70
 };
 
+#if QT_CONFIG(zstd) && QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+#  define CONSTANT_COMPRESSALGO_DEFAULT     RCCResourceLibrary::CompressionAlgorithm::Zstd
+#elif !defined(QT_NO_COMPRESS)
+#  define CONSTANT_COMPRESSALGO_DEFAULT     RCCResourceLibrary::CompressionAlgorithm::Zlib
+#else
+#  define CONSTANT_COMPRESSALGO_DEFAULT     RCCResourceLibrary::CompressionAlgorithm::None
+#endif
 
 #define writeString(s) write(s, sizeof(s))
 
@@ -88,15 +102,18 @@ class RCCFileInfo
 public:
     enum Flags
     {
+        // must match qresource.cpp
         NoFlags = 0x00,
         Compressed = 0x01,
-        Directory = 0x02
+        Directory = 0x02,
+        CompressedZstd = 0x04
     };
 
     RCCFileInfo(const QString &name = QString(), const QFileInfo &fileInfo = QFileInfo(),
                 QLocale::Language language = QLocale::C,
                 QLocale::Country country = QLocale::AnyCountry,
                 uint flags = NoFlags,
+                RCCResourceLibrary::CompressionAlgorithm compressAlgo = CONSTANT_COMPRESSALGO_DEFAULT,
                 int compressLevel = CONSTANT_COMPRESSLEVEL_DEFAULT,
                 int compressThreshold = CONSTANT_COMPRESSTHRESHOLD_DEFAULT);
     ~RCCFileInfo();
@@ -115,6 +132,7 @@ public:
     QFileInfo m_fileInfo;
     RCCFileInfo *m_parent;
     QHash<QString, RCCFileInfo*> m_children;
+    RCCResourceLibrary::CompressionAlgorithm m_compressAlgo;
     int m_compressLevel;
     int m_compressThreshold;
 
@@ -125,7 +143,7 @@ public:
 
 RCCFileInfo::RCCFileInfo(const QString &name, const QFileInfo &fileInfo,
     QLocale::Language language, QLocale::Country country, uint flags,
-    int compressLevel, int compressThreshold)
+    RCCResourceLibrary::CompressionAlgorithm compressAlgo, int compressLevel, int compressThreshold)
 {
     m_name = name;
     m_fileInfo = fileInfo;
@@ -136,6 +154,7 @@ RCCFileInfo::RCCFileInfo(const QString &name, const QFileInfo &fileInfo,
     m_nameOffset = 0;
     m_dataOffset = 0;
     m_childOffset = 0;
+    m_compressAlgo = compressAlgo;
     m_compressLevel = compressLevel;
     m_compressThreshold = compressThreshold;
 }
@@ -207,7 +226,14 @@ void RCCFileInfo::writeDataInfo(RCCResourceLibrary &lib)
     if (lib.formatVersion() >= 2) {
         // last modified time stamp
         const QDateTime lastModified = m_fileInfo.lastModified();
-        lib.writeNumber8(quint64(lastModified.isValid() ? lastModified.toMSecsSinceEpoch() : 0));
+        quint64 lastmod = quint64(lastModified.isValid() ? lastModified.toMSecsSinceEpoch() : 0);
+        static const quint64 sourceDate = 1000 * qgetenv("QT_RCC_SOURCE_DATE_OVERRIDE").toULongLong();
+        if (sourceDate != 0)
+            lastmod = sourceDate;
+        static const quint64 sourceDate2 = 1000 * qgetenv("SOURCE_DATE_EPOCH").toULongLong();
+        if (sourceDate2 != 0)
+            lastmod = sourceDate2;
+        lib.writeNumber8(lastmod);
         if (text || pass1)
             lib.writeChar('\n');
     }
@@ -232,19 +258,82 @@ qint64 RCCFileInfo::writeDataBlob(RCCResourceLibrary &lib, qint64 offset,
     }
     QByteArray data = file.readAll();
 
-#ifndef QT_NO_COMPRESS
     // Check if compression is useful for this file
-    if (m_compressLevel != 0 && data.size() != 0) {
-        QByteArray compressed =
-            qCompress(reinterpret_cast<uchar *>(data.data()), data.size(), m_compressLevel);
-
-        int compressRatio = int(100.0 * (data.size() - compressed.size()) / data.size());
-        if (compressRatio >= m_compressThreshold) {
-            data = compressed;
-            m_flags |= Compressed;
+    if (data.size() != 0) {
+#if QT_CONFIG(zstd)
+        if (m_compressAlgo == RCCResourceLibrary::CompressionAlgorithm::Best) {
+            m_compressAlgo = RCCResourceLibrary::CompressionAlgorithm::Zstd;
+            m_compressLevel = 19;   // not ZSTD_maxCLevel(), as 20+ are experimental
         }
-    }
+        if (m_compressAlgo == RCCResourceLibrary::CompressionAlgorithm::Zstd) {
+            if (lib.m_zstdCCtx == nullptr)
+                lib.m_zstdCCtx = ZSTD_createCCtx();
+            qsizetype size = data.size();
+            size = ZSTD_COMPRESSBOUND(size);
+
+            int compressLevel = m_compressLevel;
+            if (compressLevel < 0)
+                compressLevel = CONSTANT_ZSTDCOMPRESSLEVEL_CHECK;
+
+            QByteArray compressed(size, Qt::Uninitialized);
+            char *dst = const_cast<char *>(compressed.constData());
+            size_t n = ZSTD_compressCCtx(lib.m_zstdCCtx, dst, size,
+                                         data.constData(), data.size(),
+                                         compressLevel);
+            if (n * 100.0 < data.size() * 1.0 * (100 - m_compressThreshold) ) {
+                // compressing is worth it
+                if (m_compressLevel < 0) {
+                    // heuristic compression, so recompress
+                    n = ZSTD_compressCCtx(lib.m_zstdCCtx, dst, size,
+                                          data.constData(), data.size(),
+                                          CONSTANT_ZSTDCOMPRESSLEVEL_STORE);
+                }
+                if (ZSTD_isError(n)) {
+                    QString msg = QString::fromLatin1("%1: error: compression with zstd failed: %2\n")
+                            .arg(m_name, QString::fromUtf8(ZSTD_getErrorName(n)));
+                    lib.m_errorDevice->write(msg.toUtf8());
+                } else if (lib.verbose()) {
+                    QString msg = QString::fromLatin1("%1: note: compressed using zstd (%2 -> %3)\n")
+                            .arg(m_name).arg(data.size()).arg(n);
+                    lib.m_errorDevice->write(msg.toUtf8());
+                }
+
+                lib.m_overallFlags |= CompressedZstd;
+                m_flags |= CompressedZstd;
+                data = std::move(compressed);
+                data.truncate(n);
+            } else if (lib.verbose()) {
+                QString msg = QString::fromLatin1("%1: note: not compressed\n").arg(m_name);
+                lib.m_errorDevice->write(msg.toUtf8());
+            }
+        }
+#endif
+#ifndef QT_NO_COMPRESS
+        if (m_compressAlgo == RCCResourceLibrary::CompressionAlgorithm::Best) {
+            m_compressAlgo = RCCResourceLibrary::CompressionAlgorithm::Zlib;
+            m_compressLevel = 9;
+        }
+        if (m_compressAlgo == RCCResourceLibrary::CompressionAlgorithm::Zlib) {
+            QByteArray compressed =
+                    qCompress(reinterpret_cast<uchar *>(data.data()), data.size(), m_compressLevel);
+
+            int compressRatio = int(100.0 * (data.size() - compressed.size()) / data.size());
+            if (compressRatio >= m_compressThreshold) {
+                if (lib.verbose()) {
+                    QString msg = QString::fromLatin1("%1: note: compressed using zlib (%2 -> %3)\n")
+                            .arg(m_name).arg(data.size()).arg(compressed.size());
+                    lib.m_errorDevice->write(msg.toUtf8());
+                }
+                data = compressed;
+                lib.m_overallFlags |= Compressed;
+                m_flags |= Compressed;
+            } else if (lib.verbose()) {
+                QString msg = QString::fromLatin1("%1: note: not compressed\n").arg(m_name);
+                lib.m_errorDevice->write(msg.toUtf8());
+            }
+        }
 #endif // QT_NO_COMPRESS
+    }
 
     // some info
     if (text || pass1) {
@@ -339,7 +428,8 @@ RCCResourceLibrary::Strings::Strings() :
    ATTRIBUTE_PREFIX(QLatin1String("prefix")),
    ATTRIBUTE_ALIAS(QLatin1String("alias")),
    ATTRIBUTE_THRESHOLD(QLatin1String("threshold")),
-   ATTRIBUTE_COMPRESS(QLatin1String("compress"))
+   ATTRIBUTE_COMPRESS(QLatin1String("compress")),
+   ATTRIBUTE_COMPRESSALGO(QStringLiteral("compression-algorithm"))
 {
 }
 
@@ -347,22 +437,30 @@ RCCResourceLibrary::RCCResourceLibrary(quint8 formatVersion)
   : m_root(0),
     m_format(C_Code),
     m_verbose(false),
+    m_compressionAlgo(CONSTANT_COMPRESSALGO_DEFAULT),
     m_compressLevel(CONSTANT_COMPRESSLEVEL_DEFAULT),
     m_compressThreshold(CONSTANT_COMPRESSTHRESHOLD_DEFAULT),
     m_treeOffset(0),
     m_namesOffset(0),
     m_dataOffset(0),
+    m_overallFlags(0),
     m_useNameSpace(CONSTANT_USENAMESPACE),
     m_errorDevice(0),
     m_outDevice(0),
     m_formatVersion(formatVersion)
 {
     m_out.reserve(30 * 1000 * 1000);
+#if QT_CONFIG(zstd)
+    m_zstdCCtx = nullptr;
+#endif
 }
 
 RCCResourceLibrary::~RCCResourceLibrary()
 {
     delete m_root;
+#if QT_CONFIG(zstd)
+    ZSTD_freeCCtx(m_zstdCCtx);
+#endif
 }
 
 enum RCCXmlTag {
@@ -373,7 +471,7 @@ enum RCCXmlTag {
 Q_DECLARE_TYPEINFO(RCCXmlTag, Q_PRIMITIVE_TYPE);
 
 bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
-    const QString &fname, QString currentPath, bool ignoreErrors)
+    const QString &fname, QString currentPath, bool listMode)
 {
     Q_ASSERT(m_errorDevice);
     const QChar slash = QLatin1Char('/');
@@ -387,6 +485,7 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
     QLocale::Language language = QLocale::c().language();
     QLocale::Country country = QLocale::c().country();
     QString alias;
+    auto compressAlgo = m_compressionAlgo;
     int compressLevel = m_compressLevel;
     int compressThreshold = m_compressThreshold;
 
@@ -440,17 +539,27 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
                     if (attributes.hasAttribute(m_strings.ATTRIBUTE_ALIAS))
                         alias = attributes.value(m_strings.ATTRIBUTE_ALIAS).toString();
 
+                    compressAlgo = m_compressionAlgo;
                     compressLevel = m_compressLevel;
-                    if (attributes.hasAttribute(m_strings.ATTRIBUTE_COMPRESS))
-                        compressLevel = attributes.value(m_strings.ATTRIBUTE_COMPRESS).toString().toInt();
-
                     compressThreshold = m_compressThreshold;
+
+                    QString errorString;
+                    if (attributes.hasAttribute(m_strings.ATTRIBUTE_COMPRESSALGO))
+                        compressAlgo = parseCompressionAlgorithm(attributes.value(m_strings.ATTRIBUTE_COMPRESSALGO), &errorString);
+                    if (errorString.isEmpty() && attributes.hasAttribute(m_strings.ATTRIBUTE_COMPRESS)) {
+                        QString value = attributes.value(m_strings.ATTRIBUTE_COMPRESS).toString();
+                        compressLevel = parseCompressionLevel(compressAlgo, value, &errorString);
+                    }
+
+                    // Special case for -no-compress
+                    if (m_compressLevel == -2)
+                        compressAlgo = CompressionAlgorithm::None;
+
                     if (attributes.hasAttribute(m_strings.ATTRIBUTE_THRESHOLD))
                         compressThreshold = attributes.value(m_strings.ATTRIBUTE_THRESHOLD).toString().toInt();
 
-                    // Special case for -no-compress. Overrides all other settings.
-                    if (m_compressLevel == -2)
-                        compressLevel = 0;
+                    if (!errorString.isEmpty())
+                        reader.raiseError(errorString);
                 }
             } else {
                 reader.raiseError(QString(QLatin1String("unexpected tag: %1")).arg(reader.name().toString()));
@@ -500,38 +609,8 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
                 if (QDir::isRelativePath(absFileName))
                     absFileName.prepend(currentPath);
                 QFileInfo file(absFileName);
-                if (!file.exists()) {
-                    m_failedResources.push_back(absFileName);
-                    const QString msg = QString::fromLatin1("RCC: Error in '%1': Cannot find file '%2'\n")
-                                        .arg(fname, fileName);
-                    m_errorDevice->write(msg.toUtf8());
-                    if (ignoreErrors)
-                        continue;
-                    else
-                        return false;
-                } else if (file.isFile()) {
-                    const bool arc =
-                        addFile(alias,
-                                RCCFileInfo(alias.section(slash, -1),
-                                            file,
-                                            language,
-                                            country,
-                                            RCCFileInfo::NoFlags,
-                                            compressLevel,
-                                            compressThreshold)
-                                );
-                    if (!arc)
-                        m_failedResources.push_back(absFileName);
-                } else {
-                    QDir dir;
-                    if (file.isDir()) {
-                        dir.setPath(file.filePath());
-                    } else {
-                        dir.setPath(file.path());
-                        dir.setNameFilters(QStringList(file.fileName()));
-                        if (alias.endsWith(file.fileName()))
-                            alias = alias.left(alias.length()-file.fileName().length());
-                    }
+                if (file.isDir()) {
+                    QDir dir(file.filePath());
                     if (!alias.endsWith(slash))
                         alias += slash;
                     QDirIterator it(dir, QDirIterator::FollowSymlinks|QDirIterator::Subdirectories);
@@ -546,6 +625,7 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
                                                     language,
                                                     country,
                                                     child.isDir() ? RCCFileInfo::Directory : RCCFileInfo::NoFlags,
+                                                    compressAlgo,
                                                     compressLevel,
                                                     compressThreshold)
                                         );
@@ -553,6 +633,32 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
                                 m_failedResources.push_back(child.fileName());
                         }
                     }
+                } else if (listMode || file.isFile()) {
+                    const bool arc =
+                        addFile(alias,
+                                RCCFileInfo(alias.section(slash, -1),
+                                            file,
+                                            language,
+                                            country,
+                                            RCCFileInfo::NoFlags,
+                                            compressAlgo,
+                                            compressLevel,
+                                            compressThreshold)
+                                );
+                    if (!arc)
+                        m_failedResources.push_back(absFileName);
+                } else if (file.exists()) {
+                    m_failedResources.push_back(absFileName);
+                    const QString msg = QString::fromLatin1("RCC: Error in '%1': Entry '%2' is neither a file nor a directory\n")
+                                        .arg(fname, fileName);
+                    m_errorDevice->write(msg.toUtf8());
+                    return false;
+                } else {
+                    m_failedResources.push_back(absFileName);
+                    const QString msg = QString::fromLatin1("RCC: Error in '%1': Cannot find file '%2'\n")
+                                        .arg(fname, fileName);
+                    m_errorDevice->write(msg.toUtf8());
+                    return false;
                 }
             }
             break;
@@ -563,8 +669,6 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
     }
 
     if (reader.hasError()) {
-        if (ignoreErrors)
-            return true;
         int errorLine = reader.lineNumber();
         int errorColumn = reader.columnNumber();
         QString errorMessage = reader.errorString();
@@ -576,7 +680,7 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
     if (m_root == 0) {
         const QString msg = QString::fromLatin1("RCC: Warning: No resources in '%1'.\n").arg(fname);
         m_errorDevice->write(msg.toUtf8());
-        if (!ignoreErrors && m_format == Binary) {
+        if (!listMode && m_format == Binary) {
             // create dummy entry, otherwise loading with QResource will crash
             m_root = new RCCFileInfo(QString(), QFileInfo(),
                     QLocale::C, QLocale::AnyCountry, RCCFileInfo::Directory);
@@ -644,14 +748,14 @@ void RCCResourceLibrary::reset()
 }
 
 
-bool RCCResourceLibrary::readFiles(bool ignoreErrors, QIODevice &errorDevice)
+bool RCCResourceLibrary::readFiles(bool listMode, QIODevice &errorDevice)
 {
     reset();
     m_errorDevice = &errorDevice;
     //read in data
     if (m_verbose) {
-        const QString msg = QString::fromLatin1("Processing %1 files [%2]\n")
-            .arg(m_fileNames.size()).arg(static_cast<int>(ignoreErrors));
+        const QString msg = QString::fromLatin1("Processing %1 files [listMode=%2]\n")
+            .arg(m_fileNames.size()).arg(static_cast<int>(listMode));
         m_errorDevice->write(msg.toUtf8());
     }
     for (int i = 0; i < m_fileNames.size(); ++i) {
@@ -679,7 +783,7 @@ bool RCCResourceLibrary::readFiles(bool ignoreErrors, QIODevice &errorDevice)
             m_errorDevice->write(msg.toUtf8());
         }
 
-        if (!interpretResourceFile(&fileIn, fname, pwd, ignoreErrors))
+        if (!interpretResourceFile(&fileIn, fname, pwd, listMode))
             return false;
     }
     return true;
@@ -730,6 +834,55 @@ RCCResourceLibrary::ResourceDataFileMap RCCResourceLibrary::resourceDataFileMap(
     if (m_root)
         resourceDataFileMapRecursion(m_root, QString(QLatin1Char(':')),  rc);
     return rc;
+}
+
+RCCResourceLibrary::CompressionAlgorithm RCCResourceLibrary::parseCompressionAlgorithm(QStringView value, QString *errorMsg)
+{
+    if (value == QLatin1String("best"))
+        return CompressionAlgorithm::Best;
+    if (value == QLatin1String("zlib")) {
+#ifdef QT_NO_COMPRESS
+        *errorMsg = QLatin1String("zlib support not compiled in");
+#else
+        return CompressionAlgorithm::Zlib;
+#endif
+    } else if (value == QLatin1String("zstd")) {
+#if QT_CONFIG(zstd)
+        return CompressionAlgorithm::Zstd;
+#else
+        *errorMsg = QLatin1String("Zstandard support not compiled in");
+#endif
+    } else if (value != QLatin1String("none")) {
+        *errorMsg = QString::fromLatin1("Unknown compression algorithm '%1'").arg(value);
+    }
+
+    return CompressionAlgorithm::None;
+}
+
+int RCCResourceLibrary::parseCompressionLevel(CompressionAlgorithm algo, const QString &level, QString *errorMsg)
+{
+    bool ok;
+    int c = level.toInt(&ok);
+    if (ok) {
+        switch (algo) {
+        case CompressionAlgorithm::None:
+        case CompressionAlgorithm::Best:
+            return 0;
+        case CompressionAlgorithm::Zlib:
+            if (c >= 1 && c <= 9)
+                return c;
+            break;
+        case CompressionAlgorithm::Zstd:
+#if QT_CONFIG(zstd)
+            if (c >= 0 && c <= ZSTD_maxCLevel())
+                return c;
+#endif
+            break;
+        }
+    }
+
+    *errorMsg = QString::fromLatin1("invalid compression level '%1'").arg(level);
+    return 0;
 }
 
 bool RCCResourceLibrary::output(QIODevice &outDevice, QIODevice &tempDevice, QIODevice &errorDevice)
@@ -796,6 +949,14 @@ bool RCCResourceLibrary::output(QIODevice &outDevice, QIODevice &tempDevice, QIO
     }
     outDevice.write(m_out.constData(), m_out.size());
     return true;
+}
+
+void RCCResourceLibrary::writeDecimal(int value)
+{
+    Q_ASSERT(m_format != RCCResourceLibrary::Binary);
+    char buf[std::numeric_limits<int>::digits10 + 2];
+    int n = snprintf(buf, sizeof(buf), "%d", value);
+    write(buf, n + 1);  // write() takes a size including terminating NUL
 }
 
 void RCCResourceLibrary::writeHex(quint8 tmp)
@@ -892,6 +1053,8 @@ bool RCCResourceLibrary::writeHeader()
         writeNumber4(0);
         writeNumber4(0);
         writeNumber4(0);
+        if (m_formatVersion >= 3)
+            writeNumber4(m_overallFlags);
     }
     return true;
 }
@@ -1094,10 +1257,35 @@ bool RCCResourceLibrary::writeInitializer()
         if (m_root) {
             writeString("bool qRegisterResourceData"
                 "(int, const unsigned char *, "
-                "const unsigned char *, const unsigned char *);\n\n");
+                "const unsigned char *, const unsigned char *);\n");
             writeString("bool qUnregisterResourceData"
                 "(int, const unsigned char *, "
                 "const unsigned char *, const unsigned char *);\n\n");
+
+            if (m_overallFlags & (RCCFileInfo::Compressed | RCCFileInfo::CompressedZstd)) {
+                // use variable relocations with ELF and Mach-O
+                writeString("#if defined(__ELF__) || defined(__APPLE__)\n");
+                if (m_overallFlags & RCCFileInfo::Compressed) {
+                    writeString("static inline unsigned char qResourceFeatureZlib()\n"
+                                "{\n"
+                                "    extern const unsigned char qt_resourceFeatureZlib;\n"
+                                "    return qt_resourceFeatureZlib;\n"
+                                "}\n");
+                }
+                if (m_overallFlags & RCCFileInfo::CompressedZstd) {
+                    writeString("static inline unsigned char qResourceFeatureZstd()\n"
+                                "{\n"
+                                "    extern const unsigned char qt_resourceFeatureZstd;\n"
+                                "    return qt_resourceFeatureZstd;\n"
+                                "}\n");
+                }
+                writeString("#else\n");
+                if (m_overallFlags & RCCFileInfo::Compressed)
+                    writeString("unsigned char qResourceFeatureZlib();\n");
+                if (m_overallFlags & RCCFileInfo::CompressedZstd)
+                    writeString("unsigned char qResourceFeatureZstd();\n");
+                writeString("#endif\n\n");
+            }
         }
 
         if (m_useNameSpace)
@@ -1116,12 +1304,12 @@ bool RCCResourceLibrary::writeInitializer()
         writeString("()\n{\n");
 
         if (m_root) {
-            writeString("    ");
+            writeString("    int version = ");
+            writeDecimal(m_formatVersion);
+            writeString(";\n    ");
             writeAddNamespaceFunction("qRegisterResourceData");
-            writeString("\n        (");
-            writeHex(m_formatVersion);
-            writeString(" qt_resource_struct, "
-                       "qt_resource_name, qt_resource_data);\n");
+            writeString("\n        (version, qt_resource_struct, "
+                        "qt_resource_name, qt_resource_data);\n");
         }
         writeString("    return 1;\n");
         writeString("}\n\n");
@@ -1139,11 +1327,24 @@ bool RCCResourceLibrary::writeInitializer()
         writeMangleNamespaceFunction(cleanResources);
         writeString("()\n{\n");
         if (m_root) {
-            writeString("    ");
+            writeString("    int version = ");
+            writeDecimal(m_formatVersion);
+            writeString(";\n    ");
+
+            // ODR-use certain symbols from QtCore if we require optional features
+            if (m_overallFlags & RCCFileInfo::Compressed) {
+                writeString("version += ");
+                writeAddNamespaceFunction("qResourceFeatureZlib()");
+                writeString(";\n    ");
+            }
+            if (m_overallFlags & RCCFileInfo::CompressedZstd) {
+                writeString("version += ");
+                writeAddNamespaceFunction("qResourceFeatureZstd()");
+                writeString(";\n    ");
+            }
+
             writeAddNamespaceFunction("qUnregisterResourceData");
-            writeString("\n       (");
-            writeHex(m_formatVersion);
-            writeString(" qt_resource_struct, "
+            writeString("\n       (version, qt_resource_struct, "
                       "qt_resource_name, qt_resource_data);\n");
         }
         writeString("    return 1;\n");
@@ -1179,6 +1380,13 @@ bool RCCResourceLibrary::writeInitializer()
         p[i++] = (m_namesOffset >> 16) & 0xff;
         p[i++] = (m_namesOffset >>  8) & 0xff;
         p[i++] = (m_namesOffset >>  0) & 0xff;
+
+        if (m_formatVersion >= 3) {
+            p[i++] = (m_overallFlags >> 24) & 0xff;
+            p[i++] = (m_overallFlags >> 16) & 0xff;
+            p[i++] = (m_overallFlags >>  8) & 0xff;
+            p[i++] = (m_overallFlags >>  0) & 0xff;
+        }
     }
     return true;
 }

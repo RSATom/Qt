@@ -11,12 +11,12 @@
 #include <memory>
 #include <vector>
 
-#include "webrtc/modules/audio_processing/rms_level.h"
-#include "webrtc/rtc_base/array_view.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/mathutils.h"
-#include "webrtc/rtc_base/safe_conversions.h"
-#include "webrtc/test/gtest.h"
+#include "api/array_view.h"
+#include "modules/audio_processing/rms_level.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/numerics/math_utils.h"
+#include "rtc_base/numerics/safe_conversions.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 namespace {

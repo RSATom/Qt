@@ -80,9 +80,15 @@ QT_BEGIN_NAMESPACE
 /*!
     \fn QCanBusFrame::setFrameId(quint32 newFrameId)
 
-    Sets the identifier of the CAN frame to \a newFrameId. The maximum size of a CAN frame
-    identifier is 11 bits, which can be extended up to 29 bits by supporting the \e {CAN extended frame
-    format}. The \e {CAN extended frame format} setting is automatically adapted to match \a newFrameId.
+    Sets the identifier of the CAN frame to \a newFrameId.
+
+    The maximum size of a CAN frame identifier is 11 bits, which can be
+    extended up to 29 bits by supporting the \e {CAN extended frame format}.
+    The \e {CAN extended frame format} setting is automatically set when a
+    \a newFrameId with more than 11 bits in size is given.
+
+    When the format is extended and a \a newFrameId with up to 11 bits or less
+    is passed, the \e {CAN extended frame format} setting is \a not changed.
 
     \sa frameId(), hasExtendedFrameFormat()
 */
@@ -350,7 +356,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn TimeStamp::TimeStamp(qint64 s, qint64 usec)
+    \fn QCanBusFrame::TimeStamp::TimeStamp(qint64 s, qint64 usec)
 
     Constructs a TimeStamp in seconds, \a s, and microseconds, \a usec.
 
@@ -359,7 +365,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn static TimeStamp TimeStamp::fromMicroSeconds(qint64 usec)
+    \fn static TimeStamp QCanBusFrame::TimeStamp::fromMicroSeconds(qint64 usec)
 
     Constructs a normalized TimeStamp from microseconds \a usec.
 
@@ -368,13 +374,13 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn qint64 TimeStamp::seconds() const
+    \fn qint64 QCanBusFrame::TimeStamp::seconds() const
 
     Returns the seconds of the timestamp.
 */
 
 /*!
-    \fn qint64 TimeStamp::microSeconds() const
+    \fn qint64 QCanBusFrame::TimeStamp::microSeconds() const
 
     Returns the microseconds of the timestamp.
 */

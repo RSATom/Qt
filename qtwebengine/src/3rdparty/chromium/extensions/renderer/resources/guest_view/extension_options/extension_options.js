@@ -6,24 +6,31 @@ var ExtensionOptionsConstants =
     require('extensionOptionsConstants').ExtensionOptionsConstants;
 var ExtensionOptionsEvents =
     require('extensionOptionsEvents').ExtensionOptionsEvents;
+var ExtensionOptionsAttributes =
+    require('extensionOptionsAttributes').ExtensionOptionsAttributes;
 var GuestViewContainer = require('guestViewContainer').GuestViewContainer;
 
 function ExtensionOptionsImpl(extensionoptionsElement) {
-  GuestViewContainer.call(this, extensionoptionsElement, 'extensionoptions');
+  $Function.call(
+      GuestViewContainer, this, extensionoptionsElement, 'extensionoptions');
 
   new ExtensionOptionsEvents(this);
 };
 
 ExtensionOptionsImpl.prototype.__proto__ = GuestViewContainer.prototype;
 
-ExtensionOptionsImpl.VIEW_TYPE = 'ExtensionOptions';
-
 ExtensionOptionsImpl.prototype.onElementAttached = function() {
   this.createGuest();
-}
+};
+
+// Sets up all of the extensionoptions attributes.
+ExtensionOptionsImpl.prototype.setupAttributes = function() {
+  this.attributes[ExtensionOptionsConstants.ATTRIBUTE_EXTENSION] =
+      new ExtensionOptionsAttributes.ExtensionAttribute(this);
+};
 
 ExtensionOptionsImpl.prototype.buildContainerParams = function() {
-  var params = {};
+  var params = $Object.create(null);
   for (var i in this.attributes) {
     params[i] = this.attributes[i].getValue();
   }
@@ -32,7 +39,7 @@ ExtensionOptionsImpl.prototype.buildContainerParams = function() {
 
 ExtensionOptionsImpl.prototype.createGuest = function() {
   // Destroy the old guest if one exists.
-  this.guest.destroy();
+  this.guest.destroy($Function.bind(this.prepareForReattach$, this));
 
   this.guest.create(this.buildParams(), $Function.bind(function() {
     if (!this.guest.getId()) {
@@ -45,8 +52,6 @@ ExtensionOptionsImpl.prototype.createGuest = function() {
     }
   }, this));
 };
-
-GuestViewContainer.registerElement(ExtensionOptionsImpl);
 
 // Exports.
 exports.$set('ExtensionOptionsImpl', ExtensionOptionsImpl);

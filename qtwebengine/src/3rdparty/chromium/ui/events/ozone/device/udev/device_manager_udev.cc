@@ -6,9 +6,8 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/events/ozone/device/device_event.h"
@@ -67,7 +66,7 @@ device::ScopedUdevMonitorPtr UdevCreateMonitor(struct udev* udev) {
   struct udev_monitor* monitor =
       device::udev_monitor_new_from_netlink(udev, "udev");
   if (monitor) {
-    for (size_t i = 0; i < arraysize(kSubsystems); ++i)
+    for (size_t i = 0; i < base::size(kSubsystems); ++i)
       device::udev_monitor_filter_add_match_subsystem_devtype(
           monitor, kSubsystems[i], NULL);
 
@@ -95,8 +94,8 @@ void DeviceManagerUdev::CreateMonitor() {
   if (monitor_) {
     int fd = device::udev_monitor_get_fd(monitor_.get());
     CHECK_GT(fd, 0);
-    base::MessageLoopForUI::current()->WatchFileDescriptor(
-        fd, true, base::MessagePumpLibevent::WATCH_READ, &controller_, this);
+    base::MessageLoopCurrentForUI::Get()->WatchFileDescriptor(
+        fd, true, base::MessagePumpForUI::WATCH_READ, &controller_, this);
   }
 }
 
@@ -108,7 +107,7 @@ void DeviceManagerUdev::ScanDevices(DeviceEventObserver* observer) {
   if (!enumerate)
     return;
 
-  for (size_t i = 0; i < arraysize(kSubsystems); ++i)
+  for (size_t i = 0; i < base::size(kSubsystems); ++i)
     device::udev_enumerate_add_match_subsystem(enumerate.get(), kSubsystems[i]);
   device::udev_enumerate_scan_devices(enumerate.get());
 
@@ -187,7 +186,7 @@ std::unique_ptr<DeviceEvent> DeviceManagerUdev::ProcessMessage(
   else
     return nullptr;
 
-  return base::MakeUnique<DeviceEvent>(device_type, action_type,
+  return std::make_unique<DeviceEvent>(device_type, action_type,
                                        base::FilePath(path));
 }
 

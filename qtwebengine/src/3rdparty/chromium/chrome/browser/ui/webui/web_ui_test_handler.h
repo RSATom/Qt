@@ -8,21 +8,23 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
+#include "chrome/test/data/webui/web_ui_test.mojom.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "mojo/public/cpp/bindings/binding.h"
 
 namespace base {
-class ListValue;
 class Value;
-}
+}  // namespace base
 
 namespace content {
 class RenderViewHost;
 }
 
 // This class registers test framework specific handlers on WebUI objects.
-class WebUITestHandler : public content::WebUIMessageHandler {
+class WebUITestHandler {
  public:
   WebUITestHandler();
+  virtual ~WebUITestHandler();
 
   // Sends a message through |preload_host| with the |js_text| to preload at the
   // appropriate time before the onload call is made.
@@ -36,14 +38,17 @@ class WebUITestHandler : public content::WebUIMessageHandler {
   // error message on failure. Returns test pass/fail.
   bool RunJavaScriptTestWithResult(const base::string16& js_text);
 
-  // WebUIMessageHandler overrides.
-  // Add test handlers to the current WebUI object.
-  void RegisterMessages() override;
+ protected:
+  virtual content::WebUI* GetWebUI() = 0;
+
+  // Handles the result of a test. If |error_message| has no value, the test has
+  // succeeded.
+  void TestComplete(const base::Optional<std::string>& error_message);
+
+  // Quits the currently running RunLoop.
+  void RunQuitClosure();
 
  private:
-  // Receives testResult messages.
-  void HandleTestResult(const base::ListValue* test_result);
-
   // Gets the callback that Javascript execution is complete.
   void JavaScriptComplete(const base::Value* result);
 
@@ -66,8 +71,8 @@ class WebUITestHandler : public content::WebUIMessageHandler {
   // pass/fail.
   bool run_test_succeeded_;
 
-  // Waiting for a test to finish.
-  bool is_waiting_;
+  // Quits the currently running RunLoop.
+  base::Closure quit_closure_;
 
   DISALLOW_COPY_AND_ASSIGN(WebUITestHandler);
 };

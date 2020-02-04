@@ -14,10 +14,11 @@
 
 #include "util/linux/memory_map.h"
 
-#include <linux/kdev_t.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/sysmacros.h>
 
+#include "base/bit_cast.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "build/build_config.h"
@@ -36,20 +37,22 @@ namespace {
 // Simply adding a StringToNumber for longs doesn't work since sometimes long
 // and int64_t are actually the same type, resulting in a redefinition error.
 template <typename Type>
-bool LocalStringToNumber(const base::StringPiece& string, Type* number) {
+bool LocalStringToNumber(const std::string& string, Type* number) {
   static_assert(sizeof(Type) == sizeof(int) || sizeof(Type) == sizeof(int64_t),
                 "Unexpected Type size");
 
+  char data[sizeof(Type)];
   if (sizeof(Type) == sizeof(int)) {
-    return std::numeric_limits<Type>::is_signed
-               ? StringToNumber(string, reinterpret_cast<int*>(number))
-               : StringToNumber(string,
-                                reinterpret_cast<unsigned int*>(number));
+    if (!StringToNumber(string, reinterpret_cast<unsigned int*>(data))) {
+      return false;
+    }
   } else {
-    return std::numeric_limits<Type>::is_signed
-               ? StringToNumber(string, reinterpret_cast<int64_t*>(number))
-               : StringToNumber(string, reinterpret_cast<uint64_t*>(number));
+    if (!StringToNumber(string, reinterpret_cast<uint64_t*>(data))) {
+      return false;
+    }
   }
+  *number = bit_cast<Type>(data);
+  return true;
 }
 
 template <typename Type>
@@ -102,16 +105,26 @@ ParseResult ParseMapsLine(DelimitedFileReader* maps_file_reader,
     LOG(ERROR) << "format error";
     return ParseResult::kError;
   }
-  if (end_address <= start_address) {
+  if (end_address < start_address) {
     LOG(ERROR) << "format error";
     return ParseResult::kError;
+  }
+  // Skip zero-length mappings.
+  if (end_address == start_address) {
+    std::string rest_of_line;
+    if (maps_file_reader->GetLine(&rest_of_line) !=
+        DelimitedFileReader::Result::kSuccess) {
+      LOG(ERROR) << "format error";
+      return ParseResult::kError;
+    }
+    return ParseResult::kSuccess;
   }
 
   // TODO(jperaza): set bitness properly
 #if defined(ARCH_CPU_64_BITS)
-  const bool is_64_bit = true;
+  constexpr bool is_64_bit = true;
 #else
-  const bool is_64_bit = false;
+  constexpr bool is_64_bit = false;
 #endif
 
   MemoryMap::Mapping mapping;
@@ -147,16 +160,25 @@ ParseResult ParseMapsLine(DelimitedFileReader* maps_file_reader,
     return ParseResult::kError;
   }
 
-  int major, minor;
-  if (maps_file_reader->GetDelim(' ', &field) !=
+  uint32_t major;
+  if (maps_file_reader->GetDelim(':', &field) !=
           DelimitedFileReader::Result::kSuccess ||
-      (field.pop_back(), field.size() != 5) ||
-      !HexStringToNumber(field.substr(0, 2), &major) ||
-      !HexStringToNumber(field.substr(3, 2), &minor)) {
+      (field.pop_back(), field.size()) < 2 ||
+      !HexStringToNumber(field, &major)) {
     LOG(ERROR) << "format error";
     return ParseResult::kError;
   }
-  mapping.device = MKDEV(major, minor);
+
+  uint32_t minor;
+  if (maps_file_reader->GetDelim(' ', &field) !=
+          DelimitedFileReader::Result::kSuccess ||
+      (field.pop_back(), field.size()) < 2 ||
+      !HexStringToNumber(field, &minor)) {
+    LOG(ERROR) << "format error";
+    return ParseResult::kError;
+  }
+
+  mapping.device = makedev(major, minor);
 
   if (maps_file_reader->GetDelim(' ', &field) !=
           DelimitedFileReader::Result::kSuccess ||
@@ -185,6 +207,48 @@ ParseResult ParseMapsLine(DelimitedFileReader* maps_file_reader,
   return ParseResult::kSuccess;
 }
 
+class SparseReverseIterator : public MemoryMap::Iterator {
+ public:
+  SparseReverseIterator(const std::vector<const MemoryMap::Mapping*>& mappings)
+      : mappings_(mappings), riter_(mappings_.rbegin()){};
+
+  SparseReverseIterator() : mappings_(), riter_(mappings_.rend()) {}
+
+  // Iterator:
+  const MemoryMap::Mapping* Next() override {
+    return riter_ == mappings_.rend() ? nullptr : *(riter_++);
+  }
+
+  unsigned int Count() override { return mappings_.rend() - riter_; }
+
+ private:
+  std::vector<const MemoryMap::Mapping*> mappings_;
+  std::vector<const MemoryMap::Mapping*>::reverse_iterator riter_;
+
+  DISALLOW_COPY_AND_ASSIGN(SparseReverseIterator);
+};
+
+class FullReverseIterator : public MemoryMap::Iterator {
+ public:
+  FullReverseIterator(
+      std::vector<MemoryMap::Mapping>::const_reverse_iterator rbegin,
+      std::vector<MemoryMap::Mapping>::const_reverse_iterator rend)
+      : riter_(rbegin), rend_(rend) {}
+
+  // Iterator:
+  const MemoryMap::Mapping* Next() override {
+    return riter_ == rend_ ? nullptr : &*riter_++;
+  }
+
+  unsigned int Count() override { return rend_ - riter_; }
+
+ private:
+  std::vector<MemoryMap::Mapping>::const_reverse_iterator riter_;
+  std::vector<MemoryMap::Mapping>::const_reverse_iterator rend_;
+
+  DISALLOW_COPY_AND_ASSIGN(FullReverseIterator);
+};
+
 }  // namespace
 
 MemoryMap::Mapping::Mapping()
@@ -202,7 +266,17 @@ MemoryMap::MemoryMap() : mappings_(), initialized_() {}
 
 MemoryMap::~MemoryMap() {}
 
-bool MemoryMap::Initialize(pid_t pid) {
+bool MemoryMap::Mapping::Equals(const Mapping& other) const {
+  DCHECK_EQ(range.Is64Bit(), other.range.Is64Bit());
+  return range.Base() == other.range.Base() &&
+         range.Size() == other.range.Size() && name == other.name &&
+         offset == other.offset && device == other.device &&
+         inode == other.inode && readable == other.readable &&
+         writable == other.writable && executable == other.executable &&
+         shareable == other.shareable;
+}
+
+bool MemoryMap::Initialize(PtraceConnection* connection) {
   INITIALIZATION_STATE_SET_INITIALIZING(initialized_);
 
   // If the maps file is not read atomically, entries can be read multiple times
@@ -216,8 +290,8 @@ bool MemoryMap::Initialize(pid_t pid) {
   do {
     std::string contents;
     char path[32];
-    snprintf(path, sizeof(path), "/proc/%d/maps", pid);
-    if (!LoggingReadEntireFile(base::FilePath(path), &contents)) {
+    snprintf(path, sizeof(path), "/proc/%d/maps", connection->GetProcessID());
+    if (!connection->ReadFileContents(base::FilePath(path), &contents)) {
       return false;
     }
 
@@ -265,6 +339,88 @@ const MemoryMap::Mapping* MemoryMap::FindMappingWithName(
     }
   }
   return nullptr;
+}
+
+std::unique_ptr<MemoryMap::Iterator> MemoryMap::FindFilePossibleMmapStarts(
+    const Mapping& mapping) const {
+  INITIALIZATION_STATE_DCHECK_VALID(initialized_);
+
+  std::vector<const Mapping*> possible_starts;
+
+  // If the mapping is anonymous, as is for the VDSO, there is no mapped file to
+  // find the start of, so just return the input mapping.
+  if (mapping.device == 0 && mapping.inode == 0) {
+    for (const auto& candidate : mappings_) {
+      if (mapping.Equals(candidate)) {
+        possible_starts.push_back(&candidate);
+        return std::make_unique<SparseReverseIterator>(possible_starts);
+      }
+    }
+
+    LOG(ERROR) << "mapping not found";
+    return std::make_unique<SparseReverseIterator>();
+  }
+
+#if defined(OS_ANDROID)
+  // The Android Chromium linker uses ashmem to share RELRO segments between
+  // processes. The original RELRO segment has been unmapped and replaced with a
+  // mapping named "/dev/ashmem/RELRO:<libname>" where <libname> is the base
+  // library name (e.g. libchrome.so) sans any preceding path that may be
+  // present in other mappings for the library.
+  // https://crashpad.chromium.org/bug/253
+  static constexpr char kRelro[] = "/dev/ashmem/RELRO:";
+  if (mapping.name.compare(0, strlen(kRelro), kRelro, 0, strlen(kRelro)) == 0) {
+    // The kernel appends "(deleted)" to ashmem mappings because there isn't
+    // any corresponding file on the filesystem.
+    static constexpr char kDeleted[] = " (deleted)";
+    size_t libname_end = mapping.name.rfind(kDeleted);
+    DCHECK_NE(libname_end, std::string::npos);
+    if (libname_end == std::string::npos) {
+      libname_end = mapping.name.size();
+    }
+
+    std::string libname =
+        mapping.name.substr(strlen(kRelro), libname_end - strlen(kRelro));
+    for (const auto& candidate : mappings_) {
+      if (candidate.name.rfind(libname) != std::string::npos) {
+        possible_starts.push_back(&candidate);
+      }
+      if (mapping.Equals(candidate)) {
+        return std::make_unique<SparseReverseIterator>(possible_starts);
+      }
+    }
+  }
+#endif  // OS_ANDROID
+
+  for (const auto& candidate : mappings_) {
+    if (candidate.device == mapping.device &&
+        candidate.inode == mapping.inode
+#if !defined(OS_ANDROID)
+        // Libraries on Android may be mapped from zipfiles (APKs), in which
+        // case the offset is not 0.
+        && candidate.offset == 0
+#endif  // !defined(OS_ANDROID)
+        ) {
+      possible_starts.push_back(&candidate);
+    }
+    if (mapping.Equals(candidate)) {
+      return std::make_unique<SparseReverseIterator>(possible_starts);
+    }
+  }
+
+  LOG(ERROR) << "mapping not found";
+  return std::make_unique<SparseReverseIterator>();
+}
+
+std::unique_ptr<MemoryMap::Iterator> MemoryMap::ReverseIteratorFrom(
+    const Mapping& target) const {
+  for (auto riter = mappings_.crbegin(); riter != mappings_.rend(); ++riter) {
+    if (riter->Equals(target)) {
+      return std::make_unique<FullReverseIterator>(riter, mappings_.rend());
+    }
+  }
+  return std::make_unique<FullReverseIterator>(mappings_.rend(),
+                                               mappings_.rend());
 }
 
 }  // namespace crashpad

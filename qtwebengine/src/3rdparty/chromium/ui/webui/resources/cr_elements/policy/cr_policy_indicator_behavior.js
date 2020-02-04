@@ -13,6 +13,7 @@
  * Chrome OS only strings may be undefined.
  * @type {{
  *   controlledSettingExtension: string,
+ *   controlledSettingExtensionWithoutName: string,
  *   controlledSettingPolicy: string,
  *   controlledSettingRecommendedMatches: string,
  *   controlledSettingRecommendedDiffers: string,
@@ -20,10 +21,11 @@
  *   controlledSettingOwner: (string|undefined),
  * }}
  */
+// eslint-disable-next-line no-var
 var CrPolicyStrings;
 
 /** @enum {string} */
-var CrPolicyIndicatorType = {
+const CrPolicyIndicatorType = {
   DEVICE_POLICY: 'devicePolicy',
   EXTENSION: 'extension',
   NONE: 'none',
@@ -34,7 +36,7 @@ var CrPolicyIndicatorType = {
 };
 
 /** @polymerBehavior */
-var CrPolicyIndicatorBehavior = {
+const CrPolicyIndicatorBehavior = {
   // Properties exposed to all policy indicators.
   properties: {
     /**
@@ -66,11 +68,6 @@ var CrPolicyIndicatorBehavior = {
     indicatorIcon: {
       type: String,
       computed: 'getIndicatorIcon_(indicatorType)',
-    },
-
-    indicatorTooltip: {
-      type: String,
-      computed: 'getIndicatorTooltip(indicatorType, indicatorSourceName)',
     },
   },
 
@@ -116,11 +113,14 @@ var CrPolicyIndicatorBehavior = {
    * @return {string} The tooltip text for |type|.
    */
   getIndicatorTooltip: function(type, name, opt_matches) {
-    if (!CrPolicyStrings)
-      return '';  // Tooltips may not be defined, e.g. in OOBE.
+    if (!CrPolicyStrings) {
+      return '';
+    }  // Tooltips may not be defined, e.g. in OOBE.
     switch (type) {
       case CrPolicyIndicatorType.EXTENSION:
-        return CrPolicyStrings.controlledSettingExtension;
+        return name.length > 0 ?
+            CrPolicyStrings.controlledSettingExtension.replace('$1', name) :
+            CrPolicyStrings.controlledSettingExtensionWithoutName;
       case CrPolicyIndicatorType.PRIMARY_USER:
         return CrPolicyStrings.controlledSettingShared.replace('$1', name);
       case CrPolicyIndicatorType.OWNER:

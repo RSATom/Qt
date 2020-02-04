@@ -41,11 +41,15 @@ class QDocDatabase;
 class Generator;
 typedef QPair<QString, const Node*> QStringNodePair;
 
+using NodeTypeSet = QSet<unsigned char>;
+
 struct SubProject
 {
+    using NodeTypeToSet = QHash<unsigned char, NodeTypeSet>;
+
     QString title;
     QString indexTitle;
-    QHash<Node::NodeType, QSet<DocumentNode::DocSubtype> > selectors;
+    NodeTypeToSet selectors;
     bool sortPages;
     QString type;
     QHash<QString, const Node *> nodes;
@@ -54,9 +58,12 @@ struct SubProject
 
 struct HelpProject
 {
+    using NodeStatusSet = QSet<unsigned char>;
+
     QString name;
     QString helpNamespace;
     QString virtualFolder;
+    QString version;
     QString fileName;
     QString indexRoot;
     QString indexTitle;
@@ -67,7 +74,7 @@ struct HelpProject
     QHash<QString, QSet<QString> > customFilters;
     QSet<QString> excluded;
     QList<SubProject> subprojects;
-    QHash<const Node *, QSet<Node::Status> > memberStatus;
+    QHash<const Node *, NodeStatusSet> memberStatus;
     bool includeIndexNodes;
 };
 

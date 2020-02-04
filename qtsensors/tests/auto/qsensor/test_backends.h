@@ -56,10 +56,10 @@ void unregister_test_backends();
     {\
     public:\
         SensorClass ## _impl(QSensor *sensor);\
-        void start();\
-        void stop();\
+        void start() override;\
+        void stop() override;\
     };\
-    class SensorClass ## _testfilter : public FilterClass { bool filter(ReadingClass *); };
+    class SensorClass ## _testfilter : public FilterClass { bool filter(ReadingClass *) override; };
 
 #define PREPARE_SENSORINTERFACE_IMPLS(SensorClass, ReadingClass, FilterClass, readingcode)\
     SensorClass ## _impl::SensorClass ##_impl(QSensor *sensor) : QSensorBackend(sensor) {}\

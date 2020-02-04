@@ -9,28 +9,19 @@
 #include "gpu/command_buffer/common/command_buffer_id.h"
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/service/command_buffer_service.h"
-#include "gpu/command_buffer/service/gles2_cmd_decoder.h"
+#include "gpu/command_buffer/service/decoder_client.h"
 #include "gpu/gpu_export.h"
 
 namespace gpu {
 
 class AsyncAPIInterface;
 class TransferBufferManager;
-class SyncPointClientState;
-class SyncPointManager;
-class SyncPointOrderData;
-struct SyncToken;
 
 class GPU_EXPORT CommandBufferDirect : public CommandBuffer,
                                        public CommandBufferServiceClient,
-                                       public gles2::GLES2DecoderClient {
+                                       public DecoderClient {
  public:
-  using MakeCurrentCallback = base::Callback<bool()>;
-
-  CommandBufferDirect(TransferBufferManager* transfer_buffer_manager,
-                      SyncPointManager* sync_point_manager);
   explicit CommandBufferDirect(TransferBufferManager* transfer_buffer_manager);
-
   ~CommandBufferDirect() override;
 
   void set_handler(AsyncAPIInterface* handler) { handler_ = handler; }
@@ -45,39 +36,32 @@ class GPU_EXPORT CommandBufferDirect : public CommandBuffer,
                                                int32_t start,
                                                int32_t end) override;
   void SetGetBuffer(int32_t transfer_buffer_id) override;
-  scoped_refptr<Buffer> CreateTransferBuffer(size_t size, int32_t* id) override;
+  scoped_refptr<Buffer> CreateTransferBuffer(uint32_t size,
+                                             int32_t* id) override;
   void DestroyTransferBuffer(int32_t id) override;
 
   // CommandBufferServiceBase implementation:
   CommandBatchProcessedResult OnCommandBatchProcessed() override;
   void OnParseError() override;
 
-  // GLES2DecoderClient implementation
+  // DecoderClient implementation
   void OnConsoleMessage(int32_t id, const std::string& message) override;
   void CacheShader(const std::string& key, const std::string& shader) override;
   void OnFenceSyncRelease(uint64_t release) override;
-  bool OnWaitSyncToken(const gpu::SyncToken&) override;
   void OnDescheduleUntilFinished() override;
   void OnRescheduleAfterFinished() override;
+  void OnSwapBuffers(uint64_t swap_id, uint32_t flags) override;
+  void ScheduleGrContextCleanup() override {}
 
-  CommandBufferNamespace GetNamespaceID() const;
-  CommandBufferId GetCommandBufferID() const;
+  scoped_refptr<Buffer> CreateTransferBufferWithId(uint32_t size, int32_t id);
 
-  void SetCommandsPaused(bool paused);
-  void SignalSyncToken(const gpu::SyncToken& sync_token,
-                       const base::Closure& callback);
-
-  scoped_refptr<Buffer> CreateTransferBufferWithId(size_t size, int32_t id);
+  void SetGetOffsetForTest(int32_t get_offset) {
+    service_.SetGetOffsetForTest(get_offset);
+  }
 
  private:
   CommandBufferService service_;
-  SyncPointManager* sync_point_manager_;
-
   AsyncAPIInterface* handler_ = nullptr;
-  scoped_refptr<SyncPointOrderData> sync_point_order_data_;
-  scoped_refptr<SyncPointClientState> sync_point_client_state_;
-  bool pause_commands_ = false;
-  uint32_t paused_order_num_ = 0;
   const CommandBufferId command_buffer_id_;
 };
 

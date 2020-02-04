@@ -71,6 +71,16 @@
     formats, in addition to any image format plugins that support
     writing.
 
+    \note QImageWriter assumes exclusive control over the file or
+    device that is assigned. Any attempts to modify the assigned file
+    or device during the lifetime of the QImageWriter object will
+    yield undefined results. If immediate access to a resource is
+    desired, the use of a scope is the recommended method.
+
+    For example:
+
+    \snippet qimagewriter/main.cpp 0
+
     \sa QImageReader, QImageIOHandler, QImageIOPlugin
 */
 
@@ -102,7 +112,6 @@
 #include <qfileinfo.h>
 #include <qimage.h>
 #include <qimageiohandler.h>
-#include <qjsonarray.h>
 #include <qset.h>
 #include <qvariant.h>
 
@@ -119,14 +128,11 @@
 #include <private/qpnghandler_p.h>
 #endif
 
+#include <private/qimagereaderwriterhelpers_p.h>
+
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
-
-#ifndef QT_NO_IMAGEFORMATPLUGIN
-Q_GLOBAL_STATIC_WITH_ARGS(QFactoryLoader, loader,
-                          (QImageIOHandlerFactoryInterface_iid, QLatin1String("/imageformats")))
-#endif
 
 static QImageIOHandler *createWriteHandlerHelper(QIODevice *device,
     const QByteArray &format)
@@ -139,7 +145,7 @@ static QImageIOHandler *createWriteHandlerHelper(QIODevice *device,
     typedef QMultiMap<int, QString> PluginKeyMap;
 
     // check if any plugins can write the image
-    QFactoryLoader *l = loader();
+    auto l = QImageReaderWriterHelpers::pluginLoader();
     const PluginKeyMap keyMap = l->keyMap();
     int suffixPluginIndex = -1;
 #endif
@@ -268,7 +274,7 @@ QImageWriterPrivate::QImageWriterPrivate(QImageWriter *qq)
     deleteDevice = false;
     handler = 0;
     quality = -1;
-    compression = 0;
+    compression = -1;
     gamma = 0.0;
     optimizedWrite = false;
     progressiveScanWrite = false;
@@ -401,8 +407,8 @@ void QImageWriter::setDevice(QIODevice *device)
 }
 
 /*!
-    Returns the device currently assigned to QImageWriter, or 0 if no
-    device has been assigned.
+    Returns the device currently assigned to QImageWriter, or \nullptr
+    if no device has been assigned.
 */
 QIODevice *QImageWriter::device() const
 {
@@ -642,6 +648,7 @@ QImageIOHandler::Transformations QImageWriter::transformation() const
     return d->transformation;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -673,6 +680,7 @@ QString QImageWriter::description() const
 {
     return d->description;
 }
+#endif
 
 /*!
     \since 4.1
@@ -824,52 +832,6 @@ bool QImageWriter::supportsOption(QImageIOHandler::ImageOption option) const
     return d->handler->supportsOption(option);
 }
 
-
-#ifndef QT_NO_IMAGEFORMATPLUGIN
-void supportedImageHandlerFormats(QFactoryLoader *loader,
-                                  QImageIOPlugin::Capability cap,
-                                  QList<QByteArray> *result)
-{
-    typedef QMultiMap<int, QString> PluginKeyMap;
-    typedef PluginKeyMap::const_iterator PluginKeyMapConstIterator;
-
-    const PluginKeyMap keyMap = loader->keyMap();
-    const PluginKeyMapConstIterator cend = keyMap.constEnd();
-    int i = -1;
-    QImageIOPlugin *plugin = 0;
-    result->reserve(result->size() + keyMap.size());
-    for (PluginKeyMapConstIterator it = keyMap.constBegin(); it != cend; ++it) {
-        if (it.key() != i) {
-            i = it.key();
-            plugin = qobject_cast<QImageIOPlugin *>(loader->instance(i));
-        }
-        const QByteArray key = it.value().toLatin1();
-        if (plugin && (plugin->capabilities(0, key) & cap) != 0)
-            result->append(key);
-    }
-}
-
-void supportedImageHandlerMimeTypes(QFactoryLoader *loader,
-                                    QImageIOPlugin::Capability cap,
-                                    QList<QByteArray> *result)
-{
-    QList<QJsonObject> metaDataList = loader->metaData();
-
-    const int pluginCount = metaDataList.size();
-    for (int i = 0; i < pluginCount; ++i) {
-        const QJsonObject metaData = metaDataList.at(i).value(QLatin1String("MetaData")).toObject();
-        const QJsonArray keys = metaData.value(QLatin1String("Keys")).toArray();
-        const QJsonArray mimeTypes = metaData.value(QLatin1String("MimeTypes")).toArray();
-        QImageIOPlugin *plugin = qobject_cast<QImageIOPlugin *>(loader->instance(i));
-        const int keyCount = keys.size();
-        for (int k = 0; k < keyCount; ++k) {
-            if (plugin && (plugin->capabilities(0, keys.at(k).toString().toLatin1()) & cap) != 0)
-                result->append(mimeTypes.at(k).toString().toLatin1());
-        }
-    }
-}
-#endif // QT_NO_IMAGEFORMATPLUGIN
-
 /*!
     Returns the list of image formats supported by QImageWriter.
 
@@ -897,30 +859,7 @@ void supportedImageHandlerMimeTypes(QFactoryLoader *loader,
 */
 QList<QByteArray> QImageWriter::supportedImageFormats()
 {
-    QList<QByteArray> formats;
-#ifndef QT_NO_IMAGEFORMAT_BMP
-    formats << "bmp";
-#endif
-#ifndef QT_NO_IMAGEFORMAT_PPM
-    formats << "pbm" << "pgm" << "ppm";
-#endif
-#ifndef QT_NO_IMAGEFORMAT_XBM
-    formats << "xbm";
-#endif
-#ifndef QT_NO_IMAGEFORMAT_XPM
-    formats << "xpm";
-#endif
-#ifndef QT_NO_IMAGEFORMAT_PNG
-    formats << "png";
-#endif
-
-#ifndef QT_NO_IMAGEFORMATPLUGIN
-    supportedImageHandlerFormats(loader(), QImageIOPlugin::CanWrite, &formats);
-#endif // QT_NO_IMAGEFORMATPLUGIN
-
-    std::sort(formats.begin(), formats.end());
-    formats.erase(std::unique(formats.begin(), formats.end()), formats.end());
-    return formats;
+    return QImageReaderWriterHelpers::supportedImageFormats(QImageReaderWriterHelpers::CanWrite);
 }
 
 /*!
@@ -933,32 +872,24 @@ QList<QByteArray> QImageWriter::supportedImageFormats()
 */
 QList<QByteArray> QImageWriter::supportedMimeTypes()
 {
-    QList<QByteArray> mimeTypes;
-#ifndef QT_NO_IMAGEFORMAT_BMP
-    mimeTypes << "image/bmp";
-#endif
-#ifndef QT_NO_IMAGEFORMAT_PPM
-    mimeTypes << "image/x-portable-bitmap";
-    mimeTypes << "image/x-portable-graymap";
-    mimeTypes << "image/x-portable-pixmap";
-#endif
-#ifndef QT_NO_IMAGEFORMAT_XBM
-    mimeTypes << "image/x-xbitmap";
-#endif
-#ifndef QT_NO_IMAGEFORMAT_XPM
-    mimeTypes << "image/x-xpixmap";
-#endif
-#ifndef QT_NO_IMAGEFORMAT_PNG
-    mimeTypes << "image/png";
-#endif
+    return QImageReaderWriterHelpers::supportedMimeTypes(QImageReaderWriterHelpers::CanWrite);
+}
 
-#ifndef QT_NO_IMAGEFORMATPLUGIN
-    supportedImageHandlerMimeTypes(loader(), QImageIOPlugin::CanWrite, &mimeTypes);
-#endif // QT_NO_IMAGEFORMATPLUGIN
+/*!
+    \since 5.12
 
-    std::sort(mimeTypes.begin(), mimeTypes.end());
-    mimeTypes.erase(std::unique(mimeTypes.begin(), mimeTypes.end()), mimeTypes.end());
-    return mimeTypes;
+    Returns the list of image formats corresponding to \a mimeType.
+
+    Note that the QGuiApplication instance must be created before this function is
+    called.
+
+    \sa supportedImageFormats(), supportedMimeTypes()
+*/
+
+QList<QByteArray> QImageWriter::imageFormatsForMimeType(const QByteArray &mimeType)
+{
+    return QImageReaderWriterHelpers::imageFormatsForMimeType(mimeType,
+                                                              QImageReaderWriterHelpers::CanWrite);
 }
 
 QT_END_NAMESPACE

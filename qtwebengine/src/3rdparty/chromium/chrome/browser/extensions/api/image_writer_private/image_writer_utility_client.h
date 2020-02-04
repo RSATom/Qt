@@ -7,13 +7,22 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/single_thread_task_runner.h"
-#include "chrome/common/extensions/removable_storage_writer.mojom.h"
-#include "content/public/browser/utility_process_mojo_client.h"
+#include "base/sequence_checker.h"
+#include "base/sequenced_task_runner.h"
+#include "chrome/services/removable_storage_writer/public/mojom/removable_storage_writer.mojom.h"
+
+namespace service_manager {
+class Connector;
+}
+
+namespace extensions {
+namespace image_writer {
 
 // Writes a disk image to a device inside the utility process. This
 // class lives on the FILE thread.
@@ -24,8 +33,15 @@ class ImageWriterUtilityClient
   typedef base::Callback<void()> SuccessCallback;
   typedef base::Callback<void(int64_t)> ProgressCallback;
   typedef base::Callback<void(const std::string&)> ErrorCallback;
+  using ImageWriterUtilityClientFactory =
+      base::Callback<scoped_refptr<ImageWriterUtilityClient>()>;
 
-  ImageWriterUtilityClient();
+  // |connector| should be a fresh connector not yet bound to any thread.
+  static scoped_refptr<ImageWriterUtilityClient> Create(
+      const scoped_refptr<base::SequencedTaskRunner>& task_runner,
+      std::unique_ptr<service_manager::Connector> connector);
+
+  static void SetFactoryForTesting(ImageWriterUtilityClientFactory* factory);
 
   // Starts the write operation.
   // |progress_callback|: Called periodically with the count of bytes processed.
@@ -61,14 +77,18 @@ class ImageWriterUtilityClient
 
  protected:
   friend class base::RefCountedThreadSafe<ImageWriterUtilityClient>;
+  friend class ImageWriterUtilityClientTest;
 
+  ImageWriterUtilityClient(
+      const scoped_refptr<base::SequencedTaskRunner>& task_runner,
+      std::unique_ptr<service_manager::Connector> connector);
   virtual ~ImageWriterUtilityClient();
 
  private:
   class RemovableStorageWriterClientImpl;
 
-  void StartUtilityProcessIfNeeded();
-  void UtilityProcessError();
+  void BindServiceIfNeeded();
+  void OnConnectionError();
 
   void OperationProgress(int64_t progress);
   void OperationSucceeded();
@@ -80,14 +100,21 @@ class ImageWriterUtilityClient
   SuccessCallback success_callback_;
   ErrorCallback error_callback_;
 
-  std::unique_ptr<content::UtilityProcessMojoClient<
-      extensions::mojom::RemovableStorageWriter>>
-      utility_process_mojo_client_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+
+  std::unique_ptr<service_manager::Connector> connector_;
+
+  chrome::mojom::RemovableStorageWriterPtr removable_storage_writer_;
 
   std::unique_ptr<RemovableStorageWriterClientImpl>
       removable_storage_writer_client_;
 
+  SEQUENCE_CHECKER(sequence_checker_);
+
   DISALLOW_COPY_AND_ASSIGN(ImageWriterUtilityClient);
 };
+
+}  // namespace image_writer
+}  // namespace extensions
 
 #endif  // CHROME_BROWSER_EXTENSIONS_API_IMAGE_WRITER_PRIVATE_IMAGE_WRITER_UTILITY_CLIENT_H_

@@ -6,32 +6,46 @@
 #define CONTENT_PUBLIC_BROWSER_RENDER_FRAME_HOST_H_
 
 #include <string>
+#include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/flat_set.h"
+#include "base/feature_list.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/page_visibility_state.h"
 #include "content/public/common/console_message_level.h"
-#include "content/public/common/file_chooser_params.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
-#include "services/service_manager/public/cpp/binder_registry.h"
-#include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
-#include "third_party/WebKit/public/platform/WebSuddenTerminationDisablerType.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "third_party/blink/public/common/frame/sandbox_flags.h"
+#include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom.h"
+#include "third_party/blink/public/platform/web_sudden_termination_disabler_type.h"
+#include "ui/accessibility/ax_tree_id.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
 namespace blink {
-enum class WebFeaturePolicyFeature;
-}
+class AssociatedInterfaceProvider;
+struct WebMediaPlayerAction;
+namespace mojom {
+enum class FeaturePolicyFeature;
+}  // namespace mojom
+}  // namespace blink
 
 namespace base {
+class UnguessableToken;
 class Value;
 }
 
+namespace features {
+CONTENT_EXPORT extern const base::Feature kCrashReporting;
+}  // namespace features
+
 namespace resource_coordinator {
-class ResourceCoordinatorInterface;
+class FrameResourceCoordinator;
 }
 
 namespace service_manager {
@@ -44,12 +58,10 @@ struct AXActionData;
 
 namespace content {
 
-class AssociatedInterfaceProvider;
 class RenderProcessHost;
 class RenderViewHost;
 class RenderWidgetHostView;
 class SiteInstance;
-struct FileChooserFileInfo;
 
 // The interface provides a communication conduit with a frame in the renderer.
 class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
@@ -62,26 +74,28 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns nullptr if the IDs do not correspond to a live RenderFrameHost.
   static RenderFrameHost* FromID(int render_process_id, int render_frame_id);
 
-
-#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
+#if defined(OS_ANDROID) || defined(OS_FUCHSIA) || defined(TOOLKIT_QT)
   // Globally allows for injecting JavaScript into the main world. This feature
-  // is present only to support Android WebView and must not be used in other
-  // configurations.
-  static void AllowInjectingJavaScriptForAndroidWebView();
-
-  // Temporary hack to enable data URLs on Android Webview until PlzNavigate
-  // ships.
-  static void AllowDataUrlNavigationForAndroidWebView();
-  static bool IsDataUrlNavigationAllowedForAndroidWebView();
+  // is present only to support Android WebView and Fuchsia web.Contexts, and
+  // must not be used in other configurations.
+  static void AllowInjectingJavaScript();
 #endif
 
   // Returns a RenderFrameHost given its accessibility tree ID.
-  static RenderFrameHost* FromAXTreeID(int ax_tree_id);
+  static RenderFrameHost* FromAXTreeID(ui::AXTreeID ax_tree_id);
 
   // Returns the FrameTreeNode ID corresponding to the specified |process_id|
   // and |routing_id|. This routing ID pair may represent a placeholder for
   // frame that is currently rendered in a different process than |process_id|.
   static int GetFrameTreeNodeIdForRoutingId(int process_id, int routing_id);
+
+  // Returns the RenderFrameHost corresponding to the |placeholder_routing_id|
+  // in the given |render_process_id|. The returned RenderFrameHost will always
+  // be in a different process.  It may be null if the placeholder is not found
+  // in the given process, which may happen if the frame was recently deleted
+  // or swapped to |render_process_id| itself.
+  static RenderFrameHost* FromPlaceholderId(int render_process_id,
+                                            int placeholder_routing_id);
 
   ~RenderFrameHost() override {}
 
@@ -89,7 +103,7 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   virtual int GetRoutingID() = 0;
 
   // Returns the accessibility tree ID for this RenderFrameHost.
-  virtual int GetAXTreeID() = 0;
+  virtual ui::AXTreeID GetAXTreeID() = 0;
 
   // Returns the SiteInstance grouping all RenderFrameHosts that have script
   // access to this RenderFrameHost, and must therefore live in the same
@@ -98,7 +112,7 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
 
   // Returns the interface for the Global Resource Coordinator
   // for this frame.
-  virtual resource_coordinator::ResourceCoordinatorInterface*
+  virtual resource_coordinator::FrameResourceCoordinator*
   GetFrameResourceCoordinator() = 0;
 
   // Returns the process for this frame.
@@ -113,6 +127,13 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // current RenderFrameHost.
   virtual RenderFrameHost* GetParent() = 0;
 
+  // Returns whether or not this RenderFrameHost is a descendant of |ancestor|.
+  // This is equivalent to check that |ancestor| is reached by iterating on
+  // GetParent().
+  // This is a strict relationship, a RenderFrameHost is never an ancestor of
+  // itself.
+  virtual bool IsDescendantOf(RenderFrameHost* ancestor) = 0;
+
   // Returns the FrameTreeNode ID for this frame. This ID is browser-global and
   // uniquely identifies a frame that hosts content. The identifier is fixed at
   // the creation of the frame and stays constant for the lifetime of the frame.
@@ -123,6 +144,14 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // the same FrameTreeNode ID may refer to a different RenderFrameHost after a
   // navigation.
   virtual int GetFrameTreeNodeId() = 0;
+
+  // Used for devtools instrumentation and trace-ability. The token is
+  // propagated to Blink's LocalFrame and both Blink and content/
+  // can tag calls and requests with this token in order to attribute them
+  // to the context frame. The token is only defined by the browser process and
+  // is never sent back from the renderer in the control calls. It should be
+  // never used to look up the FrameTreeNode instance.
+  virtual base::UnguessableToken GetDevToolsFrameToken() = 0;
 
   // Returns the assigned name of the frame, the name of the iframe tag
   // declaring it. For example, <iframe name="framename">[...]</iframe>. It is
@@ -185,9 +214,8 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // call are visible on screen. The call completes asynchronously by running
   // the supplied |callback| with a value of true upon successful completion and
   // false otherwise (when the frame is destroyed, detached, etc..).
-  typedef base::Callback<void(bool)> VisualStateCallback;
-  virtual void InsertVisualStateCallback(
-      const VisualStateCallback& callback) = 0;
+  using VisualStateCallback = base::OnceCallback<void(bool)>;
+  virtual void InsertVisualStateCallback(VisualStateCallback callback) = 0;
 
   // Copies the image at the location in viewport coordinates (not frame
   // coordinates) to the clipboard. If there is no image at that location, does
@@ -203,21 +231,18 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // RenderViewHost for this frame.
   virtual RenderViewHost* GetRenderViewHost() = 0;
 
-  // Returns the BinderRegistry that this process uses to expose interfaces
-  // to the application running in this frame.
-  virtual service_manager::BinderRegistry* GetInterfaceRegistry() = 0;
-
   // Returns the InterfaceProvider that this process can use to bind
   // interfaces exposed to it by the application running in this frame.
   virtual service_manager::InterfaceProvider* GetRemoteInterfaces() = 0;
 
   // Returns the AssociatedInterfaceProvider that this process can use to access
   // remote frame-specific Channel-associated interfaces for this frame.
-  virtual AssociatedInterfaceProvider* GetRemoteAssociatedInterfaces() = 0;
+  virtual blink::AssociatedInterfaceProvider*
+  GetRemoteAssociatedInterfaces() = 0;
 
   // Returns the visibility state of the frame. The different visibility states
   // of a frame are defined in Blink.
-  virtual blink::WebPageVisibilityState GetVisibilityState() = 0;
+  virtual PageVisibilityState GetVisibilityState() = 0;
 
   // Returns whether the RenderFrame in the renderer process has been created
   // and still has a connection.  This is valid for all frames.
@@ -237,13 +262,6 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // use by resource metrics.
   virtual int GetProxyCount() = 0;
 
-  // Notifies the Listener that one or more files have been chosen by the user
-  // from a file chooser dialog for the form. |permissions| is the file
-  // selection mode in which the chooser dialog was created.
-  virtual void FilesSelectedInChooser(
-      const std::vector<content::FileChooserFileInfo>& files,
-      FileChooserParams::Mode permissions) = 0;
-
   // Returns true if the frame has a selection.
   virtual bool HasSelection() = 0;
 
@@ -262,15 +280,6 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns a bitwise OR of bindings types that have been enabled for this
   // RenderFrame. See BindingsPolicy for details.
   virtual int GetEnabledBindings() const = 0;
-
-  // Causes all new requests for the root RenderFrameHost and its children to
-  // be blocked (not being started) until ResumeBlockedRequestsForFrame is
-  // called.
-  virtual void BlockRequestsForFrame() = 0;
-
-  // Resumes any blocked request for the specified root RenderFrameHost and
-  // child frame hosts.
-  virtual void ResumeBlockedRequestsForFrame() = 0;
 
 #if defined(OS_ANDROID)
   // Returns an InterfaceProvider for Java-implemented interfaces that are
@@ -294,7 +303,58 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns true if the given Feature Policy |feature| is enabled for this
   // RenderFrameHost and is allowed to be used by it. Use this in the browser
   // process to determine whether access to a feature is allowed.
-  virtual bool IsFeatureEnabled(blink::WebFeaturePolicyFeature feature) = 0;
+  virtual bool IsFeatureEnabled(blink::mojom::FeaturePolicyFeature feature) = 0;
+
+  // Opens view-source tab for the document last committed in this
+  // RenderFrameHost.
+  virtual void ViewSource() = 0;
+
+  // Starts pausing subresource loading on this frame and returns
+  // PauseSubresourceLoadingHandle that controls the pausing behavior.  As long
+  // as this handle is live, pausing will continue until an internal
+  // navigation happens in the frame.
+  virtual blink::mojom::PauseSubresourceLoadingHandlePtr
+  PauseSubresourceLoading() = 0;
+
+  // Run the given action on the media player location at the given point.
+  virtual void ExecuteMediaPlayerActionAtLocation(
+      const gfx::Point& location,
+      const blink::WebMediaPlayerAction& action) = 0;
+
+  // Creates a Network Service-backed factory from appropriate |NetworkContext|.
+  // If this returns true, any redirect safety checks should be bypassed in
+  // downstream loaders.
+  virtual bool CreateNetworkServiceDefaultFactory(
+      network::mojom::URLLoaderFactoryRequest default_factory_request) = 0;
+
+  // Requests that future URLLoaderFactoryBundle(s) sent to the renderer should
+  // use a separate URLLoaderFactory for requests initiated by any of the
+  // origins listed in |request_initiators|.  The URLLoaderFactory(s) for each
+  // origin will be created via
+  // ContentBrowserClient::CreateURLLoaderFactoryForNetworkRequests method.
+  virtual void MarkInitiatorsAsRequiringSeparateURLLoaderFactory(
+      base::flat_set<url::Origin> request_initiators,
+      bool push_to_renderer_now) = 0;
+
+  // Returns true if the given sandbox flag |flags| is in effect on this frame.
+  // The effective flags include those which have been set by a
+  // Content-Security-Policy header, in addition to those which are set by the
+  // embedding frame.
+  virtual bool IsSandboxed(blink::WebSandboxFlags flags) const = 0;
+
+  // Calls |FlushForTesting()| on Network Service and FrameNavigationControl
+  // related interfaces to make sure all in-flight mojo messages have been
+  // received by the other end. For test use only.
+  virtual void FlushNetworkAndNavigationInterfacesForTesting() = 0;
+
+  // Prepares this frame for attaching an inner WebContents to its own (outer)
+  // WebContents. This includes canceling all navigation requests as well as
+  // reseting the loading state. Returns false if attaching is not possible (
+  // if this is a main frame or a cross-process subframe), or true otherwise.
+  // Note: if this is called during an ongoing navigation it is not safe to
+  // attach WebContentses immediately after returning from this function (post
+  // task to ensure all observer calls related to the navigation complete).
+  virtual bool PrepareForInnerWebContentsAttach() = 0;
 
  private:
   // This interface should only be implemented inside content.

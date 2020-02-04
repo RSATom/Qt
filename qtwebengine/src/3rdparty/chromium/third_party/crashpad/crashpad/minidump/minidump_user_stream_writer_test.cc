@@ -17,7 +17,6 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "gtest/gtest.h"
 #include "minidump/minidump_file_writer.h"
 #include "minidump/test/minidump_file_writer_test_util.h"
@@ -35,8 +34,8 @@ void GetUserStream(const std::string& file_contents,
                    MINIDUMP_LOCATION_DESCRIPTOR* user_stream_location,
                    uint32_t stream_type,
                    size_t stream_size) {
-  const size_t kDirectoryOffset = sizeof(MINIDUMP_HEADER);
-  const size_t kUserStreamOffset =
+  constexpr size_t kDirectoryOffset = sizeof(MINIDUMP_HEADER);
+  constexpr size_t kUserStreamOffset =
       kDirectoryOffset + sizeof(MINIDUMP_DIRECTORY);
 
   const MINIDUMP_DIRECTORY* directory;
@@ -45,7 +44,7 @@ void GetUserStream(const std::string& file_contents,
   ASSERT_NO_FATAL_FAILURE(VerifyMinidumpHeader(header, 1, 0));
   ASSERT_TRUE(directory);
 
-  const size_t kDirectoryIndex = 0;
+  constexpr size_t kDirectoryIndex = 0;
 
   ASSERT_EQ(directory[kDirectoryIndex].StreamType, stream_type);
   EXPECT_EQ(directory[kDirectoryIndex].Location.Rva, kUserStreamOffset);
@@ -58,9 +57,8 @@ constexpr MinidumpStreamType kTestStreamId =
 
 TEST(MinidumpUserStreamWriter, InitializeFromSnapshotNoData) {
   MinidumpFileWriter minidump_file_writer;
-  auto user_stream_writer = base::WrapUnique(new MinidumpUserStreamWriter());
-  auto stream =
-      base::WrapUnique(new UserMinidumpStream(kTestStreamId, nullptr));
+  auto user_stream_writer = std::make_unique<MinidumpUserStreamWriter>();
+  auto stream = std::make_unique<UserMinidumpStream>(kTestStreamId, nullptr);
   user_stream_writer->InitializeFromSnapshot(stream.get());
   ASSERT_TRUE(minidump_file_writer.AddStream(std::move(user_stream_writer)));
 
@@ -77,9 +75,9 @@ TEST(MinidumpUserStreamWriter, InitializeFromSnapshotNoData) {
 
 TEST(MinidumpUserStreamWriter, InitializeFromUserExtensionStreamNoData) {
   MinidumpFileWriter minidump_file_writer;
-  auto data_source = base::WrapUnique(
-      new test::BufferExtensionStreamDataSource(kTestStreamId, nullptr, 0));
-  auto user_stream_writer = base::WrapUnique(new MinidumpUserStreamWriter());
+  auto data_source = std::make_unique<test::BufferExtensionStreamDataSource>(
+      kTestStreamId, nullptr, 0);
+  auto user_stream_writer = std::make_unique<MinidumpUserStreamWriter>();
   user_stream_writer->InitializeFromUserExtensionStream(std::move(data_source));
   minidump_file_writer.AddStream(std::move(user_stream_writer));
 
@@ -96,15 +94,14 @@ TEST(MinidumpUserStreamWriter, InitializeFromUserExtensionStreamNoData) {
 
 TEST(MinidumpUserStreamWriter, InitializeFromSnapshotOneStream) {
   MinidumpFileWriter minidump_file_writer;
-  auto user_stream_writer = base::WrapUnique(new MinidumpUserStreamWriter());
+  auto user_stream_writer = std::make_unique<MinidumpUserStreamWriter>();
 
   TestMemorySnapshot* test_data = new TestMemorySnapshot();
   test_data->SetAddress(97865);
-  const size_t kStreamSize = 128;
+  constexpr size_t kStreamSize = 128;
   test_data->SetSize(kStreamSize);
   test_data->SetValue('c');
-  auto stream =
-      base::WrapUnique(new UserMinidumpStream(kTestStreamId, test_data));
+  auto stream = std::make_unique<UserMinidumpStream>(kTestStreamId, test_data);
   user_stream_writer->InitializeFromSnapshot(stream.get());
   ASSERT_TRUE(minidump_file_writer.AddStream(std::move(user_stream_writer)));
 
@@ -125,11 +122,11 @@ TEST(MinidumpUserStreamWriter, InitializeFromSnapshotOneStream) {
 TEST(MinidumpUserStreamWriter, InitializeFromBufferOneStream) {
   MinidumpFileWriter minidump_file_writer;
 
-  const size_t kStreamSize = 128;
+  constexpr size_t kStreamSize = 128;
   std::vector<uint8_t> data(kStreamSize, 'c');
-  auto data_source = base::WrapUnique(new test::BufferExtensionStreamDataSource(
-      kTestStreamId, &data[0], data.size()));
-  auto user_stream_writer = base::WrapUnique(new MinidumpUserStreamWriter());
+  auto data_source = std::make_unique<test::BufferExtensionStreamDataSource>(
+      kTestStreamId, &data[0], data.size());
+  auto user_stream_writer = std::make_unique<MinidumpUserStreamWriter>();
   user_stream_writer->InitializeFromUserExtensionStream(std::move(data_source));
   minidump_file_writer.AddStream(std::move(user_stream_writer));
 

@@ -124,20 +124,14 @@ class QQuickToolTipPrivate : public QQuickPopupPrivate
     Q_DECLARE_PUBLIC(QQuickToolTip)
 
 public:
-    QQuickToolTipPrivate()
-        : delay(0),
-          timeout(-1)
-    {
-    }
-
     void startDelay();
     void stopDelay();
 
     void startTimeout();
     void stopTimeout();
 
-    int delay;
-    int timeout;
+    int delay = 0;
+    int timeout = -1;
     QString text;
     QBasicTimer delayTimer;
     QBasicTimer timeoutTimer;
@@ -244,12 +238,13 @@ void QQuickToolTip::setTimeout(int timeout)
     if (d->timeout == timeout)
         return;
 
+    d->timeout = timeout;
+
     if (timeout <= 0)
         d->stopTimeout();
     else if (isVisible())
         d->startTimeout();
 
-    d->timeout = timeout;
     emit timeoutChanged();
 }
 
@@ -276,14 +271,39 @@ QQuickToolTipAttached *QQuickToolTip::qmlAttachedProperties(QObject *object)
     return new QQuickToolTipAttached(object);
 }
 
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlmethod void QtQuick.Controls::ToolTip::show(string text, int timeout = -1)
+
+    This method shows the tooltip with \a text and \a timeout (milliseconds).
+*/
+void QQuickToolTip::show(const QString &text, int ms)
+{
+    if (ms >= 0)
+        setTimeout(ms);
+    setText(text);
+    open();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlmethod void QtQuick.Controls::ToolTip::hide()
+
+    This method hides the tooltip.
+*/
+void QQuickToolTip::hide()
+{
+    close();
+}
+
 QFont QQuickToolTip::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::TipLabelFont);
+    return QQuickTheme::font(QQuickTheme::ToolTip);
 }
 
 QPalette QQuickToolTip::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::ToolTipPalette);
+    return QQuickTheme::palette(QQuickTheme::ToolTip);
 }
 
 void QQuickToolTip::itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &data)
@@ -308,10 +328,14 @@ void QQuickToolTip::timerEvent(QTimerEvent *event)
     if (event->timerId() == d->timeoutTimer.timerId()) {
         d->stopTimeout();
         QQuickPopup::setVisible(false);
-    } else if (event->timerId() == d->delayTimer.timerId()) {
+        return;
+    }
+    if (event->timerId() == d->delayTimer.timerId()) {
         d->stopDelay();
         QQuickPopup::setVisible(true);
+        return;
     }
+    QQuickPopup::timerEvent(event);
 }
 
 #if QT_CONFIG(accessibility)
@@ -335,16 +359,10 @@ class QQuickToolTipAttachedPrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQuickToolTipAttached)
 
 public:
-    QQuickToolTipAttachedPrivate()
-        : delay(0),
-          timeout(-1)
-    {
-    }
-
     QQuickToolTip *instance(bool create) const;
 
-    int delay;
-    int timeout;
+    int delay = 0;
+    int timeout = -1;
     QString text;
 };
 
@@ -360,7 +378,7 @@ QQuickToolTip *QQuickToolTipAttachedPrivate::instance(bool create) const
     if (!tip && create) {
         // TODO: a cleaner way to create the instance? QQml(Meta)Type?
         QQmlComponent component(engine);
-        component.setData("import QtQuick.Controls 2.3; ToolTip { }", QUrl());
+        component.setData("import QtQuick.Controls 2.4; ToolTip { }", QUrl());
 
         QObject *object = component.create();
         if (object)
@@ -520,10 +538,9 @@ void QQuickToolTipAttached::show(const QString &text, int ms)
     tip->resetWidth();
     tip->resetHeight();
     tip->setParentItem(qobject_cast<QQuickItem *>(parent()));
-    tip->setTimeout(ms >= 0 ? ms : d->timeout);
     tip->setDelay(d->delay);
-    tip->setText(text);
-    tip->open();
+    tip->setTimeout(ms >= 0 ? ms : d->timeout);
+    tip->show(text);
 }
 
 /*!

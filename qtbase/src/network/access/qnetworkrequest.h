@@ -63,7 +63,11 @@ public:
         SetCookieHeader,
         ContentDispositionHeader,  // added for QMultipartMessage
         UserAgentHeader,
-        ServerHeader
+        ServerHeader,
+        IfModifiedSinceHeader,
+        ETagHeader,
+        IfMatchHeader,
+        IfNoneMatchHeader
     };
     enum Attribute {
         HttpStatusCodeAttribute,
@@ -92,6 +96,8 @@ public:
         HTTP2WasUsedAttribute,
         OriginalContentLengthAttribute,
         RedirectPolicyAttribute,
+        Http2DirectAttribute,
+        ResourceTypeAttribute, // internal
 
         User = 1000,
         UserMax = 32767
@@ -167,6 +173,8 @@ public:
     int maximumRedirectsAllowed() const;
     void setMaximumRedirectsAllowed(int maximumRedirectsAllowed);
 
+    QString peerVerifyName() const;
+    void setPeerVerifyName(const QString &peerName);
 private:
     QSharedDataPointer<QNetworkRequestPrivate> d;
     friend class QNetworkRequestPrivate;

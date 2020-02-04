@@ -121,15 +121,15 @@ using QtMiscUtils::fromHex;
 */
 
 /*!
-    \fn QDebug::QDebug(QtMsgType type)
+    \fn QDebug::QDebug(QtMsgType t)
 
-    Constructs a debug stream that writes to the handler for the message type specified by \a type.
+    Constructs a debug stream that writes to the handler for the message type \a t.
 */
 
 /*!
-    \fn QDebug::QDebug(const QDebug &other)
+    \fn QDebug::QDebug(const QDebug &o)
 
-    Constructs a copy of the \a other debug stream.
+    Constructs a copy of the other debug stream \a o.
 */
 
 /*!
@@ -356,7 +356,7 @@ QDebug &QDebug::resetFormat()
     stream->space = true;
     if (stream->context.version > 1)
         stream->flags = 0;
-    stream->setVerbosity(Stream::DefaultVerbosity);
+    stream->setVerbosity(DefaultVerbosity);
     return *this;
 }
 
@@ -461,7 +461,7 @@ QDebug &QDebug::resetFormat()
 
     The allowed range is from 0 to 7. The default value is 2.
 
-    \sa setVerbosity()
+    \sa setVerbosity(), VerbosityLevel
 */
 
 /*!
@@ -472,7 +472,31 @@ QDebug &QDebug::resetFormat()
 
     The allowed range is from 0 to 7. The default value is 2.
 
-    \sa verbosity()
+    \sa verbosity(), VerbosityLevel
+*/
+
+/*!
+    \fn QDebug &QDebug::verbosity(int verbosityLevel)
+    \since 5.13
+
+    Sets the verbosity of the stream to \a verbosityLevel and returns a reference to the stream.
+
+    The allowed range is from 0 to 7. The default value is 2.
+
+    \sa verbosity(), setVerbosity(), VerbosityLevel
+*/
+
+/*!
+    \enum QDebug::VerbosityLevel
+    \since 5.13
+
+    This enum describes the range of verbosity levels.
+
+    \value MinimumVerbosity
+    \value DefaultVerbosity
+    \value MaximumVerbosity
+
+    \sa verbosity(), setVerbosity()
 */
 
 /*!
@@ -501,79 +525,79 @@ QDebug &QDebug::resetFormat()
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(signed short i)
+    \fn QDebug &QDebug::operator<<(signed short t)
 
-    Writes the signed short integer, \a i, to the stream and returns a reference
+    Writes the signed short integer, \a t, to the stream and returns a reference
     to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(unsigned short i)
+    \fn QDebug &QDebug::operator<<(unsigned short t)
 
-    Writes then unsigned short integer, \a i, to the stream and returns a
+    Writes then unsigned short integer, \a t, to the stream and returns a
     reference to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(signed int i)
+    \fn QDebug &QDebug::operator<<(signed int t)
 
-    Writes the signed integer, \a i, to the stream and returns a reference
+    Writes the signed integer, \a t, to the stream and returns a reference
     to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(unsigned int i)
+    \fn QDebug &QDebug::operator<<(unsigned int t)
 
-    Writes then unsigned integer, \a i, to the stream and returns a reference to
+    Writes then unsigned integer, \a t, to the stream and returns a reference to
     the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(signed long l)
+    \fn QDebug &QDebug::operator<<(signed long t)
 
-    Writes the signed long integer, \a l, to the stream and returns a reference
+    Writes the signed long integer, \a t, to the stream and returns a reference
     to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(unsigned long l)
+    \fn QDebug &QDebug::operator<<(unsigned long t)
 
-    Writes then unsigned long integer, \a l, to the stream and returns a reference
+    Writes then unsigned long integer, \a t, to the stream and returns a reference
     to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(qint64 i)
+    \fn QDebug &QDebug::operator<<(qint64 t)
 
-    Writes the signed 64-bit integer, \a i, to the stream and returns a reference
+    Writes the signed 64-bit integer, \a t, to the stream and returns a reference
     to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(quint64 i)
+    \fn QDebug &QDebug::operator<<(quint64 t)
 
-    Writes then unsigned 64-bit integer, \a i, to the stream and returns a
+    Writes then unsigned 64-bit integer, \a t, to the stream and returns a
     reference to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(float f)
+    \fn QDebug &QDebug::operator<<(float t)
 
-    Writes the 32-bit floating point number, \a f, to the stream and returns a
+    Writes the 32-bit floating point number, \a t, to the stream and returns a
     reference to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(double f)
+    \fn QDebug &QDebug::operator<<(double t)
 
-    Writes the 64-bit floating point number, \a f, to the stream and returns a
+    Writes the 64-bit floating point number, \a t, to the stream and returns a
     reference to the stream.
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(const char *s)
+    \fn QDebug &QDebug::operator<<(const char *t)
 
-    Writes the '\\0'-terminated string, \a s, to the stream and returns a
+    Writes the '\\0'-terminated string, \a t, to the stream and returns a
     reference to the stream. The string is never quoted nor transformed to the
     output, but note that some QDebug backends might not be 8-bit clean.
 */
@@ -595,9 +619,9 @@ QDebug &QDebug::resetFormat()
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(const QString &s)
+    \fn QDebug &QDebug::operator<<(const QString &t)
 
-    Writes the string, \a s, to the stream and returns a reference to the
+    Writes the string, \a t, to the stream and returns a reference to the
     stream. Normally, QDebug prints the string inside quotes and transforms
     non-printable characters to their Unicode values (\\u1234).
 
@@ -606,37 +630,13 @@ QDebug &QDebug::resetFormat()
     clean.
 
     Output examples:
-    \code
-        QString s;
-
-        s = "a";
-        qDebug().noquote() << s;    // prints: a
-        qDebug() << s;              // prints: "a"
-
-        s = "\"a\r\n\"";
-        qDebug() << s;              // prints: "\"a\r\n\""
-
-        s = "\033";                 // escape character
-        qDebug() << s;              // prints: "\u001B"
-
-        s = "\u00AD";               // SOFT HYPHEN
-        qDebug() << s;              // prints: "\u00AD"
-
-        s = "\u00E1";               // LATIN SMALL LETTER A WITH ACUTE
-        qDebug() << s;              // prints: "á"
-
-        s = "a\u0301";              // "a" followed by COMBINING ACUTE ACCENT
-        qDebug() << s;              // prints: "á";
-
-        s = "\u0430\u0301";         // CYRILLIC SMALL LETTER A followed by COMBINING ACUTE ACCENT
-        qDebug() << s;              // prints: "а́"
-    \endcode
+    \snippet code/src_corelib_io_qdebug.cpp 0
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(const QStringRef &s)
+    \fn QDebug &QDebug::operator<<(const QStringRef &t)
 
-    Writes the string, \a s, to the stream and returns a reference to the
+    Writes the string, \a t, to the stream and returns a reference to the
     stream. Normally, QDebug prints the string inside quotes and transforms
     non-printable characters to their Unicode values (\\u1234).
 
@@ -663,9 +663,9 @@ QDebug &QDebug::resetFormat()
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(QLatin1String s)
+    \fn QDebug &QDebug::operator<<(QLatin1String t)
 
-    Writes the string, \a s, to the stream and returns a reference to the
+    Writes the string, \a t, to the stream and returns a reference to the
     stream. Normally, QDebug prints the string inside quotes and transforms
     non-printable characters to their Unicode values (\\u1234).
 
@@ -677,9 +677,9 @@ QDebug &QDebug::resetFormat()
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(const QByteArray &b)
+    \fn QDebug &QDebug::operator<<(const QByteArray &t)
 
-    Writes the byte array, \a b, to the stream and returns a reference to the
+    Writes the byte array, \a t, to the stream and returns a reference to the
     stream. Normally, QDebug prints the array inside quotes and transforms
     control or non-US-ASCII characters to their C escape sequences (\\xAB). This
     way, the output is always 7-bit clean and the string can be copied from the
@@ -690,25 +690,7 @@ QDebug &QDebug::resetFormat()
     clean.
 
     Output examples:
-    \code
-        QByteArray ba;
-
-        ba = "a";
-        qDebug().noquote() << ba;    // prints: a
-        qDebug() << ba;              // prints: "a"
-
-        ba = "\"a\r\n\"";
-        qDebug() << ba;              // prints: "\"a\r\n\""
-
-        ba = "\033";                 // escape character
-        qDebug() << ba;              // prints: "\x1B"
-
-        ba = "\xC3\xA1";
-        qDebug() << ba;              // prints: "\xC3\xA1"
-
-        ba = QByteArray("a\0b", 3);
-        qDebug() << ba               // prints: "\a\x00""b"
-    \endcode
+    \snippet code/src_corelib_io_qdebug.cpp 1
 
     Note how QDebug needed to close and reopen the string in the way C and C++
     languages concatenate string literals so that the letter 'b' is not
@@ -716,9 +698,9 @@ QDebug &QDebug::resetFormat()
 */
 
 /*!
-    \fn QDebug &QDebug::operator<<(const void *p)
+    \fn QDebug &QDebug::operator<<(const void *t)
 
-    Writes a pointer, \a p, to the stream and returns a reference to the stream.
+    Writes a pointer, \a t, to the stream and returns a reference to the stream.
 */
 
 /*!
@@ -732,99 +714,99 @@ QDebug &QDebug::resetFormat()
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const QList<T> &list)
+    \fn template <class T> QDebug operator<<(QDebug debug, const QList<T> &list)
     \relates QDebug
 
-    Writes the contents of \a list to \a stream. \c T needs to
+    Writes the contents of \a list to \a debug. \c T needs to
     support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const std::list<T, Alloc> &list)
+    \fn template <typename T, typename Alloc> QDebug operator<<(QDebug debug, const std::list<T, Alloc> &vec)
     \relates QDebug
     \since 5.7
 
-    Writes the contents of \a list to \a stream. \c T needs to
+    Writes the contents of list \a vec to \a debug. \c T needs to
     support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const QVector<T> &vector)
+    \fn template <typename T> QDebug operator<<(QDebug debug, const QVector<T> &vec)
     \relates QDebug
 
-    Writes the contents of \a vector to \a stream. \c T needs to
+    Writes the contents of vector \a vec to \a debug. \c T needs to
     support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const std::vector<T, Alloc> &vector)
+    \fn template <typename T, typename Alloc> QDebug operator<<(QDebug debug, const std::vector<T, Alloc> &vec)
     \relates QDebug
     \since 5.7
 
-    Writes the contents of \a vector to \a stream. \c T needs to
+    Writes the contents of vector \a vec to \a debug. \c T needs to
     support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const QSet<T> &set)
+    \fn template <typename T> QDebug operator<<(QDebug debug, const QSet<T> &set)
     \relates QDebug
 
-    Writes the contents of \a set to \a stream. \c T needs to
+    Writes the contents of \a set to \a debug. \c T needs to
     support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const QMap<Key, T> &map)
+    \fn template <class Key, class T> QDebug operator<<(QDebug debug, const QMap<Key, T> &map)
     \relates QDebug
 
-    Writes the contents of \a map to \a stream. Both \c Key and
+    Writes the contents of \a map to \a debug. Both \c Key and
     \c T need to support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const std::map<Key, T, Compare, Alloc> &map)
+    \fn template <typename Key, typename T, typename Compare, typename Alloc> QDebug operator<<(QDebug debug, const std::map<Key, T, Compare, Alloc> &map)
     \relates QDebug
     \since 5.7
 
-    Writes the contents of \a map to \a stream. Both \c Key and
+    Writes the contents of \a map to \a debug. Both \c Key and
     \c T need to support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const std::multimap<Key, T, Compare, Alloc> &map)
+    \fn template <typename Key, typename T, typename Compare, typename Alloc> QDebug operator<<(QDebug debug, const std::multimap<Key, T, Compare, Alloc> &map)
     \relates QDebug
     \since 5.7
 
-    Writes the contents of \a map to \a stream. Both \c Key and
+    Writes the contents of \a map to \a debug. Both \c Key and
     \c T need to support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const QHash<Key, T> &hash)
+    \fn template <class Key, class T> QDebug operator<<(QDebug debug, const QHash<Key, T> &hash)
     \relates QDebug
 
-    Writes the contents of \a hash to \a stream. Both \c Key and
+    Writes the contents of \a hash to \a debug. Both \c Key and
     \c T need to support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const QPair<T1, T2> &pair)
+    \fn template <class T1, class T2> QDebug operator<<(QDebug debug, const QPair<T1, T2> &pair)
     \relates QDebug
 
-    Writes the contents of \a pair to \a stream. Both \c T1 and
+    Writes the contents of \a pair to \a debug. Both \c T1 and
     \c T2 need to support streaming into QDebug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug stream, const QFlags<T> &flag)
+    \fn template<typename T> QDebug operator<<(QDebug debug, const QFlags<T> &flags)
     \relates QDebug
     \since 4.7
 
-    Writes \a flag to \a stream.
+    Writes \a flags to \a debug.
 */
 
 /*!
-    \fn QDebug operator<<(QDebug debug, const QSharedPointer<T> &ptr)
+    \fn template<typename T> QDebug operator<<(QDebug debug, const QSharedPointer<T> &ptr)
     \relates QSharedPointer
     \since 5.7
 
@@ -835,9 +817,14 @@ QDebug &QDebug::resetFormat()
 */
 
 /*!
+  \fn QDebug &QDebug::operator<<(std::nullptr_t)
+  \internal
+ */
+
+/*!
     \class QDebugStateSaver
     \inmodule QtCore
-    \brief Convenience class for custom QDebug operators
+    \brief Convenience class for custom QDebug operators.
 
     Saves the settings used by QDebug, and restores them upon destruction,
     then calls \l {QDebug::maybeSpace()}{maybeSpace()}, to separate arguments with a space if
@@ -929,33 +916,127 @@ void qt_QMetaEnum_flagDebugOperator(QDebug &debug, size_t sizeofT, int value)
 
 #ifndef QT_NO_QOBJECT
 /*!
+    \fn QDebug qt_QMetaEnum_debugOperator(QDebug &, int value, const QMetaObject *, const char *name)
     \internal
+
+    Formats the given enum \a value for debug output.
+
+    The supported verbosity are:
+
+      0: Just the key, or value with enum name if no key is found:
+
+         MyEnum2
+         MyEnum(123)
+         MyScopedEnum::Enum3
+         MyScopedEnum(456)
+
+      1: Same as 0, but treating all enums as scoped:
+
+         MyEnum::MyEnum2
+         MyEnum(123)
+         MyScopedEnum::Enum3
+         MyScopedEnum(456)
+
+      2: The QDebug default. Same as 0, and includes class/namespace scope:
+
+         MyNamespace::MyClass::MyEnum2
+         MyNamespace::MyClass::MyEnum(123)
+         MyNamespace::MyClass::MyScopedEnum::Enum3
+         MyNamespace::MyClass::MyScopedEnum(456)
+
+      3: Same as 2, but treating all enums as scoped:
+
+         MyNamespace::MyClass::MyEnum::MyEnum2
+         MyNamespace::MyClass::MyEnum(123)
+         MyNamespace::MyClass::MyScopedEnum::Enum3
+         MyNamespace::MyClass::MyScopedEnum(456)
  */
 QDebug qt_QMetaEnum_debugOperator(QDebug &dbg, int value, const QMetaObject *meta, const char *name)
 {
     QDebugStateSaver saver(dbg);
+    dbg.nospace();
     QMetaEnum me = meta->enumerator(meta->indexOfEnumerator(name));
+
+    const int verbosity = dbg.verbosity();
+    if (verbosity >= QDebug::DefaultVerbosity) {
+        if (const char *scope = me.scope())
+            dbg << scope << "::";
+    }
+
     const char *key = me.valueToKey(value);
-    dbg.nospace() << meta->className() << "::" << name << '(';
+    const bool scoped = me.isScoped() || verbosity & 1;
+    if (scoped || !key)
+        dbg << me.enumName() << (!key ? "(" : "::");
+
     if (key)
         dbg << key;
     else
-        dbg << value;
-    dbg << ')';
+        dbg << value << ")";
+
     return dbg;
 }
 
+/*!
+    \fn QDebug qt_QMetaEnum_flagDebugOperator(QDebug &, quint64 value, const QMetaObject *, const char *name)
+    \internal
+
+    Formats the given flag \a value for debug output.
+
+    The supported verbosity are:
+
+      0: Just the key(s):
+
+         MyFlag1
+         MyFlag2|MyFlag3
+         MyScopedFlag(MyFlag2)
+         MyScopedFlag(MyFlag2|MyFlag3)
+
+      1: Same as 0, but treating all flags as scoped:
+
+         MyFlag(MyFlag1)
+         MyFlag(MyFlag2|MyFlag3)
+         MyScopedFlag(MyFlag2)
+         MyScopedFlag(MyFlag2|MyFlag3)
+
+      2: The QDebug default. Same as 1, and includes class/namespace scope:
+
+         QFlags<MyNamespace::MyClass::MyFlag>(MyFlag1)
+         QFlags<MyNamespace::MyClass::MyFlag>(MyFlag2|MyFlag3)
+         QFlags<MyNamespace::MyClass::MyScopedFlag>(MyFlag2)
+         QFlags<MyNamespace::MyClass::MyScopedFlag>(MyFlag2|MyFlag3)
+ */
 QDebug qt_QMetaEnum_flagDebugOperator(QDebug &debug, quint64 value, const QMetaObject *meta, const char *name)
 {
+    const int verbosity = debug.verbosity();
+
     QDebugStateSaver saver(debug);
     debug.resetFormat();
     debug.noquote();
     debug.nospace();
-    debug << "QFlags<";
+
     const QMetaEnum me = meta->enumerator(meta->indexOfEnumerator(name));
-    if (const char *scope = me.scope())
-        debug << scope << "::";
-    debug << me.name() << ">(" << me.valueToKeys(value) << ')';
+
+    const bool classScope = verbosity >= QDebug::DefaultVerbosity;
+    if (classScope) {
+        debug << "QFlags<";
+
+        if (const char *scope = me.scope())
+            debug << scope << "::";
+    }
+
+    const bool enumScope = me.isScoped() || verbosity > QDebug::MinimumVerbosity;
+    if (enumScope) {
+        debug << me.enumName();
+        if (classScope)
+            debug << ">";
+        debug << "(";
+    }
+
+    debug << me.valueToKeys(value);
+
+    if (enumScope)
+        debug << ')';
+
     return debug;
 }
 #endif // !QT_NO_QOBJECT

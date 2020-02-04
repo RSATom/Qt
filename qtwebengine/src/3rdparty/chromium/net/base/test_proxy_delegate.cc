@@ -4,97 +4,80 @@
 
 #include "net/base/test_proxy_delegate.h"
 
+#include "net/base/net_errors.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
+#include "net/proxy_resolution/proxy_info.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
 
-TestProxyDelegate::TestProxyDelegate()
-    : on_before_tunnel_request_called_(false),
-      on_tunnel_request_completed_called_(false),
-      on_tunnel_headers_received_called_(false),
-      get_alternative_proxy_invocations_(0) {}
+TestProxyDelegate::TestProxyDelegate() = default;
 
-TestProxyDelegate::~TestProxyDelegate() {}
-
-void TestProxyDelegate::VerifyOnTunnelRequestCompleted(
-    const std::string& endpoint,
-    const std::string& proxy_server) const {
-  EXPECT_TRUE(on_tunnel_request_completed_called_);
-  EXPECT_TRUE(HostPortPair::FromString(endpoint).Equals(
-      on_tunnel_request_completed_endpoint_));
-  EXPECT_TRUE(HostPortPair::FromString(proxy_server)
-                  .Equals(on_tunnel_request_completed_proxy_server_));
-}
+TestProxyDelegate::~TestProxyDelegate() = default;
 
 void TestProxyDelegate::VerifyOnTunnelHeadersReceived(
-    const std::string& origin,
-    const std::string& proxy_server,
-    const std::string& status_line) const {
-  EXPECT_TRUE(on_tunnel_headers_received_called_);
-  EXPECT_TRUE(HostPortPair::FromString(origin).Equals(
-      on_tunnel_headers_received_origin_));
-  EXPECT_TRUE(HostPortPair::FromString(proxy_server)
-                  .Equals(on_tunnel_headers_received_proxy_server_));
-  EXPECT_EQ(status_line, on_tunnel_headers_received_status_line_);
+    const ProxyServer& proxy_server,
+    const std::string& response_header_name,
+    const std::string& response_header_value) const {
+  EXPECT_EQ(proxy_server, on_tunnel_headers_received_proxy_server_);
+  ASSERT_NE(on_tunnel_headers_received_headers_.get(), nullptr);
+  EXPECT_TRUE(on_tunnel_headers_received_headers_->HasHeaderValue(
+      response_header_name, response_header_value));
 }
 
-void TestProxyDelegate::OnResolveProxy(const GURL& url,
-                                       const std::string& method,
-                                       const ProxyService& proxy_service,
-                                       ProxyInfo* result) {}
+void TestProxyDelegate::OnResolveProxy(
+    const GURL& url,
+    const std::string& method,
+    const ProxyRetryInfoMap& proxy_retry_info,
+    ProxyInfo* result) {
+  if (trusted_spdy_proxy_.is_valid()) {
+    ProxyList new_proxy_list;
+    for (const auto& proxy_server : result->proxy_list().GetAll()) {
+      if (proxy_server == trusted_spdy_proxy_) {
+        new_proxy_list.AddProxyServer(ProxyServer(
+            proxy_server.scheme(), proxy_server.host_port_pair(), true));
+      } else {
+        new_proxy_list.AddProxyServer(proxy_server);
+      }
+    }
+    result->UseProxyList(new_proxy_list);
+    result->set_traffic_annotation(
+        MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS));
+  }
 
-void TestProxyDelegate::OnTunnelConnectCompleted(
-    const HostPortPair& endpoint,
-    const HostPortPair& proxy_server,
-    int net_error) {
-  on_tunnel_request_completed_called_ = true;
-  on_tunnel_request_completed_endpoint_ = endpoint;
-  on_tunnel_request_completed_proxy_server_ = proxy_server;
+  // Only set |alternative_proxy_server_| as the alternative proxy if the
+  // ProxyService has not marked it as bad.
+  ProxyInfo alternative_proxy_info;
+  alternative_proxy_info.UseProxyServer(alternative_proxy_server_);
+  alternative_proxy_info.DeprioritizeBadProxies(proxy_retry_info);
+  if (!alternative_proxy_info.is_empty())
+    result->SetAlternativeProxy(alternative_proxy_info.proxy_server());
+  result->set_traffic_annotation(
+      MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS));
 }
 
 void TestProxyDelegate::OnFallback(const ProxyServer& bad_proxy,
                                    int net_error) {}
 
 void TestProxyDelegate::OnBeforeTunnelRequest(
-    const HostPortPair& proxy_server,
+    const ProxyServer& proxy_server,
     HttpRequestHeaders* extra_headers) {
   on_before_tunnel_request_called_ = true;
   if (extra_headers)
-    extra_headers->SetHeader("Foo", proxy_server.ToString());
+    extra_headers->SetHeader("Foo", proxy_server.ToURI());
 }
 
-void TestProxyDelegate::OnTunnelHeadersReceived(
-    const HostPortPair& origin,
-    const HostPortPair& proxy_server,
+Error TestProxyDelegate::OnTunnelHeadersReceived(
+    const ProxyServer& proxy_server,
     const HttpResponseHeaders& response_headers) {
-  on_tunnel_headers_received_called_ = true;
-  on_tunnel_headers_received_origin_ = origin;
+  EXPECT_EQ(on_tunnel_headers_received_headers_.get(), nullptr);
+  on_tunnel_headers_received_headers_ =
+      base::MakeRefCounted<HttpResponseHeaders>(response_headers.raw_headers());
+
   on_tunnel_headers_received_proxy_server_ = proxy_server;
-  on_tunnel_headers_received_status_line_ = response_headers.GetStatusLine();
-}
-
-bool TestProxyDelegate::IsTrustedSpdyProxy(
-    const net::ProxyServer& proxy_server) {
-  return proxy_server.is_valid() && trusted_spdy_proxy_ == proxy_server;
-}
-
-void TestProxyDelegate::GetAlternativeProxy(
-    const GURL& url,
-    const ProxyServer& resolved_proxy_server,
-    ProxyServer* alternative_proxy_server) const {
-  EXPECT_TRUE(resolved_proxy_server.is_valid());
-  EXPECT_FALSE(alternative_proxy_server->is_valid());
-  *alternative_proxy_server = alternative_proxy_server_;
-  get_alternative_proxy_invocations_++;
-}
-
-void TestProxyDelegate::OnAlternativeProxyBroken(
-    const ProxyServer& alternative_proxy_server) {
-  EXPECT_TRUE(alternative_proxy_server.is_valid());
-  EXPECT_EQ(alternative_proxy_server_, alternative_proxy_server);
-  alternative_proxy_server_ = ProxyServer();
+  return OK;
 }
 
 }  // namespace net

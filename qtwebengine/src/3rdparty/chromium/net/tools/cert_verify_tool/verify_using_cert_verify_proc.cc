@@ -6,6 +6,8 @@
 
 #include <iostream>
 
+#include "base/stl_util.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -14,7 +16,9 @@
 #include "net/cert/cert_verifier.h"
 #include "net/cert/cert_verify_proc.h"
 #include "net/cert/cert_verify_result.h"
+#include "net/cert/test_root_certs.h"
 #include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util.h"
 #include "net/tools/cert_verify_tool/cert_verify_tool_util.h"
 
 namespace {
@@ -40,15 +44,14 @@ bool DumpX509CertificateChain(const base::FilePath& file_path,
     std::cerr << "ERROR: X509Certificate::GetPEMEncodedChain failed.\n";
     return false;
   }
-  return WriteToFile(file_path, base::JoinString(pem_encoded, ""));
+  return WriteToFile(file_path, base::StrCat(pem_encoded));
 }
 
 // Returns a hex-encoded sha256 of the DER-encoding of |cert_handle|.
-std::string FingerPrintOSCertHandle(
-    net::X509Certificate::OSCertHandle cert_handle) {
+std::string FingerPrintCryptoBuffer(const CRYPTO_BUFFER* cert_handle) {
   net::SHA256HashValue hash =
       net::X509Certificate::CalculateFingerprint256(cert_handle);
-  return base::HexEncode(hash.data, arraysize(hash.data));
+  return base::HexEncode(hash.data, base::size(hash.data));
 }
 
 // Returns a textual representation of the Subject of |cert|.
@@ -57,11 +60,9 @@ std::string SubjectFromX509Certificate(const net::X509Certificate* cert) {
 }
 
 // Returns a textual representation of the Subject of |cert_handle|.
-std::string SubjectFromOSCertHandle(
-    net::X509Certificate::OSCertHandle cert_handle) {
+std::string SubjectFromCryptoBuffer(CRYPTO_BUFFER* cert_handle) {
   scoped_refptr<net::X509Certificate> cert =
-      net::X509Certificate::CreateFromHandle(
-          cert_handle, net::X509Certificate::OSCertHandles());
+      net::X509Certificate::CreateFromBuffer(bssl::UpRef(cert_handle), {});
   if (!cert)
     return std::string();
   return SubjectFromX509Certificate(cert.get());
@@ -92,17 +93,16 @@ void PrintCertVerifyResult(const net::CertVerifyResult& result) {
     std::cout << "is_issued_by_known_root\n";
   if (result.is_issued_by_additional_trust_anchor)
     std::cout << "is_issued_by_additional_trust_anchor\n";
-  if (result.common_name_fallback_used)
-    std::cout << "common_name_fallback_used\n";
 
   if (result.verified_cert) {
     std::cout << "chain:\n "
-              << FingerPrintOSCertHandle(result.verified_cert->os_cert_handle())
+              << FingerPrintCryptoBuffer(result.verified_cert->cert_buffer())
               << " " << SubjectFromX509Certificate(result.verified_cert.get())
               << "\n";
-    for (auto* os_cert : result.verified_cert->GetIntermediateCertificates()) {
-      std::cout << " " << FingerPrintOSCertHandle(os_cert) << " "
-                << SubjectFromOSCertHandle(os_cert) << "\n";
+    for (const auto& intermediate :
+         result.verified_cert->intermediate_buffers()) {
+      std::cout << " " << FingerPrintCryptoBuffer(intermediate.get()) << " "
+                << SubjectFromCryptoBuffer(intermediate.get()) << "\n";
     }
   }
 }
@@ -110,11 +110,13 @@ void PrintCertVerifyResult(const net::CertVerifyResult& result) {
 }  // namespace
 
 bool VerifyUsingCertVerifyProc(
+    net::CertVerifyProc* cert_verify_proc,
     const CertInput& target_der_cert,
     const std::string& hostname,
     const std::vector<CertInput>& intermediate_der_certs,
     const std::vector<CertInput>& root_der_certs,
-    const base::FilePath& dump_prefix_path) {
+    net::CRLSet* crl_set,
+    const base::FilePath& dump_path) {
   std::cout
       << "NOTE: CertVerifyProc always uses OS trust settings (--roots are in "
          "addition).\n";
@@ -149,29 +151,38 @@ bool VerifyUsingCertVerifyProc(
   }
 
   // TODO(mattm): add command line flags to configure VerifyFlags.
-  int flags = net::CertVerifier::VERIFY_EV_CERT |
-              net::CertVerifier::VERIFY_CERT_IO_ENABLED;
+  int flags = 0;
 
-  scoped_refptr<net::CertVerifyProc> cert_verify_proc =
-      net::CertVerifyProc::CreateDefault();
+  // Not all platforms support providing additional trust anchors to the
+  // verifier. To workaround this, use TestRootCerts to modify the
+  // system trust store globally.
+  net::TestRootCerts* test_root_certs = net::TestRootCerts::GetInstance();
+  CHECK(test_root_certs->IsEmpty());
+
   if (!x509_additional_trust_anchors.empty() &&
       !cert_verify_proc->SupportsAdditionalTrustAnchors()) {
-    std::cerr << "WARNING: Additional trust anchors not supported on this "
-                 "platform.\n";
+    std::cerr << "NOTE: Additional trust anchors not supported on this "
+                 "platform. Using TestRootCerts instead.\n";
+
+    for (const auto& trust_anchor : x509_additional_trust_anchors)
+      test_root_certs->Add(trust_anchor.get());
+
+    x509_additional_trust_anchors.clear();
   }
+
   net::CertVerifyResult result;
-  // TODO(mattm): add CRLSet handling.
-  int rv = cert_verify_proc->Verify(x509_target_and_intermediates.get(),
-                                    hostname, std::string() /* ocsp_response */,
-                                    flags, nullptr /* crl_set */,
-                                    x509_additional_trust_anchors, &result);
+  int rv =
+      cert_verify_proc->Verify(x509_target_and_intermediates.get(), hostname,
+                               std::string() /* ocsp_response */, flags,
+                               crl_set, x509_additional_trust_anchors, &result);
+
+  // Remove any temporary trust anchors.
+  test_root_certs->Clear();
 
   std::cout << "CertVerifyProc result: " << net::ErrorToShortString(rv) << "\n";
   PrintCertVerifyResult(result);
-  if (!dump_prefix_path.empty() && result.verified_cert) {
-    if (!DumpX509CertificateChain(dump_prefix_path.AddExtension(
-                                      FILE_PATH_LITERAL(".CertVerifyProc.pem")),
-                                  result.verified_cert.get())) {
+  if (!dump_path.empty() && result.verified_cert) {
+    if (!DumpX509CertificateChain(dump_path, result.verified_cert.get())) {
       return false;
     }
   }

@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
@@ -19,7 +19,6 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_client.h"
@@ -45,44 +44,47 @@ namespace Create = app_window::Create;
 namespace extensions {
 
 namespace app_window_constants {
-const char kInvalidWindowId[] =
+constexpr char kInvalidWindowId[] =
     "The window id can not be more than 256 characters long.";
-const char kInvalidColorSpecification[] =
+constexpr char kInvalidColorSpecification[] =
     "The color specification could not be parsed.";
-const char kColorWithFrameNone[] = "Windows with no frame cannot have a color.";
-const char kInactiveColorWithoutColor[] =
+constexpr char kColorWithFrameNone[] =
+    "Windows with no frame cannot have a color.";
+constexpr char kInactiveColorWithoutColor[] =
     "frame.inactiveColor must be used with frame.color.";
-const char kConflictingBoundsOptions[] =
+constexpr char kConflictingBoundsOptions[] =
     "The $1 property cannot be specified for both inner and outer bounds.";
-const char kAlwaysOnTopPermission[] =
+constexpr char kAlwaysOnTopPermission[] =
     "The \"app.window.alwaysOnTop\" permission is required.";
-const char kInvalidUrlParameter[] =
+constexpr char kInvalidUrlParameter[] =
     "The URL used for window creation must be local for security reasons.";
-const char kAlphaEnabledWrongChannel[] =
+constexpr char kAlphaEnabledWrongChannel[] =
     "The alphaEnabled option requires dev channel or newer.";
-const char kAlphaEnabledMissingPermission[] =
+constexpr char kAlphaEnabledMissingPermission[] =
     "The alphaEnabled option requires app.window.alpha permission.";
-const char kAlphaEnabledNeedsFrameNone[] =
+constexpr char kAlphaEnabledNeedsFrameNone[] =
     "The alphaEnabled option can only be used with \"frame: 'none'\".";
-const char kImeWindowMissingPermission[] =
+constexpr char kImeWindowMissingPermission[] =
     "Extensions require the \"app.window.ime\" permission to create windows.";
-const char kImeOptionIsNotSupported[] =
+constexpr char kImeOptionIsNotSupported[] =
     "The \"ime\" option is not supported for platform app.";
 #if !defined(OS_CHROMEOS)
-const char kImeWindowUnsupportedPlatform[] =
+constexpr char kImeWindowUnsupportedPlatform[] =
     "The \"ime\" option can only be used on ChromeOS.";
 #else
-const char kImeWindowMustBeImeWindowOrPanel[] =
-    "IME extensions must create ime window ( with \"ime: true\" and "
-    "\"frame: 'none'\") or panel window (with \"type: panel\").";
+constexpr char kImeWindowMustBeImeWindow[] =
+    "IME extensions must create an IME window ( with \"ime: true\" and "
+    "\"frame: 'none'\"). Panels are no longer supported for IME extensions.";
 #endif
-const char kShowInShelfWindowKeyNotSet[] =
+constexpr char kShowInShelfWindowKeyNotSet[] =
     "The \"showInShelf\" option requires the \"id\" option to be set.";
-const char kLockScreenActionRequiresLockScreenContext[] =
+constexpr char kLockScreenActionRequiresLockScreenContext[] =
     "The lockScreenAction option requires lock screen app context.";
-const char kLockScreenActionRequiresLockScreenPermission[] =
+constexpr char kLockScreenActionRequiresLockScreenPermission[] =
     "The lockScreenAction option requires lockScreen permission.";
-const char kAppWindowCreationFailed[] = "Failed to create the app window.";
+constexpr char kAppWindowCreationFailed[] = "Failed to create the app window.";
+constexpr char kPrematureWindowClose[] =
+    "App window is closed before ready to commit first navigation.";
 }  // namespace app_window_constants
 
 const char kNoneFrameOption[] = "none";
@@ -214,13 +216,8 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
       return RespondNow(Error(error));
 
     if (options->type == app_window::WINDOW_TYPE_PANEL) {
-#if defined(OS_CHROMEOS)
-      // Panels for v2 apps are only supported on Chrome OS.
-      create_params.window_type = AppWindow::WINDOW_TYPE_PANEL;
-#else
       WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_WARNING,
-                     "Panels are not supported on this platform");
-#endif
+                     "Panels are no longer supported.");
     }
 
     if (!GetFrameOptions(*options, &create_params, &error))
@@ -241,15 +238,13 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
           Error(app_window_constants::kImeWindowUnsupportedPlatform));
 #else
       // IME extensions must create ime window (with "ime: true" and
-      // "frame: none") or panel window (with "type: panel").
+      // "frame: none").
       if (options->ime.get() && *options->ime.get() &&
           create_params.frame == AppWindow::FRAME_NONE) {
         create_params.is_ime_window = true;
-      } else if (options->type == app_window::WINDOW_TYPE_PANEL) {
-        create_params.window_type = AppWindow::WINDOW_TYPE_PANEL;
       } else {
         return RespondNow(
-            Error(app_window_constants::kImeWindowMustBeImeWindowOrPanel));
+            Error(app_window_constants::kImeWindowMustBeImeWindow));
       }
 #endif  // OS_CHROMEOS
     } else {
@@ -278,8 +273,8 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
         "0F585FB1D0FDFBEBCE1FEB5E9DFFB6DA476B8C9B"
       };
       if (AppWindowClient::Get()->IsCurrentChannelOlderThanDev() &&
-          !SimpleFeature::IsIdInArray(
-              extension_id(), kWhitelist, arraysize(kWhitelist))) {
+          !SimpleFeature::IsIdInArray(extension_id(), kWhitelist,
+                                      base::size(kWhitelist))) {
         return RespondNow(
             Error(app_window_constants::kAlphaEnabledWrongChannel));
       }
@@ -344,21 +339,19 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
       }
     }
 
-    if (options->type != app_window::WINDOW_TYPE_PANEL) {
-      switch (options->state) {
-        case app_window::STATE_NONE:
-        case app_window::STATE_NORMAL:
-          break;
-        case app_window::STATE_FULLSCREEN:
-          create_params.state = ui::SHOW_STATE_FULLSCREEN;
-          break;
-        case app_window::STATE_MAXIMIZED:
-          create_params.state = ui::SHOW_STATE_MAXIMIZED;
-          break;
-        case app_window::STATE_MINIMIZED:
-          create_params.state = ui::SHOW_STATE_MINIMIZED;
-          break;
-      }
+    switch (options->state) {
+      case app_window::STATE_NONE:
+      case app_window::STATE_NORMAL:
+        break;
+      case app_window::STATE_FULLSCREEN:
+        create_params.state = ui::SHOW_STATE_FULLSCREEN;
+        break;
+      case app_window::STATE_MAXIMIZED:
+        create_params.state = ui::SHOW_STATE_MAXIMIZED;
+        break;
+      case app_window::STATE_MINIMIZED:
+        create_params.state = ui::SHOW_STATE_MINIMIZED;
+        break;
     }
   }
 
@@ -428,16 +421,26 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
     return did_respond() ? AlreadyResponded() : RespondLater();
   }
 
-  // PlzNavigate: delay sending the response until the newly created window has
-  // been told to navigate, and blink has been correctly initialized in the
-  // renderer.
-  if (content::IsBrowserSideNavigationEnabled()) {
-    // SetOnFirstCommitCallback() will respond asynchronously.
-    app_window->SetOnFirstCommitCallback(base::Bind(
-        &AppWindowCreateFunction::Respond, this, base::Passed(&result_arg)));
-    return RespondLater();
+  // Delay sending the response until the newly created window has been told to
+  // navigate, and blink has been correctly initialized in the renderer.
+  // SetOnFirstCommitOrWindowClosedCallback() will respond asynchronously.
+  app_window->SetOnFirstCommitOrWindowClosedCallback(base::Bind(
+      &AppWindowCreateFunction::OnAppWindowReadyToCommitFirstNavigationOrClosed,
+      this, base::Passed(&result_arg)));
+  return RespondLater();
+}
+
+void AppWindowCreateFunction::OnAppWindowReadyToCommitFirstNavigationOrClosed(
+    ResponseValue result_arg,
+    bool ready_to_commit) {
+  DCHECK(!did_respond());
+
+  if (!ready_to_commit) {
+    Respond(Error(app_window_constants::kPrematureWindowClose));
+    return;
   }
-  return RespondNow(std::move(result_arg));
+
+  Respond(std::move(result_arg));
 }
 
 bool AppWindowCreateFunction::GetBoundsSpec(

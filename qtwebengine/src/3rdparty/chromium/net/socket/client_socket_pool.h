@@ -5,18 +5,18 @@
 #ifndef NET_SOCKET_CLIENT_SOCKET_POOL_H_
 #define NET_SOCKET_CLIENT_SOCKET_POOL_H_
 
-#include <deque>
 #include <memory>
 #include <string>
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/load_states.h"
 #include "net/base/net_export.h"
 #include "net/base/request_priority.h"
 #include "net/dns/host_resolver.h"
+#include "net/http/http_request_info.h"
 
 namespace base {
 class DictionaryValue;
@@ -104,9 +104,10 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
   virtual int RequestSocket(const std::string& group_name,
                             const void* params,
                             RequestPriority priority,
+                            const SocketTag& socket_tag,
                             RespectLimits respect_limits,
                             ClientSocketHandle* handle,
-                            const CompletionCallback& callback,
+                            CompletionOnceCallback callback,
                             const NetLogWithSource& net_log) = 0;
 
   // RequestSockets is used to request that |num_sockets| be connected in the
@@ -136,9 +137,8 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
 
   // Called to cancel a RequestSocket call that returned ERR_IO_PENDING.  The
   // same handle parameter must be passed to this method as was passed to the
-  // RequestSocket call being cancelled.  The associated CompletionCallback is
-  // not run.  However, for performance, we will let one ConnectJob complete
-  // and go idle.
+  // RequestSocket call being cancelled.  The associated callback is not run.
+  // However, for performance, we will let one ConnectJob complete and go idle.
   virtual void CancelRequest(const std::string& group_name,
                              ClientSocketHandle* handle) = 0;
 
@@ -197,9 +197,6 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
  protected:
   ClientSocketPool();
   ~ClientSocketPool() override;
-
-  // Return the connection timeout for this pool.
-  virtual base::TimeDelta ConnectionTimeout() const = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ClientSocketPool);

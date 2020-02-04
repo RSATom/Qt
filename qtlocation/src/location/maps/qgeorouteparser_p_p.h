@@ -64,6 +64,8 @@ public:
 
     virtual QGeoRouteReply::Error parseReply(QList<QGeoRoute> &routes, QString &errorString, const QByteArray &reply) const = 0;
     virtual QUrl requestUrl(const QGeoRouteRequest &request, const QString &prefix) const = 0;
+
+    QGeoRouteParser::TrafficSide trafficSide;
 };
 
 QT_END_NAMESPACE

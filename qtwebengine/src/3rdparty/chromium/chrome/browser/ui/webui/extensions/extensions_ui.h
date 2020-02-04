@@ -6,11 +6,16 @@
 #define CHROME_BROWSER_UI_WEBUI_EXTENSIONS_EXTENSIONS_UI_H_
 
 #include "base/macros.h"
+#include "components/prefs/pref_member.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "ui/base/layout.h"
 
 namespace base {
 class RefCountedMemory;
+}
+
+namespace user_prefs {
+class PrefRegistrySyncable;
 }
 
 namespace extensions {
@@ -23,7 +28,15 @@ class ExtensionsUI : public content::WebUIController {
   static base::RefCountedMemory* GetFaviconResourceBytes(
       ui::ScaleFactor scale_factor);
 
+  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+
  private:
+  // Called when developer mode is toggled.
+  void OnDevModeChanged();
+
+  // Tracks whether developer mode is enabled.
+  BooleanPrefMember in_dev_mode_;
+
   DISALLOW_COPY_AND_ASSIGN(ExtensionsUI);
 };
 

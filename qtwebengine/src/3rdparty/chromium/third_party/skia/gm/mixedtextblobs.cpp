@@ -42,22 +42,21 @@ protected:
     void onOnceBeforeDraw() override {
         fEmojiTypeface = sk_tool_utils::emoji_typeface();
         fEmojiText = sk_tool_utils::emoji_sample_text();
-        fReallyBigATypeface = MakeResourceAsTypeface("/fonts/ReallyBigA.ttf");
+        fReallyBigATypeface = MakeResourceAsTypeface("fonts/ReallyBigA.ttf");
 
         SkTextBlobBuilder builder;
 
         // make textblob
         // Text so large we draw as paths
-        SkPaint paint;
-        paint.setTextSize(385);
+        SkFont font(sk_tool_utils::create_portable_typeface(), 385);
+        font.setEdging(SkFont::Edging::kAlias);
         const char* text = "O";
-        sk_tool_utils::set_portable_typeface(&paint);
 
         SkRect bounds;
-        paint.measureText(text, strlen(text), &bounds);
+        font.measureText(text, strlen(text), kUTF8_SkTextEncoding, &bounds);
 
         SkScalar yOffset = bounds.height();
-        sk_tool_utils::add_to_text_blob(&builder, text, paint, 10, yOffset);
+        sk_tool_utils::add_to_text_blob(&builder, text, font, 10, yOffset);
         SkScalar corruptedAx = bounds.width();
         SkScalar corruptedAy = yOffset;
 
@@ -68,40 +67,37 @@ protected:
         yOffset = boundsHalfHeight;
 
         // LCD
-        paint.setTextSize(32);
+        font.setSize(32);
+        font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+        font.setSubpixel(true);
         text = "LCD!!!!!";
-        paint.setAntiAlias(true);
-        paint.setSubpixelText(true);
-        paint.setLCDRenderText(true);
-        paint.measureText(text, strlen(text), &bounds);
-        sk_tool_utils::add_to_text_blob(&builder, text, paint, xOffset - bounds.width() * 0.25f,
+        font.measureText(text, strlen(text), kUTF8_SkTextEncoding, &bounds);
+        sk_tool_utils::add_to_text_blob(&builder, text, font, xOffset - bounds.width() * 0.25f,
                                         yOffset - bounds.height() * 0.5f);
         yOffset += bounds.height();
 
         // color emoji
         if (fEmojiTypeface) {
-            paint.setAntiAlias(false);
-            paint.setSubpixelText(false);
-            paint.setLCDRenderText(false);
-            paint.setTypeface(fEmojiTypeface);
+            font.setEdging(SkFont::Edging::kAlias);
+            font.setSubpixel(false);
+            font.setTypeface(fEmojiTypeface);
             text = fEmojiText;
-            paint.measureText(text, strlen(text), &bounds);
-            sk_tool_utils::add_to_text_blob(&builder, text, paint, xOffset - bounds.width() * 0.3f,
+            font.measureText(text, strlen(text), kUTF8_SkTextEncoding, &bounds);
+            sk_tool_utils::add_to_text_blob(&builder, text, font, xOffset - bounds.width() * 0.3f,
                                             yOffset);
         }
 
         // Corrupted font
-        paint.setTextSize(12);
+        font.setSize(12);
         text = "aA";
-        paint.setTypeface(fReallyBigATypeface);
-        sk_tool_utils::add_to_text_blob(&builder, text, paint, corruptedAx, corruptedAy);
+        font.setTypeface(fReallyBigATypeface);
+        sk_tool_utils::add_to_text_blob(&builder, text, font, corruptedAx, corruptedAy);
         fBlob = builder.make();
     }
 
     SkString onShortName() override {
-        SkString name("mixedtextblobs");
-        name.append(sk_tool_utils::platform_os_emoji());
-        return name;
+        return SkStringPrintf("mixedtextblobs%s",
+                              sk_tool_utils::platform_font_manager());
     }
 
     SkISize onISize() override {
@@ -110,15 +106,13 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
 
-        canvas->drawColor(sk_tool_utils::color_to_565(SK_ColorGRAY));
+        canvas->drawColor(SK_ColorGRAY);
 
         SkPaint paint;
 
         // setup work needed to draw text with different clips
         paint.setColor(SK_ColorBLACK);
         canvas->translate(10, 40);
-
-        paint.setTextSize(40);
 
         // compute the bounds of the text and setup some clips
         SkRect bounds = fBlob->bounds();

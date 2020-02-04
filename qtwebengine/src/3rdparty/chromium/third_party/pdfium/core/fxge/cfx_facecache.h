@@ -9,14 +9,17 @@
 
 #include <map>
 #include <memory>
+#include <tuple>
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxge/fx_font.h"
 #include "core/fxge/fx_freetype.h"
 
 #if defined _SKIA_SUPPORT_ || _SKIA_SUPPORT_PATHS_
 #include "third_party/skia/include/core/SkTypeface.h"
 #endif
+
+class CFX_Font;
+class CFX_PathData;
 
 class CFX_FaceCache {
  public:
@@ -25,44 +28,48 @@ class CFX_FaceCache {
   const CFX_GlyphBitmap* LoadGlyphBitmap(const CFX_Font* pFont,
                                          uint32_t glyph_index,
                                          bool bFontStyle,
-                                         const CFX_Matrix* pMatrix,
-                                         int dest_width,
+                                         const CFX_Matrix& matrix,
+                                         uint32_t dest_width,
                                          int anti_alias,
                                          int& text_flags);
   const CFX_PathData* LoadGlyphPath(const CFX_Font* pFont,
                                     uint32_t glyph_index,
-                                    int dest_width);
+                                    uint32_t dest_width);
 
 #if defined _SKIA_SUPPORT_ || _SKIA_SUPPORT_PATHS_
   CFX_TypeFace* GetDeviceCache(const CFX_Font* pFont);
 #endif
 
  private:
+  using SizeGlyphCache = std::map<uint32_t, std::unique_ptr<CFX_GlyphBitmap>>;
+  // <glyph_index, width, weight, angle, vertical>
+  using PathMapKey = std::tuple<uint32_t, uint32_t, int, int, bool>;
+
   std::unique_ptr<CFX_GlyphBitmap> RenderGlyph(const CFX_Font* pFont,
                                                uint32_t glyph_index,
                                                bool bFontStyle,
-                                               const CFX_Matrix* pMatrix,
-                                               int dest_width,
+                                               const CFX_Matrix& matrix,
+                                               uint32_t dest_width,
                                                int anti_alias);
   std::unique_ptr<CFX_GlyphBitmap> RenderGlyph_Nativetext(
       const CFX_Font* pFont,
       uint32_t glyph_index,
-      const CFX_Matrix* pMatrix,
-      int dest_width,
+      const CFX_Matrix& matrix,
+      uint32_t dest_width,
       int anti_alias);
   CFX_GlyphBitmap* LookUpGlyphBitmap(const CFX_Font* pFont,
-                                     const CFX_Matrix* pMatrix,
-                                     const CFX_ByteString& FaceGlyphsKey,
+                                     const CFX_Matrix& matrix,
+                                     const ByteString& FaceGlyphsKey,
                                      uint32_t glyph_index,
                                      bool bFontStyle,
-                                     int dest_width,
+                                     uint32_t dest_width,
                                      int anti_alias);
   void InitPlatform();
   void DestroyPlatform();
 
   FXFT_Face const m_Face;
-  std::map<CFX_ByteString, std::unique_ptr<CFX_SizeGlyphCache>> m_SizeMap;
-  std::map<uint32_t, std::unique_ptr<CFX_PathData>> m_PathMap;
+  std::map<ByteString, SizeGlyphCache> m_SizeMap;
+  std::map<PathMapKey, std::unique_ptr<CFX_PathData>> m_PathMap;
 #if defined _SKIA_SUPPORT_ || _SKIA_SUPPORT_PATHS_
   sk_sp<SkTypeface> m_pTypeface;
 #endif

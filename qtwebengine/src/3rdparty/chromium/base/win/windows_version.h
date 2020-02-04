@@ -10,9 +10,19 @@
 #include <string>
 
 #include "base/base_export.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/version.h"
 
 typedef void* HANDLE;
+struct _OSVERSIONINFOEXW;
+struct _SYSTEM_INFO;
+
+namespace base {
+namespace test {
+class ScopedOSInfoOverride;
+}  // namespace test
+}  // namespace base
 
 namespace base {
 namespace win {
@@ -36,16 +46,24 @@ enum Version {
   VERSION_WIN10_TH2 = 8,    // Threshold 2: Version 1511, Build 10586.
   VERSION_WIN10_RS1 = 9,    // Redstone 1: Version 1607, Build 14393.
   VERSION_WIN10_RS2 = 10,   // Redstone 2: Version 1703, Build 15063.
-  VERSION_WIN_LAST,         // Indicates error condition.
+  VERSION_WIN10_RS3 = 11,   // Redstone 3: Version 1709, Build 16299.
+  VERSION_WIN10_RS4 = 12,   // Redstone 4: Version 1803, Build 17134.
+  VERSION_WIN10_RS5 = 13,   // Redstone 5: Version 1809, Build 17763.
+  // On edit, update tools\metrics\histograms\enums.xml "WindowsVersion" and
+  // "GpuBlacklistFeatureTestResultsWindows2".
+  VERSION_WIN_LAST,  // Indicates error condition.
 };
 
 // A rough bucketing of the available types of versions of Windows. This is used
 // to distinguish enterprise enabled versions from home versions and potentially
-// server versions.
+// server versions. Keep these values in the same order, since they are used as
+// is for metrics histogram ids.
 enum VersionType {
-  SUITE_HOME,
+  SUITE_HOME = 0,
   SUITE_PROFESSIONAL,
   SUITE_SERVER,
+  SUITE_ENTERPRISE,
+  SUITE_EDUCATION,
   SUITE_LAST,
 };
 
@@ -93,6 +111,7 @@ class BASE_EXPORT OSInfo {
 
   Version version() const { return version_; }
   Version Kernel32Version() const;
+  base::Version Kernel32BaseVersion() const;
   // The next two functions return arrays of values, [major, minor(, build)].
   VersionNumber version_number() const { return version_number_; }
   VersionType version_type() const { return version_type_; }
@@ -109,12 +128,19 @@ class BASE_EXPORT OSInfo {
   static WOW64Status GetWOW64StatusForProcess(HANDLE process_handle);
 
  private:
-  OSInfo();
+  friend class base::test::ScopedOSInfoOverride;
+  FRIEND_TEST_ALL_PREFIXES(OSInfo, MajorMinorBuildToVersion);
+  static OSInfo** GetInstanceStorage();
+
+  OSInfo(const _OSVERSIONINFOEXW& version_info,
+         const _SYSTEM_INFO& system_info,
+         int os_type);
   ~OSInfo();
 
+  // Returns a Version value for a given OS version tuple.
+  static Version MajorMinorBuildToVersion(int major, int minor, int build);
+
   Version version_;
-  mutable Version kernel32_version_;
-  mutable bool got_kernel32_version_;
   VersionNumber version_number_;
   VersionType version_type_;
   ServicePack service_pack_;

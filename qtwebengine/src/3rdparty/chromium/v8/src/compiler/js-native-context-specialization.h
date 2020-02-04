@@ -14,17 +14,21 @@ namespace v8 {
 namespace internal {
 
 // Forward declarations.
-class CompilationDependencies;
 class Factory;
 class FeedbackNexus;
+class JSGlobalObject;
+class JSGlobalProxy;
+class StringConstantBase;
 
 namespace compiler {
 
 // Forward declarations.
 enum class AccessMode;
 class CommonOperatorBuilder;
+class CompilationDependencies;
 class ElementAccessInfo;
 class JSGraph;
+class JSHeapBroker;
 class JSOperatorBuilder;
 class MachineOperatorBuilder;
 class PropertyAccessInfo;
@@ -35,7 +39,8 @@ class TypeCache;
 // folding some {LoadGlobal} nodes or strength reducing some {StoreGlobal}
 // nodes.  And also specializes {LoadNamed} and {StoreNamed} nodes according
 // to type feedback (if available).
-class JSNativeContextSpecialization final : public AdvancedReducer {
+class V8_EXPORT_PRIVATE JSNativeContextSpecialization final
+    : public AdvancedReducer {
  public:
   // Flags that control the mode of operation.
   enum Flag {
@@ -45,10 +50,11 @@ class JSNativeContextSpecialization final : public AdvancedReducer {
   };
   typedef base::Flags<Flag> Flags;
 
-  JSNativeContextSpecialization(Editor* editor, JSGraph* jsgraph, Flags flags,
+  JSNativeContextSpecialization(Editor* editor, JSGraph* jsgraph,
+                                JSHeapBroker* broker, Flags flags,
                                 Handle<Context> native_context,
                                 CompilationDependencies* dependencies,
-                                Zone* zone);
+                                Zone* zone, Zone* shared_zone);
 
   const char* reducer_name() const override {
     return "JSNativeContextSpecialization";
@@ -56,13 +62,23 @@ class JSNativeContextSpecialization final : public AdvancedReducer {
 
   Reduction Reduce(Node* node) final;
 
+  // Utility for folding string constant concatenation.
+  // Supports JSAdd nodes and nodes typed as string or number.
+  // Public for the sake of unit testing.
+  static base::Optional<size_t> GetMaxStringLength(JSHeapBroker* broker,
+                                                   Node* node);
+
  private:
   Reduction ReduceJSAdd(Node* node);
-  Reduction ReduceJSStringConcat(Node* node);
+  Reduction ReduceJSAsyncFunctionEnter(Node* node);
+  Reduction ReduceJSAsyncFunctionReject(Node* node);
+  Reduction ReduceJSAsyncFunctionResolve(Node* node);
   Reduction ReduceJSGetSuperConstructor(Node* node);
   Reduction ReduceJSInstanceOf(Node* node);
   Reduction ReduceJSHasInPrototypeChain(Node* node);
   Reduction ReduceJSOrdinaryHasInstance(Node* node);
+  Reduction ReduceJSPromiseResolve(Node* node);
+  Reduction ReduceJSResolvePromise(Node* node);
   Reduction ReduceJSLoadContext(Node* node);
   Reduction ReduceJSLoadGlobal(Node* node);
   Reduction ReduceJSStoreGlobal(Node* node);
@@ -72,32 +88,35 @@ class JSNativeContextSpecialization final : public AdvancedReducer {
   Reduction ReduceJSStoreProperty(Node* node);
   Reduction ReduceJSStoreNamedOwn(Node* node);
   Reduction ReduceJSStoreDataPropertyInLiteral(Node* node);
+  Reduction ReduceJSStoreInArrayLiteral(Node* node);
+  Reduction ReduceJSToObject(Node* node);
 
   Reduction ReduceElementAccess(Node* node, Node* index, Node* value,
                                 MapHandles const& receiver_maps,
                                 AccessMode access_mode,
-                                LanguageMode language_mode,
+                                KeyedAccessLoadMode load_mode,
                                 KeyedAccessStoreMode store_mode);
-  template <typename KeyedICNexus>
   Reduction ReduceKeyedAccess(Node* node, Node* index, Node* value,
-                              KeyedICNexus const& nexus, AccessMode access_mode,
-                              LanguageMode language_mode,
+                              FeedbackNexus const& nexus,
+                              AccessMode access_mode,
+                              KeyedAccessLoadMode load_mode,
                               KeyedAccessStoreMode store_mode);
   Reduction ReduceNamedAccessFromNexus(Node* node, Node* value,
                                        FeedbackNexus const& nexus,
                                        Handle<Name> name,
-                                       AccessMode access_mode,
-                                       LanguageMode language_mode);
+                                       AccessMode access_mode);
   Reduction ReduceNamedAccess(Node* node, Node* value,
                               MapHandles const& receiver_maps,
                               Handle<Name> name, AccessMode access_mode,
-                              LanguageMode language_mode,
                               Node* index = nullptr);
   Reduction ReduceGlobalAccess(Node* node, Node* receiver, Node* value,
                                Handle<Name> name, AccessMode access_mode,
                                Node* index = nullptr);
 
   Reduction ReduceSoftDeoptimize(Node* node, DeoptimizeReason reason);
+  Reduction ReduceJSToString(Node* node);
+
+  const StringConstantBase* CreateDelayedStringConstant(Node* node);
 
   // A triple of nodes that represents a continuation.
   class ValueEffectControl final {
@@ -118,23 +137,26 @@ class JSNativeContextSpecialization final : public AdvancedReducer {
   };
 
   // Construct the appropriate subgraph for property access.
-  ValueEffectControl BuildPropertyAccess(
-      Node* receiver, Node* value, Node* context, Node* frame_state,
-      Node* effect, Node* control, Handle<Name> name,
-      ZoneVector<Node*>* if_exceptions, PropertyAccessInfo const& access_info,
-      AccessMode access_mode, LanguageMode language_mode);
+  ValueEffectControl BuildPropertyAccess(Node* receiver, Node* value,
+                                         Node* context, Node* frame_state,
+                                         Node* effect, Node* control,
+                                         Handle<Name> name,
+                                         ZoneVector<Node*>* if_exceptions,
+                                         PropertyAccessInfo const& access_info,
+                                         AccessMode access_mode);
   ValueEffectControl BuildPropertyLoad(Node* receiver, Node* context,
                                        Node* frame_state, Node* effect,
                                        Node* control, Handle<Name> name,
                                        ZoneVector<Node*>* if_exceptions,
-                                       PropertyAccessInfo const& access_info,
-                                       LanguageMode language_mode);
+                                       PropertyAccessInfo const& access_info);
 
-  ValueEffectControl BuildPropertyStore(
-      Node* receiver, Node* value, Node* context, Node* frame_state,
-      Node* effect, Node* control, Handle<Name> name,
-      ZoneVector<Node*>* if_exceptions, PropertyAccessInfo const& access_info,
-      AccessMode access_mode, LanguageMode language_mode);
+  ValueEffectControl BuildPropertyStore(Node* receiver, Node* value,
+                                        Node* context, Node* frame_state,
+                                        Node* effect, Node* control,
+                                        Handle<Name> name,
+                                        ZoneVector<Node*>* if_exceptions,
+                                        PropertyAccessInfo const& access_info,
+                                        AccessMode access_mode);
 
   // Helpers for accessor inlining.
   Node* InlinePropertyGetterCall(Node* receiver, Node* context,
@@ -142,27 +164,35 @@ class JSNativeContextSpecialization final : public AdvancedReducer {
                                  Node** control,
                                  ZoneVector<Node*>* if_exceptions,
                                  PropertyAccessInfo const& access_info);
-  Node* InlinePropertySetterCall(Node* receiver, Node* value, Node* context,
-                                 Node* frame_state, Node** effect,
-                                 Node** control,
-                                 ZoneVector<Node*>* if_exceptions,
-                                 PropertyAccessInfo const& access_info);
-  Node* InlineApiCall(Node* receiver, Node* holder, Node* context, Node* target,
-                      Node* frame_state, Node* value, Node** effect,
-                      Node** control, Handle<SharedFunctionInfo> shared_info,
+  void InlinePropertySetterCall(Node* receiver, Node* value, Node* context,
+                                Node* frame_state, Node** effect,
+                                Node** control,
+                                ZoneVector<Node*>* if_exceptions,
+                                PropertyAccessInfo const& access_info);
+  Node* InlineApiCall(Node* receiver, Node* holder, Node* frame_state,
+                      Node* value, Node** effect, Node** control,
+                      Handle<SharedFunctionInfo> shared_info,
                       Handle<FunctionTemplateInfo> function_template_info);
 
   // Construct the appropriate subgraph for element access.
-  ValueEffectControl BuildElementAccess(Node* receiver, Node* index,
-                                        Node* value, Node* effect,
-                                        Node* control,
-                                        ElementAccessInfo const& access_info,
-                                        AccessMode access_mode,
-                                        KeyedAccessStoreMode store_mode);
+  ValueEffectControl BuildElementAccess(
+      Node* receiver, Node* index, Node* value, Node* effect, Node* control,
+      ElementAccessInfo const& access_info, AccessMode access_mode,
+      KeyedAccessLoadMode load_mode, KeyedAccessStoreMode store_mode);
+
+  // Construct appropriate subgraph to load from a String.
+  Node* BuildIndexedStringLoad(Node* receiver, Node* index, Node* length,
+                               Node** effect, Node** control,
+                               KeyedAccessLoadMode load_mode);
 
   // Construct appropriate subgraph to extend properties backing store.
-  Node* BuildExtendPropertiesBackingStore(Handle<Map> map, Node* properties,
+  Node* BuildExtendPropertiesBackingStore(const MapRef& map, Node* properties,
                                           Node* effect, Node* control);
+
+  // Construct appropriate subgraph to check that the {value} matches
+  // the previously recorded {name} feedback.
+  Node* BuildCheckEqualsName(Handle<Name> name, Node* value, Node* effect,
+                             Node* control);
 
   // Checks if we can turn the hole into undefined when loading an element
   // from an object with one of the {receiver_maps}; sets up appropriate
@@ -196,13 +226,10 @@ class JSNativeContextSpecialization final : public AdvancedReducer {
   InferHasInPrototypeChainResult InferHasInPrototypeChain(
       Node* receiver, Node* effect, Handle<HeapObject> prototype);
 
-  // Script context lookup logic.
-  struct ScriptContextTableLookupResult;
-  bool LookupInScriptContextTable(Handle<Name> name,
-                                  ScriptContextTableLookupResult* result);
-
   Graph* graph() const;
   JSGraph* jsgraph() const { return jsgraph_; }
+
+  JSHeapBroker* broker() const { return broker_; }
   Isolate* isolate() const;
   Factory* factory() const;
   CommonOperatorBuilder* common() const;
@@ -211,18 +238,20 @@ class JSNativeContextSpecialization final : public AdvancedReducer {
   Flags flags() const { return flags_; }
   Handle<JSGlobalObject> global_object() const { return global_object_; }
   Handle<JSGlobalProxy> global_proxy() const { return global_proxy_; }
-  Handle<Context> native_context() const { return native_context_; }
+  NativeContextRef native_context() const { return broker()->native_context(); }
   CompilationDependencies* dependencies() const { return dependencies_; }
   Zone* zone() const { return zone_; }
+  Zone* shared_zone() const { return shared_zone_; }
 
   JSGraph* const jsgraph_;
+  JSHeapBroker* const broker_;
   Flags const flags_;
   Handle<JSGlobalObject> global_object_;
   Handle<JSGlobalProxy> global_proxy_;
-  Handle<Context> native_context_;
   CompilationDependencies* const dependencies_;
   Zone* const zone_;
-  TypeCache const& type_cache_;
+  Zone* const shared_zone_;
+  TypeCache const* type_cache_;
 
   DISALLOW_COPY_AND_ASSIGN(JSNativeContextSpecialization);
 };

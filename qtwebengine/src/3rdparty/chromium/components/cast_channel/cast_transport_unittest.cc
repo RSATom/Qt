@@ -7,12 +7,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <queue>
-
+#include "base/callback_helpers.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/simple_test_clock.h"
 #include "components/cast_channel/cast_framer.h"
 #include "components/cast_channel/cast_socket.h"
@@ -23,6 +23,8 @@
 #include "net/base/net_errors.h"
 #include "net/log/test_net_log.h"
 #include "net/socket/socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "services/network/network_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -79,7 +81,7 @@ class CompletionQueue {
   }
 
  private:
-  std::queue<net::CompletionCallback> cb_queue_;
+  base::queue<net::CompletionCallback> cb_queue_;
   DISALLOW_COPY_AND_ASSIGN(CompletionQueue);
 };
 
@@ -119,27 +121,29 @@ ACTION_TEMPLATE(EnqueueCallback,
 
 }  // namespace
 
-class MockSocket : public net::Socket {
+class MockSocket : public cast_channel::CastTransportImpl::Channel {
  public:
+  void Read(net::IOBuffer* buffer,
+            int bytes,
+            net::CompletionOnceCallback callback) override {
+    Read(buffer, bytes, base::AdaptCallbackForRepeating(std::move(callback)));
+  }
+
+  void Write(net::IOBuffer* buffer,
+             int bytes,
+             net::CompletionOnceCallback callback) override {
+    Write(buffer, bytes, base::AdaptCallbackForRepeating(std::move(callback)));
+  }
+
   MOCK_METHOD3(Read,
-               int(net::IOBuffer* buf,
-                   int buf_len,
-                   const net::CompletionCallback& callback));
+               void(net::IOBuffer* buf,
+                    int buf_len,
+                    const net::CompletionCallback& callback));
 
   MOCK_METHOD3(Write,
-               int(net::IOBuffer* buf,
-                   int buf_len,
-                   const net::CompletionCallback& callback));
-
-  virtual int SetReceiveBufferSize(int32_t size) {
-    NOTREACHED();
-    return 0;
-  }
-
-  virtual int SetSendBufferSize(int32_t size) {
-    NOTREACHED();
-    return 0;
-  }
+               void(net::IOBuffer* buf,
+                    int buf_len,
+                    const net::CompletionCallback& callback));
 };
 
 class CastTransportTest : public testing::Test {
@@ -159,7 +163,7 @@ class CastTransportTest : public testing::Test {
     run_loop.RunUntilIdle();
   }
 
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
   MockCastTransportDelegate* delegate_;
   MockSocket mock_socket_;
   Logger* logger_;
@@ -179,8 +183,7 @@ TEST_F(CastTransportTest, TestFullWriteAsync) {
 
   EXPECT_CALL(mock_socket_, Write(NotNull(), serialized_message.size(), _))
       .WillOnce(DoAll(ReadBufferToString<0, 1>(&output),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)));
+                      EnqueueCallback<2>(&socket_cbs)));
   EXPECT_CALL(write_handler, Complete(net::OK));
   transport_->SendMessage(
       message,
@@ -205,15 +208,13 @@ TEST_F(CastTransportTest, TestPartialWritesAsync) {
   EXPECT_CALL(mock_socket_,
               Write(NotNull(), static_cast<int>(serialized_message.size()), _))
       .WillOnce(DoAll(ReadBufferToString<0, 1>(&output),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)));
+                      EnqueueCallback<2>(&socket_cbs)));
   // Remainder of bytes are written.
   EXPECT_CALL(
       mock_socket_,
       Write(NotNull(), static_cast<int>(serialized_message.size() - 1), _))
       .WillOnce(DoAll(ReadBufferToString<0, 1>(&output),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)));
+                      EnqueueCallback<2>(&socket_cbs)));
 
   transport_->SendMessage(
       message,
@@ -235,8 +236,7 @@ TEST_F(CastTransportTest, TestWriteFailureAsync) {
   CompleteHandler write_handler;
   CastMessage message = CreateCastMessage();
   EXPECT_CALL(mock_socket_, Write(NotNull(), _, _))
-      .WillOnce(
-          DoAll(EnqueueCallback<2>(&socket_cbs), Return(net::ERR_IO_PENDING)));
+      .WillOnce(EnqueueCallback<2>(&socket_cbs));
   EXPECT_CALL(write_handler, Complete(net::ERR_FAILED));
   EXPECT_CALL(*delegate_, OnError(ChannelError::CAST_SOCKET_ERROR));
   transport_->SendMessage(
@@ -244,67 +244,6 @@ TEST_F(CastTransportTest, TestWriteFailureAsync) {
       base::Bind(&CompleteHandler::Complete, base::Unretained(&write_handler)));
   RunPendingTasks();
   socket_cbs.Pop(net::ERR_CONNECTION_RESET);
-  RunPendingTasks();
-  EXPECT_EQ(ChannelEvent::SOCKET_WRITE,
-            logger_->GetLastError(kChannelId).channel_event);
-  EXPECT_EQ(net::ERR_CONNECTION_RESET,
-            logger_->GetLastError(kChannelId).net_return_value);
-}
-
-// ----------------------------------------------------------------------------
-// Synchronous write tests
-TEST_F(CastTransportTest, TestFullWriteSync) {
-  CompleteHandler write_handler;
-  std::string output;
-  CastMessage message = CreateCastMessage();
-  std::string serialized_message;
-  EXPECT_TRUE(MessageFramer::Serialize(message, &serialized_message));
-  EXPECT_CALL(mock_socket_, Write(NotNull(), serialized_message.size(), _))
-      .WillOnce(DoAll(ReadBufferToString<0, 1>(&output),
-                      Return(serialized_message.size())));
-  EXPECT_CALL(write_handler, Complete(net::OK));
-  transport_->SendMessage(
-      message,
-      base::Bind(&CompleteHandler::Complete, base::Unretained(&write_handler)));
-  RunPendingTasks();
-  EXPECT_EQ(serialized_message, output);
-}
-
-TEST_F(CastTransportTest, TestPartialWritesSync) {
-  InSequence seq;
-  CompleteHandler write_handler;
-  std::string output;
-
-  CastMessage message = CreateCastMessage();
-  std::string serialized_message;
-  EXPECT_TRUE(MessageFramer::Serialize(message, &serialized_message));
-
-  // Only one byte is written.
-  EXPECT_CALL(mock_socket_, Write(NotNull(), serialized_message.size(), _))
-      .WillOnce(DoAll(ReadBufferToString<0, 1>(&output), Return(1)));
-  // Remainder of bytes are written.
-  EXPECT_CALL(mock_socket_, Write(NotNull(), serialized_message.size() - 1, _))
-      .WillOnce(DoAll(ReadBufferToString<0, 1>(&output),
-                      Return(serialized_message.size() - 1)));
-
-  EXPECT_CALL(write_handler, Complete(net::OK));
-  transport_->SendMessage(
-      message,
-      base::Bind(&CompleteHandler::Complete, base::Unretained(&write_handler)));
-  RunPendingTasks();
-  EXPECT_EQ(serialized_message.substr(1, serialized_message.size() - 1),
-            output);
-}
-
-TEST_F(CastTransportTest, TestWriteFailureSync) {
-  CompleteHandler write_handler;
-  CastMessage message = CreateCastMessage();
-  EXPECT_CALL(mock_socket_, Write(NotNull(), _, _))
-      .WillOnce(Return(net::ERR_CONNECTION_RESET));
-  EXPECT_CALL(write_handler, Complete(net::ERR_FAILED));
-  transport_->SendMessage(
-      message,
-      base::Bind(&CompleteHandler::Complete, base::Unretained(&write_handler)));
   RunPendingTasks();
   EXPECT_EQ(ChannelEvent::SOCKET_WRITE,
             logger_->GetLastError(kChannelId).channel_event);
@@ -327,8 +266,7 @@ TEST_F(CastTransportTest, TestFullReadAsync) {
   EXPECT_CALL(mock_socket_,
               Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
       .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)));
+                      EnqueueCallback<2>(&socket_cbs)));
 
   // Read bytes [4, n].
   EXPECT_CALL(mock_socket_,
@@ -340,14 +278,12 @@ TEST_F(CastTransportTest, TestFullReadAsync) {
                           MessageFramer::MessageHeader::header_size(),
                           serialized_message.size() -
                               MessageFramer::MessageHeader::header_size())),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
 
   EXPECT_CALL(*delegate_, OnMessage(EqualsProto(message)));
   EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(Return(net::ERR_IO_PENDING));
+              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _));
   transport_->Start();
   RunPendingTasks();
   socket_cbs.Pop(MessageFramer::MessageHeader::header_size());
@@ -370,8 +306,7 @@ TEST_F(CastTransportTest, TestPartialReadAsync) {
   EXPECT_CALL(mock_socket_,
               Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
       .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
   // Read bytes [4, n-1].
   EXPECT_CALL(mock_socket_,
@@ -383,15 +318,13 @@ TEST_F(CastTransportTest, TestPartialReadAsync) {
                           MessageFramer::MessageHeader::header_size(),
                           serialized_message.size() -
                               MessageFramer::MessageHeader::header_size() - 1)),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
   // Read final byte.
   EXPECT_CALL(mock_socket_, Read(NotNull(), 1, _))
       .WillOnce(DoAll(FillBufferFromString<0>(serialized_message.substr(
                           serialized_message.size() - 1, 1)),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
   EXPECT_CALL(*delegate_, OnMessage(EqualsProto(message)));
   transport_->Start();
@@ -399,8 +332,7 @@ TEST_F(CastTransportTest, TestPartialReadAsync) {
   socket_cbs.Pop(serialized_message.size() -
                  MessageFramer::MessageHeader::header_size() - 1);
   EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(Return(net::ERR_IO_PENDING));
+              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _));
   socket_cbs.Pop(1);
 }
 
@@ -417,8 +349,7 @@ TEST_F(CastTransportTest, TestReadErrorInHeaderAsync) {
   EXPECT_CALL(mock_socket_,
               Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
       .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
 
   EXPECT_CALL(*delegate_, OnError(ChannelError::CAST_SOCKET_ERROR));
@@ -444,8 +375,7 @@ TEST_F(CastTransportTest, TestReadErrorInBodyAsync) {
   EXPECT_CALL(mock_socket_,
               Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
       .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
   // Read bytes [4, n-1].
   EXPECT_CALL(mock_socket_,
@@ -457,8 +387,7 @@ TEST_F(CastTransportTest, TestReadErrorInBodyAsync) {
                           MessageFramer::MessageHeader::header_size(),
                           serialized_message.size() -
                               MessageFramer::MessageHeader::header_size() - 1)),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
   EXPECT_CALL(*delegate_, OnError(ChannelError::CAST_SOCKET_ERROR));
   transport_->Start();
@@ -490,8 +419,7 @@ TEST_F(CastTransportTest, TestReadCorruptedMessageAsync) {
   EXPECT_CALL(mock_socket_,
               Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
       .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
   // Read bytes [4, n].
   EXPECT_CALL(mock_socket_,
@@ -503,8 +431,7 @@ TEST_F(CastTransportTest, TestReadCorruptedMessageAsync) {
                           MessageFramer::MessageHeader::header_size(),
                           serialized_message.size() -
                               MessageFramer::MessageHeader::header_size() - 1)),
-                      EnqueueCallback<2>(&socket_cbs),
-                      Return(net::ERR_IO_PENDING)))
+                      EnqueueCallback<2>(&socket_cbs)))
       .RetiresOnSaturation();
 
   EXPECT_CALL(*delegate_, OnError(ChannelError::INVALID_MESSAGE));
@@ -514,169 +441,4 @@ TEST_F(CastTransportTest, TestReadCorruptedMessageAsync) {
                  MessageFramer::MessageHeader::header_size());
 }
 
-// ----------------------------------------------------------------------------
-// Synchronous read tests
-TEST_F(CastTransportTest, TestFullReadSync) {
-  InSequence s;
-  CastMessage message = CreateCastMessage();
-  std::string serialized_message;
-  EXPECT_TRUE(MessageFramer::Serialize(message, &serialized_message));
-
-  EXPECT_CALL(*delegate_, Start());
-
-  // Read bytes [0, 3].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      Return(MessageFramer::MessageHeader::header_size())))
-      .RetiresOnSaturation();
-  // Read bytes [4, n].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(),
-                   serialized_message.size() -
-                       MessageFramer::MessageHeader::header_size(),
-                   _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message.substr(
-                          MessageFramer::MessageHeader::header_size(),
-                          serialized_message.size() -
-                              MessageFramer::MessageHeader::header_size())),
-                      Return(serialized_message.size() -
-                             MessageFramer::MessageHeader::header_size())))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*delegate_, OnMessage(EqualsProto(message)));
-  // Async result in order to discontinue the read loop.
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(Return(net::ERR_IO_PENDING));
-  transport_->Start();
-}
-
-TEST_F(CastTransportTest, TestPartialReadSync) {
-  InSequence s;
-
-  CastMessage message = CreateCastMessage();
-  std::string serialized_message;
-  EXPECT_TRUE(MessageFramer::Serialize(message, &serialized_message));
-
-  EXPECT_CALL(*delegate_, Start());
-
-  // Read bytes [0, 3].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      Return(MessageFramer::MessageHeader::header_size())))
-      .RetiresOnSaturation();
-  // Read bytes [4, n-1].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(),
-                   serialized_message.size() -
-                       MessageFramer::MessageHeader::header_size(),
-                   _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message.substr(
-                          MessageFramer::MessageHeader::header_size(),
-                          serialized_message.size() -
-                              MessageFramer::MessageHeader::header_size() - 1)),
-                      Return(serialized_message.size() -
-                             MessageFramer::MessageHeader::header_size() - 1)))
-      .RetiresOnSaturation();
-  // Read final byte.
-  EXPECT_CALL(mock_socket_, Read(NotNull(), 1, _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message.substr(
-                          serialized_message.size() - 1, 1)),
-                      Return(1)))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*delegate_, OnMessage(EqualsProto(message)));
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(Return(net::ERR_IO_PENDING));
-  transport_->Start();
-}
-
-TEST_F(CastTransportTest, TestReadErrorInHeaderSync) {
-  InSequence s;
-  CastMessage message = CreateCastMessage();
-  std::string serialized_message;
-  EXPECT_TRUE(MessageFramer::Serialize(message, &serialized_message));
-
-  EXPECT_CALL(*delegate_, Start());
-
-  // Read bytes [0, 3].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      Return(net::ERR_CONNECTION_RESET)))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*delegate_, OnError(ChannelError::CAST_SOCKET_ERROR));
-  transport_->Start();
-}
-
-TEST_F(CastTransportTest, TestReadErrorInBodySync) {
-  CastMessage message = CreateCastMessage();
-  std::string serialized_message;
-  EXPECT_TRUE(MessageFramer::Serialize(message, &serialized_message));
-
-  EXPECT_CALL(*delegate_, Start());
-
-  // Read bytes [0, 3].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      Return(MessageFramer::MessageHeader::header_size())))
-      .RetiresOnSaturation();
-  // Read bytes [4, n-1].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(),
-                   serialized_message.size() -
-                       MessageFramer::MessageHeader::header_size(),
-                   _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message.substr(
-                          MessageFramer::MessageHeader::header_size(),
-                          serialized_message.size() -
-                              MessageFramer::MessageHeader::header_size() - 1)),
-                      Return(net::ERR_CONNECTION_RESET)))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*delegate_, OnError(ChannelError::CAST_SOCKET_ERROR));
-  transport_->Start();
-  EXPECT_EQ(ChannelEvent::SOCKET_READ,
-            logger_->GetLastError(kChannelId).channel_event);
-  EXPECT_EQ(net::ERR_CONNECTION_RESET,
-            logger_->GetLastError(kChannelId).net_return_value);
-}
-
-TEST_F(CastTransportTest, TestReadCorruptedMessageSync) {
-  InSequence s;
-  CastMessage message = CreateCastMessage();
-  std::string serialized_message;
-  EXPECT_TRUE(MessageFramer::Serialize(message, &serialized_message));
-
-  // Corrupt the serialized message body(set it to X's).
-  for (size_t i = MessageFramer::MessageHeader::header_size();
-       i < serialized_message.size(); ++i) {
-    serialized_message[i] = 'x';
-  }
-
-  EXPECT_CALL(*delegate_, Start());
-
-  // Read bytes [0, 3].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(), MessageFramer::MessageHeader::header_size(), _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message),
-                      Return(MessageFramer::MessageHeader::header_size())))
-      .RetiresOnSaturation();
-  // Read bytes [4, n].
-  EXPECT_CALL(mock_socket_,
-              Read(NotNull(),
-                   serialized_message.size() -
-                       MessageFramer::MessageHeader::header_size(),
-                   _))
-      .WillOnce(DoAll(FillBufferFromString<0>(serialized_message.substr(
-                          MessageFramer::MessageHeader::header_size(),
-                          serialized_message.size() -
-                              MessageFramer::MessageHeader::header_size() - 1)),
-                      Return(serialized_message.size() -
-                             MessageFramer::MessageHeader::header_size())))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*delegate_, OnError(ChannelError::INVALID_MESSAGE));
-  transport_->Start();
-}
 }  // namespace cast_channel

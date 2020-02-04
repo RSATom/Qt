@@ -95,12 +95,12 @@ Q_SIGNALS:
     void activate();
 
 protected:
-    bool eventFilter(QObject *o, QEvent *e) Q_DECL_OVERRIDE;
+    bool eventFilter(QObject *o, QEvent *e) override;
     void mouseMoveEvent(QMouseEvent *e);
     void keyPressEvent(QKeyEvent *e);
 
 private:
-    Q_DISABLE_COPY(QWidgetResizeHandler)
+    Q_DISABLE_COPY_MOVE(QWidgetResizeHandler)
 
     enum MousePosition {
         Nowhere,

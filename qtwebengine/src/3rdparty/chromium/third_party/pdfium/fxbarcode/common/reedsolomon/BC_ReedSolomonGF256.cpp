@@ -60,8 +60,10 @@ CBC_ReedSolomonGF256::CBC_ReedSolomonGF256(int32_t primitive) {
 }
 
 void CBC_ReedSolomonGF256::Init() {
-  m_zero = pdfium::MakeUnique<CBC_ReedSolomonGF256Poly>(this, 0);
-  m_one = pdfium::MakeUnique<CBC_ReedSolomonGF256Poly>(this, 1);
+  m_zero = pdfium::MakeUnique<CBC_ReedSolomonGF256Poly>(
+      this, std::vector<int32_t>{0});
+  m_one = pdfium::MakeUnique<CBC_ReedSolomonGF256Poly>(this,
+                                                       std::vector<int32_t>{1});
 }
 
 CBC_ReedSolomonGF256::~CBC_ReedSolomonGF256() {}
@@ -76,28 +78,19 @@ CBC_ReedSolomonGF256Poly* CBC_ReedSolomonGF256::GetOne() const {
 
 std::unique_ptr<CBC_ReedSolomonGF256Poly> CBC_ReedSolomonGF256::BuildMonomial(
     int32_t degree,
-    int32_t coefficient,
-    int32_t& e) {
-  if (degree < 0) {
-    e = BCExceptionDegreeIsNegative;
+    int32_t coefficient) {
+  if (degree < 0)
     return nullptr;
-  }
-  if (coefficient == 0) {
-    auto temp = m_zero->Clone();
-    if (!temp)
-      e = BCExceptionGeneric;
-    return temp;
-  }
+
+  if (coefficient == 0)
+    return m_zero->Clone();
+
   std::vector<int32_t> coefficients(degree + 1);
   coefficients[0] = coefficient;
-  auto temp = pdfium::MakeUnique<CBC_ReedSolomonGF256Poly>();
-  if (!temp->Init(this, &coefficients)) {
-    e = BCExceptionGeneric;
-    return nullptr;
-  }
-  return temp;
+  return pdfium::MakeUnique<CBC_ReedSolomonGF256Poly>(this, coefficients);
 }
 
+// static
 int32_t CBC_ReedSolomonGF256::AddOrSubtract(int32_t a, int32_t b) {
   return a ^ b;
 }
@@ -106,19 +99,9 @@ int32_t CBC_ReedSolomonGF256::Exp(int32_t a) {
   return m_expTable[a];
 }
 
-int32_t CBC_ReedSolomonGF256::Log(int32_t a, int32_t& e) {
-  if (a == 0) {
-    e = BCExceptionAIsZero;
-    return 0;
-  }
-  return m_logTable[a];
-}
-
-int32_t CBC_ReedSolomonGF256::Inverse(int32_t a, int32_t& e) {
-  if (a == 0) {
-    e = BCExceptionAIsZero;
-    return 0;
-  }
+Optional<int32_t> CBC_ReedSolomonGF256::Inverse(int32_t a) {
+  if (a == 0)
+    return {};
   return m_expTable[255 - m_logTable[a]];
 }
 

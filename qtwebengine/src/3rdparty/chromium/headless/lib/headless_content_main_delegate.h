@@ -10,6 +10,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "content/public/app/content_main_delegate.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/renderer/content_renderer_client.h"
@@ -18,8 +19,11 @@
 #include "headless/public/headless_export.h"
 
 namespace base {
+namespace debug {
+struct CrashKeyString;
+}  // namespace debug
 class CommandLine;
-}
+}  // namespace base
 
 namespace headless {
 
@@ -39,30 +43,38 @@ class HEADLESS_EXPORT HeadlessContentMainDelegate
   int RunProcess(
       const std::string& process_type,
       const content::MainFunctionParams& main_function_params) override;
+#if defined(OS_MACOSX)
+  void PreCreateMainMessageLoop() override;
+#endif
   content::ContentBrowserClient* CreateContentBrowserClient() override;
+  content::ContentUtilityClient* CreateContentUtilityClient() override;
   content::ContentRendererClient* CreateContentRendererClient() override;
+
+  void PostEarlyInitialization(bool is_running_tests) override;
 
   HeadlessBrowserImpl* browser() const { return browser_.get(); }
 
-#if !defined(OS_MACOSX) && defined(OS_POSIX) && !defined(OS_ANDROID)
+#if defined(OS_LINUX)
   void ZygoteForked() override;
 #endif
 
  private:
   friend class HeadlessBrowserTest;
 
+  static void InitializeResourceBundle();
+  static HeadlessContentMainDelegate* GetInstance();
+
   void InitLogging(const base::CommandLine& command_line);
   void InitCrashReporter(const base::CommandLine& command_line);
-  static void InitializeResourceBundle();
-
-  static HeadlessContentMainDelegate* GetInstance();
 
   std::unique_ptr<content::ContentRendererClient> renderer_client_;
   std::unique_ptr<content::ContentBrowserClient> browser_client_;
+  std::unique_ptr<content::ContentUtilityClient> utility_client_;
   HeadlessContentClient content_client_;
   HeadlessPlatformEventSource platform_event_source_;
 
   std::unique_ptr<HeadlessBrowserImpl> browser_;
+  base::debug::CrashKeyString* headless_crash_key_;  // Note: never deallocated.
 
   DISALLOW_COPY_AND_ASSIGN(HeadlessContentMainDelegate);
 };

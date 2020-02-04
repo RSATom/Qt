@@ -2,6 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// Decodes a UTF16 string that is encoded as base64.
+function decodeUTF16Base64ToString(encoded_text) {
+  var data = atob(encoded_text);
+  var result = '';
+  for (var i = 0; i < data.length; i += 2) {
+    result +=
+        String.fromCharCode(data.charCodeAt(i) * 256 + data.charCodeAt(i + 1));
+  }
+  return result;
+}
+
 function toggleHelpBox() {
   var helpBoxOuter = document.getElementById('details');
   helpBoxOuter.classList.toggle(HIDDEN_CLASS);
@@ -120,6 +131,11 @@ function downloadButtonClick() {
     var downloadButton = document.getElementById('download-button');
     downloadButton.disabled = true;
     downloadButton.textContent = downloadButton.disabledText;
+
+    document.getElementById('download-link-wrapper')
+        .classList.add(HIDDEN_CLASS);
+    document.getElementById('download-link-clicked-wrapper')
+        .classList.remove(HIDDEN_CLASS);
   }
 }
 
@@ -154,6 +170,161 @@ var primaryControlOnLeft = true;
 primaryControlOnLeft = false;
 // </if>
 
+function setAutoFetchState(scheduled, can_schedule) {
+  document.getElementById('cancel-save-page-button')
+      .classList.toggle(HIDDEN_CLASS, !scheduled);
+  document.getElementById('save-page-for-later-button')
+      .classList.toggle(HIDDEN_CLASS, scheduled || !can_schedule);
+}
+
+function savePageLaterClick() {
+  errorPageController.savePageForLater();
+  // savePageForLater will eventually trigger a call to setAutoFetchState() when
+  // it completes.
+}
+
+function cancelSavePageClick() {
+  errorPageController.cancelSavePage();
+  // setAutoFetchState is not called in response to cancelSavePage(), so do it
+  // now.
+  setAutoFetchState(false, true);
+}
+
+function toggleErrorInformationPopup() {
+  document.getElementById('error-information-popup-container')
+      .classList.toggle(HIDDEN_CLASS);
+}
+
+function launchOfflineItem(itemID, name_space) {
+  errorPageController.launchOfflineItem(itemID, name_space);
+}
+
+function launchDownloadsPage() {
+  errorPageController.launchDownloadsPage();
+}
+
+// Populates a summary of suggested offline content.
+function offlineContentSummaryAvailable(summary) {
+  // Note: See AvailableContentSummaryToValue in
+  // available_offline_content_helper.cc for the data contained in |summary|.
+  if (!summary || summary.total_items == 0 ||
+      !loadTimeData.valueExists('offlineContentSummary')) {
+    return;
+  }
+  // TODO(https://crbug.com/852872): Customize presented icons based on the
+  // types of available offline content.
+  document.getElementById('offline-content-summary').hidden = false;
+}
+
+function getIconForSuggestedItem(item) {
+  // Note: |item.content_type| contains the enum values from
+  // chrome::mojom::AvailableContentType.
+  switch (item.content_type) {
+    case 1:  // kVideo
+      return 'image-video';
+    case 2:  // kAudio
+      return 'image-music-note';
+    case 0:  // kPrefetchedPage
+    case 3:  // kOtherPage
+      return 'image-earth';
+  }
+  return 'image-file';
+}
+
+function getSuggestedContentDiv(item, index) {
+  // Note: See AvailableContentToValue in available_offline_content_helper.cc
+  // for the data contained in an |item|.
+  // TODO(carlosk): Present |snippet_base64| when that content becomes
+  // available.
+  var visual = '';
+  var extraContainerClasses = [];
+  // html_inline.py will try to replace src attributes with data URIs using a
+  // simple regex. The following is obfuscated slightly to avoid that.
+  var src = 'src';
+  if (item.thumbnail_data_uri) {
+    extraContainerClasses.push('suggestion-with-image');
+    visual = `<img ${src}="${item.thumbnail_data_uri}">`;
+  } else {
+    extraContainerClasses.push('suggestion-with-icon');
+    iconClass = getIconForSuggestedItem(item);
+    visual = `<div><img class="${iconClass}"></div>`;
+  }
+
+  if (!item.attribution_base64)
+    extraContainerClasses.push('no-attribution');
+
+  return `
+  <div class="offline-content-suggestion ${extraContainerClasses.join(' ')}"
+    onclick="launchOfflineItem('${item.ID}', '${item.name_space}')">
+      <div class="offline-content-suggestion-texts">
+        <div id="offline-content-suggestion-title-${index}"
+             class="offline-content-suggestion-title">
+        </div>
+        <div class="offline-content-suggestion-attribution-freshness">
+          <div id="offline-content-suggestion-attribution-${index}"
+               class="offline-content-suggestion-attribution">
+          </div>
+          <div class="offline-content-suggestion-freshness">
+            ${item.date_modified}
+          </div>
+          <div class="offline-content-suggestion-pin-spacer"></div>
+          <div class="offline-content-suggestion-pin"></div>
+        </div>
+      </div>
+      <div class="offline-content-suggestion-visual">
+        ${visual}
+      </div>
+  </div>`;
+}
+
+// Populates a list of suggested offline content.
+// Note: For security reasons all content downloaded from the web is considered
+// unsafe and must be securely handled to be presented on the dino page. Images
+// have already been safely re-encoded but textual content -- like title and
+// attribution -- must be properly handled here.
+function offlineContentAvailable(isShown, suggestions) {
+  if (!suggestions || !loadTimeData.valueExists('offlineContentList'))
+    return;
+
+  var suggestionsHTML = [];
+  for (var index = 0; index < suggestions.length; index++)
+    suggestionsHTML.push(getSuggestedContentDiv(suggestions[index], index));
+
+  document.getElementById('offline-content-suggestions').innerHTML =
+      suggestionsHTML.join('\n');
+
+  // Sets textual web content using |textContent| to make sure it's handled as
+  // plain text.
+  for (var index = 0; index < suggestions.length; index++) {
+    document.getElementById(`offline-content-suggestion-title-${index}`)
+        .textContent =
+        decodeUTF16Base64ToString(suggestions[index].title_base64);
+    document.getElementById(`offline-content-suggestion-attribution-${index}`)
+        .textContent =
+        decodeUTF16Base64ToString(suggestions[index].attribution_base64);
+  }
+
+  var contentListElement = document.getElementById('offline-content-list');
+  if (document.dir == 'rtl')
+    contentListElement.classList.add('is-rtl');
+  contentListElement.hidden = false;
+  // The list is configured as hidden by default. Show it if needed.
+  if (isShown)
+    toggleOfflineContentListVisibility(false);
+}
+
+function toggleOfflineContentListVisibility(updatePref) {
+  if (!loadTimeData.valueExists('offlineContentList'))
+    return;
+
+  var contentListElement = document.getElementById('offline-content-list');
+  var isVisible = !contentListElement.classList.toggle('list-hidden');
+
+  if (updatePref && window.errorPageController) {
+    errorPageController.listVisibilityChanged(isVisible);
+  }
+}
+
 function onDocumentLoad() {
   var controlButtonDiv = document.getElementById('control-buttons');
   var reloadButton = document.getElementById('reload-button');
@@ -166,9 +337,29 @@ function onDocumentLoad() {
   var showSavedCopyButtonVisible =
       loadTimeData.valueExists('showSavedCopyButton') &&
       loadTimeData.getValue('showSavedCopyButton').msg;
-  var downloadButtonVisible =
-      loadTimeData.valueExists('downloadButton') &&
+  var downloadButtonVisible = loadTimeData.valueExists('downloadButton') &&
       loadTimeData.getValue('downloadButton').msg;
+
+  // If offline content suggestions will be visible, the usual buttons will not
+  // be presented.
+  var offlineContentVisible =
+      loadTimeData.valueExists('suggestedOfflineContentPresentationMode');
+  if (offlineContentVisible) {
+    document.querySelector('.nav-wrapper').classList.add(HIDDEN_CLASS);
+    detailsButton.classList.add(HIDDEN_CLASS);
+
+    if (downloadButtonVisible)
+      document.getElementById('download-link').hidden = false;
+
+    document.getElementById('download-links-wrapper')
+        .classList.remove(HIDDEN_CLASS);
+    document.getElementById('error-information-popup-container')
+        .classList.add('use-popup-container', HIDDEN_CLASS)
+    document.getElementById('error-information-button')
+        .classList.remove(HIDDEN_CLASS);
+
+    return;
+  }
 
   var primaryButton, secondaryButton;
   if (showSavedCopyButton.primary) {
@@ -199,9 +390,12 @@ function onDocumentLoad() {
     detailsButton.classList.add('singular');
   }
 
+  var attemptAutoFetch = loadTimeData.valueExists('attemptAutoFetch') &&
+      loadTimeData.getValue('attemptAutoFetch');
+
   // Show control buttons.
   if (reloadButtonVisible || showSavedCopyButtonVisible ||
-      downloadButtonVisible) {
+      downloadButtonVisible || attemptAutoFetch) {
     controlButtonDiv.hidden = false;
 
     // Set the secondary button state in the cases of two call to actions.

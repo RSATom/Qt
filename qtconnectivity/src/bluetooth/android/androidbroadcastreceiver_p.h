@@ -65,7 +65,7 @@ class AndroidBroadcastReceiver: public QObject
 {
     Q_OBJECT
 public:
-    AndroidBroadcastReceiver(QObject* parent = 0);
+    AndroidBroadcastReceiver(QObject* parent = nullptr);
     virtual ~AndroidBroadcastReceiver();
 
     void addAction(const QAndroidJniObject &filter);

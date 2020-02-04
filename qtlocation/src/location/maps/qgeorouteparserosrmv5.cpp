@@ -35,8 +35,11 @@
 ****************************************************************************/
 
 #include "qgeorouteparserosrmv5_p.h"
+#include "qgeoroute.h"
+#include "qgeoroute_p.h"
 #include "qgeorouteparser_p_p.h"
 #include "qgeoroutesegment.h"
+#include "qgeoroutesegment_p.h"
 #include "qgeomaneuver.h"
 
 #include <QtCore/private/qobject_p.h>
@@ -45,6 +48,7 @@
 #include <QtCore/QJsonArray>
 #include <QtCore/QUrlQuery>
 #include <QtPositioning/private/qlocationutils_p.h>
+#include <QtPositioning/qgeopath.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -76,9 +80,9 @@ static QList<QGeoCoordinate> decodePolyline(const QString &polylineString)
         int diff = (value & 1) ? ~(value >> 1) : (value >> 1);
 
         if (parsingLatitude) {
-            coord.setLatitude(coord.latitude() + (double)diff/1e5);
+            coord.setLatitude(coord.latitude() + (double)diff/1e6);
         } else {
-            coord.setLongitude(coord.longitude() + (double)diff/1e5);
+            coord.setLongitude(coord.longitude() + (double)diff/1e6);
             path.append(coord);
         }
 
@@ -114,7 +118,7 @@ static QString exitOrdinal(int exit)
     static QList<QString> ordinals;
 
     if (!ordinals.size()) {
-        ordinals.append(QStringLiteral(""));
+        ordinals.append(QLatin1String(""));
         //: always used in " and take the %1 exit [onto <street name>]"
         ordinals.append(QGeoRouteParserOsrmV5::tr("first", "roundabout exit"));
         ordinals.append(QGeoRouteParserOsrmV5::tr("second", "roundabout exit"));
@@ -720,7 +724,7 @@ static QString instructionText(const QJsonObject &step, const QJsonObject &maneu
     QString maneuverType;
     if (maneuver.value(QLatin1String("type")).isString())
         maneuverType = maneuver.value(QLatin1String("type")).toString();
-    QString wayName = QStringLiteral("unknown street");
+    QString wayName = QLatin1String("unknown street");
     if (step.value(QLatin1String("name")).isString())
         wayName = step.value(QLatin1String("name")).toString();
 
@@ -765,7 +769,7 @@ static QString instructionText(const QJsonObject &step, const QJsonObject &maneu
         return maneuverType + QLatin1String(" to/onto ") + wayName;
 }
 
-static QGeoManeuver::InstructionDirection instructionDirection(const QJsonObject &maneuver)
+static QGeoManeuver::InstructionDirection instructionDirection(const QJsonObject &maneuver, QGeoRouteParser::TrafficSide trafficSide)
 {
     QString modifier;
     if (maneuver.value(QLatin1String("modifier")).isString())
@@ -781,9 +785,15 @@ static QGeoManeuver::InstructionDirection instructionDirection(const QJsonObject
         return QGeoManeuver::DirectionHardRight;
     else if (modifier == QLatin1String("slight right"))
         return QGeoManeuver::DirectionLightRight;
-    else if (modifier == QLatin1String("uturn"))
-        return QGeoManeuver::DirectionUTurnRight;
-    else if (modifier == QLatin1String("left"))
+    else if (modifier == QLatin1String("uturn")) {
+        switch (trafficSide) {
+        case QGeoRouteParser::RightHandTraffic:
+            return QGeoManeuver::DirectionUTurnLeft;
+        case QGeoRouteParser::LeftHandTraffic:
+            return QGeoManeuver::DirectionUTurnRight;
+        }
+        return QGeoManeuver::DirectionUTurnLeft;
+    } else if (modifier == QLatin1String("left"))
         return QGeoManeuver::DirectionLeft;
     else if (modifier == QLatin1String("sharp left"))
         return QGeoManeuver::DirectionHardLeft;
@@ -793,8 +803,38 @@ static QGeoManeuver::InstructionDirection instructionDirection(const QJsonObject
         return QGeoManeuver::NoDirection;
 }
 
-static QGeoRouteSegment parseStep(const QJsonObject &step) {
-    // OSRM Instructions documentation: https://github.com/Project-OSRM/osrm-text-instructions/blob/master/instructions.json
+class QGeoRouteParserOsrmV5Private :  public QGeoRouteParserPrivate
+{
+    Q_DECLARE_PUBLIC(QGeoRouteParserOsrmV5)
+public:
+    QGeoRouteParserOsrmV5Private();
+    virtual ~QGeoRouteParserOsrmV5Private();
+
+    QGeoRouteSegment parseStep(const QJsonObject &step, int legIndex, int stepIndex) const;
+
+    // QGeoRouteParserPrivate
+
+    QGeoRouteReply::Error parseReply(QList<QGeoRoute> &routes, QString &errorString, const QByteArray &reply) const override;
+    QUrl requestUrl(const QGeoRouteRequest &request, const QString &prefix) const override;
+
+    QVariantMap m_vendorParams;
+    const QGeoRouteParserOsrmV5Extension *m_extension = nullptr;
+};
+
+QGeoRouteParserOsrmV5Private::QGeoRouteParserOsrmV5Private()
+    : QGeoRouteParserPrivate()
+{
+}
+
+QGeoRouteParserOsrmV5Private::~QGeoRouteParserOsrmV5Private()
+{
+    delete m_extension;
+}
+
+QGeoRouteSegment QGeoRouteParserOsrmV5Private::parseStep(const QJsonObject &step, int legIndex, int stepIndex) const {
+    // OSRM Instructions documentation: https://github.com/Project-OSRM/osrm-text-instructions
+    // This goes on top of OSRM: https://github.com/Project-OSRM/osrm-backend/blob/master/docs/http.md
+    // Mapbox however, includes this in the reply, under "instruction".
     QGeoRouteSegment segment;
     if (!step.value(QLatin1String("maneuver")).isObject())
         return segment;
@@ -821,48 +861,54 @@ static QGeoRouteSegment parseStep(const QJsonObject &step) {
     QString geometry = step.value(QLatin1String("geometry")).toString();
     QList<QGeoCoordinate> path = decodePolyline(geometry);
 
+    QGeoManeuver::InstructionDirection maneuverInstructionDirection = instructionDirection(maneuver, trafficSide);
+
+    QString maneuverInstructionText = instructionText(step, maneuver, maneuverInstructionDirection);
+
     QGeoManeuver geoManeuver;
-    geoManeuver.setDirection(instructionDirection(maneuver));
+    geoManeuver.setDirection(maneuverInstructionDirection);
     geoManeuver.setDistanceToNextInstruction(distance);
     geoManeuver.setTimeToNextInstruction(time);
-    geoManeuver.setInstructionText(instructionText(step, maneuver, geoManeuver.direction()));
+    geoManeuver.setInstructionText(maneuverInstructionText);
     geoManeuver.setPosition(coord);
     geoManeuver.setWaypoint(coord);
+
+    QVariantMap extraAttributes;
+    static const QStringList extras {
+        QLatin1String("bearing_before"),
+        QLatin1String("bearing_after"),
+        QLatin1String("instruction"),
+        QLatin1String("type"),
+        QLatin1String("modifier") };
+    for (const QString &e: extras) {
+        if (maneuver.find(e) != maneuver.end())
+            extraAttributes.insert(e, maneuver.value(e).toVariant());
+    }
+    // These should be removed as soon as route leg support is introduced.
+    // Ref: http://project-osrm.org/docs/v5.15.2/api/#routeleg-object
+    extraAttributes.insert(QLatin1String("leg_index"), legIndex);
+    extraAttributes.insert(QLatin1String("step_index"), stepIndex);
+
+    geoManeuver.setExtendedAttributes(extraAttributes);
 
     segment.setDistance(distance);
     segment.setPath(path);
     segment.setTravelTime(time);
     segment.setManeuver(geoManeuver);
+    if (m_extension)
+        m_extension->updateSegment(segment, step, maneuver);
     return segment;
-}
-
-class QGeoRouteParserOsrmV5Private :  public QGeoRouteParserPrivate
-{
-    Q_DECLARE_PUBLIC(QGeoRouteParserOsrmV5)
-public:
-    QGeoRouteParserOsrmV5Private();
-    virtual ~QGeoRouteParserOsrmV5Private();
-
-    QGeoRouteReply::Error parseReply(QList<QGeoRoute> &routes, QString &errorString, const QByteArray &reply) const Q_DECL_OVERRIDE;
-    QUrl requestUrl(const QGeoRouteRequest &request, const QString &prefix) const Q_DECL_OVERRIDE;
-};
-
-QGeoRouteParserOsrmV5Private::QGeoRouteParserOsrmV5Private() : QGeoRouteParserPrivate()
-{
-}
-
-QGeoRouteParserOsrmV5Private::~QGeoRouteParserOsrmV5Private()
-{
 }
 
 QGeoRouteReply::Error QGeoRouteParserOsrmV5Private::parseReply(QList<QGeoRoute> &routes, QString &errorString, const QByteArray &reply) const
 {
     // OSRM v5 specs: https://github.com/Project-OSRM/osrm-backend/blob/master/docs/http.md
+    // Mapbox Directions API spec: https://www.mapbox.com/api-documentation/#directions
     QJsonDocument document = QJsonDocument::fromJson(reply);
     if (document.isObject()) {
         QJsonObject object = document.object();
 
-        QString status = object.value(QStringLiteral("code")).toString();
+        QString status = object.value(QLatin1String("code")).toString();
         if (status != QLatin1String("Ok")) {
             errorString = status;
             return QGeoRouteReply::UnknownError;
@@ -876,21 +922,26 @@ QGeoRouteReply::Error QGeoRouteParserOsrmV5Private::parseReply(QList<QGeoRoute> 
         foreach (const QJsonValue &r, osrmRoutes) {
             if (!r.isObject())
                 continue;
-            QJsonObject route = r.toObject();
-            if (!route.value(QLatin1String("legs")).isArray())
+            QJsonObject routeObject = r.toObject();
+            if (!routeObject.value(QLatin1String("legs")).isArray())
                 continue;
-            if (!route.value(QLatin1String("duration")).isDouble())
+            if (!routeObject.value(QLatin1String("duration")).isDouble())
                 continue;
-            if (!route.value(QLatin1String("distance")).isDouble())
+            if (!routeObject.value(QLatin1String("distance")).isDouble())
                 continue;
 
-            double distance = route.value(QLatin1String("distance")).toDouble();
-            double travelTime = route.value(QLatin1String("duration")).toDouble();
+            double distance = routeObject.value(QLatin1String("distance")).toDouble();
+            double travelTime = routeObject.value(QLatin1String("duration")).toDouble();
             bool error = false;
             QList<QGeoRouteSegment> segments;
 
-            QJsonArray legs = route.value(QLatin1String("legs")).toArray();
-            foreach (const QJsonValue &l, legs) {
+            QJsonArray legs = routeObject.value(QLatin1String("legs")).toArray();
+            QList<QGeoRouteLeg> routeLegs;
+            QGeoRoute route;
+            for (int legIndex = 0; legIndex < legs.size(); ++legIndex) {
+                const QJsonValue &l = legs.at(legIndex);
+                QGeoRouteLeg routeLeg;
+                QList<QGeoRouteSegment> legSegments;
                 if (!l.isObject()) { // invalid leg record
                     error = true;
                     break;
@@ -900,15 +951,20 @@ QGeoRouteReply::Error QGeoRouteParserOsrmV5Private::parseReply(QList<QGeoRoute> 
                     error = true;
                     break;
                 }
+                const double legDistance = leg.value(QLatin1String("distance")).toDouble();
+                const double legTravelTime = leg.value(QLatin1String("duration")).toDouble();
                 QJsonArray steps = leg.value(QLatin1String("steps")).toArray();
-                foreach (const QJsonValue &s, steps) {
+                QGeoRouteSegment segment;
+                for (int stepIndex = 0; stepIndex < steps.size(); ++stepIndex) {
+                    const QJsonValue &s = steps.at(stepIndex);
                     if (!s.isObject()) {
                         error = true;
                         break;
                     }
-                    QGeoRouteSegment segment = parseStep(s.toObject());
+                    segment = parseStep(s.toObject(), legIndex, stepIndex);
                     if (segment.isValid()) {
-                        segments.append(segment);
+                        // setNextRouteSegment done below for all segments in the route.
+                        legSegments.append(segment);
                     } else {
                         error = true;
                         break;
@@ -916,6 +972,23 @@ QGeoRouteReply::Error QGeoRouteParserOsrmV5Private::parseReply(QList<QGeoRoute> 
                 }
                 if (error)
                     break;
+
+                QGeoRouteSegmentPrivate *segmentPrivate = QGeoRouteSegmentPrivate::get(segment);
+                segmentPrivate->setLegLastSegment(true);
+                QList<QGeoCoordinate> path;
+                for (const QGeoRouteSegment &s: qAsConst(legSegments))
+                    path.append(s.path());
+                routeLeg.setLegIndex(legIndex);
+                routeLeg.setOverallRoute(route); // QGeoRoute::d_ptr is explicitlySharedDataPointer. Modifiers below won't detach it.
+                routeLeg.setDistance(legDistance);
+                routeLeg.setTravelTime(legTravelTime);
+                if (!path.isEmpty()) {
+                    routeLeg.setPath(path);
+                    routeLeg.setFirstRouteSegment(legSegments.first());
+                }
+                routeLegs << routeLeg;
+
+                segments.append(legSegments);
             }
 
             if (!error) {
@@ -926,22 +999,23 @@ QGeoRouteReply::Error QGeoRouteParserOsrmV5Private::parseReply(QList<QGeoRoute> 
                 for (int i = segments.size() - 1; i > 0; --i)
                     segments[i-1].setNextRouteSegment(segments[i]);
 
-                QGeoRoute r;
-                r.setDistance(distance);
-                r.setTravelTime(travelTime);
+                route.setDistance(distance);
+                route.setTravelTime(travelTime);
                 if (!path.isEmpty()) {
-                    r.setPath(path);
-                    r.setFirstRouteSegment(segments.first());
+                    route.setPath(path);
+                    route.setBounds(QGeoPath(path).boundingGeoRectangle());
+                    route.setFirstRouteSegment(segments.first());
                 }
+                route.setRouteLegs(routeLegs);
                 //r.setTravelMode(QGeoRouteRequest::CarTravel); // The only one supported by OSRM demo service, but other OSRM servers might do cycle or pedestrian too
-                routes.append(r);
+                routes.append(route);
             }
         }
 
         // setError(QGeoRouteReply::NoError, status);  // can't do this, or NoError is emitted and does damages
         return QGeoRouteReply::NoError;
     } else {
-        errorString = QStringLiteral("Couldn't parse json.");
+        errorString = QLatin1String("Couldn't parse json.");
         return QGeoRouteReply::ParseError;
     }
 }
@@ -950,29 +1024,55 @@ QUrl QGeoRouteParserOsrmV5Private::requestUrl(const QGeoRouteRequest &request, c
 {
     QString routingUrl = prefix;
     int notFirst = 0;
-    foreach (const QGeoCoordinate &c, request.waypoints()) {
-        if (notFirst)
+    QString bearings;
+    const QList<QVariantMap> metadata = request.waypointsMetadata();
+    const QList<QGeoCoordinate> waypoints = request.waypoints();
+    for (int i = 0; i < waypoints.size(); i++) {
+        const QGeoCoordinate &c = waypoints.at(i);
+        if (notFirst) {
             routingUrl.append(QLatin1Char(';'));
+            bearings.append(QLatin1Char(';'));
+        }
         routingUrl.append(QString::number(c.longitude(), 'f', 7)).append(QLatin1Char(',')).append(QString::number(c.latitude(), 'f', 7));
+        if (metadata.size() > i) {
+            const QVariantMap &meta = metadata.at(i);
+            if (meta.contains(QLatin1String("bearing"))) {
+                qreal bearing = meta.value(QLatin1String("bearing")).toDouble();
+                bearings.append(QString::number(int(bearing))).append(QLatin1Char(',')).append(QLatin1String("90")); // 90 is the angle of maneuver allowed.
+            } else {
+                bearings.append(QLatin1String("0,180")); // 180 here means anywhere
+            }
+        }
         ++notFirst;
     }
 
     QUrl url(routingUrl);
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("overview"), QStringLiteral("full"));
-    query.addQueryItem(QStringLiteral("steps"), QStringLiteral("true"));
-    query.addQueryItem(QStringLiteral("geometries"), QStringLiteral("polyline"));
-    query.addQueryItem(QStringLiteral("alternatives"), QStringLiteral("true"));
+    query.addQueryItem(QLatin1String("overview"), QLatin1String("full"));
+    query.addQueryItem(QLatin1String("steps"), QLatin1String("true"));
+    query.addQueryItem(QLatin1String("geometries"), QLatin1String("polyline6"));
+    query.addQueryItem(QLatin1String("alternatives"), QLatin1String("true"));
+    query.addQueryItem(QLatin1String("bearings"), bearings);
+    if (m_extension)
+        m_extension->updateQuery(query);
     url.setQuery(query);
     return url;
 }
 
-QGeoRouteParserOsrmV5::QGeoRouteParserOsrmV5(QObject *parent) : QGeoRouteParser(*new QGeoRouteParserOsrmV5Private(), parent)
+QGeoRouteParserOsrmV5::QGeoRouteParserOsrmV5(QObject *parent)
+    : QGeoRouteParser(*new QGeoRouteParserOsrmV5Private(), parent)
 {
 }
 
 QGeoRouteParserOsrmV5::~QGeoRouteParserOsrmV5()
 {
+}
+
+void QGeoRouteParserOsrmV5::setExtension(const QGeoRouteParserOsrmV5Extension *extension)
+{
+    Q_D(QGeoRouteParserOsrmV5);
+    if (extension)
+        d->m_extension = extension;
 }
 
 QT_END_NAMESPACE

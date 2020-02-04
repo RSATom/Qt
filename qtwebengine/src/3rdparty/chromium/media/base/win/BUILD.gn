@@ -2,9 +2,19 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
+
 assert(is_win)
 
-component("win") {
+config("delay_load_mf") {
+  ldflags = [
+    "/DELAYLOAD:mf.dll",
+    "/DELAYLOAD:mfplat.dll",
+    "/DELAYLOAD:mfreadwrite.dll",
+  ]
+}
+
+jumbo_component("media_foundation_util") {
   defines = [ "MF_INITIALIZER_IMPLEMENTATION" ]
   set_sources_assignment_filter([])
   sources = [
@@ -16,7 +26,7 @@ component("win") {
   ]
   set_sources_assignment_filter(sources_assignment_filter)
   configs += [
-    # TODO(jschuh): https://crbug.com/167187 fix size_t to int truncations.
+    # TODO(crbug.com/167187): Fix size_t to int truncations.
     "//build/config/compiler:no_size_t_to_int_warning",
     "//media:media_config",
   ]
@@ -29,9 +39,29 @@ component("win") {
     "mfplat.lib",
     "mfreadwrite.lib",
   ]
-  ldflags = [
-    "/DELAYLOAD:mf.dll",
-    "/DELAYLOAD:mfplat.dll",
-    "/DELAYLOAD:mfreadwrite.dll",
+
+  # MediaFoundation is not available on Windows N, so must be delay loaded.
+  all_dependent_configs = [ ":delay_load_mf" ]
+}
+
+source_set("d3d11") {
+  sources = [
+    "d3d11_create_device_cb.h",
+  ]
+  deps = [
+    "//base",
+  ]
+}
+
+source_set("d3d11_test_support") {
+  testonly = true
+  sources = [
+    "d3d11_mocks.cc",
+    "d3d11_mocks.h",
+  ]
+  deps = [
+    ":d3d11",
+    "//base",
+    "//testing/gmock",
   ]
 }

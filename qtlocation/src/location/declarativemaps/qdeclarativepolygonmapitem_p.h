@@ -52,6 +52,7 @@
 #include <QtLocation/private/qdeclarativegeomapitembase_p.h>
 #include <QtLocation/private/qdeclarativepolylinemapitem_p.h>
 #include <QtLocation/private/qgeomapitemgeometry_p.h>
+#include <QtPositioning/qgeopolygon.h>
 
 #include <QSGGeometryNode>
 #include <QSGFlatColorMaterial>
@@ -60,7 +61,7 @@ QT_BEGIN_NAMESPACE
 
 class MapPolygonNode;
 
-class QGeoMapPolygonGeometry : public QGeoMapItemGeometry
+class Q_LOCATION_PRIVATE_EXPORT QGeoMapPolygonGeometry : public QGeoMapItemGeometry
 {
 public:
     QGeoMapPolygonGeometry();
@@ -70,7 +71,7 @@ public:
     void updateSourcePoints(const QGeoMap &map,
                             const QList<QDoubleVector2D> &path);
 
-    void updateScreenPoints(const QGeoMap &map);
+    void updateScreenPoints(const QGeoMap &map, qreal strokeWidth = 0.0);
 
 protected:
     QPainterPath srcPath_;
@@ -89,9 +90,9 @@ public:
     explicit QDeclarativePolygonMapItem(QQuickItem *parent = 0);
     ~QDeclarativePolygonMapItem();
 
-    virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) Q_DECL_OVERRIDE;
+    virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) override;
     //from QuickItem
-    virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *) Q_DECL_OVERRIDE;
+    virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *) override;
 
     Q_INVOKABLE void addCoordinate(const QGeoCoordinate &coordinate);
     Q_INVOKABLE void removeCoordinate(const QGeoCoordinate &coordinate);
@@ -104,28 +105,27 @@ public:
 
     QDeclarativeMapLineProperties *border();
 
-    bool contains(const QPointF &point) const Q_DECL_OVERRIDE;
-    const QGeoShape &geoShape() const Q_DECL_OVERRIDE;
-    QGeoMap::ItemType itemType() const Q_DECL_OVERRIDE;
+    bool contains(const QPointF &point) const override;
+    const QGeoShape &geoShape() const override;
+    void setGeoShape(const QGeoShape &shape) override;
 
 Q_SIGNALS:
     void pathChanged();
     void colorChanged(const QColor &color);
 
 protected:
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) Q_DECL_OVERRIDE;
-    void updatePolish() Q_DECL_OVERRIDE;
+    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void updatePolish() override;
 
 protected Q_SLOTS:
     void markSourceDirtyAndUpdate();
-    void handleBorderUpdated();
-    virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) Q_DECL_OVERRIDE;
+    virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) override;
 
 private:
     void regenerateCache();
     void updateCache();
 
-    QGeoPath geopath_;
+    QGeoPolygon geopath_;
     QList<QDoubleVector2D> geopathProjected_;
     QDeclarativeMapLineProperties border_;
     QColor color_;
@@ -137,24 +137,20 @@ private:
 
 //////////////////////////////////////////////////////////////////////
 
-class MapPolygonNode : public QSGGeometryNode
+class Q_LOCATION_PRIVATE_EXPORT MapPolygonNode : public MapItemGeometryNode
 {
 
 public:
     MapPolygonNode();
-    ~MapPolygonNode();
+    ~MapPolygonNode() override;
 
     void update(const QColor &fillColor, const QColor &borderColor,
                 const QGeoMapItemGeometry *fillShape,
                 const QGeoMapItemGeometry *borderShape);
-
-    bool isSubtreeBlocked() const;
-
 private:
     QSGFlatColorMaterial fill_material_;
     MapPolylineNode *border_;
     QSGGeometry geometry_;
-    bool blocked_;
 };
 
 QT_END_NAMESPACE

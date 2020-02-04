@@ -14,16 +14,16 @@
  *   url: string,
  * }}
  */
-var RegulatoryInfo;
+let RegulatoryInfo;
 
 /**
  * @typedef {{
- *   currentChannel: string,
- *   targetChannel: string,
+ *   currentChannel: BrowserChannel,
+ *   targetChannel: BrowserChannel,
  *   canChangeChannel: boolean,
  * }}
  */
-var ChannelInfo;
+let ChannelInfo;
 
 /**
  * @typedef {{
@@ -32,7 +32,7 @@ var ChannelInfo;
  *   osVersion: string,
  * }}
  */
-var VersionInfo;
+let VersionInfo;
 
 /**
  * @typedef {{
@@ -40,17 +40,25 @@ var VersionInfo;
  *   size: (string|undefined),
  * }}
  */
-var AboutPageUpdateInfo;
+let AboutPageUpdateInfo;
 
 /**
  * Enumeration of all possible browser channels.
  * @enum {string}
  */
-var BrowserChannel = {
+const BrowserChannel = {
   BETA: 'beta-channel',
+  CANARY: 'canary-channel',
   DEV: 'dev-channel',
   STABLE: 'stable-channel',
 };
+
+/**
+ * @typedef {{
+ *   updateAvailable: boolean,
+ * }}
+ */
+let TPMFirmwareUpdateStatusChangedEvent;
 // </if>
 
 /**
@@ -58,7 +66,7 @@ var BrowserChannel = {
  * the ones defined at |AboutHandler::UpdateStatusToString|.
  * @enum {string}
  */
-var UpdateStatus = {
+const UpdateStatus = {
   CHECKING: 'checking',
   UPDATING: 'updating',
   NEARLY_UPDATED: 'nearly_updated',
@@ -78,7 +86,7 @@ var UpdateStatus = {
  *   text: (string|undefined)
  * }}
  */
-var PromoteUpdaterStatus;
+let PromoteUpdaterStatus;
 // </if>
 
 /**
@@ -91,7 +99,7 @@ var PromoteUpdaterStatus;
  *   size: (string|undefined),
  * }}
  */
-var UpdateStatusChangedEvent;
+let UpdateStatusChangedEvent;
 
 cr.define('settings', function() {
   /**
@@ -102,6 +110,8 @@ cr.define('settings', function() {
     switch (channel) {
       case BrowserChannel.BETA:
         return 'aboutChannelBeta';
+      case BrowserChannel.CANARY:
+        return 'aboutChannelCanary';
       case BrowserChannel.DEV:
         return 'aboutChannelDev';
       case BrowserChannel.STABLE:
@@ -119,13 +129,14 @@ cr.define('settings', function() {
    */
   function isTargetChannelMoreStable(currentChannel, targetChannel) {
     // List of channels in increasing stability order.
-    var channelList = [
+    const channelList = [
+      BrowserChannel.CANARY,
       BrowserChannel.DEV,
       BrowserChannel.BETA,
       BrowserChannel.STABLE,
     ];
-    var currentIndex = channelList.indexOf(currentChannel);
-    var targetIndex = channelList.indexOf(targetChannel);
+    const currentIndex = channelList.indexOf(currentChannel);
+    const targetIndex = channelList.indexOf(targetChannel);
     return currentIndex < targetIndex;
   }
 
@@ -186,6 +197,18 @@ cr.define('settings', function() {
     /** @return {!Promise<?RegulatoryInfo>} */
     getRegulatoryInfo() {}
 
+    /**
+     * Checks if the device has reached end-of-life status and will no longer
+     * receive updates.
+     * @return {!Promise<boolean>}
+     */
+    getHasEndOfLife() {}
+
+    /**
+     * Request TPM firmware update status from the browser. It results in one or
+     * more 'tpm-firmware-update-status-changed' WebUI events.
+     */
+    refreshTPMFirmwareUpdateStatus() {}
     // </if>
 
     // <if expr="_google_chrome and is_macosx">
@@ -260,6 +283,16 @@ cr.define('settings', function() {
     /** @override */
     getRegulatoryInfo() {
       return cr.sendWithPromise('getRegulatoryInfo');
+    }
+
+    /** @override */
+    getHasEndOfLife() {
+      return cr.sendWithPromise('getHasEndOfLife');
+    }
+
+    /** @override */
+    refreshTPMFirmwareUpdateStatus() {
+      chrome.send('refreshTPMFirmwareUpdateStatus');
     }
     // </if>
   }

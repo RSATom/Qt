@@ -64,19 +64,19 @@ public:
     QGeoRectanglePrivate(const QGeoRectanglePrivate &other);
     ~QGeoRectanglePrivate();
 
-    bool isValid() const Q_DECL_OVERRIDE;
-    bool isEmpty() const Q_DECL_OVERRIDE;
-    bool contains(const QGeoCoordinate &coordinate) const Q_DECL_OVERRIDE;
+    bool isValid() const override;
+    bool isEmpty() const override;
+    bool contains(const QGeoCoordinate &coordinate) const override;
 
-    QGeoCoordinate center() const Q_DECL_OVERRIDE;
+    QGeoCoordinate center() const override;
 
-    QGeoRectangle boundingGeoRectangle() const Q_DECL_OVERRIDE;
+    QGeoRectangle boundingGeoRectangle() const override;
 
-    void extendShape(const QGeoCoordinate &coordinate) Q_DECL_OVERRIDE;
+    void extendShape(const QGeoCoordinate &coordinate) override;
 
-    QGeoShapePrivate *clone() const Q_DECL_OVERRIDE;
+    QGeoShapePrivate *clone() const override;
 
-    bool operator==(const QGeoShapePrivate &other) const Q_DECL_OVERRIDE;
+    bool operator==(const QGeoShapePrivate &other) const override;
 
     QGeoCoordinate topLeft;
     QGeoCoordinate bottomRight;

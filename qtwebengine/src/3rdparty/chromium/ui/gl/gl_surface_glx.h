@@ -14,12 +14,17 @@
 #include "base/macros.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/vsync_provider.h"
 #include "ui/gfx/x/x11_types.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_surface.h"
 
+namespace gfx {
+class VSyncProvider;
+}
+
 namespace gl {
+
+class GLSurfacePresentationHelper;
 
 // Base class for GLX surfaces.
 class GL_EXPORT GLSurfaceGLX : public GLSurface {
@@ -27,6 +32,8 @@ class GL_EXPORT GLSurfaceGLX : public GLSurface {
   GLSurfaceGLX();
 
   static bool InitializeOneOff();
+  static bool InitializeExtensionSettingsOneOff();
+  static void ShutdownOneOff();
 
   // These aren't particularly tied to surfaces, but since we already
   // have the static InitializeOneOff here, it's easiest to reuse its
@@ -55,6 +62,7 @@ class GL_EXPORT GLSurfaceGLX : public GLSurface {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(GLSurfaceGLX);
+  static bool initialized_;
 };
 
 // A surface used to render to a view.
@@ -67,17 +75,25 @@ class GL_EXPORT NativeViewGLSurfaceGLX : public GLSurfaceGLX {
   void Destroy() override;
   bool Resize(const gfx::Size& size,
               float scale_factor,
+              ColorSpace color_space,
               bool has_alpha) override;
   bool IsOffscreen() override;
-  gfx::SwapResult SwapBuffers() override;
+  gfx::SwapResult SwapBuffers(const PresentationCallback& callback) override;
   gfx::Size GetSize() override;
   void* GetHandle() override;
+  bool SupportsPresentationCallback() override;
   bool SupportsPostSubBuffer() override;
   void* GetConfig() override;
   GLSurfaceFormat GetFormat() override;
   unsigned long GetCompatibilityKey() override;
-  gfx::SwapResult PostSubBuffer(int x, int y, int width, int height) override;
+  gfx::SwapResult PostSubBuffer(int x,
+                                int y,
+                                int width,
+                                int height,
+                                const PresentationCallback& callback) override;
+  bool OnMakeCurrent(GLContext* context) override;
   gfx::VSyncProvider* GetVSyncProvider() override;
+  void SetVSyncEnabled(bool enabled) override;
 
   VisualID GetVisualID() const { return visual_id_; }
 
@@ -95,6 +111,7 @@ class GL_EXPORT NativeViewGLSurfaceGLX : public GLSurfaceGLX {
   bool CanHandleEvent(XEvent* xevent);
 
   gfx::AcceleratedWidget window() const { return window_; }
+
  private:
   // The handle for the drawable to make current or swap.
   GLXDrawable GetDrawableHandle() const;
@@ -112,7 +129,11 @@ class GL_EXPORT NativeViewGLSurfaceGLX : public GLSurfaceGLX {
   gfx::Size size_;
   VisualID visual_id_;
 
+  bool has_swapped_buffers_;
+
   std::unique_ptr<gfx::VSyncProvider> vsync_provider_;
+
+  std::unique_ptr<GLSurfacePresentationHelper> presentation_helper_;
 
   DISALLOW_COPY_AND_ASSIGN(NativeViewGLSurfaceGLX);
 };
@@ -126,7 +147,7 @@ class GL_EXPORT UnmappedNativeViewGLSurfaceGLX : public GLSurfaceGLX {
   bool Initialize(GLSurfaceFormat format) override;
   void Destroy() override;
   bool IsOffscreen() override;
-  gfx::SwapResult SwapBuffers() override;
+  gfx::SwapResult SwapBuffers(const PresentationCallback& callback) override;
   gfx::Size GetSize() override;
   void* GetHandle() override;
   void* GetConfig() override;

@@ -66,7 +66,10 @@ component("gcm") {
   deps = [
     "//base",
     "//base/third_party/dynamic_annotations",
+    "//mojo/public/cpp/system:system",
     "//net",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
     "//third_party/leveldatabase",
     "//url",
   ]
@@ -105,7 +108,9 @@ static_library("test_support") {
   ]
   deps = [
     "//base",
+    "//mojo/public/cpp/system:system",
     "//net",
+    "//net:test_support",
     "//testing/gtest",
   ]
 }
@@ -122,10 +127,14 @@ if (!is_ios) {
       ":gcm",
       ":test_support",
       "//base",
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
+      "//mojo/core/embedder",
       "//net",
       "//net:test_support",
+      "//services/network:network_service",
+      "//services/network:test_support",
+      "//services/network/public/cpp",
+      "//services/network/public/mojom",
       "//third_party/protobuf:protobuf_lite",
     ]
   }
@@ -155,9 +164,13 @@ test("gcm_unit_tests") {
     ":gcm",
     ":test_support",
     "//base",
-    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//google_apis:run_all_unittests",
+    "//mojo/public/cpp/system:system",
     "//net",
     "//net:test_support",
+    "//services/network:network_service",
+    "//services/network:test_support",
     "//testing/gtest",
     "//third_party/protobuf:protobuf_lite",
   ]

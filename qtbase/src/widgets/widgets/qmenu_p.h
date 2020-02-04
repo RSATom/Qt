@@ -68,6 +68,39 @@ QT_REQUIRE_CONFIG(menu);
 
 QT_BEGIN_NAMESPACE
 
+static inline int pick(Qt::Orientation o, const QPoint &pos)
+{ return o == Qt::Horizontal ? pos.x() : pos.y(); }
+
+static inline int pick(Qt::Orientation o, const QSize &size)
+{ return o == Qt::Horizontal ? size.width() : size.height(); }
+
+static inline int &rpick(Qt::Orientation o, QPoint &pos)
+{ return o == Qt::Horizontal ? pos.rx() : pos.ry(); }
+
+static inline int &rpick(Qt::Orientation o, QSize &size)
+{ return o == Qt::Horizontal ? size.rwidth() : size.rheight(); }
+
+static inline QSizePolicy::Policy pick(Qt::Orientation o, const QSizePolicy &policy)
+{ return o == Qt::Horizontal ? policy.horizontalPolicy() : policy.verticalPolicy(); }
+
+static inline int perp(Qt::Orientation o, const QPoint &pos)
+{ return o == Qt::Vertical ? pos.x() : pos.y(); }
+
+static inline int perp(Qt::Orientation o, const QSize &size)
+{ return o == Qt::Vertical ? size.width() : size.height(); }
+
+static inline int &rperp(Qt::Orientation o, QPoint &pos)
+{ return o == Qt::Vertical ? pos.rx() : pos.ry(); }
+
+static inline int &rperp(Qt::Orientation o, QSize &size)
+{ return o == Qt::Vertical ? size.rwidth() : size.rheight(); }
+
+static inline int pick(Qt::Orientation o, const QMargins &m)
+{ return o == Qt::Horizontal ? (m.left() + m.right()) : (m.top() + m.bottom()); }
+
+static inline int perp(Qt::Orientation o, const QMargins &m)
+{ return o == Qt::Vertical ? (m.left() + m.right()) : (m.top() + m.bottom()); }
+
 class QTornOffMenu;
 class QEventLoop;
 
@@ -88,7 +121,7 @@ private:
 
 class QMenuSloppyState
 {
-    Q_DISABLE_COPY(QMenuSloppyState)
+    Q_DISABLE_COPY_MOVE(QMenuSloppyState)
 public:
     QMenuSloppyState()
         : m_enabled(false)
@@ -177,7 +210,7 @@ public:
         QSetValueOnDestroy<QPointF> setPreviousPoint(m_previous_point, mousePos);
 
         if (resetAction && resetAction->isSeparator()) {
-            m_reset_action = Q_NULLPTR;
+            m_reset_action = nullptr;
             m_use_reset_action = true;
         } else if (m_reset_action != resetAction) {
             if (m_use_reset_action && resetAction) {
@@ -316,6 +349,7 @@ public:
     void updateActionRects(const QRect &screen) const;
     QRect popupGeometry() const;
     QRect popupGeometry(int screen) const;
+    bool useFullScreenForPopup() const;
     int getLastVisibleAction() const;
 
     //selection
@@ -429,7 +463,6 @@ public:
 
     bool hasMouseMoved(const QPoint &globalPos);
 
-    void adjustMenuScreen(const QPoint &p);
     void updateLayoutDirection();
 
     QPointer<QPlatformMenu> platformMenu;
@@ -442,8 +475,8 @@ public:
     public:
         enum Type { ScrollUp, ScrollDown };
         ScrollerTearOffItem(Type type, QMenuPrivate *mPrivate,
-                            QWidget *parent = Q_NULLPTR, Qt::WindowFlags f = Qt::WindowFlags());
-        void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
+                            QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
+        void paintEvent(QPaintEvent *e) override;
         void updateScrollerRects(const QRect &rect);
 
     private:
@@ -482,6 +515,8 @@ public:
     bool tearoffHighlighted : 1;
     //menu fading/scrolling effects
     bool doChildEffects : 1;
+
+    int popupScreen = -1;
 };
 
 QT_END_NAMESPACE

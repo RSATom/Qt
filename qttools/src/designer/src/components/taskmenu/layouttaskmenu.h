@@ -29,7 +29,7 @@
 #ifndef LAYOUTTASKMENU_H
 #define LAYOUTTASKMENU_H
 
-#include <QtDesigner/QDesignerTaskMenuExtension>
+#include <QtDesigner/taskmenu.h>
 
 #include <qlayout_widget_p.h>
 #include <spacer_widget_p.h>
@@ -50,8 +50,8 @@ class LayoutWidgetTaskMenu : public QObject, public QDesignerTaskMenuExtension
 public:
     explicit LayoutWidgetTaskMenu(QLayoutWidget *w, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private:
     QLayoutWidget *m_widget;
@@ -67,8 +67,8 @@ class SpacerTaskMenu : public QObject, public QDesignerTaskMenuExtension
 public:
     explicit SpacerTaskMenu(Spacer *bar, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 };
 

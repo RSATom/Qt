@@ -30,11 +30,10 @@
 #include "formwindow.h"
 
 // sdk
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QLayout>
-#include <QtCore/QMetaObject>
-#include <QtCore/QMetaProperty>
+#include <QtWidgets/qlayout.h>
+#include <QtCore/qmetaobject.h>
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -47,9 +46,7 @@ LinePropertySheet::LinePropertySheet(Line *object, QObject *parent)
     clearFakeProperties();
 }
 
-LinePropertySheet::~LinePropertySheet()
-{
-}
+LinePropertySheet::~LinePropertySheet() = default;
 
 bool LinePropertySheet::isVisible(int index) const
 {

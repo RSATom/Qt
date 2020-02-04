@@ -7,6 +7,7 @@ import("//build/config/ios/ios_sdk.gni")
 import("//ios/build/chrome_build.gni")
 import("//ios/public/provider/chrome/browser/build_config.gni")
 import("//ios/third_party/earl_grey/ios_eg_test.gni")
+import("//ios/third_party/firebase/firebase.gni")
 
 # Template wrapping ios_eg_test, setting default values for EarlGrey test
 # based on //ios/chrome/app:chrome.
@@ -39,6 +40,10 @@ import("//ios/third_party/earl_grey/ios_eg_test.gni")
 #   deps
 #        list of labels to depends on.
 #
+#   hooks_target
+#       (optional) label of the target defining the hooks used in tests.
+#       Defaults to //ios/chrome/test/earl_grey:hooks if undefined.
+#
 # This template defines two targets, one named "${target_name}" is the EarlGrey
 # test application, and the other named "${target_name}_deps_group" is a group
 # target that depends on the template "deps" property (used to implement the
@@ -48,14 +53,13 @@ template("chrome_ios_eg_test") {
   if (!defined(entitlements_path) && !defined(entitlements_target)) {
     _target_name = target_name
     _tweak_entitlements = target_name + "_tweak_entitlements"
-    compile_plist(_tweak_entitlements) {
-      format = "xml1"
+    compile_entitlements(_tweak_entitlements) {
       substitutions = [ "IOS_BUNDLE_ID_PREFIX=$ios_app_bundle_id_prefix" ]
       output_name = "$target_gen_dir/$_target_name.entitlements"
-      plist_templates =
+      entitlements_templates =
           [ "//ios/chrome/test/earl_grey/resources/Chrome.entitlements" ]
       if (ios_egtests_entitlements_additions != []) {
-        plist_templates += ios_egtests_entitlements_additions
+        entitlements_templates += ios_egtests_entitlements_additions
       }
     }
   }
@@ -98,6 +102,7 @@ template("chrome_ios_eg_test") {
                              "entitlements_path",
                              "entitlements_target",
                              "eg_main_application_delegate",
+                             "hooks_target",
                              "info_plist",
                              "info_plist_target",
                              "public_deps",
@@ -119,13 +124,26 @@ template("chrome_ios_eg_test") {
     deps = [
       ":$_deps_group_name",
       "//ios/chrome/app:main",
-      "//ios/chrome/test/earl_grey:hooks",
       "//ios/testing:http_server_bundle_data",
     ]
+    if (ios_enable_firebase_sdk) {
+      # This is required here so Firebase SDK can supply ldflags to app bundle.
+      deps += [ "//ios/third_party/firebase" ]
+    }
+    if (defined(invoker.hooks_target)) {
+      assert(invoker.hooks_target != "",
+             "hooks_target must be non-empty if defined")
+      deps += [ invoker.hooks_target ]
+    } else {
+      deps += [ "//ios/chrome/test/earl_grey:hooks" ]
+    }
     if (!defined(bundle_deps)) {
       bundle_deps = []
     }
-    bundle_deps += [ "//ios/chrome/app/resources" ]
+    bundle_deps += [
+      "//ios/chrome/app/resources",
+      ios_application_icons_target,
+    ]
 
     if (!defined(extra_substitutions)) {
       extra_substitutions = []
@@ -136,9 +154,10 @@ template("chrome_ios_eg_test") {
       "CHROMIUM_URL_SCHEME_1=$url_unsecure_scheme",
       "CHROMIUM_URL_SCHEME_2=$url_secure_scheme",
       "CHROMIUM_URL_SCHEME_3=$url_x_callback_scheme",
-      "CHROMIUM_URL_SCHEME_4=$url_channel_scheme",
+      "CHROMIUM_URL_CHANNEL_SCHEME=$url_channel_scheme",
       "EG_MAIN_APPLICATION_DELEGATE=$_eg_main_application_delegate",
       "SSOAUTH_URL_SCHEME=$url_ssoauth_scheme",
+      "CONTENT_WIDGET_EXTENSION_BUNDLE_ID=$chromium_bundle_id.ContentTodayExtension",
     ]
     if (ios_automatically_manage_certs) {
       # Use the same bundle identifier for EarlGrey tests as for unit tests

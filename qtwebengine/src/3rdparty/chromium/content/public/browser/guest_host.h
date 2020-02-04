@@ -9,6 +9,8 @@
 
 namespace content {
 
+class WebContents;
+
 // A GuestHost is the content API for a guest WebContents.
 // Guests are top-level frames that can be embedded within other pages.
 // The content module manages routing of input events and compositing, but all
@@ -24,9 +26,6 @@ class GuestHost {
   // a proxy for the guest.
   virtual int LoadURLWithParams(
       const NavigationController::LoadURLParams& load_params) = 0;
-
-  // Called when the GuestHost's size changes due to auto resize.
-  virtual void GuestResizeDueToAutoResize(const gfx::Size& new_size) = 0;
 
   // Sets the size of the guest WebContents.
   virtual void SizeContents(const gfx::Size& new_size) = 0;

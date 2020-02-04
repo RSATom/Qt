@@ -48,17 +48,22 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.7
-import QtQuick.Controls 2.0
-import QtQuick.Controls.Material 2.0
+import QtQuick 2.12
+import QtQuick.Controls 2.12
+import QtQuick.Controls.Material 2.12
 
 ApplicationWindow {
     width: 400
     height: 400
 
     property alias label: label
+    property alias button: button
 
     Label {
         id: label
+    }
+
+    Button {
+        id: button
     }
 }

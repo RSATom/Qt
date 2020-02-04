@@ -4,9 +4,9 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/app_launch_splash_screen_handler.h"
 
+#include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/chromeos/login/oobe_screen.h"
@@ -52,6 +52,8 @@ AppLaunchSplashScreenHandler::AppLaunchSplashScreenHandler(
 
 AppLaunchSplashScreenHandler::~AppLaunchSplashScreenHandler() {
   network_state_informer_->RemoveObserver(this);
+  if (delegate_)
+    delegate_->OnDeletingSplashScreenView();
 }
 
 void AppLaunchSplashScreenHandler::DeclareLocalizedValues(
@@ -89,7 +91,7 @@ void AppLaunchSplashScreenHandler::Show(const std::string& app_id) {
   data.SetBoolean("shortcutEnabled",
                   !KioskAppManager::Get()->GetDisableBailoutShortcut());
 
-  auto app_info = base::MakeUnique<base::DictionaryValue>();
+  auto app_info = std::make_unique<base::DictionaryValue>();
   PopulateAppInfo(app_info.get());
   data.Set("appInfo", std::move(app_info));
 
@@ -112,7 +114,7 @@ void AppLaunchSplashScreenHandler::Hide() {
 }
 
 void AppLaunchSplashScreenHandler::ToggleNetworkConfig(bool visible) {
-  CallJS("toggleNetworkConfig", visible);
+  CallJS("login.AppLaunchSplashScreen.toggleNetworkConfig", visible);
 }
 
 void AppLaunchSplashScreenHandler::UpdateAppLaunchState(AppLaunchState state) {
@@ -217,7 +219,7 @@ void AppLaunchSplashScreenHandler::PopulateAppInfo(
     app.name = l10n_util::GetStringUTF8(IDS_SHORT_PRODUCT_NAME);
 
   if (app.icon.isNull()) {
-    app.icon = *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+    app.icon = *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
         IDR_PRODUCT_LOGO_128);
   }
 
@@ -226,16 +228,12 @@ void AppLaunchSplashScreenHandler::PopulateAppInfo(
 }
 
 void AppLaunchSplashScreenHandler::SetLaunchText(const std::string& text) {
-  CallJS("updateMessage", text);
+  CallJS("login.AppLaunchSplashScreen.updateMessage", text);
 }
 
 int AppLaunchSplashScreenHandler::GetProgressMessageFromState(
     AppLaunchState state) {
   switch (state) {
-    case APP_LAUNCH_STATE_LOADING_AUTH_FILE:
-    case APP_LAUNCH_STATE_LOADING_TOKEN_SERVICE:
-      // TODO(zelidrag): Add better string for this one than "Please wait..."
-      return IDS_SYNC_SETUP_SPINNER_TITLE;
     case APP_LAUNCH_STATE_PREPARING_NETWORK:
       return IDS_APP_START_NETWORK_WAIT_MESSAGE;
     case APP_LAUNCH_STATE_INSTALLING_APPLICATION:

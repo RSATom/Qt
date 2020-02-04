@@ -29,7 +29,7 @@
     \example webengine/minimal
     \title WebEngine Qt Quick Minimal Example
     \ingroup webengine-examples
-    \brief Displays a web page using the Qt Quick integration of Qt WebEngine
+    \brief Displays a web page using the Qt Quick integration of \QWE.
 
     \image minimal-example.png
 
@@ -50,9 +50,15 @@
     \skipto #include
     \printto main
 
-    In the \c main function we first set the Qt::AA_EnableHighDpiScaling
-    attribute. This lets the web view automatically scale on high-dpi displays.
-    Then we instantiate a QGuiApplication object.
+    In the \c main function we first set the
+    \l{QCoreApplication::organizationName} property. This affects the locations
+    where \QWE stores persistent and cached data (see also
+    \l{WebEngineProfile::cachePath} and
+    \l{WebEngineProfile::persistentStoragePath}).
+
+    We also set the Qt::AA_EnableHighDpiScaling attribute. This lets the web
+    view automatically scale on high-dpi displays. Then we instantiate a
+    QGuiApplication object.
 
     Next, we call \l{QtWebEngine::initialize}, which makes sure that OpenGL
     contexts can be shared between the main process and the dedicated renderer

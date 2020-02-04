@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 #include "base/files/file_util.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -23,7 +23,7 @@ class FileUtilICUTest : public PlatformTest {
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 
-// Linux disallows some evil ASCII characters, but passes all non-ASCII.
+// On linux, file path is parsed and filtered as UTF-8.
 static const struct GoodBadPairLinux {
   const char* bad_name;
   const char* good_name;
@@ -37,11 +37,11 @@ static const struct GoodBadPairLinux {
   {"     ", "-   -"},
 };
 
-TEST_F(FileUtilICUTest, ReplaceIllegalCharacersInPathLinuxTest) {
-  for (size_t i = 0; i < arraysize(kLinuxIllegalCharacterCases); ++i) {
-    std::string bad_name(kLinuxIllegalCharacterCases[i].bad_name);
+TEST_F(FileUtilICUTest, ReplaceIllegalCharactersInPathLinuxTest) {
+  for (auto i : kLinuxIllegalCharacterCases) {
+    std::string bad_name(i.bad_name);
     ReplaceIllegalCharactersInPath(&bad_name, '-');
-    EXPECT_EQ(kLinuxIllegalCharacterCases[i].good_name, bad_name);
+    EXPECT_EQ(i.good_name, bad_name);
   }
 }
 
@@ -82,18 +82,18 @@ static const struct goodbad_pair {
     {L".    ", L"-   -"}
 };
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_POSIX)
 
 TEST_F(FileUtilICUTest, ReplaceIllegalCharactersInPathTest) {
-  for (size_t i = 0; i < arraysize(kIllegalCharacterCases); ++i) {
+  for (auto i : kIllegalCharacterCases) {
 #if defined(OS_WIN)
-    std::wstring bad_name(kIllegalCharacterCases[i].bad_name);
+    std::wstring bad_name(i.bad_name);
     ReplaceIllegalCharactersInPath(&bad_name, '-');
-    EXPECT_EQ(kIllegalCharacterCases[i].good_name, bad_name);
-#elif defined(OS_MACOSX)
-    std::string bad_name(WideToUTF8(kIllegalCharacterCases[i].bad_name));
+    EXPECT_EQ(i.good_name, bad_name);
+#else
+    std::string bad_name(WideToUTF8(i.bad_name));
     ReplaceIllegalCharactersInPath(&bad_name, '-');
-    EXPECT_EQ(WideToUTF8(kIllegalCharacterCases[i].good_name), bad_name);
+    EXPECT_EQ(WideToUTF8(i.good_name), bad_name);
 #endif
   }
 }
@@ -126,7 +126,7 @@ static const struct normalize_name_encoding_test_cases {
 };
 
 TEST_F(FileUtilICUTest, NormalizeFileNameEncoding) {
-  for (size_t i = 0; i < arraysize(kNormalizeFileNameEncodingTestCases); i++) {
+  for (size_t i = 0; i < base::size(kNormalizeFileNameEncodingTestCases); i++) {
     FilePath path(kNormalizeFileNameEncodingTestCases[i].original_path);
     NormalizeFileNameEncoding(&path);
     EXPECT_EQ(FilePath(kNormalizeFileNameEncodingTestCases[i].normalized_path),

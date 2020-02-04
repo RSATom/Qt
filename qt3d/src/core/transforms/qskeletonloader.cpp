@@ -74,7 +74,7 @@ void QSkeletonLoaderPrivate::setStatus(QSkeletonLoader::Status status)
     \inherits AbstractSkeleton
     \instantiates Qt3DCore::QSkeletonLoader
     \since 5.10
-    \brief Used to load a skeleton of joints from file
+    \brief Used to load a skeleton of joints from file.
 
     Use SkeletonLoader if you wish to load a whole skeleton from file rather
     than creating the joints yourself using Skeleton and Joints. Creating a
@@ -101,7 +101,7 @@ void QSkeletonLoaderPrivate::setStatus(QSkeletonLoader::Status status)
     \inmodule Qt3DCore
     \inherits Qt3DCore::QAbstractSkeleton
     \since 5.10
-    \brief Used to load a skeleton of joints from file
+    \brief Used to load a skeleton of joints from file.
 
     Use SkeletonLoader if you wish to load a whole skeleton from file rather
     than creating the joints yourself using Skeleton and Joints. Creating a
@@ -120,7 +120,11 @@ void QSkeletonLoaderPrivate::setStatus(QSkeletonLoader::Status status)
     \value Ready                 The skeleton was successfully loaded
     \value Error                 An error occurred while loading the skeleton
 */
+/*!
+    \property Qt3DCore::QSkeletonLoader::createJointsEnabled
 
+    \brief A boolean to indicate whether createJoints is enabled or not.
+*/
 /*!
     Constructs a new QSkeletonLoader with \a parent.
 */
@@ -171,12 +175,19 @@ QSkeletonLoader::Status QSkeletonLoader::status() const
     return d->m_status;
 }
 
+/*!
+    Returns a boolean indicating whether CreateJoints
+    is enabled or not.
+    The default value is \c false.
+*/
 bool QSkeletonLoader::isCreateJointsEnabled() const
 {
     Q_D(const QSkeletonLoader);
     return d->m_createJoints;
 }
-
+/*!
+    Returns the root joint of the hierarchy of joints forming the skeleton.
+*/
 Qt3DCore::QJoint *QSkeletonLoader::rootJoint() const
 {
     Q_D(const QSkeletonLoader);

@@ -28,21 +28,13 @@ struct CallStackProfileParams {
   enum Thread {
     UNKNOWN_THREAD,
 
-    // Browser process threads, some of which occur in other processes as well.
-    UI_THREAD,
-    FILE_THREAD,
-    FILE_USER_BLOCKING_THREAD,
-    PROCESS_LAUNCHER_THREAD,
-    CACHE_THREAD,
+    // Each process has a 'main thread'. In the Browser process, the 'main
+    // thread' is also often called the 'UI thread'.
+    MAIN_THREAD,
     IO_THREAD,
-    DB_THREAD,
 
-    // GPU process thread.
-    GPU_MAIN_THREAD,
-
-    // Renderer process threads.
-    RENDER_THREAD,
-    UTILITY_THREAD
+    // Compositor thread (can be in both renderer and gpu processes).
+    COMPOSITOR_THREAD,
   };
 
   // The event that triggered the profile collection.
@@ -52,17 +44,8 @@ struct CallStackProfileParams {
     JANKY_TASK,
     THREAD_HUNG,
     PERIODIC_COLLECTION,
-    TRIGGER_LAST = PERIODIC_COLLECTION
-  };
-
-  // Allows the caller to specify whether sample ordering is
-  // important. MAY_SHUFFLE should always be used to enable better compression,
-  // unless the use case needs order to be preserved for a specific reason.
-  enum SampleOrderingSpec {
-    // The provider may shuffle the sample order to improve compression.
-    MAY_SHUFFLE,
-    // The provider will not change the sample order.
-    PRESERVE_ORDER
+    PERIODIC_HEAP_COLLECTION,
+    TRIGGER_LAST = PERIODIC_HEAP_COLLECTION
   };
 
   // The default constructor is required for mojo and should not be used
@@ -72,15 +55,7 @@ struct CallStackProfileParams {
   constexpr CallStackProfileParams(Process process,
                                    Thread thread,
                                    Trigger trigger)
-      : CallStackProfileParams(process, thread, trigger, MAY_SHUFFLE) {}
-  constexpr CallStackProfileParams(Process process,
-                                   Thread thread,
-                                   Trigger trigger,
-                                   SampleOrderingSpec ordering_spec)
-      : process(process),
-        thread(thread),
-        trigger(trigger),
-        ordering_spec(ordering_spec) {}
+      : process(process), thread(thread), trigger(trigger) {}
 
   // The collection process.
   Process process;
@@ -90,15 +65,6 @@ struct CallStackProfileParams {
 
   // The triggering event.
   Trigger trigger;
-
-  // Whether to preserve sample ordering.
-  SampleOrderingSpec ordering_spec;
-
-  // The time at which the CallStackProfileMetricsProvider became aware of the
-  // request for profiling. In particular, this is when callback was requested
-  // via CallStackProfileMetricsProvider::GetProfilerCallback(). Used to
-  // determine if collection was disabled during the collection of the profile.
-  base::TimeTicks start_timestamp;
 };
 
 }  // namespace metrics

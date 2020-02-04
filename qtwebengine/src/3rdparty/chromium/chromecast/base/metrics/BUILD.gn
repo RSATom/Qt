@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-source_set("metrics") {
+import("//chromecast/chromecast.gni")
+
+cast_source_set("metrics") {
   sources = [
     "cast_histograms.h",
     "cast_metrics_helper.cc",
@@ -16,12 +18,10 @@ source_set("metrics") {
   ]
 }
 
-source_set("test_support") {
+cast_source_set("test_support") {
   testonly = true
 
   sources = [
-    "cast_metrics_test_helper.cc",
-    "cast_metrics_test_helper.h",
     "mock_cast_metrics_helper.cc",
     "mock_cast_metrics_helper.h",
   ]

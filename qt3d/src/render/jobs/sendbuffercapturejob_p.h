@@ -68,20 +68,18 @@ class Entity;
 class Renderer;
 class Buffer;
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT SendBufferCaptureJob : public Qt3DCore::QAspectJob
+class Q_3DRENDERSHARED_PRIVATE_EXPORT SendBufferCaptureJob : public Qt3DCore::QAspectJob
 {
 public:
     explicit SendBufferCaptureJob();
     ~SendBufferCaptureJob();
 
-    void setManagers(NodeManagers *managers);
-
     void addRequest(QPair<Buffer*, QByteArray> request);
+    bool hasRequests() const;
 
-    void run() Q_DECL_FINAL;
+    void run() final;
 
 private:
-    NodeManagers *m_managers;
     QMutex m_mutex;
 
     QVector<QPair<Buffer*, QByteArray> > m_pendingSendBufferCaptures;

@@ -73,11 +73,12 @@ public:
     ~MainWindow();
 
 private slots:
+    //! [0]
     void addNfcTextRecord();
     void addNfcUriRecord();
     void addMimeImageRecord();
     void addEmptyRecord();
-
+    //! [0]
     void clearMessage();
 
     void loadMessage();

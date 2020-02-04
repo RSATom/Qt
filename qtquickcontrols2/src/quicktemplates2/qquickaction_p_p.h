@@ -64,15 +64,15 @@ class QQuickActionPrivate : public QObjectPrivate, public QQuickItemChangeListen
     Q_DECLARE_PUBLIC(QQuickAction)
 
 public:
-    QQuickActionPrivate();
-
     static QQuickActionPrivate *get(QQuickAction *action)
     {
         return action->d_func();
     }
 
+#if QT_CONFIG(shortcut)
     QVariant shortcut() const;
     void setShortcut(const QVariant &shortcut);
+#endif
 
     void setEnabled(bool enable);
 
@@ -89,6 +89,7 @@ public:
 
     void trigger(QObject*, bool doToggle);
 
+#if QT_CONFIG(shortcut)
     class ShortcutEntry
     {
     public:
@@ -104,24 +105,27 @@ public:
         void setEnabled(bool enabled);
 
     private:
-        int m_shortcutId;
-        QObject *m_target;
+        int m_shortcutId = 0;
+        QObject *m_target = nullptr;
     };
 
     ShortcutEntry *findShortcutEntry(QObject *target) const;
     void updateDefaultShortcutEntry();
+#endif // QT_CONFIG(shortcut)
 
-    bool explicitEnabled;
-    bool enabled;
-    bool checked;
-    bool checkable;
+    bool explicitEnabled = false;
+    bool enabled = true;
+    bool checked = false;
+    bool checkable = false;
     QString text;
     QQuickIcon icon;
-    QVariant vshortcut;
     QKeySequence keySequence;
-    ShortcutEntry *defaultShortcutEntry;
+#if QT_CONFIG(shortcut)
+    QVariant vshortcut;
+    ShortcutEntry *defaultShortcutEntry = nullptr;
     QVector<ShortcutEntry *> shortcutEntries;
-    QQuickActionGroup *group;
+#endif
+    QQuickActionGroup *group = nullptr;
 };
 
 QT_END_NAMESPACE

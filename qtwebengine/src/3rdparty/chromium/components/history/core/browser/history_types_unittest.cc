@@ -88,8 +88,8 @@ TEST(HistoryQueryResult, DeleteRange) {
   // Now delete everything and make sure it's deleted.
   results.DeleteRange(0, 1);
   EXPECT_EQ(0U, results.size());
-  EXPECT_FALSE(results.MatchesForURL(url1, NULL));
-  EXPECT_FALSE(results.MatchesForURL(url2, NULL));
+  EXPECT_FALSE(results.MatchesForURL(url1, nullptr));
+  EXPECT_FALSE(results.MatchesForURL(url2, nullptr));
 }
 
 // Tests insertion and deletion by URL.
@@ -106,7 +106,7 @@ TEST(HistoryQueryResult, ResultDeleteURL) {
 
   // The first one should be gone, and the second one should be at [0].
   size_t match_count;
-  EXPECT_FALSE(results.MatchesForURL(url1, NULL));
+  EXPECT_FALSE(results.MatchesForURL(url1, nullptr));
   const size_t* matches = results.MatchesForURL(url2, &match_count);
   ASSERT_EQ(1U, match_count);
   EXPECT_TRUE(matches[0] == 0);
@@ -114,7 +114,27 @@ TEST(HistoryQueryResult, ResultDeleteURL) {
   // Delete the second URL, there should be nothing left.
   results.DeleteURL(url2);
   EXPECT_EQ(0U, results.size());
-  EXPECT_FALSE(results.MatchesForURL(url2, NULL));
+  EXPECT_FALSE(results.MatchesForURL(url2, nullptr));
+}
+
+// Tests time ranges.
+TEST(HistoryTypes, DeletionTimeRange) {
+  auto invalid = DeletionTimeRange::Invalid();
+  EXPECT_FALSE(invalid.IsValid());
+  EXPECT_FALSE(invalid.IsAllTime());
+
+  auto some_hours = DeletionTimeRange(
+      base::Time::Now() - base::TimeDelta::FromHours(1), base::Time::Now());
+  EXPECT_TRUE(some_hours.IsValid());
+  EXPECT_FALSE(some_hours.IsAllTime());
+
+  auto all_time = DeletionTimeRange::AllTime();
+  EXPECT_TRUE(all_time.IsValid());
+  EXPECT_TRUE(all_time.IsAllTime());
+
+  auto another_all_time = DeletionTimeRange(base::Time(), base::Time());
+  EXPECT_TRUE(another_all_time.IsValid());
+  EXPECT_TRUE(another_all_time.IsAllTime());
 }
 
 }  // namespace history

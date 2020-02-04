@@ -8,19 +8,21 @@
 
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
+#include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/input/touch_emulator.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/common/view_messages.h"
+#include "content/common/widget_messages.h"
 #include "content/public/common/url_constants.h"
-#include "device/geolocation/geolocation_context.h"
-#include "device/geolocation/geoposition.h"
+#include "net/http/http_util.h"
+#include "services/device/public/cpp/geolocation/geoposition.h"
+#include "services/device/public/mojom/geolocation_context.mojom.h"
+#include "services/device/public/mojom/geoposition.mojom.h"
+#include "ui/events/gesture_detection/gesture_provider_config_helper.h"
 
 namespace content {
 namespace protocol {
-
-using GeolocationContext = device::GeolocationContext;
-using Geoposition = device::Geoposition;
 
 namespace {
 
@@ -42,11 +44,11 @@ ui::GestureProviderConfigType TouchEmulationConfigurationToType(
   ui::GestureProviderConfigType result =
       ui::GestureProviderConfigType::CURRENT_PLATFORM;
   if (protocol_value ==
-      Emulation::SetTouchEmulationEnabled::ConfigurationEnum::Mobile) {
+      Emulation::SetEmitTouchEventsForMouse::ConfigurationEnum::Mobile) {
     result = ui::GestureProviderConfigType::GENERIC_MOBILE;
   }
   if (protocol_value ==
-      Emulation::SetTouchEmulationEnabled::ConfigurationEnum::Desktop) {
+      Emulation::SetEmitTouchEventsForMouse::ConfigurationEnum::Desktop) {
     result = ui::GestureProviderConfigType::GENERIC_DESKTOP;
   }
   return result;
@@ -64,13 +66,22 @@ EmulationHandler::EmulationHandler()
 EmulationHandler::~EmulationHandler() {
 }
 
-void EmulationHandler::SetRenderFrameHost(RenderFrameHostImpl* host) {
-  if (host_ == host)
-    return;
+// static
+std::vector<EmulationHandler*> EmulationHandler::ForAgentHost(
+    DevToolsAgentHostImpl* host) {
+  return host->HandlersByName<EmulationHandler>(
+      Emulation::Metainfo::domainName);
+}
 
-  host_ = host;
-  UpdateTouchEventEmulationState();
-  UpdateDeviceEmulationState();
+void EmulationHandler::SetRenderer(int process_host_id,
+                                   RenderFrameHostImpl* frame_host) {
+  if (host_ == frame_host)
+    return;
+  host_ = frame_host;
+  if (touch_emulation_enabled_)
+    UpdateTouchEventEmulationState();
+  if (device_emulation_enabled_)
+    UpdateDeviceEmulationState();
 }
 
 void EmulationHandler::Wire(UberDispatcher* dispatcher) {
@@ -78,10 +89,15 @@ void EmulationHandler::Wire(UberDispatcher* dispatcher) {
 }
 
 Response EmulationHandler::Disable() {
-  touch_emulation_enabled_ = false;
-  device_emulation_enabled_ = false;
-  UpdateTouchEventEmulationState();
-  UpdateDeviceEmulationState();
+  if (touch_emulation_enabled_) {
+    touch_emulation_enabled_ = false;
+    UpdateTouchEventEmulationState();
+  }
+  user_agent_ = std::string();
+  if (device_emulation_enabled_) {
+    device_emulation_enabled_ = false;
+    UpdateDeviceEmulationState();
+  }
   return Response::OK();
 }
 
@@ -90,18 +106,20 @@ Response EmulationHandler::SetGeolocationOverride(
   if (!GetWebContents())
     return Response::InternalError();
 
-  GeolocationContext* geolocation_context =
-      GetWebContents()->GetGeolocationContext();
-  std::unique_ptr<Geoposition> geoposition(new Geoposition());
+  auto* geolocation_context = GetWebContents()->GetGeolocationContext();
+  auto geoposition = device::mojom::Geoposition::New();
   if (latitude.isJust() && longitude.isJust() && accuracy.isJust()) {
     geoposition->latitude = latitude.fromJust();
     geoposition->longitude = longitude.fromJust();
     geoposition->accuracy = accuracy.fromJust();
     geoposition->timestamp = base::Time::Now();
-    if (!geoposition->Validate())
+
+    if (!device::ValidateGeoposition(*geoposition))
       return Response::Error("Invalid geolocation");
+
   } else {
-    geoposition->error_code = Geoposition::ERROR_CODE_POSITION_UNAVAILABLE;
+    geoposition->error_code =
+        device::mojom::Geoposition::ErrorCode::POSITION_UNAVAILABLE;
   }
   geolocation_context->SetOverride(std::move(geoposition));
   return Response::OK();
@@ -111,18 +129,18 @@ Response EmulationHandler::ClearGeolocationOverride() {
   if (!GetWebContents())
     return Response::InternalError();
 
-  GeolocationContext* geolocation_context =
-      GetWebContents()->GetGeolocationContext();
+  auto* geolocation_context = GetWebContents()->GetGeolocationContext();
   geolocation_context->ClearOverride();
   return Response::OK();
 }
 
-Response EmulationHandler::SetTouchEmulationEnabled(
-    bool enabled, Maybe<std::string> configuration) {
+Response EmulationHandler::SetEmitTouchEventsForMouse(
+    bool enabled,
+    Maybe<std::string> configuration) {
   touch_emulation_enabled_ = enabled;
   touch_emulation_configuration_ = configuration.fromMaybe("");
   UpdateTouchEventEmulationState();
-  return Response::FallThrough();
+  return Response::OK();
 }
 
 Response EmulationHandler::CanEmulate(bool* result) {
@@ -149,7 +167,8 @@ Response EmulationHandler::SetDeviceMetricsOverride(
     Maybe<int> position_x,
     Maybe<int> position_y,
     Maybe<bool> dont_set_visible_size,
-    Maybe<Emulation::ScreenOrientation> screen_orientation) {
+    Maybe<Emulation::ScreenOrientation> screen_orientation,
+    Maybe<protocol::Page::Viewport> viewport) {
   const static int max_size = 10000000;
   const static double max_scale = 10;
   const static int max_orientation_angle = 360;
@@ -183,9 +202,8 @@ Response EmulationHandler::SetDeviceMetricsOverride(
     return Response::InvalidParams("deviceScaleFactor must be non-negative");
 
   if (scale.fromMaybe(1) <= 0 || scale.fromMaybe(1) > max_scale) {
-    return Response::InvalidParams(
-        "scale must be positive, not greater than " +
-        base::DoubleToString(max_scale));
+    return Response::InvalidParams("scale must be positive, not greater than " +
+                                   base::NumberToString(max_scale));
   }
 
   blink::WebScreenOrientationType orientationType =
@@ -210,57 +228,109 @@ Response EmulationHandler::SetDeviceMetricsOverride(
                                   : blink::WebDeviceEmulationParams::kDesktop;
   params.screen_size =
       blink::WebSize(screen_width.fromMaybe(0), screen_height.fromMaybe(0));
-  params.view_position =
-      blink::WebPoint(position_x.fromMaybe(0), position_y.fromMaybe(0));
+  if (position_x.isJust() && position_y.isJust()) {
+    params.view_position =
+        blink::WebPoint(position_x.fromMaybe(0), position_y.fromMaybe(0));
+  }
   params.device_scale_factor = device_scale_factor;
   params.view_size = blink::WebSize(width, height);
   params.scale = scale.fromMaybe(1);
   params.screen_orientation_type = orientationType;
   params.screen_orientation_angle = orientationAngle;
 
-  if (device_emulation_enabled_ && params == device_emulation_params_)
+  if (viewport.isJust()) {
+    params.viewport_offset.x = viewport.fromJust()->GetX();
+    params.viewport_offset.y = viewport.fromJust()->GetY();
+
+    ScreenInfo screen_info;
+    widget_host->GetScreenInfo(&screen_info);
+    double dpfactor = device_scale_factor ? device_scale_factor /
+                                                screen_info.device_scale_factor
+                                          : 1;
+    params.viewport_scale = viewport.fromJust()->GetScale() * dpfactor;
+
+    // Resize the RenderWidgetHostView to the size of the overridden viewport.
+    width = gfx::ToRoundedInt(viewport.fromJust()->GetWidth() *
+                              params.viewport_scale);
+    height = gfx::ToRoundedInt(viewport.fromJust()->GetHeight() *
+                               params.viewport_scale);
+  }
+
+  bool size_changed = false;
+  if (!dont_set_visible_size.fromMaybe(false) && width > 0 && height > 0) {
+    if (GetWebContents()) {
+      size_changed =
+          GetWebContents()->SetDeviceEmulationSize(gfx::Size(width, height));
+    } else {
+      return Response::Error("Can't find the associated web contents");
+    }
+  }
+
+  if (device_emulation_enabled_ && params == device_emulation_params_) {
+    // Renderer should answer after size was changed, so that the response is
+    // only sent to the client once updates were applied.
+    if (size_changed)
+      return Response::FallThrough();
     return Response::OK();
+  }
 
   device_emulation_enabled_ = true;
   device_emulation_params_ = params;
-  if (!dont_set_visible_size.fromMaybe(false) && width > 0 && height > 0) {
-    original_view_size_ = widget_host->GetView()->GetViewBounds().size();
-    widget_host->GetView()->SetSize(gfx::Size(width, height));
-  } else {
-    original_view_size_ = gfx::Size();
-  }
   UpdateDeviceEmulationState();
-  return Response::OK();
+
+  // Renderer should answer after emulation params were updated, so that the
+  // response is only sent to the client once updates were applied.
+  // Unless the renderer has crashed.
+  if (GetWebContents() && GetWebContents()->IsCrashed())
+    return Response::OK();
+  return Response::FallThrough();
 }
 
 Response EmulationHandler::ClearDeviceMetricsOverride() {
-  RenderWidgetHostImpl* widget_host =
-      host_ ? host_->GetRenderWidgetHost() : nullptr;
-  if (!widget_host)
-    return Response::Error("Target does not support metrics override");
   if (!device_emulation_enabled_)
     return Response::OK();
-
+  if (GetWebContents())
+    GetWebContents()->ClearDeviceEmulationSize();
+  else
+    return Response::Error("Can't find the associated web contents");
   device_emulation_enabled_ = false;
-  if (original_view_size_.width())
-    widget_host->GetView()->SetSize(original_view_size_);
-  original_view_size_ = gfx::Size();
+  device_emulation_params_ = blink::WebDeviceEmulationParams();
   UpdateDeviceEmulationState();
-  return Response::OK();
+  // Renderer should answer after emulation was disabled, so that the response
+  // is only sent to the client once updates were applied.
+  // Unless the renderer has crashed.
+  if (GetWebContents() && GetWebContents()->IsCrashed())
+    return Response::OK();
+  return Response::FallThrough();
 }
 
 Response EmulationHandler::SetVisibleSize(int width, int height) {
   if (width < 0 || height < 0)
     return Response::InvalidParams("Width and height must be non-negative");
 
-  // Set size of frame by resizing RWHV if available.
-  RenderWidgetHostImpl* widget_host =
-      host_ ? host_->GetRenderWidgetHost() : nullptr;
-  if (!widget_host)
-    return Response::Error("Target does not support setVisibleSize");
+  if (GetWebContents())
+    GetWebContents()->SetDeviceEmulationSize(gfx::Size(width, height));
+  else
+    return Response::Error("Can't find the associated web contents");
 
-  widget_host->GetView()->SetSize(gfx::Size(width, height));
   return Response::OK();
+}
+
+Response EmulationHandler::SetUserAgentOverride(
+    const std::string& user_agent,
+    Maybe<std::string> accept_language,
+    Maybe<std::string> platform) {
+  if (!user_agent.empty() && !net::HttpUtil::IsValidHeaderValue(user_agent))
+    return Response::InvalidParams("Invalid characters found in userAgent");
+  std::string accept_lang = accept_language.fromMaybe(std::string());
+  if (!accept_lang.empty() && !net::HttpUtil::IsValidHeaderValue(accept_lang)) {
+    return Response::InvalidParams(
+        "Invalid characters found in acceptLanguage");
+  }
+
+  user_agent_ = user_agent;
+  accept_language_ = accept_lang;
+  return Response::FallThrough();
 }
 
 blink::WebDeviceEmulationParams EmulationHandler::GetDeviceEmulationParams() {
@@ -269,6 +339,8 @@ blink::WebDeviceEmulationParams EmulationHandler::GetDeviceEmulationParams() {
 
 void EmulationHandler::SetDeviceEmulationParams(
     const blink::WebDeviceEmulationParams& params) {
+  bool enabled = params != blink::WebDeviceEmulationParams();
+  device_emulation_enabled_ = enabled;
   device_emulation_params_ = params;
   UpdateDeviceEmulationState();
 }
@@ -280,29 +352,62 @@ WebContentsImpl* EmulationHandler::GetWebContents() {
 }
 
 void EmulationHandler::UpdateTouchEventEmulationState() {
-  RenderWidgetHostImpl* widget_host =
-      host_ ? host_->GetRenderWidgetHost() : nullptr;
-  if (!widget_host)
+  if (!host_ || !host_->GetRenderWidgetHost())
     return;
-  bool enabled = touch_emulation_enabled_;
-  ui::GestureProviderConfigType config_type =
-      TouchEmulationConfigurationToType(touch_emulation_configuration_);
-  widget_host->SetTouchEventEmulationEnabled(enabled, config_type);
-  if (GetWebContents())
-    GetWebContents()->SetForceDisableOverscrollContent(enabled);
+  if (host_->GetParent() && !host_->IsCrossProcessSubframe())
+    return;
+
+  // We only have a single TouchEmulator for all frames, so let the main frame's
+  // EmulationHandler enable/disable it.
+  if (!host_->frame_tree_node()->IsMainFrame())
+    return;
+
+  if (touch_emulation_enabled_) {
+    if (auto* touch_emulator =
+            host_->GetRenderWidgetHost()->GetTouchEmulator()) {
+      touch_emulator->Enable(
+          TouchEmulator::Mode::kEmulatingTouchFromMouse,
+          TouchEmulationConfigurationToType(touch_emulation_configuration_));
+    }
+  } else {
+    if (auto* touch_emulator = host_->GetRenderWidgetHost()->GetTouchEmulator())
+      touch_emulator->Disable();
+  }
+  if (GetWebContents()) {
+    GetWebContents()->SetForceDisableOverscrollContent(
+        touch_emulation_enabled_);
+  }
 }
 
 void EmulationHandler::UpdateDeviceEmulationState() {
-  RenderWidgetHostImpl* widget_host =
-      host_ ? host_->GetRenderWidgetHost() : nullptr;
-  if (!widget_host)
+  if (!host_ || !host_->GetRenderWidgetHost())
     return;
+  if (host_->GetParent() && !host_->IsCrossProcessSubframe())
+    return;
+  // TODO(eseckler): Once we change this to mojo, we should wait for an ack to
+  // these messages from the renderer. The renderer should send the ack once the
+  // emulation params were applied. That way, we can avoid having to handle
+  // Set/ClearDeviceMetricsOverride in the renderer. With the old IPC system,
+  // this is tricky since we'd have to track the DevTools message id with the
+  // WidgetMsg and acknowledgment, as well as plump the acknowledgment back to
+  // the EmulationHandler somehow. Mojo callbacks should make this much simpler.
   if (device_emulation_enabled_) {
-    widget_host->Send(new ViewMsg_EnableDeviceEmulation(
-        widget_host->GetRoutingID(), device_emulation_params_));
+    host_->GetRenderWidgetHost()->Send(new WidgetMsg_EnableDeviceEmulation(
+        host_->GetRenderWidgetHost()->GetRoutingID(),
+        device_emulation_params_));
   } else {
-    widget_host->Send(new ViewMsg_DisableDeviceEmulation(
-        widget_host->GetRoutingID()));
+    host_->GetRenderWidgetHost()->Send(new WidgetMsg_DisableDeviceEmulation(
+        host_->GetRenderWidgetHost()->GetRoutingID()));
+  }
+}
+
+void EmulationHandler::ApplyOverrides(net::HttpRequestHeaders* headers) {
+  if (!user_agent_.empty())
+    headers->SetHeader(net::HttpRequestHeaders::kUserAgent, user_agent_);
+  if (!accept_language_.empty()) {
+    headers->SetHeader(
+        net::HttpRequestHeaders::kAcceptLanguage,
+        net::HttpUtil::GenerateAcceptLanguageHeader(accept_language_));
   }
 }
 

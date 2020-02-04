@@ -17,8 +17,10 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/common/chrome_switches.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "extensions/common/switches.h"
 #include "media/base/bind_to_current_loop.h"
@@ -34,6 +36,7 @@
 #include "net/base/rand_callback.h"
 #include "net/log/net_log_source.h"
 #include "net/socket/udp_server_socket.h"
+#include "testing/gtest/include/gtest/gtest-param-test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using media::cast::test::GetFreeLocalPort;
@@ -90,7 +93,6 @@ struct YUVColor {
   YUVColor() : y(0), u(0), v(0) {}
   YUVColor(int y_val, int u_val, int v_val) : y(y_val), u(u_val), v(v_val) {}
 };
-
 
 media::cast::FrameReceiverConfig WithFakeAesKeyAndIv(
     media::cast::FrameReceiverConfig config) {
@@ -186,8 +188,7 @@ class TestPatternReceiver : public media::cast::InProcessReceiver {
     VLOG(1) << "Current audio tone frequency: " << frequency;
 
     const int kTargetWindowHz = 20;
-    for (std::vector<int>::iterator it = expected_tones_.begin();
-         it != expected_tones_.end(); ++it) {
+    for (auto it = expected_tones_.begin(); it != expected_tones_.end(); ++it) {
       if (abs(static_cast<int>(frequency) - *it) < kTargetWindowHz) {
         LOG(INFO) << "Heard tone at frequency " << *it << " Hz.";
         expected_tones_.erase(it);
@@ -204,7 +205,7 @@ class TestPatternReceiver : public media::cast::InProcessReceiver {
 
     CHECK(video_frame->format() == media::PIXEL_FORMAT_YV12 ||
           video_frame->format() == media::PIXEL_FORMAT_I420 ||
-          video_frame->format() == media::PIXEL_FORMAT_YV12A);
+          video_frame->format() == media::PIXEL_FORMAT_I420A);
 
     if (done_callback_.is_null() || expected_yuv_colors_.empty())
       return;  // No need to waste CPU doing analysis on the frame.
@@ -230,14 +231,20 @@ class TestPatternReceiver : public media::cast::InProcessReceiver {
     VLOG(1) << "Current video color: yuv(" << current_color.y << ", "
             << current_color.u << ", " << current_color.v << ')';
 
-    const int kTargetWindow = 10;
-    for (std::vector<YUVColor>::iterator it = expected_yuv_colors_.begin();
+    // Note: The range of acceptable colors is quite large because there's no
+    // way to know whether software compositing is being used for screen
+    // capture; and, if software compositing is being used, there is no color
+    // space management and color values can be off by a lot. That said, color
+    // accuracy is being tested by a suite of content_browsertests.
+    const int kTargetWindow = 50;
+    for (auto it = expected_yuv_colors_.begin();
          it != expected_yuv_colors_.end(); ++it) {
       if (abs(current_color.y - it->y) < kTargetWindow &&
           abs(current_color.u - it->u) < kTargetWindow &&
           abs(current_color.v - it->v) < kTargetWindow) {
-        LOG(INFO) << "Saw color yuv(" << it->y << ", " << it->u << ", "
-                  << it->v << ").";
+        LOG(INFO) << "Saw expected color yuv(" << it->y << ", " << it->u << ", "
+                  << it->v << ") as yuv(" << current_color.y << ", "
+                  << current_color.u << ", " << current_color.v << ").";
         expected_yuv_colors_.erase(it);
         MaybeRunDoneCallback();
         break;
@@ -320,7 +327,23 @@ class TestPatternReceiver : public media::cast::InProcessReceiver {
 
 }  // namespace
 
-class CastStreamingApiTestWithPixelOutput : public CastStreamingApiTest {
+class CastStreamingApiTestWithPixelOutput
+    : public CastStreamingApiTest,
+      public testing::WithParamInterface<bool> {
+ public:
+  CastStreamingApiTestWithPixelOutput() {
+    std::vector<base::Feature> audio_service_oop_features = {
+        features::kAudioServiceAudioStreams,
+        features::kAudioServiceOutOfProcess};
+    if (GetParam()) {
+      // Force audio service out of process to enabled.
+      audio_service_features_.InitWithFeatures(audio_service_oop_features, {});
+    } else {
+      // Force audio service out of process to disabled.
+      audio_service_features_.InitWithFeatures({}, audio_service_oop_features);
+    }
+  }
+
   void SetUp() override {
     EnablePixelOutput();
     CastStreamingApiTest::SetUp();
@@ -330,6 +353,9 @@ class CastStreamingApiTestWithPixelOutput : public CastStreamingApiTest {
     command_line->AppendSwitchASCII(::switches::kWindowSize, "128,128");
     CastStreamingApiTest::SetUpCommandLine(command_line);
   }
+
+ private:
+  base::test::ScopedFeatureList audio_service_features_;
 };
 
 // Tests the Cast streaming API and its basic functionality end-to-end.  An
@@ -337,15 +363,13 @@ class CastStreamingApiTestWithPixelOutput : public CastStreamingApiTest {
 // use the API to send it out.  At the same time, this test launches an
 // in-process Cast receiver, listening on a localhost UDP socket, to receive the
 // content and check whether it matches expectations.
-//
-// TODO(miu): Now that this test has been long-stable on Release build bots, it
-// should be enabled for the Debug build bots.  http://crbug.com/396413
-#if defined(NDEBUG)
+#if defined(NDEBUG) && !defined(OS_MACOSX)
 #define MAYBE_EndToEnd EndToEnd
 #else
-#define MAYBE_EndToEnd DISABLED_EndToEnd
+// Flaky on Mac: https://crbug.com/841387
+#define MAYBE_EndToEnd DISABLED_EndToEnd  // crbug.com/396413
 #endif
-IN_PROC_BROWSER_TEST_F(CastStreamingApiTestWithPixelOutput, MAYBE_EndToEnd) {
+IN_PROC_BROWSER_TEST_P(CastStreamingApiTestWithPixelOutput, MAYBE_EndToEnd) {
   std::unique_ptr<net::UDPServerSocket> receive_socket(
       new net::UDPServerSocket(NULL, net::NetLogSource()));
   receive_socket->AllowAddressReuse();
@@ -381,20 +405,45 @@ IN_PROC_BROWSER_TEST_F(CastStreamingApiTestWithPixelOutput, MAYBE_EndToEnd) {
   receiver->AddExpectedTone(200 /* Hz */);
   receiver->AddExpectedTone(500 /* Hz */);
   receiver->AddExpectedTone(1800 /* Hz */);
-  receiver->AddExpectedColor(YUVColor(82, 90, 240));  // rgb(255, 0, 0)
-  receiver->AddExpectedColor(YUVColor(145, 54, 34));  // rgb(0, 255, 0)
-  receiver->AddExpectedColor(YUVColor(41, 240, 110));  // rgb(0, 0, 255)
+  receiver->AddExpectedColor(YUVColor(63, 102, 239));  // rgb(255, 0, 0)
+  receiver->AddExpectedColor(YUVColor(173, 41, 26));   // rgb(0, 255, 0)
+  receiver->AddExpectedColor(YUVColor(32, 239, 117));  // rgb(0, 0, 255)
   receiver->Start();
   receiver->WaitForExpectedTonesAndColors();
   receiver->Stop();
 
   delete receiver;
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   cast_environment->Shutdown();
 }
 
-IN_PROC_BROWSER_TEST_F(CastStreamingApiTestWithPixelOutput, RtpStreamError) {
+#if !defined(OS_MACOSX)
+#define MAYBE_RtpStreamError RtpStreamError
+#else
+// Flaky on Mac https://crbug.com/841986
+#define MAYBE_RtpStreamError DISABLED_RtpStreamError
+#endif
+IN_PROC_BROWSER_TEST_P(CastStreamingApiTestWithPixelOutput,
+                       MAYBE_RtpStreamError) {
   ASSERT_TRUE(RunExtensionSubtest("cast_streaming", "rtp_stream_error.html"));
 }
+
+// We run these tests with the audio service both in and out of the the browser
+// process to have waterfall coverage while the feature rolls out. It should be
+// removed after launch. Note: CastStreamingApiTestWithPixelOutput.EndToEnd is
+// the only integration test exercising audio service loopback streams, so it's
+// a very important test to have.
+#if (defined(OS_LINUX) && !defined(OS_CHROMEOS)) || defined(OS_MACOSX) || \
+    defined(OS_WIN)
+// Supported platforms.
+INSTANTIATE_TEST_CASE_P(,
+                        CastStreamingApiTestWithPixelOutput,
+                        ::testing::Bool());
+#else
+// Platforms where the out of process audio service isn't supported
+INSTANTIATE_TEST_CASE_P(,
+                        CastStreamingApiTestWithPixelOutput,
+                        ::testing::Values(false));
+#endif
 
 }  // namespace extensions

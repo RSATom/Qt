@@ -6,8 +6,11 @@
 
 #include <stddef.h>
 
+#include <utility>
+
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "storage/common/fileapi/file_system_types.h"
 #include "storage/common/fileapi/file_system_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -116,8 +119,8 @@ TEST(FileSystemURLTest, CompareURLs) {
   };
 
   FileSystemURL::Comparator compare;
-  for (size_t i = 0; i < arraysize(urls); ++i) {
-    for (size_t j = 0; j < arraysize(urls); ++j) {
+  for (size_t i = 0; i < base::size(urls); ++i) {
+    for (size_t j = 0; j < base::size(urls); ++j) {
       SCOPED_TRACE(testing::Message() << i << " < " << j);
       EXPECT_EQ(urls[i] < urls[j],
                 compare(FileSystemURL::CreateForTest(urls[i]),
@@ -179,11 +182,8 @@ TEST(FileSystemURLTest, ToGURL) {
     "filesystem:http://chromium.org/test/plus%2B/space%20/colon%3A",
   };
 
-  for (size_t i = 0; i < arraysize(kTestURL); ++i) {
-    EXPECT_EQ(
-        kTestURL[i],
-        FileSystemURL::CreateForTest(GURL(kTestURL[i])).ToGURL().spec());
-  }
+  for (const char* url : kTestURL)
+    EXPECT_EQ(url, FileSystemURL::CreateForTest(GURL(url)).ToGURL().spec());
 }
 
 TEST(FileSystemURLTest, DebugString) {
@@ -219,6 +219,31 @@ TEST(FileSystemURLTest, IsInSameFileSystem) {
   EXPECT_FALSE(url_foo_temp_a.IsInSameFileSystem(url_foo_perm_a));
   EXPECT_FALSE(url_foo_temp_a.IsInSameFileSystem(url_bar_temp_a));
   EXPECT_FALSE(url_foo_temp_a.IsInSameFileSystem(url_bar_perm_a));
+}
+
+TEST(FileSystemURLTest, ValidAfterMoves) {
+  // Move constructor.
+  {
+    FileSystemURL original = FileSystemURL::CreateForTest(
+        GURL("http://foo"), kFileSystemTypeTemporary,
+        base::FilePath::FromUTF8Unsafe("a"));
+    EXPECT_TRUE(original.is_valid());
+    FileSystemURL new_url(std::move(original));
+    EXPECT_TRUE(new_url.is_valid());
+    EXPECT_TRUE(original.is_valid());
+  }
+
+  // Move operator.
+  {
+    FileSystemURL original = FileSystemURL::CreateForTest(
+        GURL("http://foo"), kFileSystemTypeTemporary,
+        base::FilePath::FromUTF8Unsafe("a"));
+    EXPECT_TRUE(original.is_valid());
+    FileSystemURL new_url;
+    new_url = std::move(std::move(original));
+    EXPECT_TRUE(new_url.is_valid());
+    EXPECT_TRUE(original.is_valid());
+  }
 }
 
 }  // namespace content

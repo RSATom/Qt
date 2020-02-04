@@ -12,8 +12,11 @@
  * \brief Provides the high level interface to wrap encoder algorithms.
  *
  */
+#include <assert.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
+#include "vp8/common/blockd.h"
 #include "vpx_config.h"
 #include "vpx/internal/vpx_codec_internal.h"
 
@@ -81,6 +84,8 @@ vpx_codec_err_t vpx_codec_enc_init_multi_ver(
     int i;
     void *mem_loc = NULL;
 
+    if (iface->enc.mr_get_mem_loc == NULL) return VPX_CODEC_INCAPABLE;
+
     if (!(res = iface->enc.mr_get_mem_loc(cfg, &mem_loc))) {
       for (i = 0; i < num_enc; i++) {
         vpx_codec_priv_enc_mr_cfg_t mr_cfg;
@@ -89,27 +94,26 @@ vpx_codec_err_t vpx_codec_enc_init_multi_ver(
         if (dsf->num < 1 || dsf->num > 4096 || dsf->den < 1 ||
             dsf->den > dsf->num) {
           res = VPX_CODEC_INVALID_PARAM;
-          break;
+        } else {
+          mr_cfg.mr_low_res_mode_info = mem_loc;
+          mr_cfg.mr_total_resolutions = num_enc;
+          mr_cfg.mr_encoder_id = num_enc - 1 - i;
+          mr_cfg.mr_down_sampling_factor.num = dsf->num;
+          mr_cfg.mr_down_sampling_factor.den = dsf->den;
+
+          /* Force Key-frame synchronization. Namely, encoder at higher
+           * resolution always use the same frame_type chosen by the
+           * lowest-resolution encoder.
+           */
+          if (mr_cfg.mr_encoder_id) cfg->kf_mode = VPX_KF_DISABLED;
+
+          ctx->iface = iface;
+          ctx->name = iface->name;
+          ctx->priv = NULL;
+          ctx->init_flags = flags;
+          ctx->config.enc = cfg;
+          res = ctx->iface->init(ctx, &mr_cfg);
         }
-
-        mr_cfg.mr_low_res_mode_info = mem_loc;
-        mr_cfg.mr_total_resolutions = num_enc;
-        mr_cfg.mr_encoder_id = num_enc - 1 - i;
-        mr_cfg.mr_down_sampling_factor.num = dsf->num;
-        mr_cfg.mr_down_sampling_factor.den = dsf->den;
-
-        /* Force Key-frame synchronization. Namely, encoder at higher
-         * resolution always use the same frame_type chosen by the
-         * lowest-resolution encoder.
-         */
-        if (mr_cfg.mr_encoder_id) cfg->kf_mode = VPX_KF_DISABLED;
-
-        ctx->iface = iface;
-        ctx->name = iface->name;
-        ctx->priv = NULL;
-        ctx->init_flags = flags;
-        ctx->config.enc = cfg;
-        res = ctx->iface->init(ctx, &mr_cfg);
 
         if (res) {
           const char *error_detail = ctx->priv ? ctx->priv->err_detail : NULL;
@@ -124,9 +128,13 @@ vpx_codec_err_t vpx_codec_enc_init_multi_ver(
             vpx_codec_destroy(ctx);
             i--;
           }
+#if CONFIG_MULTI_RES_ENCODING
+          assert(mem_loc);
+          free(((LOWER_RES_FRAME_INFO *)mem_loc)->mb_info);
+          free(mem_loc);
+#endif
+          return SAVE_STATUS(ctx, res);
         }
-
-        if (res) break;
 
         ctx++;
         cfg++;
@@ -146,7 +154,7 @@ vpx_codec_err_t vpx_codec_enc_config_default(vpx_codec_iface_t *iface,
   vpx_codec_enc_cfg_map_t *map;
   int i;
 
-  if (!iface || !cfg || usage > INT_MAX)
+  if (!iface || !cfg || usage != 0)
     res = VPX_CODEC_INVALID_PARAM;
   else if (!(iface->caps & VPX_CODEC_CAP_ENCODER))
     res = VPX_CODEC_INCAPABLE;
@@ -155,12 +163,9 @@ vpx_codec_err_t vpx_codec_enc_config_default(vpx_codec_iface_t *iface,
 
     for (i = 0; i < iface->enc.cfg_map_count; ++i) {
       map = iface->enc.cfg_maps + i;
-      if (map->usage == (int)usage) {
-        *cfg = map->cfg;
-        cfg->g_usage = usage;
-        res = VPX_CODEC_OK;
-        break;
-      }
+      *cfg = map->cfg;
+      res = VPX_CODEC_OK;
+      break;
     }
   }
 

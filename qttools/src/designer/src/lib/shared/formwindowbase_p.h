@@ -42,10 +42,10 @@
 
 #include "shared_global_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtCore/QVariantMap>
-#include <QtCore/QList>
+#include <QtCore/qvariant.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -71,22 +71,22 @@ public:
     enum HighlightMode  { Restore, Highlight };
 
     explicit FormWindowBase(QDesignerFormEditorInterface *core, QWidget *parent = 0, Qt::WindowFlags flags = 0);
-    virtual ~FormWindowBase();
+    ~FormWindowBase() override;
 
     QVariantMap formData();
     void setFormData(const QVariantMap &vm);
 
-    QStringList checkContents() const Q_DECL_OVERRIDE;
+    QStringList checkContents() const override;
 
     // Deprecated
-    QPoint grid() const Q_DECL_OVERRIDE;
+    QPoint grid() const override;
 
     // Deprecated
-    void setGrid(const QPoint &grid) Q_DECL_OVERRIDE;
+    void setGrid(const QPoint &grid) override;
 
-    bool hasFeature(Feature f) const Q_DECL_OVERRIDE;
-    Feature features() const Q_DECL_OVERRIDE;
-    void setFeatures(Feature f) Q_DECL_OVERRIDE;
+    bool hasFeature(Feature f) const override;
+    Feature features() const override;
+    void setFeatures(Feature f) override;
 
     const Grid &designerGrid() const;
     void setDesignerGrid(const  Grid& grid);
@@ -96,8 +96,8 @@ public:
 
     bool gridVisible() const;
 
-    ResourceFileSaveMode resourceFileSaveMode() const Q_DECL_OVERRIDE;
-    void setResourceFileSaveMode(ResourceFileSaveMode behavior) Q_DECL_OVERRIDE;
+    ResourceFileSaveMode resourceFileSaveMode() const override;
+    void setResourceFileSaveMode(ResourceFileSaveMode behavior) override;
 
     static const Grid &defaultDesignerGrid();
     static void setDefaultDesignerGrid(const Grid& grid);
@@ -122,7 +122,7 @@ public:
     virtual void highlightWidget(QWidget *w, const QPoint &pos, HighlightMode mode = Highlight) = 0;
 
     enum PasteMode { PasteAll, PasteActionsOnly };
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     virtual void paste(PasteMode pasteMode) = 0;
 #endif
 
@@ -133,8 +133,8 @@ public:
 
     DesignerPixmapCache *pixmapCache() const;
     DesignerIconCache *iconCache() const;
-    QtResourceSet *resourceSet() const Q_DECL_OVERRIDE;
-    void setResourceSet(QtResourceSet *resourceSet) Q_DECL_OVERRIDE;
+    QtResourceSet *resourceSet() const override;
+    void setResourceSet(QtResourceSet *resourceSet) override;
     void addReloadableProperty(QDesignerPropertySheet *sheet, int index);
     void removeReloadableProperty(QDesignerPropertySheet *sheet, int index);
     void addReloadablePropertySheet(QDesignerPropertySheet *sheet, QObject *object);
@@ -160,6 +160,9 @@ public:
 
     void setLineTerminatorMode(LineTerminatorMode mode);
     LineTerminatorMode lineTerminatorMode() const;
+
+    bool useIdBasedTranslations() const;
+    void setUseIdBasedTranslations(bool v);
 
 public slots:
     void resourceSetActivated(QtResourceSet *resourceSet, bool resourceSetChanged);

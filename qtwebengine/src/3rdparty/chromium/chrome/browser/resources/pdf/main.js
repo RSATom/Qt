@@ -6,21 +6,24 @@
 
 /**
  * Global PDFViewer object, accessible for testing.
+ *
  * @type Object
  */
-var viewer;
+window.viewer = null;
 
 
 (function() {
 /**
  * Stores any pending messages received which should be passed to the
  * PDFViewer when it is created.
+ *
  * @type Array
  */
-var pendingMessages = [];
+const pendingMessages = [];
 
 /**
  * Handles events that are received prior to the PDFViewer being created.
+ *
  * @param {Object} message A message event received.
  */
 function handleScriptingMessage(message) {
@@ -29,14 +32,37 @@ function handleScriptingMessage(message) {
 
 /**
  * Initialize the global PDFViewer and pass any outstanding messages to it.
- * @param {Object} browserApi An object providing an API to the browser.
+ *
+ * @param {Promise<BrowserApi>} browserApi A promise resolving to an API
+ *     to the browser.
  */
 function initViewer(browserApi) {
   // PDFViewer will handle any messages after it is created.
   window.removeEventListener('message', handleScriptingMessage, false);
   viewer = new PDFViewer(browserApi);
-  while (pendingMessages.length > 0)
+  while (pendingMessages.length > 0) {
     viewer.handleScriptingMessage(pendingMessages.shift());
+  }
+}
+
+/**
+ * Determine if the content settings allow PDFs to execute javascript.
+ *
+ * @param {Promise<BrowserApi>} browserApi A promise resolving to an API
+ *     to the browser.
+ */
+function configureJavaScriptContentSetting(browserApi) {
+  return new Promise((resolve, reject) => {
+    chrome.contentSettings.javascript.get(
+        {
+          'primaryUrl': browserApi.getStreamInfo().originalUrl,
+          'secondaryUrl': window.origin
+        },
+        (result) => {
+          browserApi.getStreamInfo().javascript = result.setting;
+          resolve(browserApi);
+        });
+  });
 }
 
 /**
@@ -47,8 +73,14 @@ function main() {
   // Set up an event listener to catch scripting messages which are sent prior
   // to the PDFViewer being created.
   window.addEventListener('message', handleScriptingMessage, false);
+  let chain = createBrowserApi();
 
-  createBrowserApi().then(initViewer);
+  // Content settings may not be present in test environments.
+  if (chrome.contentSettings) {
+    chain = chain.then(configureJavaScriptContentSetting);
+  }
+
+  chain.then(initViewer);
 }
 
 main();

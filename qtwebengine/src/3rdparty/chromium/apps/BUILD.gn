@@ -4,7 +4,7 @@
 
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
-import("//extensions/features/features.gni")
+import("//extensions/buildflags/buildflags.gni")
 
 assert(!is_android && !is_ios)
 assert(enable_extensions,
@@ -26,7 +26,6 @@ static_library("apps") {
     "browser_context_keyed_service_factories.h",
     "launcher.cc",
     "launcher.h",
-    "metrics_names.h",
     "saved_files_service.cc",
     "saved_files_service.h",
     "saved_files_service_factory.cc",
@@ -49,9 +48,6 @@ static_library("apps") {
   if (is_chromeos) {
     deps += [ "//components/user_manager" ]
   }
-
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 }
 
 static_library("test_support") {
@@ -63,5 +59,6 @@ static_library("test_support") {
 
   public_deps = [
     "//content/public/browser",
+    "//extensions/browser",
   ]
 }

@@ -334,7 +334,7 @@ int qFindByteArray(
     \class QStaticByteArrayMatcher
     \since 5.9
     \inmodule QtCore
-    \brief The QStaticByteArrayMatcher class is a compile-time version of QByteArrayMatcher
+    \brief The QStaticByteArrayMatcher class is a compile-time version of QByteArrayMatcher.
 
     \ingroup tools
     \ingroup string-processing
@@ -356,9 +356,7 @@ int qFindByteArray(
     value of that function in a \c{static const auto} variable, so you don't need
     to pass the \c{N} template parameter explicitly:
 
-    \code
-    static const auto matcher = qMakeStaticByteArrayMatcher("needle");
-    \endcode
+    \snippet code/src_corelib_tools_qbytearraymatcher.cpp 0
 
     Then call indexIn() on the QByteArray in which you want to search, just like
     with QByteArrayMatcher.
@@ -366,11 +364,16 @@ int qFindByteArray(
     Since this class is designed to do all the up-front calculations at compile-time,
     it does not offer a setPattern() method.
 
+    \note Qt detects the necessary C++14 compiler support by way of the feature
+    test recommendations from
+    \l{https://isocpp.org/std/standing-documents/sd-6-sg10-feature-test-recommendations}
+    {C++ Committee's Standing Document 6}.
+
     \sa QByteArrayMatcher, QStringMatcher
 */
 
 /*!
-    \fn int QStaticByteArrayMatcher::indexIn(const char *haystack, int hlen, int from = 0) const
+    \fn template <uint N> int QStaticByteArrayMatcher<N>::indexIn(const char *haystack, int hlen, int from = 0) const
 
     Searches the char string \a haystack, which has length \a hlen, from
     byte position \a from (default 0, i.e. from the first byte), for
@@ -380,7 +383,7 @@ int qFindByteArray(
 */
 
 /*!
-    \fn int QStaticByteArrayMatcher::indexIn(const QByteArray &haystack, int from = 0) const
+    \fn template <uint N> int QStaticByteArrayMatcher<N>::indexIn(const QByteArray &haystack, int from = 0) const
 
     Searches the char string \a haystack, from byte position \a from
     (default 0, i.e. from the first byte), for the byte array pattern()
@@ -390,12 +393,12 @@ int qFindByteArray(
 */
 
 /*!
-    \fn QByteArray QStaticByteArrayMatcher::pattern() const
+    \fn template <uint N> QByteArray QStaticByteArrayMatcher<N>::pattern() const
 
     Returns the byte array pattern that this byte array matcher will
     search for.
 
-    \sa setPattern()
+    \sa QByteArrayMatcher::setPattern()
 */
 
 /*!
@@ -410,12 +413,12 @@ int QStaticByteArrayMatcherBase::indexOfIn(const char *needle, uint nlen, const 
 }
 
 /*!
-    \fn QStaticByteArrayMatcher::QStaticByteArrayMatcher(const char (&pattern)[N])
+    \fn template <uint N> QStaticByteArrayMatcher<N>::QStaticByteArrayMatcher(const char (&pattern)[N])
     \internal
 */
 
 /*!
-    \fn qMakeStaticByteArrayMatcher(const char (&pattern)[N])
+    \fn template <uint N> QStaticByteArrayMatcher qMakeStaticByteArrayMatcher(const char (&pattern)[N])
     \since 5.9
     \relates QStaticByteArrayMatcher
 
@@ -425,9 +428,7 @@ int QStaticByteArrayMatcherBase::indexOfIn(const char *needle, uint nlen, const 
     To take full advantage of this function, assign the result to an
     \c{auto} variable:
 
-    \code
-    static const auto matcher = qMakeStaticByteArrayMatcher("needle");
-    \endcode
+    \snippet code/src_corelib_tools_qbytearraymatcher.cpp 1
 */
 
 

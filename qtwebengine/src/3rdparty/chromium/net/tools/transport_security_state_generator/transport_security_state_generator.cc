@@ -46,7 +46,7 @@ bool CheckForDuplicatePins(const Pinsets& pinsets) {
 
     std::string hash =
         std::string(pin.second.data(), pin.second.data() + pin.second.size());
-    std::map<std::string, std::string>::iterator it = seen_hashes.find(hash);
+    auto it = seen_hashes.find(hash);
     if (it != seen_hashes.cend()) {
       LOG(ERROR) << "Duplicate pin hash for " << pin.first
                  << ", already seen as " << it->second;
@@ -123,16 +123,14 @@ bool CheckDuplicateEntries(const TransportSecurityStateEntries& entries) {
 // Checks for entries which have no effect.
 bool CheckNoopEntries(const TransportSecurityStateEntries& entries) {
   for (const auto& entry : entries) {
-    if (!entry->force_https && entry->pinset.empty() && !entry->expect_ct &&
-        !entry->expect_staple) {
+    if (!entry->force_https && entry->pinset.empty() && !entry->expect_ct) {
       if (entry->hostname == "learn.doubleclick.net") {
         // This entry is deliberately used as an exclusion.
         continue;
       }
 
-      LOG(ERROR)
-          << "Entry for " << entry->hostname
-          << " has no mode, no pins and is not expect-CT or expect-staple";
+      LOG(ERROR) << "Entry for " << entry->hostname
+                 << " has no mode, no pins and is not expect-CT";
       return false;
     }
   }

@@ -71,6 +71,7 @@ bool startDiscovery();
 bool stopDiscovery();
 QAndroidJniObject getStartIntent();
 bool isAvailable();
+bool isSupported();
 bool registerListener(AndroidNfcListenerInterface *listener);
 bool unregisterListener(AndroidNfcListenerInterface *listener);
 QAndroidJniObject getTag(const QAndroidJniObject &intent);

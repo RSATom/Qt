@@ -4,6 +4,7 @@
 
 #include "components/dom_distiller/core/dom_distiller_model.h"
 
+#include <unordered_set>
 #include <utility>
 
 using syncer::SyncChange;
@@ -48,30 +49,30 @@ bool DomDistillerModel::GetEntryByUrl(const GURL& url,
 
 bool DomDistillerModel::GetKeyById(const std::string& entry_id,
                                    KeyType* key) const {
-  StringToKeyMap::const_iterator it = entry_id_to_key_map_.find(entry_id);
+  auto it = entry_id_to_key_map_.find(entry_id);
   if (it == entry_id_to_key_map_.end()) {
     return false;
   }
-  if (key != NULL) {
+  if (key != nullptr) {
     *key = it->second;
   }
   return true;
 }
 
 bool DomDistillerModel::GetKeyByUrl(const GURL& url, KeyType* key) const {
-  StringToKeyMap::const_iterator it = url_to_key_map_.find(url.spec());
+  auto it = url_to_key_map_.find(url.spec());
   if (it == url_to_key_map_.end()) {
     return false;
   }
-  if (key != NULL) {
+  if (key != nullptr) {
     *key = it->second;
   }
   return true;
 }
 
 void DomDistillerModel::GetEntryByKey(KeyType key, ArticleEntry* entry) const {
-  if (entry != NULL) {
-    EntryMap::const_iterator it = entries_.find(key);
+  if (entry != nullptr) {
+    auto it = entries_.find(key);
     DCHECK(it != entries_.end());
     *entry = it->second;
   }
@@ -83,8 +84,7 @@ size_t DomDistillerModel::GetNumEntries() const {
 
 std::vector<ArticleEntry> DomDistillerModel::GetEntries() const {
   std::vector<ArticleEntry> entries_list;
-  for (EntryMap::const_iterator it = entries_.begin(); it != entries_.end();
-       ++it) {
+  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
     entries_list.push_back(it->second);
   }
   return entries_list;
@@ -92,8 +92,7 @@ std::vector<ArticleEntry> DomDistillerModel::GetEntries() const {
 
 SyncDataList DomDistillerModel::GetAllSyncData() const {
   SyncDataList data;
-  for (EntryMap::const_iterator it = entries_.begin(); it != entries_.end();
-       ++it) {
+  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
     data.push_back(CreateLocalData(it->second));
   }
   return data;
@@ -103,9 +102,9 @@ void DomDistillerModel::CalculateChangesForMerge(
     const SyncDataList& data,
     SyncChangeList* changes_to_apply,
     SyncChangeList* changes_missing) {
-  typedef base::hash_set<std::string> StringSet;
+  typedef std::unordered_set<std::string> StringSet;
   StringSet entries_to_change;
-  for (SyncDataList::const_iterator it = data.begin(); it != data.end(); ++it) {
+  for (auto it = data.begin(); it != data.end(); ++it) {
     std::string entry_id = GetEntryIdFromSyncData(*it);
     std::pair<StringSet::iterator, bool> insert_result =
         entries_to_change.insert(entry_id);
@@ -113,7 +112,7 @@ void DomDistillerModel::CalculateChangesForMerge(
     DCHECK(insert_result.second);
 
     SyncChange::SyncChangeType change_type = SyncChange::ACTION_ADD;
-    if (GetEntryById(entry_id, NULL)) {
+    if (GetEntryById(entry_id, nullptr)) {
       change_type = SyncChange::ACTION_UPDATE;
     }
     changes_to_apply->push_back(SyncChange(FROM_HERE, change_type, *it));
@@ -136,8 +135,7 @@ void DomDistillerModel::ApplyChangesToModel(
   DCHECK(changes_applied);
   DCHECK(changes_missing);
 
-  for (SyncChangeList::const_iterator it = changes.begin(); it != changes.end();
-       ++it) {
+  for (auto it = changes.begin(); it != changes.end(); ++it) {
     ApplyChangeToModel(*it, changes_applied, changes_missing);
   }
 }
@@ -145,7 +143,7 @@ void DomDistillerModel::ApplyChangesToModel(
 void DomDistillerModel::AddEntry(const ArticleEntry& entry) {
   const std::string& entry_id = entry.entry_id();
   KeyType key = next_key_++;
-  DCHECK(!GetKeyById(entry_id, NULL));
+  DCHECK(!GetKeyById(entry_id, nullptr));
   entries_.insert(std::make_pair(key, entry));
   entry_id_to_key_map_.insert(std::make_pair(entry_id, key));
   for (int i = 0; i < entry.pages_size(); ++i) {

@@ -12,6 +12,8 @@
 #include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -29,10 +31,7 @@ namespace data_reduction_proxy {
 
 class ContentLoFiUIServiceTest : public content::RenderViewHostTestHarness {
  public:
-  ContentLoFiUIServiceTest() : callback_called_(false) {
-    // Cannot use IO_MAIN_LOOP with RenderViewHostTestHarness.
-    SetThreadBundleOptions(content::TestBrowserThreadBundle::REAL_IO_THREAD);
-  }
+  ContentLoFiUIServiceTest() : callback_called_(false) {}
 
   void RunTestOnIOThread(base::RunLoop* ui_run_loop) {
     ASSERT_TRUE(ui_run_loop);
@@ -46,8 +45,8 @@ class ContentLoFiUIServiceTest : public content::RenderViewHostTestHarness {
     context.Init();
 
     content_lofi_ui_service_.reset(new ContentLoFiUIService(
-        content::BrowserThread::GetTaskRunnerForThread(
-            content::BrowserThread::UI),
+        base::CreateSingleThreadTaskRunnerWithTraits(
+            {content::BrowserThread::UI}),
         base::Bind(&ContentLoFiUIServiceTest::OnLoFiResponseReceivedCallback,
                    base::Unretained(this))));
 
@@ -56,9 +55,9 @@ class ContentLoFiUIServiceTest : public content::RenderViewHostTestHarness {
 
     content_lofi_ui_service_->OnLoFiReponseReceived(*request);
 
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&base::RunLoop::Quit, base::Unretained(ui_run_loop)));
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
+        base::BindOnce(&base::RunLoop::Quit, base::Unretained(ui_run_loop)));
   }
 
   std::unique_ptr<net::URLRequest> CreateRequest(
@@ -72,13 +71,13 @@ class ContentLoFiUIServiceTest : public content::RenderViewHostTestHarness {
                               delegate, TRAFFIC_ANNOTATION_FOR_TESTS);
 
     content::ResourceRequestInfo::AllocateForTesting(
-        request.get(), content::RESOURCE_TYPE_SUB_FRAME, NULL,
+        request.get(), content::RESOURCE_TYPE_SUB_FRAME, nullptr,
         web_contents()->GetMainFrame()->GetProcess()->GetID(), -1,
         web_contents()->GetMainFrame()->GetRoutingID(),
         /*is_main_frame=*/false,
-        /*parent_is_main_frame=*/false,
         /*allow_download=*/false,
-        /*is_async=*/false, content::SERVER_LOFI_ON);
+        /*is_async=*/false, content::SERVER_LOFI_ON,
+        /*navigation_ui_data*/ nullptr);
 
     return request;
   }
@@ -102,10 +101,10 @@ class ContentLoFiUIServiceTest : public content::RenderViewHostTestHarness {
 
 TEST_F(ContentLoFiUIServiceTest, OnLoFiResponseReceived) {
   base::RunLoop ui_run_loop;
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
-      base::Bind(&ContentLoFiUIServiceTest::RunTestOnIOThread,
-                 base::Unretained(this), &ui_run_loop));
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
+      base::BindOnce(&ContentLoFiUIServiceTest::RunTestOnIOThread,
+                     base::Unretained(this), &ui_run_loop));
   ui_run_loop.Run();
   base::RunLoop().RunUntilIdle();
   VerifyOnLoFiResponseReceivedCallback();

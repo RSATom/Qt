@@ -18,9 +18,9 @@ struct SpellCheckResult;
 
 namespace spellcheck_platform {
 
-typedef base::Callback<void(
-        const std::vector<SpellCheckResult>& /* results */)>
-            TextCheckCompleteCallback;
+typedef base::OnceCallback<void(
+    const std::vector<SpellCheckResult>& /* results */)>
+    TextCheckCompleteCallback;
 
 // Get the languages supported by the platform spellchecker and store them in
 // |spellcheck_languages|. Note that they must be converted to
@@ -87,8 +87,6 @@ void IgnoreWord(const base::string16& word);
 void CloseDocumentWithTag(int tag);
 
 // Requests an asyncronous spell and grammar checking.
-// The result is returned to an IPC message to |destination| thus it should
-// not be null.
 void RequestTextCheck(int document_tag,
                       const base::string16& text,
                       TextCheckCompleteCallback callback);

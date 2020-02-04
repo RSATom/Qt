@@ -4,6 +4,7 @@
 
 <link rel="import" href="../i18n_setup.html">
 <link rel="import" href="../settings_shared_css.html">
+<link rel="import" href="../site_favicon.html">
 <link rel="import" href="site_settings_behavior.html">
 <link rel="import" href="site_settings_prefs_browser_proxy.html">
 
@@ -15,13 +16,13 @@
       }
 
       .column-header {
-        -webkit-margin-start: 20px;
         margin-bottom: 15px;
+        margin-inline-start: 20px;
         margin-top: 15px;
       }
     </style>
 
-    <div class="settings-box" hidden$="[[hasDevices_(devices_)]]">
+    <div class="settings-box first" hidden$="[[hasDevices_(devices_)]]">
       $i18n{noUsbDevicesFound}
     </div>
     <template is="dom-repeat" items="[[devices_]]">
@@ -29,22 +30,24 @@
 
       <div class="list-frame menu-content vertical-list">
         <div class="list-item">
-          <div class="favicon-image"
-              style$="[[computeSiteIcon(item.origin)]]"></div>
-          <div class="middle">[[item.origin]]</div>
+          <site-favicon url="[[item.origin]]"></site-favicon>
+          <div class="middle">
+            <span class="url-directionality">[[item.origin]]</span>
+          </div>
 
-          <button is="paper-icon-button-light" on-tap="showMenu_"
-              class="icon-more-vert" title="$i18n{moreActions}">
-          </button>
+          <paper-icon-button-light class="icon-more-vert">
+            <button on-click="showMenu_" title="$i18n{moreActions}"></button>
+          </paper-icon-button-light>
         </div>
       </div>
     </template>
 
-    <dialog is="cr-action-menu">
-      <button class="dropdown-item" role="option" on-tap="onRemoveTap_" id="removeButton">
+    <cr-action-menu>
+      <button id="removeButton" class="dropdown-item"
+          on-click="onRemoveTap_">
         $i18n{handlerRemove}
       </button>
-    </dialog>
+    </cr-action-menu>
 
   </template>
   <script src="usb_devices.js"></script>

@@ -7,6 +7,7 @@
 #include "base/values.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
+#include "ui/gfx/image/image_unittest_util.h"
 
 FakeAccountFetcherService::FakeAccountFetcherService() {}
 
@@ -27,14 +28,7 @@ void FakeAccountFetcherService::FakeUserInfoFetchSuccess(
   user_info.SetString("given_name", given_name);
   user_info.SetString("locale", locale);
   user_info.SetString("picture", picture_url);
-  account_tracker_service()->SetAccountStateFromUserInfo(account_id,
-                                                         &user_info);
-}
-
-void FakeAccountFetcherService::FakeSetIsChildAccount(
-    const std::string& account_id,
-    const bool& is_child_account) {
-  SetIsChildAccount(account_id, is_child_account);
+  account_tracker_service()->SetAccountInfoFromUserInfo(account_id, &user_info);
 }
 
 void FakeAccountFetcherService::StartFetchingUserInfo(
@@ -42,12 +36,14 @@ void FakeAccountFetcherService::StartFetchingUserInfo(
   // In tests, don't do actual network fetch.
 }
 
-void FakeAccountFetcherService::StartFetchingChildInfo(
-    const std::string& account_id) {
-  // In tests, don't do actual network fetch.
-}
+TestImageDecoder::TestImageDecoder() = default;
 
-void FakeAccountFetcherService::SendRefreshTokenAnnotationRequest(
-    const std::string& account_id) {
-  // In tests, don't do actual network fetch.
+TestImageDecoder::~TestImageDecoder() = default;
+
+void TestImageDecoder::DecodeImage(
+    const std::string& image_data,
+    const gfx::Size& desired_image_frame_size,
+    const image_fetcher::ImageDecodedCallback& callback) {
+  callback.Run(image_data.empty() ? gfx::Image()
+                                  : gfx::test::CreateImage(64, 64));
 }

@@ -26,13 +26,15 @@ struct CONTENT_EXPORT ContentSecurityPolicy {
   ContentSecurityPolicy();
   ContentSecurityPolicy(const ContentSecurityPolicyHeader& header,
                         const std::vector<CSPDirective>& directives,
-                        const std::vector<std::string>& report_endpoints);
+                        const std::vector<std::string>& report_endpoints,
+                        bool use_reporting_api);
   ContentSecurityPolicy(const ContentSecurityPolicy&);
   ~ContentSecurityPolicy();
 
   ContentSecurityPolicyHeader header;
   std::vector<CSPDirective> directives;
   std::vector<std::string> report_endpoints;
+  bool use_reporting_api;
 
   std::string ToString() const;
 
@@ -42,9 +44,11 @@ struct CONTENT_EXPORT ContentSecurityPolicy {
   static bool Allow(const ContentSecurityPolicy& policy,
                     CSPDirective::Name directive,
                     const GURL& url,
-                    bool is_redirect,
+                    bool has_followed_redirect,
+                    bool is_response_check,
                     CSPContext* context,
-                    const SourceLocation& source_location);
+                    const SourceLocation& source_location,
+                    bool is_form_submission);
 
   // Returns true if |policy| specifies that an insecure HTTP request should be
   // upgraded to HTTPS.

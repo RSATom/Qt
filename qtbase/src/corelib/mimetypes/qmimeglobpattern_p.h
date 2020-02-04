@@ -53,7 +53,7 @@
 
 #include <QtCore/private/qglobal_p.h>
 
-#ifndef QT_NO_MIMETYPE
+QT_REQUIRE_CONFIG(mimetype);
 
 #include <QtCore/qstringlist.h>
 #include <QtCore/qhash.h>
@@ -152,7 +152,7 @@ public:
 
     void addGlob(const QMimeGlobPattern &glob);
     void removeMimeType(const QString &mimeType);
-    QMimeGlobMatchResult matchingGlobs(const QString &fileName) const;
+    void matchingGlobs(const QString &fileName, QMimeGlobMatchResult &result) const;
     void clear();
 
     PatternsMap m_fastPatterns; // example: "doc" -> "application/msword", "text/plain"
@@ -162,5 +162,4 @@ public:
 
 QT_END_NAMESPACE
 
-#endif // QT_NO_MIMETYPE
 #endif // QMIMEGLOBPATTERN_P_H

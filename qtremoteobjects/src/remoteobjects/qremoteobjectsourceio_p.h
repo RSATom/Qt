@@ -51,28 +51,34 @@
 // We mean it.
 //
 
-#include "qconnectionfactories.h"
+#include "qconnectionfactories_p.h"
 #include "qtremoteobjectglobal.h"
 #include "qremoteobjectpacket_p.h"
 
-#include <QIODevice>
-#include <QScopedPointer>
+#include <QtCore/qiodevice.h>
+#include <QtCore/qscopedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
-class QRemoteObjectSource;
+class QRemoteObjectSourceBase;
+class QRemoteObjectRootSource;
 class SourceApiMap;
+class QRemoteObjectHostBase;
 
 class QRemoteObjectSourceIo : public QObject
 {
     Q_OBJECT
 public:
     explicit QRemoteObjectSourceIo(const QUrl &address, QObject *parent = nullptr);
-    ~QRemoteObjectSourceIo();
+    explicit QRemoteObjectSourceIo(QObject *parent = nullptr);
+    ~QRemoteObjectSourceIo() override;
 
-    bool enableRemoting(QObject *object, const QMetaObject *meta, const QString &name, const QString &typeName);
+    bool startListening();
+    bool enableRemoting(QObject *object, const QMetaObject *meta, const QString &name,
+                        const QString &typeName);
     bool enableRemoting(QObject *object, const SourceApiMap *api, QObject *adapter = nullptr);
     bool disableRemoting(QObject *object);
+    void newConnection(IoDeviceBase *conn);
 
     QUrl serverAddress() const;
 
@@ -87,18 +93,20 @@ Q_SIGNALS:
     void serverRemoved(const QUrl& url);
 
 public:
-    void registerSource(QRemoteObjectSource *pp);
-    void unregisterSource(QRemoteObjectSource *pp);
+    void registerSource(QRemoteObjectSourceBase *source);
+    void unregisterSource(QRemoteObjectSourceBase *source);
 
     QHash<QIODevice*, quint32> m_readSize;
-    QSet<ServerIoDevice*> m_connections;
-    QHash<QObject *, QRemoteObjectSource*> m_objectToSourceMap;
-    QMap<QString, QRemoteObjectSource*> m_remoteObjects;
-    QHash<ServerIoDevice*, QUrl> m_registryMapping;
+    QSet<IoDeviceBase*> m_connections;
+    QHash<QObject *, QRemoteObjectRootSource*> m_objectToSourceMap;
+    QMap<QString, QRemoteObjectSourceBase*> m_sourceObjects;
+    QMap<QString, QRemoteObjectRootSource*> m_sourceRoots;
+    QHash<IoDeviceBase*, QUrl> m_registryMapping;
     QScopedPointer<QConnectionAbstractServer> m_server;
     QRemoteObjectPackets::DataStreamPacket m_packet;
     QString m_rxName;
     QVariantList m_rxArgs;
+    QUrl m_address;
 };
 
 QT_END_NAMESPACE

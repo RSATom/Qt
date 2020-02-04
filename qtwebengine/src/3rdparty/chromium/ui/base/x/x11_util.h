@@ -16,12 +16,14 @@
 #include <string>
 #include <vector>
 
-#include "base/event_types.h"
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "ui/base/x/ui_base_x_export.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/events/platform_event.h"
+#include "ui/gfx/icc_profile.h"
 #include "ui/gfx/x/x11_types.h"
 
 typedef unsigned long XSharedMemoryId;  // ShmSeg in the X headers.
@@ -188,6 +190,17 @@ UI_BASE_X_EXPORT void SetWindowRole(XDisplay* display,
                                     XID window,
                                     const std::string& role);
 
+// Sends a message to the x11 window manager, enabling or disabling the
+// states |state1| and |state2|.
+UI_BASE_X_EXPORT void SetWMSpecState(XID window,
+                                     bool enabled,
+                                     XAtom state1,
+                                     XAtom state2);
+
+// Checks if the window manager has set a specific state.
+UI_BASE_X_EXPORT bool HasWMSpecProperty(const base::flat_set<XAtom>& properties,
+                                        XAtom atom);
+
 // Determine whether we should default to native decorations or the custom
 // frame based on the currently-running window manager.
 UI_BASE_X_EXPORT bool GetCustomFramePrefDefault();
@@ -284,6 +297,9 @@ UI_BASE_X_EXPORT bool IsX11WindowFullScreen(XID window);
 
 // Returns true if the window manager supports the given hint.
 UI_BASE_X_EXPORT bool WmSupportsHint(XAtom atom);
+
+// Returns the ICCProfile corresponding to |monitor| using XGetWindowProperty.
+UI_BASE_X_EXPORT gfx::ICCProfile GetICCProfileForMonitor(int monitor);
 
 // Manages a piece of X11 allocated memory as a RefCountedMemory segment. This
 // object takes ownership over the passed in memory and will free it with the

@@ -9,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -63,7 +62,7 @@ std::unique_ptr<std::vector<std::string>> GetValueList(
 std::unique_ptr<std::string> GetStringFromProfile(
     const autofill::AutofillProfile& profile,
     const autofill::ServerFieldType& type) {
-  return base::MakeUnique<std::string>(
+  return std::make_unique<std::string>(
       base::UTF16ToUTF8(profile.GetRawInfo(type)));
 }
 
@@ -133,7 +132,8 @@ autofill_private::CountryEntry CountryToCountryEntry(
 }
 
 autofill_private::CreditCardEntry CreditCardToCreditCardEntry(
-    const autofill::CreditCard& credit_card) {
+    const autofill::CreditCard& credit_card,
+    const autofill::PersonalDataManager& personal_data) {
   autofill_private::CreditCardEntry card;
 
   // Add all credit card fields to the entry.
@@ -159,6 +159,11 @@ autofill_private::CreditCardEntry CreditCardToCreditCardEntry(
       credit_card.record_type() == autofill::CreditCard::LOCAL_CARD));
   metadata->is_cached.reset(new bool(
       credit_card.record_type() == autofill::CreditCard::FULL_SERVER_CARD));
+  // IsValid() checks if both card number and expiration date are valid.
+  // IsServerCard() checks whether there is a duplicated server card in
+  // |personal_data|.
+  metadata->is_migratable.reset(new bool(
+      credit_card.IsValid() && !personal_data.IsServerCard(&credit_card)));
   card.metadata = std::move(metadata);
 
   return card;
@@ -211,7 +216,36 @@ CreditCardEntryList GenerateCreditCardList(
 
   CreditCardEntryList list;
   for (const autofill::CreditCard* card : cards)
-    list.push_back(CreditCardToCreditCardEntry(*card));
+    list.push_back(CreditCardToCreditCardEntry(*card, personal_data));
+
+  return list;
+}
+
+CreditCardEntryList GenerateLocalCreditCardList(
+    const autofill::PersonalDataManager& personal_data) {
+  const std::vector<autofill::CreditCard*>& all_cards =
+      personal_data.GetCreditCards();
+
+  CreditCardEntryList list;
+  for (const autofill::CreditCard* card : all_cards) {
+    // Keep only local and full server cards.
+    if (card->record_type() == autofill::CreditCard::LOCAL_CARD ||
+        card->record_type() == autofill::CreditCard::FULL_SERVER_CARD) {
+      list.push_back(CreditCardToCreditCardEntry(*card, personal_data));
+    }
+  }
+
+  return list;
+}
+
+CreditCardEntryList GenerateServerCreditCardList(
+    const autofill::PersonalDataManager& personal_data) {
+  const std::vector<autofill::CreditCard*>& server_cards =
+      personal_data.GetServerCreditCards();
+
+  CreditCardEntryList list;
+  for (const autofill::CreditCard* card : server_cards)
+    list.push_back(CreditCardToCreditCardEntry(*card, personal_data));
 
   return list;
 }

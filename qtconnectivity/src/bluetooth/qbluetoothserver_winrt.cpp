@@ -40,7 +40,7 @@
 #include "qbluetoothserver.h"
 #include "qbluetoothserver_p.h"
 #include "qbluetoothsocket.h"
-#include "qbluetoothsocket_p.h"
+#include "qbluetoothsocket_winrt_p.h"
 
 #include <QtCore/QLoggingCategory>
 #include <QtCore/private/qeventdispatcher_winrt_p.h>
@@ -238,7 +238,7 @@ QBluetoothSocket *QBluetoothServer::nextPendingConnection()
     bool success = newSocket->d_ptr->setSocketDescriptor(socket, d->serverType);
     if (!success) {
         delete newSocket;
-        newSocket = 0;
+        newSocket = nullptr;
     }
 
     return newSocket;

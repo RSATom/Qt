@@ -9,19 +9,22 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/decrypt_config.h"
 #include "media/base/gmock_callback_support.h"
 #include "media/base/media_util.h"
 #include "media/base/mock_filters.h"
+#include "media/base/mock_media_log.h"
 #include "media/base/test_helpers.h"
 #include "media/filters/decrypting_demuxer_stream.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using ::testing::_;
+using ::testing::HasSubstr;
+using ::testing::InSequence;
 using ::testing::IsNull;
 using ::testing::Return;
 using ::testing::SaveArg;
@@ -38,12 +41,16 @@ static const uint8_t kFakeIv[DecryptConfig::kDecryptionKeySize] = {0};
 static scoped_refptr<DecoderBuffer> CreateFakeEncryptedStreamBuffer(
     bool is_clear) {
   scoped_refptr<DecoderBuffer> buffer(new DecoderBuffer(kFakeBufferSize));
-  std::string iv = is_clear ? std::string() :
-      std::string(reinterpret_cast<const char*>(kFakeIv), arraysize(kFakeIv));
-  buffer->set_decrypt_config(std::unique_ptr<DecryptConfig>(
-      new DecryptConfig(std::string(reinterpret_cast<const char*>(kFakeKeyId),
-                                    arraysize(kFakeKeyId)),
-                        iv, std::vector<SubsampleEntry>())));
+  std::string iv = is_clear
+                       ? std::string()
+                       : std::string(reinterpret_cast<const char*>(kFakeIv),
+                                     base::size(kFakeIv));
+  if (!is_clear) {
+    buffer->set_decrypt_config(DecryptConfig::CreateCencConfig(
+        std::string(reinterpret_cast<const char*>(kFakeKeyId),
+                    base::size(kFakeKeyId)),
+        iv, {}));
+  }
   return buffer;
 }
 
@@ -63,7 +70,7 @@ class DecryptingDemuxerStreamTest : public testing::Test {
       : demuxer_stream_(new DecryptingDemuxerStream(
             message_loop_.task_runner(),
             &media_log_,
-            base::Bind(&DecryptingDemuxerStreamTest::OnWaitingForDecryptionKey,
+            base::Bind(&DecryptingDemuxerStreamTest::OnWaiting,
                        base::Unretained(this)))),
         cdm_context_(new StrictMock<MockCdmContext>()),
         decryptor_(new StrictMock<MockDecryptor>()),
@@ -77,7 +84,7 @@ class DecryptingDemuxerStreamTest : public testing::Test {
         encrypted_buffer_(CreateFakeEncryptedStreamBuffer(false)),
         decrypted_buffer_(new DecoderBuffer(kFakeBufferSize)) {}
 
-  virtual ~DecryptingDemuxerStreamTest() {
+  ~DecryptingDemuxerStreamTest() override {
     if (is_initialized_)
       EXPECT_CALL(*decryptor_, CancelDecrypt(_));
     demuxer_stream_.reset();
@@ -146,7 +153,7 @@ class DecryptingDemuxerStreamTest : public testing::Test {
 
   void ReadAndExpectBufferReadyWith(
       DemuxerStream::Status status,
-      const scoped_refptr<DecoderBuffer>& decrypted_buffer) {
+      scoped_refptr<DecoderBuffer> decrypted_buffer) {
     if (status != DemuxerStream::kOk)
       EXPECT_CALL(*this, BufferReady(status, IsNull()));
     else if (decrypted_buffer->end_of_stream())
@@ -159,10 +166,11 @@ class DecryptingDemuxerStreamTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
-  void EnterClearReadingState(bool is_stream_encrytped) {
-    EXPECT_TRUE(clear_encrypted_stream_buffer_->decrypt_config());
+  void EnterClearReadingState(bool is_stream_encrypted) {
+    // Unencrypted streams never have a DecryptConfig.
+    EXPECT_FALSE(clear_encrypted_stream_buffer_->decrypt_config());
     EXPECT_CALL(*input_audio_stream_, Read(_))
-        .WillOnce(ReturnBuffer(is_stream_encrytped
+        .WillOnce(ReturnBuffer(is_stream_encrypted
                                    ? clear_encrypted_stream_buffer_
                                    : clear_buffer_));
 
@@ -191,19 +199,19 @@ class DecryptingDemuxerStreamTest : public testing::Test {
 
   // Make the read callback pending by saving and not firing it.
   void EnterPendingReadState() {
-    EXPECT_TRUE(pending_demuxer_read_cb_.is_null());
+    EXPECT_TRUE(!pending_demuxer_read_cb_);
     EXPECT_CALL(*input_audio_stream_, Read(_))
         .WillOnce(SaveArg<0>(&pending_demuxer_read_cb_));
     demuxer_stream_->Read(base::Bind(&DecryptingDemuxerStreamTest::BufferReady,
                                      base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
     // Make sure the Read() triggers a Read() on the input demuxer stream.
-    EXPECT_FALSE(pending_demuxer_read_cb_.is_null());
+    EXPECT_FALSE(!pending_demuxer_read_cb_);
   }
 
   // Make the decrypt callback pending by saving and not firing it.
   void EnterPendingDecryptState() {
-    EXPECT_TRUE(pending_decrypt_cb_.is_null());
+    EXPECT_TRUE(!pending_decrypt_cb_);
     EXPECT_CALL(*input_audio_stream_, Read(_))
         .WillRepeatedly(ReturnBuffer(encrypted_buffer_));
     EXPECT_CALL(*decryptor_, Decrypt(_, encrypted_buffer_, _))
@@ -213,31 +221,33 @@ class DecryptingDemuxerStreamTest : public testing::Test {
                                      base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
     // Make sure Read() triggers a Decrypt() on the decryptor.
-    EXPECT_FALSE(pending_decrypt_cb_.is_null());
+    EXPECT_FALSE(!pending_decrypt_cb_);
   }
 
   void EnterWaitingForKeyState() {
+    InSequence s;
     EXPECT_CALL(*input_audio_stream_, Read(_))
         .WillRepeatedly(ReturnBuffer(encrypted_buffer_));
     EXPECT_CALL(*decryptor_, Decrypt(_, encrypted_buffer_, _))
-        .WillRepeatedly(RunCallback<2>(Decryptor::kNoKey,
-                                       scoped_refptr<DecoderBuffer>()));
-    EXPECT_CALL(*this, OnWaitingForDecryptionKey());
+        .WillRepeatedly(
+            RunCallback<2>(Decryptor::kNoKey, scoped_refptr<DecoderBuffer>()));
+    EXPECT_MEDIA_LOG(HasSubstr("DecryptingDemuxerStream: no key for key ID"));
+    EXPECT_CALL(*this, OnWaiting(WaitingReason::kNoDecryptionKey));
     demuxer_stream_->Read(base::Bind(&DecryptingDemuxerStreamTest::BufferReady,
                                      base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
   }
 
   void AbortPendingDecryptCB() {
-    if (!pending_decrypt_cb_.is_null()) {
-      base::ResetAndReturn(&pending_decrypt_cb_).Run(Decryptor::kSuccess, NULL);
+    if (pending_decrypt_cb_) {
+      std::move(pending_decrypt_cb_).Run(Decryptor::kSuccess, NULL);
     }
   }
 
   void SatisfyPendingDemuxerReadCB(DemuxerStream::Status status) {
     scoped_refptr<DecoderBuffer> buffer =
         (status == DemuxerStream::kOk) ? encrypted_buffer_ : NULL;
-    base::ResetAndReturn(&pending_demuxer_read_cb_).Run(status, buffer);
+    std::move(pending_demuxer_read_cb_).Run(status, buffer);
   }
 
   void Reset() {
@@ -249,12 +259,12 @@ class DecryptingDemuxerStreamTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
-  MOCK_METHOD2(BufferReady, void(DemuxerStream::Status,
-                                 const scoped_refptr<DecoderBuffer>&));
-  MOCK_METHOD0(OnWaitingForDecryptionKey, void(void));
+  MOCK_METHOD2(BufferReady,
+               void(DemuxerStream::Status, scoped_refptr<DecoderBuffer>));
+  MOCK_METHOD1(OnWaiting, void(WaitingReason));
 
   base::MessageLoop message_loop_;
-  MediaLog media_log_;
+  StrictMock<MockMediaLog> media_log_;
   std::unique_ptr<DecryptingDemuxerStream> demuxer_stream_;
   std::unique_ptr<StrictMock<MockCdmContext>> cdm_context_;
   std::unique_ptr<StrictMock<MockDecryptor>> decryptor_;
@@ -318,9 +328,6 @@ TEST_F(DecryptingDemuxerStreamTest, Read_Normal) {
 }
 
 // Test normal read case where the buffer is clear.
-// TODO(xhwang): Unify clear buffer handling in clear and encrypted stream.
-// See http://crbug.com/675003
-
 TEST_F(DecryptingDemuxerStreamTest, Read_ClearBufferInEncryptedStream) {
   Initialize();
   EnterClearReadingState(true);
@@ -338,9 +345,10 @@ TEST_F(DecryptingDemuxerStreamTest, Read_DecryptError) {
   EXPECT_CALL(*input_audio_stream_, Read(_))
       .WillRepeatedly(ReturnBuffer(encrypted_buffer_));
   EXPECT_CALL(*decryptor_, Decrypt(_, encrypted_buffer_, _))
-      .WillRepeatedly(RunCallback<2>(Decryptor::kError,
-                                     scoped_refptr<DecoderBuffer>()));
-  ReadAndExpectBufferReadyWith(DemuxerStream::kAborted, NULL);
+      .WillRepeatedly(
+          RunCallback<2>(Decryptor::kError, scoped_refptr<DecoderBuffer>()));
+  EXPECT_MEDIA_LOG(HasSubstr("DecryptingDemuxerStream: decrypt error"));
+  ReadAndExpectBufferReadyWith(DemuxerStream::kError, nullptr);
 }
 
 // Test the case where the input is an end-of-stream buffer.
@@ -362,6 +370,8 @@ TEST_F(DecryptingDemuxerStreamTest, KeyAdded_DuringWaitingForKey) {
   Initialize();
   EnterWaitingForKeyState();
 
+  EXPECT_MEDIA_LOG(
+      HasSubstr("DecryptingDemuxerStream: key was added, resuming decrypt"));
   EXPECT_CALL(*decryptor_, Decrypt(_, encrypted_buffer_, _))
       .WillRepeatedly(RunCallback<2>(Decryptor::kSuccess, decrypted_buffer_));
   EXPECT_CALL(*this, BufferReady(DemuxerStream::kOk, decrypted_buffer_));
@@ -375,12 +385,15 @@ TEST_F(DecryptingDemuxerStreamTest, KeyAdded_DuringPendingDecrypt) {
   Initialize();
   EnterPendingDecryptState();
 
+  EXPECT_MEDIA_LOG(HasSubstr("DecryptingDemuxerStream: no key for key ID"));
+  EXPECT_MEDIA_LOG(
+      HasSubstr("DecryptingDemuxerStream: key was added, resuming decrypt"));
   EXPECT_CALL(*decryptor_, Decrypt(_, encrypted_buffer_, _))
       .WillRepeatedly(RunCallback<2>(Decryptor::kSuccess, decrypted_buffer_));
   EXPECT_CALL(*this, BufferReady(DemuxerStream::kOk, decrypted_buffer_));
   // The decrypt callback is returned after the correct decryption key is added.
   key_added_cb_.Run();
-  base::ResetAndReturn(&pending_decrypt_cb_).Run(Decryptor::kNoKey, NULL);
+  std::move(pending_decrypt_cb_).Run(Decryptor::kNoKey, NULL);
   base::RunLoop().RunUntilIdle();
 }
 

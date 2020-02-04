@@ -7,15 +7,25 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "base/bind.h"
-#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
+#include "base/test/bind_test_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "net/base/ip_address.h"
 #include "net/log/net_log_source.h"
 #include "net/socket/socket_test_util.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "net/url_request/url_request_test_util.h"
+#include "services/network/network_context.h"
+#include "services/network/network_service.h"
+#include "services/network/public/mojom/proxy_resolving_socket.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace gcm {
@@ -25,11 +35,11 @@ typedef std::vector<net::MockRead> ReadList;
 typedef std::vector<net::MockWrite> WriteList;
 
 const char kReadData[] = "read_data";
-const int kReadDataSize = arraysize(kReadData) - 1;
+const int kReadDataSize = base::size(kReadData) - 1;
 const char kReadData2[] = "read_alternate_data";
-const int kReadData2Size = arraysize(kReadData2) - 1;
+const int kReadData2Size = base::size(kReadData2) - 1;
 const char kWriteData[] = "write_data";
-const int kWriteDataSize = arraysize(kWriteData) - 1;
+const int kWriteDataSize = base::size(kWriteData) - 1;
 
 class GCMSocketStreamTest : public testing::Test {
  public:
@@ -44,45 +54,69 @@ class GCMSocketStreamTest : public testing::Test {
 
   // Simulates a google::protobuf::io::CodedInputStream read.
   base::StringPiece DoInputStreamRead(int bytes);
+
   // Simulates a google::protobuf::io::CodedOutputStream write.
   int DoOutputStreamWrite(const base::StringPiece& write_src);
+
+  // Simulates a google::protobuf::io::CodedOutputStream write, but do not call
+  // flush.
+  int DoOutputStreamWriteWithoutFlush(const base::StringPiece& write_src);
 
   // Synchronous Refresh wrapper.
   void WaitForData(int msg_size);
 
-  base::MessageLoop* message_loop() { return &message_loop_; };
-  net::StaticSocketDataProvider* data_provider() {
-    return data_provider_.get();
-  }
   SocketInputStream* input_stream() { return socket_input_stream_.get(); }
   SocketOutputStream* output_stream() { return socket_output_stream_.get(); }
-  net::StreamSocket* socket() { return socket_.get(); }
+
+  network::mojom::ProxyResolvingSocketPtr mojo_socket_ptr_;
+
+  void set_socket_output_stream(std::unique_ptr<SocketOutputStream> stream) {
+    socket_output_stream_ = std::move(stream);
+  }
 
  private:
   void OpenConnection();
   void ResetInputStream();
   void ResetOutputStream();
 
-  void ConnectCallback(int result);
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   // SocketStreams and their data providers.
   ReadList mock_reads_;
   WriteList mock_writes_;
   std::unique_ptr<net::StaticSocketDataProvider> data_provider_;
+  std::unique_ptr<net::SSLSocketDataProvider> ssl_data_provider_;
   std::unique_ptr<SocketInputStream> socket_input_stream_;
   std::unique_ptr<SocketOutputStream> socket_output_stream_;
 
   // net:: components.
-  std::unique_ptr<net::StreamSocket> socket_;
-  net::MockClientSocketFactory socket_factory_;
   net::AddressList address_list_;
-
-  base::MessageLoopForIO message_loop_;
+  std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
+  std::unique_ptr<network::NetworkService> network_service_;
+  network::mojom::NetworkContextPtr network_context_ptr_;
+  net::MockClientSocketFactory socket_factory_;
+  net::TestURLRequestContext url_request_context_;
+  std::unique_ptr<network::NetworkContext> network_context_;
+  network::mojom::ProxyResolvingSocketFactoryPtr mojo_socket_factory_ptr_;
+  mojo::ScopedDataPipeConsumerHandle receive_pipe_handle_;
+  mojo::ScopedDataPipeProducerHandle send_pipe_handle_;
 };
 
-GCMSocketStreamTest::GCMSocketStreamTest() {
+GCMSocketStreamTest::GCMSocketStreamTest()
+    : scoped_task_environment_(
+          base::test::ScopedTaskEnvironment::MainThreadType::IO),
+      network_change_notifier_(net::NetworkChangeNotifier::CreateMock()),
+      network_service_(network::NetworkService::CreateForTesting()),
+      url_request_context_(true /* delay_initialization */) {
   address_list_ = net::AddressList::CreateFromIPAddress(
       net::IPAddress::IPv4Localhost(), 5228);
+  socket_factory_.set_enable_read_if_ready(true);
+  url_request_context_.set_client_socket_factory(&socket_factory_);
+  url_request_context_.Init();
+
+  network_context_ = std::make_unique<network::NetworkContext>(
+      network_service_.get(), mojo::MakeRequest(&network_context_ptr_),
+      &url_request_context_);
 }
 
 GCMSocketStreamTest::~GCMSocketStreamTest() {}
@@ -91,10 +125,12 @@ void GCMSocketStreamTest::BuildSocket(const ReadList& read_list,
                                       const WriteList& write_list) {
   mock_reads_ = read_list;
   mock_writes_ = write_list;
-  data_provider_.reset(new net::StaticSocketDataProvider(
-      mock_reads_.data(), mock_reads_.size(), mock_writes_.data(),
-      mock_writes_.size()));
+  data_provider_ = std::make_unique<net::StaticSocketDataProvider>(
+      mock_reads_, mock_writes_);
+  ssl_data_provider_ =
+      std::make_unique<net::SSLSocketDataProvider>(net::SYNCHRONOUS, net::OK);
   socket_factory_.AddSocketDataProvider(data_provider_.get());
+  socket_factory_.AddSSLSocketDataProvider(ssl_data_provider_.get());
   OpenConnection();
   ResetInputStream();
   ResetOutputStream();
@@ -136,11 +172,23 @@ base::StringPiece GCMSocketStreamTest::DoInputStreamRead(int bytes) {
 
 int GCMSocketStreamTest::DoOutputStreamWrite(
     const base::StringPiece& write_src) {
+  int total_bytes_written = DoOutputStreamWriteWithoutFlush(write_src);
+  base::RunLoop run_loop;
+  if (socket_output_stream_->Flush(run_loop.QuitClosure()) ==
+      net::ERR_IO_PENDING) {
+    run_loop.Run();
+  }
+
+  return total_bytes_written;
+}
+
+int GCMSocketStreamTest::DoOutputStreamWriteWithoutFlush(
+    const base::StringPiece& write_src) {
   DCHECK_EQ(socket_output_stream_->GetState(), SocketOutputStream::EMPTY);
   int total_bytes_written = 0;
-  void* buffer = NULL;
+  void* buffer = nullptr;
   int size = 0;
-  int bytes = write_src.size();
+  const int bytes = write_src.size();
 
   do {
     if (!socket_output_stream_->Next(&buffer, &size))
@@ -153,12 +201,6 @@ int GCMSocketStreamTest::DoOutputStreamWrite(
       socket_output_stream_->BackUp(size - bytes_to_write);
     total_bytes_written += bytes_to_write;
   } while (total_bytes_written < bytes);
-
-  base::RunLoop run_loop;
-  if (socket_output_stream_->Flush(run_loop.QuitClosure()) ==
-          net::ERR_IO_PENDING) {
-    run_loop.Run();
-  }
 
   return total_bytes_written;
 }
@@ -177,32 +219,52 @@ void GCMSocketStreamTest::WaitForData(int msg_size) {
 }
 
 void GCMSocketStreamTest::OpenConnection() {
-  socket_ = socket_factory_.CreateTransportClientSocket(
-      address_list_, NULL, NULL, net::NetLogSource());
-  socket_->Connect(
-      base::Bind(&GCMSocketStreamTest::ConnectCallback,
-                 base::Unretained(this)));
+  network_context_->CreateProxyResolvingSocketFactory(
+      mojo::MakeRequest(&mojo_socket_factory_ptr_));
+  base::RunLoop run_loop;
+  int net_error = net::ERR_FAILED;
+  const GURL kDestination("https://example.com");
+  network::mojom::ProxyResolvingSocketOptionsPtr options =
+      network::mojom::ProxyResolvingSocketOptions::New();
+  options->use_tls = true;
+  mojo_socket_factory_ptr_->CreateProxyResolvingSocket(
+      kDestination, std::move(options),
+      net::MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS),
+      mojo::MakeRequest(&mojo_socket_ptr_), nullptr /* observer */,
+      base::BindLambdaForTesting(
+          [&](int result, const base::Optional<net::IPEndPoint>& local_addr,
+              const base::Optional<net::IPEndPoint>& peer_addr,
+              mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
+              mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
+            net_error = result;
+            receive_pipe_handle_ = std::move(receive_pipe_handle);
+            send_pipe_handle_ = std::move(send_pipe_handle);
+            run_loop.Quit();
+          }));
+  run_loop.Run();
+
   PumpLoop();
 }
 
-void GCMSocketStreamTest::ConnectCallback(int result) {}
-
 void GCMSocketStreamTest::ResetInputStream() {
-  DCHECK(socket_.get());
-  socket_input_stream_.reset(new SocketInputStream(socket_.get()));
+  DCHECK(mojo_socket_ptr_);
+  socket_input_stream_ =
+      std::make_unique<SocketInputStream>(std::move(receive_pipe_handle_));
 }
 
 void GCMSocketStreamTest::ResetOutputStream() {
-  DCHECK(socket_.get());
-  socket_output_stream_.reset(new SocketOutputStream(socket_.get()));
+  DCHECK(mojo_socket_ptr_);
+  socket_output_stream_ =
+      std::make_unique<SocketOutputStream>(std::move(send_pipe_handle_));
 }
 
 // A read where all data is already available.
 TEST_F(GCMSocketStreamTest, ReadDataSync) {
-  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS,
-                                        kReadData,
-                                        kReadDataSize)),
-              WriteList());
+  ReadList read_list;
+  read_list.push_back(
+      net::MockRead(net::SYNCHRONOUS, kReadData, kReadDataSize));
+  read_list.push_back(net::MockRead(net::ASYNC, net::OK) /* EOF */);
+  BuildSocket(read_list, WriteList());
 
   WaitForData(kReadDataSize);
   ASSERT_EQ(std::string(kReadData, kReadDataSize),
@@ -222,6 +284,9 @@ TEST_F(GCMSocketStreamTest, ReadPartialDataSync) {
       net::MockRead(net::SYNCHRONOUS,
                     &kReadData[first_read_len],
                     second_read_len));
+  // Add an EOF.
+  read_list.push_back(net::MockRead(net::SYNCHRONOUS, net::OK));
+
   BuildSocket(read_list, WriteList());
 
   WaitForData(kReadDataSize);
@@ -238,6 +303,7 @@ TEST_F(GCMSocketStreamTest, ReadAsync) {
       net::MockRead(net::ASYNC, kReadData, first_read_len));
   read_list.push_back(
       net::MockRead(net::ASYNC, &kReadData[first_read_len], second_read_len));
+  read_list.push_back(net::MockRead(net::ASYNC, net::OK) /* EOF */);
   BuildSocket(read_list, WriteList());
   WaitForData(kReadDataSize);
   ASSERT_EQ(std::string(kReadData, kReadDataSize),
@@ -248,10 +314,13 @@ TEST_F(GCMSocketStreamTest, ReadAsync) {
 TEST_F(GCMSocketStreamTest, TwoReadsAtOnce) {
   std::string long_data = std::string(kReadData, kReadDataSize) +
                           std::string(kReadData2, kReadData2Size);
-  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS,
-                                        long_data.c_str(),
-                                        long_data.size())),
-              WriteList());
+  ReadList read_list;
+  read_list.push_back(
+      net::MockRead(net::SYNCHRONOUS, long_data.c_str(), long_data.size()));
+  // Add an EOF.
+  read_list.push_back(net::MockRead(net::SYNCHRONOUS, net::OK));
+
+  BuildSocket(read_list, WriteList());
 
   WaitForData(kReadDataSize);
   ASSERT_EQ(std::string(kReadData, kReadDataSize),
@@ -267,10 +336,14 @@ TEST_F(GCMSocketStreamTest, TwoReadsAtOnce) {
 TEST_F(GCMSocketStreamTest, TwoReadsAtOnceWithRebuild) {
   std::string long_data = std::string(kReadData, kReadDataSize) +
                           std::string(kReadData2, kReadData2Size);
-  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS,
-                                        long_data.c_str(),
-                                        long_data.size())),
-              WriteList());
+  ReadList read_list;
+
+  read_list.push_back(
+      net::MockRead(net::SYNCHRONOUS, long_data.c_str(), long_data.size()));
+  // Add an EOF.
+  read_list.push_back(net::MockRead(net::SYNCHRONOUS, net::OK));
+
+  BuildSocket(read_list, WriteList());
 
   WaitForData(kReadDataSize);
   ASSERT_EQ(std::string(kReadData, kReadDataSize),
@@ -290,23 +363,23 @@ TEST_F(GCMSocketStreamTest, ReadError) {
 
   WaitForData(kReadDataSize);
   ASSERT_EQ(SocketInputStream::CLOSED, input_stream()->GetState());
-  ASSERT_EQ(result, input_stream()->last_error());
+  ASSERT_EQ(net::ERR_FAILED, input_stream()->last_error());
 }
 
 // Simulate a read after the connection is closed.
 TEST_F(GCMSocketStreamTest, ReadDisconnected) {
-  BuildSocket(ReadList(), WriteList());
-  socket()->Disconnect();
+  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS, net::ERR_IO_PENDING)),
+              WriteList());
+  mojo_socket_ptr_.reset();
   WaitForData(kReadDataSize);
   ASSERT_EQ(SocketInputStream::CLOSED, input_stream()->GetState());
-  ASSERT_EQ(net::ERR_CONNECTION_CLOSED, input_stream()->last_error());
+  ASSERT_EQ(net::ERR_FAILED, input_stream()->last_error());
 }
 
 // Write a full message in one go.
 TEST_F(GCMSocketStreamTest, WriteFull) {
-  BuildSocket(ReadList(),
-              WriteList(1, net::MockWrite(net::SYNCHRONOUS,
-                                          kWriteData,
+  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS, net::ERR_IO_PENDING)),
+              WriteList(1, net::MockWrite(net::SYNCHRONOUS, kWriteData,
                                           kWriteDataSize)));
   ASSERT_EQ(kWriteDataSize,
             DoOutputStreamWrite(base::StringPiece(kWriteData,
@@ -322,10 +395,84 @@ TEST_F(GCMSocketStreamTest, WritePartial) {
   write_list.push_back(net::MockWrite(net::SYNCHRONOUS,
                                       kWriteData + kWriteDataSize / 2,
                                       kWriteDataSize / 2));
-  BuildSocket(ReadList(), write_list);
+  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS, net::ERR_IO_PENDING)),
+              write_list);
   ASSERT_EQ(kWriteDataSize,
             DoOutputStreamWrite(base::StringPiece(kWriteData,
                                                   kWriteDataSize)));
+}
+
+// Regression test for crbug.com/866635.
+TEST_F(GCMSocketStreamTest, WritePartialWithLengthChecking) {
+  // Add a prefix data in front of kWriteData.
+  std::string prefix_data("xxxxx");
+  const size_t kPrefixDataSize = 5;
+  // |pipe| has a capacity that is one byte smaller than |prefix_data.size()| +
+  // |kWriteDataSize|. This is so that the first write is a partial write
+  // of |prefix_data|, and the second write is a complete write of kWriteData.
+  // The 1 byte shortage is to simulate the partial write.
+  mojo::DataPipe pipe(kWriteDataSize + prefix_data.size() - 1 /* size */);
+  mojo::ScopedDataPipeConsumerHandle consumer_handle =
+      std::move(pipe.consumer_handle);
+  mojo::ScopedDataPipeProducerHandle producer_handle =
+      std::move(pipe.producer_handle);
+
+  // Prepopulate |producer_handle| of |prefix_data|, now the pipe's capacity is
+  // less than |kWriteDataSize|.
+  uint32_t num_bytes = prefix_data.size();
+  MojoResult r = producer_handle->WriteData(prefix_data.data(), &num_bytes,
+                                            MOJO_WRITE_DATA_FLAG_NONE);
+  ASSERT_EQ(MOJO_RESULT_OK, r);
+  ASSERT_EQ(prefix_data.size(), num_bytes);
+
+  // Create a SocketOutputStream from the producer pipe.
+  auto socket_output_stream =
+      std::make_unique<SocketOutputStream>(std::move(producer_handle));
+  set_socket_output_stream(std::move(socket_output_stream));
+
+  // Write but do not flush.
+  EXPECT_EQ(kWriteDataSize, DoOutputStreamWriteWithoutFlush(kWriteData));
+
+  base::RunLoop run_loop;
+  output_stream()->Flush(run_loop.QuitClosure());
+  // Flush should be able to flush exactly 5 bytes, because of the data pipe
+  // capacity.
+  base::RunLoop().RunUntilIdle();
+
+  std::string contents;
+  // Read prefix.
+  char buffer[kPrefixDataSize];
+  uint32_t read_size = sizeof(buffer);
+  ASSERT_EQ(MOJO_RESULT_OK, consumer_handle->ReadData(
+                                buffer, &read_size, MOJO_READ_DATA_FLAG_NONE));
+  ASSERT_EQ(kPrefixDataSize, read_size);
+  contents += std::string(buffer, read_size);
+
+  base::RunLoop().RunUntilIdle();
+  // Flush now should complete.
+  run_loop.Run();
+
+  // Closes |producer_handle|.
+  set_socket_output_stream(nullptr);
+
+  // Read everything in |consumer_handle| now that |producer_handle| is closed
+  // to make sure data is as what we expected, and there is no trailing garbage
+  // data.
+  while (true) {
+    char buffer[5];
+    uint32_t read_size = sizeof(buffer);
+    MojoResult r =
+        consumer_handle->ReadData(buffer, &read_size, MOJO_READ_DATA_FLAG_NONE);
+    if (r == MOJO_RESULT_SHOULD_WAIT)
+      continue;
+    if (r != MOJO_RESULT_OK)
+      break;
+    ASSERT_EQ(MOJO_RESULT_OK, r);
+    contents += std::string(buffer, read_size);
+  }
+  std::string expected(prefix_data);
+  expected.append(kWriteData);
+  EXPECT_EQ(expected, contents);
 }
 
 // Write a message completely asynchronously (returns IO_PENDING before
@@ -338,7 +485,8 @@ TEST_F(GCMSocketStreamTest, WriteNone) {
   write_list.push_back(net::MockWrite(net::SYNCHRONOUS,
                                       kWriteData + kWriteDataSize / 2,
                                       kWriteDataSize / 2));
-  BuildSocket(ReadList(), write_list);
+  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS, net::ERR_IO_PENDING)),
+              write_list);
   ASSERT_EQ(kWriteDataSize,
             DoOutputStreamWrite(base::StringPiece(kWriteData,
                                                   kWriteDataSize)));
@@ -346,11 +494,14 @@ TEST_F(GCMSocketStreamTest, WriteNone) {
 
 // Write a message then read a message.
 TEST_F(GCMSocketStreamTest, WriteThenRead) {
-  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS,
-                                        kReadData,
-                                        kReadDataSize)),
-              WriteList(1, net::MockWrite(net::SYNCHRONOUS,
-                                          kWriteData,
+  ReadList read_list;
+  read_list.push_back(
+      net::MockRead(net::SYNCHRONOUS, kReadData, kReadDataSize));
+  // Add an EOF.
+  read_list.push_back(net::MockRead(net::SYNCHRONOUS, net::OK));
+
+  BuildSocket(read_list,
+              WriteList(1, net::MockWrite(net::SYNCHRONOUS, kWriteData,
                                           kWriteDataSize)));
 
   ASSERT_EQ(kWriteDataSize,
@@ -364,11 +515,14 @@ TEST_F(GCMSocketStreamTest, WriteThenRead) {
 
 // Read a message then write a message.
 TEST_F(GCMSocketStreamTest, ReadThenWrite) {
-  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS,
-                                        kReadData,
-                                        kReadDataSize)),
-              WriteList(1, net::MockWrite(net::SYNCHRONOUS,
-                                          kWriteData,
+  ReadList read_list;
+  read_list.push_back(
+      net::MockRead(net::SYNCHRONOUS, kReadData, kReadDataSize));
+  // Add an EOF.
+  read_list.push_back(net::MockRead(net::SYNCHRONOUS, net::OK));
+
+  BuildSocket(read_list,
+              WriteList(1, net::MockWrite(net::SYNCHRONOUS, kWriteData,
                                           kWriteDataSize)));
 
   WaitForData(kReadDataSize);
@@ -383,20 +537,25 @@ TEST_F(GCMSocketStreamTest, ReadThenWrite) {
 // Simulate a write that gets aborted.
 TEST_F(GCMSocketStreamTest, WriteError) {
   int result = net::ERR_ABORTED;
-  BuildSocket(ReadList(),
+  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS, net::ERR_IO_PENDING)),
               WriteList(1, net::MockWrite(net::SYNCHRONOUS, result)));
-  DoOutputStreamWrite(base::StringPiece(kWriteData, kWriteDataSize));
+  // Mojo data pipe buffers data, so there is a delay before write error is
+  // observed.Continue writing if error is not observed.
+  while (output_stream()->GetState() != SocketOutputStream::CLOSED) {
+    DoOutputStreamWrite(base::StringPiece(kWriteData, kWriteDataSize));
+  }
   ASSERT_EQ(SocketOutputStream::CLOSED, output_stream()->GetState());
-  ASSERT_EQ(result, output_stream()->last_error());
+  ASSERT_EQ(net::ERR_FAILED, output_stream()->last_error());
 }
 
 // Simulate a write after the connection is closed.
 TEST_F(GCMSocketStreamTest, WriteDisconnected) {
-  BuildSocket(ReadList(), WriteList());
-  socket()->Disconnect();
+  BuildSocket(ReadList(1, net::MockRead(net::SYNCHRONOUS, net::ERR_IO_PENDING)),
+              WriteList());
+  mojo_socket_ptr_.reset();
   DoOutputStreamWrite(base::StringPiece(kWriteData, kWriteDataSize));
   ASSERT_EQ(SocketOutputStream::CLOSED, output_stream()->GetState());
-  ASSERT_EQ(net::ERR_CONNECTION_CLOSED, output_stream()->last_error());
+  ASSERT_EQ(net::ERR_FAILED, output_stream()->last_error());
 }
 
 }  // namespace

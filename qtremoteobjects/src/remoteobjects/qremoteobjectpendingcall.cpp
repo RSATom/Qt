@@ -42,13 +42,13 @@
 
 #include "qremoteobjectreplica_p.h"
 
-#include <QCoreApplication>
+#include <QtCore/qcoreapplication.h>
 
 #include <private/qobject_p.h>
 
 QT_BEGIN_NAMESPACE
 
-QRemoteObjectPendingCallData::QRemoteObjectPendingCallData(int serialId, QRemoteObjectReplicaPrivate *replica)
+QRemoteObjectPendingCallData::QRemoteObjectPendingCallData(int serialId, QRemoteObjectReplicaImplementation *replica)
     : replica(replica)
     , serialId(serialId)
     , error(QRemoteObjectPendingCall::InvalidMessage)
@@ -62,7 +62,9 @@ QRemoteObjectPendingCallData::~QRemoteObjectPendingCallData()
 
 void QRemoteObjectPendingCallWatcherHelper::add(QRemoteObjectPendingCallWatcher *watcher)
 {
-    connect(this, SIGNAL(finished()), watcher, SLOT(_q_finished()), Qt::QueuedConnection);
+    connect(this, &QRemoteObjectPendingCallWatcherHelper::finished, watcher, [watcher]() {
+        emit watcher->finished(watcher);
+    }, Qt::QueuedConnection);
 }
 
 void QRemoteObjectPendingCallWatcherHelper::emitSignals()
@@ -148,16 +150,8 @@ QRemoteObjectPendingCall QRemoteObjectPendingCall::fromCompletedCall(const QVari
 class QRemoteObjectPendingCallWatcherPrivate: public QObjectPrivate
 {
 public:
-    void _q_finished();
-
     Q_DECLARE_PUBLIC(QRemoteObjectPendingCallWatcher)
 };
-
-inline void QRemoteObjectPendingCallWatcherPrivate::_q_finished()
-{
-    Q_Q(QRemoteObjectPendingCallWatcher);
-    emit q->finished(q);
-}
 
 QRemoteObjectPendingCallWatcher::QRemoteObjectPendingCallWatcher(const QRemoteObjectPendingCall &call, QObject *parent)
     : QObject(*new QRemoteObjectPendingCallWatcherPrivate, parent)

@@ -42,12 +42,12 @@ QT_CHARTS_BEGIN_NAMESPACE
 class QPieModelMapperPrivate;
 class QPieSeries;
 
-class QT_CHARTS_EXPORT QPieModelMapper : public QObject
+class Q_CHARTS_EXPORT QPieModelMapper : public QObject
 {
     Q_OBJECT
 
 protected:
-    explicit QPieModelMapper(QObject *parent = Q_NULLPTR);
+    explicit QPieModelMapper(QObject *parent = nullptr);
 
     QAbstractItemModel *model() const;
     void setModel(QAbstractItemModel *model);

@@ -62,17 +62,17 @@ public:
 
     bool isNull() const;
 
-    int devType() const Q_DECL_OVERRIDE;
+    int devType() const override;
     uint size() const;
     const char* data() const;
     virtual void setData(const char* data, uint size);
 
     bool play(QPainter *p);
 
-    bool load(QIODevice *dev, const char *format = Q_NULLPTR);
-    bool load(const QString &fileName, const char *format = Q_NULLPTR);
-    bool save(QIODevice *dev, const char *format = Q_NULLPTR);
-    bool save(const QString &fileName, const char *format = Q_NULLPTR);
+    bool load(QIODevice *dev, const char *format = nullptr);
+    bool load(const QString &fileName, const char *format = nullptr);
+    bool save(QIODevice *dev, const char *format = nullptr);
+    bool save(const QString &fileName, const char *format = nullptr);
 
     QRect boundingRect() const;
     void setBoundingRect(const QRect &r);
@@ -98,12 +98,12 @@ public:
     static QT_DEPRECATED QStringList outputFormatList();
 #endif // QT_DEPRECATED_SINCE(5, 10)
 
-    QPaintEngine *paintEngine() const Q_DECL_OVERRIDE;
+    QPaintEngine *paintEngine() const override;
 
 protected:
     QPicture(QPicturePrivate &data);
 
-    int metric(PaintDeviceMetric m) const Q_DECL_OVERRIDE;
+    int metric(PaintDeviceMetric m) const override;
 
 private:
     bool exec(QPainter *p, QDataStream &ds, int i);

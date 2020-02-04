@@ -221,7 +221,7 @@ TestCase {
         //iteration.
 
         //try updating with an uninitialized plugin instance.
-        testModel.plugin = uninitializedPlugin;
+        testModel.plugin = uninitializedPlugin; // uninitialized does not trigger update on setPlugin
         testModel.update();
         tryCompare(statusChangedSpy, "count", 2);
         compare(testModel.status, CategoryModel.Error);
@@ -229,8 +229,9 @@ TestCase {
 
         //try searching with plugin a instance
         //that has been provided a non-existent name
+        tryCompare(statusChangedSpy, "count", 0);
         testModel.plugin = nonExistantPlugin;
-        testModel.update();
+//        testModel.update(); //QTBUG-70254
         tryCompare(statusChangedSpy, "count", 2);
         compare(testModel.status, CategoryModel.Error);
     }

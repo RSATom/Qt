@@ -51,24 +51,24 @@
 // We mean it.
 //
 
-#include "qconnectionfactories.h"
+#include "qconnectionfactories_p.h"
 
-#include <QLocalServer>
-#include <QLocalSocket>
+#include <QtNetwork/qlocalserver.h>
+#include <QtNetwork/qlocalsocket.h>
 
 QT_BEGIN_NAMESPACE
 
-class LocalClientIo : public ClientIoDevice
+class LocalClientIo final : public ClientIoDevice
 {
     Q_OBJECT
 
 public:
     explicit LocalClientIo(QObject *parent = nullptr);
-    ~LocalClientIo();
+    ~LocalClientIo() override;
 
-    QIODevice *connection() override;
+    QIODevice *connection() const override;
     void connectToServer() override;
-    bool isOpen() override;
+    bool isOpen() const override;
 
 public Q_SLOTS:
     void onError(QLocalSocket::LocalSocketError error);
@@ -76,11 +76,12 @@ public Q_SLOTS:
 
 protected:
     void doClose() override;
+    void doDisconnectFromServer() override;
 private:
-    QLocalSocket m_socket;
+    QLocalSocket* m_socket;
 };
 
-class LocalServerIo : public ServerIoDevice
+class LocalServerIo final : public ServerIoDevice
 {
     Q_OBJECT
 public:
@@ -94,14 +95,14 @@ private:
     QLocalSocket *m_connection;
 };
 
-class LocalServerImpl : public QConnectionAbstractServer
+class LocalServerImpl final : public QConnectionAbstractServer
 {
     Q_OBJECT
     Q_DISABLE_COPY(LocalServerImpl)
 
 public:
     explicit LocalServerImpl(QObject *parent);
-    ~LocalServerImpl();
+    ~LocalServerImpl() override;
 
     bool hasPendingConnections() const override;
     ServerIoDevice *configureNewConnection() override;

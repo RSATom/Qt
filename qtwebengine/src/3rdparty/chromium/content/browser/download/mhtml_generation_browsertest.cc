@@ -13,10 +13,14 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/task/post_task.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_restrictions.h"
+#include "components/download/public/common/download_task_runner.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/common/frame_messages.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/mhtml_extra_parts.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -32,8 +36,7 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/web/WebFindOptions.h"
-#include "third_party/WebKit/public/web/WebFrameSerializerCacheControlPolicy.h"
+#include "third_party/blink/public/web/web_frame_serializer_cache_control_policy.h"
 
 using testing::ContainsRegex;
 using testing::HasSubstr;
@@ -46,7 +49,7 @@ namespace {
 // A dummy WebContentsDelegate which tracks the results of a find operation.
 class FindTrackingDelegate : public WebContentsDelegate {
  public:
-  FindTrackingDelegate(const std::string& search)
+  explicit FindTrackingDelegate(const std::string& search)
       : search_(search), matches_(-1) {}
 
   // Returns number of results.
@@ -54,11 +57,12 @@ class FindTrackingDelegate : public WebContentsDelegate {
     WebContentsDelegate* old_delegate = web_contents->GetDelegate();
     web_contents->SetDelegate(this);
 
-    blink::WebFindOptions options;
-    options.match_case = false;
+    auto options = blink::mojom::FindOptions::New();
+    options->run_synchronously_for_testing = true;
+    options->match_case = false;
 
     web_contents->Find(global_request_id++, base::UTF8ToUTF16(search_),
-                       options);
+                       std::move(options));
     run_loop_.Run();
 
     web_contents->SetDelegate(old_delegate);
@@ -118,9 +122,8 @@ class MHTMLGenerationTest : public ContentBrowserTest {
     histogram_tester_.reset(new base::HistogramTester());
 
     shell()->web_contents()->GenerateMHTML(
-        params, base::Bind(&MHTMLGenerationTest::MHTMLGenerated,
-                           base::Unretained(this),
-                           run_loop.QuitClosure()));
+        params, base::BindOnce(&MHTMLGenerationTest::MHTMLGenerated,
+                               base::Unretained(this), run_loop.QuitClosure()));
 
     // Block until the MHTML is generated.
     run_loop.Run();
@@ -148,7 +151,7 @@ class MHTMLGenerationTest : public ContentBrowserTest {
   }
 
   int64_t ReadFileSizeFromDisk(base::FilePath path) {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_to_test_file_size;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     int64_t file_size;
     if (!base::GetFileSize(path, &file_size)) return -1;
     return file_size;
@@ -225,7 +228,7 @@ class MHTMLGenerationTest : public ContentBrowserTest {
   void MHTMLGenerated(base::Closure quit_closure, int64_t size) {
     has_mhtml_callback_run_ = true;
     file_size_ = size;
-    quit_closure.Run();
+    std::move(quit_closure).Run();
   }
 
   bool has_mhtml_callback_run_;
@@ -248,7 +251,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, GenerateMHTML) {
   EXPECT_GT(ReadFileSizeFromDisk(path), 100);  // Verify the actual file size.
 
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     std::string mhtml;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
     EXPECT_THAT(mhtml,
@@ -276,12 +279,12 @@ class GenerateMHTMLAndExitRendererMessageFilter : public BrowserMessageFilter {
     if (message.type() == FrameHostMsg_SerializeAsMHTMLResponse::ID) {
       // After |return false| below, this IPC message will be handled by the
       // product code as illustrated below.  (1), (2), (3) depict points in time
-      // when product code runs on UI and FILE threads.  (X), (Y), (Z) depict
-      // when we want test-injected tasks to run - for the repro, (Z) has to
-      // happen between (1) and (3).  (Y?) and (Z?) depict when test tasks can
-      // theoretically happen and ruin the repro.
+      // when product code runs on UI thread and download sequence.  (X), (Y),
+      // (Z) depict when we want test-injected tasks to run - for the repro, (Z)
+      // has to happen between (1) and (3).  (Y?) and (Z?) depict when test
+      // tasks can theoretically happen and ruin the repro.
       //
-      //     IO thread       UI thread           FILE thread
+      //     IO thread       UI thread         download sequence
       //     ---------       ---------           -----------
       //        |                |                     |
       //    WE ARE HERE          |                     |
@@ -319,34 +322,35 @@ class GenerateMHTMLAndExitRendererMessageFilter : public BrowserMessageFilter {
       // - From here post TaskX to UI thread.  (X) is guaranteed to happen
       //   before timepoint (1) (because posting of (1) happens after
       //   |return false| / before we post TaskX below).
-      // - From (X) post TaskY to FILE thread.  Because this posting is done
-      //   before (1), we can guarantee that (Y) will happen before (2).
+      // - From (X) post TaskY to download sequence.  Because this posting is
+      //   done before (1), we can guarantee that (Y) will happen before (2).
       // - From (Y) post TaskZ to UI thread.  Because this posting is done
       //   before (2), we can guarantee that (Z) will happen before (3).
       // - We cannot really guarantee that (Y) and (Z) happen *after* (1) - i.e.
       //   execution at (Y?) and (Z?) instead is possible.  In practice,
-      //   bouncing off of UI and FILE thread does mean (Z) happens after (1).
-      BrowserThread::PostTask(
-          BrowserThread::UI, FROM_HERE, base::Bind(
-              &GenerateMHTMLAndExitRendererMessageFilter::TaskX,
-              base::Unretained(this)));
+      //   bouncing off of UI and download sequence does mean (Z) happens
+      //   after (1).
+      base::PostTaskWithTraits(
+          FROM_HERE, {BrowserThread::UI},
+          base::BindOnce(&GenerateMHTMLAndExitRendererMessageFilter::TaskX,
+                         base::Unretained(this)));
     }
 
     return false;
   };
 
   void TaskX() {
-    BrowserThread::PostTask(
-        BrowserThread::FILE, FROM_HERE, base::Bind(
-            &GenerateMHTMLAndExitRendererMessageFilter::TaskY,
-            base::Unretained(this)));
+    download::GetDownloadTaskRunner()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&GenerateMHTMLAndExitRendererMessageFilter::TaskY,
+                       base::Unretained(this)));
   }
 
   void TaskY() {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE, base::Bind(
-            &GenerateMHTMLAndExitRendererMessageFilter::TaskZ,
-            base::Unretained(this)));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(&GenerateMHTMLAndExitRendererMessageFilter::TaskZ,
+                       base::Unretained(this)));
   }
 
   void TaskZ() {
@@ -364,7 +368,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, GenerateMHTMLAndExitRenderer) {
 
   RenderProcessHostImpl* render_process_host =
       static_cast<RenderProcessHostImpl*>(
-          shell()->web_contents()->GetRenderProcessHost());
+          shell()->web_contents()->GetMainFrame()->GetProcess());
   scoped_refptr<BrowserMessageFilter> filter =
       new GenerateMHTMLAndExitRendererMessageFilter(render_process_host);
   render_process_host->AddFilter(filter.get());
@@ -409,12 +413,14 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, GenerateNonBinaryMHTMLWithImage) {
   EXPECT_GT(ReadFileSizeFromDisk(path), 100);  // Verify the actual file size.
 
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     std::string mhtml;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
     EXPECT_THAT(mhtml, HasSubstr("Content-Transfer-Encoding: base64"));
     EXPECT_THAT(mhtml, Not(HasSubstr("Content-Transfer-Encoding: binary")));
     EXPECT_THAT(mhtml, ContainsRegex("Content-Location:.*blank.jpg"));
+    // Verify the boundary should start with CRLF.
+    EXPECT_THAT(mhtml, HasSubstr("\r\n------MultipartBoundary"));
   }
 }
 
@@ -434,12 +440,14 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, GenerateBinaryMHTMLWithImage) {
   EXPECT_GT(ReadFileSizeFromDisk(path), 100);  // Verify the actual file size.
 
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     std::string mhtml;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
     EXPECT_THAT(mhtml, HasSubstr("Content-Transfer-Encoding: binary"));
     EXPECT_THAT(mhtml, Not(HasSubstr("Content-Transfer-Encoding: base64")));
     EXPECT_THAT(mhtml, ContainsRegex("Content-Location:.*blank.jpg"));
+    // Verify the boundary should start with CRLF.
+    EXPECT_THAT(mhtml, HasSubstr("\r\n------MultipartBoundary"));
   }
 }
 
@@ -454,7 +462,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, GenerateMHTMLIgnoreNoStore) {
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
   }
 
@@ -482,7 +490,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, GenerateMHTMLObeyNoStoreMainFrame) {
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
   }
 
@@ -513,7 +521,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest,
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
   }
 
@@ -540,7 +548,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, GenerateMHTMLObeyNoStoreSubFrame) {
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
   }
 
@@ -583,7 +591,7 @@ IN_PROC_BROWSER_TEST_F(
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(params.file_path, &mhtml));
   }
 }
@@ -610,7 +618,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest,
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(params.file_path, &mhtml));
   }
 }
@@ -651,7 +659,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationSitePerProcessTest, GenerateMHTML) {
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
   }
 
@@ -680,7 +688,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, RemovePopupOverlay) {
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
   }
 
@@ -721,7 +729,7 @@ IN_PROC_BROWSER_TEST_F(MHTMLGenerationTest, GenerateMHTMLWithExtraData) {
 
   std::string mhtml;
   {
-    base::ThreadRestrictions::ScopedAllowIO allow_io_for_content_verification;
+    base::ScopedAllowBlockingForTesting allow_blocking;
     ASSERT_TRUE(base::ReadFileToString(path, &mhtml));
   }
 

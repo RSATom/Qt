@@ -17,8 +17,6 @@
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/logging.h"
 #include "gtest/gtest.h"
 #include "test/test_paths.h"
@@ -127,7 +125,13 @@ class HandlerLaunchFailureCrash : public WinMultiprocess {
   }
 };
 
-TEST(CrashpadClient, HandlerLaunchFailureCrash) {
+#if defined(ADDRESS_SANITIZER)
+// https://crbug.com/845011
+#define MAYBE_HandlerLaunchFailureCrash DISABLED_HandlerLaunchFailureCrash
+#else
+#define MAYBE_HandlerLaunchFailureCrash HandlerLaunchFailureCrash
+#endif
+TEST(CrashpadClient, MAYBE_HandlerLaunchFailureCrash) {
   WinMultiprocess::Run<HandlerLaunchFailureCrash>();
 }
 
@@ -151,7 +155,14 @@ class HandlerLaunchFailureDumpAndCrash : public WinMultiprocess {
   }
 };
 
-TEST(CrashpadClient, HandlerLaunchFailureDumpAndCrash) {
+#if defined(ADDRESS_SANITIZER)
+// https://crbug.com/845011
+#define MAYBE_HandlerLaunchFailureDumpAndCrash \
+  DISABLED_HandlerLaunchFailureDumpAndCrash
+#else
+#define MAYBE_HandlerLaunchFailureDumpAndCrash HandlerLaunchFailureDumpAndCrash
+#endif
+TEST(CrashpadClient, MAYBE_HandlerLaunchFailureDumpAndCrash) {
   WinMultiprocess::Run<HandlerLaunchFailureDumpAndCrash>();
 }
 

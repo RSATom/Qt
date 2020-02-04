@@ -13,7 +13,7 @@
  * TODO(dschuyler): Can they be unified (and this dictionary removed)?
  * @type {!Object}
  */
-var kControlledByLookup = {
+const kControlledByLookup = {
   'extension': chrome.settingsPrivate.ControlledBy.EXTENSION,
   'HostedApp': chrome.settingsPrivate.ControlledBy.EXTENSION,
   'platform_app': chrome.settingsPrivate.ControlledBy.EXTENSION,
@@ -22,7 +22,7 @@ var kControlledByLookup = {
 
 
 /** @polymerBehavior */
-var SiteSettingsBehaviorImpl = {
+const SiteSettingsBehaviorImpl = {
   properties: {
     /**
      * The string ID of the category this element is displaying data for.
@@ -30,6 +30,18 @@ var SiteSettingsBehaviorImpl = {
      * @type {!settings.ContentSettingsTypes}
      */
     category: String,
+
+    /**
+     * A cached list of ContentSettingsTypes with a standard allow-block-ask
+     * pattern that are currently enabled for use. This property is the same
+     * across all elements with SiteSettingsBehavior ('static').
+     * @type {Array<settings.ContentSettingsTypes>}
+     * @private
+     */
+    contentTypes_: {
+      type: Array,
+      value: [],
+    },
 
     /**
      * The browser proxy used to retrieve and change information about site
@@ -56,8 +68,9 @@ var SiteSettingsBehaviorImpl = {
    * @return {string} The URL with a scheme, or an empty string.
    */
   ensureUrlHasScheme: function(url) {
-    if (url.length == 0)
+    if (url.length == 0) {
       return url;
+    }
     return url.includes('://') ? url : 'http://' + url;
   },
 
@@ -67,7 +80,7 @@ var SiteSettingsBehaviorImpl = {
    * @return {string} The URL without redundant ports, if any.
    */
   sanitizePort: function(url) {
-    var urlWithScheme = this.ensureUrlHasScheme(url);
+    const urlWithScheme = this.ensureUrlHasScheme(url);
     if (urlWithScheme.startsWith('https://') &&
         urlWithScheme.endsWith(':443')) {
       return url.slice(0, -4);
@@ -79,37 +92,10 @@ var SiteSettingsBehaviorImpl = {
   },
 
   /**
-   * Removes the wildcard prefix from a pattern string.
-   * @param {string} pattern The pattern to remove the wildcard from.
-   * @return {string} The resulting pattern.
-   * @private
-   */
-  removePatternWildcard: function(pattern) {
-    if (pattern.startsWith('http://[*.]'))
-      return pattern.replace('http://[*.]', 'http://');
-    else if (pattern.startsWith('https://[*.]'))
-      return pattern.replace('https://[*.]', 'https://');
-    else if (pattern.startsWith('[*.]'))
-      return pattern.substring(4, pattern.length);
-    return pattern;
-  },
-
-  /**
-   * Returns the icon to use for a given site.
-   * @param {string} site The url of the site to fetch the icon for.
-   * @return {string} The background-image style with the favicon.
-   * @private
-   */
-  computeSiteIcon: function(site) {
-    var url = this.ensureUrlHasScheme(site);
-    return 'background-image: ' + cr.icon.getFavicon(url);
-  },
-
-  /**
    * Returns true if the passed content setting is considered 'enabled'.
    * @param {string} setting
    * @return {boolean}
-   * @private
+   * @protected
    */
   computeIsSettingEnabled: function(setting) {
     return setting != settings.ContentSetting.BLOCK;
@@ -119,11 +105,12 @@ var SiteSettingsBehaviorImpl = {
    * Converts a string origin/pattern to a URL.
    * @param {string} originOrPattern The origin/pattern to convert to URL.
    * @return {URL} The URL to return (or null if origin is not a valid URL).
-   * @private
+   * @protected
    */
   toUrl: function(originOrPattern) {
-    if (originOrPattern.length == 0)
+    if (originOrPattern.length == 0) {
       return null;
+    }
     // TODO(finnur): Hmm, it would probably be better to ensure scheme on the
     //     JS/C++ boundary.
     // TODO(dschuyler): I agree. This filtering should be done in one go, rather
@@ -139,19 +126,21 @@ var SiteSettingsBehaviorImpl = {
    * SiteException.
    * @param {!RawSiteException} exception The raw site exception from C++.
    * @return {!SiteException} The expanded (full) SiteException.
-   * @private
+   * @protected
    */
   expandSiteException: function(exception) {
-    var origin = exception.origin;
-    var embeddingOrigin = exception.embeddingOrigin;
+    const origin = exception.origin;
+    const embeddingOrigin = exception.embeddingOrigin;
 
-    var enforcement = /** @type {?chrome.settingsPrivate.Enforcement} */ (null);
+    // TODO(patricialor): |exception.source| should be one of the values defined
+    // in |settings.SiteSettingSource|.
+    let enforcement = /** @type {?chrome.settingsPrivate.Enforcement} */ (null);
     if (exception.source == 'extension' || exception.source == 'HostedApp' ||
         exception.source == 'platform_app' || exception.source == 'policy') {
       enforcement = chrome.settingsPrivate.Enforcement.ENFORCED;
     }
 
-    var controlledBy = /** @type {!chrome.settingsPrivate.ControlledBy} */ (
+    const controlledBy = /** @type {!chrome.settingsPrivate.ControlledBy} */ (
         kControlledByLookup[exception.source] ||
         chrome.settingsPrivate.ControlledBy.PRIMARY_USER);
 
@@ -167,7 +156,59 @@ var SiteSettingsBehaviorImpl = {
     };
   },
 
+  /**
+   * Returns list of categories for each setting.ContentSettingsTypes that are
+   * currently enabled.
+   * @return {!Array<!settings.ContentSettingsTypes>}
+   */
+  getCategoryList: function() {
+    if (this.contentTypes_.length == 0) {
+      for (const typeName in settings.ContentSettingsTypes) {
+        const contentType = settings.ContentSettingsTypes[typeName];
+        // <if expr="not chromeos">
+        if (contentType == settings.ContentSettingsTypes.PROTECTED_CONTENT) {
+          continue;
+        }
+        // </if>
+        // Some categories store their data in a custom way.
+        if (contentType == settings.ContentSettingsTypes.COOKIES ||
+            contentType == settings.ContentSettingsTypes.PROTOCOL_HANDLERS ||
+            contentType == settings.ContentSettingsTypes.ZOOM_LEVELS) {
+          continue;
+        }
+        this.contentTypes_.push(contentType);
+      }
+    }
+
+    const addOrRemoveSettingWithFlag = (type, flag) => {
+      if (loadTimeData.getBoolean(flag)) {
+        if (!this.contentTypes_.includes(type)) {
+          this.contentTypes_.push(type);
+        }
+      } else {
+        if (this.contentTypes_.includes(type)) {
+          this.contentTypes_.splice(this.contentTypes_.indexOf(type), 1);
+        }
+      }
+    };
+    // These categories are gated behind flags.
+    addOrRemoveSettingWithFlag(
+        settings.ContentSettingsTypes.SENSORS, 'enableSensorsContentSetting');
+    addOrRemoveSettingWithFlag(
+        settings.ContentSettingsTypes.ADS,
+        'enableSafeBrowsingSubresourceFilter');
+    addOrRemoveSettingWithFlag(
+        settings.ContentSettingsTypes.SOUND, 'enableSoundContentSetting');
+    addOrRemoveSettingWithFlag(
+        settings.ContentSettingsTypes.CLIPBOARD,
+        'enableClipboardContentSetting');
+    addOrRemoveSettingWithFlag(
+        settings.ContentSettingsTypes.PAYMENT_HANDLER,
+        'enablePaymentHandlerContentSetting');
+    return this.contentTypes_.slice(0);
+  },
+
 };
 
 /** @polymerBehavior */
-var SiteSettingsBehavior = [SiteSettingsBehaviorImpl];
+const SiteSettingsBehavior = [SiteSettingsBehaviorImpl];

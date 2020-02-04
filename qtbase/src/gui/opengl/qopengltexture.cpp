@@ -778,6 +778,8 @@ static QOpenGLTexture::PixelFormat pixelFormatCompatibleWithInternalFormat(QOpen
         return QOpenGLTexture::Alpha;
 
     case QOpenGLTexture::RGBFormat:
+        return QOpenGLTexture::RGB;
+
     case QOpenGLTexture::RGBAFormat:
         return QOpenGLTexture::RGBA;
 
@@ -2798,12 +2800,21 @@ QOpenGLTexture::TextureFormat QOpenGLTexture::format() const
     return d->format;
 }
 
+static bool isNpot(int width, int height = 1, int depth = 1)
+{
+    return width & (width-1) || height & (height-1) || depth & (depth-1);
+}
+
 /*!
     Sets the dimensions of this texture object to \a width,
     \a height, and \a depth. The default for each dimension is 1.
     The maximum allowable texture size is dependent upon your OpenGL
     implementation. Allocating storage for a texture less than the
     maximum size can still fail if your system is low on resources.
+
+    If a non-power-of-two \a width, \a height or \a depth is provided and your
+    OpenGL implementation doesn't have support for repeating non-power-of-two
+    textures, then the wrap mode is automatically set to ClampToEdge.
 
     \sa width(), height(), depth()
 */
@@ -2816,6 +2827,9 @@ void QOpenGLTexture::setSize(int width, int height, int depth)
                  "To do so, destroy() the texture and then create() and setSize()");
         return;
     }
+
+    if (isNpot(width, height, depth) && !hasFeature(Feature::NPOTTextureRepeat) && d->target != Target::TargetRectangle)
+        d->setWrapMode(WrapMode::ClampToEdge);
 
     switch (d->target) {
     case QOpenGLTexture::Target1D:
@@ -3900,8 +3914,7 @@ bool QOpenGLTexture::isAutoMipMapGenerationEnabled() const
     have disabled automatic mipmap generation then you need to call this function
     or the overload to create the mipmap chain.
 
-    \note Mipmap generation is not supported for compressed textures with OpenGL
-    ES 2.0.
+    \note Mipmap generation is not supported for compressed textures with OpenGL ES.
 
     \sa setAutoMipMapGenerationEnabled(), setMipLevels(), mipLevels()
 */
@@ -3912,7 +3925,7 @@ void QOpenGLTexture::generateMipMaps()
     Q_ASSERT(d->textureId);
     if (isCompressedFormat(d->format)) {
         if (QOpenGLContext *ctx = QOpenGLContext::currentContext())
-            if (ctx->isOpenGLES() && ctx->format().majorVersion() < 3)
+            if (ctx->isOpenGLES())
                 return;
     }
     d->texFuncs->glGenerateTextureMipmap(d->textureId, d->target, d->bindingTarget);
@@ -3937,7 +3950,7 @@ void QOpenGLTexture::generateMipMaps(int baseLevel, bool resetBaseLevel)
     Q_ASSERT(d->textureId);
     if (isCompressedFormat(d->format)) {
         if (QOpenGLContext *ctx = QOpenGLContext::currentContext())
-            if (ctx->isOpenGLES() && ctx->format().majorVersion() < 3)
+            if (ctx->isOpenGLES())
                 return;
     }
     int oldBaseLevel;
@@ -4101,7 +4114,7 @@ QOpenGLTexture::DepthStencilMode QOpenGLTexture::depthStencilMode() const
 
 */
 
-/*
+/*!
     \since 5.5
 
     Sets the texture comparison function on this texture to \a function. The texture

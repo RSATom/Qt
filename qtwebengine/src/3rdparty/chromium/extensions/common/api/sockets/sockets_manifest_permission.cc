@@ -24,7 +24,6 @@ namespace sockets_errors {
 const char kErrorInvalidHostPattern[] = "Invalid host:port pattern '*'";
 }
 
-namespace errors = sockets_errors;
 using api::extensions_manifest_types::Sockets;
 using api::extensions_manifest_types::SocketHostPatterns;
 using content::SocketPermissionRequest;
@@ -40,7 +39,7 @@ static bool ParseHostPattern(
   if (!SocketPermissionEntry::ParseHostPattern(
           operation_type, host_pattern, &entry)) {
     *error = ErrorUtils::FormatErrorMessageUTF16(
-        errors::kErrorInvalidHostPattern, host_pattern);
+        sockets_errors::kErrorInvalidHostPattern, host_pattern);
     return false;
   }
   permission->AddPermission(entry);
@@ -78,9 +77,8 @@ static void SetHostPatterns(
     content::SocketPermissionRequest::OperationType operation_type) {
   host_patterns.reset(new SocketHostPatterns());
   host_patterns->as_strings.reset(new std::vector<std::string>());
-  for (SocketPermissionEntrySet::const_iterator it =
-           permission->entries().begin();
-       it != permission->entries().end(); ++it) {
+  for (auto it = permission->entries().cbegin();
+       it != permission->entries().cend(); ++it) {
     if (it->pattern().type == operation_type) {
       host_patterns->as_strings->push_back(it->GetHostPatternAsString());
     }
@@ -201,9 +199,7 @@ std::unique_ptr<SocketsManifestPermission> SocketsManifestPermission::FromValue(
 bool SocketsManifestPermission::CheckRequest(
     const Extension* extension,
     const SocketPermissionRequest& request) const {
-  for (SocketPermissionEntrySet::const_iterator it = permissions_.begin();
-       it != permissions_.end();
-       ++it) {
+  for (auto it = permissions_.cbegin(); it != permissions_.cend(); ++it) {
     if (it->Check(request))
       return true;
   }
@@ -269,40 +265,37 @@ std::unique_ptr<base::Value> SocketsManifestPermission::ToValue() const {
   return std::unique_ptr<base::Value>(sockets.ToValue().release());
 }
 
-ManifestPermission* SocketsManifestPermission::Diff(
+std::unique_ptr<ManifestPermission> SocketsManifestPermission::Diff(
     const ManifestPermission* rhs) const {
   const SocketsManifestPermission* other =
       static_cast<const SocketsManifestPermission*>(rhs);
 
-  std::unique_ptr<SocketsManifestPermission> result(
-      new SocketsManifestPermission());
+  auto result = std::make_unique<SocketsManifestPermission>();
   result->permissions_ = base::STLSetDifference<SocketPermissionEntrySet>(
       permissions_, other->permissions_);
-  return result.release();
+  return result;
 }
 
-ManifestPermission* SocketsManifestPermission::Union(
+std::unique_ptr<ManifestPermission> SocketsManifestPermission::Union(
     const ManifestPermission* rhs) const {
   const SocketsManifestPermission* other =
       static_cast<const SocketsManifestPermission*>(rhs);
 
-  std::unique_ptr<SocketsManifestPermission> result(
-      new SocketsManifestPermission());
+  auto result = std::make_unique<SocketsManifestPermission>();
   result->permissions_ = base::STLSetUnion<SocketPermissionEntrySet>(
       permissions_, other->permissions_);
-  return result.release();
+  return result;
 }
 
-ManifestPermission* SocketsManifestPermission::Intersect(
+std::unique_ptr<ManifestPermission> SocketsManifestPermission::Intersect(
     const ManifestPermission* rhs) const {
   const SocketsManifestPermission* other =
       static_cast<const SocketsManifestPermission*>(rhs);
 
-  std::unique_ptr<SocketsManifestPermission> result(
-      new SocketsManifestPermission());
+  auto result = std::make_unique<SocketsManifestPermission>();
   result->permissions_ = base::STLSetIntersection<SocketPermissionEntrySet>(
       permissions_, other->permissions_);
-  return result.release();
+  return result;
 }
 
 void SocketsManifestPermission::AddPermission(

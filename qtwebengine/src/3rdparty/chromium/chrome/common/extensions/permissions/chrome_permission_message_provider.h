@@ -6,9 +6,11 @@
 #define CHROME_COMMON_EXTENSIONS_PERMISSIONS_CHROME_PERMISSION_MESSAGE_PROVIDER_H_
 
 #include <set>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/strings/string16.h"
+#include "chrome/common/extensions/permissions/chrome_permission_message_rules.h"
 #include "extensions/common/permissions/permission_message_provider.h"
 
 namespace extensions {
@@ -27,8 +29,10 @@ class ChromePermissionMessageProvider : public PermissionMessageProvider {
   // PermissionMessageProvider implementation.
   PermissionMessages GetPermissionMessages(
       const PermissionIDSet& permissions) const override;
-  bool IsPrivilegeIncrease(const PermissionSet& old_permissions,
-                           const PermissionSet& new_permissions,
+  PermissionMessages GetPowerfulPermissionMessages(
+      const PermissionIDSet& permissions) const override;
+  bool IsPrivilegeIncrease(const PermissionSet& granted_permissions,
+                           const PermissionSet& requested_permissions,
                            Manifest::Type extension_type) const override;
   PermissionIDSet GetAllPermissionIDs(
       const PermissionSet& permissions,
@@ -48,17 +52,21 @@ class ChromePermissionMessageProvider : public PermissionMessageProvider {
                           PermissionIDSet* permission_ids,
                           Manifest::Type extension_type) const;
 
-  // Returns true if |new_permissions| has an elevated API or manifest privilege
-  // level compared to |old_permissions|.
+  // Returns true if |requested_permissions| has an elevated API or manifest
+  // privilege level compared to |granted_permissions|.
   bool IsAPIOrManifestPrivilegeIncrease(
-      const PermissionSet& old_permissions,
-      const PermissionSet& new_permissions) const;
+      const PermissionSet& granted_permissions,
+      const PermissionSet& requested_permissions) const;
 
-  // Returns true if |new_permissions| has more host permissions compared to
-  // |old_permissions|.
-  bool IsHostPrivilegeIncrease(const PermissionSet& old_permissions,
-                               const PermissionSet& new_permissions,
+  // Returns true if |requested_permissions| has more host permissions compared
+  // to |granted_permissions|.
+  bool IsHostPrivilegeIncrease(const PermissionSet& granted_permissions,
+                               const PermissionSet& requested_permissions,
                                Manifest::Type extension_type) const;
+
+  PermissionMessages GetPermissionMessagesHelper(
+      const PermissionIDSet& permissions,
+      const std::vector<ChromePermissionMessageRule>& rules) const;
 
   DISALLOW_COPY_AND_ASSIGN(ChromePermissionMessageProvider);
 };

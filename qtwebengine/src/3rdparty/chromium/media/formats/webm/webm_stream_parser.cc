@@ -27,11 +27,10 @@ WebMStreamParser::WebMStreamParser()
       unknown_segment_size_(false) {
 }
 
-WebMStreamParser::~WebMStreamParser() {
-}
+WebMStreamParser::~WebMStreamParser() = default;
 
 void WebMStreamParser::Init(
-    const InitCB& init_cb,
+    InitCB init_cb,
     const NewConfigCB& config_cb,
     const NewBuffersCB& new_buffers_cb,
     bool ignore_text_tracks,
@@ -40,16 +39,16 @@ void WebMStreamParser::Init(
     const EndMediaSegmentCB& end_of_segment_cb,
     MediaLog* media_log) {
   DCHECK_EQ(state_, kWaitingForInit);
-  DCHECK(init_cb_.is_null());
-  DCHECK(!init_cb.is_null());
-  DCHECK(!config_cb.is_null());
-  DCHECK(!new_buffers_cb.is_null());
-  DCHECK(!encrypted_media_init_data_cb.is_null());
-  DCHECK(!new_segment_cb.is_null());
-  DCHECK(!end_of_segment_cb.is_null());
+  DCHECK(!init_cb_);
+  DCHECK(init_cb);
+  DCHECK(config_cb);
+  DCHECK(new_buffers_cb);
+  DCHECK(encrypted_media_init_data_cb);
+  DCHECK(new_segment_cb);
+  DCHECK(end_of_segment_cb);
 
   ChangeState(kParsingHeaders);
-  init_cb_ = init_cb;
+  init_cb_ = std::move(init_cb);
   config_cb_ = config_cb;
   new_buffers_cb_ = new_buffers_cb;
   ignore_text_tracks_ = ignore_text_tracks;
@@ -67,6 +66,10 @@ void WebMStreamParser::Flush() {
     cluster_parser_->Reset();
   if (state_ == kParsingClusters)
     ChangeState(kParsingHeaders);
+}
+
+bool WebMStreamParser::GetGenerateTimestampsFlag() const {
+  return false;
 }
 
 bool WebMStreamParser::Parse(const uint8_t* buf, int size) {
@@ -243,14 +246,14 @@ int WebMStreamParser::ParseInfoAndTracks(const uint8_t* data, int size) {
       tracks_parser.video_encryption_key_id(), audio_config.codec(),
       media_log_));
 
-  if (!init_cb_.is_null()) {
+  if (init_cb_) {
     params.detected_audio_track_count =
         tracks_parser.detected_audio_track_count();
     params.detected_video_track_count =
         tracks_parser.detected_video_track_count();
     params.detected_text_track_count =
         tracks_parser.detected_text_track_count();
-    base::ResetAndReturn(&init_cb_).Run(params);
+    std::move(init_cb_).Run(params);
   }
 
   return bytes_parsed;

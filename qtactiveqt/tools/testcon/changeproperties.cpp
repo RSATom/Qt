@@ -33,7 +33,7 @@
 #include <QtCore/qt_windows.h>
 #include <QtCore/QMetaObject>
 #include <QtCore/QMetaProperty>
-#include <QtCore/QRegExp>
+#include <QtCore/QRegularExpression>
 #include <ActiveQt/QAxWidget>
 
 QT_BEGIN_NAMESPACE
@@ -143,7 +143,7 @@ void ChangeProperties::on_buttonSet_clicked()
         break;
     case QVariant::List:
         {
-            QStringList txtList = editValue->text().split(QRegExp(QLatin1String("[,;]")));
+            QStringList txtList = editValue->text().split(QRegularExpression(QLatin1String("[,;]")));
             QList<QVariant> varList;
             for (int i = 0; i < txtList.count(); ++i) {
                 QVariant svar(txtList.at(i));
@@ -202,9 +202,9 @@ void ChangeProperties::updateProperties()
             item->setText(0, QString::fromLatin1(property.name()));
             item->setText(1, QString::fromLatin1(property.typeName()));
             if (!property.isDesignable()) {
-                item->setTextColor(0, Qt::gray);
-                item->setTextColor(1, Qt::gray);
-                item->setTextColor(2, Qt::gray);
+                item->setForeground(0, Qt::gray);
+                item->setForeground(1, Qt::gray);
+                item->setForeground(2, Qt::gray);
             }
             QVariant var = activex->property(property.name());
 
@@ -234,12 +234,10 @@ void ChangeProperties::updateProperties()
                 break;
             case QVariant::List:
                 {
-                    QList<QVariant> varList = var.toList();
+                    const QList<QVariant> varList = var.toList();
                     QStringList strList;
-                    for (int i = 0; i < varList.count(); ++i) {
-                        QVariant var = varList.at(i);
+                    for (const auto &var : varList)
                         strList << var.toString();
-                    }
                     item->setText(2, strList.join(QLatin1String(", ")));
                 }
                 break;

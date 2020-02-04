@@ -8,8 +8,8 @@
 #include "base/macros.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "content/public/common/media_stream_request.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
 namespace extensions {
 
@@ -61,24 +61,6 @@ class WebViewPermissionHelperDelegate : public content::WebContentsObserver {
       int request_id,
       const GURL& url,
       bool blocked_by_policy) {}
-
-  // Called when file system access is requested by the guest content using the
-  // synchronous HTML5 file system API in a worker thread or shared worker. The
-  // request is plumbed through the <webview> permission request API. The
-  // request will be:
-  // - Allowed if the embedder explicitly allowed it.
-  // - Denied if the embedder explicitly denied.
-  // - Determined by the guest's content settings if the embedder does not
-  // perform an explicit action.
-  // If access was blocked due to the page's content settings,
-  // |blocked_by_policy| should be true, and this function should invoke
-  // OnContentBlocked.
-  virtual void FileSystemAccessedSync(
-      int render_process_id,
-      int render_frame_id,
-      const GURL& url,
-      bool blocked_by_policy,
-      IPC::Message* reply_msg) {}
 
   WebViewPermissionHelper* web_view_permission_helper() const {
     return web_view_permission_helper_;

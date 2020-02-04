@@ -59,7 +59,8 @@ cause a new configuration to be created for use as current configuration.
 @PURPOSE@	Set configuration as default
 @DESC@
 Sets the current default configuration to <parameter>config</parameter>.  Implicitly calls
-FcConfigBuildFonts if necessary, returning FcFalse if that call fails.
+FcConfigBuildFonts if necessary, and FcConfigReference() to inrease the reference count
+in <parameter>config</parameter> since 2.12.0, returning FcFalse if that call fails.
 @@
 
 @RET@           FcConfig *
@@ -180,11 +181,8 @@ If <parameter>config</parameter> is NULL, the current configuration is used.
 @TYPE1@         FcConfig *                      @ARG1@          config
 @PURPOSE@	Get config blanks
 @DESC@
-Returns the FcBlanks object associated with the given configuration, if no
-blanks were present in the configuration, this function will return 0.
-The returned FcBlanks object if not NULL, is valid as long as the owning
-FcConfig is alive.
-If <parameter>config</parameter> is NULL, the current configuration is used.
+FcBlanks is deprecated.
+This function always returns NULL.
 @@
 
 @RET@           int
@@ -218,8 +216,9 @@ If <parameter>config</parameter> is NULL, the current configuration is used.
 @PURPOSE@	Add font file to font database
 @DESC@
 Adds an application-specific font to the configuration. Returns FcFalse
-if the fonts cannot be added (due to allocation failure). Otherwise returns FcTrue.
-If <parameter>config</parameter> is NULL, the current configuration is used.
+if the fonts cannot be added (due to allocation failure or no fonts found).
+Otherwise returns FcTrue. If <parameter>config</parameter> is NULL,
+the current configuration is used.
 @@
 
 @RET@           FcBool
@@ -230,8 +229,9 @@ If <parameter>config</parameter> is NULL, the current configuration is used.
 @DESC@
 Scans the specified directory for fonts, adding each one found to the
 application-specific set of fonts. Returns FcFalse
-if the fonts cannot be added (due to allocation failure). Otherwise returns FcTrue.
-If <parameter>config</parameter> is NULL, the current configuration is used.
+if the fonts cannot be added (due to allocation failure).
+Otherwise returns FcTrue. If <parameter>config</parameter> is NULL,
+the current configuration is used.
 @@
 
 @RET@           void
@@ -372,12 +372,29 @@ Returns FcFalse if some error occurred while loading the file, either a
 parse error, semantic error or allocation failure. Otherwise returns FcTrue.
 @@
 
+@RET@		FcBool
+@FUNC@		FcConfigParseAndLoadFromMemory
+@TYPE1@		FcConfig *			@ARG1@		config
+@TYPE2@		const FcChar8 *			@ARG2@		buffer
+@TYPE3@		FcBool%				@ARG3@		complain
+@PURPOSE@	load a configuration from memory
+@DESC@
+Walks the configuration in 'memory' and constructs the internal representation
+in 'config'.  Any includes files referenced from within 'memory' will be loaded
+and dparsed.  If 'complain' is FcFalse, no warning will be displayed if
+'file' does not exist. Error and warning messages will be output to stderr.
+Returns FcFalse if fsome error occurred while loading the file, either a
+parse error, semantic error or allocation failure. Otherwise returns FcTrue.
+@SINCE@		2.12.5
+@@
+
 @RET@		const FcChar8 *
 @FUNC@		FcConfigGetSysRoot
 @TYPE1@		const FcConfig *		@ARG1@		config
 @PURPOSE@	Obtain the system root directory
 @DESC@
 Obtrains the system root directory in 'config' if available.
+@SINCE@		2.10.92
 @@
 
 @RET@		void
@@ -390,5 +407,41 @@ Set 'sysroot' as the system root directory. fontconfig prepend 'sysroot'
 to the cache directories in order to allow people to generate caches at
 the build time. Note that this causes changing current config. i.e.
 this function calls FcConfigSetCurrent() internally.
+@SINCE@		2.10.92
 @@
 
+@RET@		void
+@FUNC@		FcConfigFileInfoIterInit
+@TYPE1@		FcConfig *			@ARG1@		config
+@TYPE2@		FcConfigFileInfoIter *		@ARG2@		iter
+@PURPOSE@	Initialize the iterator
+@DESC@
+Initialize 'iter' with the first iterator in the config file information list.
+@SINCE@		2.12.91
+@@
+
+@RET@		FcBool
+@FUNC@		FcConfigFileInfoIterNext
+@TYPE1@		FcConfig *			@ARG1@		config
+@TYPE2@		FcConfigFileInfoIter *		@ARG2@		iter
+@PURPOSE@	Set the iterator to point to the next list
+@DESC@
+Set 'iter' to point to the next node in the config file information list.
+If there is no next node, FcFalse is returned.
+@SINCE@		2.12.91
+@@
+
+@RET@		FcBool
+@FUNC@		FcConfigFileInfoIterGet
+@TYPE1@		FcConfig *			@ARG1@		config
+@TYPE2@		FcConfigFileInfoIter *		@ARG2@		iter
+@TYPE3@		FcChar8 **	     		@ARG3@		name
+@TYPE4@		FcChar8 **			@ARG4@		description
+@TYPE5@		FcBool *			@ARG5@		enabled
+@PURPOSE@	Obtain the configuration file information
+@DESC@
+Obtain the filename, the description and the flag whether it is enabled or not
+for 'iter' where points to current configuration file information.
+If the iterator is invalid, FcFalse is returned.
+@SINCE@		2.12.91
+@@

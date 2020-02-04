@@ -89,6 +89,7 @@ Q_SIGNALS:
     void descriptorRead(QLowEnergyHandle descHandle, const QByteArray &value);
     void descriptorWritten(QLowEnergyHandle descHandle, const QByteArray &value);
     void notificationEnabled(QLowEnergyHandle charHandle, bool enabled);
+    void servicesWereModified();
 
     void LEnotSupported();
     void CBManagerError(QBluetoothDeviceDiscoveryAgent::Error error);

@@ -7,26 +7,30 @@
 import("//testing/test.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 
-test("libfuzzer_tests") {
-  sources = [
-    "fuzzer_launcher_test.cc",
-  ]
-  deps = [
-    ":test_config_and_dict",
-    ":test_config_and_seed_corpus",
-    ":test_config_and_seed_corpuses",
-    ":test_config_only",
-    ":test_dict_from_subdir",
-    ":test_dict_only",
-    "//base",
-    "//testing/gmock",
-    "//testing/gtest",
-    "//testing/gtest:gtest_main",
-  ]
-  data_deps = [
-    ":check_fuzzer_config",
-    ":check_seed_corpus_archive",
-  ]
+# TODO(crbug.com/906751): Get the tests working on Windows. Disable them for now
+# becaue they cause the Windows clang ToT builder to fail.
+if (!is_win) {
+  test("libfuzzer_tests") {
+    sources = [
+      "fuzzer_launcher_test.cc",
+    ]
+    deps = [
+      ":test_config_and_dict",
+      ":test_config_and_seed_corpus",
+      ":test_config_and_seed_corpuses",
+      ":test_config_only",
+      ":test_dict_from_subdir",
+      ":test_dict_only",
+      "//base",
+      "//testing/gmock",
+      "//testing/gtest",
+      "//testing/gtest:gtest_main",
+    ]
+    data_deps = [
+      ":check_fuzzer_config",
+      ":check_seed_corpus_archive",
+    ]
+  }
 }
 
 fuzzer_test("test_dict_only") {
@@ -34,6 +38,7 @@ fuzzer_test("test_dict_only") {
     "../fuzzers/empty_fuzzer.cc",
   ]
   dict = "test.dict"
+  additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
 }
 
 fuzzer_test("test_config_only") {
@@ -44,6 +49,7 @@ fuzzer_test("test_config_only") {
     "some_test_option=test_value",
     "max_len=1024",
   ]
+  additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
 }
 
 fuzzer_test("test_config_and_dict") {
@@ -56,6 +62,7 @@ fuzzer_test("test_config_and_dict") {
     "timeout   =   666",
     "use_traces=1",
   ]
+  additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
 }
 
 fuzzer_test("test_config_and_seed_corpus") {
@@ -67,6 +74,7 @@ fuzzer_test("test_config_and_seed_corpus") {
     "some_test_option=test_value",
     "max_len=1024",
   ]
+  additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
 }
 
 fuzzer_test("test_config_and_seed_corpuses") {
@@ -81,6 +89,7 @@ fuzzer_test("test_config_and_seed_corpuses") {
     "some_test_option=another_test_value",
     "max_len=1337",
   ]
+  additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
 }
 
 fuzzer_test("test_dict_from_subdir") {
@@ -88,6 +97,7 @@ fuzzer_test("test_dict_from_subdir") {
     "../fuzzers/empty_fuzzer.cc",
   ]
   dict = "dicts_subdir/test_subdir.dict"
+  additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
 }
 
 copy("check_fuzzer_config") {

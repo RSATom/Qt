@@ -223,9 +223,22 @@ TEST(ContentSettingsPatternTest, TrimEndingDotFromHost) {
                Pattern("www.example.com.").ToString().c_str());
 
   EXPECT_TRUE(Pattern("www.example.com.") == Pattern("www.example.com"));
+  EXPECT_TRUE(Pattern("www.example.com.") == Pattern("www.example.com."));
 
   EXPECT_TRUE(Pattern(".").IsValid());
   EXPECT_STREQ(".", Pattern(".").ToString().c_str());
+  EXPECT_TRUE(Pattern("http://.").Matches(GURL("http://.")));
+
+  EXPECT_TRUE(Pattern("a..b").IsValid());
+  EXPECT_STREQ("a..b", Pattern("a..b").ToString().c_str());
+  EXPECT_TRUE(Pattern("a..b").Matches(GURL("http://a..b")));
+
+  EXPECT_TRUE(Pattern("a..b.").IsValid());
+  EXPECT_STREQ("a..b", Pattern("a..b.").ToString().c_str());
+  EXPECT_TRUE(Pattern("a..b.").Matches(GURL("http://a..b.")));
+
+  EXPECT_FALSE(Pattern("..").IsValid());
+  EXPECT_FALSE(Pattern("a..").IsValid());
 }
 
 TEST(ContentSettingsPatternTest, FromString_WithNoWildcards) {
@@ -325,6 +338,14 @@ TEST(ContentSettingsPatternTest, FromString_ExtensionPatterns) {
           .ToString());
   EXPECT_TRUE(Pattern("chrome-extension://peoadpeiejnhkmpaakpnompolbglelel/")
       .Matches(GURL("chrome-extension://peoadpeiejnhkmpaakpnompolbglelel/")));
+}
+
+TEST(ContentSettingsPatternTest, FromString_SearchPatterns) {
+  EXPECT_TRUE(Pattern("chrome-search://local-ntp/").IsValid());
+  EXPECT_EQ("chrome-search://local-ntp/",
+            Pattern("chrome-search://local-ntp/").ToString());
+  EXPECT_TRUE(Pattern("chrome-search://local-ntp/")
+                  .Matches(GURL("chrome-search://local-ntp/")));
 }
 
 TEST(ContentSettingsPatternTest, FromString_WithIPAdresses) {
@@ -633,6 +654,31 @@ TEST(ContentSettingsPatternTest, Compare) {
                 Pattern("*://mail.google.com:80")));
 }
 
+TEST(ContentSettingsPatternTest, CompareSubdomains) {
+  EXPECT_EQ(ContentSettingsPattern::IDENTITY,
+            Pattern("https://[*.]a.b").Compare(Pattern("https://[*.]a.b")));
+
+  EXPECT_EQ(ContentSettingsPattern::PREDECESSOR,
+            Pattern("https://[*.]b.a.a.a").Compare(Pattern("https://[*.]a.a")));
+  EXPECT_EQ(ContentSettingsPattern::SUCCESSOR,
+            Pattern("https://[*.]a.a").Compare(Pattern("https://[*.]b.a.a.a")));
+
+  EXPECT_EQ(ContentSettingsPattern::PREDECESSOR,
+            Pattern("https://[*.]a.b.a.b").Compare(Pattern("https://[*.]a.b")));
+  EXPECT_EQ(ContentSettingsPattern::SUCCESSOR,
+            Pattern("https://[*.]a.b").Compare(Pattern("https://[*.]a.b.a.b")));
+
+  EXPECT_EQ(ContentSettingsPattern::DISJOINT_ORDER_PRE,
+            Pattern("https://[*.]a.a").Compare(Pattern("https://[*.]b.a.a.b")));
+  EXPECT_EQ(ContentSettingsPattern::DISJOINT_ORDER_POST,
+            Pattern("https://[*.]b.a.a.b").Compare(Pattern("https://[*.]a.a")));
+
+  EXPECT_EQ(ContentSettingsPattern::DISJOINT_ORDER_PRE,
+            Pattern("https://[*.]a.b").Compare(Pattern("https://[*.]aa.b")));
+  EXPECT_EQ(ContentSettingsPattern::DISJOINT_ORDER_POST,
+            Pattern("https://[*.]aa.b").Compare(Pattern("https://[*.]a.b")));
+}
+
 TEST(ContentSettingsPatternTest, CompareWithWildcard) {
   EXPECT_EQ(ContentSettingsPattern::IDENTITY,
             ContentSettingsPattern::Wildcard().Compare(
@@ -732,95 +778,6 @@ TEST(ContentSettingsPatternTest, CanonicalizePattern_Legacy) {
   EXPECT_STREQ("", Pattern("\xC4\x87ira.*").ToString().c_str());
 }
 
-TEST(ContentSettingsPatternTest, MigrateFromDomainToOrigin) {
-  ContentSettingsPattern origin_pattern;
-  // Http scheme patterns.
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("http://[*.]example.com"),
-      &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("http://[*.]example.com:80"),
-      &origin_pattern));
-
-  // Https patterns with port wildcard.
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("https://www.google.com"),
-      &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("https://[*.]google.com"),
-      &origin_pattern));
-
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("www.google.com"), &origin_pattern));
-
-  // Patterns with no domain wildcard.
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("*://www.google.com:8080"),
-      &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("www.example.com:8080"),
-      &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("www.google.com/*"), &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("google"), &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("https://www.google.com:443"),
-      &origin_pattern));
-
-  // Patterns with empty host.
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("*"), &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("[*.]"), &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("http://*"), &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("http://*:8080"), &origin_pattern));
-
-  // Other schemes and IP address patterns won't be migrated.
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("192.168.0.1"), &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("https://127.0.0.1"),
-      &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("http://[::1]"), &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("[::1]"), &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("file:///foo/bar.html"),
-      &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString(
-          "filesystem:http://www.google.com/temporary/"),
-      &origin_pattern));
-  EXPECT_FALSE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString(
-          "chrome-extension://peoadpeiejnhkmpaakpnompolbglelel/"),
-      &origin_pattern));
-
-  // These are pattern styles which might be generated using FromURL().
-  EXPECT_TRUE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("[*.]example.com"), &origin_pattern));
-  EXPECT_EQ("http://example.com:80", origin_pattern.ToString());
-
-  EXPECT_TRUE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("[*.]google.com:80"),
-      &origin_pattern));
-  EXPECT_EQ("http://google.com:80", origin_pattern.ToString());
-
-  EXPECT_TRUE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("[*.]example.com:123"),
-      &origin_pattern));
-  EXPECT_EQ("http://example.com:123", origin_pattern.ToString());
-
-  EXPECT_TRUE(ContentSettingsPattern::MigrateFromDomainToOrigin(
-      ContentSettingsPattern::FromString("https://[*.]google.com:443"),
-      &origin_pattern));
-  EXPECT_EQ("https://google.com:443", origin_pattern.ToString());
-}
-
 TEST(ContentSettingsPatternTest, Schemes) {
   EXPECT_EQ(ContentSettingsPattern::SCHEME_HTTP,
             Pattern("http://www.example.com").GetScheme());
@@ -831,6 +788,8 @@ TEST(ContentSettingsPatternTest, Schemes) {
   EXPECT_EQ(ContentSettingsPattern::SCHEME_CHROMEEXTENSION,
             Pattern("chrome-extension://peoadpeiejnhkmpaakpnompolbglelel/")
                 .GetScheme());
+  EXPECT_EQ(ContentSettingsPattern::SCHEME_CHROMESEARCH,
+            Pattern("chrome-search://local-ntp/").GetScheme());
   EXPECT_EQ(ContentSettingsPattern::SCHEME_WILDCARD,
             Pattern("192.168.0.1").GetScheme());
   EXPECT_EQ(ContentSettingsPattern::SCHEME_WILDCARD,

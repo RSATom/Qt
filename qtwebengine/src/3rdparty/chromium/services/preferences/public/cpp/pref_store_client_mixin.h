@@ -12,7 +12,7 @@
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
 
 namespace base {
 class DictionaryValue;
@@ -72,7 +72,7 @@ class PrefStoreClientMixin : public BasePrefStore,
   // If null, indicates that initialization failed.
   std::unique_ptr<base::DictionaryValue> cached_prefs_;
 
-  base::ObserverList<PrefStore::Observer, true> observers_;
+  base::ObserverList<PrefStore::Observer, true>::Unchecked observers_;
 
   // Has the PrefStore we're observing been initialized?
   bool initialized_ = false;

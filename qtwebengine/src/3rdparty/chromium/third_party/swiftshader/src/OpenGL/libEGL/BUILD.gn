@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("//build/config/ui.gni")
+import("../../swiftshader.gni")
+
 # Need a separate config to ensure the warnings are added to the end.
 config("swiftshader_libEGL_private_config") {
   defines = [ "EGL_EGLEXT_PROTOTYPES" ]
@@ -23,35 +26,35 @@ config("swiftshader_libEGL_private_config") {
       "/wd5030",  # attribute is not recognized
     ]
 
-    defines += [
-      "EGLAPI=",
-      "LIBEGL_EXPORTS",
-    ]
+    defines += [ "EGLAPI=" ]
   } else {
-    cflags = [ "-Wno-sign-compare" ]
+    cflags = [
+      "-Wno-sign-compare",
+      "-Wno-unused-function",
+    ]
     if (!is_clang) {
       cflags += [ "-Wno-unused-but-set-variable" ]
     }
 
-    defines += [
-      "LOG_TAG=\"swiftshader_libEGL\"",
-      "EGLAPI=__attribute__((visibility(\"default\")))",
-    ]
+    if (is_mac) {
+      cflags += [ "-fvisibility=protected" ]
+      defines += [ "EGLAPI=__attribute__((no_sanitize(\"function\")))" ]
+    } else {
+      defines += [ "EGLAPI=__attribute__((visibility(\"protected\"))) __attribute__((no_sanitize(\"function\")))" ]
+    }
   }
 }
 
-shared_library("swiftshader_libEGL") {
-  if (!is_mac) {
+swiftshader_shared_library("swiftshader_libEGL") {
+  if (!is_mac && !is_fuchsia) {
     output_name = "libEGL"
     output_dir = "$root_out_dir/swiftshader"
   }
 
-  deps = [
-    "//build/config:exe_and_shlib_deps",
-  ]
-
   sources = [
+    "../../Common/SharedLibrary.cpp",
     "../common/Object.cpp",
+    "../common/debug.cpp",
     "Config.cpp",
     "Display.cpp",
     "Surface.cpp",
@@ -62,32 +65,24 @@ shared_library("swiftshader_libEGL") {
     "resource.h",
   ]
 
-  if (is_debug) {
-    sources += [ "../common/debug.cpp" ]
-  }
-
   if (is_mac) {
     sources += [ "OSXUtils.mm" ]
     libs = [
       "Quartz.framework",
       "Cocoa.framework",
+      "CoreFoundation.framework",
+      "IOSurface.framework",
     ]
     ldflags = [ "-Wl,-install_name,@rpath/libswiftshader_libEGL.dylib" ]
-  } else if (is_win) {
-    configs -= [ "//build/config/win:unicode" ]
-    ldflags = [ "/DEF:" + rebase_path("libGLESv2.def", root_build_dir) ]
   } else if (is_linux) {
-    sources += [ "../../Main/libX11.cpp" ]
+    if (use_x11) {
+      sources += [ "../../Main/libX11.cpp" ]
+    }
     ldflags =
-        [ "-Wl,--version-script=" + rebase_path("exports.map", root_build_dir) ]
+        [ "-Wl,--version-script=" + rebase_path("libEGL.lds", root_build_dir) ]
   }
 
-  configs -= [ "//build/config/compiler:chromium_code" ]
-  configs += [
-    "//build/config/compiler:no_chromium_code",
-    "//third_party/swiftshader:swiftshader_config",
-    ":swiftshader_libEGL_private_config",
-  ]
+  configs = [ ":swiftshader_libEGL_private_config" ]
 
   include_dirs = [
     "../../../include",

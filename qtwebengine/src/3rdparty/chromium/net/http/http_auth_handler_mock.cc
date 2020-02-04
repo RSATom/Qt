@@ -4,7 +4,10 @@
 
 #include "net/http/http_auth_handler_mock.h"
 
+#include <utility>
+
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
@@ -40,7 +43,6 @@ void PrintTo(const HttpAuthHandlerMock::State& state, ::std::ostream* os) {
 
 HttpAuthHandlerMock::HttpAuthHandlerMock()
     : state_(State::WAIT_FOR_INIT),
-      resolve_(RESOLVE_INIT),
       generate_async_(false),
       generate_rv_(OK),
       auth_token_(NULL),
@@ -50,50 +52,7 @@ HttpAuthHandlerMock::HttpAuthHandlerMock()
       allows_explicit_credentials_(true),
       weak_factory_(this) {}
 
-HttpAuthHandlerMock::~HttpAuthHandlerMock() {
-}
-
-void HttpAuthHandlerMock::SetResolveExpectation(Resolve resolve) {
-  EXPECT_EQ(RESOLVE_INIT, resolve_);
-  resolve_ = resolve;
-}
-
-bool HttpAuthHandlerMock::NeedsCanonicalName() {
-  switch (resolve_) {
-    case RESOLVE_SYNC:
-    case RESOLVE_ASYNC:
-      return true;
-    case RESOLVE_SKIP:
-      resolve_ = RESOLVE_TESTED;
-      return false;
-    default:
-      NOTREACHED();
-      return false;
-  }
-}
-
-int HttpAuthHandlerMock::ResolveCanonicalName(
-    HostResolver* host_resolver, const CompletionCallback& callback) {
-  EXPECT_NE(RESOLVE_TESTED, resolve_);
-  int rv = OK;
-  switch (resolve_) {
-    case RESOLVE_SYNC:
-      resolve_ = RESOLVE_TESTED;
-      break;
-    case RESOLVE_ASYNC:
-      EXPECT_TRUE(callback_.is_null());
-      rv = ERR_IO_PENDING;
-      callback_ = callback;
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&HttpAuthHandlerMock::OnResolveCanonicalName,
-                                weak_factory_.GetWeakPtr()));
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
-  return rv;
-}
+HttpAuthHandlerMock::~HttpAuthHandlerMock() = default;
 
 void HttpAuthHandlerMock::SetGenerateExpectation(bool async, int rv) {
   generate_async_ = async;
@@ -145,7 +104,7 @@ bool HttpAuthHandlerMock::Init(HttpAuthChallengeTokenizer* challenge,
 int HttpAuthHandlerMock::GenerateAuthTokenImpl(
     const AuthCredentials* credentials,
     const HttpRequestInfo* request,
-    const CompletionCallback& callback,
+    CompletionOnceCallback callback,
     std::string* auth_token) {
   EXPECT_EQ(State::WAIT_FOR_GENERATE_AUTH_TOKEN, state_);
   first_round_ = false;
@@ -153,7 +112,7 @@ int HttpAuthHandlerMock::GenerateAuthTokenImpl(
   if (generate_async_) {
     EXPECT_TRUE(callback_.is_null());
     EXPECT_TRUE(auth_token_ == NULL);
-    callback_ = callback;
+    callback_ = std::move(callback);
     auth_token_ = auth_token;
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::Bind(&HttpAuthHandlerMock::OnGenerateAuthToken,
@@ -172,15 +131,6 @@ int HttpAuthHandlerMock::GenerateAuthTokenImpl(
   }
 }
 
-void HttpAuthHandlerMock::OnResolveCanonicalName() {
-  EXPECT_EQ(RESOLVE_ASYNC, resolve_);
-  EXPECT_TRUE(!callback_.is_null());
-  resolve_ = RESOLVE_TESTED;
-  CompletionCallback callback = callback_;
-  callback_.Reset();
-  callback.Run(OK);
-}
-
 void HttpAuthHandlerMock::OnGenerateAuthToken() {
   EXPECT_TRUE(generate_async_);
   EXPECT_TRUE(!callback_.is_null());
@@ -193,9 +143,7 @@ void HttpAuthHandlerMock::OnGenerateAuthToken() {
     state_ = State::DONE;
   }
   auth_token_ = NULL;
-  CompletionCallback callback = callback_;
-  callback_.Reset();
-  callback.Run(generate_rv_);
+  base::ResetAndReturn(&callback_).Run(generate_rv_);
 }
 
 HttpAuthHandlerMock::Factory::Factory()
@@ -203,8 +151,7 @@ HttpAuthHandlerMock::Factory::Factory()
   // TODO(cbentzel): Default do_init_from_challenge_ to true.
 }
 
-HttpAuthHandlerMock::Factory::~Factory() {
-}
+HttpAuthHandlerMock::Factory::~Factory() = default;
 
 void HttpAuthHandlerMock::Factory::AddMockHandler(
     HttpAuthHandler* handler, HttpAuth::Target target) {

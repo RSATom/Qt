@@ -12,8 +12,8 @@
 
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "components/prefs/base_prefs_export.h"
 #include "components/prefs/pref_value_map.h"
+#include "components/prefs/prefs_export.h"
 #include "components/prefs/writeable_pref_store.h"
 
 // A basic PrefStore implementation that uses a simple name-value map for
@@ -50,7 +50,7 @@ class COMPONENTS_PREFS_EXPORT ValueMapPrefStore : public WriteablePrefStore {
  private:
   PrefValueMap prefs_;
 
-  base::ObserverList<PrefStore::Observer, true> observers_;
+  base::ObserverList<PrefStore::Observer, true>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(ValueMapPrefStore);
 };

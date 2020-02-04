@@ -15,12 +15,19 @@
 #include "content/common/content_export.h"
 #include "content/public/child/child_thread.h"
 #include "ipc/ipc_channel_proxy.h"
+#include "third_party/blink/public/platform/web_string.h"
 
 class GURL;
 
 namespace base {
 class WaitableEvent;
 }
+
+namespace blink {
+namespace scheduler {
+enum class WebRendererProcessType;
+}
+}  // namespace blink
 
 namespace IPC {
 class MessageFilter;
@@ -30,10 +37,6 @@ class SyncMessageFilter;
 
 namespace v8 {
 class Extension;
-}
-
-namespace viz {
-class SharedBitmapManager;
 }
 
 namespace content {
@@ -77,21 +80,8 @@ class CONTENT_EXPORT RenderThread : virtual public ChildThread {
   virtual std::unique_ptr<base::SharedMemory> HostAllocateSharedMemoryBuffer(
       size_t buffer_size) = 0;
 
-  virtual viz::SharedBitmapManager* GetSharedBitmapManager() = 0;
-
   // Registers the given V8 extension with WebKit.
   virtual void RegisterExtension(v8::Extension* extension) = 0;
-
-  // Schedule a call to IdleHandler with the given initial delay.
-  virtual void ScheduleIdleHandler(int64_t initial_delay_ms) = 0;
-
-  // A task we invoke periodically to assist with idle cleanup.
-  virtual void IdleHandler() = 0;
-
-  // Get/Set the delay for how often the idle handler is called.
-  virtual int64_t GetIdleNotificationDelayInMs() const = 0;
-  virtual void SetIdleNotificationDelayInMs(
-      int64_t idle_notification_delay_in_ms) = 0;
 
   // Post task to all worker threads. Returns number of workers.
   virtual int PostTaskToAllWebWorkers(const base::Closure& closure) = 0;
@@ -107,10 +97,16 @@ class CONTENT_EXPORT RenderThread : virtual public ChildThread {
   // Retrieve the process ID of the browser process.
   virtual int32_t GetClientId() = 0;
 
-  // Handles for posting tasks to appropriate renderer scheduler task queues.
-  virtual scoped_refptr<base::SingleThreadTaskRunner> GetTimerTaskRunner() = 0;
-  virtual scoped_refptr<base::SingleThreadTaskRunner>
-  GetLoadingTaskRunner() = 0;
+  // Get the online status of the browser - false when there is no network
+  // access.
+  virtual bool IsOnline() = 0;
+
+  // Set the renderer process type.
+  virtual void SetRendererProcessType(
+      blink::scheduler::WebRendererProcessType type) = 0;
+
+  // Returns the user-agent string.
+  virtual blink::WebString GetUserAgent() = 0;
 };
 
 }  // namespace content

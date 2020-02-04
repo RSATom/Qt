@@ -177,5 +177,6 @@ QHumidityReading *QHumiditySensor::reading() const
     return static_cast<QHumidityReading*>(QSensor::reading());
 }
 
-#include "moc_qhumiditysensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qhumiditysensor.cpp"

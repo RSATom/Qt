@@ -410,6 +410,8 @@ static void etc_encodeBaseColors(etc1_byte* pBaseColors,
             b2 = convert5To8(b51 + db);
             pCompressed->high |= (r51 << 27) | ((7 & dr) << 24) | (g51 << 19)
                     | ((7 & dg) << 16) | (b51 << 11) | ((7 & db) << 8) | 2;
+        } else {
+            r2 = g2 = b2 = 0; // to shut the compiler up
         }
     }
 

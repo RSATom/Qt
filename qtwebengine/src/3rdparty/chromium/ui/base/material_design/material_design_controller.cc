@@ -6,116 +6,126 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
-#include "base/trace_event/trace_event.h"
+#include "base/message_loop/message_loop.h"
+#include "base/no_destructor.h"
+#include "base/observer_list.h"
+#include "base/strings/string_number_conversions.h"
+#include "build/buildflag.h"
+#include "ui/base/buildflags.h"
+#include "ui/base/material_design/material_design_controller_observer.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
+#include "ui/gfx/animation/linear_animation.h"
 
-#if defined(OS_CHROMEOS)
-#include "ui/base/touch/touch_device.h"
-#include "ui/events/devices/device_data_manager.h"
-
-#if defined(USE_OZONE)
-#include <fcntl.h>
-
-#include "base/files/file_enumerator.h"
-#include "base/threading/thread_restrictions.h"
-#include "ui/events/ozone/evdev/event_device_info.h"
-#endif  // defined(USE_OZONE)
-
-#endif  // defined(OS_CHROMEOS)
+#if defined(OS_WIN)
+#include "base/win/win_util.h"
+#include "base/win/windows_version.h"
+#include "ui/base/win/hidden_window.h"
+#include "ui/gfx/win/singleton_hwnd.h"
+#include "ui/gfx/win/singleton_hwnd_observer.h"
+#endif
 
 namespace ui {
 
-bool MaterialDesignController::is_mode_initialized_ = false;
+#if defined(OS_WIN)
+namespace {
 
-MaterialDesignController::Mode MaterialDesignController::mode_ =
-    MaterialDesignController::MATERIAL_NORMAL;
+bool IsTabletMode() {
+  return base::win::IsWindows10TabletMode(
+      gfx::SingletonHwnd::GetInstance()->hwnd());
+}
 
-bool MaterialDesignController::include_secondary_ui_ = false;
+void TabletModeWatcherWinProc(HWND hwnd,
+                              UINT message,
+                              WPARAM wparam,
+                              LPARAM lparam) {
+  if (message == WM_SETTINGCHANGE)
+    MaterialDesignController::OnTabletModeToggled(IsTabletMode());
+}
+
+}  // namespace
+#endif  // defined(OS_WIN)
+
+bool MaterialDesignController::touch_ui_ = false;
+bool MaterialDesignController::automatic_touch_ui_ = false;
 
 // static
 void MaterialDesignController::Initialize() {
-  TRACE_EVENT0("startup", "MaterialDesignController::InitializeMode");
-  CHECK(!is_mode_initialized_);
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   const std::string switch_value =
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kTopChromeMD);
+      command_line->GetSwitchValueASCII(switches::kTopChromeTouchUi);
+  bool touch = switch_value == switches::kTopChromeTouchUiEnabled;
+  automatic_touch_ui_ = switch_value == switches::kTopChromeTouchUiAuto;
 
-  if (switch_value == switches::kTopChromeMDMaterial) {
-    SetMode(MATERIAL_NORMAL);
-  } else if (switch_value == switches::kTopChromeMDMaterialHybrid) {
-    SetMode(MATERIAL_HYBRID);
-  } else {
-    if (!switch_value.empty()) {
-      LOG(ERROR) << "Invalid value='" << switch_value
-                 << "' for command line switch '" << switches::kTopChromeMD
-                 << "'.";
-    }
-    SetMode(DefaultMode());
-  }
-
-  include_secondary_ui_ = base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kExtendMdToSecondaryUi);
-}
-
-// static
-MaterialDesignController::Mode MaterialDesignController::GetMode() {
-  CHECK(is_mode_initialized_);
-  return mode_;
-}
-
-// static
-bool MaterialDesignController::IsSecondaryUiMaterial() {
-  return include_secondary_ui_;
-}
-
-// static
-MaterialDesignController::Mode MaterialDesignController::DefaultMode() {
+  // When the mode is not explicitly forced, platforms vary as to the default
+  // behavior.
+  if (!touch && (switch_value != switches::kTopChromeTouchUiDisabled) &&
+      features::IsAutomaticUiAdjustmentsForTouchEnabled()) {
 #if defined(OS_CHROMEOS)
-  // If a scan of available devices has already completed, use material-hybrid
-  // if a touchscreen is present.
-  if (DeviceDataManager::HasInstance() &&
-      DeviceDataManager::GetInstance()->AreDeviceListsComplete()) {
-    return GetTouchScreensAvailability() == TouchScreensAvailability::ENABLED
-               ? MATERIAL_HYBRID
-               : MATERIAL_NORMAL;
-  }
-
-#if defined(USE_OZONE)
-  // Otherwise perform our own scan to determine the presence of a touchscreen.
-  // Note this is a one-time call that occurs during device startup or restart.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
-  base::FileEnumerator file_enum(
-      base::FilePath(FILE_PATH_LITERAL("/dev/input")), false,
-      base::FileEnumerator::FILES, FILE_PATH_LITERAL("event*[0-9]"));
-  for (base::FilePath path = file_enum.Next(); !path.empty();
-       path = file_enum.Next()) {
-    EventDeviceInfo devinfo;
-    int fd = open(path.value().c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
-    if (fd >= 0) {
-      if (devinfo.Initialize(fd, path) && devinfo.HasTouchscreen()) {
-        close(fd);
-        return MATERIAL_HYBRID;
+    // TabletModeClient's default state is in non-tablet mode.
+    automatic_touch_ui_ = true;
+#elif defined(OS_WIN)
+    if (base::win::GetVersion() >= base::win::VERSION_WIN10) {
+      // Win 10+ uses dynamic mode by default and checks the current tablet mode
+      // state to determine whether to start in touch mode.
+      automatic_touch_ui_ = true;
+      if (base::MessageLoopCurrentForUI::IsSet() &&
+          !GetInstance()->singleton_hwnd_observer_) {
+        GetInstance()->singleton_hwnd_observer_ =
+            std::make_unique<gfx::SingletonHwndObserver>(
+                base::BindRepeating(TabletModeWatcherWinProc));
+        touch = IsTabletMode();
       }
-      close(fd);
     }
+#endif
   }
-#endif  // defined(USE_OZONE)
-#endif  // defined(OS_CHROMEOS)
+  SetTouchUi(touch);
 
-  return MATERIAL_NORMAL;
+  // TODO(crbug.com/864544): Ideally, there would be a more general, "initialize
+  // random stuff here" function into which this sort of thing can be placed.
+  double animation_duration_scale;
+  if (base::StringToDouble(
+          command_line->GetSwitchValueASCII(switches::kAnimationDurationScale),
+          &animation_duration_scale)) {
+    gfx::LinearAnimation::SetDurationScale(animation_duration_scale);
+  }
 }
 
 // static
-void MaterialDesignController::Uninitialize() {
-  is_mode_initialized_ = false;
+void MaterialDesignController::OnTabletModeToggled(bool enabled) {
+  if (automatic_touch_ui_)
+    SetTouchUi(enabled);
 }
 
 // static
-void MaterialDesignController::SetMode(MaterialDesignController::Mode mode) {
-  mode_ = mode;
-  is_mode_initialized_ = true;
+MaterialDesignController* MaterialDesignController::GetInstance() {
+  static base::NoDestructor<MaterialDesignController> instance;
+  return instance.get();
+}
+
+void MaterialDesignController::AddObserver(
+    MaterialDesignControllerObserver* observer) {
+  observers_.AddObserver(observer);
+}
+
+void MaterialDesignController::RemoveObserver(
+    MaterialDesignControllerObserver* observer) {
+  observers_.RemoveObserver(observer);
+}
+
+MaterialDesignController::MaterialDesignController() = default;
+
+// static
+void MaterialDesignController::SetTouchUi(bool touch_ui) {
+  if (touch_ui_ != touch_ui) {
+    touch_ui_ = touch_ui;
+    for (auto& observer : GetInstance()->observers_)
+      observer.OnTouchUiChanged();
+  }
 }
 
 }  // namespace ui

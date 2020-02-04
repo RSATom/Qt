@@ -5,13 +5,15 @@
 #include "media/audio/pulse/pulse_util.h"
 
 #include <stdint.h>
+#include <string.h>
+
+#include <memory>
 
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "media/audio/audio_device_description.h"
-#include "media/base/audio_parameters.h"
 #include "media/base/audio_timestamp_helper.h"
 
 #if defined(DLOPEN_PULSEAUDIO)
@@ -94,6 +96,79 @@ class ScopedPropertyList {
   DISALLOW_COPY_AND_ASSIGN(ScopedPropertyList);
 };
 
+struct InputBusData {
+  InputBusData(pa_threaded_mainloop* loop, const std::string& name)
+      : loop_(loop), name_(name), bus_() {}
+
+  pa_threaded_mainloop* const loop_;
+  const std::string& name_;
+  std::string bus_;
+};
+
+struct OutputBusData {
+  OutputBusData(pa_threaded_mainloop* loop, const std::string& bus)
+      : loop_(loop), name_(), bus_(bus) {}
+
+  pa_threaded_mainloop* const loop_;
+  std::string name_;
+  const std::string& bus_;
+};
+
+void InputBusCallback(pa_context* context,
+                      const pa_source_info* info,
+                      int error,
+                      void* user_data) {
+  InputBusData* data = static_cast<InputBusData*>(user_data);
+
+  if (error) {
+    // We have checked all the devices now.
+    pa_threaded_mainloop_signal(data->loop_, 0);
+    return;
+  }
+
+  if (strcmp(info->name, data->name_.c_str()) == 0 &&
+      pa_proplist_contains(info->proplist, PA_PROP_DEVICE_BUS)) {
+    data->bus_ = pa_proplist_gets(info->proplist, PA_PROP_DEVICE_BUS);
+  }
+}
+
+void OutputBusCallback(pa_context* context,
+                       const pa_sink_info* info,
+                       int error,
+                       void* user_data) {
+  OutputBusData* data = static_cast<OutputBusData*>(user_data);
+
+  if (error) {
+    // We have checked all the devices now.
+    pa_threaded_mainloop_signal(data->loop_, 0);
+    return;
+  }
+
+  if (pa_proplist_contains(info->proplist, PA_PROP_DEVICE_BUS) &&
+      strcmp(pa_proplist_gets(info->proplist, PA_PROP_DEVICE_BUS),
+             data->bus_.c_str()) == 0) {
+    data->name_ = info->name;
+  }
+}
+
+struct DefaultDevicesData {
+  explicit DefaultDevicesData(pa_threaded_mainloop* loop) : loop_(loop) {}
+  std::string input_;
+  std::string output_;
+  pa_threaded_mainloop* const loop_;
+};
+
+void GetDefaultDeviceIdCallback(pa_context* c,
+                                const pa_server_info* info,
+                                void* userdata) {
+  DefaultDevicesData* data = static_cast<DefaultDevicesData*>(userdata);
+  if (info->default_source_name)
+      data->input_ = info->default_source_name;
+  if (info->default_sink_name)
+      data->output_ = info->default_sink_name;
+  pa_threaded_mainloop_signal(data->loop_, 0);
+}
+
 }  // namespace
 
 bool InitPulse(pa_threaded_mainloop** mainloop, pa_context** context) {
@@ -108,27 +183,19 @@ bool InitPulse(pa_threaded_mainloop** mainloop, pa_context** context) {
   }
 #endif  // defined(DLOPEN_PULSEAUDIO)
 
+  // The setup order below follows the pattern used by pa_simple_new():
+  // https://github.com/pulseaudio/pulseaudio/blob/master/src/pulse/simple.c
+
   // Create a mainloop API and connect to the default server.
   // The mainloop is the internal asynchronous API event loop.
   pa_threaded_mainloop* pa_mainloop = pa_threaded_mainloop_new();
   if (!pa_mainloop)
     return false;
 
-  // Start the threaded mainloop.
-  if (pa_threaded_mainloop_start(pa_mainloop)) {
-    pa_threaded_mainloop_free(pa_mainloop);
-    return false;
-  }
-
-  // Lock the event loop object, effectively blocking the event loop thread
-  // from processing events. This is necessary.
-  auto mainloop_lock = base::MakeUnique<AutoPulseLock>(pa_mainloop);
-
   pa_mainloop_api* pa_mainloop_api = pa_threaded_mainloop_get_api(pa_mainloop);
   pa_context* pa_context = pa_context_new(pa_mainloop_api, "Chrome input");
   if (!pa_context) {
-    mainloop_lock.reset();
-    DestroyMainloop(pa_mainloop);
+    pa_threaded_mainloop_free(pa_mainloop);
     return false;
   }
 
@@ -139,6 +206,16 @@ bool InitPulse(pa_threaded_mainloop** mainloop, pa_context** context) {
             << pa_strerror(pa_context_errno(pa_context));
     pa_context_set_state_callback(pa_context, NULL, NULL);
     pa_context_unref(pa_context);
+    pa_threaded_mainloop_free(pa_mainloop);
+    return false;
+  }
+
+  // Lock the event loop object, effectively blocking the event loop thread
+  // from processing events. This is necessary.
+  auto mainloop_lock = std::make_unique<AutoPulseLock>(pa_mainloop);
+
+  // Start the threaded mainloop after everything has been configured.
+  if (pa_threaded_mainloop_start(pa_mainloop)) {
     mainloop_lock.reset();
     DestroyMainloop(pa_mainloop);
     return false;
@@ -191,22 +268,6 @@ void ContextStateCallback(pa_context* context, void* mainloop) {
   pa_threaded_mainloop_signal(pa_mainloop, 0);
 }
 
-pa_sample_format_t BitsToPASampleFormat(int bits_per_sample) {
-  switch (bits_per_sample) {
-    case 8:
-      return PA_SAMPLE_U8;
-    case 16:
-      return PA_SAMPLE_S16LE;
-    case 24:
-      return PA_SAMPLE_S24LE;
-    case 32:
-      return PA_SAMPLE_S32LE;
-    default:
-      NOTREACHED() << "Invalid bits per sample: " << bits_per_sample;
-      return PA_SAMPLE_INVALID;
-  }
-}
-
 pa_channel_map ChannelLayoutToPAChannelMap(ChannelLayout channel_layout) {
   pa_channel_map channel_map;
   if (channel_layout == CHANNEL_LAYOUT_MONO) {
@@ -256,15 +317,6 @@ base::TimeDelta GetHardwareLatency(pa_stream* stream) {
   return base::TimeDelta::FromMicroseconds(latency_micros);
 }
 
-int GetHardwareLatencyInBytes(pa_stream* stream,
-                              int sample_rate,
-                              int bytes_per_frame) {
-  DCHECK(stream);
-  return AudioTimestampHelper::TimeToFrames(GetHardwareLatency(stream),
-                                            sample_rate) *
-         bytes_per_frame;
-}
-
 // Helper macro for CreateInput/OutputStream() to avoid code spam and
 // string bloat.
 #define RETURN_ON_FAILURE(expression, message) do { \
@@ -286,8 +338,12 @@ bool CreateInputStream(pa_threaded_mainloop* mainloop,
 
   // Set sample specifications.
   pa_sample_spec sample_specifications;
-  sample_specifications.format = BitsToPASampleFormat(
-      params.bits_per_sample());
+
+  // FIXME: This should be PA_SAMPLE_FLOAT32, but there is more work needed in
+  // PulseAudioInputStream to support this.
+  static_assert(kInputSampleFormat == kSampleFormatS16,
+                "Only 16-bit input supported.");
+  sample_specifications.format = PA_SAMPLE_S16LE;
   sample_specifications.rate = params.sample_rate();
   sample_specifications.channels = params.channels();
 
@@ -313,7 +369,7 @@ bool CreateInputStream(pa_threaded_mainloop* mainloop,
   // values should be chosen can be found at
   // freedesktop.org/software/pulseaudio/doxygen/structpa__buffer__attr.html.
   pa_buffer_attr buffer_attributes;
-  const unsigned int buffer_size = params.GetBytesPerBuffer();
+  const unsigned int buffer_size = params.GetBytesPerBuffer(kInputSampleFormat);
   buffer_attributes.maxlength = static_cast<uint32_t>(-1);
   buffer_attributes.tlength = buffer_size;
   buffer_attributes.minreq = buffer_size;
@@ -431,11 +487,12 @@ bool CreateOutputStream(pa_threaded_mainloop** mainloop,
   // Setting |minreq| to the exact buffer size leads to more callbacks than
   // necessary, so we've clipped it to half the buffer size.  Regardless of the
   // requested amount, we'll always fill |params.GetBytesPerBuffer()| though.
+  size_t buffer_size = params.GetBytesPerBuffer(kSampleFormatF32);
   pa_buffer_attr pa_buffer_attributes;
   pa_buffer_attributes.maxlength = static_cast<uint32_t>(-1);
-  pa_buffer_attributes.minreq = params.GetBytesPerBuffer() / 2;
+  pa_buffer_attributes.minreq = buffer_size / 2;
   pa_buffer_attributes.prebuf = static_cast<uint32_t>(-1);
-  pa_buffer_attributes.tlength = params.GetBytesPerBuffer() * 3;
+  pa_buffer_attributes.tlength = buffer_size * 3;
   pa_buffer_attributes.fragsize = static_cast<uint32_t>(-1);
 
   // Connect playback stream.  Like pa_buffer_attr, the pa_stream_flags have a
@@ -465,6 +522,45 @@ bool CreateOutputStream(pa_threaded_mainloop** mainloop,
   }
 
   return true;
+}
+
+std::string GetBusOfInput(pa_threaded_mainloop* mainloop,
+                          pa_context* context,
+                          const std::string& name) {
+  DCHECK(mainloop);
+  DCHECK(context);
+  AutoPulseLock auto_lock(mainloop);
+  InputBusData data(mainloop, name);
+  pa_operation* operation =
+      pa_context_get_source_info_list(context, InputBusCallback, &data);
+  WaitForOperationCompletion(mainloop, operation);
+  return data.bus_;
+}
+
+std::string GetOutputCorrespondingTo(pa_threaded_mainloop* mainloop,
+                                     pa_context* context,
+                                     const std::string& bus) {
+  DCHECK(mainloop);
+  DCHECK(context);
+  AutoPulseLock auto_lock(mainloop);
+  OutputBusData data(mainloop, bus);
+  pa_operation* operation =
+      pa_context_get_sink_info_list(context, OutputBusCallback, &data);
+  WaitForOperationCompletion(mainloop, operation);
+  return data.name_;
+}
+
+std::string GetRealDefaultDeviceId(pa_threaded_mainloop* mainloop,
+                                   pa_context* context,
+                                   RequestType type) {
+  DCHECK(mainloop);
+  DCHECK(context);
+  AutoPulseLock auto_lock(mainloop);
+  DefaultDevicesData data(mainloop);
+  pa_operation* operation =
+      pa_context_get_server_info(context, &GetDefaultDeviceIdCallback, &data);
+  WaitForOperationCompletion(mainloop, operation);
+  return (type == RequestType::INPUT) ? data.input_ : data.output_;
 }
 
 #undef RETURN_ON_FAILURE

@@ -29,10 +29,10 @@ namespace addressinput {
 // Stores a pointer to a method in an object. Sample usage:
 //    class MyClass {
 //     public:
-//      typedef Callback<const MyType&, const MyDataType&> MyCallback;
+//      using MyCallback = Callback<const MyType&, const MyDataType&>;
 //
 //      void GetDataAsynchronously() {
-//        scoped_ptr<MyCallback> callback(BuildCallback(
+//        std::unique_ptr<MyCallback> callback(BuildCallback(
 //            this, &MyClass::OnDataReady));
 //        bool success = ...
 //        MyKeyType key = ...
@@ -49,7 +49,7 @@ namespace addressinput {
 template <typename Key, typename Data>
 class Callback {
  public:
-  virtual ~Callback() {}
+  virtual ~Callback() = default;
   virtual void operator()(bool success, Key key, Data data) const = 0;
 };
 
@@ -58,18 +58,18 @@ namespace {
 template <typename Observer, typename Key, typename Data>
 class CallbackImpl : public Callback<Key, Data> {
  public:
-  typedef void (Observer::*ObserveEvent)(bool, Key, Data);
+  using ObserveEvent = void (Observer::*)(bool, Key, Data);
 
   CallbackImpl(Observer* observer, ObserveEvent observe_event)
       : observer_(observer),
         observe_event_(observe_event) {
-    assert(observer_ != NULL);
-    assert(observe_event_ != NULL);
+    assert(observer_ != nullptr);
+    assert(observe_event_ != nullptr);
   }
 
-  virtual ~CallbackImpl() {}
+  ~CallbackImpl() override = default;
 
-  virtual void operator()(bool success, Key key, Data data) const {
+  void operator()(bool success, Key key, Data data) const override {
     (observer_->*observe_event_)(success, key, data);
   }
 

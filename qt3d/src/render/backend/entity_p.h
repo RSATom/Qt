@@ -89,7 +89,7 @@ public:
 
     void setParentHandle(HEntity parentHandle);
     void setNodeManagers(NodeManagers *manager);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     void dump() const;
 
@@ -97,15 +97,21 @@ public:
     HEntity handle() const { return m_handle; }
     Entity *parent() const;
     HEntity parentHandle() const { return m_parentHandle; }
+    Qt3DCore::QNodeId parentEntityId() const { return m_parentEntityId; }
+
+    void clearEntityHierarchy();
+    void rebuildEntityHierarchy();
 
     void appendChildHandle(HEntity childHandle);
     void removeChildHandle(HEntity childHandle) { m_childrenHandles.removeOne(childHandle); }
     QVector<HEntity> childrenHandles() const { return m_childrenHandles; }
     QVector<Entity *> children() const;
     bool hasChildren() const { return !m_childrenHandles.empty(); }
+    void traverse(const std::function<void(Entity *)> &operation);
+    void traverse(const std::function<void(const Entity *)> &operation) const;
 
-    QMatrix4x4 *worldTransform();
-    const QMatrix4x4 *worldTransform() const;
+    Matrix4x4 *worldTransform();
+    const Matrix4x4 *worldTransform() const;
     Sphere *localBoundingVolume() const { return m_localBoundingVolume.data(); }
     Sphere *worldBoundingVolume() const { return m_worldBoundingVolume.data(); }
     Sphere *worldBoundingVolumeWithChildren() const { return m_worldBoundingVolumeWithChildren.data(); }
@@ -174,12 +180,14 @@ public:
 
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     NodeManagers *m_nodeManagers;
     HEntity m_handle;
     HEntity m_parentHandle;
     QVector<HEntity > m_childrenHandles;
+
+    Qt3DCore::QNodeId m_parentEntityId;
 
     HMatrix m_worldTransform;
     QSharedPointer<Sphere> m_localBoundingVolume;
@@ -192,6 +200,7 @@ private:
     Qt3DCore::QNodeId m_cameraComponent;
     QVector<Qt3DCore::QNodeId> m_layerComponents;
     QVector<Qt3DCore::QNodeId> m_levelOfDetailComponents;
+    QVector<Qt3DCore::QNodeId> m_rayCasterComponents;
     QVector<Qt3DCore::QNodeId> m_shaderDataComponents;
     QVector<Qt3DCore::QNodeId> m_lightComponents;
     QVector<Qt3DCore::QNodeId> m_environmentLightComponents;
@@ -213,25 +222,25 @@ private:
 #define ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(Type, Handle) \
     /* Handle */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT Handle Entity::componentHandle<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT Handle Entity::componentHandle<Type>() const; \
     /* Component */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT Type *Entity::renderComponent<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT Type *Entity::renderComponent<Type>() const; \
     /* Uuid */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeId Entity::componentUuid<Type>() const;
+    Q_3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeId Entity::componentUuid<Type>() const;
 
 
 #define ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(Type, Handle) \
     /* Handle */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT QVector<Handle> Entity::componentsHandle<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT QVector<Handle> Entity::componentsHandle<Type>() const; \
     /* Component */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT QVector<Type *> Entity::renderComponents<Type>() const; \
+    Q_3DRENDERSHARED_PRIVATE_EXPORT QVector<Type *> Entity::renderComponents<Type>() const; \
     /* Uuid */ \
     template<> \
-    QT3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeIdVector Entity::componentsUuid<Type>() const;
+    Q_3DRENDERSHARED_PRIVATE_EXPORT Qt3DCore::QNodeIdVector Entity::componentsUuid<Type>() const;
 
 #define ENTITY_COMPONENT_TEMPLATE_IMPL(Type, Handle, Manager, variable) \
     /* Handle */ \
@@ -292,6 +301,7 @@ ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(ComputeCommand, HComputeCommand)
 ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(Armature, HArmature)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(Layer, HLayer)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(LevelOfDetail, HLevelOfDetail)
+ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(RayCaster, HRayCaster)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(ShaderData, HShaderData)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(Light, HLight)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(EnvironmentLight, HEnvironmentLight)
@@ -300,9 +310,9 @@ class RenderEntityFunctor : public Qt3DCore::QBackendNodeMapper
 {
 public:
     explicit RenderEntityFunctor(AbstractRenderer *renderer, NodeManagers *manager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const Q_DECL_OVERRIDE;
-    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const Q_DECL_OVERRIDE;
-    void destroy(Qt3DCore::QNodeId id) const Q_DECL_OVERRIDE;
+    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const override;
+    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const override;
+    void destroy(Qt3DCore::QNodeId id) const override;
 
 private:
     NodeManagers *m_nodeManagers;

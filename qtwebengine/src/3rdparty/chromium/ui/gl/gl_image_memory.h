@@ -18,7 +18,7 @@ namespace gl {
 
 class GL_EXPORT GLImageMemory : public GLImage {
  public:
-  GLImageMemory(const gfx::Size& size, unsigned internalformat);
+  explicit GLImageMemory(const gfx::Size& size);
 
   bool Initialize(const unsigned char* memory,
                   gfx::BufferFormat format,
@@ -40,11 +40,12 @@ class GL_EXPORT GLImageMemory : public GLImage {
                             int z_order,
                             gfx::OverlayTransform transform,
                             const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect) override;
+                            const gfx::RectF& crop_rect,
+                            bool enable_blend,
+                            std::unique_ptr<gfx::GpuFence> gpu_fence) override;
+  void SetColorSpace(const gfx::ColorSpace& color_space) override {}
   void Flush() override {}
   Type GetType() const override;
-
-  static unsigned GetInternalFormatForTesting(gfx::BufferFormat format);
 
   const unsigned char* memory() { return memory_; }
   size_t stride() const { return stride_; }
@@ -54,8 +55,9 @@ class GL_EXPORT GLImageMemory : public GLImage {
   ~GLImageMemory() override;
 
  private:
+  static bool ValidFormat(gfx::BufferFormat format);
+
   const gfx::Size size_;
-  const unsigned internalformat_;
   const unsigned char* memory_;
   gfx::BufferFormat format_;
   size_t stride_;

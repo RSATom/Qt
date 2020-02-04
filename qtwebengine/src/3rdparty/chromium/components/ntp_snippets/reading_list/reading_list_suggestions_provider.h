@@ -34,18 +34,20 @@ class ReadingListSuggestionsProvider : public ContentSuggestionsProvider,
   CategoryInfo GetCategoryInfo(Category category) override;
   void DismissSuggestion(const ContentSuggestion::ID& suggestion_id) override;
   void FetchSuggestionImage(const ContentSuggestion::ID& suggestion_id,
-                            const ImageFetchedCallback& callback) override;
+                            ImageFetchedCallback callback) override;
+  void FetchSuggestionImageData(const ContentSuggestion::ID& suggestion_id,
+                                ImageDataFetchedCallback callback) override;
   void Fetch(const Category& category,
              const std::set<std::string>& known_suggestion_ids,
-             const FetchDoneCallback& callback) override;
+             FetchDoneCallback callback) override;
   void ClearHistory(
       base::Time begin,
       base::Time end,
       const base::Callback<bool(const GURL& url)>& filter) override;
-  void ClearCachedSuggestions(Category category) override;
+  void ClearCachedSuggestions() override;
   void GetDismissedSuggestionsForDebugging(
       Category category,
-      const DismissedSuggestionsCallback& callback) override;
+      DismissedSuggestionsCallback callback) override;
   void ClearDismissedSuggestionsForDebugging(Category category) override;
 
   // ReadingListModelObserver implementation.

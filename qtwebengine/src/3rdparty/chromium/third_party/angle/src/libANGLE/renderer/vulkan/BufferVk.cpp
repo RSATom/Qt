@@ -10,6 +10,7 @@
 #include "libANGLE/renderer/vulkan/BufferVk.h"
 
 #include "common/debug.h"
+#include "common/utilities.h"
 #include "libANGLE/Context.h"
 #include "libANGLE/renderer/vulkan/ContextVk.h"
 #include "libANGLE/renderer/vulkan/RendererVk.h"
@@ -17,177 +18,241 @@
 namespace rx
 {
 
-BufferVk::BufferVk(const gl::BufferState &state) : BufferImpl(state), mRequiredSize(0)
+namespace
 {
-}
+// Vertex attribute buffers are used as storage buffers for conversion in compute, where access to
+// the buffer is made in 4-byte chunks.  Assume the size of the buffer is 4k+n where n is in [0, 3).
+// On some hardware, reading 4 bytes from address 4k returns 0, making it impossible to read the
+// last n bytes.  By rounding up the buffer sizes to a multiple of 4, the problem is alleviated.
+constexpr size_t kBufferSizeGranularity = 4;
+}  // namespace
 
-BufferVk::~BufferVk()
-{
-}
+BufferVk::BufferVk(const gl::BufferState &state) : BufferImpl(state) {}
+
+BufferVk::~BufferVk() {}
 
 void BufferVk::destroy(const gl::Context *context)
 {
-    VkDevice device = GetImplAs<ContextVk>(context)->getDevice();
+    ContextVk *contextVk = vk::GetImpl(context);
+    RendererVk *renderer = contextVk->getRenderer();
 
-    mBuffer.destroy(device);
+    release(renderer);
 }
 
-gl::Error BufferVk::setData(const gl::Context *context,
-                            GLenum target,
-                            const void *data,
-                            size_t size,
-                            GLenum usage)
+void BufferVk::release(RendererVk *renderer)
 {
-    ContextVk *contextVk = GetImplAs<ContextVk>(context);
-    auto device          = contextVk->getDevice();
+    mBuffer.release(renderer);
+}
 
-    // TODO(jmadill): Proper usage bit implementation. Likely will involve multiple backing buffers
-    // like in D3D11.
-    VkBufferCreateInfo createInfo;
-    createInfo.sType                 = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    createInfo.pNext                 = nullptr;
-    createInfo.flags                 = 0;
-    createInfo.size                  = size;
-    createInfo.usage                 = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    createInfo.sharingMode           = VK_SHARING_MODE_EXCLUSIVE;
-    createInfo.queueFamilyIndexCount = 0;
-    createInfo.pQueueFamilyIndices   = nullptr;
+angle::Result BufferVk::setData(const gl::Context *context,
+                                gl::BufferBinding target,
+                                const void *data,
+                                size_t size,
+                                gl::BufferUsage usage)
+{
+    ContextVk *contextVk = vk::GetImpl(context);
 
-    vk::Buffer newBuffer;
-    ANGLE_TRY(newBuffer.init(device, createInfo));
-
-    // Find a compatible memory pool index. If the index doesn't change, we could cache it.
-    // Not finding a valid memory pool means an out-of-spec driver, or internal error.
-    // TODO(jmadill): More efficient memory allocation.
-    VkMemoryRequirements memoryRequirements;
-    vkGetBufferMemoryRequirements(device, newBuffer.getHandle(), &memoryRequirements);
-
-    // The requirements size is not always equal to the specified API size.
-    ASSERT(memoryRequirements.size >= size);
-    mRequiredSize = static_cast<size_t>(memoryRequirements.size);
-
-    VkPhysicalDeviceMemoryProperties memoryProperties;
-    vkGetPhysicalDeviceMemoryProperties(contextVk->getRenderer()->getPhysicalDevice(),
-                                        &memoryProperties);
-
-    auto memoryTypeIndex =
-        FindMemoryType(memoryProperties, memoryRequirements,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    ANGLE_VK_CHECK(memoryTypeIndex.valid(), VK_ERROR_INCOMPATIBLE_DRIVER);
-
-    VkMemoryAllocateInfo allocInfo;
-    allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.pNext           = nullptr;
-    allocInfo.memoryTypeIndex = memoryTypeIndex.value();
-    allocInfo.allocationSize  = memoryRequirements.size;
-
-    ANGLE_TRY(newBuffer.getMemory().allocate(device, allocInfo));
-    ANGLE_TRY(newBuffer.bindMemory(device));
-
-    mBuffer.retain(device, std::move(newBuffer));
-
-    if (data)
+    if (size > static_cast<size_t>(mState.getSize()))
     {
-        ANGLE_TRY(setDataImpl(device, static_cast<const uint8_t *>(data), size, 0));
+        // Release and re-create the memory and buffer.
+        release(contextVk->getRenderer());
+
+        // We could potentially use multiple backing buffers for different usages.
+        // For now keep a single buffer with all relevant usage flags.
+        const VkImageUsageFlags usageFlags =
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
+
+        VkBufferCreateInfo createInfo    = {};
+        createInfo.sType                 = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        createInfo.flags                 = 0;
+        createInfo.size                  = roundUp(size, kBufferSizeGranularity);
+        createInfo.usage                 = usageFlags;
+        createInfo.sharingMode           = VK_SHARING_MODE_EXCLUSIVE;
+        createInfo.queueFamilyIndexCount = 0;
+        createInfo.pQueueFamilyIndices   = nullptr;
+
+        // Assume host visible/coherent memory available.
+        const VkMemoryPropertyFlags memoryPropertyFlags =
+            (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        ANGLE_TRY(mBuffer.init(contextVk, createInfo, memoryPropertyFlags));
     }
 
-    return gl::NoError();
+    if (data && size > 0)
+    {
+        ANGLE_TRY(setDataImpl(contextVk, static_cast<const uint8_t *>(data), size, 0));
+    }
+
+    return angle::Result::Continue;
 }
 
-gl::Error BufferVk::setSubData(const gl::Context *context,
-                               GLenum target,
-                               const void *data,
-                               size_t size,
-                               size_t offset)
+angle::Result BufferVk::setSubData(const gl::Context *context,
+                                   gl::BufferBinding target,
+                                   const void *data,
+                                   size_t size,
+                                   size_t offset)
 {
-    ASSERT(mBuffer.getHandle() != VK_NULL_HANDLE);
-    ASSERT(mBuffer.getMemory().getHandle() != VK_NULL_HANDLE);
+    ASSERT(mBuffer.valid());
 
-    VkDevice device = GetImplAs<ContextVk>(context)->getDevice();
+    ContextVk *contextVk = vk::GetImpl(context);
+    ANGLE_TRY(setDataImpl(contextVk, static_cast<const uint8_t *>(data), size, offset));
 
-    ANGLE_TRY(setDataImpl(device, static_cast<const uint8_t *>(data), size, offset));
-
-    return gl::NoError();
+    return angle::Result::Continue;
 }
 
-gl::Error BufferVk::copySubData(const gl::Context *context,
-                                BufferImpl *source,
-                                GLintptr sourceOffset,
-                                GLintptr destOffset,
-                                GLsizeiptr size)
+angle::Result BufferVk::copySubData(const gl::Context *context,
+                                    BufferImpl *source,
+                                    GLintptr sourceOffset,
+                                    GLintptr destOffset,
+                                    GLsizeiptr size)
 {
-    UNIMPLEMENTED();
-    return gl::InternalError();
+    ANGLE_VK_UNREACHABLE(vk::GetImpl(context));
+    return angle::Result::Stop;
 }
 
-gl::Error BufferVk::map(const gl::Context *context, GLenum access, void **mapPtr)
+angle::Result BufferVk::map(const gl::Context *context, GLenum access, void **mapPtr)
 {
-    ASSERT(mBuffer.getHandle() != VK_NULL_HANDLE);
-    ASSERT(mBuffer.getMemory().getHandle() != VK_NULL_HANDLE);
+    ASSERT(mBuffer.valid());
 
-    VkDevice device = GetImplAs<ContextVk>(context)->getDevice();
-
-    ANGLE_TRY(mBuffer.getMemory().map(device, 0, mState.getSize(), 0,
-                                      reinterpret_cast<uint8_t **>(mapPtr)));
-
-    return gl::NoError();
+    ContextVk *contextVk = vk::GetImpl(context);
+    return mapImpl(contextVk, mapPtr);
 }
 
-gl::Error BufferVk::mapRange(const gl::Context *context,
-                             size_t offset,
-                             size_t length,
-                             GLbitfield access,
-                             void **mapPtr)
+angle::Result BufferVk::mapImpl(ContextVk *contextVk, void **mapPtr)
 {
-    ASSERT(mBuffer.getHandle() != VK_NULL_HANDLE);
-    ASSERT(mBuffer.getMemory().getHandle() != VK_NULL_HANDLE);
-
-    VkDevice device = GetImplAs<ContextVk>(context)->getDevice();
-
-    ANGLE_TRY(
-        mBuffer.getMemory().map(device, offset, length, 0, reinterpret_cast<uint8_t **>(mapPtr)));
-
-    return gl::NoError();
+    ANGLE_VK_TRY(contextVk,
+                 mBuffer.getDeviceMemory().map(contextVk->getDevice(), 0, mState.getSize(), 0,
+                                               reinterpret_cast<uint8_t **>(mapPtr)));
+    return angle::Result::Continue;
 }
 
-gl::Error BufferVk::unmap(const gl::Context *context, GLboolean *result)
+angle::Result BufferVk::mapRange(const gl::Context *context,
+                                 size_t offset,
+                                 size_t length,
+                                 GLbitfield access,
+                                 void **mapPtr)
 {
-    ASSERT(mBuffer.getHandle() != VK_NULL_HANDLE);
-    ASSERT(mBuffer.getMemory().getHandle() != VK_NULL_HANDLE);
+    ASSERT(mBuffer.valid());
 
-    VkDevice device = GetImplAs<ContextVk>(context)->getDevice();
+    ContextVk *contextVk = vk::GetImpl(context);
 
-    mBuffer.getMemory().unmap(device);
-
-    return gl::NoError();
+    ANGLE_VK_TRY(contextVk, mBuffer.getDeviceMemory().map(contextVk->getDevice(), offset, length, 0,
+                                                          reinterpret_cast<uint8_t **>(mapPtr)));
+    return angle::Result::Continue;
 }
 
-gl::Error BufferVk::getIndexRange(GLenum type,
-                                  size_t offset,
-                                  size_t count,
-                                  bool primitiveRestartEnabled,
-                                  gl::IndexRange *outRange)
+angle::Result BufferVk::unmap(const gl::Context *context, GLboolean *result)
 {
-    UNIMPLEMENTED();
-    return gl::InternalError();
+    return unmapImpl(vk::GetImpl(context));
 }
 
-vk::Error BufferVk::setDataImpl(VkDevice device, const uint8_t *data, size_t size, size_t offset)
+angle::Result BufferVk::unmapImpl(ContextVk *contextVk)
 {
+    ASSERT(mBuffer.valid());
+
+    mBuffer.getDeviceMemory().unmap(contextVk->getDevice());
+
+    return angle::Result::Continue;
+}
+
+angle::Result BufferVk::getIndexRange(const gl::Context *context,
+                                      gl::DrawElementsType type,
+                                      size_t offset,
+                                      size_t count,
+                                      bool primitiveRestartEnabled,
+                                      gl::IndexRange *outRange)
+{
+    ContextVk *contextVk = vk::GetImpl(context);
+    RendererVk *renderer = contextVk->getRenderer();
+
+    // This is a workaround for the mock ICD not implementing buffer memory state.
+    // Could be removed if https://github.com/KhronosGroup/Vulkan-Tools/issues/84 is fixed.
+    if (renderer->isMockICDEnabled())
+    {
+        outRange->start = 0;
+        outRange->end   = 0;
+        return angle::Result::Continue;
+    }
+
+    // Needed before reading buffer or we could get stale data.
+    ANGLE_TRY(renderer->finish(contextVk));
+
+    // TODO(jmadill): Consider keeping a shadow system memory copy in some cases.
+    ASSERT(mBuffer.valid());
+
+    const GLuint &typeBytes = gl::GetDrawElementsTypeSize(type);
+
     uint8_t *mapPointer = nullptr;
-    ANGLE_TRY(mBuffer.getMemory().map(device, offset, size, 0, &mapPointer));
-    ASSERT(mapPointer);
+    ANGLE_VK_TRY(contextVk, mBuffer.getDeviceMemory().map(contextVk->getDevice(), offset,
+                                                          typeBytes * count, 0, &mapPointer));
 
-    memcpy(mapPointer, data, size);
+    *outRange = gl::ComputeIndexRange(type, mapPointer, count, primitiveRestartEnabled);
 
-    mBuffer.getMemory().unmap(device);
-
-    return vk::NoError();
+    mBuffer.getDeviceMemory().unmap(contextVk->getDevice());
+    return angle::Result::Continue;
 }
 
-const vk::Buffer &BufferVk::getVkBuffer() const
+angle::Result BufferVk::setDataImpl(ContextVk *contextVk,
+                                    const uint8_t *data,
+                                    size_t size,
+                                    size_t offset)
 {
-    return mBuffer;
+    RendererVk *renderer = contextVk->getRenderer();
+    VkDevice device      = contextVk->getDevice();
+
+    // Use map when available.
+    if (mBuffer.isResourceInUse(renderer))
+    {
+        vk::StagingBuffer stagingBuffer;
+        ANGLE_TRY(stagingBuffer.init(contextVk, static_cast<VkDeviceSize>(size),
+                                     vk::StagingUsage::Write));
+
+        uint8_t *mapPointer = nullptr;
+        ANGLE_VK_TRY(contextVk,
+                     stagingBuffer.getDeviceMemory().map(device, 0, size, 0, &mapPointer));
+        ASSERT(mapPointer);
+
+        memcpy(mapPointer, data, size);
+        stagingBuffer.getDeviceMemory().unmap(device);
+
+        // Enqueue a copy command on the GPU.
+        VkBufferCopy copyRegion = {0, offset, size};
+        ANGLE_TRY(mBuffer.copyFromBuffer(contextVk, stagingBuffer.getBuffer(), copyRegion));
+
+        // Immediately release staging buffer. We should probably be using a DynamicBuffer here.
+        renderer->releaseObject(renderer->getCurrentQueueSerial(), &stagingBuffer);
+    }
+    else
+    {
+        uint8_t *mapPointer = nullptr;
+        ANGLE_VK_TRY(contextVk,
+                     mBuffer.getDeviceMemory().map(device, offset, size, 0, &mapPointer));
+        ASSERT(mapPointer);
+
+        memcpy(mapPointer, data, size);
+
+        mBuffer.getDeviceMemory().unmap(device);
+    }
+
+    return angle::Result::Continue;
+}
+
+angle::Result BufferVk::copyToBuffer(ContextVk *contextVk,
+                                     vk::BufferHelper *destBuffer,
+                                     uint32_t copyCount,
+                                     const VkBufferCopy *copies)
+{
+    vk::CommandBuffer *commandBuffer;
+    ANGLE_TRY(mBuffer.recordCommands(contextVk, &commandBuffer));
+    commandBuffer->copyBuffer(mBuffer.getBuffer().getHandle(), destBuffer->getBuffer().getHandle(),
+                              copyCount, copies);
+
+    destBuffer->onRead(&mBuffer, VK_ACCESS_TRANSFER_READ_BIT);
+    mBuffer.onWrite(VK_ACCESS_TRANSFER_WRITE_BIT);
+
+    return angle::Result::Continue;
 }
 
 }  // namespace rx

@@ -10,6 +10,7 @@
 #include "chrome/browser/printing/cloud_print/gcd_constants.h"
 #include "chrome/common/cloud_print/cloud_print_constants.h"
 #include "components/cloud_devices/common/cloud_devices_urls.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace cloud_print {
 
@@ -17,11 +18,9 @@ GCDApiFlow::Request::~Request() {
 }
 
 std::unique_ptr<GCDApiFlow> GCDApiFlow::Create(
-    net::URLRequestContextGetter* request_context,
-    OAuth2TokenService* token_service,
-    const std::string& account_id) {
-  return std::unique_ptr<GCDApiFlow>(
-      new GCDApiFlowImpl(request_context, token_service, account_id));
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    identity::IdentityManager* identity_manager) {
+  return std::make_unique<GCDApiFlowImpl>(url_loader_factory, identity_manager);
 }
 
 GCDApiFlow::GCDApiFlow() {

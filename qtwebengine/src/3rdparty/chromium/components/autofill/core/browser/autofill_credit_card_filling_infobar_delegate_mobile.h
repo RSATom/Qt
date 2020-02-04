@@ -24,7 +24,7 @@ class AutofillCreditCardFillingInfoBarDelegateMobile
  public:
   AutofillCreditCardFillingInfoBarDelegateMobile(
       const CreditCard& card,
-      const base::Closure& card_filling_callback);
+      base::OnceClosure card_filling_callback);
   ~AutofillCreditCardFillingInfoBarDelegateMobile() override;
 
   int issuer_icon_id() const { return issuer_icon_id_; }
@@ -41,7 +41,6 @@ class AutofillCreditCardFillingInfoBarDelegateMobile
 
  private:
   // ConfirmInfoBarDelegate (continued):
-  Type GetInfoBarType() const override;
   infobars::InfoBarDelegate::InfoBarIdentifier GetIdentifier() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
 
@@ -49,7 +48,7 @@ class AutofillCreditCardFillingInfoBarDelegateMobile
 
   // The callback after having accepted the infobar; will initiate filling the
   // credit card information.
-  base::Closure card_filling_callback_;
+  base::OnceClosure card_filling_callback_;
 
   // Did the user ever explicitly accept or dismiss this infobar?
   bool had_user_interaction_;

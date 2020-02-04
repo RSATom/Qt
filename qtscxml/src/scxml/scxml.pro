@@ -1,8 +1,6 @@
 TARGET = QtScxml
-QT = core-private qml-private
+QT = core-private
 MODULE_CONFIG += c++11 qscxmlc
-
-load(qt_module)
 
 QMAKE_DOCS = $$PWD/doc/qtscxml.qdocconf
 
@@ -17,8 +15,6 @@ HEADERS += \
     qscxmlglobals.h \
     qscxmlglobals_p.h \
     qscxmlnulldatamodel.h \
-    qscxmlecmascriptdatamodel.h \
-    qscxmlecmascriptplatformproperties_p.h \
     qscxmlexecutablecontent.h \
     qscxmlexecutablecontent_p.h \
     qscxmlevent.h \
@@ -38,8 +34,6 @@ SOURCES += \
     qscxmlcompiler.cpp \
     qscxmlstatemachine.cpp \
     qscxmlnulldatamodel.cpp \
-    qscxmlecmascriptdatamodel.cpp \
-    qscxmlecmascriptplatformproperties.cpp \
     qscxmlexecutablecontent.cpp \
     qscxmlevent.cpp \
     qscxmldatamodel.cpp \
@@ -48,6 +42,20 @@ SOURCES += \
     qscxmlinvokableservice.cpp \
     qscxmltabledata.cpp \
     qscxmlstatemachineinfo.cpp
+
+qtConfig(scxml-ecmascriptdatamodel) {
+    QT += qml-private
+
+    HEADERS += \
+        qscxmlecmascriptdatamodel.h \
+        qscxmlecmascriptplatformproperties_p.h
+
+    SOURCES += \
+        qscxmlecmascriptdatamodel.cpp \
+        qscxmlecmascriptplatformproperties.cpp
+}
+
+load(qt_module)
 
 FEATURES += ../../mkspecs/features/qscxmlc.prf
 features.files = $$FEATURES

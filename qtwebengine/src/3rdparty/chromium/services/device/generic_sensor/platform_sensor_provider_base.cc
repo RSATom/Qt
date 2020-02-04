@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/stl_util.h"
-#include "services/device/public/interfaces/sensor_provider.mojom.h"
+#include "services/device/public/mojom/sensor_provider.mojom.h"
 
 namespace device {
 
@@ -15,7 +15,8 @@ namespace {
 
 const uint64_t kReadingBufferSize = sizeof(SensorReadingSharedBuffer);
 const uint64_t kSharedBufferSizeInBytes =
-    kReadingBufferSize * static_cast<uint64_t>(mojom::SensorType::LAST);
+    kReadingBufferSize *
+    (static_cast<uint64_t>(mojom::SensorType::kMaxValue) + 1);
 
 }  // namespace
 
@@ -35,8 +36,9 @@ void PlatformSensorProviderBase::CreateSensor(
     return;
   }
 
-  mojo::ScopedSharedBufferMapping mapping = MapSharedBufferForType(type);
-  if (!mapping) {
+  SensorReadingSharedBuffer* reading_buffer =
+      GetSensorReadingSharedBufferForType(type);
+  if (!reading_buffer) {
     callback.Run(nullptr);
     return;
   }
@@ -48,7 +50,7 @@ void PlatformSensorProviderBase::CreateSensor(
     requests_map_[type] = CallbackQueue({callback});
 
     CreateSensorInternal(
-        type, std::move(mapping),
+        type, reading_buffer,
         base::Bind(&PlatformSensorProviderBase::NotifySensorCreated,
                    base::Unretained(this), type));
   }
@@ -66,23 +68,54 @@ scoped_refptr<PlatformSensor> PlatformSensorProviderBase::GetSensor(
 
 bool PlatformSensorProviderBase::CreateSharedBufferIfNeeded() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (shared_buffer_handle_.is_valid())
+  if (shared_buffer_mapping_.get())
     return true;
 
-  shared_buffer_handle_ =
-      mojo::SharedBufferHandle::Create(kSharedBufferSizeInBytes);
-  return shared_buffer_handle_.is_valid();
+  if (!shared_buffer_handle_.is_valid()) {
+    shared_buffer_handle_ =
+        mojo::SharedBufferHandle::Create(kSharedBufferSizeInBytes);
+    if (!shared_buffer_handle_.is_valid())
+      return false;
+  }
+
+  // Create a writable mapping for the buffer as soon as possible, that will be
+  // used by all platform sensor implementations that want to update it. Note
+  // that on Android, cloning the shared memory handle readonly (as performed
+  // by CloneSharedBufferHandle()) will seal the region read-only, preventing
+  // future writable mappings to be created (but this one will survive).
+  shared_buffer_mapping_ = shared_buffer_handle_->Map(kSharedBufferSizeInBytes);
+  return shared_buffer_mapping_.get() != nullptr;
 }
 
-void PlatformSensorProviderBase::RemoveSensor(mojom::SensorType type) {
+void PlatformSensorProviderBase::FreeResourcesIfNeeded() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  DCHECK(ContainsKey(sensor_map_, type));
-  sensor_map_.erase(type);
-
-  if (sensor_map_.empty()) {
-    AllSensorsRemoved();
+  if (sensor_map_.empty() && requests_map_.empty()) {
+    FreeResources();
+    shared_buffer_mapping_.reset();
     shared_buffer_handle_.reset();
   }
+}
+
+void PlatformSensorProviderBase::RemoveSensor(mojom::SensorType type,
+                                              PlatformSensor* sensor) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  auto it = sensor_map_.find(type);
+  if (it == sensor_map_.end()) {
+    // It is possible on PlatformSensorFusion creation failure since the
+    // PlatformSensorFusion object is not added to the |sensor_map_|, but
+    // its base class destructor PlatformSensor::~PlatformSensor() calls this
+    // RemoveSensor() function with the PlatformSensorFusion type.
+    return;
+  }
+
+  if (sensor != it->second) {
+    NOTREACHED()
+        << "not expecting to track more than one sensor of the same type";
+    return;
+  }
+
+  sensor_map_.erase(type);
+  FreeResourcesIfNeeded();
 }
 
 mojo::ScopedSharedBufferHandle
@@ -108,13 +141,16 @@ void PlatformSensorProviderBase::NotifySensorCreated(
   if (sensor)
     sensor_map_[type] = sensor.get();
 
+  auto it = requests_map_.find(type);
+  CallbackQueue callback_queue = it->second;
+  requests_map_.erase(type);
+
+  FreeResourcesIfNeeded();
+
   // Inform subscribers about the sensor.
   // |sensor| can be nullptr here.
-  auto it = requests_map_.find(type);
-  for (auto& callback : it->second)
+  for (auto& callback : callback_queue)
     callback.Run(sensor);
-
-  requests_map_.erase(type);
 }
 
 std::vector<mojom::SensorType>
@@ -125,12 +161,16 @@ PlatformSensorProviderBase::GetPendingRequestTypes() {
   return request_types;
 }
 
-mojo::ScopedSharedBufferMapping
-PlatformSensorProviderBase::MapSharedBufferForType(mojom::SensorType type) {
-  mojo::ScopedSharedBufferMapping mapping = shared_buffer_handle_->MapAtOffset(
-      kReadingBufferSize, SensorReadingSharedBuffer::GetOffset(type));
-  memset(mapping.get(), 0, kReadingBufferSize);
-  return mapping;
+SensorReadingSharedBuffer*
+PlatformSensorProviderBase::GetSensorReadingSharedBufferForType(
+    mojom::SensorType type) {
+  auto* ptr = static_cast<char*>(shared_buffer_mapping_.get());
+  if (!ptr)
+    return nullptr;
+
+  ptr += SensorReadingSharedBuffer::GetOffset(type);
+  memset(ptr, 0, kReadingBufferSize);
+  return reinterpret_cast<SensorReadingSharedBuffer*>(ptr);
 }
 
 }  // namespace device

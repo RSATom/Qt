@@ -6,12 +6,10 @@
 
 #include "content/public/renderer/media_stream_renderer_factory.h"
 #include "media/base/renderer_factory.h"
-#include "third_party/WebKit/public/platform/WebAudioDevice.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamCenter.h"
-#include "third_party/WebKit/public/platform/WebRTCPeerConnectionHandler.h"
-#include "third_party/WebKit/public/platform/WebSocketHandshakeThrottle.h"
-#include "third_party/WebKit/public/platform/WebSpeechSynthesizer.h"
-#include "third_party/WebKit/public/platform/modules/webmidi/WebMIDIAccessor.h"
+#include "third_party/blink/public/platform/web_audio_device.h"
+#include "third_party/blink/public/platform/web_media_stream_center.h"
+#include "third_party/blink/public/platform/web_rtc_peer_connection_handler.h"
+#include "third_party/blink/public/platform/web_speech_synthesizer.h"
 #include "ui/gfx/icc_profile.h"
 #include "url/gurl.h"
 
@@ -23,6 +21,15 @@ SkBitmap* ContentRendererClient::GetSadPluginBitmap() {
 
 SkBitmap* ContentRendererClient::GetSadWebViewBitmap() {
   return nullptr;
+}
+
+bool ContentRendererClient::MaybeCreateMimeHandlerView(
+    RenderFrame* embedder_frame,
+    const blink::WebElement& owner_element,
+    const GURL& original_url,
+    const std::string& original_mime_type,
+    int32_t instance_id_to_use) {
+  return false;
 }
 
 bool ContentRendererClient::OverrideCreatePlugin(
@@ -38,8 +45,7 @@ blink::WebPlugin* ContentRendererClient::CreatePluginReplacement(
   return nullptr;
 }
 
-bool ContentRendererClient::HasErrorPage(int http_status_code,
-                                         std::string* error_domain) {
+bool ContentRendererClient::HasErrorPage(int http_status_code) {
   return false;
 }
 
@@ -48,47 +54,23 @@ bool ContentRendererClient::ShouldSuppressErrorPage(RenderFrame* render_frame,
   return false;
 }
 
-void ContentRendererClient::DeferMediaLoad(
-    RenderFrame* render_frame,
-    bool has_played_media_before,
-    const base::Closure& closure) {
-  closure.Run();
+bool ContentRendererClient::ShouldTrackUseCounter(const GURL& url) {
+  return true;
 }
 
-std::unique_ptr<blink::WebMediaStreamCenter>
-ContentRendererClient::OverrideCreateWebMediaStreamCenter(
-    blink::WebMediaStreamCenterClient* client) {
-  return nullptr;
-}
-
-std::unique_ptr<blink::WebRTCPeerConnectionHandler>
-ContentRendererClient::OverrideCreateWebRTCPeerConnectionHandler(
-    blink::WebRTCPeerConnectionHandlerClient* client) {
-  return nullptr;
-}
-
-std::unique_ptr<blink::WebMIDIAccessor>
-ContentRendererClient::OverrideCreateMIDIAccessor(
-    blink::WebMIDIAccessorClient* client) {
-  return nullptr;
-}
-
-std::unique_ptr<blink::WebAudioDevice>
-ContentRendererClient::OverrideCreateAudioDevice(
-    const blink::WebAudioLatencyHint& latency_hint) {
-  return nullptr;
-}
-
-blink::WebClipboard* ContentRendererClient::OverrideWebClipboard() {
-  return nullptr;
+bool ContentRendererClient::DeferMediaLoad(RenderFrame* render_frame,
+                                           bool has_played_media_before,
+                                           base::OnceClosure closure) {
+  std::move(closure).Run();
+  return false;
 }
 
 blink::WebThemeEngine* ContentRendererClient::OverrideThemeEngine() {
   return nullptr;
 }
 
-std::unique_ptr<blink::WebSocketHandshakeThrottle>
-ContentRendererClient::CreateWebSocketHandshakeThrottle() {
+std::unique_ptr<WebSocketHandshakeThrottleProvider>
+ContentRendererClient::CreateWebSocketHandshakeThrottleProvider() {
   return nullptr;
 }
 
@@ -98,12 +80,14 @@ ContentRendererClient::OverrideSpeechSynthesizer(
   return nullptr;
 }
 
+void ContentRendererClient::PostIOThreadCreated(
+    base::SingleThreadTaskRunner* io_thread_task_runner) {}
+
+void ContentRendererClient::PostCompositorThreadCreated(
+    base::SingleThreadTaskRunner* compositor_thread_task_runner) {}
+
 bool ContentRendererClient::RunIdleHandlerWhenWidgetsHidden() {
   return true;
-}
-
-bool ContentRendererClient::AllowTimerSuspensionWhenProcessBackgrounded() {
-  return false;
 }
 
 bool ContentRendererClient::AllowPopup() {
@@ -122,29 +106,22 @@ bool ContentRendererClient::HandleNavigation(
     bool is_redirect) {
   return false;
 }
-
-bool ContentRendererClient::ShouldUseMediaPlayerForURL(const GURL& url) {
-  return false;
-}
 #endif
 
 bool ContentRendererClient::ShouldFork(blink::WebLocalFrame* frame,
                                        const GURL& url,
                                        const std::string& http_method,
                                        bool is_initial_navigation,
-                                       bool is_server_redirect,
-                                       bool* send_referrer) {
+                                       bool is_server_redirect) {
   return false;
 }
 
-bool ContentRendererClient::WillSendRequest(
-    blink::WebLocalFrame* frame,
-    ui::PageTransition transition_type,
-    const blink::WebURL& url,
-    std::vector<std::unique_ptr<URLLoaderThrottle>>* throttles,
-    GURL* new_url) {
-  return false;
-}
+void ContentRendererClient::WillSendRequest(blink::WebLocalFrame* frame,
+                                            ui::PageTransition transition_type,
+                                            const blink::WebURL& url,
+                                            const url::Origin* initiator_origin,
+                                            GURL* new_url,
+                                            bool* attach_same_site_cookies) {}
 
 bool ContentRendererClient::IsPrefetchOnly(
     RenderFrame* render_frame,
@@ -166,9 +143,8 @@ ContentRendererClient::GetPrescientNetworking() {
   return nullptr;
 }
 
-bool ContentRendererClient::ShouldOverridePageVisibilityState(
-    const RenderFrame* render_frame,
-    blink::WebPageVisibilityState* override_state) {
+bool ContentRendererClient::IsPrerenderingFrame(
+    const RenderFrame* render_frame) {
   return false;
 }
 
@@ -177,7 +153,8 @@ bool ContentRendererClient::IsExternalPepperPlugin(
   return false;
 }
 
-bool ContentRendererClient::AllowPepperMediaStreamAPI(const GURL& url) {
+bool ContentRendererClient::IsOriginIsolatedPepperPlugin(
+    const base::FilePath& plugin_path) {
   return false;
 }
 
@@ -188,16 +165,14 @@ bool ContentRendererClient::IsKeySystemsUpdateNeeded() {
   return false;
 }
 
-bool ContentRendererClient::IsSupportedAudioConfig(
-    const media::AudioConfig& config) {
+bool ContentRendererClient::IsSupportedAudioType(const media::AudioType& type) {
   // Defer to media's default support.
-  return ::media::IsSupportedAudioConfig(config);
+  return ::media::IsDefaultSupportedAudioType(type);
 }
 
-bool ContentRendererClient::IsSupportedVideoConfig(
-    const media::VideoConfig& config) {
+bool ContentRendererClient::IsSupportedVideoType(const media::VideoType& type) {
   // Defer to media's default support.
-  return ::media::IsSupportedVideoConfig(config);
+  return ::media::IsDefaultSupportedVideoType(type);
 }
 
 bool ContentRendererClient::IsSupportedBitstreamAudioCodec(
@@ -211,12 +186,8 @@ ContentRendererClient::CreateMediaStreamRendererFactory() {
 }
 
 bool ContentRendererClient::ShouldReportDetailedMessageForSource(
-    const base::string16& source) const {
+    const base::string16& source) {
   return false;
-}
-
-bool ContentRendererClient::ShouldGatherSiteIsolationStats() const {
-  return true;
 }
 
 std::unique_ptr<blink::WebContentSettingsClient>
@@ -230,23 +201,30 @@ bool ContentRendererClient::IsPluginAllowedToUseCameraDeviceAPI(
   return false;
 }
 
-bool ContentRendererClient::IsPluginAllowedToUseCompositorAPI(const GURL& url) {
-  return false;
-}
-
 bool ContentRendererClient::IsPluginAllowedToUseDevChannelAPIs() {
   return false;
 }
 
 BrowserPluginDelegate* ContentRendererClient::CreateBrowserPluginDelegate(
     RenderFrame* render_frame,
+    const WebPluginInfo& info,
     const std::string& mime_type,
     const GURL& original_url) {
   return nullptr;
 }
 
+bool ContentRendererClient::IsExcludedHeaderForServiceWorkerFetchEvent(
+    const std::string& header_name) {
+  return false;
+}
+
 bool ContentRendererClient::ShouldEnforceWebRTCRoutingPreferences() {
   return true;
+}
+
+base::Optional<std::string>
+ContentRendererClient::WebRTCPlatformSpecificAudioProcessingConfiguration() {
+  return base::Optional<std::string>();
 }
 
 GURL ContentRendererClient::OverrideFlashEmbedWithHTML(const GURL& url) {
@@ -258,8 +236,36 @@ ContentRendererClient::GetTaskSchedulerInitParams() {
   return nullptr;
 }
 
-bool ContentRendererClient::AllowIdleMediaSuspend() {
+bool ContentRendererClient::IsIdleMediaSuspendEnabled() {
   return true;
 }
+
+bool ContentRendererClient::OverrideLegacySymantecCertConsoleMessage(
+    const GURL& url,
+    std::string* console_messsage) {
+  return false;
+}
+
+bool ContentRendererClient::SuppressLegacyTLSVersionConsoleMessage() {
+  return false;
+}
+
+std::unique_ptr<URLLoaderThrottleProvider>
+ContentRendererClient::CreateURLLoaderThrottleProvider(
+    URLLoaderThrottleProviderType provider_type) {
+  return nullptr;
+}
+
+blink::WebFrame* ContentRendererClient::FindFrame(
+    blink::WebLocalFrame* relative_to_frame,
+    const std::string& name) {
+  return nullptr;
+}
+
+bool ContentRendererClient::IsSafeRedirectTarget(const GURL& url) {
+  return true;
+}
+
+void ContentRendererClient::DidSetUserAgent(const std::string& user_agent) {}
 
 }  // namespace content

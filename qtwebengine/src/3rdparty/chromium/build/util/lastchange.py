@@ -8,14 +8,17 @@ lastchange.py -- Chromium revision fetching utility.
 """
 
 import re
-import optparse
+import logging
+import argparse
 import os
 import subprocess
 import sys
 
 class VersionInfo(object):
-  def __init__(self, revision):
-    self.revision = revision
+  def __init__(self, revision_id, full_revision_string, timestamp):
+    self.revision_id = revision_id
+    self.revision = full_revision_string
+    self.timestamp = timestamp
 
 
 def RunGitCommand(directory, command):
@@ -41,13 +44,14 @@ def RunGitCommand(directory, command):
                             cwd=directory,
                             shell=(sys.platform=='win32'))
     return proc
-  except OSError:
+  except OSError as e:
+    logging.error('Command %r failed: %s' % (' '.join(command), e))
     return None
 
 
-def FetchGitRevision(directory):
+def FetchGitRevision(directory, filter):
   """
-  Fetch the Git hash for a given directory.
+  Fetch the Git hash (and Cr-Commit-Position if any) for a given directory.
 
   Errors are swallowed.
 
@@ -55,12 +59,17 @@ def FetchGitRevision(directory):
     A VersionInfo object or None on error.
   """
   hsh = ''
-  git_args = ['log', '-1', '--format=%H']
+  git_args = ['log', '-1', '--format=%H %ct']
+  if filter is not None:
+    git_args.append('--grep=' + filter)
   proc = RunGitCommand(directory, git_args)
   if proc:
     output = proc.communicate()[0].strip()
     if proc.returncode == 0 and output:
-      hsh = output
+      hsh, ct = output.split()
+    else:
+      logging.error('Git error: rc=%d, output=%r' %
+                    (proc.returncode, output))
   if not hsh:
     return None
   pos = ''
@@ -72,17 +81,17 @@ def FetchGitRevision(directory):
         if line.startswith('Cr-Commit-Position:'):
           pos = line.rsplit()[-1].strip()
           break
-  return VersionInfo('%s-%s' % (hsh, pos))
+  return VersionInfo(hsh, '%s-%s' % (hsh, pos), int(ct))
 
 
-def FetchVersionInfo(directory=None):
+def FetchVersionInfo(directory=None, filter=None):
   """
-  Returns the last change (in the form of a branch, revision tuple),
+  Returns the last change (as a VersionInfo object)
   from some appropriate revision control system.
   """
-  version_info = FetchGitRevision(directory)
+  version_info = FetchGitRevision(directory, filter)
   if not version_info:
-    version_info = VersionInfo(None)
+    version_info = VersionInfo('0', '0', 0)
   return version_info
 
 
@@ -128,6 +137,7 @@ def WriteIfChanged(file_name, contents):
   """
   Writes the specified contents to the specified file_name
   iff the contents are different than the current contents.
+  Returns if new data was written.
   """
   try:
     old_contents = open(file_name, 'r').read()
@@ -135,67 +145,84 @@ def WriteIfChanged(file_name, contents):
     pass
   else:
     if contents == old_contents:
-      return
+      return False
     os.unlink(file_name)
   open(file_name, 'w').write(contents)
+  return True
 
 
 def main(argv=None):
   if argv is None:
     argv = sys.argv
 
-  parser = optparse.OptionParser(usage="lastchange.py [options]")
-  parser.add_option("-m", "--version-macro",
+  parser = argparse.ArgumentParser(usage="lastchange.py [options]")
+  parser.add_argument("-m", "--version-macro",
                     help="Name of C #define when using --header. Defaults to " +
                     "LAST_CHANGE.",
                     default="LAST_CHANGE")
-  parser.add_option("-o", "--output", metavar="FILE",
+  parser.add_argument("-o", "--output", metavar="FILE",
                     help="Write last change to FILE. " +
                     "Can be combined with --header to write both files.")
-  parser.add_option("", "--header", metavar="FILE",
-                    help="Write last change to FILE as a C/C++ header. " +
-                    "Can be combined with --output to write both files.")
-  parser.add_option("--revision-only", action='store_true',
-                    help="Just print the GIT hash. Overrides any " +
-                    "file-output-related options.")
-  parser.add_option("-s", "--source-dir", metavar="DIR",
+  parser.add_argument("--header", metavar="FILE",
+                    help=("Write last change to FILE as a C/C++ header. "
+                          "Can be combined with --output to write both files."))
+  parser.add_argument("--revision-id-only", action='store_true',
+                    help=("Output the revision as a VCS revision ID only (in "
+                          "Git, a 40-character commit hash, excluding the "
+                          "Cr-Commit-Position)."))
+  parser.add_argument("--print-only", action='store_true',
+                    help=("Just print the revision string. Overrides any "
+                          "file-output-related options."))
+  parser.add_argument("-s", "--source-dir", metavar="DIR",
                     help="Use repository in the given directory.")
-  opts, args = parser.parse_args(argv[1:])
+  parser.add_argument("--filter", metavar="REGEX",
+                    help=("Only use log entries where the commit message "
+                          "matches the supplied filter regex. Defaults to "
+                          "'^Change-Id:' to suppress local commits."),
+                    default='^Change-Id:')
+  args, extras = parser.parse_known_args(argv[1:])
 
-  out_file = opts.output
-  header = opts.header
+  logging.basicConfig(level=logging.WARNING)
 
-  while len(args) and out_file is None:
+  out_file = args.output
+  header = args.header
+  filter=args.filter
+
+  while len(extras) and out_file is None:
     if out_file is None:
-      out_file = args.pop(0)
-  if args:
-    sys.stderr.write('Unexpected arguments: %r\n\n' % args)
+      out_file = extras.pop(0)
+  if extras:
+    sys.stderr.write('Unexpected arguments: %r\n\n' % extras)
     parser.print_help()
     sys.exit(2)
 
-  if opts.source_dir:
-    src_dir = opts.source_dir
+  if args.source_dir:
+    src_dir = args.source_dir
   else:
     src_dir = os.path.dirname(os.path.abspath(__file__))
 
-  version_info = FetchVersionInfo(directory=src_dir)
+  version_info = FetchVersionInfo(directory=src_dir, filter=filter)
+  revision_string = version_info.revision
+  if args.revision_id_only:
+    revision_string = version_info.revision_id
 
-  if version_info.revision == None:
-    version_info.revision = '0'
-
-  if opts.revision_only:
-    print version_info.revision
+  if args.print_only:
+    print revision_string
   else:
-    contents = "LASTCHANGE=%s\n" % version_info.revision
-    if not out_file and not opts.header:
+    contents = "LASTCHANGE=%s\n" % revision_string
+    if not out_file and not args.header:
       sys.stdout.write(contents)
     else:
       if out_file:
-        WriteIfChanged(out_file, contents)
+        committime_file = out_file + '.committime'
+        out_changed = WriteIfChanged(out_file, contents)
+        if out_changed or not os.path.exists(committime_file):
+          with open(committime_file, 'w') as timefile:
+            timefile.write(str(version_info.timestamp))
       if header:
         WriteIfChanged(header,
-                       GetHeaderContents(header, opts.version_macro,
-                                         version_info.revision))
+                       GetHeaderContents(header, args.version_macro,
+                                         revision_string))
 
   return 0
 

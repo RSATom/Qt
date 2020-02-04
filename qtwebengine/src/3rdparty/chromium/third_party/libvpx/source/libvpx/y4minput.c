@@ -130,8 +130,8 @@ static int y4m_parse_tags(y4m_input *_y4m, char *_tags) {
   The number of taps is intentionally kept small to reduce computational
    overhead and limit ringing.
 
-  The taps from these filters are scaled so that their sum is 1, and the result
-   is scaled by 128 and rounded to integers to create a filter whose
+  The taps from these filters are scaled so that their sum is 1, and the
+  result is scaled by 128 and rounded to integers to create a filter whose
    intermediate values fit inside 16 bits.
   Coefficients are rounded in such a way as to ensure their sum is still 128,
    which is usually equivalent to normal rounding.
@@ -139,7 +139,6 @@ static int y4m_parse_tags(y4m_input *_y4m, char *_tags) {
   Conversions which require both horizontal and vertical filtering could
    have these steps pipelined, for less memory consumption and better cache
    performance, but we do them separately for simplicity.*/
-
 #define OC_MINI(_a, _b) ((_a) > (_b) ? (_b) : (_a))
 #define OC_MAXI(_a, _b) ((_a) < (_b) ? (_b) : (_a))
 #define OC_CLAMPI(_a, _b, _c) (OC_MAXI(_a, OC_MINI(_b, _c)))
@@ -195,26 +194,29 @@ static void y4m_42xmpeg2_42xjpeg_helper(unsigned char *_dst,
        window.*/
     for (x = 0; x < OC_MINI(_c_w, 2); x++) {
       _dst[x] = (unsigned char)OC_CLAMPI(
-          0, (4 * _src[0] - 17 * _src[OC_MAXI(x - 1, 0)] + 114 * _src[x] +
-              35 * _src[OC_MINI(x + 1, _c_w - 1)] -
-              9 * _src[OC_MINI(x + 2, _c_w - 1)] +
-              _src[OC_MINI(x + 3, _c_w - 1)] + 64) >>
-                 7,
+          0,
+          (4 * _src[0] - 17 * _src[OC_MAXI(x - 1, 0)] + 114 * _src[x] +
+           35 * _src[OC_MINI(x + 1, _c_w - 1)] -
+           9 * _src[OC_MINI(x + 2, _c_w - 1)] + _src[OC_MINI(x + 3, _c_w - 1)] +
+           64) >>
+              7,
           255);
     }
     for (; x < _c_w - 3; x++) {
       _dst[x] = (unsigned char)OC_CLAMPI(
-          0, (4 * _src[x - 2] - 17 * _src[x - 1] + 114 * _src[x] +
-              35 * _src[x + 1] - 9 * _src[x + 2] + _src[x + 3] + 64) >>
-                 7,
+          0,
+          (4 * _src[x - 2] - 17 * _src[x - 1] + 114 * _src[x] +
+           35 * _src[x + 1] - 9 * _src[x + 2] + _src[x + 3] + 64) >>
+              7,
           255);
     }
     for (; x < _c_w; x++) {
       _dst[x] = (unsigned char)OC_CLAMPI(
-          0, (4 * _src[x - 2] - 17 * _src[x - 1] + 114 * _src[x] +
-              35 * _src[OC_MINI(x + 1, _c_w - 1)] -
-              9 * _src[OC_MINI(x + 2, _c_w - 1)] + _src[_c_w - 1] + 64) >>
-                 7,
+          0,
+          (4 * _src[x - 2] - 17 * _src[x - 1] + 114 * _src[x] +
+           35 * _src[OC_MINI(x + 1, _c_w - 1)] -
+           9 * _src[OC_MINI(x + 2, _c_w - 1)] + _src[_c_w - 1] + 64) >>
+              7,
           255);
     }
     _dst += _c_w;
@@ -314,28 +316,31 @@ static void y4m_convert_42xpaldv_42xjpeg(y4m_input *_y4m, unsigned char *_dst,
         for (x = 0; x < c_w; x++) {
           for (y = 0; y < OC_MINI(c_h, 3); y++) {
             _dst[y * c_w] = (unsigned char)OC_CLAMPI(
-                0, (tmp[0] - 9 * tmp[OC_MAXI(y - 2, 0) * c_w] +
-                    35 * tmp[OC_MAXI(y - 1, 0) * c_w] + 114 * tmp[y * c_w] -
-                    17 * tmp[OC_MINI(y + 1, c_h - 1) * c_w] +
-                    4 * tmp[OC_MINI(y + 2, c_h - 1) * c_w] + 64) >>
-                       7,
+                0,
+                (tmp[0] - 9 * tmp[OC_MAXI(y - 2, 0) * c_w] +
+                 35 * tmp[OC_MAXI(y - 1, 0) * c_w] + 114 * tmp[y * c_w] -
+                 17 * tmp[OC_MINI(y + 1, c_h - 1) * c_w] +
+                 4 * tmp[OC_MINI(y + 2, c_h - 1) * c_w] + 64) >>
+                    7,
                 255);
           }
           for (; y < c_h - 2; y++) {
             _dst[y * c_w] = (unsigned char)OC_CLAMPI(
-                0, (tmp[(y - 3) * c_w] - 9 * tmp[(y - 2) * c_w] +
-                    35 * tmp[(y - 1) * c_w] + 114 * tmp[y * c_w] -
-                    17 * tmp[(y + 1) * c_w] + 4 * tmp[(y + 2) * c_w] + 64) >>
-                       7,
+                0,
+                (tmp[(y - 3) * c_w] - 9 * tmp[(y - 2) * c_w] +
+                 35 * tmp[(y - 1) * c_w] + 114 * tmp[y * c_w] -
+                 17 * tmp[(y + 1) * c_w] + 4 * tmp[(y + 2) * c_w] + 64) >>
+                    7,
                 255);
           }
           for (; y < c_h; y++) {
             _dst[y * c_w] = (unsigned char)OC_CLAMPI(
-                0, (tmp[(y - 3) * c_w] - 9 * tmp[(y - 2) * c_w] +
-                    35 * tmp[(y - 1) * c_w] + 114 * tmp[y * c_w] -
-                    17 * tmp[OC_MINI(y + 1, c_h - 1) * c_w] +
-                    4 * tmp[(c_h - 1) * c_w] + 64) >>
-                       7,
+                0,
+                (tmp[(y - 3) * c_w] - 9 * tmp[(y - 2) * c_w] +
+                 35 * tmp[(y - 1) * c_w] + 114 * tmp[y * c_w] -
+                 17 * tmp[OC_MINI(y + 1, c_h - 1) * c_w] +
+                 4 * tmp[(c_h - 1) * c_w] + 64) >>
+                    7,
                 255);
           }
           _dst++;
@@ -361,10 +366,11 @@ static void y4m_convert_42xpaldv_42xjpeg(y4m_input *_y4m, unsigned char *_dst,
           }
           for (; y < c_h - 3; y++) {
             _dst[y * c_w] = (unsigned char)OC_CLAMPI(
-                0, (4 * tmp[(y - 2) * c_w] - 17 * tmp[(y - 1) * c_w] +
-                    114 * tmp[y * c_w] + 35 * tmp[(y + 1) * c_w] -
-                    9 * tmp[(y + 2) * c_w] + tmp[(y + 3) * c_w] + 64) >>
-                       7,
+                0,
+                (4 * tmp[(y - 2) * c_w] - 17 * tmp[(y - 1) * c_w] +
+                 114 * tmp[y * c_w] + 35 * tmp[(y + 1) * c_w] -
+                 9 * tmp[(y + 2) * c_w] + tmp[(y + 3) * c_w] + 64) >>
+                    7,
                 255);
           }
           for (; y < c_h; y++) {
@@ -404,18 +410,20 @@ static void y4m_422jpeg_420jpeg_helper(unsigned char *_dst,
   for (x = 0; x < _c_w; x++) {
     for (y = 0; y < OC_MINI(_c_h, 2); y += 2) {
       _dst[(y >> 1) * _c_w] =
-          OC_CLAMPI(0, (64 * _src[0] + 78 * _src[OC_MINI(1, _c_h - 1) * _c_w] -
-                        17 * _src[OC_MINI(2, _c_h - 1) * _c_w] +
-                        3 * _src[OC_MINI(3, _c_h - 1) * _c_w] + 64) >>
-                           7,
+          OC_CLAMPI(0,
+                    (64 * _src[0] + 78 * _src[OC_MINI(1, _c_h - 1) * _c_w] -
+                     17 * _src[OC_MINI(2, _c_h - 1) * _c_w] +
+                     3 * _src[OC_MINI(3, _c_h - 1) * _c_w] + 64) >>
+                        7,
                     255);
     }
     for (; y < _c_h - 3; y += 2) {
       _dst[(y >> 1) * _c_w] =
-          OC_CLAMPI(0, (3 * (_src[(y - 2) * _c_w] + _src[(y + 3) * _c_w]) -
-                        17 * (_src[(y - 1) * _c_w] + _src[(y + 2) * _c_w]) +
-                        78 * (_src[y * _c_w] + _src[(y + 1) * _c_w]) + 64) >>
-                           7,
+          OC_CLAMPI(0,
+                    (3 * (_src[(y - 2) * _c_w] + _src[(y + 3) * _c_w]) -
+                     17 * (_src[(y - 1) * _c_w] + _src[(y + 2) * _c_w]) +
+                     78 * (_src[y * _c_w] + _src[(y + 1) * _c_w]) + 64) >>
+                        7,
                     255);
     }
     for (; y < _c_h; y += 2) {
@@ -642,33 +650,38 @@ static void y4m_convert_411_420jpeg(y4m_input *_y4m, unsigned char *_dst,
          4-tap Mitchell window.*/
       for (x = 0; x < OC_MINI(c_w, 1); x++) {
         tmp[x << 1] = (unsigned char)OC_CLAMPI(
-            0, (111 * _aux[0] + 18 * _aux[OC_MINI(1, c_w - 1)] -
-                _aux[OC_MINI(2, c_w - 1)] + 64) >>
-                   7,
+            0,
+            (111 * _aux[0] + 18 * _aux[OC_MINI(1, c_w - 1)] -
+             _aux[OC_MINI(2, c_w - 1)] + 64) >>
+                7,
             255);
         tmp[x << 1 | 1] = (unsigned char)OC_CLAMPI(
-            0, (47 * _aux[0] + 86 * _aux[OC_MINI(1, c_w - 1)] -
-                5 * _aux[OC_MINI(2, c_w - 1)] + 64) >>
-                   7,
+            0,
+            (47 * _aux[0] + 86 * _aux[OC_MINI(1, c_w - 1)] -
+             5 * _aux[OC_MINI(2, c_w - 1)] + 64) >>
+                7,
             255);
       }
       for (; x < c_w - 2; x++) {
         tmp[x << 1] =
-            (unsigned char)OC_CLAMPI(0, (_aux[x - 1] + 110 * _aux[x] +
-                                         18 * _aux[x + 1] - _aux[x + 2] + 64) >>
-                                            7,
+            (unsigned char)OC_CLAMPI(0,
+                                     (_aux[x - 1] + 110 * _aux[x] +
+                                      18 * _aux[x + 1] - _aux[x + 2] + 64) >>
+                                         7,
                                      255);
         tmp[x << 1 | 1] = (unsigned char)OC_CLAMPI(
-            0, (-3 * _aux[x - 1] + 50 * _aux[x] + 86 * _aux[x + 1] -
-                5 * _aux[x + 2] + 64) >>
-                   7,
+            0,
+            (-3 * _aux[x - 1] + 50 * _aux[x] + 86 * _aux[x + 1] -
+             5 * _aux[x + 2] + 64) >>
+                7,
             255);
       }
       for (; x < c_w; x++) {
         tmp[x << 1] = (unsigned char)OC_CLAMPI(
-            0, (_aux[x - 1] + 110 * _aux[x] +
-                18 * _aux[OC_MINI(x + 1, c_w - 1)] - _aux[c_w - 1] + 64) >>
-                   7,
+            0,
+            (_aux[x - 1] + 110 * _aux[x] + 18 * _aux[OC_MINI(x + 1, c_w - 1)] -
+             _aux[c_w - 1] + 64) >>
+                7,
             255);
         if ((x << 1 | 1) < dst_c_w) {
           tmp[x << 1 | 1] = (unsigned char)OC_CLAMPI(
@@ -718,27 +731,29 @@ static void y4m_convert_444_420jpeg(y4m_input *_y4m, unsigned char *_dst,
     /*Filter: [3 -17 78 78 -17 3]/128, derived from a 6-tap Lanczos window.*/
     for (y = 0; y < c_h; y++) {
       for (x = 0; x < OC_MINI(c_w, 2); x += 2) {
-        tmp[x >> 1] =
-            OC_CLAMPI(0, (64 * _aux[0] + 78 * _aux[OC_MINI(1, c_w - 1)] -
-                          17 * _aux[OC_MINI(2, c_w - 1)] +
-                          3 * _aux[OC_MINI(3, c_w - 1)] + 64) >>
-                             7,
-                      255);
+        tmp[x >> 1] = OC_CLAMPI(0,
+                                (64 * _aux[0] + 78 * _aux[OC_MINI(1, c_w - 1)] -
+                                 17 * _aux[OC_MINI(2, c_w - 1)] +
+                                 3 * _aux[OC_MINI(3, c_w - 1)] + 64) >>
+                                    7,
+                                255);
       }
       for (; x < c_w - 3; x += 2) {
-        tmp[x >> 1] = OC_CLAMPI(0, (3 * (_aux[x - 2] + _aux[x + 3]) -
-                                    17 * (_aux[x - 1] + _aux[x + 2]) +
-                                    78 * (_aux[x] + _aux[x + 1]) + 64) >>
-                                       7,
+        tmp[x >> 1] = OC_CLAMPI(0,
+                                (3 * (_aux[x - 2] + _aux[x + 3]) -
+                                 17 * (_aux[x - 1] + _aux[x + 2]) +
+                                 78 * (_aux[x] + _aux[x + 1]) + 64) >>
+                                    7,
                                 255);
       }
       for (; x < c_w; x += 2) {
-        tmp[x >> 1] = OC_CLAMPI(
-            0, (3 * (_aux[x - 2] + _aux[c_w - 1]) -
-                17 * (_aux[x - 1] + _aux[OC_MINI(x + 2, c_w - 1)]) +
-                78 * (_aux[x] + _aux[OC_MINI(x + 1, c_w - 1)]) + 64) >>
-                   7,
-            255);
+        tmp[x >> 1] =
+            OC_CLAMPI(0,
+                      (3 * (_aux[x - 2] + _aux[c_w - 1]) -
+                       17 * (_aux[x - 1] + _aux[OC_MINI(x + 2, c_w - 1)]) +
+                       78 * (_aux[x] + _aux[OC_MINI(x + 1, c_w - 1)]) + 64) >>
+                          7,
+                      255);
       }
       tmp += dst_c_w;
       _aux += c_w;
@@ -960,6 +975,8 @@ int y4m_input_open(y4m_input *_y4m, FILE *_fin, char *_skip, int _nskip,
     _y4m->aux_buf_sz =
         _y4m->aux_buf_read_sz + ((_y4m->pic_w + 1) / 2) * _y4m->pic_h;
     _y4m->convert = y4m_convert_411_420jpeg;
+    fprintf(stderr, "Unsupported conversion from yuv 411\n");
+    return -1;
   } else if (strcmp(_y4m->chroma_type, "444") == 0) {
     _y4m->src_c_dec_h = 1;
     _y4m->src_c_dec_v = 1;
@@ -1013,30 +1030,6 @@ int y4m_input_open(y4m_input *_y4m, FILE *_fin, char *_skip, int _nskip,
     if (only_420) {
       fprintf(stderr, "Unsupported conversion from 444p12 to 420jpeg\n");
       return -1;
-    }
-  } else if (strcmp(_y4m->chroma_type, "444alpha") == 0) {
-    _y4m->src_c_dec_h = 1;
-    _y4m->src_c_dec_v = 1;
-    if (only_420) {
-      _y4m->dst_c_dec_h = 2;
-      _y4m->dst_c_dec_v = 2;
-      _y4m->dst_buf_read_sz = _y4m->pic_w * _y4m->pic_h;
-      /*Chroma filter required: read into the aux buf first.
-        We need to make two filter passes, so we need some extra space in the
-         aux buffer.
-        The extra plane also gets read into the aux buf.
-        It will be discarded.*/
-      _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 3 * _y4m->pic_w * _y4m->pic_h;
-      _y4m->convert = y4m_convert_444_420jpeg;
-    } else {
-      _y4m->vpx_fmt = VPX_IMG_FMT_444A;
-      _y4m->bps = 32;
-      _y4m->dst_c_dec_h = _y4m->src_c_dec_h;
-      _y4m->dst_c_dec_v = _y4m->src_c_dec_v;
-      _y4m->dst_buf_read_sz = 4 * _y4m->pic_w * _y4m->pic_h;
-      /*Natively supported: no conversion required.*/
-      _y4m->aux_buf_sz = _y4m->aux_buf_read_sz = 0;
-      _y4m->convert = y4m_convert_null;
     }
   } else if (strcmp(_y4m->chroma_type, "mono") == 0) {
     _y4m->src_c_dec_h = _y4m->src_c_dec_v = 0;

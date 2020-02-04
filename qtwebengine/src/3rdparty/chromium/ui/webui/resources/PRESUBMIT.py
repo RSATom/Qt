@@ -2,14 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-def PostUploadHook(cl, change, output_api):
-  return output_api.EnsureCQIncludeTrybotsAreAdded(
-    cl,
-    [
-      'master.tryserver.chromium.linux:closure_compilation',
-    ],
-    'Automatically added optional Closure bots to run on CQ.')
-
+import os
 
 def CheckChangeOnUpload(input_api, output_api):
   return _CommonChecks(input_api, output_api)
@@ -22,15 +15,18 @@ def CheckChangeOnCommit(input_api, output_api):
 def _CheckForTranslations(input_api, output_api):
   shared_keywords = ['i18n(']
   html_keywords = shared_keywords + ['$118n{']
-  js_keywords = shared_keywords + ['I18nBehavior', 'loadTimeData.']
+  js_keywords = shared_keywords + ['I18nBehavior', 'loadTimeData.get']
 
   errors = []
 
   for f in input_api.AffectedFiles():
     local_path = f.LocalPath()
+    # Allow translation in i18n_behavior.js.
     if local_path.endswith('i18n_behavior.js'):
       continue
-
+    # Allow translation in the cr_components directory.
+    if 'cr_components' in local_path:
+      continue
     keywords = None
     if local_path.endswith('.js'):
       keywords = js_keywords
@@ -65,8 +61,7 @@ def _CommonChecks(input_api, output_api):
     cwd = input_api.PresubmitLocalPath()
     sys.path += [input_api.os_path.join(cwd, '..', '..', '..', 'tools')]
     from web_dev_style import presubmit_support
-    BLACKLIST = ['ui/webui/resources/js/analytics.js',
-                 'ui/webui/resources/js/jstemplate_compiled.js']
+    BLACKLIST = ['ui/webui/resources/js/jstemplate_compiled.js']
     file_filter = lambda f: f.LocalPath() not in BLACKLIST
     results += presubmit_support.CheckStyle(input_api, output_api, file_filter)
   finally:

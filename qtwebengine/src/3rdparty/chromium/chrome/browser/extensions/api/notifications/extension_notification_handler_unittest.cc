@@ -4,7 +4,9 @@
 
 #include <string>
 
-#include "base/strings/nullable_string16.h"
+#include "base/bind.h"
+#include "base/bind_helpers.h"
+#include "base/optional.h"
 #include "chrome/browser/extensions/api/notifications/extension_notification_handler.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -54,8 +56,7 @@ class TestExtensionNotificationHandler : public ExtensionNotificationHandler {
 
 class ExtensionNotificationHandlerTest : public testing::Test {
  public:
-  ExtensionNotificationHandlerTest()
-      : thread_bundle_(content::TestBrowserThreadBundle::DEFAULT) {}
+  ExtensionNotificationHandlerTest() {}
 
  private:
   content::TestBrowserThreadBundle thread_bundle_;
@@ -68,8 +69,9 @@ TEST_F(ExtensionNotificationHandlerTest, CloseHandler) {
 
   TestExtensionNotificationHandler handler;
   handler.SetTestExpectations(kChromeExtensionId, "notifications.onClosed", 2);
-  handler.OnClose(profile.get(), kChromeExtensionOrigin, kChromeNotificationId,
-                  false);
+  handler.OnClose(profile.get(), GURL(kChromeExtensionOrigin),
+                  kChromeNotificationId, false /* by_user */,
+                  base::DoNothing());
 }
 
 TEST_F(ExtensionNotificationHandlerTest, ClickHandler) {
@@ -79,8 +81,9 @@ TEST_F(ExtensionNotificationHandlerTest, ClickHandler) {
 
   TestExtensionNotificationHandler handler;
   handler.SetTestExpectations(kChromeExtensionId, "notifications.onClicked", 1);
-  handler.OnClick(profile.get(), kChromeExtensionOrigin, kChromeNotificationId,
-                  -1, base::NullableString16() /* reply */);
+  handler.OnClick(profile.get(), GURL(kChromeExtensionOrigin),
+                  kChromeNotificationId, base::nullopt /* action_index */,
+                  base::nullopt /* reply */, base::DoNothing());
 }
 
 TEST_F(ExtensionNotificationHandlerTest, ClickHandlerButton) {
@@ -91,8 +94,9 @@ TEST_F(ExtensionNotificationHandlerTest, ClickHandlerButton) {
   TestExtensionNotificationHandler handler;
   handler.SetTestExpectations(kChromeExtensionId,
                               "notifications.onButtonClicked", 2);
-  handler.OnClick(profile.get(), kChromeExtensionOrigin, kChromeNotificationId,
-                  1, base::NullableString16() /* reply */);
+  handler.OnClick(profile.get(), GURL(kChromeExtensionOrigin),
+                  kChromeNotificationId, 1 /* action_index */,
+                  base::nullopt /* reply */, base::DoNothing());
 }
 
 }  // namespace extensions

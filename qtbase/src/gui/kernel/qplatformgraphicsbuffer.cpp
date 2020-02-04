@@ -184,7 +184,7 @@ void QPlatformGraphicsBuffer::unlock()
     \fn QPlatformGraphicsBuffer::doLock(AccessTypes access, const QRect &rect = QRect())
 
     This function should be reimplemented by subclasses. If one of the \a
-    access types specified can not be locked, then all should fail and this
+    access types specified cannot be locked, then all should fail and this
     function should return false.
 
     \a rect is the subrect which is desired to be locked. This
@@ -217,7 +217,7 @@ void QPlatformGraphicsBuffer::unlock()
     the memory returned when not having a SWWriteAccess.
 */
 const uchar *QPlatformGraphicsBuffer::data() const
-{ return Q_NULLPTR; }
+{ return nullptr; }
 
 /*!
     Accessor for the bytes of the buffer. This function needs to be called on a
@@ -226,7 +226,7 @@ const uchar *QPlatformGraphicsBuffer::data() const
 */
 uchar *QPlatformGraphicsBuffer::data()
 {
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 /*!
@@ -237,7 +237,6 @@ uchar *QPlatformGraphicsBuffer::data()
 */
 int QPlatformGraphicsBuffer::byteCount() const
 {
-    Q_ASSERT(isLocked() & SWReadAccess);
     return size().height() * bytesPerLine();
 }
 

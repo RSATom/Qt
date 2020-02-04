@@ -18,8 +18,10 @@
 #include "base/observer_list.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_checker.h"
+#include "build/build_config.h"
 #include "components/content_settings/core/browser/content_settings_observer.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
+#include "components/content_settings/core/browser/user_modifiable_provider.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/content_settings_types.h"
@@ -53,13 +55,18 @@ class HostContentSettingsMap : public content_settings::Observer,
     // EXTENSION names is a layering violation when this class will move to
     // components.
     // TODO(mukai): find the solution.
-    INTERNAL_EXTENSION_PROVIDER = 0,
-    POLICY_PROVIDER,
+    POLICY_PROVIDER = 0,
     SUPERVISED_PROVIDER,
     CUSTOM_EXTENSION_PROVIDER,
     NOTIFICATION_ANDROID_PROVIDER,
+    EPHEMERAL_PROVIDER,
     PREF_PROVIDER,
     DEFAULT_PROVIDER,
+
+    // The following providers are for tests only.
+    PROVIDER_FOR_TESTS,
+    OTHER_PROVIDER_FOR_TESTS,
+
     NUM_PROVIDER_TYPES
   };
 
@@ -69,9 +76,20 @@ class HostContentSettingsMap : public content_settings::Observer,
   HostContentSettingsMap(PrefService* prefs,
                          bool is_incognito_profile,
                          bool is_guest_profile,
-                         bool store_last_modified);
+                         bool store_last_modified,
+                         bool migrate_requesting_and_top_level_origin_settings);
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+
+  // Adds a new provider for |type|. This should be used instead of
+  // |RegisterProvider|, not in addition.
+  //
+  // Providers added via this method will be queried when
+  // |GetSettingLastModifiedDate| is called and their settings may be cleared by
+  // |ClearSettingsForOneTypeWithPredicate| if they were recently modified.
+  void RegisterUserModifiableProvider(
+      ProviderType type,
+      std::unique_ptr<content_settings::UserModifiableProvider> provider);
 
   // Adds a new provider for |type|.
   void RegisterProvider(
@@ -94,6 +112,14 @@ class HostContentSettingsMap : public content_settings::Observer,
   //
   // May be called on any thread.
   ContentSetting GetContentSetting(
+      const GURL& primary_url,
+      const GURL& secondary_url,
+      ContentSettingsType content_type,
+      const std::string& resource_identifier) const;
+
+  // This is the same as GetContentSetting() but ignores providers which are not
+  // user-controllable (e.g. policy and extensions).
+  ContentSetting GetUserModifiableContentSetting(
       const GURL& primary_url,
       const GURL& secondary_url,
       ContentSettingsType content_type,
@@ -205,6 +231,10 @@ class HostContentSettingsMap : public content_settings::Observer,
       const GURL& secondary_url,
       ContentSettingsType type) const;
 
+  // Checks whether the specified |type| controls a feature that is restricted
+  // to secure origins.
+  bool IsRestrictedToSecureOrigins(ContentSettingsType type) const;
+
   // Sets the most specific rule that currently defines the setting for the
   // given content type. TODO(raymes): Remove this once all content settings
   // are scoped to origin scope. There is no scope more narrow than origin
@@ -236,10 +266,11 @@ class HostContentSettingsMap : public content_settings::Observer,
 
   // If |pattern_predicate| is null, this method is equivalent to the above.
   // Otherwise, it only deletes exceptions matched by |pattern_predicate| that
-  // were modified at or after |begin_time|.
+  // were modified at or after |begin_time| and before |end_time|.
   void ClearSettingsForOneTypeWithPredicate(
       ContentSettingsType content_type,
       base::Time begin_time,
+      base::Time end_time,
       const PatternSourcePredicate& pattern_predicate);
 
   // RefcountedKeyedService implementation.
@@ -249,7 +280,7 @@ class HostContentSettingsMap : public content_settings::Observer,
   void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
                                const ContentSettingsPattern& secondary_pattern,
                                ContentSettingsType content_type,
-                               std::string resource_identifier) override;
+                               const std::string& resource_identifier) override;
 
   // Returns the ProviderType associated with the given source string.
   // TODO(estade): I regret adding this. At the moment there are no legitimate
@@ -268,32 +299,25 @@ class HostContentSettingsMap : public content_settings::Observer,
   // Schedules any pending lossy website settings to be written to disk.
   void FlushLossyWebsiteSettings();
 
-  // Migrate old domain scoped ALLOW settings to be origin scoped for
-  // ContentSettingsTypes which are domain scoped. Only narrow down ALLOW
-  // domain settings to origins so that this will not cause privacy/security
-  // issues.
-  //
-  // |after_sync| will be false when called upon construction of this object and
-  // true when called by the sync layer after sync is completed.
-  // TODO(lshang): https://crbug.com/621398 Remove this when clients have
-  // migrated (~M56).
-  void MigrateDomainScopedSettings(bool after_sync);
-
   base::WeakPtr<HostContentSettingsMap> GetWeakPtr();
 
   // Injects a clock into the PrefProvider to allow control over the
   // |last_modified| timestamp.
-  void SetClockForTesting(std::unique_ptr<base::Clock> clock);
+  void SetClockForTesting(base::Clock* clock);
+
+  // Returns the provider that contains content settings from user preferences.
+  content_settings::PrefProvider* GetPrefProvider() const {
+    return pref_provider_;
+  }
 
  private:
   friend class base::RefCountedThreadSafe<HostContentSettingsMap>;
-
-  FRIEND_TEST_ALL_PREFIXES(HostContentSettingsMapTest,
-                           DomainToOriginMigrationStatus);
-  FRIEND_TEST_ALL_PREFIXES(HostContentSettingsMapTest,
-                           MigrateDomainScopedSettings);
-
   friend class content_settings::TestUtils;
+  FRIEND_TEST_ALL_PREFIXES(HostContentSettingsMapTest,
+                           MigrateRequestingAndTopLevelOriginSettings);
+  FRIEND_TEST_ALL_PREFIXES(
+      HostContentSettingsMapTest,
+      MigrateRequestingAndTopLevelOriginSettingsResetsEmbeddedSetting);
 
   ~HostContentSettingsMap() override;
 
@@ -336,6 +360,7 @@ class HostContentSettingsMap : public content_settings::Observer,
       const GURL& secondary_url,
       ContentSettingsType content_type,
       const std::string& resource_identifier,
+      ProviderType first_provider_to_search,
       content_settings::SettingInfo* info) const;
 
   content_settings::PatternPair GetNarrowestPatterns(
@@ -359,6 +384,21 @@ class HostContentSettingsMap : public content_settings::Observer,
       const GURL& secondary_url,
       ContentSettingsPattern* primary_pattern,
       ContentSettingsPattern* secondary_pattern);
+
+  // Make sure existing non-default Flash settings set by the user are marked to
+  // always show the Flash setting for this site in Page Info.
+  // TODO(patricialor): Remove after m66 (migration code).
+  void InitializePluginsDataSettings();
+
+  // Migrate requesting and top level origin content settings to remove all
+  // settings that have a top level pattern. If there is a pattern set for
+  // (http://x.com, http://y.com) this will remove that pattern and also remove
+  // (http://y.com, *). The reason the second pattern is removed is to ensure
+  // that permission won't automatically be granted to x.com when it's embedded
+  // in y.com when permission delegation is enabled.
+  // TODO(raymes): Remove 2 milestones after permission delegation ships.
+  // https://crbug.com/818004.
+  void MigrateRequestingAndTopLevelOriginSettings();
 
 #ifndef NDEBUG
   // This starts as the thread ID of the thread that constructs this
@@ -386,12 +426,18 @@ class HostContentSettingsMap : public content_settings::Observer,
   std::map<ProviderType, std::unique_ptr<content_settings::ProviderInterface>>
       content_settings_providers_;
 
+  // List of content settings providers containing settings which can be
+  // modified by the user. Members are owned by the
+  // |content_settings_providers_| map above.
+  std::vector<content_settings::UserModifiableProvider*>
+      user_modifiable_providers_;
+
   // content_settings_providers_[PREF_PROVIDER] but specialized.
   content_settings::PrefProvider* pref_provider_ = nullptr;
 
   base::ThreadChecker thread_checker_;
 
-  base::ObserverList<content_settings::Observer> observers_;
+  base::ObserverList<content_settings::Observer>::Unchecked observers_;
 
   base::WeakPtrFactory<HostContentSettingsMap> weak_ptr_factory_;
 

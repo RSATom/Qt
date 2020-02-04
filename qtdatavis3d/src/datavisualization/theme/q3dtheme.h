@@ -88,8 +88,8 @@ public:
     };
 
 public:
-    explicit Q3DTheme(QObject *parent = Q_NULLPTR);
-    explicit Q3DTheme(Theme themeType, QObject *parent = Q_NULLPTR);
+    explicit Q3DTheme(QObject *parent = nullptr);
+    explicit Q3DTheme(Theme themeType, QObject *parent = nullptr);
     virtual ~Q3DTheme();
 
     void setType(Theme themeType);
@@ -183,7 +183,7 @@ Q_SIGNALS:
     void colorStyleChanged(Q3DTheme::ColorStyle style);
 
 protected:
-    explicit Q3DTheme(Q3DThemePrivate *d, Theme themeType, QObject *parent = Q_NULLPTR);
+    explicit Q3DTheme(Q3DThemePrivate *d, Theme themeType, QObject *parent = nullptr);
 
     QScopedPointer<Q3DThemePrivate> d_ptr;
 

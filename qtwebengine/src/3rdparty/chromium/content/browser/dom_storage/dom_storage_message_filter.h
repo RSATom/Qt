@@ -51,13 +51,18 @@ class DOMStorageMessageFilter
 
   // Message Handlers.
   void OnOpenStorageArea(int connection_id,
-                         int64_t namespace_id,
+                         const std::string& namespace_id,
                          const GURL& origin);
   void OnCloseStorageArea(int connection_id);
   void OnLoadStorageArea(int connection_id, DOMStorageValuesMap* map);
-  void OnSetItem(int connection_id, const base::string16& key,
-                 const base::string16& value, const GURL& page_url);
-  void OnRemoveItem(int connection_id, const base::string16& key,
+  void OnSetItem(int connection_id,
+                 const base::string16& key,
+                 const base::string16& value,
+                 const base::NullableString16& client_old_value,
+                 const GURL& page_url);
+  void OnRemoveItem(int connection_id,
+                    const base::string16& key,
+                    const base::NullableString16& client_old_value,
                     const GURL& page_url);
   void OnClear(int connection_id, const GURL& page_url);
   void OnFlushMessages();

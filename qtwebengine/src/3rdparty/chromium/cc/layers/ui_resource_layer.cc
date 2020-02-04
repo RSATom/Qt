@@ -4,7 +4,6 @@
 
 #include "cc/layers/ui_resource_layer.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/layers/ui_resource_layer_impl.h"
 #include "cc/resources/scoped_ui_resource.h"
@@ -15,7 +14,7 @@
 namespace cc {
 
 scoped_refptr<UIResourceLayer> UIResourceLayer::Create() {
-  return make_scoped_refptr(new UIResourceLayer());
+  return base::WrapRefCounted(new UIResourceLayer());
 }
 
 UIResourceLayer::UIResourceLayer()
@@ -26,7 +25,7 @@ UIResourceLayer::UIResourceLayer()
   vertex_opacity_[3] = 1.0f;
 }
 
-UIResourceLayer::~UIResourceLayer() {}
+UIResourceLayer::~UIResourceLayer() = default;
 
 std::unique_ptr<LayerImpl> UIResourceLayer::CreateLayerImpl(
     LayerTreeImpl* tree_impl) {

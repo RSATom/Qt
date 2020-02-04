@@ -8,12 +8,14 @@
 #include <string>
 
 #include "ash/public/cpp/app_types.h"
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/scoped_feature_list.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/user_manager/fake_user_manager.h"
+#include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/aura_constants.h"
@@ -42,32 +44,11 @@ class ScopedArcFeature {
   DISALLOW_COPY_AND_ASSIGN(ScopedArcFeature);
 };
 
-// Helper to enable user_manager::FakeUserManager while it is in scope.
-// TODO(xiyuan): Remove after ScopedUserManagerEnabler is moved to user_manager.
-class ScopedUserManager {
- public:
-  explicit ScopedUserManager(user_manager::UserManager* user_manager)
-      : user_manager_(user_manager) {
-    DCHECK(!user_manager::UserManager::IsInitialized());
-    user_manager->Initialize();
-  }
-  ~ScopedUserManager() {
-    DCHECK_EQ(user_manager::UserManager::Get(), user_manager_);
-    user_manager_->Shutdown();
-    user_manager_->Destroy();
-  }
-
- private:
-  user_manager::UserManager* const user_manager_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScopedUserManager);
-};
-
 // Fake user that can be created with a specified type.
 class FakeUser : public user_manager::User {
  public:
   explicit FakeUser(user_manager::UserType user_type)
-      : User(AccountId::FromUserEmail("user@test.com")),
+      : User(AccountId::FromUserEmailGaiaId("user@test.com", "1234567890")),
         user_type_(user_type) {}
   ~FakeUser() override = default;
 
@@ -174,6 +155,14 @@ TEST_F(ArcUtilTest, IsArcAvailable_OfficiallySupported) {
   EXPECT_TRUE(IsArcKioskAvailable());
 }
 
+TEST_F(ArcUtilTest, IsArcVmEnablede) {
+  EXPECT_FALSE(IsArcVmEnabled());
+
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  command_line->InitFromArgv({"", "--enable-arcvm"});
+  EXPECT_TRUE(IsArcVmEnabled());
+}
+
 // TODO(hidehiko): Add test for IsArcKioskMode().
 // It depends on UserManager, but a utility to inject fake instance is
 // available only in chrome/. To use it in components/, refactoring is needed.
@@ -203,8 +192,10 @@ TEST_F(ArcUtilTest, IsArcAppWindow) {
 }
 
 TEST_F(ArcUtilTest, IsArcAllowedForUser) {
-  user_manager::FakeUserManager fake_user_manager;
-  ScopedUserManager scoped_user_manager(&fake_user_manager);
+  user_manager::FakeUserManager* fake_user_manager =
+      new user_manager::FakeUserManager();
+  user_manager::ScopedUserManager scoped_user_manager(
+      base::WrapUnique(fake_user_manager));
 
   struct {
     user_manager::UserType user_type;
@@ -212,7 +203,7 @@ TEST_F(ArcUtilTest, IsArcAllowedForUser) {
   } const kTestCases[] = {
       {user_manager::USER_TYPE_REGULAR, true},
       {user_manager::USER_TYPE_GUEST, false},
-      {user_manager::USER_TYPE_PUBLIC_ACCOUNT, false},
+      {user_manager::USER_TYPE_PUBLIC_ACCOUNT, true},
       {user_manager::USER_TYPE_SUPERVISED, false},
       {user_manager::USER_TYPE_KIOSK_APP, false},
       {user_manager::USER_TYPE_CHILD, true},
@@ -227,23 +218,36 @@ TEST_F(ArcUtilTest, IsArcAllowedForUser) {
 
   // An ephemeral user is a logged in user but unknown to UserManager when
   // ephemeral policy is set.
-  fake_user_manager.SetEphemeralUsersEnabled(true);
-  fake_user_manager.UserLoggedIn(AccountId::FromUserEmail("test@test.com"),
-                                 "test@test.com-hash", false);
-  const user_manager::User* ephemeral_user = fake_user_manager.GetActiveUser();
+  fake_user_manager->SetEphemeralUsersEnabled(true);
+  fake_user_manager->UserLoggedIn(
+      AccountId::FromUserEmailGaiaId("test@test.com", "9876543210"),
+      "test@test.com-hash", false /* browser_restart */, false /* is_child */);
+  const user_manager::User* ephemeral_user = fake_user_manager->GetActiveUser();
   ASSERT_TRUE(ephemeral_user);
-  ASSERT_TRUE(fake_user_manager.IsUserCryptohomeDataEphemeral(
+  ASSERT_TRUE(fake_user_manager->IsUserCryptohomeDataEphemeral(
       ephemeral_user->GetAccountId()));
 
-  // Ephemeral user is not allowed for ARC.
-  EXPECT_FALSE(IsArcAllowedForUser(ephemeral_user));
+  // Ephemeral user is also allowed for ARC.
+  EXPECT_TRUE(IsArcAllowedForUser(ephemeral_user));
+}
+
+TEST_F(ArcUtilTest, IsArcAllowedForChildUserWithExperiment) {
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  command_line->InitFromArgv(
+      {"", "--enable-features=ArcAvailableForChildAccount"});
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitFromCommandLine(
+      command_line->GetSwitchValueASCII(switches::kEnableFeatures),
+      command_line->GetSwitchValueASCII(switches::kDisableFeatures));
+  const FakeUser user(user_manager::USER_TYPE_CHILD);
+  EXPECT_TRUE(IsArcAllowedForUser(&user));
 }
 
 TEST_F(ArcUtilTest, ArcStartModeDefault) {
   auto* command_line = base::CommandLine::ForCurrentProcess();
   command_line->InitFromArgv({"", "--arc-availability=installed"});
   EXPECT_FALSE(ShouldArcAlwaysStart());
-  EXPECT_TRUE(IsPlayStoreAvailable());
+  EXPECT_FALSE(ShouldArcAlwaysStartWithNoPlayStore());
 }
 
 TEST_F(ArcUtilTest, ArcStartModeWithoutPlayStore) {
@@ -252,7 +256,22 @@ TEST_F(ArcUtilTest, ArcStartModeWithoutPlayStore) {
       {"", "--arc-availability=installed",
        "--arc-start-mode=always-start-with-no-play-store"});
   EXPECT_TRUE(ShouldArcAlwaysStart());
-  EXPECT_FALSE(IsPlayStoreAvailable());
+  EXPECT_TRUE(ShouldArcAlwaysStartWithNoPlayStore());
+}
+
+TEST_F(ArcUtilTest, ScaleFactorToDensity) {
+  // Test all standard scale factors
+  EXPECT_EQ(160, GetLcdDensityForDeviceScaleFactor(1.0f));
+  EXPECT_EQ(160, GetLcdDensityForDeviceScaleFactor(1.25f));
+  EXPECT_EQ(213, GetLcdDensityForDeviceScaleFactor(1.6f));
+  EXPECT_EQ(240, GetLcdDensityForDeviceScaleFactor(2.0f));
+  EXPECT_EQ(280, GetLcdDensityForDeviceScaleFactor(2.25f));
+
+  // Bad scale factors shouldn't blow up.
+  EXPECT_EQ(160, GetLcdDensityForDeviceScaleFactor(0.5f));
+  EXPECT_EQ(160, GetLcdDensityForDeviceScaleFactor(-0.1f));
+  EXPECT_EQ(180, GetLcdDensityForDeviceScaleFactor(1.5f));
+  EXPECT_EQ(1200, GetLcdDensityForDeviceScaleFactor(10.f));
 }
 
 }  // namespace

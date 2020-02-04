@@ -13,9 +13,9 @@
 #include <set>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "content/common/content_export.h"
+#include "gpu/command_buffer/common/mailbox.h"
 #include "media/video/video_decode_accelerator.h"
 #include "ppapi/c/pp_codecs.h"
 #include "ppapi/host/host_message_context.h"
@@ -95,7 +95,8 @@ class CONTENT_EXPORT PepperVideoDecoderHost
                           int32_t decode_id);
   int32_t OnHostMsgAssignTextures(ppapi::host::HostMessageContext* context,
                                   const PP_Size& size,
-                                  const std::vector<uint32_t>& texture_ids);
+                                  const std::vector<uint32_t>& texture_ids,
+                                  const std::vector<gpu::Mailbox>& mailboxes);
   int32_t OnHostMsgRecyclePicture(ppapi::host::HostMessageContext* context,
                                   uint32_t picture_id);
   int32_t OnHostMsgFlush(ppapi::host::HostMessageContext* context);
@@ -104,10 +105,9 @@ class CONTENT_EXPORT PepperVideoDecoderHost
   // These methods are needed by VideoDecodeShim, to look like a
   // VideoDecodeAccelerator.
   const uint8_t* DecodeIdToAddress(uint32_t decode_id);
-  void RequestTextures(uint32_t requested_num_of_buffers,
-                       const gfx::Size& dimensions,
-                       uint32_t texture_target,
-                       const std::vector<gpu::Mailbox>& mailboxes);
+  std::vector<gpu::Mailbox> TakeMailboxes() {
+    return std::move(texture_mailboxes_);
+  }
 
   // Tries to initialize software decoder. Returns true on success.
   bool TryFallbackToSoftwareDecoder();
@@ -123,6 +123,9 @@ class CONTENT_EXPORT PepperVideoDecoderHost
 
   bool software_fallback_allowed_ = false;
   bool software_fallback_used_ = false;
+
+  // Used for UMA stats; not frame-accurate.
+  gfx::Size coded_size_;
 
   int pending_texture_requests_ = 0;
 
@@ -142,6 +145,10 @@ class CONTENT_EXPORT PepperVideoDecoderHost
   uint32_t min_picture_count_;
   typedef std::map<uint32_t, PictureBufferState> PictureBufferMap;
   PictureBufferMap picture_buffer_map_;
+
+  // Mailboxes corresponding to textures given to AssignPictureBuffers, to allow
+  // VideoDecoderShim to use them from another context.
+  std::vector<gpu::Mailbox> texture_mailboxes_;
 
   // Keeps list of pending decodes.
   PendingDecodeList pending_decodes_;

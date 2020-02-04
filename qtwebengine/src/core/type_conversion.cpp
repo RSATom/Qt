@@ -42,7 +42,9 @@
 #include <content/public/common/favicon_url.h>
 #include <ui/events/event_constants.h>
 #include <ui/gfx/image/image_skia.h>
+
 #include <QtCore/qcoreapplication.h>
+#include <QtGui/qmatrix4x4.h>
 
 namespace QtWebEngineCore {
 
@@ -52,6 +54,7 @@ QImage toQImage(const SkBitmap &bitmap)
     switch (bitmap.colorType()) {
     case kUnknown_SkColorType:
     case kRGBA_F16_SkColorType:
+    case kRGBA_F32_SkColorType:
         qWarning("Unknown or unsupported skia image format");
         break;
     case kAlpha_8_SkColorType:
@@ -74,6 +77,7 @@ QImage toQImage(const SkBitmap &bitmap)
             break;
         }
         break;
+    case kRGB_888x_SkColorType:
     case kRGBA_8888_SkColorType:
         switch (bitmap.alphaType()) {
         case kUnknown_SkAlphaType:
@@ -105,6 +109,21 @@ QImage toQImage(const SkBitmap &bitmap)
             break;
         }
         break;
+    case kRGB_101010x_SkColorType:
+    case kRGBA_1010102_SkColorType:
+        switch (bitmap.alphaType()) {
+        case kUnknown_SkAlphaType:
+            break;
+        case kUnpremul_SkAlphaType:
+            // not supported - treat as opaque
+        case kOpaque_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_RGB30);
+            break;
+        case kPremul_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_A2RGB30_Premultiplied);
+            break;
+        }
+        break;
     case kGray_8_SkColorType:
         image = toQImage(bitmap, QImage::Format_Grayscale8);
         break;
@@ -114,10 +133,48 @@ QImage toQImage(const SkBitmap &bitmap)
 
 QImage toQImage(const gfx::ImageSkiaRep &imageSkiaRep)
 {
-    QImage image = toQImage(imageSkiaRep.sk_bitmap());
+    QImage image = toQImage(imageSkiaRep.GetBitmap());
     if (!image.isNull() && imageSkiaRep.scale() != 1.0f)
         image.setDevicePixelRatio(imageSkiaRep.scale());
     return image;
+}
+
+SkBitmap toSkBitmap(const QImage &image)
+{
+    SkBitmap bitmap;
+    SkImageInfo imageInfo;
+
+    switch (image.format()) {
+    case QImage::Format_RGB32:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kBGRA_8888_SkColorType, kOpaque_SkAlphaType);
+        break;
+    case QImage::Format_ARGB32:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kBGRA_8888_SkColorType, kUnpremul_SkAlphaType);
+        break;
+    case QImage::Format_ARGB32_Premultiplied:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kBGRA_8888_SkColorType, kPremul_SkAlphaType);
+        break;
+    case QImage::Format_RGBX8888:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kRGBA_8888_SkColorType, kOpaque_SkAlphaType);
+        break;
+    case QImage::Format_RGBA8888:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
+        break;
+    case QImage::Format_RGBA8888_Premultiplied:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+        break;
+    default:
+        return toSkBitmap(image.convertToFormat(QImage::Format_ARGB32_Premultiplied));
+    }
+
+    bitmap.installPixels(imageInfo, (void *)image.bits(), image.bytesPerLine());
+
+    // Ensure we copy the pixels
+    SkBitmap bitmapCopy;
+    bitmapCopy.allocPixels(imageInfo);
+    bitmapCopy.writePixels(bitmap.pixmap());
+
+    return bitmapCopy;
 }
 
 QIcon toQIcon(const std::vector<SkBitmap> &bitmaps)
@@ -161,7 +218,7 @@ int flagsFromModifiers(Qt::KeyboardModifiers modifiers)
     return modifierFlags;
 }
 
-FaviconInfo::FaviconType toQt(content::FaviconURL::IconType type)
+FaviconInfo::FaviconTypeFlags toQt(content::FaviconURL::IconType type)
 {
     switch (type) {
     case content::FaviconURL::IconType::kFavicon:
@@ -186,6 +243,17 @@ FaviconInfo toFaviconInfo(const content::FaviconURL &favicon_url)
     // http://www.w3schools.com/tags/att_link_sizes.asp
     info.size = QSize(0, 0);
     return info;
+}
+
+void convertToQt(const SkMatrix44 &m, QMatrix4x4 &c)
+{
+    QMatrix4x4 qtMatrix(
+        m.get(0, 0), m.get(0, 1), m.get(0, 2), m.get(0, 3),
+        m.get(1, 0), m.get(1, 1), m.get(1, 2), m.get(1, 3),
+        m.get(2, 0), m.get(2, 1), m.get(2, 2), m.get(2, 3),
+        m.get(3, 0), m.get(3, 1), m.get(3, 2), m.get(3, 3));
+    qtMatrix.optimize();
+    c = qtMatrix;
 }
 
 } // namespace QtWebEngineCore

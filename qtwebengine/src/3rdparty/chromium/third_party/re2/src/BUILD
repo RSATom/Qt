@@ -8,6 +8,21 @@ licenses(["notice"])
 
 exports_files(["LICENSE"])
 
+config_setting(
+    name = "darwin",
+    values = {"cpu": "darwin"},
+)
+
+config_setting(
+    name = "windows",
+    values = {"cpu": "x64_windows"},
+)
+
+config_setting(
+    name = "windows_msvc",
+    values = {"cpu": "x64_windows_msvc"},
+)
+
 cc_library(
     name = "re2",
     srcs = [
@@ -43,6 +58,7 @@ cc_library(
         "util/logging.h",
         "util/mix.h",
         "util/mutex.h",
+        "util/pod_array.h",
         "util/rune.cc",
         "util/sparse_array.h",
         "util/sparse_set.h",
@@ -57,8 +73,20 @@ cc_library(
         "re2/set.h",
         "re2/stringpiece.h",
     ],
-    copts = ["-pthread"],
-    linkopts = ["-pthread"],
+    copts = select({
+        ":windows": [],
+        ":windows_msvc": [],
+        "//conditions:default": ["-pthread"],
+    }),
+    linkopts = select({
+        # Darwin doesn't need `-pthread' when linking and it appears that
+        # older versions of Clang will warn about the unused command line
+        # argument, so just don't pass it.
+        ":darwin": [],
+        ":windows": [],
+        ":windows_msvc": [],
+        "//conditions:default": ["-pthread"],
+    }),
     visibility = ["//visibility:public"],
 )
 
@@ -94,35 +122,77 @@ cc_library(
     deps = [":testing"],
 )
 
-load("re2_test", "re2_test")
+load(":re2_test.bzl", "re2_test")
 
-re2_test("charclass_test")
+re2_test(
+    "charclass_test",
+    size = "small",
+)
 
-re2_test("compile_test")
+re2_test(
+    "compile_test",
+    size = "small",
+)
 
-re2_test("filtered_re2_test")
+re2_test(
+    "filtered_re2_test",
+    size = "small",
+)
 
-re2_test("mimics_pcre_test")
+re2_test(
+    "mimics_pcre_test",
+    size = "small",
+)
 
-re2_test("parse_test")
+re2_test(
+    "parse_test",
+    size = "small",
+)
 
-re2_test("possible_match_test")
+re2_test(
+    "possible_match_test",
+    size = "small",
+)
 
-re2_test("re2_arg_test")
+re2_test(
+    "re2_arg_test",
+    size = "small",
+)
 
-re2_test("re2_test")
+re2_test(
+    "re2_test",
+    size = "small",
+)
 
-re2_test("regexp_test")
+re2_test(
+    "regexp_test",
+    size = "small",
+)
 
-re2_test("required_prefix_test")
+re2_test(
+    "required_prefix_test",
+    size = "small",
+)
 
-re2_test("search_test")
+re2_test(
+    "search_test",
+    size = "small",
+)
 
-re2_test("set_test")
+re2_test(
+    "set_test",
+    size = "small",
+)
 
-re2_test("simplify_test")
+re2_test(
+    "simplify_test",
+    size = "small",
+)
 
-re2_test("string_generator_test")
+re2_test(
+    "string_generator_test",
+    size = "small",
+)
 
 re2_test(
     "dfa_test",
@@ -165,9 +235,5 @@ cc_binary(
     name = "regexp_benchmark",
     testonly = 1,
     srcs = ["re2/testing/regexp_benchmark.cc"],
-    linkopts = [
-        "-lm",
-        "-lrt",
-    ],
     deps = [":benchmark"],
 )

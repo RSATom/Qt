@@ -11,24 +11,25 @@ namespace offline_pages {
 MarkAttemptAbortedTask::MarkAttemptAbortedTask(
     RequestQueueStore* store,
     int64_t request_id,
-    const RequestQueueStore::UpdateCallback& callback)
-    : UpdateRequestTask(store, request_id, callback) {}
+    RequestQueueStore::UpdateCallback callback)
+    : UpdateRequestTask(store, request_id, std::move(callback)) {}
 
 MarkAttemptAbortedTask::~MarkAttemptAbortedTask() {}
 
 void MarkAttemptAbortedTask::UpdateRequestImpl(
-    std::unique_ptr<UpdateRequestsResult> read_result) {
-  if (!ValidateReadResult(read_result.get())) {
+    UpdateRequestsResult read_result) {
+  if (!ValidateReadResult(read_result)) {
     CompleteWithResult(std::move(read_result));
     return;
   }
 
-  // It is perfectly fine to reuse the read_result->updated_items collection, as
+  // It is perfectly fine to reuse the read_result.updated_items collection, as
   // it is owned by this callback and will be destroyed when out of scope.
-  read_result->updated_items[0].MarkAttemptAborted();
+  read_result.updated_items[0].MarkAttemptAborted();
   store()->UpdateRequests(
-      read_result->updated_items,
-      base::Bind(&MarkAttemptAbortedTask::CompleteWithResult, GetWeakPtr()));
+      read_result.updated_items,
+      base::BindOnce(&MarkAttemptAbortedTask::CompleteWithResult,
+                     GetWeakPtr()));
 }
 
 }  // namespace offline_pages

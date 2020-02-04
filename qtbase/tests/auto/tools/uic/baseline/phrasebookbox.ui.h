@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'phrasebookbox.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,9 +40,7 @@
 #define PHRASEBOOKBOX_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QHBoxLayout>
@@ -79,45 +77,45 @@ public:
     void setupUi(QDialog *PhraseBookBox)
     {
         if (PhraseBookBox->objectName().isEmpty())
-            PhraseBookBox->setObjectName(QStringLiteral("PhraseBookBox"));
+            PhraseBookBox->setObjectName(QString::fromUtf8("PhraseBookBox"));
         PhraseBookBox->resize(596, 454);
         unnamed = new QHBoxLayout(PhraseBookBox);
         unnamed->setSpacing(6);
         unnamed->setContentsMargins(11, 11, 11, 11);
-        unnamed->setObjectName(QStringLiteral("unnamed"));
+        unnamed->setObjectName(QString::fromUtf8("unnamed"));
         inputsLayout = new QVBoxLayout();
         inputsLayout->setSpacing(6);
-        inputsLayout->setObjectName(QStringLiteral("inputsLayout"));
+        inputsLayout->setObjectName(QString::fromUtf8("inputsLayout"));
         gridLayout = new QGridLayout();
         gridLayout->setSpacing(6);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         target = new QLabel(PhraseBookBox);
-        target->setObjectName(QStringLiteral("target"));
+        target->setObjectName(QString::fromUtf8("target"));
 
         gridLayout->addWidget(target, 1, 0, 1, 1);
 
         targetLed = new QLineEdit(PhraseBookBox);
-        targetLed->setObjectName(QStringLiteral("targetLed"));
+        targetLed->setObjectName(QString::fromUtf8("targetLed"));
 
         gridLayout->addWidget(targetLed, 1, 1, 1, 1);
 
         source = new QLabel(PhraseBookBox);
-        source->setObjectName(QStringLiteral("source"));
+        source->setObjectName(QString::fromUtf8("source"));
 
         gridLayout->addWidget(source, 0, 0, 1, 1);
 
         definitionLed = new QLineEdit(PhraseBookBox);
-        definitionLed->setObjectName(QStringLiteral("definitionLed"));
+        definitionLed->setObjectName(QString::fromUtf8("definitionLed"));
 
         gridLayout->addWidget(definitionLed, 2, 1, 1, 1);
 
         sourceLed = new QLineEdit(PhraseBookBox);
-        sourceLed->setObjectName(QStringLiteral("sourceLed"));
+        sourceLed->setObjectName(QString::fromUtf8("sourceLed"));
 
         gridLayout->addWidget(sourceLed, 0, 1, 1, 1);
 
         definition = new QLabel(PhraseBookBox);
-        definition->setObjectName(QStringLiteral("definition"));
+        definition->setObjectName(QString::fromUtf8("definition"));
 
         gridLayout->addWidget(definition, 2, 0, 1, 1);
 
@@ -125,7 +123,7 @@ public:
         inputsLayout->addLayout(gridLayout);
 
         phraseList = new QTreeView(PhraseBookBox);
-        phraseList->setObjectName(QStringLiteral("phraseList"));
+        phraseList->setObjectName(QString::fromUtf8("phraseList"));
         phraseList->setRootIsDecorated(false);
         phraseList->setUniformRowHeights(true);
         phraseList->setItemsExpandable(false);
@@ -139,24 +137,24 @@ public:
 
         buttonLayout = new QVBoxLayout();
         buttonLayout->setSpacing(6);
-        buttonLayout->setObjectName(QStringLiteral("buttonLayout"));
+        buttonLayout->setObjectName(QString::fromUtf8("buttonLayout"));
         newBut = new QPushButton(PhraseBookBox);
-        newBut->setObjectName(QStringLiteral("newBut"));
+        newBut->setObjectName(QString::fromUtf8("newBut"));
 
         buttonLayout->addWidget(newBut);
 
         removeBut = new QPushButton(PhraseBookBox);
-        removeBut->setObjectName(QStringLiteral("removeBut"));
+        removeBut->setObjectName(QString::fromUtf8("removeBut"));
 
         buttonLayout->addWidget(removeBut);
 
         saveBut = new QPushButton(PhraseBookBox);
-        saveBut->setObjectName(QStringLiteral("saveBut"));
+        saveBut->setObjectName(QString::fromUtf8("saveBut"));
 
         buttonLayout->addWidget(saveBut);
 
         closeBut = new QPushButton(PhraseBookBox);
-        closeBut->setObjectName(QStringLiteral("closeBut"));
+        closeBut->setObjectName(QString::fromUtf8("closeBut"));
 
         buttonLayout->addWidget(closeBut);
 
@@ -167,11 +165,11 @@ public:
 
         unnamed->addLayout(buttonLayout);
 
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
         target->setBuddy(targetLed);
         source->setBuddy(sourceLed);
         definition->setBuddy(definitionLed);
-#endif // QT_NO_SHORTCUT
+#endif // QT_CONFIG(shortcut)
         QWidget::setTabOrder(sourceLed, targetLed);
         QWidget::setTabOrder(targetLed, definitionLed);
         QWidget::setTabOrder(definitionLed, newBut);
@@ -186,38 +184,38 @@ public:
 
     void retranslateUi(QDialog *PhraseBookBox)
     {
-        PhraseBookBox->setWindowTitle(QApplication::translate("PhraseBookBox", "Edit Phrase Book", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        PhraseBookBox->setWhatsThis(QApplication::translate("PhraseBookBox", "This window allows you to add, modify, or delete phrases in a phrase book.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        target->setText(QApplication::translate("PhraseBookBox", "&Translation:", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        targetLed->setWhatsThis(QApplication::translate("PhraseBookBox", "This is the phrase in the target language corresponding to the source phrase.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        source->setText(QApplication::translate("PhraseBookBox", "S&ource phrase:", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        definitionLed->setWhatsThis(QApplication::translate("PhraseBookBox", "This is a definition for the source phrase.", nullptr));
-#endif // QT_NO_WHATSTHIS
-#ifndef QT_NO_WHATSTHIS
-        sourceLed->setWhatsThis(QApplication::translate("PhraseBookBox", "This is the phrase in the source language.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        definition->setText(QApplication::translate("PhraseBookBox", "&Definition:", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        newBut->setWhatsThis(QApplication::translate("PhraseBookBox", "Click here to add the phrase to the phrase book.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        newBut->setText(QApplication::translate("PhraseBookBox", "&New Phrase", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        removeBut->setWhatsThis(QApplication::translate("PhraseBookBox", "Click here to remove the phrase from the phrase book.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        removeBut->setText(QApplication::translate("PhraseBookBox", "&Remove Phrase", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        saveBut->setWhatsThis(QApplication::translate("PhraseBookBox", "Click here to save the changes made.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        saveBut->setText(QApplication::translate("PhraseBookBox", "&Save", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        closeBut->setWhatsThis(QApplication::translate("PhraseBookBox", "Click here to close this window.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        closeBut->setText(QApplication::translate("PhraseBookBox", "Close", nullptr));
+        PhraseBookBox->setWindowTitle(QCoreApplication::translate("PhraseBookBox", "Edit Phrase Book", nullptr));
+#if QT_CONFIG(whatsthis)
+        PhraseBookBox->setWhatsThis(QCoreApplication::translate("PhraseBookBox", "This window allows you to add, modify, or delete phrases in a phrase book.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        target->setText(QCoreApplication::translate("PhraseBookBox", "&Translation:", nullptr));
+#if QT_CONFIG(whatsthis)
+        targetLed->setWhatsThis(QCoreApplication::translate("PhraseBookBox", "This is the phrase in the target language corresponding to the source phrase.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        source->setText(QCoreApplication::translate("PhraseBookBox", "S&ource phrase:", nullptr));
+#if QT_CONFIG(whatsthis)
+        definitionLed->setWhatsThis(QCoreApplication::translate("PhraseBookBox", "This is a definition for the source phrase.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+#if QT_CONFIG(whatsthis)
+        sourceLed->setWhatsThis(QCoreApplication::translate("PhraseBookBox", "This is the phrase in the source language.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        definition->setText(QCoreApplication::translate("PhraseBookBox", "&Definition:", nullptr));
+#if QT_CONFIG(whatsthis)
+        newBut->setWhatsThis(QCoreApplication::translate("PhraseBookBox", "Click here to add the phrase to the phrase book.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        newBut->setText(QCoreApplication::translate("PhraseBookBox", "&New Phrase", nullptr));
+#if QT_CONFIG(whatsthis)
+        removeBut->setWhatsThis(QCoreApplication::translate("PhraseBookBox", "Click here to remove the phrase from the phrase book.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        removeBut->setText(QCoreApplication::translate("PhraseBookBox", "&Remove Phrase", nullptr));
+#if QT_CONFIG(whatsthis)
+        saveBut->setWhatsThis(QCoreApplication::translate("PhraseBookBox", "Click here to save the changes made.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        saveBut->setText(QCoreApplication::translate("PhraseBookBox", "&Save", nullptr));
+#if QT_CONFIG(whatsthis)
+        closeBut->setWhatsThis(QCoreApplication::translate("PhraseBookBox", "Click here to close this window.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        closeBut->setText(QCoreApplication::translate("PhraseBookBox", "Close", nullptr));
     } // retranslateUi
 
 };

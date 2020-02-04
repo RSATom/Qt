@@ -9,11 +9,43 @@
 #include "src/inspector/string-util.h"
 #include "src/inspector/v8-console.h"
 #include "src/inspector/v8-inspector-impl.h"
-#include "src/inspector/v8-value-copier.h"
 
 #include "include/v8-inspector.h"
 
 namespace v8_inspector {
+
+class InspectedContext::WeakCallbackData {
+ public:
+  WeakCallbackData(InspectedContext* context, V8InspectorImpl* inspector,
+                   int groupId, int contextId)
+      : m_context(context),
+        m_inspector(inspector),
+        m_groupId(groupId),
+        m_contextId(contextId) {}
+
+  static void resetContext(const v8::WeakCallbackInfo<WeakCallbackData>& data) {
+    // InspectedContext is alive here because weak handler is still alive.
+    data.GetParameter()->m_context->m_weakCallbackData = nullptr;
+    data.GetParameter()->m_context->m_context.Reset();
+    data.SetSecondPassCallback(&callContextCollected);
+  }
+
+  static void callContextCollected(
+      const v8::WeakCallbackInfo<WeakCallbackData>& data) {
+    // InspectedContext can be dead here since anything can happen between first
+    // and second pass callback.
+    WeakCallbackData* callbackData = data.GetParameter();
+    callbackData->m_inspector->contextCollected(callbackData->m_groupId,
+                                                callbackData->m_contextId);
+    delete callbackData;
+  }
+
+ private:
+  InspectedContext* m_context;
+  V8InspectorImpl* m_inspector;
+  int m_groupId;
+  int m_contextId;
+};
 
 InspectedContext::InspectedContext(V8InspectorImpl* inspector,
                                    const V8ContextInfo& info, int contextId)
@@ -25,6 +57,11 @@ InspectedContext::InspectedContext(V8InspectorImpl* inspector,
       m_humanReadableName(toString16(info.humanReadableName)),
       m_auxData(toString16(info.auxData)) {
   v8::debug::SetContextId(info.context, contextId);
+  m_weakCallbackData =
+      new WeakCallbackData(this, m_inspector, m_contextGroupId, m_contextId);
+  m_context.SetWeak(m_weakCallbackData,
+                    &InspectedContext::WeakCallbackData::resetContext,
+                    v8::WeakCallbackType::kParameter);
   if (!info.hasMemoryOnConsole) return;
   v8::Context::Scope contextScope(info.context);
   v8::Local<v8::Object> global = info.context->Global();
@@ -38,6 +75,9 @@ InspectedContext::InspectedContext(V8InspectorImpl* inspector,
 }
 
 InspectedContext::~InspectedContext() {
+  // If we destory InspectedContext before weak callback is invoked then we need
+  // to delete data here.
+  if (!m_context.IsEmpty()) delete m_weakCallbackData;
 }
 
 // static
@@ -69,18 +109,40 @@ InjectedScript* InspectedContext::getInjectedScript(int sessionId) {
   return it == m_injectedScripts.end() ? nullptr : it->second.get();
 }
 
-bool InspectedContext::createInjectedScript(int sessionId) {
-  DCHECK(m_injectedScripts.find(sessionId) == m_injectedScripts.end());
+InjectedScript* InspectedContext::createInjectedScript(int sessionId) {
   std::unique_ptr<InjectedScript> injectedScript =
-      InjectedScript::create(this, sessionId);
-  // InjectedScript::create can destroy |this|.
-  if (!injectedScript) return false;
+      v8::base::make_unique<InjectedScript>(this, sessionId);
+  CHECK(m_injectedScripts.find(sessionId) == m_injectedScripts.end());
   m_injectedScripts[sessionId] = std::move(injectedScript);
-  return true;
+  return getInjectedScript(sessionId);
 }
 
 void InspectedContext::discardInjectedScript(int sessionId) {
   m_injectedScripts.erase(sessionId);
+}
+
+bool InspectedContext::addInternalObject(v8::Local<v8::Object> object,
+                                         V8InternalValueType type) {
+  if (m_internalObjects.IsEmpty()) {
+    m_internalObjects.Reset(isolate(), v8::debug::WeakMap::New(isolate()));
+  }
+  return !m_internalObjects.Get(isolate())
+              ->Set(m_context.Get(isolate()), object,
+                    v8::Integer::New(isolate(), static_cast<int>(type)))
+              .IsEmpty();
+}
+
+V8InternalValueType InspectedContext::getInternalType(
+    v8::Local<v8::Object> object) {
+  if (m_internalObjects.IsEmpty()) return V8InternalValueType::kNone;
+  v8::Local<v8::Value> typeValue;
+  if (!m_internalObjects.Get(isolate())
+           ->Get(m_context.Get(isolate()), object)
+           .ToLocal(&typeValue) ||
+      !typeValue->IsUint32()) {
+    return V8InternalValueType::kNone;
+  }
+  return static_cast<V8InternalValueType>(typeValue.As<v8::Int32>()->Value());
 }
 
 }  // namespace v8_inspector

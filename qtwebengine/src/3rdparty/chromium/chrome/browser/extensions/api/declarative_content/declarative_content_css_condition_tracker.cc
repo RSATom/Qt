@@ -26,7 +26,7 @@ namespace extensions {
 
 namespace {
 
-const char kInvalidTypeOfParameter[] = "Attribute '%s' has an invalid type";
+const char kCssInvalidTypeOfParameter[] = "Attribute '%s' has an invalid type";
 
 }  // namespace
 
@@ -48,14 +48,14 @@ DeclarativeContentCssPredicate::Create(ContentPredicateEvaluator* evaluator,
     for (size_t i = 0; i < css_rules_value->GetSize(); ++i) {
       std::string css_rule;
       if (!css_rules_value->GetString(i, &css_rule)) {
-        *error = base::StringPrintf(kInvalidTypeOfParameter,
+        *error = base::StringPrintf(kCssInvalidTypeOfParameter,
                                     declarative_content_constants::kCss);
         return std::unique_ptr<DeclarativeContentCssPredicate>();
       }
       css_rules.push_back(css_rule);
     }
   } else {
-    *error = base::StringPrintf(kInvalidTypeOfParameter,
+    *error = base::StringPrintf(kCssInvalidTypeOfParameter,
                                 declarative_content_constants::kCss);
     return std::unique_ptr<DeclarativeContentCssPredicate>();
   }
@@ -200,8 +200,7 @@ void DeclarativeContentCssConditionTracker::StopTrackingPredicates(
       continue;
     for (const DeclarativeContentCssPredicate* predicate : loc->second) {
       for (const std::string& selector : predicate->css_selectors()) {
-        std::map<std::string, int>::iterator loc =
-            watched_css_selector_predicate_count_.find(selector);
+        auto loc = watched_css_selector_predicate_count_.find(selector);
         DCHECK(loc != watched_css_selector_predicate_count_.end());
         if (--loc->second == 0) {
           watched_css_selector_predicate_count_.erase(loc);
@@ -218,13 +217,12 @@ void DeclarativeContentCssConditionTracker::StopTrackingPredicates(
 
 void DeclarativeContentCssConditionTracker::TrackForWebContents(
     content::WebContents* contents) {
-  per_web_contents_tracker_[contents] =
-      make_linked_ptr(new PerWebContentsTracker(
-          contents,
-          base::Bind(&Delegate::RequestEvaluation, base::Unretained(delegate_)),
-          base::Bind(&DeclarativeContentCssConditionTracker::
-                     DeletePerWebContentsTracker,
-                     base::Unretained(this))));
+  per_web_contents_tracker_[contents] = std::make_unique<PerWebContentsTracker>(
+      contents,
+      base::Bind(&Delegate::RequestEvaluation, base::Unretained(delegate_)),
+      base::Bind(
+          &DeclarativeContentCssConditionTracker::DeletePerWebContentsTracker,
+          base::Unretained(this)));
   // Note: the condition is always false until we receive OnWatchedPageChange,
   // so there's no need to evaluate it here.
 }
@@ -245,7 +243,7 @@ bool DeclarativeContentCssConditionTracker::EvaluatePredicate(
       static_cast<const DeclarativeContentCssPredicate*>(predicate);
   auto loc = per_web_contents_tracker_.find(tab);
   DCHECK(loc != per_web_contents_tracker_.end());
-  const base::hash_set<std::string>& matching_css_selectors =
+  const std::unordered_set<std::string>& matching_css_selectors =
       loc->second->matching_css_selectors();
   for (const std::string& predicate_css_selector :
            typed_predicate->css_selectors()) {

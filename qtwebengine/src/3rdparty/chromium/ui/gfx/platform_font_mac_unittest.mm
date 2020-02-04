@@ -8,7 +8,7 @@
 #include <stddef.h>
 
 #include "base/mac/mac_util.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/font.h"
 
@@ -151,16 +151,6 @@ TEST(PlatformFontMacTest, FontWeightAPIConsistency) {
   }
 
   ns_font = [NSFont systemFontOfSize:13];
-  if (base::mac::IsOS10_9()) {
-    // On 10.9 the system font doesn't provide finer-grained weights. It's
-    // either bold or it isn't.
-    for (int row = 6; row <= 14; ++row) {
-      SCOPED_TRACE(testing::Message() << "Row: " << row);
-      ns_font = [manager convertWeight:up ofFont:ns_font];
-      EXPECT_EQ(Font::Weight::BOLD, Font(ns_font).GetWeight());
-    }
-    return;
-  }
 
   if (base::mac::IsOS10_11()) {
     // On 10.11 the API jumps to BOLD, but has heavier weights as well.
@@ -296,7 +286,7 @@ TEST(PlatformFontMacTest, ValidateFontHeight) {
   gfx::Font::FontStyle styles[] = {gfx::Font::NORMAL, gfx::Font::ITALIC,
                                    gfx::Font::UNDERLINE};
 
-  for (size_t i = 0; i < arraysize(styles); ++i) {
+  for (size_t i = 0; i < base::size(styles); ++i) {
     SCOPED_TRACE(testing::Message() << "Font::FontStyle: " << styles[i]);
     // Include the range of sizes used by ResourceBundle::FontStyle (-1 to +8).
     for (int delta = -1; delta <= 8; ++delta) {

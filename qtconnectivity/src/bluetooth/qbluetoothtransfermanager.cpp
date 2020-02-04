@@ -130,6 +130,7 @@ QBluetoothTransferReply *QBluetoothTransferManager::put(const QBluetoothTransfer
     return 0;
 #endif
 }
-#include "moc_qbluetoothtransfermanager.cpp"
 
 QT_END_NAMESPACE
+
+#include "moc_qbluetoothtransfermanager.cpp"

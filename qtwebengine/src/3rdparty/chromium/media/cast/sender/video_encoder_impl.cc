@@ -8,7 +8,6 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "media/base/video_frame.h"
 #include "media/cast/sender/fake_software_video_encoder.h"
 #include "media/cast/sender/vp8_encoder.h"
@@ -65,7 +64,7 @@ VideoEncoderImpl::VideoEncoderImpl(
     const StatusChangeCallback& status_change_cb)
     : cast_environment_(cast_environment) {
   CHECK(cast_environment_->HasVideoThread());
-  DCHECK(!status_change_cb.is_null());
+  DCHECK(status_change_cb);
 
   if (video_config.codec == CODEC_VIDEO_VP8) {
     encoder_.reset(new Vp8Encoder(video_config));

@@ -16,7 +16,6 @@
 #include "base/time/time.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/prefs/testing_pref_service.h"
-#include "net/log/test_net_log.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -50,8 +49,8 @@ class DataReductionProxySettingsTestBase : public testing::Test {
   void SetUp() override;
 
   template <class C>
-  void ResetSettings(std::unique_ptr<base::Clock> clock);
-  virtual void ResetSettings(std::unique_ptr<base::Clock> clock) = 0;
+  void ResetSettings(base::Clock* clock);
+  virtual void ResetSettings(base::Clock* clock) = 0;
 
   void ExpectSetProxyPrefs(bool expected_enabled,
                            bool expected_at_startup);
@@ -84,9 +83,8 @@ class ConcreteDataReductionProxySettingsTest
     : public DataReductionProxySettingsTestBase {
  public:
   typedef MockDataReductionProxySettings<C> MockSettings;
-  void ResetSettings(std::unique_ptr<base::Clock> clock) override {
-    return DataReductionProxySettingsTestBase::ResetSettings<C>(
-        std::move(clock));
+  void ResetSettings(base::Clock* clock) override {
+    return DataReductionProxySettingsTestBase::ResetSettings<C>(clock);
   }
 };
 

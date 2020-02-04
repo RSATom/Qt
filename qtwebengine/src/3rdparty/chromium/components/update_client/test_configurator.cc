@@ -6,12 +6,15 @@
 
 #include <utility>
 
-#include "base/sequenced_task_runner.h"
-#include "base/single_thread_task_runner.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/version.h"
 #include "components/prefs/pref_service.h"
-#include "components/update_client/out_of_process_patcher.h"
-#include "net/url_request/url_request_test_util.h"
+#include "components/services/patch/public/interfaces/constants.mojom.h"
+#include "components/services/unzip/public/interfaces/constants.mojom.h"
+#include "components/update_client/activity_data_service.h"
+#include "components/update_client/protocol_handler.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "url/gurl.h"
 
 namespace update_client {
@@ -27,16 +30,23 @@ std::vector<GURL> MakeDefaultUrls() {
 
 }  // namespace
 
-TestConfigurator::TestConfigurator(
-    const scoped_refptr<base::SequencedTaskRunner>& worker_task_runner,
-    const scoped_refptr<base::SingleThreadTaskRunner>& network_task_runner)
-    : worker_task_runner_(worker_task_runner),
-      brand_("TEST"),
+TestConfigurator::TestConfigurator()
+    : brand_("TEST"),
       initial_time_(0),
       ondemand_time_(0),
       enabled_cup_signing_(false),
       enabled_component_updates_(true),
-      context_(new net::TestURLRequestContextGetter(network_task_runner)) {}
+      use_JSON_(false),
+      connector_(connector_factory_.CreateConnector()),
+      unzip_service_(
+          connector_factory_.RegisterInstance(unzip::mojom::kServiceName)),
+      patch_service_(
+          connector_factory_.RegisterInstance(patch::mojom::kServiceName)),
+      test_shared_loader_factory_(
+          base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+              &test_url_loader_factory_)) {
+  connector_factory_.set_ignore_quit_requests(true);
+}
 
 TestConfigurator::~TestConfigurator() {
 }
@@ -96,21 +106,23 @@ std::string TestConfigurator::GetOSLongName() const {
   return "Fake Operating System";
 }
 
-std::string TestConfigurator::ExtraRequestParams() const {
-  return "extra=\"foo\"";
+base::flat_map<std::string, std::string> TestConfigurator::ExtraRequestParams()
+    const {
+  return {{"extra", "foo"}};
 }
 
 std::string TestConfigurator::GetDownloadPreference() const {
   return download_preference_;
 }
 
-net::URLRequestContextGetter* TestConfigurator::RequestContext() const {
-  return context_.get();
+scoped_refptr<network::SharedURLLoaderFactory>
+TestConfigurator::URLLoaderFactory() const {
+  return test_shared_loader_factory_;
 }
 
-scoped_refptr<OutOfProcessPatcher> TestConfigurator::CreateOutOfProcessPatcher()
-    const {
-  return NULL;
+std::unique_ptr<service_manager::Connector>
+TestConfigurator::CreateServiceManagerConnector() const {
+  return connector_->Clone();
 }
 
 bool TestConfigurator::EnabledDeltas() const {
@@ -163,13 +175,19 @@ void TestConfigurator::SetPingUrl(const GURL& url) {
   ping_url_ = url;
 }
 
-scoped_refptr<base::SequencedTaskRunner>
-TestConfigurator::GetSequencedTaskRunner() const {
-  DCHECK(worker_task_runner_.get());
-  return worker_task_runner_;
+void TestConfigurator::SetAppGuid(const std::string& app_guid) {
+  app_guid_ = app_guid;
+}
+
+void TestConfigurator::SetUseJSON(bool use_JSON) {
+  use_JSON_ = use_JSON;
 }
 
 PrefService* TestConfigurator::GetPrefService() const {
+  return nullptr;
+}
+
+ActivityDataService* TestConfigurator::GetActivityDataService() const {
   return nullptr;
 }
 
@@ -179,6 +197,21 @@ bool TestConfigurator::IsPerUserInstall() const {
 
 std::vector<uint8_t> TestConfigurator::GetRunActionKeyHash() const {
   return std::vector<uint8_t>(std::begin(gjpm_hash), std::end(gjpm_hash));
+}
+
+std::string TestConfigurator::GetAppGuid() const {
+  return app_guid_;
+}
+
+std::unique_ptr<ProtocolHandlerFactory>
+TestConfigurator::GetProtocolHandlerFactory() const {
+  if (use_JSON_)
+    return std::make_unique<ProtocolHandlerFactoryJSON>();
+  return std::make_unique<ProtocolHandlerFactoryXml>();
+}
+
+RecoveryCRXElevator TestConfigurator::GetRecoveryCRXElevator() const {
+  return {};
 }
 
 }  // namespace update_client

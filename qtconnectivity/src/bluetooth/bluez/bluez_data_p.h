@@ -123,6 +123,10 @@ struct bt_security {
 #error "Unknown byte order"
 #endif
 
+#define HCIGETCONNLIST  _IOR('H', 212, int)
+#define HCIGETDEVINFO   _IOR('H', 211, int)
+#define HCIGETDEVLIST   _IOR('H', 210, int)
+
 // Bluetooth address
 typedef struct {
     quint8 b[6];

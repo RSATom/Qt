@@ -9,9 +9,8 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/stl_util.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
 
@@ -106,9 +105,8 @@ void WebDataRequestManager::RequestCompleted(
   // effectively does a std::move() on |request|!
   scoped_refptr<base::SequencedTaskRunner> task_runner =
       request->GetTaskRunner();
-  auto task =
-      base::BindOnce(&WebDataRequestManager::RequestCompletedOnThread, this,
-                     base::Passed(&request), base::Passed(&result));
+  auto task = base::BindOnce(&WebDataRequestManager::RequestCompletedOnThread,
+                             this, std::move(request), std::move(result));
   if (task_runner)
     task_runner->PostTask(FROM_HERE, std::move(task));
   else
@@ -133,27 +131,11 @@ void WebDataRequestManager::RequestCompletedOnThread(
 
   // Stop tracking the request. The request is already finished, so "stop
   // tracking" is the same as post-facto cancellation.
-  {
-    // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460
-    // is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422460 "
-            "WebDataRequestManager::RequestCompletedOnThread::UpdateMap"));
-
-    CancelRequest(request->GetHandle());
-  }
+  CancelRequest(request->GetHandle());
 
   // Notify the consumer if needed.
   WebDataServiceConsumer* const consumer = request->GetConsumer();
   if (consumer) {
-    // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460
-    // is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422460 "
-            "WebDataRequestManager::RequestCompletedOnThread::NotifyConsumer"));
-
     consumer->OnWebDataServiceRequestDone(request->GetHandle(),
                                           std::move(result));
   }

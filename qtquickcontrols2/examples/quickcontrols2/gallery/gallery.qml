@@ -48,11 +48,11 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.9
-import QtQuick.Layouts 1.3
-import QtQuick.Controls 2.3
-import QtQuick.Controls.Material 2.1
-import QtQuick.Controls.Universal 2.1
+import QtQuick 2.12
+import QtQuick.Layouts 1.12
+import QtQuick.Controls 2.12
+import QtQuick.Controls.Material 2.12
+import QtQuick.Controls.Universal 2.12
 import Qt.labs.settings 1.0
 
 ApplicationWindow {
@@ -70,15 +70,31 @@ ApplicationWindow {
     Shortcut {
         sequences: ["Esc", "Back"]
         enabled: stackView.depth > 1
-        onActivated: {
-            stackView.pop()
-            listView.currentIndex = -1
+        onActivated: navigateBackAction.trigger()
+    }
+
+    Action {
+        id: navigateBackAction
+        icon.name: stackView.depth > 1 ? "back" : "drawer"
+        onTriggered: {
+            if (stackView.depth > 1) {
+                stackView.pop()
+                listView.currentIndex = -1
+            } else {
+                drawer.open()
+            }
         }
     }
 
     Shortcut {
         sequence: "Menu"
-        onActivated: optionsMenu.open()
+        onActivated: optionsMenuAction.trigger()
+    }
+
+    Action {
+        id: optionsMenuAction
+        icon.name: "menu"
+        onTriggered: optionsMenu.open()
     }
 
     header: ToolBar {
@@ -89,15 +105,7 @@ ApplicationWindow {
             anchors.fill: parent
 
             ToolButton {
-                icon.name: stackView.depth > 1 ? "back" : "drawer"
-                onClicked: {
-                    if (stackView.depth > 1) {
-                        stackView.pop()
-                        listView.currentIndex = -1
-                    } else {
-                        drawer.open()
-                    }
-                }
+                action: navigateBackAction
             }
 
             Label {
@@ -111,19 +119,18 @@ ApplicationWindow {
             }
 
             ToolButton {
-                icon.name: "menu"
-                onClicked: optionsMenu.open()
+                action: optionsMenuAction
 
                 Menu {
                     id: optionsMenu
                     x: parent.width - width
                     transformOrigin: Menu.TopRight
 
-                    MenuItem {
+                    Action {
                         text: "Settings"
                         onTriggered: settingsDialog.open()
                     }
-                    MenuItem {
+                    Action {
                         text: "About"
                         onTriggered: aboutDialog.open()
                     }

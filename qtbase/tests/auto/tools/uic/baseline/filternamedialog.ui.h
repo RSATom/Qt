@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'filternamedialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,14 +10,11 @@
 #define FILTERNAMEDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QFrame>
 #include <QtWidgets/QGridLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QSpacerItem>
@@ -37,24 +34,24 @@ public:
     void setupUi(QDialog *FilterNameDialogClass)
     {
         if (FilterNameDialogClass->objectName().isEmpty())
-            FilterNameDialogClass->setObjectName(QStringLiteral("FilterNameDialogClass"));
+            FilterNameDialogClass->setObjectName(QString::fromUtf8("FilterNameDialogClass"));
         FilterNameDialogClass->resize(312, 95);
         gridLayout = new QGridLayout(FilterNameDialogClass);
         gridLayout->setSpacing(6);
         gridLayout->setContentsMargins(9, 9, 9, 9);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         label = new QLabel(FilterNameDialogClass);
-        label->setObjectName(QStringLiteral("label"));
+        label->setObjectName(QString::fromUtf8("label"));
 
         gridLayout->addWidget(label, 0, 0, 1, 1);
 
         lineEdit = new QLineEdit(FilterNameDialogClass);
-        lineEdit->setObjectName(QStringLiteral("lineEdit"));
+        lineEdit->setObjectName(QString::fromUtf8("lineEdit"));
 
         gridLayout->addWidget(lineEdit, 0, 1, 1, 2);
 
         line = new QFrame(FilterNameDialogClass);
-        line->setObjectName(QStringLiteral("line"));
+        line->setObjectName(QString::fromUtf8("line"));
         line->setFrameShape(QFrame::HLine);
         line->setFrameShadow(QFrame::Sunken);
 
@@ -65,7 +62,7 @@ public:
         gridLayout->addItem(spacerItem, 2, 0, 1, 2);
 
         buttonBox = new QDialogButtonBox(FilterNameDialogClass);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::NoButton|QDialogButtonBox::Ok);
 
@@ -79,8 +76,8 @@ public:
 
     void retranslateUi(QDialog *FilterNameDialogClass)
     {
-        FilterNameDialogClass->setWindowTitle(QApplication::translate("FilterNameDialogClass", "FilterNameDialog", nullptr));
-        label->setText(QApplication::translate("FilterNameDialogClass", "Filter Name:", nullptr));
+        FilterNameDialogClass->setWindowTitle(QCoreApplication::translate("FilterNameDialogClass", "FilterNameDialog", nullptr));
+        label->setText(QCoreApplication::translate("FilterNameDialogClass", "Filter Name:", nullptr));
     } // retranslateUi
 
 };

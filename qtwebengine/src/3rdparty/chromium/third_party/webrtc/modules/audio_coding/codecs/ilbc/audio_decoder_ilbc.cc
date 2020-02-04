@@ -8,14 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/codecs/ilbc/audio_decoder_ilbc.h"
+#include "modules/audio_coding/codecs/ilbc/audio_decoder_ilbc.h"
 
+#include <memory>
 #include <utility>
 
-#include "webrtc/modules/audio_coding/codecs/ilbc/ilbc.h"
-#include "webrtc/modules/audio_coding/codecs/legacy_encoded_audio_frame.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
+#include "modules/audio_coding/codecs/ilbc/ilbc.h"
+#include "modules/audio_coding/codecs/legacy_encoded_audio_frame.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
 
 namespace webrtc {
 
@@ -33,10 +34,10 @@ bool AudioDecoderIlbcImpl::HasDecodePlc() const {
 }
 
 int AudioDecoderIlbcImpl::DecodeInternal(const uint8_t* encoded,
-                                     size_t encoded_len,
-                                     int sample_rate_hz,
-                                     int16_t* decoded,
-                                     SpeechType* speech_type) {
+                                         size_t encoded_len,
+                                         int sample_rate_hz,
+                                         int16_t* decoded,
+                                         SpeechType* speech_type) {
   RTC_DCHECK_EQ(sample_rate_hz, 8000);
   int16_t temp_type = 1;  // Default is speech.
   int ret = WebRtcIlbcfix_Decode(dec_state_, encoded, encoded_len, decoded,
@@ -60,7 +61,8 @@ std::vector<AudioDecoder::ParseResult> AudioDecoderIlbcImpl::ParsePayload(
   size_t bytes_per_frame;
   int timestamps_per_frame;
   if (payload.size() >= 950) {
-    LOG(LS_WARNING) << "AudioDecoderIlbcImpl::ParsePayload: Payload too large";
+    RTC_LOG(LS_WARNING)
+        << "AudioDecoderIlbcImpl::ParsePayload: Payload too large";
     return results;
   }
   if (payload.size() % 38 == 0) {
@@ -72,7 +74,8 @@ std::vector<AudioDecoder::ParseResult> AudioDecoderIlbcImpl::ParsePayload(
     bytes_per_frame = 50;
     timestamps_per_frame = 240;
   } else {
-    LOG(LS_WARNING) << "AudioDecoderIlbcImpl::ParsePayload: Invalid payload";
+    RTC_LOG(LS_WARNING)
+        << "AudioDecoderIlbcImpl::ParsePayload: Invalid payload";
     return results;
   }
 
@@ -84,10 +87,9 @@ std::vector<AudioDecoder::ParseResult> AudioDecoderIlbcImpl::ParsePayload(
   } else {
     size_t byte_offset;
     uint32_t timestamp_offset;
-    for (byte_offset = 0, timestamp_offset = 0;
-         byte_offset < payload.size();
+    for (byte_offset = 0, timestamp_offset = 0; byte_offset < payload.size();
          byte_offset += bytes_per_frame,
-             timestamp_offset += timestamps_per_frame) {
+        timestamp_offset += timestamps_per_frame) {
       std::unique_ptr<EncodedAudioFrame> frame(new LegacyEncodedAudioFrame(
           this, rtc::Buffer(payload.data() + byte_offset, bytes_per_frame)));
       results.emplace_back(timestamp + timestamp_offset, 0, std::move(frame));

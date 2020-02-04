@@ -34,8 +34,6 @@
 This is a variety of examples that cover the entire range of the Qt NFC API. You will find them
 in their own documentation, but they are also accessible from here.
 
-\section2 C++ Tutorial
-
 \section2 C++ Examples
 \table 80%
     \header

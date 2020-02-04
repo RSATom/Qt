@@ -38,7 +38,7 @@ URLRequestRedirectJob::URLRequestRedirectJob(URLRequest* request,
   DCHECK(!redirect_reason_.empty());
 }
 
-URLRequestRedirectJob::~URLRequestRedirectJob() {}
+URLRequestRedirectJob::~URLRequestRedirectJob() = default;
 
 void URLRequestRedirectJob::GetResponseInfo(HttpResponseInfo* info) {
   // Should only be called after the URLRequest has been notified there's header
@@ -53,10 +53,11 @@ void URLRequestRedirectJob::GetResponseInfo(HttpResponseInfo* info) {
 
 void URLRequestRedirectJob::GetLoadTimingInfo(
     LoadTimingInfo* load_timing_info) const {
-  // Set send_start and send_end to receive_headers_end_ to be consistent
-  // with network cache behavior.
+  // Set send_start, send_end, and receive_headers_start to
+  // receive_headers_end_ to be consistent with network cache behavior.
   load_timing_info->send_start = receive_headers_end_;
   load_timing_info->send_end = receive_headers_end_;
+  load_timing_info->receive_headers_start = receive_headers_end_;
   load_timing_info->receive_headers_end = receive_headers_end_;
 }
 

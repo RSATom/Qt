@@ -42,7 +42,7 @@
 #include "qwaylandeglwindow.h"
 #include "qwaylandglcontext.h"
 
-#include <wayland-client.h>
+#include <wayland-client-core.h>
 
 #include <QtCore/QDebug>
 #include <private/qeglconvenience_p.h>
@@ -64,11 +64,8 @@ static const char *qwaylandegl_threadedgl_blacklist_vendor[] = {
 };
 
 QWaylandEglClientBufferIntegration::QWaylandEglClientBufferIntegration()
-    : m_display(0)
-    , m_eglDisplay(EGL_NO_DISPLAY)
-    , m_supportsThreading(false)
 {
-    qDebug() << "Using Wayland-EGL";
+    qCDebug(lcQpaWayland) << "Using Wayland-EGL";
 }
 
 
@@ -90,7 +87,7 @@ void QWaylandEglClientBufferIntegration::initialize(QWaylandDisplay *display)
 
             m_eglDisplay = eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, display->wl_display(), nullptr);
         } else {
-            qWarning("The EGL implementation does not support the Wayland platform");
+            qCWarning(lcQpaWayland) << "The EGL implementation does not support the Wayland platform";
             return;
         }
     } else {
@@ -105,13 +102,13 @@ void QWaylandEglClientBufferIntegration::initialize(QWaylandDisplay *display)
     m_display = display;
 
     if (m_eglDisplay == EGL_NO_DISPLAY) {
-        qWarning("EGL not available");
+        qCWarning(lcQpaWayland) << "EGL not available";
         return;
     }
 
     EGLint major,minor;
     if (!eglInitialize(m_eglDisplay, &major, &minor)) {
-        qWarning("failed to initialize EGL display");
+        qCWarning(lcQpaWayland) <<  "Failed to initialize EGL display" << hex << eglGetError();
         m_eglDisplay = EGL_NO_DISPLAY;
         return;
     }
@@ -162,7 +159,7 @@ void *QWaylandEglClientBufferIntegration::nativeResource(NativeResource resource
     default:
         break;
     }
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 void *QWaylandEglClientBufferIntegration::nativeResourceForContext(NativeResource resource, QPlatformOpenGLContext *context)
@@ -178,7 +175,7 @@ void *QWaylandEglClientBufferIntegration::nativeResourceForContext(NativeResourc
     default:
         break;
     }
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 EGLDisplay QWaylandEglClientBufferIntegration::eglDisplay() const

@@ -9,23 +9,23 @@
 
 #include <stdint.h>
 
+#include <vector>
+
+#include "core/fxcrt/unowned_ptr.h"
+#include "third_party/base/span.h"
+
 class CPDF_CryptoHandler;
 
 class CPDF_Encryptor {
  public:
-  CPDF_Encryptor(CPDF_CryptoHandler* pHandler,
-                 int objnum,
-                 uint8_t* src_data,
-                 uint32_t src_size);
+  CPDF_Encryptor(CPDF_CryptoHandler* pHandler, int objnum);
   ~CPDF_Encryptor();
 
-  uint32_t GetSize() const { return m_dwSize; }
-  uint8_t* GetData() const { return m_pData; }
+  std::vector<uint8_t> Encrypt(pdfium::span<const uint8_t> src_data) const;
 
  private:
-  uint8_t* m_pData;
-  uint32_t m_dwSize;
-  bool m_bNewBuf;
+  UnownedPtr<CPDF_CryptoHandler> const m_pHandler;
+  const int m_ObjNum;
 };
 
 #endif  // CORE_FPDFAPI_EDIT_CPDF_ENCRYPTOR_H_

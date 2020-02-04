@@ -49,22 +49,33 @@ struct LifetimePolicy {
 struct FeaturePolicy {
   // Whether pages are shown in download ui.
   bool is_supported_by_download;
+  // Whether a download was initiated in response to user action.
+  bool is_user_requested_download;
   // Whether pages are shown in recent tabs ui.
   bool is_supported_by_recent_tabs;
-  // Whether pages should only be viewed in the tab they were generated in.
-  bool only_shown_in_original_tab;
+  // Whether pages can only be viewed in a specific tab. Pages controlled by
+  // this policy must have their ClientId::id field set to their assigned tab's
+  // id.
+  bool is_restricted_to_tab_from_client_id;
   // Whether pages are removed on user-initiated cache reset. Defaults to true.
   bool is_removed_on_cache_reset;
   // Whether the namespace should be disabled if prefetching-related preferences
   // are disabled.
   bool disabled_when_prefetch_disabled;
+  // Whether the pages originated from suggestions by zine or elsewhere.
+  bool is_suggested;
+  // whether we should allow pages to trigger downloads.
+  bool should_allow_download;
 
   FeaturePolicy()
       : is_supported_by_download(false),
+        is_user_requested_download(false),
         is_supported_by_recent_tabs(false),
-        only_shown_in_original_tab(false),
+        is_restricted_to_tab_from_client_id(false),
         is_removed_on_cache_reset(true),
-        disabled_when_prefetch_disabled(false) {}
+        disabled_when_prefetch_disabled(false),
+        is_suggested(false),
+        should_allow_download(false) {}
 };
 
 // The struct describing policies for various namespaces (Bookmark, Last-N etc.)
@@ -82,6 +93,10 @@ struct OfflinePageClientPolicy {
   size_t pages_allowed_per_url;
 
   FeaturePolicy feature_policy;
+
+  // Whether background fetches are deferred while the active tab matches the
+  // SavePageRequestURL.
+  bool defer_background_fetch_while_page_is_active = false;
 
   OfflinePageClientPolicy(std::string namespace_val,
                           LifetimePolicy lifetime_policy_val,
@@ -129,6 +144,13 @@ class OfflinePageClientPolicyBuilder {
     return *this;
   }
 
+  OfflinePageClientPolicyBuilder& SetIsUserRequestedDownload(
+      const bool is_user_requested_download) {
+    policy_.feature_policy.is_user_requested_download =
+        is_user_requested_download;
+    return *this;
+  }
+
   OfflinePageClientPolicyBuilder& SetIsSupportedByRecentTabs(
       const bool is_recent_tabs) {
     policy_.feature_policy.is_supported_by_recent_tabs = is_recent_tabs;
@@ -141,10 +163,10 @@ class OfflinePageClientPolicyBuilder {
     return *this;
   }
 
-  OfflinePageClientPolicyBuilder& SetIsOnlyShownInOriginalTab(
-      const bool only_shown_in_original_tab) {
-    policy_.feature_policy.only_shown_in_original_tab =
-        only_shown_in_original_tab;
+  OfflinePageClientPolicyBuilder& SetIsRestrictedToTabFromClientId(
+      const bool is_restricted_to_tab_from_client_id) {
+    policy_.feature_policy.is_restricted_to_tab_from_client_id =
+        is_restricted_to_tab_from_client_id;
     return *this;
   }
 
@@ -152,6 +174,23 @@ class OfflinePageClientPolicyBuilder {
       const bool disabled_when_prefetch_disabled) {
     policy_.feature_policy.disabled_when_prefetch_disabled =
         disabled_when_prefetch_disabled;
+    return *this;
+  }
+
+  OfflinePageClientPolicyBuilder& SetIsSuggested(const bool is_suggested) {
+    policy_.feature_policy.is_suggested = is_suggested;
+    return *this;
+  }
+
+  OfflinePageClientPolicyBuilder& SetShouldAllowDownload(
+      const bool should_allow_download) {
+    policy_.feature_policy.should_allow_download = should_allow_download;
+    return *this;
+  }
+
+  OfflinePageClientPolicyBuilder& SetDeferBackgroundFetchWhilePageIsActive(
+      bool defer) {
+    policy_.defer_background_fetch_while_page_is_active = defer;
     return *this;
   }
 

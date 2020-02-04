@@ -4,7 +4,8 @@
 
 #include "net/http/http_cache_lookup_manager.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "base/values.h"
 #include "net/base/load_flags.h"
 
@@ -32,11 +33,11 @@ HttpCacheLookupManager::LookupTransaction::LookupTransaction(
           net_log,
           NetLogSourceType::SERVER_PUSH_LOOKUP_TRANSACTION)) {}
 
-HttpCacheLookupManager::LookupTransaction::~LookupTransaction() {}
+HttpCacheLookupManager::LookupTransaction::~LookupTransaction() = default;
 
 int HttpCacheLookupManager::LookupTransaction::StartLookup(
     HttpCache* cache,
-    const CompletionCallback& callback,
+    CompletionOnceCallback callback,
     const NetLogWithSource& session_net_log) {
   net_log_.BeginEvent(NetLogEventType::SERVER_PUSH_LOOKUP_TRANSACTION,
                       base::Bind(&NetLogPushLookupTransactionCallback,
@@ -46,7 +47,7 @@ int HttpCacheLookupManager::LookupTransaction::StartLookup(
   request_->method = "GET";
   request_->load_flags = LOAD_ONLY_FROM_CACHE | LOAD_SKIP_CACHE_VALIDATION;
   cache->CreateTransaction(DEFAULT_PRIORITY, &transaction_);
-  return transaction_->Start(request_.get(), callback, net_log_);
+  return transaction_->Start(request_.get(), std::move(callback), net_log_);
 }
 
 void HttpCacheLookupManager::LookupTransaction::OnLookupComplete(int result) {
@@ -61,7 +62,7 @@ void HttpCacheLookupManager::LookupTransaction::OnLookupComplete(int result) {
 HttpCacheLookupManager::HttpCacheLookupManager(HttpCache* http_cache)
     : http_cache_(http_cache), weak_factory_(this) {}
 
-HttpCacheLookupManager::~HttpCacheLookupManager() {}
+HttpCacheLookupManager::~HttpCacheLookupManager() = default;
 
 void HttpCacheLookupManager::OnPush(
     std::unique_ptr<ServerPushHelper> push_helper,
@@ -72,7 +73,7 @@ void HttpCacheLookupManager::OnPush(
   if (base::ContainsKey(lookup_transactions_, pushed_url))
     return;
 
-  auto lookup = base::MakeUnique<LookupTransaction>(std::move(push_helper),
+  auto lookup = std::make_unique<LookupTransaction>(std::move(push_helper),
                                                     session_net_log.net_log());
   // TODO(zhongyi): add events in session net log to log the creation of
   // LookupTransaction.

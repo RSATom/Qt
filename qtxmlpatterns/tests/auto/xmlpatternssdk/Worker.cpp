@@ -109,9 +109,7 @@ void Worker::threadFinished()
     deleteLater();
 
     ResultThreader::Hash::const_iterator itA(m_result.constBegin());
-    ResultThreader::Hash::const_iterator itB(m_baseline.constBegin());
     const ResultThreader::Hash::const_iterator endA(m_result.constEnd());
-    const ResultThreader::Hash::const_iterator endB(m_baseline.constEnd());
     const int baselineCount = m_baseline.count();
     const int resultCount = m_result.count();
 

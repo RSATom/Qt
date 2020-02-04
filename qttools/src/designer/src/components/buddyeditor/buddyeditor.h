@@ -32,8 +32,8 @@
 #include "buddyeditor_global.h"
 
 #include <connectionedit_p.h>
-#include <QtCore/QPointer>
-#include <QtCore/QSet>
+#include <QtCore/qpointer.h>
+#include <QtCore/qset.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -51,19 +51,19 @@ public:
     BuddyEditor(QDesignerFormWindowInterface *form, QWidget *parent);
 
     QDesignerFormWindowInterface *formWindow() const;
-    void setBackground(QWidget *background) Q_DECL_OVERRIDE;
-    void deleteSelected() Q_DECL_OVERRIDE;
+    void setBackground(QWidget *background) override;
+    void deleteSelected() override;
 
 public slots:
-    void updateBackground() Q_DECL_OVERRIDE;
-    void widgetRemoved(QWidget *w) Q_DECL_OVERRIDE;
+    void updateBackground() override;
+    void widgetRemoved(QWidget *w) override;
     void autoBuddy();
 
 protected:
-    QWidget *widgetAt(const QPoint &pos) const Q_DECL_OVERRIDE;
-    Connection *createConnection(QWidget *source, QWidget *destination) Q_DECL_OVERRIDE;
-    void endConnection(QWidget *target, const QPoint &pos) Q_DECL_OVERRIDE;
-    void createContextMenu(QMenu &menu) Q_DECL_OVERRIDE;
+    QWidget *widgetAt(const QPoint &pos) const override;
+    Connection *createConnection(QWidget *source, QWidget *destination) override;
+    void endConnection(QWidget *target, const QPoint &pos) override;
+    void createContextMenu(QMenu &menu) override;
 
 private:
     QWidget *findBuddy(QLabel *l, const QWidgetList &existingBuddies) const;

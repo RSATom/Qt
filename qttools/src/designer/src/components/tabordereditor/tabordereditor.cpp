@@ -34,18 +34,17 @@
 #include <qlayout_widget_p.h>
 #include <orderdialog_p.h>
 
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetfactory.h>
+#include <QtDesigner/propertysheet.h>
 
-#include <QtGui/QPainter>
-#include <QtGui/QMouseEvent>
-#include <QtGui/QResizeEvent>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QApplication>
+#include <QtGui/qpainter.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qapplication.h>
 
 Q_DECLARE_METATYPE(QWidgetList)
 
@@ -153,7 +152,7 @@ void TabOrderEditor::paintEvent(QPaintEvent *e)
     p.setClipRegion(e->region());
 
     int cur = m_current_index - 1;
-    if (m_beginning == false && cur < 0)
+    if (!m_beginning && cur < 0)
         cur = m_tab_order_list.size() - 1;
 
     for (int i = 0; i < m_tab_order_list.size(); ++i) {
@@ -262,7 +261,7 @@ void TabOrderEditor::initTabOrder()
 void TabOrderEditor::mouseMoveEvent(QMouseEvent *e)
 {
     e->accept();
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
     if (m_indicator_region.contains(e->pos()))
         setCursor(Qt::PointingHandCursor);
     else
@@ -332,7 +331,7 @@ void TabOrderEditor::mousePressEvent(QMouseEvent *e)
     if (m_current_index == -1)
         return;
 
-    m_tab_order_list.swap(target_index, m_current_index);
+    m_tab_order_list.swapItemsAt(target_index, m_current_index);
 
     ++m_current_index;
     if (m_current_index == m_tab_order_list.size())

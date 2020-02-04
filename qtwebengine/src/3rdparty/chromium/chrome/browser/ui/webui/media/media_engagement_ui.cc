@@ -4,17 +4,41 @@
 
 #include "chrome/browser/ui/webui/media/media_engagement_ui.h"
 
+#include <memory>
+
+#include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
+#include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/media/media_engagement_score.h"
 #include "chrome/browser/media/media_engagement_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
+#include "components/component_updater/component_updater_service.h"
+#include "content/public/browser/render_view_host.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "content/public/common/web_preferences.h"
+#include "media/base/media_switches.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
+#if !defined(OS_ANDROID)
+#include "chrome/common/pref_names.h"
+#include "components/prefs/pref_service.h"
+#endif
+
 namespace {
+
+namespace {
+
+// This is the component ID for the MEI Preload component.
+const char kPreloadComponentID[] = "aemomkdncapdnfajjbbcbdebjljbpmpj";
+
+}  // namespace
 
 // Implementation of media::mojom::MediaEngagementScoreDetailsProvider that
 // retrieves engagement details from the MediaEngagementService.
@@ -22,10 +46,13 @@ class MediaEngagementScoreDetailsProviderImpl
     : public media::mojom::MediaEngagementScoreDetailsProvider {
  public:
   MediaEngagementScoreDetailsProviderImpl(
-      Profile* profile,
+      content::WebUI* web_ui,
       mojo::InterfaceRequest<media::mojom::MediaEngagementScoreDetailsProvider>
           request)
-      : profile_(profile), binding_(this, std::move(request)) {
+      : web_ui_(web_ui),
+        profile_(Profile::FromWebUI(web_ui)),
+        binding_(this, std::move(request)) {
+    DCHECK(web_ui_);
     DCHECK(profile_);
     service_ = MediaEngagementService::Get(profile_);
   }
@@ -39,7 +66,64 @@ class MediaEngagementScoreDetailsProviderImpl
     std::move(callback).Run(service_->GetAllScoreDetails());
   }
 
+  void GetMediaEngagementConfig(
+      media::mojom::MediaEngagementScoreDetailsProvider::
+          GetMediaEngagementConfigCallback callback) override {
+    std::move(callback).Run(media::mojom::MediaEngagementConfig::New(
+        MediaEngagementScore::GetScoreMinVisits(),
+        MediaEngagementScore::GetHighScoreLowerThreshold(),
+        MediaEngagementScore::GetHighScoreUpperThreshold(),
+        base::FeatureList::IsEnabled(media::kRecordMediaEngagementScores),
+        base::FeatureList::IsEnabled(
+            media::kMediaEngagementBypassAutoplayPolicies),
+        base::FeatureList::IsEnabled(media::kPreloadMediaEngagementData),
+        base::FeatureList::IsEnabled(media::kAutoplayDisableSettings),
+        base::FeatureList::IsEnabled(media::kAutoplayWhitelistSettings),
+        GetBlockAutoplayPref(),
+        base::CommandLine::ForCurrentProcess()->HasSwitch(
+            switches::kAutoplayPolicy),
+        GetAppliedAutoplayPolicy(), GetPreloadVersion()));
+  }
+
  private:
+  const std::string GetAppliedAutoplayPolicy() {
+    switch (web_ui_->GetWebContents()
+                ->GetRenderViewHost()
+                ->GetWebkitPreferences()
+                .autoplay_policy) {
+      case content::AutoplayPolicy::kNoUserGestureRequired:
+        return "no-user-gesture-required";
+      case content::AutoplayPolicy::kUserGestureRequired:
+        return "user-gesture-required";
+      case content::AutoplayPolicy::kDocumentUserActivationRequired:
+        return "document-user-activation-required";
+    }
+  }
+
+  const std::string GetPreloadVersion() {
+    component_updater::ComponentUpdateService* cus =
+        g_browser_process->component_updater();
+    std::vector<component_updater::ComponentInfo> info = cus->GetComponents();
+
+    for (const auto& component : info) {
+      if (component.id == kPreloadComponentID)
+        return component.version.GetString();
+    }
+
+    return std::string();
+  }
+
+  // Pref is not available on Android.
+  bool GetBlockAutoplayPref() {
+#if defined(OS_ANDROID)
+    return false;
+#else
+    return profile_->GetPrefs()->GetBoolean(prefs::kBlockAutoplayEnabled);
+#endif
+  }
+
+  content::WebUI* web_ui_;
+
   Profile* profile_;
 
   MediaEngagementService* service_;
@@ -52,8 +136,7 @@ class MediaEngagementScoreDetailsProviderImpl
 }  // namespace
 
 MediaEngagementUI::MediaEngagementUI(content::WebUI* web_ui)
-    : MojoWebUIController<media::mojom::MediaEngagementScoreDetailsProvider>(
-          web_ui) {
+    : ui::MojoWebUIController(web_ui) {
   // Setup the data source behind chrome://media-engagement.
   std::unique_ptr<content::WebUIDataSource> source(
       content::WebUIDataSource::Create(chrome::kChromeUIMediaEngagementHost));
@@ -61,16 +144,19 @@ MediaEngagementUI::MediaEngagementUI(content::WebUI* web_ui)
   source->AddResourcePath(
       "chrome/browser/media/media_engagement_score_details.mojom.js",
       IDR_MEDIA_ENGAGEMENT_MOJO_JS);
-  source->AddResourcePath("url/mojo/url.mojom.js", IDR_URL_MOJO_JS);
+  source->AddResourcePath("url/mojom/url.mojom.js", IDR_URL_MOJO_JS);
   source->SetDefaultResource(IDR_MEDIA_ENGAGEMENT_HTML);
-  source->UseGzip(std::unordered_set<std::string>());
+  source->UseGzip();
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), source.release());
+  AddHandlerToRegistry(base::BindRepeating(
+      &MediaEngagementUI::BindMediaEngagementScoreDetailsProvider,
+      base::Unretained(this)));
 }
 
 MediaEngagementUI::~MediaEngagementUI() = default;
 
-void MediaEngagementUI::BindUIHandler(
+void MediaEngagementUI::BindMediaEngagementScoreDetailsProvider(
     media::mojom::MediaEngagementScoreDetailsProviderRequest request) {
-  ui_handler_ = base::MakeUnique<MediaEngagementScoreDetailsProviderImpl>(
-      Profile::FromWebUI(web_ui()), std::move(request));
+  ui_handler_ = std::make_unique<MediaEngagementScoreDetailsProviderImpl>(
+      web_ui(), std::move(request));
 }

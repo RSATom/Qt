@@ -14,7 +14,7 @@ CFLAGS += -std=c99 -Wall -Wsign-compare -Wpointer-arith -Wcast-qual \
 
 ifdef DRV_AMDGPU
 	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_amdgpu)
-	LDLIBS += -lamdgpuaddr
+	LDLIBS += -ldrm_amdgpu -ldl
 endif
 ifdef DRV_EXYNOS
 	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_exynos)
@@ -22,8 +22,17 @@ endif
 ifdef DRV_I915
 	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_intel)
 endif
+ifdef DRV_MESON
+	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_meson)
+endif
+ifdef DRV_RADEON
+	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_radeon)
+endif
 ifdef DRV_ROCKCHIP
 	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_rockchip)
+endif
+ifdef DRV_VC4
+	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_vc4)
 endif
 
 CPPFLAGS += $(PC_CFLAGS)

@@ -47,6 +47,8 @@ struct VpxDecInputContext {
   struct WebmInputContext *webm_ctx;
 };
 
+static const arg_def_t help =
+    ARG_DEF(NULL, "help", 0, "Show usage options and exit");
 static const arg_def_t looparg =
     ARG_DEF(NULL, "loops", 1, "Number of times to decode the file");
 static const arg_def_t codecarg = ARG_DEF(NULL, "codec", 1, "Codec to use");
@@ -96,20 +98,41 @@ static const arg_def_t svcdecodingarg = ARG_DEF(
     NULL, "svc-decode-layer", 1, "Decode SVC stream up to given spatial layer");
 static const arg_def_t framestatsarg =
     ARG_DEF(NULL, "framestats", 1, "Output per-frame stats (.csv format)");
+static const arg_def_t rowmtarg =
+    ARG_DEF(NULL, "row-mt", 1, "Enable multi-threading to run row-wise in VP9");
+static const arg_def_t lpfoptarg =
+    ARG_DEF(NULL, "lpf-opt", 1,
+            "Do loopfilter without waiting for all threads to sync.");
 
-static const arg_def_t *all_args[] = {
-  &codecarg,          &use_yv12,         &use_i420,
-  &flipuvarg,         &rawvideo,         &noblitarg,
-  &progressarg,       &limitarg,         &skiparg,
-  &postprocarg,       &summaryarg,       &outputfile,
-  &threadsarg,        &frameparallelarg, &verbosearg,
-  &scalearg,          &fb_arg,           &md5arg,
-  &error_concealment, &continuearg,
+static const arg_def_t *all_args[] = { &help,
+                                       &codecarg,
+                                       &use_yv12,
+                                       &use_i420,
+                                       &flipuvarg,
+                                       &rawvideo,
+                                       &noblitarg,
+                                       &progressarg,
+                                       &limitarg,
+                                       &skiparg,
+                                       &postprocarg,
+                                       &summaryarg,
+                                       &outputfile,
+                                       &threadsarg,
+                                       &frameparallelarg,
+                                       &verbosearg,
+                                       &scalearg,
+                                       &fb_arg,
+                                       &md5arg,
+                                       &error_concealment,
+                                       &continuearg,
 #if CONFIG_VP9_HIGHBITDEPTH
-  &outbitdeptharg,
+                                       &outbitdeptharg,
 #endif
-  &svcdecodingarg,    &framestatsarg,    NULL
-};
+                                       &svcdecodingarg,
+                                       &framestatsarg,
+                                       &rowmtarg,
+                                       &lpfoptarg,
+                                       NULL };
 
 #if CONFIG_VP8_DECODER
 static const arg_def_t addnoise_level =
@@ -152,41 +175,47 @@ static INLINE int libyuv_scale(vpx_image_t *src, vpx_image_t *dst,
                    dst->d_h, mode);
 }
 #endif
-
-void usage_exit(void) {
+static void show_help(FILE *fout, int shorthelp) {
   int i;
 
-  fprintf(stderr,
-          "Usage: %s <options> filename\n\n"
-          "Options:\n",
-          exec_name);
-  arg_show_usage(stderr, all_args);
+  fprintf(fout, "Usage: %s <options> filename\n\n", exec_name);
+
+  if (shorthelp) {
+    fprintf(fout, "Use --help to see the full list of options.\n");
+    return;
+  }
+
+  fprintf(fout, "Options:\n");
+  arg_show_usage(fout, all_args);
 #if CONFIG_VP8_DECODER
-  fprintf(stderr, "\nVP8 Postprocessing Options:\n");
-  arg_show_usage(stderr, vp8_pp_args);
+  fprintf(fout, "\nVP8 Postprocessing Options:\n");
+  arg_show_usage(fout, vp8_pp_args);
 #endif
-  fprintf(stderr,
+  fprintf(fout,
           "\nOutput File Patterns:\n\n"
           "  The -o argument specifies the name of the file(s) to "
           "write to. If the\n  argument does not include any escape "
           "characters, the output will be\n  written to a single file. "
           "Otherwise, the filename will be calculated by\n  expanding "
           "the following escape characters:\n");
-  fprintf(stderr,
+  fprintf(fout,
           "\n\t%%w   - Frame width"
           "\n\t%%h   - Frame height"
           "\n\t%%<n> - Frame number, zero padded to <n> places (1..9)"
           "\n\n  Pattern arguments are only supported in conjunction "
           "with the --yv12 and\n  --i420 options. If the -o option is "
           "not specified, the output will be\n  directed to stdout.\n");
-  fprintf(stderr, "\nIncluded decoders:\n\n");
+  fprintf(fout, "\nIncluded decoders:\n\n");
 
   for (i = 0; i < get_vpx_decoder_count(); ++i) {
     const VpxInterface *const decoder = get_vpx_decoder_by_index(i);
-    fprintf(stderr, "    %-6s - %s\n", decoder->name,
+    fprintf(fout, "    %-6s - %s\n", decoder->name,
             vpx_codec_iface_name(decoder->codec_interface()));
   }
+}
 
+void usage_exit(void) {
+  show_help(stderr, 1);
   exit(EXIT_FAILURE);
 }
 
@@ -230,9 +259,10 @@ static int raw_read_frame(FILE *infile, uint8_t **buffer, size_t *bytes_read,
       return 1;
     }
     *bytes_read = frame_size;
+    return 0;
   }
 
-  return 0;
+  return 1;
 }
 
 static int read_frame(struct VpxDecInputContext *input, uint8_t **buf,
@@ -498,6 +528,8 @@ static int main_loop(int argc, const char **argv_) {
   int arg_skip = 0;
   int ec_enabled = 0;
   int keep_going = 0;
+  int enable_row_mt = 0;
+  int enable_lpf_opt = 0;
   const VpxInterface *interface = NULL;
   const VpxInterface *fourcc_interface = NULL;
   uint64_t dx_time = 0;
@@ -554,7 +586,10 @@ static int main_loop(int argc, const char **argv_) {
     memset(&arg, 0, sizeof(arg));
     arg.argv_step = 1;
 
-    if (arg_match(&arg, &codecarg, argi)) {
+    if (arg_match(&arg, &help, argi)) {
+      show_help(stdout, 0);
+      exit(EXIT_SUCCESS);
+    } else if (arg_match(&arg, &codecarg, argi)) {
       interface = get_vpx_decoder_by_name(arg.val);
       if (!interface)
         die("Error: Unrecognized argument (%s) to --codec\n", arg.val);
@@ -617,6 +652,10 @@ static int main_loop(int argc, const char **argv_) {
         die("Error: Could not open --framestats file (%s) for writing.\n",
             arg.val);
       }
+    } else if (arg_match(&arg, &rowmtarg, argi)) {
+      enable_row_mt = arg_parse_uint(&arg);
+    } else if (arg_match(&arg, &lpfoptarg, argi)) {
+      enable_lpf_opt = arg_parse_uint(&arg);
     }
 #if CONFIG_VP8_DECODER
     else if (arg_match(&arg, &addnoise_level, argi)) {
@@ -651,6 +690,7 @@ static int main_loop(int argc, const char **argv_) {
 
   if (!fn) {
     free(argv);
+    fprintf(stderr, "No input file specified!\n");
     usage_exit();
   }
   /* Open file */
@@ -740,6 +780,18 @@ static int main_loop(int argc, const char **argv_) {
               vpx_codec_error(&decoder));
       goto fail;
     }
+  }
+  if (interface->fourcc == VP9_FOURCC &&
+      vpx_codec_control(&decoder, VP9D_SET_ROW_MT, enable_row_mt)) {
+    fprintf(stderr, "Failed to set decoder in row multi-thread mode: %s\n",
+            vpx_codec_error(&decoder));
+    goto fail;
+  }
+  if (interface->fourcc == VP9_FOURCC &&
+      vpx_codec_control(&decoder, VP9D_SET_LOOP_FILTER_OPT, enable_lpf_opt)) {
+    fprintf(stderr, "Failed to set decoder in optimized loopfilter mode: %s\n",
+            vpx_codec_error(&decoder));
+    goto fail;
   }
   if (!quiet) fprintf(stderr, "%s\n", decoder.name);
 

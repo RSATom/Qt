@@ -24,12 +24,24 @@ class AudioParameters;
 // input channels as defined in the matrix.
 class MEDIA_EXPORT ChannelMixer {
  public:
+  // To mix two channels into one and preserve loudness, we must apply
+  // (1 / sqrt(2)) gain to each.
+  static constexpr float kHalfPower = 0.707106781186547524401f;
+
   ChannelMixer(ChannelLayout input_layout, ChannelLayout output_layout);
   ChannelMixer(const AudioParameters& input, const AudioParameters& output);
   ~ChannelMixer();
 
   // Transforms all channels from |input| into |output| channels.
   void Transform(const AudioBus* input, AudioBus* output);
+
+  // Transforms all channels from |input| into |output| channels, for just the
+  // initial part of the input. Callers can use this to avoid reallocating
+  // AudioBuses, if the length of the data changes frequently for their use
+  // case.
+  void TransformPartial(const AudioBus* input,
+                        int frame_count,
+                        AudioBus* output);
 
  private:
   void Initialize(ChannelLayout input_layout, int input_channels,

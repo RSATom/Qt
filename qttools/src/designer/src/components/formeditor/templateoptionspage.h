@@ -29,12 +29,12 @@
 #ifndef QDESIGNER_TEMPLATEOPTIONS_H
 #define QDESIGNER_TEMPLATEOPTIONS_H
 
-#include <QtDesigner/QDesignerOptionsPageInterface>
+#include <QtDesigner/abstractoptionspage.h>
 
-#include <QtCore/QPointer>
-#include <QtCore/QStringList>
+#include <QtCore/qpointer.h>
+#include <QtCore/qstringlist.h>
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -79,10 +79,10 @@ class TemplateOptionsPage : public QDesignerOptionsPageInterface
 public:
     explicit TemplateOptionsPage(QDesignerFormEditorInterface *core);
 
-    QString name() const Q_DECL_OVERRIDE;
-    QWidget *createPage(QWidget *parent) Q_DECL_OVERRIDE;
-    void apply() Q_DECL_OVERRIDE;
-    void finish() Q_DECL_OVERRIDE;
+    QString name() const override;
+    QWidget *createPage(QWidget *parent) override;
+    void apply() override;
+    void finish() override;
 
 private:
     QDesignerFormEditorInterface *m_core;

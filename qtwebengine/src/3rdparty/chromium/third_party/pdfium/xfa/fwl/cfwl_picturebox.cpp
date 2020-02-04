@@ -12,9 +12,6 @@
 
 CFWL_PictureBox::CFWL_PictureBox(const CFWL_App* app)
     : CFWL_Widget(app, pdfium::MakeUnique<CFWL_WidgetProperties>(), nullptr) {
-  m_rtClient.Reset();
-  m_rtImage.Reset();
-  m_matrix.SetIdentity();
 }
 
 CFWL_PictureBox::~CFWL_PictureBox() {}
@@ -33,7 +30,7 @@ void CFWL_PictureBox::Update() {
 }
 
 void CFWL_PictureBox::DrawWidget(CXFA_Graphics* pGraphics,
-                                 const CFX_Matrix* pMatrix) {
+                                 const CFX_Matrix& matrix) {
   if (!pGraphics)
     return;
   if (!m_pProperties->m_pThemeProvider)
@@ -41,10 +38,10 @@ void CFWL_PictureBox::DrawWidget(CXFA_Graphics* pGraphics,
 
   IFWL_ThemeProvider* pTheme = GetAvailableTheme();
   if (HasBorder())
-    DrawBorder(pGraphics, CFWL_Part::Border, pTheme, pMatrix);
+    DrawBorder(pGraphics, CFWL_Part::Border, pTheme, matrix);
 }
 
 void CFWL_PictureBox::OnDrawWidget(CXFA_Graphics* pGraphics,
-                                   const CFX_Matrix* pMatrix) {
-  DrawWidget(pGraphics, pMatrix);
+                                   const CFX_Matrix& matrix) {
+  DrawWidget(pGraphics, matrix);
 }

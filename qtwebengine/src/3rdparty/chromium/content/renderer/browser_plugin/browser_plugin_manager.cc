@@ -49,7 +49,7 @@ int BrowserPluginManager::GetNextInstanceID() {
 }
 
 void BrowserPluginManager::UpdateFocusState() {
-  IDMap<BrowserPlugin*>::iterator iter(&instances_);
+  base::IDMap<BrowserPlugin*>::iterator iter(&instances_);
   while (!iter.IsAtEnd()) {
     iter.GetCurrentValue()->UpdateGuestFocusState(blink::kWebFocusTypeNone);
     iter.Advance();
@@ -72,18 +72,6 @@ BrowserPlugin* BrowserPluginManager::CreateBrowserPlugin(
     RenderFrame* render_frame,
     const base::WeakPtr<BrowserPluginDelegate>& delegate) {
   return new BrowserPlugin(render_frame, delegate);
-}
-
-void BrowserPluginManager::DidCommitCompositorFrame(
-    int render_frame_routing_id) {
-  IDMap<BrowserPlugin*>::iterator iter(&instances_);
-  while (!iter.IsAtEnd()) {
-    if (iter.GetCurrentValue()->render_frame_routing_id() ==
-        render_frame_routing_id) {
-      iter.GetCurrentValue()->DidCommitCompositorFrame();
-    }
-    iter.Advance();
-  }
 }
 
 bool BrowserPluginManager::OnControlMessageReceived(

@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// --site-per-process overrides for guest_view.js.
+// GuestViewCrossProcessFrames overrides for guest_view.js.
 
-var GuestView = require('guestView').GuestView;
+var $HTMLIFrameElement = require('safeMethods').SafeMethods.$HTMLIFrameElement;
 var GuestViewImpl = require('guestView').GuestViewImpl;
 var GuestViewInternalNatives = requireNative('guest_view_internal');
 var ResizeEvent = require('guestView').ResizeEvent;
@@ -14,9 +14,9 @@ var getIframeContentWindow = function(viewInstanceId) {
   if (!view)
     return null;
 
-  var internalIframeElement = privates(view).internalElement;
+  var internalIframeElement = view.internalElement;
   if (internalIframeElement)
-    return internalIframeElement.contentWindow;
+    return $HTMLIFrameElement.contentWindow.get(internalIframeElement);
 
   return null;
 };
@@ -38,12 +38,11 @@ GuestViewImpl.prototype.attachImpl$ = function(
     return;
   }
 
-  // Callback wrapper function to store the contentWindow from the attachGuest()
-  // callback, handle potential attaching failure, register an automatic detach,
+  // Callback wrapper function to set the contentWindow following attachment,
   // and advance the queue.
-  var callbackWrapper = function(callback, contentWindow) {
+  var callbackWrapper = function(callback) {
+    var contentWindow = getIframeContentWindow(viewInstanceId);
     // Check if attaching failed.
-    contentWindow = getIframeContentWindow(viewInstanceId);
     if (!contentWindow) {
       this.state = GuestViewImpl.GuestState.GUEST_STATE_CREATED;
       this.internalInstanceId = 0;
@@ -109,7 +108,7 @@ GuestViewImpl.prototype.createImpl$ = function(createParams, callback) {
 };
 
 // Internal implementation of destroy().
-GuestViewImpl.prototype.destroyImpl = function(callback) {
+GuestViewImpl.prototype.destroyImpl$ = function(callback) {
   // Check the current state.
   if (!this.checkState('destroy')) {
     this.handleCallback(callback);
@@ -122,13 +121,6 @@ GuestViewImpl.prototype.destroyImpl = function(callback) {
     return;
   }
 
-  // If this guest is attached, then detach it first.
-  if (!!this.internalInstanceId) {
-    GuestViewInternalNatives.DetachGuest(this.internalInstanceId);
-  }
-
-  this.handleCallback(callback);
-
   // Reset the state of the destroyed guest;
   this.contentWindow = null;
   this.id = 0;
@@ -137,4 +129,8 @@ GuestViewImpl.prototype.destroyImpl = function(callback) {
   if (ResizeEvent.hasListener(this.callOnResize)) {
     ResizeEvent.removeListener(this.callOnResize);
   }
+
+  // Handle callback at end to avoid handling items in the action queue out of
+  // order, since the callback is run synchronously here.
+  this.handleCallback(callback);
 };

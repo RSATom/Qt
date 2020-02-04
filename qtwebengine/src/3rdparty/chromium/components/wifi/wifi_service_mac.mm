@@ -16,7 +16,6 @@
 #include "base/mac/scoped_nsobject.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/values.h"
@@ -160,12 +159,13 @@ WiFiServiceMac::WiFiServiceMac() : wlan_observer_(nil) {
 }
 
 WiFiServiceMac::~WiFiServiceMac() {
+  UnInitialize();
 }
 
 void WiFiServiceMac::Initialize(
   scoped_refptr<base::SequencedTaskRunner> task_runner) {
   task_runner_.swap(task_runner);
-  interface_.reset([[CWInterface interface] retain]);
+  interface_.reset([[[CWWiFiClient sharedWiFiClient] interface] retain]);
   if (!interface_) {
     DVLOG(1) << "Failed to initialize default interface.";
     return;
@@ -365,14 +365,9 @@ void WiFiServiceMac::GetKeyFromSystem(const std::string& network_guid,
   UInt32 password_length = 0;
   void *password_data = NULL;
   crypto::AppleKeychain keychain;
-  OSStatus status = keychain.FindGenericPassword(NULL,
-                                                 strlen(kAirPortServiceName),
-                                                 kAirPortServiceName,
-                                                 network_guid.length(),
-                                                 network_guid.c_str(),
-                                                 &password_length,
-                                                 &password_data,
-                                                 NULL);
+  OSStatus status = keychain.FindGenericPassword(
+      strlen(kAirPortServiceName), kAirPortServiceName, network_guid.length(),
+      network_guid.c_str(), &password_length, &password_data, NULL);
   if (status != errSecSuccess) {
     *error = kErrorNotFound;
     return;
@@ -381,7 +376,7 @@ void WiFiServiceMac::GetKeyFromSystem(const std::string& network_guid,
   if (password_data) {
     *key_data = std::string(reinterpret_cast<char*>(password_data),
                             password_length);
-    keychain.ItemFreeContent(NULL, password_data);
+    keychain.ItemFreeContent(password_data);
   }
 }
 

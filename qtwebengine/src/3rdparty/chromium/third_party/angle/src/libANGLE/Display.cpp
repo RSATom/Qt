@@ -16,8 +16,8 @@
 #include <sstream>
 #include <vector>
 
-#include <platform/Platform.h>
 #include <EGL/eglext.h>
+#include <platform/Platform.h>
 
 #include "common/debug.h"
 #include "common/mathutil.h"
@@ -25,47 +25,52 @@
 #include "common/utilities.h"
 #include "libANGLE/Context.h"
 #include "libANGLE/Device.h"
-#include "libANGLE/histogram_macros.h"
+#include "libANGLE/EGLSync.h"
 #include "libANGLE/Image.h"
-#include "libANGLE/Surface.h"
-#include "libANGLE/Stream.h"
 #include "libANGLE/ResourceManager.h"
+#include "libANGLE/Stream.h"
+#include "libANGLE/Surface.h"
+#include "libANGLE/Thread.h"
+#include "libANGLE/histogram_macros.h"
+#include "libANGLE/renderer/DeviceImpl.h"
 #include "libANGLE/renderer/DisplayImpl.h"
 #include "libANGLE/renderer/ImageImpl.h"
 #include "third_party/trace_event/trace_event.h"
 
 #if defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
-#   include "libANGLE/renderer/d3d/DisplayD3D.h"
+#    include "libANGLE/renderer/d3d/DisplayD3D.h"
 #endif
 
 #if defined(ANGLE_ENABLE_OPENGL)
-#   if defined(ANGLE_PLATFORM_WINDOWS)
-#       include "libANGLE/renderer/gl/wgl/DisplayWGL.h"
-#   elif defined(ANGLE_USE_X11)
-#       include "libANGLE/renderer/gl/glx/DisplayGLX.h"
-#   elif defined(ANGLE_PLATFORM_APPLE)
-#       include "libANGLE/renderer/gl/cgl/DisplayCGL.h"
-#   elif defined(ANGLE_USE_OZONE)
-#       include "libANGLE/renderer/gl/egl/ozone/DisplayOzone.h"
-#   elif defined(ANGLE_PLATFORM_ANDROID)
-#       include "libANGLE/renderer/gl/egl/android/DisplayAndroid.h"
-#   else
-#       error Unsupported OpenGL platform.
-#   endif
+#    if defined(ANGLE_PLATFORM_WINDOWS)
+#        include "libANGLE/renderer/gl/wgl/DisplayWGL.h"
+#    elif defined(ANGLE_USE_X11)
+#        include "libANGLE/renderer/gl/glx/DisplayGLX.h"
+#    elif defined(ANGLE_PLATFORM_APPLE)
+#        include "libANGLE/renderer/gl/cgl/DisplayCGL.h"
+#    elif defined(ANGLE_USE_OZONE)
+#        include "libANGLE/renderer/gl/egl/ozone/DisplayOzone.h"
+#    elif defined(ANGLE_PLATFORM_ANDROID)
+#        include "libANGLE/renderer/gl/egl/android/DisplayAndroid.h"
+#    else
+#        error Unsupported OpenGL platform.
+#    endif
 #endif
 
 #if defined(ANGLE_ENABLE_NULL)
-#include "libANGLE/renderer/null/DisplayNULL.h"
+#    include "libANGLE/renderer/null/DisplayNULL.h"
 #endif  // defined(ANGLE_ENABLE_NULL)
 
 #if defined(ANGLE_ENABLE_VULKAN)
-#if defined(ANGLE_PLATFORM_WINDOWS)
-#include "libANGLE/renderer/vulkan/win32/DisplayVkWin32.h"
-#elif defined(ANGLE_PLATFORM_LINUX)
-#include "libANGLE/renderer/vulkan/xcb/DisplayVkXcb.h"
-#else
-#error Unsupported Vulkan platform.
-#endif
+#    if defined(ANGLE_PLATFORM_WINDOWS)
+#        include "libANGLE/renderer/vulkan/win32/DisplayVkWin32.h"
+#    elif defined(ANGLE_PLATFORM_LINUX)
+#        include "libANGLE/renderer/vulkan/xcb/DisplayVkXcb.h"
+#    elif defined(ANGLE_PLATFORM_ANDROID)
+#        include "libANGLE/renderer/vulkan/android/DisplayVkAndroid.h"
+#    else
+#        error Unsupported Vulkan platform.
+#    endif
 #endif  // defined(ANGLE_ENABLE_VULKAN)
 
 namespace egl
@@ -74,7 +79,7 @@ namespace egl
 namespace
 {
 
-typedef std::map<EGLNativeWindowType, Surface*> WindowSurfaceMap;
+typedef std::map<EGLNativeWindowType, Surface *> WindowSurfaceMap;
 // Get a map of all EGL window surfaces to validate that no window has more than one EGL surface
 // associated with it.
 static WindowSurfaceMap *GetWindowSurfaces()
@@ -146,7 +151,11 @@ rx::DisplayImpl *CreateDisplayFromAttribs(const AttributeMap &attribMap, const D
 #elif defined(ANGLE_USE_OZONE)
             impl = new rx::DisplayOzone(state);
 #elif defined(ANGLE_PLATFORM_ANDROID)
+#    if defined(ANGLE_ENABLE_VULKAN)
+            impl = new rx::DisplayVkAndroid(state);
+#    else
             impl = new rx::DisplayAndroid(state);
+#    endif
 #else
             // No display available
             UNREACHABLE();
@@ -165,21 +174,21 @@ rx::DisplayImpl *CreateDisplayFromAttribs(const AttributeMap &attribMap, const D
 
         case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
 #if defined(ANGLE_ENABLE_OPENGL)
-#if defined(ANGLE_PLATFORM_WINDOWS)
+#    if defined(ANGLE_PLATFORM_WINDOWS)
             impl = new rx::DisplayWGL(state);
-#elif defined(ANGLE_USE_X11)
+#    elif defined(ANGLE_USE_X11)
             impl = new rx::DisplayGLX(state);
-#elif defined(ANGLE_PLATFORM_APPLE)
+#    elif defined(ANGLE_PLATFORM_APPLE)
             impl = new rx::DisplayCGL(state);
-#elif defined(ANGLE_USE_OZONE)
+#    elif defined(ANGLE_USE_OZONE)
             // This might work but has never been tried, so disallow for now.
             impl = nullptr;
-#elif defined(ANGLE_PLATFORM_ANDROID)
+#    elif defined(ANGLE_PLATFORM_ANDROID)
             // No GL support on this platform, fail display creation.
             impl = nullptr;
-#else
-#error Unsupported OpenGL platform.
-#endif
+#    else
+#        error Unsupported OpenGL platform.
+#    endif
 #else
             // No display available
             UNREACHABLE();
@@ -188,30 +197,32 @@ rx::DisplayImpl *CreateDisplayFromAttribs(const AttributeMap &attribMap, const D
 
         case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
 #if defined(ANGLE_ENABLE_OPENGL)
-#if defined(ANGLE_PLATFORM_WINDOWS)
+#    if defined(ANGLE_PLATFORM_WINDOWS)
             impl = new rx::DisplayWGL(state);
-#elif defined(ANGLE_USE_X11)
+#    elif defined(ANGLE_USE_X11)
             impl = new rx::DisplayGLX(state);
-#elif defined(ANGLE_USE_OZONE)
+#    elif defined(ANGLE_USE_OZONE)
             impl = new rx::DisplayOzone(state);
-#elif defined(ANGLE_PLATFORM_ANDROID)
+#    elif defined(ANGLE_PLATFORM_ANDROID)
             impl = new rx::DisplayAndroid(state);
-#else
+#    else
             // No GLES support on this platform, fail display creation.
             impl = nullptr;
-#endif
+#    endif
 #endif  // defined(ANGLE_ENABLE_OPENGL)
             break;
 
         case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
 #if defined(ANGLE_ENABLE_VULKAN)
-#if defined(ANGLE_PLATFORM_WINDOWS)
+#    if defined(ANGLE_PLATFORM_WINDOWS)
             impl = new rx::DisplayVkWin32(state);
-#elif defined(ANGLE_PLATFORM_LINUX)
+#    elif defined(ANGLE_PLATFORM_LINUX)
             impl = new rx::DisplayVkXcb(state);
-#else
-#error Unsupported Vulkan platform.
-#endif
+#    elif defined(ANGLE_PLATFORM_ANDROID)
+            impl = new rx::DisplayVkAndroid(state);
+#    else
+#        error Unsupported Vulkan platform.
+#    endif
 #else
             // No display available
             UNREACHABLE();
@@ -267,6 +278,10 @@ void ANGLESetDefaultDisplayPlatform(angle::EGLDisplayType display)
 }
 
 }  // anonymous namespace
+
+DisplayState::DisplayState() : label(nullptr) {}
+
+DisplayState::~DisplayState() {}
 
 // static
 Display *Display::GetDisplayFromNativeDisplay(EGLNativeDisplayType nativeDisplay,
@@ -372,11 +387,10 @@ Display::Display(EGLenum platform, EGLNativeDisplayType displayId, Device *eglDe
       mDevice(eglDevice),
       mPlatform(platform),
       mTextureManager(nullptr),
-      mMemoryProgramCache(gl::kDefaultMaxProgramCacheMemoryBytes),
-      mGlobalTextureShareGroupUsers(0),
-      mProxyContext(this)
-{
-}
+      mBlobCache(gl::kDefaultMaxProgramCacheMemoryBytes),
+      mMemoryProgramCache(mBlobCache),
+      mGlobalTextureShareGroupUsers(0)
+{}
 
 Display::~Display()
 {
@@ -406,10 +420,18 @@ Display::~Display()
         UNREACHABLE();
     }
 
-    mProxyContext.reset(nullptr);
-
     SafeDelete(mDevice);
     SafeDelete(mImplementation);
+}
+
+void Display::setLabel(EGLLabelKHR label)
+{
+    mState.label = label;
+}
+
+EGLLabelKHR Display::getLabel() const
+{
+    return mState.label;
 }
 
 void Display::setAttributes(rx::DisplayImpl *impl, const AttributeMap &attribMap)
@@ -425,6 +447,8 @@ void Display::setAttributes(rx::DisplayImpl *impl, const AttributeMap &attribMap
 
 Error Display::initialize()
 {
+    mImplementation->setBlobCache(&mBlobCache);
+
     // TODO(jmadill): Store Platform in Display and init here.
     const angle::PlatformMethods *platformMethods =
         reinterpret_cast<const angle::PlatformMethods *>(
@@ -467,6 +491,15 @@ Error Display::initialize()
         return EglNotInitialized();
     }
 
+    // OpenGL ES1 is implemented in the frontend, explicitly add ES1 support to all configs
+    for (auto &config : mConfigSet)
+    {
+        // TODO(geofflang): Enable the conformant bit once we pass enough tests
+        // config.second.conformant |= EGL_OPENGL_ES_BIT;
+
+        config.second.renderableType |= EGL_OPENGL_ES_BIT;
+    }
+
     initDisplayExtensions();
     initVendorString();
 
@@ -475,9 +508,17 @@ Error Display::initialize()
     {
         if (mDisplayExtensions.deviceQuery)
         {
-            rx::DeviceImpl *impl = nullptr;
-            ANGLE_TRY(mImplementation->getDevice(&impl));
-            ANGLE_TRY(Device::CreateDevice(this, impl, &mDevice));
+            std::unique_ptr<rx::DeviceImpl> impl(mImplementation->createDevice());
+            ASSERT(impl != nullptr);
+            error = impl->initialize();
+            if (error.isError())
+            {
+                ERR() << "Failed to initialize display because device creation failed: "
+                      << error.getMessage();
+                mImplementation->terminate();
+                return error;
+            }
+            mDevice = new Device(this, impl.release());
         }
         else
         {
@@ -491,28 +532,27 @@ Error Display::initialize()
         ASSERT(mDevice != nullptr);
     }
 
-    mProxyContext.reset(nullptr);
-    gl::Context *proxyContext = new gl::Context(mImplementation, nullptr, nullptr, nullptr, nullptr,
-                                                egl::AttributeMap(), mDisplayExtensions, false);
-    mProxyContext.reset(proxyContext);
-
     mInitialized = true;
 
     return NoError();
 }
 
-Error Display::terminate()
+Error Display::terminate(const Thread *thread)
 {
-    ANGLE_TRY(makeCurrent(nullptr, nullptr, nullptr));
+    if (!mInitialized)
+    {
+        return NoError();
+    }
 
     mMemoryProgramCache.clear();
-
-    mProxyContext.reset(nullptr);
+    mBlobCache.setBlobCacheFuncs(nullptr, nullptr);
 
     while (!mContextSet.empty())
     {
-        ANGLE_TRY(destroyContext(*mContextSet.begin()));
+        ANGLE_TRY(destroyContext(thread, *mContextSet.begin()));
     }
+
+    ANGLE_TRY(makeCurrent(nullptr, nullptr, nullptr));
 
     // The global texture manager should be deleted with the last context that uses it.
     ASSERT(mGlobalTextureShareGroupUsers == 0 && mTextureManager == nullptr);
@@ -525,6 +565,11 @@ Error Display::terminate()
     while (!mStreamSet.empty())
     {
         destroyStream(*mStreamSet.begin());
+    }
+
+    while (!mSyncSet.empty())
+    {
+        destroySync(*mSyncSet.begin());
     }
 
     while (!mState.surfaceSet.empty())
@@ -555,7 +600,7 @@ Error Display::terminate()
     return NoError();
 }
 
-std::vector<const Config*> Display::getConfigs(const egl::AttributeMap &attribs) const
+std::vector<const Config *> Display::getConfigs(const egl::AttributeMap &attribs) const
 {
     return mConfigSet.filter(attribs);
 }
@@ -675,15 +720,19 @@ Error Display::createImage(const gl::Context *context,
     {
         sibling = context->getRenderbuffer(egl_gl::EGLClientBufferToGLObjectHandle(buffer));
     }
+    else if (IsExternalImageTarget(target))
+    {
+        sibling = new ExternalImageSibling(mImplementation, context, target, buffer, attribs);
+    }
     else
     {
         UNREACHABLE();
     }
     ASSERT(sibling != nullptr);
 
-    angle::UniqueObjectPointer<Image, gl::Context> imagePtr(
-        new Image(mImplementation, target, sibling, attribs), context);
-    ANGLE_TRY(imagePtr->initialize());
+    angle::UniqueObjectPointer<Image, Display> imagePtr(
+        new Image(mImplementation, context, target, sibling, attribs), this);
+    ANGLE_TRY(imagePtr->initialize(this));
 
     Image *image = imagePtr.release();
 
@@ -713,7 +762,7 @@ Error Display::createStream(const AttributeMap &attribs, Stream **outStream)
 }
 
 Error Display::createContext(const Config *configuration,
-                             gl::Context *shareContext,
+                             const gl::Context *shareContext,
                              const AttributeMap &attribs,
                              gl::Context **outContext)
 {
@@ -743,27 +792,54 @@ Error Display::createContext(const Config *configuration,
 
     gl::MemoryProgramCache *cachePointer = &mMemoryProgramCache;
 
-    // Check context creation attributes to see if we should enable the cache.
-    if (mAttributeMap.get(EGL_CONTEXT_PROGRAM_BINARY_CACHE_ENABLED_ANGLE, EGL_TRUE) == EGL_FALSE)
+    // Check context creation attributes to see if we are using EGL_ANGLE_program_cache_control.
+    // If not, keep caching enabled for EGL_ANDROID_blob_cache, which can have its callbacks set
+    // at any time.
+    bool usesProgramCacheControl =
+        mAttributeMap.contains(EGL_CONTEXT_PROGRAM_BINARY_CACHE_ENABLED_ANGLE);
+    if (usesProgramCacheControl)
     {
-        cachePointer = nullptr;
-    }
-
-    // A program cache size of zero indicates it should be disabled.
-    if (mMemoryProgramCache.maxSize() == 0)
-    {
-        cachePointer = nullptr;
+        bool programCacheControlEnabled =
+            mAttributeMap.get(EGL_CONTEXT_PROGRAM_BINARY_CACHE_ENABLED_ANGLE, GL_FALSE);
+        // A program cache size of zero indicates it should be disabled.
+        if (!programCacheControlEnabled || mMemoryProgramCache.maxSize() == 0)
+        {
+            cachePointer = nullptr;
+        }
     }
 
     gl::Context *context =
         new gl::Context(mImplementation, configuration, shareContext, shareTextures, cachePointer,
-                        attribs, mDisplayExtensions, isRobustResourceInitEnabled());
+                        attribs, mDisplayExtensions, GetClientExtensions());
 
     ASSERT(context != nullptr);
     mContextSet.insert(context);
 
     ASSERT(outContext != nullptr);
     *outContext = context;
+    return NoError();
+}
+
+Error Display::createSync(EGLenum type, const AttributeMap &attribs, Sync **outSync)
+{
+    ASSERT(isInitialized());
+
+    if (mImplementation->testDeviceLost())
+    {
+        ANGLE_TRY(restoreLostDevice());
+    }
+
+    angle::UniqueObjectPointer<egl::Sync, Display> syncPtr(new Sync(mImplementation, type, attribs),
+                                                           this);
+
+    ANGLE_TRY(syncPtr->initialize(this));
+
+    Sync *sync = syncPtr.release();
+
+    sync->addRef();
+    mSyncSet.insert(sync);
+
+    *outSync = sync;
     return NoError();
 }
 
@@ -788,7 +864,8 @@ Error Display::restoreLostDevice()
     {
         if ((*ctx)->isResetNotificationEnabled())
         {
-            // If reset notifications have been requested, application must delete all contexts first
+            // If reset notifications have been requested, application must delete all contexts
+            // first
             return EglContextLost();
         }
     }
@@ -804,7 +881,8 @@ Error Display::destroySurface(Surface *surface)
         ASSERT(windowSurfaces);
 
         bool surfaceRemoved = false;
-        for (WindowSurfaceMap::iterator iter = windowSurfaces->begin(); iter != windowSurfaces->end(); iter++)
+        for (WindowSurfaceMap::iterator iter = windowSurfaces->begin();
+             iter != windowSurfaces->end(); iter++)
         {
             if (iter->second == surface)
             {
@@ -826,7 +904,7 @@ void Display::destroyImage(egl::Image *image)
 {
     auto iter = mImageSet.find(image);
     ASSERT(iter != mImageSet.end());
-    (*iter)->release(mProxyContext.get());
+    (*iter)->release(this);
     mImageSet.erase(iter);
 }
 
@@ -836,8 +914,18 @@ void Display::destroyStream(egl::Stream *stream)
     SafeDelete(stream);
 }
 
-Error Display::destroyContext(gl::Context *context)
+Error Display::destroyContext(const Thread *thread, gl::Context *context)
 {
+    gl::Context *currentContext   = thread->getContext();
+    bool changeContextForDeletion = context != currentContext;
+
+    // Make the context being deleted current during it's deletion.  This allows it to delete any
+    // resources it's holding.
+    if (changeContextForDeletion)
+    {
+        ANGLE_TRY(makeCurrent(nullptr, nullptr, context));
+    }
+
     if (context->usingDisplayTextureShareGroup())
     {
         ASSERT(mGlobalTextureShareGroupUsers >= 1 && mTextureManager != nullptr);
@@ -854,7 +942,23 @@ Error Display::destroyContext(gl::Context *context)
     ANGLE_TRY(context->onDestroy(this));
     mContextSet.erase(context);
     SafeDelete(context);
+
+    // Set the previous context back to current
+    if (changeContextForDeletion)
+    {
+        ANGLE_TRY(makeCurrent(thread->getCurrentDrawSurface(), thread->getCurrentReadSurface(),
+                              currentContext));
+    }
+
     return NoError();
+}
+
+void Display::destroySync(egl::Sync *sync)
+{
+    auto iter = mSyncSet.find(sync);
+    ASSERT(iter != mSyncSet.end());
+    (*iter)->release(this);
+    mSyncSet.erase(iter);
 }
 
 bool Display::isDeviceLost() const
@@ -882,7 +986,8 @@ void Display::notifyDeviceLost()
         return;
     }
 
-    for (ContextSet::iterator context = mContextSet.begin(); context != mContextSet.end(); context++)
+    for (ContextSet::iterator context = mContextSet.begin(); context != mContextSet.end();
+         context++)
     {
         (*context)->markContextLost();
     }
@@ -890,12 +995,18 @@ void Display::notifyDeviceLost()
     mDeviceLost = true;
 }
 
-Error Display::waitClient(const gl::Context *context) const
+void Display::setBlobCacheFuncs(EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID get)
+{
+    mBlobCache.setBlobCacheFuncs(set, get);
+    mImplementation->setBlobCacheFuncs(set, get);
+}
+
+Error Display::waitClient(const gl::Context *context)
 {
     return mImplementation->waitClient(context);
 }
 
-Error Display::waitNative(const gl::Context *context, EGLint engine) const
+Error Display::waitNative(const gl::Context *context, EGLint engine)
 {
     return mImplementation->waitNative(context, engine);
 }
@@ -935,6 +1046,11 @@ bool Display::isValidStream(const Stream *stream) const
     return mStreamSet.find(const_cast<Stream *>(stream)) != mStreamSet.end();
 }
 
+bool Display::isValidSync(const Sync *sync) const
+{
+    return mSyncSet.find(const_cast<Sync *>(sync)) != mSyncSet.end();
+}
+
 bool Display::hasExistingWindowSurface(EGLNativeWindowType window)
 {
     WindowSurfaceMap *windowSurfaces = GetWindowSurfaces();
@@ -948,8 +1064,8 @@ static ClientExtensions GenerateClientExtensions()
     ClientExtensions extensions;
 
     extensions.clientExtensions = true;
-    extensions.platformBase = true;
-    extensions.platformANGLE = true;
+    extensions.platformBase     = true;
+    extensions.platformANGLE    = true;
 
 #if defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
     extensions.platformANGLED3D = true;
@@ -958,6 +1074,9 @@ static ClientExtensions GenerateClientExtensions()
 
 #if defined(ANGLE_ENABLE_OPENGL)
     extensions.platformANGLEOpenGL = true;
+
+    // Selecting context virtualization is currently only supported in the OpenGL backend.
+    extensions.platformANGLEContextVirtualization = true;
 #endif
 
 #if defined(ANGLE_ENABLE_NULL)
@@ -965,8 +1084,8 @@ static ClientExtensions GenerateClientExtensions()
 #endif
 
 #if defined(ANGLE_ENABLE_D3D11)
-    extensions.deviceCreation      = true;
-    extensions.deviceCreationD3D11 = true;
+    extensions.deviceCreation          = true;
+    extensions.deviceCreationD3D11     = true;
     extensions.experimentalPresentPath = true;
 #endif
 
@@ -979,9 +1098,8 @@ static ClientExtensions GenerateClientExtensions()
 #endif
 
     extensions.clientGetAllProcAddresses = true;
-
-    // TODO(jmadill): Not fully implemented yet, but exposed everywhere.
-    extensions.displayRobustResourceInitialization = true;
+    extensions.debug                     = true;
+    extensions.explicitContext           = true;
 
     return extensions;
 }
@@ -992,7 +1110,8 @@ static std::string GenerateExtensionsString(const T &extensions)
     std::vector<std::string> extensionsVector = extensions.getStrings();
 
     std::ostringstream stream;
-    std::copy(extensionsVector.begin(), extensionsVector.end(), std::ostream_iterator<std::string>(stream, " "));
+    std::copy(extensionsVector.begin(), extensionsVector.end(),
+              std::ostream_iterator<std::string>(stream, " "));
     return stream.str();
 }
 
@@ -1016,9 +1135,9 @@ void Display::initDisplayExtensions()
     mDisplayExtensions = mImplementation->getExtensions();
 
     // Some extensions are always available because they are implemented in the EGL layer.
-    mDisplayExtensions.createContext        = true;
-    mDisplayExtensions.createContextNoError = true;
-    mDisplayExtensions.createContextWebGLCompatibility = true;
+    mDisplayExtensions.createContext                      = true;
+    mDisplayExtensions.createContextNoError               = true;
+    mDisplayExtensions.createContextWebGLCompatibility    = true;
     mDisplayExtensions.createContextBindGeneratesResource = true;
     mDisplayExtensions.createContextClientArrays          = true;
     mDisplayExtensions.pixelFormatFloat                   = true;
@@ -1028,6 +1147,12 @@ void Display::initDisplayExtensions()
 
     // Enable program cache control since it is not back-end dependent.
     mDisplayExtensions.programCacheControl = true;
+
+    // Request extension is implemented in the ANGLE frontend
+    mDisplayExtensions.createContextExtensionsEnabled = true;
+
+    // Blob cache extension is provided by the ANGLE frontend
+    mDisplayExtensions.blobCache = true;
 
     mDisplayExtensionString = GenerateExtensionsString(mDisplayExtensions);
 }
@@ -1040,9 +1165,17 @@ bool Display::isValidNativeWindow(EGLNativeWindowType window) const
 Error Display::validateClientBuffer(const Config *configuration,
                                     EGLenum buftype,
                                     EGLClientBuffer clientBuffer,
-                                    const AttributeMap &attribs)
+                                    const AttributeMap &attribs) const
 {
     return mImplementation->validateClientBuffer(configuration, buftype, clientBuffer, attribs);
+}
+
+Error Display::validateImageClientBuffer(const gl::Context *context,
+                                         EGLenum target,
+                                         EGLClientBuffer clientBuffer,
+                                         const egl::AttributeMap &attribs) const
+{
+    return mImplementation->validateImageClientBuffer(context, target, clientBuffer, attribs);
 }
 
 bool Display::isValidDisplay(const egl::Display *display)
@@ -1077,8 +1210,7 @@ bool Display::isValidNativeDisplay(EGLNativeDisplayType display)
     }
 
 #if defined(ANGLE_PLATFORM_WINDOWS) && !defined(ANGLE_ENABLE_WINDOWS_STORE)
-    if (display == EGL_SOFTWARE_DISPLAY_ANGLE ||
-        display == EGL_D3D11_ELSE_D3D9_DISPLAY_ANGLE ||
+    if (display == EGL_SOFTWARE_DISPLAY_ANGLE || display == EGL_D3D11_ELSE_D3D9_DISPLAY_ANGLE ||
         display == EGL_D3D11_ONLY_DISPLAY_ANGLE)
     {
         return true;
@@ -1119,18 +1251,12 @@ gl::Version Display::getMaxSupportedESVersion() const
     return mImplementation->getMaxSupportedESVersion();
 }
 
-bool Display::isRobustResourceInitEnabled() const
-{
-    return (mAttributeMap.get(EGL_DISPLAY_ROBUST_RESOURCE_INITIALIZATION_ANGLE, EGL_FALSE) ==
-            EGL_TRUE);
-}
-
 EGLint Display::programCacheGetAttrib(EGLenum attrib) const
 {
     switch (attrib)
     {
         case EGL_PROGRAM_CACHE_KEY_LENGTH_ANGLE:
-            return static_cast<EGLint>(gl::kProgramHashLength);
+            return static_cast<EGLint>(BlobCache::kKeyLength);
 
         case EGL_PROGRAM_CACHE_SIZE_ANGLE:
             return static_cast<EGLint>(mMemoryProgramCache.entryCount());
@@ -1149,8 +1275,8 @@ Error Display::programCacheQuery(EGLint index,
 {
     ASSERT(index >= 0 && index < static_cast<EGLint>(mMemoryProgramCache.entryCount()));
 
-    const angle::MemoryBuffer *programBinary = nullptr;
-    gl::ProgramHash programHash;
+    const BlobCache::Key *programHash = nullptr;
+    BlobCache::Value programBinary;
     // TODO(jmadill): Make this thread-safe.
     bool result =
         mMemoryProgramCache.getAt(static_cast<size_t>(index), &programHash, &programBinary);
@@ -1163,8 +1289,8 @@ Error Display::programCacheQuery(EGLint index,
 
     if (key)
     {
-        ASSERT(*keysize == static_cast<EGLint>(gl::kProgramHashLength));
-        memcpy(key, programHash.data(), gl::kProgramHashLength);
+        ASSERT(*keysize == static_cast<EGLint>(BlobCache::kKeyLength));
+        memcpy(key, programHash->data(), BlobCache::kKeyLength);
     }
 
     if (binary)
@@ -1172,16 +1298,16 @@ Error Display::programCacheQuery(EGLint index,
         // Note: we check the size here instead of in the validation code, since we need to
         // access the cache as atomically as possible. It's possible that the cache contents
         // could change between the validation size check and the retrieval.
-        if (programBinary->size() > static_cast<size_t>(*binarysize))
+        if (programBinary.size() > static_cast<size_t>(*binarysize))
         {
             return EglBadAccess() << "Program binary too large or changed during access.";
         }
 
-        memcpy(binary, programBinary->data(), programBinary->size());
+        memcpy(binary, programBinary.data(), programBinary.size());
     }
 
-    *binarysize = static_cast<EGLint>(programBinary->size());
-    *keysize    = static_cast<EGLint>(gl::kProgramHashLength);
+    *binarysize = static_cast<EGLint>(programBinary.size());
+    *keysize    = static_cast<EGLint>(BlobCache::kKeyLength);
 
     return NoError();
 }
@@ -1191,10 +1317,10 @@ Error Display::programCachePopulate(const void *key,
                                     const void *binary,
                                     EGLint binarysize)
 {
-    ASSERT(keysize == static_cast<EGLint>(gl::kProgramHashLength));
+    ASSERT(keysize == static_cast<EGLint>(BlobCache::kKeyLength));
 
-    gl::ProgramHash programHash;
-    memcpy(programHash.data(), key, gl::kProgramHashLength);
+    BlobCache::Key programHash;
+    memcpy(programHash.data(), key, BlobCache::kKeyLength);
 
     mMemoryProgramCache.putBinary(programHash, reinterpret_cast<const uint8_t *>(binary),
                                   static_cast<size_t>(binarysize));
@@ -1219,6 +1345,16 @@ EGLint Display::programCacheResize(EGLint limit, EGLenum mode)
             UNREACHABLE();
             return 0;
     }
+}
+
+Error Display::clientWaitSync(Sync *sync, EGLint flags, EGLTime timeout, EGLint *outResult)
+{
+    return sync->clientWait(this, flags, timeout, outResult);
+}
+
+Error Display::waitSync(Sync *sync, EGLint flags)
+{
+    return sync->serverWait(this, flags);
 }
 
 }  // namespace egl

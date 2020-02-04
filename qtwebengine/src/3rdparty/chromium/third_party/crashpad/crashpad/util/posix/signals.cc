@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 
 namespace crashpad {
 
@@ -118,7 +119,7 @@ bool IsSignalInSet(int sig, const int* set, size_t set_size) {
 struct sigaction* Signals::OldActions::ActionForSignal(int sig) {
   DCHECK_GT(sig, 0);
   const size_t slot = sig - 1;
-  DCHECK_LT(slot, arraysize(actions_));
+  DCHECK_LT(slot, base::size(actions_));
   return &actions_[slot];
 }
 
@@ -139,11 +140,21 @@ bool Signals::InstallHandler(int sig,
 }
 
 // static
+bool Signals::InstallDefaultHandler(int sig) {
+  struct sigaction action;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = 0;
+  action.sa_handler = SIG_DFL;
+  return sigaction(sig, &action, nullptr) == 0;
+}
+
+// static
 bool Signals::InstallCrashHandlers(Handler handler,
                                    int flags,
                                    OldActions* old_actions) {
   return InstallHandlers(
-      std::vector<int>(kCrashSignals, kCrashSignals + arraysize(kCrashSignals)),
+      std::vector<int>(kCrashSignals,
+                       kCrashSignals + base::size(kCrashSignals)),
       handler,
       flags,
       old_actions);
@@ -155,7 +166,7 @@ bool Signals::InstallTerminateHandlers(Handler handler,
                                        OldActions* old_actions) {
   return InstallHandlers(
       std::vector<int>(kTerminateSignals,
-                       kTerminateSignals + arraysize(kTerminateSignals)),
+                       kTerminateSignals + base::size(kTerminateSignals)),
       handler,
       flags,
       old_actions);
@@ -238,7 +249,7 @@ void Signals::RestoreHandlerAndReraiseSignalOnReturn(
   // Failures in this function should _exit(kFailureExitCode). This is a quick
   // and quiet failure. This function runs in signal handler context, and it’s
   // difficult to safely be loud from a signal handler.
-  const int kFailureExitCode = 191;
+  constexpr int kFailureExitCode = 191;
 
   struct sigaction default_action;
   sigemptyset(&default_action.sa_mask);
@@ -270,12 +281,12 @@ void Signals::RestoreHandlerAndReraiseSignalOnReturn(
 
 // static
 bool Signals::IsCrashSignal(int sig) {
-  return IsSignalInSet(sig, kCrashSignals, arraysize(kCrashSignals));
+  return IsSignalInSet(sig, kCrashSignals, base::size(kCrashSignals));
 }
 
 // static
 bool Signals::IsTerminateSignal(int sig) {
-  return IsSignalInSet(sig, kTerminateSignals, arraysize(kTerminateSignals));
+  return IsSignalInSet(sig, kTerminateSignals, base::size(kTerminateSignals));
 }
 
 }  // namespace crashpad

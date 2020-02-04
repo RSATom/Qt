@@ -34,20 +34,24 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Fusion 2.3
-import QtQuick.Controls.Fusion.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Fusion 2.12
+import QtQuick.Controls.Fusion.impl 2.12
 
 T.Dial {
     id: control
 
-    implicitWidth: 100
-    implicitHeight: 100
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding) || 100 // ### remove 100 in Qt 6
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding) || 100 // ### remove 100 in Qt 6
 
     background: DialImpl {
+        implicitWidth: 100
+        implicitHeight: 100
         palette: control.palette
         highlight: control.visualFocus
     }

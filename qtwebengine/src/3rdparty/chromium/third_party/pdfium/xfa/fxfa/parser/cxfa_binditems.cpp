@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,22 +6,40 @@
 
 #include "xfa/fxfa/parser/cxfa_binditems.h"
 
-#include "xfa/fxfa/parser/cxfa_node.h"
+#include "fxjs/xfa/cjx_binditems.h"
+#include "third_party/base/ptr_util.h"
 
-CXFA_BindItems::CXFA_BindItems(CXFA_Node* pNode) : CXFA_Data(pNode) {}
+namespace {
 
-void CXFA_BindItems::GetLabelRef(CFX_WideStringC& wsLabelRef) {
-  m_pNode->TryCData(XFA_ATTRIBUTE_LabelRef, wsLabelRef);
+const CXFA_Node::AttributeData kBindItemsAttributeData[] = {
+    {XFA_Attribute::Ref, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Connection, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::LabelRef, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::ValueRef, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+
+}  // namespace
+
+CXFA_BindItems::CXFA_BindItems(CXFA_Document* doc, XFA_PacketType packet)
+    : CXFA_Node(doc,
+                packet,
+                (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
+                XFA_ObjectType::Node,
+                XFA_Element::BindItems,
+                nullptr,
+                kBindItemsAttributeData,
+                pdfium::MakeUnique<CJX_BindItems>(this)) {}
+
+CXFA_BindItems::~CXFA_BindItems() = default;
+
+WideString CXFA_BindItems::GetLabelRef() {
+  return JSObject()->GetCData(XFA_Attribute::LabelRef);
 }
 
-void CXFA_BindItems::GetValueRef(CFX_WideStringC& wsValueRef) {
-  m_pNode->TryCData(XFA_ATTRIBUTE_ValueRef, wsValueRef);
+WideString CXFA_BindItems::GetValueRef() {
+  return JSObject()->GetCData(XFA_Attribute::ValueRef);
 }
 
-void CXFA_BindItems::GetRef(CFX_WideStringC& wsRef) {
-  m_pNode->TryCData(XFA_ATTRIBUTE_Ref, wsRef);
-}
-
-bool CXFA_BindItems::SetConnection(const CFX_WideString& wsConnection) {
-  return m_pNode->SetCData(XFA_ATTRIBUTE_Connection, wsConnection);
+WideString CXFA_BindItems::GetRef() {
+  return JSObject()->GetCData(XFA_Attribute::Ref);
 }

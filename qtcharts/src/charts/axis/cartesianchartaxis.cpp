@@ -81,7 +81,25 @@ void CartesianChartAxis::createItems(int count)
     for (int i = 0; i < count; ++i) {
         QGraphicsLineItem *arrow = new QGraphicsLineItem(this);
         QGraphicsLineItem *grid = new QGraphicsLineItem(this);
-        QGraphicsTextItem *label = new QGraphicsTextItem(this);
+        QGraphicsTextItem *label;
+        if (axis()->type() == QtCharts::QAbstractAxis::AxisTypeValue) {
+            label = new ValueAxisLabel(this);
+            connect(static_cast<ValueAxisLabel *>(label), &ValueAxisLabel::valueChanged,
+                    this, &ChartAxisElement::valueLabelEdited);
+            if (labelsEditable())
+                static_cast<ValueAxisLabel *>(label)->setEditable(true);
+        } else if (axis()->type() == QtCharts::QAbstractAxis::AxisTypeDateTime) {
+            DateTimeAxisLabel *dateTimeLabel = new DateTimeAxisLabel(this);
+            label = dateTimeLabel;
+            connect(dateTimeLabel, &DateTimeAxisLabel::dateTimeChanged,
+                    this, &ChartAxisElement::dateTimeLabelEdited);
+            if (labelsEditable())
+                dateTimeLabel->setEditable(true);
+            dateTimeLabel->setFormat(static_cast<QDateTimeAxis*>(axis())->format());
+        } else {
+            label = new QGraphicsTextItem(this);
+        }
+
         label->document()->setDocumentMargin(ChartPresenter::textMargin());
         arrow->setPen(axis()->linePen());
         grid->setPen(axis()->gridLinePen());
@@ -107,8 +125,47 @@ void CartesianChartAxis::updateMinorTickItems()
     int expectedCount = 0;
     if (axis()->type() == QAbstractAxis::AxisTypeValue) {
         QValueAxis *valueAxis = qobject_cast<QValueAxis *>(axis());
-        expectedCount = valueAxis->minorTickCount() * (valueAxis->tickCount() - 1);
-        expectedCount = qMax(expectedCount, 0);
+        if (valueAxis->tickType() == QValueAxis::TicksFixed) {
+            expectedCount = valueAxis->minorTickCount() * (valueAxis->tickCount() - 1);
+            expectedCount = qMax(expectedCount, 0);
+        } else {
+            const qreal interval = valueAxis->tickInterval();
+            qreal firstMajorTick = valueAxis->tickAnchor();
+            const qreal max = valueAxis->max();
+            const qreal min = valueAxis->min();
+            const int _minorTickCount = valueAxis->minorTickCount();
+
+            if (min < firstMajorTick)
+                firstMajorTick = firstMajorTick - qCeil((firstMajorTick - min) / interval) * interval;
+            else
+                firstMajorTick = firstMajorTick + int((min - firstMajorTick) / interval) * interval;
+
+            const qreal deltaMinor = interval / qreal(_minorTickCount + 1);
+            qreal minorTick = firstMajorTick + deltaMinor;
+            int minorCounter = 0;
+
+            while (minorTick < min) {
+                minorTick += deltaMinor;
+                minorCounter++;
+            }
+
+            QVector<qreal> points;
+
+            // Calculate the points on axis value space. Conversion to graphical points
+            // will be done on axis specific geometry update function
+            while (minorTick <= max || qFuzzyCompare(minorTick, max)) {
+                if (minorCounter < _minorTickCount) {
+                    expectedCount++;
+                    minorCounter++;
+                    points << (minorTick - min);
+                } else {
+                    minorCounter = 0;
+                }
+                minorTick += deltaMinor;
+            }
+
+            setDynamicMinorTickLayout(points);
+        }
     } else if (axis()->type() == QAbstractAxis::AxisTypeLogValue) {
         QLogValueAxis *logValueAxis = qobject_cast<QLogValueAxis *>(axis());
 
@@ -232,6 +289,18 @@ QSizeF CartesianChartAxis::sizeHint(Qt::SizeHint which, const QSizeF &constraint
     return QSizeF();
 }
 
+void CartesianChartAxis::setDateTimeLabelsFormat(const QString &format)
+{
+    if (max() <= min()
+            || layout().size() < 1
+            || axis()->type() != QAbstractAxis::AxisTypeDateTime) {
+        return;
+    }
+
+    for (int i = 0; i < layout().size(); i++)
+        static_cast<DateTimeAxisLabel *>(labelItems().at(i))->setFormat(format);
+}
+
 void CartesianChartAxis::handleArrowPenChanged(const QPen &pen)
 {
     foreach (QGraphicsItem *item, arrowItems())
@@ -288,6 +357,47 @@ void CartesianChartAxis::handleShadesPenChanged(const QPen &pen)
         static_cast<QGraphicsRectItem *>(item)->setPen(pen);
 }
 
-#include "moc_cartesianchartaxis_p.cpp"
+void CartesianChartAxis::updateLabelsValues(QValueAxis *axis)
+{
+    const QVector<qreal> &layout = ChartAxisElement::layout();
+    if (layout.isEmpty())
+        return;
+
+    if (axis->tickType() == QValueAxis::TicksFixed) {
+        for (int i = 0; i < layout.size(); ++i) {
+            qreal value = axis->isReverse()
+                    ? min() + ((layout.size() - 1 - i) * (max() - min()) / (layout.size() - 1))
+                    : min() + (i * (max() - min()) / (layout.size() - 1));
+            static_cast<ValueAxisLabel *>(labelItems().at(i))->setValue(value);
+        }
+    } else {
+        qreal value = axis->tickAnchor();
+        if (value > min())
+            value = value - int((value - min()) / axis->tickInterval()) * axis->tickInterval();
+        else
+            value = value + qCeil((min() - value) / axis->tickInterval()) * axis->tickInterval();
+
+        int i = axis->isReverse() ? labelItems().count()-1 : 0;
+        while (value <= max() || qFuzzyCompare(value, max())) {
+            static_cast<ValueAxisLabel *>(labelItems().at(i))->setValue(value);
+            value += axis->tickInterval();
+            i += axis->isReverse() ? -1 : 1;
+        }
+    }
+}
+
+void CartesianChartAxis::updateLabelsDateTimes()
+{
+    if (max() <= min() || layout().size() < 1)
+        return;
+
+    for (int i = 0; i < layout().size(); i++) {
+        qreal value = min() + (i * (max() - min()) / (layout().size() - 1));
+        static_cast<DateTimeAxisLabel *>(labelItems().at(i))->setValue(
+                    QDateTime::fromMSecsSinceEpoch(value));
+    }
+}
 
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_cartesianchartaxis_p.cpp"

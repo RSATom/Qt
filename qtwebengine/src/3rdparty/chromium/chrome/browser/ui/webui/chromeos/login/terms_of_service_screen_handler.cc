@@ -21,6 +21,8 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/language/core/browser/pref_names.h"
+#include "components/language/core/common/locale_util.h"
 #include "components/login/localized_values_builder.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
@@ -81,12 +83,13 @@ void TermsOfServiceScreenHandler::Show() {
     return;
   }
 
-  const std::string locale =
+  std::string locale =
       ProfileHelper::Get()
           ->GetProfileByUserUnsafe(
               user_manager::UserManager::Get()->GetActiveUser())
           ->GetPrefs()
-          ->GetString(prefs::kApplicationLocale);
+          ->GetString(language::prefs::kApplicationLocale);
+  language::ConvertToActualUILocale(&locale);
 
   if (locale.empty() || locale == g_browser_process->GetApplicationLocale()) {
     // If the user has not chosen a UI locale yet or the chosen locale matches
@@ -174,7 +177,7 @@ void TermsOfServiceScreenHandler::DoShow() {
 
 void TermsOfServiceScreenHandler::UpdateDomainInUI() {
   if (page_is_ready())
-    CallJS("setDomain", domain_);
+    CallJS("login.TermsOfServiceScreen.setDomain", domain_);
 }
 
 void TermsOfServiceScreenHandler::UpdateTermsOfServiceInUI() {
@@ -186,9 +189,9 @@ void TermsOfServiceScreenHandler::UpdateTermsOfServiceInUI() {
   // download is still in progress and the UI will be updated when the
   // OnLoadError() or the OnLoadSuccess() callback is called.
   if (load_error_)
-    CallJS("setTermsOfServiceLoadError");
+    CallJS("login.TermsOfServiceScreen.setTermsOfServiceLoadError");
   else if (!terms_of_service_.empty())
-    CallJS("setTermsOfService", terms_of_service_);
+    CallJS("login.TermsOfServiceScreen.setTermsOfService", terms_of_service_);
 }
 
 void TermsOfServiceScreenHandler::HandleBack() {

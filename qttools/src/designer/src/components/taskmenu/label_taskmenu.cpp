@@ -29,12 +29,12 @@
 #include "label_taskmenu.h"
 #include "inplace_editor.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QStyle>
-#include <QtWidgets/QStyleOption>
-#include <QtGui/QTextDocument>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qstyle.h>
+#include <QtWidgets/qstyleoption.h>
+#include <QtGui/qtextdocument.h>
 
 static const char *textPropertyC = "text";
 
@@ -49,7 +49,7 @@ public:
     LabelTaskMenuInlineEditor(QLabel *button, QObject *parent);
 
 protected:
-    QRect editRectangle() const Q_DECL_OVERRIDE;
+    QRect editRectangle() const override;
 };
 
 LabelTaskMenuInlineEditor::LabelTaskMenuInlineEditor(QLabel *w, QObject *parent) :

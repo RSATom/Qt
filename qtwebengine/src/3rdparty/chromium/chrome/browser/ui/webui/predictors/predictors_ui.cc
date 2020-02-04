@@ -4,7 +4,8 @@
 
 #include "chrome/browser/ui/webui/predictors/predictors_ui.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/predictors/predictors_handler.h"
 #include "chrome/common/url_constants.h"
@@ -20,7 +21,7 @@ content::WebUIDataSource* CreatePredictorsUIHTMLSource() {
       content::WebUIDataSource::Create(chrome::kChromeUIPredictorsHost);
   source->AddResourcePath("predictors.js", IDR_PREDICTORS_JS);
   source->SetDefaultResource(IDR_PREDICTORS_HTML);
-  source->UseGzip(std::unordered_set<std::string>());
+  source->UseGzip();
   return source;
 }
 
@@ -28,6 +29,6 @@ content::WebUIDataSource* CreatePredictorsUIHTMLSource() {
 
 PredictorsUI::PredictorsUI(content::WebUI* web_ui) : WebUIController(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
-  web_ui->AddMessageHandler(base::MakeUnique<PredictorsHandler>(profile));
+  web_ui->AddMessageHandler(std::make_unique<PredictorsHandler>(profile));
   content::WebUIDataSource::Add(profile, CreatePredictorsUIHTMLSource());
 }

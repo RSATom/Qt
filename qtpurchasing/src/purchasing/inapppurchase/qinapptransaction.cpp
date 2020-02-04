@@ -66,7 +66,7 @@ public:
 /*!
   \class QInAppTransaction
   \inmodule QtPurchasing
-  \brief Contains information about a transaction in the external app store
+  \brief Contains information about a transaction in the external app store.
 
   QInAppTransaction contains information about a transaction in the external app store and is
   usually provided as a result of calling QInAppProduct::purchase(). When the purchase flow has

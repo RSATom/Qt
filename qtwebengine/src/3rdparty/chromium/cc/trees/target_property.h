@@ -7,12 +7,15 @@
 
 #include <bitset>
 
-#include "cc/cc_export.h"
+#include "base/containers/flat_map.h"
 
 namespace cc {
 
+static constexpr size_t kMaxTargetPropertyIndex = 32u;
+
 namespace TargetProperty {
 
+// Must be zero-based as this will be stored in a bitset.
 enum Type {
   TRANSFORM = 0,
   OPACITY,
@@ -20,18 +23,23 @@ enum Type {
   SCROLL_OFFSET,
   BACKGROUND_COLOR,
   BOUNDS,
-  VISIBILITY,
+  CSS_CUSTOM_PROPERTY,
   // These sentinels must be last
   FIRST_TARGET_PROPERTY = TRANSFORM,
-  LAST_TARGET_PROPERTY = VISIBILITY,
+  LAST_TARGET_PROPERTY = CSS_CUSTOM_PROPERTY
 };
-
-CC_EXPORT const char* GetName(TargetProperty::Type property);
 
 }  // namespace TargetProperty
 
-// A set of target properties. TargetProperty must be 0-based enum.
-using TargetProperties = std::bitset<TargetProperty::LAST_TARGET_PROPERTY + 1>;
+// A set of target properties.
+using TargetProperties = std::bitset<kMaxTargetPropertyIndex>;
+
+// A map of target property to ElementId.
+// flat_map was chosen because there are expected to be relatively few entries
+// in the map. For low number of entries, flat_map is known to perform better
+// than other map implementations.
+struct ElementId;
+using PropertyToElementIdMap = base::flat_map<TargetProperty::Type, ElementId>;
 
 }  // namespace cc
 

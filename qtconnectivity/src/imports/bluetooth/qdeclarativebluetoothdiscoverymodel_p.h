@@ -106,13 +106,15 @@ public:
 
     Error error() const;
 
-    void componentComplete();
+    void componentComplete() override;
 
-    void classBegin() { }
+    void classBegin() override { }
 
     // From QAbstractListModel
-    int rowCount(const QModelIndex &parent) const;
-    QVariant data(const QModelIndex &index, int role) const;
+    int rowCount(const QModelIndex &parent) const  override;
+    QVariant data(const QModelIndex &index, int role) const override;
+
+    QHash<int,QByteArray> roleNames() const override;
 
     DiscoveryMode discoveryMode() const;
     void setDiscoveryMode(DiscoveryMode discovery);

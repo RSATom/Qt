@@ -5,13 +5,13 @@
 #ifndef V8_EXECUTION_H_
 #define V8_EXECUTION_H_
 
-#include "src/allocation.h"
 #include "src/base/atomicops.h"
 #include "src/globals.h"
-#include "src/utils.h"
 
 namespace v8 {
 namespace internal {
+
+class MicrotaskQueue;
 
 template <typename T>
 class Handle;
@@ -20,6 +20,7 @@ class Execution final : public AllStatic {
  public:
   // Whether to report pending messages, or keep them pending on the isolate.
   enum class MessageHandling { kReport, kKeepPending };
+  enum class Target { kCallable, kRunMicrotasks };
 
   // Call a function, the caller supplies a receiver and an array
   // of arguments.
@@ -27,21 +28,22 @@ class Execution final : public AllStatic {
   // When the function called is not in strict mode, receiver is
   // converted to an object.
   //
-  V8_EXPORT_PRIVATE MUST_USE_RESULT static MaybeHandle<Object> Call(
+  V8_EXPORT_PRIVATE V8_WARN_UNUSED_RESULT static MaybeHandle<Object> Call(
       Isolate* isolate, Handle<Object> callable, Handle<Object> receiver,
+      int argc, Handle<Object> argv[]);
+
+  V8_WARN_UNUSED_RESULT static MaybeHandle<Object> CallBuiltin(
+      Isolate* isolate, Handle<JSFunction> builtin, Handle<Object> receiver,
       int argc, Handle<Object> argv[]);
 
   // Construct object from function, the caller supplies an array of
   // arguments.
-  MUST_USE_RESULT static MaybeHandle<Object> New(Isolate* isolate,
-                                                 Handle<Object> constructor,
-                                                 int argc,
-                                                 Handle<Object> argv[]);
-  MUST_USE_RESULT static MaybeHandle<Object> New(Isolate* isolate,
-                                                 Handle<Object> constructor,
-                                                 Handle<Object> new_target,
-                                                 int argc,
-                                                 Handle<Object> argv[]);
+  V8_WARN_UNUSED_RESULT static MaybeHandle<Object> New(
+      Isolate* isolate, Handle<Object> constructor, int argc,
+      Handle<Object> argv[]);
+  V8_WARN_UNUSED_RESULT static MaybeHandle<Object> New(
+      Isolate* isolate, Handle<Object> constructor, Handle<Object> new_target,
+      int argc, Handle<Object> argv[]);
 
   // Call a function, just like Call(), but handle don't report exceptions
   // externally.
@@ -55,18 +57,23 @@ class Execution final : public AllStatic {
                                      Handle<Object> argv[],
                                      MessageHandling message_handling,
                                      MaybeHandle<Object>* exception_out);
+  // Convenience method for performing RunMicrotasks
+  static MaybeHandle<Object> TryRunMicrotasks(
+      Isolate* isolate, MicrotaskQueue* microtask_queue,
+      MaybeHandle<Object>* exception_out);
 };
 
 
 class ExecutionAccess;
-class PostponeInterruptsScope;
-
+class InterruptsScope;
 
 // StackGuard contains the handling of the limits that are used to limit the
 // number of nested invocations of JavaScript and the stack size used in each
 // invocation.
 class V8_EXPORT_PRIVATE StackGuard final {
  public:
+  explicit StackGuard(Isolate* isolate) : isolate_(isolate) {}
+
   // Pass the address beyond which the stack should not grow.  The stack
   // is assumed to grow downwards.
   void SetStackLimit(uintptr_t limit);
@@ -89,12 +96,11 @@ class V8_EXPORT_PRIVATE StackGuard final {
   void ClearThread(const ExecutionAccess& lock);
 
 #define INTERRUPT_LIST(V)                       \
-  V(DEBUGBREAK, DebugBreak, 0)                  \
-  V(TERMINATE_EXECUTION, TerminateExecution, 1) \
-  V(GC_REQUEST, GC, 2)                          \
-  V(INSTALL_CODE, InstallCode, 3)               \
-  V(API_INTERRUPT, ApiInterrupt, 4)             \
-  V(DEOPT_MARKED_ALLOCATION_SITES, DeoptMarkedAllocationSites, 5)
+  V(TERMINATE_EXECUTION, TerminateExecution, 0) \
+  V(GC_REQUEST, GC, 1)                          \
+  V(INSTALL_CODE, InstallCode, 2)               \
+  V(API_INTERRUPT, ApiInterrupt, 3)             \
+  V(DEOPT_MARKED_ALLOCATION_SITES, DeoptMarkedAllocationSites, 4)
 
 #define V(NAME, Name, id)                                                    \
   inline bool Check##Name() { return CheckInterrupt(NAME); }                 \
@@ -134,12 +140,9 @@ class V8_EXPORT_PRIVATE StackGuard final {
 
   // If the stack guard is triggered, but it is not an actual
   // stack overflow, then handle the interruption accordingly.
-  Object* HandleInterrupts();
-  void HandleGCInterrupt();
+  Object HandleInterrupts();
 
  private:
-  StackGuard();
-
   bool CheckInterrupt(InterruptFlag flag);
   void RequestInterrupt(InterruptFlag flag);
   void ClearInterrupt(InterruptFlag flag);
@@ -162,15 +165,15 @@ class V8_EXPORT_PRIVATE StackGuard final {
   void DisableInterrupts();
 
 #if V8_TARGET_ARCH_64_BIT
-  static const uintptr_t kInterruptLimit = V8_UINT64_C(0xfffffffffffffffe);
-  static const uintptr_t kIllegalLimit = V8_UINT64_C(0xfffffffffffffff8);
+  static const uintptr_t kInterruptLimit = uintptr_t{0xfffffffffffffffe};
+  static const uintptr_t kIllegalLimit = uintptr_t{0xfffffffffffffff8};
 #else
   static const uintptr_t kInterruptLimit = 0xfffffffe;
   static const uintptr_t kIllegalLimit = 0xfffffff8;
 #endif
 
-  void PushPostponeInterruptsScope(PostponeInterruptsScope* scope);
-  void PopPostponeInterruptsScope();
+  void PushInterruptsScope(InterruptsScope* scope);
+  void PopInterruptsScope();
 
   class ThreadLocal final {
    public:
@@ -214,7 +217,7 @@ class V8_EXPORT_PRIVATE StackGuard final {
                                  static_cast<base::AtomicWord>(limit));
     }
 
-    PostponeInterruptsScope* postpone_interrupts_;
+    InterruptsScope* interrupt_scopes_;
     int interrupt_flags_;
   };
 
@@ -225,7 +228,7 @@ class V8_EXPORT_PRIVATE StackGuard final {
 
   friend class Isolate;
   friend class StackLimitCheck;
-  friend class PostponeInterruptsScope;
+  friend class InterruptsScope;
 
   DISALLOW_COPY_AND_ASSIGN(StackGuard);
 };

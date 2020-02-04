@@ -1,5 +1,5 @@
 /*
- *  Copyright 2016 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,64 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_FAKECLOCK_H_
-#define WEBRTC_RTC_BASE_FAKECLOCK_H_
+#ifndef RTC_BASE_FAKECLOCK_H_
+#define RTC_BASE_FAKECLOCK_H_
 
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/timedelta.h"
-#include "webrtc/rtc_base/timeutils.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
+#include "rtc_base/fake_clock.h"
 
-// Fake clock for use with unit tests, which does not tick on its own.
-// Starts at time 0.
-//
-// TODO(deadbeef): Unify with webrtc::SimulatedClock.
-class FakeClock : public ClockInterface {
- public:
-  ~FakeClock() override {}
-
-  // ClockInterface implementation.
-  int64_t TimeNanos() const override;
-
-  // Methods that can be used by the test to control the time.
-
-  // Should only be used to set a time in the future.
-  void SetTimeNanos(int64_t nanos);
-  void SetTimeMicros(int64_t micros) {
-    SetTimeNanos(kNumNanosecsPerMicrosec * micros);
-  }
-
-  void AdvanceTime(TimeDelta delta);
-  void AdvanceTimeMicros(int64_t micros) {
-    AdvanceTime(rtc::TimeDelta::FromMicroseconds(micros));
-  }
- private:
-  CriticalSection lock_;
-  int64_t time_ GUARDED_BY(lock_) = 0;
-};
-
-// Helper class that sets itself as the global clock in its constructor and
-// unsets it in its destructor.
-class ScopedFakeClock : public FakeClock {
- public:
-  ScopedFakeClock();
-  ~ScopedFakeClock() override;
-
- private:
-  ClockInterface* prev_clock_;
-};
-
-// Helper class to "undo" the fake clock temporarily.
-class ScopedRealClock {
- public:
-  ScopedRealClock();
-  ~ScopedRealClock();
-
- private:
-  ClockInterface* prev_clock_;
-};
-
-}  // namespace rtc
-
-#endif  // WEBRTC_RTC_BASE_FAKECLOCK_H_
+#endif  // RTC_BASE_FAKECLOCK_H_

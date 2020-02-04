@@ -4,7 +4,6 @@
 
 #include "content/browser/webrtc/webrtc_internals_ui.h"
 
-#include "base/memory/ptr_util.h"
 #include "content/browser/webrtc/webrtc_internals_message_handler.h"
 #include "content/grit/content_resources.h"
 #include "content/public/browser/web_contents.h"
@@ -22,7 +21,7 @@ WebUIDataSource* CreateWebRTCInternalsHTMLSource() {
   source->SetJsonPath("strings.js");
   source->AddResourcePath("webrtc_internals.js", IDR_WEBRTC_INTERNALS_JS);
   source->SetDefaultResource(IDR_WEBRTC_INTERNALS_HTML);
-  source->UseGzip(std::unordered_set<std::string>());
+  source->UseGzip();
   return source;
 }
 
@@ -36,7 +35,7 @@ WebUIDataSource* CreateWebRTCInternalsHTMLSource() {
 
 WebRTCInternalsUI::WebRTCInternalsUI(WebUI* web_ui)
     : WebUIController(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<WebRTCInternalsMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<WebRTCInternalsMessageHandler>());
 
   BrowserContext* browser_context =
       web_ui->GetWebContents()->GetBrowserContext();

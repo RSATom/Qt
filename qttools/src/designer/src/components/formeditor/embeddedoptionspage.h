@@ -29,9 +29,9 @@
 #ifndef EMBEDDEDOPTIONSPAGE_H
 #define EMBEDDEDOPTIONSPAGE_H
 
-#include <QtDesigner/QDesignerOptionsPageInterface>
-#include <QtCore/QPointer>
-#include <QtWidgets/QWidget>
+#include <QtDesigner/abstractoptionspage.h>
+#include <QtCore/qpointer.h>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,10 +75,10 @@ class EmbeddedOptionsPage : public QDesignerOptionsPageInterface
 public:
     explicit EmbeddedOptionsPage(QDesignerFormEditorInterface *core);
 
-    QString name() const;
-    QWidget *createPage(QWidget *parent);
-    virtual void finish();
-    virtual void apply();
+    QString name() const override;
+    QWidget *createPage(QWidget *parent) override;
+    void finish() override;
+    void apply() override;
 
 private:
     QDesignerFormEditorInterface *m_core;

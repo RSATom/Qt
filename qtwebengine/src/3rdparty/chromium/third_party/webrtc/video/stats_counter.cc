@@ -8,14 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/video/stats_counter.h"
+#include "video/stats_counter.h"
 
 #include <algorithm>
 #include <limits>
 #include <map>
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/system_wrappers/include/clock.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/strings/string_builder.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 
@@ -30,12 +31,12 @@ std::string AggregatedStats::ToString() const {
 }
 
 std::string AggregatedStats::ToStringWithMultiplier(int multiplier) const {
-  std::stringstream ss;
+  rtc::StringBuilder ss;
   ss << "periodic_samples:" << num_samples << ", {";
   ss << "min:" << (min * multiplier) << ", ";
   ss << "avg:" << (average * multiplier) << ", ";
   ss << "max:" << (max * multiplier) << "}";
-  return ss.str();
+  return ss.Release();
 }
 
 // Class holding periodically computed metrics.

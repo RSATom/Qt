@@ -11,8 +11,10 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
+#include "base/run_loop.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/background_sync/background_sync_context.h"
@@ -23,6 +25,8 @@
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/background_sync_test_util.h"
@@ -91,9 +95,9 @@ void RegistrationPendingDidGetSWRegistration(
     const scoped_refptr<BackgroundSyncContext> sync_context,
     const std::string& tag,
     base::OnceCallback<void(bool)> callback,
-    ServiceWorkerStatusCode status,
+    blink::ServiceWorkerStatusCode status,
     scoped_refptr<ServiceWorkerRegistration> registration) {
-  ASSERT_EQ(SERVICE_WORKER_OK, status);
+  ASSERT_EQ(blink::ServiceWorkerStatusCode::kOk, status);
   int64_t service_worker_id = registration->id();
   BackgroundSyncManager* sync_manager = sync_context->background_sync_manager();
   sync_manager->GetRegistrations(
@@ -109,9 +113,8 @@ void RegistrationPendingOnIOThread(
     const GURL& url,
     base::OnceCallback<void(bool)> callback) {
   sw_context->FindReadyRegistrationForDocument(
-      url, base::AdaptCallbackForRepeating(
-               base::BindOnce(&RegistrationPendingDidGetSWRegistration,
-                              sync_context, tag, std::move(callback))));
+      url, base::BindOnce(&RegistrationPendingDidGetSWRegistration,
+                          sync_context, tag, std::move(callback)));
 }
 
 void SetMaxSyncAttemptsOnIOThread(
@@ -130,13 +133,15 @@ class BackgroundSyncBrowserTest : public ContentBrowserTest {
   ~BackgroundSyncBrowserTest() override {}
 
   void SetUp() override {
-    background_sync_test_util::SetIgnoreNetworkChangeNotifier(true);
+    background_sync_test_util::SetIgnoreNetworkChanges(true);
 
     ContentBrowserTest::SetUp();
   }
 
   void SetIncognitoMode(bool incognito) {
     shell_ = incognito ? CreateOffTheRecordBrowser() : shell();
+    // Let any async shell creation logic finish.
+    base::RunLoop().RunUntilIdle();
   }
 
   StoragePartitionImpl* GetStorage() {
@@ -232,11 +237,11 @@ bool BackgroundSyncBrowserTest::RegistrationPending(const std::string& tag) {
       base::BindOnce(&RegistrationPendingCallback, run_loop.QuitClosure(),
                      base::ThreadTaskRunnerHandle::Get(), &is_pending);
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(
-          &RegistrationPendingOnIOThread, make_scoped_refptr(sync_context),
-          make_scoped_refptr(service_worker_context), tag,
+          &RegistrationPendingOnIOThread, base::WrapRefCounted(sync_context),
+          base::WrapRefCounted(service_worker_context), tag,
           https_server_->GetURL(kDefaultTestURL), std::move(callback)));
 
   run_loop.Run();
@@ -250,10 +255,10 @@ void BackgroundSyncBrowserTest::SetMaxSyncAttempts(int max_sync_attempts) {
   StoragePartitionImpl* storage = GetStorage();
   BackgroundSyncContext* sync_context = storage->GetBackgroundSyncContext();
 
-  BrowserThread::PostTaskAndReply(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraitsAndReply(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&SetMaxSyncAttemptsOnIOThread,
-                     make_scoped_refptr(sync_context), max_sync_attempts),
+                     base::WrapRefCounted(sync_context), max_sync_attempts),
       run_loop.QuitClosure());
 
   run_loop.Run();
@@ -275,8 +280,7 @@ void BackgroundSyncBrowserTest::ClearStoragePartitionData() {
   base::RunLoop run_loop;
 
   storage->ClearData(storage_partition_mask, quota_storage_mask, delete_origin,
-                     StoragePartition::OriginMatcherFunction(), delete_begin,
-                     delete_end, run_loop.QuitClosure());
+                     delete_begin, delete_end, run_loop.QuitClosure());
 
   run_loop.Run();
 }

@@ -57,6 +57,7 @@ void tst_QGeoLocation::constructor()
     QCOMPARE(m_location.address(), m_address);
     QCOMPARE(m_location.coordinate(), m_coordinate);
     QCOMPARE(m_location.boundingBox(), m_viewport);
+    QCOMPARE(m_location.extendedAttributes(), m_extendedAttributes);
 }
 
 void tst_QGeoLocation::copy_constructor()
@@ -123,6 +124,16 @@ void tst_QGeoLocation::viewport()
     QVERIFY(m_location.boundingBox() != qgeoboundingboxcopy);
 }
 
+void tst_QGeoLocation::extendedAttributes()
+{
+    m_extendedAttributes = QVariantMap({{ "foo" , 42 }});
+    m_location.setExtendedAttributes(m_extendedAttributes);
+    QCOMPARE(m_location.extendedAttributes(), m_extendedAttributes);
+
+    m_extendedAttributes["foo"] = 41;
+    QVERIFY(m_location.extendedAttributes() != m_extendedAttributes);
+}
+
 void tst_QGeoLocation::operators()
 {
     QGeoAddress qgeoaddresscopy;
@@ -131,6 +142,7 @@ void tst_QGeoLocation::operators()
     qgeoaddresscopy.setCountryCode("DEU");
 
     QGeoCoordinate qgeocoordinatecopy (32.324 , 41.324 , 24.55);
+    QVariantMap extendedAttributesCopy {{ "foo" , 42 }};
 
     m_address.setCity("Madrid");
     m_address.setCountry("Spain");
@@ -140,8 +152,11 @@ void tst_QGeoLocation::operators()
     m_coordinate.setLongitude(38.43443);
     m_coordinate.setAltitude(634.21);
 
+    m_extendedAttributes["foo"] = 43;
+
     m_location.setAddress(m_address);
     m_location.setCoordinate(m_coordinate);
+    m_location.setExtendedAttributes(m_extendedAttributes);
 
     //Create a copy and see that they are the same
     QGeoLocation qgeolocationcopy(m_location);
@@ -152,9 +167,15 @@ void tst_QGeoLocation::operators()
    qgeolocationcopy.setAddress(qgeoaddresscopy);
    QVERIFY(!(m_location == qgeolocationcopy));
    QVERIFY(m_location != qgeolocationcopy);
+   qgeolocationcopy.setAddress(m_address);
    qgeolocationcopy.setCoordinate(qgeocoordinatecopy);
    QVERIFY(!(m_location == qgeolocationcopy));
    QVERIFY(m_location != qgeolocationcopy);
+   qgeolocationcopy.setCoordinate(m_coordinate);
+   qgeolocationcopy.setExtendedAttributes(extendedAttributesCopy);
+   QVERIFY(!(m_location == qgeolocationcopy));
+   QVERIFY(m_location != qgeolocationcopy);
+
 
     //delete qgeolocationcopy;
     //Asign and test that they are the same
@@ -195,6 +216,8 @@ void tst_QGeoLocation::comparison()
             otherLocation.setCoordinate(QGeoCoordinate(12,13));
         } else if (dataField == "viewport"){
             otherLocation.setBoundingBox(QGeoRectangle(QGeoCoordinate(1,2), 0.5,0.5));
+        } else if (dataField == "extendedAttributes"){
+            otherLocation.setExtendedAttributes(QVariantMap({{"foo", 44}}));
         } else {
             qFatal("Unknown data field to test");
         }
@@ -209,6 +232,7 @@ void tst_QGeoLocation::comparison_data()
     QTest::newRow("no change") << "no change";
     QTest::newRow("address") << "address";
     QTest::newRow("coordinate") << "coordinate";
+    QTest::newRow("extendedAttributes") << "extendedAttributes";
 }
 
 void tst_QGeoLocation::isEmpty()
@@ -221,6 +245,8 @@ void tst_QGeoLocation::isEmpty()
     boundingBox.setTopLeft(QGeoCoordinate(1, -1));
     boundingBox.setBottomRight(QGeoCoordinate(-1, 1));
     QVERIFY(!boundingBox.isEmpty());
+
+    QVariantMap extendedAttributes({{"foo", 11}});
 
     QGeoLocation location;
 
@@ -242,6 +268,12 @@ void tst_QGeoLocation::isEmpty()
     location.setBoundingBox(boundingBox);
     QVERIFY(!location.isEmpty());
     location.setBoundingBox(QGeoRectangle());
+    QVERIFY(location.isEmpty());
+
+    // extended attributes
+    location.setExtendedAttributes(extendedAttributes);
+    QVERIFY(!location.isEmpty());
+    location.setExtendedAttributes(QVariantMap());
     QVERIFY(location.isEmpty());
 }
 

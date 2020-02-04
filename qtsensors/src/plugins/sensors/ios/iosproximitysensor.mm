@@ -49,11 +49,12 @@ int IOSProximitySensor::s_startCount = 0;
 
 @interface ProximitySensorCallback : NSObject
 {
-    IOSProximitySensor *m_iosProximitySensor;
 }
 @end
 
-@implementation ProximitySensorCallback
+@implementation ProximitySensorCallback {
+    IOSProximitySensor *m_iosProximitySensor;
+}
 
 - (id)initWithQIOSProximitySensor:(IOSProximitySensor *)iosProximitySensor
 {

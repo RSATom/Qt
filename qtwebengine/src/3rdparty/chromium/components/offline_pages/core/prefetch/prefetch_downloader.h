@@ -5,90 +5,60 @@
 #ifndef COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_PREFETCH_DOWNLOADER_H_
 #define COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_PREFETCH_DOWNLOADER_H_
 
+#include <map>
+#include <set>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "base/callback.h"
-#include "base/macros.h"
-#include "base/memory/weak_ptr.h"
-#include "components/download/public/download_params.h"
+#include "base/files/file_path.h"
 #include "components/offline_pages/core/prefetch/prefetch_types.h"
-#include "components/version_info/channel.h"
-
-namespace download {
-class DownloadService;
-}  // namespace download
 
 namespace offline_pages {
-
-class PrefetchServiceTestTaco;
+class PrefetchService;
+static constexpr base::TimeDelta kPrefetchDownloadLifetime =
+    base::TimeDelta::FromDays(2);
 
 // Asynchronously downloads the archive.
 class PrefetchDownloader {
  public:
-  PrefetchDownloader(download::DownloadService* download_service,
-                     version_info::Channel channel);
-  ~PrefetchDownloader();
+  virtual ~PrefetchDownloader() = default;
 
-  void SetCompletedCallback(const PrefetchDownloadCompletedCallback& callback);
+  virtual void SetPrefetchService(PrefetchService* service) = 0;
+
+  // Returned true if the download service is not available and can't be used.
+  virtual bool IsDownloadServiceUnavailable() const = 0;
+
+  // Notifies that the download cleanup can be triggered immediately when the
+  // download service is ready. If the download service is ready before this
+  // method is called, the download cleanup should be delayed.
+  virtual void CleanupDownloadsWhenReady() = 0;
 
   // Starts to download an archive from |download_location|.
-  void StartDownload(const std::string& download_id,
-                     const std::string& download_location);
+  virtual void StartDownload(const std::string& download_id,
+                             const std::string& download_location,
+                             const std::string& operation_name) = 0;
 
-  // Cancels a previous scheduled download.
-  void CancelDownload(const std::string& download_id);
+  // Called when the download service is initialized.
+  // |success_downloads| is a map with download_id as key and pair of file path
+  // and file size as value.
+  virtual void OnDownloadServiceReady(
+      const std::set<std::string>& outstanding_download_ids,
+      const std::map<std::string, std::pair<base::FilePath, int64_t>>&
+          success_downloads) = 0;
 
-  // Responding to download client event.
-
-  // Called when the download service is initialized and can accept the
-  // downloads.
-  void OnDownloadServiceReady();
-
-  // Called when the download service is tearing down.
-  void OnDownloadServiceShutdown();
+  // Called when the download service fails to initialize and should not be
+  // used.
+  virtual void OnDownloadServiceUnavailable() = 0;
 
   // Called when a download is completed successfully. Note that the download
-  // can be scheduled in preious sessions.
-  void OnDownloadSucceeded(const std::string& download_id,
-                           const base::FilePath& file_path,
-                           uint64_t file_size);
+  // can be scheduled in previous sessions.
+  virtual void OnDownloadSucceeded(const std::string& download_id,
+                                   const base::FilePath& file_path,
+                                   int64_t file_size) = 0;
 
   // Called when a download fails.
-  void OnDownloadFailed(const std::string& download_id);
-
- private:
-  friend class PrefetchServiceTestTaco;
-
-  // For test only.
-  explicit PrefetchDownloader(version_info::Channel channel);
-
-  // Callback for StartDownload.
-  void OnStartDownload(const std::string& download_id,
-                       download::DownloadParams::StartResult result);
-
-  // Unowned. It is valid until |this| instance is disposed.
-  download::DownloadService* download_service_;
-
-  version_info::Channel channel_;
-  PrefetchDownloadCompletedCallback callback_;
-
-  // Flag to indicate if the download service is ready to take downloads.
-  bool service_started_ = false;
-
-  // TODO(jianli): Investigate making PrefetchService waits for DownloadService
-  // ready in order to avoid queueing.
-  // List of downloads pending to start after the download service starts. Each
-  // item is a pair of download id and download location.
-  std::vector<std::pair<std::string, std::string>> pending_downloads_;
-  // List of ids of downloads waiting to be cancelled after the download service
-  // starts.
-  std::vector<std::string> pending_cancellations_;
-
-  base::WeakPtrFactory<PrefetchDownloader> weak_ptr_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(PrefetchDownloader);
+  virtual void OnDownloadFailed(const std::string& download_id) = 0;
 };
 
 }  // namespace offline_pages

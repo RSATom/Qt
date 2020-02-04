@@ -8,10 +8,8 @@
 #include <memory>
 #include <string>
 
-#include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
 #include "base/values.h"
 #include "components/sync/driver/sync_service_observer.h"
 #include "components/sync/engine/cycle/type_debug_info_observer.h"
@@ -20,10 +18,6 @@
 #include "components/sync/js/js_event_handler.h"
 #include "components/version_info/channel.h"
 #include "content/public/browser/web_ui_message_handler.h"
-
-namespace browser_sync {
-class ProfileSyncService;
-}  // namespace browser_sync
 
 namespace syncer {
 class SyncService;
@@ -52,8 +46,11 @@ class SyncInternalsMessageHandler : public content::WebUIMessageHandler,
   // Fires an event to send updated info back to the page.
   void HandleRequestUpdatedAboutInfo(const base::ListValue* args);
 
-  // Fires and event to send the list of types back to the page.
+  // Fires an event to send the list of types back to the page.
   void HandleRequestListOfTypes(const base::ListValue* args);
+
+  // Fires an event to send the initial state of the "include specifics" flag.
+  void HandleRequestIncludeSpecificsInitialState(const base::ListValue* args);
 
   // Handler for getAllNodes message.  Needs a |request_id| argument.
   void HandleGetAllNodes(const base::ListValue* args);
@@ -67,6 +64,18 @@ class SyncInternalsMessageHandler : public content::WebUIMessageHandler,
 
   // Handler for writeUserEvent message.
   void HandleWriteUserEvent(const base::ListValue* args);
+
+  // Handler for requestStart message.
+  void HandleRequestStart(const base::ListValue* args);
+
+  // Handler for requestStopKeepData message.
+  void HandleRequestStopKeepData(const base::ListValue* args);
+
+  // Handler for requestStopClearData message.
+  void HandleRequestStopClearData(const base::ListValue* args);
+
+  // Handler for triggerRefresh message.
+  void HandleTriggerRefresh(const base::ListValue* args);
 
   // syncer::JsEventHandler implementation.
   void HandleJsEvent(const std::string& name,

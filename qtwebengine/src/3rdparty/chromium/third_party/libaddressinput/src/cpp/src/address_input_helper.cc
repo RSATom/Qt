@@ -18,7 +18,6 @@
 #include <libaddressinput/address_field.h>
 #include <libaddressinput/address_metadata.h>
 #include <libaddressinput/preload_supplier.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <cassert>
 #include <cstddef>
@@ -32,6 +31,7 @@
 #include "region_data_constants.h"
 #include "rule.h"
 #include "util/re2ptr.h"
+#include "util/size.h"
 
 namespace i18n {
 namespace addressinput {
@@ -46,7 +46,7 @@ namespace {
 
 const char kLookupKeySeparator = '/';
 
-const size_t kHierarchyDepth = arraysize(LookupKey::kHierarchy);
+const size_t kHierarchyDepth = size(LookupKey::kHierarchy);
 
 // Gets the best name for the entity represented by the current rule, using the
 // language provided. The language is currently used to distinguish whether a
@@ -71,8 +71,8 @@ std::string GetBestName(const Language& language, const Rule& rule) {
 void FillAddressFromMatchedRules(
     const std::vector<Node>* hierarchy,
     AddressData* address) {
-  assert(hierarchy != NULL);
-  assert(address != NULL);
+  assert(hierarchy != nullptr);
+  assert(address != nullptr);
   // We skip region code, because we never try and fill that in if it isn't
   // already set.
   Language language(address->language_code);
@@ -81,9 +81,9 @@ void FillAddressFromMatchedRules(
     // address, using this rule and its parents.
     if (hierarchy[depth].size() == 1) {
       for (const Node* node = &hierarchy[depth].front();
-           node != NULL; node = node->parent, --depth) {
+           node != nullptr; node = node->parent, --depth) {
         const Rule* rule = node->rule;
-        assert(rule != NULL);
+        assert(rule != nullptr);
 
         AddressField field = LookupKey::kHierarchy[depth];
         // Note only empty fields are permitted to be overwritten.
@@ -96,18 +96,17 @@ void FillAddressFromMatchedRules(
   }
 }
 
-}  // namespace;
+}  // namespace
 
 AddressInputHelper::AddressInputHelper(PreloadSupplier* supplier)
     : supplier_(supplier) {
-  assert(supplier_ != NULL);
+  assert(supplier_ != nullptr);
 }
 
-AddressInputHelper::~AddressInputHelper() {
-}
+AddressInputHelper::~AddressInputHelper() = default;
 
 void AddressInputHelper::FillAddress(AddressData* address) const {
-  assert(address != NULL);
+  assert(address != nullptr);
   const std::string& region_code = address->region_code;
   if (!RegionDataConstants::IsSupported(region_code)) {
     // If we don't have a region code, we can't do anything reliably to fill
@@ -123,10 +122,10 @@ void AddressInputHelper::FillAddress(AddressData* address) const {
   const Rule* region_rule = supplier_->GetRule(lookup_key);
   // We have already checked that the region is supported; and users of this
   // method must have called LoadRules() first, so we check this here.
-  assert(region_rule != NULL);
+  assert(region_rule != nullptr);
 
   const RE2ptr* postal_code_reg_exp = region_rule->GetPostalCodeMatcher();
-  if (postal_code_reg_exp != NULL) {
+  if (postal_code_reg_exp != nullptr) {
     if (address->postal_code.empty()) {
       address->postal_code = region_rule->GetSolePostalCode();
     }
@@ -136,11 +135,10 @@ void AddressInputHelper::FillAddress(AddressData* address) const {
     // have been added in the previous check.
     if (!address->postal_code.empty() &&
         RE2::FullMatch(address->postal_code, *postal_code_reg_exp->ptr)) {
-
       // This hierarchy is used to store rules that represent possible matches
       // at each level of the hierarchy.
       std::vector<Node> hierarchy[kHierarchyDepth];
-      CheckChildrenForPostCodeMatches(*address, lookup_key, NULL, hierarchy);
+      CheckChildrenForPostCodeMatches(*address, lookup_key, nullptr, hierarchy);
 
       FillAddressFromMatchedRules(hierarchy, address);
     }
@@ -157,25 +155,26 @@ void AddressInputHelper::CheckChildrenForPostCodeMatches(
     // An array of vectors.
     std::vector<Node>* hierarchy) const {
   const Rule* rule = supplier_->GetRule(lookup_key);
-  assert(rule != NULL);
+  assert(rule != nullptr);
 
   const RE2ptr* postal_code_prefix = rule->GetPostalCodeMatcher();
-  if (postal_code_prefix == NULL ||
+  if (postal_code_prefix == nullptr ||
       RE2::PartialMatch(address.postal_code, *postal_code_prefix->ptr)) {
+    size_t depth = lookup_key.GetDepth();
+    assert(depth < size(LookupKey::kHierarchy));
+
     // This was a match, so store it and its parent in the hierarchy.
-    hierarchy[lookup_key.GetDepth()].push_back(Node());
-    Node* node = &hierarchy[lookup_key.GetDepth()].back();
+    hierarchy[depth].emplace_back();
+    Node* node = &hierarchy[depth].back();
     node->parent = parent;
     node->rule = rule;
 
-    if (IsFieldUsed(LookupKey::kHierarchy[lookup_key.GetDepth() + 1],
-                    address.region_code)) {
+    if (depth < size(LookupKey::kHierarchy) - 1 &&
+        IsFieldUsed(LookupKey::kHierarchy[depth + 1], address.region_code)) {
       // If children are used and present, check them too.
-      for (std::vector<std::string>::const_iterator child_it =
-               rule->GetSubKeys().begin();
-           child_it != rule->GetSubKeys().end(); ++child_it) {
+      for (const auto& sub_key : rule->GetSubKeys()) {
         LookupKey child_key;
-        child_key.FromLookupKey(lookup_key, *child_it);
+        child_key.FromLookupKey(lookup_key, sub_key);
         CheckChildrenForPostCodeMatches(address, child_key, node, hierarchy);
       }
     }

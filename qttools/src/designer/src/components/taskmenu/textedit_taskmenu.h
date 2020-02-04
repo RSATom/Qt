@@ -29,8 +29,8 @@
 #ifndef TEXTEDIT_TASKMENU_H
 #define TEXTEDIT_TASKMENU_H
 
-#include <QtWidgets/QTextEdit>
-#include <QtWidgets/QPlainTextEdit>
+#include <QtWidgets/qtextedit.h>
+#include <QtWidgets/qplaintextedit.h>
 
 #include <qdesigner_taskmenu_p.h>
 #include <extensionfactory_p.h>
@@ -48,10 +48,10 @@ public:
     explicit TextEditTaskMenu(QTextEdit *button, QObject *parent = 0);
     explicit TextEditTaskMenu(QPlainTextEdit *button, QObject *parent = 0);
 
-    virtual ~TextEditTaskMenu();
+    ~TextEditTaskMenu() override;
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private slots:
     void editText();

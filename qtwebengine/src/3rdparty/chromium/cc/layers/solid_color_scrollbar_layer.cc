@@ -28,7 +28,7 @@ scoped_refptr<SolidColorScrollbarLayer> SolidColorScrollbarLayer::Create(
     int track_start,
     bool is_left_side_vertical_scrollbar,
     ElementId scroll_element_id) {
-  return make_scoped_refptr(new SolidColorScrollbarLayer(
+  return base::WrapRefCounted(new SolidColorScrollbarLayer(
       orientation, thumb_thickness, track_start,
       is_left_side_vertical_scrollbar, scroll_element_id));
 }
@@ -60,13 +60,10 @@ SolidColorScrollbarLayer::SolidColorScrollbarLayer(
                                           is_left_side_vertical_scrollbar,
                                           scroll_element_id) {
   Layer::SetOpacity(0.f);
+  SetIsScrollbar(true);
 }
 
-SolidColorScrollbarLayer::~SolidColorScrollbarLayer() {}
-
-ScrollbarLayerInterface* SolidColorScrollbarLayer::ToScrollbarLayer() {
-  return this;
-}
+SolidColorScrollbarLayer::~SolidColorScrollbarLayer() = default;
 
 void SolidColorScrollbarLayer::SetOpacity(float opacity) {
   // The opacity of a solid color scrollbar layer is always 0 on main thread.
@@ -96,7 +93,7 @@ void SolidColorScrollbarLayer::SetScrollElementId(ElementId element_id) {
     return;
 
   solid_color_scrollbar_layer_inputs_.scroll_element_id = element_id;
-  SetNeedsFullTreeSync();
+  SetNeedsCommit();
 }
 
 }  // namespace cc

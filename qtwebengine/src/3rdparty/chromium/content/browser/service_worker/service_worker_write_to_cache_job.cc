@@ -5,9 +5,7 @@
 #include "content/browser/service_worker/service_worker_write_to_cache_job.h"
 
 #include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
@@ -28,24 +26,16 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_status.h"
-#include "third_party/WebKit/public/web/WebConsoleMessage.h"
+#include "third_party/blink/public/common/mime_util/mime_util.h"
+#include "third_party/blink/public/web/web_console_message.h"
 
 namespace content {
 
 namespace {
 
 const char kKilledError[] = "The request to fetch the script was interrupted.";
-const char kBadHTTPResponseError[] =
-    "A bad HTTP response code (%d) was received when fetching the script.";
-const char kSSLError[] =
-    "An SSL certificate error occurred when fetching the script.";
-const char kBadMIMEError[] = "The script has an unsupported MIME type ('%s').";
-const char kNoMIMEError[] = "The script does not have a MIME type.";
 const char kClientAuthenticationError[] =
     "Client authentication was required to fetch the script.";
-const char kRedirectError[] =
-    "The script resource is behind a redirect, which is disallowed.";
-const char kServiceWorkerAllowed[] = "Service-Worker-Allowed";
 
 bool ShouldIgnoreSSLError(net::URLRequest* request) {
   const net::HttpNetworkSession::Params* session_params =
@@ -54,7 +44,7 @@ bool ShouldIgnoreSSLError(net::URLRequest* request) {
     return true;
   bool allow_localhost = base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kAllowInsecureLocalhost);
-  if (allow_localhost && net::IsLocalhost(request->url().host()))
+  if (allow_localhost && net::IsLocalhost(request->url()))
     return true;
   return false;
 }
@@ -80,14 +70,28 @@ ServiceWorkerWriteToCacheJob::ServiceWorkerWriteToCacheJob(
       resource_id_(resource_id),
       incumbent_resource_id_(incumbent_resource_id),
       version_(version),
-      has_been_killed_(false),
-      did_notify_started_(false),
-      did_notify_finished_(false),
       weak_factory_(this) {
   DCHECK(version_);
-  DCHECK(resource_type_ == RESOURCE_TYPE_SCRIPT ||
-         (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER &&
-          version_->script_url() == url_));
+
+#if DCHECK_IS_ON()
+  switch (version_->script_type()) {
+    case blink::mojom::ScriptType::kClassic:
+      // For classic scripts, the main service worker script should have the
+      // "service worker" resource type and imported scripts should have the
+      // "script" resource type.
+      DCHECK(resource_type_ == RESOURCE_TYPE_SCRIPT ||
+             (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER &&
+              version_->script_url() == url_));
+      break;
+    case blink::mojom::ScriptType::kModule:
+      // For module scripts, both the main service worker script and
+      // static-imported scripts should have the "service worker" resource type
+      // because static import inherits the resource type of the top-level
+      // module script.
+      DCHECK_EQ(RESOURCE_TYPE_SERVICE_WORKER, resource_type_);
+      break;
+  }
+#endif  // DCHECK_IS_ON()
   InitNetRequest(extra_load_flags);
 }
 
@@ -98,8 +102,8 @@ ServiceWorkerWriteToCacheJob::~ServiceWorkerWriteToCacheJob() {
 
 void ServiceWorkerWriteToCacheJob::Start() {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&ServiceWorkerWriteToCacheJob::StartAsync,
-                            weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&ServiceWorkerWriteToCacheJob::StartAsync,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void ServiceWorkerWriteToCacheJob::StartAsync() {
@@ -114,9 +118,20 @@ void ServiceWorkerWriteToCacheJob::StartAsync() {
     return;
   }
 
-  cache_writer_.reset(new ServiceWorkerCacheWriter(
-      CreateCacheResponseReader(), CreateCacheResponseReader(),
-      CreateCacheResponseWriter()));
+  // Create response readers only when we have to do the byte-for-byte check.
+  std::unique_ptr<ServiceWorkerResponseReader> compare_reader;
+  std::unique_ptr<ServiceWorkerResponseReader> copy_reader;
+  if (ShouldByteForByteCheck()) {
+    compare_reader =
+        context_->storage()->CreateResponseReader(incumbent_resource_id_);
+    copy_reader =
+        context_->storage()->CreateResponseReader(incumbent_resource_id_);
+  }
+  cache_writer_ = std::make_unique<ServiceWorkerCacheWriter>(
+      std::move(compare_reader), std::move(copy_reader),
+      context_->storage()->CreateResponseWriter(resource_id_),
+      false /* pause_when_not_identical */);
+
   version_->script_cache_map()->NotifyStartedCaching(url_, resource_id_);
   did_notify_started_ = true;
   StartNetRequest();
@@ -179,7 +194,7 @@ int ServiceWorkerWriteToCacheJob::ReadRawData(net::IOBuffer* buf,
 
   if (rv < 0) {
     net::Error error = static_cast<net::Error>(rv);
-    error = NotifyFinishedCaching(error, kFetchScriptError);
+    error = NotifyFinishedCaching(error, kServiceWorkerFetchScriptError);
     DCHECK_EQ(rv, error);
     return error;
   }
@@ -209,7 +224,7 @@ void ServiceWorkerWriteToCacheJob::InitNetRequest(
             destination: WEBSITE
           }
           policy {
-            cookies_allowed: true
+            cookies_allowed: YES
             cookies_store: "user"
             setting:
               "Users can control this feature via the 'Cookies' setting under "
@@ -226,16 +241,17 @@ void ServiceWorkerWriteToCacheJob::InitNetRequest(
           })");
   net_request_ = request()->context()->CreateRequest(
       request()->url(), request()->priority(), this, traffic_annotation);
-  net_request_->set_first_party_for_cookies(
-      request()->first_party_for_cookies());
+  net_request_->set_site_for_cookies(request()->site_for_cookies());
   net_request_->set_initiator(request()->initiator());
   net_request_->SetReferrer(request()->referrer());
   net_request_->SetUserData(URLRequestServiceWorkerData::kUserDataKey,
-                            base::MakeUnique<URLRequestServiceWorkerData>());
+                            std::make_unique<URLRequestServiceWorkerData>());
   if (extra_load_flags)
     net_request_->SetLoadFlags(net_request_->load_flags() | extra_load_flags);
 
-  if (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER) {
+  // Add the 'Service-Worker' header for the main script request.
+  // https://w3c.github.io/ServiceWorker/#service-worker-script-request
+  if (IsMainScript()) {
     // This will get copied into net_request_ when URLRequest::StartJob calls
     // ServiceWorkerWriteToCacheJob::SetExtraRequestHeaders.
     request()->SetExtraRequestHeaderByName("Service-Worker", "script", true);
@@ -266,7 +282,7 @@ void ServiceWorkerWriteToCacheJob::OnReceivedRedirect(
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerWriteToCacheJob::OnReceivedRedirect");
   // Script resources can't redirect.
-  NotifyStartErrorHelper(net::ERR_UNSAFE_REDIRECT, kRedirectError);
+  NotifyStartErrorHelper(net::ERR_UNSAFE_REDIRECT, kServiceWorkerRedirectError);
 }
 
 void ServiceWorkerWriteToCacheJob::OnAuthRequired(
@@ -297,10 +313,13 @@ void ServiceWorkerWriteToCacheJob::OnSSLCertificateError(
   DCHECK_EQ(net_request_.get(), request);
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerWriteToCacheJob::OnSSLCertificateError");
-  if (ShouldIgnoreSSLError(request))
+  if (ShouldIgnoreSSLError(request)) {
     request->ContinueDespiteLastError();
-  else
-    NotifyStartErrorHelper(net::ERR_INSECURE_RESPONSE, kSSLError);
+  } else {
+    NotifyStartErrorHelper(
+        net::Error(net::MapCertStatusToNetError(ssl_info.cert_status)),
+        kServiceWorkerSSLError);
+  }
 }
 
 void ServiceWorkerWriteToCacheJob::OnResponseStarted(net::URLRequest* request,
@@ -310,13 +329,13 @@ void ServiceWorkerWriteToCacheJob::OnResponseStarted(net::URLRequest* request,
 
   if (net_error != net::OK) {
     net::Error error = static_cast<net::Error>(net_error);
-    NotifyStartErrorHelper(error, kFetchScriptError);
+    NotifyStartErrorHelper(error, kServiceWorkerFetchScriptError);
     return;
   }
   if (request->url().SchemeIsHTTPOrHTTPS()
-      && (request->GetResponseCode() / 100 != 2)) {
-    std::string error_message =
-        base::StringPrintf(kBadHTTPResponseError, request->GetResponseCode());
+      && request->GetResponseCode() / 100 != 2) {
+    std::string error_message = base::StringPrintf(
+        kServiceWorkerBadHTTPResponseError, request->GetResponseCode());
     NotifyStartErrorHelper(net::ERR_INVALID_RESPONSE, error_message);
     // TODO(michaeln): Instead of error'ing immediately, send the net
     // response to our consumer, just don't cache it?
@@ -326,20 +345,20 @@ void ServiceWorkerWriteToCacheJob::OnResponseStarted(net::URLRequest* request,
   // So we check cert_status here.
   if (net::IsCertStatusError(request->ssl_info().cert_status) &&
       !ShouldIgnoreSSLError(request)) {
-    NotifyStartErrorHelper(net::ERR_INSECURE_RESPONSE, kSSLError);
+    NotifyStartErrorHelper(net::Error(net::MapCertStatusToNetError(
+                               request->ssl_info().cert_status)),
+                           kServiceWorkerSSLError);
     return;
   }
 
-  if (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER) {
+  if (IsMainScript()) {
     std::string mime_type;
     request->GetMimeType(&mime_type);
-    if (mime_type != "application/x-javascript" &&
-        mime_type != "text/javascript" &&
-        mime_type != "application/javascript") {
+    if (!blink::IsSupportedJavascriptMimeType(mime_type)) {
       std::string error_message =
-          mime_type.empty()
-              ? kNoMIMEError
-              : base::StringPrintf(kBadMIMEError, mime_type.c_str());
+          mime_type.empty() ? kServiceWorkerNoMIMEError
+                            : base::StringPrintf(kServiceWorkerBadMIMEError,
+                                                 mime_type.c_str());
       NotifyStartErrorHelper(net::ERR_INSECURE_RESPONSE, error_message);
       return;
     }
@@ -355,14 +374,16 @@ void ServiceWorkerWriteToCacheJob::OnResponseStarted(net::URLRequest* request,
     version_->embedded_worker()->OnNetworkAccessedForScriptLoad();
   }
 
-  http_info_.reset(new net::HttpResponseInfo(net_request_->response_info()));
+  http_info_ =
+      std::make_unique<net::HttpResponseInfo>(net_request_->response_info());
   scoped_refptr<HttpResponseInfoIOBuffer> info_buffer =
-      new HttpResponseInfoIOBuffer(
-          new net::HttpResponseInfo(net_request_->response_info()));
+      base::MakeRefCounted<HttpResponseInfoIOBuffer>(
+          std::make_unique<net::HttpResponseInfo>(
+              net_request_->response_info()));
   net::Error error = cache_writer_->MaybeWriteHeaders(
       info_buffer.get(),
-      base::Bind(&ServiceWorkerWriteToCacheJob::OnWriteHeadersComplete,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&ServiceWorkerWriteToCacheJob::OnWriteHeadersComplete,
+                     weak_factory_.GetWeakPtr()));
   if (error == net::ERR_IO_PENDING)
     return;
   OnWriteHeadersComplete(error);
@@ -402,7 +423,7 @@ void ServiceWorkerWriteToCacheJob::OnReadCompleted(net::URLRequest* request,
   int result;
   if (bytes_read < 0) {
     net::Error error = static_cast<net::Error>(bytes_read);
-    result = NotifyFinishedCaching(error, kFetchScriptError);
+    result = NotifyFinishedCaching(error, kServiceWorkerFetchScriptError);
   } else {
     result = HandleNetData(bytes_read);
   }
@@ -436,8 +457,8 @@ int ServiceWorkerWriteToCacheJob::HandleNetData(int bytes_read) {
   io_buffer_bytes_ = bytes_read;
   net::Error error = cache_writer_->MaybeWriteData(
       io_buffer_.get(), bytes_read,
-      base::Bind(&ServiceWorkerWriteToCacheJob::OnWriteDataComplete,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&ServiceWorkerWriteToCacheJob::OnWriteDataComplete,
+                     weak_factory_.GetWeakPtr()));
 
   // In case of ERR_IO_PENDING, this logic is done in OnWriteDataComplete.
   if (error != net::ERR_IO_PENDING && bytes_read == 0) {
@@ -467,8 +488,9 @@ net::Error ServiceWorkerWriteToCacheJob::NotifyFinishedCaching(
     // occurred because the worker stops soon after receiving the error
     // response.
     version_->embedded_worker()->AddMessageToConsole(
-        blink::WebConsoleMessage::kLevelError,
-        status_message.empty() ? kFetchScriptError : status_message);
+        blink::mojom::ConsoleMessageLevel::kError,
+        status_message.empty() ? kServiceWorkerFetchScriptError
+                               : status_message);
   } else {
     size = cache_writer_->bytes_written();
   }
@@ -478,7 +500,8 @@ net::Error ServiceWorkerWriteToCacheJob::NotifyFinishedCaching(
   // equivalent, the new version didn't actually install because it already
   // exists.
   if (net_error == net::OK && !cache_writer_->did_replace()) {
-    version_->SetStartWorkerStatusCode(SERVICE_WORKER_ERROR_EXISTS);
+    version_->SetStartWorkerStatusCode(
+        blink::ServiceWorkerStatusCode::kErrorExists);
     version_->script_cache_map()->NotifyFinishedCaching(
         url_, size, kIdenticalScriptError, std::string());
   } else {
@@ -490,18 +513,14 @@ net::Error ServiceWorkerWriteToCacheJob::NotifyFinishedCaching(
   return net_error;
 }
 
-std::unique_ptr<ServiceWorkerResponseReader>
-ServiceWorkerWriteToCacheJob::CreateCacheResponseReader() {
-  if (incumbent_resource_id_ == kInvalidServiceWorkerResourceId ||
-      !version_->pause_after_download()) {
-    return nullptr;
-  }
-  return context_->storage()->CreateResponseReader(incumbent_resource_id_);
+bool ServiceWorkerWriteToCacheJob::ShouldByteForByteCheck() const {
+  return incumbent_resource_id_ != kInvalidServiceWorkerResourceId &&
+         version_->pause_after_download();
 }
 
-std::unique_ptr<ServiceWorkerResponseWriter>
-ServiceWorkerWriteToCacheJob::CreateCacheResponseWriter() {
-  return context_->storage()->CreateResponseWriter(resource_id_);
+bool ServiceWorkerWriteToCacheJob::IsMainScript() const {
+  return url_ == version_->script_url() &&
+         resource_type_ == RESOURCE_TYPE_SERVICE_WORKER;
 }
 
 }  // namespace content

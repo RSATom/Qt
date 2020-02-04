@@ -40,14 +40,13 @@
 #include "qcocoaglcontext.h"
 #include "qcocoawindow.h"
 #include "qcocoahelpers.h"
+#include "qcocoascreen.h"
+
 #include <qdebug.h>
-#include <QtCore/private/qcore_mac_p.h>
 #include <QtPlatformHeaders/qcocoanativecontext.h>
 #include <dlfcn.h>
 
 #import <AppKit/AppKit.h>
-
-QT_BEGIN_NAMESPACE
 
 static inline QByteArray getGlString(GLenum param)
 {
@@ -56,106 +55,53 @@ static inline QByteArray getGlString(GLenum param)
     return QByteArray();
 }
 
-#if !defined(GL_CONTEXT_FLAGS)
-#define GL_CONTEXT_FLAGS 0x821E
-#endif
+QT_BEGIN_NAMESPACE
 
-#if !defined(GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT)
-#define GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT 0x0001
-#endif
+Q_LOGGING_CATEGORY(lcQpaOpenGLContext, "qt.qpa.openglcontext", QtWarningMsg);
 
-#if !defined(GL_CONTEXT_PROFILE_MASK)
-#define GL_CONTEXT_PROFILE_MASK 0x9126
-#endif
-
-#if !defined(GL_CONTEXT_CORE_PROFILE_BIT)
-#define GL_CONTEXT_CORE_PROFILE_BIT 0x00000001
-#endif
-
-#if !defined(GL_CONTEXT_COMPATIBILITY_PROFILE_BIT)
-#define GL_CONTEXT_COMPATIBILITY_PROFILE_BIT 0x00000002
-#endif
-
-static void updateFormatFromContext(QSurfaceFormat *format)
+QCocoaGLContext::QCocoaGLContext(QOpenGLContext *context)
+    : QPlatformOpenGLContext()
+    , m_format(context->format())
 {
-    Q_ASSERT(format);
-
-    // Update the version, profile, and context bit of the format
-    int major = 0, minor = 0;
-    QByteArray versionString(getGlString(GL_VERSION));
-    if (QPlatformOpenGLContext::parseOpenGLVersion(versionString, major, minor)) {
-        format->setMajorVersion(major);
-        format->setMinorVersion(minor);
-    }
-
-    format->setProfile(QSurfaceFormat::NoProfile);
-
-    Q_ASSERT(format->renderableType() == QSurfaceFormat::OpenGL);
-    if (format->version() < qMakePair(3, 0)) {
-        format->setOption(QSurfaceFormat::DeprecatedFunctions);
-        return;
-    }
-
-    // Version 3.0 onwards - check if it includes deprecated functionality
-    GLint value = 0;
-    glGetIntegerv(GL_CONTEXT_FLAGS, &value);
-    if (!(value & GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT))
-        format->setOption(QSurfaceFormat::DeprecatedFunctions);
-
-    // Debug context option not supported on OS X
-
-    if (format->version() < qMakePair(3, 2))
-        return;
-
-    // Version 3.2 and newer have a profile
-    value = 0;
-    glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &value);
-
-    if (value & GL_CONTEXT_CORE_PROFILE_BIT)
-        format->setProfile(QSurfaceFormat::CoreProfile);
-    else if (value & GL_CONTEXT_COMPATIBILITY_PROFILE_BIT)
-        format->setProfile(QSurfaceFormat::CompatibilityProfile);
 }
 
-QCocoaGLContext::QCocoaGLContext(const QSurfaceFormat &format, QPlatformOpenGLContext *share,
-                                 const QVariant &nativeHandle)
-    : m_context(nil),
-      m_shareContext(nil),
-      m_format(format),
-      m_didCheckForSoftwareContext(false)
+void QCocoaGLContext::initialize()
 {
+    QVariant nativeHandle = context()->nativeHandle();
     if (!nativeHandle.isNull()) {
         if (!nativeHandle.canConvert<QCocoaNativeContext>()) {
-            qWarning("QCocoaGLContext: Requires a QCocoaNativeContext");
+            qCWarning(lcQpaOpenGLContext, "QOpenGLContext native handle must be a QCocoaNativeContext");
             return;
         }
-        QCocoaNativeContext handle = nativeHandle.value<QCocoaNativeContext>();
-        NSOpenGLContext *context = handle.context();
-        if (!context) {
-            qWarning("QCocoaGLContext: No NSOpenGLContext given");
+        m_context = nativeHandle.value<QCocoaNativeContext>().context();
+        if (!m_context) {
+            qCWarning(lcQpaOpenGLContext, "QCocoaNativeContext's NSOpenGLContext cannot be null");
             return;
         }
-        m_context = context;
+
         [m_context retain];
-        m_shareContext = share ? static_cast<QCocoaGLContext *>(share)->nsOpenGLContext() : nil;
-        // OpenGL surfaces can be ordered either above(default) or below the NSWindow.
-        const GLint order = qt_mac_resolveOption(1, "QT_MAC_OPENGL_SURFACE_ORDER");
-        [m_context setValues:&order forParameter:NSOpenGLCPSurfaceOrder];
+
+        // Note: We have no way of knowing whether the NSOpenGLContext was created with the
+        // share context as reported by the QOpenGLContext, but we just have to trust that
+        // it was. It's okey, as the only thing we're using it for is to report isShared().
+        if (QPlatformOpenGLContext *shareContext = context()->shareHandle())
+            m_shareContext = static_cast<QCocoaGLContext *>(shareContext)->nativeContext();
+
         updateSurfaceFormat();
         return;
     }
 
-    // we only support OpenGL contexts under Cocoa
+    // ----------- Default case, we own the NSOpenGLContext -----------
+
+    // We only support OpenGL contexts under Cocoa
     if (m_format.renderableType() == QSurfaceFormat::DefaultRenderableType)
         m_format.setRenderableType(QSurfaceFormat::OpenGL);
     if (m_format.renderableType() != QSurfaceFormat::OpenGL)
         return;
 
-    QMacAutoReleasePool pool; // For the SG Canvas render thread
+    if (QPlatformOpenGLContext *shareContext = context()->shareHandle()) {
+        m_shareContext = static_cast<QCocoaGLContext *>(shareContext)->nativeContext();
 
-    m_shareContext = share ? static_cast<QCocoaGLContext *>(share)->nsOpenGLContext() : nil;
-
-    if (m_shareContext) {
         // Allow sharing between 3.2 Core and 4.1 Core profile versions in
         // cases where NSOpenGLContext creates a 4.1 context where a 3.2
         // context was requested. Due to the semantics of QSurfaceFormat
@@ -164,257 +110,60 @@ QCocoaGLContext::QCocoaGLContext(const QSurfaceFormat &format, QPlatformOpenGLCo
         GLint shareContextRequestedProfile;
         [m_shareContext.pixelFormat getValues:&shareContextRequestedProfile
             forAttribute:NSOpenGLPFAOpenGLProfile forVirtualScreen:0];
-        auto shareContextActualProfile = share->format().version();
+        auto shareContextActualProfile = shareContext->format().version();
 
-        if (shareContextRequestedProfile == NSOpenGLProfileVersion3_2Core &&
-            shareContextActualProfile >= qMakePair(4, 1)) {
-
-            // There is a mismatch, downgrade requested format to make the
-            // NSOpenGLPFAOpenGLProfile attributes match. (NSOpenGLContext will
-            // fail to create a new context if there is a mismatch).
+        if (shareContextRequestedProfile == NSOpenGLProfileVersion3_2Core
+            && shareContextActualProfile >= qMakePair(4, 1)) {
+            // There is a mismatch. Downgrade requested format to make the
+            // NSOpenGLPFAOpenGLProfile attributes match. (NSOpenGLContext
+            // will fail to create a new context if there is a mismatch).
             if (m_format.version() >= qMakePair(4, 1))
                 m_format.setVersion(3, 2);
         }
     }
 
-    // create native context for the requested pixel format and share
-    NSOpenGLPixelFormat *pixelFormat = createNSOpenGLPixelFormat(m_format);
+    // ------------------------- Create NSOpenGLContext -------------------------
+
+    NSOpenGLPixelFormat *pixelFormat = [pixelFormatForSurfaceFormat(m_format) autorelease];
     m_context = [[NSOpenGLContext alloc] initWithFormat:pixelFormat shareContext:m_shareContext];
 
-    // retry without sharing on context creation failure.
     if (!m_context && m_shareContext) {
-        m_shareContext = nil;
+        qCWarning(lcQpaOpenGLContext, "Could not create NSOpenGLContext with shared context, "
+            "falling back to unshared context.");
         m_context = [[NSOpenGLContext alloc] initWithFormat:pixelFormat shareContext:nil];
-        if (m_context)
-            qWarning("QCocoaGLContext: Falling back to unshared context.");
+        m_shareContext = nil;
     }
 
-    // give up if we still did not get a native context
-    [pixelFormat release];
     if (!m_context) {
-        qWarning("QCocoaGLContext: Failed to create context.");
+        qCWarning(lcQpaOpenGLContext, "Failed to create NSOpenGLContext");
         return;
     }
 
-    const GLint interval = format.swapInterval() >= 0 ? format.swapInterval() : 1;
+    // The native handle should reflect the underlying context, even if we created it
+    context()->setNativeHandle(QVariant::fromValue<QCocoaNativeContext>(m_context));
+
+    // --------------------- Set NSOpenGLContext properties ---------------------
+
+    const GLint interval = m_format.swapInterval() >= 0 ? m_format.swapInterval() : 1;
     [m_context setValues:&interval forParameter:NSOpenGLCPSwapInterval];
 
-    if (format.alphaBufferSize() > 0) {
+    if (m_format.alphaBufferSize() > 0) {
         int zeroOpacity = 0;
         [m_context setValues:&zeroOpacity forParameter:NSOpenGLCPSurfaceOpacity];
     }
 
-
-    // OpenGL surfaces can be ordered either above(default) or below the NSWindow.
+    // OpenGL surfaces can be ordered either above(default) or below the NSWindow
+    // FIXME: Promote to QSurfaceFormat option or property
     const GLint order = qt_mac_resolveOption(1, "QT_MAC_OPENGL_SURFACE_ORDER");
     [m_context setValues:&order forParameter:NSOpenGLCPSurfaceOrder];
 
     updateSurfaceFormat();
 }
 
-QCocoaGLContext::~QCocoaGLContext()
-{
-    if (m_currentWindow && m_currentWindow.data()->handle())
-        static_cast<QCocoaWindow *>(m_currentWindow.data()->handle())->setCurrentContext(0);
-
-    [m_context release];
-}
-
-QVariant QCocoaGLContext::nativeHandle() const
-{
-    return QVariant::fromValue<QCocoaNativeContext>(QCocoaNativeContext(m_context));
-}
-
-QSurfaceFormat QCocoaGLContext::format() const
-{
-    return m_format;
-}
-
-void QCocoaGLContext::windowWasHidden()
-{
-    // If the window is hidden, we need to unset the m_currentWindow
-    // variable so that succeeding makeCurrent's will not abort prematurely
-    // because of the optimization in setActiveWindow.
-    // Doing a full doneCurrent here is not preferable, because the GL context
-    // might be rendering in a different thread at this time.
-    m_currentWindow.clear();
-}
-
-void QCocoaGLContext::swapBuffers(QPlatformSurface *surface)
-{
-    if (surface->surface()->surfaceClass() == QSurface::Offscreen)
-        return; // Nothing to do
-
-    QWindow *window = static_cast<QCocoaWindow *>(surface)->window();
-    setActiveWindow(window);
-
-    [m_context flushBuffer];
-}
-
-bool QCocoaGLContext::makeCurrent(QPlatformSurface *surface)
-{
-    Q_ASSERT(surface->surface()->supportsOpenGL());
-
-    QMacAutoReleasePool pool;
-    [m_context makeCurrentContext];
-
-    if (surface->surface()->surfaceClass() == QSurface::Offscreen)
-        return true;
-
-    QWindow *window = static_cast<QCocoaWindow *>(surface)->window();
-    setActiveWindow(window);
-
-    // Disable high-resolution surfaces when using the software renderer, which has the
-    // problem that the system silently falls back to a to using a low-resolution buffer
-    // when a high-resolution buffer is requested. This is not detectable using the NSWindow
-    // convertSizeToBacking and backingScaleFactor APIs. A typical result of this is that Qt
-    // will display a quarter of the window content when running in a virtual machine.
-    if (!m_didCheckForSoftwareContext) {
-        m_didCheckForSoftwareContext = true;
-
-        const GLubyte* renderer = glGetString(GL_RENDERER);
-        if (qstrcmp((const char *)renderer, "Apple Software Renderer") == 0) {
-            NSView *view = static_cast<QCocoaWindow *>(surface)->m_view;
-            [view setWantsBestResolutionOpenGLSurface:NO];
-        }
-    }
-
-    update();
-    return true;
-}
-
-void QCocoaGLContext::setActiveWindow(QWindow *window)
-{
-    if (window == m_currentWindow.data())
-        return;
-
-    if (m_currentWindow && m_currentWindow.data()->handle())
-        static_cast<QCocoaWindow *>(m_currentWindow.data()->handle())->setCurrentContext(0);
-
-    Q_ASSERT(window->handle());
-
-    m_currentWindow = window;
-
-    QCocoaWindow *cocoaWindow = static_cast<QCocoaWindow *>(window->handle());
-    cocoaWindow->setCurrentContext(this);
-
-    Q_ASSERT(!cocoaWindow->isForeignWindow());
-    [qnsview_cast(cocoaWindow->view()) setQCocoaGLContext:this];
-}
-
-void QCocoaGLContext::updateSurfaceFormat()
-{
-    // At present it is impossible to turn an option off on a QSurfaceFormat (see
-    // https://codereview.qt-project.org/#change,70599). So we have to populate
-    // the actual surface format from scratch
-    QSurfaceFormat requestedFormat = m_format;
-    m_format = QSurfaceFormat();
-    m_format.setRenderableType(QSurfaceFormat::OpenGL);
-
-    // CoreGL doesn't require a drawable to make the context current
-    CGLContextObj oldContext = CGLGetCurrentContext();
-    CGLContextObj ctx = static_cast<CGLContextObj>([m_context CGLContextObj]);
-    CGLSetCurrentContext(ctx);
-
-    // Get the data that OpenGL provides
-    updateFormatFromContext(&m_format);
-
-    // Get the data contained within the pixel format
-    CGLPixelFormatObj cglPixelFormat = static_cast<CGLPixelFormatObj>(CGLGetPixelFormat(ctx));
-    NSOpenGLPixelFormat *pixelFormat = [[NSOpenGLPixelFormat alloc] initWithCGLPixelFormatObj:cglPixelFormat];
-
-    int colorSize = -1;
-    [pixelFormat getValues:&colorSize forAttribute:NSOpenGLPFAColorSize forVirtualScreen:0];
-    if (colorSize > 0) {
-        // This seems to return the total color buffer depth, including alpha
-        m_format.setRedBufferSize(colorSize / 4);
-        m_format.setGreenBufferSize(colorSize / 4);
-        m_format.setBlueBufferSize(colorSize / 4);
-    }
-
-    // The pixel format always seems to return 8 for alpha. However, the framebuffer only
-    // seems to have alpha enabled if we requested it explicitly. I can't find any other
-    // attribute to check explicitly for this so we use our best guess for alpha.
-    int alphaSize = -1;
-    [pixelFormat getValues:&alphaSize forAttribute:NSOpenGLPFAAlphaSize forVirtualScreen:0];
-    if (alphaSize > 0 && requestedFormat.alphaBufferSize() > 0)
-        m_format.setAlphaBufferSize(alphaSize);
-
-    int depthSize = -1;
-    [pixelFormat getValues:&depthSize forAttribute:NSOpenGLPFADepthSize forVirtualScreen:0];
-    if (depthSize > 0)
-        m_format.setDepthBufferSize(depthSize);
-
-    int stencilSize = -1;
-    [pixelFormat getValues:&stencilSize forAttribute:NSOpenGLPFAStencilSize forVirtualScreen:0];
-    if (stencilSize > 0)
-        m_format.setStencilBufferSize(stencilSize);
-
-    int samples = -1;
-    [pixelFormat getValues:&samples forAttribute:NSOpenGLPFASamples forVirtualScreen:0];
-    if (samples > 0)
-        m_format.setSamples(samples);
-
-    int doubleBuffered = -1;
-    int tripleBuffered = -1;
-    [pixelFormat getValues:&doubleBuffered forAttribute:NSOpenGLPFADoubleBuffer forVirtualScreen:0];
-    [pixelFormat getValues:&tripleBuffered forAttribute:NSOpenGLPFATripleBuffer forVirtualScreen:0];
-
-    if (tripleBuffered == 1)
-        m_format.setSwapBehavior(QSurfaceFormat::TripleBuffer);
-    else if (doubleBuffered == 1)
-        m_format.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
-    else
-        m_format.setSwapBehavior(QSurfaceFormat::SingleBuffer);
-
-    int steroBuffers = -1;
-    [pixelFormat getValues:&steroBuffers forAttribute:NSOpenGLPFAStereo forVirtualScreen:0];
-    if (steroBuffers == 1)
-        m_format.setOption(QSurfaceFormat::StereoBuffers);
-
-    [pixelFormat release];
-
-    GLint swapInterval = -1;
-    [m_context getValues:&swapInterval forParameter:NSOpenGLCPSwapInterval];
-    if (swapInterval >= 0)
-        m_format.setSwapInterval(swapInterval);
-
-    // Restore the original context
-    CGLSetCurrentContext(oldContext);
-}
-
-void QCocoaGLContext::doneCurrent()
-{
-    if (m_currentWindow && m_currentWindow.data()->handle())
-        static_cast<QCocoaWindow *>(m_currentWindow.data()->handle())->setCurrentContext(0);
-
-    m_currentWindow.clear();
-
-    [NSOpenGLContext clearCurrentContext];
-}
-
-QFunctionPointer QCocoaGLContext::getProcAddress(const char *procName)
-{
-    return (QFunctionPointer)dlsym(RTLD_DEFAULT, procName);
-}
-
-void QCocoaGLContext::update()
-{
-    [m_context update];
-}
-
-NSOpenGLPixelFormat *QCocoaGLContext::createNSOpenGLPixelFormat(const QSurfaceFormat &format)
+NSOpenGLPixelFormat *QCocoaGLContext::pixelFormatForSurfaceFormat(const QSurfaceFormat &format)
 {
     QVector<NSOpenGLPixelFormatAttribute> attrs;
 
-    if (format.swapBehavior() == QSurfaceFormat::DoubleBuffer
-        || format.swapBehavior() == QSurfaceFormat::DefaultSwapBehavior)
-        attrs.append(NSOpenGLPFADoubleBuffer);
-    else if (format.swapBehavior() == QSurfaceFormat::TripleBuffer)
-        attrs.append(NSOpenGLPFATripleBuffer);
-
-
-    // Select OpenGL profile
     attrs << NSOpenGLPFAOpenGLProfile;
     if (format.profile() == QSurfaceFormat::CoreProfile) {
         if (format.version() >= qMakePair(4, 1))
@@ -427,32 +176,54 @@ NSOpenGLPixelFormat *QCocoaGLContext::createNSOpenGLPixelFormat(const QSurfaceFo
         attrs << NSOpenGLProfileVersionLegacy;
     }
 
+    switch (format.swapBehavior()) {
+    case QSurfaceFormat::SingleBuffer:
+        break; // The NSOpenGLPixelFormat default, no attribute to set
+    case QSurfaceFormat::DefaultSwapBehavior:
+        // Technically this should be single-buffered, but we force double-buffered
+        // FIXME: Why do we force double-buffered?
+        Q_FALLTHROUGH();
+    case QSurfaceFormat::DoubleBuffer:
+        attrs.append(NSOpenGLPFADoubleBuffer);
+        break;
+    case QSurfaceFormat::TripleBuffer:
+        attrs.append(NSOpenGLPFATripleBuffer);
+        break;
+    }
+
     if (format.depthBufferSize() > 0)
         attrs <<  NSOpenGLPFADepthSize << format.depthBufferSize();
     if (format.stencilBufferSize() > 0)
         attrs << NSOpenGLPFAStencilSize << format.stencilBufferSize();
     if (format.alphaBufferSize() > 0)
         attrs << NSOpenGLPFAAlphaSize << format.alphaBufferSize();
-    if ((format.redBufferSize() > 0) &&
-        (format.greenBufferSize() > 0) &&
-        (format.blueBufferSize() > 0)) {
-        const int colorSize = format.redBufferSize() +
-                              format.greenBufferSize() +
-                              format.blueBufferSize();
+
+    auto rbz = format.redBufferSize();
+    auto gbz = format.greenBufferSize();
+    auto bbz = format.blueBufferSize();
+    if (rbz > 0 || gbz > 0 || bbz > 0) {
+        auto fallbackSize = qMax(rbz, qMax(gbz, bbz));
+        auto colorSize = (rbz > 0 ? rbz : fallbackSize)
+                       + (gbz > 0 ? gbz : fallbackSize)
+                       + (bbz > 0 ? bbz : fallbackSize);
         attrs << NSOpenGLPFAColorSize << colorSize << NSOpenGLPFAMinimumPolicy;
     }
 
     if (format.samples() > 0) {
         attrs << NSOpenGLPFAMultisample
-              << NSOpenGLPFASampleBuffers << (NSOpenGLPixelFormatAttribute) 1
-              << NSOpenGLPFASamples << (NSOpenGLPixelFormatAttribute) format.samples();
+              << NSOpenGLPFASampleBuffers << NSOpenGLPixelFormatAttribute(1)
+              << NSOpenGLPFASamples << NSOpenGLPixelFormatAttribute(format.samples());
     }
 
-    if (format.stereo())
-        attrs << NSOpenGLPFAStereo;
+    //Workaround for problems with Chromium and offline renderers on the lat 2013 MacPros.
+    //FIXME: Think if this could be solved via QSurfaceFormat in the future.
+    static bool offlineRenderersAllowed = qEnvironmentVariableIsEmpty("QT_MAC_PRO_WEBENGINE_WORKAROUND");
+    if (offlineRenderersAllowed) {
+        // Allow rendering on GPUs without a connected display
+        attrs << NSOpenGLPFAAllowOfflineRenderers;
+    }
 
-    attrs << NSOpenGLPFAAllowOfflineRenderers;
-
+    // FIXME: Pull this information out of the NSView
     QByteArray useLayer = qgetenv("QT_MAC_WANTS_LAYER");
     if (!useLayer.isEmpty() && useLayer.toInt() > 0) {
         // Disable the software rendering fallback. This makes compositing
@@ -460,14 +231,285 @@ NSOpenGLPixelFormat *QCocoaGLContext::createNSOpenGLPixelFormat(const QSurfaceFo
         attrs << NSOpenGLPFANoRecovery;
     }
 
-    attrs << 0;
-
+    attrs << 0; // 0-terminate array
     return [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs.constData()];
 }
 
-NSOpenGLContext *QCocoaGLContext::nsOpenGLContext() const
+/*!
+    Updates the surface format of this context based on properties of
+    the native context and GL state, so that the result of creating
+    the context is reflected back in QOpenGLContext.
+*/
+void QCocoaGLContext::updateSurfaceFormat()
 {
-    return m_context;
+    NSOpenGLContext *oldContext = [NSOpenGLContext currentContext];
+    [m_context makeCurrentContext];
+
+    // --------------------- Query GL state ---------------------
+
+    int major = 0, minor = 0;
+    QByteArray versionString(getGlString(GL_VERSION));
+    if (QPlatformOpenGLContext::parseOpenGLVersion(versionString, major, minor)) {
+        m_format.setMajorVersion(major);
+        m_format.setMinorVersion(minor);
+    }
+
+    m_format.setProfile(QSurfaceFormat::NoProfile);
+    if (m_format.version() >= qMakePair(3, 2)) {
+        GLint value = 0;
+        glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &value);
+        if (value & GL_CONTEXT_CORE_PROFILE_BIT)
+            m_format.setProfile(QSurfaceFormat::CoreProfile);
+        else if (value & GL_CONTEXT_COMPATIBILITY_PROFILE_BIT)
+            m_format.setProfile(QSurfaceFormat::CompatibilityProfile);
+    }
+
+    m_format.setOption(QSurfaceFormat::DeprecatedFunctions, [&]() {
+        if (m_format.version() < qMakePair(3, 0)) {
+            return true;
+        } else {
+            GLint value = 0;
+            glGetIntegerv(GL_CONTEXT_FLAGS, &value);
+            return !(value & GL_CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT);
+        }
+    }());
+
+    // Debug contexts not supported on macOS
+    m_format.setOption(QSurfaceFormat::DebugContext, false);
+
+    // Nor are stereo buffers (deprecated in macOS 10.12)
+    m_format.setOption(QSurfaceFormat::StereoBuffers, false);
+
+    // ------------------ Query the pixel format ------------------
+
+    NSOpenGLPixelFormat *pixelFormat = m_context.pixelFormat;
+
+    GLint virtualScreen = [&, this]() {
+        auto *platformScreen = static_cast<QCocoaScreen*>(context()->screen()->handle());
+        auto displayId = platformScreen->nativeScreen().qt_displayId;
+        auto requestedDisplay = CGDisplayIDToOpenGLDisplayMask(displayId);
+        for (int i = 0; i < pixelFormat.numberOfVirtualScreens; ++i) {
+            GLint supportedDisplays;
+            [pixelFormat getValues:&supportedDisplays forAttribute:NSOpenGLPFAScreenMask forVirtualScreen:i];
+            // Note: The mask returned for NSOpenGLPFAScreenMask is a bit mask of
+            // physical displays that the renderer can drive, while the one returned
+            // from CGDisplayIDToOpenGLDisplayMask has a single bit set, representing
+            // that particular display.
+            if (requestedDisplay & supportedDisplays)
+                return i;
+        }
+        qCWarning(lcQpaOpenGLContext) << "Could not find virtual screen for"
+                    << platformScreen << "with displayId" << displayId;
+        return 0;
+    }();
+
+    auto pixelFormatAttribute = [&](NSOpenGLPixelFormatAttribute attribute) {
+        int value = 0;
+        [pixelFormat getValues:&value forAttribute:attribute forVirtualScreen:virtualScreen];
+        return value;
+    };
+
+    int colorSize = pixelFormatAttribute(NSOpenGLPFAColorSize);
+    colorSize /= 4; // The attribute includes the alpha component
+    m_format.setRedBufferSize(colorSize);
+    m_format.setGreenBufferSize(colorSize);
+    m_format.setBlueBufferSize(colorSize);
+
+    // Surfaces on macOS always have an alpha channel, but unless the user requested
+    // one via setAlphaBufferSize(), which triggered setting NSOpenGLCPSurfaceOpacity
+    // to make the surface non-opaque, we don't want to report back the actual alpha
+    // size, as that will make the user believe the alpha channel can be used for
+    // something useful, when in reality it can't, due to the surface being opaque.
+    if (m_format.alphaBufferSize() > 0)
+        m_format.setAlphaBufferSize(pixelFormatAttribute(NSOpenGLPFAAlphaSize));
+
+    m_format.setDepthBufferSize(pixelFormatAttribute(NSOpenGLPFADepthSize));
+    m_format.setStencilBufferSize(pixelFormatAttribute(NSOpenGLPFAStencilSize));
+    m_format.setSamples(pixelFormatAttribute(NSOpenGLPFASamples));
+
+    if (pixelFormatAttribute(NSOpenGLPFATripleBuffer))
+        m_format.setSwapBehavior(QSurfaceFormat::TripleBuffer);
+    else if (pixelFormatAttribute(NSOpenGLPFADoubleBuffer))
+        m_format.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    else
+        m_format.setSwapBehavior(QSurfaceFormat::SingleBuffer);
+
+    // ------------------- Query the context -------------------
+
+    auto glContextParameter = [&](NSOpenGLContextParameter parameter) {
+        int value = 0;
+        [m_context getValues:&value forParameter:parameter];
+        return value;
+    };
+
+    m_format.setSwapInterval(glContextParameter(NSOpenGLCPSwapInterval));
+
+    if (oldContext)
+        [oldContext makeCurrentContext];
+    else
+        [NSOpenGLContext clearCurrentContext];
+}
+
+QCocoaGLContext::~QCocoaGLContext()
+{
+    [m_context release];
+}
+
+bool QCocoaGLContext::makeCurrent(QPlatformSurface *surface)
+{
+    qCDebug(lcQpaOpenGLContext) << "Making" << m_context << "current"
+        << "in" << QThread::currentThread() << "for" << surface;
+
+    Q_ASSERT(surface->surface()->supportsOpenGL());
+
+    if (!setDrawable(surface))
+        return false;
+
+    [m_context makeCurrentContext];
+
+    if (surface->surface()->surfaceClass() == QSurface::Window) {
+        // Disable high-resolution surfaces when using the software renderer, which has the
+        // problem that the system silently falls back to a to using a low-resolution buffer
+        // when a high-resolution buffer is requested. This is not detectable using the NSWindow
+        // convertSizeToBacking and backingScaleFactor APIs. A typical result of this is that Qt
+        // will display a quarter of the window content when running in a virtual machine.
+        if (!m_didCheckForSoftwareContext) {
+            // FIXME: This ensures we check only once per context,
+            // but the context may be used for multiple surfaces.
+            m_didCheckForSoftwareContext = true;
+
+            const GLubyte* renderer = glGetString(GL_RENDERER);
+            if (qstrcmp((const char *)renderer, "Apple Software Renderer") == 0) {
+                NSView *view = static_cast<QCocoaWindow *>(surface)->m_view;
+                [view setWantsBestResolutionOpenGLSurface:NO];
+            }
+        }
+
+        if (m_needsUpdate.fetchAndStoreRelaxed(false))
+            update();
+    }
+
+    return true;
+}
+
+/*!
+    Sets the drawable object of the NSOpenGLContext, which is the
+    frame buffer that is the target of OpenGL drawing operations.
+*/
+bool QCocoaGLContext::setDrawable(QPlatformSurface *surface)
+{
+    // Make sure any surfaces released during this process are deallocated
+    // straight away, otherwise we may run out of surfaces when spinning a
+    // render-loop that doesn't return to one of the outer pools.
+    QMacAutoReleasePool pool;
+
+    if (!surface || surface->surface()->surfaceClass() == QSurface::Offscreen) {
+        // Clear the current drawable and reset the active window, so that GL
+        // commands that don't target a specific FBO will not end up stomping
+        // on the previously set drawable.
+        qCDebug(lcQpaOpenGLContext) << "Clearing current drawable" << m_context.view << "for" << m_context;
+        [m_context clearDrawable];
+        return true;
+    }
+
+    Q_ASSERT(surface->surface()->surfaceClass() == QSurface::Window);
+    QNSView *view = qnsview_cast(static_cast<QCocoaWindow *>(surface)->view());
+
+    if (view == m_context.view)
+        return true;
+
+    // Setting the drawable may happen on a separate thread as a result of
+    // a call to makeCurrent, so we need to set up the observers before we
+    // associate the view with the context. That way we will guarantee that
+    // as long as the view is the drawable of the context we will know about
+    // any updates to the view that require surface invalidation.
+
+    auto updateCallback = [this, view]() {
+        Q_ASSERT(QThread::currentThread() == qApp->thread());
+        if (m_context.view != view)
+            return;
+        m_needsUpdate = true;
+    };
+
+    m_updateObservers.clear();
+
+    if (view.layer) {
+        m_updateObservers.append(QMacNotificationObserver(view, NSViewFrameDidChangeNotification, updateCallback));
+        m_updateObservers.append(QMacNotificationObserver(view.window, NSWindowDidChangeScreenNotification, updateCallback));
+    } else {
+        m_updateObservers.append(QMacNotificationObserver(view, NSViewGlobalFrameDidChangeNotification, updateCallback));
+    }
+
+    m_updateObservers.append(QMacNotificationObserver([NSApplication sharedApplication],
+        NSApplicationDidChangeScreenParametersNotification, updateCallback));
+
+    // If any of the observers fire at this point it's fine. We check the
+    // view association (atomically) in the update callback, and skip the
+    // update if we haven't associated yet. Setting the drawable below will
+    // have the same effect as an update.
+
+    // Now we are ready to associate the view with the context
+    m_context.view = view;
+    if (m_context.view != view) {
+        qCInfo(lcQpaOpenGLContext) << "Failed to set" << view << "as drawable for" << m_context;
+        m_updateObservers.clear();
+        return false;
+    }
+
+    qCInfo(lcQpaOpenGLContext) << "Set drawable for" << m_context << "to" << m_context.view;
+    return true;
+}
+
+// NSOpenGLContext is not re-entrant. Even when using separate contexts per thread,
+// view, and window, calls into the API will still deadlock. For more information
+// see https://openradar.appspot.com/37064579
+static QMutex s_reentrancyMutex;
+
+void QCocoaGLContext::update()
+{
+    // Make sure any surfaces released during this process are deallocated
+    // straight away, otherwise we may run out of surfaces when spinning a
+    // render-loop that doesn't return to one of the outer pools.
+    QMacAutoReleasePool pool;
+
+    QMutexLocker locker(&s_reentrancyMutex);
+    qCInfo(lcQpaOpenGLContext) << "Updating" << m_context << "for" << m_context.view;
+    [m_context update];
+}
+
+void QCocoaGLContext::swapBuffers(QPlatformSurface *surface)
+{
+    qCDebug(lcQpaOpenGLContext) << "Swapping" << m_context
+        << "in" << QThread::currentThread() << "to" << surface;
+
+    if (surface->surface()->surfaceClass() == QSurface::Offscreen)
+        return; // Nothing to do
+
+    if (!setDrawable(surface)) {
+        qCWarning(lcQpaOpenGLContext) << "Can't flush" << m_context
+            << "without" << surface << "as drawable";
+        return;
+    }
+
+    QMutexLocker locker(&s_reentrancyMutex);
+    [m_context flushBuffer];
+}
+
+void QCocoaGLContext::doneCurrent()
+{
+    qCDebug(lcQpaOpenGLContext) << "Clearing current context"
+        << [NSOpenGLContext currentContext] << "in" << QThread::currentThread();
+
+    // Note: We do not need to clear the current drawable here.
+    // As long as there is no current context, GL calls will
+    // do nothing.
+
+    [NSOpenGLContext clearCurrentContext];
+}
+
+QSurfaceFormat QCocoaGLContext::format() const
+{
+    return m_format;
 }
 
 bool QCocoaGLContext::isValid() const
@@ -480,5 +522,14 @@ bool QCocoaGLContext::isSharing() const
     return m_shareContext != nil;
 }
 
-QT_END_NAMESPACE
+NSOpenGLContext *QCocoaGLContext::nativeContext() const
+{
+    return m_context;
+}
 
+QFunctionPointer QCocoaGLContext::getProcAddress(const char *procName)
+{
+    return (QFunctionPointer)dlsym(RTLD_DEFAULT, procName);
+}
+
+QT_END_NAMESPACE

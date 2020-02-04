@@ -12,7 +12,6 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "media/base/audio_decoder_config.h"
@@ -21,7 +20,7 @@
 #include "media/base/fake_text_track_stream.h"
 #include "media/base/text_track_config.h"
 #include "media/base/video_decoder_config.h"
-#include "media/filters/webvtt_util.h"
+#include "media/base/webvtt_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -30,20 +29,16 @@ namespace media {
 // Local implementation of the TextTrack interface.
 class FakeTextTrack : public TextTrack {
  public:
-  FakeTextTrack(const base::Closure& destroy_cb,
-                const TextTrackConfig& config)
-      : destroy_cb_(destroy_cb),
-        config_(config) {
-  }
-  virtual ~FakeTextTrack() {
-    destroy_cb_.Run();
-  }
+  FakeTextTrack(const base::Closure& destroy_cb, const TextTrackConfig& config)
+      : destroy_cb_(destroy_cb), config_(config) {}
+  ~FakeTextTrack() override { destroy_cb_.Run(); }
 
-  MOCK_METHOD5(addWebVTTCue, void(const base::TimeDelta& start,
-                                  const base::TimeDelta& end,
-                                  const std::string& id,
-                                  const std::string& content,
-                                  const std::string& settings));
+  MOCK_METHOD5(addWebVTTCue,
+               void(base::TimeDelta start,
+                    base::TimeDelta end,
+                    const std::string& id,
+                    const std::string& content,
+                    const std::string& settings));
 
   const base::Closure destroy_cb_;
   const TextTrackConfig config_;
@@ -54,17 +49,16 @@ class FakeTextTrack : public TextTrack {
 
 class TextRendererTest : public testing::Test {
  public:
-  TextRendererTest() {}
+  TextRendererTest() = default;
 
   void CreateTextRenderer() {
     DCHECK(!text_renderer_);
 
-    text_renderer_.reset(
-        new TextRenderer(message_loop_.task_runner(),
-                         base::Bind(&TextRendererTest::OnAddTextTrack,
-                                    base::Unretained(this))));
-    text_renderer_->Initialize(base::Bind(&TextRendererTest::OnEnd,
-                                          base::Unretained(this)));
+    text_renderer_.reset(new TextRenderer(
+        message_loop_.task_runner(),
+        base::Bind(&TextRendererTest::OnAddTextTrack, base::Unretained(this))));
+    text_renderer_->Initialize(
+        base::Bind(&TextRendererTest::OnEnd, base::Unretained(this)));
   }
 
   void Destroy() {
@@ -77,7 +71,7 @@ class TextRendererTest : public testing::Test {
                     const std::string& language,
                     bool expect_read) {
     const size_t idx = text_track_streams_.size();
-    text_track_streams_.push_back(base::MakeUnique<FakeTextTrackStream>());
+    text_track_streams_.push_back(std::make_unique<FakeTextTrackStream>());
 
     if (expect_read)
       ExpectRead(idx);
@@ -96,8 +90,7 @@ class TextRendererTest : public testing::Test {
                       const AddTextTrackDoneCB& done_cb) {
     base::Closure destroy_cb =
         base::Bind(&TextRendererTest::OnDestroyTextTrack,
-                   base::Unretained(this),
-                   text_tracks_.size());
+                   base::Unretained(this), text_tracks_.size());
     // Text track objects are owned by the text renderer, but we cache them
     // here so we can inspect them.  They get removed from our cache when the
     // text renderer deallocates them.
@@ -112,12 +105,12 @@ class TextRendererTest : public testing::Test {
     EXPECT_FALSE(text_tracks_[idx]);
   }
 
-  void SatisfyPendingReads(const base::TimeDelta& start,
-                           const base::TimeDelta& duration,
+  void SatisfyPendingReads(base::TimeDelta start,
+                           base::TimeDelta duration,
                            const std::string& id,
                            const std::string& content,
                            const std::string& settings) {
-    for (TextTrackStreams::iterator itr = text_track_streams_.begin();
+    for (auto itr = text_track_streams_.begin();
          itr != text_track_streams_.end(); ++itr) {
       (*itr)->SatisfyPendingRead(start, duration, id, content, settings);
     }
@@ -158,11 +151,8 @@ class TextRendererTest : public testing::Test {
 
     if (expect_cue) {
       FakeTextTrack* const text_track = text_tracks_[idx];
-      EXPECT_CALL(*text_track, addWebVTTCue(start,
-                                            start + duration,
-                                            id,
-                                            content,
-                                            settings));
+      EXPECT_CALL(*text_track,
+                  addWebVTTCue(start, start + duration, id, content, settings));
     }
 
     text_stream->SatisfyPendingRead(start, duration, id, content, settings);
@@ -175,24 +165,20 @@ class TextRendererTest : public testing::Test {
     }
   }
 
-  void OnDestroyTextTrack(unsigned idx) {
-    text_tracks_[idx] = NULL;
-  }
+  void OnDestroyTextTrack(unsigned idx) { text_tracks_[idx] = NULL; }
 
-  void Play() {
-    text_renderer_->StartPlaying();
-  }
+  void Play() { text_renderer_->StartPlaying(); }
 
   void Pause() {
-    text_renderer_->Pause(base::Bind(&TextRendererTest::OnPause,
-                                     base::Unretained(this)));
+    text_renderer_->Pause(
+        base::Bind(&TextRendererTest::OnPause, base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
   }
 
   void Flush() {
     EXPECT_CALL(*this, OnFlush());
-    text_renderer_->Flush(base::Bind(&TextRendererTest::OnFlush,
-                                     base::Unretained(this)));
+    text_renderer_->Flush(
+        base::Bind(&TextRendererTest::OnFlush, base::Unretained(this)));
   }
 
   void ExpectRead(size_t idx) {
@@ -219,10 +205,9 @@ class TextRendererTest : public testing::Test {
 };
 
 TEST_F(TextRendererTest, CreateTextRendererNoInit) {
-  text_renderer_.reset(
-      new TextRenderer(message_loop_.task_runner(),
-                       base::Bind(&TextRendererTest::OnAddTextTrack,
-                                  base::Unretained(this))));
+  text_renderer_.reset(new TextRenderer(
+      message_loop_.task_runner(),
+      base::Bind(&TextRendererTest::OnAddTextTrack, base::Unretained(this))));
   text_renderer_.reset();
 }
 
@@ -744,7 +729,6 @@ TEST_F(TextRendererTest, PlayPauseRemove_SplitCancel) {
   RemoveTextTrack(1);
   EXPECT_FALSE(text_renderer_->HasTracks());
 }
-
 
 TEST_F(TextRendererTest, PlayPauseRemove_PauseLast) {
   CreateTextRenderer();

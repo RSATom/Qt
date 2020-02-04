@@ -8,27 +8,26 @@ namespace cc {
 namespace devtools_instrumentation {
 
 namespace internal {
-extern const char kCategory[] = TRACE_DISABLED_BY_DEFAULT("devtools.timeline");
-extern const char kCategoryFrame[] =
-    TRACE_DISABLED_BY_DEFAULT("devtools.timeline.frame");
-extern const char kData[] = "data";
-extern const char kFrameId[] = "frameId";
-extern const char kLayerId[] = "layerId";
-extern const char kLayerTreeId[] = "layerTreeId";
-extern const char kPixelRefId[] = "pixelRefId";
+constexpr const char CategoryName::CategoryName::kTimeline[];
+constexpr const char CategoryName::CategoryName::kTimelineFrame[];
+const char kData[] = "data";
+const char kFrameId[] = "frameId";
+const char kLayerId[] = "layerId";
+const char kLayerTreeId[] = "layerTreeId";
+const char kPixelRefId[] = "pixelRefId";
 
-extern const char kImageDecodeTask[] = "ImageDecodeTask";
-extern const char kBeginFrame[] = "BeginFrame";
-extern const char kNeedsBeginFrameChanged[] = "NeedsBeginFrameChanged";
-extern const char kActivateLayerTree[] = "ActivateLayerTree";
-extern const char kRequestMainThreadFrame[] = "RequestMainThreadFrame";
-extern const char kBeginMainThreadFrame[] = "BeginMainThreadFrame";
-extern const char kDrawFrame[] = "DrawFrame";
-extern const char kCompositeLayers[] = "CompositeLayers";
+const char kImageDecodeTask[] = "ImageDecodeTask";
+const char kBeginFrame[] = "BeginFrame";
+const char kNeedsBeginFrameChanged[] = "NeedsBeginFrameChanged";
+const char kActivateLayerTree[] = "ActivateLayerTree";
+const char kRequestMainThreadFrame[] = "RequestMainThreadFrame";
+const char kBeginMainThreadFrame[] = "BeginMainThreadFrame";
+const char kDrawFrame[] = "DrawFrame";
+const char kCompositeLayers[] = "CompositeLayers";
 }  // namespace internal
 
-extern const char kPaintSetup[] = "PaintSetup";
-extern const char kUpdateLayer[] = "UpdateLayer";
+const char kPaintSetup[] = "PaintSetup";
+const char kUpdateLayer[] = "UpdateLayer";
 
 ScopedImageDecodeTask::ScopedImageDecodeTask(const void* image_ptr,
                                              DecodeType decode_type,
@@ -36,13 +35,14 @@ ScopedImageDecodeTask::ScopedImageDecodeTask(const void* image_ptr,
     : decode_type_(decode_type),
       task_type_(task_type),
       start_time_(base::TimeTicks::Now()) {
-  TRACE_EVENT_BEGIN1(internal::kCategory, internal::kImageDecodeTask,
-                     internal::kPixelRefId,
+  TRACE_EVENT_BEGIN1(internal::CategoryName::kTimeline,
+                     internal::kImageDecodeTask, internal::kPixelRefId,
                      reinterpret_cast<uint64_t>(image_ptr));
 }
 
 ScopedImageDecodeTask::~ScopedImageDecodeTask() {
-  TRACE_EVENT_END0(internal::kCategory, internal::kImageDecodeTask);
+  TRACE_EVENT_END0(internal::CategoryName::kTimeline,
+                   internal::kImageDecodeTask);
   base::TimeDelta duration = base::TimeTicks::Now() - start_time_;
   switch (task_type_) {
     case kInRaster:

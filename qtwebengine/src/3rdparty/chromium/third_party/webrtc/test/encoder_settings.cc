@@ -7,15 +7,16 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "webrtc/test/encoder_settings.h"
+#include "test/encoder_settings.h"
 
 #include <algorithm>
 #include <string>
 
-#include "webrtc/modules/video_coding/codecs/h264/include/h264.h"
-#include "webrtc/modules/video_coding/codecs/vp8/include/vp8.h"
-#include "webrtc/modules/video_coding/codecs/vp9/include/vp9.h"
-#include "webrtc/test/fake_decoder.h"
+#include "api/video_codecs/sdp_video_format.h"
+#include "call/rtp_config.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/ref_counted_object.h"
+#include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
 namespace test {
@@ -45,15 +46,58 @@ std::vector<VideoStream> CreateVideoStreams(
     stream_settings[i].max_framerate = 30;
     stream_settings[i].min_bitrate_bps =
         DefaultVideoStreamFactory::kDefaultMinBitratePerStream[i];
-    stream_settings[i].target_bitrate_bps = stream_settings[i].max_bitrate_bps =
-        std::min(bitrate_left_bps,
-                 DefaultVideoStreamFactory::kMaxBitratePerStream[i]);
+
+    int target_bitrate_bps = -1;
+    int max_bitrate_bps = -1;
+    // Use configured values instead of default values if values has been
+    // configured.
+    if (i < encoder_config.simulcast_layers.size()) {
+      const VideoStream& stream = encoder_config.simulcast_layers[i];
+
+      max_bitrate_bps =
+          stream.max_bitrate_bps > 0
+              ? stream.max_bitrate_bps
+              : DefaultVideoStreamFactory::kMaxBitratePerStream[i];
+      max_bitrate_bps = std::min(bitrate_left_bps, max_bitrate_bps);
+
+      target_bitrate_bps =
+          stream.target_bitrate_bps > 0
+              ? stream.target_bitrate_bps
+              : DefaultVideoStreamFactory::kMaxBitratePerStream[i];
+      target_bitrate_bps = std::min(max_bitrate_bps, target_bitrate_bps);
+
+      if (stream.max_framerate > 0) {
+        stream_settings[i].max_framerate = stream.max_framerate;
+      }
+      if (stream.num_temporal_layers) {
+        RTC_DCHECK_GE(*stream.num_temporal_layers, 1);
+        stream_settings[i].num_temporal_layers = stream.num_temporal_layers;
+      }
+    } else {
+      max_bitrate_bps = std::min(
+          bitrate_left_bps, DefaultVideoStreamFactory::kMaxBitratePerStream[i]);
+      target_bitrate_bps = max_bitrate_bps;
+    }
+
+    RTC_DCHECK_NE(target_bitrate_bps, -1);
+    RTC_DCHECK_NE(max_bitrate_bps, -1);
+    stream_settings[i].target_bitrate_bps = target_bitrate_bps;
+    stream_settings[i].max_bitrate_bps = max_bitrate_bps;
     stream_settings[i].max_qp = 56;
+
+    if (i < encoder_config.simulcast_layers.size()) {
+      // Higher level controls are setting the active configuration for the
+      // VideoStream.
+      stream_settings[i].active = encoder_config.simulcast_layers[i].active;
+    } else {
+      stream_settings[i].active = true;
+    }
     bitrate_left_bps -= stream_settings[i].target_bitrate_bps;
   }
 
   stream_settings[encoder_config.number_of_streams - 1].max_bitrate_bps +=
       bitrate_left_bps;
+  stream_settings[0].bitrate_priority = encoder_config.bitrate_priority;
 
   return stream_settings;
 }
@@ -67,14 +111,17 @@ std::vector<VideoStream> DefaultVideoStreamFactory::CreateEncoderStreams(
   return CreateVideoStreams(width, height, encoder_config);
 }
 
-void FillEncoderConfiguration(size_t num_streams,
+void FillEncoderConfiguration(VideoCodecType codec_type,
+                              size_t num_streams,
                               VideoEncoderConfig* configuration) {
   RTC_DCHECK_LE(num_streams, DefaultVideoStreamFactory::kMaxNumberOfStreams);
 
+  configuration->codec_type = codec_type;
   configuration->number_of_streams = num_streams;
   configuration->video_stream_factory =
       new rtc::RefCountedObject<DefaultVideoStreamFactory>();
   configuration->max_bitrate_bps = 0;
+  configuration->simulcast_layers = std::vector<VideoStream>(num_streams);
   for (size_t i = 0; i < num_streams; ++i) {
     configuration->max_bitrate_bps +=
         DefaultVideoStreamFactory::kMaxBitratePerStream[i];
@@ -82,20 +129,19 @@ void FillEncoderConfiguration(size_t num_streams,
 }
 
 VideoReceiveStream::Decoder CreateMatchingDecoder(
-    const VideoSendStream::Config::EncoderSettings& encoder_settings) {
+    int payload_type,
+    const std::string& payload_name) {
   VideoReceiveStream::Decoder decoder;
-  decoder.payload_type = encoder_settings.payload_type;
-  decoder.payload_name = encoder_settings.payload_name;
-  if (encoder_settings.payload_name == "H264") {
-    decoder.decoder = H264Decoder::Create();
-  } else if (encoder_settings.payload_name == "VP8") {
-    decoder.decoder = VP8Decoder::Create();
-  } else if (encoder_settings.payload_name == "VP9") {
-    decoder.decoder = VP9Decoder::Create();
-  } else {
-    decoder.decoder = new FakeDecoder();
-  }
+  decoder.payload_type = payload_type;
+  decoder.video_format = SdpVideoFormat(payload_name);
   return decoder;
 }
+
+VideoReceiveStream::Decoder CreateMatchingDecoder(
+    const VideoSendStream::Config& config) {
+  return CreateMatchingDecoder(config.rtp.payload_type,
+                               config.rtp.payload_name);
+}
+
 }  // namespace test
 }  // namespace webrtc

@@ -61,10 +61,11 @@
 
 #include <openssl/buf.h>
 #include <openssl/err.h>
-#include <openssl/lhash.h>
 #include <openssl/mem.h>
 #include <openssl/thread.h>
 #include <openssl/x509.h>
+
+#if !defined(OPENSSL_TRUSTY)
 
 #include "../internal.h"
 
@@ -235,8 +236,7 @@ static int add_cert_dir(BY_DIR *ctx, const char *dir, int type)
                 by_dir_entry_free(ent);
                 return 0;
             }
-            strncpy(ent->dir, ss, len);
-            ent->dir[len] = '\0';
+            BUF_strlcpy(ent->dir, ss, len + 1);
             if (!sk_BY_DIR_ENTRY_push(ctx->dirs, ent)) {
                 by_dir_entry_free(ent);
                 return 0;
@@ -389,6 +389,7 @@ static int get_cert_by_subject(X509_LOOKUP *xl, int type, X509_NAME *name,
              */
             CRYPTO_MUTEX_lock_write(&xl->store_ctx->objs_lock);
             tmp = NULL;
+            sk_X509_OBJECT_sort(xl->store_ctx->objs);
             if (sk_X509_OBJECT_find(xl->store_ctx->objs, &idx, &stmp)) {
                 tmp = sk_X509_OBJECT_value(xl->store_ctx->objs, idx);
             }
@@ -406,6 +407,7 @@ static int get_cert_by_subject(X509_LOOKUP *xl, int type, X509_NAME *name,
                  */
                 if (!hent) {
                     htmp.hash = h;
+                    sk_BY_DIR_HASH_sort(ent->hashes);
                     if (sk_BY_DIR_HASH_find(ent->hashes, &idx, &htmp))
                         hent = sk_BY_DIR_HASH_value(ent->hashes, idx);
                 }
@@ -424,6 +426,7 @@ static int get_cert_by_subject(X509_LOOKUP *xl, int type, X509_NAME *name,
                         ok = 0;
                         goto finish;
                     }
+                    sk_BY_DIR_HASH_sort(ent->hashes);
                 } else if (hent->suffix < k)
                     hent->suffix = k;
 
@@ -451,3 +454,5 @@ static int get_cert_by_subject(X509_LOOKUP *xl, int type, X509_NAME *name,
         BUF_MEM_free(b);
     return (ok);
 }
+
+#endif  // OPENSSL_TRUSTY

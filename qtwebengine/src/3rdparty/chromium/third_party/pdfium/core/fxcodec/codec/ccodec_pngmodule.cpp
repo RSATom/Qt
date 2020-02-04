@@ -8,47 +8,49 @@
 
 #include <algorithm>
 
+#include "core/fxcodec/codec/cfx_codec_memory.h"
 #include "core/fxcodec/codec/codec_int.h"
 #include "core/fxcodec/fx_codec.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/fx_dib.h"
+#include "third_party/base/compiler_specific.h"
 #include "third_party/base/ptr_util.h"
 
-extern "C" {
-#undef FAR
+#ifdef USE_SYSTEM_LIBPNG
+#include <png.h>
+#else
 #include "third_party/libpng16/png.h"
-}  // extern "C"
+#endif
 
 #define PNG_ERROR_SIZE 256
 
-class CPngContext : public CCodec_PngModule::Context {
+class CPngContext final : public CodecModuleIface::Context {
  public:
-  CPngContext(CCodec_PngModule* pModule, CCodec_PngModule::Delegate* pDelegate);
+  explicit CPngContext(CCodec_PngModule::Delegate* pDelegate);
   ~CPngContext() override;
 
-  png_structp m_pPng;
-  png_infop m_pInfo;
-  CFX_UnownedPtr<CCodec_PngModule> m_pModule;
-  CFX_UnownedPtr<CCodec_PngModule::Delegate> m_pDelegate;
-  void* (*m_AllocFunc)(unsigned int);
-  void (*m_FreeFunc)(void*);
+  png_structp m_pPng = nullptr;
+  png_infop m_pInfo = nullptr;
+  UnownedPtr<CCodec_PngModule::Delegate> const m_pDelegate;
   char m_szLastError[PNG_ERROR_SIZE];
 };
 
 extern "C" {
 
-static void _png_error_data(png_structp png_ptr, png_const_charp error_msg) {
-  if (png_get_error_ptr(png_ptr))
-    strncpy((char*)png_get_error_ptr(png_ptr), error_msg, PNG_ERROR_SIZE - 1);
+void _png_error_data(png_structp png_ptr, png_const_charp error_msg) {
+  if (png_get_error_ptr(png_ptr)) {
+    strncpy(static_cast<char*>(png_get_error_ptr(png_ptr)), error_msg,
+            PNG_ERROR_SIZE - 1);
+  }
 
   longjmp(png_jmpbuf(png_ptr), 1);
 }
 
-static void _png_warning_data(png_structp png_ptr, png_const_charp error_msg) {}
+void _png_warning_data(png_structp png_ptr, png_const_charp error_msg) {}
 
-static void _png_load_bmp_attribute(png_structp png_ptr,
-                                    png_infop info_ptr,
-                                    CFX_DIBAttribute* pAttribute) {
+void _png_load_bmp_attribute(png_structp png_ptr,
+                             png_infop info_ptr,
+                             CFX_DIBAttribute* pAttribute) {
   if (pAttribute) {
 #if defined(PNG_pHYs_SUPPORTED)
     pAttribute->m_nXDPI = png_get_x_pixels_per_meter(png_ptr, info_ptr);
@@ -73,37 +75,14 @@ static void _png_load_bmp_attribute(png_structp png_ptr,
                  &icc_proflen);
 #endif
 #if defined(PNG_TEXT_SUPPORTED)
-    int i;
-    FX_STRSIZE len;
-    const char* buf;
     int num_text;
     png_textp text = nullptr;
     png_get_text(png_ptr, info_ptr, &text, &num_text);
-    for (i = 0; i < num_text; i++) {
-      len = FXSYS_strlen(text[i].key);
-      buf = "Time";
-      if (memcmp(buf, text[i].key, std::min(len, FXSYS_strlen(buf)))) {
-        buf = "Author";
-        if (!memcmp(buf, text[i].key, std::min(len, FXSYS_strlen(buf)))) {
-          pAttribute->m_strAuthor =
-              CFX_ByteString(reinterpret_cast<uint8_t*>(text[i].text),
-                             static_cast<FX_STRSIZE>(text[i].text_length));
-        }
-      }
-    }
 #endif
   }
 }
 
-static void* _png_alloc_func(unsigned int size) {
-  return FX_Alloc(char, size);
-}
-
-static void _png_free_func(void* p) {
-  FX_Free(p);
-}
-
-static void _png_get_header_func(png_structp png_ptr, png_infop info_ptr) {
+void _png_get_header_func(png_structp png_ptr, png_infop info_ptr) {
   auto* pContext =
       reinterpret_cast<CPngContext*>(png_get_progressive_ptr(png_ptr));
   if (!pContext)
@@ -152,6 +131,7 @@ static void _png_get_header_func(png_structp png_ptr, png_infop info_ptr) {
       if (color_type1 != PNG_COLOR_TYPE_PALETTE) {
         png_error(pContext->m_pPng, "Not Support Output Palette Now");
       }
+      FALLTHROUGH;
     case PNG_COLOR_TYPE_RGB:
     case PNG_COLOR_TYPE_RGB_ALPHA:
       if (!(color_type1 & PNG_COLOR_MASK_COLOR)) {
@@ -170,19 +150,19 @@ static void _png_get_header_func(png_structp png_ptr, png_infop info_ptr) {
   png_read_update_info(png_ptr, info_ptr);
 }
 
-static void _png_get_end_func(png_structp png_ptr, png_infop info_ptr) {}
+void _png_get_end_func(png_structp png_ptr, png_infop info_ptr) {}
 
-static void _png_get_row_func(png_structp png_ptr,
-                              png_bytep new_row,
-                              png_uint_32 row_num,
-                              int pass) {
+void _png_get_row_func(png_structp png_ptr,
+                       png_bytep new_row,
+                       png_uint_32 row_num,
+                       int pass) {
   auto* pContext =
       reinterpret_cast<CPngContext*>(png_get_progressive_ptr(png_ptr));
   if (!pContext)
     return;
 
-  uint8_t* src_buf = nullptr;
-  if (!pContext->m_pDelegate->PngAskScanlineBuf(row_num, src_buf))
+  uint8_t* src_buf;
+  if (!pContext->m_pDelegate->PngAskScanlineBuf(row_num, &src_buf))
     png_error(png_ptr, "Ask Scanline buffer Callback Error");
 
   if (src_buf)
@@ -193,14 +173,8 @@ static void _png_get_row_func(png_structp png_ptr,
 
 }  // extern "C"
 
-CPngContext::CPngContext(CCodec_PngModule* pModule,
-                         CCodec_PngModule::Delegate* pDelegate)
-    : m_pPng(nullptr),
-      m_pInfo(nullptr),
-      m_pModule(pModule),
-      m_pDelegate(pDelegate),
-      m_AllocFunc(_png_alloc_func),
-      m_FreeFunc(_png_free_func) {
+CPngContext::CPngContext(CCodec_PngModule::Delegate* pDelegate)
+    : m_pDelegate(pDelegate) {
   memset(m_szLastError, 0, sizeof(m_szLastError));
 }
 
@@ -209,9 +183,9 @@ CPngContext::~CPngContext() {
                           m_pInfo ? &m_pInfo : nullptr, nullptr);
 }
 
-std::unique_ptr<CCodec_PngModule::Context> CCodec_PngModule::Start(
+std::unique_ptr<CodecModuleIface::Context> CCodec_PngModule::Start(
     Delegate* pDelegate) {
-  auto p = pdfium::MakeUnique<CPngContext>(this, pDelegate);
+  auto p = pdfium::MakeUnique<CPngContext>(pDelegate);
   p->m_pPng =
       png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
   if (!p->m_pPng)
@@ -231,9 +205,13 @@ std::unique_ptr<CCodec_PngModule::Context> CCodec_PngModule::Start(
   return p;
 }
 
+FX_FILESIZE CCodec_PngModule::GetAvailInput(Context* pContext) const {
+  NOTREACHED();
+  return 0;
+}
+
 bool CCodec_PngModule::Input(Context* pContext,
-                             const uint8_t* src_buf,
-                             uint32_t src_size,
+                             RetainPtr<CFX_CodecMemory> codec_memory,
                              CFX_DIBAttribute* pAttribute) {
   auto* ctx = static_cast<CPngContext*>(pContext);
   if (setjmp(png_jmpbuf(ctx->m_pPng))) {
@@ -243,6 +221,7 @@ bool CCodec_PngModule::Input(Context* pContext,
     }
     return false;
   }
-  png_process_data(ctx->m_pPng, ctx->m_pInfo, (uint8_t*)src_buf, src_size);
+  pdfium::span<uint8_t> src_buf = codec_memory->GetSpan();
+  png_process_data(ctx->m_pPng, ctx->m_pInfo, src_buf.data(), src_buf.size());
   return true;
 }

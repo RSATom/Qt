@@ -69,8 +69,8 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandDecorationPlugin : public QObject
 {
     Q_OBJECT
 public:
-    explicit QWaylandDecorationPlugin(QObject *parent = 0);
-    ~QWaylandDecorationPlugin();
+    explicit QWaylandDecorationPlugin(QObject *parent = nullptr);
+    ~QWaylandDecorationPlugin() override;
 
     virtual QWaylandAbstractDecoration *create(const QString &key, const QStringList &paramList) = 0;
 };

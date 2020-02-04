@@ -90,7 +90,7 @@ QGeoTileSpec QGeoFileTileCacheMapbox::filenameToTileSpec(const QString &filename
     if (parts.length() != 3) // 3 because the map name has always a dot in it.
         return QGeoTileSpec();
 
-    QString name = parts.at(0) + parts.at(1);
+    QString name = parts.at(0) + QChar('.') + parts.at(1);
     QStringList fields = name.split('-');
 
     int length = fields.length();

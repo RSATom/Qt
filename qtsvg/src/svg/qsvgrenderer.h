@@ -65,10 +65,10 @@ class Q_SVG_EXPORT QSvgRenderer : public QObject
     Q_PROPERTY(int framesPerSecond READ framesPerSecond WRITE setFramesPerSecond)
     Q_PROPERTY(int currentFrame READ currentFrame WRITE setCurrentFrame)
 public:
-    QSvgRenderer(QObject *parent = Q_NULLPTR);
-    QSvgRenderer(const QString &filename, QObject *parent = Q_NULLPTR);
-    QSvgRenderer(const QByteArray &contents, QObject *parent = Q_NULLPTR);
-    QSvgRenderer(QXmlStreamReader *contents, QObject *parent = Q_NULLPTR);
+    QSvgRenderer(QObject *parent = nullptr);
+    QSvgRenderer(const QString &filename, QObject *parent = nullptr);
+    QSvgRenderer(const QByteArray &contents, QObject *parent = nullptr);
+    QSvgRenderer(QXmlStreamReader *contents, QObject *parent = nullptr);
     ~QSvgRenderer();
 
     bool isValid() const;

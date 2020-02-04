@@ -4,32 +4,26 @@
 
 #include "components/net_log/chrome_net_log.h"
 
+#include <memory>
 #include <utility>
 
+#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_store.h"
-#include "components/net_log/net_export_file_writer.h"
 #include "components/version_info/version_info.h"
 #include "net/log/file_net_log_observer.h"
 #include "net/log/net_log_util.h"
-#include "net/log/trace_net_log_observer.h"
 
 namespace net_log {
 
-ChromeNetLog::ChromeNetLog() {
-  trace_net_log_observer_.reset(new net::TraceNetLogObserver());
-  trace_net_log_observer_->WatchForTraceStart(this);
-}
+ChromeNetLog::ChromeNetLog() {}
 
 ChromeNetLog::~ChromeNetLog() {
-  net_export_file_writer_.reset();
   ClearFileNetLogObserver();
-  trace_net_log_observer_->StopWatchForTraceStart();
 }
 
 void ChromeNetLog::StartWritingToFile(
@@ -46,12 +40,6 @@ void ChromeNetLog::StartWritingToFile(
   file_net_log_observer_->StartObserving(this, capture_mode);
 }
 
-NetExportFileWriter* ChromeNetLog::net_export_file_writer() {
-  if (!net_export_file_writer_)
-    net_export_file_writer_ = base::WrapUnique(new NetExportFileWriter(this));
-  return net_export_file_writer_.get();
-}
-
 // static
 std::unique_ptr<base::Value> ChromeNetLog::GetConstants(
     const base::CommandLine::StringType& command_line_string,
@@ -60,9 +48,21 @@ std::unique_ptr<base::Value> ChromeNetLog::GetConstants(
       net::GetNetConstants();
   DCHECK(constants_dict);
 
+  auto platform_dict =
+      GetPlatformConstants(command_line_string, channel_string);
+  if (platform_dict)
+    constants_dict->MergeDictionary(platform_dict.get());
+  return constants_dict;
+}
+
+std::unique_ptr<base::DictionaryValue> ChromeNetLog::GetPlatformConstants(
+    const base::CommandLine::StringType& command_line_string,
+    const std::string& channel_string) {
+  auto constants_dict = std::make_unique<base::DictionaryValue>();
+
   // Add a dictionary with the version of the client and its command line
   // arguments.
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
 
   // We have everything we need to send the right values.
   dict->SetString("name", version_info::GetProductName());
@@ -80,10 +80,7 @@ std::unique_ptr<base::Value> ChromeNetLog::GetConstants(
 
   constants_dict->Set("clientInfo", std::move(dict));
 
-  data_reduction_proxy::DataReductionProxyEventStore::AddConstants(
-      constants_dict.get());
-
-  return std::move(constants_dict);
+  return constants_dict;
 }
 
 void ChromeNetLog::ShutDownBeforeTaskScheduler() {

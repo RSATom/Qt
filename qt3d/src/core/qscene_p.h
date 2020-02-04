@@ -64,10 +64,11 @@ namespace Qt3DCore {
 
 class QScenePrivate;
 class QAspectEngine;
+class NodePostConstructorInit;
 
 typedef QList<QObservableInterface *> QObservableList;
 
-class QT3DCORE_PRIVATE_EXPORT QScene
+class Q_3DCORE_PRIVATE_EXPORT QScene
 {
 public:
     QScene(QAspectEngine *engine = nullptr);
@@ -105,6 +106,8 @@ public:
     NodePropertyTrackData lookupNodePropertyTrackData(QNodeId id) const;
     void setPropertyTrackDataForNode(QNodeId id, const NodePropertyTrackData &data);
     void removePropertyTrackDataForNode(QNodeId id);
+
+    NodePostConstructorInit* postConstructorInit() const;
 
 private:
     Q_DECLARE_PRIVATE(QScene)

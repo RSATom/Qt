@@ -9,19 +9,32 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/native_library.h"
+#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_egl_api_implementation.h"
 #include "ui/gl/gl_gl_api_implementation.h"
-#include "ui/gl/gl_implementation_osmesa.h"
-#include "ui/gl/gl_osmesa_api_implementation.h"
 #include "ui/gl/gl_surface_egl.h"
+
+#if BUILDFLAG(USE_STATIC_ANGLE)
+#include <EGL/egl.h>
+#endif  // BUILDFLAG(USE_STATIC_ANGLE)
 
 namespace gl {
 namespace init {
 
 namespace {
 
-bool InitializeStaticEGLInternal() {
+#if BUILDFLAG(USE_STATIC_ANGLE)
+bool InitializeStaticANGLEEGLInternal() {
+#pragma push_macro("eglGetProcAddress")
+#undef eglGetProcAddress
+  SetGLGetProcAddressProc(&eglGetProcAddress);
+#pragma pop_macro("eglGetProcAddress")
+  return true;
+}
+#endif  // BUILDFLAG(USE_STATIC_ANGLE)
+
+bool InitializeStaticNativeEGLInternal() {
   base::NativeLibrary gles_library = LoadLibraryAndPrintError("libGLESv2.so");
   if (!gles_library)
     return false;
@@ -45,6 +58,32 @@ bool InitializeStaticEGLInternal() {
   SetGLGetProcAddressProc(get_proc_address);
   AddGLNativeLibrary(egl_library);
   AddGLNativeLibrary(gles_library);
+
+  return true;
+}
+
+bool InitializeStaticEGLInternal() {
+  bool initialized = false;
+
+#if BUILDFLAG(USE_STATIC_ANGLE)
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
+  // Use ANGLE if it is requested via the --use-gl=angle flag and it is
+  // statically linked
+  if (command_line->GetSwitchValueASCII(switches::kUseGL) ==
+      kGLImplementationANGLEName) {
+    initialized = InitializeStaticANGLEEGLInternal();
+  }
+#endif  // BUILDFLAG(USE_STATIC_ANGLE)
+
+  if (!initialized) {
+    initialized = InitializeStaticNativeEGLInternal();
+  }
+
+  if (!initialized) {
+    return false;
+  }
+
   SetGLImplementation(kGLImplementationEGLGLES2);
 
   InitializeStaticGLBindingsGL();
@@ -77,8 +116,6 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
   switch (implementation) {
     case kGLImplementationEGLGLES2:
       return InitializeStaticEGLInternal();
-    case kGLImplementationOSMesaGL:
-      return InitializeStaticGLBindingsOSMesaGL();
     case kGLImplementationMockGL:
     case kGLImplementationStubGL:
       SetGLImplementation(implementation);
@@ -94,14 +131,12 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
 void InitializeDebugGLBindings() {
   InitializeDebugGLBindingsEGL();
   InitializeDebugGLBindingsGL();
-  InitializeDebugGLBindingsOSMESA();
 }
 
 void ShutdownGLPlatform() {
   GLSurfaceEGL::ShutdownOneOff();
   ClearBindingsEGL();
   ClearBindingsGL();
-  ClearBindingsOSMESA();
 }
 
 }  // namespace init

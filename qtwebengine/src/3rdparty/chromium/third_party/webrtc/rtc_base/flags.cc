@@ -8,25 +8,50 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/flags.h"
+#include "rtc_base/flags.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "webrtc/rtc_base/checks.h"
+#include "rtc_base/checks.h"
 
 #if defined(WEBRTC_WIN)
-#include "webrtc/rtc_base/win32.h"
-#include <shellapi.h>
+// clang-format off
+// clang formating would change include order.
+#include <windows.h>
+#include <shellapi.h> // must come after windows.h
+// clang-format on
+
+#include "rtc_base/string_utils.h"  // For ToUtf8
 #endif
+
+namespace {
+bool FlagEq(const char* arg, const char* flag) {
+  // Compare two flags for equality.
+  // 'arg' is the name of a flag passed via the command line and 'flag' is the
+  // name of a flag defined with the DEFINE_* macros.
+  // We compare the flags for equality, considering hyphens (-) and
+  // underscores (_) to be equivalent, so that --flag-name and --flag_name both
+  // match with --flag_name.
+  while (*arg != '\0' && (*arg == *flag || (*arg == '-' && *flag == '_'))) {
+    ++arg;
+    ++flag;
+  }
+  return *arg == '\0' && *flag == '\0';
+}
+}  // namespace
 
 namespace rtc {
 // -----------------------------------------------------------------------------
 // Implementation of Flag
 
-Flag::Flag(const char* file, const char* name, const char* comment,
-           Type type, void* variable, FlagValue default__)
+Flag::Flag(const char* file,
+           const char* name,
+           const char* comment,
+           Type type,
+           void* variable,
+           FlagValue default__)
     : file_(file),
       name_(name),
       comment_(comment),
@@ -35,7 +60,6 @@ Flag::Flag(const char* file, const char* name, const char* comment,
       default_(default__) {
   FlagList::Register(this);
 }
-
 
 void Flag::SetToDefault() {
   // Note that we cannot simply do '*variable_ = default_;' since
@@ -60,17 +84,19 @@ void Flag::SetToDefault() {
   FATAL() << "unreachable code";
 }
 
-
 static const char* Type2String(Flag::Type type) {
   switch (type) {
-    case Flag::BOOL: return "bool";
-    case Flag::INT: return "int";
-    case Flag::FLOAT: return "float";
-    case Flag::STRING: return "string";
+    case Flag::BOOL:
+      return "bool";
+    case Flag::INT:
+      return "int";
+    case Flag::FLOAT:
+      return "float";
+    case Flag::STRING:
+      return "string";
   }
   FATAL() << "unreachable code";
 }
-
 
 static void PrintFlagValue(Flag::Type type, FlagValue* p) {
   switch (type) {
@@ -90,10 +116,9 @@ static void PrintFlagValue(Flag::Type type, FlagValue* p) {
   FATAL() << "unreachable code";
 }
 
-
 void Flag::Print(bool print_current_value) {
   printf("  --%s (%s)  type: %s  default: ", name_, comment_,
-          Type2String(type_));
+         Type2String(type_));
   PrintFlagValue(type_, &default_);
   if (print_current_value) {
     printf("  current value: ");
@@ -101,7 +126,6 @@ void Flag::Print(bool print_current_value) {
   }
   printf("\n");
 }
-
 
 // -----------------------------------------------------------------------------
 // Implementation of FlagList
@@ -127,18 +151,18 @@ void FlagList::Print(const char* file, bool print_current_value) {
   }
 }
 
-
 Flag* FlagList::Lookup(const char* name) {
   Flag* f = list_;
-  while (f != nullptr && strcmp(name, f->name()) != 0)
+  while (f != nullptr && !FlagEq(name, f->name()))
     f = f->next();
   return f;
 }
 
-
 void FlagList::SplitArgument(const char* arg,
-                             char* buffer, int buffer_size,
-                             const char** name, const char** value,
+                             char* buffer,
+                             int buffer_size,
+                             const char** name,
+                             const char** value,
                              bool* is_bool) {
   *name = nullptr;
   *value = nullptr;
@@ -149,7 +173,7 @@ void FlagList::SplitArgument(const char* arg,
     arg++;  // remove 1st '-'
     if (*arg == '-')
       arg++;  // remove 2nd '-'
-    if (arg[0] == 'n' && arg[1] == 'o') {
+    if (arg[0] == 'n' && arg[1] == 'o' && Lookup(arg + 2)) {
       arg += 2;  // remove "no"
       *is_bool = true;
     }
@@ -173,8 +197,8 @@ void FlagList::SplitArgument(const char* arg,
   }
 }
 
-
-int FlagList::SetFlagsFromCommandLine(int* argc, const char** argv,
+int FlagList::SetFlagsFromCommandLine(int* argc,
+                                      const char** argv,
                                       bool remove_flags) {
   // parse arguments
   for (int i = 1; i < *argc; /* see below */) {
@@ -201,14 +225,14 @@ int FlagList::SetFlagsFromCommandLine(int* argc, const char** argv,
         if (i < *argc) {
           value = argv[i++];
         } else {
-          fprintf(stderr, "Error: missing value for flag %s of type %s\n",
-            arg, Type2String(flag->type()));
+          fprintf(stderr, "Error: missing value for flag %s of type %s\n", arg,
+                  Type2String(flag->type()));
           return j;
         }
       }
 
       // set the flag
-      char empty[] = { '\0' };
+      char empty[] = {'\0'};
       char* endp = empty;
       switch (flag->type()) {
         case Flag::BOOL:
@@ -228,8 +252,8 @@ int FlagList::SetFlagsFromCommandLine(int* argc, const char** argv,
       // handle errors
       if ((flag->type() == Flag::BOOL && value != nullptr) ||
           (flag->type() != Flag::BOOL && is_bool) || *endp != '\0') {
-        fprintf(stderr, "Error: illegal value for flag %s of type %s\n",
-          arg, Type2String(flag->type()));
+        fprintf(stderr, "Error: illegal value for flag %s of type %s\n", arg,
+                Type2String(flag->type()));
         return j;
       }
 
@@ -269,15 +293,15 @@ void FlagList::Register(Flag* flag) {
 WindowsCommandLineArguments::WindowsCommandLineArguments() {
   // start by getting the command line.
   LPTSTR command_line = ::GetCommandLine();
-   // now, convert it to a list of wide char strings.
-  LPWSTR *wide_argv = ::CommandLineToArgvW(command_line, &argc_);
+  // now, convert it to a list of wide char strings.
+  LPWSTR* wide_argv = ::CommandLineToArgvW(command_line, &argc_);
   // now allocate an array big enough to hold that many string pointers.
   argv_ = new char*[argc_];
 
   // iterate over the returned wide strings;
-  for(int i = 0; i < argc_; ++i) {
+  for (int i = 0; i < argc_; ++i) {
     std::string s = rtc::ToUtf8(wide_argv[i], wcslen(wide_argv[i]));
-    char *buffer = new char[s.length() + 1];
+    char* buffer = new char[s.length() + 1];
     rtc::strcpyn(buffer, s.length() + 1, s.c_str());
 
     // make sure the argv array has the right string at this point.
@@ -288,7 +312,7 @@ WindowsCommandLineArguments::WindowsCommandLineArguments() {
 
 WindowsCommandLineArguments::~WindowsCommandLineArguments() {
   // need to free each string in the array, and then the array.
-  for(int i = 0; i < argc_; i++) {
+  for (int i = 0; i < argc_; i++) {
     delete[] argv_[i];
   }
 

@@ -6,10 +6,13 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "base/strings/string_split.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_info_collector.h"
+#include "gpu/config/gpu_preferences.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gl/gl_context_stub.h"
@@ -49,8 +52,8 @@ class GPUInfoCollectorTest
     : public testing::Test,
       public ::testing::WithParamInterface<MockedOperatingSystemKind> {
  public:
-  GPUInfoCollectorTest() {}
-  ~GPUInfoCollectorTest() override {}
+  GPUInfoCollectorTest() = default;
+  ~GPUInfoCollectorTest() override = default;
 
   void SetUp() override {
     testing::Test::SetUp();
@@ -62,8 +65,8 @@ class GPUInfoCollectorTest
       case kMockedAndroid: {
         test_values_.gpu.vendor_id = 0;  // not implemented
         test_values_.gpu.device_id = 0;  // not implemented
-        test_values_.driver_vendor = "";  // not implemented
-        test_values_.driver_version = "14.0";
+        test_values_.gpu.driver_vendor = "";  // not implemented
+        test_values_.gpu.driver_version = "14.0";
         test_values_.pixel_shader_version = "1.00";
         test_values_.vertex_shader_version = "1.00";
         test_values_.gl_renderer = "Adreno (TM) 320";
@@ -78,8 +81,8 @@ class GPUInfoCollectorTest
       case kMockedLinux: {
         test_values_.gpu.vendor_id = 0x10de;
         test_values_.gpu.device_id = 0x0658;
-        test_values_.driver_vendor = "NVIDIA";
-        test_values_.driver_version = "195.36.24";
+        test_values_.gpu.driver_vendor = "NVIDIA";
+        test_values_.gpu.driver_version = "195.36.24";
         test_values_.pixel_shader_version = "1.50";
         test_values_.vertex_shader_version = "1.50";
         test_values_.gl_renderer = "Quadro FX 380/PCI/SSE2";
@@ -94,8 +97,8 @@ class GPUInfoCollectorTest
       case kMockedMacOSX: {
         test_values_.gpu.vendor_id = 0x10de;
         test_values_.gpu.device_id = 0x0640;
-        test_values_.driver_vendor = "";  // not implemented
-        test_values_.driver_version = "1.6.18";
+        test_values_.gpu.driver_vendor = "NVIDIA";
+        test_values_.gpu.driver_version = "1.6.18";
         test_values_.pixel_shader_version = "1.20";
         test_values_.vertex_shader_version = "1.20";
         test_values_.gl_renderer = "NVIDIA GeForce GT 120 OpenGL Engine";
@@ -110,8 +113,8 @@ class GPUInfoCollectorTest
       case kMockedWindows: {
         test_values_.gpu.vendor_id = 0x10de;
         test_values_.gpu.device_id = 0x0658;
-        test_values_.driver_vendor = "";  // not implemented
-        test_values_.driver_version = "";
+        test_values_.gpu.driver_vendor = "";  // not implemented
+        test_values_.gpu.driver_version = "";
         test_values_.pixel_shader_version = "1.40";
         test_values_.vertex_shader_version = "1.40";
         test_values_.gl_renderer = "Quadro FX 380/PCI/SSE2";
@@ -174,9 +177,9 @@ class GPUInfoCollectorTest
   }
 
   void TearDown() override {
-    ::gl::MockGLInterface::SetGLInterface(NULL);
+    ::gl::MockGLInterface::SetGLInterface(nullptr);
     gl_.reset();
-    gl::init::ShutdownGL();
+    gl::init::ShutdownGL(false);
 
     testing::Test::TearDown();
   }
@@ -205,34 +208,27 @@ INSTANTIATE_TEST_CASE_P(GPUConfig,
 // be fixed.
 TEST_P(GPUInfoCollectorTest, CollectGraphicsInfoGL) {
   GPUInfo gpu_info;
-  CollectGraphicsInfoGL(&gpu_info);
+  CollectGraphicsInfoGL(&gpu_info, GpuPreferences());
 #if defined(OS_WIN)
   if (GetParam() == kMockedWindows) {
-    EXPECT_EQ(test_values_.driver_vendor,
-              gpu_info.driver_vendor);
+    EXPECT_EQ(test_values_.gpu.driver_vendor, gpu_info.gpu.driver_vendor);
     // Skip testing the driver version on Windows because it's
     // obtained from the bot's registry.
   }
 #elif defined(OS_MACOSX)
   if (GetParam() == kMockedMacOSX) {
-    EXPECT_EQ(test_values_.driver_vendor,
-              gpu_info.driver_vendor);
-    EXPECT_EQ(test_values_.driver_version,
-              gpu_info.driver_version);
+    EXPECT_EQ(test_values_.gpu.driver_vendor, gpu_info.gpu.driver_vendor);
+    EXPECT_EQ(test_values_.gpu.driver_version, gpu_info.gpu.driver_version);
   }
 #elif defined(OS_ANDROID)
   if (GetParam() == kMockedAndroid) {
-    EXPECT_EQ(test_values_.driver_vendor,
-              gpu_info.driver_vendor);
-    EXPECT_EQ(test_values_.driver_version,
-              gpu_info.driver_version);
+    EXPECT_EQ(test_values_.gpu.driver_vendor, gpu_info.gpu.driver_vendor);
+    EXPECT_EQ(test_values_.gpu.driver_version, gpu_info.gpu.driver_version);
   }
 #else  // defined (OS_LINUX)
   if (GetParam() == kMockedLinux) {
-    EXPECT_EQ(test_values_.driver_vendor,
-              gpu_info.driver_vendor);
-    EXPECT_EQ(test_values_.driver_version,
-              gpu_info.driver_version);
+    EXPECT_EQ(test_values_.gpu.driver_vendor, gpu_info.gpu.driver_vendor);
+    EXPECT_EQ(test_values_.gpu.driver_version, gpu_info.gpu.driver_version);
   }
 #endif
 
@@ -246,149 +242,7 @@ TEST_P(GPUInfoCollectorTest, CollectGraphicsInfoGL) {
   EXPECT_EQ(test_values_.gl_extensions, gpu_info.gl_extensions);
 }
 
-class CollectDriverInfoGLTest : public testing::Test {
- public:
-  CollectDriverInfoGLTest() {}
-  ~CollectDriverInfoGLTest() override {}
-
-  void SetUp() override {}
-  void TearDown() override {}
-};
-
-TEST_F(CollectDriverInfoGLTest, CollectDriverInfoGL) {
-  // clang-format off
-  const struct {
-    const char* driver_vendor;
-    const char* driver_version;
-    const char* gl_renderer;
-    const char* gl_vendor;
-    const char* gl_version;
-    const char* expected_driver_vendor;
-    const char* expected_driver_version;
-  } kTestStrings[] = {
-#if defined(OS_ANDROID)
-    {"Unknown",
-     "-1",
-     "Adreno (TM) 320",
-     "Qualcomm",
-     "OpenGL ES 2.0 V@14.0 AU@04.02 (CL@3206)",
-     "Unknown",
-     "14.0"},
-    {"Unknown",
-     "-1",
-     "Adreno (TM) 420",
-     "Qualcomm",
-     "OpenGL ES 3.0 V@84.0 AU@ (CL@)",
-     "Unknown",
-     "84.0"},
-    {"Unknown",
-     "-1",
-     "PowerVR Rogue G6430",
-     "Imagination Technologies",
-     "OpenGL ES 3.1 build 1.4@3283119",
-     "Unknown",
-     "1.4"},
-    {"Unknown",
-     "-1",
-     "Mali-T604",
-     "ARM",
-     "OpenGL ES 3.1",
-     "Unknown",
-     "0"},
-    {"Unknown",
-     "-1",
-     "NVIDIA Tegra",
-     "NVIDIA Corporation",
-     "OpenGL ES 3.1 NVIDIA 343.00",
-     "Unknown",
-     "343.00"},
-    {"Unknown",
-     "-1",
-     "NVIDIA Tegra 3",
-     "NVIDIA Corporation",
-     "OpenGL ES 2.0 14.01003",
-     "Unknown",
-     "14.01003"},
-    {"Unknown",
-     "-1",
-     "random GPU",
-     "random vendor",
-     "OpenGL ES 2.0 with_long_version_string=1.2.3.4",
-     NULL,
-     "1.2"},
-    {"Unknown",
-     "-1",
-     "random GPU",
-     "random vendor",
-     "OpenGL ES 2.0 with_short_version_string=1",
-     NULL,
-     "0"},
-    {"Unknown",
-     "-1",
-     "random GPU",
-     "random vendor",
-     "OpenGL ES 2.0 with_no_version_string",
-     NULL,
-     "0"},
-#elif defined(OS_MACOSX)
-    {"Unknown",
-     "-1",
-     "Intel Iris Pro OpenGL Engine",
-     "Intel Inc.",
-     "2.1 INTEL-10.6.20",
-     "Unknown",
-     "10.6.20"},
-#elif defined(OS_LINUX)
-    {"",
-     "",
-     "Quadro K2000/PCIe/SSE2",
-     "NVIDIA Corporation",
-     "4.4.0 NVIDIA 331.79",
-     "NVIDIA",
-     "331.79"},
-    {"",
-     "",
-     "Gallium 0.4 on NVE7",
-     "nouveau",
-     "3.3 (Core Profile) Mesa 10.5.9",
-     "Mesa",
-     "10.5.9"},
-    {"",
-     "",
-     "Mesa DRI Intel(R) Haswell Mobile",
-     "Intel Open Source Technology Center",
-     "OpenGL ES 3.0 Mesa 12.1.0-devel (git-ed9dd3b)",
-     "Mesa",
-     "12.1.0"},
-    {"ATI / AMD",
-     "15.201.1151",
-     "ASUS R5 230 Series",
-     "ATI Technologies Inc.",
-     "4.5.13399 Compatibility Profile Context 14.0",
-     "ATI / AMD",
-     "15.201.1151"},
-#endif
-    {NULL, NULL, NULL, NULL, NULL, NULL, NULL}
-  };
-  // clang-format on
-
-  for (int i = 0; kTestStrings[i].gl_renderer != NULL; ++i) {
-    GPUInfo gpu_info;
-    const auto& testStrings = kTestStrings[i];
-    gpu_info.driver_vendor = testStrings.driver_vendor;
-    gpu_info.driver_version = testStrings.driver_version;
-    gpu_info.gl_renderer = testStrings.gl_renderer;
-    gpu_info.gl_vendor = testStrings.gl_vendor;
-    gpu_info.gl_version = testStrings.gl_version;
-    EXPECT_EQ(kCollectInfoSuccess, CollectDriverInfoGL(&gpu_info));
-    EXPECT_EQ(testStrings.expected_driver_version, gpu_info.driver_version);
-    if (testStrings.expected_driver_vendor) {
-      EXPECT_EQ(testStrings.expected_driver_vendor, gpu_info.driver_vendor);
-    }
-  }
-}
-
-TEST(MultiGPUsTest, IdentifyActiveGPU) {
+TEST(MultiGPUsTest, IdentifyActiveGPU0) {
   GPUInfo::GPUDevice nvidia_gpu;
   nvidia_gpu.vendor_id = 0x10de;
   nvidia_gpu.device_id = 0x0df8;
@@ -420,6 +274,107 @@ TEST(MultiGPUsTest, IdentifyActiveGPU) {
   EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
 }
 
+TEST(MultiGPUsTest, IdentifyActiveGPU1) {
+  GPUInfo::GPUDevice nvidia_gpu;
+  nvidia_gpu.vendor_id = 0x10de;
+  nvidia_gpu.device_id = 0x0de1;
+  GPUInfo::GPUDevice intel_gpu;
+  intel_gpu.vendor_id = 0x8086;
+  intel_gpu.device_id = 0x040a;
+
+  GPUInfo gpu_info;
+  gpu_info.gpu = intel_gpu;
+  gpu_info.secondary_gpus.push_back(nvidia_gpu);
+
+  EXPECT_FALSE(gpu_info.gpu.active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
+
+  IdentifyActiveGPU(&gpu_info);
+  EXPECT_FALSE(gpu_info.gpu.active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
+
+  gpu_info.gl_vendor = "nouveau";
+  IdentifyActiveGPU(&gpu_info);
+  EXPECT_FALSE(gpu_info.gpu.active);
+  EXPECT_TRUE(gpu_info.secondary_gpus[0].active);
+}
+
+TEST(MultiGPUsTest, IdentifyActiveGPU2) {
+  GPUInfo::GPUDevice nvidia_gpu;
+  nvidia_gpu.vendor_id = 0x10de;
+  nvidia_gpu.device_id = 0x0de1;
+  GPUInfo::GPUDevice intel_gpu;
+  intel_gpu.vendor_id = 0x8086;
+  intel_gpu.device_id = 0x040a;
+
+  GPUInfo gpu_info;
+  gpu_info.gpu = intel_gpu;
+  gpu_info.secondary_gpus.push_back(nvidia_gpu);
+
+  EXPECT_FALSE(gpu_info.gpu.active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
+
+  IdentifyActiveGPU(&gpu_info);
+  EXPECT_FALSE(gpu_info.gpu.active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
+
+  gpu_info.gl_vendor = "Intel";
+  IdentifyActiveGPU(&gpu_info);
+  EXPECT_TRUE(gpu_info.gpu.active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
+}
+
+TEST(MultiGPUsTest, IdentifyActiveGPU3) {
+  GPUInfo::GPUDevice nvidia_gpu;
+  nvidia_gpu.vendor_id = 0x10de;
+  nvidia_gpu.device_id = 0x0de1;
+  GPUInfo::GPUDevice intel_gpu;
+  intel_gpu.vendor_id = 0x8086;
+  intel_gpu.device_id = 0x040a;
+  GPUInfo::GPUDevice amd_gpu;
+  amd_gpu.vendor_id = 0x1002;
+  amd_gpu.device_id = 0x6779;
+
+  GPUInfo gpu_info;
+  gpu_info.gpu = intel_gpu;
+  gpu_info.secondary_gpus.push_back(nvidia_gpu);
+  gpu_info.secondary_gpus.push_back(amd_gpu);
+
+  EXPECT_FALSE(gpu_info.gpu.active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[1].active);
+
+  IdentifyActiveGPU(&gpu_info);
+  EXPECT_FALSE(gpu_info.gpu.active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[1].active);
+
+  gpu_info.gl_vendor = "X.Org";
+  gpu_info.gl_renderer = "AMD R600";
+  IdentifyActiveGPU(&gpu_info);
+  EXPECT_FALSE(gpu_info.gpu.active);
+  EXPECT_FALSE(gpu_info.secondary_gpus[0].active);
+  EXPECT_TRUE(gpu_info.secondary_gpus[1].active);
+}
+
+TEST(MultiGPUsTest, IdentifyActiveGPU4) {
+  GPUInfo::GPUDevice nvidia_gpu;
+  nvidia_gpu.vendor_id = 0x10de;
+  nvidia_gpu.device_id = 0x0de1;
+
+  GPUInfo gpu_info;
+  gpu_info.gpu = nvidia_gpu;
+
+  EXPECT_FALSE(gpu_info.gpu.active);
+
+  IdentifyActiveGPU(&gpu_info);
+  EXPECT_TRUE(gpu_info.gpu.active);
+
+  gpu_info.gl_vendor = "nouveau";
+  IdentifyActiveGPU(&gpu_info);
+  EXPECT_TRUE(gpu_info.gpu.active);
+}
+
 TEST(MultiGPUsTest, IdentifyActiveGPUAvoidFalseMatch) {
   // Verify that "Corporation" won't be matched with "ati".
   GPUInfo::GPUDevice amd_gpu;
@@ -441,4 +396,3 @@ TEST(MultiGPUsTest, IdentifyActiveGPUAvoidFalseMatch) {
 }
 
 }  // namespace gpu
-

@@ -30,15 +30,14 @@ InkDropRipple::InkDropRipple()
 
 InkDropRipple::~InkDropRipple() {}
 
-void InkDropRipple::HostSizeChanged(const gfx::Size& new_size) {}
-
 void InkDropRipple::AnimateToState(InkDropState ink_drop_state) {
   // Does not return early if |target_ink_drop_state_| == |ink_drop_state| for
   // two reasons.
   // 1. The attached observers must be notified of all animations started and
   // ended.
   // 2. Not all state transitions is are valid, especially no-op transitions,
-  // and these should be detected by DCHECKs in AnimateStateChange().
+  // and these invalid transitions will be logged as warnings in
+  // AnimateStateChange().
 
   // |animation_observer| will be deleted when AnimationEndedCallback() returns
   // true.
@@ -69,6 +68,20 @@ void InkDropRipple::AnimateToState(InkDropState ink_drop_state) {
   // AnimationEndedCallback which can delete |this|.
 }
 
+void InkDropRipple::SnapToState(InkDropState ink_drop_state) {
+  switch (ink_drop_state) {
+    case InkDropState::HIDDEN:
+      SnapToHidden();
+      break;
+    case InkDropState::ACTIVATED:
+      SnapToActivated();
+      break;
+    default:
+      AbortAllAnimations();
+      target_ink_drop_state_ = ink_drop_state;
+  }
+}
+
 void InkDropRipple::SnapToActivated() {
   AbortAllAnimations();
   // |animation_observer| will be deleted when AnimationEndedCallback() returns
@@ -90,7 +103,7 @@ bool InkDropRipple::IsVisible() {
   return GetRootLayer()->visible();
 }
 
-void InkDropRipple::HideImmediately() {
+void InkDropRipple::SnapToHidden() {
   AbortAllAnimations();
   SetStateToHidden();
   target_ink_drop_state_ = InkDropState::HIDDEN;

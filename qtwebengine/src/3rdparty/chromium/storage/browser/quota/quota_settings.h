@@ -8,10 +8,10 @@
 #include <stdint.h>
 
 #include "base/callback.h"
+#include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/optional.h"
 #include "base/time/time.h"
-#include "storage/browser/storage_browser_export.h"
 
 namespace storage {
 
@@ -51,8 +51,8 @@ struct QuotaSettings {
   // very aggressive about disallowing new data.
   int64_t must_remain_available = 0;
 
-  // The quota system querries the embedder for the QuataSettings,
-  // but will rate limit the frequency of the querries to no more than once
+  // The quota system queries the embedder for the QuotaSettings,
+  // but will rate limit the frequency of the queries to no more than once
   // per refresh interval.
   base::TimeDelta refresh_interval = base::TimeDelta::Max();
 };
@@ -74,7 +74,7 @@ using GetQuotaSettingsFunc =
 // interval is 60 seconds to accomodate changes to the size of the volume.
 // Except, in the case of incognito, the poolize and quota values are based
 // on the amount of physical memory and the rerfresh interval is max'd out.
-STORAGE_EXPORT
+COMPONENT_EXPORT(STORAGE_BROWSER)
 void GetNominalDynamicSettings(const base::FilePath& partition_path,
                                bool is_incognito,
                                OptionalQuotaSettingsCallback callback);

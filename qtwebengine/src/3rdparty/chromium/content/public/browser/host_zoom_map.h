@@ -12,8 +12,13 @@
 
 #include "base/callback.h"
 #include "base/callback_list.h"
+#include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "url/gurl.h"
+
+namespace base {
+class Clock;
+}
 
 namespace content {
 
@@ -52,13 +57,14 @@ class HostZoomMap {
     std::string host;
     std::string scheme;
     double zoom_level;
+    base::Time last_modified;
   };
 
   typedef std::vector<ZoomLevelChange> ZoomLevelVector;
 
   // Extracts the URL from NavigationEntry, substituting the error page
   // URL in the event that the error page is showing.
-  CONTENT_EXPORT static GURL GetURLFromEntry(const NavigationEntry* entry);
+  CONTENT_EXPORT static GURL GetURLFromEntry(NavigationEntry* entry);
 
   CONTENT_EXPORT static HostZoomMap* GetDefaultForBrowserContext(
       BrowserContext* browser_context);
@@ -71,26 +77,24 @@ class HostZoomMap {
   // Returns the HostZoomMap associated with this WebContent's main frame. If
   // multiple WebContents share the same SiteInstance, then they share a single
   // HostZoomMap.
-  CONTENT_EXPORT static HostZoomMap* GetForWebContents(
-      const WebContents* contents);
+  CONTENT_EXPORT static HostZoomMap* GetForWebContents(WebContents* contents);
 
   // Returns the current zoom level for the specified WebContents. May be
   // temporary or host-specific.
-  CONTENT_EXPORT static double GetZoomLevel(const WebContents* web_contents);
+  CONTENT_EXPORT static double GetZoomLevel(WebContents* web_contents);
 
   // Returns true if the page scale factor for the WebContents is one.
-  CONTENT_EXPORT static bool PageScaleFactorIsOne(
-      const WebContents* web_contents);
+  CONTENT_EXPORT static bool PageScaleFactorIsOne(WebContents* web_contents);
 
   // Sets the current zoom level for the specified WebContents. The level may
   // be temporary or host-specific depending on the particular WebContents.
-  CONTENT_EXPORT static void SetZoomLevel(const WebContents* web_contents,
+  CONTENT_EXPORT static void SetZoomLevel(WebContents* web_contents,
                                           double level);
 
   // Send an IPC to refresh any displayed error page's zoom levels. Needs to
   // be called since error pages don't get loaded via the normal channel.
   CONTENT_EXPORT static void SendErrorPageZoomLevelRefresh(
-      const WebContents* web_contents);
+      WebContents* web_contents);
 
   // Set or clear whether or not the page scale factor for a view is one.
   virtual void SetPageScaleFactorIsOneForView(
@@ -132,6 +136,12 @@ class HostZoomMap {
   // This should only be called on the UI thread.
   virtual void SetZoomLevelForHost(const std::string& host, double level) = 0;
 
+  // Sets the zoom level for the |host| to |level| with a given |last_modified|
+  // timestamp. Should only be used for initialization.
+  virtual void InitializeZoomLevelForHost(const std::string& host,
+                                          double level,
+                                          base::Time last_modified) = 0;
+
   // Here |host| is the host portion of URL, or (in the absence of a host)
   // the complete spec of the URL.
   // Sets the zoom level for the |scheme|/|host| pair to |level|. No values
@@ -156,6 +166,12 @@ class HostZoomMap {
                                      int render_view_id,
                                      double level) = 0;
 
+  // Clear zoom levels with a modification date greater than or equal
+  // to |delete_begin| and less than |delete_end|. If |delete_end| is null,
+  // all entries after |delete_begin| will be deleted.
+  virtual void ClearZoomLevels(base::Time delete_begin,
+                               base::Time delete_end) = 0;
+
   // Clears the temporary zoom level stored for this WebContents.
   //
   // This should only be called on the UI thread.
@@ -172,6 +188,8 @@ class HostZoomMap {
   // Add and remove zoom level changed callbacks.
   virtual std::unique_ptr<Subscription> AddZoomLevelChangedCallback(
       const ZoomLevelChangedCallback& callback) = 0;
+
+  virtual void SetClockForTesting(base::Clock* clock) = 0;
 
  protected:
   virtual ~HostZoomMap() {}

@@ -8,8 +8,8 @@
 #include <set>
 #include <string>
 
+#include "base/component_export.h"
 #include "base/files/file_path.h"
-#include "storage/browser/storage_browser_export.h"
 #include "storage/common/fileapi/file_system_mount_option.h"
 #include "storage/common/fileapi/file_system_types.h"
 #include "url/gurl.h"
@@ -75,11 +75,20 @@ namespace storage {
 // illegal on the current platform.
 // To avoid problems, use VirtualPath::BaseName and
 // VirtualPath::GetComponents instead of the base::FilePath methods.
-class STORAGE_EXPORT FileSystemURL {
+class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemURL {
  public:
   FileSystemURL();
   FileSystemURL(const FileSystemURL& other);
+  // Constructs FileSystemURL with the contents of |other|, which is left in
+  // valid but unspecified state.
+  FileSystemURL(FileSystemURL&& other) noexcept;
   ~FileSystemURL();
+
+  // Replaces the contents with those of |rhs|, which is left in valid but
+  // unspecified state.
+  FileSystemURL& operator=(FileSystemURL&& rhs);
+
+  FileSystemURL& operator=(const FileSystemURL& rhs);
 
   // Methods for creating FileSystemURL without attempting to crack them.
   // Should be used only in tests.
@@ -140,7 +149,7 @@ class STORAGE_EXPORT FileSystemURL {
     return !(*this == that);
   }
 
-  struct STORAGE_EXPORT Comparator {
+  struct COMPONENT_EXPORT(STORAGE_BROWSER) Comparator {
     bool operator() (const FileSystemURL& lhs, const FileSystemURL& rhs) const;
   };
 
@@ -182,7 +191,7 @@ class STORAGE_EXPORT FileSystemURL {
   FileSystemMountOption mount_option_;
 };
 
-typedef std::set<FileSystemURL, FileSystemURL::Comparator> FileSystemURLSet;
+using FileSystemURLSet = std::set<FileSystemURL, FileSystemURL::Comparator>;
 
 }  // namespace storage
 

@@ -42,6 +42,7 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DRender {
 
 /*!
+ * \internal
  * \class Qt3DRender::QRenderStateCreatedChange
  * \inheaderfile Qt3DRender/QRenderStateCreatedChange
  * \brief The QRenderStateCreatedChange class
@@ -63,7 +64,7 @@ public:
     Render::StateMask m_type;
 };
 
-/*!
+/*
  * The constructor creates a new QRenderStateCreatedChangeBase::QRenderStateCreatedChangeBase
  * instance with the specified \a renderState.
  */
@@ -72,8 +73,8 @@ QRenderStateCreatedChangeBase::QRenderStateCreatedChangeBase(const QRenderState 
 {
 }
 
-/*!
- * \return the current render state type
+/*
+ * Returns the current render state type.
  */
 Render::StateMask QRenderStateCreatedChangeBase::renderStateType() const
 {

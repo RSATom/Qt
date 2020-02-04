@@ -7,7 +7,6 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "components/url_matcher/url_matcher_factory.h"
 #include "ipc/ipc_message.h"
 
@@ -67,7 +66,7 @@ EventFilter::MatcherID EventFilter::AddEventMatcher(
         std::make_pair(condition_set->id(), id));
   }
   id_to_event_name_[id] = event_name;
-  event_matchers_[event_name][id] = base::MakeUnique<EventMatcherEntry>(
+  event_matchers_[event_name][id] = std::make_unique<EventMatcherEntry>(
       std::move(matcher), &url_matcher_, condition_sets);
   return id;
 }
@@ -123,7 +122,7 @@ bool EventFilter::AddDictionaryAsConditionSet(
 }
 
 std::string EventFilter::RemoveEventMatcher(MatcherID id) {
-  std::map<MatcherID, std::string>::iterator it = id_to_event_name_.find(id);
+  auto it = id_to_event_name_.find(id);
   std::string event_name = it->second;
   // EventMatcherEntry's destructor causes the condition set ids to be removed
   // from url_matcher_.
@@ -154,7 +153,7 @@ std::set<EventFilter::MatcherID> EventFilter::MatchEvent(
       continue;
     }
     MatcherID id = matcher_id->second;
-    EventMatcherMap::const_iterator matcher_entry = matcher_map.find(id);
+    auto matcher_entry = matcher_map.find(id);
     if (matcher_entry == matcher_map.end()) {
       // Matcher must be for a different event.
       continue;
@@ -177,7 +176,7 @@ std::set<EventFilter::MatcherID> EventFilter::MatchEvent(
 
 int EventFilter::GetMatcherCountForEventForTesting(
     const std::string& name) const {
-  EventMatcherMultiMap::const_iterator it = event_matchers_.find(name);
+  auto it = event_matchers_.find(name);
   return it != event_matchers_.end() ? it->second.size() : 0;
 }
 

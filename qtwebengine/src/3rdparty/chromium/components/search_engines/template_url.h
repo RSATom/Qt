@@ -5,8 +5,7 @@
 #ifndef COMPONENTS_SEARCH_ENGINES_TEMPLATE_URL_H_
 #define COMPONENTS_SEARCH_ENGINES_TEMPLATE_URL_H_
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -15,11 +14,11 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/time/time.h"
-#include "components/metrics/proto/omnibox_event.pb.h"
-#include "components/metrics/proto/omnibox_input_type.pb.h"
 #include "components/search_engines/search_engine_type.h"
 #include "components/search_engines/template_url_data.h"
 #include "components/search_engines/template_url_id.h"
+#include "third_party/metrics_proto/omnibox_event.pb.h"
+#include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 #include "url/third_party/mozilla/url_parse.h"
@@ -55,7 +54,6 @@ class TemplateURLRef {
   enum Type {
     SEARCH,
     SUGGEST,
-    INSTANT,
     IMAGE,
     NEW_TAB,
     CONTEXTUAL_SEARCH,
@@ -81,14 +79,29 @@ class TemplateURLRef {
       ContextualSearchParams();
       // Modern constructor, used when the content is sent in the HTTP header
       // instead of as CGI parameters.
+      // The |version| tell the server which version of the client is making
+      // this request.
+      // The |contextual_cards_version| tells the server which version of
+      // contextual cards integration is being used by the client.
       // The |home_country| is an ISO country code for the country that the user
       // considers their permanent home (which may be different from the country
       // they are currently visiting).  Pass an empty string if none available.
+      // The |previous_event_id| is an identifier previously returned by the
+      // server to identify that user interaction.
+      // The |previous_event_results| are the results of the user-interaction of
+      // that previous request.
+      // The "previous_xyz" parameters are documented in go/cs-sanitized.
       ContextualSearchParams(int version,
                              int contextual_cards_version,
-                             const std::string& home_country);
+                             const std::string& home_country,
+                             int64_t previous_event_id,
+                             int previous_event_results);
       ContextualSearchParams(const ContextualSearchParams& other);
       ~ContextualSearchParams();
+
+      // Estimates dynamic memory usage.
+      // See base/trace_event/memory_usage_estimator.h for more info.
+      size_t EstimateMemoryUsage() const;
 
       // The version of contextual search.
       int version;
@@ -101,7 +114,19 @@ class TemplateURLRef {
       // or an empty string if not available.  This indicates where the user
       // resides, not where they currently are.
       std::string home_country;
+
+      // An EventID from a previous interaction (sent by server, recorded by
+      // client).
+      int64_t previous_event_id;
+
+      // An encoded set of booleans that represent the interaction results from
+      // the previous event.
+      int previous_event_results;
     };
+
+    // Estimates dynamic memory usage.
+    // See base/trace_event/memory_usage_estimator.h for more info.
+    size_t EstimateMemoryUsage() const;
 
     // The search terms (query).
     base::string16 search_terms;
@@ -110,7 +135,7 @@ class TemplateURLRef {
     base::string16 original_query;
 
     // The type the original input query was identified as.
-    metrics::OmniboxInputType::Type input_type;
+    metrics::OmniboxInputType input_type;
 
     // The optional assisted query stats, aka AQS, used for logging purposes.
     // This string contains impressions of all autocomplete matches shown
@@ -141,17 +166,17 @@ class TemplateURLRef {
     std::string prefetch_query;
     std::string prefetch_query_type;
 
-    // Additional query params provided by the suggest server.
-    std::string suggest_query_params;
+    // Additional query params to append to the request.
+    std::string additional_query_params;
 
     // If set, ReplaceSearchTerms() will automatically append any extra query
     // params specified via the --extra-search-query-params command-line
-    // argument.  Generally, this should be set when dealing with the search or
-    // instant TemplateURLRefs of the default search engine and the caller cares
+    // argument.  Generally, this should be set when dealing with the search
+    // TemplateURLRefs of the default search engine and the caller cares
     // about the query portion of the URL.  Since neither TemplateURLRef nor
     // indeed TemplateURL know whether a TemplateURL is the default search
     // engine, callers instead must set this manually.
-    bool append_extra_query_params;
+    bool append_extra_query_params_from_command_line;
 
     // The raw content of an image thumbnail that will be used as a query for
     // search-by-image frontend.
@@ -163,12 +188,6 @@ class TemplateURLRef {
 
     // When searching for an image, the original size of the image.
     gfx::Size image_original_size;
-
-    // If set, ReplaceSearchTerms() will append a param to the TemplateURLRef to
-    // update the search results page incrementally even if that is otherwise
-    // disabled by google.com preferences. See comments on
-    // chrome::ForceInstantResultsParam().
-    bool force_instant_results;
 
     // True if the search was made using the app list search box. Otherwise, the
     // search was made using the omnibox.
@@ -230,7 +249,7 @@ class TemplateURLRef {
   // If this TemplateURLRef is valid and contains one search term, this returns
   // the host/path of the URL, otherwise this returns an empty string.
   const std::string& GetHost(const SearchTermsData& search_terms_data) const;
-  const std::string& GetPath(const SearchTermsData& search_terms_data) const;
+  std::string GetPath(const SearchTermsData& search_terms_data) const;
 
   // If this TemplateURLRef is valid and contains one search term
   // in its query or ref, this returns the key of the search term,
@@ -281,6 +300,10 @@ class TemplateURLRef {
   // Whether the URL uses POST (as opposed to GET).
   bool UsesPOSTMethod(const SearchTermsData& search_terms_data) const;
 
+  // Estimates dynamic memory usage.
+  // See base/trace_event/memory_usage_estimator.h for more info.
+  size_t EstimateMemoryUsage() const;
+
  private:
   friend class TemplateURL;
   friend class TemplateURLTest;
@@ -302,14 +325,12 @@ class TemplateURLRef {
     GOOGLE_BASE_SUGGEST_URL,
     GOOGLE_CURRENT_PAGE_URL,
     GOOGLE_CURSOR_POSITION,
-    GOOGLE_FORCE_INSTANT_RESULTS,
     GOOGLE_IMAGE_ORIGINAL_HEIGHT,
     GOOGLE_IMAGE_ORIGINAL_WIDTH,
     GOOGLE_IMAGE_SEARCH_SOURCE,
     GOOGLE_IMAGE_THUMBNAIL,
     GOOGLE_IMAGE_URL,
     GOOGLE_INPUT_TYPE,
-    GOOGLE_INSTANT_EXTENDED_ENABLED,
     GOOGLE_IOS_SEARCH_LANGUAGE,
     GOOGLE_NTP_IS_THEMED,
     GOOGLE_CONTEXTUAL_SEARCH_VERSION,
@@ -326,6 +347,7 @@ class TemplateURLRef {
     GOOGLE_SUGGEST_REQUEST_ID,
     GOOGLE_UNESCAPED_SEARCH_TERMS,
     LANGUAGE,
+    MAIL_RU_REFERRAL_ID,
     SEARCH_TERMS,
     YANDEX_REFERRAL_ID,
   };
@@ -347,6 +369,10 @@ class TemplateURLRef {
     std::string name;
     std::string value;
     std::string content_type;
+
+    // Estimates dynamic memory usage.
+    // See base/trace_event/memory_usage_estimator.h for more info.
+    size_t EstimateMemoryUsage() const;
   };
 
   // The list of elements to replace.
@@ -389,6 +415,18 @@ class TemplateURLRef {
   // search_offset_.
   void ParseIfNecessary(const SearchTermsData& search_terms_data) const;
 
+  // Parses a wildcard out of |path|, putting the parsed path in |path_prefix_|
+  // and |path_suffix_| and setting |path_wildcard_present_| to true.
+  // In the absence of a wildcard, the full path will be contained in
+  // |path_prefix_| and |path_wildcard_present_| will be false.
+  void ParsePath(const std::string& path) const;
+
+  // Returns whether the path portion of this template URL is equal to the path
+  // in |url|, checking that URL is prefixed/suffixed by
+  // |path_prefix_|/|path_suffix_| if |path_wildcard_present_| is true, or equal
+  // to |path_prefix_| otherwise.
+  bool PathIsEqual(const GURL& url) const;
+
   // Extracts the query key and host from the url.
   void ParseHostAndSearchTermKey(
       const SearchTermsData& search_terms_data) const;
@@ -424,39 +462,44 @@ class TemplateURLRef {
 
   // If |type_| is |INDEXED|, this |index_in_owner_| is used instead to refer to
   // a url within our owner.
-  size_t index_in_owner_;
+  size_t index_in_owner_ = 0;
 
   // Whether the URL has been parsed.
-  mutable bool parsed_;
+  mutable bool parsed_ = false;
 
   // Whether the url was successfully parsed.
-  mutable bool valid_;
+  mutable bool valid_ = false;
 
   // The parsed URL. All terms have been stripped out of this with
   // replacements_ giving the index of the terms to replace.
   mutable std::string parsed_url_;
 
   // Do we support search term replacement?
-  mutable bool supports_replacements_;
+  mutable bool supports_replacements_ = false;
 
   // The replaceable parts of url (parsed_url_). These are ordered by index
   // into the string, and may be empty.
   mutable Replacements replacements_;
 
+  // Whether the path contains a wildcard.
+  mutable bool path_wildcard_present_ = false;
+
   // Host, port, path, key and location of the search term. These are only set
   // if the url contains one search term.
   mutable std::string host_;
   mutable std::string port_;
-  mutable std::string path_;
+  mutable std::string path_prefix_;
+  mutable std::string path_suffix_;
   mutable std::string search_term_key_;
-  mutable url::Parsed::ComponentType search_term_key_location_;
+  mutable url::Parsed::ComponentType search_term_key_location_ =
+      url::Parsed::QUERY;
   mutable std::string search_term_value_prefix_;
   mutable std::string search_term_value_suffix_;
 
   mutable PostParams post_params_;
 
   // Whether the contained URL is a pre-populated URL.
-  bool prepopulated_;
+  bool prepopulated_ = false;
 };
 
 
@@ -474,6 +517,9 @@ class TemplateURLRef {
 // is made a friend so that it can be the exception to this pattern.
 class TemplateURL {
  public:
+  using TemplateURLVector = std::vector<TemplateURL*>;
+  using OwnedTemplateURLVector = std::vector<std::unique_ptr<TemplateURL>>;
+
   enum Type {
     // Regular search engine.
     NORMAL,
@@ -492,6 +538,10 @@ class TemplateURL {
                             base::Time install_time,
                             bool wants_to_be_default_engine);
     ~AssociatedExtensionInfo();
+
+    // Estimates dynamic memory usage.
+    // See base/trace_event/memory_usage_estimator.h for more info.
+    size_t EstimateMemoryUsage() const;
 
     std::string extension_id;
 
@@ -529,11 +579,6 @@ class TemplateURL {
                           const TemplateURLData* data,
                           const SearchTermsData& search_terms_data);
 
-  // Special case for search_terms_replacement_key comparison, because of
-  // its special initialization in TemplateURL constructor.
-  static bool SearchTermsReplacementKeysMatch(const std::string& key1,
-                                              const std::string& key2);
-
   const TemplateURLData& data() const { return data_; }
 
   const base::string16& short_name() const { return data_.short_name(); }
@@ -545,7 +590,6 @@ class TemplateURL {
 
   const std::string& url() const { return data_.url(); }
   const std::string& suggestions_url() const { return data_.suggestions_url; }
-  const std::string& instant_url() const { return data_.instant_url; }
   const std::string& image_url() const { return data_.image_url; }
   const std::string& new_tab_url() const { return data_.new_tab_url; }
   const std::string& contextual_search_url() const {
@@ -557,9 +601,6 @@ class TemplateURL {
   const std::string& suggestions_url_post_params() const {
     return data_.suggestions_url_post_params;
   }
-  const std::string& instant_url_post_params() const {
-    return data_.instant_url_post_params;
-  }
   const std::string& image_url_post_params() const {
     return data_.image_url_post_params;
   }
@@ -569,6 +610,8 @@ class TemplateURL {
   const GURL& favicon_url() const { return data_.favicon_url; }
 
   const GURL& logo_url() const { return data_.logo_url; }
+
+  const GURL& doodle_url() const { return data_.doodle_url; }
 
   const GURL& originating_url() const { return data_.originating_url; }
 
@@ -592,17 +635,15 @@ class TemplateURL {
 
   const std::string& sync_guid() const { return data_.sync_guid; }
 
-  // TODO(beaudoin): Rename this when renaming HasSearchTermsReplacementKey().
-  const std::string& search_terms_replacement_key() const {
-    return data_.search_terms_replacement_key;
-  }
-
   const std::vector<TemplateURLRef>& url_refs() const { return url_refs_; }
-  const TemplateURLRef& url_ref() const { return *url_ref_; }
+  const TemplateURLRef& url_ref() const {
+    // Sanity check for https://crbug.com/781703.
+    CHECK(!url_refs_.empty());
+    return url_refs_.back();
+  }
   const TemplateURLRef& suggestions_url_ref() const {
     return suggestions_url_ref_;
   }
-  const TemplateURLRef& instant_url_ref() const { return instant_url_ref_; }
   const TemplateURLRef& image_url_ref() const { return image_url_ref_; }
   const TemplateURLRef& new_tab_url_ref() const { return new_tab_url_ref_; }
   const TemplateURLRef& contextual_search_url_ref() const {
@@ -645,13 +686,8 @@ class TemplateURL {
 
   // Use the alternate URLs and the search URL to match the provided |url|
   // and extract |search_terms| from it. Returns false and an empty
-  // |search_terms| if no search terms can be matched. The order in which the
-  // alternate URLs are listed dictates their priority, the URL at index 0 is
-  // treated as the highest priority and the primary search URL is treated as
-  // the lowest priority. For example, if a TemplateURL has alternate URL
-  // "http://foo/#q={searchTerms}" and search URL "http://foo/?q={searchTerms}",
-  // and the URL to be decoded is "http://foo/?q=a#q=b", the alternate URL will
-  // match first and the decoded search term will be "b".
+  // |search_terms| if no search terms can be matched. The URLs are matched in
+  // the order listed in |url_refs_| (see comment there).
   bool ExtractSearchTermsFromURL(const GURL& url,
                                  const SearchTermsData& search_terms_data,
                                  base::string16* search_terms) const;
@@ -661,14 +697,6 @@ class TemplateURL {
   // could be the result of performing a search with |this|.
   bool IsSearchURL(const GURL& url,
                    const SearchTermsData& search_terms_data) const;
-
-  // Returns true if the specified |url| contains the search terms replacement
-  // key in either the query or the ref. This method does not verify anything
-  // else about the URL. In particular, it does not check that the domain
-  // matches that of this TemplateURL.
-  // TODO(beaudoin): Rename this to reflect that it really checks for an
-  // InstantExtended capable URL.
-  bool HasSearchTermsReplacementKey(const GURL& url) const;
 
   // Given a |url| corresponding to this TemplateURL, identifies the search
   // terms and replaces them with the ones in |search_terms_args|, leaving the
@@ -702,6 +730,10 @@ class TemplateURL {
   // it should be called after SearchTermsData has been changed.
   void InvalidateCachedValues() const;
 
+  // Estimates dynamic memory usage.
+  // See base/trace_event/memory_usage_estimator.h for more info.
+  size_t EstimateMemoryUsage() const;
+
  private:
   friend class TemplateURLService;
 
@@ -717,7 +749,8 @@ class TemplateURL {
   void ResetKeywordIfNecessary(const SearchTermsData& search_terms_data,
                                bool force);
 
-  // Resizes the |url_refs_| vector and sets |url_ref_| according to |data_|.
+  // Resizes the |url_refs_| vector, which always holds the search URL as the
+  // last item.
   void ResizeURLRefVector();
 
   // Uses the alternate URLs and the search URL to match the provided |url|
@@ -733,16 +766,16 @@ class TemplateURL {
   TemplateURLData data_;
 
   // Contains TemplateURLRefs corresponding to the alternate URLs and the search
-  // URL. This vector must not be resized except by ResizeURLRefVector() to keep
-  // the |url_ref_| pointer correct.
+  // URL, in priority order: the URL at index 0 is treated as the highest
+  // priority and the primary search URL is treated as the lowest priority.  For
+  // example, if a TemplateURL has alternate URL "http://foo/#q={searchTerms}"
+  // and search URL "http://foo/?q={searchTerms}", and the URL to be decoded is
+  // "http://foo/?q=a#q=b", the alternate URL will match first and the decoded
+  // search term will be "b".  Note that since every TemplateURLRef has a
+  // primary search URL, this vector is never empty.
   std::vector<TemplateURLRef> url_refs_;
 
-  // Points to the TemplateURLRef in |url_refs_| which corresponds to the search
-  // URL.
-  TemplateURLRef* url_ref_;
-
   TemplateURLRef suggestions_url_ref_;
-  TemplateURLRef instant_url_ref_;
   TemplateURLRef image_url_ref_;
   TemplateURLRef new_tab_url_ref_;
   TemplateURLRef contextual_search_url_ref_;

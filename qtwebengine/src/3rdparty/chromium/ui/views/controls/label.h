@@ -5,6 +5,8 @@
 #ifndef UI_VIEWS_CONTROLS_LABEL_H_
 #define UI_VIEWS_CONTROLS_LABEL_H_
 
+#include <memory>
+
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -64,13 +66,13 @@ class VIEWS_EXPORT Label : public View,
   static const gfx::FontList& GetDefaultFontList();
 
   // Gets or sets the fonts used by this label.
-  const gfx::FontList& font_list() const { return render_text_->font_list(); }
+  const gfx::FontList& font_list() const { return full_text_->font_list(); }
 
   // TODO(tapted): Replace this with a private method, e.g., OnFontChanged().
   virtual void SetFontList(const gfx::FontList& font_list);
 
   // Get or set the label text.
-  const base::string16& text() const { return render_text_->text(); }
+  const base::string16& text() const { return full_text_->text(); }
   virtual void SetText(const base::string16& text);
 
   // Where the label appears in the UI. Passed in from the constructor. This is
@@ -79,8 +81,9 @@ class VIEWS_EXPORT Label : public View,
 
   // Enables or disables auto-color-readability (enabled by default).  If this
   // is enabled, then calls to set any foreground or background color will
-  // trigger an automatic mapper that uses color_utils::GetReadableColor() to
-  // ensure that the foreground colors are readable over the background color.
+  // trigger an automatic mapper that uses
+  // color_utils::GetColorWithMinimumContrast() to ensure that the foreground
+  // colors are readable over the background color.
   void SetAutoColorReadabilityEnabled(bool enabled);
 
   // Sets the color.  This will automatically force the color to be readable
@@ -108,7 +111,7 @@ class VIEWS_EXPORT Label : public View,
 
   // Set drop shadows underneath the text.
   void SetShadows(const gfx::ShadowValues& shadows);
-  const gfx::ShadowValues& shadows() const { return render_text_->shadows(); }
+  const gfx::ShadowValues& shadows() const { return full_text_->shadows(); }
 
   // Sets whether subpixel rendering is used; the default is true, but this
   // feature also requires an opaque background color.
@@ -119,22 +122,27 @@ class VIEWS_EXPORT Label : public View,
   // Sets the horizontal alignment; the argument value is mirrored in RTL UI.
   void SetHorizontalAlignment(gfx::HorizontalAlignment alignment);
   gfx::HorizontalAlignment horizontal_alignment() const {
-    return render_text_->horizontal_alignment();
+    return full_text_->horizontal_alignment();
   }
 
   // Get or set the distance in pixels between baselines of multi-line text.
   // Default is 0, indicating the distance between lines should be the standard
   // one for the label's text, font list, and platform.
-  int line_height() const { return render_text_->min_line_height(); }
+  int line_height() const { return full_text_->min_line_height(); }
   void SetLineHeight(int height);
 
   // Get or set if the label text can wrap on multiple lines; default is false.
   bool multi_line() const { return multi_line_; }
   void SetMultiLine(bool multi_line);
 
+  // If multi-line, a non-zero value will cap the number of lines rendered, and
+  // elide the rest (currently only ELIDE_TAIL supported). See gfx::RenderText.
+  int max_lines() const { return max_lines_; }
+  void SetMaxLines(int max_lines);
+
   // Get or set if the label text should be obscured before rendering (e.g.
   // should "Password!" display as "*********"); default is false.
-  bool obscured() const { return render_text_->obscured(); }
+  bool obscured() const { return full_text_->obscured(); }
   void SetObscured(bool obscured);
 
   // Sets whether multi-line text can wrap mid-word; the default is false.
@@ -220,15 +228,14 @@ class VIEWS_EXPORT Label : public View,
 
  protected:
   // Create a single RenderText instance to actually be painted.
-  virtual std::unique_ptr<gfx::RenderText> CreateRenderText(
-      const base::string16& text,
-      gfx::HorizontalAlignment alignment,
-      gfx::DirectionalityMode directionality,
-      gfx::ElideBehavior elide_behavior) const;
+  virtual std::unique_ptr<gfx::RenderText> CreateRenderText() const;
 
   // Draw a focus ring. The default implementation does nothing.
   virtual void PaintFocusRing(gfx::Canvas* canvas) const;
-  gfx::Rect GetFocusRingBounds() const;
+
+  // Returns the preferred size and position of the text in local coordinates,
+  // which may exceed the local bounds of the label.
+  gfx::Rect GetTextBounds() const;
 
   void PaintText(gfx::Canvas* canvas);
 
@@ -236,7 +243,8 @@ class VIEWS_EXPORT Label : public View,
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   void VisibilityChanged(View* starting_from, bool is_visible) override;
   void OnPaint(gfx::Canvas* canvas) override;
-  void OnDeviceScaleFactorChanged(float device_scale_factor) override;
+  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                  float new_device_scale_factor) override;
   void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
   gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override;
   void OnFocus() override;
@@ -254,7 +262,7 @@ class VIEWS_EXPORT Label : public View,
   FRIEND_TEST_ALL_PREFIXES(LabelTest, MultilineSupportedRenderText);
   FRIEND_TEST_ALL_PREFIXES(LabelTest, TextChangeWithoutLayout);
   FRIEND_TEST_ALL_PREFIXES(LabelTest, EmptyLabel);
-  FRIEND_TEST_ALL_PREFIXES(MDLabelTest, FocusBounds);
+  FRIEND_TEST_ALL_PREFIXES(LabelTest, FocusBounds);
   FRIEND_TEST_ALL_PREFIXES(LabelTest, MultiLineSizingWithElide);
   friend class LabelSelectionTest;
 
@@ -264,9 +272,12 @@ class VIEWS_EXPORT Label : public View,
                               ui::MenuSourceType source_type) override;
 
   // WordLookupClient overrides:
-  bool GetDecoratedWordAtPoint(const gfx::Point& point,
-                               gfx::DecoratedText* decorated_word,
-                               gfx::Point* baseline_point) override;
+  bool GetWordLookupDataAtPoint(const gfx::Point& point,
+                                gfx::DecoratedText* decorated_word,
+                                gfx::Point* baseline_point) override;
+
+  bool GetWordLookupDataFromSelection(gfx::DecoratedText* decorated_text,
+                                      gfx::Point* baseline_point) override;
 
   // SelectionControllerDelegate overrides:
   gfx::RenderText* GetRenderTextForSelectionController() override;
@@ -295,19 +306,20 @@ class VIEWS_EXPORT Label : public View,
 
   void ResetLayout();
 
-  // Set up |lines_| to actually be painted.
-  void MaybeBuildRenderTextLines() const;
-
-  // Get the text broken into lines as needed to fit the given |width|.
-  std::vector<base::string16> GetLinesForWidth(int width) const;
+  // Set up |display_text_| to actually be painted.
+  void MaybeBuildDisplayText() const;
 
   // Get the text size for the current layout.
   gfx::Size GetTextSize() const;
 
+  // Returns the appropriate foreground color to use given the proposed
+  // |foreground| and |background| colors.
+  SkColor GetForegroundColor(SkColor foreground, SkColor background) const;
+
   // Updates text and selection colors from requested colors.
   void RecalculateColors();
 
-  // Applies the foreground color to |lines_|.
+  // Applies the foreground color to |display_text_|.
   void ApplyTextColors() const;
 
   // Updates any colors that have not been explicitly set from the theme.
@@ -315,8 +327,8 @@ class VIEWS_EXPORT Label : public View,
 
   bool ShouldShowDefaultTooltip() const;
 
-  // Empties |lines_| and updates |stored_selection_range_|.
-  void ClearRenderTextLines() const;
+  // Clears |display_text_| and updates |stored_selection_range_|.
+  void ClearDisplayText() const;
 
   // Returns the currently selected text.
   base::string16 GetSelectedText() const;
@@ -330,14 +342,14 @@ class VIEWS_EXPORT Label : public View,
   const int text_context_;
 
   // An un-elided and single-line RenderText object used for preferred sizing.
-  std::unique_ptr<gfx::RenderText> render_text_;
+  std::unique_ptr<gfx::RenderText> full_text_;
 
-  // The RenderText instances used to display elided and multi-line text.
-  mutable std::vector<std::unique_ptr<gfx::RenderText>> lines_;
+  // The RenderText instance used for drawing.
+  mutable std::unique_ptr<gfx::RenderText> display_text_;
 
   // Persists the current selection range between the calls to
-  // ClearRenderTextLines() and MaybeBuildRenderTextLines(). Holds an
-  // InvalidRange when not in use.
+  // ClearDisplayText() and MaybeBuildDisplayText(). Holds an InvalidRange when
+  // not in use.
   mutable gfx::Range stored_selection_range_;
 
   SkColor requested_enabled_color_ = SK_ColorRED;
@@ -359,16 +371,13 @@ class VIEWS_EXPORT Label : public View,
   bool auto_color_readability_;
   // TODO(mukai): remove |multi_line_| when all RenderText can render multiline.
   bool multi_line_;
+  int max_lines_;
   base::string16 tooltip_text_;
   bool handles_tooltips_;
   // Whether to collapse the label when it's not visible.
   bool collapse_when_hidden_;
   int fixed_width_;
   int max_width_;
-
-  // TODO(ckocagil): Remove is_first_paint_text_ before crbug.com/441028 is
-  // closed.
-  bool is_first_paint_text_;
 
   std::unique_ptr<SelectionController> selection_controller_;
 

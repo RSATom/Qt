@@ -61,6 +61,8 @@ public:
   public:
     const_iterator () {}
 
+    const_iterator (const typename _Base::iterator &it):
+      _M_iterator (typename _Base::const_iterator(it)) {}
     const_iterator (const typename _Base::const_iterator &it):
       _M_iterator (it) {}
 
@@ -501,9 +503,8 @@ QTextStream &operator << (QTextStream &out, const Item &item);
 QTextStream &operator << (QTextStream &out, const NameSet &ns);
 
 QT_BEGIN_NAMESPACE
-// ... hmm
-extern QTextStream qerr;
-extern QTextStream qout;
+QTextStream &qerr();
+QTextStream &qout();
 QT_END_NAMESPACE
 
 #endif // LALR_H

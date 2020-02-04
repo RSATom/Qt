@@ -6,8 +6,7 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/synchronization/lock.h"
+#include "base/metrics/histogram_functions.h"
 #include "media/base/container_names.h"
 #include "media/ffmpeg/ffmpeg_common.h"
 
@@ -64,40 +63,15 @@ static int64_t AVIOSeekOperation(void* opaque, int64_t offset, int whence) {
   return new_offset;
 }
 
-static int LockManagerOperation(void** lock, enum AVLockOp op) {
-  switch (op) {
-    case AV_LOCK_CREATE:
-      *lock = new base::Lock();
-      return 0;
-
-    case AV_LOCK_OBTAIN:
-      static_cast<base::Lock*>(*lock)->Acquire();
-      return 0;
-
-    case AV_LOCK_RELEASE:
-      static_cast<base::Lock*>(*lock)->Release();
-      return 0;
-
-    case AV_LOCK_DESTROY:
-      delete static_cast<base::Lock*>(*lock);
-      *lock = nullptr;
-      return 0;
-  }
-  return 1;
+void FFmpegGlue::InitializeFFmpeg() {
+  av_register_all();
 }
 
-void FFmpegGlue::InitializeFFmpeg() {
-  static bool initialized = []() {
-    // Register our protocol glue code with FFmpeg.
-    if (av_lockmgr_register(&LockManagerOperation) != 0)
-      return false;
-
-    // Now register the rest of FFmpeg.
-    av_register_all();
-    return true;
-  }();
-
-  CHECK(initialized);
+static void LogContainer(bool is_local_file,
+                         container_names::MediaContainerName container) {
+  base::UmaHistogramSparse("Media.DetectedContainer", container);
+  if (is_local_file)
+    base::UmaHistogramSparse("Media.DetectedContainer.Local", container);
 }
 
 FFmpegGlue::FFmpegGlue(FFmpegURLProtocol* protocol) {
@@ -126,27 +100,27 @@ FFmpegGlue::FFmpegGlue(FFmpegURLProtocol* protocol) {
   // Enable fast, but inaccurate seeks for MP3.
   format_context_->flags |= AVFMT_FLAG_FAST_SEEK;
 
+  // Ensures we can read out various metadata bits like vp8 alpha.
+  format_context_->flags |= AVFMT_FLAG_KEEP_SIDE_DATA;
+
+  // Ensures format parsing errors will bail out. From an audit on 11/2017, all
+  // instances were real failures. Solves bugs like http://crbug.com/710791.
+  format_context_->error_recognition |= AV_EF_EXPLODE;
+
   format_context_->pb = avio_context_.get();
 }
 
-bool FFmpegGlue::OpenContext() {
+bool FFmpegGlue::OpenContext(bool is_local_file) {
   DCHECK(!open_called_) << "OpenContext() shouldn't be called twice.";
 
   // If avformat_open_input() is called we have to take a slightly different
   // destruction path to avoid double frees.
   open_called_ = true;
 
-  // Pass "advanced_editlist=0" in the demuxer options.
-  // TODO(jrummell): Remove this when we support post-decode discard.
-  // https://crbug.com/723537.
-  AVDictionary* dict = nullptr;
-  av_dict_set(&dict, "advanced_editlist", "0", 0);
-
   // By passing nullptr for the filename (second parameter) we are telling
   // FFmpeg to use the AVIO context we setup from the AVFormatContext structure.
   const int ret =
-      avformat_open_input(&format_context_, nullptr, nullptr, &dict);
-  av_dict_free(&dict);
+      avformat_open_input(&format_context_, nullptr, nullptr, nullptr);
 
   // If FFmpeg can't identify the file, read the first 8k and attempt to guess
   // at the container type ourselves. This way we can track emergent formats.
@@ -164,7 +138,10 @@ bool FFmpegGlue::OpenContext() {
       return false;
 
     container_ = container_names::DetermineContainer(buffer.data(), num_read);
-    UMA_HISTOGRAM_SPARSE_SLOWLY("Media.DetectedContainer", container_);
+    LogContainer(is_local_file, container_);
+
+    detected_hls_ =
+        container_ == container_names::MediaContainerName::CONTAINER_HLS;
     return false;
   } else if (ret < 0) {
     return false;
@@ -191,7 +168,7 @@ bool FFmpegGlue::OpenContext() {
     container_ = container_names::CONTAINER_AVI;
 
   DCHECK_NE(container_, container_names::CONTAINER_UNKNOWN);
-  UMA_HISTOGRAM_SPARSE_SLOWLY("Media.DetectedContainer", container_);
+  LogContainer(is_local_file, container_);
 
   return true;
 }

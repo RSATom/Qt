@@ -10,23 +10,20 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CBC_ReedSolomonGF256;
 
 class CBC_ReedSolomonGF256Poly final {
  public:
-  CBC_ReedSolomonGF256Poly(CBC_ReedSolomonGF256* field, int32_t coefficients);
-  CBC_ReedSolomonGF256Poly();
+  CBC_ReedSolomonGF256Poly(CBC_ReedSolomonGF256* field,
+                           const std::vector<int32_t>& coefficients);
   ~CBC_ReedSolomonGF256Poly();
-  bool Init(CBC_ReedSolomonGF256* field,
-            const std::vector<int32_t>* coefficients);
 
   int32_t GetCoefficients(int32_t degree) const;
   const std::vector<int32_t>& GetCoefficients() const;
   int32_t GetDegree() const;
   bool IsZero() const;
-  int32_t EvaluateAt(int32_t a);
   std::unique_ptr<CBC_ReedSolomonGF256Poly> AddOrSubtract(
       const CBC_ReedSolomonGF256Poly* other);
   std::unique_ptr<CBC_ReedSolomonGF256Poly> Multiply(
@@ -40,7 +37,7 @@ class CBC_ReedSolomonGF256Poly final {
   std::unique_ptr<CBC_ReedSolomonGF256Poly> Clone() const;
 
  private:
-  CFX_UnownedPtr<CBC_ReedSolomonGF256> m_field;
+  UnownedPtr<CBC_ReedSolomonGF256> const m_field;
   std::vector<int32_t> m_coefficients;
 };
 

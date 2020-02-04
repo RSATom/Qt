@@ -76,7 +76,7 @@ public:
 
     void cleanup();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     void setChannelName(const QString &channelName) { m_channelName = channelName; }
     QString channelName() const { return m_channelName; }
@@ -84,14 +84,14 @@ public:
     void setTargetId(Qt3DCore::QNodeId targetId) { m_targetId = targetId; }
     Qt3DCore::QNodeId targetId() const { return m_targetId; }
 
-    void setProperty(const QString &property) { m_property = property; }
-    QString property() const { return m_property; }
-
     void setType(int type) { m_type = type; }
     int type() const { return m_type; }
 
     void setPropertyName(const char *propertyName) { m_propertyName = propertyName; }
     const char *propertyName() const { return m_propertyName; }
+
+    void setComponentCount(int componentCount) { m_componentCount = componentCount; }
+    int componentCount() const { return m_componentCount; }
 
     void setCallback(QAnimationCallback *callback) { m_callback = callback; }
     QAnimationCallback *callback() const { return m_callback; }
@@ -107,13 +107,13 @@ public:
     MappingType mappingType() const { return m_mappingType; }
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     // Properties from QChannelMapping
     QString m_channelName;
     Qt3DCore::QNodeId m_targetId;
-    QString m_property;
     int m_type;
+    int m_componentCount;
     const char *m_propertyName;
 
     // TODO: Properties from QCallbackMapping

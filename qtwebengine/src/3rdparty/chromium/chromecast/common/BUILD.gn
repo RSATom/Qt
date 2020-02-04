@@ -2,9 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//chromecast/chromecast.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 
-source_set("common") {
+cast_source_set("common") {
   sources = [
     "cast_content_client.cc",
     "cast_content_client.h",
@@ -15,6 +16,7 @@ source_set("common") {
 
   deps = [
     "//base",
+    "//chromecast:chromecast_buildflags",
     "//chromecast/base",
     "//chromecast/base:cast_version",
     "//chromecast/common/media",
@@ -23,12 +25,31 @@ source_set("common") {
     "//ui/gfx",
     "//url:url",
   ]
-}
 
-if (!is_android) {
-  mojom("interfaces") {
-    sources = [
-      "memory_pressure.mojom",
+  if (enable_chromecast_extensions) {
+    sources += [
+      "cast_extensions_api_provider.cc",
+      "cast_extensions_api_provider.h",
+      "cast_extensions_client.cc",
+      "cast_extensions_client.h",
+      "cast_redirect_manifest_handler.cc",
+      "cast_redirect_manifest_handler.h",
+      "extensions_api/cast_api_permissions.cc",
+      "extensions_api/cast_api_permissions.h",
+      "extensions_api/cast_extension_messages.cc",
+      "extensions_api/cast_extension_messages.h",
+    ]
+
+    deps += [
+      "//chromecast/common/extensions_api:api",
+      "//chromecast/common/extensions_api:extensions_features",
+      "//components/version_info",
+      "//extensions:extensions_resources_grd_grit",
+      "//extensions/common",
+      "//extensions/common:core_api_provider",
+      "//extensions/common/api",
+      "//extensions/shell:resources",
+      "//extensions/shell:resources_grit",
     ]
   }
 }

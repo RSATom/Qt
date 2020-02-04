@@ -15,10 +15,11 @@
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
-#include "base/macros.h"
+#include "base/files/scoped_file.h"
 #include "base/memory/ptr_util.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/event.h"
@@ -29,6 +30,7 @@
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/events/platform/platform_event_source.h"
+#include "ui/events/test/scoped_event_test_tick_clock.h"
 
 namespace {
 
@@ -49,8 +51,9 @@ const ui::DeviceAbsoluteAxis kWacomIntuos5SPenAbsAxes[] = {
 };
 
 const ui::DeviceCapabilities kWacomIntuos5SPen = {
-    /* path */ "/sys/devices/pci0000:00/0000:00:14.0/usb1/"
-               "1-1/1-1:1.0/input/input19/event5",
+    /* path */
+    "/sys/devices/pci0000:00/0000:00:14.0/usb1/"
+    "1-1/1-1:1.0/input/input19/event5",
     /* name */ "Wacom Intuos5 touch S Pen",
     /* phys */ "",
     /* uniq */ "",
@@ -68,9 +71,8 @@ const ui::DeviceCapabilities kWacomIntuos5SPen = {
     /* led */ "0",
     /* ff */ "0",
     kWacomIntuos5SPenAbsAxes,
-    arraysize(kWacomIntuos5SPenAbsAxes),
+    base::size(kWacomIntuos5SPenAbsAxes),
 };
-
 
 const ui::DeviceAbsoluteAxis EpsonBrightLink1430AbsAxes[] = {
     {ABS_X, {0, 0, 32767, 0, 0, 200}},
@@ -81,9 +83,10 @@ const ui::DeviceAbsoluteAxis EpsonBrightLink1430AbsAxes[] = {
 };
 
 const ui::DeviceCapabilities EpsonBrightLink1430 = {
-    /* path */ "/sys/devices/ff580000.usb/usb3/3-1/"
-               "3-1.1/3-1.1.3/3-1.1.3:1.1/0003:04B8:061B.0006/"
-               "input/input12/event6",
+    /* path */
+    "/sys/devices/ff580000.usb/usb3/3-1/"
+    "3-1.1/3-1.1.3/3-1.1.3:1.1/0003:04B8:061B.0006/"
+    "input/input12/event6",
     /* name */ "EPSON EPSON EPSON 1430",
     /* phys */ "USB-ff580000.USB-1.1.3/input1",
     /* uniq */ "2.04",
@@ -101,7 +104,7 @@ const ui::DeviceCapabilities EpsonBrightLink1430 = {
     /* led */ "0",
     /* ff */ "0",
     EpsonBrightLink1430AbsAxes,
-    arraysize(EpsonBrightLink1430AbsAxes),
+    base::size(EpsonBrightLink1430AbsAxes),
 };
 
 }  // namespace
@@ -110,7 +113,7 @@ namespace ui {
 
 class MockTabletEventConverterEvdev : public TabletEventConverterEvdev {
  public:
-  MockTabletEventConverterEvdev(ScopedInputDevice fd,
+  MockTabletEventConverterEvdev(base::ScopedFD fd,
                                 base::FilePath path,
                                 CursorDelegateEvdev* cursor,
                                 const EventDeviceInfo& devinfo,
@@ -163,7 +166,7 @@ class MockTabletCursorEvdev : public CursorDelegateEvdev {
 };
 
 MockTabletEventConverterEvdev::MockTabletEventConverterEvdev(
-    ScopedInputDevice fd,
+    base::ScopedFD fd,
     base::FilePath path,
     CursorDelegateEvdev* cursor,
     const EventDeviceInfo& devinfo,
@@ -210,10 +213,13 @@ class TabletEventConverterEvdevTest : public testing::Test {
     event_factory_ = ui::CreateEventFactoryEvdevForTest(
         cursor_.get(), device_manager_.get(),
         ui::KeyboardLayoutEngineManager::GetKeyboardLayoutEngine(),
-        base::Bind(&TabletEventConverterEvdevTest::DispatchEventForTest,
-                   base::Unretained(this)));
+        base::BindRepeating(
+            &TabletEventConverterEvdevTest::DispatchEventForTest,
+            base::Unretained(this)));
     dispatcher_ =
         ui::CreateDeviceEventDispatcherEvdevForTest(event_factory_.get());
+
+    test_clock_.reset(new ui::test::ScopedEventTestTickClock());
   }
 
   void TearDown() override {
@@ -226,7 +232,7 @@ class TabletEventConverterEvdevTest : public testing::Test {
     int evdev_io[2];
     if (pipe(evdev_io))
       PLOG(FATAL) << "failed pipe";
-    ui::ScopedInputDevice events_in(evdev_io[0]);
+    base::ScopedFD events_in(evdev_io[0]);
     events_out_.reset(evdev_io[1]);
 
     ui::EventDeviceInfo devinfo;
@@ -256,10 +262,11 @@ class TabletEventConverterEvdevTest : public testing::Test {
   std::unique_ptr<ui::DeviceManager> device_manager_;
   std::unique_ptr<ui::EventFactoryEvdev> event_factory_;
   std::unique_ptr<ui::DeviceEventDispatcherEvdev> dispatcher_;
+  std::unique_ptr<ui::test::ScopedEventTestTickClock> test_clock_;
 
   std::vector<std::unique_ptr<ui::Event>> dispatched_events_;
 
-  ui::ScopedInputDevice events_out_;
+  base::ScopedFD events_out_;
 
   DISALLOW_COPY_AND_ASSIGN(TabletEventConverterEvdevTest);
 };
@@ -289,7 +296,7 @@ TEST_F(TabletEventConverterEvdevTest, MoveTopLeft) {
       {{0, 0}, EV_SYN, SYN_REPORT, 0},
   };
 
-  dev->ProcessEvents(mock_kernel_queue, arraysize(mock_kernel_queue));
+  dev->ProcessEvents(mock_kernel_queue, base::size(mock_kernel_queue));
   EXPECT_EQ(1u, size());
 
   ui::MouseEvent* event = dispatched_event(0);
@@ -323,7 +330,7 @@ TEST_F(TabletEventConverterEvdevTest, MoveTopRight) {
       {{0, 0}, EV_SYN, SYN_REPORT, 0},
   };
 
-  dev->ProcessEvents(mock_kernel_queue, arraysize(mock_kernel_queue));
+  dev->ProcessEvents(mock_kernel_queue, base::size(mock_kernel_queue));
   EXPECT_EQ(1u, size());
 
   ui::MouseEvent* event = dispatched_event(0);
@@ -358,7 +365,7 @@ TEST_F(TabletEventConverterEvdevTest, MoveBottomLeft) {
       {{0, 0}, EV_SYN, SYN_REPORT, 0},
   };
 
-  dev->ProcessEvents(mock_kernel_queue, arraysize(mock_kernel_queue));
+  dev->ProcessEvents(mock_kernel_queue, base::size(mock_kernel_queue));
   EXPECT_EQ(1u, size());
 
   ui::MouseEvent* event = dispatched_event(0);
@@ -394,7 +401,7 @@ TEST_F(TabletEventConverterEvdevTest, MoveBottomRight) {
       {{0, 0}, EV_SYN, SYN_REPORT, 0},
   };
 
-  dev->ProcessEvents(mock_kernel_queue, arraysize(mock_kernel_queue));
+  dev->ProcessEvents(mock_kernel_queue, base::size(mock_kernel_queue));
   EXPECT_EQ(1u, size());
 
   ui::MouseEvent* event = dispatched_event(0);
@@ -445,7 +452,7 @@ TEST_F(TabletEventConverterEvdevTest, Tap) {
       {{0, 0}, EV_SYN, SYN_REPORT, 0},
   };
 
-  dev->ProcessEvents(mock_kernel_queue, arraysize(mock_kernel_queue));
+  dev->ProcessEvents(mock_kernel_queue, base::size(mock_kernel_queue));
   EXPECT_EQ(3u, size());
 
   ui::MouseEvent* event = dispatched_event(0);
@@ -507,7 +514,7 @@ TEST_F(TabletEventConverterEvdevTest, StylusButtonPress) {
       {{0, 0}, EV_SYN, SYN_REPORT, 0},
   };
 
-  dev->ProcessEvents(mock_kernel_queue, arraysize(mock_kernel_queue));
+  dev->ProcessEvents(mock_kernel_queue, base::size(mock_kernel_queue));
   EXPECT_EQ(3u, size());
 
   ui::MouseEvent* event = dispatched_event(0);
@@ -531,7 +538,7 @@ TEST_F(TabletEventConverterEvdevTest, CheckStylusFiltering) {
       {{0, 0}, EV_SYN, SYN_REPORT, 0},
   };
 
-  dev->ProcessEvents(mock_kernel_queue, arraysize(mock_kernel_queue));
+  dev->ProcessEvents(mock_kernel_queue, base::size(mock_kernel_queue));
   EXPECT_EQ(0u, size());
 }
 
@@ -578,7 +585,7 @@ TEST_F(TabletEventConverterEvdevTest, DigitizerPenOneSideButtonPress) {
       {{0, 0}, EV_SYN, SYN_REPORT, 0},
   };
 
-  dev->ProcessEvents(mock_kernel_queue, arraysize(mock_kernel_queue));
+  dev->ProcessEvents(mock_kernel_queue, base::size(mock_kernel_queue));
   EXPECT_EQ(3u, size());
 
   ui::MouseEvent* event = dispatched_event(0);

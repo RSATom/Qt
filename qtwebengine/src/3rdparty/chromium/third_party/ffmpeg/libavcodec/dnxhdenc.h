@@ -74,9 +74,9 @@ typedef struct DNXHDEncContext {
     unsigned min_padding;
     int intra_quant_bias;
 
-    DECLARE_ALIGNED(16, int16_t, blocks)[12][64];
-    DECLARE_ALIGNED(16, uint8_t, edge_buf_y)[256];
-    DECLARE_ALIGNED(16, uint8_t, edge_buf_uv)[2][256];
+    DECLARE_ALIGNED(32, int16_t, blocks)[12][64];
+    DECLARE_ALIGNED(16, uint8_t, edge_buf_y)[512]; // has to hold 16x16 uint16 when depth=10
+    DECLARE_ALIGNED(16, uint8_t, edge_buf_uv)[2][512]; // has to hold 16x16 uint16_t when depth=10
 
     int      (*qmatrix_c)     [64];
     int      (*qmatrix_l)     [64];
@@ -86,6 +86,8 @@ typedef struct DNXHDEncContext {
     unsigned frame_bits;
     uint8_t *src[3];
 
+    uint32_t *orig_vlc_codes;
+    uint8_t  *orig_vlc_bits;
     uint32_t *vlc_codes;
     uint8_t  *vlc_bits;
     uint16_t *run_codes;

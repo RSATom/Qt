@@ -14,8 +14,12 @@
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
+#include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "components/subresource_filter/core/browser/subresource_filter_features_test_support.h"
+#include "components/subresource_filter/core/common/common_features.h"
 #include "components/variations/variations_associated_data.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -40,7 +44,7 @@ class ScopedExperimentalStateToggle {
         kTestFieldTrialName, kTestExperimentGroupName);
 
     std::unique_ptr<base::FeatureList> feature_list =
-        base::MakeUnique<base::FeatureList>();
+        std::make_unique<base::FeatureList>();
     feature_list->RegisterFieldTrialOverride(
         kSafeBrowsingSubresourceFilter.name, feature_state, field_trial);
     scoped_feature_list_.InitWithFeatureList(std::move(feature_list));
@@ -66,6 +70,14 @@ void ExpectAndRetrieveExactlyOneEnabledConfig(Configuration* actual_config) {
   *actual_config = config_list->configs_by_decreasing_priority().front();
 }
 
+void ExpectAndRetrieveExactlyOneExtraEnabledConfig(
+    Configuration* actual_config) {
+  DCHECK(actual_config);
+  const auto config_list = GetEnabledConfigurations();
+  ASSERT_EQ(4u, config_list->configs_by_decreasing_priority().size());
+  *actual_config = config_list->configs_by_decreasing_priority().back();
+}
+
 void ExpectPresetCanBeEnabledByName(Configuration preset, const char* name) {
   ScopedExperimentalStateToggle scoped_experimental_state(
       base::FeatureList::OVERRIDE_ENABLE_FEATURE,
@@ -73,40 +85,63 @@ void ExpectPresetCanBeEnabledByName(Configuration preset, const char* name) {
 
   const auto config_list = GetEnabledConfigurations();
   EXPECT_THAT(config_list->configs_by_decreasing_priority(),
-              ::testing::ElementsAre(preset, Configuration()));
+              ::testing::ElementsAre(
+                  Configuration::MakePresetForLiveRunOnPhishingSites(),
+                  Configuration::MakePresetForLiveRunForBetterAds(), preset,
+                  Configuration()));
 }
 
-void ExpectPresetIsEquivalentToVariationParams(
+void ExpectParamsGeneratePreset(
     Configuration preset,
     std::map<std::string, std::string> variation_params) {
   ScopedExperimentalStateToggle scoped_experimental_state(
       base::FeatureList::OVERRIDE_ENABLE_FEATURE, variation_params);
 
   Configuration experimental_configuration;
-  ExpectAndRetrieveExactlyOneEnabledConfig(&experimental_configuration);
-  EXPECT_EQ(preset, experimental_configuration);
+  const auto config_list = GetEnabledConfigurations();
+  bool matched_preset = false;
+  for (auto it : config_list->configs_by_decreasing_priority()) {
+    matched_preset |= preset == it;
+  }
+  EXPECT_TRUE(matched_preset);
 }
 
 }  // namespace
 
-TEST(SubresourceFilterFeaturesTest, ActivationLevel) {
+class SubresourceFilterFeaturesTest : public ::testing::Test {
+ public:
+  SubresourceFilterFeaturesTest() {}
+  ~SubresourceFilterFeaturesTest() override {}
+
+  void SetUp() override {
+    // Reset the global configuration at the start so tests start without a
+    // cached value from a previous in-process test run.
+    testing::GetAndSetActivateConfigurations(nullptr);
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(SubresourceFilterFeaturesTest);
+};
+
+TEST_F(SubresourceFilterFeaturesTest, ActivationLevel) {
   const struct {
     bool feature_enabled;
     const char* activation_level_param;
-    ActivationLevel expected_activation_level;
-  } kTestCases[] = {{false, "", ActivationLevel::DISABLED},
-                    {false, "disabled", ActivationLevel::DISABLED},
-                    {false, "dryrun", ActivationLevel::DISABLED},
-                    {false, "enabled", ActivationLevel::DISABLED},
-                    {false, "%$ garbage !%", ActivationLevel::DISABLED},
-                    {true, "", ActivationLevel::DISABLED},
-                    {true, "disable", ActivationLevel::DISABLED},
-                    {true, "Disable", ActivationLevel::DISABLED},
-                    {true, "disabled", ActivationLevel::DISABLED},
-                    {true, "%$ garbage !%", ActivationLevel::DISABLED},
-                    {true, kActivationLevelDryRun, ActivationLevel::DRYRUN},
-                    {true, kActivationLevelEnabled, ActivationLevel::ENABLED},
-                    {true, "Enabled", ActivationLevel::ENABLED}};
+    mojom::ActivationLevel expected_activation_level;
+  } kTestCases[] = {
+      {false, "", mojom::ActivationLevel::kDisabled},
+      {false, "disabled", mojom::ActivationLevel::kDisabled},
+      {false, "dryrun", mojom::ActivationLevel::kDisabled},
+      {false, "enabled", mojom::ActivationLevel::kDisabled},
+      {false, "%$ garbage !%", mojom::ActivationLevel::kDisabled},
+      {true, "", mojom::ActivationLevel::kDisabled},
+      {true, "disable", mojom::ActivationLevel::kDisabled},
+      {true, "Disable", mojom::ActivationLevel::kDisabled},
+      {true, "disabled", mojom::ActivationLevel::kDisabled},
+      {true, "%$ garbage !%", mojom::ActivationLevel::kDisabled},
+      {true, kActivationLevelDryRun, mojom::ActivationLevel::kDryRun},
+      {true, kActivationLevelEnabled, mojom::ActivationLevel::kEnabled},
+      {true, "Enabled", mojom::ActivationLevel::kEnabled}};
 
   for (const auto& test_case : kTestCases) {
     SCOPED_TRACE(::testing::Message("Enabled = ") << test_case.feature_enabled);
@@ -114,13 +149,17 @@ TEST(SubresourceFilterFeaturesTest, ActivationLevel) {
                  << test_case.activation_level_param << "\"");
 
     ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
+        test_case.feature_enabled ? base::FeatureList::OVERRIDE_USE_DEFAULT
+                                  : base::FeatureList::OVERRIDE_DISABLE_FEATURE,
         {{kActivationLevelParameterName, test_case.activation_level_param},
          {kActivationScopeParameterName, kActivationScopeNoSites}});
 
     Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    if (test_case.feature_enabled) {
+      ExpectAndRetrieveExactlyOneExtraEnabledConfig(&actual_configuration);
+    } else {
+      ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    }
     EXPECT_EQ(test_case.expected_activation_level,
               actual_configuration.activation_options.activation_level);
     EXPECT_EQ(ActivationScope::NO_SITES,
@@ -128,7 +167,7 @@ TEST(SubresourceFilterFeaturesTest, ActivationLevel) {
   }
 }
 
-TEST(SubresourceFilterFeaturesTest, ActivationScope) {
+TEST_F(SubresourceFilterFeaturesTest, ActivationScope) {
   const struct {
     bool feature_enabled;
     const char* activation_scope_param;
@@ -154,54 +193,58 @@ TEST(SubresourceFilterFeaturesTest, ActivationScope) {
 
     ScopedExperimentalStateToggle scoped_experimental_state(
         test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
+                                  : base::FeatureList::OVERRIDE_DISABLE_FEATURE,
         {{kActivationLevelParameterName, kActivationLevelDisabled},
          {kActivationScopeParameterName, test_case.activation_scope_param}});
 
     Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
-    EXPECT_EQ(ActivationLevel::DISABLED,
+    if (test_case.feature_enabled) {
+      ExpectAndRetrieveExactlyOneExtraEnabledConfig(&actual_configuration);
+    } else {
+      ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    }
+    EXPECT_EQ(mojom::ActivationLevel::kDisabled,
               actual_configuration.activation_options.activation_level);
     EXPECT_EQ(test_case.expected_activation_scope,
               actual_configuration.activation_conditions.activation_scope);
   }
 }
 
-TEST(SubresourceFilterFeaturesTest, ActivationLevelAndScope) {
+TEST_F(SubresourceFilterFeaturesTest, ActivationLevelAndScope) {
   const struct {
     bool feature_enabled;
     const char* activation_level_param;
-    ActivationLevel expected_activation_level;
+    mojom::ActivationLevel expected_activation_level;
     const char* activation_scope_param;
     ActivationScope expected_activation_scope;
   } kTestCases[] = {
-      {false, kActivationLevelDisabled, ActivationLevel::DISABLED,
+      {false, kActivationLevelDisabled, mojom::ActivationLevel::kDisabled,
        kActivationScopeNoSites, ActivationScope::NO_SITES},
-      {true, kActivationLevelDisabled, ActivationLevel::DISABLED,
+      {true, kActivationLevelDisabled, mojom::ActivationLevel::kDisabled,
        kActivationScopeNoSites, ActivationScope::NO_SITES},
-      {true, kActivationLevelDisabled, ActivationLevel::DISABLED,
+      {true, kActivationLevelDisabled, mojom::ActivationLevel::kDisabled,
        kActivationScopeAllSites, ActivationScope::ALL_SITES},
-      {true, kActivationLevelDisabled, ActivationLevel::DISABLED,
+      {true, kActivationLevelDisabled, mojom::ActivationLevel::kDisabled,
        kActivationScopeActivationList, ActivationScope::ACTIVATION_LIST},
-      {true, kActivationLevelDisabled, ActivationLevel::DISABLED,
+      {true, kActivationLevelDisabled, mojom::ActivationLevel::kDisabled,
        kActivationScopeAllSites, ActivationScope::ALL_SITES},
-      {true, kActivationLevelDryRun, ActivationLevel::DRYRUN,
+      {true, kActivationLevelDryRun, mojom::ActivationLevel::kDryRun,
        kActivationScopeNoSites, ActivationScope::NO_SITES},
-      {true, kActivationLevelDryRun, ActivationLevel::DRYRUN,
+      {true, kActivationLevelDryRun, mojom::ActivationLevel::kDryRun,
        kActivationScopeAllSites, ActivationScope::ALL_SITES},
-      {true, kActivationLevelDryRun, ActivationLevel::DRYRUN,
+      {true, kActivationLevelDryRun, mojom::ActivationLevel::kDryRun,
        kActivationScopeActivationList, ActivationScope::ACTIVATION_LIST},
-      {true, kActivationLevelDryRun, ActivationLevel::DRYRUN,
+      {true, kActivationLevelDryRun, mojom::ActivationLevel::kDryRun,
        kActivationScopeAllSites, ActivationScope::ALL_SITES},
-      {true, kActivationLevelEnabled, ActivationLevel::ENABLED,
+      {true, kActivationLevelEnabled, mojom::ActivationLevel::kEnabled,
        kActivationScopeNoSites, ActivationScope::NO_SITES},
-      {true, kActivationLevelEnabled, ActivationLevel::ENABLED,
+      {true, kActivationLevelEnabled, mojom::ActivationLevel::kEnabled,
        kActivationScopeAllSites, ActivationScope::ALL_SITES},
-      {true, kActivationLevelEnabled, ActivationLevel::ENABLED,
+      {true, kActivationLevelEnabled, mojom::ActivationLevel::kEnabled,
        kActivationScopeActivationList, ActivationScope::ACTIVATION_LIST},
-      {true, kActivationLevelEnabled, ActivationLevel::ENABLED,
+      {true, kActivationLevelEnabled, mojom::ActivationLevel::kEnabled,
        kActivationScopeAllSites, ActivationScope::ALL_SITES},
-      {false, kActivationLevelEnabled, ActivationLevel::DISABLED,
+      {false, kActivationLevelEnabled, mojom::ActivationLevel::kDisabled,
        kActivationScopeAllSites, ActivationScope::NO_SITES}};
 
   for (const auto& test_case : kTestCases) {
@@ -212,13 +255,17 @@ TEST(SubresourceFilterFeaturesTest, ActivationLevelAndScope) {
                  << test_case.activation_scope_param << "\"");
 
     ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
+        test_case.feature_enabled ? base::FeatureList::OVERRIDE_USE_DEFAULT
+                                  : base::FeatureList::OVERRIDE_DISABLE_FEATURE,
         {{kActivationLevelParameterName, test_case.activation_level_param},
          {kActivationScopeParameterName, test_case.activation_scope_param}});
 
     Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    if (test_case.feature_enabled) {
+      ExpectAndRetrieveExactlyOneExtraEnabledConfig(&actual_configuration);
+    } else {
+      ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    }
     EXPECT_EQ(test_case.expected_activation_level,
               actual_configuration.activation_options.activation_level);
     EXPECT_EQ(test_case.expected_activation_scope,
@@ -226,7 +273,7 @@ TEST(SubresourceFilterFeaturesTest, ActivationLevelAndScope) {
   }
 }
 
-TEST(SubresourceFilterFeaturesTest, ActivationList) {
+TEST_F(SubresourceFilterFeaturesTest, ActivationList) {
   const std::string activation_soc_eng(
       kActivationListSocialEngineeringAdsInterstitial);
   const std::string activation_phishing(kActivationListPhishingInterstitial);
@@ -252,6 +299,7 @@ TEST(SubresourceFilterFeaturesTest, ActivationList) {
       {true, "%$ garbage !%", ActivationList::NONE},
       {true, kActivationListSocialEngineeringAdsInterstitial,
        ActivationList::SOCIAL_ENG_ADS_INTERSTITIAL},
+      {true, kActivationListBetterAds, ActivationList::BETTER_ADS},
       {true, kActivationListPhishingInterstitial,
        ActivationList::PHISHING_INTERSTITIAL},
       {true, socEngPhising.c_str(), ActivationList::NONE},
@@ -268,20 +316,24 @@ TEST(SubresourceFilterFeaturesTest, ActivationList) {
                  << test_case.activation_list_param << "\"");
 
     ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
+        test_case.feature_enabled ? base::FeatureList::OVERRIDE_USE_DEFAULT
+                                  : base::FeatureList::OVERRIDE_DISABLE_FEATURE,
         {{kActivationLevelParameterName, kActivationLevelDisabled},
          {kActivationScopeParameterName, kActivationScopeNoSites},
          {kActivationListsParameterName, test_case.activation_list_param}});
 
     Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    if (test_case.feature_enabled) {
+      ExpectAndRetrieveExactlyOneExtraEnabledConfig(&actual_configuration);
+    } else {
+      ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    }
     EXPECT_EQ(test_case.expected_activation_list,
               actual_configuration.activation_conditions.activation_list);
   }
 }
 
-TEST(SubresourceFilterFeaturesTest, ActivationPriority) {
+TEST_F(SubresourceFilterFeaturesTest, ActivationPriority) {
   const struct {
     bool feature_enabled;
     const char* activation_priority_param;
@@ -308,19 +360,23 @@ TEST(SubresourceFilterFeaturesTest, ActivationPriority) {
                  << test_case.activation_priority_param << "\"");
 
     ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
+        test_case.feature_enabled ? base::FeatureList::OVERRIDE_USE_DEFAULT
+                                  : base::FeatureList::OVERRIDE_DISABLE_FEATURE,
         {{kActivationPriorityParameterName,
           test_case.activation_priority_param}});
 
     Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    if (test_case.feature_enabled) {
+      ExpectAndRetrieveExactlyOneExtraEnabledConfig(&actual_configuration);
+    } else {
+      ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    }
     EXPECT_EQ(test_case.expected_priority,
               actual_configuration.activation_conditions.priority);
   }
 }
 
-TEST(SubresourceFilterFeaturesTest, PerfMeasurementRate) {
+TEST_F(SubresourceFilterFeaturesTest, PerfMeasurementRate) {
   const struct {
     bool feature_enabled;
     const char* perf_measurement_param;
@@ -337,7 +393,8 @@ TEST(SubresourceFilterFeaturesTest, PerfMeasurementRate) {
                     {true, "1", 1},
                     {true, "1.0", 1},
                     {true, "0.333", 0.333},
-                    {true, "1e0", 1}};
+                    {true, "1e0", 1},
+                    {true, "5", 1}};
 
   for (const auto& test_case : kTestCases) {
     SCOPED_TRACE(::testing::Message("Enabled = ") << test_case.feature_enabled);
@@ -345,124 +402,24 @@ TEST(SubresourceFilterFeaturesTest, PerfMeasurementRate) {
                  << test_case.perf_measurement_param << "\"");
 
     ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
+        test_case.feature_enabled ? base::FeatureList::OVERRIDE_USE_DEFAULT
+                                  : base::FeatureList::OVERRIDE_DISABLE_FEATURE,
         {{kPerformanceMeasurementRateParameterName,
           test_case.perf_measurement_param}});
 
     Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    if (test_case.feature_enabled) {
+      ExpectAndRetrieveExactlyOneExtraEnabledConfig(&actual_configuration);
+    } else {
+      ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    }
     EXPECT_EQ(
         test_case.expected_perf_measurement_rate,
         actual_configuration.activation_options.performance_measurement_rate);
   }
 }
 
-TEST(SubresourceFilterFeaturesTest, SuppressNotifications) {
-  const struct {
-    bool feature_enabled;
-    const char* suppress_notifications_param;
-    bool expected_suppress_notifications_value;
-  } kTestCases[] = {{false, "", false},
-                    {false, "true", false},
-                    {false, "false", false},
-                    {false, "invalid value", false},
-                    {true, "", false},
-                    {true, "false", false},
-                    {true, "invalid value", false},
-                    {true, "True", true},
-                    {true, "TRUE", true},
-                    {true, "true", true}};
-
-  for (const auto& test_case : kTestCases) {
-    SCOPED_TRACE(::testing::Message("Enabled = ") << test_case.feature_enabled);
-    SCOPED_TRACE(::testing::Message("SuppressNotificationsParam = \"")
-                 << test_case.suppress_notifications_param << "\"");
-
-    ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
-        {{kSuppressNotificationsParameterName,
-          test_case.suppress_notifications_param}});
-
-    Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
-    EXPECT_EQ(
-        test_case.expected_suppress_notifications_value,
-        actual_configuration.activation_options.should_suppress_notifications);
-  }
-}
-
-TEST(SubresourceFilterFeaturesTest, WhitelistSiteOnReload) {
-  const struct {
-    bool feature_enabled;
-    const char* whitelist_site_on_reload_param;
-    bool expected_whitelist_site_on_reload_value;
-  } kTestCases[] = {{false, "", false},
-                    {false, "true", false},
-                    {false, "false", false},
-                    {false, "invalid value", false},
-                    {true, "", false},
-                    {true, "false", false},
-                    {true, "invalid value", false},
-                    {true, "True", true},
-                    {true, "TRUE", true},
-                    {true, "true", true}};
-
-  for (const auto& test_case : kTestCases) {
-    SCOPED_TRACE(::testing::Message("Enabled = ") << test_case.feature_enabled);
-    SCOPED_TRACE(::testing::Message("WhitelistSiteOnReloadParam = \"")
-                 << test_case.whitelist_site_on_reload_param << "\"");
-
-    ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
-        {{kWhitelistSiteOnReloadParameterName,
-          test_case.whitelist_site_on_reload_param}});
-
-    Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
-    EXPECT_EQ(test_case.expected_whitelist_site_on_reload_value,
-              actual_configuration.activation_options
-                  .should_whitelist_site_on_reload);
-  }
-}
-
-TEST(SubresourceFilterFeaturesTest, StrengthenPopupBlocker) {
-  const struct {
-    bool feature_enabled;
-    const char* strengthen_popup_blocker_param;
-    bool expected_strengthen_popup_blocker_value;
-  } kTestCases[] = {{false, "", false},
-                    {false, "true", false},
-                    {false, "false", false},
-                    {false, "invalid value", false},
-                    {true, "", false},
-                    {true, "false", false},
-                    {true, "invalid value", false},
-                    {true, "True", true},
-                    {true, "TRUE", true},
-                    {true, "true", true}};
-  for (const auto& test_case : kTestCases) {
-    SCOPED_TRACE(::testing::Message("Enabled = ") << test_case.feature_enabled);
-    SCOPED_TRACE(::testing::Message("StrengthenPopupBlockerParam = \"")
-                 << test_case.strengthen_popup_blocker_param << "\"");
-
-    ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
-        {{kStrengthenPopupBlockerParameterName,
-          test_case.strengthen_popup_blocker_param}});
-
-    Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
-    EXPECT_EQ(test_case.expected_strengthen_popup_blocker_value,
-              actual_configuration.activation_options
-                  .should_strengthen_popup_blocker);
-  }
-}
-
-TEST(SubresourceFilterFeaturesTest, RulesetFlavor) {
+TEST_F(SubresourceFilterFeaturesTest, RulesetFlavor) {
   const struct {
     bool feature_enabled;
     const char* ruleset_flavor_param;
@@ -477,18 +434,22 @@ TEST(SubresourceFilterFeaturesTest, RulesetFlavor) {
                  << test_case.ruleset_flavor_param << "\"");
 
     ScopedExperimentalStateToggle scoped_experimental_state(
-        test_case.feature_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
-                                  : base::FeatureList::OVERRIDE_USE_DEFAULT,
+        test_case.feature_enabled ? base::FeatureList::OVERRIDE_USE_DEFAULT
+                                  : base::FeatureList::OVERRIDE_DISABLE_FEATURE,
         {{kRulesetFlavorParameterName, test_case.ruleset_flavor_param}});
 
     Configuration actual_configuration;
-    ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    if (test_case.feature_enabled) {
+      ExpectAndRetrieveExactlyOneExtraEnabledConfig(&actual_configuration);
+    } else {
+      ExpectAndRetrieveExactlyOneEnabledConfig(&actual_configuration);
+    }
     EXPECT_EQ(std::string(test_case.expected_ruleset_flavor_value),
               actual_configuration.general_settings.ruleset_flavor);
   }
 }
 
-TEST(SubresourceFilterFeaturesTest, LexicographicallyGreatestRulesetFlavor) {
+TEST_F(SubresourceFilterFeaturesTest, LexicographicallyGreatestRulesetFlavor) {
   const struct {
     const char* expected_ruleset_flavor_selected;
     std::vector<std::string> ruleset_flavors;
@@ -529,7 +490,7 @@ TEST(SubresourceFilterFeaturesTest, LexicographicallyGreatestRulesetFlavor) {
   }
 }
 
-TEST(SubresourceFilterFeaturesTest, EnabledConfigurations_FeatureDisabled) {
+TEST_F(SubresourceFilterFeaturesTest, EnabledConfigurations_FeatureDisabled) {
   ScopedExperimentalStateToggle scoped_experimental_state(
       base::FeatureList::OVERRIDE_DISABLE_FEATURE,
       std::map<std::string, std::string>());
@@ -541,53 +502,61 @@ TEST(SubresourceFilterFeaturesTest, EnabledConfigurations_FeatureDisabled) {
             config_list->lexicographically_greatest_ruleset_flavor());
 }
 
-TEST(SubresourceFilterFeaturesTest,
-     EnabledConfigurations_FeatureEnabledWithNoParameters) {
+TEST_F(SubresourceFilterFeaturesTest,
+       EnabledConfigurations_FeatureEnabledWithNoParameters) {
   ScopedExperimentalStateToggle scoped_experimental_state(
       base::FeatureList::OVERRIDE_ENABLE_FEATURE,
       std::map<std::string, std::string>());
 
   const auto config_list = GetEnabledConfigurations();
-  EXPECT_THAT(config_list->configs_by_decreasing_priority(),
-              ::testing::ElementsAre(Configuration()));
+  EXPECT_THAT(
+      config_list->configs_by_decreasing_priority(),
+      ::testing::ElementsAre(
+          Configuration::MakePresetForLiveRunOnPhishingSites(),
+          Configuration::MakePresetForLiveRunForBetterAds(),
+          Configuration::MakePresetForPerformanceTestingDryRunOnAllSites(),
+          Configuration()));
   EXPECT_EQ(std::string(),
             config_list->lexicographically_greatest_ruleset_flavor());
 }
 
-TEST(SubresourceFilterFeaturesTest, PresetForLiveRunOnPhishingSites) {
-  ExpectPresetCanBeEnabledByName(
-      Configuration::MakePresetForLiveRunOnPhishingSites(),
-      kPresetLiveRunOnPhishingSites);
-  ExpectPresetIsEquivalentToVariationParams(
-      Configuration::MakePresetForLiveRunOnPhishingSites(),
-      {{kActivationLevelParameterName, kActivationLevelEnabled},
-       {kActivationScopeParameterName, kActivationScopeActivationList},
-       {kActivationListsParameterName, kActivationListPhishingInterstitial},
-       {kActivationPriorityParameterName, "1000"}});
-}
-
-TEST(SubresourceFilterFeaturesTest,
-     PresetForPerformanceTestingDryRunOnAllSites) {
+TEST_F(SubresourceFilterFeaturesTest,
+       PresetForPerformanceTestingDryRunOnAllSites) {
   ExpectPresetCanBeEnabledByName(
       Configuration::MakePresetForPerformanceTestingDryRunOnAllSites(),
       kPresetPerformanceTestingDryRunOnAllSites);
-  ExpectPresetIsEquivalentToVariationParams(
+  ExpectParamsGeneratePreset(
       Configuration::MakePresetForPerformanceTestingDryRunOnAllSites(),
       {{kActivationLevelParameterName, kActivationLevelDryRun},
        {kActivationScopeParameterName, kActivationScopeAllSites},
        {kActivationPriorityParameterName, "500"},
-       {kPerformanceMeasurementRateParameterName, "1.0"}});
+       {kPerformanceMeasurementRateParameterName, "0.01"}});
 }
 
-TEST(SubresourceFilterFeaturesTest, ConfigurationPriorities) {
+TEST_F(SubresourceFilterFeaturesTest, PresetForLiveRunOnBetterAdsSites) {
+  const Configuration config =
+      Configuration::MakePresetForLiveRunForBetterAds();
+  EXPECT_EQ(ActivationList::BETTER_ADS,
+            config.activation_conditions.activation_list);
+  EXPECT_EQ(ActivationScope::ACTIVATION_LIST,
+            config.activation_conditions.activation_scope);
+  EXPECT_EQ(800, config.activation_conditions.priority);
+  EXPECT_EQ(mojom::ActivationLevel::kEnabled,
+            config.activation_options.activation_level);
+  EXPECT_EQ(0.0, config.activation_options.performance_measurement_rate);
+}
+
+TEST_F(SubresourceFilterFeaturesTest, ConfigurationPriorities) {
   const std::vector<Configuration> expected_order_by_decreasing_priority = {
       Configuration::MakePresetForLiveRunOnPhishingSites(),
+      Configuration::MakePresetForLiveRunForBetterAds(),
       Configuration::MakePresetForPerformanceTestingDryRunOnAllSites(),
       Configuration() /* default constructor */
   };
 
   std::vector<Configuration> shuffled_order = {
       expected_order_by_decreasing_priority[2],
+      expected_order_by_decreasing_priority[3],
       expected_order_by_decreasing_priority[0],
       expected_order_by_decreasing_priority[1]};
   subresource_filter::testing::ScopedSubresourceFilterConfigurator
@@ -597,16 +566,19 @@ TEST(SubresourceFilterFeaturesTest, ConfigurationPriorities) {
       ::testing::ElementsAreArray(expected_order_by_decreasing_priority));
 }
 
-TEST(SubresourceFilterFeaturesTest, EnableDisableMultiplePresets) {
+TEST_F(SubresourceFilterFeaturesTest, EnableDisableMultiplePresets) {
   const std::string kPhishing(kPresetLiveRunOnPhishingSites);
   const std::string kPerfTest(kPresetPerformanceTestingDryRunOnAllSites);
+  const std::string kBAS(kPresetLiveRunForBetterAds);
 
   // The default config comes from the empty experimental configuration.
-  const std::vector<Configuration> kDefaultConfig = {Configuration()};
-  const std::vector<Configuration> kPhishingAndDefaultConfigs = {
-      Configuration::MakePresetForLiveRunOnPhishingSites(), Configuration()};
-  const std::vector<Configuration> kAllConfigs = {
+  const std::vector<Configuration> kEmptyConfig = {Configuration()};
+  const std::vector<Configuration> kSmallConfig = {
       Configuration::MakePresetForLiveRunOnPhishingSites(),
+      Configuration::MakePresetForLiveRunForBetterAds(), Configuration()};
+  const std::vector<Configuration> kDefaultConfig = {
+      Configuration::MakePresetForLiveRunOnPhishingSites(),
+      Configuration::MakePresetForLiveRunForBetterAds(),
       Configuration::MakePresetForPerformanceTestingDryRunOnAllSites(),
       Configuration()};
 
@@ -617,17 +589,16 @@ TEST(SubresourceFilterFeaturesTest, EnableDisableMultiplePresets) {
   } kTestCases[] = {
       {"", "", kDefaultConfig},
       {"garbage1", "garbage2", kDefaultConfig},
-      {"", kPhishing + "," + kPerfTest, kDefaultConfig},
-      {kPhishing, kPerfTest, kPhishingAndDefaultConfigs},
-      {kPhishing + "," + kPerfTest, "garbage", kAllConfigs},
-      {kPerfTest + "," + kPhishing, base::ToUpperASCII(kPerfTest),
-       kPhishingAndDefaultConfigs},
-      {kPerfTest + "," + kPhishing,
-       ",,garbage, ," + kPerfTest + "," + kPhishing, kDefaultConfig},
+      {"", kPhishing + "," + kPerfTest + "," + kBAS, kEmptyConfig},
+      {kPhishing, kPerfTest, kSmallConfig},
+      {kPerfTest, "garbage", kDefaultConfig},
+      {kPerfTest, base::ToUpperASCII(kPerfTest), kSmallConfig},
+      {kPerfTest + "," + kPhishing + "," + kBAS,
+       ",,garbage, ," + kPerfTest + "," + kPhishing + "," + kBAS, kEmptyConfig},
       {base::ToUpperASCII(kPhishing) + "," + base::ToUpperASCII(kPerfTest), "",
-       kAllConfigs},
-      {",, ," + kPerfTest + ",," + kPhishing, "", kAllConfigs},
-      {"garbage,garbage2," + kPerfTest + "," + kPhishing, "", kAllConfigs}};
+       kDefaultConfig},
+      {",, ," + kPerfTest + ",," + kPhishing, "", kDefaultConfig},
+      {"garbage,garbage2," + kPerfTest + "," + kPhishing, "", kDefaultConfig}};
 
   for (const auto& test_case : kTestCases) {
     SCOPED_TRACE(
@@ -648,22 +619,23 @@ TEST(SubresourceFilterFeaturesTest, EnableDisableMultiplePresets) {
   }
 }
 
-TEST(SubresourceFilterFeaturesTest,
-     EnableMultiplePresetsAndExperimentalConfig) {
+TEST_F(SubresourceFilterFeaturesTest,
+       EnableMultiplePresetsAndExperimentalConfig) {
   const std::string kPhishing(kPresetLiveRunOnPhishingSites);
   const std::string kPerfTest(kPresetPerformanceTestingDryRunOnAllSites);
+  const std::string kBAS(kPresetLiveRunForBetterAds);
   const std::string kTestRulesetFlavor("foobar");
 
   ScopedExperimentalStateToggle scoped_experimental_state(
       base::FeatureList::OVERRIDE_ENABLE_FEATURE,
-      {{kEnablePresetsParameterName, kPhishing + "," + kPerfTest},
+      {{kEnablePresetsParameterName, kPhishing + "," + kPerfTest + "," + kBAS},
        {kActivationLevelParameterName, kActivationLevelDryRun},
        {kActivationScopeParameterName, kActivationScopeActivationList},
        {kActivationListsParameterName, kActivationListSubresourceFilter},
        {kActivationPriorityParameterName, "750"},
        {kRulesetFlavorParameterName, kTestRulesetFlavor}});
 
-  Configuration experimental_config(ActivationLevel::DRYRUN,
+  Configuration experimental_config(mojom::ActivationLevel::kDryRun,
                                     ActivationScope::ACTIVATION_LIST,
                                     ActivationList::SUBRESOURCE_FILTER);
   experimental_config.activation_conditions.priority = 750;
@@ -674,10 +646,29 @@ TEST(SubresourceFilterFeaturesTest,
       config_list->configs_by_decreasing_priority(),
       ::testing::ElementsAre(
           Configuration::MakePresetForLiveRunOnPhishingSites(),
+          Configuration::MakePresetForLiveRunForBetterAds(),
           experimental_config,
           Configuration::MakePresetForPerformanceTestingDryRunOnAllSites()));
   EXPECT_EQ(kTestRulesetFlavor,
             config_list->lexicographically_greatest_ruleset_flavor());
+}
+
+TEST_F(SubresourceFilterFeaturesTest, AdTagging_EnablesDryRun) {
+  const Configuration dryrun =
+      Configuration::MakePresetForPerformanceTestingDryRunOnAllSites();
+  base::test::ScopedFeatureList scoped_feature;
+  scoped_feature.InitAndEnableFeature(kAdTagging);
+  EXPECT_TRUE(base::ContainsValue(
+      GetEnabledConfigurations()->configs_by_decreasing_priority(), dryrun));
+}
+
+TEST_F(SubresourceFilterFeaturesTest, AdTaggingDisabled_DisablesDryRun) {
+  const Configuration dryrun =
+      Configuration::MakePresetForPerformanceTestingDryRunOnAllSites();
+  base::test::ScopedFeatureList scoped_feature;
+  scoped_feature.InitAndDisableFeature(kAdTagging);
+  EXPECT_FALSE(base::ContainsValue(
+      GetEnabledConfigurations()->configs_by_decreasing_priority(), dryrun));
 }
 
 }  // namespace subresource_filter

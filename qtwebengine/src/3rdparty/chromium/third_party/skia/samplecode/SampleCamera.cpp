@@ -6,20 +6,20 @@
  */
 
 #include "DecodeFile.h"
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkAnimTimer.h"
-#include "SkView.h"
 #include "SkCanvas.h"
 #include "SkCamera.h"
 #include "SkEmbossMaskFilter.h"
 #include "SkGradientShader.h"
 #include "SkPath.h"
+#include "SkRandom.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
-#include "SkRandom.h"
+#include "SkString.h"
+#include "SkUTF.h"
 
-class CameraView : public SampleView {
+class CameraView : public Sample {
     SkTArray<sk_sp<SkShader>> fShaders;
     int     fShaderIndex;
     bool    fFrontFace;
@@ -51,10 +51,9 @@ public:
     }
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Camera");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Camera");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -95,10 +94,9 @@ protected:
 
 private:
     SkScalar fRX, fRY, fRZ;
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new CameraView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new CameraView(); )

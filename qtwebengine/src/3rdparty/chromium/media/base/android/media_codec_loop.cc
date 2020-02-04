@@ -4,6 +4,7 @@
 
 #include "media/base/android/media_codec_loop.h"
 
+#include "base/android/build_info.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
@@ -39,12 +40,14 @@ MediaCodecLoop::MediaCodecLoop(
     int sdk_int,
     Client* client,
     std::unique_ptr<MediaCodecBridge> media_codec,
-    scoped_refptr<base::SingleThreadTaskRunner> timer_task_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> timer_task_runner,
+    bool disable_timer)
     : state_(STATE_READY),
       client_(client),
       media_codec_(std::move(media_codec)),
       pending_input_buf_index_(kInvalidBufferIndex),
       sdk_int_(sdk_int),
+      disable_timer_(disable_timer),
       weak_factory_(this) {
   if (timer_task_runner)
     io_timer_.SetTaskRunner(timer_task_runner);
@@ -57,7 +60,7 @@ MediaCodecLoop::~MediaCodecLoop() {
   io_timer_.Stop();
 }
 
-void MediaCodecLoop::SetTestTickClock(base::TickClock* test_tick_clock) {
+void MediaCodecLoop::SetTestTickClock(const base::TickClock* test_tick_clock) {
   test_tick_clock_ = test_tick_clock;
 }
 
@@ -65,7 +68,7 @@ void MediaCodecLoop::OnKeyAdded() {
   if (state_ == STATE_WAITING_FOR_KEY)
     SetState(STATE_READY);
 
-  DoPendingWork();
+  ExpectWork();
 }
 
 bool MediaCodecLoop::TryFlush() {
@@ -92,6 +95,13 @@ bool MediaCodecLoop::TryFlush() {
 
   SetState(STATE_READY);
   return true;
+}
+
+void MediaCodecLoop::ExpectWork() {
+  // Start / reset the timer, since we believe that progress can be made soon,
+  // even if not immediately.
+  ManageTimer(true);
+  DoPendingWork();
 }
 
 void MediaCodecLoop::DoPendingWork() {
@@ -224,6 +234,7 @@ void MediaCodecLoop::EnqueueInputBuffer(const InputBuffer& input_buffer) {
       // to send in nullptr for the source.  Note that the client doesn't
       // guarantee that the pointer will remain valid after we return anyway.
       pending_input_buf_data_.memory = nullptr;
+      client_->OnWaiting(WaitingReason::kNoDecryptionKey);
       SetState(STATE_WAITING_FOR_KEY);
       // Do not call OnInputDataQueued yet.
       break;
@@ -279,7 +290,8 @@ bool MediaCodecLoop::ProcessOneOutputBuffer() {
 
         media_codec_->ReleaseOutputBuffer(out.index, false);
 
-        client_->OnDecodedEos(out);
+        if (!client_->OnDecodedEos(out))
+          SetState(STATE_ERROR);
       } else {
         if (!client_->OnDecodedFrame(out))
           SetState(STATE_ERROR);
@@ -307,6 +319,9 @@ bool MediaCodecLoop::ProcessOneOutputBuffer() {
 }
 
 void MediaCodecLoop::ManageTimer(bool did_work) {
+  if (disable_timer_)
+    return;
+
   bool should_be_running = true;
 
   // One might also use DefaultTickClock, but then ownership becomes harder.
@@ -345,7 +360,7 @@ bool MediaCodecLoop::CodecNeedsFlushWorkaround() const {
   // we have to completely destroy and recreate the codec there.
   // TODO(liberato): MediaCodecUtil implements the same function.  We should
   // call that one, except that it doesn't compile outside of android right now.
-  return sdk_int_ < 18;
+  return sdk_int_ < base::android::SDK_VERSION_JELLY_BEAN_MR2;
 }
 
 // static

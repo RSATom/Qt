@@ -10,7 +10,6 @@
 #include "cc/base/math_util.h"
 #include "cc/layers/layer_impl.h"
 #include "cc/layers/layer_list_iterator.h"
-#include "cc/layers/layer_utils.h"
 #include "cc/layers/render_surface_impl.h"
 #include "cc/trees/damage_tracker.h"
 #include "cc/trees/layer_tree_host.h"
@@ -25,9 +24,9 @@ std::unique_ptr<DebugRectHistory> DebugRectHistory::Create() {
   return base::WrapUnique(new DebugRectHistory());
 }
 
-DebugRectHistory::DebugRectHistory() {}
+DebugRectHistory::DebugRectHistory() = default;
 
-DebugRectHistory::~DebugRectHistory() {}
+DebugRectHistory::~DebugRectHistory() = default;
 
 void DebugRectHistory::SaveDebugRectsForCurrentFrame(
     LayerTreeImpl* tree_impl,
@@ -61,9 +60,6 @@ void DebugRectHistory::SaveDebugRectsForCurrentFrame(
 
   if (debug_state.show_screen_space_rects)
     SaveScreenSpaceRects(render_surface_list);
-
-  if (debug_state.show_layer_animation_bounds_rects)
-    SaveLayerAnimationBoundsRects(tree_impl);
 }
 
 void DebugRectHistory::SavePaintRects(LayerTreeImpl* tree_impl) {
@@ -76,10 +72,10 @@ void DebugRectHistory::SavePaintRects(LayerTreeImpl* tree_impl) {
     if (invalidation_region.IsEmpty() || !layer->DrawsContent())
       continue;
 
-    for (Region::Iterator it(invalidation_region); it.has_rect(); it.next()) {
-      debug_rects_.push_back(DebugRect(
-          PAINT_RECT_TYPE, MathUtil::MapEnclosingClippedRect(
-                               layer->ScreenSpaceTransform(), it.rect())));
+    for (gfx::Rect rect : invalidation_region) {
+      debug_rects_.push_back(
+          DebugRect(PAINT_RECT_TYPE, MathUtil::MapEnclosingClippedRect(
+                                         layer->ScreenSpaceTransform(), rect)));
     }
   }
 }
@@ -140,10 +136,10 @@ void DebugRectHistory::SaveTouchEventHandlerRectsCallback(LayerImpl* layer) {
        touch_action_index != kTouchActionMax; ++touch_action_index) {
     auto touch_action = static_cast<TouchAction>(touch_action_index);
     Region region = touch_action_region.GetRegionForTouchAction(touch_action);
-    for (Region::Iterator iter(region); iter.has_rect(); iter.next()) {
+    for (gfx::Rect rect : region) {
       debug_rects_.emplace_back(TOUCH_EVENT_HANDLER_RECT_TYPE,
                                 MathUtil::MapEnclosingClippedRect(
-                                    layer->ScreenSpaceTransform(), iter.rect()),
+                                    layer->ScreenSpaceTransform(), rect),
                                 touch_action);
     }
   }
@@ -191,31 +187,10 @@ void DebugRectHistory::SaveNonFastScrollableRects(LayerTreeImpl* tree_impl) {
 }
 
 void DebugRectHistory::SaveNonFastScrollableRectsCallback(LayerImpl* layer) {
-  for (Region::Iterator iter(layer->non_fast_scrollable_region());
-       iter.has_rect(); iter.next()) {
-    debug_rects_.push_back(
-        DebugRect(NON_FAST_SCROLLABLE_RECT_TYPE,
-                  MathUtil::MapEnclosingClippedRect(
-                      layer->ScreenSpaceTransform(), iter.rect())));
-  }
-}
-
-void DebugRectHistory::SaveLayerAnimationBoundsRects(LayerTreeImpl* tree_impl) {
-  for (auto it = tree_impl->rbegin(); it != tree_impl->rend(); ++it) {
-    if (!(*it)->contributes_to_drawn_render_surface())
-      continue;
-
-    // TODO(avallee): Figure out if we should show something for a layer who's
-    // animating bounds but that we can't compute them.
-    gfx::BoxF inflated_bounds;
-    if (!LayerUtils::GetAnimationBounds(**it, &inflated_bounds))
-      continue;
-
-    debug_rects_.push_back(
-        DebugRect(ANIMATION_BOUNDS_RECT_TYPE,
-                  gfx::ToEnclosingRect(gfx::RectF(
-                      inflated_bounds.x(), inflated_bounds.y(),
-                      inflated_bounds.width(), inflated_bounds.height()))));
+  for (gfx::Rect rect : layer->non_fast_scrollable_region()) {
+    debug_rects_.push_back(DebugRect(NON_FAST_SCROLLABLE_RECT_TYPE,
+                                     MathUtil::MapEnclosingClippedRect(
+                                         layer->ScreenSpaceTransform(), rect)));
   }
 }
 

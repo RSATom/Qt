@@ -10,7 +10,6 @@
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -32,7 +31,8 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/extensions_browser_client.h"
-#include "extensions/browser/lazy_background_task_queue.h"
+#include "extensions/browser/lazy_context_id.h"
+#include "extensions/browser/lazy_context_task_queue.h"
 #include "extensions/browser/process_manager_factory.h"
 #include "extensions/common/api/runtime.h"
 #include "extensions/common/error_utils.h"
@@ -99,13 +99,14 @@ constexpr int kMinDurationBetweenSuccessiveRestartsHours = 3;
 // API without a kiosk app.
 bool allow_non_kiosk_apps_restart_api_for_test = false;
 
-void DispatchOnStartupEventImpl(BrowserContext* browser_context,
-                                const std::string& extension_id,
-                                bool first_call,
-                                ExtensionHost* host) {
-  // A NULL host from the LazyBackgroundTaskQueue means the page failed to
-  // load. Give up.
-  if (!host && !first_call)
+void DispatchOnStartupEventImpl(
+    BrowserContext* browser_context,
+    const std::string& extension_id,
+    bool first_call,
+    std::unique_ptr<LazyContextTaskQueue::ContextInfo> context_info) {
+  // A NULL ContextInfo from the task callback means the page failed
+  // to load. Give up.
+  if (!context_info && !first_call)
     return;
 
   // Don't send onStartup events to incognito browser contexts.
@@ -126,14 +127,15 @@ void DispatchOnStartupEventImpl(BrowserContext* browser_context,
       ExtensionRegistry::Get(browser_context)->enabled_extensions().GetByID(
           extension_id);
   if (extension && BackgroundInfo::HasPersistentBackgroundPage(extension) &&
-      first_call &&
-      LazyBackgroundTaskQueue::Get(browser_context)
-          ->ShouldEnqueueTask(browser_context, extension)) {
-    LazyBackgroundTaskQueue::Get(browser_context)
-        ->AddPendingTask(browser_context, extension_id,
-                         base::Bind(&DispatchOnStartupEventImpl,
-                                    browser_context, extension_id, false));
-    return;
+      first_call) {
+    const LazyContextId context_id(browser_context, extension_id);
+    LazyContextTaskQueue* task_queue = context_id.GetTaskQueue();
+    if (task_queue->ShouldEnqueueTask(browser_context, extension)) {
+      task_queue->AddPendingTask(
+          context_id, base::BindOnce(&DispatchOnStartupEventImpl,
+                                     browser_context, extension_id, false));
+      return;
+    }
   }
 
   std::unique_ptr<base::ListValue> event_args(new base::ListValue());
@@ -148,7 +150,7 @@ void SetUninstallURL(ExtensionPrefs* prefs,
                      const std::string& extension_id,
                      const std::string& url_string) {
   prefs->UpdateExtensionPref(extension_id, kUninstallUrl,
-                             base::MakeUnique<base::Value>(url_string));
+                             std::make_unique<base::Value>(url_string));
 }
 
 std::string GetUninstallURL(ExtensionPrefs* prefs,
@@ -235,8 +237,8 @@ void RuntimeAPI::OnExtensionUninstalled(
     content::BrowserContext* browser_context,
     const Extension* extension,
     UninstallReason reason) {
-  RuntimeEventRouter::OnExtensionUninstalled(
-      browser_context_, extension->id(), reason);
+  RuntimeEventRouter::OnExtensionUninstalled(browser_context_, extension->id(),
+                                             reason);
 }
 
 void RuntimeAPI::Shutdown() {
@@ -428,7 +430,7 @@ void RuntimeAPI::AllowNonKioskAppsInRestartAfterDelayForTesting() {
 void RuntimeEventRouter::DispatchOnStartupEvent(
     content::BrowserContext* context,
     const std::string& extension_id) {
-  DispatchOnStartupEventImpl(context, extension_id, true, NULL);
+  DispatchOnStartupEventImpl(context, extension_id, true, nullptr);
 }
 
 // static
@@ -559,7 +561,8 @@ void RuntimeEventRouter::OnExtensionUninstalled(
     const std::string& extension_id,
     UninstallReason reason) {
   if (!(reason == UNINSTALL_REASON_USER_INITIATED ||
-        reason == UNINSTALL_REASON_MANAGEMENT_API)) {
+        reason == UNINSTALL_REASON_MANAGEMENT_API ||
+        reason == UNINSTALL_REASON_CHROME_WEBSTORE)) {
     return;
   }
 
@@ -569,6 +572,12 @@ void RuntimeEventRouter::OnExtensionUninstalled(
   if (!uninstall_url.SchemeIsHTTPOrHTTPS()) {
     // Previous versions of Chrome allowed non-http(s) URLs to be stored in the
     // prefs. Now they're disallowed, but the old data may still exist.
+    return;
+  }
+
+  // Blacklisted extensions should not open uninstall_url.
+  if (extensions::ExtensionPrefs::Get(context)->IsExtensionBlacklisted(
+          extension_id)) {
     return;
   }
 
@@ -588,14 +597,14 @@ void RuntimeAPI::OnExtensionInstalledAndLoaded(
 ExtensionFunction::ResponseAction RuntimeGetBackgroundPageFunction::Run() {
   ExtensionHost* host = ProcessManager::Get(browser_context())
                             ->GetBackgroundHostForExtension(extension_id());
-  if (LazyBackgroundTaskQueue::Get(browser_context())
-          ->ShouldEnqueueTask(browser_context(), extension())) {
-    LazyBackgroundTaskQueue::Get(browser_context())
-        ->AddPendingTask(
-            browser_context(), extension_id(),
-            base::Bind(&RuntimeGetBackgroundPageFunction::OnPageLoaded, this));
+  const LazyContextId context_id(browser_context(), extension_id());
+  LazyContextTaskQueue* task_queue = context_id.GetTaskQueue();
+  if (task_queue->ShouldEnqueueTask(browser_context(), extension())) {
+    task_queue->AddPendingTask(
+        context_id,
+        base::BindOnce(&RuntimeGetBackgroundPageFunction::OnPageLoaded, this));
   } else if (host) {
-    OnPageLoaded(host);
+    OnPageLoaded(std::make_unique<LazyContextTaskQueue::ContextInfo>(host));
   } else {
     return RespondNow(Error(kNoBackgroundPageError));
   }
@@ -603,8 +612,9 @@ ExtensionFunction::ResponseAction RuntimeGetBackgroundPageFunction::Run() {
   return RespondLater();
 }
 
-void RuntimeGetBackgroundPageFunction::OnPageLoaded(ExtensionHost* host) {
-  if (host) {
+void RuntimeGetBackgroundPageFunction::OnPageLoaded(
+    std::unique_ptr<LazyContextTaskQueue::ContextInfo> context_info) {
+  if (context_info) {
     Respond(NoArguments());
   } else {
     Respond(Error(kPageLoadError));
@@ -653,11 +663,11 @@ void RuntimeRequestUpdateCheckFunction::CheckComplete(
   if (result.success) {
     std::unique_ptr<base::DictionaryValue> details(new base::DictionaryValue);
     details->SetString("version", result.version);
-    Respond(TwoArguments(base::MakeUnique<base::Value>(result.response),
+    Respond(TwoArguments(std::make_unique<base::Value>(result.response),
                          std::move(details)));
   } else {
     // HMM(kalman): Why does !success not imply Error()?
-    Respond(OneArgument(base::MakeUnique<base::Value>(result.response)));
+    Respond(OneArgument(std::make_unique<base::Value>(result.response)));
   }
 }
 

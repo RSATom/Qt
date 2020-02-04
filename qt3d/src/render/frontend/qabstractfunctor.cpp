@@ -57,8 +57,15 @@ namespace Qt3DRender {
     macro in the class definition.
  */
 /*!
-    \fn qintptr QAbstractFunctor::id() const
+    \fn qintptr Qt3DRender::QAbstractFunctor::id() const
+
+    Returns a pointer to the id of the functor.
  */
+/*!
+   \fn qintptr Qt3DRender::functorTypeId()
+
+   Returns a pointer to the type id of the functor.
+*/
 /*!
     \macro QT3D_FUNCTOR(Class)
     \relates Qt3DRender::QAbstractFunctor
@@ -68,11 +75,12 @@ namespace Qt3DRender {
  */
 
 /*!
-    \fn const T *QAbstractFunctor::functor_cast(const QAbstractFunctor *other) const
+    \fn template<class T> const T * Qt3DRender::QAbstractFunctor::functor_cast(const QAbstractFunctor *other) const
 
     This method is used to cast functor \a other to type T if the other is of
     type T (or of subclass); otherwise returns 0. This method works similarly
-    to \l QObject::qobject_cast, except with functors derived from QAbstractFunctor.
+    to \l [QtCore] {qobject_cast(const QObject *object)}{qobject_cast()},
+    except with functors derived from QAbstractFunctor.
 
     \warning If T was not declared with \l QT3D_FUNCTOR macro, then the results are undefined.
   */

@@ -86,7 +86,7 @@ public:
 
     void setMutex(QMutex *mutex);
 
-    void run() Q_DECL_OVERRIDE;
+    void run() override;
 
 private:
     TestFunction m_func;
@@ -119,7 +119,7 @@ class MassAspectJob : public Qt3DCore::QAspectJob
 public:
     MassAspectJob(MassFunction func, QVector3D *data);
 
-    void run() Q_DECL_OVERRIDE;
+    void run() override;
 
 private:
     MassFunction m_func;
@@ -332,13 +332,13 @@ public:
         m_globalAtomic.fetchAndAddOrdered(qPow(3, index));
     }
 
-    int globalAtomicValue() const
+    quint64 globalAtomicValue() const
     {
         return m_globalAtomic.load();
     }
 
 private:
-    QAtomicInt m_globalAtomic;
+    QAtomicInteger<quint64> m_globalAtomic;
     QAtomicInt m_currentIndex;
 };
 
@@ -353,7 +353,7 @@ void tst_ThreadPooler::perThreadUniqueCall()
     // GIVEN
     PerThreadUniqueTester tester;
     const int maxThreads = QThread::idealThreadCount();
-    int maxValue = 0;
+    quint64 maxValue = 0;
     for (int i = 0; i < maxThreads; ++i) {
         maxValue += qPow(3, i);
     }

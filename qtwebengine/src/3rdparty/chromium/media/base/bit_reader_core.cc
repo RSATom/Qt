@@ -14,11 +14,9 @@ const int kRegWidthInBits = sizeof(uint64_t) * 8;
 
 namespace media {
 
-BitReaderCore::ByteStreamProvider::ByteStreamProvider() {
-}
+BitReaderCore::ByteStreamProvider::ByteStreamProvider() = default;
 
-BitReaderCore::ByteStreamProvider::~ByteStreamProvider() {
-}
+BitReaderCore::ByteStreamProvider::~ByteStreamProvider() = default;
 
 BitReaderCore::BitReaderCore(ByteStreamProvider* byte_stream_provider)
     : byte_stream_provider_(byte_stream_provider),
@@ -29,8 +27,7 @@ BitReaderCore::BitReaderCore(ByteStreamProvider* byte_stream_provider)
       reg_next_(0) {
 }
 
-BitReaderCore::~BitReaderCore() {
-}
+BitReaderCore::~BitReaderCore() = default;
 
 bool BitReaderCore::ReadFlag(bool* flag) {
   if (nbits_ == 0 && !Refill(1))
@@ -116,6 +113,7 @@ bool BitReaderCore::ReadBitsInternal(int num_bits, uint64_t* out) {
     // empty the current bit register for that purpose.
     nbits_ = 0;
     reg_ = 0;
+    *out = 0;
     return false;
   }
 

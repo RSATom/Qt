@@ -27,20 +27,22 @@
 **
 ****************************************************************************/
 
-#include "desktopinputselectioncontrol.h"
-#include "inputcontext.h"
-#include "inputselectionhandle.h"
-#include "settings.h"
-#include "platforminputcontext.h"
+#include <QtVirtualKeyboard/private/desktopinputselectioncontrol_p.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardinputcontext.h>
+#include <QtVirtualKeyboard/private/qvirtualkeyboardinputcontext_p.h>
+#include <QtVirtualKeyboard/private/inputselectionhandle_p.h>
+#include <QtVirtualKeyboard/private/settings_p.h>
+#include <QtVirtualKeyboard/private/platforminputcontext_p.h>
 
 #include <QtCore/qpropertyanimation.h>
 #include <QtGui/qguiapplication.h>
 #include <QtGui/qstylehints.h>
 #include <QtGui/qimagereader.h>
 
+QT_BEGIN_NAMESPACE
 namespace QtVirtualKeyboard {
 
-DesktopInputSelectionControl::DesktopInputSelectionControl(QObject *parent, InputContext *inputContext)
+DesktopInputSelectionControl::DesktopInputSelectionControl(QObject *parent, QVirtualKeyboardInputContext *inputContext)
     : QObject(parent),
       m_inputContext(inputContext),
       m_anchorSelectionHandle(),
@@ -54,7 +56,7 @@ DesktopInputSelectionControl::DesktopInputSelectionControl(QObject *parent, Inpu
 {
     QWindow *focusWindow = QGuiApplication::focusWindow();
     Q_ASSERT(focusWindow);
-    connect(m_inputContext, &InputContext::selectionControlVisibleChanged, this, &DesktopInputSelectionControl::updateVisibility);
+    connect(m_inputContext, &QVirtualKeyboardInputContext::selectionControlVisibleChanged, this, &DesktopInputSelectionControl::updateVisibility);
 }
 
 /*
@@ -113,7 +115,7 @@ void DesktopInputSelectionControl::updateVisibility()
     }
     const bool wasAnchorVisible = m_anchorHandleVisible;
     const bool wasCursorVisible = m_cursorHandleVisible;
-    const bool makeVisible = (m_inputContext->selectionControlVisible() || m_handleState == HandleIsMoving) && m_enabled;
+    const bool makeVisible = (m_inputContext->isSelectionControlVisible() || m_handleState == HandleIsMoving) && m_enabled;
 
     m_anchorHandleVisible = makeVisible;
     if (QWindow *focusWindow = QGuiApplication::focusWindow()) {
@@ -122,7 +124,7 @@ void DesktopInputSelectionControl::updateVisibility()
         globalAnchorRectangle.moveTopLeft(tl);
         m_anchorHandleVisible = m_anchorHandleVisible
                 && m_inputContext->anchorRectIntersectsClipRect()
-                && !(m_inputContext->keyboardRectangle().intersects(globalAnchorRectangle));
+                && !(m_inputContext->priv()->keyboardRectangle().intersects(globalAnchorRectangle));
     }
 
     if (wasAnchorVisible != m_anchorHandleVisible) {
@@ -141,7 +143,7 @@ void DesktopInputSelectionControl::updateVisibility()
         globalCursorRectangle.moveTopLeft(tl);
         m_cursorHandleVisible = m_cursorHandleVisible
                 && m_inputContext->cursorRectIntersectsClipRect()
-                && !(m_inputContext->keyboardRectangle().intersects(globalCursorRectangle));
+                && !(m_inputContext->priv()->keyboardRectangle().intersects(globalCursorRectangle));
 
     }
 
@@ -200,19 +202,19 @@ void DesktopInputSelectionControl::setEnabled(bool enable)
     m_enabled = enable;
     QWindow *focusWindow = QGuiApplication::focusWindow();
     if (enable) {
-        connect(m_inputContext, &InputContext::anchorRectangleChanged, this, &DesktopInputSelectionControl::updateAnchorHandlePosition);
-        connect(m_inputContext, &InputContext::cursorRectangleChanged, this, &DesktopInputSelectionControl::updateCursorHandlePosition);
-        connect(m_inputContext, &InputContext::anchorRectIntersectsClipRectChanged, this, &DesktopInputSelectionControl::updateVisibility);
-        connect(m_inputContext, &InputContext::cursorRectIntersectsClipRectChanged, this, &DesktopInputSelectionControl::updateVisibility);
+        connect(m_inputContext, &QVirtualKeyboardInputContext::anchorRectangleChanged, this, &DesktopInputSelectionControl::updateAnchorHandlePosition);
+        connect(m_inputContext, &QVirtualKeyboardInputContext::cursorRectangleChanged, this, &DesktopInputSelectionControl::updateCursorHandlePosition);
+        connect(m_inputContext, &QVirtualKeyboardInputContext::anchorRectIntersectsClipRectChanged, this, &DesktopInputSelectionControl::updateVisibility);
+        connect(m_inputContext, &QVirtualKeyboardInputContext::cursorRectIntersectsClipRectChanged, this, &DesktopInputSelectionControl::updateVisibility);
         if (focusWindow)
             focusWindow->installEventFilter(this);
     } else {
         if (focusWindow)
             focusWindow->removeEventFilter(this);
-        disconnect(m_inputContext, &InputContext::cursorRectIntersectsClipRectChanged, this, &DesktopInputSelectionControl::updateVisibility);
-        disconnect(m_inputContext, &InputContext::anchorRectIntersectsClipRectChanged, this, &DesktopInputSelectionControl::updateVisibility);
-        disconnect(m_inputContext, &InputContext::anchorRectangleChanged, this, &DesktopInputSelectionControl::updateAnchorHandlePosition);
-        disconnect(m_inputContext, &InputContext::cursorRectangleChanged, this, &DesktopInputSelectionControl::updateCursorHandlePosition);
+        disconnect(m_inputContext, &QVirtualKeyboardInputContext::cursorRectIntersectsClipRectChanged, this, &DesktopInputSelectionControl::updateVisibility);
+        disconnect(m_inputContext, &QVirtualKeyboardInputContext::anchorRectIntersectsClipRectChanged, this, &DesktopInputSelectionControl::updateVisibility);
+        disconnect(m_inputContext, &QVirtualKeyboardInputContext::anchorRectangleChanged, this, &DesktopInputSelectionControl::updateAnchorHandlePosition);
+        disconnect(m_inputContext, &QVirtualKeyboardInputContext::cursorRectangleChanged, this, &DesktopInputSelectionControl::updateCursorHandlePosition);
     }
     updateVisibility();
 }
@@ -323,4 +325,6 @@ bool DesktopInputSelectionControl::eventFilter(QObject *object, QEvent *event)
     }
     return false;
 }
-} //    namespace QtVirtualKeyboard
+
+} // namespace QtVirtualKeyboard
+QT_END_NAMESPACE

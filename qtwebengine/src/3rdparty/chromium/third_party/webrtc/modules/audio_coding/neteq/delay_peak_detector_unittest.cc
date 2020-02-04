@@ -10,22 +10,22 @@
 
 // Unit tests for DelayPeakDetector class.
 
-#include "webrtc/modules/audio_coding/neteq/delay_peak_detector.h"
+#include "modules/audio_coding/neteq/delay_peak_detector.h"
 
-#include "webrtc/test/gtest.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
 TEST(DelayPeakDetector, CreateAndDestroy) {
   TickTimer tick_timer;
-  DelayPeakDetector* detector = new DelayPeakDetector(&tick_timer);
+  DelayPeakDetector* detector = new DelayPeakDetector(&tick_timer, false);
   EXPECT_FALSE(detector->peak_found());
   delete detector;
 }
 
 TEST(DelayPeakDetector, EmptyHistory) {
   TickTimer tick_timer;
-  DelayPeakDetector detector(&tick_timer);
+  DelayPeakDetector detector(&tick_timer, false);
   EXPECT_EQ(-1, detector.MaxPeakHeight());
   EXPECT_EQ(0u, detector.MaxPeakPeriod());
 }
@@ -35,7 +35,7 @@ TEST(DelayPeakDetector, EmptyHistory) {
 // start. This should then continue until it is disengaged due to lack of peaks.
 TEST(DelayPeakDetector, TriggerPeakMode) {
   TickTimer tick_timer;
-  DelayPeakDetector detector(&tick_timer);
+  DelayPeakDetector detector(&tick_timer, false);
   const int kPacketSizeMs = 30;
   detector.SetPacketAudioLength(kPacketSizeMs);
 
@@ -65,13 +65,13 @@ TEST(DelayPeakDetector, TriggerPeakMode) {
   int next = 1;  // Start with the second packet to get a proper IAT.
   while (next < kNumPackets) {
     while (next < kNumPackets && arrival_times_ms[next] <= time) {
-      int iat_packets = (arrival_times_ms[next] - arrival_times_ms[next - 1]) /
-          kPacketSizeMs;
+      int iat_packets =
+          (arrival_times_ms[next] - arrival_times_ms[next - 1]) / kPacketSizeMs;
       const int kTargetBufferLevel = 1;  // Define peaks to be iat > 2.
       if (time < peak_mode_start_ms || time > peak_mode_end_ms) {
-        EXPECT_FALSE(detector.Update(iat_packets, kTargetBufferLevel));
+        EXPECT_FALSE(detector.Update(iat_packets, false, kTargetBufferLevel));
       } else {
-        EXPECT_TRUE(detector.Update(iat_packets, kTargetBufferLevel));
+        EXPECT_TRUE(detector.Update(iat_packets, false, kTargetBufferLevel));
         EXPECT_EQ(kWorstPeakPeriod, detector.MaxPeakPeriod());
         EXPECT_EQ(kPeakDelayMs / kPacketSizeMs + 1, detector.MaxPeakHeight());
       }
@@ -87,7 +87,7 @@ TEST(DelayPeakDetector, TriggerPeakMode) {
 // The delay pattern has peaks with delay = 3, thus should not trigger.
 TEST(DelayPeakDetector, DoNotTriggerPeakMode) {
   TickTimer tick_timer;
-  DelayPeakDetector detector(&tick_timer);
+  DelayPeakDetector detector(&tick_timer, false);
   const int kPacketSizeMs = 30;
   detector.SetPacketAudioLength(kPacketSizeMs);
 
@@ -112,10 +112,10 @@ TEST(DelayPeakDetector, DoNotTriggerPeakMode) {
   int next = 1;  // Start with the second packet to get a proper IAT.
   while (next < kNumPackets) {
     while (next < kNumPackets && arrival_times_ms[next] <= time) {
-      int iat_packets = (arrival_times_ms[next] - arrival_times_ms[next - 1]) /
-          kPacketSizeMs;
+      int iat_packets =
+          (arrival_times_ms[next] - arrival_times_ms[next - 1]) / kPacketSizeMs;
       const int kTargetBufferLevel = 2;  // Define peaks to be iat > 4.
-      EXPECT_FALSE(detector.Update(iat_packets, kTargetBufferLevel));
+      EXPECT_FALSE(detector.Update(iat_packets, false, kTargetBufferLevel));
       ++next;
     }
     tick_timer.Increment();
@@ -129,15 +129,33 @@ TEST(DelayPeakDetector, DoNotTriggerPeakMode) {
 // problems.
 TEST(DelayPeakDetector, ZeroDistancePeaks) {
   TickTimer tick_timer;
-  DelayPeakDetector detector(&tick_timer);
+  DelayPeakDetector detector(&tick_timer, false);
   const int kPacketSizeMs = 30;
   detector.SetPacketAudioLength(kPacketSizeMs);
 
   const int kTargetBufferLevel = 2;  // Define peaks to be iat > 4.
-  const int kInterArrivalTime = 3 * kTargetBufferLevel;  // Will trigger a peak.
-  EXPECT_FALSE(detector.Update(kInterArrivalTime, kTargetBufferLevel));
-  EXPECT_FALSE(detector.Update(kInterArrivalTime, kTargetBufferLevel));
-  EXPECT_FALSE(detector.Update(kInterArrivalTime, kTargetBufferLevel));
+  const int kInterArrivalTime =
+      3 * kTargetBufferLevel;  // Above peak threshold.
+  EXPECT_FALSE(detector.Update(kInterArrivalTime, false, kTargetBufferLevel));
+  tick_timer.Increment();
+  EXPECT_FALSE(detector.Update(kInterArrivalTime, false, kTargetBufferLevel));
+  // The following would fail if there were non-zero time between the updates.
+  EXPECT_FALSE(detector.Update(kInterArrivalTime, false, kTargetBufferLevel));
+}
+
+TEST(DelayPeakDetector, IgnoreReorderedPacket) {
+  TickTimer tick_timer;
+  DelayPeakDetector detector(&tick_timer, true);
+
+  const int kTargetBufferLevel = 2;  // Define peaks to be iat > 4.
+  const int kInterArrivalTime =
+      3 * kTargetBufferLevel;  // Above peak threshold.
+  EXPECT_FALSE(detector.Update(kInterArrivalTime, false, kTargetBufferLevel));
+  tick_timer.Increment();
+  EXPECT_FALSE(detector.Update(kInterArrivalTime, false, kTargetBufferLevel));
+  tick_timer.Increment();
+  // The following would fail if the packet was not reordered.
+  EXPECT_FALSE(detector.Update(kInterArrivalTime, true, kTargetBufferLevel));
 }
 
 }  // namespace webrtc

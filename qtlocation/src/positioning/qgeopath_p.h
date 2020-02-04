@@ -51,65 +51,216 @@
 // We mean it.
 //
 
+#include <QtPositioning/private/qpositioningglobal_p.h>
 #include "qgeoshape_p.h"
 #include "qgeocoordinate.h"
 #include "qlocationutils_p.h"
-#include <QtPositioning/private/qclipperutils_p.h>
-
+#include <QtPositioning/qgeopath.h>
 #include <QtCore/QVector>
 
 QT_BEGIN_NAMESPACE
 
-class QGeoPathPrivate : public QGeoShapePrivate
+inline static void computeBBox( const QList<QGeoCoordinate> &m_path,
+                                QVector<double> &m_deltaXs,
+                                double &m_minX,
+                                double &m_maxX,
+                                double &m_minLati,
+                                double &m_maxLati,
+                                QGeoRectangle &m_bbox)
+{
+    if (m_path.isEmpty()) {
+        m_deltaXs.clear();
+        m_minX = qInf();
+        m_maxX = -qInf();
+        m_minLati = qInf();
+        m_maxLati = -qInf();
+        m_bbox = QGeoRectangle();
+        return;
+    }
+
+    m_minLati = m_maxLati = m_path.at(0).latitude();
+    int minId = 0;
+    int maxId = 0;
+    m_deltaXs.resize(m_path.size());
+    m_deltaXs[0] = m_minX = m_maxX = 0.0;
+
+    for (int i = 1; i < m_path.size(); i++) {
+        const QGeoCoordinate &geoFrom = m_path.at(i-1);
+        const QGeoCoordinate &geoTo   = m_path.at(i);
+        double longiFrom    = geoFrom.longitude();
+        double longiTo      = geoTo.longitude();
+        double deltaLongi = longiTo - longiFrom;
+        if (qAbs(deltaLongi) > 180.0) {
+            if (longiTo > 0.0)
+                longiTo -= 360.0;
+            else
+                longiTo += 360.0;
+            deltaLongi =  longiTo - longiFrom;
+        }
+        m_deltaXs[i] = m_deltaXs[i-1] + deltaLongi;
+        if (m_deltaXs[i] < m_minX) {
+            m_minX = m_deltaXs[i];
+            minId = i;
+        }
+        if (m_deltaXs[i] > m_maxX) {
+            m_maxX = m_deltaXs[i];
+            maxId = i;
+        }
+        if (geoTo.latitude() > m_maxLati)
+            m_maxLati = geoTo.latitude();
+        if (geoTo.latitude() < m_minLati)
+            m_minLati = geoTo.latitude();
+    }
+
+    m_bbox = QGeoRectangle(QGeoCoordinate(m_maxLati, m_path.at(minId).longitude()),
+                           QGeoCoordinate(m_minLati, m_path.at(maxId).longitude()));
+}
+
+inline static void updateBBox( const QList<QGeoCoordinate> &m_path,
+                                QVector<double> &m_deltaXs,
+                                double &m_minX,
+                                double &m_maxX,
+                                double &m_minLati,
+                                double &m_maxLati,
+                                QGeoRectangle &m_bbox)
+{
+    if (m_path.isEmpty()) {
+        m_deltaXs.clear();
+        m_minX = qInf();
+        m_maxX = -qInf();
+        m_minLati = qInf();
+        m_maxLati = -qInf();
+        m_bbox = QGeoRectangle();
+        return;
+    } else if (m_path.size() == 1) { // was 0  now is 1
+        m_deltaXs.resize(1);
+        m_deltaXs[0] = m_minX = m_maxX = 0.0;
+        m_minLati = m_maxLati = m_path.at(0).latitude();
+        m_bbox = QGeoRectangle(QGeoCoordinate(m_maxLati, m_path.at(0).longitude()),
+                               QGeoCoordinate(m_minLati, m_path.at(0).longitude()));
+        return;
+    } else if ( m_path.size() != m_deltaXs.size() + 1 ) {  // this case should not happen
+        computeBBox(m_path, m_deltaXs, m_minX, m_maxX, m_minLati, m_maxLati, m_bbox); // something went wrong
+        return;
+    }
+
+    const QGeoCoordinate &geoFrom = m_path.at(m_path.size()-2);
+    const QGeoCoordinate &geoTo   = m_path.last();
+    double longiFrom    = geoFrom.longitude();
+    double longiTo      = geoTo.longitude();
+    double deltaLongi = longiTo - longiFrom;
+    if (qAbs(deltaLongi) > 180.0) {
+        if (longiTo > 0.0)
+            longiTo -= 360.0;
+        else
+            longiTo += 360.0;
+        deltaLongi =  longiTo - longiFrom;
+    }
+
+    m_deltaXs.push_back(m_deltaXs.last() + deltaLongi);
+    double currentMinLongi = m_bbox.topLeft().longitude();
+    double currentMaxLongi = m_bbox.bottomRight().longitude();
+    if (m_deltaXs.last() < m_minX) {
+        m_minX = m_deltaXs.last();
+        currentMinLongi = geoTo.longitude();
+    }
+    if (m_deltaXs.last() > m_maxX) {
+        m_maxX = m_deltaXs.last();
+        currentMaxLongi = geoTo.longitude();
+    }
+    if (geoTo.latitude() > m_maxLati)
+        m_maxLati = geoTo.latitude();
+    if (geoTo.latitude() < m_minLati)
+        m_minLati = geoTo.latitude();
+    m_bbox = QGeoRectangle(QGeoCoordinate(m_maxLati, currentMinLongi),
+                           QGeoCoordinate(m_minLati, currentMaxLongi));
+}
+
+// Lazy by default. Eager, within the module, used only in MapItems/MapObjectsQSG
+class Q_POSITIONING_PRIVATE_EXPORT QGeoPathPrivate : public QGeoShapePrivate
 {
 public:
-    QGeoPathPrivate(QGeoShape::ShapeType type);
-    QGeoPathPrivate(QGeoShape::ShapeType type, const QList<QGeoCoordinate> &path, const qreal width = 0.0);
-    QGeoPathPrivate(const QGeoPathPrivate &other);
+    QGeoPathPrivate();
+    QGeoPathPrivate(const QList<QGeoCoordinate> &path, const qreal width = 0.0);
     ~QGeoPathPrivate();
 
-    bool isValid() const Q_DECL_OVERRIDE;
-    bool isEmpty() const Q_DECL_OVERRIDE;
-    bool contains(const QGeoCoordinate &coordinate) const Q_DECL_OVERRIDE;
-    bool lineContains(const QGeoCoordinate &coordinate) const;
-    bool polygonContains(const QGeoCoordinate &coordinate) const;
+// QGeoShape API
+    virtual QGeoShapePrivate *clone() const override;
+    virtual bool isValid() const override;
+    virtual bool isEmpty() const override;
+    virtual QGeoCoordinate center() const override;
+    virtual bool operator==(const QGeoShapePrivate &other) const override;
+    virtual bool contains(const QGeoCoordinate &coordinate) const override;
+    virtual QGeoRectangle boundingGeoRectangle() const override;
 
-    QGeoCoordinate center() const Q_DECL_OVERRIDE;
-    QGeoRectangle boundingGeoRectangle() const Q_DECL_OVERRIDE;
-    void extendShape(const QGeoCoordinate &coordinate) Q_DECL_OVERRIDE;
-    void translate(double degreesLatitude, double degreesLongitude);
+    virtual void extendShape(const QGeoCoordinate &coordinate) override;
 
-    QGeoShapePrivate *clone() const Q_DECL_OVERRIDE;
+// QGeoPathPrivate API
+    virtual const QList<QGeoCoordinate> &path() const;
+    virtual bool lineContains(const QGeoCoordinate &coordinate) const;
+    virtual qreal width() const;
+    virtual double length(int indexFrom, int indexTo) const;
+    virtual int size() const;
+    virtual QGeoCoordinate coordinateAt(int index) const;
+    virtual bool containsCoordinate(const QGeoCoordinate &coordinate) const;
 
-    bool operator==(const QGeoShapePrivate &other) const Q_DECL_OVERRIDE;
+    virtual void setWidth(const qreal &width);
+    virtual void translate(double degreesLatitude, double degreesLongitude);
+    virtual void setPath(const QList<QGeoCoordinate> &path);
+    virtual void clearPath();
+    virtual void addCoordinate(const QGeoCoordinate &coordinate);
+    virtual void insertCoordinate(int index, const QGeoCoordinate &coordinate);
+    virtual void replaceCoordinate(int index, const QGeoCoordinate &coordinate);
+    virtual void removeCoordinate(const QGeoCoordinate &coordinate);
+    virtual void removeCoordinate(int index);
+    virtual void computeBoundingBox();
+    virtual void markDirty();
 
-    const QList<QGeoCoordinate> &path() const;
-    void setPath(const QList<QGeoCoordinate> &path);
-    qreal width() const;
-    void setWidth(const qreal &width);
-    double length(int indexFrom, int indexTo) const;
-    int size() const;
-    void addCoordinate(const QGeoCoordinate &coordinate);
-    void insertCoordinate(int index, const QGeoCoordinate &coordinate);
-    void replaceCoordinate(int index, const QGeoCoordinate &coordinate);
-    QGeoCoordinate coordinateAt(int index) const;
-    bool containsCoordinate(const QGeoCoordinate &coordinate) const;
-    void removeCoordinate(const QGeoCoordinate &coordinate);
-    void removeCoordinate(int index);
-    void computeBoundingBox();
-    void updateBoundingBox();
-    void updateClipperPath();
-
+// data members
     QList<QGeoCoordinate> m_path;
-    QVector<double> m_deltaXs; // longitude deltas from m_path[0]
-    double m_minX;             // minimum value inside deltaXs
-    double m_maxX;             // maximum value inside deltaXs
-    double m_minLati;             // minimum latitude. paths do not wrap around through the poles
-    double m_maxLati;             // minimum latitude. paths do not wrap around through the poles
-    QGeoRectangle m_bbox;
-    qreal m_width;
-    bool m_clipperDirty;
-    QtClipperLib::Path m_clipperPath;
+    qreal m_width = 0;
+    QGeoRectangle m_bbox; // cached
+    bool m_bboxDirty = false;
+};
+
+class Q_POSITIONING_PRIVATE_EXPORT QGeoPathPrivateEager : public QGeoPathPrivate
+{
+public:
+    QGeoPathPrivateEager();
+    QGeoPathPrivateEager(const QList<QGeoCoordinate> &path, const qreal width = 0.0);
+    ~QGeoPathPrivateEager();
+
+// QGeoShapePrivate API
+    virtual QGeoShapePrivate *clone() const override;
+    virtual void translate(double degreesLatitude, double degreesLongitude) override;
+
+// QGeoShapePrivate API
+    virtual void markDirty() override;
+    virtual void addCoordinate(const QGeoCoordinate &coordinate) override;
+    virtual void computeBoundingBox() override;
+
+// *Eager API
+    void updateBoundingBox();
+
+// data members
+    QVector<double> m_deltaXs;      // longitude deltas from m_path[0]
+    double m_minX = 0;              // minimum value inside deltaXs
+    double m_maxX = 0;              // maximum value inside deltaXs
+    double m_minLati = 0;           // minimum latitude. paths do not wrap around through the poles
+    double m_maxLati = 0;           // minimum latitude. paths do not wrap around through the poles
+};
+
+// This is a mean of creating a QGeoPathPrivateEager and injecting it into QGeoPaths via operator=
+class Q_POSITIONING_PRIVATE_EXPORT QGeoPathEager : public QGeoPath
+{
+    Q_GADGET
+public:
+
+    QGeoPathEager();
+    QGeoPathEager(const QList<QGeoCoordinate> &path, const qreal &width = 0.0);
+    QGeoPathEager(const QGeoPath &other);
+    QGeoPathEager(const QGeoShape &other);
+    ~QGeoPathEager();
 };
 
 QT_END_NAMESPACE

@@ -10,10 +10,9 @@
 #include <utility>
 
 #include "base/format_macros.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/persistent_memory_allocator.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -45,7 +44,7 @@ std::string SortFeatureListString(const std::string& feature_list) {
 class FeatureListTest : public testing::Test {
  public:
   FeatureListTest() : feature_list_(nullptr) {
-    RegisterFeatureListInstance(WrapUnique(new FeatureList));
+    RegisterFeatureListInstance(std::make_unique<FeatureList>());
   }
   ~FeatureListTest() override { ClearFeatureListInstance(); }
 
@@ -89,7 +88,7 @@ TEST_F(FeatureListTest, InitializeFromCommandLine) {
       {"OnByDefault", "OnByDefault,OffByDefault", false, false},
   };
 
-  for (size_t i = 0; i < arraysize(test_cases); ++i) {
+  for (size_t i = 0; i < base::size(test_cases); ++i) {
     const auto& test_case = test_cases[i];
     SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "]: [%s] [%s]", i,
                                     test_case.enable_features,
@@ -145,7 +144,7 @@ TEST_F(FeatureListTest, FieldTrialOverrides) {
   };
 
   FieldTrial::ActiveGroup active_group;
-  for (size_t i = 0; i < arraysize(test_cases); ++i) {
+  for (size_t i = 0; i < base::size(test_cases); ++i) {
     const auto& test_case = test_cases[i];
     SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "]", i));
 
@@ -305,7 +304,7 @@ TEST_F(FeatureListTest, AssociateReportingFieldTrial) {
   const char kForcedOnGroupName[] = "ForcedOn";
   const char kForcedOffGroupName[] = "ForcedOff";
 
-  for (size_t i = 0; i < arraysize(test_cases); ++i) {
+  for (size_t i = 0; i < base::size(test_cases); ++i) {
     const auto& test_case = test_cases[i];
     SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "]: [%s] [%s]", i,
                                     test_case.enable_features,
@@ -372,6 +371,11 @@ TEST_F(FeatureListTest, GetFeatureOverrides) {
   FeatureList::GetInstance()->GetFeatureOverrides(&enable_features,
                                                   &disable_features);
   EXPECT_EQ("A,OffByDefault<Trial,X", SortFeatureListString(enable_features));
+  EXPECT_EQ("D", SortFeatureListString(disable_features));
+
+  FeatureList::GetInstance()->GetCommandLineFeatureOverrides(&enable_features,
+                                                             &disable_features);
+  EXPECT_EQ("A,X", SortFeatureListString(enable_features));
   EXPECT_EQ("D", SortFeatureListString(disable_features));
 }
 

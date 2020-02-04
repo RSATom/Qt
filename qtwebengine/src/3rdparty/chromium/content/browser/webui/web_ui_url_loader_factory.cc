@@ -2,33 +2,36 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "content/browser/webui/web_ui_url_loader_factory.h"
+#include "content/public/browser/web_ui_url_loader_factory.h"
 
 #include <map>
 
 #include "base/bind.h"
+#include "base/debug/crash_logging.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_piece.h"
+#include "base/task/post_task.h"
+#include "content/browser/bad_message.h"
 #include "content/browser/blob_storage/blob_internals_url_loader.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
-#include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
-#include "content/browser/histogram_internals_url_loader.h"
 #include "content/browser/resource_context_impl.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/browser/webui/network_error_url_loader.h"
 #include "content/browser/webui/url_data_manager_backend.h"
 #include "content/browser/webui/url_data_source_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/network_service.mojom.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/url_constants.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
+#include "services/network/public/mojom/network_service.mojom.h"
 #include "third_party/zlib/google/compression_utils.h"
 #include "ui/base/template_expressions.h"
 
@@ -37,35 +40,41 @@ namespace content {
 namespace {
 
 class WebUIURLLoaderFactory;
-base::LazyInstance<std::map<int, std::unique_ptr<WebUIURLLoaderFactory>>>::Leaky
-    g_factories = LAZY_INSTANCE_INITIALIZER;
+base::LazyInstance<std::map<GlobalFrameRoutingId,
+                            std::unique_ptr<WebUIURLLoaderFactory>>>::Leaky
+    g_web_ui_url_loader_factories = LAZY_INSTANCE_INITIALIZER;
 
-void CallOnError(mojom::URLLoaderClientPtrInfo client_info, int error_code) {
-  mojom::URLLoaderClientPtr client;
+void CallOnError(network::mojom::URLLoaderClientPtrInfo client_info,
+                 int error_code) {
+  network::mojom::URLLoaderClientPtr client;
   client.Bind(std::move(client_info));
 
-  ResourceRequestCompletionStatus status;
+  network::URLLoaderCompletionStatus status;
   status.error_code = error_code;
   client->OnComplete(status);
 }
 
-void ReadData(scoped_refptr<ResourceResponse> headers,
+void ReadData(scoped_refptr<network::ResourceResponse> headers,
               const ui::TemplateReplacements* replacements,
               bool gzipped,
               scoped_refptr<URLDataSourceImpl> data_source,
-              mojom::URLLoaderClientPtrInfo client_info,
+              network::mojom::URLLoaderClientPtrInfo client_info,
               scoped_refptr<base::RefCountedMemory> bytes) {
   if (!bytes) {
     CallOnError(std::move(client_info), net::ERR_FAILED);
     return;
   }
 
-  mojom::URLLoaderClientPtr client;
+  network::mojom::URLLoaderClientPtr client;
   client.Bind(std::move(client_info));
-  client->OnReceiveResponse(headers->head, base::nullopt, nullptr);
+  client->OnReceiveResponse(headers->head);
 
   base::StringPiece input(reinterpret_cast<const char*>(bytes->front()),
                           bytes->size());
+
+  // Treats empty gzipped data as unzipped.
+  if (!bytes->size())
+    gzipped = false;
 
   if (replacements) {
     std::string temp_string;
@@ -93,47 +102,48 @@ void ReadData(scoped_refptr<ResourceResponse> headers,
 
   void* buffer = nullptr;
   uint32_t num_bytes = output_size;
-  MojoResult result =
-      BeginWriteDataRaw(data_pipe.producer_handle.get(), &buffer, &num_bytes,
-                        MOJO_WRITE_DATA_FLAG_NONE);
+  MojoResult result = data_pipe.producer_handle->BeginWriteData(
+      &buffer, &num_bytes, MOJO_WRITE_DATA_FLAG_NONE);
   CHECK_EQ(result, MOJO_RESULT_OK);
-  CHECK_EQ(num_bytes, output_size);
+  CHECK_GE(num_bytes, output_size);
 
   if (gzipped) {
-    base::StringPiece output(static_cast<char*>(buffer), num_bytes);
+    base::StringPiece output(static_cast<char*>(buffer), output_size);
     CHECK(compression::GzipUncompress(input, output));
   } else {
     memcpy(buffer, bytes->front(), output_size);
   }
-  result = EndWriteDataRaw(data_pipe.producer_handle.get(), num_bytes);
+  result = data_pipe.producer_handle->EndWriteData(output_size);
   CHECK_EQ(result, MOJO_RESULT_OK);
 
   client->OnStartLoadingResponseBody(std::move(data_pipe.consumer_handle));
-  client->OnComplete(ResourceRequestCompletionStatus(output_size));
+  network::URLLoaderCompletionStatus status(net::OK);
+  status.encoded_data_length = output_size;
+  status.encoded_body_length = output_size;
+  status.decoded_body_length = output_size;
+  client->OnComplete(status);
 }
 
-void DataAvailable(scoped_refptr<ResourceResponse> headers,
+void DataAvailable(scoped_refptr<network::ResourceResponse> headers,
                    const ui::TemplateReplacements* replacements,
                    bool gzipped,
                    scoped_refptr<URLDataSourceImpl> source,
-                   mojom::URLLoaderClientPtrInfo client_info,
+                   network::mojom::URLLoaderClientPtrInfo client_info,
                    scoped_refptr<base::RefCountedMemory> bytes) {
   // Since the bytes are from the memory mapped resource file, copying the
-  // data can lead to disk access.
-  // TODO(jam): once http://crbug.com/678155 is fixed, use task scheduler:
-  // base::PostTaskWithTraits(
-  //     FROM_HERE,
-  //     {base::TaskPriority::USER_BLOCKING,
-  //       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-  BrowserThread::PostTask(
-      BrowserThread::FILE_USER_BLOCKING, FROM_HERE,
-      base::BindOnce(ReadData, headers, replacements, gzipped, source,
-                     std::move(client_info), bytes));
+  // data can lead to disk access. Needs to be posted to a SequencedTaskRunner
+  // as Mojo requires a SequencedTaskRunnerHandle in scope.
+  base::CreateSequencedTaskRunnerWithTraits(
+      {base::TaskPriority::USER_BLOCKING, base::MayBlock(),
+       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(ReadData, headers, replacements, gzipped,
+                                source, std::move(client_info), bytes));
 }
 
-void StartURLLoader(const ResourceRequest& request,
+void StartURLLoader(const network::ResourceRequest& request,
                     int frame_tree_node_id,
-                    mojom::URLLoaderClientPtrInfo client_info,
+                    network::mojom::URLLoaderClientPtrInfo client_info,
                     ResourceContext* resource_context) {
   // NOTE: this duplicates code in URLDataManagerBackend::StartRequest.
   if (!URLDataManagerBackend::CheckURLIsValid(request.url)) {
@@ -158,15 +168,14 @@ void StartURLLoader(const ResourceRequest& request,
   std::string path;
   URLDataManagerBackend::URLToRequestPath(request.url, &path);
 
-  net::HttpRequestHeaders request_headers;
-  request_headers.AddHeadersFromString(request.headers);
   std::string origin_header;
-  request_headers.GetHeader(net::HttpRequestHeaders::kOrigin, &origin_header);
+  request.headers.GetHeader(net::HttpRequestHeaders::kOrigin, &origin_header);
 
   scoped_refptr<net::HttpResponseHeaders> headers =
       URLDataManagerBackend::GetHeaders(source, path, origin_header);
 
-  scoped_refptr<ResourceResponse> resource_response(new ResourceResponse);
+  scoped_refptr<network::ResourceResponse> resource_response(
+      new network::ResourceResponse);
   resource_response->head.headers = headers;
   resource_response->head.mime_type = source->source()->GetMimeType(path);
   // TODO: fill all the time related field i.e. request_time response_time
@@ -192,60 +201,82 @@ void StartURLLoader(const ResourceRequest& request,
   scoped_refptr<base::SingleThreadTaskRunner> target_runner =
       source->source()->TaskRunnerForRequestPath(path);
   if (!target_runner) {
-    source->source()->StartDataRequest(path, wc_getter,
-                                       data_available_callback);
+    source->source()->StartDataRequest(path, std::move(wc_getter),
+                                       std::move(data_available_callback));
     return;
   }
 
   // The DataSource wants StartDataRequest to be called on a specific
   // thread, usually the UI thread, for this path.
   target_runner->PostTask(
-      FROM_HERE, base::BindOnce(&URLDataSource::StartDataRequest,
-                                base::Unretained(source->source()), path,
-                                wc_getter, data_available_callback));
+      FROM_HERE,
+      base::BindOnce(&URLDataSource::StartDataRequest,
+                     base::Unretained(source->source()), path,
+                     std::move(wc_getter), std::move(data_available_callback)));
 }
 
-class WebUIURLLoaderFactory : public mojom::URLLoaderFactory,
-                              public FrameTreeNode::Observer {
+class WebUIURLLoaderFactory : public network::mojom::URLLoaderFactory,
+                              public WebContentsObserver {
  public:
-  WebUIURLLoaderFactory(FrameTreeNode* ftn)
-      : frame_tree_node_id_(ftn->frame_tree_node_id()),
-        storage_partition_(static_cast<StoragePartitionImpl*>(
-            ftn->current_frame_host()->GetProcess()->GetStoragePartition())) {
-    ftn->AddObserver(this);
-  }
+  // |allowed_hosts| is an optional set of allowed host names. If empty then
+  // all hosts are allowed.
+  WebUIURLLoaderFactory(RenderFrameHost* rfh,
+                        const std::string& scheme,
+                        base::flat_set<std::string> allowed_hosts)
+      : WebContentsObserver(WebContents::FromRenderFrameHost(rfh)),
+        render_frame_host_(rfh),
+        scheme_(scheme),
+        allowed_hosts_(std::move(allowed_hosts)) {}
 
   ~WebUIURLLoaderFactory() override {}
 
-  mojom::URLLoaderFactoryPtr CreateBinding() {
-    mojom::URLLoaderFactoryPtr factory;
+  network::mojom::URLLoaderFactoryPtr CreateBinding() {
+    network::mojom::URLLoaderFactoryPtr factory;
     loader_factory_bindings_.AddBinding(this, mojo::MakeRequest(&factory));
     return factory;
   }
 
-  // mojom::URLLoaderFactory implementation:
-  void CreateLoaderAndStart(mojom::URLLoaderAssociatedRequest loader,
+  // network::mojom::URLLoaderFactory implementation:
+  void CreateLoaderAndStart(network::mojom::URLLoaderRequest loader,
                             int32_t routing_id,
                             int32_t request_id,
                             uint32_t options,
-                            const ResourceRequest& request,
-                            mojom::URLLoaderClientPtr client,
+                            const network::ResourceRequest& request,
+                            network::mojom::URLLoaderClientPtr client,
                             const net::MutableNetworkTrafficAnnotationTag&
                                 traffic_annotation) override {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-    if (request.url.host_piece() == kChromeUINetworkViewCacheHost) {
-      storage_partition_->network_context()->HandleViewCacheRequest(
-          request.url, std::move(client));
+
+    if (request.url.scheme() != scheme_) {
+      DVLOG(1) << "Bad scheme: " << request.url.scheme();
+      ReceivedBadMessage(render_frame_host_->GetProcess(),
+                         bad_message::WEBUI_BAD_SCHEME_ACCESS);
+      client->OnComplete(network::URLLoaderCompletionStatus(net::ERR_FAILED));
+      return;
+    }
+
+    if (!allowed_hosts_.empty() &&
+        (!request.url.has_host() ||
+         allowed_hosts_.find(request.url.host()) == allowed_hosts_.end())) {
+      // Temporary reporting the bad WebUI host for for http://crbug.com/837328.
+      static auto* crash_key = base::debug::AllocateCrashKeyString(
+          "webui_url", base::debug::CrashKeySize::Size64);
+      base::debug::SetCrashKeyString(crash_key, request.url.spec());
+
+      DVLOG(1) << "Bad host: \"" << request.url.host() << '"';
+      ReceivedBadMessage(render_frame_host_->GetProcess(),
+                         bad_message::WEBUI_BAD_HOST_ACCESS);
+      client->OnComplete(network::URLLoaderCompletionStatus(net::ERR_FAILED));
       return;
     }
 
     if (request.url.host_piece() == kChromeUIBlobInternalsHost) {
-      BrowserThread::PostTask(
-          BrowserThread::IO, FROM_HERE,
+      base::PostTaskWithTraits(
+          FROM_HERE, {BrowserThread::IO},
           base::BindOnce(&StartBlobInternalsURLLoader, request,
                          client.PassInterface(),
                          base::Unretained(ChromeBlobStorageContext::GetFor(
-                             storage_partition_->browser_context()))));
+                             GetStoragePartition()->browser_context()))));
       return;
     }
 
@@ -255,46 +286,70 @@ class WebUIURLLoaderFactory : public mojom::URLLoaderFactory,
       return;
     }
 
-    if (request.url.host_piece() == kChromeUIHistogramHost) {
-      StartHistogramInternalsURLLoader(request, std::move(client));
-      return;
-    }
-
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
+    // We pass the FrameTreeNode ID to get to the WebContents because requests
+    // from frames can happen while the RFH is changed for a cross-process
+    // navigation. The URLDataSources just need the WebContents; the specific
+    // frame doesn't matter.
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
         base::BindOnce(
-            &StartURLLoader, request, frame_tree_node_id_,
+            &StartURLLoader, request, render_frame_host_->GetFrameTreeNodeId(),
             client.PassInterface(),
-            storage_partition_->browser_context()->GetResourceContext()));
+            GetStoragePartition()->browser_context()->GetResourceContext()));
   }
 
-  void SyncLoad(int32_t routing_id,
-                int32_t request_id,
-                const ResourceRequest& request,
-                SyncLoadCallback callback) override {
-    NOTREACHED();
+  void Clone(network::mojom::URLLoaderFactoryRequest request) override {
+    loader_factory_bindings_.AddBinding(this, std::move(request));
   }
 
-  // FrameTreeNode::Observer implementation:
-  void OnFrameTreeNodeDestroyed(FrameTreeNode* node) override {
-    g_factories.Get().erase(frame_tree_node_id_);
+  // WebContentsObserver implementation:
+  void RenderFrameDeleted(RenderFrameHost* render_frame_host) override {
+    if (render_frame_host != render_frame_host_)
+      return;
+    g_web_ui_url_loader_factories.Get().erase(
+        GlobalFrameRoutingId(render_frame_host_->GetRoutingID(),
+                             render_frame_host_->GetProcess()->GetID()));
   }
+
+  const std::string& scheme() const { return scheme_; }
 
  private:
-  int frame_tree_node_id_;
-  StoragePartitionImpl* storage_partition_;
-  mojo::BindingSet<mojom::URLLoaderFactory> loader_factory_bindings_;
+  StoragePartitionImpl* GetStoragePartition() {
+    return static_cast<StoragePartitionImpl*>(
+        render_frame_host_->GetProcess()->GetStoragePartition());
+  }
+
+  RenderFrameHost* render_frame_host_;
+  std::string scheme_;
+  const base::flat_set<std::string> allowed_hosts_;  // if empty all allowed.
+  mojo::BindingSet<network::mojom::URLLoaderFactory> loader_factory_bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(WebUIURLLoaderFactory);
 };
 
 }  // namespace
 
-mojom::URLLoaderFactoryPtr CreateWebUIURLLoader(FrameTreeNode* node) {
-  int ftn_id = node->frame_tree_node_id();
-  if (g_factories.Get()[ftn_id].get() == nullptr)
-    g_factories.Get()[ftn_id] = base::MakeUnique<WebUIURLLoaderFactory>(node);
-  return g_factories.Get()[ftn_id]->CreateBinding();
+std::unique_ptr<network::mojom::URLLoaderFactory> CreateWebUIURLLoader(
+    RenderFrameHost* render_frame_host,
+    const std::string& scheme,
+    base::flat_set<std::string> allowed_hosts) {
+  return std::make_unique<WebUIURLLoaderFactory>(render_frame_host, scheme,
+                                                 std::move(allowed_hosts));
+}
+
+network::mojom::URLLoaderFactoryPtr CreateWebUIURLLoaderBinding(
+    RenderFrameHost* render_frame_host,
+    const std::string& scheme) {
+  GlobalFrameRoutingId routing_id(render_frame_host->GetRoutingID(),
+                                  render_frame_host->GetProcess()->GetID());
+  if (g_web_ui_url_loader_factories.Get().find(routing_id) ==
+          g_web_ui_url_loader_factories.Get().end() ||
+      g_web_ui_url_loader_factories.Get()[routing_id]->scheme() != scheme) {
+    g_web_ui_url_loader_factories.Get()[routing_id] =
+        std::make_unique<WebUIURLLoaderFactory>(render_frame_host, scheme,
+                                                base::flat_set<std::string>());
+  }
+  return g_web_ui_url_loader_factories.Get()[routing_id]->CreateBinding();
 }
 
 }  // namespace content

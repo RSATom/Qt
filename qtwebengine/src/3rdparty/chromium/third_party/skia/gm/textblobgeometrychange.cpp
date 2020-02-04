@@ -31,24 +31,18 @@ protected:
     void onDraw(SkCanvas* canvas) override {
         const char text[] = "Hamburgefons";
 
-        SkPaint paint;
-        sk_tool_utils::set_portable_typeface(&paint);
-        paint.setTextSize(20);
-        paint.setAntiAlias(true);
-        paint.setLCDRenderText(true);
+        SkFont font(sk_tool_utils::create_portable_typeface(), 20);
+        font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
 
         SkTextBlobBuilder builder;
 
-        sk_tool_utils::add_to_text_blob(&builder, text, paint, 10, 10);
+        sk_tool_utils::add_to_text_blob(&builder, text, font, 10, 10);
 
         sk_sp<SkTextBlob> blob(builder.make());
 
         SkImageInfo info = SkImageInfo::MakeN32Premul(200, 200);
         SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
-        auto surface = canvas->makeSurface(info, &props);
-        if (!surface) {
-            surface = SkSurface::MakeRaster(info, &props);
-        }
+        auto surface = sk_tool_utils::makeSurface(canvas, info, &props);
         SkCanvas* c = surface->getCanvas();
 
         // LCD text on white background
@@ -56,12 +50,12 @@ protected:
         SkPaint rectPaint;
         rectPaint.setColor(0xffffffff);
         canvas->drawRect(rect, rectPaint);
-        canvas->drawTextBlob(blob, 10, 50, paint);
+        canvas->drawTextBlob(blob, 10, 50, SkPaint());
 
         // This should not look garbled since we should disable LCD text in this case
         // (i.e., unknown pixel geometry)
         c->clear(0x00ffffff);
-        c->drawTextBlob(blob, 10, 150, paint);
+        c->drawTextBlob(blob, 10, 150, SkPaint());
         surface->draw(canvas, 0, 0, nullptr);
     }
 

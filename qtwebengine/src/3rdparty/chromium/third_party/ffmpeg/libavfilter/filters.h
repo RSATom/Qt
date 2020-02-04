@@ -26,6 +26,12 @@
  */
 
 #include "avfilter.h"
+#include "internal.h"
+
+/**
+ * Special return code when activate() did not do anything.
+ */
+#define FFERROR_NOT_READY FFERRTAG('N','R','D','Y')
 
 /**
  * Mark a filter ready and schedule it for activation.
@@ -55,10 +61,23 @@ int ff_inlink_process_commands(AVFilterLink *link, const AVFrame *frame);
 int ff_inlink_evaluate_timeline_at_frame(AVFilterLink *link, const AVFrame *frame);
 
 /**
+ * Get the number of frames available on the link.
+ * @return the number of frames available in the link fifo.
+ */
+size_t ff_inlink_queued_frames(AVFilterLink *link);
+
+/**
  * Test if a frame is available on the link.
  * @return  >0 if a frame is available
  */
 int ff_inlink_check_available_frame(AVFilterLink *link);
+
+
+/***
+  * Get the number of samples available on the link.
+  * @return the numer of samples available on the link.
+  */
+int ff_inlink_queued_samples(AVFilterLink *link);
 
 /**
  * Test if enough samples are available on the link.
@@ -97,6 +116,13 @@ int ff_inlink_consume_samples(AVFilterLink *link, unsigned min, unsigned max,
                             AVFrame **rframe);
 
 /**
+ * Access a frame in the link fifo without consuming it.
+ * The first frame is numbered 0; the designated frame must exist.
+ * @return the frame at idx position in the link fifo.
+ */
+AVFrame *ff_inlink_peek_frame(AVFilterLink *link, size_t idx);
+
+/**
  * Make sure a frame is writable.
  * This is similar to av_frame_make_writable() except it uses the link's
  * buffer allocation callback, and therefore allows direct rendering.
@@ -133,5 +159,103 @@ int ff_inlink_acknowledge_status(AVFilterLink *link, int *rstatus, int64_t *rpts
  * Also it cannot fail.
  */
 void ff_inlink_request_frame(AVFilterLink *link);
+
+/**
+ * Set the status on an input link.
+ * Also discard all frames in the link's FIFO.
+ */
+void ff_inlink_set_status(AVFilterLink *link, int status);
+
+/**
+ * Test if a frame is wanted on an output link.
+ */
+static inline int ff_outlink_frame_wanted(AVFilterLink *link)
+{
+    return link->frame_wanted_out;
+}
+
+/**
+ * Get the status on an output link.
+ */
+int ff_outlink_get_status(AVFilterLink *link);
+
+/**
+ * Set the status field of a link from the source filter.
+ * The pts should reflect the timestamp of the status change,
+ * in link time base and relative to the frames timeline.
+ * In particular, for AVERROR_EOF, it should reflect the
+ * end time of the last frame.
+ */
+static inline void ff_outlink_set_status(AVFilterLink *link, int status, int64_t pts)
+{
+    ff_avfilter_link_set_in_status(link, status, pts);
+}
+
+/**
+ * Forward the status on an output link to an input link.
+ * If the status is set, it will discard all queued frames and this macro
+ * will return immediately.
+ */
+#define FF_FILTER_FORWARD_STATUS_BACK(outlink, inlink) do { \
+    int ret = ff_outlink_get_status(outlink); \
+    if (ret) { \
+        ff_inlink_set_status(inlink, ret); \
+        return 0; \
+    } \
+} while (0)
+
+/**
+ * Forward the status on an output link to all input links.
+ * If the status is set, it will discard all queued frames and this macro
+ * will return immediately.
+ */
+#define FF_FILTER_FORWARD_STATUS_BACK_ALL(outlink, filter) do { \
+    int ret = ff_outlink_get_status(outlink); \
+    if (ret) { \
+        unsigned i; \
+        for (i = 0; i < filter->nb_inputs; i++) \
+            ff_inlink_set_status(filter->inputs[i], ret); \
+        return 0; \
+    } \
+} while (0)
+
+/**
+ * Acknowledge the status on an input link and forward it to an output link.
+ * If the status is set, this macro will return immediately.
+ */
+#define FF_FILTER_FORWARD_STATUS(inlink, outlink) do { \
+    int status; \
+    int64_t pts; \
+    if (ff_inlink_acknowledge_status(inlink, &status, &pts)) { \
+        ff_outlink_set_status(outlink, status, pts); \
+        return 0; \
+    } \
+} while (0)
+
+/**
+ * Acknowledge the status on an input link and forward it to an output link.
+ * If the status is set, this macro will return immediately.
+ */
+#define FF_FILTER_FORWARD_STATUS_ALL(inlink, filter) do { \
+    int status; \
+    int64_t pts; \
+    if (ff_inlink_acknowledge_status(inlink, &status, &pts)) { \
+        unsigned i; \
+        for (i = 0; i < filter->nb_outputs; i++) \
+            ff_outlink_set_status(filter->outputs[i], status, pts); \
+        return 0; \
+    } \
+} while (0)
+
+/**
+ * Forward the frame_wanted_out flag from an output link to an input link.
+ * If the flag is set, this macro will return immediately.
+ */
+#define FF_FILTER_FORWARD_WANTED(outlink, inlink) do { \
+    if (ff_outlink_frame_wanted(outlink)) { \
+        ff_inlink_request_frame(inlink); \
+        return 0; \
+    } \
+} while (0)
 
 #endif /* AVFILTER_FILTERS_H */

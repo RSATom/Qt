@@ -46,9 +46,9 @@ class QT_DATAVISUALIZATION_EXPORT QValue3DAxisFormatter : public QObject
 {
     Q_OBJECT
 protected:
-    explicit QValue3DAxisFormatter(QValue3DAxisFormatterPrivate *d, QObject *parent = Q_NULLPTR);
+    explicit QValue3DAxisFormatter(QValue3DAxisFormatterPrivate *d, QObject *parent = nullptr);
 public:
-    explicit QValue3DAxisFormatter(QObject *parent = Q_NULLPTR);
+    explicit QValue3DAxisFormatter(QObject *parent = nullptr);
     virtual ~QValue3DAxisFormatter();
 
 protected:

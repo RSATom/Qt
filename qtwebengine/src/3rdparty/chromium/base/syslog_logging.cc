@@ -5,13 +5,15 @@
 #include "base/syslog_logging.h"
 
 #if defined(OS_WIN)
+#include <windows.h>
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/debug/stack_trace.h"
 #elif defined(OS_LINUX)
-// <syslog.h> defines a LOG_WARNING macro that could conflict with
-// base::LOG_WARNING.
+// <syslog.h> defines LOG_INFO, LOG_WARNING macros that could conflict with
+// base::LOG_INFO, base::LOG_WARNING.
 #include <syslog.h>
+#undef LOG_INFO
 #undef LOG_WARNING
 #endif
 
@@ -37,6 +39,11 @@ void SetEventSource(const std::string& name,
   g_event_source_name = new std::string(name);
   g_category = category;
   g_event_id = event_id;
+}
+
+void ResetEventSourceForTesting() {
+  delete g_event_source_name;
+  g_event_source_name = nullptr;
 }
 
 #endif  // defined(OS_WIN)

@@ -51,7 +51,9 @@
 // We mean it.
 //
 
-#include "qtwebenginecoreglobal.h"
+#include <QtWebEngineCore/qtwebenginecoreglobal.h>
+#include <QtCore/private/qglobal_p.h>
+#include <QtWebEngineCore/private/qtwebenginecore-config_p.h>
 
 #ifdef QT_WEBENGINE_LOGGING
 #define QT_NOT_YET_IMPLEMENTED fprintf(stderr, "function %s not implemented! - %s:%d\n", __func__, __FILE__, __LINE__);
@@ -61,6 +63,6 @@
 #define QT_NOT_USED Q_UNREACHABLE(); // This will assert in debug.
 #endif
 
-#define QWEBENGINE_PRIVATE_EXPORT QWEBENGINE_EXPORT
+#define Q_WEBENGINECORE_PRIVATE_EXPORT Q_WEBENGINECORE_EXPORT
 
 #endif // QTWEBENGINECOREGLOBAL_P_H

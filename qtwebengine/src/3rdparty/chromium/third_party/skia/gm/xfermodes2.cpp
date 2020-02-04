@@ -10,6 +10,7 @@
 #include "SkShader.h"
 #include "SkBlendModePriv.h"
 #include "SkColorPriv.h"
+#include "SkTextUtils.h"
 
 namespace skiagm {
 
@@ -32,10 +33,7 @@ protected:
         const SkScalar w = SkIntToScalar(kSize);
         const SkScalar h = SkIntToScalar(kSize);
 
-        SkPaint labelP;
-        labelP.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&labelP);
-        labelP.setTextAlign(SkPaint::kCenter_Align);
+        SkFont font(sk_tool_utils::create_portable_typeface());
 
         const int W = 6;
 
@@ -72,8 +70,8 @@ protected:
             canvas->restore();
 
 #if 1
-            canvas->drawString(SkBlendMode_Name(mode),
-                               x + w/2, y - labelP.getTextSize()/2, labelP);
+            SkTextUtils::DrawString(canvas, SkBlendMode_Name(mode), x + w/2, y - font.getSize()/2, font, SkPaint(),
+                                    SkTextUtils::kCenter_Align);
 #endif
             x += w + SkIntToScalar(10);
             if ((m % W) == W - 1) {

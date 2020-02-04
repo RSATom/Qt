@@ -14,7 +14,7 @@
 #include "content/browser/frame_host/navigation_entry_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/ssl_host_state_delegate.h"
-#include "content/public/common/resource_request_body.h"
+#include "content/public/common/resource_request_body_android.h"
 #include "jni/NavigationControllerImpl_jni.h"
 #include "net/base/data_url.h"
 #include "ui/gfx/android/java_bitmap.h"
@@ -31,7 +31,8 @@ using base::android::ScopedJavaLocalRef;
 namespace {
 
 // static
-static base::android::ScopedJavaLocalRef<jobject> CreateJavaNavigationEntry(
+static base::android::ScopedJavaLocalRef<jobject>
+JNI_NavigationControllerImpl_CreateJavaNavigationEntry(
     JNIEnv* env,
     content::NavigationEntry* entry,
     int index) {
@@ -46,32 +47,32 @@ static base::android::ScopedJavaLocalRef<jobject> CreateJavaNavigationEntry(
       ConvertUTF8ToJavaString(env, entry->GetOriginalRequestURL().spec()));
   ScopedJavaLocalRef<jstring> j_title(
       ConvertUTF16ToJavaString(env, entry->GetTitle()));
+  ScopedJavaLocalRef<jstring> j_referrer_url(
+      ConvertUTF8ToJavaString(env, entry->GetReferrer().url.spec()));
   ScopedJavaLocalRef<jobject> j_bitmap;
   const content::FaviconStatus& status = entry->GetFavicon();
-  if (status.valid && status.image.ToSkBitmap()->getSize() > 0)
+  if (status.valid && status.image.ToSkBitmap()->computeByteSize() > 0)
     j_bitmap = gfx::ConvertToJavaBitmap(status.image.ToSkBitmap());
 
   return content::Java_NavigationControllerImpl_createNavigationEntry(
-      env, index, j_url, j_virtual_url, j_original_url, j_title, j_bitmap,
-      entry->GetTransitionType());
+      env, index, j_url, j_virtual_url, j_original_url, j_referrer_url, j_title,
+      j_bitmap, entry->GetTransitionType());
 }
 
-static void AddNavigationEntryToHistory(JNIEnv* env,
-                                        const JavaRef<jobject>& history,
-                                        content::NavigationEntry* entry,
-                                        int index) {
+static void JNI_NavigationControllerImpl_AddNavigationEntryToHistory(
+    JNIEnv* env,
+    const JavaRef<jobject>& history,
+    content::NavigationEntry* entry,
+    int index) {
   content::Java_NavigationControllerImpl_addToNavigationHistory(
-      env, history, CreateJavaNavigationEntry(env, entry, index));
+      env, history,
+      JNI_NavigationControllerImpl_CreateJavaNavigationEntry(env, entry,
+                                                             index));
 }
 
 }  // namespace
 
 namespace content {
-
-// static
-bool NavigationControllerAndroid::Register(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
 
 NavigationControllerAndroid::NavigationControllerAndroid(
     NavigationControllerImpl* navigation_controller)
@@ -157,7 +158,13 @@ void NavigationControllerAndroid::ReloadBypassingCache(
   navigation_controller_->Reload(ReloadType::BYPASSING_CACHE, check_for_repost);
 }
 
-void NavigationControllerAndroid::RequestRestoreLoad(
+jboolean NavigationControllerAndroid::NeedsReload(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
+  return navigation_controller_->NeedsReload();
+}
+
+void NavigationControllerAndroid::SetNeedsReload(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
   navigation_controller_->SetNeedsReload();
@@ -210,7 +217,7 @@ void NavigationControllerAndroid::LoadUrl(
   if (extra_headers)
     params.extra_headers = ConvertJavaStringToUTF8(env, extra_headers);
 
-  params.post_data = ResourceRequestBody::FromJavaObject(env, j_post_data);
+  params.post_data = ExtractResourceRequestBodyFromJavaObject(env, j_post_data);
 
   if (base_url_for_data_url) {
     params.base_url_for_data_url =
@@ -243,7 +250,7 @@ void NavigationControllerAndroid::LoadUrl(
   if (j_referrer_url) {
     params.referrer = content::Referrer(
         GURL(ConvertJavaStringToUTF8(env, j_referrer_url)),
-        static_cast<blink::WebReferrerPolicy>(referrer_policy));
+        static_cast<network::mojom::ReferrerPolicy>(referrer_policy));
   }
 
   navigation_controller_->LoadURLWithParams(params);
@@ -264,7 +271,7 @@ jint NavigationControllerAndroid::GetNavigationHistory(
   // Iterate through navigation entries to populate the list
   int count = navigation_controller_->GetEntryCount();
   for (int i = 0; i < count; ++i) {
-    AddNavigationEntryToHistory(
+    JNI_NavigationControllerImpl_AddNavigationEntryToHistory(
         env, history, navigation_controller_->GetEntryAtIndex(i), i);
   }
 
@@ -287,20 +294,10 @@ void NavigationControllerAndroid::GetDirectedNavigationHistory(
     if (num_added >= max_entries)
       break;
 
-    AddNavigationEntryToHistory(
+    JNI_NavigationControllerImpl_AddNavigationEntryToHistory(
         env, history, navigation_controller_->GetEntryAtIndex(i), i);
     num_added++;
   }
-}
-
-ScopedJavaLocalRef<jstring>
-NavigationControllerAndroid::GetOriginalUrlForVisibleNavigationEntry(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj) {
-  NavigationEntry* entry = navigation_controller_->GetVisibleEntry();
-  if (entry == NULL)
-    return ScopedJavaLocalRef<jstring>(env, NULL);
-  return ConvertUTF8ToJavaString(env, entry->GetOriginalRequestURL().spec());
 }
 
 void NavigationControllerAndroid::ClearSslPreferences(
@@ -353,7 +350,8 @@ NavigationControllerAndroid::GetEntryAtIndex(JNIEnv* env,
 
   content::NavigationEntry* entry =
       navigation_controller_->GetEntryAtIndex(index);
-  return CreateJavaNavigationEntry(env, entry, index);
+  return JNI_NavigationControllerImpl_CreateJavaNavigationEntry(env, entry,
+                                                                index);
 }
 
 base::android::ScopedJavaLocalRef<jobject>
@@ -364,7 +362,7 @@ NavigationControllerAndroid::GetPendingEntry(JNIEnv* env,
   if (!entry)
     return base::android::ScopedJavaLocalRef<jobject>();
 
-  return CreateJavaNavigationEntry(
+  return JNI_NavigationControllerImpl_CreateJavaNavigationEntry(
       env, entry, navigation_controller_->GetPendingEntryIndex());
 }
 
@@ -379,42 +377,6 @@ jboolean NavigationControllerAndroid::RemoveEntryAtIndex(
     const JavaParamRef<jobject>& obj,
     jint index) {
   return navigation_controller_->RemoveEntryAtIndex(index);
-}
-
-jboolean NavigationControllerAndroid::CanCopyStateOver(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj) {
-  return navigation_controller_->GetEntryCount() == 0 &&
-      !navigation_controller_->GetPendingEntry();
-}
-
-jboolean NavigationControllerAndroid::CanPruneAllButLastCommitted(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj) {
-  return navigation_controller_->CanPruneAllButLastCommitted();
-}
-
-void NavigationControllerAndroid::CopyStateFrom(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj,
-    jlong source_navigation_controller_android,
-    jboolean needs_reload) {
-  navigation_controller_->CopyStateFrom(
-      *(reinterpret_cast<NavigationControllerAndroid*>(
-            source_navigation_controller_android)
-            ->navigation_controller_),
-      needs_reload);
-}
-
-void NavigationControllerAndroid::CopyStateFromAndPrune(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj,
-    jlong source_navigation_controller_android,
-    jboolean replace_entry) {
-  navigation_controller_->CopyStateFromAndPrune(
-      reinterpret_cast<NavigationControllerAndroid*>(
-          source_navigation_controller_android)->navigation_controller_,
-      replace_entry);
 }
 
 ScopedJavaLocalRef<jstring> NavigationControllerAndroid::GetEntryExtraData(

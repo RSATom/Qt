@@ -120,8 +120,12 @@ public:
     void updateHiddenSections(int logicalFirst, int logicalLast);
     void resizeSections(QHeaderView::ResizeMode globalMode, bool useGlobalMode = false);
     void _q_sectionsRemoved(const QModelIndex &,int,int);
-    void _q_layoutAboutToBeChanged();
-    void _q_layoutChanged() override;
+    void _q_sectionsAboutToBeMoved(const QModelIndex &sourceParent, int logicalStart, int logicalEnd, const QModelIndex &destinationParent, int logicalDestination);
+    void _q_sectionsMoved(const QModelIndex &sourceParent, int logicalStart, int logicalEnd, const QModelIndex &destinationParent, int logicalDestination);
+    void _q_sectionsAboutToBeChanged(const QList<QPersistentModelIndex> &parents = QList<QPersistentModelIndex>(),
+                                     QAbstractItemModel::LayoutChangeHint hint = QAbstractItemModel::NoLayoutChangeHint);
+    void _q_sectionsChanged(const QList<QPersistentModelIndex> &parents = QList<QPersistentModelIndex>(),
+                            QAbstractItemModel::LayoutChangeHint hint = QAbstractItemModel::NoLayoutChangeHint);
 
     bool isSectionSelected(int section) const;
     bool isFirstVisibleSection(int section) const;
@@ -240,10 +244,6 @@ public:
         if (delayedResize.isActive() && state == NoState) {
             const_cast<QHeaderView*>(q_func())->resizeSections();
         }
-    }
-
-    inline void setAllowUserMoveOfSection0(bool b) {
-        allowUserMoveOfSection0 = b;
     }
 
     void clear();

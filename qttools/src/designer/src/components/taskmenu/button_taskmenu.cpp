@@ -31,22 +31,22 @@
 #include <qdesigner_formwindowcommand_p.h>
 #include <formwindowbase_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerObjectInspectorInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/abstractobjectinspector.h>
+#include <QtDesigner/abstractpropertyeditor.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QStyle>
-#include <QtWidgets/QStyleOption>
-#include <QtWidgets/QAbstractButton>
-#include <QtWidgets/QButtonGroup>
-#include <QtWidgets/QApplication>
-#include <QtCore/QDebug>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qactiongroup.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qstyle.h>
+#include <QtWidgets/qstyleoption.h>
+#include <QtWidgets/qabstractbutton.h>
+#include <QtWidgets/qbuttongroup.h>
+#include <QtWidgets/qapplication.h>
+#include <QtCore/qdebug.h>
 
 Q_DECLARE_METATYPE(QButtonGroup*)
 
@@ -200,8 +200,8 @@ public:
     CreateButtonGroupCommand(QDesignerFormWindowInterface *formWindow);
     bool init(const ButtonList &bl);
 
-    virtual void undo() { breakButtonGroup(); }
-    virtual void redo() { createButtonGroup(); }
+    void undo() override { breakButtonGroup(); }
+    void redo() override { createButtonGroup(); }
 };
 
 CreateButtonGroupCommand::CreateButtonGroupCommand(QDesignerFormWindowInterface *formWindow) :
@@ -227,8 +227,8 @@ public:
     BreakButtonGroupCommand(QDesignerFormWindowInterface *formWindow);
     bool init(QButtonGroup *group);
 
-    virtual void undo() { createButtonGroup(); }
-    virtual void redo() { breakButtonGroup(); }
+    void undo() override { createButtonGroup(); }
+    void redo() override { breakButtonGroup(); }
 };
 
 BreakButtonGroupCommand::BreakButtonGroupCommand(QDesignerFormWindowInterface *formWindow) :
@@ -253,8 +253,8 @@ public:
     AddButtonsToGroupCommand(QDesignerFormWindowInterface *formWindow);
     void init(const ButtonList &bl, QButtonGroup *group);
 
-    virtual void undo() { removeButtonsFromGroup(); }
-    virtual void redo() { addButtonsToGroup(); }
+    void undo() override { removeButtonsFromGroup(); }
+    void redo() override { addButtonsToGroup(); }
 };
 
 AddButtonsToGroupCommand::AddButtonsToGroupCommand(QDesignerFormWindowInterface *formWindow) :
@@ -275,8 +275,8 @@ public:
     RemoveButtonsFromGroupCommand(QDesignerFormWindowInterface *formWindow);
     bool init(const ButtonList &bl);
 
-    virtual void undo() {  addButtonsToGroup(); }
-    virtual void redo() {  removeButtonsFromGroup(); }
+    void undo() override { addButtonsToGroup(); }
+    void redo() override { removeButtonsFromGroup(); }
 };
 
 RemoveButtonsFromGroupCommand::RemoveButtonsFromGroupCommand(QDesignerFormWindowInterface *formWindow) :
@@ -379,7 +379,7 @@ public:
     ButtonTextTaskMenuInlineEditor(QAbstractButton *button, QObject *parent);
 
 protected:
-    QRect editRectangle() const Q_DECL_OVERRIDE;
+    QRect editRectangle() const override;
 };
 
 ButtonTextTaskMenuInlineEditor::ButtonTextTaskMenuInlineEditor(QAbstractButton *button, QObject *parent) :
@@ -402,7 +402,7 @@ public:
     LinkDescriptionTaskMenuInlineEditor(QAbstractButton *button, QObject *parent);
 
 protected:
-    QRect editRectangle() const Q_DECL_OVERRIDE;
+    QRect editRectangle() const override;
 };
 
 LinkDescriptionTaskMenuInlineEditor::LinkDescriptionTaskMenuInlineEditor(QAbstractButton *button, QObject *parent) :

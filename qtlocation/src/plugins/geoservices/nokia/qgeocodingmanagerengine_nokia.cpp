@@ -111,18 +111,8 @@ QGeoCodeReply *QGeoCodingManagerEngineNokia::geocode(const QGeoAddress &address,
     requestString += languageToMarc(locale().language());
 
     bool manualBoundsRequired = false;
-    if (bounds.type() == QGeoShape::RectangleType) {
-        QGeoRectangle rect(bounds);
-        if (rect.isValid()) {
-            requestString += "&bbox=";
-            requestString += trimDouble(rect.topLeft().latitude());
-            requestString += ",";
-            requestString += trimDouble(rect.topLeft().longitude());
-            requestString += ";";
-            requestString += trimDouble(rect.bottomRight().latitude());
-            requestString += ",";
-            requestString += trimDouble(rect.bottomRight().longitude());
-        }
+    if (bounds.type() == QGeoShape::UnknownType) {
+        manualBoundsRequired = true;
     } else if (bounds.type() == QGeoShape::CircleType) {
         QGeoCircle circ(bounds);
         if (circ.isValid()) {
@@ -134,7 +124,17 @@ QGeoCodeReply *QGeoCodingManagerEngineNokia::geocode(const QGeoAddress &address,
             requestString += trimDouble(circ.radius());
         }
     } else {
-        manualBoundsRequired = true;
+        QGeoRectangle rect = bounds.boundingGeoRectangle();
+        if (rect.isValid()) {
+            requestString += "&bbox=";
+            requestString += trimDouble(rect.topLeft().latitude());
+            requestString += ",";
+            requestString += trimDouble(rect.topLeft().longitude());
+            requestString += ";";
+            requestString += trimDouble(rect.bottomRight().latitude());
+            requestString += ",";
+            requestString += trimDouble(rect.bottomRight().longitude());
+        }
     }
 
     if (address.country().isEmpty()) {

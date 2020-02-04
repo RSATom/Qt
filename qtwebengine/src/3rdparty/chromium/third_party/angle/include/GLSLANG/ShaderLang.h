@@ -12,6 +12,7 @@
 
 #include <array>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,7 @@
 
 // Version number for shader translation API.
 // It is incremented every time the API changes.
-#define ANGLE_SH_VERSION 178
+#define ANGLE_SH_VERSION 205
 
 enum ShShaderSpec
 {
@@ -71,13 +72,13 @@ enum ShShaderOutput
 // The Compile options type is defined in ShaderVars.h, to allow ANGLE to import the ShaderVars
 // header without needing the ShaderLang header. This avoids some conflicts with glslang.
 
-const ShCompileOptions SH_VALIDATE                           = 0;
-const ShCompileOptions SH_VALIDATE_LOOP_INDEXING             = UINT64_C(1) << 0;
-const ShCompileOptions SH_INTERMEDIATE_TREE                  = UINT64_C(1) << 1;
-const ShCompileOptions SH_OBJECT_CODE                        = UINT64_C(1) << 2;
-const ShCompileOptions SH_VARIABLES                          = UINT64_C(1) << 3;
-const ShCompileOptions SH_LINE_DIRECTIVES                    = UINT64_C(1) << 4;
-const ShCompileOptions SH_SOURCE_PATH                        = UINT64_C(1) << 5;
+const ShCompileOptions SH_VALIDATE               = 0;
+const ShCompileOptions SH_VALIDATE_LOOP_INDEXING = UINT64_C(1) << 0;
+const ShCompileOptions SH_INTERMEDIATE_TREE      = UINT64_C(1) << 1;
+const ShCompileOptions SH_OBJECT_CODE            = UINT64_C(1) << 2;
+const ShCompileOptions SH_VARIABLES              = UINT64_C(1) << 3;
+const ShCompileOptions SH_LINE_DIRECTIVES        = UINT64_C(1) << 4;
+const ShCompileOptions SH_SOURCE_PATH            = UINT64_C(1) << 5;
 
 // This flag will keep invariant declaration for input in fragment shader for GLSL >=4.20 on AMD.
 // From GLSL >= 4.20, it's optional to add invariant for fragment input, but GPU vendors have
@@ -214,13 +215,9 @@ const ShCompileOptions SH_REWRITE_FLOAT_UNARY_MINUS_OPERATOR = UINT64_C(1) << 29
 // It works by using an expression to emulate this function.
 const ShCompileOptions SH_EMULATE_ATAN2_FLOAT_FUNCTION = UINT64_C(1) << 30;
 
-// Set to 1 to translate gl_ViewID_OVR to an uniform so that the extension can be emulated.
-// "uniform highp uint webgl_angle_ViewID_OVR".
-const ShCompileOptions SH_TRANSLATE_VIEWID_OVR_TO_UNIFORM = UINT64_C(1) << 31;
-
-// Set to initialize uninitialized local variables. Should only be used with GLSL output. In HLSL
-// output variables are initialized regardless of if this flag is set.
-const ShCompileOptions SH_INITIALIZE_UNINITIALIZED_LOCALS = UINT64_C(1) << 32;
+// Set to initialize uninitialized local and global temporary variables. Should only be used with
+// GLSL output. In HLSL output variables are initialized regardless of if this flag is set.
+const ShCompileOptions SH_INITIALIZE_UNINITIALIZED_LOCALS = UINT64_C(1) << 31;
 
 // The flag modifies the shader in the following way:
 // Every occurrence of gl_InstanceID is replaced by the global temporary variable InstanceID.
@@ -229,20 +226,53 @@ const ShCompileOptions SH_INITIALIZE_UNINITIALIZED_LOCALS = UINT64_C(1) << 32;
 // ViewID_OVR = uint(gl_InstanceID) % num_views;
 // InstanceID = gl_InstanceID / num_views;
 // ViewID_OVR is added as a varying variable to both the vertex and fragment shaders.
-const ShCompileOptions SH_INITIALIZE_BUILTINS_FOR_INSTANCED_MULTIVIEW = UINT64_C(1) << 33;
+const ShCompileOptions SH_INITIALIZE_BUILTINS_FOR_INSTANCED_MULTIVIEW = UINT64_C(1) << 32;
 
 // With the flag enabled the GLSL/ESSL vertex shader is modified to include code for viewport
 // selection in the following way:
 // - Code to enable the extension NV_viewport_array2 is included.
-// - Code to select the viewport index is included at the beginning of main after ViewID_OVR's
-// initialization: gl_ViewportIndex = int(ViewID_OVR)
+// - Code to select the viewport index or layer is inserted at the beginning of main after
+// ViewID_OVR's initialization.
+// - A declaration of the uniform multiviewBaseViewLayerIndex.
 // Note: The SH_INITIALIZE_BUILTINS_FOR_INSTANCED_MULTIVIEW flag also has to be enabled to have the
 // temporary variable ViewID_OVR declared and initialized.
-const ShCompileOptions SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER = UINT64_C(1) << 34;
+const ShCompileOptions SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER = UINT64_C(1) << 33;
 
 // If the flag is enabled, gl_PointSize is clamped to the maximum point size specified in
 // ShBuiltInResources in vertex shaders.
-const ShCompileOptions SH_CLAMP_POINT_SIZE = UINT64_C(1) << 35;
+const ShCompileOptions SH_CLAMP_POINT_SIZE = UINT64_C(1) << 34;
+
+// Turn some arithmetic operations that operate on a float vector-scalar pair into vector-vector
+// operations. This is done recursively. Some scalar binary operations inside vector constructors
+// are also turned into vector operations.
+//
+// This is targeted to work around a bug in NVIDIA OpenGL drivers that was reproducible on NVIDIA
+// driver version 387.92. It works around the most common occurrences of the bug.
+const ShCompileOptions SH_REWRITE_VECTOR_SCALAR_ARITHMETIC = UINT64_C(1) << 35;
+
+// Don't use loops to initialize uninitialized variables. Only has an effect if some kind of
+// variable initialization is turned on.
+const ShCompileOptions SH_DONT_USE_LOOPS_TO_INITIALIZE_VARIABLES = UINT64_C(1) << 36;
+
+// Don't use D3D constant register zero when allocating space for uniforms. This is targeted to work
+// around a bug in NVIDIA D3D driver version 388.59 where in very specific cases the driver would
+// not handle constant register zero correctly. Only has an effect on HLSL translation.
+const ShCompileOptions SH_SKIP_D3D_CONSTANT_REGISTER_ZERO = UINT64_C(1) << 37;
+
+// Clamp gl_FragDepth to the range [0.0, 1.0] in case it is statically used.
+const ShCompileOptions SH_CLAMP_FRAG_DEPTH = UINT64_C(1) << 38;
+
+// Rewrite expressions like "v.x = z = expression;". Works around a bug in NVIDIA OpenGL drivers
+// prior to version 397.31.
+const ShCompileOptions SH_REWRITE_REPEATED_ASSIGN_TO_SWIZZLED = UINT64_C(1) << 39;
+
+// Rewrite gl_DrawID as a uniform int
+const ShCompileOptions SH_EMULATE_GL_DRAW_ID = UINT64_C(1) << 40;
+
+// This flag initializes shared variables to 0.
+// It is to avoid ompute shaders being able to read undefined values that could be coming from
+// another webpage/application.
+const ShCompileOptions SH_INIT_SHARED_VARIABLES = UINT64_C(1) << 41;
 
 // Defines alternate strategies for implementing array index clamping.
 enum ShArrayIndexClampingStrategy
@@ -291,6 +321,10 @@ struct ShBuiltInResources
     int ARM_shader_framebuffer_fetch;
     int OVR_multiview;
     int EXT_YUV_target;
+    int EXT_geometry_shader;
+    int OES_texture_storage_multisample_2d_array;
+    int ANGLE_texture_multisample;
+    int ANGLE_multi_draw;
 
     // Set to 1 to enable replacing GL_EXT_draw_buffers #extension directives
     // with GL_NV_draw_buffers in ESSL output. This flag can be used to emulate
@@ -340,6 +374,10 @@ struct ShBuiltInResources
     int MaxFunctionParameters;
 
     // GLES 3.1 constants
+
+    // texture gather offset constraints.
+    int MinProgramTextureGatherOffset;
+    int MaxProgramTextureGatherOffset;
 
     // maximum number of available image units
     int MaxImageUnits;
@@ -411,6 +449,20 @@ struct ShBuiltInResources
 
     // maximum point size (higher limit from ALIASED_POINT_SIZE_RANGE)
     float MaxPointSize;
+
+    // EXT_geometry_shader constants
+    int MaxGeometryUniformComponents;
+    int MaxGeometryUniformBlocks;
+    int MaxGeometryInputComponents;
+    int MaxGeometryOutputComponents;
+    int MaxGeometryOutputVertices;
+    int MaxGeometryTotalOutputComponents;
+    int MaxGeometryTextureImageUnits;
+    int MaxGeometryAtomicCounterBuffers;
+    int MaxGeometryAtomicCounters;
+    int MaxGeometryShaderStorageBlocks;
+    int MaxGeometryShaderInvocations;
+    int MaxGeometryImageUniforms;
 };
 
 //
@@ -529,10 +581,16 @@ const std::map<std::string, std::string> *GetNameHashingMap(const ShHandle handl
 // handle: Specifies the compiler
 const std::vector<sh::Uniform> *GetUniforms(const ShHandle handle);
 const std::vector<sh::Varying> *GetVaryings(const ShHandle handle);
+const std::vector<sh::Varying> *GetInputVaryings(const ShHandle handle);
+const std::vector<sh::Varying> *GetOutputVaryings(const ShHandle handle);
 const std::vector<sh::Attribute> *GetAttributes(const ShHandle handle);
 const std::vector<sh::OutputVariable> *GetOutputVariables(const ShHandle handle);
 const std::vector<sh::InterfaceBlock> *GetInterfaceBlocks(const ShHandle handle);
+const std::vector<sh::InterfaceBlock> *GetUniformBlocks(const ShHandle handle);
+const std::vector<sh::InterfaceBlock> *GetShaderStorageBlocks(const ShHandle handle);
 sh::WorkGroupSize GetComputeShaderLocalGroupSize(const ShHandle handle);
+// Returns the number of views specified through the num_views layout qualifier. If num_views is
+// not set, the function returns -1.
 int GetVertexShaderNumViews(const ShHandle handle);
 
 // Returns true if the passed in variables pack in maxVectors followingthe packing rules from the
@@ -545,21 +603,60 @@ int GetVertexShaderNumViews(const ShHandle handle);
 bool CheckVariablesWithinPackingLimits(int maxVectors,
                                        const std::vector<sh::ShaderVariable> &variables);
 
-// Gives the compiler-assigned register for an interface block.
+// Gives the compiler-assigned register for a shader storage block.
 // The method writes the value to the output variable "indexOut".
-// Returns true if it found a valid interface block, false otherwise.
+// Returns true if it found a valid shader storage block, false otherwise.
 // Parameters:
 // handle: Specifies the compiler
-// interfaceBlockName: Specifies the interface block
+// shaderStorageBlockName: Specifies the shader storage block
 // indexOut: output variable that stores the assigned register
-bool GetInterfaceBlockRegister(const ShHandle handle,
-                               const std::string &interfaceBlockName,
-                               unsigned int *indexOut);
+bool GetShaderStorageBlockRegister(const ShHandle handle,
+                                   const std::string &shaderStorageBlockName,
+                                   unsigned int *indexOut);
 
-// Gives a map from uniform names to compiler-assigned registers in the default interface block.
+// Gives the compiler-assigned register for a uniform block.
+// The method writes the value to the output variable "indexOut".
+// Returns true if it found a valid uniform block, false otherwise.
+// Parameters:
+// handle: Specifies the compiler
+// uniformBlockName: Specifies the uniform block
+// indexOut: output variable that stores the assigned register
+bool GetUniformBlockRegister(const ShHandle handle,
+                             const std::string &uniformBlockName,
+                             unsigned int *indexOut);
+
+// Gives a map from uniform names to compiler-assigned registers in the default uniform block.
 // Note that the map contains also registers of samplers that have been extracted from structs.
 const std::map<std::string, unsigned int> *GetUniformRegisterMap(const ShHandle handle);
 
+// Sampler, image and atomic counters share registers(t type and u type),
+// GetReadonlyImage2DRegisterIndex and GetImage2DRegisterIndex return the first index into
+// a range of reserved registers for image2D/iimage2D/uimage2D variables.
+// Parameters: handle: Specifies the compiler
+unsigned int GetReadonlyImage2DRegisterIndex(const ShHandle handle);
+unsigned int GetImage2DRegisterIndex(const ShHandle handle);
+
+// The method records these used function names related with image2D/iimage2D/uimage2D, these
+// functions will be dynamically generated.
+// Parameters:
+// handle: Specifies the compiler
+const std::set<std::string> *GetUsedImage2DFunctionNames(const ShHandle handle);
+
+bool HasValidGeometryShaderInputPrimitiveType(const ShHandle handle);
+bool HasValidGeometryShaderOutputPrimitiveType(const ShHandle handle);
+bool HasValidGeometryShaderMaxVertices(const ShHandle handle);
+GLenum GetGeometryShaderInputPrimitiveType(const ShHandle handle);
+GLenum GetGeometryShaderOutputPrimitiveType(const ShHandle handle);
+int GetGeometryShaderInvocations(const ShHandle handle);
+int GetGeometryShaderMaxVertices(const ShHandle handle);
+
+//
+// Helper function to identify specs that are based on the WebGL spec.
+//
+inline bool IsWebGLBasedSpec(ShShaderSpec spec)
+{
+    return (spec == SH_WEBGL_SPEC || spec == SH_WEBGL2_SPEC || spec == SH_WEBGL3_SPEC);
+}
 }  // namespace sh
 
-#endif // GLSLANG_SHADERLANG_H_
+#endif  // GLSLANG_SHADERLANG_H_

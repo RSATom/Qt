@@ -6,33 +6,44 @@
 
 #include "core/fxge/cttfontdesc.h"
 
-#include "core/fxge/fx_freetype.h"
+#include <utility>
 
-CTTFontDesc::~CTTFontDesc() {
-  if (m_Type == 1) {
-    if (m_SingleFace)
-      FXFT_Done_Face(m_SingleFace);
-  } else if (m_Type == 2) {
-    for (int i = 0; i < 16; i++) {
-      if (m_TTCFaces[i])
-        FXFT_Done_Face(m_TTCFaces[i]);
-    }
-  }
-  FX_Free(m_pFontData);
+#include "core/fxge/fx_freetype.h"
+#include "third_party/base/stl_util.h"
+
+CTTFontDesc::CTTFontDesc(std::unique_ptr<uint8_t, FxFreeDeleter> pData)
+    : m_pFontData(std::move(pData)) {
+  for (size_t i = 0; i < FX_ArraySize(m_TTCFaces); i++)
+    m_TTCFaces[i] = nullptr;
 }
 
-int CTTFontDesc::ReleaseFace(FXFT_Face face) {
-  if (m_Type == 1) {
-    if (m_SingleFace != face)
-      return -1;
-  } else if (m_Type == 2) {
-    int i;
-    for (i = 0; i < 16; i++) {
-      if (m_TTCFaces[i] == face)
-        break;
-    }
-    if (i == 16)
-      return -1;
+CTTFontDesc::~CTTFontDesc() {
+  ASSERT(m_RefCount == 0);
+  for (size_t i = 0; i < FX_ArraySize(m_TTCFaces); i++) {
+    if (m_TTCFaces[i])
+      FXFT_Done_Face(m_TTCFaces[i]);
   }
-  return --m_RefCount;
+}
+
+void CTTFontDesc::SetFace(size_t index, FXFT_Face face) {
+  ASSERT(index < FX_ArraySize(m_TTCFaces));
+  m_TTCFaces[index] = face;
+}
+
+void CTTFontDesc::AddRef() {
+  ASSERT(m_RefCount > 0);
+  ++m_RefCount;
+}
+
+CTTFontDesc::ReleaseStatus CTTFontDesc::ReleaseFace(FXFT_Face face) {
+  if (!pdfium::ContainsValue(m_TTCFaces, face))
+    return kNotAppropriate;
+
+  ASSERT(m_RefCount > 0);
+  return --m_RefCount == 0 ? kReleased : kNotReleased;
+}
+
+FXFT_Face CTTFontDesc::GetFace(size_t index) const {
+  ASSERT(index < FX_ArraySize(m_TTCFaces));
+  return m_TTCFaces[index];
 }

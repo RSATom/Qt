@@ -25,7 +25,7 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
   BluetoothGattManagerClientImpl()
       : object_manager_(nullptr), weak_ptr_factory_(this) {}
 
-  ~BluetoothGattManagerClientImpl() override {}
+  ~BluetoothGattManagerClientImpl() override = default;
 
   // BluetoothGattManagerClient override.
   void RegisterApplication(const dbus::ObjectPath& adapter_object_path,
@@ -53,10 +53,10 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
     DCHECK(object_proxy);
     object_proxy->CallMethodWithErrorCallback(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothGattManagerClientImpl::OnSuccess,
-                   weak_ptr_factory_.GetWeakPtr(), callback),
-        base::Bind(&BluetoothGattManagerClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(), error_callback));
+        base::BindOnce(&BluetoothGattManagerClientImpl::OnSuccess,
+                       weak_ptr_factory_.GetWeakPtr(), callback),
+        base::BindOnce(&BluetoothGattManagerClientImpl::OnError,
+                       weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
   // BluetoothGattManagerClient override.
@@ -77,19 +77,20 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
     DCHECK(object_proxy);
     object_proxy->CallMethodWithErrorCallback(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothGattManagerClientImpl::OnSuccess,
-                   weak_ptr_factory_.GetWeakPtr(), callback),
-        base::Bind(&BluetoothGattManagerClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(), error_callback));
+        base::BindOnce(&BluetoothGattManagerClientImpl::OnSuccess,
+                       weak_ptr_factory_.GetWeakPtr(), callback),
+        base::BindOnce(&BluetoothGattManagerClientImpl::OnError,
+                       weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
  protected:
   // bluez::DBusClient override.
-  void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus,
+            const std::string& bluetooth_service_name) override {
     DCHECK(bus);
     DCHECK(bus);
     object_manager_ = bus->GetObjectManager(
-        bluetooth_object_manager::kBluetoothObjectManagerServiceName,
+        bluetooth_service_name,
         dbus::ObjectPath(
             bluetooth_object_manager::kBluetoothObjectManagerServicePath));
   }
@@ -129,9 +130,9 @@ class BluetoothGattManagerClientImpl : public BluetoothGattManagerClient {
   DISALLOW_COPY_AND_ASSIGN(BluetoothGattManagerClientImpl);
 };
 
-BluetoothGattManagerClient::BluetoothGattManagerClient() {}
+BluetoothGattManagerClient::BluetoothGattManagerClient() = default;
 
-BluetoothGattManagerClient::~BluetoothGattManagerClient() {}
+BluetoothGattManagerClient::~BluetoothGattManagerClient() = default;
 
 // static
 BluetoothGattManagerClient* BluetoothGattManagerClient::Create() {

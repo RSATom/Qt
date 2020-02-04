@@ -6,11 +6,14 @@
 #define MEDIA_BASE_FAKE_TEXT_TRACK_STREAM_H_
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/video_decoder_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
+
+namespace base {
+class SingleThreadTaskRunner;
+}
 
 namespace media {
 
@@ -28,7 +31,6 @@ class FakeTextTrackStream : public DemuxerStream {
   Type type() const override;
   MOCK_METHOD0(EnableBitstreamConverter, void());
   bool SupportsConfigChanges() override;
-  VideoRotation video_rotation() override;
 
   void SatisfyPendingRead(const base::TimeDelta& start,
                           const base::TimeDelta& duration,

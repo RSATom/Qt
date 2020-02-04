@@ -5,12 +5,13 @@
 #include "components/user_manager/fake_user_manager.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/task_runner.h"
-#include "chromeos/chromeos_switches.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "components/user_manager/user_names.h"
 #include "components/user_manager/user_type.h"
 
@@ -18,7 +19,7 @@ namespace {
 
 class FakeTaskRunner : public base::TaskRunner {
  public:
-  bool PostDelayedTask(const tracked_objects::Location& from_here,
+  bool PostDelayedTask(const base::Location& from_here,
                        base::OnceClosure task,
                        base::TimeDelta delay) override {
     std::move(task).Run();
@@ -48,7 +49,8 @@ const user_manager::User* FakeUserManager::AddUser(
 const user_manager::User* FakeUserManager::AddUserWithAffiliation(
     const AccountId& account_id,
     bool is_affiliated) {
-  user_manager::User* user = user_manager::User::CreateRegularUser(account_id);
+  user_manager::User* user = user_manager::User::CreateRegularUser(
+      account_id, user_manager::USER_TYPE_REGULAR);
   user->SetAffiliation(is_affiliated);
   users_.push_back(user);
   return user;
@@ -90,12 +92,13 @@ user_manager::UserList FakeUserManager::GetUsersAllowedForMultiProfile() const {
 
 void FakeUserManager::UserLoggedIn(const AccountId& account_id,
                                    const std::string& username_hash,
-                                   bool browser_restart) {
+                                   bool browser_restart,
+                                   bool is_child) {
   for (user_manager::UserList::const_iterator it = users_.begin();
        it != users_.end(); ++it) {
     if ((*it)->username_hash() == username_hash) {
       (*it)->set_is_logged_in(true);
-      (*it)->set_profile_is_created();
+      (*it)->SetProfileIsCreated();
       logged_in_users_.push_back(*it);
 
       if (!primary_user_)
@@ -107,7 +110,7 @@ void FakeUserManager::UserLoggedIn(const AccountId& account_id,
   }
 
   if (!active_user_ && AreEphemeralUsersEnabled())
-    RegularUserLoggedInAsEphemeral(account_id);
+    RegularUserLoggedInAsEphemeral(account_id, USER_TYPE_REGULAR);
 }
 
 user_manager::User* FakeUserManager::GetActiveUserInternal() const {
@@ -261,6 +264,18 @@ bool FakeUserManager::AreSupervisedUsersAllowed() const {
   return true;
 }
 
+bool FakeUserManager::IsGuestSessionAllowed() const {
+  return true;
+}
+
+bool FakeUserManager::IsGaiaUserAllowed(const user_manager::User& user) const {
+  return true;
+}
+
+bool FakeUserManager::IsUserAllowed(const user_manager::User& user) const {
+  return true;
+}
+
 bool FakeUserManager::AreEphemeralUsersEnabled() const {
   return GetEphemeralUsersEnabled();
 }
@@ -352,7 +367,7 @@ base::string16 FakeUserManager::GetResourceStringUTF16(int string_id) const {
 
 void FakeUserManager::ScheduleResolveLocale(
     const std::string& locale,
-    const base::Closure& on_resolved_callback,
+    base::OnceClosure on_resolved_callback,
     std::string* out_resolved_locale) const {
   NOTIMPLEMENTED();
   return;

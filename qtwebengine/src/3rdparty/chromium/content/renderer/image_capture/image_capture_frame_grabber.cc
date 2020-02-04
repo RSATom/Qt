@@ -9,9 +9,9 @@
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/WebKit/public/platform/WebCallbacks.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamSource.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
+#include "third_party/blink/public/platform/web_callbacks.h"
+#include "third_party/blink/public/platform/web_media_stream_source.h"
+#include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/libyuv/include/libyuv.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -56,9 +56,8 @@ void ImageCaptureFrameGrabber::SingleShotFrameHandler::OnVideoFrameOnIOThread(
     SkImageDeliverCB callback,
     const scoped_refptr<media::VideoFrame>& frame,
     base::TimeTicks /* current_time */) {
-  DCHECK(frame->format() == media::PIXEL_FORMAT_YV12 ||
-         frame->format() == media::PIXEL_FORMAT_I420 ||
-         frame->format() == media::PIXEL_FORMAT_YV12A);
+  DCHECK(frame->format() == media::PIXEL_FORMAT_I420 ||
+         frame->format() == media::PIXEL_FORMAT_I420A);
 
   if (first_frame_received_)
     return;
@@ -76,11 +75,11 @@ void ImageCaptureFrameGrabber::SingleShotFrameHandler::OnVideoFrameOnIOThread(
   SkPixmap pixmap;
   if (!skia::GetWritablePixels(surface->getCanvas(), &pixmap)) {
     DLOG(ERROR) << "Error trying to map SkSurface's pixels";
-    callback.Run(sk_sp<SkImage>());
+    std::move(callback).Run(sk_sp<SkImage>());
     return;
   }
 
-  const uint32 destination_pixel_format =
+  const uint32_t destination_pixel_format =
       (kN32_SkColorType == kRGBA_8888_SkColorType) ? libyuv::FOURCC_ABGR
                                                    : libyuv::FOURCC_ARGB;
 
@@ -90,21 +89,21 @@ void ImageCaptureFrameGrabber::SingleShotFrameHandler::OnVideoFrameOnIOThread(
                           frame->stride(media::VideoFrame::kUPlane),
                           frame->visible_data(media::VideoFrame::kVPlane),
                           frame->stride(media::VideoFrame::kVPlane),
-                          static_cast<uint8*>(pixmap.writable_addr()),
+                          static_cast<uint8_t*>(pixmap.writable_addr()),
                           pixmap.width() * 4, pixmap.width(), pixmap.height(),
                           destination_pixel_format);
 
-  if (frame->format() == media::PIXEL_FORMAT_YV12A) {
+  if (frame->format() == media::PIXEL_FORMAT_I420A) {
     DCHECK(!info.isOpaque());
     // This function copies any plane into the alpha channel of an ARGB image.
     libyuv::ARGBCopyYToAlpha(frame->visible_data(media::VideoFrame::kAPlane),
                              frame->stride(media::VideoFrame::kAPlane),
-                             static_cast<uint8*>(pixmap.writable_addr()),
+                             static_cast<uint8_t*>(pixmap.writable_addr()),
                              pixmap.width() * 4, pixmap.width(),
                              pixmap.height());
   }
 
-  callback.Run(surface->makeImageSnapshot());
+  std::move(callback).Run(surface->makeImageSnapshot());
 }
 
 ImageCaptureFrameGrabber::ImageCaptureFrameGrabber()
@@ -116,11 +115,11 @@ ImageCaptureFrameGrabber::~ImageCaptureFrameGrabber() {
 
 void ImageCaptureFrameGrabber::GrabFrame(
     blink::WebMediaStreamTrack* track,
-    WebImageCaptureGrabFrameCallbacks* callbacks) {
+    std::unique_ptr<blink::WebImageCaptureGrabFrameCallbacks> callbacks) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!!callbacks);
 
-  DCHECK(track && !track->IsNull() && track->GetTrackData());
+  DCHECK(track && !track->IsNull() && track->GetPlatformTrack());
   DCHECK_EQ(blink::WebMediaStreamSource::kTypeVideo, track->Source().GetType());
 
   if (frame_grab_in_progress_) {
@@ -129,8 +128,8 @@ void ImageCaptureFrameGrabber::GrabFrame(
     return;
   }
 
-  ScopedWebCallbacks<WebImageCaptureGrabFrameCallbacks> scoped_callbacks =
-      make_scoped_web_callbacks(callbacks, base::Bind(&OnError));
+  auto scoped_callbacks = blink::MakeScopedWebCallbacks(
+      std::move(callbacks), base::BindOnce(&OnError));
 
   // A SingleShotFrameHandler is bound and given to the Track to guarantee that
   // only one VideoFrame is converted and delivered to OnSkImage(), otherwise
@@ -139,17 +138,19 @@ void ImageCaptureFrameGrabber::GrabFrame(
   // https://crbug.com/623042.
   frame_grab_in_progress_ = true;
   MediaStreamVideoSink::ConnectToTrack(
-      *track, base::Bind(&SingleShotFrameHandler::OnVideoFrameOnIOThread,
-                         make_scoped_refptr(new SingleShotFrameHandler),
-                         media::BindToCurrentLoop(
-                             base::Bind(&ImageCaptureFrameGrabber::OnSkImage,
-                                        weak_factory_.GetWeakPtr(),
-                                        base::Passed(&scoped_callbacks)))),
+      *track,
+      base::Bind(
+          &SingleShotFrameHandler::OnVideoFrameOnIOThread,
+          base::MakeRefCounted<SingleShotFrameHandler>(),
+          media::BindToCurrentLoop(base::Bind(
+              &ImageCaptureFrameGrabber::OnSkImage, weak_factory_.GetWeakPtr(),
+              base::Passed(&scoped_callbacks)))),
       false);
 }
 
 void ImageCaptureFrameGrabber::OnSkImage(
-    ScopedWebCallbacks<blink::WebImageCaptureGrabFrameCallbacks> callbacks,
+    blink::ScopedWebCallbacks<blink::WebImageCaptureGrabFrameCallbacks>
+        callbacks,
     sk_sp<SkImage> image) {
   DCHECK(thread_checker_.CalledOnValidThread());
 

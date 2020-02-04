@@ -37,7 +37,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 class QAbstractSeries;
 class QAbstractAxis;
 
-class QT_CHARTS_EXPORT QPolarChart : public QChart
+class Q_CHARTS_EXPORT QPolarChart : public QChart
 {
     Q_OBJECT
     Q_ENUMS(PolarOrientation)
@@ -51,12 +51,12 @@ public:
     Q_DECLARE_FLAGS(PolarOrientations, PolarOrientation)
 
 public:
-    explicit QPolarChart(QGraphicsItem *parent = Q_NULLPTR, Qt::WindowFlags wFlags = Qt::WindowFlags());
+    explicit QPolarChart(QGraphicsItem *parent = nullptr, Qt::WindowFlags wFlags = Qt::WindowFlags());
     ~QPolarChart();
 
     void addAxis(QAbstractAxis *axis, PolarOrientation polarOrientation);
 
-    QList<QAbstractAxis*> axes(PolarOrientations polarOrientation = PolarOrientations(PolarOrientationRadial | PolarOrientationAngular), QAbstractSeries *series = Q_NULLPTR) const;
+    QList<QAbstractAxis*> axes(PolarOrientations polarOrientation = PolarOrientations(PolarOrientationRadial | PolarOrientationAngular), QAbstractSeries *series = nullptr) const;
 
     static PolarOrientation axisPolarOrientation(QAbstractAxis *axis);
 

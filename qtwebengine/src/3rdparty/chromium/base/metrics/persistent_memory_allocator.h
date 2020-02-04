@@ -328,7 +328,8 @@ class BASE_EXPORT PersistentMemoryAllocator {
   // The |sync| parameter indicates if this call should block until the flush
   // is complete but is only advisory and may or may not have an effect
   // depending on the capabilities of the OS. Synchronous flushes are allowed
-  // only from theads that are allowed to do I/O.
+  // only from theads that are allowed to do I/O but since |sync| is only
+  // advisory, all flushes should be done on IO-capable threads.
   void Flush(bool sync);
 
   // Direct access to underlying memory segment. If the segment is shared
@@ -626,6 +627,7 @@ class BASE_EXPORT PersistentMemoryAllocator {
   const MemoryType mem_type_;      // Type of memory allocation.
   const uint32_t mem_size_;        // Size of entire memory segment.
   const uint32_t mem_page_;        // Page size allocations shouldn't cross.
+  const size_t vm_page_size_;      // The page size used by the OS.
 
  private:
   struct SharedMetadata;
@@ -756,6 +758,14 @@ class BASE_EXPORT FilePersistentMemoryAllocator
   // won't cause the program to abort. The existing IsCorrupt() call will handle
   // the rest.
   static bool IsFileAcceptable(const MemoryMappedFile& file, bool read_only);
+
+  // Load all or a portion of the file into memory for fast access. This can
+  // be used to force the disk access to be done on a background thread and
+  // then have the data available to be read on the main thread with a greatly
+  // reduced risk of blocking due to I/O. The risk isn't eliminated completely
+  // because the system could always release the memory when under pressure
+  // but this can happen to any block of memory (i.e. swapped out).
+  void Cache();
 
  protected:
   // PersistentMemoryAllocator:

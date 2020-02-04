@@ -4,21 +4,22 @@
 
 #include "media/capture/content/android/screen_capture_machine_android.h"
 
+#include <utility>
+
 #include "base/android/jni_android.h"
 #include "base/android/scoped_java_ref.h"
 #include "jni/ScreenCapture_jni.h"
+#include "media/base/video_frame.h"
+#include "media/capture/content/android/thread_safe_capture_oracle.h"
 #include "media/capture/content/video_capture_oracle.h"
+#include "media/capture/video_capture_types.h"
 #include "third_party/libyuv/include/libyuv.h"
 
 using base::android::AttachCurrentThread;
+using base::android::JavaRef;
 using base::android::ScopedJavaLocalRef;
 
 namespace media {
-
-// static
-bool ScreenCaptureMachineAndroid::RegisterScreenCaptureMachine(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
 
 ScreenCaptureMachineAndroid::ScreenCaptureMachineAndroid() {}
 
@@ -32,15 +33,16 @@ ScreenCaptureMachineAndroid::createScreenCaptureMachineAndroid(
       AttachCurrentThread(), nativeScreenCaptureMachineAndroid));
 }
 
-void ScreenCaptureMachineAndroid::OnRGBAFrameAvailable(JNIEnv* env,
-                                                       jobject obj,
-                                                       jobject buf,
-                                                       jint row_stride,
-                                                       jint left,
-                                                       jint top,
-                                                       jint width,
-                                                       jint height,
-                                                       jlong timestamp) {
+void ScreenCaptureMachineAndroid::OnRGBAFrameAvailable(
+    JNIEnv* env,
+    const JavaRef<jobject>& obj,
+    const JavaRef<jobject>& buf,
+    jint row_stride,
+    jint left,
+    jint top,
+    jint width,
+    jint height,
+    jlong timestamp) {
   const VideoCaptureOracle::Event event = VideoCaptureOracle::kCompositorUpdate;
   const uint64_t absolute_micro =
       timestamp / base::Time::kNanosecondsPerMicrosecond;
@@ -54,8 +56,7 @@ void ScreenCaptureMachineAndroid::OnRGBAFrameAvailable(JNIEnv* env,
     return;
   }
 
-  DCHECK(frame->format() == PIXEL_FORMAT_I420 ||
-         frame->format() == PIXEL_FORMAT_YV12);
+  DCHECK(frame->format() == PIXEL_FORMAT_I420);
 
   scoped_refptr<VideoFrame> temp_frame = frame;
   if (frame->visible_rect().width() != width ||
@@ -66,7 +67,7 @@ void ScreenCaptureMachineAndroid::OnRGBAFrameAvailable(JNIEnv* env,
   }
 
   uint8_t* const src =
-      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(buf));
+      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(buf.obj()));
   CHECK(src);
 
   const int offset = top * row_stride + left * 4;
@@ -98,24 +99,25 @@ void ScreenCaptureMachineAndroid::OnRGBAFrameAvailable(JNIEnv* env,
         frame->visible_rect().height(), libyuv::kFilterBilinear);
   }
 
-  capture_frame_cb.Run(frame, start_time, true);
+  std::move(capture_frame_cb).Run(frame, start_time, true);
 
   lastFrame_ = frame;
 }
 
-void ScreenCaptureMachineAndroid::OnI420FrameAvailable(JNIEnv* env,
-                                                       jobject obj,
-                                                       jobject y_buffer,
-                                                       jint y_stride,
-                                                       jobject u_buffer,
-                                                       jobject v_buffer,
-                                                       jint uv_row_stride,
-                                                       jint uv_pixel_stride,
-                                                       jint left,
-                                                       jint top,
-                                                       jint width,
-                                                       jint height,
-                                                       jlong timestamp) {
+void ScreenCaptureMachineAndroid::OnI420FrameAvailable(
+    JNIEnv* env,
+    const JavaRef<jobject>& obj,
+    const JavaRef<jobject>& y_buffer,
+    jint y_stride,
+    const JavaRef<jobject>& u_buffer,
+    const JavaRef<jobject>& v_buffer,
+    jint uv_row_stride,
+    jint uv_pixel_stride,
+    jint left,
+    jint top,
+    jint width,
+    jint height,
+    jlong timestamp) {
   const VideoCaptureOracle::Event event = VideoCaptureOracle::kCompositorUpdate;
   const uint64_t absolute_micro =
       timestamp / base::Time::kNanosecondsPerMicrosecond;
@@ -129,8 +131,7 @@ void ScreenCaptureMachineAndroid::OnI420FrameAvailable(JNIEnv* env,
     return;
   }
 
-  DCHECK(frame->format() == PIXEL_FORMAT_I420 ||
-         frame->format() == PIXEL_FORMAT_YV12);
+  DCHECK(frame->format() == PIXEL_FORMAT_I420);
 
   scoped_refptr<VideoFrame> temp_frame = frame;
   if (frame->visible_rect().width() != width ||
@@ -141,13 +142,13 @@ void ScreenCaptureMachineAndroid::OnI420FrameAvailable(JNIEnv* env,
   }
 
   uint8_t* const y_src =
-      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(y_buffer));
+      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(y_buffer.obj()));
   CHECK(y_src);
   uint8_t* u_src =
-      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(u_buffer));
+      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(u_buffer.obj()));
   CHECK(u_src);
   uint8_t* v_src =
-      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(v_buffer));
+      reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(v_buffer.obj()));
   CHECK(v_src);
 
   const int y_offset = top * y_stride + left;
@@ -181,28 +182,35 @@ void ScreenCaptureMachineAndroid::OnI420FrameAvailable(JNIEnv* env,
         frame->visible_rect().height(), libyuv::kFilterBilinear);
   }
 
-  capture_frame_cb.Run(frame, start_time, true);
+  std::move(capture_frame_cb).Run(frame, start_time, true);
 
   lastFrame_ = frame;
 }
 
 void ScreenCaptureMachineAndroid::OnActivityResult(JNIEnv* env,
-                                                   jobject obj,
+                                                   const JavaRef<jobject>& obj,
                                                    jboolean result) {
   if (!result) {
-    oracle_proxy_->ReportError(FROM_HERE, "The user denied screen capture");
+    oracle_proxy_->ReportError(
+        media::VideoCaptureError::
+            kAndroidScreenCaptureTheUserDeniedScreenCapture,
+        FROM_HERE, "The user denied screen capture");
     return;
   }
 
   if (Java_ScreenCapture_startCapture(env, obj))
     oracle_proxy_->ReportStarted();
   else
-    oracle_proxy_->ReportError(FROM_HERE, "Failed to start Screen Capture");
+    oracle_proxy_->ReportError(
+        media::VideoCaptureError::
+            kAndroidScreenCaptureFailedToStartScreenCapture,
+        FROM_HERE, "Failed to start Screen Capture");
 }
 
-void ScreenCaptureMachineAndroid::OnOrientationChange(JNIEnv* env,
-                                                      jobject obj,
-                                                      jint rotation) {
+void ScreenCaptureMachineAndroid::OnOrientationChange(
+    JNIEnv* env,
+    const JavaRef<jobject>& obj,
+    jint rotation) {
   DeviceOrientation orientation = kDefault;
   switch (rotation) {
     case 0:
@@ -228,20 +236,18 @@ void ScreenCaptureMachineAndroid::OnOrientationChange(JNIEnv* env,
   }
 }
 
-void ScreenCaptureMachineAndroid::Start(
-    const scoped_refptr<ThreadSafeCaptureOracle>& oracle_proxy,
-    const VideoCaptureParams& params,
-    const base::Callback<void(bool)> callback) {
+bool ScreenCaptureMachineAndroid::Start(
+    scoped_refptr<ThreadSafeCaptureOracle> oracle_proxy,
+    const VideoCaptureParams& params) {
   DCHECK(oracle_proxy.get());
-  oracle_proxy_ = oracle_proxy;
+  oracle_proxy_ = std::move(oracle_proxy);
 
   j_capture_.Reset(
       createScreenCaptureMachineAndroid(reinterpret_cast<intptr_t>(this)));
 
   if (j_capture_.obj() == nullptr) {
     DLOG(ERROR) << "Failed to createScreenCaptureAndroid";
-    callback.Run(false);
-    return;
+    return false;
   }
 
   DCHECK(params.requested_format.frame_size.GetArea());
@@ -254,24 +260,19 @@ void ScreenCaptureMachineAndroid::Start(
                                   params.requested_format.frame_size.height());
   if (!ret) {
     DLOG(ERROR) << "Failed to init ScreenCaptureAndroid";
-    callback.Run(ret);
-    return;
+    return false;
   }
 
   ret = Java_ScreenCapture_startPrompt(AttachCurrentThread(), j_capture_);
-  // Must wait for user input to start capturing before we can report back
-  // device started state. However, if the user-prompt failed to show, report
-  // a failed start immediately.
-  if (!ret)
-    callback.Run(ret);
+  // NOTE: Result of user prompt will be delivered to OnActivityResult(), and
+  // this will report the device started/error state via the |oracle_proxy_|.
+  return !!ret;
 }
 
-void ScreenCaptureMachineAndroid::Stop(const base::Closure& callback) {
+void ScreenCaptureMachineAndroid::Stop() {
   if (j_capture_.obj() != nullptr) {
     Java_ScreenCapture_stopCapture(AttachCurrentThread(), j_capture_);
   }
-
-  callback.Run();
 }
 
 // ScreenCapture on Android works in a passive way and there are no captured
@@ -281,8 +282,7 @@ void ScreenCaptureMachineAndroid::MaybeCaptureForRefresh() {
   if (lastFrame_.get() == nullptr)
     return;
 
-  const VideoCaptureOracle::Event event =
-      VideoCaptureOracle::kActiveRefreshRequest;
+  const VideoCaptureOracle::Event event = VideoCaptureOracle::kRefreshRequest;
   const base::TimeTicks start_time = base::TimeTicks::Now();
   scoped_refptr<VideoFrame> frame;
   ThreadSafeCaptureOracle::CaptureFrameCallback capture_frame_cb;
@@ -292,8 +292,7 @@ void ScreenCaptureMachineAndroid::MaybeCaptureForRefresh() {
     return;
   }
 
-  DCHECK(frame->format() == PIXEL_FORMAT_I420 ||
-         frame->format() == PIXEL_FORMAT_YV12);
+  DCHECK(frame->format() == PIXEL_FORMAT_I420);
 
   libyuv::I420Scale(
       lastFrame_->visible_data(VideoFrame::kYPlane),
@@ -311,7 +310,7 @@ void ScreenCaptureMachineAndroid::MaybeCaptureForRefresh() {
       frame->stride(VideoFrame::kVPlane), frame->visible_rect().width(),
       frame->visible_rect().height(), libyuv::kFilterBilinear);
 
-  capture_frame_cb.Run(frame, start_time, true);
+  std::move(capture_frame_cb).Run(frame, start_time, true);
 }
 
 }  // namespace media

@@ -5,12 +5,11 @@
 #include "components/handoff/handoff_manager.h"
 
 #include "base/logging.h"
-#include "base/mac/objc_property_releaser.h"
+#include "base/mac/objc_release_properties.h"
 #include "base/mac/scoped_nsobject.h"
 #include "net/base/mac/url_conversions.h"
 
 #if defined(OS_IOS)
-#include "base/ios/ios_util.h"
 #include "components/handoff/pref_names_ios.h"
 #include "components/pref_registry/pref_registry_syncable.h"  // nogncheck
 #endif
@@ -35,7 +34,6 @@
 @end
 
 @implementation HandoffManager {
-  base::mac::ObjCPropertyReleaser _propertyReleaser_HandoffManager;
   GURL _activeURL;
   NSUserActivity* _userActivity API_AVAILABLE(macos(10.10));
   handoff::Origin _origin;
@@ -54,7 +52,6 @@
 - (instancetype)init {
   self = [super init];
   if (self) {
-    _propertyReleaser_HandoffManager.Init(self, [HandoffManager class]);
 #if defined(OS_MACOSX) && !defined(OS_IOS)
     _origin = handoff::ORIGIN_MAC;
 #elif defined(OS_IOS)
@@ -64,6 +61,11 @@
 #endif
   }
   return self;
+}
+
+- (void)dealloc {
+  base::mac::ReleaseProperties(self);
+  [super dealloc];
 }
 
 - (void)updateActiveURL:(const GURL&)url {
@@ -97,7 +99,7 @@
   [self.userActivity invalidate];
 
   base::scoped_nsobject<NSUserActivity> userActivity([[NSUserActivity alloc]
-      initWithActivityType:handoff::kChromeHandoffActivityType]);
+      initWithActivityType:NSUserActivityTypeBrowsingWeb]);
   self.userActivity = userActivity;
   self.userActivity.webpageURL = net::NSURLWithGURL(_activeURL);
   NSString* origin = handoff::StringFromOrigin(_origin);

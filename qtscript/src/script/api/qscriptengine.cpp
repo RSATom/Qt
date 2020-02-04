@@ -2837,7 +2837,7 @@ JSC::CallFrame *QScriptEnginePrivate::pushContext(JSC::CallFrame *exec, JSC::JSV
     JSC::CallFrame *newCallFrame = exec;
     if (callee == 0 //called from  public QScriptEngine::pushContext
         || exec->returnPC() == 0 || (contextFlags(exec) & NativeContext) //called from native-native call
-        || (exec->codeBlock() && exec->callee() != callee)) { //the interpreter did not build a frame for us.
+        || exec->callee() != callee) { //the interpreter did not build a frame for us.
         //We need to check if the Interpreter might have already created a frame for function called from JS.
         JSC::Interpreter *interp = exec->interpreter();
         JSC::Register *oldEnd = interp->registerFile().end();
@@ -3869,7 +3869,7 @@ QStringList QScriptEngine::importedExtensions() const
     return lst;
 }
 
-/*! \fn QScriptValue QScriptEngine::toScriptValue(const T &value)
+/*! \fn template <typename T> QScriptValue QScriptEngine::toScriptValue(const T &value)
 
     Creates a QScriptValue with the given \a value.
 
@@ -3885,7 +3885,7 @@ QStringList QScriptEngine::importedExtensions() const
     \sa fromScriptValue(), qScriptRegisterMetaType()
 */
 
-/*! \fn T QScriptEngine::fromScriptValue(const QScriptValue &value)
+/*! \fn template <typename T> T QScriptEngine::fromScriptValue(const QScriptValue &value)
 
     Returns the given \a value converted to the template type \c{T}.
 
@@ -3899,7 +3899,7 @@ QStringList QScriptEngine::importedExtensions() const
 */
 
 /*!
-    \fn QScriptValue qScriptValueFromValue(QScriptEngine *engine, const T &value)
+    \fn template <typename T> QScriptValue qScriptValueFromValue(QScriptEngine *engine, const T &value)
     \since 4.3
     \relates QScriptEngine
     \obsolete
@@ -3917,7 +3917,7 @@ QStringList QScriptEngine::importedExtensions() const
 */
 
 /*!
-    \fn T qScriptValueToValue(const QScriptValue &value)
+    \fn template <typename T> T qScriptValueToValue(const QScriptValue &value)
     \since 4.3
     \relates QScriptEngine
     \obsolete
@@ -3934,7 +3934,7 @@ QStringList QScriptEngine::importedExtensions() const
 */
 
 /*!
-    \fn QScriptValue qScriptValueFromSequence(QScriptEngine *engine, const Container &container)
+    \fn template <class Container> QScriptValue qScriptValueFromSequence(QScriptEngine *engine, const Container &container)
     \since 4.3
     \relates QScriptEngine
 
@@ -3953,7 +3953,7 @@ QStringList QScriptEngine::importedExtensions() const
 */
 
 /*!
-    \fn void qScriptValueToSequence(const QScriptValue &value, Container &container)
+    \fn template <class Container> void qScriptValueToSequence(const QScriptValue &value, Container &container)
     \since 4.3
     \relates QScriptEngine
 
@@ -3974,7 +3974,7 @@ QStringList QScriptEngine::importedExtensions() const
 */
 
 /*!
-    \fn T qscriptvalue_cast(const QScriptValue &value)
+    \fn template <typename T> T qscriptvalue_cast(const QScriptValue &value)
     \since 4.3
     \relates QScriptValue
 
@@ -3983,14 +3983,15 @@ QStringList QScriptEngine::importedExtensions() const
     \sa qScriptRegisterMetaType(), QScriptEngine::toScriptValue()
 */
 
-/*! \fn int qScriptRegisterMetaType(
-            QScriptEngine *engine,
+/*! \fn template<typename T> int qScriptRegisterMetaType(
+            QScriptEngine *eng,
             QScriptValue (*toScriptValue)(QScriptEngine *, const T &t),
             void (*fromScriptValue)(const QScriptValue &, T &t),
-            const QScriptValue &prototype = QScriptValue())
+            const QScriptValue &prototype, T *)
+
     \relates QScriptEngine
 
-    Registers the type \c{T} in the given \a engine. \a toScriptValue must
+    Registers the type \c{T} in the given \a eng. \a toScriptValue must
     be a function that will convert from a value of type \c{T} to a
     QScriptValue, and \a fromScriptValue a function that does the
     opposite. \a prototype, if valid, is the prototype that's set on
@@ -4071,9 +4072,11 @@ QStringList QScriptEngine::importedExtensions() const
     QScriptEngine::AutoOwnership ownership.
 */
 
-/*! \fn int qScriptRegisterSequenceMetaType(
+/*!
+    \fn template<typename T> int qScriptRegisterSequenceMetaType(
             QScriptEngine *engine,
-            const QScriptValue &prototype = QScriptValue())
+            const QScriptValue &prototype, T *)
+
     \relates QScriptEngine
 
     Registers the sequence type \c{T} in the given \a engine. This

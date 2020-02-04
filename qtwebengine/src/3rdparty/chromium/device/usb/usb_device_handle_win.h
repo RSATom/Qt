@@ -5,24 +5,21 @@
 #ifndef DEVICE_USB_USB_DEVICE_HANDLE_WIN_H_
 #define DEVICE_USB_USB_DEVICE_HANDLE_WIN_H_
 
-#include <unordered_map>
+#include <map>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/thread_checker.h"
+#include "base/sequence_checker.h"
 #include "base/win/scoped_handle.h"
+#include "device/usb/scoped_winusb_handle.h"
 #include "device/usb/usb_device_handle.h"
 
 namespace base {
+class RefCountedBytes;
 class SequencedTaskRunner;
-class SingleThreadTaskRunner;
-}
-
-namespace net {
-class IOBuffer;
 }
 
 namespace device {
@@ -35,16 +32,14 @@ class UsbDeviceHandleWin : public UsbDeviceHandle {
   scoped_refptr<UsbDevice> GetDevice() const override;
   void Close() override;
   void SetConfiguration(int configuration_value,
-                        const ResultCallback& callback) override;
-  void ClaimInterface(int interface_number,
-                      const ResultCallback& callback) override;
-  void ReleaseInterface(int interface_number,
-                        const ResultCallback& callback) override;
+                        ResultCallback callback) override;
+  void ClaimInterface(int interface_number, ResultCallback callback) override;
+  void ReleaseInterface(int interface_number, ResultCallback callback) override;
   void SetInterfaceAlternateSetting(int interface_number,
                                     int alternate_setting,
-                                    const ResultCallback& callback) override;
-  void ResetDevice(const ResultCallback& callback) override;
-  void ClearHalt(uint8_t endpoint, const ResultCallback& callback) override;
+                                    ResultCallback callback) override;
+  void ResetDevice(ResultCallback callback) override;
+  void ClearHalt(uint8_t endpoint, ResultCallback callback) override;
 
   void ControlTransfer(UsbTransferDirection direction,
                        UsbControlTransferType request_type,
@@ -52,75 +47,118 @@ class UsbDeviceHandleWin : public UsbDeviceHandle {
                        uint8_t request,
                        uint16_t value,
                        uint16_t index,
-                       scoped_refptr<net::IOBuffer> buffer,
-                       size_t length,
+                       scoped_refptr<base::RefCountedBytes> buffer,
                        unsigned int timeout,
-                       const TransferCallback& callback) override;
+                       TransferCallback callback) override;
 
-  void IsochronousTransferIn(
-      uint8_t endpoint,
-      const std::vector<uint32_t>& packet_lengths,
-      unsigned int timeout,
-      const IsochronousTransferCallback& callback) override;
+  void IsochronousTransferIn(uint8_t endpoint,
+                             const std::vector<uint32_t>& packet_lengths,
+                             unsigned int timeout,
+                             IsochronousTransferCallback callback) override;
 
-  void IsochronousTransferOut(
-      uint8_t endpoint,
-      scoped_refptr<net::IOBuffer> buffer,
-      const std::vector<uint32_t>& packet_lengths,
-      unsigned int timeout,
-      const IsochronousTransferCallback& callback) override;
+  void IsochronousTransferOut(uint8_t endpoint,
+                              scoped_refptr<base::RefCountedBytes> buffer,
+                              const std::vector<uint32_t>& packet_lengths,
+                              unsigned int timeout,
+                              IsochronousTransferCallback callback) override;
 
   void GenericTransfer(UsbTransferDirection direction,
                        uint8_t endpoint_number,
-                       scoped_refptr<net::IOBuffer> buffer,
-                       size_t length,
+                       scoped_refptr<base::RefCountedBytes> buffer,
                        unsigned int timeout,
-                       const TransferCallback& callback) override;
+                       TransferCallback callback) override;
   const UsbInterfaceDescriptor* FindInterfaceByEndpoint(
       uint8_t endpoint_address) override;
 
  protected:
   friend class UsbDeviceWin;
 
+  // Constructor used to build a connection to the device.
+  UsbDeviceHandleWin(scoped_refptr<UsbDeviceWin> device, bool composite);
+
   // Constructor used to build a connection to the device's parent hub.
-  UsbDeviceHandleWin(
-      scoped_refptr<UsbDeviceWin> device,
-      base::win::ScopedHandle handle,
-      scoped_refptr<base::SequencedTaskRunner> blocking_task_runner);
+  UsbDeviceHandleWin(scoped_refptr<UsbDeviceWin> device,
+                     base::win::ScopedHandle handle);
 
   ~UsbDeviceHandleWin() override;
 
  private:
   class Request;
 
-  Request* MakeRequest(HANDLE handle);
+  struct Interface {
+    Interface();
+    ~Interface();
+
+    uint8_t interface_number;
+    uint8_t first_interface;
+    ScopedWinUsbHandle handle;
+    bool claimed = false;
+    uint8_t alternate_setting = 0;
+
+    DISALLOW_COPY_AND_ASSIGN(Interface);
+  };
+
+  struct Endpoint {
+    const UsbInterfaceDescriptor* interface;
+    UsbTransferType type;
+  };
+
+  bool OpenInterfaceHandle(Interface* interface);
+  void RegisterEndpoints(const UsbInterfaceDescriptor& interface);
+  void UnregisterEndpoints(const UsbInterfaceDescriptor& interface);
+  WINUSB_INTERFACE_HANDLE GetInterfaceForControlTransfer(
+      UsbControlTransferRecipient recipient,
+      uint16_t index);
+  void SetInterfaceAlternateSettingBlocking(uint8_t interface_number,
+                                            uint8_t alternate_setting,
+                                            const ResultCallback& callback);
+  void SetInterfaceAlternateSettingComplete(uint8_t interface_number,
+                                            uint8_t alternate_setting,
+                                            const ResultCallback& callback);
+  Request* MakeRequest(bool winusb_handle);
   std::unique_ptr<Request> UnlinkRequest(Request* request);
-  void GotNodeConnectionInformation(const TransferCallback& callback,
+  void GotNodeConnectionInformation(TransferCallback callback,
                                     void* node_connection_info,
-                                    scoped_refptr<net::IOBuffer> buffer,
-                                    size_t buffer_length,
+                                    scoped_refptr<base::RefCountedBytes> buffer,
                                     Request* request_ptr,
                                     DWORD win32_result,
                                     size_t bytes_transferred);
   void GotDescriptorFromNodeConnection(
-      const TransferCallback& callback,
-      scoped_refptr<net::IOBuffer> request_buffer,
-      scoped_refptr<net::IOBuffer> original_buffer,
-      size_t original_buffer_length,
+      TransferCallback callback,
+      scoped_refptr<base::RefCountedBytes> request_buffer,
+      scoped_refptr<base::RefCountedBytes> original_buffer,
       Request* request_ptr,
       DWORD win32_result,
       size_t bytes_transferred);
+  void TransferComplete(
+      TransferCallback callback,
+      scoped_refptr<base::RefCountedBytes> buffer,
+      Request* request_ptr,
+      DWORD win32_result,
+      size_t bytes_transferred);
+  void ReportIsochronousError(const std::vector<uint32_t>& packet_lengths,
+                              IsochronousTransferCallback callback,
+                              UsbTransferStatus status);
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   scoped_refptr<UsbDeviceWin> device_;
 
-  // |hub_handle_| must outlive |requests_| because individual Request objects
-  // hold on to the handle for the purpose of calling GetOverlappedResult().
+  // |hub_handle_| or all the handles for claimed interfaces in |interfaces_|
+  // must outlive their associated |requests_| because individual Request
+  // objects hold on to the raw handles for the purpose of calling
+  // GetOverlappedResult().
   base::win::ScopedHandle hub_handle_;
-  std::unordered_map<Request*, std::unique_ptr<Request>> requests_;
+  base::win::ScopedHandle function_handle_;
 
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  // The handle returned by WinUsb_Initialize is special.
+  WINUSB_INTERFACE_HANDLE first_interface_handle_ = INVALID_HANDLE_VALUE;
+
+  std::map<uint8_t, Interface> interfaces_;
+  std::map<uint8_t, Endpoint> endpoints_;
+  std::map<Request*, std::unique_ptr<Request>> requests_;
+
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
 
   base::WeakPtrFactory<UsbDeviceHandleWin> weak_factory_;

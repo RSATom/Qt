@@ -20,11 +20,10 @@
 #include "base/debug/activity_tracker.h"
 #include "base/debug/stack_trace.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/process/kill.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/scoped_process_information.h"
 #include "base/win/startup_information.h"
@@ -33,14 +32,6 @@
 namespace base {
 
 namespace {
-
-// This exit code is used by the Windows task manager when it kills a
-// process.  It's value is obviously not that unique, and it's
-// surprising to me that the task manager uses this value, but it
-// seems to be common practice on Windows to test for it as an
-// indication that the task manager has killed something if the
-// process goes away.
-const DWORD kProcessKilledExitCode = 1;
 
 bool GetAppOutputInternal(const StringPiece16& cl,
                           bool include_stderr,
@@ -114,7 +105,7 @@ bool GetAppOutputInternal(const StringPiece16& cl,
   for (;;) {
     DWORD bytes_read = 0;
     BOOL success =
-        ReadFile(out_read, buffer, kBufferSize, &bytes_read, nullptr);
+        ::ReadFile(out_read, buffer, kBufferSize, &bytes_read, nullptr);
     if (!success || bytes_read == 0)
       break;
     output->append(buffer, bytes_read);
@@ -212,47 +203,47 @@ Process LaunchProcess(const string16& cmdline,
   win::StartupInformation startup_info_wrapper;
   STARTUPINFO* startup_info = startup_info_wrapper.startup_info();
 
-  bool inherit_handles = options.inherit_handles;
+  bool inherit_handles = options.inherit_mode == LaunchOptions::Inherit::kAll;
   DWORD flags = 0;
-  if (options.handles_to_inherit) {
-    if (options.handles_to_inherit->empty()) {
-      inherit_handles = false;
-    } else {
-      if (options.handles_to_inherit->size() >
-              std::numeric_limits<DWORD>::max() / sizeof(HANDLE)) {
-        DLOG(ERROR) << "Too many handles to inherit.";
-        return Process();
-      }
+  if (!options.handles_to_inherit.empty()) {
+    DCHECK_EQ(options.inherit_mode, LaunchOptions::Inherit::kSpecific);
 
-      // Ensure the handles can be inherited.
-      for (HANDLE handle : *options.handles_to_inherit) {
-        BOOL result = SetHandleInformation(handle, HANDLE_FLAG_INHERIT,
-                                           HANDLE_FLAG_INHERIT);
-        PCHECK(result);
-      }
-
-      if (!startup_info_wrapper.InitializeProcThreadAttributeList(1)) {
-        DPLOG(ERROR);
-        return Process();
-      }
-
-      if (!startup_info_wrapper.UpdateProcThreadAttribute(
-              PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-              const_cast<HANDLE*>(&options.handles_to_inherit->at(0)),
-              static_cast<DWORD>(options.handles_to_inherit->size() *
-                  sizeof(HANDLE)))) {
-        DPLOG(ERROR);
-        return Process();
-      }
-
-      inherit_handles = true;
-      flags |= EXTENDED_STARTUPINFO_PRESENT;
+    if (options.handles_to_inherit.size() >
+        std::numeric_limits<DWORD>::max() / sizeof(HANDLE)) {
+      DLOG(ERROR) << "Too many handles to inherit.";
+      return Process();
     }
+
+    // Ensure the handles can be inherited.
+    for (HANDLE handle : options.handles_to_inherit) {
+      BOOL result = SetHandleInformation(handle, HANDLE_FLAG_INHERIT,
+                                         HANDLE_FLAG_INHERIT);
+      PCHECK(result);
+    }
+
+    if (!startup_info_wrapper.InitializeProcThreadAttributeList(1)) {
+      DPLOG(ERROR);
+      return Process();
+    }
+
+    if (!startup_info_wrapper.UpdateProcThreadAttribute(
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            const_cast<HANDLE*>(&options.handles_to_inherit[0]),
+            static_cast<DWORD>(options.handles_to_inherit.size() *
+                               sizeof(HANDLE)))) {
+      DPLOG(ERROR);
+      return Process();
+    }
+
+    inherit_handles = true;
+    flags |= EXTENDED_STARTUPINFO_PRESENT;
   }
 
+  if (options.feedback_cursor_off)
+    startup_info->dwFlags |= STARTF_FORCEOFFFEEDBACK;
   if (options.empty_desktop_name)
     startup_info->lpDesktop = const_cast<wchar_t*>(L"");
-  startup_info->dwFlags = STARTF_USESHOWWINDOW;
+  startup_info->dwFlags |= STARTF_USESHOWWINDOW;
   startup_info->wShowWindow = options.start_hidden ? SW_HIDE : SW_SHOWNORMAL;
 
   if (options.stdin_handle || options.stdout_handle || options.stderr_handle) {
@@ -267,8 +258,6 @@ Process LaunchProcess(const string16& cmdline,
   }
 
   if (options.job_handle) {
-    flags |= CREATE_SUSPENDED;
-
     // If this code is run under a debugger, the launched process is
     // automatically associated with a job object created by the debugger.
     // The CREATE_BREAKAWAY_FROM_JOB flag is used to prevent this on Windows
@@ -287,6 +276,10 @@ Process LaunchProcess(const string16& cmdline,
                                   : options.current_directory.value().c_str();
 
   string16 writable_cmdline(cmdline);
+  DCHECK(!(flags & CREATE_SUSPENDED))
+      << "Creating a suspended process can lead to hung processes if the "
+      << "launching process is killed before it assigns the process to the"
+      << "job. https://crbug.com/820996";
   if (options.as_user) {
     flags |= CREATE_UNICODE_ENVIRONMENT;
     void* enviroment_block = nullptr;
@@ -317,16 +310,18 @@ Process LaunchProcess(const string16& cmdline,
   }
   base::win::ScopedProcessInformation process_info(temp_process_info);
 
-  if (options.job_handle) {
-    if (0 == AssignProcessToJobObject(options.job_handle,
-                                      process_info.process_handle())) {
-      DLOG(ERROR) << "Could not AssignProcessToObject.";
-      Process scoped_process(process_info.TakeProcessHandle());
-      scoped_process.Terminate(kProcessKilledExitCode, true);
-      return Process();
-    }
+  if (options.job_handle &&
+      !AssignProcessToJobObject(options.job_handle,
+                                process_info.process_handle())) {
+    DPLOG(ERROR) << "Could not AssignProcessToObject";
+    Process scoped_process(process_info.TakeProcessHandle());
+    scoped_process.Terminate(win::kProcessKilledExitCode, true);
+    return Process();
+  }
 
-    ResumeThread(process_info.thread_handle());
+  if (options.grant_foreground_privilege &&
+      !AllowSetForegroundWindow(GetProcId(process_info.process_handle()))) {
+    DPLOG(ERROR) << "Failed to grant foreground privilege to launched process";
   }
 
   if (options.wait)

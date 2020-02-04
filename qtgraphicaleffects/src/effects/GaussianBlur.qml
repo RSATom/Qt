@@ -38,9 +38,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtQuick.Window 2.1
-import QtGraphicalEffects.private 1.0
+import QtQuick 2.12
+import QtQuick.Window 2.12
+import QtGraphicalEffects.private 1.12
 
 /*!
     \qmltype GaussianBlur
@@ -92,7 +92,7 @@ Item {
         affect the blurring of an individual pixel. A larger radius increases
         the blur effect.
 
-        The ideal blur is acheived by selecting \c samples and \c radius such
+        The ideal blur is achieved by selecting \c samples and \c radius such
         that \c {samples = 1 + radius * 2}, such as:
 
         \table

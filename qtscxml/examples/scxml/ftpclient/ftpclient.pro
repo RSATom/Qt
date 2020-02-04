@@ -1,4 +1,4 @@
-QT = core scxml
+QT = core scxml network
 
 TARGET = ftpclient
 

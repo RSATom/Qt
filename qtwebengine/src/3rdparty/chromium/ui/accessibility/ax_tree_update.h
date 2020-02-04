@@ -9,9 +9,9 @@
 #include <stdint.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
 #include "base/strings/string_number_conversions.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/ax_tree_data.h"
@@ -45,12 +45,12 @@ namespace ui {
 //        it's a fatal error. This guarantees the tree is always complete
 //        before or after an AXTreeUpdate.
 template<typename AXNodeData, typename AXTreeData> struct AXTreeUpdateBase {
-  AXTreeUpdateBase();
-  ~AXTreeUpdateBase();
+  AXTreeUpdateBase() = default;
+  ~AXTreeUpdateBase() = default;
 
   // If |has_tree_data| is true, the value of |tree_data| should be used
   // to update the tree data, otherwise it should be ignored.
-  bool has_tree_data;
+  bool has_tree_data = false;
   AXTreeData tree_data;
 
   // The id of a node to clear, before applying any updates,
@@ -58,16 +58,19 @@ template<typename AXNodeData, typename AXTreeData> struct AXTreeUpdateBase {
   // all of its children and their descendants, but leaving that node in
   // the tree. It's an error to clear a node but not subsequently update it
   // as part of the tree update.
-  int node_id_to_clear;
+  int node_id_to_clear = 0;
 
   // The id of the root of the tree, if the root is changing. This is
   // required to be set if the root of the tree is changing or Unserialize
   // will fail. If the root of the tree is not changing this is optional
   // and it is allowed to pass 0.
-  int root_id;
+  int root_id = 0;
 
   // A vector of nodes to update, according to the rules above.
   std::vector<AXNodeData> nodes;
+
+  // The source of the event.
+  ax::mojom::EventFrom event_from = ax::mojom::EventFrom::kNone;
 
   // Return a multi-line indented string representation, for logging.
   std::string ToString() const;
@@ -75,18 +78,7 @@ template<typename AXNodeData, typename AXTreeData> struct AXTreeUpdateBase {
   // TODO(dmazzoni): location changes
 };
 
-typedef AXTreeUpdateBase<AXNodeData, AXTreeData> AXTreeUpdate;
-
-template<typename AXNodeData, typename AXTreeData>
-AXTreeUpdateBase<AXNodeData, AXTreeData>::AXTreeUpdateBase()
-    : has_tree_data(false),
-      node_id_to_clear(0),
-      root_id(0) {
-}
-
-template<typename AXNodeData, typename AXTreeData>
-AXTreeUpdateBase<AXNodeData, AXTreeData>::~AXTreeUpdateBase() {
-}
+using AXTreeUpdate = AXTreeUpdateBase<AXNodeData, AXTreeData>;
 
 template<typename AXNodeData, typename AXTreeData>
 std::string AXTreeUpdateBase<AXNodeData, AXTreeData>::ToString() const {
@@ -111,7 +103,7 @@ std::string AXTreeUpdateBase<AXNodeData, AXTreeData>::ToString() const {
   // to the rest of the tree for context, so we have to try to show the
   // relative indentation of child nodes in this update relative to their
   // parents.
-  base::hash_map<int32_t, int> id_to_indentation;
+  std::unordered_map<int32_t, int> id_to_indentation;
   for (size_t i = 0; i < nodes.size(); ++i) {
     int indent = id_to_indentation[nodes[i].id];
     result += std::string(2 * indent, ' ');

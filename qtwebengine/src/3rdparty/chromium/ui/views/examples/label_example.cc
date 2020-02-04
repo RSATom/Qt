@@ -4,8 +4,10 @@
 
 #include "ui/views/examples/label_example.h"
 
-#include "base/macros.h"
+#include <memory>
+
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/vector2d.h"
@@ -28,26 +30,31 @@ namespace examples {
 
 namespace {
 
-const char* kElideBehaviors[] = { "No Elide", "Truncate", "Elide Head",
-    "Elide Middle", "Elide Tail", "Elide Email", "Fade Tail" };
 const char* kAlignments[] = { "Left", "Center", "Right", "Head" };
 
 // A Label with a clamped preferred width to demonstrate eliding or wrapping.
-class PreferredSizeLabel : public Label {
+class ExamplePreferredSizeLabel : public Label {
  public:
-  PreferredSizeLabel() : Label() {
+  ExamplePreferredSizeLabel() : Label() {
     SetBorder(CreateSolidBorder(1, SK_ColorGRAY));
   }
-  ~PreferredSizeLabel() override {}
+  ~ExamplePreferredSizeLabel() override {}
 
   // Label:
   gfx::Size CalculatePreferredSize() const override {
     return gfx::Size(50, Label::CalculatePreferredSize().height());
   }
 
+  static const char* kElideBehaviors[];
+
  private:
-  DISALLOW_COPY_AND_ASSIGN(PreferredSizeLabel);
+  DISALLOW_COPY_AND_ASSIGN(ExamplePreferredSizeLabel);
 };
+
+// static
+const char* ExamplePreferredSizeLabel::kElideBehaviors[] = {
+    "No Elide",   "Truncate",    "Elide Head", "Elide Middle",
+    "Elide Tail", "Elide Email", "Fade Tail"};
 
 }  // namespace
 
@@ -61,15 +68,12 @@ LabelExample::LabelExample()
       custom_label_(NULL) {
 }
 
-LabelExample::~LabelExample() {
-  // Remove the views first as some reference combobox models.
-  container()->RemoveAllChildViews(true);
-}
+LabelExample::~LabelExample() = default;
 
 void LabelExample::CreateExampleView(View* container) {
   // A very simple label example, followed by additional helpful examples.
   container->SetLayoutManager(
-      new BoxLayout(BoxLayout::kVertical, gfx::Insets(), 10));
+      std::make_unique<BoxLayout>(BoxLayout::kVertical, gfx::Insets(), 10));
   Label* label = new Label(ASCIIToUTF16("Hello world!"));
   container->AddChildView(label);
 
@@ -96,17 +100,17 @@ void LabelExample::CreateExampleView(View* container) {
   label->SetFontList(gfx::FontList("Courier, 18px"));
   gfx::ShadowValues shadows(1,
                             gfx::ShadowValue(gfx::Vector2d(), 1, SK_ColorRED));
-  gfx::ShadowValue shadow(gfx::Vector2d(2, 2), 0, SK_ColorGRAY);
+  constexpr gfx::ShadowValue shadow(gfx::Vector2d(2, 2), 0, SK_ColorGRAY);
   shadows.push_back(shadow);
   label->SetShadows(shadows);
   container->AddChildView(label);
 
-  label = new PreferredSizeLabel();
+  label = new ExamplePreferredSizeLabel();
   label->SetText(ASCIIToUTF16("A long label will elide toward its logical end "
       "if the text's width exceeds the label's available width."));
   container->AddChildView(label);
 
-  label = new PreferredSizeLabel();
+  label = new ExamplePreferredSizeLabel();
   label->SetText(ASCIIToUTF16("A multi-line label will wrap onto subsequent "
     "lines if the text's width exceeds the label's available width, which is "
     "helpful for extemely long text used to demonstrate line wrapping."));
@@ -163,8 +167,8 @@ void LabelExample::AddCustomLabel(View* container) {
   View* control_container = new View();
   control_container->SetBorder(CreateSolidBorder(2, SK_ColorGRAY));
   control_container->SetBackground(CreateSolidBackground(SK_ColorLTGRAY));
-  GridLayout* layout = GridLayout::CreatePanel(control_container);
-  control_container->SetLayoutManager(layout);
+  GridLayout* layout = control_container->SetLayoutManager(
+      std::make_unique<views::GridLayout>(control_container));
 
   ColumnSet* column_set = layout->AddColumnSet(0);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::FILL,
@@ -177,14 +181,15 @@ void LabelExample::AddCustomLabel(View* container) {
   textfield_ = new Textfield();
   textfield_->SetText(ASCIIToUTF16("Use the provided controls to configure the "
       "content and presentation of this custom label."));
-  textfield_->SetSelectionRange(gfx::Range());
+  textfield_->SetEditableSelectionRange(gfx::Range());
   textfield_->set_controller(this);
   layout->AddView(textfield_);
 
-  alignment_ = AddCombobox(layout, "Alignment: ", kAlignments,
-                           arraysize(kAlignments));
-  elide_behavior_ = AddCombobox(layout, "Elide Behavior: ", kElideBehaviors,
-                                arraysize(kElideBehaviors));
+  alignment_ =
+      AddCombobox(layout, "Alignment: ", kAlignments, base::size(kAlignments));
+  elide_behavior_ = AddCombobox(
+      layout, "Elide Behavior: ", ExamplePreferredSizeLabel::kElideBehaviors,
+      base::size(ExamplePreferredSizeLabel::kElideBehaviors));
 
   column_set = layout->AddColumnSet(1);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::LEADING,
@@ -194,14 +199,11 @@ void LabelExample::AddCustomLabel(View* container) {
   column_set->AddColumn(GridLayout::LEADING, GridLayout::LEADING, 0,
                         GridLayout::USE_PREF, 0, 0);
   layout->StartRow(0, 1);
-  multiline_ = new Checkbox(base::ASCIIToUTF16("Multiline"));
-  multiline_->set_listener(this);
+  multiline_ = new Checkbox(base::ASCIIToUTF16("Multiline"), this);
   layout->AddView(multiline_);
-  shadows_ = new Checkbox(base::ASCIIToUTF16("Shadows"));
-  shadows_->set_listener(this);
+  shadows_ = new Checkbox(base::ASCIIToUTF16("Shadows"), this);
   layout->AddView(shadows_);
-  selectable_ = new Checkbox(base::ASCIIToUTF16("Selectable"));
-  selectable_->set_listener(this);
+  selectable_ = new Checkbox(base::ASCIIToUTF16("Selectable"), this);
   layout->AddView(selectable_);
   layout->AddPaddingRow(0, 8);
 
@@ -209,7 +211,7 @@ void LabelExample::AddCustomLabel(View* container) {
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL,
                         1, GridLayout::USE_PREF, 0, 0);
   layout->StartRow(0, 2);
-  custom_label_ = new PreferredSizeLabel();
+  custom_label_ = new ExamplePreferredSizeLabel();
   custom_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   custom_label_->SetElideBehavior(gfx::NO_ELIDE);
   custom_label_->SetText(textfield_->text());
@@ -228,9 +230,8 @@ Combobox* LabelExample::AddCombobox(GridLayout* layout,
                                     int count) {
   layout->StartRow(0, 0);
   layout->AddView(new Label(base::ASCIIToUTF16(name)));
-  ExampleComboboxModel* model = new ExampleComboboxModel(strings, count);
-  example_combobox_models_.push_back(base::WrapUnique(model));
-  Combobox* combobox = new Combobox(model);
+  Combobox* combobox =
+      new Combobox(std::make_unique<ExampleComboboxModel>(strings, count));
   combobox->SetSelectedIndex(0);
   combobox->set_listener(this);
   layout->AddView(combobox);

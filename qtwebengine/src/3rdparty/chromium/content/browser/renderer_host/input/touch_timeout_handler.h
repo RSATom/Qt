@@ -12,15 +12,15 @@
 #include "base/time/time.h"
 #include "content/browser/renderer_host/event_with_latency_info.h"
 #include "content/browser/renderer_host/input/timeout_monitor.h"
-#include "content/common/input/input_event_ack_state.h"
+#include "content/public/common/input_event_ack_state.h"
 
 namespace content {
 
-class TouchEventQueue;
+class PassthroughTouchEventQueue;
 
 class TouchTimeoutHandler {
  public:
-  TouchTimeoutHandler(TouchEventQueue* touch_queue,
+  TouchTimeoutHandler(PassthroughTouchEventQueue* touch_queue,
                       base::TimeDelta desktop_timeout_delay,
                       base::TimeDelta mobile_timeout_delay);
 
@@ -28,10 +28,12 @@ class TouchTimeoutHandler {
 
   void StartIfNecessary(const TouchEventWithLatencyInfo& event);
   bool ConfirmTouchEvent(uint32_t unique_touch_event_id,
-                         InputEventAckState ack_result);
+                         InputEventAckState ack_result,
+                         bool should_stop_timeout_monitor);
   bool FilterEvent(const blink::WebTouchEvent& event);
   void SetEnabled(bool enabled);
   void SetUseMobileTimeout(bool use_mobile_timeout);
+  void StopTimeoutMonitor();
   bool IsTimeoutTimerRunning() const { return timeout_monitor_.IsRunning(); }
   bool IsEnabled() const { return enabled_ && !GetTimeoutDelay().is_zero(); }
 
@@ -52,7 +54,7 @@ class TouchTimeoutHandler {
   base::TimeDelta GetTimeoutDelay() const;
   bool HasTimeoutEvent() const;
 
-  TouchEventQueue* touch_queue_;
+  PassthroughTouchEventQueue* touch_queue_;
 
   // How long to wait on a touch ack before cancelling the touch sequence.
   const base::TimeDelta desktop_timeout_delay_;

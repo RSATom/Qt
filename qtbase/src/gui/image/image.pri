@@ -9,6 +9,7 @@ HEADERS += \
         image/qimage_p.h \
         image/qimageiohandler.h \
         image/qimagereader.h \
+        image/qimagereaderwriterhelpers_p.h \
         image/qimagewriter.h \
         image/qpaintengine_pic_p.h \
         image/qpicture.h \
@@ -33,6 +34,7 @@ SOURCES += \
         image/qimage_conversions.cpp \
         image/qimageiohandler.cpp \
         image/qimagereader.cpp \
+        image/qimagereaderwriterhelpers.cpp \
         image/qimagewriter.cpp \
         image/qpaintengine_pic.cpp \
         image/qpicture.cpp \
@@ -80,10 +82,7 @@ qtConfig(png) {
 }
 
 # SIMD
-SSE2_SOURCES += image/qimage_sse2.cpp
 SSSE3_SOURCES += image/qimage_ssse3.cpp
-SSE4_1_SOURCES += image/qimage_sse4.cpp
-AVX2_SOURCES += image/qimage_avx2.cpp
 NEON_SOURCES += image/qimage_neon.cpp
 MIPS_DSPR2_SOURCES += image/qimage_mips_dspr2.cpp
 MIPS_DSPR2_ASM += image/qimage_mips_dspr2_asm.S

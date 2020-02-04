@@ -28,6 +28,9 @@ class VIEWS_EXPORT ViewObserver {
   // Called when View::SetEnabled() is called with a new value.
   virtual void OnViewEnabledChanged(View* observed_view) {}
 
+  // Called from View::PreferredSizeChanged().
+  virtual void OnViewPreferredSizeChanged(View* observed_view) {}
+
   // Called when the bounds of |observed_view| change.
   virtual void OnViewBoundsChanged(View* observed_view) {}
 
@@ -40,6 +43,12 @@ class VIEWS_EXPORT ViewObserver {
 
   // Called from ~View.
   virtual void OnViewIsDeleting(View* observed_view) {}
+
+  // Called immediately after |observed_view| has gained focus.
+  virtual void OnViewFocused(View* observed_view) {}
+
+  // Called immediately after |observed_view| has lost focus.
+  virtual void OnViewBlurred(View* observed_view) {}
 
  protected:
   virtual ~ViewObserver() {}

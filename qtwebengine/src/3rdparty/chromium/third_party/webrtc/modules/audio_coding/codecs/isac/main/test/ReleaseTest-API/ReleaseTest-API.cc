@@ -11,23 +11,26 @@
 // ReleaseTest-API.cpp : Defines the entry point for the console application.
 //
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <ctype.h>
 #include <iostream>
 
 /* include API */
-#include "isac.h"
-#include "utility.h"
-#include "webrtc/rtc_base/format_macros.h"
+#include "modules/audio_coding/codecs/isac/main/include/isac.h"
+#include "modules/audio_coding/codecs/isac/main/util/utility.h"
+#include "rtc_base/format_macros.h"
 
 /* Defines */
-#define SEED_FILE "randseed.txt" /* Used when running decoder on garbage data */
-#define MAX_FRAMESAMPLES 960     /* max number of samples per frame
-                                    (= 60 ms frame & 16 kHz) or
-                                    (= 30 ms frame & 32 kHz) */
+#define SEED_FILE                                             \
+  "randseed.txt" /* Used when running decoder on garbage data \
+                  */
+#define MAX_FRAMESAMPLES                                         \
+  960                         /* max number of samples per frame \
+                                 (= 60 ms frame & 16 kHz) or     \
+                                 (= 30 ms frame & 32 kHz) */
 #define FRAMESAMPLES_10ms 160 /* number of samples per 10ms frame */
 #define SWBFRAMESAMPLES_10ms 320
 //#define FS 16000 /* sampling frequency (Hz) */
@@ -38,11 +41,9 @@
 #endif
 #endif
 
-using namespace std;
-
 int main(int argc, char* argv[]) {
   char inname[100], outname[100], bottleneck_file[100], vadfile[100];
-  FILE* inp, *outp, * f_bn = NULL, * vadp = NULL, *bandwidthp;
+  FILE *inp, *outp, *f_bn = NULL, *vadp = NULL, *bandwidthp;
   int framecnt, endfile;
 
   size_t i;
@@ -230,8 +231,10 @@ int main(int argc, char* argv[]) {
       rateBPS = atoi(argv[i + 1]);
       setControlBWE = 1;
       if ((rateBPS < 10000) || (rateBPS > 32000)) {
-        printf("\n%d is not a initial rate. Valid values are in the range "
-               "10000 to 32000.\n", rateBPS);
+        printf(
+            "\n%d is not a initial rate. Valid values are in the range "
+            "10000 to 32000.\n",
+            rateBPS);
         exit(0);
       }
       printf("New initial rate: %d\n", rateBPS);
@@ -242,8 +245,10 @@ int main(int argc, char* argv[]) {
     if (!strcmp("-FL", argv[i])) {
       framesize = atoi(argv[i + 1]);
       if ((framesize != 30) && (framesize != 60)) {
-        printf("\n%d is not a valid frame length. Valid length are 30 and 60 "
-               "msec.\n", framesize);
+        printf(
+            "\n%d is not a valid frame length. Valid length are 30 and 60 "
+            "msec.\n",
+            framesize);
         exit(0);
       }
       setControlBWE = 1;
@@ -277,8 +282,10 @@ int main(int argc, char* argv[]) {
       testNum = atoi(argv[i + 1]);
       printf("Fault test: %d\n", testNum);
       if (testNum < 1 || testNum > 10) {
-        printf("\n%d is not a valid Fault Scenario number. Valid Fault "
-               "Scenarios are numbered 1-10.\n", testNum);
+        printf(
+            "\n%d is not a valid Fault Scenario number. Valid Fault "
+            "Scenarios are numbered 1-10.\n",
+            testNum);
         exit(0);
       }
       i++;
@@ -336,8 +343,10 @@ int main(int argc, char* argv[]) {
         sscanf(argv[i], "%s", bottleneck_file);
         f_bn = fopen(bottleneck_file, "rb");
         if (f_bn == NULL) {
-          printf("Error No value provided for BottleNeck and cannot read file "
-                 "%s.\n", bottleneck_file);
+          printf(
+              "Error No value provided for BottleNeck and cannot read file "
+              "%s.\n",
+              bottleneck_file);
           exit(0);
         } else {
           printf("reading bottleneck rates from file %s\n\n", bottleneck_file);
@@ -414,27 +423,27 @@ int main(int argc, char* argv[]) {
   printf("Output file: %s\n\n", outname);
   if ((inp = fopen(inname, "rb")) == NULL) {
     printf("  Error iSAC Cannot read file %s.\n", inname);
-    cout << flush;
+    std::cout << std::flush;
     exit(1);
   }
 
   if ((outp = fopen(outname, "wb")) == NULL) {
     printf("  Error iSAC Cannot write file %s.\n", outname);
-    cout << flush;
+    std::cout << std::flush;
     getc(stdin);
     exit(1);
   }
   if (VADusage) {
     if ((vadp = fopen(vadfile, "rb")) == NULL) {
       printf("  Error iSAC Cannot read file %s.\n", vadfile);
-      cout << flush;
+      std::cout << std::flush;
       exit(1);
     }
   }
 
   if ((bandwidthp = fopen("bwe.pcm", "wb")) == NULL) {
     printf("  Error iSAC Cannot read file %s.\n", "bwe.pcm");
-    cout << flush;
+    std::cout << std::flush;
     exit(1);
   }
 
@@ -461,7 +470,7 @@ int main(int argc, char* argv[]) {
     /* Error check */
     if (err < 0) {
       printf("\n\n Error in create.\n\n");
-      cout << flush;
+      std::cout << std::flush;
       exit(EXIT_FAILURE);
     }
   }
@@ -497,7 +506,7 @@ int main(int argc, char* argv[]) {
   if (testNum != 1) {
     if (WebRtcIsac_EncoderInit(ISAC_main_inst, CodingMode) < 0) {
       printf("Error could not initialize the encoder \n");
-      cout << flush;
+      std::cout << std::flush;
       return 0;
     }
   }
@@ -509,7 +518,7 @@ int main(int argc, char* argv[]) {
       /* exit if returned with error */
       errtype = WebRtcIsac_GetErrorCode(ISAC_main_inst);
       printf("\n\n Error in initialization (control): %d.\n\n", errtype);
-      cout << flush;
+      std::cout << std::flush;
       if (testNum == 0) {
         exit(EXIT_FAILURE);
       }
@@ -523,7 +532,7 @@ int main(int argc, char* argv[]) {
       errtype = WebRtcIsac_GetErrorCode(ISAC_main_inst);
 
       printf("\n\n Error in Control BWE: %d.\n\n", errtype);
-      cout << flush;
+      std::cout << std::flush;
       exit(EXIT_FAILURE);
     }
   }
@@ -534,7 +543,7 @@ int main(int argc, char* argv[]) {
       /* exit if returned with error */
       errtype = WebRtcIsac_GetErrorCode(ISAC_main_inst);
       printf("\n\n Error in SetMaxPayloadSize: %d.\n\n", errtype);
-      cout << flush;
+      std::cout << std::flush;
       exit(EXIT_FAILURE);
     }
   }
@@ -544,14 +553,14 @@ int main(int argc, char* argv[]) {
       /* exit if returned with error */
       errtype = WebRtcIsac_GetErrorCode(ISAC_main_inst);
       printf("\n\n Error in SetMaxRateInBytes: %d.\n\n", errtype);
-      cout << flush;
+      std::cout << std::flush;
       exit(EXIT_FAILURE);
     }
   }
 
   *speechType = 1;
 
-  cout << "\n" << flush;
+  std::cout << "\n" << std::flush;
 
   length_file = 0;
   int16_t bnIdxTC = 0;
@@ -564,7 +573,7 @@ int main(int argc, char* argv[]) {
       if (err < 0) {
         errtype = WebRtcIsac_GetErrorCode(ISAC_main_inst);
         printf("\n\n Error in encoderinit: %d.\n\n", errtype);
-        cout << flush;
+        std::cout << std::flush;
       }
 
       WebRtcIsac_DecoderInit(ISAC_main_inst);
@@ -602,7 +611,7 @@ int main(int argc, char* argv[]) {
 
           printf("\nError: Streamsize out of range %d\n",
                  stream_len_int - payloadSize);
-          cout << flush;
+          std::cout << std::flush;
         }
 
         WebRtcIsac_GetUplinkBw(ISAC_main_inst, &sendBN);
@@ -637,8 +646,8 @@ int main(int argc, char* argv[]) {
             }
 
             if (fwrite(streamDataTransCoding, sizeof(uint8_t),
-                       streamLenTransCoding, transcodingBitstream) !=
-                streamLenTransCoding) {
+                       streamLenTransCoding,
+                       transcodingBitstream) != streamLenTransCoding) {
               return -1;
             }
 
@@ -660,7 +669,7 @@ int main(int argc, char* argv[]) {
         /* exit if returned with error */
         errtype = WebRtcIsac_GetErrorCode(ISAC_main_inst);
         fprintf(stderr, "Error in encoder: %d.\n", errtype);
-        cout << flush;
+        std::cout << std::flush;
         exit(0);
       }
       stream_len = static_cast<size_t>(stream_len_int);
@@ -718,8 +727,7 @@ int main(int argc, char* argv[]) {
           fprintf(stderr, "Error in RED trans-coding\n");
           exit(0);
         }
-        streamLenTransCoding =
-            static_cast<size_t>(streamLenTransCoding_int);
+        streamLenTransCoding = static_cast<size_t>(streamLenTransCoding_int);
       }
     }
 
@@ -777,7 +785,7 @@ int main(int argc, char* argv[]) {
           }
 
           printf("Error: in decoder: %d.", errtype);
-          cout << flush;
+          std::cout << std::flush;
           if (testNum == 0) {
             printf("\n\n");
           }
@@ -794,7 +802,7 @@ int main(int argc, char* argv[]) {
           printf("\n\n");
         }
         printf("    Error: in getFrameLen %d.", errtype);
-        cout << flush;
+        std::cout << std::flush;
         if (testNum == 0) {
           printf("\n\n");
         }
@@ -830,7 +838,7 @@ int main(int argc, char* argv[]) {
           printf("\n\n");
         }
         printf("    Error: in decoder %d.", errtype);
-        cout << flush;
+        std::cout << std::flush;
         if (testNum == 0) {
           printf("\n\n");
         }
@@ -841,7 +849,7 @@ int main(int argc, char* argv[]) {
           printf("\n\n");
         }
         printf("    Error: in decoding the transcoded stream");
-        cout << flush;
+        std::cout << std::flush;
         if (testNum == 0) {
           printf("\n\n");
         }

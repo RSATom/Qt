@@ -12,8 +12,8 @@
 #include "content/browser/frame_host/cross_process_frame_connector.h"
 #include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/render_frame_proxy_host.h"
-#include "content/browser/frame_host/render_widget_host_view_child_frame.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
+#include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/browser/site_per_process_browsertest.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/notification_observer.h"
@@ -104,31 +104,33 @@ IN_PROC_BROWSER_TEST_F(MAYBE_SitePerProcessAccessibilityBrowserTest,
   // Assert that we can walk from the main frame down into the child frame
   // directly, getting correct roles and data along the way.
   BrowserAccessibility* ax_root = main_frame_manager->GetRoot();
-  EXPECT_EQ(ui::AX_ROLE_ROOT_WEB_AREA, ax_root->GetRole());
+  EXPECT_EQ(ax::mojom::Role::kRootWebArea, ax_root->GetRole());
   ASSERT_EQ(1U, ax_root->PlatformChildCount());
 
   BrowserAccessibility* ax_group = ax_root->PlatformGetChild(0);
-  EXPECT_EQ(ui::AX_ROLE_GENERIC_CONTAINER, ax_group->GetRole());
+  EXPECT_EQ(ax::mojom::Role::kGenericContainer, ax_group->GetRole());
   ASSERT_EQ(2U, ax_group->PlatformChildCount());
 
   BrowserAccessibility* ax_iframe = ax_group->PlatformGetChild(0);
-  EXPECT_EQ(ui::AX_ROLE_IFRAME, ax_iframe->GetRole());
+  EXPECT_EQ(ax::mojom::Role::kIframe, ax_iframe->GetRole());
   ASSERT_EQ(1U, ax_iframe->PlatformChildCount());
 
   BrowserAccessibility* ax_child_frame_root = ax_iframe->PlatformGetChild(0);
-  EXPECT_EQ(ui::AX_ROLE_ROOT_WEB_AREA, ax_child_frame_root->GetRole());
+  EXPECT_EQ(ax::mojom::Role::kRootWebArea, ax_child_frame_root->GetRole());
   ASSERT_EQ(1U, ax_child_frame_root->PlatformChildCount());
-  EXPECT_EQ("Title Of Awesomeness",
-            ax_child_frame_root->GetStringAttribute(ui::AX_ATTR_NAME));
+  EXPECT_EQ("Title Of Awesomeness", ax_child_frame_root->GetStringAttribute(
+                                        ax::mojom::StringAttribute::kName));
 
   BrowserAccessibility* ax_child_frame_group =
       ax_child_frame_root->PlatformGetChild(0);
-  EXPECT_EQ(ui::AX_ROLE_GENERIC_CONTAINER, ax_child_frame_group->GetRole());
+  EXPECT_EQ(ax::mojom::Role::kGenericContainer,
+            ax_child_frame_group->GetRole());
   ASSERT_EQ(1U, ax_child_frame_group->PlatformChildCount());
 
   BrowserAccessibility* ax_child_frame_static_text =
       ax_child_frame_group->PlatformGetChild(0);
-  EXPECT_EQ(ui::AX_ROLE_STATIC_TEXT, ax_child_frame_static_text->GetRole());
+  EXPECT_EQ(ax::mojom::Role::kStaticText,
+            ax_child_frame_static_text->GetRole());
   ASSERT_EQ(0U, ax_child_frame_static_text->PlatformChildCount());
 
   // Last, check that the parent of the child frame root is correct.
@@ -163,6 +165,32 @@ IN_PROC_BROWSER_TEST_F(MAYBE_SitePerProcessAccessibilityBrowserTest,
   WaitForAccessibilityTreeToContainNodeWithName(
       shell()->web_contents(),
       "Title Of Awesomeness");
+}
+
+// Ensure that enabling accessibility and doing a remote-to-local main frame
+// navigation doesn't crash.  See https://crbug.com/762824.
+IN_PROC_BROWSER_TEST_F(MAYBE_SitePerProcessAccessibilityBrowserTest,
+                       RemoteToLocalMainFrameNavigation) {
+  // Enable full accessibility for all current and future WebContents.
+  BrowserAccessibilityState::GetInstance()->EnableAccessibility();
+
+  GURL main_url(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  NavigateToURL(shell(), main_url);
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "This page has no title.");
+
+  // Open a new tab for b.com and wait for it to load.  This will create a
+  // proxy in b.com for the original (opener) tab.
+  GURL b_url(embedded_test_server()->GetURL("b.com", "/title2.html"));
+  Shell* new_shell = OpenPopup(shell()->web_contents(), b_url, "popup");
+  WaitForAccessibilityTreeToContainNodeWithName(new_shell->web_contents(),
+                                                "Title Of Awesomeness");
+
+  // Navigate the original tab to b.com as well.  This performs a
+  // remote-to-local main frame navigation in b.com and shouldn't crash.
+  NavigateToURL(shell(), b_url);
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "Title Of Awesomeness");
 }
 
 }  // namespace content

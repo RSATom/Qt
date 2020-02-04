@@ -11,51 +11,75 @@
 
 namespace media {
 
-// Histogram names used for reporting; also double as MediaLog key names.
-// NOTE: If you add to this list you must update GetWatchTimeKeys() and if
-// necessary, GetWatchTimePowerKeys().
-// TODO(mlamouri): the kWatchTimeAudioDisplay* constants are here for
-// convenience because a few macros expect them. They should be removed after
-// a refactor.
-MEDIA_EXPORT extern const char kWatchTimeAudioAll[];
-MEDIA_EXPORT extern const char kWatchTimeAudioMse[];
-MEDIA_EXPORT extern const char kWatchTimeAudioEme[];
-MEDIA_EXPORT extern const char kWatchTimeAudioSrc[];
-MEDIA_EXPORT extern const char kWatchTimeAudioBattery[];
-MEDIA_EXPORT extern const char kWatchTimeAudioAc[];
-MEDIA_EXPORT extern const char kWatchTimeAudioDisplayFullscreen[];
-MEDIA_EXPORT extern const char kWatchTimeAudioDisplayInline[];
-MEDIA_EXPORT extern const char kWatchTimeAudioDisplayPictureInPicture[];
-MEDIA_EXPORT extern const char kWatchTimeAudioEmbeddedExperience[];
-MEDIA_EXPORT extern const char kWatchTimeAudioNativeControlsOn[];
-MEDIA_EXPORT extern const char kWatchTimeAudioNativeControlsOff[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoAll[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoMse[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoEme[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoSrc[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoBattery[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoAc[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoDisplayFullscreen[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoDisplayInline[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoDisplayPictureInPicture[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoEmbeddedExperience[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoNativeControlsOn[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoNativeControlsOff[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoBackgroundAll[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoBackgroundMse[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoBackgroundEme[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoBackgroundSrc[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoBackgroundBattery[];
-MEDIA_EXPORT extern const char kWatchTimeAudioVideoBackgroundAc[];
-MEDIA_EXPORT extern const char
-    kWatchTimeAudioVideoBackgroundEmbeddedExperience[];
-// **** If adding any line above this see the toplevel comment! ****
-
-// Markers which signify the watch time should be finalized immediately.
-MEDIA_EXPORT extern const char kWatchTimeFinalize[];
-MEDIA_EXPORT extern const char kWatchTimeFinalizePower[];
-MEDIA_EXPORT extern const char kWatchTimeFinalizeControls[];
-MEDIA_EXPORT extern const char kWatchTimeFinalizeDisplay[];
+enum class WatchTimeKey : int {
+  kAudioAll = 0,
+  kAudioMse,
+  kAudioEme,
+  kAudioSrc,
+  kAudioBattery,
+  kAudioAc,
+  kAudioEmbeddedExperience,
+  kAudioNativeControlsOn,
+  kAudioNativeControlsOff,
+  kAudioBackgroundAll,
+  kAudioBackgroundMse,
+  kAudioBackgroundEme,
+  kAudioBackgroundSrc,
+  kAudioBackgroundBattery,
+  kAudioBackgroundAc,
+  kAudioBackgroundEmbeddedExperience,
+  kAudioVideoAll,
+  kAudioVideoMse,
+  kAudioVideoEme,
+  kAudioVideoSrc,
+  kAudioVideoBattery,
+  kAudioVideoAc,
+  kAudioVideoDisplayFullscreen,
+  kAudioVideoDisplayInline,
+  kAudioVideoDisplayPictureInPicture,
+  kAudioVideoEmbeddedExperience,
+  kAudioVideoNativeControlsOn,
+  kAudioVideoNativeControlsOff,
+  kAudioVideoBackgroundAll,
+  kAudioVideoBackgroundMse,
+  kAudioVideoBackgroundEme,
+  kAudioVideoBackgroundSrc,
+  kAudioVideoBackgroundBattery,
+  kAudioVideoBackgroundAc,
+  kAudioVideoBackgroundEmbeddedExperience,
+  kAudioVideoMutedAll,
+  kAudioVideoMutedMse,
+  kAudioVideoMutedEme,
+  kAudioVideoMutedSrc,
+  kAudioVideoMutedBattery,
+  kAudioVideoMutedAc,
+  kAudioVideoMutedEmbeddedExperience,
+  kAudioVideoMutedDisplayFullscreen,
+  kAudioVideoMutedDisplayInline,
+  kAudioVideoMutedDisplayPictureInPicture,
+  kAudioVideoMutedNativeControlsOn,
+  kAudioVideoMutedNativeControlsOff,
+  kVideoAll,
+  kVideoMse,
+  kVideoEme,
+  kVideoSrc,
+  kVideoBattery,
+  kVideoAc,
+  kVideoDisplayFullscreen,
+  kVideoDisplayInline,
+  kVideoDisplayPictureInPicture,
+  kVideoEmbeddedExperience,
+  kVideoNativeControlsOn,
+  kVideoNativeControlsOff,
+  kVideoBackgroundAll,
+  kVideoBackgroundMse,
+  kVideoBackgroundEme,
+  kVideoBackgroundSrc,
+  kVideoBackgroundBattery,
+  kVideoBackgroundAc,
+  kVideoBackgroundEmbeddedExperience,
+  kWatchTimeKeyMax = kVideoBackgroundEmbeddedExperience
+};
 
 // Count of the number of underflow events during a media session.
 MEDIA_EXPORT extern const char kWatchTimeUnderflowCount[];
@@ -76,10 +100,20 @@ MEDIA_EXPORT extern const char kRebuffersCountAudioVideoSrc[];
 MEDIA_EXPORT extern const char kRebuffersCountAudioVideoMse[];
 MEDIA_EXPORT extern const char kRebuffersCountAudioVideoEme[];
 
-MEDIA_EXPORT base::flat_set<base::StringPiece> GetWatchTimeKeys();
-MEDIA_EXPORT base::flat_set<base::StringPiece> GetWatchTimePowerKeys();
-MEDIA_EXPORT base::flat_set<base::StringPiece> GetWatchTimeControlsKeys();
-MEDIA_EXPORT base::flat_set<base::StringPiece> GetWatchTimeDisplayKeys();
+// Amount of watch time less than minimum required, which ends up not being
+// reported as part of the standard WatchTime keys. Allows estimation of an
+// upper bound on uncollected watch time.
+MEDIA_EXPORT extern const char kDiscardedWatchTimeAudioSrc[];
+MEDIA_EXPORT extern const char kDiscardedWatchTimeAudioMse[];
+MEDIA_EXPORT extern const char kDiscardedWatchTimeAudioEme[];
+MEDIA_EXPORT extern const char kDiscardedWatchTimeAudioVideoSrc[];
+MEDIA_EXPORT extern const char kDiscardedWatchTimeAudioVideoMse[];
+MEDIA_EXPORT extern const char kDiscardedWatchTimeAudioVideoEme[];
+
+// Returns the UMA key name associated with a given WatchTimeKey or an empty
+// string if they key should not be logged to UMA.
+MEDIA_EXPORT base::StringPiece ConvertWatchTimeKeyToStringForUma(
+    WatchTimeKey key);
 
 }  // namespace media
 

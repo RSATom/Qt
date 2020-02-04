@@ -34,9 +34,6 @@ struct CONTENT_EXPORT FrameNavigateParams : public IPC::NoParams {
   // means. If the navigation was renderer-initiated, this value is 0.
   int nav_entry_id;
 
-  // The unique name of the frame in which this navigation takes place.
-  std::string frame_unique_name;
-
   // The item sequence number identifies each stop in the session history.  It
   // is unique within the renderer process and makes a best effort to be unique
   // across browser sessions (using a renderer process timestamp).
@@ -57,6 +54,8 @@ struct CONTENT_EXPORT FrameNavigateParams : public IPC::NoParams {
   // This is of interest when a MHTML file is loaded, as the base URL has been
   // set to original URL of the site the MHTML represents.
   GURL base_url;
+
+  GURL virtual_url;
 
   // URL of the referrer of this load. WebKit generates this based on the
   // source of the event that caused the load.

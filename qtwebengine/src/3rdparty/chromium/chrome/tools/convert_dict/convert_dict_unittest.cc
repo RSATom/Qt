@@ -11,6 +11,7 @@
 #include "base/format_macros.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/tools/convert_dict/aff_reader.h"
@@ -70,8 +71,7 @@ void RunDictionaryTest(const char* codepage,
   std::string aff_data(base::StringPrintf("SET %s\n", codepage));
 
   std::string dic_data(base::StringPrintf("%" PRIuS "\n", word_list.size()));
-  for (std::map<base::string16, bool>::const_iterator it = word_list.begin();
-       it != word_list.end(); ++it) {
+  for (auto it = word_list.begin(); it != word_list.end(); ++it) {
     std::string encoded_word;
     EXPECT_TRUE(UTF16ToCodepage(it->first,
                                 codepage,
@@ -141,70 +141,67 @@ void RunDictionaryTest(const char* codepage,
 
 // Tests whether or not our DicReader can read all the input English words
 TEST(ConvertDictTest, English) {
-  const char kCodepage[] = "UTF-8";
-  const wchar_t* kWords[] = {
-    L"I",
-    L"he",
-    L"she",
-    L"it",
-    L"we",
-    L"you",
-    L"they",
+  static constexpr char kCodepage[] = "UTF-8";
+  static constexpr const wchar_t* kWords[] = {
+      L"I", L"he", L"she", L"it", L"we", L"you", L"they",
   };
 
   std::map<base::string16, bool> word_list;
-  for (size_t i = 0; i < arraysize(kWords); ++i)
+  for (size_t i = 0; i < base::size(kWords); ++i) {
     word_list.insert(
         std::make_pair<base::string16, bool>(base::WideToUTF16(kWords[i]),
                                              true));
+  }
 
   RunDictionaryTest(kCodepage, word_list);
 }
 
 // Tests whether or not our DicReader can read all the input Russian words.
 TEST(ConvertDictTest, Russian) {
-  const char kCodepage[] = "KOI8-R";
-  const wchar_t* kWords[] = {
-    L"\x044f",
-    L"\x0442\x044b",
-    L"\x043e\x043d",
-    L"\x043e\x043d\x0430",
-    L"\x043e\x043d\x043e",
-    L"\x043c\x044b",
-    L"\x0432\x044b",
-    L"\x043e\x043d\x0438",
+  static constexpr char kCodepage[] = "KOI8-R";
+  static constexpr const wchar_t* kWords[] = {
+      L"\x044f",
+      L"\x0442\x044b",
+      L"\x043e\x043d",
+      L"\x043e\x043d\x0430",
+      L"\x043e\x043d\x043e",
+      L"\x043c\x044b",
+      L"\x0432\x044b",
+      L"\x043e\x043d\x0438",
   };
 
   std::map<base::string16, bool> word_list;
-  for (size_t i = 0; i < arraysize(kWords); ++i)
+  for (size_t i = 0; i < base::size(kWords); ++i) {
     word_list.insert(
         std::make_pair<base::string16, bool>(base::WideToUTF16(kWords[i]),
                                              true));
+  }
 
   RunDictionaryTest(kCodepage, word_list);
 }
 
 // Tests whether or not our DicReader can read all the input Hungarian words.
 TEST(ConvertDictTest, Hungarian) {
-  const char kCodepage[] = "ISO8859-2";
-  const wchar_t* kWords[] = {
-    L"\x00e9\x006e",
-    L"\x0074\x0065",
-    L"\x0151",
-    L"\x00f6\x006e",
-    L"\x006d\x0061\x0067\x0061",
-    L"\x006d\x0069",
-    L"\x0074\x0069",
-    L"\x0151\x006b",
-    L"\x00f6\x006e\x00f6\x006b",
-    L"\x006d\x0061\x0067\x0075\x006b",
+  static constexpr char kCodepage[] = "ISO8859-2";
+  static constexpr const wchar_t* kWords[] = {
+      L"\x00e9\x006e",
+      L"\x0074\x0065",
+      L"\x0151",
+      L"\x00f6\x006e",
+      L"\x006d\x0061\x0067\x0061",
+      L"\x006d\x0069",
+      L"\x0074\x0069",
+      L"\x0151\x006b",
+      L"\x00f6\x006e\x00f6\x006b",
+      L"\x006d\x0061\x0067\x0075\x006b",
   };
 
   std::map<base::string16, bool> word_list;
-  for (size_t i = 0; i < arraysize(kWords); ++i)
+  for (size_t i = 0; i < base::size(kWords); ++i) {
     word_list.insert(
         std::make_pair<base::string16, bool>(base::WideToUTF16(kWords[i]),
                                              true));
+  }
 
   RunDictionaryTest(kCodepage, word_list);
 }

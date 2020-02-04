@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
+#include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/compositor/layer_animation_delegate.h"
@@ -50,7 +51,8 @@ TEST(LayerAnimationSequenceTest, SingleElement) {
   for (int i = 0; i < 2; ++i) {
     start_time += delta;
     sequence.set_start_time(start_time);
-    delegate.SetBrightnessFromAnimation(start);
+    delegate.SetBrightnessFromAnimation(
+        start, PropertyChangeReason::NOT_FROM_ANIMATION);
     sequence.Start(&delegate);
     sequence.Progress(start_time, &delegate);
     EXPECT_FLOAT_EQ(start, delegate.GetBrightnessForAnimation());
@@ -87,7 +89,8 @@ TEST(LayerAnimationSequenceTest, SingleThreadedElement) {
     sequence.set_animation_group_id(starting_group_id);
     start_time = effective_start + delta;
     sequence.set_start_time(start_time);
-    delegate.SetOpacityFromAnimation(start);
+    delegate.SetOpacityFromAnimation(start,
+                                     PropertyChangeReason::NOT_FROM_ANIMATION);
     sequence.Start(&delegate);
     sequence.Progress(start_time, &delegate);
     EXPECT_FLOAT_EQ(start, sequence.last_progressed_fraction());
@@ -126,7 +129,7 @@ TEST(LayerAnimationSequenceTest, MultipleElement) {
   sequence.AddElement(LayerAnimationElement::CreatePauseElement(
       LayerAnimationElement::BOUNDS, delta));
 
-  gfx::Transform start_transform, target_transform, middle_transform;
+  gfx::Transform start_transform, target_transform;
   start_transform.Rotate(-30.0);
   target_transform.Rotate(30.0);
 
@@ -138,8 +141,10 @@ TEST(LayerAnimationSequenceTest, MultipleElement) {
     sequence.set_animation_group_id(starting_group_id);
     start_time = opacity_effective_start + 4 * delta;
     sequence.set_start_time(start_time);
-    delegate.SetOpacityFromAnimation(start_opacity);
-    delegate.SetTransformFromAnimation(start_transform);
+    delegate.SetOpacityFromAnimation(start_opacity,
+                                     PropertyChangeReason::NOT_FROM_ANIMATION);
+    delegate.SetTransformFromAnimation(
+        start_transform, PropertyChangeReason::NOT_FROM_ANIMATION);
 
     sequence.Start(&delegate);
     sequence.Progress(start_time, &delegate);
@@ -208,7 +213,8 @@ TEST(LayerAnimationSequenceTest, AbortingCyclicSequence) {
 
   sequence.set_is_cyclic(true);
 
-  delegate.SetBrightnessFromAnimation(start_brightness);
+  delegate.SetBrightnessFromAnimation(start_brightness,
+                                      PropertyChangeReason::NOT_FROM_ANIMATION);
 
   start_time += delta;
   sequence.set_start_time(start_time);
@@ -219,7 +225,8 @@ TEST(LayerAnimationSequenceTest, AbortingCyclicSequence) {
   sequence.Abort(&delegate);
 
   // Should be able to reuse the sequence after aborting.
-  delegate.SetBrightnessFromAnimation(start_brightness);
+  delegate.SetBrightnessFromAnimation(start_brightness,
+                                      PropertyChangeReason::NOT_FROM_ANIMATION);
   start_time += base::TimeDelta::FromMilliseconds(101000);
   sequence.set_start_time(start_time);
   sequence.Progress(start_time + base::TimeDelta::FromMilliseconds(100000),
@@ -266,6 +273,46 @@ TEST(LayerAnimationSequenceTest, AddObserver) {
     EXPECT_EQ(observer.last_ended_sequence(), &sequence);
     sequence.RemoveObserver(&observer);
   }
+}
+
+TEST(LayerAnimationSequenceTest, ToString) {
+  base::TimeDelta delta = base::TimeDelta::FromSeconds(1);
+  LayerAnimationSequence sequence;
+  EXPECT_EQ(
+      "LayerAnimationSequence{size=0, properties=, elements=[], is_cyclic=0, "
+      "group_id=0}",
+      sequence.ToString());
+
+  std::unique_ptr<LayerAnimationElement> brightness =
+      LayerAnimationElement::CreateBrightnessElement(1.0f, delta);
+  int brightness_id = brightness->keyframe_model_id();
+  sequence.AddElement(std::move(brightness));
+  EXPECT_EQ(
+      base::StringPrintf(
+          "LayerAnimationSequence{size=1, properties=BRIGHTNESS, "
+          "elements=[LayerAnimationElement{name=BrightnessTransition, id=%d, "
+          "group=0, last_progressed_fraction=0.00}], "
+          "is_cyclic=0, group_id=0}",
+          brightness_id),
+      sequence.ToString());
+
+  std::unique_ptr<LayerAnimationElement> opacity =
+      LayerAnimationElement::CreateOpacityElement(1.0f, delta);
+  int opacity_id = opacity->keyframe_model_id();
+  sequence.AddElement(std::move(opacity));
+  sequence.set_is_cyclic(true);
+  sequence.set_animation_group_id(1973);
+  EXPECT_EQ(
+      base::StringPrintf(
+          "LayerAnimationSequence{size=2, properties=OPACITY|BRIGHTNESS, "
+          "elements=[LayerAnimationElement{name=BrightnessTransition, id=%d, "
+          "group=0, last_progressed_fraction=0.00}, "
+          "LayerAnimationElement{name=ThreadedOpacityTransition, id=%d, "
+          "group=0, "
+          "last_progressed_fraction=0.00}], is_cyclic=1, "
+          "group_id=1973}",
+          brightness_id, opacity_id),
+      sequence.ToString());
 }
 
 } // namespace

@@ -41,6 +41,7 @@
 
 #include <QCoreApplication>
 #include <stdio.h>
+#include <memory>
 
 #if defined(Q_OS_LINUX)
 
@@ -48,41 +49,41 @@ struct tm;
 struct stat;
 struct stat64;
 
-// exported in zygote_main_linux.cc
-namespace content {
+// exported in sandbox/linux/services/libc_interceptor.cc
+namespace sandbox {
 struct tm* localtime_override(const time_t* timep);
 struct tm* localtime64_override(const time_t* timep);
 struct tm* localtime_r_override(const time_t* timep, struct tm* result);
 struct tm* localtime64_r_override(const time_t* timep, struct tm* result);
 }
 
-// from zygote_main_linux.cc
+// from sandbox/linux/services/libc_interceptor.cc
 __attribute__ ((__visibility__("default")))
 struct tm* localtime_proxy(const time_t* timep) __asm__ ("localtime");
 struct tm* localtime_proxy(const time_t* timep)
 {
-    return content::localtime_override(timep);
+    return sandbox::localtime_override(timep);
 }
 
 __attribute__ ((__visibility__("default")))
 struct tm* localtime64_proxy(const time_t* timep) __asm__ ("localtime64");
 struct tm* localtime64_proxy(const time_t* timep)
 {
-    return content::localtime64_override(timep);
+    return sandbox::localtime64_override(timep);
 }
 
 __attribute__ ((__visibility__("default")))
 struct tm* localtime_r_proxy(const time_t* timep, struct tm* result) __asm__ ("localtime_r");
 struct tm* localtime_r_proxy(const time_t* timep, struct tm* result)
 {
-    return content::localtime_r_override(timep, result);
+    return sandbox::localtime_r_override(timep, result);
 }
 
 __attribute__ ((__visibility__("default")))
 struct tm* localtime64_r_proxy(const time_t* timep, struct tm* result) __asm__ ("localtime64_r");
 struct tm* localtime64_r_proxy(const time_t* timep, struct tm* result)
 {
-    return content::localtime64_r_override(timep, result);
+    return sandbox::localtime64_r_override(timep, result);
 }
 
 #endif // defined(OS_LINUX)
@@ -97,9 +98,30 @@ int main(int argc, const char **argv)
     initDpiAwareness();
 #endif
 
-    // QCoreApplication needs a non-const pointer, while the
-    // ContentMain in Chromium needs the pointer to be const.
-    QCoreApplication qtApplication(argc, const_cast<char**>(argv));
+    // Chromium on Linux manipulates argv to set a process title
+    // (see set_process_title_linux.cc).
+    // This can interfere with QCoreApplication::applicationFilePath,
+    // which assumes that argv[0] only contains the executable path.
+    //
+    // Avoid this by making a deep copy of argv and pass this
+    // to QCoreApplication. Use a unique_ptr with custom deleter to
+    // clean up on exit.
+
+    auto dt = [](char* av[]) {
+        for (char **a = av; *a; a++)
+          delete[] *a;
+        delete[] av;
+    };
+
+    std::unique_ptr<char*[], decltype(dt)> argv_(new char*[argc+1], dt);
+    for (int i = 0; i < argc; ++i) {
+        size_t len = strlen(argv[i]) + 1;
+        argv_[i] = new char[len];
+        strcpy(argv_[i], argv[i]);
+    }
+    argv_[argc] = 0;
+
+    QCoreApplication qtApplication(argc, argv_.get());
 
     return QtWebEngine::processMain(argc, argv);
 }

@@ -37,7 +37,6 @@ QT_BEGIN_NAMESPACE
 
 class QAction;
 class QComboBox;
-class QFileSystemWatcher;
 class QLineEdit;
 class QMenu;
 
@@ -45,10 +44,7 @@ class CentralWidget;
 class CmdLineParser;
 class ContentWindow;
 class IndexWindow;
-class OpenPagesWindow;
 class QtDocInstaller;
-class QHelpEngineCore;
-class QHelpEngine;
 class SearchWidget;
 
 class MainWindow : public QMainWindow
@@ -56,8 +52,8 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit MainWindow(CmdLineParser *cmdLine, QWidget *parent = 0);
-    ~MainWindow();
+    explicit MainWindow(CmdLineParser *cmdLine, QWidget *parent = nullptr);
+    ~MainWindow() override;
 
     static void activateCurrentBrowser();
     static QString collectionFileDirectory(bool createDir = false,
@@ -94,7 +90,7 @@ private slots:
     void showNewAddress(const QUrl &url);
     void showTopicChooser(const QMap<QString, QUrl> &links, const QString &keyword);
     void updateApplicationFont();
-    void filterDocumentation(const QString &customFilter);
+    void filterDocumentation(int filterIndex);
     void setupFilterCombo();
     void lookForNewQtDocumentation();
     void indexingStarted();
@@ -126,15 +122,13 @@ private slots:
     void handlePageCountChanged();
 
 private:
-    QWidget *m_bookmarkWidget;
-
-private:
+    QWidget *m_bookmarkWidget = nullptr;
     CentralWidget *m_centralWidget;
     IndexWindow *m_indexWindow;
     ContentWindow *m_contentWindow;
     SearchWidget *m_searchWindow;
     QLineEdit *m_addressLineEdit;
-    QComboBox *m_filterCombo;
+    QComboBox *m_filterCombo = nullptr;
 
     QAction *m_syncAction;
     QAction *m_printPreviewAction;
@@ -145,14 +139,14 @@ private:
     QAction *m_newTabAction;
 
     QMenu *m_viewMenu;
-    QMenu *m_toolBarMenu;
+    QMenu *m_toolBarMenu = nullptr;
 
     CmdLineParser *m_cmdLine;
 
-    QWidget *m_progressWidget;
-    QtDocInstaller *m_qtDocInstaller;
+    QWidget *m_progressWidget = nullptr;
+    QtDocInstaller *m_qtDocInstaller = nullptr;
 
-    bool m_connectedInitSignals;
+    bool m_connectedInitSignals = false;
 };
 
 QT_END_NAMESPACE

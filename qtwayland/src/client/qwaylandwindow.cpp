@@ -44,19 +44,13 @@
 #include "qwaylandinputdevice_p.h"
 #include "qwaylandscreen_p.h"
 #include "qwaylandshellsurface_p.h"
-#include "qwaylandwlshellsurface_p.h"
-#include "qwaylandxdgsurface_p.h"
 #include "qwaylandsubsurface_p.h"
 #include "qwaylandabstractdecoration_p.h"
 #include "qwaylandwindowmanagerintegration_p.h"
 #include "qwaylandnativeinterface_p.h"
 #include "qwaylanddecorationfactory_p.h"
 #include "qwaylandshmbackingstore_p.h"
-
-#if QT_CONFIG(wayland_datadevice)
-#include "qwaylanddatadevice_p.h"
-#endif
-
+#include "qwaylandshellintegration_p.h"
 
 #include <QtCore/QFileInfo>
 #include <QtCore/QPointer>
@@ -68,35 +62,21 @@
 #include <QtGui/private/qwindow_p.h>
 
 #include <QtCore/QDebug>
-
-#include <wayland-client-core.h>
+#include <QtCore/QThread>
 
 QT_BEGIN_NAMESPACE
 
 namespace QtWaylandClient {
 
-QWaylandWindow *QWaylandWindow::mMouseGrab = 0;
+Q_LOGGING_CATEGORY(lcWaylandBackingstore, "qt.qpa.wayland.backingstore")
+
+QWaylandWindow *QWaylandWindow::mMouseGrab = nullptr;
 
 QWaylandWindow::QWaylandWindow(QWindow *window)
-    : QObject()
-    , QPlatformWindow(window)
-    , mDisplay(screen()->display())
-    , mShellSurface(0)
-    , mSubSurfaceWindow(0)
-    , mWindowDecoration(0)
-    , mMouseEventsInContentArea(false)
-    , mMousePressedInContentArea(Qt::NoButton)
-    , mWaitingForFrameSync(false)
-    , mRequestResizeSent(false)
-    , mCanResize(true)
-    , mResizeDirty(false)
+    : QPlatformWindow(window)
+    , mDisplay(waylandScreen()->display())
+    , mFrameQueue(mDisplay->createEventQueue())
     , mResizeAfterSwap(qEnvironmentVariableIsSet("QT_WAYLAND_RESIZE_AFTER_SWAP"))
-    , mSentInitialResize(false)
-    , mScale(1)
-    , mState(Qt::WindowNoState)
-    , mMask()
-    , mBackingStore(Q_NULLPTR)
-    , mUpdateRequested(false)
 {
     static WId id = 1;
     mWindowId = id++;
@@ -113,10 +93,6 @@ QWaylandWindow::~QWaylandWindow()
     if (isInitialized())
         reset(false);
 
-    QList<QWaylandInputDevice *> inputDevices = mDisplay->inputDevices();
-    for (int i = 0; i < inputDevices.size(); ++i)
-        inputDevices.at(i)->handleWindowDestroyed(this);
-
     const QWindow *parent = window();
     foreach (QWindow *w, QGuiApplication::topLevelWindows()) {
         if (w->transientParent() == parent)
@@ -124,8 +100,14 @@ QWaylandWindow::~QWaylandWindow()
     }
 
     if (mMouseGrab == this) {
-        mMouseGrab = 0;
+        mMouseGrab = nullptr;
     }
+}
+
+void QWaylandWindow::ensureSize()
+{
+    if (mBackingStore)
+        mBackingStore->ensureSize();
 }
 
 void QWaylandWindow::initWindow()
@@ -148,11 +130,10 @@ void QWaylandWindow::initWindow()
         }
     } else if (shouldCreateShellSurface()) {
         Q_ASSERT(!mShellSurface);
+        Q_ASSERT(mDisplay->shellIntegration());
 
-        mShellSurface = mDisplay->createShellSurface(this);
+        mShellSurface = mDisplay->shellIntegration()->createShellSurface(this);
         if (mShellSurface) {
-            mShellSurface->setType(window()->type(), transientParent());
-
             // Set initial surface title
             setWindowTitle(window()->title());
 
@@ -194,12 +175,11 @@ void QWaylandWindow::initWindow()
         }
     }
 
-    mScale = screen()->scale();
+    mScale = waylandScreen()->scale();
 
     // Enable high-dpi rendering. Scale() returns the screen scale factor and will
     // typically be integer 1 (normal-dpi) or 2 (high-dpi). Call set_buffer_scale()
     // to inform the compositor that high-resolution buffers will be provided.
-    //FIXME this needs to be changed when the screen changes along with a resized backing store
     if (mDisplay->compositorVersion() >= 3)
         set_buffer_scale(scale());
 
@@ -211,22 +191,27 @@ void QWaylandWindow::initWindow()
     else
         setGeometry_helper(window()->geometry());
     setMask(window()->mask());
-    // setWindowStateInternal is a no-op if the argument is equal to mState,
-    // but since we're creating the shellsurface only now we reset mState to
-    // make sure the state gets sent out to the compositor
-    mState = Qt::WindowNoState;
-    setWindowStateInternal(window()->windowStates());
+    if (mShellSurface)
+        mShellSurface->requestWindowStates(window()->windowStates());
     handleContentOrientationChange(window()->contentOrientation());
     mFlags = window()->flags();
 }
 
 void QWaylandWindow::initializeWlSurface()
 {
-    init(mDisplay->createSurface(static_cast<QtWayland::wl_surface *>(this)));
+    Q_ASSERT(!isInitialized());
+    {
+        QWriteLocker lock(&mSurfaceLock);
+        init(mDisplay->createSurface(static_cast<QtWayland::wl_surface *>(this)));
+    }
+    emit wlSurfaceCreated();
 }
 
 bool QWaylandWindow::shouldCreateShellSurface() const
 {
+    if (!mDisplay->shellIntegration())
+        return false;
+
     if (shouldCreateSubSurface())
         return false;
 
@@ -241,7 +226,7 @@ bool QWaylandWindow::shouldCreateShellSurface() const
 
 bool QWaylandWindow::shouldCreateSubSurface() const
 {
-    return QPlatformWindow::parent() != Q_NULLPTR;
+    return QPlatformWindow::parent() != nullptr;
 }
 
 void QWaylandWindow::reset(bool sendDestroyEvent)
@@ -251,18 +236,30 @@ void QWaylandWindow::reset(bool sendDestroyEvent)
         QGuiApplication::sendEvent(window(), &e);
     }
     delete mShellSurface;
-    mShellSurface = 0;
+    mShellSurface = nullptr;
     delete mSubSurfaceWindow;
-    mSubSurfaceWindow = 0;
-    if (isInitialized())
+    mSubSurfaceWindow = nullptr;
+    if (isInitialized()) {
+        emit wlSurfaceDestroyed();
+        QWriteLocker lock(&mSurfaceLock);
         destroy();
+    }
+    mScreens.clear();
 
     if (mFrameCallback) {
         wl_callback_destroy(mFrameCallback);
         mFrameCallback = nullptr;
     }
 
+    int timerId  = mFrameCallbackTimerId.fetchAndStoreOrdered(-1);
+    if (timerId != -1) {
+        killTimer(timerId);
+    }
+    mWaitingForFrameCallback = false;
+    mFrameCallbackTimedOut = false;
+
     mMask = QRegion();
+    mQueuedBuffer = nullptr;
 }
 
 QWaylandWindow *QWaylandWindow::fromWlSurface(::wl_surface *surface)
@@ -280,7 +277,7 @@ void QWaylandWindow::setParent(const QPlatformWindow *parent)
     if (!window()->isVisible())
         return;
 
-    QWaylandWindow *oldparent = mSubSurfaceWindow ? mSubSurfaceWindow->parent() : 0;
+    QWaylandWindow *oldparent = mSubSurfaceWindow ? mSubSurfaceWindow->parent() : nullptr;
     if (oldparent == parent)
         return;
 
@@ -298,7 +295,20 @@ void QWaylandWindow::setWindowTitle(const QString &title)
 {
     if (mShellSurface) {
         const QString separator = QString::fromUtf8(" \xe2\x80\x94 "); // unicode character U+2014, EM DASH
-        mShellSurface->setTitle(formatWindowTitle(title, separator));
+        const QString formatted = formatWindowTitle(title, separator);
+
+        const int libwaylandMaxBufferSize = 4096;
+        // Some parts of the buffer is used for metadata, so subtract 100 to be on the safe side.
+        // Also, QString is in utf-16, which means that in the worst case each character will be
+        // three bytes when converted to utf-8 (which is what libwayland uses), so divide by three.
+        const int maxLength = libwaylandMaxBufferSize / 3 - 100;
+
+        auto truncated = QStringRef(&formatted).left(maxLength);
+        if (truncated.length() < formatted.length()) {
+            qCWarning(lcQpaWayland) << "Window titles longer than" << maxLength << "characters are not supported."
+                                    << "Truncating window title (from" << formatted.length() << "chars)";
+        }
+        mShellSurface->setTitle(truncated.toString());
     }
 
     if (mWindowDecoration && window()->isVisible())
@@ -341,15 +351,34 @@ void QWaylandWindow::setGeometry(const QRect &rect)
 
         mSentInitialResize = true;
     }
-    sendExposeEvent(QRect(QPoint(), geometry().size()));
+    QRect exposeGeometry(QPoint(), geometry().size());
+    if (isExposed() && !mInResizeFromApplyConfigure && exposeGeometry != mLastExposeGeometry)
+        sendExposeEvent(exposeGeometry);
+
+    if (mShellSurface)
+        mShellSurface->setWindowGeometry(windowContentGeometry());
 }
 
+void QWaylandWindow::resizeFromApplyConfigure(const QSize &sizeWithMargins, const QPoint &offset)
+{
+    QMargins margins = frameMargins();
+    int widthWithoutMargins = qMax(sizeWithMargins.width() - (margins.left()+margins.right()), 1);
+    int heightWithoutMargins = qMax(sizeWithMargins.height() - (margins.top()+margins.bottom()), 1);
+    QRect geometry(windowGeometry().topLeft(), QSize(widthWithoutMargins, heightWithoutMargins));
 
+    mOffset += offset;
+    mInResizeFromApplyConfigure = true;
+    setGeometry(geometry);
+    mInResizeFromApplyConfigure = false;
+}
 
 void QWaylandWindow::sendExposeEvent(const QRect &rect)
 {
     if (!(mShellSurface && mShellSurface->handleExpose(rect)))
         QWindowSystemInterface::handleExposeEvent(window(), rect);
+    else
+        qCDebug(lcQpaWayland) << "sendExposeEvent: intercepted by shell extension, not sending";
+    mLastExposeGeometry = rect;
 }
 
 
@@ -369,13 +398,13 @@ void QWaylandWindow::closePopups(QWaylandWindow *parent)
 
 QWaylandScreen *QWaylandWindow::calculateScreenFromSurfaceEvents() const
 {
-    return mScreens.isEmpty() ? screen() : mScreens.first();
+    return mScreens.isEmpty() ? waylandScreen() : mScreens.first();
 }
 
 void QWaylandWindow::setVisible(bool visible)
 {
     if (visible) {
-        if (window()->type() == Qt::Popup)
+        if (window()->type() == Qt::Popup || window()->type() == Qt::ToolTip)
             activePopups << this;
         initWindow();
         mDisplay->flushRequests();
@@ -386,14 +415,9 @@ void QWaylandWindow::setVisible(bool visible)
         // QWaylandShmBackingStore::beginPaint().
     } else {
         sendExposeEvent(QRect());
-        // when flushing the event queue, it could contain a close event, in which
-        // case 'this' will be deleted. When that happens, we must abort right away.
-        QPointer<QWaylandWindow> deleteGuard(this);
-        QWindowSystemInterface::flushWindowSystemEvents();
-        if (!deleteGuard.isNull() && window()->type() == Qt::Popup)
+        if (window()->type() == Qt::Popup)
             closePopups(this);
-        if (!deleteGuard.isNull())
-            reset();
+        reset();
     }
 }
 
@@ -432,46 +456,24 @@ void QWaylandWindow::setMask(const QRegion &mask)
     wl_surface::commit();
 }
 
-void QWaylandWindow::configure(uint32_t edges, int32_t width, int32_t height)
+void QWaylandWindow::applyConfigureWhenPossible()
 {
     QMutexLocker resizeLocker(&mResizeLock);
-    mConfigure.edges |= edges;
-    mConfigure.width = width;
-    mConfigure.height = height;
-
-    if (!mRequestResizeSent && !mConfigure.isEmpty()) {
-        mRequestResizeSent= true;
-        QMetaObject::invokeMethod(this, "requestResize", Qt::QueuedConnection);
+    if (!mWaitingToApplyConfigure) {
+        mWaitingToApplyConfigure = true;
+        QMetaObject::invokeMethod(this, "applyConfigure", Qt::QueuedConnection);
     }
 }
 
-void QWaylandWindow::doResize()
+void QWaylandWindow::doApplyConfigure()
 {
-    if (mConfigure.isEmpty()) {
+    if (!mWaitingToApplyConfigure)
         return;
-    }
 
-    int widthWithoutMargins = qMax(mConfigure.width-(frameMargins().left() +frameMargins().right()),1);
-    int heightWithoutMargins = qMax(mConfigure.height-(frameMargins().top()+frameMargins().bottom()),1);
+    if (mShellSurface)
+        mShellSurface->applyConfigure();
 
-    widthWithoutMargins = qMax(widthWithoutMargins, window()->minimumSize().width());
-    heightWithoutMargins = qMax(heightWithoutMargins, window()->minimumSize().height());
-    QRect geometry = QRect(0,0, widthWithoutMargins, heightWithoutMargins);
-
-    int x = 0;
-    int y = 0;
-    QSize size = this->geometry().size();
-    if (mConfigure.edges & WL_SHELL_SURFACE_RESIZE_LEFT) {
-        x = size.width() - geometry.width();
-    }
-    if (mConfigure.edges & WL_SHELL_SURFACE_RESIZE_TOP) {
-        y = size.height() - geometry.height();
-    }
-    mOffset += QPoint(x, y);
-
-    setGeometry(geometry);
-
-    mConfigure.clear();
+    mWaitingToApplyConfigure = false;
 }
 
 void QWaylandWindow::setCanResize(bool canResize)
@@ -483,8 +485,8 @@ void QWaylandWindow::setCanResize(bool canResize)
         if (mResizeDirty) {
             QWindowSystemInterface::handleGeometryChange(window(), geometry());
         }
-        if (!mConfigure.isEmpty()) {
-            doResize();
+        if (mWaitingToApplyConfigure) {
+            doApplyConfigure();
             sendExposeEvent(QRect(QPoint(), geometry().size()));
         } else if (mResizeDirty) {
             mResizeDirty = false;
@@ -493,15 +495,13 @@ void QWaylandWindow::setCanResize(bool canResize)
     }
 }
 
-void QWaylandWindow::requestResize()
+void QWaylandWindow::applyConfigure()
 {
     QMutexLocker lock(&mResizeLock);
 
-    if (mCanResize || !mSentInitialResize) {
-        doResize();
-    }
+    if (mCanResize || !mSentInitialResize)
+        doApplyConfigure();
 
-    mRequestResizeSent = false;
     lock.unlock();
     sendExposeEvent(QRect(QPoint(), geometry().size()));
     QWindowSystemInterface::flushWindowSystemEvents();
@@ -513,9 +513,11 @@ void QWaylandWindow::surface_enter(wl_output *output)
     auto addedScreen = QWaylandScreen::fromWlOutput(output);
 
     if (mScreens.contains(addedScreen)) {
-        qWarning() << "Unexpected wl_surface.enter received for output with id:"
-                   << wl_proxy_get_id(reinterpret_cast<wl_proxy *>(output))
-                   << "screen name:" << addedScreen->name() << "screen model:" << addedScreen->model();
+        qCWarning(lcQpaWayland)
+                << "Ignoring unexpected wl_surface.enter received for output with id:"
+                << wl_proxy_get_id(reinterpret_cast<wl_proxy *>(output))
+                << "screen name:" << addedScreen->name() << "screen model:" << addedScreen->model()
+                << "This is most likely a bug in the compositor.";
         return;
     }
 
@@ -523,7 +525,7 @@ void QWaylandWindow::surface_enter(wl_output *output)
 
     QWaylandScreen *newScreen = calculateScreenFromSurfaceEvents();
     if (oldScreen != newScreen) //currently this will only happen if the first wl_surface.enter is for a non-primary screen
-        QWindowSystemInterface::handleWindowScreenChanged(window(), newScreen->QPlatformScreen::screen());
+        handleScreenChanged();
 }
 
 void QWaylandWindow::surface_leave(wl_output *output)
@@ -532,15 +534,18 @@ void QWaylandWindow::surface_leave(wl_output *output)
     auto *removedScreen = QWaylandScreen::fromWlOutput(output);
     bool wasRemoved = mScreens.removeOne(removedScreen);
     if (!wasRemoved) {
-        qWarning() << "Unexpected wl_surface.leave received for output with id:"
-                   << wl_proxy_get_id(reinterpret_cast<wl_proxy *>(output))
-                   << "screen name:" << removedScreen->name() << "screen model:" << removedScreen->model();
+        qCWarning(lcQpaWayland)
+                << "Ignoring unexpected wl_surface.leave received for output with id:"
+                << wl_proxy_get_id(reinterpret_cast<wl_proxy *>(output))
+                << "screen name:" << removedScreen->name()
+                << "screen model:" << removedScreen->model()
+                << "This is most likely a bug in the compositor.";
         return;
     }
 
     QWaylandScreen *newScreen = calculateScreenFromSurfaceEvents();
     if (oldScreen != newScreen)
-        QWindowSystemInterface::handleWindowScreenChanged(window(), newScreen->QPlatformScreen::screen());
+        handleScreenChanged();
 }
 
 void QWaylandWindow::handleScreenRemoved(QScreen *qScreen)
@@ -550,26 +555,20 @@ void QWaylandWindow::handleScreenRemoved(QScreen *qScreen)
     if (wasRemoved) {
         QWaylandScreen *newScreen = calculateScreenFromSurfaceEvents();
         if (oldScreen != newScreen)
-            QWindowSystemInterface::handleWindowScreenChanged(window(), newScreen->QPlatformScreen::screen());
+            handleScreenChanged();
     }
 }
 
 void QWaylandWindow::attach(QWaylandBuffer *buffer, int x, int y)
 {
-    if (mFrameCallback) {
-        wl_callback_destroy(mFrameCallback);
-        mFrameCallback = nullptr;
-    }
-
+    Q_ASSERT(!buffer->committed());
     if (buffer) {
-        mFrameCallback = frame();
-        wl_callback_add_listener(mFrameCallback, &QWaylandWindow::callbackListener, this);
-        mWaitingForFrameSync = true;
+        handleUpdate();
         buffer->setBusy();
 
-        attach(buffer->buffer(), x, y);
+        QtWayland::wl_surface::attach(buffer->buffer(), x, y);
     } else {
-        QtWayland::wl_surface::attach(0, 0, 0);
+        QtWayland::wl_surface::attach(nullptr, 0, 0);
     }
 }
 
@@ -584,45 +583,111 @@ void QWaylandWindow::damage(const QRect &rect)
     damage(rect.x(), rect.y(), rect.width(), rect.height());
 }
 
+void QWaylandWindow::safeCommit(QWaylandBuffer *buffer, const QRegion &damage)
+{
+    if (isExposed()) {
+        commit(buffer, damage);
+    } else {
+        mQueuedBuffer = buffer;
+        mQueuedBufferDamage = damage;
+    }
+}
+
+void QWaylandWindow::handleExpose(const QRegion &region)
+{
+    QWindowSystemInterface::handleExposeEvent(window(), region);
+    if (mQueuedBuffer) {
+        commit(mQueuedBuffer, mQueuedBufferDamage);
+        mQueuedBuffer = nullptr;
+        mQueuedBufferDamage = QRegion();
+    }
+}
+
 void QWaylandWindow::commit(QWaylandBuffer *buffer, const QRegion &damage)
 {
+    Q_ASSERT(isExposed());
+    if (buffer->committed()) {
+        qCDebug(lcWaylandBackingstore) << "Buffer already committed, ignoring.";
+        return;
+    }
     if (!isInitialized())
         return;
 
     attachOffset(buffer);
-    const QVector<QRect> rects = damage.rects();
-    for (const QRect &rect: rects)
+    for (const QRect &rect: damage)
         wl_surface::damage(rect.x(), rect.y(), rect.width(), rect.height());
+    Q_ASSERT(!buffer->committed());
+    buffer->setCommitted();
+    wl_surface::commit();
+}
+
+void QWaylandWindow::commit()
+{
     wl_surface::commit();
 }
 
 const wl_callback_listener QWaylandWindow::callbackListener = {
-    QWaylandWindow::frameCallback
+    [](void *data, wl_callback *callback, uint32_t time) {
+        Q_UNUSED(callback);
+        Q_UNUSED(time);
+        auto *window = static_cast<QWaylandWindow*>(data);
+        window->handleFrameCallback();
+    }
 };
 
-void QWaylandWindow::frameCallback(void *data, struct wl_callback *callback, uint32_t time)
+void QWaylandWindow::handleFrameCallback()
 {
-    Q_UNUSED(time);
-    QWaylandWindow *self = static_cast<QWaylandWindow*>(data);
+    // Stop the timer and stop waiting immediately
+    int timerId = mFrameCallbackTimerId.fetchAndStoreOrdered(-1);
+    mWaitingForFrameCallback = false;
 
-    self->mWaitingForFrameSync = false;
-    if (self->mUpdateRequested) {
-        QWindowPrivate *w = QWindowPrivate::get(self->window());
-        self->mUpdateRequested = false;
-        w->deliverUpdateRequest();
+    // The rest can wait until we can run it on the correct thread
+    auto doHandleExpose = [this, timerId]() {
+        if (timerId != -1)
+            killTimer(timerId);
+
+        bool wasExposed = isExposed();
+        mFrameCallbackTimedOut = false;
+        if (!wasExposed && isExposed()) // Did setting mFrameCallbackTimedOut make the window exposed?
+            sendExposeEvent(QRect(QPoint(), geometry().size()));
+        if (wasExposed && hasPendingUpdateRequest())
+            deliverUpdateRequest();
+    };
+
+    if (thread() != QThread::currentThread()) {
+        QMetaObject::invokeMethod(this, doHandleExpose);
+    } else {
+        doHandleExpose();
     }
 }
 
 QMutex QWaylandWindow::mFrameSyncMutex;
 
-void QWaylandWindow::waitForFrameSync()
+bool QWaylandWindow::waitForFrameSync(int timeout)
 {
+    if (!mWaitingForFrameCallback)
+        return true;
+
     QMutexLocker locker(&mFrameSyncMutex);
-    if (!mWaitingForFrameSync)
-        return;
-    mDisplay->flushRequests();
-    while (mWaitingForFrameSync)
-        mDisplay->blockingReadEvents();
+
+    wl_proxy_set_queue(reinterpret_cast<wl_proxy *>(mFrameCallback), mFrameQueue);
+    mDisplay->dispatchQueueWhile(mFrameQueue, [&]() { return mWaitingForFrameCallback; }, timeout);
+
+    if (mWaitingForFrameCallback) {
+        qCDebug(lcWaylandBackingstore) << "Didn't receive frame callback in time, window should now be inexposed";
+        mFrameCallbackTimedOut = true;
+        mWaitingForUpdate = false;
+        sendExposeEvent(QRect());
+    }
+
+    // Stop current frame timer if any, can't use killTimer directly, because we might be on a diffent thread
+    // Ordered semantics is needed to avoid stopping the timer twice and not miss it when it's
+    // started by other writes
+    int fcbId = mFrameCallbackTimerId.fetchAndStoreOrdered(-1);
+    if (fcbId != -1)
+        QMetaObject::invokeMethod(this, [this, fcbId] { killTimer(fcbId); }, Qt::QueuedConnection);
+
+    return !mWaitingForFrameCallback;
 }
 
 QMargins QWaylandWindow::frameMargins() const
@@ -630,6 +695,23 @@ QMargins QWaylandWindow::frameMargins() const
     if (mWindowDecoration)
         return mWindowDecoration->margins();
     return QPlatformWindow::frameMargins();
+}
+
+/*!
+ * Size, with decorations (including including eventual shadows) in wl_surface coordinates
+ */
+QSize QWaylandWindow::surfaceSize() const
+{
+    return geometry().marginsAdded(frameMargins()).size();
+}
+
+/*!
+ * Window geometry as defined by the xdg-shell spec (in wl_surface coordinates)
+ * topLeft is where the shadow stops and the decorations border start.
+ */
+QRect QWaylandWindow::windowContentGeometry() const
+{
+    return QRect(QPoint(), surfaceSize());
 }
 
 QWaylandShellSurface *QWaylandWindow::shellSurface() const
@@ -642,7 +724,7 @@ QWaylandSubSurface *QWaylandWindow::subSurfaceWindow() const
     return mSubSurfaceWindow;
 }
 
-QWaylandScreen *QWaylandWindow::screen() const
+QWaylandScreen *QWaylandWindow::waylandScreen() const
 {
     return static_cast<QWaylandScreen *>(QPlatformWindow::screen());
 }
@@ -684,10 +766,10 @@ void QWaylandWindow::setOrientationMask(Qt::ScreenOrientations mask)
         mShellSurface->setContentOrientationMask(mask);
 }
 
-void QWaylandWindow::setWindowState(Qt::WindowStates state)
+void QWaylandWindow::setWindowState(Qt::WindowStates states)
 {
-    if (setWindowStateInternal(state))
-        QWindowSystemInterface::flushWindowSystemEvents(); // Required for oldState to work on WindowStateChanged
+    if (mShellSurface)
+        mShellSurface->requestWindowStates(states);
 }
 
 void QWaylandWindow::setWindowFlags(Qt::WindowFlags flags)
@@ -701,20 +783,6 @@ void QWaylandWindow::setWindowFlags(Qt::WindowFlags flags)
 
 bool QWaylandWindow::createDecoration()
 {
-    // so far only xdg-shell support this "unminimize" trick, may be moved elsewhere
-    if (mState & Qt::WindowMinimized) {
-        QWaylandXdgSurface *xdgSurface = qobject_cast<QWaylandXdgSurface *>(mShellSurface);
-        if ( xdgSurface ) {
-            Qt::WindowStates states;
-            if (xdgSurface->isFullscreen())
-                states |= Qt::WindowFullScreen;
-            if (xdgSurface->isMaximized())
-                states |= Qt::WindowMaximized;
-
-            setWindowStateInternal(states);
-        }
-    }
-
     if (!mDisplay->supportsWindowDecoration())
         return false;
 
@@ -731,11 +799,13 @@ bool QWaylandWindow::createDecoration()
         default:
             break;
     }
-    if (mFlags & Qt::FramelessWindowHint || isFullscreen())
+    if (mFlags & Qt::FramelessWindowHint)
         decoration = false;
     if (mFlags & Qt::BypassWindowManagerHint)
         decoration = false;
     if (mSubSurfaceWindow)
+        decoration = false;
+    if (mShellSurface && !mShellSurface->wantsDecorations())
         decoration = false;
 
     bool hadDecoration = mWindowDecoration;
@@ -772,7 +842,7 @@ bool QWaylandWindow::createDecoration()
         }
     } else {
         delete mWindowDecoration;
-        mWindowDecoration = 0;
+        mWindowDecoration = nullptr;
     }
 
     if (hadDecoration != (bool)mWindowDecoration) {
@@ -796,7 +866,7 @@ static QWaylandWindow *closestShellSurfaceWindow(QWindow *window)
 {
     while (window) {
         auto w = static_cast<QWaylandWindow *>(window->handle());
-        if (w->shellSurface())
+        if (w && w->shellSurface())
             return w;
         window = window->transientParent() ? window->transientParent() : window->parent();
     }
@@ -837,8 +907,11 @@ void QWaylandWindow::handleMouse(QWaylandInputDevice *inputDevice, const QWaylan
     }
 
 #if QT_CONFIG(cursor)
-    if (e.type == QWaylandPointerEvent::Enter)
-        restoreMouseCursor(inputDevice);
+    if (e.type == QWaylandPointerEvent::Enter) {
+        QRect contentGeometry = windowContentGeometry().marginsRemoved(frameMargins());
+        if (contentGeometry.contains(e.local.toPoint()))
+            restoreMouseCursor(inputDevice);
+    }
 #endif
 }
 
@@ -867,8 +940,10 @@ void QWaylandWindow::handleMouseEventWithDecoration(QWaylandInputDevice *inputDe
 {
     if (mMousePressedInContentArea == Qt::NoButton &&
         mWindowDecoration->handleMouse(inputDevice, e.local, e.global, e.buttons, e.modifiers)) {
-        if (mMouseEventsInContentArea)
+        if (mMouseEventsInContentArea) {
             QWindowSystemInterface::handleLeaveEvent(window());
+            mMouseEventsInContentArea = false;
+        }
         return;
     }
 
@@ -913,10 +988,25 @@ void QWaylandWindow::handleMouseEventWithDecoration(QWaylandInputDevice *inputDe
     }
 }
 
+void QWaylandWindow::handleScreenChanged()
+{
+    QWaylandScreen *newScreen = calculateScreenFromSurfaceEvents();
+    QWindowSystemInterface::handleWindowScreenChanged(window(), newScreen->QPlatformScreen::screen());
+
+    int scale = newScreen->scale();
+    if (scale != mScale) {
+        mScale = scale;
+        if (isInitialized() && mDisplay->compositorVersion() >= 3)
+            set_buffer_scale(mScale);
+        ensureSize();
+    }
+}
+
 #if QT_CONFIG(cursor)
 void QWaylandWindow::setMouseCursor(QWaylandInputDevice *device, const QCursor &cursor)
 {
-    device->setCursor(cursor, screen());
+    int fallbackBufferScale = int(devicePixelRatio());
+    device->setCursor(&cursor, {}, fallbackBufferScale);
 }
 
 void QWaylandWindow::restoreMouseCursor(QWaylandInputDevice *device)
@@ -927,25 +1017,29 @@ void QWaylandWindow::restoreMouseCursor(QWaylandInputDevice *device)
 
 void QWaylandWindow::requestActivateWindow()
 {
-    // no-op. Wayland does not have activation protocol,
-    // we rely on compositor setting keyboard focus based on window stacking.
-}
-
-void QWaylandWindow::unfocus()
-{
-#if QT_CONFIG(clipboard)
-    QWaylandInputDevice *inputDevice = mDisplay->currentInputDevice();
-    if (inputDevice && inputDevice->dataDevice()) {
-        inputDevice->dataDevice()->invalidateSelectionOffer();
-    }
-#endif
+    qCWarning(lcQpaWayland) << "Wayland does not support QWindow::requestActivate()";
 }
 
 bool QWaylandWindow::isExposed() const
 {
+    if (!window()->isVisible())
+        return false;
+
+    if (mFrameCallbackTimedOut)
+        return false;
+
     if (mShellSurface)
-        return window()->isVisible() && mShellSurface->isExposed();
-    return QPlatformWindow::isExposed();
+        return mShellSurface->isExposed();
+
+    if (mSubSurfaceWindow)
+        return mSubSurfaceWindow->parent()->isExposed();
+
+    return !(shouldCreateShellSurface() || shouldCreateSubSurface());
+}
+
+bool QWaylandWindow::isActive() const
+{
+    return mDisplay->isWindowActivated(this);
 }
 
 int QWaylandWindow::scale() const
@@ -965,35 +1059,15 @@ bool QWaylandWindow::setMouseGrabEnabled(bool grab)
         return false;
     }
 
-    mMouseGrab = grab ? this : 0;
+    mMouseGrab = grab ? this : nullptr;
     return true;
 }
 
-bool QWaylandWindow::setWindowStateInternal(Qt::WindowStates state)
+void QWaylandWindow::handleWindowStatesChanged(Qt::WindowStates states)
 {
-    if (mState == state) {
-        return false;
-    }
-
-    // As of february 2013 QWindow::setWindowState sets the new state value after
-    // QPlatformWindow::setWindowState returns, so we cannot rely on QWindow::windowState
-    // here. We use then this mState variable.
-    mState = state;
-
-    if (mShellSurface) {
-        createDecoration();
-        if (state & Qt::WindowMaximized)
-            mShellSurface->setMaximized();
-        if (state & Qt::WindowFullScreen)
-            mShellSurface->setFullscreen();
-        if (state & Qt::WindowMinimized)
-            mShellSurface->setMinimized();
-        if (!state)
-            mShellSurface->setNormal();
-    }
-
-    QWindowSystemInterface::handleWindowStateChanged(window(), mState);
-    return true;
+    createDecoration();
+    QWindowSystemInterface::handleWindowStateChanged(window(), states, mLastReportedWindowStates);
+    mLastReportedWindowStates = states;
 }
 
 void QWaylandWindow::sendProperty(const QString &name, const QVariant &value)
@@ -1029,17 +1103,127 @@ QVariant QWaylandWindow::property(const QString &name, const QVariant &defaultVa
     return m_properties.value(name, defaultValue);
 }
 
+void QWaylandWindow::timerEvent(QTimerEvent *event)
+{
+    if (event->timerId() == mFallbackUpdateTimerId) {
+        killTimer(mFallbackUpdateTimerId);
+        mFallbackUpdateTimerId = -1;
+        qCDebug(lcWaylandBackingstore) << "mFallbackUpdateTimer timed out";
+
+        if (!isExposed()) {
+            qCDebug(lcWaylandBackingstore) << "Fallback update timer: Window not exposed,"
+                                           << "not delivering update request.";
+            return;
+        }
+
+        if (mWaitingForUpdate && hasPendingUpdateRequest() && !mWaitingForFrameCallback) {
+            qCWarning(lcWaylandBackingstore) << "Delivering update request through fallback timer,"
+                                             << "may not be in sync with display";
+            deliverUpdateRequest();
+        }
+    }
+
+
+    if (mFrameCallbackTimerId.testAndSetOrdered(event->timerId(), -1)) {
+        killTimer(event->timerId());
+        qCDebug(lcWaylandBackingstore) << "Didn't receive frame callback in time, window should now be inexposed";
+        mFrameCallbackTimedOut = true;
+        mWaitingForUpdate = false;
+        sendExposeEvent(QRect());
+    }
+}
+
 void QWaylandWindow::requestUpdate()
 {
-    if (!mWaitingForFrameSync)
-        QPlatformWindow::requestUpdate();
-    else
-        mUpdateRequested = true;
+    Q_ASSERT(hasPendingUpdateRequest()); // should be set by QPA
+
+    // If we have a frame callback all is good and will be taken care of there
+    if (mWaitingForFrameCallback)
+        return;
+
+    // If we've already called deliverUpdateRequest(), but haven't seen any attach+commit/swap yet
+    if (mWaitingForUpdate) {
+        // Ideally, we should just have returned here, but we're not guaranteed that the client
+        // will actually update, so start this timer to deliver another request update after a while
+        // *IF* the client doesn't update.
+        int fallbackTimeout = 100;
+        mFallbackUpdateTimerId = startTimer(fallbackTimeout);
+        return;
+    }
+
+    // Some applications (such as Qt Quick) depend on updates being delivered asynchronously,
+    // so use invokeMethod to delay the delivery a bit.
+    QMetaObject::invokeMethod(this, [this] {
+        // Things might have changed in the meantime
+        if (hasPendingUpdateRequest() && !mWaitingForUpdate && !mWaitingForFrameCallback)
+            deliverUpdateRequest();
+    }, Qt::QueuedConnection);
+}
+
+// Should be called whenever we commit a buffer (directly through wl_surface.commit or indirectly
+// with eglSwapBuffers) to know when it's time to commit the next one.
+// Can be called from the render thread (without locking anything) so make sure to not make races in this method.
+void QWaylandWindow::handleUpdate()
+{
+    // TODO: Should sync subsurfaces avoid requesting frame callbacks?
+    QReadLocker lock(&mSurfaceLock);
+    if (!isInitialized())
+        return;
+
+    if (mFrameCallback) {
+        wl_callback_destroy(mFrameCallback);
+        mFrameCallback = nullptr;
+    }
+
+    if (mFallbackUpdateTimerId != -1) {
+        // Ideally, we would stop the fallback timer here, but since we're on another thread,
+        // it's not allowed. Instead we set mFallbackUpdateTimer to -1 here, so we'll just
+        // ignore it if it times out before it's cleaned up by the invokeMethod call.
+        int id = mFallbackUpdateTimerId;
+        mFallbackUpdateTimerId = -1;
+        QMetaObject::invokeMethod(this, [this, id] { killTimer(id); }, Qt::QueuedConnection);
+    }
+
+    mFrameCallback = frame();
+    wl_callback_add_listener(mFrameCallback, &QWaylandWindow::callbackListener, this);
+    mWaitingForFrameCallback = true;
+    mWaitingForUpdate = false;
+
+    // Stop current frame timer if any, can't use killTimer directly, see comment above.
+    int fcbId = mFrameCallbackTimerId.fetchAndStoreOrdered(-1);
+    if (fcbId != -1)
+        QMetaObject::invokeMethod(this, [this, fcbId] { killTimer(fcbId); }, Qt::QueuedConnection);
+
+    // Start a timer for handling the case when the compositor stops sending frame callbacks.
+    QMetaObject::invokeMethod(this, [this] { // Again; can't do it directly
+        if (mWaitingForFrameCallback)
+            mFrameCallbackTimerId = startTimer(100);
+    }, Qt::QueuedConnection);
+}
+
+void QWaylandWindow::deliverUpdateRequest()
+{
+    mWaitingForUpdate = true;
+    QPlatformWindow::deliverUpdateRequest();
 }
 
 void QWaylandWindow::addAttachOffset(const QPoint point)
 {
     mOffset += point;
+}
+
+void QWaylandWindow::propagateSizeHints()
+{
+    if (mShellSurface)
+        mShellSurface->propagateSizeHints();
+}
+
+bool QtWaylandClient::QWaylandWindow::startSystemMove(const QPoint &pos)
+{
+    Q_UNUSED(pos);
+    if (auto seat = display()->lastInputDevice())
+        return mShellSurface && mShellSurface->move(seat);
+    return false;
 }
 
 }

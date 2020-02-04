@@ -40,6 +40,13 @@ struct MyStruct
     int i;
 };
 
+class MyGadget
+{
+    Q_GADGET
+public:
+    Q_INVOKABLE MyGadget() {}
+};
+
 namespace MyNamespace {
     // Used in tst_QMetaObject::checkScope
     class MyClass : public QObject
@@ -54,6 +61,11 @@ namespace MyNamespace {
             MyEnum2,
             MyEnum3
         };
+        enum class MyScopedEnum {
+            Enum1,
+            Enum2,
+            Enum3
+        };
         enum MyAnotherEnum {
             MyAnotherEnum1 = 1,
             MyAnotherEnum2 = 2,
@@ -64,7 +76,13 @@ namespace MyNamespace {
             MyFlag2 = 0x02,
             MyFlag3 = 0x04
         };
+        enum class MyScopedFlag {
+            MyFlag1 = 0x10,
+            MyFlag2 = 0x20,
+            MyFlag3 = 0x40
+        };
         Q_DECLARE_FLAGS(MyFlags, MyFlag)
+        Q_DECLARE_FLAGS(MyScopedFlags, MyScopedFlag)
 
         MyEnum myEnum() const { return m_enum; }
         void setMyEnum(MyEnum val) { m_enum = val; }
@@ -79,8 +97,10 @@ namespace MyNamespace {
                 { }
     private:
         Q_ENUM(MyEnum)
+        Q_ENUM(MyScopedEnum)
         Q_ENUM(MyAnotherEnum)
         Q_FLAG(MyFlags)
+        Q_FLAG(MyScopedFlags)
 
         MyEnum m_enum;
         MyFlags m_flags;
@@ -311,6 +331,7 @@ private slots:
     void signal();
     void signalIndex_data();
     void signalIndex();
+    void enumDebugStream_data();
     void enumDebugStream();
 
     void inherits_data();
@@ -795,6 +816,15 @@ void tst_QMetaObject::invokePointer()
         QCOMPARE(obj.slotResult, QString("sl1:bubu"));
     }
     QCOMPARE(countedStructObjectsCount, 0);
+#ifdef __cpp_init_captures
+    {
+        CountedStruct str;
+        std::unique_ptr<int> ptr( new int );
+        QVERIFY(QMetaObject::invokeMethod(&obj, [str, &t1, &obj, p = std::move(ptr)]() { obj.sl1(t1); }));
+        QCOMPARE(obj.slotResult, QString("sl1:1"));
+    }
+    QCOMPARE(countedStructObjectsCount, 0);
+#endif
 }
 
 void tst_QMetaObject::invokeQueuedMetaMember()
@@ -1100,6 +1130,15 @@ void tst_QMetaObject::invokeBlockingQueuedPointer()
         QCOMPARE(exp, QString("yessir"));
         QCOMPARE(obj.slotResult, QString("sl1:bubu"));
     }
+#ifdef __cpp_init_captures
+    {
+        std::unique_ptr<int> ptr(new int);
+        QVERIFY(QMetaObject::invokeMethod(&obj,
+                                          [&obj, p = std::move(ptr)]() { return obj.sl1("hehe"); },
+                                          Qt::BlockingQueuedConnection));
+        QCOMPARE(obj.slotResult, QString("sl1:hehe"));
+    }
+#endif
     QVERIFY(QMetaObject::invokeMethod(&obj, [&](){obj.moveToThread(QThread::currentThread());}, Qt::BlockingQueuedConnection));
     t.quit();
     QVERIFY(t.wait());
@@ -1193,6 +1232,12 @@ void tst_QMetaObject::invokeMetaConstructor()
         QVERIFY(obj2 != 0);
         QCOMPARE(obj2->parent(), (QObject*)&obj);
         QVERIFY(qobject_cast<NamespaceWithConstructibleClass::ConstructibleClass*>(obj2) != 0);
+    }
+    // gadget shouldn't return a valid pointer
+    {
+        QCOMPARE(MyGadget::staticMetaObject.constructorCount(), 1);
+        QTest::ignoreMessage(QtWarningMsg, "QMetaObject::newInstance: type MyGadget does not inherit QObject");
+        QVERIFY(!MyGadget::staticMetaObject.newInstance());
     }
 }
 
@@ -1728,22 +1773,104 @@ void tst_QMetaObject::signalIndex()
              SignalTestHelper::signalIndex(mm));
 }
 
+void tst_QMetaObject::enumDebugStream_data()
+{
+    QTest::addColumn<int>("verbosity");
+    QTest::addColumn<QString>("normalEnumMsg");
+    QTest::addColumn<QString>("scopedEnumMsg");
+    QTest::addColumn<QString>("globalEnumMsg");
+    QTest::addColumn<QString>("normalFlagMsg");
+    QTest::addColumn<QString>("normalFlagsMsg");
+    QTest::addColumn<QString>("scopedFlagMsg");
+    QTest::addColumn<QString>("scopedFlagsMsg");
+    QTest::addColumn<QString>("flagAsEnumMsg");
+
+    QTest::newRow("verbosity=0") << 0
+        << "hello MyEnum2 world"
+        << "hello MyScopedEnum::Enum3 scoped world"
+        << "WindowTitleHint Window Desktop WindowSystemMenuHint"
+        << "hello MyFlag1 world"
+        << "MyFlag1 MyFlag2|MyFlag3"
+        << "MyScopedFlag(MyFlag2)"
+        << "MyScopedFlag(MyFlag2|MyFlag3)"
+        << "MyFlag1";
+
+    QTest::newRow("verbosity=1") << 1
+        << "hello MyEnum::MyEnum2 world"
+        << "hello MyScopedEnum::Enum3 scoped world"
+        << "WindowType::WindowTitleHint WindowType::Window WindowType::Desktop WindowType::WindowSystemMenuHint"
+        << "hello MyFlag(MyFlag1) world"
+        << "MyFlag(MyFlag1) MyFlag(MyFlag2|MyFlag3)"
+        << "MyScopedFlag(MyFlag2)"
+        << "MyScopedFlag(MyFlag2|MyFlag3)"
+        << "MyFlag::MyFlag1";
+
+    QTest::newRow("verbosity=2") << 2
+        << "hello MyNamespace::MyClass::MyEnum2 world"
+        << "hello MyNamespace::MyClass::MyScopedEnum::Enum3 scoped world"
+        << "Qt::WindowTitleHint Qt::Window Qt::Desktop Qt::WindowSystemMenuHint"
+        << "hello QFlags<MyNamespace::MyClass::MyFlag>(MyFlag1) world"
+        << "QFlags<MyNamespace::MyClass::MyFlag>(MyFlag1) QFlags<MyNamespace::MyClass::MyFlag>(MyFlag2|MyFlag3)"
+        << "QFlags<MyNamespace::MyClass::MyScopedFlag>(MyFlag2)"
+        << "QFlags<MyNamespace::MyClass::MyScopedFlag>(MyFlag2|MyFlag3)"
+        << "MyNamespace::MyClass::MyFlag1";
+
+    QTest::newRow("verbosity=3") << 3
+        << "hello MyNamespace::MyClass::MyEnum::MyEnum2 world"
+        << "hello MyNamespace::MyClass::MyScopedEnum::Enum3 scoped world"
+        << "Qt::WindowType::WindowTitleHint Qt::WindowType::Window Qt::WindowType::Desktop Qt::WindowType::WindowSystemMenuHint"
+        << "hello QFlags<MyNamespace::MyClass::MyFlag>(MyFlag1) world"
+        << "QFlags<MyNamespace::MyClass::MyFlag>(MyFlag1) QFlags<MyNamespace::MyClass::MyFlag>(MyFlag2|MyFlag3)"
+        << "QFlags<MyNamespace::MyClass::MyScopedFlag>(MyFlag2)"
+        << "QFlags<MyNamespace::MyClass::MyScopedFlag>(MyFlag2|MyFlag3)"
+        << "MyNamespace::MyClass::MyFlag::MyFlag1";
+}
+
 void tst_QMetaObject::enumDebugStream()
 {
-    QTest::ignoreMessage(QtDebugMsg, "hello MyNamespace::MyClass::MyEnum(MyEnum2) world ");
-    MyNamespace::MyClass::MyEnum e = MyNamespace::MyClass::MyEnum2;
-    qDebug() << "hello" << e << "world";
+    QFETCH(int, verbosity);
 
-    QTest::ignoreMessage(QtDebugMsg, "Qt::WindowType(WindowTitleHint) Qt::WindowType(Window) Qt::WindowType(Desktop) Qt::WindowType(WindowSystemMenuHint)");
-    qDebug() << Qt::WindowTitleHint << Qt::Window <<Qt::Desktop << Qt::WindowSystemMenuHint;
+    QFETCH(QString, normalEnumMsg);
+    QFETCH(QString, scopedEnumMsg);
+    QFETCH(QString, globalEnumMsg);
 
-    QTest::ignoreMessage(QtDebugMsg, "hello QFlags<MyNamespace::MyClass::MyFlags>(MyFlag1) world");
+    QFETCH(QString, normalFlagMsg);
+    QFETCH(QString, normalFlagsMsg);
+    QFETCH(QString, scopedFlagMsg);
+    QFETCH(QString, scopedFlagsMsg);
+    QFETCH(QString, flagAsEnumMsg);
+
+    // Enums
+    QTest::ignoreMessage(QtDebugMsg, qPrintable(normalEnumMsg));
+    qDebug().verbosity(verbosity) << "hello" << MyNamespace::MyClass::MyEnum2 << "world";
+
+    QTest::ignoreMessage(QtDebugMsg, qPrintable(scopedEnumMsg));
+    qDebug().verbosity(verbosity) << "hello" << MyNamespace::MyClass::MyScopedEnum::Enum3 << "scoped world";
+
+    QTest::ignoreMessage(QtDebugMsg, qPrintable(globalEnumMsg));
+    qDebug().verbosity(verbosity) << Qt::WindowTitleHint << Qt::Window << Qt::Desktop << Qt::WindowSystemMenuHint;
+
+    // Flags
+    QTest::ignoreMessage(QtDebugMsg, qPrintable(normalFlagMsg));
     MyNamespace::MyClass::MyFlags f1 = MyNamespace::MyClass::MyFlag1;
-    qDebug() << "hello" << f1 << "world";
+    qDebug().verbosity(verbosity) << "hello" << f1 << "world";
 
     MyNamespace::MyClass::MyFlags f2 = MyNamespace::MyClass::MyFlag2 | MyNamespace::MyClass::MyFlag3;
-    QTest::ignoreMessage(QtDebugMsg, "QFlags<MyNamespace::MyClass::MyFlags>(MyFlag1) QFlags<MyNamespace::MyClass::MyFlags>(MyFlag2|MyFlag3)");
-    qDebug() << f1 << f2;
+    QTest::ignoreMessage(QtDebugMsg, qPrintable(normalFlagsMsg));
+    qDebug().verbosity(verbosity) << f1 << f2;
+
+    QTest::ignoreMessage(QtDebugMsg, qPrintable(scopedFlagMsg));
+    MyNamespace::MyClass::MyScopedFlags f3 = MyNamespace::MyClass::MyScopedFlag::MyFlag2;
+    qDebug().verbosity(verbosity) << f3;
+
+    QTest::ignoreMessage(QtDebugMsg, qPrintable(scopedFlagsMsg));
+    f3 |= MyNamespace::MyClass::MyScopedFlag::MyFlag3;
+    qDebug().verbosity(verbosity) << f3;
+
+    // Single flag recognized as enum:
+    QTest::ignoreMessage(QtDebugMsg, qPrintable(flagAsEnumMsg));
+    MyNamespace::MyClass::MyFlag f4 = MyNamespace::MyClass::MyFlag1;
+    qDebug().verbosity(verbosity) << f4;
 }
 
 void tst_QMetaObject::inherits_data()

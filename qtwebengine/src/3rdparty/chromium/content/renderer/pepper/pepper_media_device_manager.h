@@ -7,24 +7,26 @@
 
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "content/common/media/media_devices.h"
-#include "content/common/media/media_devices.mojom.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "content/public/renderer/render_frame_observer_tracker.h"
-#include "content/renderer/media/media_stream_dispatcher_eventhandler.h"
 #include "content/renderer/pepper/pepper_device_enumeration_host_helper.h"
+#include "mojo/public/cpp/bindings/binding_set.h"
 #include "ppapi/c/pp_instance.h"
+#include "third_party/blink/public/common/mediastream/media_devices.h"
+#include "third_party/blink/public/mojom/mediastream/media_devices.mojom.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 
 namespace content {
-class MediaStreamDispatcher;
+class MediaStreamDeviceObserver;
 
 class PepperMediaDeviceManager
-    : public MediaStreamDispatcherEventHandler,
-      public PepperDeviceEnumerationHostHelper::Delegate,
+    : public PepperDeviceEnumerationHostHelper::Delegate,
+      public blink::mojom::MediaDevicesListener,
       public RenderFrameObserver,
       public RenderFrameObserverTracker<PepperMediaDeviceManager>,
       public base::SupportsWeakPtr<PepperMediaDeviceManager> {
@@ -36,10 +38,15 @@ class PepperMediaDeviceManager
   // PepperDeviceEnumerationHostHelper::Delegate implementation:
   void EnumerateDevices(PP_DeviceType_Dev type,
                         const DevicesCallback& callback) override;
-  uint32_t StartMonitoringDevices(PP_DeviceType_Dev type,
-                                  const DevicesCallback& callback) override;
+  size_t StartMonitoringDevices(PP_DeviceType_Dev type,
+                                const DevicesCallback& callback) override;
   void StopMonitoringDevices(PP_DeviceType_Dev type,
-                             uint32_t subscription_id) override;
+                             size_t subscription_id) override;
+
+  // blink::mojom::MediaDevicesListener implementation.
+  void OnDevicesChanged(
+      blink::MediaDeviceType type,
+      const blink::WebMediaDeviceInfoArray& device_infos) override;
 
   typedef base::Callback<void(int /* request_id */,
                               bool /* succeeded */,
@@ -62,24 +69,8 @@ class PepperMediaDeviceManager
   // Gets audio/video session ID given a label.
   int GetSessionID(PP_DeviceType_Dev type, const std::string& label);
 
-  // MediaStreamDispatcherEventHandler implementation.
-  void OnStreamGenerated(
-      int request_id,
-      const std::string& label,
-      const StreamDeviceInfoArray& audio_device_array,
-      const StreamDeviceInfoArray& video_device_array) override;
-  void OnStreamGenerationFailed(
-      int request_id,
-      content::MediaStreamRequestResult result) override;
-  void OnDeviceStopped(const std::string& label,
-                       const StreamDeviceInfo& device_info) override;
-  void OnDeviceOpened(int request_id,
-                      const std::string& label,
-                      const StreamDeviceInfo& device_info) override;
-  void OnDeviceOpenFailed(int request_id) override;
-
   // Stream type conversion.
-  static MediaStreamType FromPepperDeviceType(PP_DeviceType_Dev type);
+  static blink::MediaStreamType FromPepperDeviceType(PP_DeviceType_Dev type);
 
  private:
   explicit PepperMediaDeviceManager(RenderFrame* render_frame);
@@ -91,27 +82,36 @@ class PepperMediaDeviceManager
   // a reentrancy problem.
   void StopEnumerateDevicesDelayed(int request_id);
 
-  void NotifyDeviceOpened(int request_id,
-                          bool succeeded,
-                          const std::string& label);
+  void OnDeviceOpened(int request_id,
+                      bool success,
+                      const std::string& label,
+                      const blink::MediaStreamDevice& device);
 
-  void DevicesEnumerated(const DevicesCallback& callback,
-                         MediaDeviceType type,
-                         const std::vector<MediaDeviceInfoArray>& enumeration);
+  void DevicesEnumerated(
+      const DevicesCallback& callback,
+      blink::MediaDeviceType type,
+      const std::vector<blink::WebMediaDeviceInfoArray>& enumeration,
+      std::vector<blink::mojom::VideoInputDeviceCapabilitiesPtr>
+          video_input_capabilities);
 
-  void DevicesChanged(const DevicesCallback& callback,
-                      MediaDeviceType type,
-                      const MediaDeviceInfoArray& enumeration);
+  const blink::mojom::MediaStreamDispatcherHostPtr&
+  GetMediaStreamDispatcherHost();
+  MediaStreamDeviceObserver* GetMediaStreamDeviceObserver() const;
+  const blink::mojom::MediaDevicesDispatcherHostPtr&
+  GetMediaDevicesDispatcher();
 
-  MediaStreamDispatcher* GetMediaStreamDispatcher() const;
-  const ::mojom::MediaDevicesDispatcherHostPtr& GetMediaDevicesDispatcher();
-
-  int next_id_;
-
-  typedef std::map<int, OpenDeviceCallback> OpenCallbackMap;
+  int next_id_ = 1;
+  using OpenCallbackMap = std::map<int, OpenDeviceCallback>;
   OpenCallbackMap open_callbacks_;
 
-  ::mojom::MediaDevicesDispatcherHostPtr media_devices_dispatcher_;
+  using Subscription = std::pair<size_t, DevicesCallback>;
+  using SubscriptionList = std::vector<Subscription>;
+  SubscriptionList device_change_subscriptions_[blink::NUM_MEDIA_DEVICE_TYPES];
+
+  blink::mojom::MediaStreamDispatcherHostPtr dispatcher_host_;
+  blink::mojom::MediaDevicesDispatcherHostPtr media_devices_dispatcher_;
+
+  mojo::BindingSet<blink::mojom::MediaDevicesListener> bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(PepperMediaDeviceManager);
 };

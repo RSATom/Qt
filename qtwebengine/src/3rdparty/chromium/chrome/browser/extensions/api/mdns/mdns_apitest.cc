@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
+
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/mdns/mdns_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/media/router/discovery/mdns/mock_dns_sd_registry.h"
+#include "chrome/browser/media/router/test/mock_dns_sd_registry.h"
 #include "chrome/common/extensions/api/mdns.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/result_catcher.h"
@@ -22,12 +23,12 @@ namespace api = extensions::api;
 
 namespace {
 
-class MDnsAPITest : public ExtensionApiTest {
+class MDnsAPITest : public extensions::ExtensionApiTest {
  public:
   MDnsAPITest() {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionApiTest::SetUpCommandLine(command_line);
+    extensions::ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(
         extensions::switches::kWhitelistedExtensionID,
         "ddchlicdkolnonkihahngkmmmjnjlkkf");
@@ -35,7 +36,7 @@ class MDnsAPITest : public ExtensionApiTest {
 
   void SetUpTestDnsSdRegistry() {
     extensions::MDnsAPI* api = extensions::MDnsAPI::Get(profile());
-    dns_sd_registry_ = base::MakeUnique<media_router::MockDnsSdRegistry>(api);
+    dns_sd_registry_ = std::make_unique<media_router::MockDnsSdRegistry>(api);
     EXPECT_CALL(*dns_sd_registry_, AddObserver(api))
         .Times(1);
     api->SetDnsSdRegistryForTesting(dns_sd_registry_.get());
@@ -99,7 +100,7 @@ IN_PROC_BROWSER_TEST_F(MDnsAPITest, MAYBE_ForceDiscovery) {
   EXPECT_CALL(*dns_sd_registry_, RegisterDnsSdListener(service_type)).Times(1);
   EXPECT_CALL(*dns_sd_registry_, UnregisterDnsSdListener(service_type))
       .Times(1);
-  EXPECT_CALL(*dns_sd_registry_, ForceDiscovery()).Times(1);
+  EXPECT_CALL(*dns_sd_registry_, ResetAndDiscover()).Times(1);
   EXPECT_CALL(*dns_sd_registry_,
               RemoveObserver(A<DnsSdRegistry::DnsSdObserver*>()))
       .Times(1);

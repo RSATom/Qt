@@ -16,11 +16,12 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece.h"
 #include "crypto/ec_private_key.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
+#include "net/base/completion_repeating_callback.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_export.h"
 #include "net/log/net_log_with_source.h"
-#include "net/ssl/token_binding.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace net {
 
@@ -61,13 +62,15 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
   // some additional functionality
   int SendRequest(const std::string& request_line,
                   const HttpRequestHeaders& headers,
+                  const NetworkTrafficAnnotationTag& traffic_annotation,
                   HttpResponseInfo* response,
-                  const CompletionCallback& callback);
+                  CompletionOnceCallback callback);
 
-  int ReadResponseHeaders(const CompletionCallback& callback);
+  int ReadResponseHeaders(CompletionOnceCallback callback);
 
-  int ReadResponseBody(IOBuffer* buf, int buf_len,
-                       const CompletionCallback& callback);
+  int ReadResponseBody(IOBuffer* buf,
+                       int buf_len,
+                       CompletionOnceCallback callback);
 
   void Close(bool not_reusable);
 
@@ -96,13 +99,11 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
 
   int64_t sent_bytes() const { return sent_bytes_; }
 
+  base::TimeTicks response_start_time() { return response_start_time_; }
+
   void GetSSLInfo(SSLInfo* ssl_info);
 
   void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
-
-  Error GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                 TokenBindingType tb_type,
-                                 std::vector<uint8_t>* out);
 
   // Encodes the given |payload| in the chunked format to |output|.
   // Returns the number of bytes written to |output|. |output_size| should
@@ -185,7 +186,11 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
   // found, parse them with DoParseResponseHeaders().  Return the offset for
   // the end of the headers, or -1 if the complete headers were not found, or
   // with a net::Error if we encountered an error during parsing.
-  int FindAndParseResponseHeaders();
+  //
+  // |new_bytes| is the number of new bytes that have been appended to the end
+  // of |read_buf_| since the last call to this method (which must have returned
+  // -1).
+  int FindAndParseResponseHeaders(int new_bytes);
 
   // Parse the headers into response_.  Returns OK on success or a net::Error on
   // failure.
@@ -238,6 +243,10 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
   // HttpResponseBodyDrainer is used.
   HttpResponseInfo* response_;
 
+  // Time at which the first bytes of the header response are about to be
+  // parsed.
+  base::TimeTicks response_start_time_;
+
   // Indicates the content length.  If this value is less than zero
   // (and chunked_decoder_ is null), then we must read until the server
   // closes the connection.
@@ -258,13 +267,7 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
 
   // The callback to notify a user that their request or response is
   // complete or there was an error
-  CompletionCallback callback_;
-
-  // In the client callback, the client can do anything, including
-  // destroying this class, so any pending callback must be issued
-  // after everything else is done.  When it is time to issue the client
-  // callback, move it from |callback_| to |scheduled_callback_|.
-  CompletionCallback scheduled_callback_;
+  CompletionOnceCallback callback_;
 
   // The underlying socket.
   ClientSocketHandle* const connection_;
@@ -272,7 +275,7 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
   NetLogWithSource net_log_;
 
   // Callback to be used when doing IO.
-  CompletionCallback io_callback_;
+  CompletionRepeatingCallback io_callback_;
 
   // Buffer used to read the request body from UploadDataStream.
   scoped_refptr<SeekableIOBuffer> request_body_read_buf_;
@@ -283,6 +286,8 @@ class NET_EXPORT_PRIVATE HttpStreamParser {
 
   // Error received when uploading the body, if any.
   int upload_error_;
+
+  MutableNetworkTrafficAnnotationTag traffic_annotation_;
 
   base::WeakPtrFactory<HttpStreamParser> weak_ptr_factory_;
 

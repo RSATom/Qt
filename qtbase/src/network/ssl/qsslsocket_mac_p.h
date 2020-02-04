@@ -75,7 +75,7 @@ public:
 private:
     SSLContextRef context;
 
-    Q_DISABLE_COPY(QSecureTransportContext)
+    Q_DISABLE_COPY_MOVE(QSecureTransportContext)
 };
 
 class QSslSocketBackendPrivate : public QSslSocketPrivate
@@ -86,14 +86,14 @@ public:
     virtual ~QSslSocketBackendPrivate();
 
     // Final-overriders (QSslSocketPrivate):
-    void continueHandshake() Q_DECL_OVERRIDE;
-    void disconnected() Q_DECL_OVERRIDE;
-    void disconnectFromHost() Q_DECL_OVERRIDE;
-    QSslCipher sessionCipher() const Q_DECL_OVERRIDE;
-    QSsl::SslProtocol sessionProtocol() const Q_DECL_OVERRIDE;
-    void startClientEncryption() Q_DECL_OVERRIDE;
-    void startServerEncryption() Q_DECL_OVERRIDE;
-    void transmit() Q_DECL_OVERRIDE;
+    void continueHandshake() override;
+    void disconnected() override;
+    void disconnectFromHost() override;
+    QSslCipher sessionCipher() const override;
+    QSsl::SslProtocol sessionProtocol() const override;
+    void startClientEncryption() override;
+    void startServerEncryption() override;
+    void transmit() override;
 
     static QList<QSslError> verify(QList<QSslCertificate> certificateChain,
                                    const QString &hostName);
@@ -120,9 +120,16 @@ private:
     bool checkSslErrors();
     bool startHandshake();
 
-    QSecureTransportContext context;
+    bool isHandshakeComplete() const {return connectionEncrypted && !renegotiating;}
 
-    Q_DISABLE_COPY(QSslSocketBackendPrivate)
+    // IO callbacks:
+    static OSStatus ReadCallback(QSslSocketBackendPrivate *socket, char *data, size_t *dataLength);
+    static OSStatus WriteCallback(QSslSocketBackendPrivate *plainSocket, const char *data, size_t *dataLength);
+
+    QSecureTransportContext context;
+    bool renegotiating = false;
+
+    Q_DISABLE_COPY_MOVE(QSslSocketBackendPrivate)
 };
 
 QT_END_NAMESPACE

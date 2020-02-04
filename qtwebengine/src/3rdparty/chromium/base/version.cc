@@ -77,13 +77,11 @@ int CompareVersionComponents(const std::vector<uint32_t>& components1,
 
 }  // namespace
 
-Version::Version() {
-}
+Version::Version() = default;
 
 Version::Version(const Version& other) = default;
 
-Version::~Version() {
-}
+Version::~Version() = default;
 
 Version::Version(const std::string& version_str) {
   std::vector<uint32_t> parsed;
@@ -93,7 +91,8 @@ Version::Version(const std::string& version_str) {
   components_.swap(parsed);
 }
 
-Version::Version(std::vector<uint32_t> components) : components_(components) {}
+Version::Version(std::vector<uint32_t> components)
+    : components_(std::move(components)) {}
 
 bool Version::IsValid() const {
   return (!components_.empty());

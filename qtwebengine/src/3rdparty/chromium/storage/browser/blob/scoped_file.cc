@@ -19,12 +19,12 @@ ScopedFile::ScopedFile()
 
 ScopedFile::ScopedFile(const base::FilePath& path,
                        ScopeOutPolicy policy,
-                       const scoped_refptr<base::TaskRunner>& file_task_runner)
+                       scoped_refptr<base::TaskRunner> file_task_runner)
     : path_(path),
       scope_out_policy_(policy),
-      file_task_runner_(file_task_runner) {
+      file_task_runner_(std::move(file_task_runner)) {
   DCHECK(path.empty() || policy != DELETE_ON_SCOPE_OUT ||
-         file_task_runner.get())
+         file_task_runner_.get())
       << "path:" << path.value() << " policy:" << policy
       << " runner:" << file_task_runner.get();
 }
@@ -37,12 +37,11 @@ ScopedFile::~ScopedFile() {
   Reset();
 }
 
-void ScopedFile::AddScopeOutCallback(
-    const ScopeOutCallback& callback,
-    base::TaskRunner* callback_runner) {
+void ScopedFile::AddScopeOutCallback(ScopeOutCallback callback,
+                                     base::TaskRunner* callback_runner) {
   if (!callback_runner)
     callback_runner = base::ThreadTaskRunnerHandle::Get().get();
-  scope_out_callbacks_.push_back(std::make_pair(callback, callback_runner));
+  scope_out_callbacks_.emplace_back(std::move(callback), callback_runner);
 }
 
 base::FilePath ScopedFile::Release() {
@@ -57,16 +56,21 @@ void ScopedFile::Reset() {
   if (path_.empty())
     return;
 
-  for (ScopeOutCallbackList::iterator iter = scope_out_callbacks_.begin();
-       iter != scope_out_callbacks_.end(); ++iter) {
-    iter->second->PostTask(FROM_HERE, base::Bind(iter->first, path_));
+  for (auto iter = scope_out_callbacks_.rbegin();
+       iter != scope_out_callbacks_.rend(); ++iter) {
+    iter->second->PostTask(FROM_HERE,
+                           base::BindOnce(std::move(iter->first), path_));
   }
+
+  DVLOG(1) << "ScopedFile::Reset(): "
+           << (scope_out_policy_ == DELETE_ON_SCOPE_OUT ? "Deleting "
+                                                        : "Not deleting ")
+           << path_.value();
 
   if (scope_out_policy_ == DELETE_ON_SCOPE_OUT) {
     file_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(base::IgnoreResult(&base::DeleteFile),
-                   path_, false /* recursive */));
+        FROM_HERE, base::BindOnce(base::IgnoreResult(&base::DeleteFile), path_,
+                                  false /* recursive */));
   }
 
   // Clear all fields.

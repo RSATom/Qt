@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 #
 # Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -273,7 +273,7 @@ for impl_class in impl_classes:
     h_file.close()
     cpp_file.close()
 
-# Print a block of source files to add to the GYP
+# Print a block of source files to add to the build
 print("Generated files:")
 for impl_class in impl_classes:
     path = "libANGLE/renderer/" + renderer_name + "/" + impl_class + renderer_suffix

@@ -4,36 +4,25 @@
 
 #include "ipc/handle_attachment_fuchsia.h"
 
-#include <magenta/syscalls.h>
-#include <magenta/types.h>
+#include <zircon/syscalls.h>
+#include <zircon/types.h>
+
+#include "base/fuchsia/fuchsia_logging.h"
 
 namespace IPC {
 namespace internal {
 
-HandleAttachmentFuchsia::HandleAttachmentFuchsia(
-    const mx_handle_t& handle,
-    HandleFuchsia::Permissions permissions)
-    : handle_(MX_HANDLE_INVALID),
-      permissions_(HandleFuchsia::INVALID),
-      owns_handle_(true) {
-  mx_handle_t duplicated_handle;
-  if (mx_handle_duplicate(handle, MX_RIGHT_SAME_RIGHTS, &duplicated_handle) ==
-      MX_OK) {
-    handle_ = duplicated_handle;
-    permissions_ = permissions;
-  }
+HandleAttachmentFuchsia::HandleAttachmentFuchsia(zx_handle_t handle) {
+  zx_status_t result =
+      zx::unowned_handle(handle)->duplicate(ZX_RIGHT_SAME_RIGHTS, &handle_);
+  if (result != ZX_OK)
+    ZX_DLOG(ERROR, result) << "zx_handle_duplicate";
 }
 
-HandleAttachmentFuchsia::HandleAttachmentFuchsia(const mx_handle_t& handle,
-                                                 FromWire from_wire)
-    : handle_(handle),
-      permissions_(HandleFuchsia::INVALID),
-      owns_handle_(true) {}
+HandleAttachmentFuchsia::HandleAttachmentFuchsia(zx::handle handle)
+    : handle_(std::move(handle)) {}
 
-HandleAttachmentFuchsia::~HandleAttachmentFuchsia() {
-  if (handle_ != MX_HANDLE_INVALID && owns_handle_)
-    mx_handle_close(handle_);
-}
+HandleAttachmentFuchsia::~HandleAttachmentFuchsia() {}
 
 MessageAttachment::Type HandleAttachmentFuchsia::GetType() const {
   return Type::FUCHSIA_HANDLE;

@@ -44,6 +44,7 @@ void RenderCustomGeometrySource::update(Immutable<style::Source::Impl> baseImpl_
                        SourceType::CustomVector,
                        util::tileSize,
                        impl().getZoomRange(),
+                       {},
                        [&] (const OverscaledTileID& tileID) {
                            return std::make_unique<CustomGeometryTile>(tileID, impl().id, parameters, impl().getTileOptions(), *tileLoader);
                        });
@@ -67,16 +68,16 @@ RenderCustomGeometrySource::queryRenderedFeatures(const ScreenLineString& geomet
                                            const TransformState& transformState,
                                            const std::vector<const RenderLayer*>& layers,
                                            const RenderedQueryOptions& options,
-                                           const CollisionIndex& collisionIndex) const {
-   return tilePyramid.queryRenderedFeatures(geometry, transformState, layers, options, collisionIndex);
+                                           const mat4& projMatrix) const {
+   return tilePyramid.queryRenderedFeatures(geometry, transformState, layers, options, projMatrix);
 }
 
 std::vector<Feature> RenderCustomGeometrySource::querySourceFeatures(const SourceQueryOptions& options) const {
     return tilePyramid.querySourceFeatures(options);
 }
 
-void RenderCustomGeometrySource::onLowMemory() {
-    tilePyramid.onLowMemory();
+void RenderCustomGeometrySource::reduceMemoryUse() {
+    tilePyramid.reduceMemoryUse();
 }
 
 void RenderCustomGeometrySource::dumpDebugLogs() const {

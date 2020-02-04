@@ -5,44 +5,53 @@
 #ifndef GPU_IPC_GPU_IN_PROCESS_THREAD_SERVICE_H_
 #define GPU_IPC_GPU_IN_PROCESS_THREAD_SERVICE_H_
 
+#include <memory>
+
 #include "base/compiler_specific.h"
 #include "base/single_thread_task_runner.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
-#include "gpu/gpu_export.h"
+#include "gpu/ipc/command_buffer_task_executor.h"
+#include "gpu/ipc/gl_in_process_context_export.h"
 #include "gpu/ipc/in_process_command_buffer.h"
 #include "ui/gl/gl_share_group.h"
 
 namespace gpu {
+class Scheduler;
+
+namespace gles2 {
+class ProgramCache;
+}  // namespace gles2
 
 // Default Service class when no service is specified. GpuInProcessThreadService
 // is used by Mus and unit tests.
-class GPU_EXPORT GpuInProcessThreadService
-    : public NON_EXPORTED_BASE(gpu::InProcessCommandBuffer::Service),
-      public base::RefCountedThreadSafe<GpuInProcessThreadService> {
+class GL_IN_PROCESS_CONTEXT_EXPORT GpuInProcessThreadService
+    : public CommandBufferTaskExecutor {
  public:
   GpuInProcessThreadService(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-      gpu::SyncPointManager* sync_point_manager,
-      gpu::gles2::MailboxManager* mailbox_manager,
-      scoped_refptr<gl::GLShareGroup> share_group);
+      Scheduler* scheduler,
+      SyncPointManager* sync_point_manager,
+      MailboxManager* mailbox_manager,
+      scoped_refptr<gl::GLShareGroup> share_group,
+      gl::GLSurfaceFormat share_group_surface_format,
+      const GpuFeatureInfo& gpu_feature_info,
+      const GpuPreferences& gpu_preferences,
+      SharedImageManager* shared_image_manager,
+      gles2::ProgramCache* program_cache);
 
-  // gpu::InProcessCommandBuffer::Service implementation.
-  void ScheduleTask(const base::Closure& task) override;
-  void ScheduleDelayedWork(const base::Closure& task) override;
-  bool UseVirtualizedGLContexts() override;
-  gpu::SyncPointManager* sync_point_manager() override;
-  void AddRef() const override;
-  void Release() const override;
-  bool BlockThreadOnWaitSyncToken() const override;
+  // CommandBufferTaskExecutor implementation.
+  bool ForceVirtualizedGLContexts() const override;
+  bool ShouldCreateMemoryTracker() const override;
+  std::unique_ptr<CommandBufferTaskExecutor::Sequence> CreateSequence()
+      override;
+  void ScheduleOutOfOrderTask(base::OnceClosure task) override;
+  void ScheduleDelayedWork(base::OnceClosure task) override;
 
  private:
-  friend class base::RefCountedThreadSafe<GpuInProcessThreadService>;
-
   ~GpuInProcessThreadService() override;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-
-  gpu::SyncPointManager* sync_point_manager_;  // Non-owning.
+  Scheduler* scheduler_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuInProcessThreadService);
 };

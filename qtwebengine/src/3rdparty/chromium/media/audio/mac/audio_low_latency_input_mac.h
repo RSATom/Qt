@@ -39,36 +39,34 @@
 #include <AudioUnit/AudioUnit.h>
 #include <CoreAudio/CoreAudio.h>
 
-#include <map>
 #include <memory>
 #include <vector>
 
 #include "base/atomicops.h"
 #include "base/cancelable_callback.h"
 #include "base/macros.h"
-#include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "media/audio/agc_audio_stream.h"
 #include "media/audio/audio_io.h"
-#include "media/audio/audio_manager.h"
+#include "media/audio/mac/audio_manager_mac.h"
 #include "media/base/audio_block_fifo.h"
 #include "media/base/audio_parameters.h"
 
 namespace media {
-
-class AudioManagerMac;
 
 class MEDIA_EXPORT AUAudioInputStream
     : public AgcAudioStream<AudioInputStream> {
  public:
   // The ctor takes all the usual parameters, plus |manager| which is the
   // the audio manager who is creating this object.
-  AUAudioInputStream(AudioManagerMac* manager,
-                     const AudioParameters& input_params,
-                     AudioDeviceID audio_device_id,
-                     const AudioManager::LogCallback& log_callback);
+  AUAudioInputStream(
+      AudioManagerMac* manager,
+      const AudioParameters& input_params,
+      AudioDeviceID audio_device_id,
+      const AudioManager::LogCallback& log_callback,
+      AudioManagerBase::VoiceProcessingMode voice_processing_mode);
   // The dtor is typically called by the AudioManager only and it is usually
   // triggered by calling AudioInputStream::Close().
   ~AUAudioInputStream() override;
@@ -82,6 +80,7 @@ class MEDIA_EXPORT AUAudioInputStream
   void SetVolume(double volume) override;
   double GetVolume() override;
   bool IsMuted() override;
+  void SetOutputDeviceForAec(const std::string& output_device_id) override;
 
   // Returns the current hardware sample rate for the default input device.
   static int HardwareSampleRate();
@@ -92,10 +91,19 @@ class MEDIA_EXPORT AUAudioInputStream
   bool IsRunning();
 
   AudioDeviceID device_id() const { return input_device_id_; }
-  size_t requested_buffer_size() const { return number_of_frames_; }
+  size_t requested_buffer_size() const {
+    return input_params_.frames_per_buffer();
+  }
+  AudioUnit audio_unit() const { return audio_unit_; }
+
+  // Fan out the data from the first half of audio_buffer into interleaved
+  // stereo across the whole of audio_buffer. Public for testing only.
+  static void UpmixMonoToStereoInPlace(AudioBuffer* audio_buffer,
+                                       int bytes_per_sample);
 
  private:
-  static const AudioObjectPropertyAddress kDeviceChangePropertyAddress;
+  bool OpenAUHAL();
+  bool OpenVoiceProcessingAU();
 
   // Callback functions called on a real-time priority I/O thread from the audio
   // unit. These methods are called when recorded audio is available.
@@ -115,33 +123,8 @@ class MEDIA_EXPORT AUAudioInputStream
                    AudioBufferList* io_data,
                    const AudioTimeStamp* time_stamp);
 
-  // Callback functions called on different system threads from the Core Audio
-  // framework. These methods are called when device properties are changed.
-  static OSStatus OnDevicePropertyChanged(
-      AudioObjectID object_id,
-      UInt32 num_addresses,
-      const AudioObjectPropertyAddress addresses[],
-      void* context);
-  OSStatus DevicePropertyChanged(AudioObjectID object_id,
-                                 UInt32 num_addresses,
-                                 const AudioObjectPropertyAddress addresses[]);
-
-  // Updates the |device_property_changes_map_| on the main browser thread,
-  // (CrBrowserMain) which is the same thread as this instance is created on.
-  void DevicePropertyChangedOnMainThread(const std::vector<UInt32>& properties);
-
-  // Registers OnDevicePropertyChanged() to receive notifications when device
-  // properties changes.
-  void RegisterDeviceChangeListener();
-  // Stop listening for changes in device properties.
-  void DeRegisterDeviceChangeListener();
-
-  // Gets the fixed capture hardware latency and store it during initialization.
-  // Returns 0 if not available.
-  double GetHardwareLatency();
-
-  // Gets the current capture delay value.
-  double GetCaptureLatency(const AudioTimeStamp* input_time_stamp);
+  // Gets the current capture time.
+  base::TimeTicks GetCaptureTime(const AudioTimeStamp* input_time_stamp);
 
   // Gets the number of channels for a stream of audio data.
   int GetNumberOfChannelsFromStream();
@@ -165,12 +148,11 @@ class MEDIA_EXPORT AUAudioInputStream
   // Uninitializes the audio unit if needed.
   void CloseAudioUnit();
 
+  // Reinitializes the AudioUnit to use a new output device.
+  void ReinitializeVoiceProcessingAudioUnit();
+
   // Adds extra UMA stats when it has been detected that startup failed.
   void AddHistogramsForFailedStartup();
-
-  // Scans the map of all available property changes (notification types) and
-  // filters out some that make sense to add to UMA stats.
-  void AddDevicePropertyChangesToUMA(bool startup_failed);
 
   // Updates capture timestamp, current lost frames, and total lost frames and
   // glitches.
@@ -186,8 +168,8 @@ class MEDIA_EXPORT AUAudioInputStream
   // Our creator, the audio manager needs to be notified when we close.
   AudioManagerMac* const manager_;
 
-  // Contains the desired number of audio frames in each callback.
-  const size_t number_of_frames_;
+  // The audio parameters requested when creating the stream.
+  const AudioParameters input_params_;
 
   // Stores the number of frames that we actually get callbacks for.
   // This may be different from what we ask for, so we use this for stats in
@@ -220,8 +202,8 @@ class MEDIA_EXPORT AUAudioInputStream
   // array as soon as a frame of the desired buffer size has been recorded.
   std::unique_ptr<uint8_t[]> audio_data_buffer_;
 
-  // Fixed capture hardware latency in frames.
-  double hardware_latency_frames_;
+  // Fixed capture hardware latency.
+  base::TimeDelta hardware_latency_;
 
   // The number of channels in each frame of audio data, which is used
   // when querying the volume of each channel.
@@ -254,10 +236,6 @@ class MEDIA_EXPORT AUAudioInputStream
   // This timer lives on the main browser thread.
   std::unique_ptr<base::OneShotTimer> input_callback_timer_;
 
-  // Set to true if the Start() call was delayed.
-  // See AudioManagerMac::ShouldDeferStreamStart() for details.
-  bool start_was_deferred_;
-
   // Set to true if the audio unit's IO buffer was changed when Open() was
   // called.
   bool buffer_size_was_changed_;
@@ -265,20 +243,17 @@ class MEDIA_EXPORT AUAudioInputStream
   // Set to true once when AudioUnitRender() succeeds for the first time.
   bool audio_unit_render_has_worked_;
 
-  // Maps unique representations of device property notification types and
-  // number of times we have been notified about a change in such a type.
-  // While the notifier is active, this member is modified by several different
-  // internal thread. My guess is that a serial dispatch queue is used under
-  // the hood and it executes one task at a time in the order in which they are
-  // added to the queue. The currently executing task runs on a distinct thread
-  // (which can vary from task to task) that is managed by the dispatch queue.
-  // The map is always read on the creating thread but only while the notifier
-  // is disabled, hence no lock is required.
-  std::map<UInt32, int> device_property_changes_map_;
+  // Set to true when we've successfully called SuppressNoiseReduction to
+  // disable ambient noise reduction.
+  bool noise_reduction_suppressed_;
 
-  // Set to true when we are listening for changes in device properties.
-  // Only touched on the creating thread.
-  bool device_listener_is_active_;
+  // Controls whether or not we use the kAudioUnitSubType_VoiceProcessingIO
+  // voice processing component that provides echo cancellation, ducking
+  // and gain control on Sierra and later.
+  const bool use_voice_processing_;
+
+  // The of the output device to cancel echo from.
+  AudioDeviceID output_device_id_for_aec_;
 
   // Stores the timestamp of the previous audio buffer provided by the OS.
   // We use this in combination with |last_number_of_frames_| to detect when
@@ -296,11 +271,6 @@ class MEDIA_EXPORT AUAudioInputStream
 
   // Callback to send statistics info.
   AudioManager::LogCallback log_callback_;
-
-  // Used to ensure DevicePropertyChangedOnMainThread() is not called when
-  // this object is destroyed.
-  // Note that, all member variables should appear before the WeakPtrFactory.
-  base::WeakPtrFactory<AUAudioInputStream> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(AUAudioInputStream);
 };

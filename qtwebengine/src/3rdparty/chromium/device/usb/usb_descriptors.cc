@@ -8,15 +8,13 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
+#include "base/memory/ref_counted_memory.h"
 #include "device/usb/usb_device_handle.h"
-#include "net/base/io_buffer.h"
-
-using net::IOBuffer;
-using net::IOBufferWithSize;
 
 namespace device {
 
@@ -59,7 +57,7 @@ struct UsbInterfaceAssociationDescriptor {
 void ParseInterfaceAssociationDescriptors(
     const std::vector<uint8_t>& buffer,
     std::vector<UsbInterfaceAssociationDescriptor>* functions) {
-  std::vector<uint8_t>::const_iterator it = buffer.begin();
+  auto it = buffer.begin();
 
   while (it != buffer.end()) {
     // All descriptors must be at least 2 byte which means the length and type
@@ -80,80 +78,79 @@ void ParseInterfaceAssociationDescriptors(
 void OnDoneReadingConfigDescriptors(
     scoped_refptr<UsbDeviceHandle> device_handle,
     std::unique_ptr<UsbDeviceDescriptor> desc,
-    const base::Callback<void(std::unique_ptr<UsbDeviceDescriptor>)>&
-        callback) {
+    base::OnceCallback<void(std::unique_ptr<UsbDeviceDescriptor>)> callback) {
   if (desc->num_configurations == desc->configurations.size()) {
-    callback.Run(std::move(desc));
+    std::move(callback).Run(std::move(desc));
   } else {
     LOG(ERROR) << "Failed to read all configuration descriptors. Expected "
                << static_cast<int>(desc->num_configurations) << ", got "
                << desc->configurations.size() << ".";
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
   }
 }
 
 void OnReadConfigDescriptor(UsbDeviceDescriptor* desc,
-                            const base::Closure& closure,
+                            base::Closure closure,
                             UsbTransferStatus status,
-                            scoped_refptr<IOBuffer> buffer,
+                            scoped_refptr<base::RefCountedBytes> buffer,
                             size_t length) {
   if (status == UsbTransferStatus::COMPLETED) {
     if (!desc->Parse(
-            std::vector<uint8_t>(buffer->data(), buffer->data() + length))) {
+            std::vector<uint8_t>(buffer->front(), buffer->front() + length))) {
       LOG(ERROR) << "Failed to parse configuration descriptor.";
     }
   } else {
     LOG(ERROR) << "Failed to read configuration descriptor.";
   }
-  closure.Run();
+  std::move(closure).Run();
 }
 
 void OnReadConfigDescriptorHeader(scoped_refptr<UsbDeviceHandle> device_handle,
                                   UsbDeviceDescriptor* desc,
                                   uint8_t index,
-                                  const base::Closure& closure,
+                                  base::Closure closure,
                                   UsbTransferStatus status,
-                                  scoped_refptr<IOBuffer> header,
+                                  scoped_refptr<base::RefCountedBytes> header,
                                   size_t length) {
   if (status == UsbTransferStatus::COMPLETED && length == 4) {
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(header->data());
+    const uint8_t* data = header->front();
     uint16_t total_length = data[2] | data[3] << 8;
-    scoped_refptr<IOBuffer> buffer = new IOBuffer(total_length);
+    auto buffer = base::MakeRefCounted<base::RefCountedBytes>(total_length);
     device_handle->ControlTransfer(
         UsbTransferDirection::INBOUND, UsbControlTransferType::STANDARD,
         UsbControlTransferRecipient::DEVICE, kGetDescriptorRequest,
-        kConfigurationDescriptorType << 8 | index, 0, buffer, total_length,
+        kConfigurationDescriptorType << 8 | index, 0, buffer,
         kControlTransferTimeoutMs,
-        base::Bind(&OnReadConfigDescriptor, desc, closure));
+        base::BindOnce(&OnReadConfigDescriptor, desc, std::move(closure)));
   } else {
     LOG(ERROR) << "Failed to read length for configuration "
                << static_cast<int>(index) << ".";
-    closure.Run();
+    std::move(closure).Run();
   }
 }
 
 void OnReadDeviceDescriptor(
     scoped_refptr<UsbDeviceHandle> device_handle,
-    const base::Callback<void(std::unique_ptr<UsbDeviceDescriptor>)>& callback,
+    base::OnceCallback<void(std::unique_ptr<UsbDeviceDescriptor>)> callback,
     UsbTransferStatus status,
-    scoped_refptr<IOBuffer> buffer,
+    scoped_refptr<base::RefCountedBytes> buffer,
     size_t length) {
   if (status != UsbTransferStatus::COMPLETED) {
     LOG(ERROR) << "Failed to read device descriptor.";
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
 
   std::unique_ptr<UsbDeviceDescriptor> desc(new UsbDeviceDescriptor());
   if (!desc->Parse(
-          std::vector<uint8_t>(buffer->data(), buffer->data() + length))) {
+          std::vector<uint8_t>(buffer->front(), buffer->front() + length))) {
     LOG(ERROR) << "Device descriptor parsing error.";
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
 
   if (desc->num_configurations == 0) {
-    callback.Run(std::move(desc));
+    std::move(callback).Run(std::move(desc));
     return;
   }
 
@@ -161,40 +158,40 @@ void OnReadDeviceDescriptor(
   UsbDeviceDescriptor* desc_ptr = desc.get();
   base::Closure closure = base::BarrierClosure(
       num_configurations,
-      base::Bind(OnDoneReadingConfigDescriptors, device_handle,
-                 base::Passed(&desc), callback));
+      base::BindOnce(OnDoneReadingConfigDescriptors, device_handle,
+                     std::move(desc), std::move(callback)));
   for (uint8_t i = 0; i < num_configurations; ++i) {
-    scoped_refptr<IOBufferWithSize> header = new IOBufferWithSize(4);
+    auto header = base::MakeRefCounted<base::RefCountedBytes>(4);
     device_handle->ControlTransfer(
         UsbTransferDirection::INBOUND, UsbControlTransferType::STANDARD,
         UsbControlTransferRecipient::DEVICE, kGetDescriptorRequest,
-        kConfigurationDescriptorType << 8 | i, 0, header, header->size(),
+        kConfigurationDescriptorType << 8 | i, 0, header,
         kControlTransferTimeoutMs,
-        base::Bind(&OnReadConfigDescriptorHeader, device_handle, desc_ptr, i,
-                   closure));
+        base::BindOnce(&OnReadConfigDescriptorHeader, device_handle, desc_ptr,
+                       i, closure));
   }
 }
 
 void StoreStringDescriptor(IndexMap::iterator it,
-                           const base::Closure& callback,
+                           base::Closure callback,
                            const base::string16& string) {
   it->second = string;
-  callback.Run();
+  std::move(callback).Run();
 }
 
 void OnReadStringDescriptor(
-    const base::Callback<void(const base::string16&)>& callback,
+    base::OnceCallback<void(const base::string16&)> callback,
     UsbTransferStatus status,
-    scoped_refptr<IOBuffer> buffer,
+    scoped_refptr<base::RefCountedBytes> buffer,
     size_t length) {
   base::string16 string;
   if (status == UsbTransferStatus::COMPLETED &&
       ParseUsbStringDescriptor(
-          std::vector<uint8_t>(buffer->data(), buffer->data() + length),
+          std::vector<uint8_t>(buffer->front(), buffer->front() + length),
           &string)) {
-    callback.Run(string);
+    std::move(callback).Run(string);
   } else {
-    callback.Run(base::string16());
+    std::move(callback).Run(base::string16());
   }
 }
 
@@ -202,18 +199,19 @@ void ReadStringDescriptor(
     scoped_refptr<UsbDeviceHandle> device_handle,
     uint8_t index,
     uint16_t language_id,
-    const base::Callback<void(const base::string16&)>& callback) {
-  scoped_refptr<IOBufferWithSize> buffer = new IOBufferWithSize(255);
+    base::OnceCallback<void(const base::string16&)> callback) {
+  auto buffer = base::MakeRefCounted<base::RefCountedBytes>(255);
   device_handle->ControlTransfer(
       UsbTransferDirection::INBOUND, UsbControlTransferType::STANDARD,
       UsbControlTransferRecipient::DEVICE, kGetDescriptorRequest,
-      kStringDescriptorType << 8 | index, language_id, buffer, buffer->size(),
-      kControlTransferTimeoutMs, base::Bind(&OnReadStringDescriptor, callback));
+      kStringDescriptorType << 8 | index, language_id, buffer,
+      kControlTransferTimeoutMs,
+      base::BindOnce(&OnReadStringDescriptor, std::move(callback)));
 }
 
 void OnReadLanguageIds(scoped_refptr<UsbDeviceHandle> device_handle,
                        IndexMapPtr index_map,
-                       const base::Callback<void(IndexMapPtr)>& callback,
+                       base::OnceCallback<void(IndexMapPtr)> callback,
                        const base::string16& languages) {
   // Default to English unless the device provides a language and then just pick
   // the first one.
@@ -223,13 +221,13 @@ void OnReadLanguageIds(scoped_refptr<UsbDeviceHandle> device_handle,
   for (auto it = index_map->begin(); it != index_map->end(); ++it)
     iterator_map[it->first] = it;
 
-  base::Closure barrier =
-      base::BarrierClosure(static_cast<int>(iterator_map.size()),
-                           base::Bind(callback, base::Passed(&index_map)));
+  base::Closure barrier = base::BarrierClosure(
+      static_cast<int>(iterator_map.size()),
+      base::BindOnce(std::move(callback), std::move(index_map)));
   for (const auto& map_entry : iterator_map) {
     ReadStringDescriptor(
         device_handle, map_entry.first, language_id,
-        base::Bind(&StoreStringDescriptor, map_entry.second, barrier));
+        base::BindOnce(&StoreStringDescriptor, map_entry.second, barrier));
   }
 }
 
@@ -412,20 +410,19 @@ void UsbConfigDescriptor::AssignFirstInterfaceNumbers() {
   }
 }
 
-UsbDeviceDescriptor::UsbDeviceDescriptor() {}
+UsbDeviceDescriptor::UsbDeviceDescriptor() = default;
 
 UsbDeviceDescriptor::UsbDeviceDescriptor(const UsbDeviceDescriptor& other) =
     default;
 
-UsbDeviceDescriptor::~UsbDeviceDescriptor() {}
+UsbDeviceDescriptor::~UsbDeviceDescriptor() = default;
 
 bool UsbDeviceDescriptor::Parse(const std::vector<uint8_t>& buffer) {
   UsbConfigDescriptor* last_config = nullptr;
   UsbInterfaceDescriptor* last_interface = nullptr;
   UsbEndpointDescriptor* last_endpoint = nullptr;
 
-  for (std::vector<uint8_t>::const_iterator it = buffer.begin();
-       it != buffer.end();
+  for (auto it = buffer.begin(); it != buffer.end();
        /* incremented internally */) {
     const uint8_t* data = &it[0];
     uint8_t length = data[0];
@@ -494,17 +491,17 @@ bool UsbDeviceDescriptor::Parse(const std::vector<uint8_t>& buffer) {
   return true;
 }
 
-void ReadUsbDescriptors(scoped_refptr<UsbDeviceHandle> device_handle,
-                        const base::Callback<void(
-                            std::unique_ptr<UsbDeviceDescriptor>)>& callback) {
-  scoped_refptr<IOBufferWithSize> buffer =
-      new IOBufferWithSize(kDeviceDescriptorLength);
+void ReadUsbDescriptors(
+    scoped_refptr<UsbDeviceHandle> device_handle,
+    base::OnceCallback<void(std::unique_ptr<UsbDeviceDescriptor>)> callback) {
+  auto buffer =
+      base::MakeRefCounted<base::RefCountedBytes>(kDeviceDescriptorLength);
   device_handle->ControlTransfer(
       UsbTransferDirection::INBOUND, UsbControlTransferType::STANDARD,
       UsbControlTransferRecipient::DEVICE, kGetDescriptorRequest,
-      kDeviceDescriptorType << 8, 0, buffer, buffer->size(),
-      kControlTransferTimeoutMs,
-      base::Bind(&OnReadDeviceDescriptor, device_handle, callback));
+      kDeviceDescriptorType << 8, 0, buffer, kControlTransferTimeoutMs,
+      base::BindOnce(&OnReadDeviceDescriptor, device_handle,
+                     std::move(callback)));
 }
 
 bool ParseUsbStringDescriptor(const std::vector<uint8_t>& descriptor,
@@ -528,18 +525,18 @@ bool ParseUsbStringDescriptor(const std::vector<uint8_t>& descriptor,
 
 // For each key in |index_map| this function reads that string descriptor from
 // |device_handle| and updates the value in in |index_map|.
-void ReadUsbStringDescriptors(
-    scoped_refptr<UsbDeviceHandle> device_handle,
-    IndexMapPtr index_map,
-    const base::Callback<void(IndexMapPtr)>& callback) {
+void ReadUsbStringDescriptors(scoped_refptr<UsbDeviceHandle> device_handle,
+                              IndexMapPtr index_map,
+                              base::OnceCallback<void(IndexMapPtr)> callback) {
   if (index_map->empty()) {
-    callback.Run(std::move(index_map));
+    std::move(callback).Run(std::move(index_map));
     return;
   }
 
-  ReadStringDescriptor(device_handle, 0, 0,
-                       base::Bind(&OnReadLanguageIds, device_handle,
-                                  base::Passed(&index_map), callback));
+  ReadStringDescriptor(
+      device_handle, 0, 0,
+      base::BindOnce(&OnReadLanguageIds, device_handle, std::move(index_map),
+                     std::move(callback)));
 }
 
 }  // namespace device

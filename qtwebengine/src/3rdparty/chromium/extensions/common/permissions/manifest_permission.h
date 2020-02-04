@@ -44,18 +44,20 @@ class ManifestPermission {
   virtual std::unique_ptr<base::Value> ToValue() const = 0;
 
   // Clones this.
-  ManifestPermission* Clone() const;
+  std::unique_ptr<ManifestPermission> Clone() const;
 
   // Returns a new manifest permission which equals this - |rhs|.
-  virtual ManifestPermission* Diff(const ManifestPermission* rhs) const = 0;
+  virtual std::unique_ptr<ManifestPermission> Diff(
+      const ManifestPermission* rhs) const = 0;
 
   // Returns a new manifest permission which equals the union of this and |rhs|.
-  virtual ManifestPermission* Union(const ManifestPermission* rhs) const = 0;
+  virtual std::unique_ptr<ManifestPermission> Union(
+      const ManifestPermission* rhs) const = 0;
 
   // Returns a new manifest permission which equals the intersect of this and
   // |rhs|.
-  virtual ManifestPermission* Intersect(const ManifestPermission* rhs)
-      const = 0;
+  virtual std::unique_ptr<ManifestPermission> Intersect(
+      const ManifestPermission* rhs) const = 0;
 
   // Returns true if |rhs| is a subset of this.
   bool Contains(const ManifestPermission* rhs) const;
@@ -64,9 +66,6 @@ class ManifestPermission {
   bool Equal(const ManifestPermission* rhs) const;
 
   // IPC functions
-  // Gets the size of the data to be written.
-  void GetSize(base::PickleSizer* s) const;
-
   // Writes this into the given IPC message |m|.
   void Write(base::Pickle* m) const;
 

@@ -13,6 +13,8 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "media/base/limits.h"
+#include "media/capture/video/mock_gpu_memory_buffer_manager.h"
+#include "media/capture/video/mock_video_frame_receiver.h"
 #include "media/capture/video/video_capture_buffer_pool_impl.h"
 #include "media/capture/video/video_capture_buffer_tracker_factory_impl.h"
 #include "media/capture/video/video_capture_jpeg_decoder.h"
@@ -21,6 +23,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using ::testing::_;
+using ::testing::AtLeast;
 using ::testing::Mock;
 using ::testing::InSequence;
 using ::testing::Invoke;
@@ -30,43 +33,11 @@ namespace media {
 
 namespace {
 
-class MockVideoCaptureController : public VideoFrameReceiver {
- public:
-  MOCK_METHOD1(MockOnNewBufferHandle, void(int buffer_id));
-  MOCK_METHOD3(
-      MockOnFrameReadyInBuffer,
-      void(int buffer_id,
-           std::unique_ptr<media::VideoCaptureDevice::Client::Buffer::
-                               ScopedAccessPermission>* buffer_read_permission,
-           const gfx::Size&));
-  MOCK_METHOD0(OnError, void());
-  MOCK_METHOD1(OnLog, void(const std::string& message));
-  MOCK_METHOD1(OnBufferRetired, void(int buffer_id));
-  MOCK_METHOD0(OnStarted, void());
-  MOCK_METHOD0(OnStartedUsingGpuDecode, void());
-
-  void OnNewBufferHandle(
-      int buffer_id,
-      std::unique_ptr<media::VideoCaptureDevice::Client::Buffer::HandleProvider>
-          handle_provider) override {
-    MockOnNewBufferHandle(buffer_id);
-  }
-
-  void OnFrameReadyInBuffer(
-      int32_t buffer_id,
-      int frame_feedback_id,
-      std::unique_ptr<
-          media::VideoCaptureDevice::Client::Buffer::ScopedAccessPermission>
-          buffer_read_permission,
-      media::mojom::VideoFrameInfoPtr frame_info) override {
-    MockOnFrameReadyInBuffer(buffer_id, &buffer_read_permission,
-                             frame_info->coded_size);
-  }
-};
-
-std::unique_ptr<media::VideoCaptureJpegDecoder> ReturnNullPtrAsJpecDecoder() {
+std::unique_ptr<VideoCaptureJpegDecoder> ReturnNullPtrAsJpecDecoder() {
   return nullptr;
 }
+
+}  // namespace
 
 // Test fixture for testing a unit consisting of an instance of
 // VideoCaptureDeviceClient connected to a partly-mocked instance of
@@ -76,50 +47,67 @@ std::unique_ptr<media::VideoCaptureJpegDecoder> ReturnNullPtrAsJpecDecoder() {
 class VideoCaptureDeviceClientTest : public ::testing::Test {
  public:
   VideoCaptureDeviceClientTest() {
-    scoped_refptr<media::VideoCaptureBufferPoolImpl> buffer_pool(
-        new media::VideoCaptureBufferPoolImpl(
-            base::MakeUnique<media::VideoCaptureBufferTrackerFactoryImpl>(),
-            1));
-    auto controller = base::MakeUnique<MockVideoCaptureController>();
-    controller_ = controller.get();
-    device_client_ = base::MakeUnique<media::VideoCaptureDeviceClient>(
-        std::move(controller), buffer_pool,
-        base::Bind(&ReturnNullPtrAsJpecDecoder));
+    scoped_refptr<VideoCaptureBufferPoolImpl> buffer_pool(
+        new VideoCaptureBufferPoolImpl(
+            std::make_unique<VideoCaptureBufferTrackerFactoryImpl>(), 2));
+    auto controller = std::make_unique<MockVideoFrameReceiver>();
+    receiver_ = controller.get();
+    gpu_memory_buffer_manager_ =
+        std::make_unique<unittest_internal::MockGpuMemoryBufferManager>();
+    device_client_ = std::make_unique<VideoCaptureDeviceClient>(
+        VideoCaptureBufferType::kSharedMemory, std::move(controller),
+        buffer_pool, base::BindRepeating(&ReturnNullPtrAsJpecDecoder));
   }
-  ~VideoCaptureDeviceClientTest() override {}
+  ~VideoCaptureDeviceClientTest() override = default;
 
  protected:
-  MockVideoCaptureController* controller_;
-  std::unique_ptr<media::VideoCaptureDeviceClient> device_client_;
+  MockVideoFrameReceiver* receiver_;
+  std::unique_ptr<unittest_internal::MockGpuMemoryBufferManager>
+      gpu_memory_buffer_manager_;
+  std::unique_ptr<VideoCaptureDeviceClient> device_client_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(VideoCaptureDeviceClientTest);
 };
-
-}  // namespace
 
 // A small test for reference and to verify VideoCaptureDeviceClient is
 // minimally functional.
 TEST_F(VideoCaptureDeviceClientTest, Minimal) {
   const size_t kScratchpadSizeInBytes = 400;
   unsigned char data[kScratchpadSizeInBytes] = {};
-  const media::VideoCaptureFormat kFrameFormat(
-      gfx::Size(10, 10), 30.0f /*frame_rate*/, media::PIXEL_FORMAT_I420,
-      media::PIXEL_STORAGE_CPU);
+  const VideoCaptureFormat kFrameFormat(gfx::Size(10, 10), 30.0f /*frame_rate*/,
+                                        PIXEL_FORMAT_I420);
   DCHECK(device_client_.get());
   {
     InSequence s;
     const int expected_buffer_id = 0;
-    EXPECT_CALL(*controller_, OnLog(_));
-    EXPECT_CALL(*controller_, MockOnNewBufferHandle(expected_buffer_id));
-    EXPECT_CALL(*controller_,
-                MockOnFrameReadyInBuffer(expected_buffer_id, _, _));
-    EXPECT_CALL(*controller_, OnBufferRetired(expected_buffer_id));
+    EXPECT_CALL(*receiver_, OnLog(_));
+    EXPECT_CALL(*receiver_, MockOnNewBufferHandle(expected_buffer_id));
+    EXPECT_CALL(*receiver_, MockOnFrameReadyInBuffer(expected_buffer_id, _, _));
   }
   device_client_->OnIncomingCapturedData(data, kScratchpadSizeInBytes,
                                          kFrameFormat, 0 /*clockwise rotation*/,
                                          base::TimeTicks(), base::TimeDelta());
-  // Releasing |device_client_| will also release |controller_|.
+
+  const gfx::Size kBufferDimensions(10, 10);
+  const VideoCaptureFormat kFrameFormatNV12(
+      kBufferDimensions, 30.0f /*frame_rate*/, PIXEL_FORMAT_NV12);
+  std::unique_ptr<gfx::GpuMemoryBuffer> buffer =
+      gpu_memory_buffer_manager_->CreateFakeGpuMemoryBuffer(
+          kBufferDimensions, gfx::BufferFormat::YUV_420_BIPLANAR,
+          gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE, gpu::kNullSurfaceHandle);
+  {
+    InSequence s;
+    const int expected_buffer_id = 0;
+    EXPECT_CALL(*receiver_, OnLog(_));
+    EXPECT_CALL(*receiver_, MockOnFrameReadyInBuffer(expected_buffer_id, _, _));
+    EXPECT_CALL(*receiver_, OnBufferRetired(expected_buffer_id));
+  }
+  device_client_->OnIncomingCapturedGfxBuffer(
+      buffer.get(), kFrameFormatNV12, 0 /*clockwise rotation*/,
+      base::TimeTicks(), base::TimeDelta());
+
+  // Releasing |device_client_| will also release |receiver_|.
   device_client_.reset();
 }
 
@@ -128,51 +116,68 @@ TEST_F(VideoCaptureDeviceClientTest, FailsSilentlyGivenInvalidFrameFormat) {
   const size_t kScratchpadSizeInBytes = 400;
   unsigned char data[kScratchpadSizeInBytes] = {};
   // kFrameFormat is invalid in a number of ways.
-  const media::VideoCaptureFormat kFrameFormat(
-      gfx::Size(media::limits::kMaxDimension + 1, media::limits::kMaxDimension),
-      media::limits::kMaxFramesPerSecond + 1,
-      media::VideoPixelFormat::PIXEL_FORMAT_I420,
-      media::VideoPixelStorage::PIXEL_STORAGE_CPU);
+  const VideoCaptureFormat kFrameFormat(
+      gfx::Size(limits::kMaxDimension + 1, limits::kMaxDimension),
+      limits::kMaxFramesPerSecond + 1, VideoPixelFormat::PIXEL_FORMAT_I420);
   DCHECK(device_client_.get());
   // Expect the the call to fail silently inside the VideoCaptureDeviceClient.
-  EXPECT_CALL(*controller_, OnLog(_)).Times(1);
-  EXPECT_CALL(*controller_, MockOnFrameReadyInBuffer(_, _, _)).Times(0);
+  EXPECT_CALL(*receiver_, OnLog(_)).Times(AtLeast(1));
+  EXPECT_CALL(*receiver_, MockOnFrameReadyInBuffer(_, _, _)).Times(0);
   device_client_->OnIncomingCapturedData(data, kScratchpadSizeInBytes,
                                          kFrameFormat, 0 /*clockwise rotation*/,
                                          base::TimeTicks(), base::TimeDelta());
-  Mock::VerifyAndClearExpectations(controller_);
+
+  const gfx::Size kBufferDimensions(10, 10);
+  const VideoCaptureFormat kFrameFormatNV12(
+      kBufferDimensions, 30.0f /*frame_rate*/, PIXEL_FORMAT_NV12);
+  std::unique_ptr<gfx::GpuMemoryBuffer> buffer =
+      gpu_memory_buffer_manager_->CreateFakeGpuMemoryBuffer(
+          kBufferDimensions, gfx::BufferFormat::YUV_420_BIPLANAR,
+          gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE, gpu::kNullSurfaceHandle);
+  EXPECT_CALL(*receiver_, MockOnFrameReadyInBuffer(_, _, _)).Times(0);
+  device_client_->OnIncomingCapturedGfxBuffer(
+      buffer.get(), kFrameFormat, 0 /*clockwise rotation*/, base::TimeTicks(),
+      base::TimeDelta());
+
+  Mock::VerifyAndClearExpectations(receiver_);
 }
 
 // Tests that we fail silently if no available buffers to use.
 TEST_F(VideoCaptureDeviceClientTest, DropsFrameIfNoBuffer) {
   const size_t kScratchpadSizeInBytes = 400;
   unsigned char data[kScratchpadSizeInBytes] = {};
-  const media::VideoCaptureFormat kFrameFormat(
-      gfx::Size(10, 10), 30.0f /*frame_rate*/, media::PIXEL_FORMAT_I420,
-      media::PIXEL_STORAGE_CPU);
-  EXPECT_CALL(*controller_, OnLog(_)).Times(1);
+  const VideoCaptureFormat kFrameFormat(gfx::Size(10, 10), 30.0f /*frame_rate*/,
+                                        PIXEL_FORMAT_I420);
+  EXPECT_CALL(*receiver_, OnLog(_)).Times(1);
   // Simulate that receiver still holds |buffer_read_permission| for the first
-  // buffer when the second call to OnIncomingCapturedData comes in.
-  // Since we set up the buffer pool to max out at 1 buffer, this should cause
+  // two buffers when the third call to OnIncomingCapturedData comes in.
+  // Since we set up the buffer pool to max out at 2 buffer, this should cause
   // |device_client_| to drop the frame.
-  std::unique_ptr<VideoCaptureDevice::Client::Buffer::ScopedAccessPermission>
+  std::vector<std::unique_ptr<
+      VideoCaptureDevice::Client::Buffer::ScopedAccessPermission>>
       read_permission;
-  EXPECT_CALL(*controller_, MockOnFrameReadyInBuffer(_, _, _))
-      .WillOnce(Invoke([&read_permission](
-          int buffer_id,
-          std::unique_ptr<media::VideoCaptureDevice::Client::Buffer::
-                              ScopedAccessPermission>* buffer_read_permission,
-          const gfx::Size&) {
-        read_permission = std::move(*buffer_read_permission);
-      }));
-  // Pass two frames. The second will be dropped.
+  EXPECT_CALL(*receiver_, MockOnFrameReadyInBuffer(_, _, _))
+      .Times(2)
+      .WillRepeatedly(Invoke(
+          [&read_permission](
+              int buffer_id,
+              std::unique_ptr<
+                  VideoCaptureDevice::Client::Buffer::ScopedAccessPermission>*
+                  buffer_read_permission,
+              const gfx::Size&) {
+            read_permission.push_back(std::move(*buffer_read_permission));
+          }));
+  // Pass three frames. The third will be dropped.
   device_client_->OnIncomingCapturedData(data, kScratchpadSizeInBytes,
                                          kFrameFormat, 0 /*clockwise rotation*/,
                                          base::TimeTicks(), base::TimeDelta());
   device_client_->OnIncomingCapturedData(data, kScratchpadSizeInBytes,
                                          kFrameFormat, 0 /*clockwise rotation*/,
                                          base::TimeTicks(), base::TimeDelta());
-  Mock::VerifyAndClearExpectations(controller_);
+  device_client_->OnIncomingCapturedData(data, kScratchpadSizeInBytes,
+                                         kFrameFormat, 0 /*clockwise rotation*/,
+                                         base::TimeTicks(), base::TimeDelta());
+  Mock::VerifyAndClearExpectations(receiver_);
 }
 
 // Tests that buffer-based capture API accepts some memory-backed pixel formats.
@@ -187,37 +192,37 @@ TEST_F(VideoCaptureDeviceClientTest, DataCaptureGoodPixelFormats) {
   ASSERT_GE(kScratchpadSizeInBytes, kCaptureResolution.GetArea() * 4u)
       << "Scratchpad is too small to hold the largest pixel format (ARGB).";
 
-  media::VideoCaptureParams params;
-  params.requested_format = media::VideoCaptureFormat(
-      kCaptureResolution, 30.0f, media::PIXEL_FORMAT_UNKNOWN);
+  VideoCaptureParams params;
+  params.requested_format =
+      VideoCaptureFormat(kCaptureResolution, 30.0f, PIXEL_FORMAT_UNKNOWN);
 
   // Only use the VideoPixelFormats that we know supported. Do not add
   // PIXEL_FORMAT_MJPEG since it would need a real JPEG header.
-  const media::VideoPixelFormat kSupportedFormats[] = {
-    media::PIXEL_FORMAT_I420,
-    media::PIXEL_FORMAT_YV12,
-    media::PIXEL_FORMAT_NV12,
-    media::PIXEL_FORMAT_NV21,
-    media::PIXEL_FORMAT_YUY2,
-    media::PIXEL_FORMAT_UYVY,
+  const VideoPixelFormat kSupportedFormats[] = {
+    PIXEL_FORMAT_I420,
+    PIXEL_FORMAT_YV12,
+    PIXEL_FORMAT_NV12,
+    PIXEL_FORMAT_NV21,
+    PIXEL_FORMAT_YUY2,
+    PIXEL_FORMAT_UYVY,
 #if defined(OS_WIN) || defined(OS_LINUX)
-    media::PIXEL_FORMAT_RGB24,
+    PIXEL_FORMAT_RGB24,
 #endif
-    media::PIXEL_FORMAT_RGB32,
-    media::PIXEL_FORMAT_ARGB,
-    media::PIXEL_FORMAT_Y16,
+    PIXEL_FORMAT_RGB32,
+    PIXEL_FORMAT_ARGB,
+    PIXEL_FORMAT_Y16,
   };
 
-  for (media::VideoPixelFormat format : kSupportedFormats) {
+  for (VideoPixelFormat format : kSupportedFormats) {
     params.requested_format.pixel_format = format;
 
-    EXPECT_CALL(*controller_, OnLog(_)).Times(1);
-    EXPECT_CALL(*controller_, MockOnFrameReadyInBuffer(_, _, _)).Times(1);
+    EXPECT_CALL(*receiver_, OnLog(_)).Times(1);
+    EXPECT_CALL(*receiver_, MockOnFrameReadyInBuffer(_, _, _)).Times(1);
     device_client_->OnIncomingCapturedData(
         data, params.requested_format.ImageAllocationSize(),
         params.requested_format, 0 /* clockwise_rotation */, base::TimeTicks(),
         base::TimeDelta());
-    Mock::VerifyAndClearExpectations(controller_);
+    Mock::VerifyAndClearExpectations(receiver_);
   }
 }
 
@@ -240,17 +245,17 @@ TEST_F(VideoCaptureDeviceClientTest, CheckRotationsAndCrops) {
   const size_t kScratchpadSizeInBytes = 400;
   unsigned char data[kScratchpadSizeInBytes] = {};
 
-  EXPECT_CALL(*controller_, OnLog(_)).Times(1);
+  EXPECT_CALL(*receiver_, OnLog(_)).Times(1);
 
-  media::VideoCaptureParams params;
+  VideoCaptureParams params;
   for (const auto& size_and_rotation : kSizeAndRotations) {
     ASSERT_GE(kScratchpadSizeInBytes,
               size_and_rotation.input_resolution.GetArea() * 4u)
         << "Scratchpad is too small to hold the largest pixel format (ARGB).";
-    params.requested_format = media::VideoCaptureFormat(
-        size_and_rotation.input_resolution, 30.0f, media::PIXEL_FORMAT_ARGB);
+    params.requested_format = VideoCaptureFormat(
+        size_and_rotation.input_resolution, 30.0f, PIXEL_FORMAT_ARGB);
     gfx::Size coded_size;
-    EXPECT_CALL(*controller_, MockOnFrameReadyInBuffer(_, _, _))
+    EXPECT_CALL(*receiver_, MockOnFrameReadyInBuffer(_, _, _))
         .Times(1)
         .WillOnce(SaveArg<2>(&coded_size));
     device_client_->OnIncomingCapturedData(
@@ -262,7 +267,38 @@ TEST_F(VideoCaptureDeviceClientTest, CheckRotationsAndCrops) {
     EXPECT_EQ(coded_size.height(),
               size_and_rotation.output_resolution.height());
 
-    Mock::VerifyAndClearExpectations(controller_);
+    Mock::VerifyAndClearExpectations(receiver_);
+  }
+
+  SizeAndRotation kSizeAndRotationsNV12[] = {{{6, 4}, 0, {6, 4}},
+                                             {{6, 4}, 90, {4, 6}},
+                                             {{6, 4}, 180, {6, 4}},
+                                             {{6, 4}, 270, {4, 6}}};
+  EXPECT_CALL(*receiver_, OnLog(_)).Times(1);
+
+  for (const auto& size_and_rotation : kSizeAndRotationsNV12) {
+    params.requested_format = VideoCaptureFormat(
+        size_and_rotation.input_resolution, 30.0f, PIXEL_FORMAT_NV12);
+    std::unique_ptr<gfx::GpuMemoryBuffer> buffer =
+        gpu_memory_buffer_manager_->CreateFakeGpuMemoryBuffer(
+            size_and_rotation.input_resolution,
+            gfx::BufferFormat::YUV_420_BIPLANAR,
+            gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE,
+            gpu::kNullSurfaceHandle);
+
+    gfx::Size coded_size;
+    EXPECT_CALL(*receiver_, MockOnFrameReadyInBuffer(_, _, _))
+        .Times(1)
+        .WillOnce(SaveArg<2>(&coded_size));
+    device_client_->OnIncomingCapturedGfxBuffer(
+        buffer.get(), params.requested_format, size_and_rotation.rotation,
+        base::TimeTicks(), base::TimeDelta());
+
+    EXPECT_EQ(coded_size.width(), size_and_rotation.output_resolution.width());
+    EXPECT_EQ(coded_size.height(),
+              size_and_rotation.output_resolution.height());
+
+    Mock::VerifyAndClearExpectations(receiver_);
   }
 }
 

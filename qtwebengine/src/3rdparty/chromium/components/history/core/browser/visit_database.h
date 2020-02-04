@@ -11,7 +11,7 @@
 #include "components/history/core/browser/history_types.h"
 
 namespace sql {
-class Connection;
+class Database;
 class Statement;
 }
 
@@ -102,6 +102,11 @@ class VisitDatabase {
                                      ui::PageTransition transition,
                                      VisitVector* visits);
 
+  // Looks up URLIDs for all visits with specified transition. Returns true on
+  // success and false otherwise.
+  bool GetAllURLIDsForTransition(ui::PageTransition transition,
+                                 std::vector<URLID>* urls);
+
   // Fills all visits in the given time range into the given vector that should
   // be user-visible, which excludes things like redirects and subframes. The
   // begin time is inclusive, the end time is exclusive. Either time can be
@@ -183,9 +188,16 @@ class VisitDatabase {
   void GetVisitsSource(const VisitVector& visits,
                        VisitSourceMap* sources);
 
+  // Returns the list of Google domain visits of the user based on the Google
+  // searches issued in the specified time interval.
+  // begin_time is inclusive, end_time is exclusive.
+  std::vector<DomainVisit> GetGoogleDomainVisitsFromSearchesInRange(
+      base::Time begin_time,
+      base::Time end_time);
+
  protected:
   // Returns the database for the functions in this interface.
-  virtual sql::Connection& GetDB() = 0;
+  virtual sql::Database& GetDB() = 0;
 
   // Called by the derived classes on initialization to make sure the tables
   // and indices are properly set up. Must be called before anything else.
@@ -193,7 +205,7 @@ class VisitDatabase {
 
   // Convenience to fill a VisitRow. Assumes the visit values are bound starting
   // at index 0.
-  static void FillVisitRow(sql::Statement& statement, VisitRow* visit);
+  static void FillVisitRow(const sql::Statement& statement, VisitRow* visit);
 
   // Convenience to fill a VisitVector. Assumes that statement.step()
   // hasn't happened yet.
@@ -211,14 +223,23 @@ class VisitDatabase {
   // don't have visit_duration column yet.
   bool MigrateVisitsWithoutDuration();
 
+  // Called by the derived classes to migrate the older visits table which
+  // don't have incremented_omnibox_typed_score column yet.
+  bool MigrateVisitsWithoutIncrementedOmniboxTypedScore();
+
+  // A subprocedure in the process of migration to version 40.
+  bool GetAllVisitedURLRowidsForMigrationToVersion40(
+      std::vector<URLID>* visited_url_rowids_sorted);
+
  private:
 
   DISALLOW_COPY_AND_ASSIGN(VisitDatabase);
 };
 
-// Rows, in order, of the visit table.
-#define HISTORY_VISIT_ROW_FIELDS \
-    " id,url,visit_time,from_visit,transition,segment_id,visit_duration "
+// Columns, in order, of the visit table.
+#define HISTORY_VISIT_ROW_FIELDS                                        \
+  " id,url,visit_time,from_visit,transition,segment_id,visit_duration," \
+  "incremented_omnibox_typed_score "
 
 }  // namespace history
 

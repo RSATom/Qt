@@ -14,7 +14,7 @@
 #include <unordered_set>
 #include "SkSLErrorReporter.h"
 #include "ir/SkSLLayout.h"
-#include "SkSLToken.h"
+#include "SkSLLexer.h"
 
 struct yy_buffer_state;
 #define YY_TYPEDEF_YY_BUFFER_STATE
@@ -51,9 +51,53 @@ class SymbolTable;
  */
 class Parser {
 public:
-    Parser(String text, SymbolTable& types, ErrorReporter& errors);
+    enum class LayoutToken {
+        LOCATION,
+        OFFSET,
+        BINDING,
+        INDEX,
+        SET,
+        BUILTIN,
+        INPUT_ATTACHMENT_INDEX,
+        ORIGIN_UPPER_LEFT,
+        OVERRIDE_COVERAGE,
+        BLEND_SUPPORT_ALL_EQUATIONS,
+        BLEND_SUPPORT_MULTIPLY,
+        BLEND_SUPPORT_SCREEN,
+        BLEND_SUPPORT_OVERLAY,
+        BLEND_SUPPORT_DARKEN,
+        BLEND_SUPPORT_LIGHTEN,
+        BLEND_SUPPORT_COLORDODGE,
+        BLEND_SUPPORT_COLORBURN,
+        BLEND_SUPPORT_HARDLIGHT,
+        BLEND_SUPPORT_SOFTLIGHT,
+        BLEND_SUPPORT_DIFFERENCE,
+        BLEND_SUPPORT_EXCLUSION,
+        BLEND_SUPPORT_HSL_HUE,
+        BLEND_SUPPORT_HSL_SATURATION,
+        BLEND_SUPPORT_HSL_COLOR,
+        BLEND_SUPPORT_HSL_LUMINOSITY,
+        PUSH_CONSTANT,
+        POINTS,
+        LINES,
+        LINE_STRIP,
+        LINES_ADJACENCY,
+        TRIANGLES,
+        TRIANGLE_STRIP,
+        TRIANGLES_ADJACENCY,
+        MAX_VERTICES,
+        INVOCATIONS,
+        WHEN,
+        KEY,
+        TRACKED,
+        CTYPE,
+        SKPMCOLOR4F,
+        SKRECT,
+        SKIRECT,
+        SKPMCOLOR,
+    };
 
-    ~Parser();
+    Parser(const char* text, size_t length, SymbolTable& types, ErrorReporter& errors);
 
     /**
      * Consumes a complete .sksl file and produces a list of declarations. Errors are reported via
@@ -62,7 +106,13 @@ public:
      */
     std::vector<std::unique_ptr<ASTDeclaration>> file();
 
+    StringFragment text(Token token);
+
+    Position position(Token token);
+
 private:
+    static void InitLayoutMap();
+
     /**
      * Return the next token, including whitespace tokens, from the parse stream.
      */
@@ -103,14 +153,13 @@ private:
     bool expect(Token::Kind kind, const char* expected, Token* result = nullptr);
     bool expect(Token::Kind kind, String expected, Token* result = nullptr);
 
-    void error(Position p, const char* msg);
-    void error(Position p, String msg);
-
+    void error(Token token, String msg);
+    void error(int offset, String msg);
     /**
      * Returns true if the 'name' identifier refers to a type name. For instance, isType("int") will
      * always return true.
      */
-    bool isType(String name);
+    bool isType(StringFragment name);
 
     // these functions parse individual grammar rules from the current parse position; you probably
     // don't need to call any of these outside of the parser. The function declarations in the .cpp
@@ -122,6 +171,8 @@ private:
 
     std::unique_ptr<ASTDeclaration> section();
 
+    std::unique_ptr<ASTDeclaration> enumDeclaration();
+
     std::unique_ptr<ASTDeclaration> declaration();
 
     std::unique_ptr<ASTVarDeclarations> varDeclarations();
@@ -132,15 +183,19 @@ private:
 
     std::unique_ptr<ASTVarDeclarations> varDeclarationEnd(Modifiers modifiers,
                                                           std::unique_ptr<ASTType> type,
-                                                          String name);
+                                                          StringFragment name);
 
     std::unique_ptr<ASTParameter> parameter();
 
     int layoutInt();
 
+    StringFragment layoutIdentifier();
+
     String layoutCode();
 
     Layout::Key layoutKey();
+
+    Layout::CType layoutCType();
 
     Layout layout();
 
@@ -222,10 +277,12 @@ private:
 
     bool boolLiteral(bool* dest);
 
-    bool identifier(String* dest);
+    bool identifier(StringFragment* dest);
 
-    void* fScanner;
-    void* fLayoutScanner;
+    static std::unordered_map<String, LayoutToken>* layoutTokens;
+
+    const char* fText;
+    Lexer fLexer;
     YY_BUFFER_STATE fBuffer;
     // current parse depth, used to enforce a recursion limit to try to keep us from overflowing the
     // stack on pathological inputs
@@ -235,6 +292,7 @@ private:
     ErrorReporter& fErrors;
 
     friend class AutoDepth;
+    friend class HCodeGenerator;
 };
 
 } // namespace

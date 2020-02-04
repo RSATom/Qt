@@ -12,11 +12,8 @@
 #include "base/memory/shared_memory_tracker.h"
 #include "base/process/process_metrics.h"
 #include "base/strings/stringprintf.h"
-#include "base/trace_event/heap_profiler_heap_dump_writer.h"
-#include "base/trace_event/heap_profiler_serialization_state.h"
 #include "base/trace_event/memory_infra_background_whitelist.h"
-#include "base/trace_event/process_memory_totals.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 
@@ -24,11 +21,13 @@
 #include <mach/vm_page_size.h>
 #endif
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include <sys/mman.h>
 #endif
 
 #if defined(OS_WIN)
+#include <windows.h>  // Must be in front of other Windows header files
+
 #include <Psapi.h>
 #endif
 
@@ -49,6 +48,11 @@ size_t GetSystemPageCount(size_t mapped_size, size_t page_size) {
   return (mapped_size + page_size - 1) / page_size;
 }
 #endif
+
+UnguessableToken GetTokenForCurrentProcess() {
+  static UnguessableToken instance = UnguessableToken::Create();
+  return instance;
+}
 
 }  // namespace
 
@@ -77,7 +81,7 @@ size_t ProcessMemoryDump::CountResidentBytes(void* start_address,
   DCHECK_EQ(0u, start_pointer % page_size);
 
   size_t offset = 0;
-  size_t total_resident_size = 0;
+  size_t total_resident_pages = 0;
   bool failure = false;
 
   // An array as large as number of pages in memory segment needs to be passed
@@ -86,12 +90,12 @@ size_t ProcessMemoryDump::CountResidentBytes(void* start_address,
   const size_t kMaxChunkSize = 8 * 1024 * 1024;
   size_t max_vec_size =
       GetSystemPageCount(std::min(mapped_size, kMaxChunkSize), page_size);
-#if defined(OS_MACOSX) || defined(OS_IOS)
-  std::unique_ptr<char[]> vec(new char[max_vec_size]);
-#elif defined(OS_WIN)
+#if defined(OS_WIN)
   std::unique_ptr<PSAPI_WORKING_SET_EX_INFORMATION[]> vec(
       new PSAPI_WORKING_SET_EX_INFORMATION[max_vec_size]);
-#elif defined(OS_POSIX)
+#elif defined(OS_MACOSX)
+  std::unique_ptr<char[]> vec(new char[max_vec_size]);
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   std::unique_ptr<unsigned char[]> vec(new unsigned char[max_vec_size]);
 #endif
 
@@ -100,14 +104,7 @@ size_t ProcessMemoryDump::CountResidentBytes(void* start_address,
     const size_t chunk_size = std::min(mapped_size - offset, kMaxChunkSize);
     const size_t page_count = GetSystemPageCount(chunk_size, page_size);
     size_t resident_page_count = 0;
-
-#if defined(OS_MACOSX) || defined(OS_IOS)
-    // mincore in MAC does not fail with EAGAIN.
-    failure =
-        !!mincore(reinterpret_cast<void*>(chunk_start), chunk_size, vec.get());
-    for (size_t i = 0; i < page_count; i++)
-      resident_page_count += vec[i] & MINCORE_INCORE ? 1 : 0;
-#elif defined(OS_WIN)
+#if defined(OS_WIN)
     for (size_t i = 0; i < page_count; i++) {
       vec[i].VirtualAddress =
           reinterpret_cast<void*>(chunk_start + i * page_size);
@@ -122,6 +119,12 @@ size_t ProcessMemoryDump::CountResidentBytes(void* start_address,
     // TODO(fuchsia): Port, see https://crbug.com/706592.
     ALLOW_UNUSED_LOCAL(chunk_start);
     ALLOW_UNUSED_LOCAL(page_count);
+#elif defined(OS_MACOSX)
+    // mincore in MAC does not fail with EAGAIN.
+    failure =
+        !!mincore(reinterpret_cast<void*>(chunk_start), chunk_size, vec.get());
+    for (size_t i = 0; i < page_count; i++)
+      resident_page_count += vec[i] & MINCORE_INCORE ? 1 : 0;
 #elif defined(OS_POSIX)
     int error_counter = 0;
     int result = 0;
@@ -144,42 +147,107 @@ size_t ProcessMemoryDump::CountResidentBytes(void* start_address,
     if (failure)
       break;
 
-    total_resident_size += resident_page_count * page_size;
+    total_resident_pages += resident_page_count * page_size;
     offset += kMaxChunkSize;
   }
 
   DCHECK(!failure);
   if (failure) {
-    total_resident_size = 0;
+    total_resident_pages = 0;
     LOG(ERROR) << "CountResidentBytes failed. The resident size is invalid";
   }
-  return total_resident_size;
+  return total_resident_pages;
 }
+
+// static
+base::Optional<size_t> ProcessMemoryDump::CountResidentBytesInSharedMemory(
+    void* start_address,
+    size_t mapped_size) {
+#if defined(OS_MACOSX) && !defined(OS_IOS)
+  // On macOS, use mach_vm_region instead of mincore for performance
+  // (crbug.com/742042).
+  mach_vm_size_t dummy_size = 0;
+  mach_vm_address_t address =
+      reinterpret_cast<mach_vm_address_t>(start_address);
+  vm_region_top_info_data_t info;
+  MachVMRegionResult result =
+      GetTopInfo(mach_task_self(), &dummy_size, &address, &info);
+  if (result == MachVMRegionResult::Error) {
+    LOG(ERROR) << "CountResidentBytesInSharedMemory failed. The resident size "
+                  "is invalid";
+    return base::Optional<size_t>();
+  }
+
+  size_t resident_pages =
+      info.private_pages_resident + info.shared_pages_resident;
+
+  // On macOS, measurements for private memory footprint overcount by
+  // faulted pages in anonymous shared memory. To discount for this, we touch
+  // all the resident pages in anonymous shared memory here, thus making them
+  // faulted as well. This relies on two assumptions:
+  //
+  // 1) Consumers use shared memory from front to back. Thus, if there are
+  // (N) resident pages, those pages represent the first N * PAGE_SIZE bytes in
+  // the shared memory region.
+  //
+  // 2) This logic is run shortly before the logic that calculates
+  // phys_footprint, thus ensuring that the discrepancy between faulted and
+  // resident pages is minimal.
+  //
+  // The performance penalty is expected to be small.
+  //
+  // * Most of the time, we expect the pages to already be resident and faulted,
+  // thus incurring a cache penalty read hit [since we read from each resident
+  // page].
+  //
+  // * Rarely, we expect the pages to be resident but not faulted, resulting in
+  // soft faults + cache penalty.
+  //
+  // * If assumption (1) is invalid, this will potentially fault some
+  // previously non-resident pages, thus increasing memory usage, without fixing
+  // the accounting.
+  //
+  // Sanity check in case the mapped size is less than the total size of the
+  // region.
+  size_t pages_to_fault =
+      std::min(resident_pages, (mapped_size + PAGE_SIZE - 1) / PAGE_SIZE);
+
+  volatile char* base_address = static_cast<char*>(start_address);
+  for (size_t i = 0; i < pages_to_fault; ++i) {
+    // Reading from a volatile is a visible side-effect for the purposes of
+    // optimization. This guarantees that the optimizer will not kill this line.
+    base_address[i * PAGE_SIZE];
+  }
+
+  return resident_pages * PAGE_SIZE;
+#else
+  return CountResidentBytes(start_address, mapped_size);
+#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
+}
+
 #endif  // defined(COUNT_RESIDENT_BYTES_SUPPORTED)
 
 ProcessMemoryDump::ProcessMemoryDump(
-    scoped_refptr<HeapProfilerSerializationState>
-        heap_profiler_serialization_state,
     const MemoryDumpArgs& dump_args)
-    : has_process_totals_(false),
-      has_process_mmaps_(false),
-      heap_profiler_serialization_state_(
-          std::move(heap_profiler_serialization_state)),
+    : process_token_(GetTokenForCurrentProcess()),
       dump_args_(dump_args) {}
 
-ProcessMemoryDump::~ProcessMemoryDump() {}
+ProcessMemoryDump::~ProcessMemoryDump() = default;
+ProcessMemoryDump::ProcessMemoryDump(ProcessMemoryDump&& other) = default;
+ProcessMemoryDump& ProcessMemoryDump::operator=(ProcessMemoryDump&& other) =
+    default;
 
 MemoryAllocatorDump* ProcessMemoryDump::CreateAllocatorDump(
     const std::string& absolute_name) {
-  return AddAllocatorDumpInternal(
-      MakeUnique<MemoryAllocatorDump>(absolute_name, this));
+  return AddAllocatorDumpInternal(std::make_unique<MemoryAllocatorDump>(
+      absolute_name, dump_args_.level_of_detail, GetDumpId(absolute_name)));
 }
 
 MemoryAllocatorDump* ProcessMemoryDump::CreateAllocatorDump(
     const std::string& absolute_name,
     const MemoryAllocatorDumpGuid& guid) {
-  return AddAllocatorDumpInternal(
-      MakeUnique<MemoryAllocatorDump>(absolute_name, this, guid));
+  return AddAllocatorDumpInternal(std::make_unique<MemoryAllocatorDump>(
+      absolute_name, dump_args_.level_of_detail, guid));
 }
 
 MemoryAllocatorDump* ProcessMemoryDump::AddAllocatorDumpInternal(
@@ -204,8 +272,6 @@ MemoryAllocatorDump* ProcessMemoryDump::GetAllocatorDump(
   auto it = allocator_dumps_.find(absolute_name);
   if (it != allocator_dumps_.end())
     return it->second.get();
-  if (black_hole_mad_)
-    return black_hole_mad_.get();
   return nullptr;
 }
 
@@ -217,14 +283,10 @@ MemoryAllocatorDump* ProcessMemoryDump::GetOrCreateAllocatorDump(
 
 MemoryAllocatorDump* ProcessMemoryDump::CreateSharedGlobalAllocatorDump(
     const MemoryAllocatorDumpGuid& guid) {
-  // Global dumps are disabled in background mode.
-  if (dump_args_.level_of_detail == MemoryDumpLevelOfDetail::BACKGROUND)
-    return GetBlackHoleMad();
-
   // A shared allocator dump can be shared within a process and the guid could
   // have been created already.
   MemoryAllocatorDump* mad = GetSharedGlobalAllocatorDump(guid);
-  if (mad) {
+  if (mad && mad != black_hole_mad_.get()) {
     // The weak flag is cleared because this method should create a non-weak
     // dump.
     mad->clear_flags(MemoryAllocatorDump::Flags::WEAK);
@@ -235,12 +297,8 @@ MemoryAllocatorDump* ProcessMemoryDump::CreateSharedGlobalAllocatorDump(
 
 MemoryAllocatorDump* ProcessMemoryDump::CreateWeakSharedGlobalAllocatorDump(
     const MemoryAllocatorDumpGuid& guid) {
-  // Global dumps are disabled in background mode.
-  if (dump_args_.level_of_detail == MemoryDumpLevelOfDetail::BACKGROUND)
-    return GetBlackHoleMad();
-
   MemoryAllocatorDump* mad = GetSharedGlobalAllocatorDump(guid);
-  if (mad)
+  if (mad && mad != black_hole_mad_.get())
     return mad;
   mad = CreateAllocatorDump(GetSharedGlobalAllocatorDumpName(guid), guid);
   mad->set_flags(MemoryAllocatorDump::Flags::WEAK);
@@ -258,44 +316,42 @@ void ProcessMemoryDump::DumpHeapUsage(
         metrics_by_context,
     base::trace_event::TraceEventMemoryOverhead& overhead,
     const char* allocator_name) {
-  if (!metrics_by_context.empty()) {
-    // We shouldn't end up here unless we're doing a detailed dump with
-    // heap profiling enabled and if that is the case tracing should be
-    // enabled which sets up the heap profiler serialization state.
-    if (!heap_profiler_serialization_state()) {
-      NOTREACHED();
-      return;
-    }
-    DCHECK_EQ(0ul, heap_dumps_.count(allocator_name));
-    std::unique_ptr<TracedValue> heap_dump = ExportHeapDump(
-        metrics_by_context, *heap_profiler_serialization_state());
-    heap_dumps_[allocator_name] = std::move(heap_dump);
-  }
-
   std::string base_name = base::StringPrintf("tracing/heap_profiler_%s",
                                              allocator_name);
   overhead.DumpInto(base_name.c_str(), this);
 }
 
+void ProcessMemoryDump::SetAllocatorDumpsForSerialization(
+    std::vector<std::unique_ptr<MemoryAllocatorDump>> dumps) {
+  DCHECK(allocator_dumps_.empty());
+  for (std::unique_ptr<MemoryAllocatorDump>& dump : dumps)
+    AddAllocatorDumpInternal(std::move(dump));
+}
+
+std::vector<ProcessMemoryDump::MemoryAllocatorDumpEdge>
+ProcessMemoryDump::GetAllEdgesForSerialization() const {
+  std::vector<MemoryAllocatorDumpEdge> edges;
+  edges.reserve(allocator_dumps_edges_.size());
+  for (const auto& it : allocator_dumps_edges_)
+    edges.push_back(it.second);
+  return edges;
+}
+
+void ProcessMemoryDump::SetAllEdgesForSerialization(
+    const std::vector<ProcessMemoryDump::MemoryAllocatorDumpEdge>& edges) {
+  DCHECK(allocator_dumps_edges_.empty());
+  for (const MemoryAllocatorDumpEdge& edge : edges) {
+    auto it_and_inserted = allocator_dumps_edges_.emplace(edge.source, edge);
+    DCHECK(it_and_inserted.second);
+  }
+}
+
 void ProcessMemoryDump::Clear() {
-  if (has_process_totals_) {
-    process_totals_.Clear();
-    has_process_totals_ = false;
-  }
-
-  if (has_process_mmaps_) {
-    process_mmaps_.Clear();
-    has_process_mmaps_ = false;
-  }
-
   allocator_dumps_.clear();
   allocator_dumps_edges_.clear();
-  heap_dumps_.clear();
 }
 
 void ProcessMemoryDump::TakeAllDumpsFrom(ProcessMemoryDump* other) {
-  DCHECK(!other->has_process_totals() && !other->has_process_mmaps());
-
   // Moves the ownership of all MemoryAllocatorDump(s) contained in |other|
   // into this ProcessMemoryDump, checking for duplicates.
   for (auto& it : other->allocator_dumps_)
@@ -306,39 +362,14 @@ void ProcessMemoryDump::TakeAllDumpsFrom(ProcessMemoryDump* other) {
   allocator_dumps_edges_.insert(other->allocator_dumps_edges_.begin(),
                                 other->allocator_dumps_edges_.end());
   other->allocator_dumps_edges_.clear();
-
-  for (auto& it : other->heap_dumps_) {
-    DCHECK_EQ(0ul, heap_dumps_.count(it.first));
-    heap_dumps_.insert(std::make_pair(it.first, std::move(it.second)));
-  }
-  other->heap_dumps_.clear();
 }
 
-void ProcessMemoryDump::AsValueInto(TracedValue* value) const {
-  if (has_process_totals_) {
-    value->BeginDictionary("process_totals");
-    process_totals_.AsValueInto(value);
-    value->EndDictionary();
-  }
-
-  if (has_process_mmaps_) {
-    value->BeginDictionary("process_mmaps");
-    process_mmaps_.AsValueInto(value);
-    value->EndDictionary();
-  }
-
+void ProcessMemoryDump::SerializeAllocatorDumpsInto(TracedValue* value) const {
   if (allocator_dumps_.size() > 0) {
     value->BeginDictionary("allocators");
     for (const auto& allocator_dump_it : allocator_dumps_)
       allocator_dump_it.second->AsValueInto(value);
     value->EndDictionary();
-  }
-
-  if (heap_dumps_.size() > 0) {
-    value->BeginDictionary("heaps");
-    for (const auto& name_and_dump : heap_dumps_)
-      value->SetValueWithCopiedName(name_and_dump.first, *name_and_dump.second);
-    value->EndDictionary();  // "heaps"
   }
 
   value->BeginArray("allocators_graph");
@@ -348,7 +379,7 @@ void ProcessMemoryDump::AsValueInto(TracedValue* value) const {
     value->SetString("source", edge.source.ToString());
     value->SetString("target", edge.target.ToString());
     value->SetInteger("importance", edge.importance);
-    value->SetString("type", edge.type);
+    value->SetString("type", kEdgeTypeOwnership);
     value->EndDictionary();
   }
   value->EndArray();
@@ -359,12 +390,13 @@ void ProcessMemoryDump::AddOwnershipEdge(const MemoryAllocatorDumpGuid& source,
                                          int importance) {
   // This will either override an existing edge or create a new one.
   auto it = allocator_dumps_edges_.find(source);
+  int max_importance = importance;
   if (it != allocator_dumps_edges_.end()) {
-    DCHECK_EQ(target.ToUint64(),
-              allocator_dumps_edges_[source].target.ToUint64());
+    DCHECK_EQ(target.ToUint64(), it->second.target.ToUint64());
+    max_importance = std::max(importance, it->second.importance);
   }
-  allocator_dumps_edges_[source] = {
-      source, target, importance, kEdgeTypeOwnership, false /* overridable */};
+  allocator_dumps_edges_[source] = {source, target, max_importance,
+                                    false /* overridable */};
 }
 
 void ProcessMemoryDump::AddOwnershipEdge(
@@ -378,8 +410,8 @@ void ProcessMemoryDump::AddOverridableOwnershipEdge(
     const MemoryAllocatorDumpGuid& target,
     int importance) {
   if (allocator_dumps_edges_.count(source) == 0) {
-    allocator_dumps_edges_[source] = {
-        source, target, importance, kEdgeTypeOwnership, true /* overridable */};
+    allocator_dumps_edges_[source] = {source, target, importance,
+                                      true /* overridable */};
   } else {
     // An edge between the source and target already exits. So, do nothing here
     // since the new overridable edge is implicitly overridden by a strong edge
@@ -390,66 +422,51 @@ void ProcessMemoryDump::AddOverridableOwnershipEdge(
 
 void ProcessMemoryDump::CreateSharedMemoryOwnershipEdge(
     const MemoryAllocatorDumpGuid& client_local_dump_guid,
-    const MemoryAllocatorDumpGuid& client_global_dump_guid,
     const UnguessableToken& shared_memory_guid,
     int importance) {
-  CreateSharedMemoryOwnershipEdgeInternal(
-      client_local_dump_guid, client_global_dump_guid, shared_memory_guid,
-      importance, false /*is_weak*/);
+  CreateSharedMemoryOwnershipEdgeInternal(client_local_dump_guid,
+                                          shared_memory_guid, importance,
+                                          false /*is_weak*/);
 }
 
 void ProcessMemoryDump::CreateWeakSharedMemoryOwnershipEdge(
     const MemoryAllocatorDumpGuid& client_local_dump_guid,
-    const MemoryAllocatorDumpGuid& client_global_dump_guid,
     const UnguessableToken& shared_memory_guid,
     int importance) {
   CreateSharedMemoryOwnershipEdgeInternal(
-      client_local_dump_guid, client_global_dump_guid, shared_memory_guid,
-      importance, true /*is_weak*/);
+      client_local_dump_guid, shared_memory_guid, importance, true /*is_weak*/);
 }
 
 void ProcessMemoryDump::CreateSharedMemoryOwnershipEdgeInternal(
     const MemoryAllocatorDumpGuid& client_local_dump_guid,
-    const MemoryAllocatorDumpGuid& client_global_dump_guid,
     const UnguessableToken& shared_memory_guid,
     int importance,
     bool is_weak) {
-  if (MemoryAllocatorDumpGuid::UseSharedMemoryBasedGUIDs()) {
-    DCHECK(!shared_memory_guid.is_empty());
-    // New model where the global dumps created by SharedMemoryTracker are used
-    // for the clients.
+  DCHECK(!shared_memory_guid.is_empty());
+  // New model where the global dumps created by SharedMemoryTracker are used
+  // for the clients.
 
-    // The guid of the local dump created by SharedMemoryTracker for the memory
-    // segment.
-    auto local_shm_guid =
-        SharedMemoryTracker::GetDumpIdForTracing(shared_memory_guid);
+  // The guid of the local dump created by SharedMemoryTracker for the memory
+  // segment.
+  auto local_shm_guid =
+      GetDumpId(SharedMemoryTracker::GetDumpNameForTracing(shared_memory_guid));
 
-    // The dump guid of the global dump created by the tracker for the memory
-    // segment.
-    auto global_shm_guid =
-        SharedMemoryTracker::GetGlobalDumpIdForTracing(shared_memory_guid);
+  // The dump guid of the global dump created by the tracker for the memory
+  // segment.
+  auto global_shm_guid =
+      SharedMemoryTracker::GetGlobalDumpIdForTracing(shared_memory_guid);
 
-    // Create an edge between local dump of the client and the local dump of the
-    // SharedMemoryTracker. Do not need to create the dumps here since the
-    // tracker would create them. The importance is also required here for the
-    // case of single process mode.
-    AddOwnershipEdge(client_local_dump_guid, local_shm_guid, importance);
+  // Create an edge between local dump of the client and the local dump of the
+  // SharedMemoryTracker. Do not need to create the dumps here since the tracker
+  // would create them. The importance is also required here for the case of
+  // single process mode.
+  AddOwnershipEdge(client_local_dump_guid, local_shm_guid, importance);
 
-    // TODO(ssid): Handle the case of weak dumps here. This needs a new function
-    // GetOrCreaetGlobalDump() in PMD since we need to change the behavior of
-    // the created global dump.
-    // Create an edge that overrides the edge created by SharedMemoryTracker.
-    AddOwnershipEdge(local_shm_guid, global_shm_guid, importance);
-  } else {
-    // This is the old model where the clients create global dumps for
-    // themselves.
-    if (is_weak)
-      CreateWeakSharedGlobalAllocatorDump(client_global_dump_guid);
-    else
-      CreateSharedGlobalAllocatorDump(client_global_dump_guid);
-    AddOwnershipEdge(client_local_dump_guid, client_global_dump_guid,
-                     importance);
-  }
+  // TODO(ssid): Handle the case of weak dumps here. This needs a new function
+  // GetOrCreaetGlobalDump() in PMD since we need to change the behavior of the
+  // created global dump.
+  // Create an edge that overrides the edge created by SharedMemoryTracker.
+  AddOwnershipEdge(local_shm_guid, global_shm_guid, importance);
 }
 
 void ProcessMemoryDump::AddSuballocation(const MemoryAllocatorDumpGuid& source,
@@ -465,9 +482,29 @@ void ProcessMemoryDump::AddSuballocation(const MemoryAllocatorDumpGuid& source,
 
 MemoryAllocatorDump* ProcessMemoryDump::GetBlackHoleMad() {
   DCHECK(is_black_hole_non_fatal_for_testing_);
-  if (!black_hole_mad_)
-    black_hole_mad_.reset(new MemoryAllocatorDump("discarded", this));
+  if (!black_hole_mad_) {
+    std::string name = "discarded";
+    black_hole_mad_.reset(new MemoryAllocatorDump(
+        name, dump_args_.level_of_detail, GetDumpId(name)));
+  }
   return black_hole_mad_.get();
+}
+
+MemoryAllocatorDumpGuid ProcessMemoryDump::GetDumpId(
+    const std::string& absolute_name) {
+  return MemoryAllocatorDumpGuid(StringPrintf(
+      "%s:%s", process_token().ToString().c_str(), absolute_name.c_str()));
+}
+
+bool ProcessMemoryDump::MemoryAllocatorDumpEdge::operator==(
+    const MemoryAllocatorDumpEdge& other) const {
+  return source == other.source && target == other.target &&
+         importance == other.importance && overridable == other.overridable;
+}
+
+bool ProcessMemoryDump::MemoryAllocatorDumpEdge::operator!=(
+    const MemoryAllocatorDumpEdge& other) const {
+  return !(*this == other);
 }
 
 }  // namespace trace_event

@@ -22,7 +22,8 @@ load(qt_build_paths)
     for(mod, MODULE_INCNAME): \
         QMAKE_SYNCQT += -module $$mod
     QMAKE_SYNCQT += \
-        -version $$VERSION -outdir $$system_quote($$MODULE_BASE_OUTDIR) $$MODULE_SYNCQT_DIR
+        -version $$VERSION -outdir $$system_quote($$MODULE_BASE_OUTDIR) \
+        -builddir $$system_quote($$REAL_MODULE_BASE_OUTDIR) $$MODULE_SYNCQT_DIR
     !silent: message($$QMAKE_SYNCQT)
     system($$QMAKE_SYNCQT)|error("Failed to run: $$QMAKE_SYNCQT")
 
@@ -95,12 +96,24 @@ MODULE_PRIVATE_INCLUDES += $$MODULE_PRIVATE_AUX_INCLUDES
 
 minimal_syncqt: return()
 
+defineTest(syncQtResolve) {
+    out =
+    for (f, SYNCQT.$$1): \
+        out += $$absolute_path($$f, $$2)
+    SYNCQT.$$1 = $$out
+    export(SYNCQT.$$1)
+}
+
 #load up the headers info
 git_build: \
     INC_PATH = $$MODULE_BASE_OUTDIR
 else: \
     INC_PATH = $$MODULE_BASE_INDIR
 include($$INC_PATH/include/$$MODULE_INCNAME/headers.pri, "", true)
+syncQtResolve(HEADER_FILES, $$_PRO_FILE_PWD_)
+syncQtResolve(PRIVATE_HEADER_FILES, $$_PRO_FILE_PWD_)
+syncQtResolve(QPA_HEADER_FILES, $$_PRO_FILE_PWD_)
+syncQtResolve(GENERATED_HEADER_FILES, $$INC_PATH/include/$$MODULE_INCNAME)
 !lib_bundle: \  # Headers are embedded into the bundle, so don't install them separately.
     CONFIG += qt_install_headers
 
@@ -108,19 +121,17 @@ alien_syncqt: return()
 
 MODULE_INC_OUTDIR = $$MODULE_BASE_OUTDIR/include/$$MODULE_INCNAME
 
-exists($$OUT_PWD/qt$${MODULE}-config.h) {
-    fwd_rel = $$relative_path($$OUT_PWD, $$MODULE_INC_OUTDIR)
+isEmpty(MODULE_CFG_FILE): MODULE_CFG_FILE = qt$${MODULE}-config
+exists($$OUT_PWD/$${MODULE_CFG_FILE}.h) {
+    fwd_rel = $$relative_path($$OUT_PWD, $$REAL_MODULE_BASE_OUTDIR)
     SYNCQT.INJECTIONS += \
-        $$fwd_rel/qt$${MODULE}-config.h:qt$${MODULE}-config.h \
-        $$fwd_rel/qt$${MODULE}-config_p.h:$$MODULE_VERSION/$$MODULE_INCNAME/private/qt$${MODULE}-config_p.h
-    inst_rel = $$relative_path($$OUT_PWD, $$_PRO_FILE_PWD_)
-    SYNCQT.HEADER_FILES += $$inst_rel/qt$${MODULE}-config.h
-    SYNCQT.INJECTED_PRIVATE_HEADER_FILES += $$inst_rel/qt$${MODULE}-config_p.h
+        $$fwd_rel/$${MODULE_CFG_FILE}.h:$${MODULE_CFG_FILE}.h \
+        $$fwd_rel/$${MODULE_CFG_FILE}_p.h:$$MODULE_VERSION/$$MODULE_INCNAME/private/$${MODULE_CFG_FILE}_p.h
 }
 
 for (injection, SYNCQT.INJECTIONS) {
     injects = $$split(injection, :)
-    dst_hdr = $$absolute_path($$member(injects, 0), $$MODULE_INC_OUTDIR)
+    dst_hdr = $$absolute_path($$member(injects, 0), $$REAL_MODULE_BASE_OUTDIR)
     ofwd_hdr = $$member(injects, 1)
     fwd_hdr = $$replace(ofwd_hdr, ^\\^, )
     MAIN_FWD = $$MODULE_INC_OUTDIR/$$fwd_hdr
@@ -128,6 +139,10 @@ for (injection, SYNCQT.INJECTIONS) {
     write_file($$MAIN_FWD, MAIN_FWD_CONT)|error()
     equals(fwd_hdr, ofwd_hdr): touch($$MAIN_FWD, $$dst_hdr)
     !git_build: QMAKE_DISTCLEAN += $$MAIN_FWD
+    !contains(ofwd_hdr, .*/private/.*): \
+        SYNCQT.INJECTED_HEADER_FILES += $$dst_hdr
+    else: \
+        SYNCQT.INJECTED_PRIVATE_HEADER_FILES += $$dst_hdr
     injects = $$member(injects, 2, -1)
     for (inject, injects) {
         CLASS_FWD = $$MODULE_INC_OUTDIR/$$inject
@@ -135,6 +150,7 @@ for (injection, SYNCQT.INJECTIONS) {
         write_file($$CLASS_FWD, CLASS_FWD_CONT)|error()
         touch($$CLASS_FWD, $$MAIN_FWD)
         !git_build: QMAKE_DISTCLEAN += $$CLASS_FWD
+        SYNCQT.INJECTED_HEADER_FILES += $$CLASS_FWD
     }
 }
 
@@ -223,6 +239,14 @@ headersclean:!internal_module {
                 gcc_ver = $${QT_GCC_MAJOR_VERSION}.$${QT_GCC_MINOR_VERSION}
                 versionAtLeast(gcc_ver, 4.5): hcleanFLAGS += -Wdouble-promotion
                 versionAtLeast(gcc_ver, 4.9): hcleanFLAGS += -Wfloat-conversion
+                # GCC 9 has a lot of false positives relating to this, so disable completely
+                greaterThan(QT_GCC_MAJOR_VERSION, 8): hcleanFLAGS += -Wno-deprecated-copy
+                # GCC 9 introduced this
+                greaterThan(QT_GCC_MAJOR_VERSION, 8): hcleanFLAGS += -Wno-redundant-move
+                # GCC 9 introduced this
+                greaterThan(QT_GCC_MAJOR_VERSION, 8): hcleanFLAGS += -Wno-format-overflow
+                # GCC 9 introduced this
+                greaterThan(QT_GCC_MAJOR_VERSION, 8): hcleanFLAGS += -Wno-init-list-lifetime
 
                 c++11 {
                     # only enabled for actual c++11 builds due to
@@ -248,7 +272,7 @@ headersclean:!internal_module {
             hcleanFLAGS += -std=c++98
         }
 
-        hcleanCOMMAND = $$QMAKE_CXX -c $(CXXFLAGS) $$hcleanFLAGS $(INCPATH) $$hcleanDEFS -xc++ ${QMAKE_FILE_IN} -o ${QMAKE_FILE_OUT}
+        hcleanCOMMAND = $(CXX) -c $(CXXFLAGS) $$hcleanFLAGS $(INCPATH) $$hcleanDEFS -xc++ ${QMAKE_FILE_IN} -o ${QMAKE_FILE_OUT}
     } else: msvc:!intel_icl {
         # 4180: qualifier applied to function type has no meaning; ignored
         # 4458: declaration of 'identifier' hides class member
@@ -260,7 +284,7 @@ headersclean:!internal_module {
         # 4577: 'noexcept' used with no exception handling mode specified; termination on exception is not guaranteed. Specify /EHsc
         greaterThan(QMAKE_MSC_VER, 18): hcleanFLAGS += -wd4577
 
-        hcleanCOMMAND = $$QMAKE_CXX -c $(CXXFLAGS) $$hcleanFLAGS $(INCPATH) $$hcleanDEFS -FI${QMAKE_FILE_IN} -Fo${QMAKE_FILE_OUT} \
+        hcleanCOMMAND = $(CXX) -c $(CXXFLAGS) $$hcleanFLAGS $(INCPATH) $$hcleanDEFS -FI${QMAKE_FILE_IN} -Fo${QMAKE_FILE_OUT} \
                         $$[QT_INSTALL_DATA/src]/mkspecs/features/data/dummy.cpp
     }
 
@@ -280,7 +304,6 @@ headersclean:!internal_module {
         header_check.variable_out = PRE_TARGETDEPS
         header_check.name = headercheck ${QMAKE_FILE_IN}
         header_check.commands = $$hcleanCOMMAND
-        silent:header_check.commands = @echo compiling[header] ${QMAKE_FILE_IN} && $$hcleanCOMMAND
         QMAKE_EXTRA_COMPILERS += header_check
     }
     unset(hcleanCOMMAND)

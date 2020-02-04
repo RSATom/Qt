@@ -16,7 +16,6 @@
 
 #include <libaddressinput/address_data.h>
 #include <libaddressinput/address_field.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <algorithm>
 #include <cassert>
@@ -30,6 +29,7 @@
 #include "region_data_constants.h"
 #include "rule.h"
 #include "util/cctype_tolower_equal.h"
+#include "util/size.h"
 
 namespace i18n {
 namespace addressinput {
@@ -38,16 +38,16 @@ namespace {
 
 const char kCommaSeparator[] = ", ";
 const char kSpaceSeparator[] = " ";
-const char kArabicCommaSeparator[] = "\xD8\x8C" " ";  /* "، " */
+const char kArabicCommaSeparator[] = u8"، ";
 
 const char* kLanguagesThatUseSpace[] = {
-  "th",
-  "ko"
+    "th",
+    "ko",
 };
 
 const char* kLanguagesThatHaveNoSeparator[] = {
-  "ja",
-  "zh"  // All Chinese variants.
+    "ja",
+    "zh",  // All Chinese variants.
 };
 
 // This data is based on CLDR, for languages that are in official use in some
@@ -55,17 +55,17 @@ const char* kLanguagesThatHaveNoSeparator[] = {
 // TODO: Consider supporting variants such as tr-Arab by detecting the script
 // code.
 const char* kLanguagesThatUseAnArabicComma[] = {
-  "ar",
-  "az",
-  "fa",
-  "kk",
-  "ku",
-  "ky",
-  "ps",
-  "tg",
-  "tk",
-  "ur",
-  "uz"
+    "ar",
+    "az",
+    "fa",
+    "kk",
+    "ku",
+    "ky",
+    "ps",
+    "tg",
+    "tk",
+    "ur",
+    "uz",
 };
 
 std::string GetLineSeparatorForLanguage(const std::string& language_tag) {
@@ -78,26 +78,27 @@ std::string GetLineSeparatorForLanguage(const std::string& language_tag) {
 
   // Now guess something appropriate based on the base language.
   const std::string& base_language = address_language.base;
+  using std::placeholders::_1;
   if (std::find_if(kLanguagesThatUseSpace,
-                   kLanguagesThatUseSpace + arraysize(kLanguagesThatUseSpace),
-                   std::bind2nd(EqualToTolowerString(), base_language)) !=
-      kLanguagesThatUseSpace + arraysize(kLanguagesThatUseSpace)) {
+                   kLanguagesThatUseSpace + size(kLanguagesThatUseSpace),
+                   std::bind(&EqualToTolowerString, _1, base_language)) !=
+      kLanguagesThatUseSpace + size(kLanguagesThatUseSpace)) {
     return kSpaceSeparator;
   } else if (std::find_if(
                  kLanguagesThatHaveNoSeparator,
                  kLanguagesThatHaveNoSeparator +
-                     arraysize(kLanguagesThatHaveNoSeparator),
-                 std::bind2nd(EqualToTolowerString(), base_language)) !=
+                     size(kLanguagesThatHaveNoSeparator),
+                 std::bind(&EqualToTolowerString, _1, base_language)) !=
              kLanguagesThatHaveNoSeparator +
-                 arraysize(kLanguagesThatHaveNoSeparator)) {
+                 size(kLanguagesThatHaveNoSeparator)) {
     return "";
   } else if (std::find_if(
                  kLanguagesThatUseAnArabicComma,
                  kLanguagesThatUseAnArabicComma +
-                     arraysize(kLanguagesThatUseAnArabicComma),
-                 std::bind2nd(EqualToTolowerString(), base_language)) !=
+                     size(kLanguagesThatUseAnArabicComma),
+                 std::bind(&EqualToTolowerString, _1, base_language)) !=
              kLanguagesThatUseAnArabicComma +
-                 arraysize(kLanguagesThatUseAnArabicComma)) {
+                 size(kLanguagesThatUseAnArabicComma)) {
     return kArabicCommaSeparator;
   }
   // Either the language is a Latin-script language, or no language was
@@ -113,9 +114,7 @@ void CombineLinesForLanguage(const std::vector<std::string>& lines,
                              std::string* line) {
   line->clear();
   std::string separator = GetLineSeparatorForLanguage(language_tag);
-  for (std::vector<std::string>::const_iterator it = lines.begin();
-       it != lines.end();
-       ++it) {
+  for (auto it = lines.begin(); it != lines.end(); ++it) {
     if (it != lines.begin()) {
       line->append(separator);
     }
@@ -127,15 +126,15 @@ void CombineLinesForLanguage(const std::vector<std::string>& lines,
 
 void GetFormattedNationalAddress(
     const AddressData& address_data, std::vector<std::string>* lines) {
-  assert(lines != NULL);
+  assert(lines != nullptr);
   lines->clear();
 
   Rule rule;
   rule.CopyFrom(Rule::GetDefault());
   // TODO: Eventually, we should get the best rule for this country and
   // language, rather than just for the country.
-  rule.ParseSerializedRule(RegionDataConstants::GetRegionData(
-      address_data.region_code));
+  rule.ParseSerializedRule(
+      RegionDataConstants::GetRegionData(address_data.region_code));
 
   Language language(address_data.language_code);
 
@@ -153,8 +152,7 @@ void GetFormattedNationalAddress(
   // surrounding fields are filled in. This works with the data we have
   // currently.
   std::vector<FormatElement> pruned_format;
-  for (std::vector<FormatElement>::const_iterator
-       element_it = format.begin();
+  for (auto element_it = format.begin();
        element_it != format.end();
        ++element_it) {
     // Always keep the newlines.
@@ -177,17 +175,14 @@ void GetFormattedNationalAddress(
   }
 
   std::string line;
-  for (std::vector<FormatElement>::const_iterator
-       element_it = pruned_format.begin();
-       element_it != pruned_format.end();
-       ++element_it) {
-    if (element_it->IsNewline()) {
+  for (const auto& element : pruned_format) {
+    if (element.IsNewline()) {
       if (!line.empty()) {
         lines->push_back(line);
         line.clear();
       }
-    } else if (element_it->IsField()) {
-      AddressField field = element_it->GetField();
+    } else if (element.IsField()) {
+      AddressField field = element.GetField();
       if (field == STREET_ADDRESS) {
         // The field "street address" represents the street address lines of an
         // address, so there can be multiple values.
@@ -196,16 +191,19 @@ void GetFormattedNationalAddress(
           if (address_data.address_line.size() > 1U) {
             lines->push_back(line);
             line.clear();
-            lines->insert(lines->end(),
-                          address_data.address_line.begin() + 1,
-                          address_data.address_line.end());
+            const auto last_element_iterator =
+                address_data.address_line.begin() +
+                address_data.address_line.size() - 1;
+            lines->insert(lines->end(), address_data.address_line.begin() + 1,
+                          last_element_iterator);
+            line.append(*last_element_iterator);
           }
         }
       } else {
         line.append(address_data.GetFieldValue(field));
       }
     } else {
-      line.append(element_it->GetLiteral());
+      line.append(element.GetLiteral());
     }
   }
   if (!line.empty()) {

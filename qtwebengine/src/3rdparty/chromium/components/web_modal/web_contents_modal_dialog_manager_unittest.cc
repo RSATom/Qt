@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "build/build_config.h"
 #include "components/web_modal/single_web_contents_dialog_manager.h"
 #include "components/web_modal/test_web_contents_modal_dialog_manager_delegate.h"
 #include "content/public/test/test_renderer_host.h"
@@ -73,9 +74,7 @@ class TestNativeWebContentsModalDialogManager
   void HostChanged(WebContentsModalDialogHost* new_host) override {}
   gfx::NativeWindow dialog() override { return dialog_; }
 
-  void StopTracking() {
-    tracker_ = NULL;
-  }
+  void StopTracking() { tracker_ = nullptr; }
 
  private:
   SingleWebContentsDialogManagerDelegate* delegate_;
@@ -88,10 +87,7 @@ class TestNativeWebContentsModalDialogManager
 class WebContentsModalDialogManagerTest
     : public content::RenderViewHostTestHarness {
  public:
-  WebContentsModalDialogManagerTest()
-      : next_dialog_id(1),
-        manager(NULL) {
-  }
+  WebContentsModalDialogManagerTest() : next_dialog_id(1), manager(nullptr) {}
 
   void SetUp() override {
     content::RenderViewHostTestHarness::SetUp();
@@ -112,7 +108,12 @@ class WebContentsModalDialogManagerTest
   gfx::NativeWindow MakeFakeDialog() {
     // WebContentsModalDialogManager treats the dialog window as an opaque
     // type, so creating fake dialog windows using reinterpret_cast is valid.
+#if defined(OS_MACOSX)
+    NSWindow* window = reinterpret_cast<NSWindow*>(next_dialog_id++);
+    return gfx::NativeWindow(window);
+#else
     return reinterpret_cast<gfx::NativeWindow>(next_dialog_id++);
+#endif
   }
 
   int next_dialog_id;
@@ -205,13 +206,13 @@ TEST_F(WebContentsModalDialogManagerTest, VisibilityObservation) {
   EXPECT_TRUE(delegate->web_contents_blocked());
   EXPECT_EQ(NativeManagerTracker::SHOWN, tracker.state_);
 
-  test_api->WebContentsWasHidden();
+  test_api->WebContentsVisibilityChanged(content::Visibility::HIDDEN);
 
   EXPECT_TRUE(manager->IsDialogActive());
   EXPECT_TRUE(delegate->web_contents_blocked());
   EXPECT_EQ(NativeManagerTracker::HIDDEN, tracker.state_);
 
-  test_api->WebContentsWasShown();
+  test_api->WebContentsVisibilityChanged(content::Visibility::VISIBLE);
 
   EXPECT_TRUE(manager->IsDialogActive());
   EXPECT_TRUE(delegate->web_contents_blocked());

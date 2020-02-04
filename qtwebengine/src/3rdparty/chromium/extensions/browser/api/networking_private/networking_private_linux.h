@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/threading/thread.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "extensions/browser/api/networking_private/networking_private_delegate.h"
@@ -92,13 +91,18 @@ class NetworkingPrivateLinux : public NetworkingPrivateDelegate {
                            const std::string& new_pin,
                            const VoidCallback& success_callback,
                            const FailureCallback& failure_callback) override;
+  void SelectCellularMobileNetwork(
+      const std::string& guid,
+      const std::string& network_id,
+      const VoidCallback& success_callback,
+      const FailureCallback& failure_callback) override;
   std::unique_ptr<base::ListValue> GetEnabledNetworkTypes() override;
   std::unique_ptr<DeviceStateList> GetDeviceStateList() override;
   std::unique_ptr<base::DictionaryValue> GetGlobalPolicy() override;
   std::unique_ptr<base::DictionaryValue> GetCertificateLists() override;
   bool EnableNetworkType(const std::string& type) override;
   bool DisableNetworkType(const std::string& type) override;
-  bool RequestScan() override;
+  bool RequestScan(const std::string& type) override;
   void AddObserver(NetworkingPrivateDelegateObserver* observer) override;
   void RemoveObserver(NetworkingPrivateDelegateObserver* observer) override;
 
@@ -268,7 +272,7 @@ class NetworkingPrivateLinux : public NetworkingPrivateDelegate {
   // Holds the current mapping of known networks. Only access on |dbus_thread_|.
   std::unique_ptr<NetworkMap> network_map_;
   // Observers to Network Events.
-  base::ObserverList<NetworkingPrivateDelegateObserver>
+  base::ObserverList<NetworkingPrivateDelegateObserver>::Unchecked
       network_events_observers_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkingPrivateLinux);

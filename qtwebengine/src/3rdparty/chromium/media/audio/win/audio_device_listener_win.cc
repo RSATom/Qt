@@ -8,7 +8,7 @@
 
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/system_monitor/system_monitor.h"
+#include "base/system/system_monitor.h"
 #include "base/time/default_tick_clock.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/windows_version.h"
@@ -32,10 +32,11 @@ static std::string RoleToString(ERole role) {
 }
 
 AudioDeviceListenerWin::AudioDeviceListenerWin(const base::Closure& listener_cb)
-    : listener_cb_(listener_cb), tick_clock_(new base::DefaultTickClock()) {
+    : listener_cb_(listener_cb),
+      tick_clock_(base::DefaultTickClock::GetInstance()) {
   // CreateDeviceEnumerator can fail on some installations of Windows such
   // as "Windows Server 2008 R2" where the desktop experience isn't available.
-  ScopedComPtr<IMMDeviceEnumerator> device_enumerator(
+  Microsoft::WRL::ComPtr<IMMDeviceEnumerator> device_enumerator(
       CoreAudioUtil::CreateDeviceEnumerator());
   if (!device_enumerator.Get())
     return;
@@ -135,10 +136,14 @@ STDMETHODIMP AudioDeviceListenerWin::OnDefaultDeviceChanged(
     did_run_listener_cb = true;
   }
 
+  base::SystemMonitor* monitor = base::SystemMonitor::Get();
+  if (monitor)
+    monitor->ProcessDevicesChanged(base::SystemMonitor::DEVTYPE_AUDIO);
+
   DVLOG(1) << "OnDefaultDeviceChanged() "
            << "new_default_device: "
            << (new_default_device_id
-                   ? CoreAudioUtil::GetFriendlyName(new_device_id)
+                   ? CoreAudioUtil::GetFriendlyName(new_device_id, flow, role)
                    : "no device")
            << ", flow: " << FlowToString(flow)
            << ", role: " << RoleToString(role)

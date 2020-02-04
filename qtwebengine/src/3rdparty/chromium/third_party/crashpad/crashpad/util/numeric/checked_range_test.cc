@@ -20,7 +20,7 @@
 #include <limits>
 
 #include "base/format_macros.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "gtest/gtest.h"
 
@@ -29,7 +29,7 @@ namespace test {
 namespace {
 
 TEST(CheckedRange, IsValid) {
-  const struct UnsignedTestData {
+  static constexpr struct {
     uint32_t base;
     uint32_t size;
     bool valid;
@@ -78,8 +78,8 @@ TEST(CheckedRange, IsValid) {
       {0xffffffff, 0xffffffff, false},
   };
 
-  for (size_t index = 0; index < arraysize(kUnsignedTestData); ++index) {
-    const UnsignedTestData& testcase = kUnsignedTestData[index];
+  for (size_t index = 0; index < base::size(kUnsignedTestData); ++index) {
+    const auto& testcase = kUnsignedTestData[index];
     SCOPED_TRACE(base::StringPrintf("unsigned index %" PRIuS
                                     ", base 0x%x, size 0x%x",
                                     index,
@@ -91,7 +91,7 @@ TEST(CheckedRange, IsValid) {
   }
 
   const int32_t kMinInt32 = std::numeric_limits<int32_t>::min();
-  const struct SignedTestData {
+  static constexpr struct {
     int32_t base;
     uint32_t size;
     bool valid;
@@ -140,8 +140,8 @@ TEST(CheckedRange, IsValid) {
       {-1, 0xffffffff, false},
   };
 
-  for (size_t index = 0; index < arraysize(kSignedTestData); ++index) {
-    const SignedTestData& testcase = kSignedTestData[index];
+  for (size_t index = 0; index < base::size(kSignedTestData); ++index) {
+    const auto& testcase = kSignedTestData[index];
     SCOPED_TRACE(base::StringPrintf("signed index %" PRIuS
                                     ", base 0x%x, size 0x%x",
                                     index,
@@ -154,7 +154,7 @@ TEST(CheckedRange, IsValid) {
 }
 
 TEST(CheckedRange, ContainsValue) {
-  const struct TestData {
+  static constexpr struct {
     uint32_t value;
     bool contains;
   } kTestData[] = {
@@ -186,8 +186,8 @@ TEST(CheckedRange, ContainsValue) {
   CheckedRange<uint32_t> parent_range(0x2000, 0x1000);
   ASSERT_TRUE(parent_range.IsValid());
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
-    const TestData& testcase = kTestData[index];
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
+    const auto& testcase = kTestData[index];
     SCOPED_TRACE(base::StringPrintf(
         "index %" PRIuS ", value 0x%x", index, testcase.value));
 
@@ -196,7 +196,7 @@ TEST(CheckedRange, ContainsValue) {
 }
 
 TEST(CheckedRange, ContainsRange) {
-  const struct TestData {
+  static constexpr struct {
     uint32_t base;
     uint32_t size;
     bool contains;
@@ -234,8 +234,8 @@ TEST(CheckedRange, ContainsRange) {
   CheckedRange<uint32_t> parent_range(0x2000, 0x1000);
   ASSERT_TRUE(parent_range.IsValid());
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
-    const TestData& testcase = kTestData[index];
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
+    const auto& testcase = kTestData[index];
     SCOPED_TRACE(base::StringPrintf("index %" PRIuS ", base 0x%x, size 0x%x",
                                     index,
                                     testcase.base,
@@ -248,7 +248,7 @@ TEST(CheckedRange, ContainsRange) {
 }
 
 TEST(CheckedRange, OverlapsRange) {
-  const struct TestData {
+  static constexpr struct {
     uint32_t base;
     uint32_t size;
     bool overlaps;
@@ -287,8 +287,8 @@ TEST(CheckedRange, OverlapsRange) {
   CheckedRange<uint32_t> first_range(0x2000, 0x1000);
   ASSERT_TRUE(first_range.IsValid());
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
-    const TestData& testcase = kTestData[index];
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
+    const auto& testcase = kTestData[index];
     SCOPED_TRACE(base::StringPrintf("index %" PRIuS ", base 0x%x, size 0x%x",
                                     index,
                                     testcase.base,

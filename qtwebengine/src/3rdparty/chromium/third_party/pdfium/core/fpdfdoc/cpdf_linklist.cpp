@@ -8,14 +8,15 @@
 
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 
-CPDF_LinkList::CPDF_LinkList() {}
+CPDF_LinkList::CPDF_LinkList() = default;
 
-CPDF_LinkList::~CPDF_LinkList() {}
+CPDF_LinkList::~CPDF_LinkList() = default;
 
 const std::vector<CPDF_Dictionary*>* CPDF_LinkList::GetPageLinks(
     CPDF_Page* pPage) {
-  uint32_t objnum = pPage->m_pFormDict->GetObjNum();
+  uint32_t objnum = pPage->GetDict()->GetObjNum();
   if (objnum == 0)
     return nullptr;
 
@@ -55,11 +56,11 @@ CPDF_Link CPDF_LinkList::GetLinkAtPoint(CPDF_Page* pPage,
 
 void CPDF_LinkList::LoadPageLinks(CPDF_Page* pPage,
                                   std::vector<CPDF_Dictionary*>* pList) {
-  CPDF_Array* pAnnotList = pPage->m_pFormDict->GetArrayFor("Annots");
+  CPDF_Array* pAnnotList = pPage->GetDict()->GetArrayFor("Annots");
   if (!pAnnotList)
     return;
 
-  for (size_t i = 0; i < pAnnotList->GetCount(); ++i) {
+  for (size_t i = 0; i < pAnnotList->size(); ++i) {
     CPDF_Dictionary* pAnnot = pAnnotList->GetDictAt(i);
     bool add_link = (pAnnot && pAnnot->GetStringFor("Subtype") == "Link");
     // Add non-links as nullptrs to preserve z-order.

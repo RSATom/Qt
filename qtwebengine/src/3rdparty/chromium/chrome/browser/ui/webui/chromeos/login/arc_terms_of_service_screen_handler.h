@@ -23,6 +23,8 @@ class ArcOptInPreferenceHandler;
 
 namespace chromeos {
 
+class ArcTermsOfServiceScreen;
+
 // The sole implementation of the ArcTermsOfServiceScreenView, using WebUI.
 class ArcTermsOfServiceScreenHandler
     : public BaseScreenHandler,
@@ -47,10 +49,12 @@ class ArcTermsOfServiceScreenHandler
   void RemoveObserver(ArcTermsOfServiceScreenViewObserver* observer) override;
   void Show() override;
   void Hide() override;
+  void Bind(ArcTermsOfServiceScreen* screen) override;
 
   // OobeUI::Observer:
   void OnCurrentScreenChanged(OobeScreen current_screen,
                               OobeScreen new_screen) override;
+  void OnScreenInitialized(OobeScreen screen) override{};
 
   // system::TimezoneSettings::Observer:
   void TimezoneChanged(const icu::TimeZone& timezone) override;
@@ -62,15 +66,34 @@ class ArcTermsOfServiceScreenHandler
   // BaseScreenHandler:
   void Initialize() override;
 
+  // Shows default terms of service screen.
   void DoShow();
-  void HandleSkip();
+
+  // Shows screen variant for demo mode setup flow. The flow is part of OOBE and
+  // runs before any user is created or before device local account is
+  // configured for Public Session.
+  void DoShowForDemoModeSetup();
+
+  void HandleSkip(const std::string& tos_content);
   void HandleAccept(bool enable_backup_restore,
-                    bool enable_location_services);
+                    bool enable_location_services,
+                    bool review_arc_settings,
+                    const std::string& tos_content);
   // Loads Play Store ToS content in case default network exists. If
   // |ignore_network_state| is set then network state is not checked.
   void MaybeLoadPlayStoreToS(bool ignore_network_state);
 
   void StartNetworkAndTimeZoneObserving();
+
+  // Handles the recording of consent given or not given after the user chooses
+  // to skip or accept.
+  void RecordConsents(const std::string& tos_content,
+                      bool record_tos_content,
+                      bool tos_accepted,
+                      bool record_backup_consent,
+                      bool backup_accepted,
+                      bool record_location_consent,
+                      bool location_accepted);
 
   bool NeedDispatchEventOnAction();
 
@@ -79,7 +102,8 @@ class ArcTermsOfServiceScreenHandler
   void OnBackupAndRestoreModeChanged(bool enabled, bool managed) override;
   void OnLocationServicesModeChanged(bool enabled, bool managed) override;
 
-  base::ObserverList<ArcTermsOfServiceScreenViewObserver, true> observer_list_;
+  base::ObserverList<ArcTermsOfServiceScreenViewObserver, true>::Unchecked
+      observer_list_;
 
   // Whether the screen should be shown right after initialization.
   bool show_on_init_ = false;
@@ -89,6 +113,16 @@ class ArcTermsOfServiceScreenHandler
 
   // To filter out duplicate notifications from html.
   bool action_taken_ = false;
+
+  // To track if ARC preference is managed.
+  bool arc_managed_ = false;
+
+  // To track if optional features are managed preferences.
+  bool backup_restore_managed_ = false;
+  bool location_services_managed_ = false;
+
+  // To track if a child account is being set up.
+  bool is_child_account_;
 
   std::unique_ptr<arc::ArcOptInPreferenceHandler> pref_handler_;
 

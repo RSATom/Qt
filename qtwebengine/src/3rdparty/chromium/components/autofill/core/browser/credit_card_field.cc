@@ -9,6 +9,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -17,6 +18,7 @@
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_scanner.h"
+#include "components/autofill/core/browser/field_filler.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/common/autofill_clock.h"
 #include "components/autofill/core/common/autofill_regex_constants.h"
@@ -83,8 +85,9 @@ std::unique_ptr<FormField> CreditCardField::Parse(AutofillScanner* scanner) {
   if (scanner->IsEnd())
     return nullptr;
 
-  std::unique_ptr<CreditCardField> credit_card_field(new CreditCardField);
+  auto credit_card_field = std::make_unique<CreditCardField>();
   size_t saved_cursor = scanner->SaveCursor();
+  int nb_unknown_fields = 0;
 
   // Credit card fields can appear in many different orders.
   // We loop until no more credit card related fields are found, see |break| at
@@ -131,6 +134,7 @@ std::unique_ptr<FormField> CreditCardField::Parse(AutofillScanner* scanner) {
     if (!credit_card_field->type_ && LikelyCardTypeSelectField(scanner)) {
       credit_card_field->type_ = scanner->Cursor();
       scanner->Advance();
+      nb_unknown_fields = 0;
       continue;
     }
 
@@ -167,13 +171,15 @@ std::unique_ptr<FormField> CreditCardField::Parse(AutofillScanner* scanner) {
           scanner->Advance();
           return std::move(credit_card_field);
         } else {
-          // Put the scanner back to the field right after the current cvv.
+          // Chances that verification field is the first of a card are really
+          // low.
           scanner->Advance();
-          scanner->Advance();
+          credit_card_field->verification_ = nullptr;
         }
+      } else {
+        nb_unknown_fields = 0;
+        continue;
       }
-
-      continue;
     }
 
     // TODO(crbug.com/591816): Make sure parsing cc-numbers of type password
@@ -200,11 +206,14 @@ std::unique_ptr<FormField> CreditCardField::Parse(AutofillScanner* scanner) {
 
       current_number_field->set_credit_card_number_offset(start_index);
       credit_card_field->numbers_.push_back(current_number_field);
+      nb_unknown_fields = 0;
       continue;
     }
 
-    if (credit_card_field->ParseExpirationDate(scanner))
+    if (credit_card_field->ParseExpirationDate(scanner)) {
+      nb_unknown_fields = 0;
       continue;
+    }
 
     if (credit_card_field->expiration_month_ &&
         !credit_card_field->expiration_year_ &&
@@ -214,6 +223,24 @@ std::unique_ptr<FormField> CreditCardField::Parse(AutofillScanner* scanner) {
       return nullptr;
     }
 
+    nb_unknown_fields++;
+
+    // Since cc#/verification and expiration are inter-dependent for the final
+    // detection decision, we allow for 4 UNKONWN fields in between.
+    // We can't allow for a lot of unknown fields, because the name on address
+    // sections may sometimes be mistakenly detected as cardholder name.
+    if ((credit_card_field->verification_ ||
+         !credit_card_field->numbers_.empty() ||
+         credit_card_field->HasExpiration()) &&
+        (!credit_card_field->verification_ ||
+         credit_card_field->numbers_.empty() ||
+         !credit_card_field->HasExpiration()) &&
+        nb_unknown_fields < 4) {
+      scanner->Advance();
+      fields--;  // We continue searching in the same credit card section, but
+                 // no more field is identified.
+      continue;
+    }
     break;
   }
 
@@ -313,10 +340,10 @@ bool CreditCardField::LikelyCardTypeSelectField(AutofillScanner* scanner) {
 
   // We set |ignore_whitespace| to true on these calls because this is actually
   // a pretty common mistake; e.g., "Master card" instead of "Mastercard".
-  bool isSelect = (AutofillField::FindShortestSubstringMatchInSelect(
+  bool isSelect = (FieldFiller::FindShortestSubstringMatchInSelect(
                        l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_VISA), true,
                        field) >= 0) ||
-                  (AutofillField::FindShortestSubstringMatchInSelect(
+                  (FieldFiller::FindShortestSubstringMatchInSelect(
                        l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_MASTERCARD),
                        true, field) >= 0);
   return isSelect;

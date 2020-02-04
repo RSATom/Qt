@@ -31,8 +31,8 @@
 #include <QtSql/QSqlDatabase>
 #include <QtSql/QSqlQuery>
 
-#include <QtHelp/private/qhelpgenerator_p.h>
-#include <QtHelp/private/qhelpprojectdata_p.h>
+#include "../../../src/assistant/qhelpgenerator/qhelpprojectdata_p.h"
+#include "../../../src/assistant/qhelpgenerator/helpgenerator.h"
 
 class tst_QHelpGenerator : public QObject
 {
@@ -76,7 +76,7 @@ void tst_QHelpGenerator::generateHelp()
     if (!data.readData(inputFile))
         QFAIL("Cannot read qthp file!");
 
-    QHelpGenerator generator;
+    HelpGenerator generator;
     QCOMPARE(generator.generate(&data, m_outputFile), true);
 
     {
@@ -170,11 +170,11 @@ void tst_QHelpGenerator::checkFiles()
         fileAtts[id].append(m_query->value(1).toString());
     }
     QCOMPARE(fileAtts.count(), 2);
-    QCOMPARE((bool)fileAtts.value(1).contains("test"), true);
-    QCOMPARE((bool)fileAtts.value(1).contains("filter1"), true);
-    QCOMPARE((bool)fileAtts.value(1).contains("filter2"), false);
-    QCOMPARE((bool)fileAtts.value(2).contains("test"), true);
-    QCOMPARE((bool)fileAtts.value(2).contains("filter2"), true);
+    QVERIFY(fileAtts.value(1).contains("test"));
+    QVERIFY(fileAtts.value(1).contains("filter1"));
+    QVERIFY(!fileAtts.value(1).contains("filter2"));
+    QVERIFY(fileAtts.value(2).contains("test"));
+    QVERIFY(fileAtts.value(2).contains("filter2"));
 }
 
 void tst_QHelpGenerator::checkMetaData()
@@ -182,7 +182,7 @@ void tst_QHelpGenerator::checkMetaData()
     m_query->exec("SELECT COUNT(Value) FROM MetaDataTable");
     if (!m_query->next())
         QFAIL("Meta Data Error");
-    QCOMPARE(m_query->value(0).toInt(), 4);
+    QCOMPARE(m_query->value(0).toInt(), 3);
 
     m_query->exec("SELECT Value FROM MetaDataTable WHERE Name=\'author\'");
     if (!m_query->next())
@@ -201,8 +201,8 @@ void tst_QHelpGenerator::generateTwice()
     if (!data.readData(inputFile))
         QFAIL("Cannot read qhp file!");
 
-    QHelpGenerator generator1;
-    QHelpGenerator generator2;
+    HelpGenerator generator1;
+    HelpGenerator generator2;
     QString outputFile1 = path + QLatin1String("/data/test1.qch");
     QString outputFile2 = path + QLatin1String("/data/test2.qch");
     QCOMPARE(generator1.generate(&data, outputFile1), true);

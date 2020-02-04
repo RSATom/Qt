@@ -17,8 +17,7 @@ BluetoothDiscoveryFilter::BluetoothDiscoveryFilter(
   SetTransport(transport);
 }
 
-BluetoothDiscoveryFilter::~BluetoothDiscoveryFilter() {
-}
+BluetoothDiscoveryFilter::~BluetoothDiscoveryFilter() = default;
 
 bool BluetoothDiscoveryFilter::GetRSSI(int16_t* out_rssi) const {
   DCHECK(out_rssi);
@@ -76,7 +75,7 @@ void BluetoothDiscoveryFilter::AddUUID(const device::BluetoothUUID& uuid) {
       return;
   }
 
-  uuids_.push_back(base::MakeUnique<device::BluetoothUUID>(uuid));
+  uuids_.push_back(std::make_unique<device::BluetoothUUID>(uuid));
 }
 
 void BluetoothDiscoveryFilter::CopyFrom(

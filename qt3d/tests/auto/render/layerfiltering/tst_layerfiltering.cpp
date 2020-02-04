@@ -33,6 +33,7 @@
 #include <Qt3DRender/private/entity_p.h>
 #include <Qt3DRender/private/filterlayerentityjob_p.h>
 #include <Qt3DRender/private/updatetreeenabledjob_p.h>
+#include <Qt3DRender/private/updateentityhierarchyjob_p.h>
 #include <Qt3DRender/qlayer.h>
 #include <Qt3DRender/qlayerfilter.h>
 #include "testaspect.h"
@@ -46,9 +47,11 @@ private Q_SLOTS:
     {
         // GIVEN
         Qt3DRender::Render::FilterLayerEntityJob filterJob;
+        Qt3DRender::Render::UpdateEntityLayersJob updateEntityLayerJob;
         Qt3DRender::QLayer frontendLayer;
 
         // THEN
+        QVERIFY(updateEntityLayerJob.manager() == nullptr);
         QCOMPARE(filterJob.hasLayerFilter(), false);
         QCOMPARE(filterJob.filteredEntities().size(), 0);
         QCOMPARE(filterJob.layerFilters().size(), 0);
@@ -630,11 +633,21 @@ private Q_SLOTS:
 
         // WHEN
         Qt3DRender::Render::Entity *backendRoot = aspect->nodeManagers()->renderNodesManager()->getOrCreateResource(entitySubtree->id());
+
+        Qt3DRender::Render::UpdateEntityHierarchyJob updateEntitiesJob;
+        updateEntitiesJob.setManager(aspect->nodeManagers());
+        updateEntitiesJob.run();
+
         Qt3DRender::Render::UpdateTreeEnabledJob updateTreeEnabledJob;
         updateTreeEnabledJob.setRoot(backendRoot);
+        updateTreeEnabledJob.setManagers(aspect->nodeManagers());
         updateTreeEnabledJob.run();
 
         // WHEN
+        Qt3DRender::Render::UpdateEntityLayersJob updateLayerEntityJob;
+        updateLayerEntityJob.setManager(aspect->nodeManagers());
+        updateLayerEntityJob.run();
+
         Qt3DRender::Render::FilterLayerEntityJob filterJob;
         filterJob.setLayerFilters(layerFilterIds);
         filterJob.setManager(aspect->nodeManagers());

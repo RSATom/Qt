@@ -53,12 +53,11 @@ QT_BEGIN_NAMESPACE
 namespace QtWaylandClient {
 
 QWaylandBrcmEglIntegration::QWaylandBrcmEglIntegration()
-    : m_waylandDisplay(0)
 {
     qDebug() << "Using Brcm-EGL";
 }
 
-void QWaylandBrcmEglIntegration::wlDisplayHandleGlobal(void *data, struct wl_registry *registry, uint32_t id, const QString &interface, uint32_t version)
+void QWaylandBrcmEglIntegration::wlDisplayHandleGlobal(void *data, struct ::wl_registry *registry, uint32_t id, const QString &interface, uint32_t version)
 {
     Q_UNUSED(version);
     if (interface == "qt_brcm") {
@@ -123,6 +122,33 @@ QPlatformOpenGLContext *QWaylandBrcmEglIntegration::createPlatformOpenGLContext(
 EGLDisplay QWaylandBrcmEglIntegration::eglDisplay() const
 {
     return m_eglDisplay;
+}
+
+void *QWaylandBrcmEglIntegration::nativeResource(NativeResource resource)
+{
+    switch (resource) {
+    case EglDisplay:
+        return m_eglDisplay;
+    default:
+        break;
+    }
+    return nullptr;
+}
+
+void *QWaylandBrcmEglIntegration::nativeResourceForContext(NativeResource resource, QPlatformOpenGLContext *context)
+{
+    Q_ASSERT(context);
+    switch (resource) {
+    case EglConfig:
+        return static_cast<QWaylandBrcmGLContext *>(context)->eglConfig();
+    case EglContext:
+        return static_cast<QWaylandBrcmGLContext *>(context)->eglContext();
+    case EglDisplay:
+        return m_eglDisplay;
+    default:
+        break;
+    }
+    return nullptr;
 }
 
 }

@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'bug18156QTreeWidget.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,9 +10,7 @@
 #define BUG18156QTREEWIDGET_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QGridLayout>
@@ -31,19 +29,19 @@ public:
     void setupUi(QDialog *Dialog)
     {
         if (Dialog->objectName().isEmpty())
-            Dialog->setObjectName(QStringLiteral("Dialog"));
+            Dialog->setObjectName(QString::fromUtf8("Dialog"));
         Dialog->resize(400, 300);
         gridLayout = new QGridLayout(Dialog);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         treeWidget = new QTreeWidget(Dialog);
         treeWidget->headerItem()->setText(0, QString());
         treeWidget->headerItem()->setText(2, QString());
-        treeWidget->setObjectName(QStringLiteral("treeWidget"));
+        treeWidget->setObjectName(QString::fromUtf8("treeWidget"));
 
         gridLayout->addWidget(treeWidget, 0, 0, 1, 1);
 
         buttonBox = new QDialogButtonBox(Dialog);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
 
@@ -59,9 +57,9 @@ public:
 
     void retranslateUi(QDialog *Dialog)
     {
-        Dialog->setWindowTitle(QApplication::translate("Dialog", "Dialog", nullptr));
+        Dialog->setWindowTitle(QCoreApplication::translate("Dialog", "Dialog", nullptr));
         QTreeWidgetItem *___qtreewidgetitem = treeWidget->headerItem();
-        ___qtreewidgetitem->setText(1, QApplication::translate("Dialog", "4", nullptr));
+        ___qtreewidgetitem->setText(1, QCoreApplication::translate("Dialog", "4", nullptr));
     } // retranslateUi
 
 };

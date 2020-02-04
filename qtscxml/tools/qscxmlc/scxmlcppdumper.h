@@ -42,7 +42,7 @@ struct TranslationUnit
 {
     TranslationUnit()
         : stateMethods(false)
-        , mainDocument(Q_NULLPTR)
+        , mainDocument(nullptr)
     {}
 
     QString scxmlFileName;

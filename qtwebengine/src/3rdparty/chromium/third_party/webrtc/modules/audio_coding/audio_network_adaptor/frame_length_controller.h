@@ -8,14 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FRAME_LENGTH_CONTROLLER_H_
-#define WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FRAME_LENGTH_CONTROLLER_H_
+#ifndef MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FRAME_LENGTH_CONTROLLER_H_
+#define MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FRAME_LENGTH_CONTROLLER_H_
 
+#include <stddef.h>
 #include <map>
-#include <vector>
+#include <set>
 
-#include "webrtc/modules/audio_coding/audio_network_adaptor/controller.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "absl/types/optional.h"
+#include "modules/audio_coding/audio_network_adaptor/controller.h"
+#include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -30,21 +33,27 @@ class FrameLengthController final : public Controller {
       int from_frame_length_ms;
       int to_frame_length_ms;
     };
-    Config(const std::vector<int>& encoder_frame_lengths_ms,
+    Config(const std::set<int>& encoder_frame_lengths_ms,
            int initial_frame_length_ms,
            int min_encoder_bitrate_bps,
            float fl_increasing_packet_loss_fraction,
            float fl_decreasing_packet_loss_fraction,
+           int fl_increase_overhead_offset,
+           int fl_decrease_overhead_offset,
            std::map<FrameLengthChange, int> fl_changing_bandwidths_bps);
     Config(const Config& other);
     ~Config();
-    std::vector<int> encoder_frame_lengths_ms;
+    std::set<int> encoder_frame_lengths_ms;
     int initial_frame_length_ms;
     int min_encoder_bitrate_bps;
     // Uplink packet loss fraction below which frame length can increase.
     float fl_increasing_packet_loss_fraction;
     // Uplink packet loss fraction below which frame length should decrease.
     float fl_decreasing_packet_loss_fraction;
+    // Offset to apply to overhead calculation when increasing frame length.
+    int fl_increase_overhead_offset;
+    // Offset to apply to overhead calculation when decreasing frame length.
+    int fl_decrease_overhead_offset;
     std::map<FrameLengthChange, int> fl_changing_bandwidths_bps;
   };
 
@@ -65,17 +74,21 @@ class FrameLengthController final : public Controller {
 
   const Config config_;
 
-  std::vector<int>::const_iterator frame_length_ms_;
+  std::set<int>::const_iterator frame_length_ms_;
 
-  rtc::Optional<int> uplink_bandwidth_bps_;
+  absl::optional<int> uplink_bandwidth_bps_;
 
-  rtc::Optional<float> uplink_packet_loss_fraction_;
+  absl::optional<float> uplink_packet_loss_fraction_;
 
-  rtc::Optional<size_t> overhead_bytes_per_packet_;
+  absl::optional<size_t> overhead_bytes_per_packet_;
+
+  // True if the previous frame length decision was an increase, otherwise
+  // false.
+  bool prev_decision_increase_ = false;
 
   RTC_DISALLOW_COPY_AND_ASSIGN(FrameLengthController);
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FRAME_LENGTH_CONTROLLER_H_
+#endif  // MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FRAME_LENGTH_CONTROLLER_H_

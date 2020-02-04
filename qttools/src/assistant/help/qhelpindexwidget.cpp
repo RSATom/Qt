@@ -41,6 +41,7 @@
 #include "qhelpenginecore.h"
 #include "qhelpengine_p.h"
 #include "qhelpdbreader_p.h"
+#include "qhelpcollectionhandler_p.h"
 
 #include <QtCore/QThread>
 #include <QtCore/QMutex>
@@ -55,23 +56,19 @@ class QHelpIndexProvider : public QThread
 {
 public:
     QHelpIndexProvider(QHelpEnginePrivate *helpEngine);
-    ~QHelpIndexProvider();
+    ~QHelpIndexProvider() override;
     void collectIndices(const QString &customFilterName);
     void stopCollecting();
     QStringList indices() const;
-    QList<QHelpDBReader*> activeReaders() const;
-    QSet<int> indexIds(QHelpDBReader *reader) const;
 
 private:
     void run() override;
 
     QHelpEnginePrivate *m_helpEngine;
-    QStringList m_indices;
-    QList<QHelpDBReader*> m_activeReaders;
-    QMap<QHelpDBReader*, QSet<int> > m_indexIds;
+    QString m_currentFilter;
     QStringList m_filterAttributes;
+    QStringList m_indices;
     mutable QMutex m_mutex;
-    bool m_abort = false;
 };
 
 class QHelpIndexModelPrivate
@@ -86,9 +83,6 @@ public:
     QHelpEnginePrivate *helpEngine;
     QHelpIndexProvider *indexProvider;
     QStringList indices;
-    int insertedRows = 0;
-    QString currentFilter;
-    QList<QHelpDBReader*> activeReaders;
 };
 
 QHelpIndexProvider::QHelpIndexProvider(QHelpEnginePrivate *helpEngine)
@@ -105,25 +99,20 @@ QHelpIndexProvider::~QHelpIndexProvider()
 void QHelpIndexProvider::collectIndices(const QString &customFilterName)
 {
     m_mutex.lock();
+    m_currentFilter = customFilterName;
     m_filterAttributes = m_helpEngine->q->filterAttributes(customFilterName);
     m_mutex.unlock();
-    if (!isRunning()) {
-        start(LowPriority);
-    } else {
+
+    if (isRunning())
         stopCollecting();
-        start(LowPriority);
-    }
+    start(LowPriority);
 }
 
 void QHelpIndexProvider::stopCollecting()
 {
     if (!isRunning())
         return;
-    m_mutex.lock();
-    m_abort = true;
-    m_mutex.unlock();
     wait();
-    m_abort = false;
 }
 
 QStringList QHelpIndexProvider::indices() const
@@ -132,62 +121,30 @@ QStringList QHelpIndexProvider::indices() const
     return m_indices;
 }
 
-QList<QHelpDBReader*> QHelpIndexProvider::activeReaders() const
-{
-    QMutexLocker lck(&m_mutex);
-    return m_activeReaders;
-}
-
-QSet<int> QHelpIndexProvider::indexIds(QHelpDBReader *reader) const
-{
-    QMutexLocker lck(&m_mutex);
-    return m_indexIds.value(reader);
-}
-
 void QHelpIndexProvider::run()
 {
     m_mutex.lock();
-    QStringList atts = m_filterAttributes;
-    m_indices.clear();
-    m_activeReaders.clear();
-    QSet<QString> indicesSet;
+    const QString currentFilter = m_currentFilter;
+    const QStringList attributes = m_filterAttributes;
+    const QString collectionFile = m_helpEngine->collectionHandler->collectionFile();
+    m_indices = QStringList();
     m_mutex.unlock();
 
-    for (const QString &dbFileName : m_helpEngine->fileNameReaderMap.keys()) {
-        m_mutex.lock();
-        if (m_abort) {
-            m_mutex.unlock();
-            return;
-        }
-        m_mutex.unlock();
-        QHelpDBReader reader(dbFileName,
-            QHelpGlobal::uniquifyConnectionName(dbFileName +
-            QLatin1String("FromIndexProvider"),
-            QThread::currentThread()), 0);
-        if (!reader.init())
-            continue;
-        const QStringList &list = reader.indicesForFilter(atts);
-        if (!list.isEmpty()) {
-            m_mutex.lock();
-            for (const QString &s : list)
-                indicesSet.insert(s);
-            if (m_abort) {
-                m_mutex.unlock();
-                return;
-            }
-            QHelpDBReader *orgReader = m_helpEngine->fileNameReaderMap.value(dbFileName);
-            m_indexIds.insert(orgReader, reader.indexIds(atts));
-            m_activeReaders.append(orgReader);
-            m_mutex.unlock();
-        }
-    }
+    if (collectionFile.isEmpty())
+        return;
+
+    QHelpCollectionHandler collectionHandler(collectionFile);
+    if (!collectionHandler.openCollectionFile())
+        return;
+
+    const QStringList result = m_helpEngine->usesFilterEngine
+            ? collectionHandler.indicesForFilter(currentFilter)
+            : collectionHandler.indicesForFilter(attributes);
+
     m_mutex.lock();
-    m_indices = indicesSet.values();
-    m_indices.sort(Qt::CaseInsensitive);
+    m_indices = result;
     m_mutex.unlock();
 }
-
-
 
 /*!
     \class QHelpIndexModel
@@ -222,25 +179,11 @@ QHelpIndexModel::QHelpIndexModel(QHelpEnginePrivate *helpEngine)
 
     connect(d->indexProvider, &QThread::finished,
             this, &QHelpIndexModel::insertIndices);
-    connect(helpEngine->q, &QHelpEngineCore::readersAboutToBeInvalidated,
-            [this]() { invalidateIndex(); });
 }
 
 QHelpIndexModel::~QHelpIndexModel()
 {
     delete d;
-}
-
-void QHelpIndexModel::invalidateIndex(bool onShutDown)
-{
-    if (onShutDown) {
-        disconnect(d->indexProvider, &QThread::finished,
-                   this, &QHelpIndexModel::insertIndices);
-    }
-    d->indexProvider->stopCollecting();
-    d->indices.clear();
-    if (!onShutDown)
-        filter(QString());
 }
 
 /*!
@@ -249,20 +192,22 @@ void QHelpIndexModel::invalidateIndex(bool onShutDown)
 */
 void QHelpIndexModel::createIndex(const QString &customFilterName)
 {
-    d->currentFilter = customFilterName;
+    const bool running = d->indexProvider->isRunning();
     d->indexProvider->collectIndices(customFilterName);
+    if (running)
+        return;
+
+    d->indices = QStringList();
+    filter(QString());
     emit indexCreationStarted();
 }
 
 void QHelpIndexModel::insertIndices()
 {
+    if (d->indexProvider->isRunning())
+        return;
+
     d->indices = d->indexProvider->indices();
-    d->activeReaders = d->indexProvider->activeReaders();
-    const QStringList &attributes = d->helpEngine->q->filterAttributes(d->currentFilter);
-    if (attributes.count() > 1) {
-        for (QHelpDBReader *r : qAsConst(d->activeReaders))
-            r->createAttributesCache(attributes, d->indexProvider->indexIds(r));
-    }
     filter(QString());
     emit indexCreated();
 }
@@ -376,7 +321,7 @@ QModelIndex QHelpIndexModel::filter(const QString &filter, const QString &wildca
 */
 
 QHelpIndexWidget::QHelpIndexWidget()
-    : QListView(0)
+    : QListView(nullptr)
 {
     setEditTriggers(QAbstractItemView::NoEditTriggers);
     setUniformItemSizes(true);

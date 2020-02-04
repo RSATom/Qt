@@ -10,17 +10,20 @@
 #include "core/fpdfapi/font/cpdf_simplefont.h"
 #include "core/fxcrt/fx_system.h"
 
-class CPDF_Type1Font : public CPDF_SimpleFont {
+class CPDF_Type1Font final : public CPDF_SimpleFont {
  public:
-  CPDF_Type1Font();
+  CPDF_Type1Font(CPDF_Document* pDocument, CPDF_Dictionary* pFontDict);
+  ~CPDF_Type1Font() override;
 
   // CPDF_Font:
   bool IsType1Font() const override;
   const CPDF_Type1Font* AsType1Font() const override;
   CPDF_Type1Font* AsType1Font() override;
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
   int GlyphFromCharCodeExt(uint32_t charcode) override;
+#endif
 
-  int GetBase14Font() const { return m_Base14Font; }
+  bool IsBase14Font() const { return m_Base14Font >= 0; }
 
  private:
   // CPDF_Font:
@@ -29,12 +32,14 @@ class CPDF_Type1Font : public CPDF_SimpleFont {
   // CPDF_SimpleFont:
   void LoadGlyphMap() override;
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
-  void SetExtGID(const char* name, int charcode);
-  void CalcExtGID(int charcode);
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+  void SetExtGID(const char* name, uint32_t charcode);
+  void CalcExtGID(uint32_t charcode);
+
+  uint16_t m_ExtGID[256];
 #endif
 
-  int m_Base14Font;
+  int m_Base14Font = -1;
 };
 
 #endif  // CORE_FPDFAPI_FONT_CPDF_TYPE1FONT_H_

@@ -8,16 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <cstdint>
 #include <vector>
 
-#include "webrtc/common_video/h264/h264_common.h"
-#include "webrtc/common_video/h264/sps_vui_rewriter.h"
-#include "webrtc/rtc_base/bitbuffer.h"
-#include "webrtc/rtc_base/buffer.h"
-#include "webrtc/rtc_base/fileutils.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/pathutils.h"
-#include "webrtc/test/gtest.h"
+#include "common_video/h264/h264_common.h"
+#include "common_video/h264/sps_vui_rewriter.h"
+#include "rtc_base/bit_buffer.h"
+#include "rtc_base/buffer.h"
+#include "rtc_base/logging.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
@@ -161,7 +160,7 @@ void TestSps(SpsMode mode, SpsVuiRewriter::ParseResult expected_parse_result) {
   index.payload_start_offset += H264::kNaluTypeSize;
   index.payload_size -= H264::kNaluTypeSize;
 
-  rtc::Optional<SpsParser::SpsState> sps;
+  absl::optional<SpsParser::SpsState> sps;
   rtc::Buffer out_buffer;
   SpsVuiRewriter::ParseResult result =
       SpsVuiRewriter::ParseAndRewriteSps(&buffer[index.payload_start_offset],

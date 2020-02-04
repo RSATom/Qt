@@ -19,7 +19,6 @@
 #include "ui/base/l10n/l10n_util.h"
 
 using base::ASCIIToUTF16;
-using base::DictionaryValue;
 
 namespace extensions {
 
@@ -161,12 +160,12 @@ std::unique_ptr<OptionsPageInfo> OptionsPageInfo::Create(
                          keys::kOptionsPage,
                          error,
                          &options_page)) {
-      return std::unique_ptr<OptionsPageInfo>();
+      return nullptr;
     }
   }
 
-  return base::WrapUnique(
-      new OptionsPageInfo(options_page, chrome_style, open_in_tab));
+  return std::make_unique<OptionsPageInfo>(options_page, chrome_style,
+                                           open_in_tab);
 }
 
 OptionsPageManifestHandler::OptionsPageManifestHandler() {
@@ -197,7 +196,7 @@ bool OptionsPageManifestHandler::Parse(Extension* extension,
   if (!info)
     return false;
 
-  extension->AddInstallWarnings(install_warnings);
+  extension->AddInstallWarnings(std::move(install_warnings));
   extension->SetManifestData(keys::kOptionsUI, std::move(info));
   return true;
 }
@@ -222,9 +221,13 @@ bool OptionsPageManifestHandler::Validate(
   return true;
 }
 
-const std::vector<std::string> OptionsPageManifestHandler::Keys() const {
-  static const char* keys[] = {keys::kOptionsPage, keys::kOptionsUI};
-  return std::vector<std::string>(keys, keys + arraysize(keys));
+base::span<const char* const> OptionsPageManifestHandler::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kOptionsPage, keys::kOptionsUI};
+#if !defined(__GNUC__) || __GNUC__ > 5
+  return kKeys;
+#else
+  return base::make_span(kKeys,2);
+#endif
 }
 
 }  // namespace extensions

@@ -18,9 +18,8 @@
 #define I18N_ADDRESSINPUT_RULE_RETRIEVER_H_
 
 #include <libaddressinput/callback.h>
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
 
+#include <memory>
 #include <string>
 
 namespace i18n {
@@ -32,13 +31,16 @@ class Rule;
 // Retrieves validation rules. Sample usage:
 //    const Retriever* retriever = ...
 //    RuleRetriever rules(retriever);
-//    const scoped_ptr<const RuleRetriever::Callback> rule_ready(
+//    const std::unique_ptr<const RuleRetriever::Callback> rule_ready(
 //        BuildCallback(this, &MyClass::OnRuleReady));
 //    rules.RetrieveRule("data/CA/AB--fr", *rule_ready);
 class RuleRetriever {
  public:
-  typedef i18n::addressinput::Callback<const std::string&,
-                                       const Rule&> Callback;
+  using Callback =
+      i18n::addressinput::Callback<const std::string&, const Rule&>;
+
+  RuleRetriever(const RuleRetriever&) = delete;
+  RuleRetriever& operator=(const RuleRetriever&) = delete;
 
   // Takes ownership of |retriever|.
   explicit RuleRetriever(const Retriever* retriever);
@@ -48,9 +50,7 @@ class RuleRetriever {
   void RetrieveRule(const std::string& key, const Callback& rule_ready) const;
 
  private:
-  scoped_ptr<const Retriever> data_retriever_;
-
-  DISALLOW_COPY_AND_ASSIGN(RuleRetriever);
+  std::unique_ptr<const Retriever> data_retriever_;
 };
 
 }  // namespace addressinput

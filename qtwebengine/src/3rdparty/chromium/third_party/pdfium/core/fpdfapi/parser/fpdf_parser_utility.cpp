@@ -16,6 +16,7 @@
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fxcrt/fx_extension.h"
+#include "core/fxcrt/fx_stream.h"
 #include "third_party/base/logging.h"
 
 // Indexed by 8-bit character code, contains either:
@@ -70,53 +71,51 @@ const char PDF_CharType[256] = {
     'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R',
     'R', 'R', 'R', 'R', 'R', 'R', 'R', 'W'};
 
-int32_t GetHeaderOffset(const CFX_RetainPtr<IFX_SeekableReadStream>& pFile) {
-  const size_t kBufSize = 4;
+Optional<FX_FILESIZE> GetHeaderOffset(
+    const RetainPtr<IFX_SeekableReadStream>& pFile) {
+  static constexpr size_t kBufSize = 4;
   uint8_t buf[kBufSize];
-  for (int32_t offset = 0; offset <= 1024; ++offset) {
-    if (!pFile->ReadBlock(buf, offset, kBufSize))
-      return -1;
+  for (FX_FILESIZE offset = 0; offset <= 1024; ++offset) {
+    if (!pFile->ReadBlockAtOffset(buf, offset, kBufSize))
+      return {};
 
     if (memcmp(buf, "%PDF", 4) == 0)
       return offset;
   }
-  return -1;
+  return {};
 }
 
-int32_t GetDirectInteger(CPDF_Dictionary* pDict, const CFX_ByteString& key) {
-  CPDF_Number* pObj = ToNumber(pDict->GetObjectFor(key));
+int32_t GetDirectInteger(const CPDF_Dictionary* pDict, const ByteString& key) {
+  const CPDF_Number* pObj = ToNumber(pDict->GetObjectFor(key));
   return pObj ? pObj->GetInteger() : 0;
 }
 
-CFX_ByteString PDF_NameDecode(const CFX_ByteStringC& bstr) {
-  if (bstr.Find('#') == -1)
-    return CFX_ByteString(bstr);
+ByteString PDF_NameDecode(ByteStringView bstr) {
+  if (!bstr.Contains('#'))
+    return ByteString(bstr);
 
-  int size = bstr.GetLength();
-  CFX_ByteString result;
-  char* pDestStart = result.GetBuffer(size);
-  char* pDest = pDestStart;
-  for (int i = 0; i < size; i++) {
-    if (bstr[i] == '#' && i < size - 2) {
-      *pDest++ = FXSYS_HexCharToInt(bstr[i + 1]) * 16 +
-                 FXSYS_HexCharToInt(bstr[i + 2]);
-      i += 2;
-    } else {
-      *pDest++ = bstr[i];
+  size_t src_size = bstr.GetLength();
+  size_t out_index = 0;
+  ByteString result;
+  {
+    // Span's lifetime must end before ReleaseBuffer() below.
+    pdfium::span<char> pDest = result.GetBuffer(src_size);
+    for (size_t i = 0; i < src_size; i++) {
+      if (bstr[i] == '#' && i + 2 < src_size) {
+        pDest[out_index++] = FXSYS_HexCharToInt(bstr[i + 1]) * 16 +
+                             FXSYS_HexCharToInt(bstr[i + 2]);
+        i += 2;
+      } else {
+        pDest[out_index++] = bstr[i];
+      }
     }
   }
-  result.ReleaseBuffer((FX_STRSIZE)(pDest - pDestStart));
+  result.ReleaseBuffer(out_index);
   return result;
 }
 
-CFX_ByteString PDF_NameDecode(const CFX_ByteString& orig) {
-  if (orig.Find('#') == -1)
-    return orig;
-  return PDF_NameDecode(orig.AsStringC());
-}
-
-CFX_ByteString PDF_NameEncode(const CFX_ByteString& orig) {
-  uint8_t* src_buf = (uint8_t*)orig.c_str();
+ByteString PDF_NameEncode(const ByteString& orig) {
+  const uint8_t* src_buf = reinterpret_cast<const uint8_t*>(orig.c_str());
   int src_len = orig.GetLength();
   int dest_len = 0;
   int i;
@@ -132,55 +131,57 @@ CFX_ByteString PDF_NameEncode(const CFX_ByteString& orig) {
   if (dest_len == src_len)
     return orig;
 
-  CFX_ByteString res;
-  char* dest_buf = res.GetBuffer(dest_len);
-  dest_len = 0;
-  for (i = 0; i < src_len; i++) {
-    uint8_t ch = src_buf[i];
-    if (ch >= 0x80 || PDFCharIsWhitespace(ch) || ch == '#' ||
-        PDFCharIsDelimiter(ch)) {
-      dest_buf[dest_len++] = '#';
-      FXSYS_IntToTwoHexChars(ch, dest_buf + dest_len);
-      dest_len += 2;
-    } else {
+  ByteString res;
+  {
+    // Span's lifetime must end before ReleaseBuffer() below.
+    pdfium::span<char> dest_buf = res.GetBuffer(dest_len);
+    dest_len = 0;
+    for (i = 0; i < src_len; i++) {
+      uint8_t ch = src_buf[i];
+      if (ch >= 0x80 || PDFCharIsWhitespace(ch) || ch == '#' ||
+          PDFCharIsDelimiter(ch)) {
+        dest_buf[dest_len++] = '#';
+        FXSYS_IntToTwoHexChars(ch, &dest_buf[dest_len]);
+        dest_len += 2;
+        continue;
+      }
       dest_buf[dest_len++] = ch;
     }
   }
-  dest_buf[dest_len] = 0;
-  res.ReleaseBuffer();
+  res.ReleaseBuffer(dest_len);
   return res;
 }
 
-CFX_ByteTextBuf& operator<<(CFX_ByteTextBuf& buf, const CPDF_Object* pObj) {
+std::ostream& operator<<(std::ostream& buf, const CPDF_Object* pObj) {
   if (!pObj) {
     buf << " null";
     return buf;
   }
   switch (pObj->GetType()) {
-    case CPDF_Object::NULLOBJ:
+    case CPDF_Object::kNullobj:
       buf << " null";
       break;
-    case CPDF_Object::BOOLEAN:
-    case CPDF_Object::NUMBER:
+    case CPDF_Object::kBoolean:
+    case CPDF_Object::kNumber:
       buf << " " << pObj->GetString();
       break;
-    case CPDF_Object::STRING:
+    case CPDF_Object::kString:
       buf << PDF_EncodeString(pObj->GetString(), pObj->AsString()->IsHex());
       break;
-    case CPDF_Object::NAME: {
-      CFX_ByteString str = pObj->GetString();
+    case CPDF_Object::kName: {
+      ByteString str = pObj->GetString();
       buf << "/" << PDF_NameEncode(str);
       break;
     }
-    case CPDF_Object::REFERENCE: {
+    case CPDF_Object::kReference: {
       buf << " " << pObj->AsReference()->GetRefObjNum() << " 0 R ";
       break;
     }
-    case CPDF_Object::ARRAY: {
+    case CPDF_Object::kArray: {
       const CPDF_Array* p = pObj->AsArray();
       buf << "[";
-      for (size_t i = 0; i < p->GetCount(); i++) {
-        CPDF_Object* pElement = p->GetObjectAt(i);
+      for (size_t i = 0; i < p->size(); i++) {
+        const CPDF_Object* pElement = p->GetObjectAt(i);
         if (pElement && !pElement->IsInline()) {
           buf << " " << pElement->GetObjNum() << " 0 R";
         } else {
@@ -190,11 +191,11 @@ CFX_ByteTextBuf& operator<<(CFX_ByteTextBuf& buf, const CPDF_Object* pObj) {
       buf << "]";
       break;
     }
-    case CPDF_Object::DICTIONARY: {
-      const CPDF_Dictionary* p = pObj->AsDictionary();
+    case CPDF_Object::kDictionary: {
+      CPDF_DictionaryLocker locker(pObj->AsDictionary());
       buf << "<<";
-      for (const auto& it : *p) {
-        const CFX_ByteString& key = it.first;
+      for (const auto& it : locker) {
+        const ByteString& key = it.first;
         CPDF_Object* pValue = it.second.get();
         buf << "/" << PDF_NameEncode(key);
         if (pValue && !pValue->IsInline()) {
@@ -206,12 +207,13 @@ CFX_ByteTextBuf& operator<<(CFX_ByteTextBuf& buf, const CPDF_Object* pObj) {
       buf << ">>";
       break;
     }
-    case CPDF_Object::STREAM: {
+    case CPDF_Object::kStream: {
       const CPDF_Stream* p = pObj->AsStream();
       buf << p->GetDict() << "stream\r\n";
       auto pAcc = pdfium::MakeRetain<CPDF_StreamAcc>(p);
-      pAcc->LoadAllData(true);
-      buf.AppendBlock(pAcc->GetData(), pAcc->GetSize());
+      pAcc->LoadAllDataRaw();
+      buf.write(reinterpret_cast<const char*>(pAcc->GetData()),
+                pAcc->GetSize());
       buf << "\r\nendstream";
       break;
     }

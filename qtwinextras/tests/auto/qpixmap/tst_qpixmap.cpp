@@ -29,6 +29,7 @@
 #include <QtTest/QtTest>
 #include <QtCore/qt_windows.h>
 #include <QtCore/QFileInfo>
+#include <QtGui/QPainter>
 #include <QtGui/QPixmap>
 #include <QtGui/QImage>
 #include <QtWinExtras/QtWin>
@@ -52,6 +53,8 @@ private slots:
     void toHICON();
     void fromHICON_data();
     void fromHICON();
+
+    void imageConversion();
 
 private:
     const QString m_dataDirectory;
@@ -277,6 +280,21 @@ void tst_QPixmap::fromHICON()
     // between QImage::Format_ARGB32 and QImage::Format_ARGB32_Premultiplied, or elsewhere
     QByteArray errorMessage;
     QVERIFY2(compareImages(imageFromHICON, imageFromFile, &errorMessage), errorMessage.constData());
+}
+
+void tst_QPixmap::imageConversion()
+{
+    // Extensive testing of all formats is done in QtGui; this merely tests
+    // the exports/linkage.
+    QImage image(73, 57, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::red);
+    QPainter painter(&image);
+    painter.drawLine(0, 0, image.width(), image.height());
+    const HBITMAP hBitMap = QtWin::imageToHBITMAP(image);
+    QVERIFY(hBitMap);
+    const QImage fromHBitMap = QtWin::imageFromHBITMAP(hBitMap, QtWin::HBitmapPremultipliedAlpha);
+    QCOMPARE(fromHBitMap, image);
+    DeleteObject(hBitMap);
 }
 
 QTEST_MAIN(tst_QPixmap)

@@ -28,8 +28,40 @@ bool DeserializeNotificationDatabaseData(const std::string& input,
   output->origin = GURL(message.origin());
   output->service_worker_registration_id =
       message.service_worker_registration_id();
+  output->replaced_existing_notification =
+      message.replaced_existing_notification();
+  output->num_clicks = message.num_clicks();
+  output->num_action_button_clicks = message.num_action_button_clicks();
+  output->creation_time_millis = base::Time::FromDeltaSinceWindowsEpoch(
+      base::TimeDelta::FromMicroseconds(message.creation_time_millis()));
 
-  PlatformNotificationData* notification_data = &output->notification_data;
+  if (message.has_time_until_close_millis()) {
+    output->time_until_close_millis =
+        base::TimeDelta::FromMilliseconds(message.time_until_close_millis());
+  }
+  if (message.has_time_until_first_click_millis()) {
+    output->time_until_first_click_millis = base::TimeDelta::FromMilliseconds(
+        message.time_until_first_click_millis());
+  }
+  if (message.has_time_until_last_click_millis()) {
+    output->time_until_last_click_millis = base::TimeDelta::FromMilliseconds(
+        message.time_until_last_click_millis());
+  }
+
+  switch (message.closed_reason()) {
+    case NotificationDatabaseDataProto::USER:
+      output->closed_reason = NotificationDatabaseData::ClosedReason::USER;
+      break;
+    case NotificationDatabaseDataProto::DEVELOPER:
+      output->closed_reason = NotificationDatabaseData::ClosedReason::DEVELOPER;
+      break;
+    case NotificationDatabaseDataProto::UNKNOWN:
+      output->closed_reason = NotificationDatabaseData::ClosedReason::UNKNOWN;
+      break;
+  }
+
+  blink::PlatformNotificationData* notification_data =
+      &output->notification_data;
   const NotificationDatabaseDataProto::NotificationData& payload =
       message.notification_data();
 
@@ -38,14 +70,15 @@ bool DeserializeNotificationDatabaseData(const std::string& input,
   switch (payload.direction()) {
     case NotificationDatabaseDataProto::NotificationData::LEFT_TO_RIGHT:
       notification_data->direction =
-          PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT;
+          blink::PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT;
       break;
     case NotificationDatabaseDataProto::NotificationData::RIGHT_TO_LEFT:
       notification_data->direction =
-          PlatformNotificationData::DIRECTION_RIGHT_TO_LEFT;
+          blink::PlatformNotificationData::DIRECTION_RIGHT_TO_LEFT;
       break;
     case NotificationDatabaseDataProto::NotificationData::AUTO:
-      notification_data->direction = PlatformNotificationData::DIRECTION_AUTO;
+      notification_data->direction =
+          blink::PlatformNotificationData::DIRECTION_AUTO;
       break;
   }
 
@@ -59,6 +92,8 @@ bool DeserializeNotificationDatabaseData(const std::string& input,
   if (payload.vibration_pattern().size() > 0) {
     notification_data->vibration_pattern.assign(
         payload.vibration_pattern().begin(), payload.vibration_pattern().end());
+  } else {
+    notification_data->vibration_pattern.clear();
   }
 
   notification_data->timestamp =
@@ -70,17 +105,21 @@ bool DeserializeNotificationDatabaseData(const std::string& input,
   if (payload.data().length()) {
     notification_data->data.assign(payload.data().begin(),
                                    payload.data().end());
+  } else {
+    notification_data->data.clear();
   }
 
+  notification_data->actions.clear();
+
   for (const auto& payload_action : payload.actions()) {
-    PlatformNotificationAction action;
+    blink::PlatformNotificationAction action;
 
     switch (payload_action.type()) {
       case NotificationDatabaseDataProto::NotificationAction::BUTTON:
-        action.type = PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON;
+        action.type = blink::PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON;
         break;
       case NotificationDatabaseDataProto::NotificationAction::TEXT:
-        action.type = PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT;
+        action.type = blink::PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT;
         break;
       default:
         NOTREACHED();
@@ -106,20 +145,21 @@ bool SerializeNotificationDatabaseData(const NotificationDatabaseData& input,
   std::unique_ptr<NotificationDatabaseDataProto::NotificationData> payload(
       new NotificationDatabaseDataProto::NotificationData());
 
-  const PlatformNotificationData& notification_data = input.notification_data;
+  const blink::PlatformNotificationData& notification_data =
+      input.notification_data;
 
   payload->set_title(base::UTF16ToUTF8(notification_data.title));
 
   switch (notification_data.direction) {
-    case PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT:
+    case blink::PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT:
       payload->set_direction(
           NotificationDatabaseDataProto::NotificationData::LEFT_TO_RIGHT);
       break;
-    case PlatformNotificationData::DIRECTION_RIGHT_TO_LEFT:
+    case blink::PlatformNotificationData::DIRECTION_RIGHT_TO_LEFT:
       payload->set_direction(
           NotificationDatabaseDataProto::NotificationData::RIGHT_TO_LEFT);
       break;
-    case PlatformNotificationData::DIRECTION_AUTO:
+    case blink::PlatformNotificationData::DIRECTION_AUTO:
       payload->set_direction(
           NotificationDatabaseDataProto::NotificationData::AUTO);
       break;
@@ -145,16 +185,17 @@ bool SerializeNotificationDatabaseData(const NotificationDatabaseData& input,
                       notification_data.data.size());
   }
 
-  for (const PlatformNotificationAction& action : notification_data.actions) {
+  for (const blink::PlatformNotificationAction& action :
+       notification_data.actions) {
     NotificationDatabaseDataProto::NotificationAction* payload_action =
         payload->add_actions();
 
     switch (action.type) {
-      case PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON:
+      case blink::PLATFORM_NOTIFICATION_ACTION_TYPE_BUTTON:
         payload_action->set_type(
             NotificationDatabaseDataProto::NotificationAction::BUTTON);
         break;
-      case PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT:
+      case blink::PLATFORM_NOTIFICATION_ACTION_TYPE_TEXT:
         payload_action->set_type(
             NotificationDatabaseDataProto::NotificationAction::TEXT);
         break;
@@ -178,6 +219,36 @@ bool SerializeNotificationDatabaseData(const NotificationDatabaseData& input,
   message.set_service_worker_registration_id(
       input.service_worker_registration_id);
   message.set_allocated_notification_data(payload.release());
+  message.set_replaced_existing_notification(
+      input.replaced_existing_notification);
+  message.set_num_clicks(input.num_clicks);
+  message.set_num_action_button_clicks(input.num_action_button_clicks);
+  message.set_creation_time_millis(
+      input.creation_time_millis.ToDeltaSinceWindowsEpoch().InMicroseconds());
+  if (input.time_until_first_click_millis.has_value()) {
+    message.set_time_until_first_click_millis(
+        input.time_until_first_click_millis.value().InMilliseconds());
+  }
+  if (input.time_until_last_click_millis.has_value()) {
+    message.set_time_until_last_click_millis(
+        input.time_until_last_click_millis.value().InMilliseconds());
+  }
+  if (input.time_until_close_millis.has_value()) {
+    message.set_time_until_close_millis(
+        input.time_until_close_millis.value().InMilliseconds());
+  }
+
+  switch (input.closed_reason) {
+    case NotificationDatabaseData::ClosedReason::USER:
+      message.set_closed_reason(NotificationDatabaseDataProto::USER);
+      break;
+    case NotificationDatabaseData::ClosedReason::DEVELOPER:
+      message.set_closed_reason(NotificationDatabaseDataProto::DEVELOPER);
+      break;
+    case NotificationDatabaseData::ClosedReason::UNKNOWN:
+      message.set_closed_reason(NotificationDatabaseDataProto::UNKNOWN);
+      break;
+  }
 
   return message.SerializeToString(output);
 }

@@ -50,6 +50,15 @@ Polymer({
     },
 
     /** @private */
+    showCrostiniStorage_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private */
+    showCrostini: Boolean,
+
+    /** @private */
     isGuest_: {
       type: Boolean,
       value: function() {
@@ -67,6 +76,8 @@ Polymer({
     sizeStat_: Object,
   },
 
+  observers: ['handleCrostiniEnabledChanged_(prefs.crostini.enabled.value)'],
+
   /**
    * Timer ID for periodic update.
    * @private {number}
@@ -74,30 +85,33 @@ Polymer({
   updateTimerId_: -1,
 
   /** @override */
-  ready: function() {
-    cr.addWebUIListener(
+  attached: function() {
+    this.addWebUIListener(
         'storage-size-stat-changed', this.handleSizeStatChanged_.bind(this));
-    cr.addWebUIListener(
+    this.addWebUIListener(
         'storage-downloads-size-changed',
         this.handleDownloadsSizeChanged_.bind(this));
-    cr.addWebUIListener(
+    this.addWebUIListener(
         'storage-drive-cache-size-changed',
         this.handleDriveCacheSizeChanged_.bind(this));
-    cr.addWebUIListener(
+    this.addWebUIListener(
         'storage-browsing-data-size-changed',
         this.handleBrowsingDataSizeChanged_.bind(this));
-    cr.addWebUIListener(
+    this.addWebUIListener(
         'storage-android-size-changed',
         this.handleAndroidSizeChanged_.bind(this));
+    this.addWebUIListener(
+        'storage-crostini-size-changed',
+        this.handleCrostiniSizeChanged_.bind(this));
     if (!this.isGuest_) {
-      cr.addWebUIListener(
+      this.addWebUIListener(
           'storage-other-users-size-changed',
           this.handleOtherUsersSizeChanged_.bind(this));
     }
-    cr.addWebUIListener(
+    this.addWebUIListener(
         'storage-drive-enabled-changed',
         this.handleDriveEnabledChanged_.bind(this));
-    cr.addWebUIListener(
+    this.addWebUIListener(
         'storage-android-enabled-changed',
         this.handleAndroidEnabledChanged_.bind(this));
   },
@@ -107,8 +121,9 @@ Polymer({
    * @protected
    */
   currentRouteChanged: function() {
-    if (settings.getCurrentRoute() == settings.routes.STORAGE)
+    if (settings.getCurrentRoute() == settings.routes.STORAGE) {
       this.onPageShown_();
+    }
   },
 
   /** @private */
@@ -135,8 +150,9 @@ Polymer({
    */
   onDriveCacheTap_: function(e) {
     e.preventDefault();
-    if (this.hasDriveCache_)
+    if (this.hasDriveCache_) {
       this.$.storageDriveCache.open();
+    }
   },
 
   /**
@@ -153,6 +169,14 @@ Polymer({
    */
   onAndroidTap_: function() {
     chrome.send('openArcStorage');
+  },
+
+  /**
+   * Handler for tapping the "Linux storage" item.
+   * @private
+   */
+  onCrostiniTap_: function() {
+    settings.navigateTo(settings.routes.CROSTINI_DETAILS);
   },
 
   /**
@@ -210,8 +234,20 @@ Polymer({
    * @private
    */
   handleAndroidSizeChanged_: function(size) {
-    if (this.androidEnabled_)
+    if (this.androidEnabled_) {
       this.$$('#androidSize').textContent = size;
+    }
+  },
+
+  /**
+   * @param {string} size Formatted string representing the size of Crostini
+   *     storage.
+   * @private
+   */
+  handleCrostiniSizeChanged_: function(size) {
+    if (this.showCrostiniStorage_) {
+      this.$$('#crostiniSize').textContent = size;
+    }
   },
 
   /**
@@ -219,8 +255,9 @@ Polymer({
    * @private
    */
   handleOtherUsersSizeChanged_: function(size) {
-    if (!this.isGuest_)
+    if (!this.isGuest_) {
       this.$$('#otherUsersSize').textContent = size;
+    }
   },
 
   /**
@@ -240,19 +277,27 @@ Polymer({
   },
 
   /**
+   * @param {boolean} enabled True if Crostini is enabled.
+   * @private
+   */
+  handleCrostiniEnabledChanged_: function(enabled) {
+    this.showCrostiniStorage_ = enabled && this.showCrostini;
+  },
+
+  /**
    * Starts periodic update for storage usage.
    * @private
    */
   startPeriodicUpdate_: function() {
     // We update the storage usage every 5 seconds.
     if (this.updateTimerId_ == -1) {
-      this.updateTimerId_ = window.setInterval(function() {
+      this.updateTimerId_ = window.setInterval(() => {
         if (settings.getCurrentRoute() != settings.routes.STORAGE) {
           this.stopPeriodicUpdate_();
           return;
         }
         chrome.send('updateStorageInfo');
-      }.bind(this), 5000);
+      }, 5000);
     }
   },
 

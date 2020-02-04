@@ -100,12 +100,7 @@ ASN1_ITEM_TEMPLATE_END(GENERAL_NAMES)
 
 IMPLEMENT_ASN1_FUNCTIONS(GENERAL_NAMES)
 
-GENERAL_NAME *GENERAL_NAME_dup(GENERAL_NAME *a)
-{
-    return (GENERAL_NAME *)ASN1_dup((i2d_of_void *)i2d_GENERAL_NAME,
-                                    (d2i_of_void *)d2i_GENERAL_NAME,
-                                    (char *)a);
-}
+IMPLEMENT_ASN1_DUP_FUNCTION(GENERAL_NAME)
 
 /* Returns 0 if they are equal, != 0 otherwise. */
 int GENERAL_NAME_cmp(GENERAL_NAME *a, GENERAL_NAME *b)
@@ -231,6 +226,7 @@ int GENERAL_NAME_set0_othername(GENERAL_NAME *gen,
     oth = OTHERNAME_new();
     if (!oth)
         return 0;
+    ASN1_TYPE_free(oth->value);
     oth->type_id = oid;
     oth->value = value;
     GENERAL_NAME_set0_value(gen, GEN_OTHERNAME, oth);

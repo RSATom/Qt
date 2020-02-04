@@ -8,32 +8,35 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/memory/ref_counted.h"
 #include "media/filters/vp9_parser.h"
-#include "ui/gfx/geometry/rect.h"
+#include "media/gpu/codec_picture.h"
 
 namespace media {
 
 class V4L2VP9Picture;
 class VaapiVP9Picture;
 
-class VP9Picture : public base::RefCounted<VP9Picture> {
+class VP9Picture : public CodecPicture {
  public:
   VP9Picture();
 
+  // TODO(tmathmeyer) remove these and just use static casts everywhere.
   virtual V4L2VP9Picture* AsV4L2VP9Picture();
   virtual VaapiVP9Picture* AsVaapiVP9Picture();
 
+  // Create a duplicate instance and copy the data to it. It is used to support
+  // VP9 show_existing_frame feature. Return the scoped_refptr pointing to the
+  // duplicate instance, or nullptr on failure.
+  scoped_refptr<VP9Picture> Duplicate();
+
   std::unique_ptr<Vp9FrameHeader> frame_hdr;
 
-  // The visible size of picture. This could be either parsed from frame
-  // header, or set to gfx::Rect(0, 0) for indicating invalid values or
-  // not available.
-  gfx::Rect visible_rect;
-
  protected:
-  friend class base::RefCounted<VP9Picture>;
-  virtual ~VP9Picture();
+  ~VP9Picture() override;
+
+ private:
+  // Create a duplicate instance.
+  virtual scoped_refptr<VP9Picture> CreateDuplicate();
 
   DISALLOW_COPY_AND_ASSIGN(VP9Picture);
 };

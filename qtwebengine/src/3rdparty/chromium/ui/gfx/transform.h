@@ -11,27 +11,28 @@
 #include "base/compiler_specific.h"
 #include "third_party/skia/include/core/SkMatrix44.h"
 #include "ui/gfx/geometry/vector2d_f.h"
-#include "ui/gfx/gfx_export.h"
+#include "ui/gfx/geometry_skia_export.h"
 
 namespace gfx {
 
 class BoxF;
 class RectF;
 class Point;
+class PointF;
 class Point3F;
 class Quaternion;
 class Vector3dF;
 
 // 4x4 transformation matrix. Transform is cheap and explicitly allows
 // copy/assign.
-class GFX_EXPORT Transform {
+class GEOMETRY_SKIA_EXPORT Transform {
  public:
 
   enum SkipInitialization {
     kSkipInitialization
   };
 
-  Transform() : matrix_(SkMatrix44::kIdentity_Constructor) {}
+  constexpr Transform() : matrix_(SkMatrix44::kIdentity_Constructor) {}
 
   // Skips initializing this matrix to avoid overhead, when we know it will be
   // initialized before use.
@@ -122,6 +123,7 @@ class GFX_EXPORT Transform {
   void ConcatTransform(const Transform& transform);
 
   // Returns true if this is the identity matrix.
+  // This function modifies a mutable variable in |matrix_|.
   bool IsIdentity() const { return matrix_.isIdentity(); }
 
   // Returns true if the matrix is either identity or pure translation.
@@ -171,7 +173,8 @@ class GFX_EXPORT Transform {
   // have its back side facing frontwards after applying the transform.
   bool IsBackFaceVisible() const;
 
-  // Inverts the transform which is passed in. Returns true if successful.
+  // Inverts the transform which is passed in. Returns true if successful, or
+  // sets |transform| to the identify matrix on failure.
   bool GetInverse(Transform* transform) const WARN_UNUSED_RESULT;
 
   // Transposes this transform in place.
@@ -201,6 +204,9 @@ class GFX_EXPORT Transform {
 
   // Applies the transformation to the point.
   void TransformPoint(Point3F* point) const;
+
+  // Applies the transformation to the point.
+  void TransformPoint(PointF* point) const;
 
   // Applies the transformation to the point.
   void TransformPoint(Point* point) const;
@@ -272,6 +278,8 @@ class GFX_EXPORT Transform {
  private:
   void TransformPointInternal(const SkMatrix44& xform,
                               Point* point) const;
+
+  void TransformPointInternal(const SkMatrix44& xform, PointF* point) const;
 
   void TransformPointInternal(const SkMatrix44& xform,
                               Point3F* point) const;

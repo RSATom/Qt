@@ -87,12 +87,18 @@ struct Status {
      */
     kInvalidElementValue = -1030,
 
+    /**
+     A recursive element was so deeply nested that exceeded the parser's limit.
+     */
+    kExceededRecursionDepthLimit = -1031,
+
     // The following codes are internal-only and should not be used by users.
     // Additionally, these codes should never be returned to the user; doing so
     // is considered a bug.
-    // Parsing should switch from reading to skipping elements (internal-only
-    // use; .
-    kSwitchToSkip = -2147483648,
+    /**
+     \internal Parsing should switch from reading to skipping elements.
+     */
+    kSwitchToSkip = INT32_MIN,
   };
 
   /**

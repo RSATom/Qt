@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/api/image_writer_private/removable_storage_provider.h"
+
+#include "chromeos/disks/disk.h"
 #include "chromeos/disks/disk_mount_manager.h"
 
 namespace extensions {
@@ -10,6 +12,7 @@ namespace extensions {
 const char kUnknownSDDiskModel[] = "SD Card";
 const char kUnknownUSBDiskModel[] = "USB Drive";
 
+using chromeos::disks::Disk;
 using chromeos::disks::DiskMountManager;
 
 // The Chrome OS implementation takes advantage of the Chrome OS
@@ -17,15 +20,16 @@ using chromeos::disks::DiskMountManager;
 // fixed disk.  In fact, some SD cards will present themselves as fixed disks
 // (see http://crbug.com/340761).  Thus we just expose all USB and SD drives.
 // static
-bool RemovableStorageProvider::PopulateDeviceList(
-    scoped_refptr<StorageDeviceList> device_list) {
+scoped_refptr<StorageDeviceList>
+RemovableStorageProvider::PopulateDeviceList() {
   DiskMountManager* disk_mount_manager = DiskMountManager::GetInstance();
   const DiskMountManager::DiskMap& disks = disk_mount_manager->disks();
+  scoped_refptr<StorageDeviceList> device_list(new StorageDeviceList());
 
   for (DiskMountManager::DiskMap::const_iterator iter = disks.begin();
        iter != disks.end();
        ++iter) {
-    const DiskMountManager::Disk& disk = *iter->second;
+    const Disk& disk = *iter->second;
     if (disk.is_parent() && !disk.on_boot_device() && disk.has_media() &&
         (disk.device_type() == chromeos::DEVICE_TYPE_USB ||
          disk.device_type() == chromeos::DEVICE_TYPE_SD)) {
@@ -48,7 +52,7 @@ bool RemovableStorageProvider::PopulateDeviceList(
     }
   }
 
-  return true;
+  return device_list;
 }
 
 }  // namespace extensions

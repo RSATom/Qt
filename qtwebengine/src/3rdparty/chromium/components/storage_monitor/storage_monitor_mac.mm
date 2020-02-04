@@ -10,9 +10,13 @@
 #include "base/mac/mac_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "components/storage_monitor/image_capture_device_manager.h"
 #include "components/storage_monitor/media_storage_util.h"
 #include "components/storage_monitor/storage_info.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace storage_monitor {
@@ -49,7 +53,7 @@ StorageInfo::Type GetDeviceType(bool is_removable, bool has_dcim) {
 
 StorageInfo BuildStorageInfo(
     CFDictionaryRef dict, std::string* bsd_name) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   CFStringRef device_bsd_name = base::mac::GetValueFromDictionary<CFStringRef>(
       dict, kDADiskDescriptionMediaBSDNameKey);
@@ -105,25 +109,6 @@ StorageInfo BuildStorageInfo(
 
   return StorageInfo(device_id, location.value(), label, vendor, model,
                      size_in_bytes);
-}
-
-void GetDiskInfoAndUpdateOnFileThread(
-    const base::WeakPtr<StorageMonitorMac>& monitor,
-    base::ScopedCFTypeRef<CFDictionaryRef> dict,
-    StorageMonitorMac::UpdateType update_type) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
-
-  std::string bsd_name;
-  StorageInfo info = BuildStorageInfo(dict, &bsd_name);
-
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(&StorageMonitorMac::UpdateDisk,
-                 monitor,
-                 bsd_name,
-                 info,
-                 update_type));
 }
 
 struct EjectDiskOptions {
@@ -205,25 +190,25 @@ void StorageMonitorMac::Init() {
   image_capture_device_manager_->SetNotifications(receiver());
 }
 
-void StorageMonitorMac::UpdateDisk(
-    const std::string& bsd_name,
-    const StorageInfo& info,
-    UpdateType update_type) {
+void StorageMonitorMac::UpdateDisk(UpdateType update_type,
+                                   std::string* bsd_name,
+                                   const StorageInfo& info) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK(bsd_name);
 
   pending_disk_updates_--;
   bool initialization_complete = false;
   if (!IsInitialized() && pending_disk_updates_ == 0)
     initialization_complete = true;
 
-  if (info.device_id().empty() || bsd_name.empty()) {
+  if (info.device_id().empty() || bsd_name->empty()) {
     if (initialization_complete)
       MarkInitialized();
     return;
   }
 
   std::map<std::string, StorageInfo>::iterator it =
-      disk_info_map_.find(bsd_name);
+      disk_info_map_.find(*bsd_name);
   if (it != disk_info_map_.end()) {
     // If an attached notification was previously posted then post a detached
     // notification now. This is used for devices that are being removed or
@@ -237,7 +222,7 @@ void StorageMonitorMac::UpdateDisk(
     if (it != disk_info_map_.end())
       disk_info_map_.erase(it);
   } else {
-    disk_info_map_[bsd_name] = info;
+    disk_info_map_[*bsd_name] = info;
     if (ShouldPostNotificationForDisk(info))
       receiver()->ProcessAttach(info);
   }
@@ -319,8 +304,8 @@ void StorageMonitorMac::EjectDevice(
   options->bsd_name = bsd_name;
   options->callback = callback;
   options->disk = std::move(disk);
-  content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                   base::Bind(EjectDisk, options));
+  base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
+                           base::Bind(EjectDisk, options));
 }
 
 // static
@@ -351,11 +336,12 @@ void StorageMonitorMac::GetDiskInfoAndUpdate(
   pending_disk_updates_++;
 
   base::ScopedCFTypeRef<CFDictionaryRef> dict(DADiskCopyDescription(disk));
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE,
-      FROM_HERE,
-      base::Bind(GetDiskInfoAndUpdateOnFileThread,
-                 AsWeakPtr(), dict, update_type));
+  std::string* bsd_name = new std::string;
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&BuildStorageInfo, dict, bsd_name),
+      base::BindOnce(&StorageMonitorMac::UpdateDisk, AsWeakPtr(), update_type,
+                     base::Owned(bsd_name)));
 }
 
 

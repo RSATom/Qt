@@ -61,8 +61,7 @@ QPlatformScreen::~QPlatformScreen()
 {
     Q_D(QPlatformScreen);
     if (d->screen) {
-        qWarning("Manually deleting a QPlatformScreen. Call QPlatformIntegration::destroyScreen instead.");
-        QGuiApplicationPrivate::platformIntegration()->removeScreen(d->screen);
+        qWarning("Manually deleting a QPlatformScreen. Call QWindowSystemInterface::handleScreenRemoved instead.");
         delete d->screen;
     }
 }
@@ -72,7 +71,7 @@ QPlatformScreen::~QPlatformScreen()
 
     This function is called when Qt needs to be able to grab the content of a window.
 
-    Returnes the content of the window specified with the WId handle within the boundaries of
+    Returns the content of the window specified with the WId handle within the boundaries of
     QRect(x,y,width,height).
 */
 QPixmap QPlatformScreen::grabWindow(WId window, int x, int y, int width, int height) const
@@ -101,6 +100,20 @@ QWindow *QPlatformScreen::topLevelAt(const QPoint & pos) const
     }
 
     return 0;
+}
+
+/*!
+    Return all windows residing on this screen.
+*/
+QWindowList QPlatformScreen::windows() const
+{
+    QWindowList windows;
+    for (QWindow *window : QGuiApplication::allWindows()) {
+        if (platformScreenForWindow(window) != this)
+            continue;
+        windows.append(window);
+    }
+    return windows;
 }
 
 /*!
@@ -356,7 +369,7 @@ QString QPlatformScreen::serialNumber() const
 /*!
     Reimplement this function in subclass to return the cursor of the screen.
 
-    The default implementation returns 0.
+    The default implementation returns \nullptr.
 */
 QPlatformCursor *QPlatformScreen::cursor() const
 {
@@ -369,23 +382,15 @@ QPlatformCursor *QPlatformScreen::cursor() const
 */
 void QPlatformScreen::resizeMaximizedWindows()
 {
-    QList<QWindow*> windows = QGuiApplication::allWindows();
-
     // 'screen()' still has the old geometry info while 'this' has the new geometry info
     const QRect oldGeometry = screen()->geometry();
     const QRect oldAvailableGeometry = screen()->availableGeometry();
     const QRect newGeometry = deviceIndependentGeometry();
     const QRect newAvailableGeometry = QHighDpi::fromNative(availableGeometry(), QHighDpiScaling::factor(this), newGeometry.topLeft());
 
-    // make sure maximized and fullscreen windows are updated
-    for (int i = 0; i < windows.size(); ++i) {
-        QWindow *w = windows.at(i);
-
+    for (QWindow *w : windows()) {
         // Skip non-platform windows, e.g., offscreen windows.
         if (!w->handle())
-            continue;
-
-        if (platformScreenForWindow(w) != this)
             continue;
 
         if (w->windowState() & Qt::WindowMaximized || w->geometry() == oldAvailableGeometry)

@@ -6,6 +6,10 @@
 
 namespace switches {
 
+// Enables background and upload trace to trace-upload-url. Trigger rules are
+// pass as an argument.
+const char kEnableBackgroundTracing[] = "enable-background-tracing";
+
 // Causes TRACE_EVENT flags to be recorded from startup.
 // This flag will be ignored if --trace-startup or --trace-shutdown is provided.
 const char kTraceConfigFile[]               = "trace-config-file";
@@ -45,6 +49,16 @@ const char kTraceStartupDuration[]          = "trace-startup-duration";
 // the result to a file and the first manually recorded trace will then receive
 // all events since startup.
 const char kTraceStartupFile[]              = "trace-startup-file";
+
+// If supplied, sets the tracing record mode; otherwise, the default
+// "record-until-full" mode will be used.
+const char kTraceStartupRecordMode[] = "trace-startup-record-mode";
+
+// If supplied, will enable Perfetto startup tracing and stream the
+// output to the given file.
+// TODO(oysteine): Remove once Perfetto starts early enough after
+// process startup to be able to replace the legacy startup tracing.
+const char kPerfettoOutputFile[] = "perfetto-output-file";
 
 // Sends a pretty-printed version of tracing info to the console.
 const char kTraceToConsole[]                = "trace-to-console";

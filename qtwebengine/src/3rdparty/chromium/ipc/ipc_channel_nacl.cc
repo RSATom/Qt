@@ -15,6 +15,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/message_loop/message_pump_for_io.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/task_runner_util.h"
@@ -66,6 +67,9 @@ bool ReadDataOnReaderThread(int pipe, MessageContents* contents) {
 }
 
 }  // namespace
+
+// static
+constexpr size_t Channel::kMaximumMessageSize;
 
 class ChannelNacl::ReaderThreadRunner
     : public base::DelegateSimpleThread::Delegate {
@@ -220,7 +224,7 @@ void ChannelNacl::DidRecvMsg(std::unique_ptr<MessageContents> contents) {
   if (pipe_ == -1)
     return;
 
-  auto data = base::MakeUnique<std::vector<char>>();
+  auto data = std::make_unique<std::vector<char>>();
   data->swap(contents->data);
   read_queue_.push_back(std::move(data));
 
@@ -232,7 +236,7 @@ void ChannelNacl::DidRecvMsg(std::unique_ptr<MessageContents> contents) {
   contents->fds.clear();
 
   // In POSIX, we would be told when there are bytes to read by implementing
-  // OnFileCanReadWithoutBlocking in MessageLoopForIO::Watcher. In NaCl, we
+  // OnFileCanReadWithoutBlocking in MessagePumpForIO::FdWatcher. In NaCl, we
   // instead know at this point because the reader thread posted some data to
   // us.
   ProcessIncomingMessages();
@@ -386,7 +390,7 @@ std::unique_ptr<Channel> Channel::Create(
     const IPC::ChannelHandle& channel_handle,
     Mode mode,
     Listener* listener) {
-  return base::MakeUnique<ChannelNacl>(channel_handle, mode, listener);
+  return std::make_unique<ChannelNacl>(channel_handle, mode, listener);
 }
 
 }  // namespace IPC

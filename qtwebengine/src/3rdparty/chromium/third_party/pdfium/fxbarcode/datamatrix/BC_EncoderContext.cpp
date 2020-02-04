@@ -22,87 +22,86 @@
 
 #include "fxbarcode/datamatrix/BC_EncoderContext.h"
 
-#include "fxbarcode/BC_UtilCodingConvert.h"
+#include <utility>
+
 #include "fxbarcode/common/BC_CommonBitMatrix.h"
 #include "fxbarcode/datamatrix/BC_Encoder.h"
 #include "fxbarcode/datamatrix/BC_SymbolInfo.h"
-#include "fxbarcode/utils.h"
 
-CBC_EncoderContext::CBC_EncoderContext(const CFX_WideString& msg,
-                                       const CFX_WideString& ecLevel,
-                                       int32_t& e) {
-  CFX_ByteString dststr;
-  CBC_UtilCodingConvert::UnicodeToUTF8(msg, dststr);
-  CFX_WideString sb;
-  int32_t c = dststr.GetLength();
-  for (int32_t i = 0; i < c; i++) {
-    wchar_t ch = (wchar_t)(dststr.GetAt(i) & 0xff);
-    if (ch == '?' && dststr.GetAt(i) != '?') {
-      e = BCExceptionCharactersOutsideISO88591Encoding;
+CBC_EncoderContext::CBC_EncoderContext(const WideString& msg) {
+  ByteString dststr = msg.ToUTF8();
+  size_t c = dststr.GetLength();
+  WideString sb;
+  sb.Reserve(c);
+  for (size_t i = 0; i < c; i++) {
+    wchar_t ch = static_cast<wchar_t>(dststr[i] & 0xff);
+    if (ch == '?' && dststr[i] != '?') {
+      m_bHasCharactersOutsideISO88591Encoding = true;
     }
     sb += ch;
   }
-  m_msg = sb;
-  m_allowRectangular = true;
-  m_newEncoding = -1;
-  m_pos = 0;
-  m_symbolInfo = nullptr;
-  m_skipAtEnd = 0;
+  m_msg = std::move(sb);
+  m_codewords.Reserve(m_msg.GetLength());
 }
 
-CBC_EncoderContext::~CBC_EncoderContext() {}
-
-void CBC_EncoderContext::setAllowRectangular(bool allow) {
-  m_allowRectangular = allow;
-}
+CBC_EncoderContext::~CBC_EncoderContext() = default;
 
 void CBC_EncoderContext::setSkipAtEnd(int32_t count) {
   m_skipAtEnd = count;
 }
 wchar_t CBC_EncoderContext::getCurrentChar() {
-  return m_msg.GetAt(m_pos);
+  return m_msg[m_pos];
 }
 wchar_t CBC_EncoderContext::getCurrent() {
-  return m_msg.GetAt(m_pos);
+  return m_msg[m_pos];
 }
 
-void CBC_EncoderContext::writeCodewords(const CFX_WideString& codewords) {
+void CBC_EncoderContext::writeCodewords(const WideString& codewords) {
   m_codewords += codewords;
 }
 
 void CBC_EncoderContext::writeCodeword(wchar_t codeword) {
   m_codewords += codeword;
 }
-int32_t CBC_EncoderContext::getCodewordCount() {
+
+size_t CBC_EncoderContext::getCodewordCount() {
   return m_codewords.GetLength();
 }
-void CBC_EncoderContext::signalEncoderChange(int32_t encoding) {
+
+void CBC_EncoderContext::SignalEncoderChange(
+    CBC_HighLevelEncoder::Encoding encoding) {
   m_newEncoding = encoding;
 }
-void CBC_EncoderContext::resetEncoderSignal() {
-  m_newEncoding = -1;
+
+void CBC_EncoderContext::ResetEncoderSignal() {
+  m_newEncoding = CBC_HighLevelEncoder::Encoding::UNKNOWN;
 }
+
 bool CBC_EncoderContext::hasMoreCharacters() {
   return m_pos < getTotalMessageCharCount();
 }
-int32_t CBC_EncoderContext::getRemainingCharacters() {
+
+size_t CBC_EncoderContext::getRemainingCharacters() {
   return getTotalMessageCharCount() - m_pos;
 }
-void CBC_EncoderContext::updateSymbolInfo(int32_t& e) {
-  updateSymbolInfo(getCodewordCount(), e);
+
+bool CBC_EncoderContext::UpdateSymbolInfo() {
+  return UpdateSymbolInfo(getCodewordCount());
 }
-void CBC_EncoderContext::updateSymbolInfo(int32_t len, int32_t& e) {
+
+bool CBC_EncoderContext::UpdateSymbolInfo(size_t len) {
   if (!m_symbolInfo || len > m_symbolInfo->dataCapacity()) {
-    m_symbolInfo = CBC_SymbolInfo::lookup(len, m_allowRectangular, e);
-    if (e != BCExceptionNO)
-      return;
+    m_symbolInfo = CBC_SymbolInfo::Lookup(len, m_bAllowRectangular);
+    if (!m_symbolInfo)
+      return false;
   }
+  return true;
 }
 
 void CBC_EncoderContext::resetSymbolInfo() {
-  m_allowRectangular = true;
+  m_bAllowRectangular = true;
 }
 
-int32_t CBC_EncoderContext::getTotalMessageCharCount() {
+size_t CBC_EncoderContext::getTotalMessageCharCount() {
   return m_msg.GetLength() - m_skipAtEnd;
 }

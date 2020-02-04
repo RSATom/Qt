@@ -1,5 +1,5 @@
 /*
- *  Copyright 2016 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,23 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_API_STATS_RTCSTATSCOLLECTORCALLBACK_H_
-#define WEBRTC_API_STATS_RTCSTATSCOLLECTORCALLBACK_H_
+#ifndef API_STATS_RTCSTATSCOLLECTORCALLBACK_H_
+#define API_STATS_RTCSTATSCOLLECTORCALLBACK_H_
 
-#include "webrtc/api/stats/rtcstatsreport.h"
-#include "webrtc/rtc_base/refcount.h"
-#include "webrtc/rtc_base/scoped_ref_ptr.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace webrtc {
+#include "api/stats/rtc_stats_collector_callback.h"
 
-class RTCStatsCollectorCallback : public virtual rtc::RefCountInterface {
- public:
-  virtual ~RTCStatsCollectorCallback() {}
-
-  virtual void OnStatsDelivered(
-      const rtc::scoped_refptr<const RTCStatsReport>& report) = 0;
-};
-
-}  // namespace webrtc
-
-#endif  // WEBRTC_API_STATS_RTCSTATSCOLLECTORCALLBACK_H_
+#endif  // API_STATS_RTCSTATSCOLLECTORCALLBACK_H_

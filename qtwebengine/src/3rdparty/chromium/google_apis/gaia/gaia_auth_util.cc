@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
@@ -27,26 +26,23 @@ namespace {
 const char kGmailDomain[] = "gmail.com";
 const char kGooglemailDomain[] = "googlemail.com";
 
-const void* kURLRequestUserDataKey =
-    static_cast<const void*>(&kURLRequestUserDataKey);
+const void* const kURLRequestUserDataKey = &kURLRequestUserDataKey;
 
 std::string CanonicalizeEmailImpl(const std::string& email_address,
                                   bool change_googlemail_to_gmail) {
+  std::string lower_case_email = base::ToLowerASCII(email_address);
   std::vector<std::string> parts = base::SplitString(
-      email_address, "@", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
-  if (parts.size() != 2U) {
-    NOTREACHED() << "expecting exactly one @, but got "
-                 << (parts.empty() ? 0 : parts.size() - 1)
-                 << " : " << email_address;
-  } else {
-    if (change_googlemail_to_gmail && parts[1] == kGooglemailDomain)
-      parts[1] = kGmailDomain;
+      lower_case_email, "@", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+  if (parts.size() != 2U)
+    return lower_case_email;
 
-    if (parts[1] == kGmailDomain)  // only strip '.' for gmail accounts.
-      base::RemoveChars(parts[0], ".", &parts[0]);
-  }
+  if (change_googlemail_to_gmail && parts[1] == kGooglemailDomain)
+    parts[1] = kGmailDomain;
 
-  std::string new_email = base::ToLowerASCII(base::JoinString(parts, "@"));
+  if (parts[1] == kGmailDomain)  // only strip '.' for gmail accounts.
+    base::RemoveChars(parts[0], ".", &parts[0]);
+
+  std::string new_email = base::JoinString(parts, "@");
   VLOG(1) << "Canonicalized " << email_address << " to " << new_email;
   return new_email;
 }
@@ -54,7 +50,7 @@ std::string CanonicalizeEmailImpl(const std::string& email_address,
 class GaiaURLRequestUserData : public base::SupportsUserData::Data {
  public:
   static std::unique_ptr<base::SupportsUserData::Data> Create() {
-    return base::MakeUnique<GaiaURLRequestUserData>();
+    return std::make_unique<GaiaURLRequestUserData>();
   }
 };
 
@@ -66,19 +62,6 @@ ListedAccount::ListedAccount() {}
 ListedAccount::ListedAccount(const ListedAccount& other) = default;
 
 ListedAccount::~ListedAccount() {}
-
-bool ListedAccount::operator==(const ListedAccount& other) const {
-  // Only use ids for comparison if they've been computed by some caller, since
-  // this class does not assign the id.
-  if (!id.empty() && !other.id.empty()) {
-    return id == other.id;
-  } else {
-    return email == other.email &&
-           gaia_id == other.gaia_id &&
-           valid == other.valid &&
-           raw_email == other.raw_email;
-  }
-}
 
 std::string CanonicalizeEmail(const std::string& email_address) {
   // CanonicalizeEmail() is called to process email strings that are eventually
@@ -173,6 +156,10 @@ bool ParseListAccountsData(const std::string& data,
         if (!account->GetInteger(14, &signed_out))
           signed_out = 0;
 
+        int verified = 1;
+        if (!account->GetInteger(15, &verified))
+          verified = 1;
+
         std::string gaia_id;
         // ListAccounts must also return the Gaia Id.
         if (account->GetString(10, &gaia_id) && !gaia_id.empty()) {
@@ -181,6 +168,7 @@ bool ParseListAccountsData(const std::string& data,
           listed_account.gaia_id = gaia_id;
           listed_account.valid = is_email_valid != 0;
           listed_account.signed_out = signed_out != 0;
+          listed_account.verified = verified != 0;
           listed_account.raw_email = email;
           auto* list =
               listed_account.signed_out ? signed_out_accounts : accounts;
@@ -192,16 +180,6 @@ bool ParseListAccountsData(const std::string& data,
   }
 
   return true;
-}
-
-bool RequestOriginatedFromGaia(const net::URLRequest& request) {
-  return request.GetUserData(kURLRequestUserDataKey) != nullptr;
-}
-
-void MarkURLFetcherAsGaia(net::URLFetcher* fetcher) {
-  DCHECK(fetcher);
-  fetcher->SetURLRequestUserData(kURLRequestUserDataKey,
-                                 base::Bind(&GaiaURLRequestUserData::Create));
 }
 
 }  // namespace gaia

@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'preferencesdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,9 +10,7 @@
 #define PREFERENCESDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
@@ -20,7 +18,6 @@
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QGroupBox>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QSpacerItem>
 #include <QtWidgets/QToolButton>
@@ -56,21 +53,21 @@ public:
     void setupUi(QDialog *PreferencesDialog)
     {
         if (PreferencesDialog->objectName().isEmpty())
-            PreferencesDialog->setObjectName(QStringLiteral("PreferencesDialog"));
+            PreferencesDialog->setObjectName(QString::fromUtf8("PreferencesDialog"));
         PreferencesDialog->resize(455, 359);
         PreferencesDialog->setModal(true);
         vboxLayout = new QVBoxLayout(PreferencesDialog);
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         hboxLayout = new QHBoxLayout();
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         vboxLayout1 = new QVBoxLayout();
-        vboxLayout1->setObjectName(QStringLiteral("vboxLayout1"));
+        vboxLayout1->setObjectName(QString::fromUtf8("vboxLayout1"));
         m_uiModeGroupBox = new QGroupBox(PreferencesDialog);
-        m_uiModeGroupBox->setObjectName(QStringLiteral("m_uiModeGroupBox"));
+        m_uiModeGroupBox->setObjectName(QString::fromUtf8("m_uiModeGroupBox"));
         vboxLayout2 = new QVBoxLayout(m_uiModeGroupBox);
-        vboxLayout2->setObjectName(QStringLiteral("vboxLayout2"));
+        vboxLayout2->setObjectName(QString::fromUtf8("vboxLayout2"));
         m_uiModeCombo = new QComboBox(m_uiModeGroupBox);
-        m_uiModeCombo->setObjectName(QStringLiteral("m_uiModeCombo"));
+        m_uiModeCombo->setObjectName(QString::fromUtf8("m_uiModeCombo"));
 
         vboxLayout2->addWidget(m_uiModeCombo);
 
@@ -78,12 +75,12 @@ public:
         vboxLayout1->addWidget(m_uiModeGroupBox);
 
         m_fontPanel = new FontPanel(PreferencesDialog);
-        m_fontPanel->setObjectName(QStringLiteral("m_fontPanel"));
+        m_fontPanel->setObjectName(QString::fromUtf8("m_fontPanel"));
 
         vboxLayout1->addWidget(m_fontPanel);
 
         m_previewConfigurationWidget = new qdesigner_internal::PreviewConfigurationWidget(PreferencesDialog);
-        m_previewConfigurationWidget->setObjectName(QStringLiteral("m_previewConfigurationWidget"));
+        m_previewConfigurationWidget->setObjectName(QString::fromUtf8("m_previewConfigurationWidget"));
 
         vboxLayout1->addWidget(m_previewConfigurationWidget);
 
@@ -91,23 +88,23 @@ public:
         hboxLayout->addLayout(vboxLayout1);
 
         vboxLayout3 = new QVBoxLayout();
-        vboxLayout3->setObjectName(QStringLiteral("vboxLayout3"));
+        vboxLayout3->setObjectName(QString::fromUtf8("vboxLayout3"));
         m_templatePathGroupBox = new QGroupBox(PreferencesDialog);
-        m_templatePathGroupBox->setObjectName(QStringLiteral("m_templatePathGroupBox"));
+        m_templatePathGroupBox->setObjectName(QString::fromUtf8("m_templatePathGroupBox"));
         gridLayout = new QGridLayout(m_templatePathGroupBox);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         m_templatePathListWidget = new QListWidget(m_templatePathGroupBox);
-        m_templatePathListWidget->setObjectName(QStringLiteral("m_templatePathListWidget"));
+        m_templatePathListWidget->setObjectName(QString::fromUtf8("m_templatePathListWidget"));
 
         gridLayout->addWidget(m_templatePathListWidget, 0, 0, 1, 3);
 
         m_addTemplatePathButton = new QToolButton(m_templatePathGroupBox);
-        m_addTemplatePathButton->setObjectName(QStringLiteral("m_addTemplatePathButton"));
+        m_addTemplatePathButton->setObjectName(QString::fromUtf8("m_addTemplatePathButton"));
 
         gridLayout->addWidget(m_addTemplatePathButton, 1, 0, 1, 1);
 
         m_removeTemplatePathButton = new QToolButton(m_templatePathGroupBox);
-        m_removeTemplatePathButton->setObjectName(QStringLiteral("m_removeTemplatePathButton"));
+        m_removeTemplatePathButton->setObjectName(QString::fromUtf8("m_removeTemplatePathButton"));
 
         gridLayout->addWidget(m_removeTemplatePathButton, 1, 1, 1, 1);
 
@@ -119,7 +116,7 @@ public:
         vboxLayout3->addWidget(m_templatePathGroupBox);
 
         m_gridPanel = new qdesigner_internal::GridPanel(PreferencesDialog);
-        m_gridPanel->setObjectName(QStringLiteral("m_gridPanel"));
+        m_gridPanel->setObjectName(QString::fromUtf8("m_gridPanel"));
 
         vboxLayout3->addWidget(m_gridPanel);
 
@@ -130,14 +127,14 @@ public:
         vboxLayout->addLayout(hboxLayout);
 
         line = new QFrame(PreferencesDialog);
-        line->setObjectName(QStringLiteral("line"));
+        line->setObjectName(QString::fromUtf8("line"));
         line->setFrameShape(QFrame::HLine);
         line->setFrameShadow(QFrame::Sunken);
 
         vboxLayout->addWidget(line);
 
         m_dialogButtonBox = new QDialogButtonBox(PreferencesDialog);
-        m_dialogButtonBox->setObjectName(QStringLiteral("m_dialogButtonBox"));
+        m_dialogButtonBox->setObjectName(QString::fromUtf8("m_dialogButtonBox"));
         m_dialogButtonBox->setOrientation(Qt::Horizontal);
         m_dialogButtonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
 
@@ -153,11 +150,11 @@ public:
 
     void retranslateUi(QDialog *PreferencesDialog)
     {
-        PreferencesDialog->setWindowTitle(QApplication::translate("PreferencesDialog", "Preferences", nullptr));
-        m_uiModeGroupBox->setTitle(QApplication::translate("PreferencesDialog", "User Interface Mode", nullptr));
-        m_templatePathGroupBox->setTitle(QApplication::translate("PreferencesDialog", "Additional Template Paths", nullptr));
-        m_addTemplatePathButton->setText(QApplication::translate("PreferencesDialog", "...", nullptr));
-        m_removeTemplatePathButton->setText(QApplication::translate("PreferencesDialog", "...", nullptr));
+        PreferencesDialog->setWindowTitle(QCoreApplication::translate("PreferencesDialog", "Preferences", nullptr));
+        m_uiModeGroupBox->setTitle(QCoreApplication::translate("PreferencesDialog", "User Interface Mode", nullptr));
+        m_templatePathGroupBox->setTitle(QCoreApplication::translate("PreferencesDialog", "Additional Template Paths", nullptr));
+        m_addTemplatePathButton->setText(QCoreApplication::translate("PreferencesDialog", "...", nullptr));
+        m_removeTemplatePathButton->setText(QCoreApplication::translate("PreferencesDialog", "...", nullptr));
     } // retranslateUi
 
 };

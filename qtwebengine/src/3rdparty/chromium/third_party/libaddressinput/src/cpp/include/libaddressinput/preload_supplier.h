@@ -17,10 +17,9 @@
 
 #include <libaddressinput/callback.h>
 #include <libaddressinput/supplier.h>
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -50,21 +49,30 @@ class Storage;
 // in total less than 2 MB of JSON data.)
 class PreloadSupplier : public Supplier {
  public:
-  typedef i18n::addressinput::Callback<const std::string&, int> Callback;
+  using Callback = i18n::addressinput::Callback<const std::string&, int>;
+
+  PreloadSupplier(const PreloadSupplier&) = delete;
+  PreloadSupplier& operator=(const PreloadSupplier&) = delete;
 
   // Takes ownership of |source| and |storage|.
   PreloadSupplier(const Source* source, Storage* storage);
-  virtual ~PreloadSupplier();
+  ~PreloadSupplier() override;
 
   // Collects the metadata needed for |lookup_key| from the cache, then calls
   // |supplied|. If the metadata needed isn't found in the cache, it will call
   // the callback with status false.
-  virtual void Supply(const LookupKey& lookup_key,
-                      const Supplier::Callback& supplied);
+  void Supply(const LookupKey& lookup_key,
+              const Supplier::Callback& supplied) override;
+
+  // Collects the metadata needed for |lookup_key| from the cache, by looking at
+  // all available languages, then calls |supplied|. If the metadata needed
+  // isn't found in the cache, it will call the callback with status false.
+  void SupplyGlobally(const LookupKey& lookup_key,
+                      const Supplier::Callback& supplied) override;
 
   // Should be called only when IsLoaded() returns true for the region code of
-  // the |lookup_key|. Can return NULL if the |lookup_key| does not correspond
-  // to any rule data. The caller does not own the result.
+  // the |lookup_key|. Can return nullptr if the |lookup_key| does not
+  // correspond to any rule data. The caller does not own the result.
   const Rule* GetRule(const LookupKey& lookup_key) const;
 
   // Loads all address metadata available for |region_code|. (A typical data
@@ -83,18 +91,17 @@ class PreloadSupplier : public Supplier {
   bool IsPending(const std::string& region_code) const;
 
  private:
-  bool GetRuleHierarchy(const LookupKey& lookup_key,
-                        RuleHierarchy* hierarchy) const;
+  bool GetRuleHierarchy(const LookupKey& lookup_key, RuleHierarchy* hierarchy,
+                        const bool search_globally) const;
   bool IsLoadedKey(const std::string& key) const;
   bool IsPendingKey(const std::string& key) const;
 
-  const scoped_ptr<const Retriever> retriever_;
+  const std::unique_ptr<const Retriever> retriever_;
   std::set<std::string> pending_;
-  const scoped_ptr<IndexMap> rule_index_;
+  const std::unique_ptr<IndexMap> rule_index_;
+  const std::unique_ptr<IndexMap> language_rule_index_;
   std::vector<const Rule*> rule_storage_;
   std::map<std::string, std::map<std::string, const Rule*> > region_rules_;
-
-  DISALLOW_COPY_AND_ASSIGN(PreloadSupplier);
 };
 
 }  // namespace addressinput

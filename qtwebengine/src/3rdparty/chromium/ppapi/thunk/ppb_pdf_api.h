@@ -17,12 +17,16 @@ class PPB_PDF_API {
                             const unsigned short* input_term,
                             bool case_sensitive,
                             PP_PrivateFindResult** results,
-                            int* count) = 0;
+                            uint32_t* count) = 0;
   virtual void DidStartLoading() = 0;
   virtual void DidStopLoading() = 0;
   virtual void SetContentRestriction(int restrictions) = 0;
   virtual void UserMetricsRecordAction(const PP_Var& action) = 0;
   virtual void HasUnsupportedFeature() = 0;
+  virtual void ShowAlertDialog(const char* message) = 0;
+  virtual bool ShowConfirmDialog(const char* message) = 0;
+  virtual PP_Var ShowPromptDialog(const char* message,
+                                  const char* default_answer) = 0;
   virtual void SaveAs() = 0;
   virtual PP_Bool IsFeatureEnabled(PP_PDFFeature feature) = 0;
   virtual void Print() = 0;
@@ -41,6 +45,10 @@ class PPB_PDF_API {
       PP_PrivateAccessibilityTextRunInfo text_runs[],
       PP_PrivateAccessibilityCharInfo chars[]) = 0;
   virtual void SetCrashData(const char* pdf_url, const char* top_level_url) = 0;
+  virtual void SelectionChanged(const PP_FloatPoint& left,
+                                int32_t left_height,
+                                const PP_FloatPoint& right,
+                                int32_t right_height) = 0;
 
   static const SingletonResourceID kSingletonResourceID = PDF_SINGLETON_ID;
 };

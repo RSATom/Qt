@@ -119,11 +119,16 @@ public:
 
     bool isEmpty() const;
 
+protected:
+    QPlace(const QSharedDataPointer<QPlacePrivate> &dd);
+    QSharedDataPointer<QPlacePrivate> &d();
+
 private:
     QSharedDataPointer<QPlacePrivate> d_ptr;
 
     inline QPlacePrivate *d_func();
     inline const QPlacePrivate *d_func() const;
+    friend class QDeclarativePlace;
 };
 
 Q_DECLARE_TYPEINFO(QPlace, Q_MOVABLE_TYPE);

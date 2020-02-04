@@ -291,7 +291,7 @@ void Widget::argFunction()
     //! [97]
 
     //! [98]
-    str = "%1%2%3";
+    str = "%1%3%2";
     str.arg("Hello", QString::number(20), QString::number(50)); // returns "Hello5020"
     //! [98]
 
@@ -853,6 +853,8 @@ void Widget::toDoubleFunction()
     double d;
 
     d = QString( "1234.56e-02" ).toDouble(&ok); // ok == true, d == 12.3456
+
+    d = QString( "1234.56e-02 Volt" ).toDouble(&ok); // ok == false, d == 0
     //! [67]
 
     //! [68]
@@ -875,6 +877,9 @@ void Widget::toFloatFunction()
     bool ok;
     QString str2 = "R2D2";
     str2.toFloat(&ok);          // returns 0.0, sets ok to false
+
+    QString str3 = "1234.56 Volt";
+    str3.toFloat(&ok);          // returns 0.0, sets ok to false
     //! [71]
 }
 

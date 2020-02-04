@@ -8,18 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_PROCESSING_VAD_PITCH_BASED_VAD_H_
-#define WEBRTC_MODULES_AUDIO_PROCESSING_VAD_PITCH_BASED_VAD_H_
+#ifndef MODULES_AUDIO_PROCESSING_VAD_PITCH_BASED_VAD_H_
+#define MODULES_AUDIO_PROCESSING_VAD_PITCH_BASED_VAD_H_
 
 #include <memory>
 
-#include "webrtc/modules/audio_processing/vad/common.h"
-#include "webrtc/modules/audio_processing/vad/gmm.h"
-#include "webrtc/typedefs.h"
+#include "modules/audio_processing/vad/common.h"
+#include "modules/audio_processing/vad/gmm.h"
 
 namespace webrtc {
 
-class AudioFrame;
 class VadCircularBuffer;
 
 // Computes the probability of the input audio frame to be active given
@@ -55,4 +53,4 @@ class PitchBasedVad {
 };
 
 }  // namespace webrtc
-#endif  // WEBRTC_MODULES_AUDIO_PROCESSING_VAD_PITCH_BASED_VAD_H_
+#endif  // MODULES_AUDIO_PROCESSING_VAD_PITCH_BASED_VAD_H_

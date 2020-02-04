@@ -8,63 +8,65 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_processing/aec3/echo_remover.h"
+#include "modules/audio_processing/aec3/echo_remover.h"
 
 #include <algorithm>
 #include <memory>
 #include <numeric>
-#include <sstream>
 #include <string>
 
-#include "webrtc/modules/audio_processing/aec3/aec3_common.h"
-#include "webrtc/modules/audio_processing/aec3/render_buffer.h"
-#include "webrtc/modules/audio_processing/aec3/render_delay_buffer.h"
-#include "webrtc/modules/audio_processing/logging/apm_data_dumper.h"
-#include "webrtc/modules/audio_processing/test/echo_canceller_test_tools.h"
-#include "webrtc/rtc_base/random.h"
-#include "webrtc/test/gtest.h"
+#include "modules/audio_processing/aec3/aec3_common.h"
+#include "modules/audio_processing/aec3/render_buffer.h"
+#include "modules/audio_processing/aec3/render_delay_buffer.h"
+#include "modules/audio_processing/logging/apm_data_dumper.h"
+#include "modules/audio_processing/test/echo_canceller_test_tools.h"
+#include "rtc_base/random.h"
+#include "rtc_base/strings/string_builder.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 namespace {
 
 std::string ProduceDebugText(int sample_rate_hz) {
-  std::ostringstream ss;
+  rtc::StringBuilder ss;
   ss << "Sample rate: " << sample_rate_hz;
-  return ss.str();
+  return ss.Release();
 }
 
 std::string ProduceDebugText(int sample_rate_hz, int delay) {
-  std::ostringstream ss(ProduceDebugText(sample_rate_hz));
+  rtc::StringBuilder ss(ProduceDebugText(sample_rate_hz));
   ss << ", Delay: " << delay;
-  return ss.str();
+  return ss.Release();
 }
 
 }  // namespace
 
 // Verifies the basic API call sequence
 TEST(EchoRemover, BasicApiCalls) {
+  absl::optional<DelayEstimate> delay_estimate;
   for (auto rate : {8000, 16000, 32000, 48000}) {
     SCOPED_TRACE(ProduceDebugText(rate));
     std::unique_ptr<EchoRemover> remover(
-        EchoRemover::Create(AudioProcessing::Config::EchoCanceller3(), rate));
-    std::unique_ptr<RenderDelayBuffer> render_buffer(
-        RenderDelayBuffer::Create(NumBandsForRate(rate)));
+        EchoRemover::Create(EchoCanceller3Config(), rate));
+    std::unique_ptr<RenderDelayBuffer> render_buffer(RenderDelayBuffer::Create2(
+        EchoCanceller3Config(), NumBandsForRate(rate)));
 
     std::vector<std::vector<float>> render(NumBandsForRate(rate),
                                            std::vector<float>(kBlockSize, 0.f));
     std::vector<std::vector<float>> capture(
         NumBandsForRate(rate), std::vector<float>(kBlockSize, 0.f));
     for (size_t k = 0; k < 100; ++k) {
-      EchoPathVariability echo_path_variability(k % 3 == 0 ? true : false,
-                                                k % 5 == 0 ? true : false);
-      rtc::Optional<size_t> echo_path_delay_samples =
-          (k % 6 == 0 ? rtc::Optional<size_t>(k * 10)
-                      : rtc::Optional<size_t>());
+      EchoPathVariability echo_path_variability(
+          k % 3 == 0 ? true : false,
+          k % 5 == 0 ? EchoPathVariability::DelayAdjustment::kNewDetectedDelay
+                     : EchoPathVariability::DelayAdjustment::kNone,
+          false);
       render_buffer->Insert(render);
-      render_buffer->UpdateBuffers();
-      remover->ProcessCapture(echo_path_delay_samples, echo_path_variability,
-                              k % 2 == 0 ? true : false,
-                              render_buffer->GetRenderBuffer(), &capture);
+      render_buffer->PrepareCaptureProcessing();
+
+      remover->ProcessCapture(echo_path_variability, k % 2 == 0 ? true : false,
+                              delay_estimate, render_buffer->GetRenderBuffer(),
+                              &capture);
     }
   }
 }
@@ -75,27 +77,28 @@ TEST(EchoRemover, BasicApiCalls) {
 // TODO(peah): Re-enable the test once the issue with memory leaks during DEATH
 // tests on test bots has been fixed.
 TEST(EchoRemover, DISABLED_WrongSampleRate) {
-  EXPECT_DEATH(std::unique_ptr<EchoRemover>(EchoRemover::Create(
-                   AudioProcessing::Config::EchoCanceller3(), 8001)),
+  EXPECT_DEATH(std::unique_ptr<EchoRemover>(
+                   EchoRemover::Create(EchoCanceller3Config(), 8001)),
                "");
 }
 
 // Verifies the check for the capture block size.
 TEST(EchoRemover, WrongCaptureBlockSize) {
+  absl::optional<DelayEstimate> delay_estimate;
   for (auto rate : {8000, 16000, 32000, 48000}) {
     SCOPED_TRACE(ProduceDebugText(rate));
     std::unique_ptr<EchoRemover> remover(
-        EchoRemover::Create(AudioProcessing::Config::EchoCanceller3(), rate));
-    std::unique_ptr<RenderDelayBuffer> render_buffer(
-        RenderDelayBuffer::Create(NumBandsForRate(rate)));
+        EchoRemover::Create(EchoCanceller3Config(), rate));
+    std::unique_ptr<RenderDelayBuffer> render_buffer(RenderDelayBuffer::Create2(
+        EchoCanceller3Config(), NumBandsForRate(rate)));
     std::vector<std::vector<float>> capture(
         NumBandsForRate(rate), std::vector<float>(kBlockSize - 1, 0.f));
-    EchoPathVariability echo_path_variability(false, false);
-    rtc::Optional<size_t> echo_path_delay_samples;
-    EXPECT_DEATH(remover->ProcessCapture(
-                     echo_path_delay_samples, echo_path_variability, false,
-                     render_buffer->GetRenderBuffer(), &capture),
-                 "");
+    EchoPathVariability echo_path_variability(
+        false, EchoPathVariability::DelayAdjustment::kNone, false);
+    EXPECT_DEATH(
+        remover->ProcessCapture(echo_path_variability, false, delay_estimate,
+                                render_buffer->GetRenderBuffer(), &capture),
+        "");
   }
 }
 
@@ -103,35 +106,37 @@ TEST(EchoRemover, WrongCaptureBlockSize) {
 // TODO(peah): Re-enable the test once the issue with memory leaks during DEATH
 // tests on test bots has been fixed.c
 TEST(EchoRemover, DISABLED_WrongCaptureNumBands) {
+  absl::optional<DelayEstimate> delay_estimate;
   for (auto rate : {16000, 32000, 48000}) {
     SCOPED_TRACE(ProduceDebugText(rate));
     std::unique_ptr<EchoRemover> remover(
-        EchoRemover::Create(AudioProcessing::Config::EchoCanceller3(), rate));
-    std::unique_ptr<RenderDelayBuffer> render_buffer(
-        RenderDelayBuffer::Create(NumBandsForRate(rate)));
+        EchoRemover::Create(EchoCanceller3Config(), rate));
+    std::unique_ptr<RenderDelayBuffer> render_buffer(RenderDelayBuffer::Create2(
+        EchoCanceller3Config(), NumBandsForRate(rate)));
     std::vector<std::vector<float>> capture(
         NumBandsForRate(rate == 48000 ? 16000 : rate + 16000),
         std::vector<float>(kBlockSize, 0.f));
-    EchoPathVariability echo_path_variability(false, false);
-    rtc::Optional<size_t> echo_path_delay_samples;
-    EXPECT_DEATH(remover->ProcessCapture(
-                     echo_path_delay_samples, echo_path_variability, false,
-                     render_buffer->GetRenderBuffer(), &capture),
-                 "");
+    EchoPathVariability echo_path_variability(
+        false, EchoPathVariability::DelayAdjustment::kNone, false);
+    EXPECT_DEATH(
+        remover->ProcessCapture(echo_path_variability, false, delay_estimate,
+                                render_buffer->GetRenderBuffer(), &capture),
+        "");
   }
 }
 
 // Verifies the check for non-null capture block.
 TEST(EchoRemover, NullCapture) {
+  absl::optional<DelayEstimate> delay_estimate;
   std::unique_ptr<EchoRemover> remover(
-      EchoRemover::Create(AudioProcessing::Config::EchoCanceller3(), 8000));
+      EchoRemover::Create(EchoCanceller3Config(), 8000));
   std::unique_ptr<RenderDelayBuffer> render_buffer(
-      RenderDelayBuffer::Create(3));
-  EchoPathVariability echo_path_variability(false, false);
-  rtc::Optional<size_t> echo_path_delay_samples;
+      RenderDelayBuffer::Create2(EchoCanceller3Config(), 3));
+  EchoPathVariability echo_path_variability(
+      false, EchoPathVariability::DelayAdjustment::kNone, false);
   EXPECT_DEATH(
-      remover->ProcessCapture(echo_path_delay_samples, echo_path_variability,
-                              false, render_buffer->GetRenderBuffer(), nullptr),
+      remover->ProcessCapture(echo_path_variability, false, delay_estimate,
+                              render_buffer->GetRenderBuffer(), nullptr),
       "");
 }
 
@@ -142,18 +147,23 @@ TEST(EchoRemover, NullCapture) {
 TEST(EchoRemover, BasicEchoRemoval) {
   constexpr int kNumBlocksToProcess = 500;
   Random random_generator(42U);
+  absl::optional<DelayEstimate> delay_estimate;
   for (auto rate : {8000, 16000, 32000, 48000}) {
     std::vector<std::vector<float>> x(NumBandsForRate(rate),
                                       std::vector<float>(kBlockSize, 0.f));
     std::vector<std::vector<float>> y(NumBandsForRate(rate),
                                       std::vector<float>(kBlockSize, 0.f));
-    EchoPathVariability echo_path_variability(false, false);
+    EchoPathVariability echo_path_variability(
+        false, EchoPathVariability::DelayAdjustment::kNone, false);
     for (size_t delay_samples : {0, 64, 150, 200, 301}) {
       SCOPED_TRACE(ProduceDebugText(rate, delay_samples));
-      std::unique_ptr<EchoRemover> remover(
-          EchoRemover::Create(AudioProcessing::Config::EchoCanceller3(), rate));
+      EchoCanceller3Config config;
+      config.delay.min_echo_path_delay_blocks = 0;
+      std::unique_ptr<EchoRemover> remover(EchoRemover::Create(config, rate));
       std::unique_ptr<RenderDelayBuffer> render_buffer(
-          RenderDelayBuffer::Create(NumBandsForRate(rate)));
+          RenderDelayBuffer::Create2(config, NumBandsForRate(rate)));
+      render_buffer->SetDelay(delay_samples / kBlockSize);
+
       std::vector<std::unique_ptr<DelayBuffer<float>>> delay_buffers(x.size());
       for (size_t j = 0; j < x.size(); ++j) {
         delay_buffers[j].reset(new DelayBuffer<float>(delay_samples));
@@ -181,10 +191,9 @@ TEST(EchoRemover, BasicEchoRemoval) {
         }
 
         render_buffer->Insert(x);
-        render_buffer->UpdateBuffers();
+        render_buffer->PrepareCaptureProcessing();
 
-        remover->ProcessCapture(rtc::Optional<size_t>(delay_samples),
-                                echo_path_variability, false,
+        remover->ProcessCapture(echo_path_variability, false, delay_estimate,
                                 render_buffer->GetRenderBuffer(), &y);
 
         if (k > kNumBlocksToProcess / 2) {

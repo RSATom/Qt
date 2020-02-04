@@ -15,7 +15,7 @@
 namespace {
 
 // Only once trace manager can exist at a time.
-TracingManager* g_tracing_manager = NULL;
+TracingManager* g_tracing_manager = nullptr;
 // Trace IDs start at 1 and increase.
 int g_next_trace_id = 1;
 // Name of the file to store the tracing data as.
@@ -33,7 +33,7 @@ TracingManager::TracingManager()
 
 TracingManager::~TracingManager() {
   DCHECK(g_tracing_manager == this);
-  g_tracing_manager = NULL;
+  g_tracing_manager = nullptr;
 }
 
 int TracingManager::RequestTrace() {
@@ -44,7 +44,7 @@ int TracingManager::RequestTrace() {
   current_trace_id_ = g_next_trace_id;
   ++g_next_trace_id;
   content::TracingController::GetInstance()->StopTracing(
-      content::TracingController::CreateStringSink(
+      content::TracingController::CreateStringEndpoint(
           base::Bind(&TracingManager::OnTraceDataCollected,
                      weak_ptr_factory_.GetWeakPtr())));
   return current_trace_id_;
@@ -62,14 +62,13 @@ bool TracingManager::GetTraceData(int id, const TraceDataCallback& callback) {
       return false;
     }
   } else {
-    std::map<int, scoped_refptr<base::RefCountedString> >::iterator data =
-        trace_data_.find(id);
+    auto data = trace_data_.find(id);
     if (data == trace_data_.end())
       return false;
 
     // Always return the data asychronously, so the behavior is consistant.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, data->second));
+        FROM_HERE, base::BindOnce(callback, data->second));
     return true;
   }
 }
@@ -120,8 +119,8 @@ void TracingManager::OnTraceDataCollected(
   // Tracing has to be restarted asynchronous, so the TracingController can
   // clean up.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&TracingManager::StartTracing,
-                            weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&TracingManager::StartTracing,
+                                weak_ptr_factory_.GetWeakPtr()));
 }
 
 // static

@@ -16,16 +16,23 @@ cr.define('indexeddb', function() {
   function downloadOriginData(event) {
     var link = event.target;
     progressNodeFor(link).style.display = 'inline';
-    chrome.send('downloadOriginData', [link.idb_partition_path,
-                                       link.idb_origin_url]);
+    chrome.send(
+        'downloadOriginData', [link.idb_partition_path, link.idb_origin_url]);
     return false;
   }
 
   function forceClose(event) {
     var link = event.target;
     progressNodeFor(link).style.display = 'inline';
-    chrome.send('forceClose', [link.idb_partition_path,
-                               link.idb_origin_url]);
+    chrome.send('forceClose', [link.idb_partition_path, link.idb_origin_url]);
+    return false;
+  }
+
+  function forceSchemaDowngrade(event) {
+    var link = event.target;
+    progressNodeFor(link).style.display = 'inline';
+    chrome.send(
+        'forceSchemaDowngrade', [link.idb_partition_path, link.idb_origin_url]);
     return false;
   }
 
@@ -59,14 +66,26 @@ cr.define('indexeddb', function() {
     });
   }
 
+  function onForcedSchemaDowngrade(
+      partition_path, origin_url, connection_count) {
+    withNode(
+        'a.force-schema-downgrade', partition_path, origin_url, function(link) {
+          progressNodeFor(link).style.display = 'none';
+        });
+    withNode('.connection-count', partition_path, origin_url, function(span) {
+      span.innerText = connection_count;
+    });
+  }
+
   // Fired from the backend with a single partition's worth of
   // IndexedDB metadata.
   function onOriginsReady(origins, partition_path) {
     var template = jstGetTemplate('indexeddb-list-template');
     var container = $('indexeddb-list');
     container.appendChild(template);
-    jstProcess(new JsEvalContext({ idbs: origins,
-                                   partition_path: partition_path}), template);
+    jstProcess(
+        new JsEvalContext({idbs: origins, partition_path: partition_path}),
+        template);
 
     var downloadLinks = container.querySelectorAll('a.download');
     for (var i = 0; i < downloadLinks.length; ++i) {
@@ -76,11 +95,18 @@ cr.define('indexeddb', function() {
     for (i = 0; i < forceCloseLinks.length; ++i) {
       forceCloseLinks[i].addEventListener('click', forceClose, false);
     }
+    var forceSchemaDowngradeLinks =
+        container.querySelectorAll('a.force-schema-downgrade');
+    for (i = 0; i < forceSchemaDowngradeLinks.length; ++i) {
+      forceSchemaDowngradeLinks[i].addEventListener(
+          'click', forceSchemaDowngrade, false);
+    }
   }
 
   return {
     initialize: initialize,
     onForcedClose: onForcedClose,
+    onForcedSchemaDowngrade: onForcedSchemaDowngrade,
     onOriginDownloadReady: onOriginDownloadReady,
     onOriginsReady: onOriginsReady,
   };

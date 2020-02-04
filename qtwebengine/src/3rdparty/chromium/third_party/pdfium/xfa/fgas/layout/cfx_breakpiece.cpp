@@ -30,15 +30,17 @@ int32_t CFX_BreakPiece::GetEndPos() const {
 }
 
 CFX_Char* CFX_BreakPiece::GetChar(int32_t index) const {
-  ASSERT(index >= 0 && index < m_iChars && m_pChars);
+  ASSERT(index >= 0);
+  ASSERT(index < m_iChars);
+  ASSERT(m_pChars);
   return &(*m_pChars)[m_iStartChar + index];
 }
 
-CFX_WideString CFX_BreakPiece::GetString() const {
-  CFX_WideString ret;
+WideString CFX_BreakPiece::GetString() const {
+  WideString ret;
   ret.Reserve(m_iChars);
   for (int32_t i = m_iStartChar; i < m_iStartChar + m_iChars; i++)
-    ret += static_cast<wchar_t>((*m_pChars)[i].m_wCharCode);
+    ret += static_cast<wchar_t>((*m_pChars)[i].char_code());
   return ret;
 }
 

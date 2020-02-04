@@ -94,9 +94,8 @@ bool IsPathAbsolute(StringPieceType path) {
 }
 
 bool AreAllSeparators(const StringType& input) {
-  for (StringType::const_iterator it = input.begin();
-      it != input.end(); ++it) {
-    if (!FilePath::IsSeparator(*it))
+  for (auto it : input) {
+    if (!FilePath::IsSeparator(it))
       return false;
   }
 
@@ -137,15 +136,15 @@ StringType::size_type ExtensionSeparatorPosition(const StringType& path) {
     return last_dot;
   }
 
-  for (size_t i = 0; i < arraysize(kCommonDoubleExtensions); ++i) {
+  for (auto* i : kCommonDoubleExtensions) {
     StringType extension(path, penultimate_dot + 1);
-    if (LowerCaseEqualsASCII(extension, kCommonDoubleExtensions[i]))
+    if (LowerCaseEqualsASCII(extension, i))
       return penultimate_dot;
   }
 
   StringType extension(path, last_dot + 1);
-  for (size_t i = 0; i < arraysize(kCommonDoubleExtensionSuffixes); ++i) {
-    if (LowerCaseEqualsASCII(extension, kCommonDoubleExtensionSuffixes[i])) {
+  for (auto* i : kCommonDoubleExtensionSuffixes) {
+    if (LowerCaseEqualsASCII(extension, i)) {
       if ((last_dot - penultimate_dot) <= 5U &&
           (last_dot - penultimate_dot) > 1U) {
         return penultimate_dot;
@@ -169,11 +168,9 @@ bool IsEmptyOrSpecialCase(const StringType& path) {
 
 }  // namespace
 
-FilePath::FilePath() {
-}
+FilePath::FilePath() = default;
 
-FilePath::FilePath(const FilePath& that) : path_(that.path_) {
-}
+FilePath::FilePath(const FilePath& that) = default;
 FilePath::FilePath(FilePath&& that) noexcept = default;
 
 FilePath::FilePath(StringPieceType path) {
@@ -183,13 +180,9 @@ FilePath::FilePath(StringPieceType path) {
     path_.erase(nul_pos, StringType::npos);
 }
 
-FilePath::~FilePath() {
-}
+FilePath::~FilePath() = default;
 
-FilePath& FilePath::operator=(const FilePath& that) {
-  path_ = that.path_;
-  return *this;
-}
+FilePath& FilePath::operator=(const FilePath& that) = default;
 
 FilePath& FilePath::operator=(FilePath&& that) = default;
 
@@ -260,7 +253,7 @@ void FilePath::GetComponents(std::vector<StringType>* components) const {
 }
 
 bool FilePath::IsParent(const FilePath& child) const {
-  return AppendRelativePath(child, NULL);
+  return AppendRelativePath(child, nullptr);
 }
 
 bool FilePath::AppendRelativePath(const FilePath& child,
@@ -299,7 +292,7 @@ bool FilePath::AppendRelativePath(const FilePath& child,
     ++child_comp;
   }
 
-  if (path != NULL) {
+  if (path != nullptr) {
     for (; child_comp != child_components.end(); ++child_comp) {
       *path = path->Append(*child_comp);
     }
@@ -429,7 +422,7 @@ FilePath FilePath::InsertBeforeExtensionASCII(StringPiece suffix)
   DCHECK(IsStringASCII(suffix));
 #if defined(OS_WIN)
   return InsertBeforeExtension(ASCIIToUTF16(suffix));
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   return InsertBeforeExtension(suffix);
 #endif
 }
@@ -450,6 +443,15 @@ FilePath FilePath::AddExtension(StringPieceType extension) const {
   }
   extension.AppendToString(&str);
   return FilePath(str);
+}
+
+FilePath FilePath::AddExtensionASCII(StringPiece extension) const {
+  DCHECK(IsStringASCII(extension));
+#if defined(OS_WIN)
+  return AddExtension(ASCIIToUTF16(extension));
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+  return AddExtension(extension);
+#endif
 }
 
 FilePath FilePath::ReplaceExtension(StringPieceType extension) const {
@@ -532,7 +534,7 @@ FilePath FilePath::AppendASCII(StringPiece component) const {
   DCHECK(base::IsStringASCII(component));
 #if defined(OS_WIN)
   return Append(ASCIIToUTF16(component));
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   return Append(component);
 #endif
 }
@@ -592,7 +594,38 @@ bool FilePath::ReferencesParent() const {
   return false;
 }
 
-#if defined(OS_POSIX)
+#if defined(OS_WIN)
+
+string16 FilePath::LossyDisplayName() const {
+  return path_;
+}
+
+std::string FilePath::MaybeAsASCII() const {
+  if (base::IsStringASCII(path_))
+    return UTF16ToASCII(path_);
+  return std::string();
+}
+
+std::string FilePath::AsUTF8Unsafe() const {
+  return WideToUTF8(value());
+}
+
+string16 FilePath::AsUTF16Unsafe() const {
+  return value();
+}
+
+// static
+FilePath FilePath::FromUTF8Unsafe(StringPiece utf8) {
+  return FilePath(UTF8ToWide(utf8));
+}
+
+// static
+FilePath FilePath::FromUTF16Unsafe(StringPiece16 utf16) {
+  return FilePath(utf16);
+}
+
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+
 // See file_path.h for a discussion of the encoding of paths on POSIX
 // platforms.  These encoding conversion functions are not quite correct.
 
@@ -640,49 +673,15 @@ FilePath FilePath::FromUTF16Unsafe(StringPiece16 utf16) {
 #endif
 }
 
-#elif defined(OS_WIN)
-string16 FilePath::LossyDisplayName() const {
-  return path_;
-}
-
-std::string FilePath::MaybeAsASCII() const {
-  if (base::IsStringASCII(path_))
-    return UTF16ToASCII(path_);
-  return std::string();
-}
-
-std::string FilePath::AsUTF8Unsafe() const {
-  return WideToUTF8(value());
-}
-
-string16 FilePath::AsUTF16Unsafe() const {
-  return value();
-}
-
-// static
-FilePath FilePath::FromUTF8Unsafe(StringPiece utf8) {
-  return FilePath(UTF8ToWide(utf8));
-}
-
-// static
-FilePath FilePath::FromUTF16Unsafe(StringPiece16 utf16) {
-  return FilePath(utf16);
-}
-#endif
-
-void FilePath::GetSizeForPickle(PickleSizer* sizer) const {
-#if defined(OS_WIN)
-  sizer->AddString16(path_);
-#else
-  sizer->AddString(path_);
-#endif
-}
+#endif  // defined(OS_WIN)
 
 void FilePath::WriteToPickle(Pickle* pickle) const {
 #if defined(OS_WIN)
   pickle->WriteString16(path_);
-#else
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   pickle->WriteString(path_);
+#else
+#error Unsupported platform
 #endif
 }
 
@@ -690,9 +689,11 @@ bool FilePath::ReadFromPickle(PickleIterator* iter) {
 #if defined(OS_WIN)
   if (!iter->ReadString16(&path_))
     return false;
-#else
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   if (!iter->ReadString(&path_))
     return false;
+#else
+#error Unsupported platform
 #endif
 
   if (path_.find(kStringTerminator) != StringType::npos)
@@ -1282,7 +1283,7 @@ int FilePath::CompareIgnoreCase(StringPieceType string1,
   return HFSFastUnicodeCompare(hfs1, hfs2);
 }
 
-#else  // << WIN. MACOSX | other (POSIX) >>
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 // Generic Posix system comparisons.
 int FilePath::CompareIgnoreCase(StringPieceType string1,

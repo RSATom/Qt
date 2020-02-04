@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/search_engines/default_search_manager.h"
 #include "components/search_engines/template_url.h"
@@ -18,7 +17,7 @@
 
 std::unique_ptr<TemplateURLData> GenerateDummyTemplateURLData(
     const std::string& keyword) {
-  auto data = base::MakeUnique<TemplateURLData>();
+  auto data = std::make_unique<TemplateURLData>();
   data->SetShortName(base::UTF8ToUTF16(keyword + "name"));
   data->SetKeyword(base::UTF8ToUTF16(keyword));
   data->SetURL(std::string("http://") + keyword + "foo/{searchTerms}");
@@ -41,7 +40,6 @@ void ExpectSimilar(const TemplateURLData* expected,
   EXPECT_EQ(expected->keyword(), actual->keyword());
   EXPECT_EQ(expected->url(), actual->url());
   EXPECT_EQ(expected->suggestions_url, actual->suggestions_url);
-  EXPECT_EQ(expected->instant_url, actual->instant_url);
   EXPECT_EQ(expected->image_url, actual->image_url);
   EXPECT_EQ(expected->new_tab_url, actual->new_tab_url);
   EXPECT_EQ(expected->contextual_search_url, actual->contextual_search_url);
@@ -49,16 +47,12 @@ void ExpectSimilar(const TemplateURLData* expected,
   EXPECT_EQ(expected->search_url_post_params, actual->search_url_post_params);
   EXPECT_EQ(expected->suggestions_url_post_params,
             actual->suggestions_url_post_params);
-  EXPECT_EQ(expected->instant_url_post_params, actual->instant_url_post_params);
   EXPECT_EQ(expected->image_url_post_params, actual->image_url_post_params);
 
   EXPECT_EQ(expected->favicon_url, actual->favicon_url);
   EXPECT_EQ(expected->safe_for_autoreplace, actual->safe_for_autoreplace);
   EXPECT_EQ(expected->input_encodings, actual->input_encodings);
   EXPECT_EQ(expected->alternate_urls, actual->alternate_urls);
-  EXPECT_TRUE(TemplateURL::SearchTermsReplacementKeysMatch(
-      expected->search_terms_replacement_key,
-      actual->search_terms_replacement_key));
 }
 
 void SetExtensionDefaultSearchInPrefs(

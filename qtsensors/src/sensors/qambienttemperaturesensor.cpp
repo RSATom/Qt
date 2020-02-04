@@ -148,5 +148,6 @@ QAmbientTemperatureReading *QAmbientTemperatureSensor::reading() const
     return static_cast<QAmbientTemperatureReading*>(QSensor::reading());
 }
 
-#include "moc_qambienttemperaturesensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qambienttemperaturesensor.cpp"

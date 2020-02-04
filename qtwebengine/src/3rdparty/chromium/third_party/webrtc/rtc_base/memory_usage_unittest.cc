@@ -8,9 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/memory_usage.h"
-#include <cstdio>
-#include "webrtc/test/gtest.h"
+#include "rtc_base/memory_usage.h"
+
+#include "test/gtest.h"
 
 namespace rtc {
 
@@ -20,4 +20,3 @@ TEST(GetMemoryUsage, SimpleTest) {
 }
 
 }  // namespace rtc
-

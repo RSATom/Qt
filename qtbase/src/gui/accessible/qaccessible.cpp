@@ -202,7 +202,7 @@ Q_LOGGING_CATEGORY(lcAccessibilityCore, "qt.accessibility.core");
 
     This enum type defines accessible event types.
 
-    \omitvalue InvalidEvent                 Internal: Used when creating subclasses of QAccessibleEvent.
+    \omitvalue InvalidEvent                 \omit Internal: Used when creating subclasses of QAccessibleEvent. \endomit
     \value AcceleratorChanged               The keyboard accelerator for an action has been changed.
     \value ActionChanged                    An action has been changed.
     \value ActiveDescendantChanged
@@ -273,27 +273,27 @@ Q_LOGGING_CATEGORY(lcAccessibilityCore, "qt.accessibility.core");
     \value SelectionWithin                  Several changes to a selection has occurred in an item
                                             view.
     \value SoundPlayed                      A sound has been played by an object
-    \omitvalue StateChanged                 The QAccessible::State of an object has changed.
-                                            This value is used internally for the QAccessibleStateChangeEvent.
+    \omitvalue StateChanged                 \omit The QAccessible::State of an object has changed.
+                                            This value is used internally for the QAccessibleStateChangeEvent. \endomit
     \value TableCaptionChanged              A table caption has been changed.
     \value TableColumnDescriptionChanged    The description of a table column, typically found in
                                             the column's header, has been changed.
     \value TableColumnHeaderChanged         A table column header has been changed.
-    \omitvalue TableModelChanged                The model providing data for a table has been changed.
+    \omitvalue TableModelChanged            \omit The model providing data for a table has been changed. \endomit
     \value TableRowDescriptionChanged       The description of a table row, typically found in the
                                             row's header, has been changed.
     \value TableRowHeaderChanged            A table row header has been changed.
     \value TableSummaryChanged              The summary of a table has been changed.
     \omitvalue TextAttributeChanged
-    \omitvalue TextCaretMoved                   The caret has moved in an editable widget.
+    \omitvalue TextCaretMoved               \omit The caret has moved in an editable widget.
                                             The caret represents the cursor position in an editable
-                                            widget with the input focus.
+                                            widget with the input focus. \endomit
     \value TextColumnChanged                A text column has been changed.
-    \omitvalue TextInserted                     Text has been inserted into an editable widget.
-    \omitvalue TextRemoved                      Text has been removed from an editable widget.
-    \omitvalue TextSelectionChanged             The selected text has changed in an editable widget.
-    \omitvalue TextUpdated                      The text has been update in an editable widget.
-    \omitvalue ValueChanged                     The QAccessible::Value of an object has changed.
+    \omitvalue TextInserted                 \omit Text has been inserted into an editable widget. \endomit
+    \omitvalue TextRemoved                  \omit Text has been removed from an editable widget. \endomit
+    \omitvalue TextSelectionChanged         \omit The selected text has changed in an editable widget. \endomit
+    \omitvalue TextUpdated                  \omit The text has been update in an editable widget. \endomit
+    \omitvalue ValueChanged                 \omit The QAccessible::Value of an object has changed. \endomit
     \value VisibleDataChanged
 
     The values for this enum are defined to be the same as those defined in the
@@ -350,6 +350,7 @@ Q_LOGGING_CATEGORY(lcAccessibilityCore, "qt.accessibility.core");
     \value MenuItem         An item in a menu or menu bar.
     \value NoRole           The object has no role. This usually indicates an invalid object.
     \value Note             A section whose content is parenthetic or ancillary to the main content of the resource.
+    \value Notification     An object that represents a notification (e.g. in the system tray). This role only has an effect on Linux.
     \value PageTab          A page tab that the user can select to switch to a different page in a dialog.
     \value PageTabList      A list of page tabs.
     \value Paragraph        A paragraph of text (usually found in documents).
@@ -441,10 +442,10 @@ Q_LOGGING_CATEGORY(lcAccessibilityCore, "qt.accessibility.core");
     \note When subclassing one of these interfaces, \l QAccessibleInterface::interface_cast() needs to be implemented.
 
     \value TextInterface            For text that supports selections or is more than one line. Simple labels do not need to implement this interface.
-    \omitvalue EditableTextInterface    For text that can be edited by the user.
+    \omitvalue EditableTextInterface    \omit For text that can be edited by the user. \endomit
     \value ValueInterface           For objects that are used to manipulate a value, for example slider or scroll bar.
     \value ActionInterface          For interactive objects that allow the user to trigger an action. Basically everything that allows for example mouse interaction.
-    \omitvalue ImageInterface       For objects that represent an image. This interface is generally less important.
+    \omitvalue ImageInterface       \omit For objects that represent an image. This interface is generally less important. \endomit
     \value TableInterface           For lists, tables and trees.
     \value TableCellInterface       For cells in a TableInterface object.
 
@@ -526,7 +527,7 @@ static void qAccessibleCleanup()
     to it.
 
     If the key and the QObject does not have a corresponding
-    QAccessibleInterface, a null-pointer will be returned.
+    QAccessibleInterface, \nullptr will be returned.
 
     Installed factories are called by queryAccessibilityInterface() until
     one provides an interface.
@@ -654,7 +655,7 @@ void QAccessible::removeActivationObserver(ActivationObserver *observer)
 /*!
     If a QAccessibleInterface implementation exists for the given \a object,
     this function returns a pointer to the implementation; otherwise it
-    returns 0.
+    returns \nullptr.
 
     The function calls all installed factory functions (from most
     recently installed to least recently installed) until one is found
@@ -770,7 +771,7 @@ QAccessible::Id QAccessible::uniqueId(QAccessibleInterface *iface)
 /*!
     Returns the QAccessibleInterface belonging to the \a id.
 
-    Returns 0 if the id is invalid.
+    Returns \nullptr if the id is invalid.
 */
 QAccessibleInterface *QAccessible::accessibleInterface(Id id)
 {
@@ -1119,7 +1120,7 @@ QAccessibleInterface *QAccessibleInterface::focusChild() const
     \fn QAccessibleInterface *QAccessibleInterface::childAt(int x, int y) const
 
     Returns the QAccessibleInterface of a child that contains the screen coordinates (\a x, \a y).
-    If there are no children at this position this function returns 0.
+    If there are no children at this position this function returns \nullptr.
     The returned accessible must be a child, but not necessarily a direct child.
 
     This function is only relyable for visible objects (invisible
@@ -1139,7 +1140,7 @@ QAccessibleInterface *QAccessibleInterface::focusChild() const
 
     Returns the QAccessibleInterface of the parent in the accessible object hierarchy.
 
-    Returns 0 if no parent exists (e.g. for the top level application object).
+    Returns \nullptr if no parent exists (e.g. for the top level application object).
 
     \sa child()
 */
@@ -1150,7 +1151,7 @@ QAccessibleInterface *QAccessibleInterface::focusChild() const
     Returns the accessible child with index \a index.
     0-based index. The number of children of an object can be checked with childCount.
 
-    Returns 0 when asking for an invalid child (e.g. when the child became invalid in the meantime).
+    Returns \nullptr when asking for an invalid child (e.g. when the child became invalid in the meantime).
 
     \sa childCount(), parent()
 */
@@ -1309,14 +1310,7 @@ QColor QAccessibleInterface::backgroundColor() const
 
     For example to notify about a focus change when re-implementing QWidget::setFocus,
     the event could be used as follows:
-    \code
-    void MyWidget::setFocus(Qt::FocusReason reason)
-    {
-        // handle custom focus setting...
-        QAccessibleEvent event(f, QAccessible::Focus);
-        QAccessible::updateAccessibility(&event);
-    }
-    \endcode
+    \snippet code/src_gui_accessible_qaccessible.cpp 2
 
     To enable in process screen readers, all events must be sent after the change has happened.
 */
@@ -1363,7 +1357,7 @@ QAccessibleEvent::~QAccessibleEvent()
     \internal
     Returns the uniqueId of the QAccessibleInterface represented by this event.
 
-    In case the object() function returns 0 this is the only way to access the
+    In case the object() function returns \nullptr, this is the only way to access the
     interface.
 */
 QAccessible::Id QAccessibleEvent::uniqueId() const
@@ -1578,7 +1572,7 @@ QAccessibleTextCursorEvent::~QAccessibleTextCursorEvent()
 
 
 /*!
-    \fn QAccessibleTextCursorEvent(QAccessibleInterface *iface, int cursorPos)
+    \fn QAccessibleTextCursorEvent::QAccessibleTextCursorEvent(QAccessibleInterface *iface, int cursorPos)
 
     Create a new QAccessibleTextCursorEvent for \a iface,
     The \a cursorPos is the new cursor position.
@@ -1761,7 +1755,6 @@ QAccessibleTextSelectionEvent::~QAccessibleTextSelectionEvent()
 
 /*!
     Returns the QAccessibleInterface associated with the event.
-    The caller of this function takes ownership of the returned interface.
 */
 QAccessibleInterface *QAccessibleEvent::accessibleInterface() const
 {
@@ -1794,7 +1787,7 @@ QAccessibleInterface *QAccessibleEvent::accessibleInterface() const
     (This means that at least one interface among the ancestors should
     return a valid QWindow pointer).
 
-    The default implementation returns 0.
+    The default implementation returns \nullptr.
   */
 QWindow *QAccessibleInterface::window() const
 {
@@ -1827,14 +1820,7 @@ void QAccessibleInterface::virtual_hook(int /*id*/, void * /*data*/)
     Qt's QLineEdit for example has its accessibility support
     implemented in QAccessibleLineEdit.
 
-    \code
-void *QAccessibleLineEdit::interface_cast(QAccessible::InterfaceType t)
-{
-    if (t == QAccessible::TextInterface)
-        return static_cast<QAccessibleTextInterface*>(this);
-    return QAccessibleWidget::interface_cast(t);
-}
-    \endcode
+    \snippet code/src_gui_accessible_qaccessible.cpp 3
 
     \sa QAccessible::InterfaceType, QAccessibleTextInterface,
     QAccessibleValueInterface, QAccessibleActionInterface,

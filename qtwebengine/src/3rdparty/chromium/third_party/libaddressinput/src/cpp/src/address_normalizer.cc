@@ -25,6 +25,7 @@
 
 #include "lookup_key.h"
 #include "rule.h"
+#include "util/size.h"
 #include "util/string_compare.h"
 
 namespace i18n {
@@ -33,13 +34,13 @@ namespace addressinput {
 AddressNormalizer::AddressNormalizer(const PreloadSupplier* supplier)
     : supplier_(supplier),
       compare_(new StringCompare) {
-  assert(supplier_ != NULL);
+  assert(supplier_ != nullptr);
 }
 
-AddressNormalizer::~AddressNormalizer() {}
+AddressNormalizer::~AddressNormalizer() = default;
 
 void AddressNormalizer::Normalize(AddressData* address) const {
-  assert(address != NULL);
+  assert(address != nullptr);
   assert(supplier_->IsLoaded(address->region_code));
 
   AddressData region_address;
@@ -47,36 +48,55 @@ void AddressNormalizer::Normalize(AddressData* address) const {
   LookupKey parent_key;
   parent_key.FromAddress(region_address);
   const Rule* parent_rule = supplier_->GetRule(parent_key);
-  assert(parent_rule != NULL);
+  // Since we only set the |region_code| in the |region_address|, and the rule
+  // for the |region_code| is already loaded, |parent_rule| should not be null.
+  assert(parent_rule != nullptr);
+
+  std::vector<std::string> languages(parent_rule->GetLanguages());
+
+  if (languages.empty()) {
+    languages.emplace_back("");
+  } else {
+    languages[0] = "";  // The default language doesn't need a tag on the id.
+  }
 
   LookupKey lookup_key;
-  for (size_t depth = 1; depth < arraysize(LookupKey::kHierarchy); ++depth) {
+  for (size_t depth = 1; depth < size(LookupKey::kHierarchy); ++depth) {
     AddressField field = LookupKey::kHierarchy[depth];
     if (address->IsFieldEmpty(field)) {
       return;
     }
     const std::string& field_value = address->GetFieldValue(field);
     bool no_match_found_yet = true;
-    for (std::vector<std::string>::const_iterator
-         key_it = parent_rule->GetSubKeys().begin();
-         key_it != parent_rule->GetSubKeys().end(); ++key_it) {
-      lookup_key.FromLookupKey(parent_key, *key_it);
-      const Rule* rule = supplier_->GetRule(lookup_key);
-      assert(rule != NULL);
 
-      bool matches_latin_name =
-          compare_->NaturalEquals(field_value, rule->GetLatinName());
-      bool matches_local_name_id =
-          compare_->NaturalEquals(field_value, *key_it) ||
-          compare_->NaturalEquals(field_value, rule->GetName());
-      if (matches_latin_name || matches_local_name_id) {
-        address->SetFieldValue(
-            field, matches_latin_name ? rule->GetLatinName() : *key_it);
-        no_match_found_yet = false;
-        parent_key.FromLookupKey(parent_key, *key_it);
-        parent_rule = supplier_->GetRule(parent_key);
-        assert(parent_rule != NULL);
+    for (const auto& sub_key : parent_rule->GetSubKeys()) {
+      if (!no_match_found_yet) {
         break;
+      }
+      for (const std::string& language_tag : languages) {
+        lookup_key.set_language(language_tag);
+        lookup_key.FromLookupKey(parent_key, sub_key);
+        const Rule* rule = supplier_->GetRule(lookup_key);
+
+        // A rule with key = sub_key and specified language_tag was expected to
+        // be found in a certain format (e.g. data/CA/QC--fr), but it was not.
+        // This is due to a possible inconsistency in the data format.
+        if (rule == nullptr) continue;
+
+        bool matches_latin_name =
+            compare_->NaturalEquals(field_value, rule->GetLatinName());
+        bool matches_local_name_id =
+            compare_->NaturalEquals(field_value, sub_key) ||
+            compare_->NaturalEquals(field_value, rule->GetName());
+        if (matches_latin_name || matches_local_name_id) {
+          address->SetFieldValue(
+              field, matches_latin_name ? rule->GetLatinName() : sub_key);
+          no_match_found_yet = false;
+          parent_key.FromLookupKey(parent_key, sub_key);
+          parent_rule = supplier_->GetRule(parent_key);
+          assert(parent_rule != nullptr);
+          break;
+        }
       }
     }
     if (no_match_found_yet) {

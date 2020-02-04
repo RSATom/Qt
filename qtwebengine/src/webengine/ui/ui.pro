@@ -13,8 +13,8 @@ QML_FILES += \
     Menu.qml \
     MenuItem.qml \
     MenuSeparator.qml \
-    # Message Bubble
-    MessageBubble.qml \
-    ToolTip.qml
+    ToolTip.qml \
+    TouchHandle.qml \
+    TouchSelectionMenu.qml
 
 load(qml_module)

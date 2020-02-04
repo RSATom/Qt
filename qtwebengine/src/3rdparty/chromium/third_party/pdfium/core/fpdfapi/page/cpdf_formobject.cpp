@@ -6,9 +6,16 @@
 
 #include "core/fpdfapi/page/cpdf_formobject.h"
 
+#include <utility>
+
 #include "core/fpdfapi/page/cpdf_form.h"
 
-CPDF_FormObject::CPDF_FormObject() {}
+CPDF_FormObject::CPDF_FormObject(int32_t content_stream,
+                                 std::unique_ptr<CPDF_Form> pForm,
+                                 const CFX_Matrix& matrix)
+    : CPDF_PageObject(content_stream),
+      m_pForm(std::move(pForm)),
+      m_FormMatrix(matrix) {}
 
 CPDF_FormObject::~CPDF_FormObject() {}
 
@@ -34,10 +41,5 @@ CPDF_PageObject::Type CPDF_FormObject::GetType() const {
 }
 
 void CPDF_FormObject::CalcBoundingBox() {
-  CFX_FloatRect form_rect = m_pForm->CalcBoundingBox();
-  m_FormMatrix.TransformRect(form_rect);
-  m_Left = form_rect.left;
-  m_Bottom = form_rect.bottom;
-  m_Right = form_rect.right;
-  m_Top = form_rect.top;
+  SetRect(m_FormMatrix.TransformRect(m_pForm->CalcBoundingBox()));
 }

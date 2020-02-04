@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/storage/storage_frontend.h"
 #include "extensions/browser/quota_service.h"
@@ -67,31 +68,30 @@ ExtensionFunction::ResponseAction SettingsFunction::Run() {
 
 void SettingsFunction::AsyncRunWithStorage(ValueStore* storage) {
   ResponseValue response = RunWithStorage(storage);
-  BrowserThread::PostTask(
-      BrowserThread::UI,
-      FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::Bind(&SettingsFunction::Respond, this, base::Passed(&response)));
 }
 
 ExtensionFunction::ResponseValue SettingsFunction::UseReadResult(
     ValueStore::ReadResult result) {
-  if (!result->status().ok())
-    return Error(result->status().message);
+  if (!result.status().ok())
+    return Error(result.status().message);
 
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-  dict->Swap(&result->settings());
+  dict->Swap(&result.settings());
   return OneArgument(std::move(dict));
 }
 
 ExtensionFunction::ResponseValue SettingsFunction::UseWriteResult(
     ValueStore::WriteResult result) {
-  if (!result->status().ok())
-    return Error(result->status().message);
+  if (!result.status().ok())
+    return Error(result.status().message);
 
-  if (!result->changes().empty()) {
+  if (!result.changes().empty()) {
     observers_->Notify(FROM_HERE, &SettingsObserver::OnSettingsChanged,
                        extension_id(), settings_namespace_,
-                       ValueStoreChange::ToJson(result->changes()));
+                       ValueStoreChange::ToJson(result.changes()));
   }
 
   return NoArguments();
@@ -106,8 +106,7 @@ void AddAllStringValues(const base::ListValue& from,
                         std::vector<std::string>* to) {
   DCHECK(to->empty());
   std::string as_string;
-  for (base::ListValue::const_iterator it = from.begin();
-       it != from.end(); ++it) {
+  for (auto it = from.begin(); it != from.end(); ++it) {
     if (it->GetAsString(&as_string)) {
       to->push_back(as_string);
     }
@@ -132,10 +131,10 @@ void GetModificationQuotaLimitHeuristics(QuotaLimitHeuristics* heuristics) {
   QuotaLimitHeuristic::Config long_limit_config = {
       api::storage::sync::MAX_WRITE_OPERATIONS_PER_HOUR,
       base::TimeDelta::FromHours(1)};
-  heuristics->push_back(base::MakeUnique<QuotaService::TimedLimit>(
+  heuristics->push_back(std::make_unique<QuotaService::TimedLimit>(
       short_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
       "MAX_WRITE_OPERATIONS_PER_MINUTE"));
-  heuristics->push_back(base::MakeUnique<QuotaService::TimedLimit>(
+  heuristics->push_back(std::make_unique<QuotaService::TimedLimit>(
       long_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
       "MAX_WRITE_OPERATIONS_PER_HOUR"));
 }
@@ -148,7 +147,7 @@ ExtensionFunction::ResponseValue StorageStorageAreaGetFunction::RunWithStorage(
   if (!args_->Get(0, &input))
     return BadMessage();
 
-  switch (input->GetType()) {
+  switch (input->type()) {
     case base::Value::Type::NONE:
       return UseReadResult(storage->Get());
 
@@ -169,14 +168,15 @@ ExtensionFunction::ResponseValue StorageStorageAreaGetFunction::RunWithStorage(
       base::DictionaryValue* as_dict =
           static_cast<base::DictionaryValue*>(input);
       ValueStore::ReadResult result = storage->Get(GetKeys(*as_dict));
-      if (!result->status().ok()) {
+      if (!result.status().ok()) {
         return UseReadResult(std::move(result));
       }
 
-      base::DictionaryValue* with_default_values = as_dict->DeepCopy();
-      with_default_values->MergeDictionary(&result->settings());
-      return UseReadResult(ValueStore::MakeReadResult(
-          base::WrapUnique(with_default_values), result->status()));
+      std::unique_ptr<base::DictionaryValue> with_default_values =
+          as_dict->CreateDeepCopy();
+      with_default_values->MergeDictionary(&result.settings());
+      return UseReadResult(ValueStore::ReadResult(
+          std::move(with_default_values), result.PassStatus()));
     }
 
     default:
@@ -192,7 +192,7 @@ StorageStorageAreaGetBytesInUseFunction::RunWithStorage(ValueStore* storage) {
 
   size_t bytes_in_use = 0;
 
-  switch (input->GetType()) {
+  switch (input->type()) {
     case base::Value::Type::NONE:
       bytes_in_use = storage->GetBytesInUse();
       break;
@@ -217,7 +217,7 @@ StorageStorageAreaGetBytesInUseFunction::RunWithStorage(ValueStore* storage) {
   }
 
   return OneArgument(
-      base::MakeUnique<base::Value>(static_cast<int>(bytes_in_use)));
+      std::make_unique<base::Value>(static_cast<int>(bytes_in_use)));
 }
 
 ExtensionFunction::ResponseValue StorageStorageAreaSetFunction::RunWithStorage(
@@ -239,7 +239,7 @@ StorageStorageAreaRemoveFunction::RunWithStorage(ValueStore* storage) {
   if (!args_->Get(0, &input))
     return BadMessage();
 
-  switch (input->GetType()) {
+  switch (input->type()) {
     case base::Value::Type::STRING: {
       std::string as_string;
       input->GetAsString(&as_string);

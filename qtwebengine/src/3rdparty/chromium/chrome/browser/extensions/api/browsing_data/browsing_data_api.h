@@ -13,6 +13,8 @@
 
 #include "base/scoped_observer.h"
 #include "chrome/browser/extensions/chrome_extension_function.h"
+#include "components/browsing_data/core/browsing_data_utils.h"
+#include "components/signin/core/browser/account_reconcilor.h"
 #include "content/public/browser/browsing_data_remover.h"
 
 class PluginPrefs;
@@ -74,6 +76,10 @@ class BrowsingDataSettingsFunction : public UIThreadExtensionFunction {
                   const char* data_type,
                   bool is_selected);
 
+  // Returns whether |data_type| is currently selected for deletion on |tab|.
+  bool isDataTypeSelected(browsing_data::BrowsingDataType data_type,
+                          browsing_data::ClearBrowsingDataTab tab);
+
   PrefService* prefs_ = nullptr;
 };
 
@@ -99,13 +105,19 @@ class BrowsingDataRemoverFunction
  protected:
   ~BrowsingDataRemoverFunction() override;
 
+ private:
   // Children should override this method to provide the proper removal mask
   // based on the API call they represent.
   // Returns whether or not removal mask retrieval was successful.
   // |removal_mask| is populated with the result, if successful.
   virtual bool GetRemovalMask(int* removal_mask) = 0;
 
- private:
+  // Returns true if the data removal is allowed to pause Sync. Returns true by
+  // default. Subclasses can override it to return false and prevent Sync from
+  // being paused. This is important when synced data is being removed, and
+  // pausing Sync would prevent the data from being deleted on the server.
+  virtual bool IsPauseSyncAllowed();
+
   // Updates the removal bitmask according to whether removing plugin data is
   // supported or not.
   void CheckRemovingPluginDataSupported(
@@ -126,6 +138,8 @@ class BrowsingDataRemoverFunction
   ScopedObserver<content::BrowsingDataRemover,
                  content::BrowsingDataRemover::Observer>
       observer_;
+  std::unique_ptr<AccountReconcilor::ScopedSyncedDataDeletion>
+      synced_data_deletion_;
 };
 
 class BrowsingDataRemoveAppcacheFunction : public BrowsingDataRemoverFunction {
@@ -149,6 +163,7 @@ class BrowsingDataRemoveFunction : public BrowsingDataRemoverFunction {
 
   // BrowsingDataRemoverFunction:
   bool GetRemovalMask(int* removal_mask) override;
+  bool IsPauseSyncAllowed() override;
 };
 
 class BrowsingDataRemoveCacheFunction : public BrowsingDataRemoverFunction {

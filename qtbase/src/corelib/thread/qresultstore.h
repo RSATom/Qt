@@ -40,12 +40,10 @@
 #ifndef QTCORE_RESULTSTORE_H
 #define QTCORE_RESULTSTORE_H
 
-#include <QtCore/qglobal.h>
-
-#ifndef QT_NO_QFUTURE
-
 #include <QtCore/qmap.h>
 #include <QtCore/qdebug.h>
+
+QT_REQUIRE_CONFIG(future);
 
 QT_BEGIN_NAMESPACE
 
@@ -58,7 +56,6 @@ QT_BEGIN_NAMESPACE
     either individually or in batches.
 */
 
-#ifndef Q_QDOC
 
 namespace QtPrivate {
 
@@ -67,8 +64,8 @@ class ResultItem
 public:
     ResultItem(const void *_result, int _count) : m_count(_count), result(_result) { } // contruct with vector of results
     ResultItem(const void *_result) : m_count(0), result(_result) { } // construct with result
-    ResultItem() : m_count(0), result(Q_NULLPTR) { }
-    bool isValid() const { return result != Q_NULLPTR; }
+    ResultItem() : m_count(0), result(nullptr) { }
+    bool isValid() const { return result != nullptr; }
     bool isVector() const { return m_count != 0; }
     int count() const { return (m_count == 0) ?  1 : m_count; }
     int m_count;          // result is either a pointer to a result or to a vector of results,
@@ -198,10 +195,7 @@ public:
 
 Q_DECLARE_TYPEINFO(QtPrivate::ResultItem, Q_PRIMITIVE_TYPE);
 
-#endif //Q_QDOC
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_QFUTURE
 
 #endif

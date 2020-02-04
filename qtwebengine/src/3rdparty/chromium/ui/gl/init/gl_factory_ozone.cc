@@ -8,6 +8,7 @@
 #include "base/trace_event/trace_event.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_context_stub.h"
+#include "ui/gl/gl_egl_api_implementation.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_share_group.h"
 #include "ui/gl/gl_surface.h"
@@ -29,7 +30,6 @@ bool GetGLWindowSystemBindingInfo(GLWindowSystemBindingInfo* info) {
   return false;
 }
 
-#if !defined(TOOLKIT_QT)
 scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
                                          GLSurface* compatible_surface,
                                          const GLContextAttribs& attribs) {
@@ -50,7 +50,7 @@ scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
       return stub_context;
     }
     default:
-      NOTREACHED();
+      NOTREACHED() << "Expected Mock or Stub, actual:" << GetGLImplementation();
   }
   return nullptr;
 }
@@ -66,7 +66,7 @@ scoped_refptr<GLSurface> CreateViewGLSurface(gfx::AcceleratedWidget window) {
     case kGLImplementationStubGL:
       return InitializeGLSurface(new GLSurfaceStub());
     default:
-      NOTREACHED();
+      NOTREACHED() << "Expected Mock or Stub, actual:" << GetGLImplementation();
   }
 
   return nullptr;
@@ -99,12 +99,40 @@ scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
     case kGLImplementationStubGL:
       return InitializeGLSurface(new GLSurfaceStub);
     default:
-      NOTREACHED();
+      NOTREACHED() << "Expected Mock or Stub, actual:" << GetGLImplementation();
   }
 
   return nullptr;
 }
-#endif
+
+void SetDisabledExtensionsPlatform(const std::string& disabled_extensions) {
+  if (HasGLOzone()) {
+    GetGLOzone()->SetDisabledExtensionsPlatform(disabled_extensions);
+    return;
+  }
+
+  switch (GetGLImplementation()) {
+    case kGLImplementationMockGL:
+    case kGLImplementationStubGL:
+      break;
+    default:
+      NOTREACHED() << "Expected Mock or Stub, actual:" << GetGLImplementation();
+  }
+}
+
+bool InitializeExtensionSettingsOneOffPlatform() {
+  if (HasGLOzone())
+    return GetGLOzone()->InitializeExtensionSettingsOneOffPlatform();
+
+  switch (GetGLImplementation()) {
+    case kGLImplementationMockGL:
+    case kGLImplementationStubGL:
+      return true;
+    default:
+      NOTREACHED() << "Expected Mock or Stub, actual:" << GetGLImplementation();
+      return false;
+  }
+}
 
 }  // namespace init
 }  // namespace gl

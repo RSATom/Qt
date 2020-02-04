@@ -29,9 +29,9 @@ namespace crashpad {
 
 namespace {
 
-const char kCRLF[] = "\r\n";
+constexpr char kCRLF[] = "\r\n";
 
-const char kBoundaryCRLF[] = "\r\n\r\n";
+constexpr char kBoundaryCRLF[] = "\r\n\r\n";
 
 // Generates a random string suitable for use as a multipart boundary.
 std::string GenerateBoundaryString() {
@@ -47,7 +47,7 @@ std::string GenerateBoundaryString() {
   // randomness (62^32 > 2^190).
   std::string boundary_string = "---MultipartBoundary-";
   for (int index = 0; index < 32; ++index) {
-    const char kCharacters[] =
+    static constexpr char kCharacters[] =
         "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     int random_value =
         base::RandInt(0, static_cast<int>(strlen(kCharacters)) - 1);
@@ -133,13 +133,13 @@ void HTTPMultipartBuilder::SetFormData(const std::string& key,
 void HTTPMultipartBuilder::SetFileAttachment(
     const std::string& key,
     const std::string& upload_file_name,
-    const base::FilePath& path,
+    FileReaderInterface* reader,
     const std::string& content_type) {
   EraseKey(upload_file_name);
 
   FileAttachment attachment;
   attachment.filename = EncodeMIMEField(upload_file_name);
-  attachment.path = path;
+  attachment.reader = reader;
 
   if (content_type.empty()) {
     attachment.content_type = "application/octet-stream";
@@ -174,7 +174,7 @@ std::unique_ptr<HTTPBodyStream> HTTPMultipartBuilder::GetBodyStream() {
         attachment.content_type.c_str(), kBoundaryCRLF);
 
     streams.push_back(new StringHTTPBodyStream(header));
-    streams.push_back(new FileHTTPBodyStream(attachment.path));
+    streams.push_back(new FileReaderHTTPBodyStream(attachment.reader));
     streams.push_back(new StringHTTPBodyStream(kCRLF));
   }
 

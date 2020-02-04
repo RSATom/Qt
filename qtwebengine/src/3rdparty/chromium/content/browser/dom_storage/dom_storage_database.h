@@ -15,7 +15,7 @@
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 #include "content/common/dom_storage/dom_storage_types.h"
-#include "sql/connection.h"
+#include "sql/database.h"
 
 namespace base {
 namespace trace_event {
@@ -29,8 +29,6 @@ namespace content {
 // class is designed to be used on a single thread.
 class CONTENT_EXPORT DOMStorageDatabase {
  public:
-  static base::FilePath GetJournalFilePath(const base::FilePath& database_path);
-
   explicit DOMStorageDatabase(const base::FilePath& file_path);
   virtual ~DOMStorageDatabase();  // virtual for unit testing
 
@@ -75,13 +73,18 @@ class CONTENT_EXPORT DOMStorageDatabase {
   FRIEND_TEST_ALL_PREFIXES(DOMStorageDatabaseTest,
                            TestCanOpenFileThatIsNotADatabase);
   FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaTest, BackingDatabaseOpened);
+  FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaParamTest, ShallowCopyWithBacking);
+  FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaTest, EnableDisableCachingWithBacking);
   FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaTest, CommitTasks);
   FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaTest, PurgeMemory);
 
   enum SchemaVersion {
     INVALID,
-    V1,
-    V2
+
+    // V1 is deprecated.
+
+    // 2011-07-15 - https://bugs.webkit.org/show_bug.cgi?id=58762
+    V2,
   };
 
   // Open the database at file_path_ if it exists already and creates it if
@@ -105,12 +108,6 @@ class CONTENT_EXPORT DOMStorageDatabase {
   // scratch.
   bool DeleteFileAndRecreate();
 
-  // Version 1 -> 2 migrates the value column in the ItemTable from a TEXT
-  // to a BLOB. Exisitng data is preserved on success. Returns false if the
-  // upgrade failed. If true is returned, the database is guaranteed to be at
-  // version 2.
-  bool UpgradeVersion1To2();
-
   void Close();
   bool IsOpen() const { return db_.get() ? db_->is_open() : false; }
 
@@ -119,10 +116,12 @@ class CONTENT_EXPORT DOMStorageDatabase {
 
   // Path to the database on disk.
   const base::FilePath file_path_;
-  std::unique_ptr<sql::Connection> db_;
+  std::unique_ptr<sql::Database> db_;
   bool failed_to_open_;
   bool tried_to_recreate_;
   bool known_to_be_empty_;
+
+  DISALLOW_COPY_AND_ASSIGN(DOMStorageDatabase);
 };
 
 }  // namespace content

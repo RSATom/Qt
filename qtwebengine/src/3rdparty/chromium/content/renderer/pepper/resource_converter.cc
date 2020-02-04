@@ -7,25 +7,24 @@
 #include <stddef.h>
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
 #include "content/renderer/pepper/pepper_file_system_host.h"
 #include "content/renderer/pepper/pepper_media_stream_audio_track_host.h"
 #include "content/renderer/pepper/pepper_media_stream_video_track_host.h"
 #include "ipc/ipc_message.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "ppapi/host/ppapi_host.h"
 #include "ppapi/host/resource_host.h"
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/resource_var.h"
 #include "ppapi/shared_impl/scoped_pp_var.h"
 #include "storage/common/fileapi/file_system_util.h"
-#include "third_party/WebKit/public/platform/WebFileSystem.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamSource.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
-#include "third_party/WebKit/public/web/WebDOMFileSystem.h"
-#include "third_party/WebKit/public/web/WebDOMMediaStreamTrack.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/platform/web_file_system_type.h"
+#include "third_party/blink/public/platform/web_media_stream_source.h"
+#include "third_party/blink/public/platform/web_media_stream_track.h"
+#include "third_party/blink/public/web/web_dom_file_system.h"
+#include "third_party/blink/public/web/web_dom_media_stream_track.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 
 using ppapi::ResourceVar;
 
@@ -43,16 +42,15 @@ void FlushComplete(
   callback.Run(true);
 }
 
-// Converts a blink::WebFileSystem::Type to a PP_FileSystemType.
-PP_FileSystemType WebFileSystemTypeToPPAPI(blink::WebFileSystem::Type type) {
+PP_FileSystemType WebFileSystemTypeToPPAPI(blink::WebFileSystemType type) {
   switch (type) {
-    case blink::WebFileSystem::kTypeTemporary:
+    case blink::WebFileSystemType::kWebFileSystemTypeTemporary:
       return PP_FILESYSTEMTYPE_LOCALTEMPORARY;
-    case blink::WebFileSystem::kTypePersistent:
+    case blink::WebFileSystemType::kWebFileSystemTypePersistent:
       return PP_FILESYSTEMTYPE_LOCALPERSISTENT;
-    case blink::WebFileSystem::kTypeIsolated:
+    case blink::WebFileSystemType::kWebFileSystemTypeIsolated:
       return PP_FILESYSTEMTYPE_ISOLATED;
-    case blink::WebFileSystem::kTypeExternal:
+    case blink::WebFileSystemType::kWebFileSystemTypeExternal:
       return PP_FILESYSTEMTYPE_EXTERNAL;
     default:
       NOTREACHED();
@@ -310,7 +308,7 @@ bool ResourceConverterImpl::ToV8Value(const PP_Var& var,
   ::ppapi::host::PpapiHost* ppapi_host = renderer_ppapi_host->GetPpapiHost();
   ::ppapi::host::ResourceHost* resource_host =
       ppapi_host->GetResourceHost(resource_id);
-  if (resource_host == NULL) {
+  if (resource_host == nullptr) {
     LOG(ERROR) << "No resource host for resource #" << resource_id;
     return false;
   }

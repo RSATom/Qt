@@ -60,10 +60,11 @@ public:
     void loadBackend();
 
     QGamepadBackend *gamepadBackend;
-    QSet<int> connectedGamepads;
+    QMap<int, QString> connectedGamepads;
 
     //private slots
     void _q_forwardGamepadConnected(int deviceId);
+    void _q_forwardGamepadNameChanged(int deviceId, const QString &name);
     void _q_forwardGamepadDisconnected(int deviceId);
     void _q_forwardGamepadAxisEvent(int deviceId, QGamepadManager::GamepadAxis axis, double value);
     void _q_forwardGamepadButtonPressEvent(int deviceId, QGamepadManager::GamepadButton button, double value);
@@ -73,9 +74,16 @@ public:
 void QGamepadManagerPrivate::_q_forwardGamepadConnected(int deviceId)
 {
     Q_Q(QGamepadManager);
-    connectedGamepads.insert(deviceId);
+    connectedGamepads.insert(deviceId, QString());
     emit q->gamepadConnected(deviceId);
     emit q->connectedGamepadsChanged();
+}
+
+void QGamepadManagerPrivate::_q_forwardGamepadNameChanged(int deviceId, const QString &name)
+{
+    Q_Q(QGamepadManager);
+    connectedGamepads.insert(deviceId, name);
+    emit q->gamepadNameChanged(deviceId, name);
 }
 
 void QGamepadManagerPrivate::_q_forwardGamepadDisconnected(int deviceId)
@@ -136,6 +144,17 @@ void QGamepadManagerPrivate::loadBackend()
  */
 
 /*!
+ * \qmltype GamepadManager
+ * \inqmlmodule QtGamepad
+ * \instantiates QGamepadManager
+ * \brief Queries attached gamepads and related events.
+ *
+ * GamepadManager QML type provides a high-level interface for
+ * querying the attached gamepads and events related to all of the
+ * connected devices.
+ */
+
+/*!
  * Constructor for QGamepadManager.
  */
 
@@ -148,6 +167,7 @@ QGamepadManager::QGamepadManager() :
     qRegisterMetaType<QGamepadManager::GamepadAxis>("QGamepadManager::GamepadAxis");
 
     connect(d->gamepadBackend, SIGNAL(gamepadAdded(int)), this, SLOT(_q_forwardGamepadConnected(int)));
+    connect(d->gamepadBackend, SIGNAL(gamepadNamed(int, QString)), this, SLOT(_q_forwardGamepadNameChanged(int, QString)));
     connect(d->gamepadBackend, SIGNAL(gamepadRemoved(int)), this, SLOT(_q_forwardGamepadDisconnected(int)));
     connect(d->gamepadBackend, SIGNAL(gamepadAxisMoved(int,QGamepadManager::GamepadAxis,double)), this, SLOT(_q_forwardGamepadAxisEvent(int,QGamepadManager::GamepadAxis,double)));
     connect(d->gamepadBackend, SIGNAL(gamepadButtonPressed(int,QGamepadManager::GamepadButton,double)), this, SLOT(_q_forwardGamepadButtonPressEvent(int,QGamepadManager::GamepadButton,double)));
@@ -192,13 +212,33 @@ bool QGamepadManager::isGamepadConnected(int deviceId) const
 }
 
 /*!
-    Returns a QList containing the \l {QGamepad::}{deviceId}
+    Returns the name of the gamepad identified by \a deviceId.
+    If \a deviceId does not identify a connected gamepad, returns an empty string.
+
+    \since 5.11
+*/
+QString QGamepadManager::gamepadName(int deviceId) const
+{
+    Q_D(const QGamepadManager);
+    return d->connectedGamepads.value(deviceId);
+}
+
+/*!
+   \qmlproperty var GamepadManager::connectedGamepads
+   \readonly
+
+    Returns a list of integers containing the \l {QGamepad::}{deviceId}
+    values of the connected gamepads.
+*/
+
+/*!
+    Returns a list of integers containing the \l {QGamepad::}{deviceId}
     values of the connected gamepads.
 */
 const QList<int> QGamepadManager::connectedGamepads() const
 {
     Q_D(const QGamepadManager);
-    return d->connectedGamepads.toList();
+    return d->connectedGamepads.keys();
 }
 
 /*!

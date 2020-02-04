@@ -2,6 +2,31 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="ru_RU">
 <context>
+    <name>QQuickXmlListModel</name>
+    <message>
+        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
+        <translation>«%1» дублирует прежнее имя роли и будет отключено.</translation>
+    </message>
+    <message>
+        <source>invalid query: &quot;%1&quot;</source>
+        <translation>некорректный запрос: «%1»</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlListModelRole</name>
+    <message>
+        <source>An XmlRole query must not start with &apos;/&apos;</source>
+        <translation>Запрос XmlRole не должен начинаться с «/»</translation>
+    </message>
+</context>
+<context>
+    <name>QQuickXmlRoleList</name>
+    <message>
+        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
+        <translation>Запрос XmlListModel должен начинаться с «/» или «//»</translation>
+    </message>
+</context>
+<context>
     <name>QXmlPatternistCLI</name>
     <message>
         <source>Warning in %1, at line %2, column %3: %4</source>
@@ -64,7 +89,7 @@
     </message>
     <message>
         <source>Overflow: Can&apos;t represent date %1.</source>
-        <translation>Переполнение: Не удаётся представить дату %1.</translation>
+        <translation>Переполнение: не удаётся представить дату %1.</translation>
     </message>
     <message>
         <source>Day %1 is invalid for month %2.</source>
@@ -140,7 +165,7 @@
     </message>
     <message>
         <source>A value of type %1 must contain an even number of digits. The value %2 does not.</source>
-        <translation>Значение типа %1 должно содержать четное количество цифр. Значение %2 этому требованию не удовлетворяет.</translation>
+        <translation>Значение типа %1 должно содержать чётное количество цифр. Значение %2 этому требованию не удовлетворяет.</translation>
     </message>
     <message>
         <source>%1 is not valid as a value of type %2.</source>
@@ -164,7 +189,7 @@
     </message>
     <message>
         <source>The name for a computed attribute cannot have the namespace URI %1 with the local name %2.</source>
-        <translation>Название расчитываемого атрибута не может иметь URI пространства имён %1 с локальным именем %2.</translation>
+        <translation>Название рассчитываемого атрибута не может иметь URI пространства имён %1 с локальным именем %2.</translation>
     </message>
     <message>
         <source>Type error in cast, expected %1, received %2.</source>
@@ -220,11 +245,11 @@
     </message>
     <message>
         <source>The target name in a processing instruction cannot be %1 in any combination of upper and lower case. Therefore, %2 is invalid.</source>
-        <translation>Целевое имя в обрабатываемой инструкции не может быть %1 в любой комбинации нижнего и верхнего регистров. Имя %2 некорректно.</translation>
+        <translation>Целевое имя в инструкции по обработке не может быть %1 в любой комбинации нижнего и верхнего регистров. Имя %2 некорректно.</translation>
     </message>
     <message>
         <source>%1 is not a valid target name in a processing instruction. It must be a %2 value, e.g. %3.</source>
-        <translation>%1 некорректное целевое имя в обрабатываемой инструкции. Имя должно быть значением типа %2, например: %3.</translation>
+        <translation>%1 некорректное целевое имя в инструкции по обработке. Имя должно быть значением типа %2, например: %3.</translation>
     </message>
     <message>
         <source>The last step in a path must contain either nodes or atomic values. It cannot be a mixture between the two.</source>
@@ -232,7 +257,7 @@
     </message>
     <message>
         <source>The data of a processing instruction cannot contain the string %1</source>
-        <translation>Данные обрабатываемой инструкции не могут содержать строку «%1»</translation>
+        <translation>Данные инструкции по обработке не могут содержать строку «%1»</translation>
     </message>
     <message>
         <source>No namespace binding exists for the prefix %1</source>
@@ -356,7 +381,7 @@
     </message>
     <message>
         <source>A zone offset must be in the range %1..%2 inclusive. %3 is out of range.</source>
-        <translation>Региональное смещение должно быть в переделах от %1 до %2 включительно. %3 выходит за допустимые пределы.</translation>
+        <translation>Региональное смещение должно быть в пределах от %1 до %2 включительно. %3 выходит за допустимые пределы.</translation>
     </message>
     <message>
         <source>%1 is not a whole number of minutes.</source>
@@ -428,7 +453,7 @@
     </message>
     <message>
         <source>A default namespace declaration must occur before function, variable, and option declarations.</source>
-        <translation>Объявление пространство имён по умолчанию должно быть до объявления функций, переменных и опций.</translation>
+        <translation>Объявление пространства имён по умолчанию должно быть до объявления функций, переменных и опций.</translation>
     </message>
     <message>
         <source>Namespace declarations must occur before function, variable, and option declarations.</source>
@@ -488,15 +513,15 @@
     </message>
     <message>
         <source>The namespace for a user defined function cannot be empty (try the predefined prefix %1 which exists for cases like this)</source>
-        <translation>Для функции определённой пользователем пространство имён не может быть пустым (попробуйте предопределённый префикс %1, который существует для случаев, подобных этому)</translation>
+        <translation>Для функции, определённой пользователем, пространство имён не может быть пустым (попробуйте предопределённый префикс %1, который существует для случаев, подобных этому)</translation>
     </message>
     <message>
         <source>The namespace %1 is reserved; therefore user defined functions may not use it. Try the predefined prefix %2, which exists for these cases.</source>
-        <translation>Пространтсво имён %1 зарезервировано, поэтому пользовательские функции не могут его использовать. Попробуйте предопределённый префикс %2, который существует для подобных ситуаций.</translation>
+        <translation>Пространство имён %1 зарезервировано, поэтому пользовательские функции не могут его использовать. Попробуйте предопределённый префикс %2, который существует для подобных ситуаций.</translation>
     </message>
     <message>
         <source>The namespace of a user defined function in a library module must be equivalent to the module namespace. In other words, it should be %1 instead of %2</source>
-        <translation>Пространство имён пользовательской функции в модуле библиотеки должен соответствовать пространству имён модуля. Другими словами, он должен быть %1 вместо %2</translation>
+        <translation>Пространство имён пользовательской функции в модуле библиотеки должно соответствовать пространству имён модуля. Другими словами, оно должно быть %1 вместо %2</translation>
     </message>
     <message>
         <source>A function already exists with the signature %1.</source>
@@ -536,7 +561,7 @@
     </message>
     <message>
         <source>%1 is an invalid template mode name.</source>
-        <translation>%1 не является корректным шаблоном имени режима.</translation>
+        <translation>%1 не является корректным именем шаблонного режима.</translation>
     </message>
     <message>
         <source>The name of a variable bound in a for-expression must be different from the positional variable. Hence, the two variables named %1 collide.</source>
@@ -604,7 +629,7 @@
     </message>
     <message>
         <source>%1 is an complex type. Casting to complex types is not possible. However, casting to atomic types such as %2 works.</source>
-        <translation>%1 - сложный тип. Преобразование к сложным типам невозможно. Однако, преобразование к атомарным типам как %2 работает.</translation>
+        <translation>%1 - сложный тип. Преобразование к сложным типам невозможно. Однако преобразование к атомарным типам как %2 работает.</translation>
     </message>
     <message>
         <source>%1 is not an atomic type. Casting is only possible to atomic types.</source>
@@ -612,7 +637,7 @@
     </message>
     <message>
         <source>%1 is not a valid name for a processing-instruction.</source>
-        <translation>%1 не является корректным названием инструкции обработки.</translation>
+        <translation>%1 не является корректным названием инструкции по обработке.</translation>
     </message>
     <message>
         <source>%1 is not in the in-scope attribute declarations. Note that the schema import feature is not supported.</source>
@@ -716,7 +741,7 @@
     </message>
     <message>
         <source>Top level stylesheet elements must be in a non-null namespace, which %1 isn&apos;t.</source>
-        <translation>Элементы верхнего уровня таблицы стилей должны быть в пространстве имен, которым %1 не является.</translation>
+        <translation>Элементы верхнего уровня таблицы стилей должны быть в пространстве имён, которым %1 не является.</translation>
     </message>
     <message>
         <source>The value for attribute %1 on element %2 must either be %3 or %4, not %5.</source>
@@ -868,7 +893,7 @@
     </message>
     <message>
         <source>%1 is not allowed to have any facets.</source>
-        <translation>%1 не может имет никаких фасетов.</translation>
+        <translation>%1 не может иметь фасетов.</translation>
     </message>
     <message>
         <source>Base type %1 of simple type %2 must have variety of union.</source>
@@ -916,7 +941,7 @@
     </message>
     <message>
         <source>Attributes of complex type %1 are not a valid restriction from the attributes of base type %2: %3.</source>
-        <translation>Атрибуты сложного типа %1 не являются верным ограничением атрибутов базового типа %2: %3.</translation>
+        <translation>Атрибуты сложного типа %1 не являются допустимым ограничением атрибутов базового типа %2: %3.</translation>
     </message>
     <message>
         <source>Complex type %1 with simple content cannot be derived from complex base type %2.</source>
@@ -932,7 +957,7 @@
     </message>
     <message>
         <source>%1 is not allowed to have a member type with the same name as itself.</source>
-        <translation>Не допустимо, чтобы %1 определял внутренний тип с таким же именем.</translation>
+        <translation>Недопустимо, чтобы %1 определял внутренний тип с таким же именем.</translation>
     </message>
     <message>
         <source>%1 facet collides with %2 facet.</source>
@@ -1036,7 +1061,7 @@
     </message>
     <message>
         <source>Element %1 is not allowed to have a value constraint if its base type is complex.</source>
-        <translation>Элементу %1 недопустимо иметь ограничение на значения, если у его базовый тип сложный.</translation>
+        <translation>Элементу %1 недопустимо иметь ограничение на значения, если его базовый тип сложный.</translation>
     </message>
     <message>
         <source>Element %1 is not allowed to have a value constraint if its type is derived from %2.</source>
@@ -1124,11 +1149,11 @@
     </message>
     <message>
         <source>%1 of derived wildcard is not a valid restriction of %2 of base wildcard</source>
-        <translation>%1 производного шаблона не является корректным ограничением %2 базового</translation>
+        <translation>%1 производного шаблона не является допустимым ограничением %2 базового</translation>
     </message>
     <message>
         <source>Attribute %1 from base type is missing in derived type.</source>
-        <translation>Атрибут %1 базового типа отсуствует в производном.</translation>
+        <translation>Атрибут %1 базового типа отсутствует в производном.</translation>
     </message>
     <message>
         <source>Type of derived attribute %1 differs from type of base attribute.</source>
@@ -1176,11 +1201,11 @@
     </message>
     <message>
         <source>%1 element without %2 attribute is not allowed inside schema without target namespace.</source>
-        <translation>Элемент %1 без атрибута %2 не допустим в схеме без целевого пространства имён.</translation>
+        <translation>Элемент %1 без атрибута %2 недопустим в схеме без целевого пространства имён.</translation>
     </message>
     <message>
         <source>%1 element is not allowed inside %2 element if %3 attribute is present.</source>
-        <translation>Элемент %1 недрпустим внутри элемента %2, если указан атрибут %3.</translation>
+        <translation>Элемент %1 недопустим внутри элемента %2, если указан атрибут %3.</translation>
     </message>
     <message>
         <source>%1 element has neither %2 attribute nor %3 child element.</source>
@@ -1344,11 +1369,11 @@
     </message>
     <message>
         <source>Substitution group %1 of %2 element cannot be resolved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось определить группу замещения %1 элемента %2.</translation>
     </message>
     <message>
         <source>Substitution group %1 has circular definition.</source>
-        <translation type="unfinished"></translation>
+        <translation>Группа замещения %1 имеет циклическое определение.</translation>
     </message>
     <message>
         <source>Duplicated element names %1 in %2 element.</source>
@@ -1356,51 +1381,51 @@
     </message>
     <message>
         <source>Reference %1 of %2 element cannot be resolved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Не удалось определить ссылку %1 элемента %2.</translation>
     </message>
     <message>
         <source>Circular group reference for %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Циклическая ссылка на группу %1.</translation>
     </message>
     <message>
         <source>%1 element is not allowed in this scope</source>
-        <translation type="unfinished"></translation>
+        <translation>Элемент %1 недопустим в данном контексте</translation>
     </message>
     <message>
         <source>%1 element cannot have %2 attribute with value other than %3.</source>
-        <translation type="unfinished"></translation>
+        <translation>Значение атрибута %2 элемента %1 не может быть отлично от %3.</translation>
     </message>
     <message>
         <source>%1 element cannot have %2 attribute with value other than %3 or %4.</source>
-        <translation type="unfinished"></translation>
+        <translation>Значением атрибута %2 элемента %1 может быть только %3 или %4.</translation>
     </message>
     <message>
         <source>%1 or %2 attribute of reference %3 does not match with the attribute declaration %4.</source>
-        <translation type="unfinished"></translation>
+        <translation>Атрибут %1 или %2 ссылки %3 не совпадает с объявлением атрибута %4.</translation>
     </message>
     <message>
         <source>Attribute group %1 has circular reference.</source>
-        <translation type="unfinished"></translation>
+        <translation>Циклическая ссылка на группу атрибутов %1.</translation>
     </message>
     <message>
         <source>%1 attribute in %2 must have %3 use like in base type %4.</source>
-        <translation type="unfinished"></translation>
+        <translation>Атрибут %1 из %2 должен указывать использование %3, как в базовом типе %4.</translation>
     </message>
     <message>
         <source>Attribute wildcard of %1 is not a valid restriction of attribute wildcard of base type %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>Шаблон атрибута %1 не является допустимым ограничением шаблона атрибута базового типа %2.</translation>
     </message>
     <message>
         <source>%1 has attribute wildcard but its base type %2 has not.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 имеет шаблон атрибута, но его базовый тип %2 - нет.</translation>
     </message>
     <message>
         <source>Union of attribute wildcard of type %1 and attribute wildcard of its base type %2 is not expressible.</source>
-        <translation type="unfinished"></translation>
+        <translation>Объединение шаблона атрибута типа %1 и шаблона атрибута его базового типа %2 не поддаётся выражению.</translation>
     </message>
     <message>
         <source>Enumeration facet contains invalid content: {%1} is not a value of type %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>В фасете enumeration находится некорректное содержимое: {%1} не является значением типа %2.</translation>
     </message>
     <message>
         <source>Namespace prefix of qualified name %1 is not defined.</source>
@@ -1408,7 +1433,7 @@
     </message>
     <message>
         <source>%1 element %2 is not a valid restriction of the %3 element it redefines: %4.</source>
-        <translation type="unfinished"></translation>
+        <translation>Элемент %2 (%1) не является допустимым ограничением переопределяемого элемента (%3): %4.</translation>
     </message>
     <message>
         <source>%1 is not valid according to %2.</source>
@@ -1604,7 +1629,7 @@
     </message>
     <message>
         <source>Notation content is not listed in the enumeration facet.</source>
-        <translation>Содержимое Notation не перечислено в фасете enumeration.</translation>
+        <translation>Нотация отсутствует в фасете enumeration.</translation>
     </message>
     <message>
         <source>List content does not match length facet.</source>
@@ -1620,15 +1645,15 @@
     </message>
     <message>
         <source>List content is not listed in the enumeration facet.</source>
-        <translation>Содержимое списка не перечислено в фасете enumeration.</translation>
+        <translation>Список отсутствует в фасете enumeration.</translation>
     </message>
     <message>
         <source>List content does not match pattern facet.</source>
-        <translation>Содержимое списка не соответствует фасету pattern.</translation>
+        <translation>Список не соответствует фасету pattern.</translation>
     </message>
     <message>
         <source>Union content is not listed in the enumeration facet.</source>
-        <translation>Объединение не перечислено в фасете enumeration.</translation>
+        <translation>Объединение отсутствует в фасете enumeration.</translation>
     </message>
     <message>
         <source>Union content does not match pattern facet.</source>
@@ -1760,7 +1785,7 @@
     </message>
     <message>
         <source>Attribute %1 contains invalid content.</source>
-        <translation>Элемент %1 содержит некорректное содержимое.</translation>
+        <translation>В атрибуте %1 находится некорректное содержимое.</translation>
     </message>
     <message>
         <source>Element %1 contains unknown attribute %2.</source>
@@ -1852,7 +1877,7 @@
     </message>
     <message>
         <source>An %1-attribute with value %2 has already been declared.</source>
-        <translation>Атрибут %1 со значением %2 был уже объявлен.</translation>
+        <translation>Атрибут %1 со значением %2 уже был объявлен.</translation>
     </message>
     <message>
         <source>An %1-attribute must have a valid %2 as value, which %3 isn&apos;t.</source>
@@ -1868,7 +1893,7 @@
     </message>
     <message>
         <source>The second operand in a division, %1, cannot be zero (%2).</source>
-        <translation>Второй операнд веления %1 не может быть нулён (%2).</translation>
+        <translation>Второй операнд деления %1 не может быть нулём (%2).</translation>
     </message>
     <message>
         <source>No casting is possible with %1 as the target type.</source>

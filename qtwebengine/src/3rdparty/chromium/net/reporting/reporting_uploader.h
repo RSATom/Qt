@@ -13,6 +13,10 @@
 
 class GURL;
 
+namespace url {
+class Origin;
+}  // namespace url
+
 namespace net {
 
 class URLRequestContext;
@@ -23,17 +27,19 @@ class NET_EXPORT ReportingUploader {
  public:
   enum class Outcome { SUCCESS, REMOVE_ENDPOINT, FAILURE };
 
-  using Callback = base::Callback<void(Outcome outcome)>;
-
-  static const char kUploadContentType[];
+  using UploadCallback = base::OnceCallback<void(Outcome outcome)>;
 
   virtual ~ReportingUploader();
 
   // Starts to upload the reports in |json| (properly tagged as JSON data) to
   // |url|, and calls |callback| when complete (whether successful or not).
-  virtual void StartUpload(const GURL& url,
+  // All of the reports in |json| must describe requests to the same origin;
+  // |report_origin| must be that origin.
+  virtual void StartUpload(const url::Origin& report_origin,
+                           const GURL& url,
                            const std::string& json,
-                           const Callback& callback) = 0;
+                           int max_depth,
+                           UploadCallback callback) = 0;
 
   // Creates a real implementation of |ReportingUploader| that uploads reports
   // using |context|.

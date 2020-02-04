@@ -7,14 +7,12 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/fake_form_fetcher.h"
 #include "components/password_manager/core/browser/stub_form_saver.h"
 #include "components/password_manager/core/browser/stub_password_manager_client.h"
-#include "components/password_manager/core/browser/stub_password_manager_driver.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -38,10 +36,9 @@ class CredentialManagerPasswordFormManagerTest : public testing::Test {
 
  protected:
   // Necessary for callbacks, and for TestAutofillDriver.
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
 
   StubPasswordManagerClient client_;
-  StubPasswordManagerDriver driver_;
 
   DISALLOW_COPY_AND_ASSIGN(CredentialManagerPasswordFormManagerTest);
 };
@@ -50,10 +47,10 @@ class CredentialManagerPasswordFormManagerTest : public testing::Test {
 TEST_F(CredentialManagerPasswordFormManagerTest, AbortEarly) {
   PasswordForm observed_form;
   MockDelegate delegate;
-  auto form_manager = base::MakeUnique<CredentialManagerPasswordFormManager>(
-      &client_, driver_.AsWeakPtr(), observed_form,
-      base::MakeUnique<PasswordForm>(observed_form), &delegate,
-      base::MakeUnique<StubFormSaver>(), base::MakeUnique<FakeFormFetcher>());
+  auto form_manager = std::make_unique<CredentialManagerPasswordFormManager>(
+      &client_, observed_form, std::make_unique<PasswordForm>(observed_form),
+      &delegate, std::make_unique<StubFormSaver>(),
+      std::make_unique<FakeFormFetcher>());
   form_manager->Init(nullptr);
 
   auto deleter = [&form_manager]() { form_manager.reset(); };
@@ -62,7 +59,7 @@ TEST_F(CredentialManagerPasswordFormManagerTest, AbortEarly) {
   // |form_manager| should call the delegate's OnProvisionalSaveComplete, which
   // in turn should delete |form_fetcher|.
   EXPECT_CALL(delegate, OnProvisionalSaveComplete()).WillOnce(Invoke(deleter));
-  static_cast<FakeFormFetcher*>(form_manager->form_fetcher())
+  static_cast<FakeFormFetcher*>(form_manager->GetFormFetcher())
       ->SetNonFederated(std::vector<const PasswordForm*>(), 0u);
   // Check that |form_manager| was not deleted yet; doing so would have caused
   // use after free during SetNonFederated.
@@ -80,10 +77,10 @@ TEST_F(CredentialManagerPasswordFormManagerTest, AbortEarly) {
 TEST_F(CredentialManagerPasswordFormManagerTest, GetCredentialSource) {
   PasswordForm observed_form;
   MockDelegate delegate;
-  auto form_manager = base::MakeUnique<CredentialManagerPasswordFormManager>(
-      &client_, driver_.AsWeakPtr(), observed_form,
-      base::MakeUnique<PasswordForm>(observed_form), &delegate,
-      base::MakeUnique<StubFormSaver>(), base::MakeUnique<FakeFormFetcher>());
+  auto form_manager = std::make_unique<CredentialManagerPasswordFormManager>(
+      &client_, observed_form, std::make_unique<PasswordForm>(observed_form),
+      &delegate, std::make_unique<StubFormSaver>(),
+      std::make_unique<FakeFormFetcher>());
   form_manager->Init(nullptr);
   ASSERT_EQ(metrics_util::CredentialSourceType::kCredentialManagementAPI,
             form_manager->GetCredentialSource());

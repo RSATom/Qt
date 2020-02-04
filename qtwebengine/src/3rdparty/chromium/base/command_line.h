@@ -34,14 +34,13 @@ class BASE_EXPORT CommandLine {
 #if defined(OS_WIN)
   // The native command line string type.
   using StringType = string16;
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   using StringType = std::string;
 #endif
 
   using CharType = StringType::value_type;
   using StringVector = std::vector<StringType>;
-  using SwitchMap = std::map<std::string, StringType>;
-  using StringPieceSwitchMap = std::map<StringPiece, const StringType*>;
+  using SwitchMap = std::map<std::string, StringType, std::less<>>;
 
   // A constructor for CommandLines that only carry switches and arguments.
   enum NoProgram { NO_PROGRAM };
@@ -185,6 +184,9 @@ class BASE_EXPORT CommandLine {
   void AppendSwitchASCII(const std::string& switch_string,
                          const std::string& value);
 
+  // Removes a switch.
+  void RemoveSwitch(const StringPiece& switch_string);
+
   // Copy a set of switches (and any values) from another command line.
   // Commonly used when launching a subprocess.
   void CopySwitchesFrom(const CommandLine& source,
@@ -207,7 +209,7 @@ class BASE_EXPORT CommandLine {
   void AppendArguments(const CommandLine& other, bool include_program);
 
   // Insert a command before the current command.
-  // Common for debuggers, like "valgrind" or "gdb --args".
+  // Common for debuggers, like "gdb --args".
   void PrependWrapper(const StringType& wrapper);
 
 #if defined(OS_WIN)
@@ -218,7 +220,7 @@ class BASE_EXPORT CommandLine {
 
  private:
   // Disallow default constructor; a program name must be explicitly specified.
-  CommandLine();
+  CommandLine() = delete;
   // Allow the copy constructor. A common pattern is to copy of the current
   // process's command line and then add some flags to it. For example:
   //   CommandLine cl(*CommandLine::ForCurrentProcess());
@@ -232,11 +234,6 @@ class BASE_EXPORT CommandLine {
   // also quotes parts with '%' in them.
   StringType GetArgumentsStringInternal(bool quote_placeholders) const;
 
-  // Reconstruct |switches_by_stringpiece| to be a mirror of |switches|.
-  // |switches_by_stringpiece| only contains pointers to objects owned by
-  // |switches|.
-  void ResetStringPieces();
-
   // The singleton CommandLine representing the current process's command line.
   static CommandLine* current_process_commandline_;
 
@@ -245,12 +242,6 @@ class BASE_EXPORT CommandLine {
 
   // Parsed-out switch keys and values.
   SwitchMap switches_;
-
-  // A mirror of |switches_| with only references to the actual strings.
-  // The StringPiece internally holds a pointer to a key in |switches_| while
-  // the mapped_type points to a value in |switches_|.
-  // Used for allocation-free lookups.
-  StringPieceSwitchMap switches_by_stringpiece_;
 
   // The index after the program and switches, any arguments start here.
   size_t begin_args_;

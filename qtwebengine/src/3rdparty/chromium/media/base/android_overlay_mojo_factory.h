@@ -13,8 +13,10 @@
 namespace media {
 
 // Note that this compiles on non-android too.
-using AndroidOverlayMojoFactoryCB = base::RepeatingCallback<std::unique_ptr<
-    AndroidOverlay>(const base::UnguessableToken&, AndroidOverlayConfig)>;
+using AndroidOverlayMojoFactoryCB =
+    base::RepeatingCallback<std::unique_ptr<AndroidOverlay>(
+        const base::UnguessableToken&,
+        AndroidOverlayConfig)>;
 
 }  // namespace media
 

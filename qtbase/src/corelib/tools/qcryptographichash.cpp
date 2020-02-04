@@ -387,19 +387,19 @@ void QCryptographicHash::addData(const char *data, int length)
         break;
     case RealSha3_224:
     case Keccak_224:
-        sha3Update(&d->sha3Context, reinterpret_cast<const BitSequence *>(data), length*8);
+        sha3Update(&d->sha3Context, reinterpret_cast<const BitSequence *>(data), quint64(length) * 8);
         break;
     case RealSha3_256:
     case Keccak_256:
-        sha3Update(&d->sha3Context, reinterpret_cast<const BitSequence *>(data), length*8);
+        sha3Update(&d->sha3Context, reinterpret_cast<const BitSequence *>(data), quint64(length) * 8);
         break;
     case RealSha3_384:
     case Keccak_384:
-        sha3Update(&d->sha3Context, reinterpret_cast<const BitSequence *>(data), length*8);
+        sha3Update(&d->sha3Context, reinterpret_cast<const BitSequence *>(data), quint64(length) * 8);
         break;
     case RealSha3_512:
     case Keccak_512:
-        sha3Update(&d->sha3Context, reinterpret_cast<const BitSequence *>(data), length*8);
+        sha3Update(&d->sha3Context, reinterpret_cast<const BitSequence *>(data), quint64(length) * 8);
         break;
 #endif
     }
@@ -542,6 +542,46 @@ QByteArray QCryptographicHash::hash(const QByteArray &data, Algorithm method)
     QCryptographicHash hash(method);
     hash.addData(data);
     return hash.result();
+}
+
+/*!
+  Returns the size of the output of the selected hash \a method in bytes.
+
+  \since 5.12
+*/
+int QCryptographicHash::hashLength(QCryptographicHash::Algorithm method)
+{
+    switch (method) {
+    case QCryptographicHash::Sha1:
+        return 20;
+#ifndef QT_CRYPTOGRAPHICHASH_ONLY_SHA1
+    case QCryptographicHash::Md4:
+        return 16;
+    case QCryptographicHash::Md5:
+        return 16;
+    case QCryptographicHash::Sha224:
+        return SHA224HashSize;
+    case QCryptographicHash::Sha256:
+        return SHA256HashSize;
+    case QCryptographicHash::Sha384:
+        return SHA384HashSize;
+    case QCryptographicHash::Sha512:
+        return SHA512HashSize;
+    case QCryptographicHash::RealSha3_224:
+    case QCryptographicHash::Keccak_224:
+        return 224 / 8;
+    case QCryptographicHash::RealSha3_256:
+    case QCryptographicHash::Keccak_256:
+        return 256 / 8;
+    case QCryptographicHash::RealSha3_384:
+    case QCryptographicHash::Keccak_384:
+        return 384 / 8;
+    case QCryptographicHash::RealSha3_512:
+    case QCryptographicHash::Keccak_512:
+        return 512 / 8;
+#endif
+    }
+    return 0;
 }
 
 QT_END_NAMESPACE

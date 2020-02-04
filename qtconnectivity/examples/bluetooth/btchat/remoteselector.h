@@ -51,13 +51,13 @@
 #ifndef REMOTESELECTOR_H
 #define REMOTESELECTOR_H
 
-#include <QDialog>
+#include <QtWidgets/qdialog.h>
 
-#include <qbluetoothuuid.h>
-#include <qbluetoothserviceinfo.h>
-#include <qbluetoothservicediscoveryagent.h>
+#include <QtBluetooth/qbluetoothaddress.h>
+#include <QtBluetooth/qbluetoothserviceinfo.h>
+#include <QtBluetooth/qbluetoothuuid.h>
 
-QT_FORWARD_DECLARE_CLASS(QModelIndex)
+QT_FORWARD_DECLARE_CLASS(QBluetoothServiceDiscoveryAgent)
 QT_FORWARD_DECLARE_CLASS(QListWidgetItem)
 
 QT_USE_NAMESPACE
@@ -73,7 +73,7 @@ class RemoteSelector : public QDialog
     Q_OBJECT
 
 public:
-    explicit RemoteSelector(const QBluetoothAddress &localAdapter, QWidget *parent = 0);
+    explicit RemoteSelector(const QBluetoothAddress &localAdapter, QWidget *parent = nullptr);
     ~RemoteSelector();
 
     void startDiscovery(const QBluetoothUuid &uuid);

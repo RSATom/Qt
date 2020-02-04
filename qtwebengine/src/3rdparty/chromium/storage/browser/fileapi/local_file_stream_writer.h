@@ -12,12 +12,12 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task_runner.h"
 #include "storage/browser/fileapi/file_stream_writer.h"
-#include "storage/browser/storage_browser_export.h"
 
 namespace content {
 class LocalFileStreamWriterTest;
@@ -30,17 +30,17 @@ class FileStream;
 namespace storage {
 
 // This class is a thin wrapper around net::FileStream for writing local files.
-class STORAGE_EXPORT LocalFileStreamWriter
-    : public NON_EXPORTED_BASE(FileStreamWriter) {
+class COMPONENT_EXPORT(STORAGE_BROWSER) LocalFileStreamWriter
+    : public FileStreamWriter {
  public:
   ~LocalFileStreamWriter() override;
 
   // FileStreamWriter overrides.
   int Write(net::IOBuffer* buf,
             int buf_len,
-            const net::CompletionCallback& callback) override;
-  int Cancel(const net::CompletionCallback& callback) override;
-  int Flush(const net::CompletionCallback& callback) override;
+            net::CompletionOnceCallback callback) override;
+  int Cancel(net::CompletionOnceCallback callback) override;
+  int Flush(net::CompletionOnceCallback callback) override;
 
  private:
   friend class content::LocalFileStreamWriterTest;
@@ -52,32 +52,24 @@ class STORAGE_EXPORT LocalFileStreamWriter
 
   // Opens |file_path_| and if it succeeds, proceeds to InitiateSeek().
   // If failed, the error code is returned by calling |error_callback|.
-  int InitiateOpen(const net::CompletionCallback& error_callback,
-                   const base::Closure& main_operation);
-  void DidOpen(const net::CompletionCallback& error_callback,
-               const base::Closure& main_operation,
-               int result);
+  int InitiateOpen(base::OnceClosure main_operation);
+  void DidOpen(base::OnceClosure main_operation, int result);
 
   // Seeks to |initial_offset_| and proceeds to |main_operation| if it succeeds.
   // If failed, the error code is returned by calling |error_callback|.
-  void InitiateSeek(const net::CompletionCallback& error_callback,
-                    const base::Closure& main_operation);
-  void DidSeek(const net::CompletionCallback& error_callback,
-               const base::Closure& main_operation,
-               int64_t result);
+  void InitiateSeek(base::OnceClosure main_operation);
+  void DidSeek(base::OnceClosure main_operation, int64_t result);
 
   // Passed as the |main_operation| of InitiateOpen() function.
-  void ReadyToWrite(net::IOBuffer* buf, int buf_len,
-                    const net::CompletionCallback& callback);
+  void ReadyToWrite(net::IOBuffer* buf, int buf_len);
 
   // Writes asynchronously to the file.
-  int InitiateWrite(net::IOBuffer* buf, int buf_len,
-                    const net::CompletionCallback& callback);
-  void DidWrite(const net::CompletionCallback& callback, int result);
+  int InitiateWrite(net::IOBuffer* buf, int buf_len);
+  void DidWrite(int result);
 
   // Flushes asynchronously to the file.
-  int InitiateFlush(const net::CompletionCallback& callback);
-  void DidFlush(const net::CompletionCallback& callback, int result);
+  int InitiateFlush(net::CompletionOnceCallback callback);
+  void DidFlush(net::CompletionOnceCallback callback, int result);
 
   // Stops the in-flight operation and calls |cancel_callback_| if it has been
   // set by Cancel() for the current operation.
@@ -92,7 +84,8 @@ class STORAGE_EXPORT LocalFileStreamWriter
   // Current states of the operation.
   bool has_pending_operation_;
   std::unique_ptr<net::FileStream> stream_impl_;
-  net::CompletionCallback cancel_callback_;
+  net::CompletionOnceCallback write_callback_;
+  net::CompletionOnceCallback cancel_callback_;
 
   base::WeakPtrFactory<LocalFileStreamWriter> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(LocalFileStreamWriter);

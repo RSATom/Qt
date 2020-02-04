@@ -7,7 +7,8 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
+#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "extensions/common/extension_api.h"
@@ -74,28 +75,28 @@ class DeclarativeEventTest : public APIBindingTest {
     APIBindingTest::SetUp();
 
     {
-      auto action1 = base::MakeUnique<ArgumentSpec>(ArgumentType::STRING);
+      auto action1 = std::make_unique<ArgumentSpec>(ArgumentType::STRING);
       action1->set_enum_values({"actionA"});
       type_refs_.AddSpec("action1", std::move(action1));
-      auto action2 = base::MakeUnique<ArgumentSpec>(ArgumentType::STRING);
+      auto action2 = std::make_unique<ArgumentSpec>(ArgumentType::STRING);
       action2->set_enum_values({"actionB"});
       type_refs_.AddSpec("action2", std::move(action2));
     }
 
     {
-      auto condition = base::MakeUnique<ArgumentSpec>(ArgumentType::OBJECT);
-      auto prop = base::MakeUnique<ArgumentSpec>(ArgumentType::STRING);
+      auto condition = std::make_unique<ArgumentSpec>(ArgumentType::OBJECT);
+      auto prop = std::make_unique<ArgumentSpec>(ArgumentType::STRING);
       ArgumentSpec::PropertiesMap props;
       props["url"] = std::move(prop);
       condition->set_properties(std::move(props));
       type_refs_.AddSpec("condition", std::move(condition));
     }
 
-    request_handler_ = base::MakeUnique<APIRequestHandler>(
-        base::Bind(&DeclarativeEventTest::OnRequest, base::Unretained(this)),
-        base::Bind(&RunFunctionOnGlobalAndIgnoreResult),
+    request_handler_ = std::make_unique<APIRequestHandler>(
+        base::BindRepeating(&DeclarativeEventTest::OnRequest,
+                            base::Unretained(this)),
         APILastError(APILastError::GetParent(), binding::AddConsoleError()),
-        nullptr);
+        nullptr, base::BindRepeating(&GetTestUserActivationState));
   }
 
   void TearDown() override {
@@ -139,7 +140,7 @@ TEST_F(DeclarativeEventTest, TestRulesSchema) {
     v8::Local<v8::Function> function =
         FunctionFromString(context, base::StringPrintf(kAddRules, kGoodRules));
     v8::Local<v8::Value> args[] = {emitter_value};
-    RunFunctionOnGlobal(function, context, arraysize(args), args);
+    RunFunctionOnGlobal(function, context, base::size(args), args);
 
     EXPECT_TRUE(last_request());
     reset_last_request();
@@ -166,7 +167,7 @@ TEST_F(DeclarativeEventTest, TestRulesSchema) {
       v8::Local<v8::Function> function =
           FunctionFromString(context, base::StringPrintf(kAddRules, rules));
       v8::Local<v8::Value> args[] = {emitter_value};
-      RunFunctionAndExpectError(function, context, arraysize(args), args,
+      RunFunctionAndExpectError(function, context, base::size(args), args,
                                 "Uncaught TypeError: Invalid invocation");
       EXPECT_FALSE(last_request()) << rules;
       reset_last_request();
@@ -220,7 +221,7 @@ TEST_F(DeclarativeEventWithSchemaTest, TestAllMethods) {
                   }]);
              }))";
     v8::Local<v8::Function> add_rules = FunctionFromString(context, kAddRules);
-    RunFunctionOnGlobal(add_rules, context, arraysize(args), args);
+    RunFunctionOnGlobal(add_rules, context, base::size(args), args);
     ValidateLastRequest("events.addRules",
                         "['alpha.declarativeEvent',0,"
                         "[{'actions':['cat'],"
@@ -236,7 +237,7 @@ TEST_F(DeclarativeEventWithSchemaTest, TestAllMethods) {
         "})";
     v8::Local<v8::Function> remove_rules =
         FunctionFromString(context, kRemoveRules);
-    RunFunctionOnGlobal(remove_rules, context, arraysize(args), args);
+    RunFunctionOnGlobal(remove_rules, context, base::size(args), args);
     ValidateLastRequest("events.removeRules",
                         "['alpha.declarativeEvent',0,['rule']]");
     reset_last_request();
@@ -249,7 +250,7 @@ TEST_F(DeclarativeEventWithSchemaTest, TestAllMethods) {
         "})";
     v8::Local<v8::Function> remove_rules =
         FunctionFromString(context, kGetRules);
-    RunFunctionOnGlobal(remove_rules, context, arraysize(args), args);
+    RunFunctionOnGlobal(remove_rules, context, base::size(args), args);
     ValidateLastRequest("events.getRules", "['alpha.declarativeEvent',0,null]");
     reset_last_request();
   }

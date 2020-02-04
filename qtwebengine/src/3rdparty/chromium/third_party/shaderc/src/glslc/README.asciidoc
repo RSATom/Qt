@@ -1,31 +1,46 @@
 = glslc Manual
-
+:toc:
+:toclevels: 3
 :numbered:
 :source-highlighter: pygments
 
 == Name
 
-`glslc` - A command-line GLSL to SPIR-V compiler with Clang-compatible arguments.
+`glslc` - A command-line GLSL/HLSL to SPIR-V compiler with
+Clang-compatible arguments.
 
 == Synopsis
 
 ----
+glslc [--help]
+
+glslc [--show-limits]
+
 glslc [-c|-S|-E]
-      [-Dmacroname[=value]...]
-      [-Idirectory...]
-      [-std=standard] [-x glsl]
+      [-x ...] [-std=standard]
+      [ ... options for resource bindings ... ]
+      [-fhlsl-offsets]
+      [-fhlsl-functionality1]
+      [-fentry-point=<name>]
+      [-fauto-map-locations]
+      [-flimit=...]
+      [-flimit-file <resource-limits-file>]
       [-fshader-stage=...]
       [--target-env=...]
       [-g]
+      [-O0|-Os]
+      [-Idirectory...]
+      [-Dmacroname[=value]...]
       [-w] [-Werror]
-      [-o outfile] shader...
+      [-o outfile]
+      shader...
 ----
 
 == Description
 
 === Input file languages
 
-glslc accepts both GLSL source and SPIR-V assembly files as inputs.
+glslc accepts both GLSL/HLSL source and SPIR-V assembly files as inputs.
 
 ==== Shader stage specification
 
@@ -39,7 +54,7 @@ as shown in the following table. `-fshader-stage=` and `#pragma shader_stage()`,
 on the other hand, enable you to specify shader stages from the command line
 and within the source file. Possible ``stage``s for them are also listed in
 the following table. Details about `-fshader-stage=` can be found in
-<<option-f-shader-stage,its own section>>.
+<<option-fshader-stage,its own section>>.
 
 [[shader-stage-selection]]
 .Shader Stage Selection
@@ -106,6 +121,12 @@ Otherwise,
 
 `--help` tells the glslc compiler to display all available options and exit.
 
+==== `--show-limits`
+
+`--show-limits` shows default resource limits for shader compilation.  The syntax
+is the same as accepted by `-flimit=` and for the contents of the file specified
+by `-flimit-file`.
+
 ==== `-o`
 
 `-o` lets you specify the output file's name. It cannot be used when there are
@@ -113,7 +134,29 @@ multiple files generated. A filename of `-` represents standard output.
 
 === Language and Mode Selection Options
 
-[[option-f-shader-stage]]
+[[option-flimit]]
+==== `-flimit=`
+
+`-flimit=<resource-limits>` lets you specify resource limits.
+The argument should be a sequence of limit name, integer value pairs.  Tokens
+should be separated by whitespace.  If the same limit is specified several
+times, only the last setting takes effect.
+
+Use `--show-limits` to show the default values, and example syntax.
+
+This option affects all compiled shaders.
+
+[[option-flimit-file]]
+==== `-flimit-file`
+
+`-flimit-file <resource-limits-file>` lets you specify resource limits in a file.
+The syntax of the file contents is the same as the argument to `-flimit=` and
+the output of `--show-limits`.  This option accepts Glslang resource configuration
+files, e.g. as emitted by `glslangValidator -c`.
+
+This option affects all compiled shaders.
+
+[[option-fshader-stage]]
 ==== `-fshader-stage=`
 
 `-fshader-stage=<stage>` lets you specify the shader stage for one or more
@@ -156,7 +199,8 @@ GLSL, e.g., `450`.
 
 `-std=` behaves as follows:
 
-* `-std=` affects the version of all inputs passed to `glslc`.
+* `-std=` affects the version of all GLSL inputs passed to `glslc`.
+* `-std=` is ignored for HLSL inputs.
 * `-std=` overwrites `#version` directives in all input shaders, including those
   preceding the argument.
 * If a `-std=` argument specifies a different version from a `#version`
@@ -174,21 +218,30 @@ follow the version specified by `-std=`.
 ==== `--target-env=`
 
 `--target-env=<value>` lets you specify a target environment on the command line.
-This affects the generation of warnings and errors. ``<value>`` can be one of
+This affects the generation of warnings and errors. The ``<value>`` can be one of
 the following:
 
-* `vulkan`: create SPIR-V under Vulkan semantics.
-* `opengl`: create SPIR-V under OpenGL semantics.
+* `vulkan`: create SPIR-V under Vulkan 1.0 semantics.
+* `vulkan1.0`: create SPIR-V under Vulkan 1.0 semantics.
+* `vulkan1.1`: create SPIR-V under Vulkan 1.1 semantics.
+* `opengl`: create SPIR-V under OpenGL 4.5 semantics.
+* `opengl4.5`: create SPIR-V under OpenGL 4.5 semantics.
 * `opengl_compat`: create SPIR-V under OpenGL semantics, including compatibility
   profile functions.
 
-By default, the ``<value>`` is set to `vulkan` and the compiler creates SPIR-V
-under Vulkan semantics.
+Generated code uses SPIR-V 1.0, except that code compiled for Vulkan 1.1 uses SPIR-V 1.3.
+
+If this option is not specified, a default of `vulkan1.0` is used.
 
 ==== `-x`
 
-`-x` lets you specify the language of the input shader files. Right now, the
-only accepted argument is `glsl`.
+`-x` lets you specify the language of the input shader files. Valid languages
+are `glsl` and `hlsl`.  If the file extension is `hlsl` then the default language
+is HLSL.  Otherwise the default is 'glsl'.
+
+Note: HLSL compilation will use HLSL packing (offset) rules for variables
+that are vertex shader outputs, and inputs and outputs of both geometry
+and pixel shaders.
 
 [[compilation-stage-selection-options]]
 === Compilation Stage Selection Options
@@ -238,7 +291,7 @@ empty value.
 
 ==== `-I`
 
-`-Idirectory' or `-I directory` adds the specified directory to the search path
+`-Idirectory` or `-I directory` adds the specified directory to the search path
 for include files.  The directory may be an absolute path or a relative path to
 the current working directory.
 
@@ -249,8 +302,106 @@ the current working directory.
 Requests that the compiler place source-level debug information into the object
 code, such as identifier names and line numbers.
 
+This option restrains `-O` from turning on the strip-debug-info optimization
+pass.
+
 NOTE: Currently this option has no effect.  Full functionality depends on
 glslang support for generating debug info.
+
+==== `-O0`, `-Os`
+
+`-O` specifies which optimization level to use:
+
+* `-O0` means "no optimization". This level generates the most debuggable code.
+* `-O` means the default optimization level for better performance.
+* `-Os` enables optimizations to reduce code size.
+
+==== `-mfmt=<format>`
+
+`-mfmt=<format>` selects output format for compilation output in SPIR-V binary
+code form.  Supported options are listed in the
+<<binary-output-format-options,binary output format options>> table. This
+option is only valid to be used when the compilation output is SPIR-V binary
+code. Specifying any options listed below when the output is not SPIR-V binary
+code, like disassembly (with `-S` specified), text (with `-M`, `-MM` or `-E`
+specified) will trigger an error.
+
+[[binary-output-format-options]]
+.Binary Output Format Options
+[cols="20%,80%"]
+|===
+|Format option  |Description
+
+|bin            |Output SPIR-V binary code as a sequence of binary 32-bitwords
+                 in host native endianness. This is the default format for
+                 SPIR-V binary compilation output.
+|num            |Output SPIR-V binary code as a text file containing a list of
+                 comma-separated hex numbers. +
+                 Example: `glslc -c -mfmt=num main.vert -o output_file.txt` +
+                 Content of the output_file.txt: +
+                 0x07230203,0x00010000,0x00080001,0x00000006...
+|c              |Output SPIR-V binary code as a text file containing C-style +
+                 initializer list. +
+                 This is just wrapping the output of `num` option with curly
+                 brackets. +
+                 Example: `glslc -c -mfmt=c main.vert -o output_file.txt` +
+                 Content of output_file.txt: +
+                 {0x07230203, 0x00010000, 0x00080001, 0x00000006...}
+|===
+
+[[option-fhlsl-offsets]]
+==== `-fhlsl-offsets`
+
+Use HLSL packing rules instead of GLSL rules when determining offsets of
+members of blocks.  This option is always on when compiling for HLSL.
+
+[[option-fhlsl-functionality1]]
+==== `-fhlsl-functionality1`
+
+Enable extension `SPV_GOOGLE_hlsl_functionality1`, and instructs the compiler
+to:
+
+- Annotate HLSL semantic string decorations on interface objects
+- Explicitly record the association of a UAV resource with its companion counter buffer.
+
+This option can also be spelled with an underscore: `-fhlsl_functionality1`.
+
+[[option-fentry-point]]
+==== `-fentry-point=<name>`
+
+`-fentry-point=<name>` lets you specify the entry point name.  This is only
+significant for HLSL compilation.  The default is "main".
+
+[[option-fauto-map-locations]]
+==== `-fauto-map-locations`
+
+For GLSL compilation, option `-fauto-map-locations` directs the compiler to automatically
+assign location numbers to user-defined stage input and output variables if not explicitly
+specified by the shader source.
+
+For HLSL compilation, this option is on by default.
+
+Client APIs normally require adjacent stages to agree on their I/O interface.
+The compiler only sees one stage at a time, so it is strongly recommended that
+you avoid relying on this option to assign locations.
+
+Instead, an explicit binding number should be specified in the shader source, as follows:
+
+* In a GLSL shader, use a `location` layout qualifier:
+
+----
+layout(location = 1) in vec4 x;
+----
+
+* In an HLSL shader, use a `vk::location` attribute:
+
+----
+[[vk::location(1)]] float4 FooShader(
+  [[vk::location(0)]] float4 a,
+  [[vk::location(2)]] float4 b) : COLOR0 {
+  return a + b;
+}
+----
 
 === Warning and Error Options
 
@@ -349,6 +500,113 @@ stdout: `target: main.vert <other dependent files>`.
 |glslc -c -MD main.vert -o obj  |obj  |obj.d  |obj: main.vert
 |glslc -c -MD main.vert -o obj -MF dep_info -MT target|obj|dep_info|target: main.vert
 |===
+
+=== Resource Binding Options
+
+[[option-fauto-bind-uniforms]]
+==== `-fauto-bind-uniforms`
+
+Option `-fauto-bind-uniforms` directs the compiler to automatically assign
+binding numbers to uniform variables, when an explicit binding is not
+specified in the shader source.
+
+An explicit binding number can be specified in the shader source by using
+a `binding` layout qualifier.  For example:
+
+----
+layout(binding = 12) uniform texture2D;
+----
+
+[[option-fhlsl-iomap]]
+==== `-fhlsl-iomap`
+
+Option `-fhlsl-iomap` directs the compiler to use HLSL register
+assignments as binding values.
+
+[[option-fimage-binding-base]]
+==== `-fimage-binding-base`
+
+Option `-fimage-binding-base [stage] base` sets the lowest automatically
+assigned binding for images.  If a stage is specified, only affects the specified
+stage.
+
+For HLSL, sets one less than the base.
+
+[[option-fsampler-binding-base]]
+==== `-fsampler-binding-base`
+
+Option `-fsampler-binding-base [stage] base` sets the lowest automatically
+assigned binding for samplers.  If a stage is specified, only affects the specified
+stage.
+
+For HLSL, sets one less than the base.
+
+[[option-ftexture-binding-base]]
+==== `-ftexture-binding-base`
+
+Option `-ftexture-binding-base [stage] base` sets the lowest automatically
+assigned binding for textures.  If a stage is specified, only affects the specified
+stage.
+
+For HLSL, sets one less than the base.
+
+[[option-fubo-binding-base]]
+==== `-fubo-binding-base`
+
+Option `-fubo-binding-base [stage] base` sets the lowest automatically
+assigned binding for Uniform Buffer Objects (GLSL) or Cbuffers (HLSL).
+If a stage is specified, only affects the specified stage.
+
+For HLSL, sets one less than the base.
+
+[[option-fcbuffer-binding-base]]
+==== `-fcbuffer-binding-base`
+
+Option `-fcbuffer-binding-base [stage] base` is the same as
+`-fubo-binding-base [stage] base`.
+
+[[option-fssbo-binding-base]]
+==== `-fssbo-binding-base`
+
+Option `-fssbo-binding-base [stage] base` sets the lowest automatically
+assigned binding for Shader Storage Buffer Objects (GLSL).
+If a stage is specified, only affects the specified stage.
+
+This only affects GLSL compilation.
+
+[[option-fuav-binding-base]]
+==== `-fuav-binding-base`
+
+Option `-fuav-binding-base [stage] base` sets one less than the lowest
+automatically assigned binding for Unordered Access Views (UAV).
+If a stage is specified, only affects the specified stage.
+
+This only affects HLSL compilation.
+
+[[option-fregister-set-binding]]
+==== `-fresource-set-binding`
+
+Option `-fresource-set-binding [stage] <reg0> <set0> <binding0>` sets
+the descriptor set and binding for an HLSL resource, by register name.
+To specify settings for more registers, append their triples consisting
+of register name, descriptor set, and binding.
+
+Example:
+
+----
+# For a texture in register t1, use set 1 binding 0.
+# For a texture in register t2, use set 1 binding 3
+glslc -x hlsl foo.frag -fresource-set-binding t1 1 0 t2 1 3
+----
+
+If a stage is specified, only affects the specified stage.
+
+----
+# Same as the previous example, but the settings only apply
+# to fragment (pixel) shaders.
+glslc -x hlsl foo.frag -fresource-set-binding frag t1 1 0 t2 1 3
+----
+
 
 == Divergence from and extensions to GLSL specifications
 

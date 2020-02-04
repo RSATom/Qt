@@ -2,18 +2,24 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 if (is_android) {
   import("//build/config/android/config.gni")
 }
+if (is_mac) {
+  import("//build/config/mac/rules.gni")
+}
 
-component("shell_dialogs") {
+jumbo_component("shell_dialogs") {
   sources = [
     "base_shell_dialog.cc",
     "base_shell_dialog.h",
     "base_shell_dialog_win.cc",
     "base_shell_dialog_win.h",
+    "execute_select_file_win.cc",
+    "execute_select_file_win.h",
     "select_file_dialog.cc",
     "select_file_dialog.h",
     "select_file_dialog_factory.cc",
@@ -39,6 +45,7 @@ component("shell_dialogs") {
     "//skia",
     "//ui/base",
     "//ui/strings",
+    "//url",
   ]
 
   if (use_aura) {
@@ -49,10 +56,8 @@ component("shell_dialogs") {
     deps += [ "//ui/aura" ]
   }
 
-  if (is_android && !use_aura) {
+  if (is_android) {
     sources += [
-      "android/shell_dialogs_jni_registrar.cc",
-      "android/shell_dialogs_jni_registrar.h",
       "select_file_dialog_android.cc",
       "select_file_dialog_android.h",
     ]
@@ -71,13 +76,39 @@ component("shell_dialogs") {
       "AppKit.framework",
     ]
   }
+
+  if (is_fuchsia) {
+    sources += [ "select_file_dialog_fuchsia.cc" ]
+  }
+}
+
+if (is_mac) {
+  mac_xib_bundle_data("shell_dialogs_unittests_xibs") {
+    testonly = true
+    sources = [
+      "//chrome/app/nibs/SaveAccessoryView.xib",
+    ]
+  }
+
+  mac_framework_bundle("shell_dialogs_unittests_bundle") {
+    testonly = true
+    framework_version = "S"
+    framework_contents = [ "Resources" ]
+    info_plist = "//ui/base/test/framework-Info.plist"
+    deps = [
+      ":shell_dialogs_unittests_xibs",
+      "//ui/resources:ui_test_pak_bundle_data",
+    ]
+    extra_substitutions = [ "CHROMIUM_BUNDLE_ID=$target_name" ]
+  }
 }
 
 test("shell_dialogs_unittests") {
+  testonly = true
   sources = [
-    # TODO(karandeepb) : Revisit this once gn gets mac bundle support.
-    # "select_file_dialog_mac_unittest.mm",
+    "execute_select_file_win_unittest.cc",
     "run_all_unittests.cc",
+    "select_file_dialog_mac_unittest.mm",
     "select_file_dialog_unittest.cc",
     "select_file_dialog_win_unittest.cc",
   ]
@@ -87,6 +118,12 @@ test("shell_dialogs_unittests") {
     "//base",
     "//base/test:test_support",
     "//testing/gtest",
-    "//ui/base:base",
+    "//ui/base",
+    "//ui/resources:ui_test_pak_data",
+    "//ui/strings",
   ]
+
+  if (is_mac) {
+    deps += [ ":shell_dialogs_unittests_bundle" ]
+  }
 }

@@ -4,9 +4,10 @@
 
 #include "net/ssl/client_cert_identity_test_util.h"
 
+#include <memory>
+
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/memory/ptr_util.h"
 #include "net/ssl/ssl_private_key.h"
 #include "net/ssl/test_ssl_private_key.h"
 #include "net/test/cert_test_util.h"
@@ -48,11 +49,25 @@ FakeClientCertIdentity::CreateFromCertAndKeyFiles(
   if (!ssl_private_key)
     return nullptr;
 
-  return base::MakeUnique<FakeClientCertIdentity>(cert, ssl_private_key);
+  return std::make_unique<FakeClientCertIdentity>(cert, ssl_private_key);
+}
+
+// static
+std::unique_ptr<FakeClientCertIdentity>
+FakeClientCertIdentity::CreateFromCertAndFailSigning(
+    const base::FilePath& dir,
+    const std::string& cert_filename) {
+  scoped_refptr<X509Certificate> cert =
+      net::ImportCertFromFile(dir, cert_filename);
+  if (!cert)
+    return nullptr;
+
+  return std::make_unique<FakeClientCertIdentity>(
+      cert, CreateFailSigningSSLPrivateKey());
 }
 
 std::unique_ptr<FakeClientCertIdentity> FakeClientCertIdentity::Copy() {
-  return base::MakeUnique<FakeClientCertIdentity>(certificate(), key_);
+  return std::make_unique<FakeClientCertIdentity>(certificate(), key_);
 }
 
 void FakeClientCertIdentity::AcquirePrivateKey(
@@ -74,7 +89,7 @@ ClientCertIdentityList FakeClientCertIdentityListFromCertificateList(
     const CertificateList& certs) {
   ClientCertIdentityList result;
   for (const auto& cert : certs) {
-    result.push_back(base::MakeUnique<FakeClientCertIdentity>(cert, nullptr));
+    result.push_back(std::make_unique<FakeClientCertIdentity>(cert, nullptr));
   }
   return result;
 }

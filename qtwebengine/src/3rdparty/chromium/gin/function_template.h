@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/strings/strcat.h"
 #include "gin/arguments.h"
 #include "gin/converter.h"
 #include "gin/gin_export.h"
@@ -17,8 +18,9 @@
 
 namespace gin {
 
-enum CreateFunctionTemplateFlags {
-  HolderIsFirstArgument = 1 << 0,
+struct InvokerOptions {
+  bool holder_is_first_argument = false;
+  const char* holder_type = nullptr;  // Null if unknown or not applicable.
 };
 
 namespace internal {
@@ -35,7 +37,6 @@ template<typename T>
 struct CallbackParamTraits<const T*> {
   typedef T* LocalType;
 };
-
 
 // CallbackHolder and CallbackHolderBase are used to pass a base::Callback from
 // CreateFunctionTemplate through v8 (via v8::FunctionTemplate) to
@@ -66,21 +67,27 @@ template<typename Sig>
 class CallbackHolder : public CallbackHolderBase {
  public:
   CallbackHolder(v8::Isolate* isolate,
-                 const base::Callback<Sig>& callback,
-                 int flags)
-      : CallbackHolderBase(isolate), callback(callback), flags(flags) {}
-  base::Callback<Sig> callback;
-  int flags;
+                 base::RepeatingCallback<Sig> callback,
+                 InvokerOptions invoker_options)
+      : CallbackHolderBase(isolate),
+        callback(std::move(callback)),
+        invoker_options(std::move(invoker_options)) {}
+
+  base::RepeatingCallback<Sig> callback;
+  InvokerOptions invoker_options;
+
  private:
-  virtual ~CallbackHolder() {}
+  ~CallbackHolder() override {}
 
   DISALLOW_COPY_AND_ASSIGN(CallbackHolder);
 };
 
-template<typename T>
-bool GetNextArgument(Arguments* args, int create_flags, bool is_first,
+template <typename T>
+bool GetNextArgument(Arguments* args,
+                     const InvokerOptions& invoker_options,
+                     bool is_first,
                      T* result) {
-  if (is_first && (create_flags & HolderIsFirstArgument) != 0) {
+  if (is_first && invoker_options.holder_is_first_argument) {
     return args->GetHolder(result);
   } else {
     return args->GetNext(result);
@@ -89,39 +96,34 @@ bool GetNextArgument(Arguments* args, int create_flags, bool is_first,
 
 // For advanced use cases, we allow callers to request the unparsed Arguments
 // object and poke around in it directly.
-inline bool GetNextArgument(Arguments* args, int create_flags, bool is_first,
+inline bool GetNextArgument(Arguments* args,
+                            const InvokerOptions& invoker_options,
+                            bool is_first,
                             Arguments* result) {
   *result = *args;
   return true;
 }
-inline bool GetNextArgument(Arguments* args, int create_flags, bool is_first,
+inline bool GetNextArgument(Arguments* args,
+                            const InvokerOptions& invoker_options,
+                            bool is_first,
                             Arguments** result) {
   *result = args;
   return true;
 }
 
 // It's common for clients to just need the isolate, so we make that easy.
-inline bool GetNextArgument(Arguments* args, int create_flags,
-                            bool is_first, v8::Isolate** result) {
+inline bool GetNextArgument(Arguments* args,
+                            const InvokerOptions& invoker_options,
+                            bool is_first,
+                            v8::Isolate** result) {
   *result = args->isolate();
   return true;
 }
 
-// Classes for generating and storing an argument pack of integer indices
-// (based on well-known "indices trick", see: http://goo.gl/bKKojn):
-template <size_t... indices>
-struct IndicesHolder {};
-
-template <size_t requested_index, size_t... indices>
-struct IndicesGenerator {
-  using type = typename IndicesGenerator<requested_index - 1,
-                                         requested_index - 1,
-                                         indices...>::type;
-};
-template <size_t... indices>
-struct IndicesGenerator<0, indices...> {
-  using type = IndicesHolder<indices...>;
-};
+// Throws an error indicating conversion failure.
+GIN_EXPORT void ThrowConversionError(Arguments* args,
+                                     const InvokerOptions& invoker_options,
+                                     size_t index);
 
 // Class template for extracting and storing single argument for callback
 // at position |index|.
@@ -132,52 +134,44 @@ struct ArgumentHolder {
   ArgLocalType value;
   bool ok;
 
-  ArgumentHolder(Arguments* args, int create_flags)
-      : ok(GetNextArgument(args, create_flags, index == 0, &value)) {
-    if (!ok) {
-      // Ideally we would include the expected c++ type in the error
-      // message which we can access via typeid(ArgType).name()
-      // however we compile with no-rtti, which disables typeid.
-      args->ThrowError();
-    }
+  ArgumentHolder(Arguments* args, const InvokerOptions& invoker_options)
+      : ok(GetNextArgument(args, invoker_options, index == 0, &value)) {
+    if (!ok)
+      ThrowConversionError(args, invoker_options, index);
   }
 };
 
 // Class template for converting arguments from JavaScript to C++ and running
 // the callback with them.
 template <typename IndicesType, typename... ArgTypes>
-class Invoker {};
+class Invoker;
 
 template <size_t... indices, typename... ArgTypes>
-class Invoker<IndicesHolder<indices...>, ArgTypes...>
+class Invoker<std::index_sequence<indices...>, ArgTypes...>
     : public ArgumentHolder<indices, ArgTypes>... {
  public:
   // Invoker<> inherits from ArgumentHolder<> for each argument.
   // C++ has always been strict about the class initialization order,
   // so it is guaranteed ArgumentHolders will be initialized (and thus, will
   // extract arguments from Arguments) in the right order.
-  Invoker(Arguments* args, int create_flags)
-      : ArgumentHolder<indices, ArgTypes>(args, create_flags)..., args_(args) {
-    // GCC thinks that create_flags is going unused, even though the
-    // expansion above clearly makes use of it. Per jyasskin@, casting
-    // to void is the commonly accepted way to convince the compiler
-    // that you're actually using a parameter/varible.
-    (void)create_flags;
-  }
+  Invoker(Arguments* args, const InvokerOptions& invoker_options)
+      : ArgumentHolder<indices, ArgTypes>(args, invoker_options)...,
+        args_(args) {}
 
   bool IsOK() {
     return And(ArgumentHolder<indices, ArgTypes>::ok...);
   }
 
   template <typename ReturnType>
-  void DispatchToCallback(base::Callback<ReturnType(ArgTypes...)> callback) {
+  void DispatchToCallback(
+      base::RepeatingCallback<ReturnType(ArgTypes...)> callback) {
     args_->Return(callback.Run(ArgumentHolder<indices, ArgTypes>::value...));
   }
 
   // In C++, you can declare the function foo(void), but you can't pass a void
   // expression to foo. As a result, we must specialize the case of Callbacks
   // that have the void return type.
-  void DispatchToCallback(base::Callback<void(ArgTypes...)> callback) {
+  void DispatchToCallback(base::RepeatingCallback<void(ArgTypes...)> callback) {
     callback.Run(ArgumentHolder<indices, ArgTypes>::value...);
   }
 
@@ -209,8 +203,8 @@ struct Dispatcher<ReturnType(ArgTypes...)> {
     typedef CallbackHolder<ReturnType(ArgTypes...)> HolderT;
     HolderT* holder = static_cast<HolderT*>(holder_base);
 
-    using Indices = typename IndicesGenerator<sizeof...(ArgTypes)>::type;
-    Invoker<Indices, ArgTypes...> invoker(&args, holder->flags);
+    using Indices = std::index_sequence_for<ArgTypes...>;
+    Invoker<Indices, ArgTypes...> invoker(&args, holder->invoker_options);
     if (invoker.IsOK())
       invoker.DispatchToCallback(holder->callback);
   }
@@ -218,22 +212,26 @@ struct Dispatcher<ReturnType(ArgTypes...)> {
 
 }  // namespace internal
 
-
 // CreateFunctionTemplate creates a v8::FunctionTemplate that will create
 // JavaScript functions that execute a provided C++ function or base::Callback.
 // JavaScript arguments are automatically converted via gin::Converter, as is
-// the return value of the C++ function, if any.
+// the return value of the C++ function, if any. |invoker_options| contains
+// additional parameters. If it contains a holder_type, it will be used to
+// provide a useful conversion error if the holder is the first argument. If not
+// provided, a generic invocation error will be used.
 //
 // NOTE: V8 caches FunctionTemplates for a lifetime of a web page for its own
 // internal reasons, thus it is generally a good idea to cache the template
 // returned by this function.  Otherwise, repeated method invocations from JS
 // will create substantial memory leaks. See http://crbug.com/463487.
-template<typename Sig>
+template <typename Sig>
 v8::Local<v8::FunctionTemplate> CreateFunctionTemplate(
-    v8::Isolate* isolate, const base::Callback<Sig> callback,
-    int callback_flags = 0) {
+    v8::Isolate* isolate,
+    base::RepeatingCallback<Sig> callback,
+    InvokerOptions invoker_options = {}) {
   typedef internal::CallbackHolder<Sig> HolderT;
-  HolderT* holder = new HolderT(isolate, callback, callback_flags);
+  HolderT* holder =
+      new HolderT(isolate, std::move(callback), std::move(invoker_options));
 
   v8::Local<v8::FunctionTemplate> tmpl = v8::FunctionTemplate::New(
       isolate, &internal::Dispatcher<Sig>::DispatchToCallback,
@@ -241,20 +239,6 @@ v8::Local<v8::FunctionTemplate> CreateFunctionTemplate(
                                            holder->GetHandle(isolate)));
   tmpl->RemovePrototype();
   return tmpl;
-}
-
-// CreateFunctionHandler installs a CallAsFunction handler on the given
-// object template that forwards to a provided C++ function or base::Callback.
-template<typename Sig>
-void CreateFunctionHandler(v8::Isolate* isolate,
-                           v8::Local<v8::ObjectTemplate> tmpl,
-                           const base::Callback<Sig> callback,
-                           int callback_flags = 0) {
-  typedef internal::CallbackHolder<Sig> HolderT;
-  HolderT* holder = new HolderT(isolate, callback, callback_flags);
-  tmpl->SetCallAsFunctionHandler(&internal::Dispatcher<Sig>::DispatchToCallback,
-                                 ConvertToV8<v8::Local<v8::External> >(
-                                     isolate, holder->GetHandle(isolate)));
 }
 
 }  // namespace gin

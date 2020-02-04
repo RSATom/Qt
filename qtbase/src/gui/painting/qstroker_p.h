@@ -104,6 +104,7 @@ struct qfixed2d
     qfixed x;
     qfixed y;
 
+    bool isFinite() { return qIsFinite(x) && qIsFinite(y); }
     bool operator==(const qfixed2d &other) const { return qFuzzyCompare(x, other.x)
                                                        && qFuzzyCompare(y, other.y); }
 };
@@ -208,7 +209,7 @@ public:
     QStroker();
     ~QStroker();
 
-    void setStrokeWidth(qfixed width) { m_strokeWidth = width; m_curveThreshold = qt_real_to_fixed(width > 4 ? 1.0/width : 0.25); }
+    void setStrokeWidth(qfixed width) { m_strokeWidth = width; m_curveThreshold = qt_real_to_fixed(qBound(0.025, 1.0/width, 0.25)); }
     qfixed strokeWidth() const { return m_strokeWidth; }
 
     void setCapStyle(Qt::PenCapStyle capStyle) { m_capStyle = joinModeForCap(capStyle); }
@@ -221,6 +222,9 @@ public:
 
     void setMiterLimit(qfixed length) { m_miterLimit = length; }
     qfixed miterLimit() const { return m_miterLimit; }
+
+    void setForceOpen(bool state) { m_forceOpen = state; }
+    bool forceOpen() { return m_forceOpen; }
 
     void joinPoints(qfixed x, qfixed y, const QLineF &nextLine, LineJoinMode join);
     inline void emitMoveTo(qfixed x, qfixed y);
@@ -247,6 +251,8 @@ protected:
 
     qfixed m_back2X;
     qfixed m_back2Y;
+
+    bool m_forceOpen;
 };
 
 class Q_GUI_EXPORT QDashStroker : public QStrokerOps

@@ -84,14 +84,14 @@ public:
     QOpenGLTexture *toOpenGlTexture() override;
 
 private:
-    LibHybrisEglServerBufferIntegration *m_integration;
+    LibHybrisEglServerBufferIntegration *m_integration = nullptr;
 
     EGLImageKHR m_image;
     EGLClientBuffer m_buffer;
 
     int32_t m_name;
     int32_t m_stride;
-    QOpenGLTexture *m_texture;
+    QOpenGLTexture *m_texture = nullptr;
     QtWaylandServer::qt_libhybris_egl_server_buffer::format m_hybris_format;
     QVector<int32_t> m_ints;
     QVector<int32_t> m_fds;
@@ -121,7 +121,7 @@ public:
     inline void eglHybrisSerializeNativeBuffer(EGLClientBuffer buffer, int *ints, int *fds);
 
 private:
-    EGLDisplay m_egl_display;
+    EGLDisplay m_egl_display = EGL_NO_DISPLAY;
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC m_gl_egl_image_target_texture_2d;
 
     PFNEGLHYBRISCREATENATIVEBUFFERPROC m_egl_create_buffer;

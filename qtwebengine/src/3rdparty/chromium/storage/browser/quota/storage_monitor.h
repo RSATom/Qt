@@ -10,11 +10,14 @@
 #include <map>
 #include <memory>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "storage/browser/quota/storage_observer.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
+#include "url/origin.h"
 
 namespace content {
 class StorageMonitorTestBase;
@@ -26,7 +29,7 @@ class QuotaManager;
 
 // This class dispatches storage events to observers of a common
 // StorageObserver::Filter.
-class STORAGE_EXPORT StorageObserverList {
+class COMPONENT_EXPORT(STORAGE_BROWSER) StorageObserverList {
  public:
   StorageObserverList();
   virtual ~StorageObserverList();
@@ -51,19 +54,18 @@ class STORAGE_EXPORT StorageObserverList {
   void ScheduleUpdateForObserver(StorageObserver* observer);
 
  private:
-  struct STORAGE_EXPORT ObserverState {
-    GURL origin;
+  struct COMPONENT_EXPORT(STORAGE_BROWSER) ObserverState {
+    url::Origin origin;
     base::TimeTicks last_notification_time;
     base::TimeDelta rate;
     bool requires_update;
 
     ObserverState();
   };
-  typedef std::map<StorageObserver*, ObserverState> StorageObserverStateMap;
 
   void DispatchPendingEvent();
 
-  StorageObserverStateMap observers_;
+  std::map<StorageObserver*, ObserverState> observer_state_map_;
   base::OneShotTimer notification_timer_;
   StorageObserver::Event pending_event_;
 
@@ -72,10 +74,9 @@ class STORAGE_EXPORT StorageObserverList {
   DISALLOW_COPY_AND_ASSIGN(StorageObserverList);
 };
 
-
 // Manages the storage observers of a common host. Caches the usage and quota of
 // the host to avoid accumulating for every change.
-class STORAGE_EXPORT HostStorageObservers {
+class COMPONENT_EXPORT(STORAGE_BROWSER) HostStorageObservers {
  public:
   explicit HostStorageObservers(QuotaManager* quota_manager);
   virtual ~HostStorageObservers();
@@ -95,7 +96,7 @@ class STORAGE_EXPORT HostStorageObservers {
  private:
   void StartInitialization(const StorageObserver::Filter& filter);
   void GotHostUsageAndQuota(const StorageObserver::Filter& filter,
-                            QuotaStatusCode status,
+                            blink::mojom::QuotaStatusCode status,
                             int64_t usage,
                             int64_t quota);
   void DispatchEvent(const StorageObserver::Filter& filter, bool is_update);
@@ -120,9 +121,8 @@ class STORAGE_EXPORT HostStorageObservers {
   DISALLOW_COPY_AND_ASSIGN(HostStorageObservers);
 };
 
-
 // Manages the observers of a common storage type.
-class STORAGE_EXPORT StorageTypeObservers {
+class COMPONENT_EXPORT(STORAGE_BROWSER) StorageTypeObservers {
  public:
   explicit StorageTypeObservers(QuotaManager* quota_manager);
   virtual ~StorageTypeObservers();
@@ -146,9 +146,8 @@ class STORAGE_EXPORT StorageTypeObservers {
   DISALLOW_COPY_AND_ASSIGN(StorageTypeObservers);
 };
 
-
 // Storage monitor manages observers and dispatches storage events to them.
-class STORAGE_EXPORT StorageMonitor {
+class COMPONENT_EXPORT(STORAGE_BROWSER) StorageMonitor {
  public:
   explicit StorageMonitor(QuotaManager* quota_manager);
   virtual ~StorageMonitor();
@@ -162,14 +161,14 @@ class STORAGE_EXPORT StorageMonitor {
 
   // Returns the observers of a specific storage type.
   const StorageTypeObservers* GetStorageTypeObservers(
-      StorageType storage_type) const;
+      blink::mojom::StorageType storage_type) const;
 
   // Handles a usage change.
   void NotifyUsageChange(const StorageObserver::Filter& filter, int64_t delta);
 
  private:
   QuotaManager* quota_manager_;
-  std::map<StorageType, std::unique_ptr<StorageTypeObservers>>
+  std::map<blink::mojom::StorageType, std::unique_ptr<StorageTypeObservers>>
       storage_type_observers_map_;
 
   DISALLOW_COPY_AND_ASSIGN(StorageMonitor);

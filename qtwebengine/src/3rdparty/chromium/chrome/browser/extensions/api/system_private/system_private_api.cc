@@ -7,8 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -23,7 +22,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/update_engine_client.h"
 #else
-#include "chrome/browser/upgrade_detector.h"
+#include "chrome/browser/upgrade_detector/upgrade_detector.h"
 #endif
 
 namespace {
@@ -37,12 +36,8 @@ const char* const kIncognitoModeAvailabilityStrings[] = {
 };
 
 // Property keys.
-const char kBrightnessKey[] = "brightness";
 const char kDownloadProgressKey[] = "downloadProgress";
-const char kIsVolumeMutedKey[] = "isVolumeMuted";
 const char kStateKey[] = "state";
-const char kUserInitiatedKey[] = "userInitiated";
-const char kVolumeKey[] = "volume";
 
 // System update states.
 const char kNotAvailableState[] = "NotAvailable";
@@ -51,19 +46,6 @@ const char kNeedRestartState[] = "NeedRestart";
 #if defined(OS_CHROMEOS)
 const char kUpdatingState[] = "Updating";
 #endif  // defined(OS_CHROMEOS)
-
-// Dispatches an extension event with |argument|
-void DispatchEvent(extensions::events::HistogramValue histogram_value,
-                   const std::string& event_name,
-                   std::unique_ptr<base::Value> argument) {
-  std::unique_ptr<base::ListValue> list_args(new base::ListValue());
-  if (argument) {
-    list_args->Append(std::move(argument));
-  }
-  g_browser_process->extension_event_router_forwarder()
-      ->BroadcastEventToRenderers(histogram_value, event_name,
-                                  std::move(list_args), GURL());
-}
 
 }  // namespace
 
@@ -78,9 +60,9 @@ SystemPrivateGetIncognitoModeAvailabilityFunction::Run() {
   int value = prefs->GetInteger(prefs::kIncognitoModeAvailability);
   EXTENSION_FUNCTION_VALIDATE(
       value >= 0 &&
-      value < static_cast<int>(arraysize(kIncognitoModeAvailabilityStrings)));
+      value < static_cast<int>(base::size(kIncognitoModeAvailabilityStrings)));
   return RespondNow(OneArgument(
-      base::MakeUnique<base::Value>(kIncognitoModeAvailabilityStrings[value])));
+      std::make_unique<base::Value>(kIncognitoModeAvailabilityStrings[value])));
 }
 
 ExtensionFunction::ResponseAction SystemPrivateGetUpdateStatusFunction::Run() {
@@ -147,34 +129,7 @@ ExtensionFunction::ResponseAction SystemPrivateGetUpdateStatusFunction::Run() {
 
 ExtensionFunction::ResponseAction SystemPrivateGetApiKeyFunction::Run() {
   return RespondNow(
-      OneArgument(base::MakeUnique<base::Value>(google_apis::GetAPIKey())));
-}
-
-void DispatchVolumeChangedEvent(double volume, bool is_volume_muted) {
-  std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-  dict->SetDouble(kVolumeKey, volume);
-  dict->SetBoolean(kIsVolumeMutedKey, is_volume_muted);
-  DispatchEvent(extensions::events::SYSTEM_PRIVATE_ON_VOLUME_CHANGED,
-                system_private::OnVolumeChanged::kEventName, std::move(dict));
-}
-
-void DispatchBrightnessChangedEvent(int brightness, bool user_initiated) {
-  std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-  dict->SetInteger(kBrightnessKey, brightness);
-  dict->SetBoolean(kUserInitiatedKey, user_initiated);
-  DispatchEvent(extensions::events::SYSTEM_PRIVATE_ON_BRIGHTNESS_CHANGED,
-                system_private::OnBrightnessChanged::kEventName,
-                std::move(dict));
-}
-
-void DispatchScreenUnlockedEvent() {
-  DispatchEvent(extensions::events::SYSTEM_PRIVATE_ON_SCREEN_UNLOCKED,
-                system_private::OnScreenUnlocked::kEventName, nullptr);
-}
-
-void DispatchWokeUpEvent() {
-  DispatchEvent(extensions::events::SYSTEM_PRIVATE_ON_WOKE_UP,
-                system_private::OnWokeUp::kEventName, nullptr);
+      OneArgument(std::make_unique<base::Value>(google_apis::GetAPIKey())));
 }
 
 }  // namespace extensions

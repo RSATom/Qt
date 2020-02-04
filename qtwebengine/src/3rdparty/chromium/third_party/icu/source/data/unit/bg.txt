@@ -1,7 +1,7 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html#License
 bg{
-    Version{"2.1.33.75"}
+    Version{"2.1.43.94"}
     durationUnits{
         hm{"h:mm"}
         hms{"h:mm:ss"}
@@ -123,6 +123,16 @@ bg{
                 one{"{0} ppm"}
                 other{"{0} ppm"}
             }
+            percent{
+                dnam{"процент"}
+                one{"{0} процент"}
+                other{"{0} процента"}
+            }
+            permille{
+                dnam{"промил"}
+                one{"{0} промил"}
+                other{"{0} промила"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -147,6 +157,7 @@ bg{
             }
         }
         coordinate{
+            dnam{"основна посока"}
             east{"{0}И"}
             north{"{0}С"}
             south{"{0}Ю"}
@@ -192,6 +203,11 @@ bg{
                 dnam{"мегабайти"}
                 one{"{0} мегабайт"}
                 other{"{0} мегабайта"}
+            }
+            petabyte{
+                dnam{"петабайти"}
+                one{"{0} петабайт"}
+                other{"{0} петабайта"}
             }
             terabit{
                 dnam{"терабитове"}
@@ -430,6 +446,11 @@ bg{
                 one{"{0} пикометър"}
                 other{"{0} пикометра"}
             }
+            point{
+                dnam{"пунктове"}
+                one{"{0} пункт"}
+                other{"{0} пункта"}
+            }
             yard{
                 dnam{"ярдове"}
                 one{"{0} ярд"}
@@ -532,6 +553,11 @@ bg{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"атмосфери"}
+                one{"{0} атмосфера"}
+                other{"{0} атмосфери"}
+            }
             hectopascal{
                 dnam{"хектопаскали"}
                 one{"{0} хектопаскал"}
@@ -780,6 +806,13 @@ bg{
         compound{
             per{"{0}/{1}"}
         }
+        concentr{
+            percent{
+                dnam{"%"}
+                one{"{0}%"}
+                other{"{0}%"}
+            }
+        }
         consumption{
             liter-per-100kilometers{
                 dnam{"l/100 km"}
@@ -788,6 +821,7 @@ bg{
             }
         }
         coordinate{
+            dnam{"посока"}
             east{"{0}И"}
             north{"{0}С"}
             south{"{0}Ю"}
@@ -800,29 +834,29 @@ bg{
                 other{"{0} д"}
             }
             hour{
-                dnam{"h"}
-                one{"{0} h"}
-                other{"{0} h"}
+                dnam{"ч"}
+                one{"{0} ч"}
+                other{"{0} ч"}
             }
             millisecond{
-                dnam{"ms"}
-                one{"{0} ms"}
-                other{"{0} ms"}
+                dnam{"мсек"}
+                one{"{0} мсек"}
+                other{"{0} мсек"}
             }
             minute{
-                dnam{"min"}
-                one{"{0} min"}
-                other{"{0} min"}
+                dnam{"мин"}
+                one{"{0} мин"}
+                other{"{0} мин"}
             }
             month{
-                dnam{"м"}
-                one{"{0} м"}
-                other{"{0} м"}
+                dnam{"мес."}
+                one{"{0} мес."}
+                other{"{0} мес."}
             }
             second{
-                dnam{"s"}
-                one{"{0} s"}
-                other{"{0} s"}
+                dnam{"с"}
+                one{"{0} с"}
+                other{"{0} с"}
             }
             week{
                 dnam{"седм."}
@@ -1087,6 +1121,16 @@ bg{
                 one{"{0} ppm"}
                 other{"{0} ppm"}
             }
+            percent{
+                dnam{"процент"}
+                one{"{0}%"}
+                other{"{0}%"}
+            }
+            permille{
+                dnam{"промил"}
+                one{"{0}‰"}
+                other{"{0}‰"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -1111,6 +1155,7 @@ bg{
             }
         }
         coordinate{
+            dnam{"посока"}
             east{"{0}И"}
             north{"{0}С"}
             south{"{0}Ю"}
@@ -1157,6 +1202,11 @@ bg{
                 one{"{0} MB"}
                 other{"{0} MB"}
             }
+            petabyte{
+                dnam{"PByte"}
+                one{"{0} PB"}
+                other{"{0} PB"}
+            }
             terabit{
                 dnam{"Tb"}
                 one{"{0} Tb"}
@@ -1182,9 +1232,9 @@ bg{
             }
             hour{
                 dnam{"часове"}
-                one{"{0} h"}
-                other{"{0} h"}
-                per{"{0}/h"}
+                one{"{0} ч"}
+                other{"{0} ч"}
+                per{"{0}/ч"}
             }
             microsecond{
                 dnam{"μs"}
@@ -1193,13 +1243,13 @@ bg{
             }
             millisecond{
                 dnam{"милисекунди"}
-                one{"{0} ms"}
-                other{"{0} ms"}
+                one{"{0} мсек"}
+                other{"{0} мсек"}
             }
             minute{
-                dnam{"min"}
-                one{"{0} min"}
-                other{"{0} min"}
+                dnam{"мин"}
+                one{"{0} мин"}
+                other{"{0} мин"}
                 per{"{0}/мин"}
             }
             month{
@@ -1215,9 +1265,9 @@ bg{
             }
             second{
                 dnam{"секунди"}
-                one{"{0} s"}
-                other{"{0} s"}
-                per{"{0}/s"}
+                one{"{0} сек"}
+                other{"{0} сек"}
+                per{"{0}/сек"}
             }
             week{
                 dnam{"седмици"}
@@ -1227,8 +1277,8 @@ bg{
             }
             year{
                 dnam{"години"}
-                one{"{0} г"}
-                other{"{0} г"}
+                one{"{0} год."}
+                other{"{0} год."}
                 per{"{0}/год."}
             }
         }
@@ -1394,6 +1444,11 @@ bg{
                 one{"{0} pm"}
                 other{"{0} pm"}
             }
+            point{
+                dnam{"pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
+            }
             yard{
                 dnam{"ярдове"}
                 one{"{0} ярд"}
@@ -1496,6 +1551,11 @@ bg{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atm"}
+                one{"{0} atm"}
+                other{"{0} atm"}
+            }
             hectopascal{
                 dnam{"hPa"}
                 one{"{0} hPa"}

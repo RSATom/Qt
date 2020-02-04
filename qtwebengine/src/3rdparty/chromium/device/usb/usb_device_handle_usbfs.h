@@ -19,7 +19,6 @@ struct usbdevfs_urb;
 
 namespace base {
 class SequencedTaskRunner;
-class SingleThreadTaskRunner;
 }
 
 namespace device {
@@ -40,52 +39,44 @@ class UsbDeviceHandleUsbfs : public UsbDeviceHandle {
   scoped_refptr<UsbDevice> GetDevice() const override;
   void Close() override;
   void SetConfiguration(int configuration_value,
-                        const ResultCallback& callback) override;
-  void ClaimInterface(int interface_number,
-                      const ResultCallback& callback) override;
-  void ReleaseInterface(int interface_number,
-                        const ResultCallback& callback) override;
+                        ResultCallback callback) override;
+  void ClaimInterface(int interface_number, ResultCallback callback) override;
+  void ReleaseInterface(int interface_number, ResultCallback callback) override;
   void SetInterfaceAlternateSetting(int interface_number,
                                     int alternate_setting,
-                                    const ResultCallback& callback) override;
-  void ResetDevice(const ResultCallback& callback) override;
-  void ClearHalt(uint8_t endpoint, const ResultCallback& callback) override;
+                                    ResultCallback callback) override;
+  void ResetDevice(ResultCallback callback) override;
+  void ClearHalt(uint8_t endpoint, ResultCallback callback) override;
   void ControlTransfer(UsbTransferDirection direction,
                        UsbControlTransferType request_type,
                        UsbControlTransferRecipient recipient,
                        uint8_t request,
                        uint16_t value,
                        uint16_t index,
-                       scoped_refptr<net::IOBuffer> buffer,
-                       size_t length,
+                       scoped_refptr<base::RefCountedBytes> buffer,
                        unsigned int timeout,
-                       const TransferCallback& callback) override;
-  void IsochronousTransferIn(
-      uint8_t endpoint_number,
-      const std::vector<uint32_t>& packet_lengths,
-      unsigned int timeout,
-      const IsochronousTransferCallback& callback) override;
-  void IsochronousTransferOut(
-      uint8_t endpoint_number,
-      scoped_refptr<net::IOBuffer> buffer,
-      const std::vector<uint32_t>& packet_lengths,
-      unsigned int timeout,
-      const IsochronousTransferCallback& callback) override;
-  // To support DevTools this function may be called from any thread and on
-  // completion |callback| will be run on that thread.
+                       TransferCallback callback) override;
+  void IsochronousTransferIn(uint8_t endpoint_number,
+                             const std::vector<uint32_t>& packet_lengths,
+                             unsigned int timeout,
+                             IsochronousTransferCallback callback) override;
+  void IsochronousTransferOut(uint8_t endpoint_number,
+                              scoped_refptr<base::RefCountedBytes> buffer,
+                              const std::vector<uint32_t>& packet_lengths,
+                              unsigned int timeout,
+                              IsochronousTransferCallback callback) override;
   void GenericTransfer(UsbTransferDirection direction,
                        uint8_t endpoint_number,
-                       scoped_refptr<net::IOBuffer> buffer,
-                       size_t length,
+                       scoped_refptr<base::RefCountedBytes> buffer,
                        unsigned int timeout,
-                       const TransferCallback& callback) override;
+                       TransferCallback callback) override;
   const UsbInterfaceDescriptor* FindInterfaceByEndpoint(
       uint8_t endpoint_address) override;
 
  protected:
   ~UsbDeviceHandleUsbfs() override;
 
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner() const {
+  scoped_refptr<base::SequencedTaskRunner> task_runner() const {
     return task_runner_;
   }
 
@@ -97,7 +88,7 @@ class UsbDeviceHandleUsbfs : public UsbDeviceHandle {
   virtual void CloseBlocking();
 
  private:
-  class FileThreadHelper;
+  class BlockingTaskHelper;
   struct Transfer;
   struct InterfaceInfo {
     uint8_t alternate_setting;
@@ -109,29 +100,20 @@ class UsbDeviceHandleUsbfs : public UsbDeviceHandle {
 
   void SetConfigurationComplete(int configuration_value,
                                 bool success,
-                                const ResultCallback& callback);
-  void ReleaseInterfaceComplete(int interface_number,
-                                const ResultCallback& callback);
+                                ResultCallback callback);
+  void ReleaseInterfaceComplete(int interface_number, ResultCallback callback);
   void IsochronousTransferInternal(uint8_t endpoint_address,
-                                   scoped_refptr<net::IOBuffer> buffer,
+                                   scoped_refptr<base::RefCountedBytes> buffer,
                                    size_t total_length,
                                    const std::vector<uint32_t>& packet_lengths,
                                    unsigned int timeout,
-                                   const IsochronousTransferCallback& callback);
-  void GenericTransferInternal(
-      UsbTransferDirection direction,
-      uint8_t endpoint_number,
-      scoped_refptr<net::IOBuffer> buffer,
-      size_t length,
-      unsigned int timeout,
-      const TransferCallback& callback,
-      scoped_refptr<base::SingleThreadTaskRunner> callback_runner);
+                                   IsochronousTransferCallback callback);
   void ReapedUrbs(const std::vector<usbdevfs_urb*>& urbs);
   void TransferComplete(std::unique_ptr<Transfer> transfer);
   void RefreshEndpointInfo();
   void ReportIsochronousError(
       const std::vector<uint32_t>& packet_lengths,
-      const UsbDeviceHandle::IsochronousTransferCallback& callback,
+      UsbDeviceHandle::IsochronousTransferCallback callback,
       UsbTransferStatus status);
   void SetUpTimeoutCallback(Transfer* transfer, unsigned int timeout);
   void OnTimeout(Transfer* transfer);
@@ -142,7 +124,7 @@ class UsbDeviceHandleUsbfs : public UsbDeviceHandle {
 
   scoped_refptr<UsbDevice> device_;
   int fd_;  // Copy of the base::ScopedFD held by |helper_| valid if |device_|.
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
 
   // Maps claimed interfaces by interface number to their current alternate
@@ -156,7 +138,7 @@ class UsbDeviceHandleUsbfs : public UsbDeviceHandle {
 
   // Helper object exists on the blocking task thread and all calls to it and
   // its destruction must be posted there.
-  std::unique_ptr<FileThreadHelper> helper_;
+  std::unique_ptr<BlockingTaskHelper> helper_;
 
   std::list<std::unique_ptr<Transfer>> transfers_;
   base::SequenceChecker sequence_checker_;

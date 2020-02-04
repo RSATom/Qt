@@ -69,16 +69,16 @@ class QRayCastingServicePrivate;
 
 typedef QFuture<QCollisionQueryResult> FutureQueryResult;
 
-class QT3DRENDERSHARED_EXPORT QRayCastingService : public QAbstractCollisionQueryService
+class Q_3DRENDERSHARED_EXPORT QRayCastingService : public QAbstractCollisionQueryService
 {
 public:
     QRayCastingService();
 
-    QQueryHandle query(const QRay3D &ray, QueryMode mode, QBoundingVolumeProvider *provider) Q_DECL_OVERRIDE;
-    QCollisionQueryResult::Hit query(const QRay3D &ray, const QBoundingVolume *volume) Q_DECL_OVERRIDE;
+    QQueryHandle query(const QRay3D &ray, QueryMode mode, QBoundingVolumeProvider *provider) override;
+    QCollisionQueryResult::Hit query(const QRay3D &ray, const QBoundingVolume *volume) override;
 
-    QCollisionQueryResult fetchResult(const QQueryHandle &handle) Q_DECL_OVERRIDE;
-    QVector<QCollisionQueryResult> fetchAllResults() const Q_DECL_OVERRIDE;
+    QCollisionQueryResult fetchResult(const QQueryHandle &handle) override;
+    QVector<QCollisionQueryResult> fetchAllResults() const override;
 
 protected:
     QRayCastingService(QRayCastingServicePrivate &dd);
@@ -109,7 +109,11 @@ public:
         QRayCastingService::QueryMode mode;
     };
 
+#if QT_CONFIG(concurrent)
     QHash<QQueryHandle, FutureQueryResult> m_results;
+#else
+    QHash<QQueryHandle, QCollisionQueryResult> m_results;
+#endif
     QAtomicInt m_handlesCount;
 };
 

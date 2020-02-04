@@ -5,7 +5,7 @@
 #include "components/variations/variations_request_scheduler_mobile.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/variations/pref_names.h"
@@ -16,7 +16,7 @@ namespace variations {
 namespace {
 
 // Simple method used to verify a Callback has been triggered.
-void Increment(int *n) {
+void Increment(int* n) {
   (*n)++;
 }
 
@@ -25,8 +25,8 @@ void Increment(int *n) {
 TEST(VariationsRequestSchedulerMobileTest, StartNoRun) {
   TestingPrefServiceSimple prefs;
   // Initialize to as if it was just fetched. This means it should not run.
-  prefs.registry()->RegisterInt64Pref(prefs::kVariationsLastFetchTime,
-                                      base::Time::Now().ToInternalValue());
+  prefs.registry()->RegisterTimePref(prefs::kVariationsLastFetchTime,
+                                     base::Time::Now());
   int executed = 0;
   const base::Closure task = base::Bind(&Increment, &executed);
   VariationsRequestSchedulerMobile scheduler(task, &prefs);
@@ -39,8 +39,7 @@ TEST(VariationsRequestSchedulerMobileTest, StartRun) {
   TestingPrefServiceSimple prefs;
   // Verify it doesn't take more than a day.
   base::Time old = base::Time::Now() - base::TimeDelta::FromHours(24);
-  prefs.registry()->RegisterInt64Pref(prefs::kVariationsLastFetchTime,
-                                      old.ToInternalValue());
+  prefs.registry()->RegisterTimePref(prefs::kVariationsLastFetchTime, old);
   int executed = 0;
   const base::Closure task = base::Bind(&Increment, &executed);
   VariationsRequestSchedulerMobile scheduler(task, &prefs);
@@ -50,13 +49,13 @@ TEST(VariationsRequestSchedulerMobileTest, StartRun) {
 }
 
 TEST(VariationsRequestSchedulerMobileTest, OnAppEnterForegroundNoRun) {
-  base::MessageLoopForUI message_loop_;
+  base::test::ScopedTaskEnvironment task_environment;
 
   TestingPrefServiceSimple prefs;
 
   // Initialize to as if it was just fetched. This means it should not run.
-  prefs.registry()->RegisterInt64Pref(prefs::kVariationsLastFetchTime,
-                                      base::Time::Now().ToInternalValue());
+  prefs.registry()->RegisterTimePref(prefs::kVariationsLastFetchTime,
+                                     base::Time::Now());
   int executed = 0;
   const base::Closure task = base::Bind(&Increment, &executed);
   VariationsRequestSchedulerMobile scheduler(task, &prefs);
@@ -70,20 +69,19 @@ TEST(VariationsRequestSchedulerMobileTest, OnAppEnterForegroundNoRun) {
 
   // Force execution of the task on this timer to verify that the correct task
   // was added to the timer.
-  scheduler.schedule_fetch_timer_.user_task().Run();
+  scheduler.schedule_fetch_timer_.FireNow();
 
   // The task should not execute because the seed was fetched too recently.
   EXPECT_EQ(0, executed);
 }
 
 TEST(VariationsRequestSchedulerMobileTest, OnAppEnterForegroundRun) {
-  base::MessageLoopForUI message_loop_;
+  base::test::ScopedTaskEnvironment task_environment;
 
   TestingPrefServiceSimple prefs;
 
   base::Time old = base::Time::Now() - base::TimeDelta::FromHours(24);
-  prefs.registry()->RegisterInt64Pref(prefs::kVariationsLastFetchTime,
-                                      old.ToInternalValue());
+  prefs.registry()->RegisterTimePref(prefs::kVariationsLastFetchTime, old);
   int executed = 0;
   const base::Closure task = base::Bind(&Increment, &executed);
   VariationsRequestSchedulerMobile scheduler(task, &prefs);
@@ -97,20 +95,19 @@ TEST(VariationsRequestSchedulerMobileTest, OnAppEnterForegroundRun) {
 
   // Force execution of the task on this timer to verify that the correct task
   // was added to the timer - this will verify that the right task is running.
-  scheduler.schedule_fetch_timer_.user_task().Run();
+  scheduler.schedule_fetch_timer_.FireNow();
 
   // We expect the input task to have triggered.
   EXPECT_EQ(1, executed);
 }
 
 TEST(VariationsRequestSchedulerMobileTest, OnAppEnterForegroundOnStartup) {
-  base::MessageLoopForUI message_loop_;
+  base::test::ScopedTaskEnvironment task_environment;
 
   TestingPrefServiceSimple prefs;
 
   base::Time old = base::Time::Now() - base::TimeDelta::FromHours(24);
-  prefs.registry()->RegisterInt64Pref(prefs::kVariationsLastFetchTime,
-                                      old.ToInternalValue());
+  prefs.registry()->RegisterTimePref(prefs::kVariationsLastFetchTime, old);
   int executed = 0;
   const base::Closure task = base::Bind(&Increment, &executed);
   VariationsRequestSchedulerMobile scheduler(task, &prefs);
@@ -128,16 +125,16 @@ TEST(VariationsRequestSchedulerMobileTest, OnAppEnterForegroundOnStartup) {
   EXPECT_EQ(1, executed);
 
   // Simulate letting time pass.
-  const base::Time last_fetch_time = base::Time::FromInternalValue(
-      prefs.GetInt64(prefs::kVariationsLastFetchTime));
-  prefs.SetInt64(
-      prefs::kVariationsLastFetchTime,
-      (last_fetch_time - base::TimeDelta::FromHours(24)).ToInternalValue());
+  const base::Time last_fetch_time =
+      prefs.GetTime(prefs::kVariationsLastFetchTime);
+  const base::Time one_day_earlier =
+      last_fetch_time - base::TimeDelta::FromHours(24);
+  prefs.SetTime(prefs::kVariationsLastFetchTime, one_day_earlier);
   scheduler.last_request_time_ -= base::TimeDelta::FromHours(24);
 
   scheduler.OnAppEnterForeground();
   EXPECT_TRUE(scheduler.schedule_fetch_timer_.IsRunning());
-  scheduler.schedule_fetch_timer_.user_task().Run();
+  scheduler.schedule_fetch_timer_.FireNow();
   // This time it should execute the task.
   EXPECT_EQ(2, executed);
 }

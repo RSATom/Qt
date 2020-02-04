@@ -43,14 +43,13 @@ class MEDIA_EXPORT AudioRecordInputStream : public AudioInputStream {
   bool SetAutomaticGainControl(bool enabled) override;
   bool GetAutomaticGainControl() override;
   bool IsMuted() override;
-
-  static bool RegisterAudioRecordInput(JNIEnv* env);
+  void SetOutputDeviceForAec(const std::string& output_device_id) override;
 
   // Called from Java when data is available.
   void OnData(JNIEnv* env,
               const base::android::JavaParamRef<jobject>& obj,
               jint size,
-              jint hardware_delay_bytes);
+              jint hardware_delay_ms);
 
   // Called from Java so that we can cache the address of the Java-managed
   // |byte_buffer| in |direct_buffer_address_|.

@@ -8,15 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FILEUTILS_H_
-#define WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FILEUTILS_H_
+#ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FILEUTILS_H_
+#define MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FILEUTILS_H_
 
+#include <stdint.h>
 #include <stdio.h>
-
 #include <string>
 
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 namespace testing {
@@ -56,4 +55,4 @@ class OutputFileWriter {
 }  // namespace testing
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FILEUTILS_H_
+#endif  // MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FILEUTILS_H_

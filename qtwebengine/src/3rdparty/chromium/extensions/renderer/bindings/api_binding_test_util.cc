@@ -8,7 +8,7 @@
 #include "base/json/json_writer.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
-#include "content/public/child/v8_value_converter.h"
+#include "content/public/renderer/v8_value_converter.h"
 #include "gin/converter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -32,7 +32,8 @@ bool RunFunctionImpl(v8::Local<v8::Function> function,
   v8::MaybeLocal<v8::Value> maybe_result =
       function->Call(context, receiver, argc, argv);
   if (try_catch.HasCaught()) {
-    *out_error = gin::V8ToString(try_catch.Message()->Get());
+    *out_error =
+        gin::V8ToString(context->GetIsolate(), try_catch.Message()->Get());
     return false;
   }
   v8::Local<v8::Value> result;
@@ -43,6 +44,8 @@ bool RunFunctionImpl(v8::Local<v8::Function> function,
   *out_value = result;
   return true;
 }
+
+bool g_mock_user_activation_v2_state_ = false;
 
 }  // namespace
 
@@ -97,7 +100,7 @@ v8::Local<v8::Value> V8ValueFromScriptSource(v8::Local<v8::Context> context,
   v8::Local<v8::Script> script;
   if (!maybe_script.ToLocal(&script))
     return v8::Local<v8::Value>();
-  return script->Run();
+  return script->Run(context).ToLocalChecked();
 }
 
 v8::Local<v8::Function> FunctionFromString(v8::Local<v8::Context> context,
@@ -203,6 +206,19 @@ std::string GetStringPropertyFromObject(v8::Local<v8::Object> object,
                                         v8::Local<v8::Context> context,
                                         base::StringPiece key) {
   return V8ToString(GetPropertyFromObject(object, context, key), context);
+}
+
+ScopedTestUserActivation::ScopedTestUserActivation() {
+  DCHECK(!g_mock_user_activation_v2_state_);  // Nested scopes are not allowed.
+  g_mock_user_activation_v2_state_ = true;
+}
+
+ScopedTestUserActivation::~ScopedTestUserActivation() {
+  g_mock_user_activation_v2_state_ = false;
+}
+
+bool GetTestUserActivationState(v8::Local<v8::Context>) {
+  return g_mock_user_activation_v2_state_;
 }
 
 }  // namespace extensions

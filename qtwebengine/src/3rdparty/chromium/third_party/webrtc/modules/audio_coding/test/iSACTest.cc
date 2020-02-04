@@ -8,27 +8,47 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/test/iSACTest.h"
+#include "modules/audio_coding/test/iSACTest.h"
 
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#elif defined(WEBRTC_LINUX)
-#include <time.h>
-#else
-#include <sys/time.h>
-#include <time.h>
-#endif
-
-#include "webrtc/modules/audio_coding/codecs/audio_format_conversion.h"
-#include "webrtc/modules/audio_coding/test/utility.h"
-#include "webrtc/system_wrappers/include/event_wrapper.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "absl/strings/match.h"
+#include "api/audio_codecs/builtin_audio_decoder_factory.h"
+#include "api/audio_codecs/isac/audio_encoder_isac_float.h"
+#include "rtc_base/strings/string_builder.h"
+#include "rtc_base/time_utils.h"
+#include "system_wrappers/include/sleep.h"
+#include "test/gmock.h"
+#include "test/gtest.h"
+#include "test/testsupport/file_utils.h"
 
 namespace webrtc {
+
+using ::testing::AnyOf;
+using ::testing::Eq;
+using ::testing::StrCaseEq;
+
+namespace {
+
+constexpr int kISAC16kPayloadType = 103;
+constexpr int kISAC32kPayloadType = 104;
+const SdpAudioFormat kISAC16kFormat = { "ISAC", 16000, 1 };
+const SdpAudioFormat kISAC32kFormat = { "ISAC", 32000, 1 };
+
+AudioEncoderIsacFloat::Config TweakConfig(
+    AudioEncoderIsacFloat::Config config,
+    const ACMTestISACConfig& test_config) {
+  if (test_config.currentRateBitPerSec > 0) {
+    config.bit_rate = test_config.currentRateBitPerSec;
+  }
+  if (test_config.currentFrameSizeMsec != 0) {
+    config.frame_size_ms = test_config.currentFrameSizeMsec;
+  }
+  EXPECT_THAT(config.IsOk(), Eq(true));
+  return config;
+}
 
 void SetISACConfigDefault(ACMTestISACConfig& isacConfig) {
   isacConfig.currentRateBitPerSec = 0;
@@ -37,70 +57,100 @@ void SetISACConfigDefault(ACMTestISACConfig& isacConfig) {
   isacConfig.initRateBitPerSec = 0;
   isacConfig.initFrameSizeInMsec = 0;
   isacConfig.enforceFrameSize = false;
+}
+
+}  // namespace
+
+ISACTest::ACMTestTimer::ACMTestTimer() : _msec(0), _sec(0), _min(0), _hour(0) {
   return;
 }
 
-int16_t SetISAConfig(ACMTestISACConfig& isacConfig, AudioCodingModule* acm,
-                     int testMode) {
-
-  if ((isacConfig.currentRateBitPerSec != 0)
-      || (isacConfig.currentFrameSizeMsec != 0)) {
-    auto sendCodec = acm->SendCodec();
-    EXPECT_TRUE(sendCodec);
-    if (isacConfig.currentRateBitPerSec < 0) {
-      // Register iSAC in adaptive (channel-dependent) mode.
-      sendCodec->rate = -1;
-      EXPECT_EQ(0, acm->RegisterSendCodec(*sendCodec));
-    } else {
-      if (isacConfig.currentRateBitPerSec != 0) {
-        sendCodec->rate = isacConfig.currentRateBitPerSec;
-      }
-      if (isacConfig.currentFrameSizeMsec != 0) {
-        sendCodec->pacsize = isacConfig.currentFrameSizeMsec
-            * (sendCodec->plfreq / 1000);
-      }
-      EXPECT_EQ(0, acm->RegisterSendCodec(*sendCodec));
-    }
-  }
-
-  return 0;
+ISACTest::ACMTestTimer::~ACMTestTimer() {
+  return;
 }
 
-ISACTest::ISACTest(int testMode)
-    : _acmA(AudioCodingModule::Create(1)),
-      _acmB(AudioCodingModule::Create(2)),
-      _testMode(testMode) {}
+void ISACTest::ACMTestTimer::Reset() {
+  _msec = 0;
+  _sec = 0;
+  _min = 0;
+  _hour = 0;
+  return;
+}
+void ISACTest::ACMTestTimer::Tick10ms() {
+  _msec += 10;
+  Adjust();
+  return;
+}
+
+void ISACTest::ACMTestTimer::Tick1ms() {
+  _msec++;
+  Adjust();
+  return;
+}
+
+void ISACTest::ACMTestTimer::Tick100ms() {
+  _msec += 100;
+  Adjust();
+  return;
+}
+
+void ISACTest::ACMTestTimer::Tick1sec() {
+  _sec++;
+  Adjust();
+  return;
+}
+
+void ISACTest::ACMTestTimer::CurrentTimeHMS(char* currTime) {
+  sprintf(currTime, "%4lu:%02u:%06.3f", _hour, _min,
+          (double)_sec + (double)_msec / 1000.);
+  return;
+}
+
+void ISACTest::ACMTestTimer::CurrentTime(unsigned long& h,
+                               unsigned char& m,
+                               unsigned char& s,
+                               unsigned short& ms) {
+  h = _hour;
+  m = _min;
+  s = _sec;
+  ms = _msec;
+  return;
+}
+
+void ISACTest::ACMTestTimer::Adjust() {
+  unsigned int n;
+  if (_msec >= 1000) {
+    n = _msec / 1000;
+    _msec -= (1000 * n);
+    _sec += n;
+  }
+  if (_sec >= 60) {
+    n = _sec / 60;
+    _sec -= (n * 60);
+    _min += n;
+  }
+  if (_min >= 60) {
+    n = _min / 60;
+    _min -= (n * 60);
+    _hour += n;
+  }
+}
+
+ISACTest::ISACTest()
+    : _acmA(AudioCodingModule::Create(
+          AudioCodingModule::Config(CreateBuiltinAudioDecoderFactory()))),
+      _acmB(AudioCodingModule::Create(
+          AudioCodingModule::Config(CreateBuiltinAudioDecoderFactory()))) {}
 
 ISACTest::~ISACTest() {}
 
 void ISACTest::Setup() {
-  int codecCntr;
-  CodecInst codecParam;
-
-  for (codecCntr = 0; codecCntr < AudioCodingModule::NumberOfCodecs();
-      codecCntr++) {
-    EXPECT_EQ(0, AudioCodingModule::Codec(codecCntr, &codecParam));
-    if (!STR_CASE_CMP(codecParam.plname, "ISAC")
-        && codecParam.plfreq == 16000) {
-      memcpy(&_paramISAC16kHz, &codecParam, sizeof(CodecInst));
-      _idISAC16kHz = codecCntr;
-    }
-    if (!STR_CASE_CMP(codecParam.plname, "ISAC")
-        && codecParam.plfreq == 32000) {
-      memcpy(&_paramISAC32kHz, &codecParam, sizeof(CodecInst));
-      _idISAC32kHz = codecCntr;
-    }
-  }
-
   // Register both iSAC-wb & iSAC-swb in both sides as receiver codecs.
-  EXPECT_EQ(true, _acmA->RegisterReceiveCodec(_paramISAC16kHz.pltype,
-                                              CodecInstToSdp(_paramISAC16kHz)));
-  EXPECT_EQ(true, _acmA->RegisterReceiveCodec(_paramISAC32kHz.pltype,
-                                              CodecInstToSdp(_paramISAC32kHz)));
-  EXPECT_EQ(true, _acmB->RegisterReceiveCodec(_paramISAC16kHz.pltype,
-                                              CodecInstToSdp(_paramISAC16kHz)));
-  EXPECT_EQ(true, _acmB->RegisterReceiveCodec(_paramISAC32kHz.pltype,
-                                              CodecInstToSdp(_paramISAC32kHz)));
+  std::map<int, SdpAudioFormat> receive_codecs =
+      {{kISAC16kPayloadType, kISAC16kFormat},
+       {kISAC32kPayloadType, kISAC32kFormat}};
+  _acmA->SetReceiveCodecs(receive_codecs);
+  _acmB->SetReceiveCodecs(receive_codecs);
 
   //--- Set A-to-B channel
   _channel_A2B.reset(new Channel);
@@ -112,11 +162,17 @@ void ISACTest::Setup() {
   EXPECT_EQ(0, _acmB->RegisterTransportCallback(_channel_B2A.get()));
   _channel_B2A->RegisterReceiverACM(_acmA.get());
 
-  file_name_swb_ = webrtc::test::ResourcePath("audio_coding/testfile32kHz",
-                                              "pcm");
+  file_name_swb_ =
+      webrtc::test::ResourcePath("audio_coding/testfile32kHz", "pcm");
 
-  EXPECT_EQ(0, _acmB->RegisterSendCodec(_paramISAC16kHz));
-  EXPECT_EQ(0, _acmA->RegisterSendCodec(_paramISAC32kHz));
+  _acmB->SetEncoder(
+      AudioEncoderIsacFloat::MakeAudioEncoder(
+          *AudioEncoderIsacFloat::SdpToConfig(kISAC16kFormat),
+          kISAC16kPayloadType));
+  _acmA->SetEncoder(
+      AudioEncoderIsacFloat::MakeAudioEncoder(
+          *AudioEncoderIsacFloat::SdpToConfig(kISAC32kFormat),
+          kISAC32kPayloadType));
 
   _inFileA.Open(file_name_swb_, 32000, "rb");
   // Set test length to 500 ms (50 blocks of 10 ms each).
@@ -131,9 +187,9 @@ void ISACTest::Setup() {
   while (!_inFileA.EndOfFile()) {
     Run10ms();
   }
-  CodecInst receiveCodec;
-  EXPECT_EQ(0, _acmA->ReceiveCodec(&receiveCodec));
-  EXPECT_EQ(0, _acmB->ReceiveCodec(&receiveCodec));
+
+  EXPECT_TRUE(_acmA->ReceiveCodec());
+  EXPECT_TRUE(_acmB->ReceiveCodec());
 
   _inFileA.Close();
   _outFileA.Close();
@@ -155,45 +211,13 @@ void ISACTest::Perform() {
   testNr++;
   EncodeDecode(testNr, wbISACConfig, swbISACConfig);
 
-  if (_testMode != 0) {
-    SetISACConfigDefault(wbISACConfig);
-    SetISACConfigDefault(swbISACConfig);
-
-    wbISACConfig.currentRateBitPerSec = -1;
-    swbISACConfig.currentRateBitPerSec = -1;
-    wbISACConfig.initRateBitPerSec = 13000;
-    wbISACConfig.initFrameSizeInMsec = 60;
-    swbISACConfig.initRateBitPerSec = 20000;
-    swbISACConfig.initFrameSizeInMsec = 30;
-    testNr++;
-    EncodeDecode(testNr, wbISACConfig, swbISACConfig);
-
-    SetISACConfigDefault(wbISACConfig);
-    SetISACConfigDefault(swbISACConfig);
-
-    wbISACConfig.currentRateBitPerSec = 20000;
-    swbISACConfig.currentRateBitPerSec = 48000;
-    testNr++;
-    EncodeDecode(testNr, wbISACConfig, swbISACConfig);
-
-    wbISACConfig.currentRateBitPerSec = 16000;
-    swbISACConfig.currentRateBitPerSec = 30000;
-    wbISACConfig.currentFrameSizeMsec = 60;
-    testNr++;
-    EncodeDecode(testNr, wbISACConfig, swbISACConfig);
-  }
-
   SetISACConfigDefault(wbISACConfig);
   SetISACConfigDefault(swbISACConfig);
   testNr++;
   EncodeDecode(testNr, wbISACConfig, swbISACConfig);
 
   testNr++;
-  if (_testMode == 0) {
-    SwitchingSamplingRate(testNr, 4);
-  } else {
-    SwitchingSamplingRate(testNr, 80);
-  }
+  SwitchingSamplingRate(testNr, 4);
 }
 
 void ISACTest::Run10ms() {
@@ -210,15 +234,16 @@ void ISACTest::Run10ms() {
   _outFileB.Write10MsData(audioFrame);
 }
 
-void ISACTest::EncodeDecode(int testNr, ACMTestISACConfig& wbISACConfig,
+void ISACTest::EncodeDecode(int testNr,
+                            ACMTestISACConfig& wbISACConfig,
                             ACMTestISACConfig& swbISACConfig) {
   // Files in Side A and B
   _inFileA.Open(file_name_swb_, 32000, "rb", true);
   _inFileB.Open(file_name_swb_, 32000, "rb", true);
 
   std::string file_name_out;
-  std::stringstream file_stream_a;
-  std::stringstream file_stream_b;
+  rtc::StringBuilder file_stream_a;
+  rtc::StringBuilder file_stream_b;
   file_stream_a << webrtc::test::OutputPath();
   file_stream_b << webrtc::test::OutputPath();
   file_stream_a << "out_iSACTest_A_" << testNr << ".pcm";
@@ -228,18 +253,21 @@ void ISACTest::EncodeDecode(int testNr, ACMTestISACConfig& wbISACConfig,
   file_name_out = file_stream_b.str();
   _outFileB.Open(file_name_out, 32000, "wb");
 
-  EXPECT_EQ(0, _acmA->RegisterSendCodec(_paramISAC16kHz));
-  EXPECT_EQ(0, _acmA->RegisterSendCodec(_paramISAC32kHz));
-  EXPECT_EQ(0, _acmB->RegisterSendCodec(_paramISAC32kHz));
-  EXPECT_EQ(0, _acmB->RegisterSendCodec(_paramISAC16kHz));
-
   // Side A is sending super-wideband, and side B is sending wideband.
-  SetISAConfig(swbISACConfig, _acmA.get(), _testMode);
-  SetISAConfig(wbISACConfig, _acmB.get(), _testMode);
+  _acmA->SetEncoder(
+      AudioEncoderIsacFloat::MakeAudioEncoder(
+          TweakConfig(*AudioEncoderIsacFloat::SdpToConfig(kISAC32kFormat),
+                      swbISACConfig),
+          kISAC32kPayloadType));
+  _acmB->SetEncoder(
+      AudioEncoderIsacFloat::MakeAudioEncoder(
+          TweakConfig(*AudioEncoderIsacFloat::SdpToConfig(kISAC16kFormat),
+                      wbISACConfig),
+          kISAC16kPayloadType));
 
   bool adaptiveMode = false;
-  if ((swbISACConfig.currentRateBitPerSec == -1)
-      || (wbISACConfig.currentRateBitPerSec == -1)) {
+  if ((swbISACConfig.currentRateBitPerSec == -1) ||
+      (wbISACConfig.currentRateBitPerSec == -1)) {
     adaptiveMode = true;
   }
   _myTimer.Reset();
@@ -247,26 +275,10 @@ void ISACTest::EncodeDecode(int testNr, ACMTestISACConfig& wbISACConfig,
   _channel_B2A->ResetStats();
 
   char currentTime[500];
-  EventTimerWrapper* myEvent = EventTimerWrapper::Create();
-  EXPECT_TRUE(myEvent->StartTimer(true, 10));
   while (!(_inFileA.EndOfFile() || _inFileA.Rewinded())) {
     Run10ms();
     _myTimer.Tick10ms();
     _myTimer.CurrentTimeHMS(currentTime);
-
-    if ((adaptiveMode) && (_testMode != 0)) {
-      myEvent->Wait(5000);
-      EXPECT_TRUE(_acmA->SendCodec());
-      EXPECT_TRUE(_acmB->SendCodec());
-    }
-  }
-
-  if (_testMode != 0) {
-    printf("\n\nSide A statistics\n\n");
-    _channel_A2B->PrintStats(_paramISAC32kHz);
-
-    printf("\n\nSide B statistics\n\n");
-    _channel_B2A->PrintStats(_paramISAC16kHz);
   }
 
   _channel_A2B->ResetStats();
@@ -284,8 +296,8 @@ void ISACTest::SwitchingSamplingRate(int testNr, int maxSampRateChange) {
   _inFileB.Open(file_name_swb_, 32000, "rb");
 
   std::string file_name_out;
-  std::stringstream file_stream_a;
-  std::stringstream file_stream_b;
+  rtc::StringBuilder file_stream_a;
+  rtc::StringBuilder file_stream_b;
   file_stream_a << webrtc::test::OutputPath();
   file_stream_b << webrtc::test::OutputPath();
   file_stream_a << "out_iSACTest_A_" << testNr << ".pcm";
@@ -297,8 +309,14 @@ void ISACTest::SwitchingSamplingRate(int testNr, int maxSampRateChange) {
 
   // Start with side A sending super-wideband and side B seding wideband.
   // Toggle sending wideband/super-wideband in this test.
-  EXPECT_EQ(0, _acmA->RegisterSendCodec(_paramISAC32kHz));
-  EXPECT_EQ(0, _acmB->RegisterSendCodec(_paramISAC16kHz));
+  _acmA->SetEncoder(
+      AudioEncoderIsacFloat::MakeAudioEncoder(
+          *AudioEncoderIsacFloat::SdpToConfig(kISAC32kFormat),
+          kISAC32kPayloadType));
+  _acmB->SetEncoder(
+      AudioEncoderIsacFloat::MakeAudioEncoder(
+          *AudioEncoderIsacFloat::SdpToConfig(kISAC16kFormat),
+          kISAC16kPayloadType));
 
   int numSendCodecChanged = 0;
   _myTimer.Reset();
@@ -307,19 +325,23 @@ void ISACTest::SwitchingSamplingRate(int testNr, int maxSampRateChange) {
     Run10ms();
     _myTimer.Tick10ms();
     _myTimer.CurrentTimeHMS(currentTime);
-    if (_testMode == 2)
-      printf("\r%s", currentTime);
     if (_inFileA.EndOfFile()) {
       if (_inFileA.SamplingFrequency() == 16000) {
         // Switch side A to send super-wideband.
         _inFileA.Close();
         _inFileA.Open(file_name_swb_, 32000, "rb");
-        EXPECT_EQ(0, _acmA->RegisterSendCodec(_paramISAC32kHz));
+        _acmA->SetEncoder(
+            AudioEncoderIsacFloat::MakeAudioEncoder(
+                *AudioEncoderIsacFloat::SdpToConfig(kISAC32kFormat),
+                kISAC32kPayloadType));
       } else {
         // Switch side A to send wideband.
         _inFileA.Close();
         _inFileA.Open(file_name_swb_, 32000, "rb");
-        EXPECT_EQ(0, _acmA->RegisterSendCodec(_paramISAC16kHz));
+        _acmA->SetEncoder(
+            AudioEncoderIsacFloat::MakeAudioEncoder(
+                *AudioEncoderIsacFloat::SdpToConfig(kISAC16kFormat),
+                kISAC16kPayloadType));
       }
       numSendCodecChanged++;
     }
@@ -329,12 +351,18 @@ void ISACTest::SwitchingSamplingRate(int testNr, int maxSampRateChange) {
         // Switch side B to send super-wideband.
         _inFileB.Close();
         _inFileB.Open(file_name_swb_, 32000, "rb");
-        EXPECT_EQ(0, _acmB->RegisterSendCodec(_paramISAC32kHz));
+        _acmB->SetEncoder(
+            AudioEncoderIsacFloat::MakeAudioEncoder(
+                *AudioEncoderIsacFloat::SdpToConfig(kISAC32kFormat),
+                kISAC32kPayloadType));
       } else {
         // Switch side B to send wideband.
         _inFileB.Close();
         _inFileB.Open(file_name_swb_, 32000, "rb");
-        EXPECT_EQ(0, _acmB->RegisterSendCodec(_paramISAC16kHz));
+        _acmB->SetEncoder(
+            AudioEncoderIsacFloat::MakeAudioEncoder(
+                *AudioEncoderIsacFloat::SdpToConfig(kISAC16kFormat),
+                kISAC16kPayloadType));
       }
       numSendCodecChanged++;
     }

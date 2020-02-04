@@ -5,131 +5,108 @@
 #include "ui/gfx/icc_profile.h"
 
 #include <list>
+#include <set>
 
 #include "base/command_line.h"
 #include "base/containers/mru_cache.h"
 #include "base/lazy_instance.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/synchronization/lock.h"
-#include "third_party/skia/include/core/SkColorSpaceXform.h"
-#include "third_party/skia/include/core/SkICC.h"
-#include "ui/gfx/color_space_switches.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/third_party/skcms/skcms.h"
 #include "ui/gfx/skia_color_space_util.h"
 
 namespace gfx {
 
-const uint64_t ICCProfile::test_id_adobe_rgb_ = 1;
-const uint64_t ICCProfile::test_id_color_spin_ = 2;
-const uint64_t ICCProfile::test_id_generic_rgb_ = 3;
-const uint64_t ICCProfile::test_id_srgb_ = 4;
-const uint64_t ICCProfile::test_id_no_analytic_tr_fn_ = 5;
-const uint64_t ICCProfile::test_id_a2b_only_ = 6;
-const uint64_t ICCProfile::test_id_overshoot_ = 7;
-
 namespace {
 
-// Allow keeping around a maximum of 8 cached ICC profiles. Beware that
-// we will do a linear search thorugh currently-cached ICC profiles,
-// when creating a new ICC profile.
-const size_t kMaxCachedICCProfiles = 8;
+static const size_t kMaxCachedICCProfiles = 16;
 
-struct Cache {
-  Cache() : id_to_icc_profile_mru(kMaxCachedICCProfiles) {}
-  ~Cache() {}
-
-  // Start from-ICC-data IDs at the end of the hard-coded test id list above.
-  uint64_t next_unused_id = 10;
-  base::MRUCache<uint64_t, ICCProfile> id_to_icc_profile_mru;
-  base::Lock lock;
+// An MRU cache mapping data to ICCProfile objects, to avoid re-parsing
+// profiles every time they are read.
+using DataToProfileCacheBase = base::MRUCache<std::vector<char>, ICCProfile>;
+class DataToProfileCache : public DataToProfileCacheBase {
+ public:
+  DataToProfileCache() : DataToProfileCacheBase(kMaxCachedICCProfiles) {}
 };
-static base::LazyInstance<Cache>::DestructorAtExit g_cache =
+base::LazyInstance<DataToProfileCache>::Leaky g_data_to_profile_cache =
     LAZY_INSTANCE_INITIALIZER;
 
-void ExtractColorSpaces(const std::vector<char>& data,
-                        gfx::ColorSpace* parametric_color_space,
-                        bool* parametric_color_space_is_accurate,
-                        sk_sp<SkColorSpace>* useable_sk_color_space) {
-  // Initialize the output parameters as invalid.
-  *parametric_color_space = gfx::ColorSpace();
-  *parametric_color_space_is_accurate = false;
-  *useable_sk_color_space = nullptr;
+// An MRU cache mapping IDs to ICCProfile objects. This is necessary for
+// constructing LUT-based color transforms. In particular, it is used to look
+// up the SkColorSpace for ColorSpace objects that are not parametric, so that
+// that SkColorSpace may be used to construct the LUT.
+using IdToProfileCacheBase = base::MRUCache<uint64_t, ICCProfile>;
+class IdToProfileCache : public IdToProfileCacheBase {
+ public:
+  IdToProfileCache() : IdToProfileCacheBase(kMaxCachedICCProfiles) {}
+};
+base::LazyInstance<IdToProfileCache>::Leaky g_id_to_profile_cache =
+    LAZY_INSTANCE_INITIALIZER;
 
-  // Parse the profile and attempt to create a SkColorSpaceXform out of it.
-  sk_sp<SkColorSpace> sk_srgb_color_space = SkColorSpace::MakeSRGB();
-  sk_sp<SkICC> sk_icc = SkICC::Make(data.data(), data.size());
-  if (!sk_icc) {
-    DLOG(ERROR) << "Failed to parse ICC profile to SkICC.";
-    return;
-  }
-  sk_sp<SkColorSpace> sk_icc_color_space =
-      SkColorSpace::MakeICC(data.data(), data.size());
-  if (!sk_icc_color_space) {
-    DLOG(ERROR) << "Failed to parse ICC profile to SkColorSpace.";
-    return;
-  }
-  std::unique_ptr<SkColorSpaceXform> sk_color_space_xform =
-      SkColorSpaceXform::New(sk_srgb_color_space.get(),
-                             sk_icc_color_space.get());
-  if (!sk_color_space_xform) {
-    DLOG(ERROR) << "Parsed ICC profile but can't create SkColorSpaceXform.";
-    return;
-  }
+// The next id to assign to a color profile.
+uint64_t g_next_unused_id = 1;
 
-  // Because this SkColorSpace can be used to construct a transform, mark it
-  // as "useable". Mark the "best approximation" as sRGB to start.
-  *useable_sk_color_space = sk_icc_color_space;
-  *parametric_color_space = ColorSpace::CreateSRGB();
-
-  // If our SkColorSpace representation is sRGB then return that.
-  if (SkColorSpace::Equals(sk_srgb_color_space.get(),
-                           sk_icc_color_space.get())) {
-    *parametric_color_space_is_accurate = true;
-    return;
-  }
-
-  // A primary matrix is required for our parametric approximation.
-  SkMatrix44 to_XYZD50_matrix;
-  if (!sk_icc->toXYZD50(&to_XYZD50_matrix)) {
-    DLOG(ERROR) << "Failed to extract ICC profile primary matrix.";
-    return;
-  }
-
-  // Try to directly extract a numerical transfer function.
-  SkColorSpaceTransferFn exact_tr_fn;
-  if (sk_icc->isNumericalTransferFn(&exact_tr_fn)) {
-    *parametric_color_space =
-        gfx::ColorSpace::CreateCustom(to_XYZD50_matrix, exact_tr_fn);
-    *parametric_color_space_is_accurate = true;
-    return;
-  }
-
-  // If that fails, try to numerically approximate the transfer function.
-  SkColorSpaceTransferFn approx_tr_fn;
-  float approx_tr_fn_max_error = 0;
-  if (SkApproximateTransferFn(sk_icc, &approx_tr_fn_max_error, &approx_tr_fn)) {
-    const float kMaxError = 2.f / 256.f;
-    if (approx_tr_fn_max_error < kMaxError) {
-      *parametric_color_space =
-          gfx::ColorSpace::CreateCustom(to_XYZD50_matrix, approx_tr_fn);
-      *parametric_color_space_is_accurate = true;
-      return;
-    } else {
-      DLOG(ERROR)
-          << "Failed to accurately approximate transfer function, error: "
-          << 256.f * approx_tr_fn_max_error << "/256";
-    }
-  } else {
-    DLOG(ERROR) << "Failed approximate transfer function.";
-  }
-
-  // If we fail to get a transfer function, use the sRGB transfer function,
-  // and return false to indicate that the gfx::ColorSpace isn't accurate, but
-  // we can construct accurate LUT transforms using the underlying
-  // SkColorSpace.
-  *parametric_color_space = gfx::ColorSpace::CreateCustom(
-      to_XYZD50_matrix, ColorSpace::TransferID::IEC61966_2_1);
-}
+// Lock that must be held to access |g_next_unused_id|.
+base::LazyInstance<base::Lock>::Leaky g_icc_profile_lock =
+    LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
+
+ICCProfile::Internals::AnalyzeResult ICCProfile::Internals::Initialize() {
+  // Start out with no parametric data.
+  if (data_.empty())
+    return kICCNoProfile;
+
+  // Parse the profile.
+  skcms_ICCProfile profile;
+  if (!skcms_Parse(data_.data(), data_.size(), &profile)) {
+    DLOG(ERROR) << "Failed to parse ICC profile.";
+    return kICCFailedToParse;
+  }
+
+  // Coerce it into a rasterization destination (if possible). If the profile
+  // can't be approximated accurately, skcms will not allow transforming to it,
+  // and this will fail.
+  if (!skcms_MakeUsableAsDestinationWithSingleCurve(&profile)) {
+    DLOG(ERROR) << "Parsed ICC profile but can't make usable as destination.";
+    return kICCFailedToMakeUsable;
+  }
+
+  // We have seen many users with profiles that don't have a D50 white point.
+  // Windows appears to detect these profiles, and not use them for OS drawing.
+  // It still returns them when we query the system for the installed profile.
+  // For consistency (and to match old behavior) we reject these profiles on
+  // all platforms.
+  // https://crbug.com/847024
+  const skcms_Matrix3x3& m(profile.toXYZD50);
+  float wX = m.vals[0][0] + m.vals[0][1] + m.vals[0][2];
+  float wY = m.vals[1][0] + m.vals[1][1] + m.vals[1][2];
+  float wZ = m.vals[2][0] + m.vals[2][1] + m.vals[2][2];
+
+  static const float kD50_WhitePoint[3] = { 0.96420f, 1.00000f, 0.82491f };
+  if (fabsf(wX - kD50_WhitePoint[0]) > 0.04f ||
+      fabsf(wY - kD50_WhitePoint[1]) > 0.04f ||
+      fabsf(wZ - kD50_WhitePoint[2]) > 0.04f) {
+    return kICCFailedToParse;
+  }
+
+  // Create an SkColorSpace from the profile. This should always succeed after
+  // calling MakeUsableAsDestinationWithSingleCurve.
+  sk_color_space_ = SkColorSpace::Make(profile);
+  DCHECK(sk_color_space_);
+
+  // Extract the primary matrix and transfer function
+  to_XYZD50_ = profile.toXYZD50;
+  memcpy(&transfer_fn_, &profile.trc[0].parametric, sizeof(transfer_fn_));
+
+  // We assume that if we accurately approximated the profile, then the
+  // single-curve version (which may have higher error) is also okay. If we
+  // want to maintain the distinction between accurate and inaccurate profiles,
+  // we could check to see if the single-curve version is/ approximately equal
+  // to the original (or to the multi-channel approximation).
+  return kICCExtractedMatrixAndTrFn;
+}
 
 ICCProfile::ICCProfile() = default;
 ICCProfile::ICCProfile(ICCProfile&& other) = default;
@@ -139,7 +116,13 @@ ICCProfile& ICCProfile::operator=(const ICCProfile& other) = default;
 ICCProfile::~ICCProfile() = default;
 
 bool ICCProfile::operator==(const ICCProfile& other) const {
-  return data_ == other.data_;
+  if (!internals_ && !other.internals_)
+    return true;
+  if (internals_ && other.internals_) {
+    return internals_->data_ == other.internals_->data_ &&
+           internals_->id_ == other.internals_->id_;
+  }
+  return false;
 }
 
 bool ICCProfile::operator!=(const ICCProfile& other) const {
@@ -147,7 +130,11 @@ bool ICCProfile::operator!=(const ICCProfile& other) const {
 }
 
 bool ICCProfile::IsValid() const {
-  return successfully_parsed_by_sk_icc_;
+  return internals_ ? internals_->is_valid_ : false;
+}
+
+std::vector<char> ICCProfile::GetData() const {
+  return internals_ ? internals_->data_ : std::vector<char>();
 }
 
 // static
@@ -156,141 +143,153 @@ ICCProfile ICCProfile::FromData(const void* data, size_t size) {
 }
 
 // static
-ICCProfile ICCProfile::FromDataWithId(const void* data,
+ICCProfile ICCProfile::FromDataWithId(const void* data_as_void,
                                       size_t size,
                                       uint64_t new_profile_id) {
-  if (!size)
-    return ICCProfile();
+  const char* data_as_byte = reinterpret_cast<const char*>(data_as_void);
+  std::vector<char> data(data_as_byte, data_as_byte + size);
 
-  const char* data_as_char = reinterpret_cast<const char*>(data);
-  {
-    // Linearly search the cached ICC profiles to find one with the same data.
-    // If it exists, re-use its id and touch it in the cache.
-    Cache& cache = g_cache.Get();
-    base::AutoLock lock(cache.lock);
-    for (auto iter = cache.id_to_icc_profile_mru.begin();
-         iter != cache.id_to_icc_profile_mru.end(); ++iter) {
-      const std::vector<char>& iter_data = iter->second.data_;
-      if (iter_data.size() != size || memcmp(data, iter_data.data(), size))
-        continue;
-      auto found = cache.id_to_icc_profile_mru.Get(iter->second.id_);
-      return found->second;
-    }
-    if (!new_profile_id)
-      new_profile_id = cache.next_unused_id++;
+  base::AutoLock lock(g_icc_profile_lock.Get());
+
+  // See if there is already an entry with the same data. If so, return that
+  // entry. If not, parse the data.
+  ICCProfile icc_profile;
+  auto found_by_data = g_data_to_profile_cache.Get().Get(data);
+  if (found_by_data != g_data_to_profile_cache.Get().end()) {
+    icc_profile = found_by_data->second;
+  } else {
+    icc_profile.internals_ =
+        base::MakeRefCounted<Internals>(std::move(data), new_profile_id);
   }
 
-  // Create a new cached id and add it to the cache.
-  ICCProfile icc_profile;
-  icc_profile.id_ = new_profile_id;
-  icc_profile.data_.insert(icc_profile.data_.begin(), data_as_char,
-                           data_as_char + size);
-  icc_profile.ComputeColorSpaceAndCache();
+  // Insert the profile into all caches.
+  if (icc_profile.internals_->id_)
+    g_id_to_profile_cache.Get().Put(icc_profile.internals_->id_, icc_profile);
+  g_data_to_profile_cache.Get().Put(icc_profile.internals_->data_, icc_profile);
+
   return icc_profile;
 }
 
-#if (!defined(OS_WIN) && !defined(USE_X11) && !defined(OS_MACOSX)) || \
-    defined(OS_IOS)
-// static
-ICCProfile ICCProfile::FromBestMonitor() {
-  return ICCProfile();
+ColorSpace ICCProfile::GetColorSpace() const {
+  if (!internals_)
+    return ColorSpace();
+
+  if (!internals_->is_valid_)
+    return ColorSpace();
+
+  // TODO(ccameron): Compute a reasonable approximation instead of always
+  // falling back to sRGB.
+  ColorSpace color_space =
+      internals_->sk_color_space_->isSRGB()
+          ? ColorSpace::CreateSRGB()
+          : ColorSpace::CreateCustom(internals_->to_XYZD50_,
+                                     internals_->transfer_fn_);
+  color_space.icc_profile_id_ = internals_->id_;
+  return color_space;
 }
-#endif
 
 // static
-const std::vector<char>& ICCProfile::GetData() const {
-  return data_;
-}
-
-const ColorSpace& ICCProfile::GetColorSpace() const {
-  // Move this ICC profile to the most recently used end of the cache,
-  // inserting if needed.
-  if (id_) {
-    Cache& cache = g_cache.Get();
-    base::AutoLock lock(cache.lock);
-    auto found = cache.id_to_icc_profile_mru.Get(id_);
-    if (found == cache.id_to_icc_profile_mru.end())
-      found = cache.id_to_icc_profile_mru.Put(id_, *this);
+ICCProfile ICCProfile::FromParametricColorSpace(const ColorSpace& color_space) {
+  if (!color_space.IsValid()) {
+    return ICCProfile();
   }
-  return color_space_;
-}
-
-const ColorSpace& ICCProfile::GetParametricColorSpace() const {
-  // Move this ICC profile to the most recently used end of the cache,
-  // inserting if needed.
-  if (id_) {
-    Cache& cache = g_cache.Get();
-    base::AutoLock lock(cache.lock);
-    auto found = cache.id_to_icc_profile_mru.Get(id_);
-    if (found == cache.id_to_icc_profile_mru.end())
-      found = cache.id_to_icc_profile_mru.Put(id_, *this);
+  if (color_space.matrix_ != ColorSpace::MatrixID::RGB) {
+    DLOG(ERROR) << "Not creating non-RGB ICCProfile";
+    return ICCProfile();
   }
-  return parametric_color_space_;
+  if (color_space.range_ != ColorSpace::RangeID::FULL) {
+    DLOG(ERROR) << "Not creating non-full-range ICCProfile";
+    return ICCProfile();
+  }
+  if (color_space.icc_profile_id_) {
+    DLOG(ERROR) << "Not creating non-parametric ICCProfile";
+    return ICCProfile();
+  }
+
+  SkMatrix44 to_XYZD50_matrix;
+  color_space.GetPrimaryMatrix(&to_XYZD50_matrix);
+  SkColorSpaceTransferFn fn;
+  if (!color_space.GetTransferFunction(&fn)) {
+    DLOG(ERROR) << "Failed to get ColorSpace transfer function for ICCProfile.";
+    return ICCProfile();
+  }
+  sk_sp<SkData> data = SkICC::WriteToICC(fn, to_XYZD50_matrix);
+  if (!data) {
+    DLOG(ERROR) << "Failed to create SkICC.";
+    return ICCProfile();
+  }
+  return FromDataWithId(data->data(), data->size(), 0);
 }
 
 // static
-bool ICCProfile::FromId(uint64_t id,
-                        ICCProfile* icc_profile) {
-  if (!id)
-    return false;
-
-  Cache& cache = g_cache.Get();
-  base::AutoLock lock(cache.lock);
-
-  auto found = cache.id_to_icc_profile_mru.Get(id);
-  if (found == cache.id_to_icc_profile_mru.end())
-    return false;
-
-  *icc_profile = found->second;
-  return true;
+sk_sp<SkColorSpace> ICCProfile::GetSkColorSpaceFromId(uint64_t id) {
+  base::AutoLock lock(g_icc_profile_lock.Get());
+  auto found = g_id_to_profile_cache.Get().Get(id);
+  if (found == g_id_to_profile_cache.Get().end()) {
+    DLOG(ERROR) << "Failed to find ICC profile with SkColorSpace from id.";
+    return nullptr;
+  }
+  return found->second.internals_->sk_color_space_;
 }
 
-void ICCProfile::ComputeColorSpaceAndCache() {
-  if (!id_)
+ICCProfile::Internals::Internals(std::vector<char> data, uint64_t id)
+    : data_(std::move(data)), id_(id) {
+  // Early out for empty entries.
+  if (data_.empty())
     return;
 
-  // If this already exists in the cache, just update its |color_space_|.
-  {
-    Cache& cache = g_cache.Get();
-    base::AutoLock lock(cache.lock);
-    auto found = cache.id_to_icc_profile_mru.Get(id_);
-    if (found != cache.id_to_icc_profile_mru.end()) {
-      color_space_ = found->second.color_space_;
-      parametric_color_space_ = found->second.parametric_color_space_;
-      successfully_parsed_by_sk_icc_ =
-          found->second.successfully_parsed_by_sk_icc_;
-      return;
+  // Parse the ICC profile
+  analyze_result_ = Initialize();
+  switch (analyze_result_) {
+    case kICCExtractedMatrixAndTrFn:
+      // Successfully and accurately extracted color space.
+      is_valid_ = true;
+      is_parametric_ = true;
+      break;
+    case kICCFailedToParse:
+    case kICCNoProfile:
+    case kICCFailedToMakeUsable:
+      // Can't even use this color space as a LUT.
+      is_valid_ = false;
+      is_parametric_ = false;
+      break;
+  }
+
+  if (id_) {
+    // If |id_| has been set here, then it was specified via sending an
+    // ICCProfile over IPC. Ensure that the computation of |is_valid_| and
+    // |is_parametric_| match the analysis done in the sending process.
+    DCHECK(is_valid_ && !is_parametric_);
+  } else {
+    // If this profile is not parametric, assign it an id so that we can look it
+    // up from a ColorSpace. This path should only be hit in the browser
+    // process.
+    if (is_valid_ && !is_parametric_) {
+      id_ = g_next_unused_id++;
     }
   }
+}
 
-  // Parse the ICC profile
-  sk_sp<SkColorSpace> useable_sk_color_space;
-  bool parametric_color_space_is_accurate = false;
-  ExtractColorSpaces(data_, &parametric_color_space_,
-                     &parametric_color_space_is_accurate,
-                     &useable_sk_color_space);
-  if (parametric_color_space_is_accurate) {
-    successfully_parsed_by_sk_icc_ = true;
-    parametric_color_space_.icc_profile_id_ = id_;
-    color_space_ = parametric_color_space_;
-  } else if (useable_sk_color_space) {
-    successfully_parsed_by_sk_icc_ = true;
-    color_space_ = ColorSpace(ColorSpace::PrimaryID::ICC_BASED,
-                              ColorSpace::TransferID::ICC_BASED);
-    color_space_.icc_profile_id_ = id_;
-    color_space_.icc_profile_sk_color_space_ = useable_sk_color_space;
+ICCProfile::Internals::~Internals() {}
+
+void ICCProfile::HistogramDisplay(int64_t display_id) const {
+  if (!internals_) {
+    // If this is an uninitialized profile, histogram it using an empty profile,
+    // so that we only histogram this display as empty once.
+    FromData(nullptr, 0).HistogramDisplay(display_id);
   } else {
-    successfully_parsed_by_sk_icc_ = false;
-    DCHECK(!color_space_.IsValid());
-    color_space_ = parametric_color_space_;
+    internals_->HistogramDisplay(display_id);
   }
+}
 
-  // Add to the cache.
-  {
-    Cache& cache = g_cache.Get();
-    base::AutoLock lock(cache.lock);
-    cache.id_to_icc_profile_mru.Put(id_, *this);
-  }
+void ICCProfile::Internals::HistogramDisplay(int64_t display_id) {
+  // Ensure that we histogram this profile only once per display id.
+  if (histogrammed_display_ids_.count(display_id))
+    return;
+  histogrammed_display_ids_.insert(display_id);
+
+  UMA_HISTOGRAM_ENUMERATION("Blink.ColorSpace.Destination.ICCResult",
+                            analyze_result_);
 }
 
 }  // namespace gfx

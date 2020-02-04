@@ -20,28 +20,21 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
-#include "base/task_scheduler/post_task.h"
-#include "components/prefs/base_prefs_export.h"
+#include "base/task/post_task.h"
 #include "components/prefs/persistent_pref_store.h"
 #include "components/prefs/pref_filter.h"
+#include "components/prefs/prefs_export.h"
 
 class PrefFilter;
 
 namespace base {
-class Clock;
 class DictionaryValue;
 class FilePath;
-class HistogramBase;
 class JsonPrefStoreCallbackTest;
 class JsonPrefStoreLossyWriteTest;
 class SequencedTaskRunner;
-class SequencedWorkerPool;
 class WriteCallbacksObserver;
 class Value;
-FORWARD_DECLARE_TEST(JsonPrefStoreTest, WriteCountHistogramTestBasic);
-FORWARD_DECLARE_TEST(JsonPrefStoreTest, WriteCountHistogramTestSinglePeriod);
-FORWARD_DECLARE_TEST(JsonPrefStoreTest, WriteCountHistogramTestMultiplePeriods);
-FORWARD_DECLARE_TEST(JsonPrefStoreTest, WriteCountHistogramTestPeriodWithGaps);
 }
 
 // A writable PrefStore implementation that is used for user preferences.
@@ -57,24 +50,26 @@ class COMPONENTS_PREFS_EXPORT JsonPrefStore
   using OnWriteCallbackPair =
       std::pair<base::Closure, base::Callback<void(bool success)>>;
 
-  // Returns instance of SequencedTaskRunner which guarantees that file
-  // operations on the same file will be executed in sequenced order.
-  static scoped_refptr<base::SequencedTaskRunner> GetTaskRunnerForFile(
-      const base::FilePath& pref_filename,
-      base::SequencedWorkerPool* worker_pool);
-
   // |pref_filename| is the path to the file to read prefs from. It is incorrect
   // to create multiple JsonPrefStore with the same |pref_filename|.
   // |file_task_runner| is used for asynchronous reads and writes. It must
   // have the base::TaskShutdownBehavior::BLOCK_SHUTDOWN and base::MayBlock()
   // traits. Unless external tasks need to run on the same sequence as
   // JsonPrefStore tasks, keep the default value.
+  // The initial read is done synchronously, the TaskPriority is thus only used
+  // for flushes to disks and BACKGROUND is therefore appropriate. Priority of
+  // remaining BACKGROUND+BLOCK_SHUTDOWN tasks is bumped by the TaskScheduler on
+  // shutdown. However, some shutdown use cases happen without
+  // TaskScheduler::Shutdown() (e.g. ChromeRestartRequest::Start() and
+  // BrowserProcessImpl::EndSession()) and we must thus unfortunately make this
+  // USER_VISIBLE until we solve https://crbug.com/747495 to allow bumping
+  // priority of a sequence on demand.
   JsonPrefStore(const base::FilePath& pref_filename,
+                std::unique_ptr<PrefFilter> pref_filter = nullptr,
                 scoped_refptr<base::SequencedTaskRunner> file_task_runner =
                     base::CreateSequencedTaskRunnerWithTraits(
-                        {base::MayBlock(),
-                         base::TaskShutdownBehavior::BLOCK_SHUTDOWN}),
-                std::unique_ptr<PrefFilter> pref_filter = nullptr);
+                        {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+                         base::TaskShutdownBehavior::BLOCK_SHUTDOWN}));
 
   // PrefStore overrides:
   bool GetValue(const std::string& key,
@@ -101,7 +96,10 @@ class COMPONENTS_PREFS_EXPORT JsonPrefStore
   // See details in pref_filter.h.
   PrefReadError ReadPrefs() override;
   void ReadPrefsAsync(ReadErrorDelegate* error_delegate) override;
-  void CommitPendingWrite(base::OnceClosure done_callback) override;
+  void CommitPendingWrite(
+      base::OnceClosure reply_callback = base::OnceClosure(),
+      base::OnceClosure synchronous_done_callback =
+          base::OnceClosure()) override;
   void SchedulePendingLossyWrites() override;
   void ReportValueChanged(const std::string& key, uint32_t flags) override;
 
@@ -118,63 +116,9 @@ class COMPONENTS_PREFS_EXPORT JsonPrefStore
 
   void ClearMutableValues() override;
 
+  void OnStoreDeletionFromDisk() override;
+
  private:
-  // Represents a histogram for recording the number of writes to the pref file
-  // that occur every kHistogramWriteReportIntervalInMins minutes.
-  class COMPONENTS_PREFS_EXPORT WriteCountHistogram {
-   public:
-    static const int32_t kHistogramWriteReportIntervalMins;
-
-    WriteCountHistogram(const base::TimeDelta& commit_interval,
-                        const base::FilePath& path);
-    // Constructor for testing. |clock| is a test Clock that is used to retrieve
-    // the time.
-    WriteCountHistogram(const base::TimeDelta& commit_interval,
-                        const base::FilePath& path,
-                        std::unique_ptr<base::Clock> clock);
-    ~WriteCountHistogram();
-
-    // Record that a write has occured.
-    void RecordWriteOccured();
-
-    // Reports writes (that have not yet been reported) in all of the recorded
-    // intervals that have elapsed up until current time.
-    void ReportOutstandingWrites();
-
-    base::HistogramBase* GetHistogram();
-
-   private:
-    // The minimum interval at which writes can occur.
-    const base::TimeDelta commit_interval_;
-
-    // The path to the file.
-    const base::FilePath path_;
-
-    // Clock which is used to retrieve the current time.
-    std::unique_ptr<base::Clock> clock_;
-
-    // The interval at which to report write counts.
-    const base::TimeDelta report_interval_;
-
-    // The time at which the last histogram value was reported for the number
-    // of write counts.
-    base::Time last_report_time_;
-
-    // The number of writes that have occured since the last write count was
-    // reported.
-    uint32_t writes_since_last_report_;
-
-    DISALLOW_COPY_AND_ASSIGN(WriteCountHistogram);
-  };
-
-  FRIEND_TEST_ALL_PREFIXES(base::JsonPrefStoreTest,
-                           WriteCountHistogramTestBasic);
-  FRIEND_TEST_ALL_PREFIXES(base::JsonPrefStoreTest,
-                           WriteCountHistogramTestSinglePeriod);
-  FRIEND_TEST_ALL_PREFIXES(base::JsonPrefStoreTest,
-                           WriteCountHistogramTestMultiplePeriods);
-  FRIEND_TEST_ALL_PREFIXES(base::JsonPrefStoreTest,
-                           WriteCountHistogramTestPeriodWithGaps);
   friend class base::JsonPrefStoreCallbackTest;
   friend class base::JsonPrefStoreLossyWriteTest;
   friend class base::WriteCallbacksObserver;
@@ -236,7 +180,7 @@ class COMPONENTS_PREFS_EXPORT JsonPrefStore
   base::ImportantFileWriter writer_;
 
   std::unique_ptr<PrefFilter> pref_filter_;
-  base::ObserverList<PrefStore::Observer, true> observers_;
+  base::ObserverList<PrefStore::Observer, true>::Unchecked observers_;
 
   std::unique_ptr<ReadErrorDelegate> error_delegate_;
 
@@ -249,8 +193,6 @@ class COMPONENTS_PREFS_EXPORT JsonPrefStore
 
   bool has_pending_write_reply_ = true;
   base::Closure on_next_successful_write_reply_;
-
-  WriteCountHistogram write_count_histogram_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

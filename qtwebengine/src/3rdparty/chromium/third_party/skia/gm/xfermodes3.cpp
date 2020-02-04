@@ -12,10 +12,8 @@
 #include "SkSurface.h"
 #include "SkBlendModePriv.h"
 #include "SkColorPriv.h"
-
-#if SK_SUPPORT_GPU
+#include "SkTextUtils.h"
 #include "GrContext.h"
-#endif
 
 namespace skiagm {
 
@@ -45,9 +43,8 @@ protected:
     void onDraw(SkCanvas* canvas) override {
         canvas->translate(SkIntToScalar(10), SkIntToScalar(20));
 
+        SkFont font(sk_tool_utils::create_portable_typeface());
         SkPaint labelP;
-        labelP.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&labelP);
 
         constexpr SkColor kSolidColors[] = {
             SK_ColorTRANSPARENT,
@@ -60,7 +57,7 @@ protected:
             0x80,
         };
 
-        auto tempSurface(this->possiblyCreateTempSurface(canvas, kSize, kSize));
+        auto tempSurface(this->makeTempSurface(canvas, kSize, kSize));
 
         int test = 0;
         int x = 0, y = 0;
@@ -72,9 +69,9 @@ protected:
             for (size_t m = 0; m <= (size_t)SkBlendMode::kLastMode; ++m) {
                 SkBlendMode mode = static_cast<SkBlendMode>(m);
                 canvas->drawString(SkBlendMode_Name(mode),
-                                 SkIntToScalar(x),
-                                 SkIntToScalar(y + kSize + 3) + labelP.getTextSize(),
-                                 labelP);
+                                   SkIntToScalar(x),
+                                   SkIntToScalar(y + kSize + 3) + font.getSize(),
+                                   font, labelP);
                 for (size_t c = 0; c < SK_ARRAY_COUNT(kSolidColors); ++c) {
                     SkPaint modePaint;
                     modePaint.setBlendMode(mode);
@@ -118,21 +115,13 @@ private:
      * We are trying to test those. We could use saveLayer() to create small SkGpuDevices but
      * saveLayer() uses the texture cache. This means that the actual render target may be larger
      * than the layer. Because the clip will contain the layer's bounds, no draws will be full-RT.
-     * So when running on a GPU canvas we explicitly create a temporary canvas using a texture with
-     * dimensions exactly matching the layer size.
+     * So explicitly create a temporary canvas with dimensions exactly the layer size.
      */
-    sk_sp<SkSurface> possiblyCreateTempSurface(SkCanvas* baseCanvas, int w, int h) {
-#if SK_SUPPORT_GPU
-        GrContext* context = baseCanvas->getGrContext();
+    sk_sp<SkSurface> makeTempSurface(SkCanvas* baseCanvas, int w, int h) {
         SkImageInfo baseInfo = baseCanvas->imageInfo();
         SkImageInfo info = SkImageInfo::Make(w, h, baseInfo.colorType(), baseInfo.alphaType(),
                                              baseInfo.refColorSpace());
-        SkSurfaceProps canvasProps(SkSurfaceProps::kLegacyFontHost_InitType);
-        baseCanvas->getProps(&canvasProps);
-        return SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, info, 0, &canvasProps);
-#else
-        return nullptr;
-#endif
+        return baseCanvas->makeSurface(info);
     }
 
     void drawMode(SkCanvas* canvas,
@@ -146,6 +135,7 @@ private:
         SkCanvas* modeCanvas;
         if (nullptr == surface) {
             canvas->saveLayer(&r, nullptr);
+            canvas->clipRect(r);
             modeCanvas = canvas;
         } else {
             modeCanvas = surface->getCanvas();

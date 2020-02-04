@@ -14,9 +14,9 @@
 #include "src/wasm/wasm-opcodes.h"
 #include "src/zone/zone.h"
 
-using namespace v8;
-using namespace v8::internal;
-using namespace v8::internal::wasm;
+namespace v8 {
+namespace internal {
+namespace wasm {
 
 namespace {
 bool IsValidFunctionName(const Vector<const char> &name) {
@@ -32,10 +32,9 @@ bool IsValidFunctionName(const Vector<const char> &name) {
 
 }  // namespace
 
-void wasm::PrintWasmText(const WasmModule *module,
-                         const ModuleWireBytes &wire_bytes, uint32_t func_index,
-                         std::ostream &os,
-                         debug::WasmDisassembly::OffsetTable *offset_table) {
+void PrintWasmText(const WasmModule* module, const ModuleWireBytes& wire_bytes,
+                   uint32_t func_index, std::ostream& os,
+                   debug::WasmDisassembly::OffsetTable* offset_table) {
   DCHECK_NOT_NULL(module);
   DCHECK_GT(module->functions.size(), func_index);
   const WasmFunction *fun = &module->functions[func_index];
@@ -47,7 +46,7 @@ void wasm::PrintWasmText(const WasmModule *module,
 
   // Print the function signature.
   os << "func";
-  WasmName fun_name = wire_bytes.GetNameOrNull(fun);
+  WasmName fun_name = wire_bytes.GetNameOrNull(fun, module);
   if (IsValidFunctionName(fun_name)) {
     os << " $";
     os.write(fun_name.start(), fun_name.length());
@@ -55,13 +54,12 @@ void wasm::PrintWasmText(const WasmModule *module,
   if (fun->sig->parameter_count()) {
     os << " (param";
     for (auto param : fun->sig->parameters())
-      os << ' ' << WasmOpcodes::TypeName(param);
+      os << ' ' << ValueTypes::TypeName(param);
     os << ')';
   }
   if (fun->sig->return_count()) {
     os << " (result";
-    for (auto ret : fun->sig->returns())
-      os << ' ' << WasmOpcodes::TypeName(ret);
+    for (auto ret : fun->sig->returns()) os << ' ' << ValueTypes::TypeName(ret);
     os << ')';
   }
   os << "\n";
@@ -75,7 +73,7 @@ void wasm::PrintWasmText(const WasmModule *module,
   if (!decls.type_list.empty()) {
     os << "(local";
     for (const ValueType &v : decls.type_list) {
-      os << ' ' << WasmOpcodes::TypeName(v);
+      os << ' ' << ValueTypes::TypeName(v);
     }
     os << ")\n";
     ++line_nr;
@@ -83,7 +81,9 @@ void wasm::PrintWasmText(const WasmModule *module,
 
   for (; i.has_next(); i.next()) {
     WasmOpcode opcode = i.current();
-    if (opcode == kExprElse || opcode == kExprEnd) --control_depth;
+    if (opcode == kExprElse || opcode == kExprCatch || opcode == kExprEnd) {
+      --control_depth;
+    }
 
     DCHECK_LE(0, control_depth);
     const int kMaxIndentation = 64;
@@ -102,76 +102,94 @@ void wasm::PrintWasmText(const WasmModule *module,
       case kExprIf:
       case kExprBlock:
       case kExprTry: {
-        BlockTypeOperand<false> operand(&i, i.pc());
+        BlockTypeImmediate<Decoder::kNoValidate> imm(kAllWasmFeatures, &i,
+                                                     i.pc());
         os << WasmOpcodes::OpcodeName(opcode);
-        for (unsigned i = 0; i < operand.arity; i++) {
-          os << " " << WasmOpcodes::TypeName(operand.read_entry(i));
+        if (imm.type == kWasmVar) {
+          os << " (type " << imm.sig_index << ")";
+        } else if (imm.out_arity() > 0) {
+          os << " " << ValueTypes::TypeName(imm.out_type(0));
         }
         control_depth++;
         break;
       }
       case kExprBr:
       case kExprBrIf: {
-        BreakDepthOperand<false> operand(&i, i.pc());
-        os << WasmOpcodes::OpcodeName(opcode) << ' ' << operand.depth;
+        BranchDepthImmediate<Decoder::kNoValidate> imm(&i, i.pc());
+        os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.depth;
+        break;
+      }
+      case kExprBrOnExn: {
+        BranchDepthImmediate<Decoder::kNoValidate> imm_br(&i, i.pc());
+        ExceptionIndexImmediate<Decoder::kNoValidate> imm_idx(
+            &i, i.pc() + imm_br.length);
+        os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm_br.depth << ' '
+           << imm_idx.index;
         break;
       }
       case kExprElse:
-        os << "else";
+      case kExprCatch:
+        os << WasmOpcodes::OpcodeName(opcode);
         control_depth++;
         break;
       case kExprEnd:
         os << "end";
         break;
       case kExprBrTable: {
-        BranchTableOperand<false> operand(&i, i.pc());
-        BranchTableIterator<false> iterator(&i, operand);
+        BranchTableImmediate<Decoder::kNoValidate> imm(&i, i.pc());
+        BranchTableIterator<Decoder::kNoValidate> iterator(&i, imm);
         os << "br_table";
         while (iterator.has_next()) os << ' ' << iterator.next();
         break;
       }
       case kExprCallIndirect: {
-        CallIndirectOperand<false> operand(&i, i.pc());
-        DCHECK_EQ(0, operand.table_index);
-        os << "call_indirect " << operand.index;
+        CallIndirectImmediate<Decoder::kNoValidate> imm(&i, i.pc());
+        DCHECK_EQ(0, imm.table_index);
+        os << "call_indirect " << imm.sig_index;
         break;
       }
       case kExprCallFunction: {
-        CallFunctionOperand<false> operand(&i, i.pc());
-        os << "call " << operand.index;
+        CallFunctionImmediate<Decoder::kNoValidate> imm(&i, i.pc());
+        os << "call " << imm.index;
         break;
       }
       case kExprGetLocal:
       case kExprSetLocal:
-      case kExprTeeLocal:
-      case kExprCatch: {
-        LocalIndexOperand<false> operand(&i, i.pc());
-        os << WasmOpcodes::OpcodeName(opcode) << ' ' << operand.index;
+      case kExprTeeLocal: {
+        LocalIndexImmediate<Decoder::kNoValidate> imm(&i, i.pc());
+        os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.index;
+        break;
+      }
+      case kExprThrow: {
+        ExceptionIndexImmediate<Decoder::kNoValidate> imm(&i, i.pc());
+        os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.index;
         break;
       }
       case kExprGetGlobal:
       case kExprSetGlobal: {
-        GlobalIndexOperand<false> operand(&i, i.pc());
-        os << WasmOpcodes::OpcodeName(opcode) << ' ' << operand.index;
+        GlobalIndexImmediate<Decoder::kNoValidate> imm(&i, i.pc());
+        os << WasmOpcodes::OpcodeName(opcode) << ' ' << imm.index;
         break;
       }
-#define CASE_CONST(type, str, cast_type)                           \
-  case kExpr##type##Const: {                                       \
-    Imm##type##Operand<false> operand(&i, i.pc());                 \
-    os << #str ".const " << static_cast<cast_type>(operand.value); \
-    break;                                                         \
+#define CASE_CONST(type, str, cast_type)                        \
+  case kExpr##type##Const: {                                    \
+    Imm##type##Immediate<Decoder::kNoValidate> imm(&i, i.pc()); \
+    os << #str ".const " << static_cast<cast_type>(imm.value);  \
+    break;                                                      \
   }
         CASE_CONST(I32, i32, int32_t)
         CASE_CONST(I64, i64, int64_t)
         CASE_CONST(F32, f32, float)
         CASE_CONST(F64, f64, double)
+#undef CASE_CONST
 
 #define CASE_OPCODE(opcode, _, __) case kExpr##opcode:
         FOREACH_LOAD_MEM_OPCODE(CASE_OPCODE)
         FOREACH_STORE_MEM_OPCODE(CASE_OPCODE) {
-          MemoryAccessOperand<false> operand(&i, i.pc(), kMaxUInt32);
-          os << WasmOpcodes::OpcodeName(opcode) << " offset=" << operand.offset
-             << " align=" << (1ULL << operand.alignment);
+          MemoryAccessImmediate<Decoder::kNoValidate> imm(&i, i.pc(),
+                                                          kMaxUInt32);
+          os << WasmOpcodes::OpcodeName(opcode) << " offset=" << imm.offset
+             << " align=" << (1ULL << imm.alignment);
           break;
         }
 
@@ -180,12 +198,28 @@ void wasm::PrintWasmText(const WasmModule *module,
       case kExprNop:
       case kExprReturn:
       case kExprMemorySize:
-      case kExprGrowMemory:
+      case kExprMemoryGrow:
       case kExprDrop:
       case kExprSelect:
-      case kExprThrow:
         os << WasmOpcodes::OpcodeName(opcode);
         break;
+      case kAtomicPrefix: {
+        WasmOpcode atomic_opcode = i.prefixed_opcode();
+        switch (atomic_opcode) {
+          FOREACH_ATOMIC_OPCODE(CASE_OPCODE) {
+            MemoryAccessImmediate<Decoder::kNoValidate> imm(&i, i.pc(),
+                                                            kMaxUInt32);
+            os << WasmOpcodes::OpcodeName(atomic_opcode)
+               << " offset=" << imm.offset
+               << " align=" << (1ULL << imm.alignment);
+            break;
+          }
+          default:
+            UNREACHABLE();
+            break;
+        }
+        break;
+      }
 
         // This group is just printed by their internal opcode name, as they
         // should never be shown to end-users.
@@ -196,9 +230,9 @@ void wasm::PrintWasmText(const WasmModule *module,
         FOREACH_SIMD_1_OPERAND_OPCODE(CASE_OPCODE)
         FOREACH_SIMD_MASK_OPERAND_OPCODE(CASE_OPCODE)
         FOREACH_SIMD_MEM_OPCODE(CASE_OPCODE)
-        FOREACH_ATOMIC_OPCODE(CASE_OPCODE)
         os << WasmOpcodes::OpcodeName(opcode);
         break;
+#undef CASE_OPCODE
 
       default:
         UNREACHABLE();
@@ -210,3 +244,7 @@ void wasm::PrintWasmText(const WasmModule *module,
   DCHECK_EQ(0, control_depth);
   DCHECK(i.ok());
 }
+
+}  // namespace wasm
+}  // namespace internal
+}  // namespace v8

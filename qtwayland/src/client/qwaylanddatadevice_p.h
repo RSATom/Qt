@@ -80,7 +80,7 @@ class QWaylandDataDevice : public QObject, public QtWayland::wl_data_device
     Q_OBJECT
 public:
     QWaylandDataDevice(QWaylandDataDeviceManager *manager, QWaylandInputDevice *inputDevice);
-    ~QWaylandDataDevice();
+    ~QWaylandDataDevice() override;
 
     QWaylandDataOffer *selectionOffer() const;
     void invalidateSelectionOffer();
@@ -89,7 +89,7 @@ public:
 
 #if QT_CONFIG(draganddrop)
     QWaylandDataOffer *dragOffer() const;
-    void startDrag(QMimeData *mimeData, QWaylandWindow *icon);
+    bool startDrag(QMimeData *mimeData, QWaylandWindow *icon);
     void cancelDrag();
 #endif
 
@@ -117,9 +117,9 @@ private:
     QPoint calculateDragPosition(int x, int y, QWindow *wnd) const;
 #endif
 
-    QWaylandDisplay *m_display;
-    QWaylandInputDevice *m_inputDevice;
-    uint32_t m_enterSerial;
+    QWaylandDisplay *m_display = nullptr;
+    QWaylandInputDevice *m_inputDevice = nullptr;
+    uint32_t m_enterSerial = 0;
     QPointer<QWindow> m_dragWindow;
     QPoint m_dragPoint;
     QScopedPointer<QWaylandDataOffer> m_dragOffer;

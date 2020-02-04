@@ -9,30 +9,28 @@ import subprocess
 import sys
 
 BOTS = {
-  '--arm32': 'v8_arm32_perf_try',
+  '--chromebook': 'v8_chromebook_perf_try',
   '--linux32': 'v8_linux32_perf_try',
   '--linux64': 'v8_linux64_perf_try',
   '--linux64_atom': 'v8_linux64_atom_perf_try',
-  '--linux64_haswell': 'v8_linux64_haswell_perf_try',
-  '--linux64_haswell_cm': 'v8_linux64_haswell_cm_perf_try',
   '--nexus5': 'v8_nexus5_perf_try',
   '--nexus7': 'v8_nexus7_perf_try',
-  '--nexus9': 'v8_nexus9_perf_try',
-  '--nexus10': 'v8_nexus10_perf_try',
+  '--nokia1': 'v8_nokia1_perf_try',
+  '--odroid32': 'v8_odroid32_perf_try',
+  '--pixel2': 'v8_pixel2_perf_try',
 }
 
 DEFAULT_BOTS = [
-  'v8_arm32_perf_try',
+  'v8_chromebook_perf_try',
   'v8_linux32_perf_try',
-  'v8_linux64_haswell_perf_try',
-  'v8_nexus10_perf_try',
+  'v8_linux64_perf_try',
 ]
 
 PUBLIC_BENCHMARKS = [
   'arewefastyet',
+  'compile',
   'embenchen',
   'emscripten',
-  'compile',
   'jetstream',
   'jsbench',
   'jstests',
@@ -47,6 +45,7 @@ PUBLIC_BENCHMARKS = [
   'sunspider',
   'unity',
   'wasm',
+  'web-tooling-benchmark',
 ]
 
 V8_BASE = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -60,6 +59,8 @@ def main():
                       help='Revision (use full hash!) to use for the try job; '
                            'default: the revision will be determined by the '
                            'try server; see its waterfall for more info')
+  parser.add_argument('-v', '--verbose', action='store_true',
+                      help='Print debug information')
   for option in sorted(BOTS):
     parser.add_argument(
         option, dest='bots', action='append_const', const=BOTS[option],
@@ -90,15 +91,17 @@ def main():
   subprocess.check_output(
       'update_depot_tools', shell=True, stderr=subprocess.STDOUT, cwd=V8_BASE)
 
-  cmd = ['git cl try -m internal.client.v8']
+  cmd = ['git cl try', '-B', 'luci.v8-internal.try']
   cmd += ['-b %s' % bot for bot in options.bots]
   if options.revision: cmd += ['-r %s' % options.revision]
   benchmarks = ['"%s"' % benchmark for benchmark in options.benchmarks]
   cmd += ['-p \'testfilter=[%s]\'' % ','.join(benchmarks)]
   if options.extra_flags:
     cmd += ['-p \'extra_flags="%s"\'' % options.extra_flags]
+  if options.verbose:
+    cmd.append('-vv')
+    print 'Running %s' % ' '.join(cmd)
   subprocess.check_call(' '.join(cmd), shell=True, cwd=V8_BASE)
-
 
 if __name__ == '__main__':  # pragma: no cover
   sys.exit(main())

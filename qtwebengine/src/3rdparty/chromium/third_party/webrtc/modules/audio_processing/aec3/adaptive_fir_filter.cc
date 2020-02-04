@@ -8,20 +8,23 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_processing/aec3/adaptive_fir_filter.h"
+#include "modules/audio_processing/aec3/adaptive_fir_filter.h"
+
+// Defines WEBRTC_ARCH_X86_FAMILY, used below.
+#include "rtc_base/system/arch.h"
 
 #if defined(WEBRTC_HAS_NEON)
 #include <arm_neon.h>
 #endif
-#include "webrtc/typedefs.h"
 #if defined(WEBRTC_ARCH_X86_FAMILY)
 #include <emmintrin.h>
 #endif
 #include <algorithm>
 #include <functional>
 
-#include "webrtc/modules/audio_processing/aec3/fft_data.h"
-#include "webrtc/rtc_base/checks.h"
+#include "modules/audio_processing/aec3/fft_data.h"
+#include "rtc_base/checks.h"
+#include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
 
@@ -134,7 +137,8 @@ void UpdateErlEstimator_SSE2(
 void AdaptPartitions(const RenderBuffer& render_buffer,
                      const FftData& G,
                      rtc::ArrayView<FftData> H) {
-  rtc::ArrayView<const FftData> render_buffer_data = render_buffer.Buffer();
+  rtc::ArrayView<const FftData> render_buffer_data =
+      render_buffer.GetFftBuffer();
   size_t index = render_buffer.Position();
   for (auto& H_j : H) {
     const FftData& X = render_buffer_data[index];
@@ -152,7 +156,8 @@ void AdaptPartitions(const RenderBuffer& render_buffer,
 void AdaptPartitions_NEON(const RenderBuffer& render_buffer,
                           const FftData& G,
                           rtc::ArrayView<FftData> H) {
-  rtc::ArrayView<const FftData> render_buffer_data = render_buffer.Buffer();
+  rtc::ArrayView<const FftData> render_buffer_data =
+      render_buffer.GetFftBuffer();
   const int lim1 =
       std::min(render_buffer_data.size() - render_buffer.Position(), H.size());
   const int lim2 = H.size();
@@ -209,7 +214,8 @@ void AdaptPartitions_NEON(const RenderBuffer& render_buffer,
 void AdaptPartitions_SSE2(const RenderBuffer& render_buffer,
                           const FftData& G,
                           rtc::ArrayView<FftData> H) {
-  rtc::ArrayView<const FftData> render_buffer_data = render_buffer.Buffer();
+  rtc::ArrayView<const FftData> render_buffer_data =
+      render_buffer.GetFftBuffer();
   const int lim1 =
       std::min(render_buffer_data.size() - render_buffer.Position(), H.size());
   const int lim2 = H.size();
@@ -274,7 +280,8 @@ void ApplyFilter(const RenderBuffer& render_buffer,
   S->re.fill(0.f);
   S->im.fill(0.f);
 
-  rtc::ArrayView<const FftData> render_buffer_data = render_buffer.Buffer();
+  rtc::ArrayView<const FftData> render_buffer_data =
+      render_buffer.GetFftBuffer();
   size_t index = render_buffer.Position();
   for (auto& H_j : H) {
     const FftData& X = render_buffer_data[index];
@@ -295,7 +302,8 @@ void ApplyFilter_NEON(const RenderBuffer& render_buffer,
   S->re.fill(0.f);
   S->im.fill(0.f);
 
-  rtc::ArrayView<const FftData> render_buffer_data = render_buffer.Buffer();
+  rtc::ArrayView<const FftData> render_buffer_data =
+      render_buffer.GetFftBuffer();
   const int lim1 =
       std::min(render_buffer_data.size() - render_buffer.Position(), H.size());
   const int lim2 = H.size();
@@ -354,7 +362,8 @@ void ApplyFilter_SSE2(const RenderBuffer& render_buffer,
   S->re.fill(0.f);
   S->im.fill(0.f);
 
-  rtc::ArrayView<const FftData> render_buffer_data = render_buffer.Buffer();
+  rtc::ArrayView<const FftData> render_buffer_data =
+      render_buffer.GetFftBuffer();
   const int lim1 =
       std::min(render_buffer_data.size() - render_buffer.Position(), H.size());
   const int lim2 = H.size();
@@ -408,17 +417,38 @@ void ApplyFilter_SSE2(const RenderBuffer& render_buffer,
 
 }  // namespace aec3
 
-AdaptiveFirFilter::AdaptiveFirFilter(size_t size_partitions,
+namespace {
+
+bool EnablePartialFilterReset() {
+  return !field_trial::IsEnabled("WebRTC-Aec3PartialFilterResetKillSwitch");
+}
+
+}  // namespace
+
+AdaptiveFirFilter::AdaptiveFirFilter(size_t max_size_partitions,
+                                     size_t initial_size_partitions,
+                                     size_t size_change_duration_blocks,
                                      Aec3Optimization optimization,
                                      ApmDataDumper* data_dumper)
     : data_dumper_(data_dumper),
+      use_partial_filter_reset_(EnablePartialFilterReset()),
       fft_(),
       optimization_(optimization),
-      H_(size_partitions),
-      H2_(size_partitions, std::array<float, kFftLengthBy2Plus1>()) {
+      max_size_partitions_(max_size_partitions),
+      size_change_duration_blocks_(
+          static_cast<int>(size_change_duration_blocks)),
+      current_size_partitions_(initial_size_partitions),
+      target_size_partitions_(initial_size_partitions),
+      old_target_size_partitions_(initial_size_partitions),
+      H_(max_size_partitions_),
+      H2_(max_size_partitions_, std::array<float, kFftLengthBy2Plus1>()),
+      h_(GetTimeDomainLength(max_size_partitions_), 0.f) {
   RTC_DCHECK(data_dumper_);
+  RTC_DCHECK_GE(max_size_partitions, initial_size_partitions);
 
-  h_.fill(0.f);
+  RTC_DCHECK_LT(0, size_change_duration_blocks_);
+  one_by_size_change_duration_blocks_ = 1.f / size_change_duration_blocks_;
+
   for (auto& H_j : H_) {
     H_j.Clear();
   }
@@ -426,19 +456,93 @@ AdaptiveFirFilter::AdaptiveFirFilter(size_t size_partitions,
     H2_k.fill(0.f);
   }
   erl_.fill(0.f);
+  SetSizePartitions(current_size_partitions_, true);
 }
 
 AdaptiveFirFilter::~AdaptiveFirFilter() = default;
 
 void AdaptiveFirFilter::HandleEchoPathChange() {
-  h_.fill(0.f);
-  for (auto& H_j : H_) {
-    H_j.Clear();
+  size_t current_h_size = h_.size();
+  h_.resize(GetTimeDomainLength(max_size_partitions_));
+  const size_t begin_coeffficient =
+      use_partial_filter_reset_ ? current_h_size : 0;
+  std::fill(h_.begin() + begin_coeffficient, h_.end(), 0.f);
+  h_.resize(current_h_size);
+
+  size_t current_size_partitions = H_.size();
+  H_.resize(max_size_partitions_);
+  H2_.resize(max_size_partitions_);
+
+  const size_t begin_partition =
+      use_partial_filter_reset_ ? current_size_partitions : 0;
+  for (size_t k = begin_partition; k < max_size_partitions_; ++k) {
+    H_[k].Clear();
+    H2_[k].fill(0.f);
   }
-  for (auto& H2_k : H2_) {
-    H2_k.fill(0.f);
-  }
+  H_.resize(current_size_partitions);
+  H2_.resize(current_size_partitions);
+
   erl_.fill(0.f);
+}
+
+void AdaptiveFirFilter::SetSizePartitions(size_t size, bool immediate_effect) {
+  RTC_DCHECK_EQ(max_size_partitions_, H_.capacity());
+  RTC_DCHECK_EQ(max_size_partitions_, H2_.capacity());
+  RTC_DCHECK_EQ(GetTimeDomainLength(max_size_partitions_), h_.capacity());
+  RTC_DCHECK_EQ(H_.size(), H2_.size());
+  RTC_DCHECK_EQ(h_.size(), GetTimeDomainLength(H_.size()));
+  RTC_DCHECK_LE(size, max_size_partitions_);
+
+  target_size_partitions_ = std::min(max_size_partitions_, size);
+  if (immediate_effect) {
+    current_size_partitions_ = old_target_size_partitions_ =
+        target_size_partitions_;
+    ResetFilterBuffersToCurrentSize();
+    size_change_counter_ = 0;
+  } else {
+    size_change_counter_ = size_change_duration_blocks_;
+  }
+}
+
+void AdaptiveFirFilter::ResetFilterBuffersToCurrentSize() {
+  if (current_size_partitions_ < H_.size()) {
+    for (size_t k = current_size_partitions_; k < H_.size(); ++k) {
+      H_[k].Clear();
+      H2_[k].fill(0.f);
+    }
+    std::fill(h_.begin() + GetTimeDomainLength(current_size_partitions_),
+              h_.end(), 0.f);
+  }
+
+  H_.resize(current_size_partitions_);
+  H2_.resize(current_size_partitions_);
+  h_.resize(GetTimeDomainLength(current_size_partitions_));
+  RTC_DCHECK_LT(0, current_size_partitions_);
+  partition_to_constrain_ =
+      std::min(partition_to_constrain_, current_size_partitions_ - 1);
+}
+
+void AdaptiveFirFilter::UpdateSize() {
+  RTC_DCHECK_GE(size_change_duration_blocks_, size_change_counter_);
+  if (size_change_counter_ > 0) {
+    --size_change_counter_;
+
+    auto average = [](float from, float to, float from_weight) {
+      return from * from_weight + to * (1.f - from_weight);
+    };
+
+    float change_factor =
+        size_change_counter_ * one_by_size_change_duration_blocks_;
+
+    current_size_partitions_ = average(old_target_size_partitions_,
+                                       target_size_partitions_, change_factor);
+
+    ResetFilterBuffersToCurrentSize();
+  } else {
+    current_size_partitions_ = old_target_size_partitions_ =
+        target_size_partitions_;
+  }
+  RTC_DCHECK_LE(0, size_change_counter_);
 }
 
 void AdaptiveFirFilter::Filter(const RenderBuffer& render_buffer,
@@ -462,6 +566,9 @@ void AdaptiveFirFilter::Filter(const RenderBuffer& render_buffer,
 
 void AdaptiveFirFilter::Adapt(const RenderBuffer& render_buffer,
                               const FftData& G) {
+  // Update the filter size if needed.
+  UpdateSize();
+
   // Adapt the filter.
   switch (optimization_) {
 #if defined(WEBRTC_ARCH_X86_FAMILY)
@@ -507,9 +614,9 @@ void AdaptiveFirFilter::Constrain() {
   std::array<float, kFftLength> h;
   fft_.Ifft(H_[partition_to_constrain_], &h);
 
-  constexpr float kScale = 1.0f / kFftLengthBy2;
+  static constexpr float kScale = 1.0f / kFftLengthBy2;
   std::for_each(h.begin(), h.begin() + kFftLengthBy2,
-                [kScale](float& a) { a *= kScale; });
+                [](float& a) { a *= kScale; });
   std::fill(h.begin() + kFftLengthBy2, h.end(), 0.f);
 
   std::copy(h.begin(), h.begin() + kFftLengthBy2,
@@ -520,6 +627,29 @@ void AdaptiveFirFilter::Constrain() {
   partition_to_constrain_ = partition_to_constrain_ < (H_.size() - 1)
                                 ? partition_to_constrain_ + 1
                                 : 0;
+}
+
+void AdaptiveFirFilter::ScaleFilter(float factor) {
+  for (auto& H : H_) {
+    for (auto& re : H.re) {
+      re *= factor;
+    }
+    for (auto& im : H.im) {
+      im *= factor;
+    }
+  }
+  for (auto& h : h_) {
+    h *= factor;
+  }
+}
+
+// Set the filter coefficients.
+void AdaptiveFirFilter::SetFilter(const std::vector<FftData>& H) {
+  const size_t num_partitions = std::min(H_.size(), H.size());
+  for (size_t k = 0; k < num_partitions; ++k) {
+    std::copy(H[k].re.begin(), H[k].re.end(), H_[k].re.begin());
+    std::copy(H[k].im.begin(), H[k].im.end(), H_[k].im.begin());
+  }
 }
 
 }  // namespace webrtc

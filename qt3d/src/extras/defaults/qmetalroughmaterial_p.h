@@ -81,8 +81,6 @@ public:
 
     void handleTextureScaleChanged(const QVariant &var);
 
-    Qt3DRender::QAbstractTexture *m_environmentIrradianceTexture;
-    Qt3DRender::QAbstractTexture *m_environmentSpecularTexture;
     Qt3DRender::QParameter *m_baseColorParameter;
     Qt3DRender::QParameter *m_metalnessParameter;
     Qt3DRender::QParameter *m_roughnessParameter;
@@ -92,13 +90,15 @@ public:
     Qt3DRender::QParameter *m_ambientOcclusionMapParameter;
     Qt3DRender::QParameter *m_normalMapParameter;
     Qt3DRender::QParameter *m_textureScaleParameter;
-    Qt3DRender::QParameter *m_environmentIrradianceParameter;
-    Qt3DRender::QParameter *m_environmentSpecularParameter;
     Qt3DRender::QEffect *m_metalRoughEffect;
     Qt3DRender::QTechnique *m_metalRoughGL3Technique;
     Qt3DRender::QRenderPass *m_metalRoughGL3RenderPass;
     Qt3DRender::QShaderProgram *m_metalRoughGL3Shader;
     Qt3DRender::QShaderProgramBuilder *m_metalRoughGL3ShaderBuilder;
+    Qt3DRender::QTechnique *m_metalRoughES3Technique;
+    Qt3DRender::QRenderPass *m_metalRoughES3RenderPass;
+    Qt3DRender::QShaderProgram *m_metalRoughES3Shader;
+    Qt3DRender::QShaderProgramBuilder *m_metalRoughES3ShaderBuilder;
     Qt3DRender::QFilterKey *m_filterKey;
 
     Q_DECLARE_PUBLIC(QMetalRoughMaterial)

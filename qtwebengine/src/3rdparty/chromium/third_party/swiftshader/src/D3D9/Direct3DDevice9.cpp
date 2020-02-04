@@ -396,7 +396,7 @@ namespace D3D9
 
 		for(unsigned int i = 0; i < count; i++)
 		{
-			sw::SliceRect clearRect(rects[i].x1, rects[i].y1, rects[i].x2, rects[i].y2, 0);
+			sw::Rect clearRect(rects[i].x1, rects[i].y1, rects[i].x2, rects[i].y2);
 
 			clearRect.clip(viewport.X, viewport.Y, viewport.X + viewport.Width, viewport.Y + viewport.Height);
 
@@ -1831,14 +1831,15 @@ namespace D3D9
 
 			static void (__cdecl *blitFunction)(void *dst, void *src);
 			static sw::Routine *blitRoutine;
-			static sw::BlitState blitState = {0};
+			static sw::BlitState blitState = {};
 
 			sw::BlitState update;
 			update.width = sourceDescription.Width;
 			update.height = sourceDescription.Height;
 			update.sourceFormat = sw::FORMAT_A8R8G8B8;
+			update.sourceStride = source->getExternalPitchB();
 			update.destFormat = sw::FORMAT_A8R8G8B8;
-			update.stride = dest->getExternalPitchB();
+			update.destStride = dest->getExternalPitchB();
 			update.cursorHeight = 0;
 			update.cursorWidth = 0;
 
@@ -2659,7 +2660,7 @@ namespace D3D9
 		void *bitmap = cursorSurface->lockExternal(0, 0, 0, sw::LOCK_READONLY, sw::PUBLIC);
 
 		delete cursor;
-		cursor = sw::Surface::create(0, width, height, 1, sw::FORMAT_A8R8G8B8, false, false);
+		cursor = sw::Surface::create(nullptr, width, height, 1, 0, 1, sw::FORMAT_A8R8G8B8, false, false);
 
 		void *buffer = cursor->lockExternal(0, 0, 0, sw::LOCK_DISCARD, sw::PUBLIC);
 		memcpy(buffer, bitmap, width * height * sizeof(unsigned int));
@@ -2673,7 +2674,7 @@ namespace D3D9
 		}
 		else
 		{
-			sw::FrameBuffer::setCursorImage(0);
+			sw::FrameBuffer::setCursorImage(nullptr);
 		}
 
 		sw::FrameBuffer::setCursorOrigin(x0, y0);
@@ -3206,13 +3207,13 @@ namespace D3D9
 				switch(value)
 				{
 				case D3DCULL_NONE:
-					renderer->setCullMode(sw::CULL_NONE);
+					renderer->setCullMode(sw::CULL_NONE, true);
 					break;
 				case D3DCULL_CCW:
-					renderer->setCullMode(sw::CULL_COUNTERCLOCKWISE);
+					renderer->setCullMode(sw::CULL_COUNTERCLOCKWISE, true);
 					break;
 				case D3DCULL_CW:
-					renderer->setCullMode(sw::CULL_CLOCKWISE);
+					renderer->setCullMode(sw::CULL_CLOCKWISE, true);
 					break;
 				default:
 					ASSERT(false);
@@ -6322,7 +6323,8 @@ namespace D3D9
 		}
 		else
 		{
-			renderer->blit(source, sRect, dest, dRect, filter >= D3DTEXF_LINEAR);
+			sw::SliceRectF sRectF((float)sRect.x0, (float)sRect.y0, (float)sRect.x1, (float)sRect.y1, 0);
+			renderer->blit(source, sRectF, dest, dRect, filter >= D3DTEXF_LINEAR);
 		}
 	}
 

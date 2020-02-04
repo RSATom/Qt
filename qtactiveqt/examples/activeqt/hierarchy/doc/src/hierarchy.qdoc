@@ -56,7 +56,7 @@
     name. The widget is also shown explicitly.
 
     \snippet activeqt/hierarchy/objects.cpp 2
-    The \c subWidget slot uses the \c QObject::child() function and
+    The \c subWidget slot uses the \c QObject::findChild() function and
     returns the first child of type \c QSubWidget that has the requested
     name.
 

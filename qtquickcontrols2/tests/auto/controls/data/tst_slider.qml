@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
@@ -772,6 +772,63 @@ TestCase {
         compare(control.position, 0.25)
     }
 
+    function test_wheelPropagation_data() {
+        return [
+            { tag: "horizontal", orientation: Qt.Horizontal, dx: 120, dy: 0 },
+            { tag: "vertical", orientation: Qt.Vertical, dx: 0, dy: 120 }
+        ]
+    }
+
+    Component {
+        id: mouseAreaComponent
+        MouseArea {}
+    }
+
+    function test_wheelPropagation(data) {
+        var mouseArea = createTemporaryObject(mouseAreaComponent, testCase, { width: parent.width, height: parent.height })
+        verify(mouseArea)
+
+        var mouseAreaWheelSpy = signalSpy.createObject(mouseArea, { target: mouseArea, signalName: "wheel" })
+        verify(mouseAreaWheelSpy.valid)
+
+        var control = createTemporaryObject(slider, mouseArea,
+            { wheelEnabled: true, orientation: data.orientation, stepSize: 1 })
+        verify(control)
+        compare(control.value, 0.0)
+
+        var movedCount = 0
+        var movedSpy = signalSpy.createObject(control, { target: control, signalName: "moved" })
+        verify(movedSpy.valid)
+
+        // Scroll the handle to the edge.
+        mouseWheel(control, control.width / 2, control.height / 2, data.dx, data.dy)
+        compare(control.value, 1.0)
+        compare(control.position, 1.0)
+        compare(movedSpy.count, ++movedCount)
+        compare(mouseAreaWheelSpy.count, 0)
+
+        // Scroll again; the wheel event shouldn't go through to the MouseArea parent.
+        mouseWheel(control, control.width / 2, control.height / 2, data.dx, data.dy)
+        compare(control.value, 1.0)
+        compare(control.position, 1.0)
+        compare(movedSpy.count, movedCount)
+        compare(mouseAreaWheelSpy.count, 0)
+
+        // Scroll the handle to the other edge.
+        mouseWheel(control, control.width / 2, control.height / 2, -data.dx, -data.dy)
+        compare(control.value, 0.0)
+        compare(control.position, 0.0)
+        compare(movedSpy.count, ++movedCount)
+        compare(mouseAreaWheelSpy.count, 0)
+
+        // Scroll again; the wheel event shouldn't go through to the MouseArea parent.
+        mouseWheel(control, control.width / 2, control.height / 2, -data.dx, -data.dy)
+        compare(control.value, 0.0)
+        compare(control.position, 0.0)
+        compare(movedSpy.count, movedCount)
+        compare(mouseAreaWheelSpy.count, 0)
+    }
+
     function test_valueAt_data() {
         return [
             { tag: "0.0..1.0", from: 0.0, to: 1.0, values: [0.0, 0.2, 0.5, 1.0] },
@@ -803,5 +860,67 @@ TestCase {
 
         mouseRelease(control)
         compare(control.pressed, false)
+    }
+
+    function test_touchDragThreshold_data() {
+        var d1 = 3; var d2 = 7;
+        return [
+            { tag: "horizontal", orientation: Qt.Horizontal, dx1: d1, dy1: 0, dx2: d2, dy2: 0 },
+            { tag: "vertical", orientation: Qt.Vertical, dx1: 0, dy1: -d1, dx2: 0, dy2: -d2 },
+            { tag: "horizontal2", orientation: Qt.Horizontal, dx1: -d1, dy1: 0, dx2: -d2, dy2: 0 },
+            { tag: "vertical2", orientation: Qt.Vertical, dx1: 0, dy1: d1, dx2: 0, dy2: d2 }
+        ]
+    }
+
+    function test_touchDragThreshold(data) {
+        var control = createTemporaryObject(slider, testCase, {touchDragThreshold: 10, live: true, orientation: data.orientation, value: 0.5})
+        verify(control)
+        compare(control.touchDragThreshold, 10)
+
+        var valueChangedCount = 0
+        var valueChangedSpy = signalSpy.createObject(control, {target: control, signalName: "touchDragThresholdChanged"})
+        verify(valueChangedSpy.valid)
+
+        control.touchDragThreshold = undefined
+        compare(control.touchDragThreshold, -1) // reset to -1
+        compare(valueChangedSpy.count, ++valueChangedCount)
+
+        var t = 5
+        control.touchDragThreshold = t
+        compare(control.touchDragThreshold, t)
+        compare(valueChangedSpy.count, ++valueChangedCount)
+
+        control.touchDragThreshold = t
+        compare(control.touchDragThreshold, t)
+        compare(valueChangedSpy.count, valueChangedCount)
+
+        var pressedCount = 0
+        var movedCount = 0
+
+        var pressedSpy = signalSpy.createObject(control, {target: control, signalName: "pressedChanged"})
+        verify(pressedSpy.valid)
+
+        var movedSpy = signalSpy.createObject(control, {target: control, signalName: "moved"})
+        verify(movedSpy.valid)
+
+        var touch = touchEvent(control)
+        var x0 = control.handle.x + control.handle.width * 0.5
+        var y0 = control.handle.y + control.handle.height * 0.5
+        touch.press(0, control, x0, y0).commit()
+        compare(pressedSpy.count, ++pressedCount)
+        compare(movedSpy.count, movedCount)
+        compare(control.pressed, true)
+
+        touch.move(0, control, x0 + data.dx1, y0 + data.dy1).commit()
+        compare(pressedSpy.count, pressedCount)
+        compare(movedSpy.count, movedCount) // shouldn't move
+        compare(control.pressed, true)
+
+        touch.move(0, control, x0 + data.dx2, y0 + data.dy2).commit()
+        compare(pressedSpy.count, pressedCount)
+        compare(movedSpy.count, ++movedCount)
+        compare(control.pressed, true)
+
+        touch.release(0, control, x0 + data.dx2, y0 + data.dy2).commit()
     }
 }

@@ -1,0 +1,25 @@
+import("//mojo/public/tools/bindings/mojom.gni")
+
+mojom("mojo_bindings") {
+  disable_variants = true
+
+  sources = [
+    "renderer_configuration.mojom",
+  ]
+
+  deps = []
+
+  public_deps = [
+    "//content/public/common:interfaces",
+    "//mojo/public/mojom/base",
+    "//third_party/blink/public/mojom:mojom_platform",
+  ]
+
+  overridden_deps = [
+    "//third_party/blink/public/mojom:mojom_platform",
+    "//content/public/common:interfaces",
+  ]
+
+  component_deps = [ "//content/public/common" ]
+}
+

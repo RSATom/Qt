@@ -10,6 +10,7 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/native_widget_types.h"
 #include "ui/views/views_export.h"
 
 namespace gfx {
@@ -50,8 +51,10 @@ class VIEWS_EXPORT MouseWatcher {
  public:
   // Creates a new MouseWatcher. The |listener| will be notified when the |host|
   // determines that the mouse has moved outside its monitored region.
-  // |host| will be owned by the watcher and deleted upon completion.
-  MouseWatcher(MouseWatcherHost* host, MouseWatcherListener* listener);
+  // |host| will be owned by the watcher and deleted upon completion, while the
+  // listener must remain alive for the lifetime of this object.
+  MouseWatcher(std::unique_ptr<MouseWatcherHost> host,
+               MouseWatcherListener* listener);
   ~MouseWatcher();
 
   // Sets the amount to delay before notifying the listener when the mouse exits
@@ -63,8 +66,10 @@ class VIEWS_EXPORT MouseWatcher {
   // Starts watching mouse movements. When the mouse moves outside the bounds of
   // the host the listener is notified. |Start| may be invoked any number of
   // times. If the mouse moves outside the bounds of the host the listener is
-  // notified and watcher stops watching events.
-  void Start();
+  // notified and watcher stops watching events. |window| must be a window in
+  // the hierarchy related to the host. |window| is used to setup initial state,
+  // and may be deleted before MouseWatcher.
+  void Start(gfx::NativeWindow window);
 
   // Stops watching mouse events.
   void Stop();

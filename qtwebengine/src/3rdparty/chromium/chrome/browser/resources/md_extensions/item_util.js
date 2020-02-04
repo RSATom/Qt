@@ -4,11 +4,12 @@
 
 // Closure compiler won't let this be declared inside cr.define().
 /** @enum {string} */
-var SourceType = {
+const SourceType = {
   WEBSTORE: 'webstore',
   POLICY: 'policy',
   SIDELOADED: 'sideloaded',
   UNPACKED: 'unpacked',
+  UNKNOWN: 'unknown',
 };
 
 cr.define('extensions', function() {
@@ -23,10 +24,19 @@ cr.define('extensions', function() {
       case chrome.developerPrivate.ExtensionState.ENABLED:
       case chrome.developerPrivate.ExtensionState.TERMINATED:
         return true;
+      case chrome.developerPrivate.ExtensionState.BLACKLISTED:
       case chrome.developerPrivate.ExtensionState.DISABLED:
         return false;
     }
     assertNotReached();
+  }
+
+  /**
+   * @param {!chrome.developerPrivate.ExtensionInfo} extensionInfo
+   * @return {boolean} Whether the extension is controlled.
+   */
+  function isControlled(extensionInfo) {
+    return !!extensionInfo.controlledInfo;
   }
 
   /**
@@ -37,8 +47,9 @@ cr.define('extensions', function() {
    */
   function userCanChangeEnablement(item) {
     // User doesn't have permission.
-    if (!item.userMayModify)
+    if (!item.userMayModify) {
       return false;
+    }
     // Item is forcefully disabled.
     if (item.disableReasons.corruptInstall ||
         item.disableReasons.suspiciousInstall ||
@@ -47,11 +58,13 @@ cr.define('extensions', function() {
     }
     // An item with dependent extensions can't be disabled (it would bork the
     // dependents).
-    if (item.dependentExtensions.length > 0)
+    if (item.dependentExtensions.length > 0) {
       return false;
+    }
     // Blacklisted can't be enabled, either.
-    if (item.state == chrome.developerPrivate.ExtensionState.BLACKLISTED)
+    if (item.state == chrome.developerPrivate.ExtensionState.BLACKLISTED) {
       return false;
+    }
 
     return true;
   }
@@ -66,11 +79,19 @@ cr.define('extensions', function() {
             chrome.developerPrivate.ControllerType.POLICY) {
       return SourceType.POLICY;
     }
-    if (item.location == chrome.developerPrivate.Location.THIRD_PARTY)
-      return SourceType.SIDELOADED;
-    if (item.location == chrome.developerPrivate.Location.UNPACKED)
-      return SourceType.UNPACKED;
-    return SourceType.WEBSTORE;
+
+    switch (item.location) {
+      case chrome.developerPrivate.Location.THIRD_PARTY:
+        return SourceType.SIDELOADED;
+      case chrome.developerPrivate.Location.UNPACKED:
+        return SourceType.UNPACKED;
+      case chrome.developerPrivate.Location.UNKNOWN:
+        return SourceType.UNKNOWN;
+      case chrome.developerPrivate.Location.FROM_STORE:
+        return SourceType.WEBSTORE;
+    }
+
+    assertNotReached(item.location);
   }
 
   /**
@@ -87,6 +108,10 @@ cr.define('extensions', function() {
         return loadTimeData.getString('itemSourceUnpacked');
       case SourceType.WEBSTORE:
         return loadTimeData.getString('itemSourceWebstore');
+      case SourceType.UNKNOWN:
+        // Nothing to return. Calling code should use
+        // chrome.developerPrivate.ExtensionInfo's |locationText| instead.
+        return '';
     }
     assertNotReached();
   }
@@ -98,24 +123,30 @@ cr.define('extensions', function() {
    */
   function computeInspectableViewLabel(view) {
     // Trim the "chrome-extension://<id>/".
-    var url = new URL(view.url);
-    var label = view.url;
-    if (url.protocol == 'chrome-extension:')
+    const url = new URL(view.url);
+    let label = view.url;
+    if (url.protocol == 'chrome-extension:') {
       label = url.pathname.substring(1);
-    if (label == '_generated_background_page.html')
+    }
+    if (label == '_generated_background_page.html') {
       label = loadTimeData.getString('viewBackgroundPage');
+    }
     // Add any qualifiers.
-    if (view.incognito)
+    if (view.incognito) {
       label += ' ' + loadTimeData.getString('viewIncognito');
-    if (view.renderProcessId == -1)
+    }
+    if (view.renderProcessId == -1) {
       label += ' ' + loadTimeData.getString('viewInactive');
-    if (view.isIframe)
+    }
+    if (view.isIframe) {
       label += ' ' + loadTimeData.getString('viewIframe');
+    }
 
     return label;
   }
 
   return {
+    isControlled: isControlled,
     isEnabled: isEnabled,
     userCanChangeEnablement: userCanChangeEnablement,
     getItemSource: getItemSource,

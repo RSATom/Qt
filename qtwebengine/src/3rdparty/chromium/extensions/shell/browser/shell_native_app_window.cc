@@ -48,11 +48,11 @@ ui::WindowShowState ShellNativeAppWindow::GetRestoredState() const {
 }
 
 void ShellNativeAppWindow::ShowInactive() {
-  NOTIMPLEMENTED();
+  // app_shell does not differentiate between active and inactive windows.
+  Show();
 }
 
 void ShellNativeAppWindow::Close() {
-  DesktopController::instance()->RemoveAppWindow(app_window_);
   app_window_->OnNativeClose();
 }
 
@@ -132,13 +132,14 @@ SkRegion* ShellNativeAppWindow::GetDraggableRegion() {
   return NULL;
 }
 
-void ShellNativeAppWindow::UpdateShape(std::unique_ptr<SkRegion> region) {
+void ShellNativeAppWindow::UpdateShape(std::unique_ptr<ShapeRects> rects) {
   NOTIMPLEMENTED();
 }
 
-void ShellNativeAppWindow::HandleKeyboardEvent(
-      const content::NativeWebKeyboardEvent& event) {
+bool ShellNativeAppWindow::HandleKeyboardEvent(
+    const content::NativeWebKeyboardEvent& event) {
   // No special handling. The WebContents will handle it.
+  return false;
 }
 
 bool ShellNativeAppWindow::IsFrameless() const {
@@ -168,16 +169,6 @@ void ShellNativeAppWindow::ShowWithApp() {
 
 void ShellNativeAppWindow::HideWithApp() {
   NOTIMPLEMENTED();
-}
-
-gfx::Size ShellNativeAppWindow::GetContentMinimumSize() const {
-  // Content fills the desktop and cannot be resized.
-  return DesktopController::instance()->GetWindowSize();
-}
-
-gfx::Size ShellNativeAppWindow::GetContentMaximumSize() const {
-  // Content fills the desktop and cannot be resized.
-  return DesktopController::instance()->GetWindowSize();
 }
 
 void ShellNativeAppWindow::SetContentSizeConstraints(

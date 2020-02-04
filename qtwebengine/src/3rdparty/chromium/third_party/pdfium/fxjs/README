@@ -11,7 +11,7 @@ for progress on the issue.
 FXJS binds objects by sticking a pointer to a CFXJS_PerObjectData in
 the V8 object's internal slot.  FXJSE binds objects by sticking a
 pointer to either an actual v8 function object or a CFXJSE_HostObject
-in the the V8 object's internal slot, depending upon whether the object
+in the V8 object's internal slot, depending upon whether the object
 represents (in some notion) a "class" or an "instance". Also, V8 objects
 bound in one library may unexpectedly arrive at the other given a script
 that's trying to mess with us.
@@ -20,7 +20,8 @@ To distinguish these cases, we use two internal slots for all bound
 objects, regardless of the FXJS/FXJSE distinction.  Slot 0 is the
 tag and contains either:
   kPerObjectDataTag for FXJS objects, or
-  g_FXJSETagString for FXJSE Host objects, or
+  g_FXJSEHostObjectTag for FXJSE Host objects, or
+  g_FXJSEProxyObjectTag for a global proxy object under FXJSE, or
   One of 4 specific FXJSE_CLASS_DESCRIPTOR globals for FXJSE classes:
     GlobalClassDescriptor
     NormalClassDescriptor
@@ -28,6 +29,13 @@ tag and contains either:
     formcalc_fm2js_descriptor
 
 Slot 1's contents are determined by these tags:
-  kPerObjectDataTag means to expect a CFXJS_PerObjectData.
-  g_FXJSETagString means to expect a CFXJSE_HostObject.
-  A FXJSE_CLASS_DESCRIPTOR pointer means to expect a v8 function.
+  kPerObjectDataTag means an aligned pointer to CFXJS_PerObjectData.
+  g_FXJSEHostObjectTag means an aligned pointer to CFXJSE_HostObject.
+  g_FXJSEProxyObjectTag means nullptr, and to check the prototype instead.
+  A FXJSE_CLASS_DESCRIPTOR pointer means to expect an actual v8 function
+  object (or a string naming that function),  and not an aligned pointer.
+
+Because PDFium uses V8 for various unrelated purposes, there may be up to
+four v8::Contexts (JS Global Objects) associated with each document. One is
+used by FXJS and holds objects as described by the js_api_reference.pdf
+specification. The others are used by FXJSE.

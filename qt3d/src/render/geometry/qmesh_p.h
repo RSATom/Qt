@@ -59,13 +59,17 @@
 
 QT_BEGIN_NAMESPACE
 
+namespace Qt3DCore {
+class QDownloadHelperService;
+}
+
 namespace Qt3DRender {
 
 namespace Render {
 class NodeManagers;
 }
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT QMeshPrivate : public QGeometryRendererPrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QMeshPrivate : public QGeometryRendererPrivate
 {
 public:
     QMeshPrivate();
@@ -75,9 +79,11 @@ public:
 
     void setScene(Qt3DCore::QScene *scene) override;
     void updateFunctor();
+    void setStatus(QMesh::Status status);
 
     QUrl m_source;
     QString m_meshName;
+    QMesh::Status m_status;
 };
 
 class Q_AUTOTEST_EXPORT MeshDownloadRequest : public Qt3DCore::QDownloadRequest
@@ -85,7 +91,7 @@ class Q_AUTOTEST_EXPORT MeshDownloadRequest : public Qt3DCore::QDownloadRequest
 public:
     MeshDownloadRequest(Qt3DCore::QNodeId mesh, QUrl source, Render::NodeManagers *managers);
 
-    void onCompleted() Q_DECL_OVERRIDE;
+    void onCompleted() override;
 
 private:
     Qt3DCore::QNodeId m_mesh;
@@ -110,6 +116,8 @@ public :
     Qt3DCore::QNodeId mesh() const { return m_mesh; }
     QString meshName() const { return m_meshName; }
 
+    QMesh::Status status() const { return m_status; }
+
     QGeometry *operator()() override;
     bool operator ==(const QGeometryFactory &other) const override;
     QT3D_FUNCTOR(MeshLoaderFunctor)
@@ -121,6 +129,7 @@ private:
     QByteArray m_sourceData;
     Render::NodeManagers *m_nodeManagers;
     Qt3DCore::QDownloadHelperService *m_downloaderService;
+    QMesh::Status m_status;
 };
 
 

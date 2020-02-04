@@ -7,27 +7,29 @@
 #include <map>
 #include <utility>
 
+#include "base/feature_list.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/values.h"
-#include "content/public/child/v8_value_converter.h"
 #include "content/public/renderer/render_frame.h"
+#include "content/public/renderer/v8_value_converter.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/extension_messages.h"
-#include "extensions/common/feature_switch.h"
 #include "extensions/common/host_id.h"
+#include "extensions/renderer/async_scripts_run_info.h"
 #include "extensions/renderer/dom_activity_logger.h"
 #include "extensions/renderer/extension_frame_helper.h"
 #include "extensions/renderer/extensions_renderer_client.h"
 #include "extensions/renderer/script_injection_callback.h"
 #include "extensions/renderer/scripts_run_info.h"
-#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebScriptSource.h"
+#include "third_party/blink/public/platform/web_isolated_world_info.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_script_source.h"
 #include "url/gurl.h"
 
 namespace extensions {
@@ -55,7 +57,7 @@ int GetIsolatedWorldIdForInstance(const InjectionHost* injection_host,
 
   int id = 0;
   const std::string& key = injection_host->id().id();
-  IsolatedWorldMap::iterator iter = isolated_worlds.find(key);
+  auto iter = isolated_worlds.find(key);
   if (iter != isolated_worlds.end()) {
     id = iter->second;
   } else {
@@ -68,13 +70,16 @@ int GetIsolatedWorldIdForInstance(const InjectionHost* injection_host,
   // We need to set the isolated world origin and CSP even if it's not a new
   // world since these are stored per frame, and we might not have used this
   // isolated world in this frame before.
-  frame->SetIsolatedWorldSecurityOrigin(
-      id, blink::WebSecurityOrigin::Create(injection_host->url()));
-  frame->SetIsolatedWorldContentSecurityPolicy(
-      id,
-      blink::WebString::FromUTF8(injection_host->GetContentSecurityPolicy()));
-  frame->SetIsolatedWorldHumanReadableName(
-      id, blink::WebString::FromUTF8(injection_host->name()));
+  blink::WebIsolatedWorldInfo info;
+  info.security_origin =
+      blink::WebSecurityOrigin::Create(injection_host->url());
+  info.human_readable_name = blink::WebString::FromUTF8(injection_host->name());
+
+  const std::string* csp = injection_host->GetContentSecurityPolicy();
+  if (csp)
+    info.content_security_policy = blink::WebString::FromUTF8(*csp);
+
+  frame->SetIsolatedWorldInfo(id, info);
 
   return id;
 }
@@ -82,31 +87,42 @@ int GetIsolatedWorldIdForInstance(const InjectionHost* injection_host,
 // This class manages its own lifetime.
 class TimedScriptInjectionCallback : public ScriptInjectionCallback {
  public:
-  explicit TimedScriptInjectionCallback(
-      base::WeakPtr<ScriptInjection> injection)
+  TimedScriptInjectionCallback(
+      base::WeakPtr<ScriptInjection> injection,
+      scoped_refptr<AsyncScriptsRunInfo> async_run_info)
       : ScriptInjectionCallback(
             base::Bind(&TimedScriptInjectionCallback::OnCompleted,
                        base::Unretained(this))),
-        injection_(injection) {}
+        injection_(injection),
+        async_run_info_(async_run_info) {}
   ~TimedScriptInjectionCallback() override {}
 
   void OnCompleted(const std::vector<v8::Local<v8::Value>>& result) {
     if (injection_) {
+      base::TimeTicks timestamp(base::TimeTicks::Now());
       base::Optional<base::TimeDelta> elapsed;
       // If the script will never execute (such as if the context is destroyed),
       // willExecute() will not be called, but OnCompleted() will. Only log a
       // time for execution if the script, in fact, executed.
-      if (!start_time_.is_null())
-        elapsed = base::TimeTicks::Now() - start_time_;
+      if (!start_time_.is_null()) {
+        elapsed = timestamp - start_time_;
+        if (async_run_info_)
+          async_run_info_->OnCompleted(timestamp, elapsed);
+      }
       injection_->OnJsInjectionCompleted(result, elapsed);
     }
   }
 
-  void WillExecute() override { start_time_ = base::TimeTicks::Now(); }
+  void WillExecute() override {
+    start_time_ = base::TimeTicks::Now();
+    if (async_run_info_)
+      async_run_info_->WillExecute(start_time_);
+  }
 
  private:
   base::WeakPtr<ScriptInjection> injection_;
   base::TimeTicks start_time_;
+  scoped_refptr<AsyncScriptsRunInfo> async_run_info_;
 };
 
 }  // namespace
@@ -173,6 +189,7 @@ ScriptInjection::~ScriptInjection() {
 ScriptInjection::InjectionResult ScriptInjection::TryToInject(
     UserScript::RunLocation current_location,
     ScriptsRunInfo* scripts_run_info,
+    scoped_refptr<AsyncScriptsRunInfo> async_run_info,
     const CompletionCallback& async_completion_callback) {
   if (current_location < run_location_)
     return INJECTION_WAITING;  // Wait for the right location.
@@ -191,14 +208,15 @@ ScriptInjection::InjectionResult ScriptInjection::TryToInject(
   switch (injector_->CanExecuteOnFrame(
       injection_host_.get(), web_frame,
       ExtensionFrameHelper::Get(render_frame_)->tab_id())) {
-    case PermissionsData::ACCESS_DENIED:
+    case PermissionsData::PageAccess::kDenied:
       NotifyWillNotInject(ScriptInjector::NOT_ALLOWED);
       return INJECTION_FINISHED;  // We're done.
-    case PermissionsData::ACCESS_WITHHELD:
+    case PermissionsData::PageAccess::kWithheld:
       RequestPermissionFromBrowser();
       return INJECTION_WAITING;  // Wait around for permission.
-    case PermissionsData::ACCESS_ALLOWED:
-      InjectionResult result = Inject(scripts_run_info);
+    case PermissionsData::PageAccess::kAllowed:
+      InjectionResult result =
+          Inject(scripts_run_info, std::move(async_run_info));
       // If the injection is blocked, we need to set the manager so we can
       // notify it upon completion.
       if (result == INJECTION_BLOCKED)
@@ -217,7 +235,7 @@ ScriptInjection::InjectionResult ScriptInjection::OnPermissionGranted(
     return INJECTION_FINISHED;
   }
 
-  return Inject(scripts_run_info);
+  return Inject(scripts_run_info, nullptr);
 }
 
 void ScriptInjection::OnHostRemoved() {
@@ -240,7 +258,8 @@ void ScriptInjection::NotifyWillNotInject(
 }
 
 ScriptInjection::InjectionResult ScriptInjection::Inject(
-    ScriptsRunInfo* scripts_run_info) {
+    ScriptsRunInfo* scripts_run_info,
+    scoped_refptr<AsyncScriptsRunInfo> async_run_info) {
   DCHECK(injection_host_);
   DCHECK(scripts_run_info);
   DCHECK(!complete_);
@@ -258,7 +277,7 @@ ScriptInjection::InjectionResult ScriptInjection::Inject(
 
   if (should_inject_js)
     InjectJs(&(scripts_run_info->executing_scripts[host_id().id()]),
-             &(scripts_run_info->num_js));
+             &(scripts_run_info->num_js), std::move(async_run_info));
   if (should_inject_css)
     InjectCss(&(scripts_run_info->injected_stylesheets[host_id().id()]),
               &(scripts_run_info->num_css));
@@ -275,8 +294,10 @@ ScriptInjection::InjectionResult ScriptInjection::Inject(
   return complete_ ? INJECTION_FINISHED : INJECTION_BLOCKED;
 }
 
-void ScriptInjection::InjectJs(std::set<std::string>* executing_scripts,
-                               size_t* num_injected_js_scripts) {
+void ScriptInjection::InjectJs(
+    std::set<std::string>* executing_scripts,
+    size_t* num_injected_js_scripts,
+    scoped_refptr<AsyncScriptsRunInfo> async_run_info) {
   DCHECK(!did_inject_js_);
   blink::WebLocalFrame* web_frame = render_frame_->GetWebFrame();
   std::vector<blink::WebScriptSource> sources = injector_->GetJsSources(
@@ -290,7 +311,8 @@ void ScriptInjection::InjectJs(std::set<std::string>* executing_scripts,
   bool is_user_gesture = injector_->IsUserGesture();
 
   std::unique_ptr<blink::WebScriptExecutionCallback> callback(
-      new TimedScriptInjectionCallback(weak_ptr_factory_.GetWeakPtr()));
+      new TimedScriptInjectionCallback(weak_ptr_factory_.GetWeakPtr(),
+                                       std::move(async_run_info)));
 
   base::ElapsedTimer exec_timer;
   if (injection_host_->id().type() == HostID::EXTENSIONS && log_activity_)
@@ -303,8 +325,7 @@ void ScriptInjection::InjectJs(std::set<std::string>* executing_scripts,
         sources.front(), is_user_gesture, callback.release());
   } else {
     blink::WebLocalFrame::ScriptExecutionType option;
-    if (injector_->script_type() == UserScript::CONTENT_SCRIPT &&
-        FeatureSwitch::yield_between_content_script_runs()->IsEnabled()) {
+    if (injector_->script_type() == UserScript::CONTENT_SCRIPT) {
       switch (run_location_) {
         case UserScript::DOCUMENT_END:
         case UserScript::DOCUMENT_IDLE:
@@ -362,7 +383,7 @@ void ScriptInjection::OnJsInjectionCompleted(
           content::V8ValueConverter::Create()->FromV8Value(results[0], context);
     }
     if (!execution_result_.get())
-      execution_result_ = base::MakeUnique<base::Value>();
+      execution_result_ = std::make_unique<base::Value>();
   }
   did_inject_js_ = true;
 
@@ -382,8 +403,19 @@ void ScriptInjection::InjectCss(std::set<std::string>* injected_stylesheets,
   std::vector<blink::WebString> css_sources = injector_->GetCssSources(
       run_location_, injected_stylesheets, num_injected_stylesheets);
   blink::WebLocalFrame* web_frame = render_frame_->GetWebFrame();
+  // Default CSS origin is "author", but can be overridden to "user" by scripts.
+  base::Optional<CSSOrigin> css_origin = injector_->GetCssOrigin();
+  blink::WebDocument::CSSOrigin blink_css_origin =
+      css_origin && *css_origin == CSS_ORIGIN_USER
+          ? blink::WebDocument::kUserOrigin
+          : blink::WebDocument::kAuthorOrigin;
+  blink::WebStyleSheetKey style_sheet_key;
+  if (const base::Optional<std::string>& injection_key =
+          injector_->GetInjectionKey())
+    style_sheet_key = blink::WebString::FromASCII(*injection_key);
   for (const blink::WebString& css : css_sources)
-    web_frame->GetDocument().InsertStyleSheet(css);
+    web_frame->GetDocument().InsertStyleSheet(css, &style_sheet_key,
+                                              blink_css_origin);
 }
 
 }  // namespace extensions

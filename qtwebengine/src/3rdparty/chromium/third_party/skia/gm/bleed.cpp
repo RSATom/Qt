@@ -7,18 +7,17 @@
 
 #include "gm.h"
 #include "SkBlurMask.h"
-#include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
 #include "SkGradientShader.h"
 #include "SkImage.h"
+#include "SkMaskFilter.h"
 #include "SkTDArray.h"
-#include "SkUtils.h"
+#include "SkUTF.h"
+#include "sk_tool_utils.h"
 
-#if SK_SUPPORT_GPU
 #include "GrContext.h"
 #include "GrContextOptions.h"
 #include "SkGr.h"
-#endif
 
 /** Holds either a bitmap or image to be rendered and a rect that indicates what part of the bitmap
     or image should be tested by the GM. The area outside of the rect is present to check
@@ -280,7 +279,7 @@ protected:
 
         SkPaint paint;
         paint.setFilterQuality(filter);
-        paint.setMaskFilter(SkBlurMaskFilter::Make(kNormal_SkBlurStyle,
+        paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle,
                                                    SkBlurMask::ConvertRadiusToSigma(3)));
         paint.setShader(fShader);
         paint.setColor(SK_ColorBLUE);
@@ -298,7 +297,7 @@ protected:
 
         SkPaint paint;
         paint.setFilterQuality(filter);
-        paint.setMaskFilter(SkBlurMaskFilter::Make(kOuter_SkBlurStyle,
+        paint.setMaskFilter(SkMaskFilter::MakeBlur(kOuter_SkBlurStyle,
                                                    SkBlurMask::ConvertRadiusToSigma(7)));
         paint.setShader(fShader);
         paint.setColor(SK_ColorBLUE);
@@ -401,11 +400,9 @@ protected:
         }
     }
 
-#if SK_SUPPORT_GPU
     void modifyGrContextOptions(GrContextOptions* options) override {
         options->fMaxTileSizeOverride = kMaxTileSize;
     }
-#endif
 
 private:
     static constexpr int kBlockSize = 70;
@@ -449,14 +446,6 @@ DEF_GM( return new BleedGM(kUseAlphaImageShader_BleedTest); )
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #include "SkSurface.h"
 
-sk_sp<SkSurface> make_surface(SkCanvas* canvas, const SkImageInfo& info) {
-    auto surface = canvas->makeSurface(info);
-    if (!surface) {
-        surface = SkSurface::MakeRaster(info);
-    }
-    return surface;
-}
-
 // Construct an image and return the inner "src" rect. Build the image such that the interior is
 // blue, with a margin of blue (2px) but then an outer margin of red.
 //
@@ -468,7 +457,7 @@ static sk_sp<SkImage> make_image(SkCanvas* canvas, SkRect* srcR) {
     // produce different mipmap filtering when we have an odd sized texture.
     const int N = 10 + 2 + 8 + 2 + 10;
     SkImageInfo info = SkImageInfo::MakeN32Premul(N, N);
-    auto surface = make_surface(canvas, info);
+    auto surface = sk_tool_utils::makeSurface(canvas, info);
     SkCanvas* c = surface->getCanvas();
     SkRect r = SkRect::MakeIWH(info.width(), info.height());
     SkPaint paint;
@@ -500,7 +489,7 @@ DEF_SIMPLE_GM(bleed_downscale, canvas, 360, 240) {
         canvas->save();
         for (auto quality : qualities) {
             paint.setFilterQuality(quality);
-            auto surf = make_surface(canvas, SkImageInfo::MakeN32Premul(1, 1));
+            auto surf = sk_tool_utils::makeSurface(canvas, SkImageInfo::MakeN32Premul(1, 1));
             surf->getCanvas()->drawImageRect(img, src, SkRect::MakeWH(1, 1), &paint, constraint);
             // now blow up the 1 pixel result
             canvas->drawImageRect(surf->makeImageSnapshot(), SkRect::MakeWH(100, 100), nullptr);

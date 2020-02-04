@@ -62,7 +62,7 @@ class QQmlWebSocket : public QObject, public QQmlParserStatus
 public:
     explicit QQmlWebSocket(QObject *parent = 0);
     explicit QQmlWebSocket(QWebSocket *socket, QObject *parent = 0);
-    virtual ~QQmlWebSocket();
+    ~QQmlWebSocket() override;
 
     enum Status
     {
@@ -88,14 +88,14 @@ public:
 Q_SIGNALS:
     void textMessageReceived(QString message);
     Q_REVISION(1) void binaryMessageReceived(QByteArray message);
-    void statusChanged(Status status);
+    void statusChanged(QQmlWebSocket::Status status);
     void activeChanged(bool isActive);
     void errorStringChanged(QString errorString);
     void urlChanged();
 
 public:
-    void classBegin() Q_DECL_OVERRIDE;
-    void componentComplete() Q_DECL_OVERRIDE;
+    void classBegin() override;
+    void componentComplete() override;
 
 private Q_SLOTS:
     void onError(QAbstractSocket::SocketError error);

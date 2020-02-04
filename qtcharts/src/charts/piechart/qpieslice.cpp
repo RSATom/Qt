@@ -34,7 +34,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QPieSlice
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QPieSlice class represents a single slice in a pie series.
 
     A pie slice has a value and a label. When the slice is added to a pie series, the
@@ -837,6 +837,5 @@ void QPieSlicePrivate::setAngleSpan(qreal span)
 
 QT_CHARTS_END_NAMESPACE
 
-QT_CHARTS_USE_NAMESPACE
 #include "moc_qpieslice.cpp"
 #include "moc_qpieslice_p.cpp"

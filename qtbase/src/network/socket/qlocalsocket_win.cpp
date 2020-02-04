@@ -50,12 +50,6 @@ void QLocalSocketPrivate::init()
     q->connect(pipeReader, SIGNAL(winError(ulong,QString)), SLOT(_q_winError(ulong,QString)));
 }
 
-void QLocalSocketPrivate::setErrorString(const QString &function)
-{
-    DWORD windowsError = GetLastError();
-    _q_winError(windowsError, function);
-}
-
 void QLocalSocketPrivate::_q_winError(ulong windowsError, const QString &function)
 {
     Q_Q(QLocalSocket);
@@ -93,9 +87,9 @@ void QLocalSocketPrivate::_q_winError(ulong windowsError, const QString &functio
     }
 
     if (currentState != state) {
-        q->emit stateChanged(state);
+        emit q->stateChanged(state);
         if (state == QLocalSocket::UnconnectedState && currentState != QLocalSocket::ConnectingState)
-            q->emit disconnected();
+            emit q->disconnected();
     }
     emit q->error(error);
 }
@@ -127,7 +121,8 @@ void QLocalSocket::connectToServer(OpenMode openMode)
 {
     Q_D(QLocalSocket);
     if (state() == ConnectedState || state() == ConnectingState) {
-        setErrorString(tr("Trying to connect while connection is in progress"));
+        d->error = OperationError;
+        d->errorString = tr("Trying to connect while connection is in progress");
         emit error(QLocalSocket::OperationError);
         return;
     }
@@ -137,8 +132,8 @@ void QLocalSocket::connectToServer(OpenMode openMode)
     d->state = ConnectingState;
     emit stateChanged(d->state);
     if (d->serverName.isEmpty()) {
-        d->error = QLocalSocket::ServerNotFoundError;
-        setErrorString(QLocalSocket::tr("%1: Invalid name").arg(QLatin1String("QLocalSocket::connectToServer")));
+        d->error = ServerNotFoundError;
+        d->errorString = tr("%1: Invalid name").arg(QLatin1String("QLocalSocket::connectToServer"));
         d->state = UnconnectedState;
         emit error(d->error);
         emit stateChanged(d->state);
@@ -155,7 +150,7 @@ void QLocalSocket::connectToServer(OpenMode openMode)
     forever {
         DWORD permissions = (openMode & QIODevice::ReadOnly) ? GENERIC_READ : 0;
         permissions |= (openMode & QIODevice::WriteOnly) ? GENERIC_WRITE : 0;
-        localSocket = CreateFile((const wchar_t *)d->fullServerName.utf16(),   // pipe name
+        localSocket = CreateFile(reinterpret_cast<const wchar_t *>(d->fullServerName.utf16()), // pipe name
                                  permissions,
                                  0,              // no sharing
                                  NULL,           // default security attributes
@@ -177,13 +172,14 @@ void QLocalSocket::connectToServer(OpenMode openMode)
     }
 
     if (localSocket == INVALID_HANDLE_VALUE) {
-        d->setErrorString(QLatin1String("QLocalSocket::connectToServer"));
+        const DWORD winError = GetLastError();
+        d->_q_winError(winError, QLatin1String("QLocalSocket::connectToServer"));
         d->fullServerName = QString();
         return;
     }
 
     // we have a valid handle
-    if (setSocketDescriptor((qintptr)localSocket, ConnectedState, openMode))
+    if (setSocketDescriptor(reinterpret_cast<qintptr>(localSocket), ConnectedState, openMode))
         emit connected();
 }
 
@@ -371,7 +367,7 @@ void QLocalSocketPrivate::_q_canWrite()
 qintptr QLocalSocket::socketDescriptor() const
 {
     Q_D(const QLocalSocket);
-    return (qintptr)d->handle;
+    return reinterpret_cast<qintptr>(d->handle);
 }
 
 qint64 QLocalSocket::readBufferSize() const

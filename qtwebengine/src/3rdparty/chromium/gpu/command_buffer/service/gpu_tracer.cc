@@ -7,11 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
-
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -19,6 +18,7 @@
 #include "base/trace_event/trace_event.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/command_buffer/service/context_group.h"
+#include "gpu/command_buffer/service/decoder_context.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_version_info.h"
@@ -27,41 +27,27 @@
 namespace gpu {
 namespace gles2 {
 
-static const char* kGpuTraceSourceNames[] = {
-  "TraceCHROMIUM", // kTraceCHROMIUM,
-  "TraceCmd", // kTraceDecoder,
-  "Disjoint", // kTraceDisjoint, // Used internally.
+constexpr const char* kGpuTraceSourceNames[] = {
+    "TraceCHROMIUM",  // kTraceCHROMIUM,
+    "TraceCmd",       // kTraceDecoder,
+    "Disjoint",       // kTraceDisjoint, // Used internally.
 };
-static_assert(NUM_TRACER_SOURCES == arraysize(kGpuTraceSourceNames),
+static_assert(NUM_TRACER_SOURCES == base::size(kGpuTraceSourceNames),
               "Trace source names must match enumeration.");
 
-static TraceOutputter* g_outputter_thread = NULL;
-
 TraceMarker::TraceMarker(const std::string& category, const std::string& name)
-    : category_(category),
-      name_(name),
-      trace_(NULL) {
-}
+    : category_(category), name_(name), trace_(nullptr) {}
 
 TraceMarker::TraceMarker(const TraceMarker& other) = default;
 
-TraceMarker::~TraceMarker() {
+TraceMarker::~TraceMarker() = default;
+
+TraceOutputter::TraceOutputter() : named_thread_("Dummy Trace") {}
+
+TraceOutputter::TraceOutputter(const std::string& name) : named_thread_(name) {
 }
 
-scoped_refptr<TraceOutputter> TraceOutputter::Create(const std::string& name) {
-  if (!g_outputter_thread) {
-    g_outputter_thread = new TraceOutputter(name);
-  }
-  return g_outputter_thread;
-}
-
-TraceOutputter::TraceOutputter(const std::string& name)
-    : named_thread_(name.c_str()) {
-  named_thread_.Start();
-  named_thread_.Stop();
-}
-
-TraceOutputter::~TraceOutputter() { g_outputter_thread = NULL; }
+TraceOutputter::~TraceOutputter() = default;
 
 void TraceOutputter::TraceDevice(GpuTracerSource source,
                                  const std::string& category,
@@ -69,29 +55,29 @@ void TraceOutputter::TraceDevice(GpuTracerSource source,
                                  int64_t start_time,
                                  int64_t end_time) {
   DCHECK(source >= 0 && source < NUM_TRACER_SOURCES);
+  DCHECK(end_time >= start_time) << end_time << " >= " << start_time;
+
+  if (named_thread_id_ == base::kInvalidThreadId) {
+    named_thread_.Start();
+    named_thread_id_ = named_thread_.GetThreadId();
+    named_thread_.Stop();
+  }
+
   TRACE_EVENT_COPY_BEGIN_WITH_ID_TID_AND_TIMESTAMP2(
-      TRACE_DISABLED_BY_DEFAULT("gpu.device"),
-      name.c_str(),
-      local_trace_device_id_,
-      named_thread_.GetThreadId(),
-      base::TimeTicks::FromInternalValue(start_time),
-      "gl_category",
-      category.c_str(),
-      "channel",
-      kGpuTraceSourceNames[source]);
+      TRACE_DISABLED_BY_DEFAULT("gpu.device"), name.c_str(),
+      local_trace_device_id_, named_thread_id_,
+      base::TimeTicks::FromInternalValue(start_time), "gl_category",
+      category.c_str(), "channel", kGpuTraceSourceNames[source]);
 
   // Time stamps are inclusive, since the traces are durations we subtract
   // 1 microsecond from the end time to make the trace markers show up cleaner.
+  if (end_time > start_time)
+    end_time -= 1;
   TRACE_EVENT_COPY_END_WITH_ID_TID_AND_TIMESTAMP2(
-      TRACE_DISABLED_BY_DEFAULT("gpu.device"),
-      name.c_str(),
-      local_trace_device_id_,
-      named_thread_.GetThreadId(),
-      base::TimeTicks::FromInternalValue(end_time - 1),
-      "gl_category",
-      category.c_str(),
-      "channel",
-      kGpuTraceSourceNames[source]);
+      TRACE_DISABLED_BY_DEFAULT("gpu.device"), name.c_str(),
+      local_trace_device_id_, named_thread_id_,
+      base::TimeTicks::FromInternalValue(end_time), "gl_category",
+      category.c_str(), "channel", kGpuTraceSourceNames[source]);
   ++local_trace_device_id_;
 }
 
@@ -124,7 +110,7 @@ void TraceOutputter::TraceServiceEnd(GpuTracerSource source,
       "channel", kGpuTraceSourceNames[source]);
 }
 
-GPUTrace::GPUTrace(scoped_refptr<Outputter> outputter,
+GPUTrace::GPUTrace(Outputter* outputter,
                    gl::GPUTimingClient* gpu_timing_client,
                    const GpuTracerSource source,
                    const std::string& category,
@@ -141,8 +127,7 @@ GPUTrace::GPUTrace(scoped_refptr<Outputter> outputter,
     gpu_timer_ = gpu_timing_client->CreateGPUTimer(false);
 }
 
-GPUTrace::~GPUTrace() {
-}
+GPUTrace::~GPUTrace() = default;
 
 void GPUTrace::Destroy(bool have_context) {
   if (gpu_timer_.get()) {
@@ -183,7 +168,7 @@ void GPUTrace::Process() {
   }
 }
 
-GPUTracer::GPUTracer(gles2::GLES2Decoder* decoder)
+GPUTracer::GPUTracer(DecoderContext* decoder)
     : gpu_trace_srv_category(TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
           TRACE_DISABLED_BY_DEFAULT("gpu.service"))),
       gpu_trace_dev_category(TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
@@ -191,17 +176,16 @@ GPUTracer::GPUTracer(gles2::GLES2Decoder* decoder)
       decoder_(decoder) {
   DCHECK(decoder_);
   gl::GLContext* context = decoder_->GetGLContext();
-  if (context) {
+  if (context)
     gpu_timing_client_ = context->CreateGPUTimingClient();
-  } else {
+  else
     gpu_timing_client_ = new gl::GPUTimingClient();
-  }
 
+  outputter_ = decoder_->outputter();
   disjoint_time_ = gpu_timing_client_->GetCurrentCPUTime();
 }
 
-GPUTracer::~GPUTracer() {
-}
+GPUTracer::~GPUTracer() = default;
 
 void GPUTracer::Destroy(bool have_context) {
   ClearOngoingTraces(have_context);
@@ -213,10 +197,6 @@ bool GPUTracer::BeginDecoding() {
 
   gpu_executing_ = true;
   if (IsTracing()) {
-    if (!outputter_) {
-      outputter_ = CreateOutputter(gpu_timing_client_->GetTimerTypeName());
-    }
-
     CheckDisjointStatus();
     // Begin a Trace for all active markers
     for (int n = 0; n < NUM_TRACER_SOURCES; n++) {
@@ -271,10 +251,6 @@ bool GPUTracer::Begin(const std::string& category, const std::string& name,
   // Push new marker from given 'source'
   markers_[source].push_back(TraceMarker(category, name));
 
-  if (!outputter_) {
-    outputter_ = CreateOutputter(gpu_timing_client_->GetTimerTypeName());
-  }
-
   // Create trace
   if (IsTracing()) {
     began_device_traces_ |= (*gpu_trace_dev_category != 0);
@@ -318,7 +294,7 @@ bool GPUTracer::HasTracesToProcess() {
 
 void GPUTracer::ProcessTraces() {
   if (!gpu_timing_client_->IsAvailable()) {
-   while (!finished_traces_.empty()) {
+    while (!finished_traces_.empty()) {
       finished_traces_.front()->Destroy(false);
       finished_traces_.pop_front();
     }
@@ -378,10 +354,6 @@ const std::string& GPUTracer::CurrentName(GpuTracerSource source) const {
     return markers_[source].back().name_;
   }
   return base::EmptyString();
-}
-
-scoped_refptr<Outputter> GPUTracer::CreateOutputter(const std::string& name) {
-  return TraceOutputter::Create(name);
 }
 
 bool GPUTracer::CheckDisjointStatus() {

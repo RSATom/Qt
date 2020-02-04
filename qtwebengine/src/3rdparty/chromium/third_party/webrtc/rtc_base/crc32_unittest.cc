@@ -8,17 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/crc32.h"
-#include "webrtc/rtc_base/gunit.h"
+#include "rtc_base/crc32.h"
 
 #include <string>
+
+#include "test/gtest.h"
 
 namespace rtc {
 
 TEST(Crc32Test, TestBasic) {
   EXPECT_EQ(0U, ComputeCrc32(""));
   EXPECT_EQ(0x352441C2U, ComputeCrc32("abc"));
-  EXPECT_EQ(0x171A3F5FU,
+  EXPECT_EQ(
+      0x171A3F5FU,
       ComputeCrc32("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"));
 }
 

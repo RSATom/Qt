@@ -20,7 +20,7 @@ namespace ntp_snippets {
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.ntp.snippets
 enum class KnownCategories {
   // Pages recently downloaded during normal navigation.
-  RECENT_TABS,
+  RECENT_TABS_DEPRECATED,
 
   // Pages downloaded by the user for offline consumption.
   DOWNLOADS,
@@ -29,13 +29,16 @@ enum class KnownCategories {
   BOOKMARKS,
 
   // Physical Web page available in the vicinity.
-  PHYSICAL_WEB_PAGES,
+  PHYSICAL_WEB_PAGES_DEPRECATED,
 
   // Pages recently browsed to on other devices.
-  FOREIGN_TABS,
+  FOREIGN_TABS_DEPRECATED,
 
   // Pages from the user reading list.
   READING_LIST,
+
+  // Contextual suggestion.
+  CONTEXTUAL,
 
   // ****************** INSERT NEW LOCAL CATEGORIES HERE! ******************
   // Existing categories are persisted and they must never be removed. This may
@@ -49,14 +52,15 @@ enum class KnownCategories {
   REMOTE_CATEGORIES_OFFSET = 10000,
 
   // Articles for you.
-  ARTICLES,
+  ARTICLES = 10001,
 
-  // Breaking News
-  BREAKING_NEWS = 10008,
+  // Categories 10002-10008 are defined on the server.
+
   // ****************** INSERT NEW REMOTE CATEGORIES HERE! ******************
+  // Update the list on the server first. Here specify the ID explicitly.
 
   // Tracks the last known remote category
-  LAST_KNOWN_REMOTE_CATEGORY = BREAKING_NEWS,
+  LAST_KNOWN_REMOTE_CATEGORY = ARTICLES,
 };
 
 // A category groups ContentSuggestions which belong together. Use the
@@ -90,6 +94,10 @@ class Category {
   // be converted back to a Category instance using
   // |CategoryFactory::FromIDValue(id)|.
   int id() const { return id_; }
+
+  // Returns a remote category identifier. Do not call for non-remote
+  // categories.
+  int remote_id() const;
 
   // Returns whether this category matches the given |known_category|.
   bool IsKnownCategory(KnownCategories known_category) const;

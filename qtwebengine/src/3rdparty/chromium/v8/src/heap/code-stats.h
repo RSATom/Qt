@@ -2,14 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef V8_HEAP_CODE_STATS_H_
+#define V8_HEAP_CODE_STATS_H_
+
 namespace v8 {
 namespace internal {
 
-class Isolate;
+class CodeCommentsIterator;
 class HeapObject;
+class Isolate;
 class LargeObjectSpace;
 class PagedSpace;
-class RelocIterator;
 
 class CodeStatistics {
  public:
@@ -28,12 +31,13 @@ class CodeStatistics {
 #endif
 
  private:
-  static void RecordCodeAndMetadataStatistics(HeapObject* object,
+  static void RecordCodeAndMetadataStatistics(HeapObject object,
                                               Isolate* isolate);
 
 #ifdef DEBUG
-  static void CollectCommentStatistics(Isolate* isolate, RelocIterator* it);
-  static void CollectCodeCommentStatistics(HeapObject* obj, Isolate* isolate);
+  static void CollectCommentStatistics(Isolate* isolate,
+                                       CodeCommentsIterator* it);
+  static void CollectCodeCommentStatistics(HeapObject obj, Isolate* isolate);
   static void EnterComment(Isolate* isolate, const char* comment, int delta);
   static void ResetCodeStatistics(Isolate* isolate);
 #endif
@@ -41,3 +45,5 @@ class CodeStatistics {
 
 }  // namespace internal
 }  // namespace v8
+
+#endif  // V8_HEAP_CODE_STATS_H_

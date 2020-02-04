@@ -53,7 +53,7 @@ class QGeometryFactory;
 
 typedef QSharedPointer<QGeometryFactory> QGeometryFactoryPtr;
 
-class QT3DRENDERSHARED_EXPORT QGeometryRenderer : public Qt3DCore::QComponent
+class Q_3DRENDERSHARED_EXPORT QGeometryRenderer : public Qt3DCore::QComponent
 {
     Q_OBJECT
     Q_PROPERTY(int instanceCount READ instanceCount WRITE setInstanceCount NOTIFY instanceCountChanged)
@@ -134,11 +134,11 @@ Q_SIGNALS:
 
 protected:
     explicit QGeometryRenderer(QGeometryRendererPrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QGeometryRenderer)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

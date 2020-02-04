@@ -11,27 +11,24 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "base/files/file_util.h"
-#include "base/files/scoped_file.h"
 #include "base/logging.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_mach_vm.h"
 #include "base/memory/shared_memory_helper.h"
 #include "base/memory/shared_memory_tracker.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/posix/eintr_wrapper.h"
 #include "base/posix/safe_strerror.h"
 #include "base/process/process_metrics.h"
 #include "base/scoped_generic.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_restrictions.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 
-#if defined(OS_MACOSX)
-#include "base/mac/foundation_util.h"
-#endif  // OS_MACOSX
+#if defined(OS_IOS)
+#error "MacOS only - iOS uses shared_memory_posix.cc"
+#endif
 
 namespace base {
 
@@ -84,9 +81,7 @@ bool MakeMachSharedMemoryHandleReadOnly(SharedMemoryHandle* new_handle,
 SharedMemory::SharedMemory() {}
 
 SharedMemory::SharedMemory(const SharedMemoryHandle& handle, bool read_only)
-    : mapped_memory_mechanism_(SharedMemoryHandle::POSIX),
-      shm_(handle),
-      read_only_(read_only) {}
+    : shm_(handle), read_only_(read_only) {}
 
 SharedMemory::~SharedMemory() {
   Unmap();
@@ -114,12 +109,6 @@ SharedMemoryHandle SharedMemory::DuplicateHandle(
   return handle.Duplicate();
 }
 
-// static
-int SharedMemory::GetFdFromSharedMemoryHandle(
-    const SharedMemoryHandle& handle) {
-  return handle.file_descriptor_.fd;
-}
-
 bool SharedMemory::CreateAndMapAnonymous(size_t size) {
   return CreateAnonymous(size) && Map(size);
 }
@@ -134,47 +123,9 @@ bool SharedMemory::Create(const SharedMemoryCreateOptions& options) {
   if (options.size > static_cast<size_t>(std::numeric_limits<int>::max()))
     return false;
 
-  if (options.type == SharedMemoryHandle::MACH) {
-    shm_ = SharedMemoryHandle(options.size, UnguessableToken::Create());
-    requested_size_ = options.size;
-    return shm_.IsValid();
-  }
-
-  // This function theoretically can block on the disk. Both profiling of real
-  // users and local instrumentation shows that this is a real problem.
-  // https://code.google.com/p/chromium/issues/detail?id=466437
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
-
-  ScopedFILE fp;
-  ScopedFD readonly_fd;
-
-  FilePath path;
-  bool result = CreateAnonymousSharedMemory(options, &fp, &readonly_fd, &path);
-  if (!result)
-    return false;
-  DCHECK(fp);  // Should be guaranteed by CreateAnonymousSharedMemory().
-
-  // Get current size.
-  struct stat stat;
-  if (fstat(fileno(fp.get()), &stat) != 0)
-    return false;
-  const size_t current_size = stat.st_size;
-  if (current_size != options.size) {
-    if (HANDLE_EINTR(ftruncate(fileno(fp.get()), options.size)) != 0)
-      return false;
-  }
+  shm_ = SharedMemoryHandle(options.size, UnguessableToken::Create());
   requested_size_ = options.size;
-
-  int mapped_file = -1;
-  int readonly_mapped_file = -1;
-  result = PrepareMapFile(std::move(fp), std::move(readonly_fd), &mapped_file,
-                          &readonly_mapped_file);
-  shm_ = SharedMemoryHandle(FileDescriptor(mapped_file, false), options.size,
-                            UnguessableToken::Create());
-  readonly_shm_ =
-      SharedMemoryHandle(FileDescriptor(readonly_mapped_file, false),
-                         options.size, shm_.GetGUID());
-  return result;
+  return shm_.IsValid();
 }
 
 bool SharedMemory::MapAt(off_t offset, size_t bytes) {
@@ -190,32 +141,24 @@ bool SharedMemory::MapAt(off_t offset, size_t bytes) {
     mapped_size_ = bytes;
     DCHECK_EQ(0U, reinterpret_cast<uintptr_t>(memory_) &
                       (SharedMemory::MAP_MINIMUM_ALIGNMENT - 1));
-    mapped_memory_mechanism_ = shm_.type_;
     mapped_id_ = shm_.GetGUID();
     SharedMemoryTracker::GetInstance()->IncrementMemoryUsage(*this);
   } else {
-    memory_ = NULL;
+    memory_ = nullptr;
   }
 
   return success;
 }
 
 bool SharedMemory::Unmap() {
-  if (memory_ == NULL)
+  if (!memory_)
     return false;
 
   SharedMemoryTracker::GetInstance()->DecrementMemoryUsage(*this);
-  switch (mapped_memory_mechanism_) {
-    case SharedMemoryHandle::POSIX:
-      munmap(memory_, mapped_size_);
-      break;
-    case SharedMemoryHandle::MACH:
       mach_vm_deallocate(mach_task_self(),
                          reinterpret_cast<mach_vm_address_t>(memory_),
                          mapped_size_);
-      break;
-  }
-  memory_ = NULL;
+  memory_ = nullptr;
   mapped_size_ = 0;
   mapped_id_ = UnguessableToken();
   return true;
@@ -227,6 +170,7 @@ SharedMemoryHandle SharedMemory::handle() const {
 
 SharedMemoryHandle SharedMemory::TakeHandle() {
   SharedMemoryHandle dup = DuplicateHandle(handle());
+  Unmap();
   Close();
   return dup;
 }
@@ -234,24 +178,11 @@ SharedMemoryHandle SharedMemory::TakeHandle() {
 void SharedMemory::Close() {
   shm_.Close();
   shm_ = SharedMemoryHandle();
-  if (shm_.type_ == SharedMemoryHandle::POSIX) {
-    if (readonly_shm_.IsValid()) {
-      readonly_shm_.Close();
-      readonly_shm_ = SharedMemoryHandle();
-    }
-  }
 }
 
-SharedMemoryHandle SharedMemory::GetReadOnlyHandle() {
-  if (shm_.type_ == SharedMemoryHandle::POSIX) {
-    // We could imagine re-opening the file from /dev/fd, but that can't make it
-    // readonly on Mac: https://codereview.chromium.org/27265002/#msg10.
-    CHECK(readonly_shm_.IsValid());
-    return readonly_shm_.Duplicate();
-  }
-
+SharedMemoryHandle SharedMemory::GetReadOnlyHandle() const {
   DCHECK(shm_.IsValid());
-  base::SharedMemoryHandle new_handle;
+  SharedMemoryHandle new_handle;
   bool success = MakeMachSharedMemoryHandleReadOnly(&new_handle, shm_, memory_);
   if (success)
     new_handle.SetOwnershipPassesToIPC(true);

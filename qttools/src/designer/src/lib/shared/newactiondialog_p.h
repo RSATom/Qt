@@ -42,8 +42,8 @@
 
 #include "qdesigner_utils_p.h" //  PropertySheetIconValue
 
-#include <QtWidgets/QDialog>
-#include <QtGui/QKeySequence>
+#include <QtWidgets/qdialog.h>
+#include <QtGui/qkeysequence.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -81,7 +81,7 @@ class NewActionDialog: public QDialog
     Q_OBJECT
 public:
     explicit NewActionDialog(ActionEditor *parent);
-    virtual ~NewActionDialog();
+    ~NewActionDialog() override;
 
     ActionData actionData() const;
     void setActionData(const ActionData &d);

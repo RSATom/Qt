@@ -88,6 +88,11 @@ The following table lists optional parameters that can be passed to the Mapbox p
     \l{https://www.mapbox.com/tos}{Terms of Services} and must not be used in production. This property has
     no effect on styles hosted outside the Mapbox servers.
 \row
+    \li mapboxgl.china
+    \li Use Mapbox China API base URLs and styles.
+    Please notice that Mapbox China requires a specific access token. Contact \l
+    {https://www.mapbox.com/contact/sales/} {Mapbox sales} for more information.
+\row
     \li mapboxgl.mapping.additional_style_urls
     \li Additional, comma separated, Mapbox \l{https://www.mapbox.com/help/define-style-url}
     {style URLs} to be added to the available style URLs. Additional styles will be prepended to
@@ -175,7 +180,9 @@ replacing the dash with camel case for technical reasons (i.e. \b line-cap will 
     \li source
     \li A style data \l {https://www.mapbox.com/mapbox-gl-js/style-spec/#sources}{source}. When using a source
     of \b sourceType \l {https://www.mapbox.com/mapbox-gl-js/style-spec/#sources-geojson}{geojson}, the
-    \b data property can be both inlined or sourced from qrc.
+    \b data property can be both inlined or sourced from qrc. Supported source types are: \b vector, \b raster,
+    \b raster-dem and \b geojson.
+'geojson'.
 \row
     \li layer
     \li Adds a new \l {https://www.mapbox.com/mapbox-gl-js/style-spec/#layers}{style layer} to the map. On a Mapbox GL map,

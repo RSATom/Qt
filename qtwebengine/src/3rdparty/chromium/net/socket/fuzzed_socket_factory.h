@@ -21,9 +21,9 @@ namespace net {
 // sockets must be the same, and in the same order (both on each socket, and
 // between sockets).
 //
-// Currently doesn't support UDP or SSL sockets - just returns sockets that
+// Currently doesn't support SSL sockets - just returns sockets that
 // synchronously fail to connect when trying to create either type of socket.
-// TODO(mmenke): Add support for both types of socket.
+// TODO(mmenke): Add support for ssl sockets.
 // TODO(mmenke): add fuzzing for generation of valid cryptographically signed
 // messages.
 class FuzzedSocketFactory : public ClientSocketFactory {
@@ -37,11 +37,10 @@ class FuzzedSocketFactory : public ClientSocketFactory {
 
   std::unique_ptr<DatagramClientSocket> CreateDatagramClientSocket(
       DatagramSocket::BindType bind_type,
-      const RandIntCallback& rand_int_cb,
       NetLog* net_log,
       const NetLogSource& source) override;
 
-  std::unique_ptr<StreamSocket> CreateTransportClientSocket(
+  std::unique_ptr<TransportClientSocket> CreateTransportClientSocket(
       const AddressList& addresses,
       std::unique_ptr<SocketPerformanceWatcher> socket_performance_watcher,
       NetLog* net_log,
@@ -52,6 +51,19 @@ class FuzzedSocketFactory : public ClientSocketFactory {
       const HostPortPair& host_and_port,
       const SSLConfig& ssl_config,
       const SSLClientSocketContext& context) override;
+
+  std::unique_ptr<ProxyClientSocket> CreateProxyClientSocket(
+      std::unique_ptr<ClientSocketHandle> transport_socket,
+      const std::string& user_agent,
+      const HostPortPair& endpoint,
+      const ProxyServer& proxy_server,
+      HttpAuthController* http_auth_controller,
+      bool tunnel,
+      bool using_spdy,
+      NextProto negotiated_protocol,
+      ProxyDelegate* proxy_delegate,
+      bool is_https_proxy,
+      const NetworkTrafficAnnotationTag& traffic_annotation) override;
 
   void ClearSSLSessionCache() override;
 

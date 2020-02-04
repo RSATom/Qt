@@ -8,6 +8,7 @@
 #include "SkSLString.h"
 
 #include "SkSLUtil.h"
+#include <algorithm>
 #include <errno.h>
 #include <limits.h>
 #include <locale>
@@ -21,14 +22,26 @@ String String::printf(const char* fmt, ...) {
     va_start(args, fmt);
     String result;
     result.vappendf(fmt, args);
+    va_end(args);
     return result;
 }
 
-#ifdef SKSL_STANDALONE
+#ifdef SKSL_USE_STD_STRING
 void String::appendf(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     this->vappendf(fmt, args);
+    va_end(args);
+}
+
+void String::reset() {
+    this->clear();
+}
+
+int String::findLastOf(const char c) const {
+    // Rely on find_last_of and remap the output
+    size_t index = this->find_last_of(c);
+    return (index == std::string::npos ? -1 : index);
 }
 #endif
 
@@ -50,6 +63,7 @@ void String::vappendf(const char* fmt, va_list args) {
         VSNPRINTF(newBuffer.get(), size + 1, fmt, reuse);
         this->append(newBuffer.get(), size);
     }
+    va_end(reuse);
 }
 
 
@@ -65,6 +79,34 @@ bool String::endsWith(const char* s) const {
     return !strncmp(c_str() + size() - len, s, len);
 }
 
+int String::find(const String& substring, int fromPos) const {
+    return find(substring.c_str(), fromPos);
+}
+
+int String::find(const char* substring, int fromPos) const {
+    SkASSERT(fromPos >= 0);
+#ifdef SKSL_USE_STD_STRING
+    // use std::string find() and check it against npos for not found, and find() natively supports
+    // searching from a position
+    size_t found = INHERITED::find(substring, (size_t) fromPos);
+    return found == std::string::npos ? -1 : found;
+#else
+    // use SkStrFind on the underlying c string, and pointer arithmetic to support the searching
+    // position
+    if (substring == nullptr) {
+        // Treat null as empty, and an empty string shows up immediately
+        return 0;
+    }
+
+    size_t sublen = strlen(substring);
+    if (fromPos >= size() - sublen) {
+        // Can't find it if there aren't enough characters left
+        return -1;
+    }
+    return SkStrFind(c_str() + fromPos, substring);
+#endif
+}
+
 String String::operator+(const char* s) const {
     String result(*this);
     result.append(s);
@@ -75,6 +117,32 @@ String String::operator+(const String& s) const {
     String result(*this);
     result.append(s);
     return result;
+}
+
+String String::operator+(StringFragment s) const {
+    String result(*this);
+    result.append(s.fChars, s.fLength);
+    return result;
+}
+
+String& String::operator+=(char c) {
+    INHERITED::operator+=(c);
+    return *this;
+}
+
+String& String::operator+=(const char* s) {
+    INHERITED::operator+=(s);
+    return *this;
+}
+
+String& String::operator+=(const String& s) {
+    INHERITED::operator+=(s);
+    return *this;
+}
+
+String& String::operator+=(StringFragment s) {
+    this->append(s.fChars, s.fLength);
+    return *this;
 }
 
 bool String::operator==(const String& s) const {
@@ -107,6 +175,54 @@ bool operator!=(const char* s1, const String& s2) {
     return s2 != s1;
 }
 
+bool StringFragment::operator==(StringFragment s) const {
+    if (fLength != s.fLength) {
+        return false;
+    }
+    return !memcmp(fChars, s.fChars, fLength);
+}
+
+bool StringFragment::operator!=(StringFragment s) const {
+    if (fLength != s.fLength) {
+        return true;
+    }
+    return memcmp(fChars, s.fChars, fLength);
+}
+
+bool StringFragment::operator==(const char* s) const {
+    for (size_t i = 0; i < fLength; ++i) {
+        if (fChars[i] != s[i]) {
+            return false;
+        }
+    }
+    return 0 == s[fLength];
+}
+
+bool StringFragment::operator!=(const char* s) const {
+    for (size_t i = 0; i < fLength; ++i) {
+        if (fChars[i] != s[i]) {
+            return true;
+        }
+    }
+    return 0 != s[fLength];
+}
+
+bool StringFragment::operator<(StringFragment other) const {
+    int comparison = strncmp(fChars, other.fChars, std::min(fLength, other.fLength));
+    if (comparison) {
+        return comparison < 0;
+    }
+    return fLength < other.fLength;
+}
+
+bool operator==(const char* s1, StringFragment s2) {
+    return s2 == s1;
+}
+
+bool operator!=(const char* s1, StringFragment s2) {
+    return s2 != s1;
+}
+
 String to_string(int32_t value) {
     return SkSL::String::printf("%d", value);
 }
@@ -135,10 +251,22 @@ String to_string(double value) {
 #endif
 #define MAX_DOUBLE_CHARS 25
     char buffer[MAX_DOUBLE_CHARS];
-    SKSL_DEBUGCODE(int len = )SNPRINTF(buffer, sizeof(buffer), "%.17g", value);
-    ASSERT(len < MAX_DOUBLE_CHARS);
+    int len = SNPRINTF(buffer, sizeof(buffer), "%.17g", value);
+    SkASSERT(len < MAX_DOUBLE_CHARS);
+    bool needsDotZero = true;
+    for (int i = 0; i < len; ++i) {
+        char c = buffer[i];
+        if (c == ',') {
+            buffer[i] = '.';
+            needsDotZero = false;
+            break;
+        } else if (c == '.' || c == 'e') {
+            needsDotZero = false;
+            break;
+        }
+    }
     String result(buffer);
-    if (!strchr(buffer, '.') && !strchr(buffer, 'e')) {
+    if (needsDotZero) {
         result += ".0";
     }
     return result;
@@ -146,31 +274,31 @@ String to_string(double value) {
 #undef MAX_DOUBLE_CHARS
 }
 
-int stoi(String s) {
+int stoi(const String& s) {
     char* p;
-    SKSL_DEBUGCODE(errno = 0;)
+    SkDEBUGCODE(errno = 0;)
     long result = strtoul(s.c_str(), &p, 0);
-    ASSERT(*p == 0);
-    ASSERT(!errno);
+    SkASSERT(*p == 0);
+    SkASSERT(!errno);
     return (int) result;
 }
 
-double stod(String s) {
+double stod(const String& s) {
     double result;
     std::string str(s.c_str(), s.size());
     std::stringstream buffer(str);
     buffer.imbue(std::locale::classic());
     buffer >> result;
-    ASSERT(!buffer.fail());
+    SkASSERT(!buffer.fail());
     return result;
 }
 
-long stol(String s) {
+long stol(const String& s) {
     char* p;
-    SKSL_DEBUGCODE(errno = 0;)
+    SkDEBUGCODE(errno = 0;)
     long result = strtoul(s.c_str(), &p, 0);
-    ASSERT(*p == 0);
-    ASSERT(!errno);
+    SkASSERT(*p == 0);
+    SkASSERT(!errno);
     return result;
 }
 

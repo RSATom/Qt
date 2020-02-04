@@ -5,7 +5,7 @@
 #include "src/extensions/statistics-extension.h"
 
 #include "src/counters.h"
-#include "src/heap/heap-inl.h"
+#include "src/heap/heap-inl.h"  // crbug.com/v8/8499
 #include "src/isolate.h"
 
 namespace v8 {
@@ -17,7 +17,7 @@ const char* const StatisticsExtension::kSource =
 
 v8::Local<v8::FunctionTemplate> StatisticsExtension::GetNativeFunctionTemplate(
     v8::Isolate* isolate, v8::Local<v8::String> str) {
-  DCHECK(strcmp(*v8::String::Utf8Value(str), "getV8Statistics") == 0);
+  DCHECK_EQ(strcmp(*v8::String::Utf8Value(isolate, str), "getV8Statistics"), 0);
   return v8::FunctionTemplate::New(isolate, StatisticsExtension::GetCounters);
 }
 
@@ -63,10 +63,7 @@ void StatisticsExtension::GetCounters(
   Heap* heap = isolate->heap();
 
   if (args.Length() > 0) {  // GC if first argument evaluates to true.
-    if (args[0]->IsBoolean() &&
-        args[0]
-            ->BooleanValue(args.GetIsolate()->GetCurrentContext())
-            .FromMaybe(false)) {
+    if (args[0]->IsBoolean() && args[0]->BooleanValue(args.GetIsolate())) {
       heap->CollectAllGarbage(Heap::kNoGCFlags,
                               GarbageCollectionReason::kCountersExtension);
     }
@@ -85,24 +82,6 @@ void StatisticsExtension::GetCounters(
   ,
 
       STATS_COUNTER_LIST_1(ADD_COUNTER) STATS_COUNTER_LIST_2(ADD_COUNTER)
-#undef ADD_COUNTER
-#define ADD_COUNTER(name)                            \
-  { counters->count_of_##name(), "count_of_" #name } \
-  , {counters->size_of_##name(), "size_of_" #name},
-
-          INSTANCE_TYPE_LIST(ADD_COUNTER)
-#undef ADD_COUNTER
-#define ADD_COUNTER(name)                                                \
-  { counters->count_of_CODE_TYPE_##name(), "count_of_CODE_TYPE_" #name } \
-  , {counters->size_of_CODE_TYPE_##name(), "size_of_CODE_TYPE_" #name},
-
-              CODE_KIND_LIST(ADD_COUNTER)
-#undef ADD_COUNTER
-#define ADD_COUNTER(name)                                                    \
-  { counters->count_of_FIXED_ARRAY_##name(), "count_of_FIXED_ARRAY_" #name } \
-  , {counters->size_of_FIXED_ARRAY_##name(), "size_of_FIXED_ARRAY_" #name},
-
-                  FIXED_ARRAY_SUB_INSTANCE_TYPE_LIST(ADD_COUNTER)
 #undef ADD_COUNTER
   };  // End counter_list array.
 
@@ -130,6 +109,10 @@ void StatisticsExtension::GetCounters(
       {heap->lo_space()->Size(), "lo_space_live_bytes"},
       {heap->lo_space()->Available(), "lo_space_available_bytes"},
       {heap->lo_space()->CommittedMemory(), "lo_space_commited_bytes"},
+      {heap->code_lo_space()->Size(), "code_lo_space_live_bytes"},
+      {heap->code_lo_space()->Available(), "code_lo_space_available_bytes"},
+      {heap->code_lo_space()->CommittedMemory(),
+       "code_lo_space_commited_bytes"},
   };
 
   for (size_t i = 0; i < arraysize(numbers); i++) {
@@ -141,14 +124,14 @@ void StatisticsExtension::GetCounters(
   args.GetReturnValue().Set(result);
 
   HeapIterator iterator(reinterpret_cast<Isolate*>(args.GetIsolate())->heap());
-  HeapObject* obj;
   int reloc_info_total = 0;
   int source_position_table_total = 0;
-  while ((obj = iterator.next()) != nullptr) {
+  for (HeapObject obj = iterator.next(); !obj.is_null();
+       obj = iterator.next()) {
     if (obj->IsCode()) {
-      Code* code = Code::cast(obj);
+      Code code = Code::cast(obj);
       reloc_info_total += code->relocation_info()->Size();
-      ByteArray* source_position_table = code->SourcePositionTable();
+      ByteArray source_position_table = code->SourcePositionTable();
       if (source_position_table->length() > 0) {
         source_position_table_total += code->SourcePositionTable()->Size();
       }

@@ -9,6 +9,8 @@
 
 #include "base/logging.h"
 #include "media/mojo/common/mojo_shared_buffer_video_frame.h"
+#include "mojo/public/cpp/base/time_mojom_traits.h"
+#include "mojo/public/cpp/base/values_mojom_traits.h"
 
 namespace mojo {
 
@@ -25,7 +27,11 @@ media::mojom::VideoFrameDataPtr MakeVideoFrameData(
     media::MojoSharedBufferVideoFrame* mojo_frame =
         static_cast<media::MojoSharedBufferVideoFrame*>(input.get());
 
-    mojo::ScopedSharedBufferHandle dup = mojo_frame->Handle().Clone();
+    // TODO(https://crbug.com/803136): This should duplicate as READ_ONLY, but
+    // can't because there is no guarantee that the input handle is sharable as
+    // read-only.
+    mojo::ScopedSharedBufferHandle dup = mojo_frame->Handle().Clone(
+        mojo::SharedBufferHandle::AccessMode::READ_WRITE);
     DCHECK(dup.is_valid());
 
     return media::mojom::VideoFrameData::NewSharedBufferData(
@@ -56,26 +62,10 @@ media::mojom::VideoFrameDataPtr MakeVideoFrameData(
 }  // namespace
 
 // static
-void* StructTraits<media::mojom::VideoFrameDataView,
-                   scoped_refptr<media::VideoFrame>>::
-    SetUpContext(const scoped_refptr<media::VideoFrame>& input) {
-  return new media::mojom::VideoFrameDataPtr(MakeVideoFrameData(input));
-}
-
-// static
-void StructTraits<media::mojom::VideoFrameDataView,
-                  scoped_refptr<media::VideoFrame>>::
-    TearDownContext(const scoped_refptr<media::VideoFrame>& input,
-                    void* context) {
-  delete static_cast<media::mojom::VideoFrameDataPtr*>(context);
-}
-
-// static
-media::mojom::VideoFrameDataPtr&
-StructTraits<media::mojom::VideoFrameDataView,
-             scoped_refptr<media::VideoFrame>>::
-    data(const scoped_refptr<media::VideoFrame>& input, void* context) {
-  return *static_cast<media::mojom::VideoFrameDataPtr*>(context);
+media::mojom::VideoFrameDataPtr StructTraits<media::mojom::VideoFrameDataView,
+                                             scoped_refptr<media::VideoFrame>>::
+    data(const scoped_refptr<media::VideoFrame>& input) {
+  return media::mojom::VideoFrameDataPtr(MakeVideoFrameData(input));
 }
 
 // static
@@ -115,6 +105,7 @@ bool StructTraits<media::mojom::VideoFrameDataView,
   if (!input.ReadTimestamp(&timestamp))
     return false;
 
+  scoped_refptr<media::VideoFrame> frame;
   if (data.is_shared_buffer_data()) {
     media::mojom::SharedBufferVideoFrameDataDataView shared_buffer_data;
     data.GetSharedBufferDataDataView(&shared_buffer_data);
@@ -122,17 +113,14 @@ bool StructTraits<media::mojom::VideoFrameDataView,
     // TODO(sandersd): Conversion from uint64_t to size_t could cause
     // corruption. Platform-dependent types should be removed from the
     // implementation (limiting to 32-bit offsets is fine).
-    *output = media::MojoSharedBufferVideoFrame::Create(
+    frame = media::MojoSharedBufferVideoFrame::Create(
         format, coded_size, visible_rect, natural_size,
         shared_buffer_data.TakeFrameData(),
         shared_buffer_data.frame_data_size(), shared_buffer_data.y_offset(),
         shared_buffer_data.u_offset(), shared_buffer_data.v_offset(),
         shared_buffer_data.y_stride(), shared_buffer_data.u_stride(),
         shared_buffer_data.v_stride(), timestamp);
-    return !!*output;
-  }
-
-  if (data.is_mailbox_data()) {
+  } else if (data.is_mailbox_data()) {
     media::mojom::MailboxVideoFrameDataDataView mailbox_data;
     data.GetMailboxDataDataView(&mailbox_data);
 
@@ -144,15 +132,31 @@ bool StructTraits<media::mojom::VideoFrameDataView,
     for (size_t i = 0; i < media::VideoFrame::kMaxPlanes; i++)
       mailbox_holder_array[i] = mailbox_holder[i];
 
-    *output = media::VideoFrame::WrapNativeTextures(
+    frame = media::VideoFrame::WrapNativeTextures(
         format, mailbox_holder_array, media::VideoFrame::ReleaseMailboxCB(),
         coded_size, visible_rect, natural_size, timestamp);
-    return !!*output;
+  } else {
+    // TODO(sandersd): Switch on the union tag to avoid this ugliness?
+    NOTREACHED();
+    return false;
   }
 
-  // TODO(sandersd): Switch on the union tag to avoid this ugliness?
-  NOTREACHED();
-  return false;
+  if (!frame)
+    return false;
+
+  base::Value metadata;
+  if (!input.ReadMetadata(&metadata))
+    return false;
+
+  frame->metadata()->MergeInternalValuesFrom(metadata);
+
+  gfx::ColorSpace color_space;
+  if (!input.ReadColorSpace(&color_space))
+    return false;
+  frame->set_color_space(color_space);
+
+  *output = std::move(frame);
+  return true;
 }
 
 }  // namespace mojo

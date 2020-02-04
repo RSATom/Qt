@@ -18,14 +18,14 @@ FtpAuthCache::Entry::Entry(const GURL& origin,
       credentials(credentials) {
 }
 
-FtpAuthCache::Entry::~Entry() {}
+FtpAuthCache::Entry::~Entry() = default;
 
-FtpAuthCache::FtpAuthCache() {}
+FtpAuthCache::FtpAuthCache() = default;
 
-FtpAuthCache::~FtpAuthCache() {}
+FtpAuthCache::~FtpAuthCache() = default;
 
 FtpAuthCache::Entry* FtpAuthCache::Lookup(const GURL& origin) {
-  for (EntryList::iterator it = entries_.begin(); it != entries_.end(); ++it) {
+  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
     if (it->origin == origin)
       return &(*it);
   }
@@ -50,7 +50,7 @@ void FtpAuthCache::Add(const GURL& origin, const AuthCredentials& credentials) {
 
 void FtpAuthCache::Remove(const GURL& origin,
                           const AuthCredentials& credentials) {
-  for (EntryList::iterator it = entries_.begin(); it != entries_.end(); ++it) {
+  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
     if (it->origin == origin && it->credentials.Equals(credentials)) {
       entries_.erase(it);
       DCHECK(!Lookup(origin));

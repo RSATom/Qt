@@ -51,7 +51,6 @@
 // We mean it.
 //
 
-#include <Qt3DCore/qt3dcore_global.h>
 #include <QtCore/QHash>
 #include <QtCore/QMutex>
 #include <QtCore/QReadLocker>
@@ -60,6 +59,7 @@
 #include <limits>
 
 #include <Qt3DCore/private/qhandle_p.h>
+#include <Qt3DCore/private/qt3dcore_global_p.h>
 
 // Silence complaints about unreferenced local variables in
 // ArrayAllocatingPolicy::deallocateBuckets() when the compiler
@@ -232,6 +232,14 @@ inline T *QHandle<T>::operator->() const { return (d && counter == d->counter) ?
 template<typename T>
 inline T *QHandle<T>::data() const { return (d && counter == d->counter) ? &static_cast<QHandleData<T> *>(d)->data : nullptr; }
 
+
+class Q_3DCORE_PRIVATE_EXPORT AlignedAllocator
+{
+public:
+    static void *allocate(uint size);
+    static void release(void *p);
+};
+
 template <typename T>
 class ArrayAllocatingPolicy
 {
@@ -313,7 +321,11 @@ private:
     void allocateBucket()
     {
         // no free handle, allocate a new
-        Bucket *b = new Bucket;
+        // allocate aligned memory
+        Bucket *b = static_cast<Bucket *>(AlignedAllocator::allocate(sizeof(Bucket)));
+
+        // placement new
+        new (b) Bucket;
 
         b->header.next = firstBucket;
         firstBucket = b;
@@ -329,7 +341,10 @@ private:
         Bucket *b = firstBucket;
         while (b) {
             Bucket *n = b->header.next;
-            delete b;
+            // Call dtor explicitly
+            b->~Bucket();
+            // Release aligned memory
+            AlignedAllocator::release(b);
             b = n;
         }
     }

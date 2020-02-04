@@ -15,7 +15,7 @@
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -47,13 +47,12 @@ std::unique_ptr<base::DictionaryValue> LoadSchemaDictionary(
 
   // Tracking down http://crbug.com/121424
   char buf[128];
-  base::snprintf(buf, arraysize(buf), "%s: (%d) '%s'", name.c_str(),
-                 result.get() ? static_cast<int>(result->GetType()) : -1,
+  base::snprintf(buf, base::size(buf), "%s: (%d) '%s'", name.c_str(),
+                 result.get() ? static_cast<int>(result->type()) : -1,
                  error_message.c_str());
 
   CHECK(result.get()) << error_message << " for schema " << schema;
-  CHECK(result->IsType(base::Value::Type::DICTIONARY)) << " for schema "
-                                                       << schema;
+  CHECK(result->is_dict()) << " for schema " << schema;
   return base::DictionaryValue::From(std::move(result));
 }
 
@@ -76,7 +75,7 @@ const base::DictionaryValue* GetSchemaChild(
     const base::DictionaryValue* schema_node,
     const std::string& child_name) {
   const base::DictionaryValue* child_node = NULL;
-  for (size_t i = 0; i < arraysize(kChildKinds); ++i) {
+  for (size_t i = 0; i < base::size(kChildKinds); ++i) {
     const base::ListValue* list_node = NULL;
     if (!schema_node->GetList(kChildKinds[i], &list_node))
       continue;
@@ -88,16 +87,15 @@ const base::DictionaryValue* GetSchemaChild(
   return NULL;
 }
 
-struct Static {
-  Static()
-      : api(ExtensionAPI::CreateWithDefaultConfiguration()) {
-  }
+struct ExtensionAPIStatic {
+  ExtensionAPIStatic() : api(ExtensionAPI::CreateWithDefaultConfiguration()) {}
   std::unique_ptr<ExtensionAPI> api;
 };
 
-base::LazyInstance<Static>::Leaky g_lazy_instance = LAZY_INSTANCE_INITIALIZER;
+base::LazyInstance<ExtensionAPIStatic>::Leaky g_extension_api_static =
+    LAZY_INSTANCE_INITIALIZER;
 
-// May override |g_lazy_instance| for a test.
+// May override |g_extension_api_static| for a test.
 ExtensionAPI* g_shared_instance_for_test = NULL;
 
 }  // namespace
@@ -105,7 +103,7 @@ ExtensionAPI* g_shared_instance_for_test = NULL;
 // static
 ExtensionAPI* ExtensionAPI::GetSharedInstance() {
   return g_shared_instance_for_test ? g_shared_instance_for_test
-                                    : g_lazy_instance.Get().api.get();
+                                    : g_extension_api_static.Get().api.get();
 }
 
 // static
@@ -158,7 +156,7 @@ ExtensionAPI::~ExtensionAPI() {
 
 void ExtensionAPI::InitDefaultConfiguration() {
   const char* names[] = {"api", "manifest", "permission"};
-  for (size_t i = 0; i < arraysize(names); ++i)
+  for (size_t i = 0; i < base::size(names); ++i)
     RegisterDependencyProvider(names[i], FeatureProvider::GetByName(names[i]));
 
   default_configuration_initialized_ = true;
@@ -175,7 +173,7 @@ bool ExtensionAPI::IsAnyFeatureAvailableToContext(
     Feature::Context context,
     const GURL& url,
     CheckAliasStatus check_alias) {
-  FeatureProviderMap::iterator provider = dependency_providers_.find("api");
+  auto provider = dependency_providers_.find("api");
   CHECK(provider != dependency_providers_.end());
 
   if (api.IsAvailableToContext(extension, context, url).is_available())
@@ -183,11 +181,10 @@ bool ExtensionAPI::IsAnyFeatureAvailableToContext(
 
   // Check to see if there are any parts of this API that are allowed in this
   // context.
-  const std::vector<Feature*> features = provider->second->GetChildren(api);
-  for (std::vector<Feature*>::const_iterator it = features.begin();
-       it != features.end();
-       ++it) {
-    if ((*it)->IsAvailableToContext(extension, context, url).is_available())
+  const std::vector<const Feature*> features =
+      provider->second->GetChildren(api);
+  for (const Feature* feature : features) {
+    if (feature->IsAvailableToContext(extension, context, url).is_available())
       return true;
   }
 
@@ -210,7 +207,7 @@ Feature::Availability ExtensionAPI::IsAvailable(const std::string& full_name,
                                                 Feature::Context context,
                                                 const GURL& url,
                                                 CheckAliasStatus check_alias) {
-  Feature* feature = GetFeatureDependency(full_name);
+  const Feature* feature = GetFeatureDependency(full_name);
   if (!feature) {
     return Feature::Availability(Feature::NOT_PRESENT,
                                  std::string("Unknown feature: ") + full_name);
@@ -222,28 +219,26 @@ Feature::Availability ExtensionAPI::IsAvailable(const std::string& full_name,
     return availability;
 
   Feature::Availability alias_availability =
-      IsAliasAvailable(full_name, feature, extension, context, url);
+      IsAliasAvailable(full_name, *feature, extension, context, url);
   return alias_availability.is_available() ? alias_availability : availability;
 }
 
 base::StringPiece ExtensionAPI::GetSchemaStringPiece(
     const std::string& api_name) {
   DCHECK_EQ(api_name, GetAPINameFromFullName(api_name, nullptr));
-  StringPieceMap::iterator cached = schema_strings_.find(api_name);
+  auto cached = schema_strings_.find(api_name);
   if (cached != schema_strings_.end())
     return cached->second;
 
   ExtensionsClient* client = ExtensionsClient::Get();
   DCHECK(client);
-  if (default_configuration_initialized_ &&
-      client->IsAPISchemaGenerated(api_name)) {
-    base::StringPiece schema = client->GetAPISchema(api_name);
-    CHECK(!schema.empty());
-    schema_strings_[api_name] = schema;
-    return schema;
-  }
+  if (!default_configuration_initialized_)
+    return base::StringPiece();
 
-  return base::StringPiece();
+  base::StringPiece schema = client->GetAPISchema(api_name);
+  if (!schema.empty())
+    schema_strings_[api_name] = schema;
+  return schema;
 }
 
 const base::DictionaryValue* ExtensionAPI::GetSchema(
@@ -252,7 +247,7 @@ const base::DictionaryValue* ExtensionAPI::GetSchema(
   std::string api_name = GetAPINameFromFullName(full_name, &child_name);
 
   const base::DictionaryValue* result = NULL;
-  SchemaMap::iterator maybe_schema = schemas_.find(api_name);
+  auto maybe_schema = schemas_.find(api_name);
   if (maybe_schema != schemas_.end()) {
     result = maybe_schema->second.get();
   } else {
@@ -272,17 +267,17 @@ const base::DictionaryValue* ExtensionAPI::GetSchema(
   return result;
 }
 
-Feature* ExtensionAPI::GetFeatureDependency(const std::string& full_name) {
+const Feature* ExtensionAPI::GetFeatureDependency(
+    const std::string& full_name) {
   std::string feature_type;
   std::string feature_name;
   SplitDependencyName(full_name, &feature_type, &feature_name);
 
-  FeatureProviderMap::iterator provider =
-      dependency_providers_.find(feature_type);
+  auto provider = dependency_providers_.find(feature_type);
   if (provider == dependency_providers_.end())
     return NULL;
 
-  Feature* feature = provider->second->GetFeature(feature_name);
+  const Feature* feature = provider->second->GetFeature(feature_name);
   // Try getting the feature for the parent API, if this was a child.
   if (!feature) {
     std::string child_name;
@@ -328,15 +323,15 @@ bool ExtensionAPI::IsKnownAPI(const std::string& name,
 
 Feature::Availability ExtensionAPI::IsAliasAvailable(
     const std::string& full_name,
-    Feature* feature,
+    const Feature& feature,
     const Extension* extension,
     Feature::Context context,
     const GURL& url) {
-  const std::string& alias = feature->alias();
+  const std::string& alias = feature.alias();
   if (alias.empty())
     return Feature::Availability(Feature::NOT_PRESENT, "Alias not defined");
 
-  FeatureProviderMap::iterator provider = dependency_providers_.find("api");
+  auto provider = dependency_providers_.find("api");
   CHECK(provider != dependency_providers_.end());
 
   // Check if there is a child feature associated with full name for alias API.
@@ -348,7 +343,7 @@ Feature::Availability ExtensionAPI::IsAliasAvailable(
   std::string child_name;
   GetAPINameFromFullName(full_name, &child_name);
   std::string full_alias_name = alias + "." + child_name;
-  Feature* alias_feature = provider->second->GetFeature(full_alias_name);
+  const Feature* alias_feature = provider->second->GetFeature(full_alias_name);
 
   // If there is no child feature, use the alias API feature to check
   // availability.
@@ -356,7 +351,7 @@ Feature::Availability ExtensionAPI::IsAliasAvailable(
     alias_feature = provider->second->GetFeature(alias);
 
   CHECK(alias_feature) << "Cannot find alias feature " << alias
-                       << " for API feature " << feature->name();
+                       << " for API feature " << feature.name();
 
   return alias_feature->IsAvailableToContext(extension, context, url);
 }

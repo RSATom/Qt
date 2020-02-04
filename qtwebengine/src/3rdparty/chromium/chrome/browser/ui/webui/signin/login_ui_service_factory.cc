@@ -4,18 +4,18 @@
 
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 
-#include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
+#include "chrome/browser/unified_consent/unified_consent_service_factory.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/signin_manager.h"
 
 LoginUIServiceFactory::LoginUIServiceFactory()
     : BrowserContextKeyedServiceFactory(
         "LoginUIServiceFactory",
         BrowserContextDependencyManager::GetInstance()) {
+  DependsOn(IdentityManagerFactory::GetInstance());
+  DependsOn(UnifiedConsentServiceFactory::GetInstance());
 }
 
 LoginUIServiceFactory::~LoginUIServiceFactory() {}
@@ -31,15 +31,11 @@ LoginUIServiceFactory* LoginUIServiceFactory::GetInstance() {
   return base::Singleton<LoginUIServiceFactory>::get();
 }
 
-// static
-base::Closure LoginUIServiceFactory::GetShowLoginPopupCallbackForProfile(
-    Profile* profile) {
-  return base::Bind(
-      &LoginUIService::ShowLoginPopup,
-      base::Unretained(LoginUIServiceFactory::GetForProfile(profile)));
-}
-
 KeyedService* LoginUIServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* profile) const {
   return new LoginUIService(static_cast<Profile*>(profile));
+}
+
+bool LoginUIServiceFactory::ServiceIsCreatedWithBrowserContext() const {
+  return true;
 }

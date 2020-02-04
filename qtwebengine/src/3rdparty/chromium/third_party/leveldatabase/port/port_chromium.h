@@ -17,16 +17,8 @@
 #include "base/macros.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "build/build_config.h"
-
-// Linux's ThreadIdentifier() needs this.
-#if defined(OS_LINUX)
-#  include <linux/unistd.h>
-#endif
-
-#if defined(OS_WIN)
-typedef SSIZE_T ssize_t;
-#endif
 
 namespace leveldb {
 namespace port {
@@ -34,13 +26,13 @@ namespace port {
 // Chromium only supports little endian.
 static const bool kLittleEndian = true;
 
-class Mutex {
+class LOCKABLE Mutex {
  public:
   Mutex();
   ~Mutex();
-  void Lock();
-  void Unlock();
-  void AssertHeld();
+  void Lock() EXCLUSIVE_LOCK_FUNCTION();
+  void Unlock() UNLOCK_FUNCTION();
+  void AssertHeld() ASSERT_EXCLUSIVE_LOCK();
 
  private:
   base::Lock mu_;
@@ -64,12 +56,12 @@ class CondVar {
 };
 
 class AtomicPointer {
- private:
-  typedef base::subtle::AtomicWord Rep;
-  Rep rep_;
  public:
-  AtomicPointer() { }
+  AtomicPointer() = default;
+  ~AtomicPointer() = default;
+
   explicit AtomicPointer(void* p) : rep_(reinterpret_cast<Rep>(p)) {}
+
   inline void* Acquire_Load() const {
     return reinterpret_cast<void*>(base::subtle::Acquire_Load(&rep_));
   }
@@ -82,27 +74,11 @@ class AtomicPointer {
   inline void NoBarrier_Store(void* v) {
     base::subtle::NoBarrier_Store(&rep_, reinterpret_cast<Rep>(v));
   }
+
+ private:
+  using Rep = base::subtle::AtomicWord;
+  Rep rep_;
 };
-
-// Implementation of OnceType and InitOnce() pair, this is equivalent to
-// pthread_once_t and pthread_once().
-typedef base::subtle::Atomic32 OnceType;
-
-enum {
-  ONCE_STATE_UNINITIALIZED = 0,
-  ONCE_STATE_EXECUTING_CLOSURE = 1,
-  ONCE_STATE_DONE = 2
-};
-
-#define LEVELDB_ONCE_INIT   leveldb::port::ONCE_STATE_UNINITIALIZED
-
-// slow code path
-void InitOnceImpl(OnceType* once, void (*initializer)());
-
-static inline void InitOnce(OnceType* once, void (*initializer)()) {
-  if (base::subtle::Acquire_Load(once) != ONCE_STATE_DONE)
-    InitOnceImpl(once, initializer);
-}
 
 bool Snappy_Compress(const char* input, size_t input_length,
                      std::string* output);
@@ -115,7 +91,6 @@ inline bool GetHeapProfile(void (*func)(void*, const char*, int), void* arg) {
   return false;
 }
 
-// Implemented in leveldb's src/port/port_posix_sse.cc.
 uint32_t AcceleratedCRC32C(uint32_t crc, const char* buf, size_t size);
 
 }  // namespace port

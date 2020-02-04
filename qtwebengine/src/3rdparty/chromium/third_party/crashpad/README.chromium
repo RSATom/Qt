@@ -2,7 +2,7 @@ Name: Crashpad
 Short Name: crashpad
 URL: https://crashpad.chromium.org/
 Version: unknown
-Revision: c4f6ca3c6ac50fe4724c126518337972e778f133
+Revision: fe05eb7c99a42d0c1c437061fb5470f6fd844854
 License: Apache 2.0
 License File: crashpad/LICENSE
 Security Critical: yes
@@ -36,4 +36,3 @@ $ git am --3way --message-id -p4 /tmp/patchdir
 
 Local Modifications:
  - codereview.settings has been excluded.
- - the definition of CLIENT_ID has been updated to match the 10.0.16299.0 SDK

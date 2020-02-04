@@ -11,23 +11,31 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
-#include "storage/browser/blob/shareable_file_reference.h"
+#include "storage/browser/blob/blob_data_handle.h"
+#include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
 
 namespace content {
 
 class CONTENT_EXPORT IndexedDBBlobInfo {
  public:
-  typedef storage::ShareableFileReference::FinalReleaseCallback ReleaseCallback;
+  // TODO(mek): Use ShareableFileReference::FinalReleaseCallback somehow.
+  typedef base::RepeatingCallback<void(const base::FilePath&)> ReleaseCallback;
+
+  static void ConvertBlobInfo(
+      const std::vector<IndexedDBBlobInfo>& blob_info,
+      std::vector<blink::mojom::IDBBlobInfoPtr>* blob_or_file_info);
+
   IndexedDBBlobInfo();
   // These two are used for Blobs.
-  IndexedDBBlobInfo(const std::string& uuid,
+  IndexedDBBlobInfo(std::unique_ptr<storage::BlobDataHandle> blob_handle,
                     const base::string16& type,
                     int64_t size);
   IndexedDBBlobInfo(const base::string16& type, int64_t size, int64_t key);
   // These two are used for Files.
-  IndexedDBBlobInfo(const std::string& uuid,
+  IndexedDBBlobInfo(std::unique_ptr<storage::BlobDataHandle> blob_handle,
                     const base::FilePath& file_path,
                     const base::string16& file_name,
                     const base::string16& type);
@@ -40,7 +48,9 @@ class CONTENT_EXPORT IndexedDBBlobInfo {
   IndexedDBBlobInfo& operator=(const IndexedDBBlobInfo& other);
 
   bool is_file() const { return is_file_; }
-  const std::string& uuid() const { return uuid_; }
+  const storage::BlobDataHandle* blob_handle() const {
+    return blob_handle_.has_value() ? &blob_handle_.value() : nullptr;
+  }
   const base::string16& type() const { return type_; }
   int64_t size() const { return size_; }
   const base::string16& file_name() const { return file_name_; }
@@ -53,7 +63,6 @@ class CONTENT_EXPORT IndexedDBBlobInfo {
   const ReleaseCallback& release_callback() const { return release_callback_; }
 
   void set_size(int64_t size);
-  void set_uuid(const std::string& uuid);
   void set_file_path(const base::FilePath& file_path);
   void set_last_modified(const base::Time& time);
   void set_key(int64_t key);
@@ -62,7 +71,8 @@ class CONTENT_EXPORT IndexedDBBlobInfo {
 
  private:
   bool is_file_;
-  std::string uuid_;          // Always for Blob; sometimes for File.
+  base::Optional<storage::BlobDataHandle>
+      blob_handle_;           // Always for Blob; sometimes for File.
   base::string16 type_;       // Mime type.
   int64_t size_;              // -1 if unknown for File.
   base::string16 file_name_;  // Only for File.

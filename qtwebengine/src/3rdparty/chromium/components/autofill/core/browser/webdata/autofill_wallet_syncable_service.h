@@ -14,6 +14,7 @@
 #include "base/threading/thread_checker.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/payments/payments_customer_data.h"
 #include "components/sync/model/syncable_service.h"
 
 namespace autofill {
@@ -28,6 +29,9 @@ class AutofillWalletSyncableService
     : public base::SupportsUserData::Data,
       public syncer::SyncableService {
  public:
+  AutofillWalletSyncableService(AutofillWebDataBackend* webdata_backend,
+                                const std::string& app_locale);
+
   ~AutofillWalletSyncableService() override;
 
   // syncer::SyncableService implementation.
@@ -39,7 +43,7 @@ class AutofillWalletSyncableService
   void StopSyncing(syncer::ModelType type) override;
   syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const override;
   syncer::SyncError ProcessSyncChanges(
-      const tracked_objects::Location& from_here,
+      const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override;
 
   // Creates a new AutofillWalletSyncableService and hangs it off of
@@ -59,11 +63,6 @@ class AutofillWalletSyncableService
   void InjectStartSyncFlare(
       const syncer::SyncableService::StartSyncFlare& flare);
 
- protected:
-  AutofillWalletSyncableService(
-      AutofillWebDataBackend* webdata_backend,
-      const std::string& app_locale);
-
  private:
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest,
                            CopyRelevantMetadataFromDisk_KeepLocalAddresses);
@@ -72,19 +71,45 @@ class AutofillWalletSyncableService
       CopyRelevantMetadataFromDisk_OverwriteOtherAddresses);
   FRIEND_TEST_ALL_PREFIXES(
       AutofillWalletSyncableServiceTest,
-      PopulateWalletCardsAndAddresses_BillingAddressIdTransfer);
+      PopulateWalletTypesFromSyncData_BillingAddressIdTransfer);
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest,
                            CopyRelevantMetadataFromDisk_KeepUseStats);
   FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest, NewWalletCard);
+  FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest, EmptyNameOnCard);
+  FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest,
+                           PaymentsCustomerData);
+  FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest, ComputeCardsDiff);
+  FRIEND_TEST_ALL_PREFIXES(AutofillWalletSyncableServiceTest,
+                           ComputeAddressesDiff);
 
-  syncer::SyncMergeResult SetSyncData(const syncer::SyncDataList& data_list);
+  struct Diff {
+    int items_added = 0;
+    int items_removed = 0;
 
-  // Populates the wallet cards and addresses from the sync data and uses the
-  // sync data to link the card to its billing address.
-  static void PopulateWalletCardsAndAddresses(
+    bool IsEmpty() const { return items_added == 0 && items_removed == 0; }
+  };
+
+  // Computes a "diff" (items added, items removed) of two vectors of items,
+  // which should be either CreditCard or AutofillProfile. This is used for two
+  // purposes:
+  // 1) Detecting if anything has changed, so that we don't write to disk in the
+  //    common case where nothing has changed.
+  // 2) Recording metrics on the number of added/removed items.
+  // This is exposed as a static method so that it can be tested.
+  template <class Item>
+  static Diff ComputeDiff(const std::vector<std::unique_ptr<Item>>& old_data,
+                          const std::vector<Item>& new_data);
+
+  syncer::SyncMergeResult SetSyncData(const syncer::SyncDataList& data_list,
+                                      bool is_initial_merge);
+
+  // Populates the wallet datatypes from the sync data and uses the sync data to
+  // link the card to its billing address.
+  static void PopulateWalletTypesFromSyncData(
       const syncer::SyncDataList& data_list,
       std::vector<CreditCard>* wallet_cards,
-      std::vector<AutofillProfile>* wallet_addresses);
+      std::vector<AutofillProfile>* wallet_addresses,
+      std::vector<PaymentsCustomerData>* customer_data);
 
   // Finds the copies of the same credit card from the server and on disk and
   // overwrites the server version with the use stats saved on disk, and the

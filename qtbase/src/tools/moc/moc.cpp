@@ -260,7 +260,7 @@ bool Moc::parseEnum(EnumDef *def)
 {
     bool isTypdefEnum = false; // typedef enum { ... } Foo;
 
-    if (test(CLASS))
+    if (test(CLASS) || test(STRUCT))
         def->isEnumClass = true;
 
     if (test(IDENTIFIER)) {
@@ -674,6 +674,9 @@ void Moc::parse()
                 if (test(NAMESPACE)) {
                     while (test(SCOPE) || test(IDENTIFIER))
                         ;
+                    // Ignore invalid code such as: 'using namespace __identifier("x")' (QTBUG-63772)
+                    if (test(LPAREN))
+                        until(RPAREN);
                     next(SEMIC);
                 }
                 break;
@@ -989,7 +992,7 @@ void Moc::generate(FILE *out)
     fprintf(out, "** WARNING! All changes made in this file will be lost!\n"
             "*****************************************************************************/\n\n");
 
-
+    fprintf(out, "#include <memory>\n");  // For std::addressof
     if (!noInclude) {
         if (includePath.size() && !includePath.endsWith('/'))
             includePath += '/';

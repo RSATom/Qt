@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/component_export.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
@@ -72,7 +73,7 @@ class MessageFilterRouter;
 // |channel_lifetime_lock_| is used to protect it. The locking overhead is only
 // paid if the underlying channel supports thread-safe |Send|.
 //
-class IPC_EXPORT ChannelProxy : public Sender {
+class COMPONENT_EXPORT(IPC) ChannelProxy : public Sender {
  public:
 #if defined(ENABLE_IPC_FUZZER)
   // Interface for a filter to be imposed on outgoing messages which can
@@ -95,17 +96,20 @@ class IPC_EXPORT ChannelProxy : public Sender {
       const IPC::ChannelHandle& channel_handle,
       Channel::Mode mode,
       Listener* listener,
-      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner);
+      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& listener_task_runner);
 
   static std::unique_ptr<ChannelProxy> Create(
       std::unique_ptr<ChannelFactory> factory,
       Listener* listener,
-      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner);
+      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& listener_task_runner);
 
   // Constructs a ChannelProxy without initializing it.
   ChannelProxy(
       Listener* listener,
-      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner);
+      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& listener_task_runner);
 
   ~ChannelProxy() override;
 
@@ -244,7 +248,9 @@ class IPC_EXPORT ChannelProxy : public Sender {
                   public Listener {
    public:
     Context(Listener* listener,
-            const scoped_refptr<base::SingleThreadTaskRunner>& ipc_thread);
+            const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+            const scoped_refptr<base::SingleThreadTaskRunner>&
+                listener_task_runner);
     void ClearIPCTaskRunner();
     base::SingleThreadTaskRunner* ipc_task_runner() const {
       return ipc_task_runner_.get();
@@ -252,6 +258,10 @@ class IPC_EXPORT ChannelProxy : public Sender {
     const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner_refptr()
         const {
       return ipc_task_runner_;
+    }
+
+    scoped_refptr<base::SingleThreadTaskRunner> listener_task_runner() {
+      return listener_task_runner_;
     }
 
     // Dispatches a message on the listener thread.

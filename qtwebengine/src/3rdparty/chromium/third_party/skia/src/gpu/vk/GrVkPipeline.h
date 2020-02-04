@@ -8,11 +8,9 @@
 #ifndef GrVkPipeline_DEFINED
 #define GrVkPipeline_DEFINED
 
-#include "GrTypes.h"
-
+#include "GrTypesPriv.h"
 #include "GrVkResource.h"
-
-#include "vk/GrVkDefines.h"
+#include "vk/GrVkTypes.h"
 
 class GrPipeline;
 class GrPrimitiveProcessor;
@@ -27,20 +25,20 @@ struct SkIRect;
 class GrVkPipeline : public GrVkResource {
 public:
     static GrVkPipeline* Create(GrVkGpu* gpu,
+                                const GrPrimitiveProcessor& primProc,
                                 const GrPipeline& pipeline,
                                 const GrStencilSettings&,
-                                const GrPrimitiveProcessor& primProc,
                                 VkPipelineShaderStageCreateInfo* shaderStageInfo,
                                 int shaderStageCount,
                                 GrPrimitiveType primitiveType,
-                                const GrVkRenderPass& renderPass,
+                                VkRenderPass compatibleRenderPass,
                                 VkPipelineLayout layout,
                                 VkPipelineCache cache);
 
     VkPipeline pipeline() const { return fPipeline; }
 
     static void SetDynamicScissorRectState(GrVkGpu*, GrVkCommandBuffer*, const GrRenderTarget*,
-                                           SkIRect);
+                                           GrSurfaceOrigin, SkIRect);
     static void SetDynamicViewportState(GrVkGpu*, GrVkCommandBuffer*, const GrRenderTarget*);
     static void SetDynamicBlendConstantState(GrVkGpu*, GrVkCommandBuffer*, GrPixelConfig,
                                              const GrXferProcessor&);
@@ -57,7 +55,7 @@ protected:
     VkPipeline  fPipeline;
 
 private:
-    void freeGPUData(const GrVkGpu* gpu) const override;
+    void freeGPUData(GrVkGpu* gpu) const override;
 
     typedef GrVkResource INHERITED;
 };

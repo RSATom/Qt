@@ -4,43 +4,32 @@
 
 #include "ui/ozone/platform/x11/ozone_platform_x11.h"
 
-#include <X11/Xlib.h>
-
 #include <memory>
 #include <utility>
 
-#include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/x/x11_util.h"
-#include "ui/display/fake_display_delegate.h"
+#include "ui/display/manager/fake_display_delegate.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
-#include "ui/events/platform/x11/x11_event_source_libevent.h"
+#include "ui/events/platform/x11/x11_event_source_default.h"
+#include "ui/events/system_input_injector.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
 #include "ui/ozone/platform/x11/x11_cursor_factory_ozone.h"
+#include "ui/ozone/platform/x11/x11_screen_ozone.h"
 #include "ui/ozone/platform/x11/x11_surface_factory.h"
+#include "ui/ozone/platform/x11/x11_window_manager_ozone.h"
+#include "ui/ozone/platform/x11/x11_window_ozone.h"
 #include "ui/ozone/public/gpu_platform_support_host.h"
 #include "ui/ozone/public/input_controller.h"
 #include "ui/ozone/public/ozone_platform.h"
-#include "ui/ozone/public/system_input_injector.h"
 #include "ui/platform_window/platform_window.h"
-#include "ui/platform_window/x11/x11_window_manager_ozone.h"
-#include "ui/platform_window/x11/x11_window_ozone.h"
+#include "ui/platform_window/platform_window_init_properties.h"
 
 namespace ui {
 
 namespace {
-
-// Returns true if a flag is present that will cause Ozone UI and GPU to run in
-// the same process.
-// TODO(kylechar): Remove --mojo-platform-channel-handle when mus-ws process
-// split happens.
-bool HasSingleProcessFlag() {
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  return command_line->HasSwitch("mojo-platform-channel-handle") ||
-         command_line->HasSwitch("single-process");
-}
 
 // Singleton OzonePlatform implementation for X11 platform.
 class OzonePlatformX11 : public OzonePlatform {
@@ -76,26 +65,29 @@ class OzonePlatformX11 : public OzonePlatform {
 
   std::unique_ptr<PlatformWindow> CreatePlatformWindow(
       PlatformWindowDelegate* delegate,
-      const gfx::Rect& bounds) override {
-    std::unique_ptr<X11WindowOzone> window = base::MakeUnique<X11WindowOzone>(
-        window_manager_.get(), delegate, bounds);
-    window->Create();
+      PlatformWindowInitProperties properties) override {
+    std::unique_ptr<X11WindowOzone> window = std::make_unique<X11WindowOzone>(
+        window_manager_.get(), delegate, properties.bounds);
     window->SetTitle(base::ASCIIToUTF16("Ozone X11"));
     return std::move(window);
   }
 
   std::unique_ptr<display::NativeDisplayDelegate> CreateNativeDisplayDelegate()
       override {
-    return base::MakeUnique<display::FakeDisplayDelegate>();
+    return std::make_unique<display::FakeDisplayDelegate>();
+  }
+
+  std::unique_ptr<PlatformScreen> CreateScreen() override {
+    return std::make_unique<X11ScreenOzone>();
   }
 
   void InitializeUI(const InitParams& params) override {
     InitializeCommon(params);
     CreatePlatformEventSource();
-    window_manager_ = base::MakeUnique<X11WindowManagerOzone>();
-    overlay_manager_ = base::MakeUnique<StubOverlayManager>();
+    window_manager_ = std::make_unique<X11WindowManagerOzone>();
+    overlay_manager_ = std::make_unique<StubOverlayManager>();
     input_controller_ = CreateStubInputController();
-    cursor_factory_ozone_ = base::MakeUnique<X11CursorFactoryOzone>();
+    cursor_factory_ozone_ = std::make_unique<X11CursorFactoryOzone>();
     gpu_platform_support_host_.reset(CreateStubGpuPlatformSupportHost());
 
     TouchFactory::SetTouchDeviceListFromCommandLine();
@@ -106,10 +98,10 @@ class OzonePlatformX11 : public OzonePlatform {
 
     // In single process mode either the UI thread will create an event source
     // or it's a test and an event source isn't desired.
-    if (!params.single_process && !HasSingleProcessFlag())
+    if (!params.single_process)
       CreatePlatformEventSource();
 
-    surface_factory_ozone_ = base::MakeUnique<X11SurfaceFactory>();
+    surface_factory_ozone_ = std::make_unique<X11SurfaceFactory>();
   }
 
   base::MessageLoop::Type GetMessageLoopTypeForGpu() override {
@@ -121,14 +113,17 @@ class OzonePlatformX11 : public OzonePlatform {
  private:
   // Performs initialization steps need by both UI and GPU.
   void InitializeCommon(const InitParams& params) {
-    // TODO(kylechar): Add DCHECK we only enter InitializeCommon() twice for
-    // single process mode.
     if (common_initialized_)
       return;
 
-    // In single process mode XInitThreads() must be the first Xlib call.
-    if (params.single_process || HasSingleProcessFlag())
-      XInitThreads();
+    // Always initialize in multi-thread mode, since this is used only during
+    // development.
+    XInitThreads();
+
+    // If XOpenDisplay() failed there is nothing we can do. Crash here instead
+    // of crashing later. If you are crashing here, make sure there is an X
+    // server running and $DISPLAY is set.
+    CHECK(gfx::GetXDisplay()) << "Missing X server or $DISPLAY";
 
     ui::SetDefaultX11ErrorHandlers();
 
@@ -141,7 +136,7 @@ class OzonePlatformX11 : public OzonePlatform {
       return;
 
     XDisplay* display = gfx::GetXDisplay();
-    event_source_ = base::MakeUnique<X11EventSourceLibevent>(display);
+    event_source_ = std::make_unique<X11EventSourceDefault>(display);
   }
 
   bool common_initialized_ = false;
@@ -157,7 +152,7 @@ class OzonePlatformX11 : public OzonePlatform {
   std::unique_ptr<X11SurfaceFactory> surface_factory_ozone_;
 
   // Objects in both UI and GPU process.
-  std::unique_ptr<X11EventSourceLibevent> event_source_;
+  std::unique_ptr<X11EventSourceDefault> event_source_;
 
   DISALLOW_COPY_AND_ASSIGN(OzonePlatformX11);
 };

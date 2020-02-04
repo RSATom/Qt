@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -82,4 +81,3 @@ class RegexpGatherer(skeleton_gatherer.SkeletonGatherer):
 
     if self.single_message_:
       self.skeleton_.append(self.uberclique.MakeClique(self.single_message_))
-

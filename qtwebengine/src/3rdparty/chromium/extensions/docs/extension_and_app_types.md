@@ -64,7 +64,7 @@ around a website -- with the power of extension APIs. With the launch of
 platform apps and the app-specific APIs, legacy packaged apps are deprecated.
 
 A packaged app can be identified by the presence of an
-`app.launch.local_url` key in `manifest.json`, which identifies the resource
+`app.launch.local_path` key in `manifest.json`, which identifies the resource
 in the .crx that's loaded when the app is launched.
 
 *Packaged apps are deprecated everywhere.*
@@ -72,11 +72,11 @@ in the .crx that's loaded when the app is launched.
 ### Hosted app
 
 A [hosted app](https://developer.chrome.com/webstore/hosted_apps) is mostly
-metadata: a web URL to launch, a list of associated URLs, and a list of HTML5
-permissions. Chrome ask for these permissions during the app's installation,
-allowing the associated URL to bypass the normal Chrome permission prompts for
-HTML5 features. Other than metadata in the manifest and an icon, none of a
-hosted app's resources come from the extension system.
+metadata: a web URL to launch, a list of associated URLs, and a list of
+permissions. Chrome asks for these permissions during the app's installation.
+Some permissions allow the associated URL to bypass runtime permission prompts
+of regular web features. Other than metadata in the manifest and icons, none of
+a hosted app's resources come from the extension system.
 
 A hosted app can declare a BackgroundContents, which outlives the browser and
 can be scripted from all tabs running the hosted app. Specifying
@@ -104,6 +104,12 @@ flags that specify the app and profile. Activating the icon launches the
 A bookmark app's `manifest.json` identifies it as a hosted app. However, in the
 C++ code, the `Extension` object will return true from its `from_bookmark()`
 method.
+
+### Progressive Web App (PWA)
+
+When Progressive Web Apps are installed on desktop a bookmark app is created.
+The bookmark app in this case will capture navigations to its scope and opens
+them in a dedicated app window instead of the existing browser context.
 
 ## Ambiguity surrounding the term "Extension"
 

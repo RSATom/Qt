@@ -184,7 +184,8 @@ void QSaveFile::setFileName(const QString &name)
     Important: the \a mode must include QIODevice::WriteOnly.
     It may also have additional flags, such as QIODevice::Text and QIODevice::Unbuffered.
 
-    QIODevice::ReadWrite and QIODevice::Append are not supported at the moment.
+    QIODevice::ReadWrite, QIODevice::Append, QIODevice::NewOnly and
+    QIODevice::ExistingOnly are not supported at the moment.
 
     \sa QIODevice::OpenMode, setFileName()
 */
@@ -196,12 +197,14 @@ bool QSaveFile::open(OpenMode mode)
         return false;
     }
     unsetError();
+    d->writeError = QFileDevice::NoError;
     if ((mode & (ReadOnly | WriteOnly)) == 0) {
         qWarning("QSaveFile::open: Open mode not specified");
         return false;
     }
     // In the future we could implement ReadWrite by copying from the existing file to the temp file...
-    if ((mode & ReadOnly) || (mode & Append)) {
+    // The implications of NewOnly and ExistingOnly when used with QSaveFile need to be considered carefully...
+    if (mode & (ReadOnly | Append | NewOnly | ExistingOnly)) {
         qWarning("QSaveFile::open: Unsupported open mode 0x%x", int(mode));
         return false;
     }
@@ -241,9 +244,15 @@ bool QSaveFile::open(OpenMode mode)
         return false;
     };
 
+    bool requiresDirectWrite = false;
 #ifdef Q_OS_WIN
     // check if it is an Alternate Data Stream
-    if (d->finalFileName == d->fileName && d->fileName.indexOf(QLatin1Char(':'), 2) > 1) {
+    requiresDirectWrite = d->finalFileName == d->fileName && d->fileName.indexOf(QLatin1Char(':'), 2) > 1;
+#elif defined(Q_OS_ANDROID)
+    // check if it is a content:// URL
+    requiresDirectWrite  = d->fileName.startsWith(QLatin1String("content://"));
+#endif
+    if (requiresDirectWrite) {
         // yes, we can't rename onto it...
         if (d->directWriteFallback) {
             if (openDirectly())
@@ -253,16 +262,14 @@ bool QSaveFile::open(OpenMode mode)
             d->fileEngine = 0;
         } else {
             QString msg =
-                    QSaveFile::tr("QSaveFile cannot open '%1' without direct write fallback "
-                                  "enabled: path contains an Alternate Data Stream specifier")
-                    .arg(QDir::toNativeSeparators(d->fileName));
+                    QSaveFile::tr("QSaveFile cannot open '%1' without direct write fallback enabled.")
+                     .arg(QDir::toNativeSeparators(d->fileName));
             d->setError(QFileDevice::OpenError, msg);
         }
         return false;
     }
-#endif
 
-    d->fileEngine = new QTemporaryFileEngine(&d->finalFileName);
+    d->fileEngine = new QTemporaryFileEngine(&d->finalFileName, QTemporaryFileEngine::Win32NonShared);
     // if the target file exists, we'll copy its permissions below,
     // but until then, let's ensure the temporary file is not accessible
     // to a third party

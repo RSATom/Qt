@@ -8,7 +8,7 @@
 #include "net/base/net_export.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_cache_transaction.h"
-#include "net/spdy/chromium/server_push_delegate.h"
+#include "net/spdy/server_push_delegate.h"
 
 namespace net {
 
@@ -42,7 +42,7 @@ class NET_EXPORT_PRIVATE HttpCacheLookupManager : public ServerPushDelegate {
     // Issues an HttpCache::Transaction to lookup whether the response is cached
     // without header validation.
     int StartLookup(HttpCache* cache,
-                    const CompletionCallback& callback,
+                    CompletionOnceCallback callback,
                     const NetLogWithSource& session_net_log);
 
     void OnLookupComplete(int result);

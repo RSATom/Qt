@@ -13,7 +13,6 @@
 #include "ui/message_center/views/message_view.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
-#include "ui/views/view_targeter_delegate.h"
 
 namespace views {
 class ImageView;
@@ -31,13 +30,10 @@ class ProportionalImageView;
 // list) except the custom notification. Future notification types may be
 // handled by other classes, in which case instances of those classes would be
 // returned by the Create() factory method below.
-class MESSAGE_CENTER_EXPORT NotificationView
-    : public MessageView,
-      public views::ButtonListener,
-      public views::ViewTargeterDelegate {
+class MESSAGE_CENTER_EXPORT NotificationView : public MessageView,
+                                               public views::ButtonListener {
  public:
-  NotificationView(MessageCenterController* controller,
-                   const Notification& notification);
+  explicit NotificationView(const Notification& notification);
   ~NotificationView() override;
 
   // Overridden from views::View:
@@ -46,17 +42,12 @@ class MESSAGE_CENTER_EXPORT NotificationView
   void Layout() override;
   void OnFocus() override;
   void ScrollRectToVisible(const gfx::Rect& rect) override;
-  gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override;
-  void OnMouseMoved(const ui::MouseEvent& event) override;
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
 
   // Overridden from MessageView:
   void UpdateWithNotification(const Notification& notification) override;
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
-  bool IsCloseButtonFocused() const override;
-  void RequestFocusOnCloseButton() override;
-  void UpdateControlButtonsVisibility() override;
   NotificationControlButtonsView* GetControlButtonsView() const override;
 
  private:
@@ -68,13 +59,12 @@ class MESSAGE_CENTER_EXPORT NotificationView
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, TestLineLimits);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, TestIconSizing);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, TestImageSizing);
+  FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, TitleWrappingTest);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, UpdateButtonsStateTest);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, UpdateButtonCountTest);
+  FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, UpdateViewsOrderingTest);
 
   friend class NotificationViewTest;
-
-  // views::ViewTargeterDelegate:
-  views::View* TargetForRect(views::View* root, const gfx::Rect& rect) override;
 
   void CreateOrUpdateViews(const Notification& notification);
 
@@ -87,6 +77,7 @@ class MESSAGE_CENTER_EXPORT NotificationView
   void CreateOrUpdateSmallIconView(const Notification& notification);
   void CreateOrUpdateImageView(const Notification& notification);
   void CreateOrUpdateActionButtonViews(const Notification& notification);
+  // TODO(yoshiki): Move this to MessageView
   void UpdateControlButtonsVisibilityWithNotification(
       const Notification& notification);
 
@@ -99,8 +90,8 @@ class MESSAGE_CENTER_EXPORT NotificationView
   // notification.
   base::string16 FormatContextMessage(const Notification& notification) const;
 
-  // Describes whether the view should display a hand pointer or not.
-  bool clickable_;
+  // Shrink the topmost label not to be covered by the control button.
+  void ShrinkTopmostLabel();
 
   // Weak references to NotificationView descendants owned by their parents.
   views::View* top_view_ = nullptr;
@@ -117,6 +108,10 @@ class MESSAGE_CENTER_EXPORT NotificationView
   std::vector<views::View*> separators_;
   std::unique_ptr<views::ImageView> small_image_view_;
   NotificationControlButtonsView* control_buttons_view_;
+
+  // Counter for view layouting, which is used during the CreateOrUpdate*
+  // phases to keep track of the view ordering. See crbug.com/901045
+  int top_view_count_;
 
   DISALLOW_COPY_AND_ASSIGN(NotificationView);
 };

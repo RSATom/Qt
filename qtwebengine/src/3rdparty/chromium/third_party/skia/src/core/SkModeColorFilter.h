@@ -6,6 +6,7 @@
  */
 
 #include "SkColorFilter.h"
+#include "SkFlattenable.h"
 
 #ifndef SkModeColorFilter_DEFINED
 #define SkModeColorFilter_DEFINED
@@ -16,20 +17,13 @@ public:
         return sk_sp<SkColorFilter>(new SkModeColorFilter(color, mode));
     }
 
-    SkColor getColor() const { return fColor; }
-    SkPMColor getPMColor() const { return fPMColor; }
-
     bool asColorMode(SkColor*, SkBlendMode*) const override;
     uint32_t getFlags() const override;
 
-#ifndef SK_IGNORE_TO_STRING
-    void toString(SkString* str) const override;
-#endif
-
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(GrContext*, SkColorSpace*) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(
+            GrContext*, const GrColorSpaceInfo&) const override;
 #endif
-    SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkModeColorFilter)
 
 protected:
     SkModeColorFilter(SkColor color, SkBlendMode mode);
@@ -42,10 +36,10 @@ protected:
     sk_sp<SkColorFilter> onMakeColorSpace(SkColorSpaceXformer*) const override;
 
 private:
+    SK_FLATTENABLE_HOOKS(SkModeColorFilter)
+
     SkColor     fColor;
     SkBlendMode fMode;
-    // cache
-    SkPMColor   fPMColor;
 
     friend class SkColorFilter;
 

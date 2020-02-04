@@ -17,33 +17,34 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/trace_event/memory_dump_provider.h"
-#include "gpu/command_buffer/common/command_buffer_shared.h"
+#include "gpu/command_buffer/common/command_buffer.h"
 
 namespace gpu {
-namespace gles2 {
 class MemoryTracker;
-}
 
 class GPU_EXPORT TransferBufferManager
     : public base::trace_event::MemoryDumpProvider {
  public:
-  explicit TransferBufferManager(gles2::MemoryTracker* memory_tracker);
+  explicit TransferBufferManager(MemoryTracker* memory_tracker);
   ~TransferBufferManager() override;
 
   // Overridden from base::trace_event::MemoryDumpProvider:
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
                     base::trace_event::ProcessMemoryDump* pmd) override;
 
-  bool RegisterTransferBuffer(int32_t id,
-                              std::unique_ptr<BufferBacking> buffer_backing);
+  bool RegisterTransferBuffer(int32_t id, scoped_refptr<Buffer> buffer);
   void DestroyTransferBuffer(int32_t id);
   scoped_refptr<Buffer> GetTransferBuffer(int32_t id);
+
+  size_t shared_memory_bytes_allocated() const {
+    return shared_memory_bytes_allocated_;
+  }
 
  private:
   typedef base::flat_map<int32_t, scoped_refptr<Buffer>> BufferMap;
   BufferMap registered_buffers_;
   size_t shared_memory_bytes_allocated_;
-  gles2::MemoryTracker* memory_tracker_;
+  MemoryTracker* memory_tracker_;
 
   DISALLOW_COPY_AND_ASSIGN(TransferBufferManager);
 };

@@ -418,8 +418,10 @@ QVariant QMacPasteboardMimeUnicodeText::convertToMime(const QString &mimetype, Q
     QVariant ret;
     if (flavor == QLatin1String("public.utf8-plain-text")) {
         ret = QString::fromUtf8(firstData);
+#if QT_CONFIG(textcodec)
     } else if (flavor == QLatin1String("public.utf16-plain-text")) {
         ret = QTextCodec::codecForName("UTF-16")->toUnicode(firstData);
+#endif
     } else {
         qWarning("QMime::convertToMime: unhandled mimetype: %s", qPrintable(mimetype));
     }
@@ -432,8 +434,25 @@ QList<QByteArray> QMacPasteboardMimeUnicodeText::convertFromMime(const QString &
     QString string = data.toString();
     if (flavor == QLatin1String("public.utf8-plain-text"))
         ret.append(string.toUtf8());
-    else if (flavor == QLatin1String("public.utf16-plain-text"))
-        ret.append(QTextCodec::codecForName("UTF-16")->fromUnicode(string));
+#if QT_CONFIG(textcodec)
+    else if (flavor == QLatin1String("public.utf16-plain-text")) {
+        QTextCodec::ConverterState state;
+#if defined(Q_OS_MACOS)
+        // Some applications such as Microsoft Excel, don't deal well with
+        // a BOM present, so we follow the traditional approach of Qt on
+        // macOS to not generate public.utf16-plain-text with a BOM.
+        state.flags = QTextCodec::IgnoreHeader;
+#else
+        // Whereas iOS applications will fail to paste if we do _not_
+        // include a BOM in the public.utf16-plain-text content, most
+        // likely due to converting the data using NSUTF16StringEncoding
+        // which assumes big-endian byte order if there is no BOM.
+        state.flags = QTextCodec::DefaultConversion;
+#endif
+        ret.append(QTextCodec::codecForName("UTF-16")->fromUnicode(
+            string.constData(), string.length(), &state));
+    }
+#endif
     return ret;
 }
 
@@ -536,13 +555,13 @@ QVariant QMacPasteboardMimeRtfText::convertToMime(const QString &mimeType, QList
 
     // Read RTF into to NSAttributedString, then convert the string to HTML
     NSAttributedString *string = [[NSAttributedString alloc] initWithData:data.at(0).toNSData()
-            options:[NSDictionary dictionaryWithObject:NSRTFTextDocumentType forKey:NSDocumentTypeDocumentAttribute]
+            options:@{NSDocumentTypeDocumentAttribute: NSRTFTextDocumentType}
             documentAttributes:nil
             error:nil];
 
     NSError *error;
     NSRange range = NSMakeRange(0, [string length]);
-    NSDictionary *dict = [NSDictionary dictionaryWithObject:NSHTMLTextDocumentType forKey:NSDocumentTypeDocumentAttribute];
+    NSDictionary *dict = @{NSDocumentTypeDocumentAttribute: NSHTMLTextDocumentType};
     NSData *htmlData = [string dataFromRange:range documentAttributes:dict error:&error];
     return QByteArray::fromNSData(htmlData);
 }
@@ -554,13 +573,13 @@ QList<QByteArray> QMacPasteboardMimeRtfText::convertFromMime(const QString &mime
         return ret;
 
     NSAttributedString *string = [[NSAttributedString alloc] initWithData:data.toByteArray().toNSData()
-            options:[NSDictionary dictionaryWithObject:NSHTMLTextDocumentType forKey:NSDocumentTypeDocumentAttribute]
+            options:@{NSDocumentTypeDocumentAttribute: NSHTMLTextDocumentType}
             documentAttributes:nil
             error:nil];
 
     NSError *error;
     NSRange range = NSMakeRange(0, [string length]);
-    NSDictionary *dict = [NSDictionary dictionaryWithObject:NSRTFTextDocumentType forKey:NSDocumentTypeDocumentAttribute];
+    NSDictionary *dict = @{NSDocumentTypeDocumentAttribute: NSRTFTextDocumentType};
     NSData *rtfData = [string dataFromRange:range documentAttributes:dict error:&error];
     ret << QByteArray::fromNSData(rtfData);
     return ret;
@@ -853,8 +872,8 @@ QList<QByteArray> QMacPasteboardMimeTiff::convertFromMime(const QString &mime, Q
 
     QImage img = qvariant_cast<QImage>(variant);
     NSDictionary *props = @{
-        static_cast<NSString *>(kCGImagePropertyPixelWidth) : [NSNumber numberWithInt:img.width()],
-        static_cast<NSString *>(kCGImagePropertyPixelHeight) : [NSNumber numberWithInt:img.height()]
+        static_cast<NSString *>(kCGImagePropertyPixelWidth): @(img.width()),
+        static_cast<NSString *>(kCGImagePropertyPixelHeight): @(img.height())
     };
 
     CGImageDestinationAddImage(imageDestination, qt_mac_toCGImage(img), static_cast<CFDictionaryRef>(props));

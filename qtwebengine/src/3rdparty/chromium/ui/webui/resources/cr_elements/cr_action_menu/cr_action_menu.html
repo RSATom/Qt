@@ -1,30 +1,36 @@
-<link rel="import" href="chrome://resources/html/assert.html">
-<link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
-<link rel="import" href="chrome://resources/html/util.html">
-<link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
+<link rel="import" href="../../html/polymer.html">
+
+<link rel="import" href="../../html/assert.html">
+<link rel="import" href="../../html/cr/ui/focus_without_ink.html">
+<link rel="import" href="../../html/util.html">
+<link rel="import" href="../shared_vars_css.html">
 
 <dom-module id="cr-action-menu">
   <template>
     <style>
-      :host {
-        background-color: white;
+      :host dialog {
+        background-color: var(--cr-menu-background-color);
         border: none;
-        box-shadow: 0 2px 6px var(--paper-grey-500);
+        border-radius: 4px;
+        box-shadow: var(--cr-menu-shadow);
         margin: 0;
+        min-width: 128px;
         outline: none;
-        padding: 8px 0;
+        padding: 0;
+
+        @apply --cr-action-menu-dialog;
       }
 
-      :host::backdrop {
+      :host dialog::backdrop {
         background-color: transparent;
       }
 
-      :host ::content .dropdown-item {
+      :host ::slotted(.dropdown-item) {
         background: none;
         border: none;
+        border-radius: 0;
         box-sizing: border-box;
-        color: var(--paper-grey-900);
+        color: var(--cr-primary-text-color);
         font: inherit;
         min-height: 32px;
         padding: 0 24px;
@@ -33,31 +39,36 @@
         width: 100%;
       }
 
-      :host ::content .dropdown-item:not([hidden]) {
+      :host ::slotted(.dropdown-item:not([hidden])) {
         align-items: center;
         display: flex;
       }
 
-      :host ::content .dropdown-item[disabled] {
-        opacity: 0.65;
+      :host ::slotted(.dropdown-item[disabled]) {
+        opacity: var(--cr-action-menu-disabled-item-opacity, 0.65);
       }
 
-      :host ::content .dropdown-item:not([disabled]) {
-        @apply(--cr-actionable);
+      :host ::slotted(.dropdown-item:not([disabled])) {
+        @apply --cr-actionable;
       }
 
-      :host ::content .dropdown-item:focus {
-        background-color: var(--paper-grey-300);
+      :host ::slotted(.dropdown-item:focus) {
+        background-color: var(--cr-menu-background-focus-color);
         outline: none;
       }
 
       .item-wrapper {
+        background: var(--cr-menu-background-sheen);
         outline: none;
+        padding: 8px 0;
       }
     </style>
-    <div class="item-wrapper" tabindex="-1">
-      <content select=".dropdown-item,hr"></content>
-    </div>
+    <dialog id="dialog" tabindex="0" on-close="onNativeDialogClose_" role="menu"
+        aria-label$="[[ariaLabel]]">
+      <div class="item-wrapper" tabindex="-1">
+        <slot id="contentNode"></slot>
+      </div>
+    </dialog>
   </template>
   <script src="cr_action_menu.js"></script>
 </dom-module>

@@ -4,6 +4,7 @@
 
 // Multiply-included message file, hence no include guard here, but see below
 // for a much smaller-than-usual include guard section.
+// no-include-guard-because-multiply-included
 
 #include <stdint.h>
 
@@ -16,6 +17,8 @@
 #include "ui/display/types/gamma_ramp_rgb_entry.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/ipc/buffer_types/gfx_param_traits.h"
+#include "ui/gfx/ipc/color/gfx_param_traits.h"
 #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
 #include "ui/gfx/ipc/skia/gfx_skia_param_traits.h"
@@ -51,6 +54,8 @@ IPC_STRUCT_TRAITS_BEGIN(ui::DisplaySnapshot_Params)
   IPC_STRUCT_TRAITS_MEMBER(is_aspect_preserving_scaling)
   IPC_STRUCT_TRAITS_MEMBER(has_overscan)
   IPC_STRUCT_TRAITS_MEMBER(has_color_correction_matrix)
+  IPC_STRUCT_TRAITS_MEMBER(color_correction_in_linear_space)
+  IPC_STRUCT_TRAITS_MEMBER(color_space)
   IPC_STRUCT_TRAITS_MEMBER(display_name)
   IPC_STRUCT_TRAITS_MEMBER(sys_path)
   IPC_STRUCT_TRAITS_MEMBER(modes)
@@ -59,8 +64,8 @@ IPC_STRUCT_TRAITS_BEGIN(ui::DisplaySnapshot_Params)
   IPC_STRUCT_TRAITS_MEMBER(current_mode)
   IPC_STRUCT_TRAITS_MEMBER(has_native_mode)
   IPC_STRUCT_TRAITS_MEMBER(native_mode)
-  IPC_STRUCT_TRAITS_MEMBER(product_id)
-  IPC_STRUCT_TRAITS_MEMBER(string_representation)
+  IPC_STRUCT_TRAITS_MEMBER(product_code)
+  IPC_STRUCT_TRAITS_MEMBER(year_of_manufacture)
   IPC_STRUCT_TRAITS_MEMBER(maximum_cursor_size)
 IPC_STRUCT_TRAITS_END()
 
@@ -149,11 +154,14 @@ IPC_MESSAGE_CONTROL2(OzoneGpuMsg_SetHDCPState,
                      int64_t /* display_id */,
                      display::HDCPState /* state */)
 
-IPC_MESSAGE_CONTROL4(OzoneGpuMsg_SetColorCorrection,
-                     int64_t,                                  // display ID,
-                     std::vector<display::GammaRampRGBEntry>,  // degamma lut
-                     std::vector<display::GammaRampRGBEntry>,  // gamma lut
-                     std::vector<float>)  // transform matrix
+IPC_MESSAGE_CONTROL2(OzoneGpuMsg_SetColorMatrix,
+                     int64_t,             // Display ID
+                     std::vector<float>)  // Color transform matrix
+
+IPC_MESSAGE_CONTROL3(OzoneGpuMsg_SetGammaCorrection,
+                     int64_t,                                  // Display ID
+                     std::vector<display::GammaRampRGBEntry>,  // Degamma lut
+                     std::vector<display::GammaRampRGBEntry>)  // Gamma lut
 
 IPC_MESSAGE_CONTROL2(OzoneGpuMsg_CheckOverlayCapabilities,
                      gfx::AcceleratedWidget /* widget */,

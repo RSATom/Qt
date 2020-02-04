@@ -79,27 +79,42 @@ QGeoPositionInfoPrivate *QGeoPositionInfoPrivateNmea::clone() const
 typedef QGeoPositionInfoPrivate QGeoPositionInfoPrivateNmea;
 #endif
 
-static void mergePositions(QGeoPositionInfo &dst, const QGeoPositionInfo &src, QByteArray nmeaSentence)
+static bool propagateCoordinate(QGeoPositionInfo &dst, const QGeoPositionInfo &src, bool force = true)
 {
-#if USE_NMEA_PIMPL
-    QGeoPositionInfoPrivateNmea *dstPimpl = static_cast<QGeoPositionInfoPrivateNmea *>(QGeoPositionInfoPrivate::getPimpl(dst));
-    dstPimpl->nmeaSentences.append(nmeaSentence);
-#else
-    Q_UNUSED(nmeaSentence)
-#endif
-
+    bool updated = false;
     QGeoCoordinate c = dst.coordinate();
-    if (!qIsNaN(src.coordinate().latitude()))
+    const QGeoCoordinate & srcCoordinate = src.coordinate();
+    if (qIsFinite(src.coordinate().latitude())
+            && (!qIsFinite(dst.coordinate().latitude()) || force)) {
+        updated |= (c.latitude() != srcCoordinate.latitude());
         c.setLatitude(src.coordinate().latitude());
-    if (!qIsNaN(src.coordinate().longitude()))
+    }
+    if (qIsFinite(src.coordinate().longitude())
+            && (!qIsFinite(dst.coordinate().longitude()) || force)) {
+        updated |= (c.longitude() != srcCoordinate.longitude());
         c.setLongitude(src.coordinate().longitude());
-    if (!qIsNaN(src.coordinate().altitude()))
+    }
+    if (qIsFinite(src.coordinate().altitude())
+            && (!qIsFinite(dst.coordinate().altitude()) || force)) {
+        updated |= (c.altitude() != srcCoordinate.altitude());
         c.setAltitude(src.coordinate().altitude());
+    }
     dst.setCoordinate(c);
+    return updated;
+}
 
-    if (!dst.timestamp().date().isValid() && src.timestamp().isValid()) // time was supposed to be set/the same already. Date can be overwritten.
+static bool propagateDate(QGeoPositionInfo &dst, const QGeoPositionInfo &src)
+{
+    if (!dst.timestamp().date().isValid() && src.timestamp().isValid()) { // time was supposed to be set/the same already. Date can be overwritten.
         dst.setTimestamp(src.timestamp());
+        return true;
+    }
+    return false;
+}
 
+static bool propagateAttributes(QGeoPositionInfo &dst, const QGeoPositionInfo &src, bool force = true)
+{
+    bool updated = false;
     static Q_DECL_CONSTEXPR std::array<QGeoPositionInfo::Attribute, 6> attrs {
                                                 { QGeoPositionInfo::GroundSpeed
                                                  ,QGeoPositionInfo::HorizontalAccuracy
@@ -108,11 +123,32 @@ static void mergePositions(QGeoPositionInfo &dst, const QGeoPositionInfo &src, Q
                                                  ,QGeoPositionInfo::VerticalSpeed
                                                  ,QGeoPositionInfo::MagneticVariation} };
     for (const auto a: attrs) {
-        if (src.hasAttribute(a))
+        if (src.hasAttribute(a) && (!dst.hasAttribute(a) || force)) {
+            updated |= (dst.attribute(a) != src.attribute(a));
             dst.setAttribute(a, src.attribute(a));
+        }
     }
 
+    return updated;
+}
 
+// returns false if src does not contain any additional or different data than dst,
+// true otherwise.
+static bool mergePositions(QGeoPositionInfo &dst, const QGeoPositionInfo &src, QByteArray nmeaSentence)
+{
+    bool updated = false;
+
+    updated |= propagateCoordinate(dst, src);
+    updated |= propagateDate(dst, src);
+    updated |= propagateAttributes(dst, src);
+
+#if USE_NMEA_PIMPL
+    QGeoPositionInfoPrivateNmea *dstPimpl = static_cast<QGeoPositionInfoPrivateNmea *>(QGeoPositionInfoPrivate::get(dst));
+    dstPimpl->nmeaSentences.append(nmeaSentence);
+#else
+    Q_UNUSED(nmeaSentence);
+#endif
+    return updated;
 }
 
 static qint64 msecsTo(const QDateTime &from, const QDateTime &to)
@@ -127,21 +163,124 @@ static qint64 msecsTo(const QDateTime &from, const QDateTime &to)
 }
 
 QNmeaRealTimeReader::QNmeaRealTimeReader(QNmeaPositionInfoSourcePrivate *sourcePrivate)
-        : QNmeaReader(sourcePrivate)
+        : QNmeaReader(sourcePrivate), m_update(*new QGeoPositionInfoPrivateNmea)
 {
+    // An env var controlling the number of milliseconds to use to withold
+    // an update and wait for additional data to combine.
+    // The update will be pushed earlier than this if a newer update will be received.
+    // The update will be withold longer than this amount of time if additional
+    // valid data will keep arriving within this time frame.
+    QByteArray pushDelay = qgetenv("QT_NMEA_PUSH_DELAY");
+    if (!pushDelay.isEmpty())
+        m_pushDelay = qBound(-1, QString::fromLatin1(pushDelay).toInt(), 1000);
+    else
+        m_pushDelay = 20;
+
+    if (m_pushDelay >= 0) {
+        m_timer.setSingleShot(true);
+        m_timer.setInterval(m_pushDelay);
+        m_timer.connect(&m_timer, &QTimer::timeout, [this]() {
+           this->notifyNewUpdate();
+        });
+    }
 }
 
 void QNmeaRealTimeReader::readAvailableData()
 {
-    while (m_proxy->m_device->canReadLine()){
-        QGeoPositionInfo update;
-        bool hasFix = false;
+    while (m_proxy->m_device->canReadLine()) {
+        const QTime infoTime = m_update.timestamp().time(); // if update has been set, time must be valid.
+        const QDate infoDate = m_update.timestamp().date(); // this one might not be valid, as some sentences do not contain it
+
+        QGeoPositionInfoPrivateNmea *pimpl = new QGeoPositionInfoPrivateNmea;
+        QGeoPositionInfo pos(*pimpl);
 
         char buf[1024];
         qint64 size = m_proxy->m_device->readLine(buf, sizeof(buf));
-        if (m_proxy->parsePosInfoFromNmeaData(buf, size, &update, &hasFix))
-            m_proxy->notifyNewUpdate(&update, hasFix);
+        const bool oldFix = m_hasFix;
+        bool hasFix;
+        const bool parsed = m_proxy->parsePosInfoFromNmeaData(buf, size, &pos, &hasFix);
+
+        if (!parsed) {
+            // got garbage, don't stop the timer
+            continue;
+        }
+
+        m_hasFix |= hasFix;
+        m_updateParsed = true;
+
+        // Date may or may not be valid, as some packets do not have date.
+        // If date isn't valid, match is performed on time only.
+        // Hence, make sure that packet blocks are generated with
+        // the sentences containing the full timestamp (e.g., GPRMC) *first* !
+        if (infoTime.isValid()) {
+            if (pos.timestamp().time().isValid()) {
+                const bool newerTime = infoTime < pos.timestamp().time();
+                const bool newerDate = (infoDate.isValid() // if time is valid but one date or both are not,
+                                        && pos.timestamp().date().isValid()
+                                        && infoDate < pos.timestamp().date());
+                if (newerTime || newerDate) {
+                    // Effectively read data for different update, that is also newer,
+                    // so flush retained update, and copy the new pos into m_update
+                    const QDate updateDate = m_update.timestamp().date();
+                    const QDate lastPushedDate = m_lastPushedTS.date();
+                    const bool newerTimestampSinceLastPushed = m_update.timestamp() > m_lastPushedTS;
+                    const bool invalidDate = !(updateDate.isValid() && lastPushedDate.isValid());
+                    const bool newerTimeSinceLastPushed = m_update.timestamp().time() > m_lastPushedTS.time();
+                    if ( newerTimestampSinceLastPushed || (invalidDate && newerTimeSinceLastPushed)) {
+                        m_proxy->notifyNewUpdate(&m_update, oldFix);
+                        m_lastPushedTS = m_update.timestamp();
+                    }
+                    m_timer.stop();
+                    // next update data
+                    propagateAttributes(pos, m_update, false);
+                    m_update = pos;
+                    m_hasFix = hasFix;
+                } else {
+                    if (infoTime == pos.timestamp().time())
+                        // timestamps match -- merge into m_update
+                        if (mergePositions(m_update, pos, QByteArray(buf, size))) {
+                            // Reset the timer only if new info has been received.
+                            // Else the source might be keep repeating outdated info until
+                            // new info become available.
+                            m_timer.stop();
+                        }
+                    // else discard out of order outdated info.
+                }
+            } else {
+                // no timestamp available in parsed update-- merge into m_update
+                if (mergePositions(m_update, pos, QByteArray(buf, size)))
+                    m_timer.stop();
+            }
+        } else {
+            // there was no info with valid TS. Overwrite with whatever is parsed.
+#if USE_NMEA_PIMPL
+            pimpl->nmeaSentences.append(QByteArray(buf, size));
+#endif
+            propagateAttributes(pos, m_update);
+            m_update = pos;
+            m_timer.stop();
+        }
     }
+
+    if (m_updateParsed) {
+        if (m_pushDelay < 0)
+            notifyNewUpdate();
+        else
+            m_timer.start();
+    }
+}
+
+void QNmeaRealTimeReader::notifyNewUpdate()
+{
+    const bool newerTime = m_update.timestamp().time() > m_lastPushedTS.time();
+    const bool newerDate = (m_update.timestamp().date().isValid()
+                            && m_lastPushedTS.date().isValid()
+                            && m_update.timestamp().date() > m_lastPushedTS.date());
+    if (newerTime || newerDate) {
+        m_proxy->notifyNewUpdate(&m_update, m_hasFix);
+        m_lastPushedTS = m_update.timestamp();
+    }
+    m_timer.stop();
 }
 
 
@@ -222,13 +361,13 @@ static int processSentence(QGeoPositionInfo &info,
 
              GGA : GPS fix data                           - only time
              GLL : geographic latitude and longitude      - only time
-             RMC : recommended minimum FPOS/transit data  - date/time
-             ZDA : only timestamp                         - date/time
+             RMC : recommended minimum FPOS/transit data  - date and time
+             ZDA : only timestamp                         - date and time
 
              QLocationUtils is currently also capable of parsing VTG and GSA sentences:
 
              VTG: containing Track made good and ground speed
-             GSA: overall satellite data
+             GSA: overall satellite data, w. accuracies (ends up into PositionInfo)
 
              Since these sentences contain no timestamp, their content will be merged with the content
              from any prior sentence that had timestamp info, if any is available.
@@ -243,13 +382,19 @@ static int processSentence(QGeoPositionInfo &info,
             // the sentences containing the full timestamp (e.g., GPRMC) *first* !
             if (infoTime.isValid()) {
                 if (pos.timestamp().time().isValid()) {
-                    if (infoTime != pos.timestamp().time() || infoDate != pos.timestamp().date()) {
-                        // Effectively read data for different update, so copy buf into m_nextLine
+                    const bool newerTime = infoTime < pos.timestamp().time();
+                    const bool newerDate = (infoDate.isValid() // if time is valid but one date or both are not,
+                                            && pos.timestamp().date().isValid()
+                                            && infoDate < pos.timestamp().date());
+                    if (newerTime || newerDate) {
+                        // Effectively read data for different update, that is also newer, so copy buf into m_nextLine
                         m_nextLine = QByteArray(buf, size);
                         break;
                     } else {
-                        // timestamps match -- merge into info
-                        mergePositions(info, pos, QByteArray(buf, size));
+                        if (infoTime == pos.timestamp().time())
+                            // timestamps match -- merge into info
+                            mergePositions(info, pos, QByteArray(buf, size));
+                        // else discard out of order outdated info.
                     }
                 } else {
                     // no timestamp available -- merge into info
@@ -437,7 +582,8 @@ void QNmeaPositionInfoSourcePrivate::startUpdates()
         return;
 
     if (m_updateMode == QNmeaPositionInfoSource::RealTimeMode) {
-        // skip over any buffered data - we only want the newest data
+        // skip over any buffered data - we only want the newest data.
+        // Don't do this in requestUpdate. In that case bufferedData is good to have/use.
         if (m_device->bytesAvailable()) {
             if (m_device->isSequential())
                 m_device->readAll();
@@ -490,9 +636,7 @@ void QNmeaPositionInfoSourcePrivate::requestUpdate(int msec)
     }
 
     m_requestTimer->start(msec);
-
-    if (initialized)
-        prepareSourceDevice();
+    prepareSourceDevice();
 }
 
 void QNmeaPositionInfoSourcePrivate::updateRequestTimeout()
@@ -522,28 +666,31 @@ void QNmeaPositionInfoSourcePrivate::notifyNewUpdate(QGeoPositionInfo *update, b
         m_horizontalAccuracy = update->attribute(QGeoPositionInfo::HorizontalAccuracy);
     else if (!qIsNaN(m_horizontalAccuracy))
         update->setAttribute(QGeoPositionInfo::HorizontalAccuracy, m_horizontalAccuracy);
+
     if (update->hasAttribute(QGeoPositionInfo::VerticalAccuracy))
         m_verticalAccuracy = update->attribute(QGeoPositionInfo::VerticalAccuracy);
     else if (!qIsNaN(m_verticalAccuracy))
         update->setAttribute(QGeoPositionInfo::VerticalAccuracy, m_verticalAccuracy);
 
     if (hasFix && update->isValid()) {
-        if (m_requestTimer && m_requestTimer->isActive()) {
+        if (m_requestTimer && m_requestTimer->isActive()) { // User called requestUpdate()
             m_requestTimer->stop();
             emitUpdated(*update);
-        } else if (m_invokedStart) {
-            if (m_updateTimer && m_updateTimer->isActive()) {
+        } else if (m_invokedStart) { // user called startUpdates()
+            if (m_updateTimer && m_updateTimer->isActive()) { // update interval > 0
                 // for periodic updates, only want the most recent update
-                m_pendingUpdate = *update;
+                m_pendingUpdate = *update; // Set what to send in timerEvent()
                 if (m_noUpdateLastInterval) {
+                    // if the update was invalid when timerEvent was last called, a valid update
+                    // should be sent ASAP
                     emitPendingUpdate();
                     m_noUpdateLastInterval = false;
                 }
-            } else {
+            } else { // update interval <= 0
                 emitUpdated(*update);
             }
         }
-        m_lastUpdate = *update;
+        m_lastUpdate = *update; // Set in any case, if update is valid. Used in lastKnownPosition().
     }
 }
 
@@ -559,10 +706,10 @@ void QNmeaPositionInfoSourcePrivate::emitPendingUpdate()
         m_noUpdateLastInterval = false;
         emitUpdated(m_pendingUpdate);
         m_pendingUpdate = QGeoPositionInfo();
-    } else {
+    } else { // invalid update
         if (m_noUpdateLastInterval && !m_updateTimeoutSent) {
             m_updateTimeoutSent = true;
-            m_pendingUpdate = QGeoPositionInfo();
+            m_pendingUpdate = QGeoPositionInfo(); // Invalid already, but clear just in case.
             emit m_source->updateTimeout();
         }
         m_noUpdateLastInterval = true;
@@ -571,6 +718,8 @@ void QNmeaPositionInfoSourcePrivate::emitPendingUpdate()
 
 void QNmeaPositionInfoSourcePrivate::emitUpdated(const QGeoPositionInfo &update)
 {
+    // check for duplication already done in QNmeaRealTimeReader::notifyNewUpdate
+    // and QNmeaRealTimeReader::readAvailableData
     m_lastUpdate = update;
     emit m_source->positionUpdated(update);
 }
@@ -767,7 +916,7 @@ void QNmeaPositionInfoSource::stopUpdates()
 */
 void QNmeaPositionInfoSource::requestUpdate(int msec)
 {
-    d->requestUpdate(msec == 0 ? 60000 * 5 : msec);
+    d->requestUpdate(msec == 0 ? 60000 * 5 : msec); // 5min default timeout
 }
 
 /*!
@@ -792,7 +941,7 @@ QGeoPositionInfoSource::PositioningMethods QNmeaPositionInfoSource::supportedPos
 */
 int QNmeaPositionInfoSource::minimumUpdateInterval() const
 {
-    return 100;
+    return 2; // Some chips are capable of over 100 updates per seconds.
 }
 
 /*!

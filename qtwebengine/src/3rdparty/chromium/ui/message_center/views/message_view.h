@@ -15,112 +15,194 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/message_center/message_center_export.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_delegate.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_delegate.h"
 #include "ui/message_center/views/slide_out_controller.h"
+#include "ui/views/animation/ink_drop_host_view.h"
+#include "ui/views/focus/focus_manager.h"
 #include "ui/views/view.h"
 
 namespace views {
 class Painter;
 class ScrollView;
-}
+}  // namespace views
 
 namespace message_center {
 
+namespace test {
+class MessagePopupCollectionTest;
+}
+
 class Notification;
 class NotificationControlButtonsView;
-class MessageCenterController;
 
 // An base class for a notification entry. Contains background and other
 // elements shared by derived notification views.
-class MESSAGE_CENTER_EXPORT MessageView
-    : public views::View,
-      public views::SlideOutController::Delegate {
+// TODO(pkasting): This class only subclasses InkDropHostView because the
+// NotificationViewMD subclass needs ink drop functionality.  Rework ink drops
+// to not need to be the base class of views which use them, and move the
+// functionality to the subclass that uses these.
+class MESSAGE_CENTER_EXPORT MessageView : public views::InkDropHostView,
+                                          public SlideOutController::Delegate,
+                                          public views::FocusChangeListener {
  public:
-  MessageView(MessageCenterController* controller,
-              const Notification& notification);
+  static const char kViewClassName[];
+
+  class SlideObserver {
+   public:
+    virtual ~SlideObserver() = default;
+
+    virtual void OnSlideStarted(const std::string& notification_id) {}
+    virtual void OnSlideChanged(const std::string& notification_id) {}
+  };
+
+  enum class Mode {
+    // Normal mode.
+    NORMAL = 0,
+    // "Pinned" mode flag. This mode is for pinned notification.
+    // When this mode is enabled:
+    //  - Swipe: partially possible, but limited to the half position
+    //  - Close button: hidden
+    //  - Settings and snooze button: visible
+    PINNED = 1,
+    // "Setting" mode flag. This mode is for showing inline setting panel in
+    // the notification view.
+    // When this mode is enabled:
+    //  - Swipe: prohibited
+    //  - Close button: hidden
+    //  - Settings and snooze button: hidden
+    SETTING = 2,
+  };
+
+  explicit MessageView(const Notification& notification);
   ~MessageView() override;
 
   // Updates this view with the new data contained in the notification.
   virtual void UpdateWithNotification(const Notification& notification);
 
-  // Returns the insets for the shadow it will have for rich notification.
-  static gfx::Insets GetShadowInsets();
-
   // Creates a shadow around the notification and changes slide-out behavior.
   void SetIsNested();
 
   virtual NotificationControlButtonsView* GetControlButtonsView() const = 0;
-  virtual bool IsCloseButtonFocused() const = 0;
-  virtual void RequestFocusOnCloseButton() = 0;
-  virtual void UpdateControlButtonsVisibility() = 0;
+
+  virtual void SetExpanded(bool expanded);
+  virtual bool IsExpanded() const;
+  virtual bool IsAutoExpandingAllowed() const;
+  virtual bool IsManuallyExpandedOrCollapsed() const;
+  virtual void SetManuallyExpandedOrCollapsed(bool value);
+  virtual void CloseSwipeControl();
+
+  // Update corner radii of the notification. Subclasses will override this to
+  // implement rounded corners if they don't use MessageView's default
+  // background.
+  virtual void UpdateCornerRadius(int top_radius, int bottom_radius);
+
+  // Invoked when the container view of MessageView (e.g. MessageCenterView in
+  // ash) is starting the animation that possibly hides some part of
+  // the MessageView.
+  // During the animation, MessageView should comply with the Z order in views.
+  virtual void OnContainerAnimationStarted();
+  virtual void OnContainerAnimationEnded();
 
   void OnCloseButtonPressed();
-  void OnSettingsButtonPressed();
+  virtual void OnSettingsButtonPressed(const ui::Event& event);
+  virtual void OnSnoozeButtonPressed(const ui::Event& event);
 
-  // views::View
+  // views::InkDropHostView:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
+  bool OnMouseDragged(const ui::MouseEvent& event) override;
+  void OnMouseReleased(const ui::MouseEvent& event) override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnKeyReleased(const ui::KeyEvent& event) override;
+  void PaintChildren(const views::PaintInfo& paint_info) override;
   void OnPaint(gfx::Canvas* canvas) override;
   void OnFocus() override;
   void OnBlur() override;
-  void Layout() override;
   void OnGestureEvent(ui::GestureEvent* event) override;
+  void RemovedFromWidget() override;
+  void AddedToWidget() override;
+  const char* GetClassName() const final;
 
-  // views::SlideOutController::Delegate
+  // message_center::SlideOutController::Delegate:
   ui::Layer* GetSlideOutLayer() override;
-  void OnSlideChanged() override;
+  void OnSlideStarted() override;
+  void OnSlideChanged(bool in_progress) override;
   void OnSlideOut() override;
 
-  void set_scroller(views::ScrollView* scroller) { scroller_ = scroller; }
-  std::string notification_id() { return notification_id_; }
-  NotifierId notifier_id() { return notifier_id_; }
-  const base::string16& display_source() const { return display_source_; }
-  bool pinned() const { return pinned_; }
+  // views::FocusChangeListener:
+  void OnWillChangeFocus(views::View* before, views::View* now) override;
+  void OnDidChangeFocus(views::View* before, views::View* now) override;
 
-  void set_controller(MessageCenterController* controller) {
-    controller_ = controller;
-  }
+  void AddSlideObserver(SlideObserver* observer);
+
+  Mode GetMode() const;
+
+  // Gets the current horizontal scroll offset of the view by slide gesture.
+  float GetSlideAmount() const;
+
+  // Set "setting" mode. This overrides "pinned" mode. See the comment of
+  // MessageView::Mode enum for detail.
+  void SetSettingMode(bool setting_mode);
+
+  // Disables slide by vertical swipe regardless of the current notification
+  // mode.
+  void DisableSlideForcibly(bool disable);
+
+  // Updates the width of the buttons which are hidden and avail by swipe.
+  void SetSlideButtonWidth(int coutrol_button_width);
+
+  void set_scroller(views::ScrollView* scroller) { scroller_ = scroller; }
+  std::string notification_id() const { return notification_id_; }
 
  protected:
-  // Creates and add close button to view hierarchy when necessary. Derived
-  // classes should call this after its view hierarchy is populated to ensure
-  // it is on top of other views.
-  void CreateOrUpdateCloseButtonView(const Notification& notification);
+  virtual void UpdateControlButtonsVisibility();
 
-  // Changes the background color being used by |background_view_| and schedules
-  // a paint.
+  // Changes the background color and schedules a paint.
   virtual void SetDrawBackgroundAsActive(bool active);
 
-  views::View* background_view() { return background_view_; }
   views::ScrollView* scroller() { return scroller_; }
-  MessageCenterController* controller() { return controller_; }
+
+  bool is_nested() const { return is_nested_; }
 
  private:
-  MessageCenterController* controller_;  // Weak, lives longer then views.
+  friend class test::MessagePopupCollectionTest;
+
+  // Returns the ideal slide mode by calculating the current status.
+  SlideOutController::SlideMode CalculateSlideMode() const;
+
+  // Returns if the control buttons should be shown.
+  bool ShouldShowControlButtons() const;
+
   std::string notification_id_;
-  NotifierId notifier_id_;
-  views::View* background_view_ = nullptr;  // Owned by views hierarchy.
   views::ScrollView* scroller_ = nullptr;
 
   base::string16 accessible_name_;
 
-  base::string16 display_source_;
+  // Flag if the notification is set to pinned or not. See the comment in
+  // MessageView::Mode for detail.
   bool pinned_ = false;
+
+  // "fixed" mode flag. See the comment in MessageView::Mode for detail.
+  bool setting_mode_ = false;
 
   std::unique_ptr<views::Painter> focus_painter_;
 
-  views::SlideOutController slide_out_controller_;
+  SlideOutController slide_out_controller_;
+  std::vector<SlideObserver*> slide_observers_;
 
   // True if |this| is embedded in another view. Equivalent to |!top_level| in
   // MessageViewFactory parlance.
   bool is_nested_ = false;
+
+  // True if the slide is disabled forcibly.
+  bool disable_slide_ = false;
+
+  views::FocusManager* focus_manager_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(MessageView);
 };
 
 }  // namespace message_center
 
-#endif // UI_MESSAGE_CENTER_VIEWS_MESSAGE_VIEW_H_
+#endif  // UI_MESSAGE_CENTER_VIEWS_MESSAGE_VIEW_H_

@@ -35,7 +35,9 @@
 #include <QtNetwork/QNetworkCookieJar>
 #include <QtNetwork/QNetworkCookie>
 #include <QtNetwork/QNetworkRequest>
+#if QT_CONFIG(topleveldomain)
 #include "private/qtldurl_p.h"
+#endif
 
 class tst_QNetworkCookieJar: public QObject
 {
@@ -47,7 +49,7 @@ private slots:
     void setCookiesFromUrl();
     void cookiesForUrl_data();
     void cookiesForUrl();
-#ifdef QT_BUILD_INTERNAL
+#if defined(QT_BUILD_INTERNAL) && QT_CONFIG(topleveldomain)
     void effectiveTLDs_data();
     void effectiveTLDs();
 #endif
@@ -164,7 +166,9 @@ void tst_QNetworkCookieJar::setCookiesFromUrl_data()
     result.clear();
     preset.clear();
     cookie.setDomain(".foo.ck");
-    QTest::newRow("effective-tld2-denied") << preset << cookie << "http://foo.ck" << result << false;
+    result += cookie;
+    QTest::newRow("effective-tld2-accepted2") << preset << cookie << "http://foo.ck" << result << true;
+    result.clear();
     QTest::newRow("effective-tld2-denied2") << preset << cookie << "http://www.foo.ck" << result << false;
     QTest::newRow("effective-tld2-denied3") << preset << cookie << "http://www.anything.foo.ck" << result << false;
     cookie.setDomain(".www.ck");
@@ -208,6 +212,22 @@ void tst_QNetworkCookieJar::setCookiesFromUrl_data()
     preset.clear();
     cookie.setDomain(".com.");
     QTest::newRow("rfc2109-4.3.2-ex3-2") << preset << cookie << "http://x.foo.com" << result << false;
+
+    // When using a TLD as a hostname the hostname should still get cookies (QTBUG-52040)
+    // ... and nothing else should get the cookies.
+    result.clear();
+    preset.clear();
+    cookie.setPath("/");
+    cookie.setDomain(".support");
+    result += cookie;
+    QTest::newRow("TLD-as-domain-accepted") << preset << cookie << "http://support" << result << true;
+    result.clear();
+    QTest::newRow("TLD-as-domain-rejected") << preset << cookie << "http://a.support" << result << false;
+    // Now test with no domain in the cookie, use the domain from the url (matching TLD)
+    cookie.setDomain("support");
+    result += cookie;
+    cookie.setDomain("");
+    QTest::newRow("TLD-as-domain-accepted2") << preset << cookie << "http://support" << result << true;
 }
 
 void tst_QNetworkCookieJar::setCookiesFromUrl()
@@ -351,6 +371,19 @@ void tst_QNetworkCookieJar::cookiesForUrl_data()
     result.clear();
     result += rootCookie;
     QTest::newRow("root-path-match") << allCookies << "http://qt-project.org" << result;
+
+    // Domain in cookie happens to match a TLD
+    allCookies.clear();
+    QNetworkCookie tldCookie;
+    tldCookie.setDomain(".support");
+    tldCookie.setName("a");
+    tldCookie.setValue("b");
+    allCookies += tldCookie;
+    result.clear();
+    result += tldCookie;
+    QTest::newRow("tld-cookie-match") << allCookies << "http://support/" << result;
+    result.clear();
+    QTest::newRow("tld-cookie-no-match") << allCookies << "http://a.support/" << result;
 }
 
 void tst_QNetworkCookieJar::cookiesForUrl()
@@ -367,7 +400,7 @@ void tst_QNetworkCookieJar::cookiesForUrl()
 }
 
 // This test requires private API.
-#ifdef QT_BUILD_INTERNAL
+#if defined(QT_BUILD_INTERNAL) && QT_CONFIG(topleveldomain)
 void tst_QNetworkCookieJar::effectiveTLDs_data()
 {
     QTest::addColumn<QString>("domain");

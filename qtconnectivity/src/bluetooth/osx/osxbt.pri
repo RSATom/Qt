@@ -1,5 +1,8 @@
 SOURCES += osx/uistrings.cpp osx/osxbtnotifier.cpp
-PRIVATE_HEADERS += osx/uistrings_p.h
+PRIVATE_HEADERS += osx/uistrings_p.h \
+                   osx/osxbtgcdtimer_p.h
+
+OBJECTIVE_SOURCES += osx/osxbtgcdtimer.mm
 #QMAKE_CXXFLAGS_WARN_ON += -Wno-nullability-completeness
 
 CONFIG(osx) {

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/builtins/builtins-math-gen.h"
+
 #include "src/builtins/builtins-utils-gen.h"
 #include "src/builtins/builtins.h"
 #include "src/code-factory.h"
@@ -12,21 +14,6 @@ namespace internal {
 
 // -----------------------------------------------------------------------------
 // ES6 section 20.2.2 Function Properties of the Math Object
-
-class MathBuiltinsAssembler : public CodeStubAssembler {
- public:
-  explicit MathBuiltinsAssembler(compiler::CodeAssemblerState* state)
-      : CodeStubAssembler(state) {}
-
- protected:
-  void MathRoundingOperation(Node* context, Node* x,
-                             Node* (CodeStubAssembler::*float64op)(Node*));
-  void MathUnaryOperation(Node* context, Node* x,
-                          Node* (CodeStubAssembler::*float64op)(Node*));
-  void MathMaxMin(Node* context, Node* argc,
-                  Node* (CodeStubAssembler::*float64op)(Node*, Node*),
-                  double default_val);
-};
 
 // ES6 #sec-math.abs
 TF_BUILTIN(MathAbs, CodeStubAssembler) {
@@ -48,18 +35,22 @@ TF_BUILTIN(MathAbs, CodeStubAssembler) {
 
     BIND(&if_xissmi);
     {
-      Label if_overflow(this, Label::kDeferred), if_notoverflow(this);
-      Node* pair = NULL;
+      Label if_overflow(this, Label::kDeferred);
 
       // check if support abs function
       if (IsIntPtrAbsWithOverflowSupported()) {
-        pair = IntPtrAbsWithOverflow(x);
+        Node* pair = IntPtrAbsWithOverflow(x);
         Node* overflow = Projection(1, pair);
-        Branch(overflow, &if_overflow, &if_notoverflow);
+        GotoIf(overflow, &if_overflow);
+
+        // There is a Smi representation for negated {x}.
+        Node* result = Projection(0, pair);
+        Return(BitcastWordToTagged(result));
+
       } else {
         // Check if {x} is already positive.
         Label if_xispositive(this), if_xisnotpositive(this);
-        BranchIfSmiLessThanOrEqual(SmiConstant(0), x, &if_xispositive,
+        BranchIfSmiLessThanOrEqual(SmiConstant(0), CAST(x), &if_xispositive,
                                    &if_xisnotpositive);
 
         BIND(&if_xispositive);
@@ -71,18 +62,9 @@ TF_BUILTIN(MathAbs, CodeStubAssembler) {
         BIND(&if_xisnotpositive);
         {
           // Try to negate the {x} value.
-          pair =
-              IntPtrSubWithOverflow(IntPtrConstant(0), BitcastTaggedToWord(x));
-          Node* overflow = Projection(1, pair);
-          Branch(overflow, &if_overflow, &if_notoverflow);
+          TNode<Smi> result = TrySmiSub(SmiConstant(0), CAST(x), &if_overflow);
+          Return(result);
         }
-      }
-
-      BIND(&if_notoverflow);
-      {
-        // There is a Smi representation for negated {x}.
-        Node* result = Projection(0, pair);
-        Return(BitcastWordToTagged(result));
       }
 
       BIND(&if_overflow);
@@ -114,7 +96,8 @@ TF_BUILTIN(MathAbs, CodeStubAssembler) {
 }
 
 void MathBuiltinsAssembler::MathRoundingOperation(
-    Node* context, Node* x, Node* (CodeStubAssembler::*float64op)(Node*)) {
+    Node* context, Node* x,
+    TNode<Float64T> (CodeStubAssembler::*float64op)(SloppyTNode<Float64T>)) {
   // We might need to loop once for ToNumber conversion.
   VARIABLE(var_x, MachineRepresentation::kTagged, x);
   Label loop(this, &var_x);
@@ -159,7 +142,8 @@ void MathBuiltinsAssembler::MathRoundingOperation(
 }
 
 void MathBuiltinsAssembler::MathUnaryOperation(
-    Node* context, Node* x, Node* (CodeStubAssembler::*float64op)(Node*)) {
+    Node* context, Node* x,
+    TNode<Float64T> (CodeStubAssembler::*float64op)(SloppyTNode<Float64T>)) {
   Node* x_value = TruncateTaggedToFloat64(context, x);
   Node* value = (this->*float64op)(x_value);
   Node* result = AllocateHeapNumberWithValue(value);
@@ -168,9 +152,11 @@ void MathBuiltinsAssembler::MathUnaryOperation(
 
 void MathBuiltinsAssembler::MathMaxMin(
     Node* context, Node* argc,
-    Node* (CodeStubAssembler::*float64op)(Node*, Node*), double default_val) {
+    TNode<Float64T> (CodeStubAssembler::*float64op)(SloppyTNode<Float64T>,
+                                                    SloppyTNode<Float64T>),
+    double default_val) {
   CodeStubArguments arguments(this, ChangeInt32ToIntPtr(argc));
-  argc = arguments.GetLength();
+  argc = arguments.GetLength(INTPTR_PARAMETERS);
 
   VARIABLE(result, MachineRepresentation::kFloat64);
   result.Bind(Float64Constant(default_val));
@@ -277,7 +263,7 @@ TF_BUILTIN(MathClz32, CodeStubAssembler) {
 
     BIND(&if_xissmi);
     {
-      var_clz32_x.Bind(SmiToWord32(x));
+      var_clz32_x.Bind(SmiToInt32(x));
       Goto(&do_clz32);
     }
 
@@ -397,16 +383,19 @@ TF_BUILTIN(MathLog2, MathBuiltinsAssembler) {
   MathUnaryOperation(context, x, &CodeStubAssembler::Float64Log2);
 }
 
+CodeStubAssembler::Node* MathBuiltinsAssembler::MathPow(Node* context,
+                                                        Node* base,
+                                                        Node* exponent) {
+  Node* base_value = TruncateTaggedToFloat64(context, base);
+  Node* exponent_value = TruncateTaggedToFloat64(context, exponent);
+  Node* value = Float64Pow(base_value, exponent_value);
+  return ChangeFloat64ToTagged(value);
+}
+
 // ES6 #sec-math.pow
-TF_BUILTIN(MathPow, CodeStubAssembler) {
-  Node* context = Parameter(Descriptor::kContext);
-  Node* x = Parameter(Descriptor::kBase);
-  Node* y = Parameter(Descriptor::kExponent);
-  Node* x_value = TruncateTaggedToFloat64(context, x);
-  Node* y_value = TruncateTaggedToFloat64(context, y);
-  Node* value = Float64Pow(x_value, y_value);
-  Node* result = ChangeFloat64ToTagged(value);
-  Return(result);
+TF_BUILTIN(MathPow, MathBuiltinsAssembler) {
+  Return(MathPow(Parameter(Descriptor::kContext), Parameter(Descriptor::kBase),
+                 Parameter(Descriptor::kExponent)));
 }
 
 // ES6 #sec-math.random
@@ -415,8 +404,8 @@ TF_BUILTIN(MathRandom, CodeStubAssembler) {
   Node* native_context = LoadNativeContext(context);
 
   // Load cache index.
-  VARIABLE(smi_index, MachineRepresentation::kTagged);
-  smi_index.Bind(
+  TVARIABLE(Smi, smi_index);
+  smi_index = CAST(
       LoadContextElement(native_context, Context::MATH_RANDOM_INDEX_INDEX));
 
   // Cached random numbers are exhausted if index is 0. Go to slow path.
@@ -424,12 +413,21 @@ TF_BUILTIN(MathRandom, CodeStubAssembler) {
   GotoIf(SmiAbove(smi_index.value(), SmiConstant(0)), &if_cached);
 
   // Cache exhausted, populate the cache. Return value is the new index.
-  smi_index.Bind(CallRuntime(Runtime::kGenerateRandomNumbers, context));
+  Node* const refill_math_random =
+      ExternalConstant(ExternalReference::refill_math_random());
+  Node* const isolate_ptr =
+      ExternalConstant(ExternalReference::isolate_address(isolate()));
+  MachineType type_tagged = MachineType::AnyTagged();
+  MachineType type_ptr = MachineType::Pointer();
+
+  smi_index =
+      CAST(CallCFunction2(type_tagged, type_ptr, type_tagged,
+                          refill_math_random, isolate_ptr, native_context));
   Goto(&if_cached);
 
   // Compute next index by decrement.
   BIND(&if_cached);
-  Node* new_smi_index = SmiSub(smi_index.value(), SmiConstant(1));
+  TNode<Smi> new_smi_index = SmiSub(smi_index.value(), SmiConstant(1));
   StoreContextElement(native_context, Context::MATH_RANDOM_INDEX_INDEX,
                       new_smi_index);
 
@@ -514,8 +512,8 @@ TF_BUILTIN(MathTrunc, MathBuiltinsAssembler) {
 TF_BUILTIN(MathMax, MathBuiltinsAssembler) {
   // TODO(ishell): use constants from Descriptor once the JSFunction linkage
   // arguments are reordered.
-  Node* context = Parameter(BuiltinDescriptor::kContext);
-  Node* argc = Parameter(BuiltinDescriptor::kArgumentsCount);
+  Node* context = Parameter(Descriptor::kContext);
+  Node* argc = Parameter(Descriptor::kJSActualArgumentsCount);
   MathMaxMin(context, argc, &CodeStubAssembler::Float64Max, -1.0 * V8_INFINITY);
 }
 
@@ -523,8 +521,8 @@ TF_BUILTIN(MathMax, MathBuiltinsAssembler) {
 TF_BUILTIN(MathMin, MathBuiltinsAssembler) {
   // TODO(ishell): use constants from Descriptor once the JSFunction linkage
   // arguments are reordered.
-  Node* context = Parameter(BuiltinDescriptor::kContext);
-  Node* argc = Parameter(BuiltinDescriptor::kArgumentsCount);
+  Node* context = Parameter(Descriptor::kContext);
+  Node* argc = Parameter(Descriptor::kJSActualArgumentsCount);
   MathMaxMin(context, argc, &CodeStubAssembler::Float64Min, V8_INFINITY);
 }
 

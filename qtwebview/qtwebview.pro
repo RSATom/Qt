@@ -1,3 +1,3 @@
-requires(android|ios|winrt|qtHaveModule(webengine))
+requires(qtConfig(gui))
 
 load(qt_parts)

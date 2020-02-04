@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/containers/hash_tables.h"
-#include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/platform/test_ax_node_wrapper.h"
+
+#include "base/stl_util.h"
+#include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_table_info.h"
+#include "ui/accessibility/ax_tree_observer.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 
 namespace ui {
@@ -12,20 +15,15 @@ namespace ui {
 namespace {
 
 // A global map from AXNodes to TestAXNodeWrappers.
-base::hash_map<AXNode*, TestAXNodeWrapper*> g_node_to_wrapper_map;
+std::unordered_map<AXNode*, TestAXNodeWrapper*> g_node_to_wrapper_map;
 
 // A global coordinate offset.
 gfx::Vector2d g_offset;
 
-// A simple implementation of AXTreeDelegate to catch when AXNodes are
+// A simple implementation of AXTreeObserver to catch when AXNodes are
 // deleted so we can delete their wrappers.
-class TestAXTreeDelegate : public AXTreeDelegate {
-  void OnNodeDataWillChange(AXTree* tree,
-                            const AXNodeData& old_node_data,
-                            const AXNodeData& new_node_data) override {}
-  void OnTreeDataChanged(AXTree* tree,
-                         const ui::AXTreeData& old_data,
-                         const ui::AXTreeData& new_data) override {}
+class TestAXTreeObserver : public AXTreeObserver {
+ private:
   void OnNodeWillBeDeleted(AXTree* tree, AXNode* node) override {
     auto iter = g_node_to_wrapper_map.find(node);
     if (iter != g_node_to_wrapper_map.end()) {
@@ -34,18 +32,9 @@ class TestAXTreeDelegate : public AXTreeDelegate {
       g_node_to_wrapper_map.erase(iter->first);
     }
   }
-  void OnSubtreeWillBeDeleted(AXTree* tree, AXNode* node) override {}
-  void OnNodeWillBeReparented(AXTree* tree, AXNode* node) override {}
-  void OnSubtreeWillBeReparented(AXTree* tree, AXNode* node) override {}
-  void OnNodeCreated(AXTree* tree, AXNode* node) override {}
-  void OnNodeReparented(AXTree* tree, AXNode* node) override {}
-  void OnNodeChanged(AXTree* tree, AXNode* node) override {}
-  void OnAtomicUpdateFinished(AXTree* tree,
-                              bool root_changed,
-                              const std::vector<Change>& changes) override {}
 };
 
-TestAXTreeDelegate g_ax_tree_delegate;
+TestAXTreeObserver g_ax_tree_observer;
 
 }  // namespace
 
@@ -54,7 +43,8 @@ TestAXNodeWrapper* TestAXNodeWrapper::GetOrCreate(AXTree* tree, AXNode* node) {
   if (!tree || !node)
     return nullptr;
 
-  tree->SetDelegate(&g_ax_tree_delegate);
+  if (!tree->HasObserver(&g_ax_tree_observer))
+    tree->AddObserver(&g_ax_tree_observer);
   auto iter = g_node_to_wrapper_map.find(node);
   if (iter != g_node_to_wrapper_map.end())
     return iter->second;
@@ -76,12 +66,8 @@ const AXNodeData& TestAXNodeWrapper::GetData() const {
   return node_->data();
 }
 
-const ui::AXTreeData& TestAXNodeWrapper::GetTreeData() const {
+const AXTreeData& TestAXNodeWrapper::GetTreeData() const {
   return tree_->data();
-}
-
-gfx::NativeWindow TestAXNodeWrapper::GetTopLevelWidget() {
-  return nullptr;
 }
 
 gfx::NativeViewAccessible TestAXNodeWrapper::GetParent() {
@@ -105,8 +91,15 @@ gfx::NativeViewAccessible TestAXNodeWrapper::ChildAtIndex(int index) {
       nullptr;
 }
 
-gfx::Rect TestAXNodeWrapper::GetScreenBoundsRect() const {
-  gfx::RectF bounds = GetData().location;
+gfx::Rect TestAXNodeWrapper::GetClippedScreenBoundsRect() const {
+  // We could add clipping here if needed.
+  gfx::RectF bounds = GetData().relative_bounds.bounds;
+  bounds.Offset(g_offset);
+  return gfx::ToEnclosingRect(bounds);
+}
+
+gfx::Rect TestAXNodeWrapper::GetUnclippedScreenBoundsRect() const {
+  gfx::RectF bounds = GetData().relative_bounds.bounds;
   bounds.Offset(g_offset);
   return gfx::ToEnclosingRect(bounds);
 }
@@ -115,7 +108,7 @@ TestAXNodeWrapper* TestAXNodeWrapper::HitTestSyncInternal(int x, int y) {
   // Here we find the deepest child whose bounding box contains the given point.
   // The assuptions are that there are no overlapping bounding rects and that
   // all children have smaller bounding rects than their parents.
-  if (!GetScreenBoundsRect().Contains(gfx::Rect(x, y)))
+  if (!GetClippedScreenBoundsRect().Contains(gfx::Rect(x, y)))
     return nullptr;
 
   for (int i = 0; i < GetChildCount(); i++) {
@@ -135,10 +128,6 @@ gfx::NativeViewAccessible TestAXNodeWrapper::HitTestSync(int x, int y) {
   TestAXNodeWrapper* wrapper = HitTestSyncInternal(x, y);
   return wrapper ? wrapper->ax_platform_node()->GetNativeViewAccessible()
                  : nullptr;
-}
-
-gfx::NativeViewAccessible TestAXNodeWrapper::GetFocus() {
-  return nullptr;
 }
 
 // Walk the AXTree and ensure that all wrappers are created
@@ -166,13 +155,129 @@ AXPlatformNode* TestAXNodeWrapper::GetFromNodeID(int32_t id) {
   return nullptr;
 }
 
-gfx::AcceleratedWidget
-TestAXNodeWrapper::GetTargetForNativeAccessibilityEvent() {
-  return gfx::kNullAcceleratedWidget;
+int TestAXNodeWrapper::GetIndexInParent() const {
+  return node_ ? node_->index_in_parent() : -1;
+}
+
+void TestAXNodeWrapper::ReplaceIntAttribute(int32_t node_id,
+                                            ax::mojom::IntAttribute attribute,
+                                            int32_t value) {
+  if (!tree_)
+    return;
+
+  AXNode* node = tree_->GetFromId(node_id);
+  if (!node)
+    return;
+
+  AXNodeData new_data = node->data();
+  std::vector<std::pair<ax::mojom::IntAttribute, int32_t>>& attributes =
+      new_data.int_attributes;
+
+  base::EraseIf(attributes, [attribute](auto& pair) {
+    return pair.first == attribute;
+  });
+
+  new_data.AddIntAttribute(attribute, value);
+  node->SetData(new_data);
+}
+
+void TestAXNodeWrapper::ReplaceBoolAttribute(ax::mojom::BoolAttribute attribute,
+                                             bool value) {
+  AXNodeData new_data = GetData();
+  std::vector<std::pair<ax::mojom::BoolAttribute, bool>>& attributes =
+      new_data.bool_attributes;
+
+  base::EraseIf(attributes,
+                [attribute](auto& pair) { return pair.first == attribute; });
+
+  new_data.AddBoolAttribute(attribute, value);
+  node_->SetData(new_data);
+}
+
+int TestAXNodeWrapper::GetTableRowCount() const {
+  return node_->GetTableRowCount();
+}
+
+int TestAXNodeWrapper::GetTableColCount() const {
+  return node_->GetTableColCount();
+}
+
+const std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds() const {
+  std::vector<int32_t> header_ids;
+  node_->GetTableCellColHeaderNodeIds(&header_ids);
+  return header_ids;
+}
+
+const std::vector<int32_t> TestAXNodeWrapper::GetColHeaderNodeIds(
+    int32_t col_index) const {
+  std::vector<int32_t> header_ids;
+  node_->GetTableColHeaderNodeIds(col_index, &header_ids);
+  return header_ids;
+}
+
+const std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds() const {
+  std::vector<int32_t> header_ids;
+  node_->GetTableCellRowHeaderNodeIds(&header_ids);
+  return header_ids;
+}
+
+const std::vector<int32_t> TestAXNodeWrapper::GetRowHeaderNodeIds(
+    int32_t row_index) const {
+  std::vector<int32_t> header_ids;
+  node_->GetTableRowHeaderNodeIds(row_index, &header_ids);
+  return header_ids;
+}
+
+int32_t TestAXNodeWrapper::GetCellId(int32_t row_index,
+                                     int32_t col_index) const {
+  ui::AXNode* cell = node_->GetTableCellFromCoords(row_index, col_index);
+  if (cell)
+    return cell->id();
+
+  return -1;
+}
+
+int32_t TestAXNodeWrapper::GetTableCellIndex() const {
+  return node_->GetTableCellIndex();
+}
+
+int32_t TestAXNodeWrapper::CellIndexToId(int32_t cell_index) const {
+  ui::AXNode* cell = node_->GetTableCellFromIndex(cell_index);
+  if (cell)
+    return cell->id();
+  return -1;
 }
 
 bool TestAXNodeWrapper::AccessibilityPerformAction(
     const ui::AXActionData& data) {
+  if (data.action == ax::mojom::Action::kScrollToPoint) {
+    g_offset = gfx::Vector2d(data.target_point.x(), data.target_point.y());
+    return true;
+  }
+
+  if (data.action == ax::mojom::Action::kScrollToMakeVisible) {
+    auto offset = node_->data().relative_bounds.bounds.OffsetFromOrigin();
+    g_offset = gfx::Vector2d(-offset.x(), -offset.y());
+    return true;
+  }
+
+  if (GetData().role == ax::mojom::Role::kListBoxOption &&
+      data.action == ax::mojom::Action::kDoDefault) {
+    bool current_value =
+        GetData().GetBoolAttribute(ax::mojom::BoolAttribute::kSelected);
+    ReplaceBoolAttribute(ax::mojom::BoolAttribute::kSelected, !current_value);
+  }
+
+  if (data.action == ax::mojom::Action::kSetSelection) {
+    ReplaceIntAttribute(data.anchor_node_id,
+                        ax::mojom::IntAttribute::kTextSelStart,
+                        data.anchor_offset);
+    ReplaceIntAttribute(data.anchor_node_id,
+                        ax::mojom::IntAttribute::kTextSelEnd,
+                        data.focus_offset);
+    return true;
+  }
+
   return true;
 }
 
@@ -180,10 +285,42 @@ bool TestAXNodeWrapper::ShouldIgnoreHoveredStateForTesting() {
   return true;
 }
 
+std::set<int32_t> TestAXNodeWrapper::GetReverseRelations(
+    ax::mojom::IntAttribute attr,
+    int32_t dst_id) {
+  return tree_->GetReverseRelations(attr, dst_id);
+}
+
+std::set<int32_t> TestAXNodeWrapper::GetReverseRelations(
+    ax::mojom::IntListAttribute attr,
+    int32_t dst_id) {
+  return tree_->GetReverseRelations(attr, dst_id);
+}
+
+const ui::AXUniqueId& TestAXNodeWrapper::GetUniqueId() const {
+  return unique_id_;
+}
+
 TestAXNodeWrapper::TestAXNodeWrapper(AXTree* tree, AXNode* node)
     : tree_(tree),
       node_(node),
       platform_node_(AXPlatformNode::Create(this)) {
+}
+
+bool TestAXNodeWrapper::IsOrderedSetItem() const {
+  return node_->IsOrderedSetItem();
+}
+
+bool TestAXNodeWrapper::IsOrderedSet() const {
+  return node_->IsOrderedSet();
+}
+
+int32_t TestAXNodeWrapper::GetPosInSet() const {
+  return node_->GetPosInSet();
+}
+
+int32_t TestAXNodeWrapper::GetSetSize() const {
+  return node_->GetSetSize();
 }
 
 }  // namespace ui

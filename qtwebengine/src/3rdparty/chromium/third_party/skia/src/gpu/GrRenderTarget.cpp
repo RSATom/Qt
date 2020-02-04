@@ -16,21 +16,19 @@
 #include "GrRenderTargetPriv.h"
 #include "GrStencilAttachment.h"
 #include "GrStencilSettings.h"
+#include "SkRectPriv.h"
 
 GrRenderTarget::GrRenderTarget(GrGpu* gpu, const GrSurfaceDesc& desc,
-                               GrRenderTargetFlags flags,
                                GrStencilAttachment* stencil)
         : INHERITED(gpu, desc)
         , fSampleCnt(desc.fSampleCnt)
-        , fStencilAttachment(stencil)
-        , fMultisampleSpecsID(0)
-        , fFlags(flags) {
+        , fStencilAttachment(stencil) {
     SkASSERT(desc.fFlags & kRenderTarget_GrSurfaceFlag);
-    SkASSERT(!(fFlags & GrRenderTargetFlags::kMixedSampled) || fSampleCnt > 0);
-    SkASSERT(!(fFlags & GrRenderTargetFlags::kWindowRectsSupport) ||
-             gpu->caps()->maxWindowRectangles() > 0);
-    fResolveRect.setLargestInverted();
+    SkASSERT(!this->hasMixedSamples() || fSampleCnt > 1);
+    fResolveRect = SkRectPriv::MakeILargestInverted();
 }
+
+GrRenderTarget::~GrRenderTarget() = default;
 
 void GrRenderTarget::flagAsNeedingResolve(const SkIRect* rect) {
     if (kCanResolve_ResolveType == getResolveType()) {
@@ -48,57 +46,45 @@ void GrRenderTarget::flagAsNeedingResolve(const SkIRect* rect) {
 void GrRenderTarget::overrideResolveRect(const SkIRect rect) {
     fResolveRect = rect;
     if (fResolveRect.isEmpty()) {
-        fResolveRect.setLargestInverted();
+        fResolveRect = SkRectPriv::MakeILargestInverted();
     } else {
         if (!fResolveRect.intersect(0, 0, this->width(), this->height())) {
-            fResolveRect.setLargestInverted();
+            fResolveRect = SkRectPriv::MakeILargestInverted();
         }
     }
 }
 
+void GrRenderTarget::flagAsResolved() {
+    fResolveRect = SkRectPriv::MakeILargestInverted();
+}
+
 void GrRenderTarget::onRelease() {
-    SkSafeSetNull(fStencilAttachment);
+    fStencilAttachment = nullptr;
 
     INHERITED::onRelease();
 }
 
 void GrRenderTarget::onAbandon() {
-    SkSafeSetNull(fStencilAttachment);
+    fStencilAttachment = nullptr;
 
     INHERITED::onAbandon();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool GrRenderTargetPriv::attachStencilAttachment(GrStencilAttachment* stencil) {
+void GrRenderTargetPriv::attachStencilAttachment(sk_sp<GrStencilAttachment> stencil) {
     if (!stencil && !fRenderTarget->fStencilAttachment) {
         // No need to do any work since we currently don't have a stencil attachment and
         // we're not actually adding one.
-        return true;
+        return;
     }
-    fRenderTarget->fStencilAttachment = stencil;
+    fRenderTarget->fStencilAttachment = std::move(stencil);
     if (!fRenderTarget->completeStencilAttachment()) {
-        SkSafeSetNull(fRenderTarget->fStencilAttachment);
-        return false;
+        fRenderTarget->fStencilAttachment = nullptr;
     }
-    return true;
 }
 
 int GrRenderTargetPriv::numStencilBits() const {
     SkASSERT(this->getStencilAttachment());
     return this->getStencilAttachment()->bits();
 }
-
-const GrGpu::MultisampleSpecs&
-GrRenderTargetPriv::getMultisampleSpecs(const GrPipeline& pipeline) const {
-    SkASSERT(fRenderTarget == pipeline.getRenderTarget()); // TODO: remove RT from pipeline.
-    GrGpu* gpu = fRenderTarget->getGpu();
-    if (auto id = fRenderTarget->fMultisampleSpecsID) {
-        SkASSERT(gpu->queryMultisampleSpecs(pipeline).fUniqueID == id);
-        return gpu->getMultisampleSpecs(id);
-    }
-    const GrGpu::MultisampleSpecs& specs = gpu->queryMultisampleSpecs(pipeline);
-    fRenderTarget->fMultisampleSpecsID = specs.fUniqueID;
-    return specs;
-}
-

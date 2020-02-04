@@ -11,7 +11,10 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -24,6 +27,7 @@
 #include "chrome/browser/plugins/plugin_finder.h"
 #include "chrome/browser/plugins/plugin_installer.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/api/content_settings.h"
 #include "components/content_settings/core/browser/content_settings_info.h"
@@ -31,8 +35,13 @@
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/common/content_settings.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
+#include "content/public/common/webplugininfo.h"
 #include "extensions/browser/extension_prefs_scope.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/common/error_utils.h"
 
 using content::BrowserThread;
@@ -64,9 +73,6 @@ bool RemoveContentType(base::ListValue* args,
 
 namespace extensions {
 
-namespace helpers = content_settings_helpers;
-namespace keys = content_settings_api_constants;
-
 ExtensionFunction::ResponseAction
 ContentSettingsContentSettingClearFunction::Run() {
   ContentSettingsType content_type;
@@ -89,12 +95,14 @@ ContentSettingsContentSettingClearFunction::Run() {
   } else if (browser_context()->IsOffTheRecord()) {
     // Incognito profiles can't access regular mode ever, they only exist in
     // split mode.
-    return RespondNow(Error(keys::kIncognitoContextError));
+    return RespondNow(
+        Error(content_settings_api_constants::kIncognitoContextError));
   }
 
   scoped_refptr<ContentSettingsStore> store =
       ContentSettingsService::Get(browser_context())->content_settings_store();
-  store->ClearContentSettingsForExtension(extension_id(), scope);
+  store->ClearContentSettingsForExtensionAndContentType(extension_id(), scope,
+                                                        content_type);
 
   return RespondNow(NoArguments());
 }
@@ -109,16 +117,16 @@ ContentSettingsContentSettingGetFunction::Run() {
 
   GURL primary_url(params->details.primary_url);
   if (!primary_url.is_valid()) {
-    return RespondNow(
-        Error(keys::kInvalidUrlError, params->details.primary_url));
+    return RespondNow(Error(content_settings_api_constants::kInvalidUrlError,
+                            params->details.primary_url));
   }
 
   GURL secondary_url(primary_url);
   if (params->details.secondary_url.get()) {
     secondary_url = GURL(*params->details.secondary_url);
     if (!secondary_url.is_valid()) {
-      return RespondNow(
-          Error(keys::kInvalidUrlError, *params->details.secondary_url));
+      return RespondNow(Error(content_settings_api_constants::kInvalidUrlError,
+                              *params->details.secondary_url));
     }
   }
 
@@ -129,7 +137,7 @@ ContentSettingsContentSettingGetFunction::Run() {
   bool incognito = false;
   if (params->details.incognito.get())
     incognito = *params->details.incognito;
-  if (incognito && !include_incognito())
+  if (incognito && !include_incognito_information())
     return RespondNow(Error(pref_keys::kIncognitoErrorMessage));
 
   HostContentSettingsMap* map;
@@ -139,7 +147,8 @@ ContentSettingsContentSettingGetFunction::Run() {
     if (!profile->HasOffTheRecordProfile()) {
       // TODO(bauerb): Allow reading incognito content settings
       // outside of an incognito session.
-      return RespondNow(Error(keys::kIncognitoSessionOnlyError));
+      return RespondNow(
+          Error(content_settings_api_constants::kIncognitoSessionOnlyError));
     }
     map = HostContentSettingsMapFactory::GetForProfile(
         profile->GetOffTheRecordProfile());
@@ -164,7 +173,8 @@ ContentSettingsContentSettingGetFunction::Run() {
   std::string setting_string =
       content_settings::ContentSettingToString(setting);
   DCHECK(!setting_string.empty());
-  result->SetString(keys::kContentSettingKey, setting_string);
+  result->SetString(content_settings_api_constants::kContentSettingKey,
+                    setting_string);
 
   return RespondNow(OneArgument(std::move(result)));
 }
@@ -179,17 +189,16 @@ ContentSettingsContentSettingSetFunction::Run() {
 
   std::string primary_error;
   ContentSettingsPattern primary_pattern =
-      helpers::ParseExtensionPattern(params->details.primary_pattern,
-                                     &primary_error);
+      content_settings_helpers::ParseExtensionPattern(
+          params->details.primary_pattern, &primary_error);
   if (!primary_pattern.IsValid())
     return RespondNow(Error(primary_error));
 
   ContentSettingsPattern secondary_pattern = ContentSettingsPattern::Wildcard();
   if (params->details.secondary_pattern.get()) {
     std::string secondary_error;
-    secondary_pattern =
-        helpers::ParseExtensionPattern(*params->details.secondary_pattern,
-                                       &secondary_error);
+    secondary_pattern = content_settings_helpers::ParseExtensionPattern(
+        *params->details.secondary_pattern, &secondary_error);
     if (!secondary_pattern.IsValid())
       return RespondNow(Error(secondary_error));
   }
@@ -204,10 +213,17 @@ ContentSettingsContentSettingSetFunction::Run() {
   ContentSetting setting;
   EXTENSION_FUNCTION_VALIDATE(
       content_settings::ContentSettingFromString(setting_str, &setting));
+  // The content settings extensions API does not support setting any content
+  // settings to |CONTENT_SETTING_DEFAULT|.
+  EXTENSION_FUNCTION_VALIDATE(CONTENT_SETTING_DEFAULT != setting);
   EXTENSION_FUNCTION_VALIDATE(
       content_settings::ContentSettingsRegistry::GetInstance()
           ->Get(content_type)
           ->IsSettingValid(setting));
+
+  const content_settings::ContentSettingsInfo* info =
+      content_settings::ContentSettingsRegistry::GetInstance()->Get(
+          content_type);
 
   // Some content setting types support the full set of values listed in
   // content_settings.json only for exceptions. For the default setting,
@@ -216,9 +232,7 @@ ContentSettingsContentSettingSetFunction::Run() {
   // [ask, block] for the default setting.
   if (primary_pattern == ContentSettingsPattern::Wildcard() &&
       secondary_pattern == ContentSettingsPattern::Wildcard() &&
-      !content_settings::ContentSettingsRegistry::GetInstance()
-           ->Get(content_type)
-           ->IsDefaultSettingValid(setting)) {
+      !info->IsDefaultSettingValid(setting)) {
     static const char kUnsupportedDefaultSettingError[] =
         "'%s' is not supported as the default setting of %s.";
 
@@ -238,6 +252,27 @@ ContentSettingsContentSettingSetFunction::Run() {
                                                readable_type_name.c_str())));
   }
 
+  size_t num_values = 0;
+  int histogram_value =
+      ContentSettingTypeToHistogramValue(content_type, &num_values);
+  if (primary_pattern != secondary_pattern &&
+      secondary_pattern != ContentSettingsPattern::Wildcard()) {
+    UMA_HISTOGRAM_EXACT_LINEAR("ContentSettings.ExtensionEmbeddedSettingSet",
+                               histogram_value, num_values);
+  } else {
+    UMA_HISTOGRAM_EXACT_LINEAR("ContentSettings.ExtensionNonEmbeddedSettingSet",
+                               histogram_value, num_values);
+  }
+
+  if (primary_pattern != secondary_pattern &&
+      secondary_pattern != ContentSettingsPattern::Wildcard() &&
+      !info->website_settings_info()->SupportsEmbeddedExceptions() &&
+      base::FeatureList::IsEnabled(::features::kPermissionDelegation)) {
+    static const char kUnsupportedEmbeddedException[] =
+        "Embedded patterns are not supported for this setting.";
+    return RespondNow(Error(kUnsupportedEmbeddedException));
+  }
+
   ExtensionPrefsScope scope = kExtensionPrefsScopeRegular;
   bool incognito = false;
   if (params->details.scope ==
@@ -247,14 +282,19 @@ ContentSettingsContentSettingSetFunction::Run() {
   }
 
   if (incognito) {
-    // Regular profiles can't access incognito unless include_incognito is true.
-    if (!browser_context()->IsOffTheRecord() && !include_incognito())
+    // Regular profiles can't access incognito unless the extension is allowed
+    // to run in incognito contexts.
+    if (!browser_context()->IsOffTheRecord() &&
+        !extensions::util::IsIncognitoEnabled(extension_id(),
+                                              browser_context())) {
       return RespondNow(Error(pref_keys::kIncognitoErrorMessage));
+    }
   } else {
     // Incognito profiles can't access regular mode ever, they only exist in
     // split mode.
     if (browser_context()->IsOffTheRecord())
-      return RespondNow(Error(keys::kIncognitoContextError));
+      return RespondNow(
+          Error(content_settings_api_constants::kIncognitoContextError));
   }
 
   if (scope == kExtensionPrefsScopeIncognitoSessionOnly &&
@@ -292,8 +332,7 @@ void ContentSettingsContentSettingGetResourceIdentifiersFunction::OnGotPlugins(
   PluginFinder* finder = PluginFinder::GetInstance();
   std::set<std::string> group_identifiers;
   std::unique_ptr<base::ListValue> list(new base::ListValue());
-  for (std::vector<content::WebPluginInfo>::const_iterator it = plugins.begin();
-       it != plugins.end(); ++it) {
+  for (auto it = plugins.cbegin(); it != plugins.cend(); ++it) {
     std::unique_ptr<PluginMetadata> plugin_metadata(
         finder->GetPluginMetadata(*it));
     const std::string& group_identifier = plugin_metadata->identifier();
@@ -302,13 +341,14 @@ void ContentSettingsContentSettingGetResourceIdentifiersFunction::OnGotPlugins(
 
     group_identifiers.insert(group_identifier);
     std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-    dict->SetString(keys::kIdKey, group_identifier);
-    dict->SetString(keys::kDescriptionKey, plugin_metadata->name());
+    dict->SetString(content_settings_api_constants::kIdKey, group_identifier);
+    dict->SetString(content_settings_api_constants::kDescriptionKey,
+                    plugin_metadata->name());
     list->Append(std::move(dict));
   }
   SetResult(std::move(list));
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(
           &ContentSettingsContentSettingGetResourceIdentifiersFunction::
               SendResponse,

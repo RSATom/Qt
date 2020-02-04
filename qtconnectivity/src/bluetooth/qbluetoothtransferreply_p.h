@@ -60,7 +60,7 @@ class Q_BLUETOOTH_EXPORT QBluetoothTransferReplyPrivate
 public:
     QBluetoothTransferReplyPrivate();
 
-    QBluetoothTransferManager *m_manager;
+    QBluetoothTransferManager *m_manager = nullptr;
 
     QBluetoothTransferRequest m_request;
 };

@@ -40,50 +40,52 @@
 #include "qquickwebenginedownloaditem_p.h"
 #include "qquickwebenginedownloaditem_p_p.h"
 
-#include "browser_context_adapter.h"
+#include "profile_adapter.h"
 #include "qquickwebengineprofile_p.h"
 
-using QtWebEngineCore::BrowserContextAdapterClient;
+#include "QFileInfo"
+
+using QtWebEngineCore::ProfileAdapterClient;
 
 QT_BEGIN_NAMESPACE
 
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::NoReason, QQuickWebEngineDownloadItem::NoReason)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileFailed, QQuickWebEngineDownloadItem::FileFailed)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileAccessDenied, QQuickWebEngineDownloadItem::FileAccessDenied)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileNoSpace, QQuickWebEngineDownloadItem::FileNoSpace)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileNameTooLong, QQuickWebEngineDownloadItem::FileNameTooLong)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileTooLarge, QQuickWebEngineDownloadItem::FileTooLarge)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileVirusInfected, QQuickWebEngineDownloadItem::FileVirusInfected)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileTransientError, QQuickWebEngineDownloadItem::FileTransientError)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileBlocked, QQuickWebEngineDownloadItem::FileBlocked)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileSecurityCheckFailed, QQuickWebEngineDownloadItem::FileSecurityCheckFailed)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileTooShort, QQuickWebEngineDownloadItem::FileTooShort)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::FileHashMismatch, QQuickWebEngineDownloadItem::FileHashMismatch)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::NetworkFailed, QQuickWebEngineDownloadItem::NetworkFailed)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::NetworkTimeout, QQuickWebEngineDownloadItem::NetworkTimeout)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::NetworkDisconnected, QQuickWebEngineDownloadItem::NetworkDisconnected)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::NetworkServerDown, QQuickWebEngineDownloadItem::NetworkServerDown)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::NetworkInvalidRequest, QQuickWebEngineDownloadItem::NetworkInvalidRequest)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::ServerFailed, QQuickWebEngineDownloadItem::ServerFailed)
-//ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::ServerNoRange, QQuickWebEngineDownloadItem::ServerNoRange)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::ServerBadContent, QQuickWebEngineDownloadItem::ServerBadContent)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::ServerUnauthorized, QQuickWebEngineDownloadItem::ServerUnauthorized)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::ServerCertProblem, QQuickWebEngineDownloadItem::ServerCertProblem)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::ServerForbidden, QQuickWebEngineDownloadItem::ServerForbidden)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::ServerUnreachable, QQuickWebEngineDownloadItem::ServerUnreachable)
-ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::UserCanceled, QQuickWebEngineDownloadItem::UserCanceled)
-//ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::UserShutdown, QQuickWebEngineDownloadItem::UserShutdown)
-//ASSERT_ENUMS_MATCH(BrowserContextAdapterClient::Crash, QQuickWebEngineDownloadItem::Crash)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::NoReason, QQuickWebEngineDownloadItem::NoReason)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileFailed, QQuickWebEngineDownloadItem::FileFailed)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileAccessDenied, QQuickWebEngineDownloadItem::FileAccessDenied)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileNoSpace, QQuickWebEngineDownloadItem::FileNoSpace)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileNameTooLong, QQuickWebEngineDownloadItem::FileNameTooLong)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileTooLarge, QQuickWebEngineDownloadItem::FileTooLarge)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileVirusInfected, QQuickWebEngineDownloadItem::FileVirusInfected)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileTransientError, QQuickWebEngineDownloadItem::FileTransientError)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileBlocked, QQuickWebEngineDownloadItem::FileBlocked)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileSecurityCheckFailed, QQuickWebEngineDownloadItem::FileSecurityCheckFailed)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileTooShort, QQuickWebEngineDownloadItem::FileTooShort)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::FileHashMismatch, QQuickWebEngineDownloadItem::FileHashMismatch)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::NetworkFailed, QQuickWebEngineDownloadItem::NetworkFailed)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::NetworkTimeout, QQuickWebEngineDownloadItem::NetworkTimeout)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::NetworkDisconnected, QQuickWebEngineDownloadItem::NetworkDisconnected)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::NetworkServerDown, QQuickWebEngineDownloadItem::NetworkServerDown)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::NetworkInvalidRequest, QQuickWebEngineDownloadItem::NetworkInvalidRequest)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::ServerFailed, QQuickWebEngineDownloadItem::ServerFailed)
+//ASSERT_ENUMS_MATCH(ProfileAdapterClient::ServerNoRange, QQuickWebEngineDownloadItem::ServerNoRange)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::ServerBadContent, QQuickWebEngineDownloadItem::ServerBadContent)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::ServerUnauthorized, QQuickWebEngineDownloadItem::ServerUnauthorized)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::ServerCertProblem, QQuickWebEngineDownloadItem::ServerCertProblem)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::ServerForbidden, QQuickWebEngineDownloadItem::ServerForbidden)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::ServerUnreachable, QQuickWebEngineDownloadItem::ServerUnreachable)
+ASSERT_ENUMS_MATCH(ProfileAdapterClient::UserCanceled, QQuickWebEngineDownloadItem::UserCanceled)
+//ASSERT_ENUMS_MATCH(ProfileAdapterClient::UserShutdown, QQuickWebEngineDownloadItem::UserShutdown)
+//ASSERT_ENUMS_MATCH(ProfileAdapterClient::Crash, QQuickWebEngineDownloadItem::Crash)
 
 static inline QQuickWebEngineDownloadItem::DownloadState toDownloadState(int state) {
     switch (state) {
-    case BrowserContextAdapterClient::DownloadInProgress:
+    case ProfileAdapterClient::DownloadInProgress:
         return QQuickWebEngineDownloadItem::DownloadInProgress;
-    case BrowserContextAdapterClient::DownloadCompleted:
+    case ProfileAdapterClient::DownloadCompleted:
         return QQuickWebEngineDownloadItem::DownloadCompleted;
-    case BrowserContextAdapterClient::DownloadCancelled:
+    case ProfileAdapterClient::DownloadCancelled:
         return QQuickWebEngineDownloadItem::DownloadCancelled;
-    case BrowserContextAdapterClient::DownloadInterrupted:
+    case ProfileAdapterClient::DownloadInterrupted:
         return QQuickWebEngineDownloadItem::DownloadInterrupted;
     default:
         Q_UNREACHABLE();
@@ -107,6 +109,7 @@ QQuickWebEngineDownloadItemPrivate::QQuickWebEngineDownloadItemPrivate(QQuickWeb
     , receivedBytes(0)
     , downloadFinished(false)
     , downloadPaused(false)
+    , view(nullptr)
 {
 }
 
@@ -123,13 +126,47 @@ QQuickWebEngineDownloadItemPrivate::~QQuickWebEngineDownloadItemPrivate()
     \since QtWebEngine 1.1
     \brief Provides information about a download.
 
-    Stores the state of a download to be used to manage requested downloads.
+    WebEngineDownloadItem models a download throughout its life cycle, starting
+    with a pending download request and finishing with a completed download. It
+    can be used, for example, to get information about new downloads, to monitor
+    progress, and to pause, resume, and cancel downloads.
 
-    By default, the download is rejected unless the user explicitly accepts it with
-    accept().
+    Downloads are usually triggered by user interaction on a web page. It is the
+    WebEngineProfile's responsibility to notify the application of new download
+    requests, which it does by emitting the
+    \l{WebEngineProfile::downloadRequested}{downloadRequested} signal together
+    with a newly created WebEngineDownloadItem. The application can then examine
+    this item and decide whether to accept it or not. A signal handler must
+    explicitly call accept() on the item for \QWE to actually start
+    downloading and writing data to disk. If no signal handler calls accept(),
+    then the download request will be automatically rejected and nothing will be
+    written to disk.
+
+    \note Some properties, like the \l path under which the file will be saved,
+    can only be changed before calling accept().
+
+    \section2 Object Life Cycle
+
+    All items are guaranteed to be valid during the emission of the
+    \l{WebEngineProfile::downloadRequested}{downloadRequested} signal. If
+    accept() is \e not called by any signal handler, then the item will be
+    deleted \e immediately after signal emission. This means that the
+    application \b{must not} keep references to rejected download items.
+
+    \section2 Web Page Downloads
+
+    In addition to normal file downloads, which consist simply of retrieving
+    some raw bytes from the network and writing them to disk, \QWE also
+    supports saving complete web pages, which involves parsing the page's HTML,
+    downloading any dependent resources, and potentially packaging everything
+    into a special file format (\l savePageFormat). To check if a download is
+    for a file or a web page, use \l isSavePageDownload.
+
+    \sa WebEngineProfile, WebEngineProfile::downloadRequested,
+    WebEngineProfile::downloadFinished
 */
 
-void QQuickWebEngineDownloadItemPrivate::update(const BrowserContextAdapterClient::DownloadItemInfo &info)
+void QQuickWebEngineDownloadItemPrivate::update(const ProfileAdapterClient::DownloadItemInfo &info)
 {
     Q_Q(QQuickWebEngineDownloadItem);
 
@@ -150,10 +187,8 @@ void QQuickWebEngineDownloadItemPrivate::update(const BrowserContextAdapterClien
         Q_EMIT q->totalBytesChanged();
     }
 
-    if (info.done != downloadFinished) {
-        downloadFinished = info.done;
-        Q_EMIT q->isFinishedChanged();
-    }
+    if (info.done)
+        setFinished();
 
     if (info.paused != downloadPaused) {
         downloadPaused = info.paused;
@@ -171,10 +206,27 @@ void QQuickWebEngineDownloadItemPrivate::updateState(QQuickWebEngineDownloadItem
     }
 }
 
+void QQuickWebEngineDownloadItemPrivate::setFinished()
+{
+    Q_Q(QQuickWebEngineDownloadItem);
+
+    if (downloadFinished)
+        return;
+
+    downloadFinished = true;
+    Q_EMIT q->isFinishedChanged();
+}
+
 /*!
     \qmlmethod void WebEngineDownloadItem::accept()
 
     Accepts the download request, which will start the download.
+
+    If the item is in the \c DownloadRequested state, then it will transition
+    into the \c DownloadInProgress state and the downloading will begin. If the
+    item is in any other state, then nothing will happen.
+
+    \sa state
 */
 
 void QQuickWebEngineDownloadItem::accept()
@@ -191,6 +243,16 @@ void QQuickWebEngineDownloadItem::accept()
     \qmlmethod void WebEngineDownloadItem::cancel()
 
     Cancels the download.
+
+    If the item is in the \c DownloadInProgress state, then it will transition
+    into the \c DownloadCancelled state, the downloading will stop, and
+    partially downloaded files will be deleted from disk.
+
+    If the item is in the \c DownloadCompleted state, then nothing will happen.
+    If the item is in any other state, then it will transition into the \c
+    DownloadCancelled state without further effect.
+
+    \sa state
 */
 
 void QQuickWebEngineDownloadItem::cancel()
@@ -204,6 +266,7 @@ void QQuickWebEngineDownloadItem::cancel()
         return;
 
     d->updateState(QQuickWebEngineDownloadItem::DownloadCancelled);
+    d->setFinished();
 
     // We directly cancel the download if the user cancels before
     // it even started, so no need to notify the profile here.
@@ -219,6 +282,11 @@ void QQuickWebEngineDownloadItem::cancel()
     \since QtWebEngine 1.6
 
     Pauses the download.
+
+    Has no effect if the state is not \c DownloadInProgress. Does not change the
+    state.
+
+    \sa resume, isPaused
 */
 
 void QQuickWebEngineDownloadItem::pause()
@@ -231,7 +299,7 @@ void QQuickWebEngineDownloadItem::pause()
         return;
 
     if (d->profile)
-        d->profile->d_ptr->browserContext()->pauseDownload(d->downloadId);
+        d->profile->d_ptr->profileAdapter()->pauseDownload(d->downloadId);
 }
 
 /*!
@@ -239,6 +307,11 @@ void QQuickWebEngineDownloadItem::pause()
     \since QtWebEngine 1.6
 
     Resumes the download if it was paused or interrupted.
+
+    Has no effect if the state is not \c DownloadInProgress or \c
+    DownloadInterrupted. Does not change the state.
+
+    \sa pause, isPaused
 */
 void QQuickWebEngineDownloadItem::resume()
 {
@@ -250,7 +323,7 @@ void QQuickWebEngineDownloadItem::resume()
         return;
 
     if (d->profile)
-        d->profile->d_ptr->browserContext()->resumeDownload(d->downloadId);
+        d->profile->d_ptr->profileAdapter()->resumeDownload(d->downloadId);
 }
 
 /*!
@@ -335,8 +408,9 @@ QString QQuickWebEngineDownloadItem::mimeType() const
     The path includes the file name. The default suggested path is the standard
     download location and file name is deduced not to overwrite already existing files.
 
-    The download path can only be set in the \c WebEngineProfile.onDownloadRequested
-    handler before the download is accepted.
+    The download path can only be set in the
+    \l{WebEngineProfile::downloadRequested}{downloadRequested} handler before
+    the download is accepted.
 
     \sa WebEngineProfile::downloadRequested(), accept()
 */
@@ -355,6 +429,16 @@ void QQuickWebEngineDownloadItem::setPath(QString path)
         return;
     }
     if (d->downloadPath != path) {
+        if (QFileInfo(path).fileName().isEmpty()) {
+            qWarning("The download path does not include file name.");
+            return;
+        }
+
+        if (QFileInfo(path).isDir()) {
+            qWarning("The download path matches with an already existing directory path.");
+            return;
+        }
+
         d->downloadPath = path;
         Q_EMIT pathChanged();
     }
@@ -397,8 +481,12 @@ void QQuickWebEngineDownloadItem::setSavePageFormat(QQuickWebEngineDownloadItem:
     \qmlproperty enumeration WebEngineDownloadItem::type
     \readonly
     \since QtWebEngine 1.4
+    \obsolete
 
     Describes the requested download's type.
+
+    \note This property works unreliably, except for \c SavePage
+    downloads. Use \l isSavePageDownload instead.
 
     \value WebEngineDownloadItem.Attachment The web server's response includes a
            \c Content-Disposition header with the \c attachment directive. If \c Content-Disposition
@@ -406,17 +494,33 @@ void QQuickWebEngineDownloadItem::setSavePageFormat(QQuickWebEngineDownloadItem:
            user to save the content regardless of the content type.
            See \l {RFC 2616 section 19.5.1} for details.
     \value WebEngineDownloadItem.DownloadAttribute The user clicked a link with the \c download
-           attribute. See \l {HTML download attribute} for details.
+           attribute.
     \value WebEngineDownloadItem.UserRequested The user initiated the download, for example by
            selecting a web action.
     \value WebEngineDownloadItem.SavePage Saving of the current page was requested (for example by
            the \l{WebEngineView::WebAction}{WebEngineView.SavePage} web action).
- */
+
+*/
 
 QQuickWebEngineDownloadItem::DownloadType QQuickWebEngineDownloadItem::type() const
 {
     Q_D(const QQuickWebEngineDownloadItem);
     return d->type;
+}
+
+/*!
+    \qmlproperty bool WebEngineDownloadItem::isSavePageDownload
+    \readonly
+    \since QtWebEngine 1.7
+
+    Whether this is a download request for saving a web page or a file.
+
+    \sa savePageFormat
+*/
+bool QQuickWebEngineDownloadItem::isSavePageDownload() const
+{
+    Q_D(const QQuickWebEngineDownloadItem);
+    return d->type == QQuickWebEngineDownloadItem::SavePage;
 }
 
 /*!
@@ -476,8 +580,8 @@ QQuickWebEngineDownloadItem::DownloadInterruptReason QQuickWebEngineDownloadItem
 */
 QString QQuickWebEngineDownloadItem::interruptReasonString() const
 {
-    return BrowserContextAdapterClient::downloadInterruptReasonToString(
-              static_cast<BrowserContextAdapterClient::DownloadInterruptReason>(interruptReason()));
+    return ProfileAdapterClient::downloadInterruptReasonToString(
+              static_cast<ProfileAdapterClient::DownloadInterruptReason>(interruptReason()));
 }
 
 /*!
@@ -500,12 +604,30 @@ bool QQuickWebEngineDownloadItem::isFinished() const
     \since QtWebEngine 1.6
 
     Whether this download is paused.
+
+    \sa pause, resume
  */
 
 bool QQuickWebEngineDownloadItem::isPaused() const
 {
     Q_D(const QQuickWebEngineDownloadItem);
     return d->downloadPaused;
+}
+
+/*!
+    \qmlproperty WebEngineView WebEngineDownloadItem::view
+    \readonly
+    \since QtWebEngine 1.8
+
+    Returns the view the download was requested on. If the download was not triggered by content in a view,
+    \c nullptr is returned.
+
+    \sa WebEngineView
+*/
+QQuickWebEngineView *QQuickWebEngineDownloadItem::view() const
+{
+    Q_D(const QQuickWebEngineDownloadItem);
+    return d->view;
 }
 
 QQuickWebEngineDownloadItem::QQuickWebEngineDownloadItem(QQuickWebEngineDownloadItemPrivate *p, QObject *parent)
@@ -517,6 +639,8 @@ QQuickWebEngineDownloadItem::QQuickWebEngineDownloadItem(QQuickWebEngineDownload
 
 QQuickWebEngineDownloadItem::~QQuickWebEngineDownloadItem()
 {
+    if (!isFinished())
+        cancel();
 }
 
 QT_END_NAMESPACE

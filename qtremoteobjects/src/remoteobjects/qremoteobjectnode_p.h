@@ -56,8 +56,8 @@
 #include "qremoteobjectreplica.h"
 #include "qremoteobjectnode.h"
 
-#include <QBasicTimer>
-#include <QMutex>
+#include <QtCore/qbasictimer.h>
+#include <QtCore/qmutex.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -72,16 +72,72 @@ QT_BEGIN_NAMESPACE
 
 class QRemoteObjectRegistry;
 class QRegistrySource;
+class QConnectedReplicaImplementation;
+
+class QRemoteObjectAbstractPersistedStorePrivate : public QObjectPrivate
+{
+public:
+    QRemoteObjectAbstractPersistedStorePrivate();
+    virtual ~QRemoteObjectAbstractPersistedStorePrivate();
+
+    Q_DECLARE_PUBLIC(QRemoteObjectAbstractPersistedStore)
+};
+
+class QRemoteObjectMetaObjectManager
+{
+public:
+    QRemoteObjectMetaObjectManager() {}
+    ~QRemoteObjectMetaObjectManager();
+
+    const QMetaObject *metaObjectForType(const QString &type);
+    QMetaObject *addDynamicType(IoDeviceBase* connection, QDataStream &in);
+    void addFromMetaObject(const QMetaObject *);
+
+private:
+    QHash<QString, QMetaObject*> dynamicTypes;
+    QHash<QString, const QMetaObject*> staticTypes;
+};
+
+struct ProxyReplicaInfo;
+class ProxyInfo : public QObject
+{
+    Q_OBJECT
+public:
+    ProxyInfo(QRemoteObjectNode *node, QRemoteObjectHostBase *parent, QRemoteObjectHostBase::RemoteObjectNameFilter filter);
+    ~ProxyInfo() override;
+    enum class ProxyDirection { Forward, Reverse };
+
+    bool setReverseProxy(QRemoteObjectHostBase::RemoteObjectNameFilter filter);
+    void proxyObject(const QRemoteObjectSourceLocation &entry, ProxyDirection direction = ProxyDirection::Forward);
+    void unproxyObject(const QRemoteObjectSourceLocation &entry);
+
+    QRemoteObjectNode *proxyNode;
+    QRemoteObjectHostBase *parentNode;
+    QRemoteObjectHostBase::RemoteObjectNameFilter proxyFilter;
+    QRemoteObjectHostBase::RemoteObjectNameFilter reverseFilter;
+    QHash<QString, ProxyReplicaInfo*> proxiedReplicas;
+
+private:
+    void disableAndDeleteObject(ProxyReplicaInfo* info);
+};
+
+struct ProxyReplicaInfo
+{
+    // We need QObject, so we can hold Dynamic Replicas and QAIM Adapters
+    QObject* replica;
+    ProxyInfo::ProxyDirection direction;
+    ~ProxyReplicaInfo() { delete replica; }
+};
 
 class QRemoteObjectNodePrivate : public QObjectPrivate
 {
 public:
     QRemoteObjectNodePrivate();
-    virtual ~QRemoteObjectNodePrivate();
+    ~QRemoteObjectNodePrivate() override;
 
     virtual QRemoteObjectSourceLocations remoteObjectAddresses() const;
 
-    void setReplicaPrivate(const QMetaObject *, QRemoteObjectReplica *, const QString &);
+    void setReplicaImplementation(const QMetaObject *, QRemoteObjectReplica *, const QString &);
 
     void setLastError(QRemoteObjectNode::ErrorCode errorCode);
 
@@ -91,6 +147,8 @@ public:
     bool initConnection(const QUrl &address);
     bool hasInstance(const QString &name);
     void setRegistry(QRemoteObjectRegistry *);
+    QVariant handlePointerToQObjectProperty(QConnectedReplicaImplementation *rep, int index, const QVariant &property);
+    void handlePointerToQObjectProperties(QConnectedReplicaImplementation *rep, QVariantList &properties);
 
     void onClientRead(QObject *obj);
     void onRemoteObjectSourceAdded(const QRemoteObjectSourceLocation &entry);
@@ -98,7 +156,9 @@ public:
     void onRegistryInitialized();
     void onShouldReconnect(ClientIoDevice *ioDevice);
 
-    virtual QReplicaPrivateInterface *handleNewAcquire(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name);
+    virtual QReplicaImplementationInterface *handleNewAcquire(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name);
+    void handleReplicaConnection(const QString &name);
+    void handleReplicaConnection(const QByteArray &sourceSignature, QConnectedReplicaImplementation *rep, IoDeviceBase *connection);
     void initialize();
 private:
     bool checkSignatures(const QByteArray &a, const QByteArray &b);
@@ -106,16 +166,16 @@ private:
 public:
     struct SourceInfo
     {
-        ClientIoDevice* device;
+        IoDeviceBase* device;
         QString typeName;
         QByteArray objectSignature;
     };
 
-    QAtomicInt isInitialized;
     QMutex mutex;
     QUrl registryAddress;
-    QHash<QString, QWeakPointer<QReplicaPrivateInterface> > replicas;
+    QHash<QString, QWeakPointer<QReplicaImplementationInterface> > replicas;
     QMap<QString, SourceInfo> connectedSources;
+    QMap<QString, QRemoteObjectNode::RemoteObjectSchemaHandler> schemaHandlers;
     QSet<ClientIoDevice*> pendingReconnect;
     QSet<QUrl> requestedUrls;
     QRemoteObjectRegistry *registry;
@@ -126,9 +186,10 @@ public:
     QRemoteObjectPackets::ObjectInfoList rxObjects;
     QVariantList rxArgs;
     QVariant rxValue;
-    QRemoteObjectPersistedStore *persistedStore;
-    QRemoteObjectNode::StorageOwnership persistedStoreOwnership;
+    QRemoteObjectAbstractPersistedStore *persistedStore;
     bool m_handshakeReceived = false;
+    int m_heartbeatInterval = 0;
+    QRemoteObjectMetaObjectManager dynamicTypeManager;
     Q_DECLARE_PUBLIC(QRemoteObjectNode)
 };
 
@@ -136,11 +197,12 @@ class QRemoteObjectHostBasePrivate : public QRemoteObjectNodePrivate
 {
 public:
     QRemoteObjectHostBasePrivate();
-    virtual ~QRemoteObjectHostBasePrivate() {}
-    QReplicaPrivateInterface *handleNewAcquire(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name) override;
+    ~QRemoteObjectHostBasePrivate() override;
+    QReplicaImplementationInterface *handleNewAcquire(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name) override;
 
 public:
     QRemoteObjectSourceIo *remoteObjectIo;
+    ProxyInfo *proxyInfo = nullptr;
     Q_DECLARE_PUBLIC(QRemoteObjectHostBase);
 };
 
@@ -148,7 +210,7 @@ class QRemoteObjectHostPrivate : public QRemoteObjectHostBasePrivate
 {
 public:
     QRemoteObjectHostPrivate();
-    virtual ~QRemoteObjectHostPrivate() {}
+    ~QRemoteObjectHostPrivate() override;
     Q_DECLARE_PUBLIC(QRemoteObjectHost);
 };
 
@@ -156,7 +218,7 @@ class QRemoteObjectRegistryHostPrivate : public QRemoteObjectHostBasePrivate
 {
 public:
     QRemoteObjectRegistryHostPrivate();
-    virtual ~QRemoteObjectRegistryHostPrivate() {}
+    ~QRemoteObjectRegistryHostPrivate() override;
     QRemoteObjectSourceLocations remoteObjectAddresses() const override;
     QRegistrySource *registrySource;
     Q_DECLARE_PUBLIC(QRemoteObjectRegistryHost);

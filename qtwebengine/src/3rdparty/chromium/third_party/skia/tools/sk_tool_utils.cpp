@@ -5,188 +5,72 @@
  * found in the LICENSE file.
  */
 
-#include "sk_tool_utils.h"
-#include "sk_tool_utils_flags.h"
-
-#include "Resources.h"
 #include "SkBitmap.h"
+#include "SkBlendMode.h"
 #include "SkCanvas.h"
-#include "SkCommonFlags.h"
-#include "SkFontMgr.h"
-#include "SkFontStyle.h"
+#include "SkColorData.h"
+#include "SkColorPriv.h"
+#include "SkFontPriv.h"
+#include "SkFloatingPoint.h"
+#include "SkImage.h"
+#include "SkMatrix.h"
+#include "SkPaint.h"
+#include "SkPath.h"
 #include "SkPixelRef.h"
+#include "SkPixmap.h"
 #include "SkPoint3.h"
+#include "SkRRect.h"
 #include "SkShader.h"
-#include "SkTestScalerContext.h"
+#include "SkSurface.h"
 #include "SkTextBlob.h"
+#include "sk_tool_utils.h"
 
-DEFINE_bool(portableFonts, false, "Use portable fonts");
+#include <cmath>
+#include <cstring>
+#include <memory>
 
 namespace sk_tool_utils {
 
-/* these are the default fonts chosen by Chrome for serif, sans-serif, and monospace */
-static const char* gStandardFontNames[][3] = {
-    { "Times", "Helvetica", "Courier" }, // Mac
-    { "Times New Roman", "Helvetica", "Courier" }, // iOS
-    { "Times New Roman", "Arial", "Courier New" }, // Win
-    { "Times New Roman", "Arial", "Monospace" }, // Ubuntu
-    { "serif", "sans-serif", "monospace" }, // Android
-    { "Tinos", "Arimo", "Cousine" } // ChromeOS
-};
-
-const char* platform_font_name(const char* name) {
-    SkString platform = major_platform_os_name();
-    int index;
-    if (!strcmp(name, "serif")) {
-        index = 0;
-    } else if (!strcmp(name, "san-serif")) {
-        index = 1;
-    } else if (!strcmp(name, "monospace")) {
-        index = 2;
-    } else {
-        return name;
+const char* alphatype_name(SkAlphaType at) {
+    switch (at) {
+        case kUnknown_SkAlphaType:  return "Unknown";
+        case kOpaque_SkAlphaType:   return "Opaque";
+        case kPremul_SkAlphaType:   return "Premul";
+        case kUnpremul_SkAlphaType: return "Unpremul";
     }
-    if (platform.equals("Mac")) {
-        return gStandardFontNames[0][index];
-    }
-    if (platform.equals("iOS")) {
-        return gStandardFontNames[1][index];
-    }
-    if (platform.equals("Win")) {
-        return gStandardFontNames[2][index];
-    }
-    if (platform.equals("Ubuntu") || platform.equals("Debian")) {
-        return gStandardFontNames[3][index];
-    }
-    if (platform.equals("Android")) {
-        return gStandardFontNames[4][index];
-    }
-    if (platform.equals("ChromeOS")) {
-        return gStandardFontNames[5][index];
-    }
-    return name;
-}
-
-const char* platform_os_emoji() {
-    const char* osName = platform_os_name();
-    if (!strcmp(osName, "Android") || !strcmp(osName, "Ubuntu") || !strcmp(osName, "Debian")) {
-        return "CBDT";
-    }
-    if (!strncmp(osName, "Mac", 3) || !strncmp(osName, "iOS", 3)) {
-        return "SBIX";
-    }
-    if (!strncmp(osName, "Win", 3)) {
-        return "COLR";
-    }
-    return "";
-}
-
-sk_sp<SkTypeface> emoji_typeface() {
-    if (!strcmp(sk_tool_utils::platform_os_emoji(), "CBDT")) {
-        return MakeResourceAsTypeface("/fonts/Funkster.ttf");
-    }
-    if (!strcmp(sk_tool_utils::platform_os_emoji(), "SBIX")) {
-        return SkTypeface::MakeFromName("Apple Color Emoji", SkFontStyle());
-    }
-    if (!strcmp(sk_tool_utils::platform_os_emoji(), "COLR")) {
-        sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-        const char *colorEmojiFontName = "Segoe UI Emoji";
-        sk_sp<SkTypeface> typeface(fm->matchFamilyStyle(colorEmojiFontName, SkFontStyle()));
-        if (typeface) {
-            return typeface;
-        }
-        sk_sp<SkTypeface> fallback(fm->matchFamilyStyleCharacter(
-            colorEmojiFontName, SkFontStyle(), nullptr /* bcp47 */, 0 /* bcp47Count */,
-            0x1f4b0 /* character: 💰 */));
-        if (fallback) {
-            return fallback;
-        }
-        // If we don't have Segoe UI Emoji and can't find a fallback, try Segoe UI Symbol.
-        // Windows 7 does not have Segoe UI Emoji; Segoe UI Symbol has the (non - color) emoji.
-        return SkTypeface::MakeFromName("Segoe UI Symbol", SkFontStyle());
-    }
-    return nullptr;
-}
-
-const char* emoji_sample_text() {
-    if (!strcmp(sk_tool_utils::platform_os_emoji(), "CBDT")) {
-        return "Hamburgefons";
-    }
-    if (!strcmp(sk_tool_utils::platform_os_emoji(), "SBIX") ||
-        !strcmp(sk_tool_utils::platform_os_emoji(), "COLR"))
-    {
-        return "\xF0\x9F\x92\xB0" "\xF0\x9F\x8F\xA1" "\xF0\x9F\x8E\x85"  // 💰🏡🎅
-               "\xF0\x9F\x8D\xAA" "\xF0\x9F\x8D\x95" "\xF0\x9F\x9A\x80"  // 🍪🍕🚀
-               "\xF0\x9F\x9A\xBB" "\xF0\x9F\x92\xA9" "\xF0\x9F\x93\xB7" // 🚻💩📷
-               "\xF0\x9F\x93\xA6" // 📦
-               "\xF0\x9F\x87\xBA" "\xF0\x9F\x87\xB8" "\xF0\x9F\x87\xA6"; // 🇺🇸🇦
-    }
-    return "";
-}
-
-const char* platform_os_name() {
-    for (int index = 0; index < FLAGS_key.count(); index += 2) {
-        if (!strcmp("os", FLAGS_key[index])) {
-            return FLAGS_key[index + 1];
-        }
-    }
-    // when running SampleApp or dm without a --key pair, omit the platform name
-    return "";
-}
-
-// omit version number in returned value
-SkString major_platform_os_name() {
-    SkString name;
-    for (int index = 0; index < FLAGS_key.count(); index += 2) {
-        if (!strcmp("os", FLAGS_key[index])) {
-            const char* platform = FLAGS_key[index + 1];
-            const char* end = platform;
-            while (*end && (*end < '0' || *end > '9')) {
-                ++end;
-            }
-            name.append(platform, end - platform);
-            break;
-        }
-    }
-    return name;
-}
-
-const char* platform_extra_config(const char* config) {
-    for (int index = 0; index < FLAGS_key.count(); index += 2) {
-        if (!strcmp("extra_config", FLAGS_key[index]) && !strcmp(config, FLAGS_key[index + 1])) {
-            return config;
-        }
-    }
-    return "";
+    SkASSERT(false);
+    return "unexpected alphatype";
 }
 
 const char* colortype_name(SkColorType ct) {
     switch (ct) {
         case kUnknown_SkColorType:      return "Unknown";
         case kAlpha_8_SkColorType:      return "Alpha_8";
-        case kARGB_4444_SkColorType:    return "ARGB_4444";
         case kRGB_565_SkColorType:      return "RGB_565";
+        case kARGB_4444_SkColorType:    return "ARGB_4444";
         case kRGBA_8888_SkColorType:    return "RGBA_8888";
+        case kRGB_888x_SkColorType:     return "RGB_888x";
         case kBGRA_8888_SkColorType:    return "BGRA_8888";
+        case kRGBA_1010102_SkColorType: return "RGBA_1010102";
+        case kRGB_101010x_SkColorType:  return "RGB_101010x";
+        case kGray_8_SkColorType:       return "Gray_8";
         case kRGBA_F16_SkColorType:     return "RGBA_F16";
-        default:
-            SkASSERT(false);
-            return "unexpected colortype";
+        case kRGBA_F32_SkColorType:     return "RGBA_F32";
     }
+    SkASSERT(false);
+    return "unexpected colortype";
 }
 
 SkColor color_to_565(SkColor color) {
+    // Not a good idea to use this function for greyscale colors...
+    // it will add an obvious purple or green tint.
+    SkASSERT(SkColorGetR(color) != SkColorGetG(color) ||
+             SkColorGetR(color) != SkColorGetB(color) ||
+             SkColorGetG(color) != SkColorGetB(color));
+
     SkPMColor pmColor = SkPreMultiplyColor(color);
     U16CPU color16 = SkPixel32ToPixel16(pmColor);
     return SkPixel16ToColor(color16);
-}
-
-sk_sp<SkTypeface> create_portable_typeface(const char* name, SkFontStyle style) {
-    return create_font(name, style);
-}
-
-void set_portable_typeface(SkPaint* paint, const char* name, SkFontStyle style) {
-    paint->setTypeface(create_font(name, style));
 }
 
 void write_pixels(SkCanvas* canvas, const SkBitmap& bitmap, int x, int y,
@@ -195,6 +79,12 @@ void write_pixels(SkCanvas* canvas, const SkBitmap& bitmap, int x, int y,
     const SkImageInfo info = SkImageInfo::Make(tmp.width(), tmp.height(), colorType, alphaType);
 
     canvas->writePixels(info, tmp.getPixels(), tmp.rowBytes(), x, y);
+}
+
+void write_pixels(SkSurface* surface, const SkBitmap& src, int x, int y,
+                  SkColorType colorType, SkAlphaType alphaType) {
+    const SkImageInfo info = SkImageInfo::Make(src.width(), src.height(), colorType, alphaType);
+    surface->writePixels({info, src.getPixels(), src.rowBytes()}, x, y);
 }
 
 sk_sp<SkShader> create_checkerboard_shader(SkColor c1, SkColor c2, int size) {
@@ -230,13 +120,13 @@ SkBitmap create_string_bitmap(int w, int h, SkColor c, int x, int y,
     SkCanvas canvas(bitmap);
 
     SkPaint paint;
-    paint.setAntiAlias(true);
-    sk_tool_utils::set_portable_typeface(&paint);
     paint.setColor(c);
-    paint.setTextSize(SkIntToScalar(textSize));
+
+    SkFont font(sk_tool_utils::create_portable_typeface(), textSize);
 
     canvas.clear(0x00000000);
-    canvas.drawString(str, SkIntToScalar(x), SkIntToScalar(y), paint);
+    canvas.drawSimpleText(str, strlen(str), kUTF8_SkTextEncoding,
+                          SkIntToScalar(x), SkIntToScalar(y), font, paint);
 
     // Tag data as sRGB (without doing any color space conversion). Color-space aware configs
     // will process this correctly but legacy configs will render as if this returned N32.
@@ -246,19 +136,58 @@ SkBitmap create_string_bitmap(int w, int h, SkColor c, int x, int y,
     return result;
 }
 
-void add_to_text_blob(SkTextBlobBuilder* builder, const char* text, const SkPaint& origPaint,
+void add_to_text_blob_w_len(SkTextBlobBuilder* builder, const char* text, size_t len,
+                            SkTextEncoding encoding, const SkFont& font, SkScalar x, SkScalar y) {
+    int count = font.countText(text, len, encoding);
+    auto run = builder->allocRun(font, count, x, y);
+    font.textToGlyphs(text, len, encoding, run.glyphs, count);
+}
+
+void add_to_text_blob(SkTextBlobBuilder* builder, const char* text, const SkFont& font,
                       SkScalar x, SkScalar y) {
-    SkPaint paint(origPaint);
-    SkTDArray<uint16_t> glyphs;
+    add_to_text_blob_w_len(builder, text, strlen(text), kUTF8_SkTextEncoding, font, x, y);
+}
 
-    size_t len = strlen(text);
-    glyphs.append(paint.textToGlyphs(text, len, nullptr));
-    paint.textToGlyphs(text, len, glyphs.begin());
+void get_text_path(const SkFont& font, const void* text, size_t length, SkTextEncoding encoding,
+                   SkPath* dst, const SkPoint pos[]) {
+    SkAutoToGlyphs atg(font, text, length, encoding);
+    const int count = atg.count();
+    SkAutoTArray<SkPoint> computedPos;
+    if (pos == nullptr) {
+        computedPos.reset(count);
+        font.getPos(atg.glyphs(), count, &computedPos[0]);
+        pos = computedPos.get();
+    }
 
-    paint.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
-    const SkTextBlobBuilder::RunBuffer& run = builder->allocRun(paint, glyphs.count(), x, y,
-                                                                nullptr);
-    memcpy(run.glyphs, glyphs.begin(), glyphs.count() * sizeof(uint16_t));
+    struct Rec {
+        SkPath* fDst;
+        const SkPoint* fPos;
+    } rec = { dst, pos };
+    font.getPaths(atg.glyphs(), atg.count(), [](const SkPath* src, const SkMatrix& mx, void* ctx) {
+        Rec* rec = (Rec*)ctx;
+        if (src) {
+            SkMatrix tmp(mx);
+            tmp.postTranslate(rec->fPos->fX, rec->fPos->fY);
+            rec->fDst->addPath(*src, tmp);
+        }
+        rec->fPos += 1;
+    }, &rec);
+}
+
+SkPath make_star(const SkRect& bounds, int numPts, int step) {
+    SkASSERT(numPts != step);
+    SkPath path;
+    path.setFillType(SkPath::kEvenOdd_FillType);
+    path.moveTo(0,-1);
+    for (int i = 1; i < numPts; ++i) {
+        int idx = i*step % numPts;
+        SkScalar theta = idx * 2*SK_ScalarPI/numPts + SK_ScalarPI/2;
+        SkScalar x = SkScalarCos(theta);
+        SkScalar y = -SkScalarSin(theta);
+        path.lineTo(x, y);
+    }
+    path.transform(SkMatrix::MakeRectToRect(path.getBounds(), bounds, SkMatrix::kFill_ScaleToFit));
+    return path;
 }
 
 static inline void norm_to_rgb(SkBitmap* bm, int x, int y, const SkVector3& norm) {
@@ -369,188 +298,13 @@ void create_tetra_normal_map(SkBitmap* bm, const SkIRect& dst) {
     }
 }
 
-#if defined(_MSC_VER)
+#if !defined(__clang__) && defined(_MSC_VER)
     // MSVC takes ~2 minutes to compile this function with optimization.
     // We don't really care to wait that long for this function.
     #pragma optimize("", off)
 #endif
 void make_big_path(SkPath& path) {
-    #include "BigPathBench.inc"
-}
-
-static float gaussian2d_value(int x, int y, float sigma) {
-    // don't bother with the scale term since we're just going to normalize the
-    // kernel anyways
-    float temp = expf(-(x*x + y*y)/(2*sigma*sigma));
-    return temp;
-}
-
-static float* create_2d_kernel(float sigma, int* filterSize) {
-    // We will actually take 2*halfFilterSize+1 samples (i.e., our filter kernel
-    // sizes are always odd)
-    int halfFilterSize = SkScalarCeilToInt(6*sigma)/2;
-    int wh = *filterSize = 2*halfFilterSize + 1;
-
-    float* temp = new float[wh*wh];
-
-    float filterTot = 0.0f;
-    for (int yOff = 0; yOff < wh; ++yOff) {
-        for (int xOff = 0; xOff < wh; ++xOff) {
-            temp[yOff*wh+xOff] = gaussian2d_value(xOff-halfFilterSize, yOff-halfFilterSize, sigma);
-
-            filterTot += temp[yOff*wh+xOff];
-        }
-    }
-
-    // normalize the kernel
-    for (int yOff = 0; yOff < wh; ++yOff) {
-        for (int xOff = 0; xOff < wh; ++xOff) {
-            temp[yOff*wh+xOff] /= filterTot;
-        }
-    }
-
-    return temp;
-}
-
-static SkPMColor blur_pixel(const SkBitmap& bm, int x, int y, float* kernel, int wh) {
-    SkASSERT(wh & 0x1);
-
-    int halfFilterSize = (wh-1)/2;
-
-    float r = 0.0f, g = 0.0f, b = 0.0f;
-    for (int yOff = 0; yOff < wh; ++yOff) {
-        int ySamp = y + yOff - halfFilterSize;
-
-        if (ySamp < 0) {
-            ySamp = 0;
-        } else if (ySamp > bm.height()-1) {
-            ySamp = bm.height()-1;
-        }
-
-        for (int xOff = 0; xOff < wh; ++xOff) {
-            int xSamp = x + xOff - halfFilterSize;
-
-            if (xSamp < 0) {
-                xSamp = 0;
-            } else if (xSamp > bm.width()-1) {
-                xSamp = bm.width()-1;
-            }
-
-            float filter = kernel[yOff*wh + xOff];
-
-            SkPMColor c = *bm.getAddr32(xSamp, ySamp);
-
-            r += SkGetPackedR32(c) * filter;
-            g += SkGetPackedG32(c) * filter;
-            b += SkGetPackedB32(c) * filter;
-        }
-    }
-
-    U8CPU r8, g8, b8;
-
-    r8 = (U8CPU) (r+0.5f);
-    g8 = (U8CPU) (g+0.5f);
-    b8 = (U8CPU) (b+0.5f);
-
-    return SkPackARGB32(255, r8, g8, b8);
-}
-
-SkBitmap slow_blur(const SkBitmap& src, float sigma) {
-    SkBitmap dst;
-
-    dst.allocN32Pixels(src.width(), src.height(), true);
-
-    int wh;
-    std::unique_ptr<float[]> kernel(create_2d_kernel(sigma, &wh));
-
-    for (int y = 0; y < src.height(); ++y) {
-        for (int x = 0; x < src.width(); ++x) {
-            *dst.getAddr32(x, y) = blur_pixel(src, x, y, kernel.get(), wh);
-        }
-    }
-
-    return dst;
-}
-
-// compute the intersection point between the diagonal and the ellipse in the
-// lower right corner
-static SkPoint intersection(SkScalar w, SkScalar h) {
-    SkASSERT(w > 0.0f || h > 0.0f);
-
-    return SkPoint::Make(w / SK_ScalarSqrt2, h / SK_ScalarSqrt2);
-}
-
-// Use the intersection of the corners' diagonals with their ellipses to shrink
-// the bounding rect
-SkRect compute_central_occluder(const SkRRect& rr) {
-    const SkRect r = rr.getBounds();
-
-    SkScalar newL = r.fLeft, newT = r.fTop, newR = r.fRight, newB = r.fBottom;
-
-    SkVector radii = rr.radii(SkRRect::kUpperLeft_Corner);
-    if (!radii.isZero()) {
-        SkPoint p = intersection(radii.fX, radii.fY);
-
-        newL = SkTMax(newL, r.fLeft + radii.fX - p.fX);
-        newT = SkTMax(newT, r.fTop + radii.fY - p.fY);
-    }
-
-    radii = rr.radii(SkRRect::kUpperRight_Corner);
-    if (!radii.isZero()) {
-        SkPoint p = intersection(radii.fX, radii.fY);
-
-        newR = SkTMin(newR, r.fRight + p.fX - radii.fX);
-        newT = SkTMax(newT, r.fTop + radii.fY - p.fY);
-    }
-
-    radii = rr.radii(SkRRect::kLowerRight_Corner);
-    if (!radii.isZero()) {
-        SkPoint p = intersection(radii.fX, radii.fY);
-
-        newR = SkTMin(newR, r.fRight + p.fX - radii.fX);
-        newB = SkTMin(newB, r.fBottom - radii.fY + p.fY);
-    }
-
-    radii = rr.radii(SkRRect::kLowerLeft_Corner);
-    if (!radii.isZero()) {
-        SkPoint p = intersection(radii.fX, radii.fY);
-
-        newL = SkTMax(newL, r.fLeft + radii.fX - p.fX);
-        newB = SkTMin(newB, r.fBottom - radii.fY + p.fY);
-    }
-
-    return SkRect::MakeLTRB(newL, newT, newR, newB);
-}
-
-// The widest inset rect
-SkRect compute_widest_occluder(const SkRRect& rr) {
-    const SkRect& r = rr.getBounds();
-
-    const SkVector& ul = rr.radii(SkRRect::kUpperLeft_Corner);
-    const SkVector& ur = rr.radii(SkRRect::kUpperRight_Corner);
-    const SkVector& lr = rr.radii(SkRRect::kLowerRight_Corner);
-    const SkVector& ll = rr.radii(SkRRect::kLowerLeft_Corner);
-
-    SkScalar maxT = SkTMax(ul.fY, ur.fY);
-    SkScalar maxB = SkTMax(ll.fY, lr.fY);
-
-    return SkRect::MakeLTRB(r.fLeft, r.fTop + maxT, r.fRight, r.fBottom - maxB);
-
-}
-
-// The tallest inset rect
-SkRect compute_tallest_occluder(const SkRRect& rr) {
-    const SkRect& r = rr.getBounds();
-
-    const SkVector& ul = rr.radii(SkRRect::kUpperLeft_Corner);
-    const SkVector& ur = rr.radii(SkRRect::kUpperRight_Corner);
-    const SkVector& lr = rr.radii(SkRRect::kLowerRight_Corner);
-    const SkVector& ll = rr.radii(SkRRect::kLowerLeft_Corner);
-
-    SkScalar maxL = SkTMax(ul.fX, ll.fX);
-    SkScalar maxR = SkTMax(ur.fX, lr.fX);
-
-    return SkRect::MakeLTRB(r.fLeft + maxL, r.fTop, r.fRight - maxR, r.fBottom);
+    #include "BigPathBench.inc" // IWYU pragma: keep
 }
 
 bool copy_to(SkBitmap* dst, SkColorType dstColorType, const SkBitmap& src) {
@@ -613,4 +367,48 @@ void copy_to_g8(SkBitmap* dst, const SkBitmap& src) {
     }
 }
 
+    //////////////////////////////////////////////////////////////////////////////////////////////
+
+    bool equal_pixels(const SkPixmap& a, const SkPixmap& b) {
+        if (a.width() != b.width() ||
+            a.height() != b.height() ||
+            a.colorType() != b.colorType())
+        {
+            return false;
+        }
+
+        for (int y = 0; y < a.height(); ++y) {
+            const char* aptr = (const char*)a.addr(0, y);
+            const char* bptr = (const char*)b.addr(0, y);
+            if (memcmp(aptr, bptr, a.width() * a.info().bytesPerPixel())) {
+                return false;
+            }
+            aptr += a.rowBytes();
+            bptr += b.rowBytes();
+        }
+        return true;
+    }
+
+    bool equal_pixels(const SkBitmap& bm0, const SkBitmap& bm1) {
+        SkPixmap pm0, pm1;
+        return bm0.peekPixels(&pm0) && bm1.peekPixels(&pm1) && equal_pixels(pm0, pm1);
+    }
+
+    bool equal_pixels(const SkImage* a, const SkImage* b) {
+        // ensure that peekPixels will succeed
+        auto imga = a->makeRasterImage();
+        auto imgb = b->makeRasterImage();
+
+        SkPixmap pm0, pm1;
+        return imga->peekPixels(&pm0) && imgb->peekPixels(&pm1) && equal_pixels(pm0, pm1);
+    }
+
+    sk_sp<SkSurface> makeSurface(SkCanvas* canvas, const SkImageInfo& info,
+                                 const SkSurfaceProps* props) {
+        auto surf = canvas->makeSurface(info, props);
+        if (!surf) {
+            surf = SkSurface::MakeRaster(info, props);
+        }
+        return surf;
+    }
 }  // namespace sk_tool_utils

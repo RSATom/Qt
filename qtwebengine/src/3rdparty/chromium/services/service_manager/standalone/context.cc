@@ -15,20 +15,19 @@
 #include "base/files/file_path.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/process/process_info.h"
+#include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "services/catalog/catalog.h"
 #include "services/service_manager/connect_params.h"
-#include "services/service_manager/connect_util.h"
+#include "services/service_manager/public/cpp/constants.h"
+#include "services/service_manager/public/cpp/service_filter.h"
 #include "services/service_manager/runner/common/switches.h"
 #include "services/service_manager/runner/host/service_process_launcher_factory.h"
 #include "services/service_manager/service_manager.h"
@@ -38,14 +37,6 @@
 #include "services/service_manager/runner/host/service_process_launcher.h"
 #endif
 
-#if defined(OS_MACOSX)
-#include "services/service_manager/public/cpp/standalone_service/mach_broker.h"
-#endif
-
-namespace base {
-class TaskRunner;
-}
-
 namespace service_manager {
 namespace {
 
@@ -53,25 +44,24 @@ namespace {
 // Used to ensure we only init once.
 class ServiceProcessLauncherFactoryImpl : public ServiceProcessLauncherFactory {
  public:
-  ServiceProcessLauncherFactoryImpl(base::TaskRunner* launch_process_runner,
-                                    ServiceProcessLauncherDelegate* delegate)
-      : launch_process_runner_(launch_process_runner), delegate_(delegate) {}
+  ServiceProcessLauncherFactoryImpl(ServiceProcessLauncherDelegate* delegate)
+      : delegate_(delegate) {}
 
  private:
    std::unique_ptr<ServiceProcessLauncher> Create(
       const base::FilePath& service_path) override {
-    return base::MakeUnique<ServiceProcessLauncher>(
-        launch_process_runner_, delegate_, service_path);
+     return std::make_unique<ServiceProcessLauncher>(delegate_, service_path);
   }
 
-  base::TaskRunner* launch_process_runner_;
   ServiceProcessLauncherDelegate* delegate_;
 };
 #endif  // !defined(OS_IOS)
 
-void OnInstanceQuit(const std::string& name, const Identity& identity) {
+void OnInstanceQuit(const std::string& name,
+                    base::RepeatingClosure on_quit,
+                    const Identity& identity) {
   if (name == identity.name())
-    base::MessageLoop::current()->QuitWhenIdle();
+    on_quit.Run();
 }
 
 const char kService[] = "service";
@@ -80,12 +70,8 @@ const char kService[] = "service";
 
 Context::Context(
     ServiceProcessLauncherDelegate* service_process_launcher_delegate,
-    std::unique_ptr<base::Value> catalog_contents)
-    : main_entry_time_(base::Time::Now()) {
+    const std::vector<Manifest>& manifests) {
   TRACE_EVENT0("service_manager", "Context::Context");
-
-  blocking_pool_ = new base::SequencedWorkerPool(
-      kThreadPoolMaxThreads, "blocking_pool", base::TaskPriority::USER_VISIBLE);
 
   std::unique_ptr<ServiceProcessLauncherFactory>
       service_process_launcher_factory;
@@ -94,28 +80,30 @@ Context::Context(
 // not build ServiceProcessLauncher).
 #if !defined(OS_IOS)
   service_process_launcher_factory =
-      base::MakeUnique<ServiceProcessLauncherFactoryImpl>(
-          blocking_pool_.get(), service_process_launcher_delegate);
+      std::make_unique<ServiceProcessLauncherFactoryImpl>(
+          service_process_launcher_delegate);
 #endif
-  service_manager_.reset(
-      new ServiceManager(std::move(service_process_launcher_factory),
-                         std::move(catalog_contents), nullptr));
+  service_manager_ = std::make_unique<ServiceManager>(
+      std::move(service_process_launcher_factory), manifests);
 }
 
-Context::~Context() { blocking_pool_->Shutdown(); }
+Context::~Context() = default;
 
-void Context::RunCommandLineApplication() {
+void Context::RunCommandLineApplication(base::RepeatingClosure on_quit) {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(kService))
-    Run(command_line->GetSwitchValueASCII(kService));
+    Run(command_line->GetSwitchValueASCII(kService), std::move(on_quit));
+  else
+    std::move(on_quit).Run();
 }
 
-void Context::Run(const std::string& name) {
-  service_manager_->SetInstanceQuitCallback(base::Bind(&OnInstanceQuit, name));
+void Context::Run(const std::string& name, base::RepeatingClosure on_quit) {
+  service_manager_->SetInstanceQuitCallback(
+      base::BindRepeating(&OnInstanceQuit, name, std::move(on_quit)));
 
-  std::unique_ptr<ConnectParams> params(new ConnectParams);
-  params->set_source(CreateServiceManagerIdentity());
-  params->set_target(Identity(name, mojom::kRootUserID));
+  auto params = std::make_unique<ConnectParams>();
+  params->set_source(GetServiceManagerInstanceIdentity());
+  params->set_target(ServiceFilter::ByNameInGroup(name, kSystemInstanceGroup));
   service_manager_->Connect(std::move(params));
 }
 

@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/optional.h"
+#include "base/time/time.h"
 #include "headless/public/headless_browser.h"
 #include "headless/public/headless_browser_context.h"
 
@@ -27,21 +28,25 @@ class HeadlessBrowserContextOptions {
       HeadlessBrowserContextOptions&& options);
 
   const std::string& product_name_and_version() const;
+  const std::string& accept_language() const;
   const std::string& user_agent() const;
 
   // See HeadlessBrowser::Options::proxy_config.
   const net::ProxyConfig* proxy_config() const;
-
-  // See HeadlessBrowser::Options::host_resolver_rules.
-  const std::string& host_resolver_rules() const;
 
   const gfx::Size& window_size() const;
 
   // See HeadlessBrowser::Options::user_data_dir.
   const base::FilePath& user_data_dir() const;
 
-  // Set HeadlessBrowser::Options::incognito_mode.
+  // See HeadlessBrowser::Options::incognito_mode.
   bool incognito_mode() const;
+
+  // See HeadlessBrowser::Options::block_new_web_contents.
+  bool block_new_web_contents() const;
+
+  // See HeadlessBrowser::Options::font_render_hinting.
+  gfx::FontRenderParams::Hinting font_render_hinting() const;
 
   // Custom network protocol handlers. These can be used to override URL
   // fetching for different network schemes.
@@ -51,7 +56,7 @@ class HeadlessBrowserContextOptions {
 
   // Callback that is invoked to override WebPreferences for RenderViews
   // created within this HeadlessBrowserContext.
-  const base::Callback<void(WebPreferences*)>&
+  base::RepeatingCallback<void(WebPreferences*)>
   override_web_preferences_callback() const;
 
  private:
@@ -62,15 +67,20 @@ class HeadlessBrowserContextOptions {
   HeadlessBrowser::Options* browser_options_;
 
   base::Optional<std::string> product_name_and_version_;
+  base::Optional<std::string> accept_language_;
+  base::Optional<std::string> user_agent_;
   std::unique_ptr<net::ProxyConfig> proxy_config_;
   base::Optional<std::string> host_resolver_rules_;
   base::Optional<gfx::Size> window_size_;
   base::Optional<base::FilePath> user_data_dir_;
   base::Optional<bool> incognito_mode_;
-  base::Optional<base::Callback<void(WebPreferences*)>>
+  base::Optional<bool> block_new_web_contents_;
+  base::Optional<base::RepeatingCallback<void(WebPreferences*)>>
       override_web_preferences_callback_;
 
   ProtocolHandlerMap protocol_handlers_;
+
+  base::Optional<gfx::FontRenderParams::Hinting> font_render_hinting_;
 
   DISALLOW_COPY_AND_ASSIGN(HeadlessBrowserContextOptions);
 };

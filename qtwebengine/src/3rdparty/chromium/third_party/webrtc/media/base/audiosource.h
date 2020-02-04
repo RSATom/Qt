@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2013 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,42 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MEDIA_BASE_AUDIOSOURCE_H_
-#define WEBRTC_MEDIA_BASE_AUDIOSOURCE_H_
+#ifndef MEDIA_BASE_AUDIOSOURCE_H_
+#define MEDIA_BASE_AUDIOSOURCE_H_
 
-#include <cstddef>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace cricket {
+#include "media/base/audio_source.h"
 
-// Abstract interface for providing the audio data.
-// TODO(deadbeef): Rename this to AudioSourceInterface, and rename
-// webrtc::AudioSourceInterface to AudioTrackSourceInterface.
-class AudioSource {
- public:
-  class Sink {
-   public:
-    // Callback to receive data from the AudioSource.
-    virtual void OnData(const void* audio_data,
-                        int bits_per_sample,
-                        int sample_rate,
-                        size_t number_of_channels,
-                        size_t number_of_frames) = 0;
-
-    // Called when the AudioSource is going away.
-    virtual void OnClose() = 0;
-
-   protected:
-    virtual ~Sink() {}
-  };
-
-  // Sets a sink to the AudioSource. There can be only one sink connected
-  // to the source at a time.
-  virtual void SetSink(Sink* sink) = 0;
-
- protected:
-  virtual ~AudioSource() {}
-};
-
-}  // namespace cricket
-
-#endif  // WEBRTC_MEDIA_BASE_AUDIOSOURCE_H_
+#endif  // MEDIA_BASE_AUDIOSOURCE_H_

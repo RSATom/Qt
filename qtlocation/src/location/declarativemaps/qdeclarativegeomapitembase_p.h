@@ -56,6 +56,8 @@
 #include <QtLocation/private/qdeclarativegeomap_p.h>
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtLocation/private/qgeomap_p.h>
+#include <QtLocation/private/qdeclarativegeomapitemtransitionmanager_p.h>
+#include <QScopedPointer>
 
 QT_BEGIN_NAMESPACE
 
@@ -81,7 +83,7 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoMapItemBase : public QQuickItem
 {
     Q_OBJECT
 
-    Q_PROPERTY(QGeoShape geoShape READ geoShape STORED false )
+    Q_PROPERTY(QGeoShape geoShape READ geoShape WRITE setGeoShape STORED false )
 public:
     explicit QDeclarativeGeoMapItemBase(QQuickItem *parent = 0);
     virtual ~QDeclarativeGeoMapItemBase();
@@ -92,15 +94,20 @@ public:
     QDeclarativeGeoMap *quickMap() { return quickMap_; }
     QGeoMap *map() { return map_; }
     virtual const QGeoShape &geoShape() const = 0;
+    virtual void setGeoShape(const QGeoShape &shape) = 0;
 
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *);
     virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *);
 
-    virtual QGeoMap::ItemType itemType() const = 0;
+    QGeoMap::ItemType itemType() const;
     qreal mapItemOpacity() const;
+
+    void setParentGroup(QDeclarativeGeoMapItemGroup &parentGroup);
 
 Q_SIGNALS:
     void mapItemOpacityChanged();
+    Q_REVISION(12) void addTransitionFinished();
+    Q_REVISION(12) void removeTransitionFinished();
 
 protected Q_SLOTS:
     virtual void afterChildrenChanged();
@@ -112,11 +119,14 @@ protected:
     bool childMouseEventFilter(QQuickItem *item, QEvent *event);
     bool isPolishScheduled() const;
 
+    QGeoMap::ItemType m_itemType = QGeoMap::NoItem;
+
 private Q_SLOTS:
     void baseCameraDataChanged(const QGeoCameraData &camera);
+    void visibleAreaChanged();
 
 private:
-    QGeoMap *map_;
+    QPointer<QGeoMap> map_;
     QDeclarativeGeoMap *quickMap_;
 
     QSizeF lastSize_;
@@ -124,7 +134,11 @@ private:
 
     QDeclarativeGeoMapItemGroup *parentGroup_;
 
+    QScopedPointer<QDeclarativeGeoMapItemTransitionManager> m_transitionManager;
+
     friend class QDeclarativeGeoMap;
+    friend class QDeclarativeGeoMapItemView;
+    friend class QDeclarativeGeoMapItemTransitionManager;
 };
 
 QT_END_NAMESPACE

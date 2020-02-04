@@ -12,7 +12,6 @@
 #include "ipc/ipc_message_macros.h"
 #include "ipc/param_traits_macros.h"
 #include "media/gpu/ipc/service/gpu_video_decode_accelerator.h"
-#include "media/gpu/ipc/service/gpu_video_encode_accelerator.h"
 #include "media/gpu/ipc/service/media_gpu_channel.h"
 
 namespace media {
@@ -21,7 +20,7 @@ MediaGpuChannelManager::MediaGpuChannelManager(
     gpu::GpuChannelManager* channel_manager)
     : channel_manager_(channel_manager) {}
 
-MediaGpuChannelManager::~MediaGpuChannelManager() {}
+MediaGpuChannelManager::~MediaGpuChannelManager() = default;
 
 void MediaGpuChannelManager::AddChannel(int32_t client_id) {
   gpu::GpuChannel* gpu_channel = channel_manager_->LookupChannel(client_id);
@@ -61,6 +60,10 @@ gpu::GpuChannel* MediaGpuChannelManager::LookupChannel(
 void MediaGpuChannelManager::SetOverlayFactory(
     AndroidOverlayMojoFactoryCB overlay_factory_cb) {
   overlay_factory_cb_ = std::move(overlay_factory_cb);
+}
+
+AndroidOverlayMojoFactoryCB MediaGpuChannelManager::GetOverlayFactory() {
+  return overlay_factory_cb_;
 }
 
 }  // namespace media

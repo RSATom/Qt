@@ -147,10 +147,10 @@
   {
       if (transaction->status() == QInAppTransaction::PurchaseApproved
           && transaction->product()->identifier() == QStringLiteral("healthPotion")) {
-          if (!hasAlreadyStoredTransaction(transaction->orderId()) {
+          if (!hasAlreadyStoredTransaction(transaction->orderId())) {
               ++m_healthPotions;
-              if (!addHealthPotionToPersistentStorage(transaction->orderId())
-                  popupErrorDialog(tr("Unable to write to persistent storage. Please make sure there is sufficient space and restart."))
+              if (!addHealthPotionToPersistentStorage(transaction->orderId()))
+                  popupErrorDialog(tr("Unable to write to persistent storage. Please make sure there is sufficient space and restart."));
               else
                   transaction->finalize();
           }

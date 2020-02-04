@@ -31,7 +31,7 @@
     \ingroup qtlocation-examples
 
     \brief The \c {Plane Spotter} example demonstrates the tight integration of
-    location and positioning data types into QML
+    location and positioning data types into QML.
 
     \image planespotter.png
 

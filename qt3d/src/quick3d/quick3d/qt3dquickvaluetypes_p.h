@@ -68,17 +68,23 @@ namespace Qt3DCore {
 namespace Quick {
 namespace Quick3DValueTypes {
 
-QT3DQUICKSHARED_PRIVATE_EXPORT void registerValueTypes();
+Q_3DQUICKSHARED_PRIVATE_EXPORT void registerValueTypes();
 
 }
 
-class QT3DQUICKSHARED_PRIVATE_EXPORT Quick3DColorValueType
+class Q_3DQUICKSHARED_PRIVATE_EXPORT Quick3DColorValueType
 {
     QColor v;
     Q_PROPERTY(qreal r READ r WRITE setR FINAL)
     Q_PROPERTY(qreal g READ g WRITE setG FINAL)
     Q_PROPERTY(qreal b READ b WRITE setB FINAL)
     Q_PROPERTY(qreal a READ a WRITE setA FINAL)
+    Q_PROPERTY(qreal hsvHue READ hsvHue WRITE setHsvHue FINAL)
+    Q_PROPERTY(qreal hsvSaturation READ hsvSaturation WRITE setHsvSaturation FINAL)
+    Q_PROPERTY(qreal hsvValue READ hsvValue WRITE setHsvValue FINAL)
+    Q_PROPERTY(qreal hslHue READ hslHue WRITE setHslHue FINAL)
+    Q_PROPERTY(qreal hslSaturation READ hslSaturation WRITE setHslSaturation FINAL)
+    Q_PROPERTY(qreal hslLightness READ hslLightness WRITE setHslLightness FINAL)
     Q_GADGET
 public:
     Q_INVOKABLE QString toString() const;
@@ -87,13 +93,25 @@ public:
     qreal g() const;
     qreal b() const;
     qreal a() const;
+    qreal hsvHue() const;
+    qreal hsvSaturation() const;
+    qreal hsvValue() const;
+    qreal hslHue() const;
+    qreal hslSaturation() const;
+    qreal hslLightness() const;
     void setR(qreal);
     void setG(qreal);
     void setB(qreal);
     void setA(qreal);
+    void setHsvHue(qreal);
+    void setHsvSaturation(qreal);
+    void setHsvValue(qreal);
+    void setHslHue(qreal);
+    void setHslSaturation(qreal);
+    void setHslLightness(qreal);
 };
 
-class QT3DQUICKSHARED_PRIVATE_EXPORT Quick3DVector2DValueType
+class Q_3DQUICKSHARED_PRIVATE_EXPORT Quick3DVector2DValueType
 {
     QVector2D v;
     Q_PROPERTY(qreal x READ x WRITE setX FINAL)
@@ -120,7 +138,7 @@ public:
     Q_INVOKABLE bool fuzzyEquals(const QVector2D &vec) const;
 };
 
-class QT3DQUICKSHARED_PRIVATE_EXPORT Quick3DVector3DValueType
+class Q_3DQUICKSHARED_PRIVATE_EXPORT Quick3DVector3DValueType
 {
     QVector3D v;
     Q_PROPERTY(qreal x READ x WRITE setX FINAL)
@@ -152,7 +170,7 @@ public:
     Q_INVOKABLE bool fuzzyEquals(const QVector3D &vec) const;
 };
 
-class QT3DQUICKSHARED_PRIVATE_EXPORT Quick3DVector4DValueType
+class Q_3DQUICKSHARED_PRIVATE_EXPORT Quick3DVector4DValueType
 {
     QVector4D v;
     Q_PROPERTY(qreal x READ x WRITE setX FINAL)
@@ -186,7 +204,7 @@ public:
     Q_INVOKABLE bool fuzzyEquals(const QVector4D &vec) const;
 };
 
-class QT3DQUICKSHARED_PRIVATE_EXPORT Quick3DQuaternionValueType
+class Q_3DQUICKSHARED_PRIVATE_EXPORT Quick3DQuaternionValueType
 {
     QQuaternion v;
     Q_PROPERTY(qreal scalar READ scalar WRITE setScalar)
@@ -207,7 +225,7 @@ public:
     void setZ(qreal);
 };
 
-class QT3DQUICKSHARED_PRIVATE_EXPORT Quick3DMatrix4x4ValueType
+class Q_3DQUICKSHARED_PRIVATE_EXPORT Quick3DMatrix4x4ValueType
 {
     QMatrix4x4 v;
     Q_PROPERTY(qreal m11 READ m11 WRITE setM11 FINAL)

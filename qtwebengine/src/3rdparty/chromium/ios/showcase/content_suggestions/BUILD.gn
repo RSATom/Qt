@@ -18,10 +18,11 @@ source_set("content_suggestions") {
     "//components/strings",
     "//ios/chrome/app/strings",
     "//ios/chrome/browser/ui/collection_view/cells",
-    "//ios/chrome/browser/ui/content_suggestions",
+    "//ios/chrome/browser/ui/content_suggestions:content_suggestions_ui",
     "//ios/chrome/browser/ui/content_suggestions/cells:cells_ui",
     "//ios/chrome/browser/ui/content_suggestions/identifier",
-    "//ios/chrome/browser/ui/favicon:favicon_ui",
+    "//ios/chrome/browser/ui/util",
+    "//ios/chrome/common/favicon",
     "//ios/showcase/common",
     "//ui/base",
   ]
@@ -38,9 +39,12 @@ source_set("eg_tests") {
     ":content_suggestions",
     "//components/strings",
     "//ios/chrome/app/strings",
+    "//ios/chrome/browser/ui/content_suggestions:content_suggestions_ui",
+    "//ios/chrome/browser/ui/content_suggestions/cells:cells_ui",
+    "//ios/chrome/browser/ui/util",
     "//ios/chrome/test/earl_grey:test_support",
     "//ios/showcase/test",
-    "//ios/third_party/earl_grey",
+    "//ios/third_party/earl_grey:earl_grey+link",
     "//ui/base",
   ]
   configs += [ "//build/config/compiler:enable_arc" ]

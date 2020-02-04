@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_METRICS_CHILD_CALL_STACK_PROFILE_COLLECTOR_H_
 #define COMPONENTS_METRICS_CHILD_CALL_STACK_PROFILE_COLLECTOR_H_
 
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
@@ -18,6 +19,8 @@ class InterfaceProvider;
 }
 
 namespace metrics {
+
+class SampledProfile;
 
 // ChildCallStackProfileCollector collects stacks at startup, caching them
 // internally until a CallStackProfileCollector interface is available. If a
@@ -40,8 +43,8 @@ namespace metrics {
 //   base::LazyInstance<metrics::ChildCallStackProfileCollector>::Leaky
 //       g_call_stack_profile_collector = LAZY_INSTANCE_INITIALIZER;
 //
-// Then, invoke CreateCompletedCallback() to generate the CompletedCallback to
-// pass when creating the StackSamplingProfiler.
+// Then, invoke Collect() in CallStackProfileBuilder::OnProfileCompleted() to
+// collect a profile.
 //
 // When the mojo InterfaceProvider becomes available, provide it via
 // SetParentProfileCollector().
@@ -50,56 +53,38 @@ class ChildCallStackProfileCollector {
   ChildCallStackProfileCollector();
   ~ChildCallStackProfileCollector();
 
-  // Get a callback for use with StackSamplingProfiler that provides completed
-  // profiles to this object. The callback should be immediately passed to the
-  // StackSamplingProfiler, and should not be reused between
-  // StackSamplingProfilers. This function may be called on any thread.
-  base::StackSamplingProfiler::CompletedCallback GetProfilerCallback(
-      const CallStackProfileParams& params);
-
   // Sets the CallStackProfileCollector interface from |parent_collector|. This
   // function MUST be invoked exactly once, regardless of whether
   // |parent_collector| is null, as it flushes pending data in either case.
   void SetParentProfileCollector(
       metrics::mojom::CallStackProfileCollectorPtr parent_collector);
 
+  // Collects |profile| whose collection start time is |start_timestamp|.
+  void Collect(base::TimeTicks start_timestamp, SampledProfile profile);
+
  private:
   friend class ChildCallStackProfileCollectorTest;
 
-  // Bundles together a set of collected profiles and the collection state for
-  // storage, pending availability of the parent mojo interface. |profiles|
-  // is not const& because it must be passed with std::move.
-  struct ProfilesState {
-    ProfilesState();
-    ProfilesState(ProfilesState&&);
-    ProfilesState(
-        const CallStackProfileParams& params,
-        base::TimeTicks start_timestamp,
-        base::StackSamplingProfiler::CallStackProfiles profiles);
-    ~ProfilesState();
+  // Bundles together a collected serialized profile and the collection state
+  // for storage, pending availability of the parent mojo interface.
+  struct ProfileState {
+    ProfileState();
+    ProfileState(ProfileState&&);
+    // |profile| is not const& because it can be very large and must be passed
+    // with std::move.
+    ProfileState(base::TimeTicks start_timestamp, std::string profile);
+    ~ProfileState();
 
-    ProfilesState& operator=(ProfilesState&&);
+    ProfileState& operator=(ProfileState&&);
 
-    CallStackProfileParams params;
     base::TimeTicks start_timestamp;
 
-    // The sampled profiles.
-    base::StackSamplingProfiler::CallStackProfiles profiles;
+    // The serialized sampled profile.
+    std::string profile;
 
    private:
-    DISALLOW_COPY_AND_ASSIGN(ProfilesState);
+    DISALLOW_COPY_AND_ASSIGN(ProfileState);
   };
-
-  using CallStackProfile = base::StackSamplingProfiler::CallStackProfile;
-
-  base::Optional<base::StackSamplingProfiler::SamplingParams> Collect(
-      const CallStackProfileParams& params,
-      base::TimeTicks start_timestamp,
-      std::vector<CallStackProfile> profiles);
-
-  void CollectImpl(const CallStackProfileParams& params,
-                   base::TimeTicks start_timestamp,
-                   std::vector<CallStackProfile> profiles);
 
   // This object may be accessed on any thread, including the profiler
   // thread. The expected use case for the object is to be created and have
@@ -107,7 +92,7 @@ class ChildCallStackProfileCollector {
   // of PostTask and the like for inter-thread communication.
   base::Lock lock_;
 
-  // Whether to retain profiles when the interface is not set. Remains true
+  // Whether to retain the profile when the interface is not set. Remains true
   // until the invocation of SetParentProfileCollector(), at which point it is
   // false for the rest of the object lifetime.
   bool retain_profiles_ = true;
@@ -123,7 +108,7 @@ class ChildCallStackProfileCollector {
 
   // Profiles being cached by this object, pending a parent interface to be
   // supplied.
-  std::vector<ProfilesState> profiles_;
+  std::vector<ProfileState> profiles_;
 
   DISALLOW_COPY_AND_ASSIGN(ChildCallStackProfileCollector);
 };

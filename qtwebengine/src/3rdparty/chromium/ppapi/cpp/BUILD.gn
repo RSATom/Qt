@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
+
 if (is_nacl) {
   import("//build/config/nacl/config.gni")
 }
@@ -9,7 +11,7 @@ if (is_nacl) {
 if (is_nacl && is_nacl_glibc) {
   cpp_target_type = "shared_library"
 } else {
-  cpp_target_type = "static_library"
+  cpp_target_type = "jumbo_static_library"
 }
 
 # Link to this target to get the PPAPI C++ wrapper objects and plugin startup
@@ -42,6 +44,7 @@ target(cpp_target_type, "cpp") {
       # This library is distributed as a part of the SDK and as such has to
       # be a static library rather than a source set.
       complete_static_lib = true
+      configs -= [ "//build/config/compiler:thin_archive" ]
     }
   }
 }
@@ -49,7 +52,7 @@ target(cpp_target_type, "cpp") {
 # Link to this target to get only the PPAPI C++ wrapper objects but not the
 # plugin startup code. Some plugins need special startup code that they supply
 # themselves.
-source_set("objects") {
+jumbo_source_set("objects") {
   sources = [
     "array_output.cc",
     "array_output.h",
@@ -62,10 +65,6 @@ source_set("objects") {
     "audio_encoder.cc",
     "audio_encoder.h",
     "completion_callback.h",
-    "compositor.cc",
-    "compositor.h",
-    "compositor_layer.cc",
-    "compositor_layer.h",
     "core.cc",
     "core.h",
     "directory_entry.cc",
@@ -90,6 +89,7 @@ source_set("objects") {
     "image_data.h",
     "input_event.cc",
     "input_event.h",
+    "input_event_interface_name.h",
     "instance.cc",
     "instance.h",
     "instance_handle.cc",
@@ -205,8 +205,6 @@ source_set("objects") {
     "private/camera_capabilities_private.h",
     "private/camera_device_private.cc",
     "private/camera_device_private.h",
-    "private/content_decryptor_private.cc",
-    "private/content_decryptor_private.h",
     "private/ext_crx_file_system_private.cc",
     "private/ext_crx_file_system_private.h",
     "private/file_io_private.cc",
@@ -217,8 +215,6 @@ source_set("objects") {
     "private/flash.h",
     "private/flash_clipboard.cc",
     "private/flash_clipboard.h",
-    "private/flash_device_id.cc",
-    "private/flash_device_id.h",
     "private/flash_drm.cc",
     "private/flash_drm.h",
     "private/flash_file.cc",
@@ -239,14 +235,10 @@ source_set("objects") {
     "private/isolated_file_system_private.h",
     "private/net_address_private.cc",
     "private/net_address_private.h",
-    "private/output_protection_private.cc",
-    "private/output_protection_private.h",
     "private/pass_file_handle.cc",
     "private/pass_file_handle.h",
     "private/pdf.cc",
     "private/pdf.h",
-    "private/platform_verification.cc",
-    "private/platform_verification.h",
     "private/tcp_server_socket_private.cc",
     "private/tcp_server_socket_private.h",
     "private/tcp_socket_private.cc",
@@ -257,12 +249,8 @@ source_set("objects") {
     "private/uma_private.h",
     "private/var_private.cc",
     "private/var_private.h",
-    "private/video_destination_private.cc",
-    "private/video_destination_private.h",
     "private/video_frame_private.cc",
     "private/video_frame_private.h",
-    "private/video_source_private.cc",
-    "private/video_source_private.h",
     "private/x509_certificate_private.cc",
     "private/x509_certificate_private.h",
 

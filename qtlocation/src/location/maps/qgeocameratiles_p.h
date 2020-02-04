@@ -49,6 +49,7 @@
 
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtCore/QScopedPointer>
+#include <QRectF>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,6 +66,7 @@ public:
 
     void setCameraData(const QGeoCameraData &camera);
     QGeoCameraData cameraData() const;
+    void setVisibleArea(const QRectF &visibleArea);
     void setScreenSize(const QSize &size);
     void setTileSize(int tileSize);
     int tileSize() const;
@@ -77,6 +79,8 @@ public:
 
 protected:
     QScopedPointer<QGeoCameraTilesPrivate> d_ptr;
+
+    friend class QGeoCameraTilesPrivate;
     Q_DISABLE_COPY(QGeoCameraTiles)
 };
 

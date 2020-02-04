@@ -60,6 +60,10 @@
 
 #include <QtWaylandCompositor/private/qwayland-server-wayland.h>
 
+#if QT_CONFIG(xkbcommon)
+#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 namespace QtWayland {
@@ -79,7 +83,11 @@ public:
     static QWaylandCompositorPrivate *get(QWaylandCompositor *compositor) { return compositor->d_func(); }
 
     QWaylandCompositorPrivate(QWaylandCompositor *compositor);
-    ~QWaylandCompositorPrivate();
+    ~QWaylandCompositorPrivate() override;
+
+#if QT_CONFIG(xkbcommon)
+    struct xkb_context *xkbContext() const { return mXkbContext.get(); }
+#endif
 
     void preInit();
     void init();
@@ -87,7 +95,7 @@ public:
     void destroySurface(QWaylandSurface *surface);
     void unregisterSurface(QWaylandSurface *surface);
 
-    QWaylandOutput *defaultOutput() const { return outputs.size() ? outputs.first() : Q_NULLPTR; }
+    QWaylandOutput *defaultOutput() const { return outputs.size() ? outputs.first() : nullptr; }
 
     inline QtWayland::ClientBufferIntegration *clientBufferIntegration() const;
     inline QtWayland::ServerBufferIntegration *serverBufferIntegration() const;
@@ -112,6 +120,11 @@ public:
 
     inline void addOutput(QWaylandOutput *output);
     inline void removeOutput(QWaylandOutput *output);
+
+#if WAYLAND_VERSION_MAJOR >= 1 && (WAYLAND_VERSION_MAJOR != 1 || WAYLAND_VERSION_MINOR >= 10)
+    void connectToExternalSockets();
+#endif
+
 protected:
     void compositor_create_surface(wl_compositor::Resource *resource, uint32_t id) override;
     void compositor_create_region(wl_compositor::Resource *resource, uint32_t id) override;
@@ -128,7 +141,11 @@ protected:
     void loadServerBufferIntegration();
 
     QByteArray socket_name;
-    struct wl_display *display;
+#if WAYLAND_VERSION_MAJOR >= 1 && (WAYLAND_VERSION_MAJOR != 1 || WAYLAND_VERSION_MINOR >= 10)
+    QList<int> externally_added_socket_fds;
+#endif
+    struct wl_display *display = nullptr;
+    bool ownsDisplay = false;
 
     QList<QWaylandSeat *> seats;
     QList<QWaylandOutput *> outputs;
@@ -136,18 +153,18 @@ protected:
     QList<QWaylandSurface *> all_surfaces;
 
 #if QT_CONFIG(wayland_datadevice)
-    QtWayland::DataDeviceManager *data_device_manager;
+    QtWayland::DataDeviceManager *data_device_manager = nullptr;
 #endif
-    QtWayland::BufferManager *buffer_manager;
+    QtWayland::BufferManager *buffer_manager = nullptr;
 
     QElapsedTimer timer;
 
-    wl_event_loop *loop;
+    wl_event_loop *loop = nullptr;
 
     QList<QWaylandClient *> clients;
 
 #if QT_CONFIG(opengl)
-    bool use_hw_integration_extension;
+    bool use_hw_integration_extension = true;
     QScopedPointer<QtWayland::HardwareIntegration> hw_integration;
     QScopedPointer<QtWayland::ClientBufferIntegration> client_buffer_integration;
     QScopedPointer<QtWayland::ServerBufferIntegration> server_buffer_integration;
@@ -155,10 +172,14 @@ protected:
 
     QScopedPointer<QWindowSystemEventHandler> eventHandler;
 
-    bool retainSelection;
-    bool preInitialized;
-    bool initialized;
+    bool retainSelection = false;
+    bool preInitialized = false;
+    bool initialized = false;
     QList<QPointer<QObject> > polish_objects;
+
+#if QT_CONFIG(xkbcommon)
+    QXkbCommon::ScopedXKBContext mXkbContext;
+#endif
 
     Q_DECLARE_PUBLIC(QWaylandCompositor)
     Q_DISABLE_COPY(QWaylandCompositorPrivate)

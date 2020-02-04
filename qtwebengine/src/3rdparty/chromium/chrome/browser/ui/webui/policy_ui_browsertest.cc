@@ -11,13 +11,17 @@
 #include "base/callback.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/json/json_reader.h"
+#include "base/json/json_writer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
+#include "chrome/browser/policy/profile_policy_connector_factory.h"
+#include "chrome/browser/policy/schema_registry_service.h"
+#include "chrome/browser/policy/schema_registry_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -28,6 +32,7 @@
 #include "components/policy/core/common/external_data_fetcher.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
+#include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema.h"
 #include "components/policy/policy_constants.h"
@@ -38,6 +43,9 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/shell_dialogs/select_file_dialog.h"
+#include "ui/shell_dialogs/select_file_dialog_factory.h"
+#include "ui/shell_dialogs/select_file_policy.h"
 #include "url/gurl.h"
 
 using testing::Return;
@@ -45,28 +53,74 @@ using testing::_;
 
 namespace {
 
+// Allows waiting until the policy schema for a |PolicyNamespace| has been made
+// available by a |Profile|'s |SchemaRegistry|.
+class PolicySchemaAvailableWaiter : public policy::SchemaRegistry::Observer {
+ public:
+  PolicySchemaAvailableWaiter(Profile* profile,
+                              const policy::PolicyNamespace& policy_namespace)
+      : registry_(policy::SchemaRegistryServiceFactory::GetForContext(profile)
+                      ->registry()),
+        policy_namespace_(policy_namespace) {}
+
+  ~PolicySchemaAvailableWaiter() override { registry_->RemoveObserver(this); }
+
+  // Starts waiting for a policy schema to be available for the
+  // |policy_namespace_| that has been passed to the constructor. Returns
+  // immediately if the policy schema is already available.
+  void Wait() {
+    if (RegistryHasSchemaForNamespace())
+      return;
+    registry_->AddObserver(this);
+    run_loop_.Run();
+  }
+
+ private:
+  bool RegistryHasSchemaForNamespace() {
+    const policy::ComponentMap* map =
+        registry_->schema_map()->GetComponents(policy_namespace_.domain);
+    if (!map)
+      return false;
+    return map->find(policy_namespace_.component_id) != map->end();
+  }
+
+  // policy::SchemaRegistry::Observer:
+  void OnSchemaRegistryUpdated(bool has_new_schemas) override {
+    if (RegistryHasSchemaForNamespace())
+      run_loop_.Quit();
+  }
+
+  policy::SchemaRegistry* const registry_;
+  const policy::PolicyNamespace policy_namespace_;
+  base::RunLoop run_loop_;
+
+  DISALLOW_COPY_AND_ASSIGN(PolicySchemaAvailableWaiter);
+};
+
 std::vector<std::string> PopulateExpectedPolicy(
     const std::string& name,
     const std::string& value,
     const std::string& source,
-    const policy::PolicyMap::Entry* metadata,
+    const policy::PolicyMap::Entry* policy_map_entry,
     bool unknown) {
   std::vector<std::string> expected_policy;
 
   // Populate expected scope.
-  if (metadata) {
+  if (policy_map_entry) {
     expected_policy.push_back(l10n_util::GetStringUTF8(
-        metadata->scope == policy::POLICY_SCOPE_MACHINE ?
-            IDS_POLICY_SCOPE_DEVICE : IDS_POLICY_SCOPE_USER));
+        policy_map_entry->scope == policy::POLICY_SCOPE_MACHINE
+            ? IDS_POLICY_SCOPE_DEVICE
+            : IDS_POLICY_SCOPE_USER));
   } else {
     expected_policy.push_back(std::string());
   }
 
   // Populate expected level.
-  if (metadata) {
+  if (policy_map_entry) {
     expected_policy.push_back(l10n_util::GetStringUTF8(
-        metadata->level == policy::POLICY_LEVEL_RECOMMENDED ?
-            IDS_POLICY_LEVEL_RECOMMENDED : IDS_POLICY_LEVEL_MANDATORY));
+        policy_map_entry->level == policy::POLICY_LEVEL_RECOMMENDED
+            ? IDS_POLICY_LEVEL_RECOMMENDED
+            : IDS_POLICY_LEVEL_MANDATORY));
   } else {
     expected_policy.push_back(std::string());
   }
@@ -82,7 +136,7 @@ std::vector<std::string> PopulateExpectedPolicy(
   // Populate expected status.
   if (unknown)
     expected_policy.push_back(l10n_util::GetStringUTF8(IDS_POLICY_UNKNOWN));
-  else if (metadata)
+  else if (policy_map_entry)
     expected_policy.push_back(l10n_util::GetStringUTF8(IDS_POLICY_OK));
   else
     expected_policy.push_back(l10n_util::GetStringUTF8(IDS_POLICY_UNSET));
@@ -92,6 +146,26 @@ std::vector<std::string> PopulateExpectedPolicy(
 
   return expected_policy;
 }
+
+void SetExpectedPolicy(base::DictionaryValue* expected,
+                       const std::string& name,
+                       const std::string& level,
+                       const std::string& scope,
+                       const std::string& source,
+                       const std::string& error,
+                       const base::Value& value) {
+  const char prefix[] = "chromePolicies";
+  expected->SetPath({prefix, name.c_str(), "level"}, base::Value(level));
+  expected->SetPath({prefix, name.c_str(), "scope"}, base::Value(scope));
+  expected->SetPath({prefix, name.c_str(), "source"}, base::Value(source));
+  if (!error.empty())
+    expected->SetPath({prefix, name.c_str(), "error"}, base::Value(error));
+  expected->SetPath({prefix, name.c_str(), "value"}, value.Clone());
+}
+
+// The temporary directory and file paths for policy saving.
+base::ScopedTempDir export_policies_test_dir;
+base::FilePath export_policies_test_file_path;
 
 }  // namespace
 
@@ -104,15 +178,62 @@ class PolicyUITest : public InProcessBrowserTest {
   // InProcessBrowserTest implementation.
   void SetUpInProcessBrowserTestFixture() override;
 
-  void UpdateProviderPolicy(const policy::PolicyMap& policy);
+  // Uses the |MockConfiguratonPolicyProvider| installed for testing to publish
+  // |policy| for |policy_namespace|.
+  void UpdateProviderPolicyForNamespace(
+      const policy::PolicyNamespace& policy_namespace,
+      const policy::PolicyMap& policy);
 
   void VerifyPolicies(const std::vector<std::vector<std::string> >& expected);
+
+  void VerifyExportingPolicies(const base::DictionaryValue& expected);
 
  protected:
   policy::MockConfigurationPolicyProvider provider_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(PolicyUITest);
+};
+
+// An artificial SelectFileDialog that immediately returns the location of test
+// file instead of showing the UI file picker.
+class TestSelectFileDialog : public ui::SelectFileDialog {
+ public:
+  TestSelectFileDialog(ui::SelectFileDialog::Listener* listener,
+                       std::unique_ptr<ui::SelectFilePolicy> policy)
+      : ui::SelectFileDialog(listener, std::move(policy)) {}
+
+  void SelectFileImpl(Type type,
+                      const base::string16& title,
+                      const base::FilePath& default_path,
+                      const FileTypeInfo* file_types,
+                      int file_type_index,
+                      const base::FilePath::StringType& default_extension,
+                      gfx::NativeWindow owning_window,
+                      void* params) override {
+    listener_->FileSelected(export_policies_test_file_path, 0, nullptr);
+  }
+
+  bool IsRunning(gfx::NativeWindow owning_window) const override {
+    return false;
+  }
+
+  void ListenerDestroyed() override {}
+
+  bool HasMultipleFileTypeChoicesImpl() override { return false; }
+
+ private:
+  ~TestSelectFileDialog() override {}
+};
+
+// A factory associated with the artificial file picker.
+class TestSelectFileDialogFactory : public ui::SelectFileDialogFactory {
+ private:
+  ui::SelectFileDialog* Create(
+      ui::SelectFileDialog::Listener* listener,
+      std::unique_ptr<ui::SelectFilePolicy> policy) override {
+    return new TestSelectFileDialog(listener, std::move(policy));
+  }
 };
 
 PolicyUITest::PolicyUITest() {
@@ -125,12 +246,23 @@ void PolicyUITest::SetUpInProcessBrowserTestFixture() {
   EXPECT_CALL(provider_, IsInitializationComplete(_))
       .WillRepeatedly(Return(true));
   policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
+  policy::ProfilePolicyConnectorFactory::GetInstance()->PushProviderForTesting(
+      &provider_);
+
+  // Create a directory for testing exporting policies.
+  ASSERT_TRUE(export_policies_test_dir.CreateUniqueTempDir());
+  const std::string filename = "policy.json";
+  export_policies_test_file_path =
+      export_policies_test_dir.GetPath().AppendASCII(filename);
 }
 
-void PolicyUITest::UpdateProviderPolicy(const policy::PolicyMap& policy) {
-  provider_.UpdateChromePolicy(policy);
-  base::RunLoop loop;
-  loop.RunUntilIdle();
+void PolicyUITest::UpdateProviderPolicyForNamespace(
+    const policy::PolicyNamespace& policy_namespace,
+    const policy::PolicyMap& policy) {
+  std::unique_ptr<policy::PolicyBundle> bundle =
+      std::make_unique<policy::PolicyBundle>();
+  bundle->Get(policy_namespace).CopyFrom(policy);
+  provider_.UpdatePolicy(std::move(bundle));
 }
 
 void PolicyUITest::VerifyPolicies(
@@ -143,7 +275,8 @@ void PolicyUITest::VerifyPolicies(
       "    'section.policy-table-section > * > tbody');"
       "var policies = [];"
       "for (var i = 0; i < entries.length; ++i) {"
-      "  var items = entries[i].querySelectorAll('tr > td');"
+      "  var items = "
+      "entries[i].querySelectorAll('tr:not(.expanded-status-container) > td');"
       "  var values = [];"
       "  for (var j = 0; j < items.length; ++j) {"
       "    var item = items[j];"
@@ -151,6 +284,9 @@ void PolicyUITest::VerifyPolicies(
       "    if (children.length == 1)"
       "      item = children[0];"
       "    children = item.getElementsByTagName('span');"
+      "    if (children.length == 1)"
+      "      item = children[0];"
+      "    children = item.getElementsByClassName('name-link');"
       "    if (children.length == 1)"
       "      item = children[0];"
       "    values.push(item.textContent);"
@@ -181,6 +317,123 @@ void PolicyUITest::VerifyPolicies(
       EXPECT_EQ(expected_policy[j], value);
     }
   }
+}
+
+void PolicyUITest::VerifyExportingPolicies(
+    const base::DictionaryValue& expected) {
+  // Set SelectFileDialog to use our factory.
+  ui::SelectFileDialog::SetFactory(new TestSelectFileDialogFactory());
+
+  // Navigate to the about:policy page.
+  ui_test_utils::NavigateToURL(browser(), GURL("chrome://policy"));
+
+  // Click on 'save policies' button.
+  const std::string javascript =
+      "document.getElementById(\"export-policies\").click()";
+
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_TRUE(content::ExecuteScript(contents, javascript));
+
+  base::TaskScheduler::GetInstance()->FlushForTesting();
+  // Open the created file.
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  std::string file_contents;
+  EXPECT_TRUE(
+      base::ReadFileToString(export_policies_test_file_path, &file_contents));
+
+  std::unique_ptr<base::Value> value_ptr =
+      base::JSONReader::Read(file_contents);
+
+  // Check that the file contains a valid dictionary.
+  EXPECT_TRUE(value_ptr.get());
+  base::DictionaryValue* actual_policies = nullptr;
+  EXPECT_TRUE(value_ptr->GetAsDictionary(&actual_policies));
+
+  // Check that this dictionary is the same as expected.
+  EXPECT_EQ(expected, *actual_policies);
+}
+
+IN_PROC_BROWSER_TEST_F(PolicyUITest, WritePoliciesToJSONFile) {
+  // Set policy values and generate expected dictionary.
+  policy::PolicyMap values;
+  base::DictionaryValue expected_values;
+
+  base::ListValue popups_blocked_for_urls;
+  popups_blocked_for_urls.AppendString("aaa");
+  popups_blocked_for_urls.AppendString("bbb");
+  popups_blocked_for_urls.AppendString("ccc");
+  values.Set(policy::key::kPopupsBlockedForUrls, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_PLATFORM,
+             popups_blocked_for_urls.CreateDeepCopy(), nullptr);
+  SetExpectedPolicy(&expected_values, policy::key::kPopupsBlockedForUrls,
+                    "mandatory", "machine", "sourcePlatform", std::string(),
+                    popups_blocked_for_urls);
+
+  values.Set(policy::key::kDefaultImagesSetting, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_CLOUD,
+             std::make_unique<base::Value>(2), nullptr);
+  SetExpectedPolicy(&expected_values, policy::key::kDefaultImagesSetting,
+                    "mandatory", "machine", "sourceCloud", std::string(),
+                    base::Value(2));
+
+  // This also checks that we save complex policies correctly.
+  base::DictionaryValue unknown_policy;
+  base::DictionaryValue body;
+  body.SetInteger("first", 0);
+  body.SetBoolean("second", true);
+  unknown_policy.SetInteger("head", 12);
+  unknown_policy.SetDictionary("body", body.CreateDeepCopy());
+  const std::string kUnknownPolicy = "NoSuchThing";
+  values.Set(kUnknownPolicy, policy::POLICY_LEVEL_RECOMMENDED,
+             policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+             unknown_policy.CreateDeepCopy(), nullptr);
+  SetExpectedPolicy(&expected_values, kUnknownPolicy, "recommended", "user",
+                    "sourceCloud", l10n_util::GetStringUTF8(IDS_POLICY_UNKNOWN),
+                    unknown_policy);
+
+  // Set the extension policies to an empty dictionary as we haven't added any
+  // such policies.
+  expected_values.SetDictionary("extensionPolicies",
+                                std::make_unique<base::DictionaryValue>());
+
+  provider_.UpdateChromePolicy(values);
+
+  // Check writing those policies to a newly created file.
+  VerifyExportingPolicies(expected_values);
+
+  // Change policy values.
+  values.Erase(policy::key::kDefaultImagesSetting);
+  expected_values.RemovePath(
+      std::string("chromePolicies.") +
+          std::string(policy::key::kDefaultImagesSetting),
+      nullptr);
+
+#if !defined(OS_CHROMEOS)
+  // This also checks that we bypass the policy that blocks file selection
+  // dialogs. This is a desktop only policy.
+  values.Set(policy::key::kAllowFileSelectionDialogs,
+             policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_MACHINE,
+             policy::POLICY_SOURCE_PLATFORM,
+             std::make_unique<base::Value>(false), nullptr);
+  SetExpectedPolicy(&expected_values, policy::key::kAllowFileSelectionDialogs,
+                    "mandatory", "machine", "sourcePlatform", std::string(),
+                    base::Value(false));
+#endif
+
+  popups_blocked_for_urls.AppendString("ddd");
+  values.Set(policy::key::kPopupsBlockedForUrls, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_PLATFORM,
+             popups_blocked_for_urls.CreateDeepCopy(), nullptr);
+  SetExpectedPolicy(&expected_values, policy::key::kPopupsBlockedForUrls,
+                    "mandatory", "machine", "sourcePlatform", std::string(),
+                    popups_blocked_for_urls);
+
+  provider_.UpdateChromePolicy(values);
+
+  // Check writing changed policies to the same file (should overwrite the
+  // contents).
+  VerifyExportingPolicies(expected_values);
 }
 
 IN_PROC_BROWSER_TEST_F(PolicyUITest, SendPolicyNames) {
@@ -225,29 +478,29 @@ IN_PROC_BROWSER_TEST_F(PolicyUITest, SendPolicyValues) {
   expected_values[policy::key::kRestoreOnStartupURLs] = "aaa,bbb,ccc";
   values.Set(policy::key::kHomepageLocation, policy::POLICY_LEVEL_MANDATORY,
              policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_CLOUD,
-             base::MakeUnique<base::Value>("http://google.com"), nullptr);
+             std::make_unique<base::Value>("http://google.com"), nullptr);
   expected_values[policy::key::kHomepageLocation] = "http://google.com";
   values.Set(policy::key::kRestoreOnStartup, policy::POLICY_LEVEL_RECOMMENDED,
              policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
-             base::MakeUnique<base::Value>(4), nullptr);
+             std::make_unique<base::Value>(4), nullptr);
   expected_values[policy::key::kRestoreOnStartup] = "4";
   values.Set(policy::key::kShowHomeButton, policy::POLICY_LEVEL_RECOMMENDED,
              policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_CLOUD,
-             base::MakeUnique<base::Value>(true), nullptr);
+             std::make_unique<base::Value>(true), nullptr);
   expected_values[policy::key::kShowHomeButton] = "true";
   // Set the value of a policy that does not exist.
   const std::string kUnknownPolicy = "NoSuchThing";
   values.Set(kUnknownPolicy, policy::POLICY_LEVEL_MANDATORY,
              policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_PLATFORM,
-             base::MakeUnique<base::Value>(true), nullptr);
+             std::make_unique<base::Value>(true), nullptr);
   expected_values[kUnknownPolicy] = "true";
   const std::string kUnknownPolicyWithDots = "no.such.thing";
   values.Set(kUnknownPolicyWithDots, policy::POLICY_LEVEL_MANDATORY,
              policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_PLATFORM,
-             base::MakeUnique<base::Value>("blub"), nullptr);
+             std::make_unique<base::Value>("blub"), nullptr);
   expected_values[kUnknownPolicyWithDots] = "blub";
 
-  UpdateProviderPolicy(values);
+  provider_.UpdateChromePolicy(values);
 
   // Expect that the policy table contains, in order:
   // * All known policies whose value has been set, in alphabetical order.
@@ -290,16 +543,64 @@ IN_PROC_BROWSER_TEST_F(PolicyUITest, SendPolicyValues) {
   VerifyPolicies(expected_policies);
 }
 
-IN_PROC_BROWSER_TEST_F(PolicyUITest, ExtensionLoadAndSendPolicy) {
+// TODO(https://crbug.com/911661) Flaky time outs on Linux Chromium OS ASan
+// LSan bot.
+#if defined(ADDRESS_SANITIZER)
+#define MAYBE_ExtensionLoadAndSendPolicy DISABLED_ExtensionLoadAndSendPolicy
+#else
+#define MAYBE_ExtensionLoadAndSendPolicy ExtensionLoadAndSendPolicy
+#endif
+IN_PROC_BROWSER_TEST_F(PolicyUITest, MAYBE_ExtensionLoadAndSendPolicy) {
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUIPolicyURL));
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temp_dir_;
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
-  const std::string newly_added_policy_name = "new_policy";
-  std::string json_data = "{\"type\": \"object\",\"properties\": {\"" +
-                          newly_added_policy_name +
-                          "\": { \"type\": \"string\"}}}";
+  const std::string kNormalBooleanPolicy = "normal_boolean";
+  const std::string kSensitiveBooleanPolicy = "sensitive_boolean";
+  const std::string kSensitiveStringPolicy = "sensitive_string";
+  const std::string kSensitiveObjectPolicy = "sensitive_object";
+  const std::string kSensitiveArrayPolicy = "sensitive_array";
+  const std::string kSensitiveIntegerPolicy = "sensitive_integer";
+  const std::string kSensitiveNumberPolicy = "sensitive_number";
+  std::string json_data = R"({
+    "type": "object",
+    "properties": {
+      "normal_boolean": {
+        "type": "boolean"
+      },
+      "sensitive_boolean": {
+        "type": "boolean",
+        "sensitiveValue": true
+      },
+      "sensitive_string": {
+        "type": "string",
+        "sensitiveValue": true
+      },
+      "sensitive_object": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "sensitiveValue": true
+      },
+      "sensitive_array": {
+        "type": "array",
+        "items": {
+          "type": "boolean"
+        },
+        "sensitiveValue": true
+      },
+      "sensitive_integer": {
+        "type": "integer",
+        "sensitiveValue": true
+      },
+      "sensitive_number": {
+        "type": "number",
+        "sensitiveValue": true
+      }
+    }
+  })";
 
   const std::string schema_file = "schema.json";
   base::FilePath schema_path = temp_dir_.GetPath().AppendASCII(schema_file);
@@ -320,27 +621,100 @@ IN_PROC_BROWSER_TEST_F(PolicyUITest, ExtensionLoadAndSendPolicy) {
   builder.SetManifest(manifest.Build());
 
   // Install extension.
-  ExtensionService* service = extensions::ExtensionSystem::Get(
-                                  browser()->profile())->extension_service();
-  EXPECT_CALL(provider_, RefreshPolicies());
-  service->OnExtensionInstalled(builder.Build().get(), syncer::StringOrdinal(),
-                                0);
+  extensions::ExtensionService* service =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service();
+  scoped_refptr<const extensions::Extension> extension = builder.Build();
+  service->OnExtensionInstalled(extension.get(), syncer::StringOrdinal(), 0);
+  const policy::PolicyNamespace extension_policy_namespace(
+      policy::POLICY_DOMAIN_EXTENSIONS, extension->id());
+  PolicySchemaAvailableWaiter(browser()->profile(), extension_policy_namespace)
+      .Wait();
 
-  std::vector<std::vector<std::string>> expected_policies;
+  std::vector<std::vector<std::string>> expected_chrome_policies;
   policy::Schema chrome_schema =
       policy::Schema::Wrap(policy::GetChromeSchemaData());
   ASSERT_TRUE(chrome_schema.valid());
 
   for (policy::Schema::Iterator it = chrome_schema.GetPropertiesIterator();
        !it.IsAtEnd(); it.Advance()) {
-    expected_policies.push_back(
-        PopulateExpectedPolicy(
-            it.key(), std::string(), std::string(), nullptr, false));
+    expected_chrome_policies.push_back(PopulateExpectedPolicy(
+        it.key(), std::string(), std::string(), nullptr, false));
   }
-  // Add newly added policy to expected policy list.
+  // Add extension policy to expected policy list.
+  std::vector<std::vector<std::string>> expected_policies =
+      expected_chrome_policies;
   expected_policies.push_back(PopulateExpectedPolicy(
-      newly_added_policy_name, std::string(), std::string(), nullptr, false));
+      kNormalBooleanPolicy, std::string(), std::string(), nullptr, false));
+  expected_policies.push_back(PopulateExpectedPolicy(
+      kSensitiveArrayPolicy, std::string(), std::string(), nullptr, false));
+  expected_policies.push_back(PopulateExpectedPolicy(
+      kSensitiveBooleanPolicy, std::string(), std::string(), nullptr, false));
+  expected_policies.push_back(PopulateExpectedPolicy(
+      kSensitiveIntegerPolicy, std::string(), std::string(), nullptr, false));
+  expected_policies.push_back(PopulateExpectedPolicy(
+      kSensitiveNumberPolicy, std::string(), std::string(), nullptr, false));
+  expected_policies.push_back(PopulateExpectedPolicy(
+      kSensitiveObjectPolicy, std::string(), std::string(), nullptr, false));
+  expected_policies.push_back(PopulateExpectedPolicy(
+      kSensitiveStringPolicy, std::string(), std::string(), nullptr, false));
 
   // Verify if policy UI includes policy that extension have.
   VerifyPolicies(expected_policies);
+
+  auto object_value = std::make_unique<base::DictionaryValue>();
+  object_value->SetKey("objectProperty", base::Value(true));
+  auto array_value = std::make_unique<base::ListValue>();
+  array_value->GetList().push_back(base::Value(true));
+
+  policy::PolicyMap values;
+  values.Set(kNormalBooleanPolicy, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+             std::make_unique<base::Value>(true), nullptr);
+  values.Set(kSensitiveArrayPolicy, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+             std::move(array_value), nullptr);
+  values.Set(kSensitiveBooleanPolicy, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+             std::make_unique<base::Value>(true), nullptr);
+  values.Set(kSensitiveIntegerPolicy, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+             std::make_unique<base::Value>(42), nullptr);
+  values.Set(kSensitiveNumberPolicy, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+             std::make_unique<base::Value>(3.141), nullptr);
+  values.Set(kSensitiveObjectPolicy, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+             std::move(object_value), nullptr);
+  values.Set(kSensitiveStringPolicy, policy::POLICY_LEVEL_MANDATORY,
+             policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+             std::make_unique<base::Value>("value"), nullptr);
+  UpdateProviderPolicyForNamespace(extension_policy_namespace, values);
+
+  // Add extension policy with values to expected policy list.
+  const std::string mask_value = "********";
+  std::vector<std::vector<std::string>> expected_policies_with_values =
+      expected_chrome_policies;
+  expected_policies_with_values.push_back(
+      PopulateExpectedPolicy(kNormalBooleanPolicy, "true", "Cloud",
+                             values.Get(kNormalBooleanPolicy), false));
+  expected_policies_with_values.push_back(
+      PopulateExpectedPolicy(kSensitiveArrayPolicy, mask_value, "Cloud",
+                             values.Get(kSensitiveArrayPolicy), false));
+  expected_policies_with_values.push_back(
+      PopulateExpectedPolicy(kSensitiveBooleanPolicy, mask_value, "Cloud",
+                             values.Get(kSensitiveBooleanPolicy), false));
+  expected_policies_with_values.push_back(
+      PopulateExpectedPolicy(kSensitiveIntegerPolicy, mask_value, "Cloud",
+                             values.Get(kSensitiveIntegerPolicy), false));
+  expected_policies_with_values.push_back(
+      PopulateExpectedPolicy(kSensitiveNumberPolicy, mask_value, "Cloud",
+                             values.Get(kSensitiveNumberPolicy), false));
+  expected_policies_with_values.push_back(
+      PopulateExpectedPolicy(kSensitiveObjectPolicy, mask_value, "Cloud",
+                             values.Get(kSensitiveObjectPolicy), false));
+  expected_policies_with_values.push_back(
+      PopulateExpectedPolicy(kSensitiveStringPolicy, mask_value, "Cloud",
+                             values.Get(kSensitiveStringPolicy), false));
+  VerifyPolicies(expected_policies_with_values);
 }

@@ -33,6 +33,7 @@ class Display;
 class Context;
 class Image;
 class Config;
+class ClientBuffer;
 }
 
 class LibGLESv2exports
@@ -242,9 +243,10 @@ public:
 	void (*glGenerateMipmapOES)(GLenum target);
 	void (*glDrawBuffersEXT)(GLsizei n, const GLenum *bufs);
 
-	egl::Context *(*es2CreateContext)(egl::Display *display, const egl::Context *shareContext, int clientVersion, const egl::Config *config);
+	egl::Context *(*es2CreateContext)(egl::Display *display, const egl::Context *shareContext, const egl::Config *config);
 	__eglMustCastToProperFunctionPointerType (*es2GetProcAddress)(const char *procname);
 	egl::Image *(*createBackBuffer)(int width, int height, sw::Format format, int multiSampleDepth);
+	egl::Image *(*createBackBufferFromClientBuffer)(const egl::ClientBuffer& clientBuffer);
 	egl::Image *(*createDepthStencil)(int width, int height, sw::Format format, int multiSampleDepth);
 	sw::FrameBuffer *(*createFrameBuffer)(void *nativeDisplay, EGLNativeWindowType window, int width, int height);
 };
@@ -254,8 +256,6 @@ class LibGLESv2
 public:
 	LibGLESv2()
 	{
-		libGLESv2 = nullptr;
-		libGLESv2exports = nullptr;
 	}
 
 	~LibGLESv2()
@@ -276,7 +276,7 @@ public:
 private:
 	LibGLESv2exports *loadExports()
 	{
-		if(!libGLESv2)
+		if(!loadLibraryAttempted && !libGLESv2)
 		{
 			#if defined(_WIN32)
 				#if defined(__LP64__)
@@ -285,11 +285,7 @@ private:
 					const char *libGLESv2_lib[] = {"libGLESv2.dll", "libGLES_V2_translator.dll"};
 				#endif
 			#elif defined(__ANDROID__)
-				#if defined(__LP64__)
-					const char *libGLESv2_lib[] = {"/vendor/lib64/egl/libGLESv2_swiftshader.so"};
-				#else
-					const char *libGLESv2_lib[] = {"/vendor/lib/egl/libGLESv2_swiftshader.so"};
-				#endif
+				const char *libGLESv2_lib[] = {"libGLESv2_swiftshader.so", "libGLESv2_swiftshader.so"};
 			#elif defined(__linux__)
 				#if defined(__LP64__)
 					const char *libGLESv2_lib[] = {"lib64GLES_V2_translator.so", "libGLESv2.so.2", "libGLESv2.so"};
@@ -298,28 +294,34 @@ private:
 				#endif
 			#elif defined(__APPLE__)
 				#if defined(__LP64__)
-					const char *libGLESv2_lib[] = {"lib64GLES_V2_translator.dylib", "libGLESv2.dylib", "libswiftshader_libGLESv2.dylib"};
+					const char *libGLESv2_lib[] = {"libswiftshader_libGLESv2.dylib", "lib64GLES_V2_translator.dylib", "libGLESv2.dylib"};
 				#else
-					const char *libGLESv2_lib[] = {"libGLES_V2_translator.dylib", "libGLESv2.dylib", "libswiftshader_libGLESv2.dylib"};
+					const char *libGLESv2_lib[] = {"libswiftshader_libGLESv2.dylib", "libGLES_V2_translator.dylib", "libGLESv2.dylib"};
 				#endif
+			#elif defined(__Fuchsia__)
+				const char *libGLESv2_lib[] = {"libswiftshader_libGLESv2.so", "libGLESv2.so"};
 			#else
 				#error "libGLESv2::loadExports unimplemented for this platform"
 			#endif
 
-			libGLESv2 = loadLibrary(libGLESv2_lib, "libGLESv2_swiftshader");
+			std::string directory = getModuleDirectory();
+			libGLESv2 = loadLibrary(directory, libGLESv2_lib, "libGLESv2_swiftshader");
 
 			if(libGLESv2)
 			{
 				auto libGLESv2_swiftshader = (LibGLESv2exports *(*)())getProcAddress(libGLESv2, "libGLESv2_swiftshader");
 				libGLESv2exports = libGLESv2_swiftshader();
 			}
+
+			loadLibraryAttempted = true;
 		}
 
 		return libGLESv2exports;
 	}
 
-	void *libGLESv2;
-	LibGLESv2exports *libGLESv2exports;
+	void *libGLESv2 = nullptr;
+	LibGLESv2exports *libGLESv2exports = nullptr;
+	bool loadLibraryAttempted = false;
 };
 
 #endif   // libGLESv2_hpp

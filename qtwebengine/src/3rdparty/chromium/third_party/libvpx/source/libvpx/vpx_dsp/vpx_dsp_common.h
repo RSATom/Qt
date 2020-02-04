@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef VPX_DSP_VPX_DSP_COMMON_H_
-#define VPX_DSP_VPX_DSP_COMMON_H_
+#ifndef VPX_VPX_DSP_VPX_DSP_COMMON_H_
+#define VPX_VPX_DSP_VPX_DSP_COMMON_H_
 
 #include "./vpx_config.h"
 #include "vpx/vpx_integer.h"
@@ -43,6 +43,8 @@ typedef int32_t tran_high_t;
 typedef int16_t tran_low_t;
 #endif  // CONFIG_VP9_HIGHBITDEPTH
 
+typedef int16_t tran_coef_t;
+
 static INLINE uint8_t clip_pixel(int val) {
   return (val > 255) ? 255 : (val < 0) ? 0 : val;
 }
@@ -68,4 +70,4 @@ static INLINE uint16_t clip_pixel_highbd(int val, int bd) {
 }  // extern "C"
 #endif
 
-#endif  // VPX_DSP_VPX_DSP_COMMON_H_
+#endif  // VPX_VPX_DSP_VPX_DSP_COMMON_H_

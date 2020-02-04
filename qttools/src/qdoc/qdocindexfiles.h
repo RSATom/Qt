@@ -38,12 +38,22 @@ class Atom;
 class Generator;
 class QStringList;
 class QDocDatabase;
+class WebXMLGenerator;
 class QXmlStreamWriter;
 class QXmlStreamAttributes;
+
+// A callback interface for extending index sections
+class IndexSectionWriter
+{
+public:
+    virtual ~IndexSectionWriter() {}
+    virtual void append(QXmlStreamWriter &writer, Node *node) = 0;
+};
 
 class QDocIndexFiles
 {
     friend class QDocDatabase;
+    friend class WebXMLGenerator; // for using generateIndexSections()
 
  private:
     static QDocIndexFiles* qdocIndexFiles();
@@ -53,19 +63,16 @@ class QDocIndexFiles
     ~QDocIndexFiles();
 
     void readIndexes(const QStringList& indexFiles);
-    void generateIndex(const QString& fileName,
-                       const QString& url,
-                       const QString& title,
-                       Generator* g,
-                       bool generateInternalNodes = false);
-
     void readIndexFile(const QString& path);
     void readIndexSection(QXmlStreamReader &reader, Node* current, const QString& indexUrl);
     void insertTarget(TargetRec::TargetType type, const QXmlStreamAttributes &attributes, Node *node);
     void resolveIndex();
-    void resolveRelates();
-    bool generateIndexSection(QXmlStreamWriter& writer, Node* node, bool generateInternalNodes = false);
-    void generateIndexSections(QXmlStreamWriter& writer, Node* node, bool generateInternalNodes = false);
+
+    void generateIndex(const QString &fileName, const QString &url, const QString &title, Generator *g);
+    void generateFunctionSection(QXmlStreamWriter &writer, FunctionNode *fn);
+    void generateFunctionSections(QXmlStreamWriter &writer, Aggregate *aggregate);
+    bool generateIndexSection(QXmlStreamWriter &writer, Node *node, IndexSectionWriter *post = nullptr);
+    void generateIndexSections(QXmlStreamWriter &writer, Node *node, IndexSectionWriter *post = nullptr);
 
  private:
     static QDocIndexFiles* qdocIndexFiles_;
@@ -73,7 +80,6 @@ class QDocIndexFiles
     Generator* gen_;
     QString project_;
     QVector<QPair<ClassNode*,QString> > basesList_;
-    QVector<QPair<FunctionNode*,QString> > relatedList_;
 };
 
 QT_END_NAMESPACE

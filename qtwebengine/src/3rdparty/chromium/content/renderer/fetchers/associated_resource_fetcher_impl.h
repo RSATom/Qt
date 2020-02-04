@@ -13,9 +13,8 @@
 #include "base/macros.h"
 #include "base/timer/timer.h"
 #include "content/public/renderer/associated_resource_fetcher.h"
-#include "third_party/WebKit/public/platform/WebCachePolicy.h"
-#include "third_party/WebKit/public/platform/WebURLRequest.h"
-#include "third_party/WebKit/public/web/WebAssociatedURLLoaderOptions.h"
+#include "third_party/blink/public/platform/web_url_request.h"
+#include "third_party/blink/public/web/web_associated_url_loader_options.h"
 
 class GURL;
 
@@ -29,16 +28,15 @@ namespace content {
 class AssociatedResourceFetcherImpl : public AssociatedResourceFetcher {
  public:
   // AssociatedResourceFetcher implementation:
-  void SetServiceWorkerMode(
-      blink::WebURLRequest::ServiceWorkerMode service_worker_mode) override;
-  void SetCachePolicy(blink::WebCachePolicy policy) override;
+  void SetSkipServiceWorker(bool skip_service_worker) override;
+  void SetCacheMode(blink::mojom::FetchCacheMode mode) override;
   void SetLoaderOptions(
       const blink::WebAssociatedURLLoaderOptions& options) override;
   void Start(blink::WebLocalFrame* frame,
-             blink::WebURLRequest::RequestContext request_context,
-             blink::WebURLRequest::FetchRequestMode request_mode,
-             blink::WebURLRequest::FetchCredentialsMode fetch_credentials_mode,
-             blink::WebURLRequest::FrameType frame_type,
+             blink::mojom::RequestContextType request_context,
+             network::mojom::FetchRequestMode request_mode,
+             network::mojom::FetchCredentialsMode fetch_credentials_mode,
+             network::mojom::RequestContextFrameType frame_type,
              const Callback& callback) override;
 
  private:

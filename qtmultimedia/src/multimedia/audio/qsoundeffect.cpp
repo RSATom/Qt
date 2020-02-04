@@ -111,20 +111,34 @@ QT_BEGIN_NAMESPACE
     sound effects.
 */
 
+static QSoundEffectPrivate *initPrivate(QSoundEffect *self, QSoundEffectPrivate *d)
+{
+    QObject::connect(d, &QSoundEffectPrivate::loopsRemainingChanged, self, &QSoundEffect::loopsRemainingChanged);
+    QObject::connect(d, &QSoundEffectPrivate::volumeChanged, self, &QSoundEffect::volumeChanged);
+    QObject::connect(d, &QSoundEffectPrivate::mutedChanged, self, &QSoundEffect::mutedChanged);
+    QObject::connect(d, &QSoundEffectPrivate::loadedChanged, self, &QSoundEffect::loadedChanged);
+    QObject::connect(d, &QSoundEffectPrivate::playingChanged, self, &QSoundEffect::playingChanged);
+    QObject::connect(d, &QSoundEffectPrivate::statusChanged, self, &QSoundEffect::statusChanged);
+    QObject::connect(d, &QSoundEffectPrivate::categoryChanged, self, &QSoundEffect::categoryChanged);
+
+    return d;
+}
 /*!
     Creates a QSoundEffect with the given \a parent.
 */
-QSoundEffect::QSoundEffect(QObject *parent) :
-    QObject(parent)
+QSoundEffect::QSoundEffect(QObject *parent)
+    : QObject(parent)
+    , d(initPrivate(this, new QSoundEffectPrivate(this)))
 {
-    d = new QSoundEffectPrivate(this);
-    connect(d, SIGNAL(loopsRemainingChanged()), SIGNAL(loopsRemainingChanged()));
-    connect(d, SIGNAL(volumeChanged()), SIGNAL(volumeChanged()));
-    connect(d, SIGNAL(mutedChanged()), SIGNAL(mutedChanged()));
-    connect(d, SIGNAL(loadedChanged()), SIGNAL(loadedChanged()));
-    connect(d, SIGNAL(playingChanged()), SIGNAL(playingChanged()));
-    connect(d, SIGNAL(statusChanged()), SIGNAL(statusChanged()));
-    connect(d, SIGNAL(categoryChanged()), SIGNAL(categoryChanged()));
+}
+
+/*!
+    Creates a QSoundEffect with the given \a audioDevice and \a parent.
+*/
+QSoundEffect::QSoundEffect(const QAudioDeviceInfo &audioDevice, QObject *parent)
+    : QObject(parent)
+    , d(initPrivate(this, new QSoundEffectPrivate(audioDevice, this)))
+{
 }
 
 /*!

@@ -9,19 +9,10 @@
 
 using offline_pages::OfflinePageItem;
 using offline_pages::OfflinePageModel;
-using offline_pages::OfflinePageModelQuery;
-using offline_pages::OfflinePageModelQueryBuilder;
 
 namespace ntp_snippets {
 
 namespace {
-
-std::unique_ptr<OfflinePageModelQuery> BuildPrefetchedPagesQuery(
-    OfflinePageModel* model) {
-  OfflinePageModelQueryBuilder builder;
-  builder.RequireNamespace(offline_pages::kSuggestedArticlesNamespace);
-  return builder.Build(model->GetPolicyController());
-}
 
 bool IsOfflineItemPrefetchedPage(const OfflinePageItem& offline_page_item) {
   return offline_page_item.client_id.name_space ==
@@ -42,12 +33,6 @@ PrefetchedPagesTrackerImpl::PrefetchedPagesTrackerImpl(
       offline_page_model_(offline_page_model),
       weak_ptr_factory_(this) {
   DCHECK(offline_page_model_);
-  // If Offline Page model is not loaded yet, it will process our query
-  // once it has finished loading.
-  offline_page_model_->GetPagesMatchingQuery(
-      BuildPrefetchedPagesQuery(offline_page_model),
-      base::Bind(&PrefetchedPagesTrackerImpl::Initialize,
-                 weak_ptr_factory_.GetWeakPtr()));
 }
 
 PrefetchedPagesTrackerImpl::~PrefetchedPagesTrackerImpl() {
@@ -58,18 +43,32 @@ bool PrefetchedPagesTrackerImpl::IsInitialized() const {
   return initialized_;
 }
 
-void PrefetchedPagesTrackerImpl::AddInitializationCompletedCallback(
+void PrefetchedPagesTrackerImpl::Initialize(
     base::OnceCallback<void()> callback) {
   if (IsInitialized()) {
     std::move(callback).Run();
+  } else {
+    initialization_completed_callbacks_.push_back(std::move(callback));
+    // The call to get pages might be already in flight, started by previous
+    // calls to this method. In this case, there is at least one callback
+    // already waiting.
+    if (initialization_completed_callbacks_.size() == 1) {
+      offline_page_model_->GetPagesByNamespace(
+          offline_pages::kSuggestedArticlesNamespace,
+          base::BindOnce(&PrefetchedPagesTrackerImpl::OfflinePagesLoaded,
+                         weak_ptr_factory_.GetWeakPtr()));
+    }
   }
-  initialization_completed_callbacks_.push_back(std::move(callback));
 }
 
 bool PrefetchedPagesTrackerImpl::PrefetchedOfflinePageExists(
     const GURL& url) const {
   DCHECK(initialized_);
-  return prefetched_urls_.count(url) == 1;
+  DCHECK(prefetched_url_counts_.count(url) == 0 ||
+         prefetched_url_counts_.find(url)->second > 0);
+  // It is enough to check existence of an item (instead of its count), because
+  // the mapping does not contain zero counts.
+  return prefetched_url_counts_.count(url) == 1;
 }
 
 void PrefetchedPagesTrackerImpl::OfflinePageModelLoaded(
@@ -87,16 +86,23 @@ void PrefetchedPagesTrackerImpl::OfflinePageAdded(
 
 void PrefetchedPagesTrackerImpl::OfflinePageDeleted(
     const offline_pages::OfflinePageModel::DeletedPageInfo& page_info) {
-  std::map<int64_t, GURL>::iterator it =
-      offline_id_to_url_mapping_.find(page_info.offline_id);
-  if (it != offline_id_to_url_mapping_.end()) {
-    DCHECK(prefetched_urls_.count(it->second));
-    prefetched_urls_.erase(it->second);
-    offline_id_to_url_mapping_.erase(it);
+  auto offline_id_it = offline_id_to_url_mapping_.find(page_info.offline_id);
+
+  if (offline_id_it == offline_id_to_url_mapping_.end()) {
+    // We did not know about this page, thus, nothing to delete.
+    return;
   }
+
+  auto url_it = prefetched_url_counts_.find(offline_id_it->second);
+  DCHECK(url_it != prefetched_url_counts_.end());
+  --url_it->second;
+  if (url_it->second == 0) {
+    prefetched_url_counts_.erase(url_it);
+  }
+  offline_id_to_url_mapping_.erase(offline_id_it);
 }
 
-void PrefetchedPagesTrackerImpl::Initialize(
+void PrefetchedPagesTrackerImpl::OfflinePagesLoaded(
     const std::vector<OfflinePageItem>& all_prefetched_offline_pages) {
   for (const OfflinePageItem& item : all_prefetched_offline_pages) {
     DCHECK(IsOfflineItemPrefetchedPage(item));
@@ -108,13 +114,15 @@ void PrefetchedPagesTrackerImpl::Initialize(
   for (auto& callback : initialization_completed_callbacks_) {
     std::move(callback).Run();
   }
+  initialization_completed_callbacks_.clear();
 }
 
 void PrefetchedPagesTrackerImpl::AddOfflinePage(
     const OfflinePageItem& offline_page_item) {
   const GURL& url = GetOfflinePageUrl(offline_page_item);
-  DCHECK(!prefetched_urls_.count(url));
-  prefetched_urls_.insert(url);
+  DCHECK(prefetched_url_counts_.count(url) == 0 ||
+         prefetched_url_counts_.find(url)->second > 0);
+  ++prefetched_url_counts_[url];
   offline_id_to_url_mapping_[offline_page_item.offline_id] = url;
 }
 

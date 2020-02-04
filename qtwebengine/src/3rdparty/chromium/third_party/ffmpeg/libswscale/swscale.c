@@ -74,8 +74,11 @@ static void hScale16To19_c(SwsContext *c, int16_t *_dst, int dstW,
     int bits            = desc->comp[0].depth - 1;
     int sh              = bits - 4;
 
-    if((isAnyRGB(c->srcFormat) || c->srcFormat==AV_PIX_FMT_PAL8) && desc->comp[0].depth<16)
-        sh= 9;
+    if ((isAnyRGB(c->srcFormat) || c->srcFormat==AV_PIX_FMT_PAL8) && desc->comp[0].depth<16) {
+        sh = 9;
+    } else if (desc->flags & AV_PIX_FMT_FLAG_FLOAT) { /* float input are process like uint 16bpc */
+        sh = 16 - 1 - 4;
+    }
 
     for (i = 0; i < dstW; i++) {
         int j;
@@ -99,8 +102,11 @@ static void hScale16To15_c(SwsContext *c, int16_t *dst, int dstW,
     const uint16_t *src = (const uint16_t *) _src;
     int sh              = desc->comp[0].depth - 1;
 
-    if(sh<15)
-        sh= isAnyRGB(c->srcFormat) || c->srcFormat==AV_PIX_FMT_PAL8 ? 13 : (desc->comp[0].depth - 1);
+    if (sh<15) {
+        sh = isAnyRGB(c->srcFormat) || c->srcFormat==AV_PIX_FMT_PAL8 ? 13 : (desc->comp[0].depth - 1);
+    } else if (desc->flags & AV_PIX_FMT_FLAG_FLOAT) { /* float input are process like uint 16bpc */
+        sh = 16 - 1;
+    }
 
     for (i = 0; i < dstW; i++) {
         int j;
@@ -326,7 +332,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
         static int warnedAlready=0;
         int cpu_flags = av_get_cpu_flags();
         if (HAVE_MMXEXT && (cpu_flags & AV_CPU_FLAG_SSE2) && !warnedAlready){
-            av_log(c, AV_LOG_WARNING, "Warning: data is not aligned! This can lead to a speedloss\n");
+            av_log(c, AV_LOG_WARNING, "Warning: data is not aligned! This can lead to a speed loss\n");
             warnedAlready=1;
         }
     }

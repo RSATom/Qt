@@ -49,7 +49,7 @@ class Q_LOCATION_EXPORT QPlaceSearchReply : public QPlaceReply
 {
     Q_OBJECT
 public:
-    explicit QPlaceSearchReply(QObject *parent = Q_NULLPTR);
+    explicit QPlaceSearchReply(QObject *parent = nullptr);
     ~QPlaceSearchReply();
 
     QPlaceReply::Type type() const;

@@ -19,6 +19,7 @@ class FunctionsWGL : angle::NonCopyable
 {
   public:
     FunctionsWGL();
+    ~FunctionsWGL();
 
     // Loads all available wgl functions, may be called multiple times
     void initialize(HMODULE glModule, HDC context);
@@ -89,6 +90,6 @@ class FunctionsWGL : angle::NonCopyable
     PFNWGLDXUNLOCKOBJECTSNVPROC dxUnlockObjectsNV;
 };
 
-}
+}  // namespace rx
 
-#endif // LIBANGLE_RENDERER_GL_WGL_FUNCTIONS_WGL
+#endif  // LIBANGLE_RENDERER_GL_WGL_FUNCTIONS_WGL

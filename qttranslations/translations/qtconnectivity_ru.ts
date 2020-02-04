@@ -188,43 +188,45 @@
     </message>
     <message>
         <source>Basic Direct Printing (BPP)</source>
-        <translation type="unfinished">Базовая прямая печать (BPP)</translation>
+        <translation>Базовая печать напрямую (базовый профиль печати)</translation>
     </message>
     <message>
         <source>Basic Reference Printing (BPP)</source>
-        <translation type="unfinished"></translation>
+        <translatorcomment>The content to be printed by the Printer is stored on the network with a reference to that content stored on the Sender.</translatorcomment>
+        <translation>Базовая печать по ссылке (базовый профиль печати)</translation>
     </message>
     <message>
         <source>Basic Imaging Profile</source>
-        <translation type="unfinished"></translation>
+        <translation>Базовый профиль обработки изображений</translation>
     </message>
     <message>
         <source>Basic Imaging Responder</source>
-        <translation type="unfinished"></translation>
+        <translation>Базовая обработка изображений — ответчик</translation>
     </message>
     <message>
         <source>Basic Imaging Archive</source>
-        <translation type="unfinished"></translation>
+        <translation>Базовая обработка изображений — архив</translation>
     </message>
     <message>
         <source>Basic Imaging Ref Objects</source>
-        <translation type="unfinished"></translation>
+        <translation>Базовая обработка изображений — объекты со ссылками</translation>
     </message>
     <message>
         <source>Hands-Free</source>
-        <translation type="unfinished"></translation>
+        <translation>Устройство, оставляющее руки свободными</translation>
     </message>
     <message>
         <source>Hands-Free AG</source>
-        <translation type="unfinished"></translation>
+        <translation>Устройство, оставляющее руки свободными (AG)</translation>
     </message>
     <message>
         <source>Basic Printing RefObject Service</source>
-        <translation type="unfinished"></translation>
+        <translation>Сервис базовой печати объектов со ссылками</translation>
     </message>
     <message>
         <source>Basic Printing Reflected UI</source>
-        <translation type="unfinished"></translation>
+        <translatorcomment>Printing using the Reflected User Interface option requires the Printer to retrieve all print content from the Sender, not just referenced image content.</translatorcomment>
+        <translation>Базовая печать — отражение интерфейса пользователя</translation>
     </message>
     <message>
         <source>Basic Printing</source>
@@ -240,19 +242,19 @@
     </message>
     <message>
         <source>Hardcopy Cable Replacement</source>
-        <translation type="unfinished"></translation>
+        <translation>Беспроводной доступ к устройствам</translation>
     </message>
     <message>
         <source>Hardcopy Cable Replacement Print</source>
-        <translation type="unfinished"></translation>
+        <translation>Беспроводная печать</translation>
     </message>
     <message>
         <source>Hardcopy Cable Replacement Scan</source>
-        <translation type="unfinished"></translation>
+        <translation>Беспроводное сканирование</translation>
     </message>
     <message>
         <source>SIM Access Server</source>
-        <translation type="unfinished"></translation>
+        <translation>Сервер доступа к SIM</translation>
     </message>
     <message>
         <source>Generic Access</source>
@@ -284,7 +286,7 @@
     </message>
     <message>
         <source>Next DST Change Service</source>
-        <translation type="unfinished">Сервис следующей смены летнего/зимнего времени</translation>
+        <translation>Сервис следующей смены летнего/зимнего времени</translation>
     </message>
     <message>
         <source>Glucose</source>
@@ -320,11 +322,11 @@
     </message>
     <message>
         <source>Scan Parameters</source>
-        <translation>Сканирование параметров</translation>
+        <translation>Параметры сканирования</translation>
     </message>
     <message>
         <source>Cycling Power</source>
-        <translation type="unfinished">Энергия велосипедиста</translation>
+        <translation>Энергия велосипедиста</translation>
     </message>
     <message>
         <source>Location and Navigation</source>
@@ -336,7 +338,7 @@
     </message>
     <message>
         <source>User Datagram Protocol</source>
-        <translation>Протокол пользовательских датаграм</translation>
+        <translation>Протокол пользовательских датаграмм</translation>
     </message>
     <message>
         <source>Radio Frequency Communication</source>
@@ -348,7 +350,7 @@
     </message>
     <message>
         <source>Telephony Control Specification - Binary</source>
-        <translation>Спецификация управления телефоном - Двоичная</translation>
+        <translation>Спецификация управления телефоном - двоичная</translation>
     </message>
     <message>
         <source>Telephony Control Specification - AT</source>
@@ -380,7 +382,7 @@
     </message>
     <message>
         <source>Bluetooth Network Encapsulation Protocol</source>
-        <translation type="unfinished">Протокол сетевой инкапсуляции Bluetooth</translation>
+        <translation>Протокол сетевой инкапсуляции Bluetooth</translation>
     </message>
     <message>
         <source>Extended Service Discovery Protocol</source>
@@ -392,19 +394,19 @@
     </message>
     <message>
         <source>Hardcopy Control Channel</source>
-        <translation type="unfinished"></translation>
+        <translation>Канал управления беспроводного доступа к устройствам</translation>
     </message>
     <message>
         <source>Hardcopy Data Channel</source>
-        <translation type="unfinished"></translation>
+        <translation>Канал данных беспроводного доступа к устройствам</translation>
     </message>
     <message>
         <source>Hardcopy Notification</source>
-        <translation type="unfinished"></translation>
+        <translation>Уведомление беспроводного доступа к устройствам</translation>
     </message>
     <message>
         <source>Audio/Video Control Transport Protocol</source>
-        <translation>Транспортный протокол управленияв видео и звуком</translation>
+        <translation>Транспортный протокол управления видео и звуком</translation>
     </message>
     <message>
         <source>Audio/Video Distribution Transport Protocol</source>
@@ -416,11 +418,11 @@
     </message>
     <message>
         <source>UdiCPlain</source>
-        <translation type="unfinished"></translation>
+        <translation>UdiCPlain</translation>
     </message>
     <message>
         <source>Running Speed and Cadence</source>
-        <translation>Скорость бега и темп</translation>
+        <translation>Скорость и темп бега</translation>
     </message>
     <message>
         <source>Cycling Speed and Cadence</source>
@@ -428,7 +430,7 @@
     </message>
     <message>
         <source>Environmental Sensing</source>
-        <translation type="unfinished">Восприятие среды</translation>
+        <translation>Восприятие окружающей среды</translation>
     </message>
     <message>
         <source>Body Composition</source>
@@ -453,11 +455,11 @@
     </message>
     <message>
         <source>Multi-Channel Adaptation Protocol - Control</source>
-        <translation type="unfinished"></translation>
+        <translation>Протокол многоканальной адаптации — управление</translation>
     </message>
     <message>
         <source>Multi-Channel Adaptation Protocol - Data</source>
-        <translation type="unfinished"></translation>
+        <translation>Протокол мультиканальной адаптации — данные</translation>
     </message>
     <message>
         <source>Layer 2 Control Protocol</source>
@@ -466,31 +468,31 @@
     <message>
         <source>GAP Device Name</source>
         <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
-        <translation type="unfinished">GAP: Название устройства</translation>
+        <translation>Общий профиль доступа: название устройства</translation>
     </message>
     <message>
         <source>GAP Appearance</source>
         <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
-        <translation type="unfinished">GAP: Появление</translation>
+        <translation>Общий профиль доступа: появление</translation>
     </message>
     <message>
         <source>GAP Peripheral Privacy Flag</source>
         <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
-        <translation type="unfinished">GAP: Флаг приватности оборудования</translation>
+        <translation>Общий профиль доступа: флаг приватности оборудования</translation>
     </message>
     <message>
         <source>GAP Reconnection Address</source>
         <extracomment>GAP: Generic Access Profile (Bluetooth)</extracomment>
-        <translation type="unfinished">GAP: Адрес переподключения</translation>
+        <translation>Общий профиль доступа: адрес переподключения</translation>
     </message>
     <message>
         <source>GAP Peripheral Preferred Connection Parameters</source>
-        <translation type="unfinished">GAP: Предпочитаемые параметры подключения оборудования</translation>
+        <translation>Общий профиль доступа: предпочитаемые параметры подключения оборудования</translation>
     </message>
     <message>
         <source>GATT Service Changed</source>
         <extracomment>GATT: _G_eneric _Att_ribute Profile (Bluetooth)</extracomment>
-        <translation>Сервис GATT изменён</translation>
+        <translation>Сервис общего профиля атрибутов изменён</translation>
     </message>
     <message>
         <source>Alert Level</source>
@@ -578,7 +580,7 @@
     </message>
     <message>
         <source>Boot Keyboard Input Report</source>
-        <translation type="unfinished"></translation>
+        <translation>Отчёт о получаемых от клавиатуры данных при запуске</translation>
     </message>
     <message>
         <source>System ID</source>
@@ -610,7 +612,7 @@
     </message>
     <message>
         <source>IEEE 11073 20601 Regulatory Certification Data List</source>
-        <translation type="unfinished"></translation>
+        <translation>Список соответствия стандарту IEEE 11073 20601</translation>
     </message>
     <message>
         <source>Current Time</source>
@@ -622,11 +624,11 @@
     </message>
     <message>
         <source>Boot Keyboard Output Report</source>
-        <translation type="unfinished"></translation>
+        <translation>Отчёт об отправляемых клавиатуре данных при запуске</translation>
     </message>
     <message>
         <source>Boot Mouse Input Report</source>
-        <translation type="unfinished"></translation>
+        <translation>Отчёт о получаемых от мыши данных при запуске</translation>
     </message>
     <message>
         <source>Glucose Measurement Context</source>
@@ -686,11 +688,11 @@
     </message>
     <message>
         <source>Supported New Alert Category</source>
-        <translation>Поддерживаемая новая категория вызовов</translation>
+        <translation>Поддерживаемая категория новых вызовов</translation>
     </message>
     <message>
         <source>Supported Unread Alert Category</source>
-        <translation>Поддерживаемая непрочитанная категория вызовов</translation>
+        <translation>Поддерживаемая категория непрочитанных вызовов</translation>
     </message>
     <message>
         <source>Blood Pressure Feature</source>
@@ -743,7 +745,7 @@
     <message>
         <source>RSC Feature</source>
         <extracomment>RSC: Running Speed and Cadence</extracomment>
-        <translation>Функция измерения скрости бега и темпа</translation>
+        <translation>Функция измерения скорости и темпа бега</translation>
     </message>
     <message>
         <source>SC Control Point</source>
@@ -765,19 +767,19 @@
     </message>
     <message>
         <source>Cycling Power Measurement</source>
-        <translation type="unfinished">Измерение расхода энергии на велосипеде</translation>
+        <translation>Измерение расхода энергии на велосипеде</translation>
     </message>
     <message>
         <source>Cycling Power Vector</source>
-        <translation type="unfinished">Вектор расхода энергии на велосипеде</translation>
+        <translation>Вектор расхода энергии на велосипеде</translation>
     </message>
     <message>
         <source>Cycling Power Feature</source>
-        <translation type="unfinished">Функция измерения расхода энергии на велосипеде</translation>
+        <translation>Функция измерения расхода энергии на велосипеде</translation>
     </message>
     <message>
         <source>Cycling Power Control Point</source>
-        <translation type="unfinished">Контрольная точка расхода энергии на велосипеде</translation>
+        <translation>Контрольная точка расхода энергии на велосипеде</translation>
     </message>
     <message>
         <source>Server Characteristic Configuration</source>
@@ -785,15 +787,15 @@
     </message>
     <message>
         <source>Environmental Sensing Configuration</source>
-        <translation type="unfinished">Настройка восприятия среды</translation>
+        <translation>Настройка восприятия окружающей среды</translation>
     </message>
     <message>
         <source>Environmental Sensing Measurement</source>
-        <translation type="unfinished">Измерение восприятия среды</translation>
+        <translation>Измерение условий окружающей среды</translation>
     </message>
     <message>
         <source>Environmental Sensing Trigger Setting</source>
-        <translation type="unfinished"></translation>
+        <translation>Настройка уведомлений об условиях окружающей среды</translation>
     </message>
     <message>
         <source>Location And Speed</source>
@@ -809,18 +811,17 @@
     </message>
     <message>
         <source>LN Feature</source>
-        <translation type="unfinished">Геолокация</translation>
+        <translation>Геолокация</translation>
     </message>
     <message>
         <source>LN Control Point</source>
-        <translatorcomment>бред какой-то</translatorcomment>
-        <translation type="unfinished">Контрольная точка геолокации</translation>
+        <translatorcomment>LN Control Point characteristic is used to request a specific function to be executed on the receiving device</translatorcomment>
+        <translation>Контрольная точка геолокации</translation>
     </message>
     <message>
         <source>Magnetic Declination</source>
         <extracomment>Angle between geographic and magnetic north</extracomment>
-        <translatorcomment>Требуется консультация специалиста</translatorcomment>
-        <translation type="unfinished">Магнитное отклонение</translation>
+        <translation>Магнитное отклонение</translation>
     </message>
     <message>
         <source>Elevation</source>
@@ -860,7 +861,7 @@
     <message>
         <source>Gust Factor</source>
         <extracomment>Factor by which wind gust is stronger than average wind</extracomment>
-        <translation type="unfinished">Сила порывов ветра</translation>
+        <translation>Сила порывов ветра</translation>
     </message>
     <message>
         <source>Pollen Concentration</source>
@@ -950,8 +951,7 @@
     </message>
     <message>
         <source>5-Zone Heart Rate Limits</source>
-        <translatorcomment>нужна консультация специалиста</translatorcomment>
-        <translation type="unfinished"></translation>
+        <translation>Граничные значения ЧСС (5 зон)</translation>
     </message>
     <message>
         <source>Gender</source>
@@ -984,21 +984,21 @@
     </message>
     <message>
         <source>Sport Type For Aerobic/Anaerobic Thresholds</source>
-        <translation type="unfinished">Тип спорта для аэробных и анаэробных нагрузок</translation>
+        <translation>Тип спорта для аэробных и анаэробных нагрузок</translation>
     </message>
     <message>
         <source>3-Zone Heart Rate Limits</source>
-        <translatorcomment>нужна консультация специалиста</translatorcomment>
-        <translation type="unfinished"></translation>
+        <translatorcomment>the limits between the heart rate zones for the 3-zone heart rate definition (Hard, Moderate and Light)</translatorcomment>
+        <translation>Граничные значения ЧСС (3 зоны)</translation>
     </message>
     <message>
         <source>2-Zone Heart Rate Limits</source>
-        <translatorcomment>нужна консультация специалиста</translatorcomment>
-        <translation type="unfinished"></translation>
+        <translatorcomment>Heart rate limit between the heart rate zones for the 2-zone heart rate definition (Fitness and Fat Burn)</translatorcomment>
+        <translation>Граничное значение ЧСС (2 зоны)</translation>
     </message>
     <message>
         <source>Oxygen Uptake</source>
-        <translation>Потребления кислорода</translation>
+        <translation>Потребление кислорода</translation>
     </message>
     <message>
         <source>Waist Circumference</source>
@@ -1011,19 +1011,19 @@
     <message>
         <source>Database Change Increment</source>
         <extracomment>Environmental sensing related</extracomment>
-        <translation type="unfinished">Изменение базы данных</translation>
+        <translation>Изменение базы данных</translation>
     </message>
     <message>
         <source>User Index</source>
-        <translation type="unfinished">Пользовательский индекс</translation>
+        <translation>Пользовательский индекс</translation>
     </message>
     <message>
         <source>Body Composition Feature</source>
-        <translation>Функция измерения строения тела</translation>
+        <translation>Функция измерения состава тела</translation>
     </message>
     <message>
         <source>Body Composition Measurement</source>
-        <translation>Измерение строения тела</translation>
+        <translation>Измерение состава тела</translation>
     </message>
     <message>
         <source>Weight Measurement</source>
@@ -1031,7 +1031,7 @@
     </message>
     <message>
         <source>User Control Point</source>
-        <translation type="unfinished">Пользовательская контрольная точка</translation>
+        <translation>Пользовательская контрольная точка</translation>
     </message>
     <message>
         <source>Magnetic Flux Density 2D</source>
@@ -1051,23 +1051,23 @@
     </message>
     <message>
         <source>Characteristic Extended Properties</source>
-        <translation type="unfinished">Расширенные свойства характеристики</translation>
+        <translation>Расширенные свойства характеристики</translation>
     </message>
     <message>
         <source>Characteristic User Description</source>
-        <translation type="unfinished">Пользовательское описание характеристики</translation>
+        <translation>Пользовательское описание характеристики</translation>
     </message>
     <message>
         <source>Client Characteristic Configuration</source>
-        <translation type="unfinished">Конфигурация характеристики клиента</translation>
+        <translation>Конфигурация характеристики клиента</translation>
     </message>
     <message>
         <source>Characteristic Presentation Format</source>
-        <translation type="unfinished">Формат представления характеристики</translation>
+        <translation>Формат представления характеристики</translation>
     </message>
     <message>
         <source>Characteristic Aggregate Format</source>
-        <translation type="unfinished">Формат аггрегирования характеристики</translation>
+        <translation>Формат агрегирования характеристики</translation>
     </message>
     <message>
         <source>Valid Range</source>
@@ -1083,11 +1083,13 @@
     </message>
     <message>
         <source>Phonebook Access PCE</source>
-        <translation type="unfinished">Доступ к телефонной книге PCE</translation>
+        <translatorcomment>PCE — Phonebook Сlient Equipment</translatorcomment>
+        <translation>Доступ к телефонной книге (клиент)</translation>
     </message>
     <message>
         <source>Phonebook Access PSE</source>
-        <translation type="unfinished">Доступ к телефонной книге PSE</translation>
+        <translatorcomment>PSE — Phonebook Server Equipment</translatorcomment>
+        <translation>Доступ к телефонной книге (сервер)</translation>
     </message>
     <message>
         <source>Phonebook Access</source>
@@ -1123,15 +1125,15 @@
     </message>
     <message>
         <source>3D Synchronization Glasses</source>
-        <translation type="unfinished">Очки 3D-синхронизированные</translation>
+        <translation>Очки 3D-синхронизации</translation>
     </message>
     <message>
         <source>3D Synchronization</source>
-        <translation type="unfinished">Синхронизация 3D</translation>
+        <translation>Синхронизация 3D</translation>
     </message>
     <message>
         <source>Multi-Profile Specification (Profile)</source>
-        <translation type="unfinished">Многопрофильная спецификация (профиль)</translation>
+        <translation>Многопрофильная спецификация (профиль)</translation>
     </message>
     <message>
         <source>Multi-Profile Specification</source>
@@ -1172,17 +1174,17 @@
     <message>
         <source>Health Device</source>
         <translatorcomment>нужна консультация специалиста</translatorcomment>
-        <translation type="unfinished">Медицинский прибор</translation>
+        <translation>Медицинский прибор</translation>
     </message>
     <message>
         <source>Health Device Source</source>
         <translatorcomment>нужна консультация специалиста</translatorcomment>
-        <translation type="unfinished">Выход медицинского прибора</translation>
+        <translation>Выход медицинского прибора</translation>
     </message>
     <message>
         <source>Health Device Sink</source>
         <translatorcomment>нужна консультация специалиста</translatorcomment>
-        <translation type="unfinished">Вход медицинского прибора</translation>
+        <translation>Вход медицинского прибора</translation>
     </message>
     <message>
         <source>Device is powered off</source>
@@ -1234,10 +1236,6 @@
     <message>
         <source>Unknown socket error</source>
         <translation>Неизвестная ошибка сокета</translation>
-    </message>
-    <message>
-        <source>Connecting to port is not supported</source>
-        <translation>Подключение к порту не поддерживается</translation>
     </message>
     <message>
         <source>Service cannot be found</source>
@@ -1329,6 +1327,44 @@
     <message>
         <source>Host refused connection</source>
         <translation>Узел отклонил подключение</translation>
+    </message>
+    <message>
+        <source>Cannot export profile on DBus</source>
+        <translation>Нельзя экспортировать профиль на DBus</translation>
+    </message>
+    <message>
+        <source>Cannot register profile on DBus</source>
+        <translation>Нельзя зарегистрировать профиль на DBus</translation>
+    </message>
+    <message>
+        <source>Cannot find remote device</source>
+        <translation>Нельзя найти внешнее устройство</translation>
+    </message>
+    <message>
+        <source>Cannot connect to remote profile</source>
+        <translation>Нельзя подключиться к внешнему профилю</translation>
+    </message>
+    <message>
+        <source>Missing serviceUuid or Serial Port service class uuid</source>
+        <translation>Отсутствуют serviceUuid или UUID класса сервиса последовательного порта</translation>
+    </message>
+    <message>
+        <source>Invalid Bluetooth address passed to connectToService()</source>
+        <translation>Неверный адрес Bluetooth передан в connectToService()</translation>
+    </message>
+</context>
+<context>
+    <name>QBluetoothSocketPrivateAndroid</name>
+    <message>
+        <source>Connecting to port is not supported</source>
+        <translation>Подключение к порту не поддерживается</translation>
+    </message>
+</context>
+<context>
+    <name>QBluetoothSocketPrivateBluezDBus</name>
+    <message>
+        <source>Connecting to port is not supported via Bluez DBus</source>
+        <translation>Подключение к порту не поддерживается через Bluez DBus</translation>
     </message>
 </context>
 <context>

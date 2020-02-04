@@ -7,15 +7,13 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#ifndef WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_OVERUSE_DETECTOR_H_
-#define WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_OVERUSE_DETECTOR_H_
+#ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_OVERUSE_DETECTOR_H_
+#define MODULES_REMOTE_BITRATE_ESTIMATOR_OVERUSE_DETECTOR_H_
 
-#include <list>
+#include <stdint.h>
 
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/modules/remote_bitrate_estimator/include/bwe_defines.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/typedefs.h"
+#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -59,4 +57,4 @@ class OveruseDetector {
 };
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_OVERUSE_DETECTOR_H_
+#endif  // MODULES_REMOTE_BITRATE_ESTIMATOR_OVERUSE_DETECTOR_H_

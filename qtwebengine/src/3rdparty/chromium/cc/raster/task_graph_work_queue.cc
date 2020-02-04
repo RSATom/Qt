@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 
 namespace cc {
@@ -51,7 +52,7 @@ class DependentIterator {
       : graph_(graph),
         task_(task),
         current_index_(static_cast<size_t>(-1)),
-        current_node_(NULL) {
+        current_node_(nullptr) {
     ++(*this);
   }
 
@@ -79,11 +80,11 @@ class DependentIterator {
     } while (graph_->edges[current_index_].task != task_);
 
     // Now find the node for the dependent of this edge.
-    TaskGraph::Node::Vector::iterator it = std::find_if(
-        graph_->nodes.begin(), graph_->nodes.end(),
-        [this](const TaskGraph::Node& node) {
-          return node.task == graph_->edges[current_index_].dependent;
-        });
+    auto it = std::find_if(graph_->nodes.begin(), graph_->nodes.end(),
+                           [this](const TaskGraph::Node& node) {
+                             return node.task ==
+                                    graph_->edges[current_index_].dependent;
+                           });
     DCHECK(it != graph_->nodes.end());
     current_node_ = &(*it);
 
@@ -101,15 +102,15 @@ class DependentIterator {
 
 }  // namespace
 
-TaskGraphWorkQueue::TaskNamespace::TaskNamespace() {}
+TaskGraphWorkQueue::TaskNamespace::TaskNamespace() = default;
 
 TaskGraphWorkQueue::TaskNamespace::TaskNamespace(TaskNamespace&& other) =
     default;
 
-TaskGraphWorkQueue::TaskNamespace::~TaskNamespace() {}
+TaskGraphWorkQueue::TaskNamespace::~TaskNamespace() = default;
 
 TaskGraphWorkQueue::TaskGraphWorkQueue() : next_namespace_id_(1) {}
-TaskGraphWorkQueue::~TaskGraphWorkQueue() {}
+TaskGraphWorkQueue::~TaskGraphWorkQueue() = default;
 
 TaskGraphWorkQueue::PrioritizedTask::PrioritizedTask(
     scoped_refptr<Task> task,
@@ -151,11 +152,11 @@ void TaskGraphWorkQueue::ScheduleTasks(NamespaceToken token, TaskGraph* graph) {
     // Remove any old nodes that are associated with this task. The result is
     // that the old graph is left with all nodes not present in this graph,
     // which we use below to determine what tasks need to be canceled.
-    TaskGraph::Node::Vector::iterator old_it = std::find_if(
-        task_namespace.graph.nodes.begin(), task_namespace.graph.nodes.end(),
-        [&node](const TaskGraph::Node& other) {
-          return node.task == other.task;
-        });
+    auto old_it = std::find_if(task_namespace.graph.nodes.begin(),
+                               task_namespace.graph.nodes.end(),
+                               [&node](const TaskGraph::Node& other) {
+                                 return node.task == other.task;
+                               });
     if (old_it != task_namespace.graph.nodes.end()) {
       std::swap(*old_it, task_namespace.graph.nodes.back());
       // If old task is scheduled to run again and not yet started running,
@@ -199,8 +200,7 @@ void TaskGraphWorkQueue::ScheduleTasks(NamespaceToken token, TaskGraph* graph) {
   task_namespace.graph.Swap(graph);
 
   // Determine what tasks in old graph need to be canceled.
-  for (TaskGraph::Node::Vector::iterator it = graph->nodes.begin();
-       it != graph->nodes.end(); ++it) {
+  for (auto it = graph->nodes.begin(); it != graph->nodes.end(); ++it) {
     TaskGraph::Node& node = *it;
 
     // Skip if already finished running task.
@@ -215,9 +215,7 @@ void TaskGraphWorkQueue::ScheduleTasks(NamespaceToken token, TaskGraph* graph) {
                     }))
       continue;
 
-    DCHECK(std::find(task_namespace.completed_tasks.begin(),
-                     task_namespace.completed_tasks.end(),
-                     node.task) == task_namespace.completed_tasks.end());
+    DCHECK(!base::ContainsValue(task_namespace.completed_tasks, node.task));
     node.task->state().DidCancel();
     task_namespace.completed_tasks.push_back(node.task);
   }
@@ -328,9 +326,7 @@ void TaskGraphWorkQueue::CompleteTask(PrioritizedTask completed_task) {
         TaskNamespace::Vector& ready_to_run_namespaces =
             ready_to_run_namespaces_[dependent_node.category];
 
-        DCHECK(std::find(ready_to_run_namespaces.begin(),
-                         ready_to_run_namespaces.end(),
-                         task_namespace) == ready_to_run_namespaces.end());
+        DCHECK(!base::ContainsValue(ready_to_run_namespaces, task_namespace));
         ready_to_run_namespaces.push_back(task_namespace);
       }
       ready_to_run_namespaces_has_heap_properties = false;
@@ -356,7 +352,7 @@ void TaskGraphWorkQueue::CompleteTask(PrioritizedTask completed_task) {
 
 void TaskGraphWorkQueue::CollectCompletedTasks(NamespaceToken token,
                                                Task::Vector* completed_tasks) {
-  TaskNamespaceMap::iterator it = namespaces_.find(token);
+  auto it = namespaces_.find(token);
   if (it == namespaces_.end())
     return;
 

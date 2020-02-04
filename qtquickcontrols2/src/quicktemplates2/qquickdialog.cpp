@@ -183,7 +183,13 @@ QQuickDialog::QQuickDialog(QObject *parent)
     : QQuickPopup(*(new QQuickDialogPrivate), parent)
 {
     Q_D(QQuickDialog);
-    d->layout.reset(new QQuickPageLayout(d->popupItem));
+    connect(d->popupItem, &QQuickPopupItem::titleChanged, this, &QQuickDialog::titleChanged);
+    connect(d->popupItem, &QQuickPopupItem::headerChanged, this, &QQuickDialog::headerChanged);
+    connect(d->popupItem, &QQuickPopupItem::footerChanged, this, &QQuickDialog::footerChanged);
+    connect(d->popupItem, &QQuickPopupItem::implicitHeaderWidthChanged, this, &QQuickDialog::implicitHeaderWidthChanged);
+    connect(d->popupItem, &QQuickPopupItem::implicitHeaderHeightChanged, this, &QQuickDialog::implicitHeaderHeightChanged);
+    connect(d->popupItem, &QQuickPopupItem::implicitFooterWidthChanged, this, &QQuickDialog::implicitFooterWidthChanged);
+    connect(d->popupItem, &QQuickPopupItem::implicitFooterHeightChanged, this, &QQuickDialog::implicitFooterHeightChanged);
 }
 
 /*!
@@ -206,18 +212,14 @@ QQuickDialog::QQuickDialog(QObject *parent)
 QString QQuickDialog::title() const
 {
     Q_D(const QQuickDialog);
-    return d->title;
+    return d->popupItem->title();
 }
 
 void QQuickDialog::setTitle(const QString &title)
 {
     Q_D(QQuickDialog);
-    if (d->title == title)
-        return;
-
-    d->title = title;
+    d->popupItem->setTitle(title);
     setAccessibleName(title);
-    emit titleChanged();
 }
 
 /*!
@@ -239,14 +241,14 @@ void QQuickDialog::setTitle(const QString &title)
 QQuickItem *QQuickDialog::header() const
 {
     Q_D(const QQuickDialog);
-    return d->layout->header();
+    return d->popupItem->header();
 }
 
 void QQuickDialog::setHeader(QQuickItem *header)
 {
     Q_D(QQuickDialog);
-    QQuickItem *oldHeader = d->layout->header();
-    if (!d->layout->setHeader(header))
+    QQuickItem *oldHeader = d->popupItem->header();
+    if (oldHeader == header)
         return;
 
     if (QQuickDialogButtonBox *buttonBox = qobject_cast<QQuickDialogButtonBox *>(oldHeader)) {
@@ -256,6 +258,7 @@ void QQuickDialog::setHeader(QQuickItem *header)
         if (d->buttonBox == buttonBox)
             d->buttonBox = nullptr;
     }
+
     if (QQuickDialogButtonBox *buttonBox = qobject_cast<QQuickDialogButtonBox *>(header)) {
         connect(buttonBox, &QQuickDialogButtonBox::accepted, this, &QQuickDialog::accept);
         connect(buttonBox, &QQuickDialogButtonBox::rejected, this, &QQuickDialog::reject);
@@ -264,9 +267,7 @@ void QQuickDialog::setHeader(QQuickItem *header)
         buttonBox->setStandardButtons(d->standardButtons);
     }
 
-    if (isComponentComplete())
-        d->layout->update();
-    emit headerChanged();
+    d->popupItem->setHeader(header);
 }
 
 /*!
@@ -288,14 +289,14 @@ void QQuickDialog::setHeader(QQuickItem *header)
 QQuickItem *QQuickDialog::footer() const
 {
     Q_D(const QQuickDialog);
-    return d->layout->footer();
+    return d->popupItem->footer();
 }
 
 void QQuickDialog::setFooter(QQuickItem *footer)
 {
     Q_D(QQuickDialog);
-    QQuickItem *oldFooter = d->layout->footer();
-    if (!d->layout->setFooter(footer))
+    QQuickItem *oldFooter = d->popupItem->footer();
+    if (oldFooter == footer)
         return;
 
     if (QQuickDialogButtonBox *buttonBox = qobject_cast<QQuickDialogButtonBox *>(oldFooter)) {
@@ -313,9 +314,7 @@ void QQuickDialog::setFooter(QQuickItem *footer)
         buttonBox->setStandardButtons(d->standardButtons);
     }
 
-    if (isComponentComplete())
-        d->layout->update();
-    emit footerChanged();
+    d->popupItem->setFooter(footer);
 }
 
 /*!
@@ -413,6 +412,74 @@ void QQuickDialog::setResult(int result)
 }
 
 /*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Dialog::implicitHeaderWidth
+    \readonly
+
+    This property holds the implicit header width.
+
+    The value is equal to \c {header && header.visible ? header.implicitWidth : 0}.
+
+    \sa implicitHeaderHeight, implicitFooterWidth
+*/
+qreal QQuickDialog::implicitHeaderWidth() const
+{
+    Q_D(const QQuickDialog);
+    return d->popupItem->implicitHeaderWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Dialog::implicitHeaderHeight
+    \readonly
+
+    This property holds the implicit header height.
+
+    The value is equal to \c {header && header.visible ? header.implicitHeight : 0}.
+
+    \sa implicitHeaderWidth, implicitFooterHeight
+*/
+qreal QQuickDialog::implicitHeaderHeight() const
+{
+    Q_D(const QQuickDialog);
+    return d->popupItem->implicitHeaderHeight();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Dialog::implicitFooterWidth
+    \readonly
+
+    This property holds the implicit footer width.
+
+    The value is equal to \c {footer && footer.visible ? footer.implicitWidth : 0}.
+
+    \sa implicitFooterHeight, implicitHeaderWidth
+*/
+qreal QQuickDialog::implicitFooterWidth() const
+{
+    Q_D(const QQuickDialog);
+    return d->popupItem->implicitFooterWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Dialog::implicitFooterHeight
+    \readonly
+
+    This property holds the implicit footer height.
+
+    The value is equal to \c {footer && footer.visible ? footer.implicitHeight : 0}.
+
+    \sa implicitFooterWidth, implicitHeaderHeight
+*/
+qreal QQuickDialog::implicitFooterHeight() const
+{
+    Q_D(const QQuickDialog);
+    return d->popupItem->implicitFooterHeight();
+}
+
+/*!
     \qmlmethod void QtQuick.Controls::Dialog::accept()
 
     Closes the dialog and emits the \l accepted() signal.
@@ -457,27 +524,6 @@ void QQuickDialog::done(int result)
         emit rejected();
 }
 
-void QQuickDialog::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
-{
-    Q_D(QQuickDialog);
-    QQuickPopup::geometryChanged(newGeometry, oldGeometry);
-    d->layout->update();
-}
-
-void QQuickDialog::paddingChange(const QMarginsF &newPadding, const QMarginsF &oldPadding)
-{
-    Q_D(QQuickDialog);
-    QQuickPopup::paddingChange(newPadding, oldPadding);
-    d->layout->update();
-}
-
-void QQuickDialog::spacingChange(qreal newSpacing, qreal oldSpacing)
-{
-    Q_D(QQuickDialog);
-    QQuickPopup::spacingChange(newSpacing, oldSpacing);
-    d->layout->update();
-}
-
 #if QT_CONFIG(accessibility)
 QAccessible::Role QQuickDialog::accessibleRole() const
 {
@@ -490,7 +536,7 @@ void QQuickDialog::accessibilityActiveChanged(bool active)
     QQuickPopup::accessibilityActiveChanged(active);
 
     if (active)
-        setAccessibleName(d->title);
+        setAccessibleName(d->popupItem->title());
 }
 #endif
 

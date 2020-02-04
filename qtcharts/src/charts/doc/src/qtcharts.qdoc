@@ -3,9 +3,9 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the Qt Charts module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:GPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,21 +14,19 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 or (at your option) any later version
-** approved by the KDE Free Qt Foundation. The licenses are as published by
-** the Free Software Foundation and appearing in the file LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
 /*!
-    \module Qt Charts
+    \module QtCharts
     \title Qt Charts C++ Classes
     \ingroup modules
 
@@ -37,20 +35,31 @@
     Charts API is built on top of Qt Graphics View Framework. Charts can be displayed as QGraphicsWidget using the QChart class. However
     there is also the convenience class QChartView, which is QWidget based. These enable us to quickly use Qt Charts as a normal Qt widget.
 
+    If you intend to use Qt Charts C++ classes in your application, use the
+    following include and using directives:
+
+    \snippet doc_src_qtcharts.cpp 0
+
+    \if !defined(qtforpython)
+    \note Projects created with Qt Creator's Qt Quick Application
+    wizard are based on the Qt Quick 2 template that uses QGuiApplication by default.
+    All such QGuiApplication instances in the project must be replaced with
+    QApplication as the module depends on Qt's \l{Graphics View Framework}
+    for rendering.
+
+    To link against the Qt Charts module, add this line to your \c qmake project file:
+
+    \snippet doc_src_qtcharts.pro 0
+    \endif
+
     Each chart type is represented by the QAbstractSeries derived class. To create charts, the users have to use an instance of the related
     series class and add it to a QChart instance.
-    \code
-    QLineSeries* series = new QLineSeries();
-    series->add(0, 6);
-    series->add(2, 4);
-    ...
-    chartView->chart()->addSeries(series);
-    chartView->chart()->createDefaultAxes();
-    \endcode
+
+    \snippet doc_src_qtcharts.cpp 3
 */
 
 /*!
-    \qmlmodule QtCharts 2.2
+    \qmlmodule QtCharts 2.\QtMinorVersion
     \title Qt Charts QML Types
     \ingroup qmlmodules
 

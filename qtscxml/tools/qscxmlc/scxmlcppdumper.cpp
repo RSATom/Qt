@@ -108,13 +108,10 @@ static void genTemplate(QTextStream &out, const QString &filename, const Replace
     if (!file.isValid()) {
         qFatal("Unable to open template '%s'", qPrintable(filename));
     }
+    Q_ASSERT(file.compressionAlgorithm() == QResource::NoCompression);
     QByteArray data;
-    if (file.isCompressed() && file.size()) {
-        data = qUncompress(file.data(), int(file.size()));
-    } else {
-        data = QByteArray::fromRawData(reinterpret_cast<const char *>(file.data()),
-                                       int(file.size()));
-    }
+    data = QByteArray::fromRawData(reinterpret_cast<const char *>(file.data()),
+                                   int(file.size()));
     const QString t = QString::fromLatin1(data);
     data.clear();
 

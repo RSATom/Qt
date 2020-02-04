@@ -76,18 +76,18 @@ class BluetoothInterfaceDeviceTest : public testing::Test {
     ON_CALL(*adapter_, GetDevice(kTestLeDeviceAddress0))
         .WillByDefault(Return(&device_));
 
-    auto service1 = base::MakeUnique<NiceMockBluetoothGattService>(
+    auto service1 = std::make_unique<NiceMockBluetoothGattService>(
         &device_, kTestServiceId0, device::BluetoothUUID(kTestServiceUuid0),
         true /* is_primary */, false /* is_local */);
 
     auto characteristic1 =
-        base::MakeUnique<NiceMockBluetoothGattCharacteristic>(
+        std::make_unique<NiceMockBluetoothGattCharacteristic>(
             service1.get(), kTestCharacteristicId0,
             device::BluetoothUUID(kTestCharacteristicUuid0),
             false /* is_local */, kReadWriteProperties, 0 /* permissions */);
 
     auto characteristic2 =
-        base::MakeUnique<NiceMockBluetoothGattCharacteristic>(
+        std::make_unique<NiceMockBluetoothGattCharacteristic>(
             service1.get(), kTestCharacteristicId1,
             device::BluetoothUUID(kTestCharacteristicUuid1),
             false /* is_local */, kReadWriteProperties, 0 /* permissions */);
@@ -95,27 +95,17 @@ class BluetoothInterfaceDeviceTest : public testing::Test {
     service1->AddMockCharacteristic(std::move(characteristic1));
     service1->AddMockCharacteristic(std::move(characteristic2));
 
-    auto service2 = base::MakeUnique<NiceMockBluetoothGattService>(
+    auto service2 = std::make_unique<NiceMockBluetoothGattService>(
         &device_, kTestServiceId1, device::BluetoothUUID(kTestServiceUuid1),
         true /* is_primary */, false /* is_local */);
 
     auto characteristic3 =
-        base::MakeUnique<NiceMockBluetoothGattCharacteristic>(
+        std::make_unique<NiceMockBluetoothGattCharacteristic>(
             service2.get(), kTestCharacteristicId2,
             device::BluetoothUUID(kTestCharacteristicUuid2),
             false /* is_local */, kAllProperties, 0 /* permissions */);
 
     service2->AddMockCharacteristic(std::move(characteristic3));
-
-    EXPECT_CALL(*service1, GetCharacteristics())
-        .WillRepeatedly(
-            Invoke(service1.get(),
-                   &device::MockBluetoothGattService::GetMockCharacteristics));
-
-    EXPECT_CALL(*service2, GetCharacteristics())
-        .WillRepeatedly(
-            Invoke(service2.get(),
-                   &device::MockBluetoothGattService::GetMockCharacteristics));
 
     device_.AddMockService(std::move(service1));
     device_.AddMockService(std::move(service2));
@@ -128,14 +118,14 @@ class BluetoothInterfaceDeviceTest : public testing::Test {
         .WillRepeatedly(
             Invoke(&device_, &device::MockBluetoothDevice::GetMockService));
 
-    auto connection = base::MakeUnique<NiceMockBluetoothGattConnection>(
+    auto connection = std::make_unique<NiceMockBluetoothGattConnection>(
         adapter_, device_.GetAddress());
 
     Device::Create(adapter_, std::move(connection), mojo::MakeRequest(&proxy_));
 
     proxy_.set_connection_error_handler(
-        base::Bind(&BluetoothInterfaceDeviceTest::OnConnectionError,
-                   weak_factory_.GetWeakPtr()));
+        base::BindOnce(&BluetoothInterfaceDeviceTest::OnConnectionError,
+                       weak_factory_.GetWeakPtr()));
   }
 
   void TearDown() override {
@@ -175,10 +165,10 @@ class BluetoothInterfaceDeviceTest : public testing::Test {
     if (expected == Call::EXPECTED)
       ++expected_success_callback_calls_;
 
-    return base::Bind(&BluetoothInterfaceDeviceTest::CheckGetServicesCountImpl,
-                      weak_factory_.GetWeakPtr(), expected,
-                      2 /* expected_service_count */,
-                      expected_callback_count_++);
+    return base::BindOnce(
+        &BluetoothInterfaceDeviceTest::CheckGetServicesCountImpl,
+        weak_factory_.GetWeakPtr(), expected, 2 /* expected_service_count */,
+        expected_callback_count_++);
   }
 
   scoped_refptr<NiceMockBluetoothAdapter> adapter_;

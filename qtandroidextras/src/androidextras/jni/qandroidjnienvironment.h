@@ -47,7 +47,7 @@
 
 QT_BEGIN_NAMESPACE
 
-struct QJNIEnvironmentPrivate;
+class QJNIEnvironmentPrivate;
 
 class Q_ANDROIDEXTRAS_EXPORT QAndroidJniEnvironment
 {
@@ -57,6 +57,7 @@ public:
     static JavaVM *javaVM();
     JNIEnv *operator->();
     operator JNIEnv*() const;
+    jclass findClass(const char *className);
 
 private:
     Q_DISABLE_COPY(QAndroidJniEnvironment)

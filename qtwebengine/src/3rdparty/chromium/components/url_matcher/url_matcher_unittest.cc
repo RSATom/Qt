@@ -9,7 +9,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -122,12 +122,12 @@ TEST(URLMatcherConditionTest, Comparison) {
        URLMatcherCondition(URLMatcherCondition::HOST_SUFFIX, &p1)},
       {URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, &p1),
        URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, &p2)},
-      {URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, NULL),
+      {URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, nullptr),
        URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, &p2)},
       {URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, &p1),
-       URLMatcherCondition(URLMatcherCondition::HOST_SUFFIX, NULL)},
+       URLMatcherCondition(URLMatcherCondition::HOST_SUFFIX, nullptr)},
   };
-  for (size_t i = 0; i < arraysize(test_smaller); ++i) {
+  for (size_t i = 0; i < base::size(test_smaller); ++i) {
     EXPECT_TRUE(test_smaller[i][0] < test_smaller[i][1])
         << "Test " << i << " of test_smaller failed";
     EXPECT_FALSE(test_smaller[i][1] < test_smaller[i][0])
@@ -136,10 +136,10 @@ TEST(URLMatcherConditionTest, Comparison) {
   URLMatcherCondition test_equal[][2] = {
       {URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, &p1),
        URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, &p1)},
-      {URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, NULL),
-       URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, NULL)},
+      {URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, nullptr),
+       URLMatcherCondition(URLMatcherCondition::HOST_PREFIX, nullptr)},
   };
-  for (size_t i = 0; i < arraysize(test_equal); ++i) {
+  for (size_t i = 0; i < base::size(test_equal); ++i) {
     EXPECT_FALSE(test_equal[i][0] < test_equal[i][1])
         << "Test " << i << " of test_equal failed";
     EXPECT_FALSE(test_equal[i][1] < test_equal[i][0])
@@ -168,7 +168,7 @@ TEST(URLMatcherConditionFactoryTest, GURLCharacterSet) {
   EXPECT_TRUE(base::IsStringASCII(url.host()));
   EXPECT_TRUE(base::IsStringASCII(url.path()));
   EXPECT_TRUE(base::IsStringASCII(url.query()));
-  EXPECT_FALSE(base::IsStringASCII(url.ref()));
+  EXPECT_TRUE(base::IsStringASCII(url.ref()));
 }
 
 TEST(URLMatcherConditionFactoryTest, Criteria) {
@@ -830,8 +830,8 @@ TEST(URLMatcherTest, FullTest) {
 
   const int kConditionSetId1 = 1;
   URLMatcherConditionSet::Vector insert1;
-  insert1.push_back(make_scoped_refptr(
-      new URLMatcherConditionSet(kConditionSetId1, conditions1)));
+  insert1.push_back(base::MakeRefCounted<URLMatcherConditionSet>(
+      kConditionSetId1, conditions1));
   matcher.AddConditionSets(insert1);
   EXPECT_EQ(1u, matcher.MatchURL(url1).size());
   EXPECT_EQ(0u, matcher.MatchURL(url2).size());
@@ -842,8 +842,8 @@ TEST(URLMatcherTest, FullTest) {
 
   const int kConditionSetId2 = 2;
   URLMatcherConditionSet::Vector insert2;
-  insert2.push_back(make_scoped_refptr(
-      new URLMatcherConditionSet(kConditionSetId2, conditions2)));
+  insert2.push_back(base::MakeRefCounted<URLMatcherConditionSet>(
+      kConditionSetId2, conditions2));
   matcher.AddConditionSets(insert2);
   EXPECT_EQ(2u, matcher.MatchURL(url1).size());
   EXPECT_EQ(1u, matcher.MatchURL(url2).size());
@@ -859,8 +859,8 @@ TEST(URLMatcherTest, FullTest) {
 
   const int kConditionSetId3 = 3;
   URLMatcherConditionSet::Vector insert3;
-  insert3.push_back(make_scoped_refptr(
-      new URLMatcherConditionSet(kConditionSetId3, conditions3)));
+  insert3.push_back(base::MakeRefCounted<URLMatcherConditionSet>(
+      kConditionSetId3, conditions3));
   matcher.AddConditionSets(insert3);
   EXPECT_EQ(3u, matcher.MatchURL(url1).size());
   EXPECT_EQ(1u, matcher.MatchURL(url2).size());
@@ -945,8 +945,8 @@ TEST(URLMatcherTest, TestComponentsImplyContains) {
 
   const int kConditionSetId = 1;
   URLMatcherConditionSet::Vector insert;
-  insert.push_back(make_scoped_refptr(
-      new URLMatcherConditionSet(kConditionSetId, conditions)));
+  insert.push_back(base::MakeRefCounted<URLMatcherConditionSet>(kConditionSetId,
+                                                                conditions));
   matcher.AddConditionSets(insert);
   EXPECT_EQ(1u, matcher.MatchURL(url).size());
 }
@@ -963,8 +963,8 @@ TEST(URLMatcherTest, TestOriginAndPathRegExPositive) {
   conditions.insert(factory->CreateOriginAndPathMatchesCondition("w..hp"));
   const int kConditionSetId = 1;
   URLMatcherConditionSet::Vector insert;
-  insert.push_back(make_scoped_refptr(
-      new URLMatcherConditionSet(kConditionSetId, conditions)));
+  insert.push_back(base::MakeRefCounted<URLMatcherConditionSet>(kConditionSetId,
+                                                                conditions));
   matcher.AddConditionSets(insert);
   EXPECT_EQ(1u, matcher.MatchURL(url).size());
 }
@@ -981,8 +981,8 @@ TEST(URLMatcherTest, TestOriginAndPathRegExNegative) {
   conditions.insert(factory->CreateOriginAndPathMatchesCondition("val"));
   const int kConditionSetId = 1;
   URLMatcherConditionSet::Vector insert;
-  insert.push_back(make_scoped_refptr(
-      new URLMatcherConditionSet(kConditionSetId, conditions)));
+  insert.push_back(base::MakeRefCounted<URLMatcherConditionSet>(kConditionSetId,
+                                                                conditions));
   matcher.AddConditionSets(insert);
   EXPECT_EQ(0u, matcher.MatchURL(url).size());
 }

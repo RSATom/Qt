@@ -11,99 +11,182 @@
 #define LIBANGLE_RENDERER_VULKAN_FRAMEBUFFERVK_H_
 
 #include "libANGLE/renderer/FramebufferImpl.h"
-#include "libANGLE/renderer/vulkan/renderervk_utils.h"
+#include "libANGLE/renderer/RenderTargetCache.h"
+#include "libANGLE/renderer/vulkan/BufferVk.h"
+#include "libANGLE/renderer/vulkan/CommandGraph.h"
+#include "libANGLE/renderer/vulkan/vk_cache_utils.h"
 
 namespace rx
 {
+class RendererVk;
 class RenderTargetVk;
 class WindowSurfaceVk;
 
-class FramebufferVk : public FramebufferImpl, public ResourceVk
+class FramebufferVk : public FramebufferImpl
 {
   public:
     // Factory methods so we don't have to use constructors with overloads.
-    static FramebufferVk *CreateUserFBO(const gl::FramebufferState &state);
+    static FramebufferVk *CreateUserFBO(RendererVk *renderer, const gl::FramebufferState &state);
 
     // The passed-in SurfaceVK must be destroyed after this FBO is destroyed. Our Surface code is
     // ref-counted on the number of 'current' contexts, so we shouldn't get any dangling surface
     // references. See Surface::setIsCurrent(bool).
-    static FramebufferVk *CreateDefaultFBO(const gl::FramebufferState &state,
+    static FramebufferVk *CreateDefaultFBO(RendererVk *renderer,
+                                           const gl::FramebufferState &state,
                                            WindowSurfaceVk *backbuffer);
 
     ~FramebufferVk() override;
     void destroy(const gl::Context *context) override;
-    void destroyDefault(const egl::Display *display) override;
 
-    gl::Error discard(const gl::Context *context, size_t count, const GLenum *attachments) override;
-    gl::Error invalidate(const gl::Context *context,
-                         size_t count,
-                         const GLenum *attachments) override;
-    gl::Error invalidateSub(const gl::Context *context,
-                            size_t count,
-                            const GLenum *attachments,
-                            const gl::Rectangle &area) override;
+    angle::Result discard(const gl::Context *context,
+                          size_t count,
+                          const GLenum *attachments) override;
+    angle::Result invalidate(const gl::Context *context,
+                             size_t count,
+                             const GLenum *attachments) override;
+    angle::Result invalidateSub(const gl::Context *context,
+                                size_t count,
+                                const GLenum *attachments,
+                                const gl::Rectangle &area) override;
 
-    gl::Error clear(const gl::Context *context, GLbitfield mask) override;
-    gl::Error clearBufferfv(const gl::Context *context,
-                            GLenum buffer,
-                            GLint drawbuffer,
-                            const GLfloat *values) override;
-    gl::Error clearBufferuiv(const gl::Context *context,
-                             GLenum buffer,
-                             GLint drawbuffer,
-                             const GLuint *values) override;
-    gl::Error clearBufferiv(const gl::Context *context,
-                            GLenum buffer,
-                            GLint drawbuffer,
-                            const GLint *values) override;
-    gl::Error clearBufferfi(const gl::Context *context,
-                            GLenum buffer,
-                            GLint drawbuffer,
-                            GLfloat depth,
-                            GLint stencil) override;
+    angle::Result clear(const gl::Context *context, GLbitfield mask) override;
+    angle::Result clearBufferfv(const gl::Context *context,
+                                GLenum buffer,
+                                GLint drawbuffer,
+                                const GLfloat *values) override;
+    angle::Result clearBufferuiv(const gl::Context *context,
+                                 GLenum buffer,
+                                 GLint drawbuffer,
+                                 const GLuint *values) override;
+    angle::Result clearBufferiv(const gl::Context *context,
+                                GLenum buffer,
+                                GLint drawbuffer,
+                                const GLint *values) override;
+    angle::Result clearBufferfi(const gl::Context *context,
+                                GLenum buffer,
+                                GLint drawbuffer,
+                                GLfloat depth,
+                                GLint stencil) override;
 
     GLenum getImplementationColorReadFormat(const gl::Context *context) const override;
     GLenum getImplementationColorReadType(const gl::Context *context) const override;
-    gl::Error readPixels(const gl::Context *context,
-                         const gl::Rectangle &area,
-                         GLenum format,
-                         GLenum type,
-                         void *pixels) const override;
+    angle::Result readPixels(const gl::Context *context,
+                             const gl::Rectangle &area,
+                             GLenum format,
+                             GLenum type,
+                             void *pixels) override;
 
-    gl::Error blit(const gl::Context *context,
-                   const gl::Rectangle &sourceArea,
-                   const gl::Rectangle &destArea,
-                   GLbitfield mask,
-                   GLenum filter) override;
+    angle::Result blit(const gl::Context *context,
+                       const gl::Rectangle &sourceArea,
+                       const gl::Rectangle &destArea,
+                       GLbitfield mask,
+                       GLenum filter) override;
 
-    bool checkStatus() const override;
+    bool checkStatus(const gl::Context *context) const override;
 
-    void syncState(const gl::Context *context,
-                   const gl::Framebuffer::DirtyBits &dirtyBits) override;
+    angle::Result syncState(const gl::Context *context,
+                            const gl::Framebuffer::DirtyBits &dirtyBits) override;
 
-    gl::Error getSamplePosition(size_t index, GLfloat *xy) const override;
+    angle::Result getSamplePosition(const gl::Context *context,
+                                    size_t index,
+                                    GLfloat *xy) const override;
+    RenderTargetVk *getDepthStencilRenderTarget() const;
 
-    gl::Error beginRenderPass(const gl::Context *context,
-                              VkDevice device,
-                              vk::CommandBuffer *commandBuffer,
-                              Serial queueSerial,
-                              const gl::State &glState);
+    // Internal helper function for readPixels operations.
+    angle::Result readPixelsImpl(ContextVk *contextVk,
+                                 const gl::Rectangle &area,
+                                 const PackPixelsParams &packPixelsParams,
+                                 VkImageAspectFlagBits copyAspectFlags,
+                                 RenderTargetVk *renderTarget,
+                                 void *pixels);
 
-    gl::ErrorOrResult<vk::RenderPass *> getRenderPass(const gl::Context *context, VkDevice device);
+    const gl::Extents &getReadImageExtents() const;
+
+    const gl::DrawBufferMask &getEmulatedAlphaAttachmentMask() const;
+    RenderTargetVk *getColorReadRenderTarget() const;
+
+    // This will clear the current write operation if it is complete.
+    bool appendToStartedRenderPass(Serial currentQueueSerial, vk::CommandBuffer **commandBufferOut)
+    {
+        return mFramebuffer.appendToStartedRenderPass(currentQueueSerial, commandBufferOut);
+    }
+
+    vk::FramebufferHelper *getFramebuffer() { return &mFramebuffer; }
+
+    angle::Result startNewRenderPass(ContextVk *context, vk::CommandBuffer **commandBufferOut);
+
+    RenderTargetVk *getFirstRenderTarget() const;
+    GLint getSamples() const;
+
+    const vk::RenderPassDesc &getRenderPassDesc() const { return mRenderPassDesc; }
 
   private:
-    FramebufferVk(const gl::FramebufferState &state);
-    FramebufferVk(const gl::FramebufferState &state, WindowSurfaceVk *backbuffer);
+    FramebufferVk(RendererVk *renderer,
+                  const gl::FramebufferState &state,
+                  WindowSurfaceVk *backbuffer);
 
-    gl::ErrorOrResult<vk::Framebuffer *> getFramebuffer(const gl::Context *context,
-                                                        VkDevice device);
+    // Helper for appendToStarted/else startNewRenderPass.
+    angle::Result getCommandBufferForDraw(ContextVk *contextVk,
+                                          vk::CommandBuffer **commandBufferOut,
+                                          vk::RecordingMode *modeOut);
+
+    // The 'in' rectangles must be clipped to the scissor and FBO. The clipping is done in 'blit'.
+    angle::Result blitWithCommand(ContextVk *contextVk,
+                                  const gl::Rectangle &readRectIn,
+                                  const gl::Rectangle &drawRectIn,
+                                  RenderTargetVk *readRenderTarget,
+                                  RenderTargetVk *drawRenderTarget,
+                                  GLenum filter,
+                                  bool colorBlit,
+                                  bool depthBlit,
+                                  bool stencilBlit,
+                                  bool flipSource,
+                                  bool flipDest);
+
+    // Note that 'copyArea' must be clipped to the scissor and FBO. The clipping is done in 'blit'.
+    angle::Result blitWithCopy(ContextVk *contextVk,
+                               const gl::Rectangle &copyArea,
+                               RenderTargetVk *readRenderTarget,
+                               RenderTargetVk *drawRenderTarget,
+                               bool blitDepthBuffer,
+                               bool blitStencilBuffer);
+
+    angle::Result blitWithReadback(ContextVk *contextVk,
+                                   const gl::Rectangle &copyArea,
+                                   VkImageAspectFlagBits aspect,
+                                   RenderTargetVk *readRenderTarget,
+                                   RenderTargetVk *drawRenderTarget);
+
+    angle::Result getFramebuffer(ContextVk *contextVk, vk::Framebuffer **framebufferOut);
+
+    angle::Result clearWithClearAttachments(ContextVk *contextVk,
+                                            bool clearColor,
+                                            bool clearDepth,
+                                            bool clearStencil,
+                                            const VkClearDepthStencilValue &clearDepthStencilValue);
+    angle::Result clearWithDraw(ContextVk *contextVk, VkColorComponentFlags colorMaskFlags);
+    void updateActiveColorMasks(size_t colorIndex, bool r, bool g, bool b, bool a);
+    void updateRenderPassDesc();
 
     WindowSurfaceVk *mBackbuffer;
 
-    vk::RenderPass mRenderPass;
-    vk::Framebuffer mFramebuffer;
-};
+    vk::RenderPassDesc mRenderPassDesc;
+    vk::FramebufferHelper mFramebuffer;
+    RenderTargetCache<RenderTargetVk> mRenderTargetCache;
 
+    // These two variables are used to quickly compute if we need to do a masked clear. If a color
+    // channel is masked out, we check against the Framebuffer Attachments (RenderTargets) to see
+    // if the masked out channel is present in any of the attachments.
+    VkColorComponentFlags mActiveColorComponents;
+    gl::DrawBufferMask mActiveColorComponentMasksForClear[4];
+    vk::DynamicBuffer mReadPixelBuffer;
+    vk::DynamicBuffer mBlitPixelBuffer;
+
+    // When we draw to the framebuffer, and the real format has an alpha channel but the format of
+    // the framebuffer does not, we need to mask out the alpha channel. This DrawBufferMask will
+    // contain the mask to apply to the alpha channel when drawing.
+    gl::DrawBufferMask mEmulatedAlphaAttachmentMask;
+};
 }  // namespace rx
 
 #endif  // LIBANGLE_RENDERER_VULKAN_FRAMEBUFFERVK_H_

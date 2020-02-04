@@ -8,6 +8,7 @@
 #include "gm.h"
 #include "sk_tool_utils.h"
 #include "SkShader.h"
+#include "SkTraceEvent.h"
 using namespace skiagm;
 
 GM::GM() {
@@ -15,29 +16,33 @@ GM::GM() {
     fBGColor = SK_ColorWHITE;
     fCanvasIsDeferred = false;
     fHaveCalledOnceBeforeDraw = false;
-    fStarterMatrix.reset();
 }
 
 GM::~GM() {}
 
 void GM::draw(SkCanvas* canvas) {
+    TRACE_EVENT1("GM", TRACE_FUNC, "name", TRACE_STR_COPY(this->getName()));
     this->drawBackground(canvas);
     this->drawContent(canvas);
 }
 
 void GM::drawContent(SkCanvas* canvas) {
+    TRACE_EVENT0("GM", TRACE_FUNC);
     if (!fHaveCalledOnceBeforeDraw) {
         fHaveCalledOnceBeforeDraw = true;
         this->onOnceBeforeDraw();
     }
+    SkAutoCanvasRestore acr(canvas, true);
     this->onDraw(canvas);
 }
 
 void GM::drawBackground(SkCanvas* canvas) {
+    TRACE_EVENT0("GM", TRACE_FUNC);
     if (!fHaveCalledOnceBeforeDraw) {
         fHaveCalledOnceBeforeDraw = true;
         this->onOnceBeforeDraw();
     }
+    SkAutoCanvasRestore acr(canvas, true);
     this->onDrawBackground(canvas);
 }
 
@@ -76,13 +81,10 @@ void GM::DrawGpuOnlyMessage(SkCanvas* canvas) {
     bmp.allocN32Pixels(128, 64);
     SkCanvas bmpCanvas(bmp);
     bmpCanvas.drawColor(SK_ColorWHITE);
+    SkFont font(sk_tool_utils::create_portable_typeface(), 20);
     SkPaint paint;
-    paint.setAntiAlias(true);
-    paint.setTextSize(20);
     paint.setColor(SK_ColorRED);
-    sk_tool_utils::set_portable_typeface(&paint);
-    constexpr char kTxt[] = "GPU Only";
-    bmpCanvas.drawString(kTxt, 20, 40, paint);
+    bmpCanvas.drawString("GPU Only", 20, 40, font, paint);
     SkMatrix localM;
     localM.setRotate(35.f);
     localM.postTranslate(10.f, 0.f);
@@ -107,4 +109,55 @@ SkISize skiagm::SimpleGM::onISize() {
 
 SkString skiagm::SimpleGM::onShortName() {
     return fName;
+}
+
+template <typename Fn>
+static void mark(SkCanvas* canvas, SkScalar x, SkScalar y, Fn&& fn) {
+    SkPaint alpha;
+    alpha.setAlpha(0x50);
+    canvas->saveLayer(nullptr, &alpha);
+        canvas->translate(x,y);
+        canvas->scale(2,2);
+        fn();
+    canvas->restore();
+}
+
+void MarkGMGood(SkCanvas* canvas, SkScalar x, SkScalar y) {
+    mark(canvas, x,y, [&]{
+        SkPaint paint;
+
+        // A green circle.
+        paint.setColor(SkColorSetRGB(27, 158, 119));
+        canvas->drawCircle(0,0, 12, paint);
+
+        // Cut out a check mark.
+        paint.setBlendMode(SkBlendMode::kSrc);
+        paint.setColor(0x00000000);
+        paint.setStrokeWidth(2);
+        paint.setStyle(SkPaint::kStroke_Style);
+        canvas->drawLine(-6, 0,
+                         -1, 5, paint);
+        canvas->drawLine(-1, +5,
+                         +7, -5, paint);
+    });
+}
+
+void MarkGMBad(SkCanvas* canvas, SkScalar x, SkScalar y) {
+    mark(canvas, x,y, [&] {
+        SkPaint paint;
+
+        // A red circle.
+        paint.setColor(SkColorSetRGB(231, 41, 138));
+        canvas->drawCircle(0,0, 12, paint);
+
+        // Cut out an 'X'.
+        paint.setBlendMode(SkBlendMode::kSrc);
+        paint.setColor(0x00000000);
+        paint.setStrokeWidth(2);
+        paint.setStyle(SkPaint::kStroke_Style);
+        canvas->drawLine(-5,-5,
+                         +5,+5, paint);
+        canvas->drawLine(+5,-5,
+                         -5,+5, paint);
+    });
 }

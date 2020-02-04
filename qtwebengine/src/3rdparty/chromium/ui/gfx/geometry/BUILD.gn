@@ -2,9 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-component("geometry") {
+import("//build/config/jumbo.gni")
+
+jumbo_component("geometry") {
   sources = [
     "../gfx_export.h",
+    "angle_conversions.h",
     "axis_transform2d.cc",
     "axis_transform2d.h",
     "box_f.cc",
@@ -13,6 +16,7 @@ component("geometry") {
     "cubic_bezier.h",
     "dip_util.cc",
     "dip_util.h",
+    "geometry_export.h",
     "insets.cc",
     "insets.h",
     "insets_f.cc",
@@ -56,11 +60,10 @@ component("geometry") {
     "vector3d_f.h",
   ]
 
-  defines = [ "GFX_IMPLEMENTATION" ]
+  defines = [ "GEOMETRY_IMPLEMENTATION" ]
 
   deps = [
     "//base",
-    "//ui/gfx:gfx_export",
   ]
 
   if (is_android && !is_debug) {

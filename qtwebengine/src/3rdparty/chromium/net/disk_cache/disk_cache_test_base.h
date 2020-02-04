@@ -15,6 +15,7 @@
 #include "base/threading/thread.h"
 #include "net/base/cache_type.h"
 #include "net/disk_cache/disk_cache.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 
@@ -31,6 +32,7 @@ class BackendImpl;
 class Entry;
 class MemBackendImpl;
 class SimpleBackendImpl;
+class SimpleFileTracker;
 
 }  // namespace disk_cache
 
@@ -38,7 +40,8 @@ class SimpleBackendImpl;
 // Mac, so this needs to be a PlatformTest.  Even tests that do not require a
 // cache (and that do not need to be a DiskCacheTestWithCache) are susceptible
 // to this problem; all such tests should use TEST_F(DiskCacheTest, ...).
-class DiskCacheTest : public PlatformTest {
+class DiskCacheTest : public PlatformTest,
+                      public net::WithScopedTaskEnvironment {
  protected:
   DiskCacheTest();
   ~DiskCacheTest() override;
@@ -75,7 +78,7 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   DiskCacheTestWithCache();
   ~DiskCacheTestWithCache() override;
 
-  void CreateBackend(uint32_t flags, base::Thread* thread);
+  void CreateBackend(uint32_t flags);
 
   void InitCache();
   void SimulateCrash();
@@ -86,12 +89,16 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   }
 
   void SetSimpleCacheMode() {
+    DCHECK(!use_current_thread_);
     simple_cache_mode_ = true;
   }
 
   void SetMask(uint32_t mask) { mask_ = mask; }
 
-  void SetMaxSize(int size);
+  void SetMaxSize(int64_t size, bool should_succeed = true);
+
+  // Returns value last given to SetMaxSize (or 0).
+  int MaxSize() const { return size_; }
 
   // Deletes and re-creates the files on initialization errors.
   void SetForceCreation() {
@@ -114,7 +121,9 @@ class DiskCacheTestWithCache : public DiskCacheTest {
     integrity_ = false;
   }
 
+  // This is only supported for blockfile cache.
   void UseCurrentThread() {
+    DCHECK(!simple_cache_mode_);
     use_current_thread_ = true;
   }
 
@@ -123,15 +132,26 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   }
 
   // Utility methods to access the cache and wait for each operation to finish.
+  int OpenOrCreateEntry(const std::string& key,
+                        disk_cache::EntryWithOpened* entry_struct);
+  int OpenOrCreateEntryWithPriority(const std::string& key,
+                                    net::RequestPriority request_priority,
+                                    disk_cache::EntryWithOpened* entry_struct);
   int OpenEntry(const std::string& key, disk_cache::Entry** entry);
+  int OpenEntryWithPriority(const std::string& key,
+                            net::RequestPriority request_priority,
+                            disk_cache::Entry** entry);
   int CreateEntry(const std::string& key, disk_cache::Entry** entry);
+  int CreateEntryWithPriority(const std::string& key,
+                              net::RequestPriority request_priority,
+                              disk_cache::Entry** entry);
   int DoomEntry(const std::string& key);
   int DoomAllEntries();
   int DoomEntriesBetween(const base::Time initial_time,
                          const base::Time end_time);
-  int CalculateSizeOfAllEntries();
-  int CalculateSizeOfEntriesBetween(const base::Time initial_time,
-                                    const base::Time end_time);
+  int64_t CalculateSizeOfAllEntries();
+  int64_t CalculateSizeOfEntriesBetween(const base::Time initial_time,
+                                        const base::Time end_time);
   int DoomEntriesSince(const base::Time initial_time);
   std::unique_ptr<TestIterator> CreateIterator();
   void FlushQueueForTest();
@@ -161,18 +181,18 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   // before and after this method will not be the same.
   void AddDelay();
 
-  // DiskCacheTest:
   void TearDown() override;
 
   // cache_ will always have a valid object, regardless of how the cache was
   // initialized. The implementation pointers can be NULL.
   std::unique_ptr<disk_cache::Backend> cache_;
   disk_cache::BackendImpl* cache_impl_;
+  std::unique_ptr<disk_cache::SimpleFileTracker> simple_file_tracker_;
   disk_cache::SimpleBackendImpl* simple_cache_impl_;
   disk_cache::MemBackendImpl* mem_cache_;
 
   uint32_t mask_;
-  int size_;
+  int64_t size_;
   net::CacheType type_;
   bool memory_only_;
   bool simple_cache_mode_;
@@ -189,7 +209,6 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   void InitMemoryCache();
   void InitDiskCache();
 
-  base::Thread cache_thread_;
   DISALLOW_COPY_AND_ASSIGN(DiskCacheTestWithCache);
 };
 

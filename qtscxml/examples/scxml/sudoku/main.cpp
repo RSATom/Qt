@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-#include "sudoku.h"
 #include "mainwindow.h"
+#include "sudoku.h"
 
 #include <QApplication>
 

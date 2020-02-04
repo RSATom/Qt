@@ -8,7 +8,9 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
+#include <utility>
 
 #include "base/macros.h"
 #include "components/favicon_base/favicon_util.h"
@@ -42,8 +44,8 @@ SkBitmap SampleNearestNeighbor(const SkBitmap& contents, int desired_size) {
 
   {
     SkCanvas canvas(bitmap);
-    canvas.drawBitmapRect(
-        contents, SkRect::MakeIWH(desired_size, desired_size), NULL);
+    canvas.drawBitmapRect(contents, SkRect::MakeIWH(desired_size, desired_size),
+                          nullptr);
   }
 
   return bitmap;
@@ -121,9 +123,7 @@ void GetCandidateIndicesWithBestScores(
     return;
   }
 
-  std::vector<int>::const_iterator zero_size_it =
-      std::find(desired_sizes.begin(), desired_sizes.end(), 0);
-  if (zero_size_it != desired_sizes.end()) {
+  if (base::ContainsValue(desired_sizes, 0)) {
     // Just return the biggest image available.
     SelectionResult result;
     result.index = BiggestCandidate(candidate_sizes);
@@ -175,7 +175,7 @@ class FaviconImageSource : public gfx::ImageSkiaSource {
 
   // gfx::ImageSkiaSource:
   gfx::ImageSkiaRep GetImageForScale(float scale) override {
-    const gfx::ImageSkiaRep* rep = NULL;
+    const gfx::ImageSkiaRep* rep = nullptr;
     // gfx::ImageSkia passes one of the resource scale factors. The source
     // should return:
     // 1) The ImageSkiaRep with the highest scale if all available
@@ -223,8 +223,8 @@ gfx::ImageSkia CreateFaviconImageSkia(
   if (desired_size_in_dip == 0) {
     desired_sizes.push_back(0);
   } else {
-    for (std::vector<float>::const_iterator iter = favicon_scales.begin();
-         iter != favicon_scales.end(); ++iter) {
+    for (auto iter = favicon_scales.begin(); iter != favicon_scales.end();
+         ++iter) {
       desired_sizes.push_back(
           static_cast<int>(ceil(desired_size_in_dip * (*iter))));
     }
@@ -243,7 +243,7 @@ gfx::ImageSkia CreateFaviconImageSkia(
     return gfx::ImageSkia(gfx::ImageSkiaRep(bitmaps[index], 1.0f));
   }
 
-  FaviconImageSource* image_source = new FaviconImageSource;
+  auto image_source = std::make_unique<FaviconImageSource>();
 
   for (size_t i = 0; i < results.size(); ++i) {
     size_t index = results[i].index;
@@ -253,7 +253,7 @@ gfx::ImageSkia CreateFaviconImageSkia(
                                            desired_sizes[i]),
                           favicon_scales[i]));
   }
-  return gfx::ImageSkia(image_source,
+  return gfx::ImageSkia(std::move(image_source),
                         gfx::Size(desired_size_in_dip, desired_size_in_dip));
 }
 

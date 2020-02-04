@@ -8,7 +8,7 @@
 #include <sstream>
 #include <string>
 
-#include "base/debug/debugging_flags.h"
+#include "base/debug/debugging_buildflags.h"
 #include "base/debug/stack_trace.h"
 #include "base/logging.h"
 #include "base/process/kill.h"
@@ -151,9 +151,43 @@ TEST_F(StackTraceTest, DebugOutputToStream) {
 TEST_F(StackTraceTest, DebugPrintBacktrace) {
   StackTrace().Print();
 }
+
+// The test is used for manual testing, e.g., to see the raw output.
+TEST_F(StackTraceTest, DebugPrintWithPrefixBacktrace) {
+  StackTrace().PrintWithPrefix("[test]");
+}
+
+// Make sure nullptr prefix doesn't crash. Output not examined, much
+// like the DebugPrintBacktrace test above.
+TEST_F(StackTraceTest, DebugPrintWithNullPrefixBacktrace) {
+  StackTrace().PrintWithPrefix(nullptr);
+}
+
+// Test OutputToStreamWithPrefix, mainly to make sure it doesn't
+// crash. Any "real" stack trace testing happens above.
+TEST_F(StackTraceTest, DebugOutputToStreamWithPrefix) {
+  StackTrace trace;
+  const char* prefix_string = "[test]";
+  std::ostringstream os;
+  trace.OutputToStreamWithPrefix(&os, prefix_string);
+  std::string backtrace_message = os.str();
+
+  // ToStringWithPrefix() should produce the same output.
+  EXPECT_EQ(backtrace_message, trace.ToStringWithPrefix(prefix_string));
+}
+
+// Make sure nullptr prefix doesn't crash. Output not examined, much
+// like the DebugPrintBacktrace test above.
+TEST_F(StackTraceTest, DebugOutputToStreamWithNullPrefix) {
+  StackTrace trace;
+  std::ostringstream os;
+  trace.OutputToStreamWithPrefix(&os, nullptr);
+  trace.ToStringWithPrefix(nullptr);
+}
+
 #endif  // !defined(__UCLIBC__)
 
-#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
+#if defined(OS_POSIX) && !defined(OS_ANDROID)
 #if !defined(OS_IOS)
 static char* newArray() {
   // Clang warns about the mismatched new[]/delete if they occur in the same
@@ -172,11 +206,11 @@ MULTIPROCESS_TEST_MAIN(MismatchedMallocChildProcess) {
 // and e.g. mismatched new[]/delete would cause a hang because
 // of re-entering malloc.
 TEST_F(StackTraceTest, AsyncSignalUnsafeSignalHandlerHang) {
-  SpawnChildResult spawn_result = SpawnChild("MismatchedMallocChildProcess");
-  ASSERT_TRUE(spawn_result.process.IsValid());
+  Process child = SpawnChild("MismatchedMallocChildProcess");
+  ASSERT_TRUE(child.IsValid());
   int exit_code;
-  ASSERT_TRUE(spawn_result.process.WaitForExitWithTimeout(
-      TestTimeouts::action_timeout(), &exit_code));
+  ASSERT_TRUE(
+      child.WaitForExitWithTimeout(TestTimeouts::action_timeout(), &exit_code));
 }
 #endif  // !defined(OS_IOS)
 
@@ -253,7 +287,7 @@ TEST_F(StackTraceTest, itoa_r) {
   EXPECT_EQ("0688", itoa_r_wrapper(0x688, 128, 16, 4));
   EXPECT_EQ("00688", itoa_r_wrapper(0x688, 128, 16, 5));
 }
-#endif  // defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
+#endif  // defined(OS_POSIX) && !defined(OS_ANDROID)
 
 #if BUILDFLAG(CAN_UNWIND_WITH_FRAME_POINTERS)
 

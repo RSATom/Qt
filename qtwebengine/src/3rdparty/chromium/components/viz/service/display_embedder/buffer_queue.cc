@@ -4,10 +4,10 @@
 
 #include "components/viz/service/display_embedder/buffer_queue.h"
 
+#include <utility>
+
 #include "base/containers/adapters.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
-#include "components/viz/common/gl_helper.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
@@ -24,7 +24,6 @@ BufferQueue::BufferQueue(gpu::gles2::GLES2Interface* gl,
                          uint32_t texture_target,
                          uint32_t internal_format,
                          gfx::BufferFormat format,
-                         GLHelper* gl_helper,
                          gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
                          gpu::SurfaceHandle surface_handle)
     : gl_(gl),
@@ -33,11 +32,10 @@ BufferQueue::BufferQueue(gpu::gles2::GLES2Interface* gl,
       texture_target_(texture_target),
       internal_format_(internal_format),
       format_(format),
-      gl_helper_(gl_helper),
       gpu_memory_buffer_manager_(gpu_memory_buffer_manager),
       surface_handle_(surface_handle) {
-  DCHECK(gpu::IsImageFormatCompatibleWithGpuMemoryBufferFormat(internal_format,
-                                                               format_));
+  DCHECK_EQ(internal_format,
+            gpu::InternalFormatForGpuMemoryBufferFormat(format_));
 }
 
 BufferQueue::~BufferQueue() {
@@ -71,9 +69,25 @@ void BufferQueue::CopyBufferDamage(int texture,
                                    int source_texture,
                                    const gfx::Rect& new_damage,
                                    const gfx::Rect& old_damage) {
-  gl_helper_->CopySubBufferDamage(texture_target_, texture, source_texture,
-                                  SkRegion(gfx::RectToSkIRect(new_damage)),
-                                  SkRegion(gfx::RectToSkIRect(old_damage)));
+  SkRegion region(gfx::RectToSkIRect(old_damage));
+  if (!region.op(gfx::RectToSkIRect(new_damage), SkRegion::kDifference_Op))
+    return;
+
+  GLuint dst_framebuffer = 0;
+  gl_->GenFramebuffers(1, &dst_framebuffer);
+  DCHECK(dst_framebuffer);
+  gl_->BindFramebuffer(GL_FRAMEBUFFER, dst_framebuffer);
+  gl_->BindTexture(texture_target_, texture);
+  gl_->FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                            texture_target_, source_texture, 0);
+  for (SkRegion::Iterator it(region); !it.done(); it.next()) {
+    const SkIRect& rect = it.rect();
+    gl_->CopyTexSubImage2D(texture_target_, 0, rect.x(), rect.y(), rect.x(),
+                           rect.y(), rect.width(), rect.height());
+  }
+  gl_->BindTexture(texture_target_, 0);
+  gl_->Flush();
+  gl_->DeleteFramebuffers(1, &dst_framebuffer);
 }
 
 void BufferQueue::UpdateBufferDamage(const gfx::Rect& damage) {
@@ -117,7 +131,7 @@ void BufferQueue::SwapBuffers(const gfx::Rect& damage) {
   }
   UpdateBufferDamage(damage);
   in_flight_surfaces_.push_back(std::move(current_surface_));
-  // Some things reset the framebuffer (CopySubBufferDamage, some GLRenderer
+  // Some things reset the framebuffer (CopyBufferDamage, some GLRenderer
   // paths), so ensure we restore it here.
   gl_->BindFramebuffer(GL_FRAMEBUFFER, fbo_);
 }
@@ -266,12 +280,12 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
   std::unique_ptr<gfx::GpuMemoryBuffer> buffer(
       gpu_memory_buffer_manager_->CreateGpuMemoryBuffer(
           size_, format_, gfx::BufferUsage::SCANOUT, surface_handle_));
-  if (!buffer.get()) {
+  if (!buffer) {
     gl_->DeleteTextures(1, &texture);
     DLOG(ERROR) << "Failed to allocate GPU memory buffer";
     return nullptr;
   }
-  buffer->SetColorSpaceForScanout(color_space_);
+  buffer->SetColorSpace(color_space_);
 
   uint32_t id =
       gl_->CreateImageCHROMIUM(buffer->AsClientBuffer(), size_.width(),
@@ -285,7 +299,7 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
   allocated_count_++;
   gl_->BindTexture(texture_target_, texture);
   gl_->BindTexImage2DCHROMIUM(texture_target_, id);
-  return base::MakeUnique<AllocatedSurface>(this, std::move(buffer), texture,
+  return std::make_unique<AllocatedSurface>(this, std::move(buffer), texture,
                                             id, stencil, gfx::Rect(size_));
 }
 

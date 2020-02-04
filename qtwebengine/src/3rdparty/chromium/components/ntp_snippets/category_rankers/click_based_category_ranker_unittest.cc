@@ -6,9 +6,8 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
@@ -16,6 +15,7 @@
 #include "components/ntp_snippets/category_rankers/constant_category_ranker.h"
 #include "components/ntp_snippets/features.h"
 #include "components/ntp_snippets/ntp_snippets_constants.h"
+#include "components/ntp_snippets/time_serialization.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/variations/variations_params_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -36,13 +36,13 @@ const char kHistogramMovedUpCategoryNewIndex[] =
 class ClickBasedCategoryRankerTest : public testing::Test {
  public:
   ClickBasedCategoryRankerTest()
-      : pref_service_(base::MakeUnique<TestingPrefServiceSimple>()),
+      : pref_service_(std::make_unique<TestingPrefServiceSimple>()),
         unused_remote_category_id_(
             static_cast<int>(KnownCategories::LAST_KNOWN_REMOTE_CATEGORY) + 1) {
     ClickBasedCategoryRanker::RegisterProfilePrefs(pref_service_->registry());
 
-    ranker_ = base::MakeUnique<ClickBasedCategoryRanker>(
-        pref_service_.get(), base::MakeUnique<base::DefaultClock>());
+    ranker_ = std::make_unique<ClickBasedCategoryRanker>(
+        pref_service_.get(), base::DefaultClock::GetInstance());
   }
 
   int GetUnusedRemoteCategoryID() { return unused_remote_category_id_++; }
@@ -67,9 +67,9 @@ class ClickBasedCategoryRankerTest : public testing::Test {
     }
   }
 
-  void ResetRanker(std::unique_ptr<base::Clock> clock) {
-    ranker_ = base::MakeUnique<ClickBasedCategoryRanker>(pref_service_.get(),
-                                                         std::move(clock));
+  void ResetRanker(base::Clock* clock) {
+    ranker_ =
+        std::make_unique<ClickBasedCategoryRanker>(pref_service_.get(), clock);
   }
 
   void NotifyOnSuggestionOpened(int times, Category category) {
@@ -267,7 +267,7 @@ TEST_F(ClickBasedCategoryRankerTest, ShouldPersistOrderAndClicksWhenRestarted) {
   ASSERT_TRUE(CompareCategories(first, third));
 
   // Simulate Chrome restart.
-  ResetRanker(base::MakeUnique<base::DefaultClock>());
+  ResetRanker(base::DefaultClock::GetInstance());
 
   // The old order must be preserved.
   EXPECT_TRUE(CompareCategories(third, second));
@@ -294,15 +294,14 @@ TEST_F(ClickBasedCategoryRankerTest, ShouldDecayClickCountsWithTime) {
   NotifyOnSuggestionOpened(/*times=*/first_clicks, first);
 
   // Let multiple years pass by.
-  auto test_clock = base::MakeUnique<base::SimpleTestClock>();
-  base::SimpleTestClock* raw_test_clock = test_clock.get();
-  raw_test_clock->SetNow(base::Time::Now() + base::TimeDelta::FromDays(1000));
+  base::SimpleTestClock test_clock;
+  test_clock.SetNow(base::Time::Now() + base::TimeDelta::FromDays(1000));
   // Reset the ranker to pick up the new clock.
-  ResetRanker(std::move(test_clock));
+  ResetRanker(&test_clock);
 
   // The user behavior changes and they start using the second category instead.
   // According to our requirenments after such a long time it should take less
-  // than |first_clicks| for the second category to outperfom the first one.
+  // than |first_clicks| for the second category to outperform the first one.
   int second_clicks = 0;
   while (CompareCategories(first, second) && second_clicks < first_clicks) {
     NotifyOnSuggestionOpened(/*times=*/1, second);
@@ -327,11 +326,10 @@ TEST_F(ClickBasedCategoryRankerTest, ShouldDecayAfterClearHistory) {
   NotifyOnSuggestionOpened(/*times=*/first_clicks, first);
 
   // Let multiple years pass by.
-  auto test_clock = base::MakeUnique<base::SimpleTestClock>();
-  base::SimpleTestClock* raw_test_clock = test_clock.get();
-  raw_test_clock->SetNow(base::Time::Now() + base::TimeDelta::FromDays(1000));
+  base::SimpleTestClock test_clock;
+  test_clock.SetNow(base::Time::Now() + base::TimeDelta::FromDays(1000));
   // Reset the ranker to pick up the new clock.
-  ResetRanker(std::move(test_clock));
+  ResetRanker(&test_clock);
 
   // It should take less than |first_clicks| for the second category to
   // overtake because of decays.
@@ -344,23 +342,23 @@ TEST_F(ClickBasedCategoryRankerTest, ShouldDecayAfterClearHistory) {
 }
 
 TEST_F(ClickBasedCategoryRankerTest, ShouldRemoveLastDecayTimeOnClearHistory) {
-  ASSERT_NE(ranker()->GetLastDecayTime(), base::Time::FromInternalValue(0));
+  ASSERT_NE(ranker()->GetLastDecayTime(), DeserializeTime(0));
 
   // The user clears entire history.
   ranker()->ClearHistory(/*begin=*/base::Time(),
                          /*end=*/base::Time::Max());
 
-  EXPECT_EQ(ranker()->GetLastDecayTime(), base::Time::FromInternalValue(0));
+  EXPECT_EQ(ranker()->GetLastDecayTime(), DeserializeTime(0));
 }
 
 TEST_F(ClickBasedCategoryRankerTest, ShouldPersistLastDecayTimeWhenRestarted) {
   base::Time before = ranker()->GetLastDecayTime();
-  ASSERT_NE(before, base::Time::FromInternalValue(0));
+  ASSERT_NE(before, DeserializeTime(0));
 
   // Ensure that |Now()| is different from |before| by injecting our clock.
-  auto test_clock = base::MakeUnique<base::SimpleTestClock>();
-  test_clock->SetNow(base::Time::Now() + base::TimeDelta::FromSeconds(10));
-  ResetRanker(std::move(test_clock));
+  base::SimpleTestClock test_clock;
+  test_clock.SetNow(base::Time::Now() + base::TimeDelta::FromSeconds(10));
+  ResetRanker(&test_clock);
 
   EXPECT_EQ(before, ranker()->GetLastDecayTime());
 }
@@ -595,7 +593,7 @@ TEST_F(ClickBasedCategoryRankerTest, ShouldPromoteCategory) {
   ASSERT_TRUE(CompareCategories(downloads, bookmarks));
   ASSERT_TRUE(CompareCategories(bookmarks, articles));
   SetPromotedCategoryVariationParam(articles.id());
-  ResetRanker(base::MakeUnique<base::DefaultClock>());
+  ResetRanker(base::DefaultClock::GetInstance());
   EXPECT_TRUE(CompareCategories(articles, downloads));
   EXPECT_TRUE(CompareCategories(articles, bookmarks));
   EXPECT_FALSE(CompareCategories(downloads, articles));
@@ -607,19 +605,13 @@ TEST_F(ClickBasedCategoryRankerTest,
        ShouldHandleInvalidCategoryIDForPromotion) {
   SetPromotedCategoryVariationParam(
       static_cast<int>(KnownCategories::LOCAL_CATEGORIES_COUNT));
-  ResetRanker(base::MakeUnique<base::DefaultClock>());
+  ResetRanker(base::DefaultClock::GetInstance());
   // Make sure we have the default order.
   EXPECT_TRUE(CompareCategories(
-      Category::FromKnownCategory(KnownCategories::PHYSICAL_WEB_PAGES),
+      Category::FromKnownCategory(KnownCategories::READING_LIST),
       Category::FromKnownCategory(KnownCategories::DOWNLOADS)));
   EXPECT_TRUE(CompareCategories(
       Category::FromKnownCategory(KnownCategories::DOWNLOADS),
-      Category::FromKnownCategory(KnownCategories::RECENT_TABS)));
-  EXPECT_TRUE(CompareCategories(
-      Category::FromKnownCategory(KnownCategories::RECENT_TABS),
-      Category::FromKnownCategory(KnownCategories::FOREIGN_TABS)));
-  EXPECT_TRUE(CompareCategories(
-      Category::FromKnownCategory(KnownCategories::FOREIGN_TABS),
       Category::FromKnownCategory(KnownCategories::BOOKMARKS)));
   EXPECT_TRUE(CompareCategories(
       Category::FromKnownCategory(KnownCategories::BOOKMARKS),
@@ -627,42 +619,42 @@ TEST_F(ClickBasedCategoryRankerTest,
 }
 
 TEST_F(ClickBasedCategoryRankerTest, ShouldEndPromotionOnSectionDismissal) {
-  const Category physical_web =
-      Category::FromKnownCategory(KnownCategories::PHYSICAL_WEB_PAGES);
+  const Category downloads =
+      Category::FromKnownCategory(KnownCategories::DOWNLOADS);
   const Category articles =
       Category::FromKnownCategory(KnownCategories::ARTICLES);
-  ASSERT_TRUE(CompareCategories(physical_web, articles));
+  ASSERT_TRUE(CompareCategories(downloads, articles));
 
   SetPromotedCategoryVariationParam(articles.id());
-  ResetRanker(base::MakeUnique<base::DefaultClock>());
+  ResetRanker(base::DefaultClock::GetInstance());
 
-  ASSERT_TRUE(CompareCategories(articles, physical_web));
+  ASSERT_TRUE(CompareCategories(articles, downloads));
 
   ranker()->OnCategoryDismissed(articles);
-  EXPECT_FALSE(CompareCategories(articles, physical_web));
-  EXPECT_TRUE(CompareCategories(physical_web, articles));
+  EXPECT_FALSE(CompareCategories(articles, downloads));
+  EXPECT_TRUE(CompareCategories(downloads, articles));
 }
 
 TEST_F(ClickBasedCategoryRankerTest,
        ShouldResumePromotionAfter2WeeksSinceDismissal) {
   const Category downloads =
       Category::FromKnownCategory(KnownCategories::DOWNLOADS);
-  const Category recent_tabs =
-      Category::FromKnownCategory(KnownCategories::RECENT_TABS);
-  ASSERT_TRUE(CompareCategories(downloads, recent_tabs));
+  const Category articles =
+      Category::FromKnownCategory(KnownCategories::ARTICLES);
+  ASSERT_TRUE(CompareCategories(downloads, articles));
 
-  SetPromotedCategoryVariationParam(recent_tabs.id());
-  ResetRanker(base::MakeUnique<base::DefaultClock>());
-  ASSERT_TRUE(CompareCategories(recent_tabs, downloads));
+  SetPromotedCategoryVariationParam(articles.id());
+  ResetRanker(base::DefaultClock::GetInstance());
+  ASSERT_TRUE(CompareCategories(articles, downloads));
 
-  ranker()->OnCategoryDismissed(recent_tabs);
-  ASSERT_FALSE(CompareCategories(recent_tabs, downloads));
+  ranker()->OnCategoryDismissed(articles);
+  ASSERT_FALSE(CompareCategories(articles, downloads));
 
   // Simulate a little over 2 weeks of time passing.
-  auto test_clock = base::MakeUnique<base::SimpleTestClock>();
-  test_clock->SetNow(base::Time::Now() + base::TimeDelta::FromDays(15));
-  ResetRanker(std::move(test_clock));
-  EXPECT_TRUE(CompareCategories(recent_tabs, downloads));
+  base::SimpleTestClock test_clock;
+  test_clock.SetNow(base::Time::Now() + base::TimeDelta::FromDays(15));
+  ResetRanker(&test_clock);
+  EXPECT_TRUE(CompareCategories(articles, downloads));
 }
 
 TEST_F(ClickBasedCategoryRankerTest,
@@ -747,7 +739,7 @@ TEST_F(ClickBasedCategoryRankerTest,
               IsEmpty());
 
   SetPromotedCategoryVariationParam(second.id());
-  ResetRanker(base::MakeUnique<base::DefaultClock>());
+  ResetRanker(base::DefaultClock::GetInstance());
 
   ASSERT_FALSE(CompareCategories(first, second));
 

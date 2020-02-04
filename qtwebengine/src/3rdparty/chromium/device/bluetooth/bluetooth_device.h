@@ -16,12 +16,14 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/containers/flat_set.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "device/bluetooth/bluetooth_common.h"
 #include "device/bluetooth/bluetooth_export.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
@@ -94,7 +96,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   };
 
   typedef std::vector<BluetoothUUID> UUIDList;
-  typedef std::unordered_set<BluetoothUUID, BluetoothUUIDHash> UUIDSet;
+  typedef base::flat_set<BluetoothUUID> UUIDSet;
   typedef std::unordered_map<BluetoothUUID,
                              std::vector<uint8_t>,
                              BluetoothUUIDHash>
@@ -203,7 +205,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // and metrics logging,
   virtual uint32_t GetBluetoothClass() const = 0;
 
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+#if defined(OS_LINUX)
   // Returns the transport type of the device. Some devices only support one
   // of BR/EDR or LE, and some support both.
   virtual BluetoothTransport GetType() const = 0;
@@ -283,13 +285,15 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // Returns the set of UUIDs that this device supports.
   //  * For classic Bluetooth devices this data is collected from both the EIR
   //    data and SDP tables.
-  //  * For non-connected Low Energy Devices this returns the latest advertised
-  //    UUIDs.
-  //  * For connected Low Energy Devices for which services have not been
-  //    discovered returns an empty list.
+  //  * For non-connected and connected Low Energy Devices for which services
+  //    have not been discovered returns the latest advertised UUIDs.
   //  * For connected Low Energy Devices for which services have been discovered
-  //    returns the UUIDs of the device's services.
+  //    returns the UUIDs of the device's services and the latest advertised
+  //    UUIDs.
   //  * For dual mode devices this may be collected from both.
+  //
+  // Note: On Android, Mac and WinRT advertised UUIDs are cleared when the
+  // adapter stops discovering, as otherwise stale data might be returned.
   //
   // Note: On ChromeOS and Linux, BlueZ persists all services meaning if
   // a device stops advertising a service this function will still return
@@ -353,8 +357,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // Returns Advertising Data Flags.
   // Returns cached value if the adapter is not discovering.
   //
-  // TODO(crbug.com/661814) Support this on platforms that don't use BlueZ.
-  // Only Chrome OS supports this now. Upstream BlueZ has this feature
+  // Only Chrome OS and WinRT support this now. Upstream BlueZ has this feature
   // as experimental. This method returns base::nullopt on platforms that don't
   // support this feature.
   base::Optional<uint8_t> GetAdvertisingDataFlags() const;
@@ -425,7 +428,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // ignores the |IsPaired()| value.
   //
   // In most cases |Connect()| should be preferred. This method is only
-  // implemented on ChromeOS and Linux.
+  // implemented on ChromeOS, Linux and Windows 10. On Windows, only pairing
+  // with a pin code is currently supported.
   virtual void Pair(PairingDelegate* pairing_delegate,
                     const base::Closure& callback,
                     const ConnectErrorCallback& error_callback);
@@ -542,11 +546,15 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   virtual base::Time GetLastUpdateTime() const;
 
   // Called by BluetoothAdapter when a new Advertisement is seen for this
-  // device. This replaces previously seen Advertisement Data.
+  // device. This replaces previously seen Advertisement Data. The order of
+  // arguments matches the order of their corresponding Data Type specified in
+  // https://www.bluetooth.com/specifications/assigned-numbers/generic-access-profile.
   void UpdateAdvertisementData(int8_t rssi,
+                               base::Optional<uint8_t> flags,
                                UUIDList advertised_uuids,
+                               base::Optional<int8_t> tx_power,
                                ServiceDataMap service_data,
-                               const int8_t* tx_power);
+                               ManufacturerDataMap manufacturer_data);
 
   // Called by BluetoothAdapter when it stops discoverying.
   void ClearAdvertisementData();
@@ -558,6 +566,20 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
 
   std::vector<BluetoothRemoteGattService*> GetPrimaryServicesByUUID(
       const BluetoothUUID& service_uuid);
+
+#if defined(OS_CHROMEOS)
+  typedef base::Callback<void(device::BluetoothGattService::GattErrorCode)>
+      ExecuteWriteErrorCallback;
+  typedef base::Callback<void(device::BluetoothGattService::GattErrorCode)>
+      AbortWriteErrorCallback;
+  // Executes all the previous prepare writes in a reliable write session.
+  virtual void ExecuteWrite(
+      const base::Closure& callback,
+      const ExecuteWriteErrorCallback& error_callback) = 0;
+  // Aborts all the previous prepare writes in a reliable write session.
+  virtual void AbortWrite(const base::Closure& callback,
+                          const AbortWriteErrorCallback& error_callback) = 0;
+#endif
 
  protected:
   // BluetoothGattConnection is a friend to call Add/RemoveGattConnection.
@@ -575,6 +597,17 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   FRIEND_TEST_ALL_PREFIXES(BluetoothTest, GetName_NullName);
   FRIEND_TEST_ALL_PREFIXES(BluetoothTest, RemoveOutdatedDevices);
   FRIEND_TEST_ALL_PREFIXES(BluetoothTest, RemoveOutdatedDeviceGattConnect);
+
+  FRIEND_TEST_ALL_PREFIXES(
+      BluetoothTestWinrtOnly,
+      BluetoothGattConnection_DisconnectGatt_SimulateConnect);
+  FRIEND_TEST_ALL_PREFIXES(
+      BluetoothTestWinrtOnly,
+      BluetoothGattConnection_DisconnectGatt_SimulateDisconnect);
+  FRIEND_TEST_ALL_PREFIXES(BluetoothTestWinrtOnly,
+                           BluetoothGattConnection_ErrorAfterConnection);
+  FRIEND_TEST_ALL_PREFIXES(BluetoothTestWinrtOnly,
+                           BluetoothGattConnection_DisconnectGatt_Cleanup);
 
   // Helper class to easily update the sets of UUIDs and keep them in sync with
   // the set of all the device's UUIDs.
@@ -658,11 +691,11 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // Received Signal Strength Indicator of the advertisement received.
   base::Optional<int8_t> inquiry_rssi_;
 
-  // Tx Power advertised by the device.
-  base::Optional<int8_t> inquiry_tx_power_;
-
   // Advertising Data flags of the device.
   base::Optional<uint8_t> advertising_data_flags_;
+
+  // Tx Power advertised by the device.
+  base::Optional<int8_t> inquiry_tx_power_;
 
   // Class that holds the union of Advertised UUIDs and Service UUIDs.
   DeviceUUIDs device_uuids_;

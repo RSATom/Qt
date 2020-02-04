@@ -42,8 +42,8 @@
 
 #include "shared_global_p.h"
 
-#include <QtCore/QPointer>
-#include <QtWidgets/QUndoCommand>
+#include <QtCore/qpointer.h>
+#include <QtWidgets/qundostack.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -61,8 +61,8 @@ public:
                                QDesignerFormWindowInterface *formWindow,
                                QUndoCommand *parent = 0);
 
-    virtual void undo();
-    virtual void redo();
+    void undo() override;
+    void redo() override;
 
     static void updateBuddies(QDesignerFormWindowInterface *form,
                               const QString &old_name, const QString &new_name);

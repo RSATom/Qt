@@ -142,6 +142,7 @@ private:
     Q_DECLARE_PRIVATE(QGamepad)
     Q_DISABLE_COPY(QGamepad)
     Q_PRIVATE_SLOT(d_func(), void _q_handleGamepadConnected(int))
+    Q_PRIVATE_SLOT(d_func(), void _q_handleGamepadNameChanged(int, const QString &))
     Q_PRIVATE_SLOT(d_func(), void _q_handleGamepadDisconnected(int))
     Q_PRIVATE_SLOT(d_func(), void _q_handleGamepadAxisEvent(int, QGamepadManager::GamepadAxis, double))
     Q_PRIVATE_SLOT(d_func(), void _q_handleGamepadButtonPressEvent(int, QGamepadManager::GamepadButton, double))

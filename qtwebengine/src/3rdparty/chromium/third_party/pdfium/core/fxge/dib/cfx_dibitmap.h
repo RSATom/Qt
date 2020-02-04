@@ -7,29 +7,28 @@
 #ifndef CORE_FXGE_DIB_CFX_DIBITMAP_H_
 #define CORE_FXGE_DIB_CFX_DIBITMAP_H_
 
-#include "core/fxcrt/cfx_maybe_owned.h"
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxge/dib/cfx_dibsource.h"
-#include "third_party/base/stl_util.h"
+#include "core/fxcrt/maybe_owned.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxge/dib/cfx_dibbase.h"
+#include "core/fxge/fx_dib.h"
 
-class CFX_DIBitmap : public CFX_DIBSource {
+class CFX_DIBitmap : public CFX_DIBBase {
  public:
   template <typename T, typename... Args>
-  friend CFX_RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+  friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
 
-  ~CFX_DIBitmap() override;
+  bool Create(int width, int height, FXDIB_Format format);
 
   bool Create(int width,
               int height,
               FXDIB_Format format,
-              uint8_t* pBuffer = nullptr,
-              uint32_t pitch = 0);
+              uint8_t* pBuffer,
+              uint32_t pitch);
 
-  bool Copy(const CFX_RetainPtr<CFX_DIBSource>& pSrc);
+  bool Copy(const RetainPtr<CFX_DIBBase>& pSrc);
 
-  // CFX_DIBSource
+  // CFX_DIBBase
   uint8_t* GetBuffer() const override;
   const uint8_t* GetScanline(int line) const override;
   void DownSampleScanline(int line,
@@ -40,26 +39,25 @@ class CFX_DIBitmap : public CFX_DIBSource {
                           int clip_left,
                           int clip_width) const override;
 
-  void TakeOver(CFX_RetainPtr<CFX_DIBitmap>&& pSrcBitmap);
+  void TakeOver(RetainPtr<CFX_DIBitmap>&& pSrcBitmap);
   bool ConvertFormat(FXDIB_Format format);
   void Clear(uint32_t color);
 
   uint32_t GetPixel(int x, int y) const;
   void SetPixel(int x, int y, uint32_t color);
 
-  bool LoadChannel(FXDIB_Channel destChannel,
-                   const CFX_RetainPtr<CFX_DIBSource>& pSrcBitmap,
-                   FXDIB_Channel srcChannel);
+  bool LoadChannelFromAlpha(FXDIB_Channel destChannel,
+                            const RetainPtr<CFX_DIBBase>& pSrcBitmap);
   bool LoadChannel(FXDIB_Channel destChannel, int value);
 
   bool MultiplyAlpha(int alpha);
-  bool MultiplyAlpha(const CFX_RetainPtr<CFX_DIBSource>& pAlphaMask);
+  bool MultiplyAlpha(const RetainPtr<CFX_DIBBase>& pAlphaMask);
 
   bool TransferBitmap(int dest_left,
                       int dest_top,
                       int width,
                       int height,
-                      const CFX_RetainPtr<CFX_DIBSource>& pSrcBitmap,
+                      const RetainPtr<CFX_DIBBase>& pSrcBitmap,
                       int src_left,
                       int src_top);
 
@@ -67,25 +65,25 @@ class CFX_DIBitmap : public CFX_DIBSource {
                        int dest_top,
                        int width,
                        int height,
-                       const CFX_RetainPtr<CFX_DIBSource>& pSrcBitmap,
+                       const RetainPtr<CFX_DIBBase>& pSrcBitmap,
                        int src_left,
                        int src_top,
-                       int blend_type = FXDIB_BLEND_NORMAL,
-                       const CFX_ClipRgn* pClipRgn = nullptr,
-                       bool bRgbByteOrder = false);
+                       BlendMode blend_type,
+                       const CFX_ClipRgn* pClipRgn,
+                       bool bRgbByteOrder);
 
   bool CompositeMask(int dest_left,
                      int dest_top,
                      int width,
                      int height,
-                     const CFX_RetainPtr<CFX_DIBSource>& pMask,
+                     const RetainPtr<CFX_DIBBase>& pMask,
                      uint32_t color,
                      int src_left,
                      int src_top,
-                     int blend_type = FXDIB_BLEND_NORMAL,
-                     const CFX_ClipRgn* pClipRgn = nullptr,
-                     bool bRgbByteOrder = false,
-                     int alpha_flag = 0);
+                     BlendMode blend_type,
+                     const CFX_ClipRgn* pClipRgn,
+                     bool bRgbByteOrder,
+                     int alpha_flag);
 
   bool CompositeRect(int dest_left,
                      int dest_top,
@@ -100,7 +98,7 @@ class CFX_DIBitmap : public CFX_DIBSource {
                                     int width,
                                     FXDIB_Format format,
                                     uint32_t* pitch,
-                                    uint32_t* size);
+                                    size_t* size);
 
 #if defined _SKIA_SUPPORT_ || _SKIA_SUPPORT_PATHS_
   void PreMultiply();
@@ -112,19 +110,42 @@ class CFX_DIBitmap : public CFX_DIBSource {
  protected:
   CFX_DIBitmap();
   CFX_DIBitmap(const CFX_DIBitmap& src);
+  ~CFX_DIBitmap() override;
 
 #if defined _SKIA_SUPPORT_PATHS_
   enum class Format { kCleared, kPreMultiplied, kUnPreMultiplied };
 #endif
 
-  CFX_MaybeOwned<uint8_t, FxFreeDeleter> m_pBuffer;
+  MaybeOwned<uint8_t, FxFreeDeleter> m_pBuffer;
 #if defined _SKIA_SUPPORT_PATHS_
   Format m_nFormat;
 #endif
 
  private:
-  void ConvertRGBColorScale(uint32_t forecolor, uint32_t backcolor);
+  void ConvertBGRColorScale(uint32_t forecolor, uint32_t backcolor);
   void ConvertCMYKColorScale(uint32_t forecolor, uint32_t backcolor);
+  bool TransferWithUnequalFormats(FXDIB_Format dest_format,
+                                  int dest_left,
+                                  int dest_top,
+                                  int width,
+                                  int height,
+                                  const RetainPtr<CFX_DIBBase>& pSrcBitmap,
+                                  int src_left,
+                                  int src_top);
+  void TransferWithMultipleBPP(int dest_left,
+                               int dest_top,
+                               int width,
+                               int height,
+                               const RetainPtr<CFX_DIBBase>& pSrcBitmap,
+                               int src_left,
+                               int src_top);
+  void TransferEqualFormatsOneBPP(int dest_left,
+                                  int dest_top,
+                                  int width,
+                                  int height,
+                                  const RetainPtr<CFX_DIBBase>& pSrcBitmap,
+                                  int src_left,
+                                  int src_top);
 };
 
 #endif  // CORE_FXGE_DIB_CFX_DIBITMAP_H_

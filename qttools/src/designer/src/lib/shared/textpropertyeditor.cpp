@@ -30,15 +30,15 @@
 #include "propertylineedit_p.h"
 #include "stylesheeteditor_p.h"
 
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QRegularExpressionValidator>
-#include <QtGui/QResizeEvent>
-#include <QtWidgets/QCompleter>
-#include <QtWidgets/QAbstractItemView>
-#include <QtCore/QRegularExpression>
-#include <QtCore/QUrl>
-#include <QtCore/QFile>
-#include <QtCore/QDebug>
+#include <QtWidgets/qlineedit.h>
+#include <QtGui/qvalidator.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qcompleter.h>
+#include <QtWidgets/qabstractitemview.h>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qurl.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -52,8 +52,8 @@ namespace {
         ReplacementValidator (QObject * parent,
                               const QString &offending,
                               const QString &replacement);
-        void fixup ( QString & input ) const Q_DECL_OVERRIDE;
-        State validate ( QString & input, int &pos) const Q_DECL_OVERRIDE;
+        void fixup ( QString & input ) const override;
+        State validate ( QString & input, int &pos) const override;
     private:
         const QString m_offending;
         const QString m_replacement;
@@ -81,7 +81,7 @@ namespace {
     class StyleSheetValidator : public ReplacementValidator {
     public:
         StyleSheetValidator (QObject * parent);
-        State validate(QString & input, int &pos) const Q_DECL_OVERRIDE;
+        State validate(QString & input, int &pos) const override;
     };
 
     StyleSheetValidator::StyleSheetValidator (QObject * parent) :
@@ -107,8 +107,8 @@ namespace {
     public:
         UrlValidator(QCompleter *completer, QObject *parent);
 
-        State validate(QString &input, int &pos) const Q_DECL_OVERRIDE;
-        void fixup(QString &input) const Q_DECL_OVERRIDE;
+        State validate(QString &input, int &pos) const override;
+        void fixup(QString &input) const override;
     private:
         QUrl guessUrlFromString(const QString &string) const;
         QCompleter *m_completer;

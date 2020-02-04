@@ -35,17 +35,17 @@ TEST_F(ShaderManagerTest, Basic) {
   Shader* info0 = manager_.CreateShader(
       kClient1Id, kService1Id, kShader1Type);
   // Check shader got created.
-  ASSERT_TRUE(info0 != NULL);
+  ASSERT_TRUE(info0 != nullptr);
   Shader* shader1 = manager_.GetShader(kClient1Id);
   ASSERT_EQ(info0, shader1);
   // Check we get nothing for a non-existent shader.
-  EXPECT_TRUE(manager_.GetShader(kClient2Id) == NULL);
+  EXPECT_TRUE(manager_.GetShader(kClient2Id) == nullptr);
   // Check we can't get the shader after we remove it.
   EXPECT_CALL(*gl_, DeleteShader(kService1Id))
       .Times(1)
       .RetiresOnSaturation();
   manager_.Delete(shader1);
-  EXPECT_TRUE(manager_.GetShader(kClient1Id) == NULL);
+  EXPECT_TRUE(manager_.GetShader(kClient1Id) == nullptr);
 }
 
 TEST_F(ShaderManagerTest, Destroy) {
@@ -56,14 +56,14 @@ TEST_F(ShaderManagerTest, Destroy) {
   Shader* shader1 = manager_.CreateShader(
       kClient1Id, kService1Id, kShader1Type);
   // Check shader got created.
-  ASSERT_TRUE(shader1 != NULL);
+  ASSERT_TRUE(shader1 != nullptr);
   EXPECT_CALL(*gl_, DeleteShader(kService1Id))
       .Times(1)
       .RetiresOnSaturation();
   manager_.Destroy(true);
   // Check that resources got freed.
   shader1 = manager_.GetShader(kClient1Id);
-  ASSERT_TRUE(shader1 == NULL);
+  ASSERT_TRUE(shader1 == nullptr);
 }
 
 TEST_F(ShaderManagerTest, DeleteBug) {
@@ -146,7 +146,7 @@ TEST_F(ShaderManagerTest, DoCompile) {
   Shader* shader1 = manager_.CreateShader(
       kClient1Id, kService1Id, kShader1Type);
   // Check shader got created.
-  ASSERT_TRUE(shader1 != NULL);
+  ASSERT_TRUE(shader1 != nullptr);
   EXPECT_EQ(kService1Id, shader1->service_id());
   // Check if the shader has correct type.
   EXPECT_EQ(kShader1Type, shader1->shader_type());
@@ -220,9 +220,10 @@ TEST_F(ShaderManagerTest, DoCompile) {
           kInterfaceBlock1Name, kInterfaceBlock1InstanceName,
           interface_block1_fields);
 
-  TestHelper::SetShaderStates(
-      gl_.get(), shader1, true, &kLog, &kTranslatedSource, nullptr, &attrib_map,
-      &uniform_map, &varying_map, &interface_block_map, &output_variable_list);
+  TestHelper::SetShaderStates(gl_.get(), shader1, true, &kLog,
+                              &kTranslatedSource, nullptr, &attrib_map,
+                              &uniform_map, &varying_map, &interface_block_map,
+                              &output_variable_list, nullptr);
 
   EXPECT_TRUE(shader1->valid());
   // When compilation succeeds, no log is recorded.
@@ -235,9 +236,10 @@ TEST_F(ShaderManagerTest, DoCompile) {
   for (AttributeMap::const_iterator it = attrib_map.begin();
        it != attrib_map.end(); ++it) {
     const sh::Attribute* variable_info = shader1->GetAttribInfo(it->first);
-    ASSERT_TRUE(variable_info != NULL);
+    ASSERT_TRUE(variable_info != nullptr);
     EXPECT_EQ(it->second.type, variable_info->type);
-    EXPECT_EQ(it->second.arraySize, variable_info->arraySize);
+    EXPECT_EQ(it->second.getOutermostArraySize(),
+              variable_info->getOutermostArraySize());
     EXPECT_EQ(it->second.precision, variable_info->precision);
     EXPECT_EQ(it->second.staticUse, variable_info->staticUse);
     EXPECT_STREQ(it->second.name.c_str(), variable_info->name.c_str());
@@ -249,9 +251,10 @@ TEST_F(ShaderManagerTest, DoCompile) {
   for (UniformMap::const_iterator it = uniform_map.begin();
        it != uniform_map.end(); ++it) {
     const sh::Uniform* variable_info = shader1->GetUniformInfo(it->first);
-    ASSERT_TRUE(variable_info != NULL);
+    ASSERT_TRUE(variable_info != nullptr);
     EXPECT_EQ(it->second.type, variable_info->type);
-    EXPECT_EQ(it->second.arraySize, variable_info->arraySize);
+    EXPECT_EQ(it->second.getOutermostArraySize(),
+              variable_info->getOutermostArraySize());
     EXPECT_EQ(it->second.precision, variable_info->precision);
     EXPECT_EQ(it->second.staticUse, variable_info->staticUse);
     EXPECT_STREQ(it->second.name.c_str(), variable_info->name.c_str());
@@ -263,9 +266,10 @@ TEST_F(ShaderManagerTest, DoCompile) {
   for (VaryingMap::const_iterator it = varying_map.begin();
        it != varying_map.end(); ++it) {
     const sh::Varying* variable_info = shader1->GetVaryingInfo(it->first);
-    ASSERT_TRUE(variable_info != NULL);
+    ASSERT_TRUE(variable_info != nullptr);
     EXPECT_EQ(it->second.type, variable_info->type);
-    EXPECT_EQ(it->second.arraySize, variable_info->arraySize);
+    EXPECT_EQ(it->second.getOutermostArraySize(),
+              variable_info->getOutermostArraySize());
     EXPECT_EQ(it->second.precision, variable_info->precision);
     EXPECT_EQ(it->second.staticUse, variable_info->staticUse);
     EXPECT_STREQ(it->second.name.c_str(), variable_info->name.c_str());
@@ -277,7 +281,7 @@ TEST_F(ShaderManagerTest, DoCompile) {
   for (const auto& it : interface_block_map) {
     const sh::InterfaceBlock* block_info =
         shader1->GetInterfaceBlockInfo(it.first);
-    ASSERT_TRUE(block_info != NULL);
+    ASSERT_TRUE(block_info != nullptr);
     EXPECT_EQ(it.second.arraySize, block_info->arraySize);
     EXPECT_EQ(it.second.layout, block_info->layout);
     EXPECT_EQ(it.second.isRowMajorLayout, block_info->isRowMajorLayout);
@@ -297,7 +301,7 @@ TEST_F(ShaderManagerTest, DoCompile) {
     const auto& exp = interface_block1_fields[f];
     const auto& act = interface_block1_info->fields[f];
     EXPECT_EQ(exp.type, act.type);
-    EXPECT_EQ(exp.arraySize, act.arraySize);
+    EXPECT_EQ(exp.getOutermostArraySize(), act.getOutermostArraySize());
     EXPECT_EQ(exp.precision, act.precision);
     EXPECT_EQ(exp.staticUse, act.staticUse);
     EXPECT_STREQ(exp.name.c_str(), act.name.c_str());
@@ -315,7 +319,8 @@ TEST_F(ShaderManagerTest, DoCompile) {
         shader1->GetOutputVariableInfo(it->mappedName);
     ASSERT_TRUE(variable_info != nullptr);
     EXPECT_EQ(it->type, variable_info->type);
-    EXPECT_EQ(it->arraySize, variable_info->arraySize);
+    EXPECT_EQ(it->getOutermostArraySize(),
+              variable_info->getOutermostArraySize());
     EXPECT_EQ(it->precision, variable_info->precision);
     EXPECT_EQ(it->staticUse, variable_info->staticUse);
     EXPECT_STREQ(it->name.c_str(), variable_info->name.c_str());
@@ -325,9 +330,10 @@ TEST_F(ShaderManagerTest, DoCompile) {
   }
 
   // Compile failure case.
-  TestHelper::SetShaderStates(
-      gl_.get(), shader1, false, &kLog, &kTranslatedSource, nullptr,
-      &attrib_map, &uniform_map, &varying_map, nullptr, &output_variable_list);
+  TestHelper::SetShaderStates(gl_.get(), shader1, false, &kLog,
+                              &kTranslatedSource, nullptr, &attrib_map,
+                              &uniform_map, &varying_map, nullptr,
+                              &output_variable_list, nullptr);
   EXPECT_FALSE(shader1->valid());
   EXPECT_STREQ(kLog.c_str(), shader1->log_info().c_str());
   EXPECT_STREQ("", shader1->translated_source().c_str());
@@ -345,7 +351,7 @@ TEST_F(ShaderManagerTest, ShaderInfoUseCount) {
   Shader* shader1 = manager_.CreateShader(
       kClient1Id, kService1Id, kShader1Type);
   // Check shader got created.
-  ASSERT_TRUE(shader1 != NULL);
+  ASSERT_TRUE(shader1 != nullptr);
   EXPECT_FALSE(shader1->InUse());
   EXPECT_FALSE(shader1->IsDeleted());
   manager_.UseShader(shader1);
@@ -363,10 +369,10 @@ TEST_F(ShaderManagerTest, ShaderInfoUseCount) {
   EXPECT_TRUE(shader1->InUse());
   manager_.UnuseShader(shader1);  // this should delete the info.
   shader2 = manager_.GetShader(kClient1Id);
-  EXPECT_TRUE(shader2 == NULL);
+  EXPECT_TRUE(shader2 == nullptr);
 
   shader1 = manager_.CreateShader(kClient1Id, kService1Id, kShader1Type);
-  ASSERT_TRUE(shader1 != NULL);
+  ASSERT_TRUE(shader1 != nullptr);
   EXPECT_FALSE(shader1->InUse());
   manager_.UseShader(shader1);
   EXPECT_TRUE(shader1->InUse());
@@ -383,7 +389,7 @@ TEST_F(ShaderManagerTest, ShaderInfoUseCount) {
       .RetiresOnSaturation();
   manager_.Delete(shader1);  // this should delete the shader.
   shader2 = manager_.GetShader(kClient1Id);
-  EXPECT_TRUE(shader2 == NULL);
+  EXPECT_TRUE(shader2 == nullptr);
 }
 
 }  // namespace gles2

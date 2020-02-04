@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include "base/logging.h"
+#include "cc/base/math_util.h"
 #include "media/base/audio_bus.h"
 #include "media/base/limits.h"
 #include "media/filters/wsola_internals.h"
@@ -44,12 +45,6 @@ namespace media {
 //    |search_block_index_| = |search_block_center_offset_| -
 //        |search_block_center_offset_|.
 
-// Max/min supported playback rates for fast/slow audio. Audio outside of these
-// ranges are muted.
-// Audio at these speeds would sound better under a frequency domain algorithm.
-static const double kMinPlaybackRate = 0.5;
-static const double kMaxPlaybackRate = 4.0;
-
 // Overlap-and-add window size in milliseconds.
 static const int kOlaWindowSizeMs = 20;
 
@@ -65,19 +60,16 @@ static const int kMaxCapacityInSeconds = 3;
 static const int kStartingCapacityInMs = 200;
 
 // The minimum size in ms for the |audio_buffer_| for encrypted streams.
-// This is a temporary workaround for http://crbug.com/718161. Encrypted
-// audio may be decrypted on the renderer main thread, so if that thread
-// is blocked for a significant amount of time, decoding can stall. By
-// maintaining a larger audio buffer we are more resilient to underflows
-// caused by long running main thread tasks.
-// TODO(watk,xhwang): Delete this when decrypting moves to the media thread
-// (http://crbug.com/403462).
+// Set this to be larger than |kStartingCapacityInMs| because the performance of
+// encrypted playback is always worse than clear playback, due to decryption and
+// potentially IPC overhead. For the context, see https://crbug.com/403462,
+// https://crbug.com/718161 and https://crbug.com/879970.
 static const int kStartingCapacityForEncryptedInMs = 500;
 
 AudioRendererAlgorithm::AudioRendererAlgorithm()
     : channels_(0),
       samples_per_second_(0),
-      muted_partial_frame_(0),
+      is_bitstream_format_(false),
       capacity_(0),
       output_time_(0.0),
       search_block_center_offset_(0),
@@ -90,7 +82,7 @@ AudioRendererAlgorithm::AudioRendererAlgorithm()
       initial_capacity_(0),
       max_capacity_(0) {}
 
-AudioRendererAlgorithm::~AudioRendererAlgorithm() {}
+AudioRendererAlgorithm::~AudioRendererAlgorithm() = default;
 
 void AudioRendererAlgorithm::Initialize(const AudioParameters& params,
                                         bool is_encrypted) {
@@ -98,6 +90,7 @@ void AudioRendererAlgorithm::Initialize(const AudioParameters& params,
 
   channels_ = params.channels();
   samples_per_second_ = params.sample_rate();
+  is_bitstream_format_ = params.IsBitstreamFormat();
   initial_capacity_ = capacity_ = std::max(
       params.frames_per_buffer() * 2,
       ConvertMillisecondsToFrames(is_encrypted
@@ -157,33 +150,9 @@ int AudioRendererAlgorithm::FillBuffer(AudioBus* dest,
   DCHECK_GT(playback_rate, 0);
   DCHECK_EQ(channels_, dest->channels());
 
-  // Optimize the muted case to issue a single clear instead of performing
-  // the full crossfade and clearing each crossfaded frame.
-  if (playback_rate < kMinPlaybackRate || playback_rate > kMaxPlaybackRate) {
-    int frames_to_render =
-        std::min(static_cast<int>(audio_buffer_.frames() / playback_rate),
-                 requested_frames);
-
-    // Compute accurate number of frames to actually skip in the source data.
-    // Includes the leftover partial frame from last request. However, we can
-    // only skip over complete frames, so a partial frame may remain for next
-    // time.
-    muted_partial_frame_ += frames_to_render * playback_rate;
-    // Handle the case where muted_partial_frame_ rounds up to
-    // audio_buffer_.frames()+1.
-    int seek_frames = std::min(static_cast<int>(muted_partial_frame_),
-                               audio_buffer_.frames());
-    dest->ZeroFramesPartial(dest_offset, frames_to_render);
-    audio_buffer_.SeekFrames(seek_frames);
-
-    // Determine the partial frame that remains to be skipped for next call. If
-    // the user switches back to playing, it may be off time by this partial
-    // frame, which would be undetectable. If they subsequently switch to
-    // another playback rate that mutes, the code will attempt to line up the
-    // frames again.
-    muted_partial_frame_ -= seek_frames;
-    return frames_to_render;
-  }
+  // In case of compressed bitstream formats, no post processing is allowed.
+  if (is_bitstream_format_)
+    return audio_buffer_.ReadFrames(requested_frames, dest_offset, dest);
 
   int slower_step = ceil(ola_window_size_ * playback_rate);
   int faster_step = ceil(ola_window_size_ / playback_rate);
@@ -223,6 +192,11 @@ int AudioRendererAlgorithm::FillBuffer(AudioBus* dest,
     // Create potentially smaller wrappers for playback rate adaptation.
     CreateSearchWrappers();
   }
+
+  // Silent audio can contain non-zero samples small enough to result in
+  // subnormals internalls. Disabling subnormals can be significantly faster in
+  // these cases.
+  cc::ScopedSubnormalFloatDisabler disable_subnormals;
 
   int rendered_frames = 0;
   do {

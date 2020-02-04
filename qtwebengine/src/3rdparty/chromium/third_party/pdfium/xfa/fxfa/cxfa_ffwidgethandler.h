@@ -7,13 +7,13 @@
 #ifndef XFA_FXFA_CXFA_FFWIDGETHANDLER_H_
 #define XFA_FXFA_CXFA_FFWIDGETHANDLER_H_
 
-#include <vector>
-
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fxfa/cxfa_eventparam.h"
 #include "xfa/fxfa/fxfa.h"
 #include "xfa/fxfa/parser/cxfa_document.h"
 
 class CXFA_FFDocView;
+class CXFA_Graphics;
 enum class FWL_WidgetHit;
 
 class CXFA_FFWidgetHandler {
@@ -23,7 +23,7 @@ class CXFA_FFWidgetHandler {
 
   CXFA_FFWidget* CreateWidget(CXFA_FFWidget* hParent,
                               XFA_WIDGETTYPE eType,
-                              CXFA_FFWidget* hBefore = nullptr);
+                              CXFA_FFWidget* hBefore);
 
   bool OnMouseEnter(CXFA_FFWidget* hWidget);
   bool OnMouseExit(CXFA_FFWidget* hWidget);
@@ -53,6 +53,15 @@ class CXFA_FFWidgetHandler {
                        uint32_t dwFlags,
                        const CFX_PointF& point);
 
+  WideString GetText(CXFA_FFWidget* widget);
+  WideString GetSelectedText(CXFA_FFWidget* widget);
+  void PasteText(CXFA_FFWidget* widget, const WideString& text);
+
+  bool CanUndo(CXFA_FFWidget* widget);
+  bool CanRedo(CXFA_FFWidget* widget);
+  bool Undo(CXFA_FFWidget* widget);
+  bool Redo(CXFA_FFWidget* widget);
+
   bool OnKeyDown(CXFA_FFWidget* hWidget, uint32_t dwKeyCode, uint32_t dwFlags);
   bool OnKeyUp(CXFA_FFWidget* hWidget, uint32_t dwKeyCode, uint32_t dwFlags);
   bool OnChar(CXFA_FFWidget* hWidget, uint32_t dwChar, uint32_t dwFlags);
@@ -60,10 +69,10 @@ class CXFA_FFWidgetHandler {
   bool OnSetCursor(CXFA_FFWidget* hWidget, const CFX_PointF& point);
   void RenderWidget(CXFA_FFWidget* hWidget,
                     CXFA_Graphics* pGS,
-                    CFX_Matrix* pMatrix,
+                    const CFX_Matrix& matrix,
                     bool bHighlight);
-  bool HasEvent(CXFA_WidgetAcc* pWidgetAcc, XFA_EVENTTYPE eEventType);
-  int32_t ProcessEvent(CXFA_WidgetAcc* pWidgetAcc, CXFA_EventParam* pParam);
+  bool HasEvent(CXFA_Node* pNode, XFA_EVENTTYPE eEventType);
+  int32_t ProcessEvent(CXFA_Node* pNode, CXFA_EventParam* pParam);
 
  private:
   CXFA_Node* CreateWidgetFormItem(XFA_WIDGETTYPE eType,
@@ -101,7 +110,7 @@ class CXFA_FFWidgetHandler {
                             CXFA_Node* pBefore) const;
   CXFA_Node* CreateCopyNode(XFA_Element eElement,
                             CXFA_Node* pParent,
-                            CXFA_Node* pBefore = nullptr) const;
+                            CXFA_Node* pBefore) const;
   CXFA_Node* CreateTemplateNode(XFA_Element eElement,
                                 CXFA_Node* pParent,
                                 CXFA_Node* pBefore) const;
@@ -113,7 +122,7 @@ class CXFA_FFWidgetHandler {
   CXFA_Document* GetObjFactory() const;
   CXFA_Document* GetXFADoc() const;
 
-  CXFA_FFDocView* m_pDocView;
+  UnownedPtr<CXFA_FFDocView> m_pDocView;
 };
 
 #endif  //  XFA_FXFA_CXFA_FFWIDGETHANDLER_H_

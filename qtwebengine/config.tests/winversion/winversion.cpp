@@ -26,8 +26,8 @@
 **
 ****************************************************************************/
 
-#if !defined(_MSC_FULL_VER) || _MSC_FULL_VER < 190024213
-#error VS 2015 Update 3 with Cumulative Servicing Release or higher is required
+#if !defined(__clang__) && _MSC_FULL_VER < 191426428
+#error unsupported Visual Studio version
 #endif
 
 int main(int, char **)

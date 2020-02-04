@@ -10,8 +10,6 @@
 #include <memory>
 #include <utility>
 
-#include "core/fxcrt/fx_basic.h"
-
 class CCodec_FaxModule;
 class CCodec_FlateModule;
 class CCodec_IccModule;
@@ -62,11 +60,10 @@ class CPDF_ModuleMgr {
   CPDF_ModuleMgr();
   ~CPDF_ModuleMgr();
 
-  void InitCodecModule();
   void InitPageModule();
-  void LoadEmbeddedMaps();
+  void InitCodecModule();
   void LoadCodecModules();
-
+  void LoadEmbeddedMaps();
   void LoadEmbeddedGB1CMaps();
   void LoadEmbeddedCNS1CMaps();
   void LoadEmbeddedJapan1CMaps();

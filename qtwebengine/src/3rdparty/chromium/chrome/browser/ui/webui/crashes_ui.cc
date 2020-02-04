@@ -6,13 +6,14 @@
 
 #include <stddef.h>
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/crash_upload_list/crash_upload_list.h"
@@ -56,6 +57,7 @@ content::WebUIDataSource* CreateCrashesUIHTMLSource() {
   source->SetJsonPath("strings.js");
   source->AddResourcePath(crash::kCrashesUICrashesJS, IDR_CRASH_CRASHES_JS);
   source->SetDefaultResource(IDR_CRASH_CRASHES_HTML);
+  source->UseGzip();
   return source;
 }
 
@@ -112,20 +114,20 @@ void CrashesDOMHandler::RegisterMessages() {
                                     base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       crash::kCrashesUIRequestCrashList,
-      base::Bind(&CrashesDOMHandler::HandleRequestCrashes,
-                 base::Unretained(this)));
+      base::BindRepeating(&CrashesDOMHandler::HandleRequestCrashes,
+                          base::Unretained(this)));
 
 #if defined(OS_CHROMEOS)
   web_ui()->RegisterMessageCallback(
       crash::kCrashesUIRequestCrashUpload,
-      base::Bind(&CrashesDOMHandler::HandleRequestUploads,
-                 base::Unretained(this)));
+      base::BindRepeating(&CrashesDOMHandler::HandleRequestUploads,
+                          base::Unretained(this)));
 #endif
 
   web_ui()->RegisterMessageCallback(
       crash::kCrashesUIRequestSingleCrashUpload,
-      base::Bind(&CrashesDOMHandler::HandleRequestSingleCrashUpload,
-                 base::Unretained(this)));
+      base::BindRepeating(&CrashesDOMHandler::HandleRequestSingleCrashUpload,
+                          base::Unretained(this)));
 }
 
 void CrashesDOMHandler::HandleRequestCrashes(const base::ListValue* args) {
@@ -227,7 +229,7 @@ void CrashesDOMHandler::HandleRequestSingleCrashUpload(
 ///////////////////////////////////////////////////////////////////////////////
 
 CrashesUI::CrashesUI(content::WebUI* web_ui) : WebUIController(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<CrashesDOMHandler>());
+  web_ui->AddMessageHandler(std::make_unique<CrashesDOMHandler>());
 
   // Set up the chrome://crashes/ source.
   Profile* profile = Profile::FromWebUI(web_ui);
@@ -237,6 +239,6 @@ CrashesUI::CrashesUI(content::WebUI* web_ui) : WebUIController(web_ui) {
 // static
 base::RefCountedMemory* CrashesUI::GetFaviconResourceBytes(
       ui::ScaleFactor scale_factor) {
-  return ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
+  return ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
       IDR_CRASH_SAD_FAVICON, scale_factor);
 }

@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -121,7 +121,10 @@ private slots:
     void reloadPlugin();
     void preloadedPlugin_data();
     void preloadedPlugin();
+    void staticPlugins();
 };
+
+Q_IMPORT_PLUGIN(StaticPlugin)
 
 void tst_QPluginLoader::cleanup()
 {
@@ -140,6 +143,10 @@ void tst_QPluginLoader::cleanup()
 
 void tst_QPluginLoader::errorString()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires Qt to create shared libraries.");
+#endif
+
     const QString unknown(QLatin1String("Unknown error"));
 
     {
@@ -186,7 +193,7 @@ void tst_QPluginLoader::errorString()
     QVERIFY(!unloaded);
     }
 
-#if !defined Q_OS_WIN && !defined Q_OS_MAC && !defined Q_OS_HPUX
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MAC) && !defined(Q_OS_HPUX)
     {
     QPluginLoader loader( sys_qualifiedLibraryName("almostplugin"));     //a plugin with unresolved symbols
     loader.setLoadHints(QLibrary::ResolveAllSymbolsHint);
@@ -206,6 +213,14 @@ void tst_QPluginLoader::errorString()
 
     {
     QPluginLoader loader( sys_qualifiedLibraryName("theplugin"));     //a plugin
+
+    // Check metadata
+    const QJsonObject metaData = loader.metaData();
+    QCOMPARE(metaData.value("IID").toString(), QStringLiteral("org.qt-project.Qt.autotests.plugininterface"));
+    const QJsonObject kpluginObject = metaData.value("MetaData").toObject().value("KPlugin").toObject();
+    QCOMPARE(kpluginObject.value("Name[mr]").toString(), QString::fromUtf8("चौकट भूमिती"));
+
+    // Load
     QCOMPARE(loader.load(), true);
     QCOMPARE(loader.errorString(), unknown);
 
@@ -224,6 +239,9 @@ void tst_QPluginLoader::errorString()
 
 void tst_QPluginLoader::loadHints()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires Qt to create shared libraries.");
+#endif
     QPluginLoader loader;
     QCOMPARE(loader.loadHints(), (QLibrary::LoadHints)0);   //Do not crash
     loader.setLoadHints(QLibrary::ResolveAllSymbolsHint);
@@ -233,6 +251,9 @@ void tst_QPluginLoader::loadHints()
 
 void tst_QPluginLoader::deleteinstanceOnUnload()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires Qt to create shared libraries.");
+#endif
     for (int pass = 0; pass < 2; ++pass) {
         QPluginLoader loader1;
         loader1.setFileName( sys_qualifiedLibraryName("theplugin"));     //a plugin
@@ -268,6 +289,9 @@ void tst_QPluginLoader::deleteinstanceOnUnload()
 
 void tst_QPluginLoader::loadDebugObj()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires a shared build of Qt, as QPluginLoader::setFileName is a no-op in static builds");
+#endif
 #if defined (__ELF__)
     QVERIFY(QFile::exists(QFINDTESTDATA("elftest/debugobj.so")));
     QPluginLoader lib1(QFINDTESTDATA("elftest/debugobj.so"));
@@ -277,6 +301,9 @@ void tst_QPluginLoader::loadDebugObj()
 
 void tst_QPluginLoader::loadCorruptElf()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires a shared build of Qt, as QPluginLoader::setFileName is a no-op in static builds");
+#endif
 #if defined (__ELF__)
     if (sizeof(void*) == 8) {
         QVERIFY(QFile::exists(QFINDTESTDATA("elftest/corrupt1.elf64.so")));
@@ -345,8 +372,8 @@ void tst_QPluginLoader::loadMachO()
     QVERIFY(f.open(QIODevice::ReadOnly));
     QByteArray data = f.readAll();
 
-    long pos;
-    ulong len;
+    qsizetype pos;
+    qsizetype len;
     QString errorString;
     int r = QMachOParser::parse(data.constData(), data.size(), f.fileName(), &errorString, &pos, &len);
 
@@ -377,6 +404,9 @@ void tst_QPluginLoader::loadMachO()
 #if defined (Q_OS_UNIX)
 void tst_QPluginLoader::loadGarbage()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires a shared build of Qt, as QPluginLoader::setFileName is a no-op in static builds");
+#endif
     for (int i=0; i<5; i++) {
         const QString name = QLatin1String("elftest/garbage") + QString::number(i + 1) + QLatin1String(".so");
         QPluginLoader lib(QFINDTESTDATA(name));
@@ -388,6 +418,9 @@ void tst_QPluginLoader::loadGarbage()
 
 void tst_QPluginLoader::relativePath()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires Qt to create shared libraries.");
+#endif
     // Windows binaries run from release and debug subdirs, so we can't rely on the current dir.
     const QString binDir = QFINDTESTDATA("bin");
     QVERIFY(!binDir.isEmpty());
@@ -402,6 +435,9 @@ void tst_QPluginLoader::relativePath()
 
 void tst_QPluginLoader::absolutePath()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires Qt to create shared libraries.");
+#endif
     // Windows binaries run from release and debug subdirs, so we can't rely on the current dir.
     const QString binDir = QFINDTESTDATA("bin");
     QVERIFY(!binDir.isEmpty());
@@ -416,6 +452,9 @@ void tst_QPluginLoader::absolutePath()
 
 void tst_QPluginLoader::reloadPlugin()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires Qt to create shared libraries.");
+#endif
     QPluginLoader loader;
     loader.setFileName( sys_qualifiedLibraryName("theplugin"));     //a plugin
     loader.load(); // not recommended, instance() should do the job.
@@ -451,6 +490,9 @@ void tst_QPluginLoader::preloadedPlugin_data()
 
 void tst_QPluginLoader::preloadedPlugin()
 {
+#if !defined(QT_SHARED)
+    QSKIP("This test requires Qt to create shared libraries.");
+#endif
     // check that using QPluginLoader does not interfere with QLibrary
     QFETCH(QString, libname);
     QLibrary lib(libname);
@@ -480,6 +522,39 @@ void tst_QPluginLoader::preloadedPlugin()
     QCOMPARE(*pluginVariable, 0xc0ffee);
     QVERIFY(lib.unload());
 }
+
+void tst_QPluginLoader::staticPlugins()
+{
+    const QObjectList instances = QPluginLoader::staticInstances();
+    QVERIFY(instances.size());
+
+    bool found = false;
+    for (QObject *obj : instances) {
+        found = obj->metaObject()->className() == QLatin1String("StaticPlugin");
+        if (found)
+            break;
+    }
+    QVERIFY(found);
+
+    const auto plugins = QPluginLoader::staticPlugins();
+    QCOMPARE(plugins.size(), instances.size());
+
+    // find the metadata
+    QJsonObject metaData;
+    for (const auto &p : plugins) {
+        metaData = p.metaData();
+        found = metaData.value("className").toString() == QLatin1String("StaticPlugin");
+        if (found)
+            break;
+    }
+    QVERIFY(found);
+
+    // We don't store the patch release version anymore (since 5.13)
+    QCOMPARE(metaData.value("version").toInt() / 0x100, QT_VERSION / 0x100);
+    QCOMPARE(metaData.value("IID").toString(), "SomeIID");
+    QCOMPARE(metaData.value("ExtraMetaData"), QJsonArray({ "StaticPlugin", "foo" }));
+}
+
 
 QTEST_MAIN(tst_QPluginLoader)
 #include "tst_qpluginloader.moc"

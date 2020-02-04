@@ -9,107 +9,112 @@
 
 #include <vector>
 
+#include "core/fpdfdoc/cpdf_formfield.h"
 #include "core/fxcodec/fx_codec_def.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "xfa/fwl/cfwl_app.h"
+#include "xfa/fwl/cfwl_messagemouse.h"
 #include "xfa/fxfa/fxfa.h"
 #include "xfa/fxfa/parser/cxfa_contentlayoutitem.h"
 
+class CFX_DIBitmap;
+class CXFA_Box;
 class CXFA_FFPageView;
 class CXFA_FFDocView;
 class CXFA_FFDoc;
 class CXFA_FFApp;
+class CXFA_Graphics;
+class CXFA_Image;
+class CXFA_Margin;
 enum class FWL_WidgetHit;
 
 inline float XFA_UnitPx2Pt(float fPx, float fDpi) {
   return fPx * 72.0f / fDpi;
 }
 
-#define XFA_FLOAT_PERCISION 0.001f
-#define XFA_CalcData (void*)(uintptr_t) FXBSTR_ID('X', 'F', 'A', 'C')
+constexpr float kXFAWidgetPrecision = 0.001f;
 
-enum XFA_WIDGETITEM {
-  XFA_WIDGETITEM_Parent,
-  XFA_WIDGETITEM_FirstChild,
-  XFA_WIDGETITEM_NextSibling,
-  XFA_WIDGETITEM_PrevSibling,
-};
-
-int32_t XFA_StrokeTypeSetLineDash(CXFA_Graphics* pGraphics,
-                                  int32_t iStrokeType,
-                                  int32_t iCapType);
-CFX_GraphStateData::LineCap XFA_LineCapToFXGE(int32_t iLineCap);
 void XFA_DrawImage(CXFA_Graphics* pGS,
                    const CFX_RectF& rtImage,
-                   CFX_Matrix* pMatrix,
-                   const CFX_RetainPtr<CFX_DIBitmap>& pDIBitmap,
-                   int32_t iAspect,
-                   int32_t iImageXDpi,
-                   int32_t iImageYDpi,
-                   int32_t iHorzAlign = XFA_ATTRIBUTEENUM_Left,
-                   int32_t iVertAlign = XFA_ATTRIBUTEENUM_Top);
+                   const CFX_Matrix& matrix,
+                   const RetainPtr<CFX_DIBitmap>& pDIBitmap,
+                   XFA_AttributeValue iAspect,
+                   const CFX_Size& dpi,
+                   XFA_AttributeValue iHorzAlign = XFA_AttributeValue::Left,
+                   XFA_AttributeValue iVertAlign = XFA_AttributeValue::Top);
 
-CFX_RetainPtr<CFX_DIBitmap> XFA_LoadImageData(CXFA_FFDoc* pDoc,
-                                              CXFA_Image* pImage,
-                                              bool& bNameImage,
-                                              int32_t& iImageXDpi,
-                                              int32_t& iImageYDpi);
-
-CFX_RetainPtr<CFX_DIBitmap> XFA_LoadImageFromBuffer(
-    const CFX_RetainPtr<IFX_SeekableReadStream>& pImageFileRead,
+RetainPtr<CFX_DIBitmap> XFA_LoadImageFromBuffer(
+    const RetainPtr<IFX_SeekableReadStream>& pImageFileRead,
     FXCODEC_IMAGE_TYPE type,
     int32_t& iImageXDpi,
     int32_t& iImageYDpi);
 
-FXCODEC_IMAGE_TYPE XFA_GetImageType(const CFX_WideString& wsType);
-char* XFA_Base64Encode(const uint8_t* buf, int32_t buf_len);
-void XFA_RectWidthoutMargin(CFX_RectF& rt,
-                            const CXFA_Margin& mg,
-                            bool bUI = false);
+void XFA_RectWithoutMargin(CFX_RectF* rt, const CXFA_Margin* margin);
 CXFA_FFWidget* XFA_GetWidgetFromLayoutItem(CXFA_LayoutItem* pLayoutItem);
-bool XFA_IsCreateWidget(XFA_Element iType);
-#define XFA_DRAWBOX_ForceRound 1
-#define XFA_DRAWBOX_Lowered3D 2
-void XFA_DrawBox(CXFA_Box box,
-                 CXFA_Graphics* pGS,
-                 const CFX_RectF& rtWidget,
-                 CFX_Matrix* pMatrix,
-                 uint32_t dwFlags = 0);
 
 class CXFA_CalcData {
  public:
   CXFA_CalcData();
   ~CXFA_CalcData();
 
-  std::vector<CXFA_WidgetAcc*> m_Globals;
+  std::vector<CXFA_Node*> m_Globals;
   int32_t m_iRefCount;
+};
+
+enum class XFA_FFWidgetType {
+  kNone = 0,
+  kBarcode,
+  kButton,
+  kCheckButton,
+  kChoiceList,
+  kDateTimeEdit,
+  kImageEdit,
+  kNumericEdit,
+  kPasswordEdit,
+  kSignature,
+  kTextEdit,
+  kArc,
+  kLine,
+  kRectangle,
+  kText,
+  kImage,
+  kSubform,
+  kExclGroup
 };
 
 class CXFA_FFWidget : public CXFA_ContentLayoutItem {
  public:
-  explicit CXFA_FFWidget(CXFA_WidgetAcc* pDataAcc);
+  enum FocusOption { kDoNotDrawFocus = 0, kDrawFocus };
+
+  explicit CXFA_FFWidget(CXFA_Node* pNode);
   ~CXFA_FFWidget() override;
 
-  virtual CFX_RectF GetBBox(uint32_t dwStatus, bool bDrawFocus = false);
+  // CXFA_ContentLayoutItem:
+  CXFA_FFWidget* AsFFWidget() override;
+
+  virtual CFX_RectF GetBBox(uint32_t dwStatus, FocusOption focus);
   virtual void RenderWidget(CXFA_Graphics* pGS,
-                            CFX_Matrix* pMatrix,
+                            const CFX_Matrix& matrix,
                             uint32_t dwStatus);
   virtual bool IsLoaded();
   virtual bool LoadWidget();
-  virtual void UnloadWidget();
   virtual bool PerformLayout();
   virtual bool UpdateFWLData();
   virtual void UpdateWidgetProperty();
   virtual bool OnMouseEnter();
   virtual bool OnMouseExit();
-  virtual bool OnLButtonDown(uint32_t dwFlags, const CFX_PointF& point);
+  // |command| must be LeftButtonDown or RightButtonDown.
+  virtual bool AcceptsFocusOnButtonDown(uint32_t dwFlags,
+                                        const CFX_PointF& point,
+                                        FWL_MouseCommand command);
+  virtual void OnLButtonDown(uint32_t dwFlags, const CFX_PointF& point);
   virtual bool OnLButtonUp(uint32_t dwFlags, const CFX_PointF& point);
   virtual bool OnLButtonDblClk(uint32_t dwFlags, const CFX_PointF& point);
   virtual bool OnMouseMove(uint32_t dwFlags, const CFX_PointF& point);
   virtual bool OnMouseWheel(uint32_t dwFlags,
                             int16_t zDelta,
                             const CFX_PointF& point);
-  virtual bool OnRButtonDown(uint32_t dwFlags, const CFX_PointF& point);
+  virtual void OnRButtonDown(uint32_t dwFlags, const CFX_PointF& point);
   virtual bool OnRButtonUp(uint32_t dwFlags, const CFX_PointF& point);
   virtual bool OnRButtonDblClk(uint32_t dwFlags, const CFX_PointF& point);
 
@@ -130,41 +135,37 @@ class CXFA_FFWidget : public CXFA_ContentLayoutItem {
   virtual bool CanSelectAll();
   virtual bool CanDelete();
   virtual bool CanDeSelect();
-  virtual bool Copy(CFX_WideString& wsCopy);
-  virtual bool Cut(CFX_WideString& wsCut);
-  virtual bool Paste(const CFX_WideString& wsPaste);
+  virtual Optional<WideString> Copy();
+  virtual Optional<WideString> Cut();
+  virtual bool Paste(const WideString& wsPaste);
   virtual void SelectAll();
   virtual void Delete();
   virtual void DeSelect();
+  virtual WideString GetText();
 
-  // TODO(tsepez): Implement or remove.
-  void GetSuggestWords(CFX_PointF pointf, std::vector<CFX_ByteString>* pWords);
-  bool ReplaceSpellCheckWord(CFX_PointF pointf,
-                             const CFX_ByteStringC& bsReplace);
+  virtual FormFieldType GetFormFieldType();
 
-  CXFA_FFPageView* GetPageView() const { return m_pPageView; }
+  CXFA_FFPageView* GetPageView() const { return m_pPageView.Get(); }
   void SetPageView(CXFA_FFPageView* pPageView) { m_pPageView = pPageView; }
+  CXFA_FFDocView* GetDocView() const { return m_pDocView.Get(); }
+  void SetDocView(CXFA_FFDocView* pDocView) { m_pDocView = pDocView; }
+
   const CFX_RectF& GetWidgetRect() const;
   const CFX_RectF& RecacheWidgetRect() const;
   uint32_t GetStatus();
   void ModifyStatus(uint32_t dwAdded, uint32_t dwRemoved);
 
-  CXFA_WidgetAcc* GetDataAcc();
-  bool GetToolTip(CFX_WideString& wsToolTip);
+  CXFA_Node* GetNode() const { return m_pNode.Get(); }
 
-  CXFA_FFDocView* GetDocView();
-  void SetDocView(CXFA_FFDocView* pDocView);
   CXFA_FFDoc* GetDoc();
   CXFA_FFApp* GetApp();
   IXFA_AppProvider* GetAppProvider();
-  void InvalidateWidget(const CFX_RectF* pRect = nullptr);
-  void AddInvalidateRect(const CFX_RectF* pRect = nullptr);
-  bool GetCaptionText(CFX_WideString& wsCap);
+  void InvalidateRect();
   bool IsFocused() const { return !!(m_dwStatus & XFA_WidgetStatus_Focused); }
   CFX_PointF Rotate2Normal(const CFX_PointF& point);
   CFX_Matrix GetRotateMatrix();
   bool IsLayoutRectEmpty();
-  CXFA_FFWidget* GetParent();
+  CXFA_LayoutItem* GetParent();
   bool IsAncestorOf(CXFA_FFWidget* pWidget);
   const CFWL_App* GetFWLApp();
 
@@ -172,10 +173,14 @@ class CXFA_FFWidget : public CXFA_ContentLayoutItem {
   virtual bool PtInActiveRect(const CFX_PointF& point);
 
   void DrawBorder(CXFA_Graphics* pGS,
-                  CXFA_Box box,
+                  CXFA_Box* box,
                   const CFX_RectF& rtBorder,
-                  CFX_Matrix* pMatrix,
-                  uint32_t dwFlags = 0);
+                  const CFX_Matrix& matrix);
+  void DrawBorderWithFlag(CXFA_Graphics* pGS,
+                          CXFA_Box* box,
+                          const CFX_RectF& rtBorder,
+                          const CFX_Matrix& matrix,
+                          bool forceRound);
 
   CFX_RectF GetRectWithoutRotate();
   bool IsMatchVisibleStatus(uint32_t dwStatus);
@@ -183,9 +188,9 @@ class CXFA_FFWidget : public CXFA_ContentLayoutItem {
   bool IsButtonDown();
   void SetButtonDown(bool bSet);
 
-  CXFA_FFDocView* m_pDocView;
-  CXFA_FFPageView* m_pPageView;
-  CFX_UnownedPtr<CXFA_WidgetAcc> const m_pDataAcc;
+  UnownedPtr<CXFA_FFDocView> m_pDocView;
+  UnownedPtr<CXFA_FFPageView> m_pPageView;
+  UnownedPtr<CXFA_Node> const m_pNode;
   mutable CFX_RectF m_rtWidget;
 };
 

@@ -43,10 +43,16 @@ public:
     virtual void setNecessity(TileNecessity) {}
 
     // Mark this tile as no longer needed and cancel any pending work.
-    virtual void cancel() = 0;
+    virtual void cancel();
 
     virtual void upload(gl::Context&) = 0;
     virtual Bucket* getBucket(const style::Layer::Impl&) const = 0;
+
+    template <class T>
+    T* getBucket(const style::Layer::Impl& layer) const {
+        Bucket* bucket = getBucket(layer);
+        return bucket ? bucket->as<T>() : nullptr;
+    }
 
     virtual void setShowCollisionBoxes(const bool) {}
     virtual void setLayers(const std::vector<Immutable<style::Layer::Impl>>&) {}
@@ -58,11 +64,13 @@ public:
             const TransformState&,
             const std::vector<const RenderLayer*>&,
             const RenderedQueryOptions& options,
-            const CollisionIndex&);
+            const mat4& projMatrix);
 
     virtual void querySourceFeatures(
             std::vector<Feature>& result,
             const SourceQueryOptions&);
+
+    virtual float getQueryPadding(const std::vector<const RenderLayer*>&);
 
     void setTriedCache();
 
@@ -109,11 +117,9 @@ public:
     // and will have time to finish by the second placement.
     virtual void performedFadePlacement() {}
     
-    virtual void resetCrossTileIDs() {};
-
     void dumpDebugLogs() const;
 
-    const OverscaledTileID id;
+    OverscaledTileID id;
     optional<Timestamp> modified;
     optional<Timestamp> expires;
 

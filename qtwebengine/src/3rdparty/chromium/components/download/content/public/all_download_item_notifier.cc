@@ -4,6 +4,8 @@
 
 #include "components/download/content/public/all_download_item_notifier.h"
 
+#include "base/trace_event/memory_usage_estimator.h"
+
 namespace download {
 
 AllDownloadItemNotifier::AllDownloadItemNotifier(
@@ -28,11 +30,14 @@ AllDownloadItemNotifier::AllDownloadItemNotifier(
 AllDownloadItemNotifier::~AllDownloadItemNotifier() {
   if (manager_)
     manager_->RemoveObserver(this);
-  for (std::set<content::DownloadItem*>::const_iterator it = observing_.begin();
-       it != observing_.end(); ++it) {
+  for (auto it = observing_.begin(); it != observing_.end(); ++it) {
     (*it)->RemoveObserver(this);
   }
   observing_.clear();
+}
+
+size_t AllDownloadItemNotifier::EstimateMemoryUsage() const {
+  return base::trace_event::EstimateMemoryUsage(observing_);
 }
 
 void AllDownloadItemNotifier::OnManagerInitialized() {
@@ -44,30 +49,30 @@ void AllDownloadItemNotifier::ManagerGoingDown(
   DCHECK_EQ(manager_, manager);
   observer_->OnManagerGoingDown(manager);
   manager_->RemoveObserver(this);
-  manager_ = NULL;
+  manager_ = nullptr;
 }
 
 void AllDownloadItemNotifier::OnDownloadCreated(
     content::DownloadManager* manager,
-    content::DownloadItem* item) {
+    DownloadItem* item) {
   item->AddObserver(this);
   observing_.insert(item);
   observer_->OnDownloadCreated(manager, item);
 }
 
-void AllDownloadItemNotifier::OnDownloadUpdated(content::DownloadItem* item) {
+void AllDownloadItemNotifier::OnDownloadUpdated(DownloadItem* item) {
   observer_->OnDownloadUpdated(manager_, item);
 }
 
-void AllDownloadItemNotifier::OnDownloadOpened(content::DownloadItem* item) {
+void AllDownloadItemNotifier::OnDownloadOpened(DownloadItem* item) {
   observer_->OnDownloadOpened(manager_, item);
 }
 
-void AllDownloadItemNotifier::OnDownloadRemoved(content::DownloadItem* item) {
+void AllDownloadItemNotifier::OnDownloadRemoved(DownloadItem* item) {
   observer_->OnDownloadRemoved(manager_, item);
 }
 
-void AllDownloadItemNotifier::OnDownloadDestroyed(content::DownloadItem* item) {
+void AllDownloadItemNotifier::OnDownloadDestroyed(DownloadItem* item) {
   item->RemoveObserver(this);
   observing_.erase(item);
 }

@@ -68,31 +68,31 @@ Item {
 
     anchors.fill: parent
 
-    property bool recursionGuard: false
-
-    function doLayout() {
-        if (!recursionGuard) {
-            recursionGuard = true
+    Timer {
+        id: layoutTimer
+        interval: 0;
+        onTriggered: {
             blockUpdates = true;
             scrollHelper.contentWidth = flickableItem !== null ? flickableItem.contentWidth : 0
             scrollHelper.contentHeight = flickableItem !== null ? flickableItem.contentHeight : 0
             scrollHelper.availableWidth = viewport.width
             scrollHelper.availableHeight = viewport.height
             blockUpdates = false;
-            recursionGuard = false
+            hscrollbar.valueChanged();
+            vscrollbar.valueChanged();
         }
     }
 
     Connections {
         target: viewport
-        onWidthChanged: doLayout()
-        onHeightChanged: doLayout()
+        onWidthChanged: layoutTimer.running = true
+        onHeightChanged: layoutTimer.running = true
     }
 
     Connections {
         target: flickableItem
-        onContentWidthChanged: doLayout()
-        onContentHeightChanged: doLayout()
+        onContentWidthChanged: layoutTimer.running = true
+        onContentHeightChanged: layoutTimer.running = true
         onContentXChanged: {
             hscrollbar.flash()
             vscrollbar.flash()
@@ -135,8 +135,11 @@ Item {
         anchors.leftMargin:  leftMargin
         anchors.bottomMargin: bottomMargin
         onScrollAmountChanged: {
+            var scrollableAmount = scrollable ? scrollAmount : 0
             if (flickableItem && (flickableItem.atXBeginning || flickableItem.atXEnd)) {
-                value = flickableItem.contentX - flickableItem.originX
+                value = Math.min(scrollableAmount, flickableItem.contentX - flickableItem.originX);
+            } else if (value > scrollableAmount) {
+                value = scrollableAmount;
             }
         }
         onValueChanged: {

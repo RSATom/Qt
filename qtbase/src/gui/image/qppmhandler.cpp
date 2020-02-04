@@ -68,13 +68,19 @@ static int read_pbm_int(QIODevice *d)
     char c;
     int          val = -1;
     bool  digit;
+    bool hasOverflow = false;
     for (;;) {
         if (!d->getChar(&c))                // end of file
             break;
         digit = isdigit((uchar) c);
         if (val != -1) {
             if (digit) {
-                val = 10*val + c - '0';
+                const int cValue = c - '0';
+                if (val <= (INT_MAX - cValue) / 10) {
+                    val = 10*val + cValue;
+                } else {
+                    hasOverflow = true;
+                }
                 continue;
             } else {
                 if (c == '#')                        // comment
@@ -91,7 +97,7 @@ static int read_pbm_int(QIODevice *d)
         else
             break;
     }
-    return val;
+    return hasOverflow ? -1 : val;
 }
 
 static bool read_pbm_header(QIODevice *device, char& type, int& w, int& h, int& mcc)
@@ -115,7 +121,7 @@ static bool read_pbm_header(QIODevice *device, char& type, int& w, int& h, int& 
     else
         mcc = read_pbm_int(device);               // get max color component
 
-    if (w <= 0 || w > 32767 || h <= 0 || h > 32767 || mcc <= 0)
+    if (w <= 0 || w > 32767 || h <= 0 || h > 32767 || mcc <= 0 || mcc > 0xffff)
         return false;                                        // weird P.M image
 
     return true;
@@ -123,7 +129,7 @@ static bool read_pbm_header(QIODevice *device, char& type, int& w, int& h, int& 
 
 static inline QRgb scale_pbm_color(quint16 mx, quint16 rv, quint16 gv, quint16 bv)
 {
-    return QRgba64::fromRgba64((rv * 0xffff) / mx, (gv * 0xffff) / mx, (bv * 0xffff) / mx, 0xffff).toArgb32();
+    return QRgba64::fromRgba64((rv * 0xffffu) / mx, (gv * 0xffffu) / mx, (bv * 0xffffu) / mx, 0xffff).toArgb32();
 }
 
 static bool read_pbm_body(QIODevice *device, char type, int w, int h, int mcc, QImage *outImage)
@@ -252,7 +258,7 @@ static bool read_pbm_body(QIODevice *device, char type, int w, int h, int mcc, Q
                     }
                 } else {
                     while (n--) {
-                        *p++ = read_pbm_int(device) * 255 / mcc;
+                        *p++ = (read_pbm_int(device) & 0xffff) * 255 / mcc;
                     }
                 }
             } else {                                // 32 bits
@@ -570,10 +576,12 @@ void QPpmHandler::setOption(ImageOption option, const QVariant &value)
         subType = value.toByteArray().toLower();
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 QByteArray QPpmHandler::name() const
 {
     return subType.isEmpty() ? QByteArray("ppm") : subType;
 }
+#endif
 
 QT_END_NAMESPACE
 

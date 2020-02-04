@@ -45,7 +45,6 @@
     \li \l {brief-command} {\\brief}
     \li \l {c-command} {\\c}
     \li \l {caption-command} {\\caption}
-    \li \l {chapter-command} {\\chapter}
     \li \l {code-command} {\\code}
     \li \l {codeline-command} {\\codeline}
     \li \l {div-command} {\\div}
@@ -74,7 +73,6 @@
     \li \l {note-command} {\\note}
     \li \l {oldcode-command} {\\oldcode}
     \li \l {omit-command} {\\omit}
-    \li \l {part-command} {\\part}
     \li \l {printline-command} {\\printline}
     \li \l {printto-command} {\\printto}
     \li \l {printuntil-command} {\\printuntil}
@@ -730,17 +728,13 @@
     \title Document Structure
 
     The document structuring commands are for dividing your document
-    into sections. QDoc supports six kinds of sections: \c \part, \c
-    \chapter, \c \section1, \c \section2, \c \section3, and \c
-    \section4. The \c \section1..4 commands are the most useful. They
+    into sections. QDoc supports four levels of section: \c \section1,
+    \c \section2, \c \section3, and \c \section4. The section commands
     correspond to the traditional section, subsection, etc used in
     outlining.
 
-    \target part-command
-    \section1 \\part
-
-    The \\part command is intended for use in a large document, like a
-    book.
+    \target section-commands
+    \section1 Section commands
 
     In general a document structuring command considers everything
     that follows it until the first line break as its argument. The
@@ -748,88 +742,77 @@
     spanned over several lines, make sure that each line (except the
     last one) is ended with a backslash.
 
-    In total, there are six levels of sections in QDoc: \c \part, \c
-    \chapter, \c \section1, \c \section2, \c \section3 and \c
-    \section4. \c \section1 to \c \section4 correspond to the
-    traditional section, subsection, subsubsection and
-    subsubsubsection.
+    In total, there are four levels for sections in QDoc: \c \section1,
+    \c \section2, \c \section3 and \c \section4. These correspond to the
+    traditional section, subsection, subsubsection and subsubsubsection.
 
     There is a strict ordering of the section units:
 
            \code
-           part
-              |
-              chapter
-                    |
-                    section1
-                           |
-                           section2
-                                  |
-                                  section3
-                                         |
-                                         section4
+           section1
+                  |
+                  section2
+                         |
+                         section3
+                                |
+                                section4
            \endcode
 
-    For example, a \c section1 unit can only appear as the top level
-    section or inside a \c chapter unit. Skipping a section unit, for
-    example from \c part to \c section1, is not allowed.
-
-    You can \e begin with either of the three: \c part, \c chapter or
-    \c section1.
+    When sections are used, the first section command should be \c section1.
 
 
            \code
            / *!
-               \part Basic Qt
+               \section1 Basic Qt
 
-               This is the first part.
-
-
-                   \chapter Getting Started
-
-                   This is the first part's first chapter.
+               This is the first section.
 
 
-                       \section1 Hello Qt
+                   \section2 Getting Started
 
-                       This is the first chapter's first section.
-
-
-                       \section1 Making Connections
-
-                       This is the first chapter's second section.
+                   This is the first subsection.
 
 
-                       \section1 Using the Reference Documentation
+                       \section3 Hello Qt
 
-                       This is the first chapter's third section.
-
-
-                   \chapter Creating Dialogs
-
-                   This is the first part's second chapter.
+                       This is the first subsubsection.
 
 
-                       \section1 Subclassing QDialog
+                       \section3 Making Connections
 
-                       This is the second chapter's first section.
+                       This is the second subsubsection.
+
+
+                       \section3 Using the Reference Documentation
+
+                       This is the third subsubsection.
+
+
+                   \section2 Creating Dialogs
+
+                   This is the second subsection.
+
+
+                       \section3 Subclassing QDialog
+
+                       This is the first subsubsection.
 
                        ...
 
 
-               \part Intermediate Qt
+               \section1 Intermediate Qt
 
-               This is the second part.
-
-
-                   \chapter Layout Management
-
-                   This is the second part's first chapter.
+               This is the second section.
 
 
-                       \section1 Basic Layouts
+                   \section2 Layout Management
 
-                       This is the first chapter's first section.
+                   This is the second section's first subsection.
+
+
+                       \section3 Basic Layouts
+
+                       This is the first subsubsection.
 
                ...
            * /
@@ -842,54 +825,54 @@
                <a name="Basic Qt">
                <h1>Basic Qt</h1>
                </a>
-               <p>This is the first part.</p>
+               <p>This is the first section.</p>
 
                    <a name="Getting started">
                    <h2>Getting Started</h2>
                    </a>
-                   This is the first part's first chapter.</p>
+                   This is the first subsection.</p>
 
                        <a name="Hello Qt">
                        <h3>Hello Qt</h3>
                        </a>
-                       <p>This is the first chapter's first section.</p>
+                       <p>This is the first subsubsection.</p>
 
                        <a name="Making Connections">
                        <h3>Making Connections</h3>
                        </a>
-                       <p>This is the first chapter's second section.</p>
+                       <p>This is the second subsubsection.</p>
 
                        <a name="Using the Reference Documentation">
                        <h3>Using the Reference Documentation</h3>
                        </a>
-                       <p>This is the first chapter's third section.</p>
+                       <p>This is the third subsubsection.</p>
 
                    <a name="Creating Dialogs">
                    <h2>Creating Dialogs</h2>
                    </a>
-                   <p>This is the first part's second chapter.</p>
+                   <p>This is the second subsection.</p>
 
                        <a name="Subclassing QDialog">
                        <h3>Subclassing QDialog</h3>
                        </a>
-                       <p>This is the second chapter's first section.</p>
+                       <p>This is the first subsubsection.</p>
 
                        ...
 
                <a name="Intermediate Qt">
                <h1>Intermediate Qt</h1>
                </a>
-               <p>This is the second part.</p>
+               <p>This is the second section.</p>
 
                    <a name="Layout Management">
                    <h2>Layout Management</h2>
                    </a>
-                   <p>This is the second part's first chapter.</p>
+                   <p>This is the second section's first subsection.</p>
 
                        <a name="Basic Layouts">
                        <h3>Basic Layouts</h3>
                        </a>
-                       <p>This is the first chapter's first section.</p>
+                       <p>This is the first subsubsection.</p>
 
                ...
 
@@ -900,21 +883,12 @@
     heading appears in the automatically generated table of contents
     that normally appears in the upper right-hand corner of the page.
 
-    \target chapter-command
-    \section1 \\chapter
-
-    The \\chapter command is intended for use in
-    larger documents, and divides the document into chapters.
-
-    See \l{part} {\\part} for an explanation of the various
-    section units, command argument, and rendering.
-
     \target sectionOne-command
     \section1 \\section1
 
     The \\section1 command starts a new section.
 
-    See \l{part} {\\part} for an explanation of the various
+    See \l{section-commands} {Section commands} for an explanation of the various
     section units, command argument, and rendering.
 
     \target sectionTwo-command
@@ -922,7 +896,7 @@
 
     The \\section2 command starts a new section.
 
-    See \l{part} {\\part} for an explanation of the various
+    See \l{section-commands} {Section commands} for an explanation of the various
     section units, command argument, and rendering.
 
     \target sectionThree-command
@@ -930,7 +904,7 @@
 
     The \\section3 command starts a new section.
 
-    See \l{part} {\\part} for an explanation of the various
+    See \l{section-commands} {Section commands} for an explanation of the various
     section units, command argument, and rendering.
 
     \target sectionFour-command
@@ -938,7 +912,7 @@
 
     The \\section4 command starts a new section.
 
-    See \l{part} {\\part} for an explanation of the various
+    See \l{section-commands} {Section commands} for an explanation of the various
     section units, command argument, and rendering.
 
 */
@@ -1019,7 +993,32 @@
 
     Other QDoc commands are disabled within \\code... \\endcode, and
     the special character '\\' is accepted and rendered like the rest
-    of the code.
+    of the code, unless it is followed by a digit and parameters were
+    passed to \\code.
+
+    \section2 Code snippet parameters
+
+    Since QDoc version 5.12, \\code command accepts also optional
+    parameters. Parameters are useful for injecting simple
+    strings into the code snippet. To inject a string to a specific
+    location in the snippet, add a backslash followed by a digit (1..8).
+    The digits correspond with the order of the argument list, where
+    arguments are separated by spaces.
+
+    For example:
+
+    \code
+    / *!
+    \code * hello
+    /\1 \2 \1/
+    \ endcode
+    * /
+    \endcode
+
+    For the above snippet, QDoc renders the word \e hello enclosed in
+    a C-style comment.
+
+    \section2 Including code from external files
 
     To include code snippets from an external file, use the
     \l{07-0-qdoc-commands-includingexternalcode.html#snippet-command}
@@ -1043,6 +1042,8 @@
     Substitute \\code with this command when documenting command-line
     instructions, shell scripts or any other content that is not in a Qt
     language, but should still be styled similarly to a \\code paragraph.
+
+    Like \\code, \\badcode accepts also optional parameters.
 
     \target newcode-command
     \section1 \\newcode
@@ -1144,6 +1145,9 @@
             }
         }
     \endqml
+
+    Like the \l{code-command}{\\code} command, \\qml accepts optional
+    parameters.
 */
 
 
@@ -1466,6 +1470,9 @@
     {positioning} and \l {substring} {argument} as the \l
     {printline-command} {\\printline} command.
 
+    If \\printuntil is used without an argument, it expands to all the
+    lines from the current position to the end of the quoted file.
+
     The lines from the source file are rendered in a separate
     paragraph, using a monospace font and the standard
     indentation. The code is shown verbatim.
@@ -1760,6 +1767,11 @@
     ...
     \endcode
 
+    By default, qdoc looks for \c{//!} as a code snippet marker.
+    For \c{.pro}, \c{.py}, \c{.cmake}, and \c{CMakeLists.txt}
+    files, \c {#!} is detected. Finally, \c{<!--} is accepted in
+    \c{.html}, \c{.qrc}, \c{.ui}, \c{.xml}, \c{.dita}, and \c{.xq} files.
+
     \target codeline-command
     \section1 \\codeline
 
@@ -1874,8 +1886,7 @@
     \l {title-command} {\\title} command.
 
     \li \c {\l {Introduction to QDoc}}- The text from one of the
-    \l{part-command} {\\part}, \l{chapter} {\\chapter}, or \l
-    {sectionOne-command} {\\section} commands.
+    \l{section-commands} {Section commands}.
 
     \li \c {\l fontmatching} - The argument of a \l {target-command}
     {\\target} command.
@@ -2660,9 +2671,23 @@
 
     The \\value command starts the documentation of a C++ enum item.
 
-    The command's first argument is the enum item. Then follows its
-    associated description. The description argument ends at the next
-    blank line or \\value. The arguments are rendered within a table.
+    The command's first argument is the value name. The value name may
+    be preceded by an optional \e since clause enclosed in square
+    brackets. The value description follows the value name. The description
+    ends at the next blank line or \\value. The arguments are rendered in a
+    table.
+
+    Without a \e since clause, a \\value command could look like this:
+
+    \code
+    \value QtInfoMsg A message generated by the qInfo() function.
+    \endcode
+
+    The same command with a \e since clause would look like this:
+
+    \code
+    \value [since 5.5] QtInfoMsg A message generated by the qInfo() function.
+    \endcode
 
     The documentation will be located in the associated class, header
     file or namespace documentation. See the \l {enum-command}
@@ -2688,7 +2713,7 @@
     an example.
 
     See also \l {enum-command} {\\enum} and \l {value-command}
-    {\\value}.
+    {\\value} \l {since-command}{\\since}
 
     \target list-command
     \section1 \\list
@@ -3012,7 +3037,7 @@
            \code
            / *!
                \property QWidget::isActiveWindow
-               \brief Whether this widget's window is the active window
+               \brief Whether this widget's window is the active window.
 
                The active window is the window that contains the widget that
                has keyboard focus.
@@ -3030,7 +3055,7 @@
            / *!
                \property QWidget::geometry
                \brief The geometry of the widget relative to its parent and
-               excluding the window frame
+               excluding the window frame.
 
                When changing the geometry, the widget, if visible,
                receives a move event (moveEvent()) and/or a resize
@@ -3465,10 +3490,9 @@
 
         \brief Alphabetical list of classes.
 
-        This is a list of all Qt classes. For a list of the classes
-        provided for compatibility with Qt3, see \l{Qt3 Support
-        Classes}. For classes that have been deprecated, see the
-        \l{Obsolete Classes} list.
+        This is a list of all Qt classes. For classes that
+        have been deprecated, see the \l{Obsolete Classes}
+        list.
 
         \generatelist classes Q
     * /
@@ -3519,30 +3543,6 @@
     JavaScript types from the module specified with the second argument.
 
     \note Support for this argument was introduced in QDoc 5.6.
-
-    \section2 \c compatclasses
-
-    The \c compatclasses argument generates a list in alphabetical
-    order of the support classes. It is normally used only to
-    generate the Qt3 Support Classes page this way:
-
-    \code
-    / *!
-        \page compatclasses.html
-        \title Qt3 Support Classes
-        \ingroup classlists
-
-        \brief Enable porting of code from Qt 3 to Qt 4.
-
-        These are the classes that Qt provides for compatibility with Qt
-        3. Most of these are provided by the Qt3Support module.
-
-        \generatelist compatclasses
-    * /
-    \endcode
-
-    A support class is identified in the \\class comment with the \l
-    {compat-command} {\\compat} command.
 
     \section2 \c {examplefiles [regular_expression]}
 
@@ -3715,95 +3715,6 @@
     {\\if...\\endif} commands, but is useful when there is only two
     alternatives.
 
-           \code
-           / *!
-               The Qt 3 support library is provided to keep old
-               source code working.
-
-               In addition to the \c Qt3Support classes, Qt 4 provides
-               compatibility functions when it's possible for an old
-               API to cohabit with the new one.
-
-               \if !defined(QT3_SUPPORT)
-                   \if defined(QT3_SUPPORTWARNINGS)
-                       The compiler emits a warning when a
-                       compatibility function is called. (This works
-                       only with GCC 3.2+ and MSVC 7.)
-                   \else
-                       To use the Qt 3 support library, you need to
-                       have the line QT += qt3support in your .pro
-                       file (qmake automatically define the
-                       QT3_SUPPORT symbol, turning on compatibility
-                       function support).
-
-                       You can also define the symbol manually (for example,
-                       if you don't want to link against the \c
-                       Qt3Support library), or you can define \c
-                       QT3_SUPPORT_WARNINGS instead, telling the
-                       compiler to emit a warning when a compatibility
-                       function is called. (This works only with GCC
-                       3.2+ and MSVC 7.)
-                   \endif
-               \endif
-           * /
-           \endcode
-
-    If the \c QT3_SUPPORT is defined, the comment will be rendered
-    like this:
-
-           \quotation
-               The Qt 3 support library is provided to keep old source
-               code working.
-
-               In addition to the Qt3Support classes, Qt 4 provides
-               compatibility functions when it's possible for an old
-               API to cohabit with the new one.
-           \endquotation
-
-    If \c QT3_SUPPORT is not defined but \c QT3_SUPPORT_WARNINGS is
-    defined, the comment will be rendered like this:
-
-           \quotation
-               The Qt 3 support library is provided to keep old source
-               code working.
-
-               In addition to the Qt3Support classes, Qt 4 provides
-               compatibility functions when it's possible for an old
-               API to cohabit with the new one.
-
-               The compiler emits a warning when a compatibility
-               function is called. (This works only with GCC 3.2+ and
-               MSVC 7.)
-           \endquotation
-
-           If none of the symbols are defined, the comment will be
-           rendered as
-
-           \quotation
-               The Qt 3 support library is provided to keep old
-               source code working.
-
-               In addition to the \c Qt3Support classes, Qt 4 provides
-               compatibility functions when it's possible for an old
-               API to cohabit with the new one.
-
-               To use the Qt 3 support library, you need to have the
-               line QT += qt3support in your .pro file (qmake
-               automatically define the QT3_SUPPORT symbol, turning on
-               compatibility function support).
-
-               You can also define the symbol manually (e.g., if you
-               don't want to link against the \c Qt3Support library),
-               or you can define \c QT3_SUPPORT_WARNINGS instead,
-               telling the compiler to emit a warning when a
-               compatibility function is called. (This works only with
-               GCC 3.2+ and MSVC 7.)
-           \endquotation
-
-           See also \l{if-command} {\\if}, \l{endif-command} {\\endif}, \l
-           {defines-variable} {defines} and \l {falsehoods-variable}
-           {falsehoods}.
-
     \target include-command
     \section1 \\include
 
@@ -3889,8 +3800,9 @@
     \section1 \\meta
 
     The \\meta command is mainly used for including metadata in DITA
-    XML files. It is also used when generating HTML output for specifying
-    the \e maintainer(s) of a C++ class.
+    XML files. It is also used for adding metadata to example documentation,
+    and when generating HTML output for specifying the \e maintainer(s) of a
+    C++ class.
 
     The command has two arguments: the first argument is the name of the
     metadata attribute, and the second argument is the
@@ -3928,7 +3840,7 @@
            <author>Qt Development Frameworks</author>
            <publisher>Qt Project</publisher>
            <copyright>
-               <copyryear year="2017"/>
+               <copyryear year="2018"/>
                <copyrholder>Qt Project</copyrholder>
            </copyright>
            <permissions view="all"/>
@@ -3954,6 +3866,27 @@
     In the example output, several values have been set using default
     values obtained from the QDoc configuration file. See \l
     {Generating DITA XML Output} for details.
+
+    \b {Example Metadata}
+
+    Another use for \\meta command is to include metadata (tags) in
+    \l {example-command}{\\example} documentation. By default, QDoc
+    generates example tags based on the example's \l {title-command}{\\title}
+    and module name. These tags are displayed in Qt Creator's Welcome mode,
+    helping users navigate the list of examples.
+
+    Additional tags can be created with \c {\\meta {tag} {tag1,[tag2,...]}}.
+    For example:
+    \badcode
+    / *!
+        \example helloworld
+        \title Hello World Example
+        \meta {tag} {tutorial,basic}
+    * /
+    \endcode
+
+    This would result in the following tags: \e {tutorial,basic,hello,world}.
+    Common words such as \e example are ignored.
 
     \target noautolist-command
     \section1 \\noautolist

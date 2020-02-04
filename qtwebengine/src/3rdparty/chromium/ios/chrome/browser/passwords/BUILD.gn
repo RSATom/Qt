@@ -7,6 +7,10 @@ import("//ios/web/js_compile.gni")
 source_set("passwords") {
   configs += [ "//build/config/compiler:enable_arc" ]
   sources = [
+    "credential_manager.h",
+    "credential_manager.mm",
+    "credential_manager_util.h",
+    "credential_manager_util.mm",
     "ios_chrome_password_manager_client.h",
     "ios_chrome_password_manager_client.mm",
     "ios_chrome_password_manager_driver.h",
@@ -19,64 +23,91 @@ source_set("passwords") {
     "ios_chrome_save_password_infobar_delegate.mm",
     "ios_chrome_update_password_infobar_delegate.h",
     "ios_chrome_update_password_infobar_delegate.mm",
-    "js_password_manager.h",
-    "js_password_manager.mm",
+    "ios_password_infobar_controller.h",
+    "ios_password_infobar_controller.mm",
+    "js_credential_manager.h",
+    "js_credential_manager.mm",
+    "notify_auto_signin_view_controller.h",
+    "notify_auto_signin_view_controller.mm",
     "password_controller.h",
     "password_controller.mm",
-    "password_generation_agent.h",
-    "password_generation_agent.mm",
-    "password_generation_edit_view.h",
-    "password_generation_edit_view.mm",
-    "password_generation_offer_view.h",
-    "password_generation_offer_view.mm",
-    "password_generation_prompt_delegate.h",
-    "passwords_ui_delegate.h",
+    "password_form_filler.h",
+    "password_manager_internals_service_factory.cc",
+    "password_manager_internals_service_factory.h",
+    "password_tab_helper.h",
+    "password_tab_helper.mm",
+    "save_passwords_consumer.h",
+    "save_passwords_consumer.mm",
     "update_password_infobar_controller.h",
     "update_password_infobar_controller.mm",
   ]
   deps = [
-    ":injected_js",
     "//base",
     "//base:i18n",
     "//components/autofill/core/browser",
     "//components/autofill/core/common",
     "//components/autofill/ios/browser",
+    "//components/autofill/ios/form_util",
     "//components/browser_sync",
+    "//components/image_fetcher/core",
+    "//components/image_fetcher/ios",
     "//components/infobars/core",
     "//components/keyed_service/core",
     "//components/keyed_service/ios",
     "//components/password_manager/core/browser",
+    "//components/password_manager/core/browser/form_parsing",
     "//components/password_manager/core/common",
-    "//components/password_manager/sync/browser",
+    "//components/password_manager/ios",
     "//components/prefs",
+    "//components/security_state/core",
     "//components/signin/core/browser",
     "//components/strings",
     "//components/sync",
+    "//components/translate/core/browser:browser",
     "//components/ukm",
     "//google_apis",
     "//ios/chrome/app/strings",
     "//ios/chrome/app/theme",
     "//ios/chrome/browser",
-    "//ios/chrome/browser/autofill",
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/infobars",
+    "//ios/chrome/browser/metrics:ukm_url_recorder",
     "//ios/chrome/browser/signin",
+    "//ios/chrome/browser/ssl",
     "//ios/chrome/browser/sync/glue",
+    "//ios/chrome/browser/translate:translate",
     "//ios/chrome/browser/ui",
+    "//ios/chrome/browser/ui/alert_coordinator",
     "//ios/chrome/browser/ui/commands",
     "//ios/chrome/browser/ui/elements",
-    "//ios/chrome/browser/ui/infobars",
+    "//ios/chrome/browser/ui/infobars:infobars_ui",
+    "//ios/chrome/browser/web",
     "//ios/public/provider/chrome/browser",
     "//ios/public/provider/chrome/browser/ui",
+    "//ios/third_party/material_components_ios:material_components_ios",
     "//ios/web",
+    "//net",
+    "//third_party/material_design_icons:ic_account_circle",
     "//ui/base",
     "//url",
   ]
   public_deps = [
+    ":feature_flags",
     ":passwords_generation_utils",
   ]
 
   allow_circular_includes_from = [ ":passwords_generation_utils" ]
+}
+
+source_set("feature_flags") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  sources = [
+    "password_manager_features.cc",
+    "password_manager_features.h",
+  ]
+  deps = [
+    "//base",
+  ]
 }
 
 source_set("passwords_generation_utils") {
@@ -96,10 +127,11 @@ source_set("unit_tests") {
   configs += [ "//build/config/compiler:enable_arc" ]
   testonly = true
   sources = [
+    "credential_manager_unittest.mm",
+    "credential_manager_util_unittest.cc",
+    "js_credential_manager_unittest.mm",
     "password_controller_js_unittest.mm",
-    "password_controller_off_the_record_unittest.mm",
     "password_controller_unittest.mm",
-    "password_generation_agent_unittest.mm",
   ]
   deps = [
     ":passwords",
@@ -110,52 +142,57 @@ source_set("unit_tests") {
     "//components/password_manager/core/browser",
     "//components/password_manager/core/browser:test_support",
     "//components/password_manager/core/common",
+    "//components/password_manager/ios",
+    "//components/password_manager/ios:test_support",
     "//components/prefs",
     "//components/prefs:test_support",
+    "//components/security_state/ios",
     "//google_apis",
     "//ios/chrome/browser/autofill",
     "//ios/chrome/browser/browser_state:test_support",
+    "//ios/chrome/browser/ssl",
+    "//ios/chrome/browser/ui/autofill:autofill",
     "//ios/chrome/browser/ui/commands",
+    "//ios/chrome/browser/web:test_support",
+    "//ios/chrome/browser/web:web_internal",
     "//ios/testing:ocmock_support",
     "//ios/web",
     "//ios/web/public/test",
     "//ios/web/public/test/fakes",
+    "//net:test_support",
     "//testing/gtest",
     "//third_party/ocmock",
     "//url",
   ]
 }
 
-# TODO(crbug.com/487804): use js_compile_checked instead once the errors have
-# been fixed.
-js_compile_unchecked("injected_js") {
-  visibility = [ ":passwords" ]
-  sources = [
-    "resources/password_controller.js",
-  ]
-}
-
-source_set("passwords_internal") {
+source_set("eg_tests") {
   configs += [ "//build/config/compiler:enable_arc" ]
+  testonly = true
   sources = [
-    "password_generation_prompt_view.h",
-    "password_generation_prompt_view.mm",
-    "password_generation_prompt_view_controller.h",
-    "password_generation_prompt_view_controller.mm",
-    "passwords_ui_delegate_impl.h",
-    "passwords_ui_delegate_impl.mm",
+    "credential_manager_egtest.mm",
   ]
+
   deps = [
     ":passwords",
     "//base",
-    "//components/strings",
-    "//ios/chrome/app/strings",
-    "//ios/chrome/app/theme",
-    "//ios/chrome/browser/ui",
-    "//ios/chrome/common",
-    "//ios/third_party/material_components_ios",
-    "//ios/third_party/material_roboto_font_loader_ios",
-    "//ui/base",
+    "//base/test:test_support",
+    "//components/autofill/core/common",
+    "//components/autofill/ios/browser",
+    "//components/keyed_service/core",
+    "//components/password_manager/core/browser",
+    "//components/password_manager/core/browser:test_support",
+    "//components/password_manager/core/common",
+    "//components/password_manager/ios",
+    "//components/prefs",
+    "//components/prefs:test_support",
+    "//ios/chrome/test/app:test_support",
+    "//ios/chrome/test/earl_grey:test_support",
+    "//ios/testing/earl_grey:earl_grey_support",
+    "//ios/web/public/test/http_server",
   ]
-  libs = [ "UIKit.framework" ]
+  libs = [
+    "UIKit.framework",
+    "XCTest.framework",
+  ]
 }

@@ -14,8 +14,8 @@
 #include "content/browser/loader/layered_resource_handler.h"
 #include "content/browser/loader/resource_controller.h"
 #include "content/common/content_export.h"
-#include "content/public/common/request_context_type.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 
 namespace net {
 class URLRequest;
@@ -43,12 +43,13 @@ struct WebPluginInfo;
 class CONTENT_EXPORT MimeSniffingResourceHandler
     : public LayeredResourceHandler {
  public:
-  MimeSniffingResourceHandler(std::unique_ptr<ResourceHandler> next_handler,
-                              ResourceDispatcherHostImpl* host,
-                              PluginService* plugin_service,
-                              InterceptingResourceHandler* intercepting_handler,
-                              net::URLRequest* request,
-                              RequestContextType request_context_type);
+  MimeSniffingResourceHandler(
+      std::unique_ptr<ResourceHandler> next_handler,
+      ResourceDispatcherHostImpl* host,
+      PluginService* plugin_service,
+      InterceptingResourceHandler* intercepting_handler,
+      net::URLRequest* request,
+      blink::mojom::RequestContextType request_context_type);
   ~MimeSniffingResourceHandler() override;
 
  private:
@@ -81,6 +82,12 @@ class CONTENT_EXPORT MimeSniffingResourceHandler
     // OnResponseStarted event to the downstream ResourceHandlers.
     STATE_REPLAYING_RESPONSE_RECEIVED,
 
+    // In these states, the MimeSniffingResourceHandler is replaying the pair of
+    // OnWillRead + OnReadCompleted(0) calls that indicates end of the response
+    // body.  See also |need_to_replay_extra_eof_packet_|.
+    STATE_REPLAYING_EOF_WILL_READ,
+    STATE_REPLAYING_EOF_READ_COMPLETED,
+
     // In this state, the MimeSniffingResourceHandler is just a blind
     // pass-through
     // ResourceHandler.
@@ -91,7 +98,7 @@ class CONTENT_EXPORT MimeSniffingResourceHandler
   void OnWillStart(const GURL&,
                    std::unique_ptr<ResourceController> controller) override;
   void OnResponseStarted(
-      ResourceResponse* response,
+      network::ResourceResponse* response,
       std::unique_ptr<ResourceController> controller) override;
   void OnWillRead(scoped_refptr<net::IOBuffer>* buf,
                   int* buf_size,
@@ -127,6 +134,13 @@ class CONTENT_EXPORT MimeSniffingResourceHandler
 
   // Replays OnReadCompleted on the downstreams handlers.
   void ReplayReadCompleted();
+
+  // Replays OnWillRead if needed to notify the downstream handler about EOF.
+  void ReplayWillReadEof();
+
+  // Replays OnReadCompleted(0) if needed to notify the downstream handler about
+  // EOF.
+  void ReplayReadCompletedEof();
 
   // --------------------------------------------------------------------------
 
@@ -170,10 +184,11 @@ class CONTENT_EXPORT MimeSniffingResourceHandler
   bool must_download_is_set_;
 
   // Used to buffer the response received until replay.
-  scoped_refptr<ResourceResponse> response_;
+  scoped_refptr<network::ResourceResponse> response_;
   scoped_refptr<net::IOBuffer> read_buffer_;
   int read_buffer_size_;
   int bytes_read_;
+  bool need_to_replay_extra_eof_packet_;
 
   // Pointers to parent-owned read buffer and its size.  Only used for first
   // OnWillRead call.
@@ -184,7 +199,7 @@ class CONTENT_EXPORT MimeSniffingResourceHandler
   // needed.
   InterceptingResourceHandler* intercepting_handler_;
 
-  RequestContextType request_context_type_;
+  blink::mojom::RequestContextType request_context_type_;
 
   // True if current in an AdvanceState loop. Used to prevent re-entrancy and
   // avoid an extra PostTask.

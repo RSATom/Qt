@@ -37,7 +37,7 @@
 
 /*!
     \class QScatterSeries
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QScatterSeries class presents data in scatter charts.
 
     The scatter data is displayed as a collection of points on the chart. For
@@ -97,6 +97,11 @@
 
     The brush can be an image that can be created using QPainterPath,
     for example.
+*/
+
+/*!
+    \qmlproperty brush ScatterSeries::brush
+    The brush used to draw the scatter series markers.
 */
 
 /*!
@@ -376,6 +381,6 @@ void QScatterSeriesPrivate::initializeAnimations(QChart::AnimationOptions option
     QAbstractSeriesPrivate::initializeAnimations(options, duration, curve);
 }
 
-#include "moc_qscatterseries.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_qscatterseries.cpp"

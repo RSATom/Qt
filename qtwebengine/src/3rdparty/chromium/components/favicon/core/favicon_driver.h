@@ -28,8 +28,10 @@ class FaviconDriver {
   void AddObserver(FaviconDriverObserver* observer);
   void RemoveObserver(FaviconDriverObserver* observer);
 
-  // Initiates loading the favicon for the specified url.
-  virtual void FetchFavicon(const GURL& url) = 0;
+  // Initiates loading the favicon for the specified url. |is_same_document|
+  // is true for cases where this page URL follows a navigation within the same
+  // document (e.g. fragment navigation).
+  virtual void FetchFavicon(const GURL& page_url, bool is_same_document) = 0;
 
   // Returns the favicon for this tab, or IDR_DEFAULT_FAVICON if the tab does
   // not have a favicon. The default implementation uses the current navigation
@@ -56,7 +58,7 @@ class FaviconDriver {
     const gfx::Image& image);
 
  private:
-  base::ObserverList<FaviconDriverObserver> observer_list_;
+  base::ObserverList<FaviconDriverObserver>::Unchecked observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(FaviconDriver);
 };

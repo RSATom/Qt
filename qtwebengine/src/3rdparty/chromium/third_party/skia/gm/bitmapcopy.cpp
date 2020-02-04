@@ -4,20 +4,30 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
+
 #include "gm.h"
 #include "sk_tool_utils.h"
+#include "SkFont.h"
 
 namespace skiagm {
 
-static const char* gColorTypeNames[] = {
-    "unknown",
-    "A8",
-    "565",
-    "4444",
-    "8888",
-    "8888",
-    "Index8",
-};
+static const char* color_type_name(SkColorType colorType) {
+    switch (colorType) {
+        case kUnknown_SkColorType:      return "unknown";
+        case kAlpha_8_SkColorType:      return "A8";
+        case kRGB_565_SkColorType:      return "565";
+        case kARGB_4444_SkColorType:    return "4444";
+        case kRGBA_8888_SkColorType:    return "8888";
+        case kRGB_888x_SkColorType:     return "888x";
+        case kBGRA_8888_SkColorType:    return "8888";
+        case kRGBA_1010102_SkColorType: return "1010102";
+        case kRGB_101010x_SkColorType:  return "101010x";
+        case kGray_8_SkColorType:       return "G8";
+        case kRGBA_F16_SkColorType:     return "F16";
+        case kRGBA_F32_SkColorType:     return "F32";
+    }
+    return "";
+}
 
 constexpr SkColorType gColorTypes[] = {
     kRGB_565_SkColorType,
@@ -47,7 +57,7 @@ public:
     SkBitmap    fDst[NUM_CONFIGS];
 
     BitmapCopyGM() {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        this->setBGColor(0xFFDDDDDD);
     }
 
 protected:
@@ -74,18 +84,19 @@ protected:
             sk_tool_utils::copy_to(&fDst[i], gColorTypes[i], src);
         }
 
-        canvas->clear(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        canvas->clear(0xFFDDDDDD);
         paint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&paint);
+
+        SkFont font(sk_tool_utils::create_portable_typeface());
 
         SkScalar width = SkIntToScalar(40);
         SkScalar height = SkIntToScalar(40);
-        if (paint.getFontSpacing() > height) {
-            height = paint.getFontSpacing();
+        if (font.getSpacing() > height) {
+            height = font.getSpacing();
         }
         for (unsigned i = 0; i < NUM_CONFIGS; i++) {
-            const char* name = gColorTypeNames[src.colorType()];
-            SkScalar textWidth = paint.measureText(name, strlen(name));
+            const char* name = color_type_name(src.colorType());
+            SkScalar textWidth = font.measureText(name, strlen(name), kUTF8_SkTextEncoding);
             if (textWidth > width) {
                 width = textWidth;
             }
@@ -97,11 +108,11 @@ protected:
         for (unsigned i = 0; i < NUM_CONFIGS; i++) {
             canvas->save();
             // Draw destination config name
-            const char* name = gColorTypeNames[fDst[i].colorType()];
-            SkScalar textWidth = paint.measureText(name, strlen(name));
+            const char* name = color_type_name(fDst[i].colorType());
+            SkScalar textWidth = font.measureText(name, strlen(name), kUTF8_SkTextEncoding);
             SkScalar x = (width - textWidth) / SkScalar(2);
-            SkScalar y = paint.getFontSpacing() / SkScalar(2);
-            canvas->drawString(name, x, y, paint);
+            SkScalar y = font.getSpacing() / SkScalar(2);
+            canvas->drawSimpleText(name, strlen(name), kUTF8_SkTextEncoding, x, y, font, paint);
 
             // Draw destination bitmap
             canvas->translate(0, vertOffset);

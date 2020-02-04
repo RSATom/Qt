@@ -70,6 +70,7 @@
 #include <QtQuickTemplates2/private/qquickpaletteprovider_p.h>
 #include <QtQuickTemplates2/private/qquickpane_p.h>
 #include <QtQuickTemplates2/private/qquickpopup_p.h>
+#include <QtQuickTemplates2/private/qquickpopupanchors_p.h>
 #include <QtQuickTemplates2/private/qquickprogressbar_p.h>
 #include <QtQuickTemplates2/private/qquickradiobutton_p.h>
 #include <QtQuickTemplates2/private/qquickradiodelegate_p.h>
@@ -81,6 +82,7 @@
 #include <QtQuickTemplates2/private/qquickshortcutcontext_p_p.h>
 #include <QtQuickTemplates2/private/qquickslider_p.h>
 #include <QtQuickTemplates2/private/qquickspinbox_p.h>
+#include <QtQuickTemplates2/private/qquicksplitview_p.h>
 #include <QtQuickTemplates2/private/qquickstackview_p.h>
 #include <QtQuickTemplates2/private/qquickswipe_p.h>
 #include <QtQuickTemplates2/private/qquickswipedelegate_p.h>
@@ -98,13 +100,6 @@
 #if QT_CONFIG(quick_listview) && QT_CONFIG(quick_pathview)
 #include <QtQuickTemplates2/private/qquicktumbler_p.h>
 #endif
-
-static inline void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtQuick_Templates_2);
-#endif
-}
 
 #if QT_CONFIG(shortcut)
 // qtdeclarative/src/quick/util/qquickshortcut.cpp
@@ -146,8 +141,6 @@ private:
 QtQuickTemplates2Plugin::QtQuickTemplates2Plugin(QObject *parent)
     : QQmlExtensionPlugin(parent), registered(false)
 {
-    initResources();
-
 #if QT_CONFIG(shortcut)
     originalContextMatcher = qt_quick_shortcut_context_matcher();
     qt_quick_set_shortcut_context_matcher(QQuickShortcutContext::matcher);
@@ -169,7 +162,13 @@ void QtQuickTemplates2Plugin::registerTypes(const char *uri)
     registered = true;
     initProviders();
 
-    qmlRegisterModule(uri, 2, QT_VERSION_MINOR - 7); // Qt 5.7->2.0, 5.8->2.1, 5.9->2.2...
+    // Register the latest version, even if there are no new types or new revisions for existing types yet.
+    // Before Qt 5.12, we would do the following:
+    //
+    // qmlRegisterModule(uri, 2, QT_VERSION_MINOR - 7); // Qt 5.7->2.0, 5.8->2.1, 5.9->2.2...
+    //
+    // However, we want to align with the rest of Qt Quick which uses Qt's minor version.
+    qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
 
     // QtQuick.Templates 2.0 (originally introduced in Qt 5.7)
     qmlRegisterType<QQuickAbstractButton>(uri, 2, 0, "AbstractButton");
@@ -298,7 +297,9 @@ void QtQuickTemplates2Plugin::registerTypes(const char *uri)
     qmlRegisterType<QQuickContainer, 3>(uri, 2, 3, "Container");
     qmlRegisterType<QQuickDialog, 3>(uri, 2, 3, "Dialog");
     qmlRegisterType<QQuickDialogButtonBox, 3>(uri, 2, 3, "DialogButtonBox");
+    qmlRegisterType<QQuickIcon>();
     qRegisterMetaType<QQuickIcon>();
+    qmlRegisterType<QQuickLabel, 3>(uri, 2, 3, "Label");
     qmlRegisterType<QQuickMenu, 3>(uri, 2, 3, "Menu");
     qmlRegisterType<QQuickMenuBar>(uri, 2, 3, "MenuBar");
     qmlRegisterType<QQuickMenuBarItem>(uri, 2, 3, "MenuBarItem");
@@ -311,11 +312,49 @@ void QtQuickTemplates2Plugin::registerTypes(const char *uri)
     qmlRegisterType<QQuickScrollIndicator, 3>(uri, 2, 3, "ScrollIndicator");
     qmlRegisterType<QQuickSlider, 3>(uri, 2, 3, "Slider");
     qmlRegisterType<QQuickSpinBox, 3>(uri, 2, 3, "SpinBox");
+    qmlRegisterType<QQuickTextArea, 3>(uri, 2, 3, "TextArea");
+    qmlRegisterType<QQuickTextField, 3>(uri, 2, 3, "TextField");
 
     // NOTE: register the latest revisions of all template/control base classes to
     // make revisioned properties available to their subclasses (synced with Qt 5.10)
     qmlRegisterRevision<QQuickText, 10>(uri, 2, 3);
     qmlRegisterRevision<QQuickTextEdit, 10>(uri, 2, 3);
+
+    // QtQuick.Templates 2.4 (new types and revisions in Qt 5.11)
+    qmlRegisterType<QQuickAbstractButton, 4>(uri, 2, 4, "AbstractButton");
+    qmlRegisterType<QQuickButtonGroup, 4>(uri, 2, 4, "ButtonGroup");
+    qmlRegisterType<QQuickCheckBox, 4>(uri, 2, 4, "CheckBox");
+    qmlRegisterType<QQuickCheckDelegate, 4>(uri, 2, 4, "CheckDelegate");
+    qmlRegisterType<QQuickScrollBar, 4>(uri, 2, 4, "ScrollBar");
+    qmlRegisterType<QQuickScrollIndicator, 4>(uri, 2, 4, "ScrollIndicator");
+    qmlRegisterType<QQuickSpinBox, 4>(uri, 2, 4, "SpinBox");
+
+    // QtQuick.Templates 2.5 (new types and revisions in Qt 5.12)
+    qmlRegisterType<QQuickAbstractButton, 5>(uri, 2, 5, "AbstractButton");
+    qmlRegisterType<QQuickDialogButtonBox, 5>(uri, 2, 5, "DialogButtonBox");
+    qmlRegisterType<QQuickComboBox, 5>(uri, 2, 5, "ComboBox");
+    qmlRegisterType<QQuickControl, 5>(uri, 2, 5, "Control");
+    qmlRegisterType<QQuickContainer, 5>(uri, 2, 5, "Container");
+    qmlRegisterType<QQuickDial, 5>(uri, 2, 5, "Dial");
+    qmlRegisterType<QQuickDialog, 5>(uri, 2, 5, "Dialog");
+    qmlRegisterType<QQuickGroupBox, 5>(uri, 2, 5, "GroupBox");
+    qmlRegisterType<QQuickLabel, 5>(uri, 2, 5, "Label");
+    qmlRegisterType<QQuickPage, 5>(uri, 2, 5, "Page");
+    qmlRegisterType<QQuickPopup, 5>(uri, 2, 5, "Popup");
+    qmlRegisterType<QQuickPopupAnchors>();
+    qmlRegisterType<QQuickRangeSlider, 5>(uri, 2, 5, "RangeSlider");
+    qmlRegisterType<QQuickSlider, 5>(uri, 2, 5, "Slider");
+    qmlRegisterType<QQuickSpinBox, 5>(uri, 2, 5, "SpinBox");
+    qmlRegisterType<QQuickTextArea, 5>(uri, 2, 5, "TextArea");
+    qmlRegisterType<QQuickTextField, 5>(uri, 2, 5, "TextField");
+    qmlRegisterType<QQuickToolTip, 5>(uri, 2, 5, "ToolTip");
+
+    // QtQuick.Templates 2.13 (new types and revisions in Qt 5.13)
+    qmlRegisterType<QQuickSplitView>(uri, 2, 13, "SplitView");
+    qmlRegisterType<QQuickSplitViewAttached>();
+    qmlRegisterUncreatableType<QQuickSplitHandleAttached>(uri, 2, 13, "SplitHandle",
+        QStringLiteral("SplitHandle is only available as an attached property."));
+    qmlRegisterType<QQuickSplitHandleAttached>();
 }
 
 QT_END_NAMESPACE

@@ -7,10 +7,15 @@
 
 #include <vector>
 
+#include "base/memory/scoped_refptr.h"
 #include "components/autofill/core/common/form_data.h"
 
 namespace net {
 class URLRequestContextGetter;
+}
+
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace gfx {
@@ -39,8 +44,15 @@ class AutofillDriver {
   // Returns whether the user is currently operating in an incognito context.
   virtual bool IsIncognito() const = 0;
 
+  // Returns whether AutofillDriver instance is associated to the main frame.
+  virtual bool IsInMainFrame() const = 0;
+
   // Returns the URL request context information associated with this driver.
   virtual net::URLRequestContextGetter* GetURLRequestContext() = 0;
+
+  // Returns the URL loader factory associated with this driver.
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactory() = 0;
 
   // Returns true iff the renderer is available for communication.
   virtual bool RendererIsAvailable() = 0;
@@ -68,8 +80,8 @@ class AutofillDriver {
   virtual void RendererShouldAcceptDataListSuggestion(
       const base::string16& value) = 0;
 
-  // Tells the renderer to clear the currently filled Autofill results.
-  virtual void RendererShouldClearFilledForm() = 0;
+  // Tells the renderer to clear the current section of the autofilled values.
+  virtual void RendererShouldClearFilledSection() = 0;
 
   // Tells the renderer to clear the currently previewed Autofill results.
   virtual void RendererShouldClearPreviewedForm() = 0;
@@ -90,10 +102,6 @@ class AutofillDriver {
   // renderers cannot do this transformation themselves.
   virtual gfx::RectF TransformBoundingBoxToViewportCoordinates(
       const gfx::RectF& bounding_box) = 0;
-
-  // Called when the user interacted with a credit card form, so that
-  // the current page's security state can be updated appropriately.
-  virtual void DidInteractWithCreditCardForm() = 0;
 };
 
 }  // namespace autofill

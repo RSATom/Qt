@@ -4,41 +4,35 @@
 
 #include "device/vr/android/gvr/gvr_device_provider.h"
 
-#include "device/vr/android/gvr/gvr_delegate_provider.h"
+#include "base/android/build_info.h"
 #include "device/vr/android/gvr/gvr_device.h"
-#include "device/vr/vr_device.h"
 
 namespace device {
 
-GvrDeviceProvider::GvrDeviceProvider()
-    : vr_device_(base::MakeUnique<GvrDevice>(this)) {}
+GvrDeviceProvider::GvrDeviceProvider() = default;
+GvrDeviceProvider::~GvrDeviceProvider() = default;
 
-GvrDeviceProvider::~GvrDeviceProvider() {
-  GvrDelegateProvider* delegate_provider = GvrDelegateProvider::GetInstance();
-  if (delegate_provider) {
-    delegate_provider->ExitWebVRPresent();
-    delegate_provider->ClearDeviceProvider();
-  }
+void GvrDeviceProvider::Initialize(
+    base::RepeatingCallback<void(mojom::XRDeviceId,
+                                 mojom::VRDisplayInfoPtr,
+                                 mojom::XRRuntimePtr)> add_device_callback,
+    base::RepeatingCallback<void(mojom::XRDeviceId)> remove_device_callback,
+    base::OnceClosure initialization_complete) {
+  // Version check should match MIN_SDK_VERSION in VrCoreVersionChecker.java.
+  // We only expose GvrDevice if we could potentially install VRServices to
+  // support presentation.
+  if (base::android::BuildInfo::GetInstance()->sdk_int() >=
+      base::android::SDK_VERSION_KITKAT)
+    vr_device_ = base::WrapUnique(new GvrDevice());
+  if (vr_device_)
+    add_device_callback.Run(vr_device_->GetId(), vr_device_->GetVRDisplayInfo(),
+                            vr_device_->BindXRRuntimePtr());
+  initialized_ = true;
+  std::move(initialization_complete).Run();
 }
 
-void GvrDeviceProvider::GetDevices(std::vector<VRDevice*>* devices) {
-  devices->push_back(vr_device_.get());
-}
-
-GvrDelegateProvider* GvrDeviceProvider::GetDelegateProvider() {
-  GvrDelegateProvider* provider = GvrDelegateProvider::GetInstance();
-  Initialize(provider);
-  return provider;
-}
-
-void GvrDeviceProvider::Initialize() {
-  Initialize(GvrDelegateProvider::GetInstance());
-}
-
-void GvrDeviceProvider::Initialize(GvrDelegateProvider* provider) {
-  if (!provider)
-    return;
-  provider->SetDeviceProvider(this);
+bool GvrDeviceProvider::Initialized() {
+  return initialized_;
 }
 
 }  // namespace device

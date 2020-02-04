@@ -60,9 +60,15 @@ QT_BEGIN_NAMESPACE
 
 Q_GLOBAL_STATIC(QSampleCache, sampleCache)
 
-QSoundEffectPrivate::QSoundEffectPrivate(QObject* parent):
+QSoundEffectPrivate::QSoundEffectPrivate(QObject *parent):
     QObject(parent),
     d(new PrivateSoundSource(this))
+{
+}
+
+QSoundEffectPrivate::QSoundEffectPrivate(const QAudioDeviceInfo &audioDevice, QObject *parent)
+    : QObject(parent)
+    , d(new PrivateSoundSource(this, audioDevice))
 {
 }
 
@@ -125,17 +131,24 @@ void QSoundEffectPrivate::setSource(const QUrl &url)
 
     if (d->m_sample) {
         if (!d->m_sampleReady) {
-            disconnect(d->m_sample, SIGNAL(error()), d, SLOT(decoderError()));
-            disconnect(d->m_sample, SIGNAL(ready()), d, SLOT(sampleReady()));
+            disconnect(d->m_sample, &QSample::error, d, &PrivateSoundSource::decoderError);
+            disconnect(d->m_sample, &QSample::ready, d, &PrivateSoundSource::sampleReady);
         }
         d->m_sample->release();
-        d->m_sample = 0;
+        d->m_sample = nullptr;
+    }
+
+    if (d->m_audioOutput) {
+        disconnect(d->m_audioOutput, &QAudioOutput::stateChanged, d, &PrivateSoundSource::stateChanged);
+        d->m_audioOutput->stop();
+        d->m_audioOutput->deleteLater();
+        d->m_audioOutput = nullptr;
     }
 
     setStatus(QSoundEffect::Loading);
     d->m_sample = sampleCache()->requestSample(url);
-    connect(d->m_sample, SIGNAL(error()), d, SLOT(decoderError()));
-    connect(d->m_sample, SIGNAL(ready()), d, SLOT(sampleReady()));
+    connect(d->m_sample, &QSample::error, d, &PrivateSoundSource::decoderError);
+    connect(d->m_sample, &QSample::ready, d, &PrivateSoundSource::sampleReady);
 
     switch (d->m_sample->state()) {
     case QSample::Ready:
@@ -302,18 +315,9 @@ void QSoundEffectPrivate::setCategory(const QString &category)
     }
 }
 
-PrivateSoundSource::PrivateSoundSource(QSoundEffectPrivate* s):
-    QIODevice(s),
-    m_loopCount(1),
-    m_runningCount(0),
-    m_playing(false),
-    m_status(QSoundEffect::Null),
-    m_audioOutput(0),
-    m_sample(0),
-    m_muted(false),
-    m_volume(1.0),
-    m_sampleReady(false),
-    m_offset(0)
+PrivateSoundSource::PrivateSoundSource(QSoundEffectPrivate *s, const QAudioDeviceInfo &audioDevice)
+    : QIODevice(s)
+    , m_audioDevice(audioDevice)
 {
     soundeffect = s;
     m_category = QLatin1String("game");
@@ -328,11 +332,14 @@ void PrivateSoundSource::sampleReady()
 #ifdef QT_QAUDIO_DEBUG
     qDebug() << this << "sampleReady "<<m_playing;
 #endif
-    disconnect(m_sample, SIGNAL(error()), this, SLOT(decoderError()));
-    disconnect(m_sample, SIGNAL(ready()), this, SLOT(sampleReady()));
+    disconnect(m_sample, &QSample::error, this, &PrivateSoundSource::decoderError);
+    disconnect(m_sample, &QSample::ready, this, &PrivateSoundSource::sampleReady);
     if (!m_audioOutput) {
-        m_audioOutput = new QAudioOutput(m_sample->format());
-        connect(m_audioOutput,SIGNAL(stateChanged(QAudio::State)), this, SLOT(stateChanged(QAudio::State)));
+        if (m_audioDevice.isNull())
+            m_audioOutput = new QAudioOutput(m_sample->format());
+        else
+            m_audioOutput = new QAudioOutput(m_audioDevice, m_sample->format());
+        connect(m_audioOutput, &QAudioOutput::stateChanged, this, &PrivateSoundSource::stateChanged);
         if (!m_muted)
             m_audioOutput->setVolume(m_volume);
         else
@@ -341,15 +348,15 @@ void PrivateSoundSource::sampleReady()
     m_sampleReady = true;
     soundeffect->setStatus(QSoundEffect::Ready);
 
-    if (m_playing)
+    if (m_playing && m_audioOutput->state() == QAudio::StoppedState)
         m_audioOutput->start(this);
 }
 
 void PrivateSoundSource::decoderError()
 {
-    qWarning("QSoundEffect(qaudio): Error decoding source");
-    disconnect(m_sample, SIGNAL(ready()), this, SLOT(sampleReady()));
-    disconnect(m_sample, SIGNAL(error()), this, SLOT(decoderError()));
+    qWarning("QSoundEffect(qaudio): Error decoding source %ls", qUtf16Printable(m_url.toString()));
+    disconnect(m_sample, &QSample::ready, this, &PrivateSoundSource::sampleReady);
+    disconnect(m_sample, &QSample::error, this, &PrivateSoundSource::decoderError);
     m_playing = false;
     soundeffect->setStatus(QSoundEffect::Error);
 }
@@ -364,7 +371,7 @@ void PrivateSoundSource::stateChanged(QAudio::State state)
         emit soundeffect->stop();
 }
 
-qint64 PrivateSoundSource::readData( char* data, qint64 len)
+qint64 PrivateSoundSource::readData(char *data, qint64 len)
 {
     if ((m_runningCount > 0  || m_runningCount == QSoundEffect::Infinite) && m_playing) {
 
@@ -438,7 +445,7 @@ qint64 PrivateSoundSource::readData( char* data, qint64 len)
     return 0;
 }
 
-qint64 PrivateSoundSource::writeData(const char* data, qint64 len)
+qint64 PrivateSoundSource::writeData(const char *data, qint64 len)
 {
     Q_UNUSED(data)
     Q_UNUSED(len)

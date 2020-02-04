@@ -8,14 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/api/audio_codecs/ilbc/audio_encoder_ilbc.h"
+#include "api/audio_codecs/ilbc/audio_encoder_ilbc.h"
 
 #include <memory>
 #include <vector>
 
-#include "webrtc/modules/audio_coding/codecs/ilbc/audio_encoder_ilbc.h"
-#include "webrtc/rtc_base/ptr_util.h"
-#include "webrtc/rtc_base/safe_conversions.h"
+#include "absl/memory/memory.h"
+#include "absl/strings/match.h"
+#include "modules/audio_coding/codecs/ilbc/audio_encoder_ilbc.h"
+#include "rtc_base/numerics/safe_conversions.h"
+#include "rtc_base/numerics/safe_minmax.h"
+#include "rtc_base/string_to_number.h"
 
 namespace webrtc {
 namespace {
@@ -35,9 +38,24 @@ int GetIlbcBitrate(int ptime) {
 }
 }  // namespace
 
-rtc::Optional<AudioEncoderIlbcConfig> AudioEncoderIlbc::SdpToConfig(
+absl::optional<AudioEncoderIlbcConfig> AudioEncoderIlbc::SdpToConfig(
     const SdpAudioFormat& format) {
-  return AudioEncoderIlbcImpl::SdpToConfig(format);
+  if (!absl::EqualsIgnoreCase(format.name.c_str(), "ILBC") ||
+      format.clockrate_hz != 8000 || format.num_channels != 1) {
+    return absl::nullopt;
+  }
+
+  AudioEncoderIlbcConfig config;
+  auto ptime_iter = format.parameters.find("ptime");
+  if (ptime_iter != format.parameters.end()) {
+    auto ptime = rtc::StringToNumber<int>(ptime_iter->second);
+    if (ptime && *ptime > 0) {
+      const int whole_packets = *ptime / 10;
+      config.frame_size_ms = rtc::SafeClamp<int>(whole_packets * 10, 20, 60);
+    }
+  }
+  return config.IsOk() ? absl::optional<AudioEncoderIlbcConfig>(config)
+                       : absl::nullopt;
 }
 
 void AudioEncoderIlbc::AppendSupportedEncoders(
@@ -55,9 +73,10 @@ AudioCodecInfo AudioEncoderIlbc::QueryAudioEncoder(
 
 std::unique_ptr<AudioEncoder> AudioEncoderIlbc::MakeAudioEncoder(
     const AudioEncoderIlbcConfig& config,
-    int payload_type) {
+    int payload_type,
+    absl::optional<AudioCodecPairId> /*codec_pair_id*/) {
   RTC_DCHECK(config.IsOk());
-  return rtc::MakeUnique<AudioEncoderIlbcImpl>(config, payload_type);
+  return absl::make_unique<AudioEncoderIlbcImpl>(config, payload_type);
 }
 
 }  // namespace webrtc

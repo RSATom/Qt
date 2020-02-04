@@ -12,11 +12,16 @@
 #include <utility>
 
 #include "core/fpdfapi/cpdf_modulemgr.h"
+#include "core/fxcodec/codec/ccodec_flatemodule.h"
 #include "core/fxcodec/fx_codec.h"
-#include "core/fxcrt/xml/cxml_element.h"
+#include "fxjs/xfa/cjx_object.h"
 #include "third_party/base/ptr_util.h"
+#include "xfa/fxfa/parser/cxfa_acrobat.h"
+#include "xfa/fxfa/parser/cxfa_common.h"
+#include "xfa/fxfa/parser/cxfa_locale.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
 #include "xfa/fxfa/parser/cxfa_nodelocale.h"
+#include "xfa/fxfa/parser/cxfa_present.h"
 #include "xfa/fxfa/parser/cxfa_xmllocale.h"
 #include "xfa/fxfa/parser/xfa_utils.h"
 
@@ -35,6 +40,8 @@
 #define FX_LANG_ru_RU 0x0419
 #define FX_LANG_es_LA 0x080a
 #define FX_LANG_es_ES 0x0c0a
+
+namespace {
 
 // These arrays are the hex encoded XML strings which define the locale.
 // <locale name="en_US" desc="English(America)">
@@ -1059,34 +1066,30 @@ const uint8_t g_ruRU_Locale[] = {
     0xB3, 0x85, 0xFA, 0x59, 0x2A, 0x7A, 0xFF, 0x3D, 0xC4, 0x3F, 0xDE, 0xCB,
     0x8B, 0xC4};
 
-static std::unique_ptr<IFX_Locale> XFA_GetLocaleFromBuffer(const uint8_t* pBuf,
-                                                           int nBufLen) {
-  if (!pBuf || nBufLen <= 0)
+std::unique_ptr<LocaleIface> GetLocaleFromBuffer(
+    pdfium::span<const uint8_t> src_span) {
+  if (src_span.empty())
     return nullptr;
 
-  uint8_t* pOut = nullptr;
+  std::unique_ptr<uint8_t, FxFreeDeleter> output;
   uint32_t dwSize;
   CCodec_ModuleMgr* pCodecMgr = CPDF_ModuleMgr::Get()->GetCodecModule();
-  pCodecMgr->GetFlateModule()->FlateOrLZWDecode(false, pBuf, nBufLen, true, 0,
-                                                0, 0, 0, 0, &pOut, &dwSize);
-  if (!pOut)
+  pCodecMgr->GetFlateModule()->FlateOrLZWDecode(false, src_span, true, 0, 0, 0,
+                                                0, 0, &output, &dwSize);
+  if (!output)
     return nullptr;
 
-  std::unique_ptr<CXML_Element> pLocale = CXML_Element::Parse(pOut, dwSize);
-  FX_Free(pOut);
-  return pLocale ? pdfium::MakeUnique<CXFA_XMLLocale>(std::move(pLocale))
-                 : nullptr;
+  return CXFA_XMLLocale::Create(pdfium::make_span(output.get(), dwSize));
 }
 
-static uint16_t XFA_GetLanguage(CFX_WideString wsLanguage) {
+uint16_t GetLanguage(WideString wsLanguage) {
   if (wsLanguage.GetLength() < 2)
     return FX_LANG_en_US;
 
   wsLanguage.MakeLower();
-  uint32_t dwIDFirst = wsLanguage.GetAt(0) << 8 | wsLanguage.GetAt(1);
-  uint32_t dwIDSecond = wsLanguage.GetLength() >= 5
-                            ? wsLanguage.GetAt(3) << 8 | wsLanguage.GetAt(4)
-                            : 0;
+  uint32_t dwIDFirst = wsLanguage[0] << 8 | wsLanguage[1];
+  uint32_t dwIDSecond =
+      wsLanguage.GetLength() >= 5 ? wsLanguage[3] << 8 | wsLanguage[4] : 0;
   switch (dwIDFirst) {
     case FXBSTR_ID(0, 0, 'z', 'h'):
       if (dwIDSecond == FXBSTR_ID(0, 0, 'c', 'n'))
@@ -1122,28 +1125,25 @@ static uint16_t XFA_GetLanguage(CFX_WideString wsLanguage) {
   return FX_LANG_en_US;
 }
 
-CXFA_LocaleMgr::CXFA_LocaleMgr(CXFA_Node* pLocaleSet, CFX_WideString wsDeflcid)
-    : m_dwLocaleFlags(0x00) {
-  m_dwDeflcid = XFA_GetLanguage(wsDeflcid);
-  if (pLocaleSet) {
-    CXFA_Node* pNodeLocale = pLocaleSet->GetNodeItem(XFA_NODEITEM_FirstChild);
-    while (pNodeLocale) {
-      m_LocaleArray.push_back(pdfium::MakeUnique<CXFA_NodeLocale>(pNodeLocale));
-      pNodeLocale = pNodeLocale->GetNodeItem(XFA_NODEITEM_NextSibling);
-    }
+}  // namespace
+
+CXFA_LocaleMgr::CXFA_LocaleMgr(CXFA_Node* pLocaleSet, WideString wsDeflcid)
+    : m_pDefLocale(GetLocaleByName(wsDeflcid)),
+      m_dwDeflcid(GetLanguage(wsDeflcid)) {
+  if (!pLocaleSet)
+    return;
+
+  for (CXFA_Node* pNodeLocale = pLocaleSet->GetFirstChild(); pNodeLocale;
+       pNodeLocale = pNodeLocale->GetNextSibling()) {
+    m_LocaleArray.push_back(pdfium::MakeUnique<CXFA_NodeLocale>(pNodeLocale));
   }
-  m_pDefLocale = GetLocaleByName(wsDeflcid);
 }
 
 CXFA_LocaleMgr::~CXFA_LocaleMgr() {}
 
-uint16_t CXFA_LocaleMgr::GetDefLocaleID() const {
-  return m_dwDeflcid;
-}
-
-IFX_Locale* CXFA_LocaleMgr::GetDefLocale() {
+LocaleIface* CXFA_LocaleMgr::GetDefLocale() {
   if (m_pDefLocale)
-    return m_pDefLocale;
+    return m_pDefLocale.Get();
 
   if (!m_LocaleArray.empty())
     return m_LocaleArray[0].get();
@@ -1151,97 +1151,101 @@ IFX_Locale* CXFA_LocaleMgr::GetDefLocale() {
   if (!m_XMLLocaleArray.empty())
     return m_XMLLocaleArray[0].get();
 
-  std::unique_ptr<IFX_Locale> locale(GetLocale(m_dwDeflcid));
+  std::unique_ptr<LocaleIface> locale(GetLocale(m_dwDeflcid));
   m_pDefLocale = locale.get();
   if (locale)
     m_XMLLocaleArray.push_back(std::move(locale));
 
-  return m_pDefLocale;
+  return m_pDefLocale.Get();
 }
 
-std::unique_ptr<IFX_Locale> CXFA_LocaleMgr::GetLocale(uint16_t lcid) {
+std::unique_ptr<LocaleIface> CXFA_LocaleMgr::GetLocale(uint16_t lcid) {
   switch (lcid) {
     case FX_LANG_zh_CN:
-      return XFA_GetLocaleFromBuffer(g_zhCN_Locale, sizeof(g_zhCN_Locale));
+      return GetLocaleFromBuffer(g_zhCN_Locale);
     case FX_LANG_zh_TW:
-      return XFA_GetLocaleFromBuffer(g_zhTW_Locale, sizeof(g_zhTW_Locale));
+      return GetLocaleFromBuffer(g_zhTW_Locale);
     case FX_LANG_zh_HK:
-      return XFA_GetLocaleFromBuffer(g_zhHK_Locale, sizeof(g_zhHK_Locale));
+      return GetLocaleFromBuffer(g_zhHK_Locale);
     case FX_LANG_ja_JP:
-      return XFA_GetLocaleFromBuffer(g_jaJP_Locale, sizeof(g_jaJP_Locale));
+      return GetLocaleFromBuffer(g_jaJP_Locale);
     case FX_LANG_ko_KR:
-      return XFA_GetLocaleFromBuffer(g_koKR_Locale, sizeof(g_koKR_Locale));
+      return GetLocaleFromBuffer(g_koKR_Locale);
     case FX_LANG_en_GB:
-      return XFA_GetLocaleFromBuffer(g_enGB_Locale, sizeof(g_enGB_Locale));
+      return GetLocaleFromBuffer(g_enGB_Locale);
     case FX_LANG_es_LA:
-      return XFA_GetLocaleFromBuffer(g_esLA_Locale, sizeof(g_esLA_Locale));
+      return GetLocaleFromBuffer(g_esLA_Locale);
     case FX_LANG_es_ES:
-      return XFA_GetLocaleFromBuffer(g_esES_Locale, sizeof(g_esES_Locale));
+      return GetLocaleFromBuffer(g_esES_Locale);
     case FX_LANG_de_DE:
-      return XFA_GetLocaleFromBuffer(g_deDE_Loacale, sizeof(g_deDE_Loacale));
+      return GetLocaleFromBuffer(g_deDE_Loacale);
     case FX_LANG_fr_FR:
-      return XFA_GetLocaleFromBuffer(g_frFR_Locale, sizeof(g_frFR_Locale));
+      return GetLocaleFromBuffer(g_frFR_Locale);
     case FX_LANG_it_IT:
-      return XFA_GetLocaleFromBuffer(g_itIT_Locale, sizeof(g_itIT_Locale));
+      return GetLocaleFromBuffer(g_itIT_Locale);
     case FX_LANG_pt_BR:
-      return XFA_GetLocaleFromBuffer(g_ptBR_Locale, sizeof(g_ptBR_Locale));
+      return GetLocaleFromBuffer(g_ptBR_Locale);
     case FX_LANG_nl_NL:
-      return XFA_GetLocaleFromBuffer(g_nlNL_Locale, sizeof(g_nlNL_Locale));
+      return GetLocaleFromBuffer(g_nlNL_Locale);
     case FX_LANG_ru_RU:
-      return XFA_GetLocaleFromBuffer(g_ruRU_Locale, sizeof(g_ruRU_Locale));
+      return GetLocaleFromBuffer(g_ruRU_Locale);
     case FX_LANG_en_US:
     default:
-      return XFA_GetLocaleFromBuffer(g_enUS_Locale, sizeof(g_enUS_Locale));
+      return GetLocaleFromBuffer(g_enUS_Locale);
   }
 }
 
-IFX_Locale* CXFA_LocaleMgr::GetLocaleByName(
-    const CFX_WideString& wsLocaleName) {
+LocaleIface* CXFA_LocaleMgr::GetLocaleByName(const WideString& wsLocaleName) {
   for (size_t i = 0; i < m_LocaleArray.size(); i++) {
-    IFX_Locale* pLocale = m_LocaleArray[i].get();
+    LocaleIface* pLocale = m_LocaleArray[i].get();
     if (pLocale->GetName() == wsLocaleName)
       return pLocale;
   }
   if (wsLocaleName.GetLength() < 2)
     return nullptr;
   for (size_t i = 0; i < m_XMLLocaleArray.size(); i++) {
-    IFX_Locale* pLocale = m_XMLLocaleArray[i].get();
+    LocaleIface* pLocale = m_XMLLocaleArray[i].get();
     if (pLocale->GetName() == wsLocaleName)
       return pLocale;
   }
 
-  std::unique_ptr<IFX_Locale> pLocale(GetLocale(XFA_GetLanguage(wsLocaleName)));
-  IFX_Locale* pRetLocale = pLocale.get();
+  std::unique_ptr<LocaleIface> pLocale(GetLocale(GetLanguage(wsLocaleName)));
+  LocaleIface* pRetLocale = pLocale.get();
   if (pLocale)
     m_XMLLocaleArray.push_back(std::move(pLocale));
   return pRetLocale;
 }
 
-void CXFA_LocaleMgr::SetDefLocale(IFX_Locale* pLocale) {
+void CXFA_LocaleMgr::SetDefLocale(LocaleIface* pLocale) {
   m_pDefLocale = pLocale;
 }
 
-CFX_WideStringC CXFA_LocaleMgr::GetConfigLocaleName(CXFA_Node* pConfig) {
-  if (!(m_dwLocaleFlags & 0x01)) {
-    m_wsConfigLocale.clear();
-    if (pConfig) {
-      CXFA_Node* pChildfConfig =
-          pConfig->GetFirstChildByClass(XFA_Element::Acrobat);
-      if (!pChildfConfig) {
-        pChildfConfig = pConfig->GetFirstChildByClass(XFA_Element::Present);
-      }
-      CXFA_Node* pCommon =
-          pChildfConfig
-              ? pChildfConfig->GetFirstChildByClass(XFA_Element::Common)
-              : nullptr;
-      CXFA_Node* pLocale =
-          pCommon ? pCommon->GetFirstChildByClass(XFA_Element::Locale)
-                  : nullptr;
-      if (pLocale) {
-        pLocale->TryCData(XFA_ATTRIBUTE_Value, m_wsConfigLocale, false);
-      }
-    }
-    m_dwLocaleFlags |= 0x01;
+WideString CXFA_LocaleMgr::GetConfigLocaleName(CXFA_Node* pConfig) {
+  if (m_hasSetLocaleName)
+    return m_wsConfigLocale;
+
+  m_hasSetLocaleName = true;
+  m_wsConfigLocale.clear();
+  if (!pConfig)
+    return m_wsConfigLocale;
+
+  CXFA_Node* pChildfConfig =
+      pConfig->GetFirstChildByClass<CXFA_Acrobat>(XFA_Element::Acrobat);
+  if (!pChildfConfig) {
+    pChildfConfig =
+        pConfig->GetFirstChildByClass<CXFA_Present>(XFA_Element::Present);
   }
-  return m_wsConfigLocale.AsStringC();
+  CXFA_Common* pCommon = pChildfConfig
+                             ? pChildfConfig->GetFirstChildByClass<CXFA_Common>(
+                                   XFA_Element::Common)
+                             : nullptr;
+  CXFA_Locale* pLocale =
+      pCommon ? pCommon->GetFirstChildByClass<CXFA_Locale>(XFA_Element::Locale)
+              : nullptr;
+  if (pLocale) {
+    m_wsConfigLocale = pLocale->JSObject()
+                           ->TryCData(XFA_Attribute::Value, false)
+                           .value_or(WideString());
+  }
+  return m_wsConfigLocale;
 }

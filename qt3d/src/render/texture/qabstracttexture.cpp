@@ -66,6 +66,9 @@ QAbstractTexturePrivate::QAbstractTexturePrivate()
     , m_comparisonMode(QAbstractTexture::CompareNone)
     , m_layers(1)
     , m_samples(1)
+    , m_sharedTextureId(-1)
+    , m_handleType(QAbstractTexture::NoHandle)
+    , m_handle(QVariant())
 {
 }
 
@@ -414,7 +417,7 @@ void QAbstractTexture::setDepth(int depth)
 }
 
 /*!
- * \return the width of the texture
+ * Returns the width of the texture
  */
 int QAbstractTexture::width() const
 {
@@ -423,7 +426,7 @@ int QAbstractTexture::width() const
 }
 
 /*!
- * \return the height of the texture
+ * Returns the height of the texture
  */
 int QAbstractTexture::height() const
 {
@@ -432,7 +435,7 @@ int QAbstractTexture::height() const
 }
 
 /*!
- * \return the depth of the texture
+ * Returns the depth of the texture
  */
 int QAbstractTexture::depth() const
 {
@@ -462,7 +465,7 @@ void QAbstractTexture::setLayers(int layers)
 }
 
 /*!
-    \return the maximum number of layers for the texture provider.
+    Returns the maximum number of layers for the texture provider.
 
     \note this has a meaning only for texture providers that have 3D or
      array target formats.
@@ -495,7 +498,7 @@ void QAbstractTexture::setSamples(int samples)
 }
 
 /*!
-    \return the number of samples per texel for the texture provider.
+    Returns the number of samples per texel for the texture provider.
 
     \note this has a meaning only for texture providers that have multisample
     formats.
@@ -561,7 +564,35 @@ void QAbstractTexture::setStatus(Status status)
 }
 
 /*!
- * \return the current status of the texture provider.
+ * \internal
+ */
+void QAbstractTexture::setHandle(const QVariant &handle)
+{
+    Q_D(QAbstractTexture);
+    if (d->m_handle != handle) {
+        d->m_handle = handle;
+        const bool blocked = blockNotifications(true);
+        emit handleChanged(handle);
+        blockNotifications(blocked);
+    }
+}
+
+/*!
+ * \internal
+ */
+void QAbstractTexture::setHandleType(QAbstractTexture::HandleType type)
+{
+    Q_D(QAbstractTexture);
+    if (d->m_handleType != type) {
+        d->m_handleType = type;
+        const bool blocked = blockNotifications(true);
+        emit handleTypeChanged(type);
+        blockNotifications(blocked);
+    }
+}
+
+/*!
+ * Returns the current status of the texture provider.
  */
 QAbstractTexture::Status QAbstractTexture::status() const
 {
@@ -630,8 +661,6 @@ void QAbstractTexture::addTextureImage(QAbstractTextureImage *textureImage)
         // Ensures proper bookkeeping
         d->registerDestructionHelper(textureImage, &QAbstractTexture::removeTextureImage, d->m_textureImages);
 
-        if (textureImage->parent() && textureImage->parent() != this)
-            qWarning() << "A QAbstractTextureImage was shared, expect a crash, undefined behavior at best";
         // We need to add it as a child of the current node if it has been declared inline
         // Or not previously added as a child of the current node so that
         // 1) The backend gets notified about it's creation
@@ -665,7 +694,7 @@ void QAbstractTexture::removeTextureImage(QAbstractTextureImage *textureImage)
 }
 
 /*!
-    \return a list of pointers to QAbstractTextureImage objects contained in
+    Returns a list of pointers to QAbstractTextureImage objects contained in
     the texture provider.
  */
 QVector<QAbstractTextureImage *> QAbstractTexture::textureImages() const
@@ -819,7 +848,7 @@ void QAbstractTexture::setMaximumAnisotropy(float anisotropy)
 }
 
 /*!
- * \return the current maximum anisotropy
+ * Returns the current maximum anisotropy
  */
 float QAbstractTexture::maximumAnisotropy() const
 {
@@ -828,7 +857,7 @@ float QAbstractTexture::maximumAnisotropy() const
 }
 
 /*!
-    \property Qt3DRender::QAbstractTexture::comparisonFunction
+    \property Qt3DRender::QAbstractTexture::ComparisonFunction
 
     Holds the comparison function of the texture provider.
  */
@@ -845,7 +874,7 @@ void QAbstractTexture::setComparisonFunction(QAbstractTexture::ComparisonFunctio
 }
 
 /*!
- * \return the current comparison function.
+ * Returns the current comparison function.
  */
 QAbstractTexture::ComparisonFunction QAbstractTexture::comparisonFunction() const
 {
@@ -854,7 +883,7 @@ QAbstractTexture::ComparisonFunction QAbstractTexture::comparisonFunction() cons
 }
 
 /*!
-    \property Qt3DRender::QAbstractTexture::comparisonMode
+    \property Qt3DRender::QAbstractTexture::ComparisonMode
 
     Holds the comparison mode of the texture provider.
  */
@@ -871,7 +900,7 @@ void QAbstractTexture::setComparisonMode(QAbstractTexture::ComparisonMode mode)
 }
 
 /*!
- * \return the current comparison mode.
+ * Returns the current comparison mode.
  */
 QAbstractTexture::ComparisonMode QAbstractTexture::comparisonMode() const
 {
@@ -880,12 +909,61 @@ QAbstractTexture::ComparisonMode QAbstractTexture::comparisonMode() const
 }
 
 /*!
- * \return the current data generator.
+ * Returns the current data generator.
  */
 QTextureGeneratorPtr QAbstractTexture::dataGenerator() const
 {
     Q_D(const QAbstractTexture);
     return d->m_dataFunctor;
+}
+
+/*!
+ * \property Qt3DRender::QAbstractTexture::handleType
+ *
+ * Holds the current texture handle type.
+ */
+
+/*!
+ * \qmlproperty handleType
+ *
+ * Holds the current texture handle type.
+ */
+
+/*!
+ * \return the current texture handle type.
+ * \since 5.13
+ */
+QAbstractTexture::HandleType QAbstractTexture::handleType() const
+{
+    Q_D(const QAbstractTexture);
+    return d->m_handleType;
+}
+
+
+/*!
+ * \property Qt3DRender::QAbstractTexture::handle
+ *
+ * Holds the current texture handle, if Qt 3D is using the OpenGL renderer,
+ * handle is a texture id integer.
+ */
+
+/*!
+ * \qmlproperty handle
+ *
+ * Holds the current texture handle, if Qt 3D is using the OpenGL renderer,
+ * handle is a texture id integer.
+ */
+
+/*!
+ * \return the current texture handle, if Qt 3D is using the OpenGL renderer,
+ * handle is a texture id integer.
+ *
+ * \since 5.13
+ */
+QVariant QAbstractTexture::handle() const
+{
+    Q_D(const QAbstractTexture);
+    return d->m_handle;
 }
 
 Qt3DCore::QNodeCreatedChangeBasePtr QAbstractTexture::createNodeCreationChange() const
@@ -911,9 +989,13 @@ Qt3DCore::QNodeCreatedChangeBasePtr QAbstractTexture::createNodeCreationChange()
     data.layers = d->m_layers;
     data.samples = d->m_samples;
     data.dataFunctor = d->m_dataFunctor;
+    data.sharedTextureId = d->m_sharedTextureId;
     return creationChange;
 }
 
+/*!
+    A function for receiving and processing a \a change.
+*/
 void QAbstractTexture::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
 {
     switch (change->type()) {
@@ -939,6 +1021,14 @@ void QAbstractTexture::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
             bool blocked = blockNotifications(true);
             setFormat(static_cast<QAbstractTexture::TextureFormat>(propertyChange->value().toInt()));
             blockNotifications(blocked);
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("status")) {
+            bool blocked = blockNotifications(true);
+            setStatus(static_cast<QAbstractTexture::Status>(propertyChange->value().toInt()));
+            blockNotifications(blocked);
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("handleType")) {
+            setHandleType(static_cast<QAbstractTexture::HandleType>(propertyChange->value().toInt()));
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("handle")) {
+            setHandle(propertyChange->value());
         }
         // TODO handle target changes, it's a CONSTANT property but can be affected by loader
         break;

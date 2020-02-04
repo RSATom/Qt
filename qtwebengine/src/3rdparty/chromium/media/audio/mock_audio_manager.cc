@@ -4,9 +4,11 @@
 
 #include "media/audio/mock_audio_manager.h"
 
+#include <utility>
+
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/single_thread_task_runner.h"
+#include "media/audio/mock_audio_debug_recording_manager.h"
 #include "media/base/audio_parameters.h"
 
 namespace media {
@@ -14,10 +16,11 @@ namespace media {
 MockAudioManager::MockAudioManager(std::unique_ptr<AudioThread> audio_thread)
     : AudioManager(std::move(audio_thread)) {}
 
-MockAudioManager::~MockAudioManager() {
-}
+MockAudioManager::~MockAudioManager() = default;
 
-void MockAudioManager::ShutdownOnAudioThread() {}
+void MockAudioManager::ShutdownOnAudioThread() {
+  DCHECK(GetTaskRunner()->BelongsToCurrentThread());
+}
 
 bool MockAudioManager::HasAudioOutputDevices() {
   DCHECK(GetTaskRunner()->BelongsToCurrentThread());
@@ -29,18 +32,10 @@ bool MockAudioManager::HasAudioInputDevices() {
   return has_input_devices_;
 }
 
-base::string16 MockAudioManager::GetAudioInputDeviceModel() {
-  DCHECK(GetTaskRunner()->BelongsToCurrentThread());
-  return base::string16();
-}
-
-void MockAudioManager::ShowAudioInputSettings() {
-}
-
 void MockAudioManager::GetAudioInputDeviceDescriptions(
     AudioDeviceDescriptions* device_descriptions) {
   DCHECK(GetTaskRunner()->BelongsToCurrentThread());
-  if (get_input_device_descriptions_cb_.is_null())
+  if (!get_input_device_descriptions_cb_)
     return;
   get_input_device_descriptions_cb_.Run(device_descriptions);
 }
@@ -48,7 +43,7 @@ void MockAudioManager::GetAudioInputDeviceDescriptions(
 void MockAudioManager::GetAudioOutputDeviceDescriptions(
     AudioDeviceDescriptions* device_descriptions) {
   DCHECK(GetTaskRunner()->BelongsToCurrentThread());
-  if (get_output_device_descriptions_cb_.is_null())
+  if (!get_output_device_descriptions_cb_)
     return;
   get_output_device_descriptions_cb_.Run(device_descriptions);
 }
@@ -57,23 +52,22 @@ media::AudioOutputStream* MockAudioManager::MakeAudioOutputStream(
     const media::AudioParameters& params,
     const std::string& device_id,
     const LogCallback& log_callback) {
-  NOTREACHED();
-  return NULL;
+  return MakeAudioOutputStreamProxy(params, device_id);
 }
 
 media::AudioOutputStream* MockAudioManager::MakeAudioOutputStreamProxy(
     const media::AudioParameters& params,
     const std::string& device_id) {
-  NOTREACHED();
-  return NULL;
+  return make_output_stream_cb_ ? make_output_stream_cb_.Run(params, device_id)
+                                : nullptr;
 }
 
 media::AudioInputStream* MockAudioManager::MakeAudioInputStream(
     const media::AudioParameters& params,
     const std::string& device_id,
     const LogCallback& log_callback) {
-  NOTREACHED();
-  return NULL;
+  return make_input_stream_cb_ ? make_input_stream_cb_.Run(params, device_id)
+                               : nullptr;
 }
 
 void MockAudioManager::AddOutputDeviceChangeListener(
@@ -85,6 +79,7 @@ void MockAudioManager::RemoveOutputDeviceChangeListener(
 }
 
 AudioParameters MockAudioManager::GetDefaultOutputStreamParameters() {
+  DCHECK(GetTaskRunner()->BelongsToCurrentThread());
   return default_output_params_;
 }
 
@@ -103,25 +98,58 @@ AudioParameters MockAudioManager::GetInputStreamParameters(
 std::string MockAudioManager::GetAssociatedOutputDeviceID(
     const std::string& input_device_id) {
   DCHECK(GetTaskRunner()->BelongsToCurrentThread());
-  return get_associated_output_device_id_cb_.is_null()
-             ? std::string()
-             : get_associated_output_device_id_cb_.Run(input_device_id);
+  return get_associated_output_device_id_cb_
+             ? get_associated_output_device_id_cb_.Run(input_device_id)
+             : std::string();
+}
+
+std::string MockAudioManager::GetDefaultInputDeviceID() {
+  return std::string();
+}
+std::string MockAudioManager::GetDefaultOutputDeviceID() {
+  return std::string();
+}
+std::string MockAudioManager::GetCommunicationsInputDeviceID() {
+  return std::string();
+}
+std::string MockAudioManager::GetCommunicationsOutputDeviceID() {
+  return std::string();
 }
 
 std::unique_ptr<AudioLog> MockAudioManager::CreateAudioLog(
-    AudioLogFactory::AudioComponent component) {
+    AudioLogFactory::AudioComponent component,
+    int component_id) {
   return nullptr;
 }
 
-void MockAudioManager::InitializeOutputDebugRecording() {}
+void MockAudioManager::InitializeDebugRecording() {
+  if (!GetTaskRunner()->BelongsToCurrentThread()) {
+    GetTaskRunner()->PostTask(
+        FROM_HERE, base::BindOnce(&MockAudioManager::InitializeDebugRecording,
+                                  base::Unretained(this)));
+    return;
+  }
 
-void MockAudioManager::EnableOutputDebugRecording(
-    const base::FilePath& base_file_name) {}
+  DCHECK(!debug_recording_manager_);
+  debug_recording_manager_ =
+      std::make_unique<MockAudioDebugRecordingManager>(GetTaskRunner());
+}
 
-void MockAudioManager::DisableOutputDebugRecording() {}
+AudioDebugRecordingManager* MockAudioManager::GetAudioDebugRecordingManager() {
+  DCHECK(GetTaskRunner()->BelongsToCurrentThread());
+  return debug_recording_manager_.get();
+}
 
 const char* MockAudioManager::GetName() {
   return nullptr;
+}
+
+void MockAudioManager::SetMakeOutputStreamCB(MakeOutputStreamCallback cb) {
+  make_output_stream_cb_ = std::move(cb);
+}
+
+void MockAudioManager::SetMakeInputStreamCB(MakeInputStreamCallback cb) {
+  make_input_stream_cb_ = std::move(cb);
 }
 
 void MockAudioManager::SetInputStreamParameters(const AudioParameters& params) {

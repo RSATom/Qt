@@ -32,24 +32,24 @@
 
 #include <texteditfindwidget.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QApplication>
-#ifndef QT_NO_CLIPBOARD
-#include <QtGui/QClipboard>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qapplication.h>
+#if QT_CONFIG(clipboard)
+#include <QtGui/qclipboard.h>
 #endif
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QFileDialog>
-#include <QtGui/QIcon>
-#include <QtGui/QKeyEvent>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QTextEdit>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QVBoxLayout>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtGui/qicon.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qtextedit.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qboxlayout.h>
 
-#include <QtCore/QDebug>
-#include <QtCore/QDir>
-#include <QtCore/QTemporaryFile>
+#include <QtCore/qdebug.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qtemporaryfile.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -84,17 +84,13 @@ CodeDialog::CodeDialog(QWidget *parent) :
     QAction *saveAction = toolBar->addAction(saveIcon, tr("Save..."));
     connect(saveAction, &QAction::triggered, this, &CodeDialog::slotSaveAs);
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     const QIcon copyIcon = createIconSet(QStringLiteral("editcopy.png"));
     QAction *copyAction = toolBar->addAction(copyIcon, tr("Copy All"));
     connect(copyAction, &QAction::triggered, this, &CodeDialog::copyAll);
 #endif
 
-    QAction *findAction = toolBar->addAction(
-            TextEditFindWidget::findIconSet(),
-            tr("&Find in Text..."),
-            m_impl->m_findWidget, &AbstractFindWidget::activate);
-    findAction->setShortcut(QKeySequence::Find);
+    toolBar->addAction(m_impl->m_findWidget->createFindAction(toolBar));
 
     vBoxLayout->addWidget(toolBar);
 
@@ -223,12 +219,14 @@ void CodeDialog::slotSaveAs()
 
          QFile file(fileName);
          if (!file.open(QIODevice::WriteOnly|QIODevice::Text)) {
-             warning(tr("The file %1 could not be opened: %2").arg(fileName).arg(file.errorString()));
+             warning(tr("The file %1 could not be opened: %2")
+                     .arg(fileName, file.errorString()));
              continue;
          }
          file.write(code().toUtf8());
          if (!file.flush()) {
-             warning(tr("The file %1 could not be written: %2").arg(fileName).arg(file.errorString()));
+             warning(tr("The file %1 could not be written: %2")
+                     .arg(fileName, file.errorString()));
              continue;
          }
          file.close();
@@ -243,7 +241,7 @@ void CodeDialog::warning(const QString &msg)
              msg, QMessageBox::Close);
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void CodeDialog::copyAll()
 {
     QApplication::clipboard()->setText(code());

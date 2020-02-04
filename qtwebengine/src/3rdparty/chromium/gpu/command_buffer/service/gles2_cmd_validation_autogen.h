@@ -113,6 +113,7 @@ class FaceTypeValidator {
 };
 FaceTypeValidator face_type;
 
+ValueValidator<GLenum> framebuffer_attachment_parameter;
 ValueValidator<GLenum> framebuffer_parameter;
 ValueValidator<GLenum> framebuffer_target;
 ValueValidator<GLenum> g_l_state;
@@ -138,12 +139,7 @@ class IndexedBufferTargetValidator {
 };
 IndexedBufferTargetValidator indexed_buffer_target;
 
-class IndexedGLStateValidator {
- public:
-  bool IsValid(const GLenum value) const;
-};
-IndexedGLStateValidator indexed_g_l_state;
-
+ValueValidator<GLenum> indexed_g_l_state;
 class InternalFormatParameterValidator {
  public:
   bool IsValid(const GLenum value) const;
@@ -230,17 +226,7 @@ class PixelStoreAlignmentValidator {
 PixelStoreAlignmentValidator pixel_store_alignment;
 
 ValueValidator<GLenum> pixel_type;
-class ProgramParameterValidator {
- public:
-  bool IsValid(const GLenum value) const;
-  ProgramParameterValidator();
-  void SetIsES3(bool is_es3) { is_es3_ = is_es3; }
-
- private:
-  bool is_es3_;
-};
-ProgramParameterValidator program_parameter;
-
+ValueValidator<GLenum> program_parameter;
 class QueryObjectParameterValidator {
  public:
   bool IsValid(const GLenum value) const;
@@ -272,12 +258,7 @@ class SamplerParameterValidator {
 SamplerParameterValidator sampler_parameter;
 
 ValueValidator<GLenum> shader_binary_format;
-class ShaderParameterValidator {
- public:
-  bool IsValid(const GLenum value) const;
-};
-ShaderParameterValidator shader_parameter;
-
+ValueValidator<GLenum> shader_parameter;
 class ShaderPrecisionValidator {
  public:
   bool IsValid(const GLenum value) const;
@@ -289,6 +270,12 @@ class ShaderTypeValidator {
   bool IsValid(const GLenum value) const;
 };
 ShaderTypeValidator shader_type;
+
+class SharedImageAccessModeValidator {
+ public:
+  bool IsValid(const GLenum value) const;
+};
+SharedImageAccessModeValidator shared_image_access_mode;
 
 ValueValidator<GLenum> src_blend_factor;
 class StencilOpValidator {
@@ -302,6 +289,12 @@ class StringTypeValidator {
   bool IsValid(const GLenum value) const;
 };
 StringTypeValidator string_type;
+
+class SwapBuffersFlagsValidator {
+ public:
+  bool IsValid(const GLbitfield value) const;
+};
+SwapBuffersFlagsValidator swap_buffers_flags;
 
 ValueValidator<GLbitfield> sync_flush_flags;
 class SyncParameterValidator {
@@ -398,5 +391,10 @@ VertexAttribITypeValidator vertex_attrib_i_type;
 ValueValidator<GLenum> vertex_attrib_type;
 ValueValidator<GLenum> vertex_attribute;
 ValueValidator<GLenum> vertex_pointer;
+class WindowRectanglesModeValidator {
+ public:
+  bool IsValid(const GLenum value) const;
+};
+WindowRectanglesModeValidator window_rectangles_mode;
 
 #endif  // GPU_COMMAND_BUFFER_SERVICE_GLES2_CMD_VALIDATION_AUTOGEN_H_

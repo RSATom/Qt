@@ -4,6 +4,7 @@
 
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
 
+#include <cmath>
 #include <utility>
 #include <vector>
 
@@ -12,11 +13,12 @@
 #include "base/feature_list.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/metrics/sparse_histogram.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_metrics.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
 #include "components/data_reduction_proxy/core/browser/data_usage_store.h"
@@ -36,13 +38,16 @@ namespace {
 // CONCAT1 provides extra level of indirection so that __LINE__ macro expands.
 #define CONCAT1(a, b) CONCAT(a, b)
 #define UNIQUE_VARNAME CONCAT1(var_, __LINE__)
-// We need to use a macro instead of a method because UMA_HISTOGRAM_COUNTS
+// We need to use a macro instead of a method because UMA_HISTOGRAM_COUNTS_1M
 // requires its first argument to be an inline string and not a variable.
-#define RECORD_INT64PREF_TO_HISTOGRAM(pref, uma)     \
-  int64_t UNIQUE_VARNAME = GetInt64(pref);           \
-  if (UNIQUE_VARNAME > 0) {                          \
-    UMA_HISTOGRAM_COUNTS(uma, UNIQUE_VARNAME >> 10); \
+#define RECORD_INT64PREF_TO_HISTOGRAM(pref, uma)        \
+  int64_t UNIQUE_VARNAME = GetInt64(pref);              \
+  if (UNIQUE_VARNAME > 0) {                             \
+    UMA_HISTOGRAM_COUNTS_1M(uma, UNIQUE_VARNAME >> 10); \
   }
+
+const double kSecondsPerWeek =
+    base::Time::kMicrosecondsPerWeek / base::Time::kMicrosecondsPerSecond;
 
 // Returns the value at |index| of |list_value| as an int64_t.
 int64_t GetInt64PrefValue(const base::ListValue& list_value, size_t index) {
@@ -62,7 +67,7 @@ int64_t GetInt64PrefValue(const base::ListValue& list_value, size_t index) {
 void MaintainContentLengthPrefsWindow(base::ListValue* list, size_t length) {
   // Remove data for old days from the front.
   while (list->GetSize() > length)
-    list->Remove(0, NULL);
+    list->Remove(0, nullptr);
   // Newly added lists are empty. Add entries to back to fill the window,
   // each initialized to zero.
   while (list->GetSize() < length)
@@ -78,7 +83,7 @@ void AddInt64ToListPref(size_t index,
                         base::ListValue* list_update) {
   int64_t value = GetInt64PrefValue(*list_update, index) + length;
   list_update->Set(index,
-                   base::MakeUnique<base::Value>(base::Int64ToString(value)));
+                   std::make_unique<base::Value>(base::Int64ToString(value)));
 }
 
 // DailyContentLengthUpdate maintains a data saving pref. The pref is a list
@@ -100,10 +105,9 @@ void RecordDailyContentLengthHistograms(
     return;
 
   // Record metrics in KB.
-  UMA_HISTOGRAM_COUNTS(
-      "Net.DailyOriginalContentLength", original_length >> 10);
-  UMA_HISTOGRAM_COUNTS(
-      "Net.DailyContentLength", received_length >> 10);
+  UMA_HISTOGRAM_COUNTS_1M("Net.DailyOriginalContentLength",
+                          original_length >> 10);
+  UMA_HISTOGRAM_COUNTS_1M("Net.DailyContentLength", received_length >> 10);
 
   int percent = 0;
   // UMA percentage cannot be negative.
@@ -117,12 +121,11 @@ void RecordDailyContentLengthHistograms(
     return;
   }
 
-  UMA_HISTOGRAM_COUNTS(
+  UMA_HISTOGRAM_COUNTS_1M(
       "Net.DailyOriginalContentLength_DataReductionProxyEnabled",
       original_length_with_data_reduction_enabled >> 10);
-  UMA_HISTOGRAM_COUNTS(
-      "Net.DailyContentLength_DataReductionProxyEnabled",
-      received_length_with_data_reduction_enabled >> 10);
+  UMA_HISTOGRAM_COUNTS_1M("Net.DailyContentLength_DataReductionProxyEnabled",
+                          received_length_with_data_reduction_enabled >> 10);
 
   int percent_data_reduction_proxy_enabled = 0;
   // UMA percentage cannot be negative.
@@ -142,7 +145,7 @@ void RecordDailyContentLengthHistograms(
       (100 * received_length_with_data_reduction_enabled) / received_length);
 
   DCHECK_GE(https_length_with_data_reduction_enabled, 0);
-  UMA_HISTOGRAM_COUNTS(
+  UMA_HISTOGRAM_COUNTS_1M(
       "Net.DailyContentLength_DataReductionProxyEnabled_Https",
       https_length_with_data_reduction_enabled >> 10);
   UMA_HISTOGRAM_PERCENTAGE(
@@ -150,7 +153,7 @@ void RecordDailyContentLengthHistograms(
       (100 * https_length_with_data_reduction_enabled) / received_length);
 
   DCHECK_GE(short_bypass_length_with_data_reduction_enabled, 0);
-  UMA_HISTOGRAM_COUNTS(
+  UMA_HISTOGRAM_COUNTS_1M(
       "Net.DailyContentLength_DataReductionProxyEnabled_ShortBypass",
       short_bypass_length_with_data_reduction_enabled >> 10);
   UMA_HISTOGRAM_PERCENTAGE(
@@ -159,7 +162,7 @@ void RecordDailyContentLengthHistograms(
        received_length));
 
   DCHECK_GE(long_bypass_length_with_data_reduction_enabled, 0);
-  UMA_HISTOGRAM_COUNTS(
+  UMA_HISTOGRAM_COUNTS_1M(
       "Net.DailyContentLength_DataReductionProxyEnabled_LongBypass",
       long_bypass_length_with_data_reduction_enabled >> 10);
   UMA_HISTOGRAM_PERCENTAGE(
@@ -168,7 +171,7 @@ void RecordDailyContentLengthHistograms(
        received_length));
 
   DCHECK_GE(unknown_length_with_data_reduction_enabled, 0);
-  UMA_HISTOGRAM_COUNTS(
+  UMA_HISTOGRAM_COUNTS_1M(
       "Net.DailyContentLength_DataReductionProxyEnabled_UnknownBypass",
       unknown_length_with_data_reduction_enabled >> 10);
   UMA_HISTOGRAM_PERCENTAGE(
@@ -177,13 +180,12 @@ void RecordDailyContentLengthHistograms(
        received_length));
 
   DCHECK_GE(original_length_via_data_reduction_proxy, 0);
-  UMA_HISTOGRAM_COUNTS(
+  UMA_HISTOGRAM_COUNTS_1M(
       "Net.DailyOriginalContentLength_ViaDataReductionProxy",
       original_length_via_data_reduction_proxy >> 10);
   DCHECK_GE(received_length_via_data_reduction_proxy, 0);
-  UMA_HISTOGRAM_COUNTS(
-      "Net.DailyContentLength_ViaDataReductionProxy",
-      received_length_via_data_reduction_proxy >> 10);
+  UMA_HISTOGRAM_COUNTS_1M("Net.DailyContentLength_ViaDataReductionProxy",
+                          received_length_via_data_reduction_proxy >> 10);
   UMA_HISTOGRAM_PERCENTAGE(
       "Net.DailyContentPercent_ViaDataReductionProxy",
       (100 * received_length_via_data_reduction_proxy) / received_length);
@@ -203,11 +205,96 @@ void RecordDailyContentLengthHistograms(
       percent_savings_via_data_reduction_proxy);
 }
 
-void RecordSavingsClearedNegativeClockMetric(int days_since_last_update) {
-  // Data savings are cleared if the system clock moved back by more than
-  // one day.
-  UMA_HISTOGRAM_BOOLEAN("DataReductionProxy.SavingsCleared.NegativeSystemClock",
-                        days_since_last_update < -1);
+void RecordSavingsClearedMetric(DataReductionProxySavingsClearedReason reason) {
+  DCHECK_GT(DataReductionProxySavingsClearedReason::REASON_COUNT, reason);
+  UMA_HISTOGRAM_ENUMERATION(
+      "DataReductionProxy.SavingsCleared.Reason", reason,
+      DataReductionProxySavingsClearedReason::REASON_COUNT);
+}
+
+// Returns the week number for the current time. The epoch time is treated as
+// week=0.
+int32_t GetCurrentWeekNumber(const base::Time& now) {
+  double now_in_seconds = now.ToDoubleT();
+  return now_in_seconds / kSecondsPerWeek;
+}
+
+// Adds |value| to the item at |key| in the preference dictionary found at
+// |pref|. If |key| is not found it will be inserted.
+void AddToDictionaryPref(PrefService* pref_service,
+                         const std::string& pref,
+                         int key,
+                         int value) {
+  DictionaryPrefUpdate pref_update(pref_service, pref);
+  base::DictionaryValue* pref_dict = pref_update.Get();
+  const std::string key_str = base::IntToString(key);
+  base::Value* dict_value = pref_dict->FindKey(key_str);
+  if (dict_value)
+    value += dict_value->GetInt();
+  pref_dict->SetKey(key_str, base::Value(value));
+}
+
+// Moves the dictionary stored in preference |pref_src| to |pref_dst|, and
+// clears the preference |pref_src|.
+void MoveAndClearDictionaryPrefs(PrefService* pref_service,
+                                 const std::string& pref_dst,
+                                 const std::string& pref_src) {
+  DictionaryPrefUpdate pref_update_dst(pref_service, pref_dst);
+  base::DictionaryValue* pref_dict_dst = pref_update_dst.Get();
+  DictionaryPrefUpdate pref_update_src(pref_service, pref_src);
+  base::DictionaryValue* pref_dict_src = pref_update_src.Get();
+  pref_dict_dst->Clear();
+  pref_dict_dst->Swap(pref_dict_src);
+  DCHECK(pref_dict_src->empty());
+}
+
+void MaybeInitWeeklyAggregateDataUsePrefs(const base::Time& now,
+                                          PrefService* pref_service) {
+  int saved_week = pref_service->GetInteger(prefs::kThisWeekNumber);
+  int current_week = GetCurrentWeekNumber(now);
+
+  if (saved_week == current_week)
+    return;
+
+  pref_service->SetInteger(prefs::kThisWeekNumber, current_week);
+  if (current_week == saved_week + 1) {
+    // The next week has just started. Move the data use aggregate prefs for
+    // this week to last week, and clear the prefs for this week.
+    MoveAndClearDictionaryPrefs(pref_service,
+                                prefs::kLastWeekServicesDownstreamBackgroundKB,
+                                prefs::kThisWeekServicesDownstreamBackgroundKB);
+    MoveAndClearDictionaryPrefs(pref_service,
+                                prefs::kLastWeekServicesDownstreamForegroundKB,
+                                prefs::kThisWeekServicesDownstreamForegroundKB);
+    MoveAndClearDictionaryPrefs(
+        pref_service, prefs::kLastWeekUserTrafficContentTypeDownstreamKB,
+        prefs::kThisWeekUserTrafficContentTypeDownstreamKB);
+  } else {
+    // Current week is too different than the last time data use aggregate prefs
+    // were updated. This may happen if Chrome was opened after a long time, or
+    // due to system clock being changed backward or forward. Clear all prefs in
+    // this case.
+    pref_service->ClearPref(prefs::kLastWeekServicesDownstreamBackgroundKB);
+    pref_service->ClearPref(prefs::kLastWeekServicesDownstreamForegroundKB);
+    pref_service->ClearPref(prefs::kLastWeekUserTrafficContentTypeDownstreamKB);
+    pref_service->ClearPref(prefs::kThisWeekServicesDownstreamBackgroundKB);
+    pref_service->ClearPref(prefs::kThisWeekServicesDownstreamForegroundKB);
+    pref_service->ClearPref(prefs::kThisWeekUserTrafficContentTypeDownstreamKB);
+  }
+}
+
+// Records the key-value pairs in the dictionary in a sparse histogram.
+void RecordDictionaryToHistogram(const std::string& histogram_name,
+                                 const base::DictionaryValue* dictionary) {
+  base::HistogramBase* histogram = base::SparseHistogram::FactoryGet(
+      histogram_name, base::HistogramBase::kUmaTargetedHistogramFlag);
+  for (const auto& entry : *dictionary) {
+    int key;
+    int value = entry.second->GetInt();
+    if (value > 0 && base::StringToInt(entry.first, &key)) {
+      histogram->AddCount(key, value);
+    }
+  }
 }
 
 }  // namespace
@@ -342,8 +429,6 @@ DataReductionProxyCompressionStats::DataReductionProxyCompressionStats(
       pref_service_(prefs),
       delay_(delay),
       data_usage_map_is_dirty_(false),
-      session_total_received_(0),
-      session_total_original_(0),
       current_data_usage_load_status_(NOT_LOADED),
       weak_factory_(this) {
   DCHECK(service);
@@ -370,21 +455,14 @@ void DataReductionProxyCompressionStats::Init() {
           &DataReductionProxyCompressionStats::OnDataUsageReportingPrefChanged,
           weak_factory_.GetWeakPtr()));
 
-#if defined(OS_ANDROID)
-  if (!base::FeatureList::IsEnabled(features::kDataReductionSiteBreakdown)) {
-    // If the user is moved out of the experiment make sure that data usage
-    // reporting is not enabled and the map is cleared.
-    SetDataUsageReportingEnabled(false);
-    DeleteHistoricalDataUsage();
-  }
-#endif
-
   if (data_usage_reporting_enabled_.GetValue()) {
     current_data_usage_load_status_ = LOADING;
     service_->LoadCurrentDataUsageBucket(base::Bind(
         &DataReductionProxyCompressionStats::OnCurrentDataUsageLoaded,
         weak_factory_.GetWeakPtr()));
   }
+
+  InitializeWeeklyAggregateDataUse(base::Time::Now());
 
   if (delay_.is_zero())
     return;
@@ -441,12 +519,13 @@ void DataReductionProxyCompressionStats::RecordDataUseWithMimeType(
     int64_t original_size,
     bool data_saver_enabled,
     DataReductionProxyRequestType request_type,
-    const std::string& mime_type) {
+    const std::string& mime_type,
+    bool is_user_traffic,
+    data_use_measurement::DataUseUserData::DataUseContentType content_type,
+    int32_t service_hash_code) {
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("loader",
                "DataReductionProxyCompressionStats::RecordDataUseWithMimeType")
-  session_total_received_ += data_used;
-  session_total_original_ += original_size;
 
   IncreaseInt64Pref(data_reduction_proxy::prefs::kHttpReceivedContentLength,
                     data_used);
@@ -455,6 +534,9 @@ void DataReductionProxyCompressionStats::RecordDataUseWithMimeType(
 
   RecordRequestSizePrefs(data_used, original_size, data_saver_enabled,
                          request_type, mime_type, base::Time::Now());
+  RecordWeeklyAggregateDataUse(
+      base::Time::Now(), std::round(static_cast<double>(data_used) / 1024),
+      is_user_traffic, content_type, service_hash_code);
 }
 
 void DataReductionProxyCompressionStats::InitInt64Pref(const char* pref) {
@@ -473,7 +555,7 @@ int64_t DataReductionProxyCompressionStats::GetInt64(const char* pref_path) {
   if (delay_.is_zero())
     return pref_service_->GetInt64(pref_path);
 
-  DataReductionProxyPrefMap::iterator iter = pref_map_.find(pref_path);
+  auto iter = pref_map_.find(pref_path);
   return iter->second;
 }
 
@@ -511,8 +593,7 @@ void DataReductionProxyCompressionStats::WritePrefs() {
   if (delay_.is_zero())
     return;
 
-  for (DataReductionProxyPrefMap::iterator iter = pref_map_.begin();
-       iter != pref_map_.end(); ++iter) {
+  for (auto iter = pref_map_.begin(); iter != pref_map_.end(); ++iter) {
     pref_service_->SetInt64(iter->first, iter->second);
   }
 
@@ -521,34 +602,6 @@ void DataReductionProxyCompressionStats::WritePrefs() {
     TransferList(*(iter->second.get()),
                  ListPrefUpdate(pref_service_, iter->first).Get());
   }
-}
-
-std::unique_ptr<base::Value>
-DataReductionProxyCompressionStats::HistoricNetworkStatsInfoToValue() {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  int64_t total_received = GetInt64(prefs::kHttpReceivedContentLength);
-  int64_t total_original = GetInt64(prefs::kHttpOriginalContentLength);
-
-  auto dict = base::MakeUnique<base::DictionaryValue>();
-  // Use strings to avoid overflow. base::Value only supports 32-bit integers.
-  dict->SetString("historic_received_content_length",
-                  base::Int64ToString(total_received));
-  dict->SetString("historic_original_content_length",
-                  base::Int64ToString(total_original));
-  return std::move(dict);
-}
-
-std::unique_ptr<base::Value>
-DataReductionProxyCompressionStats::SessionNetworkStatsInfoToValue() const {
-  DCHECK(thread_checker_.CalledOnValidThread());
-
-  auto dict = base::MakeUnique<base::DictionaryValue>();
-  // Use strings to avoid overflow. base::Value only supports 32-bit integers.
-  dict->SetString("session_received_content_length",
-                  base::Int64ToString(session_total_received_));
-  dict->SetString("session_original_content_length",
-                  base::Int64ToString(session_total_original_));
-  return std::move(dict);
 }
 
 int64_t DataReductionProxyCompressionStats::GetLastUpdateTime() {
@@ -642,17 +695,22 @@ void DataReductionProxyCompressionStats::DeleteBrowsingHistory(
   }
 
   service_->DeleteBrowsingHistory(start, end);
+
+  RecordSavingsClearedMetric(DataReductionProxySavingsClearedReason::
+                                 USER_ACTION_DELETE_BROWSING_HISTORY);
 }
 
 void DataReductionProxyCompressionStats::OnCurrentDataUsageLoaded(
     std::unique_ptr<DataUsageBucket> data_usage) {
-  DCHECK(current_data_usage_load_status_ == LOADING);
-
   // Exit early if the pref was turned off before loading from storage
   // completed.
   if (!data_usage_reporting_enabled_.GetValue()) {
+    DCHECK_EQ(NOT_LOADED, current_data_usage_load_status_);
+    DCHECK(data_usage_map_.empty());
     current_data_usage_load_status_ = NOT_LOADED;
     return;
+  } else {
+    DCHECK_EQ(LOADING, current_data_usage_load_status_);
   }
 
   DCHECK(data_usage_map_last_updated_.is_null());
@@ -666,12 +724,18 @@ void DataReductionProxyCompressionStats::OnCurrentDataUsageLoaded(
   for (const auto& connection_usage : data_usage->connection_usage()) {
     for (const auto& site_usage : connection_usage.site_usage()) {
       data_usage_map_[site_usage.hostname()] =
-          base::MakeUnique<PerSiteDataUsage>(site_usage);
+          std::make_unique<PerSiteDataUsage>(site_usage);
     }
   }
 
   data_usage_map_last_updated_ =
       base::Time::FromInternalValue(data_usage->last_updated_timestamp());
+  // Record if there was a read error.
+  if (data_usage->had_read_error()) {
+    RecordSavingsClearedMetric(
+        DataReductionProxySavingsClearedReason::PREFS_PARSE_ERROR);
+  }
+
   current_data_usage_load_status_ = LOADED;
 }
 
@@ -684,7 +748,8 @@ void DataReductionProxyCompressionStats::SetDataUsageReportingEnabled(
   }
 }
 
-void DataReductionProxyCompressionStats::ClearDataSavingStatistics() {
+void DataReductionProxyCompressionStats::ClearDataSavingStatistics(
+    DataReductionProxySavingsClearedReason reason) {
   DeleteHistoricalDataUsage();
 
   pref_service_->ClearPref(prefs::kDailyHttpContentLengthLastUpdateDate);
@@ -747,6 +812,8 @@ void DataReductionProxyCompressionStats::ClearDataSavingStatistics() {
        ++iter) {
     iter->second->Clear();
   }
+
+  RecordSavingsClearedMetric(reason);
 }
 
 void DataReductionProxyCompressionStats::DelayedWritePrefs() {
@@ -971,7 +1038,10 @@ void DataReductionProxyCompressionStats::RecordRequestSizePrefs(
           "Net.DailyContentLength_ViaDataReductionProxy_UnknownMime");
     }
 
-    RecordSavingsClearedNegativeClockMetric(days_since_last_update);
+    if (days_since_last_update < -1) {
+      RecordSavingsClearedMetric(
+          DataReductionProxySavingsClearedReason::SYSTEM_CLOCK_MOVED_BACK);
+    }
 
     // The system may go backwards in time by up to a day for legitimate
     // reasons, such as with changes to the time zone. In such cases, we
@@ -1187,7 +1257,7 @@ void DataReductionProxyCompressionStats::RecordDataUseByHost(
 
   std::string normalized_host = NormalizeHostname(data_usage_host);
   auto j = data_usage_map_.insert(
-      std::make_pair(normalized_host, base::MakeUnique<PerSiteDataUsage>()));
+      std::make_pair(normalized_host, std::make_unique<PerSiteDataUsage>()));
   PerSiteDataUsage* per_site_usage = j.first->second.get();
   per_site_usage->set_hostname(normalized_host);
   per_site_usage->set_original_size(per_site_usage->original_size() +
@@ -1245,7 +1315,7 @@ void DataReductionProxyCompressionStats::GetHistoricalDataUsageImpl(
     // This use case is unlikely to occur in practice since current data usage
     // should have sufficient time to load before user tries to view data usage.
     get_data_usage_callback.Run(
-        base::MakeUnique<std::vector<DataUsageBucket>>());
+        std::make_unique<std::vector<DataUsageBucket>>());
     return;
   }
 #endif
@@ -1278,8 +1348,6 @@ void DataReductionProxyCompressionStats::OnDataUsageReportingPrefChanged() {
   } else {
 // Don't delete the historical data on Android, but clear the map.
 #if defined(OS_ANDROID)
-    DCHECK(current_data_usage_load_status_ != LOADING);
-
     if (current_data_usage_load_status_ == LOADED)
       PersistDataUsage();
 
@@ -1290,6 +1358,76 @@ void DataReductionProxyCompressionStats::OnDataUsageReportingPrefChanged() {
     DeleteHistoricalDataUsage();
 #endif
     current_data_usage_load_status_ = NOT_LOADED;
+  }
+}
+
+void DataReductionProxyCompressionStats::InitializeWeeklyAggregateDataUse(
+    const base::Time& now) {
+#if defined(OS_ANDROID) && defined(ARCH_CPU_X86)
+  // TODO(rajendrant): Enable aggregate metrics recording in x86 Android.
+  // http://crbug.com/865373
+  return;
+#endif
+
+  MaybeInitWeeklyAggregateDataUsePrefs(now, pref_service_);
+  // Record the histograms that will show up in the user feedback.
+  RecordDictionaryToHistogram(
+      "DataReductionProxy.ThisWeekAggregateKB.Services.Downstream.Background",
+      pref_service_->GetDictionary(
+          prefs::kThisWeekServicesDownstreamBackgroundKB));
+  RecordDictionaryToHistogram(
+      "DataReductionProxy.ThisWeekAggregateKB.Services.Downstream.Foreground",
+      pref_service_->GetDictionary(
+          prefs::kThisWeekServicesDownstreamForegroundKB));
+  RecordDictionaryToHistogram(
+      "DataReductionProxy.ThisWeekAggregateKB.UserTraffic.Downstream."
+      "ContentType",
+      pref_service_->GetDictionary(
+          prefs::kThisWeekUserTrafficContentTypeDownstreamKB));
+  RecordDictionaryToHistogram(
+      "DataReductionProxy.LastWeekAggregateKB.Services.Downstream.Background",
+      pref_service_->GetDictionary(
+          prefs::kLastWeekServicesDownstreamBackgroundKB));
+  RecordDictionaryToHistogram(
+      "DataReductionProxy.LastWeekAggregateKB.Services.Downstream.Foreground",
+      pref_service_->GetDictionary(
+          prefs::kLastWeekServicesDownstreamForegroundKB));
+  RecordDictionaryToHistogram(
+      "DataReductionProxy.LastWeekAggregateKB.UserTraffic.Downstream."
+      "ContentType",
+      pref_service_->GetDictionary(
+          prefs::kLastWeekUserTrafficContentTypeDownstreamKB));
+}
+
+void DataReductionProxyCompressionStats::RecordWeeklyAggregateDataUse(
+    const base::Time& now,
+    int32_t data_used_kb,
+    bool is_user_request,
+    data_use_measurement::DataUseUserData::DataUseContentType content_type,
+    int32_t service_hash_code) {
+#if defined(OS_ANDROID) && defined(ARCH_CPU_X86)
+  // TODO(rajendrant): Enable aggregate metrics recording in x86 Android.
+  // http://crbug.com/865373
+  return;
+#endif
+  // Update the prefs if this is a new week. This can happen when chrome is open
+  // for weeks without being closed.
+  MaybeInitWeeklyAggregateDataUsePrefs(now, pref_service_);
+  if (is_user_request) {
+    AddToDictionaryPref(pref_service_,
+                        prefs::kThisWeekUserTrafficContentTypeDownstreamKB,
+                        content_type, data_used_kb);
+  } else {
+    bool is_app_foreground = true;
+    if (is_app_foreground) {
+      AddToDictionaryPref(pref_service_,
+                          prefs::kThisWeekServicesDownstreamForegroundKB,
+                          service_hash_code, data_used_kb);
+    } else {
+      AddToDictionaryPref(pref_service_,
+                          prefs::kThisWeekServicesDownstreamBackgroundKB,
+                          service_hash_code, data_used_kb);
+    }
   }
 }
 

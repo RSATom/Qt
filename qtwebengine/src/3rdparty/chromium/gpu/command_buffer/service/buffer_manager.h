@@ -11,16 +11,17 @@
 
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
+#include "base/debug/stack_trace.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "gpu/command_buffer/common/buffer.h"
 #include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 namespace gles2 {
@@ -33,7 +34,7 @@ class IndexedBufferBindingHost;
 class TestHelper;
 
 // Info about Buffers currently in the system.
-class GPU_EXPORT Buffer : public base::RefCounted<Buffer> {
+class GPU_GLES2_EXPORT Buffer : public base::RefCounted<Buffer> {
  public:
   struct MappedRange {
     GLintptr offset;
@@ -50,6 +51,8 @@ class GPU_EXPORT Buffer : public base::RefCounted<Buffer> {
   };
 
   Buffer(BufferManager* manager, GLuint service_id);
+
+  GLenum initial_target() const { return initial_target_; }
 
   GLuint service_id() const {
     return service_id_;
@@ -103,6 +106,25 @@ class GPU_EXPORT Buffer : public base::RefCounted<Buffer> {
     return mapped_range_.get();
   }
 
+  // These maintain the reference counts for checking whether a buffer is
+  // double-bound to transform feedback and non-transform-feedback binding
+  // points.
+  void OnBind(GLenum target, bool indexed);
+  void OnUnbind(GLenum target, bool indexed);
+
+  bool IsBoundForTransformFeedbackAndOther() const {
+    return transform_feedback_indexed_binding_count_ > 0 &&
+           non_transform_feedback_binding_count_ > 0;
+  }
+
+  bool IsDoubleBoundForTransformFeedback() const {
+    return transform_feedback_indexed_binding_count_ > 1;
+  }
+
+  void SetReadbackShadowAllocation(scoped_refptr<gpu::Buffer> shm,
+                                   uint32_t shm_offset);
+  scoped_refptr<gpu::Buffer> TakeReadbackShadowAllocation(void** data);
+
  private:
   friend class BufferManager;
   friend class BufferManagerTestBase;
@@ -143,10 +165,6 @@ class GPU_EXPORT Buffer : public base::RefCounted<Buffer> {
   };
 
   ~Buffer();
-
-  GLenum initial_target() const {
-    return initial_target_;
-  }
 
   void set_initial_target(GLenum target) {
     DCHECK_EQ(0u, initial_target_);
@@ -192,6 +210,13 @@ class GPU_EXPORT Buffer : public base::RefCounted<Buffer> {
   // sitting in local memory.
   bool is_client_side_array_;
 
+  // Keeps track of whether this buffer is currently bound for transform
+  // feedback in a WebGL context. Used as an optimization when validating WebGL
+  // draw calls for compliance with binding restrictions.
+  // http://crbug.com/696345
+  int non_transform_feedback_binding_count_ = 0;
+  int transform_feedback_indexed_binding_count_ = 0;
+
   // Service side buffer id.
   GLuint service_id_;
 
@@ -208,6 +233,9 @@ class GPU_EXPORT Buffer : public base::RefCounted<Buffer> {
   // A map of ranges to the highest value in that range of a certain type.
   typedef std::map<Range, GLuint, Range::Less> RangeToMaxValueMap;
   RangeToMaxValueMap range_set_;
+
+  scoped_refptr<gpu::Buffer> readback_shm_;
+  uint32_t readback_shm_offset_ = 0;
 };
 
 // This class keeps track of the buffers and their sizes so we can do
@@ -215,7 +243,8 @@ class GPU_EXPORT Buffer : public base::RefCounted<Buffer> {
 //
 // NOTE: To support shared resources an instance of this class will need to be
 // shared by multiple GLES2Decoders.
-class GPU_EXPORT BufferManager : public base::trace_event::MemoryDumpProvider {
+class GPU_GLES2_EXPORT BufferManager
+    : public base::trace_event::MemoryDumpProvider {
  public:
   BufferManager(MemoryTracker* memory_tracker, FeatureInfo* feature_info);
   ~BufferManager() override;
@@ -239,32 +268,47 @@ class GPU_EXPORT BufferManager : public base::trace_event::MemoryDumpProvider {
 
   // Validates a glBufferSubData, and then calls DoBufferData if validation was
   // successful.
-  void ValidateAndDoBufferSubData(
-      ContextState* context_state, GLenum target, GLintptr offset,
-      GLsizeiptr size, const GLvoid * data);
+  void ValidateAndDoBufferSubData(ContextState* context_state,
+                                  ErrorState* error_state,
+                                  GLenum target,
+                                  GLintptr offset,
+                                  GLsizeiptr size,
+                                  const GLvoid* data);
 
   // Validates a glBufferData, and then calls DoBufferData if validation was
   // successful.
-  void ValidateAndDoBufferData(
-      ContextState* context_state, GLenum target, GLsizeiptr size,
-      const GLvoid * data, GLenum usage);
+  void ValidateAndDoBufferData(ContextState* context_state,
+                               ErrorState* error_state,
+                               GLenum target,
+                               GLsizeiptr size,
+                               const GLvoid* data,
+                               GLenum usage);
 
   // Validates a glCopyBufferSubData, and then calls DoCopyBufferSubData if
   // validation was successful.
-  void ValidateAndDoCopyBufferSubData(
-      ContextState* context_state, GLenum readtarget, GLenum writetarget,
-      GLintptr readoffset, GLintptr writeoffset, GLsizeiptr size);
+  void ValidateAndDoCopyBufferSubData(ContextState* context_state,
+                                      ErrorState* error_state,
+                                      GLenum readtarget,
+                                      GLenum writetarget,
+                                      GLintptr readoffset,
+                                      GLintptr writeoffset,
+                                      GLsizeiptr size);
 
   // Validates a glGetBufferParameteri64v, and then calls GetBufferParameteri64v
   // if validation was successful.
-  void ValidateAndDoGetBufferParameteri64v(
-      ContextState* context_state, GLenum target, GLenum pname,
-      GLint64* params);
+  void ValidateAndDoGetBufferParameteri64v(ContextState* context_state,
+                                           ErrorState* error_state,
+                                           GLenum target,
+                                           GLenum pname,
+                                           GLint64* params);
 
   // Validates a glGetBufferParameteriv, and then calls GetBufferParameteriv if
   // validation was successful.
-  void ValidateAndDoGetBufferParameteriv(
-      ContextState* context_state, GLenum target, GLenum pname, GLint* params);
+  void ValidateAndDoGetBufferParameteriv(ContextState* context_state,
+                                         ErrorState* error_state,
+                                         GLenum target,
+                                         GLenum pname,
+                                         GLint* params);
 
   // Sets the target of a buffer. Returns false if the target can not be set.
   bool SetTarget(Buffer* buffer, GLenum target);
@@ -305,12 +349,14 @@ class GPU_EXPORT BufferManager : public base::trace_event::MemoryDumpProvider {
   // return nullptr if a GL error is generated.
   // Generates INVALID_VALUE if offset + size is out of range.
   Buffer* RequestBufferAccess(ContextState* context_state,
+                              ErrorState* error_state,
                               GLenum target,
                               GLintptr offset,
                               GLsizeiptr size,
                               const char* func_name);
   // Same as above, but assume to access the entire buffer.
   Buffer* RequestBufferAccess(ContextState* context_state,
+                              ErrorState* error_state,
                               GLenum target,
                               const char* func_name);
   // Same as above, but it can be any buffer rather than the buffer bound to
@@ -319,7 +365,8 @@ class GPU_EXPORT BufferManager : public base::trace_event::MemoryDumpProvider {
   bool RequestBufferAccess(ErrorState* error_state,
                            Buffer* buffer,
                            const char* func_name,
-                           const char* error_message_format, ...);
+                           const char* error_message_format,
+                           ...);
   // Generates INVALID_OPERATION if offset + size is out of range.
   bool RequestBufferAccess(ErrorState* error_state,
                            Buffer* buffer,
@@ -330,13 +377,12 @@ class GPU_EXPORT BufferManager : public base::trace_event::MemoryDumpProvider {
   // Returns false and generates INVALID_OPERATION if buffer at binding |ii|
   // doesn't exist, is mapped, or smaller than |variable_sizes[ii]| * |count|.
   // Return true otherwise.
-  bool RequestBuffersAccess(
-      ErrorState* error_state,
-      const IndexedBufferBindingHost* bindings,
-      const std::vector<GLsizeiptr>& variable_sizes,
-      GLsizei count,
-      const char* func_name,
-      const char* message_tag);
+  bool RequestBuffersAccess(ErrorState* error_state,
+                            const IndexedBufferBindingHost* bindings,
+                            const std::vector<GLsizeiptr>& variable_sizes,
+                            GLsizei count,
+                            const char* func_name,
+                            const char* message_tag);
 
  private:
   friend class Buffer;
@@ -401,7 +447,7 @@ class GPU_EXPORT BufferManager : public base::trace_event::MemoryDumpProvider {
   scoped_refptr<FeatureInfo> feature_info_;
 
   // Info for each buffer in the system.
-  typedef base::hash_map<GLuint, scoped_refptr<Buffer> > BufferMap;
+  typedef std::unordered_map<GLuint, scoped_refptr<Buffer>> BufferMap;
   BufferMap buffers_;
 
   // The maximum size of buffers.

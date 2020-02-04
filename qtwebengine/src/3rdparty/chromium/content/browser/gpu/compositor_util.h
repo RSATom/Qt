@@ -6,9 +6,10 @@
 #define CONTENT_BROWSER_GPU_COMPOSITOR_UTIL_H_
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "base/values.h"
-#include "components/viz/common/resources/buffer_to_texture_target_map.h"
 #include "content/common/content_export.h"
 
 namespace content {
@@ -26,15 +27,9 @@ CONTENT_EXPORT bool IsPartialRasterEnabled();
 // Returns true if all compositor resources should use GPU memory buffers.
 CONTENT_EXPORT bool IsGpuMemoryBufferCompositorResourcesEnabled();
 
-// Returns true if gpu rasterization is on (via flags) for the renderer.
-CONTENT_EXPORT bool IsGpuRasterizationEnabled();
-
 // Returns the number of multisample antialiasing samples (via flags) for
 // GPU rasterization.
 CONTENT_EXPORT int GpuRasterizationMSAASampleCount();
-
-// Returns true if force-gpu-rasterization is on (via flags) for the renderer.
-CONTENT_EXPORT bool IsForceGpuRasterizationEnabled();
 
 // Returns the number of raster threads to use for compositing.
 CONTENT_EXPORT int NumberOfRendererRasterThreads();
@@ -42,15 +37,14 @@ CONTENT_EXPORT int NumberOfRendererRasterThreads();
 // Returns true if main thread can be pipelined with activation.
 CONTENT_EXPORT bool IsMainFrameBeforeActivationEnabled();
 
-// Returns true if images can be decode asynchronously from rasterization.
-CONTENT_EXPORT bool IsCheckerImagingEnabled();
-
 CONTENT_EXPORT std::unique_ptr<base::DictionaryValue> GetFeatureStatus();
 CONTENT_EXPORT std::unique_ptr<base::ListValue> GetProblems();
 CONTENT_EXPORT std::vector<std::string> GetDriverBugWorkarounds();
 
-// Populate BufferToTextureTargetMap for all buffer usage/formats.
-CONTENT_EXPORT viz::BufferToTextureTargetMap CreateBufferToTextureTargetMap();
+CONTENT_EXPORT std::unique_ptr<base::DictionaryValue>
+GetFeatureStatusForHardwareGpu();
+CONTENT_EXPORT std::unique_ptr<base::ListValue> GetProblemsForHardwareGpu();
+CONTENT_EXPORT std::vector<std::string> GetDriverBugWorkaroundsForHardwareGpu();
 
 }  // namespace content
 

@@ -62,8 +62,8 @@ class Q_MULTIMEDIA_EXPORT QAudioInput : public QObject
     Q_OBJECT
 
 public:
-    explicit QAudioInput(const QAudioFormat &format = QAudioFormat(), QObject *parent = Q_NULLPTR);
-    explicit QAudioInput(const QAudioDeviceInfo &audioDeviceInfo, const QAudioFormat &format = QAudioFormat(), QObject *parent = Q_NULLPTR);
+    explicit QAudioInput(const QAudioFormat &format = QAudioFormat(), QObject *parent = nullptr);
+    explicit QAudioInput(const QAudioDeviceInfo &audioDeviceInfo, const QAudioFormat &format = QAudioFormat(), QObject *parent = nullptr);
     ~QAudioInput();
 
     QAudioFormat format() const;
@@ -95,7 +95,7 @@ public:
     QAudio::State state() const;
 
 Q_SIGNALS:
-    void stateChanged(QAudio::State);
+    void stateChanged(QAudio::State state);
     void notify();
 
 private:

@@ -80,8 +80,8 @@ const char kScript[] =
     "             'reverse'],\n"
     "            ['from', 'isArray']);\n"
     "saveBuiltin(String,\n"
-    "            ['indexOf', 'slice', 'split', 'substr', 'toUpperCase',\n"
-    "             'replace']);\n"
+    "            ['indexOf', 'slice', 'split', 'substr', 'toLowerCase',\n"
+    "             'toUpperCase', 'replace']);\n"
     "// Use exec rather than test to defend against clobbering in the\n"
     "// presence of ES2015 semantics, which read RegExp.prototype.exec.\n"
     "saveBuiltin(RegExp,\n"
@@ -162,12 +162,11 @@ class ExtensionImpl : public v8::Extension {
   v8::Local<v8::FunctionTemplate> GetNativeFunctionTemplate(
       v8::Isolate* isolate,
       v8::Local<v8::String> name) override {
-    v8::Local<v8::Context> context = isolate->GetCurrentContext();
-    if (IsTrue(name->Equals(context, ToV8StringUnsafe(isolate, "Apply"))))
+    if (name->StringEquals(ToV8StringUnsafe(isolate, "Apply")))
       return v8::FunctionTemplate::New(isolate, Apply);
-    if (IsTrue(name->Equals(context, ToV8StringUnsafe(isolate, "Save"))))
+    if (name->StringEquals(ToV8StringUnsafe(isolate, "Save")))
       return v8::FunctionTemplate::New(isolate, Save);
-    NOTREACHED() << *v8::String::Utf8Value(name);
+    NOTREACHED() << *v8::String::Utf8Value(isolate, name);
     return v8::Local<v8::FunctionTemplate>();
   }
 
@@ -182,7 +181,8 @@ class ExtensionImpl : public v8::Extension {
     if (info[1]->IsObject()) {
       recv = v8::Local<v8::Object>::Cast(info[1]);
     } else if (info[1]->IsString()) {
-      recv = v8::StringObject::New(v8::Local<v8::String>::Cast(info[1]))
+      recv = v8::StringObject::New(info.GetIsolate(),
+                                   v8::Local<v8::String>::Cast(info[1]))
                  .As<v8::Object>();
     } else {
       info.GetIsolate()->ThrowException(
@@ -215,8 +215,7 @@ class ExtensionImpl : public v8::Extension {
 
   static void Save(const v8::FunctionCallbackInfo<v8::Value>& info) {
     CHECK(info.Length() == 2 && info[0]->IsString() && info[1]->IsObject());
-    SaveImpl(*v8::String::Utf8Value(info[0]),
-             info[1],
+    SaveImpl(*v8::String::Utf8Value(info.GetIsolate(), info[0]), info[1],
              info.GetIsolate()->GetCurrentContext());
   }
 };

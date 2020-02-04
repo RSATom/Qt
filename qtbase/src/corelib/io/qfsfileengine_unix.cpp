@@ -74,18 +74,22 @@ static inline int openModeToOpenFlags(QIODevice::OpenMode mode)
     oflags |= QT_OPEN_LARGEFILE;
 #endif
 
-    if ((mode & QFile::ReadWrite) == QFile::ReadWrite) {
-        oflags = QT_OPEN_RDWR | QT_OPEN_CREAT;
-    } else if (mode & QFile::WriteOnly) {
-        oflags = QT_OPEN_WRONLY | QT_OPEN_CREAT;
-    }
+    if ((mode & QFile::ReadWrite) == QFile::ReadWrite)
+        oflags = QT_OPEN_RDWR;
+    else if (mode & QFile::WriteOnly)
+        oflags = QT_OPEN_WRONLY;
 
-    if (mode & QFile::Append) {
+    if (QFSFileEnginePrivate::openModeCanCreate(mode))
+        oflags |= QT_OPEN_CREAT;
+
+    if (mode & QFile::Truncate)
+        oflags |= QT_OPEN_TRUNC;
+
+    if (mode & QFile::Append)
         oflags |= QT_OPEN_APPEND;
-    } else if (mode & QFile::WriteOnly) {
-        if ((mode & QFile::Truncate) || !(mode & QFile::ReadOnly))
-            oflags |= QT_OPEN_TRUNC;
-    }
+
+    if (mode & QFile::NewOnly)
+        oflags |= QT_OPEN_EXCL;
 
     return oflags;
 }
@@ -180,10 +184,11 @@ bool QFSFileEnginePrivate::nativeFlush()
 bool QFSFileEnginePrivate::nativeSyncToDisk()
 {
     Q_Q(QFSFileEngine);
+    int ret;
 #if defined(_POSIX_SYNCHRONIZED_IO) && _POSIX_SYNCHRONIZED_IO > 0
-    const int ret = fdatasync(nativeHandle());
+    EINTR_LOOP(ret, fdatasync(nativeHandle()));
 #else
-    const int ret = fsync(nativeHandle());
+    EINTR_LOOP(ret, fsync(nativeHandle()));
 #endif
     if (ret != 0)
         q->setError(QFile::WriteError, qt_error_string(errno));
@@ -525,29 +530,32 @@ QByteArray QFSFileEngine::id() const
 QString QFSFileEngine::fileName(FileName file) const
 {
     Q_D(const QFSFileEngine);
-    if (file == BundleName) {
+    switch (file) {
+    case BundleName:
         return QFileSystemEngine::bundleName(d->fileEntry);
-    } else if (file == BaseName) {
+    case BaseName:
         return d->fileEntry.fileName();
-    } else if (file == PathName) {
+    case PathName:
         return d->fileEntry.path();
-    } else if (file == AbsoluteName || file == AbsolutePathName) {
+    case AbsoluteName:
+    case AbsolutePathName: {
         QFileSystemEntry entry(QFileSystemEngine::absoluteName(d->fileEntry));
-        if (file == AbsolutePathName) {
-            return entry.path();
-        }
-        return entry.filePath();
-    } else if (file == CanonicalName || file == CanonicalPathName) {
+        return file == AbsolutePathName ? entry.path() : entry.filePath();
+    }
+    case CanonicalName:
+    case CanonicalPathName: {
         QFileSystemEntry entry(QFileSystemEngine::canonicalName(d->fileEntry, d->metaData));
-        if (file == CanonicalPathName)
-            return entry.path();
-        return entry.filePath();
-    } else if (file == LinkName) {
+        return file == CanonicalPathName ? entry.path() : entry.filePath();
+    }
+    case LinkName:
         if (d->isSymlink()) {
             QFileSystemEntry entry = QFileSystemEngine::getLinkTarget(d->fileEntry, d->metaData);
             return entry.filePath();
         }
         return QString();
+    case DefaultName:
+    case NFileNames:
+        break;
     }
     return d->fileEntry.filePath();
 }
@@ -628,6 +636,7 @@ bool QFSFileEngine::setFileTime(const QDateTime &newDate, FileTime time)
 
 uchar *QFSFileEnginePrivate::map(qint64 offset, qint64 size, QFile::MemoryMapFlags flags)
 {
+    qint64 maxFileOffset = std::numeric_limits<QT_OFF_T>::max();
 #if (defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)) && Q_PROCESSOR_WORDSIZE == 4
     // The Linux mmap2 system call on 32-bit takes a page-shifted 32-bit
     // integer so the maximum offset is 1 << (32+12) (the shift is always 12,
@@ -636,9 +645,7 @@ uchar *QFSFileEnginePrivate::map(qint64 offset, qint64 size, QFile::MemoryMapFla
     // and Bionic): all of them do the right shift, but don't confirm that the
     // result fits into the 32-bit parameter to the kernel.
 
-    static qint64 MaxFileOffset = (Q_INT64_C(1) << (32+12)) - 1;
-#else
-    static qint64 MaxFileOffset = std::numeric_limits<QT_OFF_T>::max();
+    maxFileOffset = qMin((Q_INT64_C(1) << (32+12)) - 1, maxFileOffset);
 #endif
 
     Q_Q(QFSFileEngine);
@@ -647,7 +654,7 @@ uchar *QFSFileEnginePrivate::map(qint64 offset, qint64 size, QFile::MemoryMapFla
         return 0;
     }
 
-    if (offset < 0 || offset > MaxFileOffset
+    if (offset < 0 || offset > maxFileOffset
             || size < 0 || quint64(size) > quint64(size_t(-1))) {
         q->setError(QFile::UnspecifiedError, qt_error_string(int(EINVAL)));
         return 0;

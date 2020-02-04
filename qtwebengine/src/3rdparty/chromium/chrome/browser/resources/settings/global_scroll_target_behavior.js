@@ -15,10 +15,10 @@
  */
 
 cr.define('settings', function() {
-  var scrollTargetResolver = new PromiseResolver();
+  const scrollTargetResolver = new PromiseResolver();
 
   /** @polymerBehavior */
-  var GlobalScrollTargetBehaviorImpl = {
+  const GlobalScrollTargetBehaviorImpl = {
     properties: {
       /**
        * Read only property for the scroll target.
@@ -52,12 +52,26 @@ cr.define('settings', function() {
 
     /** @override */
     attached: function() {
+      this.active_ = settings.getCurrentRoute() == this.subpageRoute;
       scrollTargetResolver.promise.then(this._setScrollTarget.bind(this));
     },
 
     /** @param {!settings.Route} route */
     currentRouteChanged: function(route) {
-      this.active_ = route == this.subpageRoute;
+      // Immediately set the scroll target to active when this page is
+      // activated, but wait a task to remove the scroll target when the page is
+      // deactivated. This gives scroll handlers like iron-list a chance to
+      // handle scroll events that are fired as a result of the route changing.
+      // TODO(https://crbug.com/859794): Having this timeout can result some
+      // jumpy behaviour in the scroll handlers. |this.active_| can be set
+      // immediately when this bug is fixed.
+      if (route == this.subpageRoute) {
+        this.active_ = true;
+      } else {
+        setTimeout(() => {
+          this.active_ = false;
+        });
+      }
     },
 
     /**
@@ -68,6 +82,10 @@ cr.define('settings', function() {
      * @private
      */
     getActiveTarget_: function(target, active) {
+      if (target === undefined || active === undefined) {
+        return undefined;
+      }
+
       return active ? target : null;
     },
   };
@@ -76,7 +94,7 @@ cr.define('settings', function() {
    * This should only be called once.
    * @param {HTMLElement} scrollTarget
    */
-  var setGlobalScrollTarget = function(scrollTarget) {
+  const setGlobalScrollTarget = function(scrollTarget) {
     scrollTargetResolver.resolve(scrollTarget);
   };
 

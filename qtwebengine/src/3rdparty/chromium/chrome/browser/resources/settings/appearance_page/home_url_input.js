@@ -56,13 +56,15 @@ Polymer({
    * @private
    */
   prefChanged_: function() {
-    if (!this.pref)
+    if (!this.pref) {
       return;
+    }
 
     // Ignore updates while the input is focused so that user input is not
     // overwritten.
-    if (this.$.input.focused)
+    if (this.$.input.focused) {
       return;
+    }
 
     this.setInputValueFromPref_();
   },
@@ -84,7 +86,7 @@ Polymer({
   },
 
   /**
-   * Change event handler for paper-input. Updates the pref value.
+   * Change event handler for cr-input. Updates the pref value.
    * settings-input uses the change event because it is fired by the Enter key.
    * @private
    */
@@ -112,10 +114,23 @@ Polymer({
    */
   onKeydown_: function(event) {
     // If pressed enter when input is invalid, do not trigger on-change.
-    if (event.key == 'Enter' && this.invalid)
+    if (event.key == 'Enter' && this.invalid) {
       event.preventDefault();
-    else if (event.key == 'Escape')
+    } else if (event.key == 'Escape') {
       this.resetValue_();
+    }
+
+    this.stopKeyEventPropagation_(event);
+  },
+
+  /**
+   * This function prevents unwanted change of selection of the containing
+   * cr-radio-group, when the user traverses the input with arrow keys.
+   * @param {!Event} e
+   * @private
+   */
+  stopKeyEventPropagation_: function(e) {
+    e.stopPropagation();
   },
 
   /**
@@ -134,8 +149,8 @@ Polymer({
       return;
     }
 
-    this.browserProxy_.validateStartupPage(this.value).then(function(isValid) {
+    this.browserProxy_.validateStartupPage(this.value).then(isValid => {
       this.invalid = !isValid;
-    }.bind(this));
+    });
   },
 });

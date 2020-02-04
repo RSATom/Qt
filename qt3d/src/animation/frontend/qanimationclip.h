@@ -50,7 +50,7 @@ namespace Qt3DAnimation {
 
 class QAnimationClipPrivate;
 
-class QT3DANIMATIONSHARED_EXPORT QAnimationClip : public QAbstractAnimationClip
+class Q_3DANIMATIONSHARED_EXPORT QAnimationClip : public QAbstractAnimationClip
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DAnimation::QAnimationClipData clipData READ clipData WRITE setClipData NOTIFY clipDataChanged)
@@ -72,7 +72,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QAnimationClip)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DAnimation

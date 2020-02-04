@@ -14,6 +14,7 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "chromeos/audio/audio_device.h"
 #include "media/audio/audio_manager_base.h"
 
 namespace media {
@@ -27,15 +28,18 @@ class MEDIA_EXPORT AudioManagerCras : public AudioManagerBase {
   // AudioManager implementation.
   bool HasAudioOutputDevices() override;
   bool HasAudioInputDevices() override;
-  void ShowAudioInputSettings() override;
   void GetAudioInputDeviceNames(AudioDeviceNames* device_names) override;
   void GetAudioOutputDeviceNames(AudioDeviceNames* device_names) override;
   AudioParameters GetInputStreamParameters(
       const std::string& device_id) override;
   std::string GetAssociatedOutputDeviceID(
       const std::string& input_device_id) override;
+  std::string GetDefaultInputDeviceID() override;
   std::string GetDefaultOutputDeviceID() override;
+  std::string GetGroupIDOutput(const std::string& output_device_id) override;
+  std::string GetGroupIDInput(const std::string& input_device_id) override;
   const char* GetName() override;
+  bool Shutdown() override;
 
   // AudioManagerBase implementation.
   AudioOutputStream* MakeLinearOutputStream(
@@ -53,8 +57,6 @@ class MEDIA_EXPORT AudioManagerCras : public AudioManagerBase {
       const AudioParameters& params,
       const std::string& device_id,
       const LogCallback& log_callback) override;
-
-  static snd_pcm_format_t BitsToFormat(int bits_per_sample);
 
   // Checks if |device_id| corresponds to the default device.
   // Set |is_input| to true for capture devices, false for output.
@@ -74,18 +76,51 @@ class MEDIA_EXPORT AudioManagerCras : public AudioManagerBase {
   AudioInputStream* MakeInputStream(const AudioParameters& params,
                                     const std::string& device_id);
 
-  // Get minimum output buffer size for this board.
-  int GetMinimumOutputBufferSizePerBoard();
+  // Get default output buffer size for this board.
+  int GetDefaultOutputBufferSizePerBoard();
+
+  // Get if system AEC is supported or not for this board.
+  bool GetSystemAecSupportedPerBoard();
+
+  // Get what the system AEC group ID is for this board.
+  int32_t GetSystemAecGroupIdPerBoard();
 
   void GetAudioDeviceNamesImpl(bool is_input, AudioDeviceNames* device_names);
 
-  void AddBeamformingDevices(AudioDeviceNames* device_names);
+  std::string GetHardwareDeviceFromDeviceId(
+      const chromeos::AudioDeviceList& devices,
+      bool is_input,
+      const std::string& device_id);
 
-  // Stores the mic positions field from the device.
-  std::vector<Point> mic_positions_;
+  void GetAudioDevices(chromeos::AudioDeviceList* devices);
+  void GetAudioDevicesOnMainThread(chromeos::AudioDeviceList* devices,
+                                   base::WaitableEvent* event);
+  uint64_t GetPrimaryActiveInputNode();
+  uint64_t GetPrimaryActiveOutputNode();
+  void GetPrimaryActiveInputNodeOnMainThread(uint64_t* active_input_node_id,
+                                             base::WaitableEvent* event);
+  void GetPrimaryActiveOutputNodeOnMainThread(uint64_t* active_output_node_id,
+                                              base::WaitableEvent* event);
+  void GetDefaultOutputBufferSizeOnMainThread(int32_t* buffer_size,
+                                              base::WaitableEvent* event);
+  void GetSystemAecSupportedOnMainThread(bool* system_aec_supported,
+                                         base::WaitableEvent* event);
+  void GetSystemAecGroupIdOnMainThread(int32_t* group_id,
+                                       base::WaitableEvent* event);
 
-  const char* beamforming_on_device_id_;
-  const char* beamforming_off_device_id_;
+  void WaitEventOrShutdown(base::WaitableEvent* event);
+
+  // Signaled if AudioManagerCras is shutting down.
+  base::WaitableEvent on_shutdown_;
+
+  // Task runner of browser main thread. CrasAudioHandler should be only
+  // accessed on this thread.
+  scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
+
+  // For posting tasks from audio thread to |main_task_runner_|.
+  base::WeakPtr<AudioManagerCras> weak_this_;
+
+  base::WeakPtrFactory<AudioManagerCras> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioManagerCras);
 };

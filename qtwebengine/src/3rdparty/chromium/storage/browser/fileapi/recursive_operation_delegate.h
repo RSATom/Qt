@@ -5,10 +5,10 @@
 #ifndef STORAGE_BROWSER_FILEAPI_RECURSIVE_OPERATION_DELEGATE_H_
 #define STORAGE_BROWSER_FILEAPI_RECURSIVE_OPERATION_DELEGATE_H_
 
-#include <queue>
-#include <stack>
-
 #include "base/callback.h"
+#include "base/component_export.h"
+#include "base/containers/queue.h"
+#include "base/containers/stack.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "storage/browser/fileapi/file_system_operation.h"
@@ -24,12 +24,12 @@ class FileSystemOperationRunner;
 // In short, each subclass should override ProcessFile and ProcessDirectory
 // to process a directory or a file. To start the recursive operation it
 // should also call StartRecursiveOperation.
-class STORAGE_EXPORT RecursiveOperationDelegate
+class COMPONENT_EXPORT(STORAGE_BROWSER) RecursiveOperationDelegate
     : public base::SupportsWeakPtr<RecursiveOperationDelegate> {
  public:
-  typedef FileSystemOperation::StatusCallback StatusCallback;
-  typedef FileSystemOperation::FileEntryList FileEntryList;
-  typedef FileSystemOperation::ErrorBehavior ErrorBehavior;
+  using StatusCallback = FileSystemOperation::StatusCallback;
+  using FileEntryList = FileSystemOperation::FileEntryList;
+  using ErrorBehavior = FileSystemOperation::ErrorBehavior;
 
   virtual ~RecursiveOperationDelegate();
 
@@ -44,18 +44,17 @@ class STORAGE_EXPORT RecursiveOperationDelegate
   // This is called each time a file is found while recursively
   // performing an operation.
   virtual void ProcessFile(const FileSystemURL& url,
-                           const StatusCallback& callback) = 0;
+                           StatusCallback callback) = 0;
 
   // This is called each time a directory is found while recursively
   // performing an operation.
   virtual void ProcessDirectory(const FileSystemURL& url,
-                                const StatusCallback& callback) = 0;
-
+                                StatusCallback callback) = 0;
 
   // This is called each time after files and subdirectories for a
   // directory is processed while recursively performing an operation.
   virtual void PostProcessDirectory(const FileSystemURL& url,
-                                    const StatusCallback& callback) = 0;
+                                    StatusCallback callback) = 0;
 
   // Cancels the currently running operation.
   void Cancel();
@@ -112,7 +111,7 @@ class STORAGE_EXPORT RecursiveOperationDelegate
   // under |root| is processed, or fired earlier when any suboperation fails.
   void StartRecursiveOperation(const FileSystemURL& root,
                                ErrorBehavior error_behavior,
-                               const StatusCallback& callback);
+                               StatusCallback callback);
 
   FileSystemContext* file_system_context() { return file_system_context_; }
   const FileSystemContext* file_system_context() const {
@@ -133,7 +132,7 @@ class STORAGE_EXPORT RecursiveOperationDelegate
   void DidProcessDirectory(base::File::Error error);
   void DidReadDirectory(const FileSystemURL& parent,
                         base::File::Error error,
-                        const FileEntryList& entries,
+                        FileEntryList entries,
                         bool has_more);
   void ProcessPendingFiles();
   void DidProcessFile(const FileSystemURL& url, base::File::Error error);
@@ -145,9 +144,9 @@ class STORAGE_EXPORT RecursiveOperationDelegate
 
   FileSystemContext* file_system_context_;
   StatusCallback callback_;
-  std::stack<FileSystemURL> pending_directories_;
-  std::stack<std::queue<FileSystemURL> > pending_directory_stack_;
-  std::queue<FileSystemURL> pending_files_;
+  base::stack<FileSystemURL> pending_directories_;
+  base::stack<base::queue<FileSystemURL>> pending_directory_stack_;
+  base::queue<FileSystemURL> pending_files_;
   bool canceled_;
   ErrorBehavior error_behavior_;
   bool failed_some_operations_;

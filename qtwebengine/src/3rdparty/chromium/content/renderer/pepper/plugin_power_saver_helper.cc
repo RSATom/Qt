@@ -17,7 +17,7 @@
 #include "content/public/renderer/render_frame.h"
 #include "content/renderer/peripheral_content_heuristic.h"
 #include "ppapi/shared_impl/ppapi_constants.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace content {
@@ -48,8 +48,8 @@ PluginPowerSaverHelper::~PluginPowerSaverHelper() {
 }
 
 void PluginPowerSaverHelper::DidCommitProvisionalLoad(
-    bool is_new_navigation,
-    bool is_same_document_navigation) {
+    bool is_same_document_navigation,
+    ui::PageTransition transition) {
   blink::WebFrame* frame = render_frame()->GetWebFrame();
   // Only apply to top-level and new page navigation.
   if (frame->Parent() || is_same_document_navigation)

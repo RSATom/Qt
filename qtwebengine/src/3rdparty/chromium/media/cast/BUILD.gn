@@ -4,6 +4,7 @@
 
 import("//build/config/android/config.gni")
 import("//build/config/features.gni")
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 import("//third_party/protobuf/proto_library.gni")
@@ -15,7 +16,7 @@ proto_library("logging_proto") {
 }
 
 # Common code shared by all cast components.
-source_set("common") {
+jumbo_source_set("common") {
   sources = [
     "cast_config.cc",
     "cast_config.h",
@@ -70,7 +71,7 @@ source_set("common") {
   ]
 }
 
-source_set("net") {
+jumbo_source_set("net") {
   sources = [
     "net/cast_transport.h",
     "net/cast_transport_config.cc",
@@ -102,13 +103,20 @@ source_set("net") {
     "net/rtp/rtp_parser.h",
     "net/rtp/rtp_sender.cc",
     "net/rtp/rtp_sender.h",
-    "net/udp_transport.cc",
-    "net/udp_transport.h",
+    "net/transport_util.cc",
+    "net/transport_util.h",
+    "net/udp_packet_pipe.cc",
+    "net/udp_packet_pipe.h",
+    "net/udp_transport_impl.cc",
+    "net/udp_transport_impl.h",
+    "net/udp_transport_interface.h",
   ]
 
   deps = [
     ":common",
     "//base",
+    "//media/mojo/common",
+    "//mojo/public/cpp/system",
     "//net",
   ]
 
@@ -117,7 +125,7 @@ source_set("net") {
   ]
 }
 
-source_set("sender") {
+jumbo_source_set("sender") {
   sources = [
     "cast_sender.h",
     "cast_sender_impl.cc",
@@ -159,8 +167,6 @@ source_set("sender") {
     ":net",
     "//base",
     "//media",
-    "//media:media_features",
-    "//media:shared_memory_support",
     "//third_party/libvpx",
     "//third_party/opus",
     "//ui/gfx/geometry",
@@ -184,7 +190,7 @@ source_set("sender") {
   }
 }
 
-source_set("receiver") {
+jumbo_source_set("receiver") {
   sources = [
     "cast_receiver.h",
     "net/rtp/cast_message_builder.cc",
@@ -210,7 +216,6 @@ source_set("receiver") {
     ":net",
     "//base",
     "//media",
-    "//media:shared_memory_support",
     "//third_party/libvpx",
     "//third_party/libyuv",
     "//third_party/opus",
@@ -225,6 +230,8 @@ static_library("test_support") {
     "test/fake_receiver_time_offset_estimator.h",
     "test/loopback_transport.cc",
     "test/loopback_transport.h",
+    "test/mock_cast_transport.cc",
+    "test/mock_cast_transport.h",
     "test/skewed_single_thread_task_runner.cc",
     "test/skewed_single_thread_task_runner.h",
     "test/skewed_tick_clock.cc",
@@ -256,12 +263,11 @@ static_library("test_support") {
     ":receiver",
     ":sender",
     "//base/test:test_support",
-    "//media:test_support",
-    "//media/base:test_support",
+    "//media",
     "//net",
+    "//testing/gmock",
     "//testing/gtest",
     "//third_party/libyuv",
-    "//third_party/mt19937ar",
     "//ui/gfx:test_support",
   ]
 
@@ -271,7 +277,7 @@ static_library("test_support") {
   # TODO(miu): There *are* hardware decoder APIs available via FFMPEG, and we
   # should use those for the Android receiver.  See media's BUILD.gn for usage
   # details.  http://crbug.com/558714
-  if (!is_android && !is_chromecast) {
+  if (!is_android && !is_chromecast && !use_qt) {
     sources += [
       "test/fake_media_source.cc",
       "test/fake_media_source.h",
@@ -290,8 +296,6 @@ test("cast_unittests") {
     "logging/simple_event_subscriber_unittest.cc",
     "logging/stats_event_subscriber_unittest.cc",
     "net/cast_transport_impl_unittest.cc",
-    "net/mock_cast_transport.cc",
-    "net/mock_cast_transport.h",
     "net/pacing/mock_paced_packet_sender.cc",
     "net/pacing/mock_paced_packet_sender.h",
     "net/pacing/paced_sender_unittest.cc",
@@ -315,6 +319,7 @@ test("cast_unittests") {
     "net/rtp/rtp_packet_builder.h",
     "net/rtp/rtp_packetizer_unittest.cc",
     "net/rtp/rtp_parser_unittest.cc",
+    "net/udp_packet_pipe_unittest.cc",
     "net/udp_transport_unittest.cc",
     "receiver/audio_decoder_unittest.cc",
     "receiver/frame_receiver_unittest.cc",
@@ -340,10 +345,11 @@ test("cast_unittests") {
     ":sender",
     ":test_support",
     "//base",
-    "//base/test:run_all_unittests",
+    "//base:cfi_buildflags",
     "//base/test:test_support",
-    "//media",
-    "//media/base:test_support",
+    "//media:test_support",
+    "//media/test:run_all_unittests",
+    "//mojo/public/cpp/bindings",
     "//net",
     "//testing/gmock",
     "//testing/gtest",
@@ -351,7 +357,12 @@ test("cast_unittests") {
   ]
 
   if (is_android) {
-    deps += [ "//testing/android/native_test:native_test_native_code" ]
+    deps += [
+      # The test needs the java dependencies to add the java classes for their
+      # native counterparts to the test apk.
+      "//media/base/android:media_java",
+      "//testing/android/native_test:native_test_native_code",
+    ]
   }
 
   if (is_ios || is_mac) {
@@ -390,8 +401,7 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
       ":test_support",
       "//base",
       "//base/test:test_support",
-      "//media",
-      "//media/base:test_support",
+      "//media:test_support",
       "//net",
       "//testing/gtest",
       "//ui/gfx/geometry",
@@ -409,15 +419,13 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
       ":receiver",
       ":test_support",
       "//base",
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
-      "//media",
-      "//media/audio:test_support",
+      "//media:test_support",
       "//net",
       "//ui/gfx/geometry",
     ]
 
-    if (is_linux && !is_chromeos && use_x11) {
+    if (use_x11) {
       sources += [
         "test/linux_output_window.cc",
         "test/linux_output_window.h",
@@ -441,7 +449,6 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
       ":sender",
       ":test_support",
       "//base",
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
       "//media",
     ]
@@ -468,10 +475,8 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
       ":test_support",
       "//base",
       "//base/test:test_support",
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
-      "//media",
-      "//media/base:test_support",
+      "//media:test_support",
     ]
   }
 
@@ -483,7 +488,6 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
     deps = [
       ":test_support",
       "//base",
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
       "//media",
     ]
@@ -497,7 +501,6 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
     deps = [
       ":test_support",
       "//base",
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
       "//media",
     ]
@@ -511,7 +514,6 @@ if (is_win || is_mac || (is_linux && !is_chromeos)) {
     deps = [
       ":test_support",
       "//base",
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
       "//net",
     ]
@@ -531,6 +533,7 @@ if (is_linux && !is_chromeos) {
     deps = [
       ":test_support",
       "//base",
+      "//base/test:test_support",
       "//media",
       "//net",
     ]
@@ -543,6 +546,7 @@ if (is_linux && !is_chromeos) {
 
 static_library("cast_sender") {
   complete_static_lib = true
+  configs -= [ "//build/config/compiler:thin_archive" ]
   deps = [
     ":sender",
   ]
@@ -550,6 +554,7 @@ static_library("cast_sender") {
 
 static_library("cast_receiver") {
   complete_static_lib = true
+  configs -= [ "//build/config/compiler:thin_archive" ]
   deps = [
     ":receiver",
   ]

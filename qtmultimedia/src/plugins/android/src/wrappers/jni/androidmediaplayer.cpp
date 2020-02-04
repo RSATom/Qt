@@ -109,6 +109,33 @@ bool AndroidMediaPlayer::isMuted()
     return mMediaPlayer.callMethod<jboolean>("isMuted");
 }
 
+qreal AndroidMediaPlayer::playbackRate()
+{
+    qreal rate(1.0);
+
+    if (QtAndroidPrivate::androidSdkVersion() < 23)
+        return rate;
+
+    QJNIObjectPrivate player = mMediaPlayer.callObjectMethod("getMediaPlayerHandle", "()Landroid/media/MediaPlayer;");
+    if (player.isValid()) {
+        QJNIObjectPrivate playbackParams = player.callObjectMethod("getPlaybackParams", "()Landroid/media/PlaybackParams;");
+        if (playbackParams.isValid()) {
+            const qreal speed = playbackParams.callMethod<jfloat>("getSpeed", "()F");
+            QJNIEnvironmentPrivate env;
+            if (env->ExceptionCheck()) {
+#ifdef QT_DEBUG
+                env->ExceptionDescribe();
+#endif // QT_DEBUG
+                env->ExceptionClear();
+            } else {
+                rate = speed;
+            }
+        }
+    }
+
+    return rate;
+}
+
 jobject AndroidMediaPlayer::display()
 {
     return mMediaPlayer.callObjectMethod("display", "()Landroid/view/SurfaceHolder;").object();
@@ -139,9 +166,17 @@ void AndroidMediaPlayer::setMuted(bool mute)
     mMediaPlayer.callMethod<void>("mute", "(Z)V", jboolean(mute));
 }
 
-void AndroidMediaPlayer::setDataSource(const QString &path)
+void AndroidMediaPlayer::setDataSource(const QNetworkRequest &request)
 {
-    QJNIObjectPrivate string = QJNIObjectPrivate::fromString(path);
+    QJNIObjectPrivate string = QJNIObjectPrivate::fromString(request.url().toString(QUrl::FullyEncoded));
+
+    mMediaPlayer.callMethod<void>("initHeaders", "()V");
+    for (auto &header : request.rawHeaderList()) {
+        auto value = request.rawHeader(header);
+        mMediaPlayer.callMethod<void>("setHeader", "(Ljava/lang/String;Ljava/lang/String;)V",
+            QJNIObjectPrivate::fromString(header).object(),  QJNIObjectPrivate::fromString(value).object());
+    }
+
     mMediaPlayer.callMethod<void>("setDataSource", "(Ljava/lang/String;)V", string.object());
 }
 
@@ -155,11 +190,134 @@ void AndroidMediaPlayer::setVolume(int volume)
     mMediaPlayer.callMethod<void>("setVolume", "(I)V", jint(volume));
 }
 
+bool AndroidMediaPlayer::setPlaybackRate(qreal rate)
+{
+    if (QtAndroidPrivate::androidSdkVersion() < 23) {
+        qWarning("Setting the playback rate on a media player requires Android 6.0 (API level 23) or later");
+        return false;
+    }
+
+    QJNIEnvironmentPrivate env;
+
+    QJNIObjectPrivate player = mMediaPlayer.callObjectMethod("getMediaPlayerHandle", "()Landroid/media/MediaPlayer;");
+    if (player.isValid()) {
+        QJNIObjectPrivate playbackParams = player.callObjectMethod("getPlaybackParams", "()Landroid/media/PlaybackParams;");
+        if (playbackParams.isValid()) {
+            playbackParams.callObjectMethod("setSpeed", "(F)Landroid/media/PlaybackParams;", jfloat(rate));
+            // pitch can only be > 0
+            if (!qFuzzyIsNull(rate))
+                playbackParams.callObjectMethod("setPitch", "(F)Landroid/media/PlaybackParams;", jfloat(qAbs(rate)));
+            player.callMethod<void>("setPlaybackParams", "(Landroid/media/PlaybackParams;)V", playbackParams.object());
+            if (Q_UNLIKELY(env->ExceptionCheck())) {
+#ifdef QT_DEBUG
+                env->ExceptionDescribe();
+#endif // QT_DEBUG
+                env->ExceptionClear();
+                qWarning() << "Invalid playback rate" << rate;
+                return false;
+            } else {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 void AndroidMediaPlayer::setDisplay(AndroidSurfaceTexture *surfaceTexture)
 {
     mMediaPlayer.callMethod<void>("setDisplay",
                                   "(Landroid/view/SurfaceHolder;)V",
                                   surfaceTexture ? surfaceTexture->surfaceHolder() : 0);
+}
+
+void AndroidMediaPlayer::setAudioRole(QAudio::Role role)
+{
+    QString str;
+    switch (role) {
+    case QAudio::MusicRole:
+        str = QLatin1String("CONTENT_TYPE_MUSIC");
+        break;
+    case QAudio::VideoRole:
+        str = QLatin1String("CONTENT_TYPE_MOVIE");
+        break;
+    case QAudio::VoiceCommunicationRole:
+        str = QLatin1String("USAGE_VOICE_COMMUNICATION");
+        break;
+    case QAudio::AlarmRole:
+        str = QLatin1String("USAGE_ALARM");
+        break;
+    case QAudio::NotificationRole:
+        str = QLatin1String("USAGE_NOTIFICATION");
+        break;
+    case QAudio::RingtoneRole:
+        str = QLatin1String("USAGE_NOTIFICATION_RINGTONE");
+        break;
+    case QAudio::AccessibilityRole:
+        str = QLatin1String("USAGE_ASSISTANCE_ACCESSIBILITY");
+        break;
+    case QAudio::SonificationRole:
+        str = QLatin1String("CONTENT_TYPE_SONIFICATION");
+        break;
+    case QAudio::GameRole:
+        str = QLatin1String("USAGE_GAME");
+        break;
+    default:
+        break;
+    }
+
+    setCustomAudioRole(str);
+}
+
+void AndroidMediaPlayer::setCustomAudioRole(const QString &role)
+{
+    QStringList roles = role.split(",", QString::SkipEmptyParts);
+
+    int type = 0; // CONTENT_TYPE_UNKNOWN
+    int usage = 0; // USAGE_UNKNOWN
+    for (int i = 0; i < qMin(2, roles.size()); ++i) {
+        auto r = roles[i];
+        if (r == QLatin1String("CONTENT_TYPE_MOVIE"))
+            type = 3;
+        else if (r == QLatin1String("CONTENT_TYPE_MUSIC"))
+            type = 2;
+        else if (r == QLatin1String("CONTENT_TYPE_SONIFICATION"))
+            type = 4;
+        else if (r == QLatin1String("CONTENT_TYPE_SPEECH"))
+            type = 1;
+        else if (r == QLatin1String("USAGE_ALARM"))
+            usage = 4;
+        else if (r == QLatin1String("USAGE_ASSISTANCE_ACCESSIBILITY"))
+            usage = 11;
+        else if (r == QLatin1String("USAGE_ASSISTANCE_NAVIGATION_GUIDANCE"))
+            usage = 12;
+        else if (r == QLatin1String("USAGE_ASSISTANCE_SONIFICATION"))
+            usage = 13;
+        else if (r == QLatin1String("USAGE_ASSISTANT"))
+            usage = 16;
+        else if (r == QLatin1String("USAGE_GAME"))
+            usage = 14;
+        else if (r == QLatin1String("USAGE_MEDIA"))
+            usage = 1;
+        else if (r == QLatin1String("USAGE_NOTIFICATION"))
+            usage = 5;
+        else if (r == QLatin1String("USAGE_NOTIFICATION_COMMUNICATION_DELAYED"))
+            usage = 9;
+        else if (r == QLatin1String("USAGE_NOTIFICATION_COMMUNICATION_INSTANT"))
+            usage = 8;
+        else if (r == QLatin1String("USAGE_NOTIFICATION_COMMUNICATION_REQUEST"))
+            usage = 7;
+        else if (r == QLatin1String("USAGE_NOTIFICATION_EVENT"))
+            usage = 10;
+        else if (r == QLatin1String("USAGE_NOTIFICATION_RINGTONE"))
+            usage = 6;
+        else if (r == QLatin1String("USAGE_VOICE_COMMUNICATION"))
+            usage = 2;
+        else if (r == QLatin1String("USAGE_VOICE_COMMUNICATION_SIGNALLING"))
+            usage = 3;
+    }
+
+    mMediaPlayer.callMethod<void>("setAudioAttributes", "(II)V", jint(type), jint(usage));
 }
 
 static void onErrorNative(JNIEnv *env, jobject thiz, jint what, jint extra, jlong id)

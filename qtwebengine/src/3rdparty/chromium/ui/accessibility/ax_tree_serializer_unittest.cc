@@ -180,6 +180,10 @@ TEST_F(AXTreeSerializerTest, ReparentingUpdatesSubtree) {
   AXTreeUpdate update;
   ASSERT_TRUE(serializer_->SerializeChanges(tree1_->GetFromId(4), &update));
 
+  // The update should unserialize without errors.
+  AXTree dst_tree(treedata0_);
+  EXPECT_TRUE(dst_tree.Unserialize(update)) << dst_tree.error();
+
   // The update should delete the subtree rooted at node id=2, and
   // then include nodes 2...5.
   EXPECT_EQ(2, update.node_id_to_clear);
@@ -188,6 +192,48 @@ TEST_F(AXTreeSerializerTest, ReparentingUpdatesSubtree) {
   EXPECT_EQ(3, update.nodes[1].id);
   EXPECT_EQ(4, update.nodes[2].id);
   EXPECT_EQ(5, update.nodes[3].id);
+}
+
+// Similar to ReparentingUpdatesSubtree, except that InvalidateSubtree is
+// called on id=1 - we need to make sure that the reparenting is still
+// detected.
+TEST_F(AXTreeSerializerTest, ReparentingWithInvalidationUpdatesSubtree) {
+  // (1 (2 (3 (4 (5)))))
+  treedata0_.root_id = 1;
+  treedata0_.nodes.resize(5);
+  treedata0_.nodes[0].id = 1;
+  treedata0_.nodes[0].child_ids.push_back(2);
+  treedata0_.nodes[1].id = 2;
+  treedata0_.nodes[1].child_ids.push_back(3);
+  treedata0_.nodes[2].id = 3;
+  treedata0_.nodes[2].child_ids.push_back(4);
+  treedata0_.nodes[3].id = 4;
+  treedata0_.nodes[3].child_ids.push_back(5);
+  treedata0_.nodes[4].id = 5;
+
+  // Node 5 has been reparented from being a child of node 4,
+  // to a child of node 2.
+  // (1 (2 (3 (4) 5)))
+  treedata1_.root_id = 1;
+  treedata1_.nodes.resize(5);
+  treedata1_.nodes[0].id = 1;
+  treedata1_.nodes[0].child_ids.push_back(2);
+  treedata1_.nodes[1].id = 2;
+  treedata1_.nodes[1].child_ids.push_back(3);
+  treedata1_.nodes[1].child_ids.push_back(5);
+  treedata1_.nodes[2].id = 3;
+  treedata1_.nodes[2].child_ids.push_back(4);
+  treedata1_.nodes[3].id = 4;
+  treedata1_.nodes[4].id = 5;
+
+  CreateTreeSerializer();
+  AXTreeUpdate update;
+  serializer_->InvalidateSubtree(tree1_->GetFromId(1));
+  ASSERT_TRUE(serializer_->SerializeChanges(tree1_->GetFromId(4), &update));
+
+  // The update should unserialize without errors.
+  AXTree dst_tree(treedata0_);
+  EXPECT_TRUE(dst_tree.Unserialize(update)) << dst_tree.error();
 }
 
 // A variant of AXTreeSource that returns true for IsValid() for one
@@ -217,12 +263,12 @@ class AXTreeSourceWithInvalidId
     return node->parent();
   }
   bool IsValid(const AXNode* node) const override {
-    return node != NULL && node->id() != invalid_id_;
+    return node != nullptr && node->id() != invalid_id_;
   }
   bool IsEqual(const AXNode* node1, const AXNode* node2) const override {
     return node1 == node2;
   }
-  const AXNode* GetNull() const override { return NULL; }
+  const AXNode* GetNull() const override { return nullptr; }
   void SerializeNode(const AXNode* node, AXNodeData* out_data) const override {
     *out_data = node->data();
     if (node->id() == invalid_id_)
@@ -341,6 +387,78 @@ TEST_F(AXTreeSerializerTest, DuplicateIdsReturnsErrorAndFlushes) {
   update = AXTreeUpdate();
   serializer_->SerializeChanges(tree1_->GetFromId(7), &update);
   ASSERT_EQ(static_cast<size_t>(5), update.nodes.size());
+}
+
+// If a tree serializer is reset, that means it doesn't know about
+// the state of the client tree anymore. The safest thing to do in
+// that circumstance is to force the client to clear everything.
+TEST_F(AXTreeSerializerTest, ResetUpdatesNodeIdToClear) {
+  // (1 (2 (3 (4 (5)))))
+  treedata0_.root_id = 1;
+  treedata0_.nodes.resize(5);
+  treedata0_.nodes[0].id = 1;
+  treedata0_.nodes[0].child_ids.push_back(2);
+  treedata0_.nodes[1].id = 2;
+  treedata0_.nodes[1].child_ids.push_back(3);
+  treedata0_.nodes[2].id = 3;
+  treedata0_.nodes[2].child_ids.push_back(4);
+  treedata0_.nodes[3].id = 4;
+  treedata0_.nodes[3].child_ids.push_back(5);
+  treedata0_.nodes[4].id = 5;
+
+  // Node 5 has been reparented from being a child of node 4,
+  // to a child of node 2.
+  // (1 (2 (3 (4) 5)))
+  treedata1_.root_id = 1;
+  treedata1_.nodes.resize(5);
+  treedata1_.nodes[0].id = 1;
+  treedata1_.nodes[0].child_ids.push_back(2);
+  treedata1_.nodes[1].id = 2;
+  treedata1_.nodes[1].child_ids.push_back(3);
+  treedata1_.nodes[1].child_ids.push_back(5);
+  treedata1_.nodes[2].id = 3;
+  treedata1_.nodes[2].child_ids.push_back(4);
+  treedata1_.nodes[3].id = 4;
+  treedata1_.nodes[4].id = 5;
+
+  CreateTreeSerializer();
+
+  serializer_->Reset();
+
+  AXTreeUpdate update;
+  ASSERT_TRUE(serializer_->SerializeChanges(tree1_->GetFromId(4), &update));
+
+  // The update should unserialize without errors.
+  AXTree dst_tree(treedata0_);
+  EXPECT_TRUE(dst_tree.Unserialize(update)) << dst_tree.error();
+}
+
+// Ensure that calling Reset doesn't cause any problems if
+// the root changes.
+TEST_F(AXTreeSerializerTest, ResetWorksWithNewRootId) {
+  // (1 (2))
+  treedata0_.root_id = 1;
+  treedata0_.nodes.resize(2);
+  treedata0_.nodes[0].id = 1;
+  treedata0_.nodes[0].child_ids.push_back(2);
+  treedata0_.nodes[1].id = 2;
+
+  // (3 (4))
+  treedata1_.root_id = 3;
+  treedata1_.nodes.resize(2);
+  treedata1_.nodes[0].id = 3;
+  treedata1_.nodes[0].child_ids.push_back(4);
+  treedata1_.nodes[1].id = 4;
+
+  CreateTreeSerializer();
+  serializer_->Reset();
+
+  AXTreeUpdate update;
+  ASSERT_TRUE(serializer_->SerializeChanges(tree1_->GetFromId(4), &update));
+
+  // The update should unserialize without errors.
+  AXTree dst_tree(treedata0_);
+  EXPECT_TRUE(dst_tree.Unserialize(update)) << dst_tree.error();
 }
 
 }  // namespace ui

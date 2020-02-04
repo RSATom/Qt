@@ -101,27 +101,6 @@ QT_END_NAMESPACE
 // (it does not have an interface to re-send data or re-use the same transfer reply).
 // It either succeeds or fails and tries to cleanup in any case.
 @interface QT_MANGLE_NAMESPACE(OSXBTOBEXSession) : NSObject
-{
-    QT_PREPEND_NAMESPACE(OSXBluetooth)::OBEXSessionDelegate *delegate;
-    IOBluetoothDevice *device;
-    quint16 channelID;
-    IOBluetoothOBEXSession *session;
-
-    QT_PREPEND_NAMESPACE(OSXBluetooth)::OBEXRequest currentRequest;
-
-    bool connected;
-    bool connectionIDFound;
-    quint32 connectionID;
-
-    QT_PREPEND_NAMESPACE(QIODevice) *inputStream;
-
-    // TODO: switch to scoped pointers or strong reference objects instead.
-    NSMutableData *headersData;
-    NSMutableData *bodyData;
-
-    quint32 bytesSent;
-    bool pendingAbort;
-}
 
 - (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth::OBEXSessionDelegate) *)aDelegate
       remoteDevice:(const QBluetoothAddress &)deviceAddress channelID:(quint16)port;

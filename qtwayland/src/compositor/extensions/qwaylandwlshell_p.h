@@ -43,10 +43,11 @@
 #include <QtWaylandCompositor/qtwaylandcompositorglobal.h>
 #include <QtWaylandCompositor/qwaylandsurface.h>
 #include <QtWaylandCompositor/private/qwaylandcompositorextension_p.h>
+#include <QtWaylandCompositor/private/qwaylandshell_p.h>
 #include <QtWaylandCompositor/QWaylandWlShellSurface>
 #include <QtWaylandCompositor/QWaylandSeat>
 
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 #include <QHash>
 #include <QPoint>
 #include <QSet>
@@ -67,7 +68,7 @@
 QT_BEGIN_NAMESPACE
 
 class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandWlShellPrivate
-                                        : public QWaylandCompositorExtensionPrivate
+                                        : public QWaylandShellPrivate
                                         , public QtWaylandServer::wl_shell
 {
     Q_DECLARE_PUBLIC(QWaylandWlShell)
@@ -91,7 +92,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandWlShellSurfacePrivate
     Q_DECLARE_PUBLIC(QWaylandWlShellSurface)
 public:
     QWaylandWlShellSurfacePrivate();
-    ~QWaylandWlShellSurfacePrivate();
+    ~QWaylandWlShellSurfacePrivate() override;
 
     static QWaylandWlShellSurfacePrivate *get(QWaylandWlShellSurface *surface) { return surface->d_func(); }
 
@@ -100,14 +101,14 @@ public:
     void setWindowType(Qt::WindowType windowType);
 
 private:
-    QWaylandWlShell *m_shell;
+    QWaylandWlShell *m_shell = nullptr;
     QPointer<QWaylandSurface> m_surface;
 
     QSet<uint32_t> m_pings;
 
     QString m_title;
     QString m_className;
-    Qt::WindowType m_windowType;
+    Qt::WindowType m_windowType = Qt::WindowType::Window;
 
     void shell_surface_destroy_resource(Resource *resource) override;
 

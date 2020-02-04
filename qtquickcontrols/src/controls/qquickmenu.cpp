@@ -45,6 +45,7 @@
 #include <qdebug.h>
 #include <qabstractitemmodel.h>
 #include <qcursor.h>
+#include <private/qhighdpiscaling_p.h>
 #include <private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformtheme.h>
 #include <QtGui/qpa/qplatformmenu.h>
@@ -456,7 +457,9 @@ void QQuickMenu1::__popup(const QRectF &targetRect, int atItemIndex, MenuType me
         }
         globalTargetRect.translate(renderOffset);
         m_platformMenu->setMenuType(QPlatformMenu::MenuType(menuType));
-        m_platformMenu->showPopup(parentWindow, globalTargetRect.toRect(), atItem ? atItem->platformItem() : 0);
+        m_platformMenu->showPopup(parentWindow,
+                                  QHighDpi::toNativePixels(globalTargetRect.toRect(), parentWindow),
+                                  atItem ? atItem->platformItem() : 0);
     } else {
         m_popupWindow = new QQuickMenuPopupWindow1(this);
         if (visualItem())
@@ -786,33 +789,41 @@ void QQuickMenu1::insertItem(int index, QQuickMenuBase1 *menuItem)
 
 void QQuickMenu1::removeItem(QQuickMenuBase1 *menuItem)
 {
-    if (!menuItem)
-        return;
-    menuItem->setParentMenu(0);
-
-    QQuickMenuItemContainer1 *container = menuItem->parent() != this ? m_containers[menuItem->parent()] : 0;
-    if (container)
-        container->removeItem(menuItem);
-    else
-        m_menuItems.removeOne(menuItem);
-
-    --m_itemsCount;
-    emit itemsChanged();
+    // Removes the item, but if it's a container, the container is kept
+    if (menuItem) {
+        unparentItem(menuItem);
+        emit itemsChanged();
+    }
 }
 
 void QQuickMenu1::clear()
 {
-    m_containers.clear();
-    m_containersCount = 0;
+    if (m_itemsCount > 0) {
+        while (m_itemsCount > 0)
+            unparentItem(menuItemAtIndex(0));
 
-    // QTBUG-48927: a proxy menu (ApplicationWindowStyle.qml) must not
-    // delete its items, because they are owned by the menubar
-    if (m_proxy)
+        // We can delete the containers now, as there cannot be any further items in them.
+        qDeleteAll(m_containers);
+        m_containers.clear();
+        m_containersCount = 0;
+
+        // The containers are also kept in m_menuItems, so we have to clear explicitly.
         m_menuItems.clear();
 
-    while (!m_menuItems.empty())
-        delete m_menuItems.takeFirst();
-    m_itemsCount = 0;
+        emit itemsChanged();
+    }
+}
+
+void QQuickMenu1::unparentItem(QQuickMenuBase1 *menuItem)
+{
+    menuItem->setParentMenu(nullptr);
+    QQuickMenuItemContainer1 *container = (menuItem->parent() != this)
+            ? m_containers[menuItem->parent()] : nullptr;
+    if (container)
+        container->removeItem(menuItem);
+    else
+        m_menuItems.removeOne(menuItem);
+    --m_itemsCount;
 }
 
 void QQuickMenu1::setupMenuItem(QQuickMenuBase1 *item, int platformIndex)
@@ -868,8 +879,31 @@ QObject *QQuickMenu1::at_menuItems(QQuickMenuItems *list, int index)
 
 void QQuickMenu1::clear_menuItems(QQuickMenuItems *list)
 {
-    if (QQuickMenu1 *menu = qobject_cast<QQuickMenu1 *>(list->object))
-        menu->clear();
+    if (QQuickMenu1 *menu = qobject_cast<QQuickMenu1 *>(list->object)) {
+        // There may be stray containers that don't appear in m_menuItems. This is because we may
+        // remove a container with removeItem(), which will only remove it from m_menuItems.
+        // Therefore, make sure that all containers are removed from m_menuItems first.
+        for (QQuickMenuItemContainer1 *container : menu->m_containers)
+            menu->m_menuItems.removeOne(container);
+
+        // Delete or unparent the items first. They may have references to the containers.
+        // QTBUG-48927: a proxy menu (ApplicationWindowStyle.qml) must not
+        // delete its items, because they are owned by the menubar
+        // We still do own the containers, though. We create them on append_menuItems, after all.
+        while (!menu->m_menuItems.empty()) {
+            if (menu->m_proxy)
+                menu->unparentItem(menu->m_menuItems[0]);
+            else
+                delete menu->m_menuItems.takeFirst();
+        }
+        menu->m_menuItems.clear();
+
+        qDeleteAll(menu->m_containers);
+        menu->m_containers.clear();
+        menu->m_containersCount = 0;
+
+        menu->m_itemsCount = 0;
+    }
 }
 
 QT_END_NAMESPACE

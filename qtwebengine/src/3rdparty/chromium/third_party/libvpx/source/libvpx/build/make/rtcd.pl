@@ -1,4 +1,13 @@
 #!/usr/bin/env perl
+##
+##  Copyright (c) 2017 The WebM project authors. All Rights Reserved.
+##
+##  Use of this source code is governed by a BSD-style license
+##  that can be found in the LICENSE file in the root of the source
+##  tree. An additional intellectual property rights grant can be found
+##  in the file PATENTS.  All contributing project authors may
+##  be found in the AUTHORS file in the root of the source tree.
+##
 
 no strict 'refs';
 use warnings;
@@ -200,6 +209,7 @@ sub filter {
 sub common_top() {
   my $include_guard = uc($opts{sym})."_H_";
   print <<EOF;
+// This file is generated. Do not edit.
 #ifndef ${include_guard}
 #define ${include_guard}
 
@@ -390,12 +400,13 @@ EOF
 #
 
 &require("c");
+&require(keys %required);
 if ($opts{arch} eq 'x86') {
-  @ALL_ARCHS = filter(qw/mmx sse sse2 sse3 ssse3 sse4_1 avx avx2/);
+  @ALL_ARCHS = filter(qw/mmx sse sse2 sse3 ssse3 sse4_1 avx avx2 avx512/);
   x86;
 } elsif ($opts{arch} eq 'x86_64') {
-  @ALL_ARCHS = filter(qw/mmx sse sse2 sse3 ssse3 sse4_1 avx avx2/);
-  @REQUIRES = filter(keys %required ? keys %required : qw/mmx sse sse2/);
+  @ALL_ARCHS = filter(qw/mmx sse sse2 sse3 ssse3 sse4_1 avx avx2 avx512/);
+  @REQUIRES = filter(qw/mmx sse sse2/);
   &require(@REQUIRES);
   x86;
 } elsif ($opts{arch} eq 'mips32' || $opts{arch} eq 'mips64') {
@@ -411,6 +422,10 @@ if ($opts{arch} eq 'x86') {
       @ALL_ARCHS = filter("$opts{arch}", qw/msa/);
       last;
     }
+    if (/HAVE_MMI=yes/) {
+      @ALL_ARCHS = filter("$opts{arch}", qw/mmi/);
+      last;
+    }
   }
   close CONFIG_FILE;
   mips;
@@ -419,6 +434,7 @@ if ($opts{arch} eq 'x86') {
   arm;
 } elsif ($opts{arch} eq 'armv8' || $opts{arch} eq 'arm64' ) {
   @ALL_ARCHS = filter(qw/neon/);
+  &require("neon");
   arm;
 } elsif ($opts{arch} =~ /^ppc/ ) {
   @ALL_ARCHS = filter(qw/vsx/);

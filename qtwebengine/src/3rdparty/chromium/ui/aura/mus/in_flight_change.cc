@@ -15,6 +15,51 @@
 
 namespace aura {
 
+std::string ChangeTypeToString(ChangeType change_type) {
+  switch (change_type) {
+    case ChangeType::ADD_CHILD:
+      return "ADD_CHILD";
+    case ChangeType::ADD_TRANSIENT_WINDOW:
+      return "ADD_TRANSIENT_WINDOW";
+    case ChangeType::BOUNDS:
+      return "BOUNDS";
+    case ChangeType::CAPTURE:
+      return "CAPTURE";
+    case ChangeType::CHILD_MODAL_PARENT:
+      return "CHILD_MODAL_PARENT";
+    case ChangeType::DELETE_WINDOW:
+      return "DELETE_WINDOW";
+    case ChangeType::DRAG_LOOP:
+      return "DRAG_LOOP";
+    case ChangeType::FOCUS:
+      return "FOCUS";
+    case ChangeType::MOVE_LOOP:
+      return "MOVE_LOOP";
+    case ChangeType::NEW_TOP_LEVEL_WINDOW:
+      return "NEW_TOP_LEVEL_WINDOW";
+    case ChangeType::NEW_WINDOW:
+      return "NEW_WINDOW";
+    case ChangeType::OPACITY:
+      return "OPACITY";
+    case ChangeType::CURSOR:
+      return "CURSOR";
+    case ChangeType::PROPERTY:
+      return "PROPERTY";
+    case ChangeType::REMOVE_CHILD:
+      return "REMOVE_CHILD";
+    case ChangeType::REMOVE_TRANSIENT_WINDOW_FROM_PARENT:
+      return "REMOVE_TRANSIENT_WINDOW_FROM_PARENT";
+    case ChangeType::REORDER:
+      return "REORDER";
+    case ChangeType::SET_MODAL:
+      return "SET_MODAL";
+    case ChangeType::TRANSFORM:
+      return "TRANSFORM";
+    case ChangeType::VISIBLE:
+      return "VISIBLE";
+  }
+}
+
 // InFlightChange -------------------------------------------------------------
 
 InFlightChange::InFlightChange(WindowMus* window, ChangeType type)
@@ -100,7 +145,9 @@ void CrashInFlightChange::SetRevertValueFrom(const InFlightChange& change) {
 }
 
 void CrashInFlightChange::ChangeFailed() {
-  DLOG(ERROR) << "change failed, type=" << static_cast<int>(change_type());
+  // TODO(crbug.com/912228): remove LOG(). Used to figure out why this is being
+  // hit.
+  LOG(ERROR) << "change failed, type=" << static_cast<int>(change_type());
   CHECK(false);
 }
 
@@ -193,7 +240,7 @@ void InFlightPropertyChange::SetRevertValueFrom(const InFlightChange& change) {
       static_cast<const InFlightPropertyChange&>(change);
   if (property_change.revert_value_) {
     revert_value_ =
-        base::MakeUnique<std::vector<uint8_t>>(*property_change.revert_value_);
+        std::make_unique<std::vector<uint8_t>>(*property_change.revert_value_);
   } else {
     revert_value_.reset();
   }
@@ -206,7 +253,7 @@ void InFlightPropertyChange::Revert() {
 // InFlightCursorChange ----------------------------------------------------
 
 InFlightCursorChange::InFlightCursorChange(WindowMus* window,
-                                           const ui::CursorData& revert_value)
+                                           const ui::Cursor& revert_value)
     : InFlightChange(window, ChangeType::CURSOR),
       revert_cursor_(revert_value) {}
 

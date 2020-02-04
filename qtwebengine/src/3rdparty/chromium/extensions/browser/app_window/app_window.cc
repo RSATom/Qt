@@ -11,8 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback_helpers.h"
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_runner.h"
@@ -21,6 +20,7 @@
 #include "build/build_config.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/file_select_listener.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/navigation_entry.h"
@@ -28,8 +28,6 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/browser_side_navigation_policy.h"
-#include "content/public/common/media_stream_request.h"
 #include "extensions/browser/app_window/app_delegate.h"
 #include "extensions/browser/app_window/app_web_contents_helper.h"
 #include "extensions/browser/app_window/app_window_client.h"
@@ -47,8 +45,11 @@
 #include "extensions/browser/view_type_utils.h"
 #include "extensions/common/draggable_region.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/extension_messages.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "ipc/ipc_message_macros.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "ui/display/display.h"
@@ -79,7 +80,7 @@ void SetConstraintProperty(const std::string& name,
   if (value != SizeConstraints::kUnboundedSize)
     bounds_properties->SetInteger(name, value);
   else
-    bounds_properties->Set(name, base::MakeUnique<base::Value>());
+    bounds_properties->Set(name, std::make_unique<base::Value>());
 }
 
 void SetBoundsProperties(const gfx::Rect& bounds,
@@ -241,16 +242,8 @@ AppWindow::AppWindow(BrowserContext* context,
                      const Extension* extension)
     : browser_context_(context),
       extension_id_(extension->id()),
-      window_type_(WINDOW_TYPE_DEFAULT),
+      session_id_(SessionID::NewUnique()),
       app_delegate_(app_delegate),
-      fullscreen_types_(FULLSCREEN_TYPE_NONE),
-      has_been_shown_(false),
-      is_hidden_(false),
-      cached_always_on_top_(false),
-      requested_alpha_enabled_(false),
-      is_ime_window_(false),
-      show_on_lock_screen_(false),
-      show_in_shelf_(false),
       image_loader_ptr_factory_(this) {
   ExtensionsBrowserClient* client = ExtensionsBrowserClient::Get();
   CHECK(!client->IsGuestSession(context) || context->IsOffTheRecord())
@@ -283,12 +276,18 @@ void AppWindow::Init(const GURL& url,
   // Initialize the window
   CreateParams new_params = LoadDefaults(params);
   window_type_ = new_params.window_type;
+  UMA_HISTOGRAM_ENUMERATION("Apps.Window.Type", new_params.window_type,
+                            WINDOW_TYPE_COUNT);
+
   window_key_ = new_params.window_key;
 
   // Windows cannot be always-on-top in fullscreen mode for security reasons.
   cached_always_on_top_ = new_params.always_on_top;
-  if (new_params.state == ui::SHOW_STATE_FULLSCREEN)
+  if (new_params.state == ui::SHOW_STATE_FULLSCREEN &&
+      !ExtensionsBrowserClient::Get()->IsScreensaverInDemoMode(
+          extension_id())) {
     new_params.always_on_top = false;
+  }
 
   requested_alpha_enabled_ = new_params.alpha_enabled;
   is_ime_window_ = params.is_ime_window;
@@ -314,9 +313,7 @@ void AppWindow::Init(const GURL& url,
     // notifies observers of the window being hidden.
     Hide();
   } else {
-    // Panels are not activated by default.
-    Show(window_type_is_panel() || !new_params.focused ? SHOW_INACTIVE
-                                                       : SHOW_ACTIVE);
+    Show(SHOW_INACTIVE);
 
     // These states may cause the window to show, so they are ignored if the
     // window is initially hidden.
@@ -326,6 +323,8 @@ void AppWindow::Init(const GURL& url,
       Maximize();
     else if (new_params.state == ui::SHOW_STATE_MINIMIZED)
       Minimize();
+
+    Show(new_params.focused ? SHOW_ACTIVE : SHOW_INACTIVE);
   }
 
   OnNativeWindowChanged();
@@ -347,16 +346,20 @@ AppWindow::~AppWindow() {
 void AppWindow::RequestMediaAccessPermission(
     content::WebContents* web_contents,
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback) {
+    content::MediaResponseCallback callback) {
   DCHECK_EQ(AppWindow::web_contents(), web_contents);
-  helper_->RequestMediaAccessPermission(request, callback);
+  helper_->RequestMediaAccessPermission(request, std::move(callback));
 }
 
-bool AppWindow::CheckMediaAccessPermission(content::WebContents* web_contents,
-                                           const GURL& security_origin,
-                                           content::MediaStreamType type) {
-  DCHECK_EQ(AppWindow::web_contents(), web_contents);
-  return helper_->CheckMediaAccessPermission(security_origin, type);
+bool AppWindow::CheckMediaAccessPermission(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& security_origin,
+    blink::MediaStreamType type) {
+  DCHECK_EQ(web_contents(),
+            content::WebContents::FromRenderFrameHost(render_frame_host)
+                ->GetOutermostWebContents());
+  return helper_->CheckMediaAccessPermission(render_frame_host, security_origin,
+                                             type);
 }
 
 WebContents* AppWindow::OpenURLFromTab(WebContents* source,
@@ -366,18 +369,14 @@ WebContents* AppWindow::OpenURLFromTab(WebContents* source,
 }
 
 void AppWindow::AddNewContents(WebContents* source,
-                               WebContents* new_contents,
+                               std::unique_ptr<WebContents> new_contents,
                                WindowOpenDisposition disposition,
                                const gfx::Rect& initial_rect,
                                bool user_gesture,
                                bool* was_blocked) {
   DCHECK(new_contents->GetBrowserContext() == browser_context_);
-  app_delegate_->AddNewContents(browser_context_,
-                                new_contents,
-                                disposition,
-                                initial_rect,
-                                user_gesture,
-                                was_blocked);
+  app_delegate_->AddNewContents(browser_context_, std::move(new_contents),
+                                disposition, initial_rect, user_gesture);
 }
 
 content::KeyboardEventProcessingResult AppWindow::PreHandleKeyboardEvent(
@@ -406,7 +405,7 @@ content::KeyboardEventProcessingResult AppWindow::PreHandleKeyboardEvent(
   return content::KeyboardEventProcessingResult::NOT_HANDLED;
 }
 
-void AppWindow::HandleKeyboardEvent(
+bool AppWindow::HandleKeyboardEvent(
     WebContents* source,
     const content::NativeWebKeyboardEvent& event) {
   // If the window is currently fullscreen and not forced, ESC should leave
@@ -415,10 +414,10 @@ void AppWindow::HandleKeyboardEvent(
   if (event.windows_key_code == ui::VKEY_ESCAPE && IsFullscreen() &&
       !IsForcedFullscreen()) {
     Restore();
-    return;
+    return true;
   }
 
-  native_app_window_->HandleKeyboardEvent(event);
+  return native_app_window_->HandleKeyboardEvent(event);
 }
 
 void AppWindow::RequestToLockMouse(WebContents* web_contents,
@@ -444,25 +443,41 @@ bool AppWindow::TakeFocus(WebContents* source, bool reverse) {
   return app_delegate_->TakeFocus(source, reverse);
 }
 
+gfx::Size AppWindow::EnterPictureInPicture(content::WebContents* web_contents,
+                                           const viz::SurfaceId& surface_id,
+                                           const gfx::Size& natural_size) {
+  return app_delegate_->EnterPictureInPicture(web_contents, surface_id,
+                                              natural_size);
+}
+
+void AppWindow::ExitPictureInPicture() {
+  app_delegate_->ExitPictureInPicture();
+}
+
+bool AppWindow::OnMessageReceived(const IPC::Message& message,
+                                  content::RenderFrameHost* render_frame_host) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(AppWindow, message)
+    IPC_MESSAGE_HANDLER(ExtensionHostMsg_AppWindowReady, OnAppWindowReady)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+  return handled;
+}
+
 void AppWindow::RenderViewCreated(content::RenderViewHost* render_view_host) {
   app_delegate_->RenderViewCreated(render_view_host);
 }
 
-void AppWindow::SetOnFirstCommitCallback(const base::Closure& callback) {
-  DCHECK(on_first_commit_callback_.is_null());
-  on_first_commit_callback_ = callback;
+void AppWindow::SetOnFirstCommitOrWindowClosedCallback(
+    FirstCommitOrWindowClosedCallback callback) {
+  DCHECK(on_first_commit_or_window_closed_callback_.is_null());
+  on_first_commit_or_window_closed_callback_ = std::move(callback);
 }
 
 void AppWindow::OnReadyToCommitFirstNavigation() {
-  if (!content::IsBrowserSideNavigationEnabled())
-    return;
-
-  // PlzNavigate: execute renderer-side setup now that there is a renderer
-  // process assigned to the navigation. With renderer-side navigation, this
-  // would happen before the navigation starts, but PlzNavigate must wait until
-  // this point in time in the navigation.
-
-  if (on_first_commit_callback_.is_null())
+  // Execute renderer-side setup now that there is a renderer process assigned
+  // to the navigation. We must wait until this point in time in the navigation.
+  if (on_first_commit_or_window_closed_callback_.is_null())
     return;
   // It is important that the callback executes after the calls to
   // WebContentsObserver::ReadyToCommitNavigation have been processed. The
@@ -470,18 +485,34 @@ void AppWindow::OnReadyToCommitFirstNavigation() {
   // sent after these, and it must be sent before the callback gets to run,
   // hence the use of PostTask.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::ResetAndReturn(&on_first_commit_callback_));
+      FROM_HERE,
+      base::BindOnce(std::move(on_first_commit_or_window_closed_callback_),
+                     true /* ready_to_commit */));
 }
 
 void AppWindow::OnNativeClose() {
   AppWindowRegistry::Get(browser_context_)->RemoveAppWindow(this);
+
+  // Dispatch "OnClosed" event by default.
+  bool send_onclosed = true;
+
+  // Run pending |on_first_commit_or_window_closed_callback_| so that
+  // AppWindowCreateFunction can respond with an error properly.
+  if (!on_first_commit_or_window_closed_callback_.is_null()) {
+    std::move(on_first_commit_or_window_closed_callback_)
+        .Run(false /* ready_to_commit */);
+
+    send_onclosed = false;  // No "OnClosed" event on window creation error.
+  }
+
   if (app_window_contents_) {
     WebContentsModalDialogManager* modal_dialog_manager =
         WebContentsModalDialogManager::FromWebContents(web_contents());
     if (modal_dialog_manager)  // May be null in unit tests.
       modal_dialog_manager->SetDelegate(nullptr);
-    app_window_contents_->NativeWindowClosed();
+    app_window_contents_->NativeWindowClosed(send_onclosed);
   }
+
   delete this;
 }
 
@@ -566,20 +597,18 @@ base::string16 AppWindow::GetTitle() const {
 }
 
 void AppWindow::SetAppIconUrl(const GURL& url) {
-  // Avoid using any previous icons that were being downloaded.
-  image_loader_ptr_factory_.InvalidateWeakPtrs();
   app_icon_url_ = url;
-  web_contents()->DownloadImage(
-      url,
-      true,   // is a favicon
-      0,      // no maximum size
-      false,  // normal cache policy
-      base::Bind(&AppWindow::DidDownloadFavicon,
-                 image_loader_ptr_factory_.GetWeakPtr()));
+
+  // Don't start custom app icon loading in the case window is not ready yet.
+  // see crbug.com/788531.
+  if (!window_ready_)
+    return;
+
+  StartAppIconDownload();
 }
 
-void AppWindow::UpdateShape(std::unique_ptr<SkRegion> region) {
-  native_app_window_->UpdateShape(std::move(region));
+void AppWindow::UpdateShape(std::unique_ptr<ShapeRects> rects) {
+  native_app_window_->UpdateShape(std::move(rects));
 }
 
 void AppWindow::UpdateDraggableRegions(
@@ -627,6 +656,10 @@ bool AppWindow::IsForcedFullscreen() const {
 
 bool AppWindow::IsHtmlApiFullscreen() const {
   return (fullscreen_types_ & FULLSCREEN_TYPE_HTML_API) != 0;
+}
+
+bool AppWindow::IsOsFullscreen() const {
+  return (fullscreen_types_ & FULLSCREEN_TYPE_OS) != 0;
 }
 
 void AppWindow::Fullscreen() {
@@ -703,8 +736,12 @@ void AppWindow::SetAlwaysOnTop(bool always_on_top) {
   // As a security measure, do not allow fullscreen windows or windows that
   // overlap the taskbar to be on top. The property will be applied when the
   // window exits fullscreen and moves away from the taskbar.
-  if (!IsFullscreen() && !IntersectsWithTaskbar())
+  if ((!IsFullscreen() ||
+       ExtensionsBrowserClient::Get()->IsScreensaverInDemoMode(
+           extension_id())) &&
+      !IntersectsWithTaskbar()) {
     native_app_window_->SetAlwaysOnTop(always_on_top);
+  }
 
   OnNativeWindowChanged();
 }
@@ -714,11 +751,6 @@ bool AppWindow::IsAlwaysOnTop() const { return cached_always_on_top_; }
 void AppWindow::RestoreAlwaysOnTop() {
   if (cached_always_on_top_)
     UpdateNativeAlwaysOnTop();
-}
-
-void AppWindow::NotifyRenderViewReady() {
-  if (app_window_contents_)
-    app_window_contents_->OnWindowReady();
 }
 
 void AppWindow::GetSerializedState(base::DictionaryValue* properties) const {
@@ -769,6 +801,19 @@ void AppWindow::GetSerializedState(base::DictionaryValue* properties) const {
 
 //------------------------------------------------------------------------------
 // Private methods
+void AppWindow::StartAppIconDownload() {
+  DCHECK(app_icon_url_.is_valid());
+
+  // Avoid using any previous icons that were being downloaded.
+  image_loader_ptr_factory_.InvalidateWeakPtrs();
+  web_contents()->DownloadImage(
+      app_icon_url_,
+      true,   // is a favicon
+      0,      // no maximum size
+      false,  // normal cache policy
+      base::BindOnce(&AppWindow::DidDownloadFavicon,
+                     image_loader_ptr_factory_.GetWeakPtr()));
+}
 
 void AppWindow::DidDownloadFavicon(
     int id,
@@ -846,27 +891,20 @@ bool AppWindow::ShouldSuppressDialogs(WebContents* source) {
 content::ColorChooser* AppWindow::OpenColorChooser(
     WebContents* web_contents,
     SkColor initial_color,
-    const std::vector<content::ColorSuggestion>& suggestions) {
+    const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions) {
   return app_delegate_->ShowColorChooser(web_contents, initial_color);
 }
 
-void AppWindow::RunFileChooser(content::RenderFrameHost* render_frame_host,
-                               const content::FileChooserParams& params) {
-  if (window_type_is_panel()) {
-    // Panels can't host a file dialog, abort. TODO(stevenjb): allow file
-    // dialogs to be unhosted but still close with the owning web contents.
-    // crbug.com/172502.
-    LOG(WARNING) << "File dialog opened by panel.";
-    return;
-  }
-
-  app_delegate_->RunFileChooser(render_frame_host, params);
+void AppWindow::RunFileChooser(
+    content::RenderFrameHost* render_frame_host,
+    std::unique_ptr<content::FileSelectListener> listener,
+    const blink::mojom::FileChooserParams& params) {
+  app_delegate_->RunFileChooser(render_frame_host, std::move(listener), params);
 }
 
-bool AppWindow::IsPopupOrPanel(const WebContents* source) const { return true; }
-
-void AppWindow::MoveContents(WebContents* source, const gfx::Rect& pos) {
-  native_app_window_->SetBounds(pos);
+void AppWindow::SetContentsBounds(WebContents* source,
+                                  const gfx::Rect& bounds) {
+  native_app_window_->SetBounds(bounds);
 }
 
 void AppWindow::NavigationStateChanged(content::WebContents* source,
@@ -877,13 +915,22 @@ void AppWindow::NavigationStateChanged(content::WebContents* source,
     native_app_window_->UpdateWindowIcon();
 }
 
-void AppWindow::EnterFullscreenModeForTab(content::WebContents* source,
-                                          const GURL& origin) {
+void AppWindow::EnterFullscreenModeForTab(
+    content::WebContents* source,
+    const GURL& origin,
+    const blink::WebFullscreenOptions& options) {
   ToggleFullscreenModeForTab(source, true);
 }
 
 void AppWindow::ExitFullscreenModeForTab(content::WebContents* source) {
   ToggleFullscreenModeForTab(source, false);
+}
+
+void AppWindow::OnAppWindowReady() {
+  window_ready_ = true;
+
+  if (app_icon_url_.is_valid())
+    StartAppIconDownload();
 }
 
 void AppWindow::ToggleFullscreenModeForTab(content::WebContents* source,
@@ -1040,9 +1087,7 @@ AppWindow::CreateParams AppWindow::LoadDefaults(CreateParams params)
 SkRegion* AppWindow::RawDraggableRegionsToSkRegion(
     const std::vector<DraggableRegion>& regions) {
   SkRegion* sk_region = new SkRegion;
-  for (std::vector<DraggableRegion>::const_iterator iter = regions.begin();
-       iter != regions.end();
-       ++iter) {
+  for (auto iter = regions.cbegin(); iter != regions.cend(); ++iter) {
     const DraggableRegion& region = *iter;
     sk_region->op(
         region.bounds.x(),

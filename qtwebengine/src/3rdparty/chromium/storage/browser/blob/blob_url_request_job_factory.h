@@ -8,15 +8,11 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job_factory.h"
-#include "storage/browser/storage_browser_export.h"
-
-namespace storage {
-class FileSystemContext;
-}  // namespace storage
 
 namespace net {
 class URLRequestContext;
@@ -27,7 +23,7 @@ namespace storage {
 class BlobDataHandle;
 class BlobStorageContext;
 
-class STORAGE_EXPORT BlobProtocolHandler
+class COMPONENT_EXPORT(STORAGE_BROWSER) BlobProtocolHandler
     : public net::URLRequestJobFactory::ProtocolHandler {
  public:
   // A helper to manufacture an URLRequest to retrieve the given blob.
@@ -45,19 +41,19 @@ class STORAGE_EXPORT BlobProtocolHandler
   // This gets the handle on the request if it exists.
   static BlobDataHandle* GetRequestBlobDataHandle(net::URLRequest* request);
 
-  BlobProtocolHandler(BlobStorageContext* context,
-                      storage::FileSystemContext* file_system_context);
+  explicit BlobProtocolHandler(BlobStorageContext* context);
   ~BlobProtocolHandler() override;
 
+  // net::URLRequestJobFactory::ProtocolHandler implementation:
   net::URLRequestJob* MaybeCreateJob(
       net::URLRequest* request,
       net::NetworkDelegate* network_delegate) const override;
+  bool IsSafeRedirectTarget(const GURL& location) const override;
 
  private:
   BlobDataHandle* LookupBlobHandle(net::URLRequest* request) const;
 
   base::WeakPtr<BlobStorageContext> context_;
-  const scoped_refptr<storage::FileSystemContext> file_system_context_;
 
   DISALLOW_COPY_AND_ASSIGN(BlobProtocolHandler);
 };

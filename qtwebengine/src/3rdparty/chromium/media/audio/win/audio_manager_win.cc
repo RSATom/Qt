@@ -5,24 +5,22 @@
 #include "media/audio/win/audio_manager_win.h"
 
 #include <windows.h>
+
 #include <objbase.h>  // This has to be before initguid.h
+
 #include <initguid.h>
 #include <mmsystem.h>
 #include <setupapi.h>
 #include <stddef.h>
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
-#include "base/files/file_path.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/path_service.h"
-#include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_util.h"
 #include "base/win/windows_version.h"
 #include "media/audio/audio_device_description.h"
 #include "media/audio/audio_io.h"
@@ -69,49 +67,6 @@ static const int kWinMaxChannels = 8;
 // determined from the system
 static const int kFallbackBufferSize = 2048;
 
-static int GetVersionPartAsInt(DWORDLONG num) {
-  return static_cast<int>(num & 0xffff);
-}
-
-// Returns a string containing the given device's description and installed
-// driver version.
-static base::string16 GetDeviceAndDriverInfo(HDEVINFO device_info,
-                                             SP_DEVINFO_DATA* device_data) {
-  // Save the old install params setting and set a flag for the
-  // SetupDiBuildDriverInfoList below to return only the installed drivers.
-  SP_DEVINSTALL_PARAMS old_device_install_params;
-  old_device_install_params.cbSize = sizeof(old_device_install_params);
-  SetupDiGetDeviceInstallParams(device_info, device_data,
-                                &old_device_install_params);
-  SP_DEVINSTALL_PARAMS device_install_params = old_device_install_params;
-  device_install_params.FlagsEx |= DI_FLAGSEX_INSTALLEDDRIVER;
-  SetupDiSetDeviceInstallParams(device_info, device_data,
-                                &device_install_params);
-
-  SP_DRVINFO_DATA driver_data;
-  driver_data.cbSize = sizeof(driver_data);
-  base::string16 device_and_driver_info;
-  if (SetupDiBuildDriverInfoList(device_info, device_data,
-                                 SPDIT_COMPATDRIVER)) {
-    if (SetupDiEnumDriverInfo(device_info, device_data, SPDIT_COMPATDRIVER, 0,
-                              &driver_data)) {
-      DWORDLONG version = driver_data.DriverVersion;
-      device_and_driver_info =
-          base::string16(driver_data.Description) + L" v" +
-          base::IntToString16(GetVersionPartAsInt((version >> 48))) + L"." +
-          base::IntToString16(GetVersionPartAsInt((version >> 32))) + L"." +
-          base::IntToString16(GetVersionPartAsInt((version >> 16))) + L"." +
-          base::IntToString16(GetVersionPartAsInt(version));
-    }
-    SetupDiDestroyDriverInfoList(device_info, device_data, SPDIT_COMPATDRIVER);
-  }
-
-  SetupDiSetDeviceInstallParams(device_info, device_data,
-                                &old_device_install_params);
-
-  return device_and_driver_info;
-}
-
 static int NumberOfWaveOutBuffers() {
   // Use the user provided buffer count if provided.
   int buffers = 0;
@@ -122,13 +77,7 @@ static int NumberOfWaveOutBuffers() {
     return buffers;
   }
 
-  // Use 4 buffers for Vista, 3 for everyone else:
-  //  - The entire Windows audio stack was rewritten for Windows Vista and wave
-  //    out performance was degraded compared to XP.
-  //  - The regression was fixed in Windows 7 and most configurations will work
-  //    with 2, but some (e.g., some Sound Blasters) still need 3.
-  //  - Some XP configurations (even multi-processor ones) also need 3.
-  return (base::win::GetVersion() == base::win::VERSION_VISTA) ? 4 : 3;
+  return 3;
 }
 
 AudioManagerWin::AudioManagerWin(std::unique_ptr<AudioThread> audio_thread,
@@ -142,15 +91,23 @@ AudioManagerWin::AudioManagerWin(std::unique_ptr<AudioThread> audio_thread,
 
   SetMaxOutputStreamsAllowed(kMaxOutputStreams);
 
-  // WARNING: This is executed on the UI loop, do not add any code here which
-  // loads libraries or attempts to call out into the OS.  Instead add such code
-  // to the InitializeOnAudioThread() method below.
+  // WARNING: This may be executed on the UI loop, do not add any code here
+  // which loads libraries or attempts to call out into the OS.  Instead add
+  // such code to the InitializeOnAudioThread() method below.
+
+  // In case we are already on the audio thread (i.e. when running out of
+  // process audio), don't post.
+  if (GetTaskRunner()->BelongsToCurrentThread()) {
+    this->InitializeOnAudioThread();
+    return;
+  }
 
   // Task must be posted last to avoid races from handing out "this" to the
-  // audio thread.
+  // audio thread. Unretained is safe since we join the audio thread before
+  // destructing |this|.
   GetTaskRunner()->PostTask(
-      FROM_HERE, base::Bind(&AudioManagerWin::InitializeOnAudioThread,
-                            base::Unretained(this)));
+      FROM_HERE, base::BindOnce(&AudioManagerWin::InitializeOnAudioThread,
+                                base::Unretained(this)));
 }
 
 AudioManagerWin::~AudioManagerWin() = default;
@@ -178,78 +135,6 @@ void AudioManagerWin::InitializeOnAudioThread() {
   output_device_listener_.reset(new AudioDeviceListenerWin(BindToCurrentLoop(
       base::Bind(&AudioManagerWin::NotifyAllOutputDeviceChangeListeners,
                  base::Unretained(this)))));
-}
-
-base::string16 AudioManagerWin::GetAudioInputDeviceModel() {
-  // Get the default audio capture device and its device interface name.
-  DWORD device_id = 0;
-  waveInMessage(reinterpret_cast<HWAVEIN>(WAVE_MAPPER),
-                DRVM_MAPPER_PREFERRED_GET,
-                reinterpret_cast<DWORD_PTR>(&device_id), NULL);
-  ULONG device_interface_name_size = 0;
-  waveInMessage(reinterpret_cast<HWAVEIN>(device_id),
-                DRV_QUERYDEVICEINTERFACESIZE,
-                reinterpret_cast<DWORD_PTR>(&device_interface_name_size), 0);
-  size_t bytes_in_char16 = sizeof(base::string16::value_type);
-  DCHECK_EQ(0u, device_interface_name_size % bytes_in_char16);
-  if (device_interface_name_size <= bytes_in_char16)
-    return base::string16();  // No audio capture device.
-
-  base::string16 device_interface_name;
-  base::string16::value_type* name_ptr = base::WriteInto(
-      &device_interface_name, device_interface_name_size / bytes_in_char16);
-  waveInMessage(reinterpret_cast<HWAVEIN>(device_id), DRV_QUERYDEVICEINTERFACE,
-                reinterpret_cast<DWORD_PTR>(name_ptr),
-                static_cast<DWORD_PTR>(device_interface_name_size));
-
-  // Enumerate all audio devices and find the one matching the above device
-  // interface name.
-  HDEVINFO device_info = SetupDiGetClassDevs(
-      &AM_KSCATEGORY_AUDIO, 0, 0, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT);
-  if (device_info == INVALID_HANDLE_VALUE)
-    return base::string16();
-
-  DWORD interface_index = 0;
-  SP_DEVICE_INTERFACE_DATA interface_data;
-  interface_data.cbSize = sizeof(interface_data);
-  while (SetupDiEnumDeviceInterfaces(device_info, 0, &AM_KSCATEGORY_AUDIO,
-                                     interface_index++, &interface_data)) {
-    // Query the size of the struct, allocate it and then query the data.
-    SP_DEVINFO_DATA device_data;
-    device_data.cbSize = sizeof(device_data);
-    DWORD interface_detail_size = 0;
-    SetupDiGetDeviceInterfaceDetail(device_info, &interface_data, 0, 0,
-                                    &interface_detail_size, &device_data);
-    if (!interface_detail_size)
-      continue;
-
-    std::unique_ptr<char[]> interface_detail_buffer(
-        new char[interface_detail_size]);
-    SP_DEVICE_INTERFACE_DETAIL_DATA* interface_detail =
-        reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA*>(
-            interface_detail_buffer.get());
-    interface_detail->cbSize = interface_detail_size;
-    if (!SetupDiGetDeviceInterfaceDetail(
-            device_info, &interface_data, interface_detail,
-            interface_detail_size, NULL, &device_data))
-      return base::string16();
-
-    bool device_found = (device_interface_name == interface_detail->DevicePath);
-
-    if (device_found)
-      return GetDeviceAndDriverInfo(device_info, &device_data);
-  }
-
-  return base::string16();
-}
-
-void AudioManagerWin::ShowAudioInputSettings() {
-  base::FilePath path;
-  PathService::Get(base::DIR_SYSTEM, &path);
-  path = path.Append(L"control.exe");
-  base::CommandLine command_line(path);
-  command_line.AppendArg("mmsys.cpl,,1");
-  base::LaunchProcess(command_line, base::LaunchOptions());
 }
 
 void AudioManagerWin::GetAudioDeviceNamesImpl(bool input,
@@ -294,7 +179,7 @@ AudioParameters AudioManagerWin::GetInputStreamParameters(
     // code path somehow for a configuration - e.g. tab capture).
     parameters =
         AudioParameters(AudioParameters::AUDIO_PCM_LINEAR,
-                        CHANNEL_LAYOUT_STEREO, 48000, 16, kFallbackBufferSize);
+                        CHANNEL_LAYOUT_STEREO, 48000, kFallbackBufferSize);
   }
 
   int user_buffer_size = GetUserBufferSize();
@@ -371,11 +256,23 @@ AudioInputStream* AudioManagerWin::MakeLowLatencyInputStream(
     const LogCallback& log_callback) {
   // Used for both AUDIO_PCM_LOW_LATENCY and AUDIO_PCM_LINEAR.
   DVLOG(1) << "MakeLowLatencyInputStream: " << device_id;
-  return new WASAPIAudioInputStream(this, params, device_id);
+  return new WASAPIAudioInputStream(this, params, device_id, log_callback);
+}
+
+std::string AudioManagerWin::GetDefaultInputDeviceID() {
+  return CoreAudioUtil::GetDefaultInputDeviceID();
 }
 
 std::string AudioManagerWin::GetDefaultOutputDeviceID() {
   return CoreAudioUtil::GetDefaultOutputDeviceID();
+}
+
+std::string AudioManagerWin::GetCommunicationsInputDeviceID() {
+  return CoreAudioUtil::GetCommunicationsInputDeviceID();
+}
+
+std::string AudioManagerWin::GetCommunicationsOutputDeviceID() {
+  return CoreAudioUtil::GetCommunicationsOutputDeviceID();
 }
 
 AudioParameters AudioManagerWin::GetPreferredOutputStreamParameters(
@@ -385,8 +282,9 @@ AudioParameters AudioManagerWin::GetPreferredOutputStreamParameters(
   ChannelLayout channel_layout = CHANNEL_LAYOUT_STEREO;
   int sample_rate = 48000;
   int buffer_size = kFallbackBufferSize;
-  int bits_per_sample = 16;
   int effects = AudioParameters::NO_EFFECTS;
+  int min_buffer_size = 0;
+  int max_buffer_size = 0;
 
   // TODO(henrika): Remove kEnableExclusiveAudio and related code. It doesn't
   // look like it's used.
@@ -417,11 +315,18 @@ AudioParameters AudioManagerWin::GetPreferredOutputStreamParameters(
       return AudioParameters();
     }
 
-    bits_per_sample = params.bits_per_sample();
+    DCHECK(params.IsValid());
+
     buffer_size = params.frames_per_buffer();
     channel_layout = params.channel_layout();
     sample_rate = params.sample_rate();
     effects = params.effects();
+
+    AudioParameters::HardwareCapabilities hardware_capabilities =
+        params.hardware_capabilities().value_or(
+            AudioParameters::HardwareCapabilities());
+    min_buffer_size = hardware_capabilities.min_frames_per_buffer;
+    max_buffer_size = hardware_capabilities.max_frames_per_buffer;
   }
 
   if (input_params.IsValid()) {
@@ -453,15 +358,25 @@ AudioParameters AudioManagerWin::GetPreferredOutputStreamParameters(
     }
 
     effects |= input_params.effects();
+
+    // Allow non-default buffer sizes if we have a valid min and max.
+    if (min_buffer_size > 0 && max_buffer_size > 0) {
+      buffer_size =
+          std::min(max_buffer_size,
+                   std::max(input_params.frames_per_buffer(), min_buffer_size));
+    }
   }
 
   int user_buffer_size = GetUserBufferSize();
   if (user_buffer_size)
     buffer_size = user_buffer_size;
 
-  AudioParameters params(AudioParameters::AUDIO_PCM_LOW_LATENCY, channel_layout,
-                         sample_rate, bits_per_sample, buffer_size);
+  AudioParameters params(
+      AudioParameters::AUDIO_PCM_LOW_LATENCY, channel_layout, sample_rate,
+      buffer_size,
+      AudioParameters::HardwareCapabilities(min_buffer_size, max_buffer_size));
   params.set_effects(effects);
+  DCHECK(params.IsValid());
   return params;
 }
 
@@ -469,7 +384,7 @@ AudioParameters AudioManagerWin::GetPreferredOutputStreamParameters(
 std::unique_ptr<AudioManager> CreateAudioManager(
     std::unique_ptr<AudioThread> audio_thread,
     AudioLogFactory* audio_log_factory) {
-  return base::MakeUnique<AudioManagerWin>(std::move(audio_thread),
+  return std::make_unique<AudioManagerWin>(std::move(audio_thread),
                                            audio_log_factory);
 }
 

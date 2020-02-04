@@ -134,7 +134,7 @@ TestCase {
     function compare_place(place1, place2) {
         // check simple properties
         var simpleProperties = ["name", "placeId", "primaryPhone", "primaryFax", "primaryEmail",
-                                "primaryUrl", "visibility"];
+                                "primaryWebsite", "visibility"];
         for (x in simpleProperties) {
             if (place1[simpleProperties[x]] !== place2[simpleProperties[x]])
                 return false;

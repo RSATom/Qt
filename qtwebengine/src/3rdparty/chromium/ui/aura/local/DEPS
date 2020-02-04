@@ -1,7 +1,8 @@
 include_rules = [
+  "+cc/mojo_embedder",
   "+cc/output",
   "+cc/scheduler",
-  "+cc/surfaces",
   "+components/viz/service/frame_sinks",
+  "+services/viz/public/interfaces",
 ]
 

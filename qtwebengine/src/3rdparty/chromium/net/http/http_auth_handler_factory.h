@@ -11,9 +11,12 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "net/base/net_export.h"
 #include "net/http/http_auth.h"
+#include "net/http/http_negotiate_auth_system.h"
 #include "net/http/url_security_manager.h"
+#include "net/net_buildflags.h"
 
 class GURL;
 
@@ -116,6 +119,12 @@ class NET_EXPORT HttpAuthHandlerFactory {
       const NetLogWithSource& net_log,
       std::unique_ptr<HttpAuthHandler>* handler);
 
+  // Factory callback to create the auth system used for Negotiate
+  // authentication.
+  using NegotiateAuthSystemFactory =
+      base::RepeatingCallback<std::unique_ptr<net::HttpNegotiateAuthSystem>(
+          const net::HttpAuthPreferences*)>;
+
   // Creates a standard HttpAuthHandlerRegistryFactory. The caller is
   // responsible for deleting the factory.
   // The default factory supports Basic, Digest, NTLM, and Negotiate schemes.
@@ -125,8 +134,25 @@ class NET_EXPORT HttpAuthHandlerFactory {
   // non-NULL.  |resolver| must remain valid for the lifetime of the
   // HttpAuthHandlerRegistryFactory and any HttpAuthHandlers created by said
   // factory.
+  //
+  // |negotiate_auth_system_factory| is used to override the default auth system
+  // used by the Negotiate authentication handler.
   static std::unique_ptr<HttpAuthHandlerRegistryFactory> CreateDefault(
-      HostResolver* resolver);
+      HostResolver* resolver,
+      const HttpAuthPreferences* prefs = nullptr
+#if defined(OS_CHROMEOS)
+      ,
+      bool allow_gssapi_library_load = true
+#elif (defined(OS_POSIX) && !defined(OS_ANDROID)) || defined(OS_FUCHSIA)
+      ,
+      const std::string& gssapi_library_name = ""
+#endif
+#if BUILDFLAG(USE_KERBEROS)
+      ,
+      NegotiateAuthSystemFactory negotiate_auth_system_factory =
+          NegotiateAuthSystemFactory()
+#endif
+  );
 
  private:
   // The preferences for HTTP authentication.
@@ -167,17 +193,38 @@ class NET_EXPORT HttpAuthHandlerRegistryFactory
 
   // Creates an HttpAuthHandlerRegistryFactory.
   //
-  // |prefs| is a pointer to the (single) authentication preferences object.
-  // That object tracks preference, and hence policy, updates relevant to HTTP
-  // authentication, and provides the current values of the preferences.
-  //
   // |host_resolver| is used by the Negotiate authentication handler to perform
   // CNAME lookups to generate a Kerberos SPN for the server. If the "negotiate"
   // scheme is used and |negotiate_disable_cname_lookup| is false,
   // |host_resolver| must not be NULL.
+  //
+  // |prefs| is a pointer to the (single) authentication preferences object.
+  // That object tracks preference, and hence policy, updates relevant to HTTP
+  // authentication, and provides the current values of the preferences.
+  //
+  // |auth_schemes| is a list of authentication schemes to support. Unknown
+  // schemes are ignored.
+  //
+  // |negotiate_auth_system_factory| is used to override the default auth system
+  // used by the Negotiate authentication handler.
   static std::unique_ptr<HttpAuthHandlerRegistryFactory> Create(
+      HostResolver* host_resolver,
       const HttpAuthPreferences* prefs,
-      HostResolver* host_resolver);
+      const std::vector<std::string>& auth_schemes
+#if defined(OS_CHROMEOS)
+      ,
+      bool allow_gssapi_library_load = true
+#elif (defined(OS_POSIX) && !defined(OS_ANDROID)) || defined(OS_FUCHSIA)
+      ,
+      const std::string& gssapi_library_name = ""
+#endif
+#if BUILDFLAG(USE_KERBEROS)
+      ,
+      NegotiateAuthSystemFactory negotiate_auth_system_factory =
+          NegotiateAuthSystemFactory()
+#endif
+  );
+
   // Creates an auth handler by dispatching out to the registered factories
   // based on the first token in |challenge|.
   int CreateAuthHandler(HttpAuthChallengeTokenizer* challenge,

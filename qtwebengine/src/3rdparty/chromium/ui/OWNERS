@@ -7,5 +7,7 @@ avi@chromium.org
 ccameron@chromium.org
 
 # If you're doing structural changes get a review from one of the OWNERS.
-per-file *.gyp*=*
 per-file BUILD.gn=*
+
+# Translation artifacts:
+per-file *.xtb=file://tools/translation/TRANSLATION_OWNERS

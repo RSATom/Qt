@@ -11,17 +11,25 @@ import sys
 
 _HERE_PATH = os.path.join(os.path.dirname(__file__))
 
+# The name of a dummy file to be updated always after all other files have been
+# written. This file is declared as the "output" for GN's purposes
+_TIMESTAMP_FILENAME = os.path.join('unpack.stamp')
+
 
 _SRC_PATH = os.path.normpath(os.path.join(_HERE_PATH, '..', '..', '..'))
-sys.path.append(os.path.join(_SRC_PATH, 'tools', 'grit'))
+sys.path.insert(1, os.path.join(_SRC_PATH, 'tools', 'grit'))
 from grit.format import data_pack
 
 
-def unpack(pak_path, out_path):
+def ParseLine(line):
+  return re.match('  {"([^"]+)", ([^},]+)', line)
+
+
+def Unpack(pak_path, out_path):
   pak_dir = os.path.dirname(pak_path)
   pak_id = os.path.splitext(os.path.basename(pak_path))[0]
 
-  data = data_pack.DataPack.ReadDataPack(pak_path)
+  data = data_pack.ReadDataPack(pak_path)
 
   # Associate numerical grit IDs to strings.
   # For example 120045 -> 'IDR_SETTINGS_ABOUT_PAGE_HTML'
@@ -39,7 +47,7 @@ def unpack(pak_path, out_path):
   resources_map_path = os.path.join(pak_dir, 'grit', pak_id + '_map.cc')
   with open(resources_map_path) as resources_map:
     for line in resources_map:
-      res = re.match('  {"([^"]+)", ([^}]+)', line)
+      res = ParseLine(line)
       if res:
         resource_filenames[res.group(2)] = res.group(1)
   assert resource_filenames
@@ -60,7 +68,11 @@ def main():
   parser.add_argument('--out_folder')
   args = parser.parse_args()
 
-  unpack(args.pak_file, args.out_folder)
+  Unpack(args.pak_file, args.out_folder)
+
+  timestamp_file_path = os.path.join(args.out_folder, _TIMESTAMP_FILENAME)
+  with open(timestamp_file_path, 'a'):
+    os.utime(timestamp_file_path, None)
 
 
 if __name__ == '__main__':

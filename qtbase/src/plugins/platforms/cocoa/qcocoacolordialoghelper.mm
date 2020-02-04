@@ -50,7 +50,14 @@
 QT_USE_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(QNSColorPanelDelegate) : NSObject<NSWindowDelegate, QNSPanelDelegate>
-{
+- (void)restoreOriginalContentView;
+- (void)updateQtColor;
+- (void)finishOffWithCode:(NSInteger)code;
+@end
+
+QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSColorPanelDelegate);
+
+@implementation QNSColorPanelDelegate {
     @public
     NSColorPanel *mColorPanel;
     QCocoaColorDialogHelper *mHelper;
@@ -61,22 +68,14 @@ QT_USE_NAMESPACE
     BOOL mDialogIsExecuting;
     BOOL mResultSet;
     BOOL mClosingDueToKnownButton;
-};
-- (void)restoreOriginalContentView;
-- (void)updateQtColor;
-- (void)finishOffWithCode:(NSInteger)code;
-@end
+}
 
-QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSColorPanelDelegate);
-
-@implementation QNSColorPanelDelegate
-
-- (id)init
+- (instancetype)init
 {
     self = [super init];
     mColorPanel = [NSColorPanel sharedColorPanel];
-    mHelper = 0;
-    mStolenContentView = 0;
+    mHelper = nullptr;
+    mStolenContentView = nil;
     mPanelButtons = nil;
     mResultCode = NSModalResponseCancel;
     mDialogIsExecuting = false;
@@ -116,9 +115,9 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSColorPanelDelegate);
         [self restoreOriginalContentView];
     } else if (!mStolenContentView) {
         // steal the color panel's contents view
-        mStolenContentView = [mColorPanel contentView];
+        mStolenContentView = mColorPanel.contentView;
         [mStolenContentView retain];
-        [mColorPanel setContentView:0];
+        mColorPanel.contentView = nil;
 
         // create a new content view and add the stolen one as a subview
         mPanelButtons = [[QNSPanelContentsWrapper alloc] initWithPanelDelegate:self];
@@ -310,7 +309,7 @@ public:
     void cleanup(QCocoaColorDialogHelper *helper)
     {
         if (mDelegate->mHelper == helper)
-            mDelegate->mHelper = 0;
+            mDelegate->mHelper = nullptr;
     }
 
     bool exec()

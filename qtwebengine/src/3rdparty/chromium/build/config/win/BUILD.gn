@@ -2,11 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/c++/c++.gni")
+import("//build/config/chrome_build.gni")
 import("//build/config/clang/clang.gni")
 import("//build/config/compiler/compiler.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/win/visual_studio_version.gni")
+import("//build/timestamp.gni")
+import("//build/toolchain/goma.gni")
 import("//build/toolchain/toolchain.gni")
+import("//buildtools/deps_revisions.gni")
 
 assert(is_win)
 
@@ -20,7 +25,30 @@ declare_args() {
   # Turn this on to have the linker output extra timing information.
   win_linker_timing = false
 
-  use_incremental_linking = (is_debug || is_component_build) && !is_syzyasan
+  use_incremental_linking = (is_debug || is_component_build)
+
+  # possible values for target_winuwp_version:
+  #   "10" - Windows UWP 10
+  #   "8.1" - Windows RT 8.1
+  #   "8.0" - Windows RT 8.0
+  target_winuwp_version = "10"
+
+  # possible values:
+  #   "app" - Windows Store Applications
+  #   "phone" - Windows Phone Applications
+  #   "system" - Windows Drivers and Tools
+  #   "server" - Windows Server Applications
+  #   "desktop" - Windows Desktop Applications
+  target_winuwp_family = "app"
+
+  # Set this to use clang-style diagnostics format instead of MSVC-style, which
+  # is useful in e.g. Emacs compilation mode.
+  # E.g.:
+  #  Without this, clang emits a diagnostic message like this:
+  #    foo/bar.cc(12,34): error: something went wrong
+  #  and with this switch, clang emits it like this:
+  #    foo/bar.cc:12:34: error: something went wrong
+  use_clang_diagnostics_format = false
 }
 
 # This is included by reference in the //build/config/compiler config that
@@ -59,10 +87,16 @@ config("compiler") {
     "/Zc:sizedDealloc-",
   ]
 
-  # Building with Clang on Windows is a work in progress and very
-  # experimental. See crbug.com/82385.
   if (is_clang) {
-    cflags += [ "-fmsc-version=1900" ]
+    cflags += [ "-fmsc-version=1911" ]
+
+    if (is_component_build) {
+      cflags += [
+        # Do not export inline member functions. This makes component builds
+        # faster. This is similar to -fvisibility-inlines-hidden.
+        "/Zc:dllexportInlines-",
+      ]
+    }
 
     if (current_cpu == "x86") {
       cflags += [ "-m32" ]
@@ -79,35 +113,65 @@ config("compiler") {
       ]
     }
 
+    if (use_clang_diagnostics_format) {
+      cflags += [
+        "-Xclang",
+        "-fdiagnostics-format",
+        "-Xclang",
+        "clang",
+      ]
+    }
+
     # Clang runtime libraries, such as the sanitizer runtimes, live here.
     lib_dirs = [ "$clang_base_path/lib/clang/$clang_version/lib/windows" ]
   }
 
-  # /PROFILE ensures that the PDB file contains FIXUP information (growing the
-  # PDB file by about 5%) but does not otherwise alter the output binary. This
-  # information is used by the Syzygy optimization tool when decomposing the
-  # release image. It is enabled for syzyasan builds and opportunistically for
-  # other builds where it is not prohibited (not supported when incrementally
-  # linking, or using /debug:fastlink).
-  if (is_syzyasan) {
-    assert(!is_win_fastlink)
-    ldflags = [ "/PROFILE" ]
-  } else {
-    if (!is_debug && !is_component_build) {
-      if (is_win_fastlink) {
-        # /PROFILE implies the following linker flags. Therefore if we are
-        # skipping /PROFILE because it is incompatible with /DEBUG:FASTLINK
-        # we should explicitly add these flags in order to avoid unintended
-        # consequences such as larger binaries.
-        ldflags = [
-          "/OPT:REF",
-          "/OPT:ICF",
-          "/INCREMENTAL:NO",
-          "/FIXED:NO",
-        ]
-      } else {
-        ldflags = [ "/PROFILE" ]
-      }
+  if (use_lld && !use_thin_lto && (is_clang || !use_goma)) {
+    # /Brepro lets the compiler not write the mtime field in the .obj output.
+    # link.exe /incremental relies on this field to work correctly, but lld
+    # never looks at this timestamp, so it's safe to pass this flag with
+    # lld and get more deterministic compiler output in return.
+    # In LTO builds, the compiler doesn't write .obj files containing mtimes,
+    # so /Brepro is ignored there.
+    cflags += [ "/Brepro" ]
+  }
+
+  ldflags = []
+
+  if (use_lld) {
+    # lld defaults to writing the current time in the pe/coff header.
+    # For build reproducibility, pass an explicit timestamp. See
+    # build/compute_build_timestamp.py for how the timestamp is chosen.
+    # (link.exe also writes the current time, but it doesn't have a flag to
+    # override that behavior.)
+    ldflags += [ "/TIMESTAMP:" + build_timestamp ]
+  }
+
+  if (!is_debug && !is_component_build) {
+    # Enable standard linker optimizations like GC (/OPT:REF) and ICF in static
+    # release builds. These are implied by /PROFILE below, but /PROFILE is
+    # incompatible with /debug:fastlink.
+    # Release builds always want these optimizations, so enable them explicitly.
+    ldflags += [
+      "/OPT:REF",
+      "/OPT:ICF",
+      "/INCREMENTAL:NO",
+      "/FIXED:NO",
+    ]
+
+    if (use_lld) {
+      # String tail merging leads to smaller binaries, but they don't compress
+      # as well, leading to increased mini_installer size (crbug.com/838449).
+      ldflags += [ "/OPT:NOLLDTAILMERGE" ]
+    }
+
+    # TODO(siggi): Is this of any use anymore?
+    # /PROFILE ensures that the PDB file contains FIXUP information (growing the
+    # PDB file by about 5%) but does not otherwise alter the output binary. It
+    # is enabled opportunistically for builds where it is not prohibited (not
+    # supported when incrementally linking, or using /debug:fastlink).
+    if (!is_win_fastlink) {
+      ldflags += [ "/PROFILE" ]
     }
   }
 
@@ -170,13 +234,13 @@ config("vs_code_analysis") {
 # :runtime_library vs. :compiler.
 config("runtime_library") {
   cflags = []
+  cflags_cc = []
 
   # Defines that set up the CRT.
   defines = [
     "__STD_C",
     "_CRT_RAND_S",
     "_CRT_SECURE_NO_DEPRECATE",
-    "_HAS_EXCEPTIONS=0",
     "_SCL_SECURE_NO_DEPRECATE",
   ]
 
@@ -185,7 +249,7 @@ config("runtime_library") {
     "_ATL_NO_OPENGL",
     "_WINDOWS",
     "CERT_CHAIN_PARA_HAS_EXTRA_FIELDS",
-    "PSAPI_VERSION=1",
+    "PSAPI_VERSION=2",
     "WIN32",
     "_SECURE_ATL",
   ]
@@ -195,13 +259,83 @@ config("runtime_library") {
     # However it is prohibited when using /analyze
     defines += [ "_USING_V110_SDK71_" ]
   }
+
+  # TODO(thomasanderson): Move this into a target in //build/config/c++ and
+  # deduplicate with //build/config/posix/BUILD.gn.
+  if (use_custom_libcxx) {
+    cflags_cc +=
+        [ "-I" + rebase_path("$libcxx_prefix/include", root_build_dir) ]
+    if (!is_component_build) {
+      # Don't leak any symbols on a static build.
+      defines += [ "_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS" ]
+    }
+
+    # Windows doesn't need to set _LIBCPP_ABI_VERSION since there's no system
+    # C++ library we could conflict with.
+    defines += [
+      "CR_LIBCXX_REVISION=$libcxx_svn_revision",
+      "CR_LIBCXXABI_REVISION=$libcxxabi_svn_revision",
+      "_LIBCPP_ABI_UNSTABLE",
+      "_LIBCPP_ENABLE_NODISCARD",
+
+      # Prevent libc++ from embedding linker flags to try to automatically link
+      # against its runtime library. This is unnecessary with our build system,
+      # and can also result in build failures if libc++'s name for a library
+      # does not match ours.
+      "_LIBCPP_NO_AUTO_LINK",
+    ]
+  }
+
+  if (current_os == "winuwp") {
+    # When targeting Windows Runtime, certain compiler/linker flags are
+    # necessary.
+    defines += [
+      "WINUWP",
+      "__WRL_NO_DEFAULT_LIB__",
+    ]
+    if (target_winuwp_family == "app") {
+      defines += [ "WINAPI_FAMILY=WINAPI_FAMILY_PC_APP" ]
+    } else if (target_winuwp_family == "phone") {
+      defines += [ "WINAPI_FAMILY=WINAPI_FAMILY_PHONE_APP" ]
+    } else if (target_winuwp_family == "system") {
+      defines += [ "WINAPI_FAMILY=WINAPI_FAMILY_SYSTEM" ]
+    } else if (target_winuwp_family == "server") {
+      defines += [ "WINAPI_FAMILY=WINAPI_FAMILY_SERVER" ]
+    } else {
+      defines += [ "WINAPI_FAMILY=WINAPI_FAMILY_DESKTOP_APP" ]
+    }
+    cflags_cc += [
+      "/ZW",
+      "/EHsc",
+    ]
+
+    # This warning is given because the linker cannot tell the difference
+    # between consuming WinRT APIs versus authoring WinRT within static
+    # libraries as such this warning is always given by the linker. Since
+    # consuming WinRT APIs within a library is legitimate but authoring
+    # WinRT APis is not allowed, this warning is disabled to ignore the
+    # legitimate consumption of WinRT APIs within static library builds.
+    arflags = [ "/IGNORE:4264" ]
+
+    if (target_winuwp_version == "10") {
+      defines += [ "WIN10=_WIN32_WINNT_WIN10" ]
+    } else if (target_winuwp_version == "8.1") {
+      defines += [ "WIN8_1=_WIN32_WINNT_WINBLUE" ]
+    } else if (target_winuwp_version == "8.0") {
+      defines += [ "WIN8=_WIN32_WINNT_WIN8" ]
+    }
+  } else {
+    # When not targeting Windows Runtime, make sure the WINAPI family is set
+    # to desktop.
+    defines += [ "WINAPI_FAMILY=WINAPI_FAMILY_DESKTOP_APP" ]
+  }
 }
 
 # Sets the default Windows build version. This is separated because some
 # targets need to manually override it for their compiles.
 config("winver") {
   defines = [
-    "NTDDI_VERSION=0x0A000000",
+    "NTDDI_VERSION=0x0A000002",
     "_WIN32_WINNT=0x0A00",
     "WINVER=0x0A00",
   ]
@@ -209,24 +343,56 @@ config("winver") {
 
 # Linker flags for Windows SDK setup, this is applied only to EXEs and DLLs.
 config("sdk_link") {
+  assert(current_cpu == "x64" || current_cpu == "x86" || current_cpu == "arm" ||
+             current_cpu == "arm64",
+         "Only supports x64, x86, arm and arm64 CPUs")
   if (current_cpu == "x64") {
     ldflags = [ "/MACHINE:X64" ]
-    lib_dirs = [
-      "$windows_sdk_path\Lib\winv6.3\um\x64",
-      "$visual_studio_path\VC\lib\amd64",
-      "$visual_studio_path\VC\atlmfc\lib\amd64",
-    ]
-  } else {
+  } else if (current_cpu == "x86") {
     ldflags = [
       "/MACHINE:X86",
       "/SAFESEH",  # Not compatible with x64 so use only for x86.
       "/largeaddressaware",
     ]
-    lib_dirs = [
-      "$windows_sdk_path\Lib\winv6.3\um\x86",
-      "$visual_studio_path\VC\lib",
-      "$visual_studio_path\VC\atlmfc\lib",
-    ]
+  } else if (current_cpu == "arm") {
+    ldflags = [ "/MACHINE:ARM" ]
+  } else if (current_cpu == "arm64") {
+    ldflags = [ "/MACHINE:ARM64" ]
+  }
+
+  if (ninja_use_custom_environment_files) {
+    vcvars_toolchain_data = exec_script("../../toolchain/win/setup_toolchain.py",
+                                        [
+                                          visual_studio_path,
+                                          windows_sdk_path,
+                                          visual_studio_runtime_dirs,
+                                          current_os,
+                                          current_cpu,
+                                          "none"
+                                        ],
+                                        "scope")
+  } else {
+    vcvars_toolchain_data = exec_script("../../toolchain/win/setup_toolchain.py",
+                                        [
+                                          current_os,
+                                          current_cpu,
+                                          "none",
+                                        ],
+                                        "scope")
+  }
+
+  vc_lib_path = vcvars_toolchain_data.vc_lib_path
+  if (defined(vcvars_toolchain_data.vc_lib_atlmfc_path)) {
+    vc_lib_atlmfc_path = vcvars_toolchain_data.vc_lib_atlmfc_path
+  }
+  vc_lib_um_path = vcvars_toolchain_data.vc_lib_um_path
+
+  lib_dirs = [
+    "$vc_lib_um_path",
+    "$vc_lib_path",
+  ]
+  if (defined(vc_lib_atlmfc_path)) {
+    lib_dirs += [ "$vc_lib_atlmfc_path" ]
   }
 }
 
@@ -240,19 +406,8 @@ config("common_linker_setup") {
     "/ignore:4199",
     "/ignore:4221",
     "/NXCOMPAT",
+    "/DYNAMICBASE",
   ]
-
-  # ASLR makes debugging with windbg difficult because Chrome.exe and
-  # Chrome.dll share the same base name. As result, windbg will name the
-  # Chrome.dll module like chrome_<base address>, where <base address>
-  # typically changes with each launch. This in turn means that breakpoints in
-  # Chrome.dll don't stick from one launch to the next. For this reason, we
-  # turn ASLR off in debug builds.
-  if (is_debug) {
-    ldflags += [ "/DYNAMICBASE:NO" ]
-  } else {
-    ldflags += [ "/DYNAMICBASE" ]
-  }
 
   if (win_linker_timing) {
     ldflags += [
@@ -267,10 +422,16 @@ config("cfi_linker") {
   # https://msdn.microsoft.com/en-us/library/windows/desktop/mt637065.aspx
   # /DYNAMICBASE (ASLR) is turned off in debug builds, therefore CFG can’t be
   # turned on either.
-  # TODO(thakis): Turn this on with lld once supported, https://crbug.com/693709
-  if (!is_debug && !use_lld) {
-    # Turn on CFG in msvc linker, regardless of compiler used.
-    ldflags = [ "/guard:cf" ]
+  # CFG seems to lead to random corruption with incremental linking so turn off
+  # CFG in component builds. https://crbug.com/812421
+  # ASan and CFG leads to slow process startup. Chromium's test runner uses
+  # lots of child processes, so this means things are really slow. Disable CFG
+  # for now. https://crbug.com/846966
+  if (!is_debug && !is_component_build && !is_asan) {
+    # Turn on CFG in msvc linker, regardless of compiler used. Turn off CFG for
+    # longjmp (new in VS 2017) because it relies on compiler support which we do
+    # not have enabled.
+    ldflags = [ "/guard:cf,nolongjmp" ]
   }
 }
 
@@ -286,8 +447,10 @@ config("default_crt") {
     # exceptions on.
     configs = [ ":dynamic_crt" ]
   } else {
-    if (current_os != "win") {
-      # WindowsRT: use the dynamic CRT.
+    if (current_os == "winuwp") {
+      # https://blogs.msdn.microsoft.com/vcblog/2014/06/10/the-great-c-runtime-crt-refactoring/
+      # contains a details explanation of what is happening with the Windows
+      # CRT in Visual Studio releases related to Windows store applications.
       configs = [ ":dynamic_crt" ]
     } else {
       # Desktop Windows: static CRT.
@@ -333,6 +496,9 @@ if (current_cpu == "x64") {
   # The number after the comma is the minimum required OS version.
   # 5.02 = Windows Server 2003.
   subsystem_version_suffix = ",5.02"
+} else if (current_cpu == "arm64") {
+  # Windows ARM64 requires Windows 10.
+  subsystem_version_suffix = ",10.0"
 } else {
   # 5.01 = Windows XP.
   subsystem_version_suffix = ",5.01"
@@ -348,10 +514,15 @@ config("windowed") {
 # Incremental linking ----------------------------------------------------------
 
 incremental_linking_on_switch = [ "/INCREMENTAL" ]
-incremental_linking_off_switch = [ "/INCREMENTAL:NO" ]
+if (!use_incremental_linking || !use_lld) {
+  incremental_linking_off_switch = [ "/INCREMENTAL:NO" ]
+}
+if (use_lld) {
+  incremental_linking_on_switch += [ "/OPT:NOREF" ]
+}
 
-# Disable incremental linking for syzyasan, enable for debug builds and all
-# component builds - any builds where performance is not job one.
+# Enable incremental linking for debug builds and all component builds - any
+# builds where performance is not job one.
 if (use_incremental_linking) {
   default_incremental_linking_switch = incremental_linking_on_switch
 } else {
@@ -368,20 +539,26 @@ config("incremental_linking") {
   ldflags = incremental_linking_on_switch
 }
 config("no_incremental_linking") {
-  ldflags = incremental_linking_off_switch
+  # Projects disable incremental linking to work around ilk file issues with
+  # link.exe. lld doesn't use ilk files and doesn't really have an incremental
+  # link mode; the only effect of the flag is that the .lib file timestamp isn't
+  # updated if the .lib doesn't change.
+  if (!use_lld) {
+    ldflags = incremental_linking_off_switch
+  }
 }
 
 # Some large modules can't handle incremental linking in some situations. This
 # config should be applied to large modules to turn off incremental linking
 # when it won't work.
 config("default_large_module_incremental_linking") {
-  if (symbol_level > 0 && (current_cpu == "x86" || !is_component_build)) {
-    # When symbols are on, things get so large that the tools fail due to the
-    # size of the .ilk files.
-    ldflags = incremental_linking_off_switch
-  } else {
-    # Otherwise just do the default incremental linking for this build type.
+  if (use_lld || symbol_level == 0 ||
+      (current_cpu == "x86" && is_component_build)) {
+    # In these configurations, ilk file sizes stay low enough that we can
+    # link incrementally.
     ldflags = default_incremental_linking_switch
+  } else {
+    ldflags = incremental_linking_off_switch
   }
 }
 
@@ -399,7 +576,7 @@ config("unicode") {
 
 # Some third party code might not compile with WIN32_LEAN_AND_MEAN so we have
 # to have a separate config for it. Remove this config from your target to
-# get the "bloaty and accomodating" version of windows.h.
+# get the "bloaty and accommodating" version of windows.h.
 config("lean_and_mean") {
   defines = [ "WIN32_LEAN_AND_MEAN" ]
 }
@@ -414,27 +591,20 @@ config("nominmax") {
   defines = [ "NOMINMAX" ]
 }
 
-# Target WinRT ----------------------------------------------------------------
+# Generating order files -------------------------------------------------------
 
-# When targeting Windows Runtime, certain compiler/linker flags are necessary.
-
-config("target_winrt") {
-  defines = [
-    "WINRT",
-    "WINAPI_FAMILY=WINAPI_FAMILY_PC_APP",
-  ]
-  cflags_cc = [
-    "/ZW",
-    "/EHsc",
-  ]
+config("default_cygprofile_instrumentation") {
+  if (generate_order_files) {
+    assert(is_clang, "cygprofile instrumentation only works with clang")
+    assert(is_official_build, "order files should be made w/ official builds")
+    assert(!is_chrome_branded, "order files could leak internal symbol names")
+    configs = [ ":cygprofile_instrumentation" ]
+  }
 }
 
-# Internal stuff --------------------------------------------------------------
-
-# Config used by the MIDL template to disable warnings.
-config("midl_warnings") {
-  if (is_clang) {
-    # MIDL generates code like "#endif !_MIDL_USE_GUIDDEF_".
-    cflags = [ "-Wno-extra-tokens" ]
-  }
+config("cygprofile_instrumentation") {
+  cflags = [
+    "-Xclang",
+    "-finstrument-functions-after-inlining",
+  ]
 }

@@ -51,8 +51,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-#include <QStringListModel>
 #include <QScxmlStateMachine>
+#include <QStringListModel>
 
 QT_USE_NAMESPACE
 
@@ -115,8 +115,10 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
         m_machine->submitEvent("C");
     });
 
-    m_machine->connectToEvent(QLatin1String("updateDisplay"), this, [this](const QScxmlEvent &event) {
-        const QString display = event.data().toMap().value("display").toString();
+    m_machine->connectToEvent(QLatin1String("updateDisplay"), this,
+                              [this](const QScxmlEvent &event) {
+        const QString display = event.data().toMap()
+                .value("display").toString();
         ui->display->setText(display);
     });
 }

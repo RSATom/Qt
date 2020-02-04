@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'newform.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,9 +40,7 @@
 #define NEWFORM_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
@@ -69,7 +67,7 @@ public:
     void setupUi(QDialog *NewForm)
     {
         if (NewForm->objectName().isEmpty())
-            NewForm->setObjectName(QStringLiteral("NewForm"));
+            NewForm->setObjectName(QString::fromUtf8("NewForm"));
         NewForm->resize(495, 319);
         vboxLayout = new QVBoxLayout(NewForm);
 #ifndef Q_OS_MAC
@@ -78,15 +76,15 @@ public:
 #ifndef Q_OS_MAC
         vboxLayout->setContentsMargins(9, 9, 9, 9);
 #endif
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         hboxLayout = new QHBoxLayout();
 #ifndef Q_OS_MAC
         hboxLayout->setSpacing(6);
 #endif
         hboxLayout->setContentsMargins(1, 1, 1, 1);
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         treeWidget = new QTreeWidget(NewForm);
-        treeWidget->setObjectName(QStringLiteral("treeWidget"));
+        treeWidget->setObjectName(QString::fromUtf8("treeWidget"));
         treeWidget->setIconSize(QSize(128, 128));
         treeWidget->setRootIsDecorated(false);
         treeWidget->setColumnCount(1);
@@ -94,8 +92,8 @@ public:
         hboxLayout->addWidget(treeWidget);
 
         lblPreview = new QLabel(NewForm);
-        lblPreview->setObjectName(QStringLiteral("lblPreview"));
-        QSizePolicy sizePolicy(static_cast<QSizePolicy::Policy>(7), static_cast<QSizePolicy::Policy>(5));
+        lblPreview->setObjectName(QString::fromUtf8("lblPreview"));
+        QSizePolicy sizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         sizePolicy.setHorizontalStretch(0);
         sizePolicy.setVerticalStretch(0);
         sizePolicy.setHeightForWidth(lblPreview->sizePolicy().hasHeightForWidth());
@@ -110,19 +108,19 @@ public:
         vboxLayout->addLayout(hboxLayout);
 
         horizontalLine = new QFrame(NewForm);
-        horizontalLine->setObjectName(QStringLiteral("horizontalLine"));
+        horizontalLine->setObjectName(QString::fromUtf8("horizontalLine"));
         horizontalLine->setFrameShape(QFrame::HLine);
         horizontalLine->setFrameShadow(QFrame::Sunken);
 
         vboxLayout->addWidget(horizontalLine);
 
         chkShowOnStartup = new QCheckBox(NewForm);
-        chkShowOnStartup->setObjectName(QStringLiteral("chkShowOnStartup"));
+        chkShowOnStartup->setObjectName(QString::fromUtf8("chkShowOnStartup"));
 
         vboxLayout->addWidget(chkShowOnStartup);
 
         buttonBox = new QDialogButtonBox(NewForm);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
 
         vboxLayout->addWidget(buttonBox);
 
@@ -134,11 +132,11 @@ public:
 
     void retranslateUi(QDialog *NewForm)
     {
-        NewForm->setWindowTitle(QApplication::translate("NewForm", "New Form", nullptr));
+        NewForm->setWindowTitle(QCoreApplication::translate("NewForm", "New Form", nullptr));
         QTreeWidgetItem *___qtreewidgetitem = treeWidget->headerItem();
-        ___qtreewidgetitem->setText(0, QApplication::translate("NewForm", "0", nullptr));
-        lblPreview->setText(QApplication::translate("NewForm", "Choose a template for a preview", nullptr));
-        chkShowOnStartup->setText(QApplication::translate("NewForm", "Show this Dialog on Startup", nullptr));
+        ___qtreewidgetitem->setText(0, QCoreApplication::translate("NewForm", "0", nullptr));
+        lblPreview->setText(QCoreApplication::translate("NewForm", "Choose a template for a preview", nullptr));
+        chkShowOnStartup->setText(QCoreApplication::translate("NewForm", "Show this Dialog on Startup", nullptr));
     } // retranslateUi
 
 };

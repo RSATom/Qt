@@ -11,8 +11,8 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Dictionary;
 class CPDF_Document;
@@ -27,25 +27,27 @@ class CPDF_StructTree {
   explicit CPDF_StructTree(const CPDF_Document* pDoc);
   ~CPDF_StructTree();
 
-  int CountTopElements() const;
-  CPDF_StructElement* GetTopElement(int i) const;
+  size_t CountTopElements() const { return m_Kids.size(); }
+  CPDF_StructElement* GetTopElement(size_t i) const { return m_Kids[i].Get(); }
   const CPDF_Dictionary* GetRoleMap() const { return m_pRoleMap.Get(); }
   const CPDF_Dictionary* GetPage() const { return m_pPage.Get(); }
   const CPDF_Dictionary* GetTreeRoot() const { return m_pTreeRoot.Get(); }
 
  private:
-  void LoadPageTree(const CPDF_Dictionary* pPageDict);
-  CFX_RetainPtr<CPDF_StructElement> AddPageNode(
-      CPDF_Dictionary* pElement,
-      std::map<CPDF_Dictionary*, CFX_RetainPtr<CPDF_StructElement>>* map,
-      int nLevel);
-  bool AddTopLevelNode(CPDF_Dictionary* pDict,
-                       const CFX_RetainPtr<CPDF_StructElement>& pElement);
+  using StructElementMap =
+      std::map<const CPDF_Dictionary*, RetainPtr<CPDF_StructElement>>;
 
-  CFX_UnownedPtr<const CPDF_Dictionary> const m_pTreeRoot;
-  CFX_UnownedPtr<const CPDF_Dictionary> const m_pRoleMap;
-  CFX_UnownedPtr<const CPDF_Dictionary> m_pPage;
-  std::vector<CFX_RetainPtr<CPDF_StructElement>> m_Kids;
+  void LoadPageTree(const CPDF_Dictionary* pPageDict);
+  RetainPtr<CPDF_StructElement> AddPageNode(const CPDF_Dictionary* pElement,
+                                            StructElementMap* map,
+                                            int nLevel);
+  bool AddTopLevelNode(const CPDF_Dictionary* pDict,
+                       const RetainPtr<CPDF_StructElement>& pElement);
+
+  UnownedPtr<const CPDF_Dictionary> const m_pTreeRoot;
+  UnownedPtr<const CPDF_Dictionary> const m_pRoleMap;
+  UnownedPtr<const CPDF_Dictionary> m_pPage;
+  std::vector<RetainPtr<CPDF_StructElement>> m_Kids;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_STRUCTTREE_H_

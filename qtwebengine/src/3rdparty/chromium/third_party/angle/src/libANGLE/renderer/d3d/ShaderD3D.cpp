@@ -9,41 +9,19 @@
 #include "libANGLE/renderer/d3d/ShaderD3D.h"
 
 #include "common/utilities.h"
+#include "libANGLE/Caps.h"
 #include "libANGLE/Compiler.h"
 #include "libANGLE/Shader.h"
 #include "libANGLE/features.h"
-#include "libANGLE/renderer/d3d/RendererD3D.h"
 #include "libANGLE/renderer/d3d/ProgramD3D.h"
-
-// Definitions local to the translation unit
-namespace
-{
-
-const char *GetShaderTypeString(GLenum type)
-{
-    switch (type)
-    {
-        case GL_VERTEX_SHADER:
-            return "VERTEX";
-
-        case GL_FRAGMENT_SHADER:
-            return "FRAGMENT";
-
-        case GL_COMPUTE_SHADER:
-            return "COMPUTE";
-
-        default:
-            UNREACHABLE();
-            return "";
-    }
-}
-
-}  // anonymous namespace
+#include "libANGLE/renderer/d3d/RendererD3D.h"
 
 namespace rx
 {
 
-ShaderD3D::ShaderD3D(const gl::ShaderState &data, const angle::WorkaroundsD3D &workarounds)
+ShaderD3D::ShaderD3D(const gl::ShaderState &data,
+                     const angle::WorkaroundsD3D &workarounds,
+                     const gl::Extensions &extensions)
     : ShaderImpl(data), mAdditionalOptions(0)
 {
     uncompile();
@@ -70,11 +48,17 @@ ShaderD3D::ShaderD3D(const gl::ShaderState &data, const angle::WorkaroundsD3D &w
     {
         mAdditionalOptions |= SH_EMULATE_ISNAN_FLOAT_FUNCTION;
     }
+    if (workarounds.skipVSConstantRegisterZero && mData.getShaderType() == gl::ShaderType::Vertex)
+    {
+        mAdditionalOptions |= SH_SKIP_D3D_CONSTANT_REGISTER_ZERO;
+    }
+    if (extensions.multiview)
+    {
+        mAdditionalOptions |= SH_INITIALIZE_BUILTINS_FOR_INSTANCED_MULTIVIEW;
+    }
 }
 
-ShaderD3D::~ShaderD3D()
-{
-}
+ShaderD3D::~ShaderD3D() {}
 
 std::string ShaderD3D::getDebugInfo() const
 {
@@ -83,7 +67,7 @@ std::string ShaderD3D::getDebugInfo() const
         return "";
     }
 
-    return mDebugInfo + std::string("\n// ") + GetShaderTypeString(mData.getShaderType()) +
+    return mDebugInfo + std::string("\n// ") + gl::GetShaderTypeString(mData.getShaderType()) +
            " SHADER END\n";
 }
 
@@ -93,17 +77,19 @@ void ShaderD3D::uncompile()
     // set by compileToHLSL
     mCompilerOutputType = SH_ESSL_OUTPUT;
 
-    mUsesMultipleRenderTargets = false;
-    mUsesFragColor = false;
-    mUsesFragData = false;
-    mUsesFragCoord = false;
-    mUsesFrontFacing = false;
-    mUsesPointSize = false;
-    mUsesPointCoord = false;
-    mUsesDepthRange = false;
-    mUsesFragDepth = false;
-    mUsesDiscardRewriting = false;
-    mUsesNestedBreak = false;
+    mUsesMultipleRenderTargets   = false;
+    mUsesFragColor               = false;
+    mUsesFragData                = false;
+    mUsesFragCoord               = false;
+    mUsesFrontFacing             = false;
+    mUsesPointSize               = false;
+    mUsesPointCoord              = false;
+    mUsesDepthRange              = false;
+    mUsesFragDepth               = false;
+    mHasANGLEMultiviewEnabled    = false;
+    mUsesViewID                  = false;
+    mUsesDiscardRewriting        = false;
+    mUsesNestedBreak             = false;
     mRequiresIEEEStrictCompiling = false;
 
     mDebugInfo.clear();
@@ -114,14 +100,17 @@ void ShaderD3D::generateWorkarounds(angle::CompilerWorkaroundsD3D *workarounds) 
     if (mUsesDiscardRewriting)
     {
         // ANGLE issue 486:
-        // Work-around a D3D9 compiler bug that presents itself when using conditional discard, by disabling optimization
+        // Work-around a D3D9 compiler bug that presents itself when using conditional discard, by
+        // disabling optimization
         workarounds->skipOptimization = true;
     }
     else if (mUsesNestedBreak)
     {
         // ANGLE issue 603:
-        // Work-around a D3D9 compiler bug that presents itself when using break in a nested loop, by maximizing optimization
-        // We want to keep the use of ANGLE_D3D_WORKAROUND_MAX_OPTIMIZATION minimal to prevent hangs, so usesDiscard takes precedence
+        // Work-around a D3D9 compiler bug that presents itself when using break in a nested loop,
+        // by maximizing optimization We want to keep the use of
+        // ANGLE_D3D_WORKAROUND_MAX_OPTIMIZATION minimal to prevent hangs, so usesDiscard takes
+        // precedence
         workarounds->useMaxOptimization = true;
     }
 
@@ -138,10 +127,16 @@ unsigned int ShaderD3D::getUniformRegister(const std::string &uniformName) const
     return mUniformRegisterMap.find(uniformName)->second;
 }
 
-unsigned int ShaderD3D::getInterfaceBlockRegister(const std::string &blockName) const
+unsigned int ShaderD3D::getUniformBlockRegister(const std::string &blockName) const
 {
-    ASSERT(mInterfaceBlockRegisterMap.count(blockName) > 0);
-    return mInterfaceBlockRegisterMap.find(blockName)->second;
+    ASSERT(mUniformBlockRegisterMap.count(blockName) > 0);
+    return mUniformBlockRegisterMap.find(blockName)->second;
+}
+
+unsigned int ShaderD3D::getShaderStorageBlockRegister(const std::string &blockName) const
+{
+    ASSERT(mShaderStorageBlockRegisterMap.count(blockName) > 0);
+    return mShaderStorageBlockRegisterMap.find(blockName)->second;
 }
 
 ShShaderOutput ShaderD3D::getCompilerOutputType() const
@@ -149,7 +144,18 @@ ShShaderOutput ShaderD3D::getCompilerOutputType() const
     return mCompilerOutputType;
 }
 
-ShCompileOptions ShaderD3D::prepareSourceAndReturnOptions(std::stringstream *shaderSourceStream,
+bool ShaderD3D::useImage2DFunction(const std::string &functionName) const
+{
+    if (mUsedImage2DFunctionNames.empty())
+    {
+        return false;
+    }
+
+    return mUsedImage2DFunctionNames.find(functionName) != mUsedImage2DFunctionNames.end();
+}
+
+ShCompileOptions ShaderD3D::prepareSourceAndReturnOptions(const gl::Context *context,
+                                                          std::stringstream *shaderSourceStream,
                                                           std::string *sourcePath)
 {
     uncompile();
@@ -173,9 +179,9 @@ ShCompileOptions ShaderD3D::prepareSourceAndReturnOptions(std::stringstream *sha
     return additionalOptions;
 }
 
-bool ShaderD3D::hasUniform(const D3DUniform *d3dUniform) const
+bool ShaderD3D::hasUniform(const std::string &name) const
 {
-    return mUniformRegisterMap.find(d3dUniform->name) != mUniformRegisterMap.end();
+    return mUniformRegisterMap.find(name) != mUniformRegisterMap.end();
 }
 
 const std::map<std::string, unsigned int> &GetUniformRegisterMap(
@@ -185,7 +191,14 @@ const std::map<std::string, unsigned int> &GetUniformRegisterMap(
     return *uniformRegisterMap;
 }
 
-bool ShaderD3D::postTranslateCompile(gl::Compiler *compiler, std::string *infoLog)
+const std::set<std::string> &GetUsedImage2DFunctionNames(
+    const std::set<std::string> *usedImage2DFunctionNames)
+{
+    ASSERT(usedImage2DFunctionNames);
+    return *usedImage2DFunctionNames;
+}
+
+bool ShaderD3D::postTranslateCompile(gl::ShCompilerInstance *compiler, std::string *infoLog)
 {
     // TODO(jmadill): We shouldn't need to cache this.
     mCompilerOutputType = compiler->getShaderOutputType();
@@ -201,31 +214,51 @@ bool ShaderD3D::postTranslateCompile(gl::Compiler *compiler, std::string *infoLo
     mUsesPointCoord            = translatedSource.find("GL_USES_POINT_COORD") != std::string::npos;
     mUsesDepthRange            = translatedSource.find("GL_USES_DEPTH_RANGE") != std::string::npos;
     mUsesFragDepth             = translatedSource.find("GL_USES_FRAG_DEPTH") != std::string::npos;
+    mHasANGLEMultiviewEnabled =
+        translatedSource.find("GL_ANGLE_MULTIVIEW_ENABLED") != std::string::npos;
+    mUsesViewID = translatedSource.find("GL_USES_VIEW_ID") != std::string::npos;
     mUsesDiscardRewriting =
         translatedSource.find("ANGLE_USES_DISCARD_REWRITING") != std::string::npos;
-    mUsesNestedBreak  = translatedSource.find("ANGLE_USES_NESTED_BREAK") != std::string::npos;
+    mUsesNestedBreak = translatedSource.find("ANGLE_USES_NESTED_BREAK") != std::string::npos;
     mRequiresIEEEStrictCompiling =
         translatedSource.find("ANGLE_REQUIRES_IEEE_STRICT_COMPILING") != std::string::npos;
 
-    ShHandle compilerHandle = compiler->getCompilerHandle(mData.getShaderType());
+    ShHandle compilerHandle = compiler->getHandle();
 
     mUniformRegisterMap = GetUniformRegisterMap(sh::GetUniformRegisterMap(compilerHandle));
+    mReadonlyImage2DRegisterIndex = sh::GetReadonlyImage2DRegisterIndex(compilerHandle);
+    mImage2DRegisterIndex         = sh::GetImage2DRegisterIndex(compilerHandle);
+    mUsedImage2DFunctionNames =
+        GetUsedImage2DFunctionNames(sh::GetUsedImage2DFunctionNames(compilerHandle));
 
-    for (const sh::InterfaceBlock &interfaceBlock : mData.getInterfaceBlocks())
+    for (const sh::InterfaceBlock &interfaceBlock : mData.getUniformBlocks())
     {
-        if (interfaceBlock.staticUse)
+        if (interfaceBlock.active)
         {
             unsigned int index = static_cast<unsigned int>(-1);
             bool blockRegisterResult =
-                sh::GetInterfaceBlockRegister(compilerHandle, interfaceBlock.name, &index);
+                sh::GetUniformBlockRegister(compilerHandle, interfaceBlock.name, &index);
             ASSERT(blockRegisterResult);
 
-            mInterfaceBlockRegisterMap[interfaceBlock.name] = index;
+            mUniformBlockRegisterMap[interfaceBlock.name] = index;
+        }
+    }
+
+    for (const sh::InterfaceBlock &interfaceBlock : mData.getShaderStorageBlocks())
+    {
+        if (interfaceBlock.active)
+        {
+            unsigned int index = static_cast<unsigned int>(-1);
+            bool blockRegisterResult =
+                sh::GetShaderStorageBlockRegister(compilerHandle, interfaceBlock.name, &index);
+            ASSERT(blockRegisterResult);
+
+            mShaderStorageBlockRegisterMap[interfaceBlock.name] = index;
         }
     }
 
     mDebugInfo +=
-        std::string("// ") + GetShaderTypeString(mData.getShaderType()) + " SHADER BEGIN\n";
+        std::string("// ") + gl::GetShaderTypeString(mData.getShaderType()) + " SHADER BEGIN\n";
     mDebugInfo += "\n// GLSL BEGIN\n\n" + mData.getSource() + "\n\n// GLSL END\n\n\n";
     mDebugInfo += "// INITIAL HLSL BEGIN\n\n" + translatedSource + "\n// INITIAL HLSL END\n\n\n";
     // Successive steps will append more info

@@ -13,6 +13,7 @@
 #include "cc/base/lap_timer.h"
 #include "cc/layers/layer_impl.h"
 #include "cc/layers/picture_layer_impl.h"
+#include "cc/raster/playback_image_provider.h"
 #include "cc/raster/raster_buffer_provider.h"
 #include "cc/trees/layer_tree_host_common.h"
 #include "cc/trees/layer_tree_host_impl.h"
@@ -27,6 +28,7 @@ namespace {
 const int kDefaultRasterizeRepeatCount = 100;
 
 void RunBenchmark(RasterSource* raster_source,
+                  ImageDecodeCache* image_decode_cache,
                   const gfx::Rect& content_rect,
                   float contents_scale,
                   size_t repeat_count,
@@ -55,10 +57,24 @@ void RunBenchmark(RasterSource* raster_source,
       bitmap.allocPixels(SkImageInfo::MakeN32Premul(content_rect.width(),
                                                     content_rect.height()));
       SkCanvas canvas(bitmap);
+
+      // Pass an empty settings to make sure that the decode cache is used to
+      // replace all images.
+      base::Optional<PlaybackImageProvider::Settings> image_settings;
+      image_settings.emplace();
+      image_settings->images_to_skip = {};
+      image_settings->image_to_current_frame_index = {};
+
+      PlaybackImageProvider image_provider(image_decode_cache,
+                                           std::move(image_settings));
+      RasterSource::PlaybackSettings settings;
+      settings.image_provider = &image_provider;
+
       raster_source->PlaybackToCanvas(
-          &canvas, gfx::ColorSpace(), content_rect, content_rect,
-          gfx::AxisTransform2d(contents_scale, gfx::Vector2dF()),
-          RasterSource::PlaybackSettings());
+          &canvas, gfx::ColorSpace(),
+          raster_source->GetContentSize(contents_scale), content_rect,
+          content_rect, gfx::AxisTransform2d(contents_scale, gfx::Vector2dF()),
+          settings);
 
       timer.NextLap();
     } while (!timer.HasTimeLimitExpired());
@@ -112,8 +128,8 @@ class FixedInvalidationPictureLayerTilingClient
 RasterizeAndRecordBenchmarkImpl::RasterizeAndRecordBenchmarkImpl(
     scoped_refptr<base::SingleThreadTaskRunner> origin_task_runner,
     base::Value* value,
-    const MicroBenchmarkImpl::DoneCallback& callback)
-    : MicroBenchmarkImpl(callback, origin_task_runner),
+    MicroBenchmarkImpl::DoneCallback callback)
+    : MicroBenchmarkImpl(std::move(callback), origin_task_runner),
       rasterize_repeat_count_(kDefaultRasterizeRepeatCount) {
   base::DictionaryValue* settings = nullptr;
   value->GetAsDictionary(&settings);
@@ -124,7 +140,7 @@ RasterizeAndRecordBenchmarkImpl::RasterizeAndRecordBenchmarkImpl(
     settings->GetInteger("rasterize_repeat_count", &rasterize_repeat_count_);
 }
 
-RasterizeAndRecordBenchmarkImpl::~RasterizeAndRecordBenchmarkImpl() {}
+RasterizeAndRecordBenchmarkImpl::~RasterizeAndRecordBenchmarkImpl() = default;
 
 void RasterizeAndRecordBenchmarkImpl::DidCompleteCommit(
     LayerTreeHostImpl* host) {
@@ -137,8 +153,6 @@ void RasterizeAndRecordBenchmarkImpl::DidCompleteCommit(
   std::unique_ptr<base::DictionaryValue> result(new base::DictionaryValue());
   result->SetDouble("rasterize_time_ms",
                     rasterize_results_.total_best_time.InMillisecondsF());
-  result->SetDouble("total_pictures_in_pile_size",
-                    static_cast<int>(rasterize_results_.total_memory_usage));
   result->SetInteger("pixels_rasterized", rasterize_results_.pixels_rasterized);
   result->SetInteger("pixels_rasterized_with_non_solid_color",
                      rasterize_results_.pixels_rasterized_with_non_solid_color);
@@ -175,7 +189,8 @@ void RasterizeAndRecordBenchmarkImpl::RunOnLayer(PictureLayerImpl* layer) {
   const LayerTreeSettings& settings = layer->layer_tree_impl()->settings();
   std::unique_ptr<PictureLayerTilingSet> tiling_set =
       PictureLayerTilingSet::Create(
-          layer->GetTree(), &client, settings.tiling_interest_area_padding,
+          layer->IsActive() ? ACTIVE_TREE : PENDING_TREE, &client,
+          settings.tiling_interest_area_padding,
           settings.skewport_target_time_in_seconds,
           settings.skewport_extrapolation_limit_in_screen_pixels,
           settings.max_preraster_distance_in_screen_pixels);
@@ -195,8 +210,9 @@ void RasterizeAndRecordBenchmarkImpl::RunOnLayer(PictureLayerImpl* layer) {
 
     base::TimeDelta min_time;
     bool is_solid_color = false;
-    RunBenchmark(raster_source, content_rect, contents_scale,
-                 rasterize_repeat_count_, &min_time, &is_solid_color);
+    RunBenchmark(raster_source, layer->layer_tree_impl()->image_decode_cache(),
+                 content_rect, contents_scale, rasterize_repeat_count_,
+                 &min_time, &is_solid_color);
 
     int tile_size = content_rect.width() * content_rect.height();
     if (layer->contents_opaque())
@@ -208,22 +224,18 @@ void RasterizeAndRecordBenchmarkImpl::RunOnLayer(PictureLayerImpl* layer) {
     rasterize_results_.pixels_rasterized += tile_size;
     rasterize_results_.total_best_time += min_time;
   }
-
-  const RasterSource* layer_raster_source = layer->GetRasterSource();
-  rasterize_results_.total_memory_usage +=
-      layer_raster_source->GetMemoryUsage();
 }
 
 RasterizeAndRecordBenchmarkImpl::RasterizeResults::RasterizeResults()
     : pixels_rasterized(0),
       pixels_rasterized_with_non_solid_color(0),
       pixels_rasterized_as_opaque(0),
-      total_memory_usage(0),
       total_layers(0),
       total_picture_layers(0),
       total_picture_layers_with_no_content(0),
       total_picture_layers_off_screen(0) {}
 
-RasterizeAndRecordBenchmarkImpl::RasterizeResults::~RasterizeResults() {}
+RasterizeAndRecordBenchmarkImpl::RasterizeResults::~RasterizeResults() =
+    default;
 
 }  // namespace cc

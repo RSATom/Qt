@@ -2,12 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 
-component("views_examples_lib") {
+jumbo_component("views_examples_lib") {
   testonly = true
 
   sources = [
+    "animated_image_view_example.cc",
+    "animated_image_view_example.h",
     "box_layout_example.cc",
     "box_layout_example.h",
     "bubble_example.cc",
@@ -28,8 +31,12 @@ component("views_examples_lib") {
     "example_combobox_model.h",
     "examples_window.cc",
     "examples_window.h",
+    "flex_layout_example.cc",
+    "flex_layout_example.h",
     "label_example.cc",
     "label_example.h",
+    "layout_example_base.cc",
+    "layout_example_base.h",
     "link_example.cc",
     "link_example.h",
     "menu_example.cc",
@@ -110,9 +117,9 @@ executable("views_examples_exe") {
     "//base",
     "//base:i18n",
     "//base/test:test_support",
-    "//build/config:exe_and_shlib_deps",
     "//build/win:default_exe_manifest",
     "//components/viz/host",
+    "//components/viz/service",
     "//ui/base",
     "//ui/compositor",
     "//ui/compositor:test_support",
@@ -134,7 +141,7 @@ executable("views_examples_exe") {
   }
 }
 
-component("views_examples_with_content_lib") {
+jumbo_component("views_examples_with_content_lib") {
   testonly = true
   sources = [
     "examples_window_with_content.cc",
@@ -171,7 +178,6 @@ executable("views_examples_with_content_exe") {
     ":copy_content_resources",
     ":views_examples_with_content_lib",
     "//base",
-    "//build/config:exe_and_shlib_deps",
     "//build/win:default_exe_manifest",
     "//content",
     "//content:sandbox_helper_win",

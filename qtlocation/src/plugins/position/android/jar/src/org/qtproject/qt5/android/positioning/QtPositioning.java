@@ -114,7 +114,7 @@ public class QtPositioning implements LocationListener
             Log.w(TAG, "No locationManager available in QtPositioning");
             return new int[0];
         }
-        List<String> providers = locationManager.getAllProviders();
+        List<String> providers = locationManager.getProviders(true);
         int retList[] = new int[providers.size()];
         for (int i = 0; i < providers.size();  i++) {
             if (providers.get(i).equals(LocationManager.GPS_PROVIDER)) {
@@ -521,10 +521,9 @@ public class QtPositioning implements LocationListener
         }
     }
 
-
-
     public static native void positionUpdated(Location update, int androidClassKey, boolean isSingleUpdate);
     public static native void locationProvidersDisabled(int androidClassKey);
+    public static native void locationProvidersChanged(int androidClassKey);
     public static native void satelliteUpdated(GpsSatellite[] update, int androidClassKey, boolean isSingleUpdate);
 
     @Override
@@ -578,11 +577,13 @@ public class QtPositioning implements LocationListener
     @Override
     public void onProviderEnabled(String provider) {
         Log.d(TAG, "Enabled provider: " + provider);
+        locationProvidersChanged(nativeClassReference);
     }
 
     @Override
     public void onProviderDisabled(String provider) {
         Log.d(TAG, "Disabled provider: " + provider);
+        locationProvidersChanged(nativeClassReference);
         if (!expectedProvidersAvailable(expectedProviders))
             locationProvidersDisabled(nativeClassReference);
     }

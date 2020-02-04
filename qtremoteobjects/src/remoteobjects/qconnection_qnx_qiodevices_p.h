@@ -52,9 +52,10 @@
 //
 
 #include "qconnection_qnx_qiodevices.h"
+#include "qconnection_qnx_global_p.h"
 
-#include <QReadWriteLock>
-#include <QScopedPointer>
+#include <QtCore/qreadwritelock.h>
+#include <QtCore/qscopedpointer.h>
 
 #include "private/qiodevice_p.h"
 #include "private/qringbuffer_p.h"

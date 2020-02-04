@@ -9,7 +9,7 @@
 Polymer({
   is: 'settings-search-engine-entry',
 
-  behaviors: [FocusRowBehavior],
+  behaviors: [cr.ui.FocusRowBehavior],
 
   properties: {
     /** @type {!SearchEngine} */
@@ -30,9 +30,6 @@ Polymer({
           'engine.canBeEdited,' +
           'engine.canBeRemoved)',
     },
-
-    /** @private {boolean} */
-    showEditSearchEngineDialog_: Boolean,
   },
 
   /** @private {settings.SearchEnginesBrowserProxy} */
@@ -45,7 +42,7 @@ Polymer({
 
   /** @private */
   closePopupMenu_: function() {
-    this.$$('dialog[is=cr-action-menu]').close();
+    this.$$('cr-action-menu').close();
   },
 
   /**
@@ -67,16 +64,6 @@ Polymer({
     return canBeDefault || canBeEdited || canBeRemoved;
   },
 
-  /**
-   * @param {?string} url The icon URL if available.
-   * @return {string} A set of icon URLs.
-   * @private
-   */
-  getIconSet_: function(url) {
-    // Force default icon, if no |engine.iconURL| is available.
-    return cr.icon.getFavicon(url || '');
-  },
-
   /** @private */
   onDeleteTap_: function() {
     this.browserProxy_.removeSearchEngine(this.engine.modelIndex);
@@ -85,8 +72,10 @@ Polymer({
 
   /** @private */
   onDotsTap_: function() {
-    /** @type {!CrActionMenuElement} */ (this.$$('dialog[is=cr-action-menu]'))
-        .showAt(assert(this.$$('button[is="paper-icon-button-light"]')));
+    /** @type {!CrActionMenuElement} */ (this.$$('cr-action-menu'))
+        .showAt(assert(this.$$('paper-icon-button-light button')), {
+          anchorAlignmentY: AnchorAlignment.AFTER_END,
+        });
   },
 
   /**
@@ -96,19 +85,10 @@ Polymer({
   onEditTap_: function(e) {
     e.preventDefault();
     this.closePopupMenu_();
-
-    this.showEditSearchEngineDialog_ = true;
-    this.async(function() {
-      var dialog = this.$$('settings-search-engine-dialog');
-      // Register listener to detect when the dialog is closed. Flip the boolean
-      // once closed to force a restamp next time it is shown such that the
-      // previous dialog's contents are cleared.
-      dialog.addEventListener('close', function() {
-        this.showEditSearchEngineDialog_ = false;
-        cr.ui.focusWithoutInk(
-            assert(this.$$('button[is="paper-icon-button-light"]')));
-      }.bind(this));
-    }.bind(this));
+    this.fire('edit-search-engine', {
+      engine: this.engine,
+      anchorElement: assert(this.$$('paper-icon-button-light button')),
+    });
   },
 
   /** @private */

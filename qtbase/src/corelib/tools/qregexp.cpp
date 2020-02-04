@@ -825,7 +825,7 @@ static QString wc2rx(const QString &wc_str, const bool enableEscaping)
                 if (wc[i] == QLatin1Char('^'))
                     rx += wc[i++];
                 if (i < wclen) {
-                    if (rx[i] == QLatin1Char(']'))
+                    if (wc[i] == QLatin1Char(']'))
                         rx += wc[i++];
                     while (i < wclen && wc[i] != QLatin1Char(']')) {
                         if (wc[i] == QLatin1Char('\\'))
@@ -3009,12 +3009,10 @@ int QRegExpEngine::getEscape()
         yyCharClass->addSingleton(0x005f); // '_'
         return Tok_CharClass;
     case 'I':
-        if (xmlSchemaExtensions) {
-            yyCharClass->setNegative(!yyCharClass->negative());
-            Q_FALLTHROUGH();
-        } else {
+        if (!xmlSchemaExtensions)
             break;
-        }
+        yyCharClass->setNegative(!yyCharClass->negative());
+        Q_FALLTHROUGH();
     case 'i':
         if (xmlSchemaExtensions) {
             yyCharClass->addCategories(FLAG(QChar::Mark_NonSpacing) |
@@ -3049,12 +3047,10 @@ int QRegExpEngine::getEscape()
             break;
         }
     case 'C':
-        if (xmlSchemaExtensions) {
-            yyCharClass->setNegative(!yyCharClass->negative());
-            Q_FALLTHROUGH();
-        } else {
+        if (!xmlSchemaExtensions)
             break;
-        }
+        yyCharClass->setNegative(!yyCharClass->negative());
+        Q_FALLTHROUGH();
     case 'c':
         if (xmlSchemaExtensions) {
             yyCharClass->addCategories(FLAG(QChar::Mark_NonSpacing) |
@@ -3095,12 +3091,10 @@ int QRegExpEngine::getEscape()
             break;
         }
     case 'P':
-        if (xmlSchemaExtensions) {
-            yyCharClass->setNegative(!yyCharClass->negative());
-            Q_FALLTHROUGH();
-        } else {
+        if (!xmlSchemaExtensions)
             break;
-        }
+        yyCharClass->setNegative(!yyCharClass->negative());
+        Q_FALLTHROUGH();
     case 'p':
         if (xmlSchemaExtensions) {
             if (yyCh != '{') {
@@ -3813,50 +3807,57 @@ struct QRegExpPrivate
 };
 
 #if !defined(QT_NO_REGEXP_OPTIM)
-typedef QCache<QRegExpEngineKey, QRegExpEngine> EngineCache;
-Q_GLOBAL_STATIC(EngineCache, globalEngineCache)
-static QBasicMutex globalEngineCacheMutex;
+struct QRECache
+{
+    typedef QHash<QRegExpEngineKey, QRegExpEngine *> EngineCache;
+    typedef QCache<QRegExpEngineKey, QRegExpEngine> UnusedEngineCache;
+    EngineCache usedEngines;
+    UnusedEngineCache unusedEngines;
+};
+Q_GLOBAL_STATIC(QRECache, engineCache)
+static QBasicMutex engineCacheMutex;
 #endif // QT_NO_REGEXP_OPTIM
 
 static void derefEngine(QRegExpEngine *eng, const QRegExpEngineKey &key)
 {
-    if (!eng->ref.deref()) {
 #if !defined(QT_NO_REGEXP_OPTIM)
-        if (globalEngineCache()) {
-            QMutexLocker locker(&globalEngineCacheMutex);
-            QT_TRY {
-                globalEngineCache()->insert(key, eng, 4 + key.pattern.length() / 4);
-            } QT_CATCH(const std::bad_alloc &) {
-                // in case of an exception (e.g. oom), just delete the engine
-                delete eng;
-            }
+    QMutexLocker locker(&engineCacheMutex);
+    if (!eng->ref.deref()) {
+        if (QRECache *c = engineCache()) {
+            c->unusedEngines.insert(key, eng, 4 + key.pattern.length() / 4);
+            c->usedEngines.remove(key);
         } else {
             delete eng;
         }
+    }
 #else
-        Q_UNUSED(key);
+    Q_UNUSED(key);
+    if (!eng->ref.deref())
         delete eng;
 #endif
-    }
 }
 
 static void prepareEngine_helper(QRegExpPrivate *priv)
 {
-    bool initMatchState = !priv->eng;
+    Q_ASSERT(!priv->eng);
+
 #if !defined(QT_NO_REGEXP_OPTIM)
-    if (!priv->eng && globalEngineCache()) {
-        QMutexLocker locker(&globalEngineCacheMutex);
-        priv->eng = globalEngineCache()->take(priv->engineKey);
-        if (priv->eng != 0)
+    QMutexLocker locker(&engineCacheMutex);
+    if (QRECache *c = engineCache()) {
+        priv->eng = c->unusedEngines.take(priv->engineKey);
+        if (!priv->eng)
+            priv->eng = c->usedEngines.value(priv->engineKey);
+        if (!priv->eng)
+            priv->eng = new QRegExpEngine(priv->engineKey);
+        else
             priv->eng->ref.ref();
+
+        c->usedEngines.insert(priv->engineKey, priv->eng);
+        return;
     }
 #endif // QT_NO_REGEXP_OPTIM
 
-    if (!priv->eng)
-        priv->eng = new QRegExpEngine(priv->engineKey);
-
-    if (initMatchState)
-        priv->matchState.prepareForMatch(priv->eng);
+    priv->eng = new QRegExpEngine(priv->engineKey);
 }
 
 inline static void prepareEngine(QRegExpPrivate *priv)
@@ -3864,6 +3865,7 @@ inline static void prepareEngine(QRegExpPrivate *priv)
     if (priv->eng)
         return;
     prepareEngine_helper(priv);
+    priv->matchState.prepareForMatch(priv->eng);
 }
 
 static void prepareEngineForMatch(QRegExpPrivate *priv, const QString &str)

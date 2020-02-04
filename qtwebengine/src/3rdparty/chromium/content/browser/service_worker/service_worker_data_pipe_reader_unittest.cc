@@ -11,10 +11,12 @@
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_url_request_job.h"
 #include "content/browser/service_worker/service_worker_version.h"
-#include "content/public/common/resource_request_body.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "net/base/io_buffer.h"
+#include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/mojom/request_context_frame_type.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
 namespace content {
 
@@ -28,22 +30,22 @@ class MockServiceWorkerURLRequestJob : public ServiceWorkerURLRequestJob {
  public:
   explicit MockServiceWorkerURLRequestJob(
       ServiceWorkerURLRequestJob::Delegate* delegate)
-      : ServiceWorkerURLRequestJob(nullptr,
-                                   nullptr,
-                                   "",
-                                   nullptr,
-                                   nullptr,
-                                   FETCH_REQUEST_MODE_NO_CORS,
-                                   FETCH_CREDENTIALS_MODE_OMIT,
-                                   FetchRedirectMode::FOLLOW_MODE,
-                                   std::string() /* integrity */,
-                                   RESOURCE_TYPE_MAIN_FRAME,
-                                   REQUEST_CONTEXT_TYPE_HYPERLINK,
-                                   REQUEST_CONTEXT_FRAME_TYPE_TOP_LEVEL,
-                                   scoped_refptr<ResourceRequestBody>(),
-                                   ServiceWorkerFetchType::FETCH,
-                                   base::Optional<base::TimeDelta>(),
-                                   delegate),
+      : ServiceWorkerURLRequestJob(
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            network::mojom::FetchRequestMode::kNoCors,
+            network::mojom::FetchCredentialsMode::kOmit,
+            network::mojom::FetchRedirectMode::kFollow,
+            std::string() /* integrity */,
+            false /* keepalive */,
+            RESOURCE_TYPE_MAIN_FRAME,
+            blink::mojom::RequestContextType::HYPERLINK,
+            network::mojom::RequestContextFrameType::kTopLevel,
+            scoped_refptr<network::ResourceRequestBody>(),
+            delegate),
         is_response_started_(false) {}
 
   void OnResponseStarted() override { is_response_started_ = true; }
@@ -76,14 +78,16 @@ class ServiceWorkerDataPipeReaderTest
       : thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {}
 
   void SetUp() override {
-    helper_ = base::MakeUnique<EmbeddedWorkerTestHelper>(base::FilePath());
+    helper_ = std::make_unique<EmbeddedWorkerTestHelper>(base::FilePath());
     mock_url_request_job_ =
-        base::MakeUnique<MockServiceWorkerURLRequestJob>(this);
-    ServiceWorkerRegistrationOptions options(GURL("https://example.com/"));
+        std::make_unique<MockServiceWorkerURLRequestJob>(this);
+    blink::mojom::ServiceWorkerRegistrationOptions options;
+    options.scope = GURL("https://example.com/");
     registration_ = new ServiceWorkerRegistration(
         options, 1L, helper_->context()->AsWeakPtr());
     version_ = new ServiceWorkerVersion(
-        registration_.get(), GURL("https://example.com/service_worker.js"), 1L,
+        registration_.get(), GURL("https://example.com/service_worker.js"),
+        blink::mojom::ScriptType::kClassic, 1L,
         helper_->context()->AsWeakPtr());
     std::vector<ServiceWorkerDatabase::ResourceRecord> records;
     records.push_back(
@@ -100,7 +104,7 @@ class ServiceWorkerDataPipeReaderTest
         blink::mojom::ServiceWorkerStreamHandle::New();
     stream_handle->stream = std::move(data_pipe->consumer_handle);
     stream_handle->callback_request = mojo::MakeRequest(stream_callback);
-    return base::MakeUnique<ServiceWorkerDataPipeReader>(
+    return std::make_unique<ServiceWorkerDataPipeReader>(
         mock_url_request_job_.get(), version_, std::move(stream_handle));
   }
 
@@ -160,9 +164,8 @@ TEST_P(ServiceWorkerDataPipeReaderTestP, SyncRead) {
     for (int i = 0; i < 1024; ++i) {
       expected_response += kTestData;
       uint32_t written_bytes = sizeof(kTestData) - 1;
-      MojoResult result =
-          mojo::WriteDataRaw(data_pipe.producer_handle.get(), kTestData,
-                             &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
+      MojoResult result = data_pipe.producer_handle->WriteData(
+          kTestData, &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
       ASSERT_EQ(MOJO_RESULT_OK, result);
       EXPECT_EQ(sizeof(kTestData) - 1, written_bytes);
     }
@@ -180,7 +183,8 @@ TEST_P(ServiceWorkerDataPipeReaderTestP, SyncRead) {
   data_pipe_reader->Start();
   EXPECT_TRUE(mock_url_request_job()->is_response_started());
   const int buffer_size = sizeof(kTestData);
-  scoped_refptr<net::IOBuffer> buffer = new net::IOBuffer(buffer_size);
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBuffer>(buffer_size);
   buffer->data()[buffer_size - 1] = '\0';
 
   // Read successfully.
@@ -217,9 +221,8 @@ TEST_P(ServiceWorkerDataPipeReaderTestP, SyncAbort) {
     for (int i = 0; i < 1024; ++i) {
       expected_response += kTestData;
       uint32_t written_bytes = sizeof(kTestData) - 1;
-      MojoResult result =
-          mojo::WriteDataRaw(data_pipe.producer_handle.get(), kTestData,
-                             &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
+      MojoResult result = data_pipe.producer_handle->WriteData(
+          kTestData, &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
       ASSERT_EQ(MOJO_RESULT_OK, result);
       EXPECT_EQ(sizeof(kTestData) - 1, written_bytes);
     }
@@ -237,7 +240,8 @@ TEST_P(ServiceWorkerDataPipeReaderTestP, SyncAbort) {
   data_pipe_reader->Start();
   EXPECT_TRUE(mock_url_request_job()->is_response_started());
   const int buffer_size = sizeof(kTestData);
-  scoped_refptr<net::IOBuffer> buffer = new net::IOBuffer(buffer_size);
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBuffer>(buffer_size);
   buffer->data()[buffer_size - 1] = '\0';
 
   // Read successfully.
@@ -275,7 +279,8 @@ TEST_P(ServiceWorkerDataPipeReaderTestP, AsyncRead) {
   // Start to read.
   data_pipe_reader->Start();
   EXPECT_TRUE(mock_url_request_job()->is_response_started());
-  scoped_refptr<net::IOBuffer> buffer = new net::IOBuffer(sizeof(kTestData));
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBuffer>(sizeof(kTestData));
   buffer->data()[sizeof(kTestData) - 1] = '\0';
   std::string expected_response;
   std::string retrieved_response;
@@ -290,9 +295,8 @@ TEST_P(ServiceWorkerDataPipeReaderTestP, AsyncRead) {
 
       // Push a portion of data.
       uint32_t written_bytes = sizeof(kTestData) - 1;
-      MojoResult result =
-          mojo::WriteDataRaw(data_pipe.producer_handle.get(), kTestData,
-                             &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
+      MojoResult result = data_pipe.producer_handle->WriteData(
+          kTestData, &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
       ASSERT_EQ(MOJO_RESULT_OK, result);
       EXPECT_EQ(sizeof(kTestData) - 1, written_bytes);
       expected_response += kTestData;
@@ -349,7 +353,8 @@ TEST_P(ServiceWorkerDataPipeReaderTestP, AsyncAbort) {
   // Start to read.
   data_pipe_reader->Start();
   EXPECT_TRUE(mock_url_request_job()->is_response_started());
-  scoped_refptr<net::IOBuffer> buffer = new net::IOBuffer(sizeof(kTestData));
+  scoped_refptr<net::IOBuffer> buffer =
+      base::MakeRefCounted<net::IOBuffer>(sizeof(kTestData));
   buffer->data()[sizeof(kTestData) - 1] = '\0';
   std::string expected_response;
   std::string retrieved_response;
@@ -364,9 +369,8 @@ TEST_P(ServiceWorkerDataPipeReaderTestP, AsyncAbort) {
 
       // Push a portion of data.
       uint32_t written_bytes = sizeof(kTestData) - 1;
-      MojoResult result =
-          mojo::WriteDataRaw(data_pipe.producer_handle.get(), kTestData,
-                             &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
+      MojoResult result = data_pipe.producer_handle->WriteData(
+          kTestData, &written_bytes, MOJO_WRITE_DATA_FLAG_NONE);
       ASSERT_EQ(MOJO_RESULT_OK, result);
       EXPECT_EQ(sizeof(kTestData) - 1, written_bytes);
       expected_response += kTestData;

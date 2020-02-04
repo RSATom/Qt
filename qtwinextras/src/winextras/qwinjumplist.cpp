@@ -38,7 +38,7 @@
  **
  ****************************************************************************/
 
-#include <QtCore/QtGlobal>
+#include <QtCore/qglobal.h>
 
 #ifdef Q_CC_MINGW // MinGW: Enable SHCreateItemFromParsingName()
 #  if defined(_WIN32_IE) && _WIN32_IE < 0x0700 // _WIN32_IE_IE70
@@ -57,11 +57,11 @@
 #include "windowsguidsdefs_p.h"
 #include "winpropkey_p.h"
 
-#include <QDir>
-#include <QtCore/QDebug>
-#include <QCoreApplication>
-#include <QRegularExpression>
-#include <qt_windows.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qt_windows.h>
 #include <propvarutil.h>
 
 #include "qwinfunctions.h"
@@ -120,7 +120,8 @@ void QWinJumpListPrivate::warning(const char *function, HRESULT hresult)
 
 QString QWinJumpListPrivate::iconsDirPath()
 {
-    QString iconDirPath = QDir::tempPath() + QLatin1Char('/') + QCoreApplication::instance()->applicationName() + QLatin1String("/qt-jl-icons/");
+    QString iconDirPath = QDir::tempPath() + QLatin1Char('/')
+        + QCoreApplication::applicationName() + QLatin1String("/qt-jl-icons/");
     QDir().mkpath(iconDirPath);
     return iconDirPath;
 }

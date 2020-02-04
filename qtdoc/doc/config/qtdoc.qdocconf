@@ -6,8 +6,12 @@ project                 = QtDoc
 description             = Qt Reference Documentation
 version                 = $QT_VERSION
 
+# Instruct Clang not to look for a module header
+moduleheader =
+
 depends += \
     activeqt \
+    qtcmake \
     qdoc \
     qmake \
     qtandroidextras \
@@ -17,9 +21,6 @@ depends += \
     qtcore \
     qtdbus \
     qtdesigner \
-    qtenginio \
-    qtenginiooverview \
-    qtenginioqml \
     qtgamepad \
     qtgraphicaleffects \
     qthelp \
@@ -27,6 +28,7 @@ depends += \
     qtgui \
     qtlinguist \
     qtlocation \
+    qtlottieanimation \
     qtmacextras \
     qtmultimedia \
     qtnetwork \
@@ -36,11 +38,11 @@ depends += \
     qtpositioning \
     qtprintsupport \
     qtqml \
+    qtqmltest \
     qtquick \
     qtquickcontrols \
     qtquickdialogs \
     qtquickextras \
-    qtquicklayouts \
     qtscript \
     qtscripttools \
     qtscxml \
@@ -56,15 +58,12 @@ depends += \
     qtwebsockets \
     qtwidgets \
     qtwinextras \
-    qtwebkit \
-    qtwebkitexamples \
     qtx11extras \
     qtxml \
     qtxmlpatterns \
     qt3d \
-    qtcanvas3d \
     qtwebview \
-    qtquickcontrols2 \
+    qtquickcontrols1 \
     qtwaylandcompositor \
     qtcharts \
     qtdatavisualization \
@@ -72,7 +71,8 @@ depends += \
     qtvirtualkeyboard \
     qtspeech \
     qtnetworkauth \
-    qtremoteobjects
+    qtremoteobjects \
+    qtdistancefieldgenerator
 
 headerdirs  += ../src
 imagedirs   += ../src/images \
@@ -83,11 +83,15 @@ sourcedirs  += \
 
 exampledirs += \
     ../src \
-    ../snippets
+    ../snippets \
+    ../../examples
 
-# Don't parse files in snippets directory
+# Don't parse files in snippets and cmake directories
 excludedirs += \
-    ../src/snippets
+    ../src/snippets \
+    ../src/cmake
+
+examplesinstallpath =
 
 qhp.projects            = QtDoc
 
@@ -123,3 +127,7 @@ HTML.stylesheets             += style/qt5-sidebar.html
 
 macro.indextitle              = "\\title Qt $QT_VER"
 macro.qtver                   = "$QT_VER"
+
+# Config to enable YouTube links in the offline documentation
+HTML.extraimages += ../images/I5jasWrsxT0.jpg
+qhp.QtDoc.extraFiles += ../images/I5jasWrsxT0.jpg

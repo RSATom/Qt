@@ -9,13 +9,14 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "content/child/child_thread_impl.h"
 #include "content/public/utility/utility_thread.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "services/service_manager/public/interfaces/service_factory.mojom.h"
+#include "services/service_manager/public/mojom/service_factory.mojom.h"
+#include "third_party/blink/public/platform/platform.h"
 
 namespace content {
-class UtilityBlinkPlatformImpl;
 class UtilityServiceFactory;
 
 #if defined(COMPILER_MSVC)
@@ -28,7 +29,7 @@ class UtilityServiceFactory;
 class UtilityThreadImpl : public UtilityThread,
                           public ChildThreadImpl {
  public:
-  UtilityThreadImpl();
+  explicit UtilityThreadImpl(base::RepeatingClosure quit_closure);
   // Constructor used when running in single process mode.
   explicit UtilityThreadImpl(const InProcessChildThreadParams& params);
   ~UtilityThreadImpl() override;
@@ -37,11 +38,15 @@ class UtilityThreadImpl : public UtilityThread,
   // UtilityThread:
   void ReleaseProcess() override;
   void EnsureBlinkInitialized() override;
+#if defined(OS_POSIX) && !defined(OS_ANDROID)
+  void EnsureBlinkInitializedWithSandboxSupport() override;
+#endif
 
  private:
+  void EnsureBlinkInitializedInternal(bool sandbox_support);
   void Init();
 
-  // ChildThread:
+  // ChildThreadImpl:
   bool OnControlMessageReceived(const IPC::Message& msg) override;
 
   // Binds requests to our |service factory_|.
@@ -49,7 +54,7 @@ class UtilityThreadImpl : public UtilityThread,
       service_manager::mojom::ServiceFactoryRequest request);
 
   // blink::Platform implementation if needed.
-  std::unique_ptr<UtilityBlinkPlatformImpl> blink_platform_impl_;
+  std::unique_ptr<blink::Platform> blink_platform_impl_;
 
   // service_manager::mojom::ServiceFactory for service_manager::Service
   // hosting.

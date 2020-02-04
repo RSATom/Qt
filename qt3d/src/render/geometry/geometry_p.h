@@ -68,19 +68,29 @@ public:
 
     void cleanup();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     inline QVector<Qt3DCore::QNodeId> attributes() const { return m_attributes; }
     inline bool isDirty() const { return m_geometryDirty; }
     inline Qt3DCore::QNodeId boundingPositionAttribute() const { return m_boundingPositionAttribute; }
     void unsetDirty();
 
+    inline QVector3D min() const { return m_min; }
+    inline QVector3D max() const { return m_max; }
+
+    void updateExtent(const QVector3D &min, const QVector3D &max);
+    void notifyExtentChanged();
+
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     QVector<Qt3DCore::QNodeId> m_attributes;
     bool m_geometryDirty;
     Qt3DCore::QNodeId m_boundingPositionAttribute;
+    QVector3D m_min;
+    QVector3D m_max;
+    bool m_shouldNotifyMinExtentChanged;
+    bool m_shouldNotifyMaxExtentChanged;
 };
 
 } // namespace Render

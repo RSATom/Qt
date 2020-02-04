@@ -4,8 +4,7 @@
 //
 // AudioMirroringManager is a singleton object that maintains a set of active
 // audio mirroring destinations and auto-connects/disconnects audio streams
-// to/from those destinations.  It is meant to be used exclusively on the IO
-// thread.
+// to/from those destinations.
 //
 // How it works:
 //
@@ -39,8 +38,10 @@
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
-#include "base/threading/thread_checker.h"
+#include "base/synchronization/lock.h"
+#include "base/unguessable_token.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/global_routing_id.h"
 #include "media/audio/audio_source_diverter.h"
 
 namespace media {
@@ -54,10 +55,6 @@ class CONTENT_EXPORT AudioMirroringManager {
   // Interface for diverting audio data to an alternative AudioOutputStream.
   typedef media::AudioSourceDiverter Diverter;
 
-  // A SourceFrameRef is a RenderFrameHost identified by a <render_process_id,
-  // render_frame_id> pair.
-  typedef std::pair<int, int> SourceFrameRef;
-
   // Interface to be implemented by audio mirroring destinations.  See comments
   // for StartMirroring() and StopMirroring() below.
   class MirroringDestination {
@@ -70,11 +67,12 @@ class CONTENT_EXPORT AudioMirroringManager {
     // access to a diverted audio flow versus 2) a duplicate copy of the audio
     // flow. |results_callback| must be run on the same thread as the one that
     // called QueryForMatches().
-    typedef base::Callback<void(const std::set<SourceFrameRef>&, bool)>
+    typedef base::OnceCallback<void(const std::set<GlobalFrameRoutingId>&,
+                                    bool)>
         MatchesCallback;
     virtual void QueryForMatches(
-        const std::set<SourceFrameRef>& candidates,
-        const MatchesCallback& results_callback) = 0;
+        const std::set<GlobalFrameRoutingId>& candidates,
+        MatchesCallback results_callback) = 0;
 
     // Create a consumer of audio data in the format specified by |params|, and
     // connect it as an input to mirroring.  This is used to provide
@@ -119,12 +117,26 @@ class CONTENT_EXPORT AudioMirroringManager {
   virtual void StartMirroring(MirroringDestination* destination);
   virtual void StopMirroring(MirroringDestination* destination);
 
+  // TODO(crbug/824019): The following are temporary, as a middle-ground step
+  // necessary to resolve a chicken-and-egg problem as we migrate audio
+  // mirroring into the new AudioService. See media::AudioManager::AddDiverter()
+  // comments for further details.
+  using AddDiverterCallback =
+      base::RepeatingCallback<void(const base::UnguessableToken&,
+                                   media::AudioSourceDiverter*)>;
+  AddDiverterCallback GetAddDiverterCallback();
+  using RemoveDiverterCallback =
+      base::RepeatingCallback<void(media::AudioSourceDiverter*)>;
+  RemoveDiverterCallback GetRemoveDiverterCallback();
+  static base::UnguessableToken ToGroupId(int render_process_id,
+                                          int render_frame_id);
+
  private:
   friend class AudioMirroringManagerTest;
 
   struct StreamRoutingState {
     // The source render frame associated with the audio stream.
-    SourceFrameRef source_render_frame;
+    GlobalFrameRoutingId source_render_frame;
 
     // The diverter for re-routing the audio stream.
     Diverter* diverter;
@@ -138,7 +150,7 @@ class CONTENT_EXPORT AudioMirroringManager {
     // StopDuplicating() is called to release them.
     std::map<MirroringDestination*, media::AudioPushSink*> duplications;
 
-    StreamRoutingState(const SourceFrameRef& source_frame,
+    StreamRoutingState(const GlobalFrameRoutingId& source_frame,
                        Diverter* stream_diverter);
     StreamRoutingState(const StreamRoutingState& other);
     ~StreamRoutingState();
@@ -151,7 +163,7 @@ class CONTENT_EXPORT AudioMirroringManager {
   // |candidates| to be diverted to.
   void InitiateQueriesToFindNewDestination(
       MirroringDestination* old_destination,
-      const std::set<SourceFrameRef>& candidates);
+      const std::set<GlobalFrameRoutingId>& candidates);
 
   // MirroringDestination query callback.  |matches| contains all RenderFrame
   // sources that will be diverted or duplicated to |destination|.
@@ -161,15 +173,16 @@ class CONTENT_EXPORT AudioMirroringManager {
   // destination instead of diverted.
   void UpdateRoutesToDestination(MirroringDestination* destination,
                                  bool add_only,
-                                 const std::set<SourceFrameRef>& matches,
+                                 const std::set<GlobalFrameRoutingId>& matches,
                                  bool is_duplicate);
 
   // |matches| contains all RenderFrame sources that will be diverted to
   // |destination|.  If |add_only| is false, then any Diverters currently routed
   // to |destination| but not found in |matches| will be stopped.
-  void UpdateRoutesToDivertDestination(MirroringDestination* destination,
-                                       bool add_only,
-                                       const std::set<SourceFrameRef>& matches);
+  void UpdateRoutesToDivertDestination(
+      MirroringDestination* destination,
+      bool add_only,
+      const std::set<GlobalFrameRoutingId>& matches);
 
   // |matches| contains all RenderFrame sources that will be duplicated to
   // |destination|.  If |add_only| is false, then any Diverters currently
@@ -177,7 +190,7 @@ class CONTENT_EXPORT AudioMirroringManager {
   void UpdateRoutesToDuplicateDestination(
       MirroringDestination* destination,
       bool add_only,
-      const std::set<SourceFrameRef>& matches);
+      const std::set<GlobalFrameRoutingId>& matches);
 
   // Starts diverting audio to the |new_destination|, if not NULL.  Otherwise,
   // stops diverting audio.
@@ -190,8 +203,9 @@ class CONTENT_EXPORT AudioMirroringManager {
   // All active mirroring sessions.
   Destinations sessions_;
 
-  // Used to check that all AudioMirroringManager code runs on the same thread.
-  base::ThreadChecker thread_checker_;
+  // Allows calls to Add/RemoveDiverter() and Start/StopMirroring() to be made
+  // from different threads.
+  base::Lock lock_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioMirroringManager);
 };

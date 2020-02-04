@@ -10,21 +10,24 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "content/browser/appcache/appcache_namespace.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/common/content_export.h"
+#include "sql/statement_id.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace sql {
-class Connection;
+class Database;
 class MetaTable;
 class Statement;
-class StatementID;
 }
 
 namespace content {
@@ -40,9 +43,9 @@ FORWARD_DECLARE_TEST(AppCacheDatabaseTest, OnlineWhiteListRecords);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest, ReCreate);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest, DeletableResponseIds);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest, OriginUsage);
-FORWARD_DECLARE_TEST(AppCacheDatabaseTest, UpgradeSchema3to7);
-FORWARD_DECLARE_TEST(AppCacheDatabaseTest, UpgradeSchema4to7);
-FORWARD_DECLARE_TEST(AppCacheDatabaseTest, UpgradeSchema5or6to7);
+FORWARD_DECLARE_TEST(AppCacheDatabaseTest,
+                     UpgradeSchemaForVersionsWithoutSupportedMigrations);
+FORWARD_DECLARE_TEST(AppCacheDatabaseTest, UpgradeSchemaFrom7to8);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest, WasCorrutionDetected);
 class AppCacheDatabaseTest;
 class AppCacheStorageImplTest;
@@ -55,7 +58,7 @@ class CONTENT_EXPORT AppCacheDatabase {
     ~GroupRecord();
 
     int64_t group_id;
-    GURL origin;
+    url::Origin origin;
     GURL manifest_url;
     base::Time creation_time;
     base::Time last_access_time;
@@ -65,23 +68,34 @@ class CONTENT_EXPORT AppCacheDatabase {
 
   struct CONTENT_EXPORT CacheRecord {
     CacheRecord()
-        : cache_id(0), group_id(0), online_wildcard(false), cache_size(0) {}
+        : cache_id(0),
+          group_id(0),
+          online_wildcard(false),
+          cache_size(0),
+          padding_size(0) {}
 
     int64_t cache_id;
     int64_t group_id;
     bool online_wildcard;
     base::Time update_time;
     int64_t cache_size;  // the sum of all response sizes in this cache
+    int64_t padding_size;  // the sum of all padding sizes in this cache
   };
 
   struct EntryRecord {
-    EntryRecord() : cache_id(0), flags(0), response_id(0), response_size(0) {}
+    EntryRecord()
+        : cache_id(0),
+          flags(0),
+          response_id(0),
+          response_size(0),
+          padding_size(0) {}
 
     int64_t cache_id;
     GURL url;
     int flags;
     int64_t response_id;
     int64_t response_size;
+    int64_t padding_size;  // space added to obfuscate quota used by this entry
   };
 
   struct CONTENT_EXPORT NamespaceRecord {
@@ -89,11 +103,11 @@ class CONTENT_EXPORT AppCacheDatabase {
     ~NamespaceRecord();
 
     int64_t cache_id;
-    GURL origin;
+    url::Origin origin;
     AppCacheNamespace namespace_;
   };
 
-  typedef std::vector<NamespaceRecord> NamespaceRecordVector;
+  using NamespaceRecordVector = std::vector<NamespaceRecord>;
 
   struct OnlineWhiteListRecord {
     OnlineWhiteListRecord() : cache_id(0), is_pattern(false) {}
@@ -110,10 +124,10 @@ class CONTENT_EXPORT AppCacheDatabase {
   bool is_disabled() const { return is_disabled_; }
   bool was_corruption_detected() const { return was_corruption_detected_; }
 
-  int64_t GetOriginUsage(const GURL& origin);
-  bool GetAllOriginUsage(std::map<GURL, int64_t>* usage_map);
+  int64_t GetOriginUsage(const url::Origin& origin);
+  bool GetAllOriginUsage(std::map<url::Origin, int64_t>* usage_map);
 
-  bool FindOriginsWithGroups(std::set<GURL>* origins);
+  bool FindOriginsWithGroups(std::set<url::Origin>* origins);
   bool FindLastStorageIds(int64_t* last_group_id,
                           int64_t* last_cache_id,
                           int64_t* last_response_id,
@@ -121,8 +135,8 @@ class CONTENT_EXPORT AppCacheDatabase {
 
   bool FindGroup(int64_t group_id, GroupRecord* record);
   bool FindGroupForManifestUrl(const GURL& manifest_url, GroupRecord* record);
-  bool FindGroupsForOrigin(
-      const GURL& origin, std::vector<GroupRecord>* records);
+  bool FindGroupsForOrigin(const url::Origin& origin,
+                           std::vector<GroupRecord>* records);
   bool FindGroupForCache(int64_t cache_id, GroupRecord* record);
   bool InsertGroup(const GroupRecord* record);
   bool DeleteGroup(int64_t group_id);
@@ -139,8 +153,8 @@ class CONTENT_EXPORT AppCacheDatabase {
 
   bool FindCache(int64_t cache_id, CacheRecord* record);
   bool FindCacheForGroup(int64_t group_id, CacheRecord* record);
-  bool FindCachesForOrigin(
-      const GURL& origin, std::vector<CacheRecord>* records);
+  bool FindCachesForOrigin(const url::Origin& origin,
+                           std::vector<CacheRecord>* records);
   bool InsertCache(const CacheRecord* record);
   bool DeleteCache(int64_t cache_id);
 
@@ -164,10 +178,9 @@ class CONTENT_EXPORT AppCacheDatabase {
     return FindResponseIdsForCacheHelper(cache_id, NULL, response_ids);
   }
 
-  bool FindNamespacesForOrigin(
-      const GURL& origin,
-      NamespaceRecordVector* intercepts,
-      NamespaceRecordVector* fallbacks);
+  bool FindNamespacesForOrigin(const url::Origin& origin,
+                               NamespaceRecordVector* intercepts,
+                               NamespaceRecordVector* fallbacks);
   bool FindNamespacesForCache(int64_t cache_id,
                               NamespaceRecordVector* intercepts,
                               std::vector<NamespaceRecord>* fallbacks);
@@ -190,13 +203,13 @@ class CONTENT_EXPORT AppCacheDatabase {
   bool DeleteDeletableResponseIds(const std::vector<int64_t>& response_ids);
 
   // So our callers can wrap operations in transactions.
-  sql::Connection* db_connection() {
+  sql::Database* db_connection() {
     LazyOpen(true);
     return db_.get();
   }
 
  private:
-  bool RunCachedStatementWithIds(const sql::StatementID& statement_id,
+  bool RunCachedStatementWithIds(sql::StatementID statement_id,
                                  const char* sql,
                                  const std::vector<int64_t>& ids);
   bool RunUniqueStatementWithInt64Result(const char* sql, int64_t* result);
@@ -234,7 +247,7 @@ class CONTENT_EXPORT AppCacheDatabase {
   void OnDatabaseError(int err, sql::Statement* stmt);
 
   base::FilePath db_file_path_;
-  std::unique_ptr<sql::Connection> db_;
+  std::unique_ptr<sql::Database> db_;
   std::unique_ptr<sql::MetaTable> meta_table_;
   std::map<int64_t, base::Time> lazy_last_access_times_;
   bool is_disabled_;
@@ -258,9 +271,10 @@ class CONTENT_EXPORT AppCacheDatabase {
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, ReCreate);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, DeletableResponseIds);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, OriginUsage);
-  FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, UpgradeSchema3to7);
-  FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, UpgradeSchema4to7);
-  FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, UpgradeSchema5or6to7);
+  FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest,
+                           UpgradeSchemaForVersionsWithoutSupportedMigrations);
+  FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest,
+                           UpgradeSchemaFrom7to8);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, WasCorrutionDetected);
 
   DISALLOW_COPY_AND_ASSIGN(AppCacheDatabase);

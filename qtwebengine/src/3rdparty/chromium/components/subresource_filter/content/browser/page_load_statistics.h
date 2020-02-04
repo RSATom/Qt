@@ -6,28 +6,28 @@
 #define COMPONENTS_SUBRESOURCE_FILTER_CONTENT_BROWSER_PAGE_LOAD_STATISTICS_H_
 
 #include "base/macros.h"
-#include "components/subresource_filter/core/common/activation_state.h"
-#include "components/subresource_filter/core/common/document_load_statistics.h"
+#include "components/subresource_filter/core/mojom/subresource_filter.mojom.h"
 
 namespace subresource_filter {
 
-// This class is notified of performance metrics recorded for individual
-// (sub-)documents of a page, aggregates them, and logs the aggregated metrics
-// to UMA histograms when the page load is complete (at the load event).
+// This class is notified of metrics recorded for individual (sub-)documents of
+// a page, aggregates them, and logs the aggregated metrics to UMA histograms
+// when the page load is complete (at the load event).
 class PageLoadStatistics {
  public:
-  PageLoadStatistics(const ActivationState& state);
+  PageLoadStatistics(const mojom::ActivationState& state);
   ~PageLoadStatistics();
 
-  void OnDocumentLoadStatistics(const DocumentLoadStatistics& statistics);
+  void OnDocumentLoadStatistics(
+      const mojom::DocumentLoadStatistics& statistics);
   void OnDidFinishLoad();
 
  private:
-  ActivationState activation_state_;
+  mojom::ActivationState activation_state_;
 
   // Statistics about subresource loads, aggregated across all frames of the
   // current page.
-  DocumentLoadStatistics aggregated_document_statistics_;
+  mojom::DocumentLoadStatistics aggregated_document_statistics_;
 
   DISALLOW_COPY_AND_ASSIGN(PageLoadStatistics);
 };

@@ -5,9 +5,9 @@
 #include "components/metrics/field_trials_provider.h"
 
 #include "base/strings/string_piece.h"
-#include "components/metrics/proto/system_profile.pb.h"
 #include "components/variations/active_field_trials.h"
 #include "components/variations/synthetic_trial_registry.h"
+#include "third_party/metrics_proto/system_profile.pb.h"
 
 namespace variations {
 
@@ -45,6 +45,9 @@ void FieldTrialsProvider::OnDidCreateMetricsLog() {
 void FieldTrialsProvider::ProvideSystemProfileMetrics(
     metrics::SystemProfileProto* system_profile_proto) {
   std::vector<ActiveGroupId> field_trial_ids;
+  const std::string& version = variations::GetSeedVersion();
+  if (!version.empty())
+    system_profile_proto->set_variations_seed_version(version);
   GetFieldTrialIds(&field_trial_ids);
   WriteFieldTrials(field_trial_ids, system_profile_proto);
 

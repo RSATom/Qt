@@ -16,7 +16,7 @@ component("user_manager") {
 
   deps = [
     "//base",
-    "//components/signin/core/account_id",
+    "//components/account_id",
     "//google_apis",
     "//skia",
     "//ui/gfx",
@@ -29,6 +29,8 @@ component("user_manager") {
       "known_user.cc",
       "known_user.h",
       "remove_user_delegate.h",
+      "scoped_user_manager.cc",
+      "scoped_user_manager.h",
       "user.cc",
       "user.h",
       "user_image/user_image.cc",
@@ -56,7 +58,7 @@ if (is_chromeos) {
       ":user_manager",
       "//base",
       "//chromeos:chromeos",
-      "//components/signin/core/account_id",
+      "//components/account_id",
       "//skia",
       "//ui/base",
     ]
@@ -69,7 +71,7 @@ if (is_chromeos) {
     ]
     deps = [
       ":user_manager",
-      "//components/signin/core/account_id",
+      "//components/account_id",
       "//skia",
       "//testing/gtest",
       "//ui/gfx",

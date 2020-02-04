@@ -119,10 +119,9 @@ QCameraLocksControl::~QCameraLocksControl()
 /*!
     \fn QCameraLocksControl::lockStatusChanged(QCamera::LockType lock, QCamera::LockStatus status, QCamera::LockChangeReason reason)
 
-    Signals the \a lock \a status was changed with a specified \a reason.
+    Signals the lock \a type \a status was changed with the specified \a reason.
 */
 
-
+QT_END_NAMESPACE
 
 #include "moc_qcameralockscontrol.cpp"
-QT_END_NAMESPACE

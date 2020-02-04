@@ -9,10 +9,10 @@
 
 #include <memory>
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxge/cfx_defaultrenderdevice.h"
+#include "core/fxcrt/unowned_ptr.h"
 
+class CFX_DefaultRenderDevice;
 class CFX_RenderDevice;
 class CPDF_PageObject;
 class CPDF_RenderContext;
@@ -30,17 +30,15 @@ class CPDF_ScaledRenderBuffer {
                   const CPDF_RenderOptions* pOptions,
                   int max_dpi);
 
-  CFX_RenderDevice* GetDevice() const {
-    return m_pBitmapDevice ? m_pBitmapDevice.get() : m_pDevice.Get();
-  }
-  CFX_Matrix* GetMatrix() { return &m_Matrix; }
+  CFX_RenderDevice* GetDevice() const;
+  const CFX_Matrix& GetMatrix() const { return m_Matrix; }
   void OutputToDevice();
 
  private:
-  CFX_UnownedPtr<CFX_RenderDevice> m_pDevice;
-  CFX_UnownedPtr<CPDF_RenderContext> m_pContext;
+  UnownedPtr<CFX_RenderDevice> m_pDevice;
+  UnownedPtr<CPDF_RenderContext> m_pContext;
   FX_RECT m_Rect;
-  CFX_UnownedPtr<const CPDF_PageObject> m_pObject;
+  UnownedPtr<const CPDF_PageObject> m_pObject;
   std::unique_ptr<CFX_DefaultRenderDevice> m_pBitmapDevice;
   CFX_Matrix m_Matrix;
 };

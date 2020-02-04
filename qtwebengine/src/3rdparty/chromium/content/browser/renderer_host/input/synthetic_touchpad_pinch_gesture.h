@@ -12,7 +12,7 @@
 #include "content/common/content_export.h"
 #include "content/common/input/synthetic_pinch_gesture_params.h"
 #include "content/common/input/synthetic_web_input_event_builders.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 
 namespace content {
 
@@ -25,6 +25,8 @@ class CONTENT_EXPORT SyntheticTouchpadPinchGesture : public SyntheticGesture {
   SyntheticGesture::Result ForwardInputEvents(
       const base::TimeTicks& timestamp,
       SyntheticGestureTarget* target) override;
+  void WaitForTargetAck(base::OnceClosure callback,
+                        SyntheticGestureTarget* target) const override;
 
  private:
   enum GestureState { SETUP, STARTED, IN_PROGRESS, DONE };

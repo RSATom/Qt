@@ -205,18 +205,10 @@ std::unique_ptr<base::Value> AsValue(const SkPaint& paint) {
     val->Set("Xfermode", AsValue(paint.getBlendMode()));
   }
 
-  if (paint.getFlags()) {
+  if (paint.isAntiAlias() || paint.isDither()) {
     FlagsBuilder builder('|');
     builder.addFlag(paint.isAntiAlias(), "AntiAlias");
     builder.addFlag(paint.isDither(), "Dither");
-    builder.addFlag(paint.isFakeBoldText(), "FakeBoldText");
-    builder.addFlag(paint.isLinearText(), "LinearText");
-    builder.addFlag(paint.isSubpixelText(), "SubpixelText");
-    builder.addFlag(paint.isDevKernText(), "DevKernText");
-    builder.addFlag(paint.isLCDRenderText(), "LCDRenderText");
-    builder.addFlag(paint.isEmbeddedBitmapText(), "EmbeddedBitmapText");
-    builder.addFlag(paint.isAutohinted(), "Autohinted");
-    builder.addFlag(paint.isVerticalText(), "VerticalText");
 
     val->SetString("Flags", builder.str());
   }
@@ -230,15 +222,6 @@ std::unique_ptr<base::Value> AsValue(const SkPaint& paint) {
                    gFilterQualityStrings[paint.getFilterQuality()]);
   }
 
-  if (paint.getTextSize() != default_paint.getTextSize())
-    val->SetDouble("TextSize", paint.getTextSize());
-
-  if (paint.getTextScaleX() != default_paint.getTextScaleX())
-    val->SetDouble("TextScaleX", paint.getTextScaleX());
-
-  if (paint.getTextSkewX() != default_paint.getTextSkewX())
-    val->SetDouble("TextSkewX", paint.getTextSkewX());
-
   if (paint.getColorFilter())
     val->Set("ColorFilter", AsValue(*paint.getColorFilter()));
 
@@ -250,13 +233,7 @@ std::unique_ptr<base::Value> AsValue(const SkPaint& paint) {
 
 std::unique_ptr<base::Value> SaveLayerFlagsAsValue(
     SkCanvas::SaveLayerFlags flags) {
-  FlagsBuilder builder('|');
-  builder.addFlag(flags & SkCanvas::kIsOpaque_SaveLayerFlag,
-                  "kIsOpaque");
-  builder.addFlag(flags & SkCanvas::kPreserveLCDText_SaveLayerFlag,
-                  "kPreserveLCDText");
-
-  std::unique_ptr<base::Value> val(new base::Value(builder.str()));
+  std::unique_ptr<base::Value> val(new base::Value(static_cast<int>(flags)));
 
   return val;
 }
@@ -388,7 +365,7 @@ public:
 
    op_record_->SetString("cmd_string", op_name);
    op_params_ =
-       op_record_->SetList("info", base::MakeUnique<base::ListValue>());
+       op_record_->SetList("info", std::make_unique<base::ListValue>());
 
    if (paint) {
      this->addParam("paint", AsValue(*paint));
@@ -429,8 +406,7 @@ BenchmarkingCanvas::BenchmarkingCanvas(SkCanvas* canvas)
   addCanvas(canvas);
 }
 
-BenchmarkingCanvas::~BenchmarkingCanvas() {
-}
+BenchmarkingCanvas::~BenchmarkingCanvas() = default;
 
 size_t BenchmarkingCanvas::CommandCount() const {
   return op_records_.GetSize();
@@ -657,53 +633,6 @@ void BenchmarkingCanvas::onDrawBitmapNine(const SkBitmap& bitmap,
   op.addParam("dst", AsValue(dst));
 
   INHERITED::onDrawBitmapNine(bitmap, center, dst, op.paint());
-}
-
-void BenchmarkingCanvas::onDrawText(const void* text, size_t byteLength,
-                                    SkScalar x, SkScalar y,
-                                    const SkPaint& paint) {
-  AutoOp op(this, "DrawText", &paint);
-  op.addParam("count", AsValue(SkIntToScalar(paint.countText(text, byteLength))));
-  op.addParam("x", AsValue(x));
-  op.addParam("y", AsValue(y));
-
-  INHERITED::onDrawText(text, byteLength, x, y, *op.paint());
-}
-
-void BenchmarkingCanvas::onDrawPosText(const void* text, size_t byteLength,
-                                       const SkPoint pos[], const SkPaint& paint) {
-  AutoOp op(this, "DrawPosText", &paint);
-
-  int count = paint.countText(text, byteLength);
-  op.addParam("count", AsValue(SkIntToScalar(count)));
-  op.addParam("pos", AsListValue(pos, count));
-
-  INHERITED::onDrawPosText(text, byteLength, pos, *op.paint());
-}
-
-void BenchmarkingCanvas::onDrawPosTextH(const void* text, size_t byteLength,
-                                        const SkScalar xpos[], SkScalar constY,
-                                        const SkPaint& paint)  {
-  AutoOp op(this, "DrawPosTextH", &paint);
-  op.addParam("constY", AsValue(constY));
-
-  int count = paint.countText(text, byteLength);
-  op.addParam("count", AsValue(SkIntToScalar(count)));
-  op.addParam("pos", AsListValue(xpos, count));
-
-  INHERITED::onDrawPosTextH(text, byteLength, xpos, constY, *op.paint());
-}
-
-void BenchmarkingCanvas::onDrawTextOnPath(const void* text, size_t byteLength,
-                                          const SkPath& path, const SkMatrix* matrix,
-                                          const SkPaint& paint) {
-  AutoOp op(this, "DrawTextOnPath", &paint);
-  op.addParam("count", AsValue(SkIntToScalar(paint.countText(text, byteLength))));
-  op.addParam("path", AsValue(path));
-  if (matrix)
-    op.addParam("matrix", AsValue(*matrix));
-
-  INHERITED::onDrawTextOnPath(text, byteLength, path, matrix, *op.paint());
 }
 
 void BenchmarkingCanvas::onDrawTextBlob(const SkTextBlob* blob, SkScalar x, SkScalar y,

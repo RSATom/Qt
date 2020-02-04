@@ -319,7 +319,8 @@ void QSurfaceFormat::setStereo(bool enable)
 
 /*!
     Returns the number of samples per pixel when multisampling is
-    enabled. By default, multisampling is disabled.
+    enabled, or \c -1 when multisampling is disabled. The default
+    return value is \c -1.
 
     \sa setSamples()
 */
@@ -553,10 +554,6 @@ int QSurfaceFormat::alphaBufferSize() const
 
 /*!
     Set the desired \a size in bits of the red channel of the color buffer.
-
-    \note On Mac OSX, be sure to set the buffer size of all color channels,
-    otherwise this setting will have no effect. If one of the buffer sizes is not set,
-    the current bit-depth of the screen is used.
 */
 void QSurfaceFormat::setRedBufferSize(int size)
 {
@@ -568,10 +565,6 @@ void QSurfaceFormat::setRedBufferSize(int size)
 
 /*!
     Set the desired \a size in bits of the green channel of the color buffer.
-
-    \note On Mac OSX, be sure to set the buffer size of all color channels,
-    otherwise this setting will have no effect. If one of the buffer sizes is not set,
-    the current bit-depth of the screen is used.
 */
 void QSurfaceFormat::setGreenBufferSize(int size)
 {
@@ -583,10 +576,6 @@ void QSurfaceFormat::setGreenBufferSize(int size)
 
 /*!
     Set the desired \a size in bits of the blue channel of the color buffer.
-
-    \note On Mac OSX, be sure to set the buffer size of all color channels,
-    otherwise this setting will have no effect. If one of the buffer sizes is not set,
-    the current bit-depth of the screen is used.
 */
 void QSurfaceFormat::setBlueBufferSize(int size)
 {

@@ -26,6 +26,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_interceptor.h"
 #include "net/url_request/url_request_test_job.h"
@@ -52,7 +53,7 @@ class AiaResponseHandler : public URLRequestInterceptor {
  public:
   AiaResponseHandler(const std::string& headers, const std::string& cert_data)
       : headers_(headers), cert_data_(cert_data), request_count_(0) {}
-  ~AiaResponseHandler() override {}
+  ~AiaResponseHandler() override = default;
 
   // URLRequestInterceptor implementation:
   URLRequestJob* MaybeInterceptRequest(
@@ -76,14 +77,14 @@ class AiaResponseHandler : public URLRequestInterceptor {
 
 }  // namespace
 
-class NssHttpTest : public ::testing::Test {
+class NssHttpTest : public TestWithScopedTaskEnvironment {
  public:
   NssHttpTest()
       : context_(false),
         handler_(NULL),
         verify_proc_(new CertVerifyProcNSS),
         verifier_(new MultiThreadedCertVerifier(verify_proc_.get())) {}
-  ~NssHttpTest() override {}
+  ~NssHttpTest() override = default;
 
   void SetUp() override {
     std::string file_contents;
@@ -102,11 +103,10 @@ class NssHttpTest : public ::testing::Test {
                                                             std::move(handler));
 
     SetURLRequestContextForNSSHttpIO(&context_);
-    EnsureNSSHttpIOInit();
   }
 
   void TearDown() override {
-    ShutdownNSSHttpIO();
+    SetURLRequestContextForNSSHttpIO(nullptr);
 
     if (handler_)
       URLRequestFilter::GetInstance()->RemoveHostnameHandler("http", kAiaHost);
@@ -130,9 +130,8 @@ class NssHttpTest : public ::testing::Test {
   std::unique_ptr<CertVerifier> verifier_;
 };
 
-// Tests that when using NSS to verify certificates, and IO is enabled,
-// that a request to fetch missing intermediate certificates is
-// made successfully.
+// Tests that when using NSS to verify certificates that a request to fetch
+// missing intermediate certificates is made successfully.
 TEST_F(NssHttpTest, TestAia) {
   scoped_refptr<X509Certificate> test_cert(
       ImportCertFromFile(GetTestCertsDirectory(), "aia-cert.pem"));
@@ -148,12 +147,11 @@ TEST_F(NssHttpTest, TestAia) {
   TestCompletionCallback test_callback;
   std::unique_ptr<CertVerifier::Request> request;
 
-  int flags = CertVerifier::VERIFY_CERT_IO_ENABLED;
+  int flags = 0;
   int error = verifier()->Verify(
       CertVerifier::RequestParams(test_cert, "aia-host.invalid", flags,
-                                  std::string(), CertificateList()),
-      nullptr, &verify_result, test_callback.callback(), &request,
-      NetLogWithSource());
+                                  std::string()),
+      &verify_result, test_callback.callback(), &request, NetLogWithSource());
   ASSERT_THAT(error, IsError(ERR_IO_PENDING));
 
   error = test_callback.WaitForResult();

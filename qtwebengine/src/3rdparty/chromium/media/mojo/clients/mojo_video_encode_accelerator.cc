@@ -9,8 +9,7 @@
 #include "media/base/video_frame.h"
 #include "media/gpu/gpu_video_accelerator_util.h"
 #include "media/mojo/common/mojo_shared_buffer_video_frame.h"
-#include "media/mojo/interfaces/video_encode_accelerator.mojom.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 
 namespace media {
@@ -26,28 +25,31 @@ void KeepVideoFrameAlive(const scoped_refptr<VideoFrame>& frame) {}
 class VideoEncodeAcceleratorClient
     : public mojom::VideoEncodeAcceleratorClient {
  public:
-  explicit VideoEncodeAcceleratorClient(VideoEncodeAccelerator::Client* client);
+  VideoEncodeAcceleratorClient(
+      VideoEncodeAccelerator::Client* client,
+      mojom::VideoEncodeAcceleratorClientRequest request);
   ~VideoEncodeAcceleratorClient() override = default;
 
   // mojom::VideoEncodeAcceleratorClient impl.
   void RequireBitstreamBuffers(uint32_t input_count,
                                const gfx::Size& input_coded_size,
                                uint32_t output_buffer_size) override;
-  void BitstreamBufferReady(int32_t bitstream_buffer_id,
-                            uint32_t payload_size,
-                            bool key_frame,
-                            base::TimeDelta timestamp) override;
+  void BitstreamBufferReady(
+      int32_t bitstream_buffer_id,
+      const media::BitstreamBufferMetadata& metadata) override;
   void NotifyError(VideoEncodeAccelerator::Error error) override;
 
  private:
   VideoEncodeAccelerator::Client* client_;
+  mojo::Binding<mojom::VideoEncodeAcceleratorClient> binding_;
 
   DISALLOW_COPY_AND_ASSIGN(VideoEncodeAcceleratorClient);
 };
 
 VideoEncodeAcceleratorClient::VideoEncodeAcceleratorClient(
-    VideoEncodeAccelerator::Client* client)
-    : client_(client) {
+    VideoEncodeAccelerator::Client* client,
+    mojom::VideoEncodeAcceleratorClientRequest request)
+    : client_(client), binding_(this, std::move(request)) {
   DCHECK(client_);
 }
 
@@ -64,14 +66,11 @@ void VideoEncodeAcceleratorClient::RequireBitstreamBuffers(
 
 void VideoEncodeAcceleratorClient::BitstreamBufferReady(
     int32_t bitstream_buffer_id,
-    uint32_t payload_size,
-    bool key_frame,
-    base::TimeDelta timestamp) {
+    const media::BitstreamBufferMetadata& metadata) {
   DVLOG(2) << __func__ << " bitstream_buffer_id=" << bitstream_buffer_id
-           << ", payload_size=" << payload_size
-           << "B,  key_frame=" << key_frame;
-  client_->BitstreamBufferReady(bitstream_buffer_id, payload_size, key_frame,
-                                timestamp);
+           << ", payload_size=" << metadata.payload_size_bytes
+           << "B,  key_frame=" << metadata.key_frame;
+  client_->BitstreamBufferReady(bitstream_buffer_id, metadata);
 }
 
 void VideoEncodeAcceleratorClient::NotifyError(
@@ -99,28 +98,21 @@ MojoVideoEncodeAccelerator::GetSupportedProfiles() {
       supported_profiles_);
 }
 
-bool MojoVideoEncodeAccelerator::Initialize(VideoPixelFormat input_format,
-                                            const gfx::Size& input_visible_size,
-                                            VideoCodecProfile output_profile,
-                                            uint32_t initial_bitrate,
+bool MojoVideoEncodeAccelerator::Initialize(const Config& config,
                                             Client* client) {
-  DVLOG(2) << __func__
-           << " input_format=" << VideoPixelFormatToString(input_format)
-           << ", input_visible_size=" << input_visible_size.ToString()
-           << ", output_profile=" << GetProfileName(output_profile)
-           << ", initial_bitrate=" << initial_bitrate;
+  DVLOG(2) << __func__ << " " << config.AsHumanReadableString();
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!client)
+    return false;
 
   // Get a mojom::VideoEncodeAcceleratorClient bound to a local implementation
   // (VideoEncodeAcceleratorClient) and send the pointer remotely.
-  mojom::VideoEncodeAcceleratorClientPtr vea_client;
-  mojo::MakeStrongBinding(
-      base::MakeUnique<VideoEncodeAcceleratorClient>(client),
-      mojo::MakeRequest(&vea_client));
+  mojom::VideoEncodeAcceleratorClientPtr vea_client_ptr;
+  vea_client_ = std::make_unique<VideoEncodeAcceleratorClient>(
+      client, mojo::MakeRequest(&vea_client_ptr));
 
   bool result = false;
-  vea_->Initialize(input_format, input_visible_size, output_profile,
-                   initial_bitrate, std::move(vea_client), &result);
+  vea_->Initialize(config, std::move(vea_client_ptr), &result);
   return result;
 }
 
@@ -138,9 +130,13 @@ void MojoVideoEncodeAccelerator::Encode(const scoped_refptr<VideoFrame>& frame,
 
   // WrapSharedMemoryHandle() takes ownership of the handle passed to it, but we
   // don't have ownership of frame->shared_memory_handle(), so Duplicate() it.
-  mojo::ScopedSharedBufferHandle handle =
-      mojo::WrapSharedMemoryHandle(frame->shared_memory_handle().Duplicate(),
-                                   allocation_size, true /* read_only */);
+  //
+  // TODO(https://crbug.com/793446): This should be changed to wrap the frame
+  // buffer handle as read-only, but VideoFrame does not seem to guarantee that
+  // its shared_memory_handle() is in fact read-only.
+  mojo::ScopedSharedBufferHandle handle = mojo::WrapSharedMemoryHandle(
+      frame->shared_memory_handle().Duplicate(), allocation_size,
+      mojo::UnwrappedSharedMemoryHandleProtection::kReadWrite);
 
   const size_t y_offset = frame->shared_memory_offset();
   const size_t u_offset = y_offset + frame->data(VideoFrame::kUPlane) -
@@ -170,11 +166,13 @@ void MojoVideoEncodeAccelerator::UseOutputBitstreamBuffer(
            << " buffer.size()= " << buffer.size() << "B";
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // WrapSharedMemoryHandle() takes ownership of the handle passed to it, but we
-  // don't have ownership of the |buffer|s underlying handle, so Duplicate() it.
   DCHECK(buffer.handle().IsValid());
+
+  // TODO(https://crbug.com/793446): Only wrap read-only handles here and change
+  // the protection status to kReadOnly.
   mojo::ScopedSharedBufferHandle buffer_handle = mojo::WrapSharedMemoryHandle(
-      buffer.handle().Duplicate(), buffer.size(), true /* read_only */);
+      buffer.handle().Duplicate(), buffer.size(),
+      mojo::UnwrappedSharedMemoryHandleProtection::kReadWrite);
 
   vea_->UseOutputBitstreamBuffer(buffer.id(), std::move(buffer_handle));
 }
@@ -185,12 +183,26 @@ void MojoVideoEncodeAccelerator::RequestEncodingParametersChange(
   DVLOG(2) << __func__;
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(vea_.is_bound());
+
+  media::VideoBitrateAllocation bitrate_allocation;
+  bitrate_allocation.SetBitrate(0, 0, bitrate);
+  vea_->RequestEncodingParametersChange(bitrate_allocation, framerate);
+}
+
+void MojoVideoEncodeAccelerator::RequestEncodingParametersChange(
+    const VideoBitrateAllocation& bitrate,
+    uint32_t framerate) {
+  DVLOG(2) << __func__;
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(vea_.is_bound());
+
   vea_->RequestEncodingParametersChange(bitrate, framerate);
 }
 
 void MojoVideoEncodeAccelerator::Destroy() {
   DVLOG(1) << __func__;
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  vea_client_.reset();
   vea_.reset();
   // See media::VideoEncodeAccelerator for more info on this peculiar pattern.
   delete this;

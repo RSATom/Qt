@@ -64,7 +64,7 @@ class sensorfwSensorPlugin : public QObject, public QSensorPluginInterface, publ
 
 public:
 
-    void registerSensors()
+    void registerSensors() override
     {
         // if no default - no support either, uses Sensors.conf
         QSettings settings(QSettings::SystemScope, QLatin1String("QtProject"), QLatin1String("Sensors"));
@@ -78,7 +78,7 @@ public:
     }
 
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == sensorfwaccelerometer::id)
             return new sensorfwaccelerometer(sensor);

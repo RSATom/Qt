@@ -146,6 +146,7 @@ class ConstFieldInstance {
             : reflection().GetEnum(*message_, descriptor_);
     *value = {static_cast<size_t>(value_descriptor->index()),
               static_cast<size_t>(value_descriptor->type()->value_count())};
+    if (value->index < 0 || value->index >= value->count) GetDefault(value);
   }
 
   void Load(std::string* value) const {
@@ -163,6 +164,18 @@ class ConstFieldInstance {
     (*value)->CopyFrom(source);
   }
 
+  template <class T>
+  bool CanStore(const T& value) const {
+    return true;
+  }
+
+  bool CanStore(const std::string& value) const {
+    if (!EnforceUtf8()) return true;
+    using protobuf::internal::WireFormatLite;
+    return WireFormatLite::VerifyUtf8String(value.data(), value.length(),
+                                            WireFormatLite::PARSE, "");
+  }
+
   std::string name() const { return descriptor_->name(); }
 
   protobuf::FieldDescriptor::CppType cpp_type() const {
@@ -177,14 +190,26 @@ class ConstFieldInstance {
     return descriptor_->message_type();
   }
 
+  bool EnforceUtf8() const {
+    return descriptor_->type() == protobuf::FieldDescriptor::TYPE_STRING &&
+           descriptor()->file()->syntax() ==
+               protobuf::FileDescriptor::SYNTAX_PROTO3;
+  }
+
+  const protobuf::FieldDescriptor* descriptor() const { return descriptor_; }
+
+  std::string DebugString() const {
+    std::string s = descriptor_->DebugString();
+    if (is_repeated()) s += "[" + std::to_string(index_) + "]";
+    return s + " of\n" + message_->DebugString();
+  }
+
  protected:
   bool is_repeated() const { return descriptor_->is_repeated(); }
 
   const protobuf::Reflection& reflection() const {
     return *message_->GetReflection();
   }
-
-  const protobuf::FieldDescriptor* descriptor() const { return descriptor_; }
 
   size_t index() const { return index_; }
 
@@ -414,7 +439,7 @@ struct FieldFunction {
             ->template ForType<std::unique_ptr<protobuf::Message>>(field,
                                                                    args...);
     }
-    assert(!"Unknown type");
+    assert(false && "Unknown type");
     abort();
   }
 };

@@ -49,11 +49,9 @@ class VisitedLinkUpdater {
   }
 
   // Informs the renderer about a new visited link table.
-  void SendVisitedLinkTable(mojo::SharedBufferHandle table) {
-    mojo::ScopedSharedBufferHandle client_table =
-        table.Clone(mojo::SharedBufferHandle::AccessMode::READ_ONLY);
-    if (client_table.is_valid())
-      sink_->UpdateVisitedLinks(std::move(client_table));
+  void SendVisitedLinkTable(base::ReadOnlySharedMemoryRegion* region) {
+    if (region->IsValid())
+      sink_->UpdateVisitedLinks(region->Duplicate());
   }
 
   // Buffers |links| to update, but doesn't actually relay them.
@@ -92,7 +90,7 @@ class VisitedLinkUpdater {
     if (!process)
       return;  // Happens in tests
 
-    if (!process->VisibleWidgetCount())
+    if (!process->VisibleClientCount())
       return;
 
     if (reset_needed_) {
@@ -135,21 +133,22 @@ VisitedLinkEventListener::~VisitedLinkEventListener() {
     pending_visited_links_.clear();
 }
 
-void VisitedLinkEventListener::NewTable(mojo::SharedBufferHandle table) {
-  DCHECK(table.is_valid());
-  shared_memory_ = table.Clone(mojo::SharedBufferHandle::AccessMode::READ_ONLY);
-  if (!shared_memory_.is_valid())
+void VisitedLinkEventListener::NewTable(
+    base::ReadOnlySharedMemoryRegion* table_region) {
+  DCHECK(table_region && table_region->IsValid());
+  table_region_ = table_region->Duplicate();
+  if (!table_region_.IsValid())
     return;
 
   // Send to all RenderProcessHosts.
-  for (Updaters::iterator i = updaters_.begin(); i != updaters_.end(); ++i) {
+  for (auto i = updaters_.begin(); i != updaters_.end(); ++i) {
     // Make sure to not send to incognito renderers.
     content::RenderProcessHost* process =
         content::RenderProcessHost::FromID(i->first);
     if (!process)
       continue;
 
-    i->second->SendVisitedLinkTable(shared_memory_.get());
+    i->second->SendVisitedLinkTable(&table_region_);
   }
 }
 
@@ -159,8 +158,8 @@ void VisitedLinkEventListener::Add(VisitedLinkMaster::Fingerprint fingerprint) {
   if (!coalesce_timer_->IsRunning()) {
     coalesce_timer_->Start(
         FROM_HERE, TimeDelta::FromMilliseconds(kCommitIntervalMs),
-        base::Bind(&VisitedLinkEventListener::CommitVisitedLinks,
-                   base::Unretained(this)));
+        base::BindOnce(&VisitedLinkEventListener::CommitVisitedLinks,
+                       base::Unretained(this)));
   }
 }
 
@@ -168,20 +167,20 @@ void VisitedLinkEventListener::Reset(bool invalidate_hashes) {
   pending_visited_links_.clear();
   coalesce_timer_->Stop();
 
-  for (Updaters::iterator i = updaters_.begin(); i != updaters_.end(); ++i) {
+  for (auto i = updaters_.begin(); i != updaters_.end(); ++i) {
     i->second->AddReset(invalidate_hashes);
     i->second->Update();
   }
 }
 
 void VisitedLinkEventListener::SetCoalesceTimerForTest(
-    base::Timer* coalesce_timer_override) {
+    base::OneShotTimer* coalesce_timer_override) {
   coalesce_timer_ = coalesce_timer_override;
 }
 
 void VisitedLinkEventListener::CommitVisitedLinks() {
   // Send to all RenderProcessHosts.
-  for (Updaters::iterator i = updaters_.begin(); i != updaters_.end(); ++i) {
+  for (auto i = updaters_.begin(); i != updaters_.end(); ++i) {
     i->second->AddLinks(pending_visited_links_);
     i->second->Update();
   }
@@ -201,12 +200,12 @@ void VisitedLinkEventListener::Observe(
         return;
 
       // Happens on browser start up.
-      if (!shared_memory_.is_valid())
+      if (!table_region_.IsValid())
         return;
 
       updaters_[process->GetID()].reset(
           new VisitedLinkUpdater(process->GetID()));
-      updaters_[process->GetID()]->SendVisitedLinkTable(shared_memory_.get());
+      updaters_[process->GetID()]->SendVisitedLinkTable(&table_region_);
       break;
     }
     case content::NOTIFICATION_RENDERER_PROCESS_TERMINATED: {

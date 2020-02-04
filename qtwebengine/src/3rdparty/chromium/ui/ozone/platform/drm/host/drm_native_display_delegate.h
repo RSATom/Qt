@@ -17,7 +17,7 @@ class DrmDisplayHostManager;
 
 class DrmNativeDisplayDelegate : public display::NativeDisplayDelegate {
  public:
-  DrmNativeDisplayDelegate(DrmDisplayHostManager* display_manager);
+  explicit DrmNativeDisplayDelegate(DrmDisplayHostManager* display_manager);
   ~DrmNativeDisplayDelegate() override;
 
   void OnConfigurationChanged();
@@ -25,48 +25,33 @@ class DrmNativeDisplayDelegate : public display::NativeDisplayDelegate {
 
   // display::NativeDisplayDelegate overrides:
   void Initialize() override;
-  void GrabServer() override;
-  void UngrabServer() override;
-  void TakeDisplayControl(
-      const display::DisplayControlCallback& callback) override;
+  void TakeDisplayControl(display::DisplayControlCallback callback) override;
   void RelinquishDisplayControl(
-      const display::DisplayControlCallback& callback) override;
-  void SyncWithServer() override;
-  void SetBackgroundColor(uint32_t color_argb) override;
-  void ForceDPMSOn() override;
-  void GetDisplays(const display::GetDisplaysCallback& callback) override;
-  void AddMode(const display::DisplaySnapshot& output,
-               const display::DisplayMode* mode) override;
+      display::DisplayControlCallback callback) override;
+  void GetDisplays(display::GetDisplaysCallback callback) override;
   void Configure(const display::DisplaySnapshot& output,
                  const display::DisplayMode* mode,
                  const gfx::Point& origin,
-                 const display::ConfigureCallback& callback) override;
-  void CreateFrameBuffer(const gfx::Size& size) override;
+                 display::ConfigureCallback callback) override;
   void GetHDCPState(const display::DisplaySnapshot& output,
-                    const display::GetHDCPStateCallback& callback) override;
+                    display::GetHDCPStateCallback callback) override;
   void SetHDCPState(const display::DisplaySnapshot& output,
                     display::HDCPState state,
-                    const display::SetHDCPStateCallback& callback) override;
-  std::vector<display::ColorCalibrationProfile>
-  GetAvailableColorCalibrationProfiles(
-      const display::DisplaySnapshot& output) override;
-  bool SetColorCalibrationProfile(
-      const display::DisplaySnapshot& output,
-      display::ColorCalibrationProfile new_profile) override;
-  bool SetColorCorrection(
-      const display::DisplaySnapshot& output,
+                    display::SetHDCPStateCallback callback) override;
+  bool SetColorMatrix(int64_t display_id,
+                      const std::vector<float>& color_matrix) override;
+  bool SetGammaCorrection(
+      int64_t display_id,
       const std::vector<display::GammaRampRGBEntry>& degamma_lut,
-      const std::vector<display::GammaRampRGBEntry>& gamma_lut,
-      const std::vector<float>& correction_matrix) override;
-
+      const std::vector<display::GammaRampRGBEntry>& gamma_lut) override;
   void AddObserver(display::NativeDisplayObserver* observer) override;
   void RemoveObserver(display::NativeDisplayObserver* observer) override;
   display::FakeDisplayController* GetFakeDisplayController() override;
 
  private:
-  DrmDisplayHostManager* display_manager_;  // Not owned.
+  DrmDisplayHostManager* const display_manager_;  // Not owned.
 
-  base::ObserverList<display::NativeDisplayObserver> observers_;
+  base::ObserverList<display::NativeDisplayObserver>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(DrmNativeDisplayDelegate);
 };

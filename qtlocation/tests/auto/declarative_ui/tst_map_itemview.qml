@@ -28,7 +28,7 @@
 
 import QtQuick 2.0
 import QtTest 1.0
-import QtLocation 5.6
+import QtLocation 5.12
 import QtPositioning 5.5
 import QtLocation.Test 5.5
 
@@ -49,6 +49,7 @@ Item {
     MapItemView {
         id: routeItemViewExtra
         model: routeModel
+        incubateDelegates: false
         delegate: Component {
             MapRoute {
                 route:  routeData
@@ -58,6 +59,10 @@ Item {
 
     MapItemView {
         id: listModelItemViewExtra
+        objectName: "listModelItemViewExtra"
+        incubateDelegates: false
+        add: null
+        remove: null
         model: ListModel {
             id: testingListModelExtra
             ListElement { lat: 11; lon: 31 }
@@ -252,6 +257,9 @@ Item {
 
         MapItemView {
             id: listModelItemView
+            incubateDelegates: false
+            add: null
+            remove: null
             model: ListModel {
                 id: testingListModel
                 ListElement { lat: 11; lon: 31 }
@@ -447,7 +455,8 @@ Item {
             }
 
             testingListModel.remove(0)
-            compare(mapForTestingListModel.mapItems.length, 2)
+            // default exit animation kicks in here, of length 300msec
+            tryCompare(mapForTestingListModel, "mapItemsLength", 2)
 
             for (var i = 0; i < 2; ++i) {
                 itemCoord = mapForTestingListModel.mapItems[i].center
@@ -460,7 +469,8 @@ Item {
             compare(mapForTestingListModel.mapItems[2].center, QtPositioning.coordinate(1, 1))
 
             testingListModel.clear()
-            compare(mapForTestingListModel.mapItems.length, 0)
+            // default exit animation kicks in here, of length 300msec
+            tryCompare(mapForTestingListModel, "mapItemsLength", 0)
 
             // Repopulating the model with initial data
             testingListModel.append({ "lat": 11, "lon": 31 })
@@ -485,7 +495,7 @@ Item {
             testingListModelExtra.clear()
             tryCompare(mapForTestingListModel, "mapItemsLength", 0)
             mapForTestingListModel.removeMapItemView(listModelItemViewExtra)
-
+            tryCompare(mapForTestingListModel, "mapItemsLength", 0)
             mapForTestingListModel.addMapItemView(listModelItemView)
             tryCompare(mapForTestingListModel, "mapItemsLength", 3)
 
@@ -511,7 +521,8 @@ Item {
             routeModel.update();
             tryCompare(mapForTestingRouteModel, "mapItemsLength", 3)
             routeModel.reset();
-            compare(mapForTestingRouteModel.mapItems.length, 0)
+            // default exit animation kicks in here, of length 300msec
+            tryCompare(mapForTestingRouteModel, "mapItemsLength", 0)
             routeModel.reset(); // clear empty model
             routeQuery.numberAlternativeRoutes = 3
             routeModel.update();
@@ -532,7 +543,8 @@ Item {
             compare(mapForTestingRouteModel.mapItems.length, 4)
             compare(mapForTestingRouteModel.mapItems[3], externalCircle2)
             routeModel.reset();
-            compare(mapForTestingRouteModel.mapItems.length, 1)
+            // default exit animation kicks in here, of length 300msec
+            tryCompare(mapForTestingRouteModel, "mapItemsLength", 1)
             mapForTestingRouteModel.clearMapItems()
             compare(mapForTestingRouteModel.mapItems.length, 0)
 

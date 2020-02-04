@@ -6,74 +6,50 @@
 
 #include <stdint.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
-#include "base/json/json_file_value_serializer.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "base/values.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/crx_file/crx_verifier.h"
+#include "components/services/unzip/public/cpp/unzip.h"
 #include "components/update_client/component_patcher.h"
 #include "components/update_client/update_client.h"
 #include "components/update_client/update_client_errors.h"
-#include "third_party/zlib/google/zip.h"
 
 namespace update_client {
-
-// TODO(cpu): add a specific attribute check to a component json that the
-// extension unpacker will reject, so that a component cannot be installed
-// as an extension.
-std::unique_ptr<base::DictionaryValue> ReadManifest(
-    const base::FilePath& unpack_path) {
-  base::FilePath manifest =
-      unpack_path.Append(FILE_PATH_LITERAL("manifest.json"));
-  if (!base::PathExists(manifest))
-    return std::unique_ptr<base::DictionaryValue>();
-  JSONFileValueDeserializer deserializer(manifest);
-  std::string error;
-  std::unique_ptr<base::Value> root = deserializer.Deserialize(NULL, &error);
-  if (!root.get())
-    return std::unique_ptr<base::DictionaryValue>();
-  if (!root->IsType(base::Value::Type::DICTIONARY))
-    return std::unique_ptr<base::DictionaryValue>();
-  return std::unique_ptr<base::DictionaryValue>(
-      static_cast<base::DictionaryValue*>(root.release()));
-}
 
 ComponentUnpacker::Result::Result() {}
 
 ComponentUnpacker::ComponentUnpacker(
     const std::vector<uint8_t>& pk_hash,
     const base::FilePath& path,
-    const scoped_refptr<CrxInstaller>& installer,
-    const scoped_refptr<OutOfProcessPatcher>& oop_patcher,
-    const scoped_refptr<base::SequencedTaskRunner>& task_runner)
+    scoped_refptr<CrxInstaller> installer,
+    std::unique_ptr<service_manager::Connector> connector,
+    crx_file::VerifierFormat crx_format)
     : pk_hash_(pk_hash),
       path_(path),
       is_delta_(false),
       installer_(installer),
-      oop_patcher_(oop_patcher),
+      connector_(std::move(connector)),
+      crx_format_(crx_format),
       error_(UnpackerError::kNone),
-      extended_error_(0),
-      task_runner_(task_runner) {}
+      extended_error_(0) {}
 
 ComponentUnpacker::~ComponentUnpacker() {}
 
-bool ComponentUnpacker::UnpackInternal() {
-  return Verify() && Unzip() && BeginPatching();
-}
-
-void ComponentUnpacker::Unpack(const Callback& callback) {
-  callback_ = callback;
-  if (!UnpackInternal())
+void ComponentUnpacker::Unpack(Callback callback) {
+  callback_ = std::move(callback);
+  if (!Verify() || !BeginUnzipping())
     EndUnpacking();
 }
 
@@ -85,8 +61,8 @@ bool ComponentUnpacker::Verify() {
   }
   const std::vector<std::vector<uint8_t>> required_keys = {pk_hash_};
   const crx_file::VerifierResult result =
-      crx_file::Verify(path_, crx_file::VerifierFormat::CRX2_OR_CRX3,
-                       required_keys, std::vector<uint8_t>(), nullptr, nullptr);
+      crx_file::Verify(path_, crx_format_, required_keys,
+                       std::vector<uint8_t>(), &public_key_, nullptr);
   if (result != crx_file::VerifierResult::OK_FULL &&
       result != crx_file::VerifierResult::OK_DELTA) {
     error_ = UnpackerError::kInvalidFile;
@@ -98,7 +74,7 @@ bool ComponentUnpacker::Verify() {
   return true;
 }
 
-bool ComponentUnpacker::Unzip() {
+bool ComponentUnpacker::BeginUnzipping() {
   // Mind the reference to non-const type, passed as an argument below.
   base::FilePath& destination = is_delta_ ? unpack_diff_path_ : unpack_path_;
   if (!base::CreateNewTempDirectory(base::FilePath::StringType(),
@@ -108,13 +84,20 @@ bool ComponentUnpacker::Unzip() {
     return false;
   }
   VLOG(1) << "Unpacking in: " << destination.value();
-  if (!zip::Unzip(path_, destination)) {
+  unzip::Unzip(connector_->Clone(), path_, destination,
+               base::BindOnce(&ComponentUnpacker::EndUnzipping, this));
+  return true;
+}
+
+void ComponentUnpacker::EndUnzipping(bool result) {
+  if (!result) {
     VLOG(1) << "Unzipping failed.";
     error_ = UnpackerError::kUnzipFailed;
-    return false;
+    EndUnpacking();
+    return;
   }
   VLOG(1) << "Unpacked successfully";
-  return true;
+  BeginPatching();
 }
 
 bool ComponentUnpacker::BeginPatching() {
@@ -125,18 +108,18 @@ bool ComponentUnpacker::BeginPatching() {
       error_ = UnpackerError::kUnzipPathError;
       return false;
     }
-    patcher_ = new ComponentPatcher(unpack_diff_path_, unpack_path_, installer_,
-                                    oop_patcher_, task_runner_);
-    task_runner_->PostTask(
+    patcher_ = base::MakeRefCounted<ComponentPatcher>(
+        unpack_diff_path_, unpack_path_, installer_, std::move(connector_));
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::Bind(&ComponentPatcher::Start, patcher_,
-                   base::Bind(&ComponentUnpacker::EndPatching,
-                              scoped_refptr<ComponentUnpacker>(this))));
+        base::BindOnce(&ComponentPatcher::Start, patcher_,
+                       base::BindOnce(&ComponentUnpacker::EndPatching,
+                                      scoped_refptr<ComponentUnpacker>(this))));
   } else {
-    task_runner_->PostTask(FROM_HERE,
-                           base::Bind(&ComponentUnpacker::EndPatching,
-                                      scoped_refptr<ComponentUnpacker>(this),
-                                      UnpackerError::kNone, 0));
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&ComponentUnpacker::EndPatching,
+                                  scoped_refptr<ComponentUnpacker>(this),
+                                  UnpackerError::kNone, 0));
   }
   return true;
 }
@@ -144,7 +127,7 @@ bool ComponentUnpacker::BeginPatching() {
 void ComponentUnpacker::EndPatching(UnpackerError error, int extended_error) {
   error_ = error;
   extended_error_ = extended_error;
-  patcher_ = NULL;
+  patcher_ = nullptr;
 
   EndUnpacking();
 }
@@ -158,10 +141,13 @@ void ComponentUnpacker::EndUnpacking() {
   Result result;
   result.error = error_;
   result.extended_error = extended_error_;
-  if (error_ == UnpackerError::kNone)
+  if (error_ == UnpackerError::kNone) {
     result.unpack_path = unpack_path_;
+    result.public_key = public_key_;
+  }
 
-  task_runner_->PostTask(FROM_HERE, base::Bind(callback_, result));
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback_), result));
 }
 
 }  // namespace update_client

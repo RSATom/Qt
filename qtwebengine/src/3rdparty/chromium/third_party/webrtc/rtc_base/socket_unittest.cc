@@ -8,20 +8,32 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <errno.h>
+#include <stdint.h>
+#include <string.h>
 #include <memory>
 
-#include "webrtc/rtc_base/socket_unittest.h"
-
-#include "webrtc/rtc_base/arraysize.h"
-#include "webrtc/rtc_base/asyncudpsocket.h"
-#include "webrtc/rtc_base/buffer.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/nethelpers.h"
-#include "webrtc/rtc_base/ptr_util.h"
-#include "webrtc/rtc_base/socketserver.h"
-#include "webrtc/rtc_base/testclient.h"
-#include "webrtc/rtc_base/testutils.h"
-#include "webrtc/rtc_base/thread.h"
+#include "absl/memory/memory.h"
+#include "rtc_base/arraysize.h"
+#include "rtc_base/async_packet_socket.h"
+#include "rtc_base/async_socket.h"
+#include "rtc_base/async_udp_socket.h"
+#include "rtc_base/buffer.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/location.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/message_handler.h"
+#include "rtc_base/message_queue.h"
+#include "rtc_base/net_helpers.h"
+#include "rtc_base/socket.h"
+#include "rtc_base/socket_address.h"
+#include "rtc_base/socket_server.h"
+#include "rtc_base/socket_unittest.h"
+#include "rtc_base/test_client.h"
+#include "rtc_base/test_utils.h"
+#include "rtc_base/third_party/sigslot/sigslot.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/time_utils.h"
 
 namespace rtc {
 
@@ -32,14 +44,18 @@ using webrtc::testing::SSE_READ;
 using webrtc::testing::SSE_WRITE;
 using webrtc::testing::StreamSink;
 
-#define MAYBE_SKIP_IPV6                             \
-  if (!HasIPv6Enabled()) {                          \
-    LOG(LS_INFO) << "No IPv6... skipping";          \
-    return;                                         \
+#define MAYBE_SKIP_IPV6                        \
+  if (!HasIPv6Enabled()) {                     \
+    RTC_LOG(LS_INFO) << "No IPv6... skipping"; \
+    return;                                    \
   }
 
 // Data size to be used in TcpInternal tests.
 static const size_t kTcpInternalDataSize = 1024 * 1024;  // bytes
+
+void SocketTest::SetUp() {
+  ss_ = Thread::Current()->socketserver();
+}
 
 void SocketTest::TestConnectIPv4() {
   ConnectInternal(kIPv4Loopback);
@@ -56,7 +72,7 @@ void SocketTest::TestConnectWithDnsLookupIPv4() {
 
 void SocketTest::TestConnectWithDnsLookupIPv6() {
   // TODO: Enable this when DNS resolution supports IPv6.
-  LOG(LS_INFO) << "Skipping IPv6 DNS test";
+  RTC_LOG(LS_INFO) << "Skipping IPv6 DNS test";
   // ConnectWithDnsLookupInternal(kIPv6Loopback, "localhost6");
 }
 
@@ -220,7 +236,7 @@ void SocketTest::ConnectInternal(const IPAddress& loopback) {
       ss_->CreateAsyncSocket(loopback.family(), SOCK_STREAM));
   sink.Monitor(client.get());
   EXPECT_EQ(AsyncSocket::CS_CLOSED, client->GetState());
-  EXPECT_PRED1(IsUnspecOrEmptyIP, client->GetLocalAddress().ipaddr());
+  EXPECT_TRUE(IsUnspecOrEmptyIP(client->GetLocalAddress().ipaddr()));
 
   // Create server and listen.
   std::unique_ptr<AsyncSocket> server(
@@ -287,7 +303,7 @@ void SocketTest::ConnectWithDnsLookupInternal(const IPAddress& loopback,
   dns_addr.SetIP(host);
   EXPECT_EQ(0, client->Connect(dns_addr));
   // TODO: Bind when doing DNS lookup.
-  //EXPECT_NE(kEmptyAddr, client->GetLocalAddress());  // Implicit Bind
+  // EXPECT_NE(kEmptyAddr, client->GetLocalAddress());  // Implicit Bind
 
   // Client is connecting, outcome not yet determined.
   EXPECT_EQ(AsyncSocket::CS_CONNECTING, client->GetState());
@@ -373,8 +389,8 @@ void SocketTest::ConnectWithDnsLookupFailInternal(const IPAddress& loopback) {
   WAIT_(client->GetState() == AsyncSocket::CS_CLOSED, kTimeout,
         dns_lookup_finished);
   if (!dns_lookup_finished) {
-    LOG(LS_WARNING) << "Skipping test; DNS resolution took longer than 5 "
-                    << "seconds.";
+    RTC_LOG(LS_WARNING) << "Skipping test; DNS resolution took longer than 5 "
+                        << "seconds.";
     return;
   }
 
@@ -440,9 +456,8 @@ void SocketTest::ConnectWhileNotClosedInternal(const IPAddress& loopback) {
 
   // Try to connect again, to an unresolved hostname.
   // Shouldn't break anything.
-  EXPECT_EQ(SOCKET_ERROR,
-            client->Connect(SocketAddress("localhost",
-                                          server->GetLocalAddress().port())));
+  EXPECT_EQ(SOCKET_ERROR, client->Connect(SocketAddress(
+                              "localhost", server->GetLocalAddress().port())));
   EXPECT_EQ(AsyncSocket::CS_CONNECTED, accepted->GetState());
   EXPECT_EQ(AsyncSocket::CS_CONNECTED, client->GetState());
   EXPECT_EQ(client->GetRemoteAddress(), server->GetLocalAddress());
@@ -637,10 +652,7 @@ void SocketTest::CloseInClosedCallbackInternal(const IPAddress& loopback) {
 
 class Sleeper : public MessageHandler {
  public:
-  Sleeper() {}
-  void OnMessage(Message* msg) {
-    Thread::Current()->SleepMs(500);
-  }
+  void OnMessage(Message* msg) override { Thread::Current()->SleepMs(500); }
 };
 
 void SocketTest::SocketServerWaitInternal(const IPAddress& loopback) {
@@ -693,8 +705,9 @@ void SocketTest::SocketServerWaitInternal(const IPAddress& loopback) {
   EXPECT_LT(0, accepted->Recv(buf, 1024, nullptr));
 }
 
-void SocketTest::TcpInternal(const IPAddress& loopback, size_t data_size,
-    ptrdiff_t max_send_size) {
+void SocketTest::TcpInternal(const IPAddress& loopback,
+                             size_t data_size,
+                             ptrdiff_t max_send_size) {
   StreamSink sink;
   SocketAddress accept_addr;
 
@@ -791,7 +804,7 @@ void SocketTest::TcpInternal(const IPAddress& loopback, size_t data_size,
       }
       if (recved_size >= 0) {
         EXPECT_LE(static_cast<size_t>(recved_size),
-            sent_size - recv_buffer.size());
+                  sent_size - recv_buffer.size());
         recv_buffer.AppendData(recved_data.data(), recved_size);
       } else {
         ASSERT_TRUE(receiver->IsBlocking());
@@ -857,7 +870,8 @@ void SocketTest::SingleFlowControlCallbackInternal(const IPAddress& loopback) {
   // Fill the socket buffer.
   char buf[1024 * 16] = {0};
   int sends = 0;
-  while (++sends && accepted->Send(&buf, arraysize(buf)) != -1) {}
+  while (++sends && accepted->Send(&buf, arraysize(buf)) != -1) {
+  }
   EXPECT_TRUE(accepted->IsBlocking());
 
   // Wait until data is available.
@@ -891,8 +905,7 @@ void SocketTest::SingleFlowControlCallbackInternal(const IPAddress& loopback) {
 void SocketTest::UdpInternal(const IPAddress& loopback) {
   SocketAddress empty = EmptySocketAddressWithFamily(loopback.family());
   // Test basic bind and connect behavior.
-  AsyncSocket* socket =
-      ss_->CreateAsyncSocket(loopback.family(), SOCK_DGRAM);
+  AsyncSocket* socket = ss_->CreateAsyncSocket(loopback.family(), SOCK_DGRAM);
   EXPECT_EQ(AsyncSocket::CS_CLOSED, socket->GetState());
   EXPECT_EQ(0, socket->Bind(SocketAddress(loopback, 0)));
   SocketAddress addr1 = socket->GetLocalAddress();
@@ -904,9 +917,9 @@ void SocketTest::UdpInternal(const IPAddress& loopback) {
 
   // Test send/receive behavior.
   std::unique_ptr<TestClient> client1(
-      new TestClient(WrapUnique(AsyncUDPSocket::Create(ss_, addr1))));
+      new TestClient(absl::WrapUnique(AsyncUDPSocket::Create(ss_, addr1))));
   std::unique_ptr<TestClient> client2(
-      new TestClient(WrapUnique(AsyncUDPSocket::Create(ss_, empty))));
+      new TestClient(absl::WrapUnique(AsyncUDPSocket::Create(ss_, empty))));
 
   SocketAddress addr2;
   EXPECT_EQ(3, client2->SendTo("foo", 3, addr1));
@@ -919,7 +932,7 @@ void SocketTest::UdpInternal(const IPAddress& loopback) {
   // TODO: figure out what the intent is here
   for (int i = 0; i < 10; ++i) {
     client2.reset(
-        new TestClient(WrapUnique(AsyncUDPSocket::Create(ss_, empty))));
+        new TestClient(absl::WrapUnique(AsyncUDPSocket::Create(ss_, empty))));
 
     SocketAddress addr4;
     EXPECT_EQ(3, client2->SendTo("foo", 3, addr1));
@@ -940,13 +953,13 @@ void SocketTest::UdpReadyToSend(const IPAddress& loopback) {
   // RFC 5737 - The blocks 192.0.2.0/24 (TEST-NET-1) ... are provided for use in
   // documentation.
   // RFC 3849 - 2001:DB8::/32 as a documentation-only prefix.
-  std::string dest = (loopback.family() == AF_INET6) ?
-      "2001:db8::1" : "192.0.2.0";
+  std::string dest =
+      (loopback.family() == AF_INET6) ? "2001:db8::1" : "192.0.2.0";
   SocketAddress test_addr(dest, 2345);
 
   // Test send
   std::unique_ptr<TestClient> client(
-      new TestClient(WrapUnique(AsyncUDPSocket::Create(ss_, empty))));
+      new TestClient(absl::WrapUnique(AsyncUDPSocket::Create(ss_, empty))));
   int test_packet_size = 1200;
   std::unique_ptr<char[]> test_packet(new char[test_packet_size]);
   // Init the test packet just to avoid memcheck warning.
@@ -969,8 +982,8 @@ void SocketTest::UdpReadyToSend(const IPAddress& loopback) {
     if (ret != test_packet_size) {
       error = client->GetError();
       if (error == expected_error) {
-        LOG(LS_INFO) << "Got expected error code after sending "
-                     << sent_packet_num << " packets.";
+        RTC_LOG(LS_INFO) << "Got expected error code after sending "
+                         << sent_packet_num << " packets.";
         break;
       }
     }
@@ -978,7 +991,7 @@ void SocketTest::UdpReadyToSend(const IPAddress& loopback) {
   EXPECT_EQ(expected_error, error);
   EXPECT_FALSE(client->ready_to_send());
   EXPECT_TRUE_WAIT(client->ready_to_send(), kTimeout);
-  LOG(LS_INFO) << "Got SignalReadyToSend";
+  RTC_LOG(LS_INFO) << "Got SignalReadyToSend";
 }
 
 void SocketTest::GetSetOptionsInternal(const IPAddress& loopback) {

@@ -36,10 +36,8 @@ class tst_QValueAxis: public tst_QAbstractAxis
 Q_OBJECT
 
 public slots:
-    void initTestCase();
-    void cleanupTestCase();
     void init();
-    void cleanup();
+    void cleanup() override;
 
 private slots:
     void qvalueaxis_data();
@@ -72,38 +70,40 @@ private slots:
     void autoscale();
     void reverse();
     void labels();
+    void dynamicTicks();
 
 private:
+    void removeAxes();
+
     QValueAxis* m_valuesaxis;
     QLineSeries* m_series;
 };
-
-void tst_QValueAxis::initTestCase()
-{
-}
-
-void tst_QValueAxis::cleanupTestCase()
-{
-    QTest::qWait(1); // Allow final deleteLaters to run
-}
 
 void tst_QValueAxis::init()
 {
     m_valuesaxis = new QValueAxis();
     m_series = new QLineSeries();
     *m_series << QPointF(-100, -100) << QPointF(0, 0) << QPointF(100, 100);
-    tst_QAbstractAxis::init(m_valuesaxis,m_series);
+    tst_QAbstractAxis::initAxes(m_valuesaxis,m_series);
     m_chart->addSeries(m_series);
     m_chart->createDefaultAxes();
 }
 
 void tst_QValueAxis::cleanup()
 {
+    removeAxes();
     delete m_series;
     delete m_valuesaxis;
     m_series = 0;
     m_valuesaxis = 0;
     tst_QAbstractAxis::cleanup();
+}
+
+void tst_QValueAxis::removeAxes()
+{
+    const auto oldAxes = m_chart->axes(Qt::Horizontal) + m_chart->axes(Qt::Vertical);
+    for (auto oldAxis : oldAxes)
+        m_chart->removeAxis(oldAxis);
 }
 
 void tst_QValueAxis::qvalueaxis_data()
@@ -119,9 +119,10 @@ void tst_QValueAxis::qvalueaxis()
     QCOMPARE(m_valuesaxis->tickCount(), 5);
     QCOMPARE(m_valuesaxis->type(), QAbstractAxis::AxisTypeValue);
 
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
     QVERIFY(!qFuzzyCompare(m_valuesaxis->max(), 0));
     QVERIFY(!qFuzzyCompare(m_valuesaxis->min(), 0));
@@ -162,9 +163,10 @@ void tst_QValueAxis::max_data()
 
 void tst_QValueAxis::max()
 {
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     max_raw();
 }
 
@@ -210,9 +212,10 @@ void tst_QValueAxis::min_data()
 
 void tst_QValueAxis::min()
 {
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     min_raw();
 }
 
@@ -314,9 +317,10 @@ void tst_QValueAxis::range_data()
 
 void tst_QValueAxis::range()
 {
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     range_raw();
 }
 
@@ -357,9 +361,10 @@ void tst_QValueAxis::ticksCount()
     QCOMPARE(spy1.count(), 0);
     QCOMPARE(spy2.count(), 0);
 
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
     QCOMPARE(m_valuesaxis->tickCount(), ticksCount);
 }
@@ -390,9 +395,10 @@ void tst_QValueAxis::noautoscale()
     QCOMPARE(spy1.count(), 1);
     QCOMPARE(spy2.count(), 1);
 
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QVERIFY2(qFuzzyCompare(m_valuesaxis->min(), min), "Min not equal");
     QVERIFY2(qFuzzyCompare(m_valuesaxis->max(), max), "Max not equal");
 }
@@ -410,14 +416,15 @@ void tst_QValueAxis::autoscale()
 
     QVERIFY2(qFuzzyCompare(m_valuesaxis->min(), 0), "Min not equal");
     QVERIFY2(qFuzzyCompare(m_valuesaxis->max(), 0), "Max not equal");
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
 
     QCOMPARE(spy0.count(), 1);
     QCOMPARE(spy1.count(), 1);
     QCOMPARE(spy2.count(), 1);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QVERIFY2(qFuzzyCompare(m_valuesaxis->min(), -100), "Min not equal");
     QVERIFY2(qFuzzyCompare(m_valuesaxis->max(), 100), "Max not equal");
 }
@@ -430,20 +437,22 @@ void tst_QValueAxis::reverse()
     m_valuesaxis->setReverse();
     QCOMPARE(m_valuesaxis->isReverse(), true);
 
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
     QCOMPARE(spy.count(), 1);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_valuesaxis->isReverse(), true);
 }
 
 void tst_QValueAxis::labels()
 {
-    m_chart->setAxisX(m_valuesaxis, m_series);
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
     m_view->resize(300, 300);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
     QList<QGraphicsItem *> childItems = m_chart->scene()->items();
     QList<QGraphicsTextItem *> textItems;
@@ -471,6 +480,46 @@ void tst_QValueAxis::labels()
     for (QGraphicsTextItem *i : textItems)
         updatedStrings << i->toPlainText();
     QCOMPARE(originalStrings, updatedStrings);
+}
+
+void tst_QValueAxis::dynamicTicks()
+{
+    removeAxes(); // remove default axes created by init()
+    QValueAxis *valuesaxis = new QValueAxis();
+    m_chart->addAxis(m_valuesaxis, Qt::AlignBottom);
+    m_series->attachAxis(m_valuesaxis);
+    m_chart->addAxis(valuesaxis, Qt::AlignLeft);
+    m_series->attachAxis(valuesaxis);
+    m_view->resize(400, 400);
+    m_valuesaxis->setRange(-111.0, 111);
+    m_valuesaxis->setTickType(QValueAxis::TicksDynamic);
+    m_valuesaxis->setTickAnchor(100.0);
+    m_valuesaxis->setTickInterval(100.0);
+    valuesaxis->setRange(-111.0, 111);
+    valuesaxis->setTickType(QValueAxis::TicksDynamic);
+    valuesaxis->setTickAnchor(100.0);
+    valuesaxis->setTickInterval(50.0);
+    valuesaxis->setLabelFormat("%.2f");
+    m_view->show();
+    QTest::qWaitForWindowShown(m_view);
+
+    QStringList expectedList;
+    expectedList << "" << "100.00" << "50.00" << "0.00" << "-50.00" << "-100.00" <<
+                    "100.0" << "0.0" << "-100.0";
+
+    QList<QGraphicsItem *> childItems = m_chart->scene()->items();
+    QList<QGraphicsTextItem *> textItems;
+    QStringList observedStrings;
+    for (QGraphicsItem *i : childItems) {
+        if (QGraphicsTextItem *text = qgraphicsitem_cast<QGraphicsTextItem *>(i)) {
+            if (text->parentItem() != m_chart) {
+                textItems << text;
+                observedStrings << text->toPlainText();
+            }
+        }
+    }
+
+    QCOMPARE(observedStrings, expectedList);
 }
 
 QTEST_MAIN(tst_QValueAxis)

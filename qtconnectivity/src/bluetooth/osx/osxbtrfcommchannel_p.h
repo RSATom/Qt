@@ -72,12 +72,6 @@ class ChannelDelegate;
 QT_END_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(OSXBTRFCOMMChannel) : NSObject<IOBluetoothRFCOMMChannelDelegate>
-{
-    QT_PREPEND_NAMESPACE(OSXBluetooth)::ChannelDelegate *delegate;
-    IOBluetoothDevice *device;
-    IOBluetoothRFCOMMChannel *channel;
-    bool connected;
-}
 
 - (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth)::ChannelDelegate *)aDelegate;
 - (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth)::ChannelDelegate *)aDelegate

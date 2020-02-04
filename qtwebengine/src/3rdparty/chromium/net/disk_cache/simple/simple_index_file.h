@@ -21,7 +21,7 @@
 #include "net/disk_cache/simple/simple_index.h"
 
 namespace base {
-class SingleThreadTaskRunner;
+class SequencedTaskRunner;
 class TaskRunner;
 }
 
@@ -67,12 +67,19 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
 
     SimpleIndex::IndexWriteToDiskReason reason() const { return reason_; }
     uint64_t entry_count() const { return entry_count_; }
+    bool has_entry_in_memory_data() const { return version_ >= 8; }
+    bool app_cache_has_trailer_prefetch_size() const { return version_ >= 9; }
 
    private:
     FRIEND_TEST_ALL_PREFIXES(IndexMetadataTest, Basics);
     FRIEND_TEST_ALL_PREFIXES(IndexMetadataTest, Serialize);
     FRIEND_TEST_ALL_PREFIXES(IndexMetadataTest, ReadV6Format);
+    FRIEND_TEST_ALL_PREFIXES(SimpleIndexFileTest, ReadV7Format);
+    FRIEND_TEST_ALL_PREFIXES(SimpleIndexFileTest, ReadV8Format);
+    FRIEND_TEST_ALL_PREFIXES(SimpleIndexFileTest, ReadV8FormatAppCache);
     friend class V6IndexMetadataForTest;
+    friend class V7IndexMetadataForTest;
+    friend class V8IndexMetadataForTest;
 
     uint64_t magic_number_;
     uint32_t version_;
@@ -81,20 +88,22 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
     uint64_t cache_size_;  // Total cache storage size in bytes.
   };
 
-  SimpleIndexFile(
-      const scoped_refptr<base::SingleThreadTaskRunner>& cache_thread,
-      const scoped_refptr<base::TaskRunner>& worker_pool,
-      net::CacheType cache_type,
-      const base::FilePath& cache_directory);
+  SimpleIndexFile(const scoped_refptr<base::SequencedTaskRunner>& cache_runner,
+                  const scoped_refptr<base::TaskRunner>& worker_pool,
+                  net::CacheType cache_type,
+                  const base::FilePath& cache_directory);
   virtual ~SimpleIndexFile();
 
-  // Get index entries based on current disk context.
+  // Gets index entries based on current disk context. On error it may leave
+  // |out_result.did_load| untouched, but still return partial and consistent
+  // results in |out_result.entries|.
   virtual void LoadIndexEntries(base::Time cache_last_modified,
                                 const base::Closure& callback,
                                 SimpleIndexLoadResult* out_result);
 
-  // Write the specified set of entries to disk.
-  virtual void WriteToDisk(SimpleIndex::IndexWriteToDiskReason reason,
+  // Writes the specified set of entries to disk.
+  virtual void WriteToDisk(net::CacheType cache_type,
+                           SimpleIndex::IndexWriteToDiskReason reason,
                            const SimpleIndex::EntrySet& entry_set,
                            uint64_t cache_size,
                            const base::TimeTicks& start,
@@ -122,7 +131,8 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
                                    SimpleIndexLoadResult* out_result);
 
   // Load the index file from disk returning an EntrySet.
-  static void SyncLoadFromDisk(const base::FilePath& index_filename,
+  static void SyncLoadFromDisk(net::CacheType cache_type,
+                               const base::FilePath& index_filename,
                                base::Time* out_last_cache_seen_by_index,
                                SimpleIndexLoadResult* out_result);
 
@@ -132,6 +142,7 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
   // immediately after calling this menthod, one needs to call
   // SerializeFinalData to make it ready to write to a file.
   static std::unique_ptr<base::Pickle> Serialize(
+      net::CacheType cache_type,
       const SimpleIndexFile::IndexMetadata& index_metadata,
       const SimpleIndex::EntrySet& entries);
 
@@ -139,12 +150,14 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
   // performed on a thread accessing the disk. It is not combined with the main
   // serialization path to avoid extra thread hops or copying the pickle to the
   // worker thread.
-  static bool SerializeFinalData(base::Time cache_modified,
+  static void SerializeFinalData(base::Time cache_modified,
                                  base::Pickle* pickle);
 
   // Given the contents of an index file |data| of length |data_len|, returns
   // the corresponding EntrySet. Returns NULL on error.
-  static void Deserialize(const char* data, int data_len,
+  static void Deserialize(net::CacheType cache_type,
+                          const char* data,
+                          int data_len,
                           base::Time* out_cache_last_modified,
                           SimpleIndexLoadResult* out_result);
 
@@ -168,7 +181,8 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
 
   // Scan the index directory for entries, returning an EntrySet of all entries
   // found.
-  static void SyncRestoreFromDisk(const base::FilePath& cache_directory,
+  static void SyncRestoreFromDisk(net::CacheType cache_type,
+                                  const base::FilePath& cache_directory,
                                   const base::FilePath& index_file_path,
                                   SimpleIndexLoadResult* out_result);
 
@@ -179,11 +193,7 @@ class NET_EXPORT_PRIVATE SimpleIndexFile {
   static bool LegacyIsIndexFileStale(base::Time cache_last_modified,
                                      const base::FilePath& index_file_path);
 
-  struct PickleHeader : public base::Pickle::Header {
-    uint32_t crc;
-  };
-
-  const scoped_refptr<base::SingleThreadTaskRunner> cache_thread_;
+  const scoped_refptr<base::SequencedTaskRunner> cache_runner_;
   const scoped_refptr<base::TaskRunner> worker_pool_;
   const net::CacheType cache_type_;
   const base::FilePath cache_directory_;

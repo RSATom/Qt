@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
@@ -37,7 +37,7 @@
 **
 ****************************************************************************/
 
-#include "qquickpointerdevicehandler_p.h"
+#include "qquickpointerdevicehandler_p_p.h"
 #include <private/qquickitem_p.h>
 #include <QMouseEvent>
 #include <QDebug>
@@ -51,31 +51,92 @@ QT_BEGIN_NAMESPACE
     \preliminary
     \instantiates QQuickPointerDeviceHandler
     \inherits PointerHandler
-    \inqmlmodule Qt.labs.handlers
-    \ingroup qtquick-handlers
+    \inqmlmodule QtQuick
     \brief Abstract handler for pointer events with device-specific constraints.
 
     An intermediate class (not registered as a QML type) for handlers which
     allow filtering based on device type, pointer type, or keyboard modifiers.
 */
-QQuickPointerDeviceHandler::QQuickPointerDeviceHandler(QObject *parent)
-    : QQuickPointerHandler(parent)
-    , m_acceptedDevices(QQuickPointerDevice::AllDevices)
-    , m_acceptedPointerTypes(QQuickPointerDevice::AllPointerTypes)
-    , m_acceptedModifiers(Qt::KeyboardModifierMask)
+QQuickPointerDeviceHandler::QQuickPointerDeviceHandler(QQuickItem *parent)
+    : QQuickPointerHandler(*(new QQuickPointerDeviceHandlerPrivate), parent)
 {
 }
 
-QQuickPointerDeviceHandler::~QQuickPointerDeviceHandler()
+QQuickPointerDeviceHandler::QQuickPointerDeviceHandler(QQuickPointerDeviceHandlerPrivate &dd, QQuickItem *parent)
+    : QQuickPointerHandler(dd, parent)
 {
+}
+
+QQuickPointerDevice::DeviceTypes QQuickPointerDeviceHandler::acceptedDevices() const
+{
+    Q_D(const QQuickPointerDeviceHandler);
+    return d->acceptedDevices;
+}
+
+QQuickPointerDevice::PointerTypes QQuickPointerDeviceHandler::acceptedPointerTypes() const
+{
+    Q_D(const QQuickPointerDeviceHandler);
+    return d->acceptedPointerTypes;
 }
 
 /*!
-    \qmlproperty int PointerDeviceHandler::acceptedDevices
+    \qmlproperty flags QtQuick::PointerDeviceHandler::acceptedButtons
+
+    The mouse buttons which can activate this Pointer Handler.
+
+    By default, this property is set to \l {QtQuick::MouseEvent::button} {Qt.LeftButton}.
+    It can be set to an OR combination of mouse buttons, and will ignore events
+    from other buttons.
+
+    For example, a control could be made to respond to left and right clicks
+    in different ways, with two handlers:
+
+    \qml
+    Item {
+        TapHandler {
+            onTapped: console.log("left clicked")
+        }
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            onTapped: console.log("right clicked")
+        }
+    }
+    \endqml
+
+    \note Tapping on a touchscreen or tapping the stylus on a graphics tablet
+    emulates clicking the left mouse button. This behavior can be altered via
+    \l {PointerDeviceHandler::acceptedDevices}{acceptedDevices} or
+    \l {PointerDeviceHandler::acceptedPointerTypes}{acceptedPointerTypes}.
+*/
+Qt::MouseButtons QQuickPointerDeviceHandler::acceptedButtons() const
+{
+    Q_D(const QQuickPointerDeviceHandler);
+    return d->acceptedButtons;
+}
+
+void QQuickPointerDeviceHandler::setAcceptedButtons(Qt::MouseButtons buttons)
+{
+    Q_D(QQuickPointerDeviceHandler);
+    if (d->acceptedButtons == buttons)
+        return;
+
+    d->acceptedButtons = buttons;
+    emit acceptedButtonsChanged();
+}
+
+Qt::KeyboardModifiers QQuickPointerDeviceHandler::acceptedModifiers() const
+{
+    Q_D(const QQuickPointerDeviceHandler);
+    return d->acceptedModifiers;
+}
+
+/*!
+    \qmlproperty flags PointerDeviceHandler::acceptedDevices
 
     The types of pointing devices that can activate this Pointer Handler.
 
-    By default, this property is set to \l PointerDevice.AllDevices.
+    By default, this property is set to
+    \l{QtQuick::PointerDevice::type} {PointerDevice.AllDevices}.
     If you set it to an OR combination of device types, it will ignore events
     from non-matching devices.
 
@@ -97,20 +158,22 @@ QQuickPointerDeviceHandler::~QQuickPointerDeviceHandler()
 */
 void QQuickPointerDeviceHandler::setAcceptedDevices(QQuickPointerDevice::DeviceTypes acceptedDevices)
 {
-    if (m_acceptedDevices == acceptedDevices)
+    Q_D(QQuickPointerDeviceHandler);
+    if (d->acceptedDevices == acceptedDevices)
         return;
 
-    m_acceptedDevices = acceptedDevices;
+    d->acceptedDevices = acceptedDevices;
     emit acceptedDevicesChanged();
 }
 
 /*!
-    \qmlproperty int PointerDeviceHandler::acceptedPointerTypes
+    \qmlproperty flags PointerDeviceHandler::acceptedPointerTypes
 
     The types of pointing instruments (finger, stylus, eraser, etc.)
     that can activate this Pointer Handler.
 
-    By default, this property is set to \l PointerDevice.AllPointerTypes.
+    By default, this property is set to
+    \l {QtQuick::PointerDevice::pointerType} {PointerDevice.AllPointerTypes}.
     If you set it to an OR combination of device types, it will ignore events
     from non-matching events.
 
@@ -134,15 +197,16 @@ void QQuickPointerDeviceHandler::setAcceptedDevices(QQuickPointerDevice::DeviceT
 */
 void QQuickPointerDeviceHandler::setAcceptedPointerTypes(QQuickPointerDevice::PointerTypes acceptedPointerTypes)
 {
-    if (m_acceptedPointerTypes == acceptedPointerTypes)
+    Q_D(QQuickPointerDeviceHandler);
+    if (d->acceptedPointerTypes == acceptedPointerTypes)
         return;
 
-    m_acceptedPointerTypes = acceptedPointerTypes;
+    d->acceptedPointerTypes = acceptedPointerTypes;
     emit acceptedPointerTypesChanged();
 }
 
 /*!
-    \qmlproperty int PointerDeviceHandler::acceptedModifiers
+    \qmlproperty flags PointerDeviceHandler::acceptedModifiers
 
     If this property is set, it will require the given keyboard modifiers to
     be pressed in order to react to pointer events, and otherwise ignore them.
@@ -166,29 +230,84 @@ void QQuickPointerDeviceHandler::setAcceptedPointerTypes(QQuickPointerDevice::Po
        }
     }
     \endqml
+
+    If you set \c acceptedModifiers to an OR combination of modifier keys,
+    it means \e all of those modifiers must be pressed to activate the handler:
+
+    \qml
+    Item {
+       TapHandler {
+           acceptedModifiers: Qt.ControlModifier | Qt.AltModifier | Qt.ShiftModifier
+           onTapped: console.log("control-alt-shift-tapped")
+       }
+    }
+    \endqml
+
+    The available modifiers are as follows:
+
+    \value NoModifier       No modifier key is allowed.
+    \value ShiftModifier    A Shift key on the keyboard must be pressed.
+    \value ControlModifier  A Ctrl key on the keyboard must be pressed.
+    \value AltModifier      An Alt key on the keyboard must be pressed.
+    \value MetaModifier     A Meta key on the keyboard must be pressed.
+    \value KeypadModifier   A keypad button must be pressed.
+    \value GroupSwitchModifier X11 only (unless activated on Windows by a command line argument).
+                            A Mode_switch key on the keyboard must be pressed.
+    \value KeyboardModifierMask The handler does not care which modifiers are pressed.
+
+    If you need even more complex behavior than can be achieved with
+    combinations of multiple handlers with multiple modifier flags, you can
+    check the modifiers in JavaScript code:
+
+    \qml
+    Item {
+        TapHandler {
+            onTapped:
+                switch (point.modifiers) {
+                case Qt.ControlModifier | Qt.AltModifier:
+                    console.log("CTRL+ALT");
+                    break;
+                case Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier:
+                    console.log("CTRL+META+ALT");
+                    break;
+                default:
+                    console.log("other modifiers", point.modifiers);
+                    break;
+                }
+        }
+    }
+    \endqml
+
+    \sa Qt::KeyboardModifier
 */
 void QQuickPointerDeviceHandler::setAcceptedModifiers(Qt::KeyboardModifiers acceptedModifiers)
 {
-    if (m_acceptedModifiers == acceptedModifiers)
+    Q_D(QQuickPointerDeviceHandler);
+    if (d->acceptedModifiers == acceptedModifiers)
         return;
 
-    m_acceptedModifiers = acceptedModifiers;
+    d->acceptedModifiers = acceptedModifiers;
     emit acceptedModifiersChanged();
 }
 
 bool QQuickPointerDeviceHandler::wantsPointerEvent(QQuickPointerEvent *event)
 {
+    Q_D(QQuickPointerDeviceHandler);
     if (!QQuickPointerHandler::wantsPointerEvent(event))
         return false;
     qCDebug(lcPointerHandlerDispatch) << objectName()
-        << "checking device type" << m_acceptedDevices
-        << "pointer type" << m_acceptedPointerTypes
-        << "modifiers" << m_acceptedModifiers;
-    if ((event->device()->type() & m_acceptedDevices) == 0)
+        << "checking device type" << d->acceptedDevices
+        << "pointer type" << d->acceptedPointerTypes
+        << "modifiers" << d->acceptedModifiers;
+    if ((event->device()->type() & d->acceptedDevices) == 0)
         return false;
-    if ((event->device()->pointerType() & m_acceptedPointerTypes) == 0)
+    if ((event->device()->pointerType() & d->acceptedPointerTypes) == 0)
         return false;
-    if (m_acceptedModifiers != Qt::KeyboardModifierMask && event->modifiers() != m_acceptedModifiers)
+    if (d->acceptedModifiers != Qt::KeyboardModifierMask && event->modifiers() != d->acceptedModifiers)
+        return false;
+    // HoverHandler sets acceptedButtons to Qt::NoButton to indicate that button state is irrelevant.
+    if (event->device()->pointerType() != QQuickPointerDevice::Finger && acceptedButtons() != Qt::NoButton &&
+            (event->buttons() & acceptedButtons()) == 0 && (event->button() & acceptedButtons()) == 0)
         return false;
     return true;
 }

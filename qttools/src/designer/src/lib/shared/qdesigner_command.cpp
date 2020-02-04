@@ -38,38 +38,38 @@
 #include "formwindowbase_p.h"
 #include <abstractformbuilder.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerActionEditorInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerLayoutDecorationExtension>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
-#include <QtDesigner/QDesignerObjectInspectorInterface>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractactioneditor.h>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/layoutdecoration.h>
+#include <QtDesigner/abstractwidgetfactory.h>
+#include <QtDesigner/abstractobjectinspector.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/abstractformwindowcursor.h>
 #include <QtCore/qdebug.h>
-#include <QtCore/QTextStream>
-#include <QtCore/QQueue>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qqueue.h>
 
-#include <QtWidgets/QMenuBar>
-#include <QtWidgets/QStatusBar>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QToolBox>
-#include <QtWidgets/QStackedWidget>
-#include <QtWidgets/QTabWidget>
-#include <QtWidgets/QTableWidget>
-#include <QtWidgets/QTreeWidget>
-#include <QtWidgets/QListWidget>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QSplitter>
-#include <QtWidgets/QDockWidget>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QWizardPage>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QFormLayout>
+#include <QtWidgets/qmenubar.h>
+#include <QtWidgets/qstatusbar.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qtoolbox.h>
+#include <QtWidgets/qstackedwidget.h>
+#include <QtWidgets/qtabwidget.h>
+#include <QtWidgets/qtablewidget.h>
+#include <QtWidgets/qtreewidget.h>
+#include <QtWidgets/qlistwidget.h>
+#include <QtWidgets/qcombobox.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtWidgets/qdockwidget.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qwizard.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qformlayout.h>
 
 Q_DECLARE_METATYPE(QWidgetList)
 
@@ -682,9 +682,7 @@ void DemoteFromCustomWidgetCommand::undo()
 }
 
 // ----------  CursorSelectionState
-CursorSelectionState::CursorSelectionState()
-{
-}
+CursorSelectionState::CursorSelectionState() = default;
 
 void CursorSelectionState::save(const QDesignerFormWindowInterface *formWindow)
 {
@@ -971,9 +969,7 @@ ToolBoxCommand::ToolBoxCommand(QDesignerFormWindowInterface *formWindow)  :
 {
 }
 
-ToolBoxCommand::~ToolBoxCommand()
-{
-}
+ToolBoxCommand::~ToolBoxCommand() = default;
 
 void ToolBoxCommand::init(QToolBox *toolBox)
 {
@@ -1020,9 +1016,7 @@ MoveToolBoxPageCommand::MoveToolBoxPageCommand(QDesignerFormWindowInterface *for
 {
 }
 
-MoveToolBoxPageCommand::~MoveToolBoxPageCommand()
-{
-}
+MoveToolBoxPageCommand::~MoveToolBoxPageCommand() = default;
 
 void MoveToolBoxPageCommand::init(QToolBox *toolBox, QWidget *page, int newIndex)
 {
@@ -1054,9 +1048,7 @@ DeleteToolBoxPageCommand::DeleteToolBoxPageCommand(QDesignerFormWindowInterface 
 {
 }
 
-DeleteToolBoxPageCommand::~DeleteToolBoxPageCommand()
-{
-}
+DeleteToolBoxPageCommand::~DeleteToolBoxPageCommand() = default;
 
 void DeleteToolBoxPageCommand::init(QToolBox *toolBox)
 {
@@ -1082,9 +1074,7 @@ AddToolBoxPageCommand::AddToolBoxPageCommand(QDesignerFormWindowInterface *formW
 {
 }
 
-AddToolBoxPageCommand::~AddToolBoxPageCommand()
-{
-}
+AddToolBoxPageCommand::~AddToolBoxPageCommand() = default;
 
 void AddToolBoxPageCommand::init(QToolBox *toolBox)
 {
@@ -1129,9 +1119,7 @@ TabWidgetCommand::TabWidgetCommand(QDesignerFormWindowInterface *formWindow) :
 {
 }
 
-TabWidgetCommand::~TabWidgetCommand()
-{
-}
+TabWidgetCommand::~TabWidgetCommand() = default;
 
 void TabWidgetCommand::init(QTabWidget *tabWidget)
 {
@@ -1177,9 +1165,7 @@ DeleteTabPageCommand::DeleteTabPageCommand(QDesignerFormWindowInterface *formWin
 {
 }
 
-DeleteTabPageCommand::~DeleteTabPageCommand()
-{
-}
+DeleteTabPageCommand::~DeleteTabPageCommand() = default;
 
 void DeleteTabPageCommand::init(QTabWidget *tabWidget)
 {
@@ -1205,9 +1191,7 @@ AddTabPageCommand::AddTabPageCommand(QDesignerFormWindowInterface *formWindow)
 {
 }
 
-AddTabPageCommand::~AddTabPageCommand()
-{
-}
+AddTabPageCommand::~AddTabPageCommand() = default;
 
 void AddTabPageCommand::init(QTabWidget *tabWidget)
 {
@@ -1253,9 +1237,7 @@ MoveTabPageCommand::MoveTabPageCommand(QDesignerFormWindowInterface *formWindow)
 {
 }
 
-MoveTabPageCommand::~MoveTabPageCommand()
-{
-}
+MoveTabPageCommand::~MoveTabPageCommand() = default;
 
 void MoveTabPageCommand::init(QTabWidget *tabWidget, QWidget *page,
                       const QIcon &icon, const QString &label,
@@ -1292,9 +1274,7 @@ StackedWidgetCommand::StackedWidgetCommand(QDesignerFormWindowInterface *formWin
 {
 }
 
-StackedWidgetCommand::~StackedWidgetCommand()
-{
-}
+StackedWidgetCommand::~StackedWidgetCommand() = default;
 
 void StackedWidgetCommand::init(QStackedWidget *stackedWidget)
 {
@@ -1333,9 +1313,7 @@ MoveStackedWidgetCommand::MoveStackedWidgetCommand(QDesignerFormWindowInterface 
 {
 }
 
-MoveStackedWidgetCommand::~MoveStackedWidgetCommand()
-{
-}
+MoveStackedWidgetCommand::~MoveStackedWidgetCommand() = default;
 
 void MoveStackedWidgetCommand::init(QStackedWidget *stackedWidget, QWidget *page, int newIndex)
 {
@@ -1365,9 +1343,7 @@ DeleteStackedWidgetPageCommand::DeleteStackedWidgetPageCommand(QDesignerFormWind
 {
 }
 
-DeleteStackedWidgetPageCommand::~DeleteStackedWidgetPageCommand()
-{
-}
+DeleteStackedWidgetPageCommand::~DeleteStackedWidgetPageCommand() = default;
 
 void DeleteStackedWidgetPageCommand::init(QStackedWidget *stackedWidget)
 {
@@ -1393,9 +1369,7 @@ AddStackedWidgetPageCommand::AddStackedWidgetPageCommand(QDesignerFormWindowInte
 {
 }
 
-AddStackedWidgetPageCommand::~AddStackedWidgetPageCommand()
-{
-}
+AddStackedWidgetPageCommand::~AddStackedWidgetPageCommand() = default;
 
 void AddStackedWidgetPageCommand::init(QStackedWidget *stackedWidget)
 {
@@ -1687,9 +1661,7 @@ DockWidgetCommand::DockWidgetCommand(const QString &description, QDesignerFormWi
 {
 }
 
-DockWidgetCommand::~DockWidgetCommand()
-{
-}
+DockWidgetCommand::~DockWidgetCommand() = default;
 
 void DockWidgetCommand::init(QDockWidget *dockWidget)
 {
@@ -1973,9 +1945,7 @@ ContainerWidgetCommand::ContainerWidgetCommand(QDesignerFormWindowInterface *for
 {
 }
 
-ContainerWidgetCommand::~ContainerWidgetCommand()
-{
-}
+ContainerWidgetCommand::~ContainerWidgetCommand() = default;
 
 QDesignerContainerExtension *ContainerWidgetCommand::containerExtension() const
 {
@@ -2028,9 +1998,7 @@ DeleteContainerWidgetPageCommand::DeleteContainerWidgetPageCommand(QDesignerForm
 {
 }
 
-DeleteContainerWidgetPageCommand::~DeleteContainerWidgetPageCommand()
-{
-}
+DeleteContainerWidgetPageCommand::~DeleteContainerWidgetPageCommand() = default;
 
 void DeleteContainerWidgetPageCommand::init(QWidget *containerWidget, ContainerType ct)
 {
@@ -2064,9 +2032,7 @@ AddContainerWidgetPageCommand::AddContainerWidgetPageCommand(QDesignerFormWindow
 {
 }
 
-AddContainerWidgetPageCommand::~AddContainerWidgetPageCommand()
-{
-}
+AddContainerWidgetPageCommand::~AddContainerWidgetPageCommand() = default;
 
 void AddContainerWidgetPageCommand::init(QWidget *containerWidget, ContainerType ct, InsertionMode mode)
 {
@@ -2117,9 +2083,7 @@ ChangeCurrentPageCommand::ChangeCurrentPageCommand(QDesignerFormWindowInterface 
 {
 }
 
-ChangeCurrentPageCommand::~ChangeCurrentPageCommand()
-{
-}
+ChangeCurrentPageCommand::~ChangeCurrentPageCommand() = default;
 
 QDesignerContainerExtension *ChangeCurrentPageCommand::containerExtension() const
 {
@@ -2148,7 +2112,7 @@ void ChangeCurrentPageCommand::undo()
     containerExtension()->setCurrentIndex(m_oldIndex);
 }
 
-static int itemRoles[] = {
+static const int itemRoles[] = {
     Qt::DecorationPropertyRole,
     Qt::DisplayPropertyRole,
     Qt::ToolTipPropertyRole,
@@ -2158,8 +2122,7 @@ static int itemRoles[] = {
     Qt::TextAlignmentRole,
     Qt::BackgroundRole,
     Qt::ForegroundRole,
-    Qt::CheckStateRole,
-    -1
+    Qt::CheckStateRole
 };
 
 template<class T>
@@ -2175,8 +2138,8 @@ static void copyRolesFromItem(ItemData *id, const T *item, bool editor)
 {
     static const Qt::ItemFlags defaultFlags = T().flags();
 
-    for (int i = 0; itemRoles[i] != -1; i++)
-        copyRoleFromItem<T>(id, itemRoles[i], item);
+    for (int i : itemRoles)
+        copyRoleFromItem<T>(id, i, item);
 
     if (editor)
         copyRoleFromItem<T>(id, ItemFlagsShadowRole, item);
@@ -2257,8 +2220,8 @@ ItemData::ItemData(const QTreeWidgetItem *item, int column)
     PropertySheetStringValue str(item->text(column));
     m_properties.insert(Qt::DisplayPropertyRole, QVariant::fromValue(str));
 
-    for (int i = 0; itemRoles[i] != -1; i++)
-        copyRoleFromItem(this, itemRoles[i], item, column);
+    for (int i : itemRoles)
+        copyRoleFromItem(this, i, item, column);
 }
 
 void ItemData::fillTreeItemColumn(QTreeWidgetItem *item, int column, DesignerIconCache *iconCache) const
@@ -2404,9 +2367,10 @@ bool TableWidgetContents::nonEmpty(const QTableWidgetItem *item, int headerColum
         return true;
     }
 
-    for (int i = 0; itemRoles[i] != -1; i++)
-        if (itemRoles[i] != Qt::DisplayPropertyRole && item->data(itemRoles[i]).isValid())
+    for (int i : itemRoles) {
+        if (i != Qt::DisplayPropertyRole && item->data(i).isValid())
             return true;
+    }
 
     return false;
 }

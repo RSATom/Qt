@@ -468,9 +468,14 @@ GLAPI void APIENTRY glBlendEquation (GLenum mode);
 
 #ifndef GL_VERSION_1_5
 #define GL_VERSION_1_5 1
-#include <stddef.h>
-typedef ptrdiff_t GLsizeiptr;
-typedef ptrdiff_t GLintptr;
+#ifdef _WIN64
+typedef signed long long int GLsizeiptr;
+typedef signed long long int GLintptr;
+#else
+typedef signed long int      GLsizeiptr;
+typedef signed long int      GLintptr;
+#endif
+
 #define GL_BUFFER_SIZE                    0x8764
 #define GL_BUFFER_USAGE                   0x8765
 #define GL_QUERY_COUNTER_BITS             0x8864
@@ -1405,10 +1410,6 @@ typedef long long int int64_t;
 typedef unsigned long long int uint64_t;
 #endif /* __arch64__ */
 #endif /* __STDC__ */
-#elif defined( __VMS ) || defined(__sgi)
-#include <inttypes.h>
-#elif defined(__SCO__) || defined(__USLC__)
-#include <stdint.h>
 #elif defined(__UNIXOS2__) || defined(__SOL64__)
 typedef long int int32_t;
 typedef long long int int64_t;

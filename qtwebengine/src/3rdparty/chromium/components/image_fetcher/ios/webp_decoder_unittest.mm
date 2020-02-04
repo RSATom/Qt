@@ -14,13 +14,12 @@
 
 #include "base/base_paths.h"
 #include "base/files/file_path.h"
-#include "base/ios/ios_util.h"
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
 #import "base/mac/scoped_nsobject.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
+#include "base/stl_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -59,7 +58,7 @@ class WebpDecoderTest : public testing::Test {
 
   NSData* LoadImage(const base::FilePath& filename) {
     base::FilePath path;
-    PathService::Get(base::DIR_SOURCE_ROOT, &path);
+    base::PathService::Get(base::DIR_SOURCE_ROOT, &path);
     path = path.AppendASCII("components/test/data/webp_transcode")
                .Append(filename);
     return
@@ -262,8 +261,9 @@ TEST_F(WebpDecoderTest, StreamedDecode) {
 TEST_F(WebpDecoderTest, InvalidFormat) {
   EXPECT_CALL(*delegate_, OnFinishedDecoding(false)).Times(1);
   const char dummy_image[] = "(>'-')> <('-'<) ^('-')^ <('-'<) (>'-')>";
-  base::scoped_nsobject<NSData> data(
-      [[NSData alloc] initWithBytes:dummy_image length:arraysize(dummy_image)]);
+  base::scoped_nsobject<NSData> data([[NSData alloc]
+      initWithBytes:dummy_image
+             length:base::size(dummy_image)]);
   decoder_->OnDataReceived(data);
   EXPECT_EQ(0u, [delegate_->GetImage() length]);
 }

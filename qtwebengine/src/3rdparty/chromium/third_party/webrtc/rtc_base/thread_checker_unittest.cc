@@ -11,14 +11,16 @@
 // Borrowed from Chromium's src/base/threading/thread_checker_unittest.cc.
 
 #include <memory>
+#include <utility>
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/nullsocketserver.h"
-#include "webrtc/rtc_base/task_queue.h"
-#include "webrtc/rtc_base/thread.h"
-#include "webrtc/rtc_base/thread_checker.h"
-#include "webrtc/test/gtest.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/null_socket_server.h"
+#include "rtc_base/socket_server.h"
+#include "rtc_base/task_queue.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/thread_checker.h"
+#include "test/gtest.h"
 
 // Duplicated from base/threading/thread_checker.h so that we can be
 // good citizens there and undef the macro.
@@ -38,9 +40,7 @@ class ThreadCheckerClass : public ThreadChecker {
   // Verifies that it was called on the same thread as the constructor.
   void DoStuff() { RTC_DCHECK(CalledOnValidThread()); }
 
-  void DetachFromThread() {
-    ThreadChecker::DetachFromThread();
-  }
+  void DetachFromThread() { ThreadChecker::DetachFromThread(); }
 
   static void MethodOnDifferentThreadImpl();
   static void DetachThenCallFromDifferentThreadImpl();
@@ -62,9 +62,7 @@ class CallDoStuffOnThread : public Thread {
 
   // New method. Needed since Thread::Join is protected, and it is called by
   // the TEST.
-  void Join() {
-    Thread::Join();
-  }
+  void Join() { Thread::Join(); }
 
  private:
   ThreadCheckerClass* thread_checker_class_;
@@ -86,9 +84,7 @@ class DeleteThreadCheckerClassOnThread : public Thread {
 
   // New method. Needed since Thread::Join is protected, and it is called by
   // the TEST.
-  void Join() {
-    Thread::Join();
-  }
+  void Join() { Thread::Join(); }
 
   bool has_been_deleted() const { return !thread_checker_class_; }
 
@@ -157,9 +153,7 @@ void ThreadCheckerClass::MethodOnDifferentThreadImpl() {
 
 #if ENABLE_THREAD_CHECKER
 TEST(ThreadCheckerDeathTest, MethodNotAllowedOnDifferentThreadInDebug) {
-  ASSERT_DEATH({
-      ThreadCheckerClass::MethodOnDifferentThreadImpl();
-    }, "");
+  ASSERT_DEATH({ ThreadCheckerClass::MethodOnDifferentThreadImpl(); }, "");
 }
 #else
 TEST(ThreadCheckerTest, MethodAllowedOnDifferentThreadInRelease) {
@@ -186,9 +180,8 @@ void ThreadCheckerClass::DetachThenCallFromDifferentThreadImpl() {
 
 #if ENABLE_THREAD_CHECKER
 TEST(ThreadCheckerDeathTest, DetachFromThreadInDebug) {
-  ASSERT_DEATH({
-    ThreadCheckerClass::DetachThenCallFromDifferentThreadImpl();
-    }, "");
+  ASSERT_DEATH({ ThreadCheckerClass::DetachThenCallFromDifferentThreadImpl(); },
+               "");
 }
 #else
 TEST(ThreadCheckerTest, DetachFromThreadInRelease) {
@@ -204,12 +197,12 @@ class ThreadAnnotateTest {
   // specific T).
   // TODO(danilchap): Find a way to test they do not compile when thread
   // annotation checks enabled.
-  template<typename T>
+  template <typename T>
   void access_var_no_annotate() {
     var_thread_ = 42;
   }
 
-  template<typename T>
+  template <typename T>
   void access_fun_no_annotate() {
     function();
   }
@@ -241,16 +234,16 @@ class ThreadAnnotateTest {
   }
 
  private:
-  void function() RUN_ON(thread_) {}
-  void fun_acccess_var() RUN_ON(thread_) { var_thread_ = 13; }
+  void function() RTC_RUN_ON(thread_) {}
+  void fun_acccess_var() RTC_RUN_ON(thread_) { var_thread_ = 13; }
 
   rtc::Thread* thread_;
   rtc::ThreadChecker checker_;
   rtc::TaskQueue* queue_;
 
-  int var_thread_ ACCESS_ON(thread_);
-  int var_checker_ GUARDED_BY(checker_);
-  int var_queue_ ACCESS_ON(queue_);
+  int var_thread_ RTC_GUARDED_BY(thread_);
+  int var_checker_ RTC_GUARDED_BY(checker_);
+  int var_queue_ RTC_GUARDED_BY(queue_);
 };
 
 // Just in case we ever get lumped together with other compilation units.

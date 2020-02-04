@@ -57,7 +57,7 @@ namespace sw
 	};
 }
 
-#else   // !__ANDROID__
+#else   // !__linux__
 
 #include <atomic>
 
@@ -172,23 +172,28 @@ namespace sw
 	using MutexLock = BackoffLock;
 }
 
-#endif   // !__ANDROID__
+#endif   // !__linux__
 
 class LockGuard
 {
 public:
-	explicit LockGuard(sw::MutexLock &mutex) : mutex(mutex)
+	explicit LockGuard(sw::MutexLock &mutex) : mutex(&mutex)
 	{
 		mutex.lock();
 	}
 
+	explicit LockGuard(sw::MutexLock *mutex) : mutex(mutex)
+	{
+		if (mutex) mutex->lock();
+	}
+
 	~LockGuard()
 	{
-		mutex.unlock();
+		if (mutex) mutex->unlock();
 	}
 
 protected:
-	sw::MutexLock &mutex;
+	sw::MutexLock *mutex;
 };
 
 #endif   // sw_MutexLock_hpp

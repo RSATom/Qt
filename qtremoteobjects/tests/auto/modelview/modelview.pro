@@ -9,3 +9,4 @@ HEADERS += $$PWD/modeltest.h
 contains(QT_CONFIG, c++11): CONFIG += c++11
 
 boot2qt: DEFINES += SLOW_MODELTEST
+mingw: DEFINES += SLOW_MODELTEST

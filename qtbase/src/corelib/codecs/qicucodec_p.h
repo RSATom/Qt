@@ -59,9 +59,9 @@ extern "C" {
     typedef struct UConverter UConverter;
 }
 
-QT_BEGIN_NAMESPACE
+QT_REQUIRE_CONFIG(textcodec);
 
-#ifndef QT_NO_TEXTCODEC
+QT_BEGIN_NAMESPACE
 
 class QIcuCodec : public QTextCodec
 {
@@ -74,12 +74,12 @@ public:
     static QTextCodec *codecForNameUnlocked(const char *name);
     static QTextCodec *codecForMibUnlocked(int mib);
 
-    QString convertToUnicode(const char *, int, ConverterState *) const Q_DECL_OVERRIDE;
-    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const Q_DECL_OVERRIDE;
+    QString convertToUnicode(const char *, int, ConverterState *) const override;
+    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override;
 
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 
 private:
     QIcuCodec(const char *name);
@@ -89,8 +89,6 @@ private:
 
     const char *m_name;
 };
-
-#endif // QT_NO_TEXTCODEC
 
 QT_END_NAMESPACE
 

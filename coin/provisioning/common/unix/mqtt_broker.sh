@@ -5,7 +5,7 @@
 ## Copyright (C) 2017 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
-## This file is part of the test suite of the Qt Toolkit.
+## This file is part of the provisioning scripts of the Qt Toolkit.
 ##
 ## $QT_BEGIN_LICENSE:LGPL21$
 ## Commercial License Usage
@@ -39,10 +39,10 @@
 source "${BASH_SOURCE%/*}/InstallFromCompressedFileFromURL.sh"
 source "${BASH_SOURCE%/*}/../unix/SetEnvVar.sh"
 
-CommitSHA="c342c09dadc7a664d0a8befad1ca031f5a0b0bc0"
-PrimaryUrl="http://ci-files01-hki.ci.local/input/mqtt_broker/paho.mqtt.testing-$CommitSHA.zip"
+CommitSHA="20bad2475c27a6e1d24a56d90a9fceb40963261e"
+PrimaryUrl="http://ci-files01-hki.intra.qt.io/input/mqtt_broker/paho.mqtt.testing-$CommitSHA.zip"
 AltUrl="https://github.com/eclipse/paho.mqtt.testing/archive/$CommitSHA.zip"
-SHA1="532fe145096cdd8d679f425cbfd883289150c968"
+SHA1="a0ac88715c2aebb9573a113dc13925a90da19233"
 targetFolder="/opt/paho_broker"
 appPrefix="paho.mqtt.testing-$CommitSHA"
 

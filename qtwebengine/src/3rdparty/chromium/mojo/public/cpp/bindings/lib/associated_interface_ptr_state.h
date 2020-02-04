@@ -14,13 +14,13 @@
 
 #include "base/bind.h"
 #include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
 #include "mojo/public/cpp/bindings/associated_group.h"
 #include "mojo/public/cpp/bindings/associated_interface_ptr_info.h"
-#include "mojo/public/cpp/bindings/bindings_export.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
 #include "mojo/public/cpp/bindings/interface_endpoint_client.h"
 #include "mojo/public/cpp/bindings/interface_id.h"
@@ -30,7 +30,7 @@
 namespace mojo {
 namespace internal {
 
-class MOJO_CPP_BINDINGS_EXPORT AssociatedInterfacePtrStateBase {
+class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) AssociatedInterfacePtrStateBase {
  public:
   AssociatedInterfacePtrStateBase();
   ~AssociatedInterfacePtrStateBase();
@@ -81,7 +81,7 @@ class MOJO_CPP_BINDINGS_EXPORT AssociatedInterfacePtrStateBase {
   void Bind(ScopedInterfaceEndpointHandle handle,
             uint32_t version,
             std::unique_ptr<MessageReceiver> validator,
-            scoped_refptr<base::SingleThreadTaskRunner> runner);
+            scoped_refptr<base::SequencedTaskRunner> runner);
   ScopedInterfaceEndpointHandle PassHandle();
 
   InterfaceEndpointClient* endpoint_client() { return endpoint_client_.get(); }
@@ -97,10 +97,12 @@ class MOJO_CPP_BINDINGS_EXPORT AssociatedInterfacePtrStateBase {
 template <typename Interface>
 class AssociatedInterfacePtrState : public AssociatedInterfacePtrStateBase {
  public:
+  using Proxy = typename Interface::Proxy_;
+
   AssociatedInterfacePtrState() {}
   ~AssociatedInterfacePtrState() = default;
 
-  Interface* instance() {
+  Proxy* instance() {
     // This will be null if the object is not bound.
     return proxy_.get();
   }
@@ -111,11 +113,11 @@ class AssociatedInterfacePtrState : public AssociatedInterfacePtrStateBase {
   }
 
   void Bind(AssociatedInterfacePtrInfo<Interface> info,
-            scoped_refptr<base::SingleThreadTaskRunner> runner) {
+            scoped_refptr<base::SequencedTaskRunner> runner) {
     DCHECK(!proxy_);
     AssociatedInterfacePtrStateBase::Bind(
         info.PassHandle(), info.version(),
-        base::MakeUnique<typename Interface::ResponseValidator_>(),
+        std::make_unique<typename Interface::ResponseValidator_>(),
         std::move(runner));
     proxy_.reset(new Proxy(endpoint_client()));
   }
@@ -129,8 +131,6 @@ class AssociatedInterfacePtrState : public AssociatedInterfacePtrStateBase {
   }
 
  private:
-  using Proxy = typename Interface::Proxy_;
-
   std::unique_ptr<Proxy> proxy_;
 
   DISALLOW_COPY_AND_ASSIGN(AssociatedInterfacePtrState);

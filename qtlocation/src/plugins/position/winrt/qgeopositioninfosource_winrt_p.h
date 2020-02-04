@@ -51,7 +51,7 @@
 #include "qgeopositioninfosource.h"
 #include "qgeopositioninfo.h"
 
-#include <QTimer>
+#include <QtCore/qtimer.h>
 
 #include <EventToken.h>
 #include <wrl.h>
@@ -76,45 +76,44 @@ class QGeoPositionInfoSourceWinRT : public QGeoPositionInfoSource
 {
     Q_OBJECT
 public:
-    QGeoPositionInfoSourceWinRT(QObject *parent = 0);
-    ~QGeoPositionInfoSourceWinRT();
+    QGeoPositionInfoSourceWinRT(QObject *parent = nullptr);
+    ~QGeoPositionInfoSourceWinRT() override;
     int init();
 
-    QGeoPositionInfo lastKnownPosition(bool fromSatellitePositioningMethodsOnly = false) const;
-    PositioningMethods supportedPositioningMethods() const;
+    QGeoPositionInfo lastKnownPosition(bool fromSatellitePositioningMethodsOnly = false) const override;
+    PositioningMethods supportedPositioningMethods() const override;
 
-    void setPreferredPositioningMethods(PositioningMethods methods);
+    void setPreferredPositioningMethods(PositioningMethods methods) override;
 
-    void setUpdateInterval(int msec);
-    int minimumUpdateInterval() const;
-    Error error() const;
+    void setUpdateInterval(int msec) override;
+    int minimumUpdateInterval() const override;
+    Error error() const override;
 
     HRESULT onPositionChanged(ABI::Windows::Devices::Geolocation::IGeolocator *locator,
                               ABI::Windows::Devices::Geolocation::IPositionChangedEventArgs *args);
-
-    HRESULT onStatusChanged(ABI::Windows::Devices::Geolocation::IGeolocator*,
-                            ABI::Windows::Devices::Geolocation::IStatusChangedEventArgs *args);
+    HRESULT onStatusChanged(ABI::Windows::Devices::Geolocation::IGeolocator *locator,
+                              ABI::Windows::Devices::Geolocation::IStatusChangedEventArgs *args);
 
     bool requestAccess() const;
 Q_SIGNALS:
     void nativePositionUpdate(const QGeoPositionInfo);
 public slots:
-    void startUpdates();
-    void stopUpdates();
+    void startUpdates() override;
+    void stopUpdates() override;
 
-    void requestUpdate(int timeout = 0);
+    void requestUpdate(int timeout = 0) override;
 
 private slots:
     void stopHandler();
     void virtualPositionUpdate();
     void singleUpdateTimeOut();
     void updateSynchronized(const QGeoPositionInfo info);
+    void reactOnError(QGeoPositionInfoSource::Error positionError);
 private:
     bool startHandler();
 
     Q_DISABLE_COPY(QGeoPositionInfoSourceWinRT)
     void setError(QGeoPositionInfoSource::Error positionError);
-    bool checkNativeState();
 
     QScopedPointer<QGeoPositionInfoSourceWinRTPrivate> d_ptr;
     Q_DECLARE_PRIVATE(QGeoPositionInfoSourceWinRT)

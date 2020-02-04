@@ -9,10 +9,16 @@
 #include <limits>
 #include <memory>
 
-#include "base/macros.h"
+#include "base/numerics/checked_math.h"
+#include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
+#include "media/base/demuxer_memory_limit.h"
+#include "media/base/encryption_scheme.h"
+#include "media/base/media_util.h"
+#include "media/base/timestamp_constants.h"
 #include "media/formats/mp4/rcheck.h"
 #include "media/formats/mp4/sample_to_group_iterator.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 
 namespace media {
 namespace mp4 {
@@ -20,7 +26,7 @@ namespace mp4 {
 struct SampleInfo {
   uint32_t size;
   uint32_t duration;
-  int cts_offset;
+  int64_t cts_offset;
   bool is_keyframe;
   uint32_t cenc_group_description_index;
 };
@@ -48,6 +54,8 @@ struct TrackRunInfo {
   std::vector<uint8_t> aux_info_sizes;  // Populated if default_size == 0.
   int aux_info_total_size;
 
+  EncryptionScheme encryption_scheme;
+
   std::vector<CencSampleEncryptionInfoEntry> fragment_sample_encryption_info;
 
   TrackRunInfo();
@@ -64,29 +72,44 @@ TrackRunInfo::TrackRunInfo()
       aux_info_default_size(-1),
       aux_info_total_size(-1) {
 }
-TrackRunInfo::~TrackRunInfo() {}
+TrackRunInfo::~TrackRunInfo() = default;
 
 base::TimeDelta TimeDeltaFromRational(int64_t numer, int64_t denom) {
-  // To avoid overflow, split the following calculation:
-  // (numer * base::Time::kMicrosecondsPerSecond) / denom
-  // into:
-  //  (numer / denom) * base::Time::kMicrosecondsPerSecond +
-  // ((numer % denom) * base::Time::kMicrosecondsPerSecond) / denom
-  int64_t a = numer / denom;
-  DCHECK_LE((a > 0 ? a : -a), std::numeric_limits<int64_t>::max() /
-                                  base::Time::kMicrosecondsPerSecond);
-  int64_t timea_in_us = a * base::Time::kMicrosecondsPerSecond;
+  // TODO(sandersd): Change all callers to pass a |denom| as a uint32_t. This is
+  // the correct (and sufficient) type in all cases, but some intermediaries
+  // currently store -1 as a default value.
+  // TODO(sandersd): Change all callers to pass |numer| as a uint64_t. The few
+  // cases that could theoretically be negative would result in negative PTS
+  // anyway, and there are cases where an int64_t is not sufficient to store the
+  // entire representable range.
+  DCHECK_GT(denom, 0);
+  DCHECK_LE(denom, std::numeric_limits<uint32_t>::max());
 
-  int64_t b = numer % denom;
-  DCHECK_LE((b > 0 ? b : -b), std::numeric_limits<int64_t>::max() /
-                                  base::Time::kMicrosecondsPerSecond);
-  int64_t timeb_in_us = (b * base::Time::kMicrosecondsPerSecond) / denom;
+  // The maximum number of seconds that a TimeDelta can hold (about 300,000
+  // years worth). There is a (t ~= 0.775)-second fraction that is ignored.
+  const int64_t max_seconds =
+      std::numeric_limits<int64_t>::max() / base::Time::kMicrosecondsPerSecond;
 
-  DCHECK((timeb_in_us < 0) ||
-         (timea_in_us <= std::numeric_limits<int64_t>::max() - timeb_in_us));
-  DCHECK((timeb_in_us > 0) ||
-         (timea_in_us >= std::numeric_limits<int64_t>::min() - timeb_in_us));
-  return base::TimeDelta::FromMicroseconds(timea_in_us + timeb_in_us);
+  // The integer part of the result, in seconds. There is a (0 <= f < 1)-second
+  // fraction that is not computed. (Also true for negative |numer|, since
+  // rounding of integer division is towards zero in C++.)
+  const int64_t result_seconds = numer / denom;
+
+  // Reject |actual_seconds == max_seconds| under the assumption that f > t.
+  // This rejects valid times that are within t seconds of the limit.
+  if (result_seconds >= max_seconds || result_seconds <= -max_seconds)
+    return kNoTimestamp;
+
+  // Since (denom <= 2 ** 32), the multiplication fits in 52 bits.
+  // Note: When |numer| is negative, (numer % denom) is also negative. C++
+  // guarantees that ((numer / denom) * denom + (numer % denom) == numer).
+  // TODO(sandersd): Is round-toward-zero the best possible computation here?
+  const int64_t result_microseconds =
+      base::Time::kMicrosecondsPerSecond * (numer % denom) / denom;
+
+  const int64_t total_microseconds =
+      base::Time::kMicrosecondsPerSecond * result_seconds + result_microseconds;
+  return base::TimeDelta::FromMicroseconds(total_microseconds);
 }
 
 DecodeTimestamp DecodeTimestampFromRational(int64_t numer, int64_t denom) {
@@ -99,7 +122,7 @@ TrackRunIterator::TrackRunIterator(const Movie* moov, MediaLog* media_log)
   CHECK(moov);
 }
 
-TrackRunIterator::~TrackRunIterator() {}
+TrackRunIterator::~TrackRunIterator() = default;
 
 static std::string HexFlags(uint32_t flags) {
   std::stringstream stream;
@@ -133,12 +156,13 @@ static bool PopulateSampleInfo(const TrackExtends& trex,
     sample_info->duration = trex.default_sample_duration;
   }
 
-  if (i < trun.sample_composition_time_offsets.size()) {
-    sample_info->cts_offset = trun.sample_composition_time_offsets[i];
-  } else {
-    sample_info->cts_offset = 0;
+  auto cts_offset = -base::CheckedNumeric<int64_t>(edit_list_offset);
+  if (i < trun.sample_composition_time_offsets.size())
+    cts_offset += trun.sample_composition_time_offsets[i];
+  if (!cts_offset.AssignIfValid(&sample_info->cts_offset)) {
+    MEDIA_LOG(ERROR, media_log) << "PTS offset exceeds representable range.";
+    return false;
   }
-  sample_info->cts_offset += edit_list_offset;
 
   uint32_t flags;
   if (i < trun.sample_flags.size()) {
@@ -212,7 +236,6 @@ static const CencSampleEncryptionInfoEntry* GetSampleEncryptionInfoEntry(
   }
 
   // |group_description_index| is 1-based.
-  DCHECK_LE(group_description_index, entries->size());
   return (group_description_index > entries->size())
              ? nullptr
              : &(*entries)[group_description_index - 1];
@@ -301,7 +324,7 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
       if (edits[0].media_time < 0) {
         DVLOG(1) << "Empty edit list entry ignored.";
       } else {
-        edit_list_offset = -edits[0].media_time;
+        edit_list_offset = edits[0].media_time;
       }
     }
 
@@ -323,20 +346,40 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
           traf.sample_group_description.entries;
 
       const TrackEncryption* track_encryption;
+      const ProtectionSchemeInfo* sinf;
       tri.is_audio = (stsd.type == kAudio);
       if (tri.is_audio) {
         RCHECK(!stsd.audio_entries.empty());
         if (desc_idx >= stsd.audio_entries.size())
           desc_idx = 0;
         tri.audio_description = &stsd.audio_entries[desc_idx];
+        sinf = &tri.audio_description->sinf;
         track_encryption = &tri.audio_description->sinf.info.track_encryption;
       } else {
         RCHECK(!stsd.video_entries.empty());
         if (desc_idx >= stsd.video_entries.size())
           desc_idx = 0;
         tri.video_description = &stsd.video_entries[desc_idx];
+        sinf = &tri.video_description->sinf;
         track_encryption = &tri.video_description->sinf.info.track_encryption;
       }
+
+      if (!sinf->HasSupportedScheme()) {
+        tri.encryption_scheme = Unencrypted();
+      } else {
+#if BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
+        tri.encryption_scheme = EncryptionScheme(
+            sinf->IsCbcsEncryptionScheme()
+                ? EncryptionScheme::CIPHER_MODE_AES_CBC
+                : EncryptionScheme::CIPHER_MODE_AES_CTR,
+            EncryptionPattern(track_encryption->default_crypt_byte_block,
+                              track_encryption->default_skip_byte_block));
+#else
+        DCHECK(!sinf->IsCbcsEncryptionScheme());
+        tri.encryption_scheme = AesCtrEncryptionScheme();
+#endif
+      }
+
       // Initialize aux_info variables only if no sample encryption entries.
       if (sample_encryption_entries_count == 0 &&
           traf.auxiliary_offset.offsets.size() > j) {
@@ -375,6 +418,12 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
         tri.aux_info_total_size = 0;
       }
 
+      // Avoid allocating insane sample counts for invalid media.
+      const size_t max_sample_count =
+          GetDemuxerMemoryLimit() / sizeof(decltype(tri.samples)::value_type);
+      RCHECK_MEDIA_LOGGED(
+          base::strict_cast<size_t>(trun.sample_count) <= max_sample_count,
+          media_log_, "Metadata overhead exceeds storage limit.");
       tri.samples.resize(trun.sample_count);
       for (size_t k = 0; k < trun.sample_count; k++) {
         if (!PopulateSampleInfo(*trex, traf.header, trun, edit_list_offset, k,
@@ -382,6 +431,9 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
                                 tri.is_audio, media_log_)) {
           return false;
         }
+
+        RCHECK(std::numeric_limits<int64_t>::max() - tri.samples[k].duration >
+               run_start_dts);
 
         run_start_dts += tri.samples[k].duration;
 
@@ -415,10 +467,11 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
           // If we don't have a per-sample IV, get the constant IV.
           bool is_encrypted = index == 0 ? track_encryption->is_encrypted
                                          : info_entry->is_encrypted;
-          // We only support setting the pattern values in the 'tenc' box for
-          // the track (not varying on per sample group basis).
-          // Thus we need to verify that the settings in the sample group match
-          // those in the 'tenc'.
+#if defined(IS_CHROMECAST)
+          // On Chromecast, we only support setting the pattern values in the
+          // 'tenc' box for the track (not varying on per sample group basis).
+          // Thus we need to verify that the settings in the sample group
+          // match those in the 'tenc'.
           if (is_encrypted && index != 0) {
             RCHECK_MEDIA_LOGGED(info_entry->crypt_byte_block ==
                                     track_encryption->default_crypt_byte_block,
@@ -433,6 +486,7 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
                                 "sample group does not match that in the tenc "
                                 "box . This is not currently supported.");
           }
+#endif  // defined(IS_CHROMECAST)
           if (is_encrypted && !iv_size) {
             const uint8_t constant_iv_size =
                 index == 0 ? track_encryption->default_constant_iv_size
@@ -443,7 +497,7 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
                            : info_entry->constant_iv;
             memcpy(entry.initialization_vector, constant_iv, constant_iv_size);
           }
-#endif
+#endif  // BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
         }
       }
       runs_.push_back(tri);
@@ -456,27 +510,48 @@ bool TrackRunIterator::Init(const MovieFragment& moof) {
 
   std::sort(runs_.begin(), runs_.end(), CompareMinTrackRunDataOffset());
   run_itr_ = runs_.begin();
-  ResetRun();
+  return ResetRun();
+}
+
+bool TrackRunIterator::UpdateCts() {
+  // TODO(sandersd): Should |sample_cts_| be cleared in this case?
+  if (!IsSampleValid())
+    return true;
+  auto cts = base::CheckAdd(sample_dts_, sample_itr_->cts_offset);
+  if (!cts.AssignIfValid(&sample_cts_)) {
+    MEDIA_LOG(ERROR, media_log_) << "Sample PTS exceeds representable range.";
+    return false;
+  }
   return true;
 }
 
-void TrackRunIterator::AdvanceRun() {
+bool TrackRunIterator::AdvanceRun() {
   ++run_itr_;
-  ResetRun();
+  return ResetRun();
 }
 
-void TrackRunIterator::ResetRun() {
-  if (!IsRunValid()) return;
+bool TrackRunIterator::ResetRun() {
+  // TODO(sandersd): Should we clear all the values if the run is not valid?
+  if (!IsRunValid())
+    return true;
   sample_dts_ = run_itr_->start_dts;
   sample_offset_ = run_itr_->sample_start_offset;
   sample_itr_ = run_itr_->samples.begin();
+  // UpdateCts() must run after |sample_itr_| is updated to the current run.
+  return UpdateCts();
 }
 
-void TrackRunIterator::AdvanceSample() {
+bool TrackRunIterator::AdvanceSample() {
   DCHECK(IsSampleValid());
-  sample_dts_ += sample_itr_->duration;
+  auto dts = base::CheckAdd(sample_dts_, sample_itr_->duration);
+  if (!dts.AssignIfValid(&sample_dts_)) {
+    MEDIA_LOG(ERROR, media_log_) << "Sample DTS exceeds representable range.";
+    return false;
+  }
   sample_offset_ += sample_itr_->size;
   ++sample_itr_;
+  // UpdateCts() must run after |sample_itr_| is updated to the current sample.
+  return UpdateCts();
 }
 
 // This implementation only indicates a need for caching if CENC auxiliary
@@ -544,7 +619,7 @@ int64_t TrackRunIterator::GetMaxClearOffset() {
       offset = std::min(offset, aux_info_offset());
   }
   if (run_itr_ != runs_.end()) {
-    std::vector<TrackRunInfo>::const_iterator next_run = run_itr_ + 1;
+    auto next_run = run_itr_ + 1;
     if (next_run != runs_.end()) {
       offset = std::min(offset, next_run->sample_start_offset);
       if (next_run->aux_info_total_size)
@@ -608,8 +683,7 @@ DecodeTimestamp TrackRunIterator::dts() const {
 
 base::TimeDelta TrackRunIterator::cts() const {
   DCHECK(IsSampleValid());
-  return TimeDeltaFromRational(sample_dts_ + sample_itr_->cts_offset,
-                               run_itr_->timescale);
+  return TimeDeltaFromRational(sample_cts_, run_itr_->timescale);
 }
 
 base::TimeDelta TrackRunIterator::duration() const {
@@ -622,16 +696,21 @@ bool TrackRunIterator::is_keyframe() const {
   return sample_itr_->is_keyframe;
 }
 
-const TrackEncryption& TrackRunIterator::track_encryption() const {
+const ProtectionSchemeInfo& TrackRunIterator::protection_scheme_info() const {
   if (is_audio())
-    return audio_description().sinf.info.track_encryption;
-  return video_description().sinf.info.track_encryption;
+    return audio_description().sinf;
+  return video_description().sinf;
+}
+
+const TrackEncryption& TrackRunIterator::track_encryption() const {
+  return protection_scheme_info().info.track_encryption;
 }
 
 std::unique_ptr<DecryptConfig> TrackRunIterator::GetDecryptConfig() {
   DCHECK(is_encrypted());
   size_t sample_idx = sample_itr_ - run_itr_->samples.begin();
   const std::vector<uint8_t>& kid = GetKeyId(sample_idx);
+  std::string key_id(kid.begin(), kid.end());
 
   if (run_itr_->sample_encryption_entries.empty()) {
     DCHECK_EQ(0, aux_info_size());
@@ -640,36 +719,60 @@ std::unique_ptr<DecryptConfig> TrackRunIterator::GetDecryptConfig() {
     // with full sample encryption. That case will fall through to here.
     SampleEncryptionEntry sample_encryption_entry;
     if (ApplyConstantIv(sample_idx, &sample_encryption_entry)) {
-      return std::unique_ptr<DecryptConfig>(new DecryptConfig(
-          std::string(reinterpret_cast<const char*>(&kid[0]), kid.size()),
-          std::string(reinterpret_cast<const char*>(
-                          sample_encryption_entry.initialization_vector),
-                      arraysize(sample_encryption_entry.initialization_vector)),
-          sample_encryption_entry.subsamples));
+      std::string iv(reinterpret_cast<const char*>(
+                         sample_encryption_entry.initialization_vector),
+                     base::size(sample_encryption_entry.initialization_vector));
+      switch (run_itr_->encryption_scheme.mode()) {
+        case EncryptionScheme::CIPHER_MODE_UNENCRYPTED:
+          return nullptr;
+        case EncryptionScheme::CIPHER_MODE_AES_CTR:
+          return DecryptConfig::CreateCencConfig(
+              key_id, iv, sample_encryption_entry.subsamples);
+        case EncryptionScheme::CIPHER_MODE_AES_CBC:
+          return DecryptConfig::CreateCbcsConfig(
+              key_id, iv, sample_encryption_entry.subsamples,
+              run_itr_->encryption_scheme.pattern());
+      }
     }
 #endif
     MEDIA_LOG(ERROR, media_log_) << "Sample encryption info is not available.";
-    return std::unique_ptr<DecryptConfig>();
+    return nullptr;
   }
 
   DCHECK_LT(sample_idx, run_itr_->sample_encryption_entries.size());
   const SampleEncryptionEntry& sample_encryption_entry =
       run_itr_->sample_encryption_entries[sample_idx];
+  std::string iv(reinterpret_cast<const char*>(
+                     sample_encryption_entry.initialization_vector),
+                 base::size(sample_encryption_entry.initialization_vector));
 
   size_t total_size = 0;
   if (!sample_encryption_entry.subsamples.empty() &&
       (!sample_encryption_entry.GetTotalSizeOfSubsamples(&total_size) ||
        total_size != static_cast<size_t>(sample_size()))) {
     MEDIA_LOG(ERROR, media_log_) << "Incorrect CENC subsample size.";
-    return std::unique_ptr<DecryptConfig>();
+    return nullptr;
   }
 
-  return std::unique_ptr<DecryptConfig>(new DecryptConfig(
-      std::string(reinterpret_cast<const char*>(&kid[0]), kid.size()),
-      std::string(reinterpret_cast<const char*>(
-                      sample_encryption_entry.initialization_vector),
-                  arraysize(sample_encryption_entry.initialization_vector)),
-      sample_encryption_entry.subsamples));
+#if BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
+  if (protection_scheme_info().IsCbcsEncryptionScheme()) {
+    uint32_t index = GetGroupDescriptionIndex(sample_idx);
+    uint32_t encrypt_blocks =
+        (index == 0)
+            ? track_encryption().default_crypt_byte_block
+            : GetSampleEncryptionInfoEntry(*run_itr_, index)->crypt_byte_block;
+    uint32_t skip_blocks =
+        (index == 0)
+            ? track_encryption().default_skip_byte_block
+            : GetSampleEncryptionInfoEntry(*run_itr_, index)->skip_byte_block;
+    return DecryptConfig::CreateCbcsConfig(
+        key_id, iv, sample_encryption_entry.subsamples,
+        EncryptionPattern(encrypt_blocks, skip_blocks));
+  }
+#endif
+
+  return DecryptConfig::CreateCencConfig(key_id, iv,
+                                         sample_encryption_entry.subsamples);
 }
 
 uint32_t TrackRunIterator::GetGroupDescriptionIndex(

@@ -34,22 +34,22 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Fusion 2.3
-import QtQuick.Controls.Fusion.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Fusion 2.12
+import QtQuick.Controls.Fusion.impl 2.12
 
 T.RangeSlider {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            Math.max(first.handle ? first.handle.implicitWidth : 0,
-                                     second.handle ? second.handle.implicitWidth : 0) + leftPadding + rightPadding)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             Math.max(first.handle ? first.handle.implicitHeight : 0,
-                                      second.handle ? second.handle.implicitHeight : 0) + topPadding + bottomPadding)
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            Math.max(first.implicitHandleWidth,
+                                     second.implicitHandleWidth) + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             Math.max(first.implicitHandleHeight,
+                                      second.implicitHandleHeight) + topPadding + bottomPadding)
 
     first.handle: SliderHandle {
         x: control.leftPadding + Math.round(control.horizontal ? control.first.visualPosition * (control.availableWidth - width) : (control.availableWidth - width) / 2)

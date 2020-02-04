@@ -874,6 +874,10 @@
         <source>Invalid property type</source>
         <translation>Invalid property type</translation>
     </message>
+    <message>
+        <source>Invalid alias target</source>
+        <translation>Invalid alias target</translation>
+    </message>
 </context>
 <context>
     <name>QQmlPropertyValidator</name>
@@ -932,6 +936,10 @@
     <message>
         <source>Cannot assign to non-existent property &quot;%1&quot;</source>
         <translation>Cannot assign to non-existent property &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <source>Invalid use of id property with a value type</source>
+        <translation>Invalid use of id property with a value type</translation>
     </message>
     <message>
         <source>Cannot assign primitives to lists</source>
@@ -1115,9 +1123,19 @@
         <translation>qmldir defines type as singleton, but no pragma Singleton found in type %1.</translation>
     </message>
     <message>
+        <source>File was compiled ahead of time with an incompatible version of Qt and the original file cannot be found. Please recompile</source>
+        <translatorcomment>Tämä viesti on suomennettu, koska siitä voi olla hyötyä myös ongelmaa selvittävälle Qt:lla tehdyn ohjelman loppukäyttäjälle eikä tämän viestin suomentamisen luulisi vaikeuttavan ongelman selvittämistä.</translatorcomment>
+        <translation>Tiedosto on etukäteen käännetty epäyhteensopivalla Qt:n versiolla ja alkuperäistä tiedostoa ei löydy. Ole hyvä ja käännä uudelleen.</translation>
+    </message>
+    <message>
         <source>No such file or directory</source>
         <translatorcomment>Tämä viesti on suomennettu, koska siitä voi olla hyötyä myös ongelmaa selvittävälle Qt:lla tehdyn ohjelman loppukäyttäjälle eikä tämän viestin suomentamisen luulisi vaikeuttavan ongelman selvittämistä.</translatorcomment>
         <translation>Tiedostoa tai kansiota ei ole olemassa</translation>
+    </message>
+    <message>
+        <source>File is empty</source>
+        <translatorcomment>Tämä viesti on suomennettu, koska siitä voi olla hyötyä myös ongelmaa selvittävälle Qt:lla tehdyn ohjelman loppukäyttäjälle eikä tämän viestin suomentamisen luulisi vaikeuttavan ongelman selvittämistä.</translatorcomment>
+        <translation>Tiedosto on tyhjä</translation>
     </message>
     <message>
         <source>module &quot;%1&quot; is not installed</source>
@@ -1637,8 +1655,8 @@ Asenna ajuri, joka tukee OpenGL 2.0:aa tai uudempaa. Mikäli sellaisen asentamin
         <translation>Invalid QML %1 name &quot;%2&quot;</translation>
     </message>
     <message>
-        <source>Cannot install %1 &apos;%2&apos; into unregistered namespace &apos;%3&apos;</source>
-        <translation>Cannot install %1 &apos;%2&apos; into unregistered namespace &apos;%3&apos;</translation>
+        <source>Invalid QML %1 name &quot;%2&quot;; type names must begin with an uppercase letter</source>
+        <translation>Invalid QML %1 name &quot;%2&quot;; type names must begin with an uppercase letter</translation>
     </message>
     <message>
         <source>Cannot install %1 &apos;%2&apos; into protected namespace &apos;%3&apos;</source>

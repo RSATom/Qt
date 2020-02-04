@@ -178,6 +178,29 @@ void SvgView::setViewOutline(bool enable)
     m_outlineItem->setVisible(enable);
 }
 
+qreal SvgView::zoomFactor() const
+{
+    return transform().m11();
+}
+
+void SvgView::zoomIn()
+{
+    zoomBy(2);
+}
+
+void SvgView::zoomOut()
+{
+    zoomBy(0.5);
+}
+
+void SvgView::resetZoom()
+{
+    if (!qFuzzyCompare(zoomFactor(), qreal(1))) {
+        resetTransform();
+        emit zoomChanged();
+    }
+}
+
 void SvgView::paintEvent(QPaintEvent *event)
 {
     if (m_renderer == Image) {
@@ -199,9 +222,16 @@ void SvgView::paintEvent(QPaintEvent *event)
 
 void SvgView::wheelEvent(QWheelEvent *event)
 {
-    qreal factor = qPow(1.2, event->delta() / 240.0);
+    zoomBy(qPow(1.2, event->delta() / 240.0));
+}
+
+void SvgView::zoomBy(qreal factor)
+{
+    const qreal currentZoom = zoomFactor();
+    if ((factor < 1 && currentZoom < 0.1) || (factor > 1 && currentZoom > 10))
+        return;
     scale(factor, factor);
-    event->accept();
+    emit zoomChanged();
 }
 
 QSvgRenderer *SvgView::renderer() const

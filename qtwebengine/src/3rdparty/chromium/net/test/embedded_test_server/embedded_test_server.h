@@ -92,38 +92,52 @@ class EmbeddedTestServer {
     TYPE_HTTPS,
   };
 
+  // A Java counterpart will be generated for this enum.
+  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.net.test
   enum ServerCertificate {
     CERT_OK,
 
     CERT_MISMATCHED_NAME,
     CERT_EXPIRED,
 
-    // A certificate with invalid notBefore and notAfter times. Windows'
-    // certificate library will not parse this certificate.
-    CERT_BAD_VALIDITY,
-
-    // Cross-signed certificate to test PKIX path building. Contains an
-    // intermediate cross-signed by an unknown root, while the client (via
-    // TestRootStore) is expected to have a self-signed version of the
-    // intermediate.
-    CERT_CHAIN_WRONG_ROOT,
-
     // Causes the testserver to use a hostname that is a domain
     // instead of an IP.
     CERT_COMMON_NAME_IS_DOMAIN,
+
+    // A certificate that only contains a commonName, rather than also
+    // including a subjectAltName extension.
+    CERT_COMMON_NAME_ONLY,
+
+    // A certificate that is a leaf certificate signed with SHA-1.
+    CERT_SHA1_LEAF,
+
+    // A certificate that is signed by an intermediate certificate.
+    CERT_OK_BY_INTERMEDIATE,
   };
 
-  typedef base::Callback<std::unique_ptr<HttpResponse>(
+  typedef base::RepeatingCallback<std::unique_ptr<HttpResponse>(
       const HttpRequest& request)>
       HandleRequestCallback;
-  typedef base::Callback<void(const HttpRequest& request)>
+  typedef base::RepeatingCallback<void(const HttpRequest& request)>
       MonitorRequestCallback;
 
   // Creates a http test server. Start() must be called to start the server.
   // |type| indicates the protocol type of the server (HTTP/HTTPS).
+  //
+  //  When a TYPE_HTTPS server is created, EmbeddedTestServer will call
+  // EmbeddedTestServer::RegisterTestCerts(), so that when the default
+  // CertVerifiers are run in-process, they will recognize the test server's
+  // certs. However, if the test server is running in a different process from
+  // the CertVerifiers, EmbeddedTestServer::RegisterTestCerts() must be called
+  // in any process where CertVerifiers are expected to accept the
+  // EmbeddedTestServer's certs.
   EmbeddedTestServer();
   explicit EmbeddedTestServer(Type type);
   ~EmbeddedTestServer();
+
+  // Registers the EmbeddedTestServer's certs for the current process. See
+  // constructor documentation for more information.
+  static void RegisterTestCerts();
 
   // Sets a connection listener, that would be notified when various connection
   // events happen. May only be called before the server is started. Caller
@@ -134,11 +148,11 @@ class EmbeddedTestServer {
   // This is the equivalent of calling InitializeAndListen() followed by
   // StartAcceptingConnections().
   // Returns whether a listening socket has been successfully created.
-  bool Start() WARN_UNUSED_RESULT;
+  bool Start(int port = 0) WARN_UNUSED_RESULT;
 
   // Starts listening for incoming connections but will not yet accept them.
   // Returns whether a listening socket has been succesfully created.
-  bool InitializeAndListen() WARN_UNUSED_RESULT;
+  bool InitializeAndListen(int port = 0) WARN_UNUSED_RESULT;
 
   // Starts the Accept IO Thread and begins accepting connections.
   void StartAcceptingConnections();
@@ -150,6 +164,8 @@ class EmbeddedTestServer {
   bool Started() const {
     return listen_socket_.get() != NULL;
   }
+
+  static base::FilePath GetRootCertPemPath();
 
   HostPortPair host_port_pair() const {
     return HostPortPair::FromURL(base_url_);
@@ -174,11 +190,17 @@ class EmbeddedTestServer {
   // Returns the address list needed to connect to the server.
   bool GetAddressList(AddressList* address_list) const WARN_UNUSED_RESULT;
 
+  // Returns the IP Address to connect to the server as a string.
+  std::string GetIPLiteralString() const;
+
   // Returns the port number used by the server.
   uint16_t port() const { return port_; }
 
   void SetSSLConfig(ServerCertificate cert, const SSLServerConfig& ssl_config);
   void SetSSLConfig(ServerCertificate cert);
+
+  bool ResetSSLConfig(ServerCertificate cert,
+                      const SSLServerConfig& ssl_config);
 
   // Returns the file name of the certificate the server is using. The test
   // certificates can be found in net/data/ssl/certificates/.
@@ -228,6 +250,10 @@ class EmbeddedTestServer {
  private:
   // Shuts down the server.
   void ShutdownOnIOThread();
+
+  // Resets the SSLServerConfig on the IO thread.
+  void ResetSSLConfigOnIOThread(ServerCertificate cert,
+                                const SSLServerConfig& ssl_config);
 
   // Upgrade the TCP connection to one over SSL.
   std::unique_ptr<StreamSocket> DoSSLUpgrade(

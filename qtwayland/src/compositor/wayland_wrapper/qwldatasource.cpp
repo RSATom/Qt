@@ -41,6 +41,7 @@
 #include "qwldataoffer_p.h"
 #include "qwldatadevice_p.h"
 #include "qwldatadevicemanager_p.h"
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
 
 #include <unistd.h>
 #include <QtWaylandCompositor/private/wayland-wayland-server-protocol.h>
@@ -52,8 +53,6 @@ namespace QtWayland {
 DataSource::DataSource(struct wl_client *client, uint32_t id, uint32_t time)
     : QtWaylandServer::wl_data_source(client, id, 1)
     , m_time(time)
-    , m_device(0)
-    , m_manager(0)
 {
 }
 
@@ -103,7 +102,7 @@ void DataSource::setDevice(DataDevice *device)
 
 DataSource *DataSource::fromResource(struct ::wl_resource *resource)
 {
-    return static_cast<DataSource *>(Resource::fromResource(resource)->data_source_object);
+    return QtWayland::fromResource<DataSource *>(resource);
 }
 
 void DataSource::data_source_offer(Resource *, const QString &mime_type)

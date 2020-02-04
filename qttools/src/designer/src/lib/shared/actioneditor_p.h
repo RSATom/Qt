@@ -42,9 +42,9 @@
 
 #include "shared_global_p.h"
 #include "shared_enums_p.h"
-#include <QtDesigner/QDesignerActionEditorInterface>
+#include <QtDesigner/abstractactioneditor.h>
 
-#include <QtCore/QPointer>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,20 +68,20 @@ class QDESIGNER_SHARED_EXPORT ActionEditor: public QDesignerActionEditorInterfac
     Q_OBJECT
 public:
     explicit ActionEditor(QDesignerFormEditorInterface *core, QWidget *parent = 0, Qt::WindowFlags flags = 0);
-    virtual ~ActionEditor();
+    ~ActionEditor() override;
 
     QDesignerFormWindowInterface *formWindow() const;
-    void setFormWindow(QDesignerFormWindowInterface *formWindow) Q_DECL_OVERRIDE;
+    void setFormWindow(QDesignerFormWindowInterface *formWindow) override;
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
 
     QAction *actionNew() const;
     QAction *actionDelete() const;
 
     QString filter() const;
 
-    void manageAction(QAction *action) Q_DECL_OVERRIDE;
-    void unmanageAction(QAction *action) Q_DECL_OVERRIDE;
+    void manageAction(QAction *action) override;
+    void unmanageAction(QAction *action) override;
 
     static ObjectNamingMode objectNamingMode() { return m_objectNamingMode; }
     static void setObjectNamingMode(ObjectNamingMode n) { m_objectNamingMode = n; }
@@ -109,7 +109,7 @@ private slots:
     void slotContextMenuRequested(QContextMenuEvent *, QAction *);
     void slotViewMode(QAction *a);
     void slotSelectAssociatedWidget(QWidget *w);
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void slotCopy();
     void slotCut();
     void slotPaste();
@@ -123,7 +123,7 @@ signals:
 private:
     typedef QList<QAction *> ActionList;
     void deleteActions(QDesignerFormWindowInterface *formWindow, const ActionList &);
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void copyActions(QDesignerFormWindowInterface *formWindow, const ActionList &);
 #endif
 
@@ -143,7 +143,7 @@ private:
     QAction *m_actionNew;
     QAction *m_actionEdit;
     QAction *m_actionNavigateToSlot;
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     QAction *m_actionCopy;
     QAction *m_actionCut;
     QAction *m_actionPaste;

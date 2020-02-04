@@ -67,11 +67,13 @@ TEST(ExtensionMessageTypesTest, TestLoadedParams) {
   LOG(WARNING) << required_permissions.apis().size();
   EXPECT_TRUE(
       extension->permissions_data()->HasAPIPermission(APIPermission::kAlarms));
-  APIPermissionSet tab_permissions;
-  tab_permissions.insert(APIPermission::kDns);
-  extension->permissions_data()->UpdateTabSpecificPermissions(
-      1, PermissionSet(tab_permissions, ManifestPermissionSet(),
-                       URLPatternSet(), URLPatternSet()));
+  {
+    APIPermissionSet tab_permissions;
+    tab_permissions.insert(APIPermission::kDns);
+    extension->permissions_data()->UpdateTabSpecificPermissions(
+        1, PermissionSet(std::move(tab_permissions), ManifestPermissionSet(),
+                         URLPatternSet(), URLPatternSet()));
+  }
   URLPatternSet runtime_blocked_hosts;
   AddPattern("*://*.example.*/*", &runtime_blocked_hosts);
   URLPatternSet runtime_allowed_hosts;
@@ -102,7 +104,7 @@ TEST(ExtensionMessageTypesTest, TestLoadedParams) {
         &msg, &iter, &params_out));
 
     EXPECT_EQ(params_in.id, params_out.id);
-    EXPECT_TRUE(params_in.manifest->Equals(params_out.manifest.get()));
+    EXPECT_TRUE(params_in.manifest.Equals(&params_out.manifest));
     EXPECT_EQ(params_in.location, params_out.location);
     EXPECT_EQ(params_in.path, params_out.path);
     EXPECT_EQ(params_in.creation_flags, params_out.creation_flags);

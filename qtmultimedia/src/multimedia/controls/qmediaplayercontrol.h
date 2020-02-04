@@ -71,7 +71,7 @@ public:
     virtual void setVolume(int volume) = 0;
 
     virtual bool isMuted() const = 0;
-    virtual void setMuted(bool muted) = 0;
+    virtual void setMuted(bool mute) = 0;
 
     virtual int bufferStatus() const = 0;
 
@@ -100,17 +100,17 @@ Q_SIGNALS:
     void stateChanged(QMediaPlayer::State newState);
     void mediaStatusChanged(QMediaPlayer::MediaStatus status);
     void volumeChanged(int volume);
-    void mutedChanged(bool muted);
+    void mutedChanged(bool mute);
     void audioAvailableChanged(bool audioAvailable);
     void videoAvailableChanged(bool videoAvailable);
     void bufferStatusChanged(int percentFilled);
-    void seekableChanged(bool);
-    void availablePlaybackRangesChanged(const QMediaTimeRange&);
+    void seekableChanged(bool seekable);
+    void availablePlaybackRangesChanged(const QMediaTimeRange &ranges);
     void playbackRateChanged(qreal rate);
     void error(int error, const QString &errorString);
 
 protected:
-    explicit QMediaPlayerControl(QObject *parent = Q_NULLPTR);
+    explicit QMediaPlayerControl(QObject *parent = nullptr);
 };
 
 #define QMediaPlayerControl_iid "org.qt-project.qt.mediaplayercontrol/5.0"

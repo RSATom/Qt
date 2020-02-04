@@ -132,7 +132,7 @@
     </message>
     <message>
         <source>Remove current font file</source>
-        <translation>Fjern aktuelle skrifttypefil</translation>
+        <translation>Fjern nuværende skrifttypefil</translation>
     </message>
     <message>
         <source>Remove all font files</source>
@@ -958,6 +958,14 @@
         <source>&amp;Author</source>
         <translation>&amp;Forfatter</translation>
     </message>
+    <message>
+        <source>Translations</source>
+        <translation>Oversættelser</translation>
+    </message>
+    <message>
+        <source>ID-based</source>
+        <translation>ID-baseret</translation>
+    </message>
 </context>
 <context>
     <name>IconSelector</name>
@@ -1431,7 +1439,7 @@ Vil du erstatte den?</translation>
     </message>
     <message>
         <source>Current Widget Help</source>
-        <translation>Aktuelt widget hjælp</translation>
+        <translation>Nuværende widget hjælp</translation>
     </message>
     <message>
         <source>About Plugins</source>
@@ -1750,7 +1758,7 @@ Vil du prøve igen?</translation>
         <source>The container extension of the widget &apos;%1&apos; (%2) returned a widget not managed by Designer &apos;%3&apos; (%4) when queried for page #%5.
 Container pages should only be added by specifying them in XML returned by the domXml() method of the custom widget.</source>
         <translation>Beholder-udvidelsen af widget&apos;en &apos;%1&apos; (%2) returnerede en widget som ikke håndteres af Designer &apos;%3&apos; (%4) ved forespørgsel af side #%5.
-Beholder-sider bør kun tilføjes ved at specificere dem i XML returnerede af domXml()-metoden af den brugerdefineret widget.</translation>
+Beholder-sider bør kun tilføjes ved at angive dem i XML returnerede af domXml()-metoden af den brugerdefineret widget.</translation>
     </message>
     <message>
         <source>Unexpected element &lt;%1&gt;</source>
@@ -1951,11 +1959,11 @@ Beholder-sider bør kun tilføjes ved at specificere dem i XML returnerede af do
     </message>
     <message>
         <source>Before Current Page</source>
-        <translation>Før aktuelle side</translation>
+        <translation>Før nuværende side</translation>
     </message>
     <message>
         <source>After Current Page</source>
-        <translation>Efter aktuelle side</translation>
+        <translation>Efter nuværende side</translation>
     </message>
     <message>
         <source>Change Page Order...</source>
@@ -1993,11 +2001,11 @@ Beholder-sider bør kun tilføjes ved at specificere dem i XML returnerede af do
     </message>
     <message>
         <source>Before Current Page</source>
-        <translation>Før aktuelle side</translation>
+        <translation>Før nuværende side</translation>
     </message>
     <message>
         <source>After Current Page</source>
-        <translation>Efter aktuelle side</translation>
+        <translation>Efter nuværende side</translation>
     </message>
     <message>
         <source>Page %1 of %2</source>
@@ -2016,11 +2024,11 @@ Beholder-sider bør kun tilføjes ved at specificere dem i XML returnerede af do
     </message>
     <message>
         <source>Before Current Page</source>
-        <translation>Før aktuelle side</translation>
+        <translation>Før nuværende side</translation>
     </message>
     <message>
         <source>After Current Page</source>
-        <translation>Efter aktuelle side</translation>
+        <translation>Efter nuværende side</translation>
     </message>
     <message>
         <source>Change Page Order...</source>
@@ -2208,7 +2216,7 @@ Beholder-sider bør kun tilføjes ved at specificere dem i XML returnerede af do
     </message>
     <message>
         <source>Strikeout</source>
-        <translation>Udstreget</translation>
+        <translation>Gennemstreget</translation>
     </message>
     <message>
         <source>Kerning</source>
@@ -2330,7 +2338,7 @@ Beholder-sider bør kun tilføjes ved at specificere dem i XML returnerede af do
     </message>
     <message>
         <source>Current stop&apos;s color</source>
-        <translation>Aktuelle stop&apos;s farve</translation>
+        <translation>Nuværende stop&apos;s farve</translation>
     </message>
     <message>
         <source>Show HSV specification</source>
@@ -2350,7 +2358,7 @@ Beholder-sider bør kun tilføjes ved at specificere dem i XML returnerede af do
     </message>
     <message>
         <source>Current stop&apos;s position</source>
-        <translation>Aktuelle stop&apos;s placering</translation>
+        <translation>Nuværende stop&apos;s placering</translation>
     </message>
     <message>
         <source>%</source>
@@ -2722,11 +2730,11 @@ Vil du erstatte den?</translation>
     </message>
     <message>
         <source>&lt;p&gt;&lt;b&gt;Warning:&lt;/b&gt; The file&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;&lt;p&gt;is outside of the current resource file&apos;s parent directory.&lt;/p&gt;</source>
-        <translation>&lt;p&gt;&lt;b&gt;Advarsel:&lt;/b&gt; Filen&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;&lt;p&gt;er udenfor den aktuelle ressourcefils forældre mappe.&lt;/p&gt;</translation>
+        <translation>&lt;p&gt;&lt;b&gt;Advarsel:&lt;/b&gt; Filen&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;&lt;p&gt;er udenfor den nuværende ressourcefils forældre mappe.&lt;/p&gt;</translation>
     </message>
     <message>
         <source>&lt;p&gt;To resolve the issue, press:&lt;/p&gt;&lt;table&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Copy&lt;/th&gt;&lt;td&gt;to copy the file to the resource file&apos;s parent directory.&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Copy As...&lt;/th&gt;&lt;td&gt;to copy the file into a subdirectory of the resource file&apos;s parent directory.&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Keep&lt;/th&gt;&lt;td&gt;to use its current location.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</source>
-        <translation>&lt;p&gt;Løs problemet ved at trykke på:&lt;/p&gt;&lt;table&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Kopér&lt;/th&gt;&lt;td&gt;for at kopiere filen til ressourcefilens forældermappe.&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Kopiér som...&lt;/th&gt;&lt;td&gt;for at kopiere filen ind i en undermappe af ressourcefilens forældermappe.&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Behold&lt;/th&gt;&lt;td&gt;for at bruge dens aktuelle placering.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</translation>
+        <translation>&lt;p&gt;Løs problemet ved at trykke på:&lt;/p&gt;&lt;table&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Kopér&lt;/th&gt;&lt;td&gt;for at kopiere filen til ressourcefilens forældermappe.&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Kopiér som...&lt;/th&gt;&lt;td&gt;for at kopiere filen ind i en undermappe af ressourcefilens forældermappe.&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;th align=&quot;left&quot;&gt;Behold&lt;/th&gt;&lt;td&gt;for at bruge dens nuværende placering.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</translation>
     </message>
     <message>
         <source>Add Files</source>
@@ -2768,7 +2776,7 @@ Dette kunne f.eks. være en sprogendelse såsom &quot;_da&quot;.</translation>
     </message>
     <message>
         <source>&lt;p&gt;The selected file:&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;&lt;p&gt;is outside of the current resource file&apos;s directory:&lt;/p&gt;&lt;p&gt;%2&lt;/p&gt;&lt;p&gt;Please select another path within this directory.&lt;p&gt;</source>
-        <translation>&lt;p&gt;Den valgte fil:&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;&lt;p&gt;er udenfor den aktuelle ressourcefils mappe:&lt;/p&gt;&lt;p&gt;%2&lt;/p&gt;&lt;p&gt;Vælg venligst en anden sti inden i denne mappe.&lt;p&gt;</translation>
+        <translation>&lt;p&gt;Den valgte fil:&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;&lt;p&gt;er udenfor den nuværende ressourcefils mappe:&lt;/p&gt;&lt;p&gt;%2&lt;/p&gt;&lt;p&gt;Vælg venligst en anden sti inden i denne mappe.&lt;p&gt;</translation>
     </message>
     <message>
         <source>Could not overwrite %1.</source>
@@ -3032,7 +3040,7 @@ til
     </message>
     <message>
         <source>Current Toolbar Actions</source>
-        <translation>Aktuelle værktøjslinjehandlinger</translation>
+        <translation>Nuværende værktøjslinjehandlinger</translation>
     </message>
     <message>
         <source>Custom Toolbar</source>
@@ -3249,7 +3257,7 @@ Vil du overskrive skabelonen?</translation>
     </message>
     <message>
         <source>The file contains a custom widget &apos;%1&apos; whose base class (%2) differs from the current entry in the widget database (%3). The widget database is left unchanged.</source>
-        <translation>Filen indeholder en brugerdefineret widget &apos;%1&apos; hvis grundklasse (%2) er forskellig fra den aktuelle indtastning i widget-databasen (%3). Widget-databasen er efterladt uændret.</translation>
+        <translation>Filen indeholder en brugerdefineret widget &apos;%1&apos; hvis grundklasse (%2) er forskellig fra den nuværende indtastning i widget-databasen (%3). Widget-databasen er efterladt uændret.</translation>
     </message>
 </context>
 <context>
@@ -3584,11 +3592,11 @@ Vil du overskrive skabelonen?</translation>
     </message>
     <message>
         <source>Insert Page Before Current Page</source>
-        <translation>Indsæt side før aktuelle side</translation>
+        <translation>Indsæt side før nuværende side</translation>
     </message>
     <message>
         <source>Insert Page After Current Page</source>
-        <translation>Indsæt side efter aktuelle side</translation>
+        <translation>Indsæt side efter nuværende side</translation>
     </message>
     <message>
         <source>Add Subwindow</source>
@@ -3637,6 +3645,10 @@ Vil du overskrive skabelonen?</translation>
     <message>
         <source>comment</source>
         <translation>kommentar</translation>
+    </message>
+    <message>
+        <source>id</source>
+        <translation>id</translation>
     </message>
     <message>
         <source>AlignLeft</source>
@@ -4114,7 +4126,7 @@ Vil du overskrive skabelonen?</translation>
     </message>
     <message>
         <source>Preview current form</source>
-        <translation>Forhåndsvis aktuel udformning</translation>
+        <translation>Forhåndsvis nuværende udformning</translation>
     </message>
     <message>
         <source>Form &amp;Settings...</source>
@@ -4202,7 +4214,7 @@ Vil du overskrive skabelonen?</translation>
     </message>
     <message>
         <source>Input icon name from the current theme:</source>
-        <translation>Input ikonnavn fra det aktuelle tema:</translation>
+        <translation>Input ikonnavn fra det nuværende tema:</translation>
     </message>
 </context>
 <context>
@@ -4400,7 +4412,7 @@ Vil du overskrive skabelonen?</translation>
     <message>
         <source>The current object already has a property named &apos;%1&apos;.
 Please select another, unique one.</source>
-        <translation>Den aktuelle objekt har allerede en egenskab med navnet &apos;%1&apos;.
+        <translation>Det nuværende objekt har allerede en egenskab med navnet &apos;%1&apos;.
 Vælg venligst et andet, unikt et.</translation>
     </message>
     <message>
@@ -4513,7 +4525,7 @@ Vælg venligst et andet navn.</translation>
     <name>qdesigner_internal::ObjectInspector</name>
     <message>
         <source>Change Current Page</source>
-        <translation>Skift aktuelle side</translation>
+        <translation>Skift nuværende side</translation>
     </message>
     <message>
         <source>&amp;Find in Text...</source>
@@ -4966,7 +4978,7 @@ Klasse: %2</translation>
     </message>
     <message>
         <source>The specified qrc file &lt;p&gt;&lt;b&gt;%1&lt;/b&gt;&lt;/p&gt;&lt;p&gt;could not be found. Do you want to update the file location?&lt;/p&gt;</source>
-        <translation>Den specificerede QRC-fil&lt;p&gt;&lt;b&gt;%1&lt;/b&gt;&lt;/p&gt;&lt;p&gt;blev ikke fundet. Vil du opdatere filens placering?&lt;/p&gt;</translation>
+        <translation>Den angivne QRC-fil&lt;p&gt;&lt;b&gt;%1&lt;/b&gt;&lt;/p&gt;&lt;p&gt;blev ikke fundet. Vil du opdatere filens placering?&lt;/p&gt;</translation>
     </message>
     <message>
         <source>New location for %1</source>
@@ -5091,10 +5103,6 @@ Klasse: %2</translation>
         <source>Edit WhatsThis</source>
         <translation>Rediger WhatsThis</translation>
     </message>
-    <message>
-        <source>no signals available</source>
-        <translation>ingen tilgængelige signaler</translation>
-    </message>
     <message numerus="yes">
         <source>Set size constraint on %n widget(s)</source>
         <translation>
@@ -5112,13 +5120,13 @@ Klasse: %2</translation>
     <message>
         <source>A parse error occurred at line %1, column %2 of the XML code specified for the widget %3: %4
 %5</source>
-        <translation>En parse-fejl opstod på linje %1, kolonne %2 i XML-koden specificeret for widget&apos;en %3: %4
+        <translation>En parse-fejl opstod på linje %1, kolonne %2 i XML-koden angivet for widget&apos;en %3: %4
 %5</translation>
     </message>
     <message>
         <source>The XML code specified for the widget %1 does not contain any widget elements.
 %2</source>
-        <translation>Den specificerde XML-kode for widget&apos;en %1 indeholder ikke nogen widget-elementer.
+        <translation>Den angivne XML-kode for widget&apos;en %1 indeholder ikke nogen widget-elementer.
 %2</translation>
     </message>
     <message>
@@ -5703,7 +5711,7 @@ Klasse: %2</translation>
     </message>
     <message>
         <source>The current page of the container &apos;%1&apos; (%2) could not be determined while creating a layout.This indicates an inconsistency in the ui-file, probably a layout being constructed on a container widget.</source>
-        <translation>Den aktuelle side af beholderen &apos;%1&apos; (%2) kunne ikke bestemmes under oprettelsen af et layout. Dette indikere en uoverensstemmelse i brugerfladefilen, sandsynligvis et layout konstrueret på en beholder-widget.</translation>
+        <translation>Den nuværende side af beholderen &apos;%1&apos; (%2) kunne ikke bestemmes under oprettelsen af et layout. Dette indikere en uoverensstemmelse i brugerfladefilen, sandsynligvis et layout konstrueret på en beholder-widget.</translation>
     </message>
     <message>
         <source>Attempt to add a layout to a widget &apos;%1&apos; (%2) which already has an unmanaged layout of type %3.

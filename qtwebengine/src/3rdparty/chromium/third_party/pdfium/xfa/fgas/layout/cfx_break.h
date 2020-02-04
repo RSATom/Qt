@@ -9,9 +9,11 @@
 
 #include <stdint.h>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "xfa/fgas/font/cfgas_gefont.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fgas/layout/cfx_breakline.h"
+
+class CFGAS_GEFont;
 
 struct FX_TPO {
   bool operator<(const FX_TPO& that) const { return pos < that.pos; }
@@ -37,9 +39,10 @@ class CFX_Break {
   void SetLayoutStyles(uint32_t dwLayoutStyles);
   uint32_t GetLayoutStyles() const { return m_dwLayoutStyles; }
 
-  void SetFont(const CFX_RetainPtr<CFGAS_GEFont>& pFont);
+  void SetFont(const RetainPtr<CFGAS_GEFont>& pFont);
   void SetFontSize(float fFontSize);
   void SetTabWidth(float fTabWidth);
+  int32_t GetTabWidth() const { return m_iTabWidth; }
 
   void SetHorizontalScale(int32_t iScale);
   void SetVerticalScale(int32_t iScale);
@@ -55,34 +58,40 @@ class CFX_Break {
   void ClearBreakPieces();
 
   CFX_Char* GetLastChar(int32_t index, bool bOmitChar, bool bRichText) const;
+  const CFX_BreakLine* GetCurrentLineForTesting() const {
+    return m_pCurLine.Get();
+  }
 
  protected:
+  static const int kMinimumTabWidth;
+  static const float kConversionFactor;
+
   explicit CFX_Break(uint32_t dwLayoutStyles);
 
   void SetBreakStatus();
   bool HasLine() const { return m_iReadyLineIndex >= 0; }
   FX_CHARTYPE GetUnifiedCharType(FX_CHARTYPE dwType) const;
 
-  FX_CHARTYPE m_eCharType;
-  bool m_bSingleLine;
-  bool m_bCombText;
-  uint32_t m_dwIdentity;
-  uint32_t m_dwLayoutStyles;
-  int32_t m_iLineStart;
-  int32_t m_iLineWidth;
-  wchar_t m_wParagraphBreakChar;
-  int32_t m_iFontSize;
-  int32_t m_iTabWidth;
-  int32_t m_iHorizontalScale;
-  int32_t m_iVerticalScale;
-  int32_t m_iTolerance;
-  int32_t m_iCharSpace;
-  int32_t m_iDefChar;
-  wchar_t m_wDefChar;
-  CFX_RetainPtr<CFGAS_GEFont> m_pFont;
+  FX_CHARTYPE m_eCharType = FX_CHARTYPE::kUnknown;
+  bool m_bSingleLine = false;
+  bool m_bCombText = false;
+  uint32_t m_dwIdentity = 0;
+  uint32_t m_dwLayoutStyles = 0;
+  int32_t m_iLineStart = 0;
+  int32_t m_iLineWidth = 2000000;
+  wchar_t m_wParagraphBreakChar = L'\n';
+  int32_t m_iFontSize = 240;
+  int32_t m_iTabWidth = 720000;
+  int32_t m_iHorizontalScale = 100;
+  int32_t m_iVerticalScale = 100;
+  int32_t m_iTolerance = 0;
+  int32_t m_iCharSpace = 0;
+  int32_t m_iDefChar = 0;
+  wchar_t m_wDefChar = 0xFEFF;
+  RetainPtr<CFGAS_GEFont> m_pFont;
+  UnownedPtr<CFX_BreakLine> m_pCurLine;
+  int8_t m_iReadyLineIndex = -1;
   CFX_BreakLine m_Line[2];
-  CFX_BreakLine* m_pCurLine;
-  int8_t m_iReadyLineIndex;
 
  private:
   void FontChanged();

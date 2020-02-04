@@ -8,8 +8,9 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "jni/WebRestrictionsClient_jni.h"
 
@@ -32,22 +33,17 @@ bool RequestPermissionTask(
 
 bool CheckSupportsRequestTask(
     const base::android::JavaRef<jobject>& java_provider) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
   JNIEnv* env = base::android::AttachCurrentThread();
   return Java_WebRestrictionsClient_supportsRequest(env, java_provider);
 }
 
 }  // namespace
 
-// static
-bool WebRestrictionsClient::Register(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
 WebRestrictionsClient::WebRestrictionsClient()
     : initialized_(false), supports_request_(false) {
   background_task_runner_ = base::CreateSequencedTaskRunnerWithTraits(
-      {base::MayBlock(), base::TaskPriority::BACKGROUND,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 }
 
@@ -63,8 +59,8 @@ void WebRestrictionsClient::SetAuthority(
     const std::string& content_provider_authority) {
   // This is called from the UI thread, but class members should only be
   // accessed from the IO thread.
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::Bind(&WebRestrictionsClient::SetAuthorityTask,
                  base::Unretained(this), content_provider_authority));
 }
@@ -91,7 +87,7 @@ void WebRestrictionsClient::SetAuthorityTask(
       reinterpret_cast<jlong>(this)));
   supports_request_ = false;
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::Bind(&CheckSupportsRequestTask, java_provider_),
       base::Bind(&WebRestrictionsClient::RequestSupportKnown,
                  base::Unretained(this), provider_authority_));
@@ -140,8 +136,8 @@ void WebRestrictionsClient::RequestPermission(
 void WebRestrictionsClient::OnWebRestrictionsChanged(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& obj) {
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::Bind(&WebRestrictionsClient::ClearCache, base::Unretained(this)));
 }
 

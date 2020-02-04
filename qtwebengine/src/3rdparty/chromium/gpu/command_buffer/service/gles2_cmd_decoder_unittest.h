@@ -29,7 +29,7 @@ namespace gles2 {
 
 class GLES2DecoderTest : public GLES2DecoderTestBase {
  public:
-  GLES2DecoderTest() {}
+  GLES2DecoderTest() = default;
 
  protected:
   void CheckReadPixelsOutOfRange(GLint in_read_x,
@@ -49,14 +49,14 @@ class GLES2DecoderWithShaderTest : public GLES2DecoderWithShaderTestBase {
 
 class GLES2DecoderRGBBackbufferTest : public GLES2DecoderWithShaderTest {
  public:
-  GLES2DecoderRGBBackbufferTest() {}
+  GLES2DecoderRGBBackbufferTest() = default;
 
   void SetUp() override;
 };
 
 class GLES2DecoderManualInitTest : public GLES2DecoderWithShaderTest {
  public:
-  GLES2DecoderManualInitTest() {}
+  GLES2DecoderManualInitTest() = default;
 
   // Override default setup so nothing gets setup.
   void SetUp() override {}
@@ -104,6 +104,25 @@ class GLES3DecoderRGBBackbufferTest : public GLES2DecoderRGBBackbufferTest {
 class GLES3DecoderManualInitTest : public GLES2DecoderManualInitTest {
  public:
   GLES3DecoderManualInitTest() { shader_language_version_ = 300; }
+};
+
+class GLES2DecoderPassthroughTest : public GLES2DecoderPassthroughTestBase {
+ public:
+  GLES2DecoderPassthroughTest()
+      : GLES2DecoderPassthroughTestBase(CONTEXT_TYPE_OPENGLES2) {}
+};
+
+class GLES2WebGLDecoderPassthroughTest
+    : public GLES2DecoderPassthroughTestBase {
+ public:
+  GLES2WebGLDecoderPassthroughTest()
+      : GLES2DecoderPassthroughTestBase(CONTEXT_TYPE_WEBGL1) {}
+};
+
+class GLES3DecoderPassthroughTest : public GLES2DecoderPassthroughTestBase {
+ public:
+  GLES3DecoderPassthroughTest()
+      : GLES2DecoderPassthroughTestBase(CONTEXT_TYPE_OPENGLES3) {}
 };
 
 }  // namespace gles2

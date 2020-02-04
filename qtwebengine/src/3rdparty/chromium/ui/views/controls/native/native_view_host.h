@@ -47,8 +47,34 @@ class VIEWS_EXPORT NativeViewHost : public View {
   // detached before calling this function, and this has no effect in that case.
   void Detach();
 
-  // Sets a preferred size for the native view attached to this View.
-  void SetPreferredSize(const gfx::Size& size);
+  // Sets the corner radius for clipping gfx::NativeView. Returns true on
+  // success or false if the platform doesn't support the operation.
+  // This method calls SetCustomMask internally.
+  bool SetCornerRadius(int corner_radius);
+
+  // Sets the custom layer mask for clipping gfx::NativeView. Returns true on
+  // success or false if the platform doesn't support the operation.
+  // NB: This does not interact nicely with fast_resize.
+  bool SetCustomMask(std::unique_ptr<ui::LayerOwner> mask);
+
+  // Sets the height of the top region where the gfx::NativeView shouldn't be
+  // targeted. This will be used when another view is covering there
+  // temporarily, like the immersive fullscreen mode of ChromeOS.
+  void SetHitTestTopInset(int top_inset);
+
+  // Sets the size for the NativeView that may or may not match the size of this
+  // View when it is being captured. If the size does not match, scaling will
+  // occur. Pass an empty size to revert to the default behavior, where the
+  // NatieView's size always equals this View's size.
+  void SetNativeViewSize(const gfx::Size& size);
+
+  // Returns the container that contains this host's native view. Returns null
+  // if there's no attached native view or it has no container.
+  gfx::NativeView GetNativeViewContainer() const;
+
+  // Pass the parent accessible object to this host's native view so that
+  // it can return this value when querying its parent accessible.
+  void SetParentAccessible(gfx::NativeViewAccessible);
 
   // Fast resizing will move the native view and clip its visible region, this
   // will result in white areas and will not resize the content (so scrollbars
@@ -70,19 +96,18 @@ class VIEWS_EXPORT NativeViewHost : public View {
     return fast_resize_at_last_layout_;
   }
 
-  // Accessor for |native_view_|.
   gfx::NativeView native_view() const { return native_view_; }
 
   void NativeViewDestroyed();
 
   // Overridden from View:
-  gfx::Size CalculatePreferredSize() const override;
   void Layout() override;
   void OnPaint(gfx::Canvas* canvas) override;
   void VisibilityChanged(View* starting_from, bool is_visible) override;
   void OnFocus() override;
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
   gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override;
+  void SetVisible(bool visible) override;
 
  protected:
   bool GetNeedsNotificationWhenVisibleBoundsChange() const override;
@@ -110,8 +135,9 @@ class VIEWS_EXPORT NativeViewHost : public View {
   // attached gfx::NativeView.
   std::unique_ptr<NativeViewHostWrapper> native_wrapper_;
 
-  // The preferred size of this View
-  gfx::Size preferred_size_;
+  // The actual size of the NativeView, or an empty size if no scaling of the
+  // NativeView should occur.
+  gfx::Size native_view_size_;
 
   // True if the native view is being resized using the fast method described
   // in the setter/accessor above.

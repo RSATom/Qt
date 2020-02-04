@@ -97,13 +97,13 @@ static inline OSVERSIONINFOEX determineWinOsVersion()
     // because linking to it at load time will not pass the Windows App Certification Kit
     // https://msdn.microsoft.com/en-us/library/windows/hardware/ff561910.aspx
     RtlGetVersionFunction pRtlGetVersion = reinterpret_cast<RtlGetVersionFunction>(
-        GetProcAddressA(ntdll, "RtlGetVersion"));
+        reinterpret_cast<QFunctionPointer>(GetProcAddressA(ntdll, "RtlGetVersion")));
     if (Q_UNLIKELY(!pRtlGetVersion))
         return result;
 
     // GetVersionEx() has been deprecated in Windows 8.1 and will return
     // only Windows 8 from that version on, so use the kernel API function.
-    pRtlGetVersion((LPOSVERSIONINFO) &result); // always returns STATUS_SUCCESS
+    pRtlGetVersion(reinterpret_cast<LPOSVERSIONINFO>(&result)); // always returns STATUS_SUCCESS
 #else // !Q_OS_WINCE
     GetVersionEx(&result);
 #endif

@@ -3,23 +3,14 @@
 // found in the LICENSE file.
 
 #include <stddef.h>
-#include <X11/extensions/shape.h>
-#include <X11/Xlib.h>
-
 #include <memory>
 #include <vector>
 
-// Get rid of X11 macros which conflict with gtest.
-// It is necessary to include this header before the rest so that Bool can be
-// undefined.
-#include "ui/events/test/events_test_utils_x11.h"
-#undef Bool
-#undef None
-
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
+#include "third_party/skia/include/core/SkPath.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/hit_test.h"
@@ -27,10 +18,11 @@
 #include "ui/display/display_switches.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/platform/x11/x11_event_source_glib.h"
+#include "ui/events/test/events_test_utils_x11.h"
 #include "ui/events/test/platform_event_source_test_api.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/gfx/path.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/test/x11_property_change_waiter.h"
@@ -59,11 +51,8 @@ class WMStateWaiter : public X11PropertyChangeWaiter {
   // X11PropertyChangeWaiter:
   bool ShouldKeepOnWaiting(const ui::PlatformEvent& event) override {
     std::vector<Atom> hints;
-    if (ui::GetAtomArrayProperty(xwindow(), "_NET_WM_STATE", &hints)) {
-      auto it = std::find(hints.cbegin(), hints.cend(), gfx::GetAtom(hint_));
-      bool hint_set = (it != hints.cend());
-      return hint_set != wait_till_set_;
-    }
+    if (ui::GetAtomArrayProperty(xwindow(), "_NET_WM_STATE", &hints))
+      return base::ContainsValue(hints, gfx::GetAtom(hint_)) != wait_till_set_;
     return true;
   }
 
@@ -90,8 +79,13 @@ class ShapedNonClientFrameView : public NonClientFrameView {
       const gfx::Rect& client_bounds) const override {
     return client_bounds;
   }
-  int NonClientHitTest(const gfx::Point& point) override { return HTNOWHERE; }
-  void GetWindowMask(const gfx::Size& size, gfx::Path* window_mask) override {
+  int NonClientHitTest(const gfx::Point& point) override {
+    // Fake bottom for non client event test.
+    if (point == gfx::Point(500, 500))
+      return HTBOTTOM;
+    return HTNOWHERE;
+  }
+  void GetWindowMask(const gfx::Size& size, SkPath* window_mask) override {
     int right = size.width();
     int bottom = size.height();
 
@@ -135,7 +129,6 @@ std::unique_ptr<Widget> CreateWidget(WidgetDelegate* delegate) {
   params.delegate = delegate;
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.remove_standard_frame = true;
-  params.native_widget = new DesktopNativeWidgetAura(widget.get());
   params.bounds = gfx::Rect(100, 100, 100, 100);
   widget->Init(params);
   return widget;
@@ -179,29 +172,46 @@ void RunAllPendingInMessageLoop() {
 
 class DesktopWindowTreeHostX11Test : public ViewsTestBase {
  public:
-  DesktopWindowTreeHostX11Test() {
-  }
+  DesktopWindowTreeHostX11Test()
+      : event_source_(ui::PlatformEventSource::GetInstance()) {}
   ~DesktopWindowTreeHostX11Test() override {}
 
   void SetUp() override {
+    set_native_widget_type(NativeWidgetType::kDesktop);
+
+    std::vector<int> pointer_devices;
+    pointer_devices.push_back(kPointerDeviceId);
+    ui::TouchFactory::GetInstance()->SetPointerDeviceForTest(pointer_devices);
+
     ViewsTestBase::SetUp();
 
     // Make X11 synchronous for our display connection. This does not force the
     // window manager to behave synchronously.
-    XSynchronize(gfx::GetXDisplay(), True);
+    XSynchronize(gfx::GetXDisplay(), x11::True);
   }
 
   void TearDown() override {
-    XSynchronize(gfx::GetXDisplay(), False);
+    XSynchronize(gfx::GetXDisplay(), x11::False);
     ViewsTestBase::TearDown();
   }
 
+  void DispatchSingleEventToWidget(XEvent* event, Widget* widget) {
+    DCHECK_EQ(GenericEvent, event->type);
+    XIDeviceEvent* device_event =
+        static_cast<XIDeviceEvent*>(event->xcookie.data);
+    device_event->event =
+        widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget();
+    event_source_.Dispatch(event);
+  }
+
  private:
+  ui::test::PlatformEventSourceTestAPI event_source_;
   DISALLOW_COPY_AND_ASSIGN(DesktopWindowTreeHostX11Test);
 };
 
+// https://crbug.com/898742: Test is flaky.
 // Tests that the shape is properly set on the x window.
-TEST_F(DesktopWindowTreeHostX11Test, Shape) {
+TEST_F(DesktopWindowTreeHostX11Test, DISABLED_Shape) {
   if (!ui::IsShapeExtensionAvailable())
     return;
 
@@ -267,17 +277,10 @@ TEST_F(DesktopWindowTreeHostX11Test, Shape) {
   }
 
   // 2) Test setting the window shape via Widget::SetShape().
-  gfx::Path shape2;
-  shape2.moveTo(10, 0);
-  shape2.lineTo(10, 10);
-  shape2.lineTo(0, 10);
-  shape2.lineTo(0, 100);
-  shape2.lineTo(100, 100);
-  shape2.lineTo(100, 0);
-  shape2.close();
-
-  auto shape_region = base::MakeUnique<SkRegion>();
-  shape_region->setPath(shape2, SkRegion(shape2.getBounds().round()));
+  auto shape_region = std::make_unique<Widget::ShapeRects>();
+  shape_region->emplace_back(10, 0, 90, 10);
+  shape_region->emplace_back(0, 10, 10, 90);
+  shape_region->emplace_back(10, 10, 90, 90);
 
   std::unique_ptr<Widget> widget2(CreateWidget(nullptr));
   widget2->Show();
@@ -348,9 +351,8 @@ TEST_F(DesktopWindowTreeHostX11Test, WindowManagerTogglesFullscreen) {
     xclient.xclient.data.l[2] = 0;
     xclient.xclient.data.l[3] = 1;
     xclient.xclient.data.l[4] = 0;
-    XSendEvent(display, DefaultRootWindow(display), False,
-               SubstructureRedirectMask | SubstructureNotifyMask,
-               &xclient);
+    XSendEvent(display, DefaultRootWindow(display), x11::False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xclient);
 
     WMStateWaiter waiter(xid, "_NET_WM_STATE_FULLSCREEN", false);
     waiter.Wait();
@@ -370,7 +372,6 @@ TEST_F(DesktopWindowTreeHostX11Test, ToggleMinimizePropogateToContentWindow) {
   Widget widget;
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.native_widget = new DesktopNativeWidgetAura(&widget);
   widget.Init(params);
   widget.Show();
   ui::X11EventSource::GetInstance()->DispatchXEvents();
@@ -393,9 +394,8 @@ TEST_F(DesktopWindowTreeHostX11Test, ToggleMinimizePropogateToContentWindow) {
     xevent.xproperty.window = xid;
     xevent.xproperty.atom = gfx::GetAtom("_NET_WM_STATE");
     xevent.xproperty.state = 0;
-    XSendEvent(display, DefaultRootWindow(display), False,
-        SubstructureRedirectMask | SubstructureNotifyMask,
-        &xevent);
+    XSendEvent(display, DefaultRootWindow(display), x11::False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xevent);
 
     WMStateWaiter waiter(xid, "_NET_WM_STATE_HIDDEN", true);
     waiter.Wait();
@@ -417,9 +417,8 @@ TEST_F(DesktopWindowTreeHostX11Test, ToggleMinimizePropogateToContentWindow) {
     xevent.xproperty.window = xid;
     xevent.xproperty.atom = gfx::GetAtom("_NET_WM_STATE");
     xevent.xproperty.state = 0;
-    XSendEvent(display, DefaultRootWindow(display), False,
-        SubstructureRedirectMask | SubstructureNotifyMask,
-        &xevent);
+    XSendEvent(display, DefaultRootWindow(display), x11::False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xevent);
 
     WMStateWaiter waiter(xid, "_NET_WM_STATE_FOCUSED", true);
     waiter.Wait();
@@ -432,7 +431,6 @@ TEST_F(DesktopWindowTreeHostX11Test, ChildWindowDestructionDuringTearDown) {
   Widget::InitParams parent_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   parent_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  parent_params.native_widget = new DesktopNativeWidgetAura(&parent_widget);
   parent_widget.Init(parent_params);
   parent_widget.Show();
   ui::X11EventSource::GetInstance()->DispatchXEvents();
@@ -441,7 +439,6 @@ TEST_F(DesktopWindowTreeHostX11Test, ChildWindowDestructionDuringTearDown) {
   Widget::InitParams child_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   child_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  child_params.native_widget = new DesktopNativeWidgetAura(&child_widget);
   child_params.parent = parent_widget.GetNativeWindow();
   child_widget.Init(child_params);
   child_widget.Show();
@@ -478,7 +475,6 @@ TEST_F(DesktopWindowTreeHostX11Test, SetBoundsWithMinMax) {
   CustomSizeWidget widget;
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.native_widget = new DesktopNativeWidgetAura(&widget);
   params.bounds = gfx::Rect(200, 100);
   widget.Init(params);
   widget.Show();
@@ -521,18 +517,8 @@ class MouseEventRecorder : public ui::EventHandler {
 class DesktopWindowTreeHostX11HighDPITest
     : public DesktopWindowTreeHostX11Test {
  public:
-  DesktopWindowTreeHostX11HighDPITest()
-      : event_source_(ui::PlatformEventSource::GetInstance()) {}
+  DesktopWindowTreeHostX11HighDPITest() {}
   ~DesktopWindowTreeHostX11HighDPITest() override {}
-
-  void DispatchSingleEventToWidget(XEvent* event, Widget* widget) {
-    DCHECK_EQ(GenericEvent, event->type);
-    XIDeviceEvent* device_event =
-        static_cast<XIDeviceEvent*>(event->xcookie.data);
-    device_event->event =
-        widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget();
-    event_source_.Dispatch(event);
-  }
 
   void PretendCapture(views::Widget* capture_widget) {
     DesktopWindowTreeHostX11* capture_host = nullptr;
@@ -549,14 +535,10 @@ class DesktopWindowTreeHostX11HighDPITest
   void SetUp() override {
     base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
     command_line->AppendSwitchASCII(switches::kForceDeviceScaleFactor, "2");
-    std::vector<int> pointer_devices;
-    pointer_devices.push_back(kPointerDeviceId);
-    ui::TouchFactory::GetInstance()->SetPointerDeviceForTest(pointer_devices);
 
     DesktopWindowTreeHostX11Test::SetUp();
   }
 
-  ui::test::PlatformEventSourceTestAPI event_source_;
   DISALLOW_COPY_AND_ASSIGN(DesktopWindowTreeHostX11HighDPITest);
 };
 
@@ -566,7 +548,6 @@ TEST_F(DesktopWindowTreeHostX11HighDPITest,
   Widget first;
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.native_widget = new DesktopNativeWidgetAura(&first);
   params.bounds = gfx::Rect(0, 0, 50, 50);
   first.Init(params);
   first.Show();
@@ -574,7 +555,6 @@ TEST_F(DesktopWindowTreeHostX11HighDPITest,
   Widget second;
   params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.native_widget = new DesktopNativeWidgetAura(&second);
   params.bounds = gfx::Rect(50, 50, 50, 50);
   second.Init(params);
   second.Show();
@@ -615,6 +595,54 @@ TEST_F(DesktopWindowTreeHostX11HighDPITest,
   PretendCapture(nullptr);
   first.GetNativeWindow()->RemovePreTargetHandler(&first_recorder);
   second.GetNativeWindow()->RemovePreTargetHandler(&second_recorder);
+}
+
+TEST_F(DesktopWindowTreeHostX11Test, MouseNCEvents) {
+  std::unique_ptr<Widget> widget = CreateWidget(new ShapedWidgetDelegate());
+  widget->Show();
+
+  ui::X11EventSource::GetInstance()->DispatchXEvents();
+
+  widget->SetBounds(gfx::Rect(100, 100, 501, 501));
+  ui::X11EventSource::GetInstance()->DispatchXEvents();
+
+  MouseEventRecorder recorder;
+  widget->GetNativeWindow()->AddPreTargetHandler(&recorder);
+
+  ui::ScopedXI2Event event;
+  event.InitGenericButtonEvent(kPointerDeviceId, ui::ET_MOUSE_PRESSED,
+                               gfx::Point(500, 500), ui::EF_LEFT_MOUSE_BUTTON);
+
+  DispatchSingleEventToWidget(event, widget.get());
+  ASSERT_EQ(1u, recorder.mouse_events().size());
+  EXPECT_EQ(ui::ET_MOUSE_PRESSED, recorder.mouse_events()[0].type());
+  EXPECT_TRUE(recorder.mouse_events()[0].flags() & ui::EF_IS_NON_CLIENT);
+
+  widget->GetNativeWindow()->RemovePreTargetHandler(&recorder);
+}
+
+TEST_F(DesktopWindowTreeHostX11HighDPITest, MouseNCEvents) {
+  std::unique_ptr<Widget> widget = CreateWidget(new ShapedWidgetDelegate());
+  widget->Show();
+
+  ui::X11EventSource::GetInstance()->DispatchXEvents();
+
+  widget->SetBounds(gfx::Rect(100, 100, 1000, 1000));
+  ui::X11EventSource::GetInstance()->DispatchXEvents();
+
+  MouseEventRecorder recorder;
+  widget->GetNativeWindow()->AddPreTargetHandler(&recorder);
+
+  ui::ScopedXI2Event event;
+  event.InitGenericButtonEvent(kPointerDeviceId, ui::ET_MOUSE_PRESSED,
+                               gfx::Point(1001, 1001),
+                               ui::EF_LEFT_MOUSE_BUTTON);
+  DispatchSingleEventToWidget(event, widget.get());
+  ASSERT_EQ(1u, recorder.mouse_events().size());
+  EXPECT_EQ(ui::ET_MOUSE_PRESSED, recorder.mouse_events()[0].type());
+  EXPECT_TRUE(recorder.mouse_events()[0].flags() & ui::EF_IS_NON_CLIENT);
+
+  widget->GetNativeWindow()->RemovePreTargetHandler(&recorder);
 }
 
 }  // namespace views

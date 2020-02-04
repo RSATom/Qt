@@ -35,7 +35,7 @@ class V8_PLATFORM_EXPORT TraceObject {
     const char* as_string;
   };
 
-  TraceObject() {}
+  TraceObject() = default;
   ~TraceObject();
   void Initialize(
       char phase, const uint8_t* category_enabled_flag, const char* name,
@@ -43,8 +43,8 @@ class V8_PLATFORM_EXPORT TraceObject {
       const char** arg_names, const uint8_t* arg_types,
       const uint64_t* arg_values,
       std::unique_ptr<v8::ConvertableToTraceFormat>* arg_convertables,
-      unsigned int flags);
-  void UpdateDuration();
+      unsigned int flags, int64_t timestamp, int64_t cpu_timestamp);
+  void UpdateDuration(int64_t timestamp, int64_t cpu_timestamp);
   void InitializeForTesting(
       char phase, const uint8_t* category_enabled_flag, const char* name,
       const char* scope, uint64_t id, uint64_t bind_id, int num_args,
@@ -106,12 +106,14 @@ class V8_PLATFORM_EXPORT TraceObject {
 
 class V8_PLATFORM_EXPORT TraceWriter {
  public:
-  TraceWriter() {}
-  virtual ~TraceWriter() {}
+  TraceWriter() = default;
+  virtual ~TraceWriter() = default;
   virtual void AppendTraceEvent(TraceObject* trace_event) = 0;
   virtual void Flush() = 0;
 
   static TraceWriter* CreateJSONTraceWriter(std::ostream& stream);
+  static TraceWriter* CreateJSONTraceWriter(std::ostream& stream,
+                                            const std::string& tag);
 
  private:
   // Disallow copy and assign
@@ -145,8 +147,8 @@ class V8_PLATFORM_EXPORT TraceBufferChunk {
 
 class V8_PLATFORM_EXPORT TraceBuffer {
  public:
-  TraceBuffer() {}
-  virtual ~TraceBuffer() {}
+  TraceBuffer() = default;
+  virtual ~TraceBuffer() = default;
 
   virtual TraceObject* AddTraceEvent(uint64_t* handle) = 0;
   virtual TraceObject* GetEventByHandle(uint64_t handle) = 0;
@@ -247,6 +249,13 @@ class V8_PLATFORM_EXPORT TracingController
       const uint64_t* arg_values,
       std::unique_ptr<v8::ConvertableToTraceFormat>* arg_convertables,
       unsigned int flags) override;
+  uint64_t AddTraceEventWithTimestamp(
+      char phase, const uint8_t* category_enabled_flag, const char* name,
+      const char* scope, uint64_t id, uint64_t bind_id, int32_t num_args,
+      const char** arg_names, const uint8_t* arg_types,
+      const uint64_t* arg_values,
+      std::unique_ptr<v8::ConvertableToTraceFormat>* arg_convertables,
+      unsigned int flags, int64_t timestamp) override;
   void UpdateTraceEventDuration(const uint8_t* category_enabled_flag,
                                 const char* name, uint64_t handle) override;
   void AddTraceStateObserver(
@@ -258,6 +267,10 @@ class V8_PLATFORM_EXPORT TracingController
   void StopTracing();
 
   static const char* GetCategoryGroupName(const uint8_t* category_enabled_flag);
+
+ protected:
+  virtual int64_t CurrentTimestampMicroseconds();
+  virtual int64_t CurrentCpuTimestampMicroseconds();
 
  private:
   const uint8_t* GetCategoryGroupEnabledInternal(const char* category_group);

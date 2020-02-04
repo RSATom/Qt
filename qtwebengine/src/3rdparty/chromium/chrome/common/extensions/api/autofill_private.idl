@@ -38,6 +38,10 @@ namespace autofillPrivate {
 
     // For credit cards, whether this is a full copy of the card
     boolean? isCached;
+
+    // For credit cards, whether this is migratable (both the card number and
+    // expiration date valid and does not have the duplicated server card).
+    boolean? isMigratable;
   };
 
   // An address entry which can be saved in the autofill section of the
@@ -209,7 +213,7 @@ namespace autofillPrivate {
     static void saveCreditCard(CreditCardEntry card);
 
     // Removes the entry (address or credit card) with the given ID.
-    // |guid|: ID of the entry to remove. 
+    // |guid|: ID of the entry to remove.
     static void removeEntry(DOMString guid);
 
     // Validates a newly-added phone number and invokes the callback with a list
@@ -224,11 +228,25 @@ namespace autofillPrivate {
     // |callback|: Callback which will be called with the list of credit cards.
     static void getCreditCardList(GetCreditCardListCallback callback);
 
+    // Gets the list of local credit cards.
+    // |callback|: Callback which will be called with the list of credit cards.
+    static void getLocalCreditCardList(GetCreditCardListCallback callback);
+
+    // Gets the list of server credit cards.
+    // |callback|: Callback which will be called with the list of credit cards.
+    static void getServerCreditCardList(GetCreditCardListCallback callback);
+
     // Clears the data associated with a wallet card which was saved
     // locally so that the saved copy is masked (e.g., "Card ending
     // in 1234").
     // |guid|: GUID of the credit card to mask.
     static void maskCreditCard(DOMString guid);
+
+    // Triggers local credit cards migration.
+    static void migrateCreditCards();
+
+    // Logs that the server cards edit link was clicked.
+    static void logServerCardLinkClicked();
   };
 
   interface Events {
@@ -241,5 +259,15 @@ namespace autofillPrivate {
     // been added, removed, or changed.
     // |entries| The updated list of entries.
     static void onCreditCardListChanged(CreditCardEntry[] entries);
+
+    // Fired when the local credit card list has changed, meaning that an entry
+    // has been added, removed, or changed.
+    // |entries| The updated list of entries.
+    static void onLocalCreditCardListChanged(CreditCardEntry[] entries);
+
+    // Fired when the server credit card list has changed, meaning that an entry
+    // has been added, removed, or changed.
+    // |entries| The updated list of entries.
+    static void onServerCreditCardListChanged(CreditCardEntry[] entries);
   };
 };

@@ -94,7 +94,8 @@ QT_BEGIN_NAMESPACE
     Data interchange with other users is out of the scope of QStandardPaths.
 
     \value DesktopLocation Returns the user's desktop directory. This is a generic value.
-           On systems with no concept of a desktop.
+           On systems with no concept of a desktop, this is the same as
+           QStandardPaths::HomeLocation.
     \value DocumentsLocation Returns the directory containing user document files.
            This is a generic value. The returned path is never empty.
     \value FontsLocation Returns the directory containing user's fonts. This is a generic value.
@@ -231,7 +232,7 @@ QT_BEGIN_NAMESPACE
     \row \li DocumentsLocation
          \li "~/Documents"
     \row \li FontsLocation
-         \li "~/.fonts"
+         \li "~/.fonts", "~/.local/share/fonts", "/usr/local/share/fonts", "/usr/share/fonts"
     \row \li ApplicationsLocation
          \li "~/.local/share/applications", "/usr/local/share/applications", "/usr/share/applications"
     \row \li MusicLocation
@@ -296,7 +297,7 @@ QT_BEGIN_NAMESPACE
          \li "<APPROOT>/tmp"
     \row \li HomeLocation
          \li "<APPROOT>/files"
-         \li "<APPROOT>" (not writable)
+         \li system defined
     \row \li DataLocation
          \li "<APPROOT>/files", "<USER>/<APPNAME>/files"
          \li "<APPROOT>/Library/Application Support"

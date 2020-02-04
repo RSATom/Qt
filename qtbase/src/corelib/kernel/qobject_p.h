@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2017 The Qt Company Ltd.
 ** Copyright (C) 2013 Olivier Goffart <ogoffart@woboq.com>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -145,7 +145,7 @@ public:
         ushort connectionType : 3; // 0 == auto, 1 == direct, 2 == queued, 4 == blocking
         ushort isSlotObject : 1;
         ushort ownArgumentTypes : 1;
-        Connection() : nextConnectionList(0), ref_(2), ownArgumentTypes(true) {
+        Connection() : nextConnectionList(nullptr), ref_(2), ownArgumentTypes(true) {
             //ref_ is 2 for the use in the internal lists, and for the use in QMetaObject::Connection
         }
         ~Connection();
@@ -160,7 +160,7 @@ public:
     };
     // ConnectionList is a singly-linked list
     struct ConnectionList {
-        ConnectionList() : first(0), last(0) {}
+        ConnectionList() : first(nullptr), last(nullptr) {}
         Connection *first;
         Connection *last;
     };
@@ -200,7 +200,7 @@ public:
     }
     static const QObjectPrivate *get(const QObject *o) { return o->d_func(); }
 
-    int signalIndex(const char *signalName, const QMetaObject **meta = 0) const;
+    int signalIndex(const char *signalName, const QMetaObject **meta = nullptr) const;
     inline bool isSignalConnected(uint signalIdx, bool checkDeclarative = true) const;
     inline bool isDeclarativeSignalConnected(uint signalIdx) const;
 
@@ -341,7 +341,7 @@ inline QMetaObject::Connection QObjectPrivate::connect(const typename QtPrivate:
     Q_STATIC_ASSERT_X((QtPrivate::AreArgumentsCompatible<typename SlotType::ReturnType, typename SignalType::ReturnType>::value),
                       "Return type of the slot is not compatible with the return type of the signal.");
 
-    const int *types = 0;
+    const int *types = nullptr;
     if (type == Qt::QueuedConnection || type == Qt::BlockingQueuedConnection)
         types = QtPrivate::ConnectionTypes<typename SignalType::Arguments>::types();
 
@@ -376,12 +376,12 @@ class Q_CORE_EXPORT QMetaCallEvent : public QEvent
 {
 public:
     QMetaCallEvent(ushort method_offset, ushort method_relative, QObjectPrivate::StaticMetaCallFunction callFunction , const QObject *sender, int signalId,
-                   int nargs = 0, int *types = 0, void **args = 0, QSemaphore *semaphore = 0);
+                   int nargs = 0, int *types = nullptr, void **args = nullptr, QSemaphore *semaphore = nullptr);
     /*! \internal
         \a signalId is in the signal index range (see QObjectPrivate::signalIndex()).
     */
     QMetaCallEvent(QtPrivate::QSlotObjectBase *slotObj, const QObject *sender, int signalId,
-                   int nargs = 0, int *types = 0, void **args = 0, QSemaphore *semaphore = 0);
+                   int nargs = 0, int *types = nullptr, void **args = nullptr, QSemaphore *semaphore = nullptr);
 
     ~QMetaCallEvent();
 
@@ -407,7 +407,7 @@ private:
 
 class QBoolBlocker
 {
-    Q_DISABLE_COPY(QBoolBlocker)
+    Q_DISABLE_COPY_MOVE(QBoolBlocker)
 public:
     explicit inline QBoolBlocker(bool &b, bool value=true):block(b), reset(b){block = value;}
     inline ~QBoolBlocker(){block = reset; }
@@ -432,9 +432,9 @@ struct Q_CORE_EXPORT QAbstractDynamicMetaObject : public QDynamicMetaObjectData,
 {
     ~QAbstractDynamicMetaObject();
 
-    virtual QAbstractDynamicMetaObject *toDynamicMetaObject(QObject *) Q_DECL_OVERRIDE { return this; }
+    QAbstractDynamicMetaObject *toDynamicMetaObject(QObject *) override { return this; }
     virtual int createProperty(const char *, const char *) { return -1; }
-    virtual int metaCall(QObject *, QMetaObject::Call c, int _id, void **a) Q_DECL_OVERRIDE
+    int metaCall(QObject *, QMetaObject::Call c, int _id, void **a) override
     { return metaCall(c, _id, a); }
     virtual int metaCall(QMetaObject::Call, int _id, void **) { return _id; } // Compat overload
 };

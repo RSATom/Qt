@@ -39,6 +39,10 @@
 
 #include <algorithm>
 
+#ifndef GL_RGB10
+#define GL_RGB10                          0x8052
+#endif
+
 class tst_Lancelot : public QObject
 {
 Q_OBJECT
@@ -81,10 +85,14 @@ private slots:
     void testRasterARGB8565PM();
     void testRasterGrayscale8_data();
     void testRasterGrayscale8();
+    void testRasterRGBA64PM_data();
+    void testRasterRGBA64PM();
 
 #ifndef QT_NO_OPENGL
     void testOpenGL_data();
     void testOpenGL();
+    void testOpenGLBGR30_data();
+    void testOpenGLBGR30();
     void testCoreOpenGL_data();
     void testCoreOpenGL();
 private:
@@ -220,6 +228,17 @@ void tst_Lancelot::testRasterGrayscale8()
 }
 
 
+void tst_Lancelot::testRasterRGBA64PM_data()
+{
+    setupTestSuite();
+}
+
+void tst_Lancelot::testRasterRGBA64PM()
+{
+    runTestSuite(Raster, QImage::Format_RGBA64_Premultiplied);
+}
+
+
 #ifndef QT_NO_OPENGL
 bool tst_Lancelot::checkSystemGLSupport()
 {
@@ -279,6 +298,16 @@ void tst_Lancelot::testOpenGL()
     runTestSuite(OpenGL, QImage::Format_RGB32);
 }
 
+void tst_Lancelot::testOpenGLBGR30_data()
+{
+    tst_Lancelot::testOpenGL_data();
+}
+
+void tst_Lancelot::testOpenGLBGR30()
+{
+    runTestSuite(OpenGL, QImage::Format_BGR30);
+}
+
 void tst_Lancelot::testCoreOpenGL_data()
 {
     if (!checkSystemCoreGLSupport())
@@ -329,6 +358,8 @@ void tst_Lancelot::runTestSuite(GraphicsEngine engine, QImage::Format format, co
         QOpenGLFramebufferObjectFormat fmt;
         fmt.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
         fmt.setSamples(4);
+        if (format == QImage::Format_BGR30)
+            fmt.setInternalTextureFormat(GL_RGB10);
         QOpenGLContext ctx;
         ctx.setFormat(contextFormat);
         QVERIFY(ctx.create());

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
 #include "build/build_config.h"
@@ -20,6 +21,7 @@
 #include "sandbox/linux/bpf_dsl/seccomp_macros.h"
 #include "sandbox/linux/seccomp-bpf/bpf_tests.h"
 #include "sandbox/linux/seccomp-bpf/sandbox_bpf.h"
+#include "sandbox/linux/syscall_broker/broker_command.h"
 #include "sandbox/linux/syscall_broker/broker_file_permission.h"
 #include "sandbox/linux/syscall_broker/broker_process.h"
 #include "sandbox/linux/system_headers/linux_syscalls.h"
@@ -34,36 +36,32 @@ using bpf_dsl::Allow;
 using bpf_dsl::ResultExpr;
 using bpf_dsl::Trap;
 
-bool NoOpCallback() {
-  return true;
-}
-
 // Test a trap handler that makes use of a broker process to open().
 
 class InitializedOpenBroker {
  public:
   InitializedOpenBroker() : initialized_(false) {
-    std::vector<syscall_broker::BrokerFilePermission> permissions;
-    permissions.push_back(
-        syscall_broker::BrokerFilePermission::ReadOnly("/proc/allowed"));
-    permissions.push_back(
-        syscall_broker::BrokerFilePermission::ReadOnly("/proc/cpuinfo"));
-
-    broker_process_.reset(
-        new syscall_broker::BrokerProcess(EPERM, permissions));
-    BPF_ASSERT(broker_process() != NULL);
-    BPF_ASSERT(broker_process_->Init(base::Bind(&NoOpCallback)));
-
+    syscall_broker::BrokerCommandSet command_set;
+    command_set.set(syscall_broker::COMMAND_OPEN);
+    command_set.set(syscall_broker::COMMAND_ACCESS);
+    std::vector<syscall_broker::BrokerFilePermission> permissions = {
+        syscall_broker::BrokerFilePermission::ReadOnly("/proc/allowed"),
+        syscall_broker::BrokerFilePermission::ReadOnly("/proc/cpuinfo")};
+    broker_process_ = std::make_unique<syscall_broker::BrokerProcess>(
+        EPERM, command_set, permissions);
+    BPF_ASSERT(broker_process_->Init(base::Bind([]() { return true; })));
     initialized_ = true;
   }
-  bool initialized() { return initialized_; }
-  class syscall_broker::BrokerProcess* broker_process() {
+
+  bool initialized() const { return initialized_; }
+
+  syscall_broker::BrokerProcess* broker_process() const {
     return broker_process_.get();
   }
 
  private:
   bool initialized_;
-  std::unique_ptr<class syscall_broker::BrokerProcess> broker_process_;
+  std::unique_ptr<syscall_broker::BrokerProcess> broker_process_;
   DISALLOW_COPY_AND_ASSIGN(InitializedOpenBroker);
 };
 

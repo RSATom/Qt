@@ -36,7 +36,8 @@ class GFX_EXPORT RenderTextMac : public RenderText {
   const base::string16& GetDisplayText() override;
   Size GetStringSize() override;
   SizeF GetStringSizeF() override;
-  SelectionModel FindCursorPosition(const Point& point) override;
+  SelectionModel FindCursorPosition(const Point& point,
+                                    const Point& drag_origin) override;
   bool IsSelectionSupported() const override;
   std::vector<FontSpan> GetFontSpansForTesting() override;
 
@@ -49,7 +50,7 @@ class GFX_EXPORT RenderTextMac : public RenderText {
   SelectionModel AdjacentWordSelectionModel(
       const SelectionModel& selection,
       VisualCursorDirection direction) override;
-  Range GetGlyphBounds(size_t index) override;
+  Range GetCursorSpan(const Range& text_range) override;
   std::vector<Rect> GetSubstringBounds(const Range& range) override;
   size_t TextIndexToDisplayIndex(size_t index) override;
   size_t DisplayIndexToTextIndex(size_t index) override;

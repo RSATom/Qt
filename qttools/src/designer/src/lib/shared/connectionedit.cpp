@@ -31,17 +31,16 @@
 
 #include <QtDesigner/abstractformwindow.h>
 
-#include <QtGui/QPainter>
-#include <QtGui/QPaintEvent>
-#include <QtGui/QFontMetrics>
-#include <QtGui/QPixmap>
-#include <QtGui/QMatrix>
-#include <QtWidgets/QApplication>
-#include <QtGui/QContextMenuEvent>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
+#include <QtGui/qpainter.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qfontmetrics.h>
+#include <QtGui/qpixmap.h>
+#include <QtGui/qmatrix.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qaction.h>
 
-#include <QtCore/QMultiMap>
+#include <QtCore/qmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -159,8 +158,8 @@ public:
                             const QPoint &old_target_pos,
                             const QPoint &new_source_pos,
                             const QPoint &new_target_pos);
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     Connection *m_con;
     const QPoint m_old_source_pos;
@@ -234,8 +233,8 @@ class SetEndPointCommand : public CECommand
 {
 public:
     SetEndPointCommand(ConnectionEdit *edit, Connection *con, EndPoint::Type type, QObject *object);
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     Connection *m_con;
     const EndPoint::Type m_type;
@@ -348,10 +347,7 @@ bool Connection::ground() const
 
 QPoint Connection::endPointPos(EndPoint::Type type) const
 {
-    if (type == EndPoint::Source)
-        return m_source_pos;
-    else
-        return m_target_pos;
+    return type == EndPoint::Source ? m_source_pos : m_target_pos;
 }
 
 static QPoint lineEntryPos(const QPoint &p1, const QPoint &p2, const QRect &rect)
@@ -1124,7 +1120,7 @@ void ConnectionEdit::abortConnection()
     m_tmp_con->update();
     delete m_tmp_con;
     m_tmp_con = 0;
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
     setCursor(QCursor());
 #endif
     if (m_widget_under_mouse == m_bg_widget)
@@ -1217,7 +1213,7 @@ void ConnectionEdit::mouseReleaseEvent(QMouseEvent *e)
                 abortConnection();
             else
                 endConnection(m_widget_under_mouse, e->pos());
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
             setCursor(QCursor());
 #endif
             break;
@@ -1252,7 +1248,7 @@ void ConnectionEdit::findObjectsUnderMouse(const QPoint &pos)
 
     const EndPoint hs = endPointAt(pos);
     if (hs != m_end_point_under_mouse) {
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
         if (m_end_point_under_mouse.isNull())
             setCursor(Qt::PointingHandCursor);
         else
@@ -1275,7 +1271,7 @@ void ConnectionEdit::mouseMoveEvent(QMouseEvent *e)
                     && !m_widget_under_mouse.isNull()) {
                 m_start_connection_on_drag = false;
                 startConnection(m_widget_under_mouse, e->pos());
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
                 setCursor(Qt::CrossCursor);
 #endif
             }
@@ -1569,10 +1565,10 @@ void ConnectionEdit::createContextMenu(QMenu &menu)
 {
     // Select
     QAction *selectAllAction = menu.addAction(tr("Select All"));
-    selectAllAction->setEnabled(connectionList().size());
+    selectAllAction->setEnabled(!connectionList().isEmpty());
     connect(selectAllAction, &QAction::triggered, this, &ConnectionEdit::selectAll);
     QAction *deselectAllAction = menu.addAction(tr("Deselect All"));
-    deselectAllAction->setEnabled(selection().size());
+    deselectAllAction->setEnabled(!selection().isEmpty());
     connect(deselectAllAction, &QAction::triggered, this, &ConnectionEdit::selectNone);
     menu.addSeparator();
     // Delete

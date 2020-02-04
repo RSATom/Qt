@@ -4,6 +4,7 @@
 
 #include "content/browser/accessibility/browser_accessibility_win.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+#include "content/browser/accessibility/browser_accessibility_state_impl.h"
 
 #include "ui/base/win/atl_module.h"
 
@@ -52,9 +53,7 @@ void BrowserAccessibilityWin::OnLocationChanged() {
 }
 
 base::string16 BrowserAccessibilityWin::GetText() const {
-  if (PlatformIsChildOfLeaf())
-    return BrowserAccessibility::GetText();
-  return GetCOM()->win_attributes_->hypertext;
+  return GetCOM()->AXPlatformNodeWin::GetTextAsString16();
 }
 
 gfx::NativeViewAccessible BrowserAccessibilityWin::GetNativeViewAccessible() {

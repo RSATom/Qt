@@ -5,15 +5,20 @@
 #ifndef CHROME_BROWSER_DEVTOOLS_DEVICE_ANDROID_DEVICE_MANAGER_H_
 #define CHROME_BROWSER_DEVTOOLS_DEVICE_ANDROID_DEVICE_MANAGER_H_
 
+#include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/single_thread_task_runner.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_thread.h"
+#include "device/usb/public/mojom/device_manager.mojom.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace net {
@@ -99,7 +104,7 @@ class AndroidDeviceManager {
     void OnSocketClosed();
 
     scoped_refptr<Device> device_;
-    WebSocketImpl* socket_impl_;
+    std::unique_ptr<WebSocketImpl, base::OnTaskRunnerDeleter> socket_impl_;
     Delegate* delegate_;
     base::WeakPtrFactory<AndroidWebSocket> weak_factory_;
     DISALLOW_COPY_AND_ASSIGN(AndroidWebSocket);
@@ -107,7 +112,7 @@ class AndroidDeviceManager {
 
   class DeviceProvider;
 
-  class Device : public base::RefCountedThreadSafe<Device> {
+  class Device final : public base::RefCountedDeleteOnSequence<Device> {
    public:
     void QueryDeviceInfo(const DeviceInfoCallback& callback);
 
@@ -127,24 +132,22 @@ class AndroidDeviceManager {
         const std::string& path,
         AndroidWebSocket::Delegate* delegate);
 
-    std::string serial() { return serial_; }
+    const std::string& serial() { return serial_; }
 
    private:
-    friend class base::RefCountedThreadSafe<Device>;
+    friend class base::RefCountedDeleteOnSequence<Device>;
+    friend class base::DeleteHelper<Device>;
     friend class AndroidDeviceManager;
     friend class AndroidWebSocket;
 
     Device(scoped_refptr<base::SingleThreadTaskRunner> device_task_runner,
            scoped_refptr<DeviceProvider> provider,
            const std::string& serial);
-
-    virtual ~Device();
+    ~Device();
 
     scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
     scoped_refptr<DeviceProvider> provider_;
-    std::string serial_;
-
-    SEQUENCE_CHECKER(sequence_checker_);
+    const std::string serial_;
 
     base::WeakPtrFactory<Device> weak_factory_;
 
@@ -198,6 +201,10 @@ class AndroidDeviceManager {
   void SetDeviceProviders(const DeviceProviders& providers);
 
   void QueryDevices(const DevicesCallback& callback);
+  void CountDevices(const base::Callback<void(int)>& callback);
+
+  void set_usb_device_manager_for_test(
+      device::mojom::UsbDeviceManagerPtrInfo fake_usb_manager);
 
   static std::string GetBrowserName(const std::string& socket,
                                     const std::string& package);

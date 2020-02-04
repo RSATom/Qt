@@ -16,29 +16,40 @@
 
 @end
 
+// Only available since 10.12.
+@interface NSWorkspace (AvailableSinceSierra)
+@property(readonly) BOOL accessibilityDisplayShouldReduceMotion;
+@end
+
 namespace content {
+
+void BrowserAccessibilityStateImpl::PlatformInitialize() {}
 
 void BrowserAccessibilityStateImpl::UpdatePlatformSpecificHistograms() {
   // NOTE: This function is running on the file thread.
   NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
 
   SEL sel = @selector(accessibilityDisplayShouldIncreaseContrast);
-  if (![workspace respondsToSelector:sel])
-    return;
+  if ([workspace respondsToSelector:sel]) {
+    UMA_HISTOGRAM_BOOLEAN(
+        "Accessibility.Mac.DifferentiateWithoutColor",
+        workspace.accessibilityDisplayShouldDifferentiateWithoutColor);
+    UMA_HISTOGRAM_BOOLEAN("Accessibility.Mac.IncreaseContrast",
+                          workspace.accessibilityDisplayShouldIncreaseContrast);
+    UMA_HISTOGRAM_BOOLEAN(
+        "Accessibility.Mac.ReduceTransparency",
+        workspace.accessibilityDisplayShouldReduceTransparency);
 
-  UMA_HISTOGRAM_BOOLEAN(
-      "Accessibility.Mac.DifferentiateWithoutColor",
-      workspace.accessibilityDisplayShouldDifferentiateWithoutColor);
-  UMA_HISTOGRAM_BOOLEAN(
-      "Accessibility.Mac.IncreaseContrast",
-      workspace.accessibilityDisplayShouldIncreaseContrast);
-  UMA_HISTOGRAM_BOOLEAN(
-      "Accessibility.Mac.ReduceTransparency",
-      workspace.accessibilityDisplayShouldReduceTransparency);
+    UMA_HISTOGRAM_BOOLEAN(
+        "Accessibility.Mac.FullKeyboardAccessEnabled",
+        static_cast<NSApplication*>(NSApp).fullKeyboardAccessEnabled);
+  }
 
-  UMA_HISTOGRAM_BOOLEAN(
-      "Accessibility.Mac.FullKeyboardAccessEnabled",
-      static_cast<NSApplication*>(NSApp).fullKeyboardAccessEnabled);
+  sel = @selector(accessibilityDisplayShouldReduceMotion);
+  if ([workspace respondsToSelector:sel]) {
+    UMA_HISTOGRAM_BOOLEAN("Accessibility.Mac.ReduceMotion",
+                          workspace.accessibilityDisplayShouldReduceMotion);
+  }
 }
 
 }  // namespace content

@@ -5,8 +5,7 @@
  * found in the LICENSE file.
  */
 #include "sk_tool_utils.h"
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
 #include "SkCanvas.h"
 #include "SkColorFilter.h"
 #include "SkPaint.h"
@@ -107,14 +106,15 @@ static SkBitmap createBitmap(int n) {
     return bitmap;
 }
 
-class ColorFilterView : public SampleView {
+class ColorFilterView : public Sample {
     SkBitmap fBitmap;
     sk_sp<SkShader> fShader;
     enum {
         N = 64
     };
-public:
-    ColorFilterView() {
+
+protected:
+    void onOnceBeforeDraw() override {
         fBitmap = createBitmap(N);
         fShader = sk_tool_utils::create_checkerboard_shader(
                 0xFFCCCCCC, 0xFFFFFFFF, 12);
@@ -124,23 +124,21 @@ public:
         }
     }
 
-protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt) {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "ColorFilter");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "ColorFilter");
             return true;
         }
         return this->INHERITED::onQuery(evt);
     }
 
-    virtual void onDrawBackground(SkCanvas* canvas) {
+    void onDrawBackground(SkCanvas* canvas) override {
         SkPaint paint;
         paint.setShader(fShader);
         canvas->drawPaint(paint);
     }
 
-    virtual void onDrawContent(SkCanvas* canvas) {
+    void onDrawContent(SkCanvas* canvas) override {
         if (false) {
             SkPaint p;
             p.setAntiAlias(true);
@@ -190,10 +188,9 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new ColorFilterView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new ColorFilterView(); )

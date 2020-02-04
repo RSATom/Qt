@@ -993,9 +993,12 @@ ImmediateInterpreter::ImmediateInterpreter(PropRegistry* prop_reg,
       current_gesture_type_(kGestureTypeNull),
       state_buffer_(8),
       scroll_buffer_(20),
+      these_fingers_scrolled_(false),
       pinch_guess_start_(-1.0),
       pinch_locked_(false),
       pinch_status_(GESTURES_ZOOM_START),
+      pinch_prev_direction_(0),
+      pinch_prev_time_(-1.0),
       finger_seen_shortly_after_button_down_(false),
       scroll_manager_(prop_reg),
       tap_enable_(prop_reg, "Tap Enable", true),
@@ -1017,11 +1020,13 @@ ImmediateInterpreter::ImmediateInterpreter(PropRegistry* prop_reg,
                                       "T5R2 Three Finger Click Enable",
                                       0),
       change_move_distance_(prop_reg, "Change Min Move Distance", 3.0),
+      move_lock_speed_(prop_reg, "Move Lock Speed", 10.0),
+      move_report_distance_(prop_reg, "Move Report Distance", 0.35),
       change_timeout_(prop_reg, "Change Timeout", 0.04),
-      evaluation_timeout_(prop_reg, "Evaluation Timeout", 0.2),
-      pinch_evaluation_timeout_(prop_reg, "Pinch Evaluation Timeout", 0.3),
+      evaluation_timeout_(prop_reg, "Evaluation Timeout", 0.15),
+      pinch_evaluation_timeout_(prop_reg, "Pinch Evaluation Timeout", 0.1),
       thumb_pinch_evaluation_timeout_(prop_reg,
-                                      "Thumb Pinch Evaluation Timeout", 0.5),
+                                      "Thumb Pinch Evaluation Timeout", 0.25),
       thumb_pinch_min_movement_(prop_reg,
                                 "Thumb Pinch Minimum Movement", 0.8),
       slow_pinch_guess_ratio_threshold_(prop_reg,
@@ -1030,7 +1035,7 @@ ImmediateInterpreter::ImmediateInterpreter(PropRegistry* prop_reg,
       thumb_slow_pinch_similarity_ratio_(prop_reg,
                                          "Thumb Slow Pinch Similarity Ratio",
                                          5),
-      thumb_pinch_delay_factor_(prop_reg, "Thumb Pinch Delay Factor", 3.0),
+      thumb_pinch_delay_factor_(prop_reg, "Thumb Pinch Delay Factor", 9.0),
       minimum_movement_direction_detection_(prop_reg,
           "Minimum Movement Direction Detection", 0.003),
       damp_scroll_min_movement_factor_(prop_reg,
@@ -1055,25 +1060,32 @@ ImmediateInterpreter::ImmediateInterpreter(PropRegistry* prop_reg,
       thumb_pinch_threshold_ratio_(prop_reg,
                                    "Thumb Pinch Threshold Ratio", 0.25),
       thumb_click_prevention_timeout_(prop_reg,
-                                      "Thumb Click Prevention Timeout", 0.2),
+                                      "Thumb Click Prevention Timeout", 0.15),
       two_finger_scroll_distance_thresh_(prop_reg,
                                          "Two Finger Scroll Distance Thresh",
-                                         2.0),
+                                         1.5),
+      two_finger_move_distance_thresh_(prop_reg,
+                                       "Two Finger Move Distance Thresh",
+                                       7.0),
       three_finger_close_distance_thresh_(prop_reg,
                                           "Three Finger Close Distance Thresh",
-                                          50.0),
+                                          55.0),
       four_finger_close_distance_thresh_(prop_reg,
                                          "Four Finger Close Distance Thresh",
                                          60.0),
       three_finger_swipe_distance_thresh_(prop_reg,
                                           "Three Finger Swipe Distance Thresh",
-                                          2.0),
+                                          1.5),
       four_finger_swipe_distance_thresh_(prop_reg,
                                          "Four Finger Swipe Distance Thresh",
-                                         2.0),
+                                         1.5),
+      three_finger_swipe_distance_ratio_(prop_reg,
+                                          "Three Finger Swipe Distance Ratio",
+                                          0.2),
+      four_finger_swipe_distance_ratio_(prop_reg,
+                                         "Four Finger Swipe Distance Ratio",
+                                         0.2),
       three_finger_swipe_enable_(prop_reg, "Three Finger Swipe EnableX", 1),
-      scroll_stationary_finger_max_distance_(
-          prop_reg, "Scroll Stationary Finger Max Distance", 1.0),
       bottom_zone_size_(prop_reg, "Bottom Zone Size", 10.0),
       button_evaluation_timeout_(prop_reg, "Button Evaluation Timeout", 0.05),
       button_finger_timeout_(prop_reg, "Button Finger Timeout", 0.03),
@@ -1096,18 +1108,31 @@ ImmediateInterpreter::ImmediateInterpreter(PropRegistry* prop_reg,
       tapping_finger_min_separation_(prop_reg, "Tap Min Separation", 10.0),
       no_pinch_guess_ratio_(prop_reg, "No-Pinch Guess Ratio", 0.9),
       no_pinch_certain_ratio_(prop_reg, "No-Pinch Certain Ratio", 2.0),
-      pinch_noise_level_(prop_reg, "Pinch Noise Level", 1.0),
+      pinch_noise_level_sq_(prop_reg, "Pinch Noise Level Squared", 2.0),
       pinch_guess_min_movement_(prop_reg, "Pinch Guess Minimum Movement", 2.0),
       pinch_thumb_min_movement_(prop_reg,
                                 "Pinch Thumb Minimum Movement", 1.41),
       pinch_certain_min_movement_(prop_reg,
                                   "Pinch Certain Minimum Movement", 8.0),
-      inward_pinch_min_angle_(prop_reg, "Inward Pinch Minimum Angle", 0.6),
+      inward_pinch_min_angle_(prop_reg, "Inward Pinch Minimum Angle", 0.3),
       pinch_zoom_max_angle_(prop_reg, "Pinch Zoom Maximum Angle", -0.4),
       scroll_min_angle_(prop_reg, "Scroll Minimum Angle", -0.2),
-      pinch_guess_min_consistent_movement_(prop_reg,
-          "Pinch Guess Minimum Consistent Movement", 0.7),
-      pinch_zoom_min_events_(prop_reg, "Pinch Zoom Minimum Events", 7),
+      pinch_guess_consistent_mov_ratio_(prop_reg,
+          "Pinch Guess Consistent Movement Ratio", 0.4),
+      pinch_zoom_min_events_(prop_reg, "Pinch Zoom Minimum Events", 3),
+      pinch_initial_scale_time_inv_(prop_reg,
+                                    "Pinch Initial Scale Time Inverse",
+                                    3.33),
+      pinch_res_(prop_reg, "Minimum Pinch Scale Resolution Squared", 1.005),
+      pinch_stationary_res_(prop_reg,
+                            "Stationary Pinch Scale Resolution Squared",
+                            1.05),
+      pinch_stationary_time_(prop_reg,
+                             "Stationary Pinch Time",
+                             0.10),
+      pinch_hysteresis_res_(prop_reg,
+                            "Hysteresis Pinch Scale Resolution Squared",
+                            1.05),
       pinch_enable_(prop_reg, "Pinch Enable", 0),
       right_click_start_time_diff_(prop_reg,
                                    "Right Click Start Time Diff Thresh",
@@ -1558,6 +1583,12 @@ void ImmediateInterpreter::UpdateThumbState(const HardwareState& hwstate) {
         (fs.pressure > min_pressure + two_finger_pressure_diff_thresh_.val_ &&
          fs.pressure > min_pressure * two_finger_pressure_diff_factor_.val_ &&
          fs.position_y > min_fs->position_y);
+    bool non_gs = (hwstate.timestamp > changed_time_ &&
+                   (prev_active_gs_fingers_.find(fs.tracking_id) ==
+                    prev_active_gs_fingers_.end()) &&
+                   prev_result_.type != kGestureTypeNull);
+    non_gs |= moving_finger_id_ >= 0 && moving_finger_id_ != fs.tracking_id;
+    likely_thumb |= non_gs;
     // We sometimes can't decide the thumb state if some fingers are undergoing
     // warp moves as the decision could be off (DistanceTravelledSq may
     // under-estimate the real distance). The cases that we need to re-evaluate
@@ -1578,7 +1609,7 @@ void ImmediateInterpreter::UpdateThumbState(const HardwareState& hwstate) {
     if (MapContainsKey(thumb_, fs.tracking_id)) {
       // Beyond the evaluation period. Stick to being thumbs.
       if (thumb_eval_timer_[fs.tracking_id] <= 0.0) {
-        if (!pinch_enable_.val_)
+        if (!pinch_enable_.val_ || hwstate.finger_cnt == 1)
           continue;
         bool slow_pinch_guess =
             dist_sq * min_dt * min_dt / (thumb_speed_sq_thresh * dt * dt) >
@@ -1704,10 +1735,14 @@ void ImmediateInterpreter::UpdateCurrentGestureType(
     case kGestureTypeScroll:
     case kGestureTypeSwipe:
     case kGestureTypeFourFingerSwipe:
+      // Don't allow a pinch after a scroll or swipe gesture has been detected
+      these_fingers_scrolled_ = true;
+
       // If a gesturing finger just left, do fling/lift
       if (AnyGesturingFingerLeft(*state_buffer_.Get(0),
                                  prev_gs_fingers_)) {
         current_gesture_type_ = GetFingerLiftGesture(current_gesture_type_);
+        moving_.clear();
         return;
       }
       // fallthrough
@@ -1774,7 +1809,7 @@ void ImmediateInterpreter::UpdateCurrentGestureType(
                 // ambiguous. Only move if they've been down long enough.
                 if (new_gs_type == kGestureTypeMove &&
                     hwstate.timestamp -
-                        max(origin_timestamps_[fingers[0]->tracking_id],
+                        min(origin_timestamps_[fingers[0]->tracking_id],
                             origin_timestamps_[fingers[1]->tracking_id]) <
                     evaluation_timeout_.val_)
                   new_gs_type = kGestureTypeNull;
@@ -1826,7 +1861,8 @@ void ImmediateInterpreter::UpdateCurrentGestureType(
 
       if ((current_gesture_type_ == kGestureTypeMove ||
            current_gesture_type_ == kGestureTypeNull) &&
-          (pinch_enable_.val_ && !hwprops_->support_semi_mt)) {
+          (pinch_enable_.val_ && !hwprops_->support_semi_mt) &&
+          !these_fingers_scrolled_) {
         bool do_pinch = UpdatePinchState(hwstate, false, gs_fingers);
         if (do_pinch) {
           current_gesture_type_ = kGestureTypePinch;
@@ -1946,7 +1982,8 @@ bool ImmediateInterpreter::UpdatePinchState(
     // perform reset to "don't know" state
     pinch_guess_start_ = -1.0f;
     pinch_locked_ = false;
-    two_finger_start_distance_sq_ = -1.0f;
+    pinch_prev_distance_sq_ = -1.0f;
+    these_fingers_scrolled_ = false;
     return false;
   }
 
@@ -1979,6 +2016,9 @@ bool ImmediateInterpreter::UpdatePinchState(
     return false;
   }
 
+  if (pinch_prev_distance_sq_ < 0)
+    pinch_prev_distance_sq_ = TwoFingerDistanceSq(hwstate);
+
   // Pinch gesture detection
   //
   // The pinch gesture detection will try to make a guess about whether a pinch
@@ -1990,8 +2030,8 @@ bool ImmediateInterpreter::UpdatePinchState(
   // * Strong movement of both fingers in opposite directions indicates
   //   that a pinch IS performed.
 
-  Point delta1 = FingerTraveledVector(*finger1, true, true);
-  Point delta2 = FingerTraveledVector(*finger2, true, true);
+  Point delta1 = FingerTraveledVector(*finger1, false, true);
+  Point delta2 = FingerTraveledVector(*finger2, false, true);
 
   // dot product. dot < 0 if fingers move away from each other.
   float dot = delta1.x_ * delta2.x_ + delta1.y_ * delta2.y_;
@@ -1999,38 +2039,52 @@ bool ImmediateInterpreter::UpdatePinchState(
   float d1sq = delta1.x_ * delta1.x_ + delta1.y_ * delta1.y_;
   float d2sq = delta2.x_ * delta2.x_ + delta2.y_ * delta2.y_;
 
-  // true if movement is not strong enough to be distinguished from noise.
-  bool movement_below_noise = (d1sq + d2sq < 2.0 * pinch_noise_level_.val_);
+  // True if movement is not strong enough to be distinguished from noise.
+  // This is not equivalent to a comparison of unsquared values, but seems to
+  // work well in practice.
+  bool movement_below_noise = (d1sq + d2sq < pinch_noise_level_sq_.val_);
 
   // guesses if a pinch is being performed or not.
-  double guess_min_mov = pinch_guess_min_movement_.val_;
-  guess_min_mov *= guess_min_mov;
-  bool no_pinch_guess = (d1sq > guess_min_mov) ^ (d2sq > guess_min_mov) ||
-                        dot > 0;
-  bool pinch_guess = ((d1sq > guess_min_mov || d2sq > guess_min_mov) &&
-                      dot < 0);
-  bool pinch_consistent = false;
-  // TODO: the threshold should change by time.
-  if (ZoomFingersAreConsistent(state_buffer_) &&
-      d1sq > pinch_guess_min_consistent_movement_.val_ &&
-      d2sq > pinch_guess_min_consistent_movement_.val_) {
-    pinch_guess = true;
-    no_pinch_guess = false;
-    pinch_guess_ = true;
-    pinch_guess_start_ = hwstate.timestamp;
-    pinch_consistent = true;
+  double guess_min_mov_sq = pinch_guess_min_movement_.val_;
+  guess_min_mov_sq *= guess_min_mov_sq;
+  bool guess_no = (d1sq > guess_min_mov_sq) ^ (d2sq > guess_min_mov_sq) ||
+                  dot > 0;
+  bool guess_yes = ((d1sq > guess_min_mov_sq || d2sq > guess_min_mov_sq) &&
+                    dot < 0);
+  bool pinch_certain = false;
+
+  // true if the lower finger is in the dampened zone
+  bool in_dampened_zone = origin_positions_[finger2->tracking_id].y_ >
+                          hwprops_->bottom - bottom_zone_size_.val_;
+
+  float lo_dsq;
+  float hi_dsq;
+  if (d1sq < d2sq) {
+    lo_dsq = d1sq;
+    hi_dsq = d2sq;
+  } else {
+    lo_dsq = d2sq;
+    hi_dsq = d1sq;
+  }
+  bool bad_mov_ratio = lo_dsq <= hi_dsq *
+                                 pinch_guess_consistent_mov_ratio_.val_ *
+                                 pinch_guess_consistent_mov_ratio_.val_;
+
+  if (!bad_mov_ratio &&
+      !in_dampened_zone &&
+      guess_yes &&
+      !guess_no &&
+      ZoomFingersAreConsistent(state_buffer_)) {
+    pinch_certain = true;
   }
 
-  bool extra_vector_check = !InwardPinch(state_buffer_, *finger2);
- // Thumb is in dampened zone: Only allow inward pinch
-  if (origin_positions_[finger2->tracking_id].y_ >
-          hwprops_->bottom - bottom_zone_size_.val_ &&
+  // Thumb is in dampened zone: Only allow inward pinch
+  if (in_dampened_zone &&
       (d2sq < pinch_thumb_min_movement_.val_ * pinch_thumb_min_movement_.val_ ||
-       extra_vector_check)) {
-    pinch_guess = false;
-    no_pinch_guess = true;
-    pinch_guess_start_ = -1.0;
-    pinch_consistent = false;
+       !InwardPinch(state_buffer_, *finger2))) {
+    guess_yes = false;
+    guess_no = true;
+    pinch_certain = false;
   }
 
   // do state transitions and final decision
@@ -2039,15 +2093,11 @@ bool ImmediateInterpreter::UpdatePinchState(
 
     // Determine guess.
     if (!movement_below_noise) {
-      if (no_pinch_guess && !pinch_guess) {
+      if (guess_no && !guess_yes) {
         pinch_guess_ = false;
         pinch_guess_start_ = hwstate.timestamp;
       }
-      if (pinch_guess && !no_pinch_guess) {
-        // Calculate start distance between fingers and cache value
-        if (two_finger_start_distance_sq_ < 0) {
-          two_finger_start_distance_sq_ = TwoFingerDistanceSq(hwstate);
-        }
+      if (guess_yes && !guess_no) {
         pinch_guess_ = true;
         pinch_guess_start_ = hwstate.timestamp;
       }
@@ -2066,27 +2116,32 @@ bool ImmediateInterpreter::UpdatePinchState(
     }
 
     // Go back to "Don't Know"-state if guess is no longer valid
-    if (pinch_guess_ != pinch_guess ||
-        pinch_guess_ == no_pinch_guess ||
+    if (pinch_guess_ != guess_yes ||
+        pinch_guess_ == guess_no ||
         movement_below_noise) {
-      pinch_consistent = false;
       pinch_guess_start_ = -1.0f;
       return false;
     }
 
     // certain decisions if pinch is being performed or not
-    double cert_min_mov = pinch_certain_min_movement_.val_;
-    cert_min_mov *= cert_min_mov;
-    bool no_pinch_certain = false;
-    bool pinch_certain = d1sq > cert_min_mov && d2sq > cert_min_mov && dot < 0;
+    double cert_min_mov_sq = pinch_certain_min_movement_.val_;
+    cert_min_mov_sq *= cert_min_mov_sq;
+    pinch_certain |= (d1sq > cert_min_mov_sq &&
+                      d2sq > cert_min_mov_sq) &&
+                     dot < 0;
+    bool no_pinch_certain = (d1sq > cert_min_mov_sq ||
+                             d2sq > cert_min_mov_sq) &&
+                            dot > 0;
+    pinch_guess_ |= pinch_certain;
+    pinch_guess_ &= !no_pinch_certain;
 
     // guessed for long enough or certain decision was made: lock
-    if (hwstate.timestamp - pinch_guess_start_ > 0.1 ||
-        (pinch_certain && pinch_guess_) ||
-        (no_pinch_certain && !pinch_guess_) || pinch_consistent) {
+    if ((hwstate.timestamp - pinch_guess_start_ >
+         pinch_evaluation_timeout_.val_) ||
+        pinch_certain ||
+        no_pinch_certain) {
       pinch_status_ = GESTURES_ZOOM_START;
       pinch_locked_ = true;
-      two_finger_start_distance_sq_ = TwoFingerDistanceSq(hwstate);
       return pinch_guess_;
     }
   }
@@ -2208,11 +2263,16 @@ GestureType ImmediateInterpreter::GetTwoFingerGestureType(
   float large_dy = MaxMag(dy1, dy2);
   // These compares are okay if d{x,y}1 == d{x,y}2:
   short large_dx_id =
-      large_dx == dx1 ? finger1.tracking_id : finger2.tracking_id;
+      (large_dx == dx1) ? finger1.tracking_id : finger2.tracking_id;
   short large_dy_id =
-      large_dy == dy1 ? finger1.tracking_id : finger2.tracking_id;
+      (large_dy == dy1) ? finger1.tracking_id : finger2.tracking_id;
   float small_dx = MinMag(dx1, dx2);
   float small_dy = MinMag(dy1, dy2);
+
+  short small_dx_id =
+      (small_dx == dx1) ? finger1.tracking_id : finger2.tracking_id;
+  short small_dy_id =
+      (small_dy == dy1) ? finger1.tracking_id : finger2.tracking_id;
 
   bool dampened_zone_occupied = false;
   // movements of the finger in the dampened zone. If there are multiple
@@ -2221,8 +2281,6 @@ GestureType ImmediateInterpreter::GetTwoFingerGestureType(
   float damp_dy = INFINITY;
   float non_damp_dx = 0.0;
   float non_damp_dy = 0.0;
-  bool damp_instaneous_moving_x = false;
-  bool damp_instaneous_moving_y = false;
   if (FingerInDampenedZone(finger1) ||
       (finger1.flags & GESTURES_FINGER_POSSIBLE_PALM)) {
     dampened_zone_occupied = true;
@@ -2230,8 +2288,6 @@ GestureType ImmediateInterpreter::GetTwoFingerGestureType(
     damp_dy = dy1;
     non_damp_dx = dx2;
     non_damp_dy = dy2;
-    damp_instaneous_moving_x = damp_instaneous_moving_y =
-        finger1.flags & GESTURES_FINGER_INSTANTANEOUS_MOVING;
   }
   if (FingerInDampenedZone(finger2) ||
       (finger2.flags & GESTURES_FINGER_POSSIBLE_PALM)) {
@@ -2240,14 +2296,6 @@ GestureType ImmediateInterpreter::GetTwoFingerGestureType(
     damp_dy = MinMag(damp_dy, dy2);
     non_damp_dx = MaxMag(non_damp_dx, dx1);
     non_damp_dy = MaxMag(non_damp_dy, dy1);
-    damp_instaneous_moving_x =
-        damp_dx == dx1
-            ? !!(finger1.flags & GESTURES_FINGER_INSTANTANEOUS_MOVING)
-            : !!(finger2.flags & GESTURES_FINGER_INSTANTANEOUS_MOVING);
-    damp_instaneous_moving_y =
-        damp_dy == dy1
-            ? !!(finger1.flags & GESTURES_FINGER_INSTANTANEOUS_MOVING)
-            : !!(finger2.flags & GESTURES_FINGER_INSTANTANEOUS_MOVING);
   }
 
   // Trending in the same direction?
@@ -2264,21 +2312,16 @@ GestureType ImmediateInterpreter::GetTwoFingerGestureType(
   bool large_dy_moving =
       fabsf(large_dy) >= two_finger_scroll_distance_thresh_.val_ ||
       SetContainsValue(moving_, large_dy_id);
-  // We use a tighter moving criteria for damped finger here: it needs to be
-  // moving in the past a few frames rather than just being moving before.
-  bool small_dx_moving = fabsf(damp_dx) >=
-      damp_scroll_min_movement_factor_.val_ * fabsf(non_damp_dx) ||
-      damp_instaneous_moving_x;
-  bool small_dy_moving = fabsf(damp_dy) >=
-      damp_scroll_min_movement_factor_.val_ * fabsf(non_damp_dy) ||
-      damp_instaneous_moving_y;
-  // If not in damp zone, we allow one-finger scrolling
-  bool small_dx_scrolling = !dampened_zone_occupied || small_dx_moving;
-  bool small_dy_scrolling = !dampened_zone_occupied || small_dy_moving;
+  bool small_dx_moving =
+      fabsf(small_dx) >= two_finger_scroll_distance_thresh_.val_ ||
+      SetContainsValue(moving_, small_dx_id);
+  bool small_dy_moving =
+      fabsf(small_dy) >= two_finger_scroll_distance_thresh_.val_ ||
+      SetContainsValue(moving_, small_dy_id);
   bool trend_scrolling_x = (common_trend_flags & kTrendX) &&
-       large_dx_moving && small_dx_scrolling;
+       large_dx_moving && small_dx_moving;
   bool trend_scrolling_y = (common_trend_flags & kTrendY) &&
-       large_dy_moving && small_dy_scrolling;
+       large_dy_moving && small_dy_moving;
 
   if (trend_scrolling_x || trend_scrolling_y) {
     if (pinch_enable_.val_ && !ScrollAngle(finger1, finger2))
@@ -2288,17 +2331,22 @@ GestureType ImmediateInterpreter::GetTwoFingerGestureType(
 
   if (fabsf(large_dx) > fabsf(large_dy)) {
     // consider horizontal scroll
+    if (fabsf(small_dx) < two_finger_scroll_distance_thresh_.val_)
+      small_dx = 0.0;
+    if (large_dx * small_dx <= 0.0) {
+      // not same direction
+      if (fabsf(large_dx) < two_finger_move_distance_thresh_.val_)
+        return kGestureTypeNull;
+      else
+        return kGestureTypeMove;
+    }
     if (fabsf(large_dx) < two_finger_scroll_distance_thresh_.val_)
       return kGestureTypeNull;
-    if (fabsf(small_dx) < scroll_stationary_finger_max_distance_.val_)
-      small_dx = 0.0;
-    if (large_dx * small_dx < 0.0)
-      return kGestureTypeMove;  // not same direction
     if (dampened_zone_occupied) {
       // Require damp to move at least some amount with the other finger
       if (fabsf(damp_dx) <
           damp_scroll_min_movement_factor_.val_ * fabsf(non_damp_dx)) {
-        return kGestureTypeMove;
+        return kGestureTypeNull;
       }
     }
     if (pinch_enable_.val_ && !ScrollAngle(finger1, finger2))
@@ -2306,17 +2354,19 @@ GestureType ImmediateInterpreter::GetTwoFingerGestureType(
     return kGestureTypeScroll;
   } else {
     // consider vertical scroll
-    if (fabsf(large_dy) < two_finger_scroll_distance_thresh_.val_)
-      return kGestureTypeNull;
-    if (fabsf(small_dy) < scroll_stationary_finger_max_distance_.val_)
+    if (fabsf(small_dy) < two_finger_scroll_distance_thresh_.val_)
       small_dy = 0.0;
-    if (large_dy * small_dy < 0.0)
-      return kGestureTypeMove;
+    if (large_dy * small_dy <= 0.0) {
+      if (fabsf(large_dy) < two_finger_move_distance_thresh_.val_)
+        return kGestureTypeNull;
+      else
+        return kGestureTypeMove;
+    }
     if (dampened_zone_occupied) {
       // Require damp to move at least some amount with the other finger
       if (fabsf(damp_dy) <
           damp_scroll_min_movement_factor_.val_ * fabsf(non_damp_dy)) {
-        return kGestureTypeMove;
+        return kGestureTypeNull;
       }
     }
     if (pinch_enable_.val_ && !ScrollAngle(finger1, finger2))
@@ -2339,14 +2389,17 @@ GestureType ImmediateInterpreter::GetMultiFingerGestureType(
     const FingerState* const fingers[], const int num_fingers) {
   float close_distance_thresh;
   float swipe_distance_thresh;
+  float swipe_distance_ratio;
   GestureType gesture_type;
   if (num_fingers == 4) {
     close_distance_thresh = four_finger_close_distance_thresh_.val_;
     swipe_distance_thresh = four_finger_swipe_distance_thresh_.val_;
+    swipe_distance_ratio = four_finger_swipe_distance_ratio_.val_;
     gesture_type = kGestureTypeFourFingerSwipe;
   } else if (num_fingers == 3) {
     close_distance_thresh = three_finger_close_distance_thresh_.val_;
     swipe_distance_thresh = three_finger_swipe_distance_thresh_.val_;
+    swipe_distance_ratio = three_finger_swipe_distance_ratio_.val_;
     gesture_type = kGestureTypeSwipe;
   } else {
     return kGestureTypeNull;
@@ -2395,12 +2448,16 @@ GestureType ImmediateInterpreter::GetMultiFingerGestureType(
     }
   }
 
-  // One finger must have traveled far enough.
-  for (int i = 0; i < num_fingers; i++) {
-    if (fabsf(deltas[i]) >= swipe_distance_thresh) {
-      return gesture_type;
-    }
+  // All fingers must have traveled far enough.
+  float max_delta = fabsf(deltas[0]);
+  float min_delta = fabsf(deltas[0]);
+  for (int i = 1; i < num_fingers; i++) {
+    max_delta = max(max_delta, fabsf(deltas[i]));
+    min_delta = min(min_delta, fabsf(deltas[i]));
   }
+  if (max_delta >= swipe_distance_thresh &&
+      min_delta >= swipe_distance_ratio * max_delta)
+    return gesture_type;
   return kGestureTypeNull;
 }
 
@@ -3020,26 +3077,35 @@ void ImmediateInterpreter::UpdateButtonsTimeout(stime_t now) {
 void ImmediateInterpreter::FillResultGesture(
     const HardwareState& hwstate,
     const FingerMap& fingers) {
+  bool zero_move = false;
   switch (current_gesture_type_) {
     case kGestureTypeMove: {
       if (fingers.empty())
         return;
-      // Use highest finger (the one closes to the keyboard), excluding
-      // palms, to compute motion. First, need to find out which finger that is.
+      // Use the finger which has moved the most to compute motion.
+      // First, need to find out which finger that is.
       const FingerState* current = NULL;
       if (moving_finger_id_ >= 0)
         current = hwstate.GetFingerState(moving_finger_id_);
 
-      if (!current) {
+      const HardwareState* prev_hs = state_buffer_.Get(1);
+      if (prev_hs && !current) {
+        float curr_dist_sq = -1;
         for (FingerMap::const_iterator it =
                  fingers.begin(), e = fingers.end(); it != e; ++it) {
           const FingerState* fs = hwstate.GetFingerState(*it);
-          if (!current || fs->position_y < current->position_y ||
-              (current->flags & GESTURES_FINGER_POSSIBLE_PALM &&
-               !(fs->flags & GESTURES_FINGER_POSSIBLE_PALM)))
+          const FingerState* prev_fs = prev_hs->GetFingerState(fs->tracking_id);
+          if (!prev_fs)
+            break;
+          float dist_sq = DistSq(*fs, *prev_fs);
+          if (dist_sq > curr_dist_sq) {
             current = fs;
+            curr_dist_sq = dist_sq;
+          }
         }
       }
+      if (!current)
+        return;
 
       // Find corresponding finger id in previous state
       const FingerState* prev =
@@ -3079,10 +3145,24 @@ void ImmediateInterpreter::FillResultGesture(
       float dy = current->position_y - prev->position_y;
       if (current->flags & GESTURES_FINGER_WARP_Y_MOVE)
         dy = 0.0;
-      if (dx != 0.0 || dy != 0.0) {
+      float dsq = dx * dx + dy * dy;
+      float dx_total = current->position_x -
+                       start_positions_[current->tracking_id].x_;
+      float dy_total = current->position_y -
+                       start_positions_[current->tracking_id].y_;
+      float dsq_total = dx_total * dx_total + dy_total * dy_total;
+
+      float dsq_thresh = (move_lock_speed_.val_ * move_lock_speed_.val_) *
+                         (dt * dt);
+      if (dsq > dsq_thresh) {
         // lock onto this finger
         moving_finger_id_ = current->tracking_id;
+      }
 
+      float dsq_total_thresh =
+          move_report_distance_.val_ * move_report_distance_.val_;
+      if (dsq_total >= dsq_total_thresh) {
+        zero_move = dsq == 0.0;
         result_ = Gesture(kGestureMove,
                           state_buffer_.Get(1)->timestamp,
                           hwstate.timestamp,
@@ -3178,20 +3258,58 @@ void ImmediateInterpreter::FillResultGesture(
            prev_gesture_type_ == kGestureTypePinch)) {
         result_ = Gesture(kGesturePinch, changed_time_, hwstate.timestamp,
                           1.0, pinch_status_);
-        if (pinch_status_ == GESTURES_ZOOM_END)
+        pinch_prev_time_ = hwstate.timestamp;
+        if (pinch_status_ == GESTURES_ZOOM_END) {
           current_gesture_type_ = kGestureTypeNull;
+          pinch_prev_direction_ = 0;
+        }
       } else {
         float current_dist_sq = TwoSpecificFingerDistanceSq(hwstate, fingers);
         if (current_dist_sq < 0) {
-          current_dist_sq = two_finger_start_distance_sq_;
+          current_dist_sq = pinch_prev_distance_sq_;
         }
-        result_ = Gesture(kGesturePinch, changed_time_, hwstate.timestamp,
-                          sqrt(current_dist_sq / two_finger_start_distance_sq_),
-                          GESTURES_ZOOM_UPDATE);
-        two_finger_start_distance_sq_ = current_dist_sq;
+
+        // Check if pinch scale has changed enough since last update to send a
+        // new update.  To prevent stationary jitter, we always require the
+        // scale to change by at least a small amount.  We require more change
+        // if the pinch has been stationary or changed direction recently.
+        float jitter_threshold = pinch_res_.val_;
+        if (hwstate.timestamp - pinch_prev_time_ > pinch_stationary_time_.val_)
+          jitter_threshold = pinch_stationary_res_.val_;
+        if ((current_dist_sq - pinch_prev_distance_sq_) *
+            pinch_prev_direction_ < 0)
+          jitter_threshold = jitter_threshold > pinch_hysteresis_res_.val_ ?
+                             jitter_threshold :
+                             pinch_hysteresis_res_.val_;
+        bool above_jitter_threshold =
+            (pinch_prev_distance_sq_ > jitter_threshold * current_dist_sq ||
+             current_dist_sq > jitter_threshold * pinch_prev_distance_sq_);
+
+        if (above_jitter_threshold) {
+          result_ = Gesture(kGesturePinch, changed_time_, hwstate.timestamp,
+                            sqrt(current_dist_sq / pinch_prev_distance_sq_),
+                            GESTURES_ZOOM_UPDATE);
+          pinch_prev_direction_ =
+              current_dist_sq > pinch_prev_distance_sq_ ? 1 : -1;
+          pinch_prev_distance_sq_ = current_dist_sq;
+          pinch_prev_time_ = hwstate.timestamp;
+        }
       }
-      if (pinch_status_ == GESTURES_ZOOM_START)
+      if (pinch_status_ == GESTURES_ZOOM_START) {
         pinch_status_ = GESTURES_ZOOM_UPDATE;
+        // If there is a slow pinch, it may take a little while to detect it,
+        // allowing the fingers to travel a significant distance, and causing an
+        // inappropriately large scale in a single frame, followed by slow
+        // scaling. Here we reduce the initial scale factor depending on how
+        // quickly we detected the pinch.
+        float current_dist_sq = TwoSpecificFingerDistanceSq(hwstate, fingers);
+        float pinch_slowness_ratio = (hwstate.timestamp - changed_time_) *
+                                     pinch_initial_scale_time_inv_.val_;
+        pinch_slowness_ratio = fmin(1.0, pinch_slowness_ratio);
+        pinch_prev_distance_sq_ =
+            (pinch_slowness_ratio * current_dist_sq) +
+            ((1 - pinch_slowness_ratio) * pinch_prev_distance_sq_);
+      }
       break;
     }
     default:
@@ -3199,7 +3317,7 @@ void ImmediateInterpreter::FillResultGesture(
   }
   scroll_manager_.UpdateScrollEventBuffer(current_gesture_type_,
                                           &scroll_buffer_);
-  if (result_.type == kGestureTypeMove ||
+  if ((result_.type == kGestureTypeMove && !zero_move) ||
       result_.type == kGestureTypeScroll)
     last_movement_timestamp_ = hwstate.timestamp;
 }

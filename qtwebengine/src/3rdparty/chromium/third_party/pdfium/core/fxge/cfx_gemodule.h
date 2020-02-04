@@ -9,9 +9,6 @@
 
 #include <memory>
 
-#include "core/fxge/cfx_fontmgr.h"
-#include "core/fxge/fx_font.h"
-
 class CFX_FontCache;
 class CFX_FontMgr;
 

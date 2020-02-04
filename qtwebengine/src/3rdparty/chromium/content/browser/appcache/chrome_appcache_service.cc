@@ -5,7 +5,6 @@
 #include "content/browser/appcache/chrome_appcache_service.h"
 
 #include "base/files/file_path.h"
-#include "base/profiler/scoped_tracker.h"
 #include "content/browser/appcache/appcache_storage_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -13,23 +12,19 @@
 #include "net/base/net_errors.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "storage/browser/quota/quota_manager.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
 
 namespace content {
 
 ChromeAppCacheService::ChromeAppCacheService(
     storage::QuotaManagerProxy* quota_manager_proxy)
-    : AppCacheServiceImpl(quota_manager_proxy), resource_context_(NULL) {
-}
+    : AppCacheServiceImpl(quota_manager_proxy), resource_context_(nullptr) {}
 
 void ChromeAppCacheService::InitializeOnIOThread(
     const base::FilePath& cache_path,
     ResourceContext* resource_context,
-    net::URLRequestContextGetter* request_context_getter,
+    scoped_refptr<net::URLRequestContextGetter> request_context_getter,
     scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy) {
-  // TODO(pkasting): Remove ScopedTracker below once crbug.com/477117 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "477117 ChromeAppCacheService::InitializeOnIOThread"));
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   cache_path_ = cache_path;
@@ -44,10 +39,37 @@ void ChromeAppCacheService::InitializeOnIOThread(
     set_request_context(request_context_getter->GetURLRequestContext());
 
   // Init our base class.
-  Initialize(cache_path_,
-             BrowserThread::GetTaskRunnerForThread(BrowserThread::CACHE).get());
+  Initialize(cache_path_);
   set_appcache_policy(this);
   set_special_storage_policy(special_storage_policy.get());
+}
+
+void ChromeAppCacheService::Bind(
+    std::unique_ptr<blink::mojom::AppCacheBackend> backend,
+    blink::mojom::AppCacheBackendRequest request,
+    int process_id) {
+  DCHECK(process_bindings_.find(process_id) == process_bindings_.end());
+  process_bindings_[process_id] =
+      bindings_.AddBinding(std::move(backend), std::move(request));
+}
+
+void ChromeAppCacheService::Unbind(int process_id) {
+  auto it = process_bindings_.find(process_id);
+  if (it != process_bindings_.end()) {
+    bindings_.RemoveBinding(it->second);
+    DCHECK(process_bindings_.find(process_id) == process_bindings_.end());
+  }
+}
+
+void ChromeAppCacheService::UnregisterBackend(
+    AppCacheBackendImpl* backend_impl) {
+  int process_id = backend_impl->process_id();
+  process_bindings_.erase(process_bindings_.find(process_id));
+  AppCacheServiceImpl::UnregisterBackend(backend_impl);
+}
+
+void ChromeAppCacheService::Shutdown() {
+  bindings_.CloseAllBindings();
 }
 
 bool ChromeAppCacheService::CanLoadAppCache(const GURL& manifest_url,
@@ -72,7 +94,7 @@ void ChromeAppCacheService::DeleteOnCorrectThread() const {
     delete this;
     return;
   }
-  if (BrowserThread::IsMessageLoopValid(BrowserThread::IO)) {
+  if (BrowserThread::IsThreadInitialized(BrowserThread::IO)) {
     BrowserThread::DeleteSoon(BrowserThread::IO, FROM_HERE, this);
     return;
   }

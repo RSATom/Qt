@@ -53,22 +53,14 @@ class MergeBooleanCallbacks {
 
 namespace browsing_data {
 
-namespace testing {
-
-bool g_override_other_forms_of_browsing_history_query = false;
-
-}  // namespace testing
-
 void ShouldShowNoticeAboutOtherFormsOfBrowsingHistory(
     const syncer::SyncService* sync_service,
     history::WebHistoryService* history_service,
     base::Callback<void(bool)> callback) {
-  if (!sync_service ||
-      !sync_service->IsSyncActive() ||
+  if (!sync_service || !sync_service->IsSyncFeatureActive() ||
       !sync_service->GetActiveDataTypes().Has(
           syncer::HISTORY_DELETE_DIRECTIVES) ||
-      sync_service->IsUsingSecondaryPassphrase() ||
-      !history_service) {
+      sync_service->IsUsingSecondaryPassphrase() || !history_service) {
     callback.Run(false);
     return;
   }
@@ -106,21 +98,10 @@ void ShouldPopupDialogAboutOtherFormsOfBrowsingHistory(
     history::WebHistoryService* history_service,
     version_info::Channel channel,
     base::Callback<void(bool)> callback) {
-  // If the query for other forms of browsing history is overriden for testing,
-  // the conditions are identical with
-  // ShouldShowNoticeAboutOtherFormsOfBrowsingHistory.
-  if (testing::g_override_other_forms_of_browsing_history_query) {
-    ShouldShowNoticeAboutOtherFormsOfBrowsingHistory(
-        sync_service, history_service, callback);
-    return;
-  }
-
-  if (!sync_service ||
-      !sync_service->IsSyncActive() ||
+  if (!sync_service || !sync_service->IsSyncFeatureActive() ||
       !sync_service->GetActiveDataTypes().Has(
           syncer::HISTORY_DELETE_DIRECTIVES) ||
-      sync_service->IsUsingSecondaryPassphrase() ||
-      !history_service) {
+      sync_service->IsUsingSecondaryPassphrase() || !history_service) {
     callback.Run(false);
     return;
   }

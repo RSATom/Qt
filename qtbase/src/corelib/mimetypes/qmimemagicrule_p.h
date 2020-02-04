@@ -53,7 +53,7 @@
 
 #include <QtCore/private/qglobal_p.h>
 
-#ifndef QT_NO_MIMETYPE
+QT_REQUIRE_CONFIG(mimetype);
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qscopedpointer.h>
@@ -90,7 +90,7 @@ public:
     int endPos() const { return m_endPos; }
     QByteArray mask() const;
 
-    bool isValid() const { return m_matchFunction != Q_NULLPTR; }
+    bool isValid() const { return m_matchFunction != nullptr; }
 
     bool matches(const QByteArray &data) const;
 
@@ -125,5 +125,4 @@ Q_DECLARE_SHARED(QMimeMagicRule)
 
 QT_END_NAMESPACE
 
-#endif // QT_NO_MIMETYPE
 #endif // QMIMEMAGICRULE_H

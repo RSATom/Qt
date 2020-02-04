@@ -187,19 +187,11 @@ void qt_blend_rgb16_on_rgb16(uchar *dst, int dbpl,
 #endif
 
     if (const_alpha == 256) {
-        if (w <= 64) {
-            while (h--) {
-                QT_MEMCPY_USHORT(dst, src, w);
-                dst += dbpl;
-                src += sbpl;
-            }
-        } else {
-            int length = w << 1;
-            while (h--) {
-                memcpy(dst, src, length);
-                dst += dbpl;
-                src += sbpl;
-            }
+        int length = w << 1;
+        while (h--) {
+            memcpy(dst, src, length);
+            dst += dbpl;
+            src += sbpl;
         }
     } else if (const_alpha != 0) {
         quint16 *d = (quint16 *) dst;
@@ -430,28 +422,28 @@ struct Blend_RGB32_on_RGB32_ConstAlpha {
 };
 
 struct Blend_ARGB32_on_ARGB32_SourceAlpha {
-    inline void write(quint32 *dst, quint32 src) {
-        *dst = src + BYTE_MUL(*dst, qAlpha(~src));
+    inline void write(quint32 *dst, quint32 src)
+    {
+        blend_pixel(*dst, src);
     }
 
     inline void flush(void *) {}
 };
 
 struct Blend_ARGB32_on_ARGB32_SourceAndConstAlpha {
-    inline Blend_ARGB32_on_ARGB32_SourceAndConstAlpha(quint32 alpha) {
+    inline Blend_ARGB32_on_ARGB32_SourceAndConstAlpha(quint32 alpha)
+    {
         m_alpha = (alpha * 255) >> 8;
-        m_ialpha = 255 - m_alpha;
     }
 
-    inline void write(quint32 *dst, quint32 src) {
-        src = BYTE_MUL(src, m_alpha);
-        *dst = src + BYTE_MUL(*dst, qAlpha(~src));
+    inline void write(quint32 *dst, quint32 src)
+    {
+        blend_pixel(*dst, src, m_alpha);
     }
 
     inline void flush(void *) {}
 
     quint32 m_alpha;
-    quint32 m_ialpha;
 };
 
 void qt_scale_image_rgb32_on_rgb32(uchar *destPixels, int dbpl,

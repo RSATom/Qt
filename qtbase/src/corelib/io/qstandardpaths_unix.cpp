@@ -42,7 +42,9 @@
 #include <qfile.h>
 #include <qhash.h>
 #include <qtextstream.h>
+#if QT_CONFIG(regularexpression)
 #include <qregularexpression.h>
+#endif
 #include <private/qfilesystemengine_p.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -132,7 +134,9 @@ QString QStandardPaths::writableLocation(StandardLocation type)
                     return QString();
                 }
             }
+#ifndef Q_OS_WASM
             qWarning("QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '%s'", qPrintable(xdgRuntimeDir));
+#endif
         } else {
             fileInfo.setFile(xdgRuntimeDir);
             if (!fileInfo.exists()) {
@@ -170,7 +174,7 @@ QString QStandardPaths::writableLocation(StandardLocation type)
         break;
     }
 
-#ifndef QT_BOOTSTRAPPED
+#if QT_CONFIG(regularexpression)
     // http://www.freedesktop.org/wiki/Software/xdg-user-dirs
     QString xdgConfigHome = QFile::decodeName(qgetenv("XDG_CONFIG_HOME"));
     if (xdgConfigHome.isEmpty())
@@ -232,7 +236,7 @@ QString QStandardPaths::writableLocation(StandardLocation type)
             }
         }
     }
-#endif
+#endif // QT_CONFIG(regularexpression)
 
     QString path;
     switch (type) {
@@ -344,6 +348,9 @@ QStringList QStandardPaths::standardLocations(StandardLocation type)
         break;
     case FontsLocation:
         dirs += QDir::homePath() + QLatin1String("/.fonts");
+        dirs += xdgDataDirs();
+        for (int i = 1; i < dirs.count(); ++i)
+            dirs[i].append(QLatin1String("/fonts"));
         break;
     default:
         break;

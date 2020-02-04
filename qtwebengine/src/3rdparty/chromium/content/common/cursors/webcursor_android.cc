@@ -5,7 +5,7 @@
 #include "content/common/cursors/webcursor.h"
 
 #include "base/logging.h"
-#include "third_party/WebKit/public/platform/WebCursorInfo.h"
+#include "third_party/blink/public/platform/web_cursor_info.h"
 
 namespace content {
 
@@ -22,14 +22,6 @@ void WebCursor::SetDisplayInfo(const display::Display& display) {
 #endif
 
 void WebCursor::InitPlatformData() {
-}
-
-bool WebCursor::SerializePlatformData(base::Pickle* pickle) const {
-  return true;
-}
-
-bool WebCursor::DeserializePlatformData(base::PickleIterator* iter) {
-  return true;
 }
 
 bool WebCursor::IsPlatformDataEqual(const WebCursor& other) const {

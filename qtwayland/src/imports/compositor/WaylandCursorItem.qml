@@ -39,6 +39,7 @@
 
 import QtQuick 2.0
 import QtWayland.Compositor 1.0
+import QtQuick.Window 2.11
 
 WaylandQuickItem {
     id: cursorItem
@@ -49,18 +50,20 @@ WaylandQuickItem {
     visible: cursorItem.surface != null
     inputEventsEnabled: false
     enabled: false
-    transform: Translate { x: -hotspotX; y: -hotspotY }
-
-    onSeatChanged: {
-        if (!seat)
-            return;
-        seat.cursorSurfaceRequest.connect(setCursorSurface);
+    transform: Translate {
+        // If we've set an output scale factor different from the device pixel ratio
+        // then the item will be rendered scaled, so we need to shift the hotspot accordingly
+        x: -hotspotX * (output ? output.scaleFactor / Screen.devicePixelRatio : 1)
+        y: -hotspotY * (output ? output.scaleFactor / Screen.devicePixelRatio : 1)
     }
 
-    function setCursorSurface(surface, hotspotX, hotspotY) {
-        cursorItem.surface = surface;
-        cursorItem.hotspotX = hotspotX;
-        cursorItem.hotspotY = hotspotY;
+    Connections {
+        target: seat
+        onCursorSurfaceRequest: {
+            cursorItem.surface = surface;
+            cursorItem.hotspotX = hotspotX;
+            cursorItem.hotspotY = hotspotY;
+        }
     }
 
     WaylandQuickItem {

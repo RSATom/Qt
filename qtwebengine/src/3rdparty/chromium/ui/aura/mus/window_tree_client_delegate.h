@@ -5,11 +5,15 @@
 #ifndef UI_AURA_MUS_WINDOW_TREE_CLIENT_DELEGATE_H_
 #define UI_AURA_MUS_WINDOW_TREE_CLIENT_DELEGATE_H_
 
+#include <stdint.h>
+
 #include <memory>
 #include <string>
+#include <vector>
 
-#include "services/service_manager/public/interfaces/interface_provider.mojom.h"
-#include "services/ui/public/interfaces/window_tree.mojom.h"
+#include "services/service_manager/public/mojom/interface_provider.mojom.h"
+#include "services/ws/public/mojom/screen_provider_observer.mojom.h"
+#include "services/ws/public/mojom/window_tree.mojom.h"
 #include "ui/aura/aura_export.h"
 
 namespace aura {
@@ -52,13 +56,15 @@ class AURA_EXPORT WindowTreeClientDelegate {
   // the corresponding WindowTreeClient.
   virtual void OnLostConnection(WindowTreeClient* client) = 0;
 
-  // Called when the WindowTreeClient receives an input event observed via
-  // StartPointerWatcher(). |target| may be null for events that were sent to
-  // windows owned by other processes.
-  virtual void OnPointerEventObserved(const ui::PointerEvent& event,
-                                      Window* target) = 0;
-
   virtual PropertyConverter* GetPropertyConverter() = 0;
+
+  // See ws::mojom::ScreenProviderObserver for details on this.
+  // TODO(sky): consider moving ScreenMus from views to aura.
+  virtual void OnDisplaysChanged(
+      std::vector<ws::mojom::WsDisplayPtr> ws_displays,
+      int64_t primary_display_id,
+      int64_t internal_display_id,
+      int64_t display_id_for_new_windows) {}
 
  protected:
   virtual ~WindowTreeClientDelegate() {}

@@ -55,12 +55,12 @@ namespace WelsDec {
  * \brief   Wels Flexible Macroblock Ordering (FMO)
  */
 typedef struct TagFmo {
-uint8_t*        pMbAllocMap;
-int32_t         iCountMbNum;
-int32_t         iSliceGroupCount;
-int32_t         iSliceGroupType;
-bool            bActiveFlag;
-uint8_t         uiReserved[3];          // reserved padding bytes
+  uint8_t*        pMbAllocMap;
+  int32_t         iCountMbNum;
+  int32_t         iSliceGroupCount;
+  int32_t         iSliceGroupType;
+  bool            bActiveFlag;
+  uint8_t         uiReserved[3];          // reserved padding bytes
 } SFmo, *PFmo;
 
 
@@ -97,7 +97,7 @@ void UninitFmoList (PFmo pFmo, const int32_t kiCnt, const int32_t kiAvail, CMemo
  *
  * \return  true - update/insert successfully; false - failed;
  */
-bool FmoParamUpdate (PFmo pFmo, PSps pSps, PPps pPps, int32_t* pActiveFmoNum, CMemoryAlign* pMa);
+int32_t FmoParamUpdate (PFmo pFmo, PSps pSps, PPps pPps, int32_t* pActiveFmoNum, CMemoryAlign* pMa);
 
 /*!
  * \brief   Get successive mb to be processed with given current mb_xy

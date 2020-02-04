@@ -44,7 +44,9 @@
 #include <qclipboard.h>
 #include <qpainter.h>
 #include <qstyle.h>
+#if QT_CONFIG(draganddrop)
 #include <qdrag.h>
+#endif
 #include <qevent.h>
 #include <qscrollbar.h>
 #include <qtooltip.h>
@@ -90,7 +92,7 @@ QAbstractItemViewPrivate::QAbstractItemViewPrivate()
         editTriggers(QAbstractItemView::DoubleClicked|QAbstractItemView::EditKeyPressed),
         lastTrigger(QAbstractItemView::NoEditTriggers),
         tabKeyNavigation(false),
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
         showDropIndicator(true),
         dragEnabled(false),
         dragDropMode(QAbstractItemView::NoDragDrop),
@@ -219,7 +221,7 @@ void QAbstractItemViewPrivate::_q_scrollerStateChanged()
                 q->selectionModel()->select(oldSelection, QItemSelectionModel::ClearAndSelect);
                 q->selectionModel()->setCurrentIndex(oldCurrent, QItemSelectionModel::NoUpdate);
             }
-            // fall through
+            Q_FALLTHROUGH();
 
         default:
             oldSelection = QItemSelection();
@@ -341,7 +343,7 @@ void QAbstractItemViewPrivate::_q_scrollerStateChanged()
 
     \value SingleSelection  When the user selects an item, any already-selected
     item becomes unselected. It is possible for the user to deselect the selected
-    item.
+    item by pressing the Ctrl key when clicking the selected item.
 
     \value ContiguousSelection When the user selects an item in the usual way,
     the selection is cleared and the new item selected. However, if the user
@@ -938,8 +940,8 @@ void QAbstractItemView::setItemDelegateForRow(int row, QAbstractItemDelegate *de
    \since 4.2
 
    Returns the item delegate used by this view and model for the given \a row,
-   or 0 if no delegate has been assigned. You can call itemDelegate() to get a
-   pointer to the current delegate for a given index.
+   or \nullptr if no delegate has been assigned. You can call itemDelegate()
+   to get a pointer to the current delegate for a given index.
 
    \sa setItemDelegateForRow(), itemDelegateForColumn(), setItemDelegate()
 */
@@ -1325,7 +1327,7 @@ void QAbstractItemView::resetHorizontalScrollMode()
     d_func()->horizontalScrollModeSet = false;
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     \since 4.2
     \property QAbstractItemView::dragDropOverwriteMode
@@ -1432,7 +1434,7 @@ QSize QAbstractItemView::viewportSizeHint() const
     return QAbstractScrollArea::viewportSizeHint();
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     \property QAbstractItemView::showDropIndicator
     \brief whether the drop indicator is shown when dragging items and dropping.
@@ -1551,7 +1553,7 @@ Qt::DropAction QAbstractItemView::defaultDropAction() const
     return d->defaultDropAction;
 }
 
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*!
     \property QAbstractItemView::alternatingRowColors
@@ -1687,6 +1689,9 @@ bool QAbstractItemView::event(QEvent *event)
     This? mode, if the given \a event is a QEvent::ToolTip,or a
     QEvent::WhatsThis. It passes all other
     events on to its base class viewportEvent() handler.
+
+    Returns \c true if \a event has been recognized and processed; otherwise,
+    returns \c false.
 */
 bool QAbstractItemView::viewportEvent(QEvent *event)
 {
@@ -1770,8 +1775,8 @@ void QAbstractItemView::mousePressEvent(QMouseEvent *event)
     QItemSelectionModel::SelectionFlags command = selectionCommand(index, event);
     d->noSelectionOnMousePress = command == QItemSelectionModel::NoUpdate || !index.isValid();
     QPoint offset = d->offset();
+    d->pressedPosition = pos + offset;
     if ((command & QItemSelectionModel::Current) == 0) {
-        d->pressedPosition = pos + offset;
         d->currentSelectionStartIndex = index;
     }
     else if (!d->currentSelectionStartIndex.isValid())
@@ -1828,7 +1833,7 @@ void QAbstractItemView::mouseMoveEvent(QMouseEvent *event)
     if (state() == ExpandingState || state() == CollapsingState)
         return;
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     if (state() == DraggingState) {
         topLeft = d->pressedPosition - d->offset();
         if ((topLeft - bottomRight).manhattanLength() > QApplication::startDragDistance()) {
@@ -1839,7 +1844,7 @@ void QAbstractItemView::mouseMoveEvent(QMouseEvent *event)
         }
         return;
     }
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
     QPersistentModelIndex index = indexAt(bottomRight);
     QModelIndex buddy = d->model->buddy(d->pressedIndex);
@@ -1854,7 +1859,7 @@ void QAbstractItemView::mouseMoveEvent(QMouseEvent *event)
 
     d->checkMouseMove(index);
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     if (d->pressedIndex.isValid()
         && d->dragEnabled
         && (state() != DragSelectingState)
@@ -1910,7 +1915,7 @@ void QAbstractItemView::mouseReleaseEvent(QMouseEvent *event)
     bool click = (index == d->pressedIndex && index.isValid());
     bool selectedClicked = click && (event->button() == Qt::LeftButton) && d->pressedAlreadySelected;
     EditTrigger trigger = (selectedClicked ? SelectedClicked : NoEditTriggers);
-    bool edited = edit(index, trigger, event);
+    const bool edited = click ? edit(index, trigger, event) : false;
 
     d->ctrlDragSelectionFlag = QItemSelectionModel::NoUpdate;
 
@@ -1962,7 +1967,7 @@ void QAbstractItemView::mouseDoubleClickEvent(QMouseEvent *event)
         emit activated(persistent);
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 
 /*!
     This function is called with the given \a event when a drag and drop operation enters
@@ -2216,7 +2221,7 @@ QAbstractItemViewPrivate::position(const QPoint &pos, const QRect &rect, const Q
     return r;
 }
 
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*!
     This function is called with the given \a event when the widget obtains the focus.
@@ -2436,8 +2441,14 @@ void QAbstractItemView::keyPressEvent(QKeyEvent *event)
         break;
     case Qt::Key_Space:
     case Qt::Key_Select:
-        if (!edit(currentIndex(), AnyKeyPressed, event) && d->selectionModel)
-            d->selectionModel->select(currentIndex(), selectionCommand(currentIndex(), event));
+        if (!edit(currentIndex(), AnyKeyPressed, event)) {
+            if (d->selectionModel)
+                d->selectionModel->select(currentIndex(), selectionCommand(currentIndex(), event));
+            if (event->key() == Qt::Key_Space) {
+                keyboardSearch(event->text());
+                event->accept();
+            }
+        }
 #ifdef QT_KEYPAD_NAVIGATION
         if ( event->key()==Qt::Key_Select ) {
             // Also do Key_Enter action.
@@ -2567,7 +2578,7 @@ void QAbstractItemView::inputMethodEvent(QInputMethodEvent *event)
     }
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     \enum QAbstractItemView::DropIndicatorPosition
 
@@ -2913,6 +2924,7 @@ void QAbstractItemView::editorDestroyed(QObject *editor)
         setState(NoState);
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
     Sets the horizontal scroll bar's steps per item to \a steps.
@@ -2970,6 +2982,7 @@ int QAbstractItemView::verticalStepsPerItem() const
 {
     return 1;
 }
+#endif
 
 /*!
     Moves to and selects the item best matching the string \a search.
@@ -3203,7 +3216,7 @@ bool QAbstractItemView::isPersistentEditorOpen(const QModelIndex &index) const
     This function should only be used to display static content within the
     visible area corresponding to an item of data. If you want to display
     custom dynamic content or implement a custom editor widget, subclass
-    QItemDelegate instead.
+    QStyledItemDelegate instead.
 
     \sa {Delegate Classes}
 */
@@ -3217,12 +3230,14 @@ void QAbstractItemView::setIndexWidget(const QModelIndex &index, QWidget *widget
     if (QWidget *oldWidget = indexWidget(index)) {
         d->persistent.remove(oldWidget);
         d->removeEditor(oldWidget);
+        oldWidget->removeEventFilter(this);
         oldWidget->deleteLater();
     }
     if (widget) {
         widget->setParent(viewport());
         d->persistent.insert(widget);
         d->addEditor(index, widget, true);
+        widget->installEventFilter(this);
         widget->show();
         dataChanged(index, index); // update the geometry
         if (!d->delayedPendingLayout)
@@ -3665,7 +3680,7 @@ void QAbstractItemView::currentChanged(const QModelIndex &current, const QModelI
     setAttribute(Qt::WA_InputMethodEnabled, (current.isValid() && (current.flags() & Qt::ItemIsEditable)));
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     Starts a drag by calling drag->exec() using the given \a supportedActions.
 */
@@ -3696,7 +3711,7 @@ void QAbstractItemView::startDrag(Qt::DropActions supportedActions)
         d->dropIndicatorPosition = OnItem;
     }
 }
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*!
     Returns a QStyleOptionViewItem structure populated with the view's
@@ -3909,7 +3924,7 @@ void QAbstractItemView::doAutoScroll()
     if (verticalUnchanged && horizontalUnchanged) {
         stopAutoScroll();
     } else {
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
         d->dropIndicatorRect = QRect();
         d->dropIndicatorPosition = QAbstractItemView::OnViewport;
 #endif
@@ -4284,7 +4299,7 @@ void QAbstractItemViewPrivate::updateEditorData(const QModelIndex &tl, const QMo
 */
 void QAbstractItemViewPrivate::clearOrRemove()
 {
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     const QItemSelection selection = selectionModel->selection();
     QList<QItemSelectionRange>::const_iterator it = selection.constBegin();
 
@@ -4499,6 +4514,24 @@ QModelIndexList QAbstractItemViewPrivate::selectedDraggableIndexes() const
     return indexes;
 }
 
+/*!
+    \reimp
+*/
+
+bool QAbstractItemView::eventFilter(QObject *object, QEvent *event)
+{
+    Q_D(QAbstractItemView);
+    if (object == this || object == viewport() || event->type() != QEvent::FocusIn)
+        return QAbstractScrollArea::eventFilter(object, event);
+    QWidget *widget = qobject_cast<QWidget *>(object);
+    // If it is not a persistent widget then we did not install
+    // the event filter on it, so assume a base implementation is
+    // filtering
+    if (!widget || !d->persistent.contains(widget))
+        return QAbstractScrollArea::eventFilter(object, event);
+    setCurrentIndex(d->indexForEditor(widget));
+    return false;
+}
 
 QT_END_NAMESPACE
 

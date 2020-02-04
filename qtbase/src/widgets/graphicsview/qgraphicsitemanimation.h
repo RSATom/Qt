@@ -58,7 +58,7 @@ class Q_WIDGETS_EXPORT QGraphicsItemAnimation : public QObject
 {
     Q_OBJECT
 public:
-    QGraphicsItemAnimation(QObject *parent = Q_NULLPTR);
+    QGraphicsItemAnimation(QObject *parent = nullptr);
     virtual ~QGraphicsItemAnimation();
 
     QGraphicsItem *item() const;
@@ -96,7 +96,10 @@ public:
 
 public Q_SLOTS:
     void setStep(qreal x);
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use setStep(0) instead")
     void reset();
+#endif
 
 protected:
     virtual void beforeAnimationStep(qreal step);

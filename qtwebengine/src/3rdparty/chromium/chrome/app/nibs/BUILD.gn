@@ -3,52 +3,17 @@
 # found in the LICENSE file.
 
 import("//build/config/mac/rules.gni")
+import("//ui/base/ui_features.gni")
 
 assert(is_mac)
 
 translated_xibs = [
-  "AppMenu.xib",
-  "BookmarkAllTabs.xib",
-  "BookmarkBubble.xib",
-  "BookmarkEditor.xib",
-  "BookmarkNameFolder.xib",
-  "CollectedCookies.xib",
-  "ContentBlockedCookies.xib",
-  "ContentBlockedDownloads.xib",
-  "ContentBlockedGeolocation.xib",
-  "ContentBlockedMIDISysEx.xib",
-  "ContentBlockedMedia.xib",
-  "ContentBlockedMixedScript.xib",
-  "ContentBlockedPopups.xib",
-  "ContentBlockedSimple.xib",
-  "ContentProtocolHandlers.xib",
-  "CookieDetailsView.xib",
-  "DownloadItem.xib",
-  "DownloadShelf.xib",
-  "ExtensionInstallPrompt.xib",
-  "ExtensionInstallPromptNoWarnings.xib",
-  "ExtensionInstallPromptWebstoreData.xib",
-  "ExtensionInstalledBubble.xib",
-  "FirstRunBubble.xib",
-  "HttpAuthLoginSheet.xib",
-  "HungRendererDialog.xib",
-  "MainMenu.xib",
-  "OneClickSigninBubble.xib",
-  "OneClickSigninDialog.xib",
   "SaveAccessoryView.xib",
   "TaskManager.xib",
-  "Toolbar.xib",
-]
-
-untranslated_xibs = [
-  "BookmarkBarFolderWindow.xib",
-  "FindBar.xib",
-  "GlobalErrorBubble.xib",
-  "InfoBar.xib",
 ]
 
 mac_xib_bundle_data("chrome_xibs") {
-  sources = translated_xibs + untranslated_xibs
+  sources = translated_xibs
 }
 
 action("localizer_table") {

@@ -1,6 +1,6 @@
 # Checking out and building Chromium for Mac
 
-There are instructions for other platforms linked from the 
+There are instructions for other platforms linked from the
 [get the code](get_the_code.md) page.
 
 ## Instructions for Google Employees
@@ -12,16 +12,16 @@ Are you a Google employee? See
 
 ## System requirements
 
-*   A 64-bit Mac running 10.11+.
-*   [Xcode](https://developer.apple.com/xcode) 7.3+.
-*   The OS X 10.10 SDK. Run
+*   A 64-bit Mac running 10.12+.
+*   [Xcode](https://developer.apple.com/xcode) 8+
+*   The OS X 10.12 SDK. Run
 
-    ```shell  
+    ```shell
     $ ls `xcode-select -p`/Platforms/MacOSX.platform/Developer/SDKs
     ```
- 
+
     to check whether you have it.  Building with a newer SDK works too, but
-    the releases currently use the 10.10 SDK.
+    the releases currently use the 10.12 SDK.
 
 ## Install `depot_tools`
 
@@ -41,12 +41,19 @@ $ export PATH="$PATH:/path/to/depot_tools"
 
 ## Get the code
 
+Ensure that unicode filenames aren't mangled by HFS:
+
+```shell
+$ git config --global core.precomposeUnicode true
+```
+
 Create a `chromium` directory for the checkout and change to it (you can call
 this whatever you like and put it wherever you like, as long as the full path
 has no spaces):
 
 ```shell
 $ mkdir chromium && cd chromium
+$ git config --global core.precomposeUnicode true
 ```
 
 Run the `fetch` tool from `depot_tools` to check out the code and its
@@ -56,8 +63,8 @@ dependencies.
 $ fetch chromium
 ```
 
-If you don't want the full repo history, you can save a lot of time by
-adding the `--no-history` flag to `fetch`.
+If you don't need the full repo history, you can save time by using
+`fetch --no-history chromium`.
 
 Expect the command to take 30 minutes on even a fast connection, and many
 hours on slower ones.
@@ -77,10 +84,10 @@ development and testing purposes.
 
 ## Setting up the build
 
-Chromium uses [Ninja](https://ninja-build.org) as its main build tool along
-with a tool called [GN](../tools/gn/docs/quick_start.md) to generate `.ninja`
-files. You can create any number of *build directories* with different
-configurations. To create a build directory:
+Chromium uses [Ninja](https://ninja-build.org) as its main build tool along with
+a tool called [GN](https://gn.googlesource.com/gn/+/master/docs/quick_start.md)
+to generate `.ninja` files. You can create any number of *build directories*
+with different configurations. To create a build directory:
 
 ```shell
 $ gn gen out/Default
@@ -132,6 +139,17 @@ in your args.gn to disable debug symbols altogether.  This makes both full
 rebuilds and linking faster (at the cost of not getting symbolized backtraces
 in gdb).
 
+#### Jumbo/Unity builds
+
+Jumbo builds merge many translation units ("source files") and compile them
+together. Since a large portion of Chromium's code is in shared header files,
+this dramatically reduces the total amount of work needed. Check out the
+[Jumbo / Unity builds](jumbo.md) for more information.
+
+Enable jumbo builds by setting the GN arg `use_jumbo_build=true`.
+
+#### CCache
+
 You might also want to [install ccache](ccache_mac.md) to speed up the build.
 
 ## Build Chromium
@@ -139,12 +157,15 @@ You might also want to [install ccache](ccache_mac.md) to speed up the build.
 Build Chromium (the "chrome" target) with Ninja using the command:
 
 ```shell
-$ ninja -C out/Default chrome
+$ autoninja -C out/Default chrome
 ```
+
+(`autoninja` is a wrapper that automatically provides optimal values for the
+arguments passed to `ninja`.)
 
 You can get a list of all of the other build targets from GN by running `gn ls
 out/Default` from the command line. To compile one, pass the GN label to Ninja
-with no preceding "//" (so, for `//chrome/test:unit_tests` use `ninja -C
+with no preceding "//" (so, for `//chrome/test:unit_tests` use `autoninja -C
 out/Default chrome/test:unit_tests`).
 
 ## Run Chromium
@@ -175,6 +196,16 @@ would like to debug in a graphical environment, rather than using `lldb` at the
 command line, that is possible without building in Xcode (see
 [Debugging in Xcode](https://www.chromium.org/developers/how-tos/debugging-on-os-x/building-with-ninja-debugging-with-xcode)).
 
+Tips for printing variables from `lldb` prompt (both in Xcode or in terminal):
+* If `uptr` is a `std::unique_ptr`, the address it wraps is accessible as
+  `uptr.__ptr_.__value_`.
+* To pretty-print `base::string16`, ensure you have a `~/.lldbinit` file and
+  add the following line into it (substitute {SRC} for your actual path to the
+  root of Chromium's sources):
+```
+command script import {SRC}/tools/lldb/lldb_chrome.py
+```
+
 ## Update your checkout
 
 To update an existing checkout, you can run
@@ -202,7 +233,7 @@ slow, but it runs fairly well even **with indexing enabled**.  Most people
 build in the Terminal and write code with a text editor, though.
 
 With hybrid builds, compilation is still handled by Ninja, and can be run from
-the command line (e.g. `ninja -C out/gn chrome`) or by choosing the `chrome`
+the command line (e.g. `autoninja -C out/gn chrome`) or by choosing the `chrome`
 target in the hybrid workspace and choosing Build.
 
 To use Xcode-Ninja Hybrid pass `--ide=xcode` to `gn gen`:

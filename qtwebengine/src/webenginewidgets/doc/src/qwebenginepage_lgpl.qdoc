@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2015 The Qt Company Ltd.
+    Copyright (C) 2019 The Qt Company Ltd.
     Copyright (C) 2008, 2009, 2012 Nokia Corporation and/or its subsidiary(-ies)
     Copyright (C) 2007 Staikos Computing Services Inc.
     Copyright (C) 2007 Apple Inc.
@@ -109,9 +109,10 @@
 
     This enum describes the types of action which can be performed on the web page.
 
-    Actions only have an effect when they are applicable. The availability of
-    actions can be be determined by checking \l{QAction::}{isEnabled()} on the
-    action returned by action().
+    Actions only have an effect when they are applicable.
+
+    The availability of actions can be be determined by checking
+    \l{QAction::}{isEnabled()} on the action returned by action().
 
     \value NoWebAction No action is triggered.
     \value Back Navigate back in the history of navigated links.
@@ -124,13 +125,19 @@
     \value Paste Paste content from the clipboard.
     \value Undo Undo the last editing action.
     \value Redo Redo the last editing action.
-    \value SelectAll Select all content.
+    \value SelectAll Select all content. This action is only enabled when the page's content is focused.
+           The focus can be forced by the JavaScript \c{window.focus()} call, or the
+           \l{QWebEngineSettings::FocusOnNavigationEnabled} {FocusOnNavigationEnabled} setting
+           should be enabled to get automatic focus.
     \value PasteAndMatchStyle Paste content from the clipboard with current style.
 
     \value OpenLinkInThisWindow Open the current link in the current window. (Added in Qt 5.6)
-    \value OpenLinkInNewWindow Open the current link in a new window. (Added in Qt 5.6)
-    \value OpenLinkInNewTab Open the current link in a new tab. (Added in Qt 5.6)
-    \value OpenLinkInNewBackgroundTab Open the current link in a new background tab. (Added in Qt 5.7)
+    \value OpenLinkInNewWindow Open the current link in a new window. Requires implementation of
+           \l createWindow(). (Added in Qt 5.6)
+    \value OpenLinkInNewTab Open the current link in a new tab. Requires implementation of
+           \l createWindow(). (Added in Qt 5.6)
+    \value OpenLinkInNewBackgroundTab Open the current link in a new background tab. Requires
+           implementation of \l createWindow(). (Added in Qt 5.7)
     \value CopyLinkToClipboard Copy the current link to the clipboard. (Added in Qt 5.6)
 
     \value CopyImageToClipboard Copy the clicked image to the clipboard. (Added in Qt 5.6)
@@ -143,9 +150,12 @@
     \value ToggleMediaPlayPause Toggle the play/pause state of the hovered audio or video element.
            (Added in Qt 5.6)
     \value ToggleMediaMute Mute or unmute the hovered audio or video element. (Added in Qt 5.6)
-    \value DownloadLinkToDisk Download the current link to the disk. (Added in Qt 5.6)
-    \value DownloadImageToDisk Download the highlighted image to the disk. (Added in Qt 5.6)
-    \value DownloadMediaToDisk Download the hovered audio or video to the disk. (Added in Qt 5.6)
+    \value DownloadLinkToDisk Download the current link to the disk. Requires a slot for
+           \l{QWebEngineProfile::}{downloadRequested()}. (Added in Qt 5.6)
+    \value DownloadImageToDisk Download the highlighted image to the disk. Requires a slot for
+           \l{QWebEngineProfile::}{downloadRequested()}. (Added in Qt 5.6)
+    \value DownloadMediaToDisk Download the hovered audio or video to the disk. Requires a slot for
+           \l{QWebEngineProfile::}{downloadRequested()}. (Added in Qt 5.6)
 
     \value InspectElement Trigger any attached Web Inspector to inspect the highlighed element.
            (Added in Qt 5.6)
@@ -155,8 +165,10 @@
            request is confirmed, \c windowCloseRequested is emitted. (Added in Qt 5.6)
     \value Unselect Clear the current selection. (Added in Qt 5.7)
     \value SavePage Save the current page to disk. MHTML is the default format that is used to store
-           the web page on disk. (Added in Qt 5.7)
-    \value ViewSource Show the source of the current page in a new tab. (Added in Qt 5.8)
+           the web page on disk. Requires a slot for \l{QWebEngineProfile::}{downloadRequested()}.
+           (Added in Qt 5.7)
+    \value ViewSource Show the source of the current page in a new tab. Requires implementation of
+            \l createWindow(). (Added in Qt 5.8)
 
     \value ToggleBold
            Toggles boldness for the selection or at the cursor position.
@@ -275,6 +287,8 @@
     This enum describes the platform feature access categories that the user may be asked to grant
     or deny access to:
 
+    \value  Notifications
+            Web notifications for the end-user.
     \value  Geolocation
             Location hardware or service.
     \value  MediaAudioCapture
@@ -371,6 +385,11 @@
     used as part of the user interface, and not to display external data, for example, when
     displaying a list of results.
 
+    \note The loading process is started and the loadStarted() signal is emitted
+    \e before the request is accepted or rejected. Therefore, a loadFinished()
+    signal that returns \c false is to be expected even after delegating the
+    request.
+
     The \l{QWebEngineUrlRequestInterceptor} class offers further options for intercepting and
     manipulating requests.
 */
@@ -428,7 +447,7 @@
 /*!
     \fn void QWebEnginePage::triggerAction(WebAction action, bool checked = false)
     This function can be called to trigger the specified \a action.
-    It is also called by Qt WebEngine if the user triggers the action, for example
+    It is also called by \QWE if the user triggers the action, for example
     through a context menu item.
 
     If \a action is a checkable action, then \a checked specifies whether the action
@@ -439,14 +458,14 @@
 
 /*!
     \property QWebEnginePage::hasSelection
-    \brief whether this page contains selected content or not.
+    \brief Whether this page contains selected content or not.
 
     \sa selectionChanged()
 */
 
 /*!
     \property QWebEnginePage::selectedText
-    \brief the text currently selected
+    \brief The text currently selected.
 
     By default, this property contains an empty string.
 
@@ -467,20 +486,17 @@
 */
 
 /*!
-    \fn void QWebEnginePage::findText(const QString &subString, FindFlags options)
-    Finds the specified string, \a subString, in the page, using the given \a options.
-
-    To clear the search highlight, just pass an empty string.
-*/
-
-/*!
-    \fn void QWebEnginePage::findText(const QString &subString, FindFlags options, FunctorOrLambda resultCallback)
+    \fn void QWebEnginePage::findText(const QString &subString, QWebEnginePage::FindFlags options = FindFlags(), const QWebEngineCallback<bool> &resultCallback = QWebEngineCallback<bool>())
     Finds the specified string, \a subString, in the page, using the given \a options.
 
     To clear the search highlight, just pass an empty string.
 
     The \a resultCallback must take a boolean parameter. It will be called with a value of \c true
     if the \a subString was found; otherwise the callback value will be \c false.
+
+    \warning We guarantee that the callback (\a resultCallback) is always called, but it might be done
+    during page destruction. When QWebEnginePage is deleted, the callback is triggered with an invalid
+    value and it is not safe to use the corresponding QWebEnginePage or QWebEngineView instance inside it.
 
     For example:
     \snippet qtwebengine_qwebenginepage_snippet.cpp 0
@@ -521,7 +537,7 @@
 
     This signal is emitted when a page starts loading content.
 
-    \sa loadFinished()
+    \sa loadFinished(), acceptNavigationRequest()
 */
 
 /*!
@@ -541,7 +557,14 @@
     is independent of script execution or page rendering.
     \a ok will indicate whether the load was successful or any error occurred.
 
-    \sa loadStarted()
+    \note Navigation requests can be delegated to the Qt application instead
+    of having the HTML handler engine process them by overloading the
+    acceptNavigationRequest() function. Because the loading process is started
+    and the loadStarted() signal is emitted \e before the request is accepted
+    or rejected, a \c loadFinished() signal that returns \c false is to be
+    expected even after delegating the request.
+
+    \sa loadStarted(), acceptNavigationRequest()
 */
 
 /*!
@@ -584,6 +607,14 @@
 
     This signal is emitted whenever the document wants to change the position and size of the
     page to \a geom. This can happen for example through JavaScript.
+
+    \note \l{QWindow::}{setGeometry()} expects a size excluding the window
+    decoration, while \a geom includes it. You have to remove the size of the frame margins
+    from \a geom to handle this signal correctly.
+
+    \code
+    window->setGeometry(geom.marginsRemoved(window->frameMargins()));
+    \endcode
 */
 
 /*!
@@ -596,36 +627,50 @@
 */
 
 /*!
-    \fn void QWebEnginePage::toHtml(FunctorOrLambda resultCallback) const
+    \fn void QWebEnginePage::toHtml(const QWebEngineCallback<const QString &> &resultCallback) const
     Asynchronous method to retrieve the page's content as HTML, enclosed in HTML and BODY tags.
     Upon successful completion, \a resultCallback is called with the page's content.
 
     \note \a resultCallback can be any of a function pointer, a functor or a lambda, and it is expected to take a QString parameter.
 
+    \warning We guarantee that the callback (\a resultCallback) is always called, but it might be done
+    during page destruction. When QWebEnginePage is deleted, the callback is triggered with an invalid
+    value and it is not safe to use the corresponding QWebEnginePage or QWebEngineView instance inside it.
+
     \sa setHtml(), toPlainText()
 */
 
 /*!
-    \fn void QWebEnginePage::toPlainText(FunctorOrLambda resultCallback) const
+    \fn void QWebEnginePage::toPlainText(const QWebEngineCallback<const QString &> &resultCallback) const
     Asynchronous method to retrieve the page's content converted to plain text, completely stripped of all
     HTML formatting.
     Upon successful completion, \a resultCallback is called with the page's content.
 
     \note \a resultCallback can be any of a function pointer, a functor or a lambda, and it is expected to take a QString parameter.
 
+    \warning We guarantee that the callback (\a resultCallback) is always called, but it might be done
+    during page destruction. When QWebEnginePage is deleted, the callback is triggered with an invalid
+    value and it is not safe to use the corresponding QWebEnginePage or QWebEngineView instance inside it.
+
     \sa toHtml()
 */
 
 /*!
     \property QWebEnginePage::title
-    \brief the title of the page as defined by the HTML \c <title> element
+    \brief The title of the page as defined by the HTML \c <title> element.
+
+    If the page has no \c <title> element, then the URL is used instead. For \c
+    file:// URLs only the filename is used and not the full path.
+
+    By default, before any content has been loaded, this property contains an
+    empty string.
 
     \sa titleChanged()
 */
 
 /*!
     \property QWebEnginePage::url
-    \brief the URL of the page currently viewed
+    \brief The URL of the page currently viewed.
 
     Setting this property clears the view and loads the URL.
 
@@ -636,8 +681,8 @@
 
 /*!
     \property QWebEnginePage::requestedUrl
-    \brief the URL that was originally requested to be loaded by the page
-    that is currently viewed
+    \brief The URL that was originally requested to be loaded by the page
+    that is currently viewed.
 
     \note The URL may differ from the one returned by url(), which is the actual
     URL that results from DNS resolution or redirection.
@@ -704,18 +749,26 @@
 
 /*!
     \property QWebEnginePage::zoomFactor
-    \brief the zoom factor for the page content
+    \brief The zoom factor for the page content.
 
     Valid values are within the range from \c{0.25} to \c{5.0}. The default factor is \c{1.0}.
 */
 
 /*!
-    \fn void QWebEnginePage::runJavaScript(const QString& scriptSource, quint32 worldId, FunctorOrLambda resultCallback)
+    \fn void QWebEnginePage::runJavaScript(const QString &scriptSource, quint32 worldId, const QWebEngineCallback<const QVariant &> &resultCallback)
+    \fn void QWebEnginePage::runJavaScript(const QString &scriptSource, quint32 worldId)
+    \fn void QWebEnginePage::runJavaScript(const QString& scriptSource)
+    \fn void QWebEnginePage::runJavaScript(const QString &scriptSource, const QWebEngineCallback<const QVariant &> &resultCallback)
     \since 5.7
 
-    Runs the JavaScript code contained in \a scriptSource in the world specified by \a worldId.
-    The world ID values are the same as provided by QWebEngineScript::ScriptWorldId. Using the
-    \e runJavaScript() versions without the world ID is the same as running the script in the
+    Runs the JavaScript code contained in \a scriptSource without checking
+    whether the DOM of the page has been constructed. If you need more
+    control over how the script is run, consider using \l scripts() instead.
+
+    To avoid conflicts with other scripts executed on the page, the world in
+    which the script is run is specified by \a worldId. The world ID values are
+    the same as provided by QWebEngineScript::ScriptWorldId, and between \c 0
+    and \c 256. If you leave out the \c world ID, the script is run in the
     \c MainWorld.
 
     When the script has been executed, \a resultCallback is called with the result of the last
@@ -726,45 +779,19 @@
     page.runJavaScript("document.title", [](const QVariant &v) { qDebug() << v.toString(); });
     \endcode
 
+    Only plain data can be returned from JavaScript as the result value.
+    Supported data types include all of the JSON data types as well as, for
+    example, \c{Date} and \c{ArrayBuffer}. Unsupported data types include, for
+    example, \c{Function} and \c{Promise}.
+
     \warning Do not execute lengthy routines in the callback function, because it might block the
     rendering of the web engine page.
 
-    See scripts() for an alternative API to inject scripts.
+    \warning We guarantee that the callback (\a resultCallback) is always called, but it might be done
+    during page destruction. When QWebEnginePage is deleted, the callback is triggered with an invalid
+    value and it is not safe to use the corresponding QWebEnginePage or QWebEngineView instance inside it.
 
-    \sa QWebEngineScript::ScriptWorldId
-*/
-
-/*!
-    \fn void QWebEnginePage::runJavaScript(const QString &scriptSource, quint32 worldId)
-    \since 5.7
-    \overload runJavaScript()
-
-    This convenience function runs the JavaScript code contained in \a scriptSource in the world
-    specified by \a worldId.
-*/
-
-/*!
-    \fn void QWebEnginePage::runJavaScript(const QString& scriptSource)
-    \overload runJavaScript()
-
-    This convenience function runs the JavaScript code contained in \a scriptSource in the same
-    world as other scripts that are part of the loaded site.
-
-    \sa QWebEngineScript::MainWorld
-*/
-
-/*!
-    \fn void QWebEnginePage::runJavaScript(const QString& scriptSource, FunctorOrLambda resultCallback)
-    \overload runJavaScript()
-
-    Runs the JavaScript code contained in \a scriptSource.
-
-    The script will run in the same world as other scripts that are part of the loaded site.
-
-    When the script has been executed, \a resultCallback is called with the result of the last
-    executed statement.
-
-    \sa QWebEngineScript::MainWorld
+    \sa scripts(), QWebEngineScript::ScriptWorldId, {Script Injection}
 */
 
 /*!

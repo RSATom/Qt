@@ -47,11 +47,20 @@ class CompilationResult {
   // CompilationResult, the shaderc_compilation_result will be released.
   explicit CompilationResult(shaderc_compilation_result_t compilation_result)
       : compilation_result_(compilation_result) {}
+  CompilationResult() : compilation_result_(nullptr) {}
   ~CompilationResult() { shaderc_result_release(compilation_result_); }
 
-  CompilationResult(CompilationResult&& other) {
+  CompilationResult(CompilationResult&& other) : compilation_result_(nullptr) {
+    *this = std::move(other);
+  }
+
+  CompilationResult& operator=(CompilationResult&& other) {
+    if (compilation_result_) {
+      shaderc_result_release(compilation_result_);
+    }
     compilation_result_ = other.compilation_result_;
     other.compilation_result_ = nullptr;
+    return *this;
   }
 
   // Returns any error message found during compilation.
@@ -163,6 +172,12 @@ class CompileOptions {
     shaderc_compile_options_set_generate_debug_info(options_);
   }
 
+  // Sets the compiler optimization level to the given level. Only the last one
+  // takes effect if multiple calls of this function exist.
+  void SetOptimizationLevel(shaderc_optimization_level level) {
+    shaderc_compile_options_set_optimization_level(options_, level);
+  }
+
   // A C++ version of the libshaderc includer interface.
   class IncluderInterface {
    public:
@@ -174,6 +189,8 @@ class CompileOptions {
 
     // Handles shaderc_include_result_release_fn callbacks.
     virtual void ReleaseInclude(shaderc_include_result* data) = 0;
+
+    virtual ~IncluderInterface() = default;
   };
 
   // Sets the includer instance for libshaderc to call during compilation, as
@@ -185,14 +202,14 @@ class CompileOptions {
         options_,
         [](void* user_data, const char* requested_source, int type,
            const char* requesting_source, size_t include_depth) {
-          auto* includer = static_cast<IncluderInterface*>(user_data);
-          return includer->GetInclude(requested_source,
+          auto* sub_includer = static_cast<IncluderInterface*>(user_data);
+          return sub_includer->GetInclude(requested_source,
                                       (shaderc_include_type)type,
                                       requesting_source, include_depth);
         },
         [](void* user_data, shaderc_include_result* include_result) {
-          auto* includer = static_cast<IncluderInterface*>(user_data);
-          return includer->ReleaseInclude(include_result);
+          auto* sub_includer = static_cast<IncluderInterface*>(user_data);
+          return sub_includer->ReleaseInclude(include_result);
         },
         includer_.get());
   }
@@ -215,11 +232,16 @@ class CompileOptions {
     shaderc_compile_options_set_suppress_warnings(options_);
   }
 
+  // Sets the source language. The default is GLSL.
+  void SetSourceLanguage(shaderc_source_language lang) {
+    shaderc_compile_options_set_source_language(options_, lang);
+  }
+
   // Sets the target shader environment, affecting which warnings or errors will
-  // be issued.
-  // The version will be for distinguishing between different versions of the
-  // target environment.
-  // "0" is the only supported version at this point
+  // be issued.  The version will be for distinguishing between different
+  // versions of the target environment.  The version value should be either 0
+  // or a value listed in shaderc_env_version.  The 0 value maps to Vulkan 1.0
+  // if |target| is Vulkan, and it maps to OpenGL 4.5 if |target| is OpenGL.
   void SetTargetEnvironment(shaderc_target_env target, uint32_t version) {
     shaderc_compile_options_set_target_env(options_, target, version);
   }
@@ -230,6 +252,78 @@ class CompileOptions {
   // be emitted as error message.
   void SetWarningsAsErrors() {
     shaderc_compile_options_set_warnings_as_errors(options_);
+  }
+
+  // Sets a resource limit.
+  void SetLimit(shaderc_limit limit, int value) {
+    shaderc_compile_options_set_limit(options_, limit, value);
+  }
+
+  // Sets whether the compiler should automatically assign bindings to uniforms
+  // that aren't already explicitly bound in the shader source.
+  void SetAutoBindUniforms(bool auto_bind) {
+    shaderc_compile_options_set_auto_bind_uniforms(options_, auto_bind);
+  }
+
+  // Sets whether the compiler should use HLSL IO mapping rules for bindings.
+  // Defaults to false.
+  void SetHlslIoMapping(bool hlsl_iomap) {
+    shaderc_compile_options_set_hlsl_io_mapping(options_, hlsl_iomap);
+  }
+
+  // Sets whether the compiler should determine block member offsets using HLSL
+  // packing rules instead of standard GLSL rules.  Defaults to false.  Only
+  // affects GLSL compilation.  HLSL rules are always used when compiling HLSL.
+  void SetHlslOffsets(bool hlsl_offsets) {
+    shaderc_compile_options_set_hlsl_offsets(options_, hlsl_offsets);
+  }
+
+  // Sets the base binding number used for for a uniform resource type when
+  // automatically assigning bindings.  For GLSL compilation, sets the lowest
+  // automatically assigned number.  For HLSL compilation, the regsiter number
+  // assigned to the resource is added to this specified base.
+  void SetBindingBase(shaderc_uniform_kind kind, uint32_t base) {
+    shaderc_compile_options_set_binding_base(options_, kind, base);
+  }
+
+  // Like SetBindingBase, but only takes effect when compiling a given shader
+  // stage.  The stage is assumed to be one of vertex, fragment, tessellation
+  // evaluation, tesselation control, geometry, or compute.
+  void SetBindingBaseForStage(shaderc_shader_kind shader_kind,
+                              shaderc_uniform_kind kind, uint32_t base) {
+    shaderc_compile_options_set_binding_base_for_stage(options_, shader_kind,
+                                                       kind, base);
+  }
+
+  // Sets whether the compiler automatically assigns locations to
+  // uniform variables that don't have explicit locations.
+  void SetAutoMapLocations(bool auto_map) {
+    shaderc_compile_options_set_auto_map_locations(options_, auto_map);
+  }
+
+  // Sets a descriptor set and binding for an HLSL register in the given stage.
+  // Copies the parameter strings.
+  void SetHlslRegisterSetAndBindingForStage(shaderc_shader_kind shader_kind,
+                                            const std::string& reg,
+                                            const std::string& set,
+                                            const std::string& binding) {
+    shaderc_compile_options_set_hlsl_register_set_and_binding_for_stage(
+        options_, shader_kind, reg.c_str(), set.c_str(), binding.c_str());
+  }
+
+  // Sets a descriptor set and binding for an HLSL register in any stage.
+  // Copies the parameter strings.
+  void SetHlslRegisterSetAndBinding(const std::string& reg,
+                                    const std::string& set,
+                                    const std::string& binding) {
+    shaderc_compile_options_set_hlsl_register_set_and_binding(
+        options_, reg.c_str(), set.c_str(), binding.c_str());
+  }
+
+  // Sets whether the compiler should enable extension
+  // SPV_GOOGLE_hlsl_functionality1.
+  void SetHlslFunctionality1(bool enable) {
+    shaderc_compile_options_set_hlsl_functionality1(options_, enable);
   }
 
  private:
@@ -268,6 +362,9 @@ class Compiler {
   // The input_file_name is a null-termintated string. It is used as a tag to
   // identify the source string in cases like emitting error messages. It
   // doesn't have to be a 'file name'.
+  // The entry_point_name parameter is a null-terminated string specifying
+  // the entry point name for HLSL compilation.  For GLSL compilation, the
+  // entry point name is assumed to be "main".
   // The compilation is passed any options specified in the CompileOptions
   // parameter.
   // It is valid for the returned CompilationResult object to outlive this
@@ -279,16 +376,30 @@ class Compiler {
                                         size_t source_text_size,
                                         shaderc_shader_kind shader_kind,
                                         const char* input_file_name,
+                                        const char* entry_point_name,
                                         const CompileOptions& options) const {
     shaderc_compilation_result_t compilation_result = shaderc_compile_into_spv(
         compiler_, source_text, source_text_size, shader_kind, input_file_name,
-        "main", options.options_);
+        entry_point_name, options.options_);
     return SpvCompilationResult(compilation_result);
+  }
+
+  // Compiles the given source shader and returns a SPIR-V binary module
+  // compilation result.
+  // Like the first CompileGlslToSpv method but assumes the entry point name
+  // is "main".
+  SpvCompilationResult CompileGlslToSpv(const char* source_text,
+                                        size_t source_text_size,
+                                        shaderc_shader_kind shader_kind,
+                                        const char* input_file_name,
+                                        const CompileOptions& options) const {
+    return CompileGlslToSpv(source_text, source_text_size, shader_kind,
+                            input_file_name, "main", options);
   }
 
   // Compiles the given source GLSL and returns a SPIR-V binary module
   // compilation result.
-  // Like the first CompileGlslToSpv method but uses default options.
+  // Like the previous CompileGlslToSpv method but uses default options.
   SpvCompilationResult CompileGlslToSpv(const char* source_text,
                                         size_t source_text_size,
                                         shaderc_shader_kind shader_kind,
@@ -299,10 +410,10 @@ class Compiler {
     return SpvCompilationResult(compilation_result);
   }
 
-  // Compiles the given source GLSL and returns a SPIR-V binary module
+  // Compiles the given source shader and returns a SPIR-V binary module
   // compilation result.
   // Like the first CompileGlslToSpv method but the source is provided as
-  // a std::string.
+  // a std::string, and we assume the entry point is "main".
   SpvCompilationResult CompileGlslToSpv(const std::string& source_text,
                                         shaderc_shader_kind shader_kind,
                                         const char* input_file_name,
@@ -311,10 +422,23 @@ class Compiler {
                             input_file_name, options);
   }
 
-  // Compiles the given source GLSL and returns a SPIR-V binary module
+  // Compiles the given source shader and returns a SPIR-V binary module
   // compilation result.
   // Like the first CompileGlslToSpv method but the source is provided as
-  // a std::string and also uses default compiler options.
+  // a std::string.
+  SpvCompilationResult CompileGlslToSpv(const std::string& source_text,
+                                        shaderc_shader_kind shader_kind,
+                                        const char* input_file_name,
+                                        const char* entry_point_name,
+                                        const CompileOptions& options) const {
+    return CompileGlslToSpv(source_text.data(), source_text.size(), shader_kind,
+                            input_file_name, entry_point_name, options);
+  }
+
+  // Compiles the given source GLSL and returns a SPIR-V binary module
+  // compilation result.
+  // Like the previous CompileGlslToSpv method but assumes the entry point
+  // name is "main".
   SpvCompilationResult CompileGlslToSpv(const std::string& source_text,
                                         shaderc_shader_kind shader_kind,
                                         const char* input_file_name) const {
@@ -328,19 +452,42 @@ class Compiler {
   // (https://github.com/KhronosGroup/SPIRV-Tools/blob/master/syntax.md).
   // It is valid for the returned CompilationResult object to outlive this
   // compiler object.
+  // The assembling will pick options suitable for assembling specified in the
+  // CompileOptions parameter.
+  SpvCompilationResult AssembleToSpv(const char* source_assembly,
+                                     size_t source_assembly_size,
+                                     const CompileOptions& options) const {
+    return SpvCompilationResult(shaderc_assemble_into_spv(
+        compiler_, source_assembly, source_assembly_size, options.options_));
+  }
+
+  // Assembles the given SPIR-V assembly and returns a SPIR-V binary module
+  // compilation result.
+  // Like the first AssembleToSpv method but uses the default compiler options.
   SpvCompilationResult AssembleToSpv(const char* source_assembly,
                                      size_t source_assembly_size) const {
     return SpvCompilationResult(shaderc_assemble_into_spv(
-        compiler_, source_assembly, source_assembly_size));
+        compiler_, source_assembly, source_assembly_size, nullptr));
   }
 
   // Assembles the given SPIR-V assembly and returns a SPIR-V binary module
   // compilation result.
   // Like the first AssembleToSpv method but the source is provided as a
   // std::string.
+  SpvCompilationResult AssembleToSpv(const std::string& source_assembly,
+                                     const CompileOptions& options) const {
+    return SpvCompilationResult(
+        shaderc_assemble_into_spv(compiler_, source_assembly.data(),
+                                  source_assembly.size(), options.options_));
+  }
+
+  // Assembles the given SPIR-V assembly and returns a SPIR-V binary module
+  // compilation result.
+  // Like the first AssembleToSpv method but the source is provided as a
+  // std::string and also uses default compiler options.
   SpvCompilationResult AssembleToSpv(const std::string& source_assembly) const {
     return SpvCompilationResult(shaderc_assemble_into_spv(
-        compiler_, source_assembly.data(), source_assembly.size()));
+        compiler_, source_assembly.data(), source_assembly.size(), nullptr));
   }
 
   // Compiles the given source GLSL and returns the SPIR-V assembly text
@@ -349,12 +496,23 @@ class Compiler {
   AssemblyCompilationResult CompileGlslToSpvAssembly(
       const char* source_text, size_t source_text_size,
       shaderc_shader_kind shader_kind, const char* input_file_name,
-      const CompileOptions& options) const {
+      const char* entry_point_name, const CompileOptions& options) const {
     shaderc_compilation_result_t compilation_result =
         shaderc_compile_into_spv_assembly(
             compiler_, source_text, source_text_size, shader_kind,
-            input_file_name, "main", options.options_);
+            input_file_name, entry_point_name, options.options_);
     return AssemblyCompilationResult(compilation_result);
+  }
+
+  // Compiles the given source GLSL and returns the SPIR-V assembly text
+  // compilation result.
+  // Similare to the previous method, but assumes entry point name is "main".
+  AssemblyCompilationResult CompileGlslToSpvAssembly(
+      const char* source_text, size_t source_text_size,
+      shaderc_shader_kind shader_kind, const char* input_file_name,
+      const CompileOptions& options) const {
+    return CompileGlslToSpvAssembly(source_text, source_text_size, shader_kind,
+                                    input_file_name, "main", options);
   }
 
   // Compiles the given source GLSL and returns the SPIR-V assembly text
@@ -363,9 +521,21 @@ class Compiler {
   // the first CompileToSpv method.
   AssemblyCompilationResult CompileGlslToSpvAssembly(
       const std::string& source_text, shaderc_shader_kind shader_kind,
-      const char* input_file_name, const CompileOptions& options) const {
+      const char* input_file_name, const char* entry_point_name,
+      const CompileOptions& options) const {
     return CompileGlslToSpvAssembly(source_text.data(), source_text.size(),
-                                    shader_kind, input_file_name, options);
+                                    shader_kind, input_file_name,
+                                    entry_point_name, options);
+  }
+
+  // Compiles the given source GLSL and returns the SPIR-V assembly text
+  // result. Like the previous  CompileGlslToSpvAssembly method but assumes
+  // the entry point name is "main".
+  AssemblyCompilationResult CompileGlslToSpvAssembly(
+      const std::string& source_text, shaderc_shader_kind shader_kind,
+      const char* input_file_name, const CompileOptions& options) const {
+    return CompileGlslToSpvAssembly(source_text, shader_kind, input_file_name,
+                                    "main", options);
   }
 
   // Preprocesses the given source GLSL and returns the preprocessed

@@ -26,7 +26,7 @@ uint64_t MakeEventKey(RtpTimeTicks rtp, uint16_t packet_id, bool audio) {
 
 ReceiverTimeOffsetEstimatorImpl::BoundCalculator::BoundCalculator()
     : has_bound_(false) {}
-ReceiverTimeOffsetEstimatorImpl::BoundCalculator::~BoundCalculator() {}
+ReceiverTimeOffsetEstimatorImpl::BoundCalculator::~BoundCalculator() = default;
 
 void ReceiverTimeOffsetEstimatorImpl::BoundCalculator::SetSent(
     RtpTimeTicks rtp,
@@ -73,15 +73,14 @@ void ReceiverTimeOffsetEstimatorImpl::BoundCalculator::UpdateBound(
   }
 
   if (events_.size() > kMaxEventTimesMapSize) {
-    EventMap::iterator i = ModMapOldest(&events_);
+    auto i = ModMapOldest(&events_);
     if (i != events_.end()) {
       events_.erase(i);
     }
   }
 }
 
-ReceiverTimeOffsetEstimatorImpl::ReceiverTimeOffsetEstimatorImpl() {
-}
+ReceiverTimeOffsetEstimatorImpl::ReceiverTimeOffsetEstimatorImpl() = default;
 
 ReceiverTimeOffsetEstimatorImpl::~ReceiverTimeOffsetEstimatorImpl() {
   DCHECK(thread_checker_.CalledOnValidThread());

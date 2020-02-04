@@ -18,6 +18,9 @@ namespace device {
 
 class GamepadDataFetcher;
 
+// These values are logged to UMA. Entries should not be renumbered and
+// numeric values should never be reused. Please keep in sync with
+// "GamepadSource" in src/tools/metrics/histograms/enums.xml.
 enum GamepadSource {
   GAMEPAD_SOURCE_NONE = 0,
   GAMEPAD_SOURCE_ANDROID,
@@ -27,16 +30,13 @@ enum GamepadSource {
   GAMEPAD_SOURCE_MAC_GC,
   GAMEPAD_SOURCE_MAC_HID,
   GAMEPAD_SOURCE_MAC_XBOX,
+  GAMEPAD_SOURCE_NINTENDO,
+  GAMEPAD_SOURCE_OCULUS,
   GAMEPAD_SOURCE_OPENVR,
   GAMEPAD_SOURCE_TEST,
   GAMEPAD_SOURCE_WIN_XINPUT,
   GAMEPAD_SOURCE_WIN_RAW,
-};
-
-enum GamepadActiveState {
-  GAMEPAD_INACTIVE = 0,
-  GAMEPAD_ACTIVE,
-  GAMEPAD_NEWLY_ACTIVE,
+  kMaxValue = GAMEPAD_SOURCE_WIN_RAW,
 };
 
 struct PadState {
@@ -45,8 +45,18 @@ struct PadState {
   // Data fetcher-specific identifier for this gamepad.
   int source_id;
 
-  // Indicates whether or not the gamepad is actively being updated
-  GamepadActiveState active_state;
+  // Indicates whether this gamepad is actively receiving input. |is_active| is
+  // initialized to false on each polling cycle and must is set to true when new
+  // data is received.
+  bool is_active;
+
+  // True if the gamepad is newly connected but notifications have not yet been
+  // sent.
+  bool is_newly_active;
+
+  // Set by the data fetcher to indicate that one-time initialization for this
+  // gamepad has been completed.
+  bool is_initialized;
 
   // Gamepad data, unmapped.
   Gamepad data;
@@ -82,6 +92,11 @@ class DEVICE_GAMEPAD_EXPORT GamepadPadStateProvider {
   // been encountered before one of the remaining slots will be reserved for it.
   // If no slots are available will return NULL.
   PadState* GetPadState(GamepadSource source, int source_id);
+
+  // Gets a PadState object for a connected gamepad by specifying its index in
+  // the pad_states_ array. Returns NULL if there is no connected gamepad at
+  // that index.
+  PadState* GetConnectedPadState(uint32_t pad_index);
 
  protected:
   void ClearPadState(PadState& state);

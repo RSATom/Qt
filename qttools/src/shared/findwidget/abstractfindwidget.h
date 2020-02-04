@@ -45,6 +45,7 @@
 
 QT_BEGIN_NAMESPACE
 
+class QAction;
 class QCheckBox;
 class QEvent;
 class QKeyEvent;
@@ -69,11 +70,12 @@ public:
     Q_DECLARE_FLAGS(FindFlags, FindFlag)
 
     explicit AbstractFindWidget(FindFlags flags = FindFlags(), QWidget *parent = 0);
-    virtual ~AbstractFindWidget();
+    ~AbstractFindWidget() override;
 
-    bool eventFilter(QObject *object, QEvent *e);
+    bool eventFilter(QObject *object, QEvent *e) override;
 
     static QIcon findIconSet();
+    QAction *createFindAction(QObject *parent);
 
 public slots:
     void activate();
@@ -83,7 +85,7 @@ public slots:
     void findCurrentText();
 
 protected:
-    void keyPressEvent(QKeyEvent *event);
+    void keyPressEvent(QKeyEvent *event) override;
 
 private slots:
     void updateButtons();

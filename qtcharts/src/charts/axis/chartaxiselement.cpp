@@ -34,6 +34,7 @@
 #include <QtCharts/QCategoryAxis>
 #include <QtCore/QtMath>
 #include <QtCore/QDateTime>
+#include <QtCore/QRegularExpression>
 #include <QtGui/QTextDocument>
 #include <cmath>
 
@@ -41,8 +42,8 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 static const char *labelFormatMatchString = "%[\\-\\+#\\s\\d\\.\\'lhjztL]*([dicuoxfegXFEG])";
 static const char *labelFormatMatchLocalizedString = "^([^%]*)%\\.(\\d+)([defgiEG])(.*)$";
-static QRegExp *labelFormatMatcher = 0;
-static QRegExp *labelFormatMatcherLocalized = 0;
+static QRegularExpression *labelFormatMatcher = 0;
+static QRegularExpression *labelFormatMatcherLocalized = 0;
 class StaticLabelFormatMatcherDeleter
 {
 public:
@@ -154,6 +155,60 @@ void ChartAxisElement::handleLabelsPositionChanged()
 {
     QGraphicsLayoutItem::updateGeometry();
     presenter()->layout()->invalidate();
+}
+
+void ChartAxisElement::valueLabelEdited(qreal oldValue, qreal newValue)
+{
+    qreal range = max() - min();
+    qreal center = ((max() - min()) / 2.0) + min();
+    qreal newRange = 0.0;
+    auto label = static_cast<ValueAxisLabel *>(this->sender());
+    if ((oldValue >= center && newValue >= min())
+     || (oldValue <  center && newValue >= max() && oldValue != min())) {
+        newRange = range * ((newValue - min()) / (oldValue - min()));
+        if (newRange > 0) {
+            m_axis->setRange(min(), min() + newRange);
+            return;
+        }
+    } else if ((oldValue >= center && newValue <= min() && max() != oldValue)
+            || (oldValue <  center && newValue <  max())) {
+        newRange = range * ((max() - newValue) / (max() - oldValue));
+        if (newRange > 0) {
+            m_axis->setRange(max() - newRange, max());
+            return;
+        }
+    }
+    label->reloadBeforeEditContent();
+}
+
+void ChartAxisElement::dateTimeLabelEdited(const QDateTime &oldTime, const QDateTime &newTime)
+{
+    qreal range = max() - min();
+    qreal center = ((max() - min()) / 2.0) + min();
+    qreal newRange = 0.0;
+    qint64 oldValue = oldTime.toMSecsSinceEpoch();
+    qint64 newValue = newTime.toMSecsSinceEpoch();
+    if ((oldValue >= center && newValue >= min())
+     || (oldValue <  center && newValue >= max() && oldValue != min())) {
+        newRange = range * ((newValue - min()) / (oldValue - min()));
+        if (newRange > 0) {
+            m_axis->setRange(
+                        QDateTime::fromMSecsSinceEpoch(min()),
+                        QDateTime::fromMSecsSinceEpoch(min() + newRange));
+            return;
+        }
+    } else if ((oldValue >= center && newValue <= min() && max() != oldValue)
+            || (oldValue <  center && newValue <  max())) {
+        newRange = range * ((max() - newValue) / (max() - oldValue));
+        if (newRange > 0) {
+            m_axis->setRange(max() - newRange, max());
+            m_axis->setRange(
+                        QDateTime::fromMSecsSinceEpoch(max() - newRange),
+                        QDateTime::fromMSecsSinceEpoch(max()));
+            return;
+        }
+    }
+    static_cast<DateTimeAxisLabel *>(this->sender())->reloadBeforeEditContent();
 }
 
 void ChartAxisElement::handleLabelsVisibleChanged(bool visible)
@@ -297,6 +352,24 @@ qreal ChartAxisElement::max() const
     return m_axis->d_ptr->max();
 }
 
+qreal ChartAxisElement::tickInterval() const
+{
+    QValueAxis *valueAxis = qobject_cast<QValueAxis *>(m_axis);
+    if (valueAxis)
+        return valueAxis->tickInterval();
+    else
+        return 0.0;
+}
+
+qreal ChartAxisElement::tickAnchor() const
+{
+    QValueAxis *valueAxis = qobject_cast<QValueAxis *>(m_axis);
+    if (valueAxis)
+        return valueAxis->tickAnchor();
+    else
+        return 0.0;
+}
+
 QString ChartAxisElement::formatLabel(const QString &formatSpec, const QByteArray &array,
                                       qreal value, int precision, const QString &preStr,
                                       const QString &postStr) const
@@ -336,6 +409,8 @@ QString ChartAxisElement::formatLabel(const QString &formatSpec, const QByteArra
 }
 
 QStringList ChartAxisElement::createValueLabels(qreal min, qreal max, int ticks,
+                                                qreal tickInterval, qreal tickAnchor,
+                                                QValueAxis::TickType tickType,
                                                 const QString &format) const
 {
     QStringList labels;
@@ -345,9 +420,22 @@ QStringList ChartAxisElement::createValueLabels(qreal min, qreal max, int ticks,
 
     if (format.isEmpty()) {
         int n = qMax(int(-qFloor(std::log10((max - min) / (ticks - 1)))), 0) + 1;
-        for (int i = 0; i < ticks; i++) {
-            qreal value = min + (i * (max - min) / (ticks - 1));
-            labels << presenter()->numberToString(value, 'f', n);
+        if (tickType == QValueAxis::TicksFixed) {
+            for (int i = 0; i < ticks; i++) {
+                qreal value = min + (i * (max - min) / (ticks - 1));
+                labels << presenter()->numberToString(value, 'f', n);
+            }
+        } else {
+            qreal value = tickAnchor;
+            if (value > min)
+                value = value - int((value - min) / tickInterval) * tickInterval;
+            else
+                value = value + qCeil((min - value) / tickInterval) * tickInterval;
+
+            while (value <= max || qFuzzyCompare(value, max)) {
+                labels << presenter()->numberToString(value, 'f', n);
+                value += tickInterval;
+            }
         }
     } else {
         QByteArray array = format.toLatin1();
@@ -358,23 +446,38 @@ QStringList ChartAxisElement::createValueLabels(qreal min, qreal max, int ticks,
         if (presenter()->localizeNumbers()) {
             if (!labelFormatMatcherLocalized)
                 labelFormatMatcherLocalized
-                        = new QRegExp(QString::fromLatin1(labelFormatMatchLocalizedString));
-            if (labelFormatMatcherLocalized->indexIn(format, 0) != -1) {
-                preStr = labelFormatMatcherLocalized->cap(1);
-                if (!labelFormatMatcherLocalized->cap(2).isEmpty())
-                    precision = labelFormatMatcherLocalized->cap(2).toInt();
-                formatSpec = labelFormatMatcherLocalized->cap(3);
-                postStr = labelFormatMatcherLocalized->cap(4);
+                        = new QRegularExpression(QString::fromLatin1(labelFormatMatchLocalizedString));
+            QRegularExpressionMatch rmatch;
+            if (format.indexOf(*labelFormatMatcherLocalized, 0, &rmatch) != -1) {
+                preStr = rmatch.captured(1);
+                if (!rmatch.captured(2).isEmpty())
+                    precision = rmatch.captured(2).toInt();
+                formatSpec = rmatch.captured(3);
+                postStr = rmatch.captured(4);
             }
         } else {
             if (!labelFormatMatcher)
-                labelFormatMatcher = new QRegExp(QString::fromLatin1(labelFormatMatchString));
-            if (labelFormatMatcher->indexIn(format, 0) != -1)
-                formatSpec = labelFormatMatcher->cap(1);
+                labelFormatMatcher = new QRegularExpression(QString::fromLatin1(labelFormatMatchString));
+            QRegularExpressionMatch rmatch;
+            if (format.indexOf(*labelFormatMatcher, 0, &rmatch) != -1)
+                formatSpec = rmatch.captured(1);
         }
-        for (int i = 0; i < ticks; i++) {
-            qreal value = min + (i * (max - min) / (ticks - 1));
-            labels << formatLabel(formatSpec, array, value, precision, preStr, postStr);
+        if (tickType == QValueAxis::TicksFixed) {
+            for (int i = 0; i < ticks; i++) {
+                qreal value = min + (i * (max - min) / (ticks - 1));
+                labels << formatLabel(formatSpec, array, value, precision, preStr, postStr);
+            }
+        } else {
+            qreal value = tickAnchor;
+            if (value > min)
+                value = value - int((value - min) / tickInterval) * tickInterval;
+            else
+                value = value + qCeil((min - value) / tickInterval) * tickInterval;
+
+            while (value <= max || qFuzzyCompare(value, max)) {
+                labels << formatLabel(formatSpec, array, value, precision, preStr, postStr);
+                value += tickInterval;
+            }
         }
     }
 
@@ -413,19 +516,21 @@ QStringList ChartAxisElement::createLogValueLabels(qreal min, qreal max, qreal b
         if (presenter()->localizeNumbers()) {
             if (!labelFormatMatcherLocalized)
                 labelFormatMatcherLocalized =
-                        new QRegExp(QString::fromLatin1(labelFormatMatchLocalizedString));
-            if (labelFormatMatcherLocalized->indexIn(format, 0) != -1) {
-                preStr = labelFormatMatcherLocalized->cap(1);
-                if (!labelFormatMatcherLocalized->cap(2).isEmpty())
-                    precision = labelFormatMatcherLocalized->cap(2).toInt();
-                formatSpec = labelFormatMatcherLocalized->cap(3);
-                postStr = labelFormatMatcherLocalized->cap(4);
+                        new QRegularExpression(QString::fromLatin1(labelFormatMatchLocalizedString));
+            QRegularExpressionMatch rmatch;
+            if (format.indexOf(*labelFormatMatcherLocalized, 0, &rmatch) != -1) {
+                preStr = rmatch.captured(1);
+                if (!rmatch.captured(2).isEmpty())
+                    precision = rmatch.captured(2).toInt();
+                formatSpec = rmatch.captured(3);
+                postStr = rmatch.captured(4);
             }
         } else {
             if (!labelFormatMatcher)
-                labelFormatMatcher = new QRegExp(QString::fromLatin1(labelFormatMatchString));
-            if (labelFormatMatcher->indexIn(format, 0) != -1)
-                formatSpec = labelFormatMatcher->cap(1);
+                labelFormatMatcher = new QRegularExpression(QString::fromLatin1(labelFormatMatchString));
+            QRegularExpressionMatch rmatch;
+            if (format.indexOf(*labelFormatMatcher, 0, &rmatch) != -1)
+                formatSpec = rmatch.captured(1);
         }
         for (int i = firstTick; i < ticks + firstTick; i++) {
             qreal value = qPow(base, i);
@@ -444,8 +549,6 @@ QStringList ChartAxisElement::createDateTimeLabels(qreal min, qreal max,int tick
     if (max <= min || ticks < 1)
         return labels;
 
-    int n = qMax(int(-qFloor(std::log10((max - min) / (ticks - 1)))), 0);
-    n++;
     for (int i = 0; i < ticks; i++) {
         qreal value = min + (i * (max - min) / (ticks - 1));
         labels << presenter()->locale().toString(QDateTime::fromMSecsSinceEpoch(value), format);
@@ -453,11 +556,39 @@ QStringList ChartAxisElement::createDateTimeLabels(qreal min, qreal max,int tick
     return labels;
 }
 
+
+bool ChartAxisElement::labelsEditable() const
+{
+    return m_labelsEditable;
+}
+
+void ChartAxisElement::setLabelsEditable(bool labelsEditable)
+{
+    if (axis()->type() == QAbstractAxis::AxisTypeValue
+            || axis()->type() == QAbstractAxis::AxisTypeDateTime) {
+        labelGroup()->setHandlesChildEvents(!labelsEditable);
+        const QList<QGraphicsItem *> childItems = labelGroup()->childItems();
+        for (auto item : childItems) {
+            switch (axis()->type()) {
+            case QtCharts::QAbstractAxis::AxisTypeValue:
+                static_cast<ValueAxisLabel *>(item)->setEditable(labelsEditable);
+                break;
+            case QtCharts::QAbstractAxis::AxisTypeDateTime:
+                static_cast<DateTimeAxisLabel *>(item)->setEditable(labelsEditable);
+                break;
+            default:
+                break;
+            }
+        }
+        m_labelsEditable = labelsEditable;
+    }
+}
+
 void ChartAxisElement::axisSelected()
 {
     emit clicked();
 }
 
-#include "moc_chartaxiselement_p.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_chartaxiselement_p.cpp"

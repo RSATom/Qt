@@ -50,7 +50,7 @@ DirectShowMediaTypeEnum::DirectShowMediaTypeEnum(DirectShowPin *pin)
 }
 
 DirectShowMediaTypeEnum::DirectShowMediaTypeEnum(const QList<DirectShowMediaType> &types)
-    : m_pin(NULL)
+    : m_pin(nullptr)
     , m_mediaTypes(types)
     , m_index(0)
 {
@@ -62,32 +62,36 @@ DirectShowMediaTypeEnum::~DirectShowMediaTypeEnum()
         m_pin->Release();
 }
 
-HRESULT DirectShowMediaTypeEnum::getInterface(REFIID riid, void **ppvObject)
+HRESULT DirectShowMediaTypeEnum::QueryInterface(REFIID riid, void **ppv)
 {
-    if (riid == IID_IEnumMediaTypes) {
-        return GetInterface(static_cast<IEnumMediaTypes *>(this), ppvObject);
-    } else {
-        return DirectShowObject::getInterface(riid, ppvObject);
-    }
+    if (ppv == nullptr)
+        return E_POINTER;
+    if (riid == IID_IUnknown)
+        *ppv = static_cast<IUnknown *>(this);
+    else if (riid == IID_IEnumMediaTypes)
+        *ppv = static_cast<IEnumMediaTypes *>(this);
+    else
+        return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
 }
 
 HRESULT DirectShowMediaTypeEnum::Next(ULONG cMediaTypes, AM_MEDIA_TYPE **ppMediaTypes, ULONG *pcFetched)
 {
-    if (ppMediaTypes && (pcFetched || cMediaTypes == 1)) {
-        ULONG count = qBound<ULONG>(0, cMediaTypes, m_mediaTypes.count() - m_index);
-
-        for (ULONG i = 0; i < count; ++i, ++m_index) {
-            ppMediaTypes[i] = reinterpret_cast<AM_MEDIA_TYPE *>(CoTaskMemAlloc(sizeof(AM_MEDIA_TYPE)));
-            DirectShowMediaType::copyToUninitialized(ppMediaTypes[i], &m_mediaTypes.at(m_index));
-        }
-
-        if (pcFetched)
-            *pcFetched = count;
-
-        return count == cMediaTypes ? S_OK : S_FALSE;
-    } else {
+    if (!ppMediaTypes || (!pcFetched && cMediaTypes != 1))
         return E_POINTER;
+
+    ULONG count = qBound<ULONG>(0, cMediaTypes, m_mediaTypes.count() - m_index);
+
+    for (ULONG i = 0; i < count; ++i, ++m_index) {
+        ppMediaTypes[i] = reinterpret_cast<AM_MEDIA_TYPE *>(CoTaskMemAlloc(sizeof(AM_MEDIA_TYPE)));
+        DirectShowMediaType::copyToUninitialized(ppMediaTypes[i], &m_mediaTypes.at(m_index));
     }
+
+    if (pcFetched)
+        *pcFetched = count;
+
+    return count == cMediaTypes ? S_OK : S_FALSE;
 }
 
 HRESULT DirectShowMediaTypeEnum::Skip(ULONG cMediaTypes)
@@ -104,14 +108,9 @@ HRESULT DirectShowMediaTypeEnum::Reset()
 
 HRESULT DirectShowMediaTypeEnum::Clone(IEnumMediaTypes **ppEnum)
 {
-    if (ppEnum) {
-        if (m_pin)
-            *ppEnum = new DirectShowMediaTypeEnum(m_pin);
-        else
-            *ppEnum = new DirectShowMediaTypeEnum(m_mediaTypes);
-        return S_OK;
-    } else {
+    if (!ppEnum)
         return E_POINTER;
-    }
+    *ppEnum = m_pin ? new DirectShowMediaTypeEnum(m_pin) : new DirectShowMediaTypeEnum(m_mediaTypes);
+    return S_OK;
 }
 

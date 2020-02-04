@@ -4,7 +4,6 @@
 
 #include "content/browser/bluetooth/frame_connected_bluetooth_devices.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "content/browser/bluetooth/web_bluetooth_service_impl.h"
 #include "content/test/test_render_view_host.h"
@@ -41,7 +40,7 @@ constexpr char kDeviceName1[] = "Device1";
 
 blink::mojom::WebBluetoothServerClientAssociatedPtr CreateServerClient() {
   blink::mojom::WebBluetoothServerClientAssociatedPtr client;
-  mojo::MakeIsolatedRequest(&client);
+  mojo::MakeRequestAssociatedWithDedicatedPipe(&client);
   return client;
 }
 
@@ -101,7 +100,7 @@ class FrameConnectedBluetoothDevicesTest
 
   std::unique_ptr<NiceMockBluetoothGattConnection> GetConnection(
       const std::string& address) {
-    return base::MakeUnique<NiceMockBluetoothGattConnection>(adapter_.get(),
+    return std::make_unique<NiceMockBluetoothGattConnection>(adapter_.get(),
                                                              address);
   }
 

@@ -100,6 +100,68 @@ QT_BEGIN_NAMESPACE
     }
     \endcode
 
+    \section2 Submenus
+
+    To create submenus, declare a Menu as a child of another Menu:
+
+    \qml
+    Menu {
+        title: qsTr("Edit")
+
+        Menu {
+            title: qsTr("Advanced")
+
+            MenuItem {
+                text: qsTr("Auto-indent Selection")
+                onTriggered: autoIndentSelection()
+            }
+
+            MenuItem {
+                text: qsTr("Rewrap Paragraph")
+                onTriggered: rewrapParagraph()
+            }
+        }
+    }
+    \endqml
+
+    \section2 Dynamically Generating Menu Items
+
+    It is possible to dynamically generate menu items. One of the easiest ways
+    to do so is with \l Instantiator. For example, to implement a
+    "Recent Files" submenu, where the items are based on a list of files stored
+    in settings, the following code could be used:
+
+    \qml
+    Menu {
+        title: qsTr("File")
+
+        Menu {
+            id: recentFilesSubMenu
+            title: qsTr("Recent Files")
+            enabled: recentFilesInstantiator.count > 0
+
+            Instantiator {
+                id: recentFilesInstantiator
+                model: settings.recentFiles
+                delegate: MenuItem {
+                    text: settings.displayableFilePath(modelData)
+                    onTriggered: loadFile(modelData)
+                }
+
+                onObjectAdded: recentFilesSubMenu.insertItem(index, object)
+                onObjectRemoved: recentFilesSubMenu.removeItem(object)
+            }
+
+            MenuSeparator {}
+
+            MenuItem {
+                text: qsTr("Clear Recent Files")
+                onTriggered: settings.clearRecentFiles()
+            }
+        }
+    }
+    \endqml
+
     \section2 Availability
 
     A native platform menu is currently available on the following platforms:
@@ -154,15 +216,22 @@ QQuickPlatformMenu::~QQuickPlatformMenu()
         m_menuBar->removeMenu(this);
     if (m_parentMenu)
         m_parentMenu->removeMenu(this);
+
+    unparentSubmenus();
+
+    delete m_iconLoader;
+    m_iconLoader = nullptr;
+    delete m_handle;
+    m_handle = nullptr;
+}
+
+void QQuickPlatformMenu::unparentSubmenus()
+{
     for (QQuickPlatformMenuItem *item : qAsConst(m_items)) {
         if (QQuickPlatformMenu *subMenu = item->subMenu())
             subMenu->setParentMenu(nullptr);
         item->setMenu(nullptr);
     }
-    delete m_iconLoader;
-    m_iconLoader = nullptr;
-    delete m_handle;
-    m_handle = nullptr;
 }
 
 QPlatformMenu *QQuickPlatformMenu::handle() const
@@ -214,6 +283,10 @@ void QQuickPlatformMenu::destroy()
 {
     if (!m_handle)
         return;
+
+    // Ensure that all submenus are unparented before we are destroyed,
+    // so that they don't try to access a destroyed menu.
+    unparentSubmenus();
 
     delete m_handle;
     m_handle = nullptr;
@@ -460,6 +533,9 @@ void QQuickPlatformMenu::setTitle(const QString &title)
     if (m_title == title)
         return;
 
+    if (m_menuItem)
+        m_menuItem->setText(title);
+
     m_title = title;
     sync();
     emit titleChanged();
@@ -467,57 +543,48 @@ void QQuickPlatformMenu::setTitle(const QString &title)
 
 /*!
     \qmlproperty url Qt.labs.platform::Menu::iconSource
-
-    This property holds the url of the menu's icon.
-
-    \sa iconName
+    \deprecated Use icon.source instead
 */
 QUrl QQuickPlatformMenu::iconSource() const
 {
-    if (!m_iconLoader)
-        return QUrl();
-
-    return m_iconLoader->iconSource();
+    return icon().source();
 }
 
 void QQuickPlatformMenu::setIconSource(const QUrl& source)
 {
-    if (source == iconSource())
+    QQuickPlatformIcon newIcon = icon();
+    if (source == newIcon.source())
         return;
 
     if (m_menuItem)
         m_menuItem->setIconSource(source);
 
-    iconLoader()->setIconSource(source);
+    newIcon.setSource(source);
+    iconLoader()->setIcon(newIcon);
     emit iconSourceChanged();
 }
 
 /*!
     \qmlproperty string Qt.labs.platform::Menu::iconName
-
-    This property holds the theme name of the menu's icon.
-
-    \sa iconSource, QIcon::fromTheme()
+    \deprecated Use icon.name instead
 */
 QString QQuickPlatformMenu::iconName() const
 {
-    if (!m_iconLoader)
-        return QString();
-
-    return m_iconLoader->iconName();
+    return icon().name();
 }
 
 void QQuickPlatformMenu::setIconName(const QString& name)
 {
-    if (name == iconName())
+    QQuickPlatformIcon newIcon = icon();
+    if (name == newIcon.name())
         return;
 
     if (m_menuItem)
         m_menuItem->setIconName(name);
 
-    iconLoader()->setIconName(name);
-    emit iconNameChanged();
-}
+    newIcon.setName(name);
+    iconLoader()->setIcon(newIcon);
+    emit iconNameChanged();}
 
 /*!
     \qmlproperty font Qt.labs.platform::Menu::font
@@ -539,6 +606,35 @@ void QQuickPlatformMenu::setFont(const QFont& font)
     m_font = font;
     sync();
     emit fontChanged();
+}
+
+/*!
+    \since Qt.labs.platform 1.1 (Qt 5.12)
+    \qmlpropertygroup Qt.labs.platform::MenuItem::icon
+    \qmlproperty url Qt.labs.platform::MenuItem::icon.source
+    \qmlproperty string Qt.labs.platform::MenuItem::icon.name
+    \qmlproperty bool Qt.labs.platform::MenuItem::icon.mask
+
+    This property holds the menu item's icon.
+*/
+QQuickPlatformIcon QQuickPlatformMenu::icon() const
+{
+    if (!m_iconLoader)
+        return QQuickPlatformIcon();
+
+    return iconLoader()->icon();
+}
+
+void QQuickPlatformMenu::setIcon(const QQuickPlatformIcon &icon)
+{
+    if (iconLoader()->icon() == icon)
+        return;
+
+    if (m_menuItem)
+        m_menuItem->setIcon(icon);
+
+    iconLoader()->setIcon(icon);
+    emit iconChanged();
 }
 
 /*!
@@ -837,7 +933,7 @@ void QQuickPlatformMenu::updateIcon()
     if (!m_handle || !m_iconLoader)
         return;
 
-    m_handle->setIcon(m_iconLoader->icon());
+    m_handle->setIcon(m_iconLoader->toQIcon());
     sync();
 }
 

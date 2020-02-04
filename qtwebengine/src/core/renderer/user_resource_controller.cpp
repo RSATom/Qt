@@ -47,16 +47,20 @@
 #include "content/public/renderer/render_frame_observer.h"
 #include "content/public/renderer/render_view_observer.h"
 #include "extensions/common/url_pattern.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebScriptSource.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_script_source.h"
+#include "third_party/blink/public/web/web_view.h"
 #include "v8/include/v8.h"
 
 #include "common/qt_messages.h"
 #include "common/user_script_data.h"
 #include "type_conversion.h"
 #include "user_script.h"
+
+#include <QRegularExpression>
+
+#include <bitset>
 
 Q_GLOBAL_STATIC(UserResourceController, qt_webengine_userResourceController)
 
@@ -65,14 +69,41 @@ static content::RenderView * const globalScriptsIndex = 0;
 // Scripts meant to run after the load event will be run 500ms after DOMContentLoaded if the load event doesn't come within that delay.
 static const int afterLoadTimeout = 500;
 
+static int validUserScriptSchemes()
+{
+    return URLPattern::SCHEME_HTTP | URLPattern::SCHEME_HTTPS | URLPattern::SCHEME_FILE;
+}
+
+static bool regexMatchesURL(const std::string &pat, const GURL &url) {
+    QRegularExpression qre(QtWebEngineCore::toQt(pat));
+    qre.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
+    if (!qre.isValid())
+        return false;
+    return qre.match(QtWebEngineCore::toQt(url.spec())).hasMatch();
+}
+
+static bool includeRuleMatchesURL(const std::string &pat, const GURL &url)
+{
+    // Match patterns for greasemonkey's @include and @exclude rules which can
+    // be either strings with wildcards or regular expressions.
+    if (pat.front() == '/' && pat.back() == '/') {
+        std::string re(++pat.cbegin(), --pat.cend());
+        if (regexMatchesURL(re, url))
+            return true;
+    } else if (base::MatchPattern(url.spec(), pat)) {
+        return true;
+    }
+    return false;
+}
+
 static bool scriptMatchesURL(const UserScriptData &scriptData, const GURL &url) {
     // Logic taken from Chromium (extensions/common/user_script.cc)
     bool matchFound;
     if (!scriptData.urlPatterns.empty()) {
         matchFound = false;
         for (auto it = scriptData.urlPatterns.begin(), end = scriptData.urlPatterns.end(); it != end; ++it) {
-            URLPattern urlPattern(QtWebEngineCore::UserScript::validUserScriptSchemes(), *it);
-            if (urlPattern.MatchesURL(url))
+            URLPattern urlPattern(validUserScriptSchemes());
+            if (urlPattern.Parse(*it) == URLPattern::ParseResult::kSuccess && urlPattern.MatchesURL(url))
                 matchFound = true;
         }
         if (!matchFound)
@@ -82,7 +113,7 @@ static bool scriptMatchesURL(const UserScriptData &scriptData, const GURL &url) 
     if (!scriptData.globs.empty()) {
         matchFound = false;
         for (auto it = scriptData.globs.begin(), end = scriptData.globs.end(); it != end; ++it) {
-            if (base::MatchPattern(url.spec(), *it))
+            if (includeRuleMatchesURL(*it, url))
                 matchFound = true;
         }
         if (!matchFound)
@@ -91,7 +122,7 @@ static bool scriptMatchesURL(const UserScriptData &scriptData, const GURL &url) 
 
     if (!scriptData.excludeGlobs.empty()) {
         for (auto it = scriptData.excludeGlobs.begin(), end = scriptData.excludeGlobs.end(); it != end; ++it) {
-            if (base::MatchPattern(url.spec(), *it))
+            if (includeRuleMatchesURL(*it, url))
                 return false;
         }
     }
@@ -105,12 +136,10 @@ public:
     RenderFrameObserverHelper(content::RenderFrame* render_frame);
 
 private:
-    ~RenderFrameObserverHelper() override;
-
     // RenderFrameObserver implementation.
+    void DidCommitProvisionalLoad(bool is_same_document_navigation, ui::PageTransition transition) override;
     void DidFinishDocumentLoad() override;
     void DidFinishLoad() override;
-    void DidStartProvisionalLoad(blink::WebDataSource* data_source) override;
     void FrameDetached() override;
     void OnDestruct() override;
     bool OnMessageReceived(const IPC::Message& message) override;
@@ -119,12 +148,31 @@ private:
     void onUserScriptRemoved(const UserScriptData &);
     void onScriptsCleared();
 
-    void runScripts(UserScriptData::InjectionPoint, blink::WebLocalFrame *);
+    class Runner;
+    QScopedPointer<Runner> m_runner;
+};
 
-    // Set of frames which are pending to get an AfterLoad invocation of runScripts, if they
-    // haven't gotten it already.
-    QSet<blink::WebLocalFrame *> m_pendingFrames;
-    base::WeakPtrFactory<RenderFrameObserverHelper> m_weakPtrFactory;
+// Helper class to create WeakPtrs so the AfterLoad tasks can be canceled and to
+// avoid running scripts more than once per injection point.
+class UserResourceController::RenderFrameObserverHelper::Runner : public base::SupportsWeakPtr<Runner> {
+public:
+    explicit Runner(blink::WebLocalFrame *frame)
+        : m_frame(frame)
+    {
+    }
+
+    void run(UserScriptData::InjectionPoint p)
+    {
+        DCHECK_LT(p, m_ran.size());
+        if (!m_ran[p]) {
+            UserResourceController::instance()->runScripts(p, m_frame);
+            m_ran[p] = true;
+        }
+    }
+
+private:
+    blink::WebLocalFrame *m_frame;
+    std::bitset<3> m_ran;
 };
 
 // Used only for script cleanup on RenderView destruction.
@@ -136,14 +184,6 @@ private:
     // RenderViewObserver implementation.
     void OnDestruct() override;
 };
-
-void UserResourceController::RenderFrameObserverHelper::runScripts(UserScriptData::InjectionPoint p, blink::WebLocalFrame *frame)
-{
-    if (p == UserScriptData::AfterLoad && !m_pendingFrames.remove(frame))
-        return;
-
-    UserResourceController::instance()->runScripts(p, frame);
-}
 
 void UserResourceController::runScripts(UserScriptData::InjectionPoint p, blink::WebLocalFrame *frame)
 {
@@ -159,7 +199,7 @@ void UserResourceController::runScripts(UserScriptData::InjectionPoint p, blink:
     QList<uint64_t> scriptsToRun = m_viewUserScriptMap.value(0).toList();
     scriptsToRun.append(m_viewUserScriptMap.value(renderView).toList());
 
-    Q_FOREACH (uint64_t id, scriptsToRun) {
+    for (uint64_t id : qAsConst(scriptsToRun)) {
         const UserScriptData &script = m_scripts.value(id);
         if (script.injectionPoint != p
                 || (!script.injectForSubframes && !isMainFrame))
@@ -168,15 +208,10 @@ void UserResourceController::runScripts(UserScriptData::InjectionPoint p, blink:
             continue;
         blink::WebScriptSource source(blink::WebString::FromUTF8(script.source), script.url);
         if (script.worldId)
-            frame->ExecuteScriptInIsolatedWorld(script.worldId, &source, /*numSources = */1, /*contentScriptExtentsionGroup = */ 0);
+            frame->ExecuteScriptInIsolatedWorld(script.worldId, source);
         else
             frame->ExecuteScript(source);
     }
-}
-
-void UserResourceController::RunScriptsAtDocumentStart(content::RenderFrame *render_frame)
-{
-    runScripts(UserScriptData::DocumentElementCreation, render_frame->GetWebFrame());
 }
 
 void UserResourceController::RunScriptsAtDocumentEnd(content::RenderFrame *render_frame)
@@ -185,13 +220,8 @@ void UserResourceController::RunScriptsAtDocumentEnd(content::RenderFrame *rende
 }
 
 UserResourceController::RenderFrameObserverHelper::RenderFrameObserverHelper(content::RenderFrame *render_frame)
-    : content::RenderFrameObserver(render_frame), m_weakPtrFactory(this)
+    : content::RenderFrameObserver(render_frame)
 {
-}
-
-UserResourceController::RenderFrameObserverHelper::~RenderFrameObserverHelper()
-{
-    m_weakPtrFactory.InvalidateWeakPtrs();
 }
 
 UserResourceController::RenderViewObserverHelper::RenderViewObserverHelper(content::RenderView *render_view)
@@ -199,35 +229,46 @@ UserResourceController::RenderViewObserverHelper::RenderViewObserverHelper(conte
 {
 }
 
+void UserResourceController::RenderFrameObserverHelper::DidCommitProvisionalLoad(bool is_same_document_navigation,
+                                                                                 ui::PageTransition /*transitionbool*/)
+{
+    if (is_same_document_navigation)
+        return;
+
+    // We are almost ready to run scripts. We still have to wait until the host
+    // process has been notified of the DidCommitProvisionalLoad event to ensure
+    // that the WebChannelTransportHost is ready to receive messages.
+
+    m_runner.reset(new Runner(render_frame()->GetWebFrame()));
+
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+            FROM_HERE,
+            base::BindOnce(&Runner::run, m_runner->AsWeakPtr(), UserScriptData::DocumentElementCreation));
+}
+
 void UserResourceController::RenderFrameObserverHelper::DidFinishDocumentLoad()
 {
-    blink::WebLocalFrame *frame = render_frame()->GetWebFrame();
-    m_pendingFrames.insert(frame);
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(FROM_HERE, base::Bind(&UserResourceController::RenderFrameObserverHelper::runScripts,
-                                                                               m_weakPtrFactory.GetWeakPtr(), UserScriptData::AfterLoad, frame),
-                                                         base::TimeDelta::FromMilliseconds(afterLoadTimeout));
+    // Don't run scripts if provisional load failed (DidFailProvisionalLoad
+    // called instead of DidCommitProvisionalLoad).
+    if (m_runner)
+        base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+            FROM_HERE,
+            base::BindOnce(&Runner::run, m_runner->AsWeakPtr(), UserScriptData::AfterLoad),
+            base::TimeDelta::FromMilliseconds(afterLoadTimeout));
+
 }
 
 void UserResourceController::RenderFrameObserverHelper::DidFinishLoad()
 {
-    blink::WebLocalFrame *frame = render_frame()->GetWebFrame();
-
-    // DidFinishDocumentLoad always comes before this, so frame has already been marked as pending.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, base::Bind(&UserResourceController::RenderFrameObserverHelper::runScripts,
-                                                                        m_weakPtrFactory.GetWeakPtr(), UserScriptData::AfterLoad, frame));
-}
-
-void UserResourceController::RenderFrameObserverHelper::DidStartProvisionalLoad(blink::WebDataSource *data_source)
-{
-    Q_UNUSED(data_source);
-    blink::WebLocalFrame *frame = render_frame()->GetWebFrame();
-    m_pendingFrames.remove(frame);
+    if (m_runner)
+        base::ThreadTaskRunnerHandle::Get()->PostTask(
+            FROM_HERE,
+            base::BindOnce(&Runner::run, m_runner->AsWeakPtr(), UserScriptData::AfterLoad));
 }
 
 void UserResourceController::RenderFrameObserverHelper::FrameDetached()
 {
-    blink::WebLocalFrame *frame = render_frame()->GetWebFrame();
-    m_pendingFrames.remove(frame);
+    m_runner.reset();
 }
 
 void UserResourceController::RenderFrameObserverHelper::OnDestruct()
@@ -297,7 +338,7 @@ UserResourceController::UserResourceController()
 {
 #if !defined(QT_NO_DEBUG) || defined(QT_FORCE_ASSERTS)
     static bool onlyCalledOnce = true;
-    Q_ASSERT(onlyCalledOnce);
+    DCHECK(onlyCalledOnce);
     onlyCalledOnce = false;
 #endif // !defined(QT_NO_DEBUG) || defined(QT_FORCE_ASSERTS)
 }
@@ -319,7 +360,7 @@ void UserResourceController::renderViewDestroyed(content::RenderView *renderView
     ViewUserScriptMap::iterator it = m_viewUserScriptMap.find(renderView);
     if (it == m_viewUserScriptMap.end()) // ASSERT maybe?
         return;
-    Q_FOREACH (uint64_t id, it.value()) {
+    for (uint64_t id : qAsConst(it.value())) {
         m_scripts.remove(id);
     }
     m_viewUserScriptMap.remove(renderView);
@@ -350,7 +391,7 @@ void UserResourceController::clearScriptsForView(content::RenderView *view)
     ViewUserScriptMap::iterator it = m_viewUserScriptMap.find(view);
     if (it == m_viewUserScriptMap.end())
         return;
-    Q_FOREACH (uint64_t id, it.value())
+    for (uint64_t id : qAsConst(it.value()))
         m_scripts.remove(id);
 
     m_viewUserScriptMap.remove(view);

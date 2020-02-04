@@ -1,7 +1,7 @@
 ﻿// © 2016 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html#License
 cs{
-    Version{"2.1.32.59"}
+    Version{"2.1.44.91"}
     durationUnits{
         hm{"h:mm"}
         hms{"h:mm:ss"}
@@ -163,6 +163,20 @@ cs{
                 one{"{0} díl z milionu"}
                 other{"{0} dílů z milionu"}
             }
+            percent{
+                dnam{"procenta"}
+                few{"{0} procenta"}
+                many{"{0} procenta"}
+                one{"{0} procento"}
+                other{"{0} procent"}
+            }
+            permille{
+                dnam{"promile"}
+                few{"{0} promile"}
+                many{"{0} promile"}
+                one{"{0} promile"}
+                other{"{0} promile"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -195,6 +209,7 @@ cs{
             }
         }
         coordinate{
+            dnam{"světová strana"}
             east{"{0} východní délky"}
             north{"{0} severní šířky"}
             south{"{0} jižní šířky"}
@@ -256,6 +271,13 @@ cs{
                 many{"{0} megabajtu"}
                 one{"{0} megabajt"}
                 other{"{0} megabajtů"}
+            }
+            petabyte{
+                dnam{"petabajty"}
+                few{"{0} petabajty"}
+                many{"{0} petabajtu"}
+                one{"{0} petabajt"}
+                other{"{0} petabajtů"}
             }
             terabit{
                 dnam{"terabity"}
@@ -594,6 +616,13 @@ cs{
                 one{"{0} pikometr"}
                 other{"{0} pikometrů"}
             }
+            point{
+                dnam{"body"}
+                few{"{0} body"}
+                many{"{0} bodu"}
+                one{"{0} bod"}
+                other{"{0} bodů"}
+            }
             yard{
                 dnam{"yardy"}
                 few{"{0} yardy"}
@@ -739,6 +768,13 @@ cs{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atmosféry"}
+                few{"{0} atmosféry"}
+                many{"{0} atmosféry"}
+                one{"{0} atmosféra"}
+                other{"{0} atmosfér"}
+            }
             hectopascal{
                 dnam{"hektopascaly"}
                 few{"{0} hektopascaly"}
@@ -1064,6 +1100,13 @@ cs{
                 one{"{0} rad"}
                 other{"{0} rad"}
             }
+            revolution{
+                dnam{"ot."}
+                few{"{0} ot."}
+                many{"{0} ot."}
+                one{"{0} ot."}
+                other{"{0} ot."}
+            }
         }
         area{
             acre{
@@ -1086,6 +1129,7 @@ cs{
                 many{"{0} cm²"}
                 one{"{0} cm²"}
                 other{"{0} cm²"}
+                per{"{0}/cm²"}
             }
             square-foot{
                 dnam{"ft²"}
@@ -1100,6 +1144,7 @@ cs{
                 many{"{0} in²"}
                 one{"{0} in²"}
                 other{"{0} in²"}
+                per{"{0}/in²"}
             }
             square-kilometer{
                 dnam{"km²"}
@@ -1107,6 +1152,7 @@ cs{
                 many{"{0} km²"}
                 one{"{0} km²"}
                 other{"{0} km²"}
+                per{"{0}/km²"}
             }
             square-meter{
                 dnam{"m²"}
@@ -1114,6 +1160,7 @@ cs{
                 many{"{0} m²"}
                 one{"{0} m²"}
                 other{"{0} m²"}
+                per{"{0}/m²"}
             }
             square-mile{
                 dnam{"mi²"}
@@ -1121,6 +1168,7 @@ cs{
                 many{"{0} mi²"}
                 one{"{0} mi²"}
                 other{"{0} mi²"}
+                per{"{0}/mi²"}
             }
             square-yard{
                 dnam{"yd²"}
@@ -1140,6 +1188,34 @@ cs{
                 many{"{0} kt"}
                 one{"{0} kt"}
                 other{"{0} kt"}
+            }
+            milligram-per-deciliter{
+                dnam{"mg/dl"}
+                few{"{0} mg/dl"}
+                many{"{0} mg/dl"}
+                one{"{0} mg/dl"}
+                other{"{0} mg/dl"}
+            }
+            millimole-per-liter{
+                dnam{"mmol/l"}
+                few{"{0} mmol/l"}
+                many{"{0} mmol/l"}
+                one{"{0} mmol/l"}
+                other{"{0} mmol/l"}
+            }
+            part-per-million{
+                dnam{"ppm"}
+                few{"{0} ppm"}
+                many{"{0} ppm"}
+                one{"{0} ppm"}
+                other{"{0} ppm"}
+            }
+            percent{
+                dnam{"%"}
+                few{"{0} %"}
+                many{"{0} %"}
+                one{"{0} %"}
+                other{"{0} %"}
             }
         }
         consumption{
@@ -1164,8 +1240,12 @@ cs{
                 one{"{0} mpg"}
                 other{"{0} mpg"}
             }
+            mile-per-gallon-imperial{
+                dnam{"mpg Imp."}
+            }
         }
         coordinate{
+            dnam{"směr"}
             east{"{0}E"}
             north{"{0}N"}
             south{"{0}S"}
@@ -1244,12 +1324,20 @@ cs{
             }
         }
         duration{
+            century{
+                dnam{"stol."}
+                few{"{0} stol."}
+                many{"{0} stol."}
+                one{"{0} stol."}
+                other{"{0} stol."}
+            }
             day{
                 dnam{"d"}
                 few{"{0} d"}
                 many{"{0} d"}
                 one{"{0} d"}
                 other{"{0} d"}
+                per{"{0}/d"}
             }
             hour{
                 dnam{"h"}
@@ -1279,6 +1367,7 @@ cs{
                 many{"{0} m"}
                 one{"{0} m"}
                 other{"{0} m"}
+                per{"{0}/m"}
             }
             month{
                 dnam{"m"}
@@ -1286,6 +1375,7 @@ cs{
                 many{"{0} m"}
                 one{"{0} m"}
                 other{"{0} m"}
+                per{"{0}/měs."}
             }
             nanosecond{
                 dnam{"ns"}
@@ -1308,6 +1398,7 @@ cs{
                 many{"{0} t"}
                 one{"{0} t"}
                 other{"{0} t"}
+                per{"{0}/týd."}
             }
             year{
                 dnam{"r"}
@@ -1315,6 +1406,7 @@ cs{
                 many{"{0} r"}
                 one{"{0} r"}
                 other{"{0} r"}
+                per{"{0}/r"}
             }
         }
         electric{
@@ -1435,6 +1527,7 @@ cs{
                 many{"{0} cm"}
                 one{"{0} cm"}
                 other{"{0} cm"}
+                per{"{0}/cm"}
             }
             decimeter{
                 dnam{"dm"}
@@ -1445,10 +1538,10 @@ cs{
             }
             fathom{
                 dnam{"fm"}
-                few{"{0} fm"}
-                many{"{0} fm"}
-                one{"{0} fm"}
-                other{"{0} fm"}
+                few{"{0} fth"}
+                many{"{0} fth"}
+                one{"{0} fth"}
+                other{"{0} fth"}
             }
             foot{
                 dnam{"ft"}
@@ -1456,6 +1549,7 @@ cs{
                 many{"{0}′"}
                 one{"{0}′"}
                 other{"{0}′"}
+                per{"{0}/ft"}
             }
             furlong{
                 dnam{"fur"}
@@ -1470,6 +1564,7 @@ cs{
                 many{"{0}″"}
                 one{"{0}″"}
                 other{"{0}″"}
+                per{"{0}/in"}
             }
             kilometer{
                 dnam{"km"}
@@ -1477,6 +1572,7 @@ cs{
                 many{"{0} km"}
                 one{"{0} km"}
                 other{"{0} km"}
+                per{"{0}/km"}
             }
             light-year{
                 dnam{"ly"}
@@ -1491,6 +1587,7 @@ cs{
                 many{"{0} m"}
                 one{"{0} m"}
                 other{"{0} m"}
+                per{"{0}/m"}
             }
             micrometer{
                 dnam{"µm"}
@@ -1505,6 +1602,13 @@ cs{
                 many{"{0} mi"}
                 one{"{0} mi"}
                 other{"{0} mi"}
+            }
+            mile-scandinavian{
+                dnam{"smi"}
+                few{"{0} smi"}
+                many{"{0} smi"}
+                one{"{0} smi"}
+                other{"{0} smi"}
             }
             millimeter{
                 dnam{"mm"}
@@ -1541,6 +1645,13 @@ cs{
                 one{"{0} pm"}
                 other{"{0} pm"}
             }
+            point{
+                dnam{"pt"}
+                few{"{0} pt"}
+                many{"{0} pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
+            }
             yard{
                 dnam{"yd"}
                 few{"{0} yd"}
@@ -1572,6 +1683,7 @@ cs{
                 many{"{0} g"}
                 one{"{0} g"}
                 other{"{0} g"}
+                per{"{0}/g"}
             }
             kilogram{
                 dnam{"kg"}
@@ -1579,6 +1691,7 @@ cs{
                 many{"{0} kg"}
                 one{"{0} kg"}
                 other{"{0} kg"}
+                per{"{0}/kg"}
             }
             metric-ton{
                 dnam{"mt"}
@@ -1607,6 +1720,7 @@ cs{
                 many{"{0} oz"}
                 one{"{0} oz"}
                 other{"{0} oz"}
+                per{"{0}/oz"}
             }
             ounce-troy{
                 dnam{"oz t"}
@@ -1621,6 +1735,7 @@ cs{
                 many{"{0} lb"}
                 one{"{0} lb"}
                 other{"{0} lb"}
+                per{"{0}/lb"}
             }
             stone{
                 dnam{"st"}
@@ -1763,6 +1878,13 @@ cs{
                 one{"{0} °F"}
                 other{"{0} °F"}
             }
+            generic{
+                dnam{"°"}
+                few{"{0}°"}
+                many{"{0}°"}
+                one{"{0}°"}
+                other{"{0}°"}
+            }
             kelvin{
                 dnam{"K"}
                 few{"{0} K"}
@@ -1773,6 +1895,7 @@ cs{
         }
         volume{
             acre-foot{
+                dnam{"ac ft"}
                 few{"{0} ac ft"}
                 many{"{0} ac ft"}
                 one{"{0} ac ft"}
@@ -1878,6 +2001,9 @@ cs{
                 one{"{0} gal"}
                 other{"{0} gal"}
                 per{"{0}/gal"}
+            }
+            gallon-imperial{
+                dnam{"gal Imp."}
             }
             hectoliter{
                 dnam{"hl"}
@@ -2101,6 +2227,20 @@ cs{
                 one{"{0} ppm"}
                 other{"{0} ppm"}
             }
+            percent{
+                dnam{"%"}
+                few{"{0} %"}
+                many{"{0} %"}
+                one{"{0} %"}
+                other{"{0} %"}
+            }
+            permille{
+                dnam{"‰"}
+                few{"{0} ‰"}
+                many{"{0} ‰"}
+                one{"{0} ‰"}
+                other{"{0} ‰"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -2133,6 +2273,7 @@ cs{
             }
         }
         coordinate{
+            dnam{"směr"}
             east{"{0} v. d."}
             north{"{0} s. š."}
             south{"{0} j. š."}
@@ -2194,6 +2335,13 @@ cs{
                 many{"{0} MB"}
                 one{"{0} MB"}
                 other{"{0} MB"}
+            }
+            petabyte{
+                dnam{"PB"}
+                few{"{0} PB"}
+                many{"{0} PB"}
+                one{"{0} PB"}
+                other{"{0} PB"}
             }
             terabit{
                 dnam{"Tb"}
@@ -2425,10 +2573,10 @@ cs{
             }
             fathom{
                 dnam{"fm"}
-                few{"{0} fm"}
-                many{"{0} fm"}
-                one{"{0} fm"}
-                other{"{0} fm"}
+                few{"{0} fth"}
+                many{"{0} fth"}
+                one{"{0} fth"}
+                other{"{0} fth"}
             }
             foot{
                 dnam{"ft"}
@@ -2531,6 +2679,13 @@ cs{
                 many{"{0} pm"}
                 one{"{0} pm"}
                 other{"{0} pm"}
+            }
+            point{
+                dnam{"pt"}
+                few{"{0} pt"}
+                many{"{0} pt"}
+                one{"{0} pt"}
+                other{"{0} pt"}
             }
             yard{
                 dnam{"yd"}
@@ -2677,6 +2832,13 @@ cs{
             }
         }
         pressure{
+            atmosphere{
+                dnam{"atm"}
+                few{"{0} atm"}
+                many{"{0} atm"}
+                one{"{0} atm"}
+                other{"{0} atm"}
+            }
             hectopascal{
                 dnam{"hPa"}
                 few{"{0} hPa"}

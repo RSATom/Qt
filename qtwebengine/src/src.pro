@@ -1,5 +1,5 @@
-include($$QTWEBENGINE_OUT_ROOT/qtwebengine-config.pri)
-QT_FOR_CONFIG += webengine webengine-private
+include($$QTWEBENGINE_OUT_ROOT/src/core/qtwebenginecore-config.pri)
+QT_FOR_CONFIG += webenginecore webenginecore-private
 
 TEMPLATE = subdirs
 
@@ -14,11 +14,7 @@ core.depends = buildtools
 
 SUBDIRS += buildtools \
            core \
-           process \
-           webengine \
-           webengine_plugin \
-           plugins
-
+           process
 
 qtConfig(webengine-spellchecker):!qtConfig(webengine-native-spellchecker):!cross_compile {
     SUBDIRS += qwebengine_convert_dict
@@ -26,19 +22,11 @@ qtConfig(webengine-spellchecker):!qtConfig(webengine-native-spellchecker):!cross
     qwebengine_convert_dict.depends = core
 }
 
-qtConfig(webengine-testsupport) {
-    webengine_testsupport_plugin.subdir = webengine/plugin/testsupport
-    webengine_testsupport_plugin.target = sub-webengine-testsupport-plugin
-    webengine_testsupport_plugin.depends = webengine
-    SUBDIRS += webengine_testsupport_plugin
+qtConfig(webengine-qml) {
+   SUBDIRS += webengine
 }
 
-qtConfig(webengine-ui-delegates) {
-    SUBDIRS += webengine/ui \
-               webengine/ui2
-}
-
-qtHaveModule(widgets) {
-   SUBDIRS += webenginewidgets
+qtConfig(webengine-widgets) {
+   SUBDIRS += plugins webenginewidgets
    plugins.depends = webenginewidgets
 }

@@ -64,9 +64,14 @@
 #include <QtCore/QTime>
 #include <private/qobject_p.h>
 
+#include "qwebsocket.h"
 #include "qwebsocketprotocol.h"
 #include "qwebsocketdataprocessor_p.h"
 #include "qdefaultmaskgenerator_p.h"
+
+#ifdef Q_OS_WASM
+#include <emscripten/val.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -102,9 +107,8 @@ class QWebSocketPrivate : public QObjectPrivate
 public:
     Q_DECLARE_PUBLIC(QWebSocket)
     explicit QWebSocketPrivate(const QString &origin,
-                               QWebSocketProtocol::Version version,
-                               QWebSocket * const pWebSocket);
-    virtual ~QWebSocketPrivate();
+                               QWebSocketProtocol::Version version);
+    ~QWebSocketPrivate() override;
 
     void init();
     void abort();
@@ -154,12 +158,10 @@ public:
     void close(QWebSocketProtocol::CloseCode closeCode, QString reason);
     void open(const QNetworkRequest &request, bool mask);
     void ping(const QByteArray &payload);
-
-    QWebSocket * const q_ptr;
+    void setSocketState(QAbstractSocket::SocketState state);
 
 private:
-    QWebSocketPrivate(QTcpSocket *pTcpSocket, QWebSocketProtocol::Version version,
-                      QWebSocket *pWebSocket);
+    QWebSocketPrivate(QTcpSocket *pTcpSocket, QWebSocketProtocol::Version version);
     void setVersion(QWebSocketProtocol::Version version);
     void setResourceName(const QString &resourceName);
     void setRequest(const QNetworkRequest &request);
@@ -167,7 +169,6 @@ private:
     void setProtocol(const QString &protocol);
     void setExtension(const QString &extension);
     void enableMasking(bool enable);
-    void setSocketState(QAbstractSocket::SocketState state);
     void setErrorString(const QString &errorString);
 
     void socketDestroyed(QObject *socket);
@@ -199,7 +200,7 @@ private:
     upgradeFrom(QTcpSocket *tcpSocket,
                 const QWebSocketHandshakeRequest &request,
                 const QWebSocketHandshakeResponse &response,
-                QObject *parent = Q_NULLPTR);
+                QObject *parent = nullptr);
 
     quint32 generateMaskingKey() const;
     QByteArray generateKey() const;
@@ -250,6 +251,9 @@ private:
     QMap<QString, QString> m_headers;
 
     friend class QWebSocketServerPrivate;
+#ifdef Q_OS_WASM
+    emscripten::val socketContext = emscripten::val::null();
+#endif
 };
 
 QT_END_NAMESPACE

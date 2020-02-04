@@ -82,11 +82,6 @@ QT_END_NAMESPACE
 // RFCOMM or L2CAP protocol. It must be deleted to stop listening.
 
 @interface QT_MANGLE_NAMESPACE(OSXBTSocketListener) : NSObject
-{
-    IOBluetoothUserNotification *connectionNotification;
-    QT_PREPEND_NAMESPACE(OSXBluetooth::SocketListener) *delegate;
-    quint16 port;
-}
 
 - (id)initWithListener:(QT_PREPEND_NAMESPACE(OSXBluetooth::SocketListener) *)aDelegate;
 - (void)dealloc;

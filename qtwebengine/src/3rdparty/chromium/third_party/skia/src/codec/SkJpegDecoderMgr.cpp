@@ -9,6 +9,10 @@
 
 #include "SkJpegUtility.h"
 
+#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
+    #include "SkAndroidFrameworkUtils.h"
+#endif
+
 /*
  * Print information, warning, and error messages
  */
@@ -55,6 +59,9 @@ bool JpegDecoderMgr::getEncodedColor(SkEncodedInfo::Color* outColor) {
             *outColor = SkEncodedInfo::kYUV_Color;
             return true;
         case JCS_RGB:
+#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
+            SkAndroidFrameworkUtils::SafetyNetLog("118372692");
+#endif
             *outColor = SkEncodedInfo::kRGB_Color;
             return true;
         case JCS_YCCK:
@@ -90,12 +97,4 @@ JpegDecoderMgr::~JpegDecoderMgr() {
     if (fInit) {
         jpeg_destroy_decompress(&fDInfo);
     }
-}
-
-jmp_buf& JpegDecoderMgr::getJmpBuf() {
-    return fErrorMgr.fJmpBuf;
-}
-
-jpeg_decompress_struct* JpegDecoderMgr::dinfo() {
-    return &fDInfo;
 }

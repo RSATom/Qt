@@ -59,6 +59,8 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickCheckDelegate : public QQuickItemDe
     Q_OBJECT
     Q_PROPERTY(bool tristate READ isTristate WRITE setTristate NOTIFY tristateChanged FINAL)
     Q_PROPERTY(Qt::CheckState checkState READ checkState WRITE setCheckState NOTIFY checkStateChanged FINAL)
+    // 2.4 (Qt 5.11)
+    Q_PRIVATE_PROPERTY(QQuickCheckDelegate::d_func(), QJSValue nextCheckState MEMBER nextCheckState WRITE setNextCheckState NOTIFY nextCheckStateChanged FINAL REVISION 4)
 
 public:
     explicit QQuickCheckDelegate(QQuickItem *parent = nullptr);
@@ -72,9 +74,12 @@ public:
 Q_SIGNALS:
     void tristateChanged();
     void checkStateChanged();
+    // 2.4 (Qt 5.11)
+    Q_REVISION(4) void nextCheckStateChanged();
 
 protected:
     QFont defaultFont() const override;
+    QPalette defaultPalette() const override;
 
     void buttonChange(ButtonChange change) override;
     void nextCheckState() override;

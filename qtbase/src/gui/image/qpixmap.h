@@ -65,7 +65,7 @@ public:
     explicit QPixmap(QPlatformPixmap *data);
     QPixmap(int w, int h);
     explicit QPixmap(const QSize &);
-    QPixmap(const QString& fileName, const char *format = Q_NULLPTR, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    QPixmap(const QString& fileName, const char *format = nullptr, Qt::ImageConversionFlags flags = Qt::AutoColor);
 #ifndef QT_NO_IMAGEFORMAT_XPM
     explicit QPixmap(const char * const xpm[]);
 #endif
@@ -83,7 +83,7 @@ public:
     operator QVariant() const;
 
     bool isNull() const;
-    int devType() const Q_DECL_OVERRIDE;
+    int devType() const override;
 
     int width() const;
     int height() const;
@@ -94,8 +94,12 @@ public:
     static int defaultDepth();
 
     void fill(const QColor &fillColor = Qt::white);
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QPainter or fill(QColor)")
     void fill(const QPaintDevice *device, const QPoint &ofs);
-    inline void fill(const QPaintDevice *device, int xofs, int yofs) { fill(device, QPoint(xofs, yofs)); }
+    QT_DEPRECATED_X("Use QPainter or fill(QColor)")
+    void fill(const QPaintDevice *device, int xofs, int yofs);
+#endif
 
     QBitmap mask() const;
     void setMask(const QBitmap &);
@@ -111,10 +115,14 @@ public:
 #endif
     QBitmap createMaskFromColor(const QColor &maskColor, Qt::MaskMode mode = Qt::MaskInColor) const;
 
-    static QPixmap grabWindow(WId, int x=0, int y=0, int w=-1, int h=-1);
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QScreen::grabWindow() instead")
+    static QPixmap grabWindow(WId, int x = 0, int y = 0, int w = -1, int h = -1);
+    QT_DEPRECATED_X("Use QWidget::grab() instead")
     static QPixmap grabWidget(QObject *widget, const QRect &rect);
-    static inline QPixmap grabWidget(QObject *widget, int x=0, int y=0, int w=-1, int h=-1)
-    { return grabWidget(widget, QRect(x, y, w, h)); }
+    QT_DEPRECATED_X("Use QWidget::grab() instead")
+    static QPixmap grabWidget(QObject *widget, int x = 0, int y = 0, int w = -1, int h = -1);
+#endif
 
     inline QPixmap scaled(int w, int h, Qt::AspectRatioMode aspectMode = Qt::IgnoreAspectRatio,
                           Qt::TransformationMode mode = Qt::FastTransformation) const
@@ -138,19 +146,19 @@ public:
     }
 #endif
 
-    bool load(const QString& fileName, const char *format = Q_NULLPTR, Qt::ImageConversionFlags flags = Qt::AutoColor);
-    bool loadFromData(const uchar *buf, uint len, const char* format = Q_NULLPTR, Qt::ImageConversionFlags flags = Qt::AutoColor);
-    inline bool loadFromData(const QByteArray &data, const char* format = Q_NULLPTR, Qt::ImageConversionFlags flags = Qt::AutoColor);
-    bool save(const QString& fileName, const char* format = Q_NULLPTR, int quality = -1) const;
-    bool save(QIODevice* device, const char* format = Q_NULLPTR, int quality = -1) const;
+    bool load(const QString& fileName, const char *format = nullptr, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    bool loadFromData(const uchar *buf, uint len, const char* format = nullptr, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    inline bool loadFromData(const QByteArray &data, const char* format = nullptr, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    bool save(const QString& fileName, const char* format = nullptr, int quality = -1) const;
+    bool save(QIODevice* device, const char* format = nullptr, int quality = -1) const;
 
     bool convertFromImage(const QImage &img, Qt::ImageConversionFlags flags = Qt::AutoColor);
 
     inline QPixmap copy(int x, int y, int width, int height) const;
     QPixmap copy(const QRect &rect = QRect()) const;
 
-    inline void scroll(int dx, int dy, int x, int y, int width, int height, QRegion *exposed = Q_NULLPTR);
-    void scroll(int dx, int dy, const QRect &rect, QRegion *exposed = Q_NULLPTR);
+    inline void scroll(int dx, int dy, int x, int y, int width, int height, QRegion *exposed = nullptr);
+    void scroll(int dx, int dy, const QRect &rect, QRegion *exposed = nullptr);
 
 #if QT_DEPRECATED_SINCE(5, 0)
     QT_DEPRECATED inline int serialNumber() const { return cacheKey() >> 32; }
@@ -162,7 +170,7 @@ public:
 
     bool isQBitmap() const;
 
-    QPaintEngine *paintEngine() const Q_DECL_OVERRIDE;
+    QPaintEngine *paintEngine() const override;
 
     inline bool operator!() const { return isNull(); }
 
@@ -172,7 +180,7 @@ public:
 #endif
 
 protected:
-    int metric(PaintDeviceMetric) const Q_DECL_OVERRIDE;
+    int metric(PaintDeviceMetric) const override;
     static QPixmap fromImageInPlace(QImage &image, Qt::ImageConversionFlags flags = Qt::AutoColor);
 
 private:

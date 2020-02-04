@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtspeech.qdocconf)
 
 project = QtSpeech
 description = Qt Text-To-Speech library
@@ -11,6 +12,10 @@ imagedirs += images
 
 exampledirs += \
               ../../examples/speech
+
+moduleheader = QtSpeechDoc
+
+includepaths = -I .
 
 examplesinstallpath = speech
 

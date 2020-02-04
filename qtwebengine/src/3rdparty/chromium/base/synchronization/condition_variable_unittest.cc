@@ -201,9 +201,9 @@ void BackInTime(Lock* lock) {
   AutoLock auto_lock(*lock);
 
   timeval tv;
-  gettimeofday(&tv, NULL);
+  gettimeofday(&tv, nullptr);
   tv.tv_sec -= kDiscontinuitySeconds;
-  settimeofday(&tv, NULL);
+  settimeofday(&tv, nullptr);
 }
 
 // Tests that TimedWait ignores changes to the system clock.
@@ -212,9 +212,9 @@ void BackInTime(Lock* lock) {
 // http://crbug.com/293736
 TEST_F(ConditionVariableTest, DISABLED_TimeoutAcrossSetTimeOfDay) {
   timeval tv;
-  gettimeofday(&tv, NULL);
+  gettimeofday(&tv, nullptr);
   tv.tv_sec += kDiscontinuitySeconds;
-  if (settimeofday(&tv, NULL) < 0) {
+  if (settimeofday(&tv, nullptr) < 0) {
     PLOG(ERROR) << "Could not set time of day. Run as root?";
     return;
   }
@@ -245,10 +245,10 @@ TEST_F(ConditionVariableTest, DISABLED_TimeoutAcrossSetTimeOfDay) {
 }
 #endif
 
-
 // Suddenly got flaky on Win, see http://crbug.com/10607 (starting at
 // comment #15).
-#if defined(OS_WIN)
+// This is also flaky on Fuchsia, see http://crbug.com/738275.
+#if defined(OS_WIN) || defined(OS_FUCHSIA)
 #define MAYBE_MultiThreadConsumerTest DISABLED_MultiThreadConsumerTest
 #else
 #define MAYBE_MultiThreadConsumerTest MultiThreadConsumerTest
@@ -398,7 +398,13 @@ TEST_F(ConditionVariableTest, MAYBE_MultiThreadConsumerTest) {
                                    queue.ThreadSafeCheckShutdown(kThreadCount));
 }
 
-TEST_F(ConditionVariableTest, LargeFastTaskTest) {
+#if defined(OS_FUCHSIA)
+// TODO(crbug.com/751894): This flakily times out on Fuchsia.
+#define MAYBE_LargeFastTaskTest DISABLED_LargeFastTaskTest
+#else
+#define MAYBE_LargeFastTaskTest LargeFastTaskTest
+#endif
+TEST_F(ConditionVariableTest, MAYBE_LargeFastTaskTest) {
   const int kThreadCount = 200;
   WorkQueue queue(kThreadCount);  // Start the threads.
 

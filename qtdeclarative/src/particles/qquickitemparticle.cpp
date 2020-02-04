@@ -50,7 +50,7 @@ QT_BEGIN_NAMESPACE
     \instantiates QQuickItemParticle
     \inqmlmodule QtQuick.Particles
     \inherits ParticlePainter
-    \brief For specifying a delegate to paint particles
+    \brief For specifying a delegate to paint particles.
     \ingroup qtquick-particles
 
 */
@@ -59,32 +59,38 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod QtQuick.Particles::ItemParticle::freeze(Item item)
 
-    Suspends the flow of time for the logical particle which item represents, allowing you to control its movement.
+    Suspends the flow of time for the logical particle which \a item represents,
+    allowing you to control its movement.
 */
 
 /*!
     \qmlmethod QtQuick.Particles::ItemParticle::unfreeze(Item item)
 
-    Restarts the flow of time for the logical particle which item represents, allowing it to be moved by the particle system again.
+    Restarts the flow of time for the logical particle which \a item represents,
+    allowing it to be moved by the particle system again.
 */
 
 /*!
     \qmlmethod QtQuick.Particles::ItemParticle::take(Item item, bool prioritize)
 
-    Asks the ItemParticle to take over control of item positioning temporarily.
+    Asks the ItemParticle to take over control of \a item positioning temporarily.
     It will follow the movement of a logical particle when one is available.
 
-    By default items form a queue when waiting for a logical particle, but if prioritize is true then it will go immediately to the
-    head of the queue.
+    By default items form a queue when waiting for a logical particle, but if
+    \a prioritize is \c true, then it will go immediately to the head of the
+    queue.
 
     ItemParticle does not take ownership of the item, and will relinquish
     control when the logical particle expires. Commonly at this point you will
     want to put it back in the queue, you can do this with the below line in
     the delegate definition:
+
     \code
     ItemParticle.onDetached: itemParticleInstance.take(delegateRootItem);
     \endcode
+
     or delete it, such as with the below line in the delegate definition:
+
     \code
     ItemParticle.onDetached: delegateRootItem.destroy();
     \endcode
@@ -93,7 +99,9 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod QtQuick.Particles::ItemParticle::give(Item item)
 
-    Orders the ItemParticle to give you control of the item. It will cease controlling it and the item will lose its association to the logical particle.
+    Orders the ItemParticle to give you control of the \a item. It will cease
+    controlling it and the item will lose its association to the logical
+    particle.
 */
 
 /*!
@@ -118,7 +126,7 @@ QT_BEGIN_NAMESPACE
 */
 
 QQuickItemParticle::QQuickItemParticle(QQuickItem *parent) :
-    QQuickParticlePainter(parent), m_fade(true), m_lastT(0), m_activeCount(0), m_delegate(0)
+    QQuickParticlePainter(parent), m_fade(true), m_lastT(0), m_activeCount(0), m_delegate(nullptr)
 {
     setFlag(QQuickItem::ItemHasContents);
     clock = new Clock(this);
@@ -195,7 +203,7 @@ void QQuickItemParticle::tick(int time)
         //remove old item from the particle that is dying to make room for this one
         if (d->delegate) {
             m_deletables << d->delegate;
-            d->delegate = 0;
+            d->delegate = nullptr;
         }
         if (!m_pendingItems.isEmpty()){
             d->delegate = m_pendingItems.front();
@@ -289,7 +297,7 @@ void QQuickItemParticle::prepareNextFrame()
             }
             if (t >= 1.0f){//Usually happens from load
                 m_deletables << item;
-                data->delegate = 0;
+                data->delegate = nullptr;
             }else{//Fade
                 data->delegate->setVisible(true);
                 if (m_fade){

@@ -2,18 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/extensions/api/image_writer_private/operation.h"
+
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/image_writer_private/error_messages.h"
-#include "chrome/browser/extensions/api/image_writer_private/operation.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation_manager.h"
 #include "chrome/browser/extensions/api/image_writer_private/test_utils.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/zlib/google/zip.h"
@@ -29,6 +30,19 @@ using testing::AtLeast;
 using testing::Gt;
 using testing::Lt;
 
+#if !defined(OS_CHROMEOS)
+
+void SetUpUtilityClientProgressOnVerifyWrite(
+    const std::vector<int>& progress_list,
+    bool will_succeed,
+    FakeImageWriterClient* client) {
+  client->SimulateProgressOnVerifyWrite(progress_list, will_succeed);
+}
+
+#endif  // !defined(OS_CHROMEOS)
+
+}  // namespace
+
 // This class gives us a generic Operation with the ability to set or inspect
 // the current path to the image file.
 class OperationForTest : public Operation {
@@ -37,22 +51,31 @@ class OperationForTest : public Operation {
                    const ExtensionId& extension_id,
                    const std::string& device_path,
                    const base::FilePath& download_path)
-      : Operation(manager_, extension_id, device_path, download_path) {}
+      : Operation(manager_,
+                  /*connector=*/nullptr,
+                  extension_id,
+                  device_path,
+                  download_path) {}
 
   void StartImpl() override {}
 
   // Expose internal stages for testing.
+  // Also wraps Operation's methods to run on correct sequence.
   void Unzip(const base::Closure& continuation) {
-    Operation::Unzip(continuation);
+    PostTask(base::BindOnce(&Operation::Unzip, this, continuation));
   }
 
   void Write(const base::Closure& continuation) {
-    Operation::Write(continuation);
+    PostTask(base::BindOnce(&Operation::Write, this, continuation));
   }
 
   void VerifyWrite(const base::Closure& continuation) {
-    Operation::VerifyWrite(continuation);
+    PostTask(base::BindOnce(&Operation::VerifyWrite, this, continuation));
   }
+
+  void Start() { PostTask(base::BindOnce(&Operation::Start, this)); }
+
+  void Cancel() { PostTask(base::BindOnce(&Operation::Cancel, this)); }
 
   // Helpers to set-up state for intermediate stages.
   void SetImagePath(const base::FilePath image_path) {
@@ -93,7 +116,10 @@ class ImageWriterOperationTest : public ImageWriterUnitTestBase {
 
   void TearDown() override {
     // Ensure all callbacks have been destroyed and cleanup occurs.
+
+    // Cancel() will ensure we Shutdown() FakeImageWriterClient.
     operation_->Cancel();
+    thread_bundle_.RunUntilIdle();
 
     ImageWriterUnitTestBase::TearDown();
   }
@@ -107,8 +133,6 @@ class ImageWriterOperationTest : public ImageWriterUnitTestBase {
   scoped_refptr<OperationForTest> operation_;
 };
 
-} // namespace
-
 // Unizpping a non-zip should do nothing.
 TEST_F(ImageWriterOperationTest, UnzipNonZipFile) {
   EXPECT_CALL(manager_, OnProgress(kDummyExtensionId, _, _)).Times(0);
@@ -118,12 +142,9 @@ TEST_F(ImageWriterOperationTest, UnzipNonZipFile) {
   EXPECT_CALL(manager_, OnComplete(kDummyExtensionId)).Times(0);
 
   operation_->Start();
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE, FROM_HERE,
-      base::BindOnce(&OperationForTest::Unzip, operation_,
-                     base::Bind(&base::DoNothing)));
-
-  base::RunLoop().RunUntilIdle();
+  base::RunLoop run_loop;
+  operation_->Unzip(run_loop.QuitClosure());
+  run_loop.Run();
 }
 
 TEST_F(ImageWriterOperationTest, UnzipZipFile) {
@@ -141,18 +162,26 @@ TEST_F(ImageWriterOperationTest, UnzipZipFile) {
   operation_->SetImagePath(zip_file_);
 
   operation_->Start();
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE, FROM_HERE,
-      base::BindOnce(&OperationForTest::Unzip, operation_,
-                     base::Bind(&base::DoNothing)));
-
-  base::RunLoop().RunUntilIdle();
+  base::RunLoop run_loop;
+  operation_->Unzip(run_loop.QuitClosure());
+  run_loop.Run();
 
   EXPECT_TRUE(base::ContentsEqual(image_path_, operation_->GetImagePath()));
 }
 
 #if defined(OS_LINUX)
 TEST_F(ImageWriterOperationTest, WriteImageToDevice) {
+#if !defined(OS_CHROMEOS)
+  auto set_up_utility_client_progress =
+      [](const std::vector<int>& progress_list, bool will_succeed,
+         FakeImageWriterClient* client) {
+        client->SimulateProgressOnWrite(progress_list, will_succeed);
+      };
+  // Sets up client for simulating Operation::Progress() on Operation::Write.
+  std::vector<int> progress_list{0, kTestFileSize / 2, kTestFileSize};
+  test_utils_.RunOnUtilityClientCreation(base::BindOnce(
+      set_up_utility_client_progress, progress_list, true /* will_succeed */));
+#endif
   EXPECT_CALL(manager_, OnError(kDummyExtensionId, _, _, _)).Times(0);
   EXPECT_CALL(manager_,
               OnProgress(kDummyExtensionId, image_writer_api::STAGE_WRITE, _))
@@ -165,29 +194,23 @@ TEST_F(ImageWriterOperationTest, WriteImageToDevice) {
       .Times(AtLeast(1));
 
   operation_->Start();
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE, FROM_HERE,
-      base::BindOnce(&OperationForTest::Write, operation_,
-                     base::Bind(&base::DoNothing)));
-
-  base::RunLoop().RunUntilIdle();
-
-#if !defined(OS_CHROMEOS)
-  test_utils_.GetUtilityClient()->Progress(0);
-  test_utils_.GetUtilityClient()->Progress(kTestFileSize / 2);
-  test_utils_.GetUtilityClient()->Progress(kTestFileSize);
-  test_utils_.GetUtilityClient()->Success();
-
-  base::RunLoop().RunUntilIdle();
-#endif
+  base::RunLoop run_loop;
+  operation_->Write(run_loop.QuitClosure());
+  run_loop.Run();
 }
-#endif
+#endif  // defined(OS_LINUX)
 
 #if !defined(OS_CHROMEOS)
 // Chrome OS doesn't support verification in the ImageBurner, so these two tests
 // are skipped.
 
 TEST_F(ImageWriterOperationTest, VerifyFileSuccess) {
+  // Sets up client for simulating Operation::Progress() on
+  // Operation::VerifyWrite.
+  std::vector<int> progress_list{0, kTestFileSize / 2, kTestFileSize};
+  test_utils_.RunOnUtilityClientCreation(
+      base::BindOnce(&SetUpUtilityClientProgressOnVerifyWrite, progress_list,
+                     true /* will_succeed */));
   EXPECT_CALL(manager_, OnError(kDummyExtensionId, _, _, _)).Times(0);
   EXPECT_CALL(
       manager_,
@@ -206,24 +229,18 @@ TEST_F(ImageWriterOperationTest, VerifyFileSuccess) {
       test_utils_.GetDevicePath(), kImagePattern, kTestFileSize);
 
   operation_->Start();
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE, FROM_HERE,
-      base::BindOnce(&OperationForTest::VerifyWrite, operation_,
-                     base::Bind(&base::DoNothing)));
-
-  base::RunLoop().RunUntilIdle();
-
-#if !defined(OS_CHROMEOS)
-  test_utils_.GetUtilityClient()->Progress(0);
-  test_utils_.GetUtilityClient()->Progress(kTestFileSize / 2);
-  test_utils_.GetUtilityClient()->Progress(kTestFileSize);
-  test_utils_.GetUtilityClient()->Success();
-#endif
-
-  base::RunLoop().RunUntilIdle();
+  base::RunLoop run_loop;
+  operation_->VerifyWrite(run_loop.QuitClosure());
+  run_loop.Run();
 }
 
 TEST_F(ImageWriterOperationTest, VerifyFileFailure) {
+  // Sets up client for simulating Operation::Progress() on
+  // Operation::VerifyWrite. Also simulates failure.
+  std::vector<int> progress_list{0, kTestFileSize / 2};
+  test_utils_.RunOnUtilityClientCreation(
+      base::BindOnce(&SetUpUtilityClientProgressOnVerifyWrite, progress_list,
+                     false /* will_succeed */));
   EXPECT_CALL(
       manager_,
       OnProgress(kDummyExtensionId, image_writer_api::STAGE_VERIFYWRITE, _))
@@ -242,20 +259,10 @@ TEST_F(ImageWriterOperationTest, VerifyFileFailure) {
       test_utils_.GetDevicePath(), kDevicePattern, kTestFileSize);
 
   operation_->Start();
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE, FROM_HERE,
-      base::BindOnce(&OperationForTest::VerifyWrite, operation_,
-                     base::Bind(&base::DoNothing)));
-
-  base::RunLoop().RunUntilIdle();
-
-  test_utils_.GetUtilityClient()->Progress(0);
-  test_utils_.GetUtilityClient()->Progress(kTestFileSize / 2);
-  test_utils_.GetUtilityClient()->Error(error::kVerificationFailed);
-
-  base::RunLoop().RunUntilIdle();
+  operation_->VerifyWrite(base::DoNothing());
+  content::RunAllTasksUntilIdle();
 }
-#endif
+#endif  // !defined(OS_CHROMEOS)
 
 // Tests that on creation the operation_ has the expected state.
 TEST_F(ImageWriterOperationTest, Creation) {

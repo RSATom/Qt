@@ -4,32 +4,25 @@
 
 #include "content/browser/media/session/media_session_controllers_manager.h"
 
-#include "base/command_line.h"
 #include "content/browser/media/session/media_session_controller.h"
 #include "media/base/media_switches.h"
+#include "services/media_session/public/cpp/features.h"
 
 namespace content {
 
 namespace {
 
 bool IsMediaSessionEnabled() {
-// Media session is enabled on Android and Chrome OS to allow control of media
-// players as needed.
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-  return true;
-#else
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  return command_line->HasSwitch(switches::kEnableInternalMediaSession) ||
-         command_line->HasSwitch(switches::kEnableAudioFocus);
-#endif
+  return base::FeatureList::IsEnabled(
+             media_session::features::kMediaSessionService) ||
+         base::FeatureList::IsEnabled(media::kInternalMediaSession);
 }
 
-}  // anonymous namespace
+}  // namespace
 
 MediaSessionControllersManager::MediaSessionControllersManager(
     MediaWebContentsObserver* media_web_contents_observer)
-    : media_web_contents_observer_(media_web_contents_observer) {
-}
+    : media_web_contents_observer_(media_web_contents_observer) {}
 
 MediaSessionControllersManager::~MediaSessionControllersManager() = default;
 
@@ -39,7 +32,7 @@ void MediaSessionControllersManager::RenderFrameDeleted(
     return;
 
   for (auto it = controllers_map_.begin(); it != controllers_map_.end();) {
-    if (it->first.first == render_frame_host)
+    if (it->first.render_frame_host == render_frame_host)
       it = controllers_map_.erase(it);
     else
       ++it;
@@ -93,6 +86,14 @@ void MediaSessionControllersManager::OnEnd(const MediaPlayerId& id) {
   if (!IsMediaSessionEnabled())
     return;
   controllers_map_.erase(id);
+}
+
+void MediaSessionControllersManager::WebContentsMutedStateChanged(bool muted) {
+  if (!IsMediaSessionEnabled())
+    return;
+
+  for (auto& entry : controllers_map_)
+    entry.second->WebContentsMutedStateChanged(muted);
 }
 
 }  // namespace content

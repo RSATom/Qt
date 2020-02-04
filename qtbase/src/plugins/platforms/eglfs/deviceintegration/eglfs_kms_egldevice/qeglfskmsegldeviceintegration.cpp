@@ -51,7 +51,7 @@ QT_BEGIN_NAMESPACE
 
 QEglFSKmsEglDeviceIntegration::QEglFSKmsEglDeviceIntegration()
     : m_egl_device(EGL_NO_DEVICE_EXT)
-    , m_funcs(Q_NULLPTR)
+    , m_funcs(nullptr)
 {
     qCDebug(qLcEglfsKmsDebug, "New DRM/KMS on EGLDevice integration created");
 }
@@ -75,7 +75,7 @@ EGLDisplay QEglFSKmsEglDeviceIntegration::createDisplay(EGLNativeDisplayType nat
     EGLDisplay display;
 
     if (m_funcs->has_egl_platform_device) {
-        display = m_funcs->get_platform_display(EGL_PLATFORM_DEVICE_EXT, nativeDisplay, Q_NULLPTR);
+        display = m_funcs->get_platform_display(EGL_PLATFORM_DEVICE_EXT, nativeDisplay, nullptr);
     } else {
         qWarning("EGL_EXT_platform_device not available, falling back to legacy path!");
         display = eglGetDisplay(nativeDisplay);
@@ -115,6 +115,8 @@ public:
         , m_integration(integration)
         , m_egl_stream(EGL_NO_STREAM_KHR)
     { }
+
+    ~QEglFSKmsEglDeviceWindow() { destroy(); }
 
     void invalidateSurface() override;
     void resetSurface() override;
@@ -162,7 +164,7 @@ void QEglFSKmsEglDeviceWindow::resetSurface()
         qCDebug(qLcEglfsKmsDebug, "Could not query number of EGLStream FIFO frames");
     }
 
-    if (!m_integration->m_funcs->get_output_layers(display, Q_NULLPTR, Q_NULLPTR, 0, &count) || count == 0) {
+    if (!m_integration->m_funcs->get_output_layers(display, nullptr, nullptr, 0, &count) || count == 0) {
         qWarning("No output layers found");
         return;
     }
@@ -172,7 +174,7 @@ void QEglFSKmsEglDeviceWindow::resetSurface()
     QVector<EGLOutputLayerEXT> layers;
     layers.resize(count);
     EGLint actualCount;
-    if (!m_integration->m_funcs->get_output_layers(display, Q_NULLPTR, layers.data(), count, &actualCount)) {
+    if (!m_integration->m_funcs->get_output_layers(display, nullptr, layers.data(), count, &actualCount)) {
         qWarning("Failed to get layers");
         return;
     }
@@ -180,7 +182,7 @@ void QEglFSKmsEglDeviceWindow::resetSurface()
     QEglFSKmsEglDeviceScreen *cur_screen = static_cast<QEglFSKmsEglDeviceScreen *>(screen());
     Q_ASSERT(cur_screen);
     QKmsOutput &output(cur_screen->output());
-    const uint32_t wantedId = !output.wants_plane ? output.crtc_id : output.plane_id;
+    const uint32_t wantedId = !output.wants_forced_plane ? output.crtc_id : output.forced_plane_id;
     qCDebug(qLcEglfsKmsDebug, "Searching for id: %d", wantedId);
 
     EGLOutputLayerEXT layer = EGL_NO_OUTPUT_LAYER_EXT;
@@ -260,7 +262,7 @@ QKmsDevice *QEglFSKmsEglDeviceIntegration::createDevice()
     if (Q_UNLIKELY(!deviceName))
         qFatal("Failed to query device name from EGLDevice");
 
-    return new QEglFSKmsEglDevice(this, screenConfig(), deviceName);
+    return new QEglFSKmsEglDevice(this, screenConfig(), QLatin1String(deviceName));
 }
 
 bool QEglFSKmsEglDeviceIntegration::query_egl_device()
@@ -289,7 +291,9 @@ QPlatformCursor *QEglFSKmsEglDeviceIntegration::createCursor(QPlatformScreen *sc
 {
 #if QT_CONFIG(opengl)
     if (screenConfig()->separateScreens())
-        return  new QEglFSCursor(screen);
+        return new QEglFSCursor(screen);
+#else
+    Q_UNUSED(screen);
 #endif
     return nullptr;
 }

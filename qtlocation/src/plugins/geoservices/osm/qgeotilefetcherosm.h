@@ -67,7 +67,7 @@ Q_SIGNALS:
     void providerDataUpdated(const QGeoTileProviderOsm *provider);
 
 protected:
-    bool initialized() const Q_DECL_OVERRIDE;
+    bool initialized() const override;
 
 protected Q_SLOTS:
     void onProviderResolutionFinished(const QGeoTileProviderOsm *provider);
@@ -75,7 +75,7 @@ protected Q_SLOTS:
     void restartTimer();
 
 private:
-    QGeoTiledMapReply *getTileImage(const QGeoTileSpec &spec) Q_DECL_OVERRIDE;
+    QGeoTiledMapReply *getTileImage(const QGeoTileSpec &spec) override;
     void readyUpdated();
 
     QByteArray m_userAgent;

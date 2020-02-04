@@ -101,7 +101,6 @@ QT_END_NAMESPACE
 #include <qdir.h>
 #include <qlist.h>
 #include <qmutex.h>
-#include <qsemaphore.h>
 #include <qsocketnotifier.h>
 #include <qthread.h>
 #include <qelapsedtimer.h>
@@ -885,7 +884,7 @@ bool QProcessPrivate::waitForDeadChild()
     // read the process information from our fd
     forkfd_info info;
     int ret;
-    EINTR_LOOP(ret, forkfd_wait(forkfd, &info, Q_NULLPTR));
+    EINTR_LOOP(ret, forkfd_wait(forkfd, &info, nullptr));
 
     exitCode = info.status;
     crashed = info.code != CLD_EXITED;
@@ -925,6 +924,8 @@ bool QProcessPrivate::startDetached(qint64 *pid)
         closeChannel(&stdinChannel);
         closeChannel(&stdoutChannel);
         closeChannel(&stderrChannel);
+        qt_safe_close(pidPipe[0]);
+        qt_safe_close(pidPipe[1]);
         qt_safe_close(startedPipe[0]);
         qt_safe_close(startedPipe[1]);
         return false;
@@ -947,16 +948,14 @@ bool QProcessPrivate::startDetached(qint64 *pid)
             qt_safe_close(pidPipe[1]);
 
             // copy the stdin socket if asked to (without closing on exec)
-            if (inputChannelMode != QProcess::ForwardedInputChannel)
+            if (stdinChannel.type == Channel::Redirect)
                 qt_safe_dup2(stdinChannel.pipe[0], STDIN_FILENO, 0);
 
             // copy the stdout and stderr if asked to
-            if (processChannelMode != QProcess::ForwardedChannels) {
-                if (processChannelMode != QProcess::ForwardedOutputChannel)
-                    qt_safe_dup2(stdoutChannel.pipe[1], STDOUT_FILENO, 0);
-                if (processChannelMode != QProcess::ForwardedErrorChannel)
-                    qt_safe_dup2(stderrChannel.pipe[1], STDERR_FILENO, 0);
-            }
+            if (stdoutChannel.type == Channel::Redirect)
+                qt_safe_dup2(stdoutChannel.pipe[1], STDOUT_FILENO, 0);
+            if (stderrChannel.type == Channel::Redirect)
+                qt_safe_dup2(stderrChannel.pipe[1], STDERR_FILENO, 0);
 
             if (!encodedWorkingDirectory.isEmpty()) {
                 if (QT_CHDIR(encodedWorkingDirectory.constData()) == -1)

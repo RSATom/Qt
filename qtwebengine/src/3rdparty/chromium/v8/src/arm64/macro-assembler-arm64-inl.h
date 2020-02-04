@@ -24,17 +24,6 @@ MemOperand FieldMemOperand(Register object, int offset) {
 }
 
 
-MemOperand UntagSmiFieldMemOperand(Register object, int offset) {
-  return UntagSmiMemOperand(object, offset - kHeapObjectTag);
-}
-
-
-MemOperand UntagSmiMemOperand(Register object, int offset) {
-  // Assumes that Smis are shifted by 32 bits and little endianness.
-  STATIC_ASSERT(kSmiShift == 32);
-  return MemOperand(object, offset + (kSmiShift / kBitsPerByte));
-}
-
 void TurboAssembler::And(const Register& rd, const Register& rn,
                          const Operand& operand) {
   DCHECK(allow_macro_instructions());
@@ -297,6 +286,7 @@ void TurboAssembler::Asr(const Register& rd, const Register& rn,
 }
 
 void TurboAssembler::B(Label* label) {
+  DCHECK(allow_macro_instructions());
   b(label);
   CheckVeneerPool(false, false);
 }
@@ -404,8 +394,7 @@ void MacroAssembler::CzeroX(const Register& rd,
 
 // Conditionally move a value into the destination register. Only X registers
 // are supported due to the truncation side-effect when used on W registers.
-void MacroAssembler::CmovX(const Register& rd,
-                           const Register& rn,
+void TurboAssembler::CmovX(const Register& rd, const Register& rn,
                            Condition cond) {
   DCHECK(allow_macro_instructions());
   DCHECK(!rd.IsSP());
@@ -416,6 +405,11 @@ void MacroAssembler::CmovX(const Register& rd,
   }
 }
 
+void TurboAssembler::Csdb() {
+  DCHECK(allow_macro_instructions());
+  csdb();
+}
+
 void TurboAssembler::Cset(const Register& rd, Condition cond) {
   DCHECK(allow_macro_instructions());
   DCHECK(!rd.IsZero());
@@ -423,8 +417,7 @@ void TurboAssembler::Cset(const Register& rd, Condition cond) {
   cset(rd, cond);
 }
 
-
-void MacroAssembler::Csetm(const Register& rd, Condition cond) {
+void TurboAssembler::Csetm(const Register& rd, Condition cond) {
   DCHECK(allow_macro_instructions());
   DCHECK(!rd.IsZero());
   DCHECK((cond != al) && (cond != nv));
@@ -461,14 +454,12 @@ void MacroAssembler::Csneg(const Register& rd,
   csneg(rd, rn, rm, cond);
 }
 
-
-void MacroAssembler::Dmb(BarrierDomain domain, BarrierType type) {
+void TurboAssembler::Dmb(BarrierDomain domain, BarrierType type) {
   DCHECK(allow_macro_instructions());
   dmb(domain, type);
 }
 
-
-void MacroAssembler::Dsb(BarrierDomain domain, BarrierType type) {
+void TurboAssembler::Dsb(BarrierDomain domain, BarrierType type) {
   DCHECK(allow_macro_instructions());
   dsb(domain, type);
 }
@@ -651,10 +642,12 @@ void TurboAssembler::Fmov(VRegister vd, double imm) {
       if (bits == 0) {
         fmov(vd, xzr);
       } else {
-        Ldr(vd, imm);
+        UseScratchRegisterScope temps(this);
+        Register tmp = temps.AcquireX();
+        Mov(tmp, bits);
+        fmov(vd, tmp);
       }
     } else {
-      // TODO(all): consider NEON support for load literal.
       Movi(vd, bits);
     }
   }
@@ -678,12 +671,10 @@ void TurboAssembler::Fmov(VRegister vd, float imm) {
       } else {
         UseScratchRegisterScope temps(this);
         Register tmp = temps.AcquireW();
-        // TODO(all): Use Assembler::ldr(const VRegister& ft, float imm).
         Mov(tmp, bit_cast<uint32_t>(imm));
         Fmov(vd, tmp);
       }
     } else {
-      // TODO(all): consider NEON support for load literal.
       Movi(vd, bits);
     }
   }
@@ -737,8 +728,7 @@ void MacroAssembler::Hlt(int code) {
   hlt(code);
 }
 
-
-void MacroAssembler::Isb() {
+void TurboAssembler::Isb() {
   DCHECK(allow_macro_instructions());
   isb();
 }
@@ -746,12 +736,6 @@ void MacroAssembler::Isb() {
 void TurboAssembler::Ldr(const CPURegister& rt, const Operand& operand) {
   DCHECK(allow_macro_instructions());
   ldr(rt, operand);
-}
-
-void TurboAssembler::Ldr(const CPURegister& rt, double imm) {
-  DCHECK(allow_macro_instructions());
-  DCHECK(rt.Is64Bits());
-  ldr(rt, Immediate(bit_cast<uint64_t>(imm)));
 }
 
 void TurboAssembler::Lsl(const Register& rd, const Register& rn,
@@ -796,18 +780,6 @@ void TurboAssembler::Mneg(const Register& rd, const Register& rn,
   mneg(rd, rn, rm);
 }
 
-void TurboAssembler::Mov(const Register& rd, const Register& rn) {
-  DCHECK(allow_macro_instructions());
-  DCHECK(!rd.IsZero());
-  // Emit a register move only if the registers are distinct, or if they are
-  // not X registers. Note that mov(w0, w0) is not a no-op because it clears
-  // the top word of x0.
-  if (!rd.Is(rn) || !rd.Is64Bits()) {
-    Assembler::mov(rd, rn);
-  }
-}
-
-
 void MacroAssembler::Movk(const Register& rd, uint64_t imm, int shift) {
   DCHECK(allow_macro_instructions());
   DCHECK(!rd.IsZero());
@@ -844,6 +816,12 @@ void TurboAssembler::Rbit(const Register& rd, const Register& rn) {
   DCHECK(allow_macro_instructions());
   DCHECK(!rd.IsZero());
   rbit(rd, rn);
+}
+
+void TurboAssembler::Rev(const Register& rd, const Register& rn) {
+  DCHECK(allow_macro_instructions());
+  DCHECK(!rd.IsZero());
+  rev(rd, rn);
 }
 
 void TurboAssembler::Ret(const Register& xn) {
@@ -1042,121 +1020,52 @@ void TurboAssembler::Uxtw(const Register& rd, const Register& rn) {
   uxtw(rd, rn);
 }
 
-void MacroAssembler::AlignAndSetCSPForFrame() {
-  int sp_alignment = ActivationFrameAlignment();
-  // AAPCS64 mandates at least 16-byte alignment.
-  DCHECK(sp_alignment >= 16);
-  DCHECK(base::bits::IsPowerOfTwo(sp_alignment));
-  Bic(csp, StackPointer(), sp_alignment - 1);
-  SetStackPointer(csp);
-}
-
-void TurboAssembler::BumpSystemStackPointer(const Operand& space) {
-  DCHECK(!csp.Is(StackPointer()));
-  if (!TmpList()->IsEmpty()) {
-    Sub(csp, StackPointer(), space);
-  } else {
-    // TODO(jbramley): Several callers rely on this not using scratch
-    // registers, so we use the assembler directly here. However, this means
-    // that large immediate values of 'space' cannot be handled cleanly. (Only
-    // 24-bits immediates or values of 'space' that can be encoded in one
-    // instruction are accepted.) Once we implement our flexible scratch
-    // register idea, we could greatly simplify this function.
-    InstructionAccurateScope scope(this);
-    DCHECK(space.IsImmediate());
-    // Align to 16 bytes.
-    uint64_t imm = RoundUp(space.ImmediateValue(), 0x10);
-    DCHECK(is_uint24(imm));
-
-    Register source = StackPointer();
-    if (CpuFeatures::IsSupported(ALWAYS_ALIGN_CSP)) {
-      bic(csp, source, 0xf);
-      source = csp;
-    }
-    if (!is_uint12(imm)) {
-      int64_t imm_top_12_bits = imm >> 12;
-      sub(csp, source, imm_top_12_bits << 12);
-      source = csp;
-      imm -= imm_top_12_bits << 12;
-    }
-    if (imm > 0) {
-      sub(csp, source, imm);
-    }
-  }
-  AssertStackConsistency();
-}
-
-void TurboAssembler::SyncSystemStackPointer() {
-  DCHECK(emit_debug_code());
-  DCHECK(!csp.Is(StackPointer()));
-  { InstructionAccurateScope scope(this);
-    mov(csp, StackPointer());
-  }
-  AssertStackConsistency();
-}
-
 void TurboAssembler::InitializeRootRegister() {
-  ExternalReference roots_array_start =
-      ExternalReference::roots_array_start(isolate());
-  Mov(root, Operand(roots_array_start));
+  ExternalReference isolate_root = ExternalReference::isolate_root(isolate());
+  Mov(kRootRegister, Operand(isolate_root));
 }
 
 
 void MacroAssembler::SmiTag(Register dst, Register src) {
-  STATIC_ASSERT(kXRegSizeInBits ==
-                static_cast<unsigned>(kSmiShift + kSmiValueSize));
   DCHECK(dst.Is64Bits() && src.Is64Bits());
+  DCHECK(SmiValuesAre32Bits() || SmiValuesAre31Bits());
   Lsl(dst, src, kSmiShift);
 }
-
 
 void MacroAssembler::SmiTag(Register smi) { SmiTag(smi, smi); }
 
 void TurboAssembler::SmiUntag(Register dst, Register src) {
-  STATIC_ASSERT(kXRegSizeInBits ==
-                static_cast<unsigned>(kSmiShift + kSmiValueSize));
   DCHECK(dst.Is64Bits() && src.Is64Bits());
   if (FLAG_enable_slow_asserts) {
     AssertSmi(src);
   }
+  DCHECK(SmiValuesAre32Bits() || SmiValuesAre31Bits());
   Asr(dst, src, kSmiShift);
 }
 
+void TurboAssembler::SmiUntag(Register dst, const MemOperand& src) {
+  DCHECK(dst.Is64Bits());
+  if (SmiValuesAre32Bits()) {
+    if (src.IsImmediateOffset() && src.shift_amount() == 0) {
+      // Load value directly from the upper half-word.
+      // Assumes that Smis are shifted by 32 bits and little endianness.
+      DCHECK_EQ(kSmiShift, 32);
+      Ldrsw(dst,
+            MemOperand(src.base(), src.offset() + (kSmiShift / kBitsPerByte),
+                       src.addrmode()));
+
+    } else {
+      Ldr(dst, src);
+      SmiUntag(dst);
+    }
+  } else {
+    DCHECK(SmiValuesAre31Bits());
+    Ldr(dst, src);
+    SmiUntag(dst);
+  }
+}
+
 void TurboAssembler::SmiUntag(Register smi) { SmiUntag(smi, smi); }
-
-void MacroAssembler::SmiUntagToDouble(VRegister dst, Register src,
-                                      UntagMode mode) {
-  DCHECK(dst.Is64Bits() && src.Is64Bits());
-  if (FLAG_enable_slow_asserts && (mode == kNotSpeculativeUntag)) {
-    AssertSmi(src);
-  }
-  Scvtf(dst, src, kSmiShift);
-}
-
-void MacroAssembler::SmiUntagToFloat(VRegister dst, Register src,
-                                     UntagMode mode) {
-  DCHECK(dst.Is32Bits() && src.Is64Bits());
-  if (FLAG_enable_slow_asserts && (mode == kNotSpeculativeUntag)) {
-    AssertSmi(src);
-  }
-  Scvtf(dst, src, kSmiShift);
-}
-
-
-void MacroAssembler::SmiTagAndPush(Register src) {
-  STATIC_ASSERT((static_cast<unsigned>(kSmiShift) == kWRegSizeInBits) &&
-                (static_cast<unsigned>(kSmiValueSize) == kWRegSizeInBits) &&
-                (kSmiTag == 0));
-  Push(src.W(), wzr);
-}
-
-
-void MacroAssembler::SmiTagAndPush(Register src1, Register src2) {
-  STATIC_ASSERT((static_cast<unsigned>(kSmiShift) == kWRegSizeInBits) &&
-                (static_cast<unsigned>(kSmiValueSize) == kWRegSizeInBits) &&
-                (kSmiTag == 0));
-  Push(src1.W(), wzr, src2.W(), wzr);
-}
 
 void TurboAssembler::JumpIfSmi(Register value, Label* smi_label,
                                Label* not_smi_label) {
@@ -1173,9 +1082,18 @@ void TurboAssembler::JumpIfSmi(Register value, Label* smi_label,
   }
 }
 
+void TurboAssembler::JumpIfEqual(Register x, int32_t y, Label* dest) {
+  Cmp(x, y);
+  B(eq, dest);
+}
+
+void TurboAssembler::JumpIfLessThan(Register x, int32_t y, Label* dest) {
+  Cmp(x, y);
+  B(lt, dest);
+}
 
 void MacroAssembler::JumpIfNotSmi(Register value, Label* not_smi_label) {
-  JumpIfSmi(value, NULL, not_smi_label);
+  JumpIfSmi(value, nullptr, not_smi_label);
 }
 
 
@@ -1208,14 +1126,14 @@ void MacroAssembler::JumpIfEitherSmi(Register value1,
 void MacroAssembler::JumpIfEitherNotSmi(Register value1,
                                         Register value2,
                                         Label* not_smi_label) {
-  JumpIfBothSmi(value1, value2, NULL, not_smi_label);
+  JumpIfBothSmi(value1, value2, nullptr, not_smi_label);
 }
 
 
 void MacroAssembler::JumpIfBothNotSmi(Register value1,
                                       Register value2,
                                       Label* not_smi_label) {
-  JumpIfEitherSmi(value1, value2, NULL, not_smi_label);
+  JumpIfEitherSmi(value1, value2, nullptr, not_smi_label);
 }
 
 
@@ -1224,7 +1142,7 @@ void MacroAssembler::ObjectTag(Register tagged_obj, Register obj) {
   if (emit_debug_code()) {
     Label ok;
     Tbz(obj, 0, &ok);
-    Abort(kObjectTagged);
+    Abort(AbortReason::kObjectTagged);
     Bind(&ok);
   }
   Orr(tagged_obj, obj, kHeapObjectTag);
@@ -1236,7 +1154,7 @@ void MacroAssembler::ObjectUntag(Register untagged_obj, Register obj) {
   if (emit_debug_code()) {
     Label ok;
     Tbnz(obj, 0, &ok);
-    Abort(kObjectNotTagged);
+    Abort(AbortReason::kObjectNotTagged);
     Bind(&ok);
   }
   Bic(untagged_obj, obj, kHeapObjectTag);
@@ -1244,62 +1162,33 @@ void MacroAssembler::ObjectUntag(Register untagged_obj, Register obj) {
 
 void TurboAssembler::jmp(Label* L) { B(L); }
 
-void MacroAssembler::IsObjectJSStringType(Register object,
-                                          Register type,
-                                          Label* not_string,
-                                          Label* string) {
-  Ldr(type, FieldMemOperand(object, HeapObject::kMapOffset));
-  Ldrb(type.W(), FieldMemOperand(type, Map::kInstanceTypeOffset));
-
-  STATIC_ASSERT(kStringTag == 0);
-  DCHECK((string != NULL) || (not_string != NULL));
-  if (string == NULL) {
-    TestAndBranchIfAnySet(type.W(), kIsNotStringMask, not_string);
-  } else if (not_string == NULL) {
-    TestAndBranchIfAllClear(type.W(), kIsNotStringMask, string);
-  } else {
-    TestAndBranchIfAnySet(type.W(), kIsNotStringMask, not_string);
-    B(string);
-  }
-}
-
 void TurboAssembler::Push(Handle<HeapObject> handle) {
   UseScratchRegisterScope temps(this);
   Register tmp = temps.AcquireX();
   Mov(tmp, Operand(handle));
-  Push(tmp);
+  // This is only used in test-heap.cc, for generating code that is not
+  // executed. Push a padding slot together with the handle here, to
+  // satisfy the alignment requirement.
+  Push(padreg, tmp);
 }
 
-void TurboAssembler::Push(Smi* smi) {
+void TurboAssembler::Push(Smi smi) {
   UseScratchRegisterScope temps(this);
   Register tmp = temps.AcquireX();
   Mov(tmp, Operand(smi));
   Push(tmp);
 }
 
-void MacroAssembler::PushObject(Handle<Object> handle) {
-  if (handle->IsHeapObject()) {
-    Push(Handle<HeapObject>::cast(handle));
-  } else {
-    Push(Smi::cast(*handle));
-  }
-}
-
 void TurboAssembler::Claim(int64_t count, uint64_t unit_size) {
-  DCHECK(count >= 0);
+  DCHECK_GE(count, 0);
   uint64_t size = count * unit_size;
 
   if (size == 0) {
     return;
   }
+  DCHECK_EQ(size % 16, 0);
 
-  if (csp.Is(StackPointer())) {
-    DCHECK(size % 16 == 0);
-  } else {
-    BumpSystemStackPointer(size);
-  }
-
-  Sub(StackPointer(), StackPointer(), size);
+  Sub(sp, sp, size);
 }
 
 void TurboAssembler::Claim(const Register& count, uint64_t unit_size) {
@@ -1312,13 +1201,9 @@ void TurboAssembler::Claim(const Register& count, uint64_t unit_size) {
   if (size.IsZero()) {
     return;
   }
-
   AssertPositiveOrZero(count);
-  if (!csp.Is(StackPointer())) {
-    BumpSystemStackPointer(size);
-  }
 
-  Sub(StackPointer(), StackPointer(), size);
+  Sub(sp, sp, size);
 }
 
 
@@ -1333,31 +1218,19 @@ void MacroAssembler::ClaimBySMI(const Register& count_smi, uint64_t unit_size) {
     return;
   }
 
-  if (!csp.Is(StackPointer())) {
-    BumpSystemStackPointer(size);
-  }
-
-  Sub(StackPointer(), StackPointer(), size);
+  Sub(sp, sp, size);
 }
 
 void TurboAssembler::Drop(int64_t count, uint64_t unit_size) {
-  DCHECK(count >= 0);
+  DCHECK_GE(count, 0);
   uint64_t size = count * unit_size;
 
   if (size == 0) {
     return;
   }
 
-  Add(StackPointer(), StackPointer(), size);
-
-  if (csp.Is(StackPointer())) {
-    DCHECK(size % 16 == 0);
-  } else if (emit_debug_code()) {
-    // It is safe to leave csp where it is when unwinding the JavaScript stack,
-    // but if we keep it matching StackPointer, the simulator can detect memory
-    // accesses in the now-free part of the stack.
-    SyncSystemStackPointer();
-  }
+  Add(sp, sp, size);
+  DCHECK_EQ(size % 16, 0);
 }
 
 void TurboAssembler::Drop(const Register& count, uint64_t unit_size) {
@@ -1372,16 +1245,36 @@ void TurboAssembler::Drop(const Register& count, uint64_t unit_size) {
   }
 
   AssertPositiveOrZero(count);
-  Add(StackPointer(), StackPointer(), size);
-
-  if (!csp.Is(StackPointer()) && emit_debug_code()) {
-    // It is safe to leave csp where it is when unwinding the JavaScript stack,
-    // but if we keep it matching StackPointer, the simulator can detect memory
-    // accesses in the now-free part of the stack.
-    SyncSystemStackPointer();
-  }
+  Add(sp, sp, size);
 }
 
+void TurboAssembler::DropArguments(const Register& count,
+                                   ArgumentsCountMode mode) {
+  int extra_slots = 1;  // Padding slot.
+  if (mode == kCountExcludesReceiver) {
+    // Add a slot for the receiver.
+    ++extra_slots;
+  }
+  UseScratchRegisterScope temps(this);
+  Register tmp = temps.AcquireX();
+  Add(tmp, count, extra_slots);
+  Bic(tmp, tmp, 1);
+  Drop(tmp, kXRegSize);
+}
+
+void TurboAssembler::DropArguments(int64_t count, ArgumentsCountMode mode) {
+  if (mode == kCountExcludesReceiver) {
+    // Add a slot for the receiver.
+    ++count;
+  }
+  Drop(RoundUp(count, 2), kXRegSize);
+}
+
+void TurboAssembler::DropSlots(int64_t count) {
+  Drop(RoundUp(count, 2), kXRegSize);
+}
+
+void TurboAssembler::PushArgument(const Register& arg) { Push(padreg, arg); }
 
 void MacroAssembler::DropBySMI(const Register& count_smi, uint64_t unit_size) {
   DCHECK(unit_size == 0 || base::bits::IsPowerOfTwo(unit_size));
@@ -1394,14 +1287,7 @@ void MacroAssembler::DropBySMI(const Register& count_smi, uint64_t unit_size) {
     return;
   }
 
-  Add(StackPointer(), StackPointer(), size);
-
-  if (!csp.Is(StackPointer()) && emit_debug_code()) {
-    // It is safe to leave csp where it is when unwinding the JavaScript stack,
-    // but if we keep it matching StackPointer, the simulator can detect memory
-    // accesses in the now-free part of the stack.
-    SyncSystemStackPointer();
-  }
+  Add(sp, sp, size);
 }
 
 
@@ -1426,7 +1312,7 @@ void TurboAssembler::TestAndBranchIfAnySet(const Register& reg,
                                            const uint64_t bit_pattern,
                                            Label* label) {
   int bits = reg.SizeInBits();
-  DCHECK(CountSetBits(bit_pattern, bits) > 0);
+  DCHECK_GT(CountSetBits(bit_pattern, bits), 0);
   if (CountSetBits(bit_pattern, bits) == 1) {
     Tbnz(reg, MaskToBit(bit_pattern), label);
   } else {
@@ -1439,7 +1325,7 @@ void TurboAssembler::TestAndBranchIfAllClear(const Register& reg,
                                              const uint64_t bit_pattern,
                                              Label* label) {
   int bits = reg.SizeInBits();
-  DCHECK(CountSetBits(bit_pattern, bits) > 0);
+  DCHECK_GT(CountSetBits(bit_pattern, bits), 0);
   if (CountSetBits(bit_pattern, bits) == 1) {
     Tbz(reg, MaskToBit(bit_pattern), label);
   } else {
@@ -1469,7 +1355,7 @@ void MacroAssembler::DisableInstrumentation() {
 
 
 void MacroAssembler::AnnotateInstrumentation(const char* marker_name) {
-  DCHECK(strlen(marker_name) == 2);
+  DCHECK_EQ(strlen(marker_name), 2);
 
   // We allow only printable characters in the marker names. Unprintable
   // characters are reserved for controlling features of the instrumentation.

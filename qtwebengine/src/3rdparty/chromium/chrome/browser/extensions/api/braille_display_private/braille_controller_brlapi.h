@@ -25,7 +25,7 @@ class BrailleControllerImpl : public BrailleController {
  public:
   static BrailleControllerImpl* GetInstance();
   std::unique_ptr<DisplayState> GetDisplayState() override;
-  void WriteDots(const std::vector<char>& cells,
+  void WriteDots(const std::vector<uint8_t>& cells,
                  unsigned int cols,
                  unsigned int rows) override;
   void AddObserver(BrailleObserver* observer) override;
@@ -55,8 +55,8 @@ class BrailleControllerImpl : public BrailleController {
   // Tries to connect and starts watching for new brlapi servers.
   // No-op if already called.
   void StartConnecting();
-  void StartWatchingSocketDirOnFileThread();
-  void OnSocketDirChangedOnFileThread(const base::FilePath& path, bool error);
+  void StartWatchingSocketDirOnTaskThread();
+  void OnSocketDirChangedOnTaskThread(const base::FilePath& path, bool error);
   void OnSocketDirChangedOnIOThread();
   void TryToConnect();
   void ResetRetryConnectHorizon();
@@ -75,11 +75,12 @@ class BrailleControllerImpl : public BrailleController {
   bool started_connecting_;
   bool connect_scheduled_;
   base::Time retry_connect_horizon_;
+  scoped_refptr<base::SequencedTaskRunner> sequenced_task_runner_;
 
   // Manipulated on the UI thread.
-  base::ObserverList<BrailleObserver> observers_;
+  base::ObserverList<BrailleObserver>::Unchecked observers_;
 
-  // Manipulated on the FILE thread.
+  // Manipulated by the SequencedTaskRunner.
   base::FilePathWatcher file_path_watcher_;
 
   friend struct base::DefaultSingletonTraits<BrailleControllerImpl>;

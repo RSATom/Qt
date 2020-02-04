@@ -104,7 +104,7 @@ void CodeMarker::terminate()
 CodeMarker *CodeMarker::markerForCode(const QString& code)
 {
     CodeMarker *defaultMarker = markerForLanguage(defaultLang);
-    if (defaultMarker != 0 && defaultMarker->recognizeCode(code))
+    if (defaultMarker != nullptr && defaultMarker->recognizeCode(code))
         return defaultMarker;
 
     QList<CodeMarker *>::ConstIterator m = markers.constBegin();
@@ -122,7 +122,7 @@ CodeMarker *CodeMarker::markerForFileName(const QString& fileName)
     int dot = -1;
     while ((dot = fileName.lastIndexOf(QLatin1Char('.'), dot)) != -1) {
         QString ext = fileName.mid(dot + 1);
-        if (defaultMarker != 0 && defaultMarker->recognizeExtension(ext))
+        if (defaultMarker != nullptr && defaultMarker->recognizeExtension(ext))
             return defaultMarker;
         QList<CodeMarker *>::ConstIterator m = markers.constBegin();
         while (m != markers.constEnd()) {
@@ -143,7 +143,7 @@ CodeMarker *CodeMarker::markerForLanguage(const QString& lang)
             return *m;
         ++m;
     }
-    return 0;
+    return nullptr;
 }
 
 const Node *CodeMarker::nodeForString(const QString& string)
@@ -262,11 +262,13 @@ QString CodeMarker::taggedNode(const Node* node)
     QString tag;
     QString name = node->name();
 
-    switch (node->type()) {
+    switch (node->nodeType()) {
     case Node::Namespace:
         tag = QLatin1String("@namespace");
         break;
     case Node::Class:
+    case Node::Struct:
+    case Node::Union:
         tag = QLatin1String("@class");
         break;
     case Node::Enum:
@@ -294,13 +296,8 @@ QString CodeMarker::taggedNode(const Node* node)
             name = name.mid(4);
         tag = QLatin1String("@property");
         break;
-    case Node::Document:
+    case Node::Page:
         tag = QLatin1String("@property");
-        break;
-    case Node::QmlMethod:
-    case Node::QmlSignal:
-    case Node::QmlSignalHandler:
-        tag = QLatin1String("@function");
         break;
     default:
         tag = QLatin1String("@unknown");
@@ -313,22 +310,29 @@ QString CodeMarker::taggedNode(const Node* node)
 QString CodeMarker::taggedQmlNode(const Node* node)
 {
     QString tag;
-    switch (node->type()) {
-    case Node::QmlProperty:
+    if (node->isFunction()) {
+        const FunctionNode* fn = static_cast<const FunctionNode*>(node);
+        switch (fn->metaness()) {
+        case FunctionNode::JsSignal:
+        case FunctionNode::QmlSignal:
+            tag = QLatin1String("@signal");
+            break;
+        case FunctionNode::JsSignalHandler:
+        case FunctionNode::QmlSignalHandler:
+            tag = QLatin1String("@signalhandler");
+            break;
+        case FunctionNode::JsMethod:
+        case FunctionNode::QmlMethod:
+            tag = QLatin1String("@method");
+            break;
+        default:
+            tag = QLatin1String("@unknown");
+            break;
+        }
+    } else if (node->isQmlProperty() || node->isJsProperty()) {
         tag = QLatin1String("@property");
-        break;
-    case Node::QmlSignal:
-        tag = QLatin1String("@signal");
-        break;
-    case Node::QmlSignalHandler:
-        tag = QLatin1String("@signalhandler");
-        break;
-    case Node::QmlMethod:
-        tag = QLatin1String("@method");
-        break;
-    default:
+    } else {
         tag = QLatin1String("@unknown");
-        break;
     }
     return QLatin1Char('<') + tag + QLatin1Char('>') + protect(node->name())
             + QLatin1String("</") + tag + QLatin1Char('>');
@@ -340,215 +344,6 @@ QString CodeMarker::linkTag(const Node *node, const QString& body)
             + QLatin1String("\">") + body + QLatin1String("</@link>");
 }
 
-QString CodeMarker::sortName(const Node *node, const QString* name)
-{
-    QString nodeName;
-    if (name != 0)
-        nodeName = *name;
-    else
-        nodeName = node->name();
-    int numDigits = 0;
-    for (int i = nodeName.size() - 1; i > 0; --i) {
-        if (nodeName.at(i).digitValue() == -1)
-            break;
-        ++numDigits;
-    }
-
-    // we want 'qint8' to appear before 'qint16'
-    if (numDigits > 0) {
-        for (int i = 0; i < 4 - numDigits; ++i)
-            nodeName.insert(nodeName.size()-numDigits-1, QLatin1Char('0'));
-    }
-
-    if (node->type() == Node::Function) {
-        const FunctionNode *func = static_cast<const FunctionNode *>(node);
-        QString sortNo;
-        if (func->isSomeCtor()) {
-            sortNo = QLatin1String("C");
-        }
-        else if (func->isDtor()) {
-            sortNo = QLatin1String("D");
-        }
-        else {
-            if (nodeName.startsWith(QLatin1String("operator"))
-                    && nodeName.length() > 8
-                    && !nodeName[8].isLetterOrNumber())
-                sortNo = QLatin1String("F");
-            else
-                sortNo = QLatin1String("E");
-        }
-        return sortNo + nodeName + QLatin1Char(' ') + QString::number(func->overloadNumber(), 36);
-    }
-
-    if (node->type() == Node::Class)
-        return QLatin1Char('A') + nodeName;
-
-    if (node->type() == Node::Property || node->type() == Node::Variable)
-        return QLatin1Char('E') + nodeName;
-
-    if ((node->type() == Node::QmlMethod) ||
-        (node->type() == Node::QmlSignal) ||
-        (node->type() == Node::QmlSignalHandler)) {
-        //const FunctionNode* func = static_cast<const FunctionNode *>(node);
-        //return QLatin1Char('E') + func->name();
-        return QLatin1Char('E') + nodeName;
-    }
-
-    return QLatin1Char('B') + nodeName;
-}
-
-void CodeMarker::insert(FastSection &fastSection,
-                        Node *node,
-                        SynopsisStyle style,
-                        Status status)
-{
-    bool irrelevant = false;
-    bool inheritedMember = false;
-    if (!node->relates()) {
-        Aggregate* p = node->parent();
-        if (p->isQmlPropertyGroup())
-            p = p->parent();
-        if (p != fastSection.parent_) {
-            if ((!p->isQmlType() && !p->isJsType()) || !p->isAbstract())
-                inheritedMember = true;
-        }
-    }
-
-    if (node->access() == Node::Private) {
-        irrelevant = true;
-    }
-    else if (node->type() == Node::Function) {
-        FunctionNode *func = (FunctionNode *) node;
-        irrelevant = (inheritedMember && (func->isSomeCtor() || func->isDtor()));
-    }
-    else if (node->isClass() || node->isEnumType() || node->isTypedef()) {
-        irrelevant = (inheritedMember && style != Subpage);
-        if (!irrelevant && style == Detailed && node->isTypedef()) {
-            const TypedefNode* tdn = static_cast<const TypedefNode*>(node);
-            if (tdn->associatedEnum())
-                irrelevant = true;
-        }
-    }
-
-    if (!irrelevant) {
-        if (status == Compat) {
-            irrelevant = (node->status() != Node::Compat);
-        }
-        else if (status == Obsolete) {
-            irrelevant = (node->status() != Node::Obsolete);
-        }
-        else {
-            irrelevant = (node->status() == Node::Compat ||
-                          node->status() == Node::Obsolete);
-        }
-    }
-
-    if (!irrelevant) {
-        if (!inheritedMember || style == Subpage) {
-            QString key = sortName(node);
-            fastSection.memberMap.insertMulti(key, node);
-        }
-        else {
-            if (node->parent()->isClass() || node->parent()->isNamespace()) {
-                if (fastSection.inherited.isEmpty()
-                        || fastSection.inherited.last().first != node->parent()) {
-                    QPair<Aggregate *, int> p(node->parent(), 0);
-                    fastSection.inherited.append(p);
-                }
-                fastSection.inherited.last().second++;
-            }
-        }
-    }
-}
-
-/*!
-  Returns \c true if \a node represents a reimplemented member
-  function in the class of the FastSection \a fs. If it is
-  a reimplemented function, then it is inserted into the
-  reimplemented member map in \a fs. The test is performed
-  only if \a status is \e OK. True is returned if \a node
-  is inserted into the map. Otherwise, false is returned.
- */
-bool CodeMarker::insertReimpFunc(FastSection& fs, Node* node, Status status)
-{
-    if ((node->access() != Node::Private) && (node->relates() == 0)) {
-        const FunctionNode* fn = static_cast<const FunctionNode*>(node);
-        if ((fn->reimplementedFrom() != 0) && (status == Okay)) {
-            if (fn->parent() == fs.parent_) {
-                QString key = sortName(fn);
-                if (!fs.reimpMemberMap.contains(key)) {
-                    fs.reimpMemberMap.insert(key,node);
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
-/*!
-  If \a fs is not empty, convert it to a Section and append
-  the new Section to \a sectionList.
- */
-void CodeMarker::append(QList<Section>& sectionList, const FastSection& fs, bool includeKeys)
-{
-    if (!fs.isEmpty()) {
-        if (fs.classMapList_.isEmpty()) {
-            Section section(fs.name,fs.divClass,fs.singularMember,fs.pluralMember);
-            if (includeKeys) {
-                section.keys = fs.memberMap.keys();
-            }
-            section.members = fs.memberMap.values();
-            section.reimpMembers = fs.reimpMemberMap.values();
-            section.inherited = fs.inherited;
-            sectionList.append(section);
-        }
-        else {
-            Section section(fs.name,fs.divClass,fs.singularMember,fs.pluralMember);
-            sectionList.append(section);
-            Section* s = &sectionList[sectionList.size()-1];
-            for (int i=0; i<fs.classMapList_.size(); i++) {
-                ClassMap* classMap = fs.classMapList_[i];
-                ClassKeysNodes* ckn = new ClassKeysNodes;
-                ckn->first = classMap->first;
-                ckn->second.second = classMap->second.values();
-                ckn->second.first = classMap->second.keys();
-                s->classKeysNodesList_.append(ckn);
-             }
-        }
-    }
-}
-
-/*!
-  The destructor must delete each member of the
-  list of QML class lists, if it is not empty;
- */
-Section::~Section()
-{
-    if (!classKeysNodesList_.isEmpty()) {
-        for (int i=0; i<classKeysNodesList_.size(); i++) {
-            ClassKeysNodes* classKeysNodes = classKeysNodesList_[i];
-            classKeysNodesList_[i] = 0;
-            delete classKeysNodes;
-        }
-    }
-}
-
-/*!
-  The destructor must delete the QML class maps in the class
-  map list, if the class map list is not empty.
- */
-FastSection::~FastSection()
-{
-    if (!classMapList_.isEmpty()) {
-        for (int i=0; i<classMapList_.size(); i++) {
-            ClassMap* classMap = classMapList_[i];
-            classMapList_[i] = 0;
-            delete classMap;
-        }
-    }
-}
-
 static QString encode(const QString &string)
 {
     return string;
@@ -557,7 +352,7 @@ static QString encode(const QString &string)
 QStringList CodeMarker::macRefsForNode(Node *node)
 {
     QString result = QLatin1String("cpp/");
-    switch (node->type()) {
+    switch (node->nodeType()) {
     case Node::Class:
     {
         const ClassNode *classe = static_cast<const ClassNode *>(node);
@@ -570,8 +365,7 @@ QStringList CodeMarker::macRefsForNode(Node *node)
     case Node::Enum:
     {
         QStringList stringList;
-        stringList << encode(result + QLatin1String("tag/") +
-                             macName(node));
+        stringList << encode(result + QLatin1String("tag/") + macName(node));
         foreach (const QString &enumName, node->doc().enumItemNames()) {
             // ### Write a plainEnumValue() and use it here
             stringList << encode(result + QLatin1String("econst/") +
@@ -585,7 +379,7 @@ QStringList CodeMarker::macRefsForNode(Node *node)
     case Node::Function:
     {
         bool isMacro = false;
-        Q_UNUSED(isMacro)
+        Q_UNUSED(isMacro);
         const FunctionNode *func = static_cast<const FunctionNode *>(node);
 
         // overloads are too clever for the Xcode documentation browser
@@ -622,9 +416,6 @@ QStringList CodeMarker::macRefsForNode(Node *node)
         }
         return stringList;
     }
-    case Node::Namespace:
-    case Node::Document:
-    case Node::QmlType:
     default:
         return QStringList();
     }
@@ -640,20 +431,10 @@ QString CodeMarker::macName(const Node *node, const QString &name)
         node = node->parent();
     }
 
-    if (node->name().isEmpty()) {
+    if (node->name().isEmpty())
         return QLatin1Char('/') + protect(myName);
-    }
-    else {
+    else
         return node->plainFullName() + QLatin1Char('/') + protect(myName);
-    }
-}
-
-/*!
-  Returns an empty list of documentation sections.
- */
-QList<Section> CodeMarker::qmlSections(Aggregate* , SynopsisStyle , Status )
-{
-    return QList<Section>();
 }
 
 QT_END_NAMESPACE

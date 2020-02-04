@@ -17,22 +17,10 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "ui/accessibility/ax_enums.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/views_export.h"
 #include "ui/views/widget/widget.h"
-
-namespace base {
-class TaskRunner;
-class TimeDelta;
-}
-
-namespace content {
-class WebContents;
-class BrowserContext;
-class SiteInstance;
-}
 
 namespace gfx {
 class ImageSkia;
@@ -41,14 +29,13 @@ class Rect;
 
 namespace ui {
 class ContextFactory;
+class TouchEditingControllerFactory;
 }
 
 namespace views {
 
 class NativeWidget;
 class NonClientFrameView;
-class ViewsTouchEditingControllerFactory;
-class View;
 class Widget;
 
 #if defined(USE_AURA)
@@ -136,8 +123,6 @@ class VIEWS_EXPORT ViewsDelegate {
                                        gfx::Rect* bounds,
                                        ui::WindowShowState* show_state) const;
 
-  virtual void NotifyAccessibilityEvent(View* view, ui::AXEvent event_type);
-
   // For accessibility, notify the delegate that a menu item was focused
   // so that alternate feedback (speech / magnified text) can be provided.
   virtual void NotifyMenuItemFocused(const base::string16& menu_name,
@@ -157,7 +142,7 @@ class VIEWS_EXPORT ViewsDelegate {
   // Retrieves the default window icon to use for windows if none is specified.
   virtual HICON GetDefaultWindowIcon() const;
   // Retrieves the small window icon to use for windows if none is specified.
-  virtual HICON GetSmallWindowIcon() const = 0;
+  virtual HICON GetSmallWindowIcon() const;
   // Returns true if the window passed in is in the Windows 8 metro
   // environment.
   virtual bool IsWindowInMetro(gfx::NativeWindow window) const;
@@ -175,17 +160,9 @@ class VIEWS_EXPORT ViewsDelegate {
   virtual void AddRef();
   virtual void ReleaseRef();
 
-  // Creates a web contents. This will return NULL unless overriden.
-  virtual content::WebContents* CreateWebContents(
-      content::BrowserContext* browser_context,
-      content::SiteInstance* site_instance);
-
   // Gives the platform a chance to modify the properties of a Widget.
   virtual void OnBeforeWidgetInit(Widget::InitParams* params,
-                                  internal::NativeWidgetDelegate* delegate) = 0;
-
-  // Returns the password reveal duration for Textfield.
-  virtual base::TimeDelta GetTextfieldPasswordRevealDuration();
+                                  internal::NativeWidgetDelegate* delegate);
 
   // Returns true if the operating system's window manager will always provide a
   // title bar with caption buttons (ignoring the setting to
@@ -213,14 +190,16 @@ class VIEWS_EXPORT ViewsDelegate {
                                      const base::Closure& callback);
 #endif
 
-  // Returns a blocking pool task runner given a TaskRunnerType.
-  virtual scoped_refptr<base::TaskRunner> GetBlockingPoolTaskRunner();
-
  protected:
   ViewsDelegate();
 
+#if defined(USE_AURA)
+  void SetTouchSelectionMenuRunner(
+      std::unique_ptr<TouchSelectionMenuRunnerViews> menu_runner);
+#endif
+
  private:
-  std::unique_ptr<ViewsTouchEditingControllerFactory>
+  std::unique_ptr<ui::TouchEditingControllerFactory>
       editing_controller_factory_;
 
 #if defined(USE_AURA)

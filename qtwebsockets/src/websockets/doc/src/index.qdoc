@@ -51,15 +51,24 @@
 
     To  import the QML types into your application, use the following import statement in your .qml file:
 
-    \code
-    import QtWebSockets 1.0
-    \endcode
+    \qml \QtMinorVersion
+    import QtWebSockets 1.\1
+    \endqml
 
     To link against the module, add this line to your qmake .pro file:
 
     \code
     QT += websockets
     \endcode
+
+    \section1 Licenses
+
+    Qt WebSockets is available under commercial licenses from \l{The Qt Company}.
+    In addition, it is available under free software licenses. Since Qt 5.4,
+    these free software licenses are
+    \l{GNU Lesser General Public License, version 3}, or
+    the \l{GNU General Public License, version 2}.
+    See \l{Qt Licensing} for further details.
 
     \section1 Reference Documentation
     \list

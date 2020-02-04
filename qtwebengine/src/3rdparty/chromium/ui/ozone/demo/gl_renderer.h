@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,11 @@
 #include "base/memory/weak_ptr.h"
 #include "ui/gfx/swap_result.h"
 #include "ui/ozone/demo/renderer_base.h"
+
+namespace gfx {
+class GpuFence;
+struct PresentationFeedback;
+}  // namespace gfx
 
 namespace gl {
 class GLContext;
@@ -28,14 +33,15 @@ class GlRenderer : public RendererBase {
   // Renderer:
   bool Initialize() override;
 
- protected:
-  virtual void RenderFrame();
-  virtual void PostRenderFrameTask(gfx::SwapResult result);
+ private:
+  void RenderFrame();
+  void PostRenderFrameTask(gfx::SwapResult result,
+                           std::unique_ptr<gfx::GpuFence> gpu_fence);
+  void OnPresentation(const gfx::PresentationFeedback& feedback);
 
   scoped_refptr<gl::GLSurface> surface_;
   scoped_refptr<gl::GLContext> context_;
 
- private:
   base::WeakPtrFactory<GlRenderer> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(GlRenderer);

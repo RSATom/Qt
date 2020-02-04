@@ -34,11 +34,11 @@
 **
 ****************************************************************************/
 
-#ifndef JOYSTICKMANAGER_H
-#define JOYSTICKMANAGER_H
+#ifndef QGAMEPADMANAGER_H
+#define QGAMEPADMANAGER_H
 
 #include <QtCore/QObject>
-#include <QtCore/QSet>
+#include <QtCore/QMap>
 #include <QtGamepad/qtgamepadglobal.h>
 
 QT_BEGIN_NAMESPACE
@@ -90,6 +90,7 @@ public:
     static QGamepadManager* instance();
 
     bool isGamepadConnected(int deviceId) const;
+    QString gamepadName(int deviceId) const;
     const QList<int> connectedGamepads() const;
 
 public Q_SLOTS:
@@ -103,6 +104,7 @@ public Q_SLOTS:
 Q_SIGNALS:
     void connectedGamepadsChanged();
     void gamepadConnected(int deviceId);
+    void gamepadNameChanged(int deviceId, const QString &name);
     void gamepadDisconnected(int deviceId);
     void gamepadAxisEvent(int deviceId, QGamepadManager::GamepadAxis axis, double value);
     void gamepadButtonPressEvent(int deviceId, QGamepadManager::GamepadButton button, double value);
@@ -118,6 +120,7 @@ private:
     Q_DECLARE_PRIVATE(QGamepadManager)
     Q_DISABLE_COPY(QGamepadManager)
     Q_PRIVATE_SLOT(d_func(), void _q_forwardGamepadConnected(int))
+    Q_PRIVATE_SLOT(d_func(), void _q_forwardGamepadNameChanged(int, const QString&))
     Q_PRIVATE_SLOT(d_func(), void _q_forwardGamepadDisconnected(int))
     Q_PRIVATE_SLOT(d_func(), void _q_forwardGamepadAxisEvent(int, QGamepadManager::GamepadAxis, double))
     Q_PRIVATE_SLOT(d_func(), void _q_forwardGamepadButtonPressEvent(int, QGamepadManager::GamepadButton, double))
@@ -129,4 +132,4 @@ QT_END_NAMESPACE
 Q_DECLARE_METATYPE(QGamepadManager::GamepadButton)
 Q_DECLARE_METATYPE(QGamepadManager::GamepadAxis)
 
-#endif // JOYSTICKMANAGER_H
+#endif // QGAMEPADMANAGER_H

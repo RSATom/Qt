@@ -16,13 +16,13 @@
 
 #include "base/numerics/safe_math.h"
 #include "base/process/process_metrics.h"
-#include "base/trace_event/process_memory_dump.h"
+#include "base/strings/string_number_conversions.h"
 
 namespace memory_instrumentation {
 
 namespace {
 
-using VMRegion = base::trace_event::ProcessMemoryMaps::VMRegion;
+using VMRegion = mojom::VmRegion;
 
 bool IsAddressInSharedRegion(uint64_t address) {
   return address >= SHARED_REGION_BASE_X86_64 &&
@@ -74,6 +74,9 @@ bool GetDyldRegions(std::vector<VMRegion>* regions) {
     uint64_t next_command = reinterpret_cast<uint64_t>(header + 1);
     uint64_t command_end = next_command + header->sizeofcmds;
     uint64_t slide = 0;
+
+    std::vector<VMRegion> temp_regions;
+    std::string debug_id;
     for (unsigned int j = 0; j < header->ncmds; ++j) {
       // Ensure that next_command doesn't run past header->sizeofcmds.
       if (next_command + sizeof(struct load_command) > command_end)
@@ -118,37 +121,27 @@ bool GetDyldRegions(std::vector<VMRegion>* regions) {
         region.protection_flags = protection_flags;
         region.mapped_file = image_name;
         region.start_address = slide + seg->vmaddr;
-
-        // We intentionally avoid setting any page information, which is not
-        // available from dyld. The fields will be populated later.
-        regions->push_back(region);
+        temp_regions.push_back(std::move(region));
       }
+
+      if (load_cmd->cmd == LC_UUID) {
+        if (load_cmd->cmdsize < sizeof(uuid_command))
+          return false;
+        const uuid_command* uuid_cmd =
+            reinterpret_cast<const uuid_command*>(load_cmd);
+        // The ID is comprised of the UUID concatenated with the module's "age"
+        // value which is always 0.
+        debug_id =
+            base::HexEncode(&uuid_cmd->uuid, sizeof(uuid_cmd->uuid)) + "0";
+      }
+    }
+
+    for (VMRegion& region : temp_regions) {
+      region.module_debugid = debug_id;
+      regions->push_back(region);
     }
   }
   return true;
-}
-
-void PopulateByteStats(VMRegion* region,
-                       const vm_region_top_info_data_t& info) {
-  uint64_t dirty_bytes =
-      (info.private_pages_resident + info.shared_pages_resident) * PAGE_SIZE;
-  switch (info.share_mode) {
-    case SM_LARGE_PAGE:
-    case SM_PRIVATE:
-    case SM_COW:
-      region->byte_stats_private_dirty_resident = dirty_bytes;
-    case SM_SHARED:
-    case SM_PRIVATE_ALIASED:
-    case SM_TRUESHARED:
-    case SM_SHARED_ALIASED:
-      region->byte_stats_shared_dirty_resident = dirty_bytes;
-      break;
-    case SM_EMPTY:
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
 }
 
 // Creates VMRegions using mach vm syscalls. Returns whether the operation
@@ -164,26 +157,16 @@ bool GetAllRegions(std::vector<VMRegion>* regions) {
     if (!next_address.IsValid())
       return false;
     address = next_address.ValueOrDie();
-    mach_vm_address_t address_copy = address;
-
-    vm_region_top_info_data_t info;
-    base::MachVMRegionResult result =
-        base::GetTopInfo(task, &size, &address, &info);
-    if (result == base::MachVMRegionResult::Error)
-      return false;
-    if (result == base::MachVMRegionResult::Finished)
-      break;
 
     vm_region_basic_info_64 basic_info;
-    mach_vm_size_t dummy_size = 0;
-    result = base::GetBasicInfo(task, &dummy_size, &address_copy, &basic_info);
+    base::MachVMRegionResult result =
+        base::GetBasicInfo(task, &size, &address, &basic_info);
     if (result == base::MachVMRegionResult::Error)
       return false;
     if (result == base::MachVMRegionResult::Finished)
       break;
 
     VMRegion region;
-    PopulateByteStats(&region, info);
 
     if (basic_info.protection & VM_PROT_READ)
       region.protection_flags |= VMRegion::kProtectionFlagsRead;
@@ -230,35 +213,24 @@ bool OSMetrics::FillOSMemoryDump(base::ProcessId pid,
   // additional information like ProcessHandle or port provider.
   DCHECK_EQ(base::kNullProcessId, pid);
   auto process_metrics = base::ProcessMetrics::CreateCurrentProcessMetrics();
-
-  size_t private_bytes;
-  size_t shared_bytes;
-  size_t resident_bytes;
-  size_t locked_bytes;
-  if (!process_metrics->GetMemoryBytes(&private_bytes, &shared_bytes,
-                                       &resident_bytes, &locked_bytes)) {
-    return false;
-  }
   base::ProcessMetrics::TaskVMInfo info = process_metrics->GetTaskVMInfo();
-  dump->platform_private_footprint.phys_footprint_bytes = info.phys_footprint;
-  dump->platform_private_footprint.internal_bytes = info.internal;
-  dump->platform_private_footprint.compressed_bytes = info.compressed;
-  dump->resident_set_kb = resident_bytes / 1024;
+  dump->platform_private_footprint->phys_footprint_bytes = info.phys_footprint;
+  dump->platform_private_footprint->internal_bytes = info.internal;
+  dump->platform_private_footprint->compressed_bytes = info.compressed;
   return true;
 }
 
 // static
-bool OSMetrics::FillProcessMemoryMaps(
-    base::ProcessId pid,
-    base::trace_event::ProcessMemoryDump* pmd) {
-  using VMRegion = base::trace_event::ProcessMemoryMaps::VMRegion;
+std::vector<mojom::VmRegionPtr> OSMetrics::GetProcessMemoryMaps(
+    base::ProcessId pid) {
+  std::vector<mojom::VmRegionPtr> maps;
 
   std::vector<VMRegion> dyld_regions;
   if (!GetDyldRegions(&dyld_regions))
-    return false;
+    return maps;
   std::vector<VMRegion> all_regions;
   if (!GetAllRegions(&all_regions))
-    return false;
+    return maps;
 
   // Merge information from dyld regions and all regions.
   for (const VMRegion& region : all_regions) {
@@ -289,15 +261,30 @@ bool OSMetrics::FillProcessMemoryMaps(
     }
     if (skip)
       continue;
-    pmd->process_mmaps()->AddVMRegion(region);
+
+    maps.push_back(VMRegion::New(region));
   }
 
   for (VMRegion& region : dyld_regions) {
-    pmd->process_mmaps()->AddVMRegion(region);
+    maps.push_back(VMRegion::New(region));
   }
 
-  pmd->set_has_process_mmaps();
-  return true;
+  return maps;
+}
+
+std::vector<mojom::VmRegionPtr> OSMetrics::GetProcessModules(
+    base::ProcessId pid) {
+  std::vector<mojom::VmRegionPtr> maps;
+
+  std::vector<VMRegion> dyld_regions;
+  if (!GetDyldRegions(&dyld_regions))
+    return maps;
+
+  for (VMRegion& region : dyld_regions) {
+    maps.push_back(VMRegion::New(region));
+  }
+
+  return maps;
 }
 
 }  // namespace memory_instrumentation

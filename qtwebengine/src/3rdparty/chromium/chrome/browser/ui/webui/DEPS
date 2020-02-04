@@ -1,25 +1,13 @@
 include_rules = [
-  "+components/about_ui"
-  "+components/invalidation",
-  "+components/onc",
-  "+components/proximity_auth",
-  "+components/sync/engine/events",
-  "+components/sync/sessions",
-  "+components/sync/base/weak_handle.h",
-  "+components/sync/js",
+  "+chrome/services/app_service/public",
   "+device/bluetooth",
   "+extensions/strings/grit/extensions_strings.h",
 
   # Generated files
   "+js2webui/chrome/test/data",
-  "+third_party/cld",
 
   # Other libraries.
   "+third_party/angle",       # For ANGLE version.
   "+third_party/brotli",      # For compressed resources.
   "+third_party/zlib/zlib.h", # For compression level constants.
-
-  # DOM Distiller.
-  "+components/dom_distiller/core",
-  "+components/dom_distiller/webui",
 ]

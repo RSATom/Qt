@@ -66,7 +66,7 @@ should be emitted while if there is no error, only the \c finished signals are e
 
 The protected functions of QPlaceSearchReply::setResults() and QPlaceSearchReply::setRequest()
 are made publicly accessible so the plugin can assign results and requests.  Because
-these functions are not publically exported, accessibility is not so much of an issue.
+these functions are not publicly exported, accessibility is not so much of an issue.
 An alternative would have been to declare a friend class in SearchReply.
 
 Typically the engine instance would be made the \c parent of the reply.  If the developer

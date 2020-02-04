@@ -10,25 +10,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
-#include "device/base/device_client.h"
-#include "device/hid/hid_connection.h"
-#include "device/hid/hid_device_filter.h"
-#include "device/hid/hid_device_info.h"
-#include "device/hid/hid_service.h"
 #include "extensions/browser/api/api_resource_manager.h"
 #include "extensions/browser/api/device_permissions_prompt.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/common/api/hid.h"
-#include "net/base/io_buffer.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
+#include "services/device/public/cpp/hid/hid_device_filter.h"
 
 namespace hid = extensions::api::hid;
 
-using device::HidConnection;
 using device::HidDeviceFilter;
-using device::HidDeviceInfo;
-using device::HidService;
 
 namespace {
 
@@ -38,9 +30,7 @@ const char kErrorFailedToOpenDevice[] = "Failed to open HID device.";
 const char kErrorConnectionNotFound[] = "Connection not established.";
 const char kErrorTransfer[] = "Transfer failed.";
 
-std::unique_ptr<base::Value> PopulateHidConnection(
-    int connection_id,
-    scoped_refptr<HidConnection> connection) {
+std::unique_ptr<base::Value> PopulateHidConnection(int connection_id) {
   hid::HidConnectInfo connection_value;
   connection_value.connection_id = connection_id;
   return connection_value.ToValue();
@@ -118,7 +108,7 @@ ExtensionFunction::ResponseAction HidGetUserSelectedDevicesFunction::Run() {
 
   content::WebContents* web_contents = GetSenderWebContents();
   if (!web_contents || !user_gesture()) {
-    return RespondNow(OneArgument(base::MakeUnique<base::ListValue>()));
+    return RespondNow(OneArgument(std::make_unique<base::ListValue>()));
   }
 
   bool multiple = false;
@@ -144,10 +134,11 @@ ExtensionFunction::ResponseAction HidGetUserSelectedDevicesFunction::Run() {
 }
 
 void HidGetUserSelectedDevicesFunction::OnDevicesChosen(
-    const std::vector<scoped_refptr<HidDeviceInfo>>& devices) {
+    std::vector<device::mojom::HidDeviceInfoPtr> devices) {
   HidDeviceManager* device_manager = HidDeviceManager::Get(browser_context());
   CHECK(device_manager);
-  Respond(OneArgument(device_manager->GetApiDevicesFromList(devices)));
+  Respond(
+      OneArgument(device_manager->GetApiDevicesFromList(std::move(devices))));
 }
 
 HidConnectFunction::HidConnectFunction() : connection_manager_(nullptr) {
@@ -167,27 +158,24 @@ ExtensionFunction::ResponseAction HidConnectFunction::Run() {
       ApiResourceManager<HidConnectionResource>::Get(browser_context());
   CHECK(connection_manager_);
 
-  scoped_refptr<HidDeviceInfo> device_info =
+  const device::mojom::HidDeviceInfo* device_info =
       device_manager->GetDeviceInfo(parameters->device_id);
   if (!device_info) {
     return RespondNow(Error(kErrorInvalidDeviceId));
   }
 
-  if (!device_manager->HasPermission(extension(), device_info, true)) {
+  if (!device_manager->HasPermission(extension(), *device_info, true)) {
     return RespondNow(Error(kErrorPermissionDenied));
   }
 
-  HidService* hid_service = device::DeviceClient::Get()->GetHidService();
-  CHECK(hid_service);
-
-  hid_service->Connect(
-      device_info->device_id(),
-      base::Bind(&HidConnectFunction::OnConnectComplete, this));
+  device_manager->Connect(
+      device_info->guid,
+      base::BindOnce(&HidConnectFunction::OnConnectComplete, this));
   return RespondLater();
 }
 
 void HidConnectFunction::OnConnectComplete(
-    scoped_refptr<HidConnection> connection) {
+    device::mojom::HidConnectionPtr connection) {
   if (!connection) {
     Respond(Error(kErrorFailedToOpenDevice));
     return;
@@ -195,8 +183,8 @@ void HidConnectFunction::OnConnectComplete(
 
   DCHECK(connection_manager_);
   int connection_id = connection_manager_->Add(
-      new HidConnectionResource(extension_id(), connection));
-  Respond(OneArgument(PopulateHidConnection(connection_id, connection)));
+      new HidConnectionResource(extension_id(), std::move(connection)));
+  Respond(OneArgument(PopulateHidConnection(connection_id)));
 }
 
 HidDisconnectFunction::HidDisconnectFunction() {}
@@ -242,7 +230,7 @@ ExtensionFunction::ResponseAction HidConnectionIoFunction::Run() {
     return RespondNow(Error(kErrorConnectionNotFound));
   }
 
-  StartWork(resource->connection().get());
+  StartWork(resource->connection());
   return RespondLater();
 }
 
@@ -258,20 +246,22 @@ bool HidReceiveFunction::ReadParameters() {
   return true;
 }
 
-void HidReceiveFunction::StartWork(HidConnection* connection) {
-  connection->Read(base::Bind(&HidReceiveFunction::OnFinished, this));
+void HidReceiveFunction::StartWork(device::mojom::HidConnection* connection) {
+  connection->Read(mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+      base::BindOnce(&HidReceiveFunction::OnFinished, this), false, 0,
+      base::nullopt));
 }
 
-void HidReceiveFunction::OnFinished(bool success,
-                                    scoped_refptr<net::IOBuffer> buffer,
-                                    size_t size) {
+void HidReceiveFunction::OnFinished(
+    bool success,
+    uint8_t report_id,
+    const base::Optional<std::vector<uint8_t>>& buffer) {
   if (success) {
-    DCHECK_GE(size, 1u);
-    int report_id = reinterpret_cast<uint8_t*>(buffer->data())[0];
-
+    DCHECK(buffer);
     Respond(TwoArguments(
-        base::MakeUnique<base::Value>(report_id),
-        base::Value::CreateWithCopiedBuffer(buffer->data() + 1, size - 1)));
+        std::make_unique<base::Value>(report_id),
+        base::Value::CreateWithCopiedBuffer(
+            reinterpret_cast<const char*>(buffer->data()), buffer->size())));
   } else {
     Respond(Error(kErrorTransfer));
   }
@@ -289,14 +279,14 @@ bool HidSendFunction::ReadParameters() {
   return true;
 }
 
-void HidSendFunction::StartWork(HidConnection* connection) {
-  scoped_refptr<net::IOBufferWithSize> buffer(
-      new net::IOBufferWithSize(parameters_->data.size() + 1));
-  buffer->data()[0] = static_cast<uint8_t>(parameters_->report_id);
-  memcpy(buffer->data() + 1, parameters_->data.data(),
-         parameters_->data.size());
-  connection->Write(buffer, buffer->size(),
-                    base::Bind(&HidSendFunction::OnFinished, this));
+void HidSendFunction::StartWork(device::mojom::HidConnection* connection) {
+  auto* data = reinterpret_cast<const uint8_t*>(parameters_->data.data());
+  std::vector<uint8_t> buffer(data, data + parameters_->data.size());
+
+  connection->Write(
+      static_cast<uint8_t>(parameters_->report_id), buffer,
+      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+          base::BindOnce(&HidSendFunction::OnFinished, this), false));
 }
 
 void HidSendFunction::OnFinished(bool success) {
@@ -319,19 +309,22 @@ bool HidReceiveFeatureReportFunction::ReadParameters() {
   return true;
 }
 
-void HidReceiveFeatureReportFunction::StartWork(HidConnection* connection) {
+void HidReceiveFeatureReportFunction::StartWork(
+    device::mojom::HidConnection* connection) {
   connection->GetFeatureReport(
       static_cast<uint8_t>(parameters_->report_id),
-      base::Bind(&HidReceiveFeatureReportFunction::OnFinished, this));
+      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+          base::BindOnce(&HidReceiveFeatureReportFunction::OnFinished, this),
+          false, base::nullopt));
 }
 
 void HidReceiveFeatureReportFunction::OnFinished(
     bool success,
-    scoped_refptr<net::IOBuffer> buffer,
-    size_t size) {
+    const base::Optional<std::vector<uint8_t>>& buffer) {
   if (success) {
-    Respond(
-        OneArgument(base::Value::CreateWithCopiedBuffer(buffer->data(), size)));
+    DCHECK(buffer);
+    Respond(OneArgument(base::Value::CreateWithCopiedBuffer(
+        reinterpret_cast<const char*>(buffer->data()), buffer->size())));
   } else {
     Respond(Error(kErrorTransfer));
   }
@@ -349,15 +342,16 @@ bool HidSendFeatureReportFunction::ReadParameters() {
   return true;
 }
 
-void HidSendFeatureReportFunction::StartWork(HidConnection* connection) {
-  scoped_refptr<net::IOBufferWithSize> buffer(
-      new net::IOBufferWithSize(parameters_->data.size() + 1));
-  buffer->data()[0] = static_cast<uint8_t>(parameters_->report_id);
-  memcpy(buffer->data() + 1, parameters_->data.data(),
-         parameters_->data.size());
+void HidSendFeatureReportFunction::StartWork(
+    device::mojom::HidConnection* connection) {
+  auto* data = reinterpret_cast<const uint8_t*>(parameters_->data.data());
+  std::vector<uint8_t> buffer(data, data + parameters_->data.size());
+
   connection->SendFeatureReport(
-      buffer, buffer->size(),
-      base::Bind(&HidSendFeatureReportFunction::OnFinished, this));
+      static_cast<uint8_t>(parameters_->report_id), buffer,
+      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+          base::BindOnce(&HidSendFeatureReportFunction::OnFinished, this),
+          false));
 }
 
 void HidSendFeatureReportFunction::OnFinished(bool success) {

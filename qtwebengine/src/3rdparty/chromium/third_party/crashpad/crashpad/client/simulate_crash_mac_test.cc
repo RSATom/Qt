@@ -19,6 +19,7 @@
 #include <sys/types.h>
 
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "gtest/gtest.h"
@@ -307,14 +308,14 @@ class TestSimulateCrashMac final : public MachMultiprocess,
 };
 
 TEST(SimulateCrash, SimulateCrash) {
-  const TestSimulateCrashMac::ExceptionPortsTarget kTargets[] = {
+  static constexpr TestSimulateCrashMac::ExceptionPortsTarget kTargets[] = {
       TestSimulateCrashMac::kExceptionPortsTargetNone,
       TestSimulateCrashMac::kExceptionPortsTargetTask,
       TestSimulateCrashMac::kExceptionPortsTargetThread,
       TestSimulateCrashMac::kExceptionPortsTargetBoth,
   };
 
-  const exception_behavior_t kBehaviors[] = {
+  static constexpr exception_behavior_t kBehaviors[] = {
       EXCEPTION_DEFAULT,
       EXCEPTION_STATE,
       EXCEPTION_STATE_IDENTITY,
@@ -323,7 +324,7 @@ TEST(SimulateCrash, SimulateCrash) {
       EXCEPTION_STATE_IDENTITY | kMachExceptionCodes,
   };
 
-  const thread_state_flavor_t kFlavors[] = {
+  static constexpr thread_state_flavor_t kFlavors[] = {
 #if defined(ARCH_CPU_X86_FAMILY)
       x86_THREAD_STATE,
       x86_FLOAT_STATE,
@@ -342,15 +343,13 @@ TEST(SimulateCrash, SimulateCrash) {
 #endif
   };
 
-  for (size_t target_index = 0;
-       target_index < arraysize(kTargets);
+  for (size_t target_index = 0; target_index < base::size(kTargets);
        ++target_index) {
     TestSimulateCrashMac::ExceptionPortsTarget target = kTargets[target_index];
     SCOPED_TRACE(base::StringPrintf(
         "target_index %zu, target %d", target_index, target));
 
-    for (size_t behavior_index = 0;
-         behavior_index < arraysize(kBehaviors);
+    for (size_t behavior_index = 0; behavior_index < base::size(kBehaviors);
          ++behavior_index) {
       exception_behavior_t behavior = kBehaviors[behavior_index];
       SCOPED_TRACE(base::StringPrintf(
@@ -364,8 +363,7 @@ TEST(SimulateCrash, SimulateCrash) {
             target, behavior, THREAD_STATE_NONE);
         test_simulate_crash_mac.Run();
       } else {
-        for (size_t flavor_index = 0;
-             flavor_index < arraysize(kFlavors);
+        for (size_t flavor_index = 0; flavor_index < base::size(kFlavors);
              ++flavor_index) {
           thread_state_flavor_t flavor = kFlavors[flavor_index];
           SCOPED_TRACE(base::StringPrintf(

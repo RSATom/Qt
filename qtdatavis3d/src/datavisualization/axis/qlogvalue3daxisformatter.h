@@ -45,9 +45,9 @@ class QT_DATAVISUALIZATION_EXPORT QLogValue3DAxisFormatter : public QValue3DAxis
     Q_PROPERTY(bool showEdgeLabels READ showEdgeLabels WRITE setShowEdgeLabels NOTIFY showEdgeLabelsChanged)
 
 protected:
-    explicit QLogValue3DAxisFormatter(QLogValue3DAxisFormatterPrivate *d, QObject *parent = Q_NULLPTR);
+    explicit QLogValue3DAxisFormatter(QLogValue3DAxisFormatterPrivate *d, QObject *parent = nullptr);
 public:
-    explicit QLogValue3DAxisFormatter(QObject *parent = Q_NULLPTR);
+    explicit QLogValue3DAxisFormatter(QObject *parent = nullptr);
     virtual ~QLogValue3DAxisFormatter();
 
     void setBase(qreal base);

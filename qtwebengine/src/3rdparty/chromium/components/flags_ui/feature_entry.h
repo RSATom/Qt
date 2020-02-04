@@ -73,6 +73,10 @@ struct FeatureEntry {
     // feature is overriden to be enabled and empty set of parameters is used
     // boiling down to the default behavior in the code.
     FEATURE_WITH_PARAMS_VALUE,
+
+    // Corresponds to a command line switch where the value is treatead as a
+    // list of url::Origins. Default state is disabled like SINGLE_VALUE.
+    ORIGIN_LIST_VALUE
   };
 
   // Describes state of a feature.
@@ -116,8 +120,8 @@ struct FeatureEntry {
     const FeatureParam* params;
     int num_params;
     // A variation id number in the format of
-    // VariationsHttpHeaderProvider::SetDefaultVariationIds or nullptr
-    // if you do not need to set any variation_id for this feature variation.
+    // VariationsHttpHeaderProvider::ForceVariationIds() or nullptr if you do
+    // not need to set any variation_id for this feature variation.
     const char* variation_id;
   };
 
@@ -175,6 +179,11 @@ struct FeatureEntry {
   // FEATURE_WITH_VARIATIONS_VALUE.
   const char* feature_trial_name;
 
+  // Check whether internal |name| matches this FeatureEntry. Depending on the
+  // type of entry, this compared it to either |internal_name| or the values
+  // produced by NameForOption().
+  bool InternalNameMatches(const std::string& name) const;
+
   // Returns the name used in prefs for the option at the specified |index|.
   // Only used for types that use |num_options|.
   std::string NameForOption(int index) const;
@@ -203,8 +212,8 @@ namespace testing {
 // name-of-experiment + kMultiSeparator + selected_index.
 extern const char kMultiSeparator[];
 
-}  // namespace
+}  // namespace testing
 
-}  // namespace flag_ui
+}  // namespace flags_ui
 
 #endif  // COMPONENTS_FLAGS_UI_FEATURE_ENTRY_H_

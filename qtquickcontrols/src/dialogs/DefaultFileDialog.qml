@@ -51,8 +51,7 @@ import "qml"
 AbstractFileDialog {
     id: root
 
-    Component {
-        id: modelComponent
+    property Component modelComponent: Component {
         FolderListModel {
             showFiles: !root.selectFolder
             nameFilters: root.selectedNameFilterExtensions

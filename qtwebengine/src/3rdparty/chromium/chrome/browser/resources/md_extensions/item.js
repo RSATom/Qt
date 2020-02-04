@@ -4,62 +4,91 @@
 
 cr.define('extensions', function() {
   /** @interface */
-  var ItemDelegate = function() {};
-
-  ItemDelegate.prototype = {
+  class ItemDelegate {
     /** @param {string} id */
-    deleteItem: assertNotReached,
+    deleteItem(id) {}
 
     /**
      * @param {string} id
      * @param {boolean} isEnabled
      */
-    setItemEnabled: assertNotReached,
+    setItemEnabled(id, isEnabled) {}
 
     /**
      * @param {string} id
      * @param {boolean} isAllowedIncognito
      */
-    setItemAllowedIncognito: assertNotReached,
+    setItemAllowedIncognito(id, isAllowedIncognito) {}
 
     /**
      * @param {string} id
      * @param {boolean} isAllowedOnFileUrls
      */
-    setItemAllowedOnFileUrls: assertNotReached,
+    setItemAllowedOnFileUrls(id, isAllowedOnFileUrls) {}
 
     /**
      * @param {string} id
-     * @param {boolean} isAllowedOnAllSites
+     * @param {!chrome.developerPrivate.HostAccess} hostAccess
      */
-    setItemAllowedOnAllSites: assertNotReached,
+    setItemHostAccess(id, hostAccess) {}
 
     /**
      * @param {string} id
      * @param {boolean} collectsErrors
      */
-    setItemCollectsErrors: assertNotReached,
+    setItemCollectsErrors(id, collectsErrors) {}
 
     /**
      * @param {string} id
      * @param {chrome.developerPrivate.ExtensionView} view
      */
-    inspectItemView: assertNotReached,
+    inspectItemView(id, view) {}
+
+    /**
+     * @param {string} url
+     */
+    openUrl(url) {}
+
+    /**
+     * @param {string} id
+     * @return {!Promise}
+     */
+    reloadItem(id) {}
 
     /** @param {string} id */
-    reloadItem: assertNotReached,
+    repairItem(id) {}
+
+    /** @param {!chrome.developerPrivate.ExtensionInfo} extension */
+    showItemOptionsPage(extension) {}
 
     /** @param {string} id */
-    repairItem: assertNotReached,
+    showInFolder(id) {}
 
-    /** @param {string} id */
-    showItemOptionsPage: assertNotReached,
-  };
+    /**
+     * @param {string} id
+     * @return {!Promise<string>}
+     */
+    getExtensionSize(id) {}
 
-  var Item = Polymer({
+    /**
+     * @param {string} id
+     * @param {string} host
+     * @return {!Promise<void>}
+     */
+    addRuntimeHostPermission(id, host) {}
+
+    /**
+     * @param {string} id
+     * @param {string} host
+     * @return {!Promise<void>}
+     */
+    removeRuntimeHostPermission(id, host) {}
+  }
+
+  const Item = Polymer({
     is: 'extensions-item',
 
-    behaviors: [I18nBehavior],
+    behaviors: [I18nBehavior, extensions.ItemBehavior],
 
     properties: {
       // The item's delegate, or null.
@@ -92,24 +121,52 @@ cr.define('extensions', function() {
       'observeIdVisibility_(inDevMode, showingDetails_, data.id)',
     ],
 
+    /** @return {!HTMLElement} The "Details" button. */
+    getDetailsButton: function() {
+      return this.$.detailsButton;
+    },
+
+    /** @return {?HTMLElement} The "Errors" button, if it exists. */
+    getErrorsButton: function() {
+      return /** @type {?HTMLElement} */ (this.$$('#errors-button'));
+    },
+
+    /** @private string */
+    a11yAssociation_: function() {
+      // Don't use I18nBehavior.i18n because of additional checks it performs.
+      // Polymer ensures that this string is not stamped into arbitrary HTML.
+      // |this.data.name| can contain any data including html tags.
+      // ex: "My <video> download extension!"
+      return loadTimeData.getStringF(
+          'extensionA11yAssociation', this.data.name);
+    },
+
     /** @private */
     observeIdVisibility_: function(inDevMode, showingDetails, id) {
       Polymer.dom.flush();
-      var idElement = this.$$('#extension-id');
+      const idElement = this.$$('#extension-id');
       if (idElement) {
         assert(this.data);
         idElement.innerHTML = this.i18n('itemId', this.data.id);
       }
-      this.fire('extension-item-size-changed', {item: this.data});
     },
 
     /**
      * @return {boolean}
      * @private
      */
-    computeErrorsHidden_: function() {
-      return !this.data.manifestErrors.length &&
-          !this.data.runtimeErrors.length;
+    shouldShowErrorsButton_: function() {
+      // When the error console is disabled (happens when
+      // --disable-error-console command line flag is used or when in the
+      // Stable/Beta channel), |installWarnings| is populated.
+      if (this.data.installWarnings && this.data.installWarnings.length > 0) {
+        return true;
+      }
+
+      // When error console is enabled |installedWarnings| is not populated.
+      // Instead |manifestErrors| and |runtimeErrors| are used.
+      return this.data.manifestErrors.length > 0 ||
+          this.data.runtimeErrors.length > 0;
     },
 
     /** @private */
@@ -125,12 +182,19 @@ cr.define('extensions', function() {
 
     /** @private */
     onErrorsTap_: function() {
-      this.fire('extension-item-show-errors', {data: this.data});
+      if (this.data.installWarnings && this.data.installWarnings.length > 0) {
+        this.fire('show-install-warnings', this.data.installWarnings);
+        return;
+      }
+
+      extensions.navigation.navigateTo(
+          {page: Page.ERRORS, extensionId: this.data.id});
     },
 
     /** @private */
     onDetailsTap_: function() {
-      this.fire('extension-item-show-details', {data: this.data});
+      extensions.navigation.navigateTo(
+          {page: Page.DETAILS, extensionId: this.data.id});
     },
 
     /**
@@ -143,17 +207,28 @@ cr.define('extensions', function() {
 
     /** @private */
     onExtraInspectTap_: function() {
-      this.fire('extension-item-show-details', {data: this.data});
+      extensions.navigation.navigateTo(
+          {page: Page.DETAILS, extensionId: this.data.id});
     },
 
     /** @private */
     onReloadTap_: function() {
-      this.delegate.reloadItem(this.data.id);
+      this.delegate.reloadItem(this.data.id).catch(loadError => {
+        this.fire('load-error', loadError);
+      });
     },
 
     /** @private */
     onRepairTap_: function() {
       this.delegate.repairItem(this.data.id);
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    isControlled_: function() {
+      return extensions.isControlled(this.data);
     },
 
     /**
@@ -196,9 +271,10 @@ cr.define('extensions', function() {
      * @private
      */
     computeClasses_: function() {
-      var classes = this.isEnabled_() ? 'enabled' : 'disabled';
-      if (this.inDevMode)
+      let classes = this.isEnabled_() ? 'enabled' : 'disabled';
+      if (this.inDevMode) {
         classes += ' dev-mode';
+      }
       return classes;
     },
 
@@ -209,9 +285,12 @@ cr.define('extensions', function() {
     computeSourceIndicatorIcon_: function() {
       switch (extensions.getItemSource(this.data)) {
         case SourceType.POLICY:
-          return 'communication:business';
+          return 'extensions-icons:business';
         case SourceType.SIDELOADED:
-          return 'input';
+          return 'extensions-icons:input';
+        case SourceType.UNKNOWN:
+          // TODO(dpapad): Ask UX for a better icon for this case.
+          return 'extensions-icons:input';
         case SourceType.UNPACKED:
           return 'extensions-icons:unpacked';
         case SourceType.WEBSTORE:
@@ -225,7 +304,11 @@ cr.define('extensions', function() {
      * @private
      */
     computeSourceIndicatorText_: function() {
-      var sourceType = extensions.getItemSource(this.data);
+      if (this.data.locationText) {
+        return this.data.locationText;
+      }
+
+      const sourceType = extensions.getItemSource(this.data);
       return sourceType == SourceType.WEBSTORE ?
           '' :
           extensions.getItemSourceString(sourceType);
@@ -243,18 +326,24 @@ cr.define('extensions', function() {
      * @return {string}
      * @private
      */
-    computeFirstInspectLabel_: function() {
+    computeFirstInspectTitle_: function() {
       // Note: theoretically, this wouldn't be called without any inspectable
       // views (because it's in a dom-if="!computeInspectViewsHidden_()").
       // However, due to the recycling behavior of iron list, it seems that
       // sometimes it can. Even when it is, the UI behaves properly, but we
       // need to handle the case gracefully.
-      if (this.data.views.length == 0)
-        return '';
-      var label = extensions.computeInspectableViewLabel(this.data.views[0]);
-      if (this.data.views.length > 1)
-        label += ',';
-      return label;
+      return this.data.views.length > 0 ?
+          extensions.computeInspectableViewLabel(this.data.views[0]) :
+          '';
+    },
+
+    /**
+     * @return {string}
+     * @private
+     */
+    computeFirstInspectLabel_: function() {
+      const label = this.computeFirstInspectTitle_();
+      return label && this.data.views.length > 1 ? label + ',' : label;
     },
 
     /**
@@ -271,11 +360,11 @@ cr.define('extensions', function() {
      */
     computeDevReloadButtonHidden_: function() {
       // Only display the reload spinner if the extension is unpacked and
-      // not terminated (since if it's terminated, we'll show a crashed reload
-      // buton).
-      var showIcon =
+      // enabled. There's no point in reloading a disabled extension, and we'll
+      // show a crashed reload buton if it's terminated.
+      const showIcon =
           this.data.location == chrome.developerPrivate.Location.UNPACKED &&
-          this.data.state != chrome.developerPrivate.ExtensionState.TERMINATED;
+          this.data.state == chrome.developerPrivate.ExtensionState.ENABLED;
       return !showIcon;
     },
 
@@ -284,8 +373,8 @@ cr.define('extensions', function() {
      * @private
      */
     computeExtraInspectLabel_: function() {
-      return loadTimeData.getStringF(
-          'itemInspectViewsExtra', this.data.views.length - 1);
+      return this.i18n(
+          'itemInspectViewsExtra', (this.data.views.length - 1).toString());
     },
 
     /**
@@ -295,7 +384,7 @@ cr.define('extensions', function() {
     hasWarnings_: function() {
       return this.data.disableReasons.corruptInstall ||
           this.data.disableReasons.suspiciousInstall ||
-          !!this.data.blacklistText;
+          this.data.runtimeWarnings.length > 0 || !!this.data.blacklistText;
     },
 
     /**

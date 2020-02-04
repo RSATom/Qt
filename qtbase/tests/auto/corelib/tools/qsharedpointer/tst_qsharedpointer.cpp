@@ -40,6 +40,7 @@
 #include "nontracked.h"
 #include "wrapper.h"
 
+#include <memory>
 #include <stdlib.h>
 #include <time.h>
 
@@ -93,6 +94,7 @@ private slots:
     void lambdaCustomDeleter();
 #endif
     void creating();
+    void creatingCvQualified();
     void creatingVariadic();
     void creatingQObject();
     void mixTrackingPointerCode();
@@ -231,6 +233,12 @@ struct NoDefaultConstructorRRef1
     int &i;
     NoDefaultConstructorRRef1(int &&i) : i(i) {}
 };
+
+struct NoDefaultConstructorRRef2
+{
+    std::unique_ptr<int> i;
+    NoDefaultConstructorRRef2(std::unique_ptr<int> &&i) : i(std::move(i)) {}
+};
 #endif
 
 void tst_QSharedPointer::basics_data()
@@ -272,6 +280,7 @@ void tst_QSharedPointer::basics()
         QCOMPARE(!ptr, isNull);
 
         QCOMPARE(ptr.data(), aData);
+        QCOMPARE(ptr.get(), aData);
         QCOMPARE(ptr.operator->(), aData);
         if (!isNull) {
             Data &dataReference = *ptr;
@@ -316,6 +325,7 @@ void tst_QSharedPointer::basics()
 
         QCOMPARE(copy.isNull(), isNull);
         QCOMPARE(copy.data(), aData);
+        QCOMPARE(copy.get(), aData);
         QVERIFY(copy == aData);
     }
     QVERIFY(!refCountData(ptr) || refCountData(ptr)->weakref.load() == 1);
@@ -349,6 +359,7 @@ void tst_QSharedPointer::basics()
         QVERIFY(strong == weak);
         QVERIFY(strong == ptr);
         QCOMPARE(strong.data(), aData);
+        QCOMPARE(strong.get(), aData);
     }
     QVERIFY(!refCountData(ptr) || refCountData(ptr)->weakref.load() == 1);
     QVERIFY(!refCountData(ptr) || refCountData(ptr)->strongref.load() == 1);
@@ -362,11 +373,14 @@ void tst_QSharedPointer::operators()
     QSharedPointer<char> p2(new char);
     qptrdiff diff = p2.data() - p1.data();
     QVERIFY(p1.data() != p2.data());
+    QVERIFY(p1.get() != p2.get());
     QVERIFY(diff != 0);
 
     // operator-
     QCOMPARE(p2 - p1.data(), diff);
+    QCOMPARE(p2 - p1.get(), diff);
     QCOMPARE(p2.data() - p1, diff);
+    QCOMPARE(p2.get() - p1, diff);
     QCOMPARE(p2 - p1, diff);
     QCOMPARE(p1 - p2, -diff);
     QCOMPARE(p1 - p1, qptrdiff(0));
@@ -374,7 +388,9 @@ void tst_QSharedPointer::operators()
 
     // operator<
     QVERIFY(p1 < p2.data());
+    QVERIFY(p1 < p2.get());
     QVERIFY(p1.data() < p2);
+    QVERIFY(p1.get() < p2);
     QVERIFY(p1 < p2);
     QVERIFY(!(p2 < p1));
     QVERIFY(!(p2 < p2));
@@ -382,7 +398,9 @@ void tst_QSharedPointer::operators()
 
     // qHash
     QCOMPARE(qHash(p1), qHash(p1.data()));
+    QCOMPARE(qHash(p1), qHash(p1.get()));
     QCOMPARE(qHash(p2), qHash(p2.data()));
+    QCOMPARE(qHash(p2), qHash(p2.get()));
 }
 
 void tst_QSharedPointer::nullptrOps()
@@ -396,11 +414,13 @@ void tst_QSharedPointer::nullptrOps()
     QVERIFY(nullptr == p1);
     QVERIFY(!p1);
     QVERIFY(!p1.data());
+    QVERIFY(!p1.get());
     QVERIFY(p2 == null);
     QVERIFY(p2 == nullptr);
     QVERIFY(nullptr == p2);
     QVERIFY(!p2);
     QVERIFY(!p2.data());
+    QVERIFY(!p2.get());
     QVERIFY(p1 == p2);
 
     QSharedPointer<char> p3 = p1;
@@ -409,6 +429,7 @@ void tst_QSharedPointer::nullptrOps()
     QVERIFY(p3 == nullptr);
     QVERIFY(nullptr == p3);
     QVERIFY(!p3.data());
+    QVERIFY(!p3.get());
 
     p3 = nullptr;
 
@@ -421,6 +442,7 @@ void tst_QSharedPointer::nullptrOps()
     QSharedPointer<char> p4(new char);
     QVERIFY(p4);
     QVERIFY(p4.data());
+    QVERIFY(p4.get());
     QVERIFY(p4 != nullptr);
     QVERIFY(nullptr != p4);
     QVERIFY(p4 != p1);
@@ -1757,6 +1779,13 @@ void tst_QSharedPointer::creating()
     safetyCheck();
 }
 
+void tst_QSharedPointer::creatingCvQualified()
+{
+    auto cptr = QSharedPointer<const Data>::create();
+    auto vptr = QSharedPointer<volatile Data>::create();
+    auto cvptr = QSharedPointer<const volatile Data>::create();
+}
+
 void tst_QSharedPointer::creatingVariadic()
 {
     int i = 42;
@@ -1798,13 +1827,18 @@ void tst_QSharedPointer::creatingVariadic()
         QCOMPARE(&ptr->i, &i);
     }
     {
-        NoDefaultConstructorRRef1(1); // control check
-        QSharedPointer<NoDefaultConstructorRRef1> ptr = QSharedPointer<NoDefaultConstructorRRef1>::create(1);
-        QCOMPARE(ptr->i, 1);
-
         NoDefaultConstructorRRef1(std::move(i)); // control check
-        ptr = QSharedPointer<NoDefaultConstructorRRef1>::create(std::move(i));
+        QSharedPointer<NoDefaultConstructorRRef1> ptr = QSharedPointer<NoDefaultConstructorRRef1>::create(std::move(i));
         QCOMPARE(ptr->i, i);
+    }
+    {
+        NoDefaultConstructorRRef2(std::unique_ptr<int>(new int(1))); // control check
+        QSharedPointer<NoDefaultConstructorRRef2> ptr = QSharedPointer<NoDefaultConstructorRRef2>::create(std::unique_ptr<int>(new int(1)));
+        QCOMPARE(*ptr->i, 1);
+
+        std::unique_ptr<int> p(new int(i));
+        ptr = QSharedPointer<NoDefaultConstructorRRef2>::create(std::move(p));
+        QCOMPARE(*ptr->i, i);
     }
     {
         QString text("Hello, World");

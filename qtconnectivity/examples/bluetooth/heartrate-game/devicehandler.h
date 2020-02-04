@@ -54,8 +54,9 @@
 #include "bluetoothbaseclass.h"
 
 #include <QDateTime>
-#include <QVector>
 #include <QTimer>
+#include <QVector>
+
 #include <QLowEnergyController>
 #include <QLowEnergyService>
 
@@ -82,7 +83,7 @@ public:
     };
     Q_ENUM(AddressType)
 
-    DeviceHandler(QObject *parent = 0);
+    DeviceHandler(QObject *parent = nullptr);
 
     void setDevice(DeviceInfo *device);
     void setAddressType(AddressType type);
@@ -127,10 +128,10 @@ private:
 private:
     void addMeasurement(int value);
 
-    QLowEnergyController *m_control;
-    QLowEnergyService *m_service;
+    QLowEnergyController *m_control = nullptr;
+    QLowEnergyService *m_service = nullptr;
     QLowEnergyDescriptor m_notificationDesc;
-    DeviceInfo *m_currentDevice;
+    DeviceInfo *m_currentDevice = nullptr;
 
     bool m_foundHeartRateService;
     bool m_measuring;

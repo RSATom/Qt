@@ -9,37 +9,34 @@
 
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
-#include "fxbarcode/oned/BC_OneDimWriter.h"
+#include "fxbarcode/oned/BC_OnedEANWriter.h"
 
 class CFX_DIBitmap;
 class CFX_RenderDevice;
 
-class CBC_OnedEAN13Writer : public CBC_OneDimWriter {
+class CBC_OnedEAN13Writer final : public CBC_OneDimEANWriter {
  public:
   CBC_OnedEAN13Writer();
   ~CBC_OnedEAN13Writer() override;
 
-  // CBC_OneDimWriter
-  uint8_t* EncodeWithHint(const CFX_ByteString& contents,
+  // CBC_OneDimEANWriter:
+  uint8_t* EncodeWithHint(const ByteString& contents,
                           BCFORMAT format,
                           int32_t& outWidth,
                           int32_t& outHeight,
                           int32_t hints) override;
-  uint8_t* EncodeImpl(const CFX_ByteString& contents,
-                      int32_t& outLength) override;
-  bool CheckContentValidity(const CFX_WideStringC& contents) override;
-  CFX_WideString FilterContents(const CFX_WideStringC& contents) override;
+  uint8_t* EncodeImpl(const ByteString& contents, int32_t& outLength) override;
+  bool CheckContentValidity(WideStringView contents) override;
+  WideString FilterContents(WideStringView contents) override;
+  int32_t CalcChecksum(const ByteString& contents) override;
 
-  int32_t CalcChecksum(const CFX_ByteString& contents);
-
- protected:
-  bool ShowChars(const CFX_WideStringC& contents,
+ private:
+  bool ShowChars(WideStringView contents,
                  CFX_RenderDevice* device,
                  const CFX_Matrix* matrix,
                  int32_t barWidth,
                  int32_t multiple) override;
 
- private:
   int32_t m_codeWidth;
 };
 

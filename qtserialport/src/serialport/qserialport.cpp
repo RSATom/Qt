@@ -1396,10 +1396,13 @@ bool QSerialPort::isBreakEnabled() const
 
 /*!
     \reimp
+
+    \omit
+    This function does not really read anything, as we use QIODevicePrivate's
+    buffer. The buffer will be read inside of QIODevice before this
+    method will be called.
+    \endomit
 */
-// This function does not really read anything, as we use QIODevicePrivate's
-// buffer. The buffer will be read inside of QIODevice before this
-// method will be called.
 qint64 QSerialPort::readData(char *data, qint64 maxSize)
 {
     Q_UNUSED(data);
@@ -1430,6 +1433,6 @@ qint64 QSerialPort::writeData(const char *data, qint64 maxSize)
     return d->writeData(data, maxSize);
 }
 
-#include "moc_qserialport.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qserialport.cpp"

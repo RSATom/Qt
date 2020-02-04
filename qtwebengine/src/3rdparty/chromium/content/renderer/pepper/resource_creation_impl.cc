@@ -21,6 +21,7 @@
 #include "ppapi/shared_impl/ppb_image_data_shared.h"
 #include "ppapi/shared_impl/ppb_input_event_shared.h"
 #include "ppapi/shared_impl/var.h"
+#include "services/service_manager/sandbox/switches.h"
 
 #if defined(OS_WIN)
 #include "base/command_line.h"
@@ -77,10 +78,6 @@ PP_Resource ResourceCreationImpl::CreateAudioOutput(PP_Instance instance) {
   return 0;  // Not supported in-process.
 }
 
-PP_Resource ResourceCreationImpl::CreateCompositor(PP_Instance instance) {
-  return 0;  // Not supported in-process.
-}
-
 PP_Resource ResourceCreationImpl::CreateBroker(PP_Instance instance) {
   return (new PPB_Broker_Impl(instance))->GetReference();
 }
@@ -125,9 +122,9 @@ PP_Resource ResourceCreationImpl::CreateGraphics3D(PP_Instance instance,
 PP_Resource ResourceCreationImpl::CreateGraphics3DRaw(
     PP_Instance instance,
     PP_Resource share_context,
-    const gpu::gles2::ContextCreationAttribHelper& attrib_helper,
+    const gpu::ContextCreationAttribs& attrib_helper,
     gpu::Capabilities* capabilities,
-    base::SharedMemoryHandle* shared_state,
+    const base::UnsafeSharedMemoryRegion** shared_state,
     gpu::CommandBufferId* command_buffer_id) {
   return PPB_Graphics3D_Impl::CreateRaw(instance, share_context, attrib_helper,
                                         capabilities, shared_state,
@@ -155,7 +152,7 @@ PP_Resource ResourceCreationImpl::CreateImageData(PP_Instance instance,
   // TODO(ananta)
   // Look into whether this causes a loss of functionality. From cursory
   // testing things seem to work well.
-  if (IsWin32kLockdownEnabled())
+  if (service_manager::IsWin32kLockdownEnabled())
     return CreateImageDataSimple(instance, format, size, init_to_zero);
 #endif
   return PPB_ImageData_Impl::Create(instance,
@@ -282,16 +279,6 @@ PP_Resource ResourceCreationImpl::CreateNetworkMonitor(PP_Instance instance) {
   return 0;  // Not supported in-process.
 }
 
-PP_Resource ResourceCreationImpl::CreateOutputProtectionPrivate(
-    PP_Instance instance) {
-  return 0;  // Not supported in-process.
-}
-
-PP_Resource ResourceCreationImpl::CreatePlatformVerificationPrivate(
-    PP_Instance instance) {
-  return 0;  // Not supported in-process.
-}
-
 PP_Resource ResourceCreationImpl::CreateTCPServerSocketPrivate(
     PP_Instance instance) {
   return 0;  // Not supported in-process.
@@ -340,15 +327,7 @@ PP_Resource ResourceCreationImpl::CreateVideoDecoderDev(
   return PPB_VideoDecoder_Impl::Create(instance, graphics3d_id, profile);
 }
 
-PP_Resource ResourceCreationImpl::CreateVideoDestination(PP_Instance instance) {
-  return 0;  // Not supported in-process.
-}
-
 PP_Resource ResourceCreationImpl::CreateVideoEncoder(PP_Instance instance) {
-  return 0;  // Not supported in-process.
-}
-
-PP_Resource ResourceCreationImpl::CreateVideoSource(PP_Instance instance) {
   return 0;  // Not supported in-process.
 }
 

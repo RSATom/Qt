@@ -121,6 +121,7 @@ bool QuickTestEvent::keyClickChar(const QString &character, int modifiers, int d
     return true;
 }
 
+#if QT_CONFIG(shortcut)
 // valueToKeySequence() is copied from qquickshortcut.cpp
 static QKeySequence valueToKeySequence(const QVariant &value)
 {
@@ -128,13 +129,16 @@ static QKeySequence valueToKeySequence(const QVariant &value)
         return QKeySequence(static_cast<QKeySequence::StandardKey>(value.toInt()));
     return QKeySequence::fromString(value.toString());
 }
+#endif
 
 bool QuickTestEvent::keySequence(const QVariant &keySequence)
 {
     QWindow *window = activeWindow();
     if (!window)
         return false;
+#if QT_CONFIG(shortcut)
     QTest::keySequence(window, valueToKeySequence(keySequence));
+#endif
     return true;
 }
 
@@ -144,6 +148,7 @@ namespace QtQuickTest
 
     int lastMouseTimestamp = 0;
 
+    // TODO should be Qt::MouseButtons buttons in case multiple buttons are pressed
     static void mouseEvent(MouseAction action, QWindow *window,
                            QObject *item, Qt::MouseButton button,
                            Qt::KeyboardModifiers stateKey, const QPointF &_pos, int delay=-1)
@@ -190,7 +195,7 @@ namespace QtQuickTest
                 me.setTimestamp(++lastMouseTimestamp);
                 break;
             case MouseRelease:
-                me = QMouseEvent(QEvent::MouseButtonRelease, pos, window->mapToGlobal(pos), button, 0, stateKey);
+                me = QMouseEvent(QEvent::MouseButtonRelease, pos, window->mapToGlobal(pos), button, nullptr, stateKey);
                 me.setTimestamp(++lastMouseTimestamp);
                 lastMouseTimestamp += 500; // avoid double clicks being generated
                 break;
@@ -252,6 +257,7 @@ bool QuickTestEvent::mousePress
     QWindow *view = eventWindow(item);
     if (!view)
         return false;
+    m_pressedButtons.setFlag(Qt::MouseButton(button), true);
     QtQuickTest::mouseEvent(QtQuickTest::MousePress, view, item,
                             Qt::MouseButton(button),
                             Qt::KeyboardModifiers(modifiers),
@@ -281,6 +287,7 @@ bool QuickTestEvent::mouseRelease
     QWindow *view = eventWindow(item);
     if (!view)
         return false;
+    m_pressedButtons.setFlag(Qt::MouseButton(button), false);
     QtQuickTest::mouseEvent(QtQuickTest::MouseRelease, view, item,
                             Qt::MouseButton(button),
                             Qt::KeyboardModifiers(modifiers),
@@ -336,8 +343,9 @@ bool QuickTestEvent::mouseMove
     QWindow *view = eventWindow(item);
     if (!view)
         return false;
+    const Qt::MouseButtons effectiveButtons = buttons ? Qt::MouseButtons(buttons) : m_pressedButtons;
     QtQuickTest::mouseEvent(QtQuickTest::MouseMove, view, item,
-                            Qt::MouseButton(buttons), Qt::NoModifier,
+                            Qt::MouseButton(int(effectiveButtons)), Qt::NoModifier,
                             QPointF(x, y), delay);
     return true;
 }
@@ -355,7 +363,7 @@ QWindow *QuickTestEvent::eventWindow(QObject *item)
     QQuickItem *testParentitem = qobject_cast<QQuickItem *>(parent());
     if (testParentitem)
         return testParentitem->window();
-    return 0;
+    return nullptr;
 }
 
 QWindow *QuickTestEvent::activeWindow()

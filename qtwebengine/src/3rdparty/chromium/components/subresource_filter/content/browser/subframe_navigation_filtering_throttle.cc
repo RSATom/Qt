@@ -7,6 +7,8 @@
 #include <sstream>
 
 #include "base/bind.h"
+#include "base/debug/alias.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/subresource_filter/content/browser/subresource_filter_observer_manager.h"
@@ -15,16 +17,17 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/console_message_level.h"
 
 namespace subresource_filter {
 
 SubframeNavigationFilteringThrottle::SubframeNavigationFilteringThrottle(
     content::NavigationHandle* handle,
-    AsyncDocumentSubresourceFilter* parent_frame_filter)
+    AsyncDocumentSubresourceFilter* parent_frame_filter,
+    Delegate* delegate)
     : content::NavigationThrottle(handle),
       parent_frame_filter_(parent_frame_filter),
+      delegate_(delegate),
       weak_ptr_factory_(this) {
   DCHECK(!handle->IsInMainFrame());
   DCHECK(parent_frame_filter_);
@@ -51,19 +54,19 @@ SubframeNavigationFilteringThrottle::~SubframeNavigationFilteringThrottle() {
 
 content::NavigationThrottle::ThrottleCheckResult
 SubframeNavigationFilteringThrottle::WillStartRequest() {
-  return DeferToCalculateLoadPolicy(ThrottlingStage::WillStartRequest);
+  return DeferToCalculateLoadPolicy();
 }
 
 content::NavigationThrottle::ThrottleCheckResult
 SubframeNavigationFilteringThrottle::WillRedirectRequest() {
-  return DeferToCalculateLoadPolicy(ThrottlingStage::WillRedirectRequest);
+  return DeferToCalculateLoadPolicy();
 }
 
 content::NavigationThrottle::ThrottleCheckResult
 SubframeNavigationFilteringThrottle::WillProcessResponse() {
   DCHECK_NE(load_policy_, LoadPolicy::DISALLOW);
   NotifyLoadPolicy();
-  return content::NavigationThrottle::ThrottleCheckResult::PROCEED;
+  return PROCEED;
 }
 
 const char* SubframeNavigationFilteringThrottle::GetNameForLogging() {
@@ -71,21 +74,20 @@ const char* SubframeNavigationFilteringThrottle::GetNameForLogging() {
 }
 
 content::NavigationThrottle::ThrottleCheckResult
-SubframeNavigationFilteringThrottle::DeferToCalculateLoadPolicy(
-    ThrottlingStage stage) {
+SubframeNavigationFilteringThrottle::DeferToCalculateLoadPolicy() {
   DCHECK_NE(load_policy_, LoadPolicy::DISALLOW);
   if (load_policy_ == LoadPolicy::WOULD_DISALLOW)
-    return content::NavigationThrottle::ThrottleCheckResult::PROCEED;
+    return PROCEED;
   parent_frame_filter_->GetLoadPolicyForSubdocument(
       navigation_handle()->GetURL(),
-      base::Bind(&SubframeNavigationFilteringThrottle::OnCalculatedLoadPolicy,
-                 weak_ptr_factory_.GetWeakPtr(), stage));
+      base::BindOnce(
+          &SubframeNavigationFilteringThrottle::OnCalculatedLoadPolicy,
+          weak_ptr_factory_.GetWeakPtr()));
   last_defer_timestamp_ = base::TimeTicks::Now();
-  return content::NavigationThrottle::ThrottleCheckResult::DEFER;
+  return DEFER;
 }
 
 void SubframeNavigationFilteringThrottle::OnCalculatedLoadPolicy(
-    ThrottlingStage stage,
     LoadPolicy policy) {
   DCHECK(!last_defer_timestamp_.is_null());
   load_policy_ = policy;
@@ -93,39 +95,50 @@ void SubframeNavigationFilteringThrottle::OnCalculatedLoadPolicy(
 
   if (policy == LoadPolicy::DISALLOW) {
     if (parent_frame_filter_->activation_state().enable_logging) {
-      std::ostringstream oss(kDisallowSubframeConsoleMessagePrefix);
-      oss << navigation_handle()->GetURL();
-      oss << kDisallowSubframeConsoleMessageSuffix;
+      std::string console_message = base::StringPrintf(
+          kDisallowSubframeConsoleMessageFormat,
+          navigation_handle()->GetURL().possibly_invalid_spec().c_str());
       navigation_handle()
           ->GetWebContents()
           ->GetMainFrame()
           ->AddMessageToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
-                                oss.str());
+                                console_message);
     }
 
     parent_frame_filter_->ReportDisallowedLoad();
     // Other load policies will be reported in WillProcessResponse.
     NotifyLoadPolicy();
 
-    const bool block_and_collapse_is_supported =
-        content::IsBrowserSideNavigationEnabled() ||
-        stage == ThrottlingStage::WillStartRequest;
-    CancelDeferredNavigation(
-        block_and_collapse_is_supported
-            ? content::NavigationThrottle::BLOCK_REQUEST_AND_COLLAPSE
-            : content::NavigationThrottle::CANCEL);
+    CancelDeferredNavigation(BLOCK_REQUEST_AND_COLLAPSE);
   } else {
     Resume();
   }
 }
 
 void SubframeNavigationFilteringThrottle::NotifyLoadPolicy() const {
-  if (auto* observer_manager =
-          SubresourceFilterObserverManager::FromWebContents(
-              navigation_handle()->GetWebContents())) {
-    observer_manager->NotifySubframeNavigationEvaluated(navigation_handle(),
-                                                        load_policy_);
+  auto* observer_manager = SubresourceFilterObserverManager::FromWebContents(
+      navigation_handle()->GetWebContents());
+  if (!observer_manager)
+    return;
+
+  // TODO(crbug.com/843646): Use an API that NavigationHandle supports rather
+  // than trying to infer what the NavigationHandle is doing.
+  content::RenderFrameHost* starting_rfh =
+      navigation_handle()->GetWebContents()->UnsafeFindFrameByFrameTreeNodeId(
+          navigation_handle()->GetFrameTreeNodeId());
+  if (!starting_rfh) {
+    // TODO(arthursonzogni): Remove this block, this must not happen.
+    // See https://crbug.com/904248.
+    observer_manager->NotifySubframeNavigationEvaluated(
+        navigation_handle(), load_policy_, false /* is_ad_subframe */);
+    return;
   }
+
+  bool is_ad_subframe =
+      delegate_->CalculateIsAdSubframe(starting_rfh, load_policy_);
+
+  observer_manager->NotifySubframeNavigationEvaluated(
+      navigation_handle(), load_policy_, is_ad_subframe);
 }
 
 }  // namespace subresource_filter

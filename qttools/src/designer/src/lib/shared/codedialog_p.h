@@ -41,7 +41,7 @@
 #define CODEPREVIEWDIALOG_H
 
 #include "shared_global_p.h"
-#include <QtWidgets/QDialog>
+#include <QtWidgets/qdialog.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -54,7 +54,7 @@ class QDESIGNER_SHARED_EXPORT CodeDialog : public QDialog
     Q_OBJECT
     explicit CodeDialog(QWidget *parent = 0);
 public:
-    virtual ~CodeDialog();
+    ~CodeDialog() override;
 
     static bool generateCode(const QDesignerFormWindowInterface *fw,
                              QString *code,
@@ -66,7 +66,7 @@ public:
 
 private slots:
     void slotSaveAs();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void copyAll();
 #endif
 

@@ -49,7 +49,7 @@ namespace Qt3DRender {
 
 class QClipPlanePrivate;
 
-class QT3DRENDERSHARED_EXPORT QClipPlane : public QRenderState
+class Q_3DRENDERSHARED_EXPORT QClipPlane : public QRenderState
 {
     Q_OBJECT
     Q_PROPERTY(int planeIndex READ planeIndex WRITE setPlaneIndex NOTIFY planeIndexChanged)
@@ -75,7 +75,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QClipPlane)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

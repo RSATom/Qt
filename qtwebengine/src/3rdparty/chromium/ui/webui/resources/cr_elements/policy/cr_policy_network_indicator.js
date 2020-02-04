@@ -15,9 +15,12 @@ Polymer({
   properties: {
     /**
      * Network property associated with the indicator.
-     * @type {!CrOnc.ManagedProperty|undefined}
+     * @type {?CrOnc.ManagedProperty|undefined}
      */
     property: Object,
+
+    /** Position of tooltip popup related to the policy indicator. */
+    tooltipPosition: String,
 
     /**
      * Recommended value for non enforced properties.
@@ -25,8 +28,8 @@ Polymer({
      */
     recommended_: Object,
 
-    /** @override */
-    indicatorTooltip: {
+    /** @private */
+    indicatorTooltip_: {
       type: String,
       computed: 'getNetworkIndicatorTooltip_(indicatorType, property.*)',
     },
@@ -36,15 +39,16 @@ Polymer({
 
   /** @private */
   propertyChanged_: function() {
-    var property = this.property;
-    if (!this.isControlled(property)) {
+    const property = this.property;
+    if (property == null || !this.isControlled(property)) {
       this.indicatorType = CrPolicyIndicatorType.NONE;
       return;
     }
-    var effective = property.Effective;
-    var active = property.Active;
-    if (active == undefined)
+    const effective = property.Effective;
+    let active = property.Active;
+    if (active == undefined) {
       active = property[effective];
+    }
 
     if (property.UserEditable === true &&
         property.hasOwnProperty('UserPolicy')) {
@@ -75,12 +79,17 @@ Polymer({
    * @private
    */
   getNetworkIndicatorTooltip_: function() {
-    var matches;
+    if (this.property === undefined) {
+      return '';
+    }
+
+    let matches;
     if (this.indicatorType == CrPolicyIndicatorType.RECOMMENDED &&
         this.property) {
-      var value = this.property.Active;
-      if (value == undefined && this.property.Effective)
+      let value = this.property.Active;
+      if (value == undefined && this.property.Effective) {
         value = this.property[this.property.Effective];
+      }
       matches = value == this.recommended_;
     }
     return this.getIndicatorTooltip(this.indicatorType, '', matches);

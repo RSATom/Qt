@@ -36,14 +36,15 @@ class Variable final : public ZoneObject {
                    LocationField::encode(VariableLocation::UNALLOCATED) |
                    VariableKindField::encode(kind)) {
     // Var declared variables never need initialization.
-    DCHECK(!(mode == VAR && initialization_flag == kNeedsInitialization));
+    DCHECK(!(mode == VariableMode::kVar &&
+             initialization_flag == kNeedsInitialization));
   }
 
   explicit Variable(Variable* other);
 
   // The source code for an eval() call may refer to a variable that is
   // in an outer scope about which we don't know anything (it may not
-  // be the script scope). scope() is NULL in that case. Currently the
+  // be the script scope). scope() is nullptr in that case. Currently the
   // scope is only used to follow the context chain length.
   Scope* scope() const { return scope_; }
 
@@ -130,14 +131,16 @@ class Variable final : public ZoneObject {
     return kind() != SLOPPY_FUNCTION_NAME_VARIABLE || is_strict(language_mode);
   }
 
-  bool is_function() const { return kind() == FUNCTION_VARIABLE; }
   bool is_this() const { return kind() == THIS_VARIABLE; }
   bool is_sloppy_function_name() const {
     return kind() == SLOPPY_FUNCTION_NAME_VARIABLE;
   }
 
+  bool is_parameter() const { return kind() == PARAMETER_VARIABLE; }
+
   Variable* local_if_not_shadowed() const {
-    DCHECK(mode() == DYNAMIC_LOCAL && local_if_not_shadowed_ != NULL);
+    DCHECK(mode() == VariableMode::kDynamicLocal &&
+           local_if_not_shadowed_ != nullptr);
     return local_if_not_shadowed_;
   }
 
@@ -173,12 +176,20 @@ class Variable final : public ZoneObject {
     index_ = index;
   }
 
-  static InitializationFlag DefaultInitializationFlag(VariableMode mode) {
-    DCHECK(IsDeclaredVariableMode(mode));
-    return mode == VAR ? kCreatedInitialized : kNeedsInitialization;
+  void MakeParameterNonSimple() {
+    DCHECK(is_parameter());
+    bit_field_ = VariableModeField::update(bit_field_, VariableMode::kLet);
+    bit_field_ =
+        InitializationFlagField::update(bit_field_, kNeedsInitialization);
   }
 
-  typedef ThreadedList<Variable> List;
+  static InitializationFlag DefaultInitializationFlag(VariableMode mode) {
+    DCHECK(IsDeclaredVariableMode(mode));
+    return mode == VariableMode::kVar ? kCreatedInitialized
+                                      : kNeedsInitialization;
+  }
+
+  typedef base::ThreadedList<Variable> List;
 
  private:
   Scope* scope_;
@@ -196,7 +207,7 @@ class Variable final : public ZoneObject {
 
   class VariableModeField : public BitField16<VariableMode, 0, 3> {};
   class VariableKindField
-      : public BitField16<VariableKind, VariableModeField::kNext, 3> {};
+      : public BitField16<VariableKind, VariableModeField::kNext, 2> {};
   class LocationField
       : public BitField16<VariableLocation, VariableKindField::kNext, 3> {};
   class ForceContextAllocationField
@@ -212,6 +223,7 @@ class Variable final : public ZoneObject {
                           ForceHoleInitializationField::kNext, 1> {};
   Variable** next() { return &next_; }
   friend List;
+  friend base::ThreadedListTraits<Variable>;
 };
 }  // namespace internal
 }  // namespace v8

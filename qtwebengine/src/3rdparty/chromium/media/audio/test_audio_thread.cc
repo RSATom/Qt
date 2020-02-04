@@ -13,7 +13,7 @@ TestAudioThread::TestAudioThread() : TestAudioThread(false) {}
 
 TestAudioThread::TestAudioThread(bool use_real_thread) {
   if (use_real_thread) {
-    thread_ = base::MakeUnique<base::Thread>("AudioThread");
+    thread_ = std::make_unique<base::Thread>("AudioThread");
 #if defined(OS_WIN)
     thread_->init_com_with_mta(true);
 #endif
@@ -34,6 +34,11 @@ void TestAudioThread::Stop() {
     thread_->Stop();
   else
     base::RunLoop().RunUntilIdle();
+}
+
+bool TestAudioThread::IsHung() const {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  return false;
 }
 
 base::SingleThreadTaskRunner* TestAudioThread::GetTaskRunner() {

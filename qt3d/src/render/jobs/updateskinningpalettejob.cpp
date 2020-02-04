@@ -47,6 +47,7 @@ namespace Render {
 
 UpdateSkinningPaletteJob::UpdateSkinningPaletteJob()
     : Qt3DCore::QAspectJob()
+    , m_nodeManagers(nullptr)
     , m_root()
 {
     SET_JOB_RUN_STAT_TYPE(this, JobTypes::UpdateSkinningPalette, 0);
@@ -58,6 +59,10 @@ UpdateSkinningPaletteJob::~UpdateSkinningPaletteJob()
 
 void UpdateSkinningPaletteJob::run()
 {
+    auto armatureManager = m_nodeManagers->armatureManager();
+    if (armatureManager->count() == 0)
+        return;
+
     // TODO: Decompose this job across several jobs, say one per skeleton so
     // that it can be done in parallel
 
@@ -74,10 +79,13 @@ void UpdateSkinningPaletteJob::run()
 
     // Find all the armature components and update their skinning palettes
     QVector<HArmature> dirtyArmatures;
-    findDirtyArmatures(m_root, dirtyArmatures);
+    m_root->traverse([&dirtyArmatures](Entity *entity) {
+        const auto armatureHandle = entity->componentHandle<Armature>();
+        if (!armatureHandle.isNull() && !dirtyArmatures.contains(armatureHandle))
+            dirtyArmatures.push_back(armatureHandle);
+    });
 
     // Update the skeleton for each dirty armature
-    auto armatureManager = m_nodeManagers->armatureManager();
     auto skeletonManager = m_nodeManagers->skeletonManager();
     for (const auto &armatureHandle : qAsConst(dirtyArmatures)) {
         auto armature = armatureManager->data(armatureHandle);
@@ -90,22 +98,6 @@ void UpdateSkinningPaletteJob::run()
         const QVector<QMatrix4x4> skinningPalette = skeleton->calculateSkinningMatrixPalette();
         armature->skinningPaletteUniform().setData(skinningPalette);
     }
-}
-
-void UpdateSkinningPaletteJob::findDirtyArmatures(Entity *entity,
-                                                  QVector<HArmature> &armatures) const
-{
-    // Just return all enabled armatures found on entities for now
-    // TODO: Be smarter about limiting which armatures we update. For e.g. only
-    // those with skeletons that have changed and only those that are within view
-    // of one or more renderviews.
-    const auto armatureHandle = entity->componentHandle<Armature>();
-    if (!armatureHandle.isNull() && !armatures.contains(armatureHandle))
-        armatures.push_back(armatureHandle);
-
-    const auto children = entity->children();
-    for (const auto child : children)
-        findDirtyArmatures(child, armatures);
 }
 
 } // namespace Render

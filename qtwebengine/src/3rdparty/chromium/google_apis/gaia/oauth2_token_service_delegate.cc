@@ -2,9 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/profiler/scoped_tracker.h"
-#include "google_apis/gaia/oauth2_token_service.h"
 #include "google_apis/gaia/oauth2_token_service_delegate.h"
+
+#include "google_apis/gaia/oauth2_token_service.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+
+// static
+const char OAuth2TokenServiceDelegate::kInvalidRefreshToken[] =
+    "invalid_refresh_token";
 
 OAuth2TokenServiceDelegate::ScopedBatchChange::ScopedBatchChange(
     OAuth2TokenServiceDelegate* delegate)
@@ -51,11 +56,6 @@ void OAuth2TokenServiceDelegate::RemoveObserver(
   observer_list_.RemoveObserver(observer);
 }
 
-// static
-bool OAuth2TokenServiceDelegate::IsError(const GoogleServiceAuthError& error) {
-  return error.IsPersistentError();
-}
-
 void OAuth2TokenServiceDelegate::StartBatchChanges() {
   ++batch_change_depth_;
   if (batch_change_depth_ == 1) {
@@ -75,12 +75,6 @@ void OAuth2TokenServiceDelegate::EndBatchChanges() {
 
 void OAuth2TokenServiceDelegate::FireRefreshTokenAvailable(
     const std::string& account_id) {
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "422460 OAuth2TokenService::FireRefreshTokenAvailable"));
-
   for (auto& observer : observer_list_)
     observer.OnRefreshTokenAvailable(account_id);
 }
@@ -92,24 +86,30 @@ void OAuth2TokenServiceDelegate::FireRefreshTokenRevoked(
 }
 
 void OAuth2TokenServiceDelegate::FireRefreshTokensLoaded() {
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "422460 OAuth2TokenService::FireRefreshTokensLoaded"));
-
   for (auto& observer : observer_list_)
     observer.OnRefreshTokensLoaded();
 }
 
-net::URLRequestContextGetter* OAuth2TokenServiceDelegate::GetRequestContext()
-    const {
+void OAuth2TokenServiceDelegate::FireAuthErrorChanged(
+    const std::string& account_id,
+    const GoogleServiceAuthError& error) {
+  for (auto& observer : observer_list_)
+    observer.OnAuthErrorChanged(account_id, error);
+}
+
+std::string OAuth2TokenServiceDelegate::GetTokenForMultilogin(
+    const std::string& account_id) const {
+  return std::string();
+}
+
+scoped_refptr<network::SharedURLLoaderFactory>
+OAuth2TokenServiceDelegate::GetURLLoaderFactory() const {
   return nullptr;
 }
 
-bool OAuth2TokenServiceDelegate::RefreshTokenHasError(
+GoogleServiceAuthError OAuth2TokenServiceDelegate::GetAuthError(
     const std::string& account_id) const {
-  return false;
+  return GoogleServiceAuthError::AuthErrorNone();
 }
 
 std::vector<std::string> OAuth2TokenServiceDelegate::GetAccounts() {
@@ -120,7 +120,19 @@ const net::BackoffEntry* OAuth2TokenServiceDelegate::BackoffEntry() const {
   return nullptr;
 }
 
-OAuth2TokenServiceDelegate::LoadCredentialsState
-OAuth2TokenServiceDelegate::GetLoadCredentialsState() const {
-  return LOAD_CREDENTIALS_UNKNOWN;
+void OAuth2TokenServiceDelegate::LoadCredentials(
+    const std::string& primary_account_id) {
+  NOTREACHED() << "OAuth2TokenServiceDelegate does not load credentials. "
+                  "Subclasses that need to load credentials must provide "
+                  "an implemenation of this method";
+}
+
+void OAuth2TokenServiceDelegate::ExtractCredentials(
+    OAuth2TokenService* to_service,
+    const std::string& account_id) {
+  NOTREACHED();
+}
+
+bool OAuth2TokenServiceDelegate::FixRequestErrorIfPossible() {
+  return false;
 }

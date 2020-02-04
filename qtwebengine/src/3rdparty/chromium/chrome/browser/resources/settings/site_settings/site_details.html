@@ -2,9 +2,11 @@
 
 <link rel="import" href="chrome://resources/html/action_link.html">
 <link rel="import" href="chrome://resources/html/action_link_css.html">
+<link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_dialog/cr_dialog.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
+<link rel="import" href="../icons.html">
 <link rel="import" href="../route.html">
 <link rel="import" href="../settings_shared_css.html">
 <link rel="import" href="constants.html">
@@ -20,62 +22,102 @@
       }
 
       #storage {
-        -webkit-padding-end: 0;
+        padding-inline-end: 0;
+      }
+
+      /* When 'Usage' is omitted, subheadings are removed. Reduce the start
+       * padding allowed for lists without headings and add back vertical space
+       * that would normally be provided by the subheading. */
+      .list-frame.without-heading {
+        margin-top: 12px;
+        padding-inline-start: var(--settings-box-row-padding);
+      }
+
+      div#resetSettingsButton {
+        margin-top: 24px;
       }
     </style>
-    <!-- Confirm Delete dialog -->
-    <dialog is="cr-dialog" id="confirmDeleteDialog" close-text="$i18n{close}">
-      <div class="title" slot="title">
-        $i18n{siteSettingsSiteRemoveDialogTitle}
+    <!-- Confirm reset settings dialog. -->
+    <cr-dialog id="confirmResetSettings" close-text="$i18n{close}">
+      <div slot="body">
+        [[i18n('siteSettingsSiteResetConfirmation', pageTitle)]]
       </div>
-      <div class="body" slot="body">[[confirmationDeleteMsg_]]</div>
-      <div class="button-container" slot="button-container">
-        <paper-button class="cancel-button" on-tap="onCloseDialog_">
+      <div slot="button-container">
+        <paper-button class="cancel-button" on-click="onCloseDialog_">
           $i18n{cancel}
         </paper-button>
-        <paper-button class="action-button" on-tap="onClearStorage_">
-          $i18n{siteSettingsSiteClearAll}
+        <paper-button class="action-button" on-click="onResetSettings_">
+          $i18n{siteSettingsSiteResetAll}
         </paper-button>
       </div>
-    </dialog>
+    </cr-dialog>
 
-    <div class="settings-box first">
-      <div class="favicon-image"
-          style$="[[computeSiteIcon(origin)]]">
+    <!-- Confirm clear storage dialog. -->
+    <cr-dialog id="confirmClearStorage" close-text="$i18n{close}">
+      <div slot="title">
+        $i18n{siteSettingsSiteClearStorageDialogTitle}
       </div>
-      <!-- TODO(patricialor): This should show the origin's display name. -->
-      <div class="middle">[[origin]]</div>
-    </div>
-    <template is="dom-if" if="[[storedData_]]">
+      <div slot="body">
+        [[i18n('siteSettingsSiteClearStorageConfirmation', pageTitle)]]
+      </div>
+      <div slot="button-container">
+        <paper-button class="cancel-button" on-click="onCloseDialog_">
+          $i18n{cancel}
+        </paper-button>
+        <paper-button class="action-button" on-click="onClearStorage_">
+          $i18n{siteSettingsSiteClearStorage}
+        </paper-button>
+      </div>
+    </cr-dialog>
+
+    <template is="dom-if" if="[[enableSiteSettings_]]">
       <div id="usage">
-        <div class="settings-box first">
-          <h2>$i18n{siteSettingsUsage}</h2>
+        <div class="settings-box first line-only">
+          <h2 class="first">$i18n{siteSettingsUsage}</h2>
         </div>
         <div class="list-frame">
-          <div class="list-item" id="storage">
+          <div class="list-item" id="noStorage"
+              hidden$="[[hasUsage_(storedData_)]]">
+            <div class="start">$i18n{siteSettingsUsageNone}</div>
+          </div>
+          <div class="list-item" id="storage" hidden$="[[!storedData_]]">
             <div class="start">[[storedData_]]</div>
-            <button is="paper-icon-button-light" class="icon-delete-gray"
-                on-tap="onConfirmClearStorage_"
-                alt="$i18n{siteSettingsDelete}"></button>
+            <paper-button class="secondary-button" role="button"
+                aria-disabled="false" on-click="onConfirmClearStorage_"
+                aria-label="$i18n{siteSettingsDelete}">
+              $i18n{siteSettingsDelete}
+            </paper-button>
+            </paper-icon-button-light>
           </div>
         </div>
       </div>
+
+      <div class="settings-box first">
+        <h2 class="start">$i18n{siteSettingsPermissions}</h2>
+        <paper-button id="resetSettingsButton"
+            class="secondary-button header-aligned-button" role="button"
+            aria-disabled="false" on-click="onConfirmClearSettings_">
+          $i18n{siteSettingsReset}
+        </paper-button>
+      </div>
     </template>
-    <div class="settings-box first">
-      <h2>$i18n{siteSettingsPermissions}</h2>
-    </div>
-    <div class="list-frame">
+    <div class$="list-frame [[permissionListClass_(enableSiteSettings_)]]">
       <site-details-permission category="{{ContentSettingsTypes.GEOLOCATION}}"
-          icon="settings:location-on" id="geolocation"
+          icon="cr:location-on" id="geolocation"
           label="$i18n{siteSettingsLocation}">
       </site-details-permission>
       <site-details-permission category="{{ContentSettingsTypes.CAMERA}}"
-          icon="settings:videocam" id="camera"
+          icon="cr:videocam" id="camera"
           label="$i18n{siteSettingsCamera}">
       </site-details-permission>
       <site-details-permission category="{{ContentSettingsTypes.MIC}}"
-          icon="settings:mic" id="mic"
+          icon="cr:mic" id="mic"
           label="$i18n{siteSettingsMic}">
+      </site-details-permission>
+      <site-details-permission
+          category="{{ContentSettingsTypes.SENSORS}}"
+          icon="settings:sensors" id="sensors"
+          label="$i18n{siteSettingsSensors}">
       </site-details-permission>
       <site-details-permission category="{{ContentSettingsTypes.NOTIFICATIONS}}"
           icon="settings:notifications" id="notifications"
@@ -95,9 +137,19 @@
           icon="cr:open-in-new" id="popups" label="$i18n{siteSettingsPopups}">
       </site-details-permission>
       <site-details-permission
+          category="{{ContentSettingsTypes.ADS}}"
+          icon="settings:ads" id="ads"
+          label="$i18n{siteSettingsAds}">
+      </site-details-permission>
+      <site-details-permission
           category="{{ContentSettingsTypes.BACKGROUND_SYNC}}"
-          icon="settings:sync" id="backgroundSync"
+          icon="cr:sync" id="backgroundSync"
           label="$i18n{siteSettingsBackgroundSync}">
+      </site-details-permission>
+      <site-details-permission category="{{ContentSettingsTypes.SOUND}}"
+          icon="settings:volume-up" id="sound"
+          label="$i18n{siteSettingsSound}"
+          use-automatic-label="[[blockAutoplayEnabled]]">
       </site-details-permission>
       <site-details-permission
           category="{{ContentSettingsTypes.AUTOMATIC_DOWNLOADS}}"
@@ -105,20 +157,52 @@
           label="$i18n{siteSettingsAutomaticDownloads}">
       </site-details-permission>
       <site-details-permission
+          category="{{ContentSettingsTypes.MIDI_DEVICES}}" icon="settings:midi"
+          id="midiDevices" label="$i18n{siteSettingsMidiDevices}">
+      </site-details-permission>
+      <site-details-permission
+          category="{{ContentSettingsTypes.USB_DEVICES}}" icon="settings:usb"
+          id="usbDevices" label="$i18n{siteSettingsUsbDevices}">
+      </site-details-permission>
+      <site-details-permission
           category="{{ContentSettingsTypes.UNSANDBOXED_PLUGINS}}"
           icon="cr:extension" id="unsandboxedPlugins"
           label="$i18n{siteSettingsUnsandboxedPlugins}">
       </site-details-permission>
-
-      <div class="list-item">
-        <a is="action-link" class="list-button" on-tap="onClearAndReset_" >
-          $i18n{siteSettingsClearAndReset}
-        </a>
-      </div>
+<if expr="chromeos">
+      <site-details-permission
+          category="{{ContentSettingsTypes.PROTECTED_CONTENT}}"
+          icon="settings:protected-content" id="protectedContent"
+          label="$i18n{siteSettingsProtectedContentIdentifiers}">
+      </site-details-permission>
+</if>
+      <site-details-permission
+          category="{{ContentSettingsTypes.CLIPBOARD}}"
+          icon="settings:clipboard" id="clipboard"
+          label="$i18n{siteSettingsClipboard}">
+      </site-details-permission>
+      <site-details-permission
+          category="{{ContentSettingsTypes.PAYMENT_HANDLER}}"
+          icon="settings:payment-handler" id="paymentHandler"
+          label="$i18n{siteSettingsPaymentHandler}">
+      </site-details-permission>
     </div>
+
+    <template is="dom-if" if="[[!enableSiteSettings_]]">
+      <div id="resetSettingsButton" class="settings-box"
+          on-click="onConfirmClearSettings_" actionable>
+        <div class="start">
+          $i18n{siteSettingsReset}
+        </div>
+        <paper-icon-button-light class="subpage-arrow">
+          <button aria-label="$i18n{siteSettingsReset}"
+                  aria-describedby="resetSettingsButton">
+          </button>
+        </paper-icon-button-light>
+      </div>
+    </template>
     <website-usage-private-api id="usageApi"
-        website-data-usage="{{storedData_}}"
-        website-storage-type="{{storageType_}}">
+        website-data-usage="{{storedData_}}">
     </website-usage-private-api>
   </template>
   <script src="site_details.js"></script>

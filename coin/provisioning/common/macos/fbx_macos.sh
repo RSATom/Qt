@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #############################################################################
 ##
-## Copyright (C) 2017 The Qt Company Ltd.
+## Copyright (C) 2018 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -34,49 +34,26 @@
 
 # This script installs FBX SDK
 
-# shellcheck source=./../unix/try_catch.sh
-source "${BASH_SOURCE%/*}/../unix/try_catch.sh"
+set -ex
+
 # shellcheck source=../unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../unix/SetEnvVar.sh"
 
-fileName="fbx20161_2_fbxsdk_clang_mac.pkg.tgz"
-targetFolder="/opt/fbx"
+version="2016.1.2"
+fileName="fbx20161_2_fbxsdk_clang_mac.pkg_nospace.tgz"
 cachedUrl="/net/ci-files01-hki.intra.qt.io/hdd/www/input/fbx/$fileName"
-officialUrl="http://download.autodesk.com/us/fbx_release_older/2016.1.2/$fileName"
-sha1="f82535423c700c605320c52e13e781c92208ec6b"
+# officialUrl="http://download.autodesk.com/us/fbx_release_older/$version/fbx20161_2_fbxsdk_clang_mac.pkg.tgz"
 targetFolder="/tmp"
-targetFile="$targetFolder/$fileName"
-installer="$targetFolder/fbx20161_2_fbxsdk_clang_macos.pkg"
 
-ExceptionExtractPrimaryUrl=100
+echo "Extracting '$cachedUrl'"
+tar -xzf "$cachedUrl" -C "$targetFolder"
 
-try
-(
-    echo "Extracting '$cachedUrl'"
-    tar -xzf "$cachedUrl" -C "$targetFolder" || throw $ExceptionExtractPrimaryUrl
-)
-catch || {
-    case $ex_code in
-        $ExceptionExtractPrimaryUrl)
-        set -e
-        echo "Failed to uncompress from '$cachedUrl'"
-        echo "Downloading from '$officialUrl'"
-        curl --fail -L --retry 5 --retry-delay 5 -o "$targetFile" "$officialUrl" || exit 1;
-        echo "Checking SHA1 on PKG '$targetFile'"
-        echo "$sha1 *$targetFile" > $targetFile.sha1
-        shasum --check $targetFile.sha1
-        echo "Extracting '$targetFile'"
-        tar -xzf "$targetFile" -C "$targetFolder" || exit 1;
-        ;;
-    esac
-}
-set -e
-rm -rf "$targetFile"
-echo "Running installer for '$installer'"
-sudo installer -pkg "$installer" -target "/"
+rm -rf "$targetFolder/$fileName"
+echo "Copying preinstalled FBX SDK to Applications"
+sudo cp -r "$targetFolder/Autodesk" /Applications
 
 # Set env variables
-SetEnvVar "FBXSDK" "/Applications/Autodesk/FBX\ SDK/2016.1.2/"
+SetEnvVar "FBXSDK" "/Applications/Autodesk/FBXSDK/2016.1.2/"
 
 echo "FBX SDK = 2016.1.2" >> ~/versions.txt
 

@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 
+#include "base/bind_helpers.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -19,6 +20,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/threading/thread.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -32,19 +34,19 @@ namespace content {
 namespace {
 
 const char kTestData[] = "0123456789";
-const int kTestDataSize = arraysize(kTestData) - 1;
+const int kTestDataSize = base::size(kTestData) - 1;
 
 void ReadFromReader(LocalFileStreamReader* reader,
                     std::string* data, size_t size,
                     int* result) {
-  ASSERT_TRUE(reader != NULL);
-  ASSERT_TRUE(result != NULL);
+  ASSERT_TRUE(reader != nullptr);
+  ASSERT_TRUE(result != nullptr);
   *result = net::OK;
   net::TestCompletionCallback callback;
   size_t total_bytes_read = 0;
   while (total_bytes_read < size) {
     scoped_refptr<net::IOBufferWithSize> buf(
-        new net::IOBufferWithSize(size - total_bytes_read));
+        base::MakeRefCounted<net::IOBufferWithSize>(size - total_bytes_read));
     int rv = reader->Read(buf.get(), buf->size(), callback.callback());
     if (rv == net::ERR_IO_PENDING)
       rv = callback.WaitForResult();
@@ -58,18 +60,16 @@ void ReadFromReader(LocalFileStreamReader* reader,
 }
 
 void NeverCalled(int) { ADD_FAILURE(); }
-void EmptyCallback() {}
 
 void QuitLoop() {
-  base::MessageLoop::current()->QuitWhenIdle();
+  base::RunLoop::QuitCurrentWhenIdleDeprecated();
 }
 
 }  // namespace
 
 class LocalFileStreamReaderTest : public testing::Test {
  public:
-  LocalFileStreamReaderTest()
-      : file_thread_("FileUtilProxyTestFileThread") {}
+  LocalFileStreamReaderTest() : file_thread_("TestFileThread") {}
 
   void SetUp() override {
     ASSERT_TRUE(file_thread_.Start());
@@ -120,8 +120,8 @@ class LocalFileStreamReaderTest : public testing::Test {
   }
 
   void EnsureFileTaskFinished() {
-    file_task_runner()->PostTaskAndReply(
-        FROM_HERE, base::Bind(&EmptyCallback), base::Bind(&QuitLoop));
+    file_task_runner()->PostTaskAndReply(FROM_HERE, base::DoNothing(),
+                                         base::BindOnce(&QuitLoop));
     base::RunLoop().Run();
   }
 
@@ -187,7 +187,7 @@ TEST_F(LocalFileStreamReaderTest, GetLengthAfterModified) {
     result = callback.WaitForResult();
   ASSERT_EQ(net::ERR_UPLOAD_FILE_CHANGED, result);
 
-  // With NULL expected modification time this should work.
+  // With nullptr expected modification time this should work.
   reader.reset(CreateFileReader(test_path(), 0, base::Time()));
   result = reader->GetLength(callback.callback());
   if (result == net::ERR_IO_PENDING)
@@ -247,7 +247,7 @@ TEST_F(LocalFileStreamReaderTest, ReadAfterModified) {
   EXPECT_EQ(net::OK, result);
   EXPECT_EQ(kTestData, data);
 
-  // And with NULL expected modification time this should work.
+  // And with nullptr expected modification time this should work.
   data.clear();
   reader.reset(CreateFileReader(test_path(), 0, base::Time()));
   ReadFromReader(reader.get(), &data, kTestDataSize, &result);
@@ -270,9 +270,9 @@ TEST_F(LocalFileStreamReaderTest, DeleteWithUnfinishedRead) {
       CreateFileReader(test_path(), 0, base::Time()));
 
   net::TestCompletionCallback callback;
-  scoped_refptr<net::IOBufferWithSize> buf(
-      new net::IOBufferWithSize(kTestDataSize));
-  int rv = reader->Read(buf.get(), buf->size(), base::Bind(&NeverCalled));
+  scoped_refptr<net::IOBufferWithSize> buf =
+      base::MakeRefCounted<net::IOBufferWithSize>(kTestDataSize);
+  int rv = reader->Read(buf.get(), buf->size(), base::BindOnce(&NeverCalled));
   ASSERT_TRUE(rv == net::ERR_IO_PENDING || rv >= 0);
 
   // Delete immediately.

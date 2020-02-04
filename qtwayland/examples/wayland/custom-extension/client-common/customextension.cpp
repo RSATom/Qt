@@ -49,8 +49,6 @@
 ****************************************************************************/
 
 #include "customextension.h"
-#include <QtWaylandClient/private/qwaylanddisplay_p.h>
-#include <QtWaylandClient/private/qwaylandintegration_p.h>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QWindow>
 #include <QtGui/QPlatformSurfaceEvent>
@@ -61,7 +59,6 @@ QT_BEGIN_NAMESPACE
 
 CustomExtension::CustomExtension()
     : QWaylandClientExtensionTemplate(/* Supported protocol version */ 1 )
-    , m_activated(false)
 {
     connect(this, &CustomExtension::activeChanged, this, &CustomExtension::handleExtensionActive);
 }

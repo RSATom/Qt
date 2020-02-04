@@ -190,6 +190,13 @@ void QPainterPrivate::checkEmulation()
     if (pg && pg->coordinateMode() > QGradient::LogicalMode)
         doEmulation = true;
 
+    if (state->brush.style() == Qt::TexturePattern) {
+        if (qHasPixmapTexture(state->brush))
+            doEmulation |= !qFuzzyCompare(state->brush.texture().devicePixelRatioF(), 1.0);
+        else
+            doEmulation |= !qFuzzyCompare(state->brush.textureImage().devicePixelRatioF(), 1.0);
+    }
+
     if (doEmulation && extended->flags() & QPaintEngineEx::DoNotEmulate)
         return;
 
@@ -523,7 +530,10 @@ static inline QBrush stretchGradientToUserSpace(const QBrush &brush, const QRect
     g.setCoordinateMode(QGradient::LogicalMode);
 
     QBrush b(g);
-    b.setTransform(gradientToUser * b.transform());
+    if (brush.gradient()->coordinateMode() == QGradient::ObjectMode)
+        b.setTransform(b.transform() * gradientToUser);
+    else
+        b.setTransform(gradientToUser * b.transform());
     return b;
 }
 
@@ -562,7 +572,7 @@ void QPainterPrivate::drawStretchedGradient(const QPainterPath &path, DrawOperat
         } else {
             needsFill = true;
 
-            if (brushMode == QGradient::ObjectBoundingMode) {
+            if (brushMode == QGradient::ObjectBoundingMode || brushMode == QGradient::ObjectMode) {
                 Q_ASSERT(engine->hasFeature(QPaintEngine::PatternTransform));
                 boundingRect = path.boundingRect();
                 q->setBrush(stretchGradientToUserSpace(brush, boundingRect));
@@ -606,11 +616,11 @@ void QPainterPrivate::drawStretchedGradient(const QPainterPath &path, DrawOperat
                 changedBrush = true;
             }
 
-            if (penMode == QGradient::ObjectBoundingMode) {
+            if (penMode == QGradient::ObjectBoundingMode || penMode == QGradient::ObjectMode) {
                 Q_ASSERT(engine->hasFeature(QPaintEngine::PatternTransform));
 
                 // avoid computing the bounding rect twice
-                if (!needsFill || brushMode != QGradient::ObjectBoundingMode)
+                if (!needsFill || (brushMode != QGradient::ObjectBoundingMode && brushMode != QGradient::ObjectMode))
                     boundingRect = path.boundingRect();
 
                 QPen p = pen;
@@ -842,8 +852,8 @@ void QPainterPrivate::updateEmulationSpecifier(QPainterState *s)
         gradientStretch |= (brushMode == QGradient::StretchToDeviceMode);
         gradientStretch |= (penMode == QGradient::StretchToDeviceMode);
 
-        objectBoundingMode |= (brushMode == QGradient::ObjectBoundingMode);
-        objectBoundingMode |= (penMode == QGradient::ObjectBoundingMode);
+        objectBoundingMode |= (brushMode == QGradient::ObjectBoundingMode || brushMode == QGradient::ObjectMode);
+        objectBoundingMode |= (penMode == QGradient::ObjectBoundingMode || penMode == QGradient::ObjectMode);
     }
     if (gradientStretch)
         s->emulationSpecifier |= QGradient_StretchToDevice;
@@ -1287,7 +1297,7 @@ void QPainterPrivate::updateState(QPainterState *newState)
     itself and its bounding rectangle: The bounding rect contains
     pixels with alpha == 0 (i.e the pixels surrounding the
     primitive). These pixels will overwrite the other image's pixels,
-    affectively clearing those, while the primitive only overwrites
+    effectively clearing those, while the primitive only overwrites
     its own area.
 
     \table 100%
@@ -1377,7 +1387,7 @@ void QPainterPrivate::updateState(QPainterState *newState)
     clip.
 
     \li Composition Modes \c QPainter::CompositionMode_Source and
-    QPainter::CompositionMode_SourceOver
+    QPainter::CompositionMode_SourceOver.
 
     \li Rounded rectangle filling using solid color and two-color
     linear gradients fills.
@@ -1426,6 +1436,13 @@ void QPainterPrivate::updateState(QPainterState *newState)
     same X11 based fill rules as in Qt 4, where aliased rendering is offset
     by slightly less than half a pixel. Also will treat default constructed pens
     as cosmetic. Potentially useful when porting a Qt 4 application to Qt 5.
+
+    \value LosslessImageRendering Use a lossless image rendering, whenever possible.
+    Currently, this hint is only used when QPainter is employed to output a PDF
+    file through QPrinter or QPdfWriter, where drawImage()/drawPixmap() calls
+    will encode images using a lossless compression algorithm instead of lossy
+    JPEG compression.
+    This value was added in Qt 5.13.
 
     \sa renderHints(), setRenderHint(), {QPainter#Rendering
     Quality}{Rendering Quality}, {Concentric Circles Example}
@@ -1504,7 +1521,7 @@ QPainter::~QPainter()
 
 /*!
     Returns the paint device on which this painter is currently
-    painting, or 0 if the painter is not active.
+    painting, or \nullptr if the painter is not active.
 
     \sa isActive()
 */
@@ -1530,6 +1547,7 @@ bool QPainter::isActive() const
     return d->engine;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     Initializes the painters pen, background and font to the same as
     the given \a device.
@@ -1557,7 +1575,7 @@ void QPainter::initFrom(const QPaintDevice *device)
         d->engine->setDirty(QPaintEngine::DirtyFont);
     }
 }
-
+#endif
 
 /*!
     Saves the current painter state (pushes the state onto a stack). A
@@ -1692,8 +1710,8 @@ void QPainter::restore()
 
 static inline void qt_cleanup_painter_state(QPainterPrivate *d)
 {
+    qDeleteAll(d->states);
     d->states.clear();
-    delete d->state;
     d->state = 0;
     d->engine = 0;
     d->device = 0;
@@ -2868,6 +2886,7 @@ void QPainter::setClipRegion(const QRegion &r, Qt::ClipOperation op)
     d->updateState(d->state);
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \since 4.2
     \obsolete
@@ -2962,7 +2981,10 @@ void QPainter::setMatrix(const QMatrix &matrix, bool combine)
 
 const QMatrix &QPainter::matrix() const
 {
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     return worldMatrix();
+QT_WARNING_POP
 }
 
 
@@ -3031,7 +3053,7 @@ void QPainter::resetMatrix()
 {
     resetTransform();
 }
-
+#endif
 
 /*!
     \since 4.2
@@ -3082,6 +3104,7 @@ bool QPainter::worldMatrixEnabled() const
     return d->state->WxF;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -3107,6 +3130,7 @@ bool QPainter::matrixEnabled() const
 {
     return worldMatrixEnabled();
 }
+#endif
 
 /*!
     Scales the coordinate system by (\a{sx}, \a{sy}).
@@ -4165,6 +4189,7 @@ void QPainter::drawRoundedRect(const QRectF &rect, qreal xRadius, qreal yRadius,
     Draws the given rectangle \a x, \a y, \a w, \a h with rounded corners.
 */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \obsolete
 
@@ -4192,6 +4217,10 @@ void QPainter::drawRoundRect(const QRectF &r, int xRnd, int yRnd)
 
     Draws the rectangle \a r with rounded corners.
 */
+void QPainter::drawRoundRect(const QRect &rect, int xRnd, int yRnd)
+{
+    drawRoundedRect(QRectF(rect), xRnd, yRnd, Qt::RelativeSize);
+}
 
 /*!
     \obsolete
@@ -4202,6 +4231,11 @@ void QPainter::drawRoundRect(const QRectF &r, int xRnd, int yRnd)
 
     Draws the rectangle \a x, \a y, \a w, \a h with rounded corners.
 */
+void QPainter::drawRoundRect(int x, int y, int w, int h, int xRnd, int yRnd)
+{
+    drawRoundedRect(QRectF(x, y, w, h), xRnd, yRnd, Qt::RelativeSize);
+}
+#endif
 
 /*!
     \fn void QPainter::drawEllipse(const QRectF &rectangle)
@@ -4256,7 +4290,7 @@ void QPainter::drawEllipse(const QRectF &r)
 }
 
 /*!
-    \fn QPainter::drawEllipse(const QRect &rectangle)
+    \fn void QPainter::drawEllipse(const QRect &rectangle)
 
     \overload
 
@@ -4298,7 +4332,7 @@ void QPainter::drawEllipse(const QRect &r)
 }
 
 /*!
-    \fn QPainter::drawEllipse(int x, int y, int width, int height)
+    \fn void QPainter::drawEllipse(int x, int y, int width, int height)
 
     \overload
 
@@ -4309,7 +4343,7 @@ void QPainter::drawEllipse(const QRect &r)
 /*!
     \since 4.4
 
-    \fn QPainter::drawEllipse(const QPointF &center, qreal rx, qreal ry)
+    \fn void QPainter::drawEllipse(const QPointF &center, qreal rx, qreal ry)
 
     \overload
 
@@ -4319,7 +4353,7 @@ void QPainter::drawEllipse(const QRect &r)
 /*!
     \since 4.4
 
-    \fn QPainter::drawEllipse(const QPoint &center, int rx, int ry)
+    \fn void QPainter::drawEllipse(const QPoint &center, int rx, int ry)
 
     \overload
 
@@ -5622,8 +5656,8 @@ void QPainterPrivate::drawGlyphs(const quint32 *glyphArray, QFixedPoint *positio
         QVarLengthArray<QGlyphJustification, 128> glyphJustifications(glyphCount);
         QVarLengthArray<QGlyphAttributes, 128> glyphAttributes(glyphCount);
         memset(glyphAttributes.data(), 0, glyphAttributes.size() * sizeof(QGlyphAttributes));
-        memset(advances.data(), 0, advances.size() * sizeof(QFixed));
-        memset(glyphJustifications.data(), 0, glyphJustifications.size() * sizeof(QGlyphJustification));
+        memset(static_cast<void *>(advances.data()), 0, advances.size() * sizeof(QFixed));
+        memset(static_cast<void *>(glyphJustifications.data()), 0, glyphJustifications.size() * sizeof(QGlyphJustification));
 
         textItem.glyphs.numGlyphs = glyphCount;
         textItem.glyphs.glyphs = const_cast<glyph_t *>(glyphArray);
@@ -5744,7 +5778,7 @@ void QPainter::drawStaticText(const QPointF &topLeftPosition, const QStaticText 
     if (d->extended == 0
             || !d->state->matrix.isAffine()
             || !fe->supportsTransformation(d->state->matrix)) {
-        staticText_d->paintText(topLeftPosition, this);
+        staticText_d->paintText(topLeftPosition, this, pen().color());
         return;
     }
 
@@ -5816,11 +5850,16 @@ void QPainter::drawStaticText(const QPointF &topLeftPosition, const QStaticText 
 
     QPen oldPen = d->state->pen;
     QColor currentColor = oldPen.color();
+    static const QColor bodyIndicator(0, 0, 0, 0);
     for (int i=0; i<staticText_d->itemCount; ++i) {
         QStaticTextItem *item = staticText_d->items + i;
-        if (item->color.isValid() && currentColor != item->color) {
-            setPen(item->color);
-            currentColor = item->color;
+        if (item->color.isValid() && currentColor != item->color
+            && item->color != bodyIndicator) {
+                setPen(item->color);
+                currentColor = item->color;
+        } else if (item->color == bodyIndicator) {
+            setPen(oldPen);
+            currentColor = oldPen.color();
         }
         d->extended->drawStaticTextItem(item);
 
@@ -5850,7 +5889,7 @@ void QPainter::drawText(const QPointF &p, const QString &str, int tf, int justif
     if (!d->engine || str.isEmpty() || pen().style() == Qt::NoPen)
         return;
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+#if QT_DEPRECATED_SINCE(5, 11) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     if (tf & Qt::TextBypassShaping) {
         // Skip complex shaping, shape using glyph advances only
         int len = str.length();
@@ -6188,7 +6227,7 @@ static QPixmap generateWavyPixmap(qreal maxRadius, const QPen &pen)
                   % HexString<qreal>(pen.widthF());
 
     QPixmap pixmap;
-    if (QPixmapCache::find(key, pixmap))
+    if (QPixmapCache::find(key, &pixmap))
         return pixmap;
 
     const qreal halfPeriod = qMax(qreal(2), qreal(radiusBase * 1.61803399)); // the golden ratio
@@ -6652,6 +6691,16 @@ QRectF QPainter::boundingRect(const QRectF &r, const QString &text, const QTextO
     potentially much more efficient depending on the underlying window
     system.
 
+    drawTiledPixmap() will produce the same visual tiling pattern on
+    high-dpi displays (with devicePixelRatio > 1), compared to normal-
+    dpi displays. Set the devicePixelRatio on the \a pixmap to control
+    the tile size. For example, setting it to 2 halves the tile width
+    and height (on both 1x and 2x displays), and produces high-resolution
+    output on 2x displays.
+
+    The \a position offset is always in the painter coordinate system,
+    indepentent of display devicePixelRatio.
+
     \sa drawPixmap()
 */
 void QPainter::drawTiledPixmap(const QRectF &r, const QPixmap &pixmap, const QPointF &sp)
@@ -6737,7 +6786,7 @@ void QPainter::drawTiledPixmap(const QRectF &r, const QPixmap &pixmap, const QPo
 }
 
 /*!
-    \fn QPainter::drawTiledPixmap(const QRect &rectangle, const QPixmap &pixmap,
+    \fn void QPainter::drawTiledPixmap(const QRect &rectangle, const QPixmap &pixmap,
                                   const QPoint &position = QPoint())
     \overload
 
@@ -6835,7 +6884,8 @@ static inline bool needsResolving(const QBrush &brush)
     Qt::BrushStyle s = brush.style();
     return ((s == Qt::LinearGradientPattern || s == Qt::RadialGradientPattern ||
              s == Qt::ConicalGradientPattern) &&
-            brush.gradient()->coordinateMode() == QGradient::ObjectBoundingMode);
+            (brush.gradient()->coordinateMode() == QGradient::ObjectBoundingMode ||
+             brush.gradient()->coordinateMode() == QGradient::ObjectMode));
 }
 
 /*!
@@ -7060,6 +7110,37 @@ void QPainter::fillRect(const QRectF &r, const QColor &color)
     Fills the given \a rectangle with the specified \a color.
 
     \since 4.5
+*/
+
+/*!
+    \fn void QPainter::fillRect(int x, int y, int width, int height, QGradient::Preset preset)
+
+    \overload
+
+    Fills the rectangle beginning at (\a{x}, \a{y}) with the given \a
+    width and \a height, using the given gradient \a preset.
+
+    \since 5.12
+*/
+
+/*!
+    \fn void QPainter::fillRect(const QRect &rectangle, QGradient::Preset preset);
+
+    \overload
+
+    Fills the given \a rectangle with the specified gradient \a preset.
+
+    \since 5.12
+*/
+
+/*!
+    \fn void QPainter::fillRect(const QRectF &rectangle, QGradient::Preset preset);
+
+    \overload
+
+    Fills the given \a rectangle with the specified gradient \a preset.
+
+    \since 5.12
 */
 
 /*!
@@ -7314,6 +7395,7 @@ void QPainter::setViewTransformEnabled(bool enable)
     d->updateMatrix();
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \threadsafe
 
@@ -7394,6 +7476,7 @@ QPaintDevice *QPainter::redirected(const QPaintDevice *device, QPoint *offset)
     Q_UNUSED(offset)
     return 0;
 }
+#endif
 
 void qt_format_text(const QFont &fnt, const QRectF &_r,
                     int tf, const QString& str, QRectF *brect,
@@ -7478,7 +7561,7 @@ start_lengthVariant:
             if (!expandtabs) {
                 text[offset] = QLatin1Char(' ');
             } else if (!tabarraylen && !tabstops) {
-                tabstops = qRound(fm.width(QLatin1Char('x'))*8);
+                tabstops = qRound(fm.horizontalAdvance(QLatin1Char('x'))*8);
             }
         } else if (chr == QChar(ushort(0x9c))) {
             // string with multiple length variants
@@ -8003,6 +8086,7 @@ QFont QPaintEngineState::font() const
     return static_cast<const QPainterState *>(this)->font;
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \since 4.2
     \obsolete
@@ -8025,6 +8109,7 @@ QMatrix QPaintEngineState::matrix() const
 
     return st->matrix.toAffine();
 }
+#endif
 
 /*!
     \since 4.3
@@ -8202,6 +8287,7 @@ void QPainter::setTransform(const QTransform &transform, bool combine )
 }
 
 /*!
+    Alias for worldTransform().
     Returns the world transformation matrix.
 
     \sa worldTransform()
@@ -8263,7 +8349,7 @@ void QPainter::resetTransform()
     d->state->ww = d->state->vw = d->device->metric(QPaintDevice::PdmWidth);
     d->state->wh = d->state->vh = d->device->metric(QPaintDevice::PdmHeight);
     d->state->worldMatrix = QTransform();
-    setMatrixEnabled(false);
+    setWorldMatrixEnabled(false);
     setViewTransformEnabled(false);
     if (d->extended)
         d->extended->transformChanged();

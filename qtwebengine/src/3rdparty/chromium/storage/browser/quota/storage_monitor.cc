@@ -7,12 +7,11 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "base/trace_event/trace_event.h"
 #include "net/base/url_util.h"
 #include "storage/browser/quota/quota_manager.h"
-#include "storage/common/quota/quota_status_code.h"
 
 namespace storage {
 
@@ -22,23 +21,23 @@ StorageObserverList::ObserverState::ObserverState()
     : requires_update(false) {
 }
 
-StorageObserverList::StorageObserverList() {}
+StorageObserverList::StorageObserverList() = default;
 
-StorageObserverList::~StorageObserverList() {}
+StorageObserverList::~StorageObserverList() = default;
 
 void StorageObserverList::AddObserver(
     StorageObserver* observer, const StorageObserver::MonitorParams& params) {
-  ObserverState& observer_state = observers_[observer];
+  ObserverState& observer_state = observer_state_map_[observer];
   observer_state.origin = params.filter.origin;
   observer_state.rate = params.rate;
 }
 
 void StorageObserverList::RemoveObserver(StorageObserver* observer) {
-  observers_.erase(observer);
+  observer_state_map_.erase(observer);
 }
 
 int StorageObserverList::ObserverCount() const {
-  return observers_.size();
+  return observer_state_map_.size();
 }
 
 void StorageObserverList::OnStorageChange(const StorageObserver::Event& event) {
@@ -46,10 +45,8 @@ void StorageObserverList::OnStorageChange(const StorageObserver::Event& event) {
   TRACE_EVENT0("io",
                "HostStorageObserversStorageObserverList::OnStorageChange");
 
-  for (StorageObserverStateMap::iterator it = observers_.begin();
-       it != observers_.end(); ++it) {
-    it->second.requires_update = true;
-  }
+  for (auto& observer_state_pair : observer_state_map_)
+    observer_state_pair.second.requires_update = true;
 
   MaybeDispatchEvent(event);
 }
@@ -63,24 +60,25 @@ void StorageObserverList::MaybeDispatchEvent(
   base::TimeDelta min_delay = base::TimeDelta::Max();
   bool all_observers_notified = true;
 
-  for (StorageObserverStateMap::iterator it = observers_.begin();
-       it != observers_.end(); ++it) {
-    if (!it->second.requires_update)
+  for (auto& observer_state_pair : observer_state_map_) {
+    StorageObserver* observer = observer_state_pair.first;
+    ObserverState& state = observer_state_pair.second;
+
+    if (!state.requires_update)
       continue;
 
     base::TimeTicks current_time = base::TimeTicks::Now();
-    base::TimeDelta delta = current_time - it->second.last_notification_time;
-    if (it->second.last_notification_time.is_null() ||
-        delta >= it->second.rate) {
-      it->second.requires_update = false;
-      it->second.last_notification_time = current_time;
+    base::TimeDelta delta = current_time - state.last_notification_time;
+    if (state.last_notification_time.is_null() || delta >= state.rate) {
+      state.requires_update = false;
+      state.last_notification_time = current_time;
 
-      if (it->second.origin == event.filter.origin) {
+      if (state.origin == event.filter.origin) {
         // crbug.com/349708
         TRACE_EVENT0("io",
                      "StorageObserverList::MaybeDispatchEvent OnStorageEvent1");
 
-        it->first->OnStorageEvent(event);
+        observer->OnStorageEvent(event);
       } else {
         // When the quota and usage of an origin is requested, QuotaManager
         // returns the quota and usage of the host. Multiple origins can map to
@@ -88,17 +86,17 @@ void StorageObserverList::MaybeDispatchEvent(
         // event matches the |origin| specified by the observer when it was
         // registered.
         StorageObserver::Event dispatch_event(event);
-        dispatch_event.filter.origin = it->second.origin;
+        dispatch_event.filter.origin = state.origin;
 
         // crbug.com/349708
         TRACE_EVENT0("io",
                      "StorageObserverList::MaybeDispatchEvent OnStorageEvent2");
 
-        it->first->OnStorageEvent(dispatch_event);
+        observer->OnStorageEvent(dispatch_event);
       }
     } else {
       all_observers_notified = false;
-      base::TimeDelta delay = it->second.rate - delta;
+      base::TimeDelta delay = state.rate - delta;
       if (delay < min_delay)
         min_delay = delay;
     }
@@ -119,8 +117,8 @@ void StorageObserverList::MaybeDispatchEvent(
 }
 
 void StorageObserverList::ScheduleUpdateForObserver(StorageObserver* observer) {
-  DCHECK(base::ContainsKey(observers_, observer));
-  observers_[observer].requires_update = true;
+  DCHECK(base::ContainsKey(observer_state_map_, observer));
+  observer_state_map_[observer].requires_update = true;
 }
 
 void StorageObserverList::DispatchPendingEvent() {
@@ -141,7 +139,7 @@ HostStorageObservers::HostStorageObservers(QuotaManager* quota_manager)
       weak_factory_(this) {
 }
 
-HostStorageObservers::~HostStorageObservers() {}
+HostStorageObservers::~HostStorageObservers() = default;
 
 void HostStorageObservers::AddObserver(
     StorageObserver* observer,
@@ -208,20 +206,18 @@ void HostStorageObservers::StartInitialization(
 
   initializing_ = true;
   quota_manager_->GetUsageAndQuotaForWebApps(
-      filter.origin,
-      filter.storage_type,
-      base::Bind(&HostStorageObservers::GotHostUsageAndQuota,
-                 weak_factory_.GetWeakPtr(),
-                 filter));
+      filter.origin, filter.storage_type,
+      base::BindOnce(&HostStorageObservers::GotHostUsageAndQuota,
+                     weak_factory_.GetWeakPtr(), filter));
 }
 
 void HostStorageObservers::GotHostUsageAndQuota(
     const StorageObserver::Filter& filter,
-    QuotaStatusCode status,
+    blink::mojom::QuotaStatusCode status,
     int64_t usage,
     int64_t quota) {
   initializing_ = false;
-  if (status != kQuotaStatusOk)
+  if (status != blink::mojom::QuotaStatusCode::kOk)
     return;
   initialized_ = true;
   cached_quota_ = quota;
@@ -246,12 +242,11 @@ StorageTypeObservers::StorageTypeObservers(QuotaManager* quota_manager)
     : quota_manager_(quota_manager) {
 }
 
-StorageTypeObservers::~StorageTypeObservers() {
-}
+StorageTypeObservers::~StorageTypeObservers() = default;
 
 void StorageTypeObservers::AddObserver(
     StorageObserver* observer, const StorageObserver::MonitorParams& params) {
-  std::string host = net::GetHostOrSpecFromURL(params.filter.origin);
+  std::string host = net::GetHostOrSpecFromURL(params.filter.origin.GetURL());
   if (host.empty())
     return;
 
@@ -259,7 +254,7 @@ void StorageTypeObservers::AddObserver(
   if (!host_observers) {
     // Because there are no null entries in host_observers_map_, the [] inserted
     // a blank pointer, so let's populate it.
-    host_observers = base::MakeUnique<HostStorageObservers>(quota_manager_);
+    host_observers = std::make_unique<HostStorageObservers>(quota_manager_);
   }
 
   host_observers->AddObserver(observer, params);
@@ -289,7 +284,7 @@ const HostStorageObservers* StorageTypeObservers::GetHostObservers(
 void StorageTypeObservers::NotifyUsageChange(
     const StorageObserver::Filter& filter,
     int64_t delta) {
-  std::string host = net::GetHostOrSpecFromURL(filter.origin);
+  std::string host = net::GetHostOrSpecFromURL(filter.origin.GetURL());
   auto it = host_observers_map_.find(host);
   if (it == host_observers_map_.end())
     return;
@@ -304,17 +299,16 @@ StorageMonitor::StorageMonitor(QuotaManager* quota_manager)
     : quota_manager_(quota_manager) {
 }
 
-StorageMonitor::~StorageMonitor() {
-}
+StorageMonitor::~StorageMonitor() = default;
 
 void StorageMonitor::AddObserver(
     StorageObserver* observer, const StorageObserver::MonitorParams& params) {
   DCHECK(observer);
 
   // Check preconditions.
-  if (params.filter.storage_type == kStorageTypeUnknown ||
-      params.filter.storage_type == kStorageTypeQuotaNotManaged ||
-      params.filter.origin.is_empty()) {
+  if (params.filter.storage_type == blink::mojom::StorageType::kUnknown ||
+      params.filter.storage_type ==
+          blink::mojom::StorageType::kQuotaNotManaged) {
     NOTREACHED();
     return;
   }
@@ -322,20 +316,18 @@ void StorageMonitor::AddObserver(
   auto& type_observers =
       storage_type_observers_map_[params.filter.storage_type];
   if (!type_observers)
-    type_observers = base::MakeUnique<StorageTypeObservers>(quota_manager_);
+    type_observers = std::make_unique<StorageTypeObservers>(quota_manager_);
 
   type_observers->AddObserver(observer, params);
 }
 
 void StorageMonitor::RemoveObserver(StorageObserver* observer) {
-  for (auto it = storage_type_observers_map_.begin();
-       it != storage_type_observers_map_.end(); ++it) {
-    it->second->RemoveObserver(observer);
-  }
+  for (const auto& type_observers_pair : storage_type_observers_map_)
+    type_observers_pair.second->RemoveObserver(observer);
 }
 
 const StorageTypeObservers* StorageMonitor::GetStorageTypeObservers(
-    StorageType storage_type) const {
+    blink::mojom::StorageType storage_type) const {
   auto it = storage_type_observers_map_.find(storage_type);
   if (it != storage_type_observers_map_.end())
     return it->second.get();
@@ -346,9 +338,8 @@ const StorageTypeObservers* StorageMonitor::GetStorageTypeObservers(
 void StorageMonitor::NotifyUsageChange(const StorageObserver::Filter& filter,
                                        int64_t delta) {
   // Check preconditions.
-  if (filter.storage_type == kStorageTypeUnknown ||
-      filter.storage_type == kStorageTypeQuotaNotManaged ||
-      filter.origin.is_empty()) {
+  if (filter.storage_type == blink::mojom::StorageType::kUnknown ||
+      filter.storage_type == blink::mojom::StorageType::kQuotaNotManaged) {
     NOTREACHED();
     return;
   }

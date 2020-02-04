@@ -40,17 +40,24 @@ enum ModalType {
 };
 
 // TODO(varunjain): Remove MENU_SOURCE_NONE (crbug.com/250964)
+// A Java counterpart will be generated for this enum.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.ui.base
+// These are used in histograms, do not remove/renumber entries. Only add at the
+// end just before MENU_SOURCE_TYPE_LAST. Also remember to update the
+// MenuSourceType enum listing in tools/metrics/histograms/enums.xml.
 enum MenuSourceType {
-  MENU_SOURCE_NONE            = 0,
-  MENU_SOURCE_MOUSE           = 1,
-  MENU_SOURCE_KEYBOARD        = 2,
-  MENU_SOURCE_TOUCH           = 3,
+  MENU_SOURCE_NONE = 0,
+  MENU_SOURCE_MOUSE = 1,
+  MENU_SOURCE_KEYBOARD = 2,
+  MENU_SOURCE_TOUCH = 3,
   MENU_SOURCE_TOUCH_EDIT_MENU = 4,
-  MENU_SOURCE_LONG_PRESS      = 5,
-  MENU_SOURCE_LONG_TAP        = 6,
-  MENU_SOURCE_TOUCH_HANDLE    = 7,
-  MENU_SOURCE_STYLUS          = 8,
-  MENU_SOURCE_TYPE_LAST = MENU_SOURCE_STYLUS
+  MENU_SOURCE_LONG_PRESS = 5,
+  MENU_SOURCE_LONG_TAP = 6,
+  MENU_SOURCE_TOUCH_HANDLE = 7,
+  MENU_SOURCE_STYLUS = 8,
+  MENU_SOURCE_ADJUST_SELECTION = 9,
+  MENU_SOURCE_ADJUST_SELECTION_RESET = 10,
+  MENU_SOURCE_TYPE_LAST = MENU_SOURCE_ADJUST_SELECTION_RESET
 };
 
 UI_BASE_EXPORT MenuSourceType GetMenuSourceTypeForEvent(const ui::Event& event);

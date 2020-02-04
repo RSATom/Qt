@@ -53,7 +53,7 @@ namespace Qt3DRender {
 
 class QCameraLensPrivate;
 
-class QT3DRENDERSHARED_EXPORT QCameraLens : public Qt3DCore::QComponent
+class Q_3DRENDERSHARED_EXPORT QCameraLens : public Qt3DCore::QComponent
 {
     Q_OBJECT
     Q_PROPERTY(ProjectionType projectionType READ projectionType WRITE setProjectionType NOTIFY projectionTypeChanged)
@@ -140,8 +140,8 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QCameraLens)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 };
 
 } // Qt3DRender

@@ -8,10 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_VIDEO_CAPTURE_WINDOWS_VIDEO_CAPTURE_MF_H_
-#define WEBRTC_MODULES_VIDEO_CAPTURE_WINDOWS_VIDEO_CAPTURE_MF_H_
+#ifndef MODULES_VIDEO_CAPTURE_WINDOWS_VIDEO_CAPTURE_MF_H_
+#define MODULES_VIDEO_CAPTURE_WINDOWS_VIDEO_CAPTURE_MF_H_
 
-#include "webrtc/modules/video_capture/video_capture_impl.h"
+#include "modules/video_capture/video_capture_impl.h"
 
 namespace webrtc {
 namespace videocapturemodule {
@@ -27,17 +27,16 @@ class VideoCaptureMF : public VideoCaptureImpl {
   int32_t Init(const char* device_id);
 
   // Overrides from VideoCaptureImpl.
-  virtual int32_t StartCapture(const VideoCaptureCapability& capability);
-  virtual int32_t StopCapture();
-  virtual bool CaptureStarted();
-  virtual int32_t CaptureSettings(
-      VideoCaptureCapability& settings);  // NOLINT
+  int32_t StartCapture(const VideoCaptureCapability& capability) override;
+  int32_t StopCapture() override;
+  bool CaptureStarted() override;
+  int32_t CaptureSettings(VideoCaptureCapability& settings) override;  // NOLINT
 
  protected:
-  virtual ~VideoCaptureMF();
+  ~VideoCaptureMF() override;
 };
 
 }  // namespace videocapturemodule
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_VIDEO_CAPTURE_WINDOWS_VIDEO_CAPTURE_MF_H_
+#endif  // MODULES_VIDEO_CAPTURE_WINDOWS_VIDEO_CAPTURE_MF_H_

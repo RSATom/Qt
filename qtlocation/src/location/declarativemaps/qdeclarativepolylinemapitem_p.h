@@ -48,6 +48,7 @@
 // We mean it.
 //
 
+#include <QtLocation/private/qlocationglobal_p.h>
 #include <QtLocation/private/qdeclarativegeomapitembase_p.h>
 #include <QtLocation/private/qgeomapitemgeometry_p.h>
 
@@ -85,7 +86,7 @@ private:
     QColor color_;
 };
 
-class QGeoMapPolylineGeometry : public QGeoMapItemGeometry
+class Q_LOCATION_PRIVATE_EXPORT QGeoMapPolylineGeometry : public QGeoMapItemGeometry
 {
 public:
     QGeoMapPolylineGeometry();
@@ -95,9 +96,13 @@ public:
                             const QGeoCoordinate geoLeftBound);
 
     void updateScreenPoints(const QGeoMap &map,
-                            qreal strokeWidth);
+                            qreal strokeWidth,
+                            bool adjustTranslation = true);
 
-protected:
+    void clearSource();
+
+    bool contains(const QPointF &point) const override;
+
     QList<QList<QDoubleVector2D> > clipPath(const QGeoMap &map,
                     const QList<QDoubleVector2D> &path,
                     QDoubleVector2D &leftBoundWrapped);
@@ -106,9 +111,14 @@ protected:
                       const QList<QList<QDoubleVector2D> > &clippedPaths,
                       const QDoubleVector2D &leftBoundWrapped);
 
-private:
+public:
     QVector<qreal> srcPoints_;
     QVector<QPainterPath::ElementType> srcPointTypes_;
+
+#ifdef QT_LOCATION_DEBUG
+    QList<QDoubleVector2D> m_wrappedPath;
+    QList<QList<QDoubleVector2D>> m_clippedPaths;
+#endif
 
     friend class QDeclarativeCircleMapItem;
     friend class QDeclarativePolygonMapItem;
@@ -126,9 +136,9 @@ public:
     explicit QDeclarativePolylineMapItem(QQuickItem *parent = 0);
     ~QDeclarativePolylineMapItem();
 
-    virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) Q_DECL_OVERRIDE;
+    virtual void setMap(QDeclarativeGeoMap *quickMap, QGeoMap *map) override;
        //from QuickItem
-    virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *) Q_DECL_OVERRIDE;
+    virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *) override;
 
     Q_INVOKABLE int pathLength() const;
     Q_INVOKABLE void addCoordinate(const QGeoCoordinate &coordinate);
@@ -143,9 +153,9 @@ public:
     virtual void setPath(const QJSValue &value);
     Q_INVOKABLE void setPath(const QGeoPath &path);
 
-    bool contains(const QPointF &point) const Q_DECL_OVERRIDE;
-    const QGeoShape &geoShape() const Q_DECL_OVERRIDE;
-    QGeoMap::ItemType itemType() const Q_DECL_OVERRIDE;
+    bool contains(const QPointF &point) const override;
+    const QGeoShape &geoShape() const override;
+    void setGeoShape(const QGeoShape &shape) override;
 
     QDeclarativeMapLineProperties *line();
 
@@ -153,19 +163,22 @@ Q_SIGNALS:
     void pathChanged();
 
 protected:
-    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) Q_DECL_OVERRIDE;
+    void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void setPathFromGeoList(const QList<QGeoCoordinate> &path);
-    void updatePolish() Q_DECL_OVERRIDE;
+    void updatePolish() override;
 
 protected Q_SLOTS:
     void markSourceDirtyAndUpdate();
     void updateAfterLinePropertiesChanged();
-    virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) Q_DECL_OVERRIDE;
+    virtual void afterViewportChanged(const QGeoMapViewportChangeEvent &event) override;
 
 private:
     void regenerateCache();
     void updateCache();
 
+#ifdef QT_LOCATION_DEBUG
+public:
+#endif
     QGeoPath geopath_;
     QList<QDoubleVector2D> geopathProjected_;
     QDeclarativeMapLineProperties line_;
@@ -177,20 +190,39 @@ private:
 
 //////////////////////////////////////////////////////////////////////
 
-class MapPolylineNode : public QSGGeometryNode
+class Q_LOCATION_PRIVATE_EXPORT VisibleNode
 {
+public:
+    VisibleNode();
+    virtual ~VisibleNode();
 
+    bool subtreeBlocked() const;
+    void setSubtreeBlocked(bool blocked);
+    bool visible() const;
+    void setVisible(bool visible);
+
+    bool m_blocked : 1;
+    bool m_visible : 1;
+};
+
+class Q_LOCATION_PRIVATE_EXPORT MapItemGeometryNode : public QSGGeometryNode, public VisibleNode
+{
+public:
+    ~MapItemGeometryNode() override;
+    bool isSubtreeBlocked() const override;
+};
+
+class Q_LOCATION_PRIVATE_EXPORT MapPolylineNode : public MapItemGeometryNode
+{
 public:
     MapPolylineNode();
-    ~MapPolylineNode();
+    ~MapPolylineNode() override;
 
     void update(const QColor &fillColor, const QGeoMapItemGeometry *shape);
-    bool isSubtreeBlocked() const;
 
 private:
     QSGFlatColorMaterial fill_material_;
     QSGGeometry geometry_;
-    bool blocked_;
 };
 
 QT_END_NAMESPACE

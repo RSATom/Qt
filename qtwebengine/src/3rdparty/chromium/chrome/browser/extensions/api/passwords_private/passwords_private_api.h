@@ -8,11 +8,32 @@
 #include <string>
 
 #include "base/macros.h"
+#include "base/optional.h"
+#include "base/strings/string16.h"
 #include "chrome/browser/extensions/api/passwords_private/passwords_private_delegate.h"
-#include "chrome/browser/ui/passwords/password_manager_presenter.h"
+#include "chrome/browser/ui/passwords/settings/password_manager_presenter.h"
 #include "extensions/browser/extension_function.h"
 
 namespace extensions {
+
+class PasswordsPrivateRecordPasswordsPageAccessInSettingsFunction
+    : public UIThreadExtensionFunction {
+ public:
+  PasswordsPrivateRecordPasswordsPageAccessInSettingsFunction() {}
+  DECLARE_EXTENSION_FUNCTION(
+      "passwordsPrivate.recordPasswordsPageAccessInSettings",
+      PASSWORDSPRIVATE_RECORDPASSWORDSPAGEACCESSINSETTINGS);
+
+ protected:
+  ~PasswordsPrivateRecordPasswordsPageAccessInSettingsFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(
+      PasswordsPrivateRecordPasswordsPageAccessInSettingsFunction);
+};
 
 class PasswordsPrivateRemoveSavedPasswordFunction :
     public UIThreadExtensionFunction {
@@ -48,6 +69,25 @@ class PasswordsPrivateRemovePasswordExceptionFunction :
   DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateRemovePasswordExceptionFunction);
 };
 
+class PasswordsPrivateUndoRemoveSavedPasswordOrExceptionFunction
+    : public UIThreadExtensionFunction {
+ public:
+  PasswordsPrivateUndoRemoveSavedPasswordOrExceptionFunction() {}
+  DECLARE_EXTENSION_FUNCTION(
+      "passwordsPrivate.undoRemoveSavedPasswordOrException",
+      PASSWORDSPRIVATE_UNDOREMOVESAVEDPASSWORDOREXCEPTION);
+
+ protected:
+  ~PasswordsPrivateUndoRemoveSavedPasswordOrExceptionFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(
+      PasswordsPrivateUndoRemoveSavedPasswordOrExceptionFunction);
+};
+
 class PasswordsPrivateRequestPlaintextPasswordFunction :
     public UIThreadExtensionFunction {
  public:
@@ -62,6 +102,8 @@ class PasswordsPrivateRequestPlaintextPasswordFunction :
   ResponseAction Run() override;
 
  private:
+  void GotPassword(base::Optional<base::string16> password);
+
   DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateRequestPlaintextPasswordFunction);
 };
 
@@ -103,6 +145,76 @@ class PasswordsPrivateGetPasswordExceptionListFunction
   void GotList(const PasswordsPrivateDelegate::ExceptionEntries& entries);
 
   DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateGetPasswordExceptionListFunction);
+};
+
+class PasswordsPrivateImportPasswordsFunction
+    : public UIThreadExtensionFunction {
+ public:
+  PasswordsPrivateImportPasswordsFunction() {}
+  DECLARE_EXTENSION_FUNCTION("passwordsPrivate.importPasswords",
+                             PASSWORDSPRIVATE_IMPORTPASSWORDS);
+
+ protected:
+  ~PasswordsPrivateImportPasswordsFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateImportPasswordsFunction);
+};
+
+class PasswordsPrivateExportPasswordsFunction
+    : public UIThreadExtensionFunction {
+ public:
+  PasswordsPrivateExportPasswordsFunction() {}
+  DECLARE_EXTENSION_FUNCTION("passwordsPrivate.exportPasswords",
+                             PASSWORDSPRIVATE_EXPORTPASSWORDS);
+
+ protected:
+  ~PasswordsPrivateExportPasswordsFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  void ExportRequestCompleted(const std::string& error);
+
+  DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateExportPasswordsFunction);
+};
+
+class PasswordsPrivateCancelExportPasswordsFunction
+    : public UIThreadExtensionFunction {
+ public:
+  PasswordsPrivateCancelExportPasswordsFunction() {}
+  DECLARE_EXTENSION_FUNCTION("passwordsPrivate.cancelExportPasswords",
+                             PASSWORDSPRIVATE_CANCELEXPORTPASSWORDS);
+
+ protected:
+  ~PasswordsPrivateCancelExportPasswordsFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateCancelExportPasswordsFunction);
+};
+
+class PasswordsPrivateRequestExportProgressStatusFunction
+    : public UIThreadExtensionFunction {
+ public:
+  PasswordsPrivateRequestExportProgressStatusFunction() {}
+  DECLARE_EXTENSION_FUNCTION("passwordsPrivate.requestExportProgressStatus",
+                             PASSWORDSPRIVATE_REQUESTEXPORTPROGRESSSTATUS);
+
+ protected:
+  ~PasswordsPrivateRequestExportProgressStatusFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(PasswordsPrivateRequestExportProgressStatusFunction);
 };
 
 }  // namespace extensions

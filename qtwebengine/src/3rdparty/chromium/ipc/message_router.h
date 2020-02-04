@@ -7,9 +7,9 @@
 
 #include <stdint.h>
 
-#include "base/id_map.h"
+#include "base/component_export.h"
+#include "base/containers/id_map.h"
 #include "base/macros.h"
-#include "ipc/ipc_export.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
 
@@ -33,7 +33,7 @@
 
 namespace IPC {
 
-class IPC_EXPORT MessageRouter : public Listener, public Sender {
+class COMPONENT_EXPORT(IPC) MessageRouter : public Listener, public Sender {
  public:
   MessageRouter();
   ~MessageRouter() override;
@@ -64,7 +64,7 @@ class IPC_EXPORT MessageRouter : public Listener, public Sender {
 
  private:
   // A list of all listeners with assigned routing IDs.
-  IDMap<Listener*> routes_;
+  base::IDMap<Listener*> routes_;
 
   DISALLOW_COPY_AND_ASSIGN(MessageRouter);
 };

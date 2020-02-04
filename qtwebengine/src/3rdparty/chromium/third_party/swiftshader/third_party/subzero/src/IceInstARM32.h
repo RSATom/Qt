@@ -434,18 +434,32 @@ public:
     Vcmp,
     Vcvt,
     Vdiv,
+    Vdup,
     Veor,
+    Vldr1d,
+    Vldr1q,
     Vmla,
+    Vmlap,
     Vmls,
+    Vmovl,
+    Vmovh,
+    Vmovhl,
+    Vmovlh,
     Vmrs,
     Vmul,
+    Vmulh,
     Vmvn,
     Vneg,
     Vorr,
+    Vqadd,
+    Vqmovn2,
+    Vqsub,
     Vshl,
     Vshr,
     Vsqrt,
-    Vsub
+    Vstr1,
+    Vsub,
+    Vzip
   };
 
   static constexpr size_t InstSize = sizeof(uint32_t);
@@ -1012,15 +1026,27 @@ using InstARM32Vdiv = InstARM32ThreeAddrFP<InstARM32::Vdiv>;
 using InstARM32Veor = InstARM32ThreeAddrFP<InstARM32::Veor>;
 using InstARM32Vmla = InstARM32FourAddrFP<InstARM32::Vmla>;
 using InstARM32Vmls = InstARM32FourAddrFP<InstARM32::Vmls>;
+using InstARM32Vmovl = InstARM32ThreeAddrFP<InstARM32::Vmovl>;
+using InstARM32Vmovh = InstARM32ThreeAddrFP<InstARM32::Vmovh>;
+using InstARM32Vmovhl = InstARM32ThreeAddrFP<InstARM32::Vmovhl>;
+using InstARM32Vmovlh = InstARM32ThreeAddrFP<InstARM32::Vmovlh>;
 using InstARM32Vmul = InstARM32ThreeAddrFP<InstARM32::Vmul>;
 using InstARM32Vmvn = InstARM32UnaryopFP<InstARM32::Vmvn>;
 using InstARM32Vneg = InstARM32UnaryopSignAwareFP<InstARM32::Vneg>;
 using InstARM32Vorr = InstARM32ThreeAddrFP<InstARM32::Vorr>;
+using InstARM32Vqadd = InstARM32ThreeAddrSignAwareFP<InstARM32::Vqadd>;
+using InstARM32Vqsub = InstARM32ThreeAddrSignAwareFP<InstARM32::Vqsub>;
+using InstARM32Vqmovn2 = InstARM32ThreeAddrSignAwareFP<InstARM32::Vqmovn2>;
+using InstARM32Vmulh = InstARM32ThreeAddrSignAwareFP<InstARM32::Vmulh>;
+using InstARM32Vmlap = InstARM32ThreeAddrFP<InstARM32::Vmlap>;
 using InstARM32Vshl = InstARM32ThreeAddrSignAwareFP<InstARM32::Vshl>;
 using InstARM32Vshr = InstARM32ThreeAddrSignAwareFP<InstARM32::Vshr>;
 using InstARM32Vsub = InstARM32ThreeAddrFP<InstARM32::Vsub>;
 using InstARM32Ldr = InstARM32LoadBase<InstARM32::Ldr>;
 using InstARM32Ldrex = InstARM32LoadBase<InstARM32::Ldrex>;
+using InstARM32Vldr1d = InstARM32LoadBase<InstARM32::Vldr1d>;
+using InstARM32Vldr1q = InstARM32LoadBase<InstARM32::Vldr1q>;
+using InstARM32Vzip = InstARM32ThreeAddrFP<InstARM32::Vzip>;
 /// MovT leaves the bottom bits alone so dest is also a source. This helps
 /// indicate that a previous MovW setting dest is not dead code.
 using InstARM32Movt = InstARM32TwoAddrGPR<InstARM32::Movt>;
@@ -1332,6 +1358,57 @@ private:
                  OperandARM32Mem *Mem, CondARM32::Cond Predicate);
 };
 
+/// Sub-vector store instruction. It's important for liveness that there is no
+///  Dest operand (OperandARM32Mem instead of Dest Variable).
+class InstARM32Vstr1 final : public InstARM32Pred {
+  InstARM32Vstr1() = delete;
+  InstARM32Vstr1(const InstARM32Vstr1 &) = delete;
+  InstARM32Vstr1 &operator=(const InstARM32Vstr1 &) = delete;
+
+public:
+  /// Value must be a register.
+  static InstARM32Vstr1 *create(Cfg *Func, Variable *Value,
+                                OperandARM32Mem *Mem, CondARM32::Cond Predicate,
+                                SizeT Size) {
+    return new (Func->allocate<InstARM32Vstr1>())
+        InstARM32Vstr1(Func, Value, Mem, Predicate, Size);
+  }
+  void emit(const Cfg *Func) const override;
+  void emitIAS(const Cfg *Func) const override;
+  void dump(const Cfg *Func) const override;
+  static bool classof(const Inst *Instr) { return isClassof(Instr, Vstr1); }
+
+private:
+  InstARM32Vstr1(Cfg *Func, Variable *Value, OperandARM32Mem *Mem,
+                 CondARM32::Cond Predicate, SizeT Size);
+
+  SizeT Size;
+};
+
+/// Vector element duplication/replication instruction.
+class InstARM32Vdup final : public InstARM32Pred {
+  InstARM32Vdup() = delete;
+  InstARM32Vdup(const InstARM32Vdup &) = delete;
+  InstARM32Vdup &operator=(const InstARM32Vdup &) = delete;
+
+public:
+  /// Value must be a register.
+  static InstARM32Vdup *create(Cfg *Func, Variable *Dest, Variable *Src,
+                               IValueT Idx) {
+    return new (Func->allocate<InstARM32Vdup>())
+        InstARM32Vdup(Func, Dest, Src, Idx);
+  }
+  void emit(const Cfg *Func) const override;
+  void emitIAS(const Cfg *Func) const override;
+  void dump(const Cfg *Func) const override;
+  static bool classof(const Inst *Instr) { return isClassof(Instr, Vdup); }
+
+private:
+  InstARM32Vdup(Cfg *Func, Variable *Dest, Variable *Src, IValueT Idx);
+
+  const IValueT Idx;
+};
+
 class InstARM32Trap : public InstARM32 {
   InstARM32Trap() = delete;
   InstARM32Trap(const InstARM32Trap &) = delete;
@@ -1626,6 +1703,8 @@ private:
 template <> void InstARM32Ldr::emit(const Cfg *Func) const;
 template <> void InstARM32Movw::emit(const Cfg *Func) const;
 template <> void InstARM32Movt::emit(const Cfg *Func) const;
+template <> void InstARM32Vldr1d::emit(const Cfg *Func) const;
+template <> void InstARM32Vldr1q::emit(const Cfg *Func) const;
 
 } // end of namespace ARM32
 } // end of namespace Ice

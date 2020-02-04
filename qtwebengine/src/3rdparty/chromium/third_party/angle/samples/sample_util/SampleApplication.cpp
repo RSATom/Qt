@@ -5,21 +5,71 @@
 //
 
 #include "SampleApplication.h"
-#include "EGLWindow.h"
-#include "random_utils.h"
 
-SampleApplication::SampleApplication(const std::string &name,
-                                     size_t width,
-                                     size_t height,
+#include "util/EGLWindow.h"
+#include "util/gles_loader_autogen.h"
+#include "util/random_utils.h"
+#include "util/system_utils.h"
+
+#include <string.h>
+#include <iostream>
+#include <utility>
+
+namespace
+{
+const char *kUseAngleArg = "--use-angle=";
+
+using DisplayTypeInfo = std::pair<const char *, EGLint>;
+
+const DisplayTypeInfo kDisplayTypes[] = {
+    {"d3d9", EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE}, {"d3d11", EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE},
+    {"gl", EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE}, {"gles", EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE},
+    {"null", EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE}, {"vulkan", EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE}};
+
+EGLint GetDisplayTypeFromArg(const char *displayTypeArg)
+{
+    for (const auto &displayTypeInfo : kDisplayTypes)
+    {
+        if (strcmp(displayTypeInfo.first, displayTypeArg) == 0)
+        {
+            std::cout << "Using ANGLE back-end API: " << displayTypeInfo.first << std::endl;
+            return displayTypeInfo.second;
+        }
+    }
+
+    std::cout << "Unknown ANGLE back-end API: " << displayTypeArg << std::endl;
+    return EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
+}
+}  // anonymous namespace
+
+SampleApplication::SampleApplication(std::string name,
+                                     int argc,
+                                     char **argv,
                                      EGLint glesMajorVersion,
                                      EGLint glesMinorVersion,
-                                     EGLint requestedRenderer)
-    : mName(name), mWidth(width), mHeight(height), mRunning(false)
+                                     size_t width,
+                                     size_t height)
+    : mName(std::move(name)),
+      mWidth(width),
+      mHeight(height),
+      mRunning(false),
+      mEGLWindow(nullptr),
+      mOSWindow(nullptr)
 {
-    mEGLWindow.reset(new EGLWindow(glesMajorVersion, glesMinorVersion,
-                                   EGLPlatformParameters(requestedRenderer)));
+    EGLint requestedRenderer = EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
+
+    if (argc > 1 && strncmp(argv[1], kUseAngleArg, strlen(kUseAngleArg)) == 0)
+    {
+        requestedRenderer = GetDisplayTypeFromArg(argv[1] + strlen(kUseAngleArg));
+    }
+
+    // Load EGL library so we can initialize the display.
+    mEntryPointsLib.reset(angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME));
+
+    mEGLWindow = EGLWindow::New(glesMajorVersion, glesMinorVersion,
+                                EGLPlatformParameters(requestedRenderer));
     mTimer.reset(CreateTimer());
-    mOSWindow.reset(CreateOSWindow());
+    mOSWindow = OSWindow::New();
 
     mEGLWindow->setConfigRedBits(8);
     mEGLWindow->setConfigGreenBits(8);
@@ -34,6 +84,8 @@ SampleApplication::SampleApplication(const std::string &name,
 
 SampleApplication::~SampleApplication()
 {
+    EGLWindow::Delete(&mEGLWindow);
+    OSWindow::Delete(&mOSWindow);
 }
 
 bool SampleApplication::initialize()
@@ -41,17 +93,11 @@ bool SampleApplication::initialize()
     return true;
 }
 
-void SampleApplication::destroy()
-{
-}
+void SampleApplication::destroy() {}
 
-void SampleApplication::step(float dt, double totalTime)
-{
-}
+void SampleApplication::step(float dt, double totalTime) {}
 
-void SampleApplication::draw()
-{
-}
+void SampleApplication::draw() {}
 
 void SampleApplication::swap()
 {
@@ -60,7 +106,7 @@ void SampleApplication::swap()
 
 OSWindow *SampleApplication::getWindow() const
 {
-    return mOSWindow.get();
+    return mOSWindow;
 }
 
 EGLConfig SampleApplication::getConfig() const
@@ -92,18 +138,20 @@ int SampleApplication::run()
 
     mOSWindow->setVisible(true);
 
-    if (!mEGLWindow->initializeGL(mOSWindow.get()))
+    if (!mEGLWindow->initializeGL(mOSWindow, mEntryPointsLib.get()))
     {
         return -1;
     }
 
-    mRunning = true;
+    angle::LoadGLES(eglGetProcAddress);
+
+    mRunning   = true;
     int result = 0;
 
     if (!initialize())
     {
         mRunning = false;
-        result = -1;
+        result   = -1;
     }
 
     mTimer->start();
@@ -112,7 +160,7 @@ int SampleApplication::run()
     while (mRunning)
     {
         double elapsedTime = mTimer->getElapsedTime();
-        double deltaTime = elapsedTime - prevTime;
+        double deltaTime   = elapsedTime - prevTime;
 
         step(static_cast<float>(deltaTime), elapsedTime);
 

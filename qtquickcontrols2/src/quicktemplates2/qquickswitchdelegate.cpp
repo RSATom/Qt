@@ -79,15 +79,13 @@ class QQuickSwitchDelegatePrivate : public QQuickItemDelegatePrivate
     Q_DECLARE_PUBLIC(QQuickSwitchDelegate)
 
 public:
-    QQuickSwitchDelegatePrivate() : position(0) { }
-
     qreal positionAt(const QPointF &point) const;
 
     bool canDrag(const QPointF &movePoint) const;
     void handleMove(const QPointF &point) override;
     void handleRelease(const QPointF &point) override;
 
-    qreal position;
+    qreal position = 0;
 };
 
 qreal QQuickSwitchDelegatePrivate::positionAt(const QPointF &point) const
@@ -202,7 +200,12 @@ void QQuickSwitchDelegate::touchEvent(QTouchEvent *event)
 
 QFont QQuickSwitchDelegate::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::ListViewFont);
+    return QQuickTheme::font(QQuickTheme::ListView);
+}
+
+QPalette QQuickSwitchDelegate::defaultPalette() const
+{
+    return QQuickTheme::palette(QQuickTheme::ListView);
 }
 
 void QQuickSwitchDelegate::mirrorChange()

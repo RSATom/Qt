@@ -5,30 +5,39 @@
 #include "base/process/process.h"
 
 #include <mach/mach.h>
+#include <stddef.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+#include <memory>
 
 #include "base/feature_list.h"
 #include "base/mac/mach_logging.h"
-#include "base/metrics/field_trial_params.h"
+#include "base/memory/free_deleter.h"
+#include "base/stl_util.h"
 
 namespace base {
-
-namespace {
-const char kAppNapFeatureParamName[] = "app_nap";
-}
 
 // Enables backgrounding hidden renderers on Mac.
 const Feature kMacAllowBackgroundingProcesses{"MacAllowBackgroundingProcesses",
                                               FEATURE_DISABLED_BY_DEFAULT};
 
-bool Process::IsAppNapEnabled() {
-  return !base::GetFieldTrialParamValueByFeature(
-              kMacAllowBackgroundingProcesses, kAppNapFeatureParamName)
-              .empty();
+Time Process::CreationTime() const {
+  int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, Pid()};
+  size_t len = 0;
+  if (sysctl(mib, size(mib), NULL, &len, NULL, 0) < 0)
+    return Time();
+
+  std::unique_ptr<struct kinfo_proc, base::FreeDeleter> proc(
+      static_cast<struct kinfo_proc*>(malloc(len)));
+  if (sysctl(mib, size(mib), proc.get(), &len, NULL, 0) < 0)
+    return Time();
+  return Time::FromTimeVal(proc->kp_proc.p_un.__p_starttime);
 }
 
 bool Process::CanBackgroundProcesses() {
-  return FeatureList::IsEnabled(kMacAllowBackgroundingProcesses) &&
-         !IsAppNapEnabled();
+  return FeatureList::IsEnabled(kMacAllowBackgroundingProcesses);
 }
 
 bool Process::IsProcessBackgrounded(PortProvider* port_provider) const {
@@ -80,19 +89,6 @@ bool Process::SetProcessBackgrounded(PortProvider* port_provider,
 
   if (result != KERN_SUCCESS) {
     MACH_LOG(ERROR, result) << "task_policy_set TASK_CATEGORY_POLICY";
-    return false;
-  }
-
-  // Latency QoS regulates timer throttling/accuracy. Select default tier
-  // on foreground because precise timer firing isn't needed.
-  struct task_qos_policy qos_policy = {
-      background ? LATENCY_QOS_TIER_5 : LATENCY_QOS_TIER_UNSPECIFIED,
-      background ? THROUGHPUT_QOS_TIER_5 : THROUGHPUT_QOS_TIER_UNSPECIFIED};
-  result = task_policy_set(task_port, TASK_OVERRIDE_QOS_POLICY,
-                           reinterpret_cast<task_policy_t>(&qos_policy),
-                           TASK_QOS_POLICY_COUNT);
-  if (result != KERN_SUCCESS) {
-    MACH_LOG(ERROR, result) << "task_policy_set TASK_OVERRIDE_QOS_POLICY";
     return false;
   }
 

@@ -362,7 +362,7 @@ void tst_QAbstractXmlNodeModel::typedValue() const
             return QVariant();
         }
 
-        QXmlNodeModelIndex root() const
+        QXmlNodeModelIndex rootIndex() const
         {
             return createIndex(qint64(1));
         }
@@ -371,7 +371,7 @@ void tst_QAbstractXmlNodeModel::typedValue() const
     TypedModel model;
 
     QXmlQuery query;
-    query.bindVariable(QLatin1String("node"), model.root());
+    query.bindVariable(QLatin1String("node"), model.rootIndex());
     query.setQuery(QLatin1String("declare variable $node external;"
                                  "string($node), data($node)"));
 

@@ -30,25 +30,20 @@
 #include "third_party/base/ptr_util.h"
 
 CBC_ReedSolomonEncoder::CBC_ReedSolomonEncoder(CBC_ReedSolomonGF256* field)
-    : m_field(field) {}
+    : m_field(field) {
+  m_cachedGenerators.push_back(pdfium::MakeUnique<CBC_ReedSolomonGF256Poly>(
+      m_field.Get(), std::vector<int32_t>{1}));
+}
 
 CBC_ReedSolomonEncoder::~CBC_ReedSolomonEncoder() {}
-
-void CBC_ReedSolomonEncoder::Init() {
-  m_cachedGenerators.push_back(
-      pdfium::MakeUnique<CBC_ReedSolomonGF256Poly>(m_field.Get(), 1));
-}
 
 CBC_ReedSolomonGF256Poly* CBC_ReedSolomonEncoder::BuildGenerator(
     size_t degree) {
   if (degree >= m_cachedGenerators.size()) {
     CBC_ReedSolomonGF256Poly* lastGenerator = m_cachedGenerators.back().get();
     for (size_t d = m_cachedGenerators.size(); d <= degree; ++d) {
-      std::vector<int32_t> temp = {1, m_field->Exp(d - 1)};
-      CBC_ReedSolomonGF256Poly temp_poly;
-      if (!temp_poly.Init(m_field.Get(), &temp))
-        return nullptr;
-
+      CBC_ReedSolomonGF256Poly temp_poly(m_field.Get(),
+                                         {1, m_field->Exp(d - 1)});
       auto nextGenerator = lastGenerator->Multiply(&temp_poly);
       if (!nextGenerator)
         return nullptr;
@@ -77,10 +72,7 @@ bool CBC_ReedSolomonEncoder::Encode(std::vector<int32_t>* toEncode,
   for (size_t x = 0; x < dataBytes; x++)
     infoCoefficients[x] = (*toEncode)[x];
 
-  CBC_ReedSolomonGF256Poly info;
-  if (!info.Init(m_field.Get(), &infoCoefficients))
-    return false;
-
+  CBC_ReedSolomonGF256Poly info(m_field.Get(), infoCoefficients);
   auto infoTemp = info.MultiplyByMonomial(ecBytes, 1);
   if (!infoTemp)
     return false;

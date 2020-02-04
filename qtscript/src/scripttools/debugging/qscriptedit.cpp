@@ -283,7 +283,7 @@ int QScriptEdit::extraAreaWidth() const
         max /= 10;
         ++digits;
     }
-    space += fm.width(QLatin1Char('9')) * digits;
+    space += fm.horizontalAdvance(QLatin1Char('9')) * digits;
 
     int markWidth = fm.lineSpacing();
     space += markWidth;
@@ -306,16 +306,16 @@ void QScriptEdit::extraAreaPaintEvent(QPaintEvent *e)
     int extraAreaWidth = m_extraArea->width();
 
     QLinearGradient gradient(QPointF(extraAreaWidth - 10, 0), QPointF(extraAreaWidth, 0));
-    gradient.setColorAt(0, pal.color(QPalette::Background));
+    gradient.setColorAt(0, pal.color(QPalette::Window));
     gradient.setColorAt(1, pal.color(QPalette::Base));
     painter.fillRect(rect, gradient);
 
     QLinearGradient gradient2(QPointF(0, 0), QPointF(markWidth, 0));
     gradient2.setColorAt(0, pal.color(QPalette::Dark));
-    gradient2.setColorAt(1, pal.color(QPalette::Background));
+    gradient2.setColorAt(1, pal.color(QPalette::Window));
     painter.fillRect(rect.intersected(QRect(rect.x(), rect.y(), markWidth, rect.height())), gradient2);
 
-    painter.setPen(QPen(pal.color(QPalette::Background), 2));
+    painter.setPen(QPen(pal.color(QPalette::Window), 2));
     if (isLeftToRight())
         painter.drawLine(rect.x() + extraAreaWidth-1, rect.top(), rect.x() + extraAreaWidth-1, rect.bottom());
     else

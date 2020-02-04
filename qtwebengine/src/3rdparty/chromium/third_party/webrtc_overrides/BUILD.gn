@@ -2,81 +2,44 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromecast_build.gni")
+
 group("webrtc_overrides") {
   public_deps = [
     ":webrtc",
   ]
 }
 
-config("jingle_unexported_configs") {
-  include_dirs = [
-    "../../third_party/webrtc_overrides",
-    "../../testing/gtest/include",
-    "../../third_party",
-    "../../third_party/libyuv/include",
-    "../../third_party/usrsctp/usrsctplib",
-  ]
-}
-
-config("jingle_public_configs") {
-  include_dirs = [
-    "../../third_party/webrtc_overrides",
-    "../../testing/gtest/include",
-    "../../third_party",
-  ]
-}
-
-group("jingle_deps") {
+source_set("webrtc") {
   public_deps = [
-    "//third_party/expat",
-  ]
-  deps = [
-    "//base",
-    "//crypto:platform",
-    "//net",
-  ]
-}
-
-static_library("webrtc") {
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
-
-  public_deps = [
-    ":jingle_deps",
-
     # TODO(kjellander): Start cleaning up this target as soon as
     # https://codereview.chromium.org/2022833002/ is landed. The target should
     # be removed entirely if possible.
-    "//third_party/libjingle_xmpp:rtc_task_runner",
     "//third_party/webrtc/rtc_base:rtc_base_approved",
   ]
   deps = [
     "//third_party/webrtc/p2p:rtc_p2p",
   ]
 
-  if (is_win) {
-    cflags = [ "/wd4005" ]
-  }
-
-  if (is_nacl) {
-    # For NACL, we have to add a default implementation for field_trail.
+  # When Chromium is built for NACL or Chromecast, WebRTC provides a
+  # field_trial implementation so there is no need to depend on
+  # ":field_trial".
+  # This configuration happens here:
+  # https://cs.chromium.org/chromium/src/third_party/webrtc/webrtc.gni?l=44-51&rcl=95c56eebe0a2b31ad5752138d15b431124e17d36
+  if (!is_chromecast && !is_nacl) {
+    # When Chromium doesn't build for NaCL or Chromecast, WebRTC doesn't
+    # provide an implementation for field_trial and a custom one (that uses
+    # base/metrics/field_trial.h is provided).
     deps += [
-      "//native_client_sdk/src/libraries/nacl_io",
-      "//third_party/webrtc/system_wrappers:field_trial_default",
-    ]
-  } else {
-    # Otherwise, we just add the field_trial which redirects to base.
-    sources = [
-      "field_trial.cc",
+      ":field_trial",
+      "//base",
     ]
   }
 
   configs += [
-    ":jingle_unexported_configs",
     "//third_party/webrtc:common_config",
   ]
   public_configs = [
-    ":jingle_public_configs",
     "//third_party/webrtc:common_inherited_config",
   ]
 }
@@ -87,39 +50,75 @@ static_library("init_webrtc") {
     "init_webrtc.h",
   ]
   configs += [
-    ":jingle_unexported_configs",
     "//third_party/webrtc:common_config",
   ]
   public_configs = [
-    ":jingle_public_configs",
     "//third_party/webrtc:common_inherited_config",
+
+    # TODO(mbonadei): Abseil config propagation is needed because
+    # WebRTC's BUILD.gn files don't use `public_deps`, there are
+    # good reasons for this, but they may disappear in the future.
+    # In that case it is ok to remove these two lines.
+    "//third_party/abseil-cpp:absl_include_config",
+    "//third_party/abseil-cpp:absl_define_config",
   ]
   public_deps = [
     ":libjingle_webrtc_common",
+  ]
+  deps = [
+    ":metrics",
+    ":task_queue_impl",
+    "//base",
+    "//third_party/webrtc/rtc_base",
+    "//third_party/webrtc/system_wrappers",
+  ]
+}
+
+static_library("metrics") {
+  sources = [
+    "metrics.cc",
+  ]
+  deps = [
+    "//base",
+  ]
+}
+
+static_library("field_trial") {
+  sources = [
+    "field_trial.cc",
+  ]
+  deps = [
+    "//base",
   ]
 }
 
 source_set("libjingle_webrtc_common") {
   configs += [
-    ":jingle_unexported_configs",
     "//third_party/webrtc:common_config",
   ]
   public_configs = [
-    ":jingle_public_configs",
     "//third_party/webrtc:common_inherited_config",
   ]
 
   deps = [
     ":webrtc",
-    "//third_party/libsrtp",
-    "//third_party/usrsctp",
-    "//third_party/webrtc/api:libjingle_peerconnection",
     "//third_party/webrtc/media:rtc_media",
     "//third_party/webrtc/media:rtc_media_base",
-    "//third_party/webrtc/modules/media_file",
     "//third_party/webrtc/modules/video_capture",
+    "//third_party/webrtc/pc:libjingle_peerconnection",
     "//third_party/webrtc/pc:rtc_pc",
     "//third_party/webrtc/system_wrappers",
-    "//third_party/webrtc/voice_engine",
+  ]
+}
+
+source_set("task_queue_impl") {
+  sources = [
+    "rtc_base/task_queue.cc",
+  ]
+  configs += [ "//third_party/webrtc:library_impl_config" ]
+  deps = [
+    "//base",
+    "//third_party/webrtc/rtc_base:refcount",
+    "//third_party/webrtc/rtc_base:rtc_task_queue_api",
   ]
 }

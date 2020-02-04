@@ -10,6 +10,8 @@
 #include "ui/base/ui_base_export.h"
 #include "ui/gfx/win/window_impl.h"
 
+#include <windows.h>
+
 namespace ui {
 
 // Helper class for moving a window to the foreground.
@@ -21,7 +23,8 @@ namespace ui {
 // This is probably leveraging a windows bug.
 class UI_BASE_EXPORT ForegroundHelper : public gfx::WindowImpl {
  public:
-  ForegroundHelper() : window_(NULL) { }
+  ForegroundHelper();
+  ~ForegroundHelper() override;
 
   CR_BEGIN_MSG_MAP_EX(ForegroundHelper)
     CR_MSG_WM_HOTKEY(OnHotKey)
@@ -39,6 +42,8 @@ class UI_BASE_EXPORT ForegroundHelper : public gfx::WindowImpl {
   void OnHotKey(int id, UINT vcode, UINT modifiers);
 
   HWND window_;
+
+  CR_MSG_MAP_CLASS_DECLARATIONS(ForegroundHelper)
 
   DISALLOW_COPY_AND_ASSIGN(ForegroundHelper);
 };

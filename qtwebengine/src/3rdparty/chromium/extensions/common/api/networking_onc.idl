@@ -26,6 +26,10 @@ namespace networking.onc {
     Unknown, Offline, Online, Portal, ProxyAuthRequired
   };
 
+  enum ClientCertificateType {
+    Ref, Pattern
+  };
+
   enum ConnectionStateType {
     Connected, Connecting, NotConnected
   };
@@ -48,15 +52,11 @@ namespace networking.onc {
   };
 
   enum NetworkType {
-    All, Cellular, Ethernet, VPN, Wireless, WiFi, WiMAX
+    All, Cellular, Ethernet, Tether, VPN, Wireless, WiFi, WiMAX
   };
 
   enum ProxySettingsType {
     Direct, Manual, PAC, WPAD
-  };
-
-  enum ClientCertificateType {
-    Ref, Pattern
   };
 
   dictionary ManagedBoolean {
@@ -240,7 +240,7 @@ namespace networking.onc {
     // If set, the value against which to match the certificate subject's
     // organizational units. At least one organizational unit should match the
     // value.
-    DOMString? OrganizationalUnit;    
+    DOMString? OrganizationalUnit;
   };
 
   dictionary CertificatePattern {
@@ -417,7 +417,7 @@ namespace networking.onc {
 
   [noinline_doc] dictionary CellularProperties {
     // Whether the cellular network should be connected automatically (when
-    // in range). 
+    // in range).
     boolean? AutoConnect;
     // The cellular network activation type.
     DOMString? ActivationType;
@@ -453,6 +453,8 @@ namespace networking.onc {
     long? PRLVersion;
     // The roaming state of the cellular modem on the current network.
     DOMString? RoamingState;
+    // True when a cellular network scan is in progress.
+    boolean? Scanning;
     // Information about the operator on whose network the modem is currently
     // registered.
     CellularProviderProperties? ServingOperator;
@@ -501,6 +503,8 @@ namespace networking.onc {
     long? PRLVersion;
     // See $(ref:CellularProperties.RoamingState).
     DOMString? RoamingState;
+    // See $(ref:CellularProperties.Scanning).
+    boolean? Scanning;
     // See $(ref:CellularProperties.ServingOperator).
     CellularProviderProperties? ServingOperator;
     // See $(ref:CellularProperties.SIMLockStatus).
@@ -529,7 +533,7 @@ namespace networking.onc {
   };
 
   dictionary EthernetProperties {
-    // Whether the Ethernet network should be connected automatically. 
+    // Whether the Ethernet network should be connected automatically.
     boolean? AutoConnect;
     // The authentication used by the Ethernet network. Possible values are
     // <code>None</code> and <code>8021X</code>.
@@ -555,7 +559,9 @@ namespace networking.onc {
     boolean? AutoConnect;
     // The VPN host.
     DOMString? Host;
-    // The VPN type.
+    // The VPN type. This cannot be an enum because of 'L2TP-IPSec'.
+    // This is optional for NetworkConfigProperties which is passed to
+    // setProperties which may be used to set only specific properties.
     DOMString? Type;
   };
 
@@ -565,7 +571,7 @@ namespace networking.onc {
     // See $(ref:VPNProperties.Host).
     ManagedDOMString? Host;
     // See $(ref:VPNProperties.Type).
-    ManagedDOMString Type;
+    ManagedDOMString? Type;
   };
 
   dictionary VPNStateProperties {
@@ -593,6 +599,10 @@ namespace networking.onc {
     DOMString? HexSSID;
     // Whether the network SSID will be broadcast.
     boolean? HiddenSSID;
+    // The passphrase for WEP/WPA/WPA2 connections. This property can only be
+    // set - properties returned by $(ref:getProperties) will not contain this
+    // value.
+    DOMString? Passphrase;
     // Signal-to-noise value (in dB) below which roaming to a new network
     // should be attempted.
     long? RoamThreshold;
@@ -602,6 +612,8 @@ namespace networking.onc {
     DOMString? Security;
     // The network signal strength.
     long? SignalStrength;
+    // The tethering state associated with the connection.
+    DOMString? TetheringState;
   };
 
   dictionary ManagedWiFiProperties {
@@ -627,6 +639,8 @@ namespace networking.onc {
     ManagedDOMString Security;
     // See $(ref:WiFiProperties.SignalStrength).
     long? SignalStrength;
+    // See $(ref:WiFiProperties.TetheringState).
+    DOMString? TetheringState;
   };
 
   dictionary WiFiStateProperties {
@@ -634,10 +648,16 @@ namespace networking.onc {
     DOMString? BSSID;
     // See $(ref:WiFiProperties.Frequency).
     long? Frequency;
+    // See $(ref:WiFiProperties.HexSSID).
+    DOMString? HexSSID;
     // See $(ref:WiFiProperties.Security).
     DOMString Security;
     // See $(ref:WiFiProperties.SignalStrength).
     long? SignalStrength;
+    // See $(ref:WiFiProperties.SSID).
+    DOMString? SSID;
+    // See $(ref:WiFiProperties.TetheringState).
+    DOMString? TetheringState;
   };
 
   dictionary WiMAXProperties {
@@ -723,7 +743,16 @@ namespace networking.onc {
     // IP configuration that was received from the DHCP server before applying
     // static IP configuration.
     IPConfigProperties? SavedIPConfig;
-    // Indicates whether and how the network is configured.
+    // Indicates whether and how the network is configured. Possible values are:
+    // <ul>
+    //    <li><code>Device</code></li>
+    //    <li><code>DevicePolicy</code></li>
+    //    <li><code>User</code></li>
+    //    <li><code>UserPolicy</code></li>
+    //    <li><code>None</code></li>
+    // </ul>
+    // 'None' conflicts with extension code generation so we must use a string
+    // for 'Source' instead of a SourceType enum.
     DOMString? Source;
     // The network type.
     NetworkType Type;
@@ -814,12 +843,11 @@ namespace networking.onc {
     // Set if the device is enabled. True if the device is currently scanning.
     boolean? Scanning;
 
-    // Set to the SIM lock type if the device type is Cellular and the device
-    // is locked.
-    DOMString? SimLockType;
+    // The SIM lock status if Type = Cellular and SIMPresent = True.
+    SIMLockStatus? SIMLockStatus;
 
     // Set to the SIM present state if the device type is Cellular.
-    boolean? SimPresent;
+    boolean? SIMPresent;
 
     // The current state of the device.
     DeviceStateType State;
@@ -852,6 +880,16 @@ namespace networking.onc {
     // If true, only policy networks may be connected to and no new networks may
     // be added or configured. Defaults to false.
     boolean? AllowOnlyPolicyNetworksToConnect;
+
+    // If true and a managed network is available in the visible network list,
+    // only policy networks may be connected to and no new networks may be added
+    // or configured. Defaults to false.
+    boolean? AllowOnlyPolicyNetworksToConnectIfAvailable;
+
+    // List of blacklisted networks. Connections to blacklisted networks are
+    // prohibited. Networks can be whitelisted again by specifying an explicit
+    // network configuration. Defaults to an empty list.
+    DOMString[]? BlacklistedHexSSIDs;
   };
 
   callback VoidCallback = void();
@@ -895,7 +933,9 @@ namespace networking.onc {
     static void getState(DOMString networkGuid,
                          GetStatePropertiesCallback callback);
 
-    // Sets the properties of the network with id networkGuid.
+    // Sets the properties of the network with id |networkGuid|. This is only
+    // valid for configured networks (Source != None). Unconfigured visible
+    // networks should use $(ref:createNetwork) instead.
     // <b>
     //   In kiosk sessions, calling this method on a shared network will fail.
     // </b>
@@ -966,16 +1006,20 @@ namespace networking.onc {
     static void disableNetworkType(NetworkType networkType);
 
     // Requests that the networking subsystem scan for new networks and
-    // update the list returned by $(ref:getNetworks). This is only a
+    // update the list returned by $(ref:getVisibleNetworks). This is only a
     // request: the network subsystem can choose to ignore it.  If the list
     // is updated, then the $(ref:onNetworkListChanged) event will be fired.
-    static void requestNetworkScan();
+    // |networkType|: If provided, requests a scan specific to the type.
+    //     For Cellular a mobile network scan will be requested if supported.
+    static void requestNetworkScan(optional NetworkType networkType);
 
     // Starts a connection to the network with networkGuid.
     // |networkGuid|: The GUID of the network to connect to.
     // |callback|: Called when the connect request has been sent. Note: the
     //     connection may not have completed. Observe $(ref:onNetworksChanged)
-    //     to be notified when a network state changes.
+    //     to be notified when a network state changes. If the connect request
+    //     immediately failed (e.g. the network is unconfigured),
+    //     $(ref:runtime.lastError) will be set with a failure reason.
     static void startConnect(DOMString networkGuid,
                              optional VoidCallback callback);
 

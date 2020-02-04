@@ -195,6 +195,11 @@ public:
     void _q_removeTab(int);
     void _q_tabMoved(int from, int to);
     void init();
+    bool isAutoHidden() const
+    {
+        // see QTabBarPrivate::autoHideTabs()
+        return (tabs->autoHide() && tabs->count() <= 1);
+    }
 
     void initBasicStyleOption(QStyleOptionTabWidgetFrame *option) const;
 
@@ -371,7 +376,8 @@ QTabWidget::~QTabWidget()
     \fn int QTabWidget::addTab(QWidget *page, const QString &label)
 
     Adds a tab with the given \a page and \a label to the tab widget,
-    and returns the index of the tab in the tab bar.
+    and returns the index of the tab in the tab bar. Ownership of \a page
+    is passed on to the QTabWidget.
 
     If the tab's \a label contains an ampersand, the letter following
     the ampersand is used as a shortcut for the tab, e.g. if the
@@ -398,7 +404,8 @@ int QTabWidget::addTab(QWidget *child, const QString &label)
     \overload
 
     Adds a tab with the given \a page, \a icon, and \a label to the tab
-    widget, and returns the index of the tab in the tab bar.
+    widget, and returns the index of the tab in the tab bar. Ownership
+    of \a page is passed on to the QTabWidget.
 
     This function is the same as addTab(), but with an additional \a
     icon.
@@ -414,7 +421,8 @@ int QTabWidget::addTab(QWidget *child, const QIcon& icon, const QString &label)
 
     Inserts a tab with the given \a label and \a page into the tab
     widget at the specified \a index, and returns the index of the
-    inserted tab in the tab bar.
+    inserted tab in the tab bar. Ownership of \a page is passed on to the
+    QTabWidget.
 
     The label is displayed in the tab and may vary in appearance depending
     on the configuration of the tab widget.
@@ -453,7 +461,8 @@ int QTabWidget::insertTab(int index, QWidget *w, const QString &label)
 
     Inserts a tab with the given \a label, \a page, and \a icon into
     the tab widget at the specified \a index, and returns the index of the
-    inserted tab in the tab bar.
+    inserted tab in the tab bar. Ownership of \a page is passed on to the
+    QTabWidget.
 
     This function is the same as insertTab(), but with an additional
     \a icon.
@@ -502,8 +511,6 @@ QString QTabWidget::tabText(int index) const
 }
 
 /*!
-    \overload
-
     Sets the \a icon for the tab at position \a index.
 */
 void QTabWidget::setTabIcon(int index, const QIcon &icon)
@@ -572,7 +579,7 @@ void QTabWidget::setTabEnabled(int index, bool enable)
 
   All widgets set here will be deleted by the tab widget when it is
   destroyed unless you separately reparent the widget after setting
-  some other corner widget (or 0).
+  some other corner widget (or \nullptr).
 
   Note: Corner widgets are designed for \l North and \l South tab positions;
   other orientations are known to not work properly.
@@ -598,7 +605,7 @@ void QTabWidget::setCornerWidget(QWidget * widget, Qt::Corner corner)
 }
 
 /*!
-    Returns the widget shown in the \a corner of the tab widget or 0.
+    Returns the widget shown in the \a corner of the tab widget or \nullptr.
 */
 QWidget * QTabWidget::cornerWidget(Qt::Corner corner) const
 {
@@ -841,11 +848,14 @@ QSize QTabWidget::sizeHint() const
         that->setUpLayout(true);
     }
     QSize s(d->stack->sizeHint());
-    QSize t(d->tabs->sizeHint());
-    if(usesScrollButtons())
-        t = t.boundedTo(QSize(200,200));
-    else
-        t = t.boundedTo(QDesktopWidgetPrivate::size());
+    QSize t;
+    if (!d->isAutoHidden()) {
+        t = d->tabs->sizeHint();
+        if (usesScrollButtons())
+            t = t.boundedTo(QSize(200,200));
+        else
+            t = t.boundedTo(QDesktopWidgetPrivate::size());
+    }
 
     QSize sz = basicSize(d->pos == North || d->pos == South, lc, rc, s, t);
 
@@ -873,7 +883,9 @@ QSize QTabWidget::minimumSizeHint() const
         that->setUpLayout(true);
     }
     QSize s(d->stack->minimumSizeHint());
-    QSize t(d->tabs->minimumSizeHint());
+    QSize t;
+    if (!d->isAutoHidden())
+        t = d->tabs->minimumSizeHint();
 
     QSize sz = basicSize(d->pos == North || d->pos == South, lc, rc, s, t);
 
@@ -908,12 +920,14 @@ int QTabWidget::heightForWidth(int width) const
         QTabWidget *that = const_cast<QTabWidget*>(this);
         that->setUpLayout(true);
     }
-    QSize t(d->tabs->sizeHint());
-
-    if(usesScrollButtons())
-        t = t.boundedTo(QSize(200,200));
-    else
-        t = t.boundedTo(QDesktopWidgetPrivate::size());
+    QSize t;
+    if (!d->isAutoHidden()) {
+        t = d->tabs->sizeHint();
+        if (usesScrollButtons())
+            t = t.boundedTo(QSize(200,200));
+        else
+            t = t.boundedTo(QDesktopWidgetPrivate::size());
+    }
 
     const bool tabIsHorizontal = (d->pos == North || d->pos == South);
     const int contentsWidth = width - padding.width();
@@ -1132,8 +1146,8 @@ void QTabWidget::keyPressEvent(QKeyEvent *e)
 }
 
 /*!
-    Returns the tab page at index position \a index or 0 if the \a
-    index is out of range.
+    Returns the tab page at index position \a index or \nullptr if the
+    \a index is out of range.
 */
 QWidget *QTabWidget::widget(int index) const
 {

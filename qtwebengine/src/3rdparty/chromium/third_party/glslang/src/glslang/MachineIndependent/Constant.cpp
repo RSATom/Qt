@@ -1,12 +1,14 @@
 //
-//Copyright (C) 2002-2005  3Dlabs Inc. Ltd.
-//Copyright (C) 2012-2013 LunarG, Inc.
+// Copyright (C) 2002-2005  3Dlabs Inc. Ltd.
+// Copyright (C) 2012-2013 LunarG, Inc.
+// Copyright (C) 2017 ARM Limited.
+// Copyright (C) 2018 Google, Inc.
 //
-//All rights reserved.
+// All rights reserved.
 //
-//Redistribution and use in source and binary forms, with or without
-//modification, are permitted provided that the following conditions
-//are met:
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
 //
 //    Redistributions of source code must retain the above copyright
 //    notice, this list of conditions and the following disclaimer.
@@ -20,24 +22,25 @@
 //    contributors may be used to endorse or promote products derived
 //    from this software without specific prior written permission.
 //
-//THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-//"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-//LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-//FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-//COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-//INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-//BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-//LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-//CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-//LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-//ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-//POSSIBILITY OF SUCH DAMAGE.
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+// FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+// COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+// INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+// LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+// LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+// ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
 //
 
 #include "localintermediate.h"
 #include <cmath>
 #include <cfloat>
 #include <cstdlib>
+#include <climits>
 
 namespace {
 
@@ -57,7 +60,7 @@ bool isNan(double x)
     u.d = x;
     int bitPatternL = u.i[0];
     int bitPatternH = u.i[1];
-    return (bitPatternH & 0x7ff80000) == 0x7ff80000 && 
+    return (bitPatternH & 0x7ff80000) == 0x7ff80000 &&
            ((bitPatternH & 0xFFFFF) != 0 || bitPatternL != 0);
 }
 
@@ -68,7 +71,7 @@ bool isInf(double x)
     u.d = x;
     int bitPatternL = u.i[0];
     int bitPatternH = u.i[1];
-    return (bitPatternH & 0x7ff00000) == 0x7ff00000 && 
+    return (bitPatternH & 0x7ff00000) == 0x7ff00000 &&
            (bitPatternH & 0xFFFFF) == 0 && bitPatternL == 0;
 }
 
@@ -131,7 +134,7 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TIntermTyped* right
             TConstUnionArray smearedArray(newComps, rightNode->getConstArray()[0]);
             rightUnionArray = smearedArray;
         } else if (constComps > 1 && newComps == 1) {
-            // for a case like vec4 f = 1.2 + vec4(2,3,4,5);            
+            // for a case like vec4 f = 1.2 + vec4(2,3,4,5);
             newComps = constComps;
             rightUnionArray = rightNode->getConstArray();
             TConstUnionArray smearedArray(newComps, getConstArray()[0]);
@@ -176,38 +179,77 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TIntermTyped* right
             switch (getType().getBasicType()) {
             case EbtDouble:
             case EbtFloat:
-                newConstArray[i].setDConst(leftUnionArray[i].getDConst() / rightUnionArray[i].getDConst());
+            case EbtFloat16:
+                if (rightUnionArray[i].getDConst() != 0.0)
+                    newConstArray[i].setDConst(leftUnionArray[i].getDConst() / rightUnionArray[i].getDConst());
+                else if (leftUnionArray[i].getDConst() > 0.0)
+                    newConstArray[i].setDConst((double)INFINITY);
+                else if (leftUnionArray[i].getDConst() < 0.0)
+                    newConstArray[i].setDConst(-(double)INFINITY);
+                else
+                    newConstArray[i].setDConst((double)NAN);
+                break;
+            case EbtInt8:
+                if (rightUnionArray[i] == (signed char)0)
+                    newConstArray[i].setI8Const((signed char)0x7F);
+                else if (rightUnionArray[i].getI8Const() == (signed char)-1 && leftUnionArray[i].getI8Const() == (signed char)-0x80)
+                    newConstArray[i].setI8Const((signed char)-0x80);
+                else
+                    newConstArray[i].setI8Const(leftUnionArray[i].getI8Const() / rightUnionArray[i].getI8Const());
+                break;
+
+            case EbtUint8:
+                if (rightUnionArray[i] == (unsigned char)0u)
+                    newConstArray[i].setU8Const((unsigned char)0xFFu);
+                else
+                    newConstArray[i].setU8Const(leftUnionArray[i].getU8Const() / rightUnionArray[i].getU8Const());
+                break;
+
+           case EbtInt16:
+                if (rightUnionArray[i] == (signed short)0)
+                    newConstArray[i].setI16Const((signed short)0x7FFF);
+                else if (rightUnionArray[i].getI16Const() == (signed short)-1 && leftUnionArray[i].getI16Const() == (signed short)-0x8000)
+                    newConstArray[i].setI16Const((signed short)-0x8000);
+                else
+                    newConstArray[i].setI16Const(leftUnionArray[i].getI16Const() / rightUnionArray[i].getI16Const());
+                break;
+
+            case EbtUint16:
+                if (rightUnionArray[i] == (unsigned short)0u)
+                    newConstArray[i].setU16Const((unsigned short)0xFFFFu);
+                else
+                    newConstArray[i].setU16Const(leftUnionArray[i].getU16Const() / rightUnionArray[i].getU16Const());
                 break;
 
             case EbtInt:
                 if (rightUnionArray[i] == 0)
                     newConstArray[i].setIConst(0x7FFFFFFF);
-                else if (rightUnionArray[i].getIConst() == -1 && leftUnionArray[i].getIConst() == (int)0x80000000)
-                    newConstArray[i].setIConst(0x80000000);
+                else if (rightUnionArray[i].getIConst() == -1 && leftUnionArray[i].getIConst() == (int)-0x80000000ll)
+                    newConstArray[i].setIConst((int)-0x80000000ll);
                 else
                     newConstArray[i].setIConst(leftUnionArray[i].getIConst() / rightUnionArray[i].getIConst());
                 break;
 
             case EbtUint:
-                if (rightUnionArray[i] == 0) {
-                    newConstArray[i].setUConst(0xFFFFFFFF);
-                } else
+                if (rightUnionArray[i] == 0u)
+                    newConstArray[i].setUConst(0xFFFFFFFFu);
+                else
                     newConstArray[i].setUConst(leftUnionArray[i].getUConst() / rightUnionArray[i].getUConst());
                 break;
 
             case EbtInt64:
-                if (rightUnionArray[i] == 0)
+                if (rightUnionArray[i] == 0ll)
                     newConstArray[i].setI64Const(0x7FFFFFFFFFFFFFFFll);
-                else if (rightUnionArray[i].getI64Const() == -1 && leftUnionArray[i].getI64Const() == (long long)0x8000000000000000)
-                    newConstArray[i].setI64Const(0x8000000000000000);
+                else if (rightUnionArray[i].getI64Const() == -1 && leftUnionArray[i].getI64Const() == (long long)-0x8000000000000000ll)
+                    newConstArray[i].setI64Const((long long)-0x8000000000000000ll);
                 else
                     newConstArray[i].setI64Const(leftUnionArray[i].getI64Const() / rightUnionArray[i].getI64Const());
                 break;
 
             case EbtUint64:
-                if (rightUnionArray[i] == 0) {
+                if (rightUnionArray[i] == 0ull)
                     newConstArray[i].setU64Const(0xFFFFFFFFFFFFFFFFull);
-                } else
+                else
                     newConstArray[i].setU64Const(leftUnionArray[i].getU64Const() / rightUnionArray[i].getU64Const());
                 break;
             default:
@@ -243,8 +285,31 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TIntermTyped* right
         for (int i = 0; i < newComps; i++) {
             if (rightUnionArray[i] == 0)
                 newConstArray[i] = leftUnionArray[i];
-            else
-                newConstArray[i] = leftUnionArray[i] % rightUnionArray[i];
+            else {
+                switch (getType().getBasicType()) {
+                case EbtInt:
+                    if (rightUnionArray[i].getIConst() == -1 && leftUnionArray[i].getIConst() == INT_MIN) {
+                        newConstArray[i].setIConst(0);
+                        break;
+                    } else goto modulo_default;
+
+                case EbtInt64:
+                    if (rightUnionArray[i].getI64Const() == -1 && leftUnionArray[i].getI64Const() == LLONG_MIN) {
+                        newConstArray[i].setI64Const(0);
+                        break;
+                    } else goto modulo_default;
+#ifdef AMD_EXTENSIONS
+                case EbtInt16:
+                    if (rightUnionArray[i].getIConst() == -1 && leftUnionArray[i].getIConst() == SHRT_MIN) {
+                        newConstArray[i].setIConst(0);
+                        break;
+                    } else goto modulo_default;
+#endif
+                default:
+                modulo_default:
+                    newConstArray[i] = leftUnionArray[i] % rightUnionArray[i];
+                }
+            }
         }
         break;
 
@@ -367,6 +432,12 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TType& returnType) 
         resultSize = 2;
         break;
 
+    case EOpPack16:
+    case EOpPack32:
+    case EOpPack64:
+    case EOpUnpack32:
+    case EOpUnpack16:
+    case EOpUnpack8:
     case EOpNormalize:
         componentWise = false;
         resultSize = objectSize;
@@ -399,11 +470,38 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TType& returnType) 
         break;
     }
 
+    case EOpAny:
+    {
+        bool result = false;
+        for (int i = 0; i < objectSize; i++) {
+            if (unionArray[i].getBConst())
+                result = true;
+        }
+        newConstArray[0].setBConst(result);
+        break;
+    }
+    case EOpAll:
+    {
+        bool result = true;
+        for (int i = 0; i < objectSize; i++) {
+            if (! unionArray[i].getBConst())
+                result = false;
+        }
+        newConstArray[0].setBConst(result);
+        break;
+    }
+
     // TODO: 3.0 Functionality: unary constant folding: the rest of the ops have to be fleshed out
 
     case EOpPackSnorm2x16:
     case EOpPackUnorm2x16:
     case EOpPackHalf2x16:
+    case EOpPack16:
+    case EOpPack32:
+    case EOpPack64:
+    case EOpUnpack32:
+    case EOpUnpack16:
+    case EOpUnpack8:
 
     case EOpUnpackSnorm2x16:
     case EOpUnpackUnorm2x16:
@@ -412,11 +510,8 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TType& returnType) 
     case EOpDeterminant:
     case EOpMatrixInverse:
     case EOpTranspose:
-
-    case EOpAny:
-    case EOpAll:
         return 0;
-    
+
     default:
         assert(componentWise);
         break;
@@ -432,11 +527,16 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TType& returnType) 
         case EOpNegative:
             switch (getType().getBasicType()) {
             case EbtDouble:
+            case EbtFloat16:
             case EbtFloat: newConstArray[i].setDConst(-unionArray[i].getDConst()); break;
+            case EbtInt8:  newConstArray[i].setI8Const(-unionArray[i].getI8Const()); break;
+            case EbtUint8: newConstArray[i].setU8Const(static_cast<unsigned int>(-static_cast<signed int>(unionArray[i].getU8Const())));  break;
+            case EbtInt16: newConstArray[i].setI16Const(-unionArray[i].getI16Const()); break;
+            case EbtUint16:newConstArray[i].setU16Const(static_cast<unsigned int>(-static_cast<signed int>(unionArray[i].getU16Const())));  break;
             case EbtInt:   newConstArray[i].setIConst(-unionArray[i].getIConst()); break;
             case EbtUint:  newConstArray[i].setUConst(static_cast<unsigned int>(-static_cast<int>(unionArray[i].getUConst())));  break;
             case EbtInt64: newConstArray[i].setI64Const(-unionArray[i].getI64Const()); break;
-            case EbtUint64: newConstArray[i].setU64Const(static_cast<unsigned int>(-static_cast<int>(unionArray[i].getU64Const())));  break;
+            case EbtUint64: newConstArray[i].setU64Const(static_cast<unsigned long long>(-static_cast<long long>(unionArray[i].getU64Const())));  break;
             default:
                 return 0;
             }
@@ -571,6 +671,279 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TType& returnType) 
             break;
         }
 
+        case EOpConvInt8ToBool:
+            newConstArray[i].setBConst(unionArray[i].getI8Const() != 0); break;
+        case EOpConvUint8ToBool:
+            newConstArray[i].setBConst(unionArray[i].getU8Const() != 0); break;
+        case EOpConvInt16ToBool:
+            newConstArray[i].setBConst(unionArray[i].getI16Const() != 0); break;
+        case EOpConvUint16ToBool:
+            newConstArray[i].setBConst(unionArray[i].getU16Const() != 0); break;
+        case EOpConvIntToBool:
+            newConstArray[i].setBConst(unionArray[i].getIConst() != 0); break;
+        case EOpConvUintToBool:
+            newConstArray[i].setBConst(unionArray[i].getUConst() != 0); break;
+        case EOpConvInt64ToBool:
+            newConstArray[i].setBConst(unionArray[i].getI64Const() != 0); break;
+        case EOpConvUint64ToBool:
+            newConstArray[i].setBConst(unionArray[i].getI64Const() != 0); break;
+        case EOpConvFloat16ToBool:
+            newConstArray[i].setBConst(unionArray[i].getDConst() != 0); break;
+        case EOpConvFloatToBool:
+            newConstArray[i].setBConst(unionArray[i].getDConst() != 0); break;
+        case EOpConvDoubleToBool:
+            newConstArray[i].setBConst(unionArray[i].getDConst() != 0); break;
+
+        case EOpConvBoolToInt8:
+            newConstArray[i].setI8Const(unionArray[i].getBConst()); break;
+        case EOpConvBoolToUint8:
+            newConstArray[i].setU8Const(unionArray[i].getBConst()); break;
+        case EOpConvBoolToInt16:
+            newConstArray[i].setI16Const(unionArray[i].getBConst()); break;
+        case EOpConvBoolToUint16:
+            newConstArray[i].setU16Const(unionArray[i].getBConst()); break;
+        case EOpConvBoolToInt:
+            newConstArray[i].setIConst(unionArray[i].getBConst()); break;
+        case EOpConvBoolToUint:
+            newConstArray[i].setUConst(unionArray[i].getBConst()); break;
+        case EOpConvBoolToInt64:
+            newConstArray[i].setI64Const(unionArray[i].getBConst()); break;
+        case EOpConvBoolToUint64:
+            newConstArray[i].setU64Const(unionArray[i].getBConst()); break;
+        case EOpConvBoolToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getBConst()); break;
+        case EOpConvBoolToFloat:
+            newConstArray[i].setDConst(unionArray[i].getBConst()); break;
+        case EOpConvBoolToDouble:
+            newConstArray[i].setDConst(unionArray[i].getBConst()); break;
+
+        case EOpConvInt8ToInt16:
+            newConstArray[i].setI16Const(unionArray[i].getI8Const()); break;
+        case EOpConvInt8ToInt:
+            newConstArray[i].setIConst(unionArray[i].getI8Const()); break;
+        case EOpConvInt8ToInt64:
+            newConstArray[i].setI64Const(unionArray[i].getI8Const()); break;
+        case EOpConvInt8ToUint8:
+            newConstArray[i].setU8Const(unionArray[i].getI8Const()); break;
+        case EOpConvInt8ToUint16:
+            newConstArray[i].setU16Const(unionArray[i].getI8Const()); break;
+        case EOpConvInt8ToUint:
+            newConstArray[i].setUConst(unionArray[i].getI8Const()); break;
+        case EOpConvInt8ToUint64:
+            newConstArray[i].setU64Const(unionArray[i].getI8Const()); break;
+        case EOpConvUint8ToInt8:
+            newConstArray[i].setI8Const(unionArray[i].getU8Const()); break;
+        case EOpConvUint8ToInt16:
+            newConstArray[i].setI16Const(unionArray[i].getU8Const()); break;
+        case EOpConvUint8ToInt:
+            newConstArray[i].setIConst(unionArray[i].getU8Const()); break;
+        case EOpConvUint8ToInt64:
+            newConstArray[i].setI64Const(unionArray[i].getU8Const()); break;
+        case EOpConvUint8ToUint16:
+            newConstArray[i].setU16Const(unionArray[i].getU8Const()); break;
+        case EOpConvUint8ToUint:
+            newConstArray[i].setUConst(unionArray[i].getU8Const()); break;
+        case EOpConvUint8ToUint64:
+            newConstArray[i].setU64Const(unionArray[i].getU8Const()); break;
+        case EOpConvInt8ToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getI8Const()); break;
+        case EOpConvInt8ToFloat:
+            newConstArray[i].setDConst(unionArray[i].getI8Const()); break;
+        case EOpConvInt8ToDouble:
+            newConstArray[i].setDConst(unionArray[i].getI8Const()); break;
+        case EOpConvUint8ToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getU8Const()); break;
+        case EOpConvUint8ToFloat:
+            newConstArray[i].setDConst(unionArray[i].getU8Const()); break;
+        case EOpConvUint8ToDouble:
+            newConstArray[i].setDConst(unionArray[i].getU8Const()); break;
+
+        case EOpConvInt16ToInt8:
+            newConstArray[i].setI8Const(static_cast<signed char>(unionArray[i].getI16Const())); break;
+        case EOpConvInt16ToInt:
+            newConstArray[i].setIConst(unionArray[i].getI16Const()); break;
+        case EOpConvInt16ToInt64:
+            newConstArray[i].setI64Const(unionArray[i].getI16Const()); break;
+        case EOpConvInt16ToUint8:
+            newConstArray[i].setU8Const(static_cast<unsigned char>(unionArray[i].getI16Const())); break;
+        case EOpConvInt16ToUint16:
+            newConstArray[i].setU16Const(unionArray[i].getI16Const()); break;
+        case EOpConvInt16ToUint:
+            newConstArray[i].setUConst(unionArray[i].getI16Const()); break;
+        case EOpConvInt16ToUint64:
+            newConstArray[i].setU64Const(unionArray[i].getI16Const()); break;
+        case EOpConvUint16ToInt8:
+            newConstArray[i].setI8Const(static_cast<signed char>(unionArray[i].getU16Const())); break;
+        case EOpConvUint16ToInt16:
+            newConstArray[i].setI16Const(unionArray[i].getU16Const()); break;
+        case EOpConvUint16ToInt:
+            newConstArray[i].setIConst(unionArray[i].getU16Const()); break;
+        case EOpConvUint16ToInt64:
+            newConstArray[i].setI64Const(unionArray[i].getU16Const()); break;
+        case EOpConvUint16ToUint8:
+            newConstArray[i].setU8Const(static_cast<unsigned char>(unionArray[i].getU16Const())); break;
+
+        case EOpConvUint16ToUint:
+            newConstArray[i].setUConst(unionArray[i].getU16Const()); break;
+        case EOpConvUint16ToUint64:
+            newConstArray[i].setU64Const(unionArray[i].getU16Const()); break;
+        case EOpConvInt16ToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getI16Const()); break;
+        case EOpConvInt16ToFloat:
+            newConstArray[i].setDConst(unionArray[i].getI16Const()); break;
+        case EOpConvInt16ToDouble:
+            newConstArray[i].setDConst(unionArray[i].getI16Const()); break;
+        case EOpConvUint16ToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getU16Const()); break;
+        case EOpConvUint16ToFloat:
+            newConstArray[i].setDConst(unionArray[i].getU16Const()); break;
+        case EOpConvUint16ToDouble:
+            newConstArray[i].setDConst(unionArray[i].getU16Const()); break;
+
+        case EOpConvIntToInt8:
+            newConstArray[i].setI8Const((signed char)unionArray[i].getIConst()); break;
+        case EOpConvIntToInt16:
+            newConstArray[i].setI16Const((signed short)unionArray[i].getIConst()); break;
+        case EOpConvIntToInt64:
+            newConstArray[i].setI64Const(unionArray[i].getIConst()); break;
+        case EOpConvIntToUint8:
+            newConstArray[i].setU8Const((unsigned char)unionArray[i].getIConst()); break;
+        case EOpConvIntToUint16:
+            newConstArray[i].setU16Const((unsigned char)unionArray[i].getIConst()); break;
+        case EOpConvIntToUint:
+            newConstArray[i].setUConst(unionArray[i].getIConst()); break;
+        case EOpConvIntToUint64:
+            newConstArray[i].setU64Const(unionArray[i].getIConst()); break;
+
+        case EOpConvUintToInt8:
+            newConstArray[i].setI8Const((signed char)unionArray[i].getUConst()); break;
+        case EOpConvUintToInt16:
+            newConstArray[i].setI16Const((signed short)unionArray[i].getUConst()); break;
+        case EOpConvUintToInt:
+            newConstArray[i].setIConst(unionArray[i].getUConst()); break;
+        case EOpConvUintToInt64:
+            newConstArray[i].setI64Const(unionArray[i].getUConst()); break;
+        case EOpConvUintToUint8:
+            newConstArray[i].setU8Const((unsigned char)unionArray[i].getUConst()); break;
+        case EOpConvUintToUint16:
+            newConstArray[i].setU16Const((unsigned short)unionArray[i].getUConst()); break;
+        case EOpConvUintToUint64:
+            newConstArray[i].setU64Const(unionArray[i].getUConst()); break;
+        case EOpConvIntToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getIConst()); break;
+        case EOpConvIntToFloat:
+            newConstArray[i].setDConst(unionArray[i].getIConst()); break;
+        case EOpConvIntToDouble:
+            newConstArray[i].setDConst(unionArray[i].getIConst()); break;
+        case EOpConvUintToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getUConst()); break;
+        case EOpConvUintToFloat:
+            newConstArray[i].setDConst(unionArray[i].getUConst()); break;
+        case EOpConvUintToDouble:
+            newConstArray[i].setDConst(unionArray[i].getUConst()); break;
+        case EOpConvInt64ToInt8:
+            newConstArray[i].setI8Const(static_cast<signed char>(unionArray[i].getI64Const())); break;
+        case EOpConvInt64ToInt16:
+            newConstArray[i].setI16Const(static_cast<signed short>(unionArray[i].getI64Const())); break;
+        case EOpConvInt64ToInt:
+            newConstArray[i].setIConst(static_cast<int>(unionArray[i].getI64Const())); break;
+        case EOpConvInt64ToUint8:
+            newConstArray[i].setU8Const(static_cast<unsigned char>(unionArray[i].getI64Const())); break;
+        case EOpConvInt64ToUint16:
+            newConstArray[i].setU16Const(static_cast<unsigned short>(unionArray[i].getI64Const())); break;
+        case EOpConvInt64ToUint:
+            newConstArray[i].setUConst(static_cast<unsigned int>(unionArray[i].getI64Const())); break;
+        case EOpConvInt64ToUint64:
+            newConstArray[i].setU64Const(unionArray[i].getI64Const()); break;
+        case EOpConvUint64ToInt8:
+            newConstArray[i].setI8Const(static_cast<signed char>(unionArray[i].getU64Const())); break;
+        case EOpConvUint64ToInt16:
+            newConstArray[i].setI16Const(static_cast<signed short>(unionArray[i].getU64Const())); break;
+        case EOpConvUint64ToInt:
+            newConstArray[i].setIConst(static_cast<int>(unionArray[i].getU64Const())); break;
+        case EOpConvUint64ToInt64:
+            newConstArray[i].setI64Const(unionArray[i].getU64Const()); break;
+        case EOpConvUint64ToUint8:
+            newConstArray[i].setU8Const(static_cast<unsigned char>(unionArray[i].getU64Const())); break;
+        case EOpConvUint64ToUint16:
+            newConstArray[i].setU16Const(static_cast<unsigned short>(unionArray[i].getU64Const())); break;
+        case EOpConvUint64ToUint:
+            newConstArray[i].setUConst(static_cast<unsigned int>(unionArray[i].getU64Const())); break;
+        case EOpConvInt64ToFloat16:
+            newConstArray[i].setDConst(static_cast<double>(unionArray[i].getI64Const())); break;
+        case EOpConvInt64ToFloat:
+            newConstArray[i].setDConst(static_cast<double>(unionArray[i].getI64Const())); break;
+        case EOpConvInt64ToDouble:
+            newConstArray[i].setDConst(static_cast<double>(unionArray[i].getI64Const())); break;
+        case EOpConvUint64ToFloat16:
+            newConstArray[i].setDConst(static_cast<double>(unionArray[i].getU64Const())); break;
+        case EOpConvUint64ToFloat:
+            newConstArray[i].setDConst(static_cast<double>(unionArray[i].getU64Const())); break;
+        case EOpConvUint64ToDouble:
+            newConstArray[i].setDConst(static_cast<double>(unionArray[i].getU64Const())); break;
+        case EOpConvFloat16ToInt8:
+            newConstArray[i].setI8Const(static_cast<signed char>(unionArray[i].getDConst())); break;
+        case EOpConvFloat16ToInt16:
+            newConstArray[i].setI16Const(static_cast<signed short>(unionArray[i].getDConst())); break;
+        case EOpConvFloat16ToInt:
+            newConstArray[i].setIConst(static_cast<int>(unionArray[i].getDConst())); break;
+        case EOpConvFloat16ToInt64:
+            newConstArray[i].setI64Const(static_cast<long long>(unionArray[i].getDConst())); break;
+        case EOpConvFloat16ToUint8:
+            newConstArray[i].setU8Const(static_cast<unsigned char>(unionArray[i].getDConst())); break;
+        case EOpConvFloat16ToUint16:
+            newConstArray[i].setU16Const(static_cast<unsigned short>(unionArray[i].getDConst())); break;
+        case EOpConvFloat16ToUint:
+            newConstArray[i].setUConst(static_cast<unsigned int>(unionArray[i].getDConst())); break;
+        case EOpConvFloat16ToUint64:
+            newConstArray[i].setU64Const(static_cast<unsigned long long>(unionArray[i].getDConst())); break;
+        case EOpConvFloat16ToFloat:
+            newConstArray[i].setDConst(unionArray[i].getDConst()); break;
+        case EOpConvFloat16ToDouble:
+            newConstArray[i].setDConst(unionArray[i].getDConst()); break;
+        case EOpConvFloatToInt8:
+            newConstArray[i].setI8Const(static_cast<signed char>(unionArray[i].getDConst())); break;
+        case EOpConvFloatToInt16:
+            newConstArray[i].setI16Const(static_cast<signed short>(unionArray[i].getDConst())); break;
+        case EOpConvFloatToInt:
+            newConstArray[i].setIConst(static_cast<int>(unionArray[i].getDConst())); break;
+        case EOpConvFloatToInt64:
+            newConstArray[i].setI64Const(static_cast<long long>(unionArray[i].getDConst())); break;
+        case EOpConvFloatToUint8:
+            newConstArray[i].setU8Const(static_cast<unsigned char>(unionArray[i].getDConst())); break;
+        case EOpConvFloatToUint16:
+            newConstArray[i].setU16Const(static_cast<unsigned short>(unionArray[i].getDConst())); break;
+        case EOpConvFloatToUint:
+            newConstArray[i].setUConst(static_cast<unsigned int>(unionArray[i].getDConst())); break;
+        case EOpConvFloatToUint64:
+            newConstArray[i].setU64Const(static_cast<unsigned long long>(unionArray[i].getDConst())); break;
+        case EOpConvFloatToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getDConst()); break;
+        case EOpConvFloatToDouble:
+            newConstArray[i].setDConst(unionArray[i].getDConst()); break;
+        case EOpConvDoubleToInt8:
+            newConstArray[i].setI8Const(static_cast<signed char>(unionArray[i].getDConst())); break;
+        case EOpConvDoubleToInt16:
+            newConstArray[i].setI16Const(static_cast<signed short>(unionArray[i].getDConst())); break;
+        case EOpConvDoubleToInt:
+            newConstArray[i].setIConst(static_cast<int>(unionArray[i].getDConst())); break;
+        case EOpConvDoubleToInt64:
+            newConstArray[i].setI64Const(static_cast<long long>(unionArray[i].getDConst())); break;
+        case EOpConvDoubleToUint8:
+            newConstArray[i].setU8Const(static_cast<unsigned char>(unionArray[i].getDConst())); break;
+        case EOpConvDoubleToUint16:
+            newConstArray[i].setU16Const(static_cast<unsigned short>(unionArray[i].getDConst())); break;
+        case EOpConvDoubleToUint:
+            newConstArray[i].setUConst(static_cast<unsigned int>(unionArray[i].getDConst())); break;
+        case EOpConvDoubleToUint64:
+            newConstArray[i].setU64Const(static_cast<unsigned long long>(unionArray[i].getDConst())); break;
+        case EOpConvDoubleToFloat16:
+            newConstArray[i].setDConst(unionArray[i].getDConst()); break;
+        case EOpConvDoubleToFloat:
+            newConstArray[i].setDConst(unionArray[i].getDConst()); break;
+
+
+
         // TODO: 3.0 Functionality: unary constant folding: the rest of the ops have to be fleshed out
 
         case EOpSinh:
@@ -586,7 +959,12 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TType& returnType) 
         case EOpUintBitsToFloat:
         case EOpDoubleBitsToInt64:
         case EOpDoubleBitsToUint64:
-
+        case EOpInt64BitsToDouble:
+        case EOpUint64BitsToDouble:
+        case EOpFloat16BitsToInt16:
+        case EOpFloat16BitsToUint16:
+        case EOpInt16BitsToFloat16:
+        case EOpUint16BitsToFloat16:
         default:
             return 0;
         }
@@ -602,9 +980,12 @@ TIntermTyped* TIntermConstantUnion::fold(TOperator op, const TType& returnType) 
 //
 // Do constant folding for an aggregate node that has all its children
 // as constants and an operator that requires constant folding.
-// 
+//
 TIntermTyped* TIntermediate::fold(TIntermAggregate* aggrNode)
 {
+    if (aggrNode == nullptr)
+        return aggrNode;
+
     if (! areAllChildConst(aggrNode))
         return aggrNode;
 
@@ -667,14 +1048,6 @@ TIntermTyped* TIntermediate::fold(TIntermAggregate* aggrNode)
     for (unsigned int arg = 0; arg < children.size(); ++arg)
         childConstUnions.push_back(children[arg]->getAsConstantUnion()->getConstArray());
 
-    // Second, do the actual folding
-
-    bool isFloatingPoint = children[0]->getAsTyped()->getBasicType() == EbtFloat ||
-                           children[0]->getAsTyped()->getBasicType() == EbtDouble;
-    bool isSigned = children[0]->getAsTyped()->getBasicType() == EbtInt ||
-                    children[0]->getAsTyped()->getBasicType() == EbtInt64;
-    bool isInt64 = children[0]->getAsTyped()->getBasicType() == EbtInt64 ||
-                   children[0]->getAsTyped()->getBasicType() == EbtUint64;
     if (componentwise) {
         for (int comp = 0; comp < objectSize; comp++) {
 
@@ -695,53 +1068,114 @@ TIntermTyped* TIntermediate::fold(TIntermAggregate* aggrNode)
                 newConstArray[comp].setDConst(pow(childConstUnions[0][arg0comp].getDConst(), childConstUnions[1][arg1comp].getDConst()));
                 break;
             case EOpMin:
-                if (isFloatingPoint)
+                switch(children[0]->getAsTyped()->getBasicType()) {
+                case EbtFloat16:
+                case EbtFloat:
+                case EbtDouble:
                     newConstArray[comp].setDConst(std::min(childConstUnions[0][arg0comp].getDConst(), childConstUnions[1][arg1comp].getDConst()));
-                else if (isSigned) {
-                    if (isInt64)
-                        newConstArray[comp].setI64Const(std::min(childConstUnions[0][arg0comp].getI64Const(), childConstUnions[1][arg1comp].getI64Const()));
-                    else
-                        newConstArray[comp].setIConst(std::min(childConstUnions[0][arg0comp].getIConst(), childConstUnions[1][arg1comp].getIConst()));
-                } else {
-                    if (isInt64)
-                        newConstArray[comp].setU64Const(std::min(childConstUnions[0][arg0comp].getU64Const(), childConstUnions[1][arg1comp].getU64Const()));
-                    else
-                        newConstArray[comp].setUConst(std::min(childConstUnions[0][arg0comp].getUConst(), childConstUnions[1][arg1comp].getUConst()));
+                    break;
+                case EbtInt8:
+                    newConstArray[comp].setI8Const(std::min(childConstUnions[0][arg0comp].getI8Const(), childConstUnions[1][arg1comp].getI8Const()));
+                    break;
+                case EbtUint8:
+                    newConstArray[comp].setU8Const(std::min(childConstUnions[0][arg0comp].getU8Const(), childConstUnions[1][arg1comp].getU8Const()));
+                    break;
+                case EbtInt16:
+                    newConstArray[comp].setI16Const(std::min(childConstUnions[0][arg0comp].getI16Const(), childConstUnions[1][arg1comp].getI16Const()));
+                    break;
+                case EbtUint16:
+                    newConstArray[comp].setU16Const(std::min(childConstUnions[0][arg0comp].getU16Const(), childConstUnions[1][arg1comp].getU16Const()));
+                    break;
+                case EbtInt:
+                    newConstArray[comp].setIConst(std::min(childConstUnions[0][arg0comp].getIConst(), childConstUnions[1][arg1comp].getIConst()));
+                    break;
+                case EbtUint:
+                    newConstArray[comp].setUConst(std::min(childConstUnions[0][arg0comp].getUConst(), childConstUnions[1][arg1comp].getUConst()));
+                    break;
+                case EbtInt64:
+                    newConstArray[comp].setI64Const(std::min(childConstUnions[0][arg0comp].getI64Const(), childConstUnions[1][arg1comp].getI64Const()));
+                    break;
+                case EbtUint64:
+                    newConstArray[comp].setU64Const(std::min(childConstUnions[0][arg0comp].getU64Const(), childConstUnions[1][arg1comp].getU64Const()));
+                    break;
+                default: assert(false && "Default missing");
                 }
                 break;
             case EOpMax:
-                if (isFloatingPoint)
+                switch(children[0]->getAsTyped()->getBasicType()) {
+                case EbtFloat16:
+                case EbtFloat:
+                case EbtDouble:
                     newConstArray[comp].setDConst(std::max(childConstUnions[0][arg0comp].getDConst(), childConstUnions[1][arg1comp].getDConst()));
-                else if (isSigned) {
-                    if (isInt64)
-                        newConstArray[comp].setI64Const(std::max(childConstUnions[0][arg0comp].getI64Const(), childConstUnions[1][arg1comp].getI64Const()));
-                    else
-                        newConstArray[comp].setIConst(std::max(childConstUnions[0][arg0comp].getIConst(), childConstUnions[1][arg1comp].getIConst()));
-                } else {
-                    if (isInt64)
-                        newConstArray[comp].setU64Const(std::max(childConstUnions[0][arg0comp].getU64Const(), childConstUnions[1][arg1comp].getU64Const()));
-                    else
-                        newConstArray[comp].setUConst(std::max(childConstUnions[0][arg0comp].getUConst(), childConstUnions[1][arg1comp].getUConst()));
+                    break;
+                case EbtInt8:
+                    newConstArray[comp].setI8Const(std::max(childConstUnions[0][arg0comp].getI8Const(), childConstUnions[1][arg1comp].getI8Const()));
+                    break;
+                case EbtUint8:
+                    newConstArray[comp].setU8Const(std::max(childConstUnions[0][arg0comp].getU8Const(), childConstUnions[1][arg1comp].getU8Const()));
+                    break;
+                case EbtInt16:
+                    newConstArray[comp].setI16Const(std::max(childConstUnions[0][arg0comp].getI16Const(), childConstUnions[1][arg1comp].getI16Const()));
+                    break;
+                case EbtUint16:
+                    newConstArray[comp].setU16Const(std::max(childConstUnions[0][arg0comp].getU16Const(), childConstUnions[1][arg1comp].getU16Const()));
+                    break;
+                case EbtInt:
+                    newConstArray[comp].setIConst(std::max(childConstUnions[0][arg0comp].getIConst(), childConstUnions[1][arg1comp].getIConst()));
+                    break;
+                case EbtUint:
+                    newConstArray[comp].setUConst(std::max(childConstUnions[0][arg0comp].getUConst(), childConstUnions[1][arg1comp].getUConst()));
+                    break;
+                case EbtInt64:
+                    newConstArray[comp].setI64Const(std::max(childConstUnions[0][arg0comp].getI64Const(), childConstUnions[1][arg1comp].getI64Const()));
+                    break;
+                case EbtUint64:
+                    newConstArray[comp].setU64Const(std::max(childConstUnions[0][arg0comp].getU64Const(), childConstUnions[1][arg1comp].getU64Const()));
+                    break;
+                default: assert(false && "Default missing");
                 }
                 break;
             case EOpClamp:
-                if (isFloatingPoint)
+                switch(children[0]->getAsTyped()->getBasicType()) {
+                case EbtFloat16:
+                case EbtFloat:
+                case EbtDouble:
                     newConstArray[comp].setDConst(std::min(std::max(childConstUnions[0][arg0comp].getDConst(), childConstUnions[1][arg1comp].getDConst()),
                                                                                                                childConstUnions[2][arg2comp].getDConst()));
-                else if (isSigned) {
-                    if (isInt64)
-                        newConstArray[comp].setI64Const(std::min(std::max(childConstUnions[0][arg0comp].getI64Const(), childConstUnions[1][arg1comp].getI64Const()),
-                                                                                                                       childConstUnions[2][arg2comp].getI64Const()));
-                    else
-                        newConstArray[comp].setIConst(std::min(std::max(childConstUnions[0][arg0comp].getIConst(), childConstUnions[1][arg1comp].getIConst()),
+                    break;
+                case EbtInt8:
+                    newConstArray[comp].setI8Const(std::min(std::max(childConstUnions[0][arg0comp].getI8Const(), childConstUnions[1][arg1comp].getI8Const()),
+                                                                                                                   childConstUnions[2][arg2comp].getI8Const()));
+                    break;
+                case EbtUint8:
+                     newConstArray[comp].setU8Const(std::min(std::max(childConstUnions[0][arg0comp].getU8Const(), childConstUnions[1][arg1comp].getU8Const()),
+                                                                                                                   childConstUnions[2][arg2comp].getU8Const()));
+                    break;
+                case EbtInt16:
+                    newConstArray[comp].setI16Const(std::min(std::max(childConstUnions[0][arg0comp].getI16Const(), childConstUnions[1][arg1comp].getI16Const()),
+                                                                                                                   childConstUnions[2][arg2comp].getI16Const()));
+                    break;
+                case EbtUint16:
+                    newConstArray[comp].setU16Const(std::min(std::max(childConstUnions[0][arg0comp].getU16Const(), childConstUnions[1][arg1comp].getU16Const()),
+                                                                                                                   childConstUnions[2][arg2comp].getU16Const()));
+                    break;
+                case EbtInt:
+                    newConstArray[comp].setIConst(std::min(std::max(childConstUnions[0][arg0comp].getIConst(), childConstUnions[1][arg1comp].getIConst()),
                                                                                                                    childConstUnions[2][arg2comp].getIConst()));
-                } else {
-                    if (isInt64)
-                        newConstArray[comp].setU64Const(std::min(std::max(childConstUnions[0][arg0comp].getU64Const(), childConstUnions[1][arg1comp].getU64Const()),
-                                                                                                                       childConstUnions[2][arg2comp].getU64Const()));
-                    else
-                        newConstArray[comp].setUConst(std::min(std::max(childConstUnions[0][arg0comp].getUConst(), childConstUnions[1][arg1comp].getUConst()),
+                    break;
+                case EbtUint:
+                    newConstArray[comp].setUConst(std::min(std::max(childConstUnions[0][arg0comp].getUConst(), childConstUnions[1][arg1comp].getUConst()),
                                                                                                                    childConstUnions[2][arg2comp].getUConst()));
+                    break;
+                case EbtInt64:
+                    newConstArray[comp].setI64Const(std::min(std::max(childConstUnions[0][arg0comp].getI64Const(), childConstUnions[1][arg1comp].getI64Const()),
+                                                                                                                       childConstUnions[2][arg2comp].getI64Const()));
+                    break;
+                case EbtUint64:
+                    newConstArray[comp].setU64Const(std::min(std::max(childConstUnions[0][arg0comp].getU64Const(), childConstUnions[1][arg1comp].getU64Const()),
+                                                                                                                       childConstUnions[2][arg2comp].getU64Const()));
+                    break;
+                default: assert(false && "Default missing");
                 }
                 break;
             case EOpLessThan:
@@ -775,7 +1209,7 @@ TIntermTyped* TIntermediate::fold(TIntermAggregate* aggrNode)
                 break;
             case EOpSmoothStep:
             {
-                double t = (childConstUnions[2][arg2comp].getDConst() - childConstUnions[0][arg0comp].getDConst()) / 
+                double t = (childConstUnions[2][arg2comp].getDConst() - childConstUnions[0][arg0comp].getDConst()) /
                            (childConstUnions[1][arg1comp].getDConst() - childConstUnions[0][arg0comp].getDConst());
                 if (t < 0.0)
                     t = 0.0;
@@ -814,7 +1248,7 @@ TIntermTyped* TIntermediate::fold(TIntermAggregate* aggrNode)
             newConstArray[2] = childConstUnions[0][0] * childConstUnions[1][1] - childConstUnions[0][1] * childConstUnions[1][0];
             break;
         case EOpFaceForward:
-            // If dot(Nref, I) < 0 return N, otherwise return –N:  Arguments are (N, I, Nref).
+            // If dot(Nref, I) < 0 return N, otherwise return -N:  Arguments are (N, I, Nref).
             dot = childConstUnions[1].dot(childConstUnions[2]);
             for (int comp = 0; comp < numComps; ++comp) {
                 if (dot < 0.0)
@@ -941,23 +1375,23 @@ TIntermTyped* TIntermediate::foldDereference(TIntermTyped* node, int index, cons
 }
 
 //
-// Make a constant vector node or constant scalar node, representing a given 
+// Make a constant vector node or constant scalar node, representing a given
 // constant vector and constant swizzle into it.
 //
-TIntermTyped* TIntermediate::foldSwizzle(TIntermTyped* node, TVectorFields& fields, const TSourceLoc& loc)
+TIntermTyped* TIntermediate::foldSwizzle(TIntermTyped* node, TSwizzleSelectors<TVectorSelector>& selectors, const TSourceLoc& loc)
 {
     const TConstUnionArray& unionArray = node->getAsConstantUnion()->getConstArray();
-    TConstUnionArray constArray(fields.num);
+    TConstUnionArray constArray(selectors.size());
 
-    for (int i = 0; i < fields.num; i++)
-        constArray[i] = unionArray[fields.offsets[i]];
+    for (int i = 0; i < selectors.size(); i++)
+        constArray[i] = unionArray[selectors[i]];
 
     TIntermTyped* result = addConstantUnion(constArray, node->getType(), loc);
 
     if (result == 0)
         result = node;
     else
-        result->setType(TType(node->getBasicType(), EvqConst, fields.num));
+        result->setType(TType(node->getBasicType(), EvqConst, selectors.size()));
 
     return result;
 }

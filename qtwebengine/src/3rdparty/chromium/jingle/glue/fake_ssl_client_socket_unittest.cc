@@ -12,16 +12,19 @@
 #include <utility>
 #include <vector>
 
-#include "base/macros.h"
+#include "base/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
+#include "base/stl_util.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_address.h"
 #include "net/base/test_completion_callback.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
+#include "net/socket/socket_tag.h"
 #include "net/socket/socket_test_util.h"
 #include "net/socket/stream_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -50,12 +53,34 @@ enum {
 // Used by PassThroughMethods test.
 class MockClientSocket : public net::StreamSocket {
  public:
-  virtual ~MockClientSocket() {}
+  ~MockClientSocket() override {}
+
+  int Read(net::IOBuffer* buffer,
+           int bytes,
+           net::CompletionOnceCallback callback) override {
+    return Read(buffer, bytes,
+                base::AdaptCallbackForRepeating(std::move(callback)));
+  }
+
+  int Write(net::IOBuffer* buffer,
+            int bytes,
+            net::CompletionOnceCallback callback,
+            const net::NetworkTrafficAnnotationTag& tag) override {
+    return Write(buffer, bytes,
+                 base::AdaptCallbackForRepeating(std::move(callback)), tag);
+  }
+
+  int Connect(net::CompletionOnceCallback callback) override {
+    return Connect(base::AdaptCallbackForRepeating(std::move(callback)));
+  }
 
   MOCK_METHOD3(Read, int(net::IOBuffer*, int,
                          const net::CompletionCallback&));
-  MOCK_METHOD3(Write, int(net::IOBuffer*, int,
-                          const net::CompletionCallback&));
+  MOCK_METHOD4(Write,
+               int(net::IOBuffer*,
+                   int,
+                   const net::CompletionCallback&,
+                   const net::NetworkTrafficAnnotationTag&));
   MOCK_METHOD1(SetReceiveBufferSize, int(int32_t));
   MOCK_METHOD1(SetSendBufferSize, int(int32_t));
   MOCK_METHOD1(Connect, int(const net::CompletionCallback&));
@@ -65,8 +90,6 @@ class MockClientSocket : public net::StreamSocket {
   MOCK_CONST_METHOD1(GetPeerAddress, int(net::IPEndPoint*));
   MOCK_CONST_METHOD1(GetLocalAddress, int(net::IPEndPoint*));
   MOCK_CONST_METHOD0(NetLog, const net::NetLogWithSource&());
-  MOCK_METHOD0(SetSubresourceSpeculation, void());
-  MOCK_METHOD0(SetOmniboxSpeculation, void());
   MOCK_CONST_METHOD0(WasEverUsed, bool());
   MOCK_CONST_METHOD0(UsingTCPFastOpen, bool());
   MOCK_CONST_METHOD0(NumBytesRead, int64_t());
@@ -78,6 +101,7 @@ class MockClientSocket : public net::StreamSocket {
   MOCK_METHOD0(ClearConnectionAttempts, void());
   MOCK_METHOD1(AddConnectionAttempts, void(const net::ConnectionAttempts&));
   MOCK_CONST_METHOD0(GetTotalReceivedBytes, int64_t());
+  MOCK_METHOD1(ApplySocketTag, void(const net::SocketTag&));
 };
 
 // Break up |data| into a bunch of chunked MockReads/Writes and push
@@ -110,9 +134,7 @@ class FakeSSLClientSocketTest : public testing::Test {
                std::vector<net::MockRead>* reads,
                std::vector<net::MockWrite>* writes) {
     static_socket_data_provider_.reset(
-        new net::StaticSocketDataProvider(
-            reads->empty() ? NULL : &*reads->begin(), reads->size(),
-            writes->empty() ? NULL : &*writes->begin(), writes->size()));
+        new net::StaticSocketDataProvider(*reads, *writes));
     static_socket_data_provider_->set_connect_data(mock_connect);
     mock_client_socket_factory_.AddSocketDataProvider(
         static_socket_data_provider_.get());
@@ -151,9 +173,9 @@ class FakeSSLClientSocketTest : public testing::Test {
       AddChunkedOps(ssl_server_hello, read_chunk_size, mode, &reads);
       AddChunkedOps(ssl_client_hello, write_chunk_size, mode, &writes);
       reads.push_back(
-          net::MockRead(mode, kReadTestData, arraysize(kReadTestData)));
+          net::MockRead(mode, kReadTestData, base::size(kReadTestData)));
       writes.push_back(
-          net::MockWrite(mode, kWriteTestData, arraysize(kWriteTestData)));
+          net::MockWrite(mode, kWriteTestData, base::size(kWriteTestData)));
     }
     SetData(mock_connect, &reads, &writes);
 
@@ -169,21 +191,19 @@ class FakeSSLClientSocketTest : public testing::Test {
       }
       ExpectStatus(mode, net::OK, status, &test_completion_callback);
       if (fake_ssl_client_socket.IsConnected()) {
-        int read_len = arraysize(kReadTestData);
+        int read_len = base::size(kReadTestData);
         int read_buf_len = 2 * read_len;
-        scoped_refptr<net::IOBuffer> read_buf(
-            new net::IOBuffer(read_buf_len));
+        auto read_buf = base::MakeRefCounted<net::IOBuffer>(read_buf_len);
         int read_status = fake_ssl_client_socket.Read(
             read_buf.get(), read_buf_len, test_completion_callback.callback());
         ExpectStatus(mode, read_len, read_status, &test_completion_callback);
 
-        scoped_refptr<net::IOBuffer> write_buf(
-            new net::StringIOBuffer(kWriteTestData));
-        int write_status =
-            fake_ssl_client_socket.Write(write_buf.get(),
-                                         arraysize(kWriteTestData),
-                                         test_completion_callback.callback());
-        ExpectStatus(mode, arraysize(kWriteTestData), write_status,
+        auto write_buf =
+            base::MakeRefCounted<net::StringIOBuffer>(kWriteTestData);
+        int write_status = fake_ssl_client_socket.Write(
+            write_buf.get(), base::size(kWriteTestData),
+            test_completion_callback.callback(), TRAFFIC_ANNOTATION_FOR_TESTS);
+        ExpectStatus(mode, base::size(kWriteTestData), write_status,
                      &test_completion_callback);
       } else {
         ADD_FAILURE();
@@ -231,7 +251,7 @@ class FakeSSLClientSocketTest : public testing::Test {
         if (error == ERR_MALFORMED_SERVER_HELLO) {
           static const char kBadData[] = "BAD_DATA";
           reads[index].data = kBadData;
-          reads[index].data_len = arraysize(kBadData);
+          reads[index].data_len = base::size(kBadData);
         } else {
           reads[index].result = error;
           reads[index].data = NULL;
@@ -290,8 +310,6 @@ TEST_F(FakeSSLClientSocketTest, PassThroughMethods) {
   EXPECT_CALL(*mock_client_socket, GetPeerAddress(&ip_endpoint)).
       WillOnce(Return(kPeerAddress));
   EXPECT_CALL(*mock_client_socket, NetLog()).WillOnce(ReturnRef(net_log));
-  EXPECT_CALL(*mock_client_socket, SetSubresourceSpeculation());
-  EXPECT_CALL(*mock_client_socket, SetOmniboxSpeculation());
 
   // Takes ownership of |mock_client_socket|.
   FakeSSLClientSocket fake_ssl_client_socket(std::move(mock_client_socket));
@@ -300,8 +318,6 @@ TEST_F(FakeSSLClientSocketTest, PassThroughMethods) {
   EXPECT_EQ(kPeerAddress,
             fake_ssl_client_socket.GetPeerAddress(&ip_endpoint));
   EXPECT_EQ(&net_log, &fake_ssl_client_socket.NetLog());
-  fake_ssl_client_socket.SetSubresourceSpeculation();
-  fake_ssl_client_socket.SetOmniboxSpeculation();
 }
 
 TEST_F(FakeSSLClientSocketTest, SuccessfulHandshakeSync) {

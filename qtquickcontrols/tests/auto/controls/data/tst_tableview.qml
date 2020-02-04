@@ -1131,5 +1131,20 @@ TestCase {
         tableView.moveColumn(0, 1);
         compare(tableView.sortIndicatorColumn, 1);
     }
+
+    function test_resize_dynamic_columns() {
+        var component = Qt.createComponent("tableview/table_resizedynamiccolumns.qml")
+        compare(component.status, Component.Ready)
+        var table = createTemporaryObject(component, container);
+        verify(table !== null, "table created is null")
+        waitForRendering(table)
+        compare(table.getColumn(0).width, 20)
+        table.getColumn(0).resizeToContents()
+        tryCompare(table.getColumn(0), "width", 50)
+        table.getColumn(0).width = 20
+        compare(table.getColumn(0).width, 20)
+        table.resizeColumnsToContents()
+        compare(table.getColumn(0).width, 50)
+    }
 }
 }

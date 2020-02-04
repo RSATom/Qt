@@ -9,7 +9,7 @@
  */
 
 /** @polymerBehavior */
-var I18nBehavior = {
+const I18nBehavior = {
   properties: {
     /**
      * The language the UI is presented in. Used to signal dynamic language
@@ -46,7 +46,7 @@ var I18nBehavior = {
    * @return {string} A translated, sanitized, substituted string.
    */
   i18n: function(id, var_args) {
-    var rawString = this.i18nRaw_.apply(this, arguments);
+    const rawString = this.i18nRaw_.apply(this, arguments);
     return parseHtmlSubset('<b>' + rawString + '</b>').firstChild.textContent;
   },
 
@@ -56,15 +56,14 @@ var I18nBehavior = {
    * as well as optional additional allowed tags and attributes. Use with
    * Polymer bindings that are inner-h-t-m-l, for example.
    * @param {string} id The ID of the string to translate.
-   * @param {I18nAdvancedOpts=} opts
+   * @param {SanitizeInnerHtmlOpts=} opts
    * @return {string}
    */
   i18nAdvanced: function(id, opts) {
     opts = opts || {};
-    var args = [id].concat(opts.substitutions || []);
-    var rawString = this.i18nRaw_.apply(this, args);
-    return parseHtmlSubset('<b>' + rawString + '</b>', opts.tags, opts.attrs)
-        .firstChild.innerHTML;
+    const args = [id].concat(opts.substitutions || []);
+    const rawString = this.i18nRaw_.apply(this, args);
+    return loadTimeData.sanitizeInnerHtml(rawString, opts);
   },
 
   /**
@@ -81,6 +80,29 @@ var I18nBehavior = {
   },
 
   /**
+   * Similar to 'i18nDynamic', but var_args valus are interpreted as keys in
+   * loadTimeData. This allows generation of strings that take other localized
+   * strings as parameters.
+   * @param {string} locale The UI language used.
+   * @param {string} id The ID of the string to translate.
+   * @param {...string} var_args Values to replace the placeholders $1 to $9
+   *     in the string. Values are interpreted as strings IDs if found in the
+   *     list of localized strings.
+   * @return {string} A translated, sanitized, substituted string.
+   */
+  i18nRecursive: function(locale, id, var_args) {
+    let args = Array.prototype.slice.call(arguments, 2);
+    if (args.length > 0) {
+      // Try to replace IDs with localized values.
+      const self = this;
+      args = args.map(function(str) {
+        return self.i18nExists(str) ? loadTimeData.getString(str) : str;
+      });
+    }
+    return this.i18nDynamic.apply(this, [locale, id].concat(args));
+  },
+
+  /**
    * Returns true if a translation exists for |id|.
    * @param {string} id
    * @return {boolean}
@@ -92,26 +114,20 @@ var I18nBehavior = {
   /**
    * Call this when UI strings may have changed. This will send an update to
    * any data bindings to i18nDynamic(locale, ...).
+   * @suppress {checkTypes}
    */
   i18nUpdateLocale: function() {
+    // Force reload.
+    this.locale = undefined;
     this.locale = loadTimeData.getString('language');
   },
 };
 
 /**
- * @typedef {{
- *   substitutions: (Array<string>|undefined),
- *   attrs: (Object<function(Node, string):boolean>|undefined),
- *   tags: (Array<string>|undefined),
- * }}
- */
-var I18nAdvancedOpts;
-
-/**
  * TODO(stevenjb): Replace with an interface. b/24294625
  * @typedef {{
  *   i18n: function(string, ...string): string,
- *   i18nAdvanced: function(string, I18nAdvancedOpts=): string,
+ *   i18nAdvanced: function(string, SanitizeInnerHtmlOpts=): string,
  *   i18nDynamic: function(string, string, ...string): string,
  *   i18nExists: function(string),
  *   i18nUpdateLocale: function()

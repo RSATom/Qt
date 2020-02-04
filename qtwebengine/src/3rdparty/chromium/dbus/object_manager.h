@@ -41,7 +41,7 @@
 //       dbus::Property<std::string> name;
 //       dbus::Property<uint16_t> version;
 //       dbus::Property<dbus::ObjectPath> parent;
-//       dbus::Property<std::vector<std::string> > children;
+//       dbus::Property<std::vector<std::string>> children;
 //
 //       Properties(dbus::ObjectProxy* object_proxy,
 //                  const PropertyChangedCallback callback)
@@ -136,9 +136,9 @@ class Signal;
 // ObjectManager implements both the D-Bus client components of the D-Bus
 // Object Manager interface, as internal methods, and a public API for
 // client classes to utilize.
-class CHROME_DBUS_EXPORT ObjectManager
+class CHROME_DBUS_EXPORT ObjectManager final
     : public base::RefCountedThreadSafe<ObjectManager> {
-public:
+ public:
   // ObjectManager::Interface must be implemented by any class wishing to have
   // its remote objects managed by an ObjectManager.
   class Interface {
@@ -184,9 +184,9 @@ public:
   };
 
   // Client code should use Bus::GetObjectManager() instead of this constructor.
-  ObjectManager(Bus* bus,
-                const std::string& service_name,
-                const ObjectPath& object_path);
+  static scoped_refptr<ObjectManager> Create(Bus* bus,
+                                             const std::string& service_name,
+                                             const ObjectPath& object_path);
 
   // Register a client implementation class |interface| for the given D-Bus
   // interface named in |interface_name|. That object's CreateProperties()
@@ -233,11 +233,13 @@ public:
   // BLOCKING CALL.
   void CleanUp();
 
- protected:
-  virtual ~ObjectManager();
-
  private:
   friend class base::RefCountedThreadSafe<ObjectManager>;
+
+  ObjectManager(Bus* bus,
+                const std::string& service_name,
+                const ObjectPath& object_path);
+  ~ObjectManager();
 
   // Called from the constructor to add a match rule for PropertiesChanged
   // signals on the D-Bus thread and set up a corresponding filter function.

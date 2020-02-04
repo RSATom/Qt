@@ -35,7 +35,8 @@
        "4F25792AF1AA7483936DE29C07806F203C7170A0",  // http://crbug.com/717501
        "BD8781D757D830FC2E85470A1B6E8A718B7EE0D9",  // http://crbug.com/717501
        "4AC2B6C63C6480D150DFDA13E4A5956EB1D0DDBB",  // http://crbug.com/717501
-       "81986D4F846CEDDDB962643FA501D1780DD441BB"   // http://crbug.com/717501
+       "81986D4F846CEDDDB962643FA501D1780DD441BB",  // http://crbug.com/717501
+       "A9A9FC0228ADF541F0334F22BEFB8F9C245B21D7"   // http://crbug.com/839189
     ]
   },
   "accessibilityPrivate.onTwoFingerTouchStop": {
@@ -52,13 +53,24 @@
        "4F25792AF1AA7483936DE29C07806F203C7170A0",  // http://crbug.com/717501
        "BD8781D757D830FC2E85470A1B6E8A718B7EE0D9",  // http://crbug.com/717501
        "4AC2B6C63C6480D150DFDA13E4A5956EB1D0DDBB",  // http://crbug.com/717501
-       "81986D4F846CEDDDB962643FA501D1780DD441BB"   // http://crbug.com/717501
+       "81986D4F846CEDDDB962643FA501D1780DD441BB",  // http://crbug.com/717501
+       "A9A9FC0228ADF541F0334F22BEFB8F9C245B21D7"   // http://crbug.com/839189
     ]
   },
-  "activityLogPrivate": {
-    "dependencies": ["permission:activityLogPrivate"],
+  "action": {
+    "dependencies": ["manifest:action"],
     "contexts": ["blessed_extension"]
   },
+  "activityLogPrivate": [{
+    "dependencies": ["permission:activityLogPrivate"],
+    "contexts": ["blessed_extension"]
+  }, {
+    "channel": "stable",
+    "contexts": ["webui"],
+    "matches": [
+      "chrome://extensions/*"
+    ]
+  }],
   "app": {
     "blacklist": [
       "2FC374607C2DF285634B67C64A2E356C607091C3",  // Quickoffice
@@ -92,7 +104,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -127,7 +138,8 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://bookmarks/*"
+      "chrome://bookmarks/*",
+      "chrome://welcome/*"
     ]
   }],
   "bookmarks.export": [{
@@ -160,10 +172,6 @@
   }],
   "brailleDisplayPrivate": {
     "dependencies": ["permission:brailleDisplayPrivate"],
-    "contexts": ["blessed_extension"]
-  },
-  "browser": {
-    "dependencies": ["permission:browser"],
     "contexts": ["blessed_extension"]
   },
   "browserAction": {
@@ -245,8 +253,12 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://chrome-signin/*",
+      "chrome://discards/*",
+      "chrome://hats/*",
       "chrome://media-router/*",
-      "chrome://oobe/*"
+      "chrome://mobilesetup/*",
+      "chrome://oobe/*",
+      "chrome://assistant-optin/*"
     ]
   }],
   "cloudPrintPrivate": {
@@ -285,7 +297,7 @@
   "dashboardPrivate": [{
     "channel": "stable",
     "contexts": ["blessed_web_page", "web_page"],
-    "matches": ["https://chrome.google.com/*"]
+    "matches": ["https://chrome.google.com/webstore/*"]
   }, {
     "channel": "stable",
     "contexts": ["blessed_extension"],
@@ -344,10 +356,6 @@
     "dependencies": ["manifest:devtools_page"],
     "contexts": ["blessed_extension"]
   },
-  "dial": {
-    "dependencies": ["permission:dial"],
-    "contexts": ["blessed_extension"]
-  },
   "downloads": {
     "dependencies": ["permission:downloads"],
     "contexts": ["blessed_extension"]
@@ -357,12 +365,12 @@
     "channel": "stable",
     "contexts": ["blessed_extension"]
   },
-  "easyUnlockPrivate": {
-    "dependencies": ["permission:easyUnlockPrivate"],
-    "contexts": ["blessed_extension"]
-  },
   "echoPrivate": {
     "dependencies": ["permission:echoPrivate"],
+    "contexts": ["blessed_extension"]
+  },
+  "enterprise.hardwarePlatform": {
+    "dependencies": ["permission:enterprise.hardwarePlatform"],
     "contexts": ["blessed_extension"]
   },
   "enterprise.deviceAttributes": {
@@ -382,15 +390,17 @@
     "dependencies": ["permission:enterprise.platformKeysPrivate"],
     "contexts": ["blessed_extension"]
   },
-  "experienceSamplingPrivate": {
-    "dependencies": ["permission:experienceSamplingPrivate"],
+  "enterprise.reportingPrivate": {
+    "dependencies": ["permission:enterprise.reportingPrivate"],
     "contexts": ["blessed_extension"]
   },
   "experimental.devtools.audits": {
+    "nocompile": true,
     "dependencies": ["permission:experimental", "manifest:devtools_page"],
     "contexts": ["blessed_extension"]
   },
   "experimental.devtools.console": {
+    "nocompile": true,
     "dependencies": ["permission:experimental", "manifest:devtools_page"],
     "contexts": ["blessed_extension"]
   },
@@ -447,14 +457,6 @@
     "channel": "stable",
     "contexts": ["blessed_extension"]
   },
-  "feedbackPrivate": {
-    "dependencies": ["permission:feedbackPrivate"],
-    "contexts": ["blessed_extension"]
-  },
-  "feedbackPrivate.readLogSource": {
-    "platforms": ["chromeos"],
-    "session_types": ["kiosk"]
-  },
   "fileBrowserHandler": {
     "dependencies": ["permission:fileBrowserHandler"],
     "contexts": ["blessed_extension"]
@@ -463,11 +465,6 @@
     "internal": true,
     "dependencies": ["permission:fileBrowserHandler"],
     "contexts": ["blessed_extension"]
-  },
-  "screenlockPrivate": {
-    "dependencies": ["permission:screenlockPrivate"],
-    "extension_types": ["platform_app"],
-    "contexts": ["blessed_extension", "unblessed_extension"]
   },
   "fileManagerPrivate": {
     "dependencies": ["permission:fileManagerPrivate"],
@@ -503,10 +500,6 @@
     "dependencies": ["permission:history"],
     "contexts": ["blessed_extension"]
   },
-  "hotwordPrivate": {
-    "dependencies": ["permission:hotwordPrivate"],
-    "contexts": ["blessed_extension"]
-  },
   "i18n": {
     "channel": "stable",
     "extension_types": ["extension", "legacy_packaged_app", "platform_app"],
@@ -530,10 +523,6 @@
     "dependencies": ["permission:idltest"],
     "contexts": ["blessed_extension"]
   },
-  "inlineInstallPrivate": {
-    "dependencies": ["permission:inlineInstallPrivate"],
-    "contexts": ["blessed_extension"]
-  },
   "input.ime": {
     "dependencies": ["permission:input"],
     "contexts": ["blessed_extension"]
@@ -545,7 +534,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -560,14 +548,9 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
-  "launcherPage": {
-    "dependencies": ["manifest:launcher_page"],
-    "contexts": ["blessed_extension"]
-  },
   "launcherSearchProvider": {
     "dependencies": ["permission:launcherSearchProvider"],
     "contexts": ["blessed_extension"]
@@ -583,10 +566,6 @@
     "channel": "stable",
     "contexts": ["blessed_extension"]
   },
-  "mediaGalleries": {
-    "dependencies": ["permission:mediaGalleries"],
-    "contexts": ["blessed_extension"]
-  },
   "mediaPlayerPrivate": {
     "dependencies": ["permission:mediaPlayerPrivate"],
     "contexts": ["blessed_extension"]
@@ -600,10 +579,6 @@
     "contexts": "all",
     "channel": "stable",
     "matches": ["<all_urls>"]
-  },
-  "musicManagerPrivate": {
-    "dependencies": ["permission:musicManagerPrivate"],
-    "contexts": ["blessed_extension"]
   },
   "networking.castPrivate": {
     "channel": "stable",
@@ -633,7 +608,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -679,8 +653,9 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
-      "chrome://settings/*"
+      "chrome://multidevice-setup/*",
+      "chrome://settings/*",
+      "chrome://oobe/*"
     ],
     "platforms": ["chromeos"]
   },
@@ -698,6 +673,10 @@
     "dependencies": ["permission:rtcPrivate"],
     "contexts": ["blessed_extension"]
   },
+  "safeBrowsingPrivate": {
+    "dependencies": ["permission:safeBrowsingPrivate"],
+    "contexts": ["blessed_extension"]
+  },
   "sessions": {
     "dependencies": ["permission:sessions"],
     "contexts": ["blessed_extension"]
@@ -709,20 +688,11 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
   "signedInDevices": {
     "dependencies": ["permission:signedInDevices"],
-    "contexts": ["blessed_extension"]
-  },
-  "streamsPrivate": {
-    "dependencies": ["permission:streamsPrivate"],
-    "contexts": ["blessed_extension"]
-  },
-  "syncFileSystem": {
-    "dependencies": ["permission:syncFileSystem"],
     "contexts": ["blessed_extension"]
   },
   "systemIndicator": {
@@ -766,12 +736,12 @@
   },
   "usersPrivate": [{
     "dependencies": ["permission:usersPrivate"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "platforms": ["chromeos"]
   }, {
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -789,7 +759,7 @@
   },
   "webNavigation": {
     "dependencies": ["permission:webNavigation"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension", "extension_service_worker"]
   },
   "webrtcAudioPrivate": {
     "dependencies": ["permission:webrtcAudioPrivate"],
@@ -803,27 +773,22 @@
     "dependencies": ["permission:webrtcLoggingPrivate"],
     "contexts": ["blessed_extension"]
   },
-  "webstore": {
-    // Hosted apps can use the webstore API from within a blessed context.
-    "channel": "stable",
-    // Set extension_types to 'all' to prevent webstore from being filtered.
-    // Technically, webstore is not in apps or extensions, but it is currently
-    // displayed on /extensions/webstore and /apps/webstore. The "contexts"
-    // restriction effectively restricts this to hosted apps and webpages.
-    "extension_types": "all",
-    "contexts": ["blessed_web_page", "web_page"],
-    // Any webpage can use the webstore API.
-    "matches": ["<all_urls>"]
+  "webrtcLoggingPrivate.getLogsDirectory": {
+    "component_extensions_auto_granted": false,
+    "whitelist": [
+      // Extension used for API test.
+      "ADFA45434ABA2F1A4647E673F53FF37F8F6047A3",
+      "4F25792AF1AA7483936DE29C07806F203C7170A0",  // http://crbug.com/775961
+      "BD8781D757D830FC2E85470A1B6E8A718B7EE0D9",  // http://crbug.com/775961
+      "4AC2B6C63C6480D150DFDA13E4A5956EB1D0DDBB",  // http://crbug.com/775961
+      "81986D4F846CEDDDB962643FA501D1780DD441BB"   // http://crbug.com/775961
+    ]
   },
   "webstorePrivate": {
     "dependencies": ["permission:webstorePrivate"],
     // NOTE: even though this is only used by the webstore hosted app, which
     // normally would mean blessed_web_page, component hosted apps are actually
     // given the blessed_extension denomination. Confusing.
-    "contexts": ["blessed_extension"]
-  },
-  "webstoreWidgetPrivate": {
-    "dependencies": ["permission:webstoreWidgetPrivate"],
     "contexts": ["blessed_extension"]
   },
   "webviewTag": {

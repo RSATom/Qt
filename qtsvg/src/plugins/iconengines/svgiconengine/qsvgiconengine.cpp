@@ -74,7 +74,8 @@ public:
     void stepSerialNum()
         { serialNum = lastSerialNum.fetchAndAddRelaxed(1); }
 
-    void loadDataForModeAndState(QSvgRenderer *renderer, QIcon::Mode mode, QIcon::State state);
+    bool tryLoad(QSvgRenderer *renderer, QIcon::Mode mode, QIcon::State state);
+    QIcon::Mode loadDataForModeAndState(QSvgRenderer *renderer, QIcon::Mode mode, QIcon::State state);
 
     QHash<int, QString> svgFiles;
     QHash<int, QByteArray> *svgBuffers;
@@ -121,31 +122,73 @@ QSize QSvgIconEngine::actualSize(const QSize &size, QIcon::Mode mode,
     return pm.size();
 }
 
-void QSvgIconEnginePrivate::loadDataForModeAndState(QSvgRenderer *renderer, QIcon::Mode mode, QIcon::State state)
+static QByteArray maybeUncompress(const QByteArray &ba)
 {
-    QByteArray buf;
-    const QIcon::State oppositeState = state == QIcon::Off ? QIcon::On : QIcon::Off;
-    if (svgBuffers) {
-        buf = svgBuffers->value(hashKey(mode, state));
-        if (buf.isEmpty())
-            buf = svgBuffers->value(hashKey(QIcon::Normal, state));
-        if (buf.isEmpty())
-            buf = svgBuffers->value(hashKey(QIcon::Normal, oppositeState));
-    }
-    if (!buf.isEmpty()) {
 #ifndef QT_NO_COMPRESS
-        buf = qUncompress(buf);
+    return qUncompress(ba);
+#else
+    return ba;
 #endif
-        renderer->load(buf);
-    } else {
-        QString svgFile = svgFiles.value(hashKey(mode, state));
-        if (svgFile.isEmpty())
-            svgFile = svgFiles.value(hashKey(QIcon::Normal, state));
-        if (svgFile.isEmpty())
-            svgFile = svgFiles.value(hashKey(QIcon::Normal, oppositeState));
-        if (!svgFile.isEmpty())
-            renderer->load(svgFile);
+}
+
+bool QSvgIconEnginePrivate::tryLoad(QSvgRenderer *renderer, QIcon::Mode mode, QIcon::State state)
+{
+    if (svgBuffers) {
+        QByteArray buf = svgBuffers->value(hashKey(mode, state));
+        if (!buf.isEmpty()) {
+            buf = maybeUncompress(buf);
+            renderer->load(buf);
+            return true;
+        }
     }
+    QString svgFile = svgFiles.value(hashKey(mode, state));
+    if (!svgFile.isEmpty()) {
+        renderer->load(svgFile);
+        return true;
+    }
+    return false;
+}
+
+QIcon::Mode QSvgIconEnginePrivate::loadDataForModeAndState(QSvgRenderer *renderer, QIcon::Mode mode, QIcon::State state)
+{
+    if (tryLoad(renderer, mode, state))
+        return mode;
+
+    const QIcon::State oppositeState = (state == QIcon::On) ? QIcon::Off : QIcon::On;
+    if (mode == QIcon::Disabled || mode == QIcon::Selected) {
+        const QIcon::Mode oppositeMode = (mode == QIcon::Disabled) ? QIcon::Selected : QIcon::Disabled;
+        if (tryLoad(renderer, QIcon::Normal, state))
+            return QIcon::Normal;
+        if (tryLoad(renderer, QIcon::Active, state))
+            return QIcon::Active;
+        if (tryLoad(renderer, mode, oppositeState))
+            return mode;
+        if (tryLoad(renderer, QIcon::Normal, oppositeState))
+            return QIcon::Normal;
+        if (tryLoad(renderer, QIcon::Active, oppositeState))
+            return QIcon::Active;
+        if (tryLoad(renderer, oppositeMode, state))
+            return oppositeMode;
+        if (tryLoad(renderer, oppositeMode, oppositeState))
+            return oppositeMode;
+    } else {
+        const QIcon::Mode oppositeMode = (mode == QIcon::Normal) ? QIcon::Active : QIcon::Normal;
+        if (tryLoad(renderer, oppositeMode, state))
+            return oppositeMode;
+        if (tryLoad(renderer, mode, oppositeState))
+            return mode;
+        if (tryLoad(renderer, oppositeMode, oppositeState))
+            return oppositeMode;
+        if (tryLoad(renderer, QIcon::Disabled, state))
+            return QIcon::Disabled;
+        if (tryLoad(renderer, QIcon::Selected, state))
+            return QIcon::Selected;
+        if (tryLoad(renderer, QIcon::Disabled, oppositeState))
+            return QIcon::Disabled;
+        if (tryLoad(renderer, QIcon::Selected, oppositeState))
+            return QIcon::Selected;
+    }
+    return QIcon::Normal;
 }
 
 QPixmap QSvgIconEngine::pixmap(const QSize &size, QIcon::Mode mode,
@@ -154,7 +197,7 @@ QPixmap QSvgIconEngine::pixmap(const QSize &size, QIcon::Mode mode,
     QPixmap pm;
 
     QString pmckey(d->pmcKey(size, mode, state));
-    if (QPixmapCache::find(pmckey, pm))
+    if (QPixmapCache::find(pmckey, &pm))
         return pm;
 
     if (d->addedPixmaps) {
@@ -164,7 +207,7 @@ QPixmap QSvgIconEngine::pixmap(const QSize &size, QIcon::Mode mode,
     }
 
     QSvgRenderer renderer;
-    d->loadDataForModeAndState(&renderer, mode, state);
+    const QIcon::Mode loadmode = d->loadDataForModeAndState(&renderer, mode, state);
     if (!renderer.isValid())
         return pm;
 
@@ -182,9 +225,11 @@ QPixmap QSvgIconEngine::pixmap(const QSize &size, QIcon::Mode mode,
     p.end();
     pm = QPixmap::fromImage(img);
     if (qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
-        const QPixmap generated = QGuiApplicationPrivate::instance()->applyQIconStyleHelper(mode, pm);
-        if (!generated.isNull())
-            pm = generated;
+        if (loadmode != mode && mode != QIcon::Normal) {
+            const QPixmap generated = QGuiApplicationPrivate::instance()->applyQIconStyleHelper(mode, pm);
+            if (!generated.isNull())
+                pm = generated;
+        }
     }
 
     if (!pm.isNull())

@@ -285,7 +285,7 @@ QAbstractState *QState::errorState() const
 
 /*!
   Sets this state's error state to be the given \a state. If the error state
-  is not set, or if it is set to 0, the state will inherit its parent's error
+  is not set, or if it is set to \nullptr, the state will inherit its parent's error
   state recursively. If no error state is set for the state itself or any of
   its ancestors, an error will cause the machine to stop executing and an error
   will be printed to the console.
@@ -341,8 +341,7 @@ void QState::addTransition(QAbstractTransition *transition)
 }
 
 /*!
-  \fn QState::addTransition(const QObject *sender, PointerToMemberFunction signal,
-                       QAbstractState *target);
+  \fn template <typename PointerToMemberFunction> QState::addTransition(const QObject *sender, PointerToMemberFunction signal, QAbstractState *target);
   \since 5.5
   \overload
 
@@ -396,8 +395,8 @@ public:
         : QAbstractTransition()
     { setTargetState(target); }
 protected:
-    void onTransition(QEvent *) Q_DECL_OVERRIDE {}
-    bool eventTest(QEvent *) Q_DECL_OVERRIDE { return true; }
+    void onTransition(QEvent *) override {}
+    bool eventTest(QEvent *) override { return true; }
 };
 
 } // namespace
@@ -474,7 +473,8 @@ void QState::onExit(QEvent *event)
 }
 
 /*!
-  Returns this state's initial state, or 0 if the state has no initial state.
+  Returns this state's initial state, or \nullptr if the state has no
+  initial state.
 */
 QAbstractState *QState::initialState() const
 {
@@ -524,7 +524,7 @@ void QState::setChildMode(ChildMode mode)
     if (mode == QState::ParallelStates && d->initialState) {
         qWarning("QState::setChildMode: setting the child-mode of state %p to "
                  "parallel removes the initial state", this);
-        d->initialState = Q_NULLPTR;
+        d->initialState = nullptr;
         emit initialStateChanged(QState::QPrivateSignal());
     }
 

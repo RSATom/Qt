@@ -61,14 +61,14 @@ public:
     explicit QGeoSatelliteInfoSourceGeoclueMaster(QObject *parent = 0);
     ~QGeoSatelliteInfoSourceGeoclueMaster();
 
-    int minimumUpdateInterval() const Q_DECL_OVERRIDE;
-    void setUpdateInterval(int msec) Q_DECL_OVERRIDE;
+    int minimumUpdateInterval() const override;
+    void setUpdateInterval(int msec) override;
 
-    Error error() const Q_DECL_OVERRIDE;
+    Error error() const override;
 
-    void startUpdates() Q_DECL_OVERRIDE;
-    void stopUpdates() Q_DECL_OVERRIDE;
-    void requestUpdate(int timeout = 0) Q_DECL_OVERRIDE;
+    void startUpdates() override;
+    void stopUpdates() override;
+    void requestUpdate(int timeout = 0) override;
 
 private slots:
     void positionProviderChanged(const QString &name, const QString &description,

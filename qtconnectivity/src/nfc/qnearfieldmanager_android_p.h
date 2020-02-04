@@ -73,17 +73,18 @@ class QNearFieldManagerPrivateImpl : public QNearFieldManagerPrivate, public And
 
 public:
     QNearFieldManagerPrivateImpl();
-    ~QNearFieldManagerPrivateImpl();
+    ~QNearFieldManagerPrivateImpl() override;
 
-    virtual bool isAvailable() const;
-    virtual bool startTargetDetection();
-    virtual void stopTargetDetection();
-    virtual int registerNdefMessageHandler(QObject *object, const QMetaMethod &method);
-    virtual int registerNdefMessageHandler(const QNdefFilter &filter, QObject *object, const QMetaMethod &method);
-    virtual bool unregisterNdefMessageHandler(int handlerId);
-    virtual void requestAccess(QNearFieldManager::TargetAccessModes accessModes);
-    virtual void releaseAccess(QNearFieldManager::TargetAccessModes accessModes);
-    virtual void newIntent(QAndroidJniObject intent);
+    bool isAvailable() const override;
+    bool isSupported() const override;
+    bool startTargetDetection() override;
+    void stopTargetDetection() override;
+    int registerNdefMessageHandler(QObject *object, const QMetaMethod &method) override;
+    int registerNdefMessageHandler(const QNdefFilter &filter, QObject *object, const QMetaMethod &method) override;
+    bool unregisterNdefMessageHandler(int handlerId) override;
+    void requestAccess(QNearFieldManager::TargetAccessModes accessModes) override;
+    void releaseAccess(QNearFieldManager::TargetAccessModes accessModes) override;
+    void newIntent(QAndroidJniObject intent);
     QByteArray getUid(const QAndroidJniObject &intent);
 
 public slots:

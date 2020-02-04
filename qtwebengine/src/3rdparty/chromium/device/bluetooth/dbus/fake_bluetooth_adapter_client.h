@@ -5,6 +5,7 @@
 #ifndef DEVICE_BLUETOOTH_DBUS_FAKE_BLUETOOTH_ADAPTER_CLIENT_H_
 #define DEVICE_BLUETOOTH_DBUS_FAKE_BLUETOOTH_ADAPTER_CLIENT_H_
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,35 +40,41 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothAdapterClient
 
   FakeBluetoothAdapterClient();
   ~FakeBluetoothAdapterClient() override;
+  int GetPauseCount() { return pause_count_; }
+  int GetUnpauseCount() { return unpause_count_; }
 
   // BluetoothAdapterClient overrides
-  void Init(dbus::Bus* bus) override;
+  void Init(dbus::Bus* bus, const std::string& bluetooth_service_name) override;
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
   std::vector<dbus::ObjectPath> GetAdapters() override;
   Properties* GetProperties(const dbus::ObjectPath& object_path) override;
   void StartDiscovery(const dbus::ObjectPath& object_path,
-                      const base::Closure& callback,
-                      const ErrorCallback& error_callback) override;
+                      ResponseCallback callback) override;
   void StopDiscovery(const dbus::ObjectPath& object_path,
-                     const base::Closure& callback,
-                     const ErrorCallback& error_callback) override;
+                     ResponseCallback callback) override;
+  void PauseDiscovery(const dbus::ObjectPath& object_path,
+                      const base::Closure& callback,
+                      ErrorCallback error_callback) override;
+  void UnpauseDiscovery(const dbus::ObjectPath& object_path,
+                        const base::Closure& callback,
+                        ErrorCallback error_callback) override;
   void RemoveDevice(const dbus::ObjectPath& object_path,
                     const dbus::ObjectPath& device_path,
                     const base::Closure& callback,
-                    const ErrorCallback& error_callback) override;
+                    ErrorCallback error_callback) override;
   void SetDiscoveryFilter(const dbus::ObjectPath& object_path,
                           const DiscoveryFilter& discovery_filter,
                           const base::Closure& callback,
-                          const ErrorCallback& error_callback) override;
+                          ErrorCallback error_callback) override;
   void CreateServiceRecord(const dbus::ObjectPath& object_path,
                            const bluez::BluetoothServiceRecordBlueZ& record,
                            const ServiceRecordCallback& callback,
-                           const ErrorCallback& error_callback) override;
+                           ErrorCallback error_callback) override;
   void RemoveServiceRecord(const dbus::ObjectPath& object_path,
                            uint32_t handle,
                            const base::Closure& callback,
-                           const ErrorCallback& error_callback) override;
+                           ErrorCallback error_callback) override;
 
   // Sets the current simulation timeout interval.
   void SetSimulationIntervalMs(int interval_ms);
@@ -104,10 +111,10 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothAdapterClient
 
   // Posts the delayed task represented by |callback| onto the current
   // message loop to be executed after |simulation_interval_ms_| milliseconds.
-  void PostDelayedTask(const base::Closure& callback);
+  void PostDelayedTask(base::OnceClosure callback);
 
   // List of observers interested in event notifications from us.
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
   // Static properties we return.
   std::unique_ptr<Properties> properties_;
@@ -119,6 +126,12 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothAdapterClient
 
   // Number of times we've been asked to discover.
   int discovering_count_;
+
+  // Number of times we've been asked to pause discovery.
+  int pause_count_;
+
+  // Number of times we've been asked to unpause discovery.
+  int unpause_count_;
 
   // Current discovery filter
   std::unique_ptr<DiscoveryFilter> discovery_filter_;

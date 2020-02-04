@@ -7,11 +7,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
 #include <memory>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -19,9 +19,9 @@
 #include "media/cast/cast_environment.h"
 #include "media/cast/logging/simple_event_subscriber.h"
 #include "media/cast/net/cast_transport_impl.h"
-#include "media/cast/net/mock_cast_transport.h"
 #include "media/cast/net/rtcp/rtcp_utility.h"
 #include "media/cast/net/rtcp/test_rtcp_packet_builder.h"
+#include "media/cast/test/mock_cast_transport.h"
 #include "media/cast/test/utility/default_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -42,7 +42,7 @@ FrameId GetFirstTestFrameId() {
 class FakeFrameClient {
  public:
   FakeFrameClient() : num_called_(0) {}
-  virtual ~FakeFrameClient() {}
+  virtual ~FakeFrameClient() = default;
 
   void AddExpectedResult(FrameId expected_frame_id,
                          const base::TimeTicks& expected_playout_time) {
@@ -64,7 +64,7 @@ class FakeFrameClient {
   int number_times_called() const { return num_called_; }
 
  private:
-  std::deque<std::pair<FrameId, base::TimeTicks>> expected_results_;
+  base::circular_deque<std::pair<FrameId, base::TimeTicks>> expected_results_;
   int num_called_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeFrameClient);
@@ -74,17 +74,15 @@ class FakeFrameClient {
 class FrameReceiverTest : public ::testing::Test {
  protected:
   FrameReceiverTest() {
-    testing_clock_ = new base::SimpleTestTickClock();
-    testing_clock_->Advance(base::TimeTicks::Now() - base::TimeTicks());
-    start_time_ = testing_clock_->NowTicks();
-    task_runner_ = new FakeSingleThreadTaskRunner(testing_clock_);
+    testing_clock_.Advance(base::TimeTicks::Now() - base::TimeTicks());
+    start_time_ = testing_clock_.NowTicks();
+    task_runner_ = new FakeSingleThreadTaskRunner(&testing_clock_);
 
-    cast_environment_ =
-        new CastEnvironment(std::unique_ptr<base::TickClock>(testing_clock_),
-                            task_runner_, task_runner_, task_runner_);
+    cast_environment_ = new CastEnvironment(&testing_clock_, task_runner_,
+                                            task_runner_, task_runner_);
   }
 
-  ~FrameReceiverTest() override {}
+  ~FrameReceiverTest() override = default;
 
   void SetUp() final {
     payload_.assign(kPacketSize, 0);
@@ -124,7 +122,7 @@ class FrameReceiverTest : public ::testing::Test {
   }
 
   void FeedLipSyncInfoIntoReceiver() {
-    const base::TimeTicks now = testing_clock_->NowTicks();
+    const base::TimeTicks now = testing_clock_.NowTicks();
     const RtpTimeTicks rtp_timestamp =
         RtpTimeTicks::FromTimeDelta(now - start_time_, config_.rtp_timebase);
     CHECK_LE(RtpTimeTicks(), rtp_timestamp);
@@ -140,7 +138,7 @@ class FrameReceiverTest : public ::testing::Test {
   FrameReceiverConfig config_;
   std::vector<uint8_t> payload_;
   RtpCastHeader rtp_header_;
-  base::SimpleTestTickClock* testing_clock_;  // Owned by CastEnvironment.
+  base::SimpleTestTickClock testing_clock_;
   base::TimeTicks start_time_;
   MockCastTransport mock_transport_;
   scoped_refptr<FakeSingleThreadTaskRunner> task_runner_;
@@ -210,7 +208,7 @@ TEST_F(FrameReceiverTest, ReceivesOneFrame) {
   const base::TimeDelta target_playout_delay =
       base::TimeDelta::FromMilliseconds(kPlayoutDelayMillis);
   frame_client_.AddExpectedResult(
-      GetFirstTestFrameId(), testing_clock_->NowTicks() + target_playout_delay);
+      GetFirstTestFrameId(), testing_clock_.NowTicks() + target_playout_delay);
   FeedOneFrameIntoReceiver();
   task_runner_->RunTasks();
   EXPECT_EQ(1, frame_client_.number_times_called());
@@ -253,7 +251,7 @@ TEST_F(FrameReceiverTest, ReceivesFramesSkippingWhenAppropriate) {
   // Feed and process lip sync in receiver.
   FeedLipSyncInfoIntoReceiver();
   task_runner_->RunTasks();
-  const base::TimeTicks first_frame_capture_time = testing_clock_->NowTicks();
+  const base::TimeTicks first_frame_capture_time = testing_clock_.NowTicks();
 
   // Enqueue a request for a frame.
   const ReceiveEncodedFrameCallback frame_encoded_callback =
@@ -301,7 +299,7 @@ TEST_F(FrameReceiverTest, ReceivesFramesSkippingWhenAppropriate) {
   // Now, advance time forward such that the receiver is convinced it should
   // skip Frame 2.  Frame 3 is emitted (to satisfy the second request) because a
   // decision was made to skip over the no-show Frame 2.
-  testing_clock_->Advance(2 * time_advance_per_frame + target_playout_delay);
+  testing_clock_.Advance(2 * time_advance_per_frame + target_playout_delay);
   task_runner_->RunTasks();
   EXPECT_EQ(2, frame_client_.number_times_called());
 
@@ -319,7 +317,7 @@ TEST_F(FrameReceiverTest, ReceivesFramesSkippingWhenAppropriate) {
 
   // Move forward to the playout time of an unreceived Frame 5.  Expect no
   // additional frames were emitted.
-  testing_clock_->Advance(3 * time_advance_per_frame);
+  testing_clock_.Advance(3 * time_advance_per_frame);
   task_runner_->RunTasks();
   EXPECT_EQ(3, frame_client_.number_times_called());
 
@@ -367,7 +365,7 @@ TEST_F(FrameReceiverTest, ReceivesFramesRefusingToSkipAny) {
   // Feed and process lip sync in receiver.
   FeedLipSyncInfoIntoReceiver();
   task_runner_->RunTasks();
-  const base::TimeTicks first_frame_capture_time = testing_clock_->NowTicks();
+  const base::TimeTicks first_frame_capture_time = testing_clock_.NowTicks();
 
   // Enqueue a request for a frame.
   const ReceiveEncodedFrameCallback frame_encoded_callback =
@@ -413,7 +411,7 @@ TEST_F(FrameReceiverTest, ReceivesFramesRefusingToSkipAny) {
   // Regardless, the receiver must NOT emit Frame 3 yet because it is not
   // allowed to skip frames when dependencies are not satisfied.  In other
   // words, Frame 3 is not decodable without Frame 2.
-  testing_clock_->Advance(2 * time_advance_per_frame + target_playout_delay);
+  testing_clock_.Advance(2 * time_advance_per_frame + target_playout_delay);
   task_runner_->RunTasks();
   EXPECT_EQ(1, frame_client_.number_times_called());
 
@@ -436,7 +434,7 @@ TEST_F(FrameReceiverTest, ReceivesFramesRefusingToSkipAny) {
 
   // Move forward to the playout time of an unreceived Frame 5.  Expect no
   // additional frames were emitted.
-  testing_clock_->Advance(3 * time_advance_per_frame);
+  testing_clock_.Advance(3 * time_advance_per_frame);
   task_runner_->RunTasks();
   EXPECT_EQ(3, frame_client_.number_times_called());
 

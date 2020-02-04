@@ -8,9 +8,12 @@
 #include <memory>
 
 #include "base/strings/string16.h"
+#include "ui/base/class_property.h"
 #include "ui/base/cursor/cursor.h"
+#include "ui/platform_window/platform_window_delegate.h"
 
 namespace gfx {
+class Point;
 class Rect;
 }
 
@@ -22,7 +25,7 @@ class PlatformImeController;
 //
 // Each instance of PlatformWindow represents a single window in the
 // underlying platform windowing system (i.e. X11/Win/OSX).
-class PlatformWindow {
+class PlatformWindow : public PropertyHandler {
  public:
   virtual ~PlatformWindow() {}
 
@@ -44,11 +47,13 @@ class PlatformWindow {
 
   virtual void SetCapture() = 0;
   virtual void ReleaseCapture() = 0;
+  virtual bool HasCapture() const = 0;
 
   virtual void ToggleFullscreen() = 0;
   virtual void Maximize() = 0;
   virtual void Minimize() = 0;
   virtual void Restore() = 0;
+  virtual PlatformWindowState GetPlatformWindowState() const = 0;
 
   virtual void SetCursor(PlatformCursor cursor) = 0;
 
@@ -62,6 +67,10 @@ class PlatformWindow {
   // The PlatformImeController is owned by the PlatformWindow, the ownership is
   // not transferred.
   virtual PlatformImeController* GetPlatformImeController() = 0;
+
+  // Sets and gets the restored bounds of the platform-window.
+  virtual void SetRestoredBoundsInPixels(const gfx::Rect& bounds) = 0;
+  virtual gfx::Rect GetRestoredBoundsInPixels() const = 0;
 };
 
 }  // namespace ui

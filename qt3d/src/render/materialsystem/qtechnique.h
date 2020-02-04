@@ -55,7 +55,7 @@ class QParameter;
 class QTechniquePrivate;
 class QGraphicsApiFilter;
 
-class QT3DRENDERSHARED_EXPORT QTechnique : public Qt3DCore::QNode
+class Q_3DRENDERSHARED_EXPORT QTechnique : public Qt3DCore::QNode
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DRender::QGraphicsApiFilter *graphicsApiFilter READ graphicsApiFilter CONSTANT)
@@ -84,7 +84,7 @@ protected:
 private:
     Q_DECLARE_PRIVATE(QTechnique)
     Q_PRIVATE_SLOT(d_func(), void _q_graphicsApiFilterChanged())
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 }

@@ -1,14 +1,11 @@
 include_rules = [
-  "+components/webdata/common",
   "+content/public/browser",
   "+crypto/random.h",
-  "+device/geolocation",
-  "+google_apis/gaia",
-  "+google_apis/google_api_keys.h",
   "+gpu/config/gpu_info.h",
-  "+sql",
-  "+third_party/libphonenumber",  # For phone number i18n.
-  "+third_party/WebKit/public/platform/WebRect.h",
+  "+services/device/public",
+  "+services/service_manager/public/mojom",
+  "+third_party/blink/public/common",
+  "+third_party/blink/public/platform/web_rect.h",
 ]
 
 specific_include_rules = {

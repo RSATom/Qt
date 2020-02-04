@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,23 +8,22 @@
 #define XFA_FXFA_PARSER_CXFA_FONT_H_
 
 #include "core/fxge/fx_dib.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_Font : public CXFA_Data {
+class CXFA_Font final : public CXFA_Node {
  public:
-  explicit CXFA_Font(CXFA_Node* pNode);
+  CXFA_Font(CXFA_Document* doc, XFA_PacketType packet);
+  ~CXFA_Font() override;
 
-  float GetBaselineShift();
+  float GetBaselineShift() const;
   float GetHorizontalScale();
   float GetVerticalScale();
   float GetLetterSpacing();
   int32_t GetLineThrough();
   int32_t GetUnderline();
-  int32_t GetUnderlinePeriod();
-  float GetFontSize();
-  void GetTypeface(CFX_WideStringC& wsTypeFace);
+  XFA_AttributeValue GetUnderlinePeriod();
+  float GetFontSize() const;
+  WideString GetTypeface();
 
   bool IsBold();
   bool IsItalic();

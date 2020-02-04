@@ -6,14 +6,19 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
-
-#include <vector>
 
 #include "base/bit_cast.h"
 #include "base/logging.h"
+#include "base/process/memory.h"
 #include "base/sys_byteorder.h"
+
+#if defined(USE_SYSTEM_ZLIB)
+#include <zlib.h>
+#else
 #include "third_party/zlib/zlib.h"
+#endif
 
 namespace {
 
@@ -118,28 +123,64 @@ int GzipUncompressHelper(Bytef* dest,
 
 namespace compression {
 
-bool GzipCompress(const std::string& input, std::string* output) {
-  const uLongf input_size = static_cast<uLongf>(input.size());
-  std::vector<Bytef> compressed_data(kGzipZlibHeaderDifferenceBytes +
-                                     compressBound(input_size));
+bool GzipCompress(base::StringPiece input,
+                  char* output_buffer,
+                  size_t output_buffer_size,
+                  size_t* compressed_size) {
+  static_assert(sizeof(Bytef) == 1, "");
 
-  uLongf compressed_size = static_cast<uLongf>(compressed_data.size());
-  if (GzipCompressHelper(&compressed_data.front(),
-                         &compressed_size,
+  // uLongf can be larger than size_t.
+  uLongf compressed_size_long = static_cast<uLongf>(output_buffer_size);
+  if (GzipCompressHelper(bit_cast<Bytef*>(output_buffer), &compressed_size_long,
                          bit_cast<const Bytef*>(input.data()),
-                         input_size) != Z_OK) {
+                         static_cast<uLongf>(input.size())) != Z_OK) {
+    return false;
+  }
+  // No overflow, as compressed_size_long <= output.size() which is a size_t.
+  *compressed_size = static_cast<size_t>(compressed_size_long);
+  return true;
+}
+
+bool GzipCompress(base::StringPiece input, std::string* output) {
+  // Not using std::vector<> because allocation failures are recoverable,
+  // which is hidden by std::vector<>.
+  static_assert(sizeof(Bytef) == 1, "");
+  const uLongf input_size = static_cast<uLongf>(input.size());
+
+  uLongf compressed_data_size =
+      kGzipZlibHeaderDifferenceBytes + compressBound(input_size);
+  Bytef* compressed_data;
+  if (!base::UncheckedMalloc(compressed_data_size,
+                             reinterpret_cast<void**>(&compressed_data))) {
     return false;
   }
 
-  compressed_data.resize(compressed_size);
-  output->assign(compressed_data.begin(), compressed_data.end());
+  if (GzipCompressHelper(compressed_data, &compressed_data_size,
+                         bit_cast<const Bytef*>(input.data()),
+                         input_size) != Z_OK) {
+    free(compressed_data);
+    return false;
+  }
+
+  Bytef* resized_data =
+      reinterpret_cast<Bytef*>(realloc(compressed_data, compressed_data_size));
+  if (!resized_data) {
+    free(compressed_data);
+    return false;
+  }
+  output->assign(resized_data, resized_data + compressed_data_size);
   DCHECK_EQ(input_size, GetUncompressedSize(*output));
+
+  free(resized_data);
   return true;
 }
 
 bool GzipUncompress(const std::string& input, std::string* output) {
   std::string uncompressed_output;
   uLongf uncompressed_size = static_cast<uLongf>(GetUncompressedSize(input));
+  if (uncompressed_size > uncompressed_output.max_size())
+    return false;
+
   uncompressed_output.resize(uncompressed_size);
   if (GzipUncompressHelper(bit_cast<Bytef*>(uncompressed_output.data()),
                            &uncompressed_size,

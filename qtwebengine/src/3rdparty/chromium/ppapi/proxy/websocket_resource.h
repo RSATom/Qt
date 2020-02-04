@@ -7,8 +7,7 @@
 
 #include <stdint.h>
 
-#include <queue>
-
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "ppapi/c/ppb_websocket.h"
 #include "ppapi/proxy/plugin_resource.h"
@@ -24,9 +23,8 @@ namespace proxy {
 
 // This class contains protocol checks which doesn't affect security when it
 // run with untrusted code.
-class PPAPI_PROXY_EXPORT WebSocketResource
-    : public PluginResource,
-      public NON_EXPORTED_BASE(thunk::PPB_WebSocket_API) {
+class PPAPI_PROXY_EXPORT WebSocketResource : public PluginResource,
+                                             public thunk::PPB_WebSocket_API {
  public:
   WebSocketResource(Connection connection, PP_Instance instance);
   ~WebSocketResource() override;
@@ -109,7 +107,7 @@ class PPAPI_PROXY_EXPORT WebSocketResource
   PP_Var* receive_callback_var_;
 
   // Keeps received data until ReceiveMessage() requests.
-  std::queue<scoped_refptr<Var> > received_messages_;
+  base::queue<scoped_refptr<Var>> received_messages_;
 
   // Keeps empty string for functions to return empty string.
   scoped_refptr<StringVar> empty_string_;

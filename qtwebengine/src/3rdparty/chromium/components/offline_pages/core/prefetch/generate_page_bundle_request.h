@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_GENERATE_PAGE_BUNDLE_REQUEST_H_
 #define COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_GENERATE_PAGE_BUNDLE_REQUEST_H_
 
+#include <string>
 #include <vector>
 
 #include "base/callback.h"
@@ -12,8 +13,8 @@
 #include "components/offline_pages/core/prefetch/prefetch_types.h"
 #include "components/version_info/channel.h"
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace offline_pages {
@@ -28,14 +29,17 @@ class GeneratePageBundleRequest {
       int max_bundle_size_bytes,
       const std::vector<std::string>& page_urls,
       version_info::Channel channel,
-      net::URLRequestContextGetter* request_context_getter,
-      const PrefetchRequestFinishedCallback& callback);
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      PrefetchRequestFinishedCallback callback);
   ~GeneratePageBundleRequest();
+
+  const std::vector<std::string>& requested_urls() { return requested_urls_; }
 
  private:
   void OnCompleted(PrefetchRequestStatus status, const std::string& data);
 
   PrefetchRequestFinishedCallback callback_;
+  std::vector<std::string> requested_urls_;
   std::unique_ptr<PrefetchRequestFetcher> fetcher_;
 
   DISALLOW_COPY_AND_ASSIGN(GeneratePageBundleRequest);

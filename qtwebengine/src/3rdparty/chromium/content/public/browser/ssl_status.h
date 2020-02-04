@@ -7,10 +7,12 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <vector>
 
 #include "content/common/content_export.h"
 #include "net/cert/cert_status_flags.h"
+#include "net/cert/ct_policy_status.h"
 #include "net/cert/sct_status_flags.h"
 #include "net/cert/x509_certificate.h"
 
@@ -22,6 +24,20 @@ namespace content {
 
 // Collects the SSL information for this NavigationEntry.
 struct CONTENT_EXPORT SSLStatus {
+  // SSLStatus consumers can attach instances of derived UserData classes to an
+  // SSLStatus. This allows an embedder to attach data to the NavigationEntry
+  // without SSLStatus having to know about it. Derived UserData classes have to
+  // be cloneable since NavigationEntrys are cloned during navigations.
+  class UserData {
+   public:
+    UserData() {}
+    virtual ~UserData() = default;
+    virtual std::unique_ptr<UserData> Clone() = 0;
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(UserData);
+  };
+
   // Flags used for the page security content status.
   enum ContentStatusFlags {
     // HTTP page, or HTTPS page with no insecure content.
@@ -41,51 +57,41 @@ struct CONTENT_EXPORT SSLStatus {
     // loaded with certificate errors.
     RAN_CONTENT_WITH_CERT_ERRORS = 1 << 3,
 
-    // HTTP page containing a password input. Embedders may use this to
-    // adjust UI on nonsecure pages that collect sensitive data.
-    DISPLAYED_PASSWORD_FIELD_ON_HTTP = 1 << 4,
-
-    // HTTP page containing a credit card input. Embedders may use this to
-    // adjust UI on nonsecure pages that collect sensitive data.
-    DISPLAYED_CREDIT_CARD_FIELD_ON_HTTP = 1 << 5,
-
     // HTTPS page containing a form targeting an insecure action url.
     DISPLAYED_FORM_WITH_INSECURE_ACTION = 1 << 6,
   };
 
   SSLStatus();
-  SSLStatus(const net::SSLInfo& ssl_info);
+  explicit SSLStatus(const net::SSLInfo& ssl_info);
   SSLStatus(const SSLStatus& other);
+  SSLStatus& operator=(SSLStatus other);
   ~SSLStatus();
-
-  bool Equals(const SSLStatus& status) const {
-    return initialized == status.initialized &&
-           !!certificate == !!status.certificate &&
-           (certificate ? certificate->Equals(status.certificate.get())
-                        : true) &&
-           cert_status == status.cert_status &&
-           security_bits == status.security_bits &&
-           key_exchange_group == status.key_exchange_group &&
-           connection_status == status.connection_status &&
-           content_status == status.content_status &&
-           sct_statuses == status.sct_statuses &&
-           pkp_bypassed == status.pkp_bypassed;
-  }
 
   bool initialized;
   scoped_refptr<net::X509Certificate> certificate;
   net::CertStatus cert_status;
-  int security_bits;
+  // The hashes of the SubjectPublicKeyInfos from each certificate in
+  // |certificate|. This field is not necessarily populated, e.g. for responses
+  // served from disk cache.
+  net::HashValueVector public_key_hashes;
   uint16_t key_exchange_group;
+  uint16_t peer_signature_algorithm;
   int connection_status;
-  // A combination of the ContentStatusFlags above.
+  // A combination of the ContentStatusFlags above. Flags are cleared when a
+  // navigation commits.
   int content_status;
-  // The validation statuses of the Signed Certificate Timestamps (SCTs)
-  // of Certificate Transparency (CT) that were served with the
-  // main resource.
-  std::vector<net::ct::SCTVerifyStatus> sct_statuses;
   // True if PKP was bypassed due to a local trust anchor.
   bool pkp_bypassed;
+  // Whether the page's main resource complied with the Certificate Transparency
+  // policy.
+  net::ct::CTPolicyCompliance ct_policy_compliance;
+  // Embedder-specific data attached to the SSLStatus is cloned when an
+  // |SSLStatus| is assigned or copy-constructed, and is cleared when a
+  // navigation commits.
+  std::unique_ptr<UserData> user_data;
+
+  // If you add new fields here, be sure to add them in the copy constructor and
+  // copy assignment operator definitions in ssl_status.cc.
 };
 
 }  // namespace content

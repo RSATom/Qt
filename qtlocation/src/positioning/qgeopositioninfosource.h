@@ -101,6 +101,7 @@ Q_SIGNALS:
     void positionUpdated(const QGeoPositionInfo &update);
     void updateTimeout();
     void error(QGeoPositionInfoSource::Error);
+    void supportedPositioningMethodsChanged();
 
 private:
     Q_DISABLE_COPY(QGeoPositionInfoSource)

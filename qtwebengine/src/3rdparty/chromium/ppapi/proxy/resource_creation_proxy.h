@@ -24,7 +24,7 @@ namespace ppapi {
 
 namespace proxy {
 
-struct Connection;
+class Connection;
 class Dispatcher;
 
 class ResourceCreationProxy : public InterfaceProxy,
@@ -108,7 +108,6 @@ class ResourceCreationProxy : public InterfaceProxy,
                                 PP_AudioSampleRate sample_rate,
                                 uint32_t sample_frame_count) override;
   PP_Resource CreateCameraDevicePrivate(PP_Instance instance) override;
-  PP_Resource CreateCompositor(PP_Instance instance) override;
   PP_Resource CreateFileChooser(PP_Instance instance,
                                 PP_FileChooserMode_Dev mode,
                                 const PP_Var& accept_types) override;
@@ -121,9 +120,9 @@ class ResourceCreationProxy : public InterfaceProxy,
   PP_Resource CreateGraphics3DRaw(
       PP_Instance instance,
       PP_Resource share_context,
-      const gpu::gles2::ContextCreationAttribHelper& attrib_helper,
+      const gpu::ContextCreationAttribs& attrib_helper,
       gpu::Capabilities* capabilities,
-      base::SharedMemoryHandle* shared_state,
+      const base::UnsafeSharedMemoryRegion** shared_state,
       gpu::CommandBufferId* command_buffer_id) override;
   PP_Resource CreateHostResolver(PP_Instance instance) override;
   PP_Resource CreateHostResolverPrivate(PP_Instance instance) override;
@@ -146,7 +145,6 @@ class ResourceCreationProxy : public InterfaceProxy,
       PP_Instance instance,
       const PP_NetAddress_Private& private_addr) override;
   PP_Resource CreateNetworkMonitor(PP_Instance instance) override;
-  PP_Resource CreateOutputProtectionPrivate(PP_Instance instance) override;
   PP_Resource CreatePrinting(PP_Instance) override;
   PP_Resource CreateTCPServerSocketPrivate(PP_Instance instance) override;
   PP_Resource CreateTCPSocket1_0(PP_Instance instance) override;
@@ -155,9 +153,7 @@ class ResourceCreationProxy : public InterfaceProxy,
   PP_Resource CreateUDPSocket(PP_Instance instance) override;
   PP_Resource CreateUDPSocketPrivate(PP_Instance instance) override;
   PP_Resource CreateVideoDecoder(PP_Instance instance) override;
-  PP_Resource CreateVideoDestination(PP_Instance instance) override;
   PP_Resource CreateVideoEncoder(PP_Instance instance) override;
-  PP_Resource CreateVideoSource(PP_Instance instance) override;
   PP_Resource CreateVpnProvider(PP_Instance instance) override;
   PP_Resource CreateWebSocket(PP_Instance instance) override;
   PP_Resource CreateX509CertificatePrivate(PP_Instance instance) override;
@@ -177,7 +173,6 @@ class ResourceCreationProxy : public InterfaceProxy,
   PP_Resource CreateFlashMenu(PP_Instance instance,
                               const PP_Flash_Menu* menu_data) override;
   PP_Resource CreateFlashMessageLoop(PP_Instance instance) override;
-  PP_Resource CreatePlatformVerificationPrivate(PP_Instance instance) override;
   PP_Resource CreateVideoCapture(PP_Instance instance) override;
   PP_Resource CreateVideoDecoderDev(
       PP_Instance instance,

@@ -43,6 +43,7 @@
 #include <QtCore/QString>
 #include <QtCore/QPointer>
 #include <QtCore/QStringList>
+#include <QtCore/QTextStream>
 
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLayout>
@@ -61,7 +62,7 @@ class QResultWidget : public QTextBrowser
     Q_OBJECT
 
 public:
-    QResultWidget(QWidget *parent = 0)
+    QResultWidget(QWidget *parent = nullptr)
         : QTextBrowser(parent)
     {
         connect(this, &QTextBrowser::anchorClicked,
@@ -71,39 +72,39 @@ public:
 
     void showResultPage(const QVector<QHelpSearchResult> results, bool isIndexing)
     {
-        QString htmlFile = QString(QLatin1String("<html><head><title>%1"
-            "</title></head><body>")).arg(tr("Search Results"));
+        QString htmlFile;
+        QTextStream str(&htmlFile);
+        str << "<html><head><title>" << tr("Search Results") << "</title></head><body>";
 
         const int count = results.count();
         if (count != 0) {
-            if (isIndexing)
-                htmlFile += QString(QLatin1String("<div style=\"text-align:left;"
-                    " font-weight:bold; color:red\">"
-                    "%1&nbsp;<span style=\"font-weight:normal; color:black\">"
-                    "%2</span></div></div><br>")).arg(tr("Note:"))
-                    .arg(tr("The search results may not be complete since the "
-                            "documentation is still being indexed."));
+            if (isIndexing) {
+                str << "<div style=\"text-align:left;"
+                       " font-weight:bold; color:red\">" << tr("Note:")
+                    << "&nbsp;<span style=\"font-weight:normal; color:black\">"
+                    << tr("The search results may not be complete since the "
+                          "documentation is still being indexed.")
+                    << "</span></div></div><br>";
+            }
 
             for (const QHelpSearchResult &result : results) {
-                htmlFile += QString(QLatin1String("<div style=\"text-align:left;"
-                    " font-weight:bold\"><a href=\"%1\">%2</a>"
+                str << "<div style=\"text-align:left; font-weight:bold\"><a href=\""
+                    << result.url().toString() << "\">" << result.title() << "</a>"
                     "<div style=\"color:green; font-weight:normal;"
-                    " margin:5px\">%3</div></div><p></p>"))
-                        .arg(result.url().toString(), result.title(),
-                             result.snippet());
+                    " margin:5px\">" << result.snippet() << "</div></div><p></p>";
             }
         } else {
-            htmlFile += QLatin1String("<div align=\"center\"><br><br><h2>")
-                    + tr("Your search did not match any documents.")
-                    + QLatin1String("</h2><div>");
-            if (isIndexing)
-                htmlFile += QLatin1String("<div align=\"center\"><h3>")
-                    + tr("(The reason for this might be that the documentation "
-                         "is still being indexed.)")
-                    + QLatin1String("</h3><div>");
+            str << "<div align=\"center\"><br><br><h2>"
+                << tr("Your search did not match any documents.")
+                << "</h2><div>";
+            if (isIndexing) {
+                str << "<div align=\"center\"><h3>"
+                    << tr("(The reason for this might be that the documentation "
+                          "is still being indexed.)") << "</h3><div>";
+            }
         }
 
-        htmlFile += QLatin1String("</body></html>");
+        str << "</body></html>";
 
         setHtml(htmlFile);
     }
@@ -208,7 +209,7 @@ private:
                                last), isIndexing);
         }
 
-        hitsLabel->setText(QHelpSearchResultWidget::tr("%1 - %2 of %n Hits", 0, count).arg(first).arg(last));
+        hitsLabel->setText(QHelpSearchResultWidget::tr("%1 - %2 of %n Hits", nullptr, count).arg(first).arg(last));
         firstResultPage->setEnabled(resultFirstToShow);
         previousResultPage->setEnabled(resultFirstToShow);
         lastResultPage->setEnabled(count - last);
@@ -224,18 +225,14 @@ private:
 
     static const int ResultsRange = 20;
 
-    int resultFirstToShow = 0;
-    bool isIndexing = false;
-
     QToolButton *firstResultPage = nullptr;
     QToolButton *previousResultPage = nullptr;
-    QLabel *hitsLabel = nullptr;
     QToolButton *nextResultPage = nullptr;
     QToolButton *lastResultPage = nullptr;
+    QLabel *hitsLabel = nullptr;
+    int resultFirstToShow = 0;
+    bool isIndexing = false;
 };
-
-#include "qhelpsearchresultwidget.moc"
-
 
 /*!
     \class QHelpSearchResultWidget
@@ -257,12 +254,12 @@ QHelpSearchResultWidget::QHelpSearchResultWidget(QHelpSearchEngine *engine)
     , d(new QHelpSearchResultWidgetPrivate(engine))
 {
     QVBoxLayout *vLayout = new QVBoxLayout(this);
-    vLayout->setMargin(0);
+    vLayout->setContentsMargins(QMargins());
     vLayout->setSpacing(0);
 
     QHBoxLayout *hBoxLayout = new QHBoxLayout();
 #ifndef Q_OS_MAC
-    hBoxLayout->setMargin(0);
+    hBoxLayout->setContentsMargins(QMargins());
     hBoxLayout->setSpacing(0);
 #endif
     hBoxLayout->addWidget(d->firstResultPage = d->setupToolButton(
@@ -334,3 +331,5 @@ QUrl QHelpSearchResultWidget::linkAt(const QPoint &point)
 }
 
 QT_END_NAMESPACE
+
+#include "qhelpsearchresultwidget.moc"

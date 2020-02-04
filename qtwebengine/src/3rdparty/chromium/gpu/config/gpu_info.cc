@@ -16,6 +16,11 @@ void EnumerateGPUDevice(const gpu::GPUInfo::GPUDevice& device,
   enumerator->AddBool("active", device.active);
   enumerator->AddString("vendorString", device.vendor_string);
   enumerator->AddString("deviceString", device.device_string);
+  enumerator->AddString("driverVendor", device.driver_vendor);
+  enumerator->AddString("driverVersion", device.driver_version);
+  enumerator->AddString("driverDate", device.driver_date);
+  enumerator->AddInt("cudaComputeCapabilityMajor",
+                     device.cuda_compute_capability_major);
   enumerator->EndGPUDevice();
 }
 
@@ -45,9 +50,48 @@ void EnumerateVideoEncodeAcceleratorSupportedProfile(
   enumerator->EndVideoEncodeAcceleratorSupportedProfile();
 }
 
+#if defined(OS_WIN)
+void EnumerateOverlayCapability(const gpu::OverlayCapability& cap,
+                                gpu::GPUInfo::Enumerator* enumerator) {
+  enumerator->BeginOverlayCapability();
+  enumerator->AddInt("format", static_cast<int>(cap.format));
+  enumerator->AddInt("isScalingSupported", cap.is_scaling_supported);
+  enumerator->EndOverlayCapability();
+}
+
+void EnumerateDx12VulkanVersionInfo(const gpu::Dx12VulkanVersionInfo& info,
+                                    gpu::GPUInfo::Enumerator* enumerator) {
+  enumerator->BeginDx12VulkanVersionInfo();
+  enumerator->AddBool("supportsDx12", info.supports_dx12);
+  enumerator->AddBool("supportsVulkan", info.supports_vulkan);
+  enumerator->AddInt("dx12FeatureLevel",
+                     static_cast<int>(info.d3d12_feature_level));
+  enumerator->AddInt("vulkanVersion", static_cast<int>(info.vulkan_version));
+  enumerator->EndDx12VulkanVersionInfo();
+}
+#endif
+
 }  // namespace
 
 namespace gpu {
+
+#if defined(OS_WIN)
+const char* OverlayFormatToString(OverlayFormat format) {
+  switch (format) {
+    case OverlayFormat::kBGRA:
+      return "BGRA";
+    case OverlayFormat::kYUY2:
+      return "YUY2";
+    case OverlayFormat::kNV12:
+      return "NV12";
+  }
+}
+
+bool OverlayCapability::operator==(const OverlayCapability& other) const {
+  return format == other.format &&
+         is_scaling_supported == other.is_scaling_supported;
+}
+#endif
 
 VideoDecodeAcceleratorCapabilities::VideoDecodeAcceleratorCapabilities()
     : flags(0) {}
@@ -55,15 +99,36 @@ VideoDecodeAcceleratorCapabilities::VideoDecodeAcceleratorCapabilities()
 VideoDecodeAcceleratorCapabilities::VideoDecodeAcceleratorCapabilities(
     const VideoDecodeAcceleratorCapabilities& other) = default;
 
-VideoDecodeAcceleratorCapabilities::~VideoDecodeAcceleratorCapabilities() {}
+VideoDecodeAcceleratorCapabilities::~VideoDecodeAcceleratorCapabilities() =
+    default;
 
 GPUInfo::GPUDevice::GPUDevice()
     : vendor_id(0),
       device_id(0),
-      active(false) {
-}
+      active(false),
+      cuda_compute_capability_major(0) {}
 
-GPUInfo::GPUDevice::~GPUDevice() { }
+GPUInfo::GPUDevice::GPUDevice(const GPUInfo::GPUDevice& other) = default;
+
+GPUInfo::GPUDevice::GPUDevice(GPUInfo::GPUDevice&& other) noexcept = default;
+
+GPUInfo::GPUDevice::~GPUDevice() noexcept = default;
+
+GPUInfo::GPUDevice& GPUInfo::GPUDevice::operator=(
+    const GPUInfo::GPUDevice& other) = default;
+
+GPUInfo::GPUDevice& GPUInfo::GPUDevice::operator=(
+    GPUInfo::GPUDevice&& other) noexcept {
+  vendor_id = other.vendor_id;
+  device_id = other.device_id;
+  active = other.active;
+  vendor_string = std::move(other.vendor_string);
+  device_string = std::move(other.device_string);
+  driver_vendor = std::move(other.driver_vendor);
+  driver_version = std::move(other.driver_version);
+  driver_date = std::move(other.driver_date);
+  return *this;
+}
 
 GPUInfo::GPUInfo()
     : optimus(false),
@@ -72,36 +137,38 @@ GPUInfo::GPUInfo()
       software_rendering(false),
       direct_rendering(true),
       sandboxed(false),
-      process_crash_count(0),
       in_process_gpu(true),
       passthrough_cmd_decoder(false),
-      basic_info_state(kCollectInfoNone),
-      context_info_state(kCollectInfoNone),
-#if defined(OS_WIN)
-      dx_diagnostics_info_state(kCollectInfoNone),
-#endif
-      jpeg_decode_accelerator_supported(false)
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
-      ,
+      jpeg_decode_accelerator_supported(false),
+#if defined(USE_X11)
       system_visual(0),
-      rgba_visual(0)
+      rgba_visual(0),
 #endif
-{
+      oop_rasterization_supported(false) {
 }
 
 GPUInfo::GPUInfo(const GPUInfo& other) = default;
 
-GPUInfo::~GPUInfo() { }
+GPUInfo::~GPUInfo() = default;
+
+GPUInfo::GPUDevice& GPUInfo::active_gpu() {
+  return const_cast<GPUInfo::GPUDevice&>(
+      const_cast<const GPUInfo&>(*this).active_gpu());
+}
 
 const GPUInfo::GPUDevice& GPUInfo::active_gpu() const {
-  if (gpu.active)
+  if (gpu.active || secondary_gpus.empty())
     return gpu;
-  for (const GPUDevice& secondary_gpu : secondary_gpus) {
+  for (const auto& secondary_gpu : secondary_gpus) {
     if (secondary_gpu.active)
       return secondary_gpu;
   }
-  DLOG(ERROR) << "No active GPU found, returning primary GPU.";
+  DVLOG(2) << "No active GPU found, returning primary GPU.";
   return gpu;
+}
+
+bool GPUInfo::IsInitialized() const {
+  return gpu.vendor_id != 0 || !gl_vendor.empty();
 }
 
 void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
@@ -111,9 +178,6 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
     bool amd_switchable;
     GPUDevice gpu;
     std::vector<GPUDevice> secondary_gpus;
-    std::string driver_vendor;
-    std::string driver_version;
-    std::string driver_date;
     std::string pixel_shader_version;
     std::string vertex_shader_version;
     std::string max_msaa_samples;
@@ -130,26 +194,26 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
     bool software_rendering;
     bool direct_rendering;
     bool sandboxed;
-    int process_crash_count;
     bool in_process_gpu;
     bool passthrough_cmd_decoder;
-    bool supports_overlays;
-    bool hdr;
     bool can_support_threaded_texture_mailbox;
-    CollectInfoResult basic_info_state;
-    CollectInfoResult context_info_state;
 #if defined(OS_WIN)
-    CollectInfoResult dx_diagnostics_info_state;
+    bool direct_composition;
+    bool supports_overlays;
+    OverlayCapabilities overlay_capabilities;
     DxDiagNode dx_diagnostics;
+    Dx12VulkanVersionInfo dx12_vulkan_version_info;
 #endif
+
     VideoDecodeAcceleratorCapabilities video_decode_accelerator_capabilities;
     VideoEncodeAcceleratorSupportedProfiles
         video_encode_accelerator_supported_profiles;
     bool jpeg_decode_accelerator_supported;
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
     VisualID system_visual;
     VisualID rgba_visual;
 #endif
+    bool oop_rasterization_supported;
   };
 
   // If this assert fails then most likely something below needs to be updated.
@@ -163,7 +227,7 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
   enumerator->AddString("machineModelName", machine_model_name);
   enumerator->AddString("machineModelVersion", machine_model_version);
   EnumerateGPUDevice(gpu, enumerator);
-  for (const auto& secondary_gpu: secondary_gpus)
+  for (const auto& secondary_gpu : secondary_gpus)
     EnumerateGPUDevice(secondary_gpu, enumerator);
 
   enumerator->BeginAuxAttributes();
@@ -171,9 +235,6 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
                                      initialization_time);
   enumerator->AddBool("optimus", optimus);
   enumerator->AddBool("amdSwitchable", amd_switchable);
-  enumerator->AddString("driverVendor", driver_vendor);
-  enumerator->AddString("driverVersion", driver_version);
-  enumerator->AddString("driverDate", driver_date);
   enumerator->AddString("pixelShaderVersion", pixel_shader_version);
   enumerator->AddString("vertexShaderVersion", vertex_shader_version);
   enumerator->AddString("maxMsaaSamples", max_msaa_samples);
@@ -191,19 +252,18 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
   enumerator->AddBool("softwareRendering", software_rendering);
   enumerator->AddBool("directRendering", direct_rendering);
   enumerator->AddBool("sandboxed", sandboxed);
-  enumerator->AddInt("processCrashCount", process_crash_count);
   enumerator->AddBool("inProcessGpu", in_process_gpu);
   enumerator->AddBool("passthroughCmdDecoder", passthrough_cmd_decoder);
-  enumerator->AddBool("supportsOverlays", supports_overlays);
-  enumerator->AddBool("hdr", hdr);
   enumerator->AddBool("canSupportThreadedTextureMailbox",
                       can_support_threaded_texture_mailbox);
-  enumerator->AddInt("basicInfoState", basic_info_state);
-  enumerator->AddInt("contextInfoState", context_info_state);
-#if defined(OS_WIN)
-  enumerator->AddInt("DxDiagnosticsInfoState", dx_diagnostics_info_state);
-#endif
   // TODO(kbr): add dx_diagnostics on Windows.
+#if defined(OS_WIN)
+  enumerator->AddBool("directComposition", direct_composition);
+  enumerator->AddBool("supportsOverlays", supports_overlays);
+  for (const auto& cap : overlay_capabilities)
+    EnumerateOverlayCapability(cap, enumerator);
+  EnumerateDx12VulkanVersionInfo(dx12_vulkan_version_info, enumerator);
+#endif
   enumerator->AddInt("videoDecodeAcceleratorFlags",
                      video_decode_accelerator_capabilities.flags);
   for (const auto& profile :
@@ -213,10 +273,11 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
     EnumerateVideoEncodeAcceleratorSupportedProfile(profile, enumerator);
   enumerator->AddBool("jpegDecodeAcceleratorSupported",
       jpeg_decode_accelerator_supported);
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
   enumerator->AddInt64("systemVisual", system_visual);
   enumerator->AddInt64("rgbaVisual", rgba_visual);
 #endif
+  enumerator->AddBool("oopRasterizationSupported", oop_rasterization_supported);
   enumerator->EndAuxAttributes();
 }
 

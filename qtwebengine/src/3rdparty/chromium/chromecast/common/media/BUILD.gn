@@ -5,7 +5,7 @@
 import("//chromecast/chromecast.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 
-source_set("media") {
+cast_source_set("media") {
   if (is_android) {
     sources = [
       "cast_media_drm_bridge_client.cc",
@@ -13,20 +13,11 @@ source_set("media") {
     ]
     deps = [
       "//base",
+      "//chromecast:chromecast_buildflags",
       "//chromecast/media",
       "//chromecast/media/cdm",
       "//components/cdm/common",
       "//media",
     ]
   }
-
-  if (use_playready) {
-    public_configs = [ "//chromecast:playready_config" ]
-  }
-}
-
-mojom("interfaces") {
-  sources = [
-    "media_caps.mojom",
-  ]
 }

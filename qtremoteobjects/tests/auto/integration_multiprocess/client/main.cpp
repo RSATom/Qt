@@ -39,14 +39,14 @@ class tst_Client_Process : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        m_repNode.connectToNode(QUrl(QStringLiteral("tcp://127.0.0.1:65213")));
-        m_rep.reset(m_repNode.acquire<MyInterfaceReplica>());
+        m_repNode.reset(new QRemoteObjectNode);
+        m_repNode->connectToNode(QUrl(QStringLiteral("tcp://127.0.0.1:65213")));
+        m_rep.reset(m_repNode->acquire<MyInterfaceReplica>());
         QVERIFY(m_rep->waitForSource());
     }
 
     void testRun()
     {
-
         auto reply = m_rep->start();
         QVERIFY(reply.waitForFinished());
 
@@ -66,7 +66,7 @@ private Q_SLOTS:
     void testEnumDetails()
     {
         QHash<QByteArray, int> kvs = {{"First", 0}, {"Second", 1}, {"Third", 2}};
-        QScopedPointer<QRemoteObjectDynamicReplica> rep(m_repNode.acquireDynamic("MyInterface"));
+        QScopedPointer<QRemoteObjectDynamicReplica> rep(m_repNode->acquireDynamic("MyInterface"));
         QVERIFY(rep->waitForSource());
 
         auto mo = rep->metaObject();
@@ -93,37 +93,40 @@ private Q_SLOTS:
 
     void testMethodSignalParamDetails()
     {
-        QScopedPointer<QRemoteObjectDynamicReplica> rep(m_repNode.acquireDynamic("MyInterface"));
+        QScopedPointer<QRemoteObjectDynamicReplica> rep(m_repNode->acquireDynamic("MyInterface"));
         QVERIFY(rep->waitForSource());
 
         auto mo = rep->metaObject();
-        int signalIdx = mo->indexOfSignal("testEnumParamsInSignals(Enum1,bool,QString)");
+        int signalIdx = mo->indexOfSignal("testEnumParamsInSignals(MyInterfaceReplica::Enum1,bool,QString)");
         QVERIFY(signalIdx != -1);
         auto simm = mo->method(signalIdx);
         {
             QCOMPARE(simm.parameterCount(), 3);
             auto paramNames = simm.parameterNames();
             QCOMPARE(paramNames.size(), 3);
-            QCOMPARE(paramNames.at(0), "enumSignalParam");
-            QCOMPARE(paramNames.at(1), "signalParam2");
-            QCOMPARE(paramNames.at(2), "__repc_variable_1");
+            QCOMPARE(paramNames.at(0), QByteArrayLiteral("enumSignalParam"));
+            QCOMPARE(paramNames.at(1), QByteArrayLiteral("signalParam2"));
+            QCOMPARE(paramNames.at(2), QByteArrayLiteral("__repc_variable_1"));
+            QCOMPARE(simm.parameterType(0), QMetaType::type("MyInterfaceReplica::Enum1"));
+            QCOMPARE(simm.parameterType(1), int(QMetaType::Bool));
+            QCOMPARE(simm.parameterType(2), int(QMetaType::QString));
         }
 
-        int slotIdx = mo->indexOfSlot("testEnumParamsInSlots(Enum1,bool,int)");
+        int slotIdx = mo->indexOfSlot("testEnumParamsInSlots(MyInterfaceReplica::Enum1,bool,int)");
         QVERIFY(slotIdx != -1);
         auto slmm = mo->method(slotIdx);
         {
             QCOMPARE(slmm .parameterCount(), 3);
             auto paramNames = slmm .parameterNames();
             QCOMPARE(paramNames.size(), 3);
-            QCOMPARE(paramNames.at(0), "enumSlotParam");
-            QCOMPARE(paramNames.at(1), "slotParam2");
-            QCOMPARE(paramNames.at(2), "__repc_variable_1");
+            QCOMPARE(paramNames.at(0), QByteArrayLiteral("enumSlotParam"));
+            QCOMPARE(paramNames.at(1), QByteArrayLiteral("slotParam2"));
+            QCOMPARE(paramNames.at(2), QByteArrayLiteral("__repc_variable_1"));
         }
 
         int enumVal = 0;
         mo->invokeMethod(rep.data(), "testEnumParamsInSlots",
-                                    QGenericArgument("Enum1", &enumVal),
+                                    QGenericArgument("MyInterfaceReplica::Enum1", &enumVal),
                                     Q_ARG(bool, true), Q_ARG(int, 1234));
 
         int enumIdx = mo->indexOfProperty("enum1");
@@ -135,14 +138,54 @@ private Q_SLOTS:
         QTRY_COMPARE(mo->property(startedIdx).read(rep.data()).toBool(), true);
     }
 
+    void testMethodSignal()
+    {
+        QScopedPointer<MyInterfaceReplica> rep(new MyInterfaceReplica());
+        rep->setNode(m_repNode.get());
+        QVERIFY(rep->waitForSource());
+
+        rep->testEnumParamsInSlots(MyInterfaceReplica::Second, false, 74);
+
+        connect(rep.data(), &MyInterfaceReplica::testEnumParamsInSignals,
+                [](MyInterfaceReplica::Enum1 enumSignalParam) { QCOMPARE(enumSignalParam, MyInterfaceReplica::Second); });
+
+        QTRY_COMPARE(rep->enum1(), MyInterfaceReplica::Second);
+        QTRY_COMPARE(rep->started(), false);
+    }
+
+    void testPod()
+    {
+        QScopedPointer<QRemoteObjectDynamicReplica> podRep(m_repNode->acquireDynamic("PodInterface"));
+        QVERIFY(podRep->waitForSource());
+        QVariant value = podRep->property("myPod");
+        const QMetaObject *mo = QMetaType::metaObjectForType(value.userType());
+        const void *gadget = value.constData();
+
+        QMetaProperty iProp = mo->property(mo->indexOfProperty("i"));
+        QVariant iValue = iProp.readOnGadget(gadget);
+        QCOMPARE(iValue.toInt(), 1);
+
+        QMetaProperty fProp = mo->property(mo->indexOfProperty("f"));
+        QVariant fValue = fProp.readOnGadget(gadget);
+        QCOMPARE(fValue.toFloat(), 5.0f);
+
+        QMetaProperty sProp = mo->property(mo->indexOfProperty("s"));
+        QVariant sValue = sProp.readOnGadget(gadget);
+        QCOMPARE(sValue.toString(), QString(QLatin1String("test")));
+    }
+
     void cleanupTestCase()
     {
         auto reply = m_rep->quit();
         QVERIFY(reply.waitForFinished());
+        m_rep.reset();
+        QVERIFY(QMetaType::type("MyPOD") != QMetaType::UnknownType);
+        m_repNode.reset();
+        QVERIFY(QMetaType::type("MyPOD") == QMetaType::UnknownType);
     }
 
 private:
-    QRemoteObjectNode m_repNode;
+    QScopedPointer<QRemoteObjectNode> m_repNode;
     QScopedPointer<MyInterfaceReplica> m_rep;
 };
 

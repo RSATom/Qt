@@ -17,8 +17,6 @@
 
 namespace ui {
 
-class AcceleratorManagerDelegate;
-
 // AcceleratorManger handles processing of accelerators. A delegate may be
 // supplied which is notified as unique accelerators are added and removed.
 class UI_BASE_EXPORT AcceleratorManager {
@@ -28,7 +26,7 @@ class UI_BASE_EXPORT AcceleratorManager {
     kHighPriority,
   };
 
-  explicit AcceleratorManager(AcceleratorManagerDelegate* = nullptr);
+  AcceleratorManager();
   ~AcceleratorManager();
 
   // Register keyboard accelerators for the specified target. If multiple
@@ -69,7 +67,7 @@ class UI_BASE_EXPORT AcceleratorManager {
   // Returns whether |accelerator| is already registered.
   bool IsRegistered(const Accelerator& accelerator) const;
 
-  // Activate the target associated with the specified accelerator.
+  // Activates the target associated with the specified accelerator.
   // First, AcceleratorPressed handler of the most recently registered target
   // is called, and if that handler processes the event (i.e. returns true),
   // this method immediately returns. If not, we do the same thing on the next
@@ -93,7 +91,6 @@ class UI_BASE_EXPORT AcceleratorManager {
   void UnregisterImpl(AcceleratorMap::iterator map_iter,
                       AcceleratorTarget* target);
 
-  AcceleratorManagerDelegate* delegate_;
   AcceleratorMap accelerators_;
 
   DISALLOW_COPY_AND_ASSIGN(AcceleratorManager);

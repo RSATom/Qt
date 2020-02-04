@@ -63,16 +63,10 @@ QBluetoothDeviceDiscoveryAgentPrivate::QBluetoothDeviceDiscoveryAgentPrivate(
     m_adapterAddress(deviceAdapter),
     pendingCancel(false),
     pendingStart(false),
-    manager(0),
-    adapter(0),
-    managerBluez5(0),
-    adapterBluez5(0),
-    discoveryTimer(0),
     useExtendedDiscovery(false),
     lowEnergySearchTimeout(-1), // remains -1 on BlueZ 4 -> timeout not supported
     q_ptr(parent)
 {
-    Q_Q(QBluetoothDeviceDiscoveryAgent);
     if (isBluez5()) {
         lowEnergySearchTimeout = 20000;
         managerBluez5 = new OrgFreedesktopDBusObjectManagerInterface(
@@ -80,8 +74,11 @@ QBluetoothDeviceDiscoveryAgentPrivate::QBluetoothDeviceDiscoveryAgentPrivate(
                                            QStringLiteral("/"),
                                            QDBusConnection::systemBus(), parent);
         QObject::connect(managerBluez5,
-                         SIGNAL(InterfacesAdded(QDBusObjectPath,InterfaceList)),
-                         q, SLOT(_q_InterfacesAdded(QDBusObjectPath,InterfaceList)));
+                         &OrgFreedesktopDBusObjectManagerInterface::InterfacesAdded,
+                         q_ptr,
+                         [this](const QDBusObjectPath &objectPath, InterfaceList interfacesAndProperties) {
+            this->_q_InterfacesAdded(objectPath, interfacesAndProperties);
+        });
 
         // start private address monitoring
         BluetoothManagement::instance();
@@ -89,8 +86,9 @@ QBluetoothDeviceDiscoveryAgentPrivate::QBluetoothDeviceDiscoveryAgentPrivate(
         manager = new OrgBluezManagerInterface(QStringLiteral("org.bluez"), QStringLiteral("/"),
                                            QDBusConnection::systemBus(), parent);
         QObject::connect(&extendedDiscoveryTimer,
-                         SIGNAL(timeout()),
-                         q, SLOT(_q_extendedDeviceDiscoveryTimeout()));
+                         &QTimer::timeout, q_ptr, [this]() {
+            this->_q_extendedDeviceDiscoveryTimeout();
+        });
         extendedDiscoveryTimer.setInterval(10000);
         extendedDiscoveryTimer.setSingleShot(true);
     }
@@ -164,22 +162,26 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
                                            QDBusConnection::systemBus());
 
     Q_Q(QBluetoothDeviceDiscoveryAgent);
-    QObject::connect(adapter, SIGNAL(DeviceFound(QString, QVariantMap)),
-                     q, SLOT(_q_deviceFound(QString, QVariantMap)));
-    QObject::connect(adapter, SIGNAL(PropertyChanged(QString, QDBusVariant)),
-                     q, SLOT(_q_propertyChanged(QString, QDBusVariant)));
+    QObject::connect(adapter, &OrgBluezAdapterInterface::DeviceFound,
+                     q, [this](const QString &address, const QVariantMap &dict) {
+        this->_q_deviceFound(address, dict);
+    });
+    QObject::connect(adapter, &OrgBluezAdapterInterface::PropertyChanged,
+                     q, [this](const QString &name, const QDBusVariant &value) {
+        this->_q_propertyChanged(name, value);
+    });
 
     QDBusPendingReply<QVariantMap> propertiesReply = adapter->GetProperties();
     propertiesReply.waitForFinished();
     if (propertiesReply.isError()) {
         errorString = propertiesReply.error().message();
         delete adapter;
-        adapter = 0;
+        adapter = nullptr;
         qCDebug(QT_BT_BLUEZ) << Q_FUNC_INFO << "ERROR: " << errorString;
         lastError = QBluetoothDeviceDiscoveryAgent::InputOutputError;
         Q_Q(QBluetoothDeviceDiscoveryAgent);
         delete adapter;
-        adapter = 0;
+        adapter = nullptr;
         emit q->error(lastError);
         return;
     }
@@ -189,7 +191,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
         lastError = QBluetoothDeviceDiscoveryAgent::PoweredOffError;
         errorString = QBluetoothDeviceDiscoveryAgent::tr("Device is powered off");
         delete adapter;
-        adapter = 0;
+        adapter = nullptr;
         emit q->error(lastError);
         return;
     }
@@ -218,7 +220,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
     discoveryReply.waitForFinished();
     if (discoveryReply.isError()) {
         delete adapter;
-        adapter = 0;
+        adapter = nullptr;
         errorString = discoveryReply.error().message();
         lastError = QBluetoothDeviceDiscoveryAgent::InputOutputError;
         Q_Q(QBluetoothDeviceDiscoveryAgent);
@@ -251,7 +253,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::startBluez5(QBluetoothDeviceDiscover
         lastError = QBluetoothDeviceDiscoveryAgent::PoweredOffError;
         errorString = QBluetoothDeviceDiscoveryAgent::tr("Device is powered off");
         delete adapterBluez5;
-        adapterBluez5 = 0;
+        adapterBluez5 = nullptr;
         emit q->error(lastError);
         return;
     }
@@ -276,7 +278,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::startBluez5(QBluetoothDeviceDiscover
             errorString = QBluetoothDeviceDiscoveryAgent::tr("One or more device discovery methods "
                                                              "are not supported on this platform");
             delete adapterBluez5;
-            adapterBluez5 = 0;
+            adapterBluez5 = nullptr;
             emit q->error(lastError);
             return;
         } else if (filterReply.error().type() != QDBusError::UnknownMethod) {
@@ -285,8 +287,10 @@ void QBluetoothDeviceDiscoveryAgentPrivate::startBluez5(QBluetoothDeviceDiscover
     }
 
     QtBluezDiscoveryManager::instance()->registerDiscoveryInterest(adapterBluez5->path());
-    QObject::connect(QtBluezDiscoveryManager::instance(), SIGNAL(discoveryInterrupted(QString)),
-            q, SLOT(_q_discoveryInterrupted(QString)));
+    QObject::connect(QtBluezDiscoveryManager::instance(), &QtBluezDiscoveryManager::discoveryInterrupted,
+                     q, [this](const QString &path){
+        this->_q_discoveryInterrupted(path);
+    });
 
     // collect initial set of information
     QDBusPendingReply<ManagedObjectList> reply = managerBluez5->GetManagedObjects();
@@ -317,8 +321,10 @@ void QBluetoothDeviceDiscoveryAgentPrivate::startBluez5(QBluetoothDeviceDiscover
     if (!discoveryTimer) {
         discoveryTimer = new QTimer(q);
         discoveryTimer->setSingleShot(true);
-        QObject::connect(discoveryTimer, SIGNAL(timeout()),
-                         q, SLOT(_q_discoveryFinished()));
+        QObject::connect(discoveryTimer, &QTimer::timeout,
+                         q, [this]() {
+            this->_q_discoveryFinished();
+        });
     }
 
     if (lowEnergySearchTimeout > 0) { // otherwise no timeout and stop() required
@@ -359,10 +365,12 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_deviceFound(const QString &addres
     QBluetoothDeviceInfo device(btAddress, btName, btClass);
     if (dict.value(QStringLiteral("RSSI")).isValid())
         device.setRssi(dict.value(QStringLiteral("RSSI")).toInt());
-    QList<QBluetoothUuid> uuids;
-    foreach (const QString &u, dict.value(QLatin1String("UUIDs")).toStringList())
+    QVector<QBluetoothUuid> uuids;
+    const QStringList uuidStrings
+            = dict.value(QLatin1String("UUIDs")).toStringList();
+    for (const QString &u : uuidStrings)
         uuids.append(QBluetoothUuid(u));
-    device.setServiceUuids(uuids, QBluetoothDeviceInfo::DataIncomplete);
+    device.setServiceUuids(uuids);
     device.setCached(dict.value(QStringLiteral("Cached")).toBool());
 
 
@@ -418,12 +426,17 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString& dev
     qCDebug(QT_BT_BLUEZ) << "Discovered: " << btAddress.toString() << btName
                          << "Num UUIDs" << device.uUIDs().count()
                          << "total device" << discoveredDevices.count() << "cached"
-                         << "RSSI" << device.rSSI() << "Class" << btClass;
+                         << "RSSI" << device.rSSI() << "Class" << btClass
+                         << "Num ManufacturerData" << device.manufacturerData().size();
 
     OrgFreedesktopDBusPropertiesInterface *prop = new OrgFreedesktopDBusPropertiesInterface(
                 QStringLiteral("org.bluez"), devicePath, QDBusConnection::systemBus(), q);
-    QObject::connect(prop, SIGNAL(PropertiesChanged(QString,QVariantMap,QStringList)),
-                     q, SLOT(_q_PropertiesChanged(QString,QVariantMap,QStringList)));
+    QObject::connect(prop, &OrgFreedesktopDBusPropertiesInterface::PropertiesChanged,
+                     q, [this](const QString &interface, const QVariantMap &changedProperties,
+                            const QStringList &invalidatedProperties) {
+        this->_q_PropertiesChanged(interface, changedProperties, invalidatedProperties);
+    });
+
     // remember what we have to cleanup
     propertyMonitors.append(prop);
 
@@ -431,7 +444,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString& dev
     QBluetoothDeviceInfo deviceInfo(btAddress, btName, btClass);
     deviceInfo.setRssi(device.rSSI());
 
-    QList<QBluetoothUuid> uuids;
+    QVector<QBluetoothUuid> uuids;
     bool foundLikelyLowEnergyUuid = false;
     for (const auto &u: device.uUIDs()) {
         const QBluetoothUuid id(u);
@@ -447,7 +460,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString& dev
         }
         uuids.append(id);
     }
-    deviceInfo.setServiceUuids(uuids, QBluetoothDeviceInfo::DataIncomplete);
+    deviceInfo.setServiceUuids(uuids);
 
     if (!btClass) {
         deviceInfo.setCoreConfigurations(QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
@@ -456,6 +469,12 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString& dev
         if (foundLikelyLowEnergyUuid)
             deviceInfo.setCoreConfigurations(QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration);
     }
+
+    const ManufacturerDataList deviceManufacturerData = device.manufacturerData();
+    const QList<quint16> keys = deviceManufacturerData.keys();
+    for (quint16 key : keys)
+        deviceInfo.setManufacturerData(
+                    key, deviceManufacturerData.value(key).variant().toByteArray());
 
     for (int i = 0; i < discoveredDevices.size(); i++) {
         if (discoveredDevices[i].address() == deviceInfo.address()) {
@@ -484,13 +503,13 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_propertyChanged(const QString &na
             Q_Q(QBluetoothDeviceDiscoveryAgent);
             if (pendingCancel && !pendingStart) {
                 adapter->deleteLater();
-                adapter = 0;
+                adapter = nullptr;
 
                 pendingCancel = false;
                 emit q->canceled();
             } else if (pendingStart) {
                 adapter->deleteLater();
-                adapter = 0;
+                adapter = nullptr;
 
                 pendingStart = false;
                 pendingCancel = false;
@@ -514,7 +533,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_propertyChanged(const QString &na
                 QDBusPendingReply<> reply = adapter->StopDiscovery();
                 reply.waitForFinished();
                 adapter->deleteLater();
-                adapter = 0;
+                adapter = nullptr;
                 emit q->finished();
             }
         } else {
@@ -529,7 +548,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_extendedDeviceDiscoveryTimeout()
 
     if (adapter) {
         adapter->deleteLater();
-        adapter = 0;
+        adapter = nullptr;
     }
     if (isActive()) {
         Q_Q(QBluetoothDeviceDiscoveryAgent);
@@ -566,7 +585,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_discoveryFinished()
     propertyMonitors.clear();
 
     delete adapterBluez5;
-    adapterBluez5 = 0;
+    adapterBluez5 = nullptr;
 
     if (pendingCancel && !pendingStart) {
         pendingCancel = false;
@@ -599,7 +618,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_discoveryInterrupted(const QStrin
         // does this automatically when emitting discoveryInterrupted(QString) signal
 
         delete adapterBluez5;
-        adapterBluez5 = 0;
+        adapterBluez5 = nullptr;
 
         errorString = QBluetoothDeviceDiscoveryAgent::tr("Bluetooth adapter error");
         lastError = QBluetoothDeviceDiscoveryAgent::InputOutputError;
@@ -613,7 +632,8 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_PropertiesChanged(const QString &
 {
     Q_Q(QBluetoothDeviceDiscoveryAgent);
     if (interface == QStringLiteral("org.bluez.Device1")
-            && changed_properties.contains(QStringLiteral("RSSI"))) {
+            && (changed_properties.contains(QStringLiteral("RSSI"))
+                || changed_properties.contains(QStringLiteral("ManufacturerData")))) {
         OrgFreedesktopDBusPropertiesInterface *props =
                 qobject_cast<OrgFreedesktopDBusPropertiesInterface *>(q->sender());
         if (!props)
@@ -623,10 +643,27 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_PropertiesChanged(const QString &
                                             QDBusConnection::systemBus());
         for (int i = 0; i < discoveredDevices.size(); i++) {
             if (discoveredDevices[i].address().toString() == device.address()) {
-                qCDebug(QT_BT_BLUEZ) << "Updating RSSI for" << device.address()
-                         << changed_properties.value(QStringLiteral("RSSI"));
-                discoveredDevices[i].setRssi(
-                            changed_properties.value(QStringLiteral("RSSI")).toInt());
+                QBluetoothDeviceInfo::Fields updatedFields = QBluetoothDeviceInfo::Field::None;
+                if (changed_properties.contains(QStringLiteral("RSSI"))) {
+                    qCDebug(QT_BT_BLUEZ) << "Updating RSSI for" << device.address()
+                                         << changed_properties.value(QStringLiteral("RSSI"));
+                    discoveredDevices[i].setRssi(
+                                changed_properties.value(QStringLiteral("RSSI")).toInt());
+                    updatedFields.setFlag(QBluetoothDeviceInfo::Field::RSSI);
+                }
+                if (changed_properties.contains(QStringLiteral("ManufacturerData"))) {
+                    qCDebug(QT_BT_BLUEZ) << "Updating ManufacturerData for" << device.address();
+                    ManufacturerDataList changedManufacturerData =
+                            qdbus_cast< ManufacturerDataList >(changed_properties.value(QStringLiteral("ManufacturerData")));
+
+                    const QList<quint16> keys = changedManufacturerData.keys();
+                    for (quint16 key : keys) {
+                        if (discoveredDevices[i].setManufacturerData(key, changedManufacturerData.value(key).variant().toByteArray()))
+                            updatedFields.setFlag(QBluetoothDeviceInfo::Field::ManufacturerData);
+                    }
+                }
+                if (!updatedFields.testFlag(QBluetoothDeviceInfo::Field::None))
+                    emit q->deviceUpdated(discoveredDevices[i], updatedFields);
                 return;
             }
         }

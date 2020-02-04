@@ -4,24 +4,27 @@
 
 #include "extensions/browser/api/web_request/web_request_permissions.h"
 
+#include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "chromeos/login/login_state.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/resource_request_info.h"
+#include "extensions/browser/api/extensions_api_client.h"
+#include "extensions/browser/api/web_request/web_request_api_constants.h"
+#include "extensions/browser/api/web_request/web_request_info.h"
 #include "extensions/browser/extension_navigation_ui_data.h"
-#include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
+#include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/info_map.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/permissions/permissions_data.h"
-#include "net/url_request/url_request.h"
 #include "url/gurl.h"
 
 #if defined(OS_CHROMEOS)
-#include "chromeos/login/login_state.h"
+#include "chromeos/login/login_state/login_state.h"
 #endif  // defined(OS_CHROMEOS)
 
 using content::ResourceRequestInfo;
@@ -29,9 +32,29 @@ using extensions::PermissionsData;
 
 namespace {
 
+// Describes the different cases pertaining to permissions check for the
+// initiator.
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class InitiatorAccess {
+  kAbsent = 0,
+  kOpaque = 1,
+  kNoAccess = 2,
+  kHasAccess = 3,
+  kMaxValue = kHasAccess,
+};
+
+void LogInitiatorAccess(InitiatorAccess access) {
+  UMA_HISTOGRAM_ENUMERATION("Extensions.WebRequest.InitiatorAccess2", access);
+}
+
 // Returns true if the scheme is one we want to allow extensions to have access
 // to. Extensions still need specific permissions for a given URL, which is
 // covered by CanExtensionAccessURL.
+
+// TODO(karandeepb): This allows more schemes than
+// ExtensionWebRequestEventRouter::RequestFiler, which specifies the schemes
+// allowed by web request event listeners. Consolidate the two.
 bool HasWebRequestScheme(const GURL& url) {
   return (url.SchemeIs(url::kAboutScheme) || url.SchemeIs(url::kFileScheme) ||
           url.SchemeIs(url::kFileSystemScheme) ||
@@ -41,100 +64,299 @@ bool HasWebRequestScheme(const GURL& url) {
 
 bool g_allow_all_extension_locations_in_public_session = false;
 
-}  // namespace
+PermissionsData::PageAccess GetHostAccessForURL(
+    const extensions::Extension& extension,
+    const GURL& url,
+    int tab_id) {
+  // about: URLs are not covered in host permissions, but are allowed
+  // anyway.
+  if (url.SchemeIs(url::kAboutScheme) ||
+      url::IsSameOriginWith(url, extension.url())) {
+    return PermissionsData::PageAccess::kAllowed;
+  }
 
-// Returns true if the URL is sensitive and requests to this URL must not be
-// modified/canceled by extensions, e.g. because it is targeted to the webstore
-// to check for updates, extension blacklisting, etc.
-bool IsSensitiveURL(const GURL& url,
-                    bool is_request_from_browser_or_webui_renderer) {
+  return extension.permissions_data()->GetPageAccess(url, tab_id,
+                                                     nullptr /*error*/);
+}
+
+PermissionsData::PageAccess CanExtensionAccessURLInternal(
+    const extensions::InfoMap* extension_info_map,
+    const std::string& extension_id,
+    const GURL& url,
+    int tab_id,
+    bool crosses_incognito,
+    WebRequestPermissions::HostPermissionsCheck host_permissions_check,
+    const base::Optional<url::Origin>& initiator,
+    const base::Optional<content::ResourceType>& resource_type) {
+  // extension_info_map can be NULL in testing.
+  if (!extension_info_map)
+    return PermissionsData::PageAccess::kAllowed;
+
+  const extensions::Extension* extension =
+      extension_info_map->extensions().GetByID(extension_id);
+  if (!extension)
+    return PermissionsData::PageAccess::kDenied;
+
+  // Prevent viewing / modifying requests initiated by a host protected by
+  // policy.
+  if (initiator &&
+      extension->permissions_data()->IsPolicyBlockedHost(initiator->GetURL()))
+    return PermissionsData::PageAccess::kDenied;
+
+// When restrictions are enabled in Public Session, allow all URLs for
+// webRequests initiated by a regular extension (but don't allow chrome://
+// URLs).
+#if defined(OS_CHROMEOS)
+  if (chromeos::LoginState::IsInitialized() &&
+      chromeos::LoginState::Get()->ArePublicSessionRestrictionsEnabled() &&
+      extension->is_extension() && !url.SchemeIs("chrome")) {
+    // Make sure that the extension is truly installed by policy (the assumption
+    // in Public Session is that all extensions are installed by policy).
+    CHECK(g_allow_all_extension_locations_in_public_session ||
+          extensions::Manifest::IsPolicyLocation(extension->location()));
+    return PermissionsData::PageAccess::kAllowed;
+  }
+#endif
+
+  // Check if this event crosses incognito boundaries when it shouldn't.
+  if (crosses_incognito && !extension_info_map->CanCrossIncognito(extension))
+    return PermissionsData::PageAccess::kDenied;
+
+  switch (host_permissions_check) {
+    case WebRequestPermissions::DO_NOT_CHECK_HOST:
+      return PermissionsData::PageAccess::kAllowed;
+      break;
+    case WebRequestPermissions::REQUIRE_HOST_PERMISSION_FOR_URL: {
+      PermissionsData::PageAccess access =
+          GetHostAccessForURL(*extension, url, tab_id);
+
+      bool is_navigation_request =
+          resource_type && content::IsResourceTypeFrame(*resource_type);
+
+      // For sub-resource (non-navigation) requests, if access to the host was
+      // withheld, check if the extension has access to the initiator. If it
+      // does, allow the extension to see the request. This is important for
+      // extensions with webRequest to work well with runtime host permissions.
+      if (!is_navigation_request &&
+          access == PermissionsData::PageAccess::kWithheld) {
+        PermissionsData::PageAccess initiator_access =
+            initiator
+                ? GetHostAccessForURL(*extension, initiator->GetURL(), tab_id)
+                : PermissionsData::PageAccess::kDenied;
+        if (initiator_access == PermissionsData::PageAccess::kAllowed)
+          access = PermissionsData::PageAccess::kAllowed;
+      }
+      return access;
+      break;
+    }
+    case WebRequestPermissions::REQUIRE_HOST_PERMISSION_FOR_URL_AND_INITIATOR: {
+      PermissionsData::PageAccess request_access =
+          GetHostAccessForURL(*extension, url, tab_id);
+
+      bool is_navigation_request =
+          resource_type && content::IsResourceTypeFrame(*resource_type);
+
+      // Only require access to the initiator for sub-resource (non-navigation)
+      // requests. See crbug.com/918137.
+      // TODO(karandeepb): Should service worker navigation preload requests be
+      // treated similarly?
+      if (is_navigation_request)
+        return request_access;
+
+      if (request_access == PermissionsData::PageAccess::kDenied)
+        return request_access;
+
+      // For cases, where an extension has (allowed or withheld) access to the
+      // request url, log if it has access to the request initiator.
+      if (!initiator) {
+        LogInitiatorAccess(InitiatorAccess::kAbsent);
+        return request_access;
+      }
+
+      if (initiator->opaque()) {
+        LogInitiatorAccess(InitiatorAccess::kOpaque);
+        return request_access;
+      }
+
+      DCHECK(request_access == PermissionsData::PageAccess::kWithheld ||
+             request_access == PermissionsData::PageAccess::kAllowed);
+
+      // Possible remaining states:
+      // ----------------------------------------------------
+      // | Initiator access| Request access| Expected access|
+      // ----------------------------------------------------
+      // | Withheld        | Withheld      | Withheld       |
+      // | Withheld        | Allowed       | Withheld       |
+      // | Allowed         | Withheld      | Allowed        |
+      // | Allowed         | Allowed       | Allowed        |
+      // | Denied          | *             | Denied         |
+      // ----------------------------------------------------
+
+      // Note: The only interesting case is when the access to a sub-resource
+      // request is withheld but the access to initiator is allowed. In this
+      // case, we allow access to the request. This is important for extensions
+      // with webRequest to work well with runtime host permissions. See
+      // crbug.com/851722.
+
+      PermissionsData::PageAccess initiator_access =
+          GetHostAccessForURL(*extension, initiator->GetURL(), tab_id);
+      LogInitiatorAccess(initiator_access ==
+                                 PermissionsData::PageAccess::kDenied
+                             ? InitiatorAccess::kNoAccess
+                             : InitiatorAccess::kHasAccess);
+      return initiator_access;
+      break;
+    }
+    case WebRequestPermissions::REQUIRE_ALL_URLS:
+      return extension->permissions_data()->HasEffectiveAccessToAllHosts()
+                 ? PermissionsData::PageAccess::kAllowed
+                 : PermissionsData::PageAccess::kDenied;
+      break;
+  }
+
+  NOTREACHED();
+  return PermissionsData::PageAccess::kDenied;
+}
+
+// Returns true if |request|.url is of the form clients[0-9]*.google.com.
+bool IsSensitiveGoogleClientUrl(const extensions::WebRequestInfo& request) {
+  const GURL& url = request.url;
+
   // TODO(battre) Merge this, CanExtensionAccessURL and
   // PermissionsData::CanAccessPage into one function.
-  bool sensitive_chrome_url = false;
-  const char kGoogleCom[] = "google.com";
-  const char kClient[] = "clients";
-  url::Origin origin(url);
-  if (origin.DomainIs(kGoogleCom)) {
-    base::StringPiece host = url.host_piece();
-    while (host.ends_with("."))
-      host.remove_suffix(1u);
-    // Check for "clients[0-9]*.google.com" hosts.
-    // This protects requests to several internal services such as sync,
-    // extension update pings, captive portal detection, fraudulent certificate
-    // reporting, autofill and others.
-    //
-    // These URLs are only protected for requests from the browser and webui
-    // renderers, not for requests from common renderers, because
-    // clients*.google.com are also used by websites.
-    if (is_request_from_browser_or_webui_renderer) {
-      base::StringPiece::size_type pos = host.rfind(kClient);
-      if (pos != base::StringPiece::npos) {
-        bool match = true;
-        if (pos > 0 && host[pos - 1] != '.') {
-          match = false;
-        } else {
-          for (base::StringPiece::const_iterator
-                   i = host.begin() + pos + strlen(kClient),
-                   end = host.end() - (strlen(kGoogleCom) + 1);
-               i != end; ++i) {
-            if (!isdigit(*i)) {
-              match = false;
-              break;
-            }
-          }
-        }
-        sensitive_chrome_url = sensitive_chrome_url || match;
-      }
-    }
+  static constexpr char kGoogleCom[] = "google.com";
+  static constexpr char kClient[] = "clients";
+  constexpr size_t kGoogleComLength = base::size(kGoogleCom) - 1;
+  constexpr size_t kClientLength = base::size(kClient) - 1;
 
-    // Safebrowsing and Chrome Webstore URLs are always protected, i.e. also
-    // for requests from common renderers.
-    sensitive_chrome_url = sensitive_chrome_url ||
-                           (url.DomainIs("chrome.google.com") &&
-                            base::StartsWith(url.path_piece(), "/webstore",
-                                             base::CompareCase::SENSITIVE));
+  if (!url.DomainIs(kGoogleCom))
+    return false;
+
+  base::StringPiece host = url.host_piece();
+
+  while (host.ends_with("."))
+    host.remove_suffix(1u);
+
+  // Check for "clients[0-9]*.google.com" hosts.
+  // This protects requests to several internal services such as sync,
+  // extension update pings, captive portal detection, fraudulent certificate
+  // reporting, autofill and others.
+  //
+  // These URLs are only protected for requests from the browser, and not for
+  // requests from common renderers, because clients*.google.com are also used
+  // by websites.
+  base::StringPiece::size_type pos = host.rfind(kClient);
+  if (pos == base::StringPiece::npos)
+    return false;
+
+  if (pos > 0 && host[pos - 1] != '.')
+    return false;
+
+  for (base::StringPiece::const_iterator
+           i = host.begin() + pos + kClientLength,
+           end = host.end() - (kGoogleComLength + 1);
+       i != end; ++i) {
+    if (!isdigit(*i))
+      return false;
   }
-  return sensitive_chrome_url || extension_urls::IsWebstoreUpdateUrl(url) ||
-         extension_urls::IsBlacklistUpdateUrl(url) ||
-         extension_urls::IsSafeBrowsingUrl(origin, url.path_piece());
+
+  return true;
 }
+
+}  // namespace
 
 // static
 bool WebRequestPermissions::HideRequest(
     const extensions::InfoMap* extension_info_map,
-    const net::URLRequest* request,
-    extensions::ExtensionNavigationUIData* navigation_ui_data) {
-  // Hide requests from the Chrome WebStore App, signin process and WebUI.
-  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
+    const extensions::WebRequestInfo& request) {
+  if (!HasWebRequestScheme(request.url))
+    return true;
 
-  // Requests from the browser and webui get special protection for
-  // clients*.google.com URLs.
-  bool is_request_from_browser = true;
-  bool is_request_from_webui_renderer = false;
-  if (info) {
-    int process_id = info->GetChildID();
-    // Never hide requests from guest processes.
-    if (extensions::WebViewRendererState::GetInstance()->IsGuest(process_id) ||
-        (navigation_ui_data && navigation_ui_data->is_web_view())) {
-      return false;
-    }
+  // Requests from <webview> are never hidden.
+  if (request.is_web_view)
+    return false;
 
-    if (extension_info_map &&
-        extension_info_map->process_map().Contains(extensions::kWebStoreAppId,
-                                                   process_id)) {
+  // Requests from PAC scripts are always hidden.
+  // See https://crbug.com/794674
+  if (request.is_pac_request)
+    return true;
+
+  bool is_request_from_browser = request.render_process_id == -1;
+
+  if (is_request_from_browser) {
+    // Hide all non-navigation requests made by the browser. crbug.com/884932.
+    if (!request.is_browser_side_navigation)
+      return true;
+
+    DCHECK(request.type == content::RESOURCE_TYPE_MAIN_FRAME ||
+           request.type == content::RESOURCE_TYPE_SUB_FRAME);
+
+    // Hide sub-frame requests to clientsX.google.com.
+    // TODO(crbug.com/890006): Determine if the code here can be cleaned up
+    // since browser initiated non-navigation requests are now hidden from
+    // extensions.
+    if (request.type != content::RESOURCE_TYPE_MAIN_FRAME &&
+        IsSensitiveGoogleClientUrl(request)) {
       return true;
     }
-
-    is_request_from_browser = false;
-    is_request_from_webui_renderer =
-        content::ChildProcessSecurityPolicy::GetInstance()->HasWebUIBindings(
-            process_id);
   }
 
-  const GURL& url = request->url();
-  return IsSensitiveURL(
-             url, is_request_from_browser || is_request_from_webui_renderer) ||
-         !HasWebRequestScheme(url);
+  // Hide requests from the Chrome WebStore App.
+  if (!is_request_from_browser && extension_info_map &&
+      extension_info_map->process_map().Contains(extensions::kWebStoreAppId,
+                                                 request.render_process_id)) {
+    return true;
+  }
+
+  const GURL& url = request.url;
+
+  bool is_request_from_webui_renderer =
+      !is_request_from_browser &&
+      content::ChildProcessSecurityPolicy::GetInstance()->HasWebUIBindings(
+          request.render_process_id);
+
+  if (is_request_from_webui_renderer) {
+#if DCHECK_IS_ON()
+    const bool is_network_request =
+        url.SchemeIsHTTPOrHTTPS() || url.SchemeIsWSOrWSS();
+    if (is_network_request) {
+      // WebUI renderers should never be making network requests, but we may
+      // make some exceptions for now. See https://crbug.com/829412 for
+      // details.
+      //
+      // The DCHECK helps avoid proliferation of such behavior.
+      DCHECK(request.initiator.has_value());
+      DCHECK(extensions::ExtensionsBrowserClient::Get()
+                 ->IsWebUIAllowedToMakeNetworkRequests(*request.initiator))
+          << "Unsupported network request from "
+          << request.initiator->GetURL().spec() << " for " << url.spec();
+    }
+#endif  // DCHECK_IS_ON()
+
+    // In any case, we treat the requests as sensitive to ensure that the Web
+    // Request API doesn't see them.
+    return true;
+  }
+
+  // Allow the extension embedder to hide the request.
+  if (extensions::ExtensionsAPIClient::Get()->ShouldHideBrowserNetworkRequest(
+          request)) {
+    return true;
+  }
+
+  // Safebrowsing and Chrome Webstore URLs are always protected, i.e. also
+  // for requests from common renderers.
+  if (extension_urls::IsWebstoreUpdateUrl(url) ||
+      extension_urls::IsBlacklistUpdateUrl(url) ||
+      extension_urls::IsSafeBrowsingUrl(url::Origin::Create(url),
+                                        url.path_piece()) ||
+      (url.DomainIs("chrome.google.com") &&
+       base::StartsWith(url.path_piece(), "/webstore",
+                        base::CompareCase::SENSITIVE))) {
+    return true;
+  }
+
+  return false;
 }
 
 // static
@@ -144,70 +366,35 @@ void WebRequestPermissions::
 }
 
 // static
-PermissionsData::AccessType WebRequestPermissions::CanExtensionAccessURL(
+PermissionsData::PageAccess WebRequestPermissions::CanExtensionAccessURL(
     const extensions::InfoMap* extension_info_map,
     const std::string& extension_id,
     const GURL& url,
     int tab_id,
     bool crosses_incognito,
     HostPermissionsCheck host_permissions_check,
-    const base::Optional<url::Origin>& initiator) {
-  // extension_info_map can be NULL in testing.
-  if (!extension_info_map)
-    return PermissionsData::ACCESS_ALLOWED;
+    const base::Optional<url::Origin>& initiator,
+    const base::Optional<content::ResourceType>& resource_type) {
+  return CanExtensionAccessURLInternal(
+      extension_info_map, extension_id, url, tab_id, crosses_incognito,
+      host_permissions_check, initiator, resource_type);
+}
 
-  const extensions::Extension* extension =
-      extension_info_map->extensions().GetByID(extension_id);
-  if (!extension)
-    return PermissionsData::ACCESS_DENIED;
+// static
+bool WebRequestPermissions::CanExtensionAccessInitiator(
+    const extensions::InfoMap* extension_info_map,
+    const extensions::ExtensionId extension_id,
+    const base::Optional<url::Origin>& initiator,
+    int tab_id,
+    bool crosses_incognito) {
+  if (!initiator)
+    return true;
 
-  // Prevent viewing / modifying requests initiated by a host protected by
-  // policy.
-  if (initiator && extension->permissions_data()->IsRuntimeBlockedHost(
-                       initiator->GetPhysicalOrigin().GetURL()))
-    return PermissionsData::ACCESS_DENIED;
-
-  // When we are in a Public Session, allow all URLs for webRequests initiated
-  // by a regular extension (but don't allow chrome:// URLs).
-#if defined(OS_CHROMEOS)
-  if (chromeos::LoginState::IsInitialized() &&
-      chromeos::LoginState::Get()->IsPublicSessionUser() &&
-      extension->is_extension() &&
-      !url.SchemeIs("chrome")) {
-    // Make sure that the extension is truly installed by policy (the assumption
-    // in Public Session is that all extensions are installed by policy).
-    CHECK(g_allow_all_extension_locations_in_public_session ||
-          extensions::Manifest::IsPolicyLocation(extension->location()));
-    return PermissionsData::ACCESS_ALLOWED;
-  }
-#endif
-
-  // Check if this event crosses incognito boundaries when it shouldn't.
-  if (crosses_incognito && !extension_info_map->CanCrossIncognito(extension))
-    return PermissionsData::ACCESS_DENIED;
-
-  PermissionsData::AccessType access = PermissionsData::ACCESS_DENIED;
-  switch (host_permissions_check) {
-    case DO_NOT_CHECK_HOST:
-      access = PermissionsData::ACCESS_ALLOWED;
-      break;
-    case REQUIRE_HOST_PERMISSION:
-      // about: URLs are not covered in host permissions, but are allowed
-      // anyway.
-      if (url.SchemeIs(url::kAboutScheme) ||
-          url::IsSameOriginWith(url, extension->url())) {
-        access = PermissionsData::ACCESS_ALLOWED;
-        break;
-      }
-      access = extension->permissions_data()->GetPageAccess(extension, url,
-                                                            tab_id, nullptr);
-      break;
-    case REQUIRE_ALL_URLS:
-      if (extension->permissions_data()->HasEffectiveAccessToAllHosts())
-        access = PermissionsData::ACCESS_ALLOWED;
-      // else ACCESS_DENIED
-      break;
-  }
-
-  return access;
+  return CanExtensionAccessURLInternal(
+             extension_info_map, extension_id, initiator->GetURL(), tab_id,
+             crosses_incognito,
+             WebRequestPermissions::REQUIRE_HOST_PERMISSION_FOR_URL,
+             base::nullopt /* initiator */,
+             base::nullopt /* resource_type */) ==
+         PermissionsData::PageAccess::kAllowed;
 }

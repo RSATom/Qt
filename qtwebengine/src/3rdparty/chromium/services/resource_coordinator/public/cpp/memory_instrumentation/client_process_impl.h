@@ -6,14 +6,14 @@
 #define SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_MEMORY_INSTRUMENTATION_CLIENT_PROCESS_IMPL_H_
 
 #include "base/compiler_specific.h"
+#include "base/component_export.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/coordinator.h"
-#include "services/resource_coordinator/public/cpp/resource_coordinator_export.h"
-#include "services/resource_coordinator/public/interfaces/memory_instrumentation/memory_instrumentation.mojom.h"
+#include "services/resource_coordinator/public/mojom/memory_instrumentation/memory_instrumentation.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 
 namespace memory_instrumentation {
@@ -28,10 +28,11 @@ class TracingObserver;
 // no Coordinator service in child processes. So, in a child process, the
 // local dump manager remotely connects to the Coordinator service. In the
 // browser process, it locally connects to the Coordinator service.
-class SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_EXPORT ClientProcessImpl
-    : public NON_EXPORTED_BASE(mojom::ClientProcess) {
+class COMPONENT_EXPORT(RESOURCE_COORDINATOR_PUBLIC_MEMORY_INSTRUMENTATION)
+    ClientProcessImpl : public mojom::ClientProcess {
  public:
-  struct SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_EXPORT Config {
+  struct COMPONENT_EXPORT(
+      RESOURCE_COORDINATOR_PUBLIC_MEMORY_INSTRUMENTATION) Config {
    public:
     Config(service_manager::Connector* connector,
            const std::string& service_name,
@@ -54,28 +55,49 @@ class SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_EXPORT ClientProcessImpl
   ~ClientProcessImpl() override;
 
   // Implements base::trace_event::MemoryDumpManager::RequestGlobalDumpCallback.
-  // This function will be called by the MemoryDumpScheduler::OnTick and
-  // MemoryPeakDetector.
+  // This function will be called by the MemoryDumpScheduler::OnTick.
   void RequestGlobalMemoryDump_NoCallback(
-      const base::trace_event::MemoryDumpRequestArgs&);
+      base::trace_event::MemoryDumpType type,
+      base::trace_event::MemoryDumpLevelOfDetail level_of_detail);
 
   // mojom::ClientProcess implementation. The Coordinator calls this.
-  void RequestProcessMemoryDump(
+  void RequestChromeMemoryDump(
       const base::trace_event::MemoryDumpRequestArgs& args,
-      const RequestProcessMemoryDumpCallback& callback) override;
+      RequestChromeMemoryDumpCallback callback) override;
 
   // Callback passed to base::MemoryDumpManager::CreateProcessDump().
-  void OnProcessMemoryDumpDone(
-      const RequestProcessMemoryDumpCallback&,
-      const base::trace_event::MemoryDumpRequestArgs& req_args,
+  void OnChromeMemoryDumpDone(
       bool success,
       uint64_t dump_guid,
-      const base::trace_event::ProcessMemoryDumpsMap&);
+      std::unique_ptr<base::trace_event::ProcessMemoryDump>);
 
   // mojom::ClientProcess implementation. The Coordinator calls this.
-  void RequestOSMemoryDump(
-      const std::vector<base::ProcessId>& ids,
-      const RequestOSMemoryDumpCallback& callback) override;
+  void RequestOSMemoryDump(mojom::MemoryMapOption mmap_option,
+                           const std::vector<base::ProcessId>& ids,
+                           RequestOSMemoryDumpCallback callback) override;
+
+  struct OSMemoryDumpArgs {
+    OSMemoryDumpArgs();
+    OSMemoryDumpArgs(OSMemoryDumpArgs&&);
+    ~OSMemoryDumpArgs();
+    mojom::MemoryMapOption mmap_option;
+    std::vector<base::ProcessId> pids;
+    RequestOSMemoryDumpCallback callback;
+  };
+  void PerformOSMemoryDump(OSMemoryDumpArgs args);
+
+  // Map containing pending chrome memory callbacks indexed by dump guid.
+  // This must be destroyed after |binding_|.
+  std::map<uint64_t, RequestChromeMemoryDumpCallback> pending_chrome_callbacks_;
+
+  // On macOS, we must wait for the most recent RequestChromeMemoryDumpCallback
+  // to complete before running the OS calculations. The key to this map is the
+  // dump_guid of that RequestChromeMemoryDumpCallback, the value a vector of
+  // callbacks to calculate and run. For more details, see
+  // https://bugs.chromium.org/p/chromium/issues/detail?id=812346#c16.
+  std::map<uint64_t, std::vector<OSMemoryDumpArgs>>
+      delayed_os_memory_dump_callbacks_;
+  base::Optional<uint64_t> most_recent_chrome_memory_dump_guid_;
 
   mojom::CoordinatorPtr coordinator_;
   mojo::Binding<mojom::ClientProcess> binding_;

@@ -9,13 +9,8 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "services/service_manager/embedder/embedded_service_info.h"
-#include "services/service_manager/public/interfaces/service.mojom.h"
-#include "services/service_manager/public/interfaces/service_factory.mojom.h"
-
-namespace service_manager {
-class EmbeddedServiceRunner;
-}
+#include "services/service_manager/public/mojom/service.mojom.h"
+#include "services/service_manager/public/mojom/service_factory.mojom.h"
 
 namespace content {
 
@@ -23,27 +18,22 @@ namespace content {
 // service_manager::mojom::ServiceFactory.
 class ServiceFactory : public service_manager::mojom::ServiceFactory {
  public:
-  using ServiceMap =
-      std::map<std::string, service_manager::EmbeddedServiceInfo>;
-
   ServiceFactory();
   ~ServiceFactory() override;
 
-  virtual void RegisterServices(ServiceMap* services) = 0;
-  virtual void OnServiceQuit() {}
+  virtual bool HandleServiceRequest(
+      const std::string& name,
+      service_manager::mojom::ServiceRequest request);
 
   // service_manager::mojom::ServiceFactory:
-  void CreateService(service_manager::mojom::ServiceRequest request,
-                     const std::string& name) override;
+  void CreateService(
+      service_manager::mojom::ServiceRequest request,
+      const std::string& name,
+      service_manager::mojom::PIDReceiverPtr pid_receiver) override;
 
  private:
   // Called if CreateService fails to find a registered service.
   virtual void OnLoadFailed() {}
-
-  bool has_registered_services_ = false;
-  std::unordered_map<std::string,
-                     std::unique_ptr<service_manager::EmbeddedServiceRunner>>
-      services_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceFactory);
 };

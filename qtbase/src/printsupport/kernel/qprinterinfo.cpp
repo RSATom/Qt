@@ -3,9 +3,9 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the documentation of the Qt Toolkit.
+** This file is part of the QtGui module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:FDL$
+** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,13 +14,25 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Free Documentation License Usage
-** Alternatively, this file may be used under the terms of the GNU Free
-** Documentation License version 1.3 as published by the Free Software
-** Foundation and appearing in the file included in the packaging of
-** this file. Please review the following information to ensure
-** the GNU Free Documentation License version 1.3 requirements
-** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
+** GNU Lesser General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU Lesser
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
+**
+** GNU General Public License Usage
+** Alternatively, this file may be used under the terms of the GNU
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
+**
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -380,10 +392,39 @@ QList<QPrinter::DuplexMode> QPrinterInfo::supportedDuplexModes() const
 {
     Q_D(const QPrinterInfo);
     QList<QPrinter::DuplexMode> list;
-    const QList<QPrint::DuplexMode> supportedDuplexModes = d->m_printDevice.supportedDuplexModes();
+    const auto supportedDuplexModes = d->m_printDevice.supportedDuplexModes();
     list.reserve(supportedDuplexModes.size());
     for (QPrint::DuplexMode mode : supportedDuplexModes)
         list << QPrinter::DuplexMode(mode);
+    return list;
+}
+
+/*!
+    Returns the default color mode of this printer.
+
+    \since 5.13
+*/
+
+QPrinter::ColorMode QPrinterInfo::defaultColorMode() const
+{
+    Q_D(const QPrinterInfo);
+    return QPrinter::ColorMode(d->m_printDevice.defaultColorMode());
+}
+
+/*!
+    Returns the supported color modes of this printer.
+
+    \since 5.13
+*/
+
+QList<QPrinter::ColorMode> QPrinterInfo::supportedColorModes() const
+{
+    Q_D(const QPrinterInfo);
+    QList<QPrinter::ColorMode> list;
+    const auto supportedColorModes = d->m_printDevice.supportedColorModes();
+    list.reserve(supportedColorModes.size());
+    for (QPrint::ColorMode mode : supportedColorModes)
+        list << QPrinter::ColorMode(mode);
     return list;
 }
 

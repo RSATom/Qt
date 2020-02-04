@@ -4,13 +4,14 @@
 
 #include "extensions/browser/api/system_network/system_network_api.h"
 
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_thread.h"
 
 namespace {
 const char kNetworkListError[] = "Network lookup failed or unsupported";
 
 std::unique_ptr<net::NetworkInterfaceList> GetListOnBlockingTaskRunner() {
-  auto interface_list = base::MakeUnique<net::NetworkInterfaceList>();
+  auto interface_list = std::make_unique<net::NetworkInterfaceList>();
   if (net::GetNetworkList(interface_list.get(),
                           net::INCLUDE_HOST_SCOPE_VIRTUAL_INTERFACES)) {
     return interface_list;

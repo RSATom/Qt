@@ -8,7 +8,6 @@
 
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 
 namespace extensions {
 
@@ -22,7 +21,7 @@ base::LazyInstance<ErrorList>::DestructorAtExit g_empty_error_list =
 
 // An incrementing counter for the next error id. Overflowing this is very
 // unlikely, since the number of errors per extension is capped at 100.
-int kNextErrorId = 1;
+int g_next_error_id = 1;
 
 }  // namespace
 
@@ -157,7 +156,7 @@ const ExtensionError* ErrorMap::ExtensionEntry::AddError(
     list_.pop_front();
 
   if (error->id() == 0)
-    error->set_id(kNextErrorId++);
+    error->set_id(g_next_error_id++);
 
   list_.push_back(std::move(error));
   return list_.back().get();
@@ -182,7 +181,7 @@ const ExtensionError* ErrorMap::AddError(
     std::unique_ptr<ExtensionError> error) {
   std::unique_ptr<ExtensionEntry>& entry = map_[error->extension_id()];
   if (!entry)
-    entry = base::MakeUnique<ExtensionEntry>();
+    entry = std::make_unique<ExtensionEntry>();
 
   return entry->AddError(std::move(error));
 }

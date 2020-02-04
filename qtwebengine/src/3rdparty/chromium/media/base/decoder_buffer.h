@@ -16,11 +16,13 @@
 #include "base/macros.h"
 #include "base/memory/aligned_memory.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/shared_memory_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "media/base/decrypt_config.h"
 #include "media/base/media_export.h"
 #include "media/base/timestamp_constants.h"
+#include "media/base/unaligned_shared_memory.h"
 
 namespace media {
 
@@ -37,7 +39,7 @@ class MEDIA_EXPORT DecoderBuffer
     : public base::RefCountedThreadSafe<DecoderBuffer> {
  public:
   enum {
-    kPaddingSize = 32,
+    kPaddingSize = 64,
 #if defined(ARCH_CPU_ARM_FAMILY)
     kAlignmentSize = 16
 #else
@@ -63,6 +65,19 @@ class MEDIA_EXPORT DecoderBuffer
                                                size_t size,
                                                const uint8_t* side_data,
                                                size_t side_data_size);
+
+  // Create a DecoderBuffer where data() of |size| bytes resides within the
+  // memory referred to by |handle| at non-negative offset |offset|. The
+  // buffer's |is_key_frame_| will default to false.
+  //
+  // The shared memory will be mapped read-only.
+  //
+  // If mapping fails, nullptr will be returned. In all cases |handle| is
+  // consumed.
+  static scoped_refptr<DecoderBuffer> FromSharedMemoryHandle(
+      const base::SharedMemoryHandle& handle,
+      off_t offset,
+      size_t size);
 
   // Create a DecoderBuffer indicating we've reached end of stream.
   //
@@ -94,11 +109,15 @@ class MEDIA_EXPORT DecoderBuffer
 
   const uint8_t* data() const {
     DCHECK(!end_of_stream());
+    if (shm_)
+      return static_cast<uint8_t*>(shm_->memory());
     return data_.get();
   }
 
+  // TODO(sandersd): Remove writable_data(). https://crbug.com/834088
   uint8_t* writable_data() const {
     DCHECK(!end_of_stream());
+    DCHECK(!shm_);
     return data_.get();
   }
 
@@ -117,11 +136,6 @@ class MEDIA_EXPORT DecoderBuffer
     return side_data_size_;
   }
 
-  // A discard window indicates the amount of data which should be discard from
-  // this buffer after decoding.  The first value is the amount of the front and
-  // the second the amount off the back.  A value of kInfiniteDuration for the
-  // first value indicates the entire buffer should be discarded; the second
-  // value must be base::TimeDelta() in this case.
   typedef std::pair<base::TimeDelta, base::TimeDelta> DiscardPadding;
   const DiscardPadding& discard_padding() const {
     DCHECK(!end_of_stream());
@@ -133,6 +147,8 @@ class MEDIA_EXPORT DecoderBuffer
     discard_padding_ = discard_padding;
   }
 
+  // Returns DecryptConfig associated with |this|. Returns null iff |this| is
+  // not encrypted.
   const DecryptConfig* decrypt_config() const {
     DCHECK(!end_of_stream());
     return decrypt_config_.get();
@@ -144,9 +160,7 @@ class MEDIA_EXPORT DecoderBuffer
   }
 
   // If there's no data in this buffer, it represents end of stream.
-  bool end_of_stream() const {
-    return data_ == NULL;
-  }
+  bool end_of_stream() const { return !shm_ && !data_; }
 
   bool is_key_frame() const {
     DCHECK(!end_of_stream());
@@ -179,19 +193,48 @@ class MEDIA_EXPORT DecoderBuffer
                 size_t size,
                 const uint8_t* side_data,
                 size_t side_data_size);
+
+  DecoderBuffer(std::unique_ptr<UnalignedSharedMemory> shm, size_t size);
+
   virtual ~DecoderBuffer();
 
  private:
+  // Presentation time of the frame.
   base::TimeDelta timestamp_;
+  // Presentation duration of the frame.
   base::TimeDelta duration_;
 
+  // Size of the encoded data.
   size_t size_;
+  // Encoded data, if it is stored on the heap.
   std::unique_ptr<uint8_t, base::AlignedFreeDeleter> data_;
+
+  // Side data. Used for alpha channel in VPx, and for text cues.
   size_t side_data_size_;
   std::unique_ptr<uint8_t, base::AlignedFreeDeleter> side_data_;
+
+  // Copy of |data_| for debugging purposes. This field is not to be used.
+  // crbug.com/794740.
+  void* data_at_initialize_;
+
+  // Encoded data, if it is stored in SHM.
+  std::unique_ptr<UnalignedSharedMemory> shm_;
+
+  // Encryption parameters for the encoded data.
   std::unique_ptr<DecryptConfig> decrypt_config_;
+
+  // Duration of (audio) samples from the beginning and end of this frame which
+  // should be discarded after decoding. A value of kInfiniteDuration for the
+  // first value indicates the entire frame should be discarded; the second
+  // value must be base::TimeDelta() in this case.
   DiscardPadding discard_padding_;
+
+  // Whether the frame was marked as a keyframe in the container.
   bool is_key_frame_;
+
+  // Check for double destruction. This field is not to be used.
+  // crbug.com/794740.
+  uint32_t destruction_ = 0x55555555;
 
   // Constructor helper method for memory allocations.
   void Initialize();

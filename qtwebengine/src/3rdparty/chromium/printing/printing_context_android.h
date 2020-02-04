@@ -5,8 +5,6 @@
 #ifndef PRINTING_PRINTING_CONTEXT_ANDROID_H_
 #define PRINTING_PRINTING_CONTEXT_ANDROID_H_
 
-#include <jni.h>
-
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
@@ -14,6 +12,8 @@
 #include "printing/printing_context.h"
 
 namespace printing {
+
+class MetafilePlayer;
 
 // Android subclass of PrintingContext. This class communicates with the
 // Java side through JNI.
@@ -24,9 +24,9 @@ class PRINTING_EXPORT PrintingContextAndroid : public PrintingContext {
 
   // Called when the page is successfully written to a PDF using the file
   // descriptor specified, or when the printing operation failed. On success,
-  // the PDF written to |fd| has |page_count| pages. Non-positive |page_count|
-  // indicates failure.
-  static void PdfWritingDone(int fd, int page_count);
+  // the PDF has |page_count| pages. Non-positive |page_count| indicates
+  // failure.
+  static void PdfWritingDone(int page_count);
 
   // Called from Java, when printing settings from the user are ready or the
   // printing operation is canceled.
@@ -38,11 +38,14 @@ class PRINTING_EXPORT PrintingContextAndroid : public PrintingContext {
   void ShowSystemDialogDone(JNIEnv* env,
                             const base::android::JavaParamRef<jobject>& obj);
 
+  // Prints the document contained in |metafile|.
+  void PrintDocument(const MetafilePlayer& metafile);
+
   // PrintingContext implementation.
   void AskUserForSettings(int max_pages,
                           bool has_selection,
                           bool is_scripted,
-                          const PrintSettingsCallback& callback) override;
+                          PrintSettingsCallback callback) override;
   Result UseDefaultSettings() override;
   gfx::Size GetPdfPaperSizeDeviceUnits() override;
   Result UpdatePrinterSettings(bool external_preview,
@@ -54,17 +57,19 @@ class PRINTING_EXPORT PrintingContextAndroid : public PrintingContext {
   Result DocumentDone() override;
   void Cancel() override;
   void ReleaseContext() override;
-  skia::NativeDrawingContext context() const override;
-
-  // Registers JNI bindings for RegisterContext.
-  static bool RegisterPrintingContext(JNIEnv* env);
+  printing::NativeDrawingContext context() const override;
 
  private:
+  // TODO(thestig): Use |base::kInvalidFd| once available.
+  bool is_file_descriptor_valid() const { return fd_ > -1; }
+
   base::android::ScopedJavaGlobalRef<jobject> j_printing_context_;
 
   // The callback from AskUserForSettings to be called when the settings are
   // ready on the Java side
   PrintSettingsCallback callback_;
+
+  int fd_ = -1;
 
   DISALLOW_COPY_AND_ASSIGN(PrintingContextAndroid);
 };

@@ -17,8 +17,9 @@
   <template>
     <style include="settings-shared action-link">
       .extension-engines,
-      #noOtherEngines {
-        @apply(--settings-list-frame-padding);
+      #noOtherEngines,
+      .no-search-results {
+        @apply --settings-list-frame-padding;
       }
 
       settings-omnibox-extension-entry {
@@ -28,35 +29,53 @@
     <div class="settings-box first">
       <h2>$i18n{searchEnginesDefault}</h2>
     </div>
-    <settings-search-engines-list engines="[[defaultEngines]]">
+    <div class="no-search-results" hidden="[[matchingDefaultEngines_.length]]">
+      $i18n{searchNoResults}
+    </div>
+    <settings-search-engines-list fixed-height
+        hidden="[[!matchingDefaultEngines_.length]]"
+        engines="[[matchingDefaultEngines_]]">
     </settings-search-engines-list>
-    <template is="dom-if" if="[[showAddSearchEngineDialog_]]" restamp>
-      <settings-search-engine-dialog></settings-search-engine-dialog>
+    <template is="dom-if" if="[[showDialog_]]" restamp>
+      <settings-search-engine-dialog model="[[dialogModel_]]"
+          on-close="onCloseDialog_">
+      </settings-search-engine-dialog>
     </template>
 
     <div class="settings-box first">
       <h2 class="start">$i18n{searchEnginesOther}</h2>
       <paper-button class="secondary-button header-aligned-button"
-          on-tap="onAddSearchEngineTap_" id="addSearchEngine">
+          on-click="onAddSearchEngineTap_" id="addSearchEngine">
         $i18n{add}
       </paper-button>
     </div>
     <div id="noOtherEngines" hidden="[[otherEngines.length]]">
       $i18n{searchEnginesNoOtherEngines}
     </div>
-    <settings-search-engines-list id="otherEngines" engines="[[otherEngines]]"
-          hide-headers scroll-target="[[subpageScrollTarget]]">
+    <div class="no-search-results"
+        hidden="[[!showNoResultsMessage_(
+            otherEngines, matchingOtherEngines_)]]">
+      $i18n{searchNoResults}
+    </div>
+    <settings-search-engines-list id="otherEngines"
+        hidden="[[!matchingOtherEngines_.length]]"
+        engines="[[matchingOtherEngines_]]"
+        scroll-target="[[subpageScrollTarget]]">
     </settings-search-engines-list>
     <template is="dom-if" if="[[showExtensionsList_]]">
       <div class="settings-box first">
         <h2>$i18n{searchEnginesExtension}</h2>
       </div>
-      <iron-list id="extensions" class="extension-engines fixed-height-list"
-          items="[[extensions]]" preserve-focus>
+      <div class="no-search-results" hidden="[[matchingExtensions_.length]]">
+        $i18n{searchNoResults}
+      </div>
+      <iron-list id="extensions" class="extension-engines"
+          items="[[matchingExtensions_]]" preserve-focus risk-selection>
         <template>
           <settings-omnibox-extension-entry engine="[[item]]"
               tabindex$="[[tabIndex]]" iron-list-tab-index="[[tabIndex]]"
-              last-focused="{{omniboxExtensionlastFocused_}}">
+              last-focused="{{omniboxExtensionlastFocused_}}"
+              list-blurred="{{omniboxExtensionListBlurred_}}">
           </settings-omnibox-extension-entry>
         </template>
       </iron-list>

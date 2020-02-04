@@ -8,6 +8,7 @@
 #include <set>
 #include <vector>
 
+#include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "chrome/common/extensions/api/automation_internal.h"
@@ -15,6 +16,9 @@
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/common/extension_id.h"
+#include "extensions/common/extension_messages.h"
+#include "ui/accessibility/ax_event_bundle_sink.h"
+#include "ui/accessibility/ax_tree_id.h"
 
 class Profile;
 
@@ -22,43 +26,55 @@ namespace content {
 class BrowserContext;
 }  // namespace content
 
-struct ExtensionMsg_AccessibilityEventParams;
+namespace ui {
+struct AXActionData;
+}  // namespace ui
+
+struct ExtensionMsg_AccessibilityEventBundleParams;
 struct ExtensionMsg_AccessibilityLocationChangeParams;
 
 namespace extensions {
 struct AutomationListener;
 
-class AutomationEventRouter : public content::NotificationObserver {
+class AutomationEventRouter : public ui::AXEventBundleSink,
+                              public content::NotificationObserver {
  public:
   static AutomationEventRouter* GetInstance();
 
-  // Indicates that the listener at |listener_process_id|, |listener_routing_id|
-  // wants to receive automation events from the accessibility tree indicated
-  // by |source_ax_tree_id|. Automation events are forwarded from now on
-  // until the listener process dies.
+  // Indicates that the listener at |listener_process_id| wants to receive
+  // automation events from the accessibility tree indicated by
+  // |source_ax_tree_id|. Automation events are forwarded from now on until the
+  // listener process dies.
   void RegisterListenerForOneTree(const ExtensionId& extension_id,
                                   int listener_process_id,
-                                  int listener_routing_id,
-                                  int source_ax_tree_id);
+                                  ui::AXTreeID source_ax_tree_id);
 
-  // Indicates that the listener at |listener_process_id|, |listener_routing_id|
-  // wants to receive automation events from all accessibility trees because
-  // it has Desktop permission.
+  // Indicates that the listener at |listener_process_id| wants to receive
+  // automation events from all accessibility trees because it has Desktop
+  // permission.
   void RegisterListenerWithDesktopPermission(const ExtensionId& extension_id,
-                                             int listener_process_id,
-                                             int listener_routing_id);
+                                             int listener_process_id);
 
-  void DispatchAccessibilityEvent(
-      const ExtensionMsg_AccessibilityEventParams& params);
+  void DispatchAccessibilityEvents(
+      const ExtensionMsg_AccessibilityEventBundleParams& events);
 
   void DispatchAccessibilityLocationChange(
       const ExtensionMsg_AccessibilityLocationChangeParams& params);
 
   // Notify all automation extensions that an accessibility tree was
   // destroyed. If |browser_context| is null,
-  void DispatchTreeDestroyedEvent(
-      int tree_id,
-      content::BrowserContext* browser_context);
+  void DispatchTreeDestroyedEvent(ui::AXTreeID tree_id,
+                                  content::BrowserContext* browser_context);
+
+  // Notify the source extension of the action of an action result.
+  void DispatchActionResult(const ui::AXActionData& data, bool result);
+
+  void SetTreeDestroyedCallbackForTest(
+      base::RepeatingCallback<void(ui::AXTreeID)> cb);
+
+  // Notify the source extension of the result to getTextLocation.
+  void DispatchGetTextLocationDataResult(const ui::AXActionData& data,
+                                         const base::Optional<gfx::Rect>& rect);
 
  private:
   struct AutomationListener {
@@ -67,22 +83,25 @@ class AutomationEventRouter : public content::NotificationObserver {
     ~AutomationListener();
 
     ExtensionId extension_id;
-    int routing_id;
     int process_id;
     bool desktop;
-    std::set<int> tree_ids;
+    std::set<ui::AXTreeID> tree_ids;
     bool is_active_profile;
   };
 
   AutomationEventRouter();
   ~AutomationEventRouter() override;
 
-  void Register(
-      const ExtensionId& extension_id,
-      int listener_process_id,
-      int listener_routing_id,
-      int source_ax_tree_id,
-      bool desktop);
+  void Register(const ExtensionId& extension_id,
+                int listener_process_id,
+                ui::AXTreeID source_ax_tree_id,
+                bool desktop);
+
+  // ui::AXEventBundleSink:
+  void DispatchAccessibilityEvents(const ui::AXTreeID& tree_id,
+                                   std::vector<ui::AXTreeUpdate> updates,
+                                   const gfx::Point& mouse_location,
+                                   std::vector<ui::AXEvent> events) override;
 
   // content::NotificationObserver interface.
   void Observe(int type,
@@ -105,6 +124,8 @@ class AutomationEventRouter : public content::NotificationObserver {
   std::vector<AutomationListener> listeners_;
 
   Profile* active_profile_;
+
+  base::RepeatingCallback<void(ui::AXTreeID)> tree_destroyed_callback_for_test_;
 
   friend struct base::DefaultSingletonTraits<AutomationEventRouter>;
 

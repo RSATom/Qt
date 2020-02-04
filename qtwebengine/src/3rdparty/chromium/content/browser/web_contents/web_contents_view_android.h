@@ -15,31 +15,35 @@
 #include "content/public/common/drop_data.h"
 #include "ui/android/overscroll_refresh.h"
 #include "ui/android/view_android.h"
-#include "ui/android/view_client.h"
+#include "ui/android/view_android_observer.h"
+#include "ui/events/android/event_handler_android.h"
 #include "ui/gfx/geometry/rect_f.h"
 
 namespace content {
-class ContentViewCore;
+class ContentUiEventHandler;
 class RenderWidgetHostViewAndroid;
+class SelectPopup;
+class SelectionPopupController;
 class SynchronousCompositorClient;
 class WebContentsImpl;
 
 // Android-specific implementation of the WebContentsView.
 class WebContentsViewAndroid : public WebContentsView,
                                public RenderViewHostDelegateView,
-                               public ui::ViewClient {
+                               public ui::EventHandlerAndroid {
  public:
   WebContentsViewAndroid(WebContentsImpl* web_contents,
                          WebContentsViewDelegate* delegate);
   ~WebContentsViewAndroid() override;
 
-  // Sets the interface to the view system. ContentViewCore is owned
-  // by its Java ContentViewCore counterpart, whose lifetime is managed
-  // by the UI frontend.
-  void SetContentViewCore(ContentViewCore* content_view_core);
+  void SetContentUiEventHandler(std::unique_ptr<ContentUiEventHandler> handler);
 
   void set_synchronous_compositor_client(SynchronousCompositorClient* client) {
     synchronous_compositor_client_ = client;
+  }
+
+  void set_selection_popup_controller(SelectionPopupController* controller) {
+    selection_popup_controller_ = controller;
   }
 
   SynchronousCompositorClient* synchronous_compositor_client() const {
@@ -55,13 +59,13 @@ class WebContentsViewAndroid : public WebContentsView,
   gfx::NativeView GetNativeView() const override;
   gfx::NativeView GetContentNativeView() const override;
   gfx::NativeWindow GetTopLevelNativeWindow() const override;
-  void GetScreenInfo(ScreenInfo* screen_info) const override;
   void GetContainerBounds(gfx::Rect* out) const override;
   void SizeContents(const gfx::Size& size) override;
   void Focus() override;
   void SetInitialFocus() override;
   void StoreFocus() override;
   void RestoreFocus() override;
+  void FocusThroughTabTraversal(bool reverse) override;
   DropData* GetDropData() const override;
   gfx::Rect GetViewBounds() const override;
   void CreateView(const gfx::Size& initial_size,
@@ -69,11 +73,13 @@ class WebContentsViewAndroid : public WebContentsView,
   RenderWidgetHostViewBase* CreateViewForWidget(
       RenderWidgetHost* render_widget_host,
       bool is_guest_view_hack) override;
-  RenderWidgetHostViewBase* CreateViewForPopupWidget(
+  RenderWidgetHostViewBase* CreateViewForChildWidget(
       RenderWidgetHost* render_widget_host) override;
   void SetPageTitle(const base::string16& title) override;
   void RenderViewCreated(RenderViewHost* host) override;
-  void RenderViewSwappedIn(RenderViewHost* host) override;
+  void RenderViewReady() override;
+  void RenderViewHostChanged(RenderViewHost* old_host,
+                             RenderViewHost* new_host) override;
   void SetOverscrollControllerEnabled(bool enabled) override;
 
   // Backend implementation of RenderViewHostDelegateView.
@@ -99,31 +105,47 @@ class WebContentsViewAndroid : public WebContentsView,
   void GotFocus(RenderWidgetHostImpl* render_widget_host) override;
   void LostFocus(RenderWidgetHostImpl* render_widget_host) override;
   void TakeFocus(bool reverse) override;
+  int GetTopControlsHeight() const override;
+  int GetBottomControlsHeight() const override;
+  bool DoBrowserControlsShrinkRendererSize() const override;
 
-  // ui::ViewClient implementation.
-  bool OnTouchEvent(const ui::MotionEventAndroid& event,
-                    bool for_touch_handle) override;
+  // ui::EventHandlerAndroid implementation.
+  bool OnTouchEvent(const ui::MotionEventAndroid& event) override;
   bool OnMouseEvent(const ui::MotionEventAndroid& event) override;
   bool OnDragEvent(const ui::DragEventAndroid& event) override;
+  bool OnGenericMotionEvent(const ui::MotionEventAndroid& event) override;
+  bool OnKeyUp(const ui::KeyEventAndroid& event) override;
+  bool DispatchKeyEvent(const ui::KeyEventAndroid& event) override;
+  bool ScrollBy(float delta_x, float delta_y) override;
+  bool ScrollTo(float x, float y) override;
+  void OnSizeChanged() override;
   void OnPhysicalBackingSizeChanged() override;
+
+  void SetFocus(bool focused);
+  void set_device_orientation(int orientation) {
+    device_orientation_ = orientation;
+  }
 
  private:
   void OnDragEntered(const std::vector<DropData::Metadata>& metadata,
-                     const gfx::Point& location,
-                     const gfx::Point& screen_location);
-  void OnDragUpdated(const gfx::Point& location,
-                     const gfx::Point& screen_location);
+                     const gfx::PointF& location,
+                     const gfx::PointF& screen_location);
+  void OnDragUpdated(const gfx::PointF& location,
+                     const gfx::PointF& screen_location);
   void OnDragExited();
   void OnPerformDrop(DropData* drop_data,
-                     const gfx::Point& location,
-                     const gfx::Point& screen_location);
+                     const gfx::PointF& location,
+                     const gfx::PointF& screen_location);
   void OnDragEnded();
+  void OnSystemDragEnded();
+
+  SelectPopup* GetSelectPopup();
 
   // The WebContents whose contents we display.
   WebContentsImpl* web_contents_;
 
-  // ContentViewCore is our interface to the view system.
-  ContentViewCore* content_view_core_;
+  // Handles UI events in Java layer when necessary.
+  std::unique_ptr<ContentUiEventHandler> content_ui_event_handler_;
 
   // Handles "overscroll to refresh" events
   std::unique_ptr<ui::OverscrollRefreshHandler> overscroll_refresh_handler_;
@@ -136,6 +158,16 @@ class WebContentsViewAndroid : public WebContentsView,
 
   // Interface used to get notified of events from the synchronous compositor.
   SynchronousCompositorClient* synchronous_compositor_client_;
+
+  SelectionPopupController* selection_popup_controller_ = nullptr;
+
+  int device_orientation_ = 0;
+
+  // Show/hide popup UI for <select> tag.
+  std::unique_ptr<SelectPopup> select_popup_;
+
+  gfx::PointF drag_location_;
+  gfx::PointF drag_screen_location_;
 
   DISALLOW_COPY_AND_ASSIGN(WebContentsViewAndroid);
 };

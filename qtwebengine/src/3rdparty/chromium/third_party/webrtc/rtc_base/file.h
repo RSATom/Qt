@@ -8,16 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_FILE_H_
-#define WEBRTC_RTC_BASE_FILE_H_
+#ifndef RTC_BASE_FILE_H_
+#define RTC_BASE_FILE_H_
 
+#include <stddef.h>
 #include <stdint.h>
-
 #include <string>
 
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/pathutils.h"
-#include "webrtc/rtc_base/platform_file.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/platform_file.h"
 
 namespace rtc {
 
@@ -40,17 +39,11 @@ class File {
 
   // Open and Create give files with both reading and writing enabled.
   static File Open(const std::string& path);
-  static File Open(Pathname&& path);
-  static File Open(const Pathname& path);
   // If the file already exists it will be overwritten.
   static File Create(const std::string& path);
-  static File Create(Pathname&& path);
-  static File Create(const Pathname& path);
 
   // Remove a file in the file system.
   static bool Remove(const std::string& path);
-  static bool Remove(Pathname&& path);
-  static bool Remove(const Pathname& path);
 
   size_t Write(const uint8_t* data, size_t length);
   size_t Read(uint8_t* buffer, size_t length);
@@ -79,4 +72,4 @@ class File {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_FILE_H_
+#endif  // RTC_BASE_FILE_H_

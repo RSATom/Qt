@@ -63,7 +63,7 @@ void QFreeTypeFontDatabase::populateFontDatabase()
 
     if (!dir.exists()) {
         qWarning("QFontDatabase: Cannot find font directory %s.\n"
-                 "Note that Qt no longer ships fonts. Deploy some (from http://dejavu-fonts.org for example) or switch to fontconfig.",
+                 "Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.",
                  qPrintable(fontpath));
         return;
     }
@@ -142,7 +142,6 @@ QStringList QFreeTypeFontDatabase::addTTFile(const QByteArray &fontData, const Q
             weight = QFont::Bold;
 
         bool fixedPitch = (face->face_flags & FT_FACE_FLAG_FIXED_WIDTH);
-
         QSupportedWritingSystems writingSystems;
         // detect symbol fonts
         for (int i = 0; i < face->num_charmaps; ++i) {

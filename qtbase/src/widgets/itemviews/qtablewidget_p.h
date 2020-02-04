@@ -62,9 +62,6 @@ QT_REQUIRE_CONFIG(tablewidget);
 
 QT_BEGIN_NAMESPACE
 
-// workaround for VC++ 6.0 linker bug
-typedef bool(*LessThan)(const QPair<QTableWidgetItem*,int>&,const QPair<QTableWidgetItem*,int>&);
-
 class QTableWidgetMimeData : public QMimeData
 {
     Q_OBJECT
@@ -132,6 +129,9 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role) override;
     bool setItemData(const QModelIndex &index, const QMap<int, QVariant> &roles) override;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool clearItemData(const QModelIndex &index) override;
+#endif
 
     QMap<int, QVariant> itemData(const QModelIndex &index) const override;
 
@@ -160,7 +160,7 @@ public:
 
     void clear();
     void clearContents();
-    void itemChanged(QTableWidgetItem *item);
+    void itemChanged(QTableWidgetItem *item, const QVector<int> &roles = QVector<int>());
 
     QTableWidgetItem *createItem() const;
     const QTableWidgetItem *itemPrototype() const;

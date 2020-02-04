@@ -29,11 +29,11 @@
 #include "lineedit_taskmenu.h"
 #include "inplace_editor.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QStyle>
-#include <QtWidgets/QStyleOption>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qstyle.h>
+#include <QtWidgets/qstyleoption.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -46,7 +46,7 @@ public:
     LineEditTaskMenuInlineEditor(QLineEdit *button, QObject *parent);
 
 protected:
-    QRect editRectangle() const Q_DECL_OVERRIDE;
+    QRect editRectangle() const override;
 };
 
 LineEditTaskMenuInlineEditor::LineEditTaskMenuInlineEditor(QLineEdit *w, QObject *parent) :

@@ -13,7 +13,15 @@ won't be included by default. Here's how to enable it.
 First follow the public instructions for
 [Chrome checkout and build](https://www.chromium.org/developers/how-tos/get-the-code).
 
-Create a GN configuration with "chromeos" as the target OS, for example:
+Edit `.gclient` (in `chromium/`) and at the bottom add:
+
+```
+target_os = ["chromeos"]
+```
+
+Run `gclient sync` to update your checkout.
+
+Then create a GN configuration with "chromeos" as the target OS, for example:
 
 ```
 gn args out/cros
@@ -35,7 +43,7 @@ your file anywhere!
 Now build Chrome as usual, e.g.:
 
 ```
-ninja -C out/cros chrome
+autoninja -C out/cros chrome
 ```
 
 And run it as usual to see a mostly-complete Chrome OS desktop inside
@@ -59,6 +67,12 @@ manager key combo conflicts) by doing something like
 startx out/cros/chrome
 ```
 
+NOTE: if you decide to run Chrome OS under linux within a window manager, you
+are subject to its keybindings which will most certainly conflict with
+ChromeVox. The Search key (which gets mapped from LWIN/key code 91), usually
+gets assigned to numerous shortcut combinations. You can manually disable all
+such combinations, or run under X as described above.
+
 ## Speech
 
 If you want speech, you just need to copy the speech synthesis data files to
@@ -80,7 +94,14 @@ architecture:
 
 ```
 PATTS_DIR=/usr/share/chromeos-assets/speech_synthesis/patts
-sudo unzip $PATTS_DIR/tts_service_x86-64.nexe.zip -d $PATTS_DIR 
+sudo unzip $PATTS_DIR/tts_service_x86_64.nexe.zip -d $PATTS_DIR
+```
+
+You may need to update permissions for the unzipped files within within
+speech_synthesis/patts:
+
+```
+sudo find $PATTS_DIR -type f -exec chmod 755 {} \;
 ```
 
 **Be sure to check permissions of /usr/share/chromeos-assets, some users report
@@ -88,6 +109,19 @@ they need to chmod or chown too, it really depends on your system.**
 
 After you do that, just run "chrome" as above (e.g. out/cros/chrome) and press
 Ctrl+Alt+Z, and you should hear it speak! If not, check the logs.
+
+### eSpeak
+
+To get [eSpeak](espeak.md) on Chrome OS on Desktop Linux, copy the eSpeak
+extension (chrome branch) to the same place:
+
+```
+cd ~
+git clone https://chromium.googlesource.com/chromiumos/third_party/espeak-ng
+cd espeak-ng
+git checkout chrome
+sudo cp -r chrome-extension /usr/share/chromeos-assets/speech_synthesis/espeak-ng
+```
 
 ## Braille
 
@@ -97,6 +131,11 @@ and uses Liblouis to perform translation and backtranslation.
 Once built, Chrome and ChromeVox will use your machine’s running Brltty
 daemon to display braille if ChromeVox is running. Simply ensure you have a
 display connected before running Chrome and that Brltty is running.
+
+Note you may need to customize brltty.conf (typically found in /etc).
+In particular, the api-parameters Auth param may exclude the current user.
+You can turn this off by doing:
+api-parameters Auth=none
 
 Testing against the latest releases of Brltty (e.g. 5.4 at time of writing) is
 encouraged.

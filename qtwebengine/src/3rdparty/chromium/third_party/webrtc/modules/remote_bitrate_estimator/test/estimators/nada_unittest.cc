@@ -8,19 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/remote_bitrate_estimator/test/estimators/nada.h"
+#include "modules/remote_bitrate_estimator/test/estimators/nada.h"
 
+#include <math.h>
+#include <stddef.h>
 #include <algorithm>
 #include <memory>
-#include <numeric>
 
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe_test_framework.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/packet.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/packet_sender.h"
-#include "webrtc/rtc_base/arraysize.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "modules/remote_bitrate_estimator/test/packet.h"
+#include "rtc_base/arraysize.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 namespace testing {
@@ -426,8 +423,8 @@ TEST_F(NadaReceiverSideTest, FeedbackWarpedDelay) {
   // Raw delays are = [50 250 450 650 850 1050 1250 1450] ms.
   // Baseline delay will be 50 ms.
   // Delay signals should be: [0 200 400 600 800 1000 1200 1400] ms.
-  const int64_t kMedianFilteredDelaysMs[] = {
-      0, 100, 200, 300, 400, 600, 800, 1000};
+  const int64_t kMedianFilteredDelaysMs[] = {0,   100, 200, 300,
+                                             400, 600, 800, 1000};
   const int kNumPackets = arraysize(kMedianFilteredDelaysMs);
   const float kAlpha = 0.1f;  // Used for exponential smoothing.
 

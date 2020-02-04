@@ -8,76 +8,12 @@
  * settings.
  */
 
-cr.exportPath('settings');
-
-/**
- * Describes the status of the auto-detect policy.
- * @enum {number}
- */
-settings.TimeZoneAutoDetectPolicy = {
-  NONE: 0,
-  FORCED_ON: 1,
-  FORCED_OFF: 2,
-};
-
 Polymer({
   is: 'settings-date-time-page',
 
-  behaviors: [PrefsBehavior, WebUIListenerBehavior],
+  behaviors: [I18nBehavior, PrefsBehavior, WebUIListenerBehavior],
 
   properties: {
-    /**
-     * The time zone auto-detect policy.
-     * @private {settings.TimeZoneAutoDetectPolicy}
-     */
-    timeZoneAutoDetectPolicy_: {
-      type: Boolean,
-      value: function() {
-        if (!loadTimeData.valueExists('timeZoneAutoDetectValueFromPolicy'))
-          return settings.TimeZoneAutoDetectPolicy.NONE;
-        return loadTimeData.getBoolean('timeZoneAutoDetectValueFromPolicy') ?
-            settings.TimeZoneAutoDetectPolicy.FORCED_ON :
-            settings.TimeZoneAutoDetectPolicy.FORCED_OFF;
-      },
-    },
-
-    /**
-     * Whether a policy controls the time zone auto-detect setting.
-     * @private
-     */
-    hasTimeZoneAutoDetectPolicy_: {
-      type: Boolean,
-      computed:
-          'computeHasTimeZoneAutoDetectPolicy_(timeZoneAutoDetectPolicy_)',
-    },
-
-    /**
-     * The effective time zone auto-detect setting.
-     * @private
-     */
-    timeZoneAutoDetect_: {
-      type: Boolean,
-      computed: 'computeTimeZoneAutoDetect_(' +
-          'timeZoneAutoDetectPolicy_,' +
-          'prefs.settings.resolve_timezone_by_geolocation.value)',
-    },
-
-    /**
-     * Initialized with the current time zone so the menu displays the
-     * correct value. The full option list is fetched lazily if necessary by
-     * maybeGetTimeZoneList_.
-     * @private {!DropdownMenuOptionList}
-     */
-    timeZoneList_: {
-      type: Array,
-      value: function() {
-        return [{
-          name: loadTimeData.getString('timeZoneName'),
-          value: loadTimeData.getString('timeZoneID'),
-        }];
-      },
-    },
-
     /**
      * Whether date and time are settable. Normally the date and time are forced
      * by network time, so default to false to initially hide the button.
@@ -87,39 +23,37 @@ Polymer({
       type: Boolean,
       value: false,
     },
-  },
 
-  observers: [
-    'maybeGetTimeZoneList_(' +
-        'prefs.cros.system.timezone.value, timeZoneAutoDetect_)',
-  ],
+    /**
+     * This is used to get current time zone display name from
+     * <timezone-selector> via bi-directional binding.
+     */
+    activeTimeZoneDisplayName: {
+      type: String,
+      value: loadTimeData.getString('timeZoneName'),
+    },
+
+    /** @private {!Map<string, string>} */
+    focusConfig_: {
+      type: Object,
+      value: function() {
+        const map = new Map();
+        if (settings.routes.DATETIME_TIMEZONE_SUBPAGE) {
+          map.set(
+              settings.routes.DATETIME_TIMEZONE_SUBPAGE.path,
+              '#timeZoneSettingsTrigger .subpage-arrow button');
+        }
+        return map;
+      },
+    },
+  },
 
   /** @override */
   attached: function() {
     this.addWebUIListener(
-        'time-zone-auto-detect-policy',
-        this.onTimeZoneAutoDetectPolicyChanged_.bind(this));
-    this.addWebUIListener(
         'can-set-date-time-changed', this.onCanSetDateTimeChanged_.bind(this));
 
     chrome.send('dateTimePageReady');
-    this.maybeGetTimeZoneList_();
-  },
-
-  /**
-   * @param {boolean} managed Whether the auto-detect setting is controlled.
-   * @param {boolean} valueFromPolicy The value of the auto-detect setting
-   *     forced by policy.
-   * @private
-   */
-  onTimeZoneAutoDetectPolicyChanged_: function(managed, valueFromPolicy) {
-    if (managed) {
-      this.timeZoneAutoDetectPolicy_ = valueFromPolicy ?
-          settings.TimeZoneAutoDetectPolicy.FORCED_ON :
-          settings.TimeZoneAutoDetectPolicy.FORCED_OFF;
-    } else {
-      this.timeZoneAutoDetectPolicy_ = settings.TimeZoneAutoDetectPolicy.NONE;
-    }
   },
 
   /**
@@ -130,78 +64,33 @@ Polymer({
     this.canSetDateTime_ = canSetDateTime;
   },
 
-  /**
-   * @param {!Event} e
-   * @private
-   */
-  onTimeZoneAutoDetectChange_: function(e) {
-    this.setPrefValue(
-        'settings.resolve_timezone_by_geolocation', e.target.checked);
-  },
-
   /** @private */
   onSetDateTimeTap_: function() {
     chrome.send('showSetDateTimeUI');
   },
 
   /**
-   * @param {settings.TimeZoneAutoDetectPolicy} timeZoneAutoDetectPolicy
-   * @return {boolean}
+   * Returns display name of the given time zone detection method.
+   * @param {settings.TimeZoneAutoDetectMethod} method
+   *     prefs.generated.resolve_timezone_by_geolocation_method_short.value
+   * @return {string}
    * @private
    */
-  computeHasTimeZoneAutoDetectPolicy_: function(timeZoneAutoDetectPolicy) {
-    return timeZoneAutoDetectPolicy != settings.TimeZoneAutoDetectPolicy.NONE;
-  },
-
-  /**
-   * @param {settings.TimeZoneAutoDetectPolicy} timeZoneAutoDetectPolicy
-   * @param {boolean} prefValue Value of the geolocation pref.
-   * @return {boolean} Whether time zone auto-detect is enabled.
-   * @private
-   */
-  computeTimeZoneAutoDetect_: function(timeZoneAutoDetectPolicy, prefValue) {
-    switch (timeZoneAutoDetectPolicy) {
-      case settings.TimeZoneAutoDetectPolicy.NONE:
-        return prefValue;
-      case settings.TimeZoneAutoDetectPolicy.FORCED_ON:
-        return true;
-      case settings.TimeZoneAutoDetectPolicy.FORCED_OFF:
-        return false;
-      default:
-        assertNotReached();
-    }
-  },
-
-  /**
-   * Fetches the list of time zones if necessary.
-   * @private
-   */
-  maybeGetTimeZoneList_: function() {
-    // Only fetch the list once.
-    if (this.timeZoneList_.length > 1 || !CrSettingsPrefs.isInitialized)
-      return;
-
-    // If auto-detect is enabled, we only need the current time zone.
-    if (this.timeZoneAutoDetect_ &&
-        this.getPref('cros.system.timezone').value ==
-            this.timeZoneList_[0].value) {
-      return;
+  getTimeZoneAutoDetectMethodDisplayName_: function(method) {
+    const id = ([
+      'setTimeZoneAutomaticallyDisabled',
+      'setTimeZoneAutomaticallyIpOnlyDefault',
+      'setTimeZoneAutomaticallyWithWiFiAccessPointsData',
+      'setTimeZoneAutomaticallyWithAllLocationInfo'
+    ])[method];
+    if (id) {
+      return this.i18n(id);
     }
 
-    cr.sendWithPromise('getTimeZones').then(this.setTimeZoneList_.bind(this));
+    return '';
   },
 
-  /**
-   * Converts the C++ response into an array of menu options.
-   * @param {!Array<!Array<string>>} timeZones C++ time zones response.
-   * @private
-   */
-  setTimeZoneList_: function(timeZones) {
-    this.timeZoneList_ = timeZones.map(function(timeZonePair) {
-      return {
-        name: timeZonePair[1],
-        value: timeZonePair[0],
-      };
-    });
+  onTimeZoneSettings_: function() {
+    settings.navigateTo(settings.routes.DATETIME_TIMEZONE_SUBPAGE);
   },
 });

@@ -54,8 +54,9 @@ QT_BEGIN_NAMESPACE
 class QAndroidServicePrivate : public QObject, public QtAndroidPrivate::OnBindListener
 {
 public:
-    QAndroidServicePrivate(QAndroidService *service)
+    QAndroidServicePrivate(QAndroidService *service, const std::function<QAndroidBinder *(const QAndroidIntent &)> &binder = {})
         : m_service(service)
+        , m_binder(binder)
     {
         QTimer::singleShot(0,this, [this]{ QtAndroidPrivate::setOnBindListener(this);});
     }
@@ -74,7 +75,8 @@ public:
     // OnBindListener interface
     jobject onBind(jobject intent) override
     {
-        auto binder = m_service->onBind(QAndroidIntent(intent));
+        auto qai = QAndroidIntent(intent);
+        auto binder = m_binder ? m_binder(qai) : m_service->onBind(qai);
         if (binder) {
             {
                 QMutexLocker lock(&m_bindersMutex);
@@ -93,8 +95,9 @@ private:
         m_binders.remove(obj);
     }
 
-private:
-    QAndroidService *m_service;
+public:
+    QAndroidService *m_service = nullptr;
+    std::function<QAndroidBinder *(const QAndroidIntent &)> m_binder;
     QMutex m_bindersMutex;
     QSet<QAndroidBinder*> m_binders;
 };
@@ -111,13 +114,34 @@ private:
 
 
 /*!
-    Creates a new Android Service
+    \fn QAndroidService::QAndroidService(int &argc, char **argv)
+
+    Creates a new Android service, passing \a argc and \a argv as parameters.
+
+    //! Parameter \a flags is omitted in the documentation.
 
     \sa QCoreApplication
  */
 QAndroidService::QAndroidService(int &argc, char **argv, int flags)
     : QCoreApplication (argc, argv, QtAndroidPrivate::acuqireServiceSetup(flags))
-    , d(new QAndroidServicePrivate(this))
+    , d(new QAndroidServicePrivate{this})
+{
+}
+
+/*!
+    \fn QAndroidService::QAndroidService(int &argc, char **argv, const std::function<QAndroidBinder *(const QAndroidIntent &)> &binder)
+
+    Creates a new Android service, passing \a argc and \a argv as parameters.
+
+    \a binder is used to create a \l {QAndroidBinder}{binder} when needed.
+
+    //! Parameter \a flags is omitted in the documentation.
+
+    \sa QCoreApplication
+ */
+QAndroidService::QAndroidService(int &argc, char **argv, const std::function<QAndroidBinder *(const QAndroidIntent &)> &binder, int flags)
+    : QCoreApplication (argc, argv, QtAndroidPrivate::acuqireServiceSetup(flags))
+    , d(new QAndroidServicePrivate{this, binder})
 {
 }
 

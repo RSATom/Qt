@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -41,6 +41,7 @@
 #include "geotiledmappingmanagerengine_esri.h"
 #include "geocodingmanagerengine_esri.h"
 #include "georoutingmanagerengine_esri.h"
+#include "placemanagerengine_esri.h"
 
 #include <QtLocation/private/qgeotiledmappingmanagerengine_p.h>
 
@@ -76,11 +77,7 @@ QGeoRoutingManagerEngine *GeoServiceProviderFactoryEsri::createRoutingManagerEng
 QPlaceManagerEngine *GeoServiceProviderFactoryEsri::createPlaceManagerEngine(
     const QVariantMap &parameters, QGeoServiceProvider::Error *error, QString *errorString) const
 {
-    Q_UNUSED(parameters)
-    Q_UNUSED(error)
-    Q_UNUSED(errorString)
-
-    return Q_NULLPTR;
+    return new PlaceManagerEngineEsri(parameters, error, errorString);
 }
 
 QT_END_NAMESPACE

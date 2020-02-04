@@ -6,31 +6,54 @@
 
 #include "core/fxcrt/xml/cfx_xmlinstruction.h"
 
+#include <utility>
+
+#include "core/fxcrt/fx_codepage.h"
 #include "core/fxcrt/fx_extension.h"
-#include "third_party/base/ptr_util.h"
-#include "third_party/base/stl_util.h"
+#include "core/fxcrt/xml/cfx_xmldocument.h"
 
-CFX_XMLInstruction::CFX_XMLInstruction(const CFX_WideString& wsTarget)
-    : CFX_XMLAttributeNode(wsTarget) {}
+CFX_XMLInstruction::CFX_XMLInstruction(const WideString& wsTarget)
+    : name_(wsTarget) {}
 
-CFX_XMLInstruction::~CFX_XMLInstruction() {}
+CFX_XMLInstruction::~CFX_XMLInstruction() = default;
 
 FX_XMLNODETYPE CFX_XMLInstruction::GetType() const {
   return FX_XMLNODE_Instruction;
 }
 
-std::unique_ptr<CFX_XMLNode> CFX_XMLInstruction::Clone() {
-  auto pClone = pdfium::MakeUnique<CFX_XMLInstruction>(GetName());
-  pClone->SetAttributes(GetAttributes());
-  pClone->m_TargetData = m_TargetData;
-  return pClone;
+CFX_XMLNode* CFX_XMLInstruction::Clone(CFX_XMLDocument* doc) {
+  auto* node = doc->CreateNode<CFX_XMLInstruction>(name_);
+  node->target_data_ = target_data_;
+  return node;
 }
 
-void CFX_XMLInstruction::AppendData(const CFX_WideString& wsData) {
-  m_TargetData.push_back(wsData);
+void CFX_XMLInstruction::AppendData(const WideString& wsData) {
+  target_data_.push_back(wsData);
 }
 
-void CFX_XMLInstruction::RemoveData(int32_t index) {
-  if (pdfium::IndexInBounds(m_TargetData, index))
-    m_TargetData.erase(m_TargetData.begin() + index);
+bool CFX_XMLInstruction::IsOriginalXFAVersion() const {
+  return name_.EqualsASCII("originalXFAVersion");
+}
+
+bool CFX_XMLInstruction::IsAcrobat() const {
+  return name_.EqualsASCII("acrobat");
+}
+
+void CFX_XMLInstruction::Save(
+    const RetainPtr<IFX_SeekableWriteStream>& pXMLStream) {
+  if (name_.EqualsASCIINoCase("xml")) {
+    pXMLStream->WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    return;
+  }
+
+  pXMLStream->WriteString("<?");
+  pXMLStream->WriteString(name_.ToUTF8().AsStringView());
+  pXMLStream->WriteString(" ");
+
+  for (const WideString& target : target_data_) {
+    pXMLStream->WriteString(target.ToUTF8().AsStringView());
+    pXMLStream->WriteString(" ");
+  }
+
+  pXMLStream->WriteString("?>\n");
 }

@@ -60,9 +60,9 @@ class QGeoPositionInfoSourceFactoryGeoclue : public QObject, public QGeoPosition
     Q_INTERFACES(QGeoPositionInfoSourceFactory)
 
 public:
-    QGeoPositionInfoSource *positionInfoSource(QObject *parent) Q_DECL_OVERRIDE;
-    QGeoSatelliteInfoSource *satelliteInfoSource(QObject *parent) Q_DECL_OVERRIDE;
-    QGeoAreaMonitorSource *areaMonitor(QObject *parent) Q_DECL_OVERRIDE;
+    QGeoPositionInfoSource *positionInfoSource(QObject *parent) override;
+    QGeoSatelliteInfoSource *satelliteInfoSource(QObject *parent) override;
+    QGeoAreaMonitorSource *areaMonitor(QObject *parent) override;
 };
 
 QT_END_NAMESPACE

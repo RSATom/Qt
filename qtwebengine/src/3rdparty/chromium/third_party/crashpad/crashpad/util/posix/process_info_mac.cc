@@ -18,6 +18,7 @@
 
 #include "base/logging.h"
 #include "base/mac/mach_logging.h"
+#include "base/stl_util.h"
 
 namespace crashpad {
 
@@ -27,12 +28,12 @@ ProcessInfo::ProcessInfo() : kern_proc_info_(), initialized_() {
 ProcessInfo::~ProcessInfo() {
 }
 
-bool ProcessInfo::Initialize(pid_t pid) {
+bool ProcessInfo::InitializeWithPid(pid_t pid) {
   INITIALIZATION_STATE_SET_INITIALIZING(initialized_);
 
   int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
   size_t len = sizeof(kern_proc_info_);
-  if (sysctl(mib, arraysize(mib), &kern_proc_info_, &len, nullptr, 0) != 0) {
+  if (sysctl(mib, base::size(mib), &kern_proc_info_, &len, nullptr, 0) != 0) {
     PLOG(ERROR) << "sysctl for pid " << pid;
     return false;
   }
@@ -54,7 +55,7 @@ bool ProcessInfo::Initialize(pid_t pid) {
   return true;
 }
 
-bool ProcessInfo::InitializeFromTask(task_t task) {
+bool ProcessInfo::InitializeWithTask(task_t task) {
   pid_t pid;
   kern_return_t kr = pid_for_task(task, &pid);
   if (kr != KERN_SUCCESS) {
@@ -62,7 +63,7 @@ bool ProcessInfo::InitializeFromTask(task_t task) {
     return false;
   }
 
-  return Initialize(pid);
+  return InitializeWithPid(pid);
 }
 
 pid_t ProcessInfo::ProcessID() const {
@@ -111,7 +112,7 @@ std::set<gid_t> ProcessInfo::SupplementaryGroups() const {
   const short ngroups = kern_proc_info_.kp_eproc.e_ucred.cr_ngroups;
   DCHECK_GE(ngroups, 0);
   DCHECK_LE(static_cast<size_t>(ngroups),
-            arraysize(kern_proc_info_.kp_eproc.e_ucred.cr_groups));
+            base::size(kern_proc_info_.kp_eproc.e_ucred.cr_groups));
 
   const gid_t* groups = kern_proc_info_.kp_eproc.e_ucred.cr_groups;
   return std::set<gid_t>(&groups[0], &groups[ngroups]);
@@ -132,10 +133,9 @@ bool ProcessInfo::DidChangePrivileges() const {
   return kern_proc_info_.kp_proc.p_flag & P_SUGID;
 }
 
-bool ProcessInfo::Is64Bit(bool* is_64_bit) const {
+bool ProcessInfo::Is64Bit() const {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
-  *is_64_bit = kern_proc_info_.kp_proc.p_flag & P_LP64;
-  return true;
+  return kern_proc_info_.kp_proc.p_flag & P_LP64;
 }
 
 bool ProcessInfo::StartTime(timeval* start_time) const {
@@ -169,7 +169,7 @@ bool ProcessInfo::Arguments(std::vector<std::string>* argv) const {
   do {
     int mib[] = {CTL_KERN, KERN_PROCARGS2, pid};
     int rv =
-        sysctl(mib, arraysize(mib), nullptr, &args_size_estimate, nullptr, 0);
+        sysctl(mib, base::size(mib), nullptr, &args_size_estimate, nullptr, 0);
     if (rv != 0) {
       PLOG(ERROR) << "sysctl (size) for pid " << pid;
       return false;
@@ -177,7 +177,7 @@ bool ProcessInfo::Arguments(std::vector<std::string>* argv) const {
 
     args_size = args_size_estimate + 1;
     args.resize(args_size);
-    rv = sysctl(mib, arraysize(mib), &args[0], &args_size, nullptr, 0);
+    rv = sysctl(mib, base::size(mib), &args[0], &args_size, nullptr, 0);
     if (rv != 0) {
       PLOG(ERROR) << "sysctl (data) for pid " << pid;
       return false;

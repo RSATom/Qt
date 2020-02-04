@@ -15,7 +15,7 @@ class ThreadLocalTop;
 
 class ThreadState {
  public:
-  // Returns NULL after the last one.
+  // Returns nullptr after the last one.
   ThreadState* Next();
 
   enum List {FREE_LIST, IN_USE_LIST};
@@ -59,7 +59,7 @@ class ThreadVisitor {
   virtual void VisitThread(Isolate* isolate, ThreadLocalTop* top) = 0;
 
  protected:
-  virtual ~ThreadVisitor() {}
+  virtual ~ThreadVisitor() = default;
 };
 
 class ThreadManager {
@@ -67,6 +67,7 @@ class ThreadManager {
   void Lock();
   void Unlock();
 
+  void InitThread(const ExecutionAccess&);
   void ArchiveThread();
   bool RestoreThread();
   void FreeThreadResources();
@@ -87,7 +88,7 @@ class ThreadManager {
   ThreadState* GetFreeThreadState();
 
  private:
-  ThreadManager();
+  explicit ThreadManager(Isolate* isolate);
   ~ThreadManager();
 
   void DeleteThreadStateList(ThreadState* anchor);

@@ -14,19 +14,20 @@
 #include "content/common/frame_messages.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_frame_host.h"
-#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/content_client.h"
+#include "content/public/common/navigation_policy.h"
 #include "content/public/common/origin_util.h"
 #include "content/public/common/web_preferences.h"
 #include "net/base/url_util.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
 #include "url/url_util.h"
 
-namespace {
+namespace content {
 
-using namespace content;
+namespace {
 
 // Should return the same value as SchemeRegistry::shouldTreatURLSchemeAsSecure.
 bool IsSecureScheme(const std::string& scheme) {
@@ -34,27 +35,9 @@ bool IsSecureScheme(const std::string& scheme) {
 }
 
 // Should return the same value as SecurityOrigin::isLocal and
-// SchemeRegistry::shouldTreatURLSchemeAsCORSEnabled.
-bool ShouldTreatURLSchemeAsCORSEnabled(const GURL& url) {
-  return base::ContainsValue(url::GetCORSEnabledSchemes(), url.scheme());
-}
-
-// Should return the same value as SecurityOrigin::isSecure.
-// TODO(carlosk): secure origin checks don't match between content and Blink
-// hence this implementation here instead of a direct call to IsOriginSecure (in
-// origin_util.cc). See https://crbug.com/629059.
-bool IsOriginSecure(const GURL& url) {
-  if (IsSecureScheme(url.scheme()))
-    return true;
-
-  if (url.SchemeIsFileSystem() || url.SchemeIsBlob()) {
-    // Should use inner URL.
-    url::Origin origin(url);
-    if (IsSecureScheme(origin.scheme()))
-      return true;
-  }
-
-  return IsOriginWhiteListedTrustworthy(url::Origin(url));
+// SchemeRegistry::shouldTreatURLSchemeAsCorsEnabled.
+bool ShouldTreatURLSchemeAsCorsEnabled(const GURL& url) {
+  return base::ContainsValue(url::GetCorsEnabledSchemes(), url.scheme());
 }
 
 // Should return the same value as the resource URL checks assigned to
@@ -62,9 +45,10 @@ bool IsOriginSecure(const GURL& url) {
 bool IsUrlPotentiallySecure(const GURL& url) {
   // blob: and filesystem: URLs never hit the network, and access is restricted
   // to same-origin contexts, so they are not blocked.
-  bool is_secure =
-      url.SchemeIs(url::kBlobScheme) || url.SchemeIs(url::kFileSystemScheme) ||
-      IsOriginSecure(url) || IsPotentiallyTrustworthyOrigin(url::Origin(url));
+  bool is_secure = url.SchemeIs(url::kBlobScheme) ||
+                   url.SchemeIs(url::kFileSystemScheme) ||
+                   IsOriginSecure(url) ||
+                   IsPotentiallyTrustworthyOrigin(url::Origin::Create(url));
 
   // TODO(mkwst): Remove this once the following draft is implemented:
   // https://tools.ietf.org/html/draft-west-let-localhost-be-localhost-03. See:
@@ -107,46 +91,41 @@ void UpdateRendererOnMixedContentFound(NavigationHandleImpl* navigation_handle,
 
 }  // namespace
 
-namespace content {
-
 // static
 std::unique_ptr<NavigationThrottle>
 MixedContentNavigationThrottle::CreateThrottleForNavigation(
     NavigationHandle* navigation_handle) {
-  if (IsBrowserSideNavigationEnabled())
-    return base::WrapUnique(
-        new MixedContentNavigationThrottle(navigation_handle));
-  return nullptr;
+  return std::make_unique<MixedContentNavigationThrottle>(navigation_handle);
 }
 
 MixedContentNavigationThrottle::MixedContentNavigationThrottle(
     NavigationHandle* navigation_handle)
     : NavigationThrottle(navigation_handle) {
-  DCHECK(IsBrowserSideNavigationEnabled());
 }
 
 MixedContentNavigationThrottle::~MixedContentNavigationThrottle() {}
 
-ThrottleCheckResult MixedContentNavigationThrottle::WillStartRequest() {
+NavigationThrottle::ThrottleCheckResult
+MixedContentNavigationThrottle::WillStartRequest() {
   bool should_block = ShouldBlockNavigation(false);
-  return should_block ? ThrottleCheckResult::CANCEL
-                      : ThrottleCheckResult::PROCEED;
+  return should_block ? CANCEL : PROCEED;
 }
 
-ThrottleCheckResult MixedContentNavigationThrottle::WillRedirectRequest() {
+NavigationThrottle::ThrottleCheckResult
+MixedContentNavigationThrottle::WillRedirectRequest() {
   // Upon redirects the same checks are to be executed as for requests.
   bool should_block = ShouldBlockNavigation(true);
-  return should_block ? ThrottleCheckResult::CANCEL
-                      : ThrottleCheckResult::PROCEED;
+  return should_block ? CANCEL : PROCEED;
 }
 
-ThrottleCheckResult MixedContentNavigationThrottle::WillProcessResponse() {
+NavigationThrottle::ThrottleCheckResult
+MixedContentNavigationThrottle::WillProcessResponse() {
   // TODO(carlosk): At this point we are about to process the request response.
   // So if we ever need to, here/now it is a good moment to check for the final
   // attained security level of the connection. For instance, does it use an
   // outdated protocol? The implementation should be based off
   // MixedContentChecker::handleCertificateError. See https://crbug.com/576270.
-  return ThrottleCheckResult::PROCEED;
+  return PROCEED;
 }
 
 const char* MixedContentNavigationThrottle::GetNameForLogging() {
@@ -169,13 +148,9 @@ bool MixedContentNavigationThrottle::ShouldBlockNavigation(bool for_redirect) {
 
   // From this point on we know this is not a main frame navigation and that
   // there is mixed content. Now let's decide if it's OK to proceed with it.
-  const WebPreferences& prefs = mixed_content_node->current_frame_host()
-                                    ->render_view_host()
-                                    ->GetWebkitPreferences();
 
   ReportBasicMixedContentFeatures(handle_impl->request_context_type(),
-                                  handle_impl->mixed_content_context_type(),
-                                  prefs);
+                                  handle_impl->mixed_content_context_type());
 
   // If we're in strict mode, we'll automagically fail everything, and
   // intentionally skip the client/embedder checks in order to prevent degrading
@@ -183,13 +158,16 @@ bool MixedContentNavigationThrottle::ShouldBlockNavigation(bool for_redirect) {
   bool block_all_mixed_content = !!(
       mixed_content_node->current_replication_state().insecure_request_policy &
       blink::kBlockAllMixedContent);
+  const WebPreferences& prefs = mixed_content_node->current_frame_host()
+                                    ->render_view_host()
+                                    ->GetWebkitPreferences();
   bool strict_mode =
       prefs.strict_mixed_content_checking || block_all_mixed_content;
 
   blink::WebMixedContentContextType mixed_context_type =
       handle_impl->mixed_content_context_type();
 
-  if (!ShouldTreatURLSchemeAsCORSEnabled(handle_impl->GetURL()))
+  if (!ShouldTreatURLSchemeAsCorsEnabled(handle_impl->GetURL()))
     mixed_context_type =
         blink::WebMixedContentContextType::kOptionallyBlockable;
 
@@ -316,9 +294,8 @@ void MixedContentNavigationThrottle::MaybeSendBlinkFeatureUsageReport() {
 
 // Based off of MixedContentChecker::count.
 void MixedContentNavigationThrottle::ReportBasicMixedContentFeatures(
-    RequestContextType request_context_type,
-    blink::WebMixedContentContextType mixed_content_context_type,
-    const WebPreferences& prefs) {
+    blink::mojom::RequestContextType request_context_type,
+    blink::WebMixedContentContextType mixed_content_context_type) {
   mixed_content_features_.insert(MIXED_CONTENT_PRESENT);
 
   // Report any blockable content.
@@ -333,19 +310,19 @@ void MixedContentNavigationThrottle::ReportBasicMixedContentFeatures(
   // ever be found here.
   UseCounterFeature feature;
   switch (request_context_type) {
-    case REQUEST_CONTEXT_TYPE_INTERNAL:
+    case blink::mojom::RequestContextType::INTERNAL:
       feature = MIXED_CONTENT_INTERNAL;
       break;
-    case REQUEST_CONTEXT_TYPE_PREFETCH:
+    case blink::mojom::RequestContextType::PREFETCH:
       feature = MIXED_CONTENT_PREFETCH;
       break;
 
-    case REQUEST_CONTEXT_TYPE_AUDIO:
-    case REQUEST_CONTEXT_TYPE_DOWNLOAD:
-    case REQUEST_CONTEXT_TYPE_FAVICON:
-    case REQUEST_CONTEXT_TYPE_IMAGE:
-    case REQUEST_CONTEXT_TYPE_PLUGIN:
-    case REQUEST_CONTEXT_TYPE_VIDEO:
+    case blink::mojom::RequestContextType::AUDIO:
+    case blink::mojom::RequestContextType::DOWNLOAD:
+    case blink::mojom::RequestContextType::FAVICON:
+    case blink::mojom::RequestContextType::IMAGE:
+    case blink::mojom::RequestContextType::PLUGIN:
+    case blink::mojom::RequestContextType::VIDEO:
     default:
       NOTREACHED() << "RequestContextType has value " << request_context_type
                    << " and has WebMixedContentContextType of "
@@ -359,7 +336,7 @@ void MixedContentNavigationThrottle::ReportBasicMixedContentFeatures(
 bool MixedContentNavigationThrottle::IsMixedContentForTesting(
     const GURL& origin_url,
     const GURL& url) {
-  const url::Origin origin(origin_url);
+  const url::Origin origin = url::Origin::Create(origin_url);
   return !IsUrlPotentiallySecure(url) &&
          DoesOriginSchemeRestrictMixedContent(origin);
 }

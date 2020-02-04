@@ -9,7 +9,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
-#include "sql/connection.h"
+#include "sql/database.h"
 #include "sql/statement.h"
 #include "sql/transaction.h"
 
@@ -55,24 +55,22 @@ void RecordDeprecationEvent(DeprecationEventType deprecation_event) {
 
 namespace sql {
 
-MetaTable::MetaTable() : db_(NULL) {
-}
+MetaTable::MetaTable() : db_(nullptr) {}
 
-MetaTable::~MetaTable() {
-}
+MetaTable::~MetaTable() = default;
 
 // static
-int64_t MetaTable::kMmapFailure = -2;
-int64_t MetaTable::kMmapSuccess = -1;
+constexpr int64_t MetaTable::kMmapFailure;
+constexpr int64_t MetaTable::kMmapSuccess;
 
 // static
-bool MetaTable::DoesTableExist(sql::Connection* db) {
+bool MetaTable::DoesTableExist(sql::Database* db) {
   DCHECK(db);
   return db->DoesTableExist("meta");
 }
 
 // static
-bool MetaTable::GetMmapStatus(Connection* db, int64_t* status) {
+bool MetaTable::GetMmapStatus(Database* db, int64_t* status) {
   const char* kMmapStatusSql = "SELECT value FROM meta WHERE key = ?";
   Statement s(db->GetUniqueStatement(kMmapStatusSql));
   if (!s.is_valid())
@@ -86,7 +84,7 @@ bool MetaTable::GetMmapStatus(Connection* db, int64_t* status) {
 }
 
 // static
-bool MetaTable::SetMmapStatus(Connection* db, int64_t status) {
+bool MetaTable::SetMmapStatus(Database* db, int64_t status) {
   DCHECK(status == kMmapFailure || status == kMmapSuccess || status >= 0);
 
   const char* kMmapUpdateStatusSql = "REPLACE INTO meta VALUES (?, ?)";
@@ -97,7 +95,7 @@ bool MetaTable::SetMmapStatus(Connection* db, int64_t status) {
 }
 
 // static
-void MetaTable::RazeIfDeprecated(Connection* db, int deprecated_version) {
+void MetaTable::RazeIfDeprecated(Database* db, int deprecated_version) {
   DCHECK_GT(deprecated_version, 0);
   DCHECK_EQ(0, db->transaction_nesting());
 
@@ -144,11 +142,11 @@ void MetaTable::RazeIfDeprecated(Connection* db, int deprecated_version) {
   // deprecated is expected, so don't histogram that case.
 }
 
-bool MetaTable::Init(Connection* db, int version, int compatible_version) {
+bool MetaTable::Init(Database* db, int version, int compatible_version) {
   DCHECK(!db_ && db);
   db_ = db;
 
-  // If values stored are null or missing entirely, 0 will be reported.
+  // If values stored are nullptr or missing entirely, 0 will be reported.
   // Require new clients to start with a greater initial version.
   DCHECK_GT(version, 0);
   DCHECK_GT(compatible_version, 0);
@@ -179,7 +177,7 @@ bool MetaTable::Init(Connection* db, int version, int compatible_version) {
 }
 
 void MetaTable::Reset() {
-  db_ = NULL;
+  db_ = nullptr;
 }
 
 void MetaTable::SetVersionNumber(int version) {

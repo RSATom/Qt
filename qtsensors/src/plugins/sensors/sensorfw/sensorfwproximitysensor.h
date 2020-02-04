@@ -67,7 +67,7 @@ private:
     bool firstRun;
 
 private slots:
-    void slotDataAvailable(const Unsigned& data);
+    void slotReflectanceDataAvailable(const Proximity& data);
 };
 
 #endif

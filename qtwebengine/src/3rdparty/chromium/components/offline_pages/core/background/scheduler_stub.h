@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_OFFLINE_PAGES_CORE_BACKGROUND_SCHEDULER_STUB_H_
 #define COMPONENTS_OFFLINE_PAGES_CORE_BACKGROUND_SCHEDULER_STUB_H_
 
+#include <stdint.h>
+
 #include "components/offline_pages/core/background/scheduler.h"
 
 namespace offline_pages {
@@ -19,7 +21,7 @@ class SchedulerStub : public Scheduler {
   void Schedule(const TriggerConditions& trigger_conditions) override;
 
   void BackupSchedule(const TriggerConditions& trigger_conditions,
-                      long delay_in_seconds) override;
+                      int64_t delay_in_seconds) override;
 
   // Unschedules the currently scheduled task, if any.
   void Unschedule() override;
@@ -37,12 +39,14 @@ class SchedulerStub : public Scheduler {
     return &trigger_conditions_;
   }
 
+  int64_t schedule_delay() const { return schedule_delay_; }
+
  private:
   bool schedule_called_;
   bool backup_schedule_called_;
   bool unschedule_called_;
   bool get_current_device_conditions_called_;
-  long schedule_delay_;
+  int64_t schedule_delay_;
   DeviceConditions device_conditions_;
   TriggerConditions trigger_conditions_;
 };

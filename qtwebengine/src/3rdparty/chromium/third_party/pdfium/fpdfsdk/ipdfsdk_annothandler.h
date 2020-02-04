@@ -7,7 +7,6 @@
 #ifndef FPDFSDK_IPDFSDK_ANNOTHANDLER_H_
 #define FPDFSDK_IPDFSDK_ANNOTHANDLER_H_
 
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "fpdfsdk/cpdfsdk_annot.h"
 
@@ -22,7 +21,7 @@ class CXFA_FFWidget;
 
 class IPDFSDK_AnnotHandler {
  public:
-  virtual ~IPDFSDK_AnnotHandler() {}
+  virtual ~IPDFSDK_AnnotHandler() = default;
 
   virtual bool CanAnswer(CPDFSDK_Annot* pAnnot) = 0;
   virtual CPDFSDK_Annot* NewAnnot(CPDF_Annot* pAnnot,
@@ -36,14 +35,21 @@ class IPDFSDK_AnnotHandler {
   virtual void ReleaseAnnot(CPDFSDK_Annot* pAnnot) = 0;
   virtual CFX_FloatRect GetViewBBox(CPDFSDK_PageView* pPageView,
                                     CPDFSDK_Annot* pAnnot) = 0;
-  virtual CFX_WideString GetSelectedText(CPDFSDK_Annot* pAnnot) = 0;
+  virtual WideString GetText(CPDFSDK_Annot* pAnnot) = 0;
+  virtual WideString GetSelectedText(CPDFSDK_Annot* pAnnot) = 0;
+  virtual void ReplaceSelection(CPDFSDK_Annot* pAnnot,
+                                const WideString& text) = 0;
+  virtual bool CanUndo(CPDFSDK_Annot* pAnnot) = 0;
+  virtual bool CanRedo(CPDFSDK_Annot* pAnnot) = 0;
+  virtual bool Undo(CPDFSDK_Annot* pAnnot) = 0;
+  virtual bool Redo(CPDFSDK_Annot* pAnnot) = 0;
   virtual bool HitTest(CPDFSDK_PageView* pPageView,
                        CPDFSDK_Annot* pAnnot,
                        const CFX_PointF& point) = 0;
   virtual void OnDraw(CPDFSDK_PageView* pPageView,
                       CPDFSDK_Annot* pAnnot,
                       CFX_RenderDevice* pDevice,
-                      CFX_Matrix* pUser2Device,
+                      const CFX_Matrix& mtUser2Device,
                       bool bDrawAnnots) = 0;
   virtual void OnLoad(CPDFSDK_Annot* pAnnot) = 0;
 

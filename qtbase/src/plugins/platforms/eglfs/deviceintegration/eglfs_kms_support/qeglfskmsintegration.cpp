@@ -55,7 +55,7 @@ QT_BEGIN_NAMESPACE
 Q_LOGGING_CATEGORY(qLcEglfsKmsDebug, "qt.qpa.eglfs.kms")
 
 QEglFSKmsIntegration::QEglFSKmsIntegration()
-    : m_device(Q_NULLPTR),
+    : m_device(nullptr),
       m_screenConfig(new QKmsScreenConfig)
 {
 }
@@ -78,7 +78,7 @@ void QEglFSKmsIntegration::platformDestroy()
     qCDebug(qLcEglfsKmsDebug, "platformDestroy: Closing DRM device");
     m_device->close();
     delete m_device;
-    m_device = Q_NULLPTR;
+    m_device = nullptr;
 }
 
 EGLNativeDisplayType QEglFSKmsIntegration::platformDisplay() const
@@ -131,6 +131,30 @@ void QEglFSKmsIntegration::waitForVSync(QPlatformSurface *surface) const
 bool QEglFSKmsIntegration::supportsPBuffers() const
 {
     return m_screenConfig->supportsPBuffers();
+}
+
+void *QEglFSKmsIntegration::nativeResourceForIntegration(const QByteArray &name)
+{
+    if (name == QByteArrayLiteral("dri_fd") && m_device)
+        return (void *) (qintptr) m_device->fd();
+
+#if QT_CONFIG(drm_atomic)
+    if (name == QByteArrayLiteral("dri_atomic_request") && m_device)
+        return (void *) (qintptr) m_device->atomic_request();
+#endif
+    return nullptr;
+}
+
+void *QEglFSKmsIntegration::nativeResourceForScreen(const QByteArray &resource, QScreen *screen)
+{
+    QEglFSKmsScreen *s = static_cast<QEglFSKmsScreen *>(screen->handle());
+    if (s) {
+        if (resource == QByteArrayLiteral("dri_crtcid"))
+            return (void *) (qintptr) s->output().crtc_id;
+        if (resource == QByteArrayLiteral("dri_connectorid"))
+            return (void *) (qintptr) s->output().connector_id;
+    }
+    return nullptr;
 }
 
 QKmsDevice *QEglFSKmsIntegration::device() const

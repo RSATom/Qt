@@ -5,10 +5,11 @@
 #include "chrome/browser/printing/cloud_print/privet_notifications.h"
 
 #include <memory>
+#include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "chrome/browser/printing/cloud_print/privet_http_asynchronous_factory.h"
 #include "chrome/browser/printing/cloud_print/privet_http_impl.h"
@@ -16,8 +17,9 @@
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
-#include "net/url_request/test_url_fetcher_factory.h"
-#include "net/url_request/url_request_test_util.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/test/test_url_loader_factory.h"
+#include "services/network/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -51,76 +53,67 @@ class MockPrivetHttpFactory : public PrivetHTTPAsynchronousFactory {
  public:
   class MockResolution : public PrivetHTTPResolution {
    public:
-    MockResolution(const std::string& name,
-                   net::URLRequestContextGetter* request_context)
-        : name_(name), request_context_(request_context) {}
+    MockResolution(
+        const std::string& name,
+        scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
+        : name_(name), url_loader_factory_(url_loader_factory) {}
 
     ~MockResolution() override {}
 
     void Start(const net::HostPortPair& address,
-               const ResultCallback& callback) override {
-      callback.Run(std::unique_ptr<PrivetHTTPClient>(new PrivetHTTPClientImpl(
-          name_, net::HostPortPair("1.2.3.4", 8080), request_context_.get())));
+               ResultCallback callback) override {
+      auto privet_http_client = std::make_unique<PrivetHTTPClientImpl>(
+          name_, net::HostPortPair("1.2.3.4", 8080), url_loader_factory_);
+      std::move(callback).Run(std::move(privet_http_client));
     }
-
-    void Start(const ResultCallback& callback) override {
-      Start(net::HostPortPair(), callback);
-    }
-
-    const std::string& GetName() override { return name_; }
 
    private:
     std::string name_;
-    scoped_refptr<net::URLRequestContextGetter> request_context_;
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   };
 
-  explicit MockPrivetHttpFactory(net::URLRequestContextGetter* request_context)
-      : request_context_(request_context) {}
+  explicit MockPrivetHttpFactory(
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
+      : url_loader_factory_(url_loader_factory) {}
 
   std::unique_ptr<PrivetHTTPResolution> CreatePrivetHTTP(
       const std::string& name) override {
-    return base::MakeUnique<MockResolution>(name, request_context_.get());
+    return std::make_unique<MockResolution>(name, url_loader_factory_);
   }
 
  private:
-  scoped_refptr<net::URLRequestContextGetter> request_context_;
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 };
 
 class PrivetNotificationsListenerTest : public testing::Test {
  public:
   PrivetNotificationsListenerTest()
-      : request_context_(new net::TestURLRequestContextGetter(
-            base::ThreadTaskRunnerHandle::Get())) {
-    notification_listener_.reset(new PrivetNotificationsListener(
-        std::unique_ptr<PrivetHTTPAsynchronousFactory>(
-            new MockPrivetHttpFactory(request_context_.get())),
-        &mock_delegate_));
-
+      : test_shared_url_loader_factory_(
+            base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+                &test_url_loader_factory_)) {
+    notification_listener_ = std::make_unique<PrivetNotificationsListener>(
+        std::make_unique<MockPrivetHttpFactory>(
+            test_shared_url_loader_factory_),
+        &mock_delegate_);
     description_.name = kExampleDeviceHumanName;
     description_.description = kExampleDeviceDescription;
   }
 
-  virtual ~PrivetNotificationsListenerTest() {}
+  ~PrivetNotificationsListenerTest() override {}
 
   bool SuccessfulResponseToInfo(const std::string& response) {
-    net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-    if (!fetcher || fetcher->GetOriginalURL() != kDeviceInfoURL)
-      return false;
-
-    fetcher->SetResponseString(response);
-    fetcher->set_status(
-        net::URLRequestStatus(net::URLRequestStatus::SUCCESS, net::OK));
-    fetcher->set_response_code(200);
-    fetcher->delegate()->OnURLFetchComplete(fetcher);
-    return true;
+    return test_url_loader_factory_.SimulateResponseForPendingRequest(
+        GURL(kDeviceInfoURL), network::URLLoaderCompletionStatus(net::OK),
+        network::CreateResourceResponseHead(net::HTTP_OK), response);
   }
 
  protected:
+  content::TestBrowserThreadBundle test_thread_bundle;
+  network::TestURLLoaderFactory test_url_loader_factory_;
+  scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
+      test_shared_url_loader_factory_;
   StrictMock<MockPrivetNotificationsListenerDeleagate> mock_delegate_;
   std::unique_ptr<PrivetNotificationsListener> notification_listener_;
-  base::MessageLoop message_loop_;
-  scoped_refptr<net::TestURLRequestContextGetter> request_context_;
-  net::TestURLFetcherFactory fetcher_factory_;
   DeviceDescription description_;
 };
 
@@ -173,16 +166,15 @@ TEST_F(PrivetNotificationsListenerTest, HighUptimeTest) {
 
 TEST_F(PrivetNotificationsListenerTest, HTTPErrorTest) {
   notification_listener_->DeviceChanged(kExampleDeviceName, description_);
-  net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-  fetcher->set_status(
-      net::URLRequestStatus(net::URLRequestStatus::SUCCESS, net::OK));
-  fetcher->set_response_code(200);
-  fetcher->delegate()->OnURLFetchComplete(fetcher);
+  EXPECT_TRUE(test_url_loader_factory_.SimulateResponseForPendingRequest(
+      GURL(kDeviceInfoURL), network::URLLoaderCompletionStatus(net::OK),
+      network::CreateResourceResponseHead(net::HTTP_NOT_FOUND),
+      /*content=*/""));
 }
 
 TEST_F(PrivetNotificationsListenerTest, DictionaryErrorTest) {
   notification_listener_->DeviceChanged(kExampleDeviceName, description_);
-  SuccessfulResponseToInfo(kInfoResponseNoUptime);
+  EXPECT_TRUE(SuccessfulResponseToInfo(kInfoResponseNoUptime));
 }
 
 class TestPrivetNotificationService;
@@ -255,13 +247,15 @@ class PrivetNotificationsNotificationTest : public testing::Test {
   void SetUp() override {
     testing::Test::SetUp();
 
-    profile_manager_ = base::MakeUnique<TestingProfileManager>(
+    profile_manager_ = std::make_unique<TestingProfileManager>(
         TestingBrowserProcess::GetGlobal());
     ASSERT_TRUE(profile_manager_->SetUp());
     profile_ = profile_manager_->CreateTestingProfile("test-user");
+    display_service_ =
+        std::make_unique<NotificationDisplayServiceTester>(profile_);
 
     TestingBrowserProcess::GetGlobal()->SetNotificationUIManager(
-        base::MakeUnique<StubNotificationUIManager>());
+        std::make_unique<StubNotificationUIManager>());
   }
 
   void TearDown() override {
@@ -269,50 +263,62 @@ class PrivetNotificationsNotificationTest : public testing::Test {
     testing::Test::TearDown();
   }
 
- protected:
-  StubNotificationUIManager* ui_manager() const {
-    return static_cast<StubNotificationUIManager*>(
-        TestingBrowserProcess::GetGlobal()->notification_ui_manager());
-  }
-
   Profile* profile() { return profile_; }
 
- private:
   // The thread bundle must be first so it is destroyed last.
   content::TestBrowserThreadBundle thread_bundle_;
+
+  std::unique_ptr<NotificationDisplayServiceTester> display_service_;
 
   std::unique_ptr<TestingProfileManager> profile_manager_;
   Profile* profile_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(PrivetNotificationsNotificationTest);
 };
 
 TEST_F(PrivetNotificationsNotificationTest, AddToCloudPrint) {
   TestPrivetNotificationService service(profile());
   service.PrivetNotify(1 /* devices_active */, true /* added */);
+  // The notification is added asynchronously.
+  base::RunLoop().RunUntilIdle();
 
-  ASSERT_EQ(1U, ui_manager()->GetNotificationCount());
-  const auto& notification = ui_manager()->GetNotificationAt(0);
-  notification.ButtonClick(0 /* add */);
+  auto notifications = display_service_->GetDisplayedNotificationsForType(
+      NotificationHandler::Type::TRANSIENT);
+  ASSERT_EQ(1U, notifications.size());
+  display_service_->SimulateClick(NotificationHandler::Type::TRANSIENT,
+                                  notifications[0].id(), 0 /* add */,
+                                  base::nullopt);
 
   EXPECT_EQ("chrome://devices/", service.open_tab_url().spec());
   EXPECT_EQ(1U, service.open_tab_count());
   EXPECT_EQ(0U, service.disable_notifications_count());
-  EXPECT_EQ(0U, ui_manager()->GetNotificationCount());
+  EXPECT_EQ(0U, display_service_
+                    ->GetDisplayedNotificationsForType(
+                        NotificationHandler::Type::TRANSIENT)
+                    .size());
 }
 
 TEST_F(PrivetNotificationsNotificationTest, DontShowAgain) {
   TestPrivetNotificationService service(profile());
   service.PrivetNotify(1 /* devices_active */, true /* added */);
+  // The notification is added asynchronously.
+  base::RunLoop().RunUntilIdle();
 
-  ASSERT_EQ(1U, ui_manager()->GetNotificationCount());
-  const auto& notification = ui_manager()->GetNotificationAt(0);
-  notification.ButtonClick(1 /* don't show again */);
+  auto notifications = display_service_->GetDisplayedNotificationsForType(
+      NotificationHandler::Type::TRANSIENT);
+  ASSERT_EQ(1U, notifications.size());
+  display_service_->SimulateClick(NotificationHandler::Type::TRANSIENT,
+                                  notifications[0].id(),
+                                  1 /* don't show again */, base::nullopt);
 
   EXPECT_EQ("", service.open_tab_url().spec());
   EXPECT_EQ(0U, service.open_tab_count());
   EXPECT_EQ(1U, service.disable_notifications_count());
-  EXPECT_EQ(0U, ui_manager()->GetNotificationCount());
+  EXPECT_EQ(0U, display_service_
+                    ->GetDisplayedNotificationsForType(
+                        NotificationHandler::Type::TRANSIENT)
+                    .size());
 }
 
 }  // namespace

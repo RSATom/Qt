@@ -4,6 +4,7 @@
 
 #include "content/browser/service_worker/service_worker_context_request_handler.h"
 
+#include "base/command_line.h"
 #include "base/time/time.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_provider_host.h"
@@ -11,35 +12,17 @@
 #include "content/browser/service_worker/service_worker_storage.h"
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/browser/service_worker/service_worker_write_to_cache_job.h"
-#include "content/public/common/resource_response_info.h"
+#include "content/common/service_worker/service_worker_utils.h"
+#include "content/public/common/content_switches.h"
 #include "net/base/load_flags.h"
 #include "net/log/net_log.h"
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_with_source.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_error_job.h"
+#include "services/network/public/cpp/resource_response_info.h"
 
 namespace content {
-
-namespace {
-
-bool IsInstalled(const ServiceWorkerVersion* version) {
-  switch (version->status()) {
-    case ServiceWorkerVersion::NEW:
-    case ServiceWorkerVersion::INSTALLING:
-      return false;
-    case ServiceWorkerVersion::INSTALLED:
-    case ServiceWorkerVersion::ACTIVATING:
-    case ServiceWorkerVersion::ACTIVATED:
-      return true;
-    case ServiceWorkerVersion::REDUNDANT:
-      return false;
-  }
-  NOTREACHED();
-  return false;
-}
-
-}  // namespace
 
 ServiceWorkerContextRequestHandler::ServiceWorkerContextRequestHandler(
     base::WeakPtr<ServiceWorkerContextCore> context,
@@ -51,7 +34,8 @@ ServiceWorkerContextRequestHandler::ServiceWorkerContextRequestHandler(
                                   blob_storage_context,
                                   resource_type),
       version_(provider_host_->running_hosted_version()) {
-  DCHECK(provider_host_->IsHostToRunningServiceWorker());
+  DCHECK(provider_host_->IsProviderForServiceWorker());
+  DCHECK(version_);
 }
 
 ServiceWorkerContextRequestHandler::~ServiceWorkerContextRequestHandler() {
@@ -83,8 +67,6 @@ std::string ServiceWorkerContextRequestHandler::CreateJobStatusToString(
       return "ERROR_UNINSTALLED_SCRIPT_IMPORT";
     case CreateJobStatus::ERROR_OUT_OF_RESOURCE_IDS:
       return "ERROR_OUT_OF_RESOURCE_IDS";
-    case CreateJobStatus::NUM_TYPES:
-      NOTREACHED();
   }
   NOTREACHED() << static_cast<int>(status);
   return "UNKNOWN";
@@ -110,7 +92,8 @@ net::URLRequestJob* ServiceWorkerContextRequestHandler::MaybeCreateJob(
       MaybeCreateJobImpl(request, network_delegate, &status);
   const bool is_main_script = resource_type_ == RESOURCE_TYPE_SERVICE_WORKER;
   ServiceWorkerMetrics::RecordContextRequestHandlerStatus(
-      status, IsInstalled(version_.get()), is_main_script);
+      status, ServiceWorkerVersion::IsInstalled(version_->status()),
+      is_main_script);
   if (job)
     return job;
 
@@ -118,17 +101,6 @@ net::URLRequestJob* ServiceWorkerContextRequestHandler::MaybeCreateJob(
   // falling back to network. Otherwise the renderer may receive the response
   // from network and start a service worker whose browser-side
   // ServiceWorkerVersion is not properly initialized.
-  //
-  // As an exception, allow installed service workers to use importScripts()
-  // to import non-installed scripts.
-  // TODO(falken): This is a spec violation that should be deprecated and
-  // removed. See https://github.com/w3c/ServiceWorker/issues/1021
-  if (status == CreateJobStatus::ERROR_UNINSTALLED_SCRIPT_IMPORT) {
-    // Fall back to network.
-    ServiceWorkerMetrics::RecordUninstalledScriptImport(version_->script_url());
-    return nullptr;
-  }
-
   std::string error_str(CreateJobStatusToString(status));
   request->net_log().AddEvent(
       net::NetLogEventType::SERVICE_WORKER_SCRIPT_LOAD_UNHANDLED_REQUEST_ERROR,
@@ -168,13 +140,11 @@ net::URLRequestJob* ServiceWorkerContextRequestHandler::MaybeCreateJobImpl(
   }
 
   const bool is_main_script = resource_type_ == RESOURCE_TYPE_SERVICE_WORKER;
-  int resource_id =
+  int64_t resource_id =
       version_->script_cache_map()->LookupResourceId(request->url());
   if (resource_id != kInvalidServiceWorkerResourceId) {
-    if (IsInstalled(version_.get())) {
+    if (ServiceWorkerVersion::IsInstalled(version_->status())) {
       // An installed worker is loading a stored script.
-      if (is_main_script)
-        version_->embedded_worker()->OnURLJobCreatedForMainScript();
       *out_status = CreateJobStatus::READ_JOB;
     } else {
       // A new worker is loading a stored script. The script was already
@@ -187,7 +157,7 @@ net::URLRequestJob* ServiceWorkerContextRequestHandler::MaybeCreateJobImpl(
   }
 
   // An installed worker is importing a non-stored script.
-  if (IsInstalled(version_.get())) {
+  if (ServiceWorkerVersion::IsInstalled(version_->status())) {
     DCHECK(!is_main_script);
     *out_status = CreateJobStatus::ERROR_UNINSTALLED_SCRIPT_IMPORT;
     return nullptr;
@@ -210,7 +180,10 @@ net::URLRequestJob* ServiceWorkerContextRequestHandler::MaybeCreateJobImpl(
   int extra_load_flags = 0;
   base::TimeDelta time_since_last_check =
       base::Time::Now() - registration->last_update_check();
-  if (time_since_last_check > kServiceWorkerScriptMaxCacheAge ||
+
+  if (ServiceWorkerUtils::ShouldBypassCacheDueToUpdateViaCache(
+          is_main_script, registration->update_via_cache()) ||
+      time_since_last_check > kServiceWorkerScriptMaxCacheAge ||
       version_->force_bypass_cache_for_scripts()) {
     extra_load_flags = net::LOAD_BYPASS_CACHE;
   }
@@ -224,7 +197,6 @@ net::URLRequestJob* ServiceWorkerContextRequestHandler::MaybeCreateJobImpl(
       incumbent_resource_id =
           stored_version->script_cache_map()->LookupResourceId(request->url());
     }
-    version_->embedded_worker()->OnURLJobCreatedForMainScript();
   }
   *out_status = incumbent_resource_id == kInvalidServiceWorkerResourceId
                     ? CreateJobStatus::WRITE_JOB

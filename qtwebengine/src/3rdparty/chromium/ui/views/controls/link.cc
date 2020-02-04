@@ -10,7 +10,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/cursor/cursor.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/canvas.h"
@@ -27,10 +26,8 @@ namespace views {
 const char Link::kViewClassName[] = "Link";
 constexpr int Link::kFocusBorderPadding;
 
-Link::Link() : Link(base::string16()) {}
-
-Link::Link(const base::string16& title)
-    : Label(title),
+Link::Link(const base::string16& title, int text_context, int text_style)
+    : Label(title, text_context, text_style),
       requested_enabled_color_(gfx::kPlaceholderColor),
       requested_enabled_color_set_(false) {
   Init();
@@ -41,9 +38,7 @@ Link::~Link() {
 
 // static
 Link::FocusStyle Link::GetDefaultFocusStyle() {
-  return ui::MaterialDesignController::IsSecondaryUiMaterial()
-             ? FocusStyle::UNDERLINE
-             : FocusStyle::RING;
+  return FocusStyle::UNDERLINE;
 }
 
 Link::FocusStyle Link::GetFocusStyle() const {
@@ -55,8 +50,12 @@ Link::FocusStyle Link::GetFocusStyle() const {
 }
 
 void Link::PaintFocusRing(gfx::Canvas* canvas) const {
-  if (GetFocusStyle() == FocusStyle::RING)
-    canvas->DrawFocusRect(GetFocusRingBounds());
+  if (GetFocusStyle() == FocusStyle::RING) {
+    gfx::Rect focus_ring_bounds = GetTextBounds();
+    focus_ring_bounds.Inset(gfx::Insets(-kFocusBorderPadding));
+    focus_ring_bounds.Intersect(GetLocalBounds());
+    canvas->DrawFocusRect(focus_ring_bounds);
+  }
 }
 
 gfx::Insets Link::GetInsets() const {
@@ -165,7 +164,7 @@ bool Link::SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) {
 
 void Link::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   Label::GetAccessibleNodeData(node_data);
-  node_data->role = ui::AX_ROLE_LINK;
+  node_data->role = ax::mojom::Role::kLink;
 }
 
 void Link::OnEnabledChanged() {
@@ -268,6 +267,7 @@ void Link::ConfigureFocus() {
 }
 
 SkColor Link::GetColor() {
+  // TODO(tapted): Use style::GetColor().
   const ui::NativeTheme* theme = GetNativeTheme();
   DCHECK(theme);
   if (!enabled())

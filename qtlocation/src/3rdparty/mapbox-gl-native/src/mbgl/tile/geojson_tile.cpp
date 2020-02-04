@@ -2,7 +2,6 @@
 #include <mbgl/tile/geojson_tile_data.hpp>
 #include <mbgl/renderer/query.hpp>
 #include <mbgl/renderer/tile_parameters.hpp>
-#include <mbgl/style/filter_evaluator.hpp>
 
 namespace mbgl {
 
@@ -30,7 +29,7 @@ void GeoJSONTile::querySourceFeatures(
                 auto feature = layer->getFeature(i);
 
                 // Apply filter, if any
-                if (options.filter && !(*options.filter)(*feature)) {
+                if (options.filter && !(*options.filter)(style::expression::EvaluationContext { static_cast<float>(this->id.overscaledZ), feature.get() })) {
                     continue;
                 }
 

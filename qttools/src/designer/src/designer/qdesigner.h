@@ -29,8 +29,8 @@
 #ifndef QDESIGNER_H
 #define QDESIGNER_H
 
-#include <QtCore/QPointer>
-#include <QtWidgets/QApplication>
+#include <QtCore/qpointer.h>
+#include <QtWidgets/qapplication.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -57,7 +57,7 @@ public:
     };
 
     QDesigner(int &argc, char **argv);
-    virtual ~QDesigner();
+    ~QDesigner() override;
 
     ParseArgumentsResult parseCommandLineArguments();
 
@@ -67,7 +67,7 @@ public:
     void setMainWindow(MainWindowBase *tw);
 
 protected:
-    bool event(QEvent *ev);
+    bool event(QEvent *ev) override;
 
 signals:
     void initialized();

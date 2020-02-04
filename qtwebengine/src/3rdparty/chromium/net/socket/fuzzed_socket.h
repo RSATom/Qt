@@ -14,7 +14,8 @@
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_with_source.h"
-#include "net/socket/stream_socket.h"
+#include "net/socket/transport_client_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace base {
 class FuzzedDataProvider;
@@ -38,7 +39,7 @@ class NetLog;
 // reads and writes must be done in a deterministic order and for a
 // deterministic number of bytes, every time the fuzzer is run with the same
 // data.
-class FuzzedSocket : public StreamSocket {
+class FuzzedSocket : public TransportClientSocket {
  public:
   // |data_provider| is used as to determine behavior of the FuzzedSocket. It
   // must remain valid until after the FuzzedSocket is destroyed.
@@ -60,25 +61,25 @@ class FuzzedSocket : public StreamSocket {
   // Socket implementation:
   int Read(IOBuffer* buf,
            int buf_len,
-           const CompletionCallback& callback) override;
+           CompletionOnceCallback callback) override;
   int Write(IOBuffer* buf,
             int buf_len,
-            const CompletionCallback& callback) override;
+            CompletionOnceCallback callback,
+            const NetworkTrafficAnnotationTag& traffic_annotation) override;
   int SetReceiveBufferSize(int32_t size) override;
   int SetSendBufferSize(int32_t size) override;
 
+  // TransportClientSocket implementation:
+  int Bind(const net::IPEndPoint& local_addr) override;
   // StreamSocket implementation:
-  int Connect(const CompletionCallback& callback) override;
+  int Connect(CompletionOnceCallback callback) override;
   void Disconnect() override;
   bool IsConnected() const override;
   bool IsConnectedAndIdle() const override;
   int GetPeerAddress(IPEndPoint* address) const override;
   int GetLocalAddress(IPEndPoint* address) const override;
   const NetLogWithSource& NetLog() const override;
-  void SetSubresourceSpeculation() override;
-  void SetOmniboxSpeculation() override;
   bool WasEverUsed() const override;
-  void EnableTCPFastOpenIfSupported() override;
   bool WasAlpnNegotiated() const override;
   NextProto GetNegotiatedProtocol() const override;
   bool GetSSLInfo(SSLInfo* ssl_info) override;
@@ -86,15 +87,22 @@ class FuzzedSocket : public StreamSocket {
   void ClearConnectionAttempts() override;
   void AddConnectionAttempts(const ConnectionAttempts& attempts) override;
   int64_t GetTotalReceivedBytes() const override;
+  void ApplySocketTag(const net::SocketTag& tag) override;
 
  private:
   // Returns a net::Error that can be returned by a read or a write. Reads and
   // writes return basically the same set of errors, at the TCP socket layer.
   Error ConsumeReadWriteErrorFromData();
 
-  void OnReadComplete(const CompletionCallback& callback, int result);
-  void OnWriteComplete(const CompletionCallback& callback, int result);
-  void OnConnectComplete(const CompletionCallback& callback, int result);
+  void OnReadComplete(CompletionOnceCallback callback, int result);
+  void OnWriteComplete(CompletionOnceCallback callback, int result);
+  void OnConnectComplete(CompletionOnceCallback callback, int result);
+
+  // Returns whether all operations should be synchronous.  Starts returning
+  // true once there have been too many async reads and writes, as spinning the
+  // message loop too often tends to cause fuzzers to time out.
+  // See https://crbug.com/823012
+  bool ForceSync() const;
 
   base::FuzzedDataProvider* data_provider_;
 
@@ -118,6 +126,8 @@ class FuzzedSocket : public StreamSocket {
 
   int64_t total_bytes_read_ = 0;
   int64_t total_bytes_written_ = 0;
+
+  int num_async_reads_and_writes_ = 0;
 
   NetLogWithSource net_log_;
 

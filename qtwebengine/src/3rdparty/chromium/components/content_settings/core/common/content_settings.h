@@ -7,11 +7,9 @@
 
 #include <stddef.h>
 
-#include <memory>
 #include <string>
 #include <vector>
 
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/content_settings_types.h"
@@ -46,7 +44,7 @@ int ContentSettingTypeToHistogramValue(ContentSettingsType content_setting,
 struct ContentSettingPatternSource {
   ContentSettingPatternSource(const ContentSettingsPattern& primary_pattern,
                               const ContentSettingsPattern& secondary_patttern,
-                              std::unique_ptr<base::Value> setting_value,
+                              base::Value setting_value,
                               const std::string& source,
                               bool incognito);
   ContentSettingPatternSource(const ContentSettingPatternSource& other);
@@ -58,7 +56,7 @@ struct ContentSettingPatternSource {
 
   ContentSettingsPattern primary_pattern;
   ContentSettingsPattern secondary_pattern;
-  std::unique_ptr<base::Value> setting_value;
+  base::Value setting_value;
   std::string source;
   bool incognito;
 };
@@ -66,11 +64,17 @@ struct ContentSettingPatternSource {
 typedef std::vector<ContentSettingPatternSource> ContentSettingsForOneType;
 
 struct RendererContentSettingRules {
+  // Returns true if |content_type| is a type that is contained in this class.
+  // Any new type added below must also update this method.
+  static bool IsRendererContentSetting(ContentSettingsType content_type);
+
   RendererContentSettingRules();
   ~RendererContentSettingRules();
   ContentSettingsForOneType image_rules;
   ContentSettingsForOneType script_rules;
   ContentSettingsForOneType autoplay_rules;
+  ContentSettingsForOneType client_hints_rules;
+  ContentSettingsForOneType popup_redirect_rules;
 };
 
 namespace content_settings {

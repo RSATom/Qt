@@ -13,7 +13,7 @@ EvaluationResult toNumber(const Value& v) {
         [](const std::string& s) -> optional<double> {
             try {
                 return util::stof(s);
-            } catch(std::exception) {
+            } catch (const std::exception&) {
                 return optional<double>();
             }
         },
@@ -68,9 +68,10 @@ EvaluationResult toColor(const Value& colorValue) {
 }
 
 Coercion::Coercion(type::Type type_, std::vector<std::unique_ptr<Expression>> inputs_) :
-    Expression(std::move(type_)),
+    Expression(Kind::Coercion, std::move(type_)),
     inputs(std::move(inputs_))
 {
+    assert(!inputs.empty());
     type::Type t = getType();
     if (t.is<type::NumberType>()) {
         coerceSingleValue = toNumber;
@@ -79,6 +80,13 @@ Coercion::Coercion(type::Type type_, std::vector<std::unique_ptr<Expression>> in
     } else {
         assert(false);
     }
+}
+
+std::string Coercion::getOperator() const {
+    return getType().match(
+      [](const type::NumberType&) { return "to-number"; },
+      [](const type::ColorType&) { return "to-color"; },
+      [](const auto&) { assert(false); return ""; });
 }
 
 using namespace mbgl::style::conversion;
@@ -130,10 +138,21 @@ void Coercion::eachChild(const std::function<void(const Expression&)>& visit) co
 };
 
 bool Coercion::operator==(const Expression& e) const {
-    if (auto rhs = dynamic_cast<const Coercion*>(&e)) {
+    if (e.getKind() == Kind::Coercion) {
+        auto rhs = static_cast<const Coercion*>(&e);
         return getType() == rhs->getType() && Expression::childrenEqual(inputs, rhs->inputs);
     }
     return false;
+}
+
+std::vector<optional<Value>> Coercion::possibleOutputs() const {
+    std::vector<optional<Value>> result;
+    for (const auto& input : inputs) {
+        for (auto& output : input->possibleOutputs()) {
+            result.push_back(std::move(output));
+        }
+    }
+    return result;
 }
 
 } // namespace expression

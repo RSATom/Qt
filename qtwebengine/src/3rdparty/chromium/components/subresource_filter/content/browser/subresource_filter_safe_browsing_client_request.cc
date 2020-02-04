@@ -14,6 +14,7 @@
 #include "base/single_thread_task_runner.h"
 #include "components/subresource_filter/content/browser/subresource_filter_safe_browsing_client.h"
 #include "content/public/browser/browser_thread.h"
+#include "url/gurl.h"
 
 namespace subresource_filter {
 
@@ -22,14 +23,12 @@ constexpr base::TimeDelta
 
 SubresourceFilterSafeBrowsingClientRequest::
     SubresourceFilterSafeBrowsingClientRequest(
-        const GURL& url,
         size_t request_id,
         scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager>
             database_manager,
         scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
         SubresourceFilterSafeBrowsingClient* client)
-    : url_(url),
-      request_id_(request_id),
+    : request_id_(request_id),
       database_manager_(std::move(database_manager)),
       client_(client) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
@@ -44,10 +43,15 @@ SubresourceFilterSafeBrowsingClientRequest::
   timer_.Stop();
 }
 
-void SubresourceFilterSafeBrowsingClientRequest::Start() {
+void SubresourceFilterSafeBrowsingClientRequest::Start(const GURL& url) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   start_time_ = base::TimeTicks::Now();
-  if (database_manager_->CheckUrlForSubresourceFilter(url_, this)) {
+
+  // Just return SAFE if the database is not supported.
+  bool synchronous_finish =
+      !database_manager_->IsSupported() ||
+      database_manager_->CheckUrlForSubresourceFilter(url, this);
+  if (synchronous_finish) {
     request_completed_ = true;
     SendCheckResultToClient(false /* served_from_network */,
                             safe_browsing::SB_THREAT_TYPE_SAFE,
@@ -56,8 +60,9 @@ void SubresourceFilterSafeBrowsingClientRequest::Start() {
   }
   timer_.Start(
       FROM_HERE, kCheckURLTimeout,
-      base::Bind(&SubresourceFilterSafeBrowsingClientRequest::OnCheckUrlTimeout,
-                 base::Unretained(this)));
+      base::BindOnce(
+          &SubresourceFilterSafeBrowsingClientRequest::OnCheckUrlTimeout,
+          base::Unretained(this)));
 }
 
 void SubresourceFilterSafeBrowsingClientRequest::OnCheckBrowseUrlResult(
@@ -65,7 +70,6 @@ void SubresourceFilterSafeBrowsingClientRequest::OnCheckBrowseUrlResult(
     safe_browsing::SBThreatType threat_type,
     const safe_browsing::ThreatMetadata& metadata) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  DCHECK_EQ(url_, url);
   request_completed_ = true;
   SendCheckResultToClient(true /* served_from_network */, threat_type,
                           metadata);
@@ -85,7 +89,7 @@ void SubresourceFilterSafeBrowsingClientRequest::SendCheckResultToClient(
   SubresourceFilterSafeBrowsingClient::CheckResult result;
   result.request_id = request_id_;
   result.threat_type = threat_type;
-  result.pattern_type = metadata.threat_pattern_type;
+  result.threat_metadata = metadata;
   result.check_time = base::TimeTicks::Now() - start_time_;
 
   // This memeber is separate from |request_completed_|, in that it just

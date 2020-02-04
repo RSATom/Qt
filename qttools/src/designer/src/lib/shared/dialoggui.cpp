@@ -28,15 +28,15 @@
 
 #include "dialoggui_p.h"
 
-#include <QtWidgets/QFileIconProvider>
-#include <QtGui/QIcon>
-#include <QtGui/QImage>
-#include <QtGui/QImageReader>
-#include <QtGui/QPixmap>
+#include <QtWidgets/qfileiconprovider.h>
+#include <QtGui/qicon.h>
+#include <QtGui/qimage.h>
+#include <QtGui/qimagereader.h>
+#include <QtGui/qpixmap.h>
 
-#include <QtCore/QFileInfo>
-#include <QtCore/QFile>
-#include <QtCore/QSet>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qset.h>
 
 // QFileDialog on X11 does not provide an image preview. Display icons.
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
@@ -53,7 +53,7 @@ class IconProvider : public QFileIconProvider {
 
 public:
     IconProvider();
-    QIcon icon (const QFileInfo &info) const Q_DECL_OVERRIDE;
+    QIcon icon (const QFileInfo &info) const override;
 
     inline bool loadCheck(const QFileInfo &info) const;
     QImage loadImage(const QString &fileName) const;
@@ -65,14 +65,11 @@ private:
 IconProvider::IconProvider()
 {
     // Determine a list of readable extensions (upper and lower case)
-    typedef QList<QByteArray> ByteArrayList;
-    const ByteArrayList fmts = QImageReader::supportedImageFormats();
-    const ByteArrayList::const_iterator cend = fmts.constEnd();
-    for (ByteArrayList::const_iterator it = fmts.constBegin(); it != cend; ++it) {
-        const QString suffix = QString::fromUtf8(it->constData());
+    const auto &fmts = QImageReader::supportedImageFormats();
+    for (const QByteArray &fmt : fmts) {
+        const QString suffix = QString::fromUtf8(fmt);
         m_imageFormats.insert(suffix.toLower());
         m_imageFormats.insert(suffix.toUpper());
-
     }
 }
 
@@ -201,8 +198,8 @@ QString DialogGui::getSaveFileName(QWidget *parent, const QString &caption, cons
 
 void DialogGui::initializeImageFileDialog(QFileDialog &fileDialog, QFileDialog::Options options, QFileDialog::FileMode fm)
 {
-    fileDialog.setConfirmOverwrite( !(options & QFileDialog::DontConfirmOverwrite) );
-    fileDialog.setResolveSymlinks( !(options & QFileDialog::DontResolveSymlinks) );
+    fileDialog.setOption(QFileDialog::DontConfirmOverwrite, options.testFlag(QFileDialog::DontConfirmOverwrite));
+    fileDialog.setOption(QFileDialog::DontResolveSymlinks, options.testFlag(QFileDialog::DontResolveSymlinks));
     fileDialog.setIconProvider(ensureIconProvider());
     fileDialog.setFileMode(fm);
 }

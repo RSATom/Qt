@@ -46,58 +46,74 @@
 #include <QQuickItem>
 #include <QQuickWidget>
 
+QT_BEGIN_NAMESPACE
+class QWebEnginePage;
+class QWebEnginePagePrivate;
+QT_END_NAMESPACE
+
 namespace QtWebEngineCore {
 
+// Useful information keyboard and mouse QEvent propagation.
+// A RenderWidgetHostViewQtDelegateWidget instance initialized as a popup will receive
+// no keyboard focus (so all keyboard QEvents will be sent to the parent RWHVQD instance),
+// but will still receive mouse input (all mouse QEvent moves and clicks will be given to the popup
+// RWHVQD instance, and the mouse interaction area covers the surface of the whole parent
+// QWebEngineView, and not only the smaller surface that an HTML select popup would occupy).
 class RenderWidgetHostViewQtDelegateWidget : public QQuickWidget, public RenderWidgetHostViewQtDelegate {
     Q_OBJECT
 public:
     RenderWidgetHostViewQtDelegateWidget(RenderWidgetHostViewQtDelegateClient *client, QWidget *parent = 0);
+    ~RenderWidgetHostViewQtDelegateWidget();
 
-    virtual void initAsChild(WebContentsAdapterClient* container) Q_DECL_OVERRIDE;
-    virtual void initAsPopup(const QRect&) Q_DECL_OVERRIDE;
-    virtual QRectF screenRect() const Q_DECL_OVERRIDE;
-    virtual QRectF contentsRect() const Q_DECL_OVERRIDE;
-    virtual void setKeyboardFocus() Q_DECL_OVERRIDE;
-    virtual bool hasKeyboardFocus() Q_DECL_OVERRIDE;
-    virtual void lockMouse() Q_DECL_OVERRIDE;
-    virtual void unlockMouse() Q_DECL_OVERRIDE;
-    virtual void show() Q_DECL_OVERRIDE;
-    virtual void hide() Q_DECL_OVERRIDE;
-    virtual bool isVisible() const Q_DECL_OVERRIDE;
-    virtual QWindow* window() const Q_DECL_OVERRIDE;
-    virtual QSGTexture *createTextureFromImage(const QImage &) Q_DECL_OVERRIDE;
-    virtual QSGLayer *createLayer() Q_DECL_OVERRIDE;
-    virtual QSGInternalImageNode *createImageNode() Q_DECL_OVERRIDE;
-    virtual QSGTextureNode *createTextureNode() Q_DECL_OVERRIDE;
-    virtual QSGRectangleNode *createRectangleNode() Q_DECL_OVERRIDE;
-    virtual void update() Q_DECL_OVERRIDE;
-    virtual void updateCursor(const QCursor &) Q_DECL_OVERRIDE;
-    virtual void resize(int width, int height) Q_DECL_OVERRIDE;
-    virtual void move(const QPoint &screenPos) Q_DECL_OVERRIDE;
-    virtual void inputMethodStateChanged(bool editorVisible, bool passwordInput) Q_DECL_OVERRIDE;
-    virtual void setInputMethodHints(Qt::InputMethodHints) Q_DECL_OVERRIDE;
-    virtual void setClearColor(const QColor &color) Q_DECL_OVERRIDE;
+    void initAsPopup(const QRect&) override;
+    QRectF viewGeometry() const override;
+    QRect windowGeometry() const override;
+    void setKeyboardFocus() override;
+    bool hasKeyboardFocus() override;
+    void lockMouse() override;
+    void unlockMouse() override;
+    void show() override;
+    void hide() override;
+    bool isVisible() const override;
+    QWindow* window() const override;
+    QSGTexture *createTextureFromImage(const QImage &) override;
+    QSGLayer *createLayer() override;
+    QSGInternalImageNode *createInternalImageNode() override;
+    QSGImageNode *createImageNode() override;
+    QSGRectangleNode *createRectangleNode() override;
+    void update() override;
+    void updateCursor(const QCursor &) override;
+    void resize(int width, int height) override;
+    void move(const QPoint &screenPos) override;
+    void inputMethodStateChanged(bool editorVisible, bool passwordInput) override;
+    void setInputMethodHints(Qt::InputMethodHints) override;
+    void setClearColor(const QColor &color) override;
+    bool copySurface(const QRect &, const QSize &, QImage &) override;
 
 protected:
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *resizeEvent) Q_DECL_OVERRIDE;
-    void showEvent(QShowEvent *) Q_DECL_OVERRIDE;
-    void hideEvent(QHideEvent *) Q_DECL_OVERRIDE;
+    bool event(QEvent *event) override;
+    void resizeEvent(QResizeEvent *resizeEvent) override;
+    void showEvent(QShowEvent *) override;
+    void hideEvent(QHideEvent *) override;
+    void closeEvent(QCloseEvent *event) override;
 
-    QVariant inputMethodQuery(Qt::InputMethodQuery query) const Q_DECL_OVERRIDE;
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
 
 private slots:
     void onWindowPosChanged();
+    void connectRemoveParentBeforeParentDelete();
     void removeParentBeforeParentDelete();
 
 private:
+    friend QWebEnginePagePrivate;
+
     RenderWidgetHostViewQtDelegateClient *m_client;
     QScopedPointer<QQuickItem> m_rootItem;
     bool m_isPopup;
-    bool m_isPasswordInput;
     QColor m_clearColor;
-    QPoint m_lastGlobalPos;
     QList<QMetaObject::Connection> m_windowConnections;
+    QWebEnginePage *m_page = nullptr;
+    QMetaObject::Connection m_parentDestroyedConnection;
 };
 
 } // namespace QtWebEngineCore

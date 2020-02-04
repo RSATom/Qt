@@ -40,11 +40,12 @@
 #ifndef RENDER_FRAME_OBSERVER_QT_H
 #define RENDER_FRAME_OBSERVER_QT_H
 
+#include "qtwebenginecoreglobal_p.h"
 #include "base/compiler_specific.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "content/public/renderer/render_frame_observer_tracker.h"
-#include "ppapi/features/features.h"
-
+#include "ppapi/buildflags/buildflags.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
 
 namespace content {
 class RenderFrame;
@@ -60,7 +61,7 @@ public:
     explicit RenderFrameObserverQt(content::RenderFrame* render_frame);
     ~RenderFrameObserverQt();
 
-#if BUILDFLAG(ENABLE_PLUGINS)
+#if QT_CONFIG(webengine_pepper_plugins)
     void DidCreatePepperPlugin(content::RendererPpapiHost* host) override;
 #endif
     void OnDestruct() override;
@@ -68,10 +69,13 @@ public:
 
     bool isFrameDetached() const;
 
+    service_manager::BinderRegistry* registry() { return &registry_; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RenderFrameObserverQt);
 
     bool m_isFrameDetached;
+    service_manager::BinderRegistry registry_;
 };
 
 } // namespace QtWebEngineCore

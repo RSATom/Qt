@@ -9,14 +9,18 @@
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "content/public/renderer/media_stream_video_sink.h"
-#include "content/renderer/media/webrtc/webrtc_video_capturer_adapter.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
-#include "third_party/webrtc/api/mediastreaminterface.h"
+#include "third_party/blink/public/platform/web_media_stream_track.h"
+#include "third_party/webrtc/api/media_stream_interface.h"
+
+namespace base {
+class SingleThreadTaskRunner;
+}
 
 namespace content {
 
 class MediaStreamVideoTrack;
 class PeerConnectionDependencyFactory;
+class WebRtcVideoTrackSource;
 
 // MediaStreamVideoWebRtcSink is an adapter between a
 // content::MediaStreamVideoTrack object and a webrtc VideoTrack that is
@@ -29,15 +33,17 @@ class PeerConnectionDependencyFactory;
 // created it.
 class CONTENT_EXPORT MediaStreamVideoWebRtcSink : public MediaStreamVideoSink {
  public:
-  MediaStreamVideoWebRtcSink(const blink::WebMediaStreamTrack& track,
-                             PeerConnectionDependencyFactory* factory);
+  MediaStreamVideoWebRtcSink(
+      const blink::WebMediaStreamTrack& track,
+      PeerConnectionDependencyFactory* factory,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   ~MediaStreamVideoWebRtcSink() override;
 
   webrtc::VideoTrackInterface* webrtc_video_track() {
     return video_track_.get();
   }
 
-  rtc::Optional<bool> SourceNeedsDenoisingForTesting() const;
+  absl::optional<bool> SourceNeedsDenoisingForTesting() const;
 
  protected:
   // Implementation of MediaStreamSink.
@@ -53,11 +59,10 @@ class CONTENT_EXPORT MediaStreamVideoWebRtcSink : public MediaStreamVideoSink {
   // Used to DCHECK that we are called on the correct thread.
   base::ThreadChecker thread_checker_;
 
-  // |video_source_| and |video_track_source_proxy_| are held as references to
-  // outlive |video_track_| since the interfaces between them don't use
-  // reference counting.
-  class WebRtcVideoSource;
-  scoped_refptr<WebRtcVideoSource> video_source_;
+  // |video_source_| and |video_source_proxy_| are held as
+  // references to outlive |video_track_| since the interfaces between them
+  // don't use reference counting.
+  scoped_refptr<WebRtcVideoTrackSource> video_source_;
   scoped_refptr<webrtc::VideoTrackSourceInterface> video_source_proxy_;
   scoped_refptr<webrtc::VideoTrackInterface> video_track_;
 

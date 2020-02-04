@@ -48,29 +48,16 @@
 // We mean it.
 //
 
-#include <QtCore/qvariant.h>
-#include <QtGui/qfont.h>
-#include <QtQuickControls2/private/qquicktheme_p.h>
+#include <QtCore/qglobal.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQuickMaterialTheme : public QQuickTheme
+class QQuickTheme;
+
+class QQuickMaterialTheme
 {
 public:
-    explicit QQuickMaterialTheme();
-
-    const QFont *font(Font type = SystemFont) const override;
-
-    QVariant themeHint(ThemeHint hint) const override;
-
-private:
-    QFont systemFont;
-    QFont buttonFont;
-    QFont toolTipFont;
-    QFont itemViewFont;
-    QFont listViewFont;
-    QFont menuItemFont;
-    QFont editorFont;
+    static void initialize(QQuickTheme *theme);
 };
 
 QT_END_NAMESPACE

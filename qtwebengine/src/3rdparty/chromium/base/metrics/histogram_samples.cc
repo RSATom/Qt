@@ -7,6 +7,8 @@
 #include <limits>
 
 #include "base/compiler_specific.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/numerics/safe_math.h"
 #include "base/pickle.h"
@@ -104,13 +106,19 @@ bool HistogramSamples::AtomicSingleSample::Accumulate(
     return true;
 
   // Convert the parameters to 16-bit variables because it's all 16-bit below.
-  if (count < std::numeric_limits<uint16_t>::min() ||
+  // To support decrements/subtractions, divide the |count| into sign/value and
+  // do the proper operation below. The alternative is to change the single-
+  // sample's count to be a signed integer (int16_t) and just add an int16_t
+  // |count16| but that is somewhat wasteful given that the single-sample is
+  // never expected to have a count less than zero.
+  if (count < -std::numeric_limits<uint16_t>::max() ||
       count > std::numeric_limits<uint16_t>::max() ||
       bucket > std::numeric_limits<uint16_t>::max()) {
     return false;
   }
+  bool count_is_negative = count < 0;
+  uint16_t count16 = static_cast<uint16_t>(count_is_negative ? -count : count);
   uint16_t bucket16 = static_cast<uint16_t>(bucket);
-  uint16_t count16 = static_cast<uint16_t>(count);
 
   // A local, unshared copy of the single-sample is necessary so the parts
   // can be manipulated without worrying about atomicity.
@@ -135,7 +143,10 @@ bool HistogramSamples::AtomicSingleSample::Accumulate(
 
     // Update count, making sure that it doesn't overflow.
     CheckedNumeric<uint16_t> new_count(single_sample.as_parts.count);
-    new_count += count16;
+    if (count_is_negative)
+      new_count -= count16;
+    else
+      new_count += count16;
     if (!new_count.AssignIfValid(&single_sample.as_parts.count))
       return false;
 
@@ -176,7 +187,7 @@ HistogramSamples::HistogramSamples(uint64_t id, Metadata* meta)
 
 // This mustn't do anything with |meta_|. It was passed to the ctor and may
 // be invalid by the time this dtor gets called.
-HistogramSamples::~HistogramSamples() {}
+HistogramSamples::~HistogramSamples() = default;
 
 void HistogramSamples::Add(const HistogramSamples& other) {
   IncreaseSumAndCount(other.sum(), other.redundant_count());
@@ -205,11 +216,9 @@ void HistogramSamples::Subtract(const HistogramSamples& other) {
   DCHECK(success);
 }
 
-bool HistogramSamples::Serialize(Pickle* pickle) const {
-  if (!pickle->WriteInt64(sum()))
-    return false;
-  if (!pickle->WriteInt(redundant_count()))
-    return false;
+void HistogramSamples::Serialize(Pickle* pickle) const {
+  pickle->WriteInt64(sum());
+  pickle->WriteInt(redundant_count());
 
   HistogramBase::Sample min;
   int64_t max;
@@ -217,12 +226,10 @@ bool HistogramSamples::Serialize(Pickle* pickle) const {
   for (std::unique_ptr<SampleCountIterator> it = Iterator(); !it->Done();
        it->Next()) {
     it->Get(&min, &max, &count);
-    if (!pickle->WriteInt(min) || !pickle->WriteInt64(max) ||
-        !pickle->WriteInt(count)) {
-      return false;
-    }
+    pickle->WriteInt(min);
+    pickle->WriteInt64(max);
+    pickle->WriteInt(count);
   }
-  return true;
 }
 
 bool HistogramSamples::AccumulateSingleSample(HistogramBase::Sample value,
@@ -246,7 +253,17 @@ void HistogramSamples::IncreaseSumAndCount(int64_t sum,
   subtle::NoBarrier_AtomicIncrement(&meta_->redundant_count, count);
 }
 
-SampleCountIterator::~SampleCountIterator() {}
+void HistogramSamples::RecordNegativeSample(NegativeSampleReason reason,
+                                            HistogramBase::Count increment) {
+  UMA_HISTOGRAM_ENUMERATION("UMA.NegativeSamples.Reason", reason,
+                            MAX_NEGATIVE_SAMPLE_REASONS);
+  UMA_HISTOGRAM_CUSTOM_COUNTS("UMA.NegativeSamples.Increment", increment, 1,
+                              1 << 30, 100);
+  UmaHistogramSparse("UMA.NegativeSamples.Histogram",
+                     static_cast<int32_t>(id()));
+}
+
+SampleCountIterator::~SampleCountIterator() = default;
 
 bool SampleCountIterator::GetBucketIndex(size_t* index) const {
   DCHECK(!Done());
@@ -264,7 +281,7 @@ SingleSampleIterator::SingleSampleIterator(HistogramBase::Sample min,
                                            size_t bucket_index)
     : min_(min), max_(max), bucket_index_(bucket_index), count_(count) {}
 
-SingleSampleIterator::~SingleSampleIterator() {}
+SingleSampleIterator::~SingleSampleIterator() = default;
 
 bool SingleSampleIterator::Done() const {
   return count_ == 0;

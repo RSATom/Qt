@@ -65,14 +65,14 @@ QWinRTMediaPlayerService::QWinRTMediaPlayerService(QObject *parent)
 {
     Q_D(QWinRTMediaPlayerService);
 
-    d->player = Q_NULLPTR;
+    d->player = nullptr;
 
     HRESULT hr = MFStartup(MF_VERSION);
     Q_ASSERT(SUCCEEDED(hr));
 
-    MULTI_QI results = { &IID_IUnknown, NULL, 0 };
-    hr = CoCreateInstanceFromApp(CLSID_MFMediaEngineClassFactory, NULL,
-                                 CLSCTX_INPROC_SERVER, NULL, 1, &results);
+    MULTI_QI results = { &IID_IUnknown, nullptr, 0 };
+    hr = CoCreateInstanceFromApp(CLSID_MFMediaEngineClassFactory, nullptr,
+                                 CLSCTX_INPROC_SERVER, nullptr, 1, &results);
     Q_ASSERT(SUCCEEDED(hr));
 
     hr = results.pItf->QueryInterface(d->factory.GetAddressOf());
@@ -94,11 +94,11 @@ QMediaControl *QWinRTMediaPlayerService::requestControl(const char *name)
     }
     if (qstrcmp(name, QVideoRendererControl_iid) == 0) {
         if (!d->player)
-            return Q_NULLPTR;
+            return nullptr;
         return d->player->videoRendererControl();
     }
 
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 void QWinRTMediaPlayerService::releaseControl(QMediaControl *control)

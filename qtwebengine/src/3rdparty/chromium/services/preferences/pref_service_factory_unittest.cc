@@ -6,10 +6,12 @@
 
 #include "base/barrier_closure.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/memory/ptr_util.h"
+#include "base/macros.h"
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/sequenced_worker_pool_owner.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/prefs/in_memory_pref_store.h"
+#include "components/prefs/overlay_user_pref_store.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -19,123 +21,128 @@
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "services/preferences/pref_store_impl.h"
 #include "services/preferences/public/cpp/dictionary_value_update.h"
+#include "services/preferences/public/cpp/in_process_service_factory.h"
 #include "services/preferences/public/cpp/pref_service_main.h"
 #include "services/preferences/public/cpp/scoped_pref_update.h"
-#include "services/preferences/public/interfaces/preferences.mojom.h"
-#include "services/service_manager/public/cpp/binder_registry.h"
-#include "services/service_manager/public/cpp/service_context.h"
-#include "services/service_manager/public/cpp/service_test.h"
-#include "services/service_manager/public/interfaces/service_factory.mojom.h"
+#include "services/preferences/public/mojom/preferences.mojom.h"
+#include "services/preferences/tests_catalog_source.h"
+#include "services/preferences/unittest_common.h"
+#include "services/service_manager/public/cpp/service_binding.h"
+#include "services/service_manager/public/cpp/test/test_service_manager.h"
+#include "services/service_manager/public/mojom/service_factory.mojom.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace prefs {
 namespace {
 
-class ServiceTestClient : public service_manager::test::ServiceTestClient,
-                          public service_manager::mojom::ServiceFactory {
+const char kTestServiceName[] = "prefs_unittests";
+const char kTestHelperServiceName[] = "prefs_unittest_helper";
+
+class TestService : public service_manager::Service,
+                    public service_manager::mojom::ServiceFactory {
  public:
-  ServiceTestClient(
-      service_manager::test::ServiceTest* test,
-      scoped_refptr<WriteablePrefStore> above_user_prefs_pref_store,
-      scoped_refptr<WriteablePrefStore> below_user_prefs_pref_store,
-      scoped_refptr<PersistentPrefStore> user_prefs,
-      scoped_refptr<PrefRegistry> pref_registry,
+  TestService(
+      service_manager::mojom::ServiceRequest test_service_request,
+      InProcessPrefServiceFactory* service_factory,
       base::OnceCallback<void(service_manager::Connector*)> connector_callback)
-      : service_manager::test::ServiceTestClient(test),
-        above_user_prefs_pref_store_(std::move(above_user_prefs_pref_store)),
-        below_user_prefs_pref_store_(std::move(below_user_prefs_pref_store)),
-        user_prefs_(std::move(user_prefs)),
-        pref_registry_(std::move(pref_registry)),
-        connector_callback_(std::move(connector_callback)) {
-    registry_.AddInterface<service_manager::mojom::ServiceFactory>(
-        base::Bind(&ServiceTestClient::Create, base::Unretained(this)));
+      : test_service_binding_(this, std::move(test_service_request)),
+        service_factory_(service_factory),
+        connector_callback_(std::move(connector_callback)),
+        helper_service_binding_(&helper_service_) {}
+
+  service_manager::Connector* connector() {
+    return test_service_binding_.GetConnector();
   }
 
  protected:
+  // service_manager::Service:
   void OnBindInterface(const service_manager::BindSourceInfo& source_info,
                        const std::string& interface_name,
                        mojo::ScopedMessagePipeHandle interface_pipe) override {
-    registry_.BindInterface(interface_name, std::move(interface_pipe));
+    CHECK_EQ(interface_name, service_manager::mojom::ServiceFactory::Name_);
+    service_factory_bindings_.AddBinding(
+        this, service_manager::mojom::ServiceFactoryRequest(
+                  std::move(interface_pipe)));
   }
 
-  void CreateService(service_manager::mojom::ServiceRequest request,
-                     const std::string& name) override {
+  // service_manager::mojom::ServiceFactory:
+  void CreateService(
+      service_manager::mojom::ServiceRequest request,
+      const std::string& name,
+      service_manager::mojom::PIDReceiverPtr pid_receiver) override {
     if (name == prefs::mojom::kServiceName) {
-      pref_service_context_.reset(new service_manager::ServiceContext(
-          CreatePrefService(
-              nullptr, nullptr, nullptr, above_user_prefs_pref_store_.get(),
-              user_prefs_.get(), nullptr, below_user_prefs_pref_store_.get(),
-              pref_registry_.get())
-              .first,
-          std::move(request)));
-    } else if (name == "prefs_unittest_helper") {
-      test_helper_service_context_ =
-          base::MakeUnique<service_manager::ServiceContext>(
-              base::MakeUnique<service_manager::Service>(), std::move(request));
+      pref_service_impl_ =
+          service_factory_->CreatePrefService(std::move(request));
+    } else if (name == kTestHelperServiceName) {
+      helper_service_binding_.Bind(std::move(request));
       std::move(connector_callback_)
-          .Run(test_helper_service_context_->connector());
+          .Run(helper_service_binding_.GetConnector());
     }
   }
 
-  void Create(service_manager::mojom::ServiceFactoryRequest request) {
-    service_factory_bindings_.AddBinding(this, std::move(request));
-  }
-
  private:
-  service_manager::BinderRegistry registry_;
+  service_manager::ServiceBinding test_service_binding_;
   mojo::BindingSet<service_manager::mojom::ServiceFactory>
       service_factory_bindings_;
-  scoped_refptr<WriteablePrefStore> above_user_prefs_pref_store_;
-  scoped_refptr<WriteablePrefStore> below_user_prefs_pref_store_;
-  scoped_refptr<PersistentPrefStore> user_prefs_;
-  scoped_refptr<PrefRegistry> pref_registry_;
-  std::unique_ptr<service_manager::ServiceContext> pref_service_context_;
-  std::unique_ptr<service_manager::ServiceContext> test_helper_service_context_;
+  InProcessPrefServiceFactory* const service_factory_;
   base::OnceCallback<void(service_manager::Connector*)> connector_callback_;
+
+  std::unique_ptr<service_manager::Service> pref_service_impl_;
+
+  service_manager::Service helper_service_;
+  service_manager::ServiceBinding helper_service_binding_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestService);
 };
 
-constexpr int kInitialValue = 1;
-constexpr int kUpdatedValue = 2;
-constexpr char kKey[] = "some_key";
-constexpr char kOtherKey[] = "some_other_key";
-constexpr char kDictionaryKey[] = "a.dictionary.pref";
 constexpr char kInitialKey[] = "initial_key";
 constexpr char kOtherInitialKey[] = "other_initial_key";
+constexpr int kUpdatedValue = 2;
 
-class PrefServiceFactoryTest : public service_manager::test::ServiceTest {
+class PrefServiceFactoryTest : public testing::Test {
  public:
-  PrefServiceFactoryTest() : ServiceTest("prefs_unittests", false) {}
+  PrefServiceFactoryTest()
+      : test_service_manager_(CreateServiceTestCatalog()) {}
 
  protected:
   void SetUp() override {
-    above_user_prefs_pref_store_ = new ValueMapPrefStore();
-    below_user_prefs_pref_store_ = new ValueMapPrefStore();
-    user_prefs_ = new InMemoryPrefStore();
+    above_user_prefs_pref_store_ = base::MakeRefCounted<ValueMapPrefStore>();
+    below_user_prefs_pref_store_ = base::MakeRefCounted<ValueMapPrefStore>();
+    auto user_prefs = base::MakeRefCounted<InMemoryPrefStore>();
     PrefServiceFactory factory;
-    factory.set_user_prefs(user_prefs_);
+    service_factory_ = std::make_unique<InProcessPrefServiceFactory>();
+    auto delegate = service_factory_->CreateDelegate();
+    auto pref_registry = GetInitialPrefRegistry();
+    delegate->InitPrefRegistry(pref_registry.get());
+    factory.set_user_prefs(user_prefs);
     factory.set_recommended_prefs(below_user_prefs_pref_store_);
     factory.set_command_line_prefs(above_user_prefs_pref_store_);
-    pref_service_ = factory.Create(GetInitialPrefRegistry().get());
+    CustomizePrefDelegateAndFactory(delegate.get(), &factory);
+    pref_service_ = factory.Create(pref_registry.get(), std::move(delegate));
+
+    ASSERT_TRUE(profile_dir_.CreateUniqueTempDir());
 
     base::RunLoop run_loop;
-    connector_callback_ =
+    test_service_ = std::make_unique<TestService>(
+        test_service_manager_.RegisterTestInstance(kTestServiceName),
+        service_factory_.get(),
         base::BindOnce(&PrefServiceFactoryTest::SetOtherClientConnector,
-                       base::Unretained(this), run_loop.QuitClosure());
-    ServiceTest::SetUp();
-    ASSERT_TRUE(profile_dir_.CreateUniqueTempDir());
-    connector()->StartService("prefs_unittest_helper");
+                       base::Unretained(this), run_loop.QuitClosure()));
+
+    // TODO(https://crbug.com/904148): This should not use |WarmService()|.
+    connector()->WarmService(
+        service_manager::ServiceFilter::ByName(kTestHelperServiceName));
     run_loop.Run();
   }
 
+  virtual void CustomizePrefDelegateAndFactory(
+      PrefValueStore::Delegate* delegate,
+      PrefServiceFactory* factory) {}
+
+  service_manager::Connector* connector() { return test_service_->connector(); }
+
   service_manager::Connector* other_client_connector() {
     return other_client_connector_;
-  }
-
-  // service_manager::test::ServiceTest:
-  std::unique_ptr<service_manager::Service> CreateService() override {
-    return base::MakeUnique<ServiceTestClient>(
-        this, above_user_prefs_pref_store_, below_user_prefs_pref_store_,
-        user_prefs_, GetInitialPrefRegistry().get(),
-        std::move(connector_callback_));
   }
 
   // Create a fully initialized PrefService synchronously.
@@ -165,7 +172,7 @@ class PrefServiceFactoryTest : public service_manager::test::ServiceTest {
                    std::unique_ptr<PrefService>* out) {
     ConnectToPrefService(
         connector, std::move(pref_registry),
-        base::Bind(&PrefServiceFactoryTest::OnCreate, callback, out));
+        base::BindRepeating(&PrefServiceFactoryTest::OnCreate, callback, out));
   }
 
   scoped_refptr<PrefRegistrySimple> GetInitialPrefRegistry() {
@@ -183,7 +190,7 @@ class PrefServiceFactoryTest : public service_manager::test::ServiceTest {
     auto pref_registry = base::MakeRefCounted<PrefRegistrySimple>();
     pref_registry->RegisterIntegerPref(kKey, kInitialValue,
                                        PrefRegistry::PUBLIC);
-    pref_registry->RegisterIntegerPref(kOtherKey, kInitialValue,
+    pref_registry->RegisterIntegerPref(kOtherDictionaryKey, kInitialValue,
                                        PrefRegistry::PUBLIC);
     pref_registry->RegisterDictionaryPref(kDictionaryKey, PrefRegistry::PUBLIC);
     pref_registry->RegisterForeignPref(kInitialKey);
@@ -194,7 +201,7 @@ class PrefServiceFactoryTest : public service_manager::test::ServiceTest {
   scoped_refptr<PrefRegistrySimple> CreateDefaultForeignPrefRegistry() {
     auto pref_registry = base::MakeRefCounted<PrefRegistrySimple>();
     pref_registry->RegisterForeignPref(kKey);
-    pref_registry->RegisterForeignPref(kOtherKey);
+    pref_registry->RegisterForeignPref(kOtherDictionaryKey);
     pref_registry->RegisterForeignPref(kDictionaryKey);
     return pref_registry;
   }
@@ -204,7 +211,8 @@ class PrefServiceFactoryTest : public service_manager::test::ServiceTest {
     PrefChangeRegistrar registrar;
     registrar.Init(pref_service);
     base::RunLoop run_loop;
-    registrar.Add(key, base::Bind(&OnPrefChanged, run_loop.QuitClosure(), key));
+    registrar.Add(
+        key, base::BindRepeating(&OnPrefChanged, run_loop.QuitClosure(), key));
     run_loop.Run();
   }
 
@@ -239,14 +247,17 @@ class PrefServiceFactoryTest : public service_manager::test::ServiceTest {
       quit_closure.Run();
   }
 
+  base::test::ScopedTaskEnvironment task_environment_;
+  service_manager::TestServiceManager test_service_manager_;
   base::ScopedTempDir profile_dir_;
   scoped_refptr<WriteablePrefStore> above_user_prefs_pref_store_;
   scoped_refptr<WriteablePrefStore> below_user_prefs_pref_store_;
-  scoped_refptr<PersistentPrefStore> user_prefs_;
   scoped_refptr<PrefRegistrySimple> pref_registry_;
   std::unique_ptr<PrefService> pref_service_;
   service_manager::Connector* other_client_connector_ = nullptr;
   base::OnceCallback<void(service_manager::Connector*)> connector_callback_;
+  std::unique_ptr<InProcessPrefServiceFactory> service_factory_;
+  std::unique_ptr<TestService> test_service_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefServiceFactoryTest);
 };
@@ -307,10 +318,10 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_Defaults) {
     auto pref_registry = base::MakeRefCounted<PrefRegistrySimple>();
     pref_registry->RegisterIntegerPref(kKey, kInitialValue,
                                        PrefRegistry::PUBLIC);
-    pref_registry->RegisterForeignPref(kOtherKey);
+    pref_registry->RegisterForeignPref(kOtherDictionaryKey);
     auto pref_registry2 = base::MakeRefCounted<PrefRegistrySimple>();
     pref_registry2->RegisterForeignPref(kKey);
-    pref_registry2->RegisterIntegerPref(kOtherKey, kInitialValue,
+    pref_registry2->RegisterIntegerPref(kOtherDictionaryKey, kInitialValue,
                                         PrefRegistry::PUBLIC);
     CreateAsync(std::move(pref_registry), connector(), done_closure,
                 &pref_service);
@@ -321,8 +332,8 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_Defaults) {
 
   EXPECT_EQ(kInitialValue, pref_service->GetInteger(kKey));
   EXPECT_EQ(kInitialValue, pref_service2->GetInteger(kKey));
-  EXPECT_EQ(kInitialValue, pref_service->GetInteger(kOtherKey));
-  EXPECT_EQ(kInitialValue, pref_service2->GetInteger(kOtherKey));
+  EXPECT_EQ(kInitialValue, pref_service->GetInteger(kOtherDictionaryKey));
+  EXPECT_EQ(kInitialValue, pref_service2->GetInteger(kOtherDictionaryKey));
 }
 
 // Check that read-only pref store changes are observed.
@@ -332,13 +343,13 @@ TEST_F(PrefServiceFactoryTest, ReadOnlyPrefStore) {
   EXPECT_EQ(kInitialValue, pref_service->GetInteger(kKey));
 
   below_user_prefs_pref_store()->SetValue(
-      kKey, base::MakeUnique<base::Value>(kUpdatedValue), 0);
+      kKey, std::make_unique<base::Value>(kUpdatedValue), 0);
   WaitForPrefChange(pref_service.get(), kKey);
   EXPECT_EQ(kUpdatedValue, pref_service->GetInteger(kKey));
   pref_service->SetInteger(kKey, 3);
   EXPECT_EQ(3, pref_service->GetInteger(kKey));
   above_user_prefs_pref_store()->SetValue(kKey,
-                                          base::MakeUnique<base::Value>(4), 0);
+                                          std::make_unique<base::Value>(4), 0);
   WaitForPrefChange(pref_service.get(), kKey);
   EXPECT_EQ(4, pref_service->GetInteger(kKey));
 }
@@ -348,17 +359,17 @@ TEST_F(PrefServiceFactoryTest, ReadOnlyPrefStore_Layering) {
   auto pref_service = Create();
 
   above_user_prefs_pref_store()->SetValue(
-      kKey, base::MakeUnique<base::Value>(kInitialValue), 0);
+      kKey, std::make_unique<base::Value>(kInitialValue), 0);
   WaitForPrefChange(pref_service.get(), kKey);
   EXPECT_EQ(kInitialValue, pref_service->GetInteger(kKey));
 
   below_user_prefs_pref_store()->SetValue(
-      kKey, base::MakeUnique<base::Value>(kUpdatedValue), 0);
+      kKey, std::make_unique<base::Value>(kUpdatedValue), 0);
   // This update is needed to check that the change to kKey has propagated even
   // though we will not observe it change.
   below_user_prefs_pref_store()->SetValue(
-      kOtherKey, base::MakeUnique<base::Value>(kUpdatedValue), 0);
-  WaitForPrefChange(pref_service.get(), kOtherKey);
+      kOtherDictionaryKey, std::make_unique<base::Value>(kUpdatedValue), 0);
+  WaitForPrefChange(pref_service.get(), kOtherDictionaryKey);
   EXPECT_EQ(kInitialValue, pref_service->GetInteger(kKey));
 }
 
@@ -368,7 +379,7 @@ TEST_F(PrefServiceFactoryTest, ReadOnlyPrefStore_UserPrefStoreLayering) {
   auto pref_service = Create();
 
   above_user_prefs_pref_store()->SetValue(kKey,
-                                          base::MakeUnique<base::Value>(2), 0);
+                                          std::make_unique<base::Value>(2), 0);
   WaitForPrefChange(pref_service.get(), kKey);
   EXPECT_EQ(2, pref_service->GetInteger(kKey));
 
@@ -393,7 +404,7 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_SubPrefUpdates_Basic) {
         EXPECT_EQ(1, out);
       },
       [](ScopedDictionaryPrefUpdate* update) {
-        (*update)->SetIntegerWithoutPathExpansion("key.for.integer", 2);
+        (*update)->SetKey("key.for.integer", base::Value(2));
         int out = 0;
         ASSERT_TRUE(
             (*update)->GetIntegerWithoutPathExpansion("key.for.integer", &out));
@@ -406,7 +417,7 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_SubPrefUpdates_Basic) {
         EXPECT_EQ(3, out);
       },
       [](ScopedDictionaryPrefUpdate* update) {
-        (*update)->SetDoubleWithoutPathExpansion("key.for.double", 4);
+        (*update)->SetKey("key.for.double", base::Value(4.0));
         double out = 0;
         ASSERT_TRUE(
             (*update)->GetDoubleWithoutPathExpansion("key.for.double", &out));
@@ -419,7 +430,7 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_SubPrefUpdates_Basic) {
         EXPECT_TRUE(out);
       },
       [](ScopedDictionaryPrefUpdate* update) {
-        (*update)->SetBooleanWithoutPathExpansion("key.for.boolean", false);
+        (*update)->SetKey("key.for.boolean", base::Value(false));
         bool out = 0;
         ASSERT_TRUE(
             (*update)->GetBooleanWithoutPathExpansion("key.for.boolean", &out));
@@ -432,7 +443,7 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_SubPrefUpdates_Basic) {
         EXPECT_EQ("hello", out);
       },
       [](ScopedDictionaryPrefUpdate* update) {
-        (*update)->SetStringWithoutPathExpansion("key.for.string", "prefs!");
+        (*update)->SetKey("key.for.string", base::Value("prefs!"));
         std::string out;
         ASSERT_TRUE(
             (*update)->GetStringWithoutPathExpansion("key.for.string", &out));
@@ -445,8 +456,7 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_SubPrefUpdates_Basic) {
         EXPECT_EQ(base::ASCIIToUTF16("hello"), out);
       },
       [](ScopedDictionaryPrefUpdate* update) {
-        (*update)->SetStringWithoutPathExpansion("key.for.string16",
-                                                 base::ASCIIToUTF16("prefs!"));
+        (*update)->SetKey("key.for.string16", base::Value("prefs!"));
         base::string16 out;
         ASSERT_TRUE(
             (*update)->GetStringWithoutPathExpansion("key.for.string16", &out));
@@ -503,7 +513,7 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_SubPrefUpdates_Basic) {
   };
   int current_value = kInitialValue + 1;
   for (auto& mutation : updates) {
-    base::DictionaryValue expected_value;
+    base::Value expected_value;
     {
       ScopedDictionaryPrefUpdate update(pref_service.get(), kDictionaryKey);
       EXPECT_EQ(update->AsConstDictionary()->empty(), update->empty());
@@ -511,7 +521,7 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_SubPrefUpdates_Basic) {
       mutation(&update);
       EXPECT_EQ(update->AsConstDictionary()->empty(), update->empty());
       EXPECT_EQ(update->AsConstDictionary()->size(), update->size());
-      expected_value = *update->AsConstDictionary();
+      expected_value = update->AsConstDictionary()->Clone();
     }
 
     EXPECT_EQ(expected_value, *pref_service->GetDictionary(kDictionaryKey));
@@ -529,7 +539,8 @@ TEST_F(PrefServiceFactoryTest, MultipleClients_SubPrefUpdates_Basic) {
       // Watch for an unexpected change to kDictionaryKey.
       PrefChangeRegistrar registrar;
       registrar.Init(pref_service2.get());
-      registrar.Add(kDictionaryKey, base::Bind(&Fail, pref_service2.get()));
+      registrar.Add(kDictionaryKey,
+                    base::BindRepeating(&Fail, pref_service2.get()));
 
       // Make and wait for a change to another pref to ensure an unexpected
       // change to kDictionaryKey is detected.
@@ -599,10 +610,70 @@ TEST_F(PrefServiceFactoryTest,
   }
   PrefChangeRegistrar registrar;
   registrar.Init(pref_service2.get());
-  registrar.Add(kDictionaryKey, base::Bind(&Fail, pref_service2.get()));
+  registrar.Add(kDictionaryKey,
+                base::BindRepeating(&Fail, pref_service2.get()));
   pref_service->SetInteger(kKey, kUpdatedValue);
   WaitForPrefChange(pref_service2.get(), kKey);
 }
+
+class IncognitoPrefServiceFactoryTest
+    : public PrefServiceFactoryTest,
+      public testing::WithParamInterface<bool> {
+ protected:
+  void CustomizePrefDelegateAndFactory(PrefValueStore::Delegate* delegate,
+                                       PrefServiceFactory* factory) override {
+    scoped_refptr<PersistentPrefStore> overlay =
+        base::MakeRefCounted<InMemoryPrefStore>();
+    scoped_refptr<PersistentPrefStore> underlay =
+        base::MakeRefCounted<InMemoryPrefStore>();
+    const auto persistent_pref_names = GetPersistentPrefNames();
+    delegate->InitIncognitoUserPrefs(overlay, underlay, persistent_pref_names);
+    auto overlay_pref_store = base::MakeRefCounted<OverlayUserPrefStore>(
+        overlay.get(), underlay.get());
+    for (auto* persistent_pref_name : persistent_pref_names)
+      overlay_pref_store->RegisterPersistentPref(persistent_pref_name);
+    factory->set_user_prefs(std::move(overlay_pref_store));
+  }
+
+  std::vector<const char*> GetPersistentPrefNames() {
+    if (GetParam())
+      return {kInitialKey, kOtherInitialKey, kKey};
+    return {};
+  }
+};
+
+// Check that updates in one client eventually propagates to the other.
+TEST_P(IncognitoPrefServiceFactoryTest, InternalAndExternalClients) {
+  auto pref_service2 = Create();
+
+  EXPECT_EQ(kInitialValue, pref_service()->GetInteger(kInitialKey));
+  EXPECT_EQ(kInitialValue, pref_service2->GetInteger(kInitialKey));
+  EXPECT_EQ(kInitialValue, pref_service()->GetInteger(kOtherInitialKey));
+  EXPECT_EQ(kInitialValue, pref_service2->GetInteger(kOtherInitialKey));
+  pref_service()->SetInteger(kInitialKey, kUpdatedValue);
+  WaitForPrefChange(pref_service2.get(), kInitialKey);
+  EXPECT_EQ(kUpdatedValue, pref_service2->GetInteger(kInitialKey));
+
+  pref_service2->SetInteger(kOtherInitialKey, kUpdatedValue);
+  WaitForPrefChange(pref_service(), kOtherInitialKey);
+  EXPECT_EQ(kUpdatedValue, pref_service()->GetInteger(kOtherInitialKey));
+}
+
+// Check that updates in one client eventually propagates to the other.
+TEST_P(IncognitoPrefServiceFactoryTest, MultipleClients) {
+  auto pref_service = Create();
+  auto pref_service2 = CreateForeign();
+
+  EXPECT_EQ(kInitialValue, pref_service->GetInteger(kKey));
+  EXPECT_EQ(kInitialValue, pref_service2->GetInteger(kKey));
+  pref_service->SetInteger(kKey, kUpdatedValue);
+  WaitForPrefChange(pref_service2.get(), kKey);
+  EXPECT_EQ(kUpdatedValue, pref_service2->GetInteger(kKey));
+}
+
+INSTANTIATE_TEST_CASE_P(UnderlayOrOverlayPref,
+                        IncognitoPrefServiceFactoryTest,
+                        testing::Bool());
 
 }  // namespace
 }  // namespace prefs

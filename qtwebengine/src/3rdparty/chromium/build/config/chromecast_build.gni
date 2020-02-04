@@ -10,6 +10,10 @@ declare_args() {
   # Linux and Android.
   is_chromecast = false
 
+  # chromecast_branding is used to include or exclude Google-branded components.
+  # Set it to "public" for a Chromium build.
+  chromecast_branding = "public"
+
   # Set this true for an audio-only Chromecast build.
   is_cast_audio_only = false
 }
@@ -28,7 +32,7 @@ declare_args() {
 }
 
 # Assert that Chromecast is being built for a supported platform.
-assert(is_linux || is_android || !is_chromecast,
+assert(is_linux || is_android || is_fuchsia || !is_chromecast,
        "Chromecast builds are not supported on $target_os")
 
 # Assert that is_cast_audio_only and is_cast_desktop_build are both false on a

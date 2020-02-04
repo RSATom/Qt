@@ -55,7 +55,7 @@ DirectShowPinEnum::DirectShowPinEnum(DirectShowBaseFilter *filter)
 }
 
 DirectShowPinEnum::DirectShowPinEnum(const QList<IPin *> &pins)
-    : m_filter(NULL)
+    : m_filter(nullptr)
     , m_pins(pins)
     , m_index(0)
 {
@@ -71,32 +71,36 @@ DirectShowPinEnum::~DirectShowPinEnum()
         m_filter->Release();
 }
 
-HRESULT DirectShowPinEnum::getInterface(REFIID riid, void **ppvObject)
+HRESULT DirectShowPinEnum::QueryInterface(REFIID riid, void **ppv)
 {
-    if (riid == IID_IEnumPins) {
-        return GetInterface(static_cast<IEnumPins *>(this), ppvObject);
-    } else {
-        return DirectShowObject::getInterface(riid, ppvObject);
-    }
+    if (ppv == nullptr)
+        return E_POINTER;
+    if (riid == IID_IUnknown)
+        *ppv = static_cast<IUnknown *>(this);
+    else if (riid == IID_IEnumPins)
+        *ppv = static_cast<IEnumPins *>(this);
+    else
+        return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
 }
 
 HRESULT DirectShowPinEnum::Next(ULONG cPins, IPin **ppPins, ULONG *pcFetched)
 {
-    if (ppPins && (pcFetched || cPins == 1)) {
-        ULONG count = qBound<ULONG>(0, cPins, m_pins.count() - m_index);
-
-        for (ULONG i = 0; i < count; ++i, ++m_index) {
-            ppPins[i] = m_pins.at(m_index);
-            ppPins[i]->AddRef();
-        }
-
-        if (pcFetched)
-            *pcFetched = count;
-
-        return count == cPins ? S_OK : S_FALSE;
-    } else {
+    if (!ppPins || (!pcFetched && cPins != 1))
         return E_POINTER;
+
+    ULONG count = qBound<ULONG>(0, cPins, m_pins.count() - m_index);
+
+    for (ULONG i = 0; i < count; ++i, ++m_index) {
+        ppPins[i] = m_pins.at(m_index);
+        ppPins[i]->AddRef();
     }
+
+    if (pcFetched)
+        *pcFetched = count;
+
+    return count == cPins ? S_OK : S_FALSE;
 }
 
 HRESULT DirectShowPinEnum::Skip(ULONG cPins)
@@ -115,16 +119,10 @@ HRESULT DirectShowPinEnum::Reset()
 
 HRESULT DirectShowPinEnum::Clone(IEnumPins **ppEnum)
 {
-    if (ppEnum) {
-        if (m_filter)
-            *ppEnum = new DirectShowPinEnum(m_filter);
-        else
-            *ppEnum = new DirectShowPinEnum(m_pins);
-
-        return S_OK;
-    } else {
+    if (!ppEnum)
         return E_POINTER;
-    }
+    *ppEnum = m_filter ? new DirectShowPinEnum(m_filter) : new DirectShowPinEnum(m_pins);
+    return S_OK;
 }
 
 QT_END_NAMESPACE

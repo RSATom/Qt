@@ -51,12 +51,12 @@
 QT_BEGIN_NAMESPACE
 
 class QTextToSpeechPrivate;
-class QTEXTTOSPEECH_EXPORT QTextToSpeech : public QObject
+class Q_TEXTTOSPEECH_EXPORT QTextToSpeech : public QObject
 {
     Q_OBJECT
     Q_ENUMS(QTextToSpeech::State)
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
-    Q_PROPERTY(int volume READ volume WRITE setVolume NOTIFY volumeChanged)
+    Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(double rate READ rate WRITE setRate NOTIFY rateChanged)
     Q_PROPERTY(double pitch READ pitch WRITE setPitch NOTIFY pitchChanged)
     Q_PROPERTY(QLocale locale READ locale WRITE setLocale NOTIFY localeChanged)
@@ -104,7 +104,8 @@ Q_SIGNALS:
     void localeChanged(const QLocale &locale);
     void rateChanged(double rate);
     void pitchChanged(double pitch);
-    void volumeChanged(int volume);
+    void volumeChanged(int volume);  // ### Qt 6: remove this bad overload
+    void volumeChanged(double volume);
     void voiceChanged(const QVoice &voice);
 
 private:

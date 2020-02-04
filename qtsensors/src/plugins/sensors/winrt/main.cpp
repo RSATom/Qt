@@ -59,7 +59,7 @@ class WinRtSensorPlugin : public QObject, public QSensorPluginInterface, public 
     Q_PLUGIN_METADATA(IID "com.qt-project.Qt.QSensorPluginInterface/1.0" FILE "plugin.json")
     Q_INTERFACES(QSensorPluginInterface)
 public:
-    void registerSensors()
+    void registerSensors() override
     {
         QSensorManager::registerBackend(QAccelerometer::type, QByteArrayLiteral("WinRtAccelerometer"), this);
         QSensorManager::registerBackend(QCompass::type, QByteArrayLiteral("WinRtCompass"), this);
@@ -69,7 +69,7 @@ public:
         QSensorManager::registerBackend(QOrientationSensor::type, QByteArrayLiteral("WinRtOrientationSensor"), this);
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == QByteArrayLiteral("WinRtAccelerometer"))
             return new WinRtAccelerometer(sensor);

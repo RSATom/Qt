@@ -10,15 +10,20 @@
 #include <utility>
 
 #include "base/debug/alias.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_api_constants.h"
 #include "chrome/browser/extensions/api/content_settings/content_settings_helpers.h"
+#include "chrome/common/chrome_features.h"
+#include "components/content_settings/core/browser/content_settings_info.h"
 #include "components/content_settings/core/browser/content_settings_origin_identifier_value_map.h"
+#include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
 #include "components/content_settings/core/browser/content_settings_utils.h"
+#include "components/content_settings/core/browser/website_settings_info.h"
 #include "components/content_settings/core/common/content_settings_utils.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -30,9 +35,6 @@ using content_settings::OriginIdentifierValueMap;
 using content_settings::ResourceIdentifier;
 
 namespace extensions {
-
-namespace helpers = content_settings_helpers;
-namespace keys = content_settings_api_constants;
 
 struct ContentSettingsStore::ExtensionEntry {
   // Extension id.
@@ -91,7 +93,7 @@ std::unique_ptr<RuleIterator> ContentSettingsStore::GetRuleIterator(
   if (iterators.empty())
     return nullptr;
 
-  return base::MakeUnique<ConcatenationIterator>(std::move(iterators),
+  return std::make_unique<ConcatenationIterator>(std::move(iterators),
                                                  auto_lock.release());
 }
 
@@ -111,7 +113,7 @@ void ContentSettingsStore::SetExtensionContentSetting(
     } else {
       // Do not set a timestamp for extension settings.
       map->SetValue(primary_pattern, secondary_pattern, type, identifier,
-                    base::Time(), new base::Value(setting));
+                    base::Time(), base::Value(setting));
     }
   }
 
@@ -233,13 +235,36 @@ void ContentSettingsStore::ClearContentSettingsForExtension(
   {
     base::AutoLock lock(lock_);
     OriginIdentifierValueMap* map = GetValueMap(ext_id, scope);
-    if (!map) {
-      // Fail gracefully in Release builds.
-      NOTREACHED();
-      return;
-    }
+    DCHECK(map);
     notify = !map->empty();
     map->clear();
+  }
+  if (notify) {
+    NotifyOfContentSettingChanged(ext_id, scope != kExtensionPrefsScopeRegular);
+  }
+}
+
+void ContentSettingsStore::ClearContentSettingsForExtensionAndContentType(
+    const std::string& ext_id,
+    ExtensionPrefsScope scope,
+    ContentSettingsType content_type) {
+  bool notify = false;
+  {
+    base::AutoLock lock(lock_);
+    OriginIdentifierValueMap* map = GetValueMap(ext_id, scope);
+    DCHECK(map);
+
+    // Get all of the resource identifiers for this |content_type|.
+    std::set<ResourceIdentifier> resource_identifiers;
+    for (const auto& entry : *map) {
+      if (entry.first.content_type == content_type)
+        resource_identifiers.insert(entry.first.resource_identifier);
+    }
+
+    notify = !resource_identifiers.empty();
+
+    for (const ResourceIdentifier& resource_identifier : resource_identifiers)
+      map->DeleteValues(content_type, resource_identifier);
   }
   if (notify) {
     NotifyOfContentSettingChanged(ext_id, scope != kExtensionPrefsScopeRegular);
@@ -254,7 +279,7 @@ std::unique_ptr<base::ListValue> ContentSettingsStore::GetSettingsForExtension(
   if (!map)
     return nullptr;
 
-  auto settings = base::MakeUnique<base::ListValue>();
+  auto settings = std::make_unique<base::ListValue>();
   for (const auto& it : *map) {
     const auto& key = it.first;
     std::unique_ptr<RuleIterator> rule_iterator(
@@ -267,24 +292,29 @@ std::unique_ptr<base::ListValue> ContentSettingsStore::GetSettingsForExtension(
       const Rule& rule = rule_iterator->Next();
       std::unique_ptr<base::DictionaryValue> setting_dict(
           new base::DictionaryValue());
-      setting_dict->SetString(keys::kPrimaryPatternKey,
-                              rule.primary_pattern.ToString());
-      setting_dict->SetString(keys::kSecondaryPatternKey,
-                              rule.secondary_pattern.ToString());
       setting_dict->SetString(
-          keys::kContentSettingsTypeKey,
-          helpers::ContentSettingsTypeToString(key.content_type));
-      setting_dict->SetString(keys::kResourceIdentifierKey,
-                              key.resource_identifier);
+          content_settings_api_constants::kPrimaryPatternKey,
+          rule.primary_pattern.ToString());
+      setting_dict->SetString(
+          content_settings_api_constants::kSecondaryPatternKey,
+          rule.secondary_pattern.ToString());
+      setting_dict->SetString(
+          content_settings_api_constants::kContentSettingsTypeKey,
+          content_settings_helpers::ContentSettingsTypeToString(
+              key.content_type));
+      setting_dict->SetString(
+          content_settings_api_constants::kResourceIdentifierKey,
+          key.resource_identifier);
       ContentSetting content_setting =
-          content_settings::ValueToContentSetting(rule.value.get());
+          content_settings::ValueToContentSetting(&rule.value);
       DCHECK_NE(CONTENT_SETTING_DEFAULT, content_setting);
 
       std::string setting_string =
           content_settings::ContentSettingToString(content_setting);
       DCHECK(!setting_string.empty());
 
-      setting_dict->SetString(keys::kContentSettingKey, setting_string);
+      setting_dict->SetString(
+          content_settings_api_constants::kContentSettingKey, setting_string);
       settings->Append(std::move(setting_dict));
     }
   }
@@ -302,21 +332,25 @@ void ContentSettingsStore::SetExtensionContentSettingFromList(
       continue;
     }
     std::string primary_pattern_str;
-    dict->GetString(keys::kPrimaryPatternKey, &primary_pattern_str);
+    dict->GetString(content_settings_api_constants::kPrimaryPatternKey,
+                    &primary_pattern_str);
     ContentSettingsPattern primary_pattern =
         ContentSettingsPattern::FromString(primary_pattern_str);
     DCHECK(primary_pattern.IsValid());
 
     std::string secondary_pattern_str;
-    dict->GetString(keys::kSecondaryPatternKey, &secondary_pattern_str);
+    dict->GetString(content_settings_api_constants::kSecondaryPatternKey,
+                    &secondary_pattern_str);
     ContentSettingsPattern secondary_pattern =
         ContentSettingsPattern::FromString(secondary_pattern_str);
     DCHECK(secondary_pattern.IsValid());
 
     std::string content_settings_type_str;
-    dict->GetString(keys::kContentSettingsTypeKey, &content_settings_type_str);
+    dict->GetString(content_settings_api_constants::kContentSettingsTypeKey,
+                    &content_settings_type_str);
     ContentSettingsType content_settings_type =
-        helpers::StringToContentSettingsType(content_settings_type_str);
+        content_settings_helpers::StringToContentSettingsType(
+            content_settings_type_str);
     if (content_settings_type == CONTENT_SETTINGS_TYPE_DEFAULT) {
       // We'll end up with DEFAULT here if the type string isn't recognised.
       // This could be if it's a string from an old settings type that has been
@@ -330,15 +364,33 @@ void ContentSettingsStore::SetExtensionContentSettingFromList(
       continue;
     }
 
+    const content_settings::ContentSettingsInfo* info =
+        content_settings::ContentSettingsRegistry::GetInstance()->Get(
+            content_settings_type);
+    if (primary_pattern != secondary_pattern &&
+        secondary_pattern != ContentSettingsPattern::Wildcard() &&
+        !info->website_settings_info()->SupportsEmbeddedExceptions() &&
+        base::FeatureList::IsEnabled(::features::kPermissionDelegation)) {
+      // Some types may have had embedded exceptions written even though they
+      // aren't supported. This will implicitly delete these old settings from
+      // the pref store when it is written back.
+      continue;
+    }
+
     std::string resource_identifier;
-    dict->GetString(keys::kResourceIdentifierKey, &resource_identifier);
+    dict->GetString(content_settings_api_constants::kResourceIdentifierKey,
+                    &resource_identifier);
 
     std::string content_setting_string;
-    dict->GetString(keys::kContentSettingKey, &content_setting_string);
+    dict->GetString(content_settings_api_constants::kContentSettingKey,
+                    &content_setting_string);
     ContentSetting setting;
     bool result = content_settings::ContentSettingFromString(
         content_setting_string, &setting);
     DCHECK(result);
+    // The content settings extensions API does not support setting any content
+    // settings to |CONTENT_SETTING_DEFAULT|.
+    DCHECK_NE(CONTENT_SETTING_DEFAULT, setting);
 
     SetExtensionContentSetting(extension_id,
                                primary_pattern,

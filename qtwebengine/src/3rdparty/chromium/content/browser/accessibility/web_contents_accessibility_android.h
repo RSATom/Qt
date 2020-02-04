@@ -35,8 +35,7 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
   WebContentsAccessibilityAndroid(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
-      WebContents* web_contents,
-      bool should_focus_on_page_load);
+      WebContents* web_contents);
   ~WebContentsAccessibilityAndroid() override;
 
   // --------------------------------------------------------------------------
@@ -152,12 +151,18 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
       jint id,
       jint cursor_index);
 
-  // Set accessibility focus. This sends a message to the renderer to
-  // asynchronously load inline text boxes for this node only, enabling more
-  // accurate movement by granularities on this node.
-  void SetAccessibilityFocus(JNIEnv* env,
-                             const base::android::JavaParamRef<jobject>& obj,
-                             jint id);
+  // Move accessibility focus. This sends a message to the renderer to
+  // clear accessibility focus on the previous node and set accessibility
+  // focus on the current node. This isn't exposed to the open web, but used
+  // internally.
+  //
+  // In addition, when a node gets accessibility focus we asynchronously
+  // load inline text boxes for this node only, enabling more accurate
+  // movement by granularities on this node.
+  void MoveAccessibilityFocus(JNIEnv* env,
+                              const base::android::JavaParamRef<jobject>& obj,
+                              jint old_unique_id,
+                              jint new_unique_id);
 
   // Returns true if the object is a slider.
   bool IsSlider(JNIEnv* env,
@@ -185,14 +190,39 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
               jint id,
               int direction);
 
-  void UpdateFrameInfo();
+  // Returns true if the given subtree has inline text box data, or if there
+  // aren't any to load.
+  jboolean AreInlineTextBoxesLoaded(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint id);
+
+  // Returns the length of the text node.
+  jint GetTextLength(JNIEnv* env,
+                     const base::android::JavaParamRef<jobject>& obj,
+                     jint id);
+
+  // Request loading inline text boxes for a given node.
+  void LoadInlineTextBoxes(JNIEnv* env,
+                           const base::android::JavaParamRef<jobject>& obj,
+                           jint id);
+
+  // Get the bounds of each character for a given static text node,
+  // starting from index |start| with length |len|. The resulting array
+  // of ints is 4 times the length |len|, with the bounds being returned
+  // as (left, top, right, bottom) in that order corresponding to a
+  // android.graphics.RectF.
+  base::android::ScopedJavaLocalRef<jintArray> GetCharacterBoundingBoxes(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint id,
+      jint start,
+      jint len);
+
+  void UpdateFrameInfo(float page_scale);
 
   void set_root_manager(BrowserAccessibilityManagerAndroid* manager) {
     root_manager_ = manager;
-  }
-
-  void set_should_focus_on_page_load(bool focus) {
-    should_focus_on_page_load_ = focus;
   }
 
   // --------------------------------------------------------------------------
@@ -220,8 +250,6 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
  private:
   BrowserAccessibilityAndroid* GetAXFromUniqueID(int32_t unique_id);
 
-  void UpdateEnabledState(bool enabled);
-
   void CollectStats();
 
   // A weak reference to the Java WebContentsAccessibilityAndroid object.
@@ -229,9 +257,11 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
 
   WebContentsImpl* const web_contents_;
 
-  bool should_focus_on_page_load_;
-
   bool frame_info_initialized_;
+
+  float page_scale_ = 1.f;
+
+  bool use_zoom_for_dsf_enabled_;
 
   BrowserAccessibilityManagerAndroid* root_manager_;
 
@@ -244,7 +274,6 @@ class CONTENT_EXPORT WebContentsAccessibilityAndroid
   DISALLOW_COPY_AND_ASSIGN(WebContentsAccessibilityAndroid);
 };
 
-bool RegisterWebContentsAccessibilityAndroid(JNIEnv* env);
 }
 
 #endif  // CONTENT_BROWSER_ACCESSIBILITY_WEB_CONTENTS_ACCESSIBILITY_ANDROID_H_

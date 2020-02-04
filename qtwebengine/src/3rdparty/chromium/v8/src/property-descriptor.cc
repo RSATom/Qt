@@ -5,10 +5,11 @@
 #include "src/property-descriptor.h"
 
 #include "src/bootstrapper.h"
-#include "src/factory.h"
+#include "src/heap/factory.h"
 #include "src/isolate-inl.h"
 #include "src/lookup.h"
 #include "src/objects-inl.h"
+#include "src/objects/property-descriptor-object-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -42,7 +43,7 @@ bool GetPropertyIfPresent(Handle<JSReceiver> receiver, Handle<String> name,
 bool ToPropertyDescriptorFastPath(Isolate* isolate, Handle<JSReceiver> obj,
                                   PropertyDescriptor* desc) {
   if (!obj->IsJSObject()) return false;
-  Map* map = Handle<JSObject>::cast(obj)->map();
+  Map map = Handle<JSObject>::cast(obj)->map();
   if (map->instance_type() != JS_OBJECT_TYPE) return false;
   if (map->is_access_check_needed()) return false;
   if (map->prototype() != *isolate->initial_object_prototype()) return false;
@@ -56,10 +57,10 @@ bool ToPropertyDescriptorFastPath(Isolate* isolate, Handle<JSReceiver> obj,
   // TODO(jkummerow): support dictionary properties?
   if (map->is_dictionary_map()) return false;
   Handle<DescriptorArray> descs =
-      Handle<DescriptorArray>(map->instance_descriptors());
+      Handle<DescriptorArray>(map->instance_descriptors(), isolate);
   for (int i = 0; i < map->NumberOfOwnDescriptors(); i++) {
     PropertyDetails details = descs->GetDetails(i);
-    Name* key = descs->GetKey(i);
+    Name key = descs->GetKey(i);
     Handle<Object> value;
     if (details.location() == kField) {
       if (details.kind() == kData) {
@@ -75,27 +76,27 @@ bool ToPropertyDescriptorFastPath(Isolate* isolate, Handle<JSReceiver> obj,
     } else {
       DCHECK_EQ(kDescriptor, details.location());
       if (details.kind() == kData) {
-        value = handle(descs->GetValue(i), isolate);
+        value = handle(descs->GetStrongValue(i), isolate);
       } else {
         DCHECK_EQ(kAccessor, details.kind());
         // Bail out to slow path.
         return false;
       }
     }
-    Heap* heap = isolate->heap();
-    if (key == heap->enumerable_string()) {
-      desc->set_enumerable(value->BooleanValue());
-    } else if (key == heap->configurable_string()) {
-      desc->set_configurable(value->BooleanValue());
-    } else if (key == heap->value_string()) {
+    ReadOnlyRoots roots(isolate);
+    if (key == roots.enumerable_string()) {
+      desc->set_enumerable(value->BooleanValue(isolate));
+    } else if (key == roots.configurable_string()) {
+      desc->set_configurable(value->BooleanValue(isolate));
+    } else if (key == roots.value_string()) {
       desc->set_value(value);
-    } else if (key == heap->writable_string()) {
-      desc->set_writable(value->BooleanValue());
-    } else if (key == heap->get_string()) {
+    } else if (key == roots.writable_string()) {
+      desc->set_writable(value->BooleanValue(isolate));
+    } else if (key == roots.get_string()) {
       // Bail out to slow path to throw an exception if necessary.
       if (!value->IsCallable()) return false;
       desc->set_get(value);
-    } else if (key == heap->set_string()) {
+    } else if (key == roots.set_string()) {
       // Bail out to slow path to throw an exception if necessary.
       if (!value->IsCallable()) return false;
       desc->set_set(value);
@@ -109,9 +110,8 @@ bool ToPropertyDescriptorFastPath(Isolate* isolate, Handle<JSReceiver> obj,
   return true;
 }
 
-
-void CreateDataProperty(Isolate* isolate, Handle<JSObject> object,
-                        Handle<String> name, Handle<Object> value) {
+void CreateDataProperty(Handle<JSObject> object, Handle<String> name,
+                        Handle<Object> value) {
   LookupIterator it(object, name, object, LookupIterator::OWN_SKIP_INTERCEPTOR);
   Maybe<bool> result = JSObject::CreateDataProperty(&it, value);
   CHECK(result.IsJust() && result.FromJust());
@@ -157,24 +157,24 @@ Handle<Object> PropertyDescriptor::ToObject(Isolate* isolate) {
   }
   Handle<JSObject> result = factory->NewJSObject(isolate->object_function());
   if (has_value()) {
-    CreateDataProperty(isolate, result, factory->value_string(), value());
+    CreateDataProperty(result, factory->value_string(), value());
   }
   if (has_writable()) {
-    CreateDataProperty(isolate, result, factory->writable_string(),
+    CreateDataProperty(result, factory->writable_string(),
                        factory->ToBoolean(writable()));
   }
   if (has_get()) {
-    CreateDataProperty(isolate, result, factory->get_string(), get());
+    CreateDataProperty(result, factory->get_string(), get());
   }
   if (has_set()) {
-    CreateDataProperty(isolate, result, factory->set_string(), set());
+    CreateDataProperty(result, factory->set_string(), set());
   }
   if (has_enumerable()) {
-    CreateDataProperty(isolate, result, factory->enumerable_string(),
+    CreateDataProperty(result, factory->enumerable_string(),
                        factory->ToBoolean(enumerable()));
   }
   if (has_configurable()) {
-    CreateDataProperty(isolate, result, factory->configurable_string(),
+    CreateDataProperty(result, factory->configurable_string(),
                        factory->ToBoolean(configurable()));
   }
   return result;
@@ -211,7 +211,7 @@ bool PropertyDescriptor::ToPropertyDescriptor(Isolate* isolate,
   }
   // 6c. Set the [[Enumerable]] field of desc to enum.
   if (!enumerable.is_null()) {
-    desc->set_enumerable(enumerable->BooleanValue());
+    desc->set_enumerable(enumerable->BooleanValue(isolate));
   }
 
   // configurable?
@@ -223,7 +223,7 @@ bool PropertyDescriptor::ToPropertyDescriptor(Isolate* isolate,
   }
   // 9c. Set the [[Configurable]] field of desc to conf.
   if (!configurable.is_null()) {
-    desc->set_configurable(configurable->BooleanValue());
+    desc->set_configurable(configurable->BooleanValue(isolate));
   }
 
   // value?
@@ -244,7 +244,7 @@ bool PropertyDescriptor::ToPropertyDescriptor(Isolate* isolate,
     return false;
   }
   // 15c. Set the [[Writable]] field of desc to writable.
-  if (!writable.is_null()) desc->set_writable(writable->BooleanValue());
+  if (!writable.is_null()) desc->set_writable(writable->BooleanValue(isolate));
 
   // getter?
   Handle<Object> getter;
@@ -339,6 +339,34 @@ void PropertyDescriptor::CompletePropertyDescriptor(Isolate* isolate,
   //    Desc.[[Configurable]] to like.[[Configurable]].
   if (!desc->has_configurable()) desc->set_configurable(false);
   // 8. Return Desc.
+}
+
+Handle<PropertyDescriptorObject> PropertyDescriptor::ToPropertyDescriptorObject(
+    Isolate* isolate) {
+  Handle<PropertyDescriptorObject> obj = Handle<PropertyDescriptorObject>::cast(
+      isolate->factory()->NewFixedArray(PropertyDescriptorObject::kLength));
+
+  int flags =
+      PropertyDescriptorObject::IsEnumerableBit::encode(enumerable_) |
+      PropertyDescriptorObject::HasEnumerableBit::encode(has_enumerable_) |
+      PropertyDescriptorObject::IsConfigurableBit::encode(configurable_) |
+      PropertyDescriptorObject::HasConfigurableBit::encode(has_configurable_) |
+      PropertyDescriptorObject::IsWritableBit::encode(writable_) |
+      PropertyDescriptorObject::HasWritableBit::encode(has_writable_) |
+      PropertyDescriptorObject::HasValueBit::encode(has_value()) |
+      PropertyDescriptorObject::HasGetBit::encode(has_get()) |
+      PropertyDescriptorObject::HasSetBit::encode(has_set());
+
+  obj->set(PropertyDescriptorObject::kFlagsIndex, Smi::FromInt(flags));
+
+  obj->set(PropertyDescriptorObject::kValueIndex,
+           has_value() ? *value_ : ReadOnlyRoots(isolate).the_hole_value());
+  obj->set(PropertyDescriptorObject::kGetIndex,
+           has_get() ? *get_ : ReadOnlyRoots(isolate).the_hole_value());
+  obj->set(PropertyDescriptorObject::kSetIndex,
+           has_set() ? *set_ : ReadOnlyRoots(isolate).the_hole_value());
+
+  return obj;
 }
 
 }  // namespace internal

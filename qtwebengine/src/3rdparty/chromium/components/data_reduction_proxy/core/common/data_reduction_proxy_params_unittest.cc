@@ -13,43 +13,27 @@
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
+#include "base/optional.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_server.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_type_info.h"
 #include "components/data_reduction_proxy/proto/client_config.pb.h"
 #include "components/variations/variations_associated_data.h"
-#include "net/proxy/proxy_server.h"
+#include "net/base/proxy_server.h"
+#include "net/http/http_status_code.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_ANDROID)
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #endif
 
 namespace data_reduction_proxy {
-class DataReductionProxyParamsTest : public testing::Test {
- public:
-  void CheckValues(const TestDataReductionProxyParams& params,
-                   const std::string& expected_origin,
-                   const std::string& expected_fallback_origin) {
-    std::vector<net::ProxyServer> expected_proxies;
-    if (!expected_origin.empty()) {
-      expected_proxies.push_back(net::ProxyServer::FromURI(
-          expected_origin, net::ProxyServer::SCHEME_HTTP));
-    }
 
-    if (!expected_fallback_origin.empty()) {
-      expected_proxies.push_back(net::ProxyServer::FromURI(
-          expected_fallback_origin, net::ProxyServer::SCHEME_HTTP));
-    }
-
-    EXPECT_EQ(expected_proxies,
-              DataReductionProxyServer::ConvertToNetProxyServers(
-                  params.proxies_for_http()));
-  }
-};
+class DataReductionProxyParamsTest : public testing::Test {};
 
 TEST_F(DataReductionProxyParamsTest, EverythingDefined) {
   TestDataReductionProxyParams params;
@@ -66,6 +50,24 @@ TEST_F(DataReductionProxyParamsTest, EverythingDefined) {
       ProxyServer::CORE));
 
   EXPECT_EQ(expected_proxies, params.proxies_for_http());
+
+  EXPECT_FALSE(
+      params.FindConfiguredDataReductionProxy(net::ProxyServer::FromURI(
+          "unrelated.proxy.net:80", net::ProxyServer::SCHEME_HTTP)));
+
+  base::Optional<DataReductionProxyTypeInfo> first_info =
+      params.FindConfiguredDataReductionProxy(
+          expected_proxies[0].proxy_server());
+  ASSERT_TRUE(first_info);
+  EXPECT_EQ(expected_proxies, first_info->proxy_servers);
+  EXPECT_EQ(0U, first_info->proxy_index);
+
+  base::Optional<DataReductionProxyTypeInfo> second_info =
+      params.FindConfiguredDataReductionProxy(
+          expected_proxies[1].proxy_server());
+  ASSERT_TRUE(second_info);
+  EXPECT_EQ(expected_proxies, second_info->proxy_servers);
+  EXPECT_EQ(1U, second_info->proxy_index);
 }
 
 TEST_F(DataReductionProxyParamsTest, Flags) {
@@ -74,93 +76,40 @@ TEST_F(DataReductionProxyParamsTest, Flags) {
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       switches::kDataReductionProxyFallback, "http://ovveride-2.com/");
   TestDataReductionProxyParams params;
-  CheckValues(params, "http://ovveride-1.com/", "http://ovveride-2.com/");
-}
 
-TEST_F(DataReductionProxyParamsTest, AndroidOnePromoFieldTrial) {
-  EXPECT_TRUE(params::IsIncludedInAndroidOnePromoFieldTrialForTesting(
-      "google/sprout/sprout:4.4.4/KPW53/1379542:user/release-keys"));
-  EXPECT_FALSE(params::IsIncludedInAndroidOnePromoFieldTrialForTesting(
-      "google/hammerhead/hammerhead:5.0/LRX210/1570415:user/release-keys"));
-}
+  std::vector<DataReductionProxyServer> expected_proxies;
+  expected_proxies.push_back(DataReductionProxyServer(
+      net::ProxyServer::FromURI("http://ovveride-1.com/",
+                                net::ProxyServer::SCHEME_HTTP),
+      ProxyServer::UNSPECIFIED_TYPE));
+  expected_proxies.push_back(DataReductionProxyServer(
+      net::ProxyServer::FromURI("http://ovveride-2.com/",
+                                net::ProxyServer::SCHEME_HTTP),
+      ProxyServer::UNSPECIFIED_TYPE));
 
-TEST_F(DataReductionProxyParamsTest, IsClientConfigEnabled) {
-  const struct {
-    std::string test_case;
-    std::string trial_group_value;
-    bool expected;
-  } tests[] = {
-      {
-          "Nothing set", "", true,
-      },
-      {
-          "Enabled in experiment", "Enabled", true,
-      },
-      {
-          "Alternate enabled in experiment", "Enabled_Other", true,
-      },
-      {
-          "Control in experiment", "Control", true,
-      },
-      {
-          "Disabled in experiment", "Disabled", false,
-      },
-      {
-          "Disabled in experiment", "Disabled_Other", false,
-      },
-      {
-          "disabled in experiment lower case", "disabled", true,
-      },
-  };
+  EXPECT_EQ(expected_proxies, params.proxies_for_http());
 
-  for (const auto& test : tests) {
-    base::FieldTrialList field_trial_list(nullptr);
-    if (!test.trial_group_value.empty()) {
-      ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
-          "DataReductionProxyConfigService", test.trial_group_value));
-    }
-    EXPECT_EQ(test.expected, params::IsConfigClientEnabled()) << test.test_case;
-  }
-}
+  // The default proxies shouldn't be recognized as Data Reduction Proxies.
+  EXPECT_FALSE(
+      params.FindConfiguredDataReductionProxy(net::ProxyServer::FromURI(
+          "https://proxy.googlezip.net:443", net::ProxyServer::SCHEME_HTTP)));
+  EXPECT_FALSE(
+      params.FindConfiguredDataReductionProxy(net::ProxyServer::FromURI(
+          "compress.googlezip.net:80", net::ProxyServer::SCHEME_HTTP)));
 
-TEST_F(DataReductionProxyParamsTest, IsBrotliAcceptEncodingEnabled) {
-  const struct {
-    std::string test_case;
-    std::string trial_group_value;
-    bool expected;
-  } tests[] = {
-      {
-          "Nothing set", "", true,
-      },
-      {
-          "Enabled in experiment", "Enabled", true,
-      },
-      {
-          "Alternate enabled in experiment", "Enabled_Other", true,
-      },
-      {
-          "Control in experiment", "Control", true,
-      },
-      {
-          "Disabled in experiment", "Disabled", false,
-      },
-      {
-          "Disabled in experiment", "Disabled_Other", false,
-      },
-      {
-          "disabled in experiment lower case", "disabled", true,
-      },
-  };
+  base::Optional<DataReductionProxyTypeInfo> first_info =
+      params.FindConfiguredDataReductionProxy(
+          expected_proxies[0].proxy_server());
+  ASSERT_TRUE(first_info);
+  EXPECT_EQ(expected_proxies, first_info->proxy_servers);
+  EXPECT_EQ(0U, first_info->proxy_index);
 
-  for (const auto& test : tests) {
-    base::FieldTrialList field_trial_list(nullptr);
-    if (!test.trial_group_value.empty()) {
-      ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
-          "DataReductionProxyBrotliAcceptEncoding", test.trial_group_value));
-    }
-    EXPECT_EQ(test.expected, params::IsBrotliAcceptEncodingEnabled())
-        << test.test_case;
-  }
+  base::Optional<DataReductionProxyTypeInfo> second_info =
+      params.FindConfiguredDataReductionProxy(
+          expected_proxies[1].proxy_server());
+  ASSERT_TRUE(second_info);
+  EXPECT_EQ(expected_proxies, second_info->proxy_servers);
+  EXPECT_EQ(1U, second_info->proxy_index);
 }
 
 TEST_F(DataReductionProxyParamsTest, AreServerExperimentsEnabled) {
@@ -195,169 +144,13 @@ TEST_F(DataReductionProxyParamsTest, AreServerExperimentsEnabled) {
           "DataReductionProxyServerExperiments", test.trial_group_value));
     }
 
-    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, NULL);
+    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, nullptr);
     if (test.disable_flag_set) {
       base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
           switches::kDataReductionProxyServerExperimentsDisabled, "");
     }
     EXPECT_EQ(test.expected, params::IsIncludedInServerExperimentsFieldTrial())
         << test.test_case;
-  }
-}
-
-TEST_F(DataReductionProxyParamsTest, IsTamperDetectionEnabled) {
-  const struct {
-    std::string test_case;
-    std::string trial_group_value;
-    bool disable_flag_set;
-    bool expected;
-  } tests[] = {
-      {
-          "Field trial not set", "", false, false,
-      },
-      {
-          "Field trial not set, flag set", "", true, false,
-      },
-      {
-          "Enabled", "Enabled", false, false,
-      },
-      {
-          "TamperDetection_Enabled but disabled via flag",
-          "TamperDetection_Enabled", true, false,
-      },
-      {
-          "TamperDetection_Enabled", "TamperDetection_Enabled", false, true,
-      },
-  };
-
-  for (const auto& test : tests) {
-    base::FieldTrialList field_trial_list(nullptr);
-    if (!test.trial_group_value.empty()) {
-      ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
-          "DataReductionProxyServerExperiments", test.trial_group_value));
-    }
-
-    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, NULL);
-    if (test.disable_flag_set) {
-      base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-          switches::kDataReductionProxyServerExperimentsDisabled, "");
-    }
-    EXPECT_EQ(test.expected, params::IsIncludedInTamperDetectionExperiment())
-        << test.test_case;
-  }
-}
-
-// Tests if Lo-Fi field trial is set correctly.
-TEST_F(DataReductionProxyParamsTest, LoFiEnabledFieldTrial) {
-  const struct {
-    std::string trial_group_name;
-    bool expected_enabled;
-    bool expected_control;
-    bool expected_lite_page_enabled;
-  } tests[] = {
-      {"Enabled", true, false, false},
-      {"Enabled_Control", true, false, false},
-      {"Disabled", false, false, false},
-      {"enabled", false, false, false},
-  };
-
-  for (const auto& test : tests) {
-    base::FieldTrialList field_trial_list(nullptr);
-
-    ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
-        params::GetLoFiFieldTrialName(), test.trial_group_name));
-    EXPECT_EQ(test.expected_enabled,
-              params::IsIncludedInLoFiEnabledFieldTrial())
-        << test.trial_group_name;
-    EXPECT_EQ(test.expected_control,
-              params::IsIncludedInLoFiControlFieldTrial())
-        << test.trial_group_name;
-    EXPECT_EQ(test.expected_lite_page_enabled,
-              params::IsIncludedInLitePageFieldTrial())
-        << test.trial_group_name;
-  }
-}
-
-// Tests if Lo-Fi field trial is set correctly.
-TEST_F(DataReductionProxyParamsTest, LoFiControlFieldTrial) {
-  const struct {
-    std::string trial_group_name;
-    bool expected_enabled;
-    bool expected_control;
-    bool expected_lite_page_enabled;
-  } tests[] = {
-      {"Control", false, true, false},
-      {"Control_Enabled", false, true, false},
-      {"Disabled", false, false, false},
-      {"control", false, false, false},
-  };
-
-  for (const auto& test : tests) {
-    base::FieldTrialList field_trial_list(nullptr);
-
-    ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
-        params::GetLoFiFieldTrialName(), test.trial_group_name));
-    EXPECT_EQ(test.expected_enabled,
-              params::IsIncludedInLoFiEnabledFieldTrial())
-        << test.trial_group_name;
-    EXPECT_EQ(test.expected_control,
-              params::IsIncludedInLoFiControlFieldTrial())
-        << test.trial_group_name;
-    EXPECT_EQ(test.expected_lite_page_enabled,
-              params::IsIncludedInLitePageFieldTrial())
-        << test.trial_group_name;
-  }
-}
-
-// Tests if Lo-Fi field trial is set correctly.
-TEST_F(DataReductionProxyParamsTest, LoFiPreviewFieldTrial) {
-  const struct {
-    std::string trial_group_name;
-    bool expected_enabled;
-    bool expected_control;
-    bool expected_lite_page_enabled;
-  } tests[] = {
-      {"Enabled_Preview", true, false, true},
-      {"Enabled_Preview_Control", true, false, true},
-      {"Disabled", false, false, false},
-      {"enabled_Preview", false, false, false},
-  };
-
-  for (const auto& test : tests) {
-    base::FieldTrialList field_trial_list(nullptr);
-
-    ASSERT_TRUE(base::FieldTrialList::CreateFieldTrial(
-        params::GetLoFiFieldTrialName(), test.trial_group_name));
-    EXPECT_EQ(test.expected_enabled,
-              params::IsIncludedInLoFiEnabledFieldTrial())
-        << test.trial_group_name;
-    EXPECT_EQ(test.expected_control,
-              params::IsIncludedInLoFiControlFieldTrial())
-        << test.trial_group_name;
-    EXPECT_EQ(test.expected_lite_page_enabled,
-              params::IsIncludedInLitePageFieldTrial())
-        << test.trial_group_name;
-  }
-}
-
-TEST_F(DataReductionProxyParamsTest, TrustedSpdyProxyFieldTrial) {
-  const struct {
-    std::string trial_group_name;
-    bool expected_enabled;
-  } tests[] = {
-      {"Enabled", true},     {"Enabled_Control", true}, {"Control", false},
-      {"Disabled", false},   {"enabled", true},         {"Enabled", true},
-      {std::string(), true},
-  };
-
-  for (const auto& test : tests) {
-    variations::testing::ClearAllVariationParams();
-    base::FieldTrialList field_trial_list(nullptr);
-    base::FieldTrialList::CreateFieldTrial(
-        params::GetTrustedSpdyProxyFieldTrialName(), test.trial_group_name);
-
-    EXPECT_EQ(test.expected_enabled,
-              params::IsIncludedInTrustedSpdyProxyFieldTrial());
   }
 }
 
@@ -373,21 +166,27 @@ TEST_F(DataReductionProxyParamsTest, QuicFieldTrial) {
       {"Enabled", true, true, true, std::string()},
       {"Enabled", true, false, false, std::string()},
       {"Enabled_Control", true, true, true, std::string()},
-      {"Control", false, true, true, std::string()},
+      {"Control", false, true, false, std::string()},
       {"Disabled", false, true, false, std::string()},
       {"enabled", true, true, true, std::string()},
       {"Enabled", true, true, true, "example.com/test.html"},
-      {std::string(), true, false, false, std::string()},
+      {std::string(), true, false, true, std::string()},
+      {"Enabled", true, false, false, std::string()},
   };
 
   for (const auto& test : tests) {
+    ASSERT_FALSE(base::CommandLine::ForCurrentProcess()->HasSwitch(
+        switches::kDisableDataReductionProxyWarmupURLFetch));
+
     variations::testing::ClearAllVariationParams();
     std::map<std::string, std::string> variation_params;
-    if (test.enable_warmup_url)
-      variation_params["enable_warmup"] = "true";
+    if (!test.enable_warmup_url)
+      variation_params["enable_warmup"] = "false";
 
-    if (!test.warmup_url.empty())
+    if (!test.warmup_url.empty()) {
       variation_params["warmup_url"] = test.warmup_url;
+      variation_params["whitelisted_probe_http_response_code"] = "204";
+    }
     ASSERT_TRUE(variations::AssociateVariationParams(
         params::GetQuicFieldTrialName(), test.trial_group_name,
         variation_params));
@@ -399,11 +198,45 @@ TEST_F(DataReductionProxyParamsTest, QuicFieldTrial) {
     EXPECT_EQ(test.expected_enabled, params::IsIncludedInQuicFieldTrial());
     if (!test.warmup_url.empty()) {
       EXPECT_EQ(GURL(test.warmup_url), params::GetWarmupURL());
+      EXPECT_TRUE(params::IsWhitelistedHttpResponseCodeForProbes(200));
+      EXPECT_TRUE(params::IsWhitelistedHttpResponseCodeForProbes(net::HTTP_OK));
+      EXPECT_TRUE(params::IsWhitelistedHttpResponseCodeForProbes(204));
+      EXPECT_FALSE(params::IsWhitelistedHttpResponseCodeForProbes(302));
+      EXPECT_FALSE(params::IsWhitelistedHttpResponseCodeForProbes(307));
+      EXPECT_TRUE(params::IsWhitelistedHttpResponseCodeForProbes(404));
     } else {
-      EXPECT_EQ(GURL("http://check.googlezip.net/generate_204"),
+      EXPECT_EQ(GURL("http://check.googlezip.net/e2e_probe"),
                 params::GetWarmupURL());
     }
-    EXPECT_EQ(test.expect_warmup_url_enabled, params::FetchWarmupURLEnabled());
+    EXPECT_TRUE(params::FetchWarmupProbeURLEnabled());
+    EXPECT_TRUE(params::IsWarmupURLFetchCallbackEnabled());
+  }
+}
+
+TEST_F(DataReductionProxyParamsTest, QuicFieldTrialDefaultResponseCodeWarmup) {
+  ASSERT_FALSE(base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kDisableDataReductionProxyWarmupURLFetch));
+
+  EXPECT_TRUE(params::IsIncludedInQuicFieldTrial());
+  EXPECT_EQ(GURL("http://check.googlezip.net/e2e_probe"),
+            params::GetWarmupURL());
+  EXPECT_TRUE(params::FetchWarmupProbeURLEnabled());
+
+  const struct {
+    int http_response_code;
+    bool expected_whitelisted;
+  } tests[] = {{200, true},
+               {net::HTTP_OK, true},
+               {204, false},
+               {301, false},
+               {net::HTTP_TEMPORARY_REDIRECT, false},
+               {404, true},
+               {net::HTTP_NOT_FOUND, true}};
+
+  for (const auto& test : tests) {
+    EXPECT_EQ(test.expected_whitelisted,
+              params::IsWhitelistedHttpResponseCodeForProbes(
+                  test.http_response_code));
   }
 }
 
@@ -416,10 +249,8 @@ TEST_F(DataReductionProxyParamsTest, QuicEnableNonCoreProxies) {
     std::string enable_non_core_proxies;
     bool expected_enable_non_core_proxies;
   } tests[] = {
-      {"Enabled", true, "true", true},
-      {"Enabled", true, "false", false},
-      {"Enabled", true, std::string(), false},
-      {"Control", false, "true", false},
+      {"Enabled", true, "true", true},        {"Enabled", true, "false", false},
+      {"Enabled", true, std::string(), true}, {"Control", false, "true", false},
       {"Disabled", false, "true", false},
   };
 
@@ -556,7 +387,7 @@ TEST_F(DataReductionProxyParamsTest, GetConfigServiceURL) {
 
   for (const auto& test : tests) {
     // Reset all flags.
-    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, NULL);
+    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, nullptr);
     if (!test.flag_value.empty()) {
       base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
           switches::kDataReductionProxyConfigURL, test.flag_value);
@@ -582,7 +413,7 @@ TEST_F(DataReductionProxyParamsTest, SecureProxyURL) {
 
   for (const auto& test : tests) {
     // Reset all flags.
-    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, NULL);
+    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, nullptr);
     if (!test.flag_value.empty()) {
       base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
           switches::kDataReductionProxySecureProxyCheckURL, test.flag_value);

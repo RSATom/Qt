@@ -30,11 +30,10 @@
 #include "testseat.h"
 #include "testkeyboardgrabber.h"
 
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 
 TestCompositor::TestCompositor(bool createInputDev)
-    : QWaylandCompositor()
-    , shell(new QWaylandWlShell(this))
+    : shell(new QWaylandWlShell(this))
     , m_createSeat(createInputDev)
 {
     setSocketName("wayland-qt-test-0");
@@ -42,7 +41,9 @@ TestCompositor::TestCompositor(bool createInputDev)
 
 void TestCompositor::create()
 {
-    new QWaylandOutput(this, Q_NULLPTR);
+    auto output = new QWaylandOutput(this, nullptr);
+    setDefaultOutput(output);
+
     QWaylandCompositor::create();
 
     connect(this, &QWaylandCompositor::surfaceCreated, this, &TestCompositor::onSurfaceCreated);

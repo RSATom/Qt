@@ -28,10 +28,10 @@
 
 #include "sheet_delegate_p.h"
 
-#include <QtCore/QAbstractItemModel>
-#include <QtWidgets/QTreeView>
-#include <QtWidgets/QStyle>
-#include <QtGui/QPainter>
+#include <QtCore/qabstractitemmodel.h>
+#include <QtWidgets/qtreeview.h>
+#include <QtWidgets/qstyle.h>
+#include <QtGui/qpainter.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -105,8 +105,9 @@ void SheetDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
 
         // draw text
         QRect textrect = QRect(r.left() + i*2, r.top(), r.width() - ((5*i)/2), r.height());
-        QString text = elidedText(option.fontMetrics, textrect.width(), Qt::ElideMiddle,
-            model->data(index, Qt::DisplayRole).toString());
+        QString text = option.fontMetrics.elidedText(model->data(index, Qt::DisplayRole).toString(),
+                                                     Qt::ElideMiddle,
+                                                     textrect.width());
         m_view->style()->drawItemText(painter, textrect, Qt::AlignCenter,
             option.palette, m_view->isEnabled(), text);
 

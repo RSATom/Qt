@@ -5,17 +5,24 @@
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 
 #include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_attributes_entry.h"
+#include "chrome/browser/profiles/profile_attributes_storage.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
-#include "chrome/browser/ui/user_manager.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/common/url_constants.h"
+#include "components/signin/core/browser/account_consistency_method.h"
 #include "components/signin/core/browser/signin_header_helper.h"
-#include "components/signin/core/common/profile_management_switches.h"
+
+#if !defined(OS_CHROMEOS)
+#include "chrome/browser/ui/user_manager.h"
+#endif  // !defined(OS_CHROMEOS)
 
 LoginUIService::LoginUIService(Profile* profile)
 #if !defined(OS_CHROMEOS)
@@ -57,6 +64,18 @@ void LoginUIService::ShowLoginPopup() {
 #if defined(OS_CHROMEOS)
   NOTREACHED();
 #else
+  // There is no sign-in flow for guest or system profile.
+  if (profile_->IsGuestSession() || profile_->IsSystemProfile())
+    return;
+  // Locked profile should be unlocked with UserManager only.
+  ProfileAttributesEntry* entry;
+  if (g_browser_process->profile_manager()
+          ->GetProfileAttributesStorage()
+          .GetProfileAttributesWithPath(profile_->GetPath(), &entry) &&
+      entry->IsSigninRequired()) {
+    return;
+  }
+
   chrome::ScopedTabbedBrowserDisplayer displayer(profile_);
   chrome::ShowBrowserSignin(
       displayer.browser(),
@@ -71,6 +90,7 @@ void LoginUIService::DisplayLoginResult(Browser* browser,
   // ChromeOS doesn't have the avatar bubble so it never calls this function.
   NOTREACHED();
 #else
+  is_displaying_profile_blocking_error_message_ = false;
   last_login_result_ = error_message;
   last_login_error_email_ = email;
   if (!error_message.empty()) {
@@ -86,6 +106,16 @@ void LoginUIService::DisplayLoginResult(Browser* browser,
         signin_metrics::AccessPoint::ACCESS_POINT_EXTENSIONS, false);
   }
 #endif
+}
+
+void LoginUIService::SetProfileBlockingErrorMessage() {
+  last_login_result_ = base::string16();
+  last_login_error_email_ = base::string16();
+  is_displaying_profile_blocking_error_message_ = true;
+}
+
+bool LoginUIService::IsDisplayingProfileBlockedErrorMessage() const {
+  return is_displaying_profile_blocking_error_message_;
 }
 
 const base::string16& LoginUIService::GetLastLoginResult() const {

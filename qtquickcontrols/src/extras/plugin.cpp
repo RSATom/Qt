@@ -99,22 +99,12 @@ void QtQuickExtrasPlugin::registerTypes(const char *uri)
 #if QT_CONFIG(picture)
     qmlRegisterType<QQuickPicture>(uri, 1, 4, "Picture");
 #endif
-}
 
-void QtQuickExtrasPlugin::initializeEngine(QQmlEngine *engine, const char *uri)
-{
-    Q_UNUSED(uri);
-    Q_UNUSED(engine);
     qmlRegisterType<QQuickMouseThief>("QtQuick.Extras.Private.CppUtils", 1, 0, "MouseThief");
     qmlRegisterType<QQuickCircularProgressBar>("QtQuick.Extras.Private.CppUtils", 1, 1, "CircularProgressBar");
     qmlRegisterType<QQuickFlatProgressBar>("QtQuick.Extras.Private.CppUtils", 1, 1, "FlatProgressBar");
     qmlRegisterSingletonType<QQuickMathUtils>("QtQuick.Extras.Private.CppUtils", 1, 0, "MathUtils", registerMathUtilsSingleton);
 
-#ifndef QT_STATIC
-    const QString prefix = baseUrl().toString();
-#else
-    const QString prefix = "qrc:/qt-project.org/imports/QtQuick/Extras";
-#endif
     const char *private_uri = "QtQuick.Extras.Private";
     qmlRegisterType(QUrl(prefix + "/Private/CircularButton.qml"), private_uri, 1, 0, "CircularButton");
     qmlRegisterType(QUrl(prefix + "/Private/CircularButtonStyleHelper.qml"), private_uri, 1, 0, "CircularButtonStyleHelper");

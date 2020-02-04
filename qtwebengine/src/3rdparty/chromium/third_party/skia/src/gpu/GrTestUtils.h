@@ -12,14 +12,18 @@
 
 #if GR_TEST_UTILS
 
+#include "../private/SkTemplates.h"
 #include "GrColor.h"
-#include "GrColorSpaceXform.h"
+#include "GrFPArgs.h"
+#include "GrSamplerState.h"
+#include "SkMacros.h"
 #include "SkPathEffect.h"
 #include "SkRandom.h"
 #include "SkShaderBase.h"
 #include "SkStrokeRec.h"
-#include "../private/SkTemplates.h"
 
+class GrColorSpaceInfo;
+class GrColorSpaceXform;
 struct GrProcessorTestData;
 class GrStyle;
 class SkMatrix;
@@ -36,6 +40,7 @@ const SkMatrix& TestMatrixPreservesRightAngles(SkRandom*);
 const SkMatrix& TestMatrixRectStaysRect(SkRandom*);
 const SkMatrix& TestMatrixInvertible(SkRandom*);
 const SkMatrix& TestMatrixPerspective(SkRandom*);
+void TestWrapModes(SkRandom*, GrSamplerState::WrapMode[2]);
 const SkRect& TestRect(SkRandom*);
 const SkRect& TestSquare(SkRandom*);
 const SkRRect& TestRRectSimple(SkRandom*);
@@ -50,12 +55,13 @@ sk_sp<GrColorSpaceXform> TestColorXform(SkRandom*);
 class TestAsFPArgs {
 public:
     TestAsFPArgs(GrProcessorTestData*);
-    const SkShaderBase::AsFPArgs& args() const { return fArgs; }
+    ~TestAsFPArgs();
+    const GrFPArgs& args() const { return fArgs; }
 
 private:
-    SkShaderBase::AsFPArgs fArgs;
     SkMatrix fViewMatrixStorage;
-    sk_sp<SkColorSpace> fColorSpaceStorage;
+    std::unique_ptr<GrColorSpaceInfo> fColorSpaceInfoStorage;
+    GrFPArgs fArgs;
 };
 
 // We have a simplified dash path effect here to avoid relying on SkDashPathEffect which
@@ -66,10 +72,12 @@ public:
         return sk_sp<SkPathEffect>(new TestDashPathEffect(intervals, count, phase));
     }
 
-    bool filterPath(SkPath* dst, const SkPath&, SkStrokeRec* , const SkRect*) const override;
-    DashType asADash(DashInfo* info) const override;
     Factory getFactory() const override { return nullptr; }
-    void toString(SkString*) const override {}
+    const char* getTypeName() const override { return nullptr; }
+
+protected:
+    bool onFilterPath(SkPath* dst, const SkPath&, SkStrokeRec* , const SkRect*) const override;
+    DashType onAsADash(DashInfo* info) const override;
 
 private:
     TestDashPathEffect(const SkScalar* intervals, int count, SkScalar phase);
@@ -118,7 +126,6 @@ static inline GrColor GrRandomColor(SkRandom* random) {
             break;
         }
     }
-    GrColorIsPMAssert(color);
     return color;
 }
 

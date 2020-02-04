@@ -14,7 +14,9 @@
 
 #include "handler/mac/file_limit_annotation.h"
 
+#include <dirent.h>
 #include <errno.h>
+#include <string.h>
 #include <sys/resource.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
@@ -22,10 +24,13 @@
 #include <string>
 
 #include "base/format_macros.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
+#include "util/posix/scoped_dir.h"
+
+namespace crashpad {
 
 namespace {
 
@@ -44,6 +49,37 @@ std::string FormatFromSysctl(int rv, const int* value, const size_t* size) {
   return base::StringPrintf("%d", *value);
 }
 
+// Counts the number of open file descriptors in the process and returns it as a
+// string. This /dev/fd and the value returned will include the open file
+// descriptor for that directory. If opendir() fails, the returned string will
+// be "E" followed by the error number. If readdir() fails, it will be "R"
+// followed by the error number.
+std::string CountOpenFileDescriptors() {
+  DIR* dir = opendir("/dev/fd");
+  if (!dir) {
+    return base::StringPrintf("E%d", errno);
+  }
+
+  ScopedDIR dir_owner(dir);
+
+  dirent* entry;
+  int count = 0;
+  while ((errno = 0, entry = readdir(dir)) != nullptr) {
+    const char* entry_name = entry->d_name;
+    if (strcmp(entry_name, ".") == 0 || strcmp(entry_name, "..") == 0) {
+      continue;
+    }
+
+    ++count;
+  }
+
+  if (errno != 0) {
+    return base::StringPrintf("R%d", errno);
+  }
+
+  return base::StringPrintf("%d", count);
+}
+
 // Returns a string for |limit|, or "inf" if |limit| is RLIM_INFINITY.
 std::string StringForRLim(rlim_t limit) {
   if (limit == RLIM_INFINITY) {
@@ -54,8 +90,6 @@ std::string StringForRLim(rlim_t limit) {
 }
 
 }  // namespace
-
-namespace crashpad {
 
 void RecordFileLimitAnnotation() {
   CrashpadInfo* crashpad_info = CrashpadInfo::GetCrashpadInfo();
@@ -74,7 +108,9 @@ void RecordFileLimitAnnotation() {
   int mib[] = {CTL_KERN, KERN_MAXFILES};
   size = sizeof(value);
   std::string max_files = FormatFromSysctl(
-      sysctl(mib, arraysize(mib), &value, &size, nullptr, 0), &value, &size);
+      sysctl(mib, base::size(mib), &value, &size, nullptr, 0), &value, &size);
+
+  std::string open_files = CountOpenFileDescriptors();
 
   rlimit limit;
   std::string nofile;
@@ -85,8 +121,11 @@ void RecordFileLimitAnnotation() {
         StringForRLim(limit.rlim_cur) + "," + StringForRLim(limit.rlim_max);
   }
 
-  std::string annotation = base::StringPrintf(
-      "%s,%s,%s", num_files.c_str(), max_files.c_str(), nofile.c_str());
+  std::string annotation = base::StringPrintf("%s,%s,%s,%s",
+                                              num_files.c_str(),
+                                              max_files.c_str(),
+                                              open_files.c_str(),
+                                              nofile.c_str());
   simple_annotations->SetKeyValue("file-limits", annotation.c_str());
 }
 

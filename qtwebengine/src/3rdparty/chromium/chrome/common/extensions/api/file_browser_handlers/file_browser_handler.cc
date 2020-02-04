@@ -214,7 +214,7 @@ std::unique_ptr<FileBrowserHandler> LoadFileBrowserHandler(
       // wildcards in URLPattern, so transform to what will match correctly.
       filter.replace(0, 11, "chrome-extension://*/");
       URLPattern pattern(URLPattern::SCHEME_EXTENSION);
-      if (pattern.Parse(filter) != URLPattern::PARSE_SUCCESS) {
+      if (pattern.Parse(filter) != URLPattern::ParseResult::kSuccess) {
         *error = extensions::ErrorUtils::FormatErrorMessageUTF16(
             errors::kInvalidURLPatternError, filter);
         return nullptr;
@@ -303,6 +303,7 @@ bool FileBrowserHandlerParser::Parse(extensions::Extension* extension,
   return true;
 }
 
-const std::vector<std::string> FileBrowserHandlerParser::Keys() const {
-  return SingleKey(keys::kFileBrowserHandlers);
+base::span<const char* const> FileBrowserHandlerParser::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kFileBrowserHandlers};
+  return kKeys;
 }

@@ -193,6 +193,10 @@ public:
     QWheelEvent(const QPointF &pos, const QPointF &globalPos, QPoint pixelDelta, QPoint angleDelta,
                 int qt4Delta, Qt::Orientation qt4Orientation, Qt::MouseButtons buttons,
                 Qt::KeyboardModifiers modifiers, Qt::ScrollPhase phase, Qt::MouseEventSource source, bool inverted);
+
+    QWheelEvent(QPointF pos, QPointF globalPos, QPoint pixelDelta, QPoint angleDelta,
+                Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers, Qt::ScrollPhase phase,
+                bool inverted, Qt::MouseEventSource source = Qt::MouseEventNotSynthesized);
     ~QWheelEvent();
 
 
@@ -225,13 +229,14 @@ protected:
     QPointF g;
     QPoint pixelD;
     QPoint angleD;
-    int qt4D;
-    Qt::Orientation qt4O;
+    int qt4D = 0;
+    Qt::Orientation qt4O = Qt::Vertical;
     Qt::MouseButtons mouseState;
-    uint ph : 2;
+    uint _unused_ : 2; // Kept for binary compatibility
     uint src: 2;
     bool invertedScrolling : 1;
-    int reserved : 27;
+    uint ph : 3;
+    int reserved : 24;
 
     friend class QApplication;
 };
@@ -598,7 +603,7 @@ Q_DECLARE_TYPEINFO(QInputMethodQueryEvent::QueryPair, Q_MOVABLE_TYPE);
 
 #endif // QT_NO_INPUTMETHOD
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 
 class QMimeData;
 
@@ -671,7 +676,7 @@ public:
     QDragLeaveEvent();
     ~QDragLeaveEvent();
 };
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 
 class Q_GUI_EXPORT QHelpEvent : public QEvent
@@ -724,7 +729,7 @@ class Q_GUI_EXPORT QActionEvent : public QEvent
 {
     QAction *act, *bef;
 public:
-    QActionEvent(int type, QAction *action, QAction *before = Q_NULLPTR);
+    QActionEvent(int type, QAction *action, QAction *before = nullptr);
     ~QActionEvent();
 
     inline QAction *action() const { return act; }
@@ -852,7 +857,7 @@ public:
         TouchPoint(const TouchPoint &other);
 #ifdef Q_COMPILER_RVALUE_REFS
         TouchPoint(TouchPoint &&other) Q_DECL_NOEXCEPT
-            : d(Q_NULLPTR)
+            : d(nullptr)
         { qSwap(d, other.d); }
         TouchPoint &operator=(TouchPoint &&other) Q_DECL_NOEXCEPT
         { qSwap(d, other.d); return *this; }
@@ -940,7 +945,7 @@ public:
 #endif
 
     explicit QTouchEvent(QEvent::Type eventType,
-                         QTouchDevice *device = Q_NULLPTR,
+                         QTouchDevice *device = nullptr,
                          Qt::KeyboardModifiers modifiers = Qt::NoModifier,
                          Qt::TouchPointStates touchPointStates = Qt::TouchPointStates(),
                          const QList<QTouchEvent::TouchPoint> &touchPoints = QList<QTouchEvent::TouchPoint>());

@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 
 namespace feedback {
@@ -117,6 +118,7 @@ TEST_F(AnonymizerToolTest, AnonymizeCustomPatterns) {
             AnonymizeCustomPatterns("serial  number: 50C971FEE7F3x010900"));
   EXPECT_EQ("SerialNumber: 3",
             AnonymizeCustomPatterns("SerialNumber: EVT23-17BA01-004"));
+  EXPECT_EQ("serial=4", AnonymizeCustomPatterns("serial=\"1234AA5678\""));
 
   EXPECT_EQ("<email: 1>",
             AnonymizeCustomPatterns("foo@bar.com"));
@@ -131,7 +133,7 @@ TEST_F(AnonymizerToolTest, AnonymizeCustomPatterns) {
             AnonymizeCustomPatterns("[2001:db8:0:0:0:ff00:42:8329]"));
   EXPECT_EQ("[<IPv6: 3>]", AnonymizeCustomPatterns("[2001:db8::ff00:42:8329]"));
   EXPECT_EQ("[<IPv6: 4>]", AnonymizeCustomPatterns("[::1]"));
-  EXPECT_EQ("<IPv4: 1>", AnonymizeCustomPatterns("192.168.0.1"));
+  EXPECT_EQ("<IPv4: 1>", AnonymizeCustomPatterns("192.160.0.1"));
 
   EXPECT_EQ("<URL: 1>",
             AnonymizeCustomPatterns("http://example.com/foo?test=1"));
@@ -154,7 +156,7 @@ TEST_F(AnonymizerToolTest, AnonymizeCustomPatterns) {
     "rtsp://root@example.com/",
     "https://aaaaaaaaaaaaaaaa.com",
   };
-  for (size_t i = 0; i < arraysize(kURLs); ++i) {
+  for (size_t i = 0; i < base::size(kURLs); ++i) {
     SCOPED_TRACE(kURLs[i]);
     std::string got = AnonymizeCustomPatterns(kURLs[i]);
     EXPECT_TRUE(
@@ -199,6 +201,90 @@ TEST_F(AnonymizerToolTest, AnonymizeCustomPatternWithoutContext) {
   EXPECT_EQ("f<pattern: 1>\nf<pattern: 2>z\nf<pattern: 1>l\n",
             AnonymizeCustomPatternWithoutContext("fo\nfooz\nfol\n", kPattern,
                                                  &space));
+}
+
+TEST_F(AnonymizerToolTest, AnonymizeChunk) {
+  std::string data =
+      "aaaaaaaa [SSID=123aaaaaa]aaaaa\n"  // SSID.
+      "aaaaaaaahttp://tets.comaaaaaaa\n"  // URL.
+      "aaaaaemail@example.comaaa\n"       // Email address.
+      "example@@1234\n"           // No PII, it is not valid email address.
+      "255.255.155.2\n"           // IP address.
+      "255.255.155.255\n"         // IP address.
+      "127.0.0.1\n"               // IPv4 loopback.
+      "127.255.0.1\n"             // IPv4 loopback.
+      "0.0.0.0\n"                 // Any IPv4.
+      "0.255.255.255\n"           // Any IPv4.
+      "10.10.10.100\n"            // IPv4 private class A.
+      "10.10.10.100\n"            // Intentional duplicate.
+      "10.10.10.101\n"            // IPv4 private class A.
+      "10.255.255.255\n"          // IPv4 private class A.
+      "172.16.0.0\n"              // IPv4 private class B.
+      "172.31.255.255\n"          // IPv4 private class B.
+      "172.11.5.5\n"              // IP address.
+      "172.111.5.5\n"             // IP address.
+      "192.168.0.0\n"             // IPv4 private class C.
+      "192.168.255.255\n"         // IPv4 private class C.
+      "192.169.2.120\n"           // IP address.
+      "169.254.0.1\n"             // Link local.
+      "169.200.0.1\n"             // IP address.
+      "224.0.0.24\n"              // Multicast.
+      "240.0.0.0\n"               // IP address.
+      "255.255.255.255\n"         // Broadcast.
+      "100.115.92.92\n"           // ChromeOS.
+      "100.115.91.92\n"           // IP address.
+      "1.1.1.1\n"                 // DNS
+      "8.8.8.8\n"                 // DNS
+      "8.8.4.4\n"                 // DNS
+      "8.8.8.4\n"                 // IP address.
+      "255.255.259.255\n"         // Not an IP address.
+      "255.300.255.255\n"         // Not an IP address.
+      "aaaa123.123.45.4aaa\n"     // IP address.
+      "11:11;11::11\n"            // IP address.
+      "11::11\n"                  // IP address.
+      "11:11:abcdef:0:0:0:0:0\n"  // No PII.
+      "aa:aa:aa:aa:aa:aa";        // MAC address (BSSID).
+  std::string result =
+      "aaaaaaaa [SSID=1]aaaaa\n"
+      "aaaaaaaa<URL: 1>\n"
+      "<email: 1>\n"
+      "example@@1234\n"
+      "<IPv4: 1>\n"
+      "<IPv4: 2>\n"
+      "<127.0.0.0/8: 3>\n"
+      "<127.0.0.0/8: 4>\n"
+      "<0.0.0.0/8: 5>\n"
+      "<0.0.0.0/8: 6>\n"
+      "<10.0.0.0/8: 7>\n"
+      "<10.0.0.0/8: 7>\n"
+      "<10.0.0.0/8: 8>\n"
+      "<10.0.0.0/8: 9>\n"
+      "<172.16.0.0/12: 10>\n"
+      "<172.16.0.0/12: 11>\n"
+      "<IPv4: 12>\n"
+      "<IPv4: 13>\n"
+      "<192.168.0.0/16: 14>\n"
+      "<192.168.0.0/16: 15>\n"
+      "<IPv4: 16>\n"
+      "<169.254.0.0/16: 17>\n"
+      "<IPv4: 18>\n"
+      "<224.0.0.0/4: 19>\n"
+      "<IPv4: 20>\n"
+      "255.255.255.255\n"
+      "100.115.92.92\n"
+      "<IPv4: 23>\n"
+      "1.1.1.1\n"
+      "8.8.8.8\n"
+      "8.8.4.4\n"
+      "<IPv4: 27>\n"
+      "255.255.259.255\n"
+      "255.300.255.255\n"
+      "aaaa<IPv4: 28>aaa\n"
+      "11:11;<IPv6: 1>\n"
+      "<IPv6: 1>\n"
+      "11:11:abcdef:0:0:0:0:0\n"
+      "aa:aa:aa:00:00:01";
+  EXPECT_EQ(result, anonymizer_.Anonymize(data));
 }
 
 }  // namespace feedback

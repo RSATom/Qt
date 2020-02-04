@@ -45,13 +45,14 @@ policy::Schema StorageSchemaManifestHandler::GetSchema(
   }
   file = extension->path().AppendASCII(path);
   if (!base::PathExists(file)) {
-    *error = base::StringPrintf("File does not exist: %" PRIsFP,
+    *error = base::StringPrintf("File does not exist: %" PRFilePath,
                                 file.value().c_str());
     return policy::Schema();
   }
   std::string content;
   if (!base::ReadFileToString(file, &content)) {
-    *error = base::StringPrintf("Can't read %" PRIsFP, file.value().c_str());
+    *error =
+        base::StringPrintf("Can't read %" PRFilePath, file.value().c_str());
     return policy::Schema();
   }
   return policy::Schema::Parse(content, error);
@@ -80,8 +81,9 @@ bool StorageSchemaManifestHandler::Validate(
   return GetSchema(extension, error).valid();
 }
 
-const std::vector<std::string> StorageSchemaManifestHandler::Keys() const {
-  return SingleKey(kStorageManagedSchema);
+base::span<const char* const> StorageSchemaManifestHandler::Keys() const {
+  static constexpr const char* kKeys[] = {kStorageManagedSchema};
+  return kKeys;
 }
 
 }  // namespace extensions

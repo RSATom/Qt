@@ -118,7 +118,9 @@ void QGeoFileTileCache::init()
         qWarning() << "Plugin uses uninitialized QGeoFileTileCache directory which was deleted during startup";
     }
 
-    QDir::root().mkpath(directory_);
+    const bool directoryCreated = QDir::root().mkpath(directory_);
+    if (!directoryCreated)
+        qWarning() << "Failed to create cache directory " << directory_;
 
     // default values
     if (!isDiskCostSet_) { // If setMaxDiskUsage has not been called yet

@@ -119,7 +119,7 @@ def main():
   src_dirs = []
   grd_files = []
   for arg in sys.argv[1:]:
-    if arg.lower().endswith('.grd'):
+    if arg.lower().endswith('.grd') or arg.lower().endswith('.grdp'):
       grd_files.append(arg)
     else:
       src_dirs.append(arg)
@@ -127,6 +127,7 @@ def main():
   # If no GRD files were given, default them:
   if len(grd_files) == 0:
     ash_base_dir = os.path.join(src_dir, 'ash')
+    ash_components_dir = os.path.join(ash_base_dir, 'components')
     chrome_dir = os.path.join(src_dir, 'chrome')
     chrome_app_dir = os.path.join(chrome_dir, 'app')
     chrome_app_res_dir = os.path.join(chrome_app_dir, 'resources')
@@ -136,7 +137,9 @@ def main():
     ui_chromeos_dir = os.path.join(ui_dir, 'chromeos')
     grd_files = [
       os.path.join(ash_base_dir, 'ash_strings.grd'),
-      os.path.join(ash_base_dir, 'resources', 'ash_resources.grd'),
+      os.path.join(ash_components_dir, 'ash_components_strings.grd'),
+      os.path.join(ash_components_dir, 'resources',
+                   'ash_components_resources.grd'),
       os.path.join(chrome_app_dir, 'chromium_strings.grd'),
       os.path.join(chrome_app_dir, 'generated_resources.grd'),
       os.path.join(chrome_app_dir, 'google_chrome_strings.grd'),
@@ -152,6 +155,8 @@ def main():
       os.path.join(chrome_dir, 'renderer', 'resources',
                    'renderer_resources.grd'),
       os.path.join(device_base_dir, 'bluetooth', 'bluetooth_strings.grd'),
+      os.path.join(device_base_dir, 'fido', 'fido_strings.grd'),
+      os.path.join(src_dir, 'chromeos', 'chromeos_strings.grd'),
       os.path.join(src_dir, 'extensions', 'strings', 'extensions_strings.grd'),
       os.path.join(src_dir, 'ui', 'resources', 'ui_resources.grd'),
       os.path.join(src_dir, 'ui', 'webui', 'resources', 'webui_resources.grd'),

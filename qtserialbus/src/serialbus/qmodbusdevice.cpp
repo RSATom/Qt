@@ -124,6 +124,7 @@ QVariant QModbusDevice::connectionParameter(int parameter) const
 {
     Q_D(const QModbusDevice);
     switch (parameter) {
+#if QT_CONFIG(modbus_serialport)
     case SerialPortNameParameter:
         return d->m_comPort;
     case SerialDataBitsParameter:
@@ -134,6 +135,7 @@ QVariant QModbusDevice::connectionParameter(int parameter) const
         return d->m_stopBits;
     case SerialBaudRateParameter:
         return d->m_baudRate;
+#endif
     case NetworkPortParameter:
         return d->m_networkPort;
     case NetworkAddressParameter:
@@ -156,6 +158,7 @@ void QModbusDevice::setConnectionParameter(int parameter, const QVariant &value)
 {
     Q_D(QModbusDevice);
     switch (parameter) {
+#if QT_CONFIG(modbus_serialport)
     case SerialPortNameParameter:
         d->m_comPort = value.toString();
         break;
@@ -171,6 +174,7 @@ void QModbusDevice::setConnectionParameter(int parameter, const QVariant &value)
     case SerialBaudRateParameter:
         d->m_baudRate = QSerialPort::BaudRate(value.toInt());
         break;
+#endif
     case NetworkPortParameter:
         d->m_networkPort = value.toInt();
         break;
@@ -228,10 +232,14 @@ void QModbusDevice::setConnectionParameter(int parameter, const QVariant &value)
 */
 
 /*!
-    Connects the device to the Modbus network. Returns \c true on success;
-    otherwise \c false.
+    Connects the device to the Modbus network. Returns \c true if the connection
+    process was successfully initiated; otherwise \c false. Final connection
+    success confirmation requires the \l state() changing to \l QModbusDevice::ConnectedState.
+
 
     This function calls \l open() as part of its implementation.
+
+    \sa open()
 */
 bool QModbusDevice::connectDevice()
 {
@@ -258,6 +266,9 @@ bool QModbusDevice::connectDevice()
 */
 void QModbusDevice::disconnectDevice()
 {
+    if (state() == QModbusDevice::UnconnectedState)
+        return;
+
     setState(QModbusDevice::ClosingState);
 
     //Unconnected is set by backend -> might be delayed by event loop
@@ -330,11 +341,13 @@ QString QModbusDevice::errorString() const
 
     This function is called by connectDevice(). Subclasses must provide
     an implementation that returns \c true on successful Modbus connection
-    or \c false otherwise.
+    or connection initiation; otherwise returns \c false.
 
     The implementation must ensure that the instance's \l state()
-    is set to \l QModbusDevice::ConnectedState upon success; otherwise
-    \l QModbusDevice::UnconnectedState.
+    is set to \l QModbusDevice::ConnectingState or \l QModbusDevice::ConnectedState upon success; otherwise
+    \l QModbusDevice::UnconnectedState. Typically, \l QModbusDevice::ConnectingState is used
+    when the connection process reports back asynchronously and \l QModbusDevice::ConnectedState
+    in case of synchronous connect behavior.
 
     \sa connectDevice()
 */

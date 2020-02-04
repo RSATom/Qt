@@ -8,16 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/desktop_capture/blank_detector_desktop_capturer_wrapper.h"
+#include "modules/desktop_capture/blank_detector_desktop_capturer_wrapper.h"
 
 #include <memory>
 #include <utility>
 
-#include "webrtc/modules/desktop_capture/desktop_capturer.h"
-#include "webrtc/modules/desktop_capture/desktop_frame.h"
-#include "webrtc/modules/desktop_capture/desktop_frame_generator.h"
-#include "webrtc/modules/desktop_capture/fake_desktop_capturer.h"
-#include "webrtc/test/gtest.h"
+#include "modules/desktop_capture/desktop_capturer.h"
+#include "modules/desktop_capture/desktop_frame.h"
+#include "modules/desktop_capture/desktop_frame_generator.h"
+#include "modules/desktop_capture/desktop_geometry.h"
+#include "modules/desktop_capture/desktop_region.h"
+#include "modules/desktop_capture/fake_desktop_capturer.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
@@ -49,7 +51,7 @@ class BlankDetectorDesktopCapturerWrapperTest
 };
 
 BlankDetectorDesktopCapturerWrapperTest::
-BlankDetectorDesktopCapturerWrapperTest() {
+    BlankDetectorDesktopCapturerWrapperTest() {
   frame_generator_.size()->set(frame_width_, frame_height_);
   frame_generator_.set_desktop_frame_painter(&painter_);
   std::unique_ptr<DesktopCapturer> capturer(new FakeDesktopCapturer());
@@ -63,7 +65,7 @@ BlankDetectorDesktopCapturerWrapperTest() {
 }
 
 BlankDetectorDesktopCapturerWrapperTest::
-~BlankDetectorDesktopCapturerWrapperTest() = default;
+    ~BlankDetectorDesktopCapturerWrapperTest() = default;
 
 void BlankDetectorDesktopCapturerWrapperTest::OnCaptureResult(
     DesktopCapturer::Result result,

@@ -108,8 +108,7 @@ using QProcEnvKey = QByteArray;
 class QProcEnvValue
 {
 public:
-    QProcEnvValue() {}
-    QProcEnvValue(const QProcEnvValue &other) { *this = other; }
+    QProcEnvValue() = default;
     explicit QProcEnvValue(const QString &value) : stringValue(value) {}
     explicit QProcEnvValue(const QByteArray &value) : byteValue(value) {}
     bool operator==(const QProcEnvValue &other) const
@@ -352,7 +351,7 @@ public:
 #if defined(Q_OS_UNIX)
     void execChild(const char *workingDirectory, char **argv, char **envp);
 #endif
-    bool processStarted(QString *errorMessage = Q_NULLPTR);
+    bool processStarted(QString *errorMessage = nullptr);
     void terminateProcess();
     void killProcess();
     void findExitCode();

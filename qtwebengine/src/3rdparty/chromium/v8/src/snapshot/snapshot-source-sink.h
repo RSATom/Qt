@@ -27,7 +27,7 @@ class SnapshotByteSource final {
   explicit SnapshotByteSource(Vector<const byte> payload)
       : data_(payload.start()), length_(payload.length()), position_(0) {}
 
-  ~SnapshotByteSource() {}
+  ~SnapshotByteSource() = default;
 
   bool HasMore() { return position_ < length_; }
 
@@ -64,6 +64,7 @@ class SnapshotByteSource final {
   int GetBlob(const byte** data);
 
   int position() { return position_; }
+  void set_position(int position) { position_ = position; }
 
  private:
   const byte* data_;
@@ -81,12 +82,12 @@ class SnapshotByteSource final {
  */
 class SnapshotByteSink {
  public:
-  SnapshotByteSink() {}
+  SnapshotByteSink() = default;
   explicit SnapshotByteSink(int initial_size) : data_(initial_size) {}
 
-  ~SnapshotByteSink() {}
+  ~SnapshotByteSink() = default;
 
-  void Put(byte b, const char* description) { data_.Add(b); }
+  void Put(byte b, const char* description) { data_.push_back(b); }
 
   void PutSection(int b, const char* description) {
     DCHECK_LE(b, kMaxUInt8);
@@ -95,12 +96,14 @@ class SnapshotByteSink {
 
   void PutInt(uintptr_t integer, const char* description);
   void PutRaw(const byte* data, int number_of_bytes, const char* description);
-  int Position() { return data_.length(); }
 
-  const List<byte>* data() const { return &data_; }
+  void Append(const SnapshotByteSink& other);
+  int Position() const { return static_cast<int>(data_.size()); }
+
+  const std::vector<byte>* data() const { return &data_; }
 
  private:
-  List<byte> data_;
+  std::vector<byte> data_;
 };
 
 }  // namespace internal

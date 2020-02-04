@@ -36,9 +36,8 @@
     the Secure Sockets Layer (SSL) protocol, using the \l{OpenSSL Toolkit}
     to perform encryption and protocol handling.
 
-    From Qt version 5.2 onwards, the officially supported version for OpenSSL
-    is 1.0.0 or later. Versions >= 0.9.7 and < 1.0.0 might work, but are not
-    guaranteed to work.
+    From Qt version 5.6 onwards, the officially supported version for OpenSSL
+    is 1.0.0 or later.
 
     \annotatedlist ssl
 
@@ -67,13 +66,23 @@
     To disable SSL support in a Qt build, configure Qt with the \c{-no-openssl}
     option.
 
+    \section1 Datagram Transport Layer Security
+
+    Datagram Transport Layer Security (DTLS) is a protocol that enables security
+    for datagram-based applications, providing them with protection against
+    eavesdropping, tampering, or message forgery. The DTLS protocol is based on the
+    stream-oriented Transport Layer Security (TLS) protocol. QtNetwork enables
+    the use of DTLS with User Datagram Protocol (UDP), as defined by
+    \l {https://tools.ietf.org/html/rfc6347}{RFC 6347}.
+
     \section1 Import and Export Restrictions
 
-    Due to import and export restrictions in some parts of the world, we
-    are unable to supply the OpenSSL Toolkit with Qt packages. Developers wishing
-    to use SSL communication in their deployed applications should either ensure
-    that their users have the appropriate libraries installed, or they should
-    consult a suitably qualified legal professional to ensure that applications
-    using code from the OpenSSL project are correctly certified for import
-    and export in relevant regions of the world.
+    Qt binary installers include the OpenSSL libraries used by QtNetwork. However,
+    those are not automatically deployed with applications that are built with Qt.
+    Import and export restrictions apply for some types of software, and for
+    some parts of the world. Developers wishing to use SSL communication in their
+    deployed applications should either ensure that their users have the appropriate
+    libraries installed, or they should consult a suitably qualified legal
+    professional to ensure that applications using code from the OpenSSL project
+    are correctly certified for import and export in relevant regions of the world.
 */

@@ -60,7 +60,7 @@ class Q_LOCATION_PRIVATE_EXPORT QGeoRouteParserOsrmV4 : public QGeoRouteParser
     Q_DECLARE_PRIVATE(QGeoRouteParserOsrmV4)
 
 public:
-    QGeoRouteParserOsrmV4(QObject *parent = Q_NULLPTR);
+    QGeoRouteParserOsrmV4(QObject *parent = nullptr);
     virtual ~QGeoRouteParserOsrmV4();
 
 private:

@@ -8,18 +8,18 @@ The public API of the compositor is LayerTreeHost and Layer and its
 derived types.  Embedders create a LayerTreeHost (single, multithreaded,
 or synchronous) and then attach a tree of Layers to it.
 
-When Layers are updated they request a commit, which takes the data
-of and structure of the tree of Layers and the data of its host and
-atomically pushes it to a tree of LayerImpls and a LayerTreeHostImpl
+When Layers are updated they request a commit, which takes the structure
+of the tree of Layers, the data on each Layer, and the data of its host and
+atomically pushes it all to a tree of LayerImpls and a LayerTreeHostImpl
 and LayerTreeImpl.  The main thread (which owns the tree of Layers
 and the embedder) is blocked during this commit operation.
 
 The commit is from the main thread Layer tree to the pending tree in
 multithreaded mode.  The pending tree is a staging tree for
 rasterization.  When enough rasterization has completed for
-invalidations and the pending tree is ready to activate.  Activate is an
+invalidations, the pending tree is ready to activate.  Activate is an
 analogous operation to commit, and pushes data from the pending tree to
-the active tree.  The pending tree exists so that all the of the updates
+the active tree.  The pending tree exists so that all of the updates
 from the main thread can be displayed to the user atomically while
 the previous frame can be scrolled or animated.
 
@@ -36,11 +36,15 @@ CompositorFrames from individual compositors are sent to the
 SurfaceManager (currently in the browser process).  The
 SurfaceAggregator combines all CompositorFrames together and asks
 the Display to finally draw the frame via Renderer, which is either
-a GLRenderer or a SoftwareRenderer, which finally draws the entire
+a viz::GLRenderer or a SoftwareRenderer, which finally draws the entire
 composited browser contents into a backbuffer or a bitmap, respectively.
 
 Design documents for the graphics stack can be found at
 [chromium-graphics](https://www.chromium.org/developers/design-documents/chromium-graphics).
+
+## Other Docs
+
+* [How cc Works](https://docs.google.com/document/d/1yjzOWrPfFGviEd1nru3yzqxSHETC-zsEBSt9C8SvV-Q/edit)
 
 ## Glossaries
 

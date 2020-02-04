@@ -4,6 +4,8 @@
 
 #include "components/browsing_data/core/counters/passwords_counter.h"
 
+#include <memory>
+
 #include "components/browsing_data/core/pref_names.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_store.h"
@@ -15,7 +17,7 @@ bool IsPasswordSyncEnabled(const syncer::SyncService* sync_service) {
   if (!sync_service)
     return false;
   return password_manager_util::GetPasswordSyncState(sync_service) !=
-         password_manager::PasswordSyncState::NOT_SYNCING_PASSWORDS;
+         password_manager::SyncState::NOT_SYNCING;
 }
 
 }  // namespace
@@ -43,7 +45,8 @@ const char* PasswordsCounter::GetPrefName() const {
 }
 
 void PasswordsCounter::Count() {
-  cancelable_task_tracker()->TryCancelAll();
+  CancelAllRequests();
+
   // TODO(msramek): We don't actually need the logins themselves, just their
   // count. Consider implementing |PasswordStore::CountAutofillableLogins|.
   // This custom request should also allow us to specify the time range, so that
@@ -51,16 +54,22 @@ void PasswordsCounter::Count() {
   store_->GetAutofillableLogins(this);
 }
 
+std::unique_ptr<BrowsingDataCounter::SyncResult>
+PasswordsCounter::MakeResult() {
+  return std::make_unique<BrowsingDataCounter::SyncResult>(this, num_passwords_,
+                                                           is_sync_active());
+}
+
 void PasswordsCounter::OnGetPasswordStoreResults(
     std::vector<std::unique_ptr<autofill::PasswordForm>> results) {
   base::Time start = GetPeriodStart();
-  int num_passwords = std::count_if(
+  base::Time end = GetPeriodEnd();
+  num_passwords_ = std::count_if(
       results.begin(), results.end(),
-      [start](const std::unique_ptr<autofill::PasswordForm>& form) {
-        return form->date_created >= start;
+      [start, end](const std::unique_ptr<autofill::PasswordForm>& form) {
+        return (form->date_created >= start && form->date_created < end);
       });
-  ReportResult(base::MakeUnique<SyncResult>(this, num_passwords,
-                                            sync_tracker_.IsSyncActive()));
+  ReportResult(MakeResult());
 }
 
 void PasswordsCounter::OnLoginsChanged(

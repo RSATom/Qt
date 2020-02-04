@@ -7,79 +7,8 @@
 #include <string.h>
 
 #include "base/logging.h"
-#include "skia/public/interfaces/bitmap_skbitmap_struct_traits.h"
 
 namespace mojo {
-
-StructTraits<gfx::mojom::SharedBufferSkBitmapDataView,
-             SkBitmap>::Context::Context() = default;
-StructTraits<gfx::mojom::SharedBufferSkBitmapDataView,
-             SkBitmap>::Context::~Context() = default;
-
-// static
-void* StructTraits<gfx::mojom::SharedBufferSkBitmapDataView,
-                   SkBitmap>::SetUpContext(const SkBitmap& input) {
-  // Shared buffer is not a good way for huge images. Consider alternatives.
-  DCHECK_LT(input.width() * input.height(), 4000 * 4000);
-
-  const std::vector<uint8_t> serialized_sk_bitmap(
-      skia::mojom::Bitmap::Serialize(&input));
-
-  // Use a context to serialize the bitmap to a shared buffer only once.
-  Context* context = new Context;
-  context->buffer_byte_size = serialized_sk_bitmap.size();
-  context->shared_buffer_handle =
-      mojo::SharedBufferHandle::Create(context->buffer_byte_size);
-  mojo::ScopedSharedBufferMapping mapping =
-      context->shared_buffer_handle->Map(context->buffer_byte_size);
-  memcpy(mapping.get(), serialized_sk_bitmap.data(), context->buffer_byte_size);
-  return context;
-}
-
-// static
-void StructTraits<gfx::mojom::SharedBufferSkBitmapDataView,
-                  SkBitmap>::TearDownContext(const SkBitmap& input,
-                                             void* context) {
-  delete static_cast<Context*>(context);
-}
-
-// static
-mojo::ScopedSharedBufferHandle
-StructTraits<gfx::mojom::SharedBufferSkBitmapDataView,
-             SkBitmap>::shared_buffer_handle(const SkBitmap& input,
-                                             void* context) {
-  return (static_cast<Context*>(context))
-      ->shared_buffer_handle->Clone(
-          mojo::SharedBufferHandle::AccessMode::READ_ONLY);
-}
-
-// static
-uint64_t StructTraits<gfx::mojom::SharedBufferSkBitmapDataView,
-                      SkBitmap>::buffer_byte_size(const SkBitmap& input,
-                                                  void* context) {
-  return (static_cast<Context*>(context))->buffer_byte_size;
-}
-
-// static
-bool StructTraits<gfx::mojom::SharedBufferSkBitmapDataView, SkBitmap>::Read(
-    gfx::mojom::SharedBufferSkBitmapDataView data,
-    SkBitmap* out) {
-  mojo::ScopedSharedBufferHandle shared_buffer_handle =
-      data.TakeSharedBufferHandle();
-  if (!shared_buffer_handle.is_valid())
-    return false;
-
-  mojo::ScopedSharedBufferMapping mapping =
-      shared_buffer_handle->Map(data.buffer_byte_size());
-  if (!mapping)
-    return false;
-
-  const std::vector<uint8_t> serialized_sk_bitmap(
-      static_cast<uint8_t*>(mapping.get()),
-      static_cast<uint8_t*>(mapping.get()) + data.buffer_byte_size());
-
-  return skia::mojom::Bitmap::Deserialize(serialized_sk_bitmap, out);
-}
 
 // static
 float StructTraits<gfx::mojom::ImageSkiaRepDataView, gfx::ImageSkiaRep>::scale(
@@ -107,32 +36,12 @@ bool StructTraits<gfx::mojom::ImageSkiaRepDataView, gfx::ImageSkiaRep>::Read(
 }
 
 // static
-void* StructTraits<gfx::mojom::ImageSkiaDataView, gfx::ImageSkia>::SetUpContext(
+std::vector<gfx::ImageSkiaRep>
+StructTraits<gfx::mojom::ImageSkiaDataView, gfx::ImageSkia>::image_reps(
     const gfx::ImageSkia& input) {
   // Trigger the image to load everything.
   input.EnsureRepsForSupportedScales();
-
-  // Use a context to return a stable list of ImageSkiaRep objects. That is,
-  // multiple calls of image_reps() should return exactly the same list of
-  // ImageSkiaRep objects. So that ImageSkiaRep with the same backing pixel
-  // buffer is properly serialized and only once.
-  return new std::vector<gfx::ImageSkiaRep>(input.image_reps());
-}
-
-// static
-void StructTraits<gfx::mojom::ImageSkiaDataView,
-                  gfx::ImageSkia>::TearDownContext(const gfx::ImageSkia& input,
-                                                   void* context) {
-  delete static_cast<std::vector<gfx::ImageSkiaRep>*>(context);
-}
-
-// static
-const std::vector<gfx::ImageSkiaRep>&
-StructTraits<gfx::mojom::ImageSkiaDataView, gfx::ImageSkia>::image_reps(
-    const gfx::ImageSkia& input,
-    void* context) {
-  // See the comment in SetUpContext regarding context usage.
-  return *(static_cast<std::vector<gfx::ImageSkiaRep>*>(context));
+  return input.image_reps();
 }
 
 // static

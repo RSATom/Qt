@@ -13,20 +13,29 @@
 #include <sstream>
 #include <string>
 
+#include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
 #include "third_party/libjingle_xmpp/xmpp/constants.h"
 #include "third_party/libjingle_xmpp/xmpp/plainsaslhandler.h"
 #include "third_party/libjingle_xmpp/xmpp/saslplainmechanism.h"
 #include "third_party/libjingle_xmpp/xmpp/util_unittest.h"
 #include "third_party/libjingle_xmpp/xmpp/xmppengine.h"
-#include "third_party/webrtc/rtc_base/gunit.h"
-#include "third_party/webrtc/typedefs.h"
 
-using buzz::Jid;
-using buzz::QName;
-using buzz::XmlElement;
-using buzz::XmppEngine;
-using buzz::XmppTestHandler;
+// Macro to be used for switch-case fallthrough (required for enabling
+// -Wimplicit-fallthrough warning on Clang).
+#ifdef __clang__
+#define XLTT_FALLTHROUGH() [[clang::fallthrough]]
+#else
+#define XLTT_FALLTHROUGH() \
+  do {                     \
+  } while (0)
+#endif
+
+using jingle_xmpp::Jid;
+using jingle_xmpp::QName;
+using jingle_xmpp::XmlElement;
+using jingle_xmpp::XmppEngine;
+using jingle_xmpp::XmppTestHandler;
 
 enum XlttStage {
   XLTT_STAGE_CONNECT = 0,
@@ -57,21 +66,21 @@ class XmppLoginTaskTest : public testing::Test {
     engine_->AddStanzaHandler(handler_.get());
     engine_->SetUser(jid);
     engine_->SetSaslHandler(
-        new buzz::PlainSaslHandler(jid, pass, true));
+        new jingle_xmpp::PlainSaslHandler(jid, pass, true));
   }
   virtual void TearDown() {
     handler_.reset();
     engine_.reset();
   }
   void RunPartialLogin(XlttStage startstage, XlttStage endstage);
-  void SetTlsOptions(buzz::TlsOptions option);
+  void SetTlsOptions(jingle_xmpp::TlsOptions option);
 
  private:
   std::unique_ptr<XmppEngine> engine_;
   std::unique_ptr<XmppTestHandler> handler_;
 };
 
-void XmppLoginTaskTest::SetTlsOptions(buzz::TlsOptions option) {
+void XmppLoginTaskTest::SetTlsOptions(jingle_xmpp::TlsOptions option) {
   engine_->SetTls(option);
 }
 void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
@@ -92,7 +101,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->StanzaActivity());
       if (endstage == XLTT_STAGE_CONNECT)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_STREAMSTART: {
@@ -105,7 +114,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->OutputActivity());
       if (endstage == XLTT_STAGE_STREAMSTART)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_TLS_FEATURES: {
@@ -119,7 +128,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->SessionActivity());
       if (endstage == XLTT_STAGE_TLS_FEATURES)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_TLS_PROCEED: {
@@ -133,7 +142,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->SessionActivity());
       if (endstage == XLTT_STAGE_TLS_PROCEED)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_ENCRYPTED_START: {
@@ -146,7 +155,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->OutputActivity());
       if (endstage == XLTT_STAGE_ENCRYPTED_START)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_AUTH_FEATURES: {
@@ -168,7 +177,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->SessionActivity());
       if (endstage == XLTT_STAGE_AUTH_FEATURES)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_AUTH_SUCCESS: {
@@ -181,7 +190,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->SessionActivity());
       if (endstage == XLTT_STAGE_AUTH_SUCCESS)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_AUTHENTICATED_START: {
@@ -194,7 +203,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->OutputActivity());
       if (endstage == XLTT_STAGE_AUTHENTICATED_START)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_BIND_FEATURES: {
@@ -210,7 +219,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->SessionActivity());
       if (endstage == XLTT_STAGE_BIND_FEATURES)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_BIND_SUCCESS: {
@@ -225,7 +234,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->SessionActivity());
       if (endstage == XLTT_STAGE_BIND_SUCCESS)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
 
     case XLTT_STAGE_SESSION_SUCCESS: {
@@ -237,7 +246,7 @@ void XmppLoginTaskTest::RunPartialLogin(XlttStage startstage,
       EXPECT_EQ("", handler_->StanzaActivity());
       if (endstage == XLTT_STAGE_SESSION_SUCCESS)
         return;
-      FALLTHROUGH();
+      XLTT_FALLTHROUGH();
     }
     default:
       break;
@@ -319,7 +328,7 @@ TEST_F(XmppLoginTaskTest, TestTlsRequeiredAndPresent) {
 }
 
 TEST_F(XmppLoginTaskTest, TestTlsEnabledNotPresent) {
-  SetTlsOptions(buzz::TLS_ENABLED);
+  SetTlsOptions(jingle_xmpp::TLS_ENABLED);
   RunPartialLogin(XLTT_STAGE_CONNECT, XLTT_STAGE_STREAMSTART);
 
   std::string input = "<stream:features>"
@@ -340,7 +349,7 @@ TEST_F(XmppLoginTaskTest, TestTlsEnabledNotPresent) {
 }
 
 TEST_F(XmppLoginTaskTest, TestTlsEnabledAndPresent) {
-  SetTlsOptions(buzz::TLS_ENABLED);
+  SetTlsOptions(jingle_xmpp::TLS_ENABLED);
   RunPartialLogin(XLTT_STAGE_CONNECT, XLTT_STAGE_STREAMSTART);
 
   std::string input = "<stream:features>"
@@ -362,7 +371,7 @@ TEST_F(XmppLoginTaskTest, TestTlsEnabledAndPresent) {
 }
 
 TEST_F(XmppLoginTaskTest, TestTlsDisabledNotPresent) {
-  SetTlsOptions(buzz::TLS_DISABLED);
+  SetTlsOptions(jingle_xmpp::TLS_DISABLED);
   RunPartialLogin(XLTT_STAGE_CONNECT, XLTT_STAGE_STREAMSTART);
 
     std::string input = "<stream:features>"
@@ -383,7 +392,7 @@ TEST_F(XmppLoginTaskTest, TestTlsDisabledNotPresent) {
 }
 
 TEST_F(XmppLoginTaskTest, TestTlsDisabledAndPresent) {
-  SetTlsOptions(buzz::TLS_DISABLED);
+  SetTlsOptions(jingle_xmpp::TLS_DISABLED);
   RunPartialLogin(XLTT_STAGE_CONNECT, XLTT_STAGE_STREAMSTART);
 
   std::string input = "<stream:features>"

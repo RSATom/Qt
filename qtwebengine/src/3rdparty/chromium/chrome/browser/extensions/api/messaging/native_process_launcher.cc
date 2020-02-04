@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/api/messaging/native_process_launcher.h"
 
+#include <inttypes.h>
 #include <utility>
 
 #include "base/bind.h"
@@ -14,11 +15,11 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/stringprintf.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
+#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/messaging/native_messaging_host_manifest.h"
 #include "chrome/common/chrome_paths.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "url/gurl.h"
 
@@ -192,7 +193,7 @@ void NativeProcessLauncherImpl::Core::DoLaunchOnThreadPool(
   // way the host will be able to create properly focused UI windows.
 #if defined(OS_WIN)
   command_line.AppendArg(
-      base::StringPrintf("--parent-window=%d", window_handle_));
+      base::StringPrintf("--parent-window=%" PRIdPTR, window_handle_));
 #endif  // !defined(OS_WIN)
 
   base::Process process;
@@ -224,11 +225,11 @@ void NativeProcessLauncherImpl::Core::CallCallbackOnIOThread(
 void NativeProcessLauncherImpl::Core::PostErrorResult(
     const LaunchedCallback& callback,
     LaunchResult error) {
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&NativeProcessLauncherImpl::Core::CallCallbackOnIOThread,
-                     this, callback, error, Passed(base::Process()),
-                     Passed(base::File()), Passed(base::File())));
+                     this, callback, error, base::Process(), base::File(),
+                     base::File()));
 }
 
 void NativeProcessLauncherImpl::Core::PostResult(
@@ -236,11 +237,11 @@ void NativeProcessLauncherImpl::Core::PostResult(
     base::Process process,
     base::File read_file,
     base::File write_file) {
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&NativeProcessLauncherImpl::Core::CallCallbackOnIOThread,
-                     this, callback, RESULT_SUCCESS, Passed(&process),
-                     Passed(&read_file), Passed(&write_file)));
+                     this, callback, RESULT_SUCCESS, std::move(process),
+                     std::move(read_file), std::move(write_file)));
 }
 
 NativeProcessLauncherImpl::NativeProcessLauncherImpl(

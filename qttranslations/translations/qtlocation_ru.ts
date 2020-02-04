@@ -11,6 +11,13 @@ Please visit https://developers.arcgis.com/authentication/accessing-arcgis-onlin
     </message>
 </context>
 <context>
+    <name>PlaceSearchReplyEsri</name>
+    <message>
+        <source>Response parse error</source>
+        <translation>Ошибка разбора ответа</translation>
+    </message>
+</context>
+<context>
     <name>QDeclarativeGeoMap</name>
     <message>
         <source>No Map</source>
@@ -64,6 +71,13 @@ Please visit https://developers.arcgis.com/authentication/accessing-arcgis-onlin
     </message>
 </context>
 <context>
+    <name>QGeoCodeReplyMapbox</name>
+    <message>
+        <source>Response parse error</source>
+        <translation>Ошибка разбора ответа</translation>
+    </message>
+</context>
+<context>
     <name>QGeoMapMapboxGL</name>
     <message>
         <source>Development access token, do not use in production.</source>
@@ -79,6 +93,18 @@ Please visit https://developers.arcgis.com/authentication/accessing-arcgis-onlin
 </context>
 <context>
     <name>QGeoMappingManagerEngineMapboxGL</name>
+    <message>
+        <source>China Streets</source>
+        <translation>Китайские улицы</translation>
+    </message>
+    <message>
+        <source>China Light</source>
+        <translation>Китайский светлый</translation>
+    </message>
+    <message>
+        <source>China Dark</source>
+        <translation>Китайский тёмный</translation>
+    </message>
     <message>
         <source>Streets</source>
         <translation>Схема</translation>
@@ -514,6 +540,7 @@ Please visit https://developers.arcgis.com/authentication/accessing-arcgis-onlin
     </message>
     <message>
         <source>Head %1</source>
+        <extracomment>%1 is &quot;North&quot;, &quot;South&quot;, &quot;East&quot; or &quot;West&quot;</extracomment>
         <translation>Направляйтесь на %1</translation>
     </message>
     <message>
@@ -687,11 +714,11 @@ Please visit https://developers.arcgis.com/authentication/accessing-arcgis-onlin
     <message>
         <source>Merge straight</source>
         <translatorcomment>Бред какой-то</translatorcomment>
-        <translation type="unfinished">Перестройтесь прямо</translation>
+        <translation>Перестройтесь прямо</translation>
     </message>
     <message>
         <source>Merge straight on %1</source>
-        <translation type="unfinished">Перестройтесь прямо на %1</translation>
+        <translation>Перестройтесь прямо на %1</translation>
     </message>
     <message>
         <source>Merge</source>
@@ -889,6 +916,7 @@ Please visit https://developers.arcgis.com/authentication/accessing-arcgis-onlin
     </message>
     <message>
         <source> and continue straight</source>
+        <extracomment>This string will be prepended with lane instructions. E.g., &quot;Use the left or the right lane and continue straight&quot;</extracomment>
         <translation> и продолжайте движение прямо</translation>
     </message>
     <message>
@@ -973,73 +1001,73 @@ Please visit https://www.mapbox.com</source>
     <message>
         <source>Street</source>
         <extracomment>Noun describing map type &apos;Street map&apos;</extracomment>
-        <translation type="unfinished">Схема</translation>
+        <translation>Схема</translation>
     </message>
     <message>
         <source>Light</source>
         <extracomment>Noun describing type of a map using light colors (weak contrast)</extracomment>
-        <translation type="unfinished">Светлая</translation>
+        <translation>Светлая</translation>
     </message>
     <message>
         <source>Dark</source>
         <extracomment>Noun describing type of a map using dark colors</extracomment>
-        <translation type="unfinished">Темная</translation>
+        <translation>Темная</translation>
     </message>
     <message>
         <source>Satellite</source>
         <extracomment>Noun describing type of a map created by satellite</extracomment>
-        <translation type="unfinished">Спутниковая</translation>
+        <translation>Спутниковая</translation>
     </message>
     <message>
         <source>Streets Satellite</source>
         <extracomment>Noun describing type of a street map created by satellite</extracomment>
-        <translation type="unfinished">Спутник+Схема</translation>
+        <translation>Спутник+Схема</translation>
     </message>
     <message>
         <source>Wheatpaste</source>
         <extracomment>Noun describing type of a map using wheat paste colors</extracomment>
         <translatorcomment>Как перевести не знаю. Буквальный перевод &quot;Клейстер&quot;.</translatorcomment>
-        <translation type="unfinished"></translation>
+        <translation>Wheatpaste</translation>
     </message>
     <message>
         <source>Streets Basic</source>
         <extracomment>Noun describing type of a basic street map</extracomment>
-        <translation type="unfinished">Стандартная</translation>
+        <translation>Стандартная</translation>
     </message>
     <message>
         <source>Comic</source>
         <extracomment>Noun describing type of a map using cartoon-style fonts</extracomment>
-        <translation type="unfinished">Комическая</translation>
+        <translation>Комическая</translation>
     </message>
     <message>
         <source>Outdoors</source>
         <extracomment>Noun describing type of a map for outdoor activities</extracomment>
-        <translation type="unfinished">Уличная</translation>
+        <translation>Уличная</translation>
     </message>
     <message>
         <source>Run Bike Hike</source>
         <extracomment>Noun describing type of a map for sports</extracomment>
-        <translation type="unfinished">Спортивная</translation>
+        <translation>Спортивная</translation>
     </message>
     <message>
         <source>Pencil</source>
         <extracomment>Noun describing type of a map drawn by pencil</extracomment>
-        <translation type="unfinished">В карандаше</translation>
+        <translation>В карандаше</translation>
     </message>
     <message>
         <source>Pirates</source>
         <extracomment>Noun describing type of a treasure map with pirate boat watermark</extracomment>
-        <translation type="unfinished">Пиратская</translation>
+        <translation>Пиратская</translation>
     </message>
     <message>
         <source>Emerald</source>
         <extracomment>Noun describing type of a map using emerald colors</extracomment>
-        <translation type="unfinished">Изумрудная</translation>
+        <translation>Изумрудная</translation>
     </message>
     <message>
         <source>High Contrast</source>
         <extracomment>Noun describing type of a map with high contrast</extracomment>
-        <translation type="unfinished">Высококонтрастная</translation>
+        <translation>Высококонтрастная</translation>
     </message>
 </context>
 <context>
@@ -1296,11 +1324,11 @@ Please visit https://www.mapbox.com</source>
     </message>
     <message>
         <source>Historic</source>
-        <translation type="unfinished">Историческое</translation>
+        <translation>Историческое</translation>
     </message>
     <message>
         <source>Land use</source>
-        <translation type="unfinished">Использование</translation>
+        <translation>Использование</translation>
     </message>
     <message>
         <source>Leisure</source>
@@ -1340,7 +1368,21 @@ Please visit https://www.mapbox.com</source>
     </message>
 </context>
 <context>
+    <name>QPlaceSearchReplyMapbox</name>
+    <message>
+        <source>Response parse error</source>
+        <translation>Ошибка разбора ответа</translation>
+    </message>
+</context>
+<context>
     <name>QPlaceSearchReplyOsm</name>
+    <message>
+        <source>Response parse error</source>
+        <translation>Ошибка разбора ответа</translation>
+    </message>
+</context>
+<context>
+    <name>QPlaceSearchSuggestionReplyMapbox</name>
     <message>
         <source>Response parse error</source>
         <translation>Ошибка разбора ответа</translation>

@@ -4,11 +4,11 @@
 
 #include "content/browser/byte_stream.h"
 
-#include <deque>
 #include <set>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/circular_deque.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -17,8 +17,8 @@
 namespace content {
 namespace {
 
-typedef std::deque<std::pair<scoped_refptr<net::IOBuffer>, size_t> >
-ContentVector;
+using ContentVector =
+    base::circular_deque<std::pair<scoped_refptr<net::IOBuffer>, size_t>>;
 
 class ByteStreamReaderImpl;
 
@@ -60,7 +60,7 @@ class ByteStreamWriterImpl : public ByteStreamWriter {
   bool Write(scoped_refptr<net::IOBuffer> buffer, size_t byte_count) override;
   void Flush() override;
   void Close(int status) override;
-  void RegisterCallback(const base::Closure& source_callback) override;
+  void RegisterCallback(const base::RepeatingClosure& source_callback) override;
   size_t GetTotalBufferedBytes() const override;
 
   // PostTask target from |ByteStreamReaderImpl::MaybeUpdateInput|.
@@ -83,7 +83,7 @@ class ByteStreamWriterImpl : public ByteStreamWriter {
   // True while this object is alive.
   scoped_refptr<LifetimeFlag> my_lifetime_flag_;
 
-  base::Closure space_available_callback_;
+  base::RepeatingClosure space_available_callback_;
   ContentVector input_contents_;
   size_t input_contents_size_;
 
@@ -118,7 +118,7 @@ class ByteStreamReaderImpl : public ByteStreamReader {
   // Overridden from ByteStreamReader.
   StreamState Read(scoped_refptr<net::IOBuffer>* data, size_t* length) override;
   int GetStatus() const override;
-  void RegisterCallback(const base::Closure& sink_callback) override;
+  void RegisterCallback(const base::RepeatingClosure& sink_callback) override;
 
   // PostTask target from |ByteStreamWriterImpl::Write| and
   // |ByteStreamWriterImpl::Close|.
@@ -154,7 +154,7 @@ class ByteStreamReaderImpl : public ByteStreamReader {
   bool received_status_;
   int status_;
 
-  base::Closure data_available_callback_;
+  base::RepeatingClosure data_available_callback_;
 
   // Time of last point at which data in stream transitioned from full
   // to non-full.  Nulled when a callback is sent.
@@ -185,7 +185,7 @@ ByteStreamWriterImpl::ByteStreamWriterImpl(
       my_lifetime_flag_(lifetime_flag),
       input_contents_size_(0),
       output_size_used_(0),
-      peer_(NULL) {
+      peer_(nullptr) {
   DCHECK(my_lifetime_flag_.get());
   my_lifetime_flag_->is_alive = true;
 }
@@ -297,14 +297,10 @@ void ByteStreamWriterImpl::PostToPeer(bool complete, int status) {
     input_contents_size_ = 0;
   }
   peer_task_runner_->PostTask(
-      FROM_HERE, base::Bind(
-          &ByteStreamReaderImpl::TransferData,
-          peer_lifetime_flag_,
-          peer_,
-          base::Passed(&transfer_buffer),
-          buffer_size,
-          complete,
-          status));
+      FROM_HERE,
+      base::BindOnce(&ByteStreamReaderImpl::TransferData, peer_lifetime_flag_,
+                     peer_, std::move(transfer_buffer), buffer_size, complete,
+                     status));
 }
 
 ByteStreamReaderImpl::ByteStreamReaderImpl(
@@ -317,7 +313,7 @@ ByteStreamReaderImpl::ByteStreamReaderImpl(
       received_status_(false),
       status_(0),
       unreported_consumed_bytes_(0),
-      peer_(NULL) {
+      peer_(nullptr) {
   DCHECK(my_lifetime_flag_.get());
   my_lifetime_flag_->is_alive = true;
 }
@@ -425,11 +421,9 @@ void ByteStreamReaderImpl::MaybeUpdateInput() {
     return;
 
   peer_task_runner_->PostTask(
-      FROM_HERE, base::Bind(
-          &ByteStreamWriterImpl::UpdateWindow,
-          peer_lifetime_flag_,
-          peer_,
-          unreported_consumed_bytes_));
+      FROM_HERE,
+      base::BindOnce(&ByteStreamWriterImpl::UpdateWindow, peer_lifetime_flag_,
+                     peer_, unreported_consumed_bytes_));
   unreported_consumed_bytes_ = 0;
 }
 

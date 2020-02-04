@@ -56,6 +56,7 @@
 #include <QtGui/QSurfaceFormat>
 #include <QtGui/QOpenGLShaderProgram>
 #include <QtGui/QOpenGLFunctions>
+#include <QOpenGLBuffer>
 
 #include <QtCore/qmutex.h>
 
@@ -138,18 +139,10 @@ public:
             qDebug() << "Shader Program link failed.";
             qDebug() << m_blitProgram->log();
         }
-    }
-    ~DecorationsBlitter()
-    {
-        delete m_blitProgram;
-    }
-    void blit(QWaylandEglWindow *window)
-    {
-        QOpenGLTextureCache *cache = QOpenGLTextureCache::cacheForContext(m_context->context());
 
-        QRect windowRect = window->window()->frameGeometry();
-        int scale = window->scale() ;
-        glViewport(0, 0, windowRect.width() * scale, windowRect.height() * scale);
+        m_blitProgram->bind();
+        m_blitProgram->enableAttributeArray(0);
+        m_blitProgram->enableAttributeArray(1);
 
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
@@ -158,9 +151,8 @@ public:
         glDepthMask(GL_FALSE);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-        m_context->mUseNativeDefaultFbo = true;
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        m_context->mUseNativeDefaultFbo = false;
+        m_buffer.create();
+        m_buffer.bind();
 
         static const GLfloat squareVertices[] = {
             -1.f, -1.f,
@@ -168,14 +160,12 @@ public:
             -1.f,  1.0f,
             1.0f,  1.0f
         };
-
         static const GLfloat inverseSquareVertices[] = {
             -1.f, 1.f,
             1.f, 1.f,
             -1.f, -1.f,
             1.f, -1.f
         };
-
         static const GLfloat textureVertices[] = {
             0.0f,  0.0f,
             1.0f,  0.0f,
@@ -183,44 +173,57 @@ public:
             1.0f,  1.0f,
         };
 
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        m_blitProgram->bind();
+        m_squareVerticesOffset = 0;
+        m_inverseSquareVerticesOffset = sizeof(squareVertices);
+        m_textureVerticesOffset = sizeof(squareVertices) + sizeof(textureVertices);
 
-        m_blitProgram->enableAttributeArray(0);
-        m_blitProgram->enableAttributeArray(1);
-        m_blitProgram->setAttributeArray(1, textureVertices, 2);
+        m_buffer.allocate(sizeof(squareVertices) + sizeof(inverseSquareVertices) + sizeof(textureVertices));
+        m_buffer.write(m_squareVerticesOffset, squareVertices, sizeof(squareVertices));
+        m_buffer.write(m_inverseSquareVerticesOffset, inverseSquareVertices, sizeof(inverseSquareVertices));
+        m_buffer.write(m_textureVerticesOffset, textureVertices, sizeof(textureVertices));
 
-        glActiveTexture(GL_TEXTURE0);
+        m_blitProgram->setAttributeBuffer(1, GL_FLOAT, m_textureVerticesOffset, 2);
+
+        m_textureWrap = m_context->context()->functions()->hasOpenGLFeature(QOpenGLFunctions::NPOTTextureRepeat) ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+    }
+    ~DecorationsBlitter()
+    {
+        delete m_blitProgram;
+    }
+    void blit(QWaylandEglWindow *window)
+    {
+        Q_ASSERT(window->wl_surface::isInitialized());
+        QOpenGLTextureCache *cache = QOpenGLTextureCache::cacheForContext(m_context->context());
+
+        QSize surfaceSize = window->surfaceSize();
+        int scale = window->scale() ;
+        glViewport(0, 0, surfaceSize.width() * scale, surfaceSize.height() * scale);
 
         //Draw Decoration
-        m_blitProgram->setAttributeArray(0, inverseSquareVertices, 2);
+        m_blitProgram->setAttributeBuffer(0, GL_FLOAT, m_inverseSquareVerticesOffset, 2);
         QImage decorationImage = window->decoration()->contentImage();
         cache->bindTexture(m_context->context(), decorationImage);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        if (m_context->context()->functions()->hasOpenGLFeature(QOpenGLFunctions::NPOTTextureRepeat)) {
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        } else {
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        }
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, m_textureWrap);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, m_textureWrap);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
         //Draw Content
-        m_blitProgram->setAttributeArray(0, squareVertices, 2);
+        m_blitProgram->setAttributeBuffer(0, GL_FLOAT, m_squareVerticesOffset, 2);
         glBindTexture(GL_TEXTURE_2D, window->contentTexture());
         QRect r = window->contentsRect();
         glViewport(r.x() * scale, r.y() * scale, r.width() * scale, r.height() * scale);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-        //Cleanup
-        m_blitProgram->disableAttributeArray(0);
-        m_blitProgram->disableAttributeArray(1);
     }
 
-    QOpenGLShaderProgram *m_blitProgram;
-    QWaylandGLContext *m_context;
+    QOpenGLShaderProgram *m_blitProgram = nullptr;
+    QWaylandGLContext *m_context = nullptr;
+    QOpenGLBuffer m_buffer;
+    int m_squareVerticesOffset;
+    int m_inverseSquareVerticesOffset;
+    int m_textureVerticesOffset;
+    int m_textureWrap;
 };
 
 
@@ -229,15 +232,12 @@ QWaylandGLContext::QWaylandGLContext(EGLDisplay eglDisplay, QWaylandDisplay *dis
     : QPlatformOpenGLContext()
     , m_eglDisplay(eglDisplay)
     , m_display(display)
-    , m_blitter(0)
-    , mUseNativeDefaultFbo(false)
-    , mSupportNonBlockingSwap(true)
 {
     QSurfaceFormat fmt = format;
     if (static_cast<QWaylandIntegration *>(QGuiApplicationPrivate::platformIntegration())->display()->supportsWindowDecoration())
         fmt.setAlphaBufferSize(8);
     m_config = q_configFromGLFormat(m_eglDisplay, fmt);
-    m_format = q_glFormatFromConfig(m_eglDisplay, m_config);
+    m_format = q_glFormatFromConfig(m_eglDisplay, m_config, fmt);
     m_shareEGLContext = share ? static_cast<QWaylandGLContext *>(share)->eglContext() : EGL_NO_CONTEXT;
 
     QVector<EGLint> eglContextAttrs;
@@ -262,10 +262,18 @@ QWaylandGLContext::QWaylandGLContext(EGLDisplay eglDisplay, QWaylandDisplay *dis
         }
         // Profiles are OpenGL only and mandatory in 3.2+. The value is silently ignored for < 3.2.
         if (m_format.renderableType() == QSurfaceFormat::OpenGL) {
-            eglContextAttrs.append(EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR);
-            eglContextAttrs.append(format.profile() == QSurfaceFormat::CoreProfile
-                                ? EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR
-                                : EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR);
+            switch (format.profile()) {
+            case QSurfaceFormat::NoProfile:
+                break;
+            case QSurfaceFormat::CoreProfile:
+                eglContextAttrs.append(EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR);
+                eglContextAttrs.append(EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR);
+                break;
+            case QSurfaceFormat::CompatibilityProfile:
+                eglContextAttrs.append(EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR);
+                eglContextAttrs.append(EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR);
+                break;
+            }
         }
     }
     eglContextAttrs.append(EGL_NONE);
@@ -302,6 +310,13 @@ QWaylandGLContext::QWaylandGLContext(EGLDisplay eglDisplay, QWaylandDisplay *dis
         return;
     }
 
+    // Create an EGL context for the decorations blitter. By using a dedicated context we don't need to make sure to not
+    // change the context state and we also use OpenGL ES 2 API independently to what the app is using to draw.
+    QVector<EGLint> eglDecorationsContextAttrs = { EGL_CONTEXT_CLIENT_VERSION, 1, EGL_NONE };
+    m_decorationsContext = eglCreateContext(m_eglDisplay, m_config, m_context, eglDecorationsContextAttrs.constData());
+    if (m_decorationsContext == EGL_NO_CONTEXT)
+        qWarning("QWaylandGLContext: Failed to create the decorations EGLContext. Decorations will not be drawn.");
+
     EGLint a = EGL_MIN_SWAP_INTERVAL;
     EGLint b = EGL_MAX_SWAP_INTERVAL;
     if (!eglGetConfigAttrib(m_eglDisplay, m_config, a, &a) ||
@@ -310,7 +325,9 @@ QWaylandGLContext::QWaylandGLContext(EGLDisplay eglDisplay, QWaylandDisplay *dis
        mSupportNonBlockingSwap = false;
     }
     if (!mSupportNonBlockingSwap) {
-        qWarning() << "Non-blocking swap buffers not supported. Subsurface rendering can be affected.";
+        qWarning(lcQpaWayland) << "Non-blocking swap buffers not supported."
+                               << "Subsurface rendering can be affected."
+                               << "It may also cause the event loop to freeze in some situations";
     }
 
     updateGLFormat();
@@ -327,7 +344,7 @@ void QWaylandGLContext::updateGLFormat()
     EGLSurface prevSurfaceDraw = eglGetCurrentSurface(EGL_DRAW);
     EGLSurface prevSurfaceRead = eglGetCurrentSurface(EGL_READ);
 
-    wl_surface *wlSurface = m_display->createSurface(Q_NULLPTR);
+    wl_surface *wlSurface = m_display->createSurface(nullptr);
     wl_egl_window *eglWindow = wl_egl_window_create(wlSurface, 1, 1);
     EGLSurface eglSurface = eglCreateWindowSurface(m_eglDisplay, m_config, eglWindow, 0);
 
@@ -394,20 +411,21 @@ bool QWaylandGLContext::makeCurrent(QPlatformSurface *surface)
     QWaylandEglWindow *window = static_cast<QWaylandEglWindow *>(surface);
     EGLSurface eglSurface = window->eglSurface();
 
-    if (!window->needToUpdateContentFBO() && (eglSurface != EGL_NO_SURFACE && eglGetCurrentContext() == m_context && eglGetCurrentSurface(EGL_DRAW) == eglSurface))
+    if (!window->needToUpdateContentFBO() && (eglSurface != EGL_NO_SURFACE)) {
+        if (!eglMakeCurrent(m_eglDisplay, eglSurface, eglSurface, m_context)) {
+            qWarning("QWaylandGLContext::makeCurrent: eglError: %x, this: %p \n", eglGetError(), this);
+            return false;
+        }
         return true;
+    }
 
-    window->setCanResize(false);
-    // Core profiles mandate the use of VAOs when rendering. We would then need to use one
-    // in DecorationsBlitter, but for that we would need a QOpenGLFunctions_3_2_Core instead
-    // of the QOpenGLFunctions we use, but that would break when using a lower version context.
-    // Instead of going crazy, just disable decorations for core profiles until we use
-    // subsurfaces for them.
-    if (m_format.profile() != QSurfaceFormat::CoreProfile && !window->decoration())
+    if (window->isExposed())
+        window->setCanResize(false);
+    if (m_decorationsContext != EGL_NO_CONTEXT && !window->decoration())
         window->createDecoration();
 
     if (eglSurface == EGL_NO_SURFACE) {
-        window->updateSurface(window->isExposed());
+        window->updateSurface(true);
         eglSurface = window->eglSurface();
     }
 
@@ -417,6 +435,9 @@ bool QWaylandGLContext::makeCurrent(QPlatformSurface *surface)
         return false;
     }
 
+    //### setCurrentContext will be called in QOpenGLContext::makeCurrent after this function
+    // returns, but that's too late, as we need a current context in order to bind the content FBO.
+    QOpenGLContextPrivate::setCurrentContext(context());
     window->bindContentFBO();
 
     return true;
@@ -427,102 +448,6 @@ void QWaylandGLContext::doneCurrent()
     eglMakeCurrent(m_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 }
 
-#define STATE_GUARD_VERTEX_ATTRIB_COUNT 2
-
-class StateGuard
-{
-public:
-    StateGuard() {
-        QOpenGLFunctions glFuncs(QOpenGLContext::currentContext());
-
-        glGetIntegerv(GL_CURRENT_PROGRAM, (GLint *) &m_program);
-        glGetIntegerv(GL_ACTIVE_TEXTURE, (GLint *) &m_activeTextureUnit);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, (GLint *) &m_texture);
-        glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint *) &m_fbo);
-        glGetIntegerv(GL_VIEWPORT, m_viewport);
-        glGetIntegerv(GL_DEPTH_WRITEMASK, &m_depthWriteMask);
-        glGetIntegerv(GL_COLOR_WRITEMASK, m_colorWriteMask);
-        m_blend = glIsEnabled(GL_BLEND);
-        m_depth = glIsEnabled(GL_DEPTH_TEST);
-        m_cull = glIsEnabled(GL_CULL_FACE);
-        m_scissor = glIsEnabled(GL_SCISSOR_TEST);
-        for (int i = 0; i < STATE_GUARD_VERTEX_ATTRIB_COUNT; ++i) {
-            glFuncs.glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_ENABLED, (GLint *) &m_vertexAttribs[i].enabled);
-            glFuncs.glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, (GLint *) &m_vertexAttribs[i].arrayBuffer);
-            glFuncs.glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_SIZE, &m_vertexAttribs[i].size);
-            glFuncs.glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &m_vertexAttribs[i].stride);
-            glFuncs.glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_TYPE, (GLint *) &m_vertexAttribs[i].type);
-            glFuncs.glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_NORMALIZED, (GLint *) &m_vertexAttribs[i].normalized);
-            glFuncs.glGetVertexAttribPointerv(i, GL_VERTEX_ATTRIB_ARRAY_POINTER, &m_vertexAttribs[i].pointer);
-        }
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint *) &m_minFilter);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (GLint *) &m_magFilter);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint *) &m_wrapS);
-        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (GLint *) &m_wrapT);
-    }
-
-    ~StateGuard() {
-        QOpenGLFunctions glFuncs(QOpenGLContext::currentContext());
-
-        glFuncs.glUseProgram(m_program);
-        glActiveTexture(m_activeTextureUnit);
-        glBindTexture(GL_TEXTURE_2D, m_texture);
-        glFuncs.glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-        glViewport(m_viewport[0], m_viewport[1], m_viewport[2], m_viewport[3]);
-        glDepthMask(m_depthWriteMask);
-        glColorMask(m_colorWriteMask[0], m_colorWriteMask[1], m_colorWriteMask[2], m_colorWriteMask[3]);
-        if (m_blend)
-            glEnable(GL_BLEND);
-        if (m_depth)
-            glEnable(GL_DEPTH_TEST);
-        if (m_cull)
-            glEnable(GL_CULL_FACE);
-        if (m_scissor)
-            glEnable(GL_SCISSOR_TEST);
-        for (int i = 0; i < STATE_GUARD_VERTEX_ATTRIB_COUNT; ++i) {
-            if (m_vertexAttribs[i].enabled)
-                glFuncs.glEnableVertexAttribArray(i);
-            GLuint prevBuf;
-            glGetIntegerv(GL_ARRAY_BUFFER_BINDING, (GLint *) &prevBuf);
-            glFuncs.glBindBuffer(GL_ARRAY_BUFFER, m_vertexAttribs[i].arrayBuffer);
-            glFuncs.glVertexAttribPointer(i, m_vertexAttribs[i].size, m_vertexAttribs[i].type,
-                                          m_vertexAttribs[i].normalized, m_vertexAttribs[i].stride,
-                                          m_vertexAttribs[i].pointer);
-            glFuncs.glBindBuffer(GL_ARRAY_BUFFER, prevBuf);
-        }
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, m_minFilter);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, m_magFilter);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, m_wrapS);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, m_wrapT);
-    }
-
-private:
-    GLuint m_program;
-    GLenum m_activeTextureUnit;
-    GLuint m_texture;
-    GLuint m_fbo;
-    GLint m_depthWriteMask;
-    GLint m_colorWriteMask[4];
-    GLboolean m_blend;
-    GLboolean m_depth;
-    GLboolean m_cull;
-    GLboolean m_scissor;
-    GLint m_viewport[4];
-    struct VertexAttrib {
-        bool enabled;
-        GLuint arrayBuffer;
-        GLint size;
-        GLint stride;
-        GLenum type;
-        bool normalized;
-        void *pointer;
-    } m_vertexAttribs[STATE_GUARD_VERTEX_ATTRIB_COUNT];
-    GLenum m_minFilter;
-    GLenum m_magFilter;
-    GLenum m_wrapS;
-    GLenum m_wrapT;
-};
-
 void QWaylandGLContext::swapBuffers(QPlatformSurface *surface)
 {
     QWaylandEglWindow *window = static_cast<QWaylandEglWindow *>(surface);
@@ -530,40 +455,40 @@ void QWaylandGLContext::swapBuffers(QPlatformSurface *surface)
     EGLSurface eglSurface = window->eglSurface();
 
     if (window->decoration()) {
-        makeCurrent(surface);
+        if (m_api != EGL_OPENGL_ES_API)
+            eglBindAPI(EGL_OPENGL_ES_API);
 
-        // Must save & restore all state. Applications are usually not prepared
-        // for random context state changes in a swapBuffers() call.
-        StateGuard stateGuard;
+        // save the current EGL content and surface to set it again after the blitter is done
+        EGLDisplay currentDisplay = eglGetCurrentDisplay();
+        EGLContext currentContext = eglGetCurrentContext();
+        EGLSurface currentSurfaceDraw = eglGetCurrentSurface(EGL_DRAW);
+        EGLSurface currentSurfaceRead = eglGetCurrentSurface(EGL_READ);
+        eglMakeCurrent(m_eglDisplay, eglSurface, eglSurface, m_decorationsContext);
 
         if (!m_blitter)
             m_blitter = new DecorationsBlitter(this);
         m_blitter->blit(window);
+
+        if (m_api != EGL_OPENGL_ES_API)
+            eglBindAPI(m_api);
+        eglMakeCurrent(currentDisplay, currentSurfaceDraw, currentSurfaceRead, currentContext);
     }
 
-
-    QWaylandSubSurface *sub = window->subSurfaceWindow();
-    if (sub) {
-        QMutexLocker l(sub->syncMutex());
-
-        int si = (sub->isSync() && mSupportNonBlockingSwap) ? 0 : m_format.swapInterval();
-
-        eglSwapInterval(m_eglDisplay, si);
-        eglSwapBuffers(m_eglDisplay, eglSurface);
-    } else {
-        eglSwapInterval(m_eglDisplay, m_format.swapInterval());
-        eglSwapBuffers(m_eglDisplay, eglSurface);
+    int swapInterval = mSupportNonBlockingSwap ? 0 : m_format.swapInterval();
+    eglSwapInterval(m_eglDisplay, swapInterval);
+    if (swapInterval == 0 && m_format.swapInterval() > 0) {
+        // Emulating a blocking swap
+        glFlush(); // Flush before waiting so we can swap more quickly when the frame event arrives
+        window->waitForFrameSync(100);
     }
-
+    window->handleUpdate();
+    eglSwapBuffers(m_eglDisplay, eglSurface);
 
     window->setCanResize(true);
 }
 
 GLuint QWaylandGLContext::defaultFramebufferObject(QPlatformSurface *surface) const
 {
-    if (mUseNativeDefaultFbo)
-        return 0;
-
     return static_cast<QWaylandEglWindow *>(surface)->contentFBO();
 }
 

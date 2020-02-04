@@ -47,8 +47,8 @@ class CacheTest {
 
   int Lookup(int key) {
     Cache::Handle* handle = cache_->Lookup(EncodeKey(key));
-    const int r = (handle == NULL) ? -1 : DecodeValue(cache_->Value(handle));
-    if (handle != NULL) {
+    const int r = (handle == nullptr) ? -1 : DecodeValue(cache_->Value(handle));
+    if (handle != nullptr) {
       cache_->Release(handle);
     }
     return r;
@@ -217,6 +217,14 @@ TEST(CacheTest, Prune) {
 
   ASSERT_EQ(100, Lookup(1));
   ASSERT_EQ(-1, Lookup(2));
+}
+
+TEST(CacheTest, ZeroSizeCache) {
+  delete cache_;
+  cache_ = NewLRUCache(0);
+
+  Insert(1, 100);
+  ASSERT_EQ(-1, Lookup(1));
 }
 
 }  // namespace leveldb

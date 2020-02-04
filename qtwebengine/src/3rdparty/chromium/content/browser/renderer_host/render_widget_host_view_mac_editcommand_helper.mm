@@ -7,7 +7,7 @@
 #import <objc/runtime.h>
 #include <stddef.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #import "content/browser/renderer_host/render_widget_host_view_mac.h"
 
@@ -110,14 +110,13 @@ const char* const kEditCommands[] = {
   "yankAndSelect"
 };
 
-
 // This function is installed via the objc runtime as the implementation of all
 // the various editing selectors.
 // The objc runtime hookup occurs in
 // RenderWidgetHostViewMacEditCommandHelper::AddEditingSelectorsToClass().
 //
 // self - the object we're attached to; it must implement the
-// RenderWidgetHostViewMacOwner protocol.
+// RenderWidgetHostNSViewClientOwner protocol.
 // _cmd - the selector that fired.
 // sender - the id of the object that sent the message.
 //
@@ -130,7 +129,8 @@ const char* const kEditCommands[] = {
 // The WebFrame is in the Chrome glue layer and forwards the message to WebCore.
 void EditCommandImp(id self, SEL _cmd, id sender) {
   // Make sure |self| is the right type.
-  DCHECK([self conformsToProtocol:@protocol(RenderWidgetHostViewMacOwner)]);
+  DCHECK(
+      [self conformsToProtocol:@protocol(RenderWidgetHostNSViewClientOwner)]);
 
   // SEL -> command name string.
   NSString* command_name_ns =
@@ -138,14 +138,10 @@ void EditCommandImp(id self, SEL _cmd, id sender) {
   std::string command([command_name_ns UTF8String]);
 
   // Forward the edit command string down the pipeline.
-  RenderWidgetHostViewMac* rwhv = [(id<RenderWidgetHostViewMacOwner>)self
-      renderWidgetHostViewMac];
-  DCHECK(rwhv);
-
-  RenderWidgetHostDelegate* host_delegate =
-      RenderWidgetHostImpl::From(rwhv->GetRenderWidgetHost())->delegate();
-  if (host_delegate)
-    host_delegate->ExecuteEditCommand(command, base::nullopt);
+  mojom::RenderWidgetHostNSViewClient* client = [(
+      id<RenderWidgetHostNSViewClientOwner>)self renderWidgetHostNSViewClient];
+  DCHECK(client);
+  client->ExecuteEditCommand(command);
 }
 
 }  // namespace
@@ -174,6 +170,8 @@ NSString* RenderWidgetHostViewMacEditCommandHelper::CommandNameForSelector(
     return @"MovePageUp";
   if (selector == @selector(pageUpAndModifySelection:))
     return @"MovePageUpAndModifySelection";
+  if (selector == @selector(showGuessPanel:))
+    return @"ToggleSpellPanel";
 
   // Remove the trailing colon.
   NSString* selector_str = NSStringFromSelector(selector);
@@ -183,7 +181,7 @@ NSString* RenderWidgetHostViewMacEditCommandHelper::CommandNameForSelector(
 
 RenderWidgetHostViewMacEditCommandHelper::
     RenderWidgetHostViewMacEditCommandHelper() {
-  for (size_t i = 0; i < arraysize(kEditCommands); ++i) {
+  for (size_t i = 0; i < base::size(kEditCommands); ++i) {
     edit_command_set_.insert(kEditCommands[i]);
   }
 }
@@ -194,7 +192,7 @@ RenderWidgetHostViewMacEditCommandHelper::
 // Dynamically adds Selectors to the aformentioned class.
 void RenderWidgetHostViewMacEditCommandHelper::AddEditingSelectorsToClass(
     Class klass) {
-  for (size_t i = 0; i < arraysize(kEditCommands); ++i) {
+  for (size_t i = 0; i < base::size(kEditCommands); ++i) {
     // Append trailing ':' to command name to get selector name.
     NSString* sel_str = [NSString stringWithFormat: @"%s:", kEditCommands[i]];
 
@@ -210,7 +208,7 @@ void RenderWidgetHostViewMacEditCommandHelper::AddEditingSelectorsToClass(
 
 bool RenderWidgetHostViewMacEditCommandHelper::IsMenuItemEnabled(
     SEL item_action,
-    id<RenderWidgetHostViewMacOwner> owner) {
+    id<RenderWidgetHostNSViewClientOwner> owner) {
   const char* selector_name = sel_getName(item_action);
   // TODO(jeremy): The final form of this function will check state
   // associated with the Browser.
@@ -230,7 +228,7 @@ bool RenderWidgetHostViewMacEditCommandHelper::IsMenuItemEnabled(
 }
 
 NSArray* RenderWidgetHostViewMacEditCommandHelper::GetEditSelectorNames() {
-  size_t num_edit_commands = arraysize(kEditCommands);
+  size_t num_edit_commands = base::size(kEditCommands);
   NSMutableArray* ret = [NSMutableArray arrayWithCapacity:num_edit_commands];
 
   for (size_t i = 0; i < num_edit_commands; ++i) {

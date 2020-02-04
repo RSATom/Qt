@@ -34,10 +34,10 @@
 
 QT_CHARTS_BEGIN_NAMESPACE
 /* Comment line for syncqt to generate the fwd-include correctly, due to QTBUG-22432 */
-class QT_CHARTS_EXPORT QVXYModelMapper : public QXYModelMapper
+class Q_CHARTS_EXPORT QVXYModelMapper : public QXYModelMapper
 {
     Q_OBJECT
-    Q_PROPERTY(QXYSeries *series READ series WRITE setSeries NOTIFY seriesReplaced)
+    Q_PROPERTY(QtCharts::QXYSeries *series READ series WRITE setSeries NOTIFY seriesReplaced)
     Q_PROPERTY(QAbstractItemModel *model READ model WRITE setModel NOTIFY modelReplaced)
     Q_PROPERTY(int xColumn READ xColumn WRITE setXColumn NOTIFY xColumnChanged)
     Q_PROPERTY(int yColumn READ yColumn WRITE setYColumn NOTIFY yColumnChanged)
@@ -45,7 +45,7 @@ class QT_CHARTS_EXPORT QVXYModelMapper : public QXYModelMapper
     Q_PROPERTY(int rowCount READ rowCount WRITE setRowCount NOTIFY rowCountChanged)
 
 public:
-    explicit QVXYModelMapper(QObject *parent = Q_NULLPTR);
+    explicit QVXYModelMapper(QObject *parent = nullptr);
 
     QAbstractItemModel *model() const;
     void setModel(QAbstractItemModel *model);

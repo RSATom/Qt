@@ -34,7 +34,7 @@ class CONTENT_EXPORT BrowserPluginGuestDelegate {
   virtual void WillAttach(content::WebContents* embedder_web_contents,
                           int element_instance_id,
                           bool is_full_page_plugin,
-                          const base::Closure& completion_callback) {}
+                          base::OnceClosure completion_callback) {}
 
   virtual WebContents* CreateNewGuestWindow(
       const WebContents::CreateParams& create_params);
@@ -56,11 +56,6 @@ class CONTENT_EXPORT BrowserPluginGuestDelegate {
   // Returns the WebContents that currently owns this guest.
   virtual WebContents* GetOwnerWebContents() const;
 
-  // Notifies that the content size of the guest has changed.
-  // Note: In autosize mode, it is possible that the guest size may not match
-  // the element size.
-  virtual void GuestSizeChanged(const gfx::Size& new_size) {}
-
   // Asks the delegate if the given guest can lock the pointer.
   // Invoking the |callback| synchronously is OK.
   virtual void RequestPointerLockPermission(
@@ -71,12 +66,6 @@ class CONTENT_EXPORT BrowserPluginGuestDelegate {
   // Provides the delegate with an interface with which to communicate with the
   // content module.
   virtual void SetGuestHost(GuestHost* guest_host) {}
-
-  // Sets the position of the context menu for the guest contents. The value
-  // reported from the guest renderer should be ignored. The reported value
-  // from the guest renderer is incorrect in situations where BrowserPlugin is
-  // subject to CSS transforms.
-  virtual void SetContextMenuPosition(const gfx::Point& position) {}
 
   // TODO(ekaramad): A short workaround to force some types of guests to use
   // a BrowserPlugin even when we are using cross process frames for guests. It

@@ -7,6 +7,7 @@
 /**
  * Creates a new NavigatorDelegate for calling browser-specific functions to
  * do the actual navigating.
+ *
  * @param {number} tabId The tab ID of the PDF viewer or -1 if the viewer is
  *    not displayed in a tab.
  * @constructor
@@ -17,6 +18,7 @@ function NavigatorDelegate(tabId) {
 
 /**
  * Creates a new Navigator for navigating to links inside or outside the PDF.
+ *
  * @param {string} originalUrl The original page URL.
  * @param {Object} viewport The viewport info of the page.
  * @param {Object} paramsParser The object for URL parsing.
@@ -34,46 +36,49 @@ function Navigator(originalUrl, viewport, paramsParser, navigatorDelegate) {
 
 NavigatorDelegate.prototype = {
   /**
-   * @public
    * Called when navigation should happen in the current tab.
+   *
    * @param {string} url The url to be opened in the current tab.
    */
   navigateInCurrentTab: function(url) {
     // When the PDFviewer is inside a browser tab, prefer the tabs API because
     // it can navigate from one file:// URL to another.
-    if (chrome.tabs && this.tabId_ != -1)
+    if (chrome.tabs && this.tabId_ != -1) {
       chrome.tabs.update(this.tabId_, {url: url});
-    else
+    } else {
       window.location.href = url;
+    }
   },
 
   /**
-   * @public
    * Called when navigation should happen in the new tab.
+   *
    * @param {string} url The url to be opened in the new tab.
    * @param {boolean} active Indicates if the new tab should be the active tab.
    */
   navigateInNewTab: function(url, active) {
     // Prefer the tabs API because it guarantees we can just open a new tab.
     // window.open doesn't have this guarantee.
-    if (chrome.tabs)
+    if (chrome.tabs) {
       chrome.tabs.create({url: url, active: active});
-    else
+    } else {
       window.open(url);
+    }
   },
 
   /**
-   * @public
    * Called when navigation should happen in the new window.
+   *
    * @param {string} url The url to be opened in the new window.
    */
   navigateInNewWindow: function(url) {
     // Prefer the windows API because it guarantees we can just open a new
     // window. window.open with '_blank' argument doesn't have this guarantee.
-    if (chrome.windows)
+    if (chrome.windows) {
       chrome.windows.create({url: url});
-    else
+    } else {
       window.open(url, '_blank');
+    }
   }
 };
 
@@ -95,32 +100,37 @@ Navigator.prototype = {
   /**
    * Function to navigate to the given URL. This might involve navigating
    * within the PDF page or opening a new url (in the same tab or a new tab).
+   *
    * @param {string} url The URL to navigate to.
    * @param {number} disposition The window open disposition when
    *    navigating to the new URL.
    */
   navigate: function(url, disposition) {
-    if (url.length == 0)
+    if (url.length == 0) {
       return;
+    }
 
     // If |urlFragment| starts with '#', then it's for the same URL with a
     // different URL fragment.
     if (url.charAt(0) == '#') {
       // if '#' is already present in |originalUrl| then remove old fragment
       // and add new url fragment.
-      var hashIndex = this.originalUrl_.search('#');
-      if (hashIndex != -1)
+      const hashIndex = this.originalUrl_.search('#');
+      if (hashIndex != -1) {
         url = this.originalUrl_.substring(0, hashIndex) + url;
-      else
+      } else {
         url = this.originalUrl_ + url;
+      }
     }
 
     // If there's no scheme, then take a guess at the scheme.
-    if (url.indexOf('://') == -1 && url.indexOf('mailto:') == -1)
+    if (url.indexOf('://') == -1 && url.indexOf('mailto:') == -1) {
       url = this.guessUrlWithoutScheme_(url);
+    }
 
-    if (!this.isValidUrl_(url))
+    if (!this.isValidUrl_(url)) {
       return;
+    }
 
     switch (disposition) {
       case Navigator.WindowOpenDisposition.CURRENT_TAB:
@@ -148,34 +158,39 @@ Navigator.prototype = {
   },
 
   /**
-   * @private
    * Called when the viewport position is received.
+   *
    * @param {Object} viewportPosition Dictionary containing the viewport
    *    position.
+   * @private
    */
   onViewportReceived_: function(viewportPosition) {
-    var originalUrl = this.originalUrl_;
-    var hashIndex = originalUrl.search('#');
-    if (hashIndex != -1)
+    let originalUrl = this.originalUrl_;
+    let hashIndex = originalUrl.search('#');
+    if (hashIndex != -1) {
       originalUrl = originalUrl.substring(0, hashIndex);
+    }
 
-    var newUrl = viewportPosition.url;
+    let newUrl = viewportPosition.url;
     hashIndex = newUrl.search('#');
-    if (hashIndex != -1)
+    if (hashIndex != -1) {
       newUrl = newUrl.substring(0, hashIndex);
+    }
 
-    var pageNumber = viewportPosition.page;
-    if (pageNumber != undefined && originalUrl == newUrl)
+    const pageNumber = viewportPosition.page;
+    if (pageNumber != undefined && originalUrl == newUrl) {
       this.viewport_.goToPage(pageNumber);
-    else
+    } else {
       this.navigatorDelegate_.navigateInCurrentTab(viewportPosition.url);
+    }
   },
 
   /**
-   * @private
    * Checks if the URL starts with a scheme and is not just a scheme.
+   *
    * @param {string} url The input URL
    * @return {boolean} Whether the url is valid.
+   * @private
    */
   isValidUrl_: function(url) {
     // Make sure |url| starts with a valid scheme.
@@ -186,8 +201,9 @@ Navigator.prototype = {
     }
 
     // Navigations to file:-URLs are only allowed from file:-URLs.
-    if (url.startsWith('file:') && !this.originalUrl_.startsWith('file:'))
+    if (url.startsWith('file:') && !this.originalUrl_.startsWith('file:')) {
       return false;
+    }
 
 
     // Make sure |url| is not only a scheme.
@@ -200,11 +216,12 @@ Navigator.prototype = {
   },
 
   /**
-   * @private
    * Attempt to figure out what a URL is when there is no scheme.
+   *
    * @param {string} url The input URL
    * @return {string} The URL with a scheme or the original URL if it is not
    *     possible to determine the scheme.
+   * @private
    */
   guessUrlWithoutScheme_: function(url) {
     // If the original URL is mailto:, that does not make sense to start with,
@@ -218,18 +235,20 @@ Navigator.prototype = {
 
     // Check for absolute paths.
     if (url.startsWith('/')) {
-      var schemeEndIndex = this.originalUrl_.indexOf('://');
-      var firstSlash = this.originalUrl_.indexOf('/', schemeEndIndex + 3);
+      const schemeEndIndex = this.originalUrl_.indexOf('://');
+      const firstSlash = this.originalUrl_.indexOf('/', schemeEndIndex + 3);
       // e.g. http://www.foo.com/bar -> http://www.foo.com
-      var domain = firstSlash != -1 ? this.originalUrl_.substr(0, firstSlash) :
-                                      this.originalUrl_;
+      const domain = firstSlash != -1 ?
+          this.originalUrl_.substr(0, firstSlash) :
+          this.originalUrl_;
       return domain + url;
     }
 
     // Check for obvious relative paths.
-    var isRelative = false;
-    if (url.startsWith('.') || url.startsWith('\\'))
+    let isRelative = false;
+    if (url.startsWith('.') || url.startsWith('\\')) {
       isRelative = true;
+    }
 
     // In Adobe Acrobat Reader XI, it looks as though links with less than
     // 2 dot separators in the domain are considered relative links, and
@@ -238,19 +257,20 @@ Navigator.prototype = {
     // www.foo.com/bar -> http
     // foo.com/bar -> relative link
     if (!isRelative) {
-      var domainSeparatorIndex = url.indexOf('/');
-      var domainName = domainSeparatorIndex == -1 ?
+      const domainSeparatorIndex = url.indexOf('/');
+      const domainName = domainSeparatorIndex == -1 ?
           url :
           url.substr(0, domainSeparatorIndex);
-      var domainDotCount = (domainName.match(/\./g) || []).length;
-      if (domainDotCount < 2)
+      const domainDotCount = (domainName.match(/\./g) || []).length;
+      if (domainDotCount < 2) {
         isRelative = true;
+      }
     }
 
     if (isRelative) {
-      var slashIndex = this.originalUrl_.lastIndexOf('/');
-      var path = slashIndex != -1 ? this.originalUrl_.substr(0, slashIndex) :
-                                    this.originalUrl_;
+      const slashIndex = this.originalUrl_.lastIndexOf('/');
+      const path = slashIndex != -1 ? this.originalUrl_.substr(0, slashIndex) :
+                                      this.originalUrl_;
       return path + '/' + url;
     }
 

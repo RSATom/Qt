@@ -10,32 +10,64 @@
 #include <list>
 #include <string>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 
 // Utility for dynamically loading libsecret.
 class LibsecretLoader {
  public:
-  static decltype(&::secret_item_get_attributes) secret_item_get_attributes;
-  static decltype(&::secret_item_get_secret) secret_item_get_secret;
-  static decltype(&::secret_item_load_secret_sync) secret_item_load_secret_sync;
-  static decltype(&::secret_password_clear_sync) secret_password_clear_sync;
-  static decltype(&::secret_password_store_sync) secret_password_store_sync;
-  static decltype(&::secret_service_search_sync) secret_service_search_sync;
-  static decltype(&::secret_value_get_text) secret_value_get_text;
-  static decltype(&::secret_value_unref) secret_value_unref;
+  static COMPONENT_EXPORT(OS_CRYPT) decltype(&::secret_item_get_attributes)
+      secret_item_get_attributes;
+  static COMPONENT_EXPORT(OS_CRYPT) decltype(&::secret_item_get_secret)
+      secret_item_get_secret;
+  static COMPONENT_EXPORT(OS_CRYPT) decltype(&::secret_item_load_secret_sync)
+      secret_item_load_secret_sync;
+  static COMPONENT_EXPORT(OS_CRYPT) decltype(&::secret_password_clear_sync)
+      secret_password_clear_sync;
+  static COMPONENT_EXPORT(OS_CRYPT) decltype(&::secret_password_store_sync)
+      secret_password_store_sync;
+  static COMPONENT_EXPORT(OS_CRYPT) decltype(&::secret_service_search_sync)
+      secret_service_search_sync;
+  static COMPONENT_EXPORT(OS_CRYPT) decltype(&::secret_value_get_text)
+      secret_value_get_text;
+  static COMPONENT_EXPORT(OS_CRYPT) decltype(&::secret_value_unref)
+      secret_value_unref;
+
+  // Wrapper for secret_service_search_sync that prevents common leaks. See
+  // https://crbug.com/393395.
+  class COMPONENT_EXPORT(OS_CRYPT) SearchHelper {
+   public:
+    SearchHelper();
+    ~SearchHelper();
+
+    // Search must be called exactly once for success() and results() to be
+    // populated.
+    void Search(const SecretSchema* schema, GHashTable* attrs, int flags);
+
+    bool success() { return !error_; }
+
+    GList* results() { return results_; }
+    GError* error() { return error_; }
+
+   private:
+    // |results_| and |error_| are C-style objects owned by this instance.
+    GList* results_ = nullptr;
+    GError* error_ = nullptr;
+    DISALLOW_COPY_AND_ASSIGN(SearchHelper);
+  };
 
   // Loads the libsecret library and checks that it responds to queries.
   // Returns false if either step fails.
   // Repeated calls check the responsiveness every time, but do not load the
   // the library again if already successful.
-  static bool EnsureLibsecretLoaded();
+  static COMPONENT_EXPORT(OS_CRYPT) bool EnsureLibsecretLoaded();
 
   // Ensure that the default keyring is accessible. This won't prevent the user
   // from locking their keyring while Chrome is running.
-  static void EnsureKeyringUnlocked();
+  static COMPONENT_EXPORT(OS_CRYPT) void EnsureKeyringUnlocked();
 
  protected:
-  static bool libsecret_loaded_;
+  static COMPONENT_EXPORT(OS_CRYPT) bool libsecret_loaded_;
 
  private:
   struct FunctionInfo {
@@ -59,7 +91,7 @@ class LibsecretLoader {
   DISALLOW_IMPLICIT_CONSTRUCTORS(LibsecretLoader);
 };
 
-class LibsecretAttributesBuilder {
+class COMPONENT_EXPORT(OS_CRYPT) LibsecretAttributesBuilder {
  public:
   LibsecretAttributesBuilder();
   ~LibsecretAttributesBuilder();

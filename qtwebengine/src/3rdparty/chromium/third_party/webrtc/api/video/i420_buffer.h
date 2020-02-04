@@ -8,19 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_API_VIDEO_I420_BUFFER_H_
-#define WEBRTC_API_VIDEO_I420_BUFFER_H_
+#ifndef API_VIDEO_I420_BUFFER_H_
+#define API_VIDEO_I420_BUFFER_H_
 
+#include <stdint.h>
 #include <memory>
 
-#include "webrtc/api/video/video_rotation.h"
-#include "webrtc/api/video/video_frame_buffer.h"
-#include "webrtc/system_wrappers/include/aligned_malloc.h"
+#include "api/video/video_frame_buffer.h"
+#include "api/video/video_rotation.h"
+#include "rtc_base/memory/aligned_malloc.h"
+#include "rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
 // Plain I420 buffer in standard memory.
-class I420Buffer : public I420BufferInterface {
+class RTC_EXPORT I420Buffer : public I420BufferInterface {
  public:
   static rtc::scoped_refptr<I420Buffer> Create(int width, int height);
   static rtc::scoped_refptr<I420Buffer> Create(int width,
@@ -36,11 +39,14 @@ class I420Buffer : public I420BufferInterface {
     return Copy(*buffer.GetI420());
   }
 
-  static rtc::scoped_refptr<I420Buffer> Copy(
-      int width, int height,
-      const uint8_t* data_y, int stride_y,
-      const uint8_t* data_u, int stride_u,
-      const uint8_t* data_v, int stride_v);
+  static rtc::scoped_refptr<I420Buffer> Copy(int width,
+                                             int height,
+                                             const uint8_t* data_y,
+                                             int stride_y,
+                                             const uint8_t* data_u,
+                                             int stride_u,
+                                             const uint8_t* data_v,
+                                             int stride_v);
 
   // Returns a rotated copy of |src|.
   static rtc::scoped_refptr<I420Buffer> Rotate(const I420BufferInterface& src,
@@ -91,6 +97,12 @@ class I420Buffer : public I420BufferInterface {
   // Scale all of |src| to the size of |this| buffer, with no cropping.
   void ScaleFrom(const I420BufferInterface& src);
 
+  // Pastes whole picture to canvas at (offset_row, offset_col).
+  // Offsets and picture dimensions must be even.
+  void PasteFrom(const I420BufferInterface& picture,
+                 int offset_col,
+                 int offset_row);
+
  protected:
   I420Buffer(int width, int height);
   I420Buffer(int width, int height, int stride_y, int stride_u, int stride_v);
@@ -108,4 +120,4 @@ class I420Buffer : public I420BufferInterface {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_API_VIDEO_I420_BUFFER_H_
+#endif  // API_VIDEO_I420_BUFFER_H_

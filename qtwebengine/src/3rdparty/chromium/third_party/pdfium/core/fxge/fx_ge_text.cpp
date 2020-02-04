@@ -8,12 +8,12 @@
 #include <limits>
 #include <vector>
 
-#include "core/fxcodec/fx_codec.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxge/cfx_pathdata.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
+#include "core/fxge/fx_font.h"
 #include "core/fxge/fx_freetype.h"
-#include "core/fxge/fx_text_int.h"
-#include "core/fxge/ifx_renderdevicedriver.h"
+#include "core/fxge/renderdevicedriver_iface.h"
 
 namespace {
 
@@ -44,9 +44,7 @@ ScopedFontTransform::~ScopedFontTransform() {
 }
 
 FX_RECT FXGE_GetGlyphsBBox(const std::vector<FXTEXT_GLYPHPOS>& glyphs,
-                           int anti_alias,
-                           float retinaScaleX,
-                           float retinaScaleY) {
+                           int anti_alias) {
   FX_RECT rect(0, 0, 0, 0);
   bool bStarted = false;
   for (const FXTEXT_GLYPHPOS& glyph : glyphs) {
@@ -60,7 +58,6 @@ FX_RECT FXGE_GetGlyphsBBox(const std::vector<FXTEXT_GLYPHPOS>& glyphs,
       continue;
 
     FX_SAFE_INT32 char_width = pGlyph->m_pBitmap->GetWidth();
-    char_width /= retinaScaleX;
     if (anti_alias == FXFT_RENDER_MODE_LCD)
       char_width /= 3;
     if (!char_width.IsValid())
@@ -76,7 +73,6 @@ FX_RECT FXGE_GetGlyphsBBox(const std::vector<FXTEXT_GLYPHPOS>& glyphs,
       continue;
 
     FX_SAFE_INT32 char_height = pGlyph->m_pBitmap->GetHeight();
-    char_height /= retinaScaleY;
     if (!char_height.IsValid())
       continue;
 
@@ -103,19 +99,4 @@ FX_RECT FXGE_GetGlyphsBBox(const std::vector<FXTEXT_GLYPHPOS>& glyphs,
     bStarted = true;
   }
   return rect;
-}
-
-CFX_SizeGlyphCache::CFX_SizeGlyphCache() {}
-
-CFX_SizeGlyphCache::~CFX_SizeGlyphCache() {}
-
-void CFX_UniqueKeyGen::Generate(int count, ...) {
-  va_list argList;
-  va_start(argList, count);
-  for (int i = 0; i < count; i++) {
-    int p = va_arg(argList, int);
-    ((uint32_t*)m_Key)[i] = p;
-  }
-  va_end(argList);
-  m_KeyLen = count * sizeof(uint32_t);
 }

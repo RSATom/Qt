@@ -10,15 +10,16 @@
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "base/tracked_objects.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/sync/driver/configure_context.h"
 #include "components/sync/driver/data_type_controller_mock.h"
 #include "components/sync/driver/fake_generic_change_processor.h"
 #include "components/sync/driver/fake_sync_client.h"
+#include "components/sync/driver/fake_sync_service.h"
 #include "components/sync/driver/sync_api_component_factory_mock.h"
 #include "components/sync/model/fake_syncable_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,7 +39,10 @@ class SyncSearchEngineDataTypeControllerTest : public testing::Test,
   SyncSearchEngineDataTypeControllerTest()
       : syncer::FakeSyncClient(&profile_sync_factory_),
         template_url_service_(nullptr, 0),
-        search_engine_dtc_(base::Closure(), this, &template_url_service_) {
+        search_engine_dtc_(base::RepeatingClosure(),
+                           &sync_service_,
+                           this,
+                           &template_url_service_) {
     // Disallow the TemplateURLService from loading until
     // PreloadTemplateURLService() is called .
     template_url_service_.set_disable_load(true);
@@ -65,13 +69,14 @@ class SyncSearchEngineDataTypeControllerTest : public testing::Test,
     search_engine_dtc_.SetGenericChangeProcessorFactoryForTest(
         base::WrapUnique<syncer::GenericChangeProcessorFactory>(
             new syncer::FakeGenericChangeProcessorFactory(
-                base::MakeUnique<syncer::FakeGenericChangeProcessor>(
+                std::make_unique<syncer::FakeGenericChangeProcessor>(
                     syncer::SEARCH_ENGINES, this))));
     EXPECT_CALL(model_load_callback_, Run(_, _));
   }
 
   void Start() {
     search_engine_dtc_.LoadModels(
+        syncer::ConfigureContext(),
         base::Bind(&syncer::ModelLoadCallbackMock::Run,
                    base::Unretained(&model_load_callback_)));
     search_engine_dtc_.StartAssociating(base::Bind(
@@ -79,7 +84,8 @@ class SyncSearchEngineDataTypeControllerTest : public testing::Test,
     base::RunLoop().RunUntilIdle();
   }
 
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
+  syncer::FakeSyncService sync_service_;
   TemplateURLService template_url_service_;
   SearchEngineDataTypeController search_engine_dtc_;
   syncer::SyncApiComponentFactoryMock profile_sync_factory_;
@@ -106,6 +112,7 @@ TEST_F(SyncSearchEngineDataTypeControllerTest, StartURLServiceNotReady) {
   EXPECT_CALL(model_load_callback_, Run(_, _));
   EXPECT_FALSE(syncable_service_.syncing());
   search_engine_dtc_.LoadModels(
+      syncer::ConfigureContext(),
       base::Bind(&syncer::ModelLoadCallbackMock::Run,
                  base::Unretained(&model_load_callback_)));
   EXPECT_TRUE(search_engine_dtc_.GetSubscriptionForTesting());
@@ -115,7 +122,7 @@ TEST_F(SyncSearchEngineDataTypeControllerTest, StartURLServiceNotReady) {
 
   // Send the notification that the TemplateURLService has started.
   PreloadTemplateURLService();
-  EXPECT_EQ(NULL, search_engine_dtc_.GetSubscriptionForTesting());
+  EXPECT_EQ(nullptr, search_engine_dtc_.GetSubscriptionForTesting());
   EXPECT_EQ(syncer::DataTypeController::MODEL_LOADED,
             search_engine_dtc_.state());
 
@@ -135,9 +142,9 @@ TEST_F(SyncSearchEngineDataTypeControllerTest, StartAssociationFailed) {
                         syncer::SEARCH_ENGINES));
 
   Start();
-  EXPECT_EQ(syncer::DataTypeController::DISABLED, search_engine_dtc_.state());
+  EXPECT_EQ(syncer::DataTypeController::FAILED, search_engine_dtc_.state());
   EXPECT_FALSE(syncable_service_.syncing());
-  search_engine_dtc_.Stop();
+  search_engine_dtc_.Stop(syncer::STOP_SYNC);
   EXPECT_EQ(syncer::DataTypeController::NOT_RUNNING,
             search_engine_dtc_.state());
   EXPECT_FALSE(syncable_service_.syncing());
@@ -154,7 +161,7 @@ TEST_F(SyncSearchEngineDataTypeControllerTest, Stop) {
   Start();
   EXPECT_EQ(syncer::DataTypeController::RUNNING, search_engine_dtc_.state());
   EXPECT_TRUE(syncable_service_.syncing());
-  search_engine_dtc_.Stop();
+  search_engine_dtc_.Stop(syncer::STOP_SYNC);
   EXPECT_EQ(syncer::DataTypeController::NOT_RUNNING,
             search_engine_dtc_.state());
   // AsyncDirectoryTypeController::Stop posts call to StopLocalService to model
@@ -166,14 +173,15 @@ TEST_F(SyncSearchEngineDataTypeControllerTest, Stop) {
 TEST_F(SyncSearchEngineDataTypeControllerTest, StopBeforeLoaded) {
   EXPECT_FALSE(syncable_service_.syncing());
   search_engine_dtc_.LoadModels(
+      syncer::ConfigureContext(),
       base::Bind(&syncer::ModelLoadCallbackMock::Run,
                  base::Unretained(&model_load_callback_)));
   EXPECT_TRUE(search_engine_dtc_.GetSubscriptionForTesting());
   EXPECT_EQ(syncer::DataTypeController::MODEL_STARTING,
             search_engine_dtc_.state());
   EXPECT_FALSE(syncable_service_.syncing());
-  search_engine_dtc_.Stop();
-  EXPECT_EQ(NULL, search_engine_dtc_.GetSubscriptionForTesting());
+  search_engine_dtc_.Stop(syncer::STOP_SYNC);
+  EXPECT_EQ(nullptr, search_engine_dtc_.GetSubscriptionForTesting());
   EXPECT_EQ(syncer::DataTypeController::NOT_RUNNING,
             search_engine_dtc_.state());
   EXPECT_FALSE(syncable_service_.syncing());

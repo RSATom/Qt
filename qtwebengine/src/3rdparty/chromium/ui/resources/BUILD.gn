@@ -2,8 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//tools/grit/grit_rule.gni")
 import("//tools/grit/repack.gni")
+import("//ui/webui/webui_features.gni")
 
 group("resources") {
   public_deps = [
@@ -34,6 +36,7 @@ grit("ui_unscaled_resources_grd") {
 }
 
 grit("webui_resources_grd") {
+  defines = [ "optimize_webui=$optimize_webui" ]
   source = "../webui/resources/webui_resources.grd"
 
   # The .grd contains references to generated files.
@@ -48,9 +51,6 @@ grit("webui_resources_grd") {
   grit_flags = [
     "-E",
     "root_gen_dir=" + rebase_path(root_gen_dir, root_build_dir),
-  ]
-  deps = [
-    "//mojo/public/js:bindings",
   ]
 }
 
@@ -168,6 +168,7 @@ repack("repack_ui_test_pak_100_percent") {
   ]
 
   sources = [
+    "$root_gen_dir/mojo/public/js/mojo_bindings_resources.pak",
     "$root_gen_dir/ui/resources/ui_resources_100_percent.pak",
     "$root_gen_dir/ui/resources/webui_resources.pak",
     "$root_gen_dir/ui/strings/app_locale_settings_en-US.pak",
@@ -184,12 +185,13 @@ repack("repack_ui_test_pak_100_percent") {
   output = "$root_out_dir/ui_test.pak"
 
   deps = [
+    "//mojo/public/js:resources",
     "//ui/resources",
     "//ui/strings",
   ]
 
   if (!is_ios) {
-    deps += [ "//third_party/WebKit/public:resources_grit" ]
+    deps += [ "//third_party/blink/public:resources_grit" ]
   }
 
   if (!is_mac) {
@@ -206,14 +208,16 @@ repack("repack_ui_test_pak_100_percent") {
   if (toolkit_views) {
     deps += [ "//ui/views/resources" ]
     sources += [
-      "$root_gen_dir/blink/public/resources/blink_resources.pak",
+      "$root_gen_dir/third_party/blink/public/resources/blink_resources.pak",
       "$root_gen_dir/ui/views/resources/views_resources_100_percent.pak",
     ]
   }
 
   if (use_aura && toolkit_views) {
-    deps += [ "//ui/app_list/resources" ]
-    sources += [ "$root_gen_dir/ui/app_list/resources/app_list_resources_100_percent.pak" ]
+    deps += [ "//ash/app_list/resources" ]
+    sources += [
+      "$root_gen_dir/ash/app_list/resources/app_list_resources_100_percent.pak",
+    ]
   }
 }
 
@@ -238,7 +242,7 @@ repack("repack_ui_test_pak_200_percent") {
 }
 
 # Repack just the strings for the framework locales on Mac and iOS. This
-# emulates repack_locales.py, but just for en-US. Note ui_test.pak is not simply
+# emulates repack_locales(), but just for en-US. Note ui_test.pak is not simply
 # copied, because it causes leaks from allocations within system libraries when
 # trying to load non-string resources. http://crbug.com/413034.
 repack("repack_ui_test_mac_locale_pack") {

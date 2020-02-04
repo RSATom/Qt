@@ -263,6 +263,7 @@
     \li  styleData.column - the index of the view column
     \li  styleData.elideMode - the elide mode of the column
     \li  styleData.textAlignment - the horizontal text alignment of the column
+    \li  styleData.role - the role of the view column
     \li  styleData.pressed - true when the item is pressed (since QtQuick.Controls 1.3)
     \li  styleData.hasActiveFocus - true when the row has focus (since QtQuick.Controls 1.3)
     \endlist

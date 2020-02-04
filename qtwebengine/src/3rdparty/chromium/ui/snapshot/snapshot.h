@@ -13,10 +13,6 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/snapshot/snapshot_export.h"
 
-namespace base {
-class TaskRunner;
-}
-
 namespace gfx {
 class Rect;
 class Image;
@@ -42,13 +38,12 @@ SNAPSHOT_EXPORT bool GrabViewSnapshot(gfx::NativeView view,
 // These functions take a snapshot of |source_rect|, specified in layer space
 // coordinates (DIP for desktop, physical pixels for Android), and scale the
 // snapshot to |target_size| (in physical pixels), asynchronously.
-typedef base::Callback<void(const gfx::Image& snapshot)>
+typedef base::Callback<void(gfx::Image snapshot)>
     GrabWindowSnapshotAsyncCallback;
 SNAPSHOT_EXPORT void GrabWindowSnapshotAndScaleAsync(
     gfx::NativeWindow window,
     const gfx::Rect& source_rect,
     const gfx::Size& target_size,
-    scoped_refptr<base::TaskRunner> background_task_runner,
     const GrabWindowSnapshotAsyncCallback& callback);
 
 SNAPSHOT_EXPORT void GrabWindowSnapshotAsync(
@@ -66,7 +61,6 @@ using GrabWindowSnapshotAsyncPNGCallback =
 SNAPSHOT_EXPORT void GrabWindowSnapshotAsyncPNG(
     gfx::NativeWindow window,
     const gfx::Rect& source_rect,
-    scoped_refptr<base::TaskRunner> background_task_runner,
     const GrabWindowSnapshotAsyncPNGCallback& callback);
 
 using GrabWindowSnapshotAsyncJPEGCallback =
@@ -74,7 +68,6 @@ using GrabWindowSnapshotAsyncJPEGCallback =
 SNAPSHOT_EXPORT void GrabWindowSnapshotAsyncJPEG(
     gfx::NativeWindow window,
     const gfx::Rect& source_rect,
-    scoped_refptr<base::TaskRunner> background_task_runner,
     const GrabWindowSnapshotAsyncJPEGCallback& callback);
 
 }  // namespace ui

@@ -15,7 +15,8 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -114,7 +115,7 @@ WriteCallbacksObserver::GetAndResetObservationState() {
 
 class ImportantFileWriterTest : public testing::Test {
  public:
-  ImportantFileWriterTest() { }
+  ImportantFileWriterTest() = default;
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     file_ = temp_dir_.GetPath().AppendASCII("test-file");
@@ -123,7 +124,7 @@ class ImportantFileWriterTest : public testing::Test {
  protected:
   WriteCallbacksObserver write_callback_observer_;
   FilePath file_;
-  MessageLoop loop_;
+  test::ScopedTaskEnvironment scoped_task_environment_;
 
  private:
   ScopedTempDir temp_dir_;
@@ -133,7 +134,7 @@ TEST_F(ImportantFileWriterTest, Basic) {
   ImportantFileWriter writer(file_, ThreadTaskRunnerHandle::Get());
   EXPECT_FALSE(PathExists(writer.path()));
   EXPECT_EQ(NOT_CALLED, write_callback_observer_.GetAndResetObservationState());
-  writer.WriteNow(MakeUnique<std::string>("foo"));
+  writer.WriteNow(std::make_unique<std::string>("foo"));
   RunLoop().RunUntilIdle();
 
   EXPECT_EQ(NOT_CALLED, write_callback_observer_.GetAndResetObservationState());
@@ -148,7 +149,7 @@ TEST_F(ImportantFileWriterTest, WriteWithObserver) {
 
   // Confirm that the observer is invoked.
   write_callback_observer_.ObserveNextWriteCallbacks(&writer);
-  writer.WriteNow(MakeUnique<std::string>("foo"));
+  writer.WriteNow(std::make_unique<std::string>("foo"));
   RunLoop().RunUntilIdle();
 
   EXPECT_EQ(CALLED_WITH_SUCCESS,
@@ -159,7 +160,7 @@ TEST_F(ImportantFileWriterTest, WriteWithObserver) {
   // Confirm that re-installing the observer works for another write.
   EXPECT_EQ(NOT_CALLED, write_callback_observer_.GetAndResetObservationState());
   write_callback_observer_.ObserveNextWriteCallbacks(&writer);
-  writer.WriteNow(MakeUnique<std::string>("bar"));
+  writer.WriteNow(std::make_unique<std::string>("bar"));
   RunLoop().RunUntilIdle();
 
   EXPECT_EQ(CALLED_WITH_SUCCESS,
@@ -170,7 +171,7 @@ TEST_F(ImportantFileWriterTest, WriteWithObserver) {
   // Confirm that writing again without re-installing the observer doesn't
   // result in a notification.
   EXPECT_EQ(NOT_CALLED, write_callback_observer_.GetAndResetObservationState());
-  writer.WriteNow(MakeUnique<std::string>("baz"));
+  writer.WriteNow(std::make_unique<std::string>("baz"));
   RunLoop().RunUntilIdle();
 
   EXPECT_EQ(NOT_CALLED, write_callback_observer_.GetAndResetObservationState());
@@ -186,7 +187,7 @@ TEST_F(ImportantFileWriterTest, FailedWriteWithObserver) {
   EXPECT_FALSE(PathExists(writer.path()));
   EXPECT_EQ(NOT_CALLED, write_callback_observer_.GetAndResetObservationState());
   write_callback_observer_.ObserveNextWriteCallbacks(&writer);
-  writer.WriteNow(MakeUnique<std::string>("foo"));
+  writer.WriteNow(std::make_unique<std::string>("foo"));
   RunLoop().RunUntilIdle();
 
   // Confirm that the write observer was invoked with its boolean parameter set
@@ -212,7 +213,7 @@ TEST_F(ImportantFileWriterTest, CallbackRunsOnWriterThread) {
                                 base::Unretained(&wait_helper)));
 
   write_callback_observer_.ObserveNextWriteCallbacks(&writer);
-  writer.WriteNow(MakeUnique<std::string>("foo"));
+  writer.WriteNow(std::make_unique<std::string>("foo"));
   RunLoop().RunUntilIdle();
 
   // Expect the callback to not have been executed before the
@@ -230,7 +231,7 @@ TEST_F(ImportantFileWriterTest, CallbackRunsOnWriterThread) {
 
 TEST_F(ImportantFileWriterTest, ScheduleWrite) {
   constexpr TimeDelta kCommitInterval = TimeDelta::FromSeconds(12345);
-  MockTimer timer(true, false);
+  MockOneShotTimer timer;
   ImportantFileWriter writer(file_, ThreadTaskRunnerHandle::Get(),
                              kCommitInterval);
   writer.SetTimerForTesting(&timer);
@@ -249,7 +250,7 @@ TEST_F(ImportantFileWriterTest, ScheduleWrite) {
 }
 
 TEST_F(ImportantFileWriterTest, DoScheduledWrite) {
-  MockTimer timer(true, false);
+  MockOneShotTimer timer;
   ImportantFileWriter writer(file_, ThreadTaskRunnerHandle::Get());
   writer.SetTimerForTesting(&timer);
   EXPECT_FALSE(writer.HasPendingWrite());
@@ -264,7 +265,7 @@ TEST_F(ImportantFileWriterTest, DoScheduledWrite) {
 }
 
 TEST_F(ImportantFileWriterTest, BatchingWrites) {
-  MockTimer timer(true, false);
+  MockOneShotTimer timer;
   ImportantFileWriter writer(file_, ThreadTaskRunnerHandle::Get());
   writer.SetTimerForTesting(&timer);
   DataSerializer foo("foo"), bar("bar"), baz("baz");
@@ -279,7 +280,7 @@ TEST_F(ImportantFileWriterTest, BatchingWrites) {
 }
 
 TEST_F(ImportantFileWriterTest, ScheduleWrite_FailToSerialize) {
-  MockTimer timer(true, false);
+  MockOneShotTimer timer;
   ImportantFileWriter writer(file_, ThreadTaskRunnerHandle::Get());
   writer.SetTimerForTesting(&timer);
   EXPECT_FALSE(writer.HasPendingWrite());
@@ -294,14 +295,14 @@ TEST_F(ImportantFileWriterTest, ScheduleWrite_FailToSerialize) {
 }
 
 TEST_F(ImportantFileWriterTest, ScheduleWrite_WriteNow) {
-  MockTimer timer(true, false);
+  MockOneShotTimer timer;
   ImportantFileWriter writer(file_, ThreadTaskRunnerHandle::Get());
   writer.SetTimerForTesting(&timer);
   EXPECT_FALSE(writer.HasPendingWrite());
   DataSerializer serializer("foo");
   writer.ScheduleWrite(&serializer);
   EXPECT_TRUE(writer.HasPendingWrite());
-  writer.WriteNow(MakeUnique<std::string>("bar"));
+  writer.WriteNow(std::make_unique<std::string>("bar"));
   EXPECT_FALSE(writer.HasPendingWrite());
   EXPECT_FALSE(timer.IsRunning());
 
@@ -311,7 +312,7 @@ TEST_F(ImportantFileWriterTest, ScheduleWrite_WriteNow) {
 }
 
 TEST_F(ImportantFileWriterTest, DoScheduledWrite_FailToSerialize) {
-  MockTimer timer(true, false);
+  MockOneShotTimer timer;
   ImportantFileWriter writer(file_, ThreadTaskRunnerHandle::Get());
   writer.SetTimerForTesting(&timer);
   EXPECT_FALSE(writer.HasPendingWrite());

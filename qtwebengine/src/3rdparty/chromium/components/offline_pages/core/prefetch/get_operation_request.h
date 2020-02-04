@@ -12,8 +12,8 @@
 #include "components/offline_pages/core/prefetch/prefetch_types.h"
 #include "components/version_info/channel.h"
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace offline_pages {
@@ -27,14 +27,17 @@ class GetOperationRequest {
   // |name| identifies the operation triggered by the GeneratePageBundleRequest.
   // It is retrieved from the operation data returned in the
   // GeneratePageBundleRequest response.
-  GetOperationRequest(const std::string& name,
-                      version_info::Channel channel,
-                      net::URLRequestContextGetter* request_context_getter,
-                      const PrefetchRequestFinishedCallback& callback);
+  GetOperationRequest(
+      const std::string& name,
+      version_info::Channel channel,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      PrefetchRequestFinishedCallback callback);
   ~GetOperationRequest();
 
  private:
-  void OnCompleted(PrefetchRequestStatus status, const std::string& data);
+  void OnCompleted(const std::string& operation_name,
+                   PrefetchRequestStatus status,
+                   const std::string& data);
 
   PrefetchRequestFinishedCallback callback_;
   std::unique_ptr<PrefetchRequestFetcher> fetcher_;

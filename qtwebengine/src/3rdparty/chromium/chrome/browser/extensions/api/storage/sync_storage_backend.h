@@ -36,9 +36,9 @@ class SyncStorageBackend : public syncer::SyncableService {
  public:
   // |storage_factory| is use to create leveldb storage areas.
   // |observers| is the list of observers to settings changes.
-  SyncStorageBackend(const scoped_refptr<ValueStoreFactory>& storage_factory,
+  SyncStorageBackend(scoped_refptr<ValueStoreFactory> storage_factory,
                      const SettingsStorageQuotaEnforcer::Limits& quota,
-                     const scoped_refptr<SettingsObserverList>& observers,
+                     scoped_refptr<SettingsObserverList> observers,
                      syncer::ModelType sync_type,
                      const syncer::SyncableService::StartSyncFlare& flare);
 
@@ -55,7 +55,7 @@ class SyncStorageBackend : public syncer::SyncableService {
       std::unique_ptr<syncer::SyncChangeProcessor> sync_processor,
       std::unique_ptr<syncer::SyncErrorFactory> sync_error_factory) override;
   syncer::SyncError ProcessSyncChanges(
-      const tracked_objects::Location& from_here,
+      const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override;
   void StopSyncing(syncer::ModelType type) override;
 

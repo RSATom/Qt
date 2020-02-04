@@ -9,20 +9,20 @@
 
 #include "xfa/fwl/theme/cfwl_widgettp.h"
 
-class CFWL_ListBoxTP : public CFWL_WidgetTP {
+class CFWL_ListBoxTP final : public CFWL_WidgetTP {
  public:
   CFWL_ListBoxTP();
   ~CFWL_ListBoxTP() override;
 
   // CFWL_WidgetTP
-  void DrawBackground(CFWL_ThemeBackground* pParams) override;
+  void DrawBackground(const CFWL_ThemeBackground& pParams) override;
 
- protected:
+ private:
   void DrawListBoxItem(CXFA_Graphics* pGraphics,
                        uint32_t dwStates,
-                       const CFX_RectF* prtItem,
-                       void* pData = nullptr,
-                       CFX_Matrix* pMatrix = nullptr);
+                       const CFX_RectF& rtItem,
+                       const CFX_RectF* pData,
+                       const CFX_Matrix& matrix);
 };
 
 #endif  // XFA_FWL_THEME_CFWL_LISTBOXTP_H_

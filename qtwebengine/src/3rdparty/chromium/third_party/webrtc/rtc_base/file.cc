@@ -8,20 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/file.h"
-
-#include <utility>
+#include "rtc_base/file.h"
 
 namespace rtc {
-
-namespace {
-
-std::string NormalizePathname(Pathname&& path) {
-  path.Normalize();
-  return path.pathname();
-}
-
-}  // namespace
 
 File::File(PlatformFile file) : file_(file) {}
 
@@ -37,43 +26,13 @@ File File::Open(const std::string& path) {
 }
 
 // static
-File File::Open(Pathname&& path) {
-  return Open(NormalizePathname(std::move(path)));
-}
-
-// static
-File File::Open(const Pathname& path) {
-  return Open(Pathname(path));
-}
-
-// static
 File File::Create(const std::string& path) {
   return File(CreatePlatformFile(path));
 }
 
 // static
-File File::Create(Pathname&& path) {
-  return Create(NormalizePathname(std::move(path)));
-}
-
-// static
-File File::Create(const Pathname& path) {
-  return Create(Pathname(path));
-}
-
-// static
 bool File::Remove(const std::string& path) {
   return RemoveFile(path);
-}
-
-// static
-bool File::Remove(Pathname&& path) {
-  return Remove(NormalizePathname(std::move(path)));
-}
-
-// static
-bool File::Remove(const Pathname& path) {
-  return Remove(Pathname(path));
 }
 
 File::File(File&& other) : file_(other.file_) {

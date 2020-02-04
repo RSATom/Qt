@@ -1,4 +1,4 @@
-/* config.h.in.  Generated from configure.in by autoheader.  */
+/* config.h.in.  Generated from configure.ac by autoheader.  */
 
 /* Define to 1 if you have the <ansidecl.h> header file. */
 #undef HAVE_ANSIDECL_H
@@ -105,6 +105,9 @@
 /* Define to 1 if you have the <string.h> header file. */
 #undef HAVE_STRING_H
 
+/* Define to 1 if you have the `strxfrm_l' function. */
+#undef HAVE_STRXFRM_L
+
 /* Define to 1 if you have the <sys/select.h> header file. */
 #undef HAVE_SYS_SELECT_H
 
@@ -208,12 +211,3 @@
 
 /* Define to 1 if you need to in order for `stat' and other things to work. */
 #undef _POSIX_SOURCE
-
-/* Using the Win32 Socket implementation */
-#undef _WINSOCKAPI_
-
-/* Win32 Std C name mangling work-around */
-#undef snprintf
-
-/* Win32 Std C name mangling work-around */
-#undef vsnprintf

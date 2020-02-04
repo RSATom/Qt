@@ -52,30 +52,18 @@
      IOS      - iOS
      WATCHOS  - watchOS
      TVOS     - tvOS
-     MSDOS    - MS-DOS and Windows
-     OS2      - OS/2
-     OS2EMX   - XFree86 on OS/2 (not PM)
      WIN32    - Win32 (Windows 2000/XP/Vista/7 and Windows Server 2003/2008)
-     WINRT    - WinRT (Windows 8 Runtime)
+     WINRT    - WinRT (Windows Runtime)
      CYGWIN   - Cygwin
      SOLARIS  - Sun Solaris
      HPUX     - HP-UX
-     ULTRIX   - DEC Ultrix
      LINUX    - Linux [has variants]
      FREEBSD  - FreeBSD [has variants]
      NETBSD   - NetBSD
      OPENBSD  - OpenBSD
-     BSDI     - BSD/OS
      INTERIX  - Interix
-     IRIX     - SGI Irix
-     OSF      - HP Tru64 UNIX
-     SCO      - SCO OpenServer 5
-     UNIXWARE - UnixWare 7, Open UNIX 8
      AIX      - AIX
      HURD     - GNU Hurd
-     DGUX     - DG/UX
-     RELIANT  - Reliant UNIX
-     DYNIX    - DYNIX/ptx
      QNX      - QNX [has variants]
      QNX6     - QNX RTP 6.1
      LYNX     - LynxOS
@@ -147,12 +135,10 @@
 #  define Q_OS_SOLARIS
 #elif defined(hpux) || defined(__hpux)
 #  define Q_OS_HPUX
-#elif defined(__ultrix) || defined(ultrix)
-#  define Q_OS_ULTRIX
-#elif defined(sinix)
-#  define Q_OS_RELIANT
 #elif defined(__native_client__)
 #  define Q_OS_NACL
+#elif defined(__EMSCRIPTEN__)
+#  define Q_OS_WASM
 #elif defined(__linux__) || defined(__linux)
 #  define Q_OS_LINUX
 #elif defined(__FreeBSD__) || defined(__DragonFly__) || defined(__FreeBSD_kernel__)
@@ -167,34 +153,17 @@
 #elif defined(__OpenBSD__)
 #  define Q_OS_OPENBSD
 #  define Q_OS_BSD4
-#elif defined(__bsdi__)
-#  define Q_OS_BSDI
-#  define Q_OS_BSD4
 #elif defined(__INTERIX)
 #  define Q_OS_INTERIX
 #  define Q_OS_BSD4
-#elif defined(__sgi)
-#  define Q_OS_IRIX
-#elif defined(__osf__)
-#  define Q_OS_OSF
 #elif defined(_AIX)
 #  define Q_OS_AIX
 #elif defined(__Lynx__)
 #  define Q_OS_LYNX
 #elif defined(__GNU__)
 #  define Q_OS_HURD
-#elif defined(__DGUX__)
-#  define Q_OS_DGUX
 #elif defined(__QNXNTO__)
 #  define Q_OS_QNX
-#elif defined(_SEQUENT_)
-#  define Q_OS_DYNIX
-#elif defined(_SCO_DS) /* SCO OpenServer 5 + GCC */
-#  define Q_OS_SCO
-#elif defined(__USLC__) /* all SCO platforms + UDK or OUDK */
-#  define Q_OS_UNIXWARE
-#elif defined(__svr4__) && defined(i386) /* Open UNIX 8 + GCC */
-#  define Q_OS_UNIXWARE
 #elif defined(__INTEGRITY)
 #  define Q_OS_INTEGRITY
 #elif defined(VXWORKS) /* there is no "real" VxWorks define - this has to be set in the mkspec! */
@@ -207,6 +176,7 @@
 #endif
 
 #if defined(Q_OS_WIN32) || defined(Q_OS_WIN64) || defined(Q_OS_WINRT)
+#  define Q_OS_WINDOWS
 #  define Q_OS_WIN
 #endif
 
@@ -249,18 +219,6 @@
 #  // Numerical checks are preferred to named checks, but to be safe
 #  // we define the missing version names in case Qt uses them.
 #
-#  if !defined(__MAC_10_7)
-#       define __MAC_10_7 1070
-#  endif
-#  if !defined(__MAC_10_8)
-#       define __MAC_10_8 1080
-#  endif
-#  if !defined(__MAC_10_9)
-#       define __MAC_10_9 1090
-#  endif
-#  if !defined(__MAC_10_10)
-#       define __MAC_10_10 101000
-#  endif
 #  if !defined(__MAC_10_11)
 #       define __MAC_10_11 101100
 #  endif
@@ -270,76 +228,28 @@
 #  if !defined(__MAC_10_13)
 #       define __MAC_10_13 101300
 #  endif
-#  if !defined(MAC_OS_X_VERSION_10_7)
-#       define MAC_OS_X_VERSION_10_7 1070
+#  if !defined(__MAC_10_14)
+#       define __MAC_10_14 101400
 #  endif
-#  if !defined(MAC_OS_X_VERSION_10_8)
-#       define MAC_OS_X_VERSION_10_8 1080
-#  endif
-#  if !defined(MAC_OS_X_VERSION_10_9)
-#       define MAC_OS_X_VERSION_10_9 1090
-#  endif
-#  if !defined(MAC_OS_X_VERSION_10_10)
-#       define MAC_OS_X_VERSION_10_10 101000
+#  if !defined(__MAC_10_15)
+#       define __MAC_10_15 101500
 #  endif
 #  if !defined(MAC_OS_X_VERSION_10_11)
-#       define MAC_OS_X_VERSION_10_11 101100
+#       define MAC_OS_X_VERSION_10_11 __MAC_10_11
 #  endif
 #  if !defined(MAC_OS_X_VERSION_10_12)
-#       define MAC_OS_X_VERSION_10_12 101200
+#       define MAC_OS_X_VERSION_10_12 __MAC_10_12
 #  endif
 #  if !defined(MAC_OS_X_VERSION_10_13)
-#       define MAC_OS_X_VERSION_10_13 101300
+#       define MAC_OS_X_VERSION_10_13 __MAC_10_13
+#  endif
+#  if !defined(MAC_OS_X_VERSION_10_14)
+#       define MAC_OS_X_VERSION_10_14 __MAC_10_14
+#  endif
+#  if !defined(MAC_OS_X_VERSION_10_15)
+#       define MAC_OS_X_VERSION_10_15 __MAC_10_15
 #  endif
 #
-#  if !defined(__IPHONE_4_3)
-#       define __IPHONE_4_3 40300
-#  endif
-#  if !defined(__IPHONE_5_0)
-#       define __IPHONE_5_0 50000
-#  endif
-#  if !defined(__IPHONE_5_1)
-#       define __IPHONE_5_1 50100
-#  endif
-#  if !defined(__IPHONE_6_0)
-#       define __IPHONE_6_0 60000
-#  endif
-#  if !defined(__IPHONE_6_1)
-#       define __IPHONE_6_1 60100
-#  endif
-#  if !defined(__IPHONE_7_0)
-#       define __IPHONE_7_0 70000
-#  endif
-#  if !defined(__IPHONE_7_1)
-#       define __IPHONE_7_1 70100
-#  endif
-#  if !defined(__IPHONE_8_0)
-#       define __IPHONE_8_0 80000
-#  endif
-#  if !defined(__IPHONE_8_1)
-#       define __IPHONE_8_1 80100
-#  endif
-#  if !defined(__IPHONE_8_2)
-#       define __IPHONE_8_2 80200
-#  endif
-#  if !defined(__IPHONE_8_3)
-#       define __IPHONE_8_3 80300
-#  endif
-#  if !defined(__IPHONE_8_4)
-#       define __IPHONE_8_4 80400
-#  endif
-#  if !defined(__IPHONE_9_0)
-#       define __IPHONE_9_0 90000
-#  endif
-#  if !defined(__IPHONE_9_1)
-#       define __IPHONE_9_1 90100
-#  endif
-#  if !defined(__IPHONE_9_2)
-#       define __IPHONE_9_2 90200
-#  endif
-#  if !defined(__IPHONE_9_3)
-#       define __IPHONE_9_3 90300
-#  endif
 #  if !defined(__IPHONE_10_0)
 #       define __IPHONE_10_0 100000
 #  endif
@@ -354,6 +264,9 @@
 #  endif
 #  if !defined(__IPHONE_11_0)
 #       define __IPHONE_11_0 110000
+#  endif
+#  if !defined(__IPHONE_12_0)
+#       define __IPHONE_12_0 120000
 #  endif
 #endif
 

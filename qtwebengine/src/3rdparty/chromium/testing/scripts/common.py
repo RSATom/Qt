@@ -12,6 +12,17 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
+
+# Add src/testing/ into sys.path for importing xvfb.
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+import xvfb
+
+# Unfortunately we need to copy these variables from ../test_env.py.
+# Importing it and using its get_sandbox_env breaks test runs on Linux
+# (it seems to unset DISPLAY).
+CHROME_SANDBOX_ENV = 'CHROME_DEVEL_SANDBOX'
+CHROME_SANDBOX_PATH = '/opt/chromium/chrome_sandbox'
 
 
 SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -19,7 +30,7 @@ SRC_DIR = os.path.abspath(
     os.path.join(SCRIPT_DIR, os.path.pardir, os.path.pardir))
 
 
-# run-webkit-tests returns the number of failures as the return
+# run_web_tests.py returns the number of failures as the return
 # code, but caps the return code at 101 to avoid overflow or colliding
 # with reserved values from the shell.
 MAX_FAILURES_EXIT_STATUS = 101
@@ -73,48 +84,22 @@ def run_command(argv, env=None, cwd=None):
   return rc
 
 
-def run_command_with_output(argv, stdoutfile, env=None, cwd=None):
-  """ Run command and stream its stdout/stderr to the console & |stdoutfile|.
-  """
-  print 'Running %r in %r (env: %r)' % (argv, cwd, env)
-  assert stdoutfile
-  with io.open(stdoutfile, 'w') as writer, io.open(stdoutfile, 'r', 1) as \
-      reader:
-    process = subprocess.Popen(argv, env=env, cwd=cwd, stdout=writer,
-        stderr=subprocess.STDOUT)
-    while process.poll() is None:
-      sys.stdout.write(reader.read())
-      time.sleep(0.1)
-    # Read the remaining
-    sys.stdout.write(reader.read())
-    print 'Command %r returned exit code %d' % (argv, process.returncode)
-    return process.returncode
-
-
 def run_runtest(cmd_args, runtest_args):
-  if cmd_args.use_src_side_runtest_py:
-    cmd = [
+  env = os.environ.copy()
+  env['CHROME_HEADLESS'] = '1'
+
+  return run_command([
       sys.executable,
       os.path.join(
           cmd_args.paths['checkout'], 'infra', 'scripts', 'runtest_wrapper.py'),
       '--',
-    ]
-  else:
-    cmd = [
-      sys.executable,
-      cmd_args.paths['runit.py'],
-      '--show-path',
-      sys.executable,
-      cmd_args.paths['runtest.py'],
-    ]
-  return run_command(cmd + [
       '--target', cmd_args.build_config_fs,
       '--xvfb',
       '--builder-name', cmd_args.properties['buildername'],
       '--slave-name', cmd_args.properties['slavename'],
       '--build-number', str(cmd_args.properties['buildnumber']),
       '--build-properties', json.dumps(cmd_args.properties),
-  ] + runtest_args)
+  ] + runtest_args, env=env)
 
 
 @contextlib.contextmanager
@@ -129,7 +114,7 @@ def temporary_file():
 
 def parse_common_test_results(json_results, test_separator='/'):
   def convert_trie_to_flat_paths(trie, prefix=None):
-    # Also see webkitpy.layout_tests.layout_package.json_results_generator
+    # Also see blinkpy.web_tests.layout_package.json_results_generator
     result = {}
     for name, data in trie.iteritems():
       if prefix:
@@ -152,8 +137,7 @@ def parse_common_test_results(json_results, test_separator='/'):
   # TODO(dpranke): crbug.com/357866 - we should simplify the handling of
   # both the return code and parsing the actual results, below.
 
-  passing_statuses = ('PASS', 'SLOW', 'NEEDSREBASELINE',
-                        'NEEDSMANUALREBASELINE')
+  passing_statuses = ('PASS', 'SLOW', 'NEEDSREBASELINE')
 
   for test, result in convert_trie_to_flat_paths(
       json_results['tests']).iteritems():
@@ -179,6 +163,41 @@ def parse_common_test_results(json_results, test_separator='/'):
   return results
 
 
+def get_gtest_summary_passes(output):
+  """Returns a mapping of test to boolean indicating if the test passed.
+
+  Only partially parses the format. This code is based on code in tools/build,
+  specifically
+  https://chromium.googlesource.com/chromium/tools/build/+/17fef98756c5f250b20bf716829a0004857235ff/scripts/slave/recipe_modules/test_utils/util.py#189
+  """
+  if not output:
+    return {}
+
+  mapping = {}
+
+  for cur_iteration_data in output.get('per_iteration_data', []):
+    for test_fullname, results in cur_iteration_data.iteritems():
+      # Results is a list with one entry per test try. Last one is the final
+      # result.
+      last_result = results[-1]
+
+      if last_result['status'] == 'SUCCESS':
+        mapping[test_fullname] = True
+      elif last_result['status'] != 'SKIPPED':
+        mapping[test_fullname] = False
+
+  return mapping
+
+
+def extract_filter_list(filter_list):
+  """Helper for isolated script test wrappers. Parses the
+  --isolated-script-test-filter command line argument. Currently, double-colon
+  ('::') is used as the separator between test names, because a single colon may
+  be used in the names of perf benchmarks, which contain URLs.
+  """
+  return filter_list.split('::')
+
+
 def run_integration_test(script_to_run, extra_args, log_file, output):
   integration_test_res = subprocess.call(
       [sys.executable, script_to_run] + extra_args)
@@ -191,3 +210,160 @@ def run_integration_test(script_to_run, extra_args, log_file, output):
   }, output)
 
   return integration_test_res
+
+
+class BaseIsolatedScriptArgsAdapter(object):
+  """The base class for all script adapters that need to translate flags
+  set by isolated script test contract into the specific test script's flags.
+  """
+
+  def __init__(self):
+    self._parser = argparse.ArgumentParser()
+    self._options = None
+    self._rest_args = None
+    self._parser.add_argument(
+        '--isolated-script-test-output', type=str,
+        required=True)
+    self._parser.add_argument(
+        '--isolated-script-test-filter', type=str,
+        required=False)
+    self._parser.add_argument(
+        '--isolated-script-test-repeat', type=int,
+        required=False)
+    self._parser.add_argument(
+        '--isolated-script-test-launcher-retry-limit', type=int,
+        required=False)
+    self._parser.add_argument(
+        '--isolated-script-test-also-run-disabled-tests',
+        default=False, action='store_true', required=False)
+
+    self._parser.add_argument('--xvfb', help='start xvfb', action='store_true')
+
+    # This argument is ignored for now.
+    self._parser.add_argument(
+        '--isolated-script-test-chartjson-output', type=str)
+    # This argument is ignored for now.
+    self._parser.add_argument('--isolated-script-test-perf-output', type=str)
+
+    self.add_extra_arguments(self._parser)
+
+  def add_extra_arguments(self, parser):
+    pass
+
+  def parse_args(self, args=None):
+    self._options, self._rest_args = self._parser.parse_known_args(args)
+
+  @property
+  def parser(self):
+    return self._parser
+
+  @property
+  def options(self):
+    return self._options
+
+  @property
+  def rest_args(self):
+    return self._rest_args
+
+  def generate_test_output_args(self, output):
+    del output  # unused
+    raise RuntimeError('this method is not yet implemented')
+
+  def generate_test_filter_args(self, test_filter_str):
+    del test_filter_str  # unused
+    raise RuntimeError('this method is not yet implemented')
+
+  def generate_test_repeat_args(self, repeat_count):
+    del repeat_count  # unused
+    raise RuntimeError('this method is not yet implemented')
+
+  def generate_test_launcher_retry_limit_args(self, retry_limit):
+    del retry_limit  # unused
+    raise RuntimeError('this method is not yet implemented')
+
+  def generate_test_also_run_disabled_tests_args(self):
+    raise RuntimeError('this method is not yet implemented')
+
+  def generate_sharding_args(self, total_shard, shard_index):
+    del total_shard, shard_index  # unused
+    raise RuntimeError('this method is not yet implemented')
+
+  def generate_isolated_script_cmd(self):
+    isolated_script_cmd = [sys.executable] + self._rest_args
+
+    isolated_script_cmd += self.generate_test_output_args(
+        self.options.isolated_script_test_output)
+
+    # Augment test filter args if needed
+    if self.options.isolated_script_test_filter:
+      isolated_script_cmd += self.generate_test_filter_args(
+          self.options.isolated_script_test_filter)
+
+    # Augment test repeat if needed
+    if self.options.isolated_script_test_repeat:
+      isolated_script_cmd += self.generate_test_repeat_args(
+          self.options.isolated_script_test_repeat)
+
+    # Augment test launcher retry limit args if needed
+    if self.options.isolated_script_test_launcher_retry_limit:
+      isolated_script_cmd += self.generate_test_launcher_retry_limit_args(
+          self.options.isolated_script_test_launcher_retry_limit)
+
+    # Augment test also run disable tests args if needed
+    if self.options.isolated_script_test_also_run_disabled_tests:
+      isolated_script_cmd += self.generate_test_also_run_disabled_tests_args()
+
+    # Augment shard args if needed
+    env = os.environ.copy()
+
+    total_shards = None
+    shard_index = None
+
+    if 'GTEST_TOTAL_SHARDS' in env:
+      total_shards = int(env['GTEST_TOTAL_SHARDS'])
+    if 'GTEST_SHARD_INDEX' in env:
+      shard_index = int(env['GTEST_SHARD_INDEX'])
+    if total_shards is not None and shard_index is not None:
+      isolated_script_cmd += self.generate_sharding_args(
+          total_shards, shard_index)
+
+    return isolated_script_cmd
+
+  def clean_up_after_test_run(self):
+    pass
+
+  def run_test(self):
+    self.parse_args()
+    cmd = self.generate_isolated_script_cmd()
+
+    env = os.environ.copy()
+
+    # Assume we want to set up the sandbox environment variables all the
+    # time; doing so is harmless on non-Linux platforms and is needed
+    # all the time on Linux.
+    env[CHROME_SANDBOX_ENV] = CHROME_SANDBOX_PATH
+    valid = True
+    rc = 0
+    try:
+      env['CHROME_HEADLESS'] = '1'
+      if self.options.xvfb:
+        return xvfb.run_executable(cmd, env)
+      else:
+         return run_command(cmd, env=env)
+
+    except Exception:
+      rc = 1
+      traceback.print_exc()
+      valid = False
+    finally:
+      self.clean_up_after_test_run()
+
+    if not valid:
+      failures = ['(entire test suite)']
+      with open(self.options.isolated_script_test_output, 'w') as fp:
+        json.dump({
+            'valid': valid,
+            'failures': failures,
+        }, fp)
+
+    return rc

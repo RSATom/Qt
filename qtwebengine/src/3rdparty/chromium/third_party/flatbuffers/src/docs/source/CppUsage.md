@@ -59,15 +59,18 @@ a `char *` array, which you pass to `GetMonster()`.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~{.cpp}
     #include "flatbuffers/flatbuffers.h"
     #include "monster_test_generate.h"
-    #include <cstdio> // For printing and file access.
+    #include <iostream> // C++ header file for printing
+    #include <fstream> // C++ header file for file access
 
-    FILE* file = fopen("monsterdata_test.mon", "rb");
-    fseek(file, 0L, SEEK_END);
-    int length = ftell(file);
-    fseek(file, 0L, SEEK_SET);
+
+    std::ifstream infile;
+    infile.open("monsterdata_test.mon", std::ios::binary | std::ios::in);
+    infile.seekg(0,std::ios::end);
+    int length = infile.tellg();
+    infile.seekg(0,std::ios::beg);
     char *data = new char[length];
-    fread(data, sizeof(char), length, file);
-    fclose(file);
+    infile.read(data, length);
+    infile.close();
 
     auto monster = GetMonster(data);
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -78,9 +81,9 @@ If you look in your generated header, you'll see it has
 convenient accessors for all fields, e.g. `hp()`, `mana()`, etc:
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~{.cpp}
-    printf("%d\n", monster->hp());            // `80`
-    printf("%d\n", monster->mana());          // default value of `150`
-    printf("%s\n", monster->name()->c_str()); // "MyMonster"
+    std::cout << "hp : " << monster->hp() << std::endl;            // `80`
+    std::cout << "mana : " << monster->mana() << std::endl;        // default value of `150`
+    std::cout << "name : " << monster->name()->c_str() << std::endl;        // "MyMonster"
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *Note: That we never stored a `mana` value, so it will return the default.*
@@ -125,6 +128,45 @@ The following attributes are specific to the object-based API code generation:
 -   `native_default`: "value" (on a field): For members that are declared
     "native_inline", the value specified with this attribute will be included
     verbatim in the class constructor initializer list for this member.
+
+-   `native_custom_alloc`:"custom_allocator" (on a table or struct): When using the
+    object-based API all generated NativeTables that  are allocated when unpacking 
+    your  flatbuffer will use "custom allocator". The allocator is also used by 
+    any std::vector that appears in a table defined with `native_custom_alloc`. 
+    This can be  used to provide allocation from a pool for example, for faster 
+    unpacking when using the object-based API.
+
+    Minimal Example:
+
+    schema:
+
+    table mytable(native_custom_alloc:"custom_allocator") {
+      ...
+    }
+
+    with custom_allocator defined before flatbuffers.h is included, as:
+
+    template <typename T> struct custom_allocator : public std::allocator<T> {
+
+      typedef T *pointer;
+
+      template <class U>
+      struct rebind { 
+        typedef custom_allocator<U> other; 
+      };
+
+      pointer allocate(const std::size_t n) {
+        return std::allocator<T>::allocate(n);
+      }
+
+      void deallocate(T* ptr, std::size_t n) {
+        return std::allocator<T>::deallocate(ptr,n);
+      }
+
+      custom_allocator() throw() {}
+      template <class U> 
+      custom_allocator(const custom_allocator<U>&) throw() {}
+    };
 
 -   `native_type`' "type" (on a struct): In some cases, a more optimal C++ data
     type exists for a given struct.  For example, the following schema:
@@ -231,6 +273,30 @@ schema, as well as a lot of helper functions.
 And example of usage, for the time being, can be found in
 `test.cpp/ReflectionTest()`.
 
+## Mini Reflection
+
+A more limited form of reflection is available for direct inclusion in
+generated code, which doesn't any (binary) schema access at all. It was designed
+to keep the overhead of reflection as low as possible (on the order of 2-6
+bytes per field added to your executable), but doesn't contain all the
+information the (binary) schema contains.
+
+You add this information to your generated code by specifying `--reflect-types`
+(or instead `--reflect-names` if you also want field / enum names).
+
+You can now use this information, for example to print a FlatBuffer to text:
+
+    auto s = flatbuffers::FlatBufferToString(flatbuf, MonsterTypeTable());
+
+`MonsterTypeTable()` is declared in the generated code for each type. The
+string produced is very similar to the JSON produced by the `Parser` based
+text generator.
+
+You'll need `flatbuffers/minireflect.h` for this functionality. In there is also
+a convenient visitor/iterator so you can write your own output / functionality
+based on the mini reflection tables without having to know the FlatBuffers or
+reflection encoding.
+
 ## Storing maps / dictionaries in a FlatBuffer
 
 FlatBuffers doesn't support maps natively, but there is support to
@@ -266,7 +332,7 @@ performs a swap operation on big endian machines), and also because
 the layout of things is generally not known to the user.
 
 For structs, layout is deterministic and guaranteed to be the same
-accross platforms (scalars are aligned to their
+across platforms (scalars are aligned to their
 own size, and structs themselves to their largest member), and you
 are allowed to access this memory directly by using `sizeof()` and
 `memcpy` on the pointer to a struct, or even an array of structs.

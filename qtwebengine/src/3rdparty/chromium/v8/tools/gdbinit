@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-# Print HeapObjects.
+# Print tagged object.
 define job
 call _v8_internal_Print_Object((void*)($arg0))
 end
@@ -11,9 +11,18 @@ Print a v8 JavaScript object
 Usage: job tagged_ptr
 end
 
-# Print v8::Local handle value.
+# Print content of v8::internal::Handle.
+define jh
+call _v8_internal_Print_Object(*((v8::internal::Object**)($arg0).location_))
+end
+document jh
+Print content of a v8::internal::Handle
+Usage: jh internal_handle
+end
+
+# Print content of v8::Local handle.
 define jlh
-call _v8_internal_Print_Object(*(v8::internal::Object**)(*$arg0))
+call _v8_internal_Print_Object(*((v8::internal::Object**)($arg0).val_))
 end
 document jlh
 Print content of a v8::Local handle
@@ -29,34 +38,6 @@ Print a v8 Code object from an internal code address
 Usage: jco pc
 end
 
-# Print FeedbackVector
-define jfv
-call _v8_internal_Print_FeedbackVector((void*)($arg0))
-end
-document jfv
-Print a v8 FeedbackVector object
-Usage: jfv tagged_ptr
-end
-
-# Print FeedbackMetadata
-define jfm
-call _v8_internal_Print_FeedbackMetadata((void*)($arg0))
-end
-document jfm
-Print a v8 FeedbackMetadata object
-Usage: jfm tagged_ptr
-end
-
-
-# Print DescriptorArray.
-define jda
-call _v8_internal_Print_DescriptorArray((void*)($arg0))
-end
-document jda
-Print a v8 DescriptorArray object
-Usage: jda tagged_ptr
-end
-
 # Print LayoutDescriptor.
 define jld
 call _v8_internal_Print_LayoutDescriptor((void*)($arg0))
@@ -64,15 +45,6 @@ end
 document jld
 Print a v8 LayoutDescriptor object
 Usage: jld tagged_ptr
-end
-
-# Print TransitionArray.
-define jta
-call _v8_internal_Print_TransitionArray((void*)($arg0))
-end
-document jta
-Print a v8 TransitionArray object
-Usage: jta tagged_ptr
 end
 
 # Print TransitionTree.
@@ -159,3 +131,35 @@ end
 
 set disassembly-flavor intel
 set disable-randomization off
+
+# Install a handler whenever the debugger stops due to a signal. It walks up the
+# stack looking for V8_Dcheck and moves the frame to the one above it so it's
+# immediately at the line of code that triggered the DCHECK.
+python
+def dcheck_stop_handler(event):
+  frame = gdb.selected_frame()
+  select_frame = None
+  message = None
+  count = 0
+  # limit stack scanning since they're usually shallow and otherwise stack
+  # overflows can be very slow.
+  while frame is not None and count < 5:
+    count += 1
+    if frame.name() == 'V8_Dcheck':
+      frame_message = gdb.lookup_symbol('message', frame.block())[0]
+      if frame_message:
+        message = frame_message.value(frame).string()
+      select_frame = frame.older()
+      break
+    if frame.name() is not None and frame.name().startswith('V8_Fatal'):
+      select_frame = frame.older()
+    frame = frame.older()
+
+  if select_frame is not None:
+    select_frame.select()
+    gdb.execute('frame')
+    if message:
+      print('DCHECK error: {}'.format(message))
+
+gdb.events.stop.connect(dcheck_stop_handler)
+end

@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'settings.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,14 +10,11 @@
 #define SETTINGS_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QSlider>
 #include <QtWidgets/QSpacerItem>
@@ -50,14 +47,14 @@ public:
     void setupUi(QDialog *Dialog)
     {
         if (Dialog->objectName().isEmpty())
-            Dialog->setObjectName(QStringLiteral("Dialog"));
+            Dialog->setObjectName(QString::fromUtf8("Dialog"));
         Dialog->resize(392, 176);
         verticalLayout = new QVBoxLayout(Dialog);
-        verticalLayout->setObjectName(QStringLiteral("verticalLayout"));
+        verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
         hboxLayout = new QHBoxLayout();
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         label = new QLabel(Dialog);
-        label->setObjectName(QStringLiteral("label"));
+        label->setObjectName(QString::fromUtf8("label"));
         QSizePolicy sizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
         sizePolicy.setHorizontalStretch(0);
         sizePolicy.setVerticalStretch(0);
@@ -69,7 +66,7 @@ public:
         hboxLayout->addWidget(label);
 
         deviceCombo = new QComboBox(Dialog);
-        deviceCombo->setObjectName(QStringLiteral("deviceCombo"));
+        deviceCombo->setObjectName(QString::fromUtf8("deviceCombo"));
         QSizePolicy sizePolicy1(QSizePolicy::Minimum, QSizePolicy::Fixed);
         sizePolicy1.setHorizontalStretch(0);
         sizePolicy1.setVerticalStretch(0);
@@ -82,9 +79,9 @@ public:
         verticalLayout->addLayout(hboxLayout);
 
         hboxLayout1 = new QHBoxLayout();
-        hboxLayout1->setObjectName(QStringLiteral("hboxLayout1"));
+        hboxLayout1->setObjectName(QString::fromUtf8("hboxLayout1"));
         label_6 = new QLabel(Dialog);
-        label_6->setObjectName(QStringLiteral("label_6"));
+        label_6->setObjectName(QString::fromUtf8("label_6"));
         sizePolicy.setHeightForWidth(label_6->sizePolicy().hasHeightForWidth());
         label_6->setSizePolicy(sizePolicy);
         label_6->setMinimumSize(QSize(90, 0));
@@ -93,7 +90,7 @@ public:
         hboxLayout1->addWidget(label_6);
 
         audioEffectsCombo = new QComboBox(Dialog);
-        audioEffectsCombo->setObjectName(QStringLiteral("audioEffectsCombo"));
+        audioEffectsCombo->setObjectName(QString::fromUtf8("audioEffectsCombo"));
         sizePolicy1.setHeightForWidth(audioEffectsCombo->sizePolicy().hasHeightForWidth());
         audioEffectsCombo->setSizePolicy(sizePolicy1);
 
@@ -103,9 +100,9 @@ public:
         verticalLayout->addLayout(hboxLayout1);
 
         hboxLayout2 = new QHBoxLayout();
-        hboxLayout2->setObjectName(QStringLiteral("hboxLayout2"));
+        hboxLayout2->setObjectName(QString::fromUtf8("hboxLayout2"));
         crossFadeLabel = new QLabel(Dialog);
-        crossFadeLabel->setObjectName(QStringLiteral("crossFadeLabel"));
+        crossFadeLabel->setObjectName(QString::fromUtf8("crossFadeLabel"));
         sizePolicy.setHeightForWidth(crossFadeLabel->sizePolicy().hasHeightForWidth());
         crossFadeLabel->setSizePolicy(sizePolicy);
         crossFadeLabel->setMinimumSize(QSize(90, 0));
@@ -114,9 +111,9 @@ public:
         hboxLayout2->addWidget(crossFadeLabel);
 
         vboxLayout = new QVBoxLayout();
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         crossFadeSlider = new QSlider(Dialog);
-        crossFadeSlider->setObjectName(QStringLiteral("crossFadeSlider"));
+        crossFadeSlider->setObjectName(QString::fromUtf8("crossFadeSlider"));
         sizePolicy1.setHeightForWidth(crossFadeSlider->sizePolicy().hasHeightForWidth());
         crossFadeSlider->setSizePolicy(sizePolicy1);
         crossFadeSlider->setMinimum(-20);
@@ -130,9 +127,9 @@ public:
         vboxLayout->addWidget(crossFadeSlider);
 
         hboxLayout3 = new QHBoxLayout();
-        hboxLayout3->setObjectName(QStringLiteral("hboxLayout3"));
+        hboxLayout3->setObjectName(QString::fromUtf8("hboxLayout3"));
         label_3 = new QLabel(Dialog);
-        label_3->setObjectName(QStringLiteral("label_3"));
+        label_3->setObjectName(QString::fromUtf8("label_3"));
         QFont font;
         font.setPointSize(9);
         label_3->setFont(font);
@@ -144,7 +141,7 @@ public:
         hboxLayout3->addItem(spacerItem);
 
         label_5 = new QLabel(Dialog);
-        label_5->setObjectName(QStringLiteral("label_5"));
+        label_5->setObjectName(QString::fromUtf8("label_5"));
         label_5->setFont(font);
 
         hboxLayout3->addWidget(label_5);
@@ -154,7 +151,7 @@ public:
         hboxLayout3->addItem(spacerItem1);
 
         label_4 = new QLabel(Dialog);
-        label_4->setObjectName(QStringLiteral("label_4"));
+        label_4->setObjectName(QString::fromUtf8("label_4"));
         label_4->setFont(font);
 
         hboxLayout3->addWidget(label_4);
@@ -169,7 +166,7 @@ public:
         verticalLayout->addLayout(hboxLayout2);
 
         buttonBox = new QDialogButtonBox(Dialog);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
 
@@ -185,13 +182,13 @@ public:
 
     void retranslateUi(QDialog *Dialog)
     {
-        Dialog->setWindowTitle(QApplication::translate("Dialog", "Dialog", nullptr));
-        label->setText(QApplication::translate("Dialog", "Audio device:", nullptr));
-        label_6->setText(QApplication::translate("Dialog", "Audio effect:", nullptr));
-        crossFadeLabel->setText(QApplication::translate("Dialog", "Cross fade:", nullptr));
-        label_3->setText(QApplication::translate("Dialog", "-10 Sec", nullptr));
-        label_5->setText(QApplication::translate("Dialog", "0", nullptr));
-        label_4->setText(QApplication::translate("Dialog", "10 Sec", nullptr));
+        Dialog->setWindowTitle(QCoreApplication::translate("Dialog", "Dialog", nullptr));
+        label->setText(QCoreApplication::translate("Dialog", "Audio device:", nullptr));
+        label_6->setText(QCoreApplication::translate("Dialog", "Audio effect:", nullptr));
+        crossFadeLabel->setText(QCoreApplication::translate("Dialog", "Cross fade:", nullptr));
+        label_3->setText(QCoreApplication::translate("Dialog", "-10 Sec", nullptr));
+        label_5->setText(QCoreApplication::translate("Dialog", "0", nullptr));
+        label_4->setText(QCoreApplication::translate("Dialog", "10 Sec", nullptr));
     } // retranslateUi
 
 };

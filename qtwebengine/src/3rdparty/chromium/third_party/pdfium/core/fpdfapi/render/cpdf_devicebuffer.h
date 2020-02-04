@@ -7,11 +7,9 @@
 #ifndef CORE_FPDFAPI_RENDER_CPDF_DEVICEBUFFER_H_
 #define CORE_FPDFAPI_RENDER_CPDF_DEVICEBUFFER_H_
 
-#include <memory>
-
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CFX_DIBitmap;
 class CFX_RenderDevice;
@@ -25,18 +23,18 @@ class CPDF_DeviceBuffer {
 
   bool Initialize(CPDF_RenderContext* pContext,
                   CFX_RenderDevice* pDevice,
-                  FX_RECT* pRect,
+                  const FX_RECT& rect,
                   const CPDF_PageObject* pObj,
                   int max_dpi);
   void OutputToDevice();
-  CFX_RetainPtr<CFX_DIBitmap> GetBitmap() const { return m_pBitmap; }
-  const CFX_Matrix* GetMatrix() const { return &m_Matrix; }
+  RetainPtr<CFX_DIBitmap> GetBitmap() const { return m_pBitmap; }
+  const CFX_Matrix& GetMatrix() const { return m_Matrix; }
 
  private:
-  CFX_UnownedPtr<CFX_RenderDevice> m_pDevice;
-  CFX_UnownedPtr<CPDF_RenderContext> m_pContext;
-  CFX_UnownedPtr<const CPDF_PageObject> m_pObject;
-  CFX_RetainPtr<CFX_DIBitmap> m_pBitmap;
+  UnownedPtr<CFX_RenderDevice> m_pDevice;
+  UnownedPtr<CPDF_RenderContext> m_pContext;
+  UnownedPtr<const CPDF_PageObject> m_pObject;
+  RetainPtr<CFX_DIBitmap> m_pBitmap;
   FX_RECT m_Rect;
   CFX_Matrix m_Matrix;
 };

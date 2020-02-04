@@ -47,7 +47,7 @@ namespace Qt3DAnimation {
 
 class QChannelMappingPrivate;
 
-class QT3DANIMATIONSHARED_EXPORT QChannelMapping : public QAbstractChannelMapping
+class Q_3DANIMATIONSHARED_EXPORT QChannelMapping : public QAbstractChannelMapping
 {
     Q_OBJECT
     Q_PROPERTY(QString channelName READ channelName WRITE setChannelName NOTIFY channelNameChanged)
@@ -77,7 +77,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QChannelMapping)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DAnimation

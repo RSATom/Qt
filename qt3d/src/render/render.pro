@@ -7,7 +7,6 @@ QT_FOR_PRIVATE = concurrent
 
 include (backend/render-backend.pri)
 include (geometry/geometry.pri)
-include (graphicshelpers/graphicshelpers.pri)
 include (framegraph/framegraph.pri)
 include (frontend/render-frontend.pri)
 include (jobs/jobs.pri)
@@ -19,6 +18,7 @@ include (picking/picking.pri)
 include (raycasting/raycasting.pri)
 include (services/services.pri)
 include (texture/texture.pri)
+include (renderers/renderers.pri)
 
 # Qt3D is free of Q_FOREACH - make sure it stays that way:
 DEFINES += QT_NO_FOREACH
@@ -28,13 +28,21 @@ gcov {
     QMAKE_LFLAGS += -fprofile-arcs -ftest-coverage
 }
 
+qtConfig(qt3d-simd-avx2) {
+    CONFIG += simd
+    QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_AVX2
+}
+
+qtConfig(qt3d-simd-sse2):!qtConfig(qt3d-simd-avx2) {
+    CONFIG += simd
+    QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_SSE2
+}
+
 HEADERS += \
     renderlogging_p.h \
     qt3drender_global.h \
-    qt3drender_global_p.h
-
-# otherwise mingw headers do not declare common functions like ::strcasecmp
-win32-g++*:QMAKE_CXXFLAGS_CXX11 = -std=gnu++0x
+    qt3drender_global_p.h \
+    aligned_malloc_p.h
 
 SOURCES += \
     renderlogging.cpp

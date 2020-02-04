@@ -7,6 +7,7 @@ import("//build/config/locales.gni")
 import("//build/config/mac/base_rules.gni")
 import("//build/mac/tweak_info_plist.gni")
 import("//ios/build/chrome_build.gni")
+import("//ios/build/config.gni")
 import("//ios/chrome/extension_repack.gni")
 import("//ios/chrome/tools/strings/generate_localizable_strings.gni")
 import("//ios/public/provider/chrome/browser/build_config.gni")
@@ -27,11 +28,10 @@ tweak_info_plist("tweak_info_plist") {
   info_plist = "Info.plist"
 }
 
-compile_plist("entitlements") {
-  format = "xml1"
+compile_entitlements("entitlements") {
   substitutions = [ "IOS_BUNDLE_ID_PREFIX=$ios_app_bundle_id_prefix" ]
   output_name = "$target_gen_dir/share_extension.appex.entitlements"
-  plist_templates =
+  entitlements_templates =
       [ "entitlements/external/share_extension.appex.entitlements" ]
 }
 
@@ -54,6 +54,8 @@ ios_appex_bundle("share_extension") {
     "//ios/chrome/common/app_group:client",
   ]
   bundle_deps_filter = [ "//third_party/icu:icudata" ]
+
+  assert_no_deps = ios_extension_assert_no_deps
 
   libs = [
     "Foundation.framework",

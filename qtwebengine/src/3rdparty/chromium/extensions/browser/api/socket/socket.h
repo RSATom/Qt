@@ -7,19 +7,24 @@
 
 #include <stdint.h>
 
-#include <queue>
+#include <memory>
 #include <string>
 #include <utility>
 
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
+#include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/api_resource.h"
 #include "extensions/browser/api/api_resource_manager.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/socket/tcp_client_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/mojom/tcp_socket.mojom.h"
+#include "services/network/public/mojom/tls_socket.mojom.h"
 
 #if defined(OS_CHROMEOS)
 #include "extensions/browser/api/socket/app_firewall_hole_manager.h"
@@ -34,7 +39,9 @@ class Socket;
 namespace extensions {
 
 using CompletionCallback = base::Callback<void(int)>;
-using ReadCompletionCallback = base::Callback<
+using SetNoDelayCallback = base::OnceCallback<void(bool)>;
+using SetKeepAliveCallback = base::OnceCallback<void(bool)>;
+using ReadCompletionCallback = base::OnceCallback<
     void(int, scoped_refptr<net::IOBuffer> io_buffer, bool socket_destroying)>;
 using RecvFromCompletionCallback =
     base::Callback<void(int,
@@ -42,8 +49,15 @@ using RecvFromCompletionCallback =
                         bool socket_destroying,
                         const std::string&,
                         uint16_t)>;
+using ListenCallback =
+    base::OnceCallback<void(int, const std::string& error_msg)>;
+
 using AcceptCompletionCallback =
-    base::Callback<void(int, std::unique_ptr<net::TCPClientSocket>)>;
+    base::OnceCallback<void(int,
+                            network::mojom::TCPConnectedSocketPtr,
+                            const base::Optional<net::IPEndPoint>&,
+                            mojo::ScopedDataPipeConsumerHandle,
+                            mojo::ScopedDataPipeProducerHandle)>;
 
 // A Socket wraps a low-level socket and includes housekeeping information that
 // we need to manage it in the context of an extension.
@@ -76,15 +90,17 @@ class Socket : public ApiResource {
   // the remote endpoint. In order to upgrade this socket to TLS, callers
   // must also supply the hostname of the endpoint via set_hostname().
   virtual void Connect(const net::AddressList& address,
-                       const CompletionCallback& callback) = 0;
+                       net::CompletionOnceCallback callback) = 0;
   // |socket_destroying| is true if disconnect is due to destruction of the
   // socket.
   virtual void Disconnect(bool socket_destroying) = 0;
-  virtual int Bind(const std::string& address, uint16_t port) = 0;
+  virtual void Bind(const std::string& address,
+                    uint16_t port,
+                    const CompletionCallback& callback) = 0;
 
   // The |callback| will be called with the number of bytes read into the
   // buffer, or a negative number if an error occurred.
-  virtual void Read(int count, const ReadCompletionCallback& callback) = 0;
+  virtual void Read(int count, ReadCompletionCallback callback) = 0;
 
   // The |callback| will be called with |byte_count| or a negative number if an
   // error occurred.
@@ -99,13 +115,15 @@ class Socket : public ApiResource {
                       const net::IPEndPoint& address,
                       const CompletionCallback& callback) = 0;
 
-  virtual bool SetKeepAlive(bool enable, int delay);
-  virtual bool SetNoDelay(bool no_delay);
-  virtual int Listen(const std::string& address,
-                     uint16_t port,
-                     int backlog,
-                     std::string* error_msg);
-  virtual void Accept(const AcceptCompletionCallback& callback);
+  virtual void SetKeepAlive(bool enable,
+                            int delay,
+                            SetKeepAliveCallback callback);
+  virtual void SetNoDelay(bool no_delay, SetNoDelayCallback callback);
+  virtual void Listen(const std::string& address,
+                      uint16_t port,
+                      int backlog,
+                      ListenCallback callback);
+  virtual void Accept(AcceptCompletionCallback callback);
 
   virtual bool IsConnected() = 0;
 
@@ -121,6 +139,8 @@ class Socket : public ApiResource {
                                         std::string* ip_address_str,
                                         uint16_t* port);
 
+  static net::NetworkTrafficAnnotationTag GetNetworkTrafficAnnotationTag();
+
  protected:
   explicit Socket(const std::string& owner_extension_id_);
 
@@ -128,7 +148,6 @@ class Socket : public ApiResource {
   virtual int WriteImpl(net::IOBuffer* io_buffer,
                         int io_buffer_size,
                         const net::CompletionCallback& callback) = 0;
-  virtual void OnWriteComplete(int result);
 
   std::string hostname_;
   bool is_connected_;
@@ -148,7 +167,10 @@ class Socket : public ApiResource {
     CompletionCallback callback;
     int bytes_written;
   };
-  std::queue<WriteRequest> write_queue_;
+
+  void OnWriteComplete(int result);
+
+  base::queue<WriteRequest> write_queue_;
   scoped_refptr<net::IOBuffer> io_buffer_write_;
 
 #if defined(OS_CHROMEOS)

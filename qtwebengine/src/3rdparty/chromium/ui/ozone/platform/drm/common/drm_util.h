@@ -12,7 +12,7 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "ui/display/types/display_mode.h"
+#include "ui/display/types/display_snapshot.h"
 #include "ui/ozone/common/gpu/ozone_gpu_message_params.h"
 #include "ui/ozone/platform/drm/common/display_types.h"
 #include "ui/ozone/platform/drm/common/scoped_drm_types.h"
@@ -21,6 +21,7 @@ typedef struct _drmModeModeInfo drmModeModeInfo;
 
 namespace display {
 class DisplayMode;
+class EdidParser;
 }  // namespace display
 
 namespace gfx {
@@ -28,6 +29,18 @@ class Point;
 }
 
 namespace ui {
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class EdidColorSpaceChecksOutcome {
+  kSuccess = 0,
+  kErrorBadCoordinates = 1,
+  kErrorPrimariesAreaTooSmall = 2,
+  kErrorBluePrimaryIsBroken = 3,
+  kErrorCannotExtractToXYZD50 = 4,
+  kErrorBadGamma = 5,
+  kMaxValue = kErrorBadGamma
+};
 
 // Representation of the information required to initialize and configure a
 // native display. |index| is the position of the connection and will be
@@ -58,26 +71,43 @@ GetAvailableDisplayControllerInfos(int fd);
 
 bool SameMode(const drmModeModeInfo& lhs, const drmModeModeInfo& rhs);
 
-DisplayMode_Params CreateDisplayModeParams(const drmModeModeInfo& mode);
+std::unique_ptr<display::DisplayMode> CreateDisplayMode(
+    const drmModeModeInfo& mode);
+
+// Extracts the display modes list from |info| as well as the current and native
+// display modes given the |active_pixel_size| which is retrieved from the first
+// detailed timing descriptor in the EDID.
+display::DisplaySnapshot::DisplayModeList ExtractDisplayModes(
+    HardwareDisplayControllerInfo* info,
+    const gfx::Size& active_pixel_size,
+    const display::DisplayMode** out_current_mode,
+    const display::DisplayMode** out_native_mode);
 
 // |info| provides the DRM information related to the display, |fd| is the
 // connection to the DRM device.
-DisplaySnapshot_Params CreateDisplaySnapshotParams(
+std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
     HardwareDisplayControllerInfo* info,
     int fd,
     const base::FilePath& sys_path,
     size_t device_index,
     const gfx::Point& origin);
 
-std::vector<DisplaySnapshot_Params> CreateParamsFromSnapshot(
-    const MovableDisplaySnapshots& displays);
+std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
+    const DisplaySnapshot_Params& params);
 
-int GetFourCCFormatFromBufferFormat(gfx::BufferFormat format);
-gfx::BufferFormat GetBufferFormatFromFourCCFormat(int format);
+// Creates a serialized version of MovableDisplaySnapshots for IPC transmission.
+std::vector<DisplaySnapshot_Params> CreateDisplaySnapshotParams(
+    const MovableDisplaySnapshots& displays);
 
 int GetFourCCFormatForOpaqueFramebuffer(gfx::BufferFormat format);
 
 gfx::Size GetMaximumCursorSize(int fd);
+
+ScopedDrmPropertyPtr FindDrmProperty(int fd,
+                                     drmModeObjectProperties* properties,
+                                     const char* name);
+
+bool HasColorCorrectionMatrix(int fd, drmModeCrtc* crtc);
 
 DisplayMode_Params GetDisplayModeParams(const display::DisplayMode& mode);
 
@@ -93,8 +123,21 @@ float ModeRefreshRate(const drmModeModeInfo& mode);
 
 bool ModeIsInterlaced(const drmModeModeInfo& mode);
 
-MovableDisplaySnapshots CreateMovableDisplaySnapshotsFromParams(
-    const std::vector<DisplaySnapshot_Params>& displays);
+OverlaySurfaceCandidateList CreateOverlaySurfaceCandidateListFrom(
+    const std::vector<OverlayCheck_Params>& params);
+
+std::vector<OverlayCheck_Params> CreateParamsFromOverlaySurfaceCandidate(
+    const OverlaySurfaceCandidateList& candidates);
+
+OverlayStatusList CreateOverlayStatusListFrom(
+    const std::vector<OverlayCheckReturn_Params>& params);
+
+std::vector<OverlayCheckReturn_Params> CreateParamsFromOverlayStatusList(
+    const OverlayStatusList& returns);
+
+// Uses |edid_parser| to extract a gfx::ColorSpace which will be IsValid() if
+// both gamma and the color primaries were correctly found.
+gfx::ColorSpace GetColorSpaceFromEdid(const display::EdidParser& edid_parser);
 
 }  // namespace ui
 

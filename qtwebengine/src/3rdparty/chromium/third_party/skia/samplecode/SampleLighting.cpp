@@ -6,7 +6,7 @@
  */
 
 #include "DecodeFile.h"
-#include "SampleCode.h"
+#include "Sample.h"
 #include "Resources.h"
 #include "SkCanvas.h"
 #include "SkLightingShader.h"
@@ -29,70 +29,79 @@ static sk_sp<SkLights> create_lights(SkScalar angle, SkScalar blue) {
 
 ////////////////////////////////////////////////////////////////////////////
 
-class LightingView : public SampleView {
+class LightingView : public Sample {
 public:
-    SkBitmap        fDiffuseBitmap;
-    SkBitmap        fNormalBitmap;
-    SkScalar        fLightAngle;
-    SkScalar        fColorFactor;
+    LightingView() : fLightAngle(0.0f) , fColorFactor(0.0f) {
+        {
+            SkBitmap diffuseBitmap;
+            SkAssertResult(GetResourceAsBitmap("images/brickwork-texture.jpg", &diffuseBitmap));
 
-    LightingView() {
-        SkString diffusePath = GetResourcePath("brickwork-texture.jpg");
-        decode_file(diffusePath.c_str(), &fDiffuseBitmap);
-        SkString normalPath = GetResourcePath("brickwork_normal-map.jpg");
-        decode_file(normalPath.c_str(), &fNormalBitmap);
+            fRect = SkRect::MakeIWH(diffuseBitmap.width(), diffuseBitmap.height());
 
-        fLightAngle = 0.0f;
-        fColorFactor = 0.0f;
+            fDiffuseShader = SkShader::MakeBitmapShader(diffuseBitmap,
+                                                        SkShader::kClamp_TileMode,
+                                                        SkShader::kClamp_TileMode,
+                                                        nullptr);
+        }
+
+        {
+            SkBitmap normalBitmap;
+            SkAssertResult(GetResourceAsBitmap("images/brickwork_normal-map.jpg", &normalBitmap));
+
+            sk_sp<SkShader> normalMap = SkShader::MakeBitmapShader(normalBitmap,
+                                                                   SkShader::kClamp_TileMode,
+                                                                   SkShader::kClamp_TileMode,
+                                                                   nullptr);
+            fNormalSource = SkNormalSource::MakeFromNormalMap(std::move(normalMap), SkMatrix::I());
+        }
     }
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Lighting");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Lighting");
             return true;
         }
         return this->INHERITED::onQuery(evt);
     }
 
     void onDrawContent(SkCanvas* canvas) override {
+        sk_sp<SkLights> lights(create_lights(fLightAngle, fColorFactor));
+
+        SkPaint paint;
+        paint.setShader(SkLightingShader::Make(fDiffuseShader,
+                                               fNormalSource,
+                                               std::move(lights)));
+        paint.setColor(SK_ColorBLACK);
+
+        canvas->drawRect(fRect, paint);
+    }
+
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
+        return this->INHERITED::onFindClickHandler(x, y, modi);
+    }
+
+    bool onAnimate(const SkAnimTimer& timer) override {
         fLightAngle += 0.015f;
         fColorFactor += 0.01f;
         if (fColorFactor > 1.0f) {
             fColorFactor = 0.0f;
         }
 
-        sk_sp<SkLights> lights(create_lights(fLightAngle, fColorFactor));
-        SkPaint paint;
-        sk_sp<SkShader> normalMap = SkShader::MakeBitmapShader(fNormalBitmap,
-            SkShader::kClamp_TileMode, SkShader::kClamp_TileMode, nullptr);
-        sk_sp<SkNormalSource> normalSource = SkNormalSource::MakeFromNormalMap(
-                std::move(normalMap), SkMatrix::I());
-        sk_sp<SkShader> diffuseShader = SkShader::MakeBitmapShader(fDiffuseBitmap,
-                SkShader::kClamp_TileMode, SkShader::kClamp_TileMode, nullptr);
-        paint.setShader(SkLightingShader::Make(std::move(diffuseShader), std::move(normalSource),
-                                               std::move(lights)));
-        paint.setColor(SK_ColorBLACK);
-
-        SkRect r = SkRect::MakeWH((SkScalar)fDiffuseBitmap.width(),
-                                  (SkScalar)fDiffuseBitmap.height());
-        canvas->drawRect(r, paint);
-
-        // so we're constantly updating
-        this->inval(nullptr);
-    }
-
-    SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
-        this->inval(nullptr);
-        return this->INHERITED::onFindClickHandler(x, y, modi);
+        return true;
     }
 
 private:
-    typedef SampleView INHERITED;
+    SkRect                fRect;
+    sk_sp<SkShader>       fDiffuseShader;
+    sk_sp<SkNormalSource> fNormalSource;
+
+    SkScalar              fLightAngle;
+    SkScalar              fColorFactor;
+
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new LightingView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new LightingView(); )

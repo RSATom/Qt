@@ -5,7 +5,9 @@
 #ifndef V8_SIGNATURE_H_
 #define V8_SIGNATURE_H_
 
+#include "src/base/functional.h"
 #include "src/base/iterator.h"
+#include "src/machine-type.h"
 #include "src/zone/zone.h"
 
 namespace v8 {
@@ -25,12 +27,12 @@ class Signature : public ZoneObject {
   size_t parameter_count() const { return parameter_count_; }
 
   T GetParam(size_t index) const {
-    DCHECK(index < parameter_count_);
+    DCHECK_LT(index, parameter_count_);
     return reps_[return_count_ + index];
   }
 
   T GetReturn(size_t index = 0) const {
-    DCHECK(index < return_count_);
+    DCHECK_LT(index, return_count_);
     return reps_[index];
   }
 
@@ -45,16 +47,13 @@ class Signature : public ZoneObject {
     return {reps_, reps_ + return_count_ + parameter_count_};
   }
 
-  bool Equals(const Signature* that) const {
-    if (this == that) return true;
-    if (this->parameter_count() != that->parameter_count()) return false;
-    if (this->return_count() != that->return_count()) return false;
-    size_t size = this->return_count() + this->parameter_count();
-    for (size_t i = 0; i < size; i++) {
-      if (this->reps_[i] != that->reps_[i]) return false;
-    }
-    return true;
+  bool operator==(const Signature& other) const {
+    if (this == &other) return true;
+    if (parameter_count() != other.parameter_count()) return false;
+    if (return_count() != other.return_count()) return false;
+    return std::equal(all().begin(), all().end(), other.all().begin());
   }
+  bool operator!=(const Signature& other) const { return !(*this == other); }
 
   // For incrementally building signatures.
   class Builder {
@@ -72,16 +71,24 @@ class Signature : public ZoneObject {
     const size_t parameter_count_;
 
     void AddReturn(T val) {
-      DCHECK(rcursor_ < return_count_);
+      DCHECK_LT(rcursor_, return_count_);
       buffer_[rcursor_++] = val;
     }
+
     void AddParam(T val) {
-      DCHECK(pcursor_ < parameter_count_);
+      DCHECK_LT(pcursor_, parameter_count_);
       buffer_[return_count_ + pcursor_++] = val;
     }
+
+    void AddParamAt(size_t index, T val) {
+      DCHECK_LT(index, parameter_count_);
+      buffer_[return_count_ + index] = val;
+      pcursor_ = std::max(pcursor_, index + 1);
+    }
+
     Signature<T>* Build() {
-      DCHECK(rcursor_ == return_count_);
-      DCHECK(pcursor_ == parameter_count_);
+      DCHECK_EQ(rcursor_, return_count_);
+      DCHECK_EQ(pcursor_, parameter_count_);
       return new (zone_) Signature<T>(return_count_, parameter_count_, buffer_);
     }
 
@@ -97,6 +104,15 @@ class Signature : public ZoneObject {
   size_t parameter_count_;
   const T* reps_;
 };
+
+typedef Signature<MachineType> MachineSignature;
+
+template <typename T>
+size_t hash_value(const Signature<T>& sig) {
+  size_t hash = base::hash_combine(sig.parameter_count(), sig.return_count());
+  for (const T& t : sig.all()) hash = base::hash_combine(hash, t);
+  return hash;
+}
 
 }  // namespace internal
 }  // namespace v8

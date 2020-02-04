@@ -10,6 +10,7 @@
 
 #include "base/json/json_reader.h"
 #include "base/metrics/histogram.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -22,32 +23,30 @@
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
-
-using net::URLFetcher;
-using net::URLFetcherDelegate;
-using net::URLRequestContextGetter;
-using net::URLRequestStatus;
+#include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/cpp/resource_response.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/simple_url_loader.h"
 
 namespace {
-static const char kGetAccessTokenBodyFormat[] =
+constexpr char kGetAccessTokenBodyFormat[] =
     "client_id=%s&"
     "client_secret=%s&"
     "grant_type=refresh_token&"
     "refresh_token=%s";
 
-static const char kGetAccessTokenBodyWithScopeFormat[] =
+constexpr char kGetAccessTokenBodyWithScopeFormat[] =
     "client_id=%s&"
     "client_secret=%s&"
     "grant_type=refresh_token&"
     "refresh_token=%s&"
     "scope=%s";
 
-static const char kAccessTokenKey[] = "access_token";
-static const char kExpiresInKey[] = "expires_in";
-static const char kErrorKey[] = "error";
+constexpr char kAccessTokenKey[] = "access_token";
+constexpr char kExpiresInKey[] = "expires_in";
+constexpr char kIdTokenKey[] = "id_token";
+constexpr char kErrorKey[] = "error";
 
 // Enumerated constants for logging server responses on 400 errors, matching
 // RFC 6749.
@@ -80,23 +79,16 @@ OAuth2ErrorCodesForHistogram OAuth2ErrorToHistogramValue(
   return OAUTH2_ACCESS_ERROR_UNKNOWN;
 }
 
-static GoogleServiceAuthError CreateAuthError(URLRequestStatus status) {
-  CHECK(!status.is_success());
-  if (status.status() == URLRequestStatus::CANCELED) {
-    return GoogleServiceAuthError(GoogleServiceAuthError::REQUEST_CANCELED);
-  } else {
-    DLOG(WARNING) << "Could not reach Google Accounts servers: errno "
-                  << status.error();
-    return GoogleServiceAuthError::FromConnectionError(status.error());
-  }
+static GoogleServiceAuthError CreateAuthError(int net_error) {
+  CHECK_NE(net_error, net::OK);
+  DLOG(WARNING) << "Could not reach Google Accounts servers: errno "
+                << net_error;
+  return GoogleServiceAuthError::FromConnectionError(net_error);
 }
 
-static std::unique_ptr<URLFetcher> CreateFetcher(
-    URLRequestContextGetter* getter,
+static std::unique_ptr<network::SimpleURLLoader> CreateURLLoader(
     const GURL& url,
-    const std::string& body,
-    URLFetcherDelegate* delegate) {
-  bool empty_body = body.empty();
+    const std::string& body) {
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("oauth2_access_token_fetcher", R"(
         semantics {
@@ -113,7 +105,7 @@ static std::unique_ptr<URLFetcher> CreateFetcher(
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "This feature cannot be disabled in settings, but if user signs "
             "out of Chrome, this request would not be made."
@@ -124,34 +116,42 @@ static std::unique_ptr<URLFetcher> CreateFetcher(
             }
           }
         })");
-  std::unique_ptr<URLFetcher> result = net::URLFetcher::Create(
-      0, url, empty_body ? URLFetcher::GET : URLFetcher::POST, delegate,
-      traffic_annotation);
 
-  gaia::MarkURLFetcherAsGaia(result.get());
-  result->SetRequestContext(getter);
-  result->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
-                       net::LOAD_DO_NOT_SAVE_COOKIES);
+  auto resource_request = std::make_unique<network::ResourceRequest>();
+  resource_request->url = url;
+  resource_request->load_flags =
+      net::LOAD_DO_NOT_SEND_COOKIES | net::LOAD_DO_NOT_SAVE_COOKIES;
+  if (!body.empty())
+    resource_request->method = "POST";
+
+  auto url_loader = network::SimpleURLLoader::Create(
+      std::move(resource_request), traffic_annotation);
+
+  if (!body.empty())
+    url_loader->AttachStringForUpload(body,
+                                      "application/x-www-form-urlencoded");
+
+  // We want to receive the body even on error, as it may contain the reason for
+  // failure.
+  url_loader->SetAllowHttpErrorResults(true);
+
   // Fetchers are sometimes cancelled because a network change was detected,
   // especially at startup and after sign-in on ChromeOS. Retrying once should
   // be enough in those cases; let the fetcher retry up to 3 times just in case.
   // http://crbug.com/163710
-  result->SetAutomaticallyRetryOnNetworkChanges(3);
+  url_loader->SetRetryOptions(
+      3, network::SimpleURLLoader::RETRY_ON_NETWORK_CHANGE);
 
-  if (!empty_body)
-    result->SetUploadData("application/x-www-form-urlencoded", body);
-
-  return result;
+  return url_loader;
 }
 
 std::unique_ptr<base::DictionaryValue> ParseGetAccessTokenResponse(
-    const net::URLFetcher* source) {
-  CHECK(source);
+    std::unique_ptr<std::string> data) {
+  if (!data)
+    return nullptr;
 
-  std::string data;
-  source->GetResponseAsString(&data);
-  std::unique_ptr<base::Value> value = base::JSONReader::Read(data);
-  if (!value.get() || value->GetType() != base::Value::Type::DICTIONARY)
+  std::unique_ptr<base::Value> value = base::JSONReader::Read(*data);
+  if (!value.get() || value->type() != base::Value::Type::DICTIONARY)
     value.reset();
 
   return std::unique_ptr<base::DictionaryValue>(
@@ -162,16 +162,18 @@ std::unique_ptr<base::DictionaryValue> ParseGetAccessTokenResponse(
 
 OAuth2AccessTokenFetcherImpl::OAuth2AccessTokenFetcherImpl(
     OAuth2AccessTokenConsumer* consumer,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const std::string& refresh_token)
     : OAuth2AccessTokenFetcher(consumer),
-      getter_(getter),
+      url_loader_factory_(url_loader_factory),
       refresh_token_(refresh_token),
       state_(INITIAL) {}
 
 OAuth2AccessTokenFetcherImpl::~OAuth2AccessTokenFetcherImpl() {}
 
-void OAuth2AccessTokenFetcherImpl::CancelRequest() { fetcher_.reset(); }
+void OAuth2AccessTokenFetcherImpl::CancelRequest() {
+  url_loader_.reset();
+}
 
 void OAuth2AccessTokenFetcherImpl::Start(
     const std::string& client_id,
@@ -186,31 +188,52 @@ void OAuth2AccessTokenFetcherImpl::Start(
 void OAuth2AccessTokenFetcherImpl::StartGetAccessToken() {
   CHECK_EQ(INITIAL, state_);
   state_ = GET_ACCESS_TOKEN_STARTED;
-  fetcher_ = CreateFetcher(getter_, MakeGetAccessTokenUrl(),
-                           MakeGetAccessTokenBody(client_id_, client_secret_,
-                                                  refresh_token_, scopes_),
-                           this);
-  fetcher_->Start();  // OnURLFetchComplete will be called.
+  url_loader_ =
+      CreateURLLoader(MakeGetAccessTokenUrl(),
+                      MakeGetAccessTokenBody(client_id_, client_secret_,
+                                             refresh_token_, scopes_));
+  // It's safe to use Unretained below as the |url_loader_| is owned by |this|.
+  url_loader_->DownloadToString(
+      url_loader_factory_.get(),
+      base::BindOnce(&OAuth2AccessTokenFetcherImpl::OnURLLoadComplete,
+                     base::Unretained(this)),
+      1024 * 1024);
 }
 
 void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
-    const net::URLFetcher* source) {
+    std::unique_ptr<std::string> response_body) {
   CHECK_EQ(GET_ACCESS_TOKEN_STARTED, state_);
   state_ = GET_ACCESS_TOKEN_DONE;
 
-  URLRequestStatus status = source->GetStatus();
-  int histogram_value =
-      status.is_success() ? source->GetResponseCode() : status.error();
-  UMA_HISTOGRAM_SPARSE_SLOWLY("Gaia.ResponseCodesForOAuth2AccessToken",
-                              histogram_value);
-  if (!status.is_success()) {
-    OnGetTokenFailure(CreateAuthError(status));
+  bool net_failure = false;
+  int histogram_value;
+  if (url_loader_->NetError() == net::OK && url_loader_->ResponseInfo() &&
+      url_loader_->ResponseInfo()->headers) {
+    // Note that the SimpleURLLoader reports net::ERR_FAILED for HTTP codes
+    // other than 200s.
+    histogram_value = url_loader_->ResponseInfo()->headers->response_code();
+  } else {
+    histogram_value = url_loader_->NetError();
+    net_failure = true;
+  }
+  base::UmaHistogramSparse("Gaia.ResponseCodesForOAuth2AccessToken",
+                           histogram_value);
+  if (net_failure) {
+    OnGetTokenFailure(CreateAuthError(histogram_value));
     return;
   }
 
-  switch (source->GetResponseCode()) {
+  int response_code = url_loader_->ResponseInfo()->headers->response_code();
+  switch (response_code) {
     case net::HTTP_OK:
       break;
+    case net::HTTP_PROXY_AUTHENTICATION_REQUIRED:
+      NOTREACHED() << "HTTP 407 should be treated as a network error.";
+      // If this ever happens in production, we treat it as a temporary error as
+      // it is similar to a network error.
+      OnGetTokenFailure(
+          GoogleServiceAuthError(GoogleServiceAuthError::SERVICE_UNAVAILABLE));
+      return;
     case net::HTTP_FORBIDDEN:
       // HTTP_FORBIDDEN (403) is treated as temporary error, because it may be
       // '403 Rate Limit Exeeded.'
@@ -221,7 +244,8 @@ void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
       // HTTP_BAD_REQUEST (400) usually contains error as per
       // http://tools.ietf.org/html/rfc6749#section-5.2.
       std::string gaia_error;
-      if (!ParseGetAccessTokenFailureResponse(source, &gaia_error)) {
+      if (!ParseGetAccessTokenFailureResponse(std::move(response_body),
+                                              &gaia_error)) {
         OnGetTokenFailure(
             GoogleServiceAuthError(GoogleServiceAuthError::SERVICE_ERROR));
         return;
@@ -235,22 +259,25 @@ void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
 
       OnGetTokenFailure(
           access_error == OAUTH2_ACCESS_ERROR_INVALID_GRANT
-              ? GoogleServiceAuthError(
-                    GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS)
+              ? GoogleServiceAuthError::FromInvalidGaiaCredentialsReason(
+                    GoogleServiceAuthError::InvalidGaiaCredentialsReason::
+                        CREDENTIALS_REJECTED_BY_SERVER)
               : GoogleServiceAuthError(GoogleServiceAuthError::SERVICE_ERROR));
       return;
     }
     default: {
-      if (source->GetResponseCode() >= net::HTTP_INTERNAL_SERVER_ERROR) {
+      if (response_code >= net::HTTP_INTERNAL_SERVER_ERROR) {
         // 5xx is always treated as transient.
         OnGetTokenFailure(GoogleServiceAuthError(
             GoogleServiceAuthError::SERVICE_UNAVAILABLE));
       } else {
         // The other errors are treated as permanent error.
         DLOG(ERROR) << "Unexpected persistent error: http_status="
-                    << source->GetResponseCode();
-        OnGetTokenFailure(GoogleServiceAuthError(
-            GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS));
+                    << response_code;
+        OnGetTokenFailure(
+            GoogleServiceAuthError::FromInvalidGaiaCredentialsReason(
+                GoogleServiceAuthError::InvalidGaiaCredentialsReason::
+                    CREDENTIALS_REJECTED_BY_SERVER));
       }
       return;
     }
@@ -260,7 +287,9 @@ void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
   // Parse out the access token and the expiration time.
   std::string access_token;
   int expires_in;
-  if (!ParseGetAccessTokenSuccessResponse(source, &access_token, &expires_in)) {
+  std::string id_token;
+  if (!ParseGetAccessTokenSuccessResponse(
+          std::move(response_body), &access_token, &expires_in, &id_token)) {
     DLOG(WARNING) << "Response doesn't match expected format";
     OnGetTokenFailure(
         GoogleServiceAuthError(GoogleServiceAuthError::SERVICE_UNAVAILABLE));
@@ -268,15 +297,15 @@ void OAuth2AccessTokenFetcherImpl::EndGetAccessToken(
   }
   // The token will expire in |expires_in| seconds. Take a 10% error margin to
   // prevent reusing a token too close to its expiration date.
-  OnGetTokenSuccess(
+  OnGetTokenSuccess(OAuth2AccessTokenConsumer::TokenResponse(
       access_token,
-      base::Time::Now() + base::TimeDelta::FromSeconds(9 * expires_in / 10));
+      base::Time::Now() + base::TimeDelta::FromSeconds(9 * expires_in / 10),
+      id_token));
 }
 
 void OAuth2AccessTokenFetcherImpl::OnGetTokenSuccess(
-    const std::string& access_token,
-    const base::Time& expiration_time) {
-  FireOnGetTokenSuccess(access_token, expiration_time);
+    const OAuth2AccessTokenConsumer::TokenResponse& token_response) {
+  FireOnGetTokenSuccess(token_response);
 }
 
 void OAuth2AccessTokenFetcherImpl::OnGetTokenFailure(
@@ -285,11 +314,10 @@ void OAuth2AccessTokenFetcherImpl::OnGetTokenFailure(
   FireOnGetTokenFailure(error);
 }
 
-void OAuth2AccessTokenFetcherImpl::OnURLFetchComplete(
-    const net::URLFetcher* source) {
-  CHECK(source);
+void OAuth2AccessTokenFetcherImpl::OnURLLoadComplete(
+    std::unique_ptr<std::string> response_body) {
   CHECK(state_ == GET_ACCESS_TOKEN_STARTED);
-  EndGetAccessToken(source);
+  EndGetAccessToken(std::move(response_body));
 }
 
 // static
@@ -326,27 +354,27 @@ std::string OAuth2AccessTokenFetcherImpl::MakeGetAccessTokenBody(
 
 // static
 bool OAuth2AccessTokenFetcherImpl::ParseGetAccessTokenSuccessResponse(
-    const net::URLFetcher* source,
+    std::unique_ptr<std::string> response_body,
     std::string* access_token,
-    int* expires_in) {
+    int* expires_in,
+    std::string* id_token) {
   CHECK(access_token);
   std::unique_ptr<base::DictionaryValue> value =
-      ParseGetAccessTokenResponse(source);
-  if (value.get() == NULL)
+      ParseGetAccessTokenResponse(std::move(response_body));
+  if (!value)
     return false;
-
+  // ID token field is optional.
+  value->GetString(kIdTokenKey, id_token);
   return value->GetString(kAccessTokenKey, access_token) &&
          value->GetInteger(kExpiresInKey, expires_in);
 }
 
 // static
 bool OAuth2AccessTokenFetcherImpl::ParseGetAccessTokenFailureResponse(
-    const net::URLFetcher* source,
+    std::unique_ptr<std::string> response_body,
     std::string* error) {
   CHECK(error);
   std::unique_ptr<base::DictionaryValue> value =
-      ParseGetAccessTokenResponse(source);
-  if (value.get() == NULL)
-    return false;
-  return value->GetString(kErrorKey, error);
+      ParseGetAccessTokenResponse(std::move(response_body));
+  return value ? value->GetString(kErrorKey, error) : false;
 }

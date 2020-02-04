@@ -50,7 +50,7 @@
 
 #include "chat.h"
 
-#include <QApplication>
+#include <QtWidgets/qapplication.h>
 //#include <QtCore/QLoggingCategory>
 
 int main(int argc, char *argv[])
@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     Chat d;
-    QObject::connect(&d, SIGNAL(accepted()), &app, SLOT(quit()));
+    QObject::connect(&d, &Chat::accepted, &app, &QApplication::quit);
 
 #ifdef Q_OS_ANDROID
     d.showMaximized();

@@ -20,6 +20,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "net/base/proxy_server.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
@@ -110,6 +111,7 @@ class TestURLFetcher : public URLFetcher {
                            bool is_last_chunk) override;
   void SetLoadFlags(int load_flags) override;
   int GetLoadFlags() const override;
+  void SetAllowCredentials(bool allow_credentials) override {}
   void SetReferrer(const std::string& referrer) override;
   void SetReferrerPolicy(URLRequest::ReferrerPolicy referrer_policy) override;
   void SetExtraRequestHeaders(
@@ -136,6 +138,7 @@ class TestURLFetcher : public URLFetcher {
       std::unique_ptr<URLFetcherResponseWriter> response_writer) override;
   HttpResponseHeaders* GetResponseHeaders() const override;
   HostPortPair GetSocketAddress() const override;
+  const ProxyServer& ProxyServerUsed() const override;
   bool WasFetchedViaProxy() const override;
   bool WasCached() const override;
   // Only valid when the response was set via SetResponseString().
@@ -230,6 +233,7 @@ class TestURLFetcher : public URLFetcher {
   std::string fake_response_string_;
   base::FilePath fake_response_file_path_;
   bool write_response_file_;
+  ProxyServer fake_proxy_server_;
   bool fake_was_fetched_via_proxy_;
   bool fake_was_cached_;
   int64_t fake_response_bytes_;

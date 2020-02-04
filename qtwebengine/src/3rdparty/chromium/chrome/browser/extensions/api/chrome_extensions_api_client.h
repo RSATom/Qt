@@ -30,6 +30,13 @@ class ChromeExtensionsAPIClient : public ExtensionsAPIClient {
       override;
   void AttachWebContentsHelpers(content::WebContents* web_contents) const
       override;
+  bool ShouldHideResponseHeader(const GURL& url,
+                                const std::string& header_name) const override;
+  bool ShouldHideBrowserNetworkRequest(
+      const WebRequestInfo& request) const override;
+  void NotifyWebRequestWithheld(int render_process_id,
+                                int render_frame_id,
+                                const ExtensionId& extension_id) override;
   AppViewGuestDelegate* CreateAppViewGuestDelegate() const override;
   ExtensionOptionsGuestDelegate* CreateExtensionOptionsGuestDelegate(
       ExtensionOptionsGuest* guest) const override;
@@ -43,21 +50,22 @@ class ChromeExtensionsAPIClient : public ExtensionsAPIClient {
       WebViewGuest* web_view_guest) const override;
   WebViewPermissionHelperDelegate* CreateWebViewPermissionHelperDelegate(
       WebViewPermissionHelper* web_view_permission_helper) const override;
-  std::unique_ptr<WebRequestEventRouterDelegate>
-  CreateWebRequestEventRouterDelegate() const override;
   scoped_refptr<ContentRulesRegistry> CreateContentRulesRegistry(
       content::BrowserContext* browser_context,
       RulesCacheDelegate* cache_delegate) const override;
   std::unique_ptr<DevicePermissionsPrompt> CreateDevicePermissionsPrompt(
       content::WebContents* web_contents) const override;
-  std::unique_ptr<VirtualKeyboardDelegate> CreateVirtualKeyboardDelegate()
-      const override;
+  std::unique_ptr<VirtualKeyboardDelegate> CreateVirtualKeyboardDelegate(
+      content::BrowserContext* browser_context) const override;
   ManagementAPIDelegate* CreateManagementAPIDelegate() const override;
   MetricsPrivateDelegate* GetMetricsPrivateDelegate() override;
   NetworkingCastPrivateDelegate* GetNetworkingCastPrivateDelegate() override;
   FileSystemDelegate* GetFileSystemDelegate() override;
+  MessagingDelegate* GetMessagingDelegate() override;
+  FeedbackPrivateDelegate* GetFeedbackPrivateDelegate() override;
 
 #if defined(OS_CHROMEOS)
+  MediaPerceptionAPIDelegate* GetMediaPerceptionAPIDelegate() override;
   NonNativeFileSystemDelegate* GetNonNativeFileSystemDelegate() override;
 
   void SaveImageDataToClipboard(
@@ -73,8 +81,11 @@ class ChromeExtensionsAPIClient : public ExtensionsAPIClient {
   std::unique_ptr<NetworkingCastPrivateDelegate>
       networking_cast_private_delegate_;
   std::unique_ptr<FileSystemDelegate> file_system_delegate_;
+  std::unique_ptr<MessagingDelegate> messaging_delegate_;
+  std::unique_ptr<FeedbackPrivateDelegate> feedback_private_delegate_;
 
 #if defined(OS_CHROMEOS)
+  std::unique_ptr<MediaPerceptionAPIDelegate> media_perception_api_delegate_;
   std::unique_ptr<NonNativeFileSystemDelegate> non_native_file_system_delegate_;
   std::unique_ptr<ClipboardExtensionHelper> clipboard_extension_helper_;
 #endif

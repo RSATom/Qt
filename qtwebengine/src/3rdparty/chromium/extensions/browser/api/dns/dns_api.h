@@ -8,17 +8,16 @@
 #include <string>
 
 #include "extensions/browser/extension_function.h"
+#include "mojo/public/cpp/bindings/binding.h"
 #include "net/base/address_list.h"
 #include "net/base/completion_callback.h"
-#include "net/dns/host_resolver.h"
-
-namespace content {
-class ResourceContext;
-}
+#include "services/network/public/cpp/resolve_host_client_base.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 
 namespace extensions {
 
-class DnsResolveFunction : public AsyncExtensionFunction {
+class DnsResolveFunction : public UIThreadExtensionFunction,
+                           public network::ResolveHostClientBase {
  public:
   DECLARE_EXTENSION_FUNCTION("dns.resolve", DNS_RESOLVE)
 
@@ -27,24 +26,18 @@ class DnsResolveFunction : public AsyncExtensionFunction {
  protected:
   ~DnsResolveFunction() override;
 
-  // ExtensionFunction:
-  bool RunAsync() override;
-
-  void WorkOnIOThread();
-  void RespondOnUIThread();
+  // UIThreadExtensionFunction:
+  ResponseAction Run() override;
 
  private:
-  void OnLookupFinished(int result);
+  // network::mojom::ResolveHostClient implementation:
+  void OnComplete(
+      int result,
+      const base::Optional<net::AddressList>& resolved_addresses) override;
 
-  std::string hostname_;
-
-  // Not owned.
-  content::ResourceContext* resource_context_;
-
-  bool response_;  // The value sent in SendResponse().
-
-  std::unique_ptr<net::HostResolver::Request> request_;
-  std::unique_ptr<net::AddressList> addresses_;
+  // A reference to |this| must be taken while the request is being made on this
+  // binding so the object is alive when the request completes.
+  mojo::Binding<network::mojom::ResolveHostClient> binding_;
 };
 
 }  // namespace extensions

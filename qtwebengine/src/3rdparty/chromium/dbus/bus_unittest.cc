@@ -5,6 +5,7 @@
 #include "dbus/bus.h"
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/file_descriptor_watcher_posix.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -30,7 +31,7 @@ namespace {
 class RunLoopWithExpectedCount {
  public:
   RunLoopWithExpectedCount() : expected_quit_calls_(0), actual_quit_calls_(0) {}
-  ~RunLoopWithExpectedCount() {}
+  ~RunLoopWithExpectedCount() = default;
 
   void Run(int expected_quit_calls) {
     DCHECK_EQ(0, expected_quit_calls_);
@@ -144,10 +145,9 @@ TEST(BusTest, RemoveObjectProxy) {
   ASSERT_FALSE(bus->shutdown_completed());
 
   // Try to remove a non existant object proxy should return false.
-  ASSERT_FALSE(
-      bus->RemoveObjectProxy("org.chromium.TestService",
-                             ObjectPath("/org/chromium/TestObject"),
-                             base::Bind(&base::DoNothing)));
+  ASSERT_FALSE(bus->RemoveObjectProxy("org.chromium.TestService",
+                                      ObjectPath("/org/chromium/TestObject"),
+                                      base::DoNothing()));
 
   ObjectProxy* object_proxy1 =
       bus->GetObjectProxy("org.chromium.TestService",
@@ -161,10 +161,9 @@ TEST(BusTest, RemoveObjectProxy) {
   // Remove the object from the bus. This will invalidate any other usage of
   // object_proxy1 other than destroy it. We keep this object for a comparison
   // at a later time.
-  ASSERT_TRUE(
-      bus->RemoveObjectProxy("org.chromium.TestService",
-                             ObjectPath("/org/chromium/TestObject"),
-                             base::Bind(&base::DoNothing)));
+  ASSERT_TRUE(bus->RemoveObjectProxy("org.chromium.TestService",
+                                     ObjectPath("/org/chromium/TestObject"),
+                                     base::DoNothing()));
 
   // This should return a different object because the first object was removed
   // from the bus, but not deleted from memory.
@@ -322,7 +321,8 @@ TEST(BusTest, ListenForServiceOwnerChange) {
   base::MessageLoopForIO message_loop;
 
   // This enables FileDescriptorWatcher, which is required by dbus::Watch.
-  base::FileDescriptorWatcher file_descriptor_watcher(&message_loop);
+  base::FileDescriptorWatcher file_descriptor_watcher(
+      message_loop.task_runner());
 
   RunLoopWithExpectedCount run_loop_state;
 
@@ -403,14 +403,14 @@ TEST(BusTest, GetConnectionName) {
   scoped_refptr<Bus> bus = new Bus(options);
 
   // Connection name is empty since bus is not connected.
-  EXPECT_FALSE(bus->is_connected());
+  EXPECT_FALSE(bus->IsConnected());
   EXPECT_TRUE(bus->GetConnectionName().empty());
 
   // Connect bus to D-Bus.
   bus->Connect();
 
   // Connection name is not empty after connection is established.
-  EXPECT_TRUE(bus->is_connected());
+  EXPECT_TRUE(bus->IsConnected());
   EXPECT_FALSE(bus->GetConnectionName().empty());
 
   // Shut down synchronously.

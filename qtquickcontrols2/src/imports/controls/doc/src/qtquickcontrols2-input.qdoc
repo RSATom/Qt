@@ -31,7 +31,7 @@
     \ingroup qtquickcontrols2-guidelines
     \brief Guidelines for input controls
 
-    Qt Quick Controls 2 offers a variety of input controls for both numeric
+    Qt Quick Controls offers a variety of input controls for both numeric
     and textual input.
 
     \annotatedlist qtquickcontrols2-input
@@ -66,6 +66,16 @@
 
     The dial is rotated by clicking and dragging, with the handle indicating the
     value of the dial.
+
+    For applications where fast input is important, the circular
+    \l {Dial::inputMode}{input mode} is useful, as clicking on the dial will
+    move it directly to that position.
+
+    For applications where precise input is important, the horizontal and
+    vertical input modes are recommended, as these allow small adjustments to
+    be made relative to where the dial is clicked. These modes are also better
+    for dials where large jumps in values could be unsafe, such as a dial that
+    controls audio volume.
 
     \b {See also} \l {Tumbler Control}.
 
@@ -108,6 +118,6 @@
 
     \section1 Related Information
     \list
-    \li \l {Qt Quick Controls 2 Guidelines}
+    \li \l {Qt Quick Controls Guidelines}
     \endlist
 */

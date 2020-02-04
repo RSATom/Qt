@@ -31,7 +31,7 @@ CBC_Code39::CBC_Code39()
 
 CBC_Code39::~CBC_Code39() {}
 
-bool CBC_Code39::Encode(const CFX_WideStringC& contents, bool isDevice) {
+bool CBC_Code39::Encode(WideStringView contents) {
   if (contents.IsEmpty())
     return false;
 
@@ -39,37 +39,26 @@ bool CBC_Code39::Encode(const CFX_WideStringC& contents, bool isDevice) {
   int32_t outWidth = 0;
   int32_t outHeight = 0;
   auto* pWriter = GetOnedCode39Writer();
-  CFX_WideString filtercontents = pWriter->FilterContents(contents);
-  CFX_WideString renderContents = pWriter->RenderTextContents(contents);
-  m_renderContents = renderContents;
-  CFX_ByteString byteString = filtercontents.UTF8Encode();
+  WideString filtercontents = pWriter->FilterContents(contents);
+  m_renderContents = pWriter->RenderTextContents(contents);
+  ByteString byteString = filtercontents.ToUTF8();
   std::unique_ptr<uint8_t, FxFreeDeleter> data(
       pWriter->Encode(byteString, format, outWidth, outHeight));
-  if (!data)
-    return false;
-  return pWriter->RenderResult(renderContents.AsStringC(), data.get(), outWidth,
-                               isDevice);
+  return data && pWriter->RenderResult(m_renderContents.AsStringView(),
+                                       data.get(), outWidth);
 }
 
 bool CBC_Code39::RenderDevice(CFX_RenderDevice* device,
                               const CFX_Matrix* matrix) {
   auto* pWriter = GetOnedCode39Writer();
-  CFX_WideString renderCon;
-  if (!pWriter->encodedContents(m_renderContents.AsStringC(), &renderCon))
+  WideString renderCon;
+  if (!pWriter->encodedContents(m_renderContents.AsStringView(), &renderCon))
     return false;
-  return pWriter->RenderDeviceResult(device, matrix, renderCon.AsStringC());
+  return pWriter->RenderDeviceResult(device, matrix, renderCon.AsStringView());
 }
 
 BC_TYPE CBC_Code39::GetType() {
   return BC_CODE39;
-}
-
-bool CBC_Code39::SetTextLocation(BC_TEXT_LOC location) {
-  return GetOnedCode39Writer()->SetTextLocation(location);
-}
-
-bool CBC_Code39::SetWideNarrowRatio(int8_t ratio) {
-  return GetOnedCode39Writer()->SetWideNarrowRatio(ratio);
 }
 
 CBC_OnedCode39Writer* CBC_Code39::GetOnedCode39Writer() {

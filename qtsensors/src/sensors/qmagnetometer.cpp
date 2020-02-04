@@ -271,6 +271,6 @@ void QMagnetometer::setReturnGeoValues(bool returnGeoValues)
     }
 }
 
-#include "moc_qmagnetometer.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qmagnetometer.cpp"

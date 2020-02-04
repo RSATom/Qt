@@ -30,6 +30,7 @@
     \title Qt 3D Input C++ Classes
     \brief The Qt 3D Input module provides classes for handling user input in
            applications using Qt3D.
+    \since 5.7
 
     \ingroup modules
     \ingroup qt3d-modules
@@ -57,8 +58,10 @@
 */
 
 /*!
-   \qmlmodule Qt3D.Input 2.0
+   \qmlmodule Qt3D.Input 2.\QtMinorVersion
    \title Qt 3D Input QML Types
+   \since 5.7
+
    \ingroup qmlmodules
    \ingroup qt3d-qmlmodules
 
@@ -66,9 +69,9 @@
 
    To import and use the module's QML types, use the following statement:
 
-   \badcode
-   import Qt3D.Input 2.0
-   \endcode
+   \qml \QtMinorVersion
+   import Qt3D.Input 2.\1
+   \endqml
 
    \section1 QML Types
 */

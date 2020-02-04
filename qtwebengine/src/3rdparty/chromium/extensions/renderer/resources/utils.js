@@ -6,17 +6,15 @@ var nativeDeepCopy = requireNative('utils').deepCopy;
 var logActivity = requireNative('activityLogger');
 var exceptionHandler = require('uncaught_exception_handler');
 
-var runCallbackWithLastError;
-if (bindingUtil) {
-  runCallbackWithLastError = function(name, message, stack, callback, args) {
+var jsLastError = bindingUtil ? undefined : require('lastError');
+function runCallbackWithLastError(name, message, stack, callback, args) {
+  if (bindingUtil) {
     bindingUtil.runCallbackWithLastError(message, function() {
       $Function.apply(callback, null, args);
     });
+  } else {
+    jsLastError.run(name, message, stack, callback, args);
   }
-} else {
-  var lastError = require('lastError');
-  if (lastError)  // lastError can be undefined in unittests.
-    runCallbackWithLastError = lastError.run;
 }
 
 /**
@@ -199,9 +197,7 @@ function handleRequestWithPromiseDoNotUse(
     var stack = exceptionHandler.getExtensionStackTrace();
     var callback = arguments[arguments.length - 1];
     var args = $Array.slice(arguments, 0, arguments.length - 1);
-    var keepAlivePromise = requireAsync('keep_alive').then(function(module) {
-      return module.createKeepAlive();
-    });
+    var keepAlive = require('keep_alive').createKeepAlive();
     $Function.apply(customizedFunction, this, args).then(function(result) {
       if (callback) {
         exceptionHandler.safeCallbackApply(
@@ -213,9 +209,7 @@ function handleRequestWithPromiseDoNotUse(
         runCallbackWithLastError(fullName, message, stack, callback);
       }
     }).then(function() {
-      keepAlivePromise.then(function(keepAlive) {
-        keepAlive.close();
-      });
+      keepAlive.close();
     });
   });
 };

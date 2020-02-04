@@ -370,7 +370,10 @@ static QList<QNetworkProxy> parseServerList(const QNetworkProxyQuery &query, con
 #if !defined(Q_OS_WINRT)
 namespace {
 class QRegistryWatcher {
+    Q_DISABLE_COPY_MOVE(QRegistryWatcher)
 public:
+    QRegistryWatcher() = default;
+
     void addLocation(HKEY hive, const QString& path)
     {
         HKEY openedKey;
@@ -422,6 +425,7 @@ private:
 
 class QWindowsSystemProxy
 {
+    Q_DISABLE_COPY_MOVE(QWindowsSystemProxy)
 public:
     QWindowsSystemProxy();
     ~QWindowsSystemProxy();
@@ -566,7 +570,7 @@ void QWindowsSystemProxy::init()
                                                  WINHTTP_AUTO_DETECT_TYPE_DNS_A;
         } else {
             autoProxyOptions.dwFlags = WINHTTP_AUTOPROXY_CONFIG_URL;
-            autoProxyOptions.lpszAutoConfigUrl = (LPCWSTR)autoConfigUrl.utf16();
+            autoProxyOptions.lpszAutoConfigUrl = reinterpret_cast<LPCWSTR>(autoConfigUrl.utf16());
         }
     }
 
@@ -608,7 +612,7 @@ QList<QNetworkProxy> QNetworkProxyFactory::systemProxyForQuery(const QNetworkPro
         }
 
         bool getProxySucceeded = ptrWinHttpGetProxyForUrl(sp->hHttpSession,
-                                                (LPCWSTR)urlQueryString.utf16(),
+                                                reinterpret_cast<LPCWSTR>(urlQueryString.utf16()),
                                                 &sp->autoProxyOptions,
                                                 &proxyInfo);
         DWORD getProxyError = GetLastError();
@@ -623,9 +627,10 @@ QList<QNetworkProxy> QNetworkProxyFactory::systemProxyForQuery(const QNetworkPro
             } else {
                 //pac file URL is specified as well, try using that
                 sp->autoProxyOptions.dwFlags = WINHTTP_AUTOPROXY_CONFIG_URL;
-                sp->autoProxyOptions.lpszAutoConfigUrl = (LPCWSTR)sp->autoConfigUrl.utf16();
+                sp->autoProxyOptions.lpszAutoConfigUrl =
+                    reinterpret_cast<LPCWSTR>(sp->autoConfigUrl.utf16());
                 getProxySucceeded = ptrWinHttpGetProxyForUrl(sp->hHttpSession,
-                                                (LPCWSTR)urlQueryString.utf16(),
+                                                reinterpret_cast<LPCWSTR>(urlQueryString.utf16()),
                                                 &sp->autoProxyOptions,
                                                 &proxyInfo);
                 getProxyError = GetLastError();
@@ -638,7 +643,7 @@ QList<QNetworkProxy> QNetworkProxyFactory::systemProxyForQuery(const QNetworkPro
             // But now we've to enable it (http://msdn.microsoft.com/en-us/library/aa383153%28v=VS.85%29.aspx)
             sp->autoProxyOptions.fAutoLogonIfChallenged = TRUE;
             getProxySucceeded = ptrWinHttpGetProxyForUrl(sp->hHttpSession,
-                                               (LPCWSTR)urlQueryString.utf16(),
+                                                reinterpret_cast<LPCWSTR>(urlQueryString.utf16()),
                                                 &sp->autoProxyOptions,
                                                 &proxyInfo);
             getProxyError = GetLastError();

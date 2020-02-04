@@ -13,8 +13,11 @@
 #include "base/power_monitor/power_monitor.h"
 #include "base/power_monitor/power_monitor_device_source.h"
 #include "base/run_loop.h"
+#include "base/task/task_scheduler/task_scheduler.h"
 #include "build/build_config.h"
 #include "components/viz/host/host_frame_sink_manager.h"
+#include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
+#include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "third_party/skia/include/core/SkBlendMode.h"
 #include "ui/aura/client/default_capture_client.h"
 #include "ui/aura/client/window_parenting_client.h"
@@ -25,6 +28,7 @@
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/hit_test.h"
+#include "ui/base/ime/input_method_initializer.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/compositor/test/in_process_context_factory.h"
 #include "ui/events/event.h"
@@ -82,12 +86,13 @@ class DemoWindowDelegate : public aura::WindowDelegate {
       recorder.canvas()->FillRect(r, color_, SkBlendMode::kXor);
     }
   }
-  void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
+  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                  float new_device_scale_factor) override {}
   void OnWindowDestroying(aura::Window* window) override {}
   void OnWindowDestroyed(aura::Window* window) override {}
   void OnWindowTargetVisibilityChanged(bool visible) override {}
   bool HasHitTestMask() const override { return false; }
-  void GetHitTestMask(gfx::Path* mask) const override {}
+  void GetHitTestMask(SkPath* mask) const override {}
 
  private:
   SkColor color_;
@@ -137,15 +142,20 @@ int DemoMain() {
   display::win::SetDefaultDeviceScaleFactor(1.0f);
 #endif
 
-  // The ContextFactory must exist before any Compositors are created.
-  viz::HostFrameSinkManager host_frame_sink_manager;
-  viz::FrameSinkManagerImpl frame_sink_manager;
-  auto context_factory = base::MakeUnique<ui::InProcessContextFactory>(
-      &host_frame_sink_manager, &frame_sink_manager);
-  context_factory->set_use_test_surface(false);
-
   // Create the message-loop here before creating the root window.
   base::MessageLoopForUI message_loop;
+  base::TaskScheduler::CreateAndStartWithDefaultParams("demo");
+  ui::InitializeInputMethodForTesting();
+
+  // The ContextFactory must exist before any Compositors are created.
+  viz::HostFrameSinkManager host_frame_sink_manager;
+  viz::ServerSharedBitmapManager server_shared_bitmap_manager;
+  viz::FrameSinkManagerImpl frame_sink_manager(&server_shared_bitmap_manager);
+  host_frame_sink_manager.SetLocalManager(&frame_sink_manager);
+  frame_sink_manager.SetLocalClient(&host_frame_sink_manager);
+  auto context_factory = std::make_unique<ui::InProcessContextFactory>(
+      &host_frame_sink_manager, &frame_sink_manager);
+  context_factory->set_use_test_surface(false);
 
   base::PowerMonitor power_monitor(
       base::WrapUnique(new base::PowerMonitorDeviceSource));

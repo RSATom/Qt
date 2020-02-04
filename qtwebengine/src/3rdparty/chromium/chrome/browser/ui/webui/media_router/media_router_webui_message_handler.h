@@ -5,14 +5,16 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_MEDIA_ROUTER_MEDIA_ROUTER_WEBUI_MESSAGE_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_MEDIA_ROUTER_MEDIA_ROUTER_WEBUI_MESSAGE_HANDLER_H_
 
+#include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/optional.h"
-#include "chrome/browser/ui/webui/media_router/media_cast_mode.h"
-#include "chrome/browser/ui/webui/media_router/media_sink_with_cast_modes.h"
+#include "chrome/browser/ui/media_router/media_cast_mode.h"
+#include "chrome/browser/ui/media_router/media_sink_with_cast_modes.h"
 #include "chrome/common/media_router/issue.h"
 #include "chrome/common/media_router/media_status.h"
 #include "components/signin/core/browser/account_info.h"
@@ -41,7 +43,7 @@ class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
   ~MediaRouterWebUIMessageHandler() override;
 
   // Methods to update the status displayed by the dialog.
-  void UpdateSinks(const std::vector<MediaSinkWithCastModes>& sinks);
+  virtual void UpdateSinks(const std::vector<MediaSinkWithCastModes>& sinks);
   void UpdateRoutes(const std::vector<MediaRoute>& routes,
                     const std::vector<MediaRoute::Id>& joinable_route_ids,
                     const std::unordered_map<MediaRoute::Id, MediaCastMode>&
@@ -54,7 +56,7 @@ class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
                                      const MediaRoute* route);
   void ReturnSearchResult(const std::string& sink_id);
 
-  void UpdateIssue(const Issue& issue);
+  virtual void UpdateIssue(const Issue& issue);
   void ClearIssue();
 
   // Updates the maximum dialog height to allow the WebUI properly scale when
@@ -86,6 +88,8 @@ class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
                            OnMediaCommandsReceived);
   FRIEND_TEST_ALL_PREFIXES(MediaRouterWebUIMessageHandlerTest,
                            OnInvalidMediaCommandsReceived);
+  FRIEND_TEST_ALL_PREFIXES(MediaRouterWebUIMessageHandlerTest,
+                           OnSetMediaRemotingEnabled);
 
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
@@ -124,6 +128,8 @@ class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
   void OnSeekCurrentMedia(const base::ListValue* args);
   void OnSetCurrentMediaMute(const base::ListValue* args);
   void OnSetCurrentMediaVolume(const base::ListValue* args);
+  void OnSetHangoutsLocalPresent(const base::ListValue* args);
+  void OnSetMediaRemotingEnabled(const base::ListValue* args);
 
   // Performs an action for an Issue of |type|.
   // |args| contains additional parameter that varies based on |type|.
@@ -161,9 +167,6 @@ class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
 
   // Keeps track of whether a command to close the dialog has been issued.
   bool dialog_closing_;
-
-  // Whether the WebUI version of route controller is available for use.
-  const bool is_web_ui_route_controller_available_;
 
   // The media status currently shown in the UI.
   base::Optional<MediaStatus> current_media_status_;

@@ -228,8 +228,8 @@ void GLWidget::draw()
     const QString str1(tr("A simple OpenGL framebuffer object example."));
     const QString str2(tr("Use the mouse wheel to zoom, press buttons and move mouse to rotate, double-click to flip."));
     QFontMetrics fm(p.font());
-    p.drawText(width()/2 - fm.width(str1)/2, 20, str1);
-    p.drawText(width()/2 - fm.width(str2)/2, 20 + fm.lineSpacing(), str2);
+    p.drawText(width()/2 - fm.horizontalAdvance(str1)/2, 20, str1);
+    p.drawText(width()/2 - fm.horizontalAdvance(str2)/2, 20 + fm.lineSpacing(), str2);
 }
 
 void GLWidget::mousePressEvent(QMouseEvent *e)

@@ -10,13 +10,6 @@ defineReplace(getChromiumSrcDir) {
   return($$git_chromium_src_dir)
 }
 
-defineReplace(extractCFlag) {
-    CFLAGS = $$QMAKE_CC $$QMAKE_CFLAGS
-    OPTION = $$find(CFLAGS, $$1)
-    OPTION = $$split(OPTION, =)
-    return ($$member(OPTION, 1))
-}
-
 defineReplace(which) {
   out = $$1
   win32 {
@@ -70,17 +63,14 @@ defineReplace(ninjaPath) {
 
 defineReplace(gnPath) {
     src_3rd_party_dir = $$absolute_path("$${getChromiumSrcDir()}/../", "$$QTWEBENGINE_ROOT")
-    out = $$shadowed($$absolute_path(chromium/tools/gn/out/Release/gn, $$src_3rd_party_dir))
+    out = $$shadowed($$absolute_path(gn/out/Release/gn, $$src_3rd_party_dir))
 
     win32: out = $${out}.exe
     return($$out)
 }
 
 defineReplace(gnArgs) {
-    linux {
-        qtConfig(webengine-embedded-build): include($$QTWEBENGINE_ROOT/src/core/config/embedded_linux.pri)
-        else: include($$QTWEBENGINE_ROOT/src/core/config/desktop_linux.pri)
-    }
+    linux: include($$QTWEBENGINE_ROOT/src/core/config/linux.pri)
     macos: include($$QTWEBENGINE_ROOT/src/core/config/mac_osx.pri)
     win32: include($$QTWEBENGINE_ROOT/src/core/config/windows.pri)
     isEmpty(gn_args): error(No gn_args found please make sure you have valid configuration.)
@@ -130,3 +120,4 @@ defineReplace(pkgConfigHostExecutable) {
     export(QMAKE_DISTCLEAN)
     return($$system_quote($$system_path($$wrapper_name)))
 }
+

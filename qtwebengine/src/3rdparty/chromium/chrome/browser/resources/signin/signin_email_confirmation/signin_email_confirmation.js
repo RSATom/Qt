@@ -6,9 +6,9 @@ cr.define('signin.emailConfirmation', function() {
   'use strict';
 
   function initialize() {
-    var args = JSON.parse(chrome.getVariableValue('dialogArguments'));
-    var lastEmail = args.lastEmail;
-    var newEmail = args.newEmail;
+    const args = JSON.parse(chrome.getVariableValue('dialogArguments'));
+    const lastEmail = args.lastEmail;
+    const newEmail = args.newEmail;
     $('dialogTitle').textContent =
         loadTimeData.getStringF('signinEmailConfirmationTitle', lastEmail);
     $('createNewUserRadioButtonSubtitle').textContent = loadTimeData.getStringF(
@@ -33,15 +33,7 @@ cr.define('signin.emailConfirmation', function() {
   }
 
   function onConfirm(e) {
-    var action;
-    if ($('createNewUserRadioButton').active) {
-      action = 'createNewUser';
-    } else if ($('startSyncRadioButton').active) {
-      action = 'startSync';
-    } else {
-      // Action is unknown as no radio button is selected.
-      action = 'unknown';
-    }
+    const action = document.querySelector('cr-radio-group').selected;
     chrome.send('dialogClose', [JSON.stringify({'action': action})]);
   }
 

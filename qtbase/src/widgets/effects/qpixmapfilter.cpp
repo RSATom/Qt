@@ -54,6 +54,8 @@
 #include "private/qmemrotate_p.h"
 #include "private/qdrawhelper_p.h"
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 
 class QPixmapFilterPrivate : public QObjectPrivate
@@ -319,7 +321,7 @@ static void convolute(
     const QImage processImage = (srcImage.format() != QImage::Format_ARGB32_Premultiplied ) ?               srcImage.convertToFormat(QImage::Format_ARGB32_Premultiplied) : srcImage;
     // TODO: support also other formats directly without copying
 
-    int *fixedKernel = new int[kernelWidth*kernelHeight];
+    std::unique_ptr<int[]> fixedKernel(new int[kernelWidth * kernelHeight]);
     for(int i = 0; i < kernelWidth*kernelHeight; i++)
     {
         fixedKernel[i] = (int)(65536 * kernel[i]);
@@ -403,7 +405,6 @@ static void convolute(
         }
         yk++;
     }
-    delete[] fixedKernel;
 }
 
 /*!
@@ -1104,13 +1105,15 @@ void QPixmapColorizeFilter::draw(QPainter *painter, const QPointF &dest, const Q
 
     if (srcRect.isNull()) {
         srcImage = src.toImage();
-        srcImage = srcImage.convertToFormat(srcImage.hasAlphaChannel() ? QImage::Format_ARGB32_Premultiplied : QImage::Format_RGB32);
+        const auto format = srcImage.hasAlphaChannel() ? QImage::Format_ARGB32_Premultiplied : QImage::Format_RGB32;
+        srcImage = std::move(srcImage).convertToFormat(format);
         destImage = QImage(srcImage.size(), srcImage.format());
     } else {
         QRect rect = srcRect.toAlignedRect().intersected(src.rect());
 
         srcImage = src.copy(rect).toImage();
-        srcImage = srcImage.convertToFormat(srcImage.hasAlphaChannel() ? QImage::Format_ARGB32_Premultiplied : QImage::Format_RGB32);
+        const auto format = srcImage.hasAlphaChannel() ? QImage::Format_ARGB32_Premultiplied : QImage::Format_RGB32;
+        srcImage = std::move(srcImage).convertToFormat(format);
         destImage = QImage(rect.size(), srcImage.format());
     }
     destImage.setDevicePixelRatio(src.devicePixelRatioF());
@@ -1129,7 +1132,7 @@ void QPixmapColorizeFilter::draw(QPainter *painter, const QPointF &dest, const Q
         bufPainter.setOpacity(d->strength);
         bufPainter.drawImage(0, 0, destImage);
         bufPainter.end();
-        destImage = buffer;
+        destImage = std::move(buffer);
     }
 
     if (srcImage.hasAlphaChannel())
@@ -1333,7 +1336,7 @@ void QPixmapDropShadowFilter::draw(QPainter *p,
     qt_blurImage(&blurPainter, tmp, d->radius, false, true);
     blurPainter.end();
 
-    tmp = blurred;
+    tmp = std::move(blurred);
 
     // blacken the image...
     tmpPainter.begin(&tmp);

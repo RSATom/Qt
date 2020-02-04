@@ -11,13 +11,13 @@
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/appcache/appcache_database.h"
 #include "content/browser/appcache/appcache_storage_impl.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/resource_context.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/test/appcache_test_helper.h"
@@ -38,39 +38,15 @@ const char kProtectedManifest[] = "http://www.protected.com/cache.manifest";
 const char kNormalManifest[] = "http://www.normal.com/cache.manifest";
 const char kSessionOnlyManifest[] = "http://www.sessiononly.com/cache.manifest";
 
-class MockURLRequestContextGetter : public net::URLRequestContextGetter {
- public:
-  MockURLRequestContextGetter(
-      net::URLRequestContext* context,
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-      : context_(context), task_runner_(std::move(task_runner)) {}
-
-  net::URLRequestContext* GetURLRequestContext() override { return context_; }
-
-  scoped_refptr<base::SingleThreadTaskRunner> GetNetworkTaskRunner()
-      const override {
-    return task_runner_;
-  }
-
- protected:
-  ~MockURLRequestContextGetter() override {}
-
- private:
-  net::URLRequestContext* context_;
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-};
-
 }  // namespace
 
 class ChromeAppCacheServiceTest : public testing::Test {
  public:
   ChromeAppCacheServiceTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO),
+      : thread_bundle_(base::test::ScopedTaskEnvironment::MainThreadType::IO),
         kProtectedManifestURL(kProtectedManifest),
         kNormalManifestURL(kNormalManifest),
-        kSessionOnlyManifestURL(kSessionOnlyManifest),
-        thread_bundle_(TestBrowserThreadBundle::Options::IO_MAINLOOP) {}
+        kSessionOnlyManifestURL(kSessionOnlyManifest) {}
 
  protected:
   scoped_refptr<ChromeAppCacheService> CreateAppCacheServiceImpl(
@@ -78,14 +54,13 @@ class ChromeAppCacheServiceTest : public testing::Test {
       bool init_storage);
   void InsertDataIntoAppCache(ChromeAppCacheService* appcache_service);
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  TestBrowserThreadBundle thread_bundle_;
   base::ScopedTempDir temp_dir_;
   const GURL kProtectedManifestURL;
   const GURL kNormalManifestURL;
   const GURL kSessionOnlyManifestURL;
 
  private:
-  TestBrowserThreadBundle thread_bundle_;
   TestBrowserContext browser_context_;
 };
 
@@ -94,30 +69,27 @@ ChromeAppCacheServiceTest::CreateAppCacheServiceImpl(
     const base::FilePath& appcache_path,
     bool init_storage) {
   scoped_refptr<ChromeAppCacheService> appcache_service =
-      new ChromeAppCacheService(NULL);
+      new ChromeAppCacheService(nullptr);
   scoped_refptr<MockSpecialStoragePolicy> mock_policy =
       new MockSpecialStoragePolicy;
   mock_policy->AddProtected(kProtectedManifestURL.GetOrigin());
   mock_policy->AddSessionOnly(kSessionOnlyManifestURL.GetOrigin());
-  scoped_refptr<MockURLRequestContextGetter> mock_request_context_getter =
-      new MockURLRequestContextGetter(
-          browser_context_.GetResourceContext()->GetRequestContext(),
-          base::ThreadTaskRunnerHandle::Get());
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&ChromeAppCacheService::InitializeOnIOThread,
-                 appcache_service, appcache_path,
-                 browser_context_.GetResourceContext(),
-                 base::RetainedRef(mock_request_context_getter), mock_policy));
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(
+          &ChromeAppCacheService::InitializeOnIOThread, appcache_service,
+          appcache_path, browser_context_.GetResourceContext(),
+          base::RetainedRef(browser_context_.GetRequestContext()),
+          mock_policy));
   // Steps needed to initialize the storage of AppCache data.
-  scoped_task_environment_.RunUntilIdle();
+  thread_bundle_.RunUntilIdle();
   if (init_storage) {
     AppCacheStorageImpl* storage =
         static_cast<AppCacheStorageImpl*>(
             appcache_service->storage());
     storage->database_->db_connection();
     storage->disk_cache();
-    scoped_task_environment_.RunUntilIdle();
+    thread_bundle_.RunUntilIdle();
   }
   return appcache_service;
 }
@@ -130,12 +102,14 @@ void ChromeAppCacheServiceTest::InsertDataIntoAppCache(
   appcache_helper.AddGroupAndCache(appcache_service, kSessionOnlyManifestURL);
 
   // Verify that adding the data succeeded
-  std::set<GURL> origins;
+  std::set<url::Origin> origins;
   appcache_helper.GetOriginsWithCaches(appcache_service, &origins);
   ASSERT_EQ(3UL, origins.size());
-  ASSERT_TRUE(origins.find(kProtectedManifestURL.GetOrigin()) != origins.end());
-  ASSERT_TRUE(origins.find(kNormalManifestURL.GetOrigin()) != origins.end());
-  ASSERT_TRUE(origins.find(kSessionOnlyManifestURL.GetOrigin()) !=
+  ASSERT_TRUE(origins.find(url::Origin::Create(kProtectedManifestURL)) !=
+              origins.end());
+  ASSERT_TRUE(origins.find(url::Origin::Create(kNormalManifestURL)) !=
+              origins.end());
+  ASSERT_TRUE(origins.find(url::Origin::Create(kSessionOnlyManifestURL)) !=
               origins.end());
 }
 
@@ -152,8 +126,8 @@ TEST_F(ChromeAppCacheServiceTest, KeepOnDestruction) {
   InsertDataIntoAppCache(appcache_service.get());
 
   // Test: delete the ChromeAppCacheService
-  appcache_service = NULL;
-  scoped_task_environment_.RunUntilIdle();
+  appcache_service = nullptr;
+  thread_bundle_.RunUntilIdle();
 
   // Recreate the appcache (for reading the data back)
   appcache_service = CreateAppCacheServiceImpl(appcache_path, false);
@@ -163,17 +137,19 @@ TEST_F(ChromeAppCacheServiceTest, KeepOnDestruction) {
 
   // The appcache data is also there, except the session-only origin.
   AppCacheTestHelper appcache_helper;
-  std::set<GURL> origins;
+  std::set<url::Origin> origins;
   appcache_helper.GetOriginsWithCaches(appcache_service.get(), &origins);
   EXPECT_EQ(2UL, origins.size());
-  EXPECT_TRUE(origins.find(kProtectedManifestURL.GetOrigin()) != origins.end());
-  EXPECT_TRUE(origins.find(kNormalManifestURL.GetOrigin()) != origins.end());
-  EXPECT_TRUE(origins.find(kSessionOnlyManifestURL.GetOrigin()) ==
+  EXPECT_TRUE(origins.find(url::Origin::Create(kProtectedManifestURL)) !=
+              origins.end());
+  EXPECT_TRUE(origins.find(url::Origin::Create(kNormalManifestURL)) !=
+              origins.end());
+  EXPECT_TRUE(origins.find(url::Origin::Create(kSessionOnlyManifestURL)) ==
               origins.end());
 
   // Delete and let cleanup tasks run prior to returning.
-  appcache_service = NULL;
-  scoped_task_environment_.RunUntilIdle();
+  appcache_service = nullptr;
+  thread_bundle_.RunUntilIdle();
 }
 
 TEST_F(ChromeAppCacheServiceTest, SaveSessionState) {
@@ -192,8 +168,8 @@ TEST_F(ChromeAppCacheServiceTest, SaveSessionState) {
   appcache_service->set_force_keep_session_state();
 
   // Test: delete the ChromeAppCacheService
-  appcache_service = NULL;
-  scoped_task_environment_.RunUntilIdle();
+  appcache_service = nullptr;
+  thread_bundle_.RunUntilIdle();
 
   // Recreate the appcache (for reading the data back)
   appcache_service = CreateAppCacheServiceImpl(appcache_path, false);
@@ -203,17 +179,19 @@ TEST_F(ChromeAppCacheServiceTest, SaveSessionState) {
 
   // No appcache data was deleted.
   AppCacheTestHelper appcache_helper;
-  std::set<GURL> origins;
+  std::set<url::Origin> origins;
   appcache_helper.GetOriginsWithCaches(appcache_service.get(), &origins);
   EXPECT_EQ(3UL, origins.size());
-  EXPECT_TRUE(origins.find(kProtectedManifestURL.GetOrigin()) != origins.end());
-  EXPECT_TRUE(origins.find(kNormalManifestURL.GetOrigin()) != origins.end());
-  EXPECT_TRUE(origins.find(kSessionOnlyManifestURL.GetOrigin()) !=
+  EXPECT_TRUE(origins.find(url::Origin::Create(kProtectedManifestURL)) !=
+              origins.end());
+  EXPECT_TRUE(origins.find(url::Origin::Create(kNormalManifestURL)) !=
+              origins.end());
+  EXPECT_TRUE(origins.find(url::Origin::Create(kSessionOnlyManifestURL)) !=
               origins.end());
 
   // Delete and let cleanup tasks run prior to returning.
-  appcache_service = NULL;
-  scoped_task_environment_.RunUntilIdle();
+  appcache_service = nullptr;
+  thread_bundle_.RunUntilIdle();
 }
 
 }  // namespace content

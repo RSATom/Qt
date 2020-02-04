@@ -10,7 +10,7 @@
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/supports_user_data.h"
 #include "components/domain_reliability/util.h"
 #include "net/base/load_flags.h"
@@ -58,12 +58,13 @@ class DomainReliabilityUploaderImpl
  public:
   DomainReliabilityUploaderImpl(
       MockableTime* time,
-      const scoped_refptr<
-          net::URLRequestContextGetter>& url_request_context_getter)
+      const scoped_refptr<net::URLRequestContextGetter>&
+          url_request_context_getter)
       : time_(time),
         url_request_context_getter_(url_request_context_getter),
         discard_uploads_(true),
-        shutdown_(false) {}
+        shutdown_(false),
+        discarded_upload_count_(0u) {}
 
   ~DomainReliabilityUploaderImpl() override {
     DCHECK(shutdown_);
@@ -75,11 +76,14 @@ class DomainReliabilityUploaderImpl
       int max_upload_depth,
       const GURL& upload_url,
       const DomainReliabilityUploader::UploadCallback& callback) override {
-    VLOG(1) << "Uploading report to " << upload_url;
-    VLOG(2) << "Report JSON: " << report_json;
+    DVLOG(1) << "Uploading report to " << upload_url;
+    DVLOG(2) << "Report JSON: " << report_json;
+
+    if (discard_uploads_)
+      discarded_upload_count_++;
 
     if (discard_uploads_ || shutdown_) {
-      VLOG(1) << "Discarding report instead of uploading.";
+      DVLOG(1) << "Discarding report instead of uploading.";
       UploadResult result;
       result.status = UploadResult::SUCCESS;
       callback.Run(result);
@@ -103,7 +107,7 @@ class DomainReliabilityUploaderImpl
             destination: GOOGLE_OWNED_SERVICE
           }
           policy {
-            cookies_allowed: false
+            cookies_allowed: NO
             setting:
               "Users can enable or disable Domain Reliability on desktop, via "
               "toggling 'Automatically send usage statistics and crash reports "
@@ -126,24 +130,21 @@ class DomainReliabilityUploaderImpl
     fetcher->Start();
 
     uploads_[fetcher] = {std::move(owned_fetcher), callback};
-
-    base::TimeTicks now = base::TimeTicks::Now();
-    if (!last_upload_start_time_.is_null()) {
-      UMA_HISTOGRAM_LONG_TIMES("DomainReliability.UploadIntervalGlobal",
-                               now - last_upload_start_time_);
-    }
-    last_upload_start_time_ = now;
   }
 
-  void set_discard_uploads(bool discard_uploads) override {
+  void SetDiscardUploads(bool discard_uploads) override {
     discard_uploads_ = discard_uploads;
-    VLOG(1) << "Setting discard_uploads to " << discard_uploads;
+    DVLOG(1) << "Setting discard_uploads to " << discard_uploads;
   }
 
   void Shutdown() override {
     DCHECK(!shutdown_);
     shutdown_ = true;
     uploads_.clear();
+  }
+
+  int GetDiscardedUploadCount() const override {
+    return discarded_upload_count_;
   }
 
   // net::URLFetcherDelegate implementation:
@@ -168,14 +169,13 @@ class DomainReliabilityUploaderImpl
       }
     }
 
-    VLOG(1) << "Upload finished with net error " << net_error
-            << ", response code " << http_response_code
-            << ", retry after " << retry_after;
+    DVLOG(1) << "Upload finished with net error " << net_error
+             << ", response code " << http_response_code << ", retry after "
+             << retry_after;
 
-    UMA_HISTOGRAM_SPARSE_SLOWLY("DomainReliability.UploadResponseCode",
-                                http_response_code);
-    UMA_HISTOGRAM_SPARSE_SLOWLY("DomainReliability.UploadNetError",
-                                -net_error);
+    base::UmaHistogramSparse("DomainReliability.UploadResponseCode",
+                             http_response_code);
+    base::UmaHistogramSparse("DomainReliability.UploadNetError", -net_error);
 
     UploadResult result;
     GetUploadResultFromResponseDetails(net_error,
@@ -196,8 +196,8 @@ class DomainReliabilityUploaderImpl
            std::pair<std::unique_ptr<net::URLFetcher>, UploadCallback>>
       uploads_;
   bool discard_uploads_;
-  base::TimeTicks last_upload_start_time_;
   bool shutdown_;
+  int discarded_upload_count_;
 };
 
 }  // namespace
@@ -212,12 +212,6 @@ std::unique_ptr<DomainReliabilityUploader> DomainReliabilityUploader::Create(
         url_request_context_getter) {
   return std::unique_ptr<DomainReliabilityUploader>(
       new DomainReliabilityUploaderImpl(time, url_request_context_getter));
-}
-
-// static
-bool DomainReliabilityUploader::OriginatedFromDomainReliability(
-    const net::URLRequest& request) {
-  return request.GetUserData(UploadUserData::kUserDataKey) != nullptr;
 }
 
 // static

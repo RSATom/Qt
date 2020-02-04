@@ -1,32 +1,41 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
+<link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
+<link rel="import" href="chrome://resources/cr_elements/cr_search_field/cr_search_field.html">
+<link rel="import" href="chrome://resources/html/find_shortcut_behavior.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-resizable-behavior/iron-resizable-behavior.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/neon-animation/neon-animatable-behavior.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-ripple/paper-ripple.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-spinner/paper-spinner.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-spinner/paper-spinner-lite.html">
 <link rel="import" href="../icons.html">
 <link rel="import" href="../route.html">
-<link rel="import" href="settings_subpage_search.html">
 <link rel="import" href="../settings_shared_css.html">
 
 <dom-module id="settings-subpage">
   <template>
     <style include="settings-shared">
       :host {
+        background-color: var(--cr-card-background-color);
+        bottom: 0;
         display: block;
+        left: 0;
+        min-height: fit-content;
         padding-bottom: 60px;
+        position: absolute;
+        right: 0;
+        top: 0;
+        @apply --cr-card-elevation;
       }
 
       #headerLine {
         min-height: 40px;
-        padding-bottom: 12px;
+        padding-bottom: 24px;
         padding-top: 8px;
       }
 
       #learnMore {
-        @apply(--cr-paper-icon-button-margin);
+        @apply --cr-paper-icon-button-margin;
         align-items: center;
         display: flex;
         height: var(--cr-icon-ripple-size);
@@ -35,34 +44,33 @@
         width: var(--cr-icon-ripple-size);
       }
 
-      button[is='paper-icon-button-light'] {
+      paper-icon-button-light {
         /* Centers the ripple on the icon with appropriate margin on right. */
-        -webkit-margin-end: 10px;
-        -webkit-margin-start: -10px;
+        margin-inline-end: 10px;
+        margin-inline-start: -10px;
       }
 
-      paper-spinner {
-        @apply(--cr-icon-height-width);
+      paper-spinner-lite {
+        @apply --cr-icon-height-width;
       }
 
       h1 {
-        color: var(--settings-nav-grey);
         flex: 1;  /* Push other items to the end. */
-        font-size: 107.6923%;  /* Go to 14px from 13px */
-        font-weight: 500;
+        @apply --cr-title-text;
       }
 
-      settings-subpage-search {
+      cr-search-field {
         /* Keep normal icon spacing from subpage-title-extra controls. */
-        -webkit-margin-start: 16px;
+        margin-inline-start: 16px;
       }
     </style>
     <div class="settings-box first" id="headerLine">
-      <button is="paper-icon-button-light" on-tap="onTapBack_"
-          aria-label="$i18n{back}" class="icon-arrow-back">
-      </button>
+      <paper-icon-button-light class="icon-arrow-back">
+        <button id="closeButton" on-click="onTapBack_"
+            aria-label="$i18n{back}"></button>
+      </paper-icon-button-light>
       <h1>[[pageTitle]]</h1>
-      <content select=".subpage-title-extra"></content>
+      <slot name="subpage-title-extra"></slot>
       <template is="dom-if" if="[[learnMoreUrl]]">
         <a id="learnMore" aria-label="$i18n{learnMore}"
             href="[[learnMoreUrl]]" target="_blank">
@@ -71,12 +79,12 @@
         </a>
       </template>
       <template is="dom-if" if="[[searchLabel]]">
-        <settings-subpage-search label="[[searchLabel]]"
+        <cr-search-field label="[[searchLabel]]"
             on-search-changed="onSearchChanged_">
-        </settings-subpage-search>
+        </cr-search-field>
       </template>
       <template is="dom-if" if="[[showSpinner]]">
-        <paper-spinner active></paper-spinner>
+        <paper-spinner-lite active></paper-spinner-lite>
       </template>
     </div>
     <slot></slot>

@@ -287,7 +287,7 @@ EXTERN_C int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */, 
     }
 
     if (run) {
-        if (SUCCEEDED(CoInitialize(0))) {
+        if (SUCCEEDED(CoInitializeEx(0, COINIT_APARTMENTTHREADED))) {
 #ifdef Q_CC_MINGW
             // define GlobalOptions class ID locally for MinGW, since it's missing from the distribution
             static const CLSID CLSID_GlobalOptions =
@@ -314,7 +314,7 @@ EXTERN_C int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /* hPrevInstance */, 
             }
             CoUninitialize();
         } else {
-            qErrnoWarning("CoInitialize() failed.");
+            qErrnoWarning("CoInitializeEx() failed.");
             nRet = -1;
         }
     }

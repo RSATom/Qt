@@ -63,16 +63,16 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
 
-class QT3DCORE_PRIVATE_EXPORT QBackendNodePrivate
+class Q_3DCORE_PRIVATE_EXPORT QBackendNodePrivate
         : public QObserverInterface
         , public QObservableInterface
 {
 public:
     QBackendNodePrivate(QBackendNode::Mode mode);
 
-    void setArbiter(QLockableObserverInterface *arbiter) Q_DECL_OVERRIDE;
-    void notifyObservers(const QSceneChangePtr &e) Q_DECL_OVERRIDE;
-    void sceneChangeEvent(const QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void setArbiter(QLockableObserverInterface *arbiter) override;
+    void notifyObservers(const QSceneChangePtr &e) override;
+    void sceneChangeEvent(const QSceneChangePtr &e) override;
     void setEnabled(bool enabled);
 
     static QBackendNodePrivate *get(QBackendNode *n);

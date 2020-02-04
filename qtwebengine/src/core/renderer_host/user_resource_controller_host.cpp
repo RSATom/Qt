@@ -42,8 +42,6 @@
 #include "common/qt_messages.h"
 #include "type_conversion.h"
 #include "web_contents_adapter.h"
-#include "web_contents_adapter_p.h"
-
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/render_view_host.h"
@@ -77,7 +75,8 @@ void UserResourceControllerHost::WebContentsObserverHelper::RenderFrameCreated(
         content::RenderFrameHost *renderFrameHost)
 {
     content::WebContents *contents = web_contents();
-    Q_FOREACH (const UserScript &script, m_controllerHost->m_perContentsScripts.value(contents))
+    const QList<UserScript> scripts = m_controllerHost->m_perContentsScripts.value(contents);
+    for (const UserScript &script : scripts)
         renderFrameHost->Send(new RenderFrameObserverHelper_AddScript(
                                   renderFrameHost->GetRoutingID(), script.data()));
 }
@@ -124,7 +123,7 @@ void UserResourceControllerHost::addUserScript(const UserScript &script, WebCont
     if (isProfileWideScript) {
         if (!m_profileWideScripts.contains(script)) {
             m_profileWideScripts.append(script);
-            Q_FOREACH (content::RenderProcessHost *renderer, m_observedProcesses)
+            for (content::RenderProcessHost *renderer : qAsConst(m_observedProcesses))
                 renderer->Send(new UserResourceController_AddScript(script.data()));
         }
     } else {
@@ -142,9 +141,10 @@ void UserResourceControllerHost::addUserScript(const UserScript &script, WebCont
                 m_perContentsScripts.insert(contents, currentScripts);
             }
         }
-        contents->Send(new RenderFrameObserverHelper_AddScript(contents->GetRenderViewHost()->
-                                                               GetMainFrame()->GetRoutingID(),
-                                                               script.data()));
+        contents->GetRenderViewHost()->Send(
+                    new RenderFrameObserverHelper_AddScript(
+                        contents->GetRenderViewHost()->GetMainFrame()->GetRoutingID(),
+                        script.data()));
     }
 }
 
@@ -169,7 +169,7 @@ bool UserResourceControllerHost::removeUserScript(const UserScript &script, WebC
                 = std::find(m_profileWideScripts.begin(), m_profileWideScripts.end(), script);
         if (it == m_profileWideScripts.end())
             return false;
-        Q_FOREACH (content::RenderProcessHost *renderer, m_observedProcesses)
+        for (content::RenderProcessHost *renderer : qAsConst(m_observedProcesses))
             renderer->Send(new UserResourceController_RemoveScript((*it).data()));
         m_profileWideScripts.erase(it);
     } else {
@@ -180,9 +180,10 @@ bool UserResourceControllerHost::removeUserScript(const UserScript &script, WebC
         QList<UserScript>::iterator it = std::find(list.begin(), list.end(), script);
         if (it == list.end())
             return false;
-        contents->Send(new RenderFrameObserverHelper_RemoveScript(contents->
-                                                                  GetMainFrame()->GetRoutingID(),
-                                                                  (*it).data()));
+        contents->GetRenderViewHost()->Send(
+                    new RenderFrameObserverHelper_RemoveScript(
+                        contents->GetMainFrame()->GetRoutingID(),
+                        (*it).data()));
         list.erase(it);
     }
     return true;
@@ -193,13 +194,13 @@ void UserResourceControllerHost::clearAllScripts(WebContentsAdapter *adapter)
     const bool isProfileWideScript = !adapter;
     if (isProfileWideScript) {
         m_profileWideScripts.clear();
-        Q_FOREACH (content::RenderProcessHost *renderer, m_observedProcesses)
+        for (content::RenderProcessHost *renderer : qAsConst(m_observedProcesses))
             renderer->Send(new UserResourceController_ClearScripts);
     } else {
         content::WebContents *contents = adapter->webContents();
         m_perContentsScripts.remove(contents);
-        contents->Send(new RenderFrameObserverHelper_ClearScripts(contents->
-                                                                  GetMainFrame()->GetRoutingID()));
+        contents->GetRenderViewHost()->Send(
+                    new RenderFrameObserverHelper_ClearScripts(contents->GetMainFrame()->GetRoutingID()));
     }
 }
 
@@ -229,7 +230,7 @@ void UserResourceControllerHost::renderProcessStartedWithHost(content::RenderPro
         m_renderProcessObserver.reset(new RenderProcessObserverHelper(this));
     renderer->AddObserver(m_renderProcessObserver.data());
     m_observedProcesses.insert(renderer);
-    Q_FOREACH (const UserScript &script, m_profileWideScripts)
+    for (const UserScript &script : qAsConst(m_profileWideScripts))
         renderer->Send(new UserResourceController_AddScript(script.data()));
 }
 
@@ -244,7 +245,7 @@ UserResourceControllerHost::UserResourceControllerHost()
 
 UserResourceControllerHost::~UserResourceControllerHost()
 {
-    Q_FOREACH (content::RenderProcessHost *renderer, m_observedProcesses)
+    for (content::RenderProcessHost *renderer : qAsConst(m_observedProcesses))
         renderer->RemoveObserver(m_renderProcessObserver.data());
 }
 

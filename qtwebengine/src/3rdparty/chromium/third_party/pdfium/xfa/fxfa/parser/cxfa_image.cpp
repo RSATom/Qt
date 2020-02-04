@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,49 +6,66 @@
 
 #include "xfa/fxfa/parser/cxfa_image.h"
 
-#include "xfa/fxfa/parser/cxfa_node.h"
+#include "fxjs/xfa/cjx_image.h"
 
-CXFA_Image::CXFA_Image(CXFA_Node* pNode, bool bDefValue)
-    : CXFA_Data(pNode), m_bDefValue(bDefValue) {}
+namespace {
 
-int32_t CXFA_Image::GetAspect() {
-  return m_pNode->GetEnum(XFA_ATTRIBUTE_Aspect);
+const CXFA_Node::AttributeData kImageAttributeData[] = {
+    {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Name, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::ContentType, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::TransferEncoding, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::Base64},
+    {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Aspect, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::Fit},
+    {XFA_Attribute::Href, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+
+}  // namespace
+
+CXFA_Image::CXFA_Image(CXFA_Document* doc, XFA_PacketType packet)
+    : CXFA_Node(doc,
+                packet,
+                (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
+                XFA_ObjectType::ContentNode,
+                XFA_Element::Image,
+                nullptr,
+                kImageAttributeData) {}
+
+CXFA_Image::~CXFA_Image() = default;
+
+XFA_AttributeValue CXFA_Image::GetAspect() {
+  return JSObject()->GetEnum(XFA_Attribute::Aspect);
 }
 
-bool CXFA_Image::GetContentType(CFX_WideString& wsContentType) {
-  return m_pNode->TryCData(XFA_ATTRIBUTE_ContentType, wsContentType);
+WideString CXFA_Image::GetContentType() {
+  return JSObject()->TryCData(XFA_Attribute::ContentType, true).value_or(L"");
 }
 
-bool CXFA_Image::GetHref(CFX_WideString& wsHref) {
-  if (m_bDefValue)
-    return m_pNode->TryCData(XFA_ATTRIBUTE_Href, wsHref);
-  return m_pNode->GetAttribute(L"href", wsHref);
+WideString CXFA_Image::GetHref() {
+  return JSObject()->TryCData(XFA_Attribute::Href, true).value_or(L"");
 }
 
-int32_t CXFA_Image::GetTransferEncoding() {
-  if (m_bDefValue)
-    return m_pNode->GetEnum(XFA_ATTRIBUTE_TransferEncoding);
-  return XFA_ATTRIBUTEENUM_Base64;
+XFA_AttributeValue CXFA_Image::GetTransferEncoding() {
+  return static_cast<XFA_AttributeValue>(
+      JSObject()->GetEnum(XFA_Attribute::TransferEncoding));
 }
 
-bool CXFA_Image::GetContent(CFX_WideString& wsText) {
-  return m_pNode->TryContent(wsText);
+WideString CXFA_Image::GetContent() {
+  return JSObject()->TryContent(false, true).value_or(L"");
 }
 
-bool CXFA_Image::SetContentType(const CFX_WideString& wsContentType) {
-  return m_pNode->SetCData(XFA_ATTRIBUTE_ContentType, wsContentType);
+void CXFA_Image::SetContentType(const WideString& wsContentType) {
+  JSObject()->SetCData(XFA_Attribute::ContentType, wsContentType, false, false);
 }
 
-bool CXFA_Image::SetHref(const CFX_WideString& wsHref) {
-  if (m_bDefValue)
-    return m_pNode->SetCData(XFA_ATTRIBUTE_Href, wsHref);
-  return m_pNode->SetAttribute(XFA_ATTRIBUTE_Href, wsHref.AsStringC());
+void CXFA_Image::SetHref(const WideString& wsHref) {
+  JSObject()->SetCData(XFA_Attribute::Href, wsHref, false, false);
 }
 
-bool CXFA_Image::SetTransferEncoding(int32_t iTransferEncoding) {
-  if (m_bDefValue) {
-    return m_pNode->SetEnum(XFA_ATTRIBUTE_TransferEncoding,
-                            (XFA_ATTRIBUTEENUM)iTransferEncoding);
-  }
-  return true;
+void CXFA_Image::SetTransferEncoding(XFA_AttributeValue iTransferEncoding) {
+  JSObject()->SetEnum(XFA_Attribute::TransferEncoding, iTransferEncoding,
+                      false);
 }

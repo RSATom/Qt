@@ -37,6 +37,9 @@
 #if HAVE_FCNTL_H
 #include <fcntl.h>
 #endif
+#if HAVE_UNISTD_H
+#include <unistd.h>
+#endif
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -170,14 +173,27 @@ FcRandom(void)
     static struct random_data fcrandbuf;
     static char statebuf[256];
     static FcBool initialized = FcFalse;
+#ifdef _AIX
+    static char *retval;
+    long res;
+#endif
 
     if (initialized != FcTrue)
     {
-	initstate_r(time(NULL), statebuf, 256, &fcrandbuf);
+#ifdef _AIX
+	initstate_r (time (NULL), statebuf, 256, &retval, &fcrandbuf);
+#else
+	initstate_r (time (NULL), statebuf, 256, &fcrandbuf);
+#endif
 	initialized = FcTrue;
     }
 
-    random_r(&fcrandbuf, &result);
+#ifdef _AIX
+    random_r (&res, &fcrandbuf);
+    result = (int32_t)res;
+#else
+    random_r (&fcrandbuf, &result);
+#endif
 #elif HAVE_RANDOM
     static char statebuf[256];
     char *state;
@@ -185,30 +201,30 @@ FcRandom(void)
 
     if (initialized != FcTrue)
     {
-	state = initstate(time(NULL), statebuf, 256);
+	state = initstate (time (NULL), statebuf, 256);
 	initialized = FcTrue;
     }
     else
-	state = setstate(statebuf);
+	state = setstate (statebuf);
 
-    result = random();
+    result = random ();
 
-    setstate(state);
+    setstate (state);
 #elif HAVE_LRAND48
-    result = lrand48();
+    result = lrand48 ();
 #elif HAVE_RAND_R
-    static unsigned int seed = time(NULL);
+    static unsigned int seed = time (NULL);
 
-    result = rand_r(&seed);
+    result = rand_r (&seed);
 #elif HAVE_RAND
     static FcBool initialized = FcFalse;
 
     if (initialized != FcTrue)
     {
-	srand(time(NULL));
+	srand (time (NULL));
 	initialized = FcTrue;
     }
-    result = rand();
+    result = rand ();
 #else
 # error no random number generator function available.
 #endif
@@ -242,3 +258,23 @@ FcMakeDirectory (const FcChar8 *dir)
     FcStrFree (parent);
     return ret;
 }
+
+ssize_t
+FcReadLink (const FcChar8 *pathname,
+	    FcChar8       *buf,
+	    size_t         bufsiz)
+{
+#ifdef HAVE_READLINK
+    return readlink ((const char *) pathname, (char *)buf, bufsiz);
+#else
+    /* XXX: this function is only used for FcConfigRealFilename() so far
+     * and returning -1 as an error still just works.
+     */
+    errno = ENOSYS;
+    return -1;
+#endif
+}
+
+#define __fccompat__
+#include "fcaliastail.h"
+#undef __fccompat__

@@ -8,14 +8,18 @@
 #include <jni.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include <string>
 #include <vector>
 
+#include "base/strings/string_piece.h"
 #include "net/android/cert_verify_result_android.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/mime_util.h"
 #include "net/base/net_export.h"
+#include "net/dns/dns_config_service_posix.h"
+#include "net/socket/socket_descriptor.h"
 
 namespace net {
 namespace android {
@@ -24,8 +28,8 @@ namespace android {
 // certificate listed first.
 // |auth_type| is as per the Java X509Certificate.checkServerTrusted method.
 void VerifyX509CertChain(const std::vector<std::string>& cert_chain,
-                         const std::string& auth_type,
-                         const std::string& host,
+                         base::StringPiece auth_type,
+                         base::StringPiece host,
                          CertVerifyStatusAndroid* status,
                          bool* is_issued_by_known_root,
                          std::vector<std::string>* verified_chain);
@@ -75,13 +79,26 @@ NET_EXPORT bool GetIsRoaming();
 // Marshmallow and later versions. Returns false on earlier versions.
 NET_EXPORT bool GetIsCaptivePortal();
 
-// Gets the SSID of the currently associated WiFi access point if there is one.
-// Otherwise, returns empty string.
+// Gets the SSID of the currently associated WiFi access point if there is one,
+// and it is available. SSID may not be available if the app does not have
+// permissions to access it. On Android M+, the app accessing SSID needs to have
+// ACCESS_COARSE_LOCATION or ACCESS_FINE_LOCATION. If there is no WiFi access
+// point or its SSID is unavailable, an empty string is returned.
 NET_EXPORT_PRIVATE std::string GetWifiSSID();
 
 // Gets the DNS servers and puts them in |dns_servers|.
 // Only callable on Marshmallow and newer releases.
-NET_EXPORT_PRIVATE void GetDnsServers(std::vector<IPEndPoint>* dns_servers);
+// Returns CONFIG_PARSE_POSIX_OK upon success,
+// CONFIG_PARSE_POSIX_NO_NAMESERVERS if no DNS servers found, or
+// CONFIG_PARSE_POSIX_PRIVATE_DNS_ACTIVE if private DNS active.
+NET_EXPORT_PRIVATE internal::ConfigParsePosixResult GetDnsServers(
+    std::vector<IPEndPoint>* dns_servers);
+
+// Apply TrafficStats tag |tag| and UID |uid| to |socket|. Future network
+// traffic used by |socket| will be attributed to |uid| and |tag|.
+NET_EXPORT_PRIVATE void TagSocket(SocketDescriptor socket,
+                                  uid_t uid,
+                                  int32_t tag);
 
 }  // namespace android
 }  // namespace net

@@ -30,10 +30,10 @@
 #include "widgetdatabase_p.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformeditor.h>
 
 // Qt
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 #include <QtCore/qalgorithms.h>
 #include <QtCore/qdebug.h>
 
@@ -51,9 +51,7 @@ MetaDataBaseItem::MetaDataBaseItem(QObject *object)
 {
 }
 
-MetaDataBaseItem::~MetaDataBaseItem()
-{
-}
+MetaDataBaseItem::~MetaDataBaseItem() = default;
 
 QString MetaDataBaseItem::name() const
 {

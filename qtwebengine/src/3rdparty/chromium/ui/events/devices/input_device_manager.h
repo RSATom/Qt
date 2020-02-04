@@ -15,13 +15,13 @@
 
 namespace ui {
 
-// Interface to query available input devices. Holds a thread-local pointer to
-// an implementation that provides this service. The implementation could be
-// DeviceDataManager or something that mirrors the necessary state if
-// DeviceDataManager is in a different process.
+// Interface to query available input devices. The implementation, which is a
+// singleton, could be DeviceDataManager or something that mirrors the necessary
+// state if DeviceDataManager is in a different process.
 class EVENTS_DEVICES_EXPORT InputDeviceManager {
  public:
-  InputDeviceManager() {}
+  InputDeviceManager() = default;
+  virtual ~InputDeviceManager() = default;
 
   static InputDeviceManager* GetInstance();
   static bool HasInstance();
@@ -34,6 +34,10 @@ class EVENTS_DEVICES_EXPORT InputDeviceManager {
 
   virtual bool AreDeviceListsComplete() const = 0;
   virtual bool AreTouchscreensEnabled() const = 0;
+
+  // Returns true if the |target_display_id| of the TouchscreenDevices returned
+  // from GetTouchscreenDevices() is valid.
+  virtual bool AreTouchscreenTargetDisplaysValid() const = 0;
 
   virtual void AddObserver(InputDeviceEventObserver* observer) = 0;
   virtual void RemoveObserver(InputDeviceEventObserver* observer) = 0;

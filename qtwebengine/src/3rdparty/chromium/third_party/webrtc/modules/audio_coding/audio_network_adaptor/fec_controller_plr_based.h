@@ -8,15 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FEC_CONTROLLER_PLR_BASED_H_
-#define WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FEC_CONTROLLER_PLR_BASED_H_
+#ifndef MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FEC_CONTROLLER_PLR_BASED_H_
+#define MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FEC_CONTROLLER_PLR_BASED_H_
 
 #include <memory>
 
-#include "webrtc/common_audio/smoothing_filter.h"
-#include "webrtc/modules/audio_coding/audio_network_adaptor/controller.h"
-#include "webrtc/modules/audio_coding/audio_network_adaptor/util/threshold_curve.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "absl/types/optional.h"
+#include "common_audio/smoothing_filter.h"
+#include "modules/audio_coding/audio_network_adaptor/controller.h"
+#include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
+#include "modules/audio_coding/audio_network_adaptor/util/threshold_curve.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -56,12 +58,12 @@ class FecControllerPlrBased final : public Controller {
   void MakeDecision(AudioEncoderRuntimeConfig* config) override;
 
  private:
-  bool FecEnablingDecision(const rtc::Optional<float>& packet_loss) const;
-  bool FecDisablingDecision(const rtc::Optional<float>& packet_loss) const;
+  bool FecEnablingDecision(const absl::optional<float>& packet_loss) const;
+  bool FecDisablingDecision(const absl::optional<float>& packet_loss) const;
 
   const Config config_;
   bool fec_enabled_;
-  rtc::Optional<int> uplink_bandwidth_bps_;
+  absl::optional<int> uplink_bandwidth_bps_;
   const std::unique_ptr<SmoothingFilter> packet_loss_smoother_;
 
   RTC_DISALLOW_COPY_AND_ASSIGN(FecControllerPlrBased);
@@ -69,4 +71,4 @@ class FecControllerPlrBased final : public Controller {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FEC_CONTROLLER_PLR_BASED_H_
+#endif  // MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_FEC_CONTROLLER_PLR_BASED_H_

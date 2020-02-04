@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -321,7 +320,8 @@ def PathFromRoot(path):
   return os.path.normpath(os.path.join(_root_dir, path))
 
 
-def ParseGrdForUnittest(body, base_dir=None):
+def ParseGrdForUnittest(body, base_dir=None, predetermined_ids_file=None,
+                        run_gatherers=False):
   '''Parse a skeleton .grd file and return it, for use in unit tests.
 
   Args:
@@ -334,15 +334,24 @@ def ParseGrdForUnittest(body, base_dir=None):
     body = body.encode('utf-8')
   if base_dir is None:
     base_dir = PathFromRoot('.')
-  body = '''<?xml version="1.0" encoding="UTF-8"?>
-<grit latest_public_release="2" current_release="3" source_lang_id="en" base_dir="%s">
-  <outputs>
-  </outputs>
-  <release seq="3">
-    %s
-  </release>
-</grit>''' % (base_dir, body)
-  return grd_reader.Parse(StringIO.StringIO(body), dir=".")
+  lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+  lines.append(('<grit latest_public_release="2" current_release="3" '
+                'source_lang_id="en" base_dir="{}">').format(base_dir))
+  if '<outputs>' in body:
+    lines.append(body)
+  else:
+    lines.append('  <outputs></outputs>')
+    lines.append('  <release seq="3">')
+    lines.append(body)
+    lines.append('  </release>')
+  lines.append('</grit>')
+  ret = grd_reader.Parse(StringIO.StringIO('\n'.join(lines)), dir=".")
+  ret.SetOutputLanguage('en')
+  if run_gatherers:
+    ret.RunGatherers()
+  ret.SetPredeterminedIdsFile(predetermined_ids_file)
+  ret.InitializeIds()
+  return ret
 
 
 def StripBlankLinesAndComments(text):

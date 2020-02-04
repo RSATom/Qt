@@ -17,7 +17,7 @@ namespace {
 const char kPrefPrefix[] = "profile.content_settings.exceptions.";
 const char kDefaultPrefPrefix[] = "profile.default_content_setting_values.";
 
-std::string GetPrefName(const std::string& name, const char* prefix) {
+std::string GetPreferenceName(const std::string& name, const char* prefix) {
   std::string pref_name = name;
   base::ReplaceChars(pref_name, "-", "_", &pref_name);
   return std::string(prefix).append(pref_name);
@@ -37,8 +37,8 @@ WebsiteSettingsInfo::WebsiteSettingsInfo(
     IncognitoBehavior incognito_behavior)
     : type_(type),
       name_(name),
-      pref_name_(GetPrefName(name, kPrefPrefix)),
-      default_value_pref_name_(GetPrefName(name, kDefaultPrefPrefix)),
+      pref_name_(GetPreferenceName(name, kPrefPrefix)),
+      default_value_pref_name_(GetPreferenceName(name, kDefaultPrefPrefix)),
       initial_default_value_(std::move(initial_default_value)),
       sync_status_(sync_status),
       lossy_status_(lossy_status),
@@ -47,8 +47,7 @@ WebsiteSettingsInfo::WebsiteSettingsInfo(
   // For legacy reasons the default value is currently restricted to be an int.
   // TODO(raymes): We should migrate the underlying pref to be a dictionary
   // rather than an int.
-  DCHECK(!initial_default_value_ ||
-         initial_default_value_->IsType(base::Value::Type::INTEGER));
+  DCHECK(!initial_default_value_ || initial_default_value_->is_int());
 }
 
 WebsiteSettingsInfo::~WebsiteSettingsInfo() {}
@@ -63,6 +62,18 @@ uint32_t WebsiteSettingsInfo::GetPrefRegistrationFlags() const {
     flags |= PrefRegistry::LOSSY_PREF;
 
   return flags;
+}
+
+bool WebsiteSettingsInfo::SupportsEmbeddedExceptions() const {
+  // Note that REQUESTING_ORIGIN_AND_TOP_LEVEL_ORIGIN_SCOPE supports embedded
+  // exceptions but because these are deprecated and planned to be removed they
+  // aren't included here.
+  if (scoping_type_ == COOKIES_SCOPE ||
+      scoping_type_ == SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE) {
+    return true;
+  }
+
+  return false;
 }
 
 }  // namespace content_settings

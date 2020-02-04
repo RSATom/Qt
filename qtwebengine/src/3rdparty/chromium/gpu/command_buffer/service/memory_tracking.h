@@ -15,35 +15,24 @@
 #include "base/trace_event/trace_event.h"
 
 namespace gpu {
-namespace gles2 {
 
 // A MemoryTracker is used to propagate per-ContextGroup memory usage
 // statistics to the global GpuMemoryManager.
-class MemoryTracker : public base::RefCounted<MemoryTracker> {
+class MemoryTracker {
  public:
-   virtual void TrackMemoryAllocatedChange(size_t old_size,
-                                           size_t new_size) = 0;
+  virtual ~MemoryTracker() = default;
+  virtual void TrackMemoryAllocatedChange(uint64_t delta) = 0;
+  virtual uint64_t GetSize() const = 0;
 
-   // Ensure a certain amount of GPU memory is free. Returns true on success.
-   virtual bool EnsureGPUMemoryAvailable(size_t size_needed) = 0;
+  // Raw ID identifying the GPU client for whom memory is being allocated.
+  virtual int ClientId() const = 0;
 
-   // Tracing id which identifies the GPU client for whom memory is being
-   // allocated.
-   virtual uint64_t ClientTracingId() const = 0;
+  // Tracing id which identifies the GPU client for whom memory is being
+  // allocated.
+  virtual uint64_t ClientTracingId() const = 0;
 
-   // Identifies the share group within which memory is being allocated.
-   virtual uint64_t ShareGroupTracingGUID() const = 0;
-
-   // Raw ID identifying the GPU client for whom memory is being allocated.
-   virtual int ClientId() const = 0;
-
- protected:
-  friend class base::RefCounted<MemoryTracker>;
-  MemoryTracker() {}
-  virtual ~MemoryTracker() {};
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MemoryTracker);
+  // Returns an ID that uniquely identifies the context group.
+  virtual uint64_t ContextGroupTracingId() const = 0;
 };
 
 // A MemoryTypeTracker tracks the use of a particular type of memory (buffer,
@@ -51,66 +40,35 @@ class MemoryTracker : public base::RefCounted<MemoryTracker> {
 // MemoryTracker.
 class MemoryTypeTracker {
  public:
-  MemoryTypeTracker(MemoryTracker* memory_tracker)
-    : memory_tracker_(memory_tracker),
-      has_done_update_(false),
-      mem_represented_(0),
-      mem_represented_at_last_update_(0) {
-    UpdateMemRepresented();
-  }
+  explicit MemoryTypeTracker(MemoryTracker* memory_tracker)
+      : memory_tracker_(memory_tracker) {}
 
-  ~MemoryTypeTracker() {
-    UpdateMemRepresented();
-  }
+  ~MemoryTypeTracker() = default;
 
   void TrackMemAlloc(size_t bytes) {
     mem_represented_ += bytes;
-    UpdateMemRepresented();
+    if (memory_tracker_ && bytes)
+      memory_tracker_->TrackMemoryAllocatedChange(bytes);
   }
 
   void TrackMemFree(size_t bytes) {
     DCHECK(bytes <= mem_represented_);
     mem_represented_ -= bytes;
-    UpdateMemRepresented();
-  }
-
-  size_t GetMemRepresented() const {
-    return mem_represented_at_last_update_;
-  }
-
-  // Ensure a certain amount of GPU memory is free. Returns true on success.
-  bool EnsureGPUMemoryAvailable(size_t size_needed) {
-    if (memory_tracker_) {
-      return memory_tracker_->EnsureGPUMemoryAvailable(size_needed);
+    if (memory_tracker_ && bytes) {
+      memory_tracker_->TrackMemoryAllocatedChange(
+          -static_cast<uint64_t>(bytes));
     }
-    return true;
   }
+
+  size_t GetMemRepresented() const { return mem_represented_; }
 
  private:
-  void UpdateMemRepresented() {
-    // Skip redundant updates only if we have already done an update.
-    if (!has_done_update_ &&
-        mem_represented_ == mem_represented_at_last_update_) {
-      return;
-    }
-    if (memory_tracker_) {
-      memory_tracker_->TrackMemoryAllocatedChange(
-        mem_represented_at_last_update_,
-        mem_represented_);
-    }
-    has_done_update_ = true;
-    mem_represented_at_last_update_ = mem_represented_;
-  }
-
   MemoryTracker* memory_tracker_;
-  bool has_done_update_;
-  size_t mem_represented_;
-  size_t mem_represented_at_last_update_;
+  size_t mem_represented_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(MemoryTypeTracker);
 };
 
-}  // namespace gles2
 }  // namespace gpu
 
 #endif  // GPU_COMMAND_BUFFER_SERVICE_MEMORY_TRACKING_H_

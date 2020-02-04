@@ -7,14 +7,15 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 
-#include "chrome/browser/notifications/notification_delegate.h"
 #include "chrome/browser/printing/cloud_print/privet_device_lister.h"
 #include "chrome/browser/printing/cloud_print/privet_http.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_member.h"
-#include "net/net_features.h"
+#include "net/net_buildflags.h"
+#include "ui/message_center/public/cpp/notification_delegate.h"
 
 class Profile;
 
@@ -36,7 +37,7 @@ struct DeviceDescription;
 
 #if BUILDFLAG(ENABLE_MDNS)
 class PrivetTrafficDetector;
-#endif  // ENABLE_MDNS
+#endif
 
 // Contains logic related to notifications not tied actually displaying them.
 class PrivetNotificationsListener  {
@@ -121,6 +122,12 @@ class PrivetNotificationService
   void OnNotificationsEnabledChanged();
   void StartLister();
 
+  void AddNotification(
+      int devices_active,
+      bool device_added,
+      std::unique_ptr<std::set<std::string>> displayed_notifications,
+      bool supports_synchronization);
+
   // Virtual for testing. The returned delegate is refcounted.
   virtual PrivetNotificationDelegate* CreateNotificationDelegate(
       Profile* profile);
@@ -133,24 +140,24 @@ class PrivetNotificationService
   BooleanPrefMember enable_privet_notification_member_;
 
 #if BUILDFLAG(ENABLE_MDNS)
-  scoped_refptr<PrivetTrafficDetector> traffic_detector_;
-#endif  // ENABLE_MDNS
+  std::unique_ptr<PrivetTrafficDetector> traffic_detector_;
+#endif
 };
 
-class PrivetNotificationDelegate : public NotificationDelegate {
+class PrivetNotificationDelegate : public message_center::NotificationDelegate {
  public:
   explicit PrivetNotificationDelegate(Profile* profile);
 
   // NotificationDelegate implementation.
-  std::string id() const override;
-  void ButtonClick(int button_index) override;
+  void Click(const base::Optional<int>& button_index,
+             const base::Optional<base::string16>& reply) override;
 
  protected:
   // Refcounted.
   ~PrivetNotificationDelegate() override;
 
  private:
-  // ButtonClick() response handlers. Virtual for testing.
+  // Click() response handlers. Virtual for testing.
   virtual void OpenTab(const GURL& url);
   virtual void DisableNotifications();
 

@@ -22,3 +22,8 @@ SOURCES += \
     targetemulator.cpp
 
 DEFINES += SRCDIR=\\\"$$PWD/../nfcdata\\\"
+
+TESTDATA += "$$PWD/../nfcdata/Qt Labs Website Tag Type1.nfc" \
+            "$$PWD/../nfcdata/Qt Website Tag Type1.nfc"
+
+builtin_testdata: DEFINES += BUILTIN_TESTDATA

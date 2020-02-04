@@ -26,61 +26,67 @@
 #include "fxbarcode/datamatrix/BC_EncoderContext.h"
 #include "fxbarcode/datamatrix/BC_HighLevelEncoder.h"
 #include "fxbarcode/datamatrix/BC_SymbolInfo.h"
-#include "fxbarcode/utils.h"
 
-CBC_Base256Encoder::CBC_Base256Encoder() {}
-CBC_Base256Encoder::~CBC_Base256Encoder() {}
-int32_t CBC_Base256Encoder::getEncodingMode() {
-  return BASE256_ENCODATION;
+namespace {
+
+wchar_t Randomize255State(wchar_t ch, int32_t position) {
+  int32_t pseudoRandom = ((149 * position) % 255) + 1;
+  int32_t tempVariable = ch + pseudoRandom;
+  if (tempVariable <= 255)
+    return static_cast<wchar_t>(tempVariable);
+  return static_cast<wchar_t>(tempVariable - 256);
 }
-void CBC_Base256Encoder::Encode(CBC_EncoderContext& context, int32_t& e) {
-  CFX_WideString buffer;
-  buffer += (wchar_t)'\0';
-  while (context.hasMoreCharacters()) {
-    wchar_t c = context.getCurrentChar();
+
+}  // namespace
+
+CBC_Base256Encoder::CBC_Base256Encoder() = default;
+
+CBC_Base256Encoder::~CBC_Base256Encoder() = default;
+
+CBC_HighLevelEncoder::Encoding CBC_Base256Encoder::GetEncodingMode() {
+  return CBC_HighLevelEncoder::Encoding::BASE256;
+}
+
+bool CBC_Base256Encoder::Encode(CBC_EncoderContext* context) {
+  WideString buffer;
+  buffer.Reserve(context->getRemainingCharacters() + 1);
+  buffer += L'\0';
+  while (context->hasMoreCharacters()) {
+    wchar_t c = context->getCurrentChar();
     buffer += c;
-    context.m_pos++;
-    int32_t newMode = CBC_HighLevelEncoder::lookAheadTest(
-        context.m_msg, context.m_pos, getEncodingMode());
-    if (newMode != getEncodingMode()) {
-      context.signalEncoderChange(newMode);
+    context->m_pos++;
+    CBC_HighLevelEncoder::Encoding newMode =
+        CBC_HighLevelEncoder::LookAheadTest(context->m_msg, context->m_pos,
+                                            GetEncodingMode());
+    if (newMode != GetEncodingMode()) {
+      context->SignalEncoderChange(newMode);
       break;
     }
   }
-  int32_t dataCount = buffer.GetLength() - 1;
+  size_t dataCount = buffer.GetLength() - 1;
   char buf[128];
   FXSYS_itoa(dataCount, buf, 10);
-  buffer.SetAt(0, wchar_t(*buf) - '0');
+  buffer.SetAt(0, static_cast<wchar_t>(*buf) - '0');
   int32_t lengthFieldSize = 1;
   int32_t currentSize =
-      context.getCodewordCount() + dataCount + lengthFieldSize;
-  context.updateSymbolInfo(currentSize, e);
-  if (e != BCExceptionNO) {
-    return;
-  }
-  bool mustPad = (context.m_symbolInfo->dataCapacity() - currentSize) > 0;
-  if (context.hasMoreCharacters() || mustPad) {
+      context->getCodewordCount() + dataCount + lengthFieldSize;
+  if (!context->UpdateSymbolInfo(currentSize))
+    return false;
+
+  bool mustPad = (context->m_symbolInfo->dataCapacity() - currentSize) > 0;
+  if (context->hasMoreCharacters() || mustPad) {
     if (dataCount <= 249) {
-      buffer.SetAt(0, (wchar_t)dataCount);
+      buffer.SetAt(0, static_cast<wchar_t>(dataCount));
     } else if (dataCount > 249 && dataCount <= 1555) {
-      buffer.SetAt(0, (wchar_t)((dataCount / 250) + 249));
-      buffer.Insert(1, (wchar_t)(dataCount % 250));
+      buffer.SetAt(0, static_cast<wchar_t>((dataCount / 250) + 249));
+      buffer.Insert(1, static_cast<wchar_t>(dataCount % 250));
     } else {
-      e = BCExceptionIllegalStateMessageLengthInvalid;
-      return;
+      return false;
     }
   }
   for (const auto& c : buffer) {
-    context.writeCodeword(randomize255State(c, context.getCodewordCount() + 1));
+    context->writeCodeword(
+        Randomize255State(c, context->getCodewordCount() + 1));
   }
-}
-wchar_t CBC_Base256Encoder::randomize255State(wchar_t ch,
-                                              int32_t codewordPosition) {
-  int32_t pseudoRandom = ((149 * codewordPosition) % 255) + 1;
-  int32_t tempVariable = ch + pseudoRandom;
-  if (tempVariable <= 255) {
-    return (wchar_t)tempVariable;
-  } else {
-    return (wchar_t)(tempVariable - 256);
-  }
+  return true;
 }

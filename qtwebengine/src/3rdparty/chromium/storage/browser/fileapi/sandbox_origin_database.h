@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "storage/browser/fileapi/sandbox_origin_database_interface.h"
@@ -19,7 +20,7 @@ class Env;
 class Status;
 }
 
-namespace tracked_objects {
+namespace base {
 class Location;
 }
 
@@ -27,7 +28,7 @@ namespace storage {
 
 // All methods of this class other than the constructor may be used only from
 // the browser's FILE thread.  The constructor may be used on any thread.
-class STORAGE_EXPORT SandboxOriginDatabase
+class COMPONENT_EXPORT(STORAGE_BROWSER) SandboxOriginDatabase
     : public SandboxOriginDatabaseInterface {
  public:
   // Only one instance of SandboxOriginDatabase should exist for a given path
@@ -42,6 +43,7 @@ class STORAGE_EXPORT SandboxOriginDatabase
                         base::FilePath* directory) override;
   bool RemovePathForOrigin(const std::string& origin) override;
   bool ListAllOrigins(std::vector<OriginRecord>* origins) override;
+  void RewriteDatabase() override;
   void DropDatabase() override;
 
   base::FilePath GetDatabasePath() const;
@@ -63,7 +65,7 @@ class STORAGE_EXPORT SandboxOriginDatabase
   bool RepairDatabase(const std::string& db_path);
   // Close the database. Before this, all iterators associated with the database
   // must be deleted.
-  void HandleError(const tracked_objects::Location& from_here,
+  void HandleError(const base::Location& from_here,
                    const leveldb::Status& status);
   void ReportInitStatus(const leveldb::Status& status);
   bool GetLastPathNumber(int* number);

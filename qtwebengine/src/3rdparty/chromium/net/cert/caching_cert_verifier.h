@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "net/base/completion_once_callback.h"
 #include "net/base/expiring_cache.h"
 #include "net/base/net_export.h"
 #include "net/cert/cert_database.h"
@@ -34,21 +35,6 @@ namespace net {
 class NET_EXPORT CachingCertVerifier : public CertVerifier,
                                        public CertDatabase::Observer {
  public:
-  // Visitor class to allow read-only inspection of the verification cache.
-  class NET_EXPORT CacheVisitor {
-   public:
-    virtual ~CacheVisitor() {}
-
-    // Called once for each entry in the cache, providing details about the
-    // cached entry.
-    // Returns true to continue iteration, or false to abort.
-    virtual bool VisitEntry(const RequestParams& params,
-                            int error,
-                            const CertVerifyResult& verify_result,
-                            base::Time verification_time,
-                            base::Time expiration_time) = 0;
-  };
-
   // Creates a CachingCertVerifier that will use |verifier| to perform the
   // actual verifications if they're not already cached or if the cached
   // item has expired.
@@ -58,31 +44,11 @@ class NET_EXPORT CachingCertVerifier : public CertVerifier,
 
   // CertVerifier implementation:
   int Verify(const RequestParams& params,
-             CRLSet* crl_set,
              CertVerifyResult* verify_result,
-             const CompletionCallback& callback,
+             CompletionOnceCallback callback,
              std::unique_ptr<Request>* out_req,
              const NetLogWithSource& net_log) override;
-  bool SupportsOCSPStapling() override;
-
-  // Opportunistically attempts to add |error| and |verify_result| as the
-  // result for |params|, which was obtained at |verification_time| and
-  // expires at |expiration_time|.
-  // This is opportunistic because it is not guaranteed that the entry
-  // will be added (such as if the cache is full or an entry already
-  // exists).
-  // Returns true if the entry was added.
-  bool AddEntry(const RequestParams& params,
-                int error,
-                const CertVerifyResult& verify_result,
-                base::Time verification_time);
-
-  // Iterates through all of the non-expired entries in the cache, calling
-  // VisitEntry on |visitor| for each, until either all entries are
-  // iterated through or the |visitor| aborts.
-  // Note: During this call, it is not safe to call any non-const methods
-  // on the CachingCertVerifier.
-  void VisitEntries(CacheVisitor* visitor) const;
+  void SetConfig(const Config& config) override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(CachingCertVerifierTest, CacheHit);
@@ -127,18 +93,21 @@ class NET_EXPORT CachingCertVerifier : public CertVerifier,
                                               CacheExpirationFunctor>;
 
   // Handles completion of the request matching |params|, which started at
-  // |start_time|, completing. |verify_result| and |result| are added to the
-  // cache, and then |callback| (the original caller's callback) is invoked.
-  void OnRequestFinished(const RequestParams& params,
+  // |start_time| and with config |config_id|, completing. |verify_result| and
+  // |result| are added to the cache, and then |callback| (the original caller's
+  // callback) is invoked.
+  void OnRequestFinished(uint32_t config_id,
+                         const RequestParams& params,
                          base::Time start_time,
-                         const CompletionCallback& callback,
+                         CompletionOnceCallback callback,
                          CertVerifyResult* verify_result,
                          int error);
 
   // Adds |verify_result| and |error| to the cache for |params|, whose
-  // verification attempt began at |start_time|. See the implementation
-  // for more details about the necessity of |start_time|.
-  void AddResultToCache(const RequestParams& params,
+  // verification attempt began at |start_time| with config |config_id|. See the
+  // implementation for more details about the necessity of |start_time|.
+  void AddResultToCache(uint32_t config_id,
+                        const RequestParams& params,
                         base::Time start_time,
                         const CertVerifyResult& verify_result,
                         int error);
@@ -154,6 +123,7 @@ class NET_EXPORT CachingCertVerifier : public CertVerifier,
 
   std::unique_ptr<CertVerifier> verifier_;
 
+  uint32_t config_id_;
   CertVerificationCache cache_;
 
   uint64_t requests_;

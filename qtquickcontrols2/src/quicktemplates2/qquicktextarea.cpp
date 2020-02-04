@@ -96,6 +96,24 @@ QT_BEGIN_NAMESPACE
     \li Clips the content
     \endlist
 
+    \section2 Tab Focus
+
+    By default, pressing the tab key while TextArea has
+    \l {Item::activeFocus}{active focus} results in a tab character being input
+    into the control itself. To make tab pass active focus onto another item,
+    use the attached \l KeyNavigation properties:
+
+    \code
+    TextField {
+        id: textField
+    }
+
+    TextArea {
+        KeyNavigation.priority: KeyNavigation.BeforeItem
+        KeyNavigation.tab: textField
+    }
+    \endcode
+
     \sa TextField, {Customizing TextArea}, {Input Controls}
 */
 
@@ -132,14 +150,6 @@ QT_BEGIN_NAMESPACE
 */
 
 QQuickTextAreaPrivate::QQuickTextAreaPrivate()
-    : QQuickTextEditPrivate(),
-#if QT_CONFIG(quicktemplates2_hover)
-      hovered(false),
-      explicitHoverEnabled(false),
-#endif
-      background(nullptr),
-      focusReason(Qt::OtherFocusReason),
-      flickable(nullptr)
 {
 #if QT_CONFIG(accessibility)
     QAccessible::installActivationObserver(this);
@@ -153,26 +163,74 @@ QQuickTextAreaPrivate::~QQuickTextAreaPrivate()
 #endif
 }
 
-void QQuickTextAreaPrivate::resizeBackground()
+void QQuickTextAreaPrivate::setTopInset(qreal value, bool reset)
 {
     Q_Q(QQuickTextArea);
-    if (background) {
-        QQuickItemPrivate *p = QQuickItemPrivate::get(background);
-        if (!p->widthValid && qFuzzyIsNull(background->x())) {
-            if (flickable)
-                background->setWidth(flickable->width());
-            else
-                background->setWidth(q->width());
-            p->widthValid = false;
-        }
-        if (!p->heightValid && qFuzzyIsNull(background->y())) {
-            if (flickable)
-                background->setHeight(flickable->height());
-            else
-                background->setHeight(q->height());
-            p->heightValid = false;
-        }
+    const QMarginsF oldInset = getInset();
+    extra.value().topInset = value;
+    extra.value().hasTopInset = !reset;
+    if (!qFuzzyCompare(oldInset.top(), value)) {
+        emit q->topInsetChanged();
+        q->insetChange(getInset(), oldInset);
     }
+}
+
+void QQuickTextAreaPrivate::setLeftInset(qreal value, bool reset)
+{
+    Q_Q(QQuickTextArea);
+    const QMarginsF oldInset = getInset();
+    extra.value().leftInset = value;
+    extra.value().hasLeftInset = !reset;
+    if (!qFuzzyCompare(oldInset.left(), value)) {
+        emit q->leftInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickTextAreaPrivate::setRightInset(qreal value, bool reset)
+{
+    Q_Q(QQuickTextArea);
+    const QMarginsF oldInset = getInset();
+    extra.value().rightInset = value;
+    extra.value().hasRightInset = !reset;
+    if (!qFuzzyCompare(oldInset.right(), value)) {
+        emit q->rightInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickTextAreaPrivate::setBottomInset(qreal value, bool reset)
+{
+    Q_Q(QQuickTextArea);
+    const QMarginsF oldInset = getInset();
+    extra.value().bottomInset = value;
+    extra.value().hasBottomInset = !reset;
+    if (!qFuzzyCompare(oldInset.bottom(), value)) {
+        emit q->bottomInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickTextAreaPrivate::resizeBackground()
+{
+    if (!background)
+        return;
+
+    resizingBackground = true;
+
+    QQuickItemPrivate *p = QQuickItemPrivate::get(background);
+    if (((!p->widthValid || !extra.isAllocated() || !extra->hasBackgroundWidth) && qFuzzyIsNull(background->x()))
+            || (extra.isAllocated() && (extra->hasLeftInset || extra->hasRightInset))) {
+        background->setX(getLeftInset());
+        background->setWidth(width - getLeftInset() - getRightInset());
+    }
+    if (((!p->heightValid || !extra.isAllocated() || !extra->hasBackgroundHeight) && qFuzzyIsNull(background->y()))
+            || (extra.isAllocated() && (extra->hasTopInset || extra->hasBottomInset))) {
+        background->setY(getTopInset());
+        background->setHeight(height - getTopInset() - getBottomInset());
+    }
+
+    resizingBackground = false;
 }
 
 /*!
@@ -194,7 +252,7 @@ void QQuickTextAreaPrivate::inheritFont(const QFont &font)
     QFont parentFont = extra.isAllocated() ? extra->requestedFont.resolve(font) : font;
     parentFont.resolve(extra.isAllocated() ? extra->requestedFont.resolve() | font.resolve() : font.resolve());
 
-    const QFont defaultFont = QQuickControlPrivate::themeFont(QPlatformTheme::EditorFont);
+    const QFont defaultFont = QQuickTheme::font(QQuickTheme::TextArea);
     const QFont resolvedFont = parentFont.resolve(defaultFont);
 
     setFont_helper(resolvedFont);
@@ -236,7 +294,7 @@ void QQuickTextAreaPrivate::inheritPalette(const QPalette &palette)
     QPalette parentPalette = extra.isAllocated() ? extra->requestedPalette.resolve(palette) : palette;
     parentPalette.resolve(extra.isAllocated() ? extra->requestedPalette.resolve() | palette.resolve() : palette.resolve());
 
-    const QPalette defaultPalette = QQuickControlPrivate::themePalette(QPlatformTheme::TextEditPalette);
+    const QPalette defaultPalette = QQuickTheme::palette(QQuickTheme::TextArea);
     const QPalette resolvedPalette = parentPalette.resolve(defaultPalette);
 
     setPalette_helper(resolvedPalette);
@@ -311,6 +369,8 @@ void QQuickTextAreaPrivate::detachFlickable()
     QObjectPrivate::disconnect(flickable, &QQuickFlickable::contentHeightChanged, this, &QQuickTextAreaPrivate::resizeFlickableControl);
 
     flickable = nullptr;
+
+    resizeBackground();
 }
 
 void QQuickTextAreaPrivate::ensureCursorVisible()
@@ -375,11 +435,21 @@ void QQuickTextAreaPrivate::resizeFlickableContent()
 
 void QQuickTextAreaPrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff)
 {
-    Q_UNUSED(item);
-    Q_UNUSED(change);
     Q_UNUSED(diff);
+    if (!resizingBackground && item == background) {
+        QQuickItemPrivate *p = QQuickItemPrivate::get(item);
+        // Only set hasBackgroundWidth/Height if it was a width/height change,
+        // otherwise we're prevented from setting a width/height in the future.
+        if (change.widthChange())
+            extra.value().hasBackgroundWidth = p->widthValid;
+        if (change.heightChange())
+            extra.value().hasBackgroundHeight = p->heightValid;
+    }
 
-    resizeFlickableControl();
+    if (flickable)
+        resizeFlickableControl();
+    else
+        resizeBackground();
 }
 
 qreal QQuickTextAreaPrivate::getImplicitWidth() const
@@ -458,6 +528,30 @@ void QQuickTextAreaPrivate::executeBackground(bool complete)
         quickCompleteDeferred(q, backgroundName(), background);
 }
 
+void QQuickTextAreaPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    Q_Q(QQuickTextArea);
+    if (item == background)
+        emit q->implicitBackgroundWidthChanged();
+}
+
+void QQuickTextAreaPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    Q_Q(QQuickTextArea);
+    if (item == background)
+        emit q->implicitBackgroundHeightChanged();
+}
+
+void QQuickTextAreaPrivate::itemDestroyed(QQuickItem *item)
+{
+    Q_Q(QQuickTextArea);
+    if (item == background) {
+        background = nullptr;
+        emit q->implicitBackgroundWidthChanged();
+        emit q->implicitBackgroundHeightChanged();
+    }
+}
+
 QQuickTextArea::QQuickTextArea(QQuickItem *parent)
     : QQuickTextEdit(*(new QQuickTextAreaPrivate), parent)
 {
@@ -478,6 +572,7 @@ QQuickTextArea::~QQuickTextArea()
     Q_D(QQuickTextArea);
     if (d->flickable)
         d->detachFlickable();
+    QQuickControlPrivate::removeImplicitSizeListener(d->background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
 }
 
 QQuickTextAreaAttached *QQuickTextArea::qmlAttachedProperties(QObject *object)
@@ -526,15 +621,39 @@ void QQuickTextArea::setBackground(QQuickItem *background)
     if (!d->background.isExecuting())
         d->cancelBackground();
 
+    const qreal oldImplicitBackgroundWidth = implicitBackgroundWidth();
+    const qreal oldImplicitBackgroundHeight = implicitBackgroundHeight();
+
+    if (d->extra.isAllocated()) {
+        d->extra.value().hasBackgroundWidth = false;
+        d->extra.value().hasBackgroundHeight = false;
+    }
+
+    QQuickControlPrivate::removeImplicitSizeListener(d->background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
     delete d->background;
     d->background = background;
+
     if (background) {
-        background->setParentItem(this);
+        QQuickItemPrivate *p = QQuickItemPrivate::get(background);
+        if (p->widthValid || p->heightValid) {
+            d->extra.value().hasBackgroundWidth = p->widthValid;
+            d->extra.value().hasBackgroundHeight = p->heightValid;
+        }
+        if (d->flickable)
+            background->setParentItem(d->flickable);
+        else
+            background->setParentItem(this);
         if (qFuzzyIsNull(background->z()))
             background->setZ(-1);
         if (isComponentComplete())
             d->resizeBackground();
+        QQuickControlPrivate::addImplicitSizeListener(background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
     }
+
+    if (!qFuzzyCompare(oldImplicitBackgroundWidth, implicitBackgroundWidth()))
+        emit implicitBackgroundWidthChanged();
+    if (!qFuzzyCompare(oldImplicitBackgroundHeight, implicitBackgroundHeight()))
+        emit implicitBackgroundHeightChanged();
     if (!d->background.isExecuting())
         emit backgroundChanged();
 }
@@ -563,6 +682,30 @@ void QQuickTextArea::setPlaceholderText(const QString &text)
         accessibleAttached->setDescription(text);
 #endif
     emit placeholderTextChanged();
+}
+
+/*!
+    \qmlproperty color QtQuick.Controls::TextArea::placeholderTextColor
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+
+    This property holds the color of placeholderText.
+
+    \sa placeholderText
+*/
+QColor QQuickTextArea::placeholderTextColor() const
+{
+    Q_D(const QQuickTextArea);
+    return d->placeholderColor;
+}
+
+void QQuickTextArea::setPlaceholderTextColor(const QColor &color)
+{
+    Q_D(QQuickTextArea);
+    if (d->placeholderColor == color)
+        return;
+
+    d->placeholderColor = color;
+    emit placeholderTextColorChanged();
 }
 
 /*!
@@ -702,6 +845,148 @@ void QQuickTextArea::resetPalette()
     setPalette(QPalette());
 }
 
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::TextArea::implicitBackgroundWidth
+    \readonly
+
+    This property holds the implicit background width.
+
+    The value is equal to \c {background ? background.implicitWidth : 0}.
+
+    \sa implicitBackgroundHeight
+*/
+qreal QQuickTextArea::implicitBackgroundWidth() const
+{
+    Q_D(const QQuickTextArea);
+    if (!d->background)
+        return 0;
+    return d->background->implicitWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::TextArea::implicitBackgroundHeight
+    \readonly
+
+    This property holds the implicit background height.
+
+    The value is equal to \c {background ? background.implicitHeight : 0}.
+
+    \sa implicitBackgroundWidth
+*/
+qreal QQuickTextArea::implicitBackgroundHeight() const
+{
+    Q_D(const QQuickTextArea);
+    if (!d->background)
+        return 0;
+    return d->background->implicitHeight();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::TextArea::topInset
+
+    This property holds the top inset for the background.
+
+    \sa {Control Layout}, bottomInset
+*/
+qreal QQuickTextArea::topInset() const
+{
+    Q_D(const QQuickTextArea);
+    return d->getTopInset();
+}
+
+void QQuickTextArea::setTopInset(qreal inset)
+{
+    Q_D(QQuickTextArea);
+    d->setTopInset(inset);
+}
+
+void QQuickTextArea::resetTopInset()
+{
+    Q_D(QQuickTextArea);
+    d->setTopInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::TextArea::leftInset
+
+    This property holds the left inset for the background.
+
+    \sa {Control Layout}, rightInset
+*/
+qreal QQuickTextArea::leftInset() const
+{
+    Q_D(const QQuickTextArea);
+    return d->getLeftInset();
+}
+
+void QQuickTextArea::setLeftInset(qreal inset)
+{
+    Q_D(QQuickTextArea);
+    d->setLeftInset(inset);
+}
+
+void QQuickTextArea::resetLeftInset()
+{
+    Q_D(QQuickTextArea);
+    d->setLeftInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::TextArea::rightInset
+
+    This property holds the right inset for the background.
+
+    \sa {Control Layout}, leftInset
+*/
+qreal QQuickTextArea::rightInset() const
+{
+    Q_D(const QQuickTextArea);
+    return d->getRightInset();
+}
+
+void QQuickTextArea::setRightInset(qreal inset)
+{
+    Q_D(QQuickTextArea);
+    d->setRightInset(inset);
+}
+
+void QQuickTextArea::resetRightInset()
+{
+    Q_D(QQuickTextArea);
+    d->setRightInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::TextArea::bottomInset
+
+    This property holds the bottom inset for the background.
+
+    \sa {Control Layout}, topInset
+*/
+qreal QQuickTextArea::bottomInset() const
+{
+    Q_D(const QQuickTextArea);
+    return d->getBottomInset();
+}
+
+void QQuickTextArea::setBottomInset(qreal inset)
+{
+    Q_D(QQuickTextArea);
+    d->setBottomInset(inset);
+}
+
+void QQuickTextArea::resetBottomInset()
+{
+    Q_D(QQuickTextArea);
+    d->setBottomInset(0, true);
+}
+
 void QQuickTextArea::classBegin()
 {
     Q_D(QQuickTextArea);
@@ -715,6 +1000,7 @@ void QQuickTextArea::componentComplete()
     Q_D(QQuickTextArea);
     d->executeBackground(true);
     QQuickTextEdit::componentComplete();
+    d->resizeBackground();
 #if QT_CONFIG(quicktemplates2_hover)
     if (!d->explicitHoverEnabled)
         setAcceptHoverEvents(QQuickControlPrivate::calcHoverEnabled(d->parentItem));
@@ -761,6 +1047,14 @@ void QQuickTextArea::geometryChanged(const QRectF &newGeometry, const QRectF &ol
 {
     Q_D(QQuickTextArea);
     QQuickTextEdit::geometryChanged(newGeometry, oldGeometry);
+    d->resizeBackground();
+}
+
+void QQuickTextArea::insetChange(const QMarginsF &newInset, const QMarginsF &oldInset)
+{
+    Q_D(QQuickTextArea);
+    Q_UNUSED(newInset);
+    Q_UNUSED(oldInset);
     d->resizeBackground();
 }
 
@@ -888,9 +1182,7 @@ void QQuickTextArea::timerEvent(QTimerEvent *event)
 class QQuickTextAreaAttachedPrivate : public QObjectPrivate
 {
 public:
-    QQuickTextAreaAttachedPrivate() : control(nullptr) { }
-
-    QQuickTextArea *control;
+    QQuickTextArea *control = nullptr;
 };
 
 QQuickTextAreaAttached::QQuickTextAreaAttached(QObject *parent)

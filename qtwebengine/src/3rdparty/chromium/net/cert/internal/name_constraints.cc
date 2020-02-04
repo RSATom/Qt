@@ -9,7 +9,10 @@
 #include <memory>
 
 #include "base/logging.h"
+#include "base/numerics/clamped_math.h"
 #include "base/strings/string_util.h"
+#include "net/cert/internal/cert_errors.h"
+#include "net/cert/internal/common_cert_errors.h"
 #include "net/cert/internal/verify_name_match.h"
 #include "net/der/input.h"
 #include "net/der/parser.h"
@@ -103,148 +106,6 @@ bool DNSNameMatches(base::StringPiece name,
   return false;
 }
 
-// Return true if the bitmask |mask| contains only zeros after the first
-// |prefix_length| bits.
-bool IsSuffixZero(const IPAddressBytes& mask, unsigned prefix_length) {
-  size_t zero_bits = mask.size() * CHAR_BIT - prefix_length;
-  size_t zero_bytes = zero_bits / CHAR_BIT;
-  std::vector<uint8_t> zeros(zero_bytes, 0);
-  if (memcmp(zeros.data(), mask.data() + mask.size() - zero_bytes, zero_bytes))
-    return false;
-  size_t leftover_bits = zero_bits % CHAR_BIT;
-  if (leftover_bits) {
-    uint8_t b = mask[mask.size() - zero_bytes - 1];
-    for (size_t i = 0; i < leftover_bits; ++i) {
-      if (b & (1 << i))
-        return false;
-    }
-  }
-  return true;
-}
-
-// Controls handling of unsupported name types in ParseGeneralName. (Unsupported
-// types are those not in kSupportedNameTypes.)
-// RECORD_UNSUPPORTED causes unsupported types to be recorded in
-// |present_name_types|.
-// IGNORE_UNSUPPORTED causes unsupported types to not be recorded.
-enum ParseGeneralNameUnsupportedTypeBehavior {
-  RECORD_UNSUPPORTED,
-  IGNORE_UNSUPPORTED,
-};
-
-// Controls parsing of iPAddress names in ParseGeneralName.
-// IP_ADDRESS_ONLY parses the iPAddress names as a 4 or 16 byte IP address.
-// IP_ADDRESS_AND_NETMASK parses the iPAddress names as 8 or 32 bytes containing
-// an IP address followed by a netmask.
-enum ParseGeneralNameIPAddressType {
-  IP_ADDRESS_ONLY,
-  IP_ADDRESS_AND_NETMASK,
-};
-
-// Parses a GeneralName value and adds it to |subtrees|.
-WARN_UNUSED_RESULT bool ParseGeneralName(
-    const der::Input& input,
-    ParseGeneralNameUnsupportedTypeBehavior unsupported_type_behavior,
-    ParseGeneralNameIPAddressType ip_address_type,
-    GeneralNames* subtrees) {
-  der::Parser parser(input);
-  der::Tag tag;
-  der::Input value;
-  if (!parser.ReadTagAndValue(&tag, &value))
-    return false;
-  GeneralNameTypes name_type = GENERAL_NAME_NONE;
-  if (tag == der::ContextSpecificConstructed(0)) {
-    // otherName                       [0]     OtherName,
-    name_type = GENERAL_NAME_OTHER_NAME;
-  } else if (tag == der::ContextSpecificPrimitive(1)) {
-    // rfc822Name                      [1]     IA5String,
-    name_type = GENERAL_NAME_RFC822_NAME;
-  } else if (tag == der::ContextSpecificPrimitive(2)) {
-    // dNSName                         [2]     IA5String,
-    name_type = GENERAL_NAME_DNS_NAME;
-    const std::string s = value.AsString();
-    if (!base::IsStringASCII(s))
-      return false;
-    subtrees->dns_names.push_back(s);
-  } else if (tag == der::ContextSpecificConstructed(3)) {
-    // x400Address                     [3]     ORAddress,
-    name_type = GENERAL_NAME_X400_ADDRESS;
-  } else if (tag == der::ContextSpecificConstructed(4)) {
-    // directoryName                   [4]     Name,
-    name_type = GENERAL_NAME_DIRECTORY_NAME;
-    // Name is a CHOICE { rdnSequence  RDNSequence }, therefore the SEQUENCE
-    // tag is explicit. Remove it, since the name matching functions expect
-    // only the value portion.
-    der::Parser name_parser(value);
-    der::Input name_value;
-    if (!name_parser.ReadTag(der::kSequence, &name_value) || parser.HasMore())
-      return false;
-    subtrees->directory_names.push_back(
-        std::vector<uint8_t>(name_value.UnsafeData(),
-                             name_value.UnsafeData() + name_value.Length()));
-  } else if (tag == der::ContextSpecificConstructed(5)) {
-    // ediPartyName                    [5]     EDIPartyName,
-    name_type = GENERAL_NAME_EDI_PARTY_NAME;
-  } else if (tag == der::ContextSpecificPrimitive(6)) {
-    // uniformResourceIdentifier       [6]     IA5String,
-    name_type = GENERAL_NAME_UNIFORM_RESOURCE_IDENTIFIER;
-  } else if (tag == der::ContextSpecificPrimitive(7)) {
-    // iPAddress                       [7]     OCTET STRING,
-    name_type = GENERAL_NAME_IP_ADDRESS;
-    if (ip_address_type == IP_ADDRESS_ONLY) {
-      // RFC 5280 section 4.2.1.6:
-      // When the subjectAltName extension contains an iPAddress, the address
-      // MUST be stored in the octet string in "network byte order", as
-      // specified in [RFC791].  The least significant bit (LSB) of each octet
-      // is the LSB of the corresponding byte in the network address.  For IP
-      // version 4, as specified in [RFC791], the octet string MUST contain
-      // exactly four octets.  For IP version 6, as specified in [RFC2460],
-      // the octet string MUST contain exactly sixteen octets.
-      if ((value.Length() != IPAddress::kIPv4AddressSize &&
-           value.Length() != IPAddress::kIPv6AddressSize)) {
-        return false;
-      }
-      subtrees->ip_addresses.push_back(
-          IPAddress(value.UnsafeData(), value.Length()));
-    } else {
-      DCHECK_EQ(ip_address_type, IP_ADDRESS_AND_NETMASK);
-      // RFC 5280 section 4.2.1.10:
-      // The syntax of iPAddress MUST be as described in Section 4.2.1.6 with
-      // the following additions specifically for name constraints. For IPv4
-      // addresses, the iPAddress field of GeneralName MUST contain eight (8)
-      // octets, encoded in the style of RFC 4632 (CIDR) to represent an
-      // address range [RFC4632]. For IPv6 addresses, the iPAddress field
-      // MUST contain 32 octets similarly encoded. For example, a name
-      // constraint for "class C" subnet 192.0.2.0 is represented as the
-      // octets C0 00 02 00 FF FF FF 00, representing the CIDR notation
-      // 192.0.2.0/24 (mask 255.255.255.0).
-      if (value.Length() != IPAddress::kIPv4AddressSize * 2 &&
-          value.Length() != IPAddress::kIPv6AddressSize * 2) {
-        return false;
-      }
-      const IPAddress mask(value.UnsafeData() + value.Length() / 2,
-                           value.Length() / 2);
-      const unsigned mask_prefix_length = MaskPrefixLength(mask);
-      if (!IsSuffixZero(mask.bytes(), mask_prefix_length))
-        return false;
-      subtrees->ip_address_ranges.push_back(
-          std::make_pair(IPAddress(value.UnsafeData(), value.Length() / 2),
-                         mask_prefix_length));
-    }
-  } else if (tag == der::ContextSpecificPrimitive(8)) {
-    // registeredID                    [8]     OBJECT IDENTIFIER }
-    name_type = GENERAL_NAME_REGISTERED_ID;
-  } else {
-    return false;
-  }
-  DCHECK_NE(GENERAL_NAME_NONE, name_type);
-  if ((name_type & kSupportedNameTypes) ||
-      unsupported_type_behavior == RECORD_UNSUPPORTED) {
-    subtrees->present_name_types |= name_type;
-  }
-  return true;
-}
-
 // Parses a GeneralSubtrees |value| and store the contents in |subtrees|.
 // The individual values stored into |subtrees| are not validated by this
 // function.
@@ -252,8 +113,10 @@ WARN_UNUSED_RESULT bool ParseGeneralName(
 // a default initialized object), and it will be modified regardless of the
 // return value.
 WARN_UNUSED_RESULT bool ParseGeneralSubtrees(const der::Input& value,
-                                             bool is_critical,
-                                             GeneralNames* subtrees) {
+                                             GeneralNames* subtrees,
+                                             CertErrors* errors) {
+  DCHECK(errors);
+
   // GeneralSubtrees ::= SEQUENCE SIZE (1..MAX) OF GeneralSubtree
   //
   // GeneralSubtree ::= SEQUENCE {
@@ -275,9 +138,10 @@ WARN_UNUSED_RESULT bool ParseGeneralSubtrees(const der::Input& value,
     if (!subtree_sequence.ReadRawTLV(&raw_general_name))
       return false;
 
-    if (!ParseGeneralName(raw_general_name,
-                          is_critical ? RECORD_UNSUPPORTED : IGNORE_UNSUPPORTED,
-                          IP_ADDRESS_AND_NETMASK, subtrees)) {
+    if (!ParseGeneralName(
+            raw_general_name,
+            GeneralNames::IP_ADDRESS_AND_NETMASK, subtrees, errors)) {
+      errors->AddError(kFailedParsingGeneralName);
       return false;
     }
 
@@ -301,54 +165,26 @@ WARN_UNUSED_RESULT bool ParseGeneralSubtrees(const der::Input& value,
 
 }  // namespace
 
-GeneralNames::GeneralNames() {}
-
-GeneralNames::~GeneralNames() {}
-
-// static
-std::unique_ptr<GeneralNames> GeneralNames::Create(
-    const der::Input& general_names_tlv) {
-  // RFC 5280 section 4.2.1.6:
-  // GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
-  std::unique_ptr<GeneralNames> general_names(new GeneralNames());
-  der::Parser parser(general_names_tlv);
-  der::Parser sequence_parser;
-  if (!parser.ReadSequence(&sequence_parser))
-    return nullptr;
-  // Should not have trailing data after GeneralNames sequence.
-  if (parser.HasMore())
-    return nullptr;
-  // The GeneralNames sequence should have at least 1 element.
-  if (!sequence_parser.HasMore())
-    return nullptr;
-
-  while (sequence_parser.HasMore()) {
-    der::Input raw_general_name;
-    if (!sequence_parser.ReadRawTLV(&raw_general_name))
-      return nullptr;
-
-    if (!ParseGeneralName(raw_general_name, RECORD_UNSUPPORTED, IP_ADDRESS_ONLY,
-                          general_names.get()))
-      return nullptr;
-  }
-
-  return general_names;
-}
-
-NameConstraints::~NameConstraints() {}
+NameConstraints::~NameConstraints() = default;
 
 // static
 std::unique_ptr<NameConstraints> NameConstraints::Create(
     const der::Input& extension_value,
-    bool is_critical) {
+    bool is_critical,
+    CertErrors* errors) {
+  DCHECK(errors);
+
   std::unique_ptr<NameConstraints> name_constraints(new NameConstraints());
-  if (!name_constraints->Parse(extension_value, is_critical))
+  if (!name_constraints->Parse(extension_value, is_critical, errors))
     return nullptr;
   return name_constraints;
 }
 
 bool NameConstraints::Parse(const der::Input& extension_value,
-                            bool is_critical) {
+                            bool is_critical,
+                            CertErrors* errors) {
+  DCHECK(errors);
+
   der::Parser extension_parser(extension_value);
   der::Parser sequence_parser;
 
@@ -368,10 +204,13 @@ bool NameConstraints::Parse(const der::Input& extension_value,
     return false;
   }
   if (had_permitted_subtrees &&
-      !ParseGeneralSubtrees(permitted_subtrees_value, is_critical,
-                            &permitted_subtrees_)) {
+      !ParseGeneralSubtrees(permitted_subtrees_value, &permitted_subtrees_,
+                            errors)) {
     return false;
   }
+  constrained_name_types_ |=
+      permitted_subtrees_.present_name_types &
+      (is_critical ? GENERAL_NAME_ALL_TYPES : kSupportedNameTypes);
 
   bool had_excluded_subtrees = false;
   der::Input excluded_subtrees_value;
@@ -381,10 +220,13 @@ bool NameConstraints::Parse(const der::Input& extension_value,
     return false;
   }
   if (had_excluded_subtrees &&
-      !ParseGeneralSubtrees(excluded_subtrees_value, is_critical,
-                            &excluded_subtrees_)) {
+      !ParseGeneralSubtrees(excluded_subtrees_value, &excluded_subtrees_,
+                            errors)) {
     return false;
   }
+  constrained_name_types_ |=
+      excluded_subtrees_.present_name_types &
+      (is_critical ? GENERAL_NAME_ALL_TYPES : kSupportedNameTypes);
 
   // RFC 5280 section 4.2.1.10:
   // Conforming CAs MUST NOT issue certificates where name constraints is an
@@ -399,9 +241,40 @@ bool NameConstraints::Parse(const der::Input& extension_value,
   return true;
 }
 
-bool NameConstraints::IsPermittedCert(
-    const der::Input& subject_rdn_sequence,
-    const GeneralNames* subject_alt_names) const {
+void NameConstraints::IsPermittedCert(const der::Input& subject_rdn_sequence,
+                                      const GeneralNames* subject_alt_names,
+                                      CertErrors* errors) const {
+  // Checking NameConstraints is O(number_of_names * number_of_constraints).
+  // Impose a hard limit to mitigate the use of name constraints as a DoS
+  // mechanism.
+  const size_t kMaxChecks = 1048576;  // 1 << 20
+  base::ClampedNumeric<size_t> check_count = 0;
+
+  if (subject_alt_names) {
+    check_count +=
+        base::ClampMul(subject_alt_names->dns_names.size(),
+                       base::ClampAdd(excluded_subtrees_.dns_names.size(),
+                                      permitted_subtrees_.dns_names.size()));
+    check_count += base::ClampMul(
+        subject_alt_names->directory_names.size(),
+        base::ClampAdd(excluded_subtrees_.directory_names.size(),
+                       permitted_subtrees_.directory_names.size()));
+    check_count += base::ClampMul(
+        subject_alt_names->ip_addresses.size(),
+        base::ClampAdd(excluded_subtrees_.ip_address_ranges.size(),
+                       permitted_subtrees_.ip_address_ranges.size()));
+  }
+
+  if (!(subject_alt_names && subject_rdn_sequence.Length() == 0)) {
+    check_count += base::ClampAdd(excluded_subtrees_.directory_names.size(),
+                                  permitted_subtrees_.directory_names.size());
+  }
+
+  if (check_count > kMaxChecks) {
+    errors->AddError(cert_errors::kTooManyNameConstraintChecks);
+    return;
+  }
+
   // Subject Alternative Name handling:
   //
   // RFC 5280 section 4.2.1.6:
@@ -413,8 +286,9 @@ bool NameConstraints::IsPermittedCert(
 
   if (subject_alt_names) {
     // Check unsupported name types:
-    // ConstrainedNameTypes for the unsupported types will only be true if that
-    // type of name was present in a name constraint that was marked critical.
+    // constrained_name_types() for the unsupported types will only be true if
+    // that type of name was present in a name constraint that was marked
+    // critical.
     //
     // RFC 5280 section 4.2.1.10:
     // If a name constraints extension that is marked as critical
@@ -422,27 +296,32 @@ bool NameConstraints::IsPermittedCert(
     // that name form appears in the subject field or subjectAltName
     // extension of a subsequent certificate, then the application MUST
     // either process the constraint or reject the certificate.
-    if (ConstrainedNameTypes() & subject_alt_names->present_name_types &
+    if (constrained_name_types() & subject_alt_names->present_name_types &
         ~kSupportedNameTypes) {
-      return false;
+      errors->AddError(cert_errors::kNotPermittedByNameConstraints);
+      return;
     }
 
     // Check supported name types:
     for (const auto& dns_name : subject_alt_names->dns_names) {
-      if (!IsPermittedDNSName(dns_name))
-        return false;
+      if (!IsPermittedDNSName(dns_name)) {
+        errors->AddError(cert_errors::kNotPermittedByNameConstraints);
+        return;
+      }
     }
 
     for (const auto& directory_name : subject_alt_names->directory_names) {
-      if (!IsPermittedDirectoryName(
-              der::Input(directory_name.data(), directory_name.size()))) {
-        return false;
+      if (!IsPermittedDirectoryName(directory_name)) {
+        errors->AddError(cert_errors::kNotPermittedByNameConstraints);
+        return;
       }
     }
 
     for (const auto& ip_address : subject_alt_names->ip_addresses) {
-      if (!IsPermittedIP(ip_address))
-        return false;
+      if (!IsPermittedIP(ip_address)) {
+        errors->AddError(cert_errors::kNotPermittedByNameConstraints);
+        return;
+      }
     }
   }
 
@@ -456,14 +335,17 @@ bool NameConstraints::IsPermittedCert(
   // rfc822Name constraint MUST be applied to the attribute of type emailAddress
   // in the subject distinguished name.
   if (!subject_alt_names &&
-      (ConstrainedNameTypes() & GENERAL_NAME_RFC822_NAME)) {
+      (constrained_name_types() & GENERAL_NAME_RFC822_NAME)) {
     bool contained_email_address = false;
     if (!NameContainsEmailAddress(subject_rdn_sequence,
                                   &contained_email_address)) {
-      return false;
+      errors->AddError(cert_errors::kNotPermittedByNameConstraints);
+      return;
     }
-    if (contained_email_address)
-      return false;
+    if (contained_email_address) {
+      errors->AddError(cert_errors::kNotPermittedByNameConstraints);
+      return;
+    }
   }
 
   // RFC 5280 4.1.2.6:
@@ -475,13 +357,16 @@ bool NameConstraints::IsPermittedCert(
   // therefore only needs to avoid the IsPermittedDirectoryName check against an
   // empty subject in such a case.
   if (subject_alt_names && subject_rdn_sequence.Length() == 0)
-    return true;
+    return;
 
-  return IsPermittedDirectoryName(subject_rdn_sequence);
+  if (!IsPermittedDirectoryName(subject_rdn_sequence)) {
+    errors->AddError(cert_errors::kNotPermittedByNameConstraints);
+    return;
+  }
 }
 
-bool NameConstraints::IsPermittedDNSName(const std::string& name) const {
-  for (const std::string& excluded_name : excluded_subtrees_.dns_names) {
+bool NameConstraints::IsPermittedDNSName(base::StringPiece name) const {
+  for (const auto& excluded_name : excluded_subtrees_.dns_names) {
     // When matching wildcard hosts against excluded subtrees, consider it a
     // match if the constraint would match any expansion of the wildcard. Eg,
     // *.bar.com should match a constraint of foo.bar.com.
@@ -494,7 +379,7 @@ bool NameConstraints::IsPermittedDNSName(const std::string& name) const {
   if (!(permitted_subtrees_.present_name_types & GENERAL_NAME_DNS_NAME))
     return true;
 
-  for (const std::string& permitted_name : permitted_subtrees_.dns_names) {
+  for (const auto& permitted_name : permitted_subtrees_.dns_names) {
     // When matching wildcard hosts against permitted subtrees, consider it a
     // match only if the constraint would match all expansions of the wildcard.
     // Eg, *.bar.com should match a constraint of bar.com, but not foo.bar.com.
@@ -508,11 +393,8 @@ bool NameConstraints::IsPermittedDNSName(const std::string& name) const {
 bool NameConstraints::IsPermittedDirectoryName(
     const der::Input& name_rdn_sequence) const {
   for (const auto& excluded_name : excluded_subtrees_.directory_names) {
-    if (VerifyNameInSubtree(
-            name_rdn_sequence,
-            der::Input(excluded_name.data(), excluded_name.size()))) {
+    if (VerifyNameInSubtree(name_rdn_sequence, excluded_name))
       return false;
-    }
   }
 
   // If permitted subtrees are not constrained, any name that is not excluded is
@@ -521,11 +403,8 @@ bool NameConstraints::IsPermittedDirectoryName(
     return true;
 
   for (const auto& permitted_name : permitted_subtrees_.directory_names) {
-    if (VerifyNameInSubtree(
-            name_rdn_sequence,
-            der::Input(permitted_name.data(), permitted_name.size()))) {
+    if (VerifyNameInSubtree(name_rdn_sequence, permitted_name))
       return true;
-    }
   }
 
   return false;
@@ -548,11 +427,6 @@ bool NameConstraints::IsPermittedIP(const IPAddress& ip) const {
   }
 
   return false;
-}
-
-int NameConstraints::ConstrainedNameTypes() const {
-  return (permitted_subtrees_.present_name_types |
-          excluded_subtrees_.present_name_types);
 }
 
 }  // namespace net

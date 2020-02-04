@@ -67,8 +67,9 @@ int main(int argc, char *argv[])
     parser.addPositionalArgument("file", "The file(s) to open.");
     parser.process(app);
 
-    MainWindow *mainWin = Q_NULLPTR;
-    foreach (const QString &file, parser.positionalArguments()) {
+    MainWindow *mainWin = nullptr;
+    const QStringList posArgs = parser.positionalArguments();
+    for (const QString &file : posArgs) {
         MainWindow *newWin = new MainWindow(file);
         newWin->tile(mainWin);
         newWin->show();

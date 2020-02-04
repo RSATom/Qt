@@ -187,6 +187,7 @@ private slots:
     void bom();
     void embeddedZeroByte_data();
     void embeddedZeroByte();
+    void spaceAfterComment();
 
     void testXdg();
 private:
@@ -207,7 +208,7 @@ void tst_QSettings::getSetCheck()
     QCOMPARE(true, obj1.fallbacksEnabled());
 }
 
-static QString settingsPath(const char *path = Q_NULLPTR)
+static QString settingsPath(const char *path = nullptr)
 {
     // Temporary path for files that are specified explicitly in the constructor.
 #ifndef Q_OS_WINRT
@@ -531,7 +532,7 @@ void tst_QSettings::ctor()
             // more details in QMacSettingsPrivate::QMacSettingsPrivate(), organization was comify()-ed
             caseSensitive = settings5.fileName().contains("SoftWare.ORG");;
         } else {
-            caseSensitive = pathconf(QDir::currentPath().toLatin1().constData(), _PC_CASE_SENSITIVE);
+            caseSensitive = pathconf(settings5.fileName().toLatin1().constData(), _PC_CASE_SENSITIVE);
         }
 #elif defined(Q_OS_WIN32) || defined(Q_OS_WINRT)
         caseSensitive = false;
@@ -762,6 +763,34 @@ void tst_QSettings::embeddedZeroByte()
         if (value.toByteArray().contains(QChar::Null))
             QVERIFY(outValue.toByteArray().contains(QChar::Null));
     }
+}
+
+void tst_QSettings::spaceAfterComment()
+{
+    QSettings settings(QFINDTESTDATA("withcomments.ini"), QSettings::IniFormat);
+    QCOMPARE(settings.status(), QSettings::NoError);
+
+    QStringList groups = settings.childGroups();
+    QVERIFY(groups.contains("Regular"));
+    QVERIFY(groups.contains("WithSpaces"));
+    QVERIFY(groups.contains("WithTab"));
+    QVERIFY(groups.contains("SpacedGroup"));
+
+    settings.beginGroup("Regular");
+    QCOMPARE(settings.value("bar"), QVariant(2));
+    settings.endGroup();
+
+    settings.beginGroup("WithSpaces");
+    QCOMPARE(settings.value("bar"), QVariant(4));
+    settings.endGroup();
+
+    settings.beginGroup("WithTab");
+    QCOMPARE(settings.value("bar"), QVariant(6));
+    settings.endGroup();
+
+    settings.beginGroup("SpacedGroup");
+    QCOMPARE(settings.value("bar"), QVariant(7));
+    settings.endGroup();
 }
 
 void tst_QSettings::testErrorHandling_data()
@@ -1186,6 +1215,10 @@ static void testMetaTypesHelper(QSettings::Format format)
     F(QJsonArray) \
     F(QJsonDocument) \
     F(QPersistentModelIndex) \
+    F(QCborSimpleType) \
+    F(QCborValue) \
+    F(QCborArray) \
+    F(QCborMap) \
 
 #define EXCLUDE_NON_SUPPORTED_METATYPES(MetaTypeName) \
 template<> void testMetaTypesHelper<QMetaType::MetaTypeName>(QSettings::Format) \

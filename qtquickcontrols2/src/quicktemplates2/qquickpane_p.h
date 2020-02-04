@@ -58,23 +58,23 @@ class QQuickPanePrivate;
 class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickPane : public QQuickControl
 {
     Q_OBJECT
-    Q_PROPERTY(qreal contentWidth READ contentWidth WRITE setContentWidth NOTIFY contentWidthChanged FINAL)
-    Q_PROPERTY(qreal contentHeight READ contentHeight WRITE setContentHeight NOTIFY contentHeightChanged FINAL)
-    Q_PROPERTY(QQmlListProperty<QObject> contentData READ contentData FINAL)
-    Q_PROPERTY(QQmlListProperty<QQuickItem> contentChildren READ contentChildren NOTIFY contentChildrenChanged FINAL)
+    Q_PROPERTY(qreal contentWidth READ contentWidth WRITE setContentWidth RESET resetContentWidth NOTIFY contentWidthChanged FINAL)
+    Q_PROPERTY(qreal contentHeight READ contentHeight WRITE setContentHeight RESET resetContentHeight NOTIFY contentHeightChanged FINAL)
+    Q_PRIVATE_PROPERTY(QQuickPane::d_func(), QQmlListProperty<QObject> contentData READ contentData FINAL)
+    Q_PRIVATE_PROPERTY(QQuickPane::d_func(), QQmlListProperty<QQuickItem> contentChildren READ contentChildren NOTIFY contentChildrenChanged FINAL)
     Q_CLASSINFO("DefaultProperty", "contentData")
 
 public:
     explicit QQuickPane(QQuickItem *parent = nullptr);
+    ~QQuickPane();
 
     qreal contentWidth() const;
     void setContentWidth(qreal width);
+    void resetContentWidth();
 
     qreal contentHeight() const;
     void setContentHeight(qreal height);
-
-    QQmlListProperty<QObject> contentData();
-    QQmlListProperty<QQuickItem> contentChildren();
+    void resetContentHeight();
 
 Q_SIGNALS:
     void contentWidthChanged();
@@ -84,7 +84,10 @@ Q_SIGNALS:
 protected:
     QQuickPane(QQuickPanePrivate &dd, QQuickItem *parent);
 
+    void componentComplete() override;
+
     void contentItemChange(QQuickItem *newItem, QQuickItem *oldItem) override;
+    virtual void contentSizeChange(const QSizeF &newSize, const QSizeF &oldSize);
 
 #if QT_CONFIG(accessibility)
     QAccessible::Role accessibleRole() const override;

@@ -12,14 +12,12 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
-#include "content/browser/fileapi/upload_file_system_file_element_reader.h"
-#include "content/public/common/resource_request_body.h"
 #include "net/base/elements_upload_data_stream.h"
 #include "net/base/upload_bytes_element_reader.h"
 #include "net/base/upload_file_element_reader.h"
+#include "services/network/public/cpp/resource_request_body.h"
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/blob/blob_reader.h"
 #include "storage/browser/blob/blob_storage_context.h"
@@ -40,17 +38,17 @@ namespace {
 // ResourceRequestBody.
 class BytesElementReader : public net::UploadBytesElementReader {
  public:
-  BytesElementReader(ResourceRequestBody* resource_request_body,
-                     const ResourceRequestBody::Element& element)
+  BytesElementReader(network::ResourceRequestBody* resource_request_body,
+                     const network::DataElement& element)
       : net::UploadBytesElementReader(element.bytes(), element.length()),
         resource_request_body_(resource_request_body) {
-    DCHECK_EQ(ResourceRequestBody::Element::TYPE_BYTES, element.type());
+    DCHECK_EQ(network::mojom::DataElementType::kBytes, element.type());
   }
 
   ~BytesElementReader() override {}
 
  private:
-  scoped_refptr<ResourceRequestBody> resource_request_body_;
+  scoped_refptr<network::ResourceRequestBody> resource_request_body_;
 
   DISALLOW_COPY_AND_ASSIGN(BytesElementReader);
 };
@@ -61,22 +59,22 @@ class BytesElementReader : public net::UploadBytesElementReader {
 // files survive until upload completion.
 class FileElementReader : public net::UploadFileElementReader {
  public:
-  FileElementReader(ResourceRequestBody* resource_request_body,
+  FileElementReader(network::ResourceRequestBody* resource_request_body,
                     base::TaskRunner* task_runner,
-                    const ResourceRequestBody::Element& element)
+                    const network::DataElement& element)
       : net::UploadFileElementReader(task_runner,
                                      element.path(),
                                      element.offset(),
                                      element.length(),
                                      element.expected_modification_time()),
         resource_request_body_(resource_request_body) {
-    DCHECK_EQ(ResourceRequestBody::Element::TYPE_FILE, element.type());
+    DCHECK_EQ(network::mojom::DataElementType::kFile, element.type());
   }
 
   ~FileElementReader() override {}
 
  private:
-  scoped_refptr<ResourceRequestBody> resource_request_body_;
+  scoped_refptr<network::ResourceRequestBody> resource_request_body_;
 
   DISALLOW_COPY_AND_ASSIGN(FileElementReader);
 };
@@ -84,49 +82,42 @@ class FileElementReader : public net::UploadFileElementReader {
 }  // namespace
 
 std::unique_ptr<net::UploadDataStream> UploadDataStreamBuilder::Build(
-    ResourceRequestBody* body,
+    network::ResourceRequestBody* body,
     storage::BlobStorageContext* blob_context,
     storage::FileSystemContext* file_system_context,
     base::SingleThreadTaskRunner* file_task_runner) {
   std::vector<std::unique_ptr<net::UploadElementReader>> element_readers;
   for (const auto& element : *body->elements()) {
     switch (element.type()) {
-      case ResourceRequestBody::Element::TYPE_BYTES:
+      case network::mojom::DataElementType::kBytes:
         element_readers.push_back(
-            base::MakeUnique<BytesElementReader>(body, element));
+            std::make_unique<BytesElementReader>(body, element));
         break;
-      case ResourceRequestBody::Element::TYPE_FILE:
-        element_readers.push_back(base::MakeUnique<FileElementReader>(
+      case network::mojom::DataElementType::kFile:
+        element_readers.push_back(std::make_unique<FileElementReader>(
             body, file_task_runner, element));
         break;
-      case ResourceRequestBody::Element::TYPE_FILE_FILESYSTEM:
-        // If |body| contains any filesystem URLs, the caller should have
-        // supplied a FileSystemContext.
-        DCHECK(file_system_context);
-        element_readers.push_back(
-            base::MakeUnique<content::UploadFileSystemFileElementReader>(
-                file_system_context, element.filesystem_url(), element.offset(),
-                element.length(), element.expected_modification_time()));
-        break;
-      case ResourceRequestBody::Element::TYPE_BLOB: {
-        DCHECK_EQ(std::numeric_limits<uint64_t>::max(), element.length());
+      case network::mojom::DataElementType::kBlob: {
         DCHECK_EQ(0ul, element.offset());
         std::unique_ptr<storage::BlobDataHandle> handle =
             blob_context->GetBlobDataFromUUID(element.blob_uuid());
+        DCHECK(element.length() == std::numeric_limits<uint64_t>::max() ||
+               element.length() == handle->size());
         element_readers.push_back(
-            base::MakeUnique<storage::UploadBlobElementReader>(
-                std::move(handle), file_system_context));
+            std::make_unique<storage::UploadBlobElementReader>(
+                std::move(handle)));
         break;
       }
-      case ResourceRequestBody::Element::TYPE_DISK_CACHE_ENTRY:
-      case ResourceRequestBody::Element::TYPE_BYTES_DESCRIPTION:
-      case ResourceRequestBody::Element::TYPE_UNKNOWN:
+      case network::mojom::DataElementType::kRawFile:
+      case network::mojom::DataElementType::kDataPipe:
+      case network::mojom::DataElementType::kChunkedDataPipe:
+      case network::mojom::DataElementType::kUnknown:
         NOTREACHED();
         break;
     }
   }
 
-  return base::MakeUnique<net::ElementsUploadDataStream>(
+  return std::make_unique<net::ElementsUploadDataStream>(
       std::move(element_readers), body->identifier());
 }
 

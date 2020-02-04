@@ -33,15 +33,6 @@ class JSChecker(object):
         '    // <if expr="chromeos">\n' +
         '    // </if>\n')
 
-  def ConstCheck(self, i, line):
-    """Check for use of the 'const' keyword."""
-    if self.input_api.re.search(r'\*\s+@const', line):
-      # Probably a JsDoc line
-      return ''
-
-    return self.RegexCheck(i, line, r'(?:^|\s|\()(const)\s',
-        'Use /** @const */ var varName; instead of const varName;')
-
   def EndJsDocCommentCheck(self, i, line):
     msg = 'End JSDoc comments with */ instead of **/'
     def _check(regex):
@@ -68,17 +59,6 @@ class JSChecker(object):
     """
     os_path = self.input_api.os_path
 
-    try:
-      # Import ESLint.
-      _HERE_PATH = os_path.dirname(os_path.realpath(__file__))
-      _SRC_PATH = os_path.normpath(os_path.join(_HERE_PATH, '..', '..'))
-      import sys
-      old_sys_path = sys.path[:]
-      sys.path.append(os_path.join(_SRC_PATH, 'third_party', 'node'))
-      import node, node_modules
-    finally:
-      sys.path = old_sys_path
-
     # Extract paths to be passed to ESLint.
     affected_js_files_paths = []
     presubmit_path = self.input_api.PresubmitLocalPath()
@@ -86,20 +66,19 @@ class JSChecker(object):
       affected_js_files_paths.append(
           os_path.relpath(f.AbsoluteLocalPath(), presubmit_path))
 
-    output = node.RunNode([
-        node_modules.PathToEsLint(),
-        '--color',
-        '--format', format,
-        '--ignore-pattern \'!.eslintrc.js\'',
-        ' '.join(affected_js_files_paths)])
+    args = ['--color', '--format', format, '--ignore-pattern \'!.eslintrc.js\'']
+    args += affected_js_files_paths
+
+    import eslint
+    output = eslint.Run(os_path=os_path, args=args)
 
     return [self.output_api.PresubmitError(output)] if output else []
 
-  def VarNameCheck(self, i, line):
+  def VariableNameCheck(self, i, line):
     """See the style guide. http://goo.gl/eQiXVW"""
     return self.RegexCheck(i, line,
-        r"var (?!g_\w+)(_?[a-z][a-zA-Z]*[_$][\w_$]*)(?<! \$)",
-        "Please use var namesLikeThis <https://goo.gl/eQiXVW>")
+        r"(?:var|let|const) (?!g_\w+)(_?[a-z][a-zA-Z]*[_$][\w_$]*)(?<! \$)",
+        "Please use variable namesLikeThis <https://goo.gl/eQiXVW>")
 
   def _GetErrorHighlight(self, start, length):
     """Takes a start position and a length, and produces a row of '^'s to
@@ -128,12 +107,11 @@ class JSChecker(object):
         error_lines += filter(None, [
             self.ChromeSendCheck(i, line),
             self.CommentIfAndIncludeCheck(i, line),
-            self.ConstCheck(i, line),
             self.EndJsDocCommentCheck(i, line),
             self.ExtraDotInGenericCheck(i, line),
             self.InheritDocCheck(i, line),
             self.PolymerLocalIdCheck(i, line),
-            self.VarNameCheck(i, line),
+            self.VariableNameCheck(i, line),
         ])
 
       if error_lines:

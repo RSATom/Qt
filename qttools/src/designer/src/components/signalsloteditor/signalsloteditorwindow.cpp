@@ -35,33 +35,33 @@
 #include <spacer_widget_p.h>
 #include <qlayout_widget_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/abstractformwindowcursor.h>
 #include <abstractdialoggui_p.h>
 
-#include <QtCore/QAbstractItemModel>
-#include <QtCore/QDebug>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QButtonGroup>
-#include <QtWidgets/QMenu>
-#include <QtCore/QSortFilterProxyModel>
-#include <QtGui/QStandardItemModel>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QItemDelegate>
-#include <QtWidgets/QItemEditorFactory>
-#include <QtWidgets/QTreeView>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QButtonGroup>
-#include <QtWidgets/QToolBar>
+#include <QtCore/qabstractitemmodel.h>
+#include <QtCore/qdebug.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qbuttongroup.h>
+#include <QtWidgets/qmenu.h>
+#include <QtCore/qsortfilterproxymodel.h>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtWidgets/qcombobox.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qitemdelegate.h>
+#include <QtWidgets/qitemeditorfactory.h>
+#include <QtWidgets/qtreeview.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qbuttongroup.h>
+#include <QtWidgets/qtoolbar.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -415,7 +415,7 @@ public:
 
     int findText(const QString &text) const;
 
-    Qt::ItemFlags flags(const QModelIndex &index) const Q_DECL_OVERRIDE;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
 };
 
 InlineEditorModel::InlineEditorModel(int rows, int cols, QObject *parent)
@@ -472,10 +472,9 @@ void InlineEditorModel::addTextList(const QMap<QString, bool> &text_list)
 
 Qt::ItemFlags InlineEditorModel::flags(const QModelIndex &index) const
 {
-    if (isTitle(index.row()))
-        return Qt::ItemIsEnabled;
-    else
-        return Qt::ItemIsSelectable | Qt::ItemIsEnabled;
+    return isTitle(index.row())
+        ? Qt::ItemFlags(Qt::ItemIsEnabled)
+        : Qt::ItemFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
 }
 
 int InlineEditorModel::findText(const QString &text) const
@@ -531,9 +530,9 @@ void InlineEditor::checkSelection(int idx)
         return;
 
    if (m_model->isTitle(idx))
-        setCurrentIndex(m_idx);
-    else
-        m_idx = idx;
+       setCurrentIndex(m_idx);
+   else
+       m_idx = idx;
 }
 
 void InlineEditor::addTitle(const QString &title)
@@ -574,9 +573,9 @@ public:
 
     void setForm(QDesignerFormWindowInterface *form);
 
-    virtual QWidget *createEditor(QWidget *parent,
-                                    const QStyleOptionViewItem &option,
-                                    const QModelIndex &index) const;
+    QWidget *createEditor(QWidget *parent,
+                          const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override;
 
 private slots:
     void emitCommitData();
@@ -705,7 +704,7 @@ SignalSlotEditorWindow::SignalSlotEditorWindow(QDesignerFormEditorInterface *cor
             m_view, &QTreeView::resizeColumnToContents);
 
     QVBoxLayout *layout = new QVBoxLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->setSpacing(0);
 
     QToolBar *toolBar = new QToolBar;

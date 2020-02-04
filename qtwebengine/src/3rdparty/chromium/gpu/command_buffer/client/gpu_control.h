@@ -19,13 +19,14 @@
 #include "gpu/gpu_export.h"
 
 extern "C" typedef struct _ClientBuffer* ClientBuffer;
+extern "C" typedef struct _ClientGpuFence* ClientGpuFence;
 
 namespace base {
 class Lock;
 }
 
-namespace ui {
-class LatencyInfo;
+namespace gfx {
+class GpuFence;
 }
 
 namespace gpu {
@@ -35,26 +36,30 @@ struct SyncToken;
 // Common interface for GpuControl implementations.
 class GPU_EXPORT GpuControl {
  public:
-  GpuControl() {}
-  virtual ~GpuControl() {}
+  GpuControl() = default;
+  virtual ~GpuControl() = default;
 
   virtual void SetGpuControlClient(GpuControlClient* gpu_control_client) = 0;
 
-  virtual Capabilities GetCapabilities() = 0;
+  virtual const Capabilities& GetCapabilities() const = 0;
 
-  // Create an image for a client buffer with the given dimensions and
-  // format. Returns its ID or -1 on error.
+  // Create an image for a client buffer with the given dimensions. Returns its
+  // ID or -1 on error.
   virtual int32_t CreateImage(ClientBuffer buffer,
                               size_t width,
-                              size_t height,
-                              unsigned internalformat) = 0;
+                              size_t height) = 0;
 
   // Destroy an image. The ID must be positive.
   virtual void DestroyImage(int32_t id) = 0;
 
   // Runs |callback| when a query created via glCreateQueryEXT() has cleared
   // passed the glEndQueryEXT() point.
-  virtual void SignalQuery(uint32_t query, const base::Closure& callback) = 0;
+  virtual void SignalQuery(uint32_t query, base::OnceClosure callback) = 0;
+
+  virtual void CreateGpuFence(uint32_t gpu_fence_id, ClientGpuFence source) = 0;
+  virtual void GetGpuFence(
+      uint32_t gpu_fence_id,
+      base::OnceCallback<void(std::unique_ptr<gfx::GpuFence>)> callback) = 0;
 
   // Sets a lock this will be held on every callback from the GPU
   // implementation. This lock must be set and must be held on every call into
@@ -78,12 +83,8 @@ class GPU_EXPORT GpuControl {
   virtual CommandBufferNamespace GetNamespaceID() const = 0;
   virtual CommandBufferId GetCommandBufferID() const = 0;
 
-  // Returns the stream id for this context. Only relevant for IPC command
-  // buffer proxy. Used as extra command buffer data in sync tokens.
-  virtual int32_t GetStreamId() const = 0;
-
-  // Flush any outstanding ordering barriers on given stream.
-  virtual void FlushOrderingBarrierOnStream(int32_t stream_id) = 0;
+  // Flush any outstanding ordering barriers on all contexts.
+  virtual void FlushPendingWork() = 0;
 
   // Generates a fence sync which should be inserted into the GL command stream.
   // When the service executes the fence sync it is released. Fence syncs are
@@ -93,16 +94,6 @@ class GPU_EXPORT GpuControl {
   // must be verified before sending a sync token across channel boundaries.
   virtual uint64_t GenerateFenceSyncRelease() = 0;
 
-  // Returns true if the fence sync is valid.
-  virtual bool IsFenceSyncRelease(uint64_t release) = 0;
-
-  // Returns true if the client has flushed the fence sync.
-  virtual bool IsFenceSyncFlushed(uint64_t release) = 0;
-
-  // Returns true if the service has received the fence sync. Used for verifying
-  // sync tokens.
-  virtual bool IsFenceSyncFlushReceived(uint64_t release) = 0;
-
   // Returns true if the service has released (executed) the fence sync. Some
   // implementations may support calling this from any thread without holding
   // the lock provided by the client.
@@ -110,25 +101,18 @@ class GPU_EXPORT GpuControl {
 
   // Runs |callback| when sync token is signaled.
   virtual void SignalSyncToken(const SyncToken& sync_token,
-                               const base::Closure& callback) = 0;
+                               base::OnceClosure callback) = 0;
 
   // This allows the command buffer proxy to mark the next flush with sync token
-  // dependencies for the gpu scheduler. This is used in addition to the
-  // WaitSyncToken command in the command buffer which is still needed. For
-  // example, the WaitSyncToken command is used to pull texture updates when
-  // used in conjunction with MailboxManagerSync.
-  virtual void WaitSyncTokenHint(const SyncToken& sync_token) = 0;
+  // dependencies for the gpu scheduler, or to block prior to the flush in case
+  // of android webview.
+  virtual void WaitSyncToken(const SyncToken& sync_token) = 0;
 
   // Under some circumstances a sync token may be used which has not been
   // verified to have been flushed. For example, fence syncs queued on the same
   // channel as the wait command guarantee that the fence sync will be enqueued
   // first so does not need to be flushed.
   virtual bool CanWaitUnverifiedSyncToken(const SyncToken& sync_token) = 0;
-
-  // Add |latency_info| to be reported and augumented with GPU latency
-  // components next time there is a GPU buffer swap.
-  virtual void AddLatencyInfo(
-      const std::vector<ui::LatencyInfo>& latency_info) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(GpuControl);

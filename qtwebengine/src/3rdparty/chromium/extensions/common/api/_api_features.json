@@ -7,7 +7,7 @@
 // well as feature.h, simple_feature.h, and feature_provider.h.
 //
 // Note that specifying "web_page", "blessed_web_page", or "all" as a context
-// type will require manually updating chrome/renderer/resources/dispatcher.cc.
+// type will require manually updating extensions/renderer/extension_bindings_system.cc.
 
 {
   "alarms": {
@@ -85,7 +85,6 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://bluetooth-pairing/*",
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -102,12 +101,15 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://bluetooth-pairing/*",
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
   "bluetoothSocket": {
     "dependencies": ["manifest:bluetooth"],
+    "contexts": ["blessed_extension"]
+  },
+  "cecPrivate": {
+    "dependencies": ["permission:cecPrivate"],
     "contexts": ["blessed_extension"]
   },
   "clipboard": {
@@ -119,6 +121,10 @@
   },
   "clipboard.setImageData": {
     "dependencies": ["permission:clipboardWrite"]
+  },
+  "declarativeNetRequest": {
+    "dependencies": ["permission:declarativeNetRequest"],
+    "contexts": ["blessed_extension"]
   },
   "declarativeWebRequest": {
     "dependencies": ["permission:declarativeWebRequest"],
@@ -171,6 +177,14 @@
     "contexts": "all",
     "matches": ["<all_urls>"]
   },
+  "feedbackPrivate": {
+    "dependencies": ["permission:feedbackPrivate"],
+    "contexts": ["blessed_extension"]
+  },
+  "feedbackPrivate.readLogSource": {
+    "platforms": ["chromeos"],
+    "session_types": ["kiosk"]
+  },
   "fileSystem": {
     "dependencies": ["permission:fileSystem"],
     "contexts": ["blessed_extension"]
@@ -186,11 +200,16 @@
       "contexts": ["webui"],
       "matches": [
         "chrome://cast/*",
+        "chrome://discards/*",
         "chrome://extensions-frame/*",
         "chrome://extensions/*",
+        "chrome://home/*",
         "chrome://chrome-signin/*",
+        "chrome://hats/*",
         "chrome://media-router/*",
-        "chrome://oobe/*"
+        "chrome://mobilesetup/*",
+        "chrome://oobe/*",
+        "chrome://assistant-optin/*"
       ]
     }
   ],
@@ -206,6 +225,9 @@
   "idle": {
     "dependencies": ["permission:idle"],
     "contexts": ["blessed_extension"]
+  },
+  "idle.getAutoLockDelay": {
+    "platforms": ["chromeos"]
   },
   "lockScreen.data": {
     "dependencies": ["permission:lockScreen"],
@@ -225,7 +247,6 @@
       "chrome://extensions/*",
       "chrome://extensions-frame/*",
       "chrome://chrome/extensions/*",
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -257,8 +278,10 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://bookmarks/*",
-      "chrome://md-settings/*",
-      "chrome://settings/*"
+      "chrome://extensions/*",
+      "chrome://settings/*",
+      "chrome://sync-confirmation/*",
+      "chrome://welcome/*"
     ]
   }],
   "metricsPrivate.getIsCrashReportingEnabled": {
@@ -279,7 +302,6 @@
       "3F65507A3B39259B38C8173C6FFA3D12DF64CCE9",  // http://crbug.com/371562.
       "D7986543275120831B39EF28D1327552FC343960",  // http://crbug.com/378067
       "A291B26E088FA6BA53FFD72F0916F06EBA7C585A",  // http://crbug.com/378067
-      "62CCAAD339E6451BBF97C4BBDF758E934A05AD0B",  // Hotword triggering
       "07BD6A765FFC289FF755D7CAB2893A40EC337FEC",  // http://crbug.com/456214
       "896B85CC7E913E11C34892C1425A093C0701D386",  // http://crbug.com/456214
       "11A01C82EF355E674E4F9728A801F5C3CB40D83F",  // http://crbug.com/456214
@@ -292,7 +314,10 @@
       "2B6C6A4A5940017146F3E58B7F90116206E84685",  // http://crbug.com/642141
       "B6C2EFAB3EC3BF6EF03701408B6B09A67B2D0069",  // http://crbug.com/642141
       "96FF2FFA5C9173C76D47184B3E86D267B37781DE",  // http://crbug.com/642141
-      "0136FCB13DB29FD5CD442F56E59E53B61F1DF96F"   // http://crbug.com/642141
+      "0136FCB13DB29FD5CD442F56E59E53B61F1DF96F",  // http://crbug.com/642141
+      "46578A13607D38F1DC8E280C4F499FB0A2F9565C",  // http://crbug.com/819404
+      "898FB5A39687D210766B8998BA4530B99C9E6586",  // http://crbug.com/819404
+      "82F30B65397BC3E4ADE627BBD857AB8A58210648"   // http://crbug.com/819404
     ]
   },
   "mimeHandlerPrivate": {
@@ -330,9 +355,10 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
       "chrome://network/*",
       "chrome://oobe/*",
+      "chrome://internet-config-dialog/*",
+      "chrome://internet-detail-dialog/*",
       "chrome://settings/*"
     ]
   }],
@@ -352,7 +378,7 @@
   "runtime": {
     "channel": "stable",
     "extension_types": ["extension", "legacy_packaged_app", "platform_app"],
-    "contexts": ["blessed_extension", "lock_screen_extension"]
+    "contexts": ["blessed_extension", "lock_screen_extension", "extension_service_worker"]
   },
   "runtime.getManifest": {
     "contexts": [
@@ -466,7 +492,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://md-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -476,6 +501,10 @@
   },
   "system.network": {
     "dependencies": ["permission:system.network"],
+    "contexts": ["blessed_extension"]
+  },
+  "system.powerSource": {
+    "dependencies": ["permission:system.powerSource"],
     "contexts": ["blessed_extension"]
   },
   "system.storage": {
@@ -547,8 +576,13 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://chrome-signin/*",
+      "chrome://discards/*",
+      "chrome://hats/*",
+      "chrome://home/*",
       "chrome://media-router/*",
-      "chrome://oobe/*"
+      "chrome://mobilesetup/*",
+      "chrome://oobe/*",
+      "chrome://assistant-optin/*"
     ]
   }],
   "webViewInternal": [{
@@ -561,8 +595,13 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://chrome-signin/*",
+      "chrome://discards/*",
+      "chrome://hats/*",
+      "chrome://home/*",
       "chrome://media-router/*",
-      "chrome://oobe/*"
+      "chrome://mobilesetup/*",
+      "chrome://oobe/*",
+      "chrome://assistant-optin/*"
     ]
   }],
   "webViewRequest": [{
@@ -573,8 +612,13 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://chrome-signin/*",
+      "chrome://discards/*",
+      "chrome://hats/*",
+      "chrome://home/*",
       "chrome://media-router/*",
-      "chrome://oobe/*"
+      "chrome://mobilesetup/*",
+      "chrome://oobe/*",
+      "chrome://assistant-optin/*"
     ]
   }]
 }

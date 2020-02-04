@@ -69,7 +69,7 @@ class Q_GUI_EXPORT QTextInlineObject
 {
 public:
     QTextInlineObject(int i, QTextEngine *e) : itm(i), eng(e) {}
-    inline QTextInlineObject() : itm(0), eng(Q_NULLPTR) {}
+    inline QTextInlineObject() : itm(0), eng(nullptr) {}
     inline bool isValid() const { return eng; }
 
     QRectF rect() const;
@@ -107,7 +107,19 @@ public:
     // does itemization
     QTextLayout();
     QTextLayout(const QString& text);
-    QTextLayout(const QString& text, const QFont &font, QPaintDevice *paintdevice = Q_NULLPTR);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    QTextLayout(const QString &text, const QFont &font, QPaintDevice *paintdevice = nullptr);
+#ifndef Q_QDOC
+    // the template is necessary to make QTextLayout(font,text,nullptr) and QTextLayout(font,text,NULL)
+    // not ambiguous. Implementation detail that should not be documented.
+    template<char = 0>
+#endif
+    QTextLayout(const QString &textData, const QFont &textFont, const QPaintDevice *paintdevice)
+        : QTextLayout(textData, textFont, const_cast<QPaintDevice*>(paintdevice))
+    {}
+#else
+    QTextLayout(const QString &text, const QFont &font, const QPaintDevice *paintdevice = nullptr);
+#endif
     QTextLayout(const QTextBlock &b);
     ~QTextLayout();
 
@@ -210,7 +222,7 @@ Q_DECLARE_TYPEINFO(QTextLayout::FormatRange, Q_RELOCATABLE_TYPE);
 class Q_GUI_EXPORT QTextLine
 {
 public:
-    inline QTextLine() : index(0), eng(Q_NULLPTR) {}
+    inline QTextLine() : index(0), eng(nullptr) {}
     inline bool isValid() const { return eng; }
 
     QRectF rect() const;
@@ -255,7 +267,7 @@ public:
 
     int lineNumber() const { return index; }
 
-    void draw(QPainter *p, const QPointF &point, const QTextLayout::FormatRange *selection = Q_NULLPTR) const;
+    void draw(QPainter *p, const QPointF &point, const QTextLayout::FormatRange *selection = nullptr) const;
 
 #if !defined(QT_NO_RAWFONT)
     QList<QGlyphRun> glyphRuns(int from = -1, int length = -1) const;

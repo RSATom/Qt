@@ -20,7 +20,6 @@ namespace {
 
 const char kDeflate[] = "DEFLATE";
 const char kGzip[] = "GZIP";
-const char kGzipFallback[] = "GZIP_FALLBACK";
 
 // For deflate streams, if more than this many bytes have been received without
 // an error and without adding a Zlib header, assume the original stream had a
@@ -40,6 +39,7 @@ GzipSourceStream::~GzipSourceStream() {
 std::unique_ptr<GzipSourceStream> GzipSourceStream::Create(
     std::unique_ptr<SourceStream> upstream,
     SourceStream::SourceType type) {
+  DCHECK(type == TYPE_GZIP || type == TYPE_DEFLATE);
   std::unique_ptr<GzipSourceStream> source(
       new GzipSourceStream(std::move(upstream), type));
 
@@ -62,7 +62,7 @@ bool GzipSourceStream::Init() {
   memset(zlib_stream_.get(), 0, sizeof(z_stream));
 
   int ret;
-  if (type() == TYPE_GZIP || type() == TYPE_GZIP_FALLBACK) {
+  if (type() == TYPE_GZIP) {
     ret = inflateInit2(zlib_stream_.get(), -MAX_WBITS);
   } else {
     ret = inflateInit(zlib_stream_.get());
@@ -75,8 +75,6 @@ std::string GzipSourceStream::GetTypeAsString() const {
   switch (type()) {
     case TYPE_GZIP:
       return kGzip;
-    case TYPE_GZIP_FALLBACK:
-      return kGzipFallback;
     case TYPE_DEFLATE:
       return kDeflate;
     default:
@@ -104,14 +102,8 @@ int GzipSourceStream::FilterData(IOBuffer* output_buffer,
           input_state_ = STATE_SNIFFING_DEFLATE_HEADER;
           break;
         }
-        // If this stream is not really gzipped as detected by
-        // ShouldFallbackToPlain, pretend that the zlib stream has ended.
         DCHECK_LT(0, input_data_size);
-        if (ShouldFallbackToPlain(input_data[0])) {
-          input_state_ = STATE_UNCOMPRESSED_BODY;
-        } else {
-          input_state_ = STATE_GZIP_HEADER;
-        }
+        input_state_ = STATE_GZIP_HEADER;
         break;
       }
       case STATE_GZIP_HEADER: {
@@ -167,7 +159,7 @@ int GzipSourceStream::FilterData(IOBuffer* output_buffer,
         if (bytes_out > 0 ||
             bytes_used + replay_data_.size() >= kMaxZlibHeaderSniffBytes ||
             ret == Z_STREAM_END) {
-          std::move(replay_data_);
+          replay_data_.clear();
           if (ret == Z_STREAM_END) {
             input_state_ = STATE_GZIP_FOOTER;
           } else {
@@ -185,7 +177,6 @@ int GzipSourceStream::FilterData(IOBuffer* output_buffer,
         DCHECK_EQ(TYPE_DEFLATE, type());
 
         if (replay_data_.empty()) {
-          std::move(replay_data_);
           input_state_ = replay_state_;
           break;
         }
@@ -196,8 +187,8 @@ int GzipSourceStream::FilterData(IOBuffer* output_buffer,
         // operations, though it's not pretty.
         input_state_ = replay_state_;
         int bytes_used;
-        scoped_refptr<IOBuffer> replay_buffer(
-            new WrappedIOBuffer(replay_data_.data()));
+        scoped_refptr<IOBuffer> replay_buffer =
+            base::MakeRefCounted<WrappedIOBuffer>(replay_data_.data());
         int result =
             FilterData(output_buffer, output_buffer_size, replay_buffer.get(),
                        replay_data_.size(), &bytes_used, upstream_end_reached);
@@ -245,15 +236,11 @@ int GzipSourceStream::FilterData(IOBuffer* output_buffer,
         input_data_size -= to_read;
         input_data += to_read;
         if (gzip_footer_bytes_left_ == 0)
-          input_state_ = STATE_UNCOMPRESSED_BODY;
+          input_state_ = STATE_IGNORING_EXTRA_BYTES;
         break;
       }
-      case STATE_UNCOMPRESSED_BODY: {
-        int to_copy = std::min(input_data_size, output_buffer_size - bytes_out);
-        memcpy(output_buffer->data() + bytes_out, input_data, to_copy);
-        input_data_size -= to_copy;
-        input_data += to_copy;
-        bytes_out += to_copy;
+      case STATE_IGNORING_EXTRA_BYTES: {
+        input_data_size = 0;
         break;
       }
     }
@@ -274,16 +261,6 @@ bool GzipSourceStream::InsertZlibHeader() {
 
   int ret = inflate(zlib_stream_.get(), Z_NO_FLUSH);
   return ret == Z_OK;
-}
-
-// Dumb heuristic. Gzip files always start with a two-byte magic value per RFC
-// 1952 2.3.1, so if the first byte isn't the first byte of the gzip magic, and
-// this filter is checking whether it should fallback, then fallback.
-bool GzipSourceStream::ShouldFallbackToPlain(char first_byte) {
-  if (type() != TYPE_GZIP_FALLBACK)
-    return false;
-  static const char kGzipFirstByte = 0x1f;
-  return first_byte != kGzipFirstByte;
 }
 
 }  // namespace net

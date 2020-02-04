@@ -10,8 +10,8 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/component_export.h"
 #include "base/macros.h"
-#include "mojo/public/cpp/bindings/bindings_export.h"
 #include "mojo/public/cpp/bindings/lib/bindings_internal.h"
 
 namespace mojo {
@@ -54,36 +54,31 @@ static_assert(sizeof(MessageHeaderV2) == 48, "Bad sizeof(MessageHeaderV2)");
 
 #pragma pack(pop)
 
-class MOJO_CPP_BINDINGS_EXPORT MessageDispatchContext {
+class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) MessageDispatchContext {
  public:
   explicit MessageDispatchContext(Message* message);
   ~MessageDispatchContext();
 
   static MessageDispatchContext* current();
 
-  const base::Callback<void(const std::string&)>& GetBadMessageCallback();
+  base::OnceCallback<void(const std::string&)> GetBadMessageCallback();
 
  private:
   MessageDispatchContext* outer_context_;
   Message* message_;
-  base::Callback<void(const std::string&)> bad_message_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(MessageDispatchContext);
 };
 
-class MOJO_CPP_BINDINGS_EXPORT SyncMessageResponseSetup {
+class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) SyncMessageResponseSetup {
  public:
   static void SetCurrentSyncResponseMessage(Message* message);
 };
 
-MOJO_CPP_BINDINGS_EXPORT size_t
-ComputeSerializedMessageSize(uint32_t flags,
-                             size_t payload_size,
-                             size_t payload_interface_id_count);
-
-// Used by generated bindings to bypass validation for unserialized message
-// objects and control messages.
-MOJO_CPP_BINDINGS_EXPORT bool IsUnserializedOrControlMessage(Message* message);
+COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE)
+size_t ComputeSerializedMessageSize(uint32_t flags,
+                                    size_t payload_size,
+                                    size_t payload_interface_id_count);
 
 }  // namespace internal
 }  // namespace mojo

@@ -29,6 +29,12 @@ RenderFrameObserver::~RenderFrameObserver() {
   }
 }
 
+bool RenderFrameObserver::OnAssociatedInterfaceRequestForFrame(
+    const std::string& interface_name,
+    mojo::ScopedInterfaceEndpointHandle* handle) {
+  return false;
+}
+
 bool RenderFrameObserver::OnMessageReceived(const IPC::Message& message) {
   return false;
 }
@@ -46,7 +52,7 @@ RenderFrame* RenderFrameObserver::render_frame() const {
 }
 
 void RenderFrameObserver::RenderFrameGone() {
-  render_frame_ = NULL;
+  render_frame_ = nullptr;
 }
 
 }  // namespace content

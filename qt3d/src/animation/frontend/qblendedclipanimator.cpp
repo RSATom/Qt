@@ -56,6 +56,7 @@ QBlendedClipAnimatorPrivate::QBlendedClipAnimatorPrivate()
     \qmltype BlendedClipAnimator
     \instantiates Qt3DAnimation::QBlendedClipAnimator
     \inqmlmodule Qt3D.Animation
+    \inherits AbstractClipAnimator
     \since 5.9
 
     \brief BlendedClipAnimator is a component providing animation playback capabilities of a tree
@@ -316,6 +317,7 @@ Qt3DCore::QNodeCreatedChangeBasePtr QBlendedClipAnimator::createNodeCreationChan
     data.clockId = Qt3DCore::qIdForNode(d->m_clock);
     data.running = d->m_running;
     data.loops = d->m_loops;
+    data.normalizedTime = d->m_normalizedTime;
     return creationChange;
 }
 

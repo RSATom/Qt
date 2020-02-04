@@ -100,8 +100,16 @@ Bars3DRenderer::Bars3DRenderer(Bars3DController *controller)
 
 Bars3DRenderer::~Bars3DRenderer()
 {
-    fixContextBeforeDelete();
+    contextCleanup();
+    delete m_barShader;
+    delete m_barGradientShader;
+    delete m_depthShader;
+    delete m_selectionShader;
+    delete m_backgroundShader;
+}
 
+void Bars3DRenderer::contextCleanup()
+{
     if (QOpenGLContext::currentContext()) {
         m_textureHelper->glDeleteFramebuffers(1, &m_selectionFrameBuffer);
         m_textureHelper->glDeleteRenderbuffers(1, &m_selectionDepthBuffer);
@@ -109,12 +117,6 @@ Bars3DRenderer::~Bars3DRenderer()
         m_textureHelper->glDeleteFramebuffers(1, &m_depthFrameBuffer);
         m_textureHelper->deleteTexture(&m_bgrTexture);
     }
-
-    delete m_barShader;
-    delete m_barGradientShader;
-    delete m_depthShader;
-    delete m_selectionShader;
-    delete m_backgroundShader;
 }
 
 void Bars3DRenderer::initializeOpenGL()
@@ -844,7 +846,7 @@ void Bars3DRenderer::drawSlicedScene()
                             viewMatrix, projectionMatrix, positionComp, totalSliceLabelRotation,
                             0, m_cachedSelectionMode, m_labelShader,
                             m_labelObj, activeCamera, false, false, Drawer::LabelMid,
-                            Qt::AlignmentFlag(Qt::AlignLeft | Qt::AlignTop), true);
+                            Qt::AlignLeft | Qt::AlignTop, true);
     }
 
     if (!sliceGridLabels) {

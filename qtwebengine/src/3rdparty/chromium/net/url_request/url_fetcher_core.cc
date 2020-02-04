@@ -9,13 +9,10 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "base/tracked_objects.h"
 #include "net/base/elements_upload_data_stream.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
@@ -39,16 +36,14 @@ const int kBufferSize = 4096;
 const int kUploadProgressTimerInterval = 100;
 bool g_ignore_certificate_requests = false;
 
-void EmptyCompletionCallback(int result) {}
-
 }  // namespace
 
 namespace net {
 
 // URLFetcherCore::Registry ---------------------------------------------------
 
-URLFetcherCore::Registry::Registry() {}
-URLFetcherCore::Registry::~Registry() {}
+URLFetcherCore::Registry::Registry() = default;
+URLFetcherCore::Registry::~Registry() = default;
 
 void URLFetcherCore::Registry::AddURLFetcherCore(URLFetcherCore* core) {
   DCHECK(!base::ContainsKey(fetchers_, core));
@@ -83,6 +78,7 @@ URLFetcherCore::URLFetcherCore(
       delegate_(d),
       delegate_task_runner_(base::SequencedTaskRunnerHandle::Get()),
       load_flags_(LOAD_NORMAL),
+      allow_credentials_(base::nullopt),
       response_code_(URLFetcher::RESPONSE_CODE_INVALID),
       url_request_data_key_(NULL),
       was_fetched_via_proxy_(false),
@@ -219,6 +215,10 @@ void URLFetcherCore::SetLoadFlags(int load_flags) {
   load_flags_ = load_flags;
 }
 
+void URLFetcherCore::SetAllowCredentials(bool allow_credentials) {
+  allow_credentials_ = base::make_optional<bool>(allow_credentials);
+}
+
 int URLFetcherCore::GetLoadFlags() const {
   return load_flags_;
 }
@@ -320,6 +320,10 @@ HostPortPair URLFetcherCore::GetSocketAddress() const {
   return socket_address_;
 }
 
+const ProxyServer& URLFetcherCore::ProxyServerUsed() const {
+  return proxy_server_;
+}
+
 bool URLFetcherCore::WasFetchedViaProxy() const {
   return was_fetched_via_proxy_;
 }
@@ -368,8 +372,6 @@ bool URLFetcherCore::GetResponseAsString(
     return false;
 
   *out_response_string = string_writer->data();
-  UMA_HISTOGRAM_MEMORY_KB("UrlFetcher.StringResponseSize",
-                          (string_writer->data().length() / 1024));
   return true;
 }
 
@@ -408,6 +410,7 @@ void URLFetcherCore::OnReceivedRedirect(URLRequest* request,
     stopped_on_redirect_ = true;
     url_ = redirect_info.new_url;
     response_code_ = request_->GetResponseCode();
+    proxy_server_ = request_->proxy_server();
     was_fetched_via_proxy_ = request_->was_fetched_via_proxy();
     was_cached_ = request_->was_cached();
     total_received_bytes_ += request_->GetTotalReceivedBytes();
@@ -425,6 +428,7 @@ void URLFetcherCore::OnResponseStarted(URLRequest* request, int net_error) {
     response_code_ = request_->GetResponseCode();
     response_headers_ = request_->response_headers();
     socket_address_ = request_->GetSocketAddress();
+    proxy_server_ = request_->proxy_server();
     was_fetched_via_proxy_ = request_->was_fetched_via_proxy();
     was_cached_ = request_->was_cached();
     total_response_bytes_ = request_->GetExpectedContentSize();
@@ -432,7 +436,7 @@ void URLFetcherCore::OnResponseStarted(URLRequest* request, int net_error) {
 
   DCHECK(!buffer_);
   if (request_type_ != URLFetcher::HEAD)
-    buffer_ = new IOBuffer(kBufferSize);
+    buffer_ = base::MakeRefCounted<IOBuffer>(kBufferSize);
   ReadResponse();
 }
 
@@ -465,8 +469,8 @@ void URLFetcherCore::OnReadCompleted(URLRequest* request,
     current_response_bytes_ += bytes_read;
     InformDelegateDownloadProgress();
 
-    const int result =
-        WriteBuffer(new DrainableIOBuffer(buffer_.get(), bytes_read));
+    const int result = WriteBuffer(
+        base::MakeRefCounted<DrainableIOBuffer>(buffer_, bytes_read));
     if (result < 0) {
       // Write failed or waiting for write completion.
       return;
@@ -564,12 +568,15 @@ void URLFetcherCore::StartURLRequest() {
     request_->set_upload(std::move(chunked_stream_));
 
   request_->SetLoadFlags(flags);
+  if (allow_credentials_) {
+    request_->set_allow_credentials(allow_credentials_.value());
+  }
   request_->SetReferrer(referrer_);
   request_->set_referrer_policy(referrer_policy_);
-  request_->set_first_party_for_cookies(initiator_.has_value() &&
-                                                !initiator_.value().unique()
-                                            ? initiator_.value().GetURL()
-                                            : original_url_);
+  request_->set_site_for_cookies(initiator_.has_value() &&
+                                         !initiator_.value().opaque()
+                                     ? initiator_.value().GetURL()
+                                     : original_url_);
   request_->set_initiator(initiator_);
   if (url_request_data_key_ && !url_request_create_data_callback_.is_null()) {
     request_->SetUserData(url_request_data_key_,
@@ -871,7 +878,7 @@ int URLFetcherCore::WriteBuffer(scoped_refptr<DrainableIOBuffer> data) {
 void URLFetcherCore::DidWriteBuffer(scoped_refptr<DrainableIOBuffer> data,
                                     int result) {
   if (result < 0) {  // Handle errors.
-    response_writer_->Finish(result, base::Bind(&EmptyCompletionCallback));
+    response_writer_->Finish(result, base::DoNothing());
     CancelRequestAndInformDelegate(result);
     return;
   }
@@ -933,12 +940,6 @@ void URLFetcherCore::InformDelegateUploadProgressInDelegateSequence(
 
 void URLFetcherCore::InformDelegateDownloadProgress() {
   DCHECK(network_task_runner_->BelongsToCurrentThread());
-
-  // TODO(pkasting): Remove ScopedTracker below once crbug.com/455952 is fixed.
-  tracked_objects::ScopedTracker tracking_profile2(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "455952 delegate_task_runner_->PostTask()"));
-
   delegate_task_runner_->PostTask(
       FROM_HERE,
       base::Bind(

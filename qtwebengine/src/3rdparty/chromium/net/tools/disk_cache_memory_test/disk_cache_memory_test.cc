@@ -22,6 +22,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/task_scheduler/task_scheduler.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/cache_type.h"
 #include "net/base/net_errors.h"
@@ -91,15 +92,13 @@ std::unique_ptr<Backend> CreateAndInitBackend(const CacheSpec& spec) {
   std::unique_ptr<Backend> backend;
   bool succeeded = false;
   base::RunLoop run_loop;
-  const net::CompletionCallback callback = base::Bind(
-      &SetSuccessCodeOnCompletion,
-      base::Unretained(&run_loop),
-      base::Unretained(&succeeded));
-  const int net_error = CreateCacheBackend(
-      spec.cache_type, spec.backend_type, spec.path, 0, false,
-      base::ThreadTaskRunnerHandle::Get(), NULL, &backend, callback);
+  net::CompletionOnceCallback callback =
+      base::BindOnce(&SetSuccessCodeOnCompletion, &run_loop, &succeeded);
+  const int net_error =
+      CreateCacheBackend(spec.cache_type, spec.backend_type, spec.path, 0,
+                         false, nullptr, &backend, std::move(callback));
   if (net_error == net::OK)
-    callback.Run(net::OK);
+    SetSuccessCodeOnCompletion(&run_loop, &succeeded, net::OK);
   else
     run_loop.Run();
   if (!succeeded) {
@@ -110,16 +109,14 @@ std::unique_ptr<Backend> CreateAndInitBackend(const CacheSpec& spec) {
   // For the simple cache, the index may not be initialized yet.
   if (spec.backend_type == net::CACHE_BACKEND_SIMPLE) {
     base::RunLoop index_run_loop;
-    const net::CompletionCallback index_callback = base::Bind(
-        &SetSuccessCodeOnCompletion,
-        base::Unretained(&index_run_loop),
-        base::Unretained(&succeeded));
+    net::CompletionOnceCallback index_callback = base::BindOnce(
+        &SetSuccessCodeOnCompletion, &index_run_loop, &succeeded);
     SimpleBackendImpl* simple_backend =
         static_cast<SimpleBackendImpl*>(backend.get());
     const int index_net_error =
-        simple_backend->index()->ExecuteWhenReady(index_callback);
+        simple_backend->index()->ExecuteWhenReady(std::move(index_callback));
     if (index_net_error == net::OK)
-      index_callback.Run(net::OK);
+      SetSuccessCodeOnCompletion(&index_run_loop, &succeeded, net::OK);
     else
       index_run_loop.Run();
     if (!succeeded) {
@@ -266,6 +263,8 @@ bool ParseAndStoreSpec(const std::string& spec_str,
 bool Main(int argc, char** argv) {
   base::AtExitManager at_exit_manager;
   base::MessageLoopForIO message_loop;
+  base::TaskScheduler::CreateAndStartWithDefaultParams(
+      "disk_cache_memory_test");
   base::CommandLine::Init(argc, argv);
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();

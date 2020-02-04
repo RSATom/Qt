@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SEQUENCED_TASK_CHECKER_IMPL_H_
-#define WEBRTC_RTC_BASE_SEQUENCED_TASK_CHECKER_IMPL_H_
+#ifndef RTC_BASE_SEQUENCED_TASK_CHECKER_IMPL_H_
+#define RTC_BASE_SEQUENCED_TASK_CHECKER_IMPL_H_
 
-#include "webrtc/rtc_base/thread_checker.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/thread_checker.h"
 
 namespace rtc {
 
@@ -34,6 +35,9 @@ class SequencedTaskCheckerImpl {
   void Detach();
 
  private:
+  friend class internal::AnnounceOnThread;
+  bool IsCurrent() const { return CalledSequentially(); }
+
   typedef const void* QueueId;
   CriticalSection lock_;
   ThreadChecker thread_checker_;
@@ -42,4 +46,4 @@ class SequencedTaskCheckerImpl {
 };
 
 }  // namespace rtc
-#endif  // WEBRTC_RTC_BASE_SEQUENCED_TASK_CHECKER_IMPL_H_
+#endif  // RTC_BASE_SEQUENCED_TASK_CHECKER_IMPL_H_

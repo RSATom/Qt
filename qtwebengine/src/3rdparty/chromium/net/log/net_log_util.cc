@@ -11,7 +11,6 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -21,7 +20,6 @@
 #include "net/base/address_family.h"
 #include "net/base/load_states.h"
 #include "net/base/net_errors.h"
-#include "net/base/sdch_manager.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/dns/host_cache.h"
 #include "net/dns/host_resolver.h"
@@ -35,14 +33,19 @@
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_parameters_callback.h"
 #include "net/log/net_log_with_source.h"
-#include "net/proxy/proxy_config.h"
-#include "net/proxy/proxy_retry_info.h"
-#include "net/proxy/proxy_service.h"
-#include "net/quic/core/quic_error_codes.h"
-#include "net/quic/core/quic_packets.h"
+#include "net/proxy_resolution/proxy_config.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
+#include "net/proxy_resolution/proxy_retry_info.h"
 #include "net/socket/ssl_client_socket.h"
+#include "net/third_party/quic/core/quic_error_codes.h"
+#include "net/third_party/quic/core/quic_packets.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
+
+#if BUILDFLAG(ENABLE_REPORTING)
+#include "net/network_error_logging/network_error_logging_service.h"
+#include "net/reporting/reporting_service.h"
+#endif  // BUILDFLAG(ENABLE_REPORTING)
 
 namespace net {
 
@@ -85,14 +88,6 @@ const short kNetErrors[] = {
 #define NET_ERROR(label, value) value,
 #include "net/base/net_error_list.h"
 #undef NET_ERROR
-};
-
-const StringToConstant kSdchProblems[] = {
-#define SDCH_PROBLEM_CODE(label, value) \
-  { #label, value }                     \
-  ,
-#include "net/base/sdch_problem_code_list.h"
-#undef SDCH_PROBLEM_CODE
 };
 
 const char* NetInfoSourceToString(NetInfoSource source) {
@@ -212,8 +207,9 @@ std::unique_ptr<base::DictionaryValue> GetNetConstants() {
   {
     std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
 
-    for (QuicErrorCode error = QUIC_NO_ERROR; error < QUIC_LAST_ERROR;
-         error = static_cast<QuicErrorCode>(error + 1)) {
+    for (quic::QuicErrorCode error = quic::QUIC_NO_ERROR;
+         error < quic::QUIC_LAST_ERROR;
+         error = static_cast<quic::QuicErrorCode>(error + 1)) {
       dict->SetInteger(QuicErrorCodeToString(error), static_cast<int>(error));
     }
 
@@ -225,25 +221,14 @@ std::unique_ptr<base::DictionaryValue> GetNetConstants() {
   {
     std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
 
-    for (QuicRstStreamErrorCode error = QUIC_STREAM_NO_ERROR;
-         error < QUIC_STREAM_LAST_ERROR;
-         error = static_cast<QuicRstStreamErrorCode>(error + 1)) {
+    for (quic::QuicRstStreamErrorCode error = quic::QUIC_STREAM_NO_ERROR;
+         error < quic::QUIC_STREAM_LAST_ERROR;
+         error = static_cast<quic::QuicRstStreamErrorCode>(error + 1)) {
       dict->SetInteger(QuicRstStreamErrorCodeToString(error),
                        static_cast<int>(error));
     }
 
     constants_dict->Set("quicRstStreamError", std::move(dict));
-  }
-
-  // Add information on the relationship between SDCH problem codes and their
-  // symbolic names.
-  {
-    std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-
-    for (const auto& problem : kSdchProblems)
-      dict->SetInteger(problem.name, problem.constant);
-
-    constants_dict->Set("sdchProblemCode", std::move(dict));
   }
 
   // Information about the relationship between event phase enums and their
@@ -266,7 +251,7 @@ std::unique_ptr<base::DictionaryValue> GetNetConstants() {
   // older builds of Chrome. Safe to remove this once M45 is on the stable
   // channel.
   constants_dict->Set("logLevelType",
-                      base::MakeUnique<base::DictionaryValue>());
+                      std::make_unique<base::DictionaryValue>());
 
   // Information about the relationship between address family enums and
   // their symbolic names.
@@ -297,22 +282,20 @@ std::unique_ptr<base::DictionaryValue> GetNetConstants() {
         base::TimeTicks::Now() - base::TimeTicks();
     int64_t tick_to_unix_time_ms =
         (time_since_epoch - reference_time_ticks).InMilliseconds();
-
-    // Pass it as a string, since it may be too large to fit in an integer.
-    constants_dict->SetString("timeTickOffset",
-                              base::Int64ToString(tick_to_unix_time_ms));
+    constants_dict->SetKey("timeTickOffset",
+                           NetLogNumberValue(tick_to_unix_time_ms));
   }
 
   // TODO(eroman): Is this needed?
   // "clientInfo" key is required for some log readers. Provide a default empty
   // value for compatibility.
-  constants_dict->Set("clientInfo", base::MakeUnique<base::DictionaryValue>());
+  constants_dict->Set("clientInfo", std::make_unique<base::DictionaryValue>());
 
   // Add a list of active field experiments.
   {
     base::FieldTrial::ActiveGroups active_groups;
     base::FieldTrialList::GetActiveFieldTrialGroups(&active_groups);
-    auto field_trial_groups = base::MakeUnique<base::ListValue>();
+    auto field_trial_groups = std::make_unique<base::ListValue>();
     for (base::FieldTrial::ActiveGroups::const_iterator it =
              active_groups.begin();
          it != active_groups.end(); ++it) {
@@ -337,13 +320,16 @@ NET_EXPORT std::unique_ptr<base::DictionaryValue> GetNetInfo(
   // TODO(mmenke):  The code for most of these sources should probably be moved
   // into the sources themselves.
   if (info_sources & NET_INFO_PROXY_SETTINGS) {
-    ProxyService* proxy_service = context->proxy_service();
+    ProxyResolutionService* proxy_resolution_service =
+        context->proxy_resolution_service();
 
     std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-    if (proxy_service->fetched_config().is_valid())
-      dict->Set("original", proxy_service->fetched_config().ToValue());
-    if (proxy_service->config().is_valid())
-      dict->Set("effective", proxy_service->config().ToValue());
+    if (proxy_resolution_service->fetched_config())
+      dict->Set("original",
+                proxy_resolution_service->fetched_config()->value().ToValue());
+    if (proxy_resolution_service->config())
+      dict->Set("effective",
+                proxy_resolution_service->config()->value().ToValue());
 
     net_info_dict->Set(NetInfoSourceToString(NET_INFO_PROXY_SETTINGS),
                        std::move(dict));
@@ -351,16 +337,15 @@ NET_EXPORT std::unique_ptr<base::DictionaryValue> GetNetInfo(
 
   if (info_sources & NET_INFO_BAD_PROXIES) {
     const ProxyRetryInfoMap& bad_proxies_map =
-        context->proxy_service()->proxy_retry_info();
+        context->proxy_resolution_service()->proxy_retry_info();
 
-    auto list = base::MakeUnique<base::ListValue>();
+    auto list = std::make_unique<base::ListValue>();
 
-    for (ProxyRetryInfoMap::const_iterator it = bad_proxies_map.begin();
-         it != bad_proxies_map.end(); ++it) {
+    for (auto it = bad_proxies_map.begin(); it != bad_proxies_map.end(); ++it) {
       const std::string& proxy_uri = it->first;
       const ProxyRetryInfo& retry_info = it->second;
 
-      auto dict = base::MakeUnique<base::DictionaryValue>();
+      auto dict = std::make_unique<base::DictionaryValue>();
       dict->SetString("proxy_uri", proxy_uri);
       dict->SetString("bad_until",
                       NetLog::TickCountToString(retry_info.bad_until));
@@ -377,14 +362,14 @@ NET_EXPORT std::unique_ptr<base::DictionaryValue> GetNetInfo(
     DCHECK(host_resolver);
     HostCache* cache = host_resolver->GetHostCache();
     if (cache) {
-      auto dict = base::MakeUnique<base::DictionaryValue>();
+      auto dict = std::make_unique<base::DictionaryValue>();
       std::unique_ptr<base::Value> dns_config =
           host_resolver->GetDnsConfigAsValue();
       if (dns_config)
         dict->Set("dns_config", std::move(dns_config));
 
-      auto cache_info_dict = base::MakeUnique<base::DictionaryValue>();
-      auto cache_contents_list = base::MakeUnique<base::ListValue>();
+      auto cache_info_dict = std::make_unique<base::DictionaryValue>();
+      auto cache_contents_list = std::make_unique<base::ListValue>();
 
       cache_info_dict->SetInteger("capacity",
                                   static_cast<int>(cache->max_entries()));
@@ -414,7 +399,7 @@ NET_EXPORT std::unique_ptr<base::DictionaryValue> GetNetInfo(
   }
 
   if (info_sources & NET_INFO_SPDY_STATUS) {
-    auto status_dict = base::MakeUnique<base::DictionaryValue>();
+    auto status_dict = std::make_unique<base::DictionaryValue>();
 
     status_dict->SetBoolean("enable_http2",
                             http_network_session->params().enable_http2);
@@ -449,8 +434,8 @@ NET_EXPORT std::unique_ptr<base::DictionaryValue> GetNetInfo(
   }
 
   if (info_sources & NET_INFO_HTTP_CACHE) {
-    auto info_dict = base::MakeUnique<base::DictionaryValue>();
-    auto stats_dict = base::MakeUnique<base::DictionaryValue>();
+    auto info_dict = std::make_unique<base::DictionaryValue>();
+    auto stats_dict = std::make_unique<base::DictionaryValue>();
 
     disk_cache::Backend* disk_cache = GetDiskCacheBackend(context);
 
@@ -459,8 +444,7 @@ NET_EXPORT std::unique_ptr<base::DictionaryValue> GetNetInfo(
       base::StringPairs stats;
       disk_cache->GetStats(&stats);
       for (size_t i = 0; i < stats.size(); ++i) {
-        stats_dict->SetStringWithoutPathExpansion(stats[i].first,
-                                                  stats[i].second);
+        stats_dict->SetKey(stats[i].first, base::Value(stats[i].second));
       }
     }
     info_dict->Set("stats", std::move(stats_dict));
@@ -469,16 +453,32 @@ NET_EXPORT std::unique_ptr<base::DictionaryValue> GetNetInfo(
                        std::move(info_dict));
   }
 
-  if (info_sources & NET_INFO_SDCH) {
-    std::unique_ptr<base::Value> info_dict;
-    SdchManager* sdch_manager = context->sdch_manager();
-    if (sdch_manager) {
-      info_dict = sdch_manager->SdchInfoToValue();
+  if (info_sources & NET_INFO_REPORTING) {
+#if BUILDFLAG(ENABLE_REPORTING)
+    ReportingService* reporting_service = context->reporting_service();
+    if (reporting_service) {
+      base::Value reporting_dict = reporting_service->StatusAsValue();
+      NetworkErrorLoggingService* network_error_logging_service =
+          context->network_error_logging_service();
+      if (network_error_logging_service) {
+        reporting_dict.SetKey("networkErrorLogging",
+                              network_error_logging_service->StatusAsValue());
+      }
+      net_info_dict->SetKey(NetInfoSourceToString(NET_INFO_REPORTING),
+                            std::move(reporting_dict));
     } else {
-      info_dict.reset(new base::DictionaryValue());
+      base::Value reporting_dict(base::Value::Type::DICTIONARY);
+      reporting_dict.SetKey("reportingEnabled", base::Value(false));
+      net_info_dict->SetKey(NetInfoSourceToString(NET_INFO_REPORTING),
+                            std::move(reporting_dict));
     }
-    net_info_dict->Set(NetInfoSourceToString(NET_INFO_SDCH),
-                       std::move(info_dict));
+
+#else   // BUILDFLAG(ENABLE_REPORTING)
+    base::Value reporting_dict(base::Value::Type::DICTIONARY);
+    reporting_dict.SetKey("reportingEnabled", base::Value(false));
+    net_info_dict->SetKey(NetInfoSourceToString(NET_INFO_REPORTING),
+                          std::move(reporting_dict));
+#endif  // BUILDFLAG(ENABLE_REPORTING)
   }
 
   return net_info_dict;
@@ -494,7 +494,7 @@ NET_EXPORT void CreateNetLogEntriesForActiveObjects(
     context->AssertCalledOnValidThread();
     // Contexts should all be using the same NetLog.
     DCHECK_EQ((*contexts.begin())->net_log(), context->net_log());
-    for (auto* request : context->url_requests()) {
+    for (auto* request : *context->url_requests()) {
       requests.push_back(request);
     }
   }

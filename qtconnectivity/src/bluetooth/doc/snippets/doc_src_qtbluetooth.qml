@@ -49,7 +49,7 @@
 ****************************************************************************/
 
 //! [import]
-import QtBluetooth 5.2
+import QtBluetooth 5.12
 //! [import]
 
 //! [service]

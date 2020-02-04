@@ -51,7 +51,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-places
     \ingroup qml-QtLocation5-places-models
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief Provides access to search term suggestions.
 
@@ -276,7 +276,7 @@ void QDeclarativeSearchSuggestionModel::clearData(bool suppressSignal)
 */
 int QDeclarativeSearchSuggestionModel::rowCount(const QModelIndex &parent) const
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
 
     return m_suggestions.count();
 }

@@ -6,7 +6,9 @@
 
 #include "base/i18n/char_iterator.h"
 #include "content/common/input_messages.h"
-#include "third_party/WebKit/public/platform/WebKeyboardEvent.h"
+#include "mojo/public/cpp/base/time_mojom_traits.h"
+#include "third_party/blink/public/platform/web_keyboard_event.h"
+#include "third_party/blink/public/platform/web_mouse_wheel_event.h"
 #include "ui/latency/mojo/latency_info_struct_traits.h"
 
 namespace mojo {
@@ -88,13 +90,17 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
   if (!event.ReadType(&type))
     return false;
 
+  base::TimeTicks timestamp;
+  if (!event.ReadTimestamp(&timestamp))
+    return false;
+
   if (blink::WebInputEvent::IsKeyboardEventType(type)) {
     content::mojom::KeyDataPtr key_data;
     if (!event.ReadKeyData<content::mojom::KeyDataPtr>(&key_data))
       return false;
 
-    (*out)->web_event.reset(new blink::WebKeyboardEvent(
-        type, event.modifiers(), event.timestamp_seconds()));
+    (*out)->web_event.reset(
+        new blink::WebKeyboardEvent(type, event.modifiers(), timestamp));
 
     blink::WebKeyboardEvent* key_event =
         static_cast<blink::WebKeyboardEvent*>((*out)->web_event.get());
@@ -111,15 +117,16 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
     if (!event.ReadGestureData<content::mojom::GestureDataPtr>(&gesture_data))
       return false;
     (*out)->web_event.reset(new blink::WebGestureEvent(
-        type, event.modifiers(), event.timestamp_seconds()));
+        type, event.modifiers(), timestamp, gesture_data->source_device));
 
     blink::WebGestureEvent* gesture_event =
         static_cast<blink::WebGestureEvent*>((*out)->web_event.get());
-    gesture_event->x = gesture_data->widget_position.x();
-    gesture_event->y = gesture_data->widget_position.y();
-    gesture_event->global_x = gesture_data->screen_position.x();
-    gesture_event->global_y = gesture_data->screen_position.y();
-    gesture_event->source_device = gesture_data->source_device;
+    gesture_event->SetPositionInWidget(gesture_data->widget_position);
+    gesture_event->SetPositionInScreen(gesture_data->screen_position);
+    gesture_event->is_source_touch_event_set_non_blocking =
+        gesture_data->is_source_touch_event_set_non_blocking;
+    gesture_event->primary_pointer_type = gesture_data->primary_pointer_type;
+    gesture_event->SetSourceDevice(gesture_data->source_device);
     gesture_event->unique_touch_event_id = gesture_data->unique_touch_event_id;
     gesture_event->resending_plugin_id = gesture_data->resending_plugin_id;
 
@@ -128,8 +135,6 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
         default:
           break;
         case blink::WebInputEvent::Type::kGestureTapDown:
-        case blink::WebInputEvent::Type::kGestureTapUnconfirmed:
-        case blink::WebInputEvent::Type::kGestureDoubleTap:
           gesture_event->data.tap_down.width =
               gesture_data->contact_size->width();
           gesture_event->data.tap_down.height =
@@ -142,67 +147,23 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
               gesture_data->contact_size->height();
           break;
         case blink::WebInputEvent::Type::kGestureTap:
+        case blink::WebInputEvent::Type::kGestureTapUnconfirmed:
+        case blink::WebInputEvent::Type::kGestureDoubleTap:
           gesture_event->data.tap.width = gesture_data->contact_size->width();
           gesture_event->data.tap.height = gesture_data->contact_size->height();
           break;
         case blink::WebInputEvent::Type::kGestureLongPress:
+        case blink::WebInputEvent::Type::kGestureLongTap:
           gesture_event->data.long_press.width =
               gesture_data->contact_size->width();
           gesture_event->data.long_press.height =
               gesture_data->contact_size->height();
           break;
-
         case blink::WebInputEvent::Type::kGestureTwoFingerTap:
           gesture_event->data.two_finger_tap.first_finger_width =
               gesture_data->contact_size->width();
           gesture_event->data.two_finger_tap.first_finger_height =
               gesture_data->contact_size->height();
-          break;
-        case blink::WebInputEvent::Type::kGestureScrollBegin:
-          gesture_event->data.scroll_begin.delta_x_hint =
-              gesture_data->scroll_data->delta_x;
-          gesture_event->data.scroll_begin.delta_y_hint =
-              gesture_data->scroll_data->delta_y;
-          gesture_event->data.scroll_begin.delta_hint_units =
-              gesture_data->scroll_data->delta_units;
-          gesture_event->data.scroll_begin.target_viewport =
-              gesture_data->scroll_data->target_viewport;
-          gesture_event->data.scroll_begin.inertial_phase =
-              gesture_data->scroll_data->inertial_phase;
-          gesture_event->data.scroll_begin.synthetic =
-              gesture_data->scroll_data->synthetic;
-          gesture_event->data.scroll_begin.pointer_count =
-              gesture_data->scroll_data->pointer_count;
-          break;
-        case blink::WebInputEvent::Type::kGestureScrollEnd:
-          gesture_event->data.scroll_end.delta_units =
-              gesture_data->scroll_data->delta_units;
-          gesture_event->data.scroll_end.inertial_phase =
-              gesture_data->scroll_data->inertial_phase;
-          gesture_event->data.scroll_end.synthetic =
-              gesture_data->scroll_data->synthetic;
-          break;
-        case blink::WebInputEvent::Type::kGestureScrollUpdate:
-          gesture_event->data.scroll_update.delta_x =
-              gesture_data->scroll_data->delta_x;
-          gesture_event->data.scroll_update.delta_y =
-              gesture_data->scroll_data->delta_y;
-          gesture_event->data.scroll_update.delta_units =
-              gesture_data->scroll_data->delta_units;
-          gesture_event->data.scroll_update.inertial_phase =
-              gesture_data->scroll_data->inertial_phase;
-          if (gesture_data->scroll_data->update_details) {
-            gesture_event->data.scroll_update.velocity_x =
-                gesture_data->scroll_data->update_details->velocity_x;
-            gesture_event->data.scroll_update.velocity_y =
-                gesture_data->scroll_data->update_details->velocity_y;
-            gesture_event->data.scroll_update
-                .previous_update_in_sequence_prevented =
-                gesture_data->scroll_data->update_details
-                    ->previous_update_in_sequence_prevented;
-            gesture_event->data.scroll_update.prevent_propagation =
-                gesture_data->scroll_data->update_details->prevent_propagation;
-          }
           break;
       }
     }
@@ -253,9 +214,27 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
                 .previous_update_in_sequence_prevented =
                 gesture_data->scroll_data->update_details
                     ->previous_update_in_sequence_prevented;
-            gesture_event->data.scroll_update.prevent_propagation =
-                gesture_data->scroll_data->update_details->prevent_propagation;
           }
+          break;
+      }
+    }
+
+    gesture_event->SetNeedsWheelEvent(false);
+
+    if (gesture_data->pinch_data &&
+        type == blink::WebInputEvent::Type::kGesturePinchUpdate) {
+      gesture_event->data.pinch_update.zoom_disabled = false;
+      gesture_event->data.pinch_update.scale = gesture_data->pinch_data->scale;
+    }
+
+    if (gesture_data->tap_data) {
+      switch (type) {
+        default:
+          break;
+        case blink::WebInputEvent::Type::kGestureTap:
+        case blink::WebInputEvent::Type::kGestureTapUnconfirmed:
+        case blink::WebInputEvent::Type::kGestureDoubleTap:
+          gesture_event->data.tap.tap_count = gesture_data->tap_data->tap_count;
           break;
       }
     }
@@ -281,19 +260,13 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
       }
     }
 
-    if (gesture_data->pinch_data &&
-        type == blink::WebInputEvent::Type::kGesturePinchUpdate) {
-      gesture_event->data.pinch_update.zoom_disabled =
-          gesture_data->pinch_data->zoom_disabled;
-      gesture_event->data.pinch_update.scale = gesture_data->pinch_data->scale;
-    }
   } else if (blink::WebInputEvent::IsTouchEventType(type)) {
     content::mojom::TouchDataPtr touch_data;
     if (!event.ReadTouchData<content::mojom::TouchDataPtr>(&touch_data))
       return false;
 
-    (*out)->web_event.reset(new blink::WebTouchEvent(
-        type, event.modifiers(), event.timestamp_seconds()));
+    (*out)->web_event.reset(
+        new blink::WebTouchEvent(type, event.modifiers(), timestamp));
 
     blink::WebTouchEvent* touch_event =
         static_cast<blink::WebTouchEvent*>((*out)->web_event.get());
@@ -310,6 +283,7 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
     touch_event->dispatch_type = touch_data->cancelable;
     touch_event->moved_beyond_slop_region =
         touch_data->moved_beyond_slop_region;
+    touch_event->hovering = touch_data->hovering;
     touch_event->touch_start_or_first_touch_move =
         touch_data->touch_start_or_first_move;
     touch_event->unique_touch_event_id = touch_data->unique_touch_event_id;
@@ -320,11 +294,11 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
       return false;
 
     if (blink::WebInputEvent::IsMouseEventType(type)) {
-      (*out)->web_event.reset(new blink::WebMouseEvent(
-          type, event.modifiers(), event.timestamp_seconds()));
+      (*out)->web_event.reset(
+          new blink::WebMouseEvent(type, event.modifiers(), timestamp));
     } else {
-      (*out)->web_event.reset(new blink::WebMouseWheelEvent(
-          type, event.modifiers(), event.timestamp_seconds()));
+      (*out)->web_event.reset(
+          new blink::WebMouseWheelEvent(type, event.modifiers(), timestamp));
     }
 
     blink::WebMouseEvent* mouse_event =
@@ -356,6 +330,9 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
         wheel_event->has_precise_scrolling_deltas =
             wheel_data->has_precise_scrolling_deltas;
         wheel_event->dispatch_type = wheel_data->cancelable;
+        wheel_event->event_action =
+            static_cast<blink::WebMouseWheelEvent::EventAction>(
+                wheel_data->event_action);
       }
     }
 
@@ -366,178 +343,178 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
   return event.ReadLatency(&((*out)->latency_info));
 }
 
-void* StructTraits<content::mojom::EventDataView,
-                   InputEventUniquePtr>::SetUpContext(const InputEventUniquePtr&
-                                                          event) {
-  InputEventSerializationContext* context =
-      new InputEventSerializationContext();
+// static
+content::mojom::KeyDataPtr
+StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::key_data(
+    const InputEventUniquePtr& event) {
+  if (!event->web_event ||
+      !blink::WebInputEvent::IsKeyboardEventType(event->web_event->GetType()))
+    return nullptr;
+  const blink::WebKeyboardEvent* key_event =
+      static_cast<const blink::WebKeyboardEvent*>(event->web_event.get());
+  return content::mojom::KeyData::New(
+      key_event->dom_key, key_event->dom_code, key_event->windows_key_code,
+      key_event->native_key_code, key_event->is_system_key,
+      key_event->is_browser_shortcut, key_event->text,
+      key_event->unmodified_text);
+}
 
+// static
+content::mojom::PointerDataPtr
+StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::pointer_data(
+    const InputEventUniquePtr& event) {
   if (!event->web_event)
-    return context;
-
-  if (blink::WebInputEvent::IsKeyboardEventType(event->web_event->GetType())) {
-    const blink::WebKeyboardEvent* key_event =
-        static_cast<const blink::WebKeyboardEvent*>(event->web_event.get());
-    context->key_data = content::mojom::KeyData::New(
-        key_event->dom_key, key_event->dom_code, key_event->windows_key_code,
-        key_event->native_key_code, key_event->is_system_key,
-        key_event->is_browser_shortcut, key_event->text,
-        key_event->unmodified_text);
-    return context;
-  }
-  if (blink::WebInputEvent::IsGestureEventType(event->web_event->GetType())) {
-    const blink::WebGestureEvent* gesture_event =
-        static_cast<const blink::WebGestureEvent*>(event->web_event.get());
-
-    context->gesture_data = content::mojom::GestureData::New();
-    content::mojom::GestureDataPtr& gesture_data = context->gesture_data;
-    gesture_data->screen_position = gesture_event->PositionInScreen();
-    gesture_data->widget_position = gesture_event->PositionInWidget();
-    gesture_data->source_device = gesture_event->source_device;
-    gesture_data->unique_touch_event_id = gesture_event->unique_touch_event_id;
-    gesture_data->resending_plugin_id = gesture_event->resending_plugin_id;
-
-    switch (gesture_event->GetType()) {
-      default:
-        break;
-      case blink::WebInputEvent::Type::kGestureTapDown:
-        gesture_data->contact_size =
-            gfx::Size(gesture_event->data.tap_down.width,
-                      gesture_event->data.tap_down.height);
-        break;
-      case blink::WebInputEvent::Type::kGestureShowPress:
-        gesture_data->contact_size =
-            gfx::Size(gesture_event->data.show_press.width,
-                      gesture_event->data.show_press.height);
-        break;
-      case blink::WebInputEvent::Type::kGestureTap:
-      case blink::WebInputEvent::Type::kGestureTapUnconfirmed:
-      case blink::WebInputEvent::Type::kGestureDoubleTap:
-        gesture_data->contact_size = gfx::Size(gesture_event->data.tap.width,
-                                               gesture_event->data.tap.height);
-        gesture_data->tap_data =
-            content::mojom::TapData::New(gesture_event->data.tap.tap_count);
-        break;
-      case blink::WebInputEvent::Type::kGestureLongPress:
-        gesture_data->contact_size =
-            gfx::Size(gesture_event->data.long_press.width,
-                      gesture_event->data.long_press.height);
-        break;
-
-      case blink::WebInputEvent::Type::kGestureTwoFingerTap:
-        gesture_data->contact_size =
-            gfx::Size(gesture_event->data.two_finger_tap.first_finger_width,
-                      gesture_event->data.two_finger_tap.first_finger_height);
-        break;
-      case blink::WebInputEvent::Type::kGestureScrollBegin:
-        gesture_data->scroll_data = content::mojom::ScrollData::New(
-            gesture_event->data.scroll_begin.delta_x_hint,
-            gesture_event->data.scroll_begin.delta_y_hint,
-            gesture_event->data.scroll_begin.delta_hint_units,
-            gesture_event->data.scroll_begin.target_viewport,
-            gesture_event->data.scroll_begin.inertial_phase,
-            gesture_event->data.scroll_begin.synthetic,
-            gesture_event->data.scroll_begin.pointer_count, nullptr);
-        break;
-      case blink::WebInputEvent::Type::kGestureScrollEnd:
-        gesture_data->scroll_data = content::mojom::ScrollData::New(
-            0, 0, gesture_event->data.scroll_end.delta_units, false,
-            gesture_event->data.scroll_end.inertial_phase,
-            gesture_event->data.scroll_end.synthetic, 0, nullptr);
-        break;
-      case blink::WebInputEvent::Type::kGestureScrollUpdate:
-        gesture_data->scroll_data = content::mojom::ScrollData::New(
-            gesture_event->data.scroll_update.delta_x,
-            gesture_event->data.scroll_update.delta_y,
-            gesture_event->data.scroll_update.delta_units, false,
-            gesture_event->data.scroll_update.inertial_phase, false, 0,
-            content::mojom::ScrollUpdate::New(
-                gesture_event->data.scroll_update.velocity_x,
-                gesture_event->data.scroll_update.velocity_y,
-                gesture_event->data.scroll_update
-                    .previous_update_in_sequence_prevented,
-                gesture_event->data.scroll_update.prevent_propagation));
-        break;
-      case blink::WebInputEvent::Type::kGestureFlingStart:
-        gesture_data->fling_data = content::mojom::FlingData::New(
-            gesture_event->data.fling_start.velocity_x,
-            gesture_event->data.fling_start.velocity_y,
-            gesture_event->data.fling_start.target_viewport, false);
-        break;
-      case blink::WebInputEvent::Type::kGestureFlingCancel:
-        gesture_data->fling_data = content::mojom::FlingData::New(
-            0, 0, gesture_event->data.fling_cancel.target_viewport,
-            gesture_event->data.fling_cancel.prevent_boosting);
-        break;
-      case blink::WebInputEvent::Type::kGesturePinchUpdate:
-        gesture_data->pinch_data = content::mojom::PinchData::New(
-            gesture_event->data.pinch_update.zoom_disabled,
-            gesture_event->data.pinch_update.scale);
-        break;
-    }
-    return context;
-  }
-  if (blink::WebInputEvent::IsTouchEventType(event->web_event->GetType())) {
-    const blink::WebTouchEvent* touch_event =
-        static_cast<const blink::WebTouchEvent*>(event->web_event.get());
-
-    context->touch_data = content::mojom::TouchData::New(
-        touch_event->dispatch_type, touch_event->moved_beyond_slop_region,
-        touch_event->touch_start_or_first_touch_move,
-        touch_event->unique_touch_event_id,
-        std::vector<content::mojom::TouchPointPtr>());
-
-    for (unsigned i = 0; i < touch_event->touches_length; ++i) {
-      content::mojom::PointerDataPtr pointer_data =
-          PointerDataFromPointerProperties(touch_event->touches[i], nullptr);
-      context->touch_data->touches.emplace_back(content::mojom::TouchPoint::New(
-          touch_event->touches[i].state, touch_event->touches[i].radius_x,
-          touch_event->touches[i].radius_y,
-          touch_event->touches[i].rotation_angle, std::move(pointer_data)));
-    }
-
-    return context;
-  }
-
+    return nullptr;
   bool is_wheel_event =
       event->web_event->GetType() == blink::WebInputEvent::Type::kMouseWheel;
-  if (blink::WebInputEvent::IsMouseEventType(event->web_event->GetType()) ||
-      is_wheel_event) {
-    const blink::WebMouseEvent* mouse_event =
-        static_cast<const blink::WebMouseEvent*>(event->web_event.get());
+  if (!blink::WebInputEvent::IsMouseEventType(event->web_event->GetType()) &&
+      !is_wheel_event) {
+    return nullptr;
+  }
+  const blink::WebMouseEvent* mouse_event =
+      static_cast<const blink::WebMouseEvent*>(event->web_event.get());
 
-    content::mojom::WheelDataPtr wheel_data;
-    if (is_wheel_event) {
-      const blink::WebMouseWheelEvent* wheel_event =
-          static_cast<const blink::WebMouseWheelEvent*>(mouse_event);
-      wheel_data = content::mojom::WheelData::New(
-          wheel_event->delta_x, wheel_event->delta_y,
-          wheel_event->wheel_ticks_x, wheel_event->wheel_ticks_y,
-          wheel_event->acceleration_ratio_x, wheel_event->acceleration_ratio_y,
-          wheel_event->resending_plugin_id, wheel_event->phase,
-          wheel_event->momentum_phase, wheel_event->scroll_by_page,
-          wheel_event->has_precise_scrolling_deltas,
-          wheel_event->dispatch_type);
-    }
-
-    context->pointer_data = PointerDataFromPointerProperties(
-        *mouse_event, content::mojom::MouseData::New(mouse_event->click_count,
-                                                     std::move(wheel_data)));
-    return context;
+  content::mojom::WheelDataPtr wheel_data;
+  if (is_wheel_event) {
+    const blink::WebMouseWheelEvent* wheel_event =
+        static_cast<const blink::WebMouseWheelEvent*>(mouse_event);
+    wheel_data = content::mojom::WheelData::New(
+        wheel_event->delta_x, wheel_event->delta_y, wheel_event->wheel_ticks_x,
+        wheel_event->wheel_ticks_y, wheel_event->acceleration_ratio_x,
+        wheel_event->acceleration_ratio_y, wheel_event->resending_plugin_id,
+        wheel_event->phase, wheel_event->momentum_phase,
+        wheel_event->scroll_by_page, wheel_event->has_precise_scrolling_deltas,
+        wheel_event->dispatch_type,
+        static_cast<uint8_t>(wheel_event->event_action));
   }
 
-  return context;
+  return PointerDataFromPointerProperties(
+      *mouse_event, content::mojom::MouseData::New(mouse_event->click_count,
+                                                   std::move(wheel_data)));
 }
 
-void StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::
-    TearDownContext(const InputEventUniquePtr& event, void* context) {
-  delete static_cast<InputEventSerializationContext*>(context);
+// static
+content::mojom::GestureDataPtr
+StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::gesture_data(
+    const InputEventUniquePtr& event) {
+  if (!event->web_event ||
+      !blink::WebInputEvent::IsGestureEventType(event->web_event->GetType()))
+    return nullptr;
+  const blink::WebGestureEvent* gesture_event =
+      static_cast<const blink::WebGestureEvent*>(event->web_event.get());
+  auto gesture_data = content::mojom::GestureData::New();
+  gesture_data->screen_position = gesture_event->PositionInScreen();
+  gesture_data->widget_position = gesture_event->PositionInWidget();
+  gesture_data->source_device = gesture_event->SourceDevice();
+  gesture_data->is_source_touch_event_set_non_blocking =
+      gesture_event->is_source_touch_event_set_non_blocking;
+  gesture_data->primary_pointer_type = gesture_event->primary_pointer_type;
+  gesture_data->unique_touch_event_id = gesture_event->unique_touch_event_id;
+  gesture_data->resending_plugin_id = gesture_event->resending_plugin_id;
+  switch (gesture_event->GetType()) {
+    default:
+      break;
+    case blink::WebInputEvent::Type::kGestureTapDown:
+      gesture_data->contact_size =
+          gfx::Size(gesture_event->data.tap_down.width,
+                    gesture_event->data.tap_down.height);
+      break;
+    case blink::WebInputEvent::Type::kGestureShowPress:
+      gesture_data->contact_size =
+          gfx::Size(gesture_event->data.show_press.width,
+                    gesture_event->data.show_press.height);
+      break;
+    case blink::WebInputEvent::Type::kGestureTap:
+    case blink::WebInputEvent::Type::kGestureTapUnconfirmed:
+    case blink::WebInputEvent::Type::kGestureDoubleTap:
+      gesture_data->contact_size = gfx::Size(gesture_event->data.tap.width,
+                                             gesture_event->data.tap.height);
+      gesture_data->tap_data =
+          content::mojom::TapData::New(gesture_event->data.tap.tap_count);
+      break;
+    case blink::WebInputEvent::Type::kGestureLongPress:
+    case blink::WebInputEvent::Type::kGestureLongTap:
+      gesture_data->contact_size =
+          gfx::Size(gesture_event->data.long_press.width,
+                    gesture_event->data.long_press.height);
+      break;
+
+    case blink::WebInputEvent::Type::kGestureTwoFingerTap:
+      gesture_data->contact_size =
+          gfx::Size(gesture_event->data.two_finger_tap.first_finger_width,
+                    gesture_event->data.two_finger_tap.first_finger_height);
+      break;
+    case blink::WebInputEvent::Type::kGestureScrollBegin:
+      gesture_data->scroll_data = content::mojom::ScrollData::New(
+          gesture_event->data.scroll_begin.delta_x_hint,
+          gesture_event->data.scroll_begin.delta_y_hint,
+          gesture_event->data.scroll_begin.delta_hint_units,
+          gesture_event->data.scroll_begin.target_viewport,
+          gesture_event->data.scroll_begin.inertial_phase,
+          gesture_event->data.scroll_begin.synthetic,
+          gesture_event->data.scroll_begin.pointer_count, nullptr);
+      break;
+    case blink::WebInputEvent::Type::kGestureScrollEnd:
+      gesture_data->scroll_data = content::mojom::ScrollData::New(
+          0, 0, gesture_event->data.scroll_end.delta_units, false,
+          gesture_event->data.scroll_end.inertial_phase,
+          gesture_event->data.scroll_end.synthetic, 0, nullptr);
+      break;
+    case blink::WebInputEvent::Type::kGestureScrollUpdate:
+      gesture_data->scroll_data = content::mojom::ScrollData::New(
+          gesture_event->data.scroll_update.delta_x,
+          gesture_event->data.scroll_update.delta_y,
+          gesture_event->data.scroll_update.delta_units, false,
+          gesture_event->data.scroll_update.inertial_phase, false, 0,
+          content::mojom::ScrollUpdate::New(
+              gesture_event->data.scroll_update.velocity_x,
+              gesture_event->data.scroll_update.velocity_y,
+              gesture_event->data.scroll_update
+                  .previous_update_in_sequence_prevented));
+      break;
+    case blink::WebInputEvent::Type::kGestureFlingStart:
+      gesture_data->fling_data = content::mojom::FlingData::New(
+          gesture_event->data.fling_start.velocity_x,
+          gesture_event->data.fling_start.velocity_y,
+          gesture_event->data.fling_start.target_viewport, false);
+      break;
+    case blink::WebInputEvent::Type::kGestureFlingCancel:
+      gesture_data->fling_data = content::mojom::FlingData::New(
+          0, 0, gesture_event->data.fling_cancel.target_viewport,
+          gesture_event->data.fling_cancel.prevent_boosting);
+      break;
+    case blink::WebInputEvent::Type::kGesturePinchUpdate:
+      gesture_data->pinch_data = content::mojom::PinchData::New(
+          gesture_event->data.pinch_update.scale);
+      break;
+  }
+  return gesture_data;
 }
 
-StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::
-    InputEventSerializationContext::InputEventSerializationContext() {}
+// static
+content::mojom::TouchDataPtr
+StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::touch_data(
+    const InputEventUniquePtr& event) {
+  if (!event->web_event ||
+      !blink::WebInputEvent::IsTouchEventType(event->web_event->GetType()))
+    return nullptr;
 
-StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::
-    InputEventSerializationContext::~InputEventSerializationContext() {}
+  const blink::WebTouchEvent* touch_event =
+      static_cast<const blink::WebTouchEvent*>(event->web_event.get());
+  auto touch_data = content::mojom::TouchData::New(
+      touch_event->dispatch_type, touch_event->moved_beyond_slop_region,
+      touch_event->touch_start_or_first_touch_move, touch_event->hovering,
+      touch_event->unique_touch_event_id,
+      std::vector<content::mojom::TouchPointPtr>());
+  for (unsigned i = 0; i < touch_event->touches_length; ++i) {
+    content::mojom::PointerDataPtr pointer_data =
+        PointerDataFromPointerProperties(touch_event->touches[i], nullptr);
+    touch_data->touches.emplace_back(content::mojom::TouchPoint::New(
+        touch_event->touches[i].state, touch_event->touches[i].radius_x,
+        touch_event->touches[i].radius_y,
+        touch_event->touches[i].rotation_angle, std::move(pointer_data)));
+  }
+  return touch_data;
+}
 
 }  // namespace mojo

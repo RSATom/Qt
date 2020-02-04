@@ -20,10 +20,32 @@ using base::android::ScopedJavaLocalRef;
 namespace net {
 namespace test_server {
 
+EmbeddedTestServerAndroid::ConnectionListener::ConnectionListener(
+    EmbeddedTestServerAndroid* test_server_android)
+    : test_server_android_(test_server_android) {}
+
+EmbeddedTestServerAndroid::ConnectionListener::~ConnectionListener() = default;
+
+void EmbeddedTestServerAndroid::ConnectionListener::AcceptedSocket(
+    const StreamSocket& socket) {
+  test_server_android_->AcceptedSocket(static_cast<const void*>(&socket));
+}
+
+void EmbeddedTestServerAndroid::ConnectionListener::ReadFromSocket(
+    const StreamSocket& socket,
+    int rv) {
+  test_server_android_->ReadFromSocket(static_cast<const void*>(&socket));
+}
+
 EmbeddedTestServerAndroid::EmbeddedTestServerAndroid(
     JNIEnv* env,
-    const JavaRef<jobject>& jobj)
-    : weak_java_server_(env, jobj), test_server_() {
+    const JavaRef<jobject>& jobj,
+    jboolean jhttps)
+    : weak_java_server_(env, jobj),
+      test_server_(jhttps ? EmbeddedTestServer::TYPE_HTTPS
+                          : EmbeddedTestServer::TYPE_HTTP),
+      connection_listener_(this) {
+  test_server_.SetConnectionListener(&connection_listener_);
   Java_EmbeddedTestServerImpl_setNativePtr(env, jobj,
                                            reinterpret_cast<intptr_t>(this));
 }
@@ -34,8 +56,16 @@ EmbeddedTestServerAndroid::~EmbeddedTestServerAndroid() {
 }
 
 jboolean EmbeddedTestServerAndroid::Start(JNIEnv* env,
-                                          const JavaParamRef<jobject>& jobj) {
-  return test_server_.Start();
+                                          const JavaParamRef<jobject>& jobj,
+                                          jint port) {
+  return test_server_.Start(static_cast<int>(port));
+}
+
+ScopedJavaLocalRef<jstring> EmbeddedTestServerAndroid::GetRootCertPemPath(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jobj) const {
+  return base::android::ConvertUTF8ToJavaString(
+      env, test_server_.GetRootCertPemPath().value());
 }
 
 jboolean EmbeddedTestServerAndroid::ShutdownAndWaitUntilComplete(
@@ -53,6 +83,17 @@ ScopedJavaLocalRef<jstring> EmbeddedTestServerAndroid::GetURL(
   return base::android::ConvertUTF8ToJavaString(env, gurl.spec());
 }
 
+ScopedJavaLocalRef<jstring> EmbeddedTestServerAndroid::GetURLWithHostName(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jobj,
+    const JavaParamRef<jstring>& jhostname,
+    const JavaParamRef<jstring>& jrelative_url) const {
+  const GURL gurl(test_server_.GetURL(
+      base::android::ConvertJavaStringToUTF8(env, jhostname),
+      base::android::ConvertJavaStringToUTF8(env, jrelative_url)));
+  return base::android::ConvertUTF8ToJavaString(env, gurl.spec());
+}
+
 void EmbeddedTestServerAndroid::AddDefaultHandlers(
     JNIEnv* env,
     const JavaParamRef<jobject>& jobj,
@@ -60,6 +101,13 @@ void EmbeddedTestServerAndroid::AddDefaultHandlers(
   const base::FilePath directory(
       base::android::ConvertJavaStringToUTF8(env, jdirectory_path));
   test_server_.AddDefaultHandlers(directory);
+}
+
+void EmbeddedTestServerAndroid::SetSSLConfig(JNIEnv* jenv,
+                                             const JavaParamRef<jobject>& jobj,
+                                             jint jserver_certificate) {
+  test_server_.SetSSLConfig(
+      static_cast<EmbeddedTestServer::ServerCertificate>(jserver_certificate));
 }
 
 typedef std::unique_ptr<HttpResponse> (*HandleRequestPtr)(
@@ -82,24 +130,33 @@ void EmbeddedTestServerAndroid::ServeFilesFromDirectory(
   test_server_.ServeFilesFromDirectory(directory);
 }
 
+void EmbeddedTestServerAndroid::AcceptedSocket(const void* socket_id) {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_EmbeddedTestServerImpl_acceptedSocket(
+      env, weak_java_server_.get(env), reinterpret_cast<intptr_t>(socket_id));
+}
+
+void EmbeddedTestServerAndroid::ReadFromSocket(const void* socket_id) {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  Java_EmbeddedTestServerImpl_readFromSocket(
+      env, weak_java_server_.get(env), reinterpret_cast<intptr_t>(socket_id));
+}
+
 void EmbeddedTestServerAndroid::Destroy(JNIEnv* env,
                                         const JavaParamRef<jobject>& jobj) {
   delete this;
 }
 
-static void Init(JNIEnv* env,
-                 const JavaParamRef<jobject>& jobj,
-                 const JavaParamRef<jstring>& jtest_data_dir) {
+static void JNI_EmbeddedTestServerImpl_Init(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jobj,
+    const JavaParamRef<jstring>& jtest_data_dir,
+    jboolean jhttps) {
   TRACE_EVENT0("native", "EmbeddedTestServerAndroid::Init");
   base::FilePath test_data_dir(
       base::android::ConvertJavaStringToUTF8(env, jtest_data_dir));
   base::InitAndroidTestPaths(test_data_dir);
-  new EmbeddedTestServerAndroid(env, jobj);
-}
-
-// static
-bool EmbeddedTestServerAndroid::RegisterEmbeddedTestServerAndroid(JNIEnv* env) {
-  return RegisterNativesImpl(env);
+  new EmbeddedTestServerAndroid(env, jobj, jhttps);
 }
 
 }  // namespace test_server

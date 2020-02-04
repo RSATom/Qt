@@ -506,6 +506,8 @@ QImage ICOReader::iconAt(int index)
                 icoAttrib.h = iconEntry.bHeight;
                 if (icoAttrib.h == 0) // means 256 pixels
                     icoAttrib.h = header.biHeight/2;
+                if (icoAttrib.w > 256 || icoAttrib.h > 256) // Max ico size
+                    return img;
 
                 QImage::Format format = QImage::Format_ARGB32;
                 if (icoAttrib.nbits == 24)
@@ -521,17 +523,21 @@ QImage ICOReader::iconAt(int index)
                     if (!image.isNull()) {
                         readBMP(image);
                         if (!image.isNull()) {
-                            QImage mask(image.width(), image.height(), QImage::Format_Mono);
-                            if (!mask.isNull()) {
-                                mask.setColorCount(2);
-                                mask.setColor(0, qRgba(255,255,255,0xff));
-                                mask.setColor(1, qRgba(0  ,0  ,0  ,0xff));
-                                read1BitBMP(mask);
+                            if (icoAttrib.depth == 32) {
+                                img = std::move(image).convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                            } else {
+                                QImage mask(image.width(), image.height(), QImage::Format_Mono);
                                 if (!mask.isNull()) {
-                                    img = image;
-                                    img.setAlphaChannel(mask);
-                                    // (Luckily, it seems that setAlphaChannel() does not ruin the alpha values
-                                    // of partially transparent pixels in those icons that have that)
+                                    mask.setColorCount(2);
+                                    mask.setColor(0, qRgba(255,255,255,0xff));
+                                    mask.setColor(1, qRgba(0  ,0  ,0  ,0xff));
+                                    read1BitBMP(mask);
+                                    if (!mask.isNull()) {
+                                        img = image;
+                                        img.setAlphaChannel(mask);
+                                        // (Luckily, it seems that setAlphaChannel() does not ruin the alpha values
+                                        // of partially transparent pixels in those icons that have that)
+                                    }
                                 }
                             }
                         }
@@ -812,6 +818,7 @@ bool QtIcoHandler::write(const QImage &image)
     return ICOReader::write(device, imgs);
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
  * Return the common identifier of the format.
  * For ICO format this will return "ico".
@@ -820,7 +827,7 @@ QByteArray QtIcoHandler::name() const
 {
     return "ico";
 }
-
+#endif
 
 /*! \reimp
 

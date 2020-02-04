@@ -158,7 +158,7 @@ void QTextToSpeechPrivate::loadPluginMetadata(QHash<QString, QJsonObject> &list)
 
 /*!
   \class QTextToSpeech
-  \brief The QTextToSpeech class provides a convenient access to text-to-speech engines
+  \brief The QTextToSpeech class provides a convenient access to text-to-speech engines.
   \inmodule QtSpeech
 
   Use \l say() to start synthesizing text.
@@ -368,8 +368,10 @@ void QTextToSpeech::setVolume(double volume)
 {
     Q_D(QTextToSpeech);
     volume = qMin(qMax(volume, 0.0), 1.0);
-    if (d->m_engine && d->m_engine->setVolume(volume))
+    if (d->m_engine && d->m_engine->setVolume(volume)) {
         emit volumeChanged(volume);
+        emit volumeChanged(static_cast<int>(volume));
+    }
 }
 
 double QTextToSpeech::volume() const

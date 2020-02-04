@@ -4,20 +4,15 @@
 
 #include "chrome/browser/ui/webui/user_actions/user_actions_ui.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/user_actions/user_actions_ui_handler.h"
 #include "chrome/common/url_constants.h"
+#include "components/grit/components_resources.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_controller.h"
 #include "content/public/browser/web_ui_data_source.h"
-
-#if defined(TOOLKIT_QT)
-#include "chrome/grit/qt_webengine_resources.h"
-#else
-#include "chrome/grit/browser_resources.h"
-#endif
-
 
 UserActionsUI::UserActionsUI(content::WebUI* web_ui)
     : content::WebUIController(web_ui) {
@@ -27,11 +22,12 @@ UserActionsUI::UserActionsUI(content::WebUI* web_ui)
   html_source->SetDefaultResource(IDR_USER_ACTIONS_HTML);
   html_source->AddResourcePath("user_actions.css", IDR_USER_ACTIONS_CSS);
   html_source->AddResourcePath("user_actions.js", IDR_USER_ACTIONS_JS);
+  html_source->UseGzip();
 
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, html_source);
 
-  web_ui->AddMessageHandler(base::MakeUnique<UserActionsUIHandler>());
+  web_ui->AddMessageHandler(std::make_unique<UserActionsUIHandler>());
 }
 
 UserActionsUI::~UserActionsUI() {}

@@ -41,16 +41,19 @@ class Translator;
 struct Candidate
 {
     Candidate() {}
-    Candidate(const QString& source0, const QString &target0)
-        : source(source0), target(target0)
+    Candidate(const QString &c, const QString &s, const QString &d, const QString &t)
+        : context(c), source(s), disambiguation(d), translation(t)
     {}
 
+    QString context;
     QString source;
-    QString target;
+    QString disambiguation;
+    QString translation;
 };
 
 inline bool operator==( const Candidate& c, const Candidate& d ) {
-    return c.target == d.target && c.source == d.source;
+    return c.translation == d.translation && c.source == d.source && c.context == d.context
+           && c.disambiguation == d.disambiguation;
 }
 inline bool operator!=( const Candidate& c, const Candidate& d ) {
     return !operator==( c, d );

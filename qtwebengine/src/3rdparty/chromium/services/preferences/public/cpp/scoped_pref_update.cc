@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "components/prefs/pref_service.h"
 #include "services/preferences/public/cpp/dictionary_value_update.h"
 
@@ -23,7 +22,7 @@ ScopedDictionaryPrefUpdate::~ScopedDictionaryPrefUpdate() {
 }
 
 std::unique_ptr<DictionaryValueUpdate> ScopedDictionaryPrefUpdate::Get() {
-  return base::MakeUnique<DictionaryValueUpdate>(
+  return std::make_unique<DictionaryValueUpdate>(
       base::Bind(&ScopedDictionaryPrefUpdate::RecordPath,
                  base::Unretained(this)),
       static_cast<base::DictionaryValue*>(

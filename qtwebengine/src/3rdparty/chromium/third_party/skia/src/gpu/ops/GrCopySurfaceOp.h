@@ -15,31 +15,35 @@ class GrCopySurfaceOp final : public GrOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrOp> Make(GrSurfaceProxy* dst, GrSurfaceProxy* src,
+    static std::unique_ptr<GrOp> Make(GrContext*,
+                                      GrSurfaceProxy* dst,
+                                      GrSurfaceProxy* src,
                                       const SkIRect& srcRect,
                                       const SkIPoint& dstPoint);
 
     const char* name() const override { return "CopySurface"; }
 
+    void visitProxies(const VisitProxyFunc& func, VisitorType) const override { func(fSrc.get()); }
+
+#ifdef SK_DEBUG
     SkString dumpInfo() const override {
         SkString string;
         string.append(INHERITED::dumpInfo());
-        string.printf("srcProxyID: %d, dstProxyID: %d,\n"
+        string.printf("srcProxyID: %d,\n"
                       "srcRect: [ L: %d, T: %d, R: %d, B: %d ], dstPt: [ X: %d, Y: %d ]\n",
                       fSrc.get()->uniqueID().asUInt(),
-                      fDst.get()->uniqueID().asUInt(),
                       fSrcRect.fLeft, fSrcRect.fTop, fSrcRect.fRight, fSrcRect.fBottom,
                       fDstPoint.fX, fDstPoint.fY);
         return string;
     }
-
-    bool needsCommandBufferIsolation() const override { return true; }
+#endif
 
 private:
+    friend class GrOpMemoryPool; // for ctor
+
     GrCopySurfaceOp(GrSurfaceProxy* dst, GrSurfaceProxy* src,
                     const SkIRect& srcRect, const SkIPoint& dstPoint)
             : INHERITED(ClassID())
-            , fDst(dst)
             , fSrc(src)
             , fSrcRect(srcRect)
             , fDstPoint(dstPoint) {
@@ -49,15 +53,10 @@ private:
         this->setBounds(bounds, HasAABloat::kNo, IsZeroArea::kNo);
     }
 
-    bool onCombineIfPossible(GrOp* that, const GrCaps& caps) override { return false; }
-
     void onPrepare(GrOpFlushState*) override {}
 
-    void onExecute(GrOpFlushState* state) override;
+    void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
 
-    // For RenderTargetContexts 'fDst' is redundant with the RenderTarget that will be passed
-    // into onExecute in the drawOpArgs.
-    GrPendingIOResource<GrSurfaceProxy, kWrite_GrIOType> fDst;
     GrPendingIOResource<GrSurfaceProxy, kRead_GrIOType>  fSrc;
     SkIRect                                              fSrcRect;
     SkIPoint                                             fDstPoint;

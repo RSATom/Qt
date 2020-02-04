@@ -4,201 +4,289 @@
 
 """Creates an html report that allows you to view binary size by component."""
 
-import argparse
+import codecs
+import collections
+import itertools
 import json
 import logging
 import os
-import shutil
-import sys
 
 import archive
-import paths
+import diff
+import models
+import path_util
 
 
-# Node dictionary keys. These are output in json read by the webapp so
-# keep them short to save file size.
-# Note: If these change, the webapp must also change.
-_NODE_TYPE_KEY = 'k'
-_NODE_TYPE_BUCKET = 'b'
-_NODE_TYPE_PATH = 'p'
-_NODE_TYPE_SYMBOL = 's'
-_NODE_NAME_KEY = 'n'
-_NODE_CHILDREN_KEY = 'children'
-_NODE_SYMBOL_TYPE_KEY = 't'
-_NODE_SYMBOL_TYPE_VTABLE = 'v'
-_NODE_SYMBOL_TYPE_GENERATED = '*'
-_NODE_SYMBOL_SIZE_KEY = 'value'
-_NODE_MAX_DEPTH_KEY = 'maxDepth'
-_NODE_LAST_PATH_ELEMENT_KEY = 'lastPathElement'
+# These must match |_KEYS| in shared.js.
+_COMPACT_FILE_COMPONENT_INDEX_KEY = 'c'
+_COMPACT_FILE_PATH_KEY = 'p'
+_COMPACT_FILE_SYMBOLS_KEY = 's'
+_COMPACT_SYMBOL_BYTE_SIZE_KEY = 'b'
+_COMPACT_SYMBOL_COUNT_KEY = 'u'
+_COMPACT_SYMBOL_FLAGS_KEY = 'f'
+_COMPACT_SYMBOL_NAME_KEY = 'n'
+_COMPACT_SYMBOL_NUM_ALIASES_KEY = 'a'
+_COMPACT_SYMBOL_TYPE_KEY = 't'
 
-# The display name of the bucket where we put symbols without path.
-_NAME_NO_PATH_BUCKET = '(No Path)'
-
-# Try to keep data buckets smaller than this to avoid killing the
-# graphing lib.
-_BIG_BUCKET_LIMIT = 3000
+# Always emit this many distict symbols (if present), even when small.
+# No need to optimize file size at this point).
+_MIN_SYMBOL_COUNT = 1000
+# Small symbols grouped into "other" symbols may not comprise more than this
+# fraction of total size.
+_MAX_OTHER_SYMBOL_COVERAGE = .05
+# Don't insert "other" symbols smaller than this (just noise at this point).
+_MIN_OTHER_PSS = 1
 
 
-def _GetOrMakeChildNode(node, node_type, name):
-  child = node[_NODE_CHILDREN_KEY].get(name)
-  if child is None:
-    child = {
-        _NODE_TYPE_KEY: node_type,
-        _NODE_NAME_KEY: name,
+def _GetOrAddFileNode(path, component, file_nodes, components):
+  file_node = file_nodes.get(path)
+  if file_node is None:
+    component_index = components.GetOrAdd(component)
+    file_node = {
+      _COMPACT_FILE_PATH_KEY: path,
+      _COMPACT_FILE_COMPONENT_INDEX_KEY: component_index,
+      _COMPACT_FILE_SYMBOLS_KEY: [],
     }
-    if node_type != _NODE_TYPE_SYMBOL:
-      child[_NODE_CHILDREN_KEY] = {}
-    node[_NODE_CHILDREN_KEY][name] = child
+    file_nodes[path] = file_node
+  return file_node
+
+
+class IndexedSet(object):
+  """Set-like object where values are unique and indexed.
+
+  Values must be immutable.
+  """
+
+  def __init__(self):
+    self._index_dict = {}  # Value -> Index dict
+    self.value_list = []  # List containing all the set items
+
+  def GetOrAdd(self, value):
+    """Get the index of the value in the list. Append it if not yet present."""
+    index = self._index_dict.get(value)
+    if index is None:
+      self.value_list.append(value)
+      index = len(self.value_list) - 1
+      self._index_dict[value] = index
+    return index
+
+
+def _PartitionSymbols(symbols):
+  # Dex methods are whitelisted for the method_count mode in the UI.
+  # Vtable entries are interesting to query for, so whitelist them as well.
+  interesting_symbols = symbols.Filter(
+      lambda s: s.IsDex() or '[vtable]' in s.name)
+  ordered_symbols = interesting_symbols.Inverted().Sorted()
+
+  abs_pss_target = (1 - _MAX_OTHER_SYMBOL_COVERAGE) * sum(
+      abs(s.pss) for s in ordered_symbols)
+  running_abs_pss = 0
+  ordered_count = 0
+  for ordered_count, s in enumerate(ordered_symbols):
+    running_abs_pss += abs(s.pss)
+    if running_abs_pss > abs_pss_target and ordered_count >= _MIN_SYMBOL_COUNT:
+      break
+
+  main_symbols = itertools.chain(interesting_symbols,
+                                 ordered_symbols[:ordered_count])
+  extra_symbols = ordered_symbols[ordered_count:]
+
+  logging.info('Found %d large symbols, %s small symbols',
+               len(interesting_symbols) + ordered_count, len(extra_symbols))
+  return main_symbols, extra_symbols
+
+
+def _MakeTreeViewList(symbols, include_all_symbols):
+  """Builds JSON data of the symbols for the tree view HTML report.
+
+  As the tree is built on the client-side, this function creates a flat list
+  of files, where each file object contains symbols that have the same path.
+
+  Args:
+    symbols: A SymbolGroup containing all symbols.
+    include_all_symbols: If true, include all symbols in the data file.
+  """
+  file_nodes = {}
+  components = IndexedSet()
+  # Dict of path -> type -> accumulated pss.
+  small_symbol_pss = collections.defaultdict(
+      lambda: collections.defaultdict(float))
+
+  # For delta symbols, most counts should 0, so use that as default. Else use 1.
+  default_symbol_count = 0 if symbols.IsDelta() else 1
+
+  if include_all_symbols:
+    main_symbols, extra_symbols = symbols, []
   else:
-    assert child[_NODE_TYPE_KEY] == node_type
-  return child
+    logging.info('Partitioning symbols...')
+    main_symbols, extra_symbols = _PartitionSymbols(symbols)
 
+  # Bundle symbols by the file they belong to.
+  # Add all the file buckets into file_nodes.
+  for symbol in main_symbols:
+    symbol_size = round(symbol.pss, 2)
+    if symbol_size.is_integer():
+      symbol_size = int(symbol_size)
+    symbol_count = default_symbol_count
+    if symbol.IsDelta():
+      symbol_count = models.DIFF_COUNT_DELTA[symbol.diff_status]
 
-def _SplitLargeBucket(bucket):
-  """Split the given node into sub-buckets when it's too big."""
-  old_children = bucket[_NODE_CHILDREN_KEY]
-  count = 0
-  for symbol_type, symbol_bucket in old_children.iteritems():
-    count += len(symbol_bucket[_NODE_CHILDREN_KEY])
-  if count > _BIG_BUCKET_LIMIT:
-    new_children = {}
-    bucket[_NODE_CHILDREN_KEY] = new_children
-    current_bucket = None
-    index = 0
-    for symbol_type, symbol_bucket in old_children.iteritems():
-      for symbol_name, value in symbol_bucket[_NODE_CHILDREN_KEY].iteritems():
-        if index % _BIG_BUCKET_LIMIT == 0:
-          group_no = (index / _BIG_BUCKET_LIMIT) + 1
-          node_name = '%s subgroup %d' % (_NAME_NO_PATH_BUCKET, group_no)
-          current_bucket = _GetOrMakeChildNode(
-              bucket, _NODE_TYPE_PATH, node_name)
-        index += 1
-        symbol_size = value[_NODE_SYMBOL_SIZE_KEY]
-        _AddSymbolIntoFileNode(current_bucket, symbol_type, symbol_name,
-                               symbol_size, True)
+    path = symbol.source_path or symbol.object_path
+    file_node = _GetOrAddFileNode(
+        path, symbol.component, file_nodes, components)
 
+    is_dex_method = symbol.section_name == models.SECTION_DEX_METHOD
+    symbol_entry = {
+      _COMPACT_SYMBOL_BYTE_SIZE_KEY: symbol_size,
+      _COMPACT_SYMBOL_NAME_KEY: symbol.template_name,
+      _COMPACT_SYMBOL_TYPE_KEY: symbol.section,
+    }
+    if symbol.num_aliases != 1:
+      symbol_entry[_COMPACT_SYMBOL_NUM_ALIASES_KEY] = symbol.num_aliases
 
-def _MakeChildrenDictsIntoLists(node):
-  """Recursively converts all children from dicts -> lists."""
-  children = node.get(_NODE_CHILDREN_KEY)
-  if children:
-    children = children.values()  # Convert dict -> list.
-    node[_NODE_CHILDREN_KEY] = children
-    for child in children:
-      _MakeChildrenDictsIntoLists(child)
-    if len(children) > _BIG_BUCKET_LIMIT:
-      logging.warning('Bucket found with %d entries. Might be unusable.',
-                      len(children))
+    # We use symbol count for the method count mode in the diff mode report.
+    # Negative values are used to indicate a symbol was removed, so it should
+    # count as -1 rather than the default, 1.
+    # We don't care about accurate counts for other symbol types currently,
+    # so this data is only included for methods.
+    if is_dex_method and symbol_count != default_symbol_count:
+      symbol_entry[_COMPACT_SYMBOL_COUNT_KEY] = symbol_count
+    if symbol.flags:
+      symbol_entry[_COMPACT_SYMBOL_FLAGS_KEY] = symbol.flags
+    file_node[_COMPACT_FILE_SYMBOLS_KEY].append(symbol_entry)
 
+  # Collect small symbols into a per-path dict.
+  for symbol in extra_symbols:
+    path = symbol.source_path or symbol.object_path
+    tup = (path, symbol.component)
+    small_symbol_pss[tup][symbol.section_name] += symbol.pss
 
-def _AddSymbolIntoFileNode(node, symbol_type, symbol_name, symbol_size,
-                           include_symbols):
-  """Puts symbol into the file path node |node|."""
-  node[_NODE_LAST_PATH_ELEMENT_KEY] = True
-  # Don't bother with buckets when not including symbols.
-  if include_symbols:
-    node = _GetOrMakeChildNode(node, _NODE_TYPE_BUCKET, symbol_type)
-    node[_NODE_SYMBOL_TYPE_KEY] = symbol_type
+  # Insert small symbols.
+  inserted_smalls_count = 0
+  inserted_smalls_abs_pss = 0
+  skipped_smalls_count = 0
+  skipped_smalls_abs_pss = 0
+  for tup, type_to_pss in small_symbol_pss.iteritems():
+    path, component = tup
+    for section_name, pss in type_to_pss.iteritems():
+      if abs(pss) < _MIN_OTHER_PSS:
+        skipped_smalls_count += 1
+        skipped_smalls_abs_pss += abs(pss)
+      else:
+        inserted_smalls_count += 1
+        inserted_smalls_abs_pss += abs(pss)
+        file_node = _GetOrAddFileNode(path, component, file_nodes, components)
+        file_node[_COMPACT_FILE_SYMBOLS_KEY].append({
+          _COMPACT_SYMBOL_NAME_KEY: 'Other ' + section_name,
+          _COMPACT_SYMBOL_TYPE_KEY:
+              models.SECTION_NAME_TO_SECTION[section_name],
+          _COMPACT_SYMBOL_BYTE_SIZE_KEY: pss,
+        })
+  logging.debug(
+      'Created %d "other" symbols with PSS=%.1f. Omitted %d with PSS=%.1f',
+      inserted_smalls_count, inserted_smalls_abs_pss, skipped_smalls_count,
+      skipped_smalls_abs_pss)
 
-  # 'node' is now the symbol-type bucket. Make the child entry.
-  if include_symbols or not symbol_name:
-    node_name = symbol_name or '[Anonymous]'
-  elif symbol_name.startswith('*'):
-    node_name = symbol_name
-  else:
-    node_name = symbol_type
-  node = _GetOrMakeChildNode(node, _NODE_TYPE_SYMBOL, node_name)
-  node[_NODE_SYMBOL_SIZE_KEY] = node.get(_NODE_SYMBOL_SIZE_KEY, 0) + symbol_size
-  node[_NODE_SYMBOL_TYPE_KEY] = symbol_type
-
-
-def _MakeCompactTree(symbols, include_symbols):
-  result = {
-      _NODE_NAME_KEY: '/',
-      _NODE_CHILDREN_KEY: {},
-      _NODE_TYPE_KEY: 'p',
-      _NODE_MAX_DEPTH_KEY: 0,
+  meta = {
+    'components': components.value_list,
+    'total': symbols.pss,
   }
-  for symbol in symbols:
-    file_path = symbol.source_path or symbol.object_path or _NAME_NO_PATH_BUCKET
-    node = result
-    depth = 0
-    for path_part in file_path.split(os.path.sep):
-      if not path_part:
-        continue
-      depth += 1
-      node = _GetOrMakeChildNode(node, _NODE_TYPE_PATH, path_part)
-
-    symbol_type = symbol.section
-    if symbol.name.endswith('[vtable]'):
-      symbol_type = _NODE_SYMBOL_TYPE_VTABLE
-    elif symbol.name.endswith(']'):
-      symbol_type = _NODE_SYMBOL_TYPE_GENERATED
-    _AddSymbolIntoFileNode(node, symbol_type, symbol.template_name, symbol.pss,
-                           include_symbols)
-    depth += 2
-    result[_NODE_MAX_DEPTH_KEY] = max(result[_NODE_MAX_DEPTH_KEY], depth)
-
-  # The (no path) bucket can be extremely large if we failed to get
-  # path information. Split it into subgroups if needed.
-  no_path_bucket = result[_NODE_CHILDREN_KEY].get(_NAME_NO_PATH_BUCKET)
-  if no_path_bucket and include_symbols:
-    _SplitLargeBucket(no_path_bucket)
-
-  _MakeChildrenDictsIntoLists(result)
-
-  return result
+  return meta, file_nodes.values()
 
 
-def _CopyTemplateFiles(dest_dir):
-  d3_out = os.path.join(dest_dir, 'd3')
-  if not os.path.exists(d3_out):
-    os.makedirs(d3_out, 0755)
-  d3_src = os.path.join(paths.SRC_ROOT, 'third_party', 'd3', 'src')
-  template_src = os.path.join(os.path.dirname(__file__), 'template')
-  shutil.copy(os.path.join(d3_src, 'LICENSE'), d3_out)
-  shutil.copy(os.path.join(d3_src, 'd3.js'), d3_out)
-  shutil.copy(os.path.join(template_src, 'index.html'), dest_dir)
-  shutil.copy(os.path.join(template_src, 'D3SymbolTreeMap.js'), dest_dir)
+def BuildReportFromSizeInfo(out_path, size_info, all_symbols=False):
+  """Builds a .ndjson report for a .size file.
+
+  Args:
+    out_path: Path to save JSON report to.
+    size_info: A SizeInfo or DeltaSizeInfo to use for the report.
+    all_symbols: If true, all symbols will be included in the report rather
+      than truncated.
+  """
+  logging.info('Reading .size file')
+  symbols = size_info.raw_symbols
+  is_diff = symbols.IsDelta()
+  if is_diff:
+    symbols = symbols.WhereDiffStatusIs(models.DIFF_STATUS_UNCHANGED).Inverted()
+
+  meta, tree_nodes = _MakeTreeViewList(symbols, all_symbols)
+  logging.info('Created %d tree nodes', len(tree_nodes))
+  meta.update({
+    'diff_mode': is_diff,
+    'section_sizes': size_info.section_sizes,
+  })
+  if is_diff:
+    meta.update({
+      'before_metadata': size_info.before.metadata,
+      'after_metadata': size_info.after.metadata,
+    })
+  else:
+    meta['metadata'] = size_info.metadata
+
+  # Write newline-delimited JSON file
+  logging.info('Serializing JSON')
+  # Use separators without whitespace to get a smaller file.
+  json_dump_args = {
+    'separators': (',', ':'),
+    'ensure_ascii': True,
+    'check_circular': False,
+  }
+
+  with codecs.open(out_path, 'w', encoding='ascii') as out_file:
+    json.dump(meta, out_file, **json_dump_args)
+    out_file.write('\n')
+
+    for tree_node in tree_nodes:
+      json.dump(tree_node, out_file, **json_dump_args)
+      out_file.write('\n')
+
+
+def _MakeDirIfDoesNotExist(rel_path):
+  """Ensures a directory exists."""
+  abs_path = os.path.abspath(rel_path)
+  try:
+    os.makedirs(abs_path)
+  except OSError:
+    if not os.path.isdir(abs_path):
+      raise
 
 
 def AddArguments(parser):
-  parser.add_argument('input_file',
+  parser.add_argument('input_size_file',
                       help='Path to input .size file.')
-  parser.add_argument('--report-dir', metavar='PATH', required=True,
-                      help='Write output to the specified directory. An HTML '
-                            'report is generated here.')
-  parser.add_argument('--include-bss', action='store_true',
-                      help='Include symbols from .bss (which consume no real '
-                           'space)')
-  parser.add_argument('--include-symbols', action='store_true',
-                      help='Use per-symbol granularity rather than per-file.')
+  parser.add_argument('output_report_file',
+                      help='Write generated data to the specified '
+                           '.ndjson file.')
+  parser.add_argument('--all-symbols', action='store_true',
+                      help='Include all symbols. Will cause the data file to '
+                           'take longer to load.')
+  parser.add_argument('--diff-with',
+                      help='Diffs the input_file against an older .size file')
 
 
 def Run(args, parser):
-  if not args.input_file.endswith('.size'):
+  if not args.input_size_file.endswith('.size'):
     parser.error('Input must end with ".size"')
+  if args.diff_with and not args.diff_with.endswith('.size'):
+    parser.error('Diff input must end with ".size"')
+  if not args.output_report_file.endswith('.ndjson'):
+    parser.error('Output must end with ".ndjson"')
 
-  logging.info('Reading .size file')
-  size_info = archive.LoadAndPostProcessSizeInfo(args.input_file)
-  symbols = size_info.symbols
-  if not args.include_bss:
-    symbols = symbols.WhereInSection('b').Inverted()
-  symbols = symbols.WherePssBiggerThan(0)
+  size_info = archive.LoadAndPostProcessSizeInfo(args.input_size_file)
+  if args.diff_with:
+    before_size_info = archive.LoadAndPostProcessSizeInfo(args.diff_with)
+    size_info = diff.Diff(before_size_info, size_info)
 
-  # Copy report boilerplate into output directory. This also proves that the
-  # output directory is safe for writing, so there should be no problems writing
-  # the nm.out file later.
-  _CopyTemplateFiles(args.report_dir)
+  BuildReportFromSizeInfo(
+      args.output_report_file, size_info, all_symbols=args.all_symbols)
 
-  logging.info('Creating JSON objects')
-  tree_root = _MakeCompactTree(symbols, args.include_symbols)
-
-  logging.info('Serializing JSON')
-  with open(os.path.join(args.report_dir, 'data.js'), 'w') as out_file:
-    out_file.write('var tree_data=')
-    # Use separators without whitespace to get a smaller file.
-    json.dump(tree_root, out_file, ensure_ascii=False, check_circular=False,
-              separators=(',', ':'))
-
-  logging.warning('Report saved to %s/index.html', args.report_dir)
+  msg = [
+      'Done!',
+      'View using a local server via: ',
+      '    %s start_server %s',
+      'or upload to the hosted version here:',
+      '    https://storage.googleapis.com/chrome-supersize/viewer.html'
+      ]
+  supersize_path = os.path.relpath(os.path.join(
+      path_util.SRC_ROOT, 'tools', 'binary_size', 'supersize'))
+  logging.warning('\n'.join(msg),  supersize_path, args.output_report_file)

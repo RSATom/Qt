@@ -62,7 +62,7 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT QTextureLoaderPrivate : public QAbstractTexturePrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QTextureLoaderPrivate : public QAbstractTexturePrivate
 {
 public:
     QTextureLoaderPrivate();
@@ -76,27 +76,35 @@ public:
     bool m_mirrored;
 };
 
+class QTextureFromSourceGenerator;
+typedef QSharedPointer<QTextureFromSourceGenerator> QTextureFromSourceGeneratorPtr;
+
 class Q_AUTOTEST_EXPORT TextureDownloadRequest : public Qt3DCore::QDownloadRequest
 {
 public:
-    TextureDownloadRequest(Qt3DCore::QNodeId texture, const QUrl &url, Qt3DCore::QAspectEngine *engine);
+    TextureDownloadRequest(const QTextureFromSourceGeneratorPtr &functor,
+                           const QUrl &url,
+                           Qt3DCore::QAspectEngine *engine);
 
-    void onCompleted() Q_DECL_OVERRIDE;
+    void onCompleted() override;
 
 private:
-    Qt3DCore::QNodeId m_texture;
+    QTextureFromSourceGeneratorPtr m_functor;
     Qt3DCore::QAspectEngine *m_engine;
 };
 
-class Q_AUTOTEST_EXPORT QTextureFromSourceGenerator : public QTextureGenerator
+class Q_AUTOTEST_EXPORT QTextureFromSourceGenerator : public QTextureGenerator,
+                                                      public QEnableSharedFromThis<QTextureFromSourceGenerator>
 {
 public:
     explicit QTextureFromSourceGenerator(QTextureLoader *textureLoader,
                                          Qt3DCore::QAspectEngine *engine,
                                          Qt3DCore::QNodeId textureId);
 
-    QTextureDataPtr operator ()() Q_DECL_OVERRIDE;
-    bool operator ==(const QTextureGenerator &other) const Q_DECL_OVERRIDE;
+    QTextureFromSourceGenerator(const QTextureFromSourceGenerator &other);
+
+    QTextureDataPtr operator ()() override;
+    bool operator ==(const QTextureGenerator &other) const override;
     inline QAbstractTexture::Status status() const { return m_status; }
 
     QT3D_FUNCTOR(QTextureFromSourceGenerator)
@@ -118,7 +126,6 @@ private:
     // Options that can be overridden on TextureLoader when loading
     QAbstractTexture::TextureFormat m_format;
 };
-typedef QSharedPointer<QTextureFromSourceGenerator> QTextureFromSourceGeneratorPtr;
 
 class Q_AUTOTEST_EXPORT TextureLoadingHelper
 {

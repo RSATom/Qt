@@ -48,6 +48,7 @@ class COMPONENTS_PREFS_EXPORT InMemoryPrefStore : public PersistentPrefStore {
   void ReadPrefsAsync(ReadErrorDelegate* error_delegate) override {}
   void SchedulePendingLossyWrites() override {}
   void ClearMutableValues() override {}
+  void OnStoreDeletionFromDisk() override {}
 
  protected:
   ~InMemoryPrefStore() override;
@@ -56,7 +57,7 @@ class COMPONENTS_PREFS_EXPORT InMemoryPrefStore : public PersistentPrefStore {
   // Stores the preference values.
   PrefValueMap prefs_;
 
-  base::ObserverList<PrefStore::Observer, true> observers_;
+  base::ObserverList<PrefStore::Observer, true>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(InMemoryPrefStore);
 };

@@ -74,28 +74,28 @@ public:
         MMBCumulativeY = 3
     };
 
-    explicit QItemModelSurfaceDataProxy(QObject *parent = Q_NULLPTR);
-    explicit QItemModelSurfaceDataProxy(QAbstractItemModel *itemModel, QObject *parent = Q_NULLPTR);
+    explicit QItemModelSurfaceDataProxy(QObject *parent = nullptr);
+    explicit QItemModelSurfaceDataProxy(QAbstractItemModel *itemModel, QObject *parent = nullptr);
     explicit QItemModelSurfaceDataProxy(QAbstractItemModel *itemModel, const QString &yPosRole,
-                                        QObject *parent = Q_NULLPTR);
+                                        QObject *parent = nullptr);
     explicit QItemModelSurfaceDataProxy(QAbstractItemModel *itemModel, const QString &rowRole,
                                         const QString &columnRole, const QString &yPosRole,
-                                        QObject *parent = Q_NULLPTR);
+                                        QObject *parent = nullptr);
     explicit QItemModelSurfaceDataProxy(QAbstractItemModel *itemModel, const QString &rowRole,
                                         const QString &columnRole, const QString &xPosRole,
                                         const QString &yPosRole, const QString &zPosRole,
-                                        QObject *parent = Q_NULLPTR);
+                                        QObject *parent = nullptr);
     explicit QItemModelSurfaceDataProxy(QAbstractItemModel *itemModel, const QString &rowRole,
                                         const QString &columnRole, const QString &yPosRole,
                                         const QStringList &rowCategories,
                                         const QStringList &columnCategories,
-                                        QObject *parent = Q_NULLPTR);
+                                        QObject *parent = nullptr);
     explicit QItemModelSurfaceDataProxy(QAbstractItemModel *itemModel, const QString &rowRole,
                                         const QString &columnRole, const QString &xPosRole,
                                         const QString &yPosRole, const QString &zPosRole,
                                         const QStringList &rowCategories,
                                         const QStringList &columnCategories,
-                                        QObject *parent = Q_NULLPTR);
+                                        QObject *parent = nullptr);
     virtual ~QItemModelSurfaceDataProxy();
 
     void setItemModel(QAbstractItemModel *itemModel);

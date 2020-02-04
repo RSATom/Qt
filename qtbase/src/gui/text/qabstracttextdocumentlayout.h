@@ -100,7 +100,7 @@ public:
     QTextDocument *document() const;
 
     void registerHandler(int objectType, QObject *component);
-    void unregisterHandler(int objectType, QObject *component = Q_NULLPTR);
+    void unregisterHandler(int objectType, QObject *component = nullptr);
     QTextObjectInterface *handlerForObject(int objectType) const;
 
 Q_SIGNALS:
@@ -143,7 +143,9 @@ public:
     virtual void drawObject(QPainter *painter, const QRectF &rect, QTextDocument *doc, int posInDocument, const QTextFormat &format) = 0;
 };
 
+#ifndef Q_CLANG_QDOC
 Q_DECLARE_INTERFACE(QTextObjectInterface, "org.qt-project.Qt.QTextObjectInterface")
+#endif
 
 QT_END_NAMESPACE
 

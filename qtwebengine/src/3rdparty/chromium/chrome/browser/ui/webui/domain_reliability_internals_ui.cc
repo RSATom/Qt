@@ -4,33 +4,33 @@
 
 #include "chrome/browser/ui/webui/domain_reliability_internals_ui.h"
 
-#include "chrome/browser/domain_reliability/service_factory.h"
+#include <string>
+
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
-#include "components/domain_reliability/service.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 
-using domain_reliability::DomainReliabilityService;
-using domain_reliability::DomainReliabilityServiceFactory;
-
 DomainReliabilityInternalsUI::DomainReliabilityInternalsUI(
     content::WebUI* web_ui)
-    : content::WebUIController(web_ui) {
+    : content::WebUIController(web_ui), weak_factory_(this) {
   content::WebUIDataSource* html_source = content::WebUIDataSource::Create(
       chrome::kChromeUIDomainReliabilityInternalsHost);
-  html_source->SetJsonPath("strings.js");
+  html_source->OverrideContentSecurityPolicyScriptSrc(
+      "script-src chrome://resources 'self' 'unsafe-eval';");
   html_source->AddResourcePath("domain_reliability_internals.css",
       IDR_DOMAIN_RELIABILITY_INTERNALS_CSS);
   html_source->AddResourcePath("domain_reliability_internals.js",
       IDR_DOMAIN_RELIABILITY_INTERNALS_JS);
   html_source->SetDefaultResource(IDR_DOMAIN_RELIABILITY_INTERNALS_HTML);
-  html_source->UseGzip(std::unordered_set<std::string>());
+  html_source->UseGzip();
 
-  web_ui->RegisterMessageCallback("updateData",
-      base::Bind(&DomainReliabilityInternalsUI::UpdateData,
-                 base::Unretained(this)));
+  web_ui->RegisterMessageCallback(
+      "updateData",
+      base::BindRepeating(&DomainReliabilityInternalsUI::UpdateData,
+                          base::Unretained(this)));
 
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, html_source);
@@ -38,29 +38,17 @@ DomainReliabilityInternalsUI::DomainReliabilityInternalsUI(
 
 DomainReliabilityInternalsUI::~DomainReliabilityInternalsUI() {}
 
-void DomainReliabilityInternalsUI::UpdateData(
-    const base::ListValue* args) const {
+void DomainReliabilityInternalsUI::UpdateData(const base::ListValue* args) {
   Profile* profile = Profile::FromWebUI(web_ui());
-  DomainReliabilityServiceFactory* factory =
-      DomainReliabilityServiceFactory::GetInstance();
-  DCHECK(profile);
-  DCHECK(factory);
-
-  DomainReliabilityService* service = factory->GetForBrowserContext(profile);
-  if (!service) {
-    base::DictionaryValue* data = new base::DictionaryValue();
-    data->SetString("error", "no_service");
-    OnDataUpdated(std::unique_ptr<base::Value>(data));
-    return;
-  }
-
-  service->GetWebUIData(base::Bind(
-      &DomainReliabilityInternalsUI::OnDataUpdated,
-      base::Unretained(this)));
+  network::mojom::NetworkContext* network_context =
+      content::BrowserContext::GetDefaultStoragePartition(profile)
+          ->GetNetworkContext();
+  network_context->GetDomainReliabilityJSON(
+      base::BindOnce(&DomainReliabilityInternalsUI::OnDataUpdated,
+                     weak_factory_.GetWeakPtr()));
 }
 
-void DomainReliabilityInternalsUI::OnDataUpdated(
-    std::unique_ptr<base::Value> data) const {
+void DomainReliabilityInternalsUI::OnDataUpdated(base::Value data) const {
   web_ui()->CallJavascriptFunctionUnsafe(
-      "DomainReliabilityInternals.onDataUpdated", *data);
+      "DomainReliabilityInternals.onDataUpdated", data);
 }

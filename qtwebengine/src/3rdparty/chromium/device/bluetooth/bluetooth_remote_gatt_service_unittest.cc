@@ -15,16 +15,61 @@
 #include "device/bluetooth/test/bluetooth_test_mac.h"
 #elif defined(OS_WIN)
 #include "device/bluetooth/test/bluetooth_test_win.h"
+#elif defined(USE_CAST_BLUETOOTH_ADAPTER)
+#include "device/bluetooth/test/bluetooth_test_cast.h"
+#elif defined(OS_CHROMEOS) || defined(OS_LINUX)
+#include "device/bluetooth/test/bluetooth_test_bluez.h"
+#elif defined(OS_FUCHSIA)
+#include "device/bluetooth/test/bluetooth_test_fuchsia.h"
 #endif
 
 namespace device {
 
-#if defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
 class BluetoothRemoteGattServiceTest : public BluetoothTest {};
+#if defined(OS_WIN)
+class BluetoothRemoteGattServiceTestWinrt : public BluetoothTestWinrt {};
 #endif
 
-#if defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
-TEST_F(BluetoothRemoteGattServiceTest, GetIdentifier) {
+// Android is excluded because it fires a single discovery event per device.
+#if defined(OS_MACOSX)
+#define MAYBE_IsDiscoveryComplete IsDiscoveryComplete
+#else
+#define MAYBE_IsDiscoveryComplete DISABLED_IsDiscoveryComplete
+#endif
+#if defined(OS_WIN)
+TEST_P(BluetoothRemoteGattServiceTestWinrt, IsDiscoveryComplete) {
+#else
+TEST_F(BluetoothRemoteGattServiceTest, MAYBE_IsDiscoveryComplete) {
+#endif
+  if (!PlatformSupportsLowEnergy()) {
+    LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
+    return;
+  }
+  InitWithFakeAdapter();
+  StartLowEnergyDiscoverySession();
+  BluetoothDevice* device = SimulateLowEnergyDevice(1);
+  device->CreateGattConnection(GetGattConnectionCallback(Call::EXPECTED),
+                               GetConnectErrorCallback(Call::NOT_EXPECTED));
+  SimulateGattConnection(device);
+  base::RunLoop().RunUntilIdle();
+  SimulateGattServicesDiscovered(
+      device, std::vector<std::string>(
+                  {kTestUUIDGenericAccess, kTestUUIDGenericAccess}));
+  base::RunLoop().RunUntilIdle();
+  BluetoothRemoteGattService* service = device->GetGattServices()[0];
+  EXPECT_TRUE(service->IsDiscoveryComplete());
+}
+
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
+#define MAYBE_GetIdentifier GetIdentifier
+#else
+#define MAYBE_GetIdentifier DISABLED_GetIdentifier
+#endif
+#if defined(OS_WIN)
+TEST_P(BluetoothRemoteGattServiceTestWinrt, GetIdentifier) {
+#else
+TEST_F(BluetoothRemoteGattServiceTest, MAYBE_GetIdentifier) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -65,10 +110,17 @@ TEST_F(BluetoothRemoteGattServiceTest, GetIdentifier) {
 
   EXPECT_NE(service3->GetIdentifier(), service4->GetIdentifier());
 }
-#endif  // defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
 
-#if defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
-TEST_F(BluetoothRemoteGattServiceTest, GetUUID) {
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
+#define MAYBE_GetUUID GetUUID
+#else
+#define MAYBE_GetUUID DISABLED_GetUUID
+#endif
+#if defined(OS_WIN)
+TEST_P(BluetoothRemoteGattServiceTestWinrt, GetUUID) {
+#else
+TEST_F(BluetoothRemoteGattServiceTest, MAYBE_GetUUID) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -93,10 +145,17 @@ TEST_F(BluetoothRemoteGattServiceTest, GetUUID) {
   EXPECT_EQ(uuid, device->GetGattServices()[0]->GetUUID());
   EXPECT_EQ(uuid, device->GetGattServices()[1]->GetUUID());
 }
-#endif  // defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
 
-#if defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
-TEST_F(BluetoothRemoteGattServiceTest, GetCharacteristics_FindNone) {
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
+#define MAYBE_GetCharacteristics_FindNone GetCharacteristics_FindNone
+#else
+#define MAYBE_GetCharacteristics_FindNone DISABLED_GetCharacteristics_FindNone
+#endif
+#if defined(OS_WIN)
+TEST_P(BluetoothRemoteGattServiceTestWinrt, GetCharacteristics_FindNone) {
+#else
+TEST_F(BluetoothRemoteGattServiceTest, MAYBE_GetCharacteristics_FindNone) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -117,11 +176,21 @@ TEST_F(BluetoothRemoteGattServiceTest, GetCharacteristics_FindNone) {
 
   EXPECT_EQ(0u, service->GetCharacteristics().size());
 }
-#endif  // defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
 
-#if defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
-TEST_F(BluetoothRemoteGattServiceTest,
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
+#define MAYBE_GetCharacteristics_and_GetCharacteristic \
+  GetCharacteristics_and_GetCharacteristic
+#else
+#define MAYBE_GetCharacteristics_and_GetCharacteristic \
+  DISABLED_GetCharacteristics_and_GetCharacteristic
+#endif
+#if defined(OS_WIN)
+TEST_P(BluetoothRemoteGattServiceTestWinrt,
        GetCharacteristics_and_GetCharacteristic) {
+#else
+TEST_F(BluetoothRemoteGattServiceTest,
+       MAYBE_GetCharacteristics_and_GetCharacteristic) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -148,6 +217,7 @@ TEST_F(BluetoothRemoteGattServiceTest,
   SimulateGattCharacteristic(service, kTestUUIDReconnectionAddress,
                              /* properties */ 0);
 
+  base::RunLoop().RunUntilIdle();
   // Verify that GetCharacteristic can retrieve characteristics again by ID,
   // and that the same Characteristics come back.
   EXPECT_EQ(4u, service->GetCharacteristics().size());
@@ -171,10 +241,17 @@ TEST_F(BluetoothRemoteGattServiceTest,
   EXPECT_EQ(service->GetCharacteristic(char_id1),
             service->GetCharacteristic(char_id1));
 }
-#endif  // defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
 
-#if defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
-TEST_F(BluetoothRemoteGattServiceTest, GetCharacteristicsByUUID) {
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
+#define MAYBE_GetCharacteristicsByUUID GetCharacteristicsByUUID
+#else
+#define MAYBE_GetCharacteristicsByUUID DISABLED_GetCharacteristicsByUUID
+#endif
+#if defined(OS_WIN)
+TEST_P(BluetoothRemoteGattServiceTestWinrt, GetCharacteristicsByUUID) {
+#else
+TEST_F(BluetoothRemoteGattServiceTest, MAYBE_GetCharacteristicsByUUID) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -201,6 +278,7 @@ TEST_F(BluetoothRemoteGattServiceTest, GetCharacteristicsByUUID) {
                              /* properties */ 0);
   SimulateGattCharacteristic(service2, kTestUUIDHeartRateMeasurement,
                              /* properties */ 0);
+  base::RunLoop().RunUntilIdle();
 
   {
     std::vector<BluetoothRemoteGattCharacteristic*> characteristics =
@@ -232,10 +310,17 @@ TEST_F(BluetoothRemoteGattServiceTest, GetCharacteristicsByUUID) {
       service2->GetCharacteristicsByUUID(characteristic_uuid_not_exist_in_setup)
           .empty());
 }
-#endif  // defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
 
 #if defined(OS_MACOSX) || defined(OS_WIN)
-TEST_F(BluetoothRemoteGattServiceTest, GattCharacteristics_ObserversCalls) {
+#define MAYBE_GattCharacteristics_ObserversCalls \
+  GattCharacteristics_ObserversCalls
+#else
+#define MAYBE_GattCharacteristics_ObserversCalls \
+  DISABLED_GattCharacteristics_ObserversCalls
+#endif
+// The GattServicesRemoved event is not implemented for WinRT.
+TEST_F(BluetoothRemoteGattServiceTest,
+       MAYBE_GattCharacteristics_ObserversCalls) {
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -263,10 +348,6 @@ TEST_F(BluetoothRemoteGattServiceTest, GattCharacteristics_ObserversCalls) {
                              /* properties */ 0);
   SimulateGattCharacteristic(service, kTestUUIDReconnectionAddress,
                              /* properties */ 0);
-#if !defined(OS_WIN)
-  // TODO(620895) GattCharacteristicAdded has to be implemented for Windows.
-  EXPECT_EQ(4, observer.gatt_characteristic_added_count());
-#endif  // !defined(OS_WIN)
 
   // Simulate remove of characteristics one by one.
   EXPECT_EQ(4u, service->GetCharacteristics().size());
@@ -294,20 +375,18 @@ TEST_F(BluetoothRemoteGattServiceTest, GattCharacteristics_ObserversCalls) {
   EXPECT_EQ(4, observer.gatt_characteristic_removed_count());
   EXPECT_FALSE(service->GetCharacteristic(removed_char));
   EXPECT_EQ(0u, service->GetCharacteristics().size());
+}
 
 #if defined(OS_MACOSX)
-  // SimulateGattServicesDiscovered
-  // 4 * SimulateGattCharacteristic
-  // 4 * SimulateGattCharacteristicRemoved
-  EXPECT_EQ(9, observer.gatt_service_changed_count());
-#else  // defined(OS_MACOSX)
-  EXPECT_EQ(4, observer.gatt_service_changed_count());
-#endif  // defined(OS_MACOSX)
-}
-#endif  //  defined(OS_MACOSX) || defined(OS_WIN)
-
-#if defined(OS_WIN) || defined(OS_MACOSX)
-TEST_F(BluetoothRemoteGattServiceTest, SimulateGattServiceRemove) {
+#define MAYBE_SimulateGattServiceRemove SimulateGattServiceRemove
+#else
+#define MAYBE_SimulateGattServiceRemove DISABLED_SimulateGattServiceRemove
+#endif
+#if defined(OS_WIN)
+TEST_P(BluetoothRemoteGattServiceTestWinrt, SimulateGattServiceRemove) {
+#else
+TEST_F(BluetoothRemoteGattServiceTest, MAYBE_SimulateGattServiceRemove) {
+#endif
   if (!PlatformSupportsLowEnergy()) {
     LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
     return;
@@ -326,6 +405,7 @@ TEST_F(BluetoothRemoteGattServiceTest, SimulateGattServiceRemove) {
   SimulateGattServicesDiscovered(
       device,
       std::vector<std::string>({kTestUUIDGenericAccess, kTestUUIDHeartRate}));
+  base::RunLoop().RunUntilIdle();
   EXPECT_EQ(2u, device->GetGattServices().size());
 
   // Simulate remove of a primary service.
@@ -333,12 +413,17 @@ TEST_F(BluetoothRemoteGattServiceTest, SimulateGattServiceRemove) {
   BluetoothRemoteGattService* service2 = device->GetGattServices()[1];
   std::string removed_service = service1->GetIdentifier();
   SimulateGattServiceRemoved(device->GetGattService(removed_service));
-  EXPECT_EQ(1, observer.gatt_service_removed_count());
+  base::RunLoop().RunUntilIdle();
+#if defined(OS_WIN)
+  if (!GetParam()) {
+    // The GattServicesRemoved event is not implemented for WinRT.
+    EXPECT_EQ(1, observer.gatt_service_removed_count());
+  }
+#endif  // defined(OS_WIN)
   EXPECT_EQ(1u, device->GetGattServices().size());
   EXPECT_FALSE(device->GetGattService(removed_service));
   EXPECT_EQ(device->GetGattServices()[0], service2);
 }
-#endif  // defined(OS_MACOSX) || defined(OS_WIN)
 
 #if defined(OS_MACOSX)
 // Tests to receive a services changed notification from macOS, while
@@ -510,5 +595,12 @@ TEST_F(BluetoothRemoteGattServiceTest, ExtraDidDiscoverCharacteristicsCall) {
   EXPECT_EQ(2, observer.device_changed_count());
 }
 #endif  // defined(OS_MACOSX)
+
+#if defined(OS_WIN)
+INSTANTIATE_TEST_CASE_P(
+    /* no prefix */,
+    BluetoothRemoteGattServiceTestWinrt,
+    ::testing::Bool());
+#endif  // defined(OS_WIN)
 
 }  // namespace device

@@ -34,7 +34,13 @@
 **
 ****************************************************************************/
 
+#include <QtCore/qdir.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qpluginloader.h>
 #include <QtCore/private/qfileselector_p.h>
+#include <QtQml/qqmlfile.h>
+#include <QtQml/private/qqmldirparser_p.h>
 #include <QtQuickControls2/qquickstyle.h>
 #include <QtQuickControls2/private/qquickchecklabel_p.h>
 #include <QtQuickControls2/private/qquickcolor_p.h>
@@ -46,27 +52,20 @@
 #include <QtQuickControls2/private/qquickiconlabel_p.h>
 #include <QtQuickControls2/private/qquickstyle_p.h>
 #include <QtQuickControls2/private/qquickstyleplugin_p.h>
-#include <QtQuickControls2/private/qquickstyleselector_p.h>
 #if QT_CONFIG(quick_listview) && QT_CONFIG(quick_pathview)
 #include <QtQuickControls2/private/qquicktumblerview_p.h>
 #endif
 #include <QtQuickTemplates2/private/qquickoverlay_p.h>
+#include <QtQuickTemplates2/private/qquicksplitview_p.h>
 #include <QtQuickControls2/private/qquickclippedtext_p.h>
 #include <QtQuickControls2/private/qquickitemgroup_p.h>
+#include <QtQuickTemplates2/private/qquicktheme_p_p.h>
 
 #include "qquickdefaultbusyindicator_p.h"
 #include "qquickdefaultdial_p.h"
 #include "qquickdefaultprogressbar_p.h"
 #include "qquickdefaultstyle_p.h"
 #include "qquickdefaulttheme_p.h"
-
-static inline void initResources()
-{
-    Q_INIT_RESOURCE(qtquickcontrols2plugin);
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtQuick_Controls_2);
-#endif
-}
 
 QT_BEGIN_NAMESPACE
 
@@ -77,116 +76,136 @@ class QtQuickControls2Plugin: public QQuickStylePlugin
 
 public:
     QtQuickControls2Plugin(QObject *parent = nullptr);
+    ~QtQuickControls2Plugin();
+
     void registerTypes(const char *uri) override;
-    void initializeEngine(QQmlEngine *engine, const char *uri) override;
 
     QString name() const override;
-    QQuickProxyTheme *createTheme() const override;
+    void initializeTheme(QQuickTheme *theme) override;
+
+private:
+    QList<QQuickStylePlugin *> loadStylePlugins();
+    QQuickTheme *createTheme(const QString &name);
 };
 
 QtQuickControls2Plugin::QtQuickControls2Plugin(QObject *parent) : QQuickStylePlugin(parent)
 {
-    initResources();
+}
+
+QtQuickControls2Plugin::~QtQuickControls2Plugin()
+{
+    QQuickStylePrivate::reset();
+}
+
+static bool isDefaultStyle(const QString &style)
+{
+    return style.isEmpty() || style.compare(QStringLiteral("Default"), Qt::CaseInsensitive) == 0;
 }
 
 void QtQuickControls2Plugin::registerTypes(const char *uri)
 {
-    QQuickStylePrivate::init(typeUrl());
+    QQuickStylePrivate::init(baseUrl());
+
     const QString style = QQuickStyle::name();
     if (!style.isEmpty())
         QFileSelectorPrivate::addStatics(QStringList() << style.toLower());
 
-    QQuickStyleSelector selector;
-    selector.setBaseUrl(typeUrl());
+    QQuickTheme *theme = createTheme(style.isEmpty() ? name() : style);
+    if (isDefaultStyle(style))
+        initializeTheme(theme);
 
-    qmlRegisterModule(uri, 2, QT_VERSION_MINOR - 7); // Qt 5.7->2.0, 5.8->2.1, 5.9->2.2...
+    // load the style's plugins to get access to its resources and initialize the theme
+    QList<QQuickStylePlugin *> stylePlugins = loadStylePlugins();
+    for (QQuickStylePlugin *stylePlugin : stylePlugins)
+        stylePlugin->initializeTheme(theme);
+    qDeleteAll(stylePlugins);
+
+    // Register the latest version, even if there are no new types or new revisions for existing types yet.
+    // Before Qt 5.12, we would do the following:
+    //
+    // qmlRegisterModule(uri, 2, QT_VERSION_MINOR - 7); // Qt 5.7->2.0, 5.8->2.1, 5.9->2.2...
+    //
+    // However, we want to align with the rest of Qt Quick which uses Qt's minor version.
+    qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
 
     // QtQuick.Controls 2.0 (originally introduced in Qt 5.7)
-    qmlRegisterType(selector.select(QStringLiteral("AbstractButton.qml")), uri, 2, 0, "AbstractButton");
-    qmlRegisterType(selector.select(QStringLiteral("ApplicationWindow.qml")), uri, 2, 0, "ApplicationWindow");
-    qmlRegisterType(selector.select(QStringLiteral("BusyIndicator.qml")), uri, 2, 0, "BusyIndicator");
-    qmlRegisterType(selector.select(QStringLiteral("Button.qml")), uri, 2, 0, "Button");
-    qmlRegisterType(selector.select(QStringLiteral("ButtonGroup.qml")), uri, 2, 0, "ButtonGroup");
-    qmlRegisterType(selector.select(QStringLiteral("CheckBox.qml")), uri, 2, 0, "CheckBox");
-    qmlRegisterType(selector.select(QStringLiteral("CheckDelegate.qml")), uri, 2, 0, "CheckDelegate");
-    qmlRegisterType(selector.select(QStringLiteral("ComboBox.qml")), uri, 2, 0, "ComboBox");
-    qmlRegisterType(selector.select(QStringLiteral("Container.qml")), uri, 2, 0, "Container");
-    qmlRegisterType(selector.select(QStringLiteral("Control.qml")), uri, 2, 0, "Control");
-    qmlRegisterType(selector.select(QStringLiteral("Dial.qml")), uri, 2, 0, "Dial");
-    qmlRegisterType(selector.select(QStringLiteral("Drawer.qml")), uri, 2, 0, "Drawer");
-    qmlRegisterType(selector.select(QStringLiteral("Frame.qml")), uri, 2, 0, "Frame");
-    qmlRegisterType(selector.select(QStringLiteral("GroupBox.qml")), uri, 2, 0, "GroupBox");
-    qmlRegisterType(selector.select(QStringLiteral("ItemDelegate.qml")), uri, 2, 0, "ItemDelegate");
-    qmlRegisterType(selector.select(QStringLiteral("Label.qml")), uri, 2, 0, "Label");
-    qmlRegisterType(selector.select(QStringLiteral("Menu.qml")), uri, 2, 0, "Menu");
-    qmlRegisterType(selector.select(QStringLiteral("MenuItem.qml")), uri, 2, 0, "MenuItem");
-    qmlRegisterType(selector.select(QStringLiteral("Page.qml")), uri, 2, 0, "Page");
-    qmlRegisterType(selector.select(QStringLiteral("PageIndicator.qml")), uri, 2, 0, "PageIndicator");
-    qmlRegisterType(selector.select(QStringLiteral("Pane.qml")), uri, 2, 0, "Pane");
-    qmlRegisterType(selector.select(QStringLiteral("Popup.qml")), uri, 2, 0, "Popup");
-    qmlRegisterType(selector.select(QStringLiteral("ProgressBar.qml")), uri, 2, 0, "ProgressBar");
-    qmlRegisterType(selector.select(QStringLiteral("RadioButton.qml")), uri, 2, 0, "RadioButton");
-    qmlRegisterType(selector.select(QStringLiteral("RadioDelegate.qml")), uri, 2, 0, "RadioDelegate");
-    qmlRegisterType(selector.select(QStringLiteral("RangeSlider.qml")), uri, 2, 0, "RangeSlider");
-    qmlRegisterType(selector.select(QStringLiteral("ScrollBar.qml")), uri, 2, 0, "ScrollBar");
-    qmlRegisterType(selector.select(QStringLiteral("ScrollIndicator.qml")), uri, 2, 0, "ScrollIndicator");
-    qmlRegisterType(selector.select(QStringLiteral("Slider.qml")), uri, 2, 0, "Slider");
-    qmlRegisterType(selector.select(QStringLiteral("SpinBox.qml")), uri, 2, 0, "SpinBox");
-    qmlRegisterType(selector.select(QStringLiteral("StackView.qml")), uri, 2, 0, "StackView");
-    qmlRegisterType(selector.select(QStringLiteral("SwipeDelegate.qml")), uri, 2, 0, "SwipeDelegate");
-    qmlRegisterType(selector.select(QStringLiteral("SwipeView.qml")), uri, 2, 0, "SwipeView");
-    qmlRegisterType(selector.select(QStringLiteral("Switch.qml")), uri, 2, 0, "Switch");
-    qmlRegisterType(selector.select(QStringLiteral("SwitchDelegate.qml")), uri, 2, 0, "SwitchDelegate");
-    qmlRegisterType(selector.select(QStringLiteral("TabBar.qml")), uri, 2, 0, "TabBar");
-    qmlRegisterType(selector.select(QStringLiteral("TabButton.qml")), uri, 2, 0, "TabButton");
-    qmlRegisterType(selector.select(QStringLiteral("TextArea.qml")), uri, 2, 0, "TextArea");
-    qmlRegisterType(selector.select(QStringLiteral("TextField.qml")), uri, 2, 0, "TextField");
-    qmlRegisterType(selector.select(QStringLiteral("ToolBar.qml")), uri, 2, 0, "ToolBar");
-    qmlRegisterType(selector.select(QStringLiteral("ToolButton.qml")), uri, 2, 0, "ToolButton");
-    qmlRegisterType(selector.select(QStringLiteral("ToolTip.qml")), uri, 2, 0, "ToolTip");
+    qmlRegisterType(resolvedUrl(QStringLiteral("AbstractButton.qml")), uri, 2, 0, "AbstractButton");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ApplicationWindow.qml")), uri, 2, 0, "ApplicationWindow");
+    qmlRegisterType(resolvedUrl(QStringLiteral("BusyIndicator.qml")), uri, 2, 0, "BusyIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Button.qml")), uri, 2, 0, "Button");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ButtonGroup.qml")), uri, 2, 0, "ButtonGroup");
+    qmlRegisterType(resolvedUrl(QStringLiteral("CheckBox.qml")), uri, 2, 0, "CheckBox");
+    qmlRegisterType(resolvedUrl(QStringLiteral("CheckDelegate.qml")), uri, 2, 0, "CheckDelegate");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ComboBox.qml")), uri, 2, 0, "ComboBox");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Container.qml")), uri, 2, 0, "Container");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Control.qml")), uri, 2, 0, "Control");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Dial.qml")), uri, 2, 0, "Dial");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Drawer.qml")), uri, 2, 0, "Drawer");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Frame.qml")), uri, 2, 0, "Frame");
+    qmlRegisterType(resolvedUrl(QStringLiteral("GroupBox.qml")), uri, 2, 0, "GroupBox");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ItemDelegate.qml")), uri, 2, 0, "ItemDelegate");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Label.qml")), uri, 2, 0, "Label");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Menu.qml")), uri, 2, 0, "Menu");
+    qmlRegisterType(resolvedUrl(QStringLiteral("MenuItem.qml")), uri, 2, 0, "MenuItem");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Page.qml")), uri, 2, 0, "Page");
+    qmlRegisterType(resolvedUrl(QStringLiteral("PageIndicator.qml")), uri, 2, 0, "PageIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Pane.qml")), uri, 2, 0, "Pane");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Popup.qml")), uri, 2, 0, "Popup");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ProgressBar.qml")), uri, 2, 0, "ProgressBar");
+    qmlRegisterType(resolvedUrl(QStringLiteral("RadioButton.qml")), uri, 2, 0, "RadioButton");
+    qmlRegisterType(resolvedUrl(QStringLiteral("RadioDelegate.qml")), uri, 2, 0, "RadioDelegate");
+    qmlRegisterType(resolvedUrl(QStringLiteral("RangeSlider.qml")), uri, 2, 0, "RangeSlider");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ScrollBar.qml")), uri, 2, 0, "ScrollBar");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ScrollIndicator.qml")), uri, 2, 0, "ScrollIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Slider.qml")), uri, 2, 0, "Slider");
+    qmlRegisterType(resolvedUrl(QStringLiteral("SpinBox.qml")), uri, 2, 0, "SpinBox");
+    qmlRegisterType(resolvedUrl(QStringLiteral("StackView.qml")), uri, 2, 0, "StackView");
+    qmlRegisterType(resolvedUrl(QStringLiteral("SwipeDelegate.qml")), uri, 2, 0, "SwipeDelegate");
+    qmlRegisterType(resolvedUrl(QStringLiteral("SwipeView.qml")), uri, 2, 0, "SwipeView");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Switch.qml")), uri, 2, 0, "Switch");
+    qmlRegisterType(resolvedUrl(QStringLiteral("SwitchDelegate.qml")), uri, 2, 0, "SwitchDelegate");
+    qmlRegisterType(resolvedUrl(QStringLiteral("TabBar.qml")), uri, 2, 0, "TabBar");
+    qmlRegisterType(resolvedUrl(QStringLiteral("TabButton.qml")), uri, 2, 0, "TabButton");
+    qmlRegisterType(resolvedUrl(QStringLiteral("TextArea.qml")), uri, 2, 0, "TextArea");
+    qmlRegisterType(resolvedUrl(QStringLiteral("TextField.qml")), uri, 2, 0, "TextField");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ToolBar.qml")), uri, 2, 0, "ToolBar");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ToolButton.qml")), uri, 2, 0, "ToolButton");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ToolTip.qml")), uri, 2, 0, "ToolTip");
 #if QT_CONFIG(quick_listview) && QT_CONFIG(quick_pathview)
-    qmlRegisterType(selector.select(QStringLiteral("Tumbler.qml")), uri, 2, 0, "Tumbler");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Tumbler.qml")), uri, 2, 0, "Tumbler");
 #endif
 
     // QtQuick.Controls 2.1 (new types in Qt 5.8)
-    qmlRegisterType(selector.select(QStringLiteral("Dialog.qml")), uri, 2, 1, "Dialog");
-    qmlRegisterType(selector.select(QStringLiteral("DialogButtonBox.qml")), uri, 2, 1, "DialogButtonBox");
-    qmlRegisterType(selector.select(QStringLiteral("MenuSeparator.qml")), uri, 2, 1, "MenuSeparator");
-    qmlRegisterType(selector.select(QStringLiteral("RoundButton.qml")), uri, 2, 1, "RoundButton");
-    qmlRegisterType(selector.select(QStringLiteral("ToolSeparator.qml")), uri, 2, 1, "ToolSeparator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Dialog.qml")), uri, 2, 1, "Dialog");
+    qmlRegisterType(resolvedUrl(QStringLiteral("DialogButtonBox.qml")), uri, 2, 1, "DialogButtonBox");
+    qmlRegisterType(resolvedUrl(QStringLiteral("MenuSeparator.qml")), uri, 2, 1, "MenuSeparator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("RoundButton.qml")), uri, 2, 1, "RoundButton");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ToolSeparator.qml")), uri, 2, 1, "ToolSeparator");
 
     // QtQuick.Controls 2.2 (new types in Qt 5.9)
-    qmlRegisterType(selector.select(QStringLiteral("DelayButton.qml")), uri, 2, 2, "DelayButton");
-    qmlRegisterType(selector.select(QStringLiteral("ScrollView.qml")), uri, 2, 2, "ScrollView");
+    qmlRegisterType(resolvedUrl(QStringLiteral("DelayButton.qml")), uri, 2, 2, "DelayButton");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ScrollView.qml")), uri, 2, 2, "ScrollView");
 
     // QtQuick.Controls 2.3 (new types in Qt 5.10)
-    qmlRegisterType(selector.select(QStringLiteral("Action.qml")), uri, 2, 3, "Action");
-    qmlRegisterType(selector.select(QStringLiteral("ActionGroup.qml")), uri, 2, 3, "ActionGroup");
-    qmlRegisterType(selector.select(QStringLiteral("MenuBar.qml")), uri, 2, 3, "MenuBar");
-    qmlRegisterType(selector.select(QStringLiteral("MenuBarItem.qml")), uri, 2, 3, "MenuBarItem");
+    qmlRegisterType(resolvedUrl(QStringLiteral("Action.qml")), uri, 2, 3, "Action");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ActionGroup.qml")), uri, 2, 3, "ActionGroup");
+    qmlRegisterType(resolvedUrl(QStringLiteral("MenuBar.qml")), uri, 2, 3, "MenuBar");
+    qmlRegisterType(resolvedUrl(QStringLiteral("MenuBarItem.qml")), uri, 2, 3, "MenuBarItem");
     qmlRegisterUncreatableType<QQuickOverlay>(uri, 2, 3, "Overlay", QStringLiteral("Overlay is only available as an attached property."));
-}
 
-static QObject *styleSingleton(QQmlEngine *engine, QJSEngine *scriptEngine)
-{
-    Q_UNUSED(engine);
-    Q_UNUSED(scriptEngine);
-    return new QQuickDefaultStyle;
-}
+    // QtQuick.Controls 2.13 (new types in Qt 5.13)
+    qmlRegisterType(resolvedUrl(QStringLiteral("SplitView.qml")), uri, 2, 13, "SplitView");
+    qmlRegisterUncreatableType<QQuickSplitHandleAttached>(uri, 2, 13, "SplitHandle",
+        QStringLiteral("SplitHandle is only available as an attached property."));
 
-static QObject *colorSingleton(QQmlEngine *engine, QJSEngine *scriptEngine)
-{
-    Q_UNUSED(engine);
-    Q_UNUSED(scriptEngine);
-    return new QQuickColor;
-}
-
-void QtQuickControls2Plugin::initializeEngine(QQmlEngine *engine, const char *uri)
-{
-    QQuickStylePlugin::initializeEngine(engine, uri);
-
+    // Register the latest version, even if there are no new types or new revisions for existing types yet.
+    // Before Qt 5.12, we would do the following:
+    //
+    // qmlRegisterModule(import, 2, QT_VERSION_MINOR - 7); // Qt 5.7->2.0, 5.8->2.1, 5.9->2.2...
+    //
+    // However, we want to align with the rest of Qt Quick which uses Qt's minor version.
     const QByteArray import = QByteArray(uri) + ".impl";
-    qmlRegisterModule(import, 2, QT_VERSION_MINOR - 7); // Qt 5.7->2.0, 5.8->2.1, 5.9->2.2...
+    qmlRegisterModule(import, 2, QT_VERSION_MINOR);
 
     // QtQuick.Controls.impl 2.0 (Qt 5.7)
     qmlRegisterType<QQuickDefaultBusyIndicator>(import, 2, 0, "BusyIndicatorImpl");
@@ -198,7 +217,11 @@ void QtQuickControls2Plugin::initializeEngine(QQmlEngine *engine, const char *ur
 #if QT_CONFIG(quick_listview) && QT_CONFIG(quick_pathview)
     qmlRegisterType<QQuickTumblerView>(import, 2, 1, "TumblerView");
 #endif
-    qmlRegisterSingletonType<QQuickDefaultStyle>(import, 2, 1, "Default", styleSingleton);
+    qmlRegisterSingletonType<QQuickDefaultStyle>(import, 2, 1, "Default", [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject* {
+            Q_UNUSED(engine);
+            Q_UNUSED(scriptEngine);
+            return new QQuickDefaultStyle;
+    });
 
     // QtQuick.Controls.impl 2.2 (Qt 5.9)
     qmlRegisterType<QQuickClippedText>(import, 2, 2, "ClippedText");
@@ -208,7 +231,11 @@ void QtQuickControls2Plugin::initializeEngine(QQmlEngine *engine, const char *ur
     // QtQuick.Controls.impl 2.3 (Qt 5.10)
     qmlRegisterType<QQuickColorImage>(import, 2, 3, "ColorImage");
     qmlRegisterType<QQuickIconImage>(import, 2, 3, "IconImage");
-    qmlRegisterSingletonType<QQuickColor>(import, 2, 3, "Color", colorSingleton);
+    qmlRegisterSingletonType<QQuickColor>(import, 2, 3, "Color", [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject* {
+            Q_UNUSED(engine);
+            Q_UNUSED(scriptEngine);
+            return new QQuickColor;
+    });
     qmlRegisterType<QQuickIconLabel>(import, 2, 3, "IconLabel");
     qmlRegisterType<QQuickCheckLabel>(import, 2, 3, "CheckLabel");
     qmlRegisterType<QQuickMnemonicLabel>(import, 2, 3, "MnemonicLabel");
@@ -217,12 +244,83 @@ void QtQuickControls2Plugin::initializeEngine(QQmlEngine *engine, const char *ur
 
 QString QtQuickControls2Plugin::name() const
 {
-    return QStringLiteral("default");
+    return QStringLiteral("Default");
 }
 
-QQuickProxyTheme *QtQuickControls2Plugin::createTheme() const
+void QtQuickControls2Plugin::initializeTheme(QQuickTheme *theme)
 {
-    return new QQuickDefaultTheme;
+    QQuickDefaultTheme::initialize(theme);
+}
+
+QList<QQuickStylePlugin *> QtQuickControls2Plugin::loadStylePlugins()
+{
+    QList<QQuickStylePlugin *> stylePlugins;
+
+    QFileInfo fileInfo = QQmlFile::urlToLocalFileOrQrc(resolvedUrl(QStringLiteral("qmldir")));
+    if (fileInfo.exists() && fileInfo.path() != QQmlFile::urlToLocalFileOrQrc(baseUrl())) {
+        QFile file(fileInfo.filePath());
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QQmlDirParser parser;
+            parser.parse(QString::fromUtf8(file.readAll()));
+            if (!parser.hasError()) {
+#ifdef QT_STATIC
+                const auto plugins = QPluginLoader::staticInstances();
+                for (QObject *instance : plugins) {
+                    QQuickStylePlugin *stylePlugin = qobject_cast<QQuickStylePlugin *>(instance);
+                    if (!stylePlugin || parser.className() != QLatin1String(instance->metaObject()->className()))
+                        continue;
+                    stylePlugins += stylePlugin;
+                }
+#elif QT_CONFIG(library)
+                QPluginLoader loader;
+                const auto plugins = parser.plugins();
+                for (const QQmlDirParser::Plugin &plugin : plugins) {
+                    QDir dir = fileInfo.dir();
+                    if (!plugin.path.isEmpty() && !dir.cd(plugin.path))
+                        continue;
+                    QString filePath = dir.filePath(plugin.name);
+#if defined(Q_OS_MACOS) && defined(QT_DEBUG)
+                    // Avoid mismatching plugins on macOS so that we don't end up loading both debug and
+                    // release versions of the same Qt libraries (due to the plugin's dependencies).
+                    filePath += QStringLiteral("_debug");
+#endif // Q_OS_MACOS && QT_DEBUG
+#if defined(Q_OS_WIN) && defined(QT_DEBUG)
+                    // Debug versions of plugins have a "d" prefix on Windows.
+                    filePath += QLatin1Char('d');
+#endif // Q_OS_WIN && QT_DEBUG
+                    loader.setFileName(filePath);
+                    QQuickStylePlugin *stylePlugin = qobject_cast<QQuickStylePlugin *>(loader.instance());
+                    if (stylePlugin)
+                        stylePlugins += stylePlugin;
+                }
+#endif
+            }
+        }
+    }
+    return stylePlugins;
+}
+
+QQuickTheme *QtQuickControls2Plugin::createTheme(const QString &name)
+{
+    QQuickTheme *theme = new QQuickTheme;
+#if QT_CONFIG(settings)
+    QQuickThemePrivate *p = QQuickThemePrivate::get(theme);
+    QSharedPointer<QSettings> settings = QQuickStylePrivate::settings(name);
+    if (settings) {
+        p->defaultFont.reset(QQuickStylePrivate::readFont(settings));
+        // Set the default font as the System scope, because that's what
+        // QQuickControlPrivate::parentFont() uses as its fallback if no
+        // parent item has a font explicitly set. QQuickControlPrivate::parentFont()
+        // is used as the starting point for font inheritance/resolution.
+        // The same goes for palettes below.
+        theme->setFont(QQuickTheme::System, *p->defaultFont);
+
+        p->defaultPalette.reset(QQuickStylePrivate::readPalette(settings));
+        theme->setPalette(QQuickTheme::System, *p->defaultPalette);
+    }
+#endif
+    QQuickThemePrivate::instance.reset(theme);
+    return theme;
 }
 
 QT_END_NAMESPACE

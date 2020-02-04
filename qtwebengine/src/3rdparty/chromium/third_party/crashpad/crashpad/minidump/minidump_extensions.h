@@ -92,10 +92,18 @@ enum MinidumpStreamType : uint32_t {
   //! \sa MemoryInfoListStream
   kMinidumpStreamTypeMemoryInfoList = MemoryInfoListStream,
 
+  //! \brief The last reserved minidump stream.
+  //!
+  //! \sa MemoryInfoListStream
+  kMinidumpStreamTypeLastReservedStream = LastReservedStream,
+
   // 0x4350 = "CP"
 
   //! \brief The stream type for MinidumpCrashpadInfo.
   kMinidumpStreamTypeCrashpadInfo = 0x43500001,
+
+  //! \brief The last reserved crashpad stream.
+  kMinidumpStreamTypeCrashpadLastReservedStream = 0x4350ffff,
 };
 
 //! \brief A variable-length UTF-8-encoded string carried within a minidump
@@ -116,6 +124,17 @@ struct ALIGNAS(4) PACKED MinidumpUTF8String {
 
   //! \brief The string, encoded in UTF-8, and terminated with a `NUL` byte.
   uint8_t Buffer[0];
+};
+
+//! \brief A variable-length array of bytes carried within a minidump file.
+//!     The data have no intrinsic type and should be interpreted according
+//!     to their referencing context.
+struct ALIGNAS(4) PACKED MinidumpByteArray {
+  //! \brief The length of the #data field.
+  uint32_t length;
+
+  //! \brief The bytes of data.
+  uint8_t data[0];
 };
 
 //! \brief CPU type values for MINIDUMP_SYSTEM_INFO::ProcessorArchitecture.
@@ -237,6 +256,9 @@ enum MinidumpOS : uint32_t {
   //! \brief Native Client (NaCl).
   kMinidumpOSNaCl = 0x8205,
 
+  //! \brief Fuchsia.
+  kMinidumpOSFuchsia = 0x8206,
+
   //! \brief Unknown operating system.
   kMinidumpOSUnknown = 0xffffffff,
 };
@@ -271,6 +293,32 @@ struct ALIGNAS(4) PACKED MinidumpSimpleStringDictionary {
   MinidumpSimpleStringDictionaryEntry entries[0];
 };
 
+//! \brief A typed annotation object.
+struct ALIGNAS(4) PACKED MinidumpAnnotation {
+  //! \brief ::RVA of a MinidumpUTF8String containing the name of the
+  //!     annotation.
+  RVA name;
+
+  //! \brief The type of data stored in the \a value of the annotation. This
+  //!     may correspond to an \a Annotation::Type or it may be user-defined.
+  uint16_t type;
+
+  //! \brief This field is always `0`.
+  uint16_t reserved;
+
+  //! \brief ::RVA of a MinidumpByteArray to the data for the annotation.
+  RVA value;
+};
+
+//! \brief A list of annotation objects.
+struct ALIGNAS(4) PACKED MinidumpAnnotationList {
+  //! \brief The number of annotation objects present.
+  uint32_t count;
+
+  //! \brief A list of MinidumpAnnotation objects.
+  MinidumpAnnotation objects[0];
+};
+
 //! \brief Additional Crashpad-specific information about a module carried
 //!     within a minidump file.
 //!
@@ -290,7 +338,7 @@ struct ALIGNAS(4) PACKED MinidumpModuleCrashpadInfo {
   //! \brief The structure’s currently-defined version number.
   //!
   //! \sa version
-  static const uint32_t kVersion = 1;
+  static constexpr uint32_t kVersion = 1;
 
   //! \brief The structure’s version number.
   //!
@@ -307,7 +355,7 @@ struct ALIGNAS(4) PACKED MinidumpModuleCrashpadInfo {
   //!     module controls the data that appears here.
   //!
   //! These strings correspond to ModuleSnapshot::AnnotationsVector() and do not
-  //! duplicate anything in #simple_annotations.
+  //! duplicate anything in #simple_annotations or #annotation_objects.
   //!
   //! This field is present when #version is at least `1`.
   MINIDUMP_LOCATION_DESCRIPTOR list_annotations;
@@ -317,10 +365,20 @@ struct ALIGNAS(4) PACKED MinidumpModuleCrashpadInfo {
   //!
   //! These key-value pairs correspond to
   //! ModuleSnapshot::AnnotationsSimpleMap() and do not duplicate anything in
-  //! #list_annotations.
+  //! #list_annotations or #annotation_objects.
   //!
   //! This field is present when #version is at least `1`.
   MINIDUMP_LOCATION_DESCRIPTOR simple_annotations;
+
+  //! \brief A MinidumpAnnotationList object containing the annotation objects
+  //!     stored within the module. The module controls the data that appears
+  //!     here.
+  //!
+  //! These key-value pairs correspond to ModuleSnapshot::AnnotationObjects()
+  //! and do not duplicate anything in #list_annotations or #simple_annotations.
+  //!
+  //! This field may be present when #version is at least `1`.
+  MINIDUMP_LOCATION_DESCRIPTOR annotation_objects;
 };
 
 //! \brief A link between a MINIDUMP_MODULE structure and additional
@@ -387,7 +445,7 @@ struct ALIGNAS(4) PACKED MinidumpCrashpadInfo {
   //! \brief The structure’s currently-defined version number.
   //!
   //! \sa version
-  static const uint32_t kVersion = 1;
+  static constexpr uint32_t kVersion = 1;
 
   //! \brief The structure’s version number.
   //!

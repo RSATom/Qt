@@ -15,11 +15,10 @@
 #include "rule_retriever.h"
 
 #include <libaddressinput/callback.h>
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
 
 #include <cassert>
 #include <cstddef>
+#include <memory>
 #include <string>
 
 #include "retriever.h"
@@ -32,6 +31,9 @@ namespace {
 
 class Helper {
  public:
+  Helper(const Helper&) = delete;
+  Helper& operator=(const Helper&) = delete;
+
   Helper(const std::string& key,
          const RuleRetriever::Callback& rule_ready,
          const Retriever& data_retriever)
@@ -41,7 +43,7 @@ class Helper {
   }
 
  private:
-  ~Helper() {}
+  ~Helper() = default;
 
   void OnDataRetrieved(bool success,
                        const std::string& key,
@@ -57,19 +59,17 @@ class Helper {
   }
 
   const RuleRetriever::Callback& rule_ready_;
-  const scoped_ptr<const Retriever::Callback> data_retrieved_;
-
-  DISALLOW_COPY_AND_ASSIGN(Helper);
+  const std::unique_ptr<const Retriever::Callback> data_retrieved_;
 };
 
 }  // namespace
 
 RuleRetriever::RuleRetriever(const Retriever* retriever)
     : data_retriever_(retriever) {
-  assert(data_retriever_ != NULL);
+  assert(data_retriever_ != nullptr);
 }
 
-RuleRetriever::~RuleRetriever() {}
+RuleRetriever::~RuleRetriever() = default;
 
 void RuleRetriever::RetrieveRule(const std::string& key,
                                  const Callback& rule_ready) const {

@@ -8,17 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_DESKTOP_CAPTURE_MOUSE_CURSOR_H_
-#define WEBRTC_MODULES_DESKTOP_CAPTURE_MOUSE_CURSOR_H_
+#ifndef MODULES_DESKTOP_CAPTURE_MOUSE_CURSOR_H_
+#define MODULES_DESKTOP_CAPTURE_MOUSE_CURSOR_H_
 
 #include <memory>
 
-#include "webrtc/modules/desktop_capture/desktop_geometry.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "modules/desktop_capture/desktop_frame.h"
+#include "modules/desktop_capture/desktop_geometry.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
-
-class DesktopFrame;
 
 class MouseCursor {
  public:
@@ -34,7 +33,7 @@ class MouseCursor {
   void set_image(DesktopFrame* image) { image_.reset(image); }
   const DesktopFrame* image() const { return image_.get(); }
 
-  void set_hotspot(const DesktopVector& hotspot ) { hotspot_ = hotspot; }
+  void set_hotspot(const DesktopVector& hotspot) { hotspot_ = hotspot; }
   const DesktopVector& hotspot() const { return hotspot_; }
 
  private:
@@ -46,4 +45,4 @@ class MouseCursor {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_DESKTOP_CAPTURE_MOUSE_CURSOR_H_
+#endif  // MODULES_DESKTOP_CAPTURE_MOUSE_CURSOR_H_

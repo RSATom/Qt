@@ -93,41 +93,41 @@ struct WriteInitialization : public TreeWalker
 //
 // widgets
 //
-    void acceptUI(DomUI *node) Q_DECL_OVERRIDE;
-    void acceptWidget(DomWidget *node) Q_DECL_OVERRIDE;
+    void acceptUI(DomUI *node) override;
+    void acceptWidget(DomWidget *node) override;
 
-    void acceptLayout(DomLayout *node) Q_DECL_OVERRIDE;
-    void acceptSpacer(DomSpacer *node) Q_DECL_OVERRIDE;
-    void acceptLayoutItem(DomLayoutItem *node) Q_DECL_OVERRIDE;
+    void acceptLayout(DomLayout *node) override;
+    void acceptSpacer(DomSpacer *node) override;
+    void acceptLayoutItem(DomLayoutItem *node) override;
 
 //
 // actions
 //
-    void acceptActionGroup(DomActionGroup *node) Q_DECL_OVERRIDE;
-    void acceptAction(DomAction *node) Q_DECL_OVERRIDE;
-    void acceptActionRef(DomActionRef *node) Q_DECL_OVERRIDE;
+    void acceptActionGroup(DomActionGroup *node) override;
+    void acceptAction(DomAction *node) override;
+    void acceptActionRef(DomActionRef *node) override;
 
 //
 // tab stops
 //
-    void acceptTabStops(DomTabStops *tabStops) Q_DECL_OVERRIDE;
+    void acceptTabStops(DomTabStops *tabStops) override;
 
 //
 // custom widgets
 //
-    void acceptCustomWidgets(DomCustomWidgets *node) Q_DECL_OVERRIDE;
-    void acceptCustomWidget(DomCustomWidget *node) Q_DECL_OVERRIDE;
+    void acceptCustomWidgets(DomCustomWidgets *node) override;
+    void acceptCustomWidget(DomCustomWidget *node) override;
 
 //
 // layout defaults/functions
 //
-    void acceptLayoutDefault(DomLayoutDefault *node) Q_DECL_OVERRIDE   { m_LayoutDefaultHandler.acceptLayoutDefault(node); }
-    void acceptLayoutFunction(DomLayoutFunction *node) Q_DECL_OVERRIDE { m_LayoutDefaultHandler.acceptLayoutFunction(node); }
+    void acceptLayoutDefault(DomLayoutDefault *node) override   { m_LayoutDefaultHandler.acceptLayoutDefault(node); }
+    void acceptLayoutFunction(DomLayoutFunction *node) override { m_LayoutDefaultHandler.acceptLayoutFunction(node); }
 
 //
 // signal/slot connections
 //
-    void acceptConnection(DomConnection *connection) Q_DECL_OVERRIDE;
+    void acceptConnection(DomConnection *connection) override;
 
     enum {
         Use43UiFile = 0,
@@ -139,12 +139,10 @@ struct WriteInitialization : public TreeWalker
 private:
     static QString domColor2QString(const DomColor *c);
 
-    QString writeString(const QString &s, const QString &indent) const;
-
     QString iconCall(const DomProperty *prop);
     QString pixCall(const DomProperty *prop) const;
     QString pixCall(const QString &type, const QString &text) const;
-    QString trCall(const QString &str, const QString &comment = QString()) const;
+    QString trCall(const QString &str, const QString &comment = QString(), const QString &id = QString()) const;
     QString trCall(DomString *str, const QString &defaultString = QString()) const;
     QString noTrCall(DomString *str, const QString &defaultString = QString()) const;
     QString autoTrCall(DomString *str, const QString &defaultString = QString()) const;
@@ -163,6 +161,7 @@ private:
 // special initialization
 //
     class Item {
+        Q_DISABLE_COPY(Item)
     public:
         Item(const QString &itemClassName, const QString &indent, QTextStream &setupUiStream, QTextStream &retranslateUiStream, Driver *driver);
         ~Item();
@@ -175,18 +174,16 @@ private:
         void writeRetranslateUi(const QString &parentPath);
         void addSetter(const QString &setter, const QString &directive = QString(), bool translatable = false); // don't call it if you already added *this as a child of another Item
         void addChild(Item *child); // all setters should already been added
-        int setupUiCount() const { return m_setupUiData.setters.count(); }
-        int retranslateUiCount() const { return m_retranslateUiData.setters.count(); }
     private:
-        struct ItemData {
-            ItemData() : policy(DontGenerate) {}
+        struct ItemData
+        {
             QMultiMap<QString, QString> setters; // directive to setter
             QSet<QString> directives;
             enum TemporaryVariableGeneratorPolicy { // policies with priority, number describes the priority
                 DontGenerate = 1,
                 GenerateWithMultiDirective = 2,
                 Generate = 3
-            } policy;
+            } policy = DontGenerate;
         };
         ItemData m_setupUiData;
         ItemData m_retranslateUiData;
@@ -224,14 +221,12 @@ private:
     void enableSorting(DomWidget *w, const QString &varName, const QString &tempName);
 
     QString findDeclaration(const QString &name);
-    DomWidget *findWidget(QLatin1String widgetClass);
-
-    bool isValidObject(const QString &name) const;
 
 private:
     QString writeFontProperties(const DomFont *f);
-    void writeResourceIcon(QTextStream &output, const QString &iconName, const QString &indent, const DomResourceIcon *i) const;
     QString writeIconProperties(const DomResourceIcon *i);
+    void writePixmapFunctionIcon(QTextStream &output, const QString &iconName,
+                                 const QString &indent, const DomResourceIcon *i) const;
     QString writeSizePolicy(const DomSizePolicy *sp);
     QString writeBrushInitialization(const DomBrush *brush);
     void addButtonGroup(const DomWidget *node, const QString &varName);

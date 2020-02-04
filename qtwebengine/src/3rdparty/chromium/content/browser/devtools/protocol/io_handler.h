@@ -11,7 +11,9 @@
 #include "content/browser/devtools/protocol/io.h"
 
 namespace content {
+class BrowserContext;
 class DevToolsIOContext;
+class StoragePartition;
 
 namespace protocol {
 
@@ -22,6 +24,8 @@ class IOHandler : public DevToolsDomainHandler,
   ~IOHandler() override;
 
   void Wire(UberDispatcher* dispatcher) override;
+  void SetRenderer(int process_host_id,
+                   RenderFrameHostImpl* frame_host) override;
 
   // Protocol methods.
   void Read(
@@ -34,10 +38,13 @@ class IOHandler : public DevToolsDomainHandler,
  private:
   void ReadComplete(std::unique_ptr<ReadCallback> callback,
                     std::unique_ptr<std::string> data,
+                    bool base64_encoded,
                     int status);
 
   std::unique_ptr<IO::Frontend> frontend_;
   DevToolsIOContext* io_context_;
+  BrowserContext* browser_context_;
+  StoragePartition* storage_partition_;
   base::WeakPtrFactory<IOHandler> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(IOHandler);
@@ -46,4 +53,4 @@ class IOHandler : public DevToolsDomainHandler,
 }  // namespace protocol
 }  // namespace content
 
-#endif  // CONTENT_BROWSER_DEVTOOLS_PROTOCOL_TRACING_HANDLER_H_
+#endif  // CONTENT_BROWSER_DEVTOOLS_PROTOCOL_IO_HANDLER_H_

@@ -13,8 +13,7 @@ source_set("earl_grey_support") {
 
   deps = [
     "//base/test:test_support",
-    "//ios/testing:ios_test_support",
-    "//ios/third_party/earl_grey",
+    "//ios/third_party/earl_grey:earl_grey+link",
   ]
 
   sources = [
@@ -22,6 +21,29 @@ source_set("earl_grey_support") {
     "matchers.h",
     "matchers.mm",
   ]
+
+  defines = [ "CHROME_EARL_GREY_1" ]
+
+  public_configs = [ ":earl_grey_support_config" ]
+  configs += [ ":earl_grey_support_config" ]
+}
+
+source_set("eg_app_support+eg2") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  testonly = true
+
+  deps = [
+    "//base/test:test_support",
+    "//ios/third_party/earl_grey2:app_framework+link",
+  ]
+
+  sources = [
+    "disabled_test_macros.h",
+    "matchers.h",
+    "matchers.mm",
+  ]
+
+  defines = [ "CHROME_EARL_GREY_2" ]
 
   public_configs = [ ":earl_grey_support_config" ]
   configs += [ ":earl_grey_support_config" ]

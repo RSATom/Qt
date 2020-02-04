@@ -47,11 +47,11 @@ QML_FILES += \
     $$PWD/RoundButton.qml \
     $$PWD/ScrollBar.qml \
     $$PWD/ScrollIndicator.qml \
-    $$PWD/ScrollView.qml \
     $$PWD/Slider.qml \
     $$PWD/SliderGroove.qml \
     $$PWD/SliderHandle.qml \
     $$PWD/SpinBox.qml \
+    $$PWD/SplitView.qml \
     $$PWD/SwipeDelegate.qml \
     $$PWD/SwitchDelegate.qml \
     $$PWD/SwitchIndicator.qml \

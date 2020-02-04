@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,12 @@
 #ifndef XFA_FXFA_PARSER_CXFA_TOOLTIP_H_
 #define XFA_FXFA_PARSER_CXFA_TOOLTIP_H_
 
-#include "core/fxcrt/fx_string.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_ToolTip : public CXFA_Data {
+class CXFA_ToolTip final : public CXFA_Node {
  public:
-  explicit CXFA_ToolTip(CXFA_Node* pNode);
-
-  bool GetTip(CFX_WideString& wsTip);
+  CXFA_ToolTip(CXFA_Document* doc, XFA_PacketType packet);
+  ~CXFA_ToolTip() override;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_TOOLTIP_H_

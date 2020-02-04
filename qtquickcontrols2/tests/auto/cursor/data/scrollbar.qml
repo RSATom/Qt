@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.6
-import QtQuick.Controls 2.0
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 
 ApplicationWindow {
     width: 400
@@ -65,6 +65,10 @@ ApplicationWindow {
         }
         ScrollBar.vertical: ScrollBar {
             id: scrollBar
+            // Need to explicitly set this to account for platforms like Android,
+            // where the UiEffects style hint does not include HoverEffect, and
+            // hence QQuickControlPrivate::calcHoverEnabled() would otherwise return false.
+            hoverEnabled: true
         }
     }
 }

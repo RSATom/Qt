@@ -34,6 +34,7 @@
 **
 ****************************************************************************/
 #include "qgeocameratiles_p.h"
+#include "qgeocameratiles_p_p.h"
 #include "qgeocameradata_p.h"
 #include "qgeotilespec_p.h"
 #include "qgeomaptype_p.h"
@@ -63,75 +64,6 @@ static QDoubleVector3D toDoubleVector3D(const QVector3D& in)
 
 QT_BEGIN_NAMESPACE
 
-struct Frustum
-{
-    QDoubleVector3D apex;
-    QDoubleVector3D topLeftNear;
-    QDoubleVector3D topLeftFar;
-    QDoubleVector3D topRightNear;
-    QDoubleVector3D topRightFar;
-    QDoubleVector3D bottomLeftNear;
-    QDoubleVector3D bottomLeftFar;
-    QDoubleVector3D bottomRightNear;
-    QDoubleVector3D bottomRightFar;
-};
-
-typedef QVector<QDoubleVector3D> PolygonVector;
-
-class QGeoCameraTilesPrivate
-{
-public:
-    QGeoCameraTilesPrivate();
-    ~QGeoCameraTilesPrivate();
-
-    QString m_pluginString;
-    QGeoMapType m_mapType;
-    int m_mapVersion;
-    QGeoCameraData m_camera;
-    QSize m_screenSize;
-    int m_tileSize;
-    QSet<QGeoTileSpec> m_tiles;
-
-    int m_intZoomLevel;
-    int m_sideLength;
-
-    bool m_dirtyGeometry;
-    bool m_dirtyMetadata;
-
-    double m_viewExpansion;
-    void updateMetadata();
-    void updateGeometry();
-
-    Frustum createFrustum(double viewExpansion) const;
-
-    struct ClippedFootprint
-    {
-        ClippedFootprint(const PolygonVector &left_, const PolygonVector &mid_, const PolygonVector &right_)
-            : left(left_), mid(mid_), right(right_)
-        {}
-        PolygonVector left;
-        PolygonVector mid;
-        PolygonVector right;
-    };
-
-    PolygonVector frustumFootprint(const Frustum &frustum) const;
-
-    QPair<PolygonVector, PolygonVector> splitPolygonAtAxisValue(const PolygonVector &polygon, int axis, double value) const;
-    ClippedFootprint clipFootprintToMap(const PolygonVector &footprint) const;
-
-    QList<QPair<double, int> > tileIntersections(double p1, int t1, double p2, int t2) const;
-    QSet<QGeoTileSpec> tilesFromPolygon(const PolygonVector &polygon) const;
-
-    struct TileMap
-    {
-        TileMap();
-
-        void add(int tileX, int tileY);
-
-        QMap<int, QPair<int, int> > data;
-    };
-};
-
 QGeoCameraTiles::QGeoCameraTiles()
     : d_ptr(new QGeoCameraTilesPrivate()) {}
 
@@ -153,6 +85,15 @@ void QGeoCameraTiles::setCameraData(const QGeoCameraData &camera)
 QGeoCameraData QGeoCameraTiles::cameraData() const
 {
     return d_ptr->m_camera;
+}
+
+void QGeoCameraTiles::setVisibleArea(const QRectF &visibleArea)
+{
+    if (d_ptr->m_visibleArea == visibleArea)
+        return;
+
+    d_ptr->m_visibleArea = visibleArea;
+    d_ptr->m_dirtyGeometry = true;
 }
 
 void QGeoCameraTiles::setScreenSize(const QSize &size)
@@ -267,12 +208,22 @@ void QGeoCameraTilesPrivate::updateGeometry()
     // Find the frustum from the camera / screen / viewport information
     // The larger frustum when stationary is a form of prefetching
     Frustum f = createFrustum(m_viewExpansion);
+#ifdef QT_LOCATION_DEBUG
+    m_frustum = f;
+#endif
 
     // Find the polygon where the frustum intersects the plane of the map
     PolygonVector footprint = frustumFootprint(f);
+#ifdef QT_LOCATION_DEBUG
+    m_frustumFootprint = footprint;
+#endif
 
     // Clip the polygon to the map, split it up if it cross the dateline
     ClippedFootprint polygons = clipFootprintToMap(footprint);
+#ifdef QT_LOCATION_DEBUG
+    m_clippedFootprint = polygons;
+#endif
+
 
     if (!polygons.left.isEmpty()) {
         QSet<QGeoTileSpec> tilesLeft = tilesFromPolygon(polygons.left);
@@ -296,6 +247,10 @@ Frustum QGeoCameraTilesPrivate::createFrustum(double viewExpansion) const
     if (m_camera.fieldOfView() != 90.0) //aperture(90 / 2) = 1
         apertureSize = tan(QLocationUtils::radians(m_camera.fieldOfView()) * 0.5);
     QDoubleVector3D center = m_sideLength * QWebMercator::coordToMercator(m_camera.center());
+#ifdef QT_LOCATION_DEBUG
+    m_createFrustum_center = center;
+#endif
+
 
     double f = m_screenSize.height();
 
@@ -325,7 +280,7 @@ Frustum QGeoCameraTilesPrivate::createFrustum(double viewExpansion) const
     side = QDoubleVector3D::normal(view, QDoubleVector3D(0.0, 1.0, 0.0));
     up = QDoubleVector3D::normal(view, side2);
 
-    double nearPlane =  1 / (4.0 * m_tileSize );
+    double nearPlane =  1.0 / 32.0; // The denominator used to be (4.0 * m_tileSize ), which produces an extremely narrow and tiny near plane.
     // farPlane plays a role on how much gets clipped when the map gets tilted. It used to be altitude + 1.0
     // The value of 8.0 has been chosen as an acceptable compromise.
     // TODO: use m_camera.clipDistance(); when this will be introduced
@@ -357,16 +312,36 @@ Frustum QGeoCameraTilesPrivate::createFrustum(double viewExpansion) const
     Frustum frustum;
 
     frustum.apex = eye;
+#ifdef QT_LOCATION_DEBUG
+    m_createFrustum_eye = eye;
+#endif
 
-    frustum.topLeftFar = cf - (up * hhf) - (right * hwf);
-    frustum.topRightFar = cf - (up * hhf) + (right * hwf);
-    frustum.bottomLeftFar = cf + (up * hhf) - (right * hwf);
-    frustum.bottomRightFar = cf + (up * hhf) + (right * hwf);
+    QRectF va = m_visibleArea;
+    if (va.isNull())
+        va = QRectF(0, 0, m_screenSize.width(), m_screenSize.height());
+    QRectF screen = QRectF(QPointF(0,0),m_screenSize);
+    QPointF vaCenter = va.center();
+    QPointF screenCenter = screen.center();
+    QPointF diff = screenCenter - vaCenter;
+    double xdiffpct = diff.x() / m_screenSize.width();
+    double ydiffpct = -(diff.y() / m_screenSize.height());
 
-    frustum.topLeftNear = cn - (up * hhn) - (right * hwn);
-    frustum.topRightNear = cn - (up * hhn) + (right * hwn);
-    frustum.bottomLeftNear = cn + (up * hhn) - (right * hwn);
-    frustum.bottomRightNear = cn + (up * hhn) + (right * hwn);
+    double wn = (2 * hwn) * xdiffpct;
+    double hn = (2 * hhn) * ydiffpct;
+    double wf = (2 * hwf) * xdiffpct;
+    double hf = (2 * hhf) * ydiffpct;
+
+    // TODO: fix eye
+
+    frustum.topLeftFar = cf - (up * (hhf + hf)) - (right * (hwf + wf));
+    frustum.topRightFar = cf - (up * (hhf + hf)) + (right * (hwf + wf));
+    frustum.bottomLeftFar = cf + (up * (hhf + hf)) - (right * (hwf + wf));
+    frustum.bottomRightFar = cf + (up * (hhf + hf)) + (right * (hwf + wf));
+
+    frustum.topLeftNear = cn - (up * (hhn + hn)) - (right * (hwn + wn));
+    frustum.topRightNear = cn - (up * (hhn + hn)) + (right * (hwn + wn));
+    frustum.bottomLeftNear = cn + (up * (hhn + hn)) - (right * (hwn + wn));
+    frustum.bottomRightNear = cn + (up * (hhn + hn)) + (right * (hwn + wn));
 
     return frustum;
 }

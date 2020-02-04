@@ -27,8 +27,6 @@ class UI_BASE_IME_EXPORT InputMethodAuraLinux
   LinuxInputMethodContext* GetContextForTesting(bool is_simple);
 
   // Overriden from InputMethod.
-  bool OnUntranslatedIMEMessage(const base::NativeEvent& event,
-                                NativeEventResult* result) override;
   ui::EventDispatchDetails DispatchKeyEvent(ui::KeyEvent* event) override;
   void OnTextInputTypeChanged(const TextInputClient* client) override;
   void OnCaretBoundsChanged(const TextInputClient* client) override;
@@ -37,6 +35,7 @@ class UI_BASE_IME_EXPORT InputMethodAuraLinux
 
   // Overriden from ui::LinuxInputMethodContextDelegate
   void OnCommit(const base::string16& text) override;
+  void OnDeleteSurroundingText(int32_t index, uint32_t length) override;
   void OnPreeditChanged(const CompositionText& composition_text) override;
   void OnPreeditEnd() override;
   void OnPreeditStart() override {}
@@ -56,6 +55,7 @@ class UI_BASE_IME_EXPORT InputMethodAuraLinux
   void ConfirmCompositionText();
   void UpdateContextFocusState();
   void ResetContext();
+  bool IgnoringNonKeyInput() const;
 
   // Processes the key event after the event is processed by the system IME or
   // the extension.
@@ -94,9 +94,9 @@ class UI_BASE_IME_EXPORT InputMethodAuraLinux
   // Indicates if the composition text is changed or deleted.
   bool composition_changed_;
 
-  // If it's true then all input method result received before the next key
-  // event will be discarded.
-  bool suppress_next_result_;
+  // Ignore commit/preedit-changed/preedit-end signals if this time is still in
+  // the future.
+  base::TimeTicks suppress_non_key_input_until_ = base::TimeTicks::UnixEpoch();
 
   // Used for making callbacks.
   base::WeakPtrFactory<InputMethodAuraLinux> weak_ptr_factory_;

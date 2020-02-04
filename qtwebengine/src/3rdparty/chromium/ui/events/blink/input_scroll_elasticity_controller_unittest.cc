@@ -6,8 +6,8 @@
 
 #include "cc/input/input_handler.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
-#include "third_party/WebKit/public/platform/WebMouseWheelEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/platform/web_mouse_wheel_event.h"
 
 namespace ui {
 namespace {
@@ -83,17 +83,17 @@ class ScrollElasticityControllerTest : public testing::Test {
   ScrollElasticityControllerTest()
       : controller_(&helper_),
         input_event_count_(0),
-        current_time_(base::TimeTicks::FromInternalValue(100000000ull)) {}
+        current_time_(base::TimeTicks() +
+                      base::TimeDelta::FromMicroseconds(INT64_C(100000000))) {}
   ~ScrollElasticityControllerTest() override {}
 
 
   void SendGestureScrollBegin(InertialPhaseState inertialPhase) {
     TickCurrentTime();
-    blink::WebGestureEvent event(
-        blink::WebInputEvent::kGestureScrollBegin,
-        blink::WebInputEvent::kNoModifiers,
-        (current_time_ - base::TimeTicks()).InSecondsF());
-    event.source_device = blink::kWebGestureDeviceTouchpad;
+    blink::WebGestureEvent event(blink::WebInputEvent::kGestureScrollBegin,
+                                 blink::WebInputEvent::kNoModifiers,
+                                 current_time_,
+                                 blink::kWebGestureDeviceTouchpad);
     event.data.scroll_begin.inertial_phase =
         static_cast<blink::WebGestureEvent::InertialPhaseState>(inertialPhase);
 
@@ -105,13 +105,14 @@ class ScrollElasticityControllerTest : public testing::Test {
   void SendGestureScrollUpdate(
       InertialPhaseState inertialPhase,
       const gfx::Vector2dF& event_delta = gfx::Vector2dF(),
-      const gfx::Vector2dF& overscroll_delta = gfx::Vector2dF()) {
+      const gfx::Vector2dF& overscroll_delta = gfx::Vector2dF(),
+      const cc::OverscrollBehavior& overscroll_behavior =
+          cc::OverscrollBehavior()) {
     TickCurrentTime();
-    blink::WebGestureEvent event(
-        blink::WebInputEvent::kGestureScrollUpdate,
-        blink::WebInputEvent::kNoModifiers,
-        (current_time_ - base::TimeTicks()).InSecondsF());
-    event.source_device = blink::kWebGestureDeviceTouchpad;
+    blink::WebGestureEvent event(blink::WebInputEvent::kGestureScrollUpdate,
+                                 blink::WebInputEvent::kNoModifiers,
+                                 current_time_,
+                                 blink::kWebGestureDeviceTouchpad);
     event.data.scroll_update.inertial_phase =
         static_cast<blink::WebGestureEvent::InertialPhaseState>(inertialPhase);
     event.data.scroll_update.delta_x = -event_delta.x();
@@ -120,6 +121,7 @@ class ScrollElasticityControllerTest : public testing::Test {
     cc::InputHandlerScrollResult scroll_result;
     scroll_result.did_overscroll_root = !overscroll_delta.IsZero();
     scroll_result.unused_scroll_delta = overscroll_delta;
+    scroll_result.overscroll_behavior = overscroll_behavior;
 
     controller_.ObserveGestureEventAndResult(event, scroll_result);
     input_event_count_ += 1;
@@ -127,11 +129,10 @@ class ScrollElasticityControllerTest : public testing::Test {
 
   void SendGestureScrollEnd() {
     TickCurrentTime();
-    blink::WebGestureEvent event(
-        blink::WebInputEvent::kGestureScrollEnd,
-        blink::WebInputEvent::kNoModifiers,
-        (current_time_ - base::TimeTicks()).InSecondsF());
-    event.source_device = blink::kWebGestureDeviceTouchpad;
+    blink::WebGestureEvent event(blink::WebInputEvent::kGestureScrollEnd,
+                                 blink::WebInputEvent::kNoModifiers,
+                                 current_time_,
+                                 blink::kWebGestureDeviceTouchpad);
 
     controller_.ObserveGestureEventAndResult(event,
                                              cc::InputHandlerScrollResult());
@@ -421,6 +422,77 @@ TEST_F(ScrollElasticityControllerTest,
     ticks_to_zero += 1;
   }
   EXPECT_GT(ticks_to_zero, 3);
+}
+
+// Verify that OverscrollBehaviorTypeNone disables the stretching on the
+// specified axis.
+TEST_F(ScrollElasticityControllerTest, OverscrollBehavior) {
+  helper_.SetScrollOffsetAndMaxScrollOffset(gfx::ScrollOffset(0, 0),
+                                            gfx::ScrollOffset(0, 0));
+
+  // If we set OverscrollBehaviorTypeNone on x, we should not see a stretch
+  // in the X direction.
+  SendGestureScrollBegin(NonMomentumPhase);
+  SendGestureScrollUpdate(
+      NonMomentumPhase, gfx::Vector2dF(10, 0), gfx::Vector2dF(10, 0),
+      cc::OverscrollBehavior(
+          cc::OverscrollBehavior::kOverscrollBehaviorTypeNone,
+          cc::OverscrollBehavior::kOverscrollBehaviorTypeAuto));
+  EXPECT_EQ(0, helper_.set_stretch_amount_count());
+  EXPECT_EQ(0.f, helper_.StretchAmount().x());
+  EXPECT_EQ(0.f, helper_.StretchAmount().y());
+  helper_.SetStretchAmount(gfx::Vector2dF());
+  EXPECT_EQ(1, helper_.set_stretch_amount_count());
+  SendGestureScrollEnd();
+  EXPECT_EQ(0, helper_.request_begin_frame_count());
+
+  // If we set OverscrollBehaviorTypeNone on x, we could still see a stretch
+  // in the Y direction
+  SendGestureScrollBegin(NonMomentumPhase);
+  SendGestureScrollUpdate(
+      NonMomentumPhase, gfx::Vector2dF(0, 10), gfx::Vector2dF(0, 10),
+      cc::OverscrollBehavior(
+          cc::OverscrollBehavior::kOverscrollBehaviorTypeNone,
+          cc::OverscrollBehavior::kOverscrollBehaviorTypeAuto));
+  EXPECT_EQ(2, helper_.set_stretch_amount_count());
+  EXPECT_EQ(0.f, helper_.StretchAmount().x());
+  EXPECT_LT(0.f, helper_.StretchAmount().y());
+  helper_.SetStretchAmount(gfx::Vector2dF());
+  EXPECT_EQ(3, helper_.set_stretch_amount_count());
+  SendGestureScrollEnd();
+  EXPECT_EQ(0, helper_.request_begin_frame_count());
+
+  // If we set OverscrollBehaviorTypeNone on y, we should not see a stretch
+  // in the Y direction.
+  SendGestureScrollBegin(NonMomentumPhase);
+  SendGestureScrollUpdate(
+      NonMomentumPhase, gfx::Vector2dF(0, 10), gfx::Vector2dF(0, 10),
+      cc::OverscrollBehavior(
+          cc::OverscrollBehavior::kOverscrollBehaviorTypeAuto,
+          cc::OverscrollBehavior::kOverscrollBehaviorTypeNone));
+  EXPECT_EQ(3, helper_.set_stretch_amount_count());
+  EXPECT_EQ(0.f, helper_.StretchAmount().x());
+  EXPECT_EQ(0.f, helper_.StretchAmount().y());
+  helper_.SetStretchAmount(gfx::Vector2dF());
+  EXPECT_EQ(4, helper_.set_stretch_amount_count());
+  SendGestureScrollEnd();
+  EXPECT_EQ(0, helper_.request_begin_frame_count());
+
+  // If we set OverscrollBehaviorTypeNone on y, we could still see a stretch
+  // in the X direction.
+  SendGestureScrollBegin(NonMomentumPhase);
+  SendGestureScrollUpdate(
+      NonMomentumPhase, gfx::Vector2dF(10, 0), gfx::Vector2dF(10, 0),
+      cc::OverscrollBehavior(
+          cc::OverscrollBehavior::kOverscrollBehaviorTypeAuto,
+          cc::OverscrollBehavior::kOverscrollBehaviorTypeNone));
+  EXPECT_EQ(5, helper_.set_stretch_amount_count());
+  EXPECT_LT(0.f, helper_.StretchAmount().x());
+  EXPECT_EQ(0.f, helper_.StretchAmount().y());
+  helper_.SetStretchAmount(gfx::Vector2dF());
+  EXPECT_EQ(6, helper_.set_stretch_amount_count());
+  SendGestureScrollEnd();
+  EXPECT_EQ(0, helper_.request_begin_frame_count());
 }
 
 }  // namespace

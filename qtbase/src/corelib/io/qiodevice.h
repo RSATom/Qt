@@ -76,7 +76,9 @@ public:
         Append = 0x0004,
         Truncate = 0x0008,
         Text = 0x0010,
-        Unbuffered = 0x0020
+        Unbuffered = 0x0020,
+        NewOnly = 0x0040,
+        ExistingOnly = 0x0080
     };
     Q_DECLARE_FLAGS(OpenMode, OpenModeFlag)
 
@@ -161,7 +163,7 @@ protected:
 #ifdef QT_NO_QOBJECT
     QIODevice(QIODevicePrivate &dd);
 #else
-    QIODevice(QIODevicePrivate &dd, QObject *parent = Q_NULLPTR);
+    QIODevice(QIODevicePrivate &dd, QObject *parent = nullptr);
 #endif
     virtual qint64 readData(char *data, qint64 maxlen) = 0;
     virtual qint64 readLineData(char *data, qint64 maxlen);

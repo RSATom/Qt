@@ -4,18 +4,20 @@
 
 #include "content/browser/frame_host/frame_tree_node_blame_context.h"
 
-#include "base/memory/ptr_util.h"
-#include "base/run_loop.h"
+#include <algorithm>
+#include <memory>
+#include <set>
+#include <string>
+
 #include "base/test/trace_event_analyzer.h"
-#include "base/trace_event/trace_buffer.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/common/frame_owner_properties.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/web/WebSandboxFlags.h"
+#include "third_party/blink/public/common/frame/frame_policy.h"
 
 namespace content {
 
@@ -28,15 +30,6 @@ bool EventPointerCompare(const trace_analyzer::TraceEvent* lhs,
   return *lhs < *rhs;
 }
 
-void OnTraceDataCollected(base::Closure quit_closure,
-                          base::trace_event::TraceResultBuffer* buffer,
-                          const scoped_refptr<base::RefCountedString>& json,
-                          bool has_more_events) {
-  buffer->AddFragment(json->data());
-  if (!has_more_events)
-    quit_closure.Run();
-}
-
 void ExpectFrameTreeNodeObject(const trace_analyzer::TraceEvent* event) {
   EXPECT_EQ("navigation", event->category);
   EXPECT_EQ("FrameTreeNode", event->name);
@@ -45,8 +38,7 @@ void ExpectFrameTreeNodeObject(const trace_analyzer::TraceEvent* event) {
 void ExpectFrameTreeNodeSnapshot(const trace_analyzer::TraceEvent* event) {
   ExpectFrameTreeNodeObject(event);
   EXPECT_TRUE(event->HasArg("snapshot"));
-  EXPECT_TRUE(event->arg_values.at("snapshot")
-                  ->IsType(base::Value::Type::DICTIONARY));
+  EXPECT_TRUE(event->arg_values.at("snapshot")->is_dict());
 }
 
 std::string GetParentNodeID(const trace_analyzer::TraceEvent* event) {
@@ -100,42 +92,20 @@ class FrameTreeNodeBlameContextTest : public RenderViewHostImplTestHarness {
       tree()->RemoveFrame(root()->child_at(0));
   }
 
-  void StartTracing() {
-    base::trace_event::TraceLog::GetInstance()->SetEnabled(
-        base::trace_event::TraceConfig("*"),
-        base::trace_event::TraceLog::RECORDING_MODE);
-  }
-
-  void StopTracing() {
-    base::trace_event::TraceLog::GetInstance()->SetDisabled();
-  }
-
-  std::unique_ptr<trace_analyzer::TraceAnalyzer> CreateTraceAnalyzer() {
-    base::trace_event::TraceResultBuffer buffer;
-    base::trace_event::TraceResultBuffer::SimpleOutput trace_output;
-    buffer.SetOutputCallback(trace_output.GetCallback());
-    base::RunLoop run_loop;
-    buffer.Start();
-    base::trace_event::TraceLog::GetInstance()->Flush(
-        base::Bind(&OnTraceDataCollected, run_loop.QuitClosure(),
-                   base::Unretained(&buffer)));
-    run_loop.Run();
-    buffer.Finish();
-
-    return base::WrapUnique(
-        trace_analyzer::TraceAnalyzer::Create(trace_output.json_output));
-  }
-
  private:
   int CreateSubframes(FrameTreeNode* node, int self_id, const char* shape) {
     int consumption = 0;
     for (int child_num = 1; shape[consumption++] == '('; ++child_num) {
       int child_id = self_id * 10 + child_num;
-      tree()->AddFrame(node, process_id(), child_id,
-                       blink::WebTreeScopeType::kDocument, std::string(),
-                       base::StringPrintf("uniqueName%d", child_id),
-                       blink::WebSandboxFlags::kNone,
-                       ParsedFeaturePolicyHeader(), FrameOwnerProperties());
+      tree()->AddFrame(
+          node, process_id(), child_id,
+          TestRenderFrameHost::CreateStubInterfaceProviderRequest(),
+          TestRenderFrameHost::CreateStubDocumentInterfaceBrokerRequest(),
+          TestRenderFrameHost::CreateStubDocumentInterfaceBrokerRequest(),
+          blink::WebTreeScopeType::kDocument, std::string(),
+          base::StringPrintf("uniqueName%d", child_id), false,
+          base::UnguessableToken::Create(), blink::FramePolicy(),
+          FrameOwnerProperties(), false, blink::FrameOwnerElementType::kIframe);
       FrameTreeNode* child = node->child_at(child_num - 1);
       consumption += CreateSubframes(child, child_id, shape + consumption);
     }
@@ -157,12 +127,10 @@ TEST_F(FrameTreeNodeBlameContextTest, FrameCreation) {
    */
   const char* tree_shape = "(()())((()))";
 
-  StartTracing();
+  trace_analyzer::Start("*");
   CreateFrameTree(tree_shape);
-  StopTracing();
+  auto analyzer = trace_analyzer::Stop();
 
-  std::unique_ptr<trace_analyzer::TraceAnalyzer> analyzer =
-      CreateTraceAnalyzer();
   trace_analyzer::TraceEventVector events;
   trace_analyzer::Query q =
       trace_analyzer::Query::EventPhaseIs(TRACE_EVENT_PHASE_CREATE_OBJECT) ||
@@ -214,12 +182,10 @@ TEST_F(FrameTreeNodeBlameContextTest, FrameDeletion) {
   for (FrameTreeNode* node : tree()->Nodes())
     node_ids.insert(node->frame_tree_node_id());
 
-  StartTracing();
+  trace_analyzer::Start("*");
   RemoveAllNonRootFrames();
-  StopTracing();
+  auto analyzer = trace_analyzer::Stop();
 
-  std::unique_ptr<trace_analyzer::TraceAnalyzer> analyzer =
-      CreateTraceAnalyzer();
   trace_analyzer::TraceEventVector events;
   trace_analyzer::Query q =
       trace_analyzer::Query::EventPhaseIs(TRACE_EVENT_PHASE_DELETE_OBJECT);
@@ -241,14 +207,12 @@ TEST_F(FrameTreeNodeBlameContextTest, URLChange) {
   GURL url1("http://a.com/");
   GURL url2("https://b.net/");
 
-  StartTracing();
+  trace_analyzer::Start("*");
   root()->SetCurrentURL(url1);
   root()->SetCurrentURL(url2);
-  root()->ResetForNewProcess();
-  StopTracing();
+  root()->SetCurrentURL(GURL());
+  auto analyzer = trace_analyzer::Stop();
 
-  std::unique_ptr<trace_analyzer::TraceAnalyzer> analyzer =
-      CreateTraceAnalyzer();
   trace_analyzer::TraceEventVector events;
   trace_analyzer::Query q =
       trace_analyzer::Query::EventPhaseIs(TRACE_EVENT_PHASE_SNAPSHOT_OBJECT);

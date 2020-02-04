@@ -38,12 +38,12 @@ namespace internal {
 // Linux perf tool logging support
 class PerfJitLogger : public CodeEventLogger {
  public:
-  PerfJitLogger();
-  virtual ~PerfJitLogger();
+  explicit PerfJitLogger(Isolate* isolate);
+  ~PerfJitLogger() override;
 
-  void CodeMoveEvent(AbstractCode* from, Address to) override;
-  void CodeDisableOptEvent(AbstractCode* code,
-                           SharedFunctionInfo* shared) override {}
+  void CodeMoveEvent(AbstractCode from, AbstractCode to) override;
+  void CodeDisableOptEvent(AbstractCode code,
+                           SharedFunctionInfo shared) override {}
 
  private:
   void OpenJitDumpFile();
@@ -52,8 +52,10 @@ class PerfJitLogger : public CodeEventLogger {
   void CloseMarkerFile(void* marker_address);
 
   uint64_t GetTimestamp();
-  void LogRecordedBuffer(AbstractCode* code, SharedFunctionInfo* shared,
+  void LogRecordedBuffer(AbstractCode code, SharedFunctionInfo shared,
                          const char* name, int length) override;
+  void LogRecordedBuffer(const wasm::WasmCode* code, const char* name,
+                         int length) override;
 
   // Extension added to V8 log file name to get the low-level log name.
   static const char kFilenameFormatString[];
@@ -63,10 +65,13 @@ class PerfJitLogger : public CodeEventLogger {
   // minimize the associated overhead.
   static const int kLogBufferSize = 2 * MB;
 
+  void WriteJitCodeLoadEntry(const uint8_t* code_pointer, uint32_t code_size,
+                             const char* name, int name_length);
+
   void LogWriteBytes(const char* bytes, int size);
   void LogWriteHeader();
-  void LogWriteDebugInfo(Code* code, SharedFunctionInfo* shared);
-  void LogWriteUnwindingInfo(Code* code);
+  void LogWriteDebugInfo(Code code, SharedFunctionInfo shared);
+  void LogWriteUnwindingInfo(Code code);
 
   static const uint32_t kElfMachIA32 = 3;
   static const uint32_t kElfMachX64 = 62;
@@ -113,17 +118,24 @@ class PerfJitLogger : public CodeEventLogger {
 // PerfJitLogger is only implemented on Linux
 class PerfJitLogger : public CodeEventLogger {
  public:
-  void CodeMoveEvent(AbstractCode* from, Address to) override {
+  explicit PerfJitLogger(Isolate* isolate) : CodeEventLogger(isolate) {}
+
+  void CodeMoveEvent(AbstractCode from, AbstractCode to) override {
     UNIMPLEMENTED();
   }
 
-  void CodeDisableOptEvent(AbstractCode* code,
-                           SharedFunctionInfo* shared) override {
+  void CodeDisableOptEvent(AbstractCode code,
+                           SharedFunctionInfo shared) override {
     UNIMPLEMENTED();
   }
 
-  void LogRecordedBuffer(AbstractCode* code, SharedFunctionInfo* shared,
+  void LogRecordedBuffer(AbstractCode code, SharedFunctionInfo shared,
                          const char* name, int length) override {
+    UNIMPLEMENTED();
+  }
+
+  void LogRecordedBuffer(const wasm::WasmCode* code, const char* name,
+                         int length) override {
     UNIMPLEMENTED();
   }
 };
@@ -131,4 +143,5 @@ class PerfJitLogger : public CodeEventLogger {
 #endif  // V8_OS_LINUX
 }  // namespace internal
 }  // namespace v8
-#endif
+
+#endif  // V8_PERF_JIT_H_

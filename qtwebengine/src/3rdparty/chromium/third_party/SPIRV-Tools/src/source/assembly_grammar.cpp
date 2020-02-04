@@ -1,40 +1,29 @@
 // Copyright (c) 2015-2016 The Khronos Group Inc.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS
-// KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS
-// SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT
-//    https://www.khronos.org/registry/
-//
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-#include "assembly_grammar.h"
+#include "source/assembly_grammar.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cstring>
 
-#include "ext_inst.h"
-#include "opcode.h"
-#include "operand.h"
-#include "table.h"
+#include "source/ext_inst.h"
+#include "source/opcode.h"
+#include "source/operand.h"
+#include "source/table.h"
 
+namespace spvtools {
 namespace {
 
 /// @brief Parses a mask expression string for the given operand type.
@@ -51,7 +40,8 @@ namespace {
 /// @param[out] pValue where the resulting value is written
 ///
 /// @return result code
-spv_result_t spvTextParseMaskOperand(const spv_operand_table operandTable,
+spv_result_t spvTextParseMaskOperand(spv_target_env env,
+                                     const spv_operand_table operandTable,
                                      const spv_operand_type_t type,
                                      const char* textValue, uint32_t* pValue) {
   if (textValue == nullptr) return SPV_ERROR_INVALID_TEXT;
@@ -72,7 +62,7 @@ spv_result_t spvTextParseMaskOperand(const spv_operand_table operandTable,
     end = std::find(begin, text_end, separator);
 
     spv_operand_desc entry = nullptr;
-    if (spvOperandTableNameLookup(operandTable, type, begin, end - begin,
+    if (spvOperandTableNameLookup(env, operandTable, type, begin, end - begin,
                                   &entry)) {
       return SPV_ERROR_INVALID_TEXT;
     }
@@ -150,6 +140,7 @@ const SpecConstantOpcodeEntry kOpSpecConstantOpcodes[] = {
     CASE(Select),
     // Comparison
     CASE(IEqual),
+    CASE(INotEqual),
     CASE(ULessThan),
     CASE(SLessThan),
     CASE(UGreaterThan),
@@ -165,8 +156,8 @@ const SpecConstantOpcodeEntry kOpSpecConstantOpcodes[] = {
     CASE(InBoundsPtrAccessChain),
 };
 
-// The 58 is determined by counting the opcodes listed in the spec.
-static_assert(58 == sizeof(kOpSpecConstantOpcodes)/sizeof(kOpSpecConstantOpcodes[0]),
+// The 59 is determined by counting the opcodes listed in the spec.
+static_assert(59 == sizeof(kOpSpecConstantOpcodes)/sizeof(kOpSpecConstantOpcodes[0]),
               "OpSpecConstantOp opcode table is incomplete");
 #undef CASE
 // clang-format on
@@ -174,34 +165,51 @@ static_assert(58 == sizeof(kOpSpecConstantOpcodes)/sizeof(kOpSpecConstantOpcodes
 const size_t kNumOpSpecConstantOpcodes =
     sizeof(kOpSpecConstantOpcodes) / sizeof(kOpSpecConstantOpcodes[0]);
 
-}  // anonymous namespace
-
-namespace libspirv {
+}  // namespace
 
 bool AssemblyGrammar::isValid() const {
   return operandTable_ && opcodeTable_ && extInstTable_;
 }
 
+CapabilitySet AssemblyGrammar::filterCapsAgainstTargetEnv(
+    const SpvCapability* cap_array, uint32_t count) const {
+  CapabilitySet cap_set;
+  for (uint32_t i = 0; i < count; ++i) {
+    spv_operand_desc cap_desc = {};
+    if (SPV_SUCCESS == lookupOperand(SPV_OPERAND_TYPE_CAPABILITY,
+                                     static_cast<uint32_t>(cap_array[i]),
+                                     &cap_desc)) {
+      // spvOperandTableValueLookup() filters capabilities internally
+      // according to the current target environment by itself. So we
+      // should be safe to add this capability if the lookup succeeds.
+      cap_set.Add(cap_array[i]);
+    }
+  }
+  return cap_set;
+}
+
 spv_result_t AssemblyGrammar::lookupOpcode(const char* name,
                                            spv_opcode_desc* desc) const {
-  return spvOpcodeTableNameLookup(opcodeTable_, name, desc);
+  return spvOpcodeTableNameLookup(target_env_, opcodeTable_, name, desc);
 }
 
 spv_result_t AssemblyGrammar::lookupOpcode(SpvOp opcode,
                                            spv_opcode_desc* desc) const {
-  return spvOpcodeTableValueLookup(opcodeTable_, opcode, desc);
+  return spvOpcodeTableValueLookup(target_env_, opcodeTable_, opcode, desc);
 }
 
 spv_result_t AssemblyGrammar::lookupOperand(spv_operand_type_t type,
                                             const char* name, size_t name_len,
                                             spv_operand_desc* desc) const {
-  return spvOperandTableNameLookup(operandTable_, type, name, name_len, desc);
+  return spvOperandTableNameLookup(target_env_, operandTable_, type, name,
+                                   name_len, desc);
 }
 
 spv_result_t AssemblyGrammar::lookupOperand(spv_operand_type_t type,
                                             uint32_t operand,
                                             spv_operand_desc* desc) const {
-  return spvOperandTableValueLookup(operandTable_, type, operand, desc);
+  return spvOperandTableValueLookup(target_env_, operandTable_, type, operand,
+                                    desc);
 }
 
 spv_result_t AssemblyGrammar::lookupSpecConstantOpcode(const char* name,
@@ -231,7 +239,8 @@ spv_result_t AssemblyGrammar::lookupSpecConstantOpcode(SpvOp opcode) const {
 spv_result_t AssemblyGrammar::parseMaskOperand(const spv_operand_type_t type,
                                                const char* textValue,
                                                uint32_t* pValue) const {
-  return spvTextParseMaskOperand(operandTable_, type, textValue, pValue);
+  return spvTextParseMaskOperand(target_env_, operandTable_, type, textValue,
+                                 pValue);
 }
 spv_result_t AssemblyGrammar::lookupExtInst(spv_ext_inst_type_t type,
                                             const char* textValue,
@@ -245,9 +254,10 @@ spv_result_t AssemblyGrammar::lookupExtInst(spv_ext_inst_type_t type,
   return spvExtInstTableValueLookup(extInstTable_, type, firstWord, extInst);
 }
 
-void AssemblyGrammar::prependOperandTypesForMask(
+void AssemblyGrammar::pushOperandTypesForMask(
     const spv_operand_type_t type, const uint32_t mask,
     spv_operand_pattern_t* pattern) const {
-  spvPrependOperandTypesForMask(operandTable_, type, mask, pattern);
+  spvPushOperandTypesForMask(target_env_, operandTable_, type, mask, pattern);
 }
-}  // namespace libspirv
+
+}  // namespace spvtools

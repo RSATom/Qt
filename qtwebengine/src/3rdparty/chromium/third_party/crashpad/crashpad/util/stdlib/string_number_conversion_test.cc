@@ -18,7 +18,7 @@
 
 #include <limits>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "gtest/gtest.h"
 
 namespace crashpad {
@@ -26,7 +26,7 @@ namespace test {
 namespace {
 
 TEST(StringNumberConversion, StringToInt) {
-  const struct {
+  static constexpr struct {
     const char* string;
     bool valid;
     int value;
@@ -94,7 +94,7 @@ TEST(StringNumberConversion, StringToInt) {
       {"18446744073709551616", false, 0},
   };
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
     int value;
     bool valid = StringToNumber(kTestData[index].string, &value);
     if (kTestData[index].valid) {
@@ -113,18 +113,14 @@ TEST(StringNumberConversion, StringToInt) {
   // Ensure that embedded NUL characters are treated as bad input. The string
   // is split to avoid MSVC warning:
   //   "decimal digit terminates octal escape sequence".
-  const char input[] = "6\000" "6";
-  base::StringPiece input_string(input, arraysize(input) - 1);
+  static constexpr char input[] = "6\000" "6";
+  std::string input_string(input, base::size(input) - 1);
   int output;
   EXPECT_FALSE(StringToNumber(input_string, &output));
-
-  // Ensure that a NUL is not required at the end of the string.
-  EXPECT_TRUE(StringToNumber(base::StringPiece("66", 1), &output));
-  EXPECT_EQ(output, 6);
 }
 
 TEST(StringNumberConversion, StringToUnsignedInt) {
-  const struct {
+  static constexpr struct {
     const char* string;
     bool valid;
     unsigned int value;
@@ -192,7 +188,7 @@ TEST(StringNumberConversion, StringToUnsignedInt) {
       {"18446744073709551616", false, 0},
   };
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
     unsigned int value;
     bool valid = StringToNumber(kTestData[index].string, &value);
     if (kTestData[index].valid) {
@@ -211,18 +207,14 @@ TEST(StringNumberConversion, StringToUnsignedInt) {
   // Ensure that embedded NUL characters are treated as bad input. The string
   // is split to avoid MSVC warning:
   //   "decimal digit terminates octal escape sequence".
-  const char input[] = "6\000" "6";
-  base::StringPiece input_string(input, arraysize(input) - 1);
+  static constexpr char input[] = "6\000" "6";
+  std::string input_string(input, base::size(input) - 1);
   unsigned int output;
   EXPECT_FALSE(StringToNumber(input_string, &output));
-
-  // Ensure that a NUL is not required at the end of the string.
-  EXPECT_TRUE(StringToNumber(base::StringPiece("66", 1), &output));
-  EXPECT_EQ(output, 6u);
 }
 
 TEST(StringNumberConversion, StringToInt64) {
-  const struct {
+  static constexpr struct {
     const char* string;
     bool valid;
     int64_t value;
@@ -253,7 +245,7 @@ TEST(StringNumberConversion, StringToInt64) {
       {"0x7Fffffffffffffff", true, std::numeric_limits<int64_t>::max()},
   };
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
     int64_t value;
     bool valid = StringToNumber(kTestData[index].string, &value);
     if (kTestData[index].valid) {
@@ -271,7 +263,7 @@ TEST(StringNumberConversion, StringToInt64) {
 }
 
 TEST(StringNumberConversion, StringToUnsignedInt64) {
-  const struct {
+  static constexpr struct {
     const char* string;
     bool valid;
     uint64_t value;
@@ -303,7 +295,7 @@ TEST(StringNumberConversion, StringToUnsignedInt64) {
       {"0xFfffffffffffffff", true, std::numeric_limits<uint64_t>::max()},
   };
 
-  for (size_t index = 0; index < arraysize(kTestData); ++index) {
+  for (size_t index = 0; index < base::size(kTestData); ++index) {
     uint64_t value;
     bool valid = StringToNumber(kTestData[index].string, &value);
     if (kTestData[index].valid) {

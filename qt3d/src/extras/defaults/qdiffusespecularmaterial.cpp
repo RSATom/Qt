@@ -253,7 +253,7 @@ void QDiffuseSpecularMaterialPrivate::handleTextureScaleChanged(const QVariant &
     \list
     \li Ambient is the color that is emitted by an object without any other
         light source.
-    \li Diffuse is the color that is emitted for rought surface reflections
+    \li Diffuse is the color that is emitted for rough surface reflections
         with the lights.
     \li Specular is the color emitted for shiny surface reflections with the
         lights.
@@ -285,12 +285,14 @@ QDiffuseSpecularMaterial::~QDiffuseSpecularMaterial()
 /*!
     \property QDiffuseSpecularMaterial::ambient
 
-    Holds the ambient color.
+    Holds the ambient color that is emitted by an object without any other
+    light source.
 */
 /*!
     \qmlproperty color DiffuseSpecularMaterial::ambient
 
-    Holds the ambient color.
+    Holds the ambient color that is emitted by an object without any other
+    light source.
 */
 QColor QDiffuseSpecularMaterial::ambient() const
 {
@@ -301,14 +303,16 @@ QColor QDiffuseSpecularMaterial::ambient() const
 /*!
     \property QDiffuseSpecularMaterial::diffuse
 
-    Holds the diffuse color of the material. This can be either a plain color
-    value or a texture.
+    Holds the diffuse color of the material that is emitted for rough surface
+    reflections with the lights. This can be either a plain color value or a
+    texture.
 */
 /*!
     \qmlproperty var DiffuseSpecularMaterial::diffuse
 
-    Holds the diffuse color of the material. This can be either a plain color
-    value or a texture.
+    Holds the diffuse color of the material that is emitted for rough surface
+    reflections with the lights. This can be either a plain color value or a
+    texture.
 */
 QVariant QDiffuseSpecularMaterial::diffuse() const
 {
@@ -319,14 +323,16 @@ QVariant QDiffuseSpecularMaterial::diffuse() const
 /*!
     \property QDiffuseSpecularMaterial::specular
 
-    Holds the specular color of the material. This can be either a plain color
-    value or a texture.
+    Holds the specular color of the material that is emitted for shiny surface
+    reflections with the lights. This can be either a plain color value or a
+    texture.
 */
 /*!
     \qmlproperty var DiffuseSpecularMaterial::specular
 
-    Holds the specular color of the material. This can be either a plain color
-    value or a texture.
+    Holds the specular color of the material that is emitted for shiny surface
+    reflections with the lights. This can be either a plain color value or a
+    texture.
 */
 QVariant QDiffuseSpecularMaterial::specular() const
 {
@@ -337,12 +343,18 @@ QVariant QDiffuseSpecularMaterial::specular() const
 /*!
     \property QDiffuseSpecularMaterial::shininess
 
-    Holds the shininess exponent.
+    Holds the shininess exponent. Higher values of shininess result in
+    a smaller and brighter highlight.
+
+    Defaults to 150.0.
 */
 /*!
     \qmlproperty real DiffuseSpecularMaterial::shininess
 
-    Holds the shininess exponent.
+    Holds the shininess exponent. Higher values of shininess result in
+    a smaller and brighter highlight.
+
+    Defaults to 150.0.
 */
 float QDiffuseSpecularMaterial::shininess() const
 {
@@ -373,12 +385,20 @@ QVariant QDiffuseSpecularMaterial::normal() const
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with QTextureWrapMode::Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 /*!
     \qmlproperty real DiffuseSpecularMaterial::textureScale
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with WrapMode.Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 float QDiffuseSpecularMaterial::textureScale() const
 {

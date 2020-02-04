@@ -53,22 +53,22 @@
 
 #include "qremoteobjectpendingcall.h"
 
-#include <QMutex>
+#include <QtCore/qmutex.h>
 
 QT_BEGIN_NAMESPACE
 
 class QRemoteObjectPendingCallWatcherHelper;
-class QRemoteObjectReplicaPrivate;
+class QRemoteObjectReplicaImplementation;
 
 class QRemoteObjectPendingCallData : public QSharedData
 {
 public:
     typedef QExplicitlySharedDataPointer<QRemoteObjectPendingCallData> Ptr;
 
-    explicit QRemoteObjectPendingCallData(int serialId = -1, QRemoteObjectReplicaPrivate *replica = nullptr);
+    explicit QRemoteObjectPendingCallData(int serialId = -1, QRemoteObjectReplicaImplementation *replica = nullptr);
     ~QRemoteObjectPendingCallData();
 
-    QRemoteObjectReplicaPrivate *replica;
+    QRemoteObjectReplicaImplementation *replica;
     int serialId;
 
     QVariant returnValue;

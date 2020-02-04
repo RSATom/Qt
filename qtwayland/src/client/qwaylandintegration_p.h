@@ -54,6 +54,7 @@
 #include <QtWaylandClient/qtwaylandclientglobal.h>
 #include <qpa/qplatformintegration.h>
 #include <QtCore/QScopedPointer>
+#include <QtCore/QMutex>
 
 QT_BEGIN_NAMESPACE
 
@@ -71,7 +72,9 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandIntegration : public QPlatformIntegration
 {
 public:
     QWaylandIntegration();
-    ~QWaylandIntegration();
+    ~QWaylandIntegration() override;
+
+    bool hasFailed() { return mFailed; }
 
     bool hasCapability(QPlatformIntegration::Capability cap) const override;
     QPlatformWindow *createPlatformWindow(QWindow *window) const override;
@@ -104,6 +107,8 @@ public:
 
     QWaylandDisplay *display() const;
 
+    QList<int> possibleKeys(const QKeyEvent *event) const override;
+
     QStringList themeNames() const override;
 
     QPlatformTheme *createPlatformTheme(const QString &name) const override;
@@ -114,8 +119,11 @@ public:
     virtual QWaylandServerBufferIntegration *serverBufferIntegration() const;
     virtual QWaylandShellIntegration *shellIntegration() const;
 
+    void reconfigureInputContext();
+
 private:
-    // NOTE: mDisplay *must* be destructed after mDrag and mClientBufferIntegration.
+    // NOTE: mDisplay *must* be destructed after mDrag and mClientBufferIntegration
+    // and mShellIntegration.
     // Do not move this definition into the private section at the bottom.
     QScopedPointer<QWaylandDisplay> mDisplay;
 
@@ -142,11 +150,13 @@ private:
     QScopedPointer<QPlatformNativeInterface> mNativeInterface;
     QScopedPointer<QPlatformInputContext> mInputContext;
 #if QT_CONFIG(accessibility)
-    QScopedPointer<QPlatformAccessibility> mAccessibility;
+    mutable QScopedPointer<QPlatformAccessibility> mAccessibility;
 #endif
-    bool mClientBufferIntegrationInitialized;
-    bool mServerBufferIntegrationInitialized;
-    bool mShellIntegrationInitialized;
+    bool mFailed = false;
+    QMutex mClientBufferInitLock;
+    bool mClientBufferIntegrationInitialized = false;
+    bool mServerBufferIntegrationInitialized = false;
+    bool mShellIntegrationInitialized = false;
 
     friend class QWaylandDisplay;
 };

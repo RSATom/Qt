@@ -13,7 +13,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/service_worker/service_worker_register_job_base.h"
-#include "content/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -28,17 +28,17 @@ class ServiceWorkerRegistration;
 // ServiceWorkerRegistration itself.
 class ServiceWorkerUnregisterJob : public ServiceWorkerRegisterJobBase {
  public:
-  typedef base::Callback<void(int64_t registration_id,
-                              ServiceWorkerStatusCode status)>
+  typedef base::OnceCallback<void(int64_t registration_id,
+                                  blink::ServiceWorkerStatusCode status)>
       UnregistrationCallback;
 
   ServiceWorkerUnregisterJob(base::WeakPtr<ServiceWorkerContextCore> context,
-                             const GURL& pattern);
+                             const GURL& scope);
   ~ServiceWorkerUnregisterJob() override;
 
   // Registers a callback to be called when the job completes (whether
   // successfully or not). Multiple callbacks may be registered.
-  void AddCallback(const UnregistrationCallback& callback);
+  void AddCallback(UnregistrationCallback callback);
 
   // ServiceWorkerRegisterJobBase implementation:
   void Start() override;
@@ -48,15 +48,16 @@ class ServiceWorkerUnregisterJob : public ServiceWorkerRegisterJobBase {
 
  private:
   void OnRegistrationFound(
-      ServiceWorkerStatusCode status,
+      blink::ServiceWorkerStatusCode status,
       scoped_refptr<ServiceWorkerRegistration> registration);
-  void Complete(int64_t registration_id, ServiceWorkerStatusCode status);
+  void Complete(int64_t registration_id, blink::ServiceWorkerStatusCode status);
   void CompleteInternal(int64_t registration_id,
-                        ServiceWorkerStatusCode status);
-  void ResolvePromise(int64_t registration_id, ServiceWorkerStatusCode status);
+                        blink::ServiceWorkerStatusCode status);
+  void ResolvePromise(int64_t registration_id,
+                      blink::ServiceWorkerStatusCode status);
 
   base::WeakPtr<ServiceWorkerContextCore> context_;
-  const GURL pattern_;
+  const GURL scope_;
   std::vector<UnregistrationCallback> callbacks_;
   bool is_promise_resolved_;
   base::WeakPtrFactory<ServiceWorkerUnregisterJob> weak_factory_;

@@ -4,10 +4,6 @@
 
 #include "gpu/command_buffer/service/shader_translator_cache.h"
 
-#include <GLES2/gl2.h>
-
-#include "gpu/command_buffer/service/gpu_preferences.h"
-
 namespace gpu {
 namespace gles2 {
 
@@ -53,7 +49,7 @@ scoped_refptr<ShaderTranslator> ShaderTranslatorCache::GetTranslator(
     translator->AddDestructionObserver(this);
     return translator;
   } else {
-    return NULL;
+    return nullptr;
   }
 }
 

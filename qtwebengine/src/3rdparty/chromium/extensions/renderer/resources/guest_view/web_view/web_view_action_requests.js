@@ -5,6 +5,7 @@
 // This module implements helper objects for the dialog, newwindow, and
 // permissionrequest <webview> events.
 
+var logging = requireNative('logging');
 var MessagingNatives = requireNative('messaging_natives');
 var WebViewConstants = require('webViewConstants').WebViewConstants;
 var WebViewInternal = getInternalApi ?
@@ -18,6 +19,15 @@ var PERMISSION_TYPES = ['media',
                         'loadplugin',
                         'filesystem',
                         'fullscreen'];
+
+// The browser will kill us if we send it a bad instance ID.
+// TODO(780728): Remove once the cause of the bad ID is known.
+function CrashIfInvalidInstanceId(instanceId, culpritFunction) {
+  logging.CHECK(
+      instanceId > 0,
+      'WebView: Invalid instance ID (' + instanceId + ') from ' +
+          culpritFunction);
+}
 
 // -----------------------------------------------------------------------------
 // WebViewActionRequest object.
@@ -41,8 +51,8 @@ function WebViewActionRequest(webViewImpl, event, webViewEvent, interfaceName) {
 
 // Prevent GuestViewEvents inadvertently inheritng code from the global Object,
 // allowing a pathway for unintended execution of user code.
-// TODO(wjmaclean): Use utils.expose() here instead, track down other issues
-// of Object inheritance. https://crbug.com/701034
+// TODO(wjmaclean): Track down other issues of Object inheritance.
+// https://crbug.com/701034
 WebViewActionRequest.prototype.__proto__ = null;
 
 // Performs the default action for the request.
@@ -55,6 +65,8 @@ WebViewActionRequest.prototype.defaultAction = function() {
   }
 
   this.actionTaken = true;
+  CrashIfInvalidInstanceId(
+      this.guestInstanceId, 'WebViewActionRequest.defaultAction');
   WebViewInternal.setPermission(this.guestInstanceId, this.requestId, 'default',
                                 '', $Function.bind(function(allowed) {
     if (allowed) {
@@ -115,7 +127,8 @@ WebViewActionRequest.prototype.WARNING_MSG_REQUEST_BLOCKED = undefined;
 
 // Represents a dialog box request (e.g. alert()).
 function Dialog(webViewImpl, event, webViewEvent) {
-  WebViewActionRequest.call(this, webViewImpl, event, webViewEvent, 'dialog');
+  $Function.call(
+      WebViewActionRequest, this, webViewImpl, event, webViewEvent, 'dialog');
 
   this.handleActionRequestEvent();
 }
@@ -127,11 +140,13 @@ Dialog.prototype.getInterfaceObject = function() {
     ok: $Function.bind(function(user_input) {
       this.validateCall();
       user_input = user_input || '';
+      CrashIfInvalidInstanceId(this.guestInstanceId, 'Dialog ok');
       WebViewInternal.setPermission(
           this.guestInstanceId, this.requestId, 'allow', user_input);
     }, this),
     cancel: $Function.bind(function() {
       this.validateCall();
+      CrashIfInvalidInstanceId(this.guestInstanceId, 'Dialog cancel');
       WebViewInternal.setPermission(
           this.guestInstanceId, this.requestId, 'deny');
     }, this)
@@ -141,9 +156,11 @@ Dialog.prototype.getInterfaceObject = function() {
 Dialog.prototype.showWarningMessage = function() {
   var VOWELS = ['a', 'e', 'i', 'o', 'u'];
   var dialogType = this.event.messageType;
-  var article = (VOWELS.indexOf(dialogType.charAt(0)) >= 0) ? 'An' : 'A';
-  this.WARNING_MSG_REQUEST_BLOCKED = this.WARNING_MSG_REQUEST_BLOCKED.
-      replace('%1', article).replace('%2', dialogType);
+  var article =
+      ($Array.indexOf(VOWELS, dialogType.charAt(0)) >= 0) ? 'An' : 'A';
+  this.WARNING_MSG_REQUEST_BLOCKED = $String.replace(
+      $String.replace(this.WARNING_MSG_REQUEST_BLOCKED, '%1', article), '%2',
+      dialogType);
   window.console.warn(this.WARNING_MSG_REQUEST_BLOCKED);
 };
 
@@ -157,7 +174,8 @@ Dialog.prototype.WARNING_MSG_REQUEST_BLOCKED =
 
 // Represents a new window request.
 function NewWindow(webViewImpl, event, webViewEvent) {
-  WebViewActionRequest.call(this, webViewImpl, event, webViewEvent, 'window');
+  $Function.call(
+      WebViewActionRequest, this, webViewImpl, event, webViewEvent, 'window');
 
   this.handleActionRequestEvent();
 }
@@ -193,6 +211,7 @@ NewWindow.prototype.getInterfaceObject = function() {
       // then we will fail and it will be treated as if the new window
       // was rejected. The permission API plumbing is used here to clean
       // up the state created for the new window if attaching fails.
+      CrashIfInvalidInstanceId(this.guestInstanceId, 'NewWindow attach');
       WebViewInternal.setPermission(this.guestInstanceId, this.requestId,
                                     attached ? 'allow' : 'deny');
     }, this),
@@ -203,6 +222,7 @@ NewWindow.prototype.getInterfaceObject = function() {
         // guestInstanceId.
         return;
       }
+      CrashIfInvalidInstanceId(this.guestInstanceId, 'NewWindow discard');
       WebViewInternal.setPermission(
           this.guestInstanceId, this.requestId, 'deny');
     }, this)
@@ -219,7 +239,8 @@ NewWindow.prototype.WARNING_MSG_REQUEST_BLOCKED =
 
 // Represents a permission request (e.g. to access the filesystem).
 function PermissionRequest(webViewImpl, event, webViewEvent) {
-  WebViewActionRequest.call(this, webViewImpl, event, webViewEvent, 'request');
+  $Function.call(
+      WebViewActionRequest, this, webViewImpl, event, webViewEvent, 'request');
 
   if (!this.validPermissionCheck()) {
     return;
@@ -232,11 +253,13 @@ PermissionRequest.prototype.__proto__ = WebViewActionRequest.prototype;
 
 PermissionRequest.prototype.allow = function() {
   this.validateCall();
+  CrashIfInvalidInstanceId(this.guestInstanceId, 'PermissionRequest.allow');
   WebViewInternal.setPermission(this.guestInstanceId, this.requestId, 'allow');
 };
 
 PermissionRequest.prototype.deny = function() {
   this.validateCall();
+  CrashIfInvalidInstanceId(this.guestInstanceId, 'PermissionRequest.deny');
   WebViewInternal.setPermission(this.guestInstanceId, this.requestId, 'deny');
 };
 
@@ -255,13 +278,13 @@ PermissionRequest.prototype.getInterfaceObject = function() {
 };
 
 PermissionRequest.prototype.showWarningMessage = function() {
-  window.console.warn(
-      this.WARNING_MSG_REQUEST_BLOCKED.replace('%1', this.event.permission));
+  window.console.warn($String.replace(
+      this.WARNING_MSG_REQUEST_BLOCKED, '%1', this.event.permission));
 };
 
 // Checks that the requested permission is valid. Returns true if valid.
 PermissionRequest.prototype.validPermissionCheck = function() {
-  if (PERMISSION_TYPES.indexOf(this.event.permission) < 0) {
+  if ($Array.indexOf(PERMISSION_TYPES, this.event.permission) < 0) {
     // The permission type is not allowed. Trigger the default response.
     this.defaultAction();
     return false;
@@ -280,13 +303,13 @@ PermissionRequest.prototype.WARNING_MSG_REQUEST_BLOCKED =
 
 // Represents a fullscreen permission request.
 function FullscreenPermissionRequest(webViewImpl, event, webViewEvent) {
-  PermissionRequest.call(this, webViewImpl, event, webViewEvent);
+  $Function.call(PermissionRequest, this, webViewImpl, event, webViewEvent);
 }
 
 FullscreenPermissionRequest.prototype.__proto__ = PermissionRequest.prototype;
 
 FullscreenPermissionRequest.prototype.allow = function() {
-  PermissionRequest.prototype.allow.call(this);
+  $Function.call(PermissionRequest.prototype.allow, this);
   // Now make the <webview> element go fullscreen.
   this.webViewImpl.makeElementFullscreen();
 };

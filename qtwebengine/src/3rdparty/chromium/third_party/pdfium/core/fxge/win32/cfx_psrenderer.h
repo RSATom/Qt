@@ -10,13 +10,13 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/retain_ptr.h"
 #include "core/fxge/cfx_graphstatedata.h"
 
-class CFX_DIBSource;
+class CFX_DIBBase;
 class CFX_FaceCache;
 class CFX_Font;
 class CFX_FontCache;
@@ -24,13 +24,14 @@ class CFX_Matrix;
 class CFX_PathData;
 class CPSFont;
 class FXTEXT_CHARPOS;
+struct FXDIB_ResampleOptions;
 
 class CFX_PSRenderer {
  public:
   CFX_PSRenderer();
   ~CFX_PSRenderer();
 
-  void Init(const CFX_RetainPtr<IFX_WriteStream>& stream,
+  void Init(const RetainPtr<IFX_RetainableWriteStream>& stream,
             int pslevel,
             int width,
             int height,
@@ -52,21 +53,21 @@ class CFX_PSRenderer {
                 uint32_t fill_color,
                 uint32_t stroke_color,
                 int fill_mode);
-  bool SetDIBits(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+  bool SetDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                  uint32_t color,
                  int dest_left,
                  int dest_top);
-  bool StretchDIBits(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                      uint32_t color,
                      int dest_left,
                      int dest_top,
                      int dest_width,
                      int dest_height,
-                     uint32_t flags);
-  bool DrawDIBits(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+                     const FXDIB_ResampleOptions& options);
+  bool DrawDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
                   uint32_t color,
-                  const CFX_Matrix* pMatrix,
-                  uint32_t flags);
+                  const CFX_Matrix& matrix,
+                  const FXDIB_ResampleOptions& options);
   bool DrawText(int nChars,
                 const FXTEXT_CHARPOS* pCharPos,
                 CFX_Font* pFont,
@@ -85,8 +86,9 @@ class CFX_PSRenderer {
                        int* ps_fontnum,
                        int* ps_glyphindex);
   void WritePSBinary(const uint8_t* data, int len);
+  void WriteToStream(std::ostringstream* stringStream);
 
-  CFX_RetainPtr<IFX_WriteStream> m_pStream;
+  RetainPtr<IFX_RetainableWriteStream> m_pStream;
   int m_PSLevel;
   CFX_GraphStateData m_CurGraphState;
   bool m_bGraphStateSet;

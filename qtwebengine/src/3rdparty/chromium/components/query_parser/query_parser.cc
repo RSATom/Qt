@@ -5,13 +5,13 @@
 #include "components/query_parser/query_parser.h"
 
 #include <algorithm>
+#include <memory>
 
 #include "base/compiler_specific.h"
 #include "base/i18n/break_iterator.h"
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 
 namespace query_parser {
@@ -36,8 +36,7 @@ bool SnippetIntersects(const Snippet::MatchPosition& mp1,
 // position at |index|.
 void CoalesceMatchesFrom(size_t index, Snippet::MatchPositions* matches) {
   Snippet::MatchPosition& mp = (*matches)[index];
-  for (Snippet::MatchPositions::iterator i = matches->begin() + index + 1;
-       i != matches->end(); ) {
+  for (auto i = matches->begin() + index + 1; i != matches->end();) {
     if (SnippetIntersects(mp, *i)) {
       mp.second = std::max(mp.second, i->second);
       i = matches->erase(i);
@@ -424,7 +423,7 @@ bool QueryParser::ParseQueryImpl(const base::string16& query,
     // or whitespace.
     if (iter.IsWord()) {
       std::unique_ptr<QueryNodeWord> word_node =
-          base::MakeUnique<QueryNodeWord>(iter.GetString(), matching_algorithm);
+          std::make_unique<QueryNodeWord>(iter.GetString(), matching_algorithm);
       if (in_quotes)
         word_node->set_literal(true);
       query_stack.back()->AddChild(std::move(word_node));
@@ -432,7 +431,7 @@ bool QueryParser::ParseQueryImpl(const base::string16& query,
       if (IsQueryQuote(query[iter.prev()])) {
         if (!in_quotes) {
           std::unique_ptr<QueryNodeList> quotes_node =
-              base::MakeUnique<QueryNodePhrase>();
+              std::make_unique<QueryNodePhrase>();
           QueryNodeList* quotes_node_ptr = quotes_node.get();
           query_stack.back()->AddChild(std::move(quotes_node));
           query_stack.push_back(quotes_node_ptr);

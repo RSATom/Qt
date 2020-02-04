@@ -7,35 +7,41 @@
 #ifndef CORE_FPDFAPI_EDIT_CPDF_FLATEENCODER_H_
 #define CORE_FPDFAPI_EDIT_CPDF_FLATEENCODER_H_
 
-#include "core/fpdfapi/parser/cpdf_dictionary.h"
-#include "core/fpdfapi/parser/cpdf_stream_acc.h"
-#include "core/fxcrt/cfx_maybe_owned.h"
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/fx_memory.h"
+#include <memory>
 
+#include "core/fpdfapi/parser/cpdf_stream_acc.h"
+#include "core/fxcrt/fx_memory.h"
+#include "core/fxcrt/maybe_owned.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "third_party/base/span.h"
+
+class CPDF_Dictionary;
 class CPDF_Stream;
 
 class CPDF_FlateEncoder {
  public:
-  CPDF_FlateEncoder(CPDF_Stream* pStream, bool bFlateEncode);
-  CPDF_FlateEncoder(const uint8_t* pBuffer,
-                    uint32_t size,
-                    bool bFlateEncode,
-                    bool bXRefStream);
+  CPDF_FlateEncoder(const CPDF_Stream* pStream, bool bFlateEncode);
   ~CPDF_FlateEncoder();
 
   void CloneDict();
+  CPDF_Dictionary* GetClonedDict();
 
-  uint32_t GetSize() const { return m_dwSize; }
-  uint8_t* GetData() const { return m_pData.Get(); }
+  // Returns |m_pClonedDict| if it is valid. Otherwise returns |m_pDict|.
+  const CPDF_Dictionary* GetDict() const;
 
-  CPDF_Dictionary* GetDict() { return m_pDict.Get(); }
+  pdfium::span<const uint8_t> GetSpan() const {
+    return pdfium::make_span(m_pData.Get(), m_dwSize);
+  }
 
  private:
+  RetainPtr<CPDF_StreamAcc> m_pAcc;
+
   uint32_t m_dwSize;
-  CFX_MaybeOwned<uint8_t, FxFreeDeleter> m_pData;
-  CFX_MaybeOwned<CPDF_Dictionary> m_pDict;
-  CFX_RetainPtr<CPDF_StreamAcc> m_pAcc;
+  MaybeOwned<uint8_t, FxFreeDeleter> m_pData;
+
+  // Only one of these two pointers is valid at any time.
+  UnownedPtr<const CPDF_Dictionary> m_pDict;
+  std::unique_ptr<CPDF_Dictionary> m_pClonedDict;
 };
 
 #endif  // CORE_FPDFAPI_EDIT_CPDF_FLATEENCODER_H_

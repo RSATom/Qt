@@ -6,12 +6,12 @@
 
 #include <algorithm>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <utility>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/combobox_model.h"
@@ -19,6 +19,7 @@
 #include "ui/views/background.h"
 #include "ui/views/controls/combobox/combobox.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/examples/animated_image_view_example.h"
 #include "ui/views/examples/box_layout_example.h"
 #include "ui/views/examples/bubble_example.h"
 #include "ui/views/examples/button_example.h"
@@ -26,6 +27,7 @@
 #include "ui/views/examples/checkbox_example.h"
 #include "ui/views/examples/combobox_example.h"
 #include "ui/views/examples/dialog_example.h"
+#include "ui/views/examples/flex_layout_example.h"
 #include "ui/views/examples/label_example.h"
 #include "ui/views/examples/link_example.h"
 #include "ui/views/examples/menu_example.h"
@@ -59,31 +61,33 @@ namespace {
 // Creates the default set of examples.
 ExampleVector CreateExamples() {
   ExampleVector examples;
-  examples.push_back(base::MakeUnique<BoxLayoutExample>());
-  examples.push_back(base::MakeUnique<BubbleExample>());
-  examples.push_back(base::MakeUnique<ButtonExample>());
-  examples.push_back(base::MakeUnique<ButtonStickerSheet>());
-  examples.push_back(base::MakeUnique<CheckboxExample>());
-  examples.push_back(base::MakeUnique<ComboboxExample>());
-  examples.push_back(base::MakeUnique<DialogExample>());
-  examples.push_back(base::MakeUnique<LabelExample>());
-  examples.push_back(base::MakeUnique<LinkExample>());
-  examples.push_back(base::MakeUnique<MenuExample>());
-  examples.push_back(base::MakeUnique<MessageBoxExample>());
-  examples.push_back(base::MakeUnique<MultilineExample>());
-  examples.push_back(base::MakeUnique<ProgressBarExample>());
-  examples.push_back(base::MakeUnique<RadioButtonExample>());
-  examples.push_back(base::MakeUnique<ScrollViewExample>());
-  examples.push_back(base::MakeUnique<SliderExample>());
-  examples.push_back(base::MakeUnique<TabbedPaneExample>());
-  examples.push_back(base::MakeUnique<TableExample>());
-  examples.push_back(base::MakeUnique<TextExample>());
-  examples.push_back(base::MakeUnique<TextfieldExample>());
-  examples.push_back(base::MakeUnique<ToggleButtonExample>());
-  examples.push_back(base::MakeUnique<ThrobberExample>());
-  examples.push_back(base::MakeUnique<TreeViewExample>());
-  examples.push_back(base::MakeUnique<VectorExample>());
-  examples.push_back(base::MakeUnique<WidgetExample>());
+  examples.push_back(std::make_unique<AnimatedImageViewExample>());
+  examples.push_back(std::make_unique<BoxLayoutExample>());
+  examples.push_back(std::make_unique<BubbleExample>());
+  examples.push_back(std::make_unique<ButtonExample>());
+  examples.push_back(std::make_unique<ButtonStickerSheet>());
+  examples.push_back(std::make_unique<CheckboxExample>());
+  examples.push_back(std::make_unique<ComboboxExample>());
+  examples.push_back(std::make_unique<DialogExample>());
+  examples.push_back(std::make_unique<FlexLayoutExample>());
+  examples.push_back(std::make_unique<LabelExample>());
+  examples.push_back(std::make_unique<LinkExample>());
+  examples.push_back(std::make_unique<MenuExample>());
+  examples.push_back(std::make_unique<MessageBoxExample>());
+  examples.push_back(std::make_unique<MultilineExample>());
+  examples.push_back(std::make_unique<ProgressBarExample>());
+  examples.push_back(std::make_unique<RadioButtonExample>());
+  examples.push_back(std::make_unique<ScrollViewExample>());
+  examples.push_back(std::make_unique<SliderExample>());
+  examples.push_back(std::make_unique<TabbedPaneExample>());
+  examples.push_back(std::make_unique<TableExample>());
+  examples.push_back(std::make_unique<TextExample>());
+  examples.push_back(std::make_unique<TextfieldExample>());
+  examples.push_back(std::make_unique<ToggleButtonExample>());
+  examples.push_back(std::make_unique<ThrobberExample>());
+  examples.push_back(std::make_unique<TreeViewExample>());
+  examples.push_back(std::make_unique<VectorExample>());
+  examples.push_back(std::make_unique<WidgetExample>());
   return examples;
 }
 
@@ -132,19 +136,22 @@ class ComboboxModelExampleList : public ui::ComboboxModel {
 class ExamplesWindowContents : public WidgetDelegateView,
                                public ComboboxListener {
  public:
-  ExamplesWindowContents(Operation operation, ExampleVector examples)
-      : combobox_(new Combobox(&combobox_model_)),
-        example_shown_(new View),
+  ExamplesWindowContents(base::OnceClosure on_close, ExampleVector examples)
+      : example_shown_(new View),
         status_label_(new Label),
-        operation_(operation) {
+        on_close_(std::move(on_close)) {
+    auto combobox_model = std::make_unique<ComboboxModelExampleList>();
+    combobox_model_ = combobox_model.get();
+    combobox_ = new Combobox(std::move(combobox_model));
+
     instance_ = this;
     combobox_->set_listener(this);
-    combobox_model_.SetExamples(std::move(examples));
+    combobox_model_->SetExamples(std::move(examples));
     combobox_->ModelChanged();
 
     SetBackground(CreateStandardPanelBackground());
-    GridLayout* layout = new GridLayout(this);
-    SetLayoutManager(layout);
+    GridLayout* layout =
+        SetLayoutManager(std::make_unique<views::GridLayout>(this));
     ColumnSet* column_set = layout->AddColumnSet(0);
     column_set->AddPaddingColumn(0, 5);
     column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
@@ -154,10 +161,10 @@ class ExamplesWindowContents : public WidgetDelegateView,
     layout->StartRow(0 /* no expand */, 0);
     layout->AddView(combobox_);
 
-    if (combobox_model_.GetItemCount() > 0) {
+    if (combobox_model_->GetItemCount() > 0) {
       layout->StartRow(1, 0);
-      example_shown_->SetLayoutManager(new FillLayout());
-      example_shown_->AddChildView(combobox_model_.GetItemViewAt(0));
+      example_shown_->SetLayoutManager(std::make_unique<FillLayout>());
+      example_shown_->AddChildView(combobox_model_->GetItemViewAt(0));
       layout->AddView(example_shown_);
     }
 
@@ -166,11 +173,7 @@ class ExamplesWindowContents : public WidgetDelegateView,
     layout->AddPaddingRow(0, 5);
   }
 
-  ~ExamplesWindowContents() override {
-    // Delete |combobox_| first as it references |combobox_model_|.
-    delete combobox_;
-    combobox_ = NULL;
-  }
+  ~ExamplesWindowContents() override = default;
 
   // Prints a message in the status area, at the bottom of the window.
   void SetStatus(const std::string& status) {
@@ -189,8 +192,8 @@ class ExamplesWindowContents : public WidgetDelegateView,
   }
   void WindowClosing() override {
     instance_ = NULL;
-    if (operation_ == QUIT_ON_CLOSE)
-      base::MessageLoop::current()->QuitWhenIdle();
+    if (on_close_)
+      std::move(on_close_).Run();
   }
   gfx::Size CalculatePreferredSize() const override {
     return gfx::Size(800, 300);
@@ -199,21 +202,22 @@ class ExamplesWindowContents : public WidgetDelegateView,
   // ComboboxListener:
   void OnPerformAction(Combobox* combobox) override {
     DCHECK_EQ(combobox, combobox_);
-    DCHECK(combobox->selected_index() < combobox_model_.GetItemCount());
+    DCHECK(combobox->selected_index() < combobox_model_->GetItemCount());
     example_shown_->RemoveAllChildViews(false);
-    example_shown_->AddChildView(combobox_model_.GetItemViewAt(
-        combobox->selected_index()));
+    example_shown_->AddChildView(
+        combobox_model_->GetItemViewAt(combobox->selected_index()));
     example_shown_->RequestFocus();
     SetStatus(std::string());
     Layout();
   }
 
   static ExamplesWindowContents* instance_;
-  ComboboxModelExampleList combobox_model_;
-  Combobox* combobox_;
   View* example_shown_;
   Label* status_label_;
-  const Operation operation_;
+  base::OnceClosure on_close_;
+  Combobox* combobox_ = nullptr;
+  // Owned by |combobox_|.
+  ComboboxModelExampleList* combobox_model_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(ExamplesWindowContents);
 };
@@ -221,7 +225,7 @@ class ExamplesWindowContents : public WidgetDelegateView,
 // static
 ExamplesWindowContents* ExamplesWindowContents::instance_ = NULL;
 
-void ShowExamplesWindow(Operation operation,
+void ShowExamplesWindow(base::OnceClosure on_close,
                         gfx::NativeWindow window_context,
                         ExampleVector extra_examples) {
   if (ExamplesWindowContents::instance()) {
@@ -231,7 +235,7 @@ void ShowExamplesWindow(Operation operation,
     Widget* widget = new Widget;
     Widget::InitParams params;
     params.delegate =
-        new ExamplesWindowContents(operation, std::move(examples));
+        new ExamplesWindowContents(std::move(on_close), std::move(examples));
     params.context = window_context;
     widget->Init(params);
     widget->Show();

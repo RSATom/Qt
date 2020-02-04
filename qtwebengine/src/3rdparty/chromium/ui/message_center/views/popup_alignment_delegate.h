@@ -33,7 +33,7 @@ class MESSAGE_CENTER_EXPORT PopupAlignmentDelegate {
 
   // Returns the baseline height of the current work area. That is the starting
   // point if there are no other toasts.
-  virtual int GetBaseLine() const = 0;
+  virtual int GetBaseline() const = 0;
 
   // Returns the rect of the current work area.
   virtual gfx::Rect GetWorkArea() const = 0;
@@ -47,8 +47,9 @@ class MESSAGE_CENTER_EXPORT PopupAlignmentDelegate {
 
   // Called when a new toast appears or toasts are rearranged in the |display|.
   // The subclass may override this method to check the current desktop status
-  // so that the toasts are arranged at the correct place.
-  virtual void RecomputeAlignment(const display::Display& display) = 0;
+  // so that the toasts are arranged at the correct place. Return true if
+  // alignment is actually changed.
+  virtual bool RecomputeAlignment(const display::Display& display) = 0;
 
   // Sets the parent container for popups. If it does not set a parent a
   // default parent will be used (e.g. the native desktop on Windows).
@@ -63,7 +64,7 @@ class MESSAGE_CENTER_EXPORT PopupAlignmentDelegate {
  protected:
   virtual ~PopupAlignmentDelegate();
 
-  void DoUpdateIfPossible();
+  void ResetBounds();
 
  private:
   MessagePopupCollection* collection_;

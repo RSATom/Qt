@@ -53,7 +53,9 @@
 #if QT_CONFIG(mainwindow)
 #include <qmainwindow.h>
 #endif
+#if QT_CONFIG(toolbar)
 #include <qtoolbar.h>
+#endif
 #include <qvariant.h>
 #include <qstylepainter.h>
 #include <private/qabstractbutton_p.h>
@@ -201,7 +203,7 @@ void QToolButtonPrivate::init()
 {
     Q_Q(QToolButton);
     defaultAction = 0;
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
     if (qobject_cast<QToolBar*>(parent))
         autoRaise = true;
     else
@@ -245,13 +247,13 @@ void QToolButton::initStyleOption(QStyleOptionToolButton *option) const
     bool forceNoText = false;
     option->iconSize = iconSize(); //default value
 
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
     if (parentWidget()) {
         if (QToolBar *toolBar = qobject_cast<QToolBar *>(parentWidget())) {
             option->iconSize = toolBar->iconSize();
         }
     }
-#endif // QT_NO_TOOLBAR
+#endif // QT_CONFIG(toolbar)
 
     if (!forceNoText)
         option->text = d->text;
@@ -348,7 +350,7 @@ QSize QToolButton::sizeHint() const
 
     if (opt.toolButtonStyle != Qt::ToolButtonIconOnly) {
         QSize textSize = fm.size(Qt::TextShowMnemonic, text());
-        textSize.setWidth(textSize.width() + fm.width(QLatin1Char(' '))*2);
+        textSize.setWidth(textSize.width() + fm.horizontalAdvance(QLatin1Char(' '))*2);
         if (opt.toolButtonStyle == Qt::ToolButtonTextUnderIcon) {
             h += 4 + textSize.height();
             if (textSize.width() > w)
@@ -571,7 +573,7 @@ void QToolButton::timerEvent(QTimerEvent *e)
 */
 void QToolButton::changeEvent(QEvent *e)
 {
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
     Q_D(QToolButton);
     if (e->type() == QEvent::ParentChange) {
         if (qobject_cast<QToolBar*>(parentWidget()))
@@ -667,7 +669,8 @@ void QToolButton::setMenu(QMenu* menu)
 }
 
 /*!
-    Returns the associated menu, or 0 if no menu has been defined.
+    Returns the associated menu, or \nullptr if no menu has been
+    defined.
 
     \sa setMenu()
 */
@@ -676,7 +679,7 @@ QMenu* QToolButton::menu() const
     Q_D(const QToolButton);
     if (d->menuAction)
         return d->menuAction->menu();
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -743,7 +746,7 @@ void QToolButtonPrivate::popupTimerDone()
     repeat = q->autoRepeat();
     q->setAutoRepeat(false);
     bool horizontal = true;
-#if !defined(QT_NO_TOOLBAR)
+#if QT_CONFIG(toolbar)
     QToolBar *tb = qobject_cast<QToolBar*>(parent);
     if (tb && tb->orientation() == Qt::Vertical)
         horizontal = false;
@@ -754,14 +757,14 @@ void QToolButtonPrivate::popupTimerDone()
     QSize sh = ((QToolButton*)(QMenu*)actualMenu)->receivers(SIGNAL(aboutToShow()))? QSize() : actualMenu->sizeHint();
     if (horizontal) {
         if (q->isRightToLeft()) {
-            if (q->mapToGlobal(QPoint(0, rect.bottom())).y() + sh.height() <= screen.height()) {
+            if (q->mapToGlobal(QPoint(0, rect.bottom())).y() + sh.height() <= screen.bottom()) {
                 p = q->mapToGlobal(rect.bottomRight());
             } else {
                 p = q->mapToGlobal(rect.topRight() - QPoint(0, sh.height()));
             }
             p.rx() -= sh.width();
         } else {
-            if (q->mapToGlobal(QPoint(0, rect.bottom())).y() + sh.height() <= screen.height()) {
+            if (q->mapToGlobal(QPoint(0, rect.bottom())).y() + sh.height() <= screen.bottom()) {
                 p = q->mapToGlobal(rect.bottomLeft());
             } else {
                 p = q->mapToGlobal(rect.topLeft() - QPoint(0, sh.height()));
@@ -896,7 +899,23 @@ bool QToolButton::autoRaise() const
   Sets the default action to \a action.
 
   If a tool button has a default action, the action defines the
-  button's properties like text, icon, tool tip, etc.
+  following properties of the button:
+
+  \list
+  \li \l {QAbstractButton::}{checkable}
+  \li \l {QAbstractButton::}{checked}
+  \li \l {QWidget::}{enabled}
+  \li \l {QWidget::}{font}
+  \li \l {QAbstractButton::}{icon}
+  \li \l {QToolButton::}{popupMode} (assuming the action has a menu)
+  \li \l {QWidget::}{statusTip}
+  \li \l {QAbstractButton::}{text}
+  \li \l {QWidget::}{toolTip}
+  \li \l {QWidget::}{whatsThis}
+  \endlist
+
+  Other properties, such as \l autoRepeat, are not affected
+  by actions.
  */
 void QToolButton::setDefaultAction(QAction *action)
 {

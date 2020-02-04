@@ -4,302 +4,264 @@
 
 #include "content/browser/background_fetch/background_fetch_data_manager.h"
 
-#include <algorithm>
-#include <queue>
+#include <utility>
 
-#include "base/memory/ptr_util.h"
+#include "base/command_line.h"
+#include "base/containers/queue.h"
+#include "base/time/time.h"
 #include "content/browser/background_fetch/background_fetch_constants.h"
-#include "content/browser/background_fetch/background_fetch_context.h"
-#include "content/browser/background_fetch/background_fetch_cross_origin_filter.h"
+#include "content/browser/background_fetch/background_fetch_data_manager_observer.h"
 #include "content/browser/background_fetch/background_fetch_request_info.h"
-#include "content/browser/blob_storage/chrome_blob_storage_context.h"
-#include "content/public/browser/blob_handle.h"
+#include "content/browser/background_fetch/storage/cleanup_task.h"
+#include "content/browser/background_fetch/storage/create_metadata_task.h"
+#include "content/browser/background_fetch/storage/database_task.h"
+#include "content/browser/background_fetch/storage/delete_registration_task.h"
+#include "content/browser/background_fetch/storage/get_developer_ids_task.h"
+#include "content/browser/background_fetch/storage/get_metadata_task.h"
+#include "content/browser/background_fetch/storage/get_registration_task.h"
+#include "content/browser/background_fetch/storage/get_request_blob_task.h"
+#include "content/browser/background_fetch/storage/mark_registration_for_deletion_task.h"
+#include "content/browser/background_fetch/storage/mark_request_complete_task.h"
+#include "content/browser/background_fetch/storage/match_requests_task.h"
+#include "content/browser/background_fetch/storage/start_next_pending_request_task.h"
+#include "content/browser/cache_storage/cache_storage_manager.h"
+#include "content/browser/service_worker/service_worker_context_wrapper.h"
+#include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/download_interrupt_reasons.h"
-#include "content/public/browser/download_item.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerResponseType.h"
+#include "content/public/browser/browser_thread.h"
+#include "storage/browser/quota/quota_manager_proxy.h"
+#include "third_party/blink/public/mojom/blob/blob.mojom.h"
 
 namespace content {
 
-// Returns whether the response contained in the Background Fetch |request| is
-// considered OK. See https://fetch.spec.whatwg.org/#ok-status aka a successful
-// 2xx status per https://tools.ietf.org/html/rfc7231#section-6.3.
-bool IsOK(const BackgroundFetchRequestInfo& request) {
-  int status = request.GetResponseCode();
-  return status >= 200 && status < 300;
-}
-
-// The Registration Data class encapsulates the data stored for a particular
-// Background Fetch registration. This roughly matches the on-disk format that
-// will be adhered to in the future.
-class BackgroundFetchDataManager::RegistrationData {
- public:
-  RegistrationData(const std::vector<ServiceWorkerFetchRequest>& requests,
-                   const BackgroundFetchOptions& options)
-      : options_(options) {
-    int request_index = 0;
-
-    // Convert the given |requests| to BackgroundFetchRequestInfo objects.
-    for (const ServiceWorkerFetchRequest& fetch_request : requests) {
-      scoped_refptr<BackgroundFetchRequestInfo> request =
-          new BackgroundFetchRequestInfo(request_index++, fetch_request);
-
-      pending_requests_.push(std::move(request));
-    }
-  }
-
-  ~RegistrationData() = default;
-
-  // Returns whether there are remaining requests on the request queue.
-  bool HasPendingRequests() const { return !pending_requests_.empty(); }
-
-  // Consumes a request from the queue that is to be fetched.
-  scoped_refptr<BackgroundFetchRequestInfo> PopNextPendingRequest() {
-    DCHECK(!pending_requests_.empty());
-
-    auto request = pending_requests_.front();
-    pending_requests_.pop();
-
-    // The |request| is considered to be active now.
-    active_requests_.push_back(request);
-
-    return request;
-  }
-
-  // Marks the |request| as having started with the given |download_guid|.
-  // Persistent storage needs to store the association so we can resume fetches
-  // after a browser restart, here we just verify that the |request| is active.
-  void MarkRequestAsStarted(BackgroundFetchRequestInfo* request,
-                            const std::string& download_guid) {
-    const auto iter = std::find_if(
-        active_requests_.begin(), active_requests_.end(),
-        [&request](scoped_refptr<BackgroundFetchRequestInfo> active_request) {
-          return active_request->request_index() == request->request_index();
-        });
-
-    // The |request| must have been consumed from this RegistrationData.
-    DCHECK(iter != active_requests_.end());
-  }
-
-  // Marks the |request| as having completed. Verifies that the |request| is
-  // currently active and moves it to the |completed_requests_| vector.
-  bool MarkRequestAsComplete(BackgroundFetchRequestInfo* request) {
-    const auto iter = std::find_if(
-        active_requests_.begin(), active_requests_.end(),
-        [&request](scoped_refptr<BackgroundFetchRequestInfo> active_request) {
-          return active_request->request_index() == request->request_index();
-        });
-
-    // The |request| must have been consumed from this RegistrationData.
-    DCHECK(iter != active_requests_.end());
-
-    completed_requests_.push_back(*iter);
-    active_requests_.erase(iter);
-
-    bool has_pending_or_active_requests =
-        !pending_requests_.empty() || !active_requests_.empty();
-    return has_pending_or_active_requests;
-  }
-
-  // Returns the vector with all completed requests part of this registration.
-  const std::vector<scoped_refptr<BackgroundFetchRequestInfo>>&
-  GetCompletedRequests() const {
-    return completed_requests_;
-  }
-
- private:
-  BackgroundFetchOptions options_;
-
-  std::queue<scoped_refptr<BackgroundFetchRequestInfo>> pending_requests_;
-  std::vector<scoped_refptr<BackgroundFetchRequestInfo>> active_requests_;
-
-  // TODO(peter): Right now it's safe for this to be a vector because we only
-  // allow a single parallel request. That stops when we start allowing more.
-  static_assert(kMaximumBackgroundFetchParallelRequests == 1,
-                "RegistrationData::completed_requests_ assumes no parallelism");
-
-  std::vector<scoped_refptr<BackgroundFetchRequestInfo>> completed_requests_;
-
-  DISALLOW_COPY_AND_ASSIGN(RegistrationData);
-};
-
 BackgroundFetchDataManager::BackgroundFetchDataManager(
-    BrowserContext* browser_context)
-    : weak_ptr_factory_(this) {
-  // Constructed on the UI thread, then used on a different thread.
+    BrowserContext* browser_context,
+    scoped_refptr<ServiceWorkerContextWrapper> service_worker_context,
+    scoped_refptr<CacheStorageContextImpl> cache_storage_context,
+    scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy)
+    : service_worker_context_(std::move(service_worker_context)),
+      cache_storage_context_(std::move(cache_storage_context)),
+      quota_manager_proxy_(std::move(quota_manager_proxy)),
+      weak_ptr_factory_(this) {
+  // Constructed on the UI thread, then used on the IO thread.
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DETACH_FROM_SEQUENCE(sequence_checker_);
-
   DCHECK(browser_context);
 
   // Store the blob storage context for the given |browser_context|.
   blob_storage_context_ =
-      make_scoped_refptr(ChromeBlobStorageContext::GetFor(browser_context));
+      base::WrapRefCounted(ChromeBlobStorageContext::GetFor(browser_context));
   DCHECK(blob_storage_context_);
 }
 
+void BackgroundFetchDataManager::InitializeOnIOThread() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  // The CacheStorageManager can only be accessed from the IO thread.
+  cache_manager_ =
+      base::WrapRefCounted(cache_storage_context_->cache_manager());
+
+  // Delete inactive registrations still in the DB.
+  Cleanup();
+
+  DCHECK(cache_manager_);
+}
+
+void BackgroundFetchDataManager::AddObserver(
+    BackgroundFetchDataManagerObserver* observer) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  observers_.AddObserver(observer);
+}
+
+void BackgroundFetchDataManager::RemoveObserver(
+    BackgroundFetchDataManagerObserver* observer) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  observers_.RemoveObserver(observer);
+}
+
+void BackgroundFetchDataManager::Cleanup() {
+  AddDatabaseTask(std::make_unique<background_fetch::CleanupTask>(this));
+}
+
+CacheStorageHandle BackgroundFetchDataManager::GetOrOpenCacheStorage(
+    const url::Origin& origin,
+    const std::string& unique_id) {
+  auto it = cache_storage_handle_map_.find(unique_id);
+  if (it != cache_storage_handle_map_.end()) {
+    if (it->second.value()) {
+      DCHECK_EQ(origin, it->second.value()->Origin());
+    } else {
+      // The backing CacheStorage has been forcibly closed due to an external
+      // event. Re-open the CacheStorage and update the handle.
+      it->second = cache_manager()->OpenCacheStorage(
+          origin, CacheStorageOwner::kBackgroundFetch);
+    }
+    return it->second.Clone();
+  }
+
+  // This origin and unique_id has never been opened before. Open
+  // the CacheStorage, remember the association in the map, and return the
+  // handle.
+  CacheStorageHandle handle = cache_manager()->OpenCacheStorage(
+      origin, CacheStorageOwner::kBackgroundFetch);
+  cache_storage_handle_map_.emplace(unique_id, handle.Clone());
+  return handle;
+}
+
+void BackgroundFetchDataManager::ReleaseCacheStorage(
+    const std::string& unique_id) {
+  bool erased = cache_storage_handle_map_.erase(unique_id);
+  DCHECK(erased);
+}
+
 BackgroundFetchDataManager::~BackgroundFetchDataManager() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+}
+
+void BackgroundFetchDataManager::GetInitializationData(
+    GetInitializationDataCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  AddDatabaseTask(std::make_unique<background_fetch::GetInitializationDataTask>(
+      this, std::move(callback)));
 }
 
 void BackgroundFetchDataManager::CreateRegistration(
     const BackgroundFetchRegistrationId& registration_id,
-    const std::vector<ServiceWorkerFetchRequest>& requests,
-    const BackgroundFetchOptions& options,
-    CreateRegistrationCallback callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    std::vector<blink::mojom::FetchAPIRequestPtr> requests,
+    blink::mojom::BackgroundFetchOptionsPtr options,
+    const SkBitmap& icon,
+    bool start_paused,
+    GetRegistrationCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  if (registrations_.find(registration_id) != registrations_.end()) {
-    std::move(callback).Run(blink::mojom::BackgroundFetchError::DUPLICATED_TAG);
-    return;
-  }
+  AddDatabaseTask(std::make_unique<background_fetch::CreateMetadataTask>(
+      this, registration_id, std::move(requests), std::move(options), icon,
+      start_paused, std::move(callback)));
+}
 
-  // Create the |RegistrationData|, and store it for easy access.
-  registrations_.insert(std::make_pair(
-      registration_id, base::MakeUnique<RegistrationData>(requests, options)));
+void BackgroundFetchDataManager::GetRegistration(
+    int64_t service_worker_registration_id,
+    const url::Origin& origin,
+    const std::string& developer_id,
+    GetRegistrationCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  // Inform the |callback| of the newly created registration.
-  std::move(callback).Run(blink::mojom::BackgroundFetchError::NONE);
+  AddDatabaseTask(std::make_unique<background_fetch::GetRegistrationTask>(
+      this, service_worker_registration_id, origin, developer_id,
+      std::move(callback)));
 }
 
 void BackgroundFetchDataManager::PopNextRequest(
     const BackgroundFetchRegistrationId& registration_id,
     NextRequestCallback callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  auto iter = registrations_.find(registration_id);
-  DCHECK(iter != registrations_.end());
-
-  RegistrationData* registration_data = iter->second.get();
-
-  scoped_refptr<BackgroundFetchRequestInfo> next_request;
-  if (registration_data->HasPendingRequests())
-    next_request = registration_data->PopNextPendingRequest();
-
-  std::move(callback).Run(std::move(next_request));
+  AddDatabaseTask(
+      std::make_unique<background_fetch::StartNextPendingRequestTask>(
+          this, registration_id, std::move(callback)));
 }
 
-void BackgroundFetchDataManager::MarkRequestAsStarted(
+void BackgroundFetchDataManager::GetRequestBlob(
     const BackgroundFetchRegistrationId& registration_id,
-    BackgroundFetchRequestInfo* request,
-    const std::string& download_guid) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    const scoped_refptr<BackgroundFetchRequestInfo>& request_info,
+    GetRequestBlobCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  auto iter = registrations_.find(registration_id);
-  DCHECK(iter != registrations_.end());
-
-  RegistrationData* registration_data = iter->second.get();
-  registration_data->MarkRequestAsStarted(request, download_guid);
+  AddDatabaseTask(std::make_unique<background_fetch::GetRequestBlobTask>(
+      this, registration_id, request_info, std::move(callback)));
 }
 
 void BackgroundFetchDataManager::MarkRequestAsComplete(
     const BackgroundFetchRegistrationId& registration_id,
-    BackgroundFetchRequestInfo* request,
-    MarkedCompleteCallback callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    scoped_refptr<BackgroundFetchRequestInfo> request_info,
+    MarkRequestCompleteCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  auto iter = registrations_.find(registration_id);
-  DCHECK(iter != registrations_.end());
-
-  RegistrationData* registration_data = iter->second.get();
-  bool has_pending_or_active_requests =
-      registration_data->MarkRequestAsComplete(request);
-
-  std::move(callback).Run(has_pending_or_active_requests);
+  AddDatabaseTask(std::make_unique<background_fetch::MarkRequestCompleteTask>(
+      this, registration_id, std::move(request_info), std::move(callback)));
 }
 
-void BackgroundFetchDataManager::GetSettledFetchesForRegistration(
+void BackgroundFetchDataManager::MatchRequests(
     const BackgroundFetchRegistrationId& registration_id,
+    std::unique_ptr<BackgroundFetchRequestMatchParams> match_params,
     SettledFetchesCallback callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  auto iter = registrations_.find(registration_id);
-  DCHECK(iter != registrations_.end());
+  AddDatabaseTask(std::make_unique<background_fetch::MatchRequestsTask>(
+      this, registration_id, std::move(match_params), std::move(callback)));
+}
 
-  RegistrationData* registration_data = iter->second.get();
-  DCHECK(!registration_data->HasPendingRequests());
+void BackgroundFetchDataManager::MarkRegistrationForDeletion(
+    const BackgroundFetchRegistrationId& registration_id,
+    bool check_for_failure,
+    MarkRegistrationForDeletionCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  const std::vector<scoped_refptr<BackgroundFetchRequestInfo>>& requests =
-      registration_data->GetCompletedRequests();
-
-  bool background_fetch_succeeded = true;
-
-  std::vector<BackgroundFetchSettledFetch> settled_fetches;
-  settled_fetches.reserve(requests.size());
-
-  std::vector<std::unique_ptr<BlobHandle>> blob_handles;
-
-  for (const auto& request : requests) {
-    BackgroundFetchSettledFetch settled_fetch;
-    settled_fetch.request = request->fetch_request();
-
-    // The |filter| decides which values can be passed on to the Service Worker.
-    BackgroundFetchCrossOriginFilter filter(registration_id.origin(), *request);
-
-    settled_fetch.response.url_list = request->GetURLChain();
-    settled_fetch.response.response_type =
-        blink::kWebServiceWorkerResponseTypeDefault;
-
-    // Include the status code, status text and the response's body as a blob
-    // when this is allowed by the CORS protocol.
-    if (filter.CanPopulateBody()) {
-      settled_fetch.response.status_code = request->GetResponseCode();
-      settled_fetch.response.status_text = request->GetResponseText();
-      settled_fetch.response.headers.insert(
-          request->GetResponseHeaders().begin(),
-          request->GetResponseHeaders().end());
-
-      if (request->GetFileSize() > 0) {
-        DCHECK(!request->GetFilePath().empty());
-        // CreateFileBackedBlob DCHECKs that it is called on the IO thread. This
-        // imposes a more specific requirement than our sequence_checker_.
-        std::unique_ptr<BlobHandle> blob_handle =
-            blob_storage_context_->CreateFileBackedBlob(
-                request->GetFilePath(), 0 /* offset */, request->GetFileSize(),
-                base::Time() /* expected_modification_time */);
-
-        // TODO(peter): Appropriately handle !blob_handle
-        if (blob_handle) {
-          settled_fetch.response.blob_uuid = blob_handle->GetUUID();
-          settled_fetch.response.blob_size = request->GetFileSize();
-
-          blob_handles.push_back(std::move(blob_handle));
-        }
-      }
-    } else {
-      // TODO(crbug.com/711354): Consider Background Fetches as failed when the
-      // response cannot be relayed to the developer.
-      background_fetch_succeeded = false;
-    }
-
-    // TODO: settled_fetch.response.error
-    settled_fetch.response.response_time = request->GetResponseTime();
-    // TODO: settled_fetch.response.cors_exposed_header_names
-
-    background_fetch_succeeded = background_fetch_succeeded && IsOK(*request);
-
-    settled_fetches.push_back(settled_fetch);
-  }
-
-  std::move(callback).Run(blink::mojom::BackgroundFetchError::NONE,
-                          background_fetch_succeeded,
-                          std::move(settled_fetches), std::move(blob_handles));
+  AddDatabaseTask(
+      std::make_unique<background_fetch::MarkRegistrationForDeletionTask>(
+          this, registration_id, check_for_failure, std::move(callback)));
 }
 
 void BackgroundFetchDataManager::DeleteRegistration(
     const BackgroundFetchRegistrationId& registration_id,
-    DeleteRegistrationCallback callback) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    HandleBackgroundFetchErrorCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  auto iter = registrations_.find(registration_id);
-  if (iter == registrations_.end()) {
-    std::move(callback).Run(blink::mojom::BackgroundFetchError::INVALID_TAG);
+  AddDatabaseTask(std::make_unique<background_fetch::DeleteRegistrationTask>(
+      this, registration_id.service_worker_registration_id(),
+      registration_id.origin(), registration_id.unique_id(),
+      std::move(callback)));
+}
+
+void BackgroundFetchDataManager::GetDeveloperIdsForServiceWorker(
+    int64_t service_worker_registration_id,
+    const url::Origin& origin,
+    blink::mojom::BackgroundFetchService::GetDeveloperIdsCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  AddDatabaseTask(std::make_unique<background_fetch::GetDeveloperIdsTask>(
+      this, service_worker_registration_id, origin, std::move(callback)));
+}
+
+void BackgroundFetchDataManager::ShutdownOnIO() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  // Release reference to CacheStorageManager. DatabaseTasks that need it
+  // hold their own copy, so they can continue their work.
+  cache_manager_ = nullptr;
+
+  shutting_down_ = true;
+}
+
+void BackgroundFetchDataManager::AddDatabaseTask(
+    std::unique_ptr<background_fetch::DatabaseTask> task) {
+  // If Shutdown was called don't add any new tasks.
+  if (shutting_down_)
     return;
-  }
 
-  registrations_.erase(iter);
+  database_tasks_.push(std::move(task));
+  if (database_tasks_.size() == 1u)
+    database_tasks_.front()->Start();
+}
 
-  std::move(callback).Run(blink::mojom::BackgroundFetchError::NONE);
+void BackgroundFetchDataManager::OnTaskFinished(
+    background_fetch::DatabaseTask* task) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  DCHECK(!database_tasks_.empty());
+  DCHECK_EQ(database_tasks_.front().get(), task);
+
+  database_tasks_.pop();
+  if (!database_tasks_.empty())
+    database_tasks_.front()->Start();
+}
+
+BackgroundFetchDataManager* BackgroundFetchDataManager::data_manager() {
+  return this;
+}
+
+base::WeakPtr<background_fetch::DatabaseTaskHost>
+BackgroundFetchDataManager::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 }  // namespace content

@@ -70,7 +70,6 @@ tst_QNmeaPositionInfoSource::tst_QNmeaPositionInfoSource(QNmeaPositionInfoSource
 
 void tst_QNmeaPositionInfoSource::initTestCase()
 {
-    qRegisterMetaType<QGeoPositionInfo>();
     qRegisterMetaType<QNmeaPositionInfoSource::UpdateMode>();
 }
 
@@ -91,7 +90,7 @@ void tst_QNmeaPositionInfoSource::supportedPositioningMethods()
 void tst_QNmeaPositionInfoSource::minimumUpdateInterval()
 {
     QNmeaPositionInfoSource source(m_mode);
-    QCOMPARE(source.minimumUpdateInterval(), 100);
+    QCOMPARE(source.minimumUpdateInterval(), 2);
 }
 
 void tst_QNmeaPositionInfoSource::userEquivalentRangeError()
@@ -148,13 +147,14 @@ void tst_QNmeaPositionInfoSource::lastKnownPosition()
 
     QList<QDateTime> dateTimes = createDateTimes(5);
     for (int i=0; i<dateTimes.count(); i++) {
-        proxy->source()->requestUpdate();
+        proxy->source()->requestUpdate(); // Irrelevant for this test
         proxy->feedUpdate(dateTimes[i]);
         QTRY_COMPARE(proxy->source()->lastKnownPosition().timestamp(), dateTimes[i]);
     }
 
     proxy->source()->startUpdates();
-    dateTimes = createDateTimes(5);
+    // if dateTimes are older than before, they will be ignored.
+    dateTimes = createDateTimes(dateTimes.last().addMSecs(100), 5);
     for (int i=0; i<dateTimes.count(); i++) {
         proxy->feedUpdate(dateTimes[i]);
         QTRY_COMPARE(proxy->source()->lastKnownPosition().timestamp(), dateTimes[i]);
@@ -359,8 +359,10 @@ void tst_QNmeaPositionInfoSource::startUpdates_waitForValidDateTime()
     QObject::connect(proxy->source(), &QNmeaPositionInfoSource::positionUpdated, [](const QGeoPositionInfo &info) {
                                                                             qDebug() << info.timestamp();
                                                                         });
+
     proxy->source()->startUpdates();
     proxy->feedBytes(bytes);
+    QTest::qWait(1000); // default push delay is 20ms
     QTRY_COMPARE(spy.count(), dateTimes.count());
 
     for (int i=0; i<spy.count(); i++) {
@@ -398,6 +400,7 @@ void tst_QNmeaPositionInfoSource::startUpdates_waitForValidDateTime_data()
     bytes += QLocationTestUtils::createGgaSentence(dt.addMSecs(100).time()).toLatin1();
     bytes += QLocationTestUtils::createRmcSentence(dt.addMSecs(200)).toLatin1();
     bytes += QLocationTestUtils::createGgaSentence(dt.addMSecs(300).time()).toLatin1();
+    // The first GGA does not have date, and there's no cached date to inject, so that update will be invalid
     QTest::newRow("Feed GGA,RMC,GGA; expect RMC, second GGA only")
             << bytes << (QList<QDateTime>() << dt.addMSecs(200) << dt.addMSecs(300))
             << (QList<bool>() << true << true) // accuracies are currently cached and injected in QGeoPositionInfos that do not have it
@@ -425,13 +428,6 @@ void tst_QNmeaPositionInfoSource::startUpdates_waitForValidDateTime_data()
                 << bytes << (QList<QDateTime>() << dt.addMSecs(200) << dt.addMSecs(300))
                 << (QList<bool>() << true << true)
                 << (QList<bool>() << true << true); // First GGA gets VDOP from GSA bundled into previous, as it has no timestamp, second GGA gets the cached value.
-    } else {
-        // FixMe: remove else block once NMEA realtime mode supports timestamp-based combination of nmea sentences
-        QTest::newRow("Feed ZDA,GGA,GSA,GGA; expect vertical accuracy from second GGA")
-                << bytes << (QList<QDateTime>() << dt.addMSecs(200) << dt.addMSecs(300))
-                << (QList<bool>() << true << true)
-                << (QList<bool>() << false << true);
-
     }
 
     if (m_mode == QNmeaPositionInfoSource::SimulationMode) {

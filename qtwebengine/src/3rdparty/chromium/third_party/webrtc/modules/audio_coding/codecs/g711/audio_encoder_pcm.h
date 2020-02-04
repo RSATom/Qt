@@ -8,14 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_CODECS_G711_AUDIO_ENCODER_PCM_H_
-#define WEBRTC_MODULES_AUDIO_CODING_CODECS_G711_AUDIO_ENCODER_PCM_H_
+#ifndef MODULES_AUDIO_CODING_CODECS_G711_AUDIO_ENCODER_PCM_H_
+#define MODULES_AUDIO_CODING_CODECS_G711_AUDIO_ENCODER_PCM_H_
 
 #include <vector>
 
-#include "webrtc/api/audio_codecs/audio_encoder.h"
-#include "webrtc/api/audio_codecs/audio_format.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "api/audio_codecs/audio_encoder.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
@@ -70,8 +69,6 @@ class AudioEncoderPcm : public AudioEncoder {
   uint32_t first_timestamp_in_buffer_;
 };
 
-struct CodecInst;
-
 class AudioEncoderPcmA final : public AudioEncoderPcm {
  public:
   struct Config : public AudioEncoderPcm::Config {
@@ -80,12 +77,6 @@ class AudioEncoderPcmA final : public AudioEncoderPcm {
 
   explicit AudioEncoderPcmA(const Config& config)
       : AudioEncoderPcm(config, kSampleRateHz) {}
-  explicit AudioEncoderPcmA(const CodecInst& codec_inst);
-  AudioEncoderPcmA(int payload_type, const SdpAudioFormat& format);
-
-  static constexpr const char* GetPayloadName() { return "PCMA"; }
-  static rtc::Optional<AudioCodecInfo> QueryAudioEncoder(
-      const SdpAudioFormat& format);
 
  protected:
   size_t EncodeCall(const int16_t* audio,
@@ -109,12 +100,6 @@ class AudioEncoderPcmU final : public AudioEncoderPcm {
 
   explicit AudioEncoderPcmU(const Config& config)
       : AudioEncoderPcm(config, kSampleRateHz) {}
-  explicit AudioEncoderPcmU(const CodecInst& codec_inst);
-  AudioEncoderPcmU(int payload_type, const SdpAudioFormat& format);
-
-  static constexpr const char* GetPayloadName() { return "PCMU"; }
-  static rtc::Optional<AudioCodecInfo> QueryAudioEncoder(
-      const SdpAudioFormat& format);
 
  protected:
   size_t EncodeCall(const int16_t* audio,
@@ -132,4 +117,4 @@ class AudioEncoderPcmU final : public AudioEncoderPcm {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_CODING_CODECS_G711_AUDIO_ENCODER_PCM_H_
+#endif  // MODULES_AUDIO_CODING_CODECS_G711_AUDIO_ENCODER_PCM_H_

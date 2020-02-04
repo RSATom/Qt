@@ -51,8 +51,7 @@ Vp8FrameHeader::Vp8FrameHeader() {
 Vp8Parser::Vp8Parser() : stream_(nullptr), bytes_left_(0) {
 }
 
-Vp8Parser::~Vp8Parser() {
-}
+Vp8Parser::~Vp8Parser() = default;
 
 bool Vp8Parser::ParseFrame(const uint8_t* ptr,
                            size_t frame_size,
@@ -93,7 +92,7 @@ bool Vp8Parser::ParseFrameTag(Vp8FrameHeader* fhdr) {
     return false;
 
   uint32_t frame_tag = (stream_[2] << 16) | (stream_[1] << 8) | stream_[0];
-  fhdr->key_frame =
+  fhdr->frame_type =
       static_cast<Vp8FrameHeader::FrameType>(GetBitsAt(frame_tag, 0, 1));
   fhdr->version = GetBitsAt(frame_tag, 1, 2);
   fhdr->is_experimental = !!GetBitsAt(frame_tag, 3, 1);

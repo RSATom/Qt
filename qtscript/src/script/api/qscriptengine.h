@@ -264,7 +264,7 @@ protected:
 
     QScriptEngine(QScriptEnginePrivate &dd);
 #else
-    explicit QScriptEngine(QScriptEnginePrivate &dd, QObject *parent = Q_NULLPTR);
+    explicit QScriptEngine(QScriptEnginePrivate &dd, QObject *parent = nullptr);
 #endif
 
 private:
@@ -378,11 +378,8 @@ int qScriptRegisterMetaType(
     QScriptEngine *eng,
     QScriptValue (*toScriptValue)(QScriptEngine *, const T &t),
     void (*fromScriptValue)(const QScriptValue &, T &t),
-    const QScriptValue &prototype = QScriptValue()
-#ifndef qdoc
-    , T * /* dummy */ = 0
-#endif
-)
+    const QScriptValue &prototype = QScriptValue(),
+    T * /* dummy */ = 0)
 {
     const int id = qRegisterMetaType<T>(); // make sure it's registered
 
@@ -420,11 +417,8 @@ void qScriptValueToSequence(const QScriptValue &value, Container &cont)
 template<typename T>
 int qScriptRegisterSequenceMetaType(
     QScriptEngine *engine,
-    const QScriptValue &prototype = QScriptValue()
-#ifndef qdoc
-    , T * /* dummy */ = 0
-#endif
-)
+    const QScriptValue &prototype = QScriptValue(),
+    T * /* dummy */ = 0)
 {
     return qScriptRegisterMetaType<T>(engine, qScriptValueFromSequence,
                                       qScriptValueToSequence, prototype);

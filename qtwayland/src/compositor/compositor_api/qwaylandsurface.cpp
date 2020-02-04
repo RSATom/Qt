@@ -49,7 +49,6 @@
 #include "wayland_wrapper/qwldatadevicemanager_p.h"
 #endif
 
-#include "extensions/qwlextendedsurface_p.h"
 #include "qwaylandinputmethodcontrol_p.h"
 
 #include <QtWaylandCompositor/QWaylandCompositor>
@@ -60,6 +59,7 @@
 #include <QtWaylandCompositor/private/qwaylandcompositor_p.h>
 #include <QtWaylandCompositor/private/qwaylandview_p.h>
 #include <QtWaylandCompositor/private/qwaylandseat_p.h>
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
 
 #include <QtCore/private/qobject_p.h>
 
@@ -67,6 +67,7 @@
 #include <QtGui/QScreen>
 
 #include <QtCore/QDebug>
+#include <QtCore/QtMath>
 
 QT_BEGIN_NAMESPACE
 
@@ -76,14 +77,8 @@ public:
     FrameCallback(QWaylandSurface *surf, wl_resource *res)
         : surface(surf)
         , resource(res)
-        , canSend(false)
     {
-#if WAYLAND_VERSION_MAJOR < 1 || (WAYLAND_VERSION_MAJOR == 1 && WAYLAND_VERSION_MINOR <= 2)
-        res->data = this;
-        res->destroy = destroyCallback;
-#else
-        wl_resource_set_implementation(res, 0, this, destroyCallback);
-#endif
+        wl_resource_set_implementation(res, nullptr, this, destroyCallback);
     }
     ~FrameCallback()
     {
@@ -102,18 +97,14 @@ public:
     }
     static void destroyCallback(wl_resource *res)
     {
-#if WAYLAND_VERSION_MAJOR < 1 || (WAYLAND_VERSION_MAJOR == 1 && WAYLAND_VERSION_MINOR <= 2)
-        FrameCallback *_this = static_cast<FrameCallback *>(res->data);
-#else
         FrameCallback *_this = static_cast<FrameCallback *>(wl_resource_get_user_data(res));
-#endif
         if (_this->surface)
             QWaylandSurfacePrivate::get(_this->surface)->removeFrameCallback(_this);
         delete _this;
     }
-    QWaylandSurface *surface;
-    wl_resource *resource;
-    bool canSend;
+    QWaylandSurface *surface = nullptr;
+    wl_resource *resource = nullptr;
+    bool canSend = false;
 };
 }
 static QRegion infiniteRegion() {
@@ -126,22 +117,7 @@ QList<QWaylandSurfacePrivate *> QWaylandSurfacePrivate::uninitializedSurfaces;
 #endif
 
 QWaylandSurfacePrivate::QWaylandSurfacePrivate()
-    : QtWaylandServer::wl_surface()
-    , compositor(Q_NULLPTR)
-    , refCount(1)
-    , client(Q_NULLPTR)
-    , role(0)
-    , inputRegion(infiniteRegion())
-    , bufferScale(1)
-    , isCursorSurface(false)
-    , destroyed(false)
-    , hasContent(false)
-    , isInitialized(false)
-    , contentOrientation(Qt::PrimaryOrientation)
-#if QT_CONFIG(im)
-    , inputMethodControl(Q_NULLPTR)
-#endif
-    , subsurface(0)
+    : inputRegion(infiniteRegion())
 {
     pending.buffer = QWaylandBufferRef();
     pending.newlyAttached = false;
@@ -165,25 +141,6 @@ QWaylandSurfacePrivate::~QWaylandSurfacePrivate()
         c->destroy();
     foreach (QtWayland::FrameCallback *c, frameCallbacks)
         c->destroy();
-}
-
-void QWaylandSurfacePrivate::setSize(const QSize &s)
-{
-    Q_Q(QWaylandSurface);
-    if (size != s) {
-        opaqueRegion = QRegion();
-        size = s;
-        q->sizeChanged();
-    }
-}
-
-void QWaylandSurfacePrivate::setBufferScale(int scale)
-{
-    Q_Q(QWaylandSurface);
-    if (scale == bufferScale)
-        return;
-    bufferScale = scale;
-    emit q->bufferScaleChanged();
 }
 
 void QWaylandSurfacePrivate::removeFrameCallback(QtWayland::FrameCallback *callback)
@@ -261,7 +218,7 @@ void QWaylandSurfacePrivate::surface_frame(Resource *resource, uint32_t callback
 
 void QWaylandSurfacePrivate::surface_set_opaque_region(Resource *, struct wl_resource *region)
 {
-    opaqueRegion = region ? QtWayland::Region::fromResource(region)->region() : QRegion();
+    pending.opaqueRegion = region ? QtWayland::Region::fromResource(region)->region() : QRegion();
 }
 
 void QWaylandSurfacePrivate::surface_set_input_region(Resource *, struct wl_resource *region)
@@ -277,42 +234,71 @@ void QWaylandSurfacePrivate::surface_commit(Resource *)
 {
     Q_Q(QWaylandSurface);
 
+    // Needed in order to know whether we want to emit signals later
+    QSize oldBufferSize = bufferSize;
+    QRectF oldSourceGeometry = sourceGeometry;
+    QSize oldDestinationSize = destinationSize;
+    bool oldHasContent = hasContent;
+    int oldBufferScale = bufferScale;
+
+    // Update all internal state
     if (pending.buffer.hasBuffer() || pending.newlyAttached)
         bufferRef = pending.buffer;
-
-    auto buffer = bufferRef.buffer();
-    if (buffer)
-        buffer->setCommitted(pending.damage);
-
-    setSize(bufferRef.size());
-    damage = pending.damage.intersected(QRect(QPoint(), size));
-
-    for (int i = 0; i < views.size(); i++) {
-        views.at(i)->bufferCommitted(bufferRef, damage);
-    }
-
-    emit q->damaged(damage);
-
-    bool oldHasContent = hasContent;
+    bufferScale = pending.bufferScale;
+    bufferSize = bufferRef.size();
+    QSize surfaceSize = bufferSize / bufferScale;
+    sourceGeometry = !pending.sourceGeometry.isValid() ? QRect(QPoint(), surfaceSize) : pending.sourceGeometry;
+    destinationSize = pending.destinationSize.isEmpty() ? sourceGeometry.size().toSize() : pending.destinationSize;
+    damage = pending.damage.intersected(QRect(QPoint(), destinationSize));
     hasContent = bufferRef.hasContent();
-    if (oldHasContent != hasContent)
-        emit q->hasContentChanged();
+    frameCallbacks << pendingFrameCallbacks;
+    inputRegion = pending.inputRegion.intersected(QRect(QPoint(), destinationSize));
+    opaqueRegion = pending.opaqueRegion.intersected(QRect(QPoint(), destinationSize));
+    QPoint offsetForNextFrame = pending.offset;
 
-    if (!pending.offset.isNull())
-        emit q->offsetForNextFrame(pending.offset);
+    if (viewport)
+        viewport->checkCommittedState();
 
-    setBufferScale(pending.bufferScale);
-
-
+    // Clear per-commit state
     pending.buffer = QWaylandBufferRef();
     pending.offset = QPoint();
     pending.newlyAttached = false;
     pending.damage = QRegion();
-
-    frameCallbacks << pendingFrameCallbacks;
     pendingFrameCallbacks.clear();
 
-    inputRegion = pending.inputRegion.intersected(QRect(QPoint(), size));
+    // Notify buffers and views
+    if (auto *buffer = bufferRef.buffer())
+        buffer->setCommitted(damage);
+    for (auto *view : qAsConst(views))
+        view->bufferCommitted(bufferRef, damage);
+
+    // Now all double-buffered state has been applied so it's safe to emit general signals
+    // i.e. we won't have inconsistensies such as mismatched surface size and buffer scale in
+    // signal handlers.
+
+    emit q->damaged(damage);
+
+    if (oldBufferSize != bufferSize) {
+        emit q->bufferSizeChanged();
+#if QT_DEPRECATED_SINCE(5, 13)
+        emit q->sizeChanged();
+#endif
+    }
+
+    if (oldBufferScale != bufferScale)
+        emit q->bufferScaleChanged();
+
+    if (oldDestinationSize != destinationSize)
+        emit q->destinationSizeChanged();
+
+    if (oldSourceGeometry != sourceGeometry)
+        emit q->sourceGeometryChanged();
+
+    if (oldHasContent != hasContent)
+        emit q->hasContentChanged();
+
+    if (!offsetForNextFrame.isNull())
+        emit q->offsetForNextFrame(offsetForNextFrame);
 
     emit q->redraw();
 }
@@ -459,9 +445,20 @@ QWaylandClient *QWaylandSurface::client() const
 {
     Q_D(const QWaylandSurface);
     if (isDestroyed() || !compositor() || !compositor()->clients().contains(d->client))
-        return Q_NULLPTR;
+        return nullptr;
 
     return d->client;
+}
+
+/*!
+ * Holds the \c wl_client using this QWaylandSurface.
+ */
+::wl_client *QWaylandSurface::waylandClient() const
+{
+    if (auto *c = client())
+        return c->client();
+
+    return nullptr;
 }
 
 /*!
@@ -482,21 +479,109 @@ bool QWaylandSurface::hasContent() const
 }
 
 /*!
- * \qmlproperty size QtWaylandCompositor::WaylandSurface::size
+ * \qmlproperty rect QtWaylandCompositor::WaylandSurface::sourceGeometry
+ * \since 5.13
  *
- * This property holds the WaylandSurface's size in pixels.
+ * This property describes the portion of the attached Wayland buffer that should
+ * be drawn on the screen. The coordinates are from the corner of the buffer and are
+ * scaled by \l bufferScale.
+ *
+ * \sa bufferScale
+ * \sa bufferSize
+ * \sa destinationSize
+ */
+
+/*!
+ * \property QWaylandSurface::sourceGeometry
+ * \since 5.13
+ *
+ * This property describes the portion of the attached QWaylandBuffer that should
+ * be drawn on the screen. The coordinates are from the corner of the buffer and are
+ * scaled by \l bufferScale.
+ *
+ * \sa bufferScale
+ * \sa bufferSize
+ * \sa destinationSize
+ */
+QRectF QWaylandSurface::sourceGeometry() const
+{
+    Q_D(const QWaylandSurface);
+    return d->sourceGeometry;
+}
+
+/*!
+ * \qmlproperty size QtWaylandCompositor::WaylandSurface::destinationSize
+ * \since 5.13
+ *
+ * This property holds the size of this WaylandSurface in surface coordinates.
+ *
+ * \sa bufferScale
+ * \sa bufferSize
+ */
+
+/*!
+ * \property QWaylandSurface::destinationSize
+ * \since 5.13
+ *
+ * This property holds the size of this WaylandSurface in surface coordinates.
+ *
+ * \sa bufferScale
+ * \sa bufferSize
+ */
+QSize QWaylandSurface::destinationSize() const
+{
+    Q_D(const QWaylandSurface);
+    return d->destinationSize;
+}
+
+/*!
+ * \qmlproperty size QtWaylandCompositor::WaylandSurface::bufferSize
+ *
+ * This property holds the size of the current buffer of this WaylandSurface in pixels,
+ * not in surface coordinates.
+ *
+ * For the size in surface coordinates, use \l destinationSize instead.
+ *
+ * \sa destinationSize
+ * \sa bufferScale
+ */
+
+/*!
+ * \property QWaylandSurface::bufferSize
+ *
+ * This property holds the size of the current buffer of this QWaylandSurface in pixels,
+ * not in surface coordinates.
+ *
+ * For the size in surface coordinates, use \l destinationSize instead.
+ *
+ * \sa destinationSize
+ * \sa bufferScale
+ */
+QSize QWaylandSurface::bufferSize() const
+{
+    Q_D(const QWaylandSurface);
+    return d->bufferSize;
+}
+
+#if QT_DEPRECATED_SINCE(5, 13)
+/*!
+ * \qmlproperty size QtWaylandCompositor::WaylandSurface::size
+ * \obsolete use bufferSize or destinationSize instead
+ *
+ * This property has been deprecated, use \l bufferSize or \l destinationSize instead.
  */
 
 /*!
  * \property QWaylandSurface::size
+ * \obsolete use bufferSize or destinationSize instead
  *
- * This property holds the QWaylandSurface's size in pixels.
+ * This property has been deprecated, use \l bufferSize or \l destinationSize instead.
  */
 QSize QWaylandSurface::size() const
 {
-    Q_D(const QWaylandSurface);
-    return d->size;
+    return bufferSize();
 }
+#endif
 
 /*!
  * \qmlproperty size QtWaylandCompositor::WaylandSurface::bufferScale
@@ -603,7 +688,7 @@ void QWaylandSurface::sendFrameCallbacks()
     int i = 0;
     while (i < d->frameCallbacks.size()) {
         if (d->frameCallbacks.at(i)->canSend) {
-            d->frameCallbacks.at(i)->surface = Q_NULLPTR;
+            d->frameCallbacks.at(i)->surface = nullptr;
             d->frameCallbacks.at(i)->send(time);
             d->frameCallbacks.removeAt(i);
         } else {
@@ -620,6 +705,23 @@ bool QWaylandSurface::inputRegionContains(const QPoint &p) const
 {
     Q_D(const QWaylandSurface);
     return d->inputRegion.contains(p);
+}
+
+//TODO: Add appropriate \since version when this is made public.
+/*!
+ * Returns \c true if the QWaylandSurface's input region contains the point \a position.
+ * Otherwise returns \c false.
+ */
+bool QWaylandSurface::inputRegionContains(const QPointF &position) const
+{
+    Q_D(const QWaylandSurface);
+    // QRegion::contains operates in integers. If a region has a rect (0,0,10,10), (0,0) is
+    // inside while (10,10) is outside. Therefore, we can't use QPoint::toPoint(), which will
+    // round upwards, meaning the point (-0.25,-0.25) would be rounded to (0,0) and count as
+    // being inside the region, and similarly, a point (9.75,9.75) inside the region would be
+    // rounded upwards and count as being outside the region.
+    const QPoint floored(qFloor(position.x()), qFloor(position.y()));
+    return d->inputRegion.contains(floored);
 }
 
 /*!
@@ -716,7 +818,7 @@ QWaylandView *QWaylandSurface::primaryView() const
 {
     Q_D(const QWaylandSurface);
     if (d->views.isEmpty())
-        return Q_NULLPTR;
+        return nullptr;
     return d->views.first();
 }
 
@@ -761,11 +863,13 @@ QList<QWaylandView *> QWaylandSurface::views() const
 }
 
 /*!
- * Returns the QWaylandSurface corresponding to the Wayland resource \a res.
+ * Returns the QWaylandSurface corresponding to the Wayland resource \a resource.
  */
-QWaylandSurface *QWaylandSurface::fromResource(::wl_resource *res)
+QWaylandSurface *QWaylandSurface::fromResource(::wl_resource *resource)
 {
-    return static_cast<QWaylandSurfacePrivate *>(QWaylandSurfacePrivate::Resource::fromResource(res)->surface_object)->q_func();
+    if (auto p = QtWayland::fromResource<QWaylandSurfacePrivate *>(resource))
+        return p->q_func();
+    return nullptr;
 }
 
 /*!
@@ -778,11 +882,12 @@ struct wl_resource *QWaylandSurface::resource() const
 }
 
 /*!
- * Sets a \a role on the surface. A role defines how a surface will be mapped on screen, without a role
- * a surface is supposed to be hidden. Only one role at all times can be set on a surface. Although
+ * Sets a \a role on the surface. A role defines how a surface will be mapped on screen; without a role
+ * a surface is supposed to be hidden. Only one role can be set on a surface, at all times. Although
  * setting the same role many times is allowed, attempting to change the role of a surface will trigger
  * a protocol error to the \a errorResource and send an \a errorCode to the client.
  *
+ * Returns true if a role can be assigned; false otherwise.
  */
 bool QWaylandSurface::setRole(QWaylandSurfaceRole *role, wl_resource *errorResource, uint32_t errorCode)
 {
@@ -808,7 +913,7 @@ QWaylandSurfaceRole *QWaylandSurface::role() const
 
 QWaylandSurfacePrivate *QWaylandSurfacePrivate::get(QWaylandSurface *surface)
 {
-    return surface ? surface->d_func() : Q_NULLPTR;
+    return surface ? surface->d_func() : nullptr;
 }
 
 void QWaylandSurfacePrivate::ref()
@@ -844,7 +949,7 @@ void QWaylandSurfacePrivate::derefView(QWaylandView *view)
 void QWaylandSurfacePrivate::initSubsurface(QWaylandSurface *parent, wl_client *client, int id, int version)
 {
     Q_Q(QWaylandSurface);
-    QWaylandSurface *oldParent = 0; // TODO: implement support for switching parents
+    QWaylandSurface *oldParent = nullptr; // TODO: implement support for switching parents
 
     subsurface = new Subsurface(this);
     subsurface->init(client, id, version);
@@ -888,6 +993,30 @@ void QWaylandSurfacePrivate::Subsurface::subsurface_set_desync(wl_subsurface::Re
 }
 
 /*!
+ * \qmlsignal QtWaylandCompositor::WaylandSurface::childAdded(WaylandSurface child)
+ *
+ * This signal is emitted when a wl_subsurface, \a child, has been added to the surface.
+ */
+
+/*!
+ * \fn void QWaylandSurface::childAdded(QWaylandSurface *child)
+ *
+ * This signal is emitted when a wl_subsurface, \a child, has been added to the surface.
+ */
+
+/*!
+ * \qmlsignal QtWaylandCompositor::WaylandSurface::surfaceDestroyed()
+ *
+ * This signal is emitted when the corresponding wl_surface is destroyed.
+ */
+
+/*!
+ * \fn void QWaylandSurface::surfaceDestroyed()
+ *
+ * This signal is emitted when the corresponing wl_surface is destroyed.
+ */
+
+/*!
  * \qmlsignal void QtWaylandCompositor::WaylandSurface::dragStarted(WaylandDrag drag)
  *
  * This signal is emitted when a \a drag has started from this surface.
@@ -897,6 +1026,23 @@ void QWaylandSurfacePrivate::Subsurface::subsurface_set_desync(wl_subsurface::Re
  * \fn void QWaylandSurface::dragStarted(QWaylandDrag *drag)
  *
  * This signal is emitted when a \a drag has started from this surface.
+ */
+
+/*!
+ * \fn void damaged(const QRegion &rect)
+ *
+ * This signal is emitted when the client tells the compositor that a particular part of, or
+ * possibly the entire surface has been updated, so the compositor can redraw that part.
+ *
+ * While the compositor APIs take care of redrawing automatically, this function may be useful
+ * if you require a specific, custom behavior.
+ */
+
+/*!
+ * \fn void parentChanged(QWaylandSurface *newParent, QWaylandSurface *oldParent)
+ *
+ * This signal is emitted when the client has requested that this surface should be a
+ * subsurface of \a newParent.
  */
 
 QT_END_NAMESPACE

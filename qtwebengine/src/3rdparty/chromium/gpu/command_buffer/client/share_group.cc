@@ -6,8 +6,9 @@
 
 #include <stdint.h>
 
-#include <stack>
 #include <vector>
+
+#include "base/containers/stack.h"
 #include "base/logging.h"
 #include "base/synchronization/lock.h"
 #include "gpu/command_buffer/client/gles2_cmd_helper.h"
@@ -19,7 +20,7 @@ namespace gpu {
 namespace gles2 {
 
 ShareGroupContextData::IdHandlerData::IdHandlerData() : flush_generation_(0) {}
-ShareGroupContextData::IdHandlerData::~IdHandlerData() {}
+ShareGroupContextData::IdHandlerData::~IdHandlerData() = default;
 
 static_assert(gpu::kInvalidResource == 0,
               "GL expects kInvalidResource to be 0");
@@ -27,8 +28,8 @@ static_assert(gpu::kInvalidResource == 0,
 // The standard id handler.
 class IdHandler : public IdHandlerInterface {
  public:
-  IdHandler() { }
-  ~IdHandler() override {}
+  IdHandler() = default;
+  ~IdHandler() override = default;
 
   // Overridden from IdHandlerInterface.
   void MakeIds(GLES2Implementation* /* gl_impl */,
@@ -110,7 +111,7 @@ class IdHandler : public IdHandlerInterface {
 class StrictIdHandler : public IdHandlerInterface {
  public:
   explicit StrictIdHandler(int id_namespace) : id_namespace_(id_namespace) {}
-  ~StrictIdHandler() override {}
+  ~StrictIdHandler() override = default;
 
   // Overridden from IdHandler.
   void MakeIds(GLES2Implementation* gl_impl,
@@ -147,6 +148,8 @@ class StrictIdHandler : public IdHandlerInterface {
     // Delete stub must run before CollectPendingFreeIds.
     (gl_impl->*delete_fn)(n, ids);
 
+    bool return_value = true;
+
     {
       base::AutoLock auto_lock(lock_);
 
@@ -157,18 +160,28 @@ class StrictIdHandler : public IdHandlerInterface {
       ShareGroupContextData::IdHandlerData* ctxt_data =
           gl_impl->share_group_context_data()->id_handler_data(id_namespace_);
 
+      GLuint max_valid_id = id_states_.size();
       for (GLsizei ii = 0; ii < n; ++ii) {
         GLuint id = ids[ii];
         if (id != 0) {
+          if (id > max_valid_id) {
+            // Caller will generate an error.
+            return_value = false;
+            continue;
+          }
           // Save freed Id for later.
-          DCHECK(id_states_[id - 1] == kIdInUse);
+          if (id_states_[id - 1] != kIdInUse) {
+            DVLOG(1) << "Already freed id " << id;
+            return_value = false;
+            continue;
+          }
           id_states_[id - 1] = kIdPendingFree;
           ctxt_data->freed_ids_.push_back(id);
         }
       }
     }
 
-    return true;
+    return return_value;
   }
 
   // Overridden from IdHandler.
@@ -255,14 +268,14 @@ class StrictIdHandler : public IdHandlerInterface {
 
   base::Lock lock_;
   std::vector<uint8_t> id_states_;
-  std::stack<uint32_t> free_ids_;
+  base::stack<uint32_t> free_ids_;
 };
 
 // An id handler for ids that are never reused.
 class NonReusedIdHandler : public IdHandlerInterface {
  public:
   NonReusedIdHandler() : last_id_(0) {}
-  ~NonReusedIdHandler() override {}
+  ~NonReusedIdHandler() override = default;
 
   // Overridden from IdHandlerInterface.
   void MakeIds(GLES2Implementation* /* gl_impl */,
@@ -321,7 +334,7 @@ class NonReusedIdHandler : public IdHandlerInterface {
 
 class RangeIdHandler : public RangeIdHandlerInterface {
  public:
-  RangeIdHandler() {}
+  RangeIdHandler() = default;
 
   void MakeIdRange(GLES2Implementation* /*gl_impl*/,
                    GLsizei n,
@@ -392,7 +405,7 @@ void ShareGroup::SetProgramInfoManagerForTesting(ProgramInfoManager* manager) {
   program_info_manager_.reset(manager);
 }
 
-ShareGroup::~ShareGroup() {}
+ShareGroup::~ShareGroup() = default;
 
 }  // namespace gles2
 }  // namespace gpu

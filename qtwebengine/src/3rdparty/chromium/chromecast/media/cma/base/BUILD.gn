@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-source_set("base") {
+import("//chromecast/chromecast.gni")
+
+cast_source_set("base") {
   sources = [
     "balanced_media_task_runner_factory.cc",
     "balanced_media_task_runner_factory.h",
@@ -16,7 +18,6 @@ source_set("base") {
     "buffering_state.h",
     "cast_decrypt_config_impl.cc",
     "cast_decrypt_config_impl.h",
-    "cma_logging.h",
     "coded_frame_provider.cc",
     "coded_frame_provider.h",
     "decoder_buffer_adapter.cc",
@@ -42,8 +43,9 @@ source_set("base") {
     "//base",
     "//chromecast/base",
     "//chromecast/base/metrics",
-    "//chromecast/media/base",
+    "//chromecast/media/base:media_codec_support",
     "//media",
     "//media:shared_memory_support",
+    "//ui/gfx",
   ]
 }

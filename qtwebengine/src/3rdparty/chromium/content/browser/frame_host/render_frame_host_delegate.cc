@@ -8,9 +8,11 @@
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "content/browser/frame_host/render_frame_host_delegate.h"
+#include "content/public/browser/file_select_listener.h"
 #include "ipc/ipc_message.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace content {
 
@@ -20,7 +22,7 @@ bool RenderFrameHostDelegate::OnMessageReceived(
   return false;
 }
 
-const GURL& RenderFrameHostDelegate::GetMainFrameLastCommittedURL() const {
+const GURL& RenderFrameHostDelegate::GetMainFrameLastCommittedURL() {
   return GURL::EmptyGURL();
 }
 
@@ -32,8 +34,22 @@ bool RenderFrameHostDelegate::DidAddMessageToConsole(
   return false;
 }
 
+void RenderFrameHostDelegate::RunFileChooser(
+    RenderFrameHost* render_frame_host,
+    std::unique_ptr<FileSelectListener> listener,
+    const blink::mojom::FileChooserParams& params) {
+  listener->FileSelectionCanceled();
+}
+
+void RenderFrameHostDelegate::EnumerateDirectory(
+    RenderFrameHost* render_frame_host,
+    std::unique_ptr<FileSelectListener> listener,
+    const base::FilePath& path) {
+  listener->FileSelectionCanceled();
+}
+
 WebContents* RenderFrameHostDelegate::GetAsWebContents() {
-  return NULL;
+  return nullptr;
 }
 
 InterstitialPage* RenderFrameHostDelegate::GetAsInterstitialPage() {
@@ -42,37 +58,40 @@ InterstitialPage* RenderFrameHostDelegate::GetAsInterstitialPage() {
 
 void RenderFrameHostDelegate::RequestMediaAccessPermission(
     const MediaStreamRequest& request,
-    const MediaResponseCallback& callback) {
+    MediaResponseCallback callback) {
   LOG(ERROR) << "RenderFrameHostDelegate::RequestMediaAccessPermission: "
              << "Not supported.";
-  callback.Run(MediaStreamDevices(), MEDIA_DEVICE_NOT_SUPPORTED,
-               std::unique_ptr<MediaStreamUI>());
+  std::move(callback).Run(blink::MediaStreamDevices(),
+                          blink::MEDIA_DEVICE_NOT_SUPPORTED,
+                          std::unique_ptr<MediaStreamUI>());
 }
 
 bool RenderFrameHostDelegate::CheckMediaAccessPermission(
-    const GURL& security_origin,
-    MediaStreamType type) {
+    RenderFrameHost* render_frame_host,
+    const url::Origin& security_origin,
+    blink::MediaStreamType type) {
   LOG(ERROR) << "RenderFrameHostDelegate::CheckMediaAccessPermission: "
              << "Not supported.";
   return false;
 }
 
 std::string RenderFrameHostDelegate::GetDefaultMediaDeviceID(
-    MediaStreamType type) {
+    blink::MediaStreamType type) {
   return std::string();
 }
 
-AccessibilityMode RenderFrameHostDelegate::GetAccessibilityMode() const {
-  return AccessibilityMode();
+ui::AXMode RenderFrameHostDelegate::GetAccessibilityMode() {
+  return ui::AXMode();
 }
 
 RenderFrameHost* RenderFrameHostDelegate::GetGuestByInstanceID(
     RenderFrameHost* render_frame_host,
     int browser_plugin_instance_id) {
-  return NULL;
+  return nullptr;
 }
 
-device::GeolocationContext* RenderFrameHostDelegate::GetGeolocationContext() {
+device::mojom::GeolocationContext*
+RenderFrameHostDelegate::GetGeolocationContext() {
   return nullptr;
 }
 
@@ -115,8 +134,17 @@ RenderFrameHostDelegate::GetJavaRenderFrameHostDelegate() {
 }
 #endif
 
-bool RenderFrameHostDelegate::IsBeingDestroyed() const {
+bool RenderFrameHostDelegate::IsBeingDestroyed() {
   return false;
+}
+
+Visibility RenderFrameHostDelegate::GetVisibility() {
+  return Visibility::HIDDEN;
+}
+
+ukm::SourceId RenderFrameHostDelegate::GetUkmSourceIdForLastCommittedSource()
+    const {
+  return ukm::kInvalidSourceId;
 }
 
 }  // namespace content

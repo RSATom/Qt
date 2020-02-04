@@ -14,19 +14,18 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/memory/shared_memory.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
-#include "components/viz/common/resources/shared_bitmap_manager.h"
-#include "content/common/cache_storage/cache_storage_types.h"
 #include "content/common/render_message_filter.mojom.h"
 #include "content/public/browser/browser_associated_interface.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "content/public/browser/browser_thread.h"
+#include "content/public/common/widget_type.h"
 #include "gpu/config/gpu_info.h"
 #include "ipc/message_filter.h"
-#include "third_party/WebKit/public/web/WebPopupType.h"
+#include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gfx/native_widget_types.h"
@@ -37,26 +36,13 @@
 #endif
 
 class GURL;
-struct FontDescriptor;
 
 namespace media {
 struct MediaLogEvent;
 }
 
-namespace net {
-class IOBuffer;
-class URLRequestContextGetter;
-}
-
-namespace url {
-class Origin;
-}
-
 namespace content {
 class BrowserContext;
-class CacheStorageContextImpl;
-class CacheStorageCacheHandle;
-class DOMStorageContextWrapper;
 class MediaInternals;
 class RenderWidgetHelper;
 class ResourceContext;
@@ -72,11 +58,8 @@ class CONTENT_EXPORT RenderMessageFilter
   // Create the filter.
   RenderMessageFilter(int render_process_id,
                       BrowserContext* browser_context,
-                      net::URLRequestContextGetter* request_context,
                       RenderWidgetHelper* render_widget_helper,
-                      MediaInternals* media_internals,
-                      DOMStorageContextWrapper* dom_storage_context,
-                      CacheStorageContextImpl* cache_storage_context);
+                      MediaInternals* media_internals);
 
   // BrowserMessageFilter methods:
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -95,55 +78,27 @@ class CONTENT_EXPORT RenderMessageFilter
 
   void OnGetProcessMemorySizes(size_t* private_bytes, size_t* shared_bytes);
 
-#if defined(OS_MACOSX)
-  // Messages for OOP font loading.
-  void OnLoadFont(const FontDescriptor& font, IPC::Message* reply_msg);
-  void SendLoadFontReply(IPC::Message* reply,
-                         uint32_t data_size,
-                         base::SharedMemoryHandle handle,
-                         uint32_t font_id);
-#endif
-
   // mojom::RenderMessageFilter:
   void GenerateRoutingID(GenerateRoutingIDCallback routing_id) override;
   void CreateNewWidget(int32_t opener_id,
-                       blink::WebPopupType popup_type,
                        mojom::WidgetPtr widget,
                        CreateNewWidgetCallback callback) override;
   void CreateFullscreenWidget(int opener_id,
                               mojom::WidgetPtr widget,
                               CreateFullscreenWidgetCallback callback) override;
+  void HasGpuProcess(HasGpuProcessCallback callback) override;
+#if defined(OS_LINUX)
+  void SetThreadPriority(int32_t ns_tid,
+                         base::ThreadPriority priority) override;
+#endif
 
-  // Message handlers called on the browser IO thread:
-  void OnHasGpuProcess(IPC::Message* reply);
-  // Helper callbacks for the message handlers.
-  void GetHasGpuProcessCallback(std::unique_ptr<IPC::Message> reply,
-                                bool has_gpu);
   void OnResolveProxy(const GURL& url, IPC::Message* reply_msg);
 
 #if defined(OS_LINUX)
   void SetThreadPriorityOnFileThread(base::PlatformThreadId ns_tid,
                                      base::ThreadPriority priority);
-  void OnSetThreadPriority(base::PlatformThreadId ns_tid,
-                           base::ThreadPriority priority);
 #endif
 
-  void OnCacheableMetadataAvailable(const GURL& url,
-                                    base::Time expected_response_time,
-                                    const std::vector<char>& data);
-  void OnCacheableMetadataAvailableForCacheStorage(
-      const GURL& url,
-      base::Time expected_response_time,
-      const std::vector<char>& data,
-      const url::Origin& cache_storage_origin,
-      const std::string& cache_storage_cache_name);
-  void OnCacheStorageOpenCallback(
-      const GURL& url,
-      base::Time expected_response_time,
-      scoped_refptr<net::IOBuffer> buf,
-      int buf_len,
-      std::unique_ptr<CacheStorageCacheHandle> cache_handle,
-      CacheStorageError error);
   void OnMediaLogEvents(const std::vector<media::MediaLogEvent>&);
 
   bool CheckBenchmarkingEnabled() const;
@@ -154,20 +109,14 @@ class CONTENT_EXPORT RenderMessageFilter
   // than we do.
   ResourceDispatcherHostImpl* resource_dispatcher_host_;
 
-  // Contextual information to be used for requests created here.
-  scoped_refptr<net::URLRequestContextGetter> request_context_;
-
   // The ResourceContext which is to be used on the IO thread.
   ResourceContext* resource_context_;
 
   scoped_refptr<RenderWidgetHelper> render_widget_helper_;
 
-  scoped_refptr<DOMStorageContextWrapper> dom_storage_context_;
-
   int render_process_id_;
 
   MediaInternals* media_internals_;
-  CacheStorageContextImpl* cache_storage_context_;
 
   base::WeakPtrFactory<RenderMessageFilter> weak_ptr_factory_;
 

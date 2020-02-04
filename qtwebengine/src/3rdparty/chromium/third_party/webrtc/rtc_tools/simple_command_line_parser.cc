@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_tools/simple_command_line_parser.h"
+#include "rtc_tools/simple_command_line_parser.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +22,7 @@ CommandLineParser::CommandLineParser() {}
 CommandLineParser::~CommandLineParser() {}
 
 void CommandLineParser::Init(int argc, char** argv) {
-  args_ = std::vector<std::string> (argv + 1, argv + argc);
+  args_ = std::vector<std::string>(argv + 1, argv + argc);
 }
 
 bool CommandLineParser::IsStandaloneFlag(std::string flag) {

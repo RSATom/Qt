@@ -46,13 +46,14 @@
 #include <QVideoFrame>
 
 #include <d3d11.h>
+#include <d3d11_1.h>
 #include <mfapi.h>
 #include <wrl.h>
 
 #include "qwinrtcameracontrol.h"
 
 #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
-#include <Windows.Security.ExchangeActiveSyncProvisioning.h>
+#include <windows.security.exchangeactivesyncprovisioning.h>
 using namespace ABI::Windows::Security::ExchangeActiveSyncProvisioning;
 #endif
 
@@ -76,33 +77,33 @@ class QWinRTCameraVideoBuffer : public QAbstractVideoBuffer
 public:
     QWinRTCameraVideoBuffer(IMF2DBuffer *buffer, int size, QWinRTCameraControl *control)
         : QAbstractVideoBuffer(NoHandle)
-        , currentMode(NotMapped)
         , buffer(buffer)
+        , currentMode(NotMapped)
         , size(size)
         , control(control)
     {
         Q_ASSERT(control);
     }
 
-    ~QWinRTCameraVideoBuffer()
+    ~QWinRTCameraVideoBuffer() override
     {
         unmap();
     }
 
-    MapMode mapMode() const Q_DECL_OVERRIDE
+    MapMode mapMode() const override
     {
         return currentMode;
     }
 
-    uchar *map(MapMode mode, int *numBytes, int *bytesPerLine) Q_DECL_OVERRIDE
+    uchar *map(MapMode mode, int *numBytes, int *bytesPerLine) override
     {
-        if (currentMode != NotMapped || mode == NotMapped || control && control->state() != QCamera::ActiveState)
+        if (currentMode != NotMapped || mode == NotMapped || (control && control->state() != QCamera::ActiveState))
             return nullptr;
 
         BYTE *bytes;
         LONG stride;
         HRESULT hr = buffer->Lock2D(&bytes, &stride);
-        RETURN_IF_FAILED("Failed to lock camera frame buffer", nullptr);
+        RETURN_IF_FAILED("Failed to lock camera frame buffer", return nullptr);
         control->frameMapped();
 
         if (bytesPerLine)
@@ -113,7 +114,7 @@ public:
         return bytes;
     }
 
-    void unmap() Q_DECL_OVERRIDE
+    void unmap() override
     {
         if (currentMode == NotMapped)
             return;
@@ -163,8 +164,8 @@ public:
         if (!m_videoEnumerator) {
             D3D11_VIDEO_PROCESSOR_CONTENT_DESC videoProcessorDesc = {
                 D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
-                { 0 }, desc.Width, desc.Height,
-                { 0 }, desc.Width, desc.Height,
+                { 0, 0}, desc.Width, desc.Height,
+                { 0, 0}, desc.Width, desc.Height,
                 D3D11_VIDEO_USAGE_OPTIMAL_SPEED
             };
             hr = m_videoDevice->CreateVideoProcessorEnumerator(&videoProcessorDesc, &m_videoEnumerator);
@@ -177,21 +178,24 @@ public:
         }
 
         if (!m_outputView) {
-            D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputDesc = { D3D11_VPOV_DIMENSION_TEXTURE2D };
+            D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC outputDesc = { D3D11_VPOV_DIMENSION_TEXTURE2D, {{ 0 }} };
             hr = m_videoDevice->CreateVideoProcessorOutputView(
                         m_target, m_videoEnumerator.Get(), &outputDesc, &m_outputView);
             RETURN_VOID_IF_FAILED("Failed to create video output view");
         }
 
-        ComPtr<IDXGIResource> sourceResource;
+        ComPtr<IDXGIResource1> sourceResource;
         hr = texture->QueryInterface(IID_PPV_ARGS(&sourceResource));
-        Q_ASSERT_SUCCEEDED(hr);
-        HANDLE sharedHandle;
-        hr = sourceResource->GetSharedHandle(&sharedHandle);
-        Q_ASSERT_SUCCEEDED(hr);
+        RETURN_VOID_IF_FAILED("Failed to query interface IDXGIResource1");
+        HANDLE sharedHandle = nullptr;
+        hr = sourceResource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ, nullptr, &sharedHandle);
+        RETURN_VOID_IF_FAILED("Failed to create shared handle");
+        ComPtr<ID3D11Device1> dev;
+        hr = m_d3dDevice.As(&dev);
+        RETURN_VOID_IF_FAILED("Failed to cast from ID3D11Device to ID3D11Device1");
         ComPtr<ID3D11Texture2D> sharedTexture;
-        hr = m_d3dDevice->OpenSharedResource(sharedHandle, IID_PPV_ARGS(&sharedTexture));
-        Q_ASSERT_SUCCEEDED(hr);
+        hr = dev->OpenSharedResource1(sharedHandle, IID_PPV_ARGS(&sharedTexture));
+        RETURN_VOID_IF_FAILED("Failed to open shared resource");
 
         D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC inputViewDesc = {
             0, D3D11_VPIV_DIMENSION_TEXTURE2D, { 0, 0 }
@@ -199,6 +203,7 @@ public:
         ComPtr<ID3D11VideoProcessorInputView> inputView;
         hr = m_videoDevice->CreateVideoProcessorInputView(
                     sharedTexture.Get(), m_videoEnumerator.Get(), &inputViewDesc, &inputView);
+        CloseHandle(sharedHandle);
         RETURN_VOID_IF_FAILED("Failed to create video input view");
 
         ComPtr<ID3D11DeviceContext> context;
@@ -207,7 +212,9 @@ public:
         hr = context.As(&videoContext);
         RETURN_VOID_IF_FAILED("Failed to get video context");
 
-        D3D11_VIDEO_PROCESSOR_STREAM stream = { TRUE };
+        D3D11_VIDEO_PROCESSOR_STREAM stream = { TRUE, 0, 0, 0, 0, nullptr,
+                                                nullptr, nullptr, nullptr,
+                                                nullptr, nullptr};
         stream.pInputSurface = inputView.Get();
         hr = videoContext->VideoProcessorBlt(
                     m_videoProcessor.Get(), m_outputView.Get(), 0, 1, &stream);
@@ -277,7 +284,7 @@ bool QWinRTCameraVideoRendererControlPrivate::getCameraSampleInfo(const ComPtr<I
     DWORD pcbLength;
     hr = buffer->GetContiguousLength(&pcbLength);
     Q_ASSERT_SUCCEEDED(hr);
-    cameraSampleSize = pcbLength;
+    cameraSampleSize = int(pcbLength);
     return true;
 }
 
@@ -419,6 +426,12 @@ void QWinRTCameraVideoRendererControl::decrementProbe()
     Q_D(QWinRTCameraVideoRendererControl);
     Q_ASSERT(d->videoProbesCounter > 0);
     --d->videoProbesCounter;
+}
+
+void QWinRTCameraVideoRendererControl::resetSampleFormat()
+{
+    Q_D(QWinRTCameraVideoRendererControl);
+    d->cameraSampleformat = QVideoFrame::Format_User;
 }
 
 QT_END_NAMESPACE

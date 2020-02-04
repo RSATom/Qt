@@ -44,6 +44,7 @@ DXVA2_ExtendedFormat ColorSpaceWin::GetExtendedFormat(
       break;
 
     case gfx::ColorSpace::MatrixID::RGB:
+    case gfx::ColorSpace::MatrixID::GBR:
     case gfx::ColorSpace::MatrixID::FCC:
     case gfx::ColorSpace::MatrixID::YCOCG:
     case gfx::ColorSpace::MatrixID::BT2020_NCL:
@@ -80,7 +81,6 @@ DXVA2_ExtendedFormat ColorSpaceWin::GetExtendedFormat(
     case gfx::ColorSpace::PrimaryID::ADOBE_RGB:
     case gfx::ColorSpace::PrimaryID::APPLE_GENERIC_RGB:
     case gfx::ColorSpace::PrimaryID::WIDE_GAMUT_COLOR_SPIN:
-    case gfx::ColorSpace::PrimaryID::ICC_BASED:
     case gfx::ColorSpace::PrimaryID::CUSTOM:
     case gfx::ColorSpace::PrimaryID::INVALID:
       // Not handled
@@ -119,10 +119,10 @@ DXVA2_ExtendedFormat ColorSpaceWin::GetExtendedFormat(
     case gfx::ColorSpace::TransferID::SMPTEST2084:
     case gfx::ColorSpace::TransferID::SMPTEST428_1:
     case gfx::ColorSpace::TransferID::ARIB_STD_B67:
+    case gfx::ColorSpace::TransferID::BT709_APPLE:
     case gfx::ColorSpace::TransferID::GAMMA18:
     case gfx::ColorSpace::TransferID::GAMMA24:
     case gfx::ColorSpace::TransferID::SMPTEST2084_NON_HDR:
-    case gfx::ColorSpace::TransferID::ICC_BASED:
     case gfx::ColorSpace::TransferID::CUSTOM:
     case gfx::ColorSpace::TransferID::INVALID:
       // Not handled
@@ -133,8 +133,9 @@ DXVA2_ExtendedFormat ColorSpaceWin::GetExtendedFormat(
 }
 
 DXGI_COLOR_SPACE_TYPE ColorSpaceWin::GetDXGIColorSpace(
-    const ColorSpace& color_space) {
-  if (color_space.matrix_ == gfx::ColorSpace::MatrixID::RGB) {
+    const ColorSpace& color_space,
+    bool force_yuv) {
+  if (color_space.matrix_ == gfx::ColorSpace::MatrixID::RGB && !force_yuv) {
     // For RGB, we default to FULL
     if (color_space.range_ == gfx::ColorSpace::RangeID::LIMITED) {
       if (color_space.primaries_ == gfx::ColorSpace::PrimaryID::BT2020) {
@@ -207,10 +208,11 @@ DXGI_COLOR_SPACE_TYPE ColorSpaceWin::GetDXGIColorSpace(
 D3D11_VIDEO_PROCESSOR_COLOR_SPACE ColorSpaceWin::GetD3D11ColorSpace(
     const ColorSpace& color_space) {
   D3D11_VIDEO_PROCESSOR_COLOR_SPACE ret = {0};
-  if (color_space.range_ != gfx::ColorSpace::RangeID::FULL) {
-    ret.RGB_Range = 1;
+  if (color_space.range_ == gfx::ColorSpace::RangeID::FULL) {
+    ret.RGB_Range = 0;  // FULL
     ret.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255;
   } else {
+    ret.RGB_Range = 1;  // LIMITED
     ret.Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235;
   }
 
@@ -226,6 +228,7 @@ D3D11_VIDEO_PROCESSOR_COLOR_SPACE ColorSpaceWin::GetD3D11ColorSpace(
 
     case gfx::ColorSpace::MatrixID::SMPTE240M:
     case gfx::ColorSpace::MatrixID::RGB:
+    case gfx::ColorSpace::MatrixID::GBR:
     case gfx::ColorSpace::MatrixID::FCC:
     case gfx::ColorSpace::MatrixID::YCOCG:
     case gfx::ColorSpace::MatrixID::BT2020_NCL:

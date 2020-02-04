@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/bind.h"
-#include "content/public/child/v8_value_converter.h"
 #include "content/public/renderer/render_thread.h"
+#include "content/public/renderer/v8_value_converter.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/renderer/activity_log_converter_strategy.h"
 #include "extensions/renderer/dispatcher.h"
@@ -23,33 +23,40 @@ namespace {
 bool g_log_for_testing = false;
 }
 
-APIActivityLogger::APIActivityLogger(ScriptContext* context,
-                                     Dispatcher* dispatcher)
-    : ObjectBackedNativeHandler(context), dispatcher_(dispatcher) {
-  RouteFunction("LogEvent", base::Bind(&APIActivityLogger::LogForJS,
-                                       base::Unretained(this), EVENT));
-  RouteFunction("LogAPICall", base::Bind(&APIActivityLogger::LogForJS,
-                                         base::Unretained(this), APICALL));
-}
+APIActivityLogger::APIActivityLogger(ScriptContext* context)
+    : ObjectBackedNativeHandler(context) {}
 
 APIActivityLogger::~APIActivityLogger() {}
+
+void APIActivityLogger::AddRoutes() {
+  RouteHandlerFunction("LogEvent",
+                       base::BindRepeating(&APIActivityLogger::LogForJS,
+                                           base::Unretained(this), EVENT));
+  RouteHandlerFunction("LogAPICall",
+                       base::BindRepeating(&APIActivityLogger::LogForJS,
+                                           base::Unretained(this), APICALL));
+}
+
+// static
+bool APIActivityLogger::IsLoggingEnabled() {
+  const Dispatcher* dispatcher =
+      ExtensionsRendererClient::Get()->GetDispatcher();
+  return (dispatcher &&  // dispatcher can be null in unittests.
+          dispatcher->activity_logging_enabled()) ||
+         g_log_for_testing;
+}
 
 // static
 void APIActivityLogger::LogAPICall(
     v8::Local<v8::Context> context,
     const std::string& call_name,
     const std::vector<v8::Local<v8::Value>>& arguments) {
-  const Dispatcher* dispatcher =
-      ExtensionsRendererClient::Get()->GetDispatcher();
-  if ((!dispatcher ||  // dispatcher can be null in unittests.
-       !dispatcher->activity_logging_enabled()) &&
-      !g_log_for_testing) {
+  if (!IsLoggingEnabled())
     return;
-  }
 
   ScriptContext* script_context =
       ScriptContextSet::GetContextByV8Context(context);
-  auto value_args = base::MakeUnique<base::ListValue>();
+  auto value_args = std::make_unique<base::ListValue>();
   std::unique_ptr<content::V8ValueConverter> converter =
       content::V8ValueConverter::Create();
   ActivityLogConverterStrategy strategy;
@@ -62,11 +69,21 @@ void APIActivityLogger::LogAPICall(
     std::unique_ptr<base::Value> converted_arg =
         converter->FromV8Value(arg, context);
     value_args->Append(converted_arg ? std::move(converted_arg)
-                                     : base::MakeUnique<base::Value>());
+                                     : std::make_unique<base::Value>());
   }
 
   LogInternal(APICALL, script_context->GetExtensionID(), call_name,
               std::move(value_args), std::string());
+}
+
+void APIActivityLogger::LogEvent(ScriptContext* script_context,
+                                 const std::string& event_name,
+                                 std::unique_ptr<base::ListValue> arguments) {
+  if (!IsLoggingEnabled())
+    return;
+
+  LogInternal(EVENT, script_context->GetExtensionID(), event_name,
+              std::move(arguments), std::string());
 }
 
 void APIActivityLogger::set_log_for_testing(bool log) {
@@ -81,23 +98,23 @@ void APIActivityLogger::LogForJS(
   CHECK(args[1]->IsString());
   CHECK(args[2]->IsArray());
 
-  if (!dispatcher_->activity_logging_enabled())
+  if (!IsLoggingEnabled())
     return;
 
   v8::Isolate* isolate = args.GetIsolate();
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::Context> context = isolate->GetCurrentContext();
 
-  std::string extension_id = *v8::String::Utf8Value(args[0]);
-  std::string call_name = *v8::String::Utf8Value(args[1]);
+  std::string extension_id = *v8::String::Utf8Value(isolate, args[0]);
+  std::string call_name = *v8::String::Utf8Value(isolate, args[1]);
   std::string extra;
   if (args.Length() == 4) {  // Extras are optional.
     CHECK(args[3]->IsString());
-    extra = *v8::String::Utf8Value(args[3]);
+    extra = *v8::String::Utf8Value(isolate, args[3]);
   }
 
   // Get the array of call arguments.
-  auto arguments = base::MakeUnique<base::ListValue>();
+  auto arguments = std::make_unique<base::ListValue>();
   v8::Local<v8::Array> arg_array = v8::Local<v8::Array>::Cast(args[2]);
   if (arg_array->Length() > 0) {
     arguments->Reserve(arg_array->Length());
@@ -107,10 +124,12 @@ void APIActivityLogger::LogForJS(
     converter->SetFunctionAllowed(true);
     converter->SetStrategy(&strategy);
     for (size_t i = 0; i < arg_array->Length(); ++i) {
-      std::unique_ptr<base::Value> converted_arg =
-          converter->FromV8Value(arg_array->Get(i), context);
+      // TODO(crbug.com/913942): Possibly replace ToLocalChecked here with
+      // actual error handling.
+      std::unique_ptr<base::Value> converted_arg = converter->FromV8Value(
+          arg_array->Get(context, i).ToLocalChecked(), context);
       arguments->Append(converted_arg ? std::move(converted_arg)
-                                      : base::MakeUnique<base::Value>());
+                                      : std::make_unique<base::Value>());
     }
   }
 
@@ -123,6 +142,7 @@ void APIActivityLogger::LogInternal(const CallType call_type,
                                     const std::string& call_name,
                                     std::unique_ptr<base::ListValue> arguments,
                                     const std::string& extra) {
+  DCHECK(IsLoggingEnabled());
   ExtensionHostMsg_APIActionOrEvent_Params params;
   params.api_call = call_name;
   params.arguments.Swap(arguments.get());

@@ -26,7 +26,7 @@
 ****************************************************************************/
 
 /*!
-    \qmlmodule QtGraphicalEffects 1.0
+    \qmlmodule QtGraphicalEffects 1.\QtMinorVersion
     \title Qt Graphical Effect QML Types
     \ingroup qmlmodules
 
@@ -39,10 +39,12 @@
     user interface as UI components.
 
     To use the types in this module, import the module with the following line:
-    \qml
-    import QtGraphicalEffects 1.0
+    \qml \QtMinorVersion
+    import QtGraphicalEffects 1.\1
     \endqml
 
+    \note There are no API changes since version 1.0, so it's OK
+    to import version 1.0, or 1.\QtMinorVersion for convenience.
  */
 
 /*!

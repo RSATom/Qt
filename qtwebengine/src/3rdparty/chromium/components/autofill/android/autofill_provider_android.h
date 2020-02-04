@@ -26,19 +26,30 @@ class AutofillProviderAndroid : public AutofillProvider {
   ~AutofillProviderAndroid() override;
 
   // AutofillProvider:
-  void OnQueryFormFieldAutofill(AutofillHandlerProxy* handler,
-                                int32_t id,
-                                const FormData& form,
-                                const FormFieldData& field,
-                                const gfx::RectF& bounding_box) override;
+  void OnQueryFormFieldAutofill(
+      AutofillHandlerProxy* handler,
+      int32_t id,
+      const FormData& form,
+      const FormFieldData& field,
+      const gfx::RectF& bounding_box,
+      bool /*unused_autoselect_first_suggestion*/) override;
   void OnTextFieldDidChange(AutofillHandlerProxy* handler,
                             const FormData& form,
                             const FormFieldData& field,
                             const gfx::RectF& bounding_box,
                             const base::TimeTicks timestamp) override;
-  bool OnWillSubmitForm(AutofillHandlerProxy* handler,
-                        const FormData& form,
-                        const base::TimeTicks timestamp) override;
+  void OnTextFieldDidScroll(AutofillHandlerProxy* handler,
+                            const FormData& form,
+                            const FormFieldData& field,
+                            const gfx::RectF& bounding_box) override;
+  void OnSelectControlDidChange(AutofillHandlerProxy* handler,
+                                const FormData& form,
+                                const FormFieldData& field,
+                                const gfx::RectF& bounding_box) override;
+  void OnFormSubmitted(AutofillHandlerProxy* handler,
+                       const FormData& form,
+                       bool known_success,
+                       SubmissionSource source) override;
   void OnFocusNoLongerOnForm(AutofillHandlerProxy* handler) override;
   void OnFocusOnFormField(AutofillHandlerProxy* handler,
                           const FormData& form,
@@ -47,21 +58,38 @@ class AutofillProviderAndroid : public AutofillProvider {
   void OnDidFillAutofillFormData(AutofillHandlerProxy* handler,
                                  const FormData& form,
                                  base::TimeTicks timestamp) override;
+  void OnFormsSeen(AutofillHandlerProxy* handler,
+                   const std::vector<FormData>& forms,
+                   const base::TimeTicks timestamp) override;
+
   void Reset(AutofillHandlerProxy* handler) override;
 
   // Methods called by Java.
   void OnAutofillAvailable(JNIEnv* env, jobject jcaller, jobject form_data);
 
  private:
+  void FireSuccessfulSubmission(SubmissionSource source);
   void OnFocusChanged(bool focus_on_form,
                       size_t index,
                       const gfx::RectF& bounding_box);
+  void FireFormFieldDidChanged(AutofillHandlerProxy* handler,
+                               const FormData& form,
+                               const FormFieldData& field,
+                               const gfx::RectF& bounding_box);
 
-  bool ValidateHandler(AutofillHandlerProxy* handler);
+  bool IsCurrentlyLinkedHandler(AutofillHandlerProxy* handler);
 
   bool IsCurrentlyLinkedForm(const FormData& form);
 
   gfx::RectF ToClientAreaBound(const gfx::RectF& bounding_box);
+
+  bool ShouldStartNewSession(AutofillHandlerProxy* handler,
+                             const FormData& form);
+
+  void StartNewSession(AutofillHandlerProxy* handler,
+                       const FormData& form,
+                       const FormFieldData& field,
+                       const gfx::RectF& bounding_box);
 
   void Reset();
 
@@ -70,12 +98,14 @@ class AutofillProviderAndroid : public AutofillProvider {
   base::WeakPtr<AutofillHandlerProxy> handler_;
   JavaObjectWeakGlobalRef java_ref_;
   content::WebContents* web_contents_;
+  bool check_submission_;
+  // Valid only if check_submission_ is true.
+  SubmissionSource pending_submission_source_;
+
+  base::WeakPtr<AutofillHandlerProxy> handler_for_testing_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillProviderAndroid);
 };
-
-bool RegisterAutofillProvider(JNIEnv* env);
-
 }  // namespace autofill
 
 #endif  // COMPONENTS_AUTOFILL_ANDROID_AUTOFILL_PROVIDER_ANDROID_H_

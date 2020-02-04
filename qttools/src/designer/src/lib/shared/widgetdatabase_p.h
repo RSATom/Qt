@@ -43,13 +43,13 @@
 
 #include "shared_global_p.h"
 
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
+#include <QtDesigner/abstractwidgetdatabase.h>
 
-#include <QtGui/QIcon>
-#include <QtCore/QString>
-#include <QtCore/QVariant>
-#include <QtCore/QPair>
-#include <QtCore/QStringList>
+#include <QtGui/qicon.h>
+#include <QtCore/qstring.h>
+#include <QtCore/qvariant.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qstringlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -146,11 +146,11 @@ class QDESIGNER_SHARED_EXPORT WidgetDataBase: public QDesignerWidgetDataBaseInte
     Q_OBJECT
 public:
     explicit WidgetDataBase(QDesignerFormEditorInterface *core, QObject *parent = 0);
-    virtual ~WidgetDataBase();
+    ~WidgetDataBase() override;
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
 
-    int indexOfObject(QObject *o, bool resolveName = true) const Q_DECL_OVERRIDE;
+    int indexOfObject(QObject *o, bool resolveName = true) const override;
 
     void remove(int index);
 

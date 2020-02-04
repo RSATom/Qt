@@ -8,6 +8,7 @@ SOURCES += tst_repcodegenerator.cpp
 REP_FILES += \
     classwithsignalonlytest.rep \
     preprocessortest.rep \
+    classwithreadonlypropertytest.rep
 
 # Make sure we test both source + replica generated code
 REPC_MERGED = $$REP_FILES

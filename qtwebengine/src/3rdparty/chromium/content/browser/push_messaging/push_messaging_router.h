@@ -10,9 +10,8 @@
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/weak_ptr.h"
-#include "content/common/service_worker/service_worker_status_code.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerEventResult.h"
+#include "base/optional.h"
+#include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -22,7 +21,6 @@ enum class PushDeliveryStatus;
 }
 
 class BrowserContext;
-struct PushEventPayload;
 class ServiceWorkerContextWrapper;
 class ServiceWorkerRegistration;
 class ServiceWorkerVersion;
@@ -39,7 +37,7 @@ class PushMessagingRouter {
       BrowserContext* browser_context,
       const GURL& origin,
       int64_t service_worker_registration_id,
-      const PushEventPayload& payload,
+      base::Optional<std::string> payload,
       const DeliverMessageCallback& deliver_message_callback);
 
  private:
@@ -48,7 +46,7 @@ class PushMessagingRouter {
   static void FindServiceWorkerRegistration(
       const GURL& origin,
       int64_t service_worker_registration_id,
-      const PushEventPayload& payload,
+      base::Optional<std::string> payload,
       const DeliverMessageCallback& deliver_message_callback,
       scoped_refptr<ServiceWorkerContextWrapper> service_worker_context);
 
@@ -56,19 +54,20 @@ class PushMessagingRouter {
   // |data| on the Service Worker identified by |service_worker_registration|.
   // Must be called on the IO thread.
   static void FindServiceWorkerRegistrationCallback(
-      const PushEventPayload& payload,
+      base::Optional<std::string> payload,
       const DeliverMessageCallback& deliver_message_callback,
-      ServiceWorkerStatusCode service_worker_status,
+      blink::ServiceWorkerStatusCode service_worker_status,
       scoped_refptr<ServiceWorkerRegistration> service_worker_registration);
 
-  // Delivers a push message with |data| to a specific |service_worker|. Must be
-  // called on the IO thread, with the the worker running.
+  // Delivers a push message with |data| to a specific |service_worker|.
+  // Must be called on the IO thread.
   static void DeliverMessageToWorker(
       const scoped_refptr<ServiceWorkerVersion>& service_worker,
       const scoped_refptr<ServiceWorkerRegistration>&
           service_worker_registration,
-      const PushEventPayload& payload,
-      const DeliverMessageCallback& deliver_message_callback);
+      base::Optional<std::string> payload,
+      const DeliverMessageCallback& deliver_message_callback,
+      blink::ServiceWorkerStatusCode start_worker_status);
 
   // Gets called asynchronously after the Service Worker has dispatched the push
   // event. Must be called on the IO thread.
@@ -76,7 +75,7 @@ class PushMessagingRouter {
       const DeliverMessageCallback& deliver_message_callback,
       const scoped_refptr<ServiceWorkerRegistration>&
           service_worker_registration,
-      ServiceWorkerStatusCode service_worker_status);
+      blink::ServiceWorkerStatusCode service_worker_status);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(PushMessagingRouter);
 };

@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "gpu/ipc/host/shader_disk_cache.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
-#include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
-#include "gpu/ipc/host/shader_disk_cache.h"
+#include "base/test/bind_test_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "net/base/test_completion_callback.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -18,38 +16,39 @@ namespace {
 const int kDefaultClientId = 42;
 const char kCacheKey[] = "key";
 const char kCacheValue[] = "cached value";
+const char kCacheKey2[] = "key2";
+const char kCacheValue2[] = "cached value2";
 
 }  // namespace
 
 class ShaderDiskCacheTest : public testing::Test {
  public:
-  ShaderDiskCacheTest()
-      : cache_thread_("CacheThread") {
-    base::Thread::Options options;
-    options.message_loop_type = base::MessageLoop::TYPE_IO;
-    CHECK(cache_thread_.StartWithOptions(options));
-    factory_ =
-        base::MakeUnique<ShaderCacheFactory>(cache_thread_.task_runner());
-  }
+  ShaderDiskCacheTest() = default;
 
-  ~ShaderDiskCacheTest() override {}
+  ~ShaderDiskCacheTest() override = default;
 
   const base::FilePath& cache_path() { return temp_dir_.GetPath(); }
 
   void InitCache() {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-    factory_->SetCacheInfo(kDefaultClientId, cache_path());
+    factory_.SetCacheInfo(kDefaultClientId, cache_path());
   }
 
-  ShaderCacheFactory* factory() { return factory_.get(); }
+  ShaderCacheFactory* factory() { return &factory_; }
 
  private:
-  void TearDown() override { factory_->RemoveCacheInfo(kDefaultClientId); }
+  void TearDown() override {
+    factory_.RemoveCacheInfo(kDefaultClientId);
 
-  std::unique_ptr<ShaderCacheFactory> factory_;
+    // Run all pending tasks before destroying ScopedTaskEnvironment. Otherwise,
+    // SimpleEntryImpl instances bound to pending tasks are destroyed in an
+    // incorrect state (see |state_| DCHECK in ~SimpleEntryImpl).
+    scoped_task_environment_.RunUntilIdle();
+  }
+
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   base::ScopedTempDir temp_dir_;
-  base::Thread cache_thread_;
-  base::MessageLoopForIO message_loop_;
+  ShaderCacheFactory factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ShaderDiskCacheTest);
 };
@@ -58,7 +57,7 @@ TEST_F(ShaderDiskCacheTest, ClearsCache) {
   InitCache();
 
   scoped_refptr<ShaderDiskCache> cache = factory()->Get(kDefaultClientId);
-  ASSERT_TRUE(cache.get() != NULL);
+  ASSERT_TRUE(cache.get() != nullptr);
 
   net::TestCompletionCallback available_cb;
   int rv = cache->SetAvailableCallback(available_cb.callback());
@@ -85,7 +84,7 @@ TEST_F(ShaderDiskCacheTest, SafeToDeleteCacheMidEntryOpen) {
 
   // Create a cache and wait for it to open.
   scoped_refptr<ShaderDiskCache> cache = factory()->Get(kDefaultClientId);
-  ASSERT_TRUE(cache.get() != NULL);
+  ASSERT_TRUE(cache.get() != nullptr);
   net::TestCompletionCallback available_cb;
   int rv = cache->SetAvailableCallback(available_cb.callback());
   ASSERT_EQ(net::OK, available_cb.GetResult(rv));
@@ -100,10 +99,45 @@ TEST_F(ShaderDiskCacheTest, SafeToDeleteCacheMidEntryOpen) {
   // Open a new cache (to pass time on the cache thread) and verify all is
   // well.
   cache = factory()->Get(kDefaultClientId);
-  ASSERT_TRUE(cache.get() != NULL);
+  ASSERT_TRUE(cache.get() != nullptr);
   net::TestCompletionCallback available_cb2;
   int rv2 = cache->SetAvailableCallback(available_cb2.callback());
   ASSERT_EQ(net::OK, available_cb2.GetResult(rv2));
+};
+
+TEST_F(ShaderDiskCacheTest, MultipleLoaderCallbacks) {
+  InitCache();
+
+  // Create a cache and wait for it to open.
+  scoped_refptr<ShaderDiskCache> cache = factory()->Get(kDefaultClientId);
+  ASSERT_TRUE(cache.get() != nullptr);
+  net::TestCompletionCallback available_cb;
+  int rv = cache->SetAvailableCallback(available_cb.callback());
+  ASSERT_EQ(net::OK, available_cb.GetResult(rv));
+  EXPECT_EQ(0, cache->Size());
+
+  // Write two entries, wait for them to complete.
+  const int32_t count = 2;
+  cache->Cache(kCacheKey, kCacheValue);
+  cache->Cache(kCacheKey2, kCacheValue2);
+  net::TestCompletionCallback complete_cb;
+  rv = cache->SetCacheCompleteCallback(complete_cb.callback());
+  ASSERT_EQ(net::OK, complete_cb.GetResult(rv));
+  EXPECT_EQ(count, cache->Size());
+
+  // Close, re-open, and verify that two entries were loaded.
+  cache = nullptr;
+  cache = factory()->Get(kDefaultClientId);
+  ASSERT_TRUE(cache.get() != nullptr);
+  int loaded_calls = 0;
+  cache->set_shader_loaded_callback(base::BindLambdaForTesting(
+      [&loaded_calls](const std::string& key, const std::string& value) {
+        ++loaded_calls;
+      }));
+  net::TestCompletionCallback available_cb2;
+  int rv2 = cache->SetAvailableCallback(available_cb2.callback());
+  ASSERT_EQ(net::OK, available_cb2.GetResult(rv2));
+  EXPECT_EQ(count, loaded_calls);
 };
 
 }  // namespace gpu

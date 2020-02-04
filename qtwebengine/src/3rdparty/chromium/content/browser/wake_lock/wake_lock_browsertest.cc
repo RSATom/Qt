@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/test/test_timeouts.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/common/content_switches.h"
@@ -24,7 +24,7 @@ const char kBlinkWakeLockFeature[] = "WakeLock";
 
 void OnHasWakeLock(bool* out, bool has_wakelock) {
   *out = has_wakelock;
-  base::MessageLoop::current()->QuitNow();
+  base::RunLoop::QuitCurrentDeprecated();
 }
 
 }  // namespace
@@ -76,7 +76,7 @@ class WakeLockTest : public ContentBrowserTest {
     base::RunLoop run_loop;
 
     GetRendererWakeLock()->HasWakeLockForTests(
-        base::Bind(&OnHasWakeLock, &has_wakelock));
+        base::BindOnce(&OnHasWakeLock, &has_wakelock));
     run_loop.Run();
     return has_wakelock;
   }
@@ -340,6 +340,10 @@ IN_PROC_BROWSER_TEST_F(WakeLockTest, OutOfProcessFrame) {
   WaitForPossibleUpdate();
   EXPECT_TRUE(HasWakeLock());
 
+  // Grab a watcher for the RenderFrameHost of the first site.
+  RenderFrameDeletedObserver frame_observer(
+      GetNestedFrameNode()->current_frame_host());
+
   // Navigate nested frame to a cross-site document.
   NavigateFrameToURL(GetNestedFrameNode(), embedded_test_server()->GetURL(
                                                "b.com", "/simple_page.html"));
@@ -347,6 +351,15 @@ IN_PROC_BROWSER_TEST_F(WakeLockTest, OutOfProcessFrame) {
 
   // Ensure that a new process has been created for the nested frame.
   EXPECT_TRUE(GetNestedFrame()->IsCrossProcessSubframe());
+
+  // While the navigation to the second URL has completed, the teardown of the
+  // host-side objects for the first URL may not have yet. The WakeLock will
+  // only be released once the first renderer is cleaned up since it is held
+  // by that renderer.
+  // TODO(crbug.com/899384): This races with the new renderer then, would it
+  // cause us to release a WakeLock that it requested before the old renderer
+  // was torn down?
+  frame_observer.WaitUntilDeleted();
 
   // Screen wake lock should be released.
   EXPECT_FALSE(HasWakeLock());
@@ -377,7 +390,7 @@ IN_PROC_BROWSER_TEST_F(WakeLockTest, UnlockAfterCrashOutOfProcessFrame) {
   RenderProcessHostWatcher watcher(
       GetNestedFrame()->GetProcess(),
       RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
-  GetNestedFrame()->GetProcess()->Shutdown(0, false);
+  GetNestedFrame()->GetProcess()->Shutdown(0);
   watcher.Wait();
 
   // Screen wake lock should be released.

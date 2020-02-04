@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "net/base/net_export.h"
 #include "net/http/http_auth.h"
-#include "net/proxy/proxy_bypass_rules.h"
+#include "net/proxy_resolution/proxy_bypass_rules.h"
 
 class GURL;
 
@@ -40,9 +40,6 @@ class NET_EXPORT HttpAuthFilterWhitelist : public HttpAuthFilter {
 
   // Adds an individual URL |filter| to the list, of the specified |target|.
   bool AddFilter(const std::string& filter, HttpAuth::Target target);
-
-  // Adds a rule that bypasses all "local" hostnames.
-  void AddRuleToBypassLocal();
 
   const ProxyBypassRules& rules() const { return rules_; }
 

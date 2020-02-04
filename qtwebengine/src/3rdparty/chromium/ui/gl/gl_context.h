@@ -7,17 +7,23 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
+#include "base/atomicops.h"
 #include "base/cancelable_callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/cancellation_flag.h"
+#include "build/build_config.h"
+#include "ui/gfx/extension_set.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_share_group.h"
 #include "ui/gl/gl_state_restorer.h"
 #include "ui/gl/gl_workarounds.h"
 #include "ui/gl/gpu_preference.h"
+
+namespace gfx {
+class ColorSpace;
+}  // namespace gfx
 
 namespace gl {
 class YUVToRGBConverter;
@@ -64,6 +70,8 @@ struct GLContextAttribs {
   bool bind_generates_resource = true;
   bool webgl_compatibility_context = false;
   bool global_texture_share_group = false;
+  bool robust_resource_initialization = false;
+  bool robust_buffer_access = false;
   int client_major_es_version = 3;
   int client_minor_es_version = 0;
   ContextPriority context_priority = ContextPriorityMedium;
@@ -74,9 +82,22 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
  public:
   explicit GLContext(GLShareGroup* share_group);
 
+  static int32_t TotalGLContexts();
+
+  static bool SwitchableGPUsSupported();
+  // This should be called at most once at GPU process startup time.
+  // By default, GPU switching is not supported unless this is called.
+  static void SetSwitchableGPUsSupported();
+
+  // This should be called at most once at GPU process startup time.
+  static void SetForcedGpuPreference(GpuPreference gpu_preference);
+  // If a gpu preference is forced (by GPU driver bug workaround, etc), return
+  // it. Otherwise, return the original input preference.
+  static GpuPreference AdjustGpuPreference(GpuPreference gpu_preference);
+
   // Initializes the GL context to be compatible with the given surface. The GL
   // context can be made with other surface's of the same type. The compatible
-  // surface is only needed for certain platforms like WGL, OSMesa and GLX. It
+  // surface is only needed for certain platforms like WGL and GLX. It
   // should be specific for all platforms though.
   virtual bool Initialize(GLSurface* compatible_surface,
                           const GLContextAttribs& attribs) = 0;
@@ -100,21 +121,16 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
   // Set the GL workarounds.
   void SetGLWorkarounds(const GLWorkarounds& workarounds);
 
+  void SetDisabledGLExtensions(const std::string& disabled_gl_extensions);
+
   // Gets the GLStateRestorer for the context.
   GLStateRestorer* GetGLStateRestorer();
 
   // Sets the GLStateRestorer for the context (takes ownership).
   void SetGLStateRestorer(GLStateRestorer* state_restorer);
 
-  // Set swap interval. This context must be current.
-  void SetSwapInterval(int interval);
-
-  // Forces the swap interval to zero (no vsync) regardless of any future values
-  // passed to SetSwapInterval.
-  void ForceSwapIntervalZero(bool force);
-
-  // Returns space separated list of extensions. The context must be current.
-  virtual std::string GetExtensions();
+  // Returns set of extensions. The context must be current.
+  virtual const gfx::ExtensionSet& GetExtensions() = 0;
 
   // Indicate that it is safe to force this context to switch GPUs, since
   // transitioning can cause corruption and hangs (OS X only).
@@ -138,21 +154,17 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
 
   GLShareGroup* share_group();
 
-  // Create a GL context that is compatible with the given surface.
-  // |share_group|, if non-NULL, is a group of contexts which the
-  // internally created OpenGL context shares textures and other resources.
-  // DEPRECATED(kylechar): Use gl::init::CreateGLContext from gl_factory.h.
-  static scoped_refptr<GLContext> CreateGLContext(
-      GLShareGroup* share_group,
-      GLSurface* compatible_surface,
-      GpuPreference gpu_preference);
-
   static bool LosesAllContextsOnContextLost();
 
   // Returns the last GLContext made current, virtual or real.
   static GLContext* GetCurrent();
 
-  virtual bool WasAllocatedUsingRobustnessExtension();
+  // Returns the 'sticky' value of glGetGraphicsResetStatus, if available.
+  // 'sticky' implies that if glGetGraphicsResetStatus ever returns a value
+  // other than GL_NO_ERROR, that value is returned until the context is
+  // destroyed.
+  // The context must be current.
+  virtual unsigned int CheckStickyGraphicsResetStatus();
 
   // Make this context current when used for context virtualization.
   bool MakeVirtuallyCurrent(GLContext* virtual_context, GLSurface* surface);
@@ -167,8 +179,10 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
   // Returns the GL renderer string. The context must be current.
   virtual std::string GetGLRenderer();
 
-  // Returns a helper structure to convert YUV textures to RGB textures.
-  virtual YUVToRGBConverter* GetYUVToRGBConverter();
+  // Returns a helper structure to convert the YUV color space |color_space|
+  // to its associated full-range RGB color space.
+  virtual YUVToRGBConverter* GetYUVToRGBConverter(
+      const gfx::ColorSpace& color_space);
 
   // Get the CurrentGL object for this context containing the driver, version
   // and API.
@@ -184,6 +198,24 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
   // longer considered virtually current. The real context remains
   // current.
   virtual void ForceReleaseVirtuallyCurrent();
+
+  // Indicates that some GL state was modified that was not tracked by virtual
+  // contexts. Forces full reset from unknown state the next time a virtual
+  // context is made current.
+  void DirtyVirtualContextState();
+
+#if defined(OS_MACOSX)
+  // Create a fence for all work submitted to this context so far, and return a
+  // monotonically increasing handle to it. This returned handle never needs to
+  // be freed. This method is used to create backpressure to throttle GL work
+  // on macOS, so that we do not starve CoreAnimation.
+  virtual uint64_t BackpressureFenceCreate();
+  // Perform a client-side wait on a previously-created fence.
+  virtual void BackpressureFenceWait(uint64_t fence);
+  // Flush the underlying context to avoid crashes due to driver bugs on macOS.
+  // https://crbug.com/863817
+  virtual void FlushForDriverCrashWorkaround();
+#endif
 
  protected:
   virtual ~GLContext();
@@ -216,7 +248,9 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
   // Returns the last real (non-virtual) GLContext made current.
   static GLContext* GetRealCurrent();
 
-  virtual void OnSetSwapInterval(int interval) = 0;
+  virtual void ResetExtensions() = 0;
+
+  GLApi* gl_api() { return gl_api_.get(); }
 
  private:
   friend class base::RefCounted<GLContext>;
@@ -226,7 +260,14 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
 
   std::unique_ptr<GLVersionInfo> GenerateGLVersionInfo();
 
+  static base::subtle::Atomic32 total_gl_contexts_;
+
+  static bool switchable_gpus_supported_;
+
+  static GpuPreference forced_gpu_preference_;
+
   GLWorkarounds gl_workarounds_;
+  std::string disabled_gl_extensions_;
 
   bool static_bindings_initialized_ = false;
   bool dynamic_bindings_initialized_ = false;
@@ -245,10 +286,6 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext> {
   std::unique_ptr<GLStateRestorer> state_restorer_;
   std::unique_ptr<GLVersionInfo> version_info_;
 
-  // Start with an invalid value so that the first SetSwapInterval isn't a nop.
-  int swap_interval_ = -1;
-  bool force_swap_interval_zero_ = false;
-
   DISALLOW_COPY_AND_ASSIGN(GLContext);
 };
 
@@ -256,14 +293,22 @@ class GL_EXPORT GLContextReal : public GLContext {
  public:
   explicit GLContextReal(GLShareGroup* share_group);
   scoped_refptr<GPUTimingClient> CreateGPUTimingClient() override;
+  const gfx::ExtensionSet& GetExtensions() override;
 
  protected:
   ~GLContextReal() override;
 
+  void ResetExtensions() override;
+
   void SetCurrent(GLSurface* surface) override;
+  void SetExtensionsFromString(std::string extensions);
+  const std::string& extension_string() { return extensions_string_; }
 
  private:
   std::unique_ptr<GPUTiming> gpu_timing_;
+  std::string extensions_string_;
+  gfx::ExtensionSet extensions_;
+  bool extensions_initialized_ = false;
   DISALLOW_COPY_AND_ASSIGN(GLContextReal);
 };
 

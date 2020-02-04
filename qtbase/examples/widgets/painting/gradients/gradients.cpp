@@ -88,7 +88,8 @@ ShadeWidget::ShadeWidget(ShadeType type, QWidget *parent)
 
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
-    connect(m_hoverPoints, SIGNAL(pointsChanged(QPolygonF)), this, SIGNAL(colorsChanged()));
+    connect(m_hoverPoints, &HoverPoints::pointsChanged,
+            this, &ShadeWidget::colorsChanged);
 }
 
 QPolygonF ShadeWidget::points() const
@@ -179,7 +180,7 @@ GradientEditor::GradientEditor(QWidget *parent)
 {
     QVBoxLayout *vbox = new QVBoxLayout(this);
     vbox->setSpacing(1);
-    vbox->setMargin(1);
+    vbox->setContentsMargins(1, 1, 1, 1);
 
     m_red_shade = new ShadeWidget(ShadeWidget::RedShade, this);
     m_green_shade = new ShadeWidget(ShadeWidget::GreenShade, this);
@@ -191,10 +192,14 @@ GradientEditor::GradientEditor(QWidget *parent)
     vbox->addWidget(m_blue_shade);
     vbox->addWidget(m_alpha_shade);
 
-    connect(m_red_shade, SIGNAL(colorsChanged()), this, SLOT(pointsUpdated()));
-    connect(m_green_shade, SIGNAL(colorsChanged()), this, SLOT(pointsUpdated()));
-    connect(m_blue_shade, SIGNAL(colorsChanged()), this, SLOT(pointsUpdated()));
-    connect(m_alpha_shade, SIGNAL(colorsChanged()), this, SLOT(pointsUpdated()));
+    connect(m_red_shade, &ShadeWidget::colorsChanged,
+            this, &GradientEditor::pointsUpdated);
+    connect(m_green_shade, &ShadeWidget::colorsChanged,
+           this, &GradientEditor::pointsUpdated);
+    connect(m_blue_shade, &ShadeWidget::colorsChanged,
+            this, &GradientEditor::pointsUpdated);
+    connect(m_alpha_shade, &ShadeWidget::colorsChanged,
+            this, &GradientEditor::pointsUpdated);
 }
 
 inline static bool x_less_than(const QPointF &p1, const QPointF &p2)
@@ -296,8 +301,15 @@ GradientWidget::GradientWidget(QWidget *parent)
     m_reflectSpreadButton = new QRadioButton(tr("Reflect Spread"), spreadGroup);
     m_repeatSpreadButton = new QRadioButton(tr("Repeat Spread"), spreadGroup);
 
+    QGroupBox *presetsGroup = new QGroupBox(mainGroup);
+    presetsGroup->setTitle(tr("Presets"));
+    QPushButton *prevPresetButton = new QPushButton(tr("<"), presetsGroup);
+    m_presetButton = new QPushButton(tr("(unset)"), presetsGroup);
+    QPushButton *nextPresetButton = new QPushButton(tr(">"), presetsGroup);
+    updatePresetName();
+
     QGroupBox *defaultsGroup = new QGroupBox(mainGroup);
-    defaultsGroup->setTitle(tr("Defaults"));
+    defaultsGroup->setTitle(tr("Examples"));
     QPushButton *default1Button = new QPushButton(tr("1"), defaultsGroup);
     QPushButton *default2Button = new QPushButton(tr("2"), defaultsGroup);
     QPushButton *default3Button = new QPushButton(tr("3"), defaultsGroup);
@@ -305,13 +317,11 @@ GradientWidget::GradientWidget(QWidget *parent)
 
     QPushButton *showSourceButton = new QPushButton(mainGroup);
     showSourceButton->setText(tr("Show Source"));
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     QPushButton *enableOpenGLButton = new QPushButton(mainGroup);
     enableOpenGLButton->setText(tr("Use OpenGL"));
     enableOpenGLButton->setCheckable(true);
     enableOpenGLButton->setChecked(m_renderer->usesOpenGL());
-    if (!QGLFormat::hasOpenGL())
-        enableOpenGLButton->hide();
 #endif
     QPushButton *whatsThisButton = new QPushButton(mainGroup);
     whatsThisButton->setText(tr("What's This?"));
@@ -322,15 +332,16 @@ GradientWidget::GradientWidget(QWidget *parent)
     mainLayout->addWidget(m_renderer);
     mainLayout->addWidget(mainGroup);
 
-    mainGroup->setFixedWidth(180);
+    mainGroup->setFixedWidth(200);
     QVBoxLayout *mainGroupLayout = new QVBoxLayout(mainGroup);
     mainGroupLayout->addWidget(editorGroup);
     mainGroupLayout->addWidget(typeGroup);
     mainGroupLayout->addWidget(spreadGroup);
+    mainGroupLayout->addWidget(presetsGroup);
     mainGroupLayout->addWidget(defaultsGroup);
     mainGroupLayout->addStretch(1);
     mainGroupLayout->addWidget(showSourceButton);
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     mainGroupLayout->addWidget(enableOpenGLButton);
 #endif
     mainGroupLayout->addWidget(whatsThisButton);
@@ -348,44 +359,69 @@ GradientWidget::GradientWidget(QWidget *parent)
     spreadGroupLayout->addWidget(m_repeatSpreadButton);
     spreadGroupLayout->addWidget(m_reflectSpreadButton);
 
+    QHBoxLayout *presetsGroupLayout = new QHBoxLayout(presetsGroup);
+    presetsGroupLayout->addWidget(prevPresetButton);
+    presetsGroupLayout->addWidget(m_presetButton, 1);
+    presetsGroupLayout->addWidget(nextPresetButton);
+
     QHBoxLayout *defaultsGroupLayout = new QHBoxLayout(defaultsGroup);
     defaultsGroupLayout->addWidget(default1Button);
     defaultsGroupLayout->addWidget(default2Button);
     defaultsGroupLayout->addWidget(default3Button);
     editorGroupLayout->addWidget(default4Button);
 
-    connect(m_editor, SIGNAL(gradientStopsChanged(QGradientStops)),
-            m_renderer, SLOT(setGradientStops(QGradientStops)));
+    connect(m_editor, &GradientEditor::gradientStopsChanged,
+            m_renderer, &GradientRenderer::setGradientStops);
+    connect(m_linearButton, &QRadioButton::clicked,
+            m_renderer, &GradientRenderer::setLinearGradient);
+    connect(m_radialButton, &QRadioButton::clicked,
+            m_renderer, &GradientRenderer::setRadialGradient);
+    connect(m_conicalButton,&QRadioButton::clicked,
+            m_renderer, &GradientRenderer::setConicalGradient);
 
-    connect(m_linearButton, SIGNAL(clicked()), m_renderer, SLOT(setLinearGradient()));
-    connect(m_radialButton, SIGNAL(clicked()), m_renderer, SLOT(setRadialGradient()));
-    connect(m_conicalButton, SIGNAL(clicked()), m_renderer, SLOT(setConicalGradient()));
+    connect(m_padSpreadButton, &QRadioButton::clicked,
+            m_renderer, &GradientRenderer::setPadSpread);
+    connect(m_reflectSpreadButton, &QRadioButton::clicked,
+            m_renderer, &GradientRenderer::setReflectSpread);
+    connect(m_repeatSpreadButton, &QRadioButton::clicked,
+            m_renderer, &GradientRenderer::setRepeatSpread);
 
-    connect(m_padSpreadButton, SIGNAL(clicked()), m_renderer, SLOT(setPadSpread()));
-    connect(m_reflectSpreadButton, SIGNAL(clicked()), m_renderer, SLOT(setReflectSpread()));
-    connect(m_repeatSpreadButton, SIGNAL(clicked()), m_renderer, SLOT(setRepeatSpread()));
+    connect(prevPresetButton, &QPushButton::clicked,
+            this, &GradientWidget::setPrevPreset);
+    connect(m_presetButton, &QPushButton::clicked,
+            this, &GradientWidget::setPreset);
+    connect(nextPresetButton, &QPushButton::clicked,
+            this, &GradientWidget::setNextPreset);
 
-    connect(default1Button, SIGNAL(clicked()), this, SLOT(setDefault1()));
-    connect(default2Button, SIGNAL(clicked()), this, SLOT(setDefault2()));
-    connect(default3Button, SIGNAL(clicked()), this, SLOT(setDefault3()));
-    connect(default4Button, SIGNAL(clicked()), this, SLOT(setDefault4()));
+    connect(default1Button, &QPushButton::clicked,
+            this, &GradientWidget::setDefault1);
+    connect(default2Button, &QPushButton::clicked,
+            this, &GradientWidget::setDefault2);
+    connect(default3Button, &QPushButton::clicked,
+            this, &GradientWidget::setDefault3);
+    connect(default4Button, &QPushButton::clicked,
+            this, &GradientWidget::setDefault4);
 
-    connect(showSourceButton, SIGNAL(clicked()), m_renderer, SLOT(showSource()));
-#ifdef QT_OPENGL_SUPPORT
-    connect(enableOpenGLButton, SIGNAL(clicked(bool)), m_renderer, SLOT(enableOpenGL(bool)));
+    connect(showSourceButton, &QPushButton::clicked,
+            m_renderer, &GradientRenderer::showSource);
+#if QT_CONFIG(opengl)
+    connect(enableOpenGLButton, QOverload<bool>::of(&QPushButton::clicked),
+            m_renderer, &ArthurFrame::enableOpenGL);
 #endif
-    connect(whatsThisButton, SIGNAL(clicked(bool)), m_renderer, SLOT(setDescriptionEnabled(bool)));
-    connect(whatsThisButton, SIGNAL(clicked(bool)),
-            m_renderer->hoverPoints(), SLOT(setDisabled(bool)));
-    connect(m_renderer, SIGNAL(descriptionEnabledChanged(bool)),
-            whatsThisButton, SLOT(setChecked(bool)));
-    connect(m_renderer, SIGNAL(descriptionEnabledChanged(bool)),
-            m_renderer->hoverPoints(), SLOT(setDisabled(bool)));
+
+    connect(whatsThisButton, QOverload<bool>::of(&QPushButton::clicked),
+            m_renderer, &ArthurFrame::setDescriptionEnabled);
+    connect(whatsThisButton, QOverload<bool>::of(&QPushButton::clicked),
+            m_renderer->hoverPoints(), &HoverPoints::setDisabled);
+    connect(m_renderer, QOverload<bool>::of(&ArthurFrame::descriptionEnabledChanged),
+            whatsThisButton, &QPushButton::setChecked);
+    connect(m_renderer, QOverload<bool>::of(&ArthurFrame::descriptionEnabledChanged),
+            m_renderer->hoverPoints(), &HoverPoints::setDisabled);
 
     m_renderer->loadSourceFile(":res/gradients/gradients.cpp");
     m_renderer->loadDescription(":res/gradients/gradients.html");
 
-    QTimer::singleShot(50, this, SLOT(setDefault1()));
+    QTimer::singleShot(50, this, &GradientWidget::setDefault1);
 }
 
 void GradientWidget::setDefault(int config)
@@ -451,6 +487,40 @@ void GradientWidget::setDefault(int config)
     m_editor->setGradientStops(stops);
     m_renderer->hoverPoints()->setPoints(pts);
     m_renderer->setGradientStops(stops);
+}
+
+void GradientWidget::updatePresetName()
+{
+    QMetaEnum presetEnum = QMetaEnum::fromType<QGradient::Preset>();
+    m_presetButton->setText(QLatin1String(presetEnum.key(m_presetIndex)));
+}
+
+void GradientWidget::changePresetBy(int indexOffset)
+{
+    QMetaEnum presetEnum = QMetaEnum::fromType<QGradient::Preset>();
+    m_presetIndex = qBound(0, m_presetIndex + indexOffset, presetEnum.keyCount() - 1);
+
+    QGradient::Preset preset = static_cast<QGradient::Preset>(presetEnum.value(m_presetIndex));
+    QGradient gradient(preset);
+    if (gradient.type() != QGradient::LinearGradient)
+        return;
+
+    QLinearGradient *linearGradientPointer = static_cast<QLinearGradient *>(&gradient);
+    QLineF objectStopsLine(linearGradientPointer->start(), linearGradientPointer->finalStop());
+    qreal scaleX = qFuzzyIsNull(objectStopsLine.dx()) ? 1.0 : (0.8 * m_renderer->width() / qAbs(objectStopsLine.dx()));
+    qreal scaleY = qFuzzyIsNull(objectStopsLine.dy()) ? 1.0 : (0.8 * m_renderer->height() / qAbs(objectStopsLine.dy()));
+    QLineF logicalStopsLine = QTransform::fromScale(scaleX, scaleY).map(objectStopsLine);
+    logicalStopsLine.translate(m_renderer->rect().center() - logicalStopsLine.center());
+    QPolygonF logicalStops;
+    logicalStops << logicalStopsLine.p1() << logicalStopsLine.p2();
+
+    m_linearButton->animateClick();
+    m_padSpreadButton->animateClick();
+    m_editor->setGradientStops(gradient.stops());
+    m_renderer->hoverPoints()->setPoints(logicalStops);
+    m_renderer->setGradientStops(gradient.stops());
+
+    updatePresetName();
 }
 
 GradientRenderer::GradientRenderer(QWidget *parent)

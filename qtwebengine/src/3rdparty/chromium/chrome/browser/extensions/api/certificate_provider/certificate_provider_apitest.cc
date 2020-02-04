@@ -40,7 +40,9 @@
 #include "net/test/spawned_test_server/spawned_test_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/boringssl/src/include/openssl/evp.h"
+#include "third_party/boringssl/src/include/openssl/mem.h"
 #include "third_party/boringssl/src/include/openssl/rsa.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/widget/widget.h"
@@ -77,8 +79,6 @@ void StoreDigest(std::vector<uint8_t>* digest,
   callback.Run();
 }
 
-// See net::SSLPrivateKey::SignDigest for the expected padding and DigestInfo
-// prefixing.
 bool RsaSign(const std::vector<uint8_t>& digest,
              crypto::RSAPrivateKey* key,
              std::vector<uint8_t>* signature) {
@@ -86,28 +86,15 @@ bool RsaSign(const std::vector<uint8_t>& digest,
   if (!rsa_key)
     return false;
 
-  uint8_t* prefixed_digest = nullptr;
-  size_t prefixed_digest_len = 0;
-  int is_alloced = 0;
-  if (!RSA_add_pkcs1_prefix(&prefixed_digest, &prefixed_digest_len, &is_alloced,
-                            NID_sha1, digest.data(), digest.size())) {
-    return false;
-  }
-  size_t len = 0;
+  unsigned len = 0;
   signature->resize(RSA_size(rsa_key));
-  const int rv =
-      RSA_sign_raw(rsa_key, &len, signature->data(), signature->size(),
-                   prefixed_digest, prefixed_digest_len, RSA_PKCS1_PADDING);
-  if (is_alloced)
-    free(prefixed_digest);
-
-  if (rv) {
-    signature->resize(len);
-    return true;
-  } else {
+  if (!RSA_sign(NID_sha1, digest.data(), digest.size(), signature->data(), &len,
+                rsa_key)) {
     signature->clear();
     return false;
   }
+  signature->resize(len);
+  return true;
 }
 
 // Create a string that if evaluated in JavaScript returns a Uint8Array with
@@ -154,10 +141,11 @@ void EnterWrongPin(chromeos::CertificateProviderService* service) {
   // Check that we have an error message displayed.
   chromeos::RequestPinView* view =
       service->pin_dialog_manager()->active_view_for_testing();
-  EXPECT_EQ(SK_ColorRED, view->error_label_for_testing()->enabled_color());
+  EXPECT_EQ(gfx::kGoogleRed600,
+            view->error_label_for_testing()->enabled_color());
 }
 
-class CertificateProviderApiTest : public ExtensionApiTest {
+class CertificateProviderApiTest : public extensions::ExtensionApiTest {
  public:
   CertificateProviderApiTest() {}
 
@@ -166,11 +154,11 @@ class CertificateProviderApiTest : public ExtensionApiTest {
         .WillRepeatedly(Return(true));
     policy::BrowserPolicyConnector::SetPolicyProviderForTesting(&provider_);
 
-    ExtensionApiTest::SetUpInProcessBrowserTestFixture();
+    extensions::ExtensionApiTest::SetUpInProcessBrowserTestFixture();
   }
 
   void SetUpOnMainThread() override {
-    ExtensionApiTest::SetUpOnMainThread();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
     // Set up the AutoSelectCertificateForUrls policy to avoid the client
     // certificate selection dialog.
     const std::string autoselect_pattern =
@@ -267,7 +255,10 @@ IN_PROC_BROWSER_TEST_F(CertificateProviderApiTest, Basic) {
 
   VLOG(1) << "Sign the digest using the private key.";
   std::string key_pk8;
-  base::ReadFileToString(extension_path.AppendASCII("l1_leaf.pk8"), &key_pk8);
+  {
+    base::ScopedAllowBlockingForTesting allow_io;
+    base::ReadFileToString(extension_path.AppendASCII("l1_leaf.pk8"), &key_pk8);
+  }
 
   const uint8_t* const key_pk8_begin =
       reinterpret_cast<const uint8_t*>(key_pk8.data());

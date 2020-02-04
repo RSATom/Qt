@@ -52,40 +52,14 @@
 //
 
 #include <QtWidgets/private/qtwidgetsglobal_p.h>
+#include "qmenu_p.h"
 #include <QList>
 #include <QSize>
 #include <QRect>
 
+QT_REQUIRE_CONFIG(toolbar);
+
 QT_BEGIN_NAMESPACE
-
-static inline int pick(Qt::Orientation o, const QPoint &pos)
-{ return o == Qt::Horizontal ? pos.x() : pos.y(); }
-
-static inline int pick(Qt::Orientation o, const QSize &size)
-{ return o == Qt::Horizontal ? size.width() : size.height(); }
-
-static inline int &rpick(Qt::Orientation o, QPoint &pos)
-{ return o == Qt::Horizontal ? pos.rx() : pos.ry(); }
-
-static inline int &rpick(Qt::Orientation o, QSize &size)
-{ return o == Qt::Horizontal ? size.rwidth() : size.rheight(); }
-
-static inline QSizePolicy::Policy pick(Qt::Orientation o, const QSizePolicy &policy)
-{ return o == Qt::Horizontal ? policy.horizontalPolicy() : policy.verticalPolicy(); }
-
-static inline int perp(Qt::Orientation o, const QPoint &pos)
-{ return o == Qt::Vertical ? pos.x() : pos.y(); }
-
-static inline int perp(Qt::Orientation o, const QSize &size)
-{ return o == Qt::Vertical ? size.width() : size.height(); }
-
-static inline int &rperp(Qt::Orientation o, QPoint &pos)
-{ return o == Qt::Vertical ? pos.rx() : pos.ry(); }
-
-static inline int &rperp(Qt::Orientation o, QSize &size)
-{ return o == Qt::Vertical ? size.rwidth() : size.rheight(); }
-
-#ifndef QT_NO_TOOLBAR
 
 class QToolBar;
 class QLayoutItem;
@@ -222,7 +196,7 @@ public:
     void insertItem(QInternal::DockPosition pos, QLayoutItem *item);
     void insertItem(QToolBar *before, QLayoutItem *item);
 
-    QInternal::DockPosition findToolBar(QToolBar *toolBar) const;
+    QInternal::DockPosition findToolBar(const QToolBar *toolBar) const;
     bool toolBarBreak(QToolBar *toolBar) const;
 
     void getStyleOptionInfo(QStyleOptionToolBar *option, QToolBar *toolBar) const;
@@ -244,7 +218,6 @@ public:
     bool isEmpty() const;
 };
 
-
 QT_END_NAMESPACE
-#endif // QT_NO_TOOLBAR
+
 #endif // QTOOLBARAREALAYOUT_P_H

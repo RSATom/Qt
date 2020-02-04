@@ -161,7 +161,7 @@ public:
 
     enum ActionEvent { Trigger, Hover };
     void activate(ActionEvent event);
-    bool showStatusText(QWidget *widget = Q_NULLPTR);
+    bool showStatusText(QWidget *widget = nullptr);
 
     void setMenuRole(MenuRole menuRole);
     MenuRole menuRole() const;
@@ -180,7 +180,7 @@ public:
 #endif
 
 protected:
-    bool event(QEvent *) Q_DECL_OVERRIDE;
+    bool event(QEvent *) override;
     QAction(QActionPrivate &dd, QObject *parent);
 
 public Q_SLOTS:

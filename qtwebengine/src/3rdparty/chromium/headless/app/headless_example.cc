@@ -97,21 +97,23 @@ void HeadlessExample::DevToolsTargetReady() {
 void HeadlessExample::OnLoadEventFired(
     const headless::page::LoadEventFiredParams& params) {
   // The page has now finished loading. Let's grab a snapshot of the DOM by
-  // evaluating the outerHTML property on the body element.
+  // evaluating the innerHTML property on the document element.
   devtools_client_->GetRuntime()->Evaluate(
-      "document.body.outerHTML",
-      base::Bind(&HeadlessExample::OnDomFetched, weak_factory_.GetWeakPtr()));
+      "(document.doctype ? new "
+      "XMLSerializer().serializeToString(document.doctype) + '\\n' : '') + "
+      "document.documentElement.outerHTML",
+      base::BindOnce(&HeadlessExample::OnDomFetched,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void HeadlessExample::OnDomFetched(
     std::unique_ptr<headless::runtime::EvaluateResult> result) {
-  std::string dom;
   // Make sure the evaluation succeeded before reading the result.
   if (result->HasExceptionDetails()) {
-    LOG(ERROR) << "Failed to evaluate document.body.outerHTML: "
+    LOG(ERROR) << "Failed to serialize document: "
                << result->GetExceptionDetails()->GetText();
-  } else if (result->GetResult()->GetValue()->GetAsString(&dom)) {
-    printf("%s\n", dom.c_str());
+  } else {
+    printf("%s\n", result->GetResult()->GetValue()->GetString().c_str());
   }
 
   // Shut down the browser (see ~HeadlessExample).
@@ -190,6 +192,6 @@ int main(int argc, const char** argv) {
   // invoke the given callback on the browser UI thread. Note: if you need to
   // pass more parameters to the callback, you can add them to the Bind() call
   // below.
-  return headless::HeadlessBrowserMain(builder.Build(),
-                                       base::Bind(&OnHeadlessBrowserStarted));
+  return headless::HeadlessBrowserMain(
+      builder.Build(), base::BindOnce(&OnHeadlessBrowserStarted));
 }

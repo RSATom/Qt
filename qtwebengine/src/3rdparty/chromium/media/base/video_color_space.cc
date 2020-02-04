@@ -26,7 +26,7 @@ VideoColorSpace::MatrixID VideoColorSpace::GetMatrixID(int matrix) {
   return static_cast<MatrixID>(matrix);
 }
 
-VideoColorSpace::VideoColorSpace() {}
+VideoColorSpace::VideoColorSpace() = default;
 
 VideoColorSpace::VideoColorSpace(PrimaryID primaries,
                                  TransferID transfer,
@@ -53,29 +53,57 @@ bool VideoColorSpace::operator!=(const VideoColorSpace& other) const {
          matrix != other.matrix || range != other.range;
 }
 
+bool VideoColorSpace::IsSpecified() const {
+  if (primaries != PrimaryID::INVALID && primaries != PrimaryID::UNSPECIFIED)
+    return true;
+  if (transfer != TransferID::INVALID && transfer != TransferID::UNSPECIFIED)
+    return true;
+  if (matrix != MatrixID::INVALID && matrix != MatrixID::UNSPECIFIED)
+    return true;
+  // Note that it's not enough to have a range for a video color space to
+  // be considered valid, because often the range is just specified with
+  // a bool, so there is no way to know if it was set specifically or not.
+  return false;
+}
+
 gfx::ColorSpace VideoColorSpace::ToGfxColorSpace() const {
   gfx::ColorSpace::PrimaryID primary_id = gfx::ColorSpace::PrimaryID::INVALID;
   gfx::ColorSpace::TransferID transfer_id =
       gfx::ColorSpace::TransferID::INVALID;
   gfx::ColorSpace::MatrixID matrix_id = gfx::ColorSpace::MatrixID::INVALID;
 
+  // Bitfield, note that guesses with higher values take precedence over
+  // guesses with lower values.
+  enum Guess {
+    GUESS_BT709 = 1 << 4,
+    GUESS_BT470M = 1 << 3,
+    GUESS_BT470BG = 1 << 2,
+    GUESS_SMPTE170M = 1 << 1,
+    GUESS_SMPTE240M = 1 << 0,
+  };
+
+  uint32_t guess = 0;
+
   switch (primaries) {
-    case PrimaryID::INVALID:
     case PrimaryID::BT709:
-    case PrimaryID::UNSPECIFIED:
       primary_id = gfx::ColorSpace::PrimaryID::BT709;
+      guess |= GUESS_BT709;
       break;
     case PrimaryID::BT470M:
       primary_id = gfx::ColorSpace::PrimaryID::BT470M;
+      guess |= GUESS_BT470M;
       break;
     case PrimaryID::BT470BG:
       primary_id = gfx::ColorSpace::PrimaryID::BT470BG;
+      guess |= GUESS_BT470BG;
       break;
     case PrimaryID::SMPTE170M:
       primary_id = gfx::ColorSpace::PrimaryID::SMPTE170M;
+      guess |= GUESS_SMPTE170M;
       break;
     case PrimaryID::SMPTE240M:
       primary_id = gfx::ColorSpace::PrimaryID::SMPTE240M;
+      guess |= GUESS_SMPTE240M;
       break;
     case PrimaryID::FILM:
       primary_id = gfx::ColorSpace::PrimaryID::FILM;
@@ -91,17 +119,20 @@ gfx::ColorSpace VideoColorSpace::ToGfxColorSpace() const {
       break;
     case PrimaryID::SMPTEST432_1:
       primary_id = gfx::ColorSpace::PrimaryID::SMPTEST432_1;
+      break;
     case PrimaryID::EBU_3213_E:
       // TODO(uzair.jaleel) Need to check this once.
       primary_id = gfx::ColorSpace::PrimaryID::INVALID;
       break;
+    case PrimaryID::INVALID:
+    case PrimaryID::UNSPECIFIED:
+      break;
   }
 
   switch (transfer) {
-    case TransferID::INVALID:
     case TransferID::BT709:
-    case TransferID::UNSPECIFIED:
       transfer_id = gfx::ColorSpace::TransferID::BT709;
+      guess |= GUESS_BT709;
       break;
     case TransferID::GAMMA22:
       transfer_id = gfx::ColorSpace::TransferID::GAMMA22;
@@ -111,9 +142,11 @@ gfx::ColorSpace VideoColorSpace::ToGfxColorSpace() const {
       break;
     case TransferID::SMPTE170M:
       transfer_id = gfx::ColorSpace::TransferID::SMPTE170M;
+      guess |= GUESS_SMPTE170M;
       break;
     case TransferID::SMPTE240M:
       transfer_id = gfx::ColorSpace::TransferID::SMPTE240M;
+      guess |= GUESS_SMPTE240M;
       break;
     case TransferID::LINEAR:
       transfer_id = gfx::ColorSpace::TransferID::LINEAR;
@@ -148,28 +181,35 @@ gfx::ColorSpace VideoColorSpace::ToGfxColorSpace() const {
     case TransferID::ARIB_STD_B67:
       transfer_id = gfx::ColorSpace::TransferID::ARIB_STD_B67;
       break;
+    case TransferID::INVALID:
+    case TransferID::UNSPECIFIED:
+      break;
   }
 
   switch (matrix) {
     case MatrixID::RGB:
-      matrix_id = gfx::ColorSpace::MatrixID::RGB;
+      // RGB-encoded video actually puts the green in the Y channel,
+      // the blue in the Cb (U) channel and the red in the Cr (V) channel.
+      matrix_id = gfx::ColorSpace::MatrixID::GBR;
       break;
-    case MatrixID::INVALID:
     case MatrixID::BT709:
-    case MatrixID::UNSPECIFIED:
       matrix_id = gfx::ColorSpace::MatrixID::BT709;
+      guess |= GUESS_BT709;
       break;
     case MatrixID::FCC:
       matrix_id = gfx::ColorSpace::MatrixID::FCC;
       break;
     case MatrixID::BT470BG:
       matrix_id = gfx::ColorSpace::MatrixID::BT470BG;
+      guess |= GUESS_BT470BG;
       break;
     case MatrixID::SMPTE170M:
       matrix_id = gfx::ColorSpace::MatrixID::SMPTE170M;
+      guess |= GUESS_SMPTE170M;
       break;
     case MatrixID::SMPTE240M:
       matrix_id = gfx::ColorSpace::MatrixID::SMPTE240M;
+      guess |= GUESS_SMPTE240M;
       break;
     case MatrixID::YCOCG:
       matrix_id = gfx::ColorSpace::MatrixID::YCOCG;
@@ -183,6 +223,67 @@ gfx::ColorSpace VideoColorSpace::ToGfxColorSpace() const {
     case MatrixID::YDZDX:
       matrix_id = gfx::ColorSpace::MatrixID::YDZDX;
       break;
+    case MatrixID::INVALID:
+    case MatrixID::UNSPECIFIED:
+      break;
+  }
+  // Removes lowest bit until only a single bit remains.
+  while (guess & (guess - 1)) {
+    guess &= guess - 1;
+  }
+  if (!guess)
+    guess = GUESS_BT709;
+
+  if (primary_id == gfx::ColorSpace::PrimaryID::INVALID) {
+    switch (guess) {
+      case GUESS_BT709:
+        primary_id = gfx::ColorSpace::PrimaryID::BT709;
+        break;
+      case GUESS_BT470M:
+        primary_id = gfx::ColorSpace::PrimaryID::BT470M;
+        break;
+      case GUESS_BT470BG:
+        primary_id = gfx::ColorSpace::PrimaryID::BT470BG;
+        break;
+      case GUESS_SMPTE170M:
+        primary_id = gfx::ColorSpace::PrimaryID::SMPTE170M;
+        break;
+      case GUESS_SMPTE240M:
+        primary_id = gfx::ColorSpace::PrimaryID::SMPTE240M;
+        break;
+    }
+  }
+
+  if (transfer_id == gfx::ColorSpace::TransferID::INVALID) {
+    switch (guess) {
+      case GUESS_BT709:
+        transfer_id = gfx::ColorSpace::TransferID::BT709;
+        break;
+      case GUESS_BT470M:
+      case GUESS_BT470BG:
+      case GUESS_SMPTE170M:
+        transfer_id = gfx::ColorSpace::TransferID::SMPTE170M;
+        break;
+      case GUESS_SMPTE240M:
+        transfer_id = gfx::ColorSpace::TransferID::SMPTE240M;
+        break;
+    }
+  }
+
+  if (matrix_id == gfx::ColorSpace::MatrixID::INVALID) {
+    switch (guess) {
+      case GUESS_BT709:
+        matrix_id = gfx::ColorSpace::MatrixID::BT709;
+        break;
+      case GUESS_BT470M:
+      case GUESS_BT470BG:
+      case GUESS_SMPTE170M:
+        matrix_id = gfx::ColorSpace::MatrixID::SMPTE170M;
+        break;
+      case GUESS_SMPTE240M:
+        matrix_id = gfx::ColorSpace::MatrixID::SMPTE240M;
+        break;
+    }
   }
 
   return gfx::ColorSpace(primary_id, transfer_id, matrix_id, range);

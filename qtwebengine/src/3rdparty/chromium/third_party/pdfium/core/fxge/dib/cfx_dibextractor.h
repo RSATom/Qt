@@ -7,20 +7,20 @@
 #ifndef CORE_FXGE_DIB_CFX_DIBEXTRACTOR_H_
 #define CORE_FXGE_DIB_CFX_DIBEXTRACTOR_H_
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxge/dib/cfx_dibitmap.h"
+#include "core/fxcrt/retain_ptr.h"
 
-class CFX_DIBSource;
+class CFX_DIBBase;
+class CFX_DIBitmap;
 
 class CFX_DIBExtractor {
  public:
-  explicit CFX_DIBExtractor(const CFX_RetainPtr<CFX_DIBSource>& pSrc);
+  explicit CFX_DIBExtractor(const RetainPtr<CFX_DIBBase>& pSrc);
   ~CFX_DIBExtractor();
 
-  CFX_RetainPtr<CFX_DIBitmap> GetBitmap() { return m_pBitmap; }
+  RetainPtr<CFX_DIBitmap> GetBitmap() { return m_pBitmap; }
 
  private:
-  CFX_RetainPtr<CFX_DIBitmap> m_pBitmap;
+  RetainPtr<CFX_DIBitmap> m_pBitmap;
 };
 
 #endif  // CORE_FXGE_DIB_CFX_DIBEXTRACTOR_H_

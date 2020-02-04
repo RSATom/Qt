@@ -9,13 +9,16 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/webrtc/webrtc_content_browsertest_base.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/network_service_util.h"
 #include "content/public/common/webrtc_ip_handling_policy.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "media/audio/audio_manager.h"
 #include "media/base/media_switches.h"
+#include "media/media_buildflags.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "services/network/public/cpp/features.h"
 
 namespace content {
 
@@ -52,6 +55,23 @@ class MAYBE_WebRtcBrowserTest : public WebRtcContentBrowserTestBase {
     MakeTypicalCall(javascript, "/media/peerconnection-setConfiguration.html");
   }
 };
+
+IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest, CanSetupAudioAndVideoCall) {
+  MakeTypicalPeerConnectionCall("call({video: true, audio: true});");
+}
+
+IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest, NetworkProcessCrashRecovery) {
+  if (!IsOutOfProcessNetworkService())
+    return;
+  MakeTypicalPeerConnectionCall("call({video: true, audio: true});");
+  SimulateNetworkServiceCrash();
+  MakeTypicalPeerConnectionCall("call({video: true, audio: true});");
+}
+
+IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
+                       CanSetupDefaultVideoCallWithOldGetUserMedia) {
+  MakeTypicalPeerConnectionCall("oldStyleCall();");
+}
 
 // These tests will make a complete PeerConnection-based call and verify that
 // video is playing for the call.
@@ -94,22 +114,8 @@ IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
   MakeTypicalPeerConnectionCall(javascript);
 }
 
-IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
-                       CanSetupAudioAndVideoCall) {
-  MakeTypicalPeerConnectionCall("call({video: true, audio: true});");
-}
-
-
-#if defined(OS_WIN) && !defined(NVALGRIND)
-// Times out on Dr. Memory bots: https://crbug.com/545740
-#define MAYBE_CanSetupCallAndSendDtmf DISABLED_CanSetupCallAndSendDtmf
-#else
-#define MAYBE_CanSetupCallAndSendDtmf CanSetupCallAndSendDtmf
-#endif
-
-IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
-                       MAYBE_CanSetupCallAndSendDtmf) {
-  MakeTypicalPeerConnectionCall("callAndSendDtmf(\'123,abc\');");
+IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest, CanSetupCallAndSendDtmf) {
+  MakeTypicalPeerConnectionCall("callAndSendDtmf(\'123,ABC\');");
 }
 
 IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
@@ -151,8 +157,16 @@ IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
 // MSID and bundle attribute from the initial offer to verify that
 // video is playing for the call even if the initiating client don't support
 // MSID. http://tools.ietf.org/html/draft-alvestrand-rtcweb-msid-02
+// Fails with TSAN. https://crbug.com/756568
+#if defined(THREAD_SANITIZER)
+#define MAYBE_CanSetupAudioAndVideoCallWithoutMsidAndBundle \
+  DISABLED_CanSetupAudioAndVideoCallWithoutMsidAndBundle
+#else
+#define MAYBE_CanSetupAudioAndVideoCallWithoutMsidAndBundle \
+  CanSetupAudioAndVideoCallWithoutMsidAndBundle
+#endif
 IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
-                       CanSetupAudioAndVideoCallWithoutMsidAndBundle) {
+                       MAYBE_CanSetupAudioAndVideoCallWithoutMsidAndBundle) {
   MakeTypicalPeerConnectionCall("callWithoutMsidAndBundle();");
 }
 
@@ -218,5 +232,24 @@ IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest, SetConfiguration) {
 IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest, SetConfigurationErrors) {
   SetConfigurationTest("testSetConfigurationErrors();");
 }
+
+IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest, ApplyConstraints) {
+  MakeTypicalPeerConnectionCall("testApplyConstraints();");
+}
+
+IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
+                       GetSettingsReportsValuesForRemoteTracks) {
+  MakeTypicalPeerConnectionCall(
+      "testGetSettingsReportsValuesForRemoteTracks();");
+}
+
+#if defined(OS_ANDROID) && BUILDFLAG(USE_PROPRIETARY_CODECS)
+// This test is to make sure HW H264 work normally on supported devices, since
+// there is no SW H264 fallback available on Android.
+IN_PROC_BROWSER_TEST_F(MAYBE_WebRtcBrowserTest,
+                       CanSetupH264VideoCallOnSupportedDevice) {
+  MakeTypicalPeerConnectionCall("CanSetupH264VideoCallOnSupportedDevice();");
+}
+#endif
 
 }  // namespace content

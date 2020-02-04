@@ -8,18 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MEDIA_ENGINE_CONSTANTS_H_
-#define WEBRTC_MEDIA_ENGINE_CONSTANTS_H_
+#ifndef MEDIA_ENGINE_CONSTANTS_H_
+#define MEDIA_ENGINE_CONSTANTS_H_
 
 namespace cricket {
 
 extern const int kVideoMtu;
-extern const int kVideoRtpBufferSize;
+extern const int kVideoRtpSendBufferSize;
+extern const int kVideoRtpRecvBufferSize;
 
 extern const char kH264CodecName[];
 
-extern const int kMinVideoBitrateKbps;
+extern const int kMinVideoBitrateBps;
 
 }  // namespace cricket
 
-#endif  // WEBRTC_MEDIA_ENGINE_CONSTANTS_H_
+#endif  // MEDIA_ENGINE_CONSTANTS_H_

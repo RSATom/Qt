@@ -52,6 +52,10 @@
 #include <QtGui/QGuiApplication>
 #include <QtQml/QQmlApplicationEngine>
 #include <QtQuick/QQuickItem>
+#if QT_CONFIG(ssl)
+#include <QSslSocket>
+#endif
+#include <QQmlContext>
 
 static bool parseArgs(QStringList& args, QVariantMap& parameters)
 {
@@ -131,6 +135,11 @@ int main(int argc, char *argv[])
         parameters[QStringLiteral("osm.useragent")] = QStringLiteral("QtLocation Mapviewer example");
 
     QQmlApplicationEngine engine;
+#if QT_CONFIG(ssl)
+    engine.rootContext()->setContextProperty("supportsSsl", QSslSocket::supportsSsl());
+#else
+    engine.rootContext()->setContextProperty("supportsSsl", false);
+#endif
     engine.addImportPath(QStringLiteral(":/imports"));
     engine.load(QUrl(QStringLiteral("qrc:///mapviewer.qml")));
     QObject::connect(&engine, SIGNAL(quit()), qApp, SLOT(quit()));

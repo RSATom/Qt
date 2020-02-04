@@ -11,9 +11,10 @@
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/test_simple_task_runner.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "components/domain_reliability/test_util.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
@@ -52,8 +53,8 @@ class UploadMockURLRequestJob : public net::URLRequestJob {
  protected:
   void Start() override {
     int rv = upload_stream_->Init(
-        base::Bind(&UploadMockURLRequestJob::OnStreamInitialized,
-                   base::Unretained(this)),
+        base::BindOnce(&UploadMockURLRequestJob::OnStreamInitialized,
+                       base::Unretained(this)),
         net::NetLogWithSource());
     if (rv == net::ERR_IO_PENDING)
       return;
@@ -71,12 +72,11 @@ class UploadMockURLRequestJob : public net::URLRequestJob {
     EXPECT_EQ(net::OK, rv);
 
     size_t upload_size = upload_stream_->size();
-    upload_buffer_ = new net::IOBufferWithSize(upload_size);
+    upload_buffer_ = base::MakeRefCounted<net::IOBufferWithSize>(upload_size);
     rv = upload_stream_->Read(
-        upload_buffer_.get(),
-        upload_size,
-        base::Bind(&UploadMockURLRequestJob::OnStreamRead,
-                   base::Unretained(this)));
+        upload_buffer_.get(), upload_size,
+        base::BindOnce(&UploadMockURLRequestJob::OnStreamRead,
+                       base::Unretained(this)));
     if (rv == net::ERR_IO_PENDING)
       return;
     OnStreamRead(rv);
@@ -108,9 +108,7 @@ class UploadInterceptor : public net::URLRequestInterceptor {
  public:
   UploadInterceptor() : request_count_(0), last_upload_depth_(-1) {}
 
-  ~UploadInterceptor() override {
-    EXPECT_TRUE(results_.empty());
-  }
+  ~UploadInterceptor() override { EXPECT_TRUE(results_.empty()); }
 
   net::URLRequestJob* MaybeInterceptRequest(
       net::URLRequest* request,
@@ -177,13 +175,14 @@ class DomainReliabilityUploaderTest : public testing::Test {
  protected:
   DomainReliabilityUploaderTest()
       : url_request_context_getter_(new net::TestURLRequestContextGetter(
-            message_loop_.task_runner())),
+            base::ThreadTaskRunnerHandle::Get())),
         interceptor_(new UploadInterceptor()),
-        uploader_(DomainReliabilityUploader::Create(
-            &time_, url_request_context_getter_)) {
+        uploader_(
+            DomainReliabilityUploader::Create(&time_,
+                                              url_request_context_getter_)) {
     net::URLRequestFilter::GetInstance()->AddUrlInterceptor(
         GURL(kUploadURL), base::WrapUnique(interceptor_));
-    uploader_->set_discard_uploads(false);
+    uploader_->SetDiscardUploads(false);
   }
 
   ~DomainReliabilityUploaderTest() override {
@@ -192,13 +191,13 @@ class DomainReliabilityUploaderTest : public testing::Test {
 
   DomainReliabilityUploader* uploader() const { return uploader_.get(); }
   UploadInterceptor* interceptor() const { return interceptor_; }
-  scoped_refptr<net::TestURLRequestContextGetter>
-      url_request_context_getter() {
+  scoped_refptr<net::TestURLRequestContextGetter> url_request_context_getter() {
     return url_request_context_getter_;
   }
 
  private:
-  base::MessageLoopForIO message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::IO};
   scoped_refptr<net::TestURLRequestContextGetter> url_request_context_getter_;
   UploadInterceptor* interceptor_;
   MockTime time_;

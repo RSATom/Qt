@@ -5,57 +5,40 @@
 #include "media/blink/cdm_result_promise_helper.h"
 
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_functions.h"
 
 namespace media {
 
 CdmResultForUMA ConvertCdmExceptionToResultForUMA(
     CdmPromise::Exception exception_code) {
   switch (exception_code) {
-    case CdmPromise::NOT_SUPPORTED_ERROR:
+    case CdmPromise::Exception::NOT_SUPPORTED_ERROR:
       return NOT_SUPPORTED_ERROR;
-    case CdmPromise::INVALID_STATE_ERROR:
+    case CdmPromise::Exception::INVALID_STATE_ERROR:
       return INVALID_STATE_ERROR;
-    case CdmPromise::INVALID_ACCESS_ERROR:
-      return INVALID_ACCESS_ERROR;
-    case CdmPromise::QUOTA_EXCEEDED_ERROR:
+    case CdmPromise::Exception::QUOTA_EXCEEDED_ERROR:
       return QUOTA_EXCEEDED_ERROR;
-    case CdmPromise::UNKNOWN_ERROR:
-      return UNKNOWN_ERROR;
-    case CdmPromise::CLIENT_ERROR:
-      return CLIENT_ERROR;
-    case CdmPromise::OUTPUT_ERROR:
-      return OUTPUT_ERROR;
+    case CdmPromise::Exception::TYPE_ERROR:
+      return TYPE_ERROR;
   }
   NOTREACHED();
-  return UNKNOWN_ERROR;
+  return INVALID_STATE_ERROR;
 }
 
 blink::WebContentDecryptionModuleException ConvertCdmException(
     CdmPromise::Exception exception_code) {
   switch (exception_code) {
-    case CdmPromise::NOT_SUPPORTED_ERROR:
+    case CdmPromise::Exception::NOT_SUPPORTED_ERROR:
       return blink::kWebContentDecryptionModuleExceptionNotSupportedError;
-    case CdmPromise::INVALID_STATE_ERROR:
+    case CdmPromise::Exception::INVALID_STATE_ERROR:
       return blink::kWebContentDecryptionModuleExceptionInvalidStateError;
-
-    // TODO(jrummell): Since InvalidAccess is not returned, thus should be
-    // renamed to TYPE_ERROR. http://crbug.com/570216#c11.
-    case CdmPromise::INVALID_ACCESS_ERROR:
-      return blink::kWebContentDecryptionModuleExceptionTypeError;
-    case CdmPromise::QUOTA_EXCEEDED_ERROR:
+    case CdmPromise::Exception::QUOTA_EXCEEDED_ERROR:
       return blink::kWebContentDecryptionModuleExceptionQuotaExceededError;
-    case CdmPromise::UNKNOWN_ERROR:
-      return blink::kWebContentDecryptionModuleExceptionUnknownError;
-
-    // These are deprecated, and should be removed.
-    // http://crbug.com/570216#c11.
-    case CdmPromise::CLIENT_ERROR:
-    case CdmPromise::OUTPUT_ERROR:
-      break;
+    case CdmPromise::Exception::TYPE_ERROR:
+      return blink::kWebContentDecryptionModuleExceptionTypeError;
   }
   NOTREACHED();
-  return blink::kWebContentDecryptionModuleExceptionUnknownError;
+  return blink::kWebContentDecryptionModuleExceptionInvalidStateError;
 }
 
 blink::WebEncryptedMediaKeyInformation::KeyStatus ConvertCdmKeyStatus(
@@ -86,12 +69,7 @@ void ReportCdmResultUMA(const std::string& uma_name, CdmResultForUMA result) {
   if (uma_name.empty())
     return;
 
-  base::LinearHistogram::FactoryGet(
-      uma_name,
-      1,
-      NUM_RESULT_CODES,
-      NUM_RESULT_CODES + 1,
-      base::HistogramBase::kUmaTargetedHistogramFlag)->Add(result);
+  base::UmaHistogramEnumeration(uma_name, result, NUM_RESULT_CODES);
 }
 
 }  // namespace media

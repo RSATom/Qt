@@ -48,7 +48,7 @@ namespace Qt3DRender {
 
 class QSortPolicyPrivate;
 
-class QT3DRENDERSHARED_EXPORT QSortPolicy : public QFrameGraphNode
+class Q_3DRENDERSHARED_EXPORT QSortPolicy : public QFrameGraphNode
 {
     Q_OBJECT
     Q_PROPERTY(QVector<int> sortTypes READ sortTypesInt WRITE setSortTypes NOTIFY sortTypesChanged)
@@ -59,7 +59,8 @@ public:
     enum SortType {
         StateChangeCost = (1 << 0),
         BackToFront = (1 << 1),
-        Material = (1 << 2)
+        Material = (1 << 2),
+        FrontToBack = (1 << 3)
     };
     Q_ENUM(SortType) // LCOV_EXCL_LINE
 
@@ -79,7 +80,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QSortPolicy)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

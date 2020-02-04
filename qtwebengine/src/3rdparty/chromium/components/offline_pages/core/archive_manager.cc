@@ -13,69 +13,79 @@
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
-#include "base/sys_info.h"
+#include "base/strings/utf_string_conversions.h"
+#include "base/system/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 
 namespace offline_pages {
 
 namespace {
 
 using StorageStatsCallback =
-    base::Callback<void(const ArchiveManager::StorageStats& storage_stats)>;
+    base::OnceCallback<void(const ArchiveManager::StorageStats& storage_stats)>;
 
-void EnsureArchivesDirCreatedImpl(const base::FilePath& archives_dir) {
+void EnsureArchivesDirCreatedImpl(const base::FilePath& archives_dir,
+                                  bool is_temp) {
   base::File::Error error = base::File::FILE_OK;
   if (!base::DirectoryExists(archives_dir)) {
     if (!base::CreateDirectoryAndGetError(archives_dir, &error)) {
       LOG(ERROR) << "Failed to create offline pages archive directory: "
                  << base::File::ErrorToString(error);
     }
-    UMA_HISTOGRAM_ENUMERATION(
-        "OfflinePages.ArchiveManager.ArchiveDirsCreationResult", -error,
-        -base::File::FILE_ERROR_MAX);
+    if (is_temp) {
+      UMA_HISTOGRAM_ENUMERATION(
+          "OfflinePages.ArchiveManager.ArchiveDirsCreationResult2.Temporary",
+          -error, -base::File::FILE_ERROR_MAX);
+    } else {
+      UMA_HISTOGRAM_ENUMERATION(
+          "OfflinePages.ArchiveManager.ArchiveDirsCreationResult2.Persistent",
+          -error, -base::File::FILE_ERROR_MAX);
+    }
   }
 }
 
-void ExistsArchiveImpl(const base::FilePath& file_path,
-                       scoped_refptr<base::SequencedTaskRunner> task_runner,
-                       const base::Callback<void(bool)>& callback) {
-  task_runner->PostTask(FROM_HERE,
-                        base::Bind(callback, base::PathExists(file_path)));
-}
-
-void DeleteArchivesImpl(const std::vector<base::FilePath>& file_paths,
-                        scoped_refptr<base::SequencedTaskRunner> task_runner,
-                        const base::Callback<void(bool)>& callback) {
-  bool result = false;
-  for (const auto& file_path : file_paths) {
-    // Make sure delete happens on the left of || so that it is always executed.
-    result = base::DeleteFile(file_path, false) || result;
-  }
-  task_runner->PostTask(FROM_HERE, base::Bind(callback, result));
-}
-
-void GetAllArchivesImpl(
-    const base::FilePath& archive_dir,
-    scoped_refptr<base::SequencedTaskRunner> task_runner,
-    const base::Callback<void(const std::set<base::FilePath>&)>& callback) {
-  std::set<base::FilePath> archive_paths;
-  base::FileEnumerator file_enumerator(archive_dir, false,
-                                       base::FileEnumerator::FILES);
-  for (base::FilePath archive_path = file_enumerator.Next();
-       !archive_path.empty(); archive_path = file_enumerator.Next()) {
-    archive_paths.insert(archive_path);
-  }
-  task_runner->PostTask(FROM_HERE, base::Bind(callback, archive_paths));
-}
-
-void GetStorageStatsImpl(const base::FilePath& archive_dir,
+void GetStorageStatsImpl(const base::FilePath& temporary_archives_dir,
+                         const base::FilePath& private_archives_dir,
+                         const base::FilePath& public_archives_dir,
                          scoped_refptr<base::SequencedTaskRunner> task_runner,
-                         const StorageStatsCallback& callback) {
-  ArchiveManager::StorageStats storage_stats;
-  storage_stats.free_disk_space =
-      base::SysInfo::AmountOfFreeDiskSpace(archive_dir);
-  storage_stats.total_archives_size = base::ComputeDirectorySize(archive_dir);
-  task_runner->PostTask(FROM_HERE, base::Bind(callback, storage_stats));
+                         StorageStatsCallback callback) {
+  ArchiveManager::StorageStats storage_stats = {0, 0, 0, 0, 0};
+
+  // Getting the free disk space of the volume that contains the temporary
+  // archives directory. This value will be -1 if the directory is invalid.
+  // Currently both temporary and private archive directories are in the
+  // internal storage.
+  storage_stats.internal_free_disk_space =
+      base::SysInfo::AmountOfFreeDiskSpace(temporary_archives_dir);
+  storage_stats.external_free_disk_space =
+      base::SysInfo::AmountOfFreeDiskSpace(public_archives_dir);
+  if (!temporary_archives_dir.empty()) {
+    storage_stats.temporary_archives_size =
+        base::ComputeDirectorySize(temporary_archives_dir);
+  }
+  if (!private_archives_dir.empty()) {
+    storage_stats.private_archives_size =
+        base::ComputeDirectorySize(private_archives_dir);
+  }
+  if (!public_archives_dir.empty()) {
+    base::FileEnumerator file_enumerator(public_archives_dir, false,
+                                         base::FileEnumerator::FILES);
+    while (!file_enumerator.Next().empty()) {
+#if defined(OS_WIN)
+      std::string extension = base::WideToUTF8(
+          file_enumerator.GetInfo().GetName().FinalExtension());
+#else
+      std::string extension =
+          file_enumerator.GetInfo().GetName().FinalExtension();
+#endif
+      if (extension == "mhtml" || extension == "mht")
+        storage_stats.public_archives_size +=
+            file_enumerator.GetInfo().GetSize();
+    }
+  }
+  task_runner->PostTask(FROM_HERE,
+                        base::BindOnce(std::move(callback), storage_stats));
 }
 
 }  // namespace
@@ -84,52 +94,50 @@ void GetStorageStatsImpl(const base::FilePath& archive_dir,
 ArchiveManager::ArchiveManager() {}
 
 ArchiveManager::ArchiveManager(
-    const base::FilePath& archives_dir,
+    const base::FilePath& temporary_archives_dir,
+    const base::FilePath& private_archives_dir,
+    const base::FilePath& public_archives_dir,
     const scoped_refptr<base::SequencedTaskRunner>& task_runner)
-    : archives_dir_(archives_dir), task_runner_(task_runner) {}
+    : temporary_archives_dir_(temporary_archives_dir),
+      private_archives_dir_(private_archives_dir),
+      public_archives_dir_(public_archives_dir),
+      task_runner_(task_runner) {}
 
 ArchiveManager::~ArchiveManager() {}
 
-void ArchiveManager::EnsureArchivesDirCreated(const base::Closure& callback) {
+void ArchiveManager::EnsureArchivesDirCreated(
+    base::OnceCallback<void()> callback) {
+  // The callback will only be invoked once both directories are created.
+  if (!temporary_archives_dir_.empty()) {
+    task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(EnsureArchivesDirCreatedImpl,
+                                  temporary_archives_dir_, true /* is_temp */));
+  }
   task_runner_->PostTaskAndReply(
-      FROM_HERE, base::Bind(EnsureArchivesDirCreatedImpl, archives_dir_),
-      callback);
+      FROM_HERE,
+      base::BindOnce(EnsureArchivesDirCreatedImpl, private_archives_dir_,
+                     false /* is_temp */),
+      std::move(callback));
 }
 
-void ArchiveManager::ExistsArchive(const base::FilePath& archive_path,
-                                   const base::Callback<void(bool)>& callback) {
+void ArchiveManager::GetStorageStats(StorageStatsCallback callback) const {
   task_runner_->PostTask(
-      FROM_HERE, base::Bind(ExistsArchiveImpl, archive_path,
-                            base::ThreadTaskRunnerHandle::Get(), callback));
+      FROM_HERE,
+      base::BindOnce(GetStorageStatsImpl, temporary_archives_dir_,
+                     private_archives_dir_, public_archives_dir_,
+                     base::ThreadTaskRunnerHandle::Get(), std::move(callback)));
 }
 
-void ArchiveManager::DeleteArchive(const base::FilePath& archive_path,
-                                   const base::Callback<void(bool)>& callback) {
-  std::vector<base::FilePath> archive_paths = {archive_path};
-  DeleteMultipleArchives(archive_paths, callback);
+const base::FilePath& ArchiveManager::GetTemporaryArchivesDir() const {
+  return temporary_archives_dir_;
 }
 
-void ArchiveManager::DeleteMultipleArchives(
-    const std::vector<base::FilePath>& archive_paths,
-    const base::Callback<void(bool)>& callback) {
-  task_runner_->PostTask(
-      FROM_HERE, base::Bind(DeleteArchivesImpl, archive_paths,
-                            base::ThreadTaskRunnerHandle::Get(), callback));
+const base::FilePath& ArchiveManager::GetPrivateArchivesDir() const {
+  return private_archives_dir_;
 }
 
-void ArchiveManager::GetAllArchives(
-    const base::Callback<void(const std::set<base::FilePath>&)>& callback)
-    const {
-  task_runner_->PostTask(
-      FROM_HERE, base::Bind(GetAllArchivesImpl, archives_dir_,
-                            base::ThreadTaskRunnerHandle::Get(), callback));
-}
-
-void ArchiveManager::GetStorageStats(
-    const StorageStatsCallback& callback) const {
-  task_runner_->PostTask(
-      FROM_HERE, base::Bind(GetStorageStatsImpl, archives_dir_,
-                            base::ThreadTaskRunnerHandle::Get(), callback));
+const base::FilePath& ArchiveManager::GetPublicArchivesDir() {
+  return public_archives_dir_;
 }
 
 }  // namespace offline_pages

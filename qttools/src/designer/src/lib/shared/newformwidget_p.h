@@ -43,14 +43,14 @@
 #include "shared_global_p.h"
 #include "deviceprofile_p.h"
 
-#include <QtDesigner/QDesignerNewFormWidgetInterface>
+#include <QtDesigner/abstractnewformwidget.h>
 
-#include <QtWidgets/QWidget>
-#include <QtGui/QPixmap>
+#include <QtWidgets/qwidget.h>
+#include <QtGui/qpixmap.h>
 
-#include <QtCore/QStringList>
-#include <QtCore/QPair>
-#include <QtCore/QMap>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -74,10 +74,10 @@ public:
     typedef QList<qdesigner_internal::DeviceProfile> DeviceProfileList;
 
     explicit NewFormWidget(QDesignerFormEditorInterface *core, QWidget *parentWidget);
-    virtual ~NewFormWidget();
+    ~NewFormWidget() override;
 
-    bool hasCurrentTemplate() const Q_DECL_OVERRIDE;
-    QString currentTemplate(QString *errorMessage = 0) Q_DECL_OVERRIDE;
+    bool hasCurrentTemplate() const override;
+    QString currentTemplate(QString *errorMessage = 0) override;
 
     // Convenience for implementing file dialogs with preview
     static QImage grabForm(QDesignerFormEditorInterface *core,

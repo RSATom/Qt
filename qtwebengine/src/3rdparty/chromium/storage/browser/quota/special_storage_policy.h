@@ -7,9 +7,11 @@
 
 #include <string>
 
+#include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "storage/browser/storage_browser_export.h"
+#include "services/network/session_cleanup_cookie_store.h"
 
 class GURL;
 
@@ -21,16 +23,16 @@ namespace storage {
 // is currently installed in the extensions system.
 // The IsSomething() methods must be thread-safe, however Observers should
 // only be notified, added, and removed on the IO thead.
-class STORAGE_EXPORT SpecialStoragePolicy
+class COMPONENT_EXPORT(STORAGE_BROWSER) SpecialStoragePolicy
     : public base::RefCountedThreadSafe<SpecialStoragePolicy> {
  public:
-  typedef int StoragePolicy;
+  using StoragePolicy = int;
   enum ChangeFlags {
     STORAGE_PROTECTED = 1 << 0,
     STORAGE_UNLIMITED = 1 << 1,
   };
 
-  class STORAGE_EXPORT Observer {
+  class COMPONENT_EXPORT(STORAGE_BROWSER) Observer {
    public:
     virtual void OnGranted(const GURL& origin, int change_flags) = 0;
     virtual void OnRevoked(const GURL& origin, int change_flags) = 0;
@@ -61,6 +63,16 @@ class STORAGE_EXPORT SpecialStoragePolicy
   // Returns true if some origins are only allowed session-only storage.
   virtual bool HasSessionOnlyOrigins() = 0;
 
+  // Returns a predicate that takes the domain of a cookie and a bool whether
+  // the cookie is secure and returns true if the cookie should be deleted on
+  // exit.
+  // If |HasSessionOnlyOrigins()| is true a non-null callback is returned.
+  // It uses domain matching as described in section 5.1.3 of RFC 6265 to
+  // identify content setting rules that could have influenced the cookie
+  // when it was created.
+  virtual network::SessionCleanupCookieStore::DeleteCookiePredicate
+  CreateDeleteCookieOnExitPredicate() = 0;
+
   // Adds/removes an observer, the policy does not take
   // ownership of the observer. Should only be called on the IO thread.
   void AddObserver(Observer* observer);
@@ -73,7 +85,7 @@ class STORAGE_EXPORT SpecialStoragePolicy
   void NotifyRevoked(const GURL& origin, int change_flags);
   void NotifyCleared();
 
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 };
 
 }  // namespace storage

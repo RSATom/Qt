@@ -13,38 +13,56 @@
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/replaced_navigation_entry_data.h"
 #include "content/public/common/page_state.h"
 #include "content/public/common/referrer.h"
 
 namespace sessions {
+namespace {
+
+base::Optional<SerializedNavigationEntry::ReplacedNavigationEntryData>
+ConvertReplacedEntryData(
+    const base::Optional<content::ReplacedNavigationEntryData>& input_data) {
+  if (!input_data.has_value())
+    return base::nullopt;
+
+  SerializedNavigationEntry::ReplacedNavigationEntryData output_data;
+  output_data.first_committed_url = input_data->first_committed_url;
+  output_data.first_timestamp = input_data->first_timestamp;
+  output_data.first_transition_type = input_data->first_transition_type;
+  return output_data;
+}
+
+}  // namespace
 
 // static
 SerializedNavigationEntry
 ContentSerializedNavigationBuilder::FromNavigationEntry(
     int index,
-    const content::NavigationEntry& entry,
+    content::NavigationEntry* entry,
     SerializationOptions serialization_options) {
   SerializedNavigationEntry navigation;
   navigation.index_ = index;
-  navigation.unique_id_ = entry.GetUniqueID();
-  navigation.referrer_url_ = entry.GetReferrer().url;
-  navigation.referrer_policy_ = entry.GetReferrer().policy;
-  navigation.virtual_url_ = entry.GetVirtualURL();
-  navigation.title_ = entry.GetTitle();
+  navigation.unique_id_ = entry->GetUniqueID();
+  navigation.referrer_url_ = entry->GetReferrer().url;
+  navigation.referrer_policy_ = static_cast<int>(entry->GetReferrer().policy);
+  navigation.virtual_url_ = entry->GetVirtualURL();
+  navigation.title_ = entry->GetTitle();
   if (!(serialization_options & SerializationOptions::EXCLUDE_PAGE_STATE))
-    navigation.encoded_page_state_ = entry.GetPageState().ToEncodedData();
-  navigation.transition_type_ = entry.GetTransitionType();
-  navigation.has_post_data_ = entry.GetHasPostData();
-  navigation.post_id_ = entry.GetPostID();
-  navigation.original_request_url_ = entry.GetOriginalRequestURL();
-  navigation.is_overriding_user_agent_ = entry.GetIsOverridingUserAgent();
-  navigation.timestamp_ = entry.GetTimestamp();
-  navigation.is_restored_ = entry.IsRestored();
-  entry.GetExtraData(kSearchTermsKey, &navigation.search_terms_);
-  if (entry.GetFavicon().valid)
-    navigation.favicon_url_ = entry.GetFavicon().url;
-  navigation.http_status_code_ = entry.GetHttpStatusCode();
-  navigation.redirect_chain_ = entry.GetRedirectChain();
+    navigation.encoded_page_state_ = entry->GetPageState().ToEncodedData();
+  navigation.transition_type_ = entry->GetTransitionType();
+  navigation.has_post_data_ = entry->GetHasPostData();
+  navigation.post_id_ = entry->GetPostID();
+  navigation.original_request_url_ = entry->GetOriginalRequestURL();
+  navigation.is_overriding_user_agent_ = entry->GetIsOverridingUserAgent();
+  navigation.timestamp_ = entry->GetTimestamp();
+  navigation.is_restored_ = entry->IsRestored();
+  if (entry->GetFavicon().valid)
+    navigation.favicon_url_ = entry->GetFavicon().url;
+  navigation.http_status_code_ = entry->GetHttpStatusCode();
+  navigation.redirect_chain_ = entry->GetRedirectChain();
+  navigation.replaced_entry_data_ =
+      ConvertReplacedEntryData(entry->GetReplacedEntryData());
   navigation.password_state_ = GetPasswordStateFromNavigation(entry);
 
   for (const auto& handler_entry :
@@ -65,8 +83,8 @@ std::unique_ptr<content::NavigationEntry>
 ContentSerializedNavigationBuilder::ToNavigationEntry(
     const SerializedNavigationEntry* navigation,
     content::BrowserContext* browser_context) {
-  blink::WebReferrerPolicy policy =
-      static_cast<blink::WebReferrerPolicy>(navigation->referrer_policy_);
+  network::mojom::ReferrerPolicy policy =
+      static_cast<network::mojom::ReferrerPolicy>(navigation->referrer_policy_);
   std::unique_ptr<content::NavigationEntry> entry(
       content::NavigationController::CreateNavigationEntry(
           navigation->virtual_url_,
@@ -77,7 +95,8 @@ ContentSerializedNavigationBuilder::ToNavigationEntry(
           // increase the typed count.
           ui::PAGE_TRANSITION_RELOAD, false,
           // The extra headers are not sync'ed across sessions.
-          std::string(), browser_context));
+          std::string(), browser_context,
+          nullptr /* blob_url_loader_factory */));
 
   entry->SetTitle(navigation->title_);
   entry->SetPageState(content::PageState::CreateFromEncodedData(
@@ -87,7 +106,6 @@ ContentSerializedNavigationBuilder::ToNavigationEntry(
   entry->SetOriginalRequestURL(navigation->original_request_url_);
   entry->SetIsOverridingUserAgent(navigation->is_overriding_user_agent_);
   entry->SetTimestamp(navigation->timestamp_);
-  entry->SetExtraData(kSearchTermsKey, navigation->search_terms_);
   entry->SetHttpStatusCode(navigation->http_status_code_);
   entry->SetRedirectChain(navigation->redirect_chain_);
 

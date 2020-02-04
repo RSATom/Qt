@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/widestring.h"
 
 enum FXDIB_Format {
   FXDIB_Invalid = 0,
@@ -36,70 +37,113 @@ struct PixelWeight {
   int m_Weights[1];
 };
 
-typedef uint32_t FX_ARGB;
-typedef uint32_t FX_COLORREF;
-typedef uint32_t FX_CMYK;
-class CFX_ClipRgn;
-class CFX_DIBSource;
-class CStretchEngine;
+using FX_ARGB = uint32_t;
+
+// FX_COLORREF, like win32 COLORREF, is BGR.
+using FX_COLORREF = uint32_t;
+
+using FX_CMYK = uint32_t;
 
 extern const int16_t SDP_Table[513];
 
-#define FXDIB_DOWNSAMPLE 0x04
-#define FXDIB_INTERPOL 0x20
-#define FXDIB_BICUBIC_INTERPOL 0x80
-#define FXDIB_NOSMOOTH 0x100
+struct FXDIB_ResampleOptions {
+  FXDIB_ResampleOptions();
+  // TODO(thestig): Remove this ctor once C++14 can be used for more flexible
+  // constexpr initialization.
+  FXDIB_ResampleOptions(bool downsample,
+                        bool bilinear,
+                        bool bicubic,
+                        bool halftone,
+                        bool no_smoothing,
+                        bool lossy);
 
-#define FXDIB_BLEND_NORMAL 0
-#define FXDIB_BLEND_MULTIPLY 1
-#define FXDIB_BLEND_SCREEN 2
-#define FXDIB_BLEND_OVERLAY 3
-#define FXDIB_BLEND_DARKEN 4
-#define FXDIB_BLEND_LIGHTEN 5
-#define FXDIB_BLEND_COLORDODGE 6
-#define FXDIB_BLEND_COLORBURN 7
-#define FXDIB_BLEND_HARDLIGHT 8
-#define FXDIB_BLEND_SOFTLIGHT 9
-#define FXDIB_BLEND_DIFFERENCE 10
-#define FXDIB_BLEND_EXCLUSION 11
-#define FXDIB_BLEND_NONSEPARABLE 21
-#define FXDIB_BLEND_HUE 21
-#define FXDIB_BLEND_SATURATION 22
-#define FXDIB_BLEND_COLOR 23
-#define FXDIB_BLEND_LUMINOSITY 24
-#define FXDIB_BLEND_UNSUPPORTED -1
+  bool HasAnyOptions() const;
 
-#define FXSYS_RGB(r, g, b) ((r) | ((g) << 8) | ((b) << 16))
-#define FXSYS_GetRValue(rgb) ((rgb)&0xff)
-#define FXSYS_GetGValue(rgb) (((rgb) >> 8) & 0xff)
-#define FXSYS_GetBValue(rgb) (((rgb) >> 16) & 0xff)
+  bool bInterpolateDownsample = false;
+  bool bInterpolateBilinear = false;
+  bool bInterpolateBicubic = false;
+  bool bHalftone = false;
+  bool bNoSmoothing = false;
+  bool bLossy = false;
+};
+
+extern const FXDIB_ResampleOptions kBilinearInterpolation;
+
+// See PDF 1.7 spec, table 7.2 and 7.3. The enum values need to be in the same
+// order as listed in the spec.
+enum class BlendMode {
+  kNormal = 0,
+  kMultiply,
+  kScreen,
+  kOverlay,
+  kDarken,
+  kLighten,
+  kColorDodge,
+  kColorBurn,
+  kHardLight,
+  kSoftLight,
+  kDifference,
+  kExclusion,
+  kHue,
+  kSaturation,
+  kColor,
+  kLuminosity,
+};
+
+constexpr uint32_t FXSYS_BGR(uint8_t b, uint8_t g, uint8_t r) {
+  return (b << 16) | (g << 8) | r;
+}
+
+constexpr uint8_t FXSYS_GetRValue(uint32_t bgr) {
+  return bgr & 0xff;
+}
+
+constexpr uint8_t FXSYS_GetGValue(uint32_t bgr) {
+  return (bgr >> 8) & 0xff;
+}
+
+constexpr uint8_t FXSYS_GetBValue(uint32_t bgr) {
+  return (bgr >> 16) & 0xff;
+}
 
 #define FXSYS_GetCValue(cmyk) ((uint8_t)((cmyk) >> 24) & 0xff)
 #define FXSYS_GetMValue(cmyk) ((uint8_t)((cmyk) >> 16) & 0xff)
 #define FXSYS_GetYValue(cmyk) ((uint8_t)((cmyk) >> 8) & 0xff)
 #define FXSYS_GetKValue(cmyk) ((uint8_t)(cmyk)&0xff)
 
+inline int GetBppFromFormat(FXDIB_Format format) {
+  return format & 0xff;
+}
+
+inline int GetCompsFromFormat(FXDIB_Format format) {
+  return (format & 0xff) / 8;
+}
+
 inline FX_CMYK CmykEncode(int c, int m, int y, int k) {
   return (c << 24) | (m << 16) | (y << 8) | k;
 }
 
-// Returns tuple a, r, g, b
+// Returns (a, r, g, b)
 std::tuple<int, int, int, int> ArgbDecode(FX_ARGB argb);
 
-// Returns pair a, rgb
-std::pair<int, FX_COLORREF> ArgbToColorRef(FX_ARGB argb);
+// Returns (a, FX_COLORREF)
+std::pair<int, FX_COLORREF> ArgbToAlphaAndColorRef(FX_ARGB argb);
 
-inline FX_ARGB ArgbEncode(int a, int r, int g, int b) {
+// Returns FX_COLORREF.
+FX_COLORREF ArgbToColorRef(FX_ARGB argb);
+
+constexpr FX_ARGB ArgbEncode(int a, int r, int g, int b) {
   return (a << 24) | (r << 16) | (g << 8) | b;
 }
-FX_ARGB ArgbEncode(int a, FX_COLORREF rgb);
+
+FX_ARGB AlphaAndColorRefToArgb(int a, FX_COLORREF colorref);
+
+FX_ARGB StringToFXARGB(WideStringView view);
 
 #define FXARGB_A(argb) ((uint8_t)((argb) >> 24))
 #define FXARGB_R(argb) ((uint8_t)((argb) >> 16))
 #define FXARGB_G(argb) ((uint8_t)((argb) >> 8))
 #define FXARGB_B(argb) ((uint8_t)(argb))
-#define FXARGB_MAKE(a, r, g, b) \
-  (((uint32_t)(a) << 24) | ((r) << 16) | ((g) << 8) | (b))
 #define FXARGB_MUL_ALPHA(argb, alpha) \
   (((((argb) >> 24) * (alpha) / 255) << 24) | ((argb)&0xffffff))
 
@@ -127,7 +171,7 @@ FX_ARGB ArgbEncode(int a, FX_COLORREF rgb);
   ((uint8_t)(argb >> 16) | ((uint8_t)(argb >> 8)) << 8 | \
    ((uint8_t)(argb)) << 16 | ((uint8_t)(argb >> 24) << 24))
 
-FX_RECT FXDIB_SwapClipBox(FX_RECT& clip,
+FX_RECT FXDIB_SwapClipBox(const FX_RECT& clip,
                           int width,
                           int height,
                           bool bFlipX,

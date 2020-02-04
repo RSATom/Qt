@@ -8,29 +8,43 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_RTCP_IMPL_H_
-#define WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_RTCP_IMPL_H_
+#ifndef MODULES_RTP_RTCP_SOURCE_RTP_RTCP_IMPL_H_
+#define MODULES_RTP_RTCP_SOURCE_RTP_RTCP_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <memory>
 #include <set>
-#include <utility>
+#include <string>
 #include <vector>
 
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "webrtc/modules/rtp_rtcp/source/packet_loss_stats.h"
-#include "webrtc/modules/rtp_rtcp/source/rtcp_receiver.h"
-#include "webrtc/modules/rtp_rtcp/source/rtcp_sender.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_sender.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/gtest_prod_util.h"
-#include "webrtc/rtc_base/optional.h"
+#include "absl/types/optional.h"
+#include "api/rtp_headers.h"
+#include "api/video/video_bitrate_allocation.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "modules/include/module_common_types.h"
+#include "modules/include/module_fec_types.h"
+#include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"  // RTCPPacketType
+#include "modules/rtp_rtcp/source/packet_loss_stats.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/tmmb_item.h"
+#include "modules/rtp_rtcp/source/rtcp_receiver.h"
+#include "modules/rtp_rtcp/source/rtcp_sender.h"
+#include "modules/rtp_rtcp/source/rtp_sender.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/gtest_prod_util.h"
 
 namespace webrtc {
+
+class Clock;
+struct PacedPacketInfo;
+struct RTPVideoHeader;
 
 class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
  public:
   explicit ModuleRtpRtcpImpl(const RtpRtcp::Configuration& configuration);
+  ~ModuleRtpRtcpImpl() override;
 
   // Returns the number of milliseconds until the module want a worker thread to
   // call Process.
@@ -42,25 +56,29 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
   // Receiver part.
 
   // Called when we receive an RTCP packet.
-  int32_t IncomingRtcpPacket(const uint8_t* incoming_packet,
-                             size_t incoming_packet_length) override;
+  void IncomingRtcpPacket(const uint8_t* incoming_packet,
+                          size_t incoming_packet_length) override;
 
   void SetRemoteSSRC(uint32_t ssrc) override;
 
   // Sender part.
 
-  int32_t RegisterSendPayload(const CodecInst& voice_codec) override;
-
-  int32_t RegisterSendPayload(const VideoCodec& video_codec) override;
-
+  void RegisterAudioSendPayload(int payload_type,
+                                absl::string_view payload_name,
+                                int frequency,
+                                int channels,
+                                int rate) override;
   void RegisterVideoSendPayload(int payload_type,
                                 const char* payload_name) override;
 
   int32_t DeRegisterSendPayload(int8_t payload_type) override;
 
+  void SetExtmapAllowMixed(bool extmap_allow_mixed) override;
+
   // Register RTP header extension.
   int32_t RegisterSendRtpHeaderExtension(RTPExtensionType type,
                                          uint8_t id) override;
+  bool RegisterRtpHeaderExtension(const std::string& uri, int id) override;
 
   int32_t DeregisterSendRtpHeaderExtension(RTPExtensionType type) override;
 
@@ -87,6 +105,10 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
   // Configure SSRC, default is a random number.
   void SetSSRC(uint32_t ssrc) override;
 
+  void SetRid(const std::string& rid) override;
+
+  void SetMid(const std::string& mid) override;
+
   void SetCsrcs(const std::vector<uint32_t>& csrcs) override;
 
   RTCPSender::FeedbackState GetFeedbackState();
@@ -99,7 +121,7 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
   void SetRtxSendPayloadType(int payload_type,
                              int associated_payload_type) override;
 
-  rtc::Optional<uint32_t> FlexfecSsrc() const override;
+  absl::optional<uint32_t> FlexfecSsrc() const override;
 
   // Sends kRtcpByeCode when going from true to false.
   int32_t SetSendingStatus(bool sending) override;
@@ -110,6 +132,8 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
   void SetSendingMediaStatus(bool sending) override;
 
   bool SendingMedia() const override;
+
+  void SetAsPartOfAllocation(bool part_of_allocation) override;
 
   // Used by the codec module to deliver a video or audio frame for
   // packetization.
@@ -187,20 +211,13 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
       uint32_t ssrc,
       struct RtpPacketLossStats* loss_stats) const override;
 
-  // Get received RTCP report, sender info.
-  int32_t RemoteRTCPStat(RTCPSenderInfo* sender_info) override;
-
   // Get received RTCP report, report block.
   int32_t RemoteRTCPStat(
       std::vector<RTCPReportBlock>* receive_blocks) const override;
 
   // (REMB) Receiver Estimated Max Bitrate.
-  bool REMB() const override;
-
-  void SetREMBStatus(bool enable) override;
-
-  void SetREMBData(uint32_t bitrate,
-                   const std::vector<uint32_t>& ssrcs) override;
+  void SetRemb(int64_t bitrate_bps, std::vector<uint32_t> ssrcs) override;
+  void UnsetRemb() override;
 
   // (TMMBR) Temporary Max Media Bit Rate.
   bool TMMBR() const override;
@@ -243,19 +260,12 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
                                          const uint8_t* data,
                                          uint16_t length) override;
 
-  // (XR) VOIP metric.
-  int32_t SetRTCPVoIPMetrics(const RTCPVoIPMetric* VoIPMetric) override;
-
   // (XR) Receiver reference time report.
   void SetRtcpXrRrtrStatus(bool enable) override;
 
   bool RtcpXrRrtrStatus() const override;
 
   // Audio part.
-
-  // This function is deprecated. It was previously used to determine when it
-  // was time to send a DTMF packet in silence (CNG).
-  int32_t SetAudioPacketSize(uint16_t packet_size_samples) override;
 
   // Send a TelephoneEvent tone using RFC 2833 (4733).
   int32_t SendTelephoneEventOutband(uint8_t key,
@@ -289,6 +299,7 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
                    uint32_t* video_rate,
                    uint32_t* fec_rate,
                    uint32_t* nackRate) const override;
+  uint32_t PacketizationOverheadBps() const override;
 
   void RegisterSendChannelRtpStatisticsCallback(
       StreamDataCountersCallback* callback) override;
@@ -301,7 +312,8 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
       const ReportBlockList& report_blocks) override;
   void OnRequestSendReport() override;
 
-  void SetVideoBitrateAllocation(const BitrateAllocation& bitrate) override;
+  void SetVideoBitrateAllocation(
+      const VideoBitrateAllocation& bitrate) override;
 
  protected:
   bool UpdateRTCPReceiveInformationTimers();
@@ -320,7 +332,6 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
  private:
   FRIEND_TEST_ALL_PREFIXES(RtpRtcpImplTest, Rtt);
   FRIEND_TEST_ALL_PREFIXES(RtpRtcpImplTest, RttForReceiverOnly);
-  int64_t RtcpReportInterval();
   void SetRtcpReceiverSsrcs(uint32_t main_ssrc);
 
   void set_rtt_ms(int64_t rtt_ms);
@@ -344,15 +355,14 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
   uint16_t packet_overhead_;
 
   // Send side
-  int64_t nack_last_time_sent_full_;
-  uint32_t nack_last_time_sent_full_prev_;
+  int64_t nack_last_time_sent_full_ms_;
   uint16_t nack_last_seq_number_sent_;
 
   KeyFrameRequestMethod key_frame_req_method_;
 
   RemoteBitrateEstimator* remote_bitrate_;
 
-  RtcpRttStats* rtt_stats_;
+  RtcpRttStats* const rtt_stats_;
 
   PacketLossStats send_loss_stats_;
   PacketLossStats receive_loss_stats_;
@@ -364,4 +374,4 @@ class ModuleRtpRtcpImpl : public RtpRtcp, public RTCPReceiver::ModuleRtpRtcp {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_RTP_RTCP_SOURCE_RTP_RTCP_IMPL_H_
+#endif  // MODULES_RTP_RTCP_SOURCE_RTP_RTCP_IMPL_H_

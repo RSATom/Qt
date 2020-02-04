@@ -73,8 +73,6 @@ public:
 
     bool begin(QPaintDevice *pdev);
     bool end();
-    static CGColorSpaceRef macGenericColorSpace();
-    static CGColorSpaceRef macDisplayColorSpace(const QWidget *widget = 0);
 
     void updateState(const QPaintEngineState &state);
 
@@ -126,10 +124,6 @@ protected:
     QCoreGraphicsPaintEngine(QPaintEnginePrivate &dptr);
 
 private:
-    static bool m_postRoutineRegistered;
-    static CGColorSpaceRef m_genericColorSpace;
-    static QHash<CGDirectDisplayID, CGColorSpaceRef> m_displayColorSpaceHash;
-    static void cleanUpMacColorSpaces();
     Q_DISABLE_COPY(QCoreGraphicsPaintEngine)
 };
 
@@ -141,7 +135,7 @@ class QCoreGraphicsPaintEnginePrivate : public QPaintEnginePrivate
     Q_DECLARE_PUBLIC(QCoreGraphicsPaintEngine)
 public:
     QCoreGraphicsPaintEnginePrivate()
-        : hd(0), shading(0), stackCount(0), complexXForm(false), disabledSmoothFonts(false)
+        : hd(nullptr), shading(nullptr), stackCount(0), complexXForm(false), disabledSmoothFonts(false)
     {
     }
 
@@ -170,8 +164,8 @@ public:
 
     //internal functions
     enum { CGStroke=0x01, CGEOFill=0x02, CGFill=0x04 };
-    void drawPath(uchar ops, CGMutablePathRef path = 0);
-    void setClip(const QRegion *rgn=0);
+    void drawPath(uchar ops, CGMutablePathRef path = nullptr);
+    void setClip(const QRegion *rgn = nullptr);
     void resetClip();
     void setFillBrush(const QPointF &origin=QPoint());
     void setStrokePen(const QPen &pen);
@@ -180,7 +174,7 @@ public:
     float penOffset();
     QPointF devicePixelSize(CGContextRef context);
     float adjustPenWidth(float penWidth);
-    inline void setTransform(const QTransform *matrix=0)
+    inline void setTransform(const QTransform *matrix = nullptr)
     {
         CGContextConcatCTM(hd, CGAffineTransformInvert(CGContextGetCTM(hd)));
         CGAffineTransform xform = orig_xform;

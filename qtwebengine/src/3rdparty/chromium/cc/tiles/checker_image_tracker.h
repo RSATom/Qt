@@ -53,7 +53,8 @@ class CC_EXPORT CheckerImageTracker {
 
   CheckerImageTracker(ImageController* image_controller,
                       CheckerImageTrackerClient* client,
-                      bool enable_checker_imaging);
+                      bool enable_checker_imaging,
+                      size_t min_image_bytes_to_checker);
   ~CheckerImageTracker();
 
   // Returns true if the decode for |image| will be deferred to the image decode
@@ -91,6 +92,14 @@ class CC_EXPORT CheckerImageTracker {
   // raster.
   void DisallowCheckeringForImage(const PaintImage& image);
 
+  void set_force_disabled(bool force_disabled) {
+    force_disabled_ = force_disabled;
+  }
+
+  void UpdateImageDecodingHints(
+      base::flat_map<PaintImage::Id, PaintImage::DecodingMode>
+          decoding_mode_map);
+
   bool has_locked_decodes_for_testing() const {
     return !image_id_to_decode_.empty();
   }
@@ -100,6 +109,11 @@ class CC_EXPORT CheckerImageTracker {
   }
   bool no_decodes_allowed_for_testing() const {
     return decode_priority_allowed_ == kNoDecodeAllowedPriority;
+  }
+  PaintImage::DecodingMode get_decoding_mode_hint_for_testing(
+      PaintImage::Id id) {
+    CHECK(decoding_mode_map_.find(id) != decoding_mode_map_.end());
+    return decoding_mode_map_[id];
   }
 
  private:
@@ -122,7 +136,7 @@ class CC_EXPORT CheckerImageTracker {
     DecodePolicy policy = DecodePolicy::SYNC;
     SkFilterQuality filter_quality = kNone_SkFilterQuality;
     SkSize scale = SkSize::MakeEmpty();
-    gfx::ColorSpace color_space;
+    size_t frame_index = PaintImage::kDefaultFrameIndex;
   };
 
   // Wrapper to unlock an image decode requested from the ImageController on
@@ -155,6 +169,11 @@ class CC_EXPORT CheckerImageTracker {
   ImageController* image_controller_;
   CheckerImageTrackerClient* client_;
   const bool enable_checker_imaging_;
+  const size_t min_image_bytes_to_checker_;
+
+  // Disables checkering of all images if set. As opposed to
+  // |enable_checker_imaging_|, this setting can be toggled.
+  bool force_disabled_ = false;
 
   // A set of images which have been decoded and are pending invalidation for
   // raster on the checkered tiles.
@@ -181,6 +200,8 @@ class CC_EXPORT CheckerImageTracker {
   // A map of image id to image decode request id for images to be unlocked.
   std::unordered_map<PaintImage::Id, std::unique_ptr<ScopedDecodeHolder>>
       image_id_to_decode_;
+
+  base::flat_map<PaintImage::Id, PaintImage::DecodingMode> decoding_mode_map_;
 
   base::WeakPtrFactory<CheckerImageTracker> weak_factory_;
 

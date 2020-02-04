@@ -6,7 +6,7 @@
 #define UI_EVENTS_OZONE_DEVICE_UDEV_DEVICE_MANAGER_UDEV_H_
 
 #include "base/macros.h"
-#include "base/message_loop/message_pump_libevent.h"
+#include "base/message_loop/message_pump_for_ui.h"
 #include "base/observer_list.h"
 #include "device/udev_linux/scoped_udev.h"
 #include "ui/events/ozone/device/device_manager.h"
@@ -16,8 +16,8 @@ namespace ui {
 class DeviceEvent;
 class DeviceEventObserver;
 
-class DeviceManagerUdev
-    : public DeviceManager, base::MessagePumpLibevent::Watcher {
+class DeviceManagerUdev : public DeviceManager,
+                          base::MessagePumpForUI::FdWatcher {
  public:
   DeviceManagerUdev();
   ~DeviceManagerUdev() override;
@@ -33,16 +33,16 @@ class DeviceManagerUdev
   void AddObserver(DeviceEventObserver* observer) override;
   void RemoveObserver(DeviceEventObserver* observer) override;
 
-  // base::MessagePumpLibevent::Watcher overrides:
+  // base::MessagePumpForUI::FdWatcher overrides:
   void OnFileCanReadWithoutBlocking(int fd) override;
   void OnFileCanWriteWithoutBlocking(int fd) override;
 
   device::ScopedUdevPtr udev_;
   device::ScopedUdevMonitorPtr monitor_;
 
-  base::MessagePumpLibevent::FileDescriptorWatcher controller_;
+  base::MessagePumpForUI::FdWatchController controller_;
 
-  base::ObserverList<DeviceEventObserver> observers_;
+  base::ObserverList<DeviceEventObserver>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceManagerUdev);
 };

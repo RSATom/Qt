@@ -98,7 +98,10 @@ public:
     TransformationType type() const;
 
     inline qreal determinant() const;
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use determinant() instead")
     qreal det() const;
+#endif
 
     qreal m11() const;
     qreal m12() const;
@@ -116,7 +119,7 @@ public:
                    qreal m21, qreal m22, qreal m23,
                    qreal m31, qreal m32, qreal m33);
 
-    Q_REQUIRED_RESULT QTransform inverted(bool *invertible = Q_NULLPTR) const;
+    Q_REQUIRED_RESULT QTransform inverted(bool *invertible = nullptr) const;
     Q_REQUIRED_RESULT QTransform adjoint() const;
     Q_REQUIRED_RESULT QTransform transposed() const;
 
@@ -173,7 +176,7 @@ private:
         , m_13(h13), m_23(h23), m_33(h33)
         , m_type(TxNone)
         , m_dirty(TxProject)
-        , d(Q_NULLPTR)
+        , d(nullptr)
     {
     }
     inline QTransform(bool)
@@ -181,7 +184,7 @@ private:
         , m_13(0), m_23(0), m_33(1)
         , m_type(TxNone)
         , m_dirty(TxNone)
-        , d(Q_NULLPTR)
+        , d(nullptr)
     {
     }
     inline TransformationType inline_type() const;
@@ -242,10 +245,12 @@ inline qreal QTransform::determinant() const
     return affine._m11*(m_33*affine._m22-affine._dy*m_23) -
         affine._m21*(m_33*affine._m12-affine._dy*m_13)+affine._dx*(m_23*affine._m12-affine._m22*m_13);
 }
+#if QT_DEPRECATED_SINCE(5, 13)
 inline qreal QTransform::det() const
 {
     return determinant();
 }
+#endif
 inline qreal QTransform::m11() const
 {
     return affine._m11;

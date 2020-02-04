@@ -530,4 +530,17 @@ bool QNearFieldTarget::handleResponse(const QNearFieldTarget::RequestId &id,
     return true;
 }
 
+/*!
+    \since 5.12
+
+    Reports the \a error for the request \a id by appending the signal emission to the event queue.
+*/
+void QNearFieldTarget::reportError(QNearFieldTarget::Error error,
+                                   const QNearFieldTarget::RequestId &id)
+{
+    QMetaObject::invokeMethod(this, [this, error, id]() {
+        Q_EMIT this->error(error, id);
+    }, Qt::QueuedConnection);
+}
+
 QT_END_NAMESPACE

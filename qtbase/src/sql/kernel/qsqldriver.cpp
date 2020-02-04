@@ -488,6 +488,8 @@ QString QSqlDriver::stripDelimiters(const QString &identifier, IdentifierType ty
 QString QSqlDriver::sqlStatement(StatementType type, const QString &tableName,
                                  const QSqlRecord &rec, bool preparedStatement) const
 {
+    const auto tableNameString = tableName.isEmpty() ? QString()
+                                    : prepareIdentifier(tableName, QSqlDriver::TableName, this);
     int i;
     QString s;
     s.reserve(128);
@@ -500,13 +502,12 @@ QString QSqlDriver::sqlStatement(StatementType type, const QString &tableName,
         if (s.isEmpty())
             return s;
         s.chop(2);
-        s.prepend(QLatin1String("SELECT ")).append(QLatin1String(" FROM ")).append(tableName);
+        s = QLatin1String("SELECT ") + s + QLatin1String(" FROM ") + tableNameString;
         break;
     case WhereStatement:
     {
-        const QString tableNamePrefix = tableName.isEmpty()
-            ? QString()
-            : prepareIdentifier(tableName, QSqlDriver::TableName, this) + QLatin1Char('.');
+        const QString tableNamePrefix = tableNameString.isEmpty()
+                                            ? QString() : tableNameString + QLatin1Char('.');
         for (int i = 0; i < rec.count(); ++i) {
             if (!rec.isGenerated(i))
                 continue;
@@ -523,8 +524,7 @@ QString QSqlDriver::sqlStatement(StatementType type, const QString &tableName,
         break;
     }
     case UpdateStatement:
-        s.append(QLatin1String("UPDATE ")).append(tableName).append(
-                 QLatin1String(" SET "));
+        s = s + QLatin1String("UPDATE ") + tableNameString + QLatin1String(" SET ");
         for (i = 0; i < rec.count(); ++i) {
             if (!rec.isGenerated(i))
                 continue;
@@ -541,10 +541,10 @@ QString QSqlDriver::sqlStatement(StatementType type, const QString &tableName,
             s.clear();
         break;
     case DeleteStatement:
-        s.append(QLatin1String("DELETE FROM ")).append(tableName);
+        s = s + QLatin1String("DELETE FROM ") + tableNameString;
         break;
     case InsertStatement: {
-        s.append(QLatin1String("INSERT INTO ")).append(tableName).append(QLatin1String(" ("));
+        s = s + QLatin1String("INSERT INTO ") + tableNameString + QLatin1String(" (");
         QString vals;
         for (i = 0; i < rec.count(); ++i) {
             if (!rec.isGenerated(i))
@@ -617,7 +617,7 @@ QString QSqlDriver::formatValue(const QSqlField &field, bool trimStrings) const
             else
                 r = field.value().toString();
             break;
-#ifndef QT_NO_DATESTRING
+#if QT_CONFIG(datestring)
         case QVariant::Date:
             if (field.value().toDate().isValid())
                 r = QLatin1Char('\'') + field.value().toDate().toString(Qt::ISODate)
@@ -672,7 +672,7 @@ QString QSqlDriver::formatValue(const QSqlField &field, bool trimStrings) const
                 break;
             }
         }
-            // fall through
+            Q_FALLTHROUGH();
         default:
             r = field.value().toString();
             break;

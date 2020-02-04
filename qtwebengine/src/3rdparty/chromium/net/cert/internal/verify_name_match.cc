@@ -4,19 +4,21 @@
 
 #include "net/cert/internal/verify_name_match.h"
 
-#include <algorithm>
-#include <vector>
-
 #include "base/logging.h"
 #include "base/strings/string_util.h"
+#include "net/cert/internal/cert_error_params.h"
+#include "net/cert/internal/cert_errors.h"
 #include "net/cert/internal/parse_name.h"
 #include "net/der/input.h"
 #include "net/der/parser.h"
 #include "net/der/tag.h"
 #include "third_party/boringssl/src/include/openssl/bytestring.h"
-#include "third_party/boringssl/src/include/openssl/mem.h"
 
 namespace net {
+
+DEFINE_CERT_ERROR_ID(kFailedConvertingAttributeValue,
+                     "Failed converting AttributeValue to string");
+DEFINE_CERT_ERROR_ID(kFailedNormalizingString, "Failed normalizing string");
 
 namespace {
 
@@ -123,23 +125,41 @@ WARN_UNUSED_RESULT bool NormalizeDirectoryString(
 // is invalid, returns false.
 // NOTE: |output| will be modified regardless of the return.
 WARN_UNUSED_RESULT bool NormalizeValue(X509NameAttribute attribute,
-                                       std::string* output) {
-  if (!attribute.ValueAsStringUnsafe(output))
-    return false;
+                                       std::string* output,
+                                       CertErrors* errors) {
+  DCHECK(errors);
 
+  if (!attribute.ValueAsStringUnsafe(output)) {
+    errors->AddError(kFailedConvertingAttributeValue,
+                     CreateCertErrorParams1SizeT("tag", attribute.value_tag));
+    return false;
+  }
+
+  bool success = false;
   switch (attribute.value_tag) {
     case der::kPrintableString:
-      return NormalizeDirectoryString(ENFORCE_PRINTABLE_STRING, output);
+      success = NormalizeDirectoryString(ENFORCE_PRINTABLE_STRING, output);
+      break;
     case der::kBmpString:
     case der::kUniversalString:
     case der::kUtf8String:
-      return NormalizeDirectoryString(NO_ENFORCEMENT, output);
+      success = NormalizeDirectoryString(NO_ENFORCEMENT, output);
+      break;
     case der::kIA5String:
-      return NormalizeDirectoryString(ENFORCE_ASCII, output);
+      success = NormalizeDirectoryString(ENFORCE_ASCII, output);
+      break;
     default:
       NOTREACHED();
-      return false;
+      success = false;
+      break;
   }
+
+  if (!success) {
+    errors->AddError(kFailedNormalizingString,
+                     CreateCertErrorParams1SizeT("tag", attribute.value_tag));
+  }
+
+  return success;
 }
 
 // Returns true if |tag| is a string type that NormalizeValue can handle.
@@ -168,7 +188,10 @@ bool VerifyValueMatch(X509NameAttribute a, X509NameAttribute b) {
   if (IsNormalizableDirectoryString(a.value_tag) &&
       IsNormalizableDirectoryString(b.value_tag)) {
     std::string a_normalized, b_normalized;
-    if (!NormalizeValue(a, &a_normalized) || !NormalizeValue(b, &b_normalized))
+    // TODO(eroman): Plumb this down.
+    CertErrors unused_errors;
+    if (!NormalizeValue(a, &a_normalized, &unused_errors) ||
+        !NormalizeValue(b, &b_normalized, &unused_errors))
       return false;
     return a_normalized == b_normalized;
   }
@@ -200,7 +223,7 @@ bool VerifyRdnMatch(der::Parser* a_parser, der::Parser* b_parser) {
   // small, a naive linear search for each element should be fine. (Hostile
   // certificates already have ways to provoke pathological behavior.)
   for (const auto& a : a_type_and_values) {
-    RelativeDistinguishedName::iterator b_iter = b_type_and_values.begin();
+    auto b_iter = b_type_and_values.begin();
     for (; b_iter != b_type_and_values.end(); ++b_iter) {
       const auto& b = *b_iter;
       if (a.type == b.type && VerifyValueMatch(a, b)) {
@@ -289,7 +312,10 @@ bool VerifyNameMatchInternal(const der::Input& a,
 }  // namespace
 
 bool NormalizeName(const der::Input& name_rdn_sequence,
-                   std::string* normalized_rdn_sequence) {
+                   std::string* normalized_rdn_sequence,
+                   CertErrors* errors) {
+  DCHECK(errors);
+
   // RFC 5280 section 4.1.2.4
   // RDNSequence ::= SEQUENCE OF RelativeDistinguishedName
   der::Parser rdn_sequence_parser(name_rdn_sequence);
@@ -307,31 +333,17 @@ bool NormalizeName(const der::Input& name_rdn_sequence,
     if (!ReadRdn(&rdn_parser, &type_and_values))
       return false;
 
-    // The AttributeTypeAndValue objects in the SET OF need to be sorted on
-    // their DER encodings. Encode each individually and save the encoded values
-    // in |encoded_attribute_type_and_values| so that it can be sorted before
-    // being added to |rdn_cbb|. |scoped_encoded_attribute_type_and_values|
-    // owns the |OPENSSL_malloc|ed memory referred to by
-    // |encoded_attribute_type_and_values|.
     CBB rdn_cbb;
     if (!CBB_add_asn1(cbb.get(), &rdn_cbb, CBS_ASN1_SET))
       return false;
-    std::vector<bssl::UniquePtr<uint8_t>>
-        scoped_encoded_attribute_type_and_values;
-    std::vector<der::Input> encoded_attribute_type_and_values;
 
     for (const auto& type_and_value : type_and_values) {
-      // A top-level CBB for encoding each individual AttributeTypeAndValue.
-      bssl::ScopedCBB type_and_value_encoder_cbb;
-      if (!CBB_init(type_and_value_encoder_cbb.get(), 0))
-        return false;
-
       // AttributeTypeAndValue ::= SEQUENCE {
       //   type     AttributeType,
       //   value    AttributeValue }
       CBB attribute_type_and_value_cbb, type_cbb, value_cbb;
-      if (!CBB_add_asn1(type_and_value_encoder_cbb.get(),
-                        &attribute_type_and_value_cbb, CBS_ASN1_SEQUENCE)) {
+      if (!CBB_add_asn1(&rdn_cbb, &attribute_type_and_value_cbb,
+                        CBS_ASN1_SEQUENCE)) {
         return false;
       }
 
@@ -346,7 +358,7 @@ bool NormalizeName(const der::Input& name_rdn_sequence,
       // AttributeValue ::= ANY -- DEFINED BY AttributeType
       if (IsNormalizableDirectoryString(type_and_value.value_tag)) {
         std::string normalized_value;
-        if (!NormalizeValue(type_and_value, &normalized_value))
+        if (!NormalizeValue(type_and_value, &normalized_value, errors))
           return false;
         if (!CBB_add_asn1(&attribute_type_and_value_cbb, &value_cbb,
                           CBS_ASN1_UTF8STRING) ||
@@ -362,36 +374,17 @@ bool NormalizeName(const der::Input& name_rdn_sequence,
           return false;
       }
 
-      uint8_t* bytes;
-      size_t len;
-      if (!CBB_finish(type_and_value_encoder_cbb.get(), &bytes, &len))
+      if (!CBB_flush(&rdn_cbb))
         return false;
-      scoped_encoded_attribute_type_and_values.push_back(
-          bssl::UniquePtr<uint8_t>(bytes));
-      encoded_attribute_type_and_values.push_back(der::Input(bytes, len));
     }
 
-    std::sort(encoded_attribute_type_and_values.begin(),
-              encoded_attribute_type_and_values.end());
-    for (const auto& encoded_attribute_type_and_value :
-         encoded_attribute_type_and_values) {
-      if (!CBB_add_bytes(&rdn_cbb,
-                         encoded_attribute_type_and_value.UnsafeData(),
-                         encoded_attribute_type_and_value.Length())) {
-        return false;
-      }
-    }
-
-    if (!CBB_flush(cbb.get()))
+    // Ensure the encoded AttributeTypeAndValue values in the SET OF are sorted.
+    if (!CBB_flush_asn1_set_of(&rdn_cbb) || !CBB_flush(cbb.get()))
       return false;
   }
 
-  uint8_t* der;
-  size_t der_len;
-  if (!CBB_finish(cbb.get(), &der, &der_len))
-    return false;
-  normalized_rdn_sequence->assign(der, der + der_len);
-  OPENSSL_free(der);
+  normalized_rdn_sequence->assign(CBB_data(cbb.get()),
+                                  CBB_data(cbb.get()) + CBB_len(cbb.get()));
   return true;
 }
 

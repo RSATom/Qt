@@ -68,7 +68,7 @@ TEST(HttpRequestHeaders, SetEmptyHeader) {
   HttpRequestHeaders headers;
   headers.SetHeader("Foo", "Bar");
   headers.SetHeader("Bar", "");
-  EXPECT_EQ("Foo: Bar\r\nBar:\r\n\r\n", headers.ToString());
+  EXPECT_EQ("Foo: Bar\r\nBar: \r\n\r\n", headers.ToString());
 }
 
 TEST(HttpRequestHeaders, SetHeaderIfMissing) {
@@ -134,13 +134,13 @@ TEST(HttpRequestHeaders, AddHeaderFromStringLeadingTrailingWhitespace) {
 TEST(HttpRequestHeaders, AddHeaderFromStringWithEmptyValue) {
   HttpRequestHeaders headers;
   headers.AddHeaderFromString("Foo:");
-  EXPECT_EQ("Foo:\r\n\r\n", headers.ToString());
+  EXPECT_EQ("Foo: \r\n\r\n", headers.ToString());
 }
 
 TEST(HttpRequestHeaders, AddHeaderFromStringWithWhitespaceValue) {
   HttpRequestHeaders headers;
   headers.AddHeaderFromString("Foo: ");
-  EXPECT_EQ("Foo:\r\n\r\n", headers.ToString());
+  EXPECT_EQ("Foo: \r\n\r\n", headers.ToString());
 }
 
 TEST(HttpRequestHeaders, MergeFrom) {
@@ -165,24 +165,6 @@ TEST(HttpRequestHeaders, CopyFrom) {
   headers2.SetHeader("C", "c");
   headers.CopyFrom(headers2);
   EXPECT_EQ("B: b\r\nC: c\r\n\r\n", headers.ToString());
-}
-
-TEST(HttpRequestHeaders, ToNetLogParamAndBackAgain) {
-  HttpRequestHeaders headers;
-  headers.SetHeader("B", "b");
-  headers.SetHeader("A", "a");
-  std::string request_line("GET /stuff");
-
-  std::unique_ptr<base::Value> event_param(headers.NetLogCallback(
-      &request_line, NetLogCaptureMode::IncludeCookiesAndCredentials()));
-  HttpRequestHeaders headers2;
-  std::string request_line2;
-
-  ASSERT_TRUE(HttpRequestHeaders::FromNetLogParam(event_param.get(),
-                                                  &headers2,
-                                                  &request_line2));
-  EXPECT_EQ(request_line, request_line2);
-  EXPECT_EQ("B: b\r\nA: a\r\n\r\n", headers2.ToString());
 }
 
 }  // namespace

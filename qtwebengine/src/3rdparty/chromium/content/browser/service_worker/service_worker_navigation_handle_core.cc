@@ -7,12 +7,16 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/task/post_task.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_navigation_handle.h"
 #include "content/browser/service_worker/service_worker_provider_host.h"
 #include "content/common/service_worker/service_worker_types.h"
+#include "content/common/service_worker/service_worker_utils.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/child_process_host.h"
 
 namespace content {
 
@@ -27,39 +31,37 @@ ServiceWorkerNavigationHandleCore::ServiceWorkerNavigationHandleCore(
 
 ServiceWorkerNavigationHandleCore::~ServiceWorkerNavigationHandleCore() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  if (precreated_host_.get() && context_wrapper_->context()) {
-    context_wrapper_->context()->RemoveNavigationHandleCore(
-        precreated_host_->provider_id());
+  if (provider_id_ == kInvalidServiceWorkerProviderId)
+    return;
+  ServiceWorkerContextCore* context = context_wrapper_->context();
+  if (!context)
+    return;
+  ServiceWorkerProviderHost* host = context->GetProviderHost(
+      ChildProcessHost::kInvalidUniqueID, provider_id_);
+  if (!host)
+    return;
+  // Remove the provider host if it was never completed (navigation failed).
+  // TODO(falken): ServiceWorkerNavigationHandleCore should just own a Mojo
+  // pointer tied to the lifetime of ServiceWorkerProviderHost, and send the
+  // Mojo pointer to the renderer on navigation commit. If the handle core dies
+  // before that, the provider host would be destroyed by Mojo connection error.
+  if (!host->is_response_committed()) {
+    context->RemoveProviderHost(ChildProcessHost::kInvalidUniqueID,
+                                provider_id_);
   }
 }
 
 void ServiceWorkerNavigationHandleCore::DidPreCreateProviderHost(
-    std::unique_ptr<ServiceWorkerProviderHost> precreated_host) {
+    int provider_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DCHECK(precreated_host.get());
-  DCHECK(context_wrapper_->context());
+  DCHECK(ServiceWorkerUtils::IsBrowserAssignedProviderId(provider_id));
 
-  precreated_host_ = std::move(precreated_host);
-  context_wrapper_->context()->AddNavigationHandleCore(
-      precreated_host_->provider_id(), this);
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::Bind(
+  provider_id_ = provider_id;
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
+      base::BindOnce(
           &ServiceWorkerNavigationHandle::DidCreateServiceWorkerProviderHost,
-          ui_handle_, precreated_host_->provider_id()));
-}
-
-std::unique_ptr<ServiceWorkerProviderHost>
-ServiceWorkerNavigationHandleCore::RetrievePreCreatedHost() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DCHECK(precreated_host_);
-  // Remove the ServiceWorkerNavigationHandleCore from the list of
-  // ServiceWorkerNavigationHandleCores since it will no longer hold a
-  // ServiceWorkerProviderHost.
-  DCHECK(context_wrapper_->context());
-  context_wrapper_->context()->RemoveNavigationHandleCore(
-      precreated_host_->provider_id());
-  return std::move(precreated_host_);
+          ui_handle_, provider_id_));
 }
 
 }  // namespace content

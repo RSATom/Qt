@@ -41,8 +41,8 @@ class TabTasks {
   explicit TabTasks(const TabTasks& rhs);
   virtual ~TabTasks();
 
-  SessionID::id_type parent_tab_id() { return parent_tab_id_; }
-  void set_parent_tab_id(SessionID::id_type parent_tab_id) {
+  SessionID parent_tab_id() { return parent_tab_id_; }
+  void set_parent_tab_id(SessionID parent_tab_id) {
     parent_tab_id_ = parent_tab_id;
   }
 
@@ -55,6 +55,10 @@ class TabTasks {
                             int64_t global_id);
 
  private:
+  // Removes navigation from nav_to_task_id_map_ that is oldest according to
+  // global_id.
+  void RemoveOldestNavigation();
+
   FRIEND_TEST_ALL_PREFIXES(TaskTrackerTest, LimitMaxNumberOfTasksPerTab);
   FRIEND_TEST_ALL_PREFIXES(TaskTrackerTest,
                            CreateSubTaskFromExcludedAncestorTask);
@@ -80,11 +84,19 @@ class TabTasks {
   // the map using the parent id, until the parent id is kInvalidNavID.
   std::map<int, TaskIdAndParent> nav_to_task_id_map_;
 
+  // Root navigation contains parent link to navigations that were copied from
+  // another TabTasks instance. These navigations are not present in current
+  // tab's navigation stack. Evicting this navigation would loose this link.
+  // When the first naviation in this instance of TabTasks is created its id is
+  // kept in root_nav_id_. This navigation is not considered for removal when
+  // trimming nav_to_task_id_map_.
+  int root_nav_id_ = kInvalidNavID;
+
   // The most recent navigation id seen for this tab.
   int most_recent_nav_id_ = kInvalidNavID;
 
   // The parent id for this tab (if there is one).
-  SessionID::id_type parent_tab_id_ = kInvalidTabID;
+  SessionID parent_tab_id_ = SessionID::InvalidValue();
 
   DISALLOW_ASSIGN(TabTasks);
 };
@@ -103,16 +115,15 @@ class TaskTracker {
   // from one tab to another (e.g. when opening a navigation in a new tab, the
   // task ids from the original tab are necessary to continue tracking the
   // task chain).
-  TabTasks* GetTabTasks(SessionID::id_type tab_id,
-                        SessionID::id_type parent_tab_id);
+  TabTasks* GetTabTasks(SessionID tab_id, SessionID parent_tab_id);
 
   // Cleans tracked task ids of navigations in the tab of |tab_id|.
-  void CleanTabTasks(SessionID::id_type tab_id);
+  void CleanTabTasks(SessionID tab_id);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(TaskTrackerTest, CleanTabTasks);
 
-  std::map<SessionID::id_type, std::unique_ptr<TabTasks>> local_tab_tasks_map_;
+  std::map<SessionID, std::unique_ptr<TabTasks>> local_tab_tasks_map_;
 
   DISALLOW_COPY_AND_ASSIGN(TaskTracker);
 };

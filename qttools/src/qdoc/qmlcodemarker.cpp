@@ -110,10 +110,15 @@ QString QmlCodeMarker::markedUpCode(const QString &code,
     return addMarkUp(code, relative, location);
 }
 
+/*!
+  Constructs and returns the marked up name for the \a node.
+  If the node is any kind of QML or JS function (a method,
+  signal, or handler), "()" is appended to the marked up name.
+ */
 QString QmlCodeMarker::markedUpName(const Node *node)
 {
     QString name = linkTag(node, taggedNode(node));
-    if (node->type() == Node::QmlMethod)
+    if (node->isFunction())
         name += "()";
     return name;
 }
@@ -146,7 +151,7 @@ QString QmlCodeMarker::markedUpIncludes(const QStringList& includes)
         ++inc;
     }
     Location location;
-    return addMarkUp(code, 0, location);
+    return addMarkUp(code, nullptr, location);
 }
 
 QString QmlCodeMarker::functionBeginRegExp(const QString& funcName)
@@ -181,6 +186,10 @@ QString QmlCodeMarker::addMarkUp(const QString &code,
         // unhandled source text can be output.
         QmlMarkupVisitor visitor(code, pragmas, &engine);
         QQmlJS::AST::Node::accept(ast, &visitor);
+        if (visitor.hasError()) {
+            location.warning(location.fileName() +
+                             tr("Unable to analyze QML snippet. The output is incomplete."));
+        }
         output = visitor.markedUpCode();
     } else {
         location.warning(tr("Unable to parse QML snippet: \"%1\" at line %2, column %3").arg(
@@ -223,7 +232,7 @@ QList<QQmlJS::AST::SourceLocation> QmlCodeMarker::extractPragmas(QString &script
     const QString library(QLatin1String("library"));
     QList<QQmlJS::AST::SourceLocation> removed;
 
-    QQmlJS::Lexer l(0);
+    QQmlJS::Lexer l(nullptr);
     l.setCode(script, 0);
 
     int token = l.lex();
@@ -250,30 +259,6 @@ QList<QQmlJS::AST::SourceLocation> QmlCodeMarker::extractPragmas(QString &script
                                                    endOffset - startOffset,
                                                    startLine,
                                                    startColumn));
-#if 0
-        token = l.lex();
-        if (Generator::debugging())
-            qDebug() << "  third token";
-        if (token != QQmlJSGrammar::T_IDENTIFIER ||
-                l.tokenStartLine() != startLine)
-            return removed;
-
-        QString pragmaValue = script.mid(l.tokenOffset(), l.tokenLength());
-        int endOffset = l.tokenLength() + l.tokenOffset();
-
-        token = l.lex();
-        if (l.tokenStartLine() == startLine)
-            return removed;
-
-        if (pragmaValue == QLatin1String("library")) {
-            replaceWithSpace(script, startOffset, endOffset - startOffset);
-            removed.append(
-                        QQmlJS::AST::SourceLocation(
-                            startOffset, endOffset - startOffset,
-                            startLine, startColumn));
-        } else
-            return removed;
-#endif
     }
     return removed;
 }

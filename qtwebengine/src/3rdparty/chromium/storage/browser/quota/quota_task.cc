@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 
 using base::TaskRunner;
@@ -18,8 +19,7 @@ namespace storage {
 
 // QuotaTask ---------------------------------------------------------------
 
-QuotaTask::~QuotaTask() {
-}
+QuotaTask::~QuotaTask() = default;
 
 void QuotaTask::Start() {
   DCHECK(observer_);
@@ -43,7 +43,7 @@ void QuotaTask::CallCompleted() {
 
 void QuotaTask::Abort() {
   DCHECK(original_task_runner_->BelongsToCurrentThread());
-  observer_ = NULL;
+  observer_ = nullptr;
   Aborted();
 }
 
@@ -62,15 +62,14 @@ QuotaTaskObserver::~QuotaTaskObserver() {
     task->Abort();
 }
 
-QuotaTaskObserver::QuotaTaskObserver() {
-}
+QuotaTaskObserver::QuotaTaskObserver() = default;
 
 void QuotaTaskObserver::RegisterTask(QuotaTask* task) {
   running_quota_tasks_.insert(task);
 }
 
 void QuotaTaskObserver::UnregisterTask(QuotaTask* task) {
-  DCHECK(running_quota_tasks_.find(task) != running_quota_tasks_.end());
+  DCHECK(base::ContainsKey(running_quota_tasks_, task));
   running_quota_tasks_.erase(task);
 }
 

@@ -97,7 +97,7 @@ private:
     friend class QOpenGLContextGroupPrivate;
     friend class QOpenGLMultiGroupSharedResource;
 
-    Q_DISABLE_COPY(QOpenGLSharedResource)
+    Q_DISABLE_COPY_MOVE(QOpenGLSharedResource)
 };
 
 class Q_GUI_EXPORT QOpenGLSharedResourceGuard : public QOpenGLSharedResource
@@ -114,12 +114,12 @@ public:
     GLuint id() const { return m_id; }
 
 protected:
-    void invalidateResource() Q_DECL_OVERRIDE
+    void invalidateResource() override
     {
         m_id = 0;
     }
 
-    void freeResource(QOpenGLContext *context) Q_DECL_OVERRIDE;
+    void freeResource(QOpenGLContext *context) override;
 
 private:
     GLuint m_id;
@@ -213,13 +213,13 @@ public:
         , workaround_missingPrecisionQualifiers(false)
         , active_engine(0)
         , qgl_current_fbo_invalid(false)
-        , qgl_current_fbo(Q_NULLPTR)
+        , qgl_current_fbo(nullptr)
         , defaultFboRedirect(0)
     {
         requestedFormat = QSurfaceFormat::defaultFormat();
     }
 
-    virtual ~QOpenGLContextPrivate()
+    ~QOpenGLContextPrivate()
     {
         //do not delete the QOpenGLContext handle here as it is deleted in
         //QWidgetPrivate::deleteTLSysExtra()
@@ -266,7 +266,7 @@ public:
 
     static QOpenGLContextPrivate *get(QOpenGLContext *context)
     {
-        return context ? context->d_func() : Q_NULLPTR;
+        return context ? context->d_func() : nullptr;
     }
 
 #if !defined(QT_NO_DEBUG)

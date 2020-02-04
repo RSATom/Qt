@@ -18,29 +18,28 @@ class DisplaySnapshot;
 
 namespace ui {
 
-struct DisplaySnapshot_Params;
 class GpuThreadAdapter;
 
 class DrmDisplayHost : public GpuThreadObserver {
  public:
   DrmDisplayHost(GpuThreadAdapter* sender,
-                 const DisplaySnapshot_Params& params,
+                 std::unique_ptr<display::DisplaySnapshot> params,
                  bool is_dummy);
   ~DrmDisplayHost() override;
 
   display::DisplaySnapshot* snapshot() const { return snapshot_.get(); }
 
-  void UpdateDisplaySnapshot(const DisplaySnapshot_Params& params);
+  void UpdateDisplaySnapshot(std::unique_ptr<display::DisplaySnapshot> params);
   void Configure(const display::DisplayMode* mode,
                  const gfx::Point& origin,
-                 const display::ConfigureCallback& callback);
-  void GetHDCPState(const display::GetHDCPStateCallback& callback);
+                 display::ConfigureCallback callback);
+  void GetHDCPState(display::GetHDCPStateCallback callback);
   void SetHDCPState(display::HDCPState state,
-                    const display::SetHDCPStateCallback& callback);
-  void SetColorCorrection(
+                    display::SetHDCPStateCallback callback);
+  void SetColorMatrix(const std::vector<float>& color_matrix);
+  void SetGammaCorrection(
       const std::vector<display::GammaRampRGBEntry>& degamma_lut,
-      const std::vector<display::GammaRampRGBEntry>& gamma_lut,
-      const std::vector<float>& correction_matrix);
+      const std::vector<display::GammaRampRGBEntry>& gamma_lut);
 
   // Called when the IPC from the GPU process arrives to answer the above
   // commands.
@@ -57,7 +56,7 @@ class DrmDisplayHost : public GpuThreadObserver {
   // Calls all the callbacks with failure.
   void ClearCallbacks();
 
-  GpuThreadAdapter* sender_;  // Not owned.
+  GpuThreadAdapter* const sender_;  // Not owned.
 
   std::unique_ptr<display::DisplaySnapshot> snapshot_;
 

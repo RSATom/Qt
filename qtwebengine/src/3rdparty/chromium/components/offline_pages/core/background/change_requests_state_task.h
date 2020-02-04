@@ -14,7 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "components/offline_pages/core/background/request_queue_store.h"
 #include "components/offline_pages/core/background/save_page_request.h"
-#include "components/offline_pages/core/task.h"
+#include "components/offline_pages/task/task.h"
 
 namespace offline_pages {
 
@@ -23,7 +23,7 @@ class ChangeRequestsStateTask : public Task {
   ChangeRequestsStateTask(RequestQueueStore* store,
                           const std::vector<int64_t>& request_ids,
                           const SavePageRequest::RequestState new_state,
-                          const RequestQueueStore::UpdateCallback& callback);
+                          RequestQueueStore::UpdateCallback callback);
   ~ChangeRequestsStateTask() override;
 
   // TaskQueue::Task implementation.
@@ -33,9 +33,9 @@ class ChangeRequestsStateTask : public Task {
   // Step 1. Reading the requests.
   void ReadRequests();
   // Step 2. Updates available requests.
-  void UpdateRequests(std::unique_ptr<UpdateRequestsResult> read_result);
+  void UpdateRequests(UpdateRequestsResult read_result);
   // Step 3. Processes update result, calls callback.
-  void UpdateCompleted(std::unique_ptr<UpdateRequestsResult> update_result);
+  void UpdateCompleted(UpdateRequestsResult update_result);
 
   // Store that this task updates.
   RequestQueueStore* store_;

@@ -7,7 +7,10 @@
 
 #include <algorithm>
 #include <iterator>
+#include <type_traits>
 #include <vector>
+
+#include "base/template_util.h"
 
 namespace base {
 
@@ -54,6 +57,15 @@ Iterator LastUnique(Iterator first, Iterator last, BinaryPredicate compare) {
   *replacable++ = std::move(*first);
   return replacable;
 }
+
+// Uses SFINAE to detect whether type has is_transparent member.
+template <typename T, typename = void>
+struct IsTransparentCompare : std::false_type {};
+template <typename T>
+struct IsTransparentCompare<T, void_t<typename T::is_transparent>>
+    : std::true_type {};
+
+// Implementation -------------------------------------------------------------
 
 // Implementation of a sorted vector for backing flat_set and flat_map. Do not
 // use directly.
@@ -128,7 +140,7 @@ class flat_tree {
             const key_compare& comp = key_compare());
 
   flat_tree(const flat_tree&);
-  flat_tree(flat_tree&&);
+  flat_tree(flat_tree&&) noexcept = default;
 
   flat_tree(std::vector<value_type> items,
             FlatContainerDupes dupe_handling = KEEP_FIRST_OF_DUPES,
@@ -234,9 +246,11 @@ class flat_tree {
   // Prefer base::EraseIf() or some other variation on erase(remove(), end())
   // idiom when deleting multiple non-consecutive elements.
 
+  iterator erase(iterator position);
   iterator erase(const_iterator position);
   iterator erase(const_iterator first, const_iterator last);
-  size_type erase(const key_type& key);
+  template <typename K>
+  size_type erase(const K& key);
 
   // --------------------------------------------------------------------------
   // Comparators.
@@ -249,20 +263,35 @@ class flat_tree {
   //
   // Search operations have O(log(size)) complexity.
 
-  size_type count(const key_type& key) const;
+  template <typename K>
+  size_type count(const K& key) const;
 
-  iterator find(const key_type& key);
-  const_iterator find(const key_type& key) const;
+  template <typename K>
+  iterator find(const K& key);
 
-  std::pair<iterator, iterator> equal_range(const key_type& ket);
-  std::pair<const_iterator, const_iterator> equal_range(
-      const key_type& key) const;
+  template <typename K>
+  const_iterator find(const K& key) const;
 
-  iterator lower_bound(const key_type& key);
-  const_iterator lower_bound(const key_type& key) const;
+  template <typename K>
+  bool contains(const K& key) const;
 
-  iterator upper_bound(const key_type& key);
-  const_iterator upper_bound(const key_type& key) const;
+  template <typename K>
+  std::pair<iterator, iterator> equal_range(const K& key);
+
+  template <typename K>
+  std::pair<const_iterator, const_iterator> equal_range(const K& key) const;
+
+  template <typename K>
+  iterator lower_bound(const K& key);
+
+  template <typename K>
+  const_iterator lower_bound(const K& key) const;
+
+  template <typename K>
+  iterator upper_bound(const K& key);
+
+  template <typename K>
+  const_iterator upper_bound(const K& key) const;
 
   // --------------------------------------------------------------------------
   // General operations.
@@ -275,7 +304,7 @@ class flat_tree {
   // and lexicograhpical_compare(). If the underlying container type is changed,
   // this code may need to be modified.
 
-  void swap(flat_tree& other);
+  void swap(flat_tree& other) noexcept;
 
   friend bool operator==(const flat_tree& lhs, const flat_tree& rhs) {
     return lhs.impl_.body_ == rhs.impl_.body_;
@@ -301,13 +330,27 @@ class flat_tree {
     return !(lhs > rhs);
   }
 
-  friend void swap(flat_tree& lhs, flat_tree& rhs) { lhs.swap(rhs); }
+  friend void swap(flat_tree& lhs, flat_tree& rhs) noexcept { lhs.swap(rhs); }
 
  protected:
   // Emplaces a new item into the tree that is known not to be in it. This
   // is for implementing map operator[].
   template <class... Args>
   iterator unsafe_emplace(const_iterator position, Args&&... args);
+
+  // Attempts to emplace a new element with key |key|. Only if |key| is not yet
+  // present, construct value_type from |args| and insert it. Returns an
+  // iterator to the element with key |key| and a bool indicating whether an
+  // insertion happened.
+  template <class K, class... Args>
+  std::pair<iterator, bool> emplace_key_args(const K& key, Args&&... args);
+
+  // Similar to |emplace_key_args|, but checks |hint| first as a possible
+  // insertion position.
+  template <class K, class... Args>
+  std::pair<iterator, bool> emplace_hint_key_args(const_iterator hint,
+                                                  const K& key,
+                                                  Args&&... args);
 
  private:
   // Helper class for e.g. lower_bound that can compare a value on the left
@@ -317,12 +360,22 @@ class flat_tree {
     explicit KeyValueCompare(const key_compare& key_comp)
         : key_comp_(key_comp) {}
 
-    bool operator()(const value_type& left, const key_type& right) const {
-      GetKeyFromValue extractor;
-      return key_comp_(extractor(left), right);
+    template <typename T, typename U>
+    bool operator()(const T& lhs, const U& rhs) const {
+      return key_comp_(extract_if_value_type(lhs), extract_if_value_type(rhs));
     }
 
    private:
+    const key_type& extract_if_value_type(const value_type& v) const {
+      GetKeyFromValue extractor;
+      return extractor(v);
+    }
+
+    template <typename K>
+    const K& extract_if_value_type(const K& k) const {
+      return k;
+    }
+
     const key_compare& key_comp_;
   };
 
@@ -436,6 +489,11 @@ class flat_tree {
 
     underlying_type body_;
   } impl_;
+
+  // If the compare is not transparent we want to construct key_type once.
+  template <typename K>
+  using KeyTypeOrK = typename std::
+      conditional<IsTransparentCompare<key_compare>::value, K, key_type>::type;
 };
 
 // ----------------------------------------------------------------------------
@@ -463,10 +521,6 @@ flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::flat_tree(
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::flat_tree(
     const flat_tree&) = default;
-
-template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
-flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::flat_tree(flat_tree&&) =
-    default;
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::flat_tree(
@@ -629,58 +683,34 @@ auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::crend() const
 //
 // Currently we use position_hint the same way as eastl or boost:
 // https://github.com/electronicarts/EASTL/blob/master/include/EASTL/vector_set.h#L493
-//
-// We duplicate code between copy and move version so that we can avoid
-// creating a temporary value.
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::insert(
     const value_type& val) -> std::pair<iterator, bool> {
-  GetKeyFromValue extractor;
-  auto position = lower_bound(extractor(val));
-
-  if (position == end() || impl_.get_value_comp()(val, *position))
-    return {impl_.body_.insert(position, val), true};
-
-  return {position, false};
+  return emplace_key_args(GetKeyFromValue()(val), val);
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::insert(
     value_type&& val) -> std::pair<iterator, bool> {
-  GetKeyFromValue extractor;
-  auto position = lower_bound(extractor(val));
-
-  if (position == end() || impl_.get_value_comp()(val, *position))
-    return {impl_.body_.insert(position, std::move(val)), true};
-
-  return {position, false};
+  return emplace_key_args(GetKeyFromValue()(val), std::move(val));
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::insert(
     const_iterator position_hint,
     const value_type& val) -> iterator {
-  if (position_hint == end() || impl_.get_value_comp()(val, *position_hint)) {
-    if (position_hint == begin() ||
-        impl_.get_value_comp()(*(position_hint - 1), val))
-      // We have to cast away const because of crbug.com/677044.
-      return impl_.body_.insert(const_cast_it(position_hint), val);
-  }
-  return insert(val).first;
+  return emplace_hint_key_args(position_hint, GetKeyFromValue()(val), val)
+      .first;
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::insert(
     const_iterator position_hint,
     value_type&& val) -> iterator {
-  if (position_hint == end() || impl_.get_value_comp()(val, *position_hint)) {
-    if (position_hint == begin() ||
-        impl_.get_value_comp()(*(position_hint - 1), val))
-      // We have to cast away const because of crbug.com/677044.
-      return impl_.body_.insert(const_cast_it(position_hint), std::move(val));
-  }
-  return insert(std::move(val)).first;
+  return emplace_hint_key_args(position_hint, GetKeyFromValue()(val),
+                               std::move(val))
+      .first;
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
@@ -767,18 +797,23 @@ auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::emplace_hint(
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::erase(
-    const_iterator position) -> iterator {
-  // We have to cast away const because of crbug.com/677044.
-  return impl_.body_.erase(const_cast_it(position));
+    iterator position) -> iterator {
+  return impl_.body_.erase(position);
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::erase(
-    const key_type& val) -> size_type {
+    const_iterator position) -> iterator {
+  return impl_.body_.erase(position);
+}
+
+template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
+auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::erase(const K& val)
+    -> size_type {
   auto eq_range = equal_range(val);
   auto res = std::distance(eq_range.first, eq_range.second);
-  // We have to cast away const because of crbug.com/677044.
-  erase(const_cast_it(eq_range.first), const_cast_it(eq_range.second));
+  erase(eq_range.first, eq_range.second);
   return res;
 }
 
@@ -786,8 +821,7 @@ template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::erase(
     const_iterator first,
     const_iterator last) -> iterator {
-  // We have to cast away const because of crbug.com/677044.
-  return impl_.body_.erase(const_cast_it(first), const_cast_it(last));
+  return impl_.body_.erase(first, last);
 }
 
 // ----------------------------------------------------------------------------
@@ -809,35 +843,48 @@ auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::value_comp() const
 // Search operations.
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::count(
-    const key_type& key) const -> size_type {
+    const K& key) const -> size_type {
   auto eq_range = equal_range(key);
   return std::distance(eq_range.first, eq_range.second);
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
-auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::find(
-    const key_type& key) -> iterator {
+template <typename K>
+auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::find(const K& key)
+    -> iterator {
   return const_cast_it(as_const().find(key));
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::find(
-    const key_type& key) const -> const_iterator {
+    const K& key) const -> const_iterator {
   auto eq_range = equal_range(key);
   return (eq_range.first == eq_range.second) ? end() : eq_range.first;
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
+bool flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::contains(
+    const K& key) const {
+  auto lower = lower_bound(key);
+  return lower != end() && !key_comp()(key, GetKeyFromValue()(*lower));
+}
+
+template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::equal_range(
-    const key_type& key) -> std::pair<iterator, iterator> {
+    const K& key) -> std::pair<iterator, iterator> {
   auto res = as_const().equal_range(key);
   return {const_cast_it(res.first), const_cast_it(res.second)};
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::equal_range(
-    const key_type& key) const -> std::pair<const_iterator, const_iterator> {
+    const K& key) const -> std::pair<const_iterator, const_iterator> {
   auto lower = lower_bound(key);
 
   GetKeyFromValue extractor;
@@ -848,29 +895,45 @@ auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::equal_range(
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::lower_bound(
-    const key_type& key) -> iterator {
+    const K& key) -> iterator {
   return const_cast_it(as_const().lower_bound(key));
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::lower_bound(
-    const key_type& key) const -> const_iterator {
+    const K& key) const -> const_iterator {
+  static_assert(std::is_convertible<const KeyTypeOrK<K>&, const K&>::value,
+                "Requested type cannot be bound to the container's key_type "
+                "which is required for a non-transparent compare.");
+
+  const KeyTypeOrK<K>& key_ref = key;
+
   KeyValueCompare key_value(impl_.get_key_comp());
-  return std::lower_bound(begin(), end(), key, key_value);
+  return std::lower_bound(begin(), end(), key_ref, key_value);
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::upper_bound(
-    const key_type& key) -> iterator {
+    const K& key) -> iterator {
   return const_cast_it(as_const().upper_bound(key));
 }
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <typename K>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::upper_bound(
-    const key_type& key) const -> const_iterator {
+    const K& key) const -> const_iterator {
+  static_assert(std::is_convertible<const KeyTypeOrK<K>&, const K&>::value,
+                "Requested type cannot be bound to the container's key_type "
+                "which is required for a non-transparent compare.");
+
+  const KeyTypeOrK<K>& key_ref = key;
+
   KeyValueCompare key_value(impl_.get_key_comp());
-  return std::upper_bound(begin(), end(), key, key_value);
+  return std::upper_bound(begin(), end(), key_ref, key_value);
 }
 
 // ----------------------------------------------------------------------------
@@ -878,7 +941,7 @@ auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::upper_bound(
 
 template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
 void flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::swap(
-    flat_tree& other) {
+    flat_tree& other) noexcept {
   std::swap(impl_, other.impl_);
 }
 
@@ -887,9 +950,39 @@ template <class... Args>
 auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::unsafe_emplace(
     const_iterator position,
     Args&&... args) -> iterator {
-  // We have to cast away const because of crbug.com/677044.
-  return impl_.body_.emplace(const_cast_it(position),
-                             std::forward<Args>(args)...);
+  return impl_.body_.emplace(position, std::forward<Args>(args)...);
+}
+
+template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <class K, class... Args>
+auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::emplace_key_args(
+    const K& key,
+    Args&&... args) -> std::pair<iterator, bool> {
+  auto lower = lower_bound(key);
+  if (lower == end() || key_comp()(key, GetKeyFromValue()(*lower)))
+    return {unsafe_emplace(lower, std::forward<Args>(args)...), true};
+  return {lower, false};
+}
+
+template <class Key, class Value, class GetKeyFromValue, class KeyCompare>
+template <class K, class... Args>
+auto flat_tree<Key, Value, GetKeyFromValue, KeyCompare>::emplace_hint_key_args(
+    const_iterator hint,
+    const K& key,
+    Args&&... args) -> std::pair<iterator, bool> {
+  GetKeyFromValue extractor;
+  if ((hint == begin() || key_comp()(extractor(*std::prev(hint)), key))) {
+    if (hint == end() || key_comp()(key, extractor(*hint))) {
+      // *(hint - 1) < key < *hint => key did not exist and hint is correct.
+      return {unsafe_emplace(hint, std::forward<Args>(args)...), true};
+    }
+    if (!key_comp()(extractor(*hint), key)) {
+      // key == *hint => no-op, return correct hint.
+      return {const_cast_it(hint), false};
+    }
+  }
+  // hint was not helpful, dispatch to hintless version.
+  return emplace_key_args(key, std::forward<Args>(args)...);
 }
 
 // For containers like sets, the key is the same as the value. This implements

@@ -8,16 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/remote_bitrate_estimator/test/packet_receiver.h"
+#include "modules/remote_bitrate_estimator/test/packet_receiver.h"
 
+#include <list>
 #include <vector>
 
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe_test_framework.h"
-#include "webrtc/modules/rtp_rtcp/include/receive_statistics.h"
-#include "webrtc/system_wrappers/include/clock.h"
-#include "webrtc/test/gtest.h"
+#include "modules/remote_bitrate_estimator/test/bwe.h"
+#include "modules/remote_bitrate_estimator/test/bwe_test_framework.h"
+#include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
 
 namespace webrtc {
 namespace testing {
@@ -68,11 +66,9 @@ PacketReceiver::PacketReceiver(PacketProcessorListener* listener,
                      bwe_type,
                      plot_delay,
                      plot_bwe,
-                     nullptr) {
-}
+                     nullptr) {}
 
-PacketReceiver::~PacketReceiver() {
-}
+PacketReceiver::~PacketReceiver() {}
 
 void PacketReceiver::RunFor(int64_t time_ms, Packets* in_out) {
   Packets feedback;

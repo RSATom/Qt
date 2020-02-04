@@ -7,9 +7,11 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/time/time.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/window/client_view.h"
+#include "ui/views/window/dialog_observer.h"
 
 namespace views {
 
@@ -28,7 +30,8 @@ class Widget;
 //   | [Extra View]   [OK] [Cancel] |
 //   +------------------------------+
 class VIEWS_EXPORT DialogClientView : public ClientView,
-                                      public ButtonListener {
+                                      public ButtonListener,
+                                      public DialogObserver {
  public:
   DialogClientView(Widget* widget, View* contents_view);
   ~DialogClientView() override;
@@ -41,8 +44,6 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
   LabelButton* ok_button() const { return ok_button_; }
   LabelButton* cancel_button() const { return cancel_button_; }
 
-  // Update the dialog buttons to match the dialog's delegate.
-  void UpdateDialogButtons();
   void SetButtonRowInsets(const gfx::Insets& insets);
 
   // ClientView implementation:
@@ -54,6 +55,7 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
   gfx::Size CalculatePreferredSize() const override;
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
+  void VisibilityChanged(View* starting_from, bool is_visible) override;
 
   void Layout() override;
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
@@ -65,6 +67,11 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
   void ButtonPressed(Button* sender, const ui::Event& event) override;
 
   void set_minimum_size(const gfx::Size& size) { minimum_size_ = size; }
+
+  // Resets the time when view has been shown. Tests may need to call this
+  // method if they use events that could be otherwise treated as unintended.
+  // See IsPossiblyUnintendedInteraction().
+  void ResetViewShownTimeStampForTesting();
 
  private:
   enum {
@@ -79,6 +86,12 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
   // View implementation.
   void ChildPreferredSizeChanged(View* child) override;
   void ChildVisibilityChanged(View* child) override;
+
+  // DialogObserver:
+  void OnDialogChanged() override;
+
+  // Update the dialog buttons to match the dialog's delegate.
+  void UpdateDialogButtons();
 
   // Creates, deletes, or updates the appearance of the button of type |type|
   // (which must be pointed to by |member|).  Which action is chosen is based on
@@ -127,6 +140,9 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
   // Used to prevent unnecessary or potentially harmful changes during
   // SetupLayout(). Everything will be manually updated afterwards.
   bool adding_or_removing_views_ = false;
+
+  // Time when view has been shown.
+  base::TimeTicks view_shown_time_stamp_;
 
   DISALLOW_COPY_AND_ASSIGN(DialogClientView);
 };

@@ -13,9 +13,12 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
+#include "net/base/completion_repeating_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/net_export.h"
+#include "net/base/proxy_server.h"
 #include "net/http/http_auth_controller.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_request_info.h"
@@ -23,6 +26,7 @@
 #include "net/http/proxy_client_socket.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/ssl_client_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace net {
 
@@ -38,16 +42,17 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocket : public ProxyClientSocket {
   // Takes ownership of |transport_socket|, which should already be connected
   // by the time Connect() is called.  If tunnel is true then on Connect()
   // this socket will establish an Http tunnel.
-  HttpProxyClientSocket(ClientSocketHandle* transport_socket,
+  HttpProxyClientSocket(std::unique_ptr<ClientSocketHandle> transport_socket,
                         const std::string& user_agent,
                         const HostPortPair& endpoint,
-                        const HostPortPair& proxy_server,
+                        const ProxyServer& proxy_server,
                         HttpAuthController* http_auth_controller,
                         bool tunnel,
                         bool using_spdy,
                         NextProto negotiated_protocol,
                         ProxyDelegate* proxy_delegate,
-                        bool is_https_proxy);
+                        bool is_https_proxy,
+                        const NetworkTrafficAnnotationTag& traffic_annotation);
 
   // On destruction Disconnect() is called.
   ~HttpProxyClientSocket() override;
@@ -55,19 +60,17 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocket : public ProxyClientSocket {
   // ProxyClientSocket implementation.
   const HttpResponseInfo* GetConnectResponseInfo() const override;
   std::unique_ptr<HttpStream> CreateConnectResponseStream() override;
-  int RestartWithAuth(const CompletionCallback& callback) override;
+  int RestartWithAuth(CompletionOnceCallback callback) override;
   const scoped_refptr<HttpAuthController>& GetAuthController() const override;
   bool IsUsingSpdy() const override;
   NextProto GetProxyNegotiatedProtocol() const override;
 
   // StreamSocket implementation.
-  int Connect(const CompletionCallback& callback) override;
+  int Connect(CompletionOnceCallback callback) override;
   void Disconnect() override;
   bool IsConnected() const override;
   bool IsConnectedAndIdle() const override;
   const NetLogWithSource& NetLog() const override;
-  void SetSubresourceSpeculation() override;
-  void SetOmniboxSpeculation() override;
   bool WasEverUsed() const override;
   bool WasAlpnNegotiated() const override;
   NextProto GetNegotiatedProtocol() const override;
@@ -76,14 +79,20 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocket : public ProxyClientSocket {
   void ClearConnectionAttempts() override {}
   void AddConnectionAttempts(const ConnectionAttempts& attempts) override {}
   int64_t GetTotalReceivedBytes() const override;
+  void ApplySocketTag(const SocketTag& tag) override;
 
   // Socket implementation.
   int Read(IOBuffer* buf,
            int buf_len,
-           const CompletionCallback& callback) override;
+           CompletionOnceCallback callback) override;
+  int ReadIfReady(IOBuffer* buf,
+                  int buf_len,
+                  CompletionOnceCallback callback) override;
+  int CancelReadIfReady() override;
   int Write(IOBuffer* buf,
             int buf_len,
-            const CompletionCallback& callback) override;
+            CompletionOnceCallback callback,
+            const NetworkTrafficAnnotationTag& traffic_annotation) override;
   int SetReceiveBufferSize(int32_t size) override;
   int SetSendBufferSize(int32_t size) override;
   int GetPeerAddress(IPEndPoint* address) const override;
@@ -111,8 +120,6 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocket : public ProxyClientSocket {
   int PrepareForAuthRestart();
   int DidDrainBodyForAuthRestart();
 
-  void LogBlockedTunnelResponse() const;
-
   void DoCallback(int result);
   void OnIOComplete(int result);
 
@@ -126,11 +133,14 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocket : public ProxyClientSocket {
   int DoDrainBody();
   int DoDrainBodyComplete(int result);
 
-  CompletionCallback io_callback_;
+  // Returns whether |next_state_| is STATE_DONE.
+  bool CheckDone();
+
+  CompletionRepeatingCallback io_callback_;
   State next_state_;
 
-  // Stores the callback to the layer above, called on completing Connect().
-  CompletionCallback user_callback_;
+  // Stores the callback provided by the caller of async operations.
+  CompletionOnceCallback user_callback_;
 
   HttpRequestInfo request_;
   HttpResponseInfo response_;
@@ -161,10 +171,13 @@ class NET_EXPORT_PRIVATE HttpProxyClientSocket : public ProxyClientSocket {
   bool redirect_has_load_timing_info_;
   LoadTimingInfo redirect_load_timing_info_;
 
-  const HostPortPair proxy_server_;
+  const ProxyServer proxy_server_;
 
   // This delegate must outlive this proxy client socket.
   ProxyDelegate* proxy_delegate_;
+
+  // Network traffic annotation for handshaking and setup.
+  const NetworkTrafficAnnotationTag traffic_annotation_;
 
   const NetLogWithSource net_log_;
 

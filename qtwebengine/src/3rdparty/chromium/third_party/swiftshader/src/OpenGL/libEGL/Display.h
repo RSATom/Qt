@@ -26,6 +26,15 @@
 
 #include <set>
 
+#ifndef EGL_ANGLE_iosurface_client_buffer
+#define EGL_ANGLE_iosurface_client_buffer 1
+#define EGL_IOSURFACE_ANGLE 0x3454
+#define EGL_IOSURFACE_PLANE_ANGLE 0x345A
+#define EGL_TEXTURE_RECTANGLE_ANGLE 0x345B
+#define EGL_TEXTURE_TYPE_ANGLE 0x345C
+#define EGL_TEXTURE_INTERNAL_FORMAT_ANGLE 0x345D
+#endif // EGL_ANGLE_iosurface_client_buffer
+
 namespace egl
 {
 	class Surface;
@@ -50,8 +59,8 @@ namespace egl
 		bool getConfigs(EGLConfig *configs, const EGLint *attribList, EGLint configSize, EGLint *numConfig);
 		bool getConfigAttrib(EGLConfig config, EGLint attribute, EGLint *value);
 
-		EGLSurface createWindowSurface(EGLNativeWindowType window, EGLConfig config, const EGLint *attribList);
-		EGLSurface createPBufferSurface(EGLConfig config, const EGLint *attribList);
+		EGLSurface createWindowSurface(EGLNativeWindowType window, EGLConfig config, const EGLAttrib *attribList);
+		EGLSurface createPBufferSurface(EGLConfig config, const EGLint *attribList, EGLClientBuffer clientBuffer = nullptr);
 		EGLContext createContext(EGLConfig configHandle, const Context *shareContext, EGLint clientVersion);
 		EGLSyncKHR createSync(Context *context);
 
@@ -77,6 +86,8 @@ namespace egl
 		bool destroySharedImage(EGLImageKHR);
 		virtual Image *getSharedImage(EGLImageKHR name) = 0;
 
+		sw::MutexLock *getLock() { return &mApiMutex; }
+
 	private:
 		sw::Format getDisplayFormat() const;
 
@@ -95,10 +106,10 @@ namespace egl
 		ContextSet mContextSet;
 
 		typedef std::set<FenceSync*> SyncSet;
-		sw::MutexLock mSyncSetMutex;
 		SyncSet mSyncSet;
 
 		gl::NameSpace<Image> mSharedImageNameSpace;
+		sw::MutexLock mApiMutex;
 	};
 }
 

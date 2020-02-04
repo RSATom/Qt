@@ -45,8 +45,11 @@
 #include <qpa/qplatformtheme.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/private/qpixmap_raster_p.h>
+
+#if QT_CONFIG(draganddrop)
 #include <private/qdnd_p.h>
 #include <private/qsimpledrag_p.h>
+#endif
 
 #ifndef QT_NO_SESSIONMANAGER
 # include <qpa/qplatformsessionmanager.h>
@@ -92,12 +95,12 @@ QPlatformClipboard *QPlatformIntegration::clipboard() const
 
 #endif
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     Accessor for the platform integration's drag object.
 
-    Default implementation returns 0, implying no drag and drop support.
-
+    Default implementation returns QSimpleDrag. This class supports only drag
+    and drop operations within the same Qt application.
 */
 QPlatformDrag *QPlatformIntegration::drag() const
 {
@@ -107,7 +110,7 @@ QPlatformDrag *QPlatformIntegration::drag() const
     }
     return drag;
 }
-#endif
+#endif // QT_CONFIG(draganddrop)
 
 QPlatformNativeInterface * QPlatformIntegration::nativeInterface() const
 {
@@ -241,6 +244,9 @@ QPlatformServices *QPlatformIntegration::services() const
     \value TopStackedNativeChildWindows The platform supports native child windows via
     QWindowContainer without having to punch a transparent hole in the
     backingstore. (since 5.10)
+
+    \value OpenGLOnRasterSurface The platform supports making a QOpenGLContext current
+    in combination with a QWindow of type RasterSurface.
  */
 
 /*!
@@ -265,7 +271,7 @@ QPlatformServices *QPlatformIntegration::services() const
 bool QPlatformIntegration::hasCapability(Capability cap) const
 {
     return cap == NonFullScreenWindows || cap == NativeWidgets || cap == WindowManagement
-        || cap == TopStackedNativeChildWindows;
+        || cap == TopStackedNativeChildWindows || cap == WindowActivation;
 }
 
 QPlatformPixmap *QPlatformIntegration::createPlatformPixmap(QPlatformPixmap::PixelType type) const
@@ -288,7 +294,7 @@ QPlatformPixmap *QPlatformIntegration::createPlatformPixmap(QPlatformPixmap::Pix
     platform implementation is responsible for querying the configuriation from the provided
     native context.
 
-    Returns a pointer to a QPlatformOpenGLContext instance or \c NULL if the context could
+    Returns a pointer to a QPlatformOpenGLContext instance or \nullptr if the context could
     not be created.
 
     \sa QOpenGLContext
@@ -347,7 +353,7 @@ void QPlatformIntegration::destroy()
 /*!
   Returns the platforms input context.
 
-  The default implementation returns 0, implying no input method support.
+  The default implementation returns \nullptr, implying no input method support.
 */
 QPlatformInputContext *QPlatformIntegration::inputContext() const
 {
@@ -418,6 +424,8 @@ QVariant QPlatformIntegration::styleHint(StyleHint hint) const
         return QPlatformTheme::defaultThemeHint(QPlatformTheme::UiEffects);
     case WheelScrollLines:
         return QPlatformTheme::defaultThemeHint(QPlatformTheme::WheelScrollLines);
+    case MouseQuickSelectionThreshold:
+        return QPlatformTheme::defaultThemeHint(QPlatformTheme::MouseQuickSelectionThreshold);
     }
 
     return 0;
@@ -444,92 +452,17 @@ Qt::KeyboardModifiers QPlatformIntegration::queryKeyboardModifiers() const
 
 /*!
   Should be used to obtain a list of possible shortcuts for the given key
-  event. As that needs system functionality it cannot be done in qkeymapper.
+  event. Shortcuts should be encoded as int(Qt::Key + Qt::KeyboardModifiers).
 
-  One example for more than 1 possibility is the key combination of Shift+5.
+  One example for more than one possibility is the key combination of Shift+5.
   That one might trigger a shortcut which is set as "Shift+5" as well as one
-  using %. These combinations depend on the currently set keyboard layout
-  which cannot be obtained by Qt functionality.
+  using %. These combinations depend on the currently set keyboard layout.
+
+  \note This function should be called only from key event handlers.
 */
 QList<int> QPlatformIntegration::possibleKeys(const QKeyEvent *) const
 {
     return QList<int>();
-}
-
-/*!
-  Should be called by the implementation whenever a new screen is added.
-
-  The first screen added will be the primary screen, used for default-created
-  windows, GL contexts, and other resources unless otherwise specified.
-
-  This adds the screen to QGuiApplication::screens(), and emits the
-  QGuiApplication::screenAdded() signal.
-
-  The screen should be deleted by calling QPlatformIntegration::destroyScreen().
-*/
-void QPlatformIntegration::screenAdded(QPlatformScreen *ps, bool isPrimary)
-{
-    QScreen *screen = new QScreen(ps);
-
-    if (isPrimary) {
-        QGuiApplicationPrivate::screen_list.prepend(screen);
-    } else {
-        QGuiApplicationPrivate::screen_list.append(screen);
-    }
-    emit qGuiApp->screenAdded(screen);
-
-    if (isPrimary)
-        emit qGuiApp->primaryScreenChanged(screen);
-}
-
-/*!
-  Just removes the screen, call destroyScreen instead.
-
-  \sa destroyScreen()
-*/
-
-void QPlatformIntegration::removeScreen(QScreen *screen)
-{
-    const bool wasPrimary = (!QGuiApplicationPrivate::screen_list.isEmpty() && QGuiApplicationPrivate::screen_list.at(0) == screen);
-    QGuiApplicationPrivate::screen_list.removeOne(screen);
-
-    if (wasPrimary && qGuiApp && !QGuiApplicationPrivate::screen_list.isEmpty())
-        emit qGuiApp->primaryScreenChanged(QGuiApplicationPrivate::screen_list.at(0));
-}
-
-/*!
-  Should be called by the implementation whenever a screen is removed.
-
-  This removes the screen from QGuiApplication::screens(), and deletes it.
-
-  Failing to call this and manually deleting the QPlatformScreen instead may
-  lead to a crash due to a pure virtual call.
-*/
-void QPlatformIntegration::destroyScreen(QPlatformScreen *screen)
-{
-    QScreen *qScreen = screen->screen();
-    removeScreen(qScreen);
-    delete qScreen;
-    delete screen;
-}
-
-/*!
-  Should be called whenever the primary screen changes.
-
-  When the screen specified as primary changes, this method will notify
-  QGuiApplication and emit the QGuiApplication::primaryScreenChanged signal.
- */
-
-void QPlatformIntegration::setPrimaryScreen(QPlatformScreen *newPrimary)
-{
-    QScreen* newPrimaryScreen = newPrimary->screen();
-    int idx = QGuiApplicationPrivate::screen_list.indexOf(newPrimaryScreen);
-    Q_ASSERT(idx >= 0);
-    if (idx == 0)
-        return;
-
-    QGuiApplicationPrivate::screen_list.swap(0, idx);
-    emit qGuiApp->primaryScreenChanged(newPrimaryScreen);
 }
 
 QStringList QPlatformIntegration::themeNames() const
@@ -629,14 +562,14 @@ void QPlatformIntegration::setApplicationIcon(const QIcon &icon) const
     Q_UNUSED(icon);
 }
 
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan) || defined(Q_CLANG_QDOC)
 
 /*!
     Factory function for QPlatformVulkanInstance. The \a instance parameter is a
     pointer to the instance for which a platform-specific backend needs to be
     created.
 
-    Returns a pointer to a QPlatformOpenGLContext instance or \c NULL if the context could
+    Returns a pointer to a QPlatformOpenGLContext instance or \nullptr if the context could
     not be created.
 
     \sa QVulkanInstance

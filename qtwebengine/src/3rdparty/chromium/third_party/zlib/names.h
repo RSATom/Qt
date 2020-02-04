@@ -160,8 +160,24 @@
 #define crc_fold_init Cr_z_crc_fold_init
 #define crc_reset Cr_z_crc_reset
 #define fill_window_sse Cr_z_fill_window_sse
-#define read_buf Cr_z_read_buf
+#define deflate_read_buf Cr_z_deflate_read_buf
 #define x86_check_features Cr_z_x86_check_features
 #define x86_cpu_enable_simd Cr_z_x86_cpu_enable_simd
+
+/* Symbols added by adler_simd.c */
+#define adler32_simd_ Cr_z_adler32_simd_
+#define x86_cpu_enable_ssse3 Cr_z_x86_cpu_enable_ssse3
+
+/* Symbols added by contrib/optimizations/inffast_chunk */
+#define inflate_fast_chunk_ Cr_z_inflate_fast_chunk_
+
+/* Symbols added by crc32_simd.c */
+#define crc32_sse42_simd_ Cr_z_crc32_sse42_simd_
+
+/* Symbols added by armv8_crc32 */
+#define arm_cpu_enable_crc32 Cr_z_arm_cpu_enable_crc32
+#define arm_cpu_enable_pmull Cr_z_arm_cpu_enable_pmull
+#define arm_check_features Cr_z_arm_check_features
+#define armv8_crc32_little Cr_z_armv8_crc32_little
 
 #endif  /* THIRD_PARTY_ZLIB_NAMES_H_ */

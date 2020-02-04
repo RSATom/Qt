@@ -3,12 +3,12 @@
 // found in the LICENSE file under third_party_mods/chromium or at:
 // http://src.chromium.org/svn/trunk/src/LICENSE
 
-#ifndef WEBRTC_RTC_BASE_TRACE_EVENT_H_
-#define WEBRTC_RTC_BASE_TRACE_EVENT_H_
+#ifndef RTC_BASE_TRACE_EVENT_H_
+#define RTC_BASE_TRACE_EVENT_H_
 
 #include <string>
 
-#include "webrtc/rtc_base/event_tracer.h"
+#include "rtc_base/event_tracer.h"
 
 #if defined(TRACE_EVENT0)
 #error "Another copy of trace_event.h has already been included."
@@ -28,7 +28,7 @@
 //    Begin and end of function calls
 //    Counters
 //
-// Events are issued against categories. Whereas LOG's
+// Events are issued against categories. Whereas RTC_LOG's
 // categories are statically defined, TRACE categories are created
 // implicitly with a string. For example:
 //   TRACE_EVENT_INSTANT0("MY_SUBSYSTEM", "SomeImportantEvent")
@@ -141,7 +141,6 @@
 // Thread safety is provided by methods defined in event_tracer.h. See the file
 // for details.
 
-
 // By default, const char* argument values are assumed to have long-lived scope
 // and will not be copied. Use this macro to force a const char* to be copied.
 #define TRACE_STR_COPY(str) \
@@ -168,35 +167,6 @@
 #define TRACE_EVENT2(category, name, arg1_name, arg1_val, arg2_name, arg2_val) \
     INTERNAL_TRACE_EVENT_ADD_SCOPED(category, name, arg1_name, arg1_val, \
         arg2_name, arg2_val)
-
-// Same as TRACE_EVENT except that they are not included in official builds.
-#ifdef OFFICIAL_BUILD
-#define UNSHIPPED_TRACE_EVENT0(category, name) (void)0
-#define UNSHIPPED_TRACE_EVENT1(category, name, arg1_name, arg1_val) (void)0
-#define UNSHIPPED_TRACE_EVENT2(category, name, arg1_name, arg1_val, \
-                               arg2_name, arg2_val) (void)0
-#define UNSHIPPED_TRACE_EVENT_INSTANT0(category, name) (void)0
-#define UNSHIPPED_TRACE_EVENT_INSTANT1(category, name, arg1_name, arg1_val) \
-    (void)0
-#define UNSHIPPED_TRACE_EVENT_INSTANT2(category, name, arg1_name, arg1_val, \
-                                       arg2_name, arg2_val) (void)0
-#else
-#define UNSHIPPED_TRACE_EVENT0(category, name) \
-    TRACE_EVENT0(category, name)
-#define UNSHIPPED_TRACE_EVENT1(category, name, arg1_name, arg1_val) \
-    TRACE_EVENT1(category, name, arg1_name, arg1_val)
-#define UNSHIPPED_TRACE_EVENT2(category, name, arg1_name, arg1_val, \
-                               arg2_name, arg2_val) \
-    TRACE_EVENT2(category, name, arg1_name, arg1_val, arg2_name, arg2_val)
-#define UNSHIPPED_TRACE_EVENT_INSTANT0(category, name) \
-    TRACE_EVENT_INSTANT0(category, name)
-#define UNSHIPPED_TRACE_EVENT_INSTANT1(category, name, arg1_name, arg1_val) \
-    TRACE_EVENT_INSTANT1(category, name, arg1_name, arg1_val)
-#define UNSHIPPED_TRACE_EVENT_INSTANT2(category, name, arg1_name, arg1_val, \
-                                       arg2_name, arg2_val) \
-    TRACE_EVENT_INSTANT2(category, name, arg1_name, arg1_val, \
-                         arg2_name, arg2_val)
-#endif
 
 // Records a single event called "name" immediately, with 0, 1 or 2
 // associated arguments. If the category is not enabled, then this
@@ -575,9 +545,15 @@
 #define INTERNAL_TRACE_EVENT_UID(name_prefix) \
     INTERNAL_TRACE_EVENT_UID2(name_prefix, __LINE__)
 
+#if WEBRTC_NON_STATIC_TRACE_EVENT_HANDLERS
+#define INTERNAL_TRACE_EVENT_INFO_TYPE const unsigned char*
+#else
+#define INTERNAL_TRACE_EVENT_INFO_TYPE static const unsigned char*
+#endif  // WEBRTC_NON_STATIC_TRACE_EVENT_HANDLERS
+
 // Implementation detail: internal macro to create static category.
 #define INTERNAL_TRACE_EVENT_GET_CATEGORY_INFO(category) \
-    static const unsigned char* INTERNAL_TRACE_EVENT_UID(catstatic) = \
+    INTERNAL_TRACE_EVENT_INFO_TYPE INTERNAL_TRACE_EVENT_UID(catstatic) = \
         TRACE_EVENT_API_GET_CATEGORY_ENABLED(category);
 
 // Implementation detail: internal macro to create static category and add
@@ -907,4 +883,4 @@ class TraceEndOnScopeClose {
 }  // namespace trace_event_internal
 }  // namespace webrtc
 
-#endif  // WEBRTC_RTC_BASE_TRACE_EVENT_H_
+#endif  // RTC_BASE_TRACE_EVENT_H_

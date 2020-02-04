@@ -9,18 +9,18 @@
 
 #include <shlobj.h>
 #include <stddef.h>
-#include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/strings/string16.h"
-#include "ui/base/ui_base_export.h"
 
 class GURL;
 
 namespace ui {
 
-class UI_BASE_EXPORT ClipboardUtil {
+class COMPONENT_EXPORT(BASE_CLIPBOARD) ClipboardUtil {
  public:
   /////////////////////////////////////////////////////////////////////////////
   // These methods check to see if |data_object| has the requested type.
@@ -40,6 +40,7 @@ class UI_BASE_EXPORT ClipboardUtil {
                      GURL* url,
                      base::string16* title,
                      bool convert_filenames);
+  // Only returns true if |*filenames| is not empty.
   static bool GetFilenames(IDataObject* data_object,
                            std::vector<base::string16>* filenames);
   static bool GetPlainText(IDataObject* data_object,
@@ -56,7 +57,7 @@ class UI_BASE_EXPORT ClipboardUtil {
   // strings from web content.
   static bool GetWebCustomData(
       IDataObject* data_object,
-      std::map<base::string16, base::string16>* custom_data);
+      std::unordered_map<base::string16, base::string16>* custom_data);
 
   // Helper method for converting between MS CF_HTML format and plain
   // text/html.
@@ -71,7 +72,6 @@ class UI_BASE_EXPORT ClipboardUtil {
                                     size_t* fragment_start,
                                     size_t* fragment_end);
 };
-
 }
 
 #endif  // UI_BASE_CLIPBOARD_CLIPBOARD_UTIL_WIN_H_

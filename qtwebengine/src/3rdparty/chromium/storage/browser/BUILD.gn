@@ -1,11 +1,14 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+import("//build/config/jumbo.gni")
 import("//testing/test.gni")
 
-component("browser") {
+jumbo_component("browser") {
   output_name = "storage_browser"
   sources = [
+    "blob/blob_builder_from_stream.cc",
+    "blob/blob_builder_from_stream.h",
     "blob/blob_data_builder.cc",
     "blob/blob_data_builder.h",
     "blob/blob_data_handle.cc",
@@ -28,16 +31,22 @@ component("browser") {
     "blob/blob_storage_context.h",
     "blob/blob_storage_registry.cc",
     "blob/blob_storage_registry.h",
-    "blob/blob_transport_host.cc",
-    "blob/blob_transport_host.h",
-    "blob/blob_transport_request_builder.cc",
-    "blob/blob_transport_request_builder.h",
     "blob/blob_transport_strategy.cc",
     "blob/blob_transport_strategy.h",
+    "blob/blob_url_loader.cc",
+    "blob/blob_url_loader.h",
+    "blob/blob_url_loader_factory.cc",
+    "blob/blob_url_loader_factory.h",
     "blob/blob_url_request_job.cc",
     "blob/blob_url_request_job.h",
     "blob/blob_url_request_job_factory.cc",
     "blob/blob_url_request_job_factory.h",
+    "blob/blob_url_store_impl.cc",
+    "blob/blob_url_store_impl.h",
+    "blob/blob_url_utils.cc",
+    "blob/blob_url_utils.h",
+    "blob/mojo_blob_reader.cc",
+    "blob/mojo_blob_reader.h",
     "blob/scoped_file.cc",
     "blob/scoped_file.h",
     "blob/shareable_blob_data_item.cc",
@@ -104,6 +113,8 @@ component("browser") {
     "fileapi/file_system_usage_cache.h",
     "fileapi/file_writer_delegate.cc",
     "fileapi/file_writer_delegate.h",
+    "fileapi/file_writer_impl.cc",
+    "fileapi/file_writer_impl.h",
     "fileapi/isolated_context.cc",
     "fileapi/isolated_context.h",
     "fileapi/isolated_file_system_backend.cc",
@@ -158,17 +169,21 @@ component("browser") {
     "fileapi/sandbox_quota_observer.cc",
     "fileapi/sandbox_quota_observer.h",
     "fileapi/task_runner_bound_observer_list.h",
-    "fileapi/timed_task_helper.cc",
-    "fileapi/timed_task_helper.h",
     "fileapi/transient_file_util.cc",
     "fileapi/transient_file_util.h",
     "fileapi/watcher_manager.h",
     "quota/client_usage_tracker.cc",
     "quota/client_usage_tracker.h",
+    "quota/padding_key.cc",
+    "quota/padding_key.h",
     "quota/quota_callbacks.h",
+    "quota/quota_client.cc",
     "quota/quota_client.h",
     "quota/quota_database.cc",
     "quota/quota_database.h",
+    "quota/quota_features.cc",
+    "quota/quota_features.h",
+    "quota/quota_macros.h",
     "quota/quota_manager.cc",
     "quota/quota_manager.h",
     "quota/quota_manager_proxy.cc",
@@ -187,27 +202,27 @@ component("browser") {
     "quota/storage_observer.h",
     "quota/usage_tracker.cc",
     "quota/usage_tracker.h",
-    "storage_browser_export.h",
   ]
 
-  defines = [ "STORAGE_BROWSER_IMPLEMENTATION" ]
+  defines = [ "IS_STORAGE_BROWSER_IMPL" ]
   configs += [
     "//build/config:precompiled_headers",
-
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    "//build/config/compiler:no_size_t_to_int_warning",
     "//build/config/compiler:wexit_time_destructors",
   ]
 
   public_deps = [
+    "//components/services/filesystem/public/interfaces",
     "//storage/common",
-    "//storage/public/interfaces",
   ]
   deps = [
     "//base",
     "//base:i18n",
     "//base/third_party/dynamic_annotations",
+    "//mojo/public/cpp/bindings",
     "//net",
+    "//services/network:network_service",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
     "//sql",
     "//third_party/leveldatabase",
     "//third_party/sqlite",
@@ -223,7 +238,6 @@ executable("dump_file_system") {
   deps = [
     ":browser",
     "//base",
-    "//build/config:exe_and_shlib_deps",
     "//build/win:default_exe_manifest",
     "//storage/common",
   ]
@@ -235,6 +249,7 @@ source_set("unittests") {
   sources = [
     # This target is in the process of being populated. See
     # http://crbug.com/653751
+    "blob/blob_builder_from_stream_unittest.cc",
     "blob/blob_data_builder_unittest.cc",
     "blob/blob_flattener_unittest.cc",
     "blob/blob_impl_unittest.cc",
@@ -244,8 +259,8 @@ source_set("unittests") {
     "blob/blob_slice_unittest.cc",
     "blob/blob_storage_context_unittest.cc",
     "blob/blob_storage_registry_unittest.cc",
-    "blob/blob_transport_request_builder_unittest.cc",
     "blob/blob_transport_strategy_unittest.cc",
+    "blob/blob_url_store_impl_unittest.cc",
     "database/database_quota_client_unittest.cc",
     "database/database_tracker_unittest.cc",
     "database/database_util_unittest.cc",
@@ -264,6 +279,7 @@ source_set("unittests") {
     "fileapi/file_system_url_unittest.cc",
     "fileapi/file_system_usage_cache_unittest.cc",
     "fileapi/file_writer_delegate_unittest.cc",
+    "fileapi/file_writer_impl_unittest.cc",
     "fileapi/isolated_context_unittest.cc",
     "fileapi/local_file_stream_reader_unittest.cc",
     "fileapi/local_file_stream_writer_unittest.cc",
@@ -280,7 +296,6 @@ source_set("unittests") {
     "fileapi/sandbox_isolated_origin_database_unittest.cc",
     "fileapi/sandbox_origin_database_unittest.cc",
     "fileapi/sandbox_prioritized_origin_database_unittest.cc",
-    "fileapi/timed_task_helper_unittest.cc",
     "fileapi/transient_file_util_unittest.cc",
     "quota/quota_database_unittest.cc",
     "quota/quota_manager_unittest.cc",
@@ -294,22 +309,32 @@ source_set("unittests") {
     ":browser",
     ":test_support",
     "//base/test:test_support",
-    "//mojo/edk/system",
+    "//components/services/filesystem/public/interfaces",
+    "//mojo/core/embedder",
     "//net:test_support",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
     "//sql:test_support",
     "//testing/gtest",
     "//third_party/leveldatabase",
+    "//third_party/sqlite",
   ]
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
 
   sources = [
     "test/async_file_test_helper.cc",
     "test/async_file_test_helper.h",
+    "test/fake_blob.cc",
+    "test/fake_blob.h",
+    "test/fake_progress_client.cc",
+    "test/fake_progress_client.h",
     "test/fileapi_test_file_set.cc",
     "test/fileapi_test_file_set.h",
+    "test/mock_blob_registry_delegate.cc",
+    "test/mock_blob_registry_delegate.h",
     "test/mock_blob_url_request_context.cc",
     "test/mock_blob_url_request_context.h",
     "test/mock_bytes_provider.cc",
@@ -341,8 +366,8 @@ static_library("test_support") {
   deps = [
     ":browser",
     "//base/test:test_support",
-    "//mojo/common",
     "//net:test_support",
+    "//services/network:network_service",
     "//testing/gtest",
     "//third_party/leveldatabase",
   ]

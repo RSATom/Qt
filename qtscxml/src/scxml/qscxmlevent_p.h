@@ -65,7 +65,7 @@ QT_BEGIN_NAMESPACE
 #ifndef BUILD_QSCXMLC
 class QScxmlEventBuilder
 {
-    QScxmlStateMachine* stateMachine;
+    QScxmlStateMachine *stateMachine;
     QScxmlExecutableContent::StringId instructionLocation;
     QString event;
     QScxmlExecutableContent::EvaluatorId eventexpr;
@@ -94,14 +94,14 @@ class QScxmlEventBuilder
 
     void init() // Because stupid VS2012 can't cope with non-static field initializers.
     {
-        stateMachine = Q_NULLPTR;
+        stateMachine = nullptr;
         eventexpr = QScxmlExecutableContent::NoEvaluator;
         contentExpr = QScxmlExecutableContent::NoEvaluator;
-        params = Q_NULLPTR;
+        params = nullptr;
         eventType = QScxmlEvent::ExternalEvent;
         targetexpr = QScxmlExecutableContent::NoEvaluator;
         typeexpr = QScxmlExecutableContent::NoEvaluator;
-        namelist = Q_NULLPTR;
+        namelist = nullptr;
     }
 
 public:

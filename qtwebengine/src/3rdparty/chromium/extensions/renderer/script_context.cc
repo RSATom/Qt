@@ -5,16 +5,17 @@
 #include "extensions/renderer/script_context.h"
 
 #include "base/command_line.h"
+#include "base/containers/flat_set.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
-#include "content/public/child/v8_value_converter.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/renderer/render_frame.h"
+#include "content/public/renderer/v8_value_converter.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_api.h"
@@ -24,13 +25,13 @@
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/renderer/renderer_extension_registry.h"
 #include "extensions/renderer/v8_helpers.h"
-#include "gin/per_context_data.h"
-#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
-#include "third_party/WebKit/public/platform/WebURLRequest.h"
-#include "third_party/WebKit/public/web/WebDataSource.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_url_request.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_document_loader.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_view.h"
 #include "v8/include/v8.h"
 
 namespace extensions {
@@ -62,34 +63,16 @@ std::string GetContextTypeDescriptionString(Feature::Context context_type) {
   return std::string();
 }
 
-static std::string ToStringOrDefault(
-    const v8::Local<v8::String>& v8_string,
-    const std::string& dflt) {
+static std::string ToStringOrDefault(v8::Isolate* isolate,
+                                     const v8::Local<v8::String>& v8_string,
+                                     const std::string& dflt) {
   if (v8_string.IsEmpty())
     return dflt;
-  std::string ascii_value = *v8::String::Utf8Value(v8_string);
+  std::string ascii_value = *v8::String::Utf8Value(isolate, v8_string);
   return ascii_value.empty() ? dflt : ascii_value;
 }
 
 }  // namespace
-
-// A gin::Runner that delegates to its ScriptContext.
-class ScriptContext::Runner : public gin::Runner {
- public:
-  explicit Runner(ScriptContext* context);
-
-  // gin::Runner overrides.
-  void Run(const std::string& source,
-           const std::string& resource_name) override;
-  v8::Local<v8::Value> Call(v8::Local<v8::Function> function,
-                            v8::Local<v8::Value> receiver,
-                            int argc,
-                            v8::Local<v8::Value> argv[]) override;
-  gin::ContextHolder* GetContextHolder() override;
-
- private:
-  ScriptContext* context_;
-};
 
 ScriptContext::ScriptContext(const v8::Local<v8::Context>& v8_context,
                              blink::WebLocalFrame* web_frame,
@@ -104,13 +87,12 @@ ScriptContext::ScriptContext(const v8::Local<v8::Context>& v8_context,
       context_type_(context_type),
       effective_extension_(effective_extension),
       effective_context_type_(effective_context_type),
+      context_id_(base::UnguessableToken::Create()),
       safe_builtins_(this),
       isolate_(v8_context->GetIsolate()),
-      runner_(new Runner(this)) {
+      service_worker_version_id_(blink::mojom::kInvalidServiceWorkerVersionId) {
   VLOG(1) << "Created context:\n" << GetDebugString();
-  gin::PerContextData* gin_data = gin::PerContextData::From(v8_context);
-  CHECK(gin_data);
-  gin_data->set_runner(runner_.get());
+  v8_context_.AnnotateStrongRetainer("extensions::ScriptContext::v8_context_");
   if (web_frame_)
     url_ = GetAccessCheckedFrameURL(web_frame_);
 }
@@ -137,6 +119,12 @@ bool ScriptContext::IsSandboxedPage(const GURL& url) {
   return false;
 }
 
+void ScriptContext::SetModuleSystem(
+    std::unique_ptr<ModuleSystem> module_system) {
+  module_system_ = std::move(module_system);
+  module_system_->Initialize();
+}
+
 void ScriptContext::Invalidate() {
   DCHECK(thread_checker_.CalledOnValidThread());
   CHECK(is_valid_);
@@ -149,21 +137,20 @@ void ScriptContext::Invalidate() {
 
   // Swap |invalidate_observers_| to a local variable to clear it, and to make
   // sure it's not mutated as we iterate.
-  std::vector<base::Closure> observers;
+  std::vector<base::OnceClosure> observers;
   observers.swap(invalidate_observers_);
-  for (const base::Closure& observer : observers) {
-    observer.Run();
+  for (base::OnceClosure& observer : observers) {
+    std::move(observer).Run();
   }
   DCHECK(invalidate_observers_.empty())
       << "Invalidation observers cannot be added during invalidation";
 
-  runner_.reset();
   v8_context_.Reset();
 }
 
-void ScriptContext::AddInvalidationObserver(const base::Closure& observer) {
+void ScriptContext::AddInvalidationObserver(base::OnceClosure observer) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  invalidate_observers_.push_back(observer);
+  invalidate_observers_.push_back(std::move(observer));
 }
 
 const std::string& ScriptContext::GetExtensionID() const {
@@ -205,9 +192,10 @@ void ScriptContext::SafeCallFunction(
     web_frame_->RequestExecuteV8Function(v8_context(), function, global, argc,
                                          argv, wrapper_callback);
   } else {
-    // TODO(devlin): This probably isn't safe.
-    v8::Local<v8::Value> result = function->Call(global, argc, argv);
-    if (!callback.is_null()) {
+    v8::MaybeLocal<v8::Value> maybe_result =
+        function->Call(v8_context(), global, argc, argv);
+    v8::Local<v8::Value> result;
+    if (!callback.is_null() && maybe_result.ToLocal(&result)) {
       std::vector<v8::Local<v8::Value>> results(1, result);
       callback.Run(results);
     }
@@ -265,13 +253,13 @@ bool ScriptContext::IsAnyFeatureAvailableToContext(
   DCHECK(thread_checker_.CalledOnValidThread());
   // TODO(lazyboy): Decide what we should do for SERVICE_WORKER_CONTEXT, where
   // web_frame() is null.
-  GURL url = web_frame() ? GetDataSourceURLForFrame(web_frame()) : url_;
+  GURL url = web_frame() ? GetDocumentLoaderURLForFrame(web_frame()) : url_;
   return ExtensionAPI::GetSharedInstance()->IsAnyFeatureAvailableToContext(
       api, extension(), context_type(), url, check_alias);
 }
 
 // static
-GURL ScriptContext::GetDataSourceURLForFrame(
+GURL ScriptContext::GetDocumentLoaderURLForFrame(
     const blink::WebLocalFrame* frame) {
   // Normally we would use frame->document().url() to determine the document's
   // URL, but to decide whether to inject a content script, we use the URL from
@@ -281,10 +269,11 @@ GURL ScriptContext::GetDataSourceURLForFrame(
   // changes to match the parent document after Gmail document.writes into
   // it to create the editor.
   // http://code.google.com/p/chromium/issues/detail?id=86742
-  blink::WebDataSource* data_source = frame->ProvisionalDataSource()
-                                          ? frame->ProvisionalDataSource()
-                                          : frame->DataSource();
-  return data_source ? GURL(data_source->GetRequest().Url()) : GURL();
+  blink::WebDocumentLoader* document_loader =
+      frame->GetProvisionalDocumentLoader()
+          ? frame->GetProvisionalDocumentLoader()
+          : frame->GetDocumentLoader();
+  return document_loader ? GURL(document_loader->GetUrl()) : GURL();
 }
 
 // static
@@ -292,13 +281,14 @@ GURL ScriptContext::GetAccessCheckedFrameURL(
     const blink::WebLocalFrame* frame) {
   const blink::WebURL& weburl = frame->GetDocument().Url();
   if (weburl.IsEmpty()) {
-    blink::WebDataSource* data_source = frame->ProvisionalDataSource()
-                                            ? frame->ProvisionalDataSource()
-                                            : frame->DataSource();
-    if (data_source &&
-        frame->GetSecurityOrigin().CanAccess(blink::WebSecurityOrigin::Create(
-            data_source->GetRequest().Url()))) {
-      return GURL(data_source->GetRequest().Url());
+    blink::WebDocumentLoader* document_loader =
+        frame->GetProvisionalDocumentLoader()
+            ? frame->GetProvisionalDocumentLoader()
+            : frame->GetDocumentLoader();
+    if (document_loader &&
+        frame->GetSecurityOrigin().CanAccess(
+            blink::WebSecurityOrigin::Create(document_loader->GetUrl()))) {
+      return GURL(document_loader->GetUrl());
     }
   }
   return GURL(weburl);
@@ -319,13 +309,18 @@ GURL ScriptContext::GetEffectiveDocumentURL(blink::WebLocalFrame* frame,
   // hierarchy to find the closest non-about:-page and return its URL.
   blink::WebFrame* parent = frame;
   blink::WebDocument parent_document;
+  base::flat_set<blink::WebFrame*> already_visited_frames;
   do {
+    already_visited_frames.insert(parent);
     if (parent->Parent())
       parent = parent->Parent();
-    else if (parent->Opener() != parent)
-      parent = parent->Opener();
     else
-      parent = nullptr;
+      parent = parent->Opener();
+
+    // Avoid an infinite loop - see https://crbug.com/568432 and
+    // https://crbug.com/883526.
+    if (base::ContainsKey(already_visited_frames, parent))
+      return document_url;
 
     parent_document = parent && parent->IsWebLocalFrame()
                           ? parent->ToWebLocalFrame()->GetDocument()
@@ -358,14 +353,18 @@ void ScriptContext::OnResponseReceived(const std::string& name,
 
   v8::Local<v8::Value> argv[] = {
       v8::Integer::New(isolate(), request_id),
-      v8::String::NewFromUtf8(isolate(), name.c_str()),
+      v8::String::NewFromUtf8(isolate(), name.c_str(),
+                              v8::NewStringType::kNormal)
+          .ToLocalChecked(),
       v8::Boolean::New(isolate(), success),
       content::V8ValueConverter::Create()->ToV8Value(
           &response, v8::Local<v8::Context>::New(isolate(), v8_context_)),
-      v8::String::NewFromUtf8(isolate(), error.c_str())};
+      v8::String::NewFromUtf8(isolate(), error.c_str(),
+                              v8::NewStringType::kNormal)
+          .ToLocalChecked()};
 
   module_system()->CallModuleMethodSafe("sendRequest", "handleResponse",
-                                        arraysize(argv), argv);
+                                        base::size(argv), argv);
 }
 
 bool ScriptContext::HasAPIPermission(APIPermission::ID permission) const {
@@ -403,14 +402,18 @@ bool ScriptContext::HasAccessOrThrowError(const std::string& name) {
         "%s cannot be used within a sandboxed frame.";
     std::string error_msg = base::StringPrintf(kMessage, name.c_str());
     isolate()->ThrowException(v8::Exception::Error(
-        v8::String::NewFromUtf8(isolate(), error_msg.c_str())));
+        v8::String::NewFromUtf8(isolate(), error_msg.c_str(),
+                                v8::NewStringType::kNormal)
+            .ToLocalChecked()));
     return false;
   }
 
   Feature::Availability availability = GetAvailability(name);
   if (!availability.is_available()) {
     isolate()->ThrowException(v8::Exception::Error(
-        v8::String::NewFromUtf8(isolate(), availability.message().c_str())));
+        v8::String::NewFromUtf8(isolate(), availability.message().c_str(),
+                                v8::NewStringType::kNormal)
+            .ToLocalChecked()));
     return false;
   }
 
@@ -442,12 +445,14 @@ std::string ScriptContext::GetStackTraceAsString() const {
   }
   std::string result;
   for (int i = 0; i < stack_trace->GetFrameCount(); ++i) {
-    v8::Local<v8::StackFrame> frame = stack_trace->GetFrame(i);
+    v8::Local<v8::StackFrame> frame = stack_trace->GetFrame(isolate(), i);
     CHECK(!frame.IsEmpty());
     result += base::StringPrintf(
         "\n    at %s (%s:%d:%d)",
-        ToStringOrDefault(frame->GetFunctionName(), "<anonymous>").c_str(),
-        ToStringOrDefault(frame->GetScriptName(), "<anonymous>").c_str(),
+        ToStringOrDefault(isolate(), frame->GetFunctionName(), "<anonymous>")
+            .c_str(),
+        ToStringOrDefault(isolate(), frame->GetScriptName(), "<anonymous>")
+            .c_str(),
         frame->GetLineNumber(), frame->GetColumn());
   }
   return result;
@@ -456,15 +461,16 @@ std::string ScriptContext::GetStackTraceAsString() const {
 v8::Local<v8::Value> ScriptContext::RunScript(
     v8::Local<v8::String> name,
     v8::Local<v8::String> code,
-    const RunScriptExceptionHandler& exception_handler) {
+    const RunScriptExceptionHandler& exception_handler,
+    v8::ScriptCompiler::NoCacheReason no_cache_reason) {
   DCHECK(thread_checker_.CalledOnValidThread());
   v8::EscapableHandleScope handle_scope(isolate());
   v8::Context::Scope context_scope(v8_context());
 
   // Prepend extensions:: to |name| so that internal code can be differentiated
   // from external code in stack traces. This has no effect on behaviour.
-  std::string internal_name =
-      base::StringPrintf("extensions::%s", *v8::String::Utf8Value(name));
+  std::string internal_name = base::StringPrintf(
+      "extensions::%s", *v8::String::Utf8Value(isolate(), name));
 
   if (internal_name.size() >= v8::String::kMaxLength) {
     NOTREACHED() << "internal_name is too long.";
@@ -477,8 +483,12 @@ v8::Local<v8::Value> ScriptContext::RunScript(
   try_catch.SetCaptureMessage(true);
   v8::ScriptOrigin origin(
       v8_helpers::ToV8StringUnsafe(isolate(), internal_name.c_str()));
+  v8::ScriptCompiler::Source script_source(code, origin);
   v8::Local<v8::Script> script;
-  if (!v8::Script::Compile(v8_context(), code, &origin).ToLocal(&script)) {
+  if (!v8::ScriptCompiler::Compile(v8_context(), &script_source,
+                                   v8::ScriptCompiler::kNoCompileOptions,
+                                   no_cache_reason)
+           .ToLocal(&script)) {
     exception_handler.Run(try_catch);
     return v8::Undefined(isolate());
   }
@@ -490,27 +500,6 @@ v8::Local<v8::Value> ScriptContext::RunScript(
   }
 
   return handle_scope.Escape(result);
-}
-
-ScriptContext::Runner::Runner(ScriptContext* context) : context_(context) {
-}
-
-void ScriptContext::Runner::Run(const std::string& source,
-                                const std::string& resource_name) {
-  context_->module_system()->RunString(source, resource_name);
-}
-
-v8::Local<v8::Value> ScriptContext::Runner::Call(
-    v8::Local<v8::Function> function,
-    v8::Local<v8::Value> receiver,
-    int argc,
-    v8::Local<v8::Value> argv[]) {
-  return context_->CallFunction(function, argc, argv);
-}
-
-gin::ContextHolder* ScriptContext::Runner::GetContextHolder() {
-  v8::HandleScope handle_scope(context_->isolate());
-  return gin::PerContextData::From(context_->v8_context())->context_holder();
 }
 
 v8::Local<v8::Value> ScriptContext::CallFunction(
@@ -529,11 +518,25 @@ v8::Local<v8::Value> ScriptContext::CallFunction(
   }
 
   v8::Local<v8::Object> global = v8_context()->Global();
-  if (!web_frame_)
-    return handle_scope.Escape(function->Call(global, argc, argv));
-  return handle_scope.Escape(
-      v8::Local<v8::Value>(web_frame_->CallFunctionEvenIfScriptDisabled(
-          function, global, argc, argv)));
+  if (!web_frame_) {
+    v8::MaybeLocal<v8::Value> maybe_result =
+        function->Call(v8_context(), global, argc, argv);
+    v8::Local<v8::Value> result;
+    if (!maybe_result.ToLocal(&result)) {
+      return handle_scope.Escape(
+          v8::Local<v8::Primitive>(v8::Undefined(isolate())));
+    }
+    return handle_scope.Escape(result);
+  }
+
+  v8::MaybeLocal<v8::Value> result =
+      web_frame_->CallFunctionEvenIfScriptDisabled(function, global, argc,
+                                                   argv);
+
+  // TODO(devlin): Stop coercing this to a v8::Local.
+  v8::Local<v8::Value> coerced_result;
+  ignore_result(result.ToLocal(&coerced_result));
+  return handle_scope.Escape(coerced_result);
 }
 
 }  // namespace extensions

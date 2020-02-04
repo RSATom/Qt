@@ -31,12 +31,14 @@ class DevToolsDeviceDiscovery {
 
     RemotePage(scoped_refptr<AndroidDeviceManager::Device> device,
                const std::string& browser_id,
+               const std::string& browser_version,
                const base::DictionaryValue& dict);
 
     virtual ~RemotePage();
 
     scoped_refptr<AndroidDeviceManager::Device> device_;
     std::string browser_id_;
+    std::string browser_version_;
     std::string frontend_url_;
     std::unique_ptr<base::DictionaryValue> dict_;
     scoped_refptr<content::DevToolsAgentHost> agent_host_;
@@ -53,6 +55,7 @@ class DevToolsDeviceDiscovery {
     const std::string& display_name() { return display_name_; }
     const std::string& user() { return user_; }
     const std::string& version() { return version_; }
+    const std::string& browser_target_id() { return browser_target_id_; }
     const RemotePages& pages() { return pages_; }
 
     bool IsChrome();
@@ -76,6 +79,7 @@ class DevToolsDeviceDiscovery {
     std::string user_;
     AndroidDeviceManager::BrowserInfo::Type type_;
     std::string version_;
+    std::string browser_target_id_;
     RemotePages pages_;
 
     DISALLOW_COPY_AND_ASSIGN(RemoteBrowser);

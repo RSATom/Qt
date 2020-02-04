@@ -5,7 +5,6 @@
 #ifndef COMPONENTS_DOM_DISTILLER_CORE_DOM_DISTILLER_SWITCHES_H_
 #define COMPONENTS_DOM_DISTILLER_CORE_DOM_DISTILLER_SWITCHES_H_
 
-#include "base/base_switches.h"
 #include "base/command_line.h"
 
 namespace switches {
@@ -15,9 +14,6 @@ extern const char kEnableDistillabilityService[];
 
 // Switch to enable the DOM distiller.
 extern const char kEnableDomDistiller[];
-
-// Switch to enable synced articles.
-extern const char kEnableSyncArticles[];
 
 // Switch to enable specific heuristics for detecting if a page is distillable
 // or not.

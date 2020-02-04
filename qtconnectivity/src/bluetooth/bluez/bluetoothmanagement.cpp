@@ -43,7 +43,7 @@
 
 #include "bluetoothmanagement_p.h"
 #include "bluez_data_p.h"
-#include "../qbluetoothsocket_p.h"
+#include "../qbluetoothsocketbase_p.h"
 
 #include <unistd.h>
 #include <sys/prctl.h>
@@ -135,7 +135,7 @@ static int sysCallCapGet(capHdr *header, capData *data)
     return syscall(__NR_capget, header, data);
 }
 
-/*!
+/*
  * Checks that the current process has the effective CAP_NET_ADMIN permission.
  */
 static bool hasBtMgmtPermission()

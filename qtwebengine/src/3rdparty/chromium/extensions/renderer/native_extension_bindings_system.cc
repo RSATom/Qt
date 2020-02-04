@@ -6,8 +6,9 @@
 
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
-#include "content/public/child/worker_thread.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/timer/elapsed_timer.h"
+#include "components/crx_file/id_util.h"
 #include "content/public/common/console_message_level.h"
 #include "content/public/common/content_switches.h"
 #include "extensions/common/constants.h"
@@ -19,23 +20,29 @@
 #include "extensions/renderer/bindings/api_binding_bridge.h"
 #include "extensions/renderer/bindings/api_binding_hooks.h"
 #include "extensions/renderer/bindings/api_binding_js_util.h"
+#include "extensions/renderer/bindings/api_binding_util.h"
 #include "extensions/renderer/chrome_setting.h"
 #include "extensions/renderer/console.h"
 #include "extensions/renderer/content_setting.h"
 #include "extensions/renderer/declarative_content_hooks_delegate.h"
+#include "extensions/renderer/easy_unlock_proximity_required_stub.h"
 #include "extensions/renderer/extension_frame_helper.h"
+#include "extensions/renderer/extension_js_runner.h"
+#include "extensions/renderer/get_script_context.h"
+#include "extensions/renderer/i18n_hooks_delegate.h"
 #include "extensions/renderer/ipc_message_sender.h"
 #include "extensions/renderer/module_system.h"
+#include "extensions/renderer/runtime_hooks_delegate.h"
 #include "extensions/renderer/script_context.h"
-#include "extensions/renderer/script_context_set.h"
 #include "extensions/renderer/storage_area.h"
 #include "extensions/renderer/web_request_hooks.h"
-#include "extensions/renderer/worker_thread_dispatcher.h"
 #include "gin/converter.h"
 #include "gin/handle.h"
 #include "gin/per_context_data.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_user_gesture_indicator.h"
 
 namespace extensions {
 
@@ -133,7 +140,7 @@ v8::Local<v8::Object> GetOrCreateChrome(v8::Local<v8::Context> context) {
 BindingsSystemPerContextData* GetBindingsDataFromContext(
     v8::Local<v8::Context> context) {
   gin::PerContextData* per_context_data = gin::PerContextData::From(context);
-  if (!per_context_data)
+  if (!per_context_data || !binding::IsContextValid(context))
     return nullptr;  // Context is shutting down.
 
   auto* data = static_cast<BindingsSystemPerContextData*>(
@@ -147,59 +154,17 @@ BindingsSystemPerContextData* GetBindingsDataFromContext(
   return data;
 }
 
-// Returns the ScriptContext associated with the given v8::Context.
-// TODO(devlin): Does this belong here, or should it be curried in as a
-// callback? This is the only place we have knowledge of worker vs. non-worker
-// threads here.
-ScriptContext* GetScriptContext(v8::Local<v8::Context> context) {
-  ScriptContext* script_context =
-      content::WorkerThread::GetCurrentId() > 0
-          ? WorkerThreadDispatcher::GetScriptContext()
-          : ScriptContextSet::GetContextByV8Context(context);
-  CHECK(script_context);
-  DCHECK(script_context->v8_context() == context);
-  return script_context;
-}
-
-// Handler for calling safely into JS.
-void CallJsFunction(v8::Local<v8::Function> function,
-                    v8::Local<v8::Context> context,
-                    int argc,
-                    v8::Local<v8::Value> argv[]) {
-  ScriptContext* script_context = GetScriptContext(context);
-  CHECK(script_context);
-  script_context->SafeCallFunction(function, argc, argv);
-}
-
-v8::Global<v8::Value> CallJsFunctionSync(v8::Local<v8::Function> function,
-                                         v8::Local<v8::Context> context,
-                                         int argc,
-                                         v8::Local<v8::Value> argv[]) {
-  bool did_complete = false;
-  v8::Global<v8::Value> result;
-  auto callback = base::Bind([](
-      v8::Isolate* isolate,
-      bool* did_complete_out,
-      v8::Global<v8::Value>* result_out,
-      const std::vector<v8::Local<v8::Value>>& results) {
-    *did_complete_out = true;
-    // The locals are released after the callback is executed, so we need to
-    // grab a persistent handle.
-    if (!results.empty() && !results[0].IsEmpty())
-      result_out->Reset(isolate, results[0]);
-  }, base::Unretained(context->GetIsolate()),
-     base::Unretained(&did_complete), base::Unretained(&result));
-
-  ScriptContext* script_context = GetScriptContext(context);
-  CHECK(script_context);
-  script_context->SafeCallFunction(function, argc, argv, callback);
-  CHECK(did_complete) << "expected script to execute synchronously";
-  return result;
-}
-
 void AddConsoleError(v8::Local<v8::Context> context, const std::string& error) {
-  ScriptContext* script_context = GetScriptContext(context);
-  CHECK(script_context);
+  ScriptContext* script_context = GetScriptContextFromV8Context(context);
+  // Note: |script_context| may be null. During context tear down, we remove the
+  // script context from the ScriptContextSet, so it's not findable by
+  // GetScriptContextFromV8Context. In theory, we shouldn't be running any
+  // bindings code after this point, but it seems that we are in at least some
+  // places.
+  // TODO(devlin): Investigate. At least one place this manifests is in
+  // messaging binding tear down exhibited by
+  // MessagingApiTest.MessagingBackgroundOnly.
+  // console::AddMessage() can handle a null script context.
   console::AddMessage(script_context, content::CONSOLE_MESSAGE_LEVEL_ERROR,
                       error);
 }
@@ -216,8 +181,7 @@ const base::DictionaryValue& GetAPISchema(const std::string& api_name) {
 // |context|.
 bool IsAPIFeatureAvailable(v8::Local<v8::Context> context,
                            const std::string& name) {
-  ScriptContext* script_context = GetScriptContext(context);
-  DCHECK(script_context);
+  ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
   return script_context->GetAvailability(name).is_available();
 }
 
@@ -235,8 +199,7 @@ v8::Local<v8::Object> CreateRootBinding(v8::Local<v8::Context> context,
       context->GetIsolate(),
       new APIBindingBridge(hooks, context, binding_object,
                            script_context->GetExtensionID(),
-                           script_context->GetContextTypeDescription(),
-                           base::Bind(&CallJsFunction)));
+                           script_context->GetContextTypeDescription()));
   v8::Local<v8::Value> native_api_bridge = bridge_handle.ToV8();
   script_context->module_system()->OnNativeBindingCreated(name,
                                                           native_api_bridge);
@@ -275,9 +238,14 @@ v8::Local<v8::Object> CreateFullBinding(
   // else use an empty object (so we can still instantiate 'app.runtime').
   v8::Local<v8::Object> root_binding;
   if (lower->first == root_name) {
+    const Feature* feature = lower->second.get();
     if (script_context->IsAnyFeatureAvailableToContext(
-            *lower->second, CheckAliasStatus::NOT_ALLOWED)) {
-      root_binding = CreateRootBinding(context, script_context, root_name,
+            *feature, CheckAliasStatus::NOT_ALLOWED)) {
+      // If this feature is an alias for a different API, use the other binding
+      // as the basis for the API contents.
+      const std::string& source_name =
+          feature->source().empty() ? root_name : feature->source();
+      root_binding = CreateRootBinding(context, script_context, source_name,
                                        bindings_system);
     }
     ++lower;
@@ -326,7 +294,7 @@ v8::Local<v8::Object> CreateFullBinding(
 
     // If this API has a parent feature (and isn't marked 'noparent'),
     // then this must be a function or event, so we should not register.
-    if (api_feature_provider->GetParent(iter->second.get()) != nullptr)
+    if (api_feature_provider->GetParent(*iter->second) != nullptr)
       continue;
 
     base::StringPiece binding_name =
@@ -361,36 +329,54 @@ v8::Local<v8::Object> CreateFullBinding(
   return root_binding;
 }
 
+std::string GetContextOwner(v8::Local<v8::Context> context) {
+  ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
+  const std::string& extension_id = script_context->GetExtensionID();
+  bool id_is_valid = crx_file::id_util::IdIsValid(extension_id);
+  CHECK(id_is_valid || script_context->url().is_valid());
+  return id_is_valid ? extension_id : script_context->url().spec();
+}
+
 }  // namespace
 
 NativeExtensionBindingsSystem::NativeExtensionBindingsSystem(
     std::unique_ptr<IPCMessageSender> ipc_message_sender)
     : ipc_message_sender_(std::move(ipc_message_sender)),
       api_system_(
-          base::Bind(&CallJsFunction),
-          base::Bind(&CallJsFunctionSync),
-          base::Bind(&GetAPISchema),
-          base::Bind(&IsAPIFeatureAvailable),
-          base::Bind(&NativeExtensionBindingsSystem::SendRequest,
-                     base::Unretained(this)),
-          base::Bind(&NativeExtensionBindingsSystem::OnEventListenerChanged,
-                     base::Unretained(this)),
-          base::Bind(&APIActivityLogger::LogAPICall),
-          base::Bind(&AddConsoleError),
+          base::BindRepeating(&GetAPISchema),
+          base::BindRepeating(&IsAPIFeatureAvailable),
+          base::BindRepeating(&NativeExtensionBindingsSystem::SendRequest,
+                              base::Unretained(this)),
+          base::BindRepeating(
+              &NativeExtensionBindingsSystem::GetUserActivationState,
+              base::Unretained(this)),
+          base::BindRepeating(
+              &NativeExtensionBindingsSystem::OnEventListenerChanged,
+              base::Unretained(this)),
+          base::BindRepeating(&GetContextOwner),
+          base::BindRepeating(&APIActivityLogger::LogAPICall),
+          base::BindRepeating(&AddConsoleError),
           APILastError(base::Bind(&GetLastErrorParents),
                        base::Bind(&AddConsoleError))),
+      messaging_service_(this),
       weak_factory_(this) {
   api_system_.RegisterCustomType("storage.StorageArea",
                                  base::Bind(&StorageArea::CreateStorageArea));
+  api_system_.RegisterCustomType(
+      "preferencesPrivate.EasyUnlockProximityRequired",
+      base::Bind(&EasyUnlockProximityRequiredStub::Create));
   api_system_.RegisterCustomType("types.ChromeSetting",
                                  base::Bind(&ChromeSetting::Create));
-  api_system_.RegisterCustomType(
-      "contentSettings.ContentSetting",
-      base::Bind(&ContentSetting::Create, base::Bind(&CallJsFunction)));
+  api_system_.RegisterCustomType("contentSettings.ContentSetting",
+                                 base::Bind(&ContentSetting::Create));
   api_system_.GetHooksForAPI("webRequest")
-      ->SetDelegate(base::MakeUnique<WebRequestHooks>());
+      ->SetDelegate(std::make_unique<WebRequestHooks>());
   api_system_.GetHooksForAPI("declarativeContent")
-      ->SetDelegate(base::MakeUnique<DeclarativeContentHooksDelegate>());
+      ->SetDelegate(std::make_unique<DeclarativeContentHooksDelegate>());
+  api_system_.GetHooksForAPI("i18n")->SetDelegate(
+      std::make_unique<I18nHooksDelegate>());
+  api_system_.GetHooksForAPI("runtime")->SetDelegate(
+      std::make_unique<RuntimeHooksDelegate>(&messaging_service_));
 }
 
 NativeExtensionBindingsSystem::~NativeExtensionBindingsSystem() {}
@@ -400,10 +386,15 @@ void NativeExtensionBindingsSystem::DidCreateScriptContext(
   v8::Isolate* isolate = context->isolate();
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::Context> v8_context = context->v8_context();
+
+  JSRunner::SetInstanceForContext(v8_context,
+                                  std::make_unique<ExtensionJSRunner>(context));
+
   gin::PerContextData* per_context_data = gin::PerContextData::From(v8_context);
   DCHECK(per_context_data);
   DCHECK(!per_context_data->GetUserData(kBindingsSystemPerContextKey));
-  auto data = base::MakeUnique<BindingsSystemPerContextData>(
+
+  auto data = std::make_unique<BindingsSystemPerContextData>(
       weak_factory_.GetWeakPtr());
   per_context_data->SetUserData(kBindingsSystemPerContextKey, std::move(data));
 
@@ -428,11 +419,16 @@ void NativeExtensionBindingsSystem::DidCreateScriptContext(
 void NativeExtensionBindingsSystem::WillReleaseScriptContext(
     ScriptContext* context) {
   v8::HandleScope handle_scope(context->isolate());
-  api_system_.WillReleaseContext(context->v8_context());
+  v8::Local<v8::Context> v8_context = context->v8_context();
+  api_system_.WillReleaseContext(v8_context);
+  // Clear the JSRunner only after everything else has been notified that the
+  // context is being released.
+  JSRunner::ClearInstanceForContext(v8_context);
 }
 
 void NativeExtensionBindingsSystem::UpdateBindingsForContext(
     ScriptContext* context) {
+  base::ElapsedTimer timer;
   v8::Isolate* isolate = context->isolate();
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::Context> v8_context = context->v8_context();
@@ -446,8 +442,8 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
                        v8_context](base::StringPiece accessor_name) {
     v8::Local<v8::String> api_name =
         gin::StringToSymbol(isolate, accessor_name);
-    v8::Maybe<bool> success = chrome->SetAccessor(
-        v8_context, api_name, &BindingAccessor, nullptr, api_name);
+    v8::Maybe<bool> success = chrome->SetLazyDataProperty(
+        v8_context, api_name, &BindingAccessor, api_name);
     return success.IsJust() && success.FromJust();
   };
 
@@ -461,7 +457,7 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
     case Feature::SERVICE_WORKER_CONTEXT:
       DCHECK(ExtensionsClient::Get()
                  ->ExtensionAPIEnabledInExtensionServiceWorkers());
-    // Intentional fallthrough.
+      FALLTHROUGH;
     case Feature::BLESSED_EXTENSION_CONTEXT:
     case Feature::LOCK_SCREEN_EXTENSION_CONTEXT:
     case Feature::UNBLESSED_EXTENSION_CONTEXT:
@@ -490,41 +486,18 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
     if (IsRuntimeAvailableToContext(context) && !set_accessor("runtime"))
       LOG(ERROR) << "Failed to create API on Chrome object.";
 
+    LogUpdateBindingsForContextTime(context->context_type(), timer.Elapsed());
     return;
   }
 
-  const FeatureProvider* api_feature_provider =
-      FeatureProvider::GetAPIFeatures();
+  FeatureCache::FeatureNameVector features =
+      feature_cache_.GetAvailableFeatures(context->context_type(),
+                                          context->extension(), context->url());
   base::StringPiece last_accessor;
-  for (const auto& map_entry : api_feature_provider->GetAllFeatures()) {
+  for (const std::string& feature : features) {
     // If we've already set up an accessor for the immediate property of the
     // chrome object, we don't need to do more.
-    if (IsPrefixedAPI(map_entry.first, last_accessor))
-      continue;
-
-    // Internal APIs are included via require(api_name) from internal code
-    // rather than chrome[api_name].
-    if (map_entry.second->IsInternal())
-      continue;
-
-    // If this API has a parent feature (and isn't marked 'noparent'),
-    // then this must be a function or event, so we should not register.
-    if (api_feature_provider->GetParent(map_entry.second.get()) != nullptr)
-      continue;
-
-    // Skip chrome.test if this isn't a test.
-    if (map_entry.first == "test" &&
-        !base::CommandLine::ForCurrentProcess()->HasSwitch(
-            ::switches::kTestType)) {
-      continue;
-    }
-
-    // TODO(devlin): UpdateBindingsForContext can be called during context
-    // creation, but also when e.g. permissions change. We need to be checking
-    // for whether or not the API already exists on the object as well as
-    // if we need to remove any existing APIs.
-    if (!context->IsAnyFeatureAvailableToContext(*map_entry.second,
-                                                 CheckAliasStatus::NOT_ALLOWED))
+    if (IsPrefixedAPI(feature, last_accessor))
       continue;
 
     // We've found an API that's available to the extension. Normally, we will
@@ -532,14 +505,21 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
     // cases, this will be a prefixed API, such as 'app.runtime'. Find what the
     // property on the chrome object is named, and use that. So in the case of
     // 'app.runtime', we surface a getter for simply 'app'.
+    //
+    // TODO(devlin): UpdateBindingsForContext can be called during context
+    // creation, but also when e.g. permissions change. Do we need to be
+    // checking for whether or not the API already exists on the object as well
+    // as if we need to remove any existing APIs?
     base::StringPiece accessor_name =
-        GetFirstDifferentAPIName(map_entry.first, base::StringPiece());
+        GetFirstDifferentAPIName(feature, base::StringPiece());
     last_accessor = accessor_name;
     if (!set_accessor(accessor_name)) {
       LOG(ERROR) << "Failed to create API on Chrome object.";
       return;
     }
   }
+
+  LogUpdateBindingsForContextTime(context->context_type(), timer.Elapsed());
 }
 
 void NativeExtensionBindingsSystem::DispatchEventInContext(
@@ -583,6 +563,19 @@ IPCMessageSender* NativeExtensionBindingsSystem::GetIPCMessageSender() {
   return ipc_message_sender_.get();
 }
 
+RendererMessagingService* NativeExtensionBindingsSystem::GetMessagingService() {
+  return &messaging_service_;
+}
+
+void NativeExtensionBindingsSystem::OnExtensionPermissionsUpdated(
+    const ExtensionId& id) {
+  feature_cache_.InvalidateExtension(id);
+}
+
+void NativeExtensionBindingsSystem::OnExtensionRemoved(const ExtensionId& id) {
+  feature_cache_.InvalidateExtension(id);
+}
+
 v8::Local<v8::Object> NativeExtensionBindingsSystem::GetAPIObjectForTesting(
     ScriptContext* context,
     const std::string& api_name) {
@@ -596,6 +589,12 @@ void NativeExtensionBindingsSystem::BindingAccessor(
   v8::Isolate* isolate = info.GetIsolate();
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::Context> context = info.Holder()->CreationContext();
+
+  // Force binding creation in the owning context (even if another context is
+  // calling in). This is also important to ensure that objects created through
+  // the initialization process are all instantiated for the owning context.
+  // See https://crbug.com/819968.
+  v8::Context::Scope context_scope(context);
 
   // We use info.Data() to store a real name here instead of using the provided
   // one to handle any weirdness from the caller (non-existent strings, etc).
@@ -633,11 +632,12 @@ v8::Local<v8::Object> NativeExtensionBindingsSystem::GetAPIHelper(
     return value.As<v8::Object>();
   }
 
-  ScriptContext* script_context = GetScriptContext(context);
+  ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
   std::string api_name_string;
   CHECK(
       gin::Converter<std::string>::FromV8(isolate, api_name, &api_name_string));
 
+  base::ElapsedTimer timer;
   v8::Local<v8::Object> root_binding = CreateFullBinding(
       context, script_context, &data->bindings_system->api_system_,
       FeatureProvider::GetAPIFeatures(), api_name_string);
@@ -649,6 +649,9 @@ v8::Local<v8::Object> NativeExtensionBindingsSystem::GetAPIHelper(
   if (!success.IsJust() || !success.FromJust())
     return v8::Local<v8::Object>();
 
+  UMA_HISTOGRAM_CUSTOM_COUNTS("Extensions.Bindings.NativeBindingCreationTime",
+                              timer.Elapsed().InMicroseconds(), 1, 10000000,
+                              50);
   return root_binding;
 }
 
@@ -700,9 +703,9 @@ void NativeExtensionBindingsSystem::GetInternalAPI(
     return;
   }
 
-  std::string api_name = gin::V8ToString(info[0]);
+  std::string api_name = gin::V8ToString(isolate, info[0]);
   const Feature* feature = FeatureProvider::GetAPIFeature(api_name);
-  ScriptContext* script_context = GetScriptContext(context);
+  ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
   if (!feature ||
       !script_context->IsAnyFeatureAvailableToContext(
           *feature, CheckAliasStatus::NOT_ALLOWED)) {
@@ -734,7 +737,7 @@ void NativeExtensionBindingsSystem::GetInternalAPI(
 void NativeExtensionBindingsSystem::SendRequest(
     std::unique_ptr<APIRequestHandler::Request> request,
     v8::Local<v8::Context> context) {
-  ScriptContext* script_context = GetScriptContext(context);
+  ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
 
   GURL url;
   blink::WebLocalFrame* frame = script_context->web_frame();
@@ -743,7 +746,7 @@ void NativeExtensionBindingsSystem::SendRequest(
   else
     url = script_context->url();
 
-  auto params = base::MakeUnique<ExtensionHostMsg_Request_Params>();
+  auto params = std::make_unique<ExtensionHostMsg_Request_Params>();
   params->name = request->method_name;
   params->arguments.Swap(request->arguments.get());
   params->extension_id = script_context->GetExtensionID();
@@ -753,10 +756,18 @@ void NativeExtensionBindingsSystem::SendRequest(
   params->user_gesture = request->has_user_gesture;
   // The IPC sender will update these members, if appropriate.
   params->worker_thread_id = -1;
-  params->service_worker_version_id = kInvalidServiceWorkerVersionId;
+  params->service_worker_version_id =
+      blink::mojom::kInvalidServiceWorkerVersionId;
 
   ipc_message_sender_->SendRequestIPC(script_context, std::move(params),
                                       request->thread);
+}
+
+bool NativeExtensionBindingsSystem::GetUserActivationState(
+    v8::Local<v8::Context> context) {
+  ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
+  return blink::WebUserGestureIndicator::IsProcessingUserGestureThreadSafe(
+      script_context->web_frame());
 }
 
 void NativeExtensionBindingsSystem::OnEventListenerChanged(
@@ -765,49 +776,71 @@ void NativeExtensionBindingsSystem::OnEventListenerChanged(
     const base::DictionaryValue* filter,
     bool update_lazy_listeners,
     v8::Local<v8::Context> context) {
-  ScriptContext* script_context = GetScriptContext(context);
+  ScriptContext* script_context = GetScriptContextFromV8ContextChecked(context);
+  // We only remove a lazy listener if the listener removal was triggered
+  // manually by the extension and the context is a lazy context.
   // Note: Check context_type() first to avoid accessing ExtensionFrameHelper on
   // a worker thread.
   bool is_lazy =
       update_lazy_listeners &&
       (script_context->context_type() == Feature::SERVICE_WORKER_CONTEXT ||
        ExtensionFrameHelper::IsContextForEventPage(script_context));
-  // We only remove a lazy listener if the listener removal was triggered
-  // manually by the extension.
 
-  if (filter) {  // Filtered event listeners.
-    DCHECK(filter);
-    if (change == binding::EventListenersChanged::HAS_LISTENERS) {
-      ipc_message_sender_->SendAddFilteredEventListenerIPC(
-          script_context, event_name, *filter, is_lazy);
-    } else {
-      DCHECK_EQ(binding::EventListenersChanged::NO_LISTENERS, change);
-      ipc_message_sender_->SendRemoveFilteredEventListenerIPC(
-          script_context, event_name, *filter, is_lazy);
-    }
-  } else {  // Unfiltered event listeners.
-    if (change == binding::EventListenersChanged::HAS_LISTENERS) {
-      // TODO(devlin): The JS bindings code only adds one listener per extension
-      // per event per process, whereas this is one listener per context per
-      // event per process. Typically, this won't make a difference, but it
-      // could if there are multiple contexts for the same extension (e.g.,
-      // multiple frames). In that case, it would result in extra IPCs being
-      // sent. I'm not sure it's a big enough deal to warrant refactoring.
+  switch (change) {
+    case binding::EventListenersChanged::
+        kFirstUnfilteredListenerForContextOwnerAdded:
+      // Send a message to add a new listener since this is the first listener
+      // for the context owner (e.g., extension).
       ipc_message_sender_->SendAddUnfilteredEventListenerIPC(script_context,
                                                              event_name);
+      // Check if we need to add a lazy listener as well.
+      FALLTHROUGH;
+    case binding::EventListenersChanged::
+        kFirstUnfilteredListenerForContextAdded: {
+      // If the listener is the first for the event page, we need to
+      // specifically add a lazy listener.
       if (is_lazy) {
         ipc_message_sender_->SendAddUnfilteredLazyEventListenerIPC(
             script_context, event_name);
       }
-    } else {
-      DCHECK_EQ(binding::EventListenersChanged::NO_LISTENERS, change);
+      break;
+    }
+    case binding::EventListenersChanged::
+        kLastUnfilteredListenerForContextOwnerRemoved:
+      // Send a message to remove a listener since this is the last listener
+      // for the context owner (e.g., extension).
       ipc_message_sender_->SendRemoveUnfilteredEventListenerIPC(script_context,
                                                                 event_name);
+      // Check if we need to remove a lazy listener as well.
+      FALLTHROUGH;
+    case binding::EventListenersChanged::
+        kLastUnfilteredListenerForContextRemoved: {
+      // If the listener was the last for the event page, we need to remove
+      // the lazy listener entry.
       if (is_lazy) {
         ipc_message_sender_->SendRemoveUnfilteredLazyEventListenerIPC(
             script_context, event_name);
       }
+      break;
     }
+    // TODO(https://crbug.com/873017): This is broken, since we'll only add or
+    // remove a lazy listener if it was the first/last for the context owner.
+    // This means that if an extension registers a filtered listener on a page
+    // and *then* adds one in the event page, we won't properly add the listener
+    // as lazy.  This is an issue for both native and JS bindings, so for now,
+    // let's settle for parity.
+    case binding::EventListenersChanged::
+        kFirstListenerWithFilterForContextOwnerAdded:
+      DCHECK(filter);
+      ipc_message_sender_->SendAddFilteredEventListenerIPC(
+          script_context, event_name, *filter, is_lazy);
+      break;
+    case binding::EventListenersChanged::
+        kLastListenerWithFilterForContextOwnerRemoved:
+      DCHECK(filter);
+      ipc_message_sender_->SendRemoveFilteredEventListenerIPC(
+          script_context, event_name, *filter, is_lazy);
+      break;
   }
 }
 
@@ -818,8 +851,7 @@ void NativeExtensionBindingsSystem::GetJSBindingUtil(
       context->GetIsolate(),
       new APIBindingJSUtil(
           api_system_.type_reference_map(), api_system_.request_handler(),
-          api_system_.event_handler(), api_system_.exception_handler(),
-          base::Bind(&CallJsFunction)));
+          api_system_.event_handler(), api_system_.exception_handler()));
   *binding_util_out = handle.ToV8();
 }
 

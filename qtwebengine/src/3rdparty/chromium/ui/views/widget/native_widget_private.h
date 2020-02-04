@@ -12,6 +12,7 @@
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/widget/native_widget.h"
+#include "ui/views/widget/widget.h"
 
 namespace gfx {
 class FontList;
@@ -21,6 +22,7 @@ class Rect;
 
 namespace ui {
 class InputMethod;
+class GestureRecognizer;
 class OSExchangeData;
 }
 
@@ -49,6 +51,7 @@ class VIEWS_EXPORT NativeWidgetPrivate : public NativeWidget {
   // Creates an appropriate default NativeWidgetPrivate implementation for the
   // current OS/circumstance.
   static NativeWidgetPrivate* CreateNativeWidget(
+      const Widget::InitParams& init_params,
       internal::NativeWidgetDelegate* delegate);
 
   static NativeWidgetPrivate* GetNativeWidgetForNativeView(
@@ -68,14 +71,15 @@ class VIEWS_EXPORT NativeWidgetPrivate : public NativeWidget {
   static void ReparentNativeView(gfx::NativeView native_view,
                                  gfx::NativeView new_parent);
 
-  // Returns true if any mouse button is currently down.
-  static bool IsMouseButtonDown();
-
   static gfx::FontList GetWindowTitleFontList();
 
   // Returns the NativeView with capture, otherwise NULL if there is no current
   // capture set, or if |native_view| has no root.
   static gfx::NativeView GetGlobalCapture(gfx::NativeView native_view);
+
+  // Adjusts the given bounds to fit onto the display implied by the position
+  // of the given bounds.
+  static gfx::Rect ConstrainBoundsToDisplayWorkArea(const gfx::Rect& bounds);
 
   // Initializes the NativeWidget.
   virtual void InitNativeWidget(const Widget::InitParams& params) = 0;
@@ -173,18 +177,16 @@ class VIEWS_EXPORT NativeWidgetPrivate : public NativeWidget {
   virtual gfx::Rect GetRestoredBounds() const = 0;
   virtual std::string GetWorkspace() const = 0;
   virtual void SetBounds(const gfx::Rect& bounds) = 0;
+  virtual void SetBoundsConstrained(const gfx::Rect& bounds) = 0;
   virtual void SetSize(const gfx::Size& size) = 0;
   virtual void StackAbove(gfx::NativeView native_view) = 0;
   virtual void StackAtTop() = 0;
-  virtual void SetShape(std::unique_ptr<SkRegion> shape) = 0;
+  virtual void SetShape(std::unique_ptr<Widget::ShapeRects> shape) = 0;
   virtual void Close() = 0;
   virtual void CloseNow() = 0;
-  virtual void Show() = 0;
+  virtual void Show(ui::WindowShowState show_state,
+                    const gfx::Rect& restore_bounds) = 0;
   virtual void Hide() = 0;
-  // Invoked if the initial show should maximize the window. |restored_bounds|
-  // is the bounds of the window when not maximized.
-  virtual void ShowMaximizedWithBounds(const gfx::Rect& restored_bounds) = 0;
-  virtual void ShowWithWindowState(ui::WindowShowState show_state) = 0;
   virtual bool IsVisible() const = 0;
   virtual void Activate() = 0;
   virtual void Deactivate() = 0;
@@ -201,6 +203,7 @@ class VIEWS_EXPORT NativeWidgetPrivate : public NativeWidget {
   virtual void SetFullscreen(bool fullscreen) = 0;
   virtual bool IsFullscreen() const = 0;
   virtual void SetOpacity(float opacity) = 0;
+  virtual void SetAspectRatio(const gfx::SizeF& aspect_ratio) = 0;
   virtual void FlashFrame(bool flash) = 0;
   virtual void RunShellDrag(View* view,
                             const ui::OSExchangeData& data,
@@ -209,7 +212,10 @@ class VIEWS_EXPORT NativeWidgetPrivate : public NativeWidget {
                             ui::DragDropTypes::DragEventSource source) = 0;
   virtual void SchedulePaintInRect(const gfx::Rect& rect) = 0;
   virtual void SetCursor(gfx::NativeCursor cursor) = 0;
+  virtual void ShowEmojiPanel();
   virtual bool IsMouseEventsEnabled() const = 0;
+  // Returns true if any mouse button is currently down.
+  virtual bool IsMouseButtonDown() const = 0;
   virtual void ClearNativeFocus() = 0;
   virtual gfx::Rect GetWorkAreaBoundsInScreen() const = 0;
   virtual Widget::MoveLoopResult RunMoveLoop(
@@ -223,10 +229,8 @@ class VIEWS_EXPORT NativeWidgetPrivate : public NativeWidget {
   virtual void SetVisibilityAnimationTransition(
       Widget::VisibilityTransition transition) = 0;
   virtual bool IsTranslucentWindowOpacitySupported() const = 0;
+  virtual ui::GestureRecognizer* GetGestureRecognizer() = 0;
   virtual void OnSizeConstraintsChanged() = 0;
-
-  // Repost an unhandled event to the native widget for default OS processing.
-  virtual void RepostNativeEvent(gfx::NativeEvent native_event) = 0;
 
   // Returns an internal name that matches the name of the associated Widget.
   virtual std::string GetName() const = 0;

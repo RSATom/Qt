@@ -124,6 +124,7 @@ static QVector<FunctionDef> cleanedSlotList(const ClassDef &cdef)
                     ret.erase(it);
                     break;
                 }
+                ++it;
             }
         }
     }

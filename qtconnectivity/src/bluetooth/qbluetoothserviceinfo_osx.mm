@@ -58,61 +58,41 @@ QT_BEGIN_NAMESPACE
 class QBluetoothServiceInfoPrivate
 {
 public:
+
     typedef QBluetoothServiceInfo QSInfo;
-    QBluetoothServiceInfoPrivate(QBluetoothServiceInfo *q);
 
-    bool registerService(const QBluetoothAddress &localAdapter = QBluetoothAddress());
-
+    bool registerService(const OSXBluetooth::ObjCStrongReference<NSMutableDictionary> &serviceDict);
     bool isRegistered() const;
-
     bool unregisterService();
 
     QBluetoothDeviceInfo deviceInfo;
     QMap<quint16, QVariant> attributes;
 
     QBluetoothServiceInfo::Sequence protocolDescriptor(QBluetoothUuid::ProtocolUuid protocol) const;
+    QBluetoothServiceInfo::Protocol socketProtocol() const;
+    int protocolServiceMultiplexer() const;
     int serverChannel() const;
 
 private:
-    QBluetoothServiceInfo *q_ptr;
-    bool registered;
+
+    bool registered = false;
 
     typedef OSXBluetooth::ObjCScopedPointer<IOBluetoothSDPServiceRecord> SDPRecord;
     SDPRecord serviceRecord;
-    BluetoothSDPServiceRecordHandle serviceRecordHandle;
+    BluetoothSDPServiceRecordHandle serviceRecordHandle = 0;
 };
 
-QBluetoothServiceInfoPrivate::QBluetoothServiceInfoPrivate(QBluetoothServiceInfo *q)
-                                 : q_ptr(q),
-                                   registered(false),
-                                   serviceRecordHandle(0)
+bool QBluetoothServiceInfoPrivate::registerService(const OSXBluetooth::ObjCStrongReference<NSMutableDictionary> &serviceDict)
 {
-    Q_ASSERT_X(q, Q_FUNC_INFO, "invalid q_ptr (null)");
-}
-
-bool QBluetoothServiceInfoPrivate::registerService(const QBluetoothAddress &localAdapter)
-{
-    Q_UNUSED(localAdapter)
-
-    if (registered)
-        return false;
-
-    Q_ASSERT_X(!serviceRecord, Q_FUNC_INFO, "not registered, but serviceRecord is not nil");
-
     using namespace OSXBluetooth;
 
-    ObjCStrongReference<NSMutableDictionary>
-        serviceDict(iobluetooth_service_dictionary(*q_ptr));
-
-    if (!serviceDict) {
-        qCWarning(QT_BT_OSX) << "failed to create a service dictionary";
-        return false;
-    }
+    Q_ASSERT(serviceDict);
+    Q_ASSERT(!registered);
+    Q_ASSERT_X(!serviceRecord, Q_FUNC_INFO, "not registered, but serviceRecord is not nil");
 
     SDPRecord newRecord;
     newRecord.reset([[IOBluetoothSDPServiceRecord
                      publishedServiceRecordWithDictionary:serviceDict] retain]);
-
     if (!newRecord) {
         qCWarning(QT_BT_OSX) << "failed to register a service record";
         return false;
@@ -125,21 +105,21 @@ bool QBluetoothServiceInfoPrivate::registerService(const QBluetoothAddress &loca
         return false;
     }
 
-    const QSInfo::Protocol type = q_ptr->socketProtocol();
+    const QSInfo::Protocol type = socketProtocol();
     quint16 realPort = 0;
-    QBluetoothServerPrivate *server = Q_NULLPTR;
+    QBluetoothServerPrivate *server = nullptr;
     bool configured = false;
 
     if (type == QBluetoothServiceInfo::L2capProtocol) {
         BluetoothL2CAPPSM psm = 0;
-        server = QBluetoothServerPrivate::registeredServer(q_ptr->protocolServiceMultiplexer(), type);
+        server = QBluetoothServerPrivate::registeredServer(protocolServiceMultiplexer(), type);
         if ([newRecord getL2CAPPSM:&psm] == kIOReturnSuccess) {
             configured = true;
             realPort = psm;
         }
     } else if (type == QBluetoothServiceInfo::RfcommProtocol) {
         BluetoothRFCOMMChannelID channelID = 0;
-        server = QBluetoothServerPrivate::registeredServer(q_ptr->serverChannel(), type);
+        server = QBluetoothServerPrivate::registeredServer(serverChannel(), type);
         if ([newRecord getRFCOMMChannelID:&channelID] == kIOReturnSuccess) {
             configured = true;
             realPort = channelID;
@@ -172,20 +152,19 @@ bool QBluetoothServiceInfoPrivate::unregisterService()
     if (!registered)
         return false;
 
-    Q_ASSERT_X(serviceRecord, Q_FUNC_INFO, "service registered, but serviceRecord is nil");
+    Q_ASSERT_X(serviceRecord.data(), Q_FUNC_INFO, "service registered, but serviceRecord is nil");
 
     [serviceRecord removeServiceRecord];
-
     serviceRecord.reset(nil);
 
-    const QSInfo::Protocol type = q_ptr->socketProtocol();
-    QBluetoothServerPrivate *server = Q_NULLPTR;
+    const QSInfo::Protocol type = socketProtocol();
+    QBluetoothServerPrivate *server = nullptr;
 
     const QMutexLocker lock(&QBluetoothServerPrivate::channelMapMutex());
     if (type == QSInfo::RfcommProtocol)
-        server = QBluetoothServerPrivate::registeredServer(q_ptr->serverChannel(), type);
+        server = QBluetoothServerPrivate::registeredServer(serverChannel(), type);
     else if (type == QSInfo::L2capProtocol)
-        server = QBluetoothServerPrivate::registeredServer(q_ptr->protocolServiceMultiplexer(), type);
+        server = QBluetoothServerPrivate::registeredServer(protocolServiceMultiplexer(), type);
 
     if (server)
         server->stopListener();
@@ -203,7 +182,19 @@ bool QBluetoothServiceInfo::isRegistered() const
 
 bool QBluetoothServiceInfo::registerService(const QBluetoothAddress &localAdapter)
 {
-    return d_ptr->registerService(localAdapter);
+    Q_UNUSED(localAdapter);
+    if (isRegistered())
+        return false;
+
+    using namespace OSXBluetooth;
+
+    ObjCStrongReference<NSMutableDictionary> serviceDict(iobluetooth_service_dictionary(*this));
+    if (!serviceDict) {
+        qCWarning(QT_BT_OSX) << "failed to create a service dictionary";
+        return false;
+    }
+
+    return d_ptr->registerService(serviceDict);
 }
 
 bool QBluetoothServiceInfo::unregisterService()
@@ -212,7 +203,7 @@ bool QBluetoothServiceInfo::unregisterService()
 }
 
 QBluetoothServiceInfo::QBluetoothServiceInfo()
-    : d_ptr(QSharedPointer<QBluetoothServiceInfoPrivate>(new QBluetoothServiceInfoPrivate(this)))
+    : d_ptr(new QBluetoothServiceInfoPrivate)
 {
 }
 
@@ -272,27 +263,12 @@ void QBluetoothServiceInfo::removeAttribute(quint16 attributeId)
 
 QBluetoothServiceInfo::Protocol QBluetoothServiceInfo::socketProtocol() const
 {
-    QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::Rfcomm);
-    if (!parameters.isEmpty())
-        return RfcommProtocol;
-
-    parameters = protocolDescriptor(QBluetoothUuid::L2cap);
-    if (!parameters.isEmpty())
-        return L2capProtocol;
-
-    return UnknownProtocol;
+    return d_ptr->socketProtocol();
 }
 
 int QBluetoothServiceInfo::protocolServiceMultiplexer() const
 {
-    QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::L2cap);
-
-    if (parameters.isEmpty())
-        return -1;
-    else if (parameters.count() == 1)
-        return 0;
-    else
-        return parameters.at(1).toUInt();
+    return d_ptr->protocolServiceMultiplexer();
 }
 
 int QBluetoothServiceInfo::serverChannel() const
@@ -322,84 +298,99 @@ QList<QBluetoothUuid> QBluetoothServiceInfo::serviceClassUuids() const
 
 QBluetoothServiceInfo &QBluetoothServiceInfo::operator=(const QBluetoothServiceInfo &other)
 {
-    d_ptr = other.d_ptr;
+    if (this != &other)
+        d_ptr = other.d_ptr;
 
     return *this;
 }
 
-static void dumpAttributeVariant(const QVariant &var, const QString indent)
+static void dumpAttributeVariant(QDebug dbg, const QVariant &var, const QString& indent)
 {
     switch (int(var.type())) {
     case QMetaType::Void:
-        qDebug("%sEmpty", indent.toLocal8Bit().constData());
+        dbg << QString::asprintf("%sEmpty\n", indent.toUtf8().constData());
         break;
     case QMetaType::UChar:
-        qDebug("%suchar %u", indent.toLocal8Bit().constData(), var.toUInt());
+        dbg << QString::asprintf("%suchar %u\n", indent.toUtf8().constData(), var.toUInt());
         break;
     case QMetaType::UShort:
-        qDebug("%sushort %u", indent.toLocal8Bit().constData(), var.toUInt());
+        dbg << QString::asprintf("%sushort %u\n", indent.toUtf8().constData(), var.toUInt());
+        break;
     case QMetaType::UInt:
-        qDebug("%suint %u", indent.toLocal8Bit().constData(), var.toUInt());
+        dbg << QString::asprintf("%suint %u\n", indent.toUtf8().constData(), var.toUInt());
         break;
     case QMetaType::Char:
-        qDebug("%schar %d", indent.toLocal8Bit().constData(), var.toInt());
+        dbg << QString::asprintf("%schar %d\n", indent.toUtf8().constData(), var.toInt());
         break;
     case QMetaType::Short:
-        qDebug("%sshort %d", indent.toLocal8Bit().constData(), var.toInt());
+        dbg << QString::asprintf("%sshort %d\n", indent.toUtf8().constData(), var.toInt());
         break;
     case QMetaType::Int:
-        qDebug("%sint %d", indent.toLocal8Bit().constData(), var.toInt());
+        dbg << QString::asprintf("%sint %d\n", indent.toUtf8().constData(), var.toInt());
         break;
     case QMetaType::QString:
-        qDebug("%sstring %s", indent.toLocal8Bit().constData(), var.toString().toLocal8Bit().constData());
+        dbg << QString::asprintf("%sstring %s\n", indent.toUtf8().constData(),
+                                 var.toString().toUtf8().constData());
+        break;
+    case QMetaType::QByteArray:
+        dbg << QString::asprintf("%sbytearray %s\n", indent.toUtf8().constData(),
+                                 var.toByteArray().toHex().constData());
         break;
     case QMetaType::Bool:
-        qDebug("%sbool %d", indent.toLocal8Bit().constData(), var.toBool());
+        dbg << QString::asprintf("%sbool %d\n", indent.toUtf8().constData(), var.toBool());
         break;
     case QMetaType::QUrl:
-        qDebug("%surl %s", indent.toLocal8Bit().constData(), var.toUrl().toString().toLocal8Bit().constData());
+        dbg << QString::asprintf("%surl %s\n", indent.toUtf8().constData(),
+                                 var.toUrl().toString().toUtf8().constData());
         break;
     case QVariant::UserType:
         if (var.userType() == qMetaTypeId<QBluetoothUuid>()) {
             QBluetoothUuid uuid = var.value<QBluetoothUuid>();
             switch (uuid.minimumSize()) {
             case 0:
-                qDebug("%suuid NULL", indent.toLocal8Bit().constData());
+                dbg << QString::asprintf("%suuid NULL\n", indent.toUtf8().constData());
                 break;
             case 2:
-                qDebug("%suuid %04x", indent.toLocal8Bit().constData(), uuid.toUInt16());
+                dbg << QString::asprintf("%suuid2 %04x\n", indent.toUtf8().constData(),
+                                         uuid.toUInt16());
                 break;
             case 4:
-                qDebug("%suuid %08x", indent.toLocal8Bit().constData(), uuid.toUInt32());
+                dbg << QString::asprintf("%suuid %08x\n", indent.toUtf8().constData(),
+                                         uuid.toUInt32());
                 break;
             case 16:
-                qDebug("%suuid %s", indent.toLocal8Bit().constData(), QByteArray(reinterpret_cast<const char *>(uuid.toUInt128().data), 16).toHex().constData());
+                dbg << QString::asprintf("%suuid %s\n",
+                            indent.toUtf8().constData(),
+                            QByteArray(reinterpret_cast<const char *>(uuid.toUInt128().data), 16).toHex().constData());
                 break;
             default:
-                qDebug("%suuid ???", indent.toLocal8Bit().constData());
-                ;
+                dbg << QString::asprintf("%suuid ???\n", indent.toUtf8().constData());
             }
         } else if (var.userType() == qMetaTypeId<QBluetoothServiceInfo::Sequence>()) {
-            qDebug("%sSequence", indent.toLocal8Bit().constData());
+            dbg << QString::asprintf("%sSequence\n", indent.toUtf8().constData());
             const QBluetoothServiceInfo::Sequence *sequence = static_cast<const QBluetoothServiceInfo::Sequence *>(var.data());
-            foreach (const QVariant &v, *sequence)
-                dumpAttributeVariant(v, indent + QLatin1Char('\t'));
+            for (const QVariant &v : *sequence)
+                dumpAttributeVariant(dbg, v, indent + QLatin1Char('\t'));
         } else if (var.userType() == qMetaTypeId<QBluetoothServiceInfo::Alternative>()) {
-            qDebug("%sAlternative", indent.toLocal8Bit().constData());
+            dbg << QString::asprintf("%sAlternative\n", indent.toUtf8().constData());
             const QBluetoothServiceInfo::Alternative *alternative = static_cast<const QBluetoothServiceInfo::Alternative *>(var.data());
-            foreach (const QVariant &v, *alternative)
-                dumpAttributeVariant(v, indent + QLatin1Char('\t'));
+            for (const QVariant &v : *alternative)
+                dumpAttributeVariant(dbg, v, indent + QLatin1Char('\t'));
         }
         break;
     default:
-        qDebug("%sunknown variant type %d", indent.toLocal8Bit().constData(), var.userType());
+        dbg << QString::asprintf("%sunknown variant type %d\n", indent.toUtf8().constData(),
+                                 var.userType());
     }
 }
 
 QDebug operator << (QDebug dbg, const QBluetoothServiceInfo &info)
 {
-    foreach (quint16 id, info.attributes()) {
-        dumpAttributeVariant(info.attribute(id), QString::fromLatin1("(%1)\t").arg(id));
+    QDebugStateSaver saver(dbg);
+    dbg.noquote() << "\n";
+    const QList<quint16> attributes = info.attributes();
+    for (quint16 id : attributes) {
+        dumpAttributeVariant(dbg, info.attribute(id), QString::fromLatin1("(%1)\t").arg(id));
     }
     return dbg;
 }
@@ -409,7 +400,9 @@ QBluetoothServiceInfo::Sequence QBluetoothServiceInfoPrivate::protocolDescriptor
     if (!attributes.contains(QBluetoothServiceInfo::ProtocolDescriptorList))
         return QBluetoothServiceInfo::Sequence();
 
-    foreach (const QVariant &v, attributes.value(QBluetoothServiceInfo::ProtocolDescriptorList).value<QBluetoothServiceInfo::Sequence>()) {
+    const QBluetoothServiceInfo::Sequence sequence
+            = attributes.value(QBluetoothServiceInfo::ProtocolDescriptorList).value<QBluetoothServiceInfo::Sequence>();
+    for (const QVariant &v : sequence) {
         QBluetoothServiceInfo::Sequence parameters = v.value<QBluetoothServiceInfo::Sequence>();
         if (parameters.empty())
             continue;
@@ -422,16 +415,41 @@ QBluetoothServiceInfo::Sequence QBluetoothServiceInfoPrivate::protocolDescriptor
     return QBluetoothServiceInfo::Sequence();
 }
 
-int QBluetoothServiceInfoPrivate::serverChannel() const
+QBluetoothServiceInfo::Protocol QBluetoothServiceInfoPrivate::socketProtocol() const
 {
     QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::Rfcomm);
+    if (!parameters.isEmpty())
+        return QBluetoothServiceInfo::RfcommProtocol;
 
+    parameters = protocolDescriptor(QBluetoothUuid::L2cap);
+    if (!parameters.isEmpty())
+        return QBluetoothServiceInfo::L2capProtocol;
+
+    return QBluetoothServiceInfo::UnknownProtocol;
+}
+
+
+int QBluetoothServiceInfoPrivate::protocolServiceMultiplexer() const
+{
+    const QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::L2cap);
     if (parameters.isEmpty())
         return -1;
     else if (parameters.count() == 1)
         return 0;
-    else
-        return parameters.at(1).toUInt();
+
+    return parameters.at(1).toUInt();
+}
+
+
+int QBluetoothServiceInfoPrivate::serverChannel() const
+{
+    const QBluetoothServiceInfo::Sequence parameters = protocolDescriptor(QBluetoothUuid::Rfcomm);
+    if (parameters.isEmpty())
+        return -1;
+    else if (parameters.count() == 1)
+        return 0;
+
+    return parameters.at(1).toUInt();
 }
 
 QT_END_NAMESPACE

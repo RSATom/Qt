@@ -50,10 +50,12 @@ namespace Qt3DRender {
 class QAttribute;
 class QGeometryPrivate;
 
-class QT3DRENDERSHARED_EXPORT QGeometry : public Qt3DCore::QNode
+class Q_3DRENDERSHARED_EXPORT QGeometry : public Qt3DCore::QNode
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DRender::QAttribute *boundingVolumePositionAttribute READ boundingVolumePositionAttribute WRITE setBoundingVolumePositionAttribute NOTIFY boundingVolumePositionAttributeChanged)
+    Q_PROPERTY(QVector3D minExtent READ minExtent NOTIFY minExtentChanged REVISION 13)
+    Q_PROPERTY(QVector3D maxExtent READ maxExtent NOTIFY maxExtentChanged REVISION 13)
 public:
     explicit QGeometry(Qt3DCore::QNode *parent = nullptr);
     ~QGeometry();
@@ -63,19 +65,23 @@ public:
     Q_INVOKABLE void removeAttribute(Qt3DRender::QAttribute *attribute);
 
     QAttribute *boundingVolumePositionAttribute() const;
+    QVector3D minExtent() const;
+    QVector3D maxExtent() const;
 
 public Q_SLOTS:
     void setBoundingVolumePositionAttribute(QAttribute *boundingVolumePositionAttribute);
 
 Q_SIGNALS:
     void boundingVolumePositionAttributeChanged(QAttribute *boundingVolumePositionAttribute);
-
+    Q_REVISION(13) void minExtentChanged(const QVector3D &minExtent);
+    Q_REVISION(13) void maxExtentChanged(const QVector3D &maxExtent);
 protected:
     explicit QGeometry(QGeometryPrivate &dd, Qt3DCore::QNode *parent = nullptr);
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QGeometry)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

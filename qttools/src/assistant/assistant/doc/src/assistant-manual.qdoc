@@ -189,7 +189,7 @@
     \section2 Creating a Custom Help Collection File
 
     The help collection file (*.qhc) used by \QA is created when running the
-    \c qcollectiongenerator tool on a help collection project file (*.qhcp).
+    \c qhelpgenerator tool on a help collection project file (*.qhcp).
     The project file format is XML and it supports the following tags:
 
     \table
@@ -251,7 +251,7 @@
             file in the \c{file} tags. It is possible to specify a different file or any
             language. The icon defined by the \c{icon} tags is applied to any language.
         \row
-            \li \c{<cacheDirectory base="collection > default">}
+            \li \c{<cacheDirectory>, <cacheDirectory base="collection">}
             \li Specifies the cache directory that is used to store index files
             needed for the full text search and a copy of the collection file.
             The copy is needed because \QA stores all its settings in the
@@ -279,7 +279,7 @@
 
     \snippet doc_src_assistant-manual.qdoc 1
 
-    To create the binary collection file, run the \c qcollectiongenerator tool:
+    To create the binary collection file, run the \c qhelpgenerator tool:
 
     \snippet doc_src_assistant-manual.qdoc 10
 
@@ -374,25 +374,6 @@
     a semicolon, as shown in the following example:
 
     \snippet doc_src_assistant-manual.qdoc 4
-
-    \section1 Compatibility with Old Formats
-
-    In Qt versions up to 4.3, the help system was based on Document Content File
-    (DCF) and Qt Assistant Documentation Profile (ADP) formats.
-    Unfortunately, the old file formats are not compatible with the new ones
-    that are described in this manual and that are used from Qt 4.4 on, also in Qt 5.
-    In general, the differences are not that big \mdash in most cases is the old
-    format is just a subset of the new one. One example is the \c namespace tag in
-    the Qt Help Project format, which was not part of the old format, but plays a vital
-    role in the new one. To help you to move to the new file format, we have created
-    a conversion wizard.
-
-    The wizard is started by executing \c qhelpconverter. It guides you through the
-    conversion of different parts of the file and generates a new \c qch or \c qhcp
-    file.
-
-    Once the wizard is finished and the files created, run the \c qhelpgenerator
-    or the \c qcollectiongenerator tool to generate the binary help files used by \QA.
 */
 
 /*

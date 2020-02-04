@@ -14,20 +14,15 @@ CFWL_BarcodeTP::CFWL_BarcodeTP() {}
 
 CFWL_BarcodeTP::~CFWL_BarcodeTP() {}
 
-void CFWL_BarcodeTP::DrawBackground(CFWL_ThemeBackground* pParams) {
-  if (!pParams)
-    return;
-
-  switch (pParams->m_iPart) {
-    case CFWL_Part::Border: {
-      DrawBorder(pParams->m_pGraphics, &pParams->m_rtPart, &pParams->m_matrix);
+void CFWL_BarcodeTP::DrawBackground(const CFWL_ThemeBackground& pParams) {
+  switch (pParams.m_iPart) {
+    case CFWL_Part::Border:
+      DrawBorder(pParams.m_pGraphics.Get(), pParams.m_rtPart, pParams.m_matrix);
       break;
-    }
-    case CFWL_Part::Background: {
-      FillBackground(pParams->m_pGraphics, &pParams->m_rtPart,
-                     &pParams->m_matrix);
+    case CFWL_Part::Background:
+      FillBackground(pParams.m_pGraphics.Get(), pParams.m_rtPart,
+                     pParams.m_matrix);
       break;
-    }
     default:
       break;
   }

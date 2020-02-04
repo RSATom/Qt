@@ -22,7 +22,7 @@ using base::android::ToJavaArrayOfStrings;
 namespace autofill {
 
 FormFieldDataAndroid::FormFieldDataAndroid(FormFieldData* field)
-    : field_ptr_(field) {}
+    : heuristic_type_(AutofillType(UNKNOWN_TYPE)), field_ptr_(field) {}
 
 ScopedJavaLocalRef<jobject> FormFieldDataAndroid::GetJavaPeer() {
   JNIEnv* env = AttachCurrentThread();
@@ -39,19 +39,24 @@ ScopedJavaLocalRef<jobject> FormFieldDataAndroid::GetJavaPeer() {
     ScopedJavaLocalRef<jstring> jplaceholder =
         ConvertUTF16ToJavaString(env, field_ptr_->placeholder);
     ScopedJavaLocalRef<jstring> jid =
-        ConvertUTF16ToJavaString(env, field_ptr_->id);
+        ConvertUTF16ToJavaString(env, field_ptr_->id_attribute);
     ScopedJavaLocalRef<jstring> jtype =
         ConvertUTF8ToJavaString(env, field_ptr_->form_control_type);
     ScopedJavaLocalRef<jobjectArray> joption_values =
         ToJavaArrayOfStrings(env, field_ptr_->option_values);
     ScopedJavaLocalRef<jobjectArray> joption_contents =
         ToJavaArrayOfStrings(env, field_ptr_->option_contents);
+    ScopedJavaLocalRef<jstring> jheuristic_type;
+    if (!heuristic_type_.IsUnknown())
+      jheuristic_type =
+          ConvertUTF8ToJavaString(env, heuristic_type_.ToString());
 
     obj = Java_FormFieldData_createFormFieldData(
         env, jname, jlabel, jvalue, jautocomplete_attr,
         field_ptr_->should_autocomplete, jplaceholder, jtype, jid,
         joption_values, joption_contents, IsCheckable(field_ptr_->check_status),
-        IsChecked(field_ptr_->check_status));
+        IsChecked(field_ptr_->check_status), field_ptr_->max_length,
+        jheuristic_type);
     java_ref_ = JavaObjectWeakGlobalRef(env, obj);
   }
   return obj;
@@ -76,7 +81,7 @@ void FormFieldDataAndroid::GetValue() {
   field_ptr_->is_autofilled = true;
 }
 
-void FormFieldDataAndroid::OnTextFieldDidChange(const base::string16& value) {
+void FormFieldDataAndroid::OnFormFieldDidChange(const base::string16& value) {
   field_ptr_->value = value;
   field_ptr_->is_autofilled = false;
   JNIEnv* env = AttachCurrentThread();
@@ -86,6 +91,10 @@ void FormFieldDataAndroid::OnTextFieldDidChange(const base::string16& value) {
 
   Java_FormFieldData_updateValue(env, obj,
                                  ConvertUTF16ToJavaString(env, value));
+}
+
+bool FormFieldDataAndroid::SimilarFieldAs(const FormFieldData& field) const {
+  return field_ptr_->SimilarFieldAs(field);
 }
 
 }  // namespace autofill

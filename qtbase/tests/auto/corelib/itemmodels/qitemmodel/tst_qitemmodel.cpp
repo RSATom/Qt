@@ -125,6 +125,7 @@ private:
 tst_QItemModel::tst_QItemModel()
 {
     qRegisterMetaType<QAbstractItemModel::LayoutChangeHint>();
+    qRegisterMetaType<QList<QPersistentModelIndex>>();
 }
 
 void tst_QItemModel::init()
@@ -181,7 +182,7 @@ void tst_QItemModel::nonDestructiveBasicTest()
     currentModel->hasChildren(QModelIndex());
     currentModel->hasIndex(0, 0);
     currentModel->headerData(0, Qt::Horizontal);
-    currentModel->index(0,0), QModelIndex();
+    currentModel->index(0,0);
     currentModel->itemData(QModelIndex());
     QVariant cache;
     currentModel->match(QModelIndex(), -1, cache);
@@ -428,6 +429,14 @@ void checkChildren(QAbstractItemModel *currentModel, const QModelIndex &parent, 
                 const QModelIndex sibling = topLeftChild.sibling( r, c );
                 QVERIFY( index == sibling );
             }
+            if (r == topLeftChild.row()) {
+                const QModelIndex sibling = topLeftChild.siblingAtColumn( c );
+                QVERIFY( index == sibling );
+            }
+            if (c == topLeftChild.column()) {
+                const QModelIndex sibling = topLeftChild.siblingAtRow( r );
+                QVERIFY( index == sibling );
+            }
 
             // Some basic checking on the index that is returned
             QCOMPARE(index.model(), currentModel);
@@ -533,9 +542,6 @@ void tst_QItemModel::data()
     // A valid index should have a valid qvariant data
     QVERIFY(currentModel->index(0,0).isValid());
 
-    // shouldn't be able to set data on an invalid index
-    QCOMPARE(currentModel->setData(QModelIndex(), "foo", Qt::DisplayRole), false);
-
     // General Purpose roles
     QVariant variant = currentModel->data(currentModel->index(0,0), Qt::ToolTipRole);
     if (variant.isValid()) {
@@ -571,12 +577,12 @@ void tst_QItemModel::data()
                 alignment == Qt::AlignJustify);
     }
 
-    QVariant colorVariant = currentModel->data(currentModel->index(0,0), Qt::BackgroundColorRole);
+    QVariant colorVariant = currentModel->data(currentModel->index(0,0), Qt::BackgroundRole);
     if (colorVariant.isValid()) {
         QVERIFY(colorVariant.canConvert<QColor>());
     }
 
-    colorVariant = currentModel->data(currentModel->index(0,0), Qt::TextColorRole);
+    colorVariant = currentModel->data(currentModel->index(0,0), Qt::ForegroundRole);
     if (colorVariant.isValid()) {
         QVERIFY(colorVariant.canConvert<QColor>());
     }
@@ -605,7 +611,6 @@ void tst_QItemModel::setData()
     QVERIFY(currentModel);
     QSignalSpy spy(currentModel, &QAbstractItemModel::dataChanged);
     QVERIFY(spy.isValid());
-    QCOMPARE(currentModel->setData(QModelIndex(), QVariant()), false);
     QCOMPARE(spy.count(), 0);
 
     QFETCH(bool, isEmpty);

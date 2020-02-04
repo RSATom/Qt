@@ -38,7 +38,9 @@ void OnSuggestionOpened(int global_position,
                         int position_in_category,
                         base::Time publish_date,
                         float score,
-                        WindowOpenDisposition disposition);
+                        WindowOpenDisposition disposition,
+                        bool is_prefetched,
+                        bool is_offline);
 
 void OnSuggestionMenuOpened(int global_position,
                             Category category,

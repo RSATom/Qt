@@ -16,7 +16,7 @@ namespace content {
 
 // static
 PepperPluginRegistry* PepperPluginRegistry::GetInstance() {
-  static PepperPluginRegistry* registry = NULL;
+  static PepperPluginRegistry* registry = nullptr;
   // This object leaks.  It is a temporary hack to work around a crash.
   // http://code.google.com/p/chromium/issues/detail?id=63234
   if (!registry) {
@@ -28,9 +28,9 @@ PepperPluginRegistry* PepperPluginRegistry::GetInstance() {
 
 const PepperPluginInfo* PepperPluginRegistry::GetInfoForPlugin(
     const WebPluginInfo& info) {
-  for (size_t i = 0; i < plugin_list_.size(); ++i) {
-    if (info.path == plugin_list_[i].path)
-      return &plugin_list_[i];
+  for (const auto& plugin : plugin_list_) {
+    if (info.path == plugin.path)
+      return &plugin;
   }
   // We did not find the plugin in our list. But wait! the plugin can also
   // be a latecomer, as it happens with pepper flash. This information
@@ -45,10 +45,12 @@ const PepperPluginInfo* PepperPluginRegistry::GetInfoForPlugin(
   return &plugin_list_.back();
 }
 
-PluginModule* PepperPluginRegistry::GetLiveModule(const base::FilePath& path) {
-  NonOwningModuleMap::iterator module_iter = live_modules_.find(path);
+PluginModule* PepperPluginRegistry::GetLiveModule(
+    const base::FilePath& path,
+    const base::Optional<url::Origin>& origin_lock) {
+  auto module_iter = live_modules_.find({path, origin_lock});
   if (module_iter == live_modules_.end())
-    return NULL;
+    return nullptr;
 
   // Check the instances for the module to see if they've all been Delete()d.
   // We don't want to return a PluginModule in that case, since the plugin may
@@ -61,20 +63,21 @@ PluginModule* PepperPluginRegistry::GetLiveModule(const base::FilePath& path) {
   if (instance_set.empty())
     return module_iter->second;
 
-  PluginModule::PluginInstanceSet::const_iterator instance_iter =
-      instance_set.begin();
+  auto instance_iter = instance_set.begin();
   while (instance_iter != instance_set.end()) {
     if (!(*instance_iter)->is_deleted())
       return module_iter->second;
     ++instance_iter;
   }
-  return NULL;
+  return nullptr;
 }
 
-void PepperPluginRegistry::AddLiveModule(const base::FilePath& path,
-                                         PluginModule* module) {
-  DCHECK(live_modules_.find(path) == live_modules_.end());
-  live_modules_[path] = module;
+void PepperPluginRegistry::AddLiveModule(
+    const base::FilePath& path,
+    const base::Optional<url::Origin>& origin_lock,
+    PluginModule* module) {
+  DCHECK(live_modules_.find({path, origin_lock}) == live_modules_.end());
+  live_modules_[{path, origin_lock}] = module;
 }
 
 void PepperPluginRegistry::PluginModuleDead(PluginModule* dead_module) {
@@ -83,9 +86,7 @@ void PepperPluginRegistry::PluginModuleDead(PluginModule* dead_module) {
 
   // Modules aren't destroyed very often and there are normally at most a
   // couple of them. So for now we just do a brute-force search.
-  for (NonOwningModuleMap::iterator i = live_modules_.begin();
-       i != live_modules_.end();
-       ++i) {
+  for (auto i = live_modules_.begin(); i != live_modules_.end(); ++i) {
     if (i->second == dead_module) {
       live_modules_.erase(i);
       return;
@@ -112,17 +113,14 @@ void PepperPluginRegistry::Initialize() {
   // initialization. If we bail out (in the continue clauses) before saving
   // the initialized module, it will still try to unregister itself in its
   // destructor.
-  for (size_t i = 0; i < plugin_list_.size(); i++) {
-    const PepperPluginInfo& current = plugin_list_[i];
+  for (const auto& current : plugin_list_) {
     if (current.is_out_of_process)
       continue;  // Out of process plugins need no special pre-initialization.
 
-    scoped_refptr<PluginModule> module =
-        new PluginModule(current.name,
-                         current.version,
-                         current.path,
-                         ppapi::PpapiPermissions(current.permissions));
-    AddLiveModule(current.path, module.get());
+    auto module = base::MakeRefCounted<PluginModule>(
+        current.name, current.version, current.path,
+        ppapi::PpapiPermissions(current.permissions));
+    AddLiveModule(current.path, base::Optional<url::Origin>(), module.get());
     if (current.is_internal) {
       if (!module->InitAsInternalPlugin(current.internal_entry_points)) {
         DVLOG(1) << "Failed to load pepper module: " << current.path.value();

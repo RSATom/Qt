@@ -1,18 +1,39 @@
 include(common.pri)
-include($$QTWEBENGINE_OUT_ROOT/qtwebengine-config.pri)
-QT_FOR_CONFIG += gui-private webengine-private
+include(functions.pri)
+
+defineReplace(extractCFlag) {
+    return($$qtwebengine_extractCFlag($$1))
+}
+
+QT_FOR_CONFIG += gui-private webenginecore-private
 
 gn_args += \
     use_cups=false \
-    use_gconf=false \
     use_gio=false \
     use_gnome_keyring=false \
-    use_kerberos=false \
     linux_use_bundled_binutils=false \
-    use_nss_certs=true \
-    use_openssl_certs=false
+    use_udev=true \
+    use_bundled_fontconfig=false \
+    use_sysroot=false \
+    enable_session_service=false \
+    is_cfi=false \
+    toolkit_views=false \
+    use_ozone=true \
+    ozone_auto_platforms=false \
+    ozone_platform_headless=false \
+    ozone_platform_external=true \
+    ozone_platform=\"qt\" \
+    ozone_extra_path=\"$$QTWEBENGINE_ROOT/src/core/ozone/ozone_extra.gni\"
 
-gcc:!clang: greaterThan(QT_GCC_MAJOR_VERSION, 5): gn_args += no_delete_null_pointer_checks=true
+qtConfig(webengine-embedded-build) {
+    gn_args += is_desktop_linux=false
+}
+
+use_gold_linker: gn_args += use_gold=true
+else: gn_args += use_gold=false
+
+use_lld_linker: gn_args += use_lld=true
+else: gn_args += use_lld=false
 
 clang {
     clang_full_path = $$which($${QMAKE_CXX})
@@ -21,6 +42,7 @@ clang {
     gn_args += \
         is_clang=true \
         clang_use_chrome_plugins=false \
+        clang_use_default_sample_profile=false \
         clang_base_path=\"$${clang_prefix}\"
 
     linux-clang-libc++: gn_args += use_libcxx=true
@@ -44,6 +66,7 @@ contains(QT_ARCH, "arm") {
     !isEmpty(MFLOAT): gn_args += arm_float_abi=\"$$MFLOAT\"
 
     MARCH = $$extractCFlag("-march=.*")
+    !isEmpty(MARCH): gn_args += arm_arch=\"$$MARCH\"
 
     MARMV = $$replace(MARCH, "armv",)
     !isEmpty(MARMV) {
@@ -53,6 +76,7 @@ contains(QT_ARCH, "arm") {
         gn_args += arm_version=$$MARMV
     }
 
+    # TODO: use neon detection from qtbase
     !lessThan(MARMV, 8) {
         gn_args += arm_use_neon=true
     } else {
@@ -67,8 +91,16 @@ contains(QT_ARCH, "arm") {
         }
     }
 
-    if(isEmpty(MARMV)|lessThan(MARMV, 7)):contains(QMAKE_CFLAGS, "-marm"): gn_args += arm_use_thumb=false
-    else: contains(QMAKE_CFLAGS, "-mthumb"): gn_args += arm_use_thumb=true
+    qtConfig(webengine-arm-thumb) {
+        gn_args += arm_use_thumb=true # this adds -mthumb
+    } else {
+        gn_args += arm_use_thumb=false
+        !qtConfig(webengine-system-ffmpeg) {
+             # Fixme QTBUG-71772
+             gn_args += media_use_ffmpeg=false
+             gn_args += use_webaudio_ffmpeg=false
+        }
+    }
 }
 
 contains(QT_ARCH, "mips") {
@@ -95,7 +127,6 @@ host_build {
     gn_args += host_cpu=\"$$GN_HOST_CPU\"
     # Don't bother trying to use system libraries in this case
     gn_args += use_glib=false
-    gn_args += use_system_libffi=false
 } else {
     gn_args += custom_toolchain=\"$$QTWEBENGINE_OUT_ROOT/src/toolchain:target\"
     gn_args += host_toolchain=\"$$QTWEBENGINE_OUT_ROOT/src/toolchain:host\"
@@ -124,15 +155,30 @@ host_build {
         gn_args += host_pkg_config=\"$$PKG_CONFIG_HOST\"
     }
 
-    qtConfig(webengine-system-zlib): qtConfig(webengine-system-minizip) {
-        gn_args += use_system_zlib=true use_system_minizip=true
+    qtConfig(webengine-system-zlib) {
+        qtConfig(webengine-system-minizip): gn_args += use_system_zlib=true use_system_minizip=true
         qtConfig(webengine-printing-and-pdf): gn_args += pdfium_use_system_zlib=true
     }
-    qtConfig(webengine-system-png): gn_args += use_system_libpng=true
-    qtConfig(system-jpeg): gn_args += use_system_libjpeg=true
-    qtConfig(system-freetype): gn_args += use_system_freetype=true
-    qtConfig(webengine-system-harfbuzz): gn_args += use_system_harfbuzz=true
-    qtConfig(webengine-system-glib): gn_args += use_glib=false
+    qtConfig(webengine-system-png) {
+        gn_args += use_system_libpng=true
+        qtConfig(webengine-printing-and-pdf): gn_args += pdfium_use_system_libpng=true
+    }
+    qtConfig(webengine-system-jpeg) {
+        gn_args += use_system_libjpeg=true
+    } else {
+        gn_args += use_system_libjpeg=false
+    }
+    qtConfig(webengine-system-freetype) {
+        gn_args += use_system_freetype=true
+    } else {
+        gn_args += use_system_freetype=false
+    }
+    qtConfig(webengine-system-harfbuzz) {
+        gn_args += use_system_harfbuzz=true
+    } else {
+        gn_args += use_system_harfbuzz=false
+    }
+    gn_args += use_glib=false
     qtConfig(webengine-pulseaudio) {
         gn_args += use_pulseaudio=true
     } else {
@@ -143,10 +189,12 @@ host_build {
     } else {
         gn_args += use_alsa=false
     }
-    packagesExist(libffi): gn_args += use_system_libffi=true
-    else: gn_args += use_system_libffi=false
     !packagesExist(libpci): gn_args += use_libpci=false
-    !packagesExist(xscrnsaver): gn_args += use_xscrnsaver=false
+
+    qtConfig(webengine-ozone-x11) {
+        gn_args += ozone_platform_x11=true
+        packagesExist(xscrnsaver): gn_args += use_xscrnsaver=true
+    }
 
     qtConfig(webengine-system-libevent): gn_args += use_system_libevent=true
     qtConfig(webengine-system-libwebp):  gn_args += use_system_libwebp=true

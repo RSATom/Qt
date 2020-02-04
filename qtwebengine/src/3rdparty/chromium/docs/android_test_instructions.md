@@ -6,7 +6,26 @@
 
 ### Physical Device Setup
 
+#### Root Access
+
+Running tests requires being able to run "adb root", which requires using a
+userdebug build on your device.
+
+To use a userdebug build, see
+[Running Builds](https://source.android.com/setup/build/running.html). Googlers
+can refer to [this page](https://goto.google.com/flashdevice).
+
+If you can't run "adb root", you will get an error when trying to install the
+test APKs like "adb: error: failed to copy" and "remote secure_mkdirs failed:
+Operation not permitted".
+
 #### ADB Debugging
+
+The adb executable exists within the Android SDK:
+
+```shell
+third_party/android_tools/sdk/platform-tools/adb
+```
 
 In order to allow the ADB to connect to the device, you must enable USB
 debugging:
@@ -34,12 +53,6 @@ If this option is greyed out, stay awake is probably disabled by policy. In that
 case, get another device or log in with a normal, unmanaged account (because the
 tests will break in exciting ways if stay awake is off).
 
-#### Enable Asserts
-
-```
-adb shell setprop debug.assert 1
-```
-
 #### Disable Verify Apps
 
 You may see a dialog like [this
@@ -51,52 +64,10 @@ behavior._ This can interfere with the test runner. To disable this dialog, run:
 adb shell settings put global package_verifier_enable 0
 ```
 
-### Emulator Setup
+### Using Emulators
 
-#### Option 1
-
-Use an emulator (i.e. Android Virtual Device, AVD): Enabling Intel's
-Virtualizaton support provides the fastest, most reliable emulator configuration
-available (i.e. x86 emulator with GPU acceleration and KVM support). Remember to
-build with `target_cpu = "x86"` for x86. Otherwise installing the APKs will fail
-with `INSTALL_FAILED_NO_MATCHING_ABIS`.
-
-1.  Enable Intel Virtualization support in the BIOS.
-
-2.  Set up your environment:
-
-    ```shell
-    . build/android/envsetup.sh
-    ```
-
-3.  Install emulator deps:
-
-    ```shell
-    build/android/install_emulator_deps.py --api-level=23
-    ```
-
-    This script will download Android SDK and place it a directory called
-    android\_tools in the same parent directory as your chromium checkout. It
-    will also download the system-images for the emulators (i.e. arm and x86).
-    Note that this is a different SDK download than the Android SDK in the
-    chromium source checkout (i.e. `src/third_party/android_emulator_sdk`).
-
-4.  Run the avd.py script. To start up _num_ emulators use -n. For non-x86 use
-    --abi.
-
-    ```shell
-    build/android/avd.py --api-level=23
-    ```
-
-    This script will attempt to use GPU emulation, so you must be running the
-    emulators in an environment with hardware rendering available. See `avd.py
-    --help` for more details.
-
-#### Option 2
-
-Alternatively, you can create and run your own emulator using the tools provided
-by the Android SDK. When doing so, be sure to enable GPU emulation in hardware
-settings, since Chromium requires it to render.
+Running tests on emulators is the same as on device. Refer to
+[android_emulator.md](android_emulator.md) for setting up emulators.
 
 ## Building Tests
 
@@ -124,7 +95,6 @@ Java test files vary a bit more widely than their C++ counterparts:
     -   `webview_instrumentation_test_apk` for anything in `//android_webview`
     -   `content_shell_test_apk` for anything in `//content` or below
     -   `chrome_public_test_apk` for most things in `//chrome`
-    -   `chrome_sync_shell_test_apk` in a few exceptional cases
 -   JUnit or Robolectric test files -- i.e., tests that will run on the host --
     typically belong in `<top-level directory>_junit_tests` (e.g.
     `base_junit_tests` for `//base`), though here again there are cases
@@ -200,20 +170,26 @@ for example, `content_junit_tests` and `chrome_junit_tests`.
 
 When adding a new JUnit test, the associated `BUILD.gn` file must be updated.
 For example, adding a test to `chrome_junit_tests` requires to update
-`chrome/android/BUILD.gn`. If you are a GYP user, you will not need to do that
-step in order to run the test locally but it is still required for GN users to
-run the test.
+`chrome/android/BUILD.gn`.
 
 ```shell
 # Build the test suite.
-ninja -C out/my_build chrome_junit_tests
+ninja -C out/Default chrome_junit_tests
 
 # Run the test suite.
-BUILDTYPE=my_build build/android/test_runner.py junit -s chrome_junit_tests -vvv
+out/Default/run_chrome_junit_tests
 
 # Run a subset of tests. You might need to pass the package name for some tests.
-BUILDTYPE=my_build build/android/test_runner.py junit -s chrome_junit_tests -vvv
--f "org.chromium.chrome.browser.media.*"
+out/Default/run_chrome_junit_tests -f "org.chromium.chrome.browser.media.*"
+```
+
+### Debugging
+
+Similar to [debugging apk targets](android_debugging_instructions.md#debugging-java):
+
+```shell
+out/Default/bin/run_chrome_junit_tests --wait-for-java-debugger
+out/Default/bin/run_chrome_junit_tests --wait-for-java-debugger  # Specify custom port via --debug-socket=9999
 ```
 
 ## Gtests
@@ -302,9 +278,28 @@ out/Debug/bin/run_content_shell_test_apk -A Feature=Navigation
 You might want to add stars `*` to each as a regular expression, e.g.
 `*`AddressDetectionTest`*`
 
-## Running Blink Layout Tests
+### Debugging
 
-See [Layout Tests](testing/layout_tests.md).
+Similar to [debugging apk targets](android_debugging_instructions.md#debugging-java):
+
+```shell
+out/Debug/bin/run_content_shell_test_apk --wait-for-java-debugger
+```
+
+### Deobfuscating Java Stacktraces
+
+If running with `is_debug=false`, Java stacks from logcat need to be fixed up:
+
+```shell
+out/Release/bin/java_deobfuscate out/Release/apks/ChromePublicTest.apk.mapping < stacktrace.txt
+```
+
+Any stacks produced by test runner output will already be deobfuscated.
+
+
+## Running Blink Web Tests
+
+See [Web Tests](testing/web_tests.md).
 
 ## Running GPU tests
 

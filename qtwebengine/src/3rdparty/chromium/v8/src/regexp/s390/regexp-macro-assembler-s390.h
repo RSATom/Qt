@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_S390_REGEXP_MACRO_ASSEMBLER_S390_H_
-#define V8_S390_REGEXP_MACRO_ASSEMBLER_S390_H_
+#ifndef V8_REGEXP_S390_REGEXP_MACRO_ASSEMBLER_S390_H_
+#define V8_REGEXP_S390_REGEXP_MACRO_ASSEMBLER_S390_H_
 
 #include "src/macro-assembler.h"
 #include "src/regexp/regexp-macro-assembler.h"
 #include "src/s390/assembler-s390.h"
-#include "src/s390/frames-s390.h"
 
 namespace v8 {
 namespace internal {
@@ -81,7 +80,8 @@ class RegExpMacroAssemblerS390 : public NativeRegExpMacroAssembler {
   // Called from RegExp if the stack-guard is triggered.
   // If the code object is relocated, the return address is fixed before
   // returning.
-  static int CheckStackGuardState(Address* return_address, Code* re_code,
+  // {raw_code} is an Address because this is called via ExternalReference.
+  static int CheckStackGuardState(Address* return_address, Address raw_code,
                                   Address re_frame);
 
  private:
@@ -117,7 +117,7 @@ class RegExpMacroAssemblerS390 : public NativeRegExpMacroAssembler {
   static const int kRegisterZero = kStringStartMinusOne - kPointerSize;
 
   // Initial size of code buffer.
-  static const size_t kRegExpCodeSize = 1024;
+  static const int kRegExpCodeSize = 1024;
 
   // Load a number of characters at the given offset from the
   // current position, into the current-character register.
@@ -161,7 +161,7 @@ class RegExpMacroAssemblerS390 : public NativeRegExpMacroAssembler {
   inline int char_size() { return static_cast<int>(mode_); }
 
   // Equivalent to a conditional branch to the label, unless the label
-  // is NULL, in which case it is a conditional Backtrack.
+  // is nullptr, in which case it is a conditional Backtrack.
   void BranchOrBacktrack(Condition condition, Label* to, CRegister cr = cr7);
 
   // Call and return internally in the generated code in a way that
@@ -211,4 +211,4 @@ const RegList kRegExpCalleeSaved =
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_S390_REGEXP_MACRO_ASSEMBLER_S390_H_
+#endif  // V8_REGEXP_S390_REGEXP_MACRO_ASSEMBLER_S390_H_

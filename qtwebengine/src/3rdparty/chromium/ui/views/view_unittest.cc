@@ -9,19 +9,26 @@
 #include <map>
 #include <memory>
 
+#include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/rand_util.h"
+#include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/icu_test_util.h"
+#include "base/test/scoped_feature_list.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/paint/display_item_list.h"
+#include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/compositor.h"
+#include "ui/compositor/compositor_switches.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/paint_context.h"
@@ -32,14 +39,15 @@
 #include "ui/events/scoped_target_handler.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/path.h"
 #include "ui/gfx/transform.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/native_theme/test_native_theme.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/native/native_view_host.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/textfield/textfield.h"
+#include "ui/views/paint_info.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/view_observer.h"
 #include "ui/views/widget/native_widget.h"
@@ -188,18 +196,6 @@ void ScrambleTree(views::View* view) {
     view->SetVisible(!view->visible());
 }
 
-class ScopedRTL {
- public:
-  ScopedRTL() {
-    locale_ = base::i18n::GetConfiguredLocale();
-    base::i18n::SetICUDefaultLocale("he");
-  }
-  ~ScopedRTL() { base::i18n::SetICUDefaultLocale(locale_); }
-
- private:
-  std::string locale_;
-};
-
 }  // namespace
 
 namespace views {
@@ -268,6 +264,8 @@ class TestView : public View {
 
   void OnNativeThemeChanged(const ui::NativeTheme* native_theme) override;
 
+  void OnAccessibilityEvent(ax::mojom::Event event_type) override;
+
   // OnBoundsChanged.
   bool did_change_bounds_;
   gfx::Rect new_bounds_;
@@ -294,6 +292,9 @@ class TestView : public View {
 
   // Value to return from CanProcessEventsWithinSubtree().
   bool can_process_events_within_subtree_;
+
+  // Accessibility events
+  ax::mojom::Event last_a11y_event_;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -325,9 +326,51 @@ TEST_F(ViewTest, LayoutCalledInvalidateAndOriginChanges) {
   EXPECT_TRUE(child->did_layout_);
 }
 
+// Tests that SizeToPreferredSize will trigger a Layout if the size has changed
+// or if layout is marked invalid.
+TEST_F(ViewTest, SizeToPreferredSizeInducesLayout) {
+  TestView example_view;
+  example_view.SetPreferredSize(gfx::Size(101, 102));
+  example_view.SizeToPreferredSize();
+  EXPECT_TRUE(example_view.did_layout_);
+
+  example_view.Reset();
+  example_view.SizeToPreferredSize();
+  EXPECT_FALSE(example_view.did_layout_);
+
+  example_view.InvalidateLayout();
+  example_view.SizeToPreferredSize();
+  EXPECT_TRUE(example_view.did_layout_);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // OnBoundsChanged
 ////////////////////////////////////////////////////////////////////////////////
+
+void TestView::OnAccessibilityEvent(ax::mojom::Event event_type) {
+  last_a11y_event_ = event_type;
+}
+
+TEST_F(ViewTest, OnBoundsChangedFiresA11yEvent) {
+  TestView v;
+
+  // Should change when scaled or moved.
+  gfx::Rect initial(0, 0, 200, 200);
+  gfx::Rect scaled(0, 0, 250, 250);
+  gfx::Rect moved(100, 100, 250, 250);
+
+  v.last_a11y_event_ = ax::mojom::Event::kNone;
+  v.SetBoundsRect(initial);
+  EXPECT_EQ(v.last_a11y_event_, ax::mojom::Event::kLocationChanged);
+
+  v.last_a11y_event_ = ax::mojom::Event::kNone;
+  v.SetBoundsRect(scaled);
+  EXPECT_EQ(v.last_a11y_event_, ax::mojom::Event::kLocationChanged);
+
+  v.last_a11y_event_ = ax::mojom::Event::kNone;
+  v.SetBoundsRect(moved);
+  EXPECT_EQ(v.last_a11y_event_, ax::mojom::Event::kLocationChanged);
+}
 
 void TestView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   did_change_bounds_ = true;
@@ -527,7 +570,9 @@ TEST_F(ViewTest, PaintEmptyView) {
   // Paint "everything".
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      first_paint.size()));
 
   // The empty view has nothing to paint so it doesn't try build a cache, nor do
   // its children which would be clipped by its (empty) self.
@@ -548,8 +593,8 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCache) {
   gfx::Rect pixel_rect = gfx::Rect(1, 1);
   float device_scale_factor = 1.f;
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(
-      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect, false));
   EXPECT_TRUE(v1->did_paint_);
   v1->Reset();
   // The visual rects for (clip, drawing, transform) should be in layer space.
@@ -564,15 +609,15 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCache) {
 
   // If invalidation doesn't intersect v1, we paint with the cache.
   list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(
-      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect, false));
   EXPECT_FALSE(v1->did_paint_);
   v1->Reset();
 
   // If invalidation does intersect v1, we don't paint with the cache.
   list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(
-      ui::PaintContext(list.get(), device_scale_factor, v1->bounds()));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), device_scale_factor, v1->bounds(), false));
   EXPECT_TRUE(v1->did_paint_);
   v1->Reset();
 
@@ -580,8 +625,8 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCache) {
   // intersect v1.
   list = base::MakeRefCounted<cc::DisplayItemList>();
   v1->SetX(9);
-  root_view->Paint(
-      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect, false));
   EXPECT_FALSE(v1->did_paint_);
   v1->Reset();
   item_index = 3;
@@ -597,8 +642,8 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCache) {
   // invalidation.
   list = base::MakeRefCounted<cc::DisplayItemList>();
   v1->SetX(8);
-  root_view->Paint(ui::PaintContext(
-      ui::PaintContext(list.get(), device_scale_factor, pixel_rect),
+  root_view->PaintFromPaintRoot(ui::PaintContext(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect, false),
       ui::PaintContext::CLONE_WITHOUT_INVALIDATION));
   EXPECT_TRUE(v1->did_paint_);
   v1->Reset();
@@ -613,7 +658,7 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCache) {
 }
 
 TEST_F(ViewTest, PaintWithMovedViewUsesCacheInRTL) {
-  ScopedRTL rtl;
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_("he");
   ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
   View* root_view = widget->GetRootView();
   TestView* v1 = new TestView;
@@ -625,8 +670,8 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCacheInRTL) {
   gfx::Rect pixel_rect = gfx::Rect(1, 1);
   float device_scale_factor = 1.f;
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(
-      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect, false));
   EXPECT_TRUE(v1->did_paint_);
   v1->Reset();
   // The visual rects for (clip, drawing, transform) should be in layer space.
@@ -642,15 +687,15 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCacheInRTL) {
 
   // If invalidation doesn't intersect v1, we paint with the cache.
   list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(
-      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect, false));
   EXPECT_FALSE(v1->did_paint_);
   v1->Reset();
 
   // If invalidation does intersect v1, we don't paint with the cache.
   list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(
-      ui::PaintContext(list.get(), device_scale_factor, v1->bounds()));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), device_scale_factor, v1->bounds(), false));
   EXPECT_TRUE(v1->did_paint_);
   v1->Reset();
 
@@ -658,8 +703,8 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCacheInRTL) {
   // intersect v1.
   list = base::MakeRefCounted<cc::DisplayItemList>();
   v1->SetX(9);
-  root_view->Paint(
-      ui::PaintContext(list.get(), device_scale_factor, pixel_rect));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect, false));
   EXPECT_FALSE(v1->did_paint_);
   v1->Reset();
   item_index = 3;
@@ -676,8 +721,8 @@ TEST_F(ViewTest, PaintWithMovedViewUsesCacheInRTL) {
   // invalidation.
   list = base::MakeRefCounted<cc::DisplayItemList>();
   v1->SetX(8);
-  root_view->Paint(ui::PaintContext(
-      ui::PaintContext(list.get(), device_scale_factor, pixel_rect),
+  root_view->PaintFromPaintRoot(ui::PaintContext(
+      ui::PaintContext(list.get(), device_scale_factor, pixel_rect, false),
       ui::PaintContext::CLONE_WITHOUT_INVALIDATION));
   EXPECT_TRUE(v1->did_paint_);
   v1->Reset();
@@ -708,7 +753,8 @@ TEST_F(ViewTest, PaintWithUnknownInvalidation) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), 1.f, first_paint, false));
   v1->Reset();
   v2->Reset();
 
@@ -719,13 +765,14 @@ TEST_F(ViewTest, PaintWithUnknownInvalidation) {
   // With a known invalidation, v1 and v2 are not painted.
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(list.get(), 1.f, paint_area, false));
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
 
   // With unknown invalidation, v1 and v2 are painted.
-  root_view->Paint(
-      ui::PaintContext(ui::PaintContext(list.get(), 1.f, paint_area),
+  root_view->PaintFromPaintRoot(
+      ui::PaintContext(ui::PaintContext(list.get(), 1.f, paint_area, false),
                        ui::PaintContext::CLONE_WITHOUT_INVALIDATION));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_TRUE(v2->did_paint_);
@@ -747,7 +794,9 @@ TEST_F(ViewTest, PaintContainsChildren) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -757,13 +806,14 @@ TEST_F(ViewTest, PaintContainsChildren) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_TRUE(v2->did_paint_);
 }
 
 TEST_F(ViewTest, PaintContainsChildrenInRTL) {
-  ScopedRTL rtl;
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_("he");
   ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
   View* root_view = widget->GetRootView();
 
@@ -790,7 +840,9 @@ TEST_F(ViewTest, PaintContainsChildrenInRTL) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -800,7 +852,8 @@ TEST_F(ViewTest, PaintContainsChildrenInRTL) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_TRUE(v2->did_paint_);
 }
@@ -821,7 +874,9 @@ TEST_F(ViewTest, PaintIntersectsChildren) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -831,13 +886,14 @@ TEST_F(ViewTest, PaintIntersectsChildren) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_TRUE(v2->did_paint_);
 }
 
 TEST_F(ViewTest, PaintIntersectsChildrenInRTL) {
-  ScopedRTL rtl;
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_("he");
   ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
   View* root_view = widget->GetRootView();
 
@@ -864,7 +920,9 @@ TEST_F(ViewTest, PaintIntersectsChildrenInRTL) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -874,7 +932,8 @@ TEST_F(ViewTest, PaintIntersectsChildrenInRTL) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_TRUE(v2->did_paint_);
 }
@@ -895,7 +954,9 @@ TEST_F(ViewTest, PaintIntersectsChildButNotGrandChild) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -905,13 +966,14 @@ TEST_F(ViewTest, PaintIntersectsChildButNotGrandChild) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
 }
 
 TEST_F(ViewTest, PaintIntersectsChildButNotGrandChildInRTL) {
-  ScopedRTL rtl;
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_("he");
   ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
   View* root_view = widget->GetRootView();
 
@@ -938,7 +1000,9 @@ TEST_F(ViewTest, PaintIntersectsChildButNotGrandChildInRTL) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -948,7 +1012,8 @@ TEST_F(ViewTest, PaintIntersectsChildButNotGrandChildInRTL) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
 }
@@ -969,7 +1034,9 @@ TEST_F(ViewTest, PaintIntersectsNoChildren) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -979,13 +1046,14 @@ TEST_F(ViewTest, PaintIntersectsNoChildren) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
 }
 
 TEST_F(ViewTest, PaintIntersectsNoChildrenInRTL) {
-  ScopedRTL rtl;
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_("he");
   ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
   View* root_view = widget->GetRootView();
 
@@ -1012,7 +1080,9 @@ TEST_F(ViewTest, PaintIntersectsNoChildrenInRTL) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -1022,7 +1092,8 @@ TEST_F(ViewTest, PaintIntersectsNoChildrenInRTL) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
 }
@@ -1043,7 +1114,9 @@ TEST_F(ViewTest, PaintIntersectsOneChild) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -1054,7 +1127,8 @@ TEST_F(ViewTest, PaintIntersectsOneChild) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_TRUE(v2->did_paint_);
 
@@ -1065,13 +1139,14 @@ TEST_F(ViewTest, PaintIntersectsOneChild) {
   v2->Reset();
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
 }
 
 TEST_F(ViewTest, PaintIntersectsOneChildInRTL) {
-  ScopedRTL rtl;
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_("he");
   ScopedTestPaintWidget widget(CreateParams(Widget::InitParams::TYPE_POPUP));
   View* root_view = widget->GetRootView();
 
@@ -1098,7 +1173,9 @@ TEST_F(ViewTest, PaintIntersectsOneChildInRTL) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false),
+      root_view->size()));
   v1->Reset();
   v2->Reset();
 
@@ -1109,7 +1186,8 @@ TEST_F(ViewTest, PaintIntersectsOneChildInRTL) {
 
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_TRUE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
 
@@ -1120,7 +1198,8 @@ TEST_F(ViewTest, PaintIntersectsOneChildInRTL) {
   v2->Reset();
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_FALSE(v2->did_paint_);
-  root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+  root_view->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, paint_area, false), root_view->size()));
   EXPECT_FALSE(v1->did_paint_);
   EXPECT_TRUE(v2->did_paint_);
 }
@@ -1142,7 +1221,8 @@ TEST_F(ViewTest, PaintInPromotedToLayer) {
   // invalidation.
   gfx::Rect first_paint(1, 1);
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  v1->Paint(ui::PaintContext(list.get(), 1.f, first_paint));
+  v1->Paint(PaintInfo::CreateRootPaintInfo(
+      ui::PaintContext(list.get(), 1.f, first_paint, false), v1->size()));
   v1->Reset();
   v2->Reset();
 
@@ -1152,7 +1232,9 @@ TEST_F(ViewTest, PaintInPromotedToLayer) {
     auto list = base::MakeRefCounted<cc::DisplayItemList>();
 
     // The promoted views are not painted as they are separate paint roots.
-    root_view->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+    root_view->Paint(PaintInfo::CreateRootPaintInfo(
+        ui::PaintContext(list.get(), 1.f, paint_area, false),
+        root_view->size()));
     EXPECT_FALSE(v1->did_paint_);
     EXPECT_FALSE(v2->did_paint_);
   }
@@ -1164,7 +1246,8 @@ TEST_F(ViewTest, PaintInPromotedToLayer) {
 
     // The |v1| view is painted. If it used its offset incorrect, it would think
     // its at (10,11) instead of at (0,0) since it is the paint root.
-    v1->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+    v1->Paint(PaintInfo::CreateRootPaintInfo(
+        ui::PaintContext(list.get(), 1.f, paint_area, false), v1->size()));
     EXPECT_TRUE(v1->did_paint_);
     EXPECT_FALSE(v2->did_paint_);
   }
@@ -1178,7 +1261,8 @@ TEST_F(ViewTest, PaintInPromotedToLayer) {
 
     // The |v2| view is painted also. If it used its offset incorrect, it would
     // think its at (13,15) instead of at (3,4) since |v1| is the paint root.
-    v1->Paint(ui::PaintContext(list.get(), 1.f, paint_area));
+    v1->Paint(PaintInfo::CreateRootPaintInfo(
+        ui::PaintContext(list.get(), 1.f, paint_area, false), v1->size()));
     EXPECT_TRUE(v1->did_paint_);
     EXPECT_TRUE(v2->did_paint_);
   }
@@ -1221,9 +1305,9 @@ TEST_F(ViewTest, PaintLocalBounds) {
   EXPECT_EQ(gfx::Rect(0, 1000, 100, 100), v1->GetVisibleBounds());
 
   auto list = base::MakeRefCounted<cc::DisplayItemList>();
-  ui::PaintContext context(list.get(), 1.f, gfx::Rect());
+  ui::PaintContext context(list.get(), 1.f, gfx::Rect(), false);
 
-  v1->Paint(context);
+  v1->Paint(PaintInfo::CreateRootPaintInfo(context, gfx::Size()));
   EXPECT_TRUE(v1->did_paint_);
 
   // Check that the canvas produced by |v1| for paint contains all of |v1|'s
@@ -2353,16 +2437,9 @@ class ToplevelWidgetObserverView : public View {
   DISALLOW_COPY_AND_ASSIGN(ToplevelWidgetObserverView);
 };
 
-// No ReparentNativeView on Mac. See http://crbug.com/514920.
-#if defined(OS_MACOSX) && !defined(USE_AURA)
-#define MAYBE_NativeViewHierarchyChanged DISABLED_NativeViewHierarchyChanged
-#else
-#define MAYBE_NativeViewHierarchyChanged NativeViewHierarchyChanged
-#endif
-
 // Test that a view can track the current top level widget by overriding
 // View::ViewHierarchyChanged() and View::NativeViewHierarchyChanged().
-TEST_F(ViewTest, MAYBE_NativeViewHierarchyChanged) {
+TEST_F(ViewTest, NativeViewHierarchyChanged) {
   std::unique_ptr<Widget> toplevel1(new Widget);
   Widget::InitParams toplevel1_params =
       CreateParams(Widget::InitParams::TYPE_POPUP);
@@ -3496,15 +3573,11 @@ TEST_F(ViewTest, GetIndexOf) {
 TEST_F(ViewTest, ReorderChildren) {
   View root;
 
-  View* child = new View();
-  root.AddChildView(child);
+  View* child = root.AddChildView(std::make_unique<View>());
 
-  View* foo1 = new View();
-  child->AddChildView(foo1);
-  View* foo2 = new View();
-  child->AddChildView(foo2);
-  View* foo3 = new View();
-  child->AddChildView(foo3);
+  View* foo1 = child->AddChildView(std::make_unique<View>());
+  View* foo2 = child->AddChildView(std::make_unique<View>());
+  View* foo3 = child->AddChildView(std::make_unique<View>());
   foo1->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   foo2->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   foo3->SetFocusBehavior(View::FocusBehavior::ALWAYS);
@@ -3590,8 +3663,8 @@ TEST_F(ViewTest, GetViewByID) {
   View::Views views;
   v1.GetViewsInGroup(kGroup, &views);
   EXPECT_EQ(2U, views.size());
-  EXPECT_NE(views.cend(), std::find(views.cbegin(), views.cend(), &v3));
-  EXPECT_NE(views.cend(), std::find(views.cbegin(), views.cend(), &v4));
+  EXPECT_TRUE(base::ContainsValue(views, &v3));
+  EXPECT_TRUE(base::ContainsValue(views, &v4));
 }
 
 TEST_F(ViewTest, AddExistingChild) {
@@ -3651,13 +3724,11 @@ TEST_F(ViewTest, AdvanceFocusIfNecessaryForUnfocusableView) {
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   widget.Init(params);
 
-  View* view1 = new View();
+  View* view1 = widget.GetRootView()->AddChildView(std::make_unique<View>());
   view1->SetFocusBehavior(View::FocusBehavior::ALWAYS);
 
-  widget.GetRootView()->AddChildView(view1);
-  View* view2 = new View();
+  View* view2 = widget.GetRootView()->AddChildView(std::make_unique<View>());
   view2->SetFocusBehavior(View::FocusBehavior::ALWAYS);
-  widget.GetRootView()->AddChildView(view2);
 
   FocusManager* focus_manager = widget.GetFocusManager();
   ASSERT_TRUE(focus_manager);
@@ -3736,6 +3807,7 @@ class ViewLayerTest : public ViewsTestBase {
   }
 
   void SetUp() override {
+    SetUpPixelCanvas();
     ViewTest::SetUp();
     widget_ = new Widget;
     Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
@@ -3752,12 +3824,18 @@ class ViewLayerTest : public ViewsTestBase {
 
   Widget* widget() { return widget_; }
 
+  virtual void SetUpPixelCanvas() {
+    scoped_feature_list_.InitAndDisableFeature(
+        features::kEnablePixelCanvasRecording);
+  }
+
  protected:
   // Accessors to View internals.
   void SchedulePaintOnParent(View* view) { view->SchedulePaintOnParent(); }
 
  private:
   Widget* widget_;
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 
@@ -3821,16 +3899,13 @@ TEST_F(ViewLayerTest, NestedLayerToggling) {
   widget()->SetContentsView(content_view);
 
   // Create v1, give it a bounds and verify everything is set up correctly.
-  View* v1 = new View;
-  content_view->AddChildView(v1);
+  View* v1 = content_view->AddChildView(std::make_unique<View>());
   v1->SetBoundsRect(gfx::Rect(20, 30, 140, 150));
 
-  View* v2 = new View;
-  v1->AddChildView(v2);
+  View* v2 = v1->AddChildView(std::make_unique<View>());
 
-  View* v3 = new View;
+  View* v3 = v2->AddChildView(std::make_unique<View>());
   v3->SetPaintToLayer();
-  v2->AddChildView(v3);
   ASSERT_TRUE(v3->layer() != NULL);
 
   // At this point we have v1-v2-v3. v3 has a layer, v1 and v2 don't.
@@ -3843,8 +3918,7 @@ TEST_F(ViewLayerTest, LayerAnimator) {
   View* content_view = new View;
   widget()->SetContentsView(content_view);
 
-  View* v1 = new View;
-  content_view->AddChildView(v1);
+  View* v1 = content_view->AddChildView(std::make_unique<View>());
   v1->SetPaintToLayer();
   EXPECT_TRUE(v1->layer() != NULL);
 
@@ -3864,13 +3938,11 @@ TEST_F(ViewLayerTest, BoundsChangeWithLayer) {
   View* content_view = new View;
   widget()->SetContentsView(content_view);
 
-  View* v1 = new View;
-  content_view->AddChildView(v1);
+  View* v1 = content_view->AddChildView(std::make_unique<View>());
   v1->SetBoundsRect(gfx::Rect(20, 30, 140, 150));
 
-  View* v2 = new View;
+  View* v2 = v1->AddChildView(std::make_unique<View>());
   v2->SetBoundsRect(gfx::Rect(10, 11, 40, 50));
-  v1->AddChildView(v2);
   v2->SetPaintToLayer();
   ASSERT_TRUE(v2->layer() != NULL);
   EXPECT_EQ(gfx::Rect(30, 41, 40, 50), v2->layer()->bounds());
@@ -3893,8 +3965,7 @@ TEST_F(ViewLayerTest, BoundsChangeWithLayer) {
 
 // Make sure layers are positioned correctly in RTL.
 TEST_F(ViewLayerTest, BoundInRTL) {
-  ScopedRTL rtl;
-
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_("he");
   View* view = new View;
   widget()->SetContentsView(view);
 
@@ -3948,18 +4019,16 @@ TEST_F(ViewLayerTest, BoundInRTL) {
 
 // Make sure that resizing a parent in RTL correctly repositions its children.
 TEST_F(ViewLayerTest, ResizeParentInRTL) {
-  ScopedRTL rtl;
-
+  base::test::ScopedRestoreICUDefaultLocale scoped_locale_("he");
   View* view = new View;
   widget()->SetContentsView(view);
 
   int content_width = view->width();
 
   // Create a paints-to-layer view |v1|.
-  View* v1 = new View;
+  View* v1 = view->AddChildView(std::make_unique<View>());
   v1->SetPaintToLayer();
   v1->SetBounds(10, 10, 20, 10);
-  view->AddChildView(v1);
   EXPECT_EQ(gfx::Rect(content_width - 30, 10, 20, 10),
             v1->layer()->bounds());
 
@@ -4157,9 +4226,8 @@ TEST_F(ViewLayerTest, ScheduledRectsInParentAfterSchedulingPaint) {
   TestView parent_view;
   parent_view.SetBounds(10, 10, 100, 100);
 
-  TestView* child_view = new TestView;
+  TestView* child_view = parent_view.AddChildView(std::make_unique<TestView>());
   child_view->SetBounds(5, 6, 10, 20);
-  parent_view.AddChildView(child_view);
 
   parent_view.scheduled_paint_rects_.clear();
   SchedulePaintOnParent(child_view);
@@ -4172,8 +4240,7 @@ TEST_F(ViewLayerTest, ParentPaintWhenSwitchingPaintToLayerFromFalseToTrue) {
   TestView parent_view;
   parent_view.SetBounds(10, 11, 12, 13);
 
-  TestView* child_view = new TestView;
-  parent_view.AddChildView(child_view);
+  TestView* child_view = parent_view.AddChildView(std::make_unique<TestView>());
 
   parent_view.scheduled_paint_rects_.clear();
   child_view->SetPaintToLayer();
@@ -4184,9 +4251,8 @@ TEST_F(ViewLayerTest, NoParentPaintWhenSwitchingPaintToLayerFromTrueToTrue) {
   TestView parent_view;
   parent_view.SetBounds(10, 11, 12, 13);
 
-  TestView* child_view = new TestView;
+  TestView* child_view = parent_view.AddChildView(std::make_unique<TestView>());
   child_view->SetPaintToLayer();
-  parent_view.AddChildView(child_view);
 
   parent_view.scheduled_paint_rects_.clear();
   EXPECT_EQ(0U, parent_view.scheduled_paint_rects_.size());
@@ -4199,16 +4265,13 @@ TEST_F(ViewLayerTest, VisibilityChildLayers) {
   v1->SetPaintToLayer();
   widget()->SetContentsView(v1);
 
-  View* v2 = new View;
-  v1->AddChildView(v2);
+  View* v2 = v1->AddChildView(std::make_unique<View>());
 
-  View* v3 = new View;
-  v2->AddChildView(v3);
+  View* v3 = v2->AddChildView(std::make_unique<View>());
   v3->SetVisible(false);
 
-  View* v4 = new View;
+  View* v4 = v3->AddChildView(std::make_unique<View>());
   v4->SetPaintToLayer();
-  v3->AddChildView(v4);
 
   EXPECT_TRUE(v1->layer()->IsDrawn());
   EXPECT_FALSE(v4->layer()->IsDrawn());
@@ -4265,12 +4328,10 @@ TEST_F(ViewLayerTest, DISABLED_ViewLayerTreesInSync) {
 TEST_F(ViewLayerTest, ReorderUnderWidget) {
   View* content = new View;
   widget()->SetContentsView(content);
-  View* c1 = new View;
+  View* c1 = content->AddChildView(std::make_unique<View>());
   c1->SetPaintToLayer();
-  content->AddChildView(c1);
-  View* c2 = new View;
+  View* c2 = content->AddChildView(std::make_unique<View>());
   c2->SetPaintToLayer();
-  content->AddChildView(c2);
 
   ui::Layer* parent_layer = c1->layer()->parent();
   ASSERT_TRUE(parent_layer);
@@ -4308,12 +4369,10 @@ TEST_F(ViewLayerTest, RecreateLayerZOrder) {
   std::unique_ptr<View> v(new View());
   v->SetPaintToLayer();
 
-  View* v1 = new View();
+  View* v1 = v->AddChildView(std::make_unique<View>());
   v1->SetPaintToLayer();
-  v->AddChildView(v1);
-  View* v2 = new View();
+  View* v2 = v->AddChildView(std::make_unique<View>());
   v2->SetPaintToLayer();
-  v->AddChildView(v2);
 
   // Test the initial z-order.
   const std::vector<ui::Layer*>& child_layers_pre = v->layer()->children();
@@ -4338,12 +4397,10 @@ TEST_F(ViewLayerTest, RecreateLayerZOrderWidgetParent) {
   View* v = new View();
   widget()->SetContentsView(v);
 
-  View* v1 = new View();
+  View* v1 = v->AddChildView(std::make_unique<View>());
   v1->SetPaintToLayer();
-  v->AddChildView(v1);
-  View* v2 = new View();
+  View* v2 = v->AddChildView(std::make_unique<View>());
   v2->SetPaintToLayer();
-  v->AddChildView(v2);
 
   ui::Layer* root_layer = GetRootLayer();
 
@@ -4395,21 +4452,26 @@ TEST_F(ViewLayerTest, RecreateLayerMovesNonViewChildren) {
 namespace {
 
 std::string ToString(const gfx::Vector2dF& vector) {
-  return base::StringPrintf("%.2f %0.2f", vector.x(), vector.y());
+  // Explicitly round it because linux uses banker's rounding
+  // while Windows is using "away-from-zero" in printf.
+  return base::StringPrintf("%0.2f %0.2f", std::round(vector.x() * 100) / 100.f,
+                            std::round(vector.y() * 100) / 100.f);
 }
 
 }  // namespace
 
 TEST_F(ViewLayerTest, SnapLayerToPixel) {
+  viz::ParentLocalSurfaceIdAllocator allocator;
+  allocator.GenerateId();
   View* v1 = new View;
 
-  View* v11 = new View;
-  v1->AddChildView(v11);
+  View* v11 = v1->AddChildView(std::make_unique<View>());
 
   widget()->SetContentsView(v1);
 
   const gfx::Size& size = GetRootLayer()->GetCompositor()->size();
-  GetRootLayer()->GetCompositor()->SetScaleAndSize(1.25f, size);
+  GetRootLayer()->GetCompositor()->SetScaleAndSize(
+      1.25f, size, allocator.GetCurrentLocalSurfaceIdAllocation());
 
   v11->SetBoundsRect(gfx::Rect(1, 1, 10, 10));
   v1->SetBoundsRect(gfx::Rect(1, 1, 10, 10));
@@ -4423,7 +4485,8 @@ TEST_F(ViewLayerTest, SnapLayerToPixel) {
   EXPECT_EQ("-0.20 -0.20", ToString(v11->layer()->subpixel_position_offset()));
 
   // DSF change should get propagated and update offsets.
-  GetRootLayer()->GetCompositor()->SetScaleAndSize(1.5f, size);
+  GetRootLayer()->GetCompositor()->SetScaleAndSize(
+      1.5f, size, allocator.GetCurrentLocalSurfaceIdAllocation());
   EXPECT_EQ("0.33 0.33", ToString(v1->layer()->subpixel_position_offset()));
   EXPECT_EQ("0.33 0.33", ToString(v11->layer()->subpixel_position_offset()));
 
@@ -4436,8 +4499,122 @@ TEST_F(ViewLayerTest, SnapLayerToPixel) {
   EXPECT_EQ("0.33 0.33", ToString(v11->layer()->subpixel_position_offset()));
 
   // Setting integral DSF should reset the offset.
-  GetRootLayer()->GetCompositor()->SetScaleAndSize(2.0f, size);
+  GetRootLayer()->GetCompositor()->SetScaleAndSize(
+      2.0f, size, allocator.GetCurrentLocalSurfaceIdAllocation());
   EXPECT_EQ("0.00 0.00", ToString(v11->layer()->subpixel_position_offset()));
+}
+
+namespace {
+
+class PaintLayerView : public View {
+ public:
+  PaintLayerView() = default;
+
+  void PaintChildren(const PaintInfo& info) override {
+    last_paint_info_ = std::make_unique<PaintInfo>(info);
+    View::PaintChildren(info);
+  }
+
+  std::unique_ptr<PaintInfo> GetLastPaintInfo() {
+    return std::move(last_paint_info_);
+  }
+
+ private:
+  std::unique_ptr<PaintInfo> last_paint_info_;
+
+  DISALLOW_COPY_AND_ASSIGN(PaintLayerView);
+};
+
+}  // namespace
+
+class ViewLayerPixelCanvasTest : public ViewLayerTest {
+ public:
+  ViewLayerPixelCanvasTest() {}
+
+  ~ViewLayerPixelCanvasTest() override {}
+
+  void SetUpPixelCanvas() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kEnablePixelCanvasRecording);
+  }
+
+  // Test if the recording rects are same with and without layer.
+  void PaintRecordingSizeTest(PaintLayerView* v3,
+                              const gfx::Size& expected_size) {
+    v3->DestroyLayer();
+    ui::Compositor* compositor = widget()->GetCompositor();
+    auto list = base::MakeRefCounted<cc::DisplayItemList>();
+    ui::PaintContext context(list.get(), compositor->device_scale_factor(),
+                             gfx::Rect(compositor->size()), true);
+    widget()->GetRootView()->PaintFromPaintRoot(context);
+    EXPECT_EQ(expected_size, v3->GetLastPaintInfo()->paint_recording_size());
+    v3->SetPaintToLayer();
+    v3->OnPaintLayer(context);
+    EXPECT_EQ(expected_size, v3->GetLastPaintInfo()->paint_recording_size());
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(ViewLayerPixelCanvasTest);
+};
+
+TEST_F(ViewLayerPixelCanvasTest, SnapLayerToPixel) {
+  viz::ParentLocalSurfaceIdAllocator allocator;
+  allocator.GenerateId();
+  View* v1 = new View;
+  View* v2 = v1->AddChildView(std::make_unique<View>());
+  PaintLayerView* v3 = v2->AddChildView(std::make_unique<PaintLayerView>());
+
+  widget()->SetContentsView(v1);
+
+  const gfx::Size& size = GetRootLayer()->GetCompositor()->size();
+  GetRootLayer()->GetCompositor()->SetScaleAndSize(
+      1.6f, size, allocator.GetCurrentLocalSurfaceIdAllocation());
+
+  v3->SetBoundsRect(gfx::Rect(14, 13, 13, 5));
+  v2->SetBoundsRect(gfx::Rect(7, 7, 50, 50));
+  v1->SetBoundsRect(gfx::Rect(9, 9, 100, 100));
+
+  PaintRecordingSizeTest(v3, gfx::Size(21, 8));  // Enclosing Rect = (21, 8)
+  EXPECT_EQ("-0.63 -0.25", ToString(v3->layer()->subpixel_position_offset()));
+
+  // Creating a layer in parent should update the child view's layer offset.
+  v1->SetPaintToLayer();
+  EXPECT_EQ("-0.25 -0.25", ToString(v1->layer()->subpixel_position_offset()));
+  EXPECT_EQ("-0.37 -0.00", ToString(v3->layer()->subpixel_position_offset()));
+
+  // DSF change should get propagated and update offsets.
+  GetRootLayer()->GetCompositor()->SetScaleAndSize(
+      1.5f, size, allocator.GetCurrentLocalSurfaceIdAllocation());
+
+  EXPECT_EQ("0.33 0.33", ToString(v1->layer()->subpixel_position_offset()));
+  EXPECT_EQ("0.33 0.67", ToString(v3->layer()->subpixel_position_offset()));
+
+  v1->DestroyLayer();
+  PaintRecordingSizeTest(v3, gfx::Size(20, 7));  // Enclosing Rect = (20, 8)
+  v1->SetPaintToLayer();
+
+  GetRootLayer()->GetCompositor()->SetScaleAndSize(
+      1.33f, size, allocator.GetCurrentLocalSurfaceIdAllocation());
+
+  EXPECT_EQ("0.02 0.02", ToString(v1->layer()->subpixel_position_offset()));
+  EXPECT_EQ("0.05 -0.45", ToString(v3->layer()->subpixel_position_offset()));
+
+  v1->DestroyLayer();
+  PaintRecordingSizeTest(v3, gfx::Size(17, 7));  // Enclosing Rect = (18, 7)
+
+  // Deleting parent's layer should update the child view's layer's offset.
+  EXPECT_EQ("0.08 -0.43", ToString(v3->layer()->subpixel_position_offset()));
+
+  // Setting parent view should update the child view's layer's offset.
+  v1->SetBoundsRect(gfx::Rect(3, 3, 10, 10));
+  EXPECT_EQ("0.06 -0.44", ToString(v3->layer()->subpixel_position_offset()));
+
+  // Setting integral DSF should reset the offset.
+  GetRootLayer()->GetCompositor()->SetScaleAndSize(
+      2.0f, size, allocator.GetCurrentLocalSurfaceIdAllocation());
+  EXPECT_EQ("0.00 0.00", ToString(v3->layer()->subpixel_position_offset()));
 }
 
 TEST_F(ViewTest, FocusableAssertions) {
@@ -4469,12 +4646,12 @@ void TestView::OnNativeThemeChanged(const ui::NativeTheme* native_theme) {
 TEST_F(ViewTest, OnNativeThemeChanged) {
   TestView* test_view = new TestView();
   EXPECT_FALSE(test_view->native_theme_);
-  TestView* test_view_child = new TestView();
-  EXPECT_FALSE(test_view_child->native_theme_);
 
   // Child view added before the widget hierarchy exists should get the
   // new native theme notification.
-  test_view->AddChildView(test_view_child);
+  TestView* test_view_child =
+      test_view->AddChildView(std::make_unique<TestView>());
+  EXPECT_FALSE(test_view_child->native_theme_);
 
   std::unique_ptr<Widget> widget(new Widget);
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
@@ -4489,8 +4666,8 @@ TEST_F(ViewTest, OnNativeThemeChanged) {
 
   // Child view added after the widget hierarchy exists should also get the
   // notification.
-  TestView* test_view_child_2 = new TestView();
-  test_view->AddChildView(test_view_child_2);
+  TestView* test_view_child_2 =
+      test_view->AddChildView(std::make_unique<TestView>());
   EXPECT_TRUE(test_view_child_2->native_theme_);
   EXPECT_EQ(widget->GetNativeTheme(), test_view_child_2->native_theme_);
 
@@ -4513,16 +4690,14 @@ class TestEventHandler : public ui::EventHandler {
 };
 
 TEST_F(ViewTest, ScopedTargetHandlerReceivesEvents) {
-  TestView* v = new TestView();
-  v->SetBoundsRect(gfx::Rect(0, 0, 300, 300));
-
   std::unique_ptr<Widget> widget(new Widget);
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.bounds = gfx::Rect(50, 50, 350, 350);
   widget->Init(params);
   View* root = widget->GetRootView();
-  root->AddChildView(v);
+  TestView* v = root->AddChildView(std::make_unique<TestView>());
+  v->SetBoundsRect(gfx::Rect(0, 0, 300, 300));
   v->Reset();
   {
     TestEventHandler handler(v);
@@ -4578,7 +4753,7 @@ class ViewThatAddsViewInOnNativeThemeChanged : public View {
   // View:
   void OnNativeThemeChanged(const ui::NativeTheme* theme) override {
     on_native_theme_changed_called_ = true;
-    GetWidget()->GetRootView()->AddChildView(new View);
+    GetWidget()->GetRootView()->AddChildView(std::make_unique<View>());
   }
 
  private:
@@ -4587,44 +4762,10 @@ class ViewThatAddsViewInOnNativeThemeChanged : public View {
   DISALLOW_COPY_AND_ASSIGN(ViewThatAddsViewInOnNativeThemeChanged);
 };
 
-// See comment above test for details.
-class TestNativeTheme : public ui::NativeTheme {
- public:
-  TestNativeTheme() {}
-  ~TestNativeTheme() override {}
-
-  // ui::NativeTheme:
-  SkColor GetSystemColor(ColorId color_id) const override {
-    return SK_ColorRED;
-  }
-  gfx::Size GetPartSize(Part part,
-                        State state,
-                        const ExtraParams& extra) const override {
-    return gfx::Size();
-  }
-  void Paint(cc::PaintCanvas* canvas,
-             Part part,
-             State state,
-             const gfx::Rect& rect,
-             const ExtraParams& extra) const override {}
-
-  bool SupportsNinePatch(Part part) const override { return false; }
-  gfx::Size GetNinePatchCanvasSize(Part part) const override {
-    return gfx::Size();
-  }
-  gfx::Rect GetNinePatchAperture(Part part) const override {
-    return gfx::Rect();
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestNativeTheme);
-};
-
 // Creates and adds a new child view to |parent| that has a layer.
 void AddViewWithChildLayer(View* parent) {
-  View* child = new View;
+  View* child = parent->AddChildView(std::make_unique<View>());
   child->SetPaintToLayer();
-  parent->AddChildView(child);
 }
 
 // This test does the following:
@@ -4636,7 +4777,7 @@ void AddViewWithChildLayer(View* parent) {
 // before the layer hierarchy was updated. OnNativeThemeChanged() should be
 // called after the layer hierarchy matches the view hierarchy.
 TEST_F(ViewTest, CrashOnAddFromFromOnNativeThemeChanged) {
-  TestNativeTheme theme;
+  ui::TestNativeTheme theme;
   WidgetWithCustomTheme widget(&theme);
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
@@ -4645,8 +4786,8 @@ TEST_F(ViewTest, CrashOnAddFromFromOnNativeThemeChanged) {
 
   AddViewWithChildLayer(widget.GetRootView());
   ViewThatAddsViewInOnNativeThemeChanged* v =
-      new ViewThatAddsViewInOnNativeThemeChanged;
-  widget.GetRootView()->AddChildView(v);
+      widget.GetRootView()->AddChildView(
+          std::make_unique<ViewThatAddsViewInOnNativeThemeChanged>());
   EXPECT_TRUE(v->on_native_theme_changed_called());
 }
 
@@ -4761,6 +4902,38 @@ TEST_F(ViewTest, ChildViewZOrderChanged) {
   }
 }
 
+TEST_F(ViewTest, AttachChildViewWithComplicatedLayers) {
+  std::unique_ptr<View> grand_parent_view(new View());
+  grand_parent_view->SetPaintToLayer();
+
+  View* parent_view = new OrderableView();
+  parent_view->SetPaintToLayer();
+
+  // child_view1 has layer and has id OrderableView::VIEW_ID_RAISED.
+  View* child_view1 = parent_view->AddChildView(std::make_unique<View>());
+  child_view1->SetPaintToLayer();
+  child_view1->set_id(OrderableView::VIEW_ID_RAISED);
+
+  // child_view2 has no layer.
+  View* child_view2 = parent_view->AddChildView(std::make_unique<View>());
+  // grand_child_view has layer.
+  View* grand_child_view = child_view2->AddChildView(std::make_unique<View>());
+  grand_child_view->SetPaintToLayer();
+  const std::vector<ui::Layer*>& layers = parent_view->layer()->children();
+  EXPECT_EQ(2u, layers.size());
+  EXPECT_EQ(layers[0], grand_child_view->layer());
+  EXPECT_EQ(layers[1], child_view1->layer());
+
+  // Attach parent_view to grand_parent_view. children layers of parent_view
+  // should not change.
+  grand_parent_view->AddChildView(parent_view);
+  const std::vector<ui::Layer*>& layers_after_attached
+      = parent_view->layer()->children();
+  EXPECT_EQ(2u, layers_after_attached.size());
+  EXPECT_EQ(layers_after_attached[0], grand_child_view->layer());
+  EXPECT_EQ(layers_after_attached[1], child_view1->layer());
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Observer tests.
 ////////////////////////////////////////////////////////////////////////////////
@@ -4821,7 +4994,7 @@ class ViewObserverTest : public ViewTest, public ViewObserver {
   }
 
   std::unique_ptr<View> NewView() {
-    auto view = base::MakeUnique<View>();
+    auto view = std::make_unique<View>();
     view->AddObserver(this);
     return view;
   }
@@ -4921,12 +5094,10 @@ TEST_F(ViewObserverTest, ViewBoundsChanged) {
 
 TEST_F(ViewObserverTest, ChildViewReordered) {
   std::unique_ptr<View> view = NewView();
-  std::unique_ptr<View> child_view = NewView();
-  std::unique_ptr<View> child_view2 = NewView();
-  view->AddChildView(child_view.get());
-  view->AddChildView(child_view2.get());
-  view->ReorderChildView(child_view2.get(), 0);
-  EXPECT_EQ(child_view2.get(), view_reordered());
+  view->AddChildView(NewView());
+  View* child_view2 = view->AddChildView(NewView());
+  view->ReorderChildView(child_view2, 0);
+  EXPECT_EQ(child_view2, view_reordered());
 }
 
 // Provides a simple parent view implementation which tracks layer change

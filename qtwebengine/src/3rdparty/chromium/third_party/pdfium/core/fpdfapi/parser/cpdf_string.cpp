@@ -7,22 +7,24 @@
 #include "core/fpdfapi/parser/cpdf_string.h"
 
 #include <utility>
+#include <vector>
 
+#include "core/fpdfapi/edit/cpdf_encryptor.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
+#include "core/fxcrt/fx_stream.h"
 #include "third_party/base/ptr_util.h"
 
 CPDF_String::CPDF_String() : m_bHex(false) {}
 
-CPDF_String::CPDF_String(CFX_WeakPtr<CFX_ByteStringPool> pPool,
-                         const CFX_ByteString& str,
+CPDF_String::CPDF_String(WeakPtr<ByteStringPool> pPool,
+                         const ByteString& str,
                          bool bHex)
     : m_String(str), m_bHex(bHex) {
   if (pPool)
     m_String = pPool->Intern(m_String);
 }
 
-CPDF_String::CPDF_String(CFX_WeakPtr<CFX_ByteStringPool> pPool,
-                         const CFX_WideString& str)
+CPDF_String::CPDF_String(WeakPtr<ByteStringPool> pPool, const WideString& str)
     : m_String(PDF_EncodeText(str)), m_bHex(false) {
   if (pPool)
     m_String = pPool->Intern(m_String);
@@ -31,7 +33,7 @@ CPDF_String::CPDF_String(CFX_WeakPtr<CFX_ByteStringPool> pPool,
 CPDF_String::~CPDF_String() {}
 
 CPDF_Object::Type CPDF_String::GetType() const {
-  return STRING;
+  return kString;
 }
 
 std::unique_ptr<CPDF_Object> CPDF_String::Clone() const {
@@ -41,11 +43,11 @@ std::unique_ptr<CPDF_Object> CPDF_String::Clone() const {
   return std::move(pRet);
 }
 
-CFX_ByteString CPDF_String::GetString() const {
+ByteString CPDF_String::GetString() const {
   return m_String;
 }
 
-void CPDF_String::SetString(const CFX_ByteString& str) {
+void CPDF_String::SetString(const ByteString& str) {
   m_String = str;
 }
 
@@ -61,11 +63,19 @@ const CPDF_String* CPDF_String::AsString() const {
   return this;
 }
 
-CFX_WideString CPDF_String::GetUnicodeText() const {
-  return PDF_DecodeText(m_String);
+WideString CPDF_String::GetUnicodeText() const {
+  return PDF_DecodeText(m_String.AsRawSpan());
 }
 
-bool CPDF_String::WriteTo(IFX_ArchiveStream* archive) const {
-  return archive->WriteString(
-      PDF_EncodeString(GetString(), IsHex()).AsStringC());
+bool CPDF_String::WriteTo(IFX_ArchiveStream* archive,
+                          const CPDF_Encryptor* encryptor) const {
+  std::vector<uint8_t> encrypted_data;
+  pdfium::span<const uint8_t> data = m_String.AsRawSpan();
+  if (encryptor) {
+    encrypted_data = encryptor->Encrypt(data);
+    data = encrypted_data;
+  }
+  const ByteString content =
+      PDF_EncodeString(ByteString(data.data(), data.size()), IsHex());
+  return archive->WriteString(content.AsStringView());
 }

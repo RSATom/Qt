@@ -11,14 +11,10 @@
 #include "build/build_config.h"
 #include "components/content_settings/core/common/content_settings.h"
 
-#if !defined(OS_IOS)
-#include "media/base/media_switches.h"
-#endif  // !defined(OS_IOS)
-
 namespace {
 
 base::LazyInstance<content_settings::WebsiteSettingsRegistry>::DestructorAtExit
-    g_instance = LAZY_INSTANCE_INITIALIZER;
+    g_website_settings_registry_instance = LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
 
@@ -26,7 +22,7 @@ namespace content_settings {
 
 // static
 WebsiteSettingsRegistry* WebsiteSettingsRegistry::GetInstance() {
-  return g_instance.Pointer();
+  return g_website_settings_registry_instance.Pointer();
 }
 
 WebsiteSettingsRegistry::WebsiteSettingsRegistry() {
@@ -93,6 +89,10 @@ const WebsiteSettingsInfo* WebsiteSettingsRegistry::Register(
   // doesn't allow the settings to be managed in the same way. See
   // crbug.com/642184.
   sync_status = WebsiteSettingsInfo::UNSYNCABLE;
+#elif defined(OS_FUCHSIA)
+  if (!(platform & PLATFORM_FUCHSIA))
+    return nullptr;
+  sync_status = WebsiteSettingsInfo::UNSYNCABLE;
 #else
 #error "Unsupported platform"
 #endif
@@ -124,22 +124,21 @@ void WebsiteSettingsRegistry::Init() {
   Register(CONTENT_SETTINGS_TYPE_AUTO_SELECT_CERTIFICATE,
            "auto-select-certificate", nullptr, WebsiteSettingsInfo::UNSYNCABLE,
            WebsiteSettingsInfo::NOT_LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE, ALL_PLATFORMS,
-           WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
-  Register(CONTENT_SETTINGS_TYPE_SSL_CERT_DECISIONS,
-           "ssl-cert-decisions", nullptr, WebsiteSettingsInfo::UNSYNCABLE,
-           WebsiteSettingsInfo::NOT_LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
-           DESKTOP | PLATFORM_ANDROID,
-           WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
+           ALL_PLATFORMS, WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+  Register(
+      CONTENT_SETTINGS_TYPE_SSL_CERT_DECISIONS, "ssl-cert-decisions", nullptr,
+      WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
+      WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
+      DESKTOP | PLATFORM_ANDROID, WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   Register(CONTENT_SETTINGS_TYPE_APP_BANNER, "app-banner", nullptr,
            WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   Register(CONTENT_SETTINGS_TYPE_SITE_ENGAGEMENT, "site-engagement", nullptr,
            WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   Register(CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA, "usb-chooser-data", nullptr,
@@ -147,46 +146,54 @@ void WebsiteSettingsRegistry::Init() {
            WebsiteSettingsInfo::REQUESTING_ORIGIN_AND_TOP_LEVEL_ORIGIN_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
-  // TODO(raymes): Deprecated. See crbug.com/681709. Remove after M60.
-  Register(CONTENT_SETTINGS_TYPE_PROMPT_NO_DECISION_COUNT,
-           "prompt-no-decision-count", nullptr, WebsiteSettingsInfo::UNSYNCABLE,
-           WebsiteSettingsInfo::NOT_LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
-           DESKTOP | PLATFORM_ANDROID,
-           WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   Register(CONTENT_SETTINGS_TYPE_IMPORTANT_SITE_INFO, "important-site-info",
            nullptr, WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   Register(CONTENT_SETTINGS_TYPE_PERMISSION_AUTOBLOCKER_DATA,
            "permission-autoblocking-data", nullptr,
            WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
-  Register(
-      CONTENT_SETTINGS_TYPE_PASSWORD_PROTECTION, "password-protection", nullptr,
-      WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
-      WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
-      DESKTOP | PLATFORM_ANDROID, WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+  Register(CONTENT_SETTINGS_TYPE_PASSWORD_PROTECTION, "password-protection",
+           nullptr, WebsiteSettingsInfo::UNSYNCABLE,
+           WebsiteSettingsInfo::NOT_LOSSY,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
+           DESKTOP, WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   // Set when an origin is activated for subresource filtering and the
   // associated UI is shown to the user. Cleared when a site is de-activated or
   // the first URL matching the origin is removed from history.
   Register(CONTENT_SETTINGS_TYPE_ADS_DATA, "subresource-filter-data", nullptr,
            WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
-#if !defined(OS_IOS)
-  if (base::FeatureList::IsEnabled(media::kRecordMediaEngagementScores)) {
-    Register(CONTENT_SETTINGS_TYPE_MEDIA_ENGAGEMENT, "media-engagement",
-             nullptr, WebsiteSettingsInfo::SYNCABLE, WebsiteSettingsInfo::LOSSY,
-             WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
-             DESKTOP | PLATFORM_ANDROID,
-             WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
-  }
-#endif  //! defined(OS_IOS)
+  Register(CONTENT_SETTINGS_TYPE_MEDIA_ENGAGEMENT, "media-engagement", nullptr,
+           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
+           DESKTOP | PLATFORM_ANDROID,
+           WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+  Register(CONTENT_SETTINGS_TYPE_CLIENT_HINTS, "client-hints", nullptr,
+           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
+           DESKTOP | PLATFORM_ANDROID,
+           WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
+  // To counteract the reduced usability of the Flash permission when it becomes
+  // ephemeral, we sync the bit indicating that the Flash permission should be
+  // displayed in the page info.
+  Register(CONTENT_SETTINGS_TYPE_PLUGINS_DATA, "flash-data", nullptr,
+           WebsiteSettingsInfo::SYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
+           DESKTOP, WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+  // Set to keep track of dismissals without user's interaction for intent
+  // picker UI.
+  Register(CONTENT_SETTINGS_TYPE_INTENT_PICKER_DISPLAY,
+           "intent-picker-auto-display", nullptr,
+           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
+           DESKTOP, WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
 }
 
 }  // namespace content_settings

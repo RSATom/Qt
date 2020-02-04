@@ -42,6 +42,8 @@
 #include <QtPositioning/QGeoCircle>
 #include <QtLocation/QGeoServiceProvider>
 #include <QtLocation/QGeoCodingManager>
+#include <QtLocation/private/qgeocodereply_p.h>
+#include <QtPositioning/QGeoPolygon>
 
 QT_BEGIN_NAMESPACE
 
@@ -50,7 +52,7 @@ QT_BEGIN_NAMESPACE
     \instantiates QDeclarativeGeocodeModel
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-geocoding
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The GeocodeModel type provides support for searching operations
            related to geographic information.
@@ -231,7 +233,7 @@ void QDeclarativeGeocodeModel::queryContentChanged()
 */
 int QDeclarativeGeocodeModel::rowCount(const QModelIndex &parent) const
 {
-    Q_UNUSED(parent)
+    Q_UNUSED(parent);
     return declarativeLocations_.count();
 }
 
@@ -291,9 +293,9 @@ void QDeclarativeGeocodeModel::pluginReady()
     QGeoServiceProvider *serviceProvider = plugin_->sharedGeoServiceProvider();
     QGeoCodingManager *geocodingManager = serviceProvider->geocodingManager();
 
-    if (serviceProvider->error() != QGeoServiceProvider::NoError) {
+    if (serviceProvider->geocodingError() != QGeoServiceProvider::NoError) {
         QDeclarativeGeocodeModel::GeocodeError newError = UnknownError;
-        switch (serviceProvider->error()) {
+        switch (serviceProvider->geocodingError()) {
         case QGeoServiceProvider::NotSupportedError:
             newError = EngineNotSetError; break;
         case QGeoServiceProvider::UnknownParameterError:
@@ -306,7 +308,7 @@ void QDeclarativeGeocodeModel::pluginReady()
             break;
         }
 
-        setError(newError, serviceProvider->errorString());
+        setError(newError, serviceProvider->geocodingErrorString());
         return;
     }
 
@@ -374,6 +376,8 @@ QVariant QDeclarativeGeocodeModel::bounds() const
         return QVariant::fromValue(QGeoRectangle(boundingArea_));
     else if (boundingArea_.type() == QGeoShape::CircleType)
         return QVariant::fromValue(QGeoCircle(boundingArea_));
+    else if (boundingArea_.type() == QGeoShape::PolygonType)
+        return QVariant::fromValue(QGeoPolygon(boundingArea_));
     else
         return QVariant::fromValue(boundingArea_);
 }
@@ -386,6 +390,7 @@ void QDeclarativeGeocodeModel::geocodeFinished(QGeoCodeReply *reply)
     reply->deleteLater();
     reply_ = 0;
     int oldCount = declarativeLocations_.count();
+    // const QVariantMap &extraData = QGeoCodeReplyPrivate::get(*reply)->extraData();
     setLocations(reply->locations());
     setError(NoError, QString());
     setStatus(QDeclarativeGeocodeModel::Ready);
@@ -521,9 +526,9 @@ int QDeclarativeGeocodeModel::count() const
 }
 
 /*!
-    \qmlmethod Location QtLocation::GeocodeModel::get(int)
+    \qmlmethod Location QtLocation::GeocodeModel::get(int index)
 
-    Returns the \l [QML] {Location} at given index. Use \l count property to check the
+    Returns the \l [QML] {Location} at given \a index. Use \l count property to check the
     amount of locations available. The locations are indexed from zero, so the accessible range
     is 0...(count - 1).
 

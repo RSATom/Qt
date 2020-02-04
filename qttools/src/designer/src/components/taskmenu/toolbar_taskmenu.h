@@ -29,12 +29,12 @@
 #ifndef TOOLBAR_TASKMENU_H
 #define TOOLBAR_TASKMENU_H
 
-#include <QtDesigner/QDesignerTaskMenuExtension>
+#include <QtDesigner/taskmenu.h>
 
 #include <extensionfactory_p.h>
 
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QStatusBar>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qstatusbar.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -49,8 +49,8 @@ class ToolBarTaskMenu : public QObject, public QDesignerTaskMenuExtension
 public:
     explicit ToolBarTaskMenu(QToolBar *tb, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private:
     QToolBar *m_toolBar;
@@ -64,8 +64,8 @@ class StatusBarTaskMenu : public QObject, public QDesignerTaskMenuExtension
 public:
     explicit StatusBarTaskMenu(QStatusBar *tb, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private slots:
     void removeStatusBar();

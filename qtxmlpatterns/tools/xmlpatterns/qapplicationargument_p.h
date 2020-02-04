@@ -57,6 +57,7 @@ public:
     ~QApplicationArgument();
     QApplicationArgument &operator=(const QApplicationArgument &other);
     bool operator==(const QApplicationArgument &other) const;
+    bool operator<(const QApplicationArgument &other) const;
 
     void setName(const QString &newName);
     QString name() const;

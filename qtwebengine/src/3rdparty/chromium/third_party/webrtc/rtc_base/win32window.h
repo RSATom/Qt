@@ -1,5 +1,5 @@
 /*
- *  Copyright 2004 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,53 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_WIN32WINDOW_H_
-#define WEBRTC_RTC_BASE_WIN32WINDOW_H_
+#ifndef RTC_BASE_WIN32WINDOW_H_
+#define RTC_BASE_WIN32WINDOW_H_
 
-#if defined(WEBRTC_WIN)
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "webrtc/rtc_base/win32.h"
+#include "rtc_base/win32_window.h"
 
-namespace rtc {
-
-///////////////////////////////////////////////////////////////////////////////
-// Win32Window
-///////////////////////////////////////////////////////////////////////////////
-
-class Win32Window {
- public:
-  Win32Window();
-  virtual ~Win32Window();
-
-  HWND handle() const { return wnd_; }
-
-  bool Create(HWND parent, const wchar_t* title, DWORD style, DWORD exstyle,
-              int x, int y, int cx, int cy);
-  void Destroy();
-
-  // Call this when your DLL unloads.
-  static void Shutdown();
-
- protected:
-  virtual bool OnMessage(UINT uMsg, WPARAM wParam, LPARAM lParam,
-                         LRESULT& result);
-
-  virtual bool OnClose() { return true; }
-  virtual void OnNcDestroy() { }
-
- private:
-  static LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam,
-                                  LPARAM lParam);
-
-  HWND wnd_;
-  static HINSTANCE instance_;
-  static ATOM window_class_;
-};
-
-///////////////////////////////////////////////////////////////////////////////
-
-}  // namespace rtc
-
-#endif  // WEBRTC_WIN
-
-#endif  // WEBRTC_RTC_BASE_WIN32WINDOW_H_
+#endif  // RTC_BASE_WIN32WINDOW_H_

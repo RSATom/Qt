@@ -15,7 +15,8 @@ source_set("mac") {
   deps = [
     ":dmg_common",
     "//base",
-    "//chrome/common",
+    "//chrome/common/safe_browsing:archive_analyzer_results",
+    "//chrome/common/safe_browsing:binary_feature_extractor",
     "//components/safe_browsing:csd_proto",
   ]
 }
@@ -45,6 +46,11 @@ source_set("dmg_common") {
     "//third_party/zlib",
   ]
 
+  cflags = [
+    # For HFSPlusForkData and HFSPlusVolumeHeader (crbug.com/619640).
+    "-Wno-address-of-packed-member",
+  ]
+
   public_configs = [ ":dmg_public_config" ]
 }
 
@@ -62,7 +68,18 @@ executable("crdmg") {
 
 fuzzer_test("safe_browsing_dmg_fuzzer") {
   sources = [
-    "fuzzer.cc",
+    "dmg_fuzzer.cc",
+  ]
+
+  deps = [
+    ":dmg_common",
+    "//base",
+  ]
+}
+
+fuzzer_test("safe_browsing_hfs_fuzzer") {
+  sources = [
+    "hfs_fuzzer.cc",
   ]
 
   deps = [
@@ -70,5 +87,7 @@ fuzzer_test("safe_browsing_dmg_fuzzer") {
     "//base",
   ]
 
-  libfuzzer_options = [ "close_fd_mask=2" ]
+  seed_corpus = rebase_path("//chrome/test/data/safe_browsing/dmg/data")
+
+  libfuzzer_options = [ "max_len=1488576" ]
 }

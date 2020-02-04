@@ -49,6 +49,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "qcocoahelpers.h"
+#include <type_traits>
 
 QT_BEGIN_NAMESPACE
 
@@ -60,6 +61,23 @@ QT_BEGIN_NAMESPACE
 /*****************************************************************************
    QMacPasteboard code
 *****************************************************************************/
+
+namespace
+{
+OSStatus PasteboardGetItemCountSafe(PasteboardRef paste, ItemCount *cnt)
+{
+    Q_ASSERT(paste);
+    Q_ASSERT(cnt);
+    const OSStatus result = PasteboardGetItemCount(paste, cnt);
+    // Despite being declared unsigned, this API can return -1
+    if (std::make_signed<ItemCount>::type(*cnt) < 0)
+        *cnt = 0;
+    return result;
+}
+} // namespace
+
+// Ensure we don't call the broken one later on
+#define PasteboardGetItemCount
 
 class QMacMimeData : public QMimeData
 {
@@ -75,7 +93,7 @@ QMacPasteboard::Promise::Promise(int itemId, QMacInternalPasteboardMime *c, QStr
     // Request the data from the application immediately for eager requests.
     if (dataRequestType == QMacPasteboard::EagerRequest) {
         variantData = md->variantData(m);
-        mimeData = 0;
+        mimeData = nullptr;
     } else {
         mimeData = md;
     }
@@ -94,8 +112,8 @@ QMacPasteboard::QMacPasteboard(uchar mt)
 {
     mac_mime_source = false;
     mime_type = mt ? mt : uchar(QMacInternalPasteboardMime::MIME_ALL);
-    paste = 0;
-    OSStatus err = PasteboardCreate(0, &paste);
+    paste = nullptr;
+    OSStatus err = PasteboardCreate(nullptr, &paste);
     if (err == noErr) {
         PasteboardSetPromiseKeeper(paste, promiseKeeper, this);
     } else {
@@ -108,7 +126,7 @@ QMacPasteboard::QMacPasteboard(CFStringRef name, uchar mt)
 {
     mac_mime_source = false;
     mime_type = mt ? mt : uchar(QMacInternalPasteboardMime::MIME_ALL);
-    paste = 0;
+    paste = nullptr;
     OSStatus err = PasteboardCreate(name, &paste);
     if (err == noErr) {
         PasteboardSetPromiseKeeper(paste, promiseKeeper, this);
@@ -165,7 +183,7 @@ OSStatus QMacPasteboard::promiseKeeper(PasteboardRef paste, PasteboardItemID id,
         // we have promised this data, but won't be able to convert, so return null data.
         // This helps in making the application/x-qt-mime-type-name hidden from normal use.
         QByteArray ba;
-        QCFType<CFDataRef> data = CFDataCreate(0, (UInt8*)ba.constData(), ba.size());
+        QCFType<CFDataRef> data = CFDataCreate(nullptr, (UInt8*)ba.constData(), ba.size());
         PasteboardPutItemFlavor(paste, id, flavor, data, kPasteboardFlavorNoFlags);
         return noErr;
     }
@@ -196,7 +214,7 @@ OSStatus QMacPasteboard::promiseKeeper(PasteboardRef paste, PasteboardItemID id,
     if (md.size() <= promise.offset)
         return cantGetFlavorErr;
     const QByteArray &ba = md[promise.offset];
-    QCFType<CFDataRef> data = CFDataCreate(0, (UInt8*)ba.constData(), ba.size());
+    QCFType<CFDataRef> data = CFDataCreate(nullptr, (UInt8*)ba.constData(), ba.size());
     PasteboardPutItemFlavor(paste, id, flavor, data, kPasteboardFlavorNoFlags);
     return noErr;
 }
@@ -210,7 +228,7 @@ QMacPasteboard::hasOSType(int c_flavor) const
     sync();
 
     ItemCount cnt = 0;
-    if (PasteboardGetItemCount(paste, &cnt) || !cnt)
+    if (PasteboardGetItemCountSafe(paste, &cnt) || !cnt)
         return false;
 
 #ifdef DEBUG_PASTEBOARD
@@ -257,7 +275,7 @@ QMacPasteboard::hasFlavor(QString c_flavor) const
     sync();
 
     ItemCount cnt = 0;
-    if (PasteboardGetItemCount(paste, &cnt) || !cnt)
+    if (PasteboardGetItemCountSafe(paste, &cnt) || !cnt)
         return false;
 
 #ifdef DEBUG_PASTEBOARD
@@ -374,7 +392,7 @@ QMacPasteboard::formats() const
 
     QStringList ret;
     ItemCount cnt = 0;
-    if (PasteboardGetItemCount(paste, &cnt) || !cnt)
+    if (PasteboardGetItemCountSafe(paste, &cnt) || !cnt)
         return ret;
 
 #ifdef DEBUG_PASTEBOARD
@@ -417,7 +435,7 @@ QMacPasteboard::hasFormat(const QString &format) const
     sync();
 
     ItemCount cnt = 0;
-    if (PasteboardGetItemCount(paste, &cnt) || !cnt)
+    if (PasteboardGetItemCountSafe(paste, &cnt) || !cnt)
         return false;
 
 #ifdef DEBUG_PASTEBOARD
@@ -460,7 +478,7 @@ QMacPasteboard::retrieveData(const QString &format, QVariant::Type) const
     sync();
 
     ItemCount cnt = 0;
-    if (PasteboardGetItemCount(paste, &cnt) || !cnt)
+    if (PasteboardGetItemCountSafe(paste, &cnt) || !cnt)
         return QByteArray();
 
 #ifdef DEBUG_PASTEBOARD
@@ -471,19 +489,16 @@ QMacPasteboard::retrieveData(const QString &format, QVariant::Type) const
         QMacInternalPasteboardMime *c = mimes.at(mime);
         QString c_flavor = c->flavorFor(format);
         if (!c_flavor.isEmpty()) {
-            // Handle text/plain a little differently. Try handling Unicode first.
-            bool checkForUtf16 = (c_flavor == QLatin1String("com.apple.traditional-mac-plain-text")
-                                  || c_flavor == QLatin1String("public.utf8-plain-text"));
-            if (checkForUtf16 || c_flavor == QLatin1String("public.utf16-plain-text")) {
-                // Try to get the NSStringPboardType from NSPasteboard, newlines are mapped
-                // correctly (as '\n') in this data. The 'public.utf16-plain-text' type
-                // usually maps newlines to '\r' instead.
+            // Converting via PasteboardCopyItemFlavorData below will for some UITs result
+            // in newlines mapping to '\r' instead of '\n'. To work around this we shortcut
+            // the conversion via NSPasteboard's NSStringPboardType if possible.
+            if (c_flavor == QLatin1String("com.apple.traditional-mac-plain-text")
+             || c_flavor == QLatin1String("public.utf8-plain-text")
+             || c_flavor == QLatin1String("public.utf16-plain-text")) {
                 QString str = qt_mac_get_pasteboardString(paste);
                 if (!str.isEmpty())
                     return str;
             }
-            if (checkForUtf16 && hasFlavor(QLatin1String("public.utf16-plain-text")))
-                c_flavor = QLatin1String("public.utf16-plain-text");
 
             QVariant ret;
             QList<QByteArray> retList;
@@ -553,7 +568,7 @@ QMacPasteboard::sync() const
     const bool fromGlobal = PasteboardSynchronize(paste) & kPasteboardModified;
 
     if (fromGlobal)
-        const_cast<QMacPasteboard *>(this)->setMimeData(0);
+        const_cast<QMacPasteboard *>(this)->setMimeData(nullptr);
 
 #ifdef DEBUG_PASTEBOARD
     if (fromGlobal)

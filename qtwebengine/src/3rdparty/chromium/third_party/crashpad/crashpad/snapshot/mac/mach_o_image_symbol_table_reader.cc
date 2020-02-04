@@ -23,7 +23,7 @@
 
 #include "base/strings/stringprintf.h"
 #include "util/mac/checked_mach_address_range.h"
-#include "util/mach/task_memory.h"
+#include "util/process/process_memory_mac.h"
 
 namespace crashpad {
 
@@ -39,7 +39,7 @@ namespace internal {
 class MachOImageSymbolTableReaderInitializer {
  public:
   MachOImageSymbolTableReaderInitializer(
-      ProcessReader* process_reader,
+      ProcessReaderMac* process_reader,
       const MachOImageSegmentReader* linkedit_segment,
       const std::string& module_info)
       : module_info_(module_info),
@@ -108,7 +108,7 @@ class MachOImageSymbolTableReaderInitializer {
       return false;
     }
 
-    std::unique_ptr<TaskMemory::MappedMemory> string_table;
+    std::unique_ptr<ProcessMemoryMac::MappedMemory> string_table;
     for (size_t symbol_index = 0; symbol_index < symbol_count; ++symbol_index) {
       const process_types::nlist& symbol = symbols[symbol_index];
       std::string symbol_info = base::StringPrintf(", symbol index %zu%s",
@@ -243,7 +243,7 @@ class MachOImageSymbolTableReaderInitializer {
 
   std::string module_info_;
   CheckedMachAddressRange linkedit_range_;
-  ProcessReader* process_reader_;  // weak
+  ProcessReaderMac* process_reader_;  // weak
   const MachOImageSegmentReader* linkedit_segment_;  // weak
 
   DISALLOW_COPY_AND_ASSIGN(MachOImageSymbolTableReaderInitializer);
@@ -259,7 +259,7 @@ MachOImageSymbolTableReader::~MachOImageSymbolTableReader() {
 }
 
 bool MachOImageSymbolTableReader::Initialize(
-    ProcessReader* process_reader,
+    ProcessReaderMac* process_reader,
     const process_types::symtab_command* symtab_command,
     const process_types::dysymtab_command* dysymtab_command,
     const MachOImageSegmentReader* linkedit_segment,

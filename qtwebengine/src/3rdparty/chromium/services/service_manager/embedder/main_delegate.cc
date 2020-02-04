@@ -24,11 +24,11 @@ ProcessType MainDelegate::OverrideProcessType() {
   return ProcessType::kDefault;
 }
 
-void MainDelegate::OverrideMojoConfiguration(mojo::edk::Configuration* config) {
-}
+void MainDelegate::OverrideMojoConfiguration(
+    mojo::core::Configuration* config) {}
 
-std::unique_ptr<base::Value> MainDelegate::CreateServiceCatalog() {
-  return nullptr;
+std::vector<Manifest> MainDelegate::GetServiceManifests() {
+  return std::vector<Manifest>();
 }
 
 bool MainDelegate::ShouldLaunchAsServiceProcess(const Identity& identity) {
@@ -38,12 +38,6 @@ bool MainDelegate::ShouldLaunchAsServiceProcess(const Identity& identity) {
 void MainDelegate::AdjustServiceProcessCommandLine(
     const Identity& identity,
     base::CommandLine* command_line) {}
-
-bool MainDelegate::ShouldTerminateServiceManagerOnInstanceQuit(
-    const Identity& identity,
-    int* exit_code) {
-  return false;
-}
 
 void MainDelegate::OnServiceManagerInitialized(
     const base::Closure& quit_closure,

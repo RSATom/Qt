@@ -28,7 +28,7 @@
 /*!
     \title Qt Quick System Dialog Examples
     \example systemdialogs
-    \brief This example demonstrates the system dialog types in QML
+    \brief This example demonstrates the system dialog types in QML.
     \image systemdialogs-example.jpg
     \ingroup qtquickdialog_examples
 

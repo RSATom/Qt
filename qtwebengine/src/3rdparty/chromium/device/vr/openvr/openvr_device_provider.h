@@ -12,23 +12,35 @@
 #include "device/vr/vr_device_provider.h"
 #include "device/vr/vr_export.h"
 
-namespace vr {
-class IVRSystem;
-}  // namespace vr
-
 namespace device {
 
-class OpenVRDeviceProvider : public VRDeviceProvider {
+class OpenVRDevice;
+class OpenVRTestHook;
+
+class DEVICE_VR_EXPORT OpenVRDeviceProvider : public VRDeviceProvider {
  public:
   OpenVRDeviceProvider();
   ~OpenVRDeviceProvider() override;
 
-  void GetDevices(std::vector<VRDevice*>* devices) override;
-  void Initialize() override;
+  void Initialize(
+      base::RepeatingCallback<void(device::mojom::XRDeviceId,
+                                   mojom::VRDisplayInfoPtr,
+                                   mojom::XRRuntimePtr)> add_device_callback,
+      base::RepeatingCallback<void(device::mojom::XRDeviceId)>
+          remove_device_callback,
+      base::OnceClosure initialization_complete) override;
+
+  bool Initialized() override;
+
+  static void RecordRuntimeAvailability();
+
+  static void SetTestHook(OpenVRTestHook*);
 
  private:
-  bool initialized_;
-  vr::IVRSystem* vr_system_;
+  void CreateDevice();
+
+  std::unique_ptr<OpenVRDevice> device_;
+  bool initialized_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(OpenVRDeviceProvider);
 };

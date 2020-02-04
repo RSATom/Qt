@@ -18,6 +18,7 @@
 #include <sys/types.h>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "gtest/gtest.h"
 #include "util/thread/thread.h"
@@ -44,13 +45,13 @@ std::string MessageString(const std::string& log_message) {
     return std::string();
   }
 
-  const char kStartChar = '[';
+  constexpr char kStartChar = '[';
   if (log_message[0] != kStartChar) {
     EXPECT_EQ(log_message[0], kStartChar);
     return std::string();
   }
 
-  const char kFindString[] = "] ";
+  static constexpr char kFindString[] = "] ";
   size_t pos = log_message.find(kFindString);
   if (pos == std::string::npos) {
     EXPECT_NE(pos, std::string::npos);
@@ -63,7 +64,7 @@ std::string MessageString(const std::string& log_message) {
     return std::string();
   }
 
-  const char kEndChar = '\n';
+  constexpr char kEndChar = '\n';
   if (message_string[message_string.size() - 1] != kEndChar) {
     EXPECT_NE(message_string[message_string.size() - 1], kEndChar);
     return std::string();
@@ -78,7 +79,7 @@ TEST(ThreadLogMessages, Basic) {
   ASSERT_TRUE(LOG_IS_ON(INFO));
 
   {
-    const char* const kMessages[] = {
+    static constexpr const char* kMessages[] = {
       "An info message",
       "A warning message",
       "An error message",
@@ -93,15 +94,15 @@ TEST(ThreadLogMessages, Basic) {
     const std::vector<std::string>& log_messages =
         thread_log_messages.log_messages();
 
-    EXPECT_EQ(log_messages.size(), arraysize(kMessages));
-    for (size_t index = 0; index < arraysize(kMessages); ++index) {
+    EXPECT_EQ(log_messages.size(), base::size(kMessages));
+    for (size_t index = 0; index < base::size(kMessages); ++index) {
       EXPECT_EQ(MessageString(log_messages[index]), kMessages[index])
           << "index " << index;
     }
   }
 
   {
-    const char kMessage[] = "Sample error message";
+    static constexpr char kMessage[] = "Sample error message";
 
     ThreadLogMessages thread_log_messages;
 
@@ -173,7 +174,7 @@ TEST(ThreadLogMessages, Multithreaded) {
 
   LoggingTestThread threads[20];
   int start = 0;
-  for (size_t index = 0; index < arraysize(threads); ++index) {
+  for (size_t index = 0; index < base::size(threads); ++index) {
     threads[index].Initialize(
         index, static_cast<int>(start), static_cast<int>(index));
     start += static_cast<int>(index);

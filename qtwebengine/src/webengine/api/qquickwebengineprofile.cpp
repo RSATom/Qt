@@ -44,23 +44,26 @@
 #include "qquickwebengineprofile_p.h"
 #include "qquickwebenginescript_p.h"
 #include "qquickwebenginesettings_p.h"
+#include "qquickwebengineview_p_p.h"
 #include "qwebenginecookiestore.h"
+#include "qwebenginenotification.h"
 
 #include <QQmlEngine>
 
-#include "browser_context_adapter.h"
-#include <qtwebenginecoreglobal.h>
+#include "profile_adapter.h"
 #include "renderer_host/user_resource_controller_host.h"
 #include "web_engine_settings.h"
 
-using QtWebEngineCore::BrowserContextAdapter;
+#include <QtWebEngineCore/qwebengineurlscheme.h>
+
+using QtWebEngineCore::ProfileAdapter;
 
 QT_BEGIN_NAMESPACE
 
-ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::UnknownSaveFormat, QtWebEngineCore::BrowserContextAdapterClient::UnknownSavePageFormat)
-ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::SingleHtmlSaveFormat, QtWebEngineCore::BrowserContextAdapterClient::SingleHtmlSaveFormat)
-ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::CompleteHtmlSaveFormat, QtWebEngineCore::BrowserContextAdapterClient::CompleteHtmlSaveFormat)
-ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::MimeHtmlSaveFormat, QtWebEngineCore::BrowserContextAdapterClient::MimeHtmlSaveFormat)
+ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::UnknownSaveFormat, QtWebEngineCore::ProfileAdapterClient::UnknownSavePageFormat)
+ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::SingleHtmlSaveFormat, QtWebEngineCore::ProfileAdapterClient::SingleHtmlSaveFormat)
+ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::CompleteHtmlSaveFormat, QtWebEngineCore::ProfileAdapterClient::CompleteHtmlSaveFormat)
+ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::MimeHtmlSaveFormat, QtWebEngineCore::ProfileAdapterClient::MimeHtmlSaveFormat)
 
 /*!
     \class QQuickWebEngineProfile
@@ -69,11 +72,18 @@ ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::MimeHtmlSaveFormat, QtWebEngineC
 
     \inmodule QtWebEngine
 
-    A web engine profile contains properties and functionality shared by a group of web engine
-    pages.
+    A web engine profile contains settings, scripts, persistent cookie policy, and the list of
+    visited links shared by all web engine pages that belong to the profile.
 
-    Information about visited links is stored together with persistent cookies and other persistent
-    data in a storage described by the persistentStoragePath property.
+    Information about visited links is stored together with persistent cookies
+    and other persistent data in a storage determined by the storageName
+    property. Persistent data is stored in a subdirectory determined by the
+    persistentStoragePath property and the cache in a subdirectory determined by
+    the cachePath property. The httpCacheType property describes the type of the
+    cache: \e in-memory or \e on-disk. If only the storageName property is set,
+    the other values are generated automatically based on it. If you specify
+    any of the values manually, you should do it before creating any pages that
+    belong to the profile.
 
     Profiles can be used to isolate pages from each other. A typical use case is a dedicated
     \e {off-the-record profile} for a \e {private browsing} mode. An off-the-record profile forces
@@ -98,9 +108,10 @@ ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::MimeHtmlSaveFormat, QtWebEngineC
 
     This enum describes the HTTP cache type:
 
-    \value MemoryHttpCache Use an in-memory cache. This is the only setting possible if
-    \c off-the-record is set or no cache path is available.
-    \value DiskHttpCache Use a disk cache. This is the default.
+    \value MemoryHttpCache Use an in-memory cache. This is the default if
+    \c off-the-record is set.
+    \value DiskHttpCache Use a disk cache. This is the default if \c off-the-record
+    is not set. Falls back to \c MemoryHttpCache if \c off-the-record is set.
     \value NoCache Disable both in-memory and disk caching. (Added in Qt 5.7)
 */
 
@@ -140,10 +151,21 @@ ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::MimeHtmlSaveFormat, QtWebEngineC
   The \a download argument holds the state of the finished download instance.
 */
 
-QQuickWebEngineProfilePrivate::QQuickWebEngineProfilePrivate(QSharedPointer<BrowserContextAdapter> browserContext)
+/*!
+    \fn QQuickWebEngineProfile::presentNotification(QWebEngineNotification *notification)
+
+    This signal is emitted whenever there is a newly created user notification.
+    The \a notification argument holds the \l {QWebEngineNotification} instance
+    to query data and interact with.
+
+    \sa WebEngineProfile::presentNotification
+*/
+
+QQuickWebEngineProfilePrivate::QQuickWebEngineProfilePrivate(ProfileAdapter *profileAdapter)
         : m_settings(new QQuickWebEngineSettings())
-        , m_browserContext(new QWebEngineBrowserContext(browserContext, this))
+        , m_profileAdapter(profileAdapter)
 {
+    profileAdapter->addClient(this);
     m_settings->d_ptr->initDefaults();
     // Fullscreen API was implemented before the supported setting, so we must
     // make it default true to avoid change in default API behavior.
@@ -152,31 +174,65 @@ QQuickWebEngineProfilePrivate::QQuickWebEngineProfilePrivate(QSharedPointer<Brow
 
 QQuickWebEngineProfilePrivate::~QQuickWebEngineProfilePrivate()
 {
-    Q_FOREACH (QQuickWebEngineDownloadItem *download, m_ongoingDownloads) {
-        if (download)
-            download->cancel();
+    if (m_profileAdapter) {
+        // In the case the user sets this profile as the parent of the interceptor
+        // it can be deleted before the browser-context still referencing it is.
+        m_profileAdapter->setRequestInterceptor(nullptr);
+        m_profileAdapter->removeClient(this);
     }
 
-    m_ongoingDownloads.clear();
-
-    if (m_browserContext)
-        m_browserContext->shutdown();
+    if (m_profileAdapter != QtWebEngineCore::ProfileAdapter::defaultProfileAdapter())
+        delete m_profileAdapter;
 }
 
-QSharedPointer<QtWebEngineCore::BrowserContextAdapter> QQuickWebEngineProfilePrivate::browserContext() const
+void QQuickWebEngineProfilePrivate::addWebContentsAdapterClient(QtWebEngineCore::WebContentsAdapterClient *adapter)
 {
-    return m_browserContext ? m_browserContext->browserContextRef : nullptr;
+    Q_ASSERT(m_profileAdapter);
+    m_profileAdapter->addWebContentsAdapterClient(adapter);
+}
+
+void QQuickWebEngineProfilePrivate::removeWebContentsAdapterClient(QtWebEngineCore::WebContentsAdapterClient*adapter)
+{
+    Q_ASSERT(m_profileAdapter);
+    m_profileAdapter->removeWebContentsAdapterClient(adapter);
+}
+
+QtWebEngineCore::ProfileAdapter *QQuickWebEngineProfilePrivate::profileAdapter() const
+{
+    return m_profileAdapter;
+}
+
+QQuickWebEngineSettings *QQuickWebEngineProfilePrivate::settings() const
+{
+    return m_settings.data();
 }
 
 void QQuickWebEngineProfilePrivate::cancelDownload(quint32 downloadId)
 {
-    if (m_browserContext)
-        m_browserContext->browserContextRef->cancelDownload(downloadId);
+    if (m_profileAdapter)
+        m_profileAdapter->cancelDownload(downloadId);
 }
 
 void QQuickWebEngineProfilePrivate::downloadDestroyed(quint32 downloadId)
 {
     m_ongoingDownloads.remove(downloadId);
+    if (m_profileAdapter)
+        m_profileAdapter->removeDownload(downloadId);
+}
+
+void QQuickWebEngineProfilePrivate::cleanDownloads()
+{
+    for (auto download : m_ongoingDownloads.values()) {
+        if (!download)
+            continue;
+
+        if (!download->isFinished())
+            download->cancel();
+
+        if (m_profileAdapter)
+            m_profileAdapter->removeDownload(download->id());
+    }
+    m_ongoingDownloads.clear();
 }
 
 void QQuickWebEngineProfilePrivate::downloadRequested(DownloadItemInfo &info)
@@ -193,10 +249,15 @@ void QQuickWebEngineProfilePrivate::downloadRequested(DownloadItemInfo &info)
     itemPrivate->savePageFormat = static_cast<QQuickWebEngineDownloadItem::SavePageFormat>(
                 info.savePageFormat);
     itemPrivate->type = static_cast<QQuickWebEngineDownloadItem::DownloadType>(info.downloadType);
+    if (info.page && info.page->clientType() == QtWebEngineCore::WebContentsAdapterClient::QmlClient)
+        itemPrivate->view = static_cast<QQuickWebEngineViewPrivate *>(info.page)->q_ptr;
+    else
+        itemPrivate->view = nullptr;
 
     QQuickWebEngineDownloadItem *download = new QQuickWebEngineDownloadItem(itemPrivate, q);
 
     m_ongoingDownloads.insert(info.id, download);
+    QObject::connect(download, &QQuickWebEngineDownloadItem::destroyed, q, [id = info.id, this] () { downloadDestroyed(id); });
 
     QQmlEngine::setObjectOwnership(download, QQmlEngine::JavaScriptOwnership);
     Q_EMIT q->downloadRequested(download);
@@ -210,7 +271,6 @@ void QQuickWebEngineProfilePrivate::downloadRequested(DownloadItemInfo &info)
     if (state == QQuickWebEngineDownloadItem::DownloadRequested) {
         // Delete unaccepted downloads.
         info.accepted = false;
-        m_ongoingDownloads.remove(info.id);
         delete download;
     }
 }
@@ -231,17 +291,30 @@ void QQuickWebEngineProfilePrivate::downloadUpdated(const DownloadItemInfo &info
 
     download->d_func()->update(info);
 
-    if (info.state != BrowserContextAdapterClient::DownloadInProgress) {
+    if (info.state != ProfileAdapterClient::DownloadInProgress) {
         Q_EMIT q->downloadFinished(download);
-        m_ongoingDownloads.remove(info.id);
     }
+}
+
+void QQuickWebEngineProfilePrivate::useForGlobalCertificateVerificationChanged()
+{
+    Q_Q(QQuickWebEngineProfile);
+    Q_EMIT q->useForGlobalCertificateVerificationChanged();
+}
+
+void QQuickWebEngineProfilePrivate::showNotification(QSharedPointer<QtWebEngineCore::UserNotificationController> &controller)
+{
+    Q_Q(QQuickWebEngineProfile);
+    auto notification = new QWebEngineNotification(controller);
+    QQmlEngine::setObjectOwnership(notification, QQmlEngine::JavaScriptOwnership);
+    Q_EMIT q->presentNotification(notification);
 }
 
 void QQuickWebEngineProfilePrivate::userScripts_append(QQmlListProperty<QQuickWebEngineScript> *p, QQuickWebEngineScript *script)
 {
     Q_ASSERT(p && p->data);
     QQuickWebEngineProfilePrivate *d = static_cast<QQuickWebEngineProfilePrivate *>(p->data);
-    QtWebEngineCore::UserResourceControllerHost *resourceController = d->browserContext()->userResourceController();
+    QtWebEngineCore::UserResourceControllerHost *resourceController = d->profileAdapter()->userResourceController();
     d->m_userScripts.append(script);
     script->d_func()->bind(resourceController);
 }
@@ -264,7 +337,7 @@ void QQuickWebEngineProfilePrivate::userScripts_clear(QQmlListProperty<QQuickWeb
 {
     Q_ASSERT(p && p->data);
     QQuickWebEngineProfilePrivate *d = static_cast<QQuickWebEngineProfilePrivate *>(p->data);
-    QtWebEngineCore::UserResourceControllerHost *resourceController = d->browserContext()->userResourceController();
+    QtWebEngineCore::UserResourceControllerHost *resourceController = d->profileAdapter()->userResourceController();
     resourceController->clearAllScripts(NULL);
     d->m_userScripts.clear();
 }
@@ -277,8 +350,23 @@ void QQuickWebEngineProfilePrivate::userScripts_clear(QQmlListProperty<QQuickWeb
     \brief Contains settings, scripts, and visited links common to multiple web engine views.
 
     WebEngineProfile contains settings, scripts, and the list of visited links shared by all
-    views that belong to the profile. As such, profiles can be used to isolate views
-    from each other. A typical use case is a dedicated profile for a 'private browsing' mode.
+    views that belong to the profile.
+
+    Information about visited links is stored together with persistent cookies
+    and other persistent data in a storage determined by the storageName
+    property. Persistent data is stored in a subdirectory determined by the
+    persistentStoragePath property and the cache in a subdirectory determined by
+    the cachePath property. The httpCacheType property describes the type of the
+    cache: \e in-memory or \e on-disk. If only the storageName property is set,
+    the other values are generated automatically based on it. If you specify
+    any of the values manually, you should do it before creating any pages that
+    belong to the profile.
+
+    Profiles can be used to isolate pages from each other. A typical use case is
+    a dedicated \e {off-the-record profile} for a \e {private browsing} mode. An
+    off-the-record profile forces cookies, the HTTP cache, and other normally
+    persistent data to be stored only in memory. The offTheRecord property holds
+    whether a profile is off-the-record.
 
     Each web engine view has an associated profile. Views that do not have a specific profile set
     share a common default one.
@@ -302,14 +390,21 @@ void QQuickWebEngineProfilePrivate::userScripts_clear(QQmlListProperty<QQuickWeb
 */
 
 /*!
+    \qmlsignal WebEngineProfile::presentNotification(WebEngineNotification notification)
+    \since QtWebEngine 1.9
+
+    This signal is emitted whenever there is a newly created user notification.
+    The \a notification argument holds the \l {WebEngineNotification} instance
+    to query data and interact with.
+*/
+
+/*!
     Constructs a new profile with the parent \a parent.
 */
 QQuickWebEngineProfile::QQuickWebEngineProfile(QObject *parent)
     : QObject(parent),
-      d_ptr(new QQuickWebEngineProfilePrivate(QSharedPointer<BrowserContextAdapter>::create(false)))
+      d_ptr(new QQuickWebEngineProfilePrivate(new QtWebEngineCore::ProfileAdapter()))
 {
-    // Sets up the global WebEngineContext
-    QQuickWebEngineProfile::defaultProfile();
     d_ptr->q_ptr = this;
 }
 
@@ -325,6 +420,7 @@ QQuickWebEngineProfile::QQuickWebEngineProfile(QQuickWebEngineProfilePrivate *pr
 */
 QQuickWebEngineProfile::~QQuickWebEngineProfile()
 {
+    d_ptr->cleanDownloads();
 }
 
 /*!
@@ -348,23 +444,23 @@ QQuickWebEngineProfile::~QQuickWebEngineProfile()
 QString QQuickWebEngineProfile::storageName() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return d->browserContext()->storageName();
+    return d->profileAdapter()->storageName();
 }
 
 void QQuickWebEngineProfile::setStorageName(const QString &name)
 {
     Q_D(QQuickWebEngineProfile);
-    if (d->browserContext()->storageName() == name)
+    if (d->profileAdapter()->storageName() == name)
         return;
-    BrowserContextAdapter::HttpCacheType oldCacheType = d->browserContext()->httpCacheType();
-    BrowserContextAdapter::PersistentCookiesPolicy oldPolicy = d->browserContext()->persistentCookiesPolicy();
-    d->browserContext()->setStorageName(name);
+    ProfileAdapter::HttpCacheType oldCacheType = d->profileAdapter()->httpCacheType();
+    ProfileAdapter::PersistentCookiesPolicy oldPolicy = d->profileAdapter()->persistentCookiesPolicy();
+    d->profileAdapter()->setStorageName(name);
     emit storageNameChanged();
     emit persistentStoragePathChanged();
     emit cachePathChanged();
-    if (d->browserContext()->httpCacheType() != oldCacheType)
+    if (d->profileAdapter()->httpCacheType() != oldCacheType)
         emit httpCacheTypeChanged();
-    if (d->browserContext()->persistentCookiesPolicy() != oldPolicy)
+    if (d->profileAdapter()->persistentCookiesPolicy() != oldPolicy)
         emit persistentCookiesPolicyChanged();
 }
 
@@ -388,21 +484,21 @@ void QQuickWebEngineProfile::setStorageName(const QString &name)
 bool QQuickWebEngineProfile::isOffTheRecord() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return d->browserContext()->isOffTheRecord();
+    return d->profileAdapter()->isOffTheRecord();
 }
 
 void QQuickWebEngineProfile::setOffTheRecord(bool offTheRecord)
 {
     Q_D(QQuickWebEngineProfile);
-    if (d->browserContext()->isOffTheRecord() == offTheRecord)
+    if (d->profileAdapter()->isOffTheRecord() == offTheRecord)
         return;
-    BrowserContextAdapter::HttpCacheType oldCacheType = d->browserContext()->httpCacheType();
-    BrowserContextAdapter::PersistentCookiesPolicy oldPolicy = d->browserContext()->persistentCookiesPolicy();
-    d->browserContext()->setOffTheRecord(offTheRecord);
+    ProfileAdapter::HttpCacheType oldCacheType = d->profileAdapter()->httpCacheType();
+    ProfileAdapter::PersistentCookiesPolicy oldPolicy = d->profileAdapter()->persistentCookiesPolicy();
+    d->profileAdapter()->setOffTheRecord(offTheRecord);
     emit offTheRecordChanged();
-    if (d->browserContext()->httpCacheType() != oldCacheType)
+    if (d->profileAdapter()->httpCacheType() != oldCacheType)
         emit httpCacheTypeChanged();
-    if (d->browserContext()->persistentCookiesPolicy() != oldPolicy)
+    if (d->profileAdapter()->persistentCookiesPolicy() != oldPolicy)
         emit persistentCookiesPolicyChanged();
 }
 
@@ -431,7 +527,7 @@ void QQuickWebEngineProfile::setOffTheRecord(bool offTheRecord)
 QString QQuickWebEngineProfile::persistentStoragePath() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return d->browserContext()->dataPath();
+    return d->profileAdapter()->dataPath();
 }
 
 void QQuickWebEngineProfile::setPersistentStoragePath(const QString &path)
@@ -439,7 +535,7 @@ void QQuickWebEngineProfile::setPersistentStoragePath(const QString &path)
     Q_D(QQuickWebEngineProfile);
     if (persistentStoragePath() == path)
         return;
-    d->browserContext()->setDataPath(path);
+    d->profileAdapter()->setDataPath(path);
     emit persistentStoragePathChanged();
 }
 
@@ -466,7 +562,7 @@ void QQuickWebEngineProfile::setPersistentStoragePath(const QString &path)
 QString QQuickWebEngineProfile::cachePath() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return d->browserContext()->cachePath();
+    return d->profileAdapter()->cachePath();
 }
 
 void QQuickWebEngineProfile::setCachePath(const QString &path)
@@ -474,7 +570,7 @@ void QQuickWebEngineProfile::setCachePath(const QString &path)
     Q_D(QQuickWebEngineProfile);
     if (cachePath() == path)
         return;
-    d->browserContext()->setCachePath(path);
+    d->profileAdapter()->setCachePath(path);
     emit cachePathChanged();
 }
 
@@ -497,15 +593,15 @@ void QQuickWebEngineProfile::setCachePath(const QString &path)
 QString QQuickWebEngineProfile::httpUserAgent() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return d->browserContext()->httpUserAgent();
+    return d->profileAdapter()->httpUserAgent();
 }
 
 void QQuickWebEngineProfile::setHttpUserAgent(const QString &userAgent)
 {
     Q_D(QQuickWebEngineProfile);
-    if (d->browserContext()->httpUserAgent() == userAgent)
+    if (d->profileAdapter()->httpUserAgent() == userAgent)
         return;
-    d->browserContext()->setHttpUserAgent(userAgent);
+    d->profileAdapter()->setHttpUserAgent(userAgent);
     emit httpUserAgentChanged();
 }
 
@@ -535,15 +631,15 @@ void QQuickWebEngineProfile::setHttpUserAgent(const QString &userAgent)
 QQuickWebEngineProfile::HttpCacheType QQuickWebEngineProfile::httpCacheType() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return QQuickWebEngineProfile::HttpCacheType(d->browserContext()->httpCacheType());
+    return QQuickWebEngineProfile::HttpCacheType(d->profileAdapter()->httpCacheType());
 }
 
 void QQuickWebEngineProfile::setHttpCacheType(QQuickWebEngineProfile::HttpCacheType httpCacheType)
 {
     Q_D(QQuickWebEngineProfile);
-    BrowserContextAdapter::HttpCacheType oldCacheType = d->browserContext()->httpCacheType();
-    d->browserContext()->setHttpCacheType(BrowserContextAdapter::HttpCacheType(httpCacheType));
-    if (d->browserContext()->httpCacheType() != oldCacheType)
+    ProfileAdapter::HttpCacheType oldCacheType = d->profileAdapter()->httpCacheType();
+    d->profileAdapter()->setHttpCacheType(ProfileAdapter::HttpCacheType(httpCacheType));
+    if (d->profileAdapter()->httpCacheType() != oldCacheType)
         emit httpCacheTypeChanged();
 }
 
@@ -572,15 +668,15 @@ void QQuickWebEngineProfile::setHttpCacheType(QQuickWebEngineProfile::HttpCacheT
 QQuickWebEngineProfile::PersistentCookiesPolicy QQuickWebEngineProfile::persistentCookiesPolicy() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return QQuickWebEngineProfile::PersistentCookiesPolicy(d->browserContext()->persistentCookiesPolicy());
+    return QQuickWebEngineProfile::PersistentCookiesPolicy(d->profileAdapter()->persistentCookiesPolicy());
 }
 
 void QQuickWebEngineProfile::setPersistentCookiesPolicy(QQuickWebEngineProfile::PersistentCookiesPolicy newPersistentCookiesPolicy)
 {
     Q_D(QQuickWebEngineProfile);
-    BrowserContextAdapter::PersistentCookiesPolicy oldPolicy = d->browserContext()->persistentCookiesPolicy();
-    d->browserContext()->setPersistentCookiesPolicy(BrowserContextAdapter::PersistentCookiesPolicy(newPersistentCookiesPolicy));
-    if (d->browserContext()->persistentCookiesPolicy() != oldPolicy)
+    ProfileAdapter::PersistentCookiesPolicy oldPolicy = d->profileAdapter()->persistentCookiesPolicy();
+    d->profileAdapter()->setPersistentCookiesPolicy(ProfileAdapter::PersistentCookiesPolicy(newPersistentCookiesPolicy));
+    if (d->profileAdapter()->persistentCookiesPolicy() != oldPolicy)
         emit persistentCookiesPolicyChanged();
 }
 
@@ -605,15 +701,15 @@ void QQuickWebEngineProfile::setPersistentCookiesPolicy(QQuickWebEngineProfile::
 int QQuickWebEngineProfile::httpCacheMaximumSize() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return d->browserContext()->httpCacheMaxSize();
+    return d->profileAdapter()->httpCacheMaxSize();
 }
 
 void QQuickWebEngineProfile::setHttpCacheMaximumSize(int maximumSize)
 {
     Q_D(QQuickWebEngineProfile);
-    if (d->browserContext()->httpCacheMaxSize() == maximumSize)
+    if (d->profileAdapter()->httpCacheMaxSize() == maximumSize)
         return;
-    d->browserContext()->setHttpCacheMaxSize(maximumSize);
+    d->profileAdapter()->setHttpCacheMaxSize(maximumSize);
     emit httpCacheMaximumSizeChanged();
 }
 
@@ -634,15 +730,15 @@ void QQuickWebEngineProfile::setHttpCacheMaximumSize(int maximumSize)
 QString QQuickWebEngineProfile::httpAcceptLanguage() const
 {
     Q_D(const QQuickWebEngineProfile);
-    return d->browserContext()->httpAcceptLanguage();
+    return d->profileAdapter()->httpAcceptLanguage();
 }
 
 void QQuickWebEngineProfile::setHttpAcceptLanguage(const QString &httpAcceptLanguage)
 {
     Q_D(QQuickWebEngineProfile);
-    if (d->browserContext()->httpAcceptLanguage() == httpAcceptLanguage)
+    if (d->profileAdapter()->httpAcceptLanguage() == httpAcceptLanguage)
         return;
-    d->browserContext()->setHttpAcceptLanguage(httpAcceptLanguage);
+    d->profileAdapter()->setHttpAcceptLanguage(httpAcceptLanguage);
     emit httpAcceptLanguageChanged();
 }
 
@@ -656,8 +752,8 @@ void QQuickWebEngineProfile::setHttpAcceptLanguage(const QString &httpAcceptLang
 QQuickWebEngineProfile *QQuickWebEngineProfile::defaultProfile()
 {
     static QQuickWebEngineProfile *profile = new QQuickWebEngineProfile(
-                new QQuickWebEngineProfilePrivate(BrowserContextAdapter::defaultContext()),
-                BrowserContextAdapter::globalQObjectRoot());
+                new QQuickWebEngineProfilePrivate(ProfileAdapter::createDefaultProfileAdapter()),
+                ProfileAdapter::globalQObjectRoot());
     return profile;
 }
 
@@ -687,8 +783,8 @@ QQuickWebEngineProfile *QQuickWebEngineProfile::defaultProfile()
 void QQuickWebEngineProfile::setSpellCheckLanguages(const QStringList &languages)
 {
     Q_D(QQuickWebEngineProfile);
-    if (languages != d->browserContext()->spellCheckLanguages()) {
-        d->browserContext()->setSpellCheckLanguages(languages);
+    if (languages != d->profileAdapter()->spellCheckLanguages()) {
+        d->profileAdapter()->setSpellCheckLanguages(languages);
         emit spellCheckLanguagesChanged();
     }
 }
@@ -701,7 +797,7 @@ void QQuickWebEngineProfile::setSpellCheckLanguages(const QStringList &languages
 QStringList QQuickWebEngineProfile::spellCheckLanguages() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return d->browserContext()->spellCheckLanguages();
+    return d->profileAdapter()->spellCheckLanguages();
 }
 
 /*!
@@ -722,7 +818,7 @@ void QQuickWebEngineProfile::setSpellCheckEnabled(bool enable)
 {
      Q_D(QQuickWebEngineProfile);
     if (enable != isSpellCheckEnabled()) {
-        d->browserContext()->setSpellCheckEnabled(enable);
+        d->profileAdapter()->setSpellCheckEnabled(enable);
         emit spellCheckEnabledChanged();
     }
 }
@@ -730,7 +826,103 @@ void QQuickWebEngineProfile::setSpellCheckEnabled(bool enable)
 bool QQuickWebEngineProfile::isSpellCheckEnabled() const
 {
      const Q_D(QQuickWebEngineProfile);
-     return d->browserContext()->isSpellCheckEnabled();
+     return d->profileAdapter()->isSpellCheckEnabled();
+}
+
+/*!
+    \property QQuickWebEngineProfile::useForGlobalCertificateVerification
+    \since 5.13
+
+    This property holds whether this profile is used for downloading and
+    caching during global certificate verification when using the online
+    certificate status protocol (OCSP), certificate revokation lists (CRLs),
+    and authority information access (AIA), for example.
+
+    As long as one profile has this option enabled, all other profiles will be
+    able to use it for certificate verification. Only one profile at a time can
+    have this option enabled. It is recommended that the profile has a disk HTTP
+    cache to avoid needlessly re-downloading.
+
+    By default, no profile has this property enabled.
+
+    Currently, only affects Linux/NSS installations, where having a profile with
+    this role enables OCSP.
+*/
+
+/*!
+    \qmlproperty bool WebEngineProfile::useForGlobalCertificateVerification
+    \since QtWebEngine 1.9
+
+    This property holds whether this profile is used for downloading and
+    caching during global certificate verification when using the online
+    certificate status protocol (OCSP), certificate revokation lists (CRLs),
+    and authority information access (AIA), for example.
+
+    As long as one profile has this option enabled, all other profiles will be
+    able to use it for certificate verification. Only one profile at a time can
+    have this option enabled. It is recommended that the profile has a disk HTTP
+    cache to avoid needlessly re-downloading.
+
+    By default, no profile has this property enabled.
+
+    Currently, only affects Linux/NSS installations, where having a profile with
+    this role enables OCSP.
+*/
+
+void QQuickWebEngineProfile::setUseForGlobalCertificateVerification(bool enable)
+{
+    Q_D(QQuickWebEngineProfile);
+    if (enable != d->profileAdapter()->isUsedForGlobalCertificateVerification()) {
+        d->profileAdapter()->setUseForGlobalCertificateVerification(enable);
+        emit useForGlobalCertificateVerificationChanged();
+    }
+}
+
+bool QQuickWebEngineProfile::isUsedForGlobalCertificateVerification() const
+{
+     const Q_D(QQuickWebEngineProfile);
+     return d->profileAdapter()->isUsedForGlobalCertificateVerification();
+}
+
+/*!
+    \qmlproperty string WebEngineProfile::downloadPath
+    \since  QtWebEngine 1.9
+
+    The path to the location where the downloaded files are stored.
+
+    Overrides the default path used for download location.
+
+    If set to an empty string, the default path is restored.
+
+    \note By default, the download path is QStandardPaths::DownloadLocation.
+*/
+
+/*!
+    \property QQuickWebEngineProfile::downloadPath
+    \since QtWebEngine 1.9
+
+    The path to the location where the downloaded files are stored.
+
+    Overrides the default path used for download location, setting it to \a path.
+
+    If set to an empty string, the default path is restored.
+
+    \note By default, the download path is QStandardPaths::DownloadLocation.
+*/
+
+void QQuickWebEngineProfile::setDownloadPath(const QString &path)
+{
+    Q_D(QQuickWebEngineProfile);
+    if (downloadPath() == path)
+        return;
+    d->profileAdapter()->setDownloadPath(path);
+    emit downloadPathChanged();
+}
+
+QString QQuickWebEngineProfile::downloadPath() const
+{
+    const Q_D(QQuickWebEngineProfile);
+    return d->profileAdapter()->downloadPath();
 }
 
 /*!
@@ -740,7 +932,7 @@ bool QQuickWebEngineProfile::isSpellCheckEnabled() const
 QWebEngineCookieStore *QQuickWebEngineProfile::cookieStore() const
 {
     const Q_D(QQuickWebEngineProfile);
-    return d->browserContext()->cookieStore();
+    return d->profileAdapter()->cookieStore();
 }
 
 /*!
@@ -762,22 +954,47 @@ QWebEngineCookieStore *QQuickWebEngineProfile::cookieStore() const
 void QQuickWebEngineProfile::clearHttpCache()
 {
     Q_D(QQuickWebEngineProfile);
-    d->browserContext()->clearHttpCache();
+    d->profileAdapter()->clearHttpCache();
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
+/*!
+    Registers a request interceptor singleton \a interceptor to intercept URL requests.
+
+    The profile does not take ownership of the pointer.
+
+    \obsolete
+
+    Interceptors installed with this method will call
+    QWebEngineUrlRequestInterceptor::interceptRequest on the I/O thread. Therefore
+    the user has to provide thread-safe interaction with the other user classes.
+    Use setUrlRequestInterceptor instead.
+
+    \sa QWebEngineUrlRequestInterceptor
+
+*/
+void QQuickWebEngineProfile::setRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor)
+{
+    Q_D(QQuickWebEngineProfile);
+    interceptor->setProperty("deprecated", true);
+    d->profileAdapter()->setRequestInterceptor(interceptor);
+    qWarning("Use of deprecated not tread-safe setter, use setUrlRequestInterceptor instead.");
+}
+#endif
 
 /*!
     Registers a request interceptor singleton \a interceptor to intercept URL requests.
 
     The profile does not take ownership of the pointer.
 
-    \sa QWebEngineUrlRequestInterceptor
+    \sa QWebEngineUrlRequestInfo QWebEngineUrlRequestInterceptor
 */
-void QQuickWebEngineProfile::setRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor)
+void QQuickWebEngineProfile::setUrlRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor)
 {
     Q_D(QQuickWebEngineProfile);
-    d->browserContext()->setRequestInterceptor(interceptor);
+    d->profileAdapter()->setRequestInterceptor(interceptor);
 }
+
 
 /*!
     Returns the custom URL scheme handler register for the URL scheme \a scheme.
@@ -785,41 +1002,19 @@ void QQuickWebEngineProfile::setRequestInterceptor(QWebEngineUrlRequestIntercept
 const QWebEngineUrlSchemeHandler *QQuickWebEngineProfile::urlSchemeHandler(const QByteArray &scheme) const
 {
     const Q_D(QQuickWebEngineProfile);
-    if (d->browserContext()->customUrlSchemeHandlers().contains(scheme))
-        return d->browserContext()->customUrlSchemeHandlers().value(scheme);
-    return 0;
-}
-
-static bool checkInternalScheme(const QByteArray &scheme)
-{
-    static QSet<QByteArray> internalSchemes;
-    if (internalSchemes.isEmpty()) {
-        internalSchemes << QByteArrayLiteral("qrc") << QByteArrayLiteral("data") << QByteArrayLiteral("blob")
-                        << QByteArrayLiteral("http") << QByteArrayLiteral("https") << QByteArrayLiteral("ftp")
-                        << QByteArrayLiteral("javascript");
-    }
-    return internalSchemes.contains(scheme);
+    return d->profileAdapter()->urlSchemeHandler(scheme);
 }
 
 /*!
     Registers a handler \a handler for custom URL scheme \a scheme in the profile.
+
+    It is necessary to first register the scheme with \l
+    QWebEngineUrlScheme::registerScheme at application startup.
 */
 void QQuickWebEngineProfile::installUrlSchemeHandler(const QByteArray &scheme, QWebEngineUrlSchemeHandler *handler)
 {
     Q_D(QQuickWebEngineProfile);
-    Q_ASSERT(handler);
-    if (checkInternalScheme(scheme)) {
-        qWarning("Cannot install a URL scheme handler overriding internal scheme: %s", scheme.constData());
-        return;
-    }
-
-    if (d->browserContext()->customUrlSchemeHandlers().contains(scheme)) {
-        if (d->browserContext()->customUrlSchemeHandlers().value(scheme) != handler)
-            qWarning("URL scheme handler already installed for the scheme: %s", scheme.constData());
-        return;
-    }
-    d->browserContext()->addCustomUrlSchemeHandler(scheme, handler);
-    connect(handler, SIGNAL(_q_destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)), this, SLOT(destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)));
+    d->profileAdapter()->installUrlSchemeHandler(scheme, handler);
 }
 
 /*!
@@ -830,10 +1025,7 @@ void QQuickWebEngineProfile::installUrlSchemeHandler(const QByteArray &scheme, Q
 void QQuickWebEngineProfile::removeUrlSchemeHandler(QWebEngineUrlSchemeHandler *handler)
 {
     Q_D(QQuickWebEngineProfile);
-    Q_ASSERT(handler);
-    if (!d->browserContext()->removeCustomUrlSchemeHandler(handler))
-        return;
-    disconnect(handler, SIGNAL(_q_destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)), this, SLOT(destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)));
+    d->profileAdapter()->removeUrlSchemeHandler(handler);
 }
 
 /*!
@@ -844,10 +1036,7 @@ void QQuickWebEngineProfile::removeUrlSchemeHandler(QWebEngineUrlSchemeHandler *
 void QQuickWebEngineProfile::removeUrlScheme(const QByteArray &scheme)
 {
     Q_D(QQuickWebEngineProfile);
-    QWebEngineUrlSchemeHandler *handler = d->browserContext()->takeCustomUrlSchemeHandler(scheme);
-    if (!handler)
-        return;
-    disconnect(handler, SIGNAL(_q_destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)), this, SLOT(destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler*)));
+    d->profileAdapter()->removeUrlScheme(scheme);
 }
 
 /*!
@@ -856,12 +1045,7 @@ void QQuickWebEngineProfile::removeUrlScheme(const QByteArray &scheme)
 void QQuickWebEngineProfile::removeAllUrlSchemeHandlers()
 {
     Q_D(QQuickWebEngineProfile);
-    d->browserContext()->clearCustomUrlSchemeHandlers();
-}
-
-void QQuickWebEngineProfile::destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler *obj)
-{
-    removeUrlSchemeHandler(obj);
+    d->profileAdapter()->removeAllUrlSchemeHandlers();
 }
 
 QQuickWebEngineSettings *QQuickWebEngineProfile::settings() const
@@ -884,7 +1068,7 @@ QQuickWebEngineSettings *QQuickWebEngineProfile::settings() const
     \property QQuickWebEngineProfile::userScripts
     \since 5.9
 
-    \brief the collection of scripts that are injected into all pages that share
+    \brief The collection of scripts that are injected into all pages that share
     this profile.
 
     \sa QQuickWebEngineScript, QQmlListReference
@@ -897,6 +1081,21 @@ QQmlListProperty<QQuickWebEngineScript> QQuickWebEngineProfile::userScripts()
                                                    d->userScripts_count,
                                                    d->userScripts_at,
                                                    d->userScripts_clear);
+}
+
+/*!
+    \since 5.13
+
+    Returns the profile's client certificate store.
+*/
+QWebEngineClientCertificateStore *QQuickWebEngineProfile::clientCertificateStore()
+{
+#if QT_CONFIG(ssl)
+    Q_D(QQuickWebEngineProfile);
+    return d->profileAdapter()->clientCertificateStore();
+#else
+    return nullptr;
+#endif
 }
 
 QT_END_NAMESPACE

@@ -56,8 +56,7 @@
 #include <QtCore/QSize>
 #include <QtCore/QRect>
 
-#include <wayland-client.h>
-#include <wayland-client-protocol.h>
+#include <QtWaylandClient/private/wayland-wayland-client-protocol.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -76,11 +75,15 @@ public:
     void setBusy() { mBusy = true; }
     bool busy() const { return mBusy; }
 
+    void setCommitted() { mCommitted = true; }
+    bool committed() const { return mCommitted; }
+
 protected:
-    struct wl_buffer *mBuffer;
+    struct wl_buffer *mBuffer = nullptr;
 
 private:
-    bool mBusy;
+    bool mBusy = false;
+    bool mCommitted = false;
 
     static void release(void *data, wl_buffer *);
     static const wl_buffer_listener listener;

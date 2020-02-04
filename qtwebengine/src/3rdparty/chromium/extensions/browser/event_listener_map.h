@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "extensions/common/event_filter.h"
 #include "extensions/common/extension_id.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -62,12 +63,14 @@ class EventListener {
   // Constructs EventListener for an Extension service worker.
   // Similar to ForExtension above with the only difference that
   // |worker_thread_id_| contains a valid worker thread, as opposed to
-  // kNonWorkerThreadId.
+  // kMainThreadId and |service_worker_version_id| contains a valid service
+  // worker version id instead of kInvalidServiceWorkerVersionId.
   static std::unique_ptr<EventListener> ForExtensionServiceWorker(
       const std::string& event_name,
       const std::string& extension_id,
       content::RenderProcessHost* process,
       const GURL& service_worker_scope,
+      int64_t service_worker_version_id,
       int worker_thread_id,
       std::unique_ptr<base::DictionaryValue> filter);
 
@@ -99,6 +102,9 @@ class EventListener {
   base::DictionaryValue* filter() const { return filter_.get(); }
   EventFilter::MatcherID matcher_id() const { return matcher_id_; }
   void set_matcher_id(EventFilter::MatcherID id) { matcher_id_ = id; }
+  int64_t service_worker_version_id() const {
+    return service_worker_version_id_;
+  }
   int worker_thread_id() const { return worker_thread_id_; }
 
  private:
@@ -107,21 +113,25 @@ class EventListener {
                 const GURL& listener_url,
                 content::RenderProcessHost* process,
                 bool is_for_service_worker,
+                int64_t service_worker_version_id,
                 int worker_thread_id,
                 std::unique_ptr<base::DictionaryValue> filter);
 
   const std::string event_name_;
   const std::string extension_id_;
   const GURL listener_url_;
-  content::RenderProcessHost* process_;
+  content::RenderProcessHost* process_ = nullptr;
 
   const bool is_for_service_worker_ = false;
+
+  const int64_t service_worker_version_id_ =
+      blink::mojom::kInvalidServiceWorkerVersionId;
 
   // If this listener is for a service worker (i.e.
   // is_for_service_worker_ = true) and the worker is in running state, then
   // this is the worker's thread id in the worker |process_|. For lazy service
-  // worker events, this will be kNonWorkerThreadId.
-  const int worker_thread_id_;
+  // worker events, this will be kMainThreadId.
+  int worker_thread_id_;
 
   std::unique_ptr<base::DictionaryValue> filter_;
   EventFilter::MatcherID matcher_id_;  // -1 if unset.
@@ -134,6 +144,8 @@ class EventListener {
 class EventListenerMap {
  public:
   using ListenerList = std::vector<std::unique_ptr<EventListener>>;
+  // The key here is an event name.
+  using ListenerMap = std::unordered_map<std::string, ListenerList>;
 
   class Delegate {
    public:
@@ -155,6 +167,9 @@ class EventListenerMap {
   // Remove a listener that .Equals() |listener|.
   // Returns true if the listener was removed .
   bool RemoveListener(const EventListener* listener);
+
+  // Get the map of all EventListeners.
+  const ListenerMap& listeners() const { return listeners_; };
 
   // Returns the set of listeners that want to be notified of |event|.
   std::set<const EventListener*> GetEventListeners(const Event& event);
@@ -180,7 +195,7 @@ class EventListenerMap {
 
   // Returns true if there is a listener for |extension_id| in |process|.
   // |worker_thread_id| is the thread id of the service worker the listener is
-  // for, or kNonWorkerThreadId if the listener is not for a service worker.
+  // for, or kMainThreadId if the listener is not for a service worker.
   bool HasProcessListener(content::RenderProcessHost* process,
                           int worker_thread_id,
                           const std::string& extension_id) const;
@@ -194,17 +209,20 @@ class EventListenerMap {
   // is no way to serialise a RenderProcessHost*.
   void LoadUnfilteredLazyListeners(const std::string& extension_id,
                                    const std::set<std::string>& event_names);
+  // Similar as above, but applies to extension service workers.
+  void LoadUnfilteredWorkerListeners(const std::string& extension_id,
+                                     const std::set<std::string>& event_names);
 
   // Adds filtered lazy listeners as described their serialised descriptions.
+  // |is_for_service_worker| is true for extension service worker event
+  // listeners.
   // |filtered| contains a map from event names to filters, each pairing
   // defining a lazy filtered listener.
-  void LoadFilteredLazyListeners(
-      const std::string& extension_id,
-      const base::DictionaryValue& filtered);
+  void LoadFilteredLazyListeners(const std::string& extension_id,
+                                 bool is_for_service_worker,
+                                 const base::DictionaryValue& filtered);
 
  private:
-  // The key here is an event name.
-  using ListenerMap = std::map<std::string, ListenerList>;
 
   void CleanupListener(EventListener* listener);
   bool IsFilteredEvent(const Event& event) const;

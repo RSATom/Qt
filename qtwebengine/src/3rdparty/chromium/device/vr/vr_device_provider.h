@@ -7,19 +7,27 @@
 
 #include <vector>
 
-namespace device {
+#include "base/callback.h"
+#include "device/vr/public/mojom/isolated_xr_service.mojom.h"
 
-class VRDevice;
+namespace device {
 
 class VRDeviceProvider {
  public:
   VRDeviceProvider() {}
   virtual ~VRDeviceProvider() {}
 
-  virtual void GetDevices(std::vector<VRDevice*>* devices) = 0;
-
   // If the VR API requires initialization that should happen here.
-  virtual void Initialize() = 0;
+  virtual void Initialize(
+      base::RepeatingCallback<void(mojom::XRDeviceId id,
+                                   mojom::VRDisplayInfoPtr,
+                                   mojom::XRRuntimePtr)> add_device_callback,
+      base::RepeatingCallback<void(mojom::XRDeviceId id)>
+          remove_device_callback,
+      base::OnceClosure initialization_complete) = 0;
+
+  // Returns true if initialization is complete.
+  virtual bool Initialized() = 0;
 };
 
 }  // namespace device

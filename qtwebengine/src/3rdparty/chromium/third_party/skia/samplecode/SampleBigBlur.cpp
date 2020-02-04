@@ -4,22 +4,20 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkBlurMask.h"
-#include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
-#include "SkView.h"
+#include "SkMaskFilter.h"
 
-class BigBlurView : public SampleView {
+class BigBlurView : public Sample {
 public:
     BigBlurView() {
     }
 
 protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt) {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "BigBlur");
+    virtual bool onQuery(Sample::Event* evt) {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "BigBlur");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -29,20 +27,18 @@ protected:
         SkPaint paint;
         canvas->save();
         paint.setColor(SK_ColorBLUE);
-        paint.setMaskFilter(SkBlurMaskFilter::Make(
+        paint.setMaskFilter(SkMaskFilter::MakeBlur(
             kNormal_SkBlurStyle,
-            SkBlurMask::ConvertRadiusToSigma(SkIntToScalar(128)),
-            SkBlurMaskFilter::kHighQuality_BlurFlag));
+            SkBlurMask::ConvertRadiusToSigma(SkIntToScalar(128))));
         canvas->translate(200, 200);
         canvas->drawCircle(100, 100, 200, paint);
         canvas->restore();
     }
 
 private:
-    typedef SkView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new BigBlurView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new BigBlurView(); )

@@ -52,19 +52,30 @@
 //
 
 #include <QString>
+#include <QFileInfo>
 
 QT_BEGIN_NAMESPACE
 
 class QIODevice;
 class QQuickTextureFactory;
+class QTextureFileReader;
 
 class QSGTextureReader
 {
 public:
-    QSGTextureReader();
+    QSGTextureReader(QIODevice *device, const QString &fileName = QString());
+    ~QSGTextureReader();
 
-    static QQuickTextureFactory *read(QIODevice *device, const QByteArray &format);
-    static bool isTexture(QIODevice *device, const QByteArray &format);
+    QQuickTextureFactory *read();
+    bool isTexture();
+
+    // TBD access function to params
+    // TBD ask for identified fmt
+
+    static QList<QByteArray> supportedFileFormats();
+
+private:
+    QTextureFileReader *m_reader = nullptr;
 };
 
 QT_END_NAMESPACE

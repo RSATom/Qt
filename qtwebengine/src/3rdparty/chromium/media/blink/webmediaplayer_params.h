@@ -8,15 +8,22 @@
 #include <stdint.h>
 
 #include "base/callback.h"
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "cc/layers/surface_layer.h"
+#include "components/viz/common/gpu/context_provider.h"
 #include "media/base/media_log.h"
 #include "media/base/media_observer.h"
+#include "media/base/media_switches.h"
 #include "media/base/routing_token_callback.h"
 #include "media/blink/media_blink_export.h"
 #include "media/filters/context_3d.h"
+#include "media/mojo/interfaces/media_metrics_provider.mojom.h"
+#include "third_party/blink/public/platform/web_media_player.h"
+#include "third_party/blink/public/platform/web_video_frame_submitter.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -25,19 +32,33 @@ class TaskRunner;
 
 namespace blink {
 class WebContentDecryptionModule;
-}
+class WebSurfaceLayerBridge;
+class WebSurfaceLayerBridgeObserver;
+}  // namespace blink
 
 namespace media {
 
+using CreateSurfaceLayerBridgeCB =
+    base::OnceCallback<std::unique_ptr<blink::WebSurfaceLayerBridge>(
+        blink::WebSurfaceLayerBridgeObserver*,
+        cc::UpdateSubmissionStateCB)>;
+
 class SwitchableAudioRendererSink;
-class SurfaceManager;
 
 // Holds parameters for constructing WebMediaPlayerImpl without having
 // to plumb arguments through various abstraction layers.
 class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
  public:
-  typedef base::Callback<void(const base::Closure&)> DeferLoadCB;
-  typedef base::Callback<Context3D()> Context3DCB;
+  // Returns true if load will deferred. False if it will run immediately.
+  using DeferLoadCB = base::RepeatingCallback<bool(base::OnceClosure)>;
+
+  using Context3DCB = base::Callback<Context3D()>;
+
+  // Callback to obtain the media ContextProvider.
+  // Requires being called on the media thread.
+  // The argument callback is also called on the media thread as a reply.
+  using ContextProviderCB =
+      base::Callback<void(base::Callback<void(viz::ContextProvider*)>)>;
 
   // Callback to tell V8 about the amount of memory used by the WebMediaPlayer
   // instance.  The input parameter is the delta in bytes since the last call to
@@ -55,16 +76,21 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
       const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
       const scoped_refptr<base::TaskRunner>& worker_task_runner,
       const scoped_refptr<base::SingleThreadTaskRunner>& compositor_task_runner,
-      const Context3DCB& context_3d,
+      const scoped_refptr<base::SingleThreadTaskRunner>&
+          video_frame_compositor_task_runner,
       const AdjustAllocatedMemoryCB& adjust_allocated_memory_cb,
       blink::WebContentDecryptionModule* initial_cdm,
-      SurfaceManager* surface_manager,
       RequestRoutingTokenCallback request_routing_token_cb,
       base::WeakPtr<MediaObserver> media_observer,
-      base::TimeDelta max_keyframe_distance_to_disable_background_video,
-      base::TimeDelta max_keyframe_distance_to_disable_background_video_mse,
       bool enable_instant_source_buffer_gc,
-      bool embedded_media_experience_enabled);
+      bool embedded_media_experience_enabled,
+      mojom::MediaMetricsProviderPtr metrics_provider,
+      CreateSurfaceLayerBridgeCB bridge_callback,
+      scoped_refptr<viz::ContextProvider> context_provider,
+      blink::WebMediaPlayer::SurfaceLayerMode use_surface_layer_for_video,
+      bool is_background_suspend_enabled,
+      bool is_background_video_play_enabled,
+      bool is_background_video_track_optimization_supported);
 
   ~WebMediaPlayerParams();
 
@@ -76,6 +102,10 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
   }
 
   std::unique_ptr<MediaLog> take_media_log() { return std::move(media_log_); }
+
+  mojom::MediaMetricsProviderPtr take_metrics_provider() {
+    return std::move(metrics_provider_);
+  }
 
   const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner() const {
     return media_task_runner_;
@@ -90,7 +120,10 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
     return compositor_task_runner_;
   }
 
-  Context3DCB context_3d_cb() const { return context_3d_cb_; }
+  const scoped_refptr<base::SingleThreadTaskRunner>&
+  video_frame_compositor_task_runner() const {
+    return video_frame_compositor_task_runner_;
+  }
 
   blink::WebContentDecryptionModule* initial_cdm() const {
     return initial_cdm_;
@@ -100,19 +133,8 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
     return adjust_allocated_memory_cb_;
   }
 
-  SurfaceManager* surface_manager() const { return surface_manager_; }
-
   base::WeakPtr<MediaObserver> media_observer() const {
     return media_observer_;
-  }
-
-  base::TimeDelta max_keyframe_distance_to_disable_background_video() const {
-    return max_keyframe_distance_to_disable_background_video_;
-  }
-
-  base::TimeDelta max_keyframe_distance_to_disable_background_video_mse()
-      const {
-    return max_keyframe_distance_to_disable_background_video_mse_;
   }
 
   bool enable_instant_source_buffer_gc() const {
@@ -127,6 +149,30 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
     return request_routing_token_cb_;
   }
 
+  CreateSurfaceLayerBridgeCB create_bridge_callback() {
+    return std::move(create_bridge_callback_);
+  }
+
+  scoped_refptr<viz::ContextProvider> context_provider() {
+    return context_provider_;
+  }
+
+  blink::WebMediaPlayer::SurfaceLayerMode use_surface_layer_for_video() const {
+    return use_surface_layer_for_video_;
+  }
+
+  bool IsBackgroundSuspendEnabled() const {
+    return is_background_suspend_enabled_;
+  }
+
+  bool IsBackgroundVideoPlaybackEnabled() const {
+    return is_background_video_playback_enabled_;
+  }
+
+  bool IsBackgroundVideoTrackOptimizationSupported() const {
+    return is_background_video_track_optimization_supported_;
+  }
+
  private:
   DeferLoadCB defer_load_cb_;
   scoped_refptr<SwitchableAudioRendererSink> audio_renderer_sink_;
@@ -134,17 +180,27 @@ class MEDIA_BLINK_EXPORT WebMediaPlayerParams {
   scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
   scoped_refptr<base::TaskRunner> worker_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;
-  Context3DCB context_3d_cb_;
+  scoped_refptr<base::SingleThreadTaskRunner>
+      video_frame_compositor_task_runner_;
   AdjustAllocatedMemoryCB adjust_allocated_memory_cb_;
 
   blink::WebContentDecryptionModule* initial_cdm_;
-  SurfaceManager* surface_manager_;
   RequestRoutingTokenCallback request_routing_token_cb_;
   base::WeakPtr<MediaObserver> media_observer_;
-  base::TimeDelta max_keyframe_distance_to_disable_background_video_;
-  base::TimeDelta max_keyframe_distance_to_disable_background_video_mse_;
   bool enable_instant_source_buffer_gc_;
   const bool embedded_media_experience_enabled_;
+  mojom::MediaMetricsProviderPtr metrics_provider_;
+  CreateSurfaceLayerBridgeCB create_bridge_callback_;
+  scoped_refptr<viz::ContextProvider> context_provider_;
+  blink::WebMediaPlayer::SurfaceLayerMode use_surface_layer_for_video_;
+
+  // Whether the renderer should automatically suspend media playback in
+  // background tabs.
+  bool is_background_suspend_enabled_ = false;
+  // Whether the renderer is allowed to play video in background tabs.
+  bool is_background_video_playback_enabled_ = true;
+  // Whether background video optimization is supported on current platform.
+  bool is_background_video_track_optimization_supported_ = true;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(WebMediaPlayerParams);
 };

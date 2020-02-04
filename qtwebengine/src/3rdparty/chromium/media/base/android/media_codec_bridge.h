@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/android/jni_android.h"
+#include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "media/base/media_export.h"
@@ -21,6 +22,13 @@ namespace media {
 
 class EncryptionScheme;
 struct SubsampleEntry;
+
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.media
+enum class CodecType {
+  kAny,
+  kSecure,    // Note that all secure codecs are HW codecs.
+  kSoftware,  // In some cases hardware codecs could hang the GPU process.
+};
 
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.media
 // GENERATED_JAVA_PREFIX_TO_STRIP: MEDIA_CODEC_
@@ -134,7 +142,7 @@ class MEDIA_EXPORT MediaCodecBridge {
 
   // Changes the output surface for the MediaCodec. May only be used on API
   // level 23 and higher (Marshmallow).
-  virtual bool SetSurface(jobject surface) = 0;
+  virtual bool SetSurface(const base::android::JavaRef<jobject>& surface) = 0;
 
   // Sets the video encoder target bitrate and framerate.
   virtual void SetVideoBitrate(int bps, int frame_rate) = 0;
@@ -142,8 +150,11 @@ class MEDIA_EXPORT MediaCodecBridge {
   // Requests that the video encoder insert a key frame.
   virtual void RequestKeyFrameSoon() = 0;
 
-  // Returns whether the codec is configured for adaptive playback.
-  virtual bool IsAdaptivePlaybackSupported() = 0;
+  // When the MediaCodec has been configured in async mode, this is called when
+  // input or output buffers are available.
+  virtual void OnBuffersAvailable(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj) = 0;
 
   DISALLOW_COPY_AND_ASSIGN(MediaCodecBridge);
 };

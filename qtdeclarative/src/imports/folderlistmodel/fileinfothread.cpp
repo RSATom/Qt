@@ -39,6 +39,8 @@
 
 #include "fileinfothread_p.h"
 #include <qdiriterator.h>
+#include <qpointer.h>
+#include <qtimer.h>
 
 #include <QDebug>
 
@@ -46,8 +48,9 @@
 FileInfoThread::FileInfoThread(QObject *parent)
     : QThread(parent),
       abort(false),
+      scanPending(false),
 #if QT_CONFIG(filesystemwatcher)
-      watcher(0),
+      watcher(nullptr),
 #endif
       sortFlags(QDir::Name),
       needUpdate(true),
@@ -109,7 +112,7 @@ void FileInfoThread::setPath(const QString &path)
 #endif
     currentPath = path;
     needUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 void FileInfoThread::setRootPath(const QString &path)
@@ -126,7 +129,7 @@ void FileInfoThread::dirChanged(const QString &directoryPath)
     Q_UNUSED(directoryPath);
     QMutexLocker locker(&mutex);
     folderUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 #endif
 
@@ -135,7 +138,8 @@ void FileInfoThread::setSortFlags(QDir::SortFlags flags)
     QMutexLocker locker(&mutex);
     sortFlags = flags;
     sortUpdate = true;
-    condition.wakeAll();
+    needUpdate = true;
+    initiateScan();
 }
 
 void FileInfoThread::setNameFilters(const QStringList & filters)
@@ -143,7 +147,7 @@ void FileInfoThread::setNameFilters(const QStringList & filters)
     QMutexLocker locker(&mutex);
     nameFilters = filters;
     folderUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 void FileInfoThread::setShowFiles(bool show)
@@ -151,7 +155,7 @@ void FileInfoThread::setShowFiles(bool show)
     QMutexLocker locker(&mutex);
     showFiles = show;
     folderUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 void FileInfoThread::setShowDirs(bool showFolders)
@@ -159,7 +163,7 @@ void FileInfoThread::setShowDirs(bool showFolders)
     QMutexLocker locker(&mutex);
     showDirs = showFolders;
     folderUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 void FileInfoThread::setShowDirsFirst(bool show)
@@ -167,7 +171,7 @@ void FileInfoThread::setShowDirsFirst(bool show)
     QMutexLocker locker(&mutex);
     showDirsFirst = show;
     folderUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 void FileInfoThread::setShowDotAndDotDot(bool on)
@@ -176,7 +180,7 @@ void FileInfoThread::setShowDotAndDotDot(bool on)
     showDotAndDotDot = on;
     folderUpdate = true;
     needUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 void FileInfoThread::setShowHidden(bool on)
@@ -185,7 +189,7 @@ void FileInfoThread::setShowHidden(bool on)
     showHidden = on;
     folderUpdate = true;
     needUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 void FileInfoThread::setShowOnlyReadable(bool on)
@@ -193,7 +197,7 @@ void FileInfoThread::setShowOnlyReadable(bool on)
     QMutexLocker locker(&mutex);
     showOnlyReadable = on;
     folderUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 void FileInfoThread::setCaseSensitive(bool on)
@@ -201,7 +205,7 @@ void FileInfoThread::setCaseSensitive(bool on)
     QMutexLocker locker(&mutex);
     caseSensitive = on;
     folderUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 
 #if QT_CONFIG(filesystemwatcher)
@@ -210,7 +214,7 @@ void FileInfoThread::updateFile(const QString &path)
     Q_UNUSED(path);
     QMutexLocker locker(&mutex);
     folderUpdate = true;
-    condition.wakeAll();
+    initiateScan();
 }
 #endif
 
@@ -222,8 +226,10 @@ void FileInfoThread::run()
         if (abort) {
             return;
         }
-        if (currentPath.isEmpty() || !needUpdate)
+        if (currentPath.isEmpty() || !needUpdate) {
+            emit statusChanged(currentPath.isEmpty() ? QQuickFolderListModel::Null : QQuickFolderListModel::Ready);
             condition.wait(&mutex);
+        }
 
         if (abort) {
             return;
@@ -231,6 +237,7 @@ void FileInfoThread::run()
 
         if (!currentPath.isEmpty()) {
             updateFiles = true;
+            emit statusChanged(QQuickFolderListModel::Loading);
         }
         if (updateFiles)
             getFileInfos(currentPath);
@@ -238,6 +245,37 @@ void FileInfoThread::run()
     }
 }
 
+void FileInfoThread::runOnce()
+{
+    if (scanPending)
+        return;
+    scanPending = true;
+    QPointer<FileInfoThread> guardedThis(this);
+
+    auto getFileInfosAsync = [guardedThis](){
+        if (!guardedThis)
+            return;
+        guardedThis->scanPending = false;
+        if (guardedThis->currentPath.isEmpty()) {
+            emit guardedThis->statusChanged(QQuickFolderListModel::Null);
+            return;
+        }
+        emit guardedThis->statusChanged(QQuickFolderListModel::Loading);
+        guardedThis->getFileInfos(guardedThis->currentPath);
+        emit guardedThis->statusChanged(QQuickFolderListModel::Ready);
+    };
+
+    QTimer::singleShot(0, getFileInfosAsync);
+}
+
+void FileInfoThread::initiateScan()
+{
+#if QT_CONFIG(thread)
+    condition.wakeAll();
+#else
+    runOnce();
+#endif
+}
 
 void FileInfoThread::getFileInfos(const QString &path)
 {

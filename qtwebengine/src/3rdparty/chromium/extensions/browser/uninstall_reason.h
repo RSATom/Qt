@@ -26,12 +26,18 @@ enum UninstallReason {
   UNINSTALL_REASON_INTERNAL_MANAGEMENT,  // Internal extensions (see usages)
   UNINSTALL_REASON_REINSTALL,
   UNINSTALL_REASON_COMPONENT_REMOVED,
+  UNINSTALL_REASON_MIGRATED,  // Migrated to component extensions
+
+  UNINSTALL_REASON_CHROME_WEBSTORE,
+
+  UNINSTALL_REASON_ARC,  // Web app that was uninstalled via ARC
 
   UNINSTALL_REASON_MAX,  // Should always be the last value
 };
 
-// The source of an uninstall. Do *NOT* adjust the order of these, as they are
-// used in UMA.
+// The source of an uninstall. Do *NOT* reorder or delete any of the named
+// values, as they are used in UMA. Put all new values above
+// NUM_UNINSTALL_SOURCES.
 enum UninstallSource {
   UNINSTALL_SOURCE_FOR_TESTING,
   UNINSTALL_SOURCE_TOOLBAR_CONTEXT_MENU,
@@ -42,6 +48,8 @@ enum UninstallSource {
   UNINSTALL_SOURCE_CHROME_APPS_PAGE,
   UNINSTALL_SOURCE_CHROME_EXTENSIONS_PAGE,
   UNINSTALL_SOURCE_EXTENSION,
+  UNINSTALL_SOURCE_CHROME_WEBSTORE,
+  UNINSTALL_SOURCE_HOSTED_APP_MENU,
   NUM_UNINSTALL_SOURCES,
 };
 

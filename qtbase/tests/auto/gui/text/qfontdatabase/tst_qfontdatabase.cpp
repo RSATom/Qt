@@ -35,6 +35,8 @@
 #include <private/qrawfont_p.h>
 #include <qpa/qplatformfontdatabase.h>
 
+Q_LOGGING_CATEGORY(lcTests, "qt.text.tests")
+
 class tst_QFontDatabase : public QObject
 {
 Q_OBJECT
@@ -49,6 +51,7 @@ private slots:
 
     void fixedPitch_data();
     void fixedPitch();
+    void systemFixedFont();
 
 #ifdef Q_OS_MAC
     void trickyFonts_data();
@@ -61,10 +64,13 @@ private slots:
     void addAppFont_data();
     void addAppFont();
 
+    void addTwoAppFontsFromFamily();
+
     void aliases();
     void fallbackFonts();
 
     void condensedFontWidth();
+    void condensedFontWidthNoFontMerging();
     void condensedFontMatching();
 
     void rasterFonts();
@@ -74,6 +80,7 @@ private:
     QString m_ledFont;
     QString m_testFont;
     QString m_testFontCondensed;
+    QString m_testFontItalic;
 };
 
 tst_QFontDatabase::tst_QFontDatabase()
@@ -85,9 +92,11 @@ void tst_QFontDatabase::initTestCase()
     m_ledFont = QFINDTESTDATA("LED_REAL.TTF");
     m_testFont = QFINDTESTDATA("testfont.ttf");
     m_testFontCondensed = QFINDTESTDATA("testfont_condensed.ttf");
+    m_testFontItalic = QFINDTESTDATA("testfont_italic.ttf");
     QVERIFY(!m_ledFont.isEmpty());
     QVERIFY(!m_testFont.isEmpty());
     QVERIFY(!m_testFontCondensed.isEmpty());
+    QVERIFY(!m_testFontItalic.isEmpty());
 }
 
 void tst_QFontDatabase::styles_data()
@@ -148,6 +157,16 @@ void tst_QFontDatabase::fixedPitch()
     QFont qfont(font);
     QFontInfo fi(qfont);
     QCOMPARE(fi.fixedPitch(), fixedPitch);
+}
+
+void tst_QFontDatabase::systemFixedFont() // QTBUG-54623
+{
+    QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QFontInfo fontInfo(font);
+    bool fdbSaysFixed = QFontDatabase().isFixedPitch(fontInfo.family(), fontInfo.styleName());
+    qCDebug(lcTests) << "system fixed font is" << font << "really fixed?" << fdbSaysFixed << fontInfo.fixedPitch();
+    QVERIFY(fdbSaysFixed);
+    QVERIFY(fontInfo.fixedPitch());
 }
 
 #ifdef Q_OS_MAC
@@ -258,6 +277,30 @@ void tst_QFontDatabase::addAppFont()
     QCOMPARE(db.families(), oldFamilies);
 }
 
+void tst_QFontDatabase::addTwoAppFontsFromFamily()
+{
+    int regularId = QFontDatabase::addApplicationFont(m_testFont);
+    if (regularId == -1)
+        QSKIP("Skip the test since app fonts are not supported on this system");
+
+    int italicId = QFontDatabase::addApplicationFont(m_testFontItalic);
+    QVERIFY(italicId != -1);
+
+    QVERIFY(!QFontDatabase::applicationFontFamilies(regularId).isEmpty());
+    QVERIFY(!QFontDatabase::applicationFontFamilies(italicId).isEmpty());
+
+    QString regularFontName = QFontDatabase::applicationFontFamilies(regularId).first();
+    QString italicFontName = QFontDatabase::applicationFontFamilies(italicId).first();
+    QCOMPARE(regularFontName, italicFontName);
+
+    QFont italicFont = QFontDatabase().font(italicFontName,
+                                            QString::fromLatin1("Italic"), 14);
+    QVERIFY(italicFont.italic());
+
+    QFontDatabase::removeApplicationFont(regularId);
+    QFontDatabase::removeApplicationFont(italicId);
+}
+
 void tst_QFontDatabase::aliases()
 {
     QFontDatabase db;
@@ -297,6 +340,29 @@ static QString testString()
     return QStringLiteral("foo bar");
 }
 
+void tst_QFontDatabase::condensedFontWidthNoFontMerging()
+{
+    int regularFontId = QFontDatabase::addApplicationFont(m_testFont);
+    int condensedFontId = QFontDatabase::addApplicationFont(m_testFontCondensed);
+
+    QVERIFY(!QFontDatabase::applicationFontFamilies(regularFontId).isEmpty());
+    QVERIFY(!QFontDatabase::applicationFontFamilies(condensedFontId).isEmpty());
+
+    QString regularFontName = QFontDatabase::applicationFontFamilies(regularFontId).first();
+    QString condensedFontName = QFontDatabase::applicationFontFamilies(condensedFontId).first();
+
+    QFont condensedFont1(condensedFontName);
+    if (regularFontName == condensedFontName)
+        condensedFont1.setStyleName(QStringLiteral("Condensed"));
+    condensedFont1.setStyleStrategy(QFont::PreferMatch);
+
+    QFont condensedFont2 = condensedFont1;
+    condensedFont2.setStyleStrategy(QFont::StyleStrategy(QFont::NoFontMerging | QFont::PreferMatch));
+
+    QCOMPARE(QFontMetricsF(condensedFont2).horizontalAdvance(QStringLiteral("foobar")),
+             QFontMetricsF(condensedFont1).horizontalAdvance(QStringLiteral("foobar")));
+ }
+
 void tst_QFontDatabase::condensedFontWidth()
 {
     QFontDatabase db;
@@ -312,7 +378,7 @@ void tst_QFontDatabase::condensedFontWidth()
     QFont testFontCondensed("QtBidiTestFontCondensed");
     QFontMetrics fmTF(testFont);
     QFontMetrics fmTFC(testFontCondensed);
-    QVERIFY(fmTF.width(testString()) > fmTFC.width(testString()));
+    QVERIFY(fmTF.horizontalAdvance(testString()) > fmTFC.horizontalAdvance(testString()));
 
 }
 
@@ -335,15 +401,18 @@ void tst_QFontDatabase::condensedFontMatching()
     QEXPECT_FAIL("","No matching of sub-family by stretch on Windows", Continue);
 #endif
 
-    QCOMPARE(QFontMetrics(tfcByStretch).width(testString()),
-             QFontMetrics(tfcByStyleName).width(testString()));
+#ifdef Q_OS_ANDROID
+    QEXPECT_FAIL("", "QTBUG-69216", Continue);
+#endif
+    QCOMPARE(QFontMetrics(tfcByStretch).horizontalAdvance(testString()),
+             QFontMetrics(tfcByStyleName).horizontalAdvance(testString()));
 
     if (!db.hasFamily("QtBidiTestFontCondensed"))
         QSKIP("This platform doesn't support font sub-family names (QTBUG-55625)");
 
     QFont tfcBySubfamilyName("QtBidiTestFontCondensed");
-    QCOMPARE(QFontMetrics(tfcByStyleName).width(testString()),
-             QFontMetrics(tfcBySubfamilyName).width(testString()));
+    QCOMPARE(QFontMetrics(tfcByStyleName).horizontalAdvance(testString()),
+             QFontMetrics(tfcBySubfamilyName).horizontalAdvance(testString()));
 }
 
 void tst_QFontDatabase::rasterFonts()

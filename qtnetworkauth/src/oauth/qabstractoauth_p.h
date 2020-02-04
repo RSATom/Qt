@@ -77,6 +77,10 @@ public:
     void setStatus(QAbstractOAuth::Status status);
     static QByteArray generateRandomString(quint8 length);
 
+    virtual void prepareRequestImpl(QNetworkRequest *request,
+                                    const QByteArray &verb,
+                                    const QByteArray &body) = 0;
+
     const QLoggingCategory loggingCategory;
     QString clientIdentifier;
     QString token;

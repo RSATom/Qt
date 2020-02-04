@@ -60,6 +60,7 @@
 #include <Qt3DCore/private/qobservableinterface_p.h>
 #include <Qt3DCore/private/qt3dcore_global_p.h>
 #include <QtCore/private/qobject_p.h>
+#include <QQueue>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,7 +69,7 @@ namespace Qt3DCore {
 class QNode;
 class QAspectEngine;
 
-class QT3DCORE_PRIVATE_EXPORT QNodePrivate : public QObjectPrivate, public QObservableInterface
+class Q_3DCORE_PRIVATE_EXPORT QNodePrivate : public QObjectPrivate, public QObservableInterface
 {
 public:
     QNodePrivate();
@@ -79,11 +80,11 @@ public:
     virtual void setScene(QScene *scene);
     QScene *scene() const;
 
-    void setArbiter(QLockableObserverInterface *arbiter) Q_DECL_OVERRIDE;
+    void setArbiter(QLockableObserverInterface *arbiter) override;
 
     void notifyPropertyChange(const char *name, const QVariant &value);
     void notifyDynamicPropertyChange(const QByteArray &name, const QVariant &value);
-    void notifyObservers(const QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void notifyObservers(const QSceneChangePtr &change) override;
 
     void insertTree(QNode *treeRoot, int depth = 0);
     void updatePropertyTrackMode();
@@ -108,13 +109,13 @@ public:
     static void nodePtrDeleter(QNode *q);
 
     template<typename Caller, typename NodeType>
-    using DestructionFunction = void (Caller::*)(NodeType *);
+    using DestructionFunctionPointer = void (Caller::*)(NodeType *);
 
     template<typename Caller, typename NodeType, typename PropertyType>
-    void registerDestructionHelper(NodeType *, DestructionFunction<Caller, NodeType>, PropertyType);
+    void registerDestructionHelper(NodeType *, DestructionFunctionPointer<Caller, NodeType>, PropertyType);
 
     template<typename Caller, typename NodeType>
-    void registerDestructionHelper(NodeType *node, DestructionFunction<Caller, NodeType> func, NodeType *&)
+    void registerDestructionHelper(NodeType *node, DestructionFunctionPointer<Caller, NodeType> func, NodeType *&)
     {
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         Q_Q(QNode);
@@ -123,11 +124,32 @@ public:
     }
 
     template<typename Caller, typename NodeType>
-    void registerDestructionHelper(NodeType *node, DestructionFunction<Caller, NodeType> func, QVector<NodeType*> &)
+    void registerDestructionHelper(NodeType *node, DestructionFunctionPointer<Caller, NodeType> func, QVector<NodeType*> &)
     {
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         Q_Q(QNode);
         auto f = [q, func, node]() { (static_cast<Caller *>(q)->*func)(node); };
+        m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
+    }
+
+    template<typename Caller, typename ValueType>
+    using DestructionFunctionValue = void (Caller::*)(const ValueType&);
+
+    template<typename Caller, typename NodeType, typename ValueType>
+    void registerDestructionHelper(NodeType *node, DestructionFunctionValue<Caller, ValueType> func, NodeType *&,
+                                   const ValueType &resetValue)
+    {
+        // If the node is destoyed, we make sure not to keep a dangling pointer to it
+        Q_Q(QNode);
+        auto f = [q, func, resetValue]() { (static_cast<Caller *>(q)->*func)(resetValue); };
+        m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
+    }
+
+    template<typename Caller, typename NodeType>
+    void registerPrivateDestructionHelper(NodeType *node, DestructionFunctionPointer<Caller, NodeType> func)
+    {
+        // If the node is destoyed, we make sure not to keep a dangling pointer to it
+        auto f = [this, func, node]() { (static_cast<Caller *>(this)->*func)(node); };
         m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
     }
 
@@ -139,6 +161,7 @@ public:
     static const QMetaObject *findStaticMetaObject(const QMetaObject *metaObject);
 
     void _q_postConstructorInit();
+    void _q_ensureBackendNodeCreated();
 
 private:
     void notifyCreationChange();
@@ -158,6 +181,23 @@ private:
     bool m_propertyChangesSetup;
     PropertyChangeHandler<QNodePrivate> m_signals;
     QHash<QNode *, QMetaObject::Connection> m_destructionConnections;
+};
+
+class NodePostConstructorInit : public QObject
+{
+    Q_OBJECT
+public:
+    NodePostConstructorInit(QObject *parent = nullptr);
+    virtual ~NodePostConstructorInit();
+    void removeNode(QNode *node);
+    void addNode(QNode *node);
+
+private Q_SLOTS:
+    void processNodes();
+
+private:
+    QQueue<QNodePrivate *> m_nodesToConstruct;
+    bool m_requestedProcessing;
 };
 
 } // namespace Qt3DCore

@@ -72,8 +72,11 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothDeviceClient
   FakeBluetoothDeviceClient();
   ~FakeBluetoothDeviceClient() override;
 
+  // Causes Connect() calls to never finish.
+  void LeaveConnectionsPending();
+
   // BluetoothDeviceClient overrides
-  void Init(dbus::Bus* bus) override;
+  void Init(dbus::Bus* bus, const std::string& bluetooth_service_name) override;
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
   std::vector<dbus::ObjectPath> GetDevicesForAdapter(
@@ -109,6 +112,12 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothDeviceClient
   void GetServiceRecords(const dbus::ObjectPath& object_path,
                          const ServiceRecordsCallback& callback,
                          const ErrorCallback& error_callback) override;
+  void ExecuteWrite(const dbus::ObjectPath& object_path,
+                    const base::Closure& callback,
+                    const ErrorCallback& error_callback) override;
+  void AbortWrite(const dbus::ObjectPath& object_path,
+                  const base::Closure& callback,
+                  const ErrorCallback& error_callback) override;
 
   void SetSimulationIntervalMs(int interval_ms);
 
@@ -167,8 +176,8 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothDeviceClient
       const std::string device_address,
       const std::vector<std::string>& service_uuids,
       device::BluetoothTransport type,
-      const std::unordered_map<std::string, std::vector<uint8_t>>&
-          service_data);
+      const std::map<std::string, std::vector<uint8_t>>& service_data,
+      const std::map<uint16_t, std::vector<uint8_t>>& manufacturer_data);
 
   void set_delay_start_discovery(bool value) { delay_start_discovery_ = value; }
 
@@ -176,13 +185,24 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothDeviceClient
   // |object_path| to |rssi|, if the fake device exists.
   void UpdateDeviceRSSI(const dbus::ObjectPath& object_path, int16_t rssi);
 
-  // Updates the service data property of fake device with object path
-  // |object_path| to merge |service_data| into the existing data,
-  // if the fake device exists.
-  void UpdateServiceData(
+  // Updates service UUIDs, service data, and manufacturer data of the fake
+  // device with the given |object_path|. The |service_uuids| values are
+  // appended, while |service_data| and |manufacturer_data| are merged into the
+  // existing property values. Has no effect if the fake device does not exist.
+  void UpdateServiceAndManufacturerData(
       const dbus::ObjectPath& object_path,
-      const std::unordered_map<std::string, std::vector<uint8_t>>&
-          service_data);
+      const std::vector<std::string>& service_uuids,
+      const std::map<std::string, std::vector<uint8_t>>& service_data,
+      const std::map<uint16_t, std::vector<uint8_t>>& manufacturer_data);
+
+  // Updates the EIR property of fake device with object path |object_path| to
+  // |eir|, if the fake device exists.
+  void UpdateEIR(const dbus::ObjectPath& object_path,
+                 const std::vector<uint8_t>& eir);
+
+  // Adds a pending prepare write request to |object_path|.
+  void AddPrepareWriteRequest(const dbus::ObjectPath& object_path,
+                              const std::vector<uint8_t>& value);
 
   static const char kTestPinCode[];
   static const int kTestPassKey;
@@ -337,7 +357,7 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothDeviceClient
       BluetoothProfileServiceProvider::Delegate::Status status);
 
   // List of observers interested in event notifications from us.
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
   using PropertiesMap =
       std::map<const dbus::ObjectPath, std::unique_ptr<Properties>>;
@@ -362,6 +382,12 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothDeviceClient
   // Controls the fake behavior to allow more extensive UI testing without
   // having to cycle the discovery simulation.
   bool delay_start_discovery_;
+
+  // Pending prepare write requests.
+  std::vector<std::pair<dbus::ObjectPath, std::vector<uint8_t>>>
+      prepare_write_requests_;
+
+  bool should_leave_connections_pending_;
 };
 
 }  // namespace bluez

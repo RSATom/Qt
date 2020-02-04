@@ -176,6 +176,12 @@ void QSGOpenVGInternalRectangleNode::setGradientStops(const QGradientStops &stop
     m_fillDirty = true;
 }
 
+void QSGOpenVGInternalRectangleNode::setGradientVertical(bool vertical)
+{
+    m_vertical = vertical;
+    m_fillDirty = true;
+}
+
 void QSGOpenVGInternalRectangleNode::setRadius(qreal radius)
 {
     m_radius = radius;
@@ -205,20 +211,13 @@ void QSGOpenVGInternalRectangleNode::render()
     } else {
         vgSeti(VG_MATRIX_MODE, VG_MATRIX_PATH_USER_TO_SURFACE);
         vgLoadIdentity();
-        if (m_radius > 0) {
-            // Fallback to rendering to an image for rounded rects with perspective transforms
-            if (m_offscreenSurface == nullptr || m_offscreenSurface->size() != QSize(std::ceil(m_rect.width()), std::ceil(m_rect.height()))) {
-                delete m_offscreenSurface;
-                m_offscreenSurface = new QOpenVGOffscreenSurface(QSize(std::ceil(m_rect.width()), std::ceil(m_rect.height())));
-            }
-
-            m_offscreenSurface->makeCurrent();
-        } else if (m_offscreenSurface) {
+        // Fallback to rendering to an image for rounded rects with perspective transforms
+        if (m_offscreenSurface == nullptr || m_offscreenSurface->size() != QSize(std::ceil(m_rect.width()), std::ceil(m_rect.height()))) {
             delete m_offscreenSurface;
-            m_offscreenSurface = nullptr;
+            m_offscreenSurface = new QOpenVGOffscreenSurface(QSize(std::ceil(m_rect.width()), std::ceil(m_rect.height())));
         }
+        m_offscreenSurface->makeCurrent();
     }
-
 
     // If path is dirty
     if (m_pathDirty) {
@@ -242,13 +241,13 @@ void QSGOpenVGInternalRectangleNode::render()
         } else {
             // Linear Gradient
             vgSetParameteri(m_rectanglePaint, VG_PAINT_TYPE, VG_PAINT_TYPE_LINEAR_GRADIENT);
-            const VGfloat verticalLinearGradient[] = {
+            const VGfloat linearGradient[] = {
                 0.0f,
                 0.0f,
-                0.0f,
-                static_cast<VGfloat>(m_rect.height())
+                m_vertical ? 0.0f : static_cast<VGfloat>(m_rect.width()),
+                m_vertical ? static_cast<VGfloat>(m_rect.height()) : 0.0f
             };
-            vgSetParameterfv(m_rectanglePaint, VG_PAINT_LINEAR_GRADIENT, 4, verticalLinearGradient);
+            vgSetParameterfv(m_rectanglePaint, VG_PAINT_LINEAR_GRADIENT, 4, linearGradient);
             vgSetParameteri(m_rectanglePaint, VG_PAINT_COLOR_RAMP_SPREAD_MODE, VG_COLOR_RAMP_SPREAD_PAD);
             vgSetParameteri(m_rectanglePaint, VG_PAINT_COLOR_RAMP_PREMULTIPLIED, false);
 
@@ -285,7 +284,7 @@ void QSGOpenVGInternalRectangleNode::render()
         vgDrawPath(m_rectanglePath, VG_FILL_PATH);
     }
 
-    if (!transform().isAffine() && m_radius > 0) {
+    if (!transform().isAffine()) {
         m_offscreenSurface->doneCurrent();
         //  Render offscreen surface
         vgSeti(VG_MATRIX_MODE, VG_MATRIX_IMAGE_USER_TO_SURFACE);

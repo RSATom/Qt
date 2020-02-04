@@ -16,12 +16,13 @@
 #define sw_Rasterizer_hpp
 
 #include "Context.hpp"
-
 #include "PixelProcessor.hpp"
-#include "Config.hpp"
+#include "Main/Config.hpp"
 
 namespace sw
 {
+	using namespace rr;
+
 	class Rasterizer : public Function<Void(Pointer<Byte>, Int, Int, Pointer<Byte>)>
 	{
 	public:

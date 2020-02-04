@@ -236,13 +236,39 @@ enum gbm_bo_flags {
     * Buffer is guaranteed to be laid out linearly in memory. That is, the
     * buffer is laid out as an array with 'height' blocks, each block with
     * length 'stride'. Each stride is in the same order as the rows of the
-    * buffer.
+    * buffer. This is intended to be used with buffers that will be accessed
+    * via dma-buf mmap().
     */
    GBM_BO_USE_LINEAR    = (1 << 4),
    /**
     * The buffer will be used as a texture that will be sampled from.
     */
    GBM_BO_USE_TEXTURING    = (1 << 5),
+   /**
+    * The buffer will be written to by a camera subsystem.
+    */
+   GBM_BO_USE_CAMERA_WRITE = (1 << 6),
+   /**
+    * The buffer will be read from by a camera subsystem.
+    */
+   GBM_BO_USE_CAMERA_READ = (1 << 7),
+   /**
+    * Buffer inaccessible to unprivileged users.
+    */
+   GBM_BO_USE_PROTECTED = (1 << 8),
+   /**
+    * These flags specify the frequency of software access. These flags do not
+    * guarantee the buffer is linear, but do guarantee gbm_bo_map(..) will
+    * present a linear view.
+    */
+   GBM_BO_USE_SW_READ_OFTEN = (1 << 9),
+   GBM_BO_USE_SW_READ_RARELY = (1 << 10),
+   GBM_BO_USE_SW_WRITE_OFTEN = (1 << 11),
+   GBM_BO_USE_SW_WRITE_RARELY = (1 << 12),
+   /**
+    * The buffer will be written by a video decode accelerator.
+    */
+   GBM_BO_USE_HW_VIDEO_DECODER = (1 << 13),
 };
 
 int
@@ -350,8 +376,12 @@ gbm_bo_get_stride_or_tiling(struct gbm_bo *bo);
 uint32_t
 gbm_bo_get_format(struct gbm_bo *bo);
 
+/* Deprecated */
 uint64_t
 gbm_bo_get_format_modifier(struct gbm_bo *bo);
+
+uint64_t
+gbm_bo_get_modifier(struct gbm_bo *bo);
 
 struct gbm_device *
 gbm_bo_get_device(struct gbm_bo *bo);
@@ -362,23 +392,39 @@ gbm_bo_get_handle(struct gbm_bo *bo);
 int
 gbm_bo_get_fd(struct gbm_bo *bo);
 
+/* Deprecated */
 size_t
 gbm_bo_get_num_planes(struct gbm_bo *bo);
 
+size_t
+gbm_bo_get_plane_count(struct gbm_bo *bo);
+
+/* Deprecated */
 union gbm_bo_handle
 gbm_bo_get_plane_handle(struct gbm_bo *bo, size_t plane);
+
+union gbm_bo_handle
+gbm_bo_get_handle_for_plane(struct gbm_bo* bo, size_t plane);
 
 int
 gbm_bo_get_plane_fd(struct gbm_bo *bo, size_t plane);
 
+/* Deprecated */
 uint32_t
 gbm_bo_get_plane_offset(struct gbm_bo *bo, size_t plane);
 
 uint32_t
-gbm_bo_get_plane_size(struct gbm_bo *bo, size_t plane);
+gbm_bo_get_offset(struct gbm_bo *bo, size_t plane);
 
 uint32_t
+gbm_bo_get_plane_size(struct gbm_bo *bo, size_t plane);
+
+/* Deprecated */
+uint32_t
 gbm_bo_get_plane_stride(struct gbm_bo *bo, size_t plane);
+
+uint32_t
+gbm_bo_get_stride_for_plane(struct gbm_bo *bo, size_t plane);
 
 uint64_t
 gbm_bo_get_plane_format_modifier(struct gbm_bo *bo, size_t plane);

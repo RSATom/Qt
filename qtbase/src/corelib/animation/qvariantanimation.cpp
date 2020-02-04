@@ -46,8 +46,6 @@
 
 #include <algorithm>
 
-#ifndef QT_NO_ANIMATION
-
 QT_BEGIN_NAMESPACE
 
 /*!
@@ -118,15 +116,7 @@ QT_BEGIN_NAMESPACE
     and the current progress.
 
     Example:
-    \code
-        QVariant myColorInterpolator(const QColor &start, const QColor &end, qreal progress)
-        {
-            ...
-            return QColor(...);
-        }
-        ...
-        qRegisterAnimationInterpolator<QColor>(myColorInterpolator);
-    \endcode
+    \snippet code/src_corelib_animation_qvariantanimation.cpp 0
 
     Another option is to reimplement interpolated(), which returns
     interpolation values for the value being interpolated.
@@ -403,13 +393,13 @@ Q_GLOBAL_STATIC(QInterpolatorVector, registeredInterpolators)
 static QBasicMutex registeredInterpolatorsMutex;
 
 /*!
-    \fn void qRegisterAnimationInterpolator(QVariant (*func)(const T &from, const T &to, qreal progress))
+    \fn template <typename T> void qRegisterAnimationInterpolator(QVariant (*func)(const T &from, const T &to, qreal progress))
     \relates QVariantAnimation
     \threadsafe
 
     Registers a custom interpolator \a func for the template type \c{T}.
     The interpolator has to be registered before the animation is constructed.
-    To unregister (and use the default interpolator) set \a func to 0.
+    To unregister (and use the default interpolator) set \a func to \nullptr.
  */
 
 /*!
@@ -418,9 +408,7 @@ static QBasicMutex registeredInterpolatorsMutex;
 
     This is a typedef for a pointer to a function with the following
     signature:
-    \code
-    QVariant myInterpolator(const QVariant &from, const QVariant &to, qreal progress);
-    \endcode
+    \snippet code/src_corelib_animation_qvariantanimation.cpp 1
 
 */
 
@@ -428,7 +416,7 @@ static QBasicMutex registeredInterpolatorsMutex;
  * \internal
  * Registers a custom interpolator \a func for the specific \a interpolationType.
  * The interpolator has to be registered before the animation is constructed.
- * To unregister (and use the default interpolator) set \a func to 0.
+ * To unregister (and use the default interpolator) set \a func to \nullptr.
  */
 void QVariantAnimation::registerInterpolator(QVariantAnimation::Interpolator func, int interpolationType)
 {
@@ -700,5 +688,3 @@ void QVariantAnimation::updateCurrentTime(int)
 QT_END_NAMESPACE
 
 #include "moc_qvariantanimation.cpp"
-
-#endif //QT_NO_ANIMATION

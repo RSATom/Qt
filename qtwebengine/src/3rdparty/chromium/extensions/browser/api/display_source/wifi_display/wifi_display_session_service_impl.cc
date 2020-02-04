@@ -18,8 +18,6 @@ const char kErrorSinkNotAvailable[] = "The sink is not available";
 
 namespace extensions {
 
-using namespace api::display_source;
-
 WiFiDisplaySessionServiceImpl::WiFiDisplaySessionServiceImpl(
     DisplaySourceConnectionDelegate* delegate)
     : delegate_(delegate),
@@ -37,7 +35,8 @@ WiFiDisplaySessionServiceImpl::~WiFiDisplaySessionServiceImpl() {
 // static
 void WiFiDisplaySessionServiceImpl::BindToRequest(
     content::BrowserContext* browser_context,
-    WiFiDisplaySessionServiceRequest request) {
+    WiFiDisplaySessionServiceRequest request,
+    content::RenderFrameHost* render_frame_host) {
   DisplaySourceConnectionDelegate* delegate =
       DisplaySourceConnectionDelegateFactory::GetForBrowserContext(
           browser_context);

@@ -44,7 +44,7 @@ class TestSensorPlugin : public QObject,
     Q_PLUGIN_METADATA(IID "com.qt-project.Qt.QSensorPluginInterface/1.0")
     Q_INTERFACES(QSensorPluginInterface QSensorChangesInterface)
 public:
-    void registerSensors()
+    void registerSensors() override
     {
         static bool recursive = false;
         QVERIFY2(!recursive, "Recursively called TestSensorPlugin::registerSensors!");
@@ -62,7 +62,7 @@ public:
         QSensorManager::registerBackend(TestSensor2::type, testsensor2impl::id, this);
     }
 
-    void sensorsChanged()
+    void sensorsChanged() override
     {
         // Register a new type on initial load
         // This is testing the "don't emit availableSensorsChanged() too many times" functionality.
@@ -80,7 +80,7 @@ public:
         }
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == testsensorimpl::id) {
             return new testsensorimpl(sensor);

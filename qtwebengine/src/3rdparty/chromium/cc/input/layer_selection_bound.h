@@ -6,7 +6,7 @@
 #define CC_INPUT_LAYER_SELECTION_BOUND_H_
 
 #include "cc/cc_export.h"
-#include "cc/input/selection.h"
+#include "components/viz/common/quads/selection.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/selection_bound.h"
 
@@ -22,12 +22,17 @@ struct CC_EXPORT LayerSelectionBound {
   gfx::Point edge_top;
   gfx::Point edge_bottom;
   int layer_id;
+  // Whether this bound is hidden (clipped out/occluded) within the painted
+  // content of the layer (as opposed to being outside of the layer's bounds).
+  bool hidden;
+
+  std::string ToString() const;
 
   bool operator==(const LayerSelectionBound& other) const;
   bool operator!=(const LayerSelectionBound& other) const;
 };
 
-typedef Selection<LayerSelectionBound> LayerSelection;
+using LayerSelection = viz::Selection<LayerSelectionBound>;
 
 }  // namespace cc
 

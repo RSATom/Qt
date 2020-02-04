@@ -110,7 +110,7 @@ QAndroidActivityResultReceiver::~QAndroidActivityResultReceiver()
 }
 
 /*!
-   \fn void QAndroidActivityResultReceiver::handleActivityResult(int receiverRequestCode, int resultCode, const QAndroidJniObject &data) = 0;
+   \fn void QAndroidActivityResultReceiver::handleActivityResult(int receiverRequestCode, int resultCode, const QAndroidJniObject &data)
 
    Reimplement this function to get activity results after starting an activity using either QtAndroid::startActivity() or
    QtAndroid::startIntentSender(). The \a receiverRequestCode is the request code unique to this receiver which was originally

@@ -56,7 +56,7 @@ class Q_WIDGETS_EXPORT QScrollArea : public QAbstractScrollArea
     Q_PROPERTY(Qt::Alignment alignment READ alignment WRITE setAlignment)
 
 public:
-    explicit QScrollArea(QWidget *parent = Q_NULLPTR);
+    explicit QScrollArea(QWidget *parent = nullptr);
     ~QScrollArea();
 
     QWidget *widget() const;
@@ -66,9 +66,9 @@ public:
     bool widgetResizable() const;
     void setWidgetResizable(bool resizable);
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
 
-    bool focusNextPrevChild(bool next) Q_DECL_OVERRIDE;
+    bool focusNextPrevChild(bool next) override;
 
     Qt::Alignment alignment() const;
     void setAlignment(Qt::Alignment);
@@ -77,13 +77,13 @@ public:
     void ensureWidgetVisible(QWidget *childWidget, int xmargin = 50, int ymargin = 50);
 
 protected:
-    QScrollArea(QScrollAreaPrivate &dd, QWidget *parent = Q_NULLPTR);
-    bool event(QEvent *) Q_DECL_OVERRIDE;
-    bool eventFilter(QObject *, QEvent *) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *) Q_DECL_OVERRIDE;
-    void scrollContentsBy(int dx, int dy) Q_DECL_OVERRIDE;
+    QScrollArea(QScrollAreaPrivate &dd, QWidget *parent = nullptr);
+    bool event(QEvent *) override;
+    bool eventFilter(QObject *, QEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
+    void scrollContentsBy(int dx, int dy) override;
 
-    QSize viewportSizeHint() const Q_DECL_OVERRIDE;
+    QSize viewportSizeHint() const override;
 
 private:
     Q_DECLARE_PRIVATE(QScrollArea)

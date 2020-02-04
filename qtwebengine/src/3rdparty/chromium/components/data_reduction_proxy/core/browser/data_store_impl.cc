@@ -12,8 +12,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "components/data_reduction_proxy/proto/data_store.pb.h"
 #include "third_party/leveldatabase/env_chromium.h"
+#include "third_party/leveldatabase/leveldb_chrome.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
-#include "third_party/leveldatabase/src/include/leveldb/env.h"
 #include "third_party/leveldatabase/src/include/leveldb/options.h"
 #include "third_party/leveldatabase/src/include/leveldb/status.h"
 #include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
@@ -27,11 +27,11 @@ data_reduction_proxy::DataStore::Status LevelDbToDRPStoreStatus(
     leveldb::Status leveldb_status) {
   if (leveldb_status.ok())
     return data_reduction_proxy::DataStore::Status::OK;
-  else if (leveldb_status.IsNotFound())
+  if (leveldb_status.IsNotFound())
     return data_reduction_proxy::DataStore::Status::NOT_FOUND;
-  else if (leveldb_status.IsCorruption())
+  if (leveldb_status.IsCorruption())
     return data_reduction_proxy::DataStore::Status::CORRUPTED;
-  else if (leveldb_status.IsIOError())
+  if (leveldb_status.IsIOError())
     return data_reduction_proxy::DataStore::Status::IO_ERROR;
 
   return data_reduction_proxy::DataStore::Status::MISC_ERROR;
@@ -114,7 +114,7 @@ DataStore::Status DataStoreImpl::Delete(base::StringPiece key) {
 DataStore::Status DataStoreImpl::OpenDB() {
   DCHECK(sequence_checker_.CalledOnValidSequence());
 
-  leveldb::Options options;
+  leveldb_env::Options options;
   options.create_if_missing = true;
   options.paranoid_checks = true;
   // Deletes to buckets not found are stored in the log. Use a new log so that
@@ -147,8 +147,11 @@ DataStore::Status DataStoreImpl::OpenDB() {
 DataStore::Status DataStoreImpl::RecreateDB() {
   DCHECK(sequence_checker_.CalledOnValidSequence());
 
-  db_.reset(nullptr);
-  base::DeleteFile(profile_path_.Append(kDBName), true);
+  db_.reset();
+  const base::FilePath db_path = profile_path_.Append(kDBName);
+  leveldb::Status s = leveldb_chrome::DeleteDB(db_path, leveldb::Options());
+  if (!s.ok())
+    return LevelDbToDRPStoreStatus(s);
 
   return OpenDB();
 }

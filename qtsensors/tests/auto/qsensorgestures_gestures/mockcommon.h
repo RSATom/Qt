@@ -78,8 +78,8 @@ class mockcommon : public QSensorBackend
 public:
     mockcommon(QSensor *sensor);
 
-    void start();
-    void stop();
+    void start() override;
+    void stop() override;
     static char const * const id;
 
 Q_SIGNALS:

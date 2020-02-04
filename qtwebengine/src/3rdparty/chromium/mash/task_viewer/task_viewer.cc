@@ -7,21 +7,21 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/process/process.h"
+#include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "services/catalog/public/interfaces/catalog.mojom.h"
-#include "services/catalog/public/interfaces/constants.mojom.h"
+#include "services/catalog/public/mojom/catalog.mojom.h"
+#include "services/catalog/public/mojom/constants.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "services/service_manager/public/cpp/service_context.h"
-#include "services/service_manager/public/interfaces/constants.mojom.h"
-#include "services/service_manager/public/interfaces/service_manager.mojom.h"
+#include "services/service_manager/public/mojom/constants.mojom.h"
+#include "services/service_manager/public/mojom/service_manager.mojom.h"
 #include "ui/base/models/table_model.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/resources/grit/ui_resources.h"
@@ -99,7 +99,7 @@ class TaskViewerContents
   gfx::ImageSkia GetWindowAppIcon() override {
     // TODO(jamescook): Create a new .pak file for this app and make a custom
     // icon, perhaps one that looks like the Chrome OS task viewer icon.
-    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+    ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
     return *rb.GetImageSkiaNamed(IDR_NOTIFICATION_SETTINGS);
   }
 
@@ -122,19 +122,19 @@ class TaskViewerContents
     return static_cast<int>(instances_.size());
   }
   base::string16 GetText(int row, int column_id) override {
-    switch(column_id) {
-    case 0:
-      DCHECK(row < static_cast<int>(instances_.size()));
-      return base::UTF8ToUTF16(instances_[row]->display_name);
-    case 1:
-      DCHECK(row < static_cast<int>(instances_.size()));
-      return base::UTF8ToUTF16(instances_[row]->identity.name());
-    case 2:
-      DCHECK(row < static_cast<int>(instances_.size()));
-      return base::IntToString16(instances_[row]->pid);
-    default:
-      NOTREACHED();
-      break;
+    switch (column_id) {
+      case 0:
+        DCHECK(row < static_cast<int>(instances_.size()));
+        return base::UTF8ToUTF16(instances_[row]->display_name);
+      case 1:
+        DCHECK(row < static_cast<int>(instances_.size()));
+        return base::UTF8ToUTF16(instances_[row]->identity.name());
+      case 2:
+        DCHECK(row < static_cast<int>(instances_.size()));
+        return base::IntToString16(instances_[row]->pid);
+      default:
+        NOTREACHED();
+        break;
     }
     return base::string16();
   }
@@ -215,7 +215,7 @@ class TaskViewerContents
   }
 
   void InsertInstance(const service_manager::Identity& identity, uint32_t pid) {
-    instances_.push_back(base::MakeUnique<InstanceInfo>(identity, pid));
+    instances_.push_back(std::make_unique<InstanceInfo>(identity, pid));
   }
 
   void OnGotCatalogEntries(std::vector<catalog::mojom::EntryPtr> entries) {
@@ -281,26 +281,29 @@ class TaskViewerContents
 
 }  // namespace
 
-TaskViewer::TaskViewer() {
+TaskViewer::TaskViewer(service_manager::mojom::ServiceRequest request)
+    : service_binding_(this, std::move(request)) {
   registry_.AddInterface<::mash::mojom::Launchable>(
       base::Bind(&TaskViewer::Create, base::Unretained(this)));
 }
-TaskViewer::~TaskViewer() {}
+
+TaskViewer::~TaskViewer() = default;
 
 void TaskViewer::RemoveWindow(views::Widget* widget) {
   auto it = std::find(windows_.begin(), windows_.end(), widget);
   DCHECK(it != windows_.end());
   windows_.erase(it);
   if (windows_.empty())
-    base::MessageLoop::current()->QuitWhenIdle();
+    Terminate();
 }
 
 void TaskViewer::OnStart() {
-  aura_init_ = views::AuraInit::Create(
-      context()->connector(), context()->identity(), "views_mus_resources.pak",
-      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS);
+  views::AuraInit::InitParams params;
+  params.connector = service_binding_.GetConnector();
+  params.identity = service_binding_.identity();
+  aura_init_ = views::AuraInit::Create(params);
   if (!aura_init_)
-    context()->QuitNow();
+    Terminate();
 }
 
 void TaskViewer::OnBindInterface(
@@ -319,11 +322,12 @@ void TaskViewer::Launch(uint32_t what, mojom::LaunchMode how) {
   }
 
   service_manager::mojom::ServiceManagerPtr service_manager;
-  context()->connector()->BindInterface(service_manager::mojom::kServiceName,
-                                        &service_manager);
+  service_binding_.GetConnector()->BindInterface(
+      service_manager::mojom::kServiceName, &service_manager);
 
   catalog::mojom::CatalogPtr catalog;
-  context()->connector()->BindInterface(catalog::mojom::kServiceName, &catalog);
+  service_binding_.GetConnector()->BindInterface(catalog::mojom::kServiceName,
+                                                 &catalog);
 
   service_manager::mojom::ServiceManagerListenerPtr listener;
   TaskViewerContents* task_viewer = new TaskViewerContents(
@@ -340,4 +344,4 @@ void TaskViewer::Create(::mash::mojom::LaunchableRequest request) {
 }
 
 }  // namespace task_viewer
-}  // namespace main
+}  // namespace mash

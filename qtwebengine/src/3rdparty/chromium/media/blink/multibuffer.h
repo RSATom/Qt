@@ -12,14 +12,15 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <unordered_map>
 #include <vector>
 
 #include "base/callback.h"
-#include "base/containers/hash_tables.h"
 #include "base/hash.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
+#include "base/synchronization/lock.h"
 #include "build/build_config.h"
 #include "media/base/data_buffer.h"
 #include "media/blink/interval_map.h"
@@ -40,7 +41,7 @@ typedef std::pair<MultiBuffer*, MultiBufferBlockId> MultiBufferGlobalBlockId;
 
 }  // namespace media
 
-namespace BASE_HASH_NAMESPACE {
+namespace std {
 
 template <>
 struct hash<media::MultiBufferGlobalBlockId> {
@@ -49,7 +50,7 @@ struct hash<media::MultiBufferGlobalBlockId> {
   }
 };
 
-}  // namespace BASE_HASH_NAMESPACE
+}  // namespace std
 
 namespace media {
 
@@ -139,9 +140,16 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
     explicit GlobalLRU(
         const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
 
-    // Free elements from cache if needed and possible.
+    // Free elements from cache if possible.
     // Don't free more than |max_to_free| blocks.
-    // Virtual for testing purposes.
+    void TryFree(int64_t max_to_free);
+
+    // Free as much memory from the cache as possible.
+    // Only used during critical memory pressure.
+    void TryFreeAll();
+
+    // Like TryFree, but only frees blocks if the data
+    // number of the blocks in the cache is too large.
     void Prune(int64_t max_to_free);
 
     // Returns true if there are prunable blocks.
@@ -202,7 +210,7 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
   // Block numbers can be calculated from byte positions as:
   // block_num = byte_pos >> block_size_shift
   typedef MultiBufferBlockId BlockId;
-  typedef base::hash_map<BlockId, scoped_refptr<DataBuffer>> DataMap;
+  typedef std::unordered_map<BlockId, scoped_refptr<DataBuffer>> DataMap;
 
   // Registers a reader at the given position.
   // If the cache does not already contain |pos|, it will activate
@@ -251,6 +259,12 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
   // function for applying multiple changes to the pinned ranges.
   void PinRanges(const IntervalMap<BlockId, int32_t>& ranges);
 
+  // Returns a continous (but possibly empty) list of blocks starting at
+  // |from| up to, but not including |to|. This function is thread safe.
+  void GetBlocksThreadsafe(const BlockId& from,
+                           const BlockId& to,
+                           std::vector<scoped_refptr<DataBuffer>>* output);
+
   // Increment max cache size by |size| (counted in blocks).
   void IncrementMaxSize(int32_t size);
 
@@ -274,6 +288,11 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
   const DataMap& map() const { return data_; }
   int32_t block_size_shift() const { return block_size_shift_; }
 
+  // Setters.
+  void SetIsClientAudioElement(bool is_client_audio_element) {
+    is_client_audio_element_ = is_client_audio_element;
+  }
+
   // Callback which notifies us that a data provider has
   // some data for us. Also called when it might be appropriate
   // for a provider in a deferred state to wake up.
@@ -282,7 +301,9 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
  protected:
   // Create a new writer at |pos| and return it.
   // Users needs to implemement this method.
-  virtual std::unique_ptr<DataProvider> CreateWriter(const BlockId& pos) = 0;
+  virtual std::unique_ptr<DataProvider> CreateWriter(
+      const BlockId& pos,
+      bool is_client_audio_element) = 0;
 
   virtual bool RangeSupported() const = 0;
 
@@ -326,8 +347,19 @@ class MEDIA_BLINK_EXPORT MultiBuffer {
   // log2 of block size.
   int32_t block_size_shift_;
 
+  // Is the client an audio element?
+  bool is_client_audio_element_ = false;
+
   // Stores the actual data.
   DataMap data_;
+
+  // protects data_
+  // Note that because data_ is only modified on the a single thread,
+  // we don't need to lock this if we're reading data from the same thread.
+  // Instead, we only lock this when:
+  //   * modifying data_
+  //   * reading data_ from another thread
+  base::Lock data_lock_;
 
   // Keeps track of readers waiting for data.
   std::map<MultiBufferBlockId, std::set<Reader*>> readers_;

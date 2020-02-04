@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
 #include "core/fxge/fx_dib.h"
 #include "fxbarcode/BC_Library.h"
@@ -25,10 +26,15 @@ class CBC_CodeBase {
   virtual ~CBC_CodeBase();
 
   virtual BC_TYPE GetType() = 0;
-  virtual bool Encode(const CFX_WideStringC& contents, bool isDevice) = 0;
+  virtual bool Encode(WideStringView contents) = 0;
   virtual bool RenderDevice(CFX_RenderDevice* device,
                             const CFX_Matrix* matrix) = 0;
 
+  bool SetTextLocation(BC_TEXT_LOC location);
+  bool SetWideNarrowRatio(int8_t ratio);
+  bool SetStartChar(char start);
+  bool SetEndChar(char end);
+  bool SetErrorCorrectionLevel(int32_t level);
   bool SetCharEncoding(int32_t encoding);
   bool SetModuleHeight(int32_t moduleHeight);
   bool SetModuleWidth(int32_t moduleWidth);

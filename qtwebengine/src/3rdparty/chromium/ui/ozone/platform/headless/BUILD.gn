@@ -8,6 +8,8 @@ source_set("headless") {
   sources = [
     "client_native_pixmap_factory_headless.cc",
     "client_native_pixmap_factory_headless.h",
+    "headless_native_display_delegate.cc",
+    "headless_native_display_delegate.h",
     "headless_surface_factory.cc",
     "headless_surface_factory.h",
     "headless_window.cc",
@@ -18,11 +20,13 @@ source_set("headless") {
     "ozone_platform_headless.h",
   ]
 
+  defines = [ "OZONE_IMPLEMENTATION" ]
+
   deps = [
     "//base",
     "//skia",
     "//ui/base",
-    "//ui/display",
+    "//ui/display/manager",
     "//ui/events",
     "//ui/events/ozone:events_ozone_layout",
     "//ui/events/platform",
@@ -30,5 +34,6 @@ source_set("headless") {
     "//ui/ozone:ozone_base",
     "//ui/ozone/common",
     "//ui/platform_window",
+    "//ui/platform_window/stub",
   ]
 }

@@ -323,7 +323,7 @@ QScriptDebuggerConsolePrivate::~QScriptDebuggerConsolePrivate()
     delete commandEngine;
 }
 
-/*!
+/*
   Loads command definitions from scripts located in the given \a scriptsPath.
 */
 void QScriptDebuggerConsolePrivate::loadScriptedCommands(
@@ -351,7 +351,7 @@ void QScriptDebuggerConsolePrivate::loadScriptedCommands(
 }
 
 
-/*!
+/*
   Creates a job that will execute the given debugger \a command.
   Returns the new job, or 0 if the command is undefined.
 */

@@ -59,9 +59,18 @@
     \endcode
 
     The QML types are accessed by using:
-    \badcode
-    import QtWebChannel 1.0
-    \endcode
+    \qml \QtMinorVersion
+    import QtWebChannel 1.\1
+    \endqml
+
+    \section1 Licenses
+
+    Qt WebChannel is available under commercial licenses from \l{The Qt Company}.
+    In addition, it is available under free software licenses.
+    These free software licenses are
+    \l{GNU Lesser General Public License, version 3}, or
+    the \l{GNU General Public License, version 2}.
+    See \l{Qt Licensing} for further details.
 
     \section1 API Reference
 

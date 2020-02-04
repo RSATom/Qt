@@ -11,7 +11,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/http/http_auth.h"
 #include "url/gurl.h"
@@ -28,11 +28,21 @@ class NetLogWithSource;
 struct HttpRequestInfo;
 class SSLInfo;
 
+// HttpAuthController is interface between other classes and HttpAuthHandlers.
+// It handles all challenges when attempting to make a single request to a
+// server, both in the case of trying multiple sets of credentials (Possibly on
+// different sockets), and when going through multiple rounds of auth with
+// connection-based auth, creating new HttpAuthHandlers as necessary.
+//
+// It is unaware of when a round of auth uses a new socket, which can lead to
+// problems for connection-based auth.
 class NET_EXPORT_PRIVATE HttpAuthController
     : public base::RefCounted<HttpAuthController> {
  public:
   // The arguments are self explanatory except possibly for |auth_url|, which
   // should be both the auth target and auth path in a single url argument.
+  // |target| indicates whether this is for authenticating with a proxy or
+  // destination server.
   HttpAuthController(HttpAuth::Target target,
                      const GURL& auth_url,
                      HttpAuthCache* http_auth_cache,
@@ -43,7 +53,7 @@ class NET_EXPORT_PRIVATE HttpAuthController
   // a token is correctly generated synchronously, as well as when no tokens
   // were necessary.
   int MaybeGenerateAuthToken(const HttpRequestInfo* request,
-                             const CompletionCallback& callback,
+                             CompletionOnceCallback callback,
                              const NetLogWithSource& net_log);
 
   // Adds either the proxy auth header, or the origin server auth header,
@@ -65,6 +75,10 @@ class NET_EXPORT_PRIVATE HttpAuthController
   bool HaveAuthHandler() const;
 
   bool HaveAuth() const;
+
+  // Return whether the authentication scheme is incompatible with HTTP/2
+  // and thus the server would presumably reject a request on HTTP/2 anyway.
+  bool NeedsHTTP11() const;
 
   scoped_refptr<AuthChallengeInfo> auth_info();
 
@@ -89,7 +103,7 @@ class NET_EXPORT_PRIVATE HttpAuthController
   // So that we can mock this object.
   friend class base::RefCounted<HttpAuthController>;
 
-  virtual ~HttpAuthController();
+  ~HttpAuthController();
 
   // Searches the auth cache for an entry that encompasses the request's path.
   // If such an entry is found, updates |identity_| and |handler_| with the
@@ -104,6 +118,11 @@ class NET_EXPORT_PRIVATE HttpAuthController
   // Invalidates any auth cache entries after authentication has failed.
   // The identity that was rejected is |identity_|.
   void InvalidateRejectedAuthFromCache();
+
+  // Allows reusing last used identity source.  If the authentication handshake
+  // breaks down halfway, then the controller needs to restart it from the
+  // beginning and resue the same identity.
+  void PrepareIdentityForReuse();
 
   // Sets |identity_| to the next identity that the transaction should try. It
   // chooses candidates by searching the auth cache and the URL for a
@@ -168,7 +187,7 @@ class NET_EXPORT_PRIVATE HttpAuthController
 
   std::set<HttpAuth::Scheme> disabled_schemes_;
 
-  CompletionCallback callback_;
+  CompletionOnceCallback callback_;
 
   THREAD_CHECKER(thread_checker_);
 };

@@ -8,7 +8,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 class TestTraceStateObserver
-    : public NON_EXPORTED_BASE(v8::TracingController::TraceStateObserver) {
+    : public v8::TracingController::TraceStateObserver {
  public:
   void OnTraceEnabled() final { ++enabled_; }
   void OnTraceDisabled() final { ++disabled_; }
@@ -23,43 +23,43 @@ class TestTraceStateObserver
 namespace gin {
 
 TEST(V8PlatformTest, TraceStateObserverAPI) {
-  TestTraceStateObserver* test_observer = new TestTraceStateObserver();
-  ASSERT_EQ(0, test_observer->Enabled());
-  ASSERT_EQ(0, test_observer->Disabled());
+  TestTraceStateObserver test_observer;
+  ASSERT_EQ(0, test_observer.Enabled());
+  ASSERT_EQ(0, test_observer.Disabled());
 
   V8Platform::Get()->GetTracingController()->AddTraceStateObserver(
-      test_observer);
+      &test_observer);
   base::trace_event::TraceLog::GetInstance()->SetEnabled(
       base::trace_event::TraceConfig("*", ""),
       base::trace_event::TraceLog::RECORDING_MODE);
-  ASSERT_EQ(1, test_observer->Enabled());
-  ASSERT_EQ(0, test_observer->Disabled());
+  ASSERT_EQ(1, test_observer.Enabled());
+  ASSERT_EQ(0, test_observer.Disabled());
   base::trace_event::TraceLog::GetInstance()->SetDisabled();
-  ASSERT_EQ(1, test_observer->Enabled());
-  ASSERT_EQ(1, test_observer->Disabled());
+  ASSERT_EQ(1, test_observer.Enabled());
+  ASSERT_EQ(1, test_observer.Disabled());
 
   V8Platform::Get()->GetTracingController()->RemoveTraceStateObserver(
-      test_observer);
+      &test_observer);
   base::trace_event::TraceLog::GetInstance()->SetEnabled(
       base::trace_event::TraceConfig("*", ""),
       base::trace_event::TraceLog::RECORDING_MODE);
   base::trace_event::TraceLog::GetInstance()->SetDisabled();
-  ASSERT_EQ(1, test_observer->Enabled());
-  ASSERT_EQ(1, test_observer->Disabled());
+  ASSERT_EQ(1, test_observer.Enabled());
+  ASSERT_EQ(1, test_observer.Disabled());
 }
 
 TEST(V8PlatformTest, TraceStateObserverFired) {
-  TestTraceStateObserver* test_observer = new TestTraceStateObserver();
-  ASSERT_EQ(0, test_observer->Enabled());
-  ASSERT_EQ(0, test_observer->Disabled());
+  TestTraceStateObserver test_observer;
+  ASSERT_EQ(0, test_observer.Enabled());
+  ASSERT_EQ(0, test_observer.Disabled());
 
   base::trace_event::TraceLog::GetInstance()->SetEnabled(
       base::trace_event::TraceConfig("*", ""),
       base::trace_event::TraceLog::RECORDING_MODE);
   V8Platform::Get()->GetTracingController()->AddTraceStateObserver(
-      test_observer);
-  ASSERT_EQ(1, test_observer->Enabled());
-  ASSERT_EQ(0, test_observer->Disabled());
+      &test_observer);
+  ASSERT_EQ(1, test_observer.Enabled());
+  ASSERT_EQ(0, test_observer.Disabled());
 }
 
 }  // namespace gin

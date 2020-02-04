@@ -93,7 +93,9 @@ QAndroidMediaPlayerControl::QAndroidMediaPlayerControl(QObject *parent)
       mPendingVolume(-1),
       mPendingMute(-1),
       mReloadingMedia(false),
-      mActiveStateChangeNotifiers(0)
+      mActiveStateChangeNotifiers(0),
+      mPendingPlaybackRate(1.0),
+      mHasPendingPlaybackRate(false)
 {
     connect(mMediaPlayer,SIGNAL(bufferingChanged(qint32)),
             this,SLOT(onBufferingChanged(qint32)));
@@ -248,6 +250,16 @@ void QAndroidMediaPlayerControl::setMuted(bool muted)
     Q_EMIT mutedChanged(muted);
 }
 
+void QAndroidMediaPlayerControl::setAudioRole(QAudio::Role role)
+{
+    mMediaPlayer->setAudioRole(role);
+}
+
+void QAndroidMediaPlayerControl::setCustomAudioRole(const QString &role)
+{
+    mMediaPlayer->setCustomAudioRole(role);
+}
+
 int QAndroidMediaPlayerControl::bufferStatus() const
 {
     return mBufferFilled ? 100 : 0;
@@ -290,12 +302,45 @@ void QAndroidMediaPlayerControl::updateAvailablePlaybackRanges()
 
 qreal QAndroidMediaPlayerControl::playbackRate() const
 {
-    return 1.0f;
+    if (mHasPendingPlaybackRate ||
+            (mState & (AndroidMediaPlayer::Initialized
+                       | AndroidMediaPlayer::Prepared
+                       | AndroidMediaPlayer::Started
+                       | AndroidMediaPlayer::Paused
+                       | AndroidMediaPlayer::PlaybackCompleted
+                       | AndroidMediaPlayer::Error)) == 0) {
+        return mPendingPlaybackRate;
+    }
+
+    return mMediaPlayer->playbackRate();
 }
 
 void QAndroidMediaPlayerControl::setPlaybackRate(qreal rate)
 {
-    Q_UNUSED(rate);
+   if ((mState & (AndroidMediaPlayer::Initialized
+                   | AndroidMediaPlayer::Prepared
+                   | AndroidMediaPlayer::Started
+                   | AndroidMediaPlayer::Paused
+                   | AndroidMediaPlayer::PlaybackCompleted
+                   | AndroidMediaPlayer::Error)) == 0) {
+        if (mPendingPlaybackRate != rate) {
+            mPendingPlaybackRate = rate;
+            mHasPendingPlaybackRate = true;
+            Q_EMIT playbackRateChanged(rate);
+        }
+        return;
+    }
+
+    bool succeeded = mMediaPlayer->setPlaybackRate(rate);
+
+    if (mHasPendingPlaybackRate) {
+        mHasPendingPlaybackRate = false;
+        mPendingPlaybackRate = qreal(1.0);
+        if (!succeeded)
+             Q_EMIT playbackRateChanged(playbackRate());
+    } else if (succeeded) {
+        Q_EMIT playbackRateChanged(rate);
+    }
 }
 
 QMediaContent QAndroidMediaPlayerControl::media() const
@@ -339,7 +384,7 @@ void QAndroidMediaPlayerControl::setMedia(const QMediaContent &mediaContent,
 
         if ((mMediaPlayer->display() == 0) && mVideoOutput)
             mMediaPlayer->setDisplay(mVideoOutput->surfaceTexture());
-        mMediaPlayer->setDataSource(mediaContent.canonicalUrl().toString(QUrl::FullyEncoded));
+        mMediaPlayer->setDataSource(mediaContent.canonicalRequest());
         mMediaPlayer->prepareAsync();
     }
 
@@ -379,7 +424,8 @@ void QAndroidMediaPlayerControl::play()
         setMedia(mMediaContent, mMediaStream);
     }
 
-    setState(QMediaPlayer::PlayingState);
+    if (!mMediaContent.isNull())
+        setState(QMediaPlayer::PlayingState);
 
     if ((mState & (AndroidMediaPlayer::Prepared
                    | AndroidMediaPlayer::Started
@@ -719,6 +765,8 @@ void QAndroidMediaPlayerControl::flushPendingStates()
         setVolume(mPendingVolume);
     if (mPendingMute != -1)
         setMuted((mPendingMute == 1));
+    if (mHasPendingPlaybackRate)
+        setPlaybackRate(mPendingPlaybackRate);
 
     switch (newState) {
     case QMediaPlayer::PlayingState:

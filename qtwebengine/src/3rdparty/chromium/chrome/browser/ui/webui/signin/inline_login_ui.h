@@ -6,13 +6,18 @@
 #define CHROME_BROWSER_UI_WEBUI_SIGNIN_INLINE_LOGIN_UI_H_
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/extensions/signin/scoped_gaia_auth_extension.h"
 #include "ui/web_dialogs/web_dialog_ui.h"
 
 // Inline login WebUI in various signin flows for ChromeOS and Chrome desktop.
-// The authentication is carried out via the host gaia_auth extension. Upon
-// success, the profile of the webui should be populated with proper cookies.
-// Then this UI would fetch the oauth2 tokens using the cookies.
+// Upon success, the profile of the webui should be populated with proper
+// cookies. Then this UI would fetch the oauth2 tokens using the cookies.
+//
+// The authentication is carried out via the host gaia_auth extension because:
+// * The page is loaded in a isolated renderer, which is better for security.
+// * Gaia endpoints used during sign-in expect a clean cookie jar.
+// * It bypasses account consistency and reconciliation.
 class InlineLoginUI : public ui::WebDialogUI {
  public:
   explicit InlineLoginUI(content::WebUI* web_ui);
@@ -21,6 +26,7 @@ class InlineLoginUI : public ui::WebDialogUI {
  private:
   ScopedGaiaAuthExtension auth_extension_;
 
+  base::WeakPtrFactory<InlineLoginUI> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(InlineLoginUI);
 };
 

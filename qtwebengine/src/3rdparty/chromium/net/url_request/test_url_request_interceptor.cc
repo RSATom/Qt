@@ -6,7 +6,7 @@
 
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/threading/sequenced_worker_pool.h"
+#include "base/task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
@@ -38,7 +38,7 @@ class TestURLRequestJob : public URLRequestFileJob {
   }
 
  private:
-  ~TestURLRequestJob() override {}
+  ~TestURLRequestJob() override = default;
 
   DISALLOW_COPY_AND_ASSIGN(TestURLRequestJob);
 };
@@ -59,7 +59,7 @@ class TestURLRequestInterceptor::Delegate : public URLRequestInterceptor {
         network_task_runner_(network_task_runner),
         worker_task_runner_(worker_task_runner),
         hit_count_(0) {}
-  ~Delegate() override {}
+  ~Delegate() override = default;
 
   void Register() {
     URLRequestFilter::GetInstance()->AddHostnameInterceptor(
@@ -104,7 +104,7 @@ class TestURLRequestInterceptor::Delegate : public URLRequestInterceptor {
       return NULL;
     }
 
-    ResponseMap::const_iterator it = responses_.find(request->url());
+    auto it = responses_.find(request->url());
     if (it == responses_.end()) {
       // Search for this request's url, ignoring any query parameters.
       GURL url = request->url();

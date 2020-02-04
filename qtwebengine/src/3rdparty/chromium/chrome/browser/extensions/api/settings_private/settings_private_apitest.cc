@@ -6,6 +6,8 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
+#include "base/message_loop/message_loop_current.h"
+#include "base/run_loop.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/settings_private/settings_private_delegate.h"
@@ -25,7 +27,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_CHROMEOS)
-#include "chromeos/chromeos_switches.h"
+#include "chrome/browser/chromeos/settings/scoped_testing_cros_settings.h"
 #endif
 
 using testing::Mock;
@@ -40,13 +42,6 @@ class SettingsPrivateApiTest : public ExtensionApiTest {
  public:
   SettingsPrivateApiTest() {}
   ~SettingsPrivateApiTest() override {}
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionApiTest::SetUpCommandLine(command_line);
-#if defined(OS_CHROMEOS)
-    command_line->AppendSwitch(chromeos::switches::kStubCrosSettings);
-#endif
-  }
 
   void SetUpInProcessBrowserTestFixture() override {
     EXPECT_CALL(provider_, IsInitializationComplete(_))
@@ -67,13 +62,17 @@ class SettingsPrivateApiTest : public ExtensionApiTest {
                  policy::POLICY_SOURCE_CLOUD,
                  base::WrapUnique(new base::Value(true)), nullptr);
     provider_.UpdateChromePolicy(policies);
-    DCHECK(base::MessageLoop::current());
+    DCHECK(base::MessageLoopCurrent::Get());
     base::RunLoop loop;
     loop.RunUntilIdle();
   }
 
  private:
   policy::MockConfigurationPolicyProvider provider_;
+
+#if defined(OS_CHROMEOS)
+  chromeos::ScopedTestingCrosSettings scoped_testing_cros_settings_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(SettingsPrivateApiTest);
 };

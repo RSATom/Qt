@@ -77,7 +77,8 @@ public:
                       OutputStream* out)
     : INHERITED(program, errors, out)
     , fLineEnding("\n")
-    , fContext(*context) {}
+    , fContext(*context)
+    , fProgramKind(program->fKind) {}
 
     bool generateCode() override;
 
@@ -90,15 +91,21 @@ protected:
 
     void write(const String& s);
 
+    void write(StringFragment s);
+
     void writeLine(const String& s);
 
     virtual void writeHeader();
 
-    virtual void writePrecisionModifier();
+    virtual bool usesPrecisionModifiers() const;
+
+    virtual String getTypeName(const Type& type);
 
     void writeType(const Type& type);
 
-    void writeExtension(const Extension& ext);
+    void writeExtension(const String& name);
+
+    void writeExtension(const String& name, bool require);
 
     void writeInterfaceBlock(const InterfaceBlock& intf);
 
@@ -112,9 +119,13 @@ protected:
 
     void writeModifiers(const Modifiers& modifiers, bool globalContext);
 
-    void writeGlobalVars(const VarDeclaration& vs);
+    virtual void writeInputVars();
 
     virtual void writeVarInitializer(const Variable& var, const Expression& value);
+
+    const char* getTypePrecision(const Type& type);
+
+    void writeTypePrecision(const Type& type);
 
     void writeVarDeclarations(const VarDeclarations& decl, bool global);
 
@@ -128,17 +139,27 @@ protected:
 
     void writeMinAbsHack(Expression& absExpr, Expression& otherExpr);
 
+    void writeDeterminantHack(const Expression& mat);
+
+    void writeInverseHack(const Expression& mat);
+
+    void writeTransposeHack(const Expression& mat);
+
+    void writeInverseSqrtHack(const Expression& x);
+
     virtual void writeFunctionCall(const FunctionCall& c);
 
-    void writeConstructor(const Constructor& c);
+    void writeConstructor(const Constructor& c, Precedence parentPrecedence);
 
-    void writeFieldAccess(const FieldAccess& f);
+    virtual void writeFieldAccess(const FieldAccess& f);
 
-    void writeSwizzle(const Swizzle& swizzle);
+    virtual void writeSwizzle(const Swizzle& swizzle);
 
     static Precedence GetBinaryPrecedence(Token::Kind op);
 
     virtual void writeBinaryExpression(const BinaryExpression& b, Precedence parentPrecedence);
+    void writeShortCircuitWorkaroundExpression(const BinaryExpression& b,
+                                               Precedence parentPrecedence);
 
     void writeTernaryExpression(const TernaryExpression& t, Precedence parentPrecedence);
 
@@ -150,7 +171,7 @@ protected:
 
     void writeBoolLiteral(const BoolLiteral& b);
 
-    void writeIntLiteral(const IntLiteral& i);
+    virtual void writeIntLiteral(const IntLiteral& i);
 
     void writeFloatLiteral(const FloatLiteral& f);
 
@@ -172,13 +193,15 @@ protected:
 
     virtual void writeSwitchStatement(const SwitchStatement& s);
 
-    void writeReturnStatement(const ReturnStatement& r);
+    virtual void writeReturnStatement(const ReturnStatement& r);
 
     virtual void writeProgramElement(const ProgramElement& e);
 
     const char* fLineEnding;
     const Context& fContext;
-    StringStream fHeader;
+    StringStream fExtensions;
+    StringStream fGlobals;
+    StringStream fExtraFunctions;
     String fFunctionHeader;
     Program::Kind fProgramKind;
     int fVarCount = 0;
@@ -188,11 +211,34 @@ protected:
     // more than one or two structs per shader, a simple linear search will be faster than anything
     // fancier.
     std::vector<const Type*> fWrittenStructs;
+    std::set<String> fWrittenIntrinsics;
     // true if we have run into usages of dFdx / dFdy
     bool fFoundDerivatives = false;
     bool fFoundImageDecl = false;
+    bool fFoundExternalSamplerDecl = false;
+    bool fFoundGSInvocations = false;
     bool fSetupFragPositionGlobal = false;
     bool fSetupFragPositionLocal = false;
+    bool fSetupFragCoordWorkaround = false;
+
+    // We map function names to function class so we can quickly deal with function calls that need
+    // extra processing
+    enum class FunctionClass {
+        kAbs,
+        kAtan,
+        kDeterminant,
+        kDerivative,
+        kFMA,
+        kFract,
+        kInverse,
+        kInverseSqrt,
+        kMin,
+        kPow,
+        kSaturate,
+        kTexture,
+        kTranspose
+    };
+    static std::unordered_map<StringFragment, FunctionClass>* fFunctionClasses;
 
     typedef CodeGenerator INHERITED;
 };

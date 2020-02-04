@@ -38,6 +38,8 @@
 #include "components/history/core/browser/page_usage_data.h"
 #include "components/history/core/test/history_backend_db_base_test.h"
 #include "components/history/core/test/test_history_database.h"
+#include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace history {
 namespace {
@@ -106,7 +108,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadsState) {
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(22));
   {
     // Open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
 
     // Manually insert corrupted rows; there's infrastructure in place now to
@@ -136,7 +138,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadsState) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       // The version should have been updated.
@@ -174,7 +176,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadsReasonPathsAndDangerType) {
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(22));
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
 
     // Manually insert some rows.
@@ -217,7 +219,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadsReasonPathsAndDangerType) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       // The version should have been updated.
@@ -284,7 +286,7 @@ TEST_F(HistoryBackendDBTest, MigrateReferrer) {
   base::Time now(base::Time::Now());
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(22));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     sql::Statement s(db.GetUniqueStatement(
         "INSERT INTO downloads (id, full_path, url, start_time, "
@@ -308,7 +310,7 @@ TEST_F(HistoryBackendDBTest, MigrateReferrer) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -332,7 +334,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadedByExtension) {
   base::Time now(base::Time::Now());
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(26));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       sql::Statement s(db.GetUniqueStatement(
@@ -370,7 +372,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadedByExtension) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -395,7 +397,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadValidators) {
   base::Time now(base::Time::Now());
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(27));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       sql::Statement s(db.GetUniqueStatement(
@@ -435,7 +437,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadValidators) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -460,7 +462,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadMimeType) {
   base::Time now(base::Time::Now());
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(28));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       sql::Statement s(db.GetUniqueStatement(
@@ -503,7 +505,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadMimeType) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -533,13 +535,13 @@ bool IsValidRFC4122Ver4GUID(const std::string& guid) {
   //   => guid[14] == '4'
   //
   // * Bits 6-7 of clk_seq_hi_res should be set to 0b10
-  //   => guid[19] in {'8','9','A','B'}
+  //   => guid[19] in {'8','9','A','B','a','b'}
   //
   // * All other bits should be random or pseudo random.
   //   => http://dilbert.com/strip/2001-10-25
   return base::IsValidGUID(guid) && guid[14] == '4' &&
          (guid[19] == '8' || guid[19] == '9' || guid[19] == 'A' ||
-          guid[19] == 'B');
+          guid[19] == 'B' || guid[19] == 'a' || guid[19] == 'b');
 }
 
 TEST_F(HistoryBackendDBTest, MigrateHashHttpMethodAndGenerateGuids) {
@@ -547,7 +549,7 @@ TEST_F(HistoryBackendDBTest, MigrateHashHttpMethodAndGenerateGuids) {
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(29));
   base::Time now(base::Time::Now());
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
 
     // In testing, it appeared that constructing a query where all rows are
@@ -590,7 +592,7 @@ TEST_F(HistoryBackendDBTest, MigrateHashHttpMethodAndGenerateGuids) {
 
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -608,7 +610,6 @@ TEST_F(HistoryBackendDBTest, MigrateHashHttpMethodAndGenerateGuids) {
         std::string guid = s.ColumnString(0);
         uint32_t id = static_cast<uint32_t>(s.ColumnInt64(1));
         EXPECT_TRUE(IsValidRFC4122Ver4GUID(guid));
-        EXPECT_EQ(guid, base::ToUpperASCII(guid));
         // Id is used as time_low in RFC 4122 to guarantee unique GUIDs
         EXPECT_EQ(guid.substr(0, 8), base::StringPrintf("%08" PRIX32, id));
         guids.insert(guid);
@@ -622,7 +623,7 @@ TEST_F(HistoryBackendDBTest, MigrateHashHttpMethodAndGenerateGuids) {
 TEST_F(HistoryBackendDBTest, MigrateTabUrls) {
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(30));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       sql::Statement s(db.GetUniqueStatement(
@@ -652,7 +653,7 @@ TEST_F(HistoryBackendDBTest, MigrateTabUrls) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -676,7 +677,7 @@ TEST_F(HistoryBackendDBTest, MigrateTabUrls) {
 TEST_F(HistoryBackendDBTest, MigrateDownloadSiteInstanceUrl) {
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(31));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       sql::Statement s(db.GetUniqueStatement(
@@ -707,7 +708,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadSiteInstanceUrl) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -731,7 +732,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadSiteInstanceUrl) {
 TEST_F(HistoryBackendDBTest, MigrateDownloadsSlicesTable) {
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(32));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
   }
 
@@ -741,7 +742,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadsSlicesTable) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -770,7 +771,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadsSlicesTable) {
 TEST_F(HistoryBackendDBTest, MigrateDownloadsLastAccessTimeAndTransient) {
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(32));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
   }
 
@@ -780,7 +781,7 @@ TEST_F(HistoryBackendDBTest, MigrateDownloadsLastAccessTimeAndTransient) {
   DeleteBackend();
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     // The version should have been updated.
     int cur_version = HistoryDatabase::GetCurrentVersion();
@@ -817,17 +818,35 @@ TEST_F(HistoryBackendDBTest, DownloadCreateAndQuery) {
   base::Time end_time(start_time + base::TimeDelta::FromHours(1));
   base::Time last_access_time;
 
-  DownloadRow download_A(
-      base::FilePath(FILE_PATH_LITERAL("/path/1")),
-      base::FilePath(FILE_PATH_LITERAL("/path/2")), url_chain,
-      GURL("http://example.com/referrer"), GURL("http://example.com"),
-      GURL("http://example.com/tab-url"),
-      GURL("http://example.com/tab-referrer"), "GET", "mime/type",
-      "original/mime-type", start_time, end_time, "etag1", "last_modified_1",
-      100, 1000, DownloadState::INTERRUPTED, DownloadDangerType::NOT_DANGEROUS,
-      kTestDownloadInterruptReasonCrash, "hash-value1", 1,
-      "FE672168-26EF-4275-A149-FEC25F6A75F9", false, last_access_time, true,
-      "extension-id", "extension-name", std::vector<DownloadSliceInfo>());
+  DownloadRow download_A;
+  download_A.current_path = base::FilePath(FILE_PATH_LITERAL("/path/1"));
+  download_A.target_path = base::FilePath(FILE_PATH_LITERAL("/path/2"));
+  download_A.url_chain = url_chain;
+  download_A.referrer_url = GURL("http://example.com/referrer");
+  download_A.site_url = GURL("http://example.com");
+  download_A.tab_url = GURL("http://example.com/tab-url");
+  download_A.tab_referrer_url = GURL("http://example.com/tab-referrer");
+  download_A.http_method = "GET";
+  download_A.mime_type = "mime/type";
+  download_A.original_mime_type = "original/mime-type";
+  download_A.start_time = start_time;
+  download_A.end_time = end_time;
+  download_A.etag = "etag1";
+  download_A.last_modified = "last_modified_1";
+  download_A.received_bytes = 100;
+  download_A.total_bytes = 1000;
+  download_A.state = DownloadState::INTERRUPTED;
+  download_A.danger_type = DownloadDangerType::NOT_DANGEROUS;
+  download_A.interrupt_reason = kTestDownloadInterruptReasonCrash;
+  download_A.hash = "hash-value1";
+  download_A.id = 1;
+  download_A.guid = "FE672168-26EF-4275-A149-FEC25F6A75F9";
+  download_A.opened = false;
+  download_A.last_access_time = last_access_time;
+  download_A.transient = true;
+  download_A.by_ext_id = "extension-id";
+  download_A.by_ext_name = "extension-name";
+
   ASSERT_TRUE(db_->CreateDownload(download_A));
 
   url_chain.push_back(GURL("http://example.com/d"));
@@ -836,17 +855,34 @@ TEST_F(HistoryBackendDBTest, DownloadCreateAndQuery) {
   base::Time end_time2(end_time + base::TimeDelta::FromHours(10));
   base::Time last_access_time2(start_time2 + base::TimeDelta::FromHours(5));
 
-  DownloadRow download_B(
-      base::FilePath(FILE_PATH_LITERAL("/path/3")),
-      base::FilePath(FILE_PATH_LITERAL("/path/4")), url_chain,
-      GURL("http://example.com/referrer2"), GURL("http://2.example.com"),
-      GURL("http://example.com/tab-url2"),
-      GURL("http://example.com/tab-referrer2"), "POST", "mime/type2",
-      "original/mime-type2", start_time2, end_time2, "etag2", "last_modified_2",
-      1001, 1001, DownloadState::COMPLETE, DownloadDangerType::DANGEROUS_FILE,
-      kTestDownloadInterruptReasonNone, std::string(), 2,
-      "b70f3869-7d75-4878-acb4-4caf7026d12b", false, last_access_time2, true,
-      "extension-id", "extension-name", std::vector<DownloadSliceInfo>());
+  DownloadRow download_B;
+  download_B.current_path = base::FilePath(FILE_PATH_LITERAL("/path/3"));
+  download_B.target_path = base::FilePath(FILE_PATH_LITERAL("/path/4"));
+  download_B.url_chain = url_chain;
+  download_B.referrer_url = GURL("http://example.com/referrer2");
+  download_B.site_url = GURL("http://2.example.com");
+  download_B.tab_url = GURL("http://example.com/tab-url2");
+  download_B.tab_referrer_url = GURL("http://example.com/tab-referrer2");
+  download_B.http_method = "POST";
+  download_B.mime_type = "mime/type2";
+  download_B.original_mime_type = "original/mime-type2";
+  download_B.start_time = start_time2;
+  download_B.end_time = end_time2;
+  download_B.etag = "etag2";
+  download_B.last_modified = "last_modified_2";
+  download_B.received_bytes = 1001;
+  download_B.total_bytes = 1001;
+  download_B.state = DownloadState::COMPLETE;
+  download_B.danger_type = DownloadDangerType::DANGEROUS_FILE;
+  download_B.interrupt_reason = kTestDownloadInterruptReasonNone;
+  download_B.id = 2;
+  download_B.guid = "b70f3869-7d75-4878-acb4-4caf7026d12b";
+  download_B.opened = false;
+  download_B.last_access_time = last_access_time2;
+  download_B.transient = true;
+  download_B.by_ext_id = "extension-id";
+  download_B.by_ext_name = "extension-name";
+
   ASSERT_TRUE(db_->CreateDownload(download_B));
 
   EXPECT_EQ(2u, db_->CountDownloads());
@@ -877,17 +913,34 @@ TEST_F(HistoryBackendDBTest, DownloadCreateAndUpdate_VolatileFields) {
   base::Time end_time(start_time + base::TimeDelta::FromHours(1));
   base::Time last_access_time(start_time + base::TimeDelta::FromHours(5));
 
-  DownloadRow download(
-      base::FilePath(FILE_PATH_LITERAL("/path/1")),
-      base::FilePath(FILE_PATH_LITERAL("/path/2")), url_chain,
-      GURL("http://example.com/referrer"), GURL("http://example.com"),
-      GURL("http://example.com/tab-url"),
-      GURL("http://example.com/tab-referrer"), "GET", "mime/type",
-      "original/mime-type", start_time, end_time, "etag1", "last_modified_1",
-      100, 1000, DownloadState::INTERRUPTED, DownloadDangerType::NOT_DANGEROUS,
-      3, "some-hash-value", 1, "FE672168-26EF-4275-A149-FEC25F6A75F9", false,
-      last_access_time, false, "extension-id", "extension-name",
-      std::vector<DownloadSliceInfo>());
+  DownloadRow download;
+  download.current_path = base::FilePath(FILE_PATH_LITERAL("/path/1"));
+  download.target_path = base::FilePath(FILE_PATH_LITERAL("/path/2"));
+  download.url_chain = url_chain;
+  download.referrer_url = GURL("http://example.com/referrer");
+  download.site_url = GURL("http://example.com");
+  download.tab_url = GURL("http://example.com/tab-url");
+  download.tab_referrer_url = GURL("http://example.com/tab-referrer");
+  download.http_method = "GET";
+  download.mime_type = "mime/type";
+  download.original_mime_type = "original/mime-type";
+  download.start_time = start_time;
+  download.end_time = end_time;
+  download.etag = "etag1";
+  download.last_modified = "last_modified_1";
+  download.received_bytes = 100;
+  download.total_bytes = 1000;
+  download.state = DownloadState::INTERRUPTED;
+  download.danger_type = DownloadDangerType::NOT_DANGEROUS;
+  download.interrupt_reason = 3;
+  download.hash = "some-hash-value";
+  download.id = 1;
+  download.guid = "FE672168-26EF-4275-A149-FEC25F6A75F9";
+  download.opened = false;
+  download.last_access_time = last_access_time;
+  download.transient = false;
+  download.by_ext_id = "extension-id";
+  download.by_ext_name = "extension-name";
   db_->CreateDownload(download);
 
   download.current_path =
@@ -933,7 +986,8 @@ TEST_F(HistoryBackendDBTest, ConfirmDownloadRowCreateAndDelete) {
   db_->QueryDownloads(&results);
   ASSERT_EQ(1u, results.size());
   // Add a download slice and update the DB
-  results[0].download_slice_info.push_back(DownloadSliceInfo(id1, 500, 100));
+  results[0].download_slice_info.push_back(
+      DownloadSliceInfo(id1, 500, 100, false));
   ASSERT_TRUE(db_->UpdateDownload(results[0]));
 
   AddDownload(id2,
@@ -948,7 +1002,7 @@ TEST_F(HistoryBackendDBTest, ConfirmDownloadRowCreateAndDelete) {
   // Confirm that resulted in the correct number of rows in the DB.
   DeleteBackend();
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     sql::Statement statement(db.GetUniqueStatement(
         "Select Count(*) from downloads"));
@@ -964,6 +1018,7 @@ TEST_F(HistoryBackendDBTest, ConfirmDownloadRowCreateAndDelete) {
         "Select Count(*) from downloads_slices"));
     EXPECT_TRUE(statement2.Step());
     EXPECT_EQ(1, statement2.ColumnInt(0));
+    EXPECT_EQ(0, statement2.ColumnInt(3));
   }
 
   // Delete some rows and make sure the results are still correct.
@@ -972,7 +1027,7 @@ TEST_F(HistoryBackendDBTest, ConfirmDownloadRowCreateAndDelete) {
   db_->RemoveDownload(id2);
   DeleteBackend();
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     sql::Statement statement(db.GetUniqueStatement(
         "Select Count(*) from downloads"));
@@ -994,17 +1049,26 @@ TEST_F(HistoryBackendDBTest, ConfirmDownloadRowCreateAndDelete) {
 TEST_F(HistoryBackendDBTest, DownloadNukeRecordsMissingURLs) {
   CreateBackendAndDatabase();
   base::Time now(base::Time::Now());
-  std::vector<GURL> url_chain;
-  DownloadRow download(
-      base::FilePath(FILE_PATH_LITERAL("foo-path")),
-      base::FilePath(FILE_PATH_LITERAL("foo-path")), url_chain,
-      GURL(std::string()), GURL(std::string()), GURL(std::string()),
-      GURL(std::string()), std::string(), "application/octet-stream",
-      "application/octet-stream", now, now, std::string(), std::string(), 0,
-      512, DownloadState::COMPLETE, DownloadDangerType::NOT_DANGEROUS,
-      kTestDownloadInterruptReasonNone, std::string(), 1,
-      "05AF6C8E-E4E0-45D7-B5CE-BC99F7019918", 0, now, false, "by_ext_id",
-      "by_ext_name", std::vector<DownloadSliceInfo>());
+
+  DownloadRow download;
+  download.current_path = base::FilePath(FILE_PATH_LITERAL("foo-path"));
+  download.target_path = base::FilePath(FILE_PATH_LITERAL("foo-path"));
+  download.mime_type = "application/octet-stream";
+  download.original_mime_type = "application/octet-stream";
+  download.start_time = now;
+  download.end_time = now;
+  download.received_bytes = 0;
+  download.total_bytes = 512;
+  download.state = DownloadState::COMPLETE;
+  download.danger_type = DownloadDangerType::NOT_DANGEROUS;
+  download.interrupt_reason = kTestDownloadInterruptReasonNone;
+  download.id = 1;
+  download.guid = "05AF6C8E-E4E0-45D7-B5CE-BC99F7019918";
+  download.opened = 0;
+  download.last_access_time = now;
+  download.transient = false;
+  download.by_ext_id = "by_ext_id";
+  download.by_ext_name = "by_ext_name";
 
   // Creating records without any urls should fail.
   EXPECT_FALSE(db_->CreateDownload(download));
@@ -1015,7 +1079,7 @@ TEST_F(HistoryBackendDBTest, DownloadNukeRecordsMissingURLs) {
   // Pretend that the URLs were dropped.
   DeleteBackend();
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     sql::Statement statement(db.GetUniqueStatement(
         "DELETE FROM downloads_url_chains WHERE id=1"));
@@ -1029,7 +1093,7 @@ TEST_F(HistoryBackendDBTest, DownloadNukeRecordsMissingURLs) {
   // QueryDownloads should have nuked the corrupt record.
   DeleteBackend();
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       sql::Statement statement(db.GetUniqueStatement(
@@ -1056,13 +1120,14 @@ TEST_F(HistoryBackendDBTest, ConfirmDownloadInProgressCleanup) {
   db_->QueryDownloads(&results);
   ASSERT_EQ(1u, results.size());
   // Add a download slice and update the DB
-  results[0].download_slice_info.push_back(DownloadSliceInfo(id, 500, 100));
+  results[0].download_slice_info.push_back(
+      DownloadSliceInfo(id, 500, 100, true));
   ASSERT_TRUE(db_->UpdateDownload(results[0]));
 
   // Confirm that they made it into the DB unchanged.
   DeleteBackend();
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     sql::Statement statement(db.GetUniqueStatement(
         "Select Count(*) from downloads"));
@@ -1092,7 +1157,7 @@ TEST_F(HistoryBackendDBTest, ConfirmDownloadInProgressCleanup) {
   base::RunLoop().RunUntilIdle();
   DeleteBackend();
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     sql::Statement statement(db.GetUniqueStatement(
         "Select Count(*) from downloads"));
@@ -1113,28 +1178,38 @@ TEST_F(HistoryBackendDBTest, ConfirmDownloadInProgressCleanup) {
 TEST_F(HistoryBackendDBTest, CreateAndUpdateDownloadingSlice) {
   CreateBackendAndDatabase();
 
-  std::vector<GURL> url_chain;
-  url_chain.push_back(GURL("http://example.com/a"));
+  DownloadRow download;
+  download.current_path = base::FilePath(FILE_PATH_LITERAL("/path/1"));
+  download.target_path = base::FilePath(FILE_PATH_LITERAL("/path/2"));
+  download.url_chain.push_back(GURL("http://example.com/a"));
+  download.referrer_url = GURL("http://example.com/referrer");
+  download.site_url = GURL("http://example.com");
+  download.tab_url = GURL("http://example.com/tab-url");
+  download.tab_referrer_url = GURL("http://example.com/tab-referrer");
+  download.http_method = "GET";
+  download.mime_type = "mime/type";
+  download.original_mime_type = "original/mime-type";
+  download.start_time = base::Time::Now();
+  download.end_time = download.start_time + base::TimeDelta::FromHours(1);
+  download.etag = "etag1";
+  download.last_modified = "last_modified_1";
+  download.received_bytes = 10;
+  download.total_bytes = 1500;
+  download.state = DownloadState::INTERRUPTED;
+  download.danger_type = DownloadDangerType::NOT_DANGEROUS;
+  download.interrupt_reason = kTestDownloadInterruptReasonCrash;
+  download.hash = "hash-value1";
+  download.id = 1;
+  download.guid = "FE672168-26EF-4275-A149-FEC25F6A75F9";
+  download.opened = false;
+  download.last_access_time =
+      download.start_time + base::TimeDelta::FromHours(5);
+  download.transient = false;
+  download.by_ext_id = "extension-id";
+  download.by_ext_name = "extension-name";
+  download.download_slice_info.push_back(
+      DownloadSliceInfo(download.id, 500, download.received_bytes, true));
 
-  DownloadId id = 1;
-  std::vector<DownloadSliceInfo> slice_info;
-  int64_t received = 10;
-  slice_info.push_back(DownloadSliceInfo(id, 500, received));
-  base::Time start_time(base::Time::Now());
-  base::Time end_time(start_time + base::TimeDelta::FromHours(1));
-  base::Time last_access_time(start_time + base::TimeDelta::FromHours(5));
-
-  DownloadRow download(
-      base::FilePath(FILE_PATH_LITERAL("/path/1")),
-      base::FilePath(FILE_PATH_LITERAL("/path/2")), url_chain,
-      GURL("http://example.com/referrer"), GURL("http://example.com"),
-      GURL("http://example.com/tab-url"),
-      GURL("http://example.com/tab-referrer"), "GET", "mime/type",
-      "original/mime-type", start_time, end_time, "etag1", "last_modified_1",
-      received, 1500, DownloadState::INTERRUPTED,
-      DownloadDangerType::NOT_DANGEROUS, kTestDownloadInterruptReasonCrash,
-      "hash-value1", id, "FE672168-26EF-4275-A149-FEC25F6A75F9", false,
-      last_access_time, false, "extension-id", "extension-name", slice_info);
   ASSERT_TRUE(db_->CreateDownload(download));
   std::vector<DownloadRow> results;
   db_->QueryDownloads(&results);
@@ -1153,28 +1228,41 @@ TEST_F(HistoryBackendDBTest, CreateAndUpdateDownloadingSlice) {
 TEST_F(HistoryBackendDBTest, UpdateDownloadWithNewSlice) {
   CreateBackendAndDatabase();
 
-  std::vector<GURL> url_chain;
-  url_chain.push_back(GURL("http://example.com/a"));
+  DownloadRow download;
+  download.current_path = base::FilePath(FILE_PATH_LITERAL("/path/1"));
+  download.target_path = base::FilePath(FILE_PATH_LITERAL("/path/2"));
+  download.url_chain.push_back(GURL("http://example.com/a"));
+  download.referrer_url = GURL("http://example.com/referrer");
+  download.site_url = GURL("http://example.com");
+  download.tab_url = GURL("http://example.com/tab-url");
+  download.tab_referrer_url = GURL("http://example.com/tab-referrer");
+  download.http_method = "GET";
+  download.mime_type = "mime/type";
+  download.original_mime_type = "original/mime-type";
+  download.start_time = base::Time::Now();
+  download.end_time = download.start_time + base::TimeDelta::FromHours(1);
+  download.etag = "etag1";
+  download.last_modified = "last_modified_1";
+  download.received_bytes = 0;
+  download.total_bytes = 1500;
+  download.state = DownloadState::INTERRUPTED;
+  download.danger_type = DownloadDangerType::NOT_DANGEROUS;
+  download.interrupt_reason = kTestDownloadInterruptReasonCrash;
+  download.hash = "hash-value1";
+  download.id = 1;
+  download.guid = "FE672168-26EF-4275-A149-FEC25F6A75F9";
+  download.opened = false;
+  download.last_access_time =
+      download.start_time + base::TimeDelta::FromHours(5);
+  download.transient = true;
+  download.by_ext_id = "extension-id";
+  download.by_ext_name = "extension-name";
 
-  DownloadId id = 1;
-  base::Time start_time(base::Time::Now());
-  base::Time end_time(start_time + base::TimeDelta::FromHours(1));
-  base::Time last_access_time(start_time + base::TimeDelta::FromHours(5));
-  DownloadRow download(
-      base::FilePath(FILE_PATH_LITERAL("/path/1")),
-      base::FilePath(FILE_PATH_LITERAL("/path/2")), url_chain,
-      GURL("http://example.com/referrer"), GURL("http://example.com"),
-      GURL("http://example.com/tab-url"),
-      GURL("http://example.com/tab-referrer"), "GET", "mime/type",
-      "original/mime-type", start_time, end_time, "etag1", "last_modified_1", 0,
-      1500, DownloadState::INTERRUPTED, DownloadDangerType::NOT_DANGEROUS,
-      kTestDownloadInterruptReasonCrash, "hash-value1", id,
-      "FE672168-26EF-4275-A149-FEC25F6A75F9", false, last_access_time, true,
-      "extension-id", "extension-name", std::vector<DownloadSliceInfo>());
   ASSERT_TRUE(db_->CreateDownload(download));
 
   // Add a new slice and call UpdateDownload().
-  download.download_slice_info.push_back(DownloadSliceInfo(id, 500, 100));
+  download.download_slice_info.push_back(
+      DownloadSliceInfo(download.id, 500, 100, true));
   ASSERT_TRUE(db_->UpdateDownload(download));
   std::vector<DownloadRow> results;
   db_->QueryDownloads(&results);
@@ -1185,32 +1273,45 @@ TEST_F(HistoryBackendDBTest, UpdateDownloadWithNewSlice) {
 TEST_F(HistoryBackendDBTest, DownloadSliceDeletedIfEmpty) {
   CreateBackendAndDatabase();
 
-  std::vector<GURL> url_chain;
-  url_chain.push_back(GURL("http://example.com/a"));
-
-  DownloadId id = 1;
-  std::vector<DownloadSliceInfo> slice_info;
-  int64_t received = 10;
-  slice_info.push_back(DownloadSliceInfo(id, 0, received));
-  slice_info.push_back(DownloadSliceInfo(id, 500, received));
-  slice_info.push_back(DownloadSliceInfo(id, 100, received));
+  DownloadRow download;
+  download.current_path = base::FilePath(FILE_PATH_LITERAL("/path/1"));
+  download.target_path = base::FilePath(FILE_PATH_LITERAL("/path/2"));
+  download.url_chain.push_back(GURL("http://example.com/a"));
+  download.referrer_url = GURL("http://example.com/referrer");
+  download.site_url = GURL("http://example.com");
+  download.tab_url = GURL("http://example.com/tab-url");
+  download.tab_referrer_url = GURL("http://example.com/tab-referrer");
+  download.http_method = "GET";
+  download.mime_type = "mime/type";
+  download.original_mime_type = "original/mime-type";
+  download.start_time = base::Time::Now();
+  download.end_time = download.start_time + base::TimeDelta::FromHours(1);
+  download.etag = "etag1";
+  download.last_modified = "last_modified_1";
+  download.received_bytes = 10;
+  download.total_bytes = 1500;
+  download.state = DownloadState::INTERRUPTED;
+  download.danger_type = DownloadDangerType::NOT_DANGEROUS;
+  download.interrupt_reason = kTestDownloadInterruptReasonCrash;
+  download.hash = "hash-value1";
+  download.id = 1;
+  download.guid = "FE672168-26EF-4275-A149-FEC25F6A75F9";
+  download.opened = false;
+  download.last_access_time =
+      download.start_time + base::TimeDelta::FromHours(5);
+  download.transient = true;
+  download.by_ext_id = "extension-id";
+  download.by_ext_name = "extension-name";
+  download.download_slice_info.push_back(
+      DownloadSliceInfo(download.id, 0, download.received_bytes, false));
+  download.download_slice_info.push_back(
+      DownloadSliceInfo(download.id, 500, download.received_bytes, false));
+  download.download_slice_info.push_back(
+      DownloadSliceInfo(download.id, 100, download.received_bytes, false));
   // The empty slice will not be inserted.
-  slice_info.push_back(DownloadSliceInfo(id, 1500, 0));
-  base::Time start_time(base::Time::Now());
-  base::Time end_time(start_time + base::TimeDelta::FromHours(1));
-  base::Time last_access_time(start_time + base::TimeDelta::FromHours(5));
+  download.download_slice_info.push_back(
+      DownloadSliceInfo(download.id, 1500, 0, true));
 
-  DownloadRow download(
-      base::FilePath(FILE_PATH_LITERAL("/path/1")),
-      base::FilePath(FILE_PATH_LITERAL("/path/2")), url_chain,
-      GURL("http://example.com/referrer"), GURL("http://example.com"),
-      GURL("http://example.com/tab-url"),
-      GURL("http://example.com/tab-referrer"), "GET", "mime/type",
-      "original/mime-type", start_time, end_time, "etag1", "last_modified_1",
-      received, 1500, DownloadState::INTERRUPTED,
-      DownloadDangerType::NOT_DANGEROUS, kTestDownloadInterruptReasonCrash,
-      "hash-value1", id, "FE672168-26EF-4275-A149-FEC25F6A75F9", false,
-      last_access_time, true, "extension-id", "extension-name", slice_info);
   ASSERT_TRUE(db_->CreateDownload(download));
   std::vector<DownloadRow> results;
   db_->QueryDownloads(&results);
@@ -1240,7 +1341,7 @@ TEST_F(HistoryBackendDBTest, MigratePresentations) {
 
   {
     // Re-open the db for manual manipulation.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
 
     // Add an entry to urls.
@@ -1297,7 +1398,7 @@ TEST_F(HistoryBackendDBTest, MigratePresentations) {
 TEST_F(HistoryBackendDBTest, CheckLastCompatibleVersion) {
   ASSERT_NO_FATAL_FAILURE(CreateDBVersion(28));
   {
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       // Manually set last compatible version to one higher
@@ -1318,7 +1419,7 @@ TEST_F(HistoryBackendDBTest, CheckLastCompatibleVersion) {
     // Re-open the db to check that it was not migrated.
     // Non compatible DB must be ignored.
     // Check that DB version in file remains the same.
-    sql::Connection db;
+    sql::Database db;
     ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
     {
       sql::MetaTable meta;
@@ -1327,6 +1428,384 @@ TEST_F(HistoryBackendDBTest, CheckLastCompatibleVersion) {
       ASSERT_LT(28, HistoryDatabase::GetCurrentVersion());
       // Expect that version in DB remains the same.
       EXPECT_EQ(28, meta.GetVersionNumber());
+    }
+  }
+}
+
+// Tests that visit segment names are recomputed and segments merged when
+// migrating to version 37.
+TEST_F(HistoryBackendDBTest, MigrateVisitSegmentNames) {
+  ASSERT_NO_FATAL_FAILURE(CreateDBVersion(32));
+
+  const SegmentID segment_id1 = 7;
+  const SegmentID segment_id2 = 8;
+  const URLID url_id1 = 3;
+  const URLID url_id2 = 4;
+  const GURL url1("http://www.foo.com");
+  const GURL url2("http://m.foo.com");
+  const std::string legacy_segment_name1("http://foo.com/");
+  const std::string legacy_segment_name2("http://m.foo.com/");
+  const base::string16 title1(base::ASCIIToUTF16("Title1"));
+  const base::string16 title2(base::ASCIIToUTF16("Title2"));
+  const base::Time segment_time(base::Time::Now());
+
+  {
+    // Open the db for manual manipulation.
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+
+    // Add first entry to urls.
+    {
+      sql::Statement s(
+          db.GetUniqueStatement("INSERT INTO urls "
+                                "(id, url, title, last_visit_time) VALUES "
+                                "(?, ?, ?, ?)"));
+      s.BindInt64(0, url_id1);
+      s.BindString(1, url1.spec());
+      s.BindString16(2, title1);
+      s.BindInt64(3, segment_time.ToInternalValue());
+      ASSERT_TRUE(s.Run());
+    }
+
+    // Add first entry to segments.
+    {
+      sql::Statement s(
+          db.GetUniqueStatement("INSERT INTO segments "
+                                "(id, name, url_id) VALUES "
+                                "(?, ?, ?)"));
+      s.BindInt64(0, segment_id1);
+      s.BindString(1, legacy_segment_name1);
+      s.BindInt64(2, url_id1);
+      ASSERT_TRUE(s.Run());
+    }
+
+    // And first to segment_usage.
+    {
+      sql::Statement s(db.GetUniqueStatement(
+          "INSERT INTO segment_usage "
+          "(id, segment_id, time_slot, visit_count) VALUES "
+          "(?, ?, ?, ?)"));
+      s.BindInt64(0, 4);  // id.
+      s.BindInt64(1, segment_id1);
+      s.BindInt64(2, segment_time.ToInternalValue());
+      s.BindInt(3, 11);  // visit count.
+      ASSERT_TRUE(s.Run());
+    }
+
+    // Add second entry to urls.
+    {
+      sql::Statement s(
+          db.GetUniqueStatement("INSERT INTO urls "
+                                "(id, url, title, last_visit_time) VALUES "
+                                "(?, ?, ?, ?)"));
+      s.BindInt64(0, url_id2);
+      s.BindString(1, url2.spec());
+      s.BindString16(2, title2);
+      s.BindInt64(3, segment_time.ToInternalValue());
+      ASSERT_TRUE(s.Run());
+    }
+
+    // Add second entry to segments.
+    {
+      sql::Statement s(
+          db.GetUniqueStatement("INSERT INTO segments "
+                                "(id, name, url_id) VALUES "
+                                "(?, ?, ?)"));
+      s.BindInt64(0, segment_id2);
+      s.BindString(1, legacy_segment_name2);
+      s.BindInt64(2, url_id2);
+      ASSERT_TRUE(s.Run());
+    }
+
+    // And second to segment_usage.
+    {
+      sql::Statement s(db.GetUniqueStatement(
+          "INSERT INTO segment_usage "
+          "(id, segment_id, time_slot, visit_count) VALUES "
+          "(?, ?, ?, ?)"));
+      s.BindInt64(0, 5);  // id.
+      s.BindInt64(1, segment_id2);
+      s.BindInt64(2, segment_time.ToInternalValue());
+      s.BindInt(3, 13);  // visit count.
+      ASSERT_TRUE(s.Run());
+    }
+  }
+
+  // Re-open the db, triggering migration.
+  CreateBackendAndDatabase();
+
+  std::vector<std::unique_ptr<PageUsageData>> results =
+      db_->QuerySegmentUsage(segment_time, /*max_result_count=*/10,
+                             base::Callback<bool(const GURL&)>());
+  ASSERT_EQ(1u, results.size());
+  EXPECT_THAT(results[0]->GetURL(), testing::AnyOf(url1, url2));
+  EXPECT_THAT(results[0]->GetTitle(), testing::AnyOf(title1, title2));
+  EXPECT_EQ(segment_id1, db_->GetSegmentNamed(legacy_segment_name1));
+  EXPECT_EQ(0u, db_->GetSegmentNamed(legacy_segment_name2));
+}
+
+// Test to verify the finished column will be correctly added to download slices
+// table during migration to version 39.
+TEST_F(HistoryBackendDBTest, MigrateDownloadSliceFinished) {
+  ASSERT_NO_FATAL_FAILURE(CreateDBVersion(38));
+  {
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+  }
+  CreateBackendAndDatabase();
+  DeleteBackend();
+
+  {
+    // Re-open the db for manual manipulation.
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+    // The version should have been updated.
+    int cur_version = HistoryDatabase::GetCurrentVersion();
+    ASSERT_LE(38, cur_version);
+    {
+      sql::Statement s(db.GetUniqueStatement(
+          "SELECT value FROM meta WHERE key = 'version'"));
+      EXPECT_TRUE(s.Step());
+      EXPECT_EQ(cur_version, s.ColumnInt(0));
+    }
+    {
+      // The downloads_slices table should have the finished column.
+      sql::Statement s1(
+          db.GetUniqueStatement("SELECT COUNT(*) from downloads_slices"));
+      EXPECT_TRUE(s1.Step());
+      EXPECT_EQ(0, s1.ColumnInt(0));
+      const char kInsertStatement[] =
+          "INSERT INTO downloads_slices "
+          "(download_id, offset, received_bytes, finished) VALUES (1, 0, 100, "
+          "1)";
+      ASSERT_TRUE(db.Execute(kInsertStatement));
+    }
+  }
+}
+
+// Test to verify the incremented_omnibox_typed_score column will be correctly
+// added to visits table during migration to version 40.
+TEST_F(HistoryBackendDBTest, MigrateVisitsWithoutIncrementedOmniboxTypedScore) {
+  ASSERT_NO_FATAL_FAILURE(CreateDBVersion(39));
+
+  const VisitID visit_id1 = 1;
+  const VisitID visit_id2 = 2;
+  const URLID url_id1 = 3;
+  const URLID url_id2 = 4;
+  const base::Time visit_time1(base::Time::Now());
+  const base::Time visit_time2(base::Time::Now());
+  const VisitID referring_visit1 = 0;
+  const VisitID referring_visit2 = 0;
+  const ui::PageTransition transition1 = ui::PAGE_TRANSITION_LINK;
+  const ui::PageTransition transition2 = ui::PAGE_TRANSITION_TYPED;
+  const SegmentID segment_id1 = 7;
+  const SegmentID segment_id2 = 8;
+  const base::TimeDelta visit_duration1(base::TimeDelta::FromSeconds(30));
+  const base::TimeDelta visit_duration2(base::TimeDelta::FromSeconds(45));
+
+  const char kInsertStatement[] =
+      "INSERT INTO visits "
+      "(id, url, visit_time, from_visit, transition, segment_id, "
+      "visit_duration) VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+  {
+    // Open the db for manual manipulation.
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+
+    // Add entries to visits.
+    {
+      sql::Statement s(db.GetUniqueStatement(kInsertStatement));
+      s.BindInt64(0, visit_id1);
+      s.BindInt64(1, url_id1);
+      s.BindInt64(2, visit_time1.ToDeltaSinceWindowsEpoch().InMicroseconds());
+      s.BindInt64(3, referring_visit1);
+      s.BindInt64(4, transition1);
+      s.BindInt64(5, segment_id1);
+      s.BindInt64(6, visit_duration1.InMicroseconds());
+      ASSERT_TRUE(s.Run());
+    }
+    {
+      sql::Statement s(db.GetUniqueStatement(kInsertStatement));
+      s.BindInt64(0, visit_id2);
+      s.BindInt64(1, url_id2);
+      s.BindInt64(2, visit_time2.ToDeltaSinceWindowsEpoch().InMicroseconds());
+      s.BindInt64(3, referring_visit2);
+      s.BindInt64(4, transition2);
+      s.BindInt64(5, segment_id2);
+      s.BindInt64(6, visit_duration2.InMicroseconds());
+      ASSERT_TRUE(s.Run());
+    }
+  }
+
+  // Re-open the db, triggering migration.
+  CreateBackendAndDatabase();
+
+  VisitRow visit_row1;
+  db_->GetRowForVisit(visit_id1, &visit_row1);
+  EXPECT_FALSE(visit_row1.incremented_omnibox_typed_score);
+
+  VisitRow visit_row2;
+  db_->GetRowForVisit(visit_id2, &visit_row2);
+  EXPECT_TRUE(visit_row2.incremented_omnibox_typed_score);
+}
+
+// Tests that the migration code correctly handles rows in the visit database
+// that may be in an invalid state where visit_id == referring_visit. Regression
+// test for https://crbug.com/847246.
+TEST_F(HistoryBackendDBTest,
+       MigrateVisitsWithoutIncrementedOmniboxTypedScore_BadRow) {
+  ASSERT_NO_FATAL_FAILURE(CreateDBVersion(39));
+
+  const VisitID visit_id = 1;
+  const URLID url_id = 2;
+  const base::Time visit_time(base::Time::Now());
+  // visit_id == referring_visit will trigger DCHECK_NE in UpdateVisitRow.
+  const VisitID referring_visit = 1;
+  const ui::PageTransition transition = ui::PAGE_TRANSITION_TYPED;
+  const SegmentID segment_id = 8;
+  const base::TimeDelta visit_duration(base::TimeDelta::FromSeconds(45));
+
+  const char kInsertStatement[] =
+      "INSERT INTO visits "
+      "(id, url, visit_time, from_visit, transition, segment_id, "
+      "visit_duration) VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+  {
+    // Open the db for manual manipulation.
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+
+    // Add entry to visits.
+    sql::Statement s(db.GetUniqueStatement(kInsertStatement));
+    s.BindInt64(0, visit_id);
+    s.BindInt64(1, url_id);
+    s.BindInt64(2, visit_time.ToDeltaSinceWindowsEpoch().InMicroseconds());
+    s.BindInt64(3, referring_visit);
+    s.BindInt64(4, transition);
+    s.BindInt64(5, segment_id);
+    s.BindInt64(6, visit_duration.InMicroseconds());
+    ASSERT_TRUE(s.Run());
+  }
+
+  // Re-open the db, triggering migration.
+  CreateBackendAndDatabase();
+
+  // Field should be false since the migration won't update it from the default
+  // due to the invalid state of the row.
+  VisitRow visit_row;
+  db_->GetRowForVisit(visit_id, &visit_row);
+  EXPECT_FALSE(visit_row.incremented_omnibox_typed_score);
+}
+
+// Test to verify the left-over typed_url sync metadata gets cleared correctly
+// during migration to version 41.
+TEST_F(HistoryBackendDBTest, MigrateTypedURLLeftoverMetadata) {
+  ASSERT_NO_FATAL_FAILURE(CreateDBVersion(40));
+
+  // Define common uninteresting data for visits.
+  const VisitID referring_visit = 0;
+  const ui::PageTransition transition = ui::PAGE_TRANSITION_TYPED;
+  const base::Time visit_time(base::Time::Now());
+  const base::TimeDelta visit_duration(base::TimeDelta::FromSeconds(30));
+
+  // The first visit has both a DB entry and a metadata entry.
+  const VisitID visit_id1 = 1;
+  const URLID url_id1 = 10;
+  const SegmentID segment_id1 = 20;
+  const std::string metadata_value1 = "BLOB1";
+
+  // The second one as well has both a DB entry and a metadata entry.
+  const VisitID visit_id2 = 2;
+  const URLID url_id2 = 11;
+  const SegmentID segment_id2 = 21;
+  const std::string metadata_value2 = "BLOB2";
+
+  // The second visit has only a left-over metadata entry.
+  const URLID url_id3 = 12;
+  const std::string metadata_value3 = "BLOB3";
+
+  {
+    // Open the db for manual manipulation.
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+
+    const char kInsertVisitStatement[] =
+        "INSERT INTO visits "
+        "(id, url, visit_time, from_visit, transition, segment_id, "
+        "visit_duration) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    {
+      sql::Statement s(db.GetUniqueStatement(kInsertVisitStatement));
+      s.BindInt64(0, visit_id1);
+      s.BindInt64(1, url_id1);
+      s.BindInt64(2, visit_time.ToDeltaSinceWindowsEpoch().InMicroseconds());
+      s.BindInt64(3, referring_visit);
+      s.BindInt64(4, transition);
+      s.BindInt64(5, segment_id1);
+      s.BindInt64(6, visit_duration.InMicroseconds());
+      ASSERT_TRUE(s.Run());
+    }
+    {
+      sql::Statement s(db.GetUniqueStatement(kInsertVisitStatement));
+      s.BindInt64(0, visit_id2);
+      s.BindInt64(1, url_id2);
+      s.BindInt64(2, visit_time.ToDeltaSinceWindowsEpoch().InMicroseconds());
+      s.BindInt64(3, referring_visit);
+      s.BindInt64(4, transition);
+      s.BindInt64(5, segment_id2);
+      s.BindInt64(6, visit_duration.InMicroseconds());
+      ASSERT_TRUE(s.Run());
+    }
+
+    const char kInsertMetadataStatement[] =
+        "INSERT INTO typed_url_sync_metadata (storage_key, value) VALUES (?, "
+        "?)";
+    {
+      sql::Statement s(db.GetUniqueStatement(kInsertMetadataStatement));
+      s.BindInt64(0, url_id3);
+      s.BindString(1, metadata_value3);
+      ASSERT_TRUE(s.Run());
+    }
+    {
+      sql::Statement s(db.GetUniqueStatement(kInsertMetadataStatement));
+      s.BindInt64(0, url_id2);
+      s.BindString(1, metadata_value2);
+      ASSERT_TRUE(s.Run());
+    }
+    {
+      sql::Statement s(db.GetUniqueStatement(kInsertMetadataStatement));
+      s.BindInt64(0, url_id1);
+      s.BindString(1, metadata_value1);
+      ASSERT_TRUE(s.Run());
+    }
+  }
+
+  // Re-open the db, triggering migration.
+  CreateBackendAndDatabase();
+  DeleteBackend();
+  {
+    // Re-open the db for manual manipulation.
+    sql::Database db;
+    ASSERT_TRUE(db.Open(history_dir_.Append(kHistoryFilename)));
+    {
+      // The version should have been updated.
+      sql::Statement s(db.GetUniqueStatement(
+          "SELECT value FROM meta WHERE key = 'version'"));
+      ASSERT_GE(HistoryDatabase::GetCurrentVersion(), 41);
+      EXPECT_TRUE(s.Step());
+      EXPECT_EQ(HistoryDatabase::GetCurrentVersion(), s.ColumnInt(0));
+    }
+    {
+      // Check that the left-over metadata entry is deleted.
+      sql::Statement s(db.GetUniqueStatement(
+          "SELECT storage_key FROM typed_url_sync_metadata"));
+      std::set<URLID> remaining_metadata;
+      while (s.Step()) {
+        remaining_metadata.insert(s.ColumnInt64(0));
+      }
+      EXPECT_EQ(remaining_metadata.count(url_id3), 0u);
+      EXPECT_EQ(remaining_metadata.count(url_id2), 1u);
+      EXPECT_EQ(remaining_metadata.count(url_id1), 1u);
     }
   }
 }

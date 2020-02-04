@@ -64,8 +64,6 @@ static_library("test_support") {
     "mock_bus.h",
     "mock_exported_object.cc",
     "mock_exported_object.h",
-    "mock_object_manager.cc",
-    "mock_object_manager.h",
     "mock_object_proxy.cc",
     "mock_object_proxy.h",
   ]
@@ -125,7 +123,6 @@ executable("dbus_test_server") {
     ":dbus",
     "//base",
     "//base/test:test_support",
-    "//build/config:exe_and_shlib_deps",
   ]
 
   configs += [ "//build/config/linux/dbus" ]

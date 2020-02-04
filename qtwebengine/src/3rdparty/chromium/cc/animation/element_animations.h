@@ -26,18 +26,20 @@ class BoxF;
 namespace cc {
 
 class AnimationHost;
-class AnimationPlayer;
 class FilterOperations;
+class KeyframeEffect;
 class TransformOperations;
 enum class ElementListType;
 struct AnimationEvent;
 
 enum class UpdateTickingType { NORMAL, FORCE };
 
-// An ElementAnimations owns a list of all AnimationPlayers, attached to
-// the element.
-// This is a CC counterpart for blink::ElementAnimations (in 1:1 relationship).
-// No pointer to/from respective blink::ElementAnimations object for now.
+// An ElementAnimations owns a list of all KeyframeEffects attached to a single
+// target (represented by an ElementId).
+//
+// Note that a particular target may not actually be an element in the web sense
+// of the word; this naming is a legacy leftover. A target is just an amorphous
+// blob that has properties that can be animated.
 class CC_ANIMATION_EXPORT ElementAnimations
     : public AnimationTarget,
       public base::RefCounted<ElementAnimations> {
@@ -53,17 +55,19 @@ class CC_ANIMATION_EXPORT ElementAnimations
   void SetAnimationHost(AnimationHost* host);
 
   void InitAffectedElementTypes();
-  void ClearAffectedElementTypes();
+  void ClearAffectedElementTypes(const PropertyToElementIdMap& element_id_map);
 
   void ElementRegistered(ElementId element_id, ElementListType list_type);
   void ElementUnregistered(ElementId element_id, ElementListType list_type);
 
-  void AddPlayer(AnimationPlayer* player);
-  void RemovePlayer(AnimationPlayer* player);
+  void AddKeyframeEffect(KeyframeEffect* keyframe_effect);
+  void RemoveKeyframeEffect(KeyframeEffect* keyframe_effect);
   bool IsEmpty() const;
 
-  typedef base::ObserverList<AnimationPlayer> PlayersList;
-  const PlayersList& players_list() const { return players_list_; }
+  typedef base::ObserverList<KeyframeEffect>::Unchecked KeyframeEffectsList;
+  const KeyframeEffectsList& keyframe_effects_list() const {
+    return keyframe_effects_list_;
+  }
 
   // Ensures that the list of active animations on the main thread and the impl
   // thread are kept in sync. This function does not take ownership of the impl
@@ -71,12 +75,12 @@ class CC_ANIMATION_EXPORT ElementAnimations
   void PushPropertiesTo(
       scoped_refptr<ElementAnimations> element_animations_impl) const;
 
-  // Returns true if there are any animations that have neither finished nor
+  // Returns true if there are any effects that have neither finished nor
   // aborted.
-  bool HasTickingAnimation() const;
+  bool HasTickingKeyframeEffect() const;
 
-  // Returns true if there are any animations at all to process.
-  bool HasAnyAnimation() const;
+  // Returns true if there are any KeyframeModels at all to process.
+  bool HasAnyKeyframeModel() const;
 
   bool HasAnyAnimationTargetingProperty(TargetProperty::Type property) const;
 
@@ -114,15 +118,6 @@ class CC_ANIMATION_EXPORT ElementAnimations
     has_element_in_pending_list_ = has_element_in_pending_list;
   }
 
-  bool HasFilterAnimationThatInflatesBounds() const;
-  bool HasTransformAnimationThatInflatesBounds() const;
-  bool HasAnimationThatInflatesBounds() const {
-    return HasTransformAnimationThatInflatesBounds() ||
-           HasFilterAnimationThatInflatesBounds();
-  }
-
-  bool FilterAnimationBoundsForBox(const gfx::BoxF& box,
-                                   gfx::BoxF* bounds) const;
   bool TransformAnimationBoundsForBox(const gfx::BoxF& box,
                                       gfx::BoxF* bounds) const;
 
@@ -146,19 +141,37 @@ class CC_ANIMATION_EXPORT ElementAnimations
   bool needs_push_properties() const { return needs_push_properties_; }
 
   void UpdateClientAnimationState();
-  void SetNeedsUpdateImplClientState();
 
-  void NotifyClientOpacityAnimated(float opacity,
-                                   Animation* animation) override;
+  void NotifyClientFloatAnimated(float opacity,
+                                 int target_property_id,
+                                 KeyframeModel* keyframe_model) override;
   void NotifyClientFilterAnimated(const FilterOperations& filter,
-                                  Animation* animation) override;
+                                  int target_property_id,
+                                  KeyframeModel* keyframe_model) override;
+  void NotifyClientSizeAnimated(const gfx::SizeF& size,
+                                int target_property_id,
+                                KeyframeModel* keyframe_model) override{};
+  void NotifyClientColorAnimated(SkColor color,
+                                 int target_property_id,
+                                 KeyframeModel* keyframe_model) override{};
   void NotifyClientTransformOperationsAnimated(
       const TransformOperations& operations,
-      Animation* animation) override;
+      int target_property_id,
+      KeyframeModel* keyframe_model) override;
   void NotifyClientScrollOffsetAnimated(const gfx::ScrollOffset& scroll_offset,
-                                        Animation* animation) override;
+                                        int target_property_id,
+                                        KeyframeModel* keyframe_model) override;
 
   gfx::ScrollOffset ScrollOffsetForAnimation() const;
+
+  // Returns a map of target property to the ElementId for that property, for
+  // KeyframeEffects associated with this ElementAnimations.
+  //
+  // This method makes the assumption that a given target property doesn't map
+  // to more than one ElementId. While conceptually this isn't true for
+  // cc/animations, it is true for the two current clients (ui/ and blink) and
+  // this is required to let BGPT ship (see http://crbug.com/912574).
+  PropertyToElementIdMap GetPropertyToElementIdMap() const;
 
  private:
   friend class base::RefCounted<ElementAnimations>;
@@ -167,22 +180,28 @@ class CC_ANIMATION_EXPORT ElementAnimations
   ~ElementAnimations() override;
 
   void OnFilterAnimated(ElementListType list_type,
-                        const FilterOperations& filters);
-  void OnOpacityAnimated(ElementListType list_type, float opacity);
+                        const FilterOperations& filters,
+                        KeyframeModel* keyframe_model);
+  void OnOpacityAnimated(ElementListType list_type,
+                         float opacity,
+                         KeyframeModel* keyframe_model);
   void OnTransformAnimated(ElementListType list_type,
-                           const gfx::Transform& transform);
+                           const gfx::Transform& transform,
+                           KeyframeModel* keyframe_model);
   void OnScrollOffsetAnimated(ElementListType list_type,
-                              const gfx::ScrollOffset& scroll_offset);
+                              const gfx::ScrollOffset& scroll_offset,
+                              KeyframeModel* keyframe_model);
 
   static TargetProperties GetPropertiesMaskForAnimationState();
 
-  void UpdatePlayersTickingState(UpdateTickingType update_ticking_type) const;
-  void RemovePlayersFromTicking() const;
+  void UpdateKeyframeEffectsTickingState(
+      UpdateTickingType update_ticking_type) const;
+  void RemoveKeyframeEffectsFromTicking() const;
 
-  bool AnimationAffectsActiveElements(Animation* animation) const;
-  bool AnimationAffectsPendingElements(Animation* animation) const;
+  bool KeyframeModelAffectsActiveElements(KeyframeModel* keyframe_model) const;
+  bool KeyframeModelAffectsPendingElements(KeyframeModel* keyframe_model) const;
 
-  PlayersList players_list_;
+  KeyframeEffectsList keyframe_effects_list_;
   AnimationHost* animation_host_;
   ElementId element_id_;
 
@@ -193,8 +212,6 @@ class CC_ANIMATION_EXPORT ElementAnimations
 
   PropertyAnimationState active_state_;
   PropertyAnimationState pending_state_;
-
-  mutable bool needs_update_impl_client_state_;
 
   DISALLOW_COPY_AND_ASSIGN(ElementAnimations);
 };

@@ -9,6 +9,10 @@
 
 #include "components/version_info/channel.h"
 
+namespace base {
+class Version;
+}
+
 namespace version_info {
 
 // Returns the product name and version information for UserAgent header,
@@ -21,18 +25,21 @@ std::string GetProductName();
 // Returns the version number, e.g. "6.0.490.1".
 std::string GetVersionNumber();
 
+// Returns the result of GetVersionNumber() as a base::Version.
+const base::Version& GetVersion();
+
 // Returns a version control specific identifier of this release.
 std::string GetLastChange();
 
 // Returns whether this is an "official" release of the current version, i.e.
-// whether kwnowing GetVersionNumber() is enough to completely determine what
+// whether knowing GetVersionNumber() is enough to completely determine what
 // GetLastChange() is.
 bool IsOfficialBuild();
 
-// Returns the OS type, e.g. "Windows", "Linux", "FreeBDS", ...
+// Returns the OS type, e.g. "Windows", "Linux", "FreeBSD", ...
 std::string GetOSType();
 
-// Returns a string equivalent of |channel|, indenpendent of whether the build
+// Returns a string equivalent of |channel|, independent of whether the build
 // is branded or not and without any additional modifiers.
 std::string GetChannelString(Channel channel);
 

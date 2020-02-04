@@ -86,7 +86,7 @@ public:
     }
 
 protected:
-    void statusChanged(Status status) Q_DECL_FINAL
+    void statusChanged(Status status) final
     {
         Quick3DEntityLoaderPrivate *priv = Quick3DEntityLoaderPrivate::get(m_loader);
 
@@ -128,7 +128,7 @@ private:
     \inqmlmodule Qt3D.Core
     \inherits Entity
     \since 5.5
-    \brief Provides a way to dynamically load an Entity subtree
+    \brief Provides a way to dynamically load an Entity subtree.
 
     An EntityLoader provides the facitily to load predefined set of entities
     from qml source file. EntityLoader itself is an entity and the loaded entity
@@ -192,6 +192,24 @@ void Quick3DEntityLoader::setSource(const QUrl &url)
     d->loadFromSource();
 }
 
+QQmlComponent *Quick3DEntityLoader::sourceComponent() const
+{
+    Q_D(const Quick3DEntityLoader);
+    return d->m_sourceComponent;
+}
+
+void Quick3DEntityLoader::setSourceComponent(QQmlComponent *component)
+{
+    Q_D(Quick3DEntityLoader);
+    if (d->m_sourceComponent == component)
+        return;
+
+    d->clear();
+    d->m_sourceComponent = component;
+    emit sourceComponentChanged();
+    d->loadComponent(d->m_sourceComponent);
+}
+
 /*!
     \qmlproperty Status Qt3DCore::EntityLoader::status
 
@@ -214,6 +232,7 @@ Quick3DEntityLoaderPrivate::Quick3DEntityLoaderPrivate()
       m_incubator(nullptr),
       m_context(nullptr),
       m_component(nullptr),
+      m_sourceComponent(nullptr),
       m_entity(nullptr),
       m_status(Quick3DEntityLoader::Null)
 {
@@ -233,10 +252,11 @@ void Quick3DEntityLoaderPrivate::clear()
         m_entity = nullptr;
     }
 
-    if (m_component) {
+    // Only delete m_component if we were loading from a URL otherwise it means
+    // m_component = m_sourceComponent which we don't own.
+    if (m_component && m_component != m_sourceComponent)
         delete m_component;
-        m_component = nullptr;
-    }
+    m_component = nullptr;
 
     if (m_context) {
         delete m_context;
@@ -271,17 +291,31 @@ void Quick3DEntityLoaderPrivate::loadComponent(const QUrl &source)
     m_component->loadUrl(source, QQmlComponent::Asynchronous);
 }
 
+void Quick3DEntityLoaderPrivate::loadComponent(QQmlComponent *component)
+{
+    Q_ASSERT(m_entity == nullptr);
+    Q_ASSERT(m_component == nullptr);
+    Q_ASSERT(m_context == nullptr);
+
+    m_component = component;
+    _q_componentStatusChanged(m_component ? m_component->status() : QQmlComponent::Null);
+}
+
 void Quick3DEntityLoaderPrivate::_q_componentStatusChanged(QQmlComponent::Status status)
 {
     Q_Q(Quick3DEntityLoader);
 
     Q_ASSERT(m_entity == nullptr);
-    Q_ASSERT(m_component != nullptr);
     Q_ASSERT(m_context == nullptr);
     Q_ASSERT(m_incubator == nullptr);
 
-    auto owner = _q_findQmlOwner(q);
+    if (!m_component) {
+        clear();
+        emit q->entityChanged();
+        return;
+    }
 
+    auto owner = _q_findQmlOwner(q);
     if (!m_component->errors().isEmpty()) {
         QQmlEnginePrivate::warning(owner.engine, m_component->errors());
         clear();

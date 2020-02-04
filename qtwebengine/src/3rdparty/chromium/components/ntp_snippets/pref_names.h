@@ -12,12 +12,19 @@ namespace prefs {
 // an enterprise policy.
 extern const char kEnableSnippets[];
 
+// Whether the list of NTP snippets is visible in UI. This is set to false when
+// the user toggles the list off.
+extern const char kArticlesListVisible[];
+
 // The pref name under which remote suggestion categories (including their ID
 // and title) are stored.
 extern const char kRemoteSuggestionCategories[];
 
 // The pref name for the last time when a background fetch was attempted.
-extern const char kSnippetLastFetchAttempt[];
+extern const char kSnippetLastFetchAttemptTime[];
+
+// The pref name for the last time when a background fetch was successfull.
+extern const char kSnippetLastSuccessfulFetchTime[];
 
 // Pref names for minimal intervals between two successive background fetches.
 //
@@ -60,10 +67,7 @@ extern const char kSnippetThumbnailsRequestsDay[];
 extern const char kLastSuccessfulBackgroundFetchTime[];
 
 extern const char kDismissedAssetDownloadSuggestions[];
-extern const char kDismissedForeignSessionsSuggestions[];
 extern const char kDismissedOfflinePageDownloadSuggestions[];
-extern const char kDismissedPhysicalWebPageSuggestions[];
-extern const char kDismissedRecentOfflineTabSuggestions[];
 
 extern const char kDismissedCategories[];
 
@@ -109,6 +113,12 @@ extern const char kBreakingNewsSubscriptionDataIsAuthenticated[];
 // unsubscribes the old token from the content suggestions server, subscribe
 // with the new one and update kBreakingNewsSubscriptionDataToken.
 extern const char kBreakingNewsGCMSubscriptionTokenCache[];
+
+// When the last GCM token validation was.
+extern const char kBreakingNewsGCMLastTokenValidationTime[];
+
+// When the last forced subscription to content suggestions service was.
+extern const char kBreakingNewsGCMLastForcedSubscriptionTime[];
 
 }  // namespace prefs
 }  // namespace ntp_snippets

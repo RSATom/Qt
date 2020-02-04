@@ -55,6 +55,8 @@ using QtWebEngineCore::UserScript;
     Use QWebEnginePage::scripts() and QWebEngineProfile::scripts() to access
     the collection of scripts associated with a single page or a
     number of pages sharing the same profile.
+
+    \sa {Script Injection}
 */
 
 /*!
@@ -135,7 +137,7 @@ void QWebEngineScriptCollection::insert(const QWebEngineScript &s)
 void QWebEngineScriptCollection::insert(const QList<QWebEngineScript> &list)
 {
     d->reserve(list.size());
-    Q_FOREACH (const QWebEngineScript &s, list)
+    for (const QWebEngineScript &s : list)
         d->insert(s);
 }
 
@@ -175,63 +177,72 @@ QWebEngineScriptCollectionPrivate::QWebEngineScriptCollectionPrivate(QtWebEngine
 
 int QWebEngineScriptCollectionPrivate::count() const
 {
-    return m_scriptController->registeredScripts(m_contents.data()).count();
+    return m_scripts.count();
 }
 
 bool QWebEngineScriptCollectionPrivate::contains(const QWebEngineScript &s) const
 {
-    return m_scriptController->containsUserScript(*s.d, m_contents.data());
+    return m_scripts.contains(s);
 }
 
 void QWebEngineScriptCollectionPrivate::insert(const QWebEngineScript &script)
 {
-    if (!script.d)
+    if (!script.d || script.d->isNull())
         return;
-    m_scriptController->addUserScript(*script.d, m_contents.data());
+    m_scripts.append(script);
+    if (!m_contents || m_contents->isInitialized())
+        m_scriptController->addUserScript(*script.d, m_contents.data());
 }
 
 bool QWebEngineScriptCollectionPrivate::remove(const QWebEngineScript &script)
 {
-    if (!script.d)
+    if (!script.d || script.d->isNull())
         return false;
-    return m_scriptController->removeUserScript(*script.d, m_contents.data());
+    if (!m_contents || m_contents->isInitialized())
+        m_scriptController->removeUserScript(*script.d, m_contents.data());
+    return m_scripts.removeAll(script);
 }
 
 QList<QWebEngineScript> QWebEngineScriptCollectionPrivate::toList(const QString &scriptName) const
 {
+    if (scriptName.isNull())
+        return m_scripts;
+
     QList<QWebEngineScript> ret;
-    Q_FOREACH (const UserScript &script, m_scriptController->registeredScripts(m_contents.data()))
-        if (scriptName.isNull() || scriptName == script.name())
-            ret.append(QWebEngineScript(script));
+    for (const QWebEngineScript &script : qAsConst(m_scripts))
+        if (scriptName == script.name())
+            ret.append(script);
     return ret;
 }
 
 QWebEngineScript QWebEngineScriptCollectionPrivate::find(const QString &name) const
 {
-    Q_FOREACH (const UserScript &script, m_scriptController->registeredScripts(m_contents.data()))
+    for (const QWebEngineScript &script : qAsConst(m_scripts))
         if (name == script.name())
-            return QWebEngineScript(script);
+            return script;
     return QWebEngineScript();
 }
 
 void QWebEngineScriptCollectionPrivate::clear()
 {
-    m_scriptController->clearAllScripts(m_contents.data());
+    m_scripts.clear();
+    if (!m_contents || m_contents->isInitialized())
+        m_scriptController->clearAllScripts(m_contents.data());
 }
 
 void QWebEngineScriptCollectionPrivate::reserve(int capacity)
 {
-    m_scriptController->reserve(m_contents.data(), capacity);
+    m_scripts.reserve(capacity);
+    if (!m_contents || m_contents->isInitialized())
+        m_scriptController->reserve(m_contents.data(), capacity);
 }
 
-void QWebEngineScriptCollectionPrivate::rebindToContents(QSharedPointer<QtWebEngineCore::WebContentsAdapter> contents)
+void QWebEngineScriptCollectionPrivate::initializationFinished(QSharedPointer<QtWebEngineCore::WebContentsAdapter> contents)
 {
     Q_ASSERT(m_contents);
     Q_ASSERT(contents);
-    Q_ASSERT(m_contents != contents);
 
-    Q_FOREACH (const UserScript &script, m_scriptController->registeredScripts(m_contents.data())) {
-        m_scriptController->addUserScript(script, contents.data());
-    }
+    for (const QWebEngineScript &script : qAsConst(m_scripts))
+        m_scriptController->addUserScript(*script.d, contents.data());
     m_contents = contents;
 }

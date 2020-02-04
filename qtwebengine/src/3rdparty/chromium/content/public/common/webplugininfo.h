@@ -12,6 +12,7 @@
 
 #include "base/files/file_path.h"
 #include "content/common/content_export.h"
+#include "third_party/skia/include/core/SkColor.h"
 
 namespace base {
 class Version;
@@ -39,8 +40,14 @@ struct CONTENT_EXPORT WebPluginMimeType {
   base::string16 description;
 
   // Extra parameters to include when instantiating the plugin.
-  std::vector<base::string16> additional_param_names;
-  std::vector<base::string16> additional_param_values;
+  struct Param {
+    Param() = default;
+    Param(base::string16 n, base::string16 v)
+        : name(std::move(n)), value(std::move(v)) {}
+    base::string16 name;
+    base::string16 value;
+  };
+  std::vector<Param> additional_params;
 };
 
 // Describes an available Pepper plugin.
@@ -50,6 +57,8 @@ struct CONTENT_EXPORT WebPluginInfo {
     PLUGIN_TYPE_PEPPER_OUT_OF_PROCESS,
     PLUGIN_TYPE_BROWSER_PLUGIN
   };
+
+  static constexpr SkColor kDefaultBackgroundColor = SkColorSetRGB(38, 38, 38);
 
   WebPluginInfo();
   WebPluginInfo(const WebPluginInfo& rhs);
@@ -92,6 +101,9 @@ struct CONTENT_EXPORT WebPluginInfo {
 
   // When type is PLUGIN_TYPE_PEPPER_* this indicates the permission bits.
   int32_t pepper_permissions;
+
+  // The color to use as the background before the plugin loads.
+  SkColor background_color = kDefaultBackgroundColor;
 };
 
 }  // namespace content

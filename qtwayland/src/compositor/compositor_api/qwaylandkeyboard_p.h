@@ -51,6 +51,7 @@
 //
 // We mean it.
 //
+#include <QtWaylandCompositor/private/qwaylandcompositor_p.h>
 
 #include <QtWaylandCompositor/private/qtwaylandcompositorglobal_p.h>
 #include <QtWaylandCompositor/qwaylandseat.h>
@@ -62,8 +63,9 @@
 
 #include <QtCore/QVector>
 
-#if QT_CONFIG(xkbcommon_evdev)
+#if QT_CONFIG(xkbcommon)
 #include <xkbcommon/xkbcommon.h>
+#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
 #endif
 
 
@@ -78,17 +80,19 @@ public:
     static QWaylandKeyboardPrivate *get(QWaylandKeyboard *keyboard);
 
     QWaylandKeyboardPrivate(QWaylandSeat *seat);
-    ~QWaylandKeyboardPrivate();
+    ~QWaylandKeyboardPrivate() override;
 
     QWaylandCompositor *compositor() const { return seat->compositor(); }
 
     void focused(QWaylandSurface* surface);
-    void modifiers(uint32_t serial, uint32_t mods_depressed,
-                   uint32_t mods_latched, uint32_t mods_locked, uint32_t group);
 
-#if QT_CONFIG(xkbcommon_evdev)
-    struct xkb_state *xkbState() const { return xkb_state; }
+#if QT_CONFIG(xkbcommon)
+    struct xkb_state *xkbState() const { return mXkbState.get(); }
+    struct xkb_context *xkbContext() const {
+        return QWaylandCompositorPrivate::get(seat->compositor())->xkbContext();
+    }
     uint32_t xkbModsMask() const { return modsDepressed | modsLatched | modsLocked; }
+    void maybeUpdateXkbScanCodeTable();
 #endif
 
     void keyEvent(uint code, uint32_t state);
@@ -105,38 +109,38 @@ protected:
     void keyboard_release(Resource *resource) override;
 
 private:
-#if QT_CONFIG(xkbcommon_evdev)
-    void initXKB();
+#if QT_CONFIG(xkbcommon)
     void createXKBKeymap();
     void createXKBState(xkb_keymap *keymap);
 #endif
-    static uint toWaylandXkbV1Key(const uint nativeScanCode);
+    static uint toWaylandKey(const uint nativeScanCode);
 
     void sendRepeatInfo();
 
-    QWaylandSeat *seat;
+    QWaylandSeat *seat = nullptr;
 
-    QWaylandSurface *focus;
-    Resource *focusResource;
+    QWaylandSurface *focus = nullptr;
+    Resource *focusResource = nullptr;
     QWaylandDestroyListener focusDestroyListener;
 
     QVector<uint32_t> keys;
-    uint32_t modsDepressed;
-    uint32_t modsLatched;
-    uint32_t modsLocked;
-    uint32_t group;
+    uint32_t modsDepressed = 0;
+    uint32_t modsLatched = 0;
+    uint32_t modsLocked = 0;
+    uint32_t group = 0;
 
-    bool pendingKeymap;
-#if QT_CONFIG(xkbcommon_evdev)
+    bool pendingKeymap = false;
+#if QT_CONFIG(xkbcommon)
     size_t keymap_size;
-    int keymap_fd;
-    char *keymap_area;
-    struct xkb_context *xkb_context;
-    struct xkb_state *xkb_state;
+    int keymap_fd = -1;
+    char *keymap_area = nullptr;
+    using ScanCodeKey = std::pair<uint,int>; // group/layout and QtKey
+    QMap<ScanCodeKey, uint> scanCodesByQtKey;
+    QXkbCommon::ScopedXKBState mXkbState;
 #endif
 
-    quint32 repeatRate;
-    quint32 repeatDelay;
+    quint32 repeatRate = 40;
+    quint32 repeatDelay = 400;
 };
 
 QT_END_NAMESPACE

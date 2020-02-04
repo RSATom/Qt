@@ -151,7 +151,7 @@ bool VerifyDictionaryEntry(const base::DictionaryValue& node,
 
   const Value* child;
   node.Get(key, &child);
-  if (!child->IsType(type)) {
+  if (child->type() != type) {
     LOG(ERROR) << key << " did not have the expected type "
       "(expected " << ValueTypeAsString(type) << ")";
     return false;
@@ -169,7 +169,7 @@ bool VerifyListEntry(const base::ListValue& l,
   // error message for this elsewhere.)
   const Value* el;
   l.Get(idx, &el);
-  if (!el->IsType(type)) {
+  if (el->type() != type) {
     LOG(ERROR) << (listName ? listName : "List") << "element " << idx
                << " did not have the expected type (expected "
                << ValueTypeAsString(type) << ")\n";
@@ -334,7 +334,7 @@ bool InterpretCCData(const base::DictionaryValue& node, CCNode* c) {
 
 std::unique_ptr<RenderNode> InterpretContentLayer(
     const base::DictionaryValue& node) {
-  auto n = base::MakeUnique<ContentLayerNode>();
+  auto n = std::make_unique<ContentLayerNode>();
   if (!InterpretCommonContents(node, n.get()))
     return nullptr;
 
@@ -367,7 +367,7 @@ std::unique_ptr<RenderNode> InterpretContentLayer(
 
 std::unique_ptr<RenderNode> InterpretCanvasLayer(
     const base::DictionaryValue& node) {
-  auto n = base::MakeUnique<CCNode>();
+  auto n = std::make_unique<CCNode>();
   if (!InterpretCommonContents(node, n.get()))
     return nullptr;
 
@@ -386,7 +386,7 @@ std::unique_ptr<RenderNode> InterpretCanvasLayer(
 
 std::unique_ptr<RenderNode> InterpretVideoLayer(
     const base::DictionaryValue& node) {
-  auto n = base::MakeUnique<CCNode>();
+  auto n = std::make_unique<CCNode>();
   if (!InterpretCommonContents(node, n.get()))
     return nullptr;
 
@@ -405,7 +405,7 @@ std::unique_ptr<RenderNode> InterpretVideoLayer(
 
 std::unique_ptr<RenderNode> InterpretImageLayer(
     const base::DictionaryValue& node) {
-  auto n = base::MakeUnique<CCNode>();
+  auto n = std::make_unique<CCNode>();
   if (!InterpretCommonContents(node, n.get()))
     return nullptr;
 

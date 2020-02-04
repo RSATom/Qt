@@ -23,8 +23,7 @@ Arguments::Arguments(const v8::FunctionCallbackInfo<v8::Value>& info)
       insufficient_arguments_(false) {
 }
 
-Arguments::~Arguments() {
-}
+Arguments::~Arguments() = default;
 
 v8::Local<v8::Value> Arguments::PeekNext() const {
   if (next_ >= info_->Length())
@@ -45,11 +44,11 @@ std::vector<v8::Local<v8::Value>> Arguments::GetAll() const {
   return result;
 }
 
-v8::Local<v8::Context> Arguments::GetHolderCreationContext() {
+v8::Local<v8::Context> Arguments::GetHolderCreationContext() const {
   return info_->Holder()->CreationContext();
 }
 
-std::string V8TypeAsString(v8::Local<v8::Value> value) {
+std::string V8TypeAsString(v8::Isolate* isolate, v8::Local<v8::Value> value) {
   if (value.IsEmpty())
     return "<empty handle>";
   if (value->IsUndefined())
@@ -57,7 +56,7 @@ std::string V8TypeAsString(v8::Local<v8::Value> value) {
   if (value->IsNull())
     return "null";
   std::string result;
-  if (!ConvertFromV8(NULL, value, &result))
+  if (!ConvertFromV8(isolate, value, &result))
     return std::string();
   return result;
 }
@@ -68,7 +67,7 @@ void Arguments::ThrowError() const {
 
   return ThrowTypeError(base::StringPrintf(
       "Error processing argument at index %d, conversion failure from %s",
-      next_ - 1, V8TypeAsString((*info_)[next_ - 1]).c_str()));
+      next_ - 1, V8TypeAsString(isolate_, (*info_)[next_ - 1]).c_str()));
 }
 
 void Arguments::ThrowTypeError(const std::string& message) const {

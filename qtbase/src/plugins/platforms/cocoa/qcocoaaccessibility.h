@@ -46,6 +46,8 @@
 
 #ifndef QT_NO_ACCESSIBILITY
 
+@class QT_MANGLE_NAMESPACE(QMacAccessibilityElement);
+
 QT_BEGIN_NAMESPACE
 
 class QCocoaAccessibility : public QPlatformAccessibility
@@ -53,10 +55,10 @@ class QCocoaAccessibility : public QPlatformAccessibility
 public:
     QCocoaAccessibility();
     ~QCocoaAccessibility();
-    void notifyAccessibilityUpdate(QAccessibleEvent *event) Q_DECL_OVERRIDE;
-    void setRootObject(QObject *o) Q_DECL_OVERRIDE;
-    void initialize() Q_DECL_OVERRIDE;
-    void cleanup() Q_DECL_OVERRIDE;
+    void notifyAccessibilityUpdate(QAccessibleEvent *event) override;
+    void setRootObject(QObject *o) override;
+    void initialize() override;
+    void cleanup() override;
 };
 
 namespace QCocoaAccessible {
@@ -82,9 +84,8 @@ namespace QCocoaAccessible {
 NSString *macRole(QAccessibleInterface *interface);
 NSString *macSubrole(QAccessibleInterface *interface);
 bool shouldBeIgnored(QAccessibleInterface *interface);
-NSArray *unignoredChildren(QAccessibleInterface *interface);
+NSArray<QT_MANGLE_NAMESPACE(QMacAccessibilityElement) *> *unignoredChildren(QAccessibleInterface *interface);
 NSString *getTranslatedAction(const QString &qtAction);
-NSMutableArray *createTranslatedActionsList(const QStringList &qtActions);
 QString translateAction(NSString *nsAction, QAccessibleInterface *interface);
 bool hasValueAttribute(QAccessibleInterface *interface);
 id getValueAttribute(QAccessibleInterface *interface);

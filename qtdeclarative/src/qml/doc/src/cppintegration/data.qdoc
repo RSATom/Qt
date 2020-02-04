@@ -91,7 +91,7 @@ when passed from C++ to QML and vice-versa:
         \li QFont
         \li \l font
     \row
-        \li QDate
+        \li QDateTime
         \li \l date
     \row
         \li QPoint, QPointF
@@ -247,23 +247,23 @@ Similarly, if a C++ type uses a QDateTime for a property type or method
 parameter, the value can be created as a JavaScript \c Date object in QML, and
 is automatically converted to a QDateTime value when it is passed to C++.
 
-
-\section2 QTime to JavaScript Date
+//! Target adds an anchor, so renaming the section won't break incoming links.
+\target QTime to JavaScript Date
+\section2 QTime and JavaScript Date
 
 The QML engine provides automatic type conversion from QTime values to
-JavaScript \c Date objects. The date component of the resulting Date
-object should not be relied upon, as it is operating system dependent.
-Specifically, the year (and month and day) are set to zero. Conversion
-from a JavaScript \c Date object to QTime is done by converting to a
-QDateTime, and then relying on QVariant to convert it to a QTime. The end
-effect is that the date part of the \c Date object is ignored, but the
-local timezone will be used ignoring any DST complications it may have.
+JavaScript \c Date objects. As QTime values do not contain a date component,
+one is created for the conversion only. Thus, you should not rely on the date
+component of the resulting Date object.
 
+Under the hood, conversion from a JavaScript \c Date object to QTime is done by
+converting to a QDateTime object and calling its \l {QDateTime::}{time()}
+method.
 
 \section2 Sequence Type to JavaScript Array
 
-Certain C++ sequence types are supported transparently in QML as JavaScript
-\c Array types.
+Certain C++ sequence types are supported transparently in QML to behave like
+JavaScript \c Array types.
 
 In particular, QML currently supports:
 \list
@@ -283,6 +283,9 @@ In particular, QML currently supports:
   \li \c {std::vector<qreal>}
   \li \c {std::vector<bool>}
 \endlist
+
+and all registered QList, QVector, QQueue, QStack, QSet, QLinkedList, std::list,
+std::vector that contain a type marked with \l Q_DECLARE_METATYPE.
 
 These sequence types are implemented directly in terms of the underlying C++
 sequence. There are two ways in which such sequences can be exposed to QML:
@@ -420,6 +423,47 @@ To use an enum as a \l {QFlags}{flags} type in QML, see \l Q_FLAG().
 \note The names of enum values must begin with a capital letter in order to
 be accessible from QML.
 
+\code
+...
+enum class Status {
+          Ready,
+          Loading,
+          Error
+}
+Q_ENUM(Status)
+...
+\endcode
+
+Enum classes are registered in QML as scoped and unscoped properties.
+The \c Ready value will be registered at \c Message.Status.Ready and \c Message.Ready .
+
+When using enum classes, there can be multiple enums using the same identifiers.
+The unscoped registration will be overwriten by the last registered enum. For classes
+that contain such name conficts it is possible to disable the unscoped registration by
+annotating your class with a special Q_CLASSINFO macro.
+Use the name \c RegisterEnumClassesUnscoped with the value \c false to prevent scoped
+enums from being merged into the same name space.
+
+\code
+class Message : public QObject
+    {
+        Q_OBJECT
+        Q_CLASSINFO("RegisterEnumClassesUnscoped", "false")
+        Q_ENUM(ScopedEnum)
+        Q_ENUM(OtherValue)
+
+    public:
+        enum class ScopedEnum {
+              Value1,
+              Value2,
+              OtherValue
+        };
+        enum class OtherValue {
+              Value1,
+              Value2
+        };
+    };
+\endcode
 
 \section2 Enumeration Types as Signal and Method Parameters
 

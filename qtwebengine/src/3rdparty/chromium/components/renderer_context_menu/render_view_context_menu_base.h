@@ -20,7 +20,7 @@
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
 #include "components/renderer_context_menu/render_view_context_menu_proxy.h"
 #include "content/public/common/context_menu_params.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
@@ -47,10 +47,10 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
     virtual void UpdateMenuItem(int command_id,
                                 bool enabled,
                                 bool hidden,
-                                const base::string16& title) = 0;
-#if defined(OS_CHROMEOS)
-    virtual void UpdateMenuIcon(int command_id, const gfx::Image& image) = 0;
-#endif
+                                const base::string16& title) {}
+
+    // Recreates the menu using the |menu_model_|.
+    virtual void RebuildMenu(){}
   };
 
   static const size_t kMaxSelectionTextLength;
@@ -90,7 +90,7 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   // SimpleMenuModel::Delegate implementation.
   bool IsCommandIdChecked(int command_id) const override;
   void ExecuteCommand(int command_id, int event_flags) override;
-  void MenuWillShow(ui::SimpleMenuModel* source) override;
+  void OnMenuWillShow(ui::SimpleMenuModel* source) override;
   void MenuClosed(ui::SimpleMenuModel* source) override;
 
   // RenderViewContextMenuProxy implementation.
@@ -105,6 +105,8 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
                       bool hidden,
                       const base::string16& title) override;
   void UpdateMenuIcon(int command_id, const gfx::Image& image) override;
+  void RemoveMenuItem(int command_id) override;
+  void RemoveAdjacentSeparators() override;
   content::RenderViewHost* GetRenderViewHost() const override;
   content::WebContents* GetWebContents() const override;
   content::BrowserContext* GetBrowserContext() const override;
@@ -113,8 +115,8 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   friend class RenderViewContextMenuTest;
   friend class RenderViewContextMenuPrefsTest;
 
-  void set_content_type(ContextMenuContentType* content_type) {
-    content_type_.reset(content_type);
+  void set_content_type(std::unique_ptr<ContextMenuContentType> content_type) {
+    content_type_ = std::move(content_type);
   }
 
   void set_toolkit_delegate(std::unique_ptr<ToolkitDelegate> delegate) {
@@ -179,7 +181,8 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   const int render_process_id_;
 
   // Our observers.
-  mutable base::ObserverList<RenderViewContextMenuObserver> observers_;
+  mutable base::ObserverList<RenderViewContextMenuObserver>::Unchecked
+      observers_;
 
   // Whether a command has been executed. Used to track whether menu observers
   // should be notified of menu closing without execution.

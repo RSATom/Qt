@@ -43,12 +43,10 @@
 QT_BEGIN_NAMESPACE
 
 QWaylandShellPrivate::QWaylandShellPrivate()
-    : focusPolicy(QWaylandShell::AutomaticFocus)
 {
 }
 
 QWaylandShell::QWaylandShell()
-    : QWaylandCompositorExtension()
 {
 }
 
@@ -92,6 +90,26 @@ void QWaylandShell::setFocusPolicy(QWaylandShell::FocusPolicy focusPolicy)
 
     d->focusPolicy = focusPolicy;
     emit focusPolicyChanged();
+}
+
+QWaylandShell::QWaylandShell(QWaylandShellPrivate &dd)
+    : QWaylandCompositorExtension(dd)
+{
+}
+
+QWaylandShell::QWaylandShell(QWaylandObject *container, QWaylandShellPrivate &dd)
+    : QWaylandCompositorExtension(container, dd)
+{
+}
+
+QWaylandShell::QWaylandShell(QWaylandCompositorExtensionPrivate &dd)
+    : QWaylandShell(static_cast<QWaylandShellPrivate &>(dd))
+{
+}
+
+QWaylandShell::QWaylandShell(QWaylandObject *container, QWaylandCompositorExtensionPrivate &dd)
+    : QWaylandShell(container, static_cast<QWaylandShellPrivate &>(dd))
+{
 }
 
 QT_END_NAMESPACE

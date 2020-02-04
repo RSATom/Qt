@@ -8,14 +8,15 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/gfx/range/range.h"
 #include "ui/gfx/utf16_indexing.h"
+#include "ui/views/style/platform_style.h"
 
 namespace views {
 
@@ -36,16 +37,15 @@ class Edit {
 
   // Revert the change made by this edit in |model|.
   void Undo(TextfieldModel* model) {
-    model->ModifyText(new_text_start_, new_text_end(),
-                      old_text_, old_text_start_,
-                      old_cursor_pos_);
+    model->ModifyText(new_text_start_, new_text_end(), old_text_,
+                      old_text_start_, old_selection_);
   }
 
   // Apply the change of this edit to the |model|.
   void Redo(TextfieldModel* model) {
-    model->ModifyText(old_text_start_, old_text_end(),
-                      new_text_, new_text_start_,
-                      new_cursor_pos_);
+    model->ModifyText(old_text_start_, old_text_end(), new_text_,
+                      new_text_start_,
+                      gfx::Range(new_cursor_pos_, new_cursor_pos_));
   }
 
   // Try to merge the |edit| into this edit and returns true on success. The
@@ -72,23 +72,22 @@ class Edit {
 
   Edit(Type type,
        MergeType merge_type,
-       size_t old_cursor_pos,
        const base::string16& old_text,
        size_t old_text_start,
+       gfx::Range old_selection,
        bool delete_backward,
        size_t new_cursor_pos,
        const base::string16& new_text,
        size_t new_text_start)
       : type_(type),
         merge_type_(merge_type),
-        old_cursor_pos_(old_cursor_pos),
         old_text_(old_text),
         old_text_start_(old_text_start),
+        old_selection_(old_selection),
         delete_backward_(delete_backward),
         new_cursor_pos_(new_cursor_pos),
         new_text_(new_text),
-        new_text_start_(new_text_start) {
-  }
+        new_text_start_(new_text_start) {}
 
   // Each type of edit provides its own specific merge implementation.
   virtual bool DoMerge(const Edit* edit) = 0;
@@ -131,12 +130,12 @@ class Edit {
 
   // The type of merging allowed.
   MergeType merge_type_;
-  // Old cursor position.
-  size_t old_cursor_pos_;
   // Deleted text by this edit.
   base::string16 old_text_;
   // The index of |old_text_|.
   size_t old_text_start_;
+  // The range of the text selection prior to the edit.
+  gfx::Range old_selection_;
   // True if the deletion is made backward.
   bool delete_backward_;
   // New cursor position.
@@ -154,14 +153,13 @@ class InsertEdit : public Edit {
   InsertEdit(bool mergeable, const base::string16& new_text, size_t at)
       : Edit(INSERT_EDIT,
              mergeable ? MERGEABLE : DO_NOT_MERGE,
-             at  /* old cursor */,
              base::string16(),
              at,
-             false  /* N/A */,
-             at + new_text.length()  /* new cursor */,
+             gfx::Range(at, at),
+             false /* N/A */,
+             at + new_text.length() /* new cursor */,
              new_text,
-             at) {
-  }
+             at) {}
 
   // Edit implementation.
   bool DoMerge(const Edit* edit) override {
@@ -180,21 +178,21 @@ class ReplaceEdit : public Edit {
  public:
   ReplaceEdit(MergeType merge_type,
               const base::string16& old_text,
-              size_t old_cursor_pos,
               size_t old_text_start,
+              gfx::Range old_selection,
               bool backward,
               size_t new_cursor_pos,
               const base::string16& new_text,
               size_t new_text_start)
-      : Edit(REPLACE_EDIT, merge_type,
-             old_cursor_pos,
+      : Edit(REPLACE_EDIT,
+             merge_type,
              old_text,
              old_text_start,
+             old_selection,
              backward,
              new_cursor_pos,
              new_text,
-             new_text_start) {
-  }
+             new_text_start) {}
 
   // Edit implementation.
   bool DoMerge(const Edit* edit) override {
@@ -214,17 +212,17 @@ class DeleteEdit : public Edit {
   DeleteEdit(bool mergeable,
              const base::string16& text,
              size_t text_start,
-             bool backward)
+             bool backward,
+             gfx::Range old_selection)
       : Edit(DELETE_EDIT,
              mergeable ? MERGEABLE : DO_NOT_MERGE,
-             (backward ? text_start + text.length() : text_start),
              text,
              text_start,
+             old_selection,
              backward,
              text_start,
              base::string16(),
-             text_start) {
-  }
+             text_start) {}
 
   // Edit implementation.
   bool DoMerge(const Edit* edit) override {
@@ -256,9 +254,9 @@ namespace {
 // representing the target clause (on Windows). Returns an invalid range if
 // there is no such a range.
 gfx::Range GetFirstEmphasizedRange(const ui::CompositionText& composition) {
-  for (size_t i = 0; i < composition.underlines.size(); ++i) {
-    const ui::CompositionUnderline& underline = composition.underlines[i];
-    if (underline.thick)
+  for (size_t i = 0; i < composition.ime_text_spans.size(); ++i) {
+    const ui::ImeTextSpan& underline = composition.ime_text_spans[i];
+    if (underline.thickness == ui::ImeTextSpan::Thickness::kThick)
       return gfx::Range(underline.start_offset, underline.end_offset);
   }
   return gfx::Range::InvalidRange();
@@ -271,9 +269,9 @@ gfx::Range GetFirstEmphasizedRange(const ui::CompositionText& composition) {
 // NSTextKillRingSize, a text system default. However to keep things simple,
 // the default kill ring size of 1 (i.e. a single buffer) is assumed.
 base::string16* GetKillBuffer() {
-  CR_DEFINE_STATIC_LOCAL(base::string16, kill_buffer, ());
-  DCHECK(base::MessageLoopForUI::IsCurrent());
-  return &kill_buffer;
+  static base::NoDestructor<base::string16> kill_buffer;
+  DCHECK(base::MessageLoopCurrentForUI::IsSet());
+  return kill_buffer.get();
 }
 
 // Helper method to set the kill buffer.
@@ -317,9 +315,8 @@ TextfieldModel::Delegate::~Delegate() {}
 
 TextfieldModel::TextfieldModel(Delegate* delegate)
     : delegate_(delegate),
-      render_text_(gfx::RenderText::CreateInstanceForEditing()),
-      current_edit_(edit_history_.end()) {
-}
+      render_text_(gfx::RenderText::CreateHarfBuzzInstance()),
+      current_edit_(edit_history_.end()) {}
 
 TextfieldModel::~TextfieldModel() {
   ClearEditHistory();
@@ -335,14 +332,13 @@ bool TextfieldModel::SetText(const base::string16& new_text) {
   if (text() != new_text) {
     if (changed)  // No need to remember composition.
       Undo();
-    size_t old_cursor = GetCursorPosition();
     // SetText moves the cursor to the end.
     size_t new_cursor = new_text.length();
-    SelectAll(false);
     // If there is a composition text, don't merge with previous edit.
     // Otherwise, force merge the edits.
     ExecuteAndRecordReplace(changed ? DO_NOT_MERGE : FORCE_MERGE,
-                            old_cursor, new_cursor, new_text, 0U);
+                            gfx::Range(0, text().length()), new_cursor,
+                            new_text, 0U);
     render_text_->SetCursorPosition(new_cursor);
   }
   ClearSelection();
@@ -407,10 +403,8 @@ bool TextfieldModel::Backspace(bool add_to_kill_buffer) {
   }
   size_t cursor_position = GetCursorPosition();
   if (cursor_position > 0) {
-    // Delete one code point, which may be two UTF-16 words.
-    size_t previous_grapheme_index =
-        gfx::UTF16OffsetToIndex(text(), cursor_position, -1);
-    gfx::Range range_to_delete(cursor_position, previous_grapheme_index);
+    gfx::Range range_to_delete(
+        PlatformStyle::RangeToDeleteBackwards(text(), cursor_position));
     if (add_to_kill_buffer)
       SetKillBuffer(GetTextFromRange(range_to_delete));
     ExecuteAndRecordDelete(range_to_delete, true);
@@ -439,16 +433,16 @@ bool TextfieldModel::MoveCursorTo(const gfx::SelectionModel& cursor) {
     gfx::Range range(render_text_->selection().start(), cursor.caret_pos());
     if (!range.is_empty())
       return render_text_->SelectRange(range);
-    return render_text_->MoveCursorTo(
+    return render_text_->SetSelection(
         gfx::SelectionModel(cursor.caret_pos(), cursor.caret_affinity()));
   }
-  return render_text_->MoveCursorTo(cursor);
+  return render_text_->SetSelection(cursor);
 }
 
 bool TextfieldModel::MoveCursorTo(const gfx::Point& point, bool select) {
   if (HasCompositionText())
     ConfirmCompositionText();
-  return render_text_->MoveCursorTo(point, select);
+  return render_text_->MoveCursorToPoint(point, select);
 }
 
 base::string16 TextfieldModel::GetSelectedText() const {
@@ -464,7 +458,7 @@ void TextfieldModel::SelectRange(const gfx::Range& range) {
 void TextfieldModel::SelectSelectionModel(const gfx::SelectionModel& sel) {
   if (HasCompositionText())
     ConfirmCompositionText();
-  render_text_->MoveCursorTo(sel);
+  render_text_->SetSelection(sel);
 }
 
 void TextfieldModel::SelectAll(bool reversed) {
@@ -493,7 +487,7 @@ bool TextfieldModel::CanRedo() {
   if (edit_history_.empty())
     return false;
   // There is no redo iff the current edit is the last element in the history.
-  EditHistory::iterator iter = current_edit_;
+  auto iter = current_edit_;
   return iter == edit_history_.end() || // at the top.
       ++iter != edit_history_.end();
 }
@@ -630,11 +624,8 @@ void TextfieldModel::DeleteSelectionAndInsertTextAt(
     size_t position) {
   if (HasCompositionText())
     CancelCompositionText();
-  ExecuteAndRecordReplace(DO_NOT_MERGE,
-                          GetCursorPosition(),
-                          position + new_text.length(),
-                          new_text,
-                          position);
+  ExecuteAndRecordReplace(DO_NOT_MERGE, render_text_->selection(),
+                          position + new_text.length(), new_text, position);
 }
 
 base::string16 TextfieldModel::GetTextFromRange(const gfx::Range& range) const {
@@ -659,8 +650,10 @@ void TextfieldModel::SetCompositionText(
   base::string16 new_text = text();
   render_text_->SetText(new_text.insert(cursor, composition.text));
   composition_range_ = gfx::Range(cursor, cursor + composition.text.length());
-  // Don't render transparent composition underlines.
-  if (composition.underlines.size() > 0 && composition.underlines[0].color != 0)
+  // Don't render IME spans with thickness "kNone".
+  if (composition.ime_text_spans.size() > 0 &&
+      composition.ime_text_spans[0].thickness !=
+          ui::ImeTextSpan::Thickness::kNone)
     render_text_->SetCompositionRange(composition_range_);
   else
     render_text_->SetCompositionRange(gfx::Range::InvalidRange());
@@ -688,7 +681,7 @@ void TextfieldModel::ConfirmCompositionText() {
       composition_range_.start(), composition_range_.length());
   // TODO(oshima): current behavior on ChromeOS is a bit weird and not
   // sure exactly how this should work. Find out and fix if necessary.
-  AddOrMergeEditHistory(base::MakeUnique<InsertEdit>(
+  AddOrMergeEditHistory(std::make_unique<InsertEdit>(
       false, composition, composition_range_.start()));
   render_text_->SetCursorPosition(composition_range_.end());
   ClearComposition();
@@ -753,7 +746,7 @@ void TextfieldModel::ReplaceTextInternal(const base::string16& new_text,
     size_t next =
         render_text_->IndexOfAdjacentGrapheme(cursor, gfx::CURSOR_FORWARD);
     if (next == model.caret_pos())
-      render_text_->MoveCursorTo(model);
+      render_text_->SetSelection(model);
     else
       render_text_->SelectRange(gfx::Range(next, model.caret_pos()));
   }
@@ -768,7 +761,7 @@ void TextfieldModel::ClearRedoHistory() {
     ClearEditHistory();
     return;
   }
-  EditHistory::iterator delete_start = current_edit_;
+  auto delete_start = current_edit_;
   ++delete_start;
   edit_history_.erase(delete_start, edit_history_.end());
 }
@@ -777,8 +770,9 @@ void TextfieldModel::ExecuteAndRecordDelete(gfx::Range range, bool mergeable) {
   size_t old_text_start = range.GetMin();
   const base::string16 old_text = text().substr(old_text_start, range.length());
   bool backward = range.is_reversed();
-  auto edit = base::MakeUnique<DeleteEdit>(mergeable, old_text, old_text_start,
-                                           backward);
+  gfx::Range curr_selection = render_text_->selection();
+  auto edit = std::make_unique<DeleteEdit>(mergeable, old_text, old_text_start,
+                                           backward, curr_selection);
   edit->Redo(this);
   AddOrMergeEditHistory(std::move(edit));
 }
@@ -788,23 +782,21 @@ void TextfieldModel::ExecuteAndRecordReplaceSelection(
     const base::string16& new_text) {
   size_t new_text_start = render_text_->selection().GetMin();
   size_t new_cursor_pos = new_text_start + new_text.length();
-  ExecuteAndRecordReplace(merge_type,
-                          GetCursorPosition(),
-                          new_cursor_pos,
-                          new_text,
-                          new_text_start);
+  ExecuteAndRecordReplace(merge_type, render_text_->selection(), new_cursor_pos,
+                          new_text, new_text_start);
 }
 
 void TextfieldModel::ExecuteAndRecordReplace(MergeType merge_type,
-                                             size_t old_cursor_pos,
+                                             gfx::Range replacement_range,
                                              size_t new_cursor_pos,
                                              const base::string16& new_text,
                                              size_t new_text_start) {
-  size_t old_text_start = render_text_->selection().GetMin();
-  bool backward = render_text_->selection().is_reversed();
-  auto edit = base::MakeUnique<ReplaceEdit>(
-      merge_type, GetSelectedText(), old_cursor_pos, old_text_start, backward,
-      new_cursor_pos, new_text, new_text_start);
+  size_t old_text_start = replacement_range.GetMin();
+  bool backward = replacement_range.is_reversed();
+  auto edit = std::make_unique<ReplaceEdit>(
+      merge_type, GetTextFromRange(replacement_range), old_text_start,
+      render_text_->selection(), backward, new_cursor_pos, new_text,
+      new_text_start);
   edit->Redo(this);
   AddOrMergeEditHistory(std::move(edit));
 }
@@ -812,7 +804,7 @@ void TextfieldModel::ExecuteAndRecordReplace(MergeType merge_type,
 void TextfieldModel::ExecuteAndRecordInsert(const base::string16& new_text,
                                             bool mergeable) {
   auto edit =
-      base::MakeUnique<InsertEdit>(mergeable, new_text, GetCursorPosition());
+      std::make_unique<InsertEdit>(mergeable, new_text, GetCursorPosition());
   edit->Redo(this);
   AddOrMergeEditHistory(std::move(edit));
 }
@@ -841,7 +833,7 @@ void TextfieldModel::ModifyText(size_t delete_from,
                                 size_t delete_to,
                                 const base::string16& new_text,
                                 size_t new_text_insert_at,
-                                size_t new_cursor_pos) {
+                                gfx::Range selection) {
   DCHECK_LE(delete_from, delete_to);
   base::string16 old_text = text();
   ClearComposition();
@@ -849,8 +841,11 @@ void TextfieldModel::ModifyText(size_t delete_from,
     render_text_->SetText(old_text.erase(delete_from, delete_to - delete_from));
   if (!new_text.empty())
     render_text_->SetText(old_text.insert(new_text_insert_at, new_text));
-  render_text_->SetCursorPosition(new_cursor_pos);
-  // TODO(oshima): Select text that was just undone, like Mac (but not GTK).
+  if (selection.start() == selection.end()) {
+    render_text_->SetCursorPosition(selection.start());
+  } else {
+    render_text_->SelectRange(selection);
+  }
 }
 
 // static

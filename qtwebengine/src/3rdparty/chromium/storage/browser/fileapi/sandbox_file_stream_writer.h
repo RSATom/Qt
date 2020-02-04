@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
@@ -16,9 +17,8 @@
 #include "storage/browser/fileapi/file_stream_writer.h"
 #include "storage/browser/fileapi/file_system_url.h"
 #include "storage/browser/fileapi/task_runner_bound_observer_list.h"
-#include "storage/browser/storage_browser_export.h"
 #include "storage/common/fileapi/file_system_types.h"
-#include "storage/common/quota/quota_types.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/gurl.h"
 
 namespace storage {
@@ -26,8 +26,8 @@ namespace storage {
 class FileSystemContext;
 class FileStreamWriter;
 
-class STORAGE_EXPORT SandboxFileStreamWriter
-    : public NON_EXPORTED_BASE(FileStreamWriter) {
+class COMPONENT_EXPORT(STORAGE_BROWSER) SandboxFileStreamWriter
+    : public FileStreamWriter {
  public:
   SandboxFileStreamWriter(FileSystemContext* file_system_context,
                           const FileSystemURL& url,
@@ -38,35 +38,32 @@ class STORAGE_EXPORT SandboxFileStreamWriter
   // FileStreamWriter overrides.
   int Write(net::IOBuffer* buf,
             int buf_len,
-            const net::CompletionCallback& callback) override;
-  int Cancel(const net::CompletionCallback& callback) override;
-  int Flush(const net::CompletionCallback& callback) override;
+            net::CompletionOnceCallback callback) override;
+  int Cancel(net::CompletionOnceCallback callback) override;
+  int Flush(net::CompletionOnceCallback callback) override;
 
   // Used only by tests.
   void set_default_quota(int64_t quota) { default_quota_ = quota; }
 
  private:
   // Performs quota calculation and calls local_file_writer_->Write().
-  int WriteInternal(net::IOBuffer* buf, int buf_len,
-                    const net::CompletionCallback& callback);
+  int WriteInternal(net::IOBuffer* buf, int buf_len);
 
   // Callbacks that are chained for the first write.  This eventually calls
   // WriteInternal.
   void DidCreateSnapshotFile(
-      const net::CompletionCallback& callback,
+      net::CompletionOnceCallback callback,
       base::File::Error file_error,
       const base::File::Info& file_info,
       const base::FilePath& platform_path,
-      const scoped_refptr<storage::ShareableFileReference>& file_ref);
-  void DidGetUsageAndQuota(const net::CompletionCallback& callback,
-                           storage::QuotaStatusCode status,
+      scoped_refptr<storage::ShareableFileReference> file_ref);
+  void DidGetUsageAndQuota(net::CompletionOnceCallback callback,
+                           blink::mojom::QuotaStatusCode status,
                            int64_t usage,
                            int64_t quota);
-  void DidInitializeForWrite(net::IOBuffer* buf, int buf_len,
-                             const net::CompletionCallback& callback,
-                             int init_status);
+  void DidInitializeForWrite(net::IOBuffer* buf, int buf_len, int init_status);
 
-  void DidWrite(const net::CompletionCallback& callback, int write_response);
+  void DidWrite(int write_response);
 
   // Stops the in-flight operation, calls |cancel_callback_| and returns true
   // if there's a pending cancel request.
@@ -76,7 +73,8 @@ class STORAGE_EXPORT SandboxFileStreamWriter
   FileSystemURL url_;
   int64_t initial_offset_;
   std::unique_ptr<FileStreamWriter> local_file_writer_;
-  net::CompletionCallback cancel_callback_;
+  net::CompletionOnceCallback write_callback_;
+  net::CompletionOnceCallback cancel_callback_;
 
   UpdateObserverList observers_;
 

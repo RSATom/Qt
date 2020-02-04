@@ -51,11 +51,11 @@
 #include <qstringlist.h>
 #include <qvector.h>
 #include <qdebug.h>
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
 #include <qcache.h>
 #include <qregularexpression.h>
 #endif
-#include <QTimeZone>
+#include <QScopedValueRollback>
 
 #if defined Q_OS_WIN
 # include <qt_windows.h>
@@ -106,7 +106,7 @@ static QVariant::Type qGetColumnType(const QString &tpName)
 }
 
 static QSqlError qMakeError(sqlite3 *access, const QString &descr, QSqlError::ErrorType type,
-                            int errorCode = -1)
+                            int errorCode)
 {
     return QSqlError(descr,
                      QString(reinterpret_cast<const QChar *>(sqlite3_errmsg16(access))),
@@ -123,19 +123,20 @@ class QSQLiteResult : public QSqlCachedResult
 public:
     explicit QSQLiteResult(const QSQLiteDriver* db);
     ~QSQLiteResult();
-    QVariant handle() const Q_DECL_OVERRIDE;
+    QVariant handle() const override;
 
 protected:
-    bool gotoNext(QSqlCachedResult::ValueCache& row, int idx) Q_DECL_OVERRIDE;
-    bool reset(const QString &query) Q_DECL_OVERRIDE;
-    bool prepare(const QString &query) Q_DECL_OVERRIDE;
-    bool exec() Q_DECL_OVERRIDE;
-    int size() Q_DECL_OVERRIDE;
-    int numRowsAffected() Q_DECL_OVERRIDE;
-    QVariant lastInsertId() const Q_DECL_OVERRIDE;
-    QSqlRecord record() const Q_DECL_OVERRIDE;
-    void detachFromResultSet() Q_DECL_OVERRIDE;
-    void virtual_hook(int id, void *data) Q_DECL_OVERRIDE;
+    bool gotoNext(QSqlCachedResult::ValueCache& row, int idx) override;
+    bool reset(const QString &query) override;
+    bool prepare(const QString &query) override;
+    bool execBatch(bool arrayBind) override;
+    bool exec() override;
+    int size() override;
+    int numRowsAffected() override;
+    QVariant lastInsertId() const override;
+    QSqlRecord record() const override;
+    void detachFromResultSet() override;
+    void virtual_hook(int id, void *data) override;
 };
 
 class QSQLiteDriverPrivate : public QSqlDriverPrivate
@@ -417,30 +418,27 @@ bool QSQLiteResult::prepare(const QString &query)
     return true;
 }
 
-static QString secondsToOffset(int seconds)
+bool QSQLiteResult::execBatch(bool arrayBind)
 {
-    const QChar sign = ushort(seconds < 0 ? '-' : '+');
-    seconds = qAbs(seconds);
-    const int hours = seconds / 3600;
-    const int minutes = (seconds % 3600) / 60;
+    Q_UNUSED(arrayBind);
+    Q_D(QSqlResult);
+    QScopedValueRollback<QVector<QVariant>> valuesScope(d->values);
+    QVector<QVariant> values = d->values;
+    if (values.count() == 0)
+        return false;
 
-    return QString(QStringLiteral("%1%2:%3")).arg(sign).arg(hours, 2, 10, QLatin1Char('0')).arg(minutes, 2, 10, QLatin1Char('0'));
-}
-
-static QString timespecToString(const QDateTime &dateTime)
-{
-    switch (dateTime.timeSpec()) {
-    case Qt::LocalTime:
-        return QString();
-    case Qt::UTC:
-        return QStringLiteral("Z");
-    case Qt::OffsetFromUTC:
-        return secondsToOffset(dateTime.offsetFromUtc());
-    case Qt::TimeZone:
-        return secondsToOffset(dateTime.timeZone().offsetFromUtc(dateTime));
-    default:
-        return QString();
+    for (int i = 0; i < values.at(0).toList().count(); ++i) {
+        d->values.clear();
+        QScopedValueRollback<QHash<QString, QVector<int>>> indexesScope(d->indexes);
+        QHash<QString, QVector<int>>::const_iterator it = d->indexes.constBegin();
+        while (it != d->indexes.constEnd()) {
+            bindValue(it.key(), values.at(it.value().first()).toList().at(i), QSql::In);
+            ++it;
+        }
+        if (!exec())
+            return false;
     }
+    return true;
 }
 
 bool QSQLiteResult::exec()
@@ -467,8 +465,11 @@ bool QSQLiteResult::exec()
 
 #if (SQLITE_VERSION_NUMBER >= 3003011)
     // In the case of the reuse of a named placeholder
-    if (paramCount < values.count()) {
-        const auto countIndexes = [](int counter, const QList<int>& indexList) {
+    // We need to check explicitly that paramCount is greater than or equal to 1, as sqlite
+    // can end up in a case where for virtual tables it returns 0 even though it
+    // has parameters
+    if (paramCount >= 1 && paramCount < values.count()) {
+        const auto countIndexes = [](int counter, const QVector<int> &indexList) {
                                       return counter + indexList.length();
                                   };
 
@@ -482,13 +483,14 @@ bool QSQLiteResult::exec()
         // placeholders. So we need to ensure the QVector has only one instance of
         // each value as SQLite will do the rest for us.
         QVector<QVariant> prunedValues;
-        QList<int> handledIndexes;
+        QVector<int> handledIndexes;
         for (int i = 0, currentIndex = 0; i < values.size(); ++i) {
             if (handledIndexes.contains(i))
                 continue;
             const auto placeHolder = QString::fromUtf8(sqlite3_bind_parameter_name(d->stmt, currentIndex + 1));
-            handledIndexes << d->indexes[placeHolder];
-            prunedValues << values.at(d->indexes[placeHolder].first());
+            const auto &indexes = d->indexes.value(placeHolder);
+            handledIndexes << indexes;
+            prunedValues << values.at(indexes.first());
             ++currentIndex;
         }
         values = prunedValues;
@@ -522,7 +524,7 @@ bool QSQLiteResult::exec()
                     break;
                 case QVariant::DateTime: {
                     const QDateTime dateTime = value.toDateTime();
-                    const QString str = dateTime.toString(QLatin1String("yyyy-MM-ddThh:mm:ss.zzz") + timespecToString(dateTime));
+                    const QString str = dateTime.toString(Qt::ISODateWithMs);
                     res = sqlite3_bind_text16(d->stmt, i + 1, str.utf16(),
                                               str.size() * sizeof(ushort), SQLITE_TRANSIENT);
                     break;
@@ -622,7 +624,7 @@ QVariant QSQLiteResult::handle() const
 
 /////////////////////////////////////////////////////////
 
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
 static void _q_regexp(sqlite3_context* context, int argc, sqlite3_value** argv)
 {
     if (Q_UNLIKELY(argc != 2)) {
@@ -640,7 +642,7 @@ static void _q_regexp(sqlite3_context* context, int argc, sqlite3_value** argv)
     const bool wasCached = regexp;
 
     if (!wasCached)
-        regexp = new QRegularExpression(pattern, QRegularExpression::DontCaptureOption | QRegularExpression::OptimizeOnFirstUsageOption);
+        regexp = new QRegularExpression(pattern, QRegularExpression::DontCaptureOption);
 
     const bool found = subject.contains(*regexp);
 
@@ -721,7 +723,7 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &, c
     bool sharedCache = false;
     bool openReadOnlyOption = false;
     bool openUriOption = false;
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
     static const QLatin1String regexpConnectOption = QLatin1String("QSQLITE_ENABLE_REGEXP");
     bool defineRegexp = false;
     int regexpCacheSize = 25;
@@ -745,7 +747,7 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &, c
         } else if (option == QLatin1String("QSQLITE_ENABLE_SHARED_CACHE")) {
             sharedCache = true;
         }
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
         else if (option.startsWith(regexpConnectOption)) {
             option = option.mid(regexpConnectOption.size()).trimmed();
             if (option.isEmpty()) {
@@ -770,11 +772,13 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &, c
 
     openMode |= SQLITE_OPEN_NOMUTEX;
 
-    if (sqlite3_open_v2(db.toUtf8().constData(), &d->access, openMode, NULL) == SQLITE_OK) {
+    const int res = sqlite3_open_v2(db.toUtf8().constData(), &d->access, openMode, NULL);
+
+    if (res == SQLITE_OK) {
         sqlite3_busy_timeout(d->access, timeOut);
         setOpen(true);
         setOpenError(false);
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
         if (defineRegexp) {
             auto cache = new QCache<QString, QRegularExpression>(regexpCacheSize);
             sqlite3_create_function_v2(d->access, "regexp", 2, SQLITE_UTF8, cache, &_q_regexp, NULL,
@@ -783,14 +787,15 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &, c
 #endif
         return true;
     } else {
+        setLastError(qMakeError(d->access, tr("Error opening database"),
+                     QSqlError::ConnectionError, res));
+        setOpenError(true);
+
         if (d->access) {
             sqlite3_close(d->access);
             d->access = 0;
         }
 
-        setLastError(qMakeError(d->access, tr("Error opening database"),
-                     QSqlError::ConnectionError));
-        setOpenError(true);
         return false;
     }
 }
@@ -807,8 +812,10 @@ void QSQLiteDriver::close()
             sqlite3_update_hook(d->access, NULL, NULL);
         }
 
-        if (sqlite3_close(d->access) != SQLITE_OK)
-            setLastError(qMakeError(d->access, tr("Error closing database"), QSqlError::ConnectionError));
+        const int res = sqlite3_close(d->access);
+
+        if (res != SQLITE_OK)
+            setLastError(qMakeError(d->access, tr("Error closing database"), QSqlError::ConnectionError, res));
         d->access = 0;
         setOpen(false);
         setOpenError(false);
@@ -915,13 +922,20 @@ static QSqlIndex qGetTableInfo(QSqlQuery &q, const QString &tableName, bool only
         if (onlyPIndex && !isPk)
             continue;
         QString typeName = q.value(2).toString().toLower();
+        QString defVal = q.value(4).toString();
+        if (!defVal.isEmpty() && defVal.at(0) == QLatin1Char('\'')) {
+            const int end = defVal.lastIndexOf(QLatin1Char('\''));
+            if (end > 0)
+                defVal = defVal.mid(1, end - 1);
+        }
+
         QSqlField fld(q.value(1).toString(), qGetColumnType(typeName), tableName);
         if (isPk && (typeName == QLatin1String("integer")))
             // INTEGER PRIMARY KEY fields are auto-generated in sqlite
             // INT PRIMARY KEY is not the same as INTEGER PRIMARY KEY!
             fld.setAutoValue(true);
         fld.setRequired(q.value(3).toInt() != 0);
-        fld.setDefaultValue(q.value(4));
+        fld.setDefaultValue(defVal);
         ind.append(fld);
     }
     return ind;

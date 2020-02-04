@@ -30,11 +30,14 @@
 #include "riff.h"
 #include "avio.h"
 #include "isom.h"
+#include "av1.h"
 #include "avc.h"
-#include "libavcodec/ac3_parser.h"
+#include "libavcodec/ac3_parser_internal.h"
 #include "libavcodec/dnxhddata.h"
 #include "libavcodec/flac.h"
 #include "libavcodec/get_bits.h"
+
+#include "libavcodec/internal.h"
 #include "libavcodec/put_bits.h"
 #include "libavcodec/vc1_common.h"
 #include "libavcodec/raw.h"
@@ -60,6 +63,7 @@ static const AVOption options[] = {
     { "moov_size", "maximum moov size so it can be placed at the begin", offsetof(MOVMuxContext, reserved_moov_size), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, 0 },
     { "empty_moov", "Make the initial moov atom empty", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_EMPTY_MOOV}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     { "frag_keyframe", "Fragment at video keyframes", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_FRAG_KEYFRAME}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
+    { "frag_every_frame", "Fragment at every frame", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_FRAG_EVERY_FRAME}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     { "separate_moof", "Write separate moof/mdat atoms for each track", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_SEPARATE_MOOF}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     { "frag_custom", "Flush fragments on caller requests", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_FRAG_CUSTOM}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     { "isml", "Create a live smooth streaming feed (for pushing to a publishing point)", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_ISML}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
@@ -75,6 +79,7 @@ static const AVOption options[] = {
     { "write_gama", "Write deprecated gama atom", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_WRITE_GAMA}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     { "use_metadata_tags", "Use mdta atom for metadata.", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_USE_MDTA}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     { "skip_trailer", "Skip writing the mfra/tfra/mfro trailer for fragmented files", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_SKIP_TRAILER}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
+    { "negative_cts_offsets", "Use negative CTS offsets (reducing the need for edit lists)", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS}, INT_MIN, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM, "movflags" },
     FF_RTP_FLAG_OPTS(MOVMuxContext, rtp_flags),
     { "skip_iods", "Skip writing iods atom.", offsetof(MOVMuxContext, iods_skip), AV_OPT_TYPE_BOOL, {.i64 = 1}, 0, 1, AV_OPT_FLAG_ENCODING_PARAM},
     { "iods_audio_profile", "iods audio profile atom.", offsetof(MOVMuxContext, iods_audio_profile), AV_OPT_TYPE_INT, {.i64 = -1}, -1, 255, AV_OPT_FLAG_ENCODING_PARAM},
@@ -94,6 +99,10 @@ static const AVOption options[] = {
     { "encryption_kid", "The media encryption key identifier (hex)", offsetof(MOVMuxContext, encryption_kid), AV_OPT_TYPE_BINARY, .flags = AV_OPT_FLAG_ENCODING_PARAM },
     { "use_stream_ids_as_track_ids", "use stream ids as track ids", offsetof(MOVMuxContext, use_stream_ids_as_track_ids), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, AV_OPT_FLAG_ENCODING_PARAM},
     { "write_tmcd", "force or disable writing tmcd", offsetof(MOVMuxContext, write_tmcd), AV_OPT_TYPE_BOOL, {.i64 = -1}, -1, 1, AV_OPT_FLAG_ENCODING_PARAM},
+    { "write_prft", "Write producer reference time box with specified time source", offsetof(MOVMuxContext, write_prft), AV_OPT_TYPE_INT, {.i64 = MOV_PRFT_NONE}, 0, MOV_PRFT_NB-1, AV_OPT_FLAG_ENCODING_PARAM, "prft"},
+    { "wallclock", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = MOV_PRFT_SRC_WALLCLOCK}, 0, 0, AV_OPT_FLAG_ENCODING_PARAM, "prft"},
+    { "pts", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = MOV_PRFT_SRC_PTS}, 0, 0, AV_OPT_FLAG_ENCODING_PARAM, "prft"},
+    { "empty_hdlr_name", "write zero-length name string in hdlr atoms within mdia and minf atoms", offsetof(MOVMuxContext, empty_hdlr_name), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, AV_OPT_FLAG_ENCODING_PARAM},
     { NULL },
 };
 
@@ -134,6 +143,22 @@ static int co64_required(const MOVTrack *track)
     if (track->entry > 0 && track->cluster[track->entry - 1].pos + track->data_offset > UINT32_MAX)
         return 1;
     return 0;
+}
+
+static int is_cover_image(const AVStream *st)
+{
+    /* Eg. AV_DISPOSITION_ATTACHED_PIC | AV_DISPOSITION_TIMED_THUMBNAILS
+     * is encoded as sparse video track */
+    return st && st->disposition == AV_DISPOSITION_ATTACHED_PIC;
+}
+
+static int rtp_hinting_needed(const AVStream *st)
+{
+    /* Add hint tracks for each real audio and video stream */
+    if (is_cover_image(st))
+        return 0;
+    return st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO ||
+           st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO;
 }
 
 /* Chunk offset atom */
@@ -249,6 +274,30 @@ static int mov_write_stss_tag(AVIOContext *pb, MOVTrack *track, uint32_t flag)
     return update_size(pb, pos);
 }
 
+/* Sample dependency atom */
+static int mov_write_sdtp_tag(AVIOContext *pb, MOVTrack *track)
+{
+    int i;
+    uint8_t leading, dependent, reference, redundancy;
+    int64_t pos = avio_tell(pb);
+    avio_wb32(pb, 0); // size
+    ffio_wfourcc(pb, "sdtp");
+    avio_wb32(pb, 0); // version & flags
+    for (i = 0; i < track->entry; i++) {
+        dependent = MOV_SAMPLE_DEPENDENCY_YES;
+        leading = reference = redundancy = MOV_SAMPLE_DEPENDENCY_UNKNOWN;
+        if (track->cluster[i].flags & MOV_DISPOSABLE_SAMPLE) {
+            reference = MOV_SAMPLE_DEPENDENCY_NO;
+        }
+        if (track->cluster[i].flags & MOV_SYNC_SAMPLE) {
+            dependent = MOV_SAMPLE_DEPENDENCY_NO;
+        }
+        avio_w8(pb, (leading << 6)   | (dependent << 4) |
+                    (reference << 2) | redundancy);
+    }
+    return update_size(pb, pos);
+}
+
 static int mov_write_amr_tag(AVIOContext *pb, MOVTrack *track)
 {
     avio_wb32(pb, 0x11); /* size */
@@ -342,23 +391,22 @@ struct eac3_info {
 #if CONFIG_AC3_PARSER
 static int handle_eac3(MOVMuxContext *mov, AVPacket *pkt, MOVTrack *track)
 {
-    GetBitContext gbc;
-    AC3HeaderInfo tmp, *hdr = &tmp;
+    AC3HeaderInfo *hdr = NULL;
     struct eac3_info *info;
-    int num_blocks;
+    int num_blocks, ret;
 
     if (!track->eac3_priv && !(track->eac3_priv = av_mallocz(sizeof(*info))))
         return AVERROR(ENOMEM);
     info = track->eac3_priv;
 
-    init_get_bits(&gbc, pkt->data, pkt->size * 8);
-    if (avpriv_ac3_parse_header(&gbc, &hdr) < 0) {
+    if (avpriv_ac3_parse_header(&hdr, pkt->data, pkt->size) < 0) {
         /* drop the packets until we see a good one */
         if (!track->entry) {
-            av_log(mov, AV_LOG_WARNING, "Dropping invalid packet from start of the stream\n");
-            return 0;
-        }
-        return AVERROR_INVALIDDATA;
+            av_log(mov->fc, AV_LOG_WARNING, "Dropping invalid packet from start of the stream\n");
+            ret = 0;
+        } else
+            ret = AVERROR_INVALIDDATA;
+        goto end;
     }
 
     info->data_rate = FFMAX(info->data_rate, hdr->bit_rate / 1000);
@@ -366,24 +414,35 @@ static int handle_eac3(MOVMuxContext *mov, AVPacket *pkt, MOVTrack *track)
 
     if (!info->ec3_done) {
         /* AC-3 substream must be the first one */
-        if (hdr->bitstream_id <= 10 && hdr->substreamid != 0)
-            return AVERROR(EINVAL);
+        if (hdr->bitstream_id <= 10 && hdr->substreamid != 0) {
+            ret = AVERROR(EINVAL);
+            goto end;
+        }
 
         /* this should always be the case, given that our AC-3 parser
          * concatenates dependent frames to their independent parent */
         if (hdr->frame_type == EAC3_FRAME_TYPE_INDEPENDENT) {
             /* substream ids must be incremental */
-            if (hdr->substreamid > info->num_ind_sub + 1)
-                return AVERROR(EINVAL);
+            if (hdr->substreamid > info->num_ind_sub + 1) {
+                ret = AVERROR(EINVAL);
+                goto end;
+            }
 
             if (hdr->substreamid == info->num_ind_sub + 1) {
                 //info->num_ind_sub++;
-                avpriv_request_sample(track->par, "Multiple independent substreams");
-                return AVERROR_PATCHWELCOME;
+                avpriv_request_sample(mov->fc, "Multiple independent substreams");
+                ret = AVERROR_PATCHWELCOME;
+                goto end;
             } else if (hdr->substreamid < info->num_ind_sub ||
                        hdr->substreamid == 0 && info->substream[0].bsid) {
                 info->ec3_done = 1;
                 goto concatenate;
+            }
+        } else {
+            if (hdr->substreamid != 0) {
+                avpriv_request_sample(mov->fc, "Multiple non EAC3 independent substreams");
+                ret = AVERROR_PATCHWELCOME;
+                goto end;
             }
         }
 
@@ -400,16 +459,20 @@ static int handle_eac3(MOVMuxContext *mov, AVPacket *pkt, MOVTrack *track)
             int parent = hdr->substreamid;
 
             while (cumul_size != pkt->size) {
+                GetBitContext gbc;
                 int i;
-                init_get_bits(&gbc, pkt->data + cumul_size, (pkt->size - cumul_size) * 8);
-                if (avpriv_ac3_parse_header(&gbc, &hdr) < 0)
-                    return AVERROR_INVALIDDATA;
-                if (hdr->frame_type != EAC3_FRAME_TYPE_DEPENDENT)
-                    return AVERROR(EINVAL);
-                cumul_size += hdr->frame_size;
+                ret = avpriv_ac3_parse_header(&hdr, pkt->data + cumul_size, pkt->size - cumul_size);
+                if (ret < 0)
+                    goto end;
+                if (hdr->frame_type != EAC3_FRAME_TYPE_DEPENDENT) {
+                    ret = AVERROR(EINVAL);
+                    goto end;
+                }
                 info->substream[parent].num_dep_sub++;
+                ret /= 8;
 
                 /* header is parsed up to lfeon, but custom channel map may be needed */
+                init_get_bits8(&gbc, pkt->data + cumul_size + ret, pkt->size - cumul_size - ret);
                 /* skip bsid */
                 skip_bits(&gbc, 5);
                 /* skip volume control params */
@@ -424,41 +487,46 @@ static int handle_eac3(MOVMuxContext *mov, AVPacket *pkt, MOVTrack *track)
                     info->substream[parent].chan_loc |= (get_bits(&gbc, 16) >> 5) & 0x1f;
                 else
                     info->substream[parent].chan_loc |= hdr->channel_mode;
+                cumul_size += hdr->frame_size;
             }
         }
     }
 
 concatenate:
-    if (!info->num_blocks && num_blocks == 6)
-        return pkt->size;
-    else if (info->num_blocks + num_blocks > 6)
-        return AVERROR_INVALIDDATA;
+    if (!info->num_blocks && num_blocks == 6) {
+        ret = pkt->size;
+        goto end;
+    }
+    else if (info->num_blocks + num_blocks > 6) {
+        ret = AVERROR_INVALIDDATA;
+        goto end;
+    }
 
     if (!info->num_blocks) {
-        int ret;
-        if ((ret = av_copy_packet(&info->pkt, pkt)) < 0)
-            return ret;
-        info->num_blocks = num_blocks;
-        return 0;
+        ret = av_packet_ref(&info->pkt, pkt);
+        if (!ret)
+            info->num_blocks = num_blocks;
+        goto end;
     } else {
-        int ret;
         if ((ret = av_grow_packet(&info->pkt, pkt->size)) < 0)
-            return ret;
+            goto end;
         memcpy(info->pkt.data + info->pkt.size - pkt->size, pkt->data, pkt->size);
         info->num_blocks += num_blocks;
         info->pkt.duration += pkt->duration;
         if ((ret = av_copy_packet_side_data(&info->pkt, pkt)) < 0)
-            return ret;
+            goto end;
         if (info->num_blocks != 6)
-            return 0;
+            goto end;
         av_packet_unref(pkt);
-        if ((ret = av_copy_packet(pkt, &info->pkt)) < 0)
-            return ret;
-        av_packet_unref(&info->pkt);
+        av_packet_move_ref(pkt, &info->pkt);
         info->num_blocks = 0;
     }
+    ret = pkt->size;
 
-    return pkt->size;
+end:
+    av_free(hdr);
+
+    return ret;
 }
 #endif
 
@@ -473,7 +541,7 @@ static int mov_write_eac3_tag(AVIOContext *pb, MOVTrack *track)
         return AVERROR(EINVAL);
 
     info = track->eac3_priv;
-    size = 2 + 4 * (info->num_ind_sub + 1);
+    size = 2 + ((34 * (info->num_ind_sub + 1) + 7) >> 3);
     buf = av_malloc(size);
     if (!buf) {
         size = AVERROR(ENOMEM);
@@ -495,12 +563,12 @@ static int mov_write_eac3_tag(AVIOContext *pb, MOVTrack *track)
         put_bits(&pbc, 4, info->substream[i].num_dep_sub);
         if (!info->substream[i].num_dep_sub) {
             put_bits(&pbc, 1, 0); /* reserved */
-            size--;
         } else {
             put_bits(&pbc, 9, info->substream[i].chan_loc);
         }
     }
     flush_put_bits(&pbc);
+    size = put_bits_count(&pbc) >> 3;
 
     avio_wb32(pb, size + 8);
     ffio_wfourcc(pb, "dec3");
@@ -955,7 +1023,7 @@ static int mov_write_audio_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContex
     uint32_t tag = track->tag;
 
     if (track->mode == MODE_MOV) {
-        if (track->timescale > UINT16_MAX) {
+        if (track->timescale > UINT16_MAX || !track->par->channels) {
             if (mov_get_lpcm_flags(track->par->codec_id))
                 tag = AV_RL32("lpcm");
             version = 2;
@@ -1096,6 +1164,16 @@ static int mov_write_d263_tag(AVIOContext *pb)
     return 0xf;
 }
 
+static int mov_write_av1c_tag(AVIOContext *pb, MOVTrack *track)
+{
+    int64_t pos = avio_tell(pb);
+
+    avio_wb32(pb, 0);
+    ffio_wfourcc(pb, "av1C");
+    ff_isom_write_av1c(pb, track->vos_data, track->vos_len);
+    return update_size(pb, pos);
+}
+
 static int mov_write_avcc_tag(AVIOContext *pb, MOVTrack *track)
 {
     int64_t pos = avio_tell(pb);
@@ -1112,7 +1190,8 @@ static int mov_write_vpcc_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
 
     avio_wb32(pb, 0);
     ffio_wfourcc(pb, "vpcC");
-    avio_wb32(pb, 0); /* version & flags */
+    avio_w8(pb, 1); /* version */
+    avio_wb24(pb, 0); /* flags */
     ff_isom_write_vpcc(s, pb, track->par);
     return update_size(pb, pos);
 }
@@ -1123,7 +1202,10 @@ static int mov_write_hvcc_tag(AVIOContext *pb, MOVTrack *track)
 
     avio_wb32(pb, 0);
     ffio_wfourcc(pb, "hvcC");
-    ff_isom_write_hvcc(pb, track->vos_data, track->vos_len, 0);
+    if (track->tag == MKTAG('h','v','c','1'))
+        ff_isom_write_hvcc(pb, track->vos_data, track->vos_len, 1);
+    else
+        ff_isom_write_hvcc(pb, track->vos_data, track->vos_len, 0);
     return update_size(pb, pos);
 }
 
@@ -1222,60 +1304,6 @@ static int mov_write_dpxe_tag(AVIOContext *pb, MOVTrack *track)
         avio_wb32(pb, 1);
     }
     return 0;
-}
-
-static int mp4_get_codec_tag(AVFormatContext *s, MOVTrack *track)
-{
-    int tag = track->par->codec_tag;
-
-    if (!ff_codec_get_tag(ff_mp4_obj_type, track->par->codec_id))
-        return 0;
-
-    if      (track->par->codec_id == AV_CODEC_ID_H264)      tag = MKTAG('a','v','c','1');
-    else if (track->par->codec_id == AV_CODEC_ID_HEVC)      tag = MKTAG('h','e','v','1');
-    else if (track->par->codec_id == AV_CODEC_ID_VP9)       tag = MKTAG('v','p','0','9');
-    else if (track->par->codec_id == AV_CODEC_ID_AC3)       tag = MKTAG('a','c','-','3');
-    else if (track->par->codec_id == AV_CODEC_ID_EAC3)      tag = MKTAG('e','c','-','3');
-    else if (track->par->codec_id == AV_CODEC_ID_DIRAC)     tag = MKTAG('d','r','a','c');
-    else if (track->par->codec_id == AV_CODEC_ID_MOV_TEXT)  tag = MKTAG('t','x','3','g');
-    else if (track->par->codec_id == AV_CODEC_ID_VC1)       tag = MKTAG('v','c','-','1');
-    else if (track->par->codec_id == AV_CODEC_ID_FLAC)      tag = MKTAG('f','L','a','C');
-    else if (track->par->codec_id == AV_CODEC_ID_OPUS)      tag = MKTAG('O','p','u','s');
-    else if (track->par->codec_type == AVMEDIA_TYPE_VIDEO)  tag = MKTAG('m','p','4','v');
-    else if (track->par->codec_type == AVMEDIA_TYPE_AUDIO)  tag = MKTAG('m','p','4','a');
-    else if (track->par->codec_id == AV_CODEC_ID_DVD_SUBTITLE)  tag = MKTAG('m','p','4','s');
-
-    return tag;
-}
-
-static const AVCodecTag codec_ipod_tags[] = {
-    { AV_CODEC_ID_H264,     MKTAG('a','v','c','1') },
-    { AV_CODEC_ID_MPEG4,    MKTAG('m','p','4','v') },
-    { AV_CODEC_ID_AAC,      MKTAG('m','p','4','a') },
-    { AV_CODEC_ID_ALAC,     MKTAG('a','l','a','c') },
-    { AV_CODEC_ID_AC3,      MKTAG('a','c','-','3') },
-    { AV_CODEC_ID_MOV_TEXT, MKTAG('t','x','3','g') },
-    { AV_CODEC_ID_MOV_TEXT, MKTAG('t','e','x','t') },
-    { AV_CODEC_ID_NONE, 0 },
-};
-
-static int ipod_get_codec_tag(AVFormatContext *s, MOVTrack *track)
-{
-    int tag = track->par->codec_tag;
-
-    // keep original tag for subs, ipod supports both formats
-    if (!(track->par->codec_type == AVMEDIA_TYPE_SUBTITLE &&
-          (tag == MKTAG('t', 'x', '3', 'g') ||
-           tag == MKTAG('t', 'e', 'x', 't'))))
-        tag = ff_codec_get_tag(codec_ipod_tags, track->par->codec_id);
-
-    if (!av_match_ext(s->filename, "m4a") &&
-        !av_match_ext(s->filename, "m4b") &&
-        !av_match_ext(s->filename, "m4v"))
-        av_log(s, AV_LOG_WARNING, "Warning, extension is not .m4a, .m4v nor  .m4b "
-               "Quicktime/Ipod might not play the file\n");
-
-    return tag;
 }
 
 static int mov_get_dv_codec_tag(AVFormatContext *s, MOVTrack *track)
@@ -1507,9 +1535,9 @@ static int mov_get_rawvideo_codec_tag(AVFormatContext *s, MOVTrack *track)
     return tag;
 }
 
-static int mov_get_codec_tag(AVFormatContext *s, MOVTrack *track)
+static unsigned int mov_get_codec_tag(AVFormatContext *s, MOVTrack *track)
 {
-    int tag = track->par->codec_tag;
+    unsigned int tag = track->par->codec_tag;
 
     if (!tag || (s->strict_std_compliance >= FF_COMPLIANCE_NORMAL &&
                  (track->par->codec_id == AV_CODEC_ID_DVVIDEO ||
@@ -1554,46 +1582,50 @@ static int mov_get_codec_tag(AVFormatContext *s, MOVTrack *track)
     return tag;
 }
 
-static const AVCodecTag codec_3gp_tags[] = {
-    { AV_CODEC_ID_H263,     MKTAG('s','2','6','3') },
-    { AV_CODEC_ID_H264,     MKTAG('a','v','c','1') },
-    { AV_CODEC_ID_MPEG4,    MKTAG('m','p','4','v') },
-    { AV_CODEC_ID_AAC,      MKTAG('m','p','4','a') },
-    { AV_CODEC_ID_AMR_NB,   MKTAG('s','a','m','r') },
-    { AV_CODEC_ID_AMR_WB,   MKTAG('s','a','w','b') },
-    { AV_CODEC_ID_MOV_TEXT, MKTAG('t','x','3','g') },
+static const AVCodecTag codec_cover_image_tags[] = {
+    { AV_CODEC_ID_MJPEG,  0xD },
+    { AV_CODEC_ID_PNG,    0xE },
+    { AV_CODEC_ID_BMP,    0x1B },
     { AV_CODEC_ID_NONE, 0 },
 };
 
-static const AVCodecTag codec_f4v_tags[] = { // XXX: add GIF/PNG/JPEG?
-    { AV_CODEC_ID_MP3,    MKTAG('.','m','p','3') },
-    { AV_CODEC_ID_AAC,    MKTAG('m','p','4','a') },
-    { AV_CODEC_ID_H264,   MKTAG('a','v','c','1') },
-    { AV_CODEC_ID_VP6A,   MKTAG('V','P','6','A') },
-    { AV_CODEC_ID_VP6F,   MKTAG('V','P','6','F') },
-    { AV_CODEC_ID_NONE, 0 },
-};
-
-static int mov_find_codec_tag(AVFormatContext *s, MOVTrack *track)
+static unsigned int validate_codec_tag(const AVCodecTag *const *tags,
+                                       unsigned int tag, int codec_id)
 {
-    int tag;
+    int i;
 
-    if (track->mode == MODE_MP4 || track->mode == MODE_PSP)
-        tag = mp4_get_codec_tag(s, track);
-    else if (track->mode == MODE_ISM) {
-        tag = mp4_get_codec_tag(s, track);
-        if (!tag && track->par->codec_id == AV_CODEC_ID_WMAPRO)
-            tag = MKTAG('w', 'm', 'a', ' ');
-    } else if (track->mode == MODE_IPOD)
-        tag = ipod_get_codec_tag(s, track);
-    else if (track->mode & MODE_3GP)
-        tag = ff_codec_get_tag(codec_3gp_tags, track->par->codec_id);
-    else if (track->mode == MODE_F4V)
-        tag = ff_codec_get_tag(codec_f4v_tags, track->par->codec_id);
-    else
-        tag = mov_get_codec_tag(s, track);
+    /**
+     * Check that tag + id is in the table
+     */
+    for (i = 0; tags && tags[i]; i++) {
+        const AVCodecTag *codec_tags = tags[i];
+        while (codec_tags->id != AV_CODEC_ID_NONE) {
+            if (avpriv_toupper4(codec_tags->tag) == avpriv_toupper4(tag) &&
+                codec_tags->id == codec_id)
+                return codec_tags->tag;
+            codec_tags++;
+        }
+    }
+    return 0;
+}
 
-    return tag;
+static unsigned int mov_find_codec_tag(AVFormatContext *s, MOVTrack *track)
+{
+    if (is_cover_image(track->st))
+        return ff_codec_get_tag(codec_cover_image_tags, track->par->codec_id);
+
+    if (track->mode == MODE_IPOD)
+        if (!av_match_ext(s->url, "m4a") &&
+            !av_match_ext(s->url, "m4v") &&
+            !av_match_ext(s->url, "m4b"))
+            av_log(s, AV_LOG_WARNING, "Warning, extension is not .m4a nor .m4v "
+                   "Quicktime/Ipod might not play the file\n");
+
+    if (track->mode == MODE_MOV) {
+        return mov_get_codec_tag(s, track);
+    } else
+        return validate_codec_tag(s->oformat->codec_tag, track->par->codec_tag,
+                                  track->par->codec_id);
 }
 
 /** Write uuid atom.
@@ -1734,6 +1766,21 @@ static int mov_write_sv3d_tag(AVFormatContext *s, AVIOContext *pb, AVSphericalMa
     return update_size(pb, sv3d_pos);
 }
 
+static int mov_write_clap_tag(AVIOContext *pb, MOVTrack *track)
+{
+    avio_wb32(pb, 40);
+    ffio_wfourcc(pb, "clap");
+    avio_wb32(pb, track->par->width); /* apertureWidth_N */
+    avio_wb32(pb, 1); /* apertureWidth_D (= 1) */
+    avio_wb32(pb, track->height); /* apertureHeight_N */
+    avio_wb32(pb, 1); /* apertureHeight_D (= 1) */
+    avio_wb32(pb, 0); /* horizOff_N (= 0) */
+    avio_wb32(pb, 1); /* horizOff_D (= 1) */
+    avio_wb32(pb, 0); /* vertOff_N (= 0) */
+    avio_wb32(pb, 1); /* vertOff_D (= 1) */
+    return 40;
+}
+
 static int mov_write_pasp_tag(AVIOContext *pb, MOVTrack *track)
 {
     AVRational sar;
@@ -1818,23 +1865,30 @@ static int mov_write_colr_tag(AVIOContext *pb, MOVTrack *track)
         ffio_wfourcc(pb, "nclc");
     switch (track->par->color_primaries) {
     case AVCOL_PRI_BT709:     avio_wb16(pb, 1); break;
+    case AVCOL_PRI_BT470BG:   avio_wb16(pb, 5); break;
     case AVCOL_PRI_SMPTE170M:
     case AVCOL_PRI_SMPTE240M: avio_wb16(pb, 6); break;
-    case AVCOL_PRI_BT470BG:   avio_wb16(pb, 5); break;
+    case AVCOL_PRI_BT2020:    avio_wb16(pb, 9); break;
+    case AVCOL_PRI_SMPTE431:  avio_wb16(pb, 11); break;
+    case AVCOL_PRI_SMPTE432:  avio_wb16(pb, 12); break;
     default:                  avio_wb16(pb, 2);
     }
     switch (track->par->color_trc) {
-    case AVCOL_TRC_BT709:     avio_wb16(pb, 1); break;
-    case AVCOL_TRC_SMPTE170M: avio_wb16(pb, 1); break; // remapped
-    case AVCOL_TRC_SMPTE240M: avio_wb16(pb, 7); break;
-    default:                  avio_wb16(pb, 2);
+    case AVCOL_TRC_BT709:        avio_wb16(pb, 1); break;
+    case AVCOL_TRC_SMPTE170M:    avio_wb16(pb, 1); break; // remapped
+    case AVCOL_TRC_SMPTE240M:    avio_wb16(pb, 7); break;
+    case AVCOL_TRC_SMPTEST2084:  avio_wb16(pb, 16); break;
+    case AVCOL_TRC_SMPTE428:     avio_wb16(pb, 17); break;
+    case AVCOL_TRC_ARIB_STD_B67: avio_wb16(pb, 18); break;
+    default:                     avio_wb16(pb, 2);
     }
     switch (track->par->color_space) {
-    case AVCOL_SPC_BT709:     avio_wb16(pb, 1); break;
+    case AVCOL_SPC_BT709:      avio_wb16(pb, 1); break;
     case AVCOL_SPC_BT470BG:
-    case AVCOL_SPC_SMPTE170M: avio_wb16(pb, 6); break;
-    case AVCOL_SPC_SMPTE240M: avio_wb16(pb, 7); break;
-    default:                  avio_wb16(pb, 2);
+    case AVCOL_SPC_SMPTE170M:  avio_wb16(pb, 6); break;
+    case AVCOL_SPC_SMPTE240M:  avio_wb16(pb, 7); break;
+    case AVCOL_SPC_BT2020_NCL: avio_wb16(pb, 9); break;
+    default:                   avio_wb16(pb, 2);
     }
 
     if (track->mode == MODE_MP4) {
@@ -1880,6 +1934,13 @@ static int mov_write_video_tag(AVIOContext *pb, MOVMuxContext *mov, MOVTrack *tr
     char compressor_name[32] = { 0 };
     int avid = 0;
 
+    int uncompressed_ycbcr = ((track->par->codec_id == AV_CODEC_ID_RAWVIDEO && track->par->format == AV_PIX_FMT_UYVY422)
+                           || (track->par->codec_id == AV_CODEC_ID_RAWVIDEO && track->par->format == AV_PIX_FMT_YUYV422)
+                           ||  track->par->codec_id == AV_CODEC_ID_V308
+                           ||  track->par->codec_id == AV_CODEC_ID_V408
+                           ||  track->par->codec_id == AV_CODEC_ID_V410
+                           ||  track->par->codec_id == AV_CODEC_ID_V210);
+
     avio_wb32(pb, 0); /* size */
     if (mov->encryption_scheme != MOV_ENC_NONE) {
         ffio_wfourcc(pb, "encv");
@@ -1890,11 +1951,15 @@ static int mov_write_video_tag(AVIOContext *pb, MOVMuxContext *mov, MOVTrack *tr
     avio_wb16(pb, 0); /* Reserved */
     avio_wb16(pb, 1); /* Data-reference index */
 
-    avio_wb16(pb, 0); /* Codec stream version */
+    if (uncompressed_ycbcr) {
+        avio_wb16(pb, 2); /* Codec stream version */
+    } else {
+        avio_wb16(pb, 0); /* Codec stream version */
+    }
     avio_wb16(pb, 0); /* Codec stream revision (=0) */
     if (track->mode == MODE_MOV) {
         ffio_wfourcc(pb, "FFMP"); /* Vendor */
-        if (track->par->codec_id == AV_CODEC_ID_RAWVIDEO) {
+        if (track->par->codec_id == AV_CODEC_ID_RAWVIDEO || uncompressed_ycbcr) {
             avio_wb32(pb, 0); /* Temporal Quality */
             avio_wb32(pb, 0x400); /* Spatial Quality = lossless*/
         } else {
@@ -1918,7 +1983,10 @@ static int mov_write_video_tag(AVIOContext *pb, MOVMuxContext *mov, MOVTrack *tr
     avio_w8(pb, strlen(compressor_name));
     avio_write(pb, compressor_name, 31);
 
-    if (track->mode == MODE_MOV && track->par->bits_per_coded_sample)
+    if (track->mode == MODE_MOV &&
+       (track->par->codec_id == AV_CODEC_ID_V410 || track->par->codec_id == AV_CODEC_ID_V210))
+        avio_wb16(pb, 0x18);
+    else if (track->mode == MODE_MOV && track->par->bits_per_coded_sample)
         avio_wb16(pb, track->par->bits_per_coded_sample |
                   (track->par->format == AV_PIX_FMT_GRAY8 ? 0x20 : 0));
     else
@@ -1963,6 +2031,8 @@ static int mov_write_video_tag(AVIOContext *pb, MOVMuxContext *mov, MOVTrack *tr
             mov_write_uuid_tag_ipod(pb);
     } else if (track->par->codec_id == AV_CODEC_ID_VP9) {
         mov_write_vpcc_tag(mov->fc, pb, track);
+    } else if (track->par->codec_id == AV_CODEC_ID_AV1) {
+        mov_write_av1c_tag(pb, track);
     } else if (track->par->codec_id == AV_CODEC_ID_VC1 && track->vos_len > 0)
         mov_write_dvc1_tag(pb, track);
     else if (track->par->codec_id == AV_CODEC_ID_VP6F ||
@@ -2016,6 +2086,10 @@ static int mov_write_video_tag(AVIOContext *pb, MOVMuxContext *mov, MOVTrack *tr
 
     if (track->par->sample_aspect_ratio.den && track->par->sample_aspect_ratio.num) {
         mov_write_pasp_tag(pb, track);
+    }
+
+    if (uncompressed_ycbcr){
+        mov_write_clap_tag(pb, track);
     }
 
     if (mov->encryption_scheme != MOV_ENC_NONE) {
@@ -2125,6 +2199,18 @@ static int mov_write_tmcd_tag(AVIOContext *pb, MOVTrack *track)
     return update_size(pb, pos);
 }
 
+static int mov_write_gpmd_tag(AVIOContext *pb, const MOVTrack *track)
+{
+    int64_t pos = avio_tell(pb);
+    avio_wb32(pb, 0); /* size */
+    ffio_wfourcc(pb, "gpmd");
+    avio_wb32(pb, 0); /* Reserved */
+    avio_wb16(pb, 0); /* Reserved */
+    avio_wb16(pb, 1); /* Data-reference index */
+    avio_wb32(pb, 0); /* Reserved */
+    return update_size(pb, pos);
+}
+
 static int mov_write_stsd_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContext *mov, MOVTrack *track)
 {
     int64_t pos = avio_tell(pb);
@@ -2142,11 +2228,14 @@ static int mov_write_stsd_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContext
         mov_write_rtp_tag(pb, track);
     else if (track->par->codec_tag == MKTAG('t','m','c','d'))
         mov_write_tmcd_tag(pb, track);
+    else if (track->par->codec_tag == MKTAG('g','p','m','d'))
+        mov_write_gpmd_tag(pb, track);
     return update_size(pb, pos);
 }
 
-static int mov_write_ctts_tag(AVIOContext *pb, MOVTrack *track)
+static int mov_write_ctts_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *track)
 {
+    MOVMuxContext *mov = s->priv_data;
     MOVStts *ctts_entries;
     uint32_t entries = 0;
     uint32_t atom_size;
@@ -2170,7 +2259,11 @@ static int mov_write_ctts_tag(AVIOContext *pb, MOVTrack *track)
     atom_size = 16 + (entries * 8);
     avio_wb32(pb, atom_size); /* size */
     ffio_wfourcc(pb, "ctts");
-    avio_wb32(pb, 0); /* version & flags */
+    if (mov->flags & FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS)
+        avio_w8(pb, 1); /* version */
+    else
+        avio_w8(pb, 0); /* version */
+    avio_wb24(pb, 0); /* flags */
     avio_wb32(pb, entries); /* entry count */
     for (i = 0; i < entries; i++) {
         avio_wb32(pb, ctts_entries[i].count);
@@ -2259,39 +2352,47 @@ static int mov_preroll_write_stbl_atoms(AVIOContext *pb, MOVTrack *track)
                                     (AVRational){1, 1000},
                                     (AVRational){1, 48000});
 
-    if (track->entry) {
-        sgpd_entries = av_malloc_array(track->entry, sizeof(*sgpd_entries));
-        if (!sgpd_entries)
-            return AVERROR(ENOMEM);
-    }
+    if (!track->entry)
+        return 0;
 
-    av_assert0(track->par->codec_id == AV_CODEC_ID_OPUS);
+    sgpd_entries = av_malloc_array(track->entry, sizeof(*sgpd_entries));
+    if (!sgpd_entries)
+        return AVERROR(ENOMEM);
 
-    for (i = 0; i < track->entry; i++) {
-        int roll_samples_remaining = roll_samples;
-        int distance = 0;
-        for (j = i - 1; j >= 0; j--) {
-            roll_samples_remaining -= get_cluster_duration(track, j);
-            distance++;
-            if (roll_samples_remaining <= 0)
-                break;
+    av_assert0(track->par->codec_id == AV_CODEC_ID_OPUS || track->par->codec_id == AV_CODEC_ID_AAC);
+
+    if (track->par->codec_id == AV_CODEC_ID_OPUS) {
+        for (i = 0; i < track->entry; i++) {
+            int roll_samples_remaining = roll_samples;
+            int distance = 0;
+            for (j = i - 1; j >= 0; j--) {
+                roll_samples_remaining -= get_cluster_duration(track, j);
+                distance++;
+                if (roll_samples_remaining <= 0)
+                    break;
+            }
+            /* We don't have enough preceeding samples to compute a valid
+               roll_distance here, so this sample can't be independently
+               decoded. */
+            if (roll_samples_remaining > 0)
+                distance = 0;
+            /* Verify distance is a maximum of 32 (2.5ms) packets. */
+            if (distance > 32)
+                return AVERROR_INVALIDDATA;
+            if (i && distance == sgpd_entries[entries].roll_distance) {
+                sgpd_entries[entries].count++;
+            } else {
+                entries++;
+                sgpd_entries[entries].count = 1;
+                sgpd_entries[entries].roll_distance = distance;
+                sgpd_entries[entries].group_description_index = distance ? ++group : 0;
+            }
         }
-        /* We don't have enough preceeding samples to compute a valid
-           roll_distance here, so this sample can't be independently
-           decoded. */
-        if (roll_samples_remaining > 0)
-            distance = 0;
-        /* Verify distance is a minimum of 2 (60ms) packets and a maximum of
-           32 (2.5ms) packets. */
-        av_assert0(distance == 0 || (distance >= 2 && distance <= 32));
-        if (i && distance == sgpd_entries[entries].roll_distance) {
-            sgpd_entries[entries].count++;
-        } else {
-            entries++;
-            sgpd_entries[entries].count = 1;
-            sgpd_entries[entries].roll_distance = distance;
-            sgpd_entries[entries].group_description_index = distance ? ++group : 0;
-        }
+    } else {
+        entries++;
+        sgpd_entries[entries].count = track->sample_count;
+        sgpd_entries[entries].roll_distance = 1;
+        sgpd_entries[entries].group_description_index = ++group;
     }
     entries++;
 
@@ -2341,21 +2442,23 @@ static int mov_write_stbl_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContext
          track->par->codec_tag == MKTAG('r','t','p',' ')) &&
         track->has_keyframes && track->has_keyframes < track->entry)
         mov_write_stss_tag(pb, track, MOV_SYNC_SAMPLE);
+    if (track->par->codec_type == AVMEDIA_TYPE_VIDEO && track->has_disposable)
+        mov_write_sdtp_tag(pb, track);
     if (track->mode == MODE_MOV && track->flags & MOV_TRACK_STPS)
         mov_write_stss_tag(pb, track, MOV_PARTIAL_SYNC_SAMPLE);
     if (track->par->codec_type == AVMEDIA_TYPE_VIDEO &&
         track->flags & MOV_TRACK_CTTS && track->entry) {
 
-        if ((ret = mov_write_ctts_tag(pb, track)) < 0)
+        if ((ret = mov_write_ctts_tag(s, pb, track)) < 0)
             return ret;
     }
     mov_write_stsc_tag(pb, track);
     mov_write_stsz_tag(pb, track);
     mov_write_stco_tag(pb, track);
-    if (mov->encryption_scheme == MOV_ENC_CENC_AES_CTR) {
+    if (track->cenc.aes_ctr) {
         ff_mov_cenc_write_stbl_atoms(&track->cenc, pb);
     }
-    if (track->par->codec_id == AV_CODEC_ID_OPUS) {
+    if (track->par->codec_id == AV_CODEC_ID_OPUS || track->par->codec_id == AV_CODEC_ID_AAC) {
         mov_preroll_write_stbl_atoms(pb, track);
     }
     return update_size(pb, pos);
@@ -2442,6 +2545,12 @@ static int mov_write_gmhd_tag(AVIOContext *pb, MOVTrack *track)
         ffio_wfourcc(pb, "tmcd");
         mov_write_tcmi_tag(pb, track);
         update_size(pb, tmcd_pos);
+    } else if (track->par->codec_tag == MKTAG('g','p','m','d')) {
+        int64_t gpmd_pos = avio_tell(pb);
+        avio_wb32(pb, 0); /* size */
+        ffio_wfourcc(pb, "gpmd");
+        avio_wb32(pb, 0); /* version */
+        update_size(pb, gpmd_pos);
     }
     return update_size(pb, pos);
 }
@@ -2473,6 +2582,7 @@ static int is_clcp_track(MOVTrack *track)
 
 static int mov_write_hdlr_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *track)
 {
+    MOVMuxContext *mov = s->priv_data;
     const char *hdlr, *descr = NULL, *hdlr_type = NULL;
     int64_t pos = avio_tell(pb);
 
@@ -2508,6 +2618,9 @@ static int mov_write_hdlr_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
         } else if (track->par->codec_tag == MKTAG('t','m','c','d')) {
             hdlr_type = "tmcd";
             descr = "TimeCodeHandler";
+        } else if (track->par->codec_tag == MKTAG('g','p','m','d')) {
+            hdlr_type = "meta";
+            descr = "GoPro MET"; // GoPro Metadata
         } else {
             av_log(s, AV_LOG_WARNING,
                    "Unknown hldr_type for %s, writing dummy values\n",
@@ -2518,11 +2631,14 @@ static int mov_write_hdlr_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
             // of the track. So if an alternate handler description is
             // specified, use it.
             AVDictionaryEntry *t;
-            t = av_dict_get(track->st->metadata, "handler", NULL, 0);
+            t = av_dict_get(track->st->metadata, "handler_name", NULL, 0);
             if (t && utf8len(t->value))
                 descr = t->value;
         }
     }
+
+    if (mov->empty_hdlr_name) /* expressly allowed by QTFF and not prohibited in ISO 14496-12 8.4.3.3 */
+        descr = "";
 
     avio_wb32(pb, 0); /* size */
     ffio_wfourcc(pb, "hdlr");
@@ -2579,8 +2695,10 @@ static int mov_write_minf_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContext
             mov_write_nmhd_tag(pb);
         else
             mov_write_gmhd_tag(pb, track);
+    } else if (track->tag == MKTAG('g','p','m','d')) {
+        mov_write_gmhd_tag(pb, track);
     }
-    if (track->mode == MODE_MOV) /* FIXME: Why do it for MODE_MOV only ? */
+    if (track->mode == MODE_MOV) /* ISO 14496-12 8.4.3.1 specifies hdlr only within mdia or meta boxes */
         mov_write_hdlr_tag(s, pb, NULL);
     mov_write_dinf_tag(pb);
     if ((ret = mov_write_stbl_tag(s, pb, mov, track)) < 0)
@@ -2970,7 +3088,7 @@ static int mov_write_track_udta_tag(AVIOContext *pb, MOVMuxContext *mov,
     if (ret < 0)
         return ret;
 
-    if (mov->mode & MODE_MP4)
+    if (mov->mode & (MODE_MP4|MODE_MOV))
         mov_write_track_metadata(pb_buf, st, "name", "title");
 
     if ((size = avio_close_dyn_buf(pb_buf, &buf)) > 0) {
@@ -3359,6 +3477,33 @@ static int mov_write_int8_metadata(AVFormatContext *s, AVIOContext *pb,
     return size;
 }
 
+static int mov_write_covr(AVIOContext *pb, AVFormatContext *s)
+{
+    MOVMuxContext *mov = s->priv_data;
+    int64_t pos = 0;
+    int i;
+
+    for (i = 0; i < s->nb_streams; i++) {
+        MOVTrack *trk = &mov->tracks[i];
+
+        if (!is_cover_image(trk->st) || trk->cover_image.size <= 0)
+            continue;
+
+        if (!pos) {
+            pos = avio_tell(pb);
+            avio_wb32(pb, 0);
+            ffio_wfourcc(pb, "covr");
+        }
+        avio_wb32(pb, 16 + trk->cover_image.size);
+        ffio_wfourcc(pb, "data");
+        avio_wb32(pb, trk->tag);
+        avio_wb32(pb , 0);
+        avio_write(pb, trk->cover_image.data, trk->cover_image.size);
+    }
+
+    return pos ? update_size(pb, pos) : 0;
+}
+
 /* iTunes meta data list */
 static int mov_write_ilst_tag(AVIOContext *pb, MOVMuxContext *mov,
                               AVFormatContext *s)
@@ -3378,7 +3523,7 @@ static int mov_write_ilst_tag(AVIOContext *pb, MOVMuxContext *mov,
     }
     mov_write_string_metadata(s, pb, "\251cmt", "comment"  , 1);
     mov_write_string_metadata(s, pb, "\251gen", "genre"    , 1);
-    mov_write_string_metadata(s, pb, "\251cpy", "copyright", 1);
+    mov_write_string_metadata(s, pb, "cprt",    "copyright", 1);
     mov_write_string_metadata(s, pb, "\251grp", "grouping" , 1);
     mov_write_string_metadata(s, pb, "\251lyr", "lyrics"   , 1);
     mov_write_string_metadata(s, pb, "desc",    "description",1);
@@ -3386,12 +3531,14 @@ static int mov_write_ilst_tag(AVIOContext *pb, MOVMuxContext *mov,
     mov_write_string_metadata(s, pb, "tvsh",    "show"     , 1);
     mov_write_string_metadata(s, pb, "tven",    "episode_id",1);
     mov_write_string_metadata(s, pb, "tvnn",    "network"  , 1);
+    mov_write_string_metadata(s, pb, "keyw",    "keywords"  , 1);
     mov_write_int8_metadata  (s, pb, "tves",    "episode_sort",4);
     mov_write_int8_metadata  (s, pb, "tvsn",    "season_number",4);
     mov_write_int8_metadata  (s, pb, "stik",    "media_type",1);
     mov_write_int8_metadata  (s, pb, "hdvd",    "hd_video",  1);
     mov_write_int8_metadata  (s, pb, "pgap",    "gapless_playback",1);
     mov_write_int8_metadata  (s, pb, "cpil",    "compilation", 1);
+    mov_write_covr(pb, s);
     mov_write_trkn_tag(pb, mov, s, 0); // track number
     mov_write_trkn_tag(pb, mov, s, 1); // disc number
     mov_write_tmpo_tag(pb, s);
@@ -3608,6 +3755,7 @@ static int mov_write_udta_tag(AVIOContext *pb, MOVMuxContext *mov,
         mov_write_string_metadata(s, pb_buf, "\251mak", "make",        0);
         mov_write_string_metadata(s, pb_buf, "\251mod", "model",       0);
         mov_write_string_metadata(s, pb_buf, "\251xyz", "location",    0);
+        mov_write_string_metadata(s, pb_buf, "\251key", "keywords",    0);
         mov_write_raw_metadata_tag(s, pb_buf, "XMP_", "xmp");
     } else {
         /* iTunes meta data */
@@ -3881,7 +4029,7 @@ static int mov_write_isml_manifest(AVIOContext *pb, MOVMuxContext *mov, AVFormat
         AVStream *st = track->st;
         AVDictionaryEntry *lang = av_dict_get(st->metadata, "language", NULL,0);
 
-        if (track->par->codec_type == AVMEDIA_TYPE_VIDEO) {
+        if (track->par->codec_type == AVMEDIA_TYPE_VIDEO && !is_cover_image(st)) {
             type = "video";
         } else if (track->par->codec_type == AVMEDIA_TYPE_AUDIO) {
             type = "audio";
@@ -4074,7 +4222,10 @@ static int mov_write_trun_tag(AVIOContext *pb, MOVMuxContext *mov,
 
     avio_wb32(pb, 0); /* size placeholder */
     ffio_wfourcc(pb, "trun");
-    avio_w8(pb, 0); /* version */
+    if (mov->flags & FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS)
+        avio_w8(pb, 1); /* version */
+    else
+        avio_w8(pb, 0); /* version */
     avio_wb24(pb, flags);
 
     avio_wb32(pb, end - first); /* sample count */
@@ -4398,6 +4549,49 @@ static int mov_write_sidx_tags(AVIOContext *pb, MOVMuxContext *mov,
     return 0;
 }
 
+static int mov_write_prft_tag(AVIOContext *pb, MOVMuxContext *mov, int tracks)
+{
+    int64_t pos = avio_tell(pb), pts_us, ntp_ts;
+    MOVTrack *first_track;
+
+    /* PRFT should be associated with at most one track. So, choosing only the
+     * first track. */
+    if (tracks > 0)
+        return 0;
+    first_track = &(mov->tracks[0]);
+
+    if (!first_track->entry) {
+        av_log(mov->fc, AV_LOG_WARNING, "Unable to write PRFT, no entries in the track\n");
+        return 0;
+    }
+
+    if (first_track->cluster[0].pts == AV_NOPTS_VALUE) {
+        av_log(mov->fc, AV_LOG_WARNING, "Unable to write PRFT, first PTS is invalid\n");
+        return 0;
+    }
+
+    if (mov->write_prft == MOV_PRFT_SRC_WALLCLOCK) {
+        ntp_ts = ff_get_formatted_ntp_time(ff_ntp_time());
+    } else if (mov->write_prft == MOV_PRFT_SRC_PTS) {
+        pts_us = av_rescale_q(first_track->cluster[0].pts,
+                              first_track->st->time_base, AV_TIME_BASE_Q);
+        ntp_ts = ff_get_formatted_ntp_time(pts_us + NTP_OFFSET_US);
+    } else {
+        av_log(mov->fc, AV_LOG_WARNING, "Unsupported PRFT box configuration: %d\n",
+               mov->write_prft);
+        return 0;
+    }
+
+    avio_wb32(pb, 0);                           // Size place holder
+    ffio_wfourcc(pb, "prft");                   // Type
+    avio_w8(pb, 1);                             // Version
+    avio_wb24(pb, 0);                           // Flags
+    avio_wb32(pb, first_track->track_id);       // reference track ID
+    avio_wb64(pb, ntp_ts);                      // NTP time stamp
+    avio_wb64(pb, first_track->cluster[0].pts); //media time
+    return update_size(pb, pos);
+}
+
 static int mov_write_moof_tag(AVIOContext *pb, MOVMuxContext *mov, int tracks,
                               int64_t mdat_size)
 {
@@ -4411,6 +4605,9 @@ static int mov_write_moof_tag(AVIOContext *pb, MOVMuxContext *mov, int tracks,
 
     if (mov->flags & FF_MOV_FLAG_DASH && !(mov->flags & FF_MOV_FLAG_GLOBAL_SIDX))
         mov_write_sidx_tags(pb, mov, tracks, moof_size + 8 + mdat_size);
+
+    if (mov->write_prft > MOV_PRFT_NONE && mov->write_prft < MOV_PRFT_NB)
+        mov_write_prft_tag(pb, mov, tracks);
 
     if (mov->flags & FF_MOV_FLAG_GLOBAL_SIDX ||
         !(mov->flags & FF_MOV_FLAG_SKIP_TRAILER) ||
@@ -4498,6 +4695,8 @@ static int mov_write_ftyp_tag(AVIOContext *pb, AVFormatContext *s)
 
     for (i = 0; i < s->nb_streams; i++) {
         AVStream *st = s->streams[i];
+        if (is_cover_image(st))
+            continue;
         if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
             has_video = 1;
         if (st->codecpar->codec_id == AV_CODEC_ID_H264)
@@ -4519,6 +4718,8 @@ static int mov_write_ftyp_tag(AVIOContext *pb, AVFormatContext *s)
         ffio_wfourcc(pb, "MSNV");
     else if (mov->mode == MODE_MP4 && mov->flags & FF_MOV_FLAG_DEFAULT_BASE_MOOF)
         ffio_wfourcc(pb, "iso5"); // Required when using default-base-is-moof
+    else if (mov->mode == MODE_MP4 && mov->flags & FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS)
+        ffio_wfourcc(pb, "iso4");
     else if (mov->mode == MODE_MP4)
         ffio_wfourcc(pb, "isom");
     else if (mov->mode == MODE_IPOD)
@@ -4644,6 +4845,8 @@ static int mov_write_identification(AVIOContext *pb, AVFormatContext *s)
         int video_streams_nb = 0, audio_streams_nb = 0, other_streams_nb = 0;
         for (i = 0; i < s->nb_streams; i++) {
             AVStream *st = s->streams[i];
+            if (is_cover_image(st))
+                continue;
             if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
                 video_streams_nb++;
             else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
@@ -4789,6 +4992,8 @@ static int mov_flush_fragment(AVFormatContext *s, int force)
         if (!track->end_reliable) {
             AVPacket pkt;
             if (!ff_interleaved_peek(s, i, &pkt, 1)) {
+                if (track->dts_shift != AV_NOPTS_VALUE)
+                    pkt.dts += track->dts_shift;
                 track->track_duration = pkt.dts - track->start_dts;
                 if (pkt.pts != AV_NOPTS_VALUE)
                     track->end_pts = pkt.pts;
@@ -4831,7 +5036,7 @@ static int mov_flush_fragment(AVFormatContext *s, int force)
         int buf_size, moov_size;
 
         for (i = 0; i < mov->nb_streams; i++)
-            if (!mov->tracks[i].entry)
+            if (!mov->tracks[i].entry && !is_cover_image(mov->tracks[i].st))
                 break;
         /* Don't write the initial moov unless all tracks have data */
         if (i < mov->nb_streams && !force)
@@ -5005,6 +5210,12 @@ static int check_pkt(AVFormatContext *s, AVPacket *pkt)
     } else
         ref = pkt->dts; // Skip tests for the first packet
 
+    if (trk->dts_shift != AV_NOPTS_VALUE) {
+        /* With negative CTS offsets we have set an offset to the DTS,
+         * reverse this for the check. */
+        ref -= trk->dts_shift;
+    }
+
     duration = pkt->dts - ref;
     if (pkt->dts < ref || duration >= INT_MAX) {
         av_log(s, AV_LOG_ERROR, "Application provided duration: %"PRId64" / timestamp: %"PRId64" is out of range for mov/mp4 format\n",
@@ -5082,6 +5293,11 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
     else
         samples_in_chunk = 1;
 
+    if (samples_in_chunk < 1) {
+        av_log(s, AV_LOG_ERROR, "fatal error, input packet contains no samples\n");
+        return AVERROR_PATCHWELCOME;
+    }
+
     /* copy extradata if it exists */
     if (trk->vos_len == 0 && par->extradata_size > 0 &&
         !TAG_IS_AVCI(trk->tag) &&
@@ -5113,7 +5329,7 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
                                        &size);
             avio_write(pb, reformatted_data, size);
         } else {
-            if (mov->encryption_scheme == MOV_ENC_CENC_AES_CTR) {
+            if (trk->cenc.aes_ctr) {
                 size = ff_mov_cenc_avc_parse_nal_units(&trk->cenc, pb, pkt->data, size);
                 if (size < 0) {
                     ret = size;
@@ -5132,6 +5348,13 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
         } else {
             size = ff_hevc_annexb2mp4(pb, pkt->data, pkt->size, 0, NULL);
         }
+    } else if (par->codec_id == AV_CODEC_ID_AV1) {
+        if (trk->hint_track >= 0 && trk->hint_track < mov->nb_streams) {
+            ff_av1_filter_obus_buf(pkt->data, &reformatted_data, &size);
+            avio_write(pb, reformatted_data, size);
+        } else {
+            size = ff_av1_filter_obus(pb, pkt->data, pkt->size);
+        }
 #if CONFIG_AC3_PARSER
     } else if (par->codec_id == AV_CODEC_ID_EAC3) {
         size = handle_eac3(mov, pkt, trk);
@@ -5142,7 +5365,7 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
         avio_write(pb, pkt->data, size);
 #endif
     } else {
-        if (mov->encryption_scheme == MOV_ENC_CENC_AES_CTR) {
+        if (trk->cenc.aes_ctr) {
             if (par->codec_id == AV_CODEC_ID_H264 && par->extradata_size > 4) {
                 int nal_size_length = (par->extradata[4] & 0x3) + 1;
                 ret = ff_mov_cenc_avc_write_nal_units(s, &trk->cenc, nal_size_length, pb, pkt->data, size);
@@ -5186,6 +5409,7 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
     trk->cluster[trk->entry].size             = size;
     trk->cluster[trk->entry].entries          = samples_in_chunk;
     trk->cluster[trk->entry].dts              = pkt->dts;
+    trk->cluster[trk->entry].pts              = pkt->pts;
     if (!trk->entry && trk->start_dts != AV_NOPTS_VALUE) {
         if (!trk->frag_discont) {
             /* First packet of a new fragment. We already wrote the duration
@@ -5278,6 +5502,10 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
         if (trk->cluster[trk->entry].flags & MOV_SYNC_SAMPLE)
             trk->has_keyframes++;
     }
+    if (pkt->flags & AV_PKT_FLAG_DISPOSABLE) {
+        trk->cluster[trk->entry].flags |= MOV_DISPOSABLE_SAMPLE;
+        trk->has_disposable++;
+    }
     trk->entry++;
     trk->sample_count += samples_in_chunk;
     mov->mdat_size    += size;
@@ -5312,6 +5540,31 @@ static int mov_write_single_packet(AVFormatContext *s, AVPacket *pkt)
             mov->flags &= ~FF_MOV_FLAG_FRAG_DISCONT;
         }
 
+        if (mov->flags & FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS) {
+            if (trk->dts_shift == AV_NOPTS_VALUE)
+                trk->dts_shift = pkt->pts - pkt->dts;
+            pkt->dts += trk->dts_shift;
+        }
+
+        if (trk->par->codec_id == AV_CODEC_ID_MP4ALS ||
+            trk->par->codec_id == AV_CODEC_ID_AAC ||
+            trk->par->codec_id == AV_CODEC_ID_AV1 ||
+            trk->par->codec_id == AV_CODEC_ID_FLAC) {
+            int side_size = 0;
+            uint8_t *side = av_packet_get_side_data(pkt, AV_PKT_DATA_NEW_EXTRADATA, &side_size);
+            if (side && side_size > 0 && (side_size != par->extradata_size || memcmp(side, par->extradata, side_size))) {
+                void *newextra = av_mallocz(side_size + AV_INPUT_BUFFER_PADDING_SIZE);
+                if (!newextra)
+                    return AVERROR(ENOMEM);
+                av_free(par->extradata);
+                par->extradata = newextra;
+                memcpy(par->extradata, side, side_size);
+                par->extradata_size = side_size;
+                if (!pkt->size) // Flush packet
+                    mov->need_rewrite_extradata = 1;
+            }
+        }
+
         if (!pkt->size) {
             if (trk->start_dts == AV_NOPTS_VALUE && trk->frag_discont) {
                 trk->start_dts = pkt->dts;
@@ -5319,22 +5572,6 @@ static int mov_write_single_packet(AVFormatContext *s, AVPacket *pkt)
                     trk->start_cts = pkt->pts - pkt->dts;
                 else
                     trk->start_cts = 0;
-            }
-
-            if (trk->par->codec_id == AV_CODEC_ID_MP4ALS ||
-                trk->par->codec_id == AV_CODEC_ID_FLAC) {
-                int side_size = 0;
-                uint8_t *side = av_packet_get_side_data(pkt, AV_PKT_DATA_NEW_EXTRADATA, &side_size);
-                if (side && side_size > 0 && (side_size != par->extradata_size || memcmp(side, par->extradata, side_size))) {
-                    void *newextra = av_mallocz(side_size + AV_INPUT_BUFFER_PADDING_SIZE);
-                    if (!newextra)
-                        return AVERROR(ENOMEM);
-                    av_free(par->extradata);
-                    par->extradata = newextra;
-                    memcpy(par->extradata, side, side_size);
-                    par->extradata_size = side_size;
-                    mov->need_rewrite_extradata = 1;
-                }
             }
 
             return 0;             /* Discard 0 sized packets */
@@ -5349,7 +5586,8 @@ static int mov_write_single_packet(AVFormatContext *s, AVPacket *pkt)
              (mov->max_fragment_size && mov->mdat_size + size >= mov->max_fragment_size) ||
              (mov->flags & FF_MOV_FLAG_FRAG_KEYFRAME &&
               par->codec_type == AVMEDIA_TYPE_VIDEO &&
-              trk->entry && pkt->flags & AV_PKT_FLAG_KEY)) {
+              trk->entry && pkt->flags & AV_PKT_FLAG_KEY) ||
+              (mov->flags & FF_MOV_FLAG_FRAG_EVERY_FRAME)) {
             if (frag_duration >= mov->min_fragment_duration) {
                 // Set the duration of this track to line up with the next
                 // sample in this track. This avoids relying on AVPacket
@@ -5391,13 +5629,32 @@ static int mov_write_subtitle_end_packet(AVFormatContext *s,
 
 static int mov_write_packet(AVFormatContext *s, AVPacket *pkt)
 {
+    MOVMuxContext *mov = s->priv_data;
+    MOVTrack *trk;
+
     if (!pkt) {
         mov_flush_fragment(s, 1);
         return 1;
+    }
+
+    trk = &mov->tracks[pkt->stream_index];
+
+    if (is_cover_image(trk->st)) {
+        int ret;
+
+        if (trk->st->nb_frames >= 1) {
+            if (trk->st->nb_frames == 1)
+                av_log(s, AV_LOG_WARNING, "Got more than one picture in stream %d,"
+                       " ignoring.\n", pkt->stream_index);
+            return 0;
+        }
+
+        if ((ret = av_packet_ref(&trk->cover_image, pkt)) < 0)
+            return ret;
+
+        return 0;
     } else {
         int i;
-        MOVMuxContext *mov = s->priv_data;
-        MOVTrack *trk = &mov->tracks[pkt->stream_index];
 
         if (!pkt->size)
             return mov_write_single_packet(s, pkt); /* Passthrough. */
@@ -5644,7 +5901,8 @@ static void enable_tracks(AVFormatContext *s)
         AVStream *st = s->streams[i];
 
         if (st->codecpar->codec_type <= AVMEDIA_TYPE_UNKNOWN ||
-            st->codecpar->codec_type >= AVMEDIA_TYPE_NB)
+            st->codecpar->codec_type >= AVMEDIA_TYPE_NB ||
+            is_cover_image(st))
             continue;
 
         if (first[st->codecpar->codec_type] < 0)
@@ -5687,6 +5945,7 @@ static void mov_free(AVFormatContext *s)
             av_freep(&mov->tracks[i].par);
         av_freep(&mov->tracks[i].cluster);
         av_freep(&mov->tracks[i].frag_info);
+        av_packet_unref(&mov->tracks[i].cover_image);
 
         if (mov->tracks[i].vos_len)
             av_freep(&mov->tracks[i].vos_data);
@@ -5791,13 +6050,14 @@ static int mov_init(AVFormatContext *s)
     if (mov->max_fragment_duration || mov->max_fragment_size ||
         mov->flags & (FF_MOV_FLAG_EMPTY_MOOV |
                       FF_MOV_FLAG_FRAG_KEYFRAME |
-                      FF_MOV_FLAG_FRAG_CUSTOM))
+                      FF_MOV_FLAG_FRAG_CUSTOM |
+                      FF_MOV_FLAG_FRAG_EVERY_FRAME))
         mov->flags |= FF_MOV_FLAG_FRAGMENT;
 
     /* Set other implicit flags immediately */
     if (mov->mode == MODE_ISM)
         mov->flags |= FF_MOV_FLAG_EMPTY_MOOV | FF_MOV_FLAG_SEPARATE_MOOF |
-                      FF_MOV_FLAG_FRAGMENT;
+                      FF_MOV_FLAG_FRAGMENT | FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS;
     if (mov->flags & FF_MOV_FLAG_DASH)
         mov->flags |= FF_MOV_FLAG_FRAGMENT | FF_MOV_FLAG_EMPTY_MOOV |
                       FF_MOV_FLAG_DEFAULT_BASE_MOOF;
@@ -5858,14 +6118,9 @@ static int mov_init(AVFormatContext *s)
         mov->chapter_track = mov->nb_streams++;
 
     if (mov->flags & FF_MOV_FLAG_RTP_HINT) {
-        /* Add hint tracks for each audio and video stream */
-        for (i = 0; i < s->nb_streams; i++) {
-            AVStream *st = s->streams[i];
-            if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO ||
-                st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+        for (i = 0; i < s->nb_streams; i++)
+            if (rtp_hinting_needed(s->streams[i]))
                 mov->nb_streams++;
-            }
-        }
     }
 
     if (   mov->write_tmcd == -1 && (mov->mode == MODE_MOV || mov->mode == MODE_MP4)
@@ -5950,6 +6205,7 @@ static int mov_init(AVFormatContext *s)
         track->start_dts  = AV_NOPTS_VALUE;
         track->start_cts  = AV_NOPTS_VALUE;
         track->end_pts    = AV_NOPTS_VALUE;
+        track->dts_shift  = AV_NOPTS_VALUE;
         if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             if (track->tag == MKTAG('m','x','3','p') || track->tag == MKTAG('m','x','3','n') ||
                 track->tag == MKTAG('m','x','4','p') || track->tag == MKTAG('m','x','4','n') ||
@@ -5990,18 +6246,17 @@ static int mov_init(AVFormatContext *s)
                         pix_fmt == AV_PIX_FMT_MONOWHITE ||
                         pix_fmt == AV_PIX_FMT_MONOBLACK;
             }
-            if (track->par->codec_id == AV_CODEC_ID_VP9) {
+            if (track->par->codec_id == AV_CODEC_ID_VP9 ||
+                track->par->codec_id == AV_CODEC_ID_AV1) {
                 if (track->mode != MODE_MP4) {
-                    av_log(s, AV_LOG_ERROR, "VP9 only supported in MP4.\n");
+                    av_log(s, AV_LOG_ERROR, "%s only supported in MP4.\n", avcodec_get_name(track->par->codec_id));
                     return AVERROR(EINVAL);
                 }
-                if (s->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
-                    av_log(s, AV_LOG_ERROR,
-                           "VP9 in MP4 support is experimental, add "
-                           "'-strict %d' if you want to use it.\n",
-                           FF_COMPLIANCE_EXPERIMENTAL);
-                    return AVERROR_EXPERIMENTAL;
-                }
+            } else if (track->par->codec_id == AV_CODEC_ID_VP8) {
+                /* altref frames handling is not defined in the spec as of version v1.0,
+                 * so just forbid muxing VP8 streams altogether until a new version does */
+                av_log(s, AV_LOG_ERROR, "VP8 muxing is currently not supported.\n");
+                return AVERROR_PATCHWELCOME;
             }
         } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
             track->timescale = st->codecpar->sample_rate;
@@ -6089,15 +6344,10 @@ static int mov_write_header(AVFormatContext *s)
         nb_tracks++;
 
     if (mov->flags & FF_MOV_FLAG_RTP_HINT) {
-        /* Add hint tracks for each audio and video stream */
         hint_track = nb_tracks;
-        for (i = 0; i < s->nb_streams; i++) {
-            AVStream *st = s->streams[i];
-            if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO ||
-                st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+        for (i = 0; i < s->nb_streams; i++)
+            if (rtp_hinting_needed(s->streams[i]))
                 nb_tracks++;
-            }
-        }
     }
 
     if (mov->mode == MODE_MOV || mov->mode == MODE_MP4)
@@ -6156,7 +6406,8 @@ static int mov_write_header(AVFormatContext *s)
     if (mov->flags & FF_MOV_FLAG_FRAGMENT) {
         /* If no fragmentation options have been set, set a default. */
         if (!(mov->flags & (FF_MOV_FLAG_FRAG_KEYFRAME |
-                            FF_MOV_FLAG_FRAG_CUSTOM)) &&
+                            FF_MOV_FLAG_FRAG_CUSTOM |
+                            FF_MOV_FLAG_FRAG_EVERY_FRAME)) &&
             !mov->max_fragment_duration && !mov->max_fragment_size)
             mov->flags |= FF_MOV_FLAG_FRAG_KEYFRAME;
     } else {
@@ -6174,11 +6425,8 @@ static int mov_write_header(AVFormatContext *s)
             return ret;
 
     if (mov->flags & FF_MOV_FLAG_RTP_HINT) {
-        /* Initialize the hint tracks for each audio and video stream */
         for (i = 0; i < s->nb_streams; i++) {
-            AVStream *st = s->streams[i];
-            if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO ||
-                st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            if (rtp_hinting_needed(s->streams[i])) {
                 if ((ret = ff_mov_init_hinting(s, hint_track, i)) < 0)
                     return ret;
                 hint_track++;
@@ -6323,10 +6571,10 @@ static int shift_data(AVFormatContext *s)
      * writing, so we re-open the same output, but for reading. It also avoids
      * a read/seek/write/seek back and forth. */
     avio_flush(s->pb);
-    ret = s->io_open(s, &read_pb, s->filename, AVIO_FLAG_READ, NULL);
+    ret = s->io_open(s, &read_pb, s->url, AVIO_FLAG_READ, NULL);
     if (ret < 0) {
         av_log(s, AV_LOG_ERROR, "Unable to re-open %s output file for "
-               "the second pass (faststart)\n", s->filename);
+               "the second pass (faststart)\n", s->url);
         goto end;
     }
 
@@ -6492,6 +6740,76 @@ static int mov_check_bitstream(struct AVFormatContext *s, const AVPacket *pkt)
     return ret;
 }
 
+static const AVCodecTag codec_3gp_tags[] = {
+    { AV_CODEC_ID_H263,     MKTAG('s','2','6','3') },
+    { AV_CODEC_ID_H264,     MKTAG('a','v','c','1') },
+    { AV_CODEC_ID_MPEG4,    MKTAG('m','p','4','v') },
+    { AV_CODEC_ID_AAC,      MKTAG('m','p','4','a') },
+    { AV_CODEC_ID_AMR_NB,   MKTAG('s','a','m','r') },
+    { AV_CODEC_ID_AMR_WB,   MKTAG('s','a','w','b') },
+    { AV_CODEC_ID_MOV_TEXT, MKTAG('t','x','3','g') },
+    { AV_CODEC_ID_NONE, 0 },
+};
+
+const AVCodecTag codec_mp4_tags[] = {
+    { AV_CODEC_ID_MPEG4       , MKTAG('m', 'p', '4', 'v') },
+    { AV_CODEC_ID_H264        , MKTAG('a', 'v', 'c', '1') },
+    { AV_CODEC_ID_H264        , MKTAG('a', 'v', 'c', '3') },
+    { AV_CODEC_ID_HEVC        , MKTAG('h', 'e', 'v', '1') },
+    { AV_CODEC_ID_HEVC        , MKTAG('h', 'v', 'c', '1') },
+    { AV_CODEC_ID_MPEG2VIDEO  , MKTAG('m', 'p', '4', 'v') },
+    { AV_CODEC_ID_MPEG1VIDEO  , MKTAG('m', 'p', '4', 'v') },
+    { AV_CODEC_ID_MJPEG       , MKTAG('m', 'p', '4', 'v') },
+    { AV_CODEC_ID_PNG         , MKTAG('m', 'p', '4', 'v') },
+    { AV_CODEC_ID_JPEG2000    , MKTAG('m', 'p', '4', 'v') },
+    { AV_CODEC_ID_VC1         , MKTAG('v', 'c', '-', '1') },
+    { AV_CODEC_ID_DIRAC       , MKTAG('d', 'r', 'a', 'c') },
+    { AV_CODEC_ID_TSCC2       , MKTAG('m', 'p', '4', 'v') },
+    { AV_CODEC_ID_VP9         , MKTAG('v', 'p', '0', '9') },
+    { AV_CODEC_ID_AV1         , MKTAG('a', 'v', '0', '1') },
+    { AV_CODEC_ID_AAC         , MKTAG('m', 'p', '4', 'a') },
+    { AV_CODEC_ID_MP4ALS      , MKTAG('m', 'p', '4', 'a') },
+    { AV_CODEC_ID_MP3         , MKTAG('m', 'p', '4', 'a') },
+    { AV_CODEC_ID_MP2         , MKTAG('m', 'p', '4', 'a') },
+    { AV_CODEC_ID_AC3         , MKTAG('a', 'c', '-', '3') },
+    { AV_CODEC_ID_EAC3        , MKTAG('e', 'c', '-', '3') },
+    { AV_CODEC_ID_DTS         , MKTAG('m', 'p', '4', 'a') },
+    { AV_CODEC_ID_FLAC        , MKTAG('f', 'L', 'a', 'C') },
+    { AV_CODEC_ID_OPUS        , MKTAG('O', 'p', 'u', 's') },
+    { AV_CODEC_ID_VORBIS      , MKTAG('m', 'p', '4', 'a') },
+    { AV_CODEC_ID_QCELP       , MKTAG('m', 'p', '4', 'a') },
+    { AV_CODEC_ID_EVRC        , MKTAG('m', 'p', '4', 'a') },
+    { AV_CODEC_ID_DVD_SUBTITLE, MKTAG('m', 'p', '4', 's') },
+    { AV_CODEC_ID_MOV_TEXT    , MKTAG('t', 'x', '3', 'g') },
+    { AV_CODEC_ID_BIN_DATA    , MKTAG('g', 'p', 'm', 'd') },
+    { AV_CODEC_ID_NONE        ,    0 },
+};
+
+const AVCodecTag codec_ism_tags[] = {
+    { AV_CODEC_ID_WMAPRO      , MKTAG('w', 'm', 'a', ' ') },
+    { AV_CODEC_ID_NONE        ,    0 },
+};
+
+static const AVCodecTag codec_ipod_tags[] = {
+    { AV_CODEC_ID_H264,     MKTAG('a','v','c','1') },
+    { AV_CODEC_ID_MPEG4,    MKTAG('m','p','4','v') },
+    { AV_CODEC_ID_AAC,      MKTAG('m','p','4','a') },
+    { AV_CODEC_ID_ALAC,     MKTAG('a','l','a','c') },
+    { AV_CODEC_ID_AC3,      MKTAG('a','c','-','3') },
+    { AV_CODEC_ID_MOV_TEXT, MKTAG('t','x','3','g') },
+    { AV_CODEC_ID_MOV_TEXT, MKTAG('t','e','x','t') },
+    { AV_CODEC_ID_NONE, 0 },
+};
+
+static const AVCodecTag codec_f4v_tags[] = {
+    { AV_CODEC_ID_MP3,    MKTAG('.','m','p','3') },
+    { AV_CODEC_ID_AAC,    MKTAG('m','p','4','a') },
+    { AV_CODEC_ID_H264,   MKTAG('a','v','c','1') },
+    { AV_CODEC_ID_VP6A,   MKTAG('V','P','6','A') },
+    { AV_CODEC_ID_VP6F,   MKTAG('V','P','6','F') },
+    { AV_CODEC_ID_NONE, 0 },
+};
+
 #if CONFIG_MOV_MUXER
 MOV_CLASS(mov)
 AVOutputFormat ff_mov_muxer = {
@@ -6552,7 +6870,7 @@ AVOutputFormat ff_mp4_muxer = {
     .write_trailer     = mov_write_trailer,
     .deinit            = mov_free,
     .flags             = AVFMT_GLOBALHEADER | AVFMT_ALLOW_FLUSH | AVFMT_TS_NEGATIVE,
-    .codec_tag         = (const AVCodecTag* const []){ ff_mp4_obj_type, 0 },
+    .codec_tag         = (const AVCodecTag* const []){ codec_mp4_tags, 0 },
     .check_bitstream   = mov_check_bitstream,
     .priv_class        = &mp4_muxer_class,
 };
@@ -6573,7 +6891,7 @@ AVOutputFormat ff_psp_muxer = {
     .write_trailer     = mov_write_trailer,
     .deinit            = mov_free,
     .flags             = AVFMT_GLOBALHEADER | AVFMT_ALLOW_FLUSH | AVFMT_TS_NEGATIVE,
-    .codec_tag         = (const AVCodecTag* const []){ ff_mp4_obj_type, 0 },
+    .codec_tag         = (const AVCodecTag* const []){ codec_mp4_tags, 0 },
     .check_bitstream   = mov_check_bitstream,
     .priv_class        = &psp_muxer_class,
 };
@@ -6604,7 +6922,7 @@ AVOutputFormat ff_ipod_muxer = {
     .name              = "ipod",
     .long_name         = NULL_IF_CONFIG_SMALL("iPod H.264 MP4 (MPEG-4 Part 14)"),
     .mime_type         = "video/mp4",
-    .extensions        = "m4v,m4a",
+    .extensions        = "m4v,m4a,m4b",
     .priv_data_size    = sizeof(MOVMuxContext),
     .audio_codec       = AV_CODEC_ID_AAC,
     .video_codec       = AV_CODEC_ID_H264,
@@ -6635,7 +6953,8 @@ AVOutputFormat ff_ismv_muxer = {
     .write_trailer     = mov_write_trailer,
     .deinit            = mov_free,
     .flags             = AVFMT_GLOBALHEADER | AVFMT_ALLOW_FLUSH | AVFMT_TS_NEGATIVE,
-    .codec_tag         = (const AVCodecTag* const []){ ff_mp4_obj_type, 0 },
+    .codec_tag         = (const AVCodecTag* const []){
+        codec_mp4_tags, codec_ism_tags, 0 },
     .check_bitstream   = mov_check_bitstream,
     .priv_class        = &ismv_muxer_class,
 };

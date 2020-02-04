@@ -7,11 +7,10 @@
 #include <stdint.h>
 
 #include "base/hash.h"
-#include "base/metrics/histogram_base.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "chrome/common/url_constants.h"
 #include "content/public/common/url_constants.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -27,15 +26,10 @@ bool LogWebUIUrl(const GURL& web_ui_url) {
   bool should_log = web_ui_url.SchemeIs(content::kChromeUIScheme) ||
                     web_ui_url.SchemeIs(content::kChromeDevToolsScheme);
 
-#if BUILDFLAG(ENABLE_EXTENSIONS)
-  if (web_ui_url.SchemeIs(extensions::kExtensionScheme))
-    should_log = web_ui_url.host() == extension_misc::kBookmarkManagerId;
-#endif
-
   if (should_log) {
     uint32_t hash = base::Hash(web_ui_url.GetOrigin().spec());
-    UMA_HISTOGRAM_SPARSE_SLOWLY(kWebUICreatedForUrl,
-                                static_cast<base::HistogramBase::Sample>(hash));
+    base::UmaHistogramSparse(kWebUICreatedForUrl,
+                             static_cast<base::HistogramBase::Sample>(hash));
   }
 
   return should_log;

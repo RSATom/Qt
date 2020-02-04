@@ -22,10 +22,6 @@
 class ComponentsUI;
 class PluginObserver;
 
-namespace base {
-class SequencedTaskRunner;
-}
-
 namespace policy {
 class ComponentUpdaterPolicyTest;
 }
@@ -43,17 +39,23 @@ namespace component_updater {
 using Callback = update_client::Callback;
 
 class OnDemandUpdater;
+class UpdateScheduler;
 
 using Configurator = update_client::Configurator;
 using CrxComponent = update_client::CrxComponent;
 using CrxUpdateItem = update_client::CrxUpdateItem;
 
 struct ComponentInfo {
-  ComponentInfo(const std::string& id, const base::string16& name,
+  ComponentInfo(const std::string& id,
+                const std::string& fingerprint,
+                const base::string16& name,
                 const base::Version& version);
+  ComponentInfo(const ComponentInfo& other);
+  ComponentInfo(ComponentInfo&& other);
   ~ComponentInfo();
 
   const std::string id;
+  const std::string fingerprint;
   const base::string16 name;
   const base::Version version;
 };
@@ -110,6 +112,10 @@ class ComponentUpdateService {
   virtual std::unique_ptr<ComponentInfo> GetComponentForMimeType(
       const std::string& mime_type) const = 0;
 
+  // Returns a list of ComponentInfo objects describing all registered
+  // components.
+  virtual std::vector<ComponentInfo> GetComponents() const = 0;
+
   // Returns an interface for on-demand updates. On-demand updates are
   // proactively triggered outside the normal component update service schedule.
   virtual OnDemandUpdater& GetOnDemandUpdater() = 0;
@@ -127,10 +133,7 @@ class ComponentUpdateService {
   // where the on-demand functionality is invoked too often. If this function
   // is called while still on cooldown, |callback| will be called immediately.
   virtual void MaybeThrottle(const std::string& id,
-                             const base::Closure& callback) = 0;
-
-  // Returns a task runner suitable for use by component installers.
-  virtual scoped_refptr<base::SequencedTaskRunner> GetSequencedTaskRunner() = 0;
+                             base::OnceClosure callback) = 0;
 
   virtual ~ComponentUpdateService() {}
 
@@ -141,13 +144,18 @@ class ComponentUpdateService {
                                    CrxUpdateItem* item) const = 0;
 
   friend class ::ComponentsUI;
-  FRIEND_TEST_ALL_PREFIXES(DefaultComponentInstallerTest, RegisterComponent);
+  FRIEND_TEST_ALL_PREFIXES(ComponentInstallerTest, RegisterComponent);
 };
 
 using ServiceObserver = ComponentUpdateService::Observer;
 
 class OnDemandUpdater {
  public:
+  // The priority of the on demand update. Calls with |BACKGROUND| priority may
+  // be queued up but calls with |FOREGROUND| priority may be processed right
+  // away.
+  enum class Priority { BACKGROUND = 0, FOREGROUND = 1 };
+
   virtual ~OnDemandUpdater() {}
 
  private:
@@ -156,9 +164,11 @@ class OnDemandUpdater {
   friend class SupervisedUserWhitelistInstaller;
   friend class ::ComponentsUI;
   friend class ::PluginObserver;
+  friend class SwReporterOnDemandFetcher;
 #if defined(OS_CHROMEOS)
-  friend class CrOSComponent;
+  friend class CrOSComponentInstaller;
 #endif  // defined(OS_CHROMEOS)
+  friend class VrAssetsComponentInstallerPolicy;
 
   // Triggers an update check for a component. |id| is a value
   // returned by GetCrxComponentID(). If an update for this component is already
@@ -167,12 +177,14 @@ class OnDemandUpdater {
   // service notifications and provide an optional callback to get the result
   // of the call. The function does not implement any cooldown interval.
   virtual void OnDemandUpdate(const std::string& id,
-                              const Callback& callback) = 0;
+                              Priority priority,
+                              Callback callback) = 0;
 };
 
 // Creates the component updater.
 std::unique_ptr<ComponentUpdateService> ComponentUpdateServiceFactory(
-    const scoped_refptr<Configurator>& config);
+    scoped_refptr<Configurator> config,
+    std::unique_ptr<UpdateScheduler> scheduler);
 
 }  // namespace component_updater
 

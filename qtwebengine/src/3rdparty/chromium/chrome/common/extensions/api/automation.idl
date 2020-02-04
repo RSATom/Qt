@@ -22,16 +22,20 @@
     childrenChanged,
     clicked,
     documentSelectionChanged,
+    documentTitleChanged,
     expandedChanged,
     focus,
+    focusContext,
     imageFrameUpdated,
     hide,
+    hitTestResult,
     hover,
     invalidStatusChanged,
     layoutComplete,
     liveRegionCreated,
     liveRegionChanged,
     loadComplete,
+    loadStart,
     locationChanged,
     mediaStartedPlaying,
     mediaStoppedPlaying,
@@ -39,6 +43,7 @@
     menuListItemSelected,
     menuListValueChanged,
     menuPopupEnd,
+    menuPopupHide,
     menuPopupStart,
     menuStart,
     mouseCanceled,
@@ -56,8 +61,11 @@
     selectionAdd,
     selectionRemove,
     show,
+    stateChanged,
     textChanged,
     textSelectionChanged,
+    windowActivated,
+    windowDeactivated,
     treeChanged,
     valueChanged
   };
@@ -65,8 +73,8 @@
   // Describes the purpose of an $(ref:automation.AutomationNode).
   enum RoleType {
     abbr,
-    alertDialog,
     alert,
+    alertDialog,
     anchor,
     annotation,
     application,
@@ -74,9 +82,7 @@
     audio,
     banner,
     blockquote,
-    busyIndicator,
     button,
-    buttonDropDown,
     canvas,
     caption,
     caret,
@@ -84,22 +90,69 @@
     checkBox,
     client,
     colorWell,
-    columnHeader,
     column,
-    comboBox,
+    columnHeader,
+    comboBoxGrouping,
+    comboBoxMenuButton,
     complementary,
+    contentDeletion,
+    contentInsertion,
     contentInfo,
     date,
     dateTime,
     definition,
-    descriptionListDetail,
     descriptionList,
+    descriptionListDetail,
     descriptionListTerm,
     desktop,
     details,
     dialog,
     directory,
     disclosureTriangle,
+    // --------------------------------------------------------------
+    // DPub Roles:
+    // https://www.w3.org/TR/dpub-aam-1.0/#mapping_role_table
+    docAbstract,
+    docAcknowledgments,
+    docAfterword,
+    docAppendix,
+    docBackLink,
+    docBiblioEntry,
+    docBibliography,
+    docBiblioRef,
+    docChapter,
+    docColophon,
+    docConclusion,
+    docCover,
+    docCredit,
+    docCredits,
+    docDedication,
+    docEndnote,
+    docEndnotes,
+    docEpigraph,
+    docEpilogue,
+    docErrata,
+    docExample,
+    docFootnote,
+    docForeword,
+    docGlossary,
+    docGlossRef,
+    docIndex,
+    docIntroduction,
+    docNoteRef,
+    docNotice,
+    docPageBreak,
+    docPageList,
+    docPart,
+    docPreface,
+    docPrologue,
+    docPullquote,
+    docQna,
+    docSubtitle,
+    docTip,
+    docToc,
+    // End DPub roles.
+    // --------------------------------------------------------------
     document,
     embeddedObject,
     feed,
@@ -108,32 +161,45 @@
     footer,
     form,
     genericContainer,
+    // --------------------------------------------------------------
+    // ARIA Graphics module roles:
+    // https://rawgit.com/w3c/graphics-aam/master/#mapping_role_table
+    graphicsDocument,
+    graphicsObject,
+    graphicsSymbol,
+    // End ARIA Graphics module roles.
+    // --------------------------------------------------------------
     grid,
     group,
     heading,
     iframe,
     iframePresentational,
     ignored,
-    imageMapLink,
-    imageMap,
     image,
+    imageMap,
     inlineTextBox,
     inputTime,
+    keyboard,
     labelText,
+    layoutTable,
+    layoutTableCell,
+    layoutTableColumn,
+    layoutTableRow,
     legend,
     lineBreak,
     link,
-    listBoxOption,
+    list,
     listBox,
+    listBoxOption,
+    listGrid,  // Native
     listItem,
     listMarker,
-    list,
-    locationBar,
     log,
     main,
     mark,
     marquee,
     math,
+    menu,
     menuBar,
     menuButton,
     menuItem,
@@ -141,11 +207,9 @@
     menuItemRadio,
     menuListOption,
     menuListPopup,
-    menu,
     meter,
     navigation,
     note,
-    outline,
     pane,
     paragraph,
     popUpButton,
@@ -156,42 +220,39 @@
     radioGroup,
     region,
     rootWebArea,
-    rowHeader,
     row,
+    rowHeader,
     ruby,
-    ruler,
-    svgRoot,
-    scrollArea,
     scrollBar,
-    seamlessWebArea,
+    scrollView,
     search,
     searchBox,
     slider,
     sliderThumb,
-    spinButtonPart,
     spinButton,
     splitter,
     staticText,
     status,
+    svgRoot,
     switch,
-    tabGroup,
+    tab,
     tabList,
     tabPanel,
-    tab,
-    tableHeaderContainer,
     table,
+    tableHeaderContainer,
     term,
     textField,
+    textFieldWithComboBox,
     time,
     timer,
     titleBar,
     toggleButton,
     toolbar,
+    tooltip,
+    tree,
     treeGrid,
     treeItem,
-    tree,
     unknown,
-    tooltip,
     video,
     webArea,
     webView,
@@ -200,16 +261,16 @@
 
   // Describes characteristics of an $(ref:automation.AutomationNode).
   enum StateType {
-    busy,
+    autofillAvailable,
     collapsed,
     default,
     editable,
     expanded,
     focusable,
     focused,
-    haspopup,
     horizontal,
     hovered,
+    ignored,
     invisible,
     linked,
     multiline,
@@ -218,10 +279,38 @@
     protected,
     required,
     richlyEditable,
-    selectable,
-    selected,
     vertical,
     visited
+  };
+
+  // All possible actions that can be performed on automation nodes.
+  enum ActionType {
+    blur,
+    clearAccessibilityFocus,
+    customAction,
+    decrement,
+    doDefault,
+    focus,
+    getImageData,
+    getTextLocation,
+    hitTest,
+    increment,
+    loadInlineTextBoxes,
+    replaceSelectedText,
+    scrollBackward,
+    scrollDown,
+    scrollForward,
+    scrollLeft,
+    scrollRight,
+    scrollToMakeVisible,
+    scrollToPoint,
+    scrollUp,
+    setAccessibilityFocus,
+    setScrollOffset,
+    setSelection,
+    setSequentialFocusNavigationStartingPoint,
+    setValue,
+    showContextMenu
   };
 
   // Possible changes to the automation tree. For any given atomic change
@@ -258,7 +347,11 @@
     /**
      * This node was removed.
      */
-    nodeRemoved
+    nodeRemoved,
+    /**
+     * This subtree has finished an update.
+     */
+    subtreeUpdateEnd
   };
 
   // Where the node's name is from.
@@ -266,9 +359,11 @@
     uninitialized,
     attribute,
     attributeExplicitlyEmpty,
+    caption,
     contents,
     placeholder,
     relatedElement,
+    title,
     value
   };
 
@@ -277,6 +372,29 @@
     disabled,
     readOnly
   };
+
+  // Indicates the availability and type of interactive popup element
+  enum HasPopup {
+    true,
+    menu,
+    listbox,
+    tree,
+    grid,
+    dialog
+  };
+
+  // Describes possible actions when performing a do default action.
+  enum DefaultActionVerb {
+    activate,
+    check,
+    click,
+    clickAncestor,
+    jump,
+    open,
+    press,
+    select,
+    uncheck
+};
 
   dictionary Rect {
     long left;
@@ -370,6 +488,12 @@
   // A listener for changes on the <code>AutomationNode</code> tree.
   callback TreeChangeObserver = void(TreeChange treeChange);
 
+  // Callback called for actions with a response.
+  callback PerformActionCallback = void(boolean result);
+  callback PerformActionCallbackWithNode = void(AutomationNode node);
+  callback BoundsForRangeCallback = void(Rect bounds);
+
+
   dictionary CustomAction {
     long id;
     DOMString description;
@@ -395,11 +519,16 @@
     // screen coordinates.
     Rect? location;
 
-    // Computes the bounding box of a subrange of this node in global screen
-    // coordinates. Returns the same as |location| if range information
-    // is not available. The start and end indices are zero-based offsets
-    // into the node's "name" string attribute.
-    static Rect boundsForRange(long startIndex, long endIndex);
+    // Determines the location of the text within the node specified by
+    // |startIndex| and |endIndex|, inclusively. Invokes |callback| with the
+    // bounding rectangle, in screen coordinates. |callback| can be invoked
+    // either synchronously or asynchronously.
+    static void boundsForRange(long startIndex, long endIndex,
+        BoundsForRangeCallback callback);
+
+    // The location (as a bounding box) of this node in global screen
+    // coordinates without applying any clipping from ancestors.
+    Rect? unclippedLocation;
 
     // The purpose of the node, other than the role, if any.
     DOMString? description;
@@ -455,11 +584,50 @@
     // applicable
     AutomationNode? activeDescendant;
 
+    // Reverse relationship for active descendant.
+    AutomationNode[]? activeDescendantFor;
+
     // The target of an in-page link.
     AutomationNode? inPageLinkTarget;
 
+    // A node that provides more details about the current node.
+    AutomationNode? details;
+
+    // A node that provides an error message for a current node.
+    AutomationNode? errorMessage;
+
+    // Reverse relationship for details.
+    AutomationNode[]? detailsFor;
+
+    // Reverse relationship for errorMessage.
+    AutomationNode[]? errorMessageFor;
+
+    // Reverse relationship for controls.
+    AutomationNode[]? controlledBy;
+
+    // Reverse relationship for describedBy.
+    AutomationNode[]? descriptionFor;
+
+    // Reverse relationship for flowTo.
+    AutomationNode[]? flowFrom;
+
+    // Reverse relationship for labelledBy.
+    AutomationNode[]? labelFor;
+
+    // The column header nodes for a table cell.
+    AutomationNode[]? tableCellColumnHeaders;
+
+    // The row header nodes for a table cell.
+    AutomationNode[]? tableCellRowHeaders;
+
+    // An array of standard actions available on this node.
+    ActionType[]? standardActions;
+
     // An array of custom actions.
     CustomAction[]? customActions;
+
+    // The action taken by calling <code>doDefault</code>.
+    DefaultActionVerb? defaultActionVerb;
 
     //
     // Link attributes.
@@ -495,6 +663,9 @@
     long? scrollYMin;
     long? scrollYMax;
 
+    // Indicates whether this node is scrollable.
+    boolean? scrollable;
+
     //
     // Editable text field attributes.
     //
@@ -509,9 +680,6 @@
 
     // The input type, like email or number.
     DOMString? textInputType;
-
-    // An array of indexes of the break between lines in editable text.
-    long[] lineBreaks;
 
     // An array of indexes of the start position of each text marker.
     long[] markerStarts;
@@ -609,6 +777,12 @@
     // The corresponding row header for this cell.
     AutomationNode? tableRowHeader;
 
+    // The column index of this column node.
+    long? tableColumnIndex;
+
+    // The row index of this row node.
+    long? tableRowIndex;
+
     //
     // Live region attributes.
     //
@@ -623,8 +797,8 @@
     // The value of aria-atomic for a live region.
     boolean? liveAtomic;
 
-    // The value of aria-busy for a live region.
-    boolean? liveBusy;
+    // The value of aria-busy for a live region or any other element.
+    boolean? busy;
 
     // The type of live region if this node is inside a live region.
     DOMString? containerLiveStatus;
@@ -641,6 +815,15 @@
     //
     // Miscellaneous attributes.
     //
+
+    // Aria auto complete.
+    DOMString? autoComplete;
+
+    // The name of the programmatic backing object.
+    DOMString? className;
+
+    // Marks this subtree as modal.
+    boolean? modal;
 
     // A map containing all HTML attributes and their values
     // <jsexterns>@type {Object<string>}</jsexterns>
@@ -664,8 +847,17 @@
     // The language code for this subtree.
     DOMString? language;
 
+    // Indicates the availability and type of interactive popup element
+    // true - the popup is a menu
+    // menu - the popup is a menu
+    // listbox - the popup is a listbox
+    // tree - the popup is a tree
+    // grid - the popup is a grid
+    // dialog - the popup is a dialog
+    DOMString? hasPopup;
+
     // Input restriction, if any, such as readonly or disabled:
-    // undefined - enabled control or other object that is not disabled 
+    // undefined - enabled control or other object that is not disabled
     // Restriction.DISABLED - disallows input in itself + any descendants
     // Restriction.READONLY - allow focus/selection but not input
     DOMString? restriction;
@@ -673,6 +865,9 @@
     // Tri-state describing checkbox or radio button:
     // 'false' | 'true' | 'mixed'
     DOMString? checked;
+
+    // The inner html of this element. Only populated for math content.
+    DOMString? innerHtml;
 
     // The RGBA foreground color of this subtree, as an integer.
     long? color;
@@ -682,6 +877,12 @@
 
     // The RGBA color of an input element whose value is a color.
     long? colorValue;
+
+    // Indicates node text is subscript.
+    boolean subscript;
+
+    // Indicates node text is superscript.
+    boolean superscript;
 
     // Indicates node text is bold.
     boolean bold;
@@ -695,6 +896,9 @@
     // Indicates node text is line through.
     boolean lineThrough;
 
+    // Indicates whether this node is selected, unselected, or neither.
+    boolean? selected;
+
     //
     // Walking the tree.
     //
@@ -705,8 +909,10 @@
     AutomationNode? lastChild;
     AutomationNode? previousSibling;
     AutomationNode? nextSibling;
-    AutomationNode? nextOnLine;
     AutomationNode? previousOnLine;
+    AutomationNode? nextOnLine;
+    AutomationNode? previousFocus;
+    AutomationNode? nextFocus;
 
     // The index of this node in its parent node's list of children. If this is
     // the root node, this will be undefined.
@@ -732,7 +938,17 @@
 
     // Does a hit test of the given global screen coordinates, and fires
     // eventToFire on the resulting object.
-    static void hitTest(long x, long y, EventType eventToFire);
+    static void hitTest(
+        long x,
+        long y,
+        EventType eventToFire);
+
+    // Does a $(ref:automation.AutomationNode.hitTest), and receives a callback
+    // with the resulting hit node.
+    static void hitTestWithReply(
+        long x,
+        long y,
+        PerformActionCallbackWithNode callback);
 
     // Scrolls this node to make it visible.
     static void makeVisible();
@@ -740,12 +956,23 @@
     // Performs custom action.
     static void performCustomAction(long customActionId);
 
+    // Convenience method to perform a standard action supported by this node.
+    // For actions requiring additional arguments, call the specific binding
+    // e.g. <code>setSelection</code>.
+    static void performStandardAction(ActionType actionType);
+
+    // Replaces the selected text within a text field.
+    static void replaceSelectedText(DOMString value);
+
     // Sets selection within a text field.
     static void setSelection(long startIndex, long endIndex);
 
     // Clears focus and sets this node as the starting point for the next
     // time the user presses Tab or Shift+Tab.
     static void setSequentialFocusNavigationStartingPoint();
+
+    // Sets the value of a text field.
+    static void setValue(DOMString value);
 
     // Show the context menu for this element, as if the user right-clicked.
     static void showContextMenu();
@@ -761,6 +988,24 @@
 
     // Suspend any media playing within this tree.
     static void suspendMedia();
+
+    // Scrolls this scrollable container backward.
+    static void scrollBackward(PerformActionCallback callback);
+
+    // Scrolls this scrollable container forward.
+    static void scrollForward(PerformActionCallback callback);
+
+    // Scrolls this scrollable container up.
+    static void scrollUp(PerformActionCallback callback);
+
+    // Scrolls this scrollable container down.
+    static void scrollDown(PerformActionCallback callback);
+
+    // Scrolls this scrollable container left.
+    static void scrollLeft(PerformActionCallback callback);
+
+    // Scrolls this scrollable container right.
+    static void scrollRight(PerformActionCallback callback);
 
     // Adds a listener for the given event type and event phase.
     static void addEventListener(
@@ -796,6 +1041,9 @@
 
     // Returns whether this node matches the given $(ref:automation.FindParams).
     static boolean matches(FindParams params);
+
+    static AutomationNode getNextTextMatch(
+        DOMString searchStr, boolean backward);
   };
 
   // Called when the <code>AutomationNode</code> for the page is available.

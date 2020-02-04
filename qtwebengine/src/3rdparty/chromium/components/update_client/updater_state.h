@@ -21,9 +21,9 @@ class UpdaterState {
 
   static const char kIsEnterpriseManaged[];
 
-  // Returns a map of items representing the state of an updater. These items
-  // can be serialized as XML attributes in the request building.
-  // |is_machine| is true for per-system installs of Chrome. Returns nullptr on
+  // Returns a map of items representing the state of an updater.
+  // If |is_machine| is true, this indicates that the updater state corresponds
+  // to the machine instance of the updater. Returns nullptr on
   // the platforms and builds where this feature is not supported.
   static std::unique_ptr<Attributes> GetState(bool is_machine);
 
@@ -44,7 +44,6 @@ class UpdaterState {
   static std::string GetUpdaterName();
   static base::Version GetUpdaterVersion(bool is_machine);
   static bool IsAutoupdateCheckEnabled();
-  static bool IsEnterpriseManaged();
   static base::Time GetUpdaterLastStartedAU(bool is_machine);
   static base::Time GetUpdaterLastChecked(bool is_machine);
 
@@ -52,7 +51,10 @@ class UpdaterState {
 
   static std::string NormalizeTimeDelta(const base::TimeDelta& delta);
 
-  bool is_machine_ = false;
+  // True if the Omaha updater is installed per-machine.
+  // The MacOS implementation ignores the value of this member but this may
+  // change in the future.
+  bool is_machine_;
   std::string updater_name_;
   base::Version updater_version_;
   base::Time last_autoupdate_started_;

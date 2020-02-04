@@ -12,7 +12,10 @@
 #include "core/fpdfapi/page/cpdf_image.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 
-CPDF_ImageObject::CPDF_ImageObject() {}
+CPDF_ImageObject::CPDF_ImageObject(int32_t content_stream)
+    : CPDF_PageObject(content_stream) {}
+
+CPDF_ImageObject::CPDF_ImageObject() : CPDF_ImageObject(kNoContentStream) {}
 
 CPDF_ImageObject::~CPDF_ImageObject() {
   MaybePurgeCache();
@@ -41,14 +44,11 @@ const CPDF_ImageObject* CPDF_ImageObject::AsImage() const {
 }
 
 void CPDF_ImageObject::CalcBoundingBox() {
-  m_Left = 0;
-  m_Bottom = 0;
-  m_Right = 1.0f;
-  m_Top = 1.0f;
-  m_Matrix.TransformRect(m_Left, m_Right, m_Top, m_Bottom);
+  static constexpr CFX_FloatRect kRect(0.0f, 0.0f, 1.0f, 1.0f);
+  SetRect(m_Matrix.TransformRect(kRect));
 }
 
-void CPDF_ImageObject::SetImage(const CFX_RetainPtr<CPDF_Image>& pImage) {
+void CPDF_ImageObject::SetImage(const RetainPtr<CPDF_Image>& pImage) {
   MaybePurgeCache();
   m_pImage = pImage;
 }
@@ -57,11 +57,7 @@ void CPDF_ImageObject::MaybePurgeCache() {
   if (!m_pImage)
     return;
 
-  CPDF_Document* pDocument = m_pImage->GetDocument();
-  if (!pDocument)
-    return;
-
-  CPDF_DocPageData* pPageData = pDocument->GetPageData();
+  CPDF_DocPageData* pPageData = m_pImage->GetDocument()->GetPageData();
   if (!pPageData)
     return;
 

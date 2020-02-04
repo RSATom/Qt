@@ -18,13 +18,15 @@
 #include <windows.h>
 #include <stdint.h>
 
+#include <memory>
+#include <vector>
+
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "snapshot/cpu_context.h"
 #include "snapshot/exception_snapshot.h"
 #include "snapshot/win/thread_snapshot_win.h"
 #include "util/misc/initialization_state_dcheck.h"
-#include "util/stdlib/pointer_container.h"
 #include "util/win/address_types.h"
 #include "util/win/process_structs.h"
 
@@ -36,12 +38,14 @@ namespace internal {
 
 class MemorySnapshotWin;
 
-#if defined(ARCH_CPU_X86_FAMILY)
 union CPUContextUnion {
+#if defined(ARCH_CPU_X86_FAMILY)
   CPUContextX86 x86;
   CPUContextX86_64 x86_64;
-};
+#elif defined(ARCH_CPU_ARM64)
+  CPUContextARM64 arm64;
 #endif
+};
 
 class ExceptionSnapshotWin final : public ExceptionSnapshot {
  public:
@@ -50,8 +54,8 @@ class ExceptionSnapshotWin final : public ExceptionSnapshot {
 
   //! \brief Initializes the object.
   //!
-  //! \param[in] process_reader A ProcessReader for the process that sustained
-  //!     the exception.
+  //! \param[in] process_reader A ProcessReaderWin for the process that
+  //!     sustained the exception.
   //! \param[in] thread_id The thread ID in which the exception occurred.
   //! \param[in] exception_pointers The address of an `EXCEPTION_POINTERS`
   //!     record in the target process, passed through from the exception
@@ -89,12 +93,10 @@ class ExceptionSnapshotWin final : public ExceptionSnapshot {
                                     CPUContext* context,
                                     CPUContextUnion* context_union));
 
-#if defined(ARCH_CPU_X86_FAMILY)
   CPUContextUnion context_union_;
-#endif
   CPUContext context_;
   std::vector<uint64_t> codes_;
-  PointerVector<internal::MemorySnapshotWin> extra_memory_;
+  std::vector<std::unique_ptr<internal::MemorySnapshotWin>> extra_memory_;
   uint64_t thread_id_;
   uint64_t exception_address_;
   uint32_t exception_flags_;

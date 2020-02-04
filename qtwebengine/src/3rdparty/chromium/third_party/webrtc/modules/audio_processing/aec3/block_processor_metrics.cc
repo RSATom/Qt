@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_processing/aec3/block_processor_metrics.h"
+#include "modules/audio_processing/aec3/block_processor_metrics.h"
 
-#include "webrtc/modules/audio_processing/aec3/aec3_common.h"
-#include "webrtc/system_wrappers/include/metrics.h"
+#include "modules/audio_processing/aec3/aec3_common.h"
+#include "rtc_base/checks.h"
+#include "system_wrappers/include/metrics.h"
 
 namespace webrtc {
 

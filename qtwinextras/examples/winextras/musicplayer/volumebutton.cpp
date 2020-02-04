@@ -70,8 +70,7 @@ VolumeButton::VolumeButton(QWidget *parent) :
     label->setNum(100);
     label->setMinimumWidth(label->sizeHint().width());
 
-    typedef void(QLabel::*IntSlot)(int);
-    connect(slider, &QAbstractSlider::valueChanged, label, static_cast<IntSlot>(&QLabel::setNum));
+    connect(slider, &QAbstractSlider::valueChanged, label, QOverload<int>::of(&QLabel::setNum));
 
     QBoxLayout *popupLayout = new QHBoxLayout(popup);
     popupLayout->setMargin(2);
@@ -111,14 +110,17 @@ void VolumeButton::setVolume(int volume)
 //! [0]
 void VolumeButton::stylize()
 {
-    if (QtWin::isCompositionEnabled()) {
-        QtWin::enableBlurBehindWindow(menu);
-        QString css("QMenu { border: 1px solid %1; border-radius: 2px; background: transparent; }");
-        menu->setStyleSheet(css.arg(QtWin::realColorizationColor().name()));
-    } else {
-        QtWin::disableBlurBehindWindow(menu);
-        QString css("QMenu { border: 1px solid black; background: %1; }");
-        menu->setStyleSheet(css.arg(QtWin::realColorizationColor().name()));
+    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8) {
+        // Set styling options relevant only to Windows 7.
+        if (QtWin::isCompositionEnabled()) {
+            QtWin::enableBlurBehindWindow(menu);
+            QString css("QMenu { border: 1px solid %1; border-radius: 2px; background: transparent; }");
+            menu->setStyleSheet(css.arg(QtWin::realColorizationColor().name()));
+        } else {
+            QtWin::disableBlurBehindWindow(menu);
+            QString css("QMenu { border: 1px solid black; background: %1; }");
+            menu->setStyleSheet(css.arg(QtWin::realColorizationColor().name()));
+        }
     }
 }
 //! [0]

@@ -4,7 +4,6 @@
 
 #include <stddef.h>
 
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -39,9 +38,8 @@ class TopSitesExtensionTest : public InProcessBrowserTest {
     // This may return async or sync. If sync, top_sites_inited_ will be true
     // before we get to the conditional below. Otherwise, we'll run a nested
     // message loop until the async callback.
-    top_sites->GetMostVisitedURLs(
-        base::Bind(&TopSitesExtensionTest::OnTopSitesAvailable,
-                   base::Unretained(this)), false);
+    top_sites->GetMostVisitedURLs(base::Bind(
+        &TopSitesExtensionTest::OnTopSitesAvailable, base::Unretained(this)));
 
     if (!top_sites_inited_) {
       waiting_ = true;
@@ -58,7 +56,7 @@ class TopSitesExtensionTest : public InProcessBrowserTest {
  private:
   void OnTopSitesAvailable(const history::MostVisitedURLList& data) {
     if (waiting_) {
-      base::MessageLoop::current()->QuitWhenIdle();
+      base::RunLoop::QuitCurrentWhenIdleDeprecated();
       waiting_ = false;
     }
     top_sites_inited_ = true;

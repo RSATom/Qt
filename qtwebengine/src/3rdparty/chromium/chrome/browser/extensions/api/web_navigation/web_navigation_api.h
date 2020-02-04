@@ -59,8 +59,7 @@ class WebNavigationTabObserver
   void DidFailLoad(content::RenderFrameHost* render_frame_host,
                    const GURL& validated_url,
                    int error_code,
-                   const base::string16& error_description,
-                   bool was_ignored_by_handler) override;
+                   const base::string16& error_description) override;
   void DidOpenRequestedURL(content::WebContents* new_contents,
                            content::RenderFrameHost* source_render_frame_host,
                            const GURL& url,
@@ -86,14 +85,9 @@ class WebNavigationTabObserver
   bool IsReferenceFragmentNavigation(content::RenderFrameHost* frame_host,
                                      const GURL& url);
 
-  // Creates and sends onErrorOccurred events for all on-going navigations. If
-  // |render_view_host| is non-NULL, only generates events for frames in this
-  // render view host. If |frame_host_to_skip| is given, no events are sent for
-  // that
-  // frame.
-  void SendErrorEvents(content::WebContents* web_contents,
-                       content::RenderViewHost* render_view_host,
-                       content::RenderFrameHost* frame_host_to_skip);
+  // Called when a RenderFrameHost goes into pending deletion. Stop tracking it
+  // and its children.
+  void RenderFrameHostPendingDeletion(content::RenderFrameHost*);
 
   // Tracks the state of the frames we are sending events for.
   FrameNavigationState navigation_state_;
@@ -105,6 +99,8 @@ class WebNavigationTabObserver
 
   // Used for tracking registrations to redirect notifications.
   content::NotificationRegistrar registrar_;
+
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
 
   DISALLOW_COPY_AND_ASSIGN(WebNavigationTabObserver);
 };
@@ -149,10 +145,10 @@ class WebNavigationEventRouter : public TabStripModelObserver,
   bool ShouldTrackBrowser(Browser* browser) override;
 
   // TabStripModelObserver implementation.
-  void TabReplacedAt(TabStripModel* tab_strip_model,
-                     content::WebContents* old_contents,
-                     content::WebContents* new_contents,
-                     int index) override;
+  void OnTabStripModelChanged(
+      TabStripModel* tab_strip_model,
+      const TabStripModelChange& change,
+      const TabStripSelectionChange& selection) override;
 
   // content::NotificationObserver implementation.
   void Observe(int type,

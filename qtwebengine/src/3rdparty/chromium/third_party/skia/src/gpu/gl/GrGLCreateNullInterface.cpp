@@ -5,12 +5,13 @@
  * found in the LICENSE file.
  */
 
-
-#include "GrNonAtomicRef.h"
-#include "gl/GrGLInterface.h"
 #include "GrGLTestInterface.h"
+#include "GrNonAtomicRef.h"
 #include "SkMutex.h"
 #include "SkTDArray.h"
+#include "SkTo.h"
+#include "gl/GrGLInterface.h"
+
 #include <type_traits>
 
 // added to suppress 'no previous prototype' warning and because this code is duplicated in
@@ -403,6 +404,9 @@ public:
         Framebuffer* framebuffer = fFramebufferManager.lookUp(id);
 
         GrAlwaysAssert(GR_GL_RENDERBUFFER == renderbuffertarget);
+        if (!renderBufferID && !fCurrRenderbuffer) {
+           return;
+        }
         GrAlwaysAssert(fCurrRenderbuffer);
         Renderbuffer* renderbuffer = fRenderbufferManager.lookUp(fCurrRenderbuffer);
 
@@ -413,6 +417,10 @@ public:
                                           GrGLenum renderbuffertarget,
                                           GrGLuint renderbuffer) override {
         SK_ABORT("Not implemented");
+    }
+
+    GrGLvoid genSamplers(GrGLsizei n, GrGLuint* samplers) override {
+        this->genGenericIds(n, samplers);
     }
 
     GrGLvoid genTextures(GrGLsizei n, GrGLuint *textures) override {
@@ -527,7 +535,7 @@ public:
                 break;
             }
             default:
-                SkFAIL("Unexpected pname to GetIntegerv");
+                SK_ABORT("Unexpected pname to GetIntegerv");
         }
     }
 
@@ -553,7 +561,7 @@ public:
                 *params = 32;
                 break;
             default:
-                SkFAIL("Unexpected pname passed GetQueryiv.");
+                SK_ABORT("Unexpected pname passed GetQueryiv.");
         }
     }
 
@@ -595,7 +603,7 @@ public:
             case GR_GL_RENDERER:
                 return (const GrGLubyte*)"The Null (Non-)Renderer";
             default:
-                SkFAIL("Unexpected name passed to GetString");
+                SK_ABORT("Unexpected name passed to GetString");
                 return nullptr;
         }
     }
@@ -612,7 +620,7 @@ public:
                 }
             }
             default:
-                SkFAIL("Unexpected name passed to GetStringi");
+                SK_ABORT("Unexpected name passed to GetStringi");
                 return nullptr;
         }
     }
@@ -673,7 +681,7 @@ public:
                 }
                 break; }
             default:
-                SkFAIL("Unexpected pname to GetBufferParamateriv");
+                SK_ABORT("Unexpected pname to GetBufferParamateriv");
                 break;
         }
     }
@@ -687,7 +695,7 @@ public:
 private:
     inline int static GetBufferIndex(GrGLenum glTarget) {
         switch (glTarget) {
-            default:                           SkFAIL("Unexpected GL target to GetBufferIndex");
+            default:                           SK_ABORT("Unexpected GL target to GetBufferIndex");
             case GR_GL_ARRAY_BUFFER:           return 0;
             case GR_GL_ELEMENT_ARRAY_BUFFER:   return 1;
             case GR_GL_TEXTURE_BUFFER:         return 2;
@@ -789,12 +797,13 @@ private:
             case GR_GL_COMPILE_STATUS:
                 *params = GR_GL_TRUE;
                 break;
-            case GR_GL_INFO_LOG_LENGTH:
+            case GR_GL_INFO_LOG_LENGTH: // fallthru
+            case GL_PROGRAM_BINARY_LENGTH:
                 *params = 0;
                 break;
                 // we don't expect any other pnames
             default:
-                SkFAIL("Unexpected pname to GetProgramiv");
+                SK_ABORT("Unexpected pname to GetProgramiv");
                 break;
         }
     }
@@ -809,7 +818,7 @@ private:
                 *params = 0;
                 break;
             default:
-                SkFAIL("Unexpected pname passed to GetQueryObject.");
+                SK_ABORT("Unexpected pname passed to GetQueryObject.");
                 break;
         }
     }

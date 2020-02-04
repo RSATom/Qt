@@ -48,6 +48,7 @@ QT_BEGIN_NAMESPACE
 class QAbstractEventDispatcher;
 class QFbScreen;
 class QFbVtHandler;
+class QEvdevKeyboardManager;
 
 class QLinuxFbIntegration : public QPlatformIntegration, public QPlatformNativeInterface
 {
@@ -55,31 +56,36 @@ public:
     QLinuxFbIntegration(const QStringList &paramList);
     ~QLinuxFbIntegration();
 
-    void initialize() Q_DECL_OVERRIDE;
-    bool hasCapability(QPlatformIntegration::Capability cap) const Q_DECL_OVERRIDE;
+    void initialize() override;
+    bool hasCapability(QPlatformIntegration::Capability cap) const override;
 
-    QPlatformWindow *createPlatformWindow(QWindow *window) const Q_DECL_OVERRIDE;
-    QPlatformBackingStore *createPlatformBackingStore(QWindow *window) const Q_DECL_OVERRIDE;
+    QPlatformWindow *createPlatformWindow(QWindow *window) const override;
+    QPlatformBackingStore *createPlatformBackingStore(QWindow *window) const override;
 
-    QAbstractEventDispatcher *createEventDispatcher() const Q_DECL_OVERRIDE;
+    QAbstractEventDispatcher *createEventDispatcher() const override;
 
-    QPlatformFontDatabase *fontDatabase() const Q_DECL_OVERRIDE;
-    QPlatformServices *services() const Q_DECL_OVERRIDE;
-    QPlatformInputContext *inputContext() const Q_DECL_OVERRIDE { return m_inputContext; }
+    QPlatformFontDatabase *fontDatabase() const override;
+    QPlatformServices *services() const override;
+    QPlatformInputContext *inputContext() const override { return m_inputContext; }
 
-    QPlatformNativeInterface *nativeInterface() const Q_DECL_OVERRIDE;
+    QPlatformNativeInterface *nativeInterface() const override;
 
     QList<QPlatformScreen *> screens() const;
 
+    QFunctionPointer platformFunction(const QByteArray &function) const override;
+
 private:
     void createInputHandlers();
+    static void loadKeymapStatic(const QString &filename);
+    static void switchLangStatic();
 
     QFbScreen *m_primaryScreen;
     QPlatformInputContext *m_inputContext;
     QScopedPointer<QPlatformFontDatabase> m_fontDb;
     QScopedPointer<QPlatformServices> m_services;
     QScopedPointer<QFbVtHandler> m_vtHandler;
-    QScopedPointer<QPlatformNativeInterface> m_nativeInterface;
+
+    QEvdevKeyboardManager *m_kbdMgr;
 };
 
 QT_END_NAMESPACE

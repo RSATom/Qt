@@ -122,33 +122,6 @@ struct UpdateRequest
 using ValueRange = QPair<NSUInteger, NSUInteger>;
 
 @interface QT_MANGLE_NAMESPACE(OSXBTPeripheralManager) : NSObject<CBPeripheralManagerDelegate>
-{
-    ObjCScopedPointer<CBPeripheralManager> manager;
-    LECBManagerNotifier *notifier;
-
-    QLowEnergyHandle lastHandle;
-    // Services in this vector are placed in such order:
-    // the one that has included services, must
-    // follow its included services to avoid exceptions from CBPeripheralManager.
-    std::vector<ObjCStrongReference<CBMutableService>> services;
-    decltype(services.size()) nextServiceToAdd;
-
-    // Lookup map for included services:
-    std::map<QBluetoothUuid, CBService *> serviceIndex;
-    ObjCScopedPointer<NSMutableDictionary> advertisementData;
-
-    GenericLEMap<CBCharacteristic *> charMap;
-    GenericLEMap<ObjCStrongReference<NSMutableData>> charValues;
-
-    QMap<QLowEnergyHandle, ValueRange> valueRanges;
-
-    std::deque<UpdateRequest> updateQueue;
-
-    ObjCScopedPointer<NSMutableSet> connectedCentrals;
-
-    PeripheralState state;
-    NSUInteger maxNotificationValueLength;
-}
 
 - (id)initWith:(LECBManagerNotifier *)notifier;
 - (void)dealloc;

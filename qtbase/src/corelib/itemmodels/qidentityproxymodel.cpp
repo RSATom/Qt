@@ -3,7 +3,7 @@
 ** Copyright (C) 2011 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Stephen Kelly <stephen.kelly@kdab.com>
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -38,9 +38,6 @@
 ****************************************************************************/
 
 #include "qidentityproxymodel.h"
-
-#ifndef QT_NO_IDENTITYPROXYMODEL
-
 #include "qitemselectionmodel.h"
 #include <private/qabstractproxymodel_p.h>
 
@@ -86,7 +83,7 @@ class QIdentityProxyModelPrivate : public QAbstractProxyModelPrivate
     \since 4.8
     \class QIdentityProxyModel
     \inmodule QtCore
-    \brief The QIdentityProxyModel class proxies its source model unmodified
+    \brief The QIdentityProxyModel class proxies its source model unmodified.
 
     \ingroup model-view
 
@@ -98,7 +95,7 @@ class QIdentityProxyModelPrivate : public QAbstractProxyModelPrivate
     need to implement all data handling in the same class that creates the structure of the model, and can also be used to create
     re-usable components.
 
-    This also provides a way to change the data in the case where a source model is supplied by a third party which can not be modified.
+    This also provides a way to change the data in the case where a source model is supplied by a third party which cannot be modified.
 
     \snippet code/src_gui_itemviews_qidentityproxymodel.cpp 0
 
@@ -483,13 +480,13 @@ void QIdentityProxyModelPrivate::_q_sourceDataChanged(const QModelIndex &topLeft
     Q_ASSERT(topLeft.isValid() ? topLeft.model() == model : true);
     Q_ASSERT(bottomRight.isValid() ? bottomRight.model() == model : true);
     Q_Q(QIdentityProxyModel);
-    q->dataChanged(q->mapFromSource(topLeft), q->mapFromSource(bottomRight), roles);
+    emit q->dataChanged(q->mapFromSource(topLeft), q->mapFromSource(bottomRight), roles);
 }
 
 void QIdentityProxyModelPrivate::_q_sourceHeaderDataChanged(Qt::Orientation orientation, int first, int last)
 {
     Q_Q(QIdentityProxyModel);
-    q->headerDataChanged(orientation, first, last);
+    emit q->headerDataChanged(orientation, first, last);
 }
 
 void QIdentityProxyModelPrivate::_q_sourceLayoutAboutToBeChanged(const QList<QPersistentModelIndex> &sourceParents, QAbstractItemModel::LayoutChangeHint hint)
@@ -508,7 +505,7 @@ void QIdentityProxyModelPrivate::_q_sourceLayoutAboutToBeChanged(const QList<QPe
         parents << mappedParent;
     }
 
-    q->layoutAboutToBeChanged(parents, hint);
+    emit q->layoutAboutToBeChanged(parents, hint);
 
     const auto proxyPersistentIndexes = q->persistentIndexList();
     for (const QPersistentModelIndex &proxyPersistentIndex : proxyPersistentIndexes) {
@@ -543,7 +540,7 @@ void QIdentityProxyModelPrivate::_q_sourceLayoutChanged(const QList<QPersistentM
         parents << mappedParent;
     }
 
-    q->layoutChanged(parents, hint);
+    emit q->layoutChanged(parents, hint);
 }
 
 void QIdentityProxyModelPrivate::_q_sourceModelAboutToBeReset()
@@ -616,5 +613,3 @@ void QIdentityProxyModelPrivate::_q_sourceRowsRemoved(const QModelIndex &parent,
 QT_END_NAMESPACE
 
 #include "moc_qidentityproxymodel.cpp"
-
-#endif // QT_NO_IDENTITYPROXYMODEL

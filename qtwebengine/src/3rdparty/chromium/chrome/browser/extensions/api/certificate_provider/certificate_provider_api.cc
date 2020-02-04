@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/common/extensions/api/certificate_provider.h"
@@ -19,6 +18,7 @@
 #include "content/public/common/console_message_level.h"
 #include "net/cert/x509_certificate.h"
 #include "net/ssl/ssl_private_key.h"
+#include "third_party/boringssl/src/include/openssl/ssl.h"
 
 namespace api_cp = extensions::api::certificate_provider;
 namespace api_cpi = extensions::api::certificate_provider_internal;
@@ -52,19 +52,23 @@ namespace extensions {
 
 namespace {
 
-const char kErrorInvalidX509Cert[] =
+const char kCertificateProviderErrorInvalidX509Cert[] =
     "Certificate is not a valid X.509 certificate.";
-const char kErrorECDSANotSupported[] = "Key type ECDSA not supported.";
-const char kErrorUnknownKeyType[] = "Key type unknown.";
-const char kErrorAborted[] = "Request was aborted.";
-const char kErrorTimeout[] = "Request timed out, reply rejected.";
+const char kCertificateProviderErrorECDSANotSupported[] =
+    "Key type ECDSA not supported.";
+const char kCertificateProviderErrorUnknownKeyType[] = "Key type unknown.";
+const char kCertificateProviderErrorAborted[] = "Request was aborted.";
+const char kCertificateProviderErrorTimeout[] =
+    "Request timed out, reply rejected.";
 
 // requestPin constants.
-const char kNoActiveDialog[] = "No active dialog from extension.";
-const char kInvalidId[] = "Invalid signRequestId";
-const char kOtherFlowInProgress[] = "Other flow in progress";
-const char kPreviousDialogActive[] = "Previous request not finished";
-const char kNoUserInput[] = "No user input received";
+const char kCertificateProviderNoActiveDialog[] =
+    "No active dialog from extension.";
+const char kCertificateProviderInvalidId[] = "Invalid signRequestId";
+const char kCertificateProviderOtherFlowInProgress[] = "Other flow in progress";
+const char kCertificateProviderPreviousDialogActive[] =
+    "Previous request not finished";
+const char kCertificateProviderNoUserInput[] = "No user input received";
 
 }  // namespace
 
@@ -88,11 +92,11 @@ CertificateProviderInternalReportCertificatesFunction::Run() {
     // In the public API, the certificates parameter is mandatory. We only run
     // into this case, if the custom binding rejected the reply by the
     // extension.
-    return RespondNow(Error(kErrorAborted));
+    return RespondNow(Error(kCertificateProviderErrorAborted));
   }
 
   chromeos::certificate_provider::CertificateInfoList cert_infos;
-  std::vector<std::vector<char>> rejected_certificates;
+  std::vector<std::vector<uint8_t>> rejected_certificates;
   for (const api_cp::CertificateInfo& input_cert_info : *params->certificates) {
     chromeos::certificate_provider::CertificateInfo parsed_cert_info;
 
@@ -110,7 +114,7 @@ CertificateProviderInternalReportCertificatesFunction::Run() {
     // The custom binding already checks for multiple reports to the same
     // request. The only remaining case, why this reply can fail is that the
     // request timed out.
-    return RespondNow(Error(kErrorTimeout));
+    return RespondNow(Error(kCertificateProviderErrorTimeout));
   }
 }
 
@@ -118,56 +122,60 @@ bool CertificateProviderInternalReportCertificatesFunction::
     ParseCertificateInfo(
         const api_cp::CertificateInfo& info,
         chromeos::certificate_provider::CertificateInfo* out_info) {
-  const std::vector<char>& cert_der = info.certificate;
+  const std::vector<uint8_t>& cert_der = info.certificate;
   if (cert_der.empty()) {
-    WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR, kErrorInvalidX509Cert);
+    WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
+                   kCertificateProviderErrorInvalidX509Cert);
     return false;
   }
 
-  out_info->certificate =
-      net::X509Certificate::CreateFromBytes(cert_der.data(), cert_der.size());
+  // Allow UTF-8 inside PrintableStrings in client certificates. See
+  // crbug.com/770323 and crbug.com/788655.
+  net::X509Certificate::UnsafeCreateOptions options;
+  options.printable_string_is_utf8 = true;
+  out_info->certificate = net::X509Certificate::CreateFromBytesUnsafeOptions(
+      reinterpret_cast<const char*>(cert_der.data()), cert_der.size(), options);
   if (!out_info->certificate) {
-    WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR, kErrorInvalidX509Cert);
+    WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
+                   kCertificateProviderErrorInvalidX509Cert);
     return false;
   }
 
   size_t public_key_length_in_bits = 0;
   net::X509Certificate::PublicKeyType type =
       net::X509Certificate::kPublicKeyTypeUnknown;
-  net::X509Certificate::GetPublicKeyInfo(
-      out_info->certificate->os_cert_handle(), &public_key_length_in_bits,
-      &type);
+  net::X509Certificate::GetPublicKeyInfo(out_info->certificate->cert_buffer(),
+                                         &public_key_length_in_bits, &type);
 
   switch (type) {
     case net::X509Certificate::kPublicKeyTypeRSA:
       break;
     case net::X509Certificate::kPublicKeyTypeECDSA:
       WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
-                     kErrorECDSANotSupported);
+                     kCertificateProviderErrorECDSANotSupported);
       return false;
     default:
       WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
-                     kErrorUnknownKeyType);
+                     kCertificateProviderErrorUnknownKeyType);
       return false;
   }
 
   for (const api_cp::Hash hash : info.supported_hashes) {
     switch (hash) {
       case api_cp::HASH_MD5_SHA1:
-        out_info->supported_hashes.push_back(
-            net::SSLPrivateKey::Hash::MD5_SHA1);
+        out_info->supported_algorithms.push_back(SSL_SIGN_RSA_PKCS1_MD5_SHA1);
         break;
       case api_cp::HASH_SHA1:
-        out_info->supported_hashes.push_back(net::SSLPrivateKey::Hash::SHA1);
+        out_info->supported_algorithms.push_back(SSL_SIGN_RSA_PKCS1_SHA1);
         break;
       case api_cp::HASH_SHA256:
-        out_info->supported_hashes.push_back(net::SSLPrivateKey::Hash::SHA256);
+        out_info->supported_algorithms.push_back(SSL_SIGN_RSA_PKCS1_SHA256);
         break;
       case api_cp::HASH_SHA384:
-        out_info->supported_hashes.push_back(net::SSLPrivateKey::Hash::SHA384);
+        out_info->supported_algorithms.push_back(SSL_SIGN_RSA_PKCS1_SHA384);
         break;
       case api_cp::HASH_SHA512:
-        out_info->supported_hashes.push_back(net::SSLPrivateKey::Hash::SHA512);
+        out_info->supported_algorithms.push_back(SSL_SIGN_RSA_PKCS1_SHA512);
         break;
       case api_cp::HASH_NONE:
         NOTREACHED();
@@ -197,7 +205,7 @@ CertificateProviderStopPinRequestFunction::Run() {
     if (!dialog_closed) {
       // This might happen if the user closed the dialog while extension was
       // processing the input.
-      return RespondNow(Error(kNoActiveDialog));
+      return RespondNow(Error(kCertificateProviderNoActiveDialog));
     }
 
     return RespondNow(NoArguments());
@@ -215,9 +223,9 @@ CertificateProviderStopPinRequestFunction::Run() {
                      this));
   switch (update_response) {
     case chromeos::PinDialogManager::StopPinRequestResponse::NO_ACTIVE_DIALOG:
-      return RespondNow(Error(kNoActiveDialog));
+      return RespondNow(Error(kCertificateProviderNoActiveDialog));
     case chromeos::PinDialogManager::StopPinRequestResponse::NO_USER_INPUT:
-      return RespondNow(Error(kNoUserInput));
+      return RespondNow(Error(kCertificateProviderNoUserInput));
     case chromeos::PinDialogManager::StopPinRequestResponse::STOPPED:
       return RespondLater();
   }
@@ -254,7 +262,7 @@ void CertificateProviderRequestPinFunction::GetQuotaLimitHeuristics(
   QuotaLimitHeuristic::Config short_limit_config = {
       api::certificate_provider::kMaxClosedDialogsPer10Mins,
       base::TimeDelta::FromMinutes(10)};
-  heuristics->push_back(base::MakeUnique<QuotaService::TimedLimit>(
+  heuristics->push_back(std::make_unique<QuotaService::TimedLimit>(
       short_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
       "MAX_PIN_DIALOGS_CLOSED_PER_10_MINUTES"));
 }
@@ -295,16 +303,16 @@ ExtensionFunction::ResponseAction CertificateProviderRequestPinFunction::Run() {
     case chromeos::PinDialogManager::RequestPinResponse::SUCCESS:
       return RespondLater();
     case chromeos::PinDialogManager::RequestPinResponse::INVALID_ID:
-      return RespondNow(Error(kInvalidId));
+      return RespondNow(Error(kCertificateProviderInvalidId));
     case chromeos::PinDialogManager::RequestPinResponse::OTHER_FLOW_IN_PROGRESS:
-      return RespondNow(Error(kOtherFlowInProgress));
+      return RespondNow(Error(kCertificateProviderOtherFlowInProgress));
     case chromeos::PinDialogManager::RequestPinResponse::
         DIALOG_DISPLAYED_ALREADY:
-      return RespondNow(Error(kPreviousDialogActive));
+      return RespondNow(Error(kCertificateProviderPreviousDialogActive));
   }
 
   NOTREACHED();
-  return RespondNow(Error(kPreviousDialogActive));
+  return RespondNow(Error(kCertificateProviderPreviousDialogActive));
 }
 
 void CertificateProviderRequestPinFunction::OnInputReceived(

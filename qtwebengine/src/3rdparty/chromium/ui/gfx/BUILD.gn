@@ -2,10 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
-import("//device/vr/features/features.gni")
-import("//testing/test.gni")
+import("//device/vr/buildflags/buildflags.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
+import("//testing/test.gni")
 
 if (is_android) {
   import("//build/config/android/config.gni")
@@ -22,8 +23,11 @@ source_set("gfx_export") {
   ]
 }
 
-component("geometry_skia") {
+jumbo_component("geometry_skia") {
   sources = [
+    "geometry_skia_export.h",
+    "rrect_f.cc",
+    "rrect_f.h",
     "skia_util.cc",
     "skia_util.h",
     "transform.cc",
@@ -31,21 +35,17 @@ component("geometry_skia") {
     "transform_util.cc",
     "transform_util.h",
   ]
-  public_deps = [
-    ":gfx_export",
-  ]
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
   deps = [
     "//base",
     "//skia",
     "//ui/gfx/geometry",
   ]
-  defines = [ "GFX_IMPLEMENTATION" ]
+  defines = [ "GEOMETRY_SKIA_IMPLEMENTATION" ]
 }
 
-component("gfx") {
+jumbo_component("gfx") {
   sources = [
-    "android/gfx_jni_registrar.cc",
-    "android/gfx_jni_registrar.h",
     "android/java_bitmap.cc",
     "android/java_bitmap.h",
     "android/view_configuration.cc",
@@ -60,11 +60,16 @@ component("gfx") {
     "color_utils.h",
     "decorated_text.cc",
     "decorated_text.h",
+    "decorated_text_mac.h",
+    "decorated_text_mac.mm",
+    "extension_set.cc",
+    "extension_set.h",
     "favicon_size.cc",
     "favicon_size.h",
     "font.cc",
     "font.h",
     "font_fallback.h",
+    "font_fallback_android.cc",
     "font_fallback_linux.cc",
     "font_fallback_linux.h",
     "font_fallback_mac.mm",
@@ -82,8 +87,6 @@ component("gfx") {
     "font_render_params_win.cc",
     "gdi_util.cc",
     "gdi_util.h",
-    "gfx_paths.cc",
-    "gfx_paths.h",
     "half_float.cc",
     "half_float.h",
     "icon_util.cc",
@@ -94,11 +97,11 @@ component("gfx") {
     "image/image_family.h",
     "image/image_ios.mm",
     "image/image_mac.mm",
+    "image/image_platform.h",
     "image/image_png_rep.cc",
     "image/image_png_rep.h",
     "image/image_skia.cc",
     "image/image_skia.h",
-    "image/image_skia_rep.cc",
     "image/image_skia_rep.h",
     "image/image_skia_source.cc",
     "image/image_skia_source.h",
@@ -116,17 +119,14 @@ component("gfx") {
     "ios/NSString+CrStringDrawing.mm",
     "ios/uikit_util.h",
     "ios/uikit_util.mm",
-    "linux_font_delegate.cc",
-    "linux_font_delegate.h",
     "mac/coordinate_conversion.h",
     "mac/coordinate_conversion.mm",
     "mac/nswindow_frame_controls.h",
     "mac/nswindow_frame_controls.mm",
     "mac/scoped_cocoa_disable_screen_updates.h",
+    "mac/scoped_cocoa_disable_screen_updates.mm",
     "nine_image_painter.cc",
     "nine_image_painter.h",
-    "path.cc",
-    "path.h",
     "path_mac.h",
     "path_mac.mm",
     "path_win.cc",
@@ -134,11 +134,8 @@ component("gfx") {
     "path_x11.cc",
     "path_x11.h",
     "platform_font.h",
-    "platform_font_android.cc",
     "platform_font_ios.h",
     "platform_font_ios.mm",
-    "platform_font_linux.cc",
-    "platform_font_linux.h",
     "platform_font_mac.h",
     "platform_font_mac.mm",
     "platform_font_win.cc",
@@ -165,15 +162,12 @@ component("gfx") {
     "text_elider.h",
     "text_utils.cc",
     "text_utils.h",
-    "text_utils_android.cc",
     "text_utils_ios.mm",
     "ui_gfx_exports.cc",
     "utf16_indexing.cc",
     "utf16_indexing.h",
     "vsync_provider.cc",
     "vsync_provider.h",
-    "win/direct_manipulation.cc",
-    "win/direct_manipulation.h",
     "win/direct_write.cc",
     "win/direct_write.h",
     "win/hwnd_util.cc",
@@ -186,6 +180,8 @@ component("gfx") {
     "win/scoped_set_map_mode.h",
     "win/singleton_hwnd.cc",
     "win/singleton_hwnd.h",
+    "win/singleton_hwnd_hot_key_observer.cc",
+    "win/singleton_hwnd_hot_key_observer.h",
     "win/singleton_hwnd_observer.cc",
     "win/singleton_hwnd_observer.h",
     "win/text_analysis_source.cc",
@@ -193,21 +189,24 @@ component("gfx") {
     "win/window_impl.cc",
     "win/window_impl.h",
   ]
+  deps = []
   if (!is_ios) {
     sources += [
       "blit.cc",
       "blit.h",
       "canvas.cc",
       "canvas.h",
-      "canvas_notimplemented.cc",
       "canvas_paint_mac.h",
       "canvas_paint_mac.mm",
       "canvas_skia.cc",
       "canvas_skia_paint.h",
       "image/canvas_image_source.cc",
       "image/canvas_image_source.h",
+      "image/image_generic.cc",
       "image/image_skia_operations.cc",
       "image/image_skia_operations.h",
+      "image/image_skia_rep_default.cc",
+      "image/image_skia_rep_default.h",
       "paint_throbber.cc",
       "paint_throbber.h",
       "scoped_canvas.cc",
@@ -216,14 +215,21 @@ component("gfx") {
       "shadow_util.h",
       "skia_paint_util.cc",
       "skia_paint_util.h",
+      "skia_vector_animation.cc",
+      "skia_vector_animation.h",
+      "skia_vector_animation_observer.h",
+    ]
+  } else {
+    sources += [
+      "image/image_skia_rep_ios.cc",
+      "image/image_skia_rep_ios.h",
     ]
   }
 
   configs += [
     "//build/config:precompiled_headers",
-
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    "//build/config/compiler:no_size_t_to_int_warning",
+    "//build/config/compiler:noshadowing",
+    "//build/config/compiler:wexit_time_destructors",
   ]
 
   # This is part of the gfx component in the component build.
@@ -238,57 +244,31 @@ component("gfx") {
     ":selection_bound_sources",
     "//base",
     "//skia",
+    "//skia:skcms",
     "//third_party/icu",
     "//ui/gfx/animation",
     "//ui/gfx/codec",
     "//ui/gfx/geometry",
     "//ui/gfx/range",
   ]
-  deps = [
+  deps += [
     ":gfx_export",
     "//base",
     "//base:base_static",
     "//base:i18n",
     "//base/third_party/dynamic_annotations",
-    "//device/vr/features",
+    "//device/vr/buildflags",
     "//skia",
     "//third_party/zlib",
   ]
 
-  # Text rendering conditions (complicated so separated out).
-  if (use_aura || is_mac || (is_android && enable_vr)) {
-    # Mac doesn't use RenderTextHarfBuzz by default yet.
+  if (is_linux || is_android || is_fuchsia) {
     sources += [
-      "harfbuzz_font_skia.cc",
-      "harfbuzz_font_skia.h",
-      "render_text_harfbuzz.cc",
-      "render_text_harfbuzz.h",
-      "render_text_mac.h",
-      "render_text_mac.mm",
-      "text_utils_skia.cc",
+      "platform_font_skia.cc",
+      "platform_font_skia.h",
+      "skia_font_delegate.cc",
+      "skia_font_delegate.h",
     ]
-
-    if (!is_ios) {
-      sources += [
-        "render_text.cc",
-        "render_text.h",
-      ]
-    }
-  } else {
-    # We don't support RenderText on these platforms.
-  }
-
-  if (is_android && enable_vr) {
-    sources -= [
-      "platform_font_android.cc",
-      "text_utils_android.cc",
-    ]
-    set_sources_assignment_filter([])
-    sources += [
-      "platform_font_linux.cc",
-      "platform_font_linux.h",
-    ]
-    set_sources_assignment_filter(sources_assignment_filter)
   }
 
   # iOS.
@@ -297,25 +277,12 @@ component("gfx") {
     sources += [ "scoped_cg_context_save_gstate_mac.h" ]
     set_sources_assignment_filter(sources_assignment_filter)
   } else {
-    deps += [
-      "//cc/paint",
-      "//third_party/harfbuzz-ng",
-    ]
+    public_deps += [ "//cc/paint" ]
+    deps += [ "//third_party:freetype_harfbuzz" ]
   }
 
   # Android.
   if (is_android) {
-    if (enable_vr) {
-      sources -= [ "canvas_notimplemented.cc" ]
-      sources += [ "font_fallback_android.cc" ]
-    } else {
-      sources -= [
-        "canvas_skia.cc",
-        "path.cc",
-        "selection_model.cc",
-      ]
-    }
-
     if (!is_debug) {
       configs -= [ "//build/config/compiler:default_optimization" ]
       configs += [ "//build/config/compiler:optimize_max" ]
@@ -326,15 +293,21 @@ component("gfx") {
       "android",
       "jnigraphics",
     ]
-  } else if (!is_ios) {
-    sources -= [ "canvas_notimplemented.cc" ]
   }
 
-  # Desktop and Android+VR only.
-  if (use_aura || (!is_ios && !is_android) || (is_android && enable_vr)) {
+  if (!is_ios) {
     sources += [
+      "harfbuzz_font_skia.cc",
+      "harfbuzz_font_skia.h",
       "paint_vector_icon.cc",
       "paint_vector_icon.h",
+      "render_text.cc",
+      "render_text.h",
+      "render_text_harfbuzz.cc",
+      "render_text_harfbuzz.h",
+      "render_text_mac.h",
+      "render_text_mac.mm",
+      "text_utils_skia.cc",
       "vector_icon_types.h",
     ]
   }
@@ -385,12 +358,15 @@ component("gfx") {
     sources -= [ "path_x11.cc" ]
   }
 
-  if (use_cairo) {
-    configs += [ "//build/config/linux/pangocairo" ]
+  if (is_fuchsia) {
+    sources += [
+      "font_fallback_fuchsia.cc",
+      "font_render_params_fuchsia.cc",
+    ]
   }
 }
 
-component("color_space") {
+jumbo_component("color_space") {
   sources = [
     "color_space.cc",
     "color_space.h",
@@ -399,46 +375,31 @@ component("color_space") {
     "color_space_win.h",
     "icc_profile.cc",
     "icc_profile.h",
-    "icc_profile_mac.mm",
-    "icc_profile_win.cc",
-    "icc_profile_x11.cc",
     "skia_color_space_util.cc",
     "skia_color_space_util.h",
   ]
+  deps = [
+    "//skia:skcms",
+  ]
   public_deps = [
-    ":gfx_switches",
     "//base",
     "//skia",
   ]
   if (is_mac) {
+    sources += [
+      "mac/display_icc_profiles.cc",
+      "mac/display_icc_profiles.h",
+    ]
     libs = [
       "CoreFoundation.framework",
       "CoreGraphics.framework",
     ]
   }
   if (use_x11) {
-    deps = [
-      "//ui/gfx/x",
-    ]
+    deps += [ "//ui/gfx/x" ]
     configs += [ "//build/config/linux:x11" ]
-  } else {
-    sources -= [ "icc_profile_x11.cc" ]
   }
   defines = [ "COLOR_SPACE_IMPLEMENTATION" ]
-}
-
-# Depend on this to use half_float.h without pulling in all of gfx.
-source_set("half_float") {
-  sources = [
-    "half_float.h",
-  ]
-
-  defines = [ "GFX_IMPLEMENTATION" ]
-
-  public_deps = [
-    ":gfx_export",
-    "//base",
-  ]
 }
 
 # Depend on this to use native_widget_types.h without pulling in all of gfx.
@@ -448,6 +409,7 @@ source_set("native_widget_types") {
   ]
 
   public_deps = [
+    ":gfx_export",
     "//base",
   ]
 }
@@ -475,11 +437,20 @@ source_set("selection_bound_sources") {
     "selection_bound.h",
   ]
 
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
+
   defines = [ "GFX_IMPLEMENTATION" ]
 
   public_deps = [
     "//base",
     "//ui/gfx/geometry",
+  ]
+}
+
+# Depend on this to use buffer_types.h without pulling in all of gfx.
+source_set("buffer_types") {
+  sources = [
+    "buffer_types.h",
   ]
 }
 
@@ -502,7 +473,7 @@ group("memory_buffer") {
 }
 
 # Cannot be a static_library in component builds due to exported functions
-source_set("memory_buffer_sources") {
+jumbo_source_set("memory_buffer_sources") {
   visibility = [ ":*" ]  # Depend on through ":memory_buffer".
 
   # TODO(brettw) refactor this so these sources are in a coherent directory
@@ -510,15 +481,17 @@ source_set("memory_buffer_sources") {
   sources = [
     "buffer_format_util.cc",
     "buffer_format_util.h",
-    "buffer_types.h",
+    "ca_layer_params.cc",
+    "ca_layer_params.h",
     "client_native_pixmap.h",
-    "client_native_pixmap_factory.cc",
     "client_native_pixmap_factory.h",
     "generic_shared_memory_id.cc",
     "generic_shared_memory_id.h",
     "gfx_export.h",
-    "mac/io_surface.cc",
-    "mac/io_surface.h",
+    "gpu_fence.cc",
+    "gpu_fence.h",
+    "gpu_fence_handle.cc",
+    "gpu_fence_handle.h",
     "native_pixmap.h",
     "native_pixmap_handle.cc",
     "native_pixmap_handle.h",
@@ -529,41 +502,57 @@ source_set("memory_buffer_sources") {
     sources += [
       "gpu_memory_buffer.cc",
       "gpu_memory_buffer.h",
-      "gpu_memory_buffer_tracing.cc",
-      "gpu_memory_buffer_tracing.h",
     ]
   }
 
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
+
   defines = [ "GFX_IMPLEMENTATION" ]
 
+  public_deps = [
+    ":buffer_types",
+  ]
+
   deps = [
-    ":gfx_switches",
     ":native_widget_types",
     "//base",
     "//ui/gfx/geometry",
   ]
 
-  if (is_linux) {
+  if (is_linux && !use_qt) {
     sources += [
       "linux/client_native_pixmap_dmabuf.cc",
       "linux/client_native_pixmap_dmabuf.h",
       "linux/client_native_pixmap_factory_dmabuf.cc",
       "linux/client_native_pixmap_factory_dmabuf.h",
+      "linux/native_pixmap_dmabuf.cc",
+      "linux/native_pixmap_dmabuf.h",
     ]
 
-    deps += [ "//third_party/libdrm" ]
+    deps += [ "//build/config/linux/libdrm" ]
+  }
+
+  if (is_linux || is_android) {
+    deps += [ "//third_party/libsync" ]
+  }
+
+  if (is_mac) {
+    sources += [
+      "mac/io_surface.cc",
+      "mac/io_surface.h",
+    ]
+
+    public_deps += [ "//ui/gfx:color_space" ]
+  }
+
+  if (is_win) {
+    public_deps += [ "//ipc:message_support" ]
   }
 }
 
-# TODO(ccameron): This should not be a separate component. Once the flag for
-# color correct rendering is removed, color_space_switches.h may be moved
-# into color_space (since it will be included in fewer places), and once the
-# "best monitor color profile" function is removed, switches.h may be moved
-# back into its own source_set.
-component("gfx_switches") {
+# TODO(ccameron): This can be moved into a separate source_set.
+jumbo_component("gfx_switches") {
   sources = [
-    "color_space_switches.cc",
-    "color_space_switches.h",
     "switches.cc",
     "switches.h",
     "switches_export.h",
@@ -576,7 +565,7 @@ component("gfx_switches") {
   ]
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   sources = [
     "animation/animation_test_api.cc",
@@ -588,14 +577,10 @@ static_library("test_support") {
     "image/image_unittest_util.h",
     "image/image_unittest_util_ios.mm",
     "image/image_unittest_util_mac.mm",
-    "test/fontconfig_util_linux.cc",
-    "test/fontconfig_util_linux.h",
     "test/gfx_util.cc",
     "test/gfx_util.h",
     "test/icc_profiles.cc",
     "test/icc_profiles.h",
-    "test/ui_cocoa_test_helper.h",
-    "test/ui_cocoa_test_helper.mm",
   ]
 
   public_deps = [
@@ -611,15 +596,10 @@ static_library("test_support") {
     "//ui/gfx/geometry",
   ]
 
-  if (is_ios) {
-    # The cocoa files don't apply to iOS.
-    sources -= [
-      "test/ui_cocoa_test_helper.h",
-      "test/ui_cocoa_test_helper.mm",
-    ]
-  }
-  if (is_linux) {
-    deps += [ "//third_party/fontconfig" ]
+  if (!is_ios) {
+    sources += [ "render_text_test_api.h" ]
+
+    deps += [ "//third_party:freetype_harfbuzz" ]
   }
 }
 
@@ -635,7 +615,7 @@ test("gfx_unittests") {
     "image/image_unittest.cc",
     "ios/NSString+CrStringDrawing_unittest.mm",
     "ios/uikit_util_unittest.mm",
-    "platform_font_linux_unittest.cc",
+    "rrect_f_unittest.cc",
     "test/run_all_unittests.cc",
     "text_elider_unittest.cc",
     "text_utils_unittest.cc",
@@ -663,6 +643,7 @@ test("gfx_unittests") {
       "color_space_unittest.cc",
       "color_transform_unittest.cc",
       "color_utils_unittest.cc",
+      "font_fallback_linux_unittest.cc",
       "font_fallback_mac_unittest.cc",
       "font_list_unittest.cc",
       "geometry/axis_transform2d_unittest.cc",
@@ -696,21 +677,20 @@ test("gfx_unittests") {
       "sequential_id_generator_unittest.cc",
       "shadow_value_unittest.cc",
       "skbitmap_operations_unittest.cc",
+      "skia_vector_animation_unittest.cc",
       "skrect_conversion_unittest.cc",
       "transform_util_unittest.cc",
       "utf16_indexing_unittest.cc",
     ]
   }
 
-  if (!is_android && !is_ios) {
-    sources += [
-      "paint_vector_icon_unittest.cc",
-      "render_text_unittest.cc",
-    ]
+  if (is_linux || is_android || is_fuchsia) {
+    sources += [ "platform_font_skia_unittest.cc" ]
   }
 
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
+  if (!is_ios) {
+    sources += [ "paint_vector_icon_unittest.cc" ]
+  }
 
   deps = [
     ":gfx",
@@ -728,6 +708,11 @@ test("gfx_unittests") {
     "//ui/gfx/range",
     "//ui/resources:ui_test_pak",
   ]
+
+  if (!is_ios) {
+    sources += [ "render_text_unittest.cc" ]
+    deps += [ "//third_party:freetype_harfbuzz" ]
+  }
 
   data_deps = [
     "//ui/resources:ui_test_pak",
@@ -780,13 +765,18 @@ test("gfx_unittests") {
   if (!is_ios) {
     deps += [
       "//cc/paint",
-      "//mojo/edk/system",
+      "//mojo/core/embedder",
       "//mojo/public/cpp/bindings",
+      "//mojo/public/cpp/test_support:test_utils",
       "//ui/gfx/geometry/mojo:unit_test",
       "//ui/gfx/image/mojo:unit_test",
       "//ui/gfx/mojo:test_interfaces",
       "//ui/gfx/range/mojo:unit_test",
     ]
+  }
+
+  if (is_linux) {
+    sources += [ "linux/native_pixmap_dmabuf_unittest.cc" ]
   }
 }
 
@@ -800,12 +790,16 @@ if (is_android) {
   }
 }
 
-fuzzer_test("color_transform_fuzztest") {
+fuzzer_test("color_transform_fuzzer") {
   sources = [
     "color_transform_fuzzer.cc",
   ]
+
+  dict = "//testing/libfuzzer/fuzzers/dicts/icc.dict"
+
   deps = [
     ":gfx",
   ]
-  libfuzzer_options = [ "max_len=1024" ]
+
+  libfuzzer_options = [ "max_len=4194304" ]
 }

@@ -19,15 +19,21 @@
  *            full_name: string,
  *            full_name_direction: string,
  *            homepageUrl: string,
- *            icon: string,
+ *            icon_big: string,
+ *            icon_big_exists: boolean,
+ *            icon_small: string,
+ *            icon_small_exists: boolean,
  *            id: string,
  *            is_component: boolean,
  *            is_webstore: boolean,
+ *            isLocallyInstalled: boolean,
  *            kioskEnabled: boolean,
  *            kioskMode: boolean,
  *            kioskOnly: boolean,
  *            launch_container: number,
  *            launch_type: number,
+ *            mayChangeLaunchType: boolean,
+ *            mayCreateShortcuts: boolean,
  *            mayDisable: boolean,
  *            name: string,
  *            offlineEnabled: boolean,
@@ -39,7 +45,7 @@
  *            version: string}}
  * @see chrome/browser/ui/webui/ntp/app_launcher_handler.cc
  */
-var AppInfo;
+let AppInfo;
 
 cr.define('ntp', function() {
   'use strict';
@@ -84,7 +90,7 @@ cr.define('ntp', function() {
 
     /**
      * The 'dots-list' element.
-     * @type {!Element|undefined}
+     * @type {!ntp.DotList|undefined}
      */
     dotList: undefined,
 
@@ -142,25 +148,25 @@ cr.define('ntp', function() {
         opt_pageSwitcherEnd) {
       this.pageList = pageList;
 
-      this.dotList = dotList;
+      this.dotList = /** @type {!ntp.DotList} */ (dotList);
       cr.ui.decorate(this.dotList, ntp.DotList);
 
       this.trash = opt_trash;
-      if (this.trash)
+      if (this.trash) {
         new ntp.Trash(this.trash);
+      }
 
       this.pageSwitcherStart = opt_pageSwitcherStart;
-      if (this.pageSwitcherStart)
+      if (this.pageSwitcherStart) {
         ntp.initializePageSwitcher(this.pageSwitcherStart);
+      }
 
       this.pageSwitcherEnd = opt_pageSwitcherEnd;
-      if (this.pageSwitcherEnd)
+      if (this.pageSwitcherEnd) {
         ntp.initializePageSwitcher(this.pageSwitcherEnd);
+      }
 
       this.shownPageIndex = loadTimeData.getInteger('shown_page_index');
-
-      // TODO(dbeam): remove showApps and everything that says if (apps).
-      assert(loadTimeData.getBoolean('showApps'));
 
       // Request data on the apps so we can fill them in.
       // Note that this is kicked off asynchronously.  'getAppsCallback' will
@@ -179,10 +185,11 @@ cr.define('ntp', function() {
 
       // Prevent touch events from triggering any sort of native scrolling if
       // there are multiple cards in the slider frame.
-      var cardSlider = this.cardSlider;
+      const cardSlider = this.cardSlider;
       cardSliderFrame.addEventListener('touchmove', function(e) {
-        if (cardSlider.cardCount <= 1)
+        if (cardSlider.cardCount <= 1) {
           return;
+        }
         e.preventDefault();
       }, true);
 
@@ -191,7 +198,8 @@ cr.define('ntp', function() {
       // This listener must be added before the card slider is initialized,
       // because it needs to be called before the card slider's handler.
       cardSliderFrame.addEventListener('mousewheel', function(e) {
-        if (cardSlider.currentCardValue.handleMouseWheel(e)) {
+        if (/** @type {!ntp.TilePage} */ (cardSlider.currentCardValue)
+                .handleMouseWheel(e)) {
           e.preventDefault();            // Prevent default scroll behavior.
           e.stopImmediatePropagation();  // Prevent horizontal card flipping.
         }
@@ -231,23 +239,24 @@ cr.define('ntp', function() {
      */
     appendTilePage: function(page, title, titleIsEditable, opt_refNode) {
       if (opt_refNode) {
-        var refIndex = this.getTilePageIndex(opt_refNode);
+        const refIndex = this.getTilePageIndex(opt_refNode);
         this.cardSlider.addCardAtIndex(page, refIndex);
       } else {
         this.cardSlider.appendCard(page);
       }
 
       // If we're appending an AppsPage and it's a temporary page, animate it.
-      var animate =
+      const animate =
           page instanceof ntp.AppsPage && page.classList.contains('temporary');
       // Make a deep copy of the dot template to add a new one.
-      var newDot = new ntp.NavDot(page, title, titleIsEditable, animate);
+      const newDot = new ntp.NavDot(page, title, titleIsEditable, animate);
       page.navigationDot = newDot;
       this.dotList.insertBefore(
           newDot, opt_refNode ? opt_refNode.navigationDot : null);
       // Set a tab index on the first dot.
-      if (this.dotList.dots.length == 1)
+      if (this.dotList.dots.length == 1) {
         newDot.tabIndex = 3;
+      }
 
       this.eventTracker.add(page, 'pagelayout', this.onPageLayout_.bind(this));
     },
@@ -258,9 +267,7 @@ cr.define('ntp', function() {
      *     position indices.
      */
     appMoved: function(appData) {
-      assert(loadTimeData.getBoolean('showApps'));
-
-      var app = /** @type {ntp.App} */ ($(appData.id));
+      const app = /** @type {ntp.App} */ ($(appData.id));
       assert(app, 'trying to move an app that doesn\'t exist');
       app.remove(false);
 
@@ -277,15 +284,14 @@ cr.define('ntp', function() {
      * @param {boolean} fromPage True if the removal was from the current page.
      */
     appRemoved: function(appData, isUninstall, fromPage) {
-      assert(loadTimeData.getBoolean('showApps'));
-
-      var app = /** @type {ntp.App} */ ($(appData.id));
+      const app = /** @type {ntp.App} */ ($(appData.id));
       assert(app, 'trying to remove an app that doesn\'t exist');
 
-      if (!isUninstall)
+      if (!isUninstall) {
         app.replaceAppData(appData);
-      else
+      } else {
         app.remove(!!fromPage);
+      }
     },
 
     /**
@@ -313,12 +319,10 @@ cr.define('ntp', function() {
      *     An object with all the data on available applications.
      */
     getAppsCallback: function(data) {
-      assert(loadTimeData.getBoolean('showApps'));
-
-      var startTime = Date.now();
+      const startTime = Date.now();
 
       // Remember this to select the correct card when done rebuilding.
-      var prevCurrentCard = this.cardSlider.currentCard;
+      const prevCurrentCard = this.cardSlider.currentCard;
 
       // Make removal of pages and dots as quick as possible with less DOM
       // operations, reflows, or repaints. We set currentCard = 0 and remove
@@ -331,19 +335,21 @@ cr.define('ntp', function() {
       // uninstall. Could we re-use the existing page and dot elements?  It
       // seems unfortunate to have Chrome send us the entire apps list after an
       // uninstall.
-      while (this.appsPages.length > 0)
+      while (this.appsPages.length > 0) {
         this.removeTilePageAndDot_(this.appsPages[this.appsPages.length - 1]);
+      }
 
       // Get the array of apps and add any special synthesized entries
-      var apps = data.apps;
+      const apps = data.apps;
 
       // Get a list of page names
-      var pageNames = data.appPageNames;
+      const pageNames = data.appPageNames;
 
       function stringListIsEmpty(list) {
-        for (var i = 0; i < list.length; i++) {
-          if (list[i])
+        for (let i = 0; i < list.length; i++) {
+          if (list[i]) {
             return false;
+          }
         }
         return true;
       }
@@ -356,29 +362,30 @@ cr.define('ntp', function() {
       });
 
       // An app to animate (in case it was just installed).
-      var highlightApp;
+      let highlightApp;
 
       // If there are any pages after the apps, add new pages before them.
-      var lastAppsPage = (this.appsPages.length > 0) ?
+      const lastAppsPage = (this.appsPages.length > 0) ?
           this.appsPages[this.appsPages.length - 1] :
           null;
-      var lastAppsPageIndex = (lastAppsPage != null) ?
+      const lastAppsPageIndex = (lastAppsPage != null) ?
           Array.prototype.indexOf.call(this.tilePages, lastAppsPage) :
           -1;
-      var nextPageAfterApps = lastAppsPageIndex != -1 ?
+      const nextPageAfterApps = lastAppsPageIndex != -1 ?
           this.tilePages[lastAppsPageIndex + 1] :
           null;
 
       // Add the apps, creating pages as necessary
-      for (var i = 0; i < apps.length; i++) {
-        var app = apps[i];
-        var pageIndex = app.page_index || 0;
+      for (let i = 0; i < apps.length; i++) {
+        const app = apps[i];
+        const pageIndex = app.page_index || 0;
         while (pageIndex >= this.appsPages.length) {
-          var pageName = loadTimeData.getString('appDefaultPageName');
-          if (this.appsPages.length < pageNames.length)
+          let pageName = loadTimeData.getString('appDefaultPageName');
+          if (this.appsPages.length < pageNames.length) {
             pageName = pageNames[this.appsPages.length];
+          }
 
-          var origPageCount = this.appsPages.length;
+          const origPageCount = this.appsPages.length;
           this.appendTilePage(
               new ntp.AppsPage(), pageName, true, nextPageAfterApps);
           // Confirm that appsPages is a live object, updated when a new page is
@@ -387,16 +394,18 @@ cr.define('ntp', function() {
               this.appsPages.length == origPageCount + 1, 'expected new page');
         }
 
-        if (app.id == this.highlightAppId)
+        if (app.id == this.highlightAppId) {
           highlightApp = app;
-        else
+        } else {
           this.appsPages[pageIndex].insertApp(app, false);
+        }
       }
 
       this.cardSlider.currentCard = prevCurrentCard;
 
-      if (highlightApp)
+      if (highlightApp) {
         this.appAdded(highlightApp, true);
+      }
 
       logEvent('apps.layout: ' + (Date.now() - startTime));
 
@@ -408,7 +417,6 @@ cr.define('ntp', function() {
         this.appsLoaded_ = true;
         cr.dispatchSimpleEvent(document, 'sectionready', true, true);
       }
-      this.updateAppLauncherPromoHiddenState_();
     },
 
     /**
@@ -420,14 +428,12 @@ cr.define('ntp', function() {
      *     be highlighted.
      */
     appAdded: function(appData, opt_highlight) {
-      assert(loadTimeData.getBoolean('showApps'));
-
       if (appData.id == this.highlightAppId) {
         opt_highlight = true;
         this.highlightAppId = null;
       }
 
-      var pageIndex = appData.page_index || 0;
+      const pageIndex = appData.page_index || 0;
 
       if (pageIndex >= this.appsPages.length) {
         while (pageIndex >= this.appsPages.length) {
@@ -438,8 +444,8 @@ cr.define('ntp', function() {
         this.updateSliderCards();
       }
 
-      var page = this.appsPages[pageIndex];
-      var app = $(appData.id);
+      const page = this.appsPages[pageIndex];
+      const app = /** @type {?ntp.App} */ ($(appData.id));
       if (app) {
         app.replaceAppData(appData);
       } else if (opt_highlight) {
@@ -456,36 +462,15 @@ cr.define('ntp', function() {
      *     applications.
      */
     appsPrefChangedCallback: function(data) {
-      assert(loadTimeData.getBoolean('showApps'));
-
-      for (var i = 0; i < data.apps.length; ++i) {
+      for (let i = 0; i < data.apps.length; ++i) {
         $(data.apps[i].id).appData = data.apps[i];
       }
 
       // Set the App dot names.
-      var dots = this.dotList.getElementsByClassName('dot');
-      for (var i = 0; i < dots.length; ++i) {
+      const dots = this.dotList.getElementsByClassName('dot');
+      for (let i = 0; i < dots.length; ++i) {
         dots[i].displayTitle = data.appPageNames[i] || '';
       }
-    },
-
-    /**
-     * Callback invoked by chrome whenever the app launcher promo pref changes.
-     * @param {boolean} show Identifies if we should show or hide the promo.
-     */
-    appLauncherPromoPrefChangeCallback: function(show) {
-      loadTimeData.overrideValues({showAppLauncherPromo: show});
-      this.updateAppLauncherPromoHiddenState_();
-    },
-
-    /**
-     * Updates the hidden state of the app launcher promo based on the page
-     * shown and load data content.
-     * @private
-     */
-    updateAppLauncherPromoHiddenState_: function() {
-      $('app-launcher-promo').hidden =
-          !loadTimeData.getBoolean('showAppLauncherPromo');
     },
 
     /**
@@ -493,14 +478,12 @@ cr.define('ntp', function() {
      * the Slider knows about the new elements.
      */
     updateSliderCards: function() {
-      var pageNo = Math.max(
+      const pageNo = Math.max(
           0, Math.min(this.cardSlider.currentCard, this.tilePages.length - 1));
       this.cardSlider.setCards(
           Array.prototype.slice.call(this.tilePages), pageNo);
-      if (loadTimeData.getBoolean('showApps')) {
-        this.cardSlider.selectCardByValue(this.appsPages[Math.min(
-            this.shownPageIndex, this.appsPages.length - 1)]);
-      }
+      this.cardSlider.selectCardByValue(this.appsPages[Math.min(
+          this.shownPageIndex, this.appsPages.length - 1)]);
     },
 
     /**
@@ -508,12 +491,10 @@ cr.define('ntp', function() {
      * of a moving or insert tile.
      */
     enterRearrangeMode: function() {
-      if (loadTimeData.getBoolean('showApps')) {
-        var tempPage = new ntp.AppsPage();
-        tempPage.classList.add('temporary');
-        var pageName = loadTimeData.getString('appDefaultPageName');
-        this.appendTilePage(tempPage, pageName, true);
-      }
+      const tempPage = new ntp.AppsPage();
+      tempPage.classList.add('temporary');
+      const pageName = loadTimeData.getString('appDefaultPageName');
+      this.appendTilePage(tempPage, pageName, true);
 
       if (ntp.getCurrentlyDraggingTile().firstChild.canBeRemoved()) {
         $('footer').classList.add('showing-trash-mode');
@@ -528,10 +509,10 @@ cr.define('ntp', function() {
      * Invoked whenever some app is released
      */
     leaveRearrangeMode: function() {
-      var tempPage = /** @type {ntp.AppsPage} */ (
+      const tempPage = /** @type {ntp.AppsPage} */ (
           document.querySelector('.tile-page.temporary'));
       if (tempPage) {
-        var dot = tempPage.navigationDot;
+        const dot = tempPage.navigationDot;
         if (!tempPage.tileCount &&
             tempPage != this.cardSlider.currentCardValue) {
           this.removeTilePageAndDot_(tempPage, true);
@@ -566,31 +547,35 @@ cr.define('ntp', function() {
      * the page switchers.
      */
     updatePageSwitchers: function() {
-      if (!this.pageSwitcherStart || !this.pageSwitcherEnd)
+      if (!this.pageSwitcherStart || !this.pageSwitcherEnd) {
         return;
+      }
 
-      var page = this.cardSlider.currentCardValue;
+      const page =
+          /** @type {?ntp.TilePage} */ (this.cardSlider.currentCardValue);
 
       this.pageSwitcherStart.hidden =
           !page || (this.cardSlider.currentCard == 0);
       this.pageSwitcherEnd.hidden = !page ||
           (this.cardSlider.currentCard == this.cardSlider.cardCount - 1);
 
-      if (!page)
+      if (!page) {
         return;
+      }
 
-      var pageSwitcherLeft =
+      const pageSwitcherLeft =
           isRTL() ? this.pageSwitcherEnd : this.pageSwitcherStart;
-      var pageSwitcherRight =
+      const pageSwitcherRight =
           isRTL() ? this.pageSwitcherStart : this.pageSwitcherEnd;
-      var scrollbarWidth = page.scrollbarWidth;
+      const scrollbarWidth = page.scrollbarWidth;
       pageSwitcherLeft.style.width = (page.sideMargin + 13) + 'px';
       pageSwitcherLeft.style.left = '0';
       pageSwitcherRight.style.width =
           (page.sideMargin - scrollbarWidth + 13) + 'px';
       pageSwitcherRight.style.right = scrollbarWidth + 'px';
 
-      var offsetTop = page.querySelector('.tile-page-content').offsetTop + 'px';
+      const offsetTop =
+          page.querySelector('.tile-page-content').offsetTop + 'px';
       pageSwitcherLeft.style.top = offsetTop;
       pageSwitcherRight.style.top = offsetTop;
       pageSwitcherLeft.style.paddingBottom = offsetTop;
@@ -617,22 +602,24 @@ cr.define('ntp', function() {
      * @private
      */
     onCardChanged_: function(e) {
-      var page = e.cardSlider.currentCardValue;
+      const page = e.cardSlider.currentCardValue;
 
       // Don't change shownPage until startup is done (and page changes actually
       // reflect user actions).
       if (!this.isStartingUp_()) {
         // TODO(dbeam): is this ever false?
-        if (page.classList.contains('apps-page'))
+        if (page.classList.contains('apps-page')) {
           this.setShownPage_(this.getAppsPageIndex(page));
-        else
+        } else {
           console.error('unknown page selected');
+        }
       }
 
       // Update the active dot
-      var curDot = this.dotList.getElementsByClassName('selected')[0];
-      if (curDot)
+      const curDot = this.dotList.getElementsByClassName('selected')[0];
+      if (curDot) {
         curDot.classList.remove('selected');
+      }
       page.navigationDot.classList.add('selected');
       this.updatePageSwitchers();
     },
@@ -646,7 +633,6 @@ cr.define('ntp', function() {
       assert(shownPageIndex >= 0);
       this.shownPageIndex = shownPageIndex;
       chrome.send('pageSelected', [this.shownPageIndex]);
-      this.updateAppLauncherPromoHiddenState_();
     },
 
     /**
@@ -676,8 +662,9 @@ cr.define('ntp', function() {
      * @private
      */
     onCardAddedOrRemoved_: function() {
-      if (this.isStartingUp_())
+      if (this.isStartingUp_()) {
         return;
+      }
 
       // Without repositioning there were issues - http://crbug.com/133457.
       this.cardSlider.repositionFrame();
@@ -691,7 +678,7 @@ cr.define('ntp', function() {
      * @param {string} name The name of the page.
      */
     saveAppPageName: function(appPage, name) {
-      var index = this.getAppsPageIndex(appPage);
+      const index = this.getAppsPageIndex(appPage);
       assert(index != -1);
       chrome.send('saveAppPageName', [name, index]);
     },
@@ -711,8 +698,9 @@ cr.define('ntp', function() {
      * @private
      */
     updateOfflineEnabledApps_: function() {
-      var apps = document.querySelectorAll('.app');
-      for (var i = 0; i < apps.length; ++i) {
+      const apps = /** @type {!NodeList<!ntp.App>} */ (
+          document.querySelectorAll('.app'));
+      for (let i = 0; i < apps.length; ++i) {
         if (apps[i].appData.enabled && !apps[i].appData.offlineEnabled) {
           apps[i].setIcon();
           apps[i].loadIcon();
@@ -727,19 +715,21 @@ cr.define('ntp', function() {
      * @private
      */
     onDocKeyDown_: function(e) {
-      if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey)
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) {
         return;
+      }
 
-      var direction = 0;
-      if (e.key == 'ArrowLeft')
+      let direction = 0;
+      if (e.key == 'ArrowLeft') {
         direction = -1;
-      else if (e.key == 'ArrowRight')
+      } else if (e.key == 'ArrowRight') {
         direction = 1;
-      else
+      } else {
         return;
+      }
 
-      var cardIndex = (this.cardSlider.currentCard + direction +
-                       this.cardSlider.cardCount) %
+      const cardIndex = (this.cardSlider.currentCard + direction +
+                         this.cardSlider.cardCount) %
           this.cardSlider.cardCount;
       this.cardSlider.selectCard(cardIndex, true);
 
@@ -762,8 +752,9 @@ cr.define('ntp', function() {
      * @param {boolean=} opt_animate If the removal should be animated.
      */
     removeTilePageAndDot_: function(page, opt_animate) {
-      if (page.navigationDot)
+      if (page.navigationDot) {
         page.navigationDot.remove(opt_animate);
+      }
       this.cardSlider.removeCard(page);
     },
   };

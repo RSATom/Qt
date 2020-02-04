@@ -2,13 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#import "content/browser/web_contents/web_drag_dest_mac.h"
+
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
 #import "base/mac/scoped_nsobject.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#import "content/browser/web_contents/web_drag_dest_mac.h"
 #include "content/public/common/drop_data.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
@@ -16,7 +17,7 @@
 #import "third_party/mozilla/NSPasteboard+Utils.h"
 #import "ui/base/clipboard/clipboard_util_mac.h"
 #import "ui/base/dragdrop/cocoa_dnd_util.h"
-#import "ui/gfx/test/ui_cocoa_test_helper.h"
+#import "ui/base/test/cocoa_helper.h"
 
 using content::DropData;
 using content::RenderViewHostImplTestHarness;
@@ -63,24 +64,6 @@ class WebDragDestTest : public RenderViewHostImplTestHarness {
 // Make sure nothing leaks.
 TEST_F(WebDragDestTest, Init) {
   EXPECT_TRUE(drag_dest_);
-}
-
-// Test flipping of coordinates given a point in window coordinates.
-TEST_F(WebDragDestTest, Flip) {
-  NSPoint windowPoint = NSZeroPoint;
-  base::scoped_nsobject<NSWindow> window([[CocoaTestHelperWindow alloc] init]);
-  NSPoint viewPoint =
-      [drag_dest_ flipWindowPointToView:windowPoint
-                                   view:[window contentView]];
-  NSPoint screenPoint =
-      [drag_dest_ flipWindowPointToScreen:windowPoint
-                                     view:[window contentView]];
-  EXPECT_EQ(0, viewPoint.x);
-  EXPECT_EQ(600, viewPoint.y);
-  EXPECT_EQ(0, screenPoint.x);
-  // We can't put a value on the screen size since everyone will have a
-  // different one.
-  EXPECT_NE(0, screenPoint.y);
 }
 
 TEST_F(WebDragDestTest, URL) {
@@ -156,7 +139,7 @@ TEST_F(WebDragDestTest, Data) {
   NSString* textString = @"hi there";
   [pboard->get() setString:htmlString forType:NSHTMLPboardType];
   [pboard->get() setString:textString forType:NSStringPboardType];
-  [drag_dest_ populateDropData:&data fromPasteboard:pboard->get()];
+  content::PopulateDropDataFromPasteboard(&data, pboard->get());
   EXPECT_EQ(data.url.spec(), "http://www.google.com/");
   EXPECT_EQ(base::SysNSStringToUTF16(textString), data.text.string());
   EXPECT_EQ(base::SysNSStringToUTF16(htmlString), data.html.string());

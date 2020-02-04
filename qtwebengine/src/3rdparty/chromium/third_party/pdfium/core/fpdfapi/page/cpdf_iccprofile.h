@@ -9,18 +9,19 @@
 
 #include <memory>
 
-#include "core/fxcodec/codec/ccodec_iccmodule.h"
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "third_party/base/span.h"
 
+class CLcmsCmm;
 class CPDF_Stream;
 
-class CPDF_IccProfile : public CFX_Retainable {
+class CPDF_IccProfile final : public Retainable {
  public:
   template <typename T, typename... Args>
-  friend CFX_RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+  friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
 
-  CPDF_Stream* GetStream() const { return m_pStream.Get(); }
+  const CPDF_Stream* GetStream() const { return m_pStream.Get(); }
   bool IsValid() const { return IsSRGB() || IsSupported(); }
   bool IsSRGB() const { return m_bsRGB; }
   bool IsSupported() const { return !!m_Transform; }
@@ -28,11 +29,11 @@ class CPDF_IccProfile : public CFX_Retainable {
   uint32_t GetComponents() const { return m_nSrcComponents; }
 
  private:
-  CPDF_IccProfile(CPDF_Stream* pStream, const uint8_t* pData, uint32_t dwSize);
+  CPDF_IccProfile(const CPDF_Stream* pStream, pdfium::span<const uint8_t> span);
   ~CPDF_IccProfile() override;
 
   const bool m_bsRGB;
-  CFX_UnownedPtr<CPDF_Stream> const m_pStream;
+  UnownedPtr<const CPDF_Stream> const m_pStream;
   std::unique_ptr<CLcmsCmm> m_Transform;
   uint32_t m_nSrcComponents = 0;
 };

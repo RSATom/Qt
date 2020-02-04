@@ -133,6 +133,7 @@ protected:
 
 protected Q_SLOTS:
     virtual void queryFinished() = 0;
+    virtual void onContentUpdated();
 
 private Q_SLOTS:
     void pluginNameChanged();

@@ -79,11 +79,6 @@ public:
 QT_END_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(OSXBTConnectionMonitor) : NSObject
-{
-    QT_PREPEND_NAMESPACE(OSXBluetooth::ConnectionMonitor) *monitor;
-    IOBluetoothUserNotification *discoveryNotification;
-    NSMutableArray *foundConnections;
-}
 
 - (id)initWithMonitor:(QT_PREPEND_NAMESPACE(OSXBluetooth::ConnectionMonitor) *)monitor;
 - (void)connectionNotification:(id)notification withDevice:(IOBluetoothDevice *)device;

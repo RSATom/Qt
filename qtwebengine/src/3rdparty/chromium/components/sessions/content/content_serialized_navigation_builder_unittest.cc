@@ -31,10 +31,9 @@ class TestExtendedInfoHandler : public ExtendedInfoHandler {
   explicit TestExtendedInfoHandler(const std::string& key) : key_(key) {}
   ~TestExtendedInfoHandler() override {}
 
-  std::string GetExtendedInfo(
-      const content::NavigationEntry& entry) const override {
+  std::string GetExtendedInfo(content::NavigationEntry* entry) const override {
     base::string16 data;
-    entry.GetExtraData(key_, &data);
+    entry->GetExtraData(key_, &data);
     return base::UTF16ToASCII(data);
   }
 
@@ -56,7 +55,7 @@ std::unique_ptr<content::NavigationEntry> MakeNavigationEntryForTest() {
       content::NavigationEntry::Create());
   navigation_entry->SetReferrer(content::Referrer(
       test_data::kReferrerURL,
-      static_cast<blink::WebReferrerPolicy>(test_data::kReferrerPolicy)));
+      static_cast<network::mojom::ReferrerPolicy>(test_data::kReferrerPolicy)));
   navigation_entry->SetVirtualURL(test_data::kVirtualURL);
   navigation_entry->SetTitle(test_data::kTitle);
   navigation_entry->SetPageState(
@@ -67,8 +66,6 @@ std::unique_ptr<content::NavigationEntry> MakeNavigationEntryForTest() {
   navigation_entry->SetOriginalRequestURL(test_data::kOriginalRequestURL);
   navigation_entry->SetIsOverridingUserAgent(test_data::kIsOverridingUserAgent);
   navigation_entry->SetTimestamp(test_data::kTimestamp);
-  navigation_entry->SetExtraData(kSearchTermsKey,
-                                 test_data::kSearchTerms);
   SetPasswordStateInNavigation(test_data::kPasswordState,
                                navigation_entry.get());
   navigation_entry->GetFavicon().valid = true;
@@ -126,7 +123,7 @@ TEST_F(ContentSerializedNavigationBuilderTest, FromNavigationEntry) {
 
   const SerializedNavigationEntry& navigation =
       ContentSerializedNavigationBuilder::FromNavigationEntry(
-          test_data::kIndex, *navigation_entry);
+          test_data::kIndex, navigation_entry.get());
 
   EXPECT_EQ(test_data::kIndex, navigation.index());
 
@@ -169,14 +166,14 @@ TEST_F(ContentSerializedNavigationBuilderTest,
 
   const SerializedNavigationEntry& default_navigation =
       ContentSerializedNavigationBuilder::FromNavigationEntry(
-          test_data::kIndex, *navigation_entry,
+          test_data::kIndex, navigation_entry.get(),
           ContentSerializedNavigationBuilder::DEFAULT);
   EXPECT_EQ(test_data::kEncodedPageState,
             default_navigation.encoded_page_state());
 
   const SerializedNavigationEntry& excluded_page_state_navigation =
       ContentSerializedNavigationBuilder::FromNavigationEntry(
-          test_data::kIndex, *navigation_entry,
+          test_data::kIndex, navigation_entry.get(),
           ContentSerializedNavigationBuilder::EXCLUDE_PAGE_STATE);
   EXPECT_TRUE(excluded_page_state_navigation.encoded_page_state().empty());
 }
@@ -192,15 +189,15 @@ TEST_F(ContentSerializedNavigationBuilderTest, ToNavigationEntry) {
 
   const SerializedNavigationEntry& navigation =
       ContentSerializedNavigationBuilder::FromNavigationEntry(
-          test_data::kIndex, *old_navigation_entry);
+          test_data::kIndex, old_navigation_entry.get());
 
   const std::unique_ptr<content::NavigationEntry> new_navigation_entry(
-      ContentSerializedNavigationBuilder::ToNavigationEntry(
-          &navigation, NULL));
+      ContentSerializedNavigationBuilder::ToNavigationEntry(&navigation,
+                                                            nullptr));
 
   EXPECT_EQ(test_data::kReferrerURL, new_navigation_entry->GetReferrer().url);
   EXPECT_EQ(test_data::kReferrerPolicy,
-            new_navigation_entry->GetReferrer().policy);
+            static_cast<int>(new_navigation_entry->GetReferrer().policy));
   EXPECT_EQ(test_data::kVirtualURL, new_navigation_entry->GetVirtualURL());
   EXPECT_EQ(test_data::kTitle, new_navigation_entry->GetTitle());
   EXPECT_EQ(test_data::kEncodedPageState,
@@ -213,9 +210,6 @@ TEST_F(ContentSerializedNavigationBuilderTest, ToNavigationEntry) {
             new_navigation_entry->GetOriginalRequestURL());
   EXPECT_EQ(test_data::kIsOverridingUserAgent,
             new_navigation_entry->GetIsOverridingUserAgent());
-  base::string16 search_terms;
-  new_navigation_entry->GetExtraData(kSearchTermsKey, &search_terms);
-  EXPECT_EQ(test_data::kSearchTerms, search_terms);
   EXPECT_EQ(test_data::kHttpStatusCode,
             new_navigation_entry->GetHttpStatusCode());
   ASSERT_EQ(3U, new_navigation_entry->GetRedirectChain().size());
@@ -240,11 +234,11 @@ TEST_F(ContentSerializedNavigationBuilderTest, SetPasswordState) {
       content::NavigationEntry::Create());
 
   EXPECT_EQ(SerializedNavigationEntry::PASSWORD_STATE_UNKNOWN,
-            GetPasswordStateFromNavigation(*entry));
+            GetPasswordStateFromNavigation(entry.get()));
   SetPasswordStateInNavigation(SerializedNavigationEntry::NO_PASSWORD_FIELD,
                                entry.get());
   EXPECT_EQ(SerializedNavigationEntry::NO_PASSWORD_FIELD,
-            GetPasswordStateFromNavigation(*entry));
+            GetPasswordStateFromNavigation(entry.get()));
 }
 
 }  // namespace sessions

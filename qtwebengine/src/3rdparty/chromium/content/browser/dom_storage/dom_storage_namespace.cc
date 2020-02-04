@@ -7,49 +7,42 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "content/browser/dom_storage/dom_storage_area.h"
 #include "content/browser/dom_storage/dom_storage_task_runner.h"
 #include "content/browser/dom_storage/session_storage_database.h"
 #include "content/common/dom_storage/dom_storage_types.h"
+#include "url/origin.h"
 
 namespace content {
 
 DOMStorageNamespace::DOMStorageNamespace(
-    const base::FilePath& directory,
-    DOMStorageTaskRunner* task_runner)
-    : namespace_id_(kLocalStorageNamespaceId),
-      directory_(directory),
-      task_runner_(task_runner) {
-}
-
-DOMStorageNamespace::DOMStorageNamespace(
-    int64_t namespace_id,
-    const std::string& persistent_namespace_id,
+    const std::string& namespace_id,
     SessionStorageDatabase* session_storage_database,
     DOMStorageTaskRunner* task_runner)
     : namespace_id_(namespace_id),
-      persistent_namespace_id_(persistent_namespace_id),
       task_runner_(task_runner),
       session_storage_database_(session_storage_database) {
-  DCHECK_NE(kLocalStorageNamespaceId, namespace_id);
+  DCHECK(!namespace_id_.empty());
 }
 
 DOMStorageNamespace::~DOMStorageNamespace() {
 }
 
-DOMStorageArea* DOMStorageNamespace::OpenStorageArea(const GURL& origin) {
+DOMStorageArea* DOMStorageNamespace::OpenStorageArea(
+    const url::Origin& origin) {
   if (AreaHolder* holder = GetAreaHolder(origin)) {
     ++(holder->open_count_);
+#if defined(OS_ANDROID)
+    if (holder->open_count_ > 1)
+      holder->area_->SetCacheOnlyKeys(false);
+#endif
     return holder->area_.get();
   }
   DOMStorageArea* area;
-  if (namespace_id_ == kLocalStorageNamespaceId) {
-    area = new DOMStorageArea(origin, directory_, task_runner_.get());
-  } else {
-    area = new DOMStorageArea(
-        namespace_id_, persistent_namespace_id_, origin,
-        session_storage_database_.get(), task_runner_.get());
-  }
+  area =
+      new DOMStorageArea(namespace_id_, std::vector<std::string>(), origin,
+                         session_storage_database_.get(), task_runner_.get());
   areas_[origin] = AreaHolder(area, 1);
   return area;
 }
@@ -59,69 +52,53 @@ void DOMStorageNamespace::CloseStorageArea(DOMStorageArea* area) {
   DCHECK(holder);
   DCHECK_EQ(holder->area_.get(), area);
   --(holder->open_count_);
-  // TODO(michaeln): Clean up areas that aren't needed in memory anymore.
-  // The in-process-webkit based impl didn't do this either, but would be nice.
+  // TODO(ssid): disable caching when the open count goes to 0 and it's safe,
+  // crbug.com/743187.
 }
 
-DOMStorageArea* DOMStorageNamespace::GetOpenStorageArea(const GURL& origin) {
+DOMStorageArea* DOMStorageNamespace::GetOpenStorageArea(
+    const url::Origin& origin) {
   AreaHolder* holder = GetAreaHolder(origin);
   if (holder && holder->open_count_)
     return holder->area_.get();
-  return NULL;
+  return nullptr;
 }
 
-DOMStorageNamespace* DOMStorageNamespace::Clone(
-    int64_t clone_namespace_id,
-    const std::string& clone_persistent_namespace_id) {
-  DCHECK_NE(kLocalStorageNamespaceId, namespace_id_);
-  DCHECK_NE(kLocalStorageNamespaceId, clone_namespace_id);
-  DOMStorageNamespace* clone = new DOMStorageNamespace(
-      clone_namespace_id, clone_persistent_namespace_id,
-      session_storage_database_.get(), task_runner_.get());
+scoped_refptr<DOMStorageNamespace> DOMStorageNamespace::Clone(
+    const std::string& clone_namespace_id) {
+  DCHECK(!namespace_id_.empty());
+  DCHECK(!clone_namespace_id.empty());
+  auto clone = base::MakeRefCounted<DOMStorageNamespace>(
+      clone_namespace_id, session_storage_database_.get(), task_runner_.get());
   AreaMap::const_iterator it = areas_.begin();
   // Clone the in-memory structures.
   for (; it != areas_.end(); ++it) {
-    DOMStorageArea* area = it->second.area_->ShallowCopy(
-        clone_namespace_id, clone_persistent_namespace_id);
+    DOMStorageArea* area = it->second.area_->ShallowCopy(clone_namespace_id);
     clone->areas_[it->first] = AreaHolder(area, 0);
   }
   // And clone the on-disk structures, too.
-  if (session_storage_database_.get()) {
-    task_runner_->PostShutdownBlockingTask(
-        FROM_HERE,
-        DOMStorageTaskRunner::COMMIT_SEQUENCE,
-        base::Bind(base::IgnoreResult(&SessionStorageDatabase::CloneNamespace),
-                   session_storage_database_.get(), persistent_namespace_id_,
-                   clone_persistent_namespace_id));
+  if (session_storage_database_) {
+    auto clone_task = base::BindOnce(
+        base::IgnoreResult(&SessionStorageDatabase::CloneNamespace),
+        session_storage_database_, namespace_id_, clone_namespace_id);
+    auto callback =
+        base::BindOnce(&DOMStorageNamespace::OnCloneStorageDone, clone);
+    task_runner_->GetSequencedTaskRunner(DOMStorageTaskRunner::COMMIT_SEQUENCE)
+        ->PostTaskAndReply(FROM_HERE, std::move(clone_task),
+                           std::move(callback));
   }
   return clone;
 }
 
-void DOMStorageNamespace::DeleteLocalStorageOrigin(const GURL& origin) {
-  DCHECK(!session_storage_database_.get());
-  AreaHolder* holder = GetAreaHolder(origin);
-  if (holder) {
-    holder->area_->DeleteOrigin();
-    return;
-  }
-  if (!directory_.empty()) {
-    scoped_refptr<DOMStorageArea> area =
-        new DOMStorageArea(origin, directory_, task_runner_.get());
-    area->DeleteOrigin();
-  }
-}
-
-void DOMStorageNamespace::DeleteSessionStorageOrigin(const GURL& origin) {
+void DOMStorageNamespace::DeleteSessionStorageOrigin(
+    const url::Origin& origin) {
   DOMStorageArea* area = OpenStorageArea(origin);
   area->FastClear();
   CloseStorageArea(area);
 }
 
 void DOMStorageNamespace::PurgeMemory(bool aggressively) {
-  if (namespace_id_ == kLocalStorageNamespaceId && directory_.empty())
-    return;  // We can't purge local storage w/o backing on disk.
-
-  AreaMap::iterator it = areas_.begin();
+  auto it = areas_.begin();
   while (it != areas_.end()) {
     const AreaHolder& holder = it->second;
 
@@ -171,9 +148,9 @@ void DOMStorageNamespace::Flush() {
 DOMStorageNamespace::UsageStatistics DOMStorageNamespace::GetUsageStatistics()
     const {
   UsageStatistics stats = {0};
-  for (AreaMap::const_iterator it = areas_.begin(); it != areas_.end(); ++it) {
-    if (it->second.area_->IsLoadedInMemory()) {
-      stats.total_cache_size += it->second.area_->map_usage_in_bytes();
+  for (auto it = areas_.begin(); it != areas_.end(); ++it) {
+    if (it->second.area_->map_memory_used()) {
+      stats.total_cache_size += it->second.area_->map_memory_used();
       ++stats.total_area_count;
       if (it->second.open_count_ == 0)
         ++stats.inactive_area_count;
@@ -190,18 +167,33 @@ void DOMStorageNamespace::OnMemoryDump(
 }
 
 void DOMStorageNamespace::GetOriginsWithAreas(
-    std::vector<GURL>* origins) const {
+    std::vector<url::Origin>* origins) const {
   origins->clear();
   for (const auto& entry : areas_)
     origins->push_back(entry.first);
 }
 
-DOMStorageNamespace::AreaHolder*
-DOMStorageNamespace::GetAreaHolder(const GURL& origin) {
-  AreaMap::iterator found = areas_.find(origin);
+int DOMStorageNamespace::GetAreaOpenCount(const url::Origin& origin) const {
+  const auto& found = areas_.find(origin);
   if (found == areas_.end())
-    return NULL;
+    return 0;
+  return found->second.open_count_;
+}
+
+DOMStorageNamespace::AreaHolder* DOMStorageNamespace::GetAreaHolder(
+    const url::Origin& origin) {
+  auto found = areas_.find(origin);
+  if (found == areas_.end())
+    return nullptr;
   return &(found->second);
+}
+
+void DOMStorageNamespace::OnCloneStorageDone() {
+  task_runner_->AssertIsRunningOnPrimarySequence();
+  // Shallow copy of commit batches are no longer needed since the database is
+  // cloned.
+  for (AreaMap::const_iterator it = areas_.begin(); it != areas_.end(); ++it)
+    it->second.area_->ClearShallowCopiedCommitBatches();
 }
 
 // AreaHolder
@@ -215,7 +207,12 @@ DOMStorageNamespace::AreaHolder::AreaHolder(
     : area_(area), open_count_(count) {
 }
 
-DOMStorageNamespace::AreaHolder::AreaHolder(const AreaHolder& other) = default;
+DOMStorageNamespace::AreaHolder& DOMStorageNamespace::AreaHolder::operator=(
+    AreaHolder&& other) {
+  area_ = std::move(other.area_);
+  open_count_ = other.open_count_;
+  return *this;
+}
 
 DOMStorageNamespace::AreaHolder::~AreaHolder() {
 }

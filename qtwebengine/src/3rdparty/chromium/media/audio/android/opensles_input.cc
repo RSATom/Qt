@@ -5,7 +5,7 @@
 #include "media/audio/android/opensles_input.h"
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "media/audio/android/audio_manager_android.h"
 #include "media/base/audio_bus.h"
@@ -30,18 +30,25 @@ OpenSLESInputStream::OpenSLESInputStream(AudioManagerAndroid* audio_manager,
       active_buffer_index_(0),
       buffer_size_bytes_(0),
       started_(false),
-      audio_bus_(media::AudioBus::Create(params)) {
+      audio_bus_(media::AudioBus::Create(params)),
+      no_effects_(params.effects() == AudioParameters::NO_EFFECTS) {
   DVLOG(2) << __PRETTY_FUNCTION__;
+  DVLOG(1) << "Audio effects enabled: " << !no_effects_;
+
+  const SampleFormat kSampleFormat = kSampleFormatS16;
+
   format_.formatType = SL_DATAFORMAT_PCM;
   format_.numChannels = static_cast<SLuint32>(params.channels());
   // Provides sampling rate in milliHertz to OpenSLES.
   format_.samplesPerSec = static_cast<SLuint32>(params.sample_rate() * 1000);
-  format_.bitsPerSample = params.bits_per_sample();
-  format_.containerSize = params.bits_per_sample();
+  format_.bitsPerSample = format_.containerSize =
+      SampleFormatToBitsPerChannel(kSampleFormat);
   format_.endianness = SL_BYTEORDER_LITTLEENDIAN;
   format_.channelMask = ChannelCountToSLESChannelMask(params.channels());
 
-  buffer_size_bytes_ = params.GetBytesPerBuffer();
+  buffer_size_bytes_ = params.GetBytesPerBuffer(kSampleFormat);
+  hardware_delay_ = base::TimeDelta::FromSecondsD(
+      params.frames_per_buffer() / static_cast<double>(params.sample_rate()));
 
   memset(&audio_data_, 0, sizeof(audio_data_));
 }
@@ -159,32 +166,31 @@ void OpenSLESInputStream::Close() {
 }
 
 double OpenSLESInputStream::GetMaxVolume() {
-  NOTIMPLEMENTED();
   return 0.0;
 }
 
 void OpenSLESInputStream::SetVolume(double volume) {
-  NOTIMPLEMENTED();
 }
 
 double OpenSLESInputStream::GetVolume() {
-  NOTIMPLEMENTED();
   return 0.0;
 }
 
 bool OpenSLESInputStream::SetAutomaticGainControl(bool enabled) {
-  NOTIMPLEMENTED();
   return false;
 }
 
 bool OpenSLESInputStream::GetAutomaticGainControl() {
-  NOTIMPLEMENTED();
   return false;
 }
 
 bool OpenSLESInputStream::IsMuted() {
-  NOTIMPLEMENTED();
   return false;
+}
+
+void OpenSLESInputStream::SetOutputDeviceForAec(
+    const std::string& output_device_id) {
+  // Not supported. Do nothing.
 }
 
 bool OpenSLESInputStream::CreateRecorder() {
@@ -231,13 +237,9 @@ bool OpenSLESInputStream::CreateRecorder() {
 
   // Create AudioRecorder and specify SL_IID_ANDROIDCONFIGURATION.
   LOG_ON_FAILURE_AND_RETURN(
-      (*engine)->CreateAudioRecorder(engine,
-                                     recorder_object_.Receive(),
-                                     &audio_source,
-                                     &audio_sink,
-                                     arraysize(interface_id),
-                                     interface_id,
-                                     interface_required),
+      (*engine)->CreateAudioRecorder(
+          engine, recorder_object_.Receive(), &audio_source, &audio_sink,
+          base::size(interface_id), interface_id, interface_required),
       false);
 
   SLAndroidConfigurationItf recorder_config;
@@ -247,8 +249,11 @@ bool OpenSLESInputStream::CreateRecorder() {
                                      &recorder_config),
       false);
 
-  // Uses the main microphone tuned for audio communications.
-  SLint32 stream_type = SL_ANDROID_RECORDING_PRESET_VOICE_COMMUNICATION;
+  // Uses the main microphone tuned for audio communications if effects are
+  // enabled and disables all audio processing if effects are disabled.
+  SLint32 stream_type = no_effects_
+                            ? SL_ANDROID_RECORDING_PRESET_CAMCORDER
+                            : SL_ANDROID_RECORDING_PRESET_VOICE_COMMUNICATION;
   LOG_ON_FAILURE_AND_RETURN(
       (*recorder_config)->SetConfiguration(recorder_config,
                                            SL_ANDROID_KEY_RECORDING_PRESET,
@@ -300,13 +305,14 @@ void OpenSLESInputStream::ReadBufferQueue() {
   TRACE_EVENT0("audio", "OpenSLESOutputStream::ReadBufferQueue");
 
   // Convert from interleaved format to deinterleaved audio bus format.
-  audio_bus_->FromInterleaved(audio_data_[active_buffer_index_],
-                              audio_bus_->frames(),
-                              format_.bitsPerSample / 8);
+  audio_bus_->FromInterleaved<SignedInt16SampleTypeTraits>(
+      reinterpret_cast<int16_t*>(audio_data_[active_buffer_index_]),
+      audio_bus_->frames());
 
   // TODO(henrika): Investigate if it is possible to get an accurate
   // delay estimation.
-  callback_->OnData(this, audio_bus_.get(), buffer_size_bytes_, 0.0);
+  callback_->OnData(audio_bus_.get(), base::TimeTicks::Now() - hardware_delay_,
+                    0.0);
 
   // Done with this buffer. Send it to device for recording.
   SLresult err =
@@ -340,7 +346,7 @@ void OpenSLESInputStream::ReleaseAudioBuffer() {
 void OpenSLESInputStream::HandleError(SLresult error) {
   DLOG(ERROR) << "OpenSLES Input error " << error;
   if (callback_)
-    callback_->OnError(this);
+    callback_->OnError();
 }
 
 }  // namespace media

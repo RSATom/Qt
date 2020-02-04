@@ -10,8 +10,8 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CXFA_ContainerLayoutItem;
 class CXFA_Document;
@@ -26,7 +26,7 @@ class CXFA_LayoutProcessor {
   ~CXFA_LayoutProcessor();
 
   CXFA_Document* GetDocument() const;
-  int32_t StartLayout(bool bForceRestart = false);
+  int32_t StartLayout(bool bForceRestart);
   int32_t DoLayout();
   bool IncrementLayout();
   int32_t CountPages() const;
@@ -45,9 +45,9 @@ class CXFA_LayoutProcessor {
  private:
   bool IsNeedLayout();
 
-  CFX_UnownedPtr<CXFA_Document> const m_pDocument;
-  std::unique_ptr<CXFA_ItemLayoutProcessor> m_pRootItemLayoutProcessor;
+  UnownedPtr<CXFA_Document> const m_pDocument;
   std::unique_ptr<CXFA_LayoutPageMgr> m_pLayoutPageMgr;
+  std::unique_ptr<CXFA_ItemLayoutProcessor> m_pRootItemLayoutProcessor;
   std::vector<CXFA_Node*> m_rgChangedContainers;
   uint32_t m_nProgressCounter;
   bool m_bNeedLayout;

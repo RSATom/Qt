@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -907,9 +907,9 @@
 
     Platform-specific variables follow the naming pattern of the
     variables which they extend or modify, but include the name of the relevant
-    platform in their name. For example, \c QMAKE_LIBS can be used to specify a list
-    of libraries that a project needs to link against, and \c QMAKE_LIBS_X11 can be
-    used to extend or override this list.
+    platform in their name. For example, a makespec may use \c QMAKE_LIBS
+    to specify a list of libraries that each project needs to link against,
+    and \c QMAKE_LIBS_X11 would be used to extend this list.
 
     \target CONFIG
     \section1 CONFIG
@@ -956,14 +956,58 @@
             default is used.
     \row    \li thread \li Thread support is enabled. This is enabled when CONFIG
             includes \c qt, which is the default.
+    \row    \li c99 \li C99 support is enabled. This option has no effect if
+            the compiler does not support C99, or can't select the C standard.
+            By default, the compiler default is used.
+    \row    \li c11 \li C11 support is enabled. This option has no effect if
+            the compiler does not support C11, or can't select the C standard.
+            By default, the compiler default is used.
+    \row    \li strict_c \li Disables support for C compiler extensions.
+            By default, they are enabled.
     \row    \li c++11 \li C++11 support is enabled. This option has no effect if
-            the compiler does not support C++11.
-            By default, support is disabled.
+            the compiler does not support C++11, or can't select the C++ standard.
+            By default, support is enabled.
     \row    \li c++14 \li C++14 support is enabled. This option has no effect if
-            the compiler does not support C++14.
+            the compiler does not support C++14, or can't select the C++ standard.
+            By default, the compiler default is used.
+    \row    \li c++1z \li C++17 support is enabled. This option has no effect if
+            the compiler does not support C++17, or can't select the C++ standard.
             By default, support is disabled.
+    \row    \li c++17 \li Same as c++1z.
+    \row    \li c++2a \li C++2a support is enabled. This option has no effect if
+            the compiler does not support C++2a, or can't select the C++ standard.
+            By default, support is disabled.
+    \row    \li c++latest \li Support for the latest C++ language standard is
+            enabled that is supported by the compiler. By default, this option is
+            disabled.
+    \row    \li strict_c++ \li Disables support for C++ compiler extensions.
+            By default, they are enabled.
     \row    \li depend_includepath \li Appending the value of INCLUDEPATH to
             DEPENDPATH is enabled. Set by default.
+    \row    \li lrelease \li Run \c lrelease for all files listed in
+            \l TRANSLATIONS and \l EXTRA_TRANSLATIONS. If \c embed_translations
+            is not set, install the generated .qm files into
+            QM_FILES_INSTALL_PATH. Use QMAKE_LRELEASE_FLAGS to add options to
+            the lrelease call. Not set by default.
+    \row    \li embed_translations \li Embed the generated translations from
+            \c lrelease in the executable, under \l{QM_FILES_RESOURCE_PREFIX}.
+            Requires \c lrelease to be set, too. Not set by default.
+    \row \li create_libtool \li Create a libtool .la file for the currently
+            built library.
+    \row \li create_pc \li Create a pkg-config .pc file for the currently built
+            library.
+    \row \li no_batch \li NMake only: Turn off generation of NMake batch rules
+            or inference rules.
+    \row \li skip_target_version_ext \li Suppress the automatic version number
+            appended to the DLL file name on Windows.
+    \row \li suppress_vcproj_warnings \li Suppress warnings of the VS project
+            generator.
+    \row \li windeployqt \li Automatically invoke windeployqt after linking,
+            and add the output as deployment items.
+    \row \li dont_recurse \li Suppress qmake recursion for the current
+            subproject.
+    \row \li no_include_pwd \li Do not add the current directory to
+            INCLUDEPATHS.
     \endtable
 
     When you use the \c debug_and_release option (which is the default under
@@ -1011,6 +1055,8 @@
         qmake will process all libraries linked to
         by the application and find their meta-information (see
         \l{LibDepend}{Library Dependencies} for more info).
+     \row \li no_install_prl \li This option disables the generation of
+        installation rules for generated .prl files.
      \endtable
 
     \note The \c create_prl option is required when \e {building} a
@@ -1025,7 +1071,7 @@
          library and header files. The proper include and library paths for the
          Qt library will automatically be added to the project. This is defined
          by default, and can be fine-tuned with the \c{\l{#qt}{QT}} variable.
-    \row \li x11 \li The target is a X11 application or library. The proper
+    \row \li x11 \li The target is an X11 application or library. The proper
         include paths and libraries will automatically be added to the
         project.
     \row \li testcase \li The target is an automated test.
@@ -1038,8 +1084,12 @@
         proper include paths, compiler flags and libraries will
         automatically be added to the project.
     \row \li console \li The target is a Win32 console application (app only). The
-        proper include paths, compiler flags and libraries will
-        automatically be added to the project.
+        proper include paths, compiler flags and libraries will automatically be
+        added to the project. Consider using the option \c{cmdline} for
+        cross-platform applications.
+    \row \li cmdline \li The target is a cross-platform command line application.
+        On Windows, this implies \c{CONFIG += console}.
+        On macOS, this implies \c{CONFIG -= app_bundle}.
     \row \li shared \li{1,2} The target is a shared object/DLL. The proper
         include paths, compiler flags and libraries will automatically be
         added to the project. Note that \c dll can also be used on all platforms;
@@ -1079,6 +1129,8 @@
     \header \li Option \li Description
     \row \li app_bundle \li Puts the executable into a bundle (this is the default).
     \row \li lib_bundle \li Puts the library into a library bundle.
+    \row \li plugin_bundle \li Puts the plugin into a plugin bundle. This value
+         is not supported by the Xcode project generator.
     \endtable
 
     The build process for bundles is also influenced by
@@ -1110,6 +1162,26 @@
 
     \snippet code/doc_src_qmake-manual.pro 27
 
+    \target DEFINES_DEBUG
+    \section1 DEFINES_DEBUG
+
+    Specifies preprocessor defines for the debug configuration. The values of
+    this variable get added to \l{DEFINES} before the project is loaded. This
+    variable is typically set in \l{#QMAKESPEC}{qmake.conf} and rarely needs
+    to be modified.
+
+    This variable was introduced in Qt 5.13.2.
+
+    \target DEFINES_RELEASE
+    \section1 DEFINES_RELEASE
+
+    Specifies preprocessor defines for the release configuration. The values of
+    this variable get added to \l{DEFINES} before the project is loaded. This
+    variable is typically set in \l{#QMAKESPEC}{qmake.conf} and rarely needs
+    to be modified.
+
+    This variable was introduced in Qt 5.13.2.
+
     \target DEF_FILE
     \section1 DEF_FILE
 
@@ -1120,8 +1192,9 @@
     \target DEPENDPATH
     \section1 DEPENDPATH
 
-    Specifies a list of all directories to look in to resolve dependencies. This
-    variable is used when crawling through \c included files.
+    Specifies a list of directories for qmake to scan, to resolve dependencies.
+    This variable is used when qmake crawls through the header files that you
+    \c{#include} in your source code.
 
     \target DESTDIR
     \section1 DESTDIR
@@ -1131,6 +1204,10 @@
     For example:
 
     \snippet code/doc_src_qmake-manual.pro 30
+
+    \note The list of supported characters can depend on
+    the used build tool. In particular, parentheses do not
+    work with \c{make}.
 
     \target DISTFILES
     \section1 DISTFILES
@@ -1148,6 +1225,24 @@
     \note This variable applies only to Windows targets.
 
     Specifies where to copy the \l{#TARGET}{target} dll.
+
+    \target EXTRA_TRANSLATIONS
+    \section1 EXTRA_TRANSLATIONS
+
+    Specifies a list of translation (.ts) files that contain
+    translations of the user interface text into non-native languages.
+
+    In contrast to \l TRANSLATIONS, translation files in \c EXTRA_TRANSLATIONS
+    will be processed only by \l{Using lrelease}{lrelease}, not
+    \l{Using lupdate}{lupdate}.
+
+    You can use \l{CONFIG}{CONFIG += lrelease} to automatically compile the
+    files during the build, and
+    \l{CONFIG}{CONFIG += lrelease embed_translations} to make them available in
+    \l{The Qt Resource System}.
+
+    See the \l{Qt Linguist Manual} for more information about
+    internationalization (i18n) and localization (l10n) with Qt.
 
     \target FORMS
     \section1 FORMS
@@ -1227,6 +1322,41 @@
 
     \snippet code/doc_src_qmake-manual.pro 36
 
+    \c INSTALLS has a \c{.CONFIG} member that can take several values:
+
+    \table
+        \header
+            \li Value
+            \li Description
+        \row
+            \li no_check_exists
+            \li If not set, qmake looks to see if the files to install actually
+                exist. If these files don't exist, qmake doesn’t create the
+                install rule. Use this config value if you need to install
+                files that are generated as part of your build process, like
+                HTML files created by qdoc.
+        \row
+            \li nostrip
+            \li If set, the typical Unix strip functionality is turned off and
+                the debug information will remain in the binary.
+        \row
+            \li executable
+            \li On Unix, this sets the executable flag.
+        \row
+            \li no_build
+            \li When you do a \c{make install}, and you don't have a build of
+                the project yet, the project is first built, and then installed.
+                If you don't want this behavior, set this config value to ensure
+                that the build target is not added as a dependency to the install
+                target.
+        \row
+            \li no_default_install
+            \li A project has a top-level project target where, when you do a
+                \c{make install}, everything is installed. But, if you have an
+                install target with this config value set, it's not installed by
+                default. You then have to explicitly say \c{make install_<file>}.
+    \endtable
+
     For more information, see \l{Installing Files}.
 
     This variable is also used to specify which additional files will be
@@ -1243,7 +1373,7 @@
     \section1 LEXOBJECTS
 
     Specifies the names of intermediate Lex object
-    files.The value of this variable is typically handled by
+    files. The value of this variable is typically handled by
     qmake and rarely needs to be modified.
 
     \target LEXSOURCES
@@ -1280,6 +1410,19 @@
     \c no_lflags_merge option to the \l{CONFIG} variable:
 
     \snippet code/doc_src_qmake-manual.pro 39
+
+    \target LIBS_PRIVATE
+    \section1 LIBS_PRIVATE
+
+    Specifies a list of libraries to be linked privately into the project.
+    The behavior of this variable is identical to \l LIBS, except that
+    shared library projects built for Unix do not expose these dependencies
+    in their link interface.
+
+    The effect of this is that if project C depends on library B which
+    depends on library A privately, but C also wants to use symbols from A
+    directly, it needs to link to A explicitly. Put differently, libraries
+    linked privately are not exposed transitively at build time.
 
     \target LITERAL_HASH
     \section1 LITERAL_HASH
@@ -1419,6 +1562,21 @@
 
     \note Do not attempt to overwrite the value of this variable.
 
+    \target QM_FILES_RESOURCE_PREFIX
+    \section1 QM_FILES_RESOURCE_PREFIX
+
+    Specifies the directory in the resource system where \c .qm files will
+    be made available by \l{CONFIG}{CONFIG += embed_translations}.
+
+    The default is \c{:/i18n/}.
+
+    \target QM_FILES_INSTALL_PATH
+    \section1 QM_FILES_INSTALL_PATH
+
+    Specifies the target directory \c .qm files generated by
+    \l{CONFIG}{CONFIG += lrelease} will be installed to. Does not have any
+    effect if \l{CONFIG}{CONFIG += embed_translations} is set.
+
     \target QMAKE_systemvariable
     \section1 QMAKE
 
@@ -1508,6 +1666,14 @@
     The value of this variable is typically handled by qmake or \l{#QMAKESPEC}{qmake.conf}
     and rarely needs to be modified.
 
+    \target QMAKE_CFLAGS_RELEASE_WITH_DEBUGINFO
+    \section1 QMAKE_CFLAGS_RELEASE_WITH_DEBUGINFO
+
+    Specifies the C compiler flags for release builds where
+    \c{force_debug_info} is set in \c{CONFIG}.
+    The value of this variable is typically handled by
+    qmake or \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
+
     \target QMAKE_CFLAGS_SHLIB
     \section1 QMAKE_CFLAGS_SHLIB
 
@@ -1573,6 +1739,14 @@
     \section1 QMAKE_CXXFLAGS_RELEASE
 
     Specifies the C++ compiler flags for release builds.
+    The value of this variable is typically handled by
+    qmake or \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
+
+    \target QMAKE_CXXFLAGS_RELEASE_WITH_DEBUGINFO
+    \section1 QMAKE_CXXFLAGS_RELEASE_WITH_DEBUGINFO
+
+    Specifies the C++ compiler flags for release builds where
+    \c{force_debug_info} is set in \c{CONFIG}.
     The value of this variable is typically handled by
     qmake or \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
 
@@ -1725,9 +1899,9 @@
 
     \note This variable is used on \macos, iOS, tvOS, and watchOS only.
 
-    For projects where the build target is an \macos, iOS, tvOS, or watchOS framework, this
-    variable is used to specify the version number that will be applied to the
-    framework that is built.
+    For projects where the build target is a \macos, iOS, tvOS, or watchOS
+    framework, this variable is used to specify the version number that will be
+    applied to the framework that is built.
 
     By default, this variable contains the same value as the \l{#VERSION}{VERSION}
     variable.
@@ -1811,7 +1985,7 @@
     \note This variable is used on Unix platforms only.
 
     Specifies the location of X11 header file paths to be added
-    to \l{INCLUDEPATH} when building a X11 target. The value of this variable
+    to \l{INCLUDEPATH} when building an X11 target. The value of this variable
     is typically handled by qmake or
     \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
 
@@ -1956,6 +2130,12 @@
     The value of this variable is typically handled by
     qmake or \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
 
+    \section1 QMAKE_LFLAGS_RELEASE_WITH_DEBUGINFO
+
+    Specifies the linker flags for release builds where \c{force_debug_info} is
+    set in \c{CONFIG}. The value of this variable is typically handled by
+    qmake or \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
+
     \section1 QMAKE_LFLAGS_APP
 
     Specifies the linker flags for building applications.
@@ -1994,7 +2174,19 @@
 
     \section1 QMAKE_LIBDIR
 
-    Specifies a list of system library paths.
+    Specifies a list of library search paths for all projects.
+    The value of this variable is typically handled by qmake
+    or \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
+
+    To specify additional search paths in project files,
+    use \l LIBS like that, instead:
+    \badcode
+        LIBS += -L/path/to/libraries
+    \endcode
+
+    \section1 QMAKE_LIBDIR_POST
+
+    Specifies a list of system library search paths for all projects.
     The value of this variable is typically handled by qmake
     or \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
 
@@ -2044,9 +2236,21 @@
 
     \section1 QMAKE_LIBS
 
-    Specifies all project libraries. The value of this variable
-    is typically handled by qmake or
+    Specifies additional libraries each project needs to link against.
+    The value of this variable is typically handled by qmake or
     \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
+
+    To specify libraries in a project file, use \l LIBS instead.
+
+    \section1 QMAKE_LIBS_PRIVATE
+
+    Specifies additional private libraries each project needs to
+    link against.
+    The value of this variable is typically handled by qmake or
+    \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
+
+    To specify private libraries in a library project file,
+    use \l LIBS_PRIVATE instead.
 
     \section1 QMAKE_LIBS_EGL
 
@@ -2134,6 +2338,12 @@
     value of this variable is typically handled by qmake or
      \l{#QMAKESPEC}{qmake.conf} and rarely needs to be modified.
 
+    \target QMAKE_LRELEASE_FLAGS
+    \section1 QMAKE_LRELEASE_FLAGS
+
+    List of additional options passed to \l{Using lrelease}{lrelease} when
+    enabled through \l{CONFIG}{CONFIG += lrelease}.
+
     \section1 QMAKE_OBJECTIVE_CFLAGS
 
     Specifies the Objective C/C++ compiler flags for building
@@ -2195,7 +2405,7 @@
 
     \section1 QMAKE_QMAKE
 
-    Contains the abosolute path of the qmake executable.
+    Contains the absolute path of the qmake executable.
 
     \note Do not attempt to overwrite the value of this variable.
 
@@ -2263,7 +2473,7 @@
     If defined, the value of this variable is used as a path to be prepended to
     the built shared library's \c SONAME identifier. The \c SONAME is the
     identifier that the dynamic linker will later use to reference the library.
-    In general this reference may be a library name or full library path. On \macos,
+    In general, this reference may be a library name or full library path. On \macos,
     iOS, tvOS, and watchOS, the path may be specified relatively using the following
     placeholders:
 
@@ -2342,9 +2552,7 @@
 
     This variable is used to customize the list of options passed to the
     \l{uic}{User Interface Compiler} in each of the build rules where it is
-    used. For example, \c{-no-stringliteral} can be passed to use QLatin1String
-    instead of QStringLiteral in generated code (which is the default for
-    dynamic libraries).
+    used.
 
     \section1 QMAKE_WATCHOS_DEPLOYMENT_TARGET
 
@@ -2413,10 +2621,8 @@
 
     \section1 RC_FILE
 
-    Specifies the name of the resource file for the application.
-    The value of this variable is typically handled by
-    qmake or \l{#QMAKESPEC}{qmake.conf} and rarely
-    needs to be modified.
+    Windows only. Specifies the name of the Windows resource file (.rc) for the
+    target. See \l{Adding Windows Resource Files}.
 
     \target RC_CODEPAGE
     \section1 RC_CODEPAGE
@@ -2479,7 +2685,9 @@
 
     \section1 RES_FILE
 
-    Specifies the name of the compiled Windows resource file for the target.
+    Windows only. Specifies the name of the Windows resource compiler's output
+    file for this target. See \l{RC_FILE} and \l{Adding Windows Resource Files}.
+
     The value of this variable is typically handled by
     qmake or \l{#QMAKESPEC}{qmake.conf} and rarely
     needs to be modified.
@@ -2571,7 +2779,7 @@
 
     \section1 TARGET_x.y.z
 
-    Specifies the extension of \c TARGET with version number. The
+    Specifies the extension of \c TARGET with a version number. The
     value of this variable is typically handled by
     qmake or \l{#QMAKESPEC}{qmake.conf} and rarely
     needs to be modified.
@@ -2592,7 +2800,7 @@
             The subdirectories are specified using the \l{#SUBDIRS}{SUBDIRS}
             variable.
     \row    \li aux     \li Creates a Makefile for not building anything. Use this if no compiler
-                            needs to be invoked to create the target, for instance because your
+                            needs to be invoked to create the target; for instance, because your
                             project is written in an interpreted language.
                             \note This template type is only available for Makefile-based
                             generators. In particular, it will not work with the vcxproj and
@@ -2613,10 +2821,20 @@
     determine how the project is built, it is necessary to declare TEMPLATE on
     the command line rather than use the \c -t option.
 
+    \target TRANSLATIONS
     \section1 TRANSLATIONS
 
     Specifies a list of translation (.ts) files that contain
     translations of the user interface text into non-native languages.
+
+    Translation files in \c TRANSLATIONS will be processed by both
+    \l{Using lrelease}{lrelease} and \l{Using lupdate} tools. Use
+    \l EXTRA_TRANSLATIONS if you want only \c lrelease to process a file.
+
+    You can use \l{CONFIG}{CONFIG += lrelease} to automatically compile the
+    files during the build, and
+    \l{CONFIG}{CONFIG += lrelease embed_translations} to make them available in
+    \l{The Qt Resource System}.
 
     See the \l{Qt Linguist Manual} for more information about
     internationalization (i18n) and localization (l10n) with Qt.
@@ -2682,11 +2900,31 @@
 
     See also \l{#DEPENDPATH}{DEPENDPATH}.
 
+    \target WINDOWS_TARGET_PLATFORM_VERSION
+    \section1 WINDOWS_TARGET_PLATFORM_VERSION
+
+    Specifies the targeted Windows version; this corresponds to the tag
+    \c{WindowsTargetPlatformVersion} in vcxproj files.
+
+    On desktop Windows, the default value is the value of the environment
+    variable \c{WindowsSDKVersion}.
+
+    On Universal Windows Platform (UWP), the default value is the value of the
+    environment variable \c{UCRTVERSION}.
+
+    \target WINDOWS_TARGET_PLATFORM_MIN_VERSION
+    \section1 WINDOWS_TARGET_PLATFORM_MIN_VERSION
+
+    Specifies the minimum version of the Windows target platform; this
+    corresponds to the tag \c{WindowsTargetPlatformMinVersion} in vcxproj files.
+
+    Defaults to \c{WINDOWS_TARGET_PLATFORM_VERSION}.
+
     \target WINRT_MANIFEST
     \section1 WINRT_MANIFEST
 
-    Specifies parameters to be passed to the application manifest on \l{Qt for WinRT}{Windows
-    Runtime}. The allowed values are:
+    Specifies parameters to be passed to the application manifest on
+    \l{Qt for UWP}{UWP}. The allowed values are:
 
     \table
     \header
@@ -2721,7 +2959,6 @@
     \row
         \li foreground
         \li Tile foreground (text) color. Defaults to \c{light}.
-            This option is only available for Windows Store apps on Windows 8 and Windows RT.
     \row
         \li iconic_tile_icon
         \li Image file for the \c{iconic} tile template icon. Default provided by
@@ -2736,16 +2973,16 @@
             manifest's UUID, or generates a new UUID if none is present.
     \row
         \li logo_30x30
-        \li Logo image file of size 30x30 pixels. This is not supported on Windows Phone.
+        \li Logo image file of size 30x30 pixels.
     \row
         \li logo_41x41
-        \li Logo image file of size 41x41 pixels. This is only supported on Windows Phone.
+        \li Logo image file of size 41x41 pixels. This parameter is obsolete.
     \row
         \li logo_70x70
-        \li Logo image file of size 70x70 pixels. This is not supported on Windows Phone.
+        \li Logo image file of size 70x70 pixels.
     \row
         \li logo_71x71
-        \li Logo image file of size 71x71 pixels. This is only supported on Windows Phone.
+        \li Logo image file of size 71x71 pixels. This parameter is obsolete.
     \row
         \li logo_150x150
         \li Logo image file of size 150x150 pixels. This is supported on all Windows
@@ -2760,31 +2997,27 @@
             Store App platforms.
     \row
         \li logo_620x300
-        \li Splash screen image file of size 620x300 pixels. This is not supported on
-            Windows Phone.
+        \li Splash screen image file of size 620x300 pixels.
     \row
         \li logo_480x800
-        \li Splash sceen image file of size 480x800 pixels. This is only supported on
-            Windows Phone.
+        \li Splash screen image file of size 480x800 pixels.
+            This parameter is obsolete.
     \row
         \li logo_large
         \li Large logo image file. This has to be 150x150 pixels. Supported on all
             Windows Store App platforms. Default provided by the mkspec.
     \row
         \li logo_medium
-        \li Medium logo image file. For Windows Phone the image must have a pixel size
-            of 71x71, for other Windows Store App platforms 70x70. Default provided by
-            the mkspec.
+        \li Medium logo image file. The image must have a pixel size of 70x70.
+            Default provided by the mkspec.
     \row
         \li logo_small
-        \li Small logo image file. For Windows Phone the image must have a pixel size
-            of 44x44, for other Windows Store App platforms 30x30. Default provided by
-            the mkspec.
+        \li Small logo image file. The image must have a pixel size of 30x30.
+            Default provided by the mkspec.
     \row
         \li logo_splash
-        \li Splash screen image file. For Windows Phone the image must have a pixel size
-            of 480x800, for other Windows Store App platforms 620x300. Default provided
-            by the mkspec.
+        \li Splash screen image file. The image must have a pixel size of
+            620x300. Default provided by the mkspec.
     \row
         \li logo_store
         \li Logo image file for Windows Store. Default provided by the mkspec.
@@ -2797,10 +3030,12 @@
         \li The name of the package as displayed to the user. Defaults to TARGET.
     \row
         \li phone_product_id
-        \li The GUID of the product. Defaults to the value of WINRT_MANIFEST.identity. (Windows Phone only)
+        \li The GUID of the product.
+            This parameter is obsolete.
     \row
         \li phone_publisher_id
-        \li The GUID of the publisher. Defaults to an invalid GUID. (Windows Phone only)
+        \li The GUID of the publisher.
+            This parameter is obsolete.
     \row
         \li publisher
         \li Display name of the publisher. Defaults to \c{Default publisher display name}.
@@ -2815,10 +3050,12 @@
         \li The version number of the package. Defaults to \c{1.0.0.0}.
     \row
         \li minVersion
-        \li The minimum required Windows version to run the package. Defaults to the environment variable \c UCRTVersion.
+        \li The minimum required Windows version to run the package.
+            Defaults to \c{WINDOWS_TARGET_PLATFORM_VERSION}.
     \row
         \li maxVersionTested
-        \li The maximum Windows version the package has been tested against. Defaults to \c WINRT_MANIFEST.minVersion
+        \li The maximum Windows version the package has been tested against.
+            Defaults to \c{WINDOWS_TARGET_PLATFORM_MIN_VERSION}.
 
     \endtable
 
@@ -2848,10 +3085,6 @@
     WINRT_MANIFEST = someManifest.xml.in
     WINRT_MANIFEST.CONFIG += verbatim
     \endcode
-
-    \note The required image sizes of \e logo_small, \e logo_medium, and \e logo_large
-          depend on the target platform. The general descriptions are overwritten if a
-          description that specifies the size is provided.
 
     \target YACCSOURCES
     \section1 YACCSOURCES
@@ -2913,12 +3146,15 @@
     Returns the absolute path of \c path.
 
     If \c base is not specified, uses the current directory as the base
-    directory.
+    directory.  If it is a relative path, it is resolved relative to the current
+    directory before use.
 
     For example, the following call returns the string
     \c {"/home/johndoe/myproject/readme.txt"}:
 
     \snippet code/doc_src_qmake-manual.pro 159
+
+    This function was introduced in Qt 5.0.
 
     See also \l{clean_path(path)}{clean_path()},
     \l{relative_path(filePath[, base])}{relative_path()}.
@@ -2931,6 +3167,7 @@
 
     \snippet code/doc_src_qmake-manual.pro 59
 
+    \target qmake-cat
     \section2 cat(filename[, mode])
 
     Returns the contents of \c filename. You can specify the following options
@@ -2953,6 +3190,8 @@
     redundant ones removed, and "."s and ".."s resolved (as far as possible).
     This function is a wrapper around QDir::cleanPath.
 
+    This function was introduced in Qt 5.0.
+
     See also \l{absolute_path(path[, base])}{absolute_path()},
     \l{relative_path(filePath[, base])}{relative_path()},
     \l{shell_path(path)}{shell_path()}, \l{system_path(path)}{system_path()}.
@@ -2966,6 +3205,8 @@
     \section2 enumerate_vars
 
     Returns a list of all defined variable names.
+
+    This function was introduced in Qt 5.0.
 
     \section2 escape_expand(arg1 [, arg2 ..., argn])
 
@@ -3030,6 +3271,8 @@
 
     \snippet code/doc_src_qmake-manual.pro 163
 
+    This function was introduced in Qt 5.0.
+
     \section2 fromfile(filename, variablename)
 
     Evaluates \c filename as a qmake project file and returns the value assigned
@@ -3043,6 +3286,8 @@
     This is mostly equivalent to the \c $$(variablename) syntax.
     The \c getenv function, however, supports environment variables with
     parentheses in their name.
+
+    This function was introduced in Qt 5.12.
 
     \section2 join(variablename, glue, before, after)
 
@@ -3133,6 +3378,8 @@
     sum = $$num_add($$first, $$second_neg)
     \endcode
 
+    This function was introduced in Qt 5.8.
+
     \section2 prompt(question [, decorate])
 
     Displays the specified \c question, and returns a value read from stdin.
@@ -3150,11 +3397,32 @@
     Returns the \c string with every special regular expression character
     escaped with a backslash. This function is a wrapper around QRegExp::escape.
 
+    \section2 read_registry(tree, key[, flag])
+
+    Returns the value of registry key \c key inside the tree \c tree.
+
+    Only the trees \c HKEY_CURRENT_USER (\c HKCU) and \c HKEY_LOCAL_MACHINE
+    (\c HKLM) are supported.
+
+    The \c flag may be \c WOW64_32KEY (\c 32) or \c WOW64_64KEY (\c 64).
+
+    \note This function is available only on Windows hosts.
+
+    This function was introduced in Qt 5.12.1.
+
     \section2 relative_path(filePath[, base])
 
-    Returns the path to \c filePath relative to \c base. If \c base is not
-    specified, it is the current project directory. This function is a wrapper
-    around QDir::relativeFilePath.
+    Returns the path to \c filePath relative to \c base.
+
+    If \c base is not specified, it is the current project
+    directory. If it is relative, it is resolved relative to the
+    current project directory before use.
+
+    If \c filePath is relative, it is first resolved against the base
+    directory; in that case, this function effectively acts as
+    $$clean_path().
+
+    This function was introduced in Qt 5.0.
 
     See also \l{absolute_path(path[, base])}{absolute_path()},
     \l{clean_path(path)}{clean_path()}.
@@ -3171,18 +3439,17 @@
 
     \snippet code/doc_src_qmake-manual.pro 70
 
-    \section2 sprintf(string, arguments...)
-
-    Replaces %1-%9 with the arguments passed in the comma-separated list
-    of function \c arguments and returns the processed string.
-
     \section2 resolve_depends(variablename, prefix)
 
     This is an internal function that you will typically not need.
 
+    This function was introduced in Qt 5.0.
+
     \section2 reverse(variablename)
 
     Returns the values of \c variablename in reverse order.
+
+    This function was introduced in Qt 5.0.
 
     \section2 section(variablename, separator, begin, end)
 
@@ -3199,6 +3466,8 @@
     This function returns \c path for in-source builds. It returns an empty
     string if \c path points outside of the source tree.
 
+    This function was introduced in Qt 5.0.
+
     \section2 shell_path(path)
 
     Converts all directory separators within \c path to separators that are
@@ -3206,11 +3475,15 @@
     the shell that is invoked by the make tool). For example, slashes are
     converted to backslashes when the Windows shell is used.
 
+    This function was introduced in Qt 5.0.
+
     See also \l{system_path(path)}{system_path()}.
 
     \section2 shell_quote(arg)
 
     Quotes \c arg for the shell that is used while building the project.
+
+    This function was introduced in Qt 5.0.
 
     See also \l{system_quote(arg)}{system_quote()}.
 
@@ -3225,6 +3498,8 @@
 
     This is an internal function that you will typically not need.
 
+    This function was introduced in Qt 5.0.
+
     \section2 sorted(variablename)
 
     Returns the list of values in \c variablename with entries sorted
@@ -3232,6 +3507,8 @@
 
     Numerical sorting can be accomplished by zero-padding the values to
     a fixed length with the help of the \l{format_number()} function.
+
+    This function was introduced in Qt 5.8.
 
     \section2 split(variablename, separator)
 
@@ -3241,6 +3518,11 @@
     For example:
 
     \snippet code/doc_src_qmake-manual.pro 168
+
+    \section2 sprintf(string, arguments...)
+
+    Replaces %1-%9 in \c string with the arguments passed in the comma-separated
+    list of function \c arguments and returns the processed string.
 
     \target str_member()
     \section2 str_member(arg [, start [, end]])
@@ -3274,12 +3556,16 @@
 
     See also \l{member()}, \l{num_add()}.
 
+    This function was introduced in Qt 5.8.
+
     \target str_size()
     \section2 str_size(arg)
 
     Returns the number of characters in the argument.
 
     See also \l{fn_size}{size()}.
+
+    This function was introduced in Qt 5.8.
 
     \target system_replace
     \section2 system(command[, mode[, stsvar]])
@@ -3290,6 +3576,10 @@
     For example:
 
     \snippet code/doc_src_qmake-manual.pro 72
+
+    Like \l {qmake-cat}{$$cat()}, the \a mode argument takes \c blob, \c lines,
+    \c true, and \c false as value. However, the legacy word splitting rules
+    (i.e. empty or \c true, and \c false) differ subtly.
 
     If you pass \c stsvar, the command's exit status will be stored in that
     variable. If the command crashes, the status will be -1, otherwise a
@@ -3305,12 +3595,16 @@
     invoke commands. For example, slashes are converted to backslashes for the
     Windows shell.
 
+    This function was introduced in Qt 5.0.
+
     See also \l{shell_path(path)}{shell_path()}.
 
     \section2 system_quote(arg)
 
-    Quotes \c arg for the for the shell that is used by the \c{system()}
+    Quotes \c arg for the shell that is used by the \c{system()}
     functions.
+
+    This function was introduced in Qt 5.0.
 
     See also \l{shell_quote(arg)}{shell_quote()}.
 
@@ -3322,6 +3616,8 @@
 
     This provides convenience for implementing queues, for example.
 
+    This function was introduced in Qt 5.8.
+
     See also \l{take_last()}, \l{fn_first}{first()}.
 
     \target take_last()
@@ -3331,6 +3627,8 @@
     source variable.
 
     This provides convenience for implementing stacks, for example.
+
+    This function was introduced in Qt 5.8.
 
     See also \l{take_first()}, \l{fn_last}{last()}.
 
@@ -3352,6 +3650,8 @@
 
     Escapes the values of \c variablename in a way that enables parsing them as
     qmake code.
+
+    This function was introduced in Qt 5.0.
 */
 
 /*!
@@ -3374,6 +3674,8 @@
     \section2 cache(variablename, [set|add|sub] [transient] [super|stash], [source variablename])
 
     This is an internal function that you will typically not need.
+
+    This function was introduced in Qt 5.0.
 
     \section2 CONFIG(config)
 
@@ -3581,6 +3883,8 @@
     Prints a message on the console. Unlike the \c message function, neither
     prepends text nor appends a line break.
 
+    This function was introduced in Qt 5.0.
+
     See also \l{message(string)}{message()}.
 
     \section2 message(string)
@@ -3604,7 +3908,9 @@
     \section2 mkpath(dirPath)
 
     Creates the directory path \c dirPath. This function is a wrapper around the
-    QDir::makepath function.
+    QDir::mkpath function.
+
+    This function was introduced in Qt 5.0.
 
     \section2 requires(condition)
 
@@ -3632,6 +3938,8 @@
     Updates the time stamp of \c filename to match the time stamp of
     \c reference_filename.
 
+    This function was introduced in Qt 5.0.
+
     \section2 unset(variablename)
 
     Removes \c variablename from the current context.
@@ -3648,11 +3956,15 @@
     the string will be ignored. Comparison is performed segment-wise from left
     to right; if one version is a prefix of the other, it is considered smaller.
 
+    This function was introduced in Qt 5.10.
+
     \section2 versionAtMost(variablename, versionNumber)
 
     Tests that the version number from \c variablename is less than or equal to
     \c versionNumber. Works as
     \l{versionAtLeast(variablename, versionNumber)}{versionAtLeast()}.
+
+    This function was introduced in Qt 5.10.
 
     \section2 warning(string)
 
@@ -3664,6 +3976,8 @@
     each value on a separate line. If \c variablename is not specified, creates
     an empty file. If \c mode is \c append and the file already exists, appends
     to it instead of replacing it.
+
+    This function was introduced in Qt 5.0.
 
     \section1 Test Function Library
 
@@ -3711,6 +4025,8 @@
 
     \snippet code/doc_src_qmake-manual.pro 178
 
+    This function was introduced in Qt 5.0.
+
     \section2 qtCompileTest(test)
 
     Builds a test project. If the test passes, true is returned and
@@ -3751,10 +4067,14 @@
 
     See also \l{load(feature)}{load()}.
 
+    This function was introduced in Qt 5.0.
+
     \section2 qtHaveModule(name)
 
     Checks whether the Qt module specified by \c name is present.
     For a list of possible values, see \l{Variables#QT}{QT}.
+
+    This function was introduced in Qt 5.0.1.
 */
 
 /*!
@@ -4289,7 +4609,10 @@
        \c QMAKEFEATURES environment variable)
     \li \c $$QMAKEFEATURES/myfeatures.prf (for each directory listed in the
        \c QMAKEFEATURES property variable)
-    \li \c myfeatures.prf (in the project's root directory)
+    \li \c myfeatures.prf (in the project's root directory). The project root
+        is determined by the top-level \c{.pro} file. However, if you place the
+        \c{.qmake.cache} file in a sub-directory or the directory of a
+        sub-project, then the project root becomes the sub-directory itself.
     \li \c $QMAKEPATH/mkspecs/features/unix/myfeatures.prf and
        \c $QMAKEPATH/mkspecs/features/myfeatures.prf (for each directory
        listed in the \c QMAKEPATH environment variable)
@@ -4367,7 +4690,7 @@
 
     The definitions above define a qmake target called \c mytarget, containing a
     Makefile target called \c{.buildfile} which in turn is generated with the
-    \l{touchfunction}{touch()} function. Finally, the
+    \c touch command. Finally, the
     \c{.depends} member specifies that \c mytarget depends on \c mytarget2,
     another target that is defined afterwards. \c mytarget2 is a dummy target.
     It is only defined to echo some text to the console.
@@ -4504,6 +4827,16 @@
         \li The dependencies for the output only get generated from the depends
             member and from nowhere else.
     \row
+        \li dep_existing_only
+        \li Every dependency that is a result of .depend_command is checked for
+            existence. Non-existing dependencies are ignored.
+            This value was introduced in Qt 5.13.2.
+    \row
+        \li dep_lines
+        \li The output from the .depend_command is interpreted to be one file
+            per line. The default is to split on whitespace and is maintained
+            only for backwards compatibility reasons.
+    \row
         \li no_link
         \li Indicates that the output should not be added to the list of objects
             to be linked in.
@@ -4589,6 +4922,7 @@
     \li Unix
         \list
         \li GCC 3.4 and above
+        \li clang
         \endlist
     \endlist
 
@@ -4753,8 +5087,7 @@
     \code
     TEMPLATE  = app
     LANGUAGE  = C++
-    CONFIG   += console precompile_header
-    CONFIG   -= app_bundle
+    CONFIG   += cmdline precompile_header
 
     # Use Precompiled headers (PCH)
     PRECOMPILED_HEADER  = stable.h

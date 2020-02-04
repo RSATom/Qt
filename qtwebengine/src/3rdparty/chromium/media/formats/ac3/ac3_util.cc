@@ -5,7 +5,7 @@
 #include "media/formats/ac3/ac3_util.h"
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "media/base/bit_reader.h"
 
 namespace media {
@@ -86,7 +86,7 @@ const uint8_t* FindNextSyncWord(const uint8_t* const begin,
   while (current < end - 1) {
     if (current[0] == 0x0B && current[1] == 0x77) {
       if (current != begin)
-        DVLOG(2) << __FUNCTION__ << " skip " << current - begin << " bytes.";
+        DVLOG(2) << __func__ << " skip " << current - begin << " bytes.";
 
       return current;
     } else if (current[1] != 0x0B) {
@@ -121,10 +121,10 @@ int GetAc3SyncFrameSampleCount() {
 
 // Returns the size in bytes of the given AC3 synchronization frame.
 int ParseAc3SyncFrameSize(Ac3Header& header) {
-  if (header.sample_rate_code() >= arraysize(kSampleRate) ||
+  if (header.sample_rate_code() >= base::size(kSampleRate) ||
       header.ac3_frame_size_code() >=
-          arraysize(kSyncFrameSizeInWordsFor44kHz)) {
-    DVLOG(2) << __FUNCTION__ << " Invalid frame header."
+          base::size(kSyncFrameSizeInWordsFor44kHz)) {
+    DVLOG(2) << __func__ << " Invalid frame header."
              << " fscod:" << header.sample_rate_code()
              << " frmsizecod:" << header.ac3_frame_size_code();
     return -1;
@@ -171,15 +171,15 @@ int ParseTotalSampleCount(const uint8_t* data, size_t size, bool is_eac3) {
     if (frame_size > 0 && sample_count > 0) {
       current += frame_size;
       if (current > end) {
-        DVLOG(2) << __FUNCTION__ << " Incomplete frame, missing "
-                 << current - end << " bytes.";
+        DVLOG(2) << __func__ << " Incomplete frame, missing " << current - end
+                 << " bytes.";
         break;
       }
 
       total_sample_count += sample_count;
     } else {
       DVLOG(2)
-          << __FUNCTION__
+          << __func__
           << " Invalid frame, skip 2 bytes to find next synchronization word.";
       current += 2;
     }

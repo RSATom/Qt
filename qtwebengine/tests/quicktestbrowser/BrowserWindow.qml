@@ -66,6 +66,7 @@ ApplicationWindow {
         property alias javaScriptEnabled: javaScriptEnabled.checked;
         property alias errorPageEnabled: errorPageEnabled.checked;
         property alias pluginsEnabled: pluginsEnabled.checked;
+        property alias thirdPartyCookiesEnabled: thirdPartyCookiesEnabled.checked;
     }
 
     // Make sure the Qt.WindowFullscreenButtonHint is set on OS X.
@@ -239,6 +240,13 @@ ApplicationWindow {
                             text: "Plugins On"
                             checkable: true
                             checked: true
+                        }
+                        MenuItem {
+                            id: thirdPartyCookiesEnabled
+                            text: "Third party cookies enabled"
+                            checkable: true
+                            checked: true
+                            onToggled: applicationRoot.thirdPartyCookiesEnabled = checked
                         }
                         MenuItem {
                             id: offTheRecordEnabled
@@ -495,6 +503,18 @@ ApplicationWindow {
         downloadView.visible = true
         downloadView.append(download)
         download.accept()
+    }
+
+    MessageDialog {
+        id: notificationDialog
+        width: 200
+        standardButtons: StandardButton.Ok
+    }
+
+    function onPresentNotification(notification) {
+        notificationDialog.title = notification.title
+        notificationDialog.text = notification.origin.toString() + '\n' + notification.message
+        notificationDialog.open()
     }
 
     ZoomController {

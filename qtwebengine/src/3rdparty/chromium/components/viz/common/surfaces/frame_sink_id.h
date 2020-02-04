@@ -12,10 +12,27 @@
 #include <tuple>
 
 #include "base/hash.h"
+#include "base/strings/string_piece.h"
 #include "components/viz/common/viz_common_export.h"
 
 namespace viz {
 
+// A FrameSinkId uniquely identifies a CompositorFrameSink and the client that
+// uses it within the Viz compositing system. FrameSinkIds are used the first
+// component of a SurfaceId, which is a FrameSinkId + LocalSurfaceId, to ensure
+// SurfaceIds are unique across all CompositorFrameSinks.
+//
+// FrameSinkId consists of:
+//
+// - client_id: This part uniquely identifies a client namespace, typically one
+//              per process.
+//
+// - sink_id: This part uniquely identifies a FrameSink within the client
+//            namespace. This component may be allocated by the client specified
+//            by the client_id.
+//
+// The FrameSinkId for a given client_id may be allocated using a
+// FrameSinkIdAllocator.
 class VIZ_COMMON_EXPORT FrameSinkId {
  public:
   constexpr FrameSinkId() : client_id_(0), sink_id_(0) {}
@@ -46,6 +63,8 @@ class VIZ_COMMON_EXPORT FrameSinkId {
   size_t hash() const { return base::HashInts(client_id_, sink_id_); }
 
   std::string ToString() const;
+
+  std::string ToString(base::StringPiece debug_label) const;
 
  private:
   uint32_t client_id_;

@@ -8,37 +8,57 @@
 
 #include "base/logging.h"
 #include "ui/events/event.h"
+#include "ui/gfx/geometry/point_conversions.h"
 
 namespace ui {
 
-EventTarget::EventTarget()
-    : target_handler_(NULL) {
-}
+EventTarget::EventTarget() = default;
 
-EventTarget::~EventTarget() {
-}
+EventTarget::~EventTarget() = default;
 
 void EventTarget::ConvertEventToTarget(EventTarget* target,
-                                       LocatedEvent* event) {
+                                       LocatedEvent* event) {}
+
+gfx::PointF EventTarget::GetScreenLocationF(
+    const ui::LocatedEvent& event) const {
+  NOTREACHED();
+  return event.root_location_f();
 }
 
-void EventTarget::AddPreTargetHandler(EventHandler* handler) {
-  DCHECK(handler);
-  pre_target_list_.push_back(handler);
+gfx::Point EventTarget::GetScreenLocation(const ui::LocatedEvent& event) const {
+  return gfx::ToFlooredPoint(GetScreenLocationF(event));
 }
 
-void EventTarget::PrependPreTargetHandler(EventHandler* handler) {
-  DCHECK(handler);
-  pre_target_list_.insert(pre_target_list_.begin(), handler);
+void EventTarget::AddPreTargetHandler(EventHandler* handler,
+                                      Priority priority) {
+  CHECK(handler);
+  PrioritizedHandler prioritized;
+  prioritized.handler = handler;
+  prioritized.priority = priority;
+  if (priority == Priority::kDefault)
+    pre_target_list_.push_back(prioritized);
+  else
+    pre_target_list_.insert(pre_target_list_.begin(), prioritized);
+  handler->targets_installed_on_.push_back(this);
 }
 
 void EventTarget::RemovePreTargetHandler(EventHandler* handler) {
-  EventHandlerList::iterator find =
-      std::find(pre_target_list_.begin(),
-                pre_target_list_.end(),
-                handler);
-  if (find != pre_target_list_.end())
-    pre_target_list_.erase(find);
+  CHECK(handler);
+  // Only erase a single one, which matches the removal code right after this.
+  auto installed_on_iter =
+      std::find(handler->targets_installed_on_.begin(),
+                handler->targets_installed_on_.end(), this);
+  if (installed_on_iter != handler->targets_installed_on_.end())
+    handler->targets_installed_on_.erase(installed_on_iter);
+
+  EventHandlerPriorityList::iterator it, end;
+  for (it = pre_target_list_.begin(), end = pre_target_list_.end(); it != end;
+       ++it) {
+    if (it->handler == handler) {
+      pre_target_list_.erase(it);
+      return;
+    }
+  }
 }
 
 void EventTarget::AddPostTargetHandler(EventHandler* handler) {
@@ -47,10 +67,8 @@ void EventTarget::AddPostTargetHandler(EventHandler* handler) {
 }
 
 void EventTarget::RemovePostTargetHandler(EventHandler* handler) {
-  EventHandlerList::iterator find =
-      std::find(post_target_list_.begin(),
-                post_target_list_.end(),
-                handler);
+  auto find =
+      std::find(post_target_list_.begin(), post_target_list_.end(), handler);
   if (find != post_target_list_.end())
     post_target_list_.erase(find);
 }
@@ -67,25 +85,29 @@ EventHandler* EventTarget::SetTargetHandler(EventHandler* target_handler) {
 
 void EventTarget::GetPreTargetHandlers(EventHandlerList* list) {
   EventTarget* target = this;
+  EventHandlerPriorityList temp;
   while (target) {
-    EventHandlerList::reverse_iterator it, rend;
-    for (it = target->pre_target_list_.rbegin(),
-            rend = target->pre_target_list_.rend();
-        it != rend;
-        ++it) {
-      list->insert(list->begin(), *it);
-    }
+    // Build a composite list of EventHandlers from targets.
+    temp.insert(temp.begin(), target->pre_target_list_.begin(),
+                target->pre_target_list_.end());
     target = target->GetParentTarget();
   }
+
+  // Sort the list, keeping relative order, but making sure the
+  // accessibility handlers always go first before system, which will
+  // go before default, at all levels of EventTarget.
+  std::stable_sort(temp.begin(), temp.end());
+
+  // Add the sorted handlers to the result list, in order.
+  for (size_t i = 0; i < temp.size(); ++i)
+    list->insert(list->end(), temp[i].handler);
 }
 
 void EventTarget::GetPostTargetHandlers(EventHandlerList* list) {
   EventTarget* target = this;
   while (target) {
-    for (EventHandlerList::iterator it = target->post_target_list_.begin(),
-        end = target->post_target_list_.end(); it != end; ++it) {
-      list->push_back(*it);
-    }
+    list->insert(list->end(), target->post_target_list_.begin(),
+                 target->post_target_list_.end());
     target = target->GetParentTarget();
   }
 }

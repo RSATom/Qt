@@ -16,9 +16,11 @@
 <!ENTITY fcobjectset SYSTEM "fcobjectset.sgml">
 <!ENTITY fcobjecttype SYSTEM "fcobjecttype.sgml">
 <!ENTITY fcpattern SYSTEM "fcpattern.sgml">
+<!ENTITY fcrange SYSTEM "fcrange.sgml">
 <!ENTITY fcstring SYSTEM "fcstring.sgml">
 <!ENTITY fcstrset SYSTEM "fcstrset.sgml">
 <!ENTITY fcvalue SYSTEM "fcvalue.sgml">
+<!ENTITY fcweight SYSTEM "fcweight.sgml">
 <!ENTITY version SYSTEM "version.sgml">
 ]>
 <!--
@@ -174,7 +176,9 @@ convenience for the application's rendering mechanism.
     outline        FC_OUTLINE             Bool    Whether the glyphs are outlines
     scalable       FC_SCALABLE            Bool    Whether glyphs can be scaled
     scale          FC_SCALE               Double  Scale factor for point->pixel
-                                                  conversions
+                                                  conversions (deprecated)
+    symbol         FC_SYMBOL              Bool    Whether font uses MS symbol-font encoding
+    color          FC_COLOR               Bool    Whether any glyphs have color
     dpi            FC_DPI                 Double  Target dots per inch
     rgba           FC_RGBA                Int     unknown, rgb, bgr, vrgb,
                                                   vbgr, none - subpixel geometry
@@ -188,8 +192,13 @@ convenience for the application's rendering mechanism.
     fontversion    FC_FONTVERSION         Int     Version number of the font
     capability     FC_CAPABILITY          String  List of layout capabilities in
                                                   the font
+    fontformat     FC_FONTFORMAT          String  String name of the font format
     embolden       FC_EMBOLDEN            Bool    Rasterizer should
                                                   synthetically embolden the font
+    embeddedbitmap FC_EMBEDDED_BITMAP     Bool    Use the embedded bitmap instead
+                                                  of the outline
+    decorative     FC_DECORATIVE          Bool    Whether the style is a decorative
+                                                  variant
     fontfeatures   FC_FONT_FEATURES       String  List of extra feature tags in
                                                   OpenType to be enabled
     namelang       FC_NAMELANG            String  Language name to be used for the
@@ -197,7 +206,7 @@ convenience for the application's rendering mechanism.
                                                   stylelang and fullnamelang
     prgname        FC_PRGNAME             String  Name of the running program
     hash           FC_HASH                String  SHA256 hash value of the font data
-                                                  with "sha256:" prefix.
+                                                  with "sha256:" prefix (deprecated)
     postscriptname FC_POSTSCRIPT_NAME     String  Font name in PostScript
     </programlisting>
   </sect2>
@@ -371,6 +380,11 @@ holds a list of Unicode chars which are expected to be blank; unexpectedly
 blank chars are assumed to be invalid and are elided from the charset
 associated with the font.
     </para>
+    <para>
+        FcBlanks is deprecated and should not be used in newly written code.
+        It is still accepted by some functions for compatibility with
+        older code but will be removed in the future.
+    </para>
   </sect2>
   <sect2><title>FcFileCache</title>
     <para>
@@ -508,6 +522,12 @@ FcMatrix structures hold an affine transformation in matrix form.
     </para>
     &fcmatrix;
   </sect2>
+  <sect2><title>FcRange</title>
+    <para>
+An FcRange holds two variables to indicate a range in between.
+    </para>
+    &fcrange;
+  </sect2>
   <sect2><title>FcConfig</title>
     <para>
 An FcConfig object holds the internal representation of a configuration.
@@ -529,6 +549,12 @@ Provides for application-specified symbolic constants for font names.
     </para>
     &fcconstant;
   </sect2>
+  <sect2><title>FcWeight</title>
+    <para>
+Maps weights to and from OpenType weights.
+    </para>
+  &fcweight;
+  </sect2>
   <sect2><title>FcBlanks</title>
     <para>
 An FcBlanks object holds a list of Unicode chars which are expected to
@@ -536,6 +562,11 @@ be blank when drawn.  When scanning new fonts, any glyphs which are
 empty and not in this list will be assumed to be broken and not placed in
 the FcCharSet associated with the font.  This provides a significantly more
 accurate CharSet for applications.
+    </para>
+    <para>
+        FcBlanks is deprecated and should not be used in newly written code.
+        It is still accepted by some functions for compatibility with
+        older code but will be removed in the future.
     </para>
     &fcblanks;
   </sect2>

@@ -17,11 +17,10 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/win/windows_version.h"
+#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_egl_api_implementation.h"
-#include "ui/gl/gl_features.h"
 #include "ui/gl/gl_gl_api_implementation.h"
-#include "ui/gl/gl_osmesa_api_implementation.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/gl_surface_wgl.h"
 #include "ui/gl/gl_wgl_api_implementation.h"
@@ -56,44 +55,9 @@ bool LoadD3DXLibrary(const base::FilePath& module_path,
   return true;
 }
 
-bool InitializeStaticOSMesaInternal() {
-  base::FilePath module_path;
-  PathService::Get(base::DIR_MODULE, &module_path);
-  base::NativeLibrary library =
-      base::LoadNativeLibrary(module_path.Append(L"osmesa.dll"), nullptr);
-  if (!library) {
-    PathService::Get(base::DIR_EXE, &module_path);
-    library =
-        base::LoadNativeLibrary(module_path.Append(L"osmesa.dll"), nullptr);
-    if (!library) {
-      DVLOG(1) << "osmesa.dll not found";
-      return false;
-    }
-  }
-
-  GLGetProcAddressProc get_proc_address =
-      reinterpret_cast<GLGetProcAddressProc>(
-          base::GetFunctionPointerFromNativeLibrary(library,
-                                                    "OSMesaGetProcAddress"));
-  if (!get_proc_address) {
-    DLOG(ERROR) << "OSMesaGetProcAddress not found.";
-    base::UnloadNativeLibrary(library);
-    return false;
-  }
-
-  SetGLGetProcAddressProc(get_proc_address);
-  AddGLNativeLibrary(library);
-  SetGLImplementation(kGLImplementationOSMesaGL);
-
-  InitializeStaticGLBindingsGL();
-  InitializeStaticGLBindingsOSMESA();
-
-  return true;
-}
-
 bool InitializeStaticEGLInternal(GLImplementation implementation) {
   base::FilePath module_path;
-  if (!PathService::Get(base::DIR_MODULE, &module_path))
+  if (!base::PathService::Get(base::DIR_MODULE, &module_path))
     return false;
 
   // Attempt to load the D3DX shader compiler using the default search path
@@ -255,7 +219,6 @@ bool InitializeGLOneOffPlatform() {
         return false;
       }
       break;
-    case kGLImplementationOSMesaGL:
     case kGLImplementationMockGL:
     case kGLImplementationStubGL:
       break;
@@ -279,8 +242,6 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
   base::ThreadRestrictions::ScopedAllowIO allow_io;
 
   switch (implementation) {
-    case kGLImplementationOSMesaGL:
-      return InitializeStaticOSMesaInternal();
     case kGLImplementationSwiftShaderGL:
     case kGLImplementationEGLGLES2:
       return InitializeStaticEGLInternal(implementation);
@@ -301,7 +262,6 @@ bool InitializeStaticGLBindings(GLImplementation implementation) {
 void InitializeDebugGLBindings() {
   InitializeDebugGLBindingsEGL();
   InitializeDebugGLBindingsGL();
-  InitializeDebugGLBindingsOSMESA();
   InitializeDebugGLBindingsWGL();
 }
 
@@ -309,7 +269,6 @@ void ShutdownGLPlatform() {
   GLSurfaceEGL::ShutdownOneOff();
   ClearBindingsEGL();
   ClearBindingsGL();
-  ClearBindingsOSMESA();
   ClearBindingsWGL();
 }
 

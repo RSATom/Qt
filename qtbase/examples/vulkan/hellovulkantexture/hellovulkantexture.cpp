@@ -59,7 +59,7 @@
 // Vulkan Y is negated in clip space and the near/far plane is at 0/1 instead
 // of -1/1. These will be corrected for by an extra transformation when
 // calculating the modelview-projection matrix.
-static float vertexData[] = {
+static float vertexData[] = { // Y up, front = CW
     // x, y, z, u, v
     -1, -1, 0, 0, 1,
     -1,  1, 0, 0, 0,
@@ -223,6 +223,16 @@ bool VulkanRenderer::createTextureImage(const QSize &size, VkImage *image, VkDev
     VkMemoryRequirements memReq;
     m_devFuncs->vkGetImageMemoryRequirements(dev, *image, &memReq);
 
+    if (!(memReq.memoryTypeBits & (1 << memIndex))) {
+        VkPhysicalDeviceMemoryProperties physDevMemProps;
+        m_window->vulkanInstance()->functions()->vkGetPhysicalDeviceMemoryProperties(m_window->physicalDevice(), &physDevMemProps);
+        for (uint32_t i = 0; i < physDevMemProps.memoryTypeCount; ++i) {
+            if (!(memReq.memoryTypeBits & (1 << i)))
+                continue;
+            memIndex = i;
+        }
+    }
+
     VkMemoryAllocateInfo allocInfo = {
         VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         nullptr,
@@ -294,12 +304,12 @@ void VulkanRenderer::ensureTexture()
 
         barrier.oldLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
         barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcAccessMask = 0; // VK_ACCESS_HOST_WRITE_BIT ### no, keep validation layer happy (??)
+        barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         barrier.image = m_texImage;
 
         m_devFuncs->vkCmdPipelineBarrier(cb,
-                                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                VK_PIPELINE_STAGE_HOST_BIT,
                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                 0, 0, nullptr, 0, nullptr,
                                 1, &barrier);
@@ -312,7 +322,7 @@ void VulkanRenderer::ensureTexture()
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
         barrier.image = m_texStaging;
         m_devFuncs->vkCmdPipelineBarrier(cb,
-                                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                VK_PIPELINE_STAGE_HOST_BIT,
                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
                                 0, 0, nullptr, 0, nullptr,
                                 1, &barrier);
@@ -768,7 +778,7 @@ void VulkanRenderer::startNextFrame()
     // Add the necessary barriers and do the host-linear -> device-optimal copy, if not yet done.
     ensureTexture();
 
-    VkClearColorValue clearColor = { 0, 0, 0, 1 };
+    VkClearColorValue clearColor = {{ 0, 0, 0, 1 }};
     VkClearDepthStencilValue clearDS = { 1, 0 };
     VkClearValue clearValues[2];
     memset(clearValues, 0, sizeof(clearValues));

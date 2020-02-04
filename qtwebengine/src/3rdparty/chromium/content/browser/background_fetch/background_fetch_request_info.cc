@@ -4,115 +4,141 @@
 
 #include "content/browser/background_fetch/background_fetch_request_info.h"
 
-#include <string>
+#include <utility>
 
+#include "base/guid.h"
 #include "base/strings/string_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "components/download/public/common/download_item.h"
+#include "content/public/browser/background_fetch_response.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/download_item.h"
 #include "net/http/http_response_headers.h"
 
 namespace content {
 
 BackgroundFetchRequestInfo::BackgroundFetchRequestInfo(
     int request_index,
-    const ServiceWorkerFetchRequest& fetch_request)
+    blink::mojom::FetchAPIRequestPtr fetch_request,
+    uint64_t request_body_size)
     : RefCountedDeleteOnSequence<BackgroundFetchRequestInfo>(
           base::SequencedTaskRunnerHandle::Get()),
       request_index_(request_index),
-      fetch_request_(fetch_request) {}
+      fetch_request_(std::move(fetch_request)),
+      request_body_size_(request_body_size) {}
 
 BackgroundFetchRequestInfo::~BackgroundFetchRequestInfo() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
-void BackgroundFetchRequestInfo::PopulateDownloadStateOnUI(
-    DownloadItem* download_item,
-    DownloadInterruptReason download_interrupt_reason) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(!download_state_populated_);
+void BackgroundFetchRequestInfo::InitializeDownloadGuid() {
+  DCHECK(download_guid_.empty());
 
-  download_guid_ = download_item->GetGuid();
-  download_state_ = download_item->GetState();
+  download_guid_ = base::GenerateGUID();
+}
+
+void BackgroundFetchRequestInfo::SetDownloadGuid(
+    const std::string& download_guid) {
+  DCHECK(!download_guid.empty());
+  DCHECK(download_guid_.empty());
+
+  download_guid_ = download_guid;
+}
+
+void BackgroundFetchRequestInfo::SetResult(
+    std::unique_ptr<BackgroundFetchResult> result) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(result);
+
+  result_ = std::move(result);
+  // The BackgroundFetchResponse was extracted when the download started.
+  // This is sent over again when the download was complete in case the
+  // browser was restarted.
+  if (response_headers_.empty())
+    PopulateWithResponse(std::move(result_->response));
+  else
+    result_->response.reset();
+}
+
+void BackgroundFetchRequestInfo::SetEmptyResultWithFailureReason(
+    BackgroundFetchResult::FailureReason failure_reason) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  result_ = std::make_unique<BackgroundFetchResult>(
+      /* response= */ nullptr, base::Time::Now(), failure_reason);
+}
+
+void BackgroundFetchRequestInfo::PopulateWithResponse(
+    std::unique_ptr<BackgroundFetchResponse> response) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK(response);
+
+  url_chain_ = response->url_chain;
+
+  // |headers| can be null when the request fails.
+  if (!response->headers)
+    return;
 
   // The response code, text and headers all are stored in the
   // net::HttpResponseHeaders object, shared by the |download_item|.
-  if (download_item->GetResponseHeaders()) {
-    const auto& headers = download_item->GetResponseHeaders();
+  response_code_ = response->headers->response_code();
+  response_text_ = response->headers->GetStatusText();
 
-    response_code_ = headers->response_code();
-    response_text_ = headers->GetStatusText();
-
-    size_t iter = 0;
-    std::string name, value;
-
-    while (headers->EnumerateHeaderLines(&iter, &name, &value))
-      response_headers_[base::ToLowerASCII(name)] = value;
-  }
-}
-
-void BackgroundFetchRequestInfo::SetDownloadStatePopulated() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  download_state_populated_ = true;
-}
-
-void BackgroundFetchRequestInfo::PopulateResponseFromDownloadItemOnUI(
-    DownloadItem* download_item) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(!response_data_populated_);
-
-  url_chain_ = download_item->GetUrlChain();
-  file_path_ = download_item->GetTargetFilePath();
-  file_size_ = download_item->GetReceivedBytes();
-  response_time_ = download_item->GetEndTime();
-}
-
-void BackgroundFetchRequestInfo::SetResponseDataPopulated() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  response_data_populated_ = true;
+  size_t iter = 0;
+  std::string name, value;
+  while (response->headers->EnumerateHeaderLines(&iter, &name, &value))
+    response_headers_[base::ToLowerASCII(name)] = value;
 }
 
 int BackgroundFetchRequestInfo::GetResponseCode() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(download_state_populated_);
   return response_code_;
 }
 
 const std::string& BackgroundFetchRequestInfo::GetResponseText() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(download_state_populated_);
   return response_text_;
 }
 
 const std::map<std::string, std::string>&
 BackgroundFetchRequestInfo::GetResponseHeaders() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(download_state_populated_);
   return response_headers_;
 }
 
 const std::vector<GURL>& BackgroundFetchRequestInfo::GetURLChain() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(response_data_populated_);
   return url_chain_;
+}
+
+const base::Optional<storage::BlobDataHandle>&
+BackgroundFetchRequestInfo::GetBlobDataHandle() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(result_);
+  return result_->blob_handle;
 }
 
 const base::FilePath& BackgroundFetchRequestInfo::GetFilePath() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(response_data_populated_);
-  return file_path_;
+  DCHECK(result_);
+  return result_->file_path;
 }
 
 int64_t BackgroundFetchRequestInfo::GetFileSize() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(response_data_populated_);
-  return file_size_;
+  DCHECK(result_);
+  return result_->file_size;
 }
 
 const base::Time& BackgroundFetchRequestInfo::GetResponseTime() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(response_data_populated_);
-  return response_time_;
+  DCHECK(result_);
+  return result_->response_time;
+}
+
+bool BackgroundFetchRequestInfo::IsResultSuccess() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(result_);
+  return result_->failure_reason == BackgroundFetchResult::FailureReason::NONE;
 }
 
 }  // namespace content

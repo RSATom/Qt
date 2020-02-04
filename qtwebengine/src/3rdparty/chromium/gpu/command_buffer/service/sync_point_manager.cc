@@ -11,20 +11,20 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 
 namespace gpu {
 
 namespace {
 
 void RunOnThread(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-                 const base::Closure& callback) {
+                 base::OnceClosure callback) {
   if (task_runner->BelongsToCurrentThread()) {
-    callback.Run();
+    std::move(callback).Run();
   } else {
-    task_runner->PostTask(FROM_HERE, callback);
+    task_runner->PostTask(FROM_HERE, std::move(callback));
   }
 }
 
@@ -33,16 +33,16 @@ void RunOnThread(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
 SyncPointOrderData::OrderFence::OrderFence(
     uint32_t order,
     uint64_t release,
-    const base::Closure& callback,
-    scoped_refptr<SyncPointClientState> state)
+    scoped_refptr<SyncPointClientState> state,
+    uint64_t callback_id)
     : order_num(order),
       fence_release(release),
-      release_callback(callback),
-      client_state(std::move(state)) {}
+      client_state(std::move(state)),
+      callback_id(callback_id) {}
 
 SyncPointOrderData::OrderFence::OrderFence(const OrderFence& other) = default;
 
-SyncPointOrderData::OrderFence::~OrderFence() {}
+SyncPointOrderData::OrderFence::~OrderFence() = default;
 
 SyncPointOrderData::SyncPointOrderData(SyncPointManager* sync_point_manager,
                                        SequenceId sequence_id)
@@ -72,8 +72,9 @@ void SyncPointOrderData::Destroy() {
 uint32_t SyncPointOrderData::GenerateUnprocessedOrderNumber() {
   base::AutoLock auto_lock(lock_);
   DCHECK(!destroyed_);
-  unprocessed_order_num_ = sync_point_manager_->GenerateOrderNumber();
-  return unprocessed_order_num_;
+  last_unprocessed_order_num_ = sync_point_manager_->GenerateOrderNumber();
+  unprocessed_order_nums_.push(last_unprocessed_order_num_);
+  return last_unprocessed_order_num_;
 }
 
 void SyncPointOrderData::BeginProcessingOrderNumber(uint32_t order_num) {
@@ -85,29 +86,6 @@ void SyncPointOrderData::BeginProcessingOrderNumber(uint32_t order_num) {
   DCHECK_LE(order_num, unprocessed_order_num());
   current_order_num_ = order_num;
   paused_ = false;
-
-  // Catch invalid waits which were waiting on fence syncs that do not exist.
-  // When we begin processing an order number, we should release any fence
-  // syncs which were enqueued but the order number never existed.
-  // Release without the lock to avoid possible deadlocks.
-  std::vector<OrderFence> ensure_releases;
-  {
-    base::AutoLock auto_lock(lock_);
-    while (!order_fence_queue_.empty()) {
-      const OrderFence& order_fence = order_fence_queue_.top();
-      if (order_fence_queue_.top().order_num < order_num) {
-        ensure_releases.push_back(order_fence);
-        order_fence_queue_.pop();
-        continue;
-      }
-      break;
-    }
-  }
-
-  for (OrderFence& order_fence : ensure_releases) {
-    order_fence.client_state->EnsureWaitReleased(order_fence.fence_release,
-                                                 order_fence.release_callback);
-  }
 }
 
 void SyncPointOrderData::PauseProcessingOrderNumber(uint32_t order_num) {
@@ -132,9 +110,20 @@ void SyncPointOrderData::FinishProcessingOrderNumber(uint32_t order_num) {
     DCHECK_GT(order_num, processed_order_num_);
     processed_order_num_ = order_num;
 
+    DCHECK(!unprocessed_order_nums_.empty());
+    DCHECK_EQ(order_num, unprocessed_order_nums_.front());
+    unprocessed_order_nums_.pop();
+
+    uint32_t next_order_num = 0;
+    if (!unprocessed_order_nums_.empty())
+      next_order_num = unprocessed_order_nums_.front();
+
     while (!order_fence_queue_.empty()) {
       const OrderFence& order_fence = order_fence_queue_.top();
-      if (order_fence_queue_.top().order_num <= order_num) {
+      // It's possible for the fence's order number to equal next order number.
+      // This happens when the wait was enqueued with an order number greater
+      // than the last unprocessed order number. So don't release the fence yet.
+      if (!next_order_num || order_fence.order_num < next_order_num) {
         ensure_releases.push_back(order_fence);
         order_fence_queue_.pop();
         continue;
@@ -145,47 +134,51 @@ void SyncPointOrderData::FinishProcessingOrderNumber(uint32_t order_num) {
 
   for (OrderFence& order_fence : ensure_releases) {
     order_fence.client_state->EnsureWaitReleased(order_fence.fence_release,
-                                                 order_fence.release_callback);
+                                                 order_fence.callback_id);
   }
 }
 
-bool SyncPointOrderData::ValidateReleaseOrderNumber(
+uint64_t SyncPointOrderData::ValidateReleaseOrderNumber(
     scoped_refptr<SyncPointClientState> client_state,
     uint32_t wait_order_num,
-    uint64_t fence_release,
-    const base::Closure& release_callback) {
+    uint64_t fence_release) {
   base::AutoLock auto_lock(lock_);
   if (destroyed_)
-    return false;
+    return 0;
 
-  // Release should have a possible unprocessed order number lower than the wait
-  // order number.
-  if ((processed_order_num_ + 1) >= wait_order_num)
-    return false;
+  // We should have unprocessed order numbers which could potentially release
+  // this fence.
+  if (unprocessed_order_nums_.empty())
+    return 0;
 
-  // Release should have more unprocessed numbers if we are waiting.
-  if (unprocessed_order_num_ <= processed_order_num_)
-    return false;
+  // We should have an unprocessed order number lower than the wait order
+  // number for the wait to be valid. It's not possible for wait order number to
+  // equal next unprocessed order number, but we handle that defensively.
+  if (wait_order_num <= unprocessed_order_nums_.front())
+    return 0;
 
   // So far it could be valid, but add an order fence guard to be sure it
   // gets released eventually.
   uint32_t expected_order_num =
-      std::min(unprocessed_order_num_, wait_order_num);
+      std::min(unprocessed_order_nums_.back(), wait_order_num);
+  uint64_t callback_id = ++current_callback_id_;
   order_fence_queue_.push(OrderFence(expected_order_num, fence_release,
-                                     release_callback,
-                                     std::move(client_state)));
-  return true;
+                                     std::move(client_state), callback_id));
+  return callback_id;
 }
 
 SyncPointClientState::ReleaseCallback::ReleaseCallback(
     uint64_t release,
-    const base::Closure& callback)
-    : release_count(release), callback_closure(callback) {}
+    base::OnceClosure callback,
+    uint64_t callback_id)
+    : release_count(release),
+      callback_closure(std::move(callback)),
+      callback_id(callback_id) {}
 
 SyncPointClientState::ReleaseCallback::ReleaseCallback(
-    const ReleaseCallback& other) = default;
+    ReleaseCallback&& other) = default;
 
-SyncPointClientState::ReleaseCallback::~ReleaseCallback() {}
+SyncPointClientState::ReleaseCallback::~ReleaseCallback() = default;
 
 SyncPointClientState::SyncPointClientState(
     SyncPointManager* sync_point_manager,
@@ -211,20 +204,22 @@ void SyncPointClientState::Destroy() {
 }
 
 bool SyncPointClientState::Wait(const SyncToken& sync_token,
-                                const base::Closure& callback) {
+                                base::OnceClosure callback) {
   DCHECK(sync_point_manager_);  // not destroyed
   // Validate that this Wait call is between BeginProcessingOrderNumber() and
   // FinishProcessingOrderNumber(), or else we may deadlock.
   DCHECK(order_data_->IsProcessingOrderNumber());
   return sync_point_manager_->Wait(sync_token, order_data_->sequence_id(),
-                                   order_data_->current_order_num(), callback);
+                                   order_data_->current_order_num(),
+                                   std::move(callback));
 }
 
 bool SyncPointClientState::WaitNonThreadSafe(
     const SyncToken& sync_token,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-    const base::Closure& callback) {
-  return Wait(sync_token, base::Bind(&RunOnThread, task_runner, callback));
+    base::OnceClosure callback) {
+  return Wait(sync_token,
+              base::BindOnce(&RunOnThread, task_runner, std::move(callback)));
 }
 
 bool SyncPointClientState::IsFenceSyncReleased(uint64_t release) {
@@ -234,20 +229,24 @@ bool SyncPointClientState::IsFenceSyncReleased(uint64_t release) {
 
 bool SyncPointClientState::WaitForRelease(uint64_t release,
                                           uint32_t wait_order_num,
-                                          const base::Closure& callback) {
+                                          base::OnceClosure callback) {
   // Lock must be held the whole time while we validate otherwise it could be
   // released while we are checking.
-  {
-    base::AutoLock auto_lock(fence_sync_lock_);
-    if (release > fence_sync_release_ &&
-        order_data_->ValidateReleaseOrderNumber(this, wait_order_num, release,
-                                                callback)) {
-      // Add the callback which will be called upon release.
-      release_callback_queue_.push(ReleaseCallback(release, callback));
-      return true;
-    }
-  }
+  base::AutoLock auto_lock(fence_sync_lock_);
+
   // Already released, do not run the callback.
+  if (release <= fence_sync_release_)
+    return false;
+
+  uint64_t callback_id =
+      order_data_->ValidateReleaseOrderNumber(this, wait_order_num, release);
+  if (callback_id) {
+    // Add the callback which will be called upon release.
+    release_callback_queue_.emplace(release, std::move(callback), callback_id);
+    return true;
+  }
+
+  DLOG(ERROR) << "Client waiting on non-existent sync token";
   return false;
 }
 
@@ -260,7 +259,7 @@ void SyncPointClientState::ReleaseFenceSync(uint64_t release) {
 
 void SyncPointClientState::ReleaseFenceSyncHelper(uint64_t release) {
   // Call callbacks without the lock to avoid possible deadlocks.
-  std::vector<base::Closure> callback_list;
+  std::vector<base::OnceClosure> callback_list;
   {
     base::AutoLock auto_lock(fence_sync_lock_);
 
@@ -270,19 +269,22 @@ void SyncPointClientState::ReleaseFenceSyncHelper(uint64_t release) {
 
     while (!release_callback_queue_.empty() &&
            release_callback_queue_.top().release_count <= release) {
-      callback_list.push_back(release_callback_queue_.top().callback_closure);
+      ReleaseCallback& release_callback =
+          const_cast<ReleaseCallback&>(release_callback_queue_.top());
+      callback_list.emplace_back(std::move(release_callback.callback_closure));
       release_callback_queue_.pop();
     }
   }
 
-  for (const base::Closure& closure : callback_list)
-    closure.Run();
+  for (base::OnceClosure& closure : callback_list)
+    std::move(closure).Run();
 }
 
 void SyncPointClientState::EnsureWaitReleased(uint64_t release,
-                                              const base::Closure& callback) {
+                                              uint64_t callback_id) {
   // Call callbacks without the lock to avoid possible deadlocks.
-  bool call_callback = false;
+  base::OnceClosure callback;
+
   {
     base::AutoLock auto_lock(fence_sync_lock_);
     if (release <= fence_sync_release_)
@@ -293,31 +295,35 @@ void SyncPointClientState::EnsureWaitReleased(uint64_t release,
 
     while (!release_callback_queue_.empty() &&
            release_callback_queue_.top().release_count <= release) {
-      const ReleaseCallback& top_item = release_callback_queue_.top();
+      ReleaseCallback& top_item =
+          const_cast<ReleaseCallback&>(release_callback_queue_.top());
       if (top_item.release_count == release &&
-          top_item.callback_closure.Equals(callback)) {
+          top_item.callback_id == callback_id) {
         // Call the callback, and discard this item from the callback queue.
-        call_callback = true;
+        callback = std::move(top_item.callback_closure);
       } else {
         // Store the item to be placed back into the callback queue later.
-        popped_callbacks.push_back(top_item);
+        popped_callbacks.emplace_back(std::move(top_item));
       }
       release_callback_queue_.pop();
     }
 
     // Add back in popped items.
-    for (const ReleaseCallback& popped_callback : popped_callbacks) {
-      release_callback_queue_.push(popped_callback);
+    for (ReleaseCallback& popped_callback : popped_callbacks) {
+      release_callback_queue_.emplace(std::move(popped_callback));
     }
   }
 
-  if (call_callback) {
+  if (callback) {
     // This effectively releases the wait without releasing the fence.
-    callback.Run();
+    DLOG(ERROR) << "Client did not release sync token as expected";
+    std::move(callback).Run();
   }
 }
 
 SyncPointManager::SyncPointManager() {
+  // Order number 0 is treated as invalid, so increment the generator and return
+  // positive order numbers in GenerateOrderNumber() from now on.
   order_num_generator_.GetNext();
 }
 
@@ -357,7 +363,8 @@ SyncPointManager::CreateSyncPointClientState(
   {
     base::AutoLock auto_lock(lock_);
     DCHECK_GE(namespace_id, 0);
-    DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_state_maps_));
+    DCHECK_LT(static_cast<size_t>(namespace_id),
+              base::size(client_state_maps_));
     DCHECK(!client_state_maps_[namespace_id].count(command_buffer_id));
     client_state_maps_[namespace_id].insert(
         std::make_pair(command_buffer_id, client_state));
@@ -371,7 +378,7 @@ void SyncPointManager::DestroyedSyncPointClientState(
     CommandBufferId command_buffer_id) {
   base::AutoLock auto_lock(lock_);
   DCHECK_GE(namespace_id, 0);
-  DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_state_maps_));
+  DCHECK_LT(static_cast<size_t>(namespace_id), base::size(client_state_maps_));
   DCHECK(client_state_maps_[namespace_id].count(command_buffer_id));
   client_state_maps_[namespace_id].erase(command_buffer_id);
 }
@@ -416,7 +423,7 @@ uint32_t SyncPointManager::GetUnprocessedOrderNum() const {
 bool SyncPointManager::Wait(const SyncToken& sync_token,
                             SequenceId sequence_id,
                             uint32_t wait_order_num,
-                            const base::Closure& callback) {
+                            base::OnceClosure callback) {
   // Waits on the same sequence can cause deadlocks.
   if (sequence_id == GetSyncTokenReleaseSequenceId(sync_token))
     return false;
@@ -425,7 +432,7 @@ bool SyncPointManager::Wait(const SyncToken& sync_token,
       sync_token.namespace_id(), sync_token.command_buffer_id());
   if (release_state &&
       release_state->WaitForRelease(sync_token.release_count(), wait_order_num,
-                                    callback)) {
+                                    std::move(callback))) {
     return true;
   }
 
@@ -438,26 +445,19 @@ bool SyncPointManager::WaitNonThreadSafe(
     SequenceId sequence_id,
     uint32_t wait_order_num,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-    const base::Closure& callback) {
+    base::OnceClosure callback) {
   return Wait(sync_token, sequence_id, wait_order_num,
-              base::Bind(&RunOnThread, task_runner, callback));
+              base::BindOnce(&RunOnThread, task_runner, std::move(callback)));
 }
 
 bool SyncPointManager::WaitOutOfOrder(const SyncToken& trusted_sync_token,
-                                      const base::Closure& callback) {
+                                      base::OnceClosure callback) {
   // No order number associated with the current execution context, using
   // UINT32_MAX will just assume the release is in the SyncPointClientState's
   // order numbers to be executed. Null sequence id will be ignored for the
   // deadlock early out check.
-  return Wait(trusted_sync_token, SequenceId(), UINT32_MAX, callback);
-}
-
-bool SyncPointManager::WaitOutOfOrderNonThreadSafe(
-    const SyncToken& trusted_sync_token,
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-    const base::Closure& callback) {
-  return WaitOutOfOrder(trusted_sync_token,
-                        base::Bind(&RunOnThread, task_runner, callback));
+  return Wait(trusted_sync_token, SequenceId(), UINT32_MAX,
+              std::move(callback));
 }
 
 uint32_t SyncPointManager::GenerateOrderNumber() {
@@ -468,7 +468,8 @@ scoped_refptr<SyncPointClientState> SyncPointManager::GetSyncPointClientState(
     CommandBufferNamespace namespace_id,
     CommandBufferId command_buffer_id) {
   if (namespace_id >= 0) {
-    DCHECK_LT(static_cast<size_t>(namespace_id), arraysize(client_state_maps_));
+    DCHECK_LT(static_cast<size_t>(namespace_id),
+              base::size(client_state_maps_));
     base::AutoLock auto_lock(lock_);
     ClientStateMap& client_state_map = client_state_maps_[namespace_id];
     auto it = client_state_map.find(command_buffer_id);

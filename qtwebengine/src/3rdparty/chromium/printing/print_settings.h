@@ -14,6 +14,7 @@
 #include "printing/print_job_constants.h"
 #include "printing/printing_export.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace printing {
 
@@ -88,6 +89,7 @@ class PRINTING_EXPORT PrintSettings {
   // Set printer printable area in in device units.
   // Some platforms already provide flipped area. Set |landscape_needs_flip|
   // to false on those platforms to avoid double flipping.
+  // This method assumes correct DPI is already set.
   void SetPrinterPrintableArea(const gfx::Size& physical_size_device_units,
                                const gfx::Rect& printable_area_device_units,
                                bool landscape_needs_flip);
@@ -100,17 +102,15 @@ class PRINTING_EXPORT PrintSettings {
   }
   const base::string16& device_name() const { return device_name_; }
 
-  void set_dpi(int dpi) {
-    dpi_[0] = dpi;
-    dpi_[1] = dpi;
-  }
+  void set_dpi(int dpi) { dpi_ = gfx::Size(dpi, dpi); }
   void set_dpi_xy(int dpi_horizontal, int dpi_vertical) {
-    dpi_[0] = dpi_horizontal;
-    dpi_[1] = dpi_vertical;
+    dpi_ = gfx::Size(dpi_horizontal, dpi_vertical);
   }
-  int dpi() const { return std::min(dpi_[0], dpi_[1]); }
-  int dpi_horizontal() const { return dpi_[0]; }
-  int dpi_vertical() const { return dpi_[1]; }
+
+  int dpi() const { return std::max(dpi_.width(), dpi_.height()); }
+  int dpi_horizontal() const { return dpi_.width(); }
+  int dpi_vertical() const { return dpi_.height(); }
+  const gfx::Size& dpi_size() const { return dpi_; }
 
   void set_scale_factor(double scale_factor) { scale_factor_ = scale_factor; }
   double scale_factor() const { return scale_factor_; }
@@ -184,6 +184,14 @@ class PRINTING_EXPORT PrintSettings {
   }
 #endif
 
+  void set_is_modifiable(bool is_modifiable) { is_modifiable_ = is_modifiable; }
+  bool is_modifiable() const { return is_modifiable_; }
+
+  int pages_per_sheet() const { return pages_per_sheet_; }
+  void set_pages_per_sheet(int pages_per_sheet) {
+    pages_per_sheet_ = pages_per_sheet;
+  }
+
   // Cookie generator. It is used to initialize PrintedDocument with its
   // associated PrintSettings, to be sure that each generated PrintedPage is
   // correctly associated with its corresponding PrintedDocument.
@@ -234,7 +242,7 @@ class PRINTING_EXPORT PrintSettings {
   // Printer's device effective dots per inch in both axes. The two values will
   // generally be identical. However, on Windows, there are a few rare printers
   // that support resolutions with different DPI in different dimensions.
-  int dpi_[2];
+  gfx::Size dpi_;
 
   // Scale factor
   double scale_factor_;
@@ -255,8 +263,13 @@ class PRINTING_EXPORT PrintSettings {
   PrinterType printer_type_;
 #endif
 
+  bool is_modifiable_;
+
   // If margin type is custom, this is what was requested.
   PageMargins requested_custom_margins_in_points_;
+
+  // Number of pages per sheet.
+  int pages_per_sheet_;
 };
 
 }  // namespace printing

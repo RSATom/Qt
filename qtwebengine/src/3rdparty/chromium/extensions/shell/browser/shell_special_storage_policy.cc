@@ -4,6 +4,9 @@
 
 #include "extensions/shell/browser/shell_special_storage_policy.h"
 
+#include "base/bind.h"
+#include "base/callback.h"
+
 namespace extensions {
 
 ShellSpecialStoragePolicy::ShellSpecialStoragePolicy() {
@@ -32,6 +35,11 @@ bool ShellSpecialStoragePolicy::IsStorageSessionOnly(const GURL& origin) {
 
 bool ShellSpecialStoragePolicy::HasSessionOnlyOrigins() {
   return false;
+}
+
+network::SessionCleanupCookieStore::DeleteCookiePredicate
+ShellSpecialStoragePolicy::CreateDeleteCookieOnExitPredicate() {
+  return network::SessionCleanupCookieStore::DeleteCookiePredicate();
 }
 
 bool ShellSpecialStoragePolicy::HasIsolatedStorage(const GURL& origin) {

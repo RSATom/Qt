@@ -11,6 +11,7 @@
 #include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 
 namespace content {
@@ -18,55 +19,55 @@ namespace content {
 WebRtcAudioSink::WebRtcAudioSink(
     const std::string& label,
     scoped_refptr<webrtc::AudioSourceInterface> track_source,
-    scoped_refptr<base::SingleThreadTaskRunner> signaling_task_runner)
-    : adapter_(new rtc::RefCountedObject<Adapter>(
-          label, std::move(track_source), std::move(signaling_task_runner))),
+    scoped_refptr<base::SingleThreadTaskRunner> signaling_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> main_task_runner)
+    : adapter_(
+          new rtc::RefCountedObject<Adapter>(label,
+                                             std::move(track_source),
+                                             std::move(signaling_task_runner),
+                                             std::move(main_task_runner))),
       fifo_(base::Bind(&WebRtcAudioSink::DeliverRebufferedAudio,
                        base::Unretained(this))) {
   DVLOG(1) << "WebRtcAudioSink::WebRtcAudioSink()";
 }
 
 WebRtcAudioSink::~WebRtcAudioSink() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DVLOG(1) << "WebRtcAudioSink::~WebRtcAudioSink()";
 }
 
 void WebRtcAudioSink::SetAudioProcessor(
-    scoped_refptr<MediaStreamAudioProcessor> processor) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+    scoped_refptr<webrtc::AudioProcessorInterface> processor) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(processor.get());
   adapter_->set_processor(std::move(processor));
 }
 
 void WebRtcAudioSink::SetLevel(
     scoped_refptr<MediaStreamAudioLevelCalculator::Level> level) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(level.get());
   adapter_->set_level(std::move(level));
 }
 
 void WebRtcAudioSink::OnEnabledChanged(bool enabled) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   adapter_->signaling_task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(
-          base::IgnoreResult(&WebRtcAudioSink::Adapter::set_enabled),
-          adapter_, enabled));
+      base::BindOnce(base::IgnoreResult(&WebRtcAudioSink::Adapter::set_enabled),
+                     adapter_, enabled));
 }
 
 void WebRtcAudioSink::OnData(const media::AudioBus& audio_bus,
                              base::TimeTicks estimated_capture_time) {
-  DCHECK(audio_thread_checker_.CalledOnValidThread());
+  // No thread check: OnData might be called on different threads (but not
+  // concurrently).
   // The following will result in zero, one, or multiple synchronous calls to
   // DeliverRebufferedAudio().
   fifo_.Push(audio_bus);
 }
 
 void WebRtcAudioSink::OnSetFormat(const media::AudioParameters& params) {
-  // On a format change, the thread delivering audio might have also changed.
-  audio_thread_checker_.DetachFromThread();
-  DCHECK(audio_thread_checker_.CalledOnValidThread());
-
   DCHECK(params.IsValid());
   params_ = params;
   // Make sure that our params always reflect a buffer size of 10ms.
@@ -79,7 +80,6 @@ void WebRtcAudioSink::OnSetFormat(const media::AudioParameters& params) {
 
 void WebRtcAudioSink::DeliverRebufferedAudio(const media::AudioBus& audio_bus,
                                              int frame_delay) {
-  DCHECK(audio_thread_checker_.CalledOnValidThread());
   DCHECK(params_.IsValid());
 
   // TODO(miu): Why doesn't a WebRTC sink care about reference time passed to
@@ -99,25 +99,27 @@ void WebRtcAudioSink::DeliverRebufferedAudio(const media::AudioBus& audio_bus,
 namespace {
 // TODO(miu): MediaStreamAudioProcessor destructor requires this nonsense.
 void DereferenceOnMainThread(
-    const scoped_refptr<MediaStreamAudioProcessor>& processor) {}
+    const scoped_refptr<webrtc::AudioProcessorInterface>& processor) {}
 }  // namespace
 
 WebRtcAudioSink::Adapter::Adapter(
     const std::string& label,
     scoped_refptr<webrtc::AudioSourceInterface> source,
-    scoped_refptr<base::SingleThreadTaskRunner> signaling_task_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> signaling_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> main_task_runner)
     : webrtc::MediaStreamTrack<webrtc::AudioTrackInterface>(label),
       source_(std::move(source)),
       signaling_task_runner_(std::move(signaling_task_runner)),
-      main_task_runner_(base::ThreadTaskRunnerHandle::Get()) {
+      main_task_runner_(std::move(main_task_runner)) {
   DCHECK(signaling_task_runner_);
+  DCHECK(main_task_runner_);
 }
 
 WebRtcAudioSink::Adapter::~Adapter() {
   if (audio_processor_) {
     main_task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(&DereferenceOnMainThread, std::move(audio_processor_)));
+        base::BindOnce(&DereferenceOnMainThread, std::move(audio_processor_)));
   }
 }
 
@@ -149,7 +151,7 @@ void WebRtcAudioSink::Adapter::AddSink(webrtc::AudioTrackSinkInterface* sink) {
          signaling_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(sink);
   base::AutoLock auto_lock(lock_);
-  DCHECK(std::find(sinks_.begin(), sinks_.end(), sink) == sinks_.end());
+  DCHECK(!base::ContainsValue(sinks_, sink));
   sinks_.push_back(sink);
 }
 

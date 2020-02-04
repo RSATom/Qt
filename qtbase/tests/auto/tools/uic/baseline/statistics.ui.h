@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'statistics.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,14 +40,11 @@
 #define STATISTICS_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QFrame>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QSpacerItem>
@@ -79,24 +76,24 @@ public:
     void setupUi(QDialog *Statistics)
     {
         if (Statistics->objectName().isEmpty())
-            Statistics->setObjectName(QStringLiteral("Statistics"));
-        Statistics->setObjectName(QStringLiteral("linguist_stats"));
+            Statistics->setObjectName(QString::fromUtf8("Statistics"));
+        Statistics->setObjectName(QString::fromUtf8("linguist_stats"));
         Statistics->resize(336, 164);
         gridLayout = new QGridLayout(Statistics);
         gridLayout->setSpacing(6);
         gridLayout->setContentsMargins(11, 11, 11, 11);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
-        gridLayout->setObjectName(QStringLiteral("unnamed"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("unnamed"));
         hboxLayout = new QHBoxLayout();
         hboxLayout->setSpacing(6);
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
-        hboxLayout->setObjectName(QStringLiteral("unnamed"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("unnamed"));
         spacer4_2 = new QSpacerItem(40, 20, QSizePolicy::Expanding, QSizePolicy::Minimum);
 
         hboxLayout->addItem(spacer4_2);
 
         closeBtn = new QPushButton(Statistics);
-        closeBtn->setObjectName(QStringLiteral("closeBtn"));
+        closeBtn->setObjectName(QString::fromUtf8("closeBtn"));
 
         hboxLayout->addWidget(closeBtn);
 
@@ -108,66 +105,66 @@ public:
         gridLayout->addLayout(hboxLayout, 1, 0, 1, 1);
 
         frame4 = new QFrame(Statistics);
-        frame4->setObjectName(QStringLiteral("frame4"));
+        frame4->setObjectName(QString::fromUtf8("frame4"));
         frame4->setFrameShape(QFrame::StyledPanel);
         frame4->setFrameShadow(QFrame::Raised);
         gridLayout1 = new QGridLayout(frame4);
         gridLayout1->setSpacing(6);
         gridLayout1->setContentsMargins(11, 11, 11, 11);
-        gridLayout1->setObjectName(QStringLiteral("gridLayout1"));
-        gridLayout1->setObjectName(QStringLiteral("unnamed"));
+        gridLayout1->setObjectName(QString::fromUtf8("gridLayout1"));
+        gridLayout1->setObjectName(QString::fromUtf8("unnamed"));
         textLabel4 = new QLabel(frame4);
-        textLabel4->setObjectName(QStringLiteral("textLabel4"));
+        textLabel4->setObjectName(QString::fromUtf8("textLabel4"));
 
         gridLayout1->addWidget(textLabel4, 0, 2, 1, 1);
 
         textLabel5 = new QLabel(frame4);
-        textLabel5->setObjectName(QStringLiteral("textLabel5"));
+        textLabel5->setObjectName(QString::fromUtf8("textLabel5"));
 
         gridLayout1->addWidget(textLabel5, 0, 1, 1, 1);
 
         untrWords = new QLabel(frame4);
-        untrWords->setObjectName(QStringLiteral("untrWords"));
+        untrWords->setObjectName(QString::fromUtf8("untrWords"));
 
         gridLayout1->addWidget(untrWords, 1, 1, 1, 1);
 
         trWords = new QLabel(frame4);
-        trWords->setObjectName(QStringLiteral("trWords"));
+        trWords->setObjectName(QString::fromUtf8("trWords"));
 
         gridLayout1->addWidget(trWords, 1, 2, 1, 1);
 
         textLabel1 = new QLabel(frame4);
-        textLabel1->setObjectName(QStringLiteral("textLabel1"));
+        textLabel1->setObjectName(QString::fromUtf8("textLabel1"));
 
         gridLayout1->addWidget(textLabel1, 1, 0, 1, 1);
 
         trChars = new QLabel(frame4);
-        trChars->setObjectName(QStringLiteral("trChars"));
+        trChars->setObjectName(QString::fromUtf8("trChars"));
 
         gridLayout1->addWidget(trChars, 2, 2, 1, 1);
 
         untrChars = new QLabel(frame4);
-        untrChars->setObjectName(QStringLiteral("untrChars"));
+        untrChars->setObjectName(QString::fromUtf8("untrChars"));
 
         gridLayout1->addWidget(untrChars, 2, 1, 1, 1);
 
         textLabel3 = new QLabel(frame4);
-        textLabel3->setObjectName(QStringLiteral("textLabel3"));
+        textLabel3->setObjectName(QString::fromUtf8("textLabel3"));
 
         gridLayout1->addWidget(textLabel3, 2, 0, 1, 1);
 
         textLabel6 = new QLabel(frame4);
-        textLabel6->setObjectName(QStringLiteral("textLabel6"));
+        textLabel6->setObjectName(QString::fromUtf8("textLabel6"));
 
         gridLayout1->addWidget(textLabel6, 3, 0, 1, 1);
 
         trCharsSpc = new QLabel(frame4);
-        trCharsSpc->setObjectName(QStringLiteral("trCharsSpc"));
+        trCharsSpc->setObjectName(QString::fromUtf8("trCharsSpc"));
 
         gridLayout1->addWidget(trCharsSpc, 3, 2, 1, 1);
 
         untrCharsSpc = new QLabel(frame4);
-        untrCharsSpc->setObjectName(QStringLiteral("untrCharsSpc"));
+        untrCharsSpc->setObjectName(QString::fromUtf8("untrCharsSpc"));
 
         gridLayout1->addWidget(untrCharsSpc, 3, 1, 1, 1);
 
@@ -182,19 +179,19 @@ public:
 
     void retranslateUi(QDialog *Statistics)
     {
-        Statistics->setWindowTitle(QApplication::translate("Statistics", "Statistics", nullptr));
-        closeBtn->setText(QApplication::translate("Statistics", "&Close", nullptr));
-        textLabel4->setText(QApplication::translate("Statistics", "Translation", nullptr));
-        textLabel5->setText(QApplication::translate("Statistics", "Source", nullptr));
-        untrWords->setText(QApplication::translate("Statistics", "0", nullptr));
-        trWords->setText(QApplication::translate("Statistics", "0", nullptr));
-        textLabel1->setText(QApplication::translate("Statistics", "Words:", nullptr));
-        trChars->setText(QApplication::translate("Statistics", "0", nullptr));
-        untrChars->setText(QApplication::translate("Statistics", "0", nullptr));
-        textLabel3->setText(QApplication::translate("Statistics", "Characters:", nullptr));
-        textLabel6->setText(QApplication::translate("Statistics", "Characters (with spaces):", nullptr));
-        trCharsSpc->setText(QApplication::translate("Statistics", "0", nullptr));
-        untrCharsSpc->setText(QApplication::translate("Statistics", "0", nullptr));
+        Statistics->setWindowTitle(QCoreApplication::translate("Statistics", "Statistics", nullptr));
+        closeBtn->setText(QCoreApplication::translate("Statistics", "&Close", nullptr));
+        textLabel4->setText(QCoreApplication::translate("Statistics", "Translation", nullptr));
+        textLabel5->setText(QCoreApplication::translate("Statistics", "Source", nullptr));
+        untrWords->setText(QCoreApplication::translate("Statistics", "0", nullptr));
+        trWords->setText(QCoreApplication::translate("Statistics", "0", nullptr));
+        textLabel1->setText(QCoreApplication::translate("Statistics", "Words:", nullptr));
+        trChars->setText(QCoreApplication::translate("Statistics", "0", nullptr));
+        untrChars->setText(QCoreApplication::translate("Statistics", "0", nullptr));
+        textLabel3->setText(QCoreApplication::translate("Statistics", "Characters:", nullptr));
+        textLabel6->setText(QCoreApplication::translate("Statistics", "Characters (with spaces):", nullptr));
+        trCharsSpc->setText(QCoreApplication::translate("Statistics", "0", nullptr));
+        untrCharsSpc->setText(QCoreApplication::translate("Statistics", "0", nullptr));
     } // retranslateUi
 
 };

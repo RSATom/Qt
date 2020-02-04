@@ -9,15 +9,19 @@
 
 #include "base/debug/leak_annotations.h"
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "url/url_canon_internal.h"
 #include "url/url_constants.h"
 #include "url/url_file.h"
 #include "url/url_util_internal.h"
+#include "url/url_util_qt.h"
 
 namespace url {
 
 namespace {
+
+bool g_allow_non_standard_schemes = false;
 
 // Pass this enum through for methods which would like to know if whitespace
 // removal is necessary.
@@ -27,26 +31,25 @@ enum WhitespaceRemovalPolicy {
 };
 
 const SchemeWithType kStandardURLSchemes[] = {
-    {kHttpScheme, SCHEME_WITH_PORT},
-    {kHttpsScheme, SCHEME_WITH_PORT},
+    {kHttpsScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
+    {kHttpScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
     // Yes, file URLs can have a hostname, so file URLs should be handled as
     // "standard". File URLs never have a port as specified by the SchemeType
-    // field.
-    {kFileScheme, SCHEME_WITHOUT_PORT},
-    {kFtpScheme, SCHEME_WITH_PORT},
-    {kGopherScheme, SCHEME_WITH_PORT},
-    {kWsScheme, SCHEME_WITH_PORT},   // WebSocket.
-    {kWssScheme, SCHEME_WITH_PORT},  // WebSocket secure.
+    // field.  Unlike other SCHEME_WITH_HOST schemes, the 'host' in a file
+    // URL may be empty, a behavior which is special-cased during
+    // canonicalization.
+    {kFileScheme, SCHEME_WITH_HOST},
+    {kFtpScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
+    {kGopherScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
+    {kWssScheme,
+     SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},  // WebSocket secure.
+    {kWsScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},  // WebSocket.
     {kFileSystemScheme, SCHEME_WITHOUT_AUTHORITY},
-    {kHttpSuboriginScheme, SCHEME_WITH_PORT},
-    {kHttpsSuboriginScheme, SCHEME_WITH_PORT},
 };
 
 const SchemeWithType kReferrerURLSchemes[] = {
-    {kHttpScheme, SCHEME_WITH_PORT},
-    {kHttpsScheme, SCHEME_WITH_PORT},
-    {kHttpSuboriginScheme, SCHEME_WITH_PORT},
-    {kHttpsSuboriginScheme, SCHEME_WITH_PORT},
+    {kHttpsScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
+    {kHttpScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
 };
 
 const char* kSecureSchemes[] = {
@@ -66,19 +69,17 @@ const char* kNoAccessSchemes[] = {
   kDataScheme,
 };
 
-const char* kCORSEnabledSchemes[] = {
-  kHttpScheme,
-  kHttpsScheme,
-  kDataScheme,
+const char* kCorsEnabledSchemes[] = {
+    kHttpsScheme, kHttpScheme, kDataScheme,
 };
 
 const char* kWebStorageSchemes[] = {
-  kHttpScheme,
   kHttpsScheme,
+  kHttpScheme,
   kFileScheme,
   kFtpScheme,
-  kWsScheme,
   kWssScheme,
+  kWsScheme,
 };
 
 const char* kEmptyDocumentSchemes[] = {
@@ -245,7 +246,7 @@ bool DoCanonicalize(const CHAR* spec,
   // This is the parsed version of the input URL, we have to canonicalize it
   // before storing it in our object.
   bool success;
-  SchemeType unused_scheme_type = SCHEME_WITH_PORT;
+  SchemeType scheme_type = SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION;
   if (DoCompareSchemeComponent(spec, scheme, url::kFileScheme)) {
     // File URLs are special.
     ParseFileURL(spec, spec_len, &parsed_input);
@@ -258,10 +259,10 @@ bool DoCanonicalize(const CHAR* spec,
                                         charset_converter, output,
                                         output_parsed);
 
-  } else if (DoIsStandard(spec, scheme, &unused_scheme_type)) {
+  } else if (DoIsStandard(spec, scheme, &scheme_type)) {
     // All "normal" URLs.
     ParseStandardURL(spec, spec_len, &parsed_input);
-    success = CanonicalizeStandardURL(spec, spec_len, parsed_input,
+    success = CanonicalizeStandardURL(spec, spec_len, parsed_input, scheme_type,
                                       charset_converter, output, output_parsed);
 
   } else if (DoCompareSchemeComponent(spec, scheme, url::kMailToScheme)) {
@@ -306,9 +307,18 @@ bool DoResolveRelative(const char* base_spec,
                                               base_spec_len);
     base_is_authority_based = num_slashes > 1;
     base_is_hierarchical = num_slashes > 0;
+
+    // NOTE(juvaldma)(Chromium 69.0.3497.128): Force all custom schemes to be
+    // hierarchical. This really only affects QWebEngineUrlScheme::Syntax::Path
+    // schemes since the rest are already canonicalized to start with a slash.
+    // The effect is to allow, for example, GURL("qrc:foo").Resolve("bar") to
+    // return "qrc:bar" instead of just erroring out.
+    base::StringPiece scheme_piece(&base_spec[base_parsed.scheme.begin], base_parsed.scheme.len);
+    if (CustomScheme::FindScheme(scheme_piece))
+        base_is_hierarchical = true;
   }
 
-  SchemeType unused_scheme_type = SCHEME_WITH_PORT;
+  SchemeType unused_scheme_type = SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION;
   bool standard_base_scheme =
       base_parsed.scheme.is_nonempty() &&
       DoIsStandard(base_spec, base_parsed.scheme, &unused_scheme_type);
@@ -443,10 +453,10 @@ bool DoReplaceComponents(const char* spec,
     return ReplaceFileSystemURL(spec, parsed, replacements, charset_converter,
                                 output, out_parsed);
   }
-  SchemeType unused_scheme_type = SCHEME_WITH_PORT;
-  if (DoIsStandard(spec, parsed.scheme, &unused_scheme_type)) {
-    return ReplaceStandardURL(spec, parsed, replacements, charset_converter,
-                              output, out_parsed);
+  SchemeType scheme_type = SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION;
+  if (DoIsStandard(spec, parsed.scheme, &scheme_type)) {
+    return ReplaceStandardURL(spec, parsed, replacements, scheme_type,
+                              charset_converter, output, out_parsed);
   }
   if (DoCompareSchemeComponent(spec, parsed.scheme, url::kMailToScheme)) {
     return ReplaceMailtoURL(spec, parsed, replacements, output, out_parsed);
@@ -513,25 +523,26 @@ void Initialize() {
   if (initialized)
     return;
   InitSchemesWithType(&standard_schemes, kStandardURLSchemes,
-                      arraysize(kStandardURLSchemes));
+                      base::size(kStandardURLSchemes));
   InitSchemesWithType(&referrer_schemes, kReferrerURLSchemes,
-                      arraysize(kReferrerURLSchemes));
-  InitSchemes(&secure_schemes, kSecureSchemes, arraysize(kSecureSchemes));
-  InitSchemes(&local_schemes, kLocalSchemes, arraysize(kLocalSchemes));
+                      base::size(kReferrerURLSchemes));
+  InitSchemes(&secure_schemes, kSecureSchemes, base::size(kSecureSchemes));
+  InitSchemes(&local_schemes, kLocalSchemes, base::size(kLocalSchemes));
   InitSchemes(&no_access_schemes, kNoAccessSchemes,
-              arraysize(kNoAccessSchemes));
-  InitSchemes(&cors_enabled_schemes, kCORSEnabledSchemes,
-              arraysize(kCORSEnabledSchemes));
+              base::size(kNoAccessSchemes));
+  InitSchemes(&cors_enabled_schemes, kCorsEnabledSchemes,
+              base::size(kCorsEnabledSchemes));
   InitSchemes(&web_storage_schemes, kWebStorageSchemes,
-              arraysize(kWebStorageSchemes));
+              base::size(kWebStorageSchemes));
   InitSchemes(&csp_bypassing_schemes, nullptr, 0);
   InitSchemes(&empty_document_schemes, kEmptyDocumentSchemes,
-              arraysize(kEmptyDocumentSchemes));
+              base::size(kEmptyDocumentSchemes));
   initialized = true;
 }
 
 void Shutdown() {
   initialized = false;
+  g_allow_non_standard_schemes = false;
   delete standard_schemes;
   standard_schemes = nullptr;
   delete referrer_schemes;
@@ -550,6 +561,14 @@ void Shutdown() {
   csp_bypassing_schemes = nullptr;
   delete empty_document_schemes;
   empty_document_schemes = nullptr;
+}
+
+void EnableNonStandardSchemesForAndroidWebView() {
+  g_allow_non_standard_schemes = true;
+}
+
+bool AllowNonStandardSchemesForAndroidWebView() {
+  return g_allow_non_standard_schemes;
 }
 
 void AddStandardScheme(const char* new_scheme, SchemeType type) {
@@ -592,12 +611,12 @@ const std::vector<std::string>& GetNoAccessSchemes() {
   return *no_access_schemes;
 }
 
-void AddCORSEnabledScheme(const char* new_scheme) {
+void AddCorsEnabledScheme(const char* new_scheme) {
   Initialize();
   DoAddScheme(new_scheme, cors_enabled_schemes);
 }
 
-const std::vector<std::string>& GetCORSEnabledSchemes() {
+const std::vector<std::string>& GetCorsEnabledSchemes() {
   Initialize();
   return *cors_enabled_schemes;
 }
@@ -647,6 +666,12 @@ bool GetStandardSchemeType(const char* spec,
   return DoIsStandard(spec, scheme, type);
 }
 
+bool GetStandardSchemeType(const base::char16* spec,
+                           const Component& scheme,
+                           SchemeType* type) {
+  return DoIsStandard(spec, scheme, type);
+}
+
 bool IsStandard(const base::char16* spec, const Component& scheme) {
   SchemeType unused_scheme_type;
   return DoIsStandard(spec, scheme, &unused_scheme_type);
@@ -672,28 +697,27 @@ bool FindAndCompareScheme(const base::char16* str,
   return DoFindAndCompareScheme(str, str_len, compare, found_scheme);
 }
 
-bool DomainIs(base::StringPiece canonicalized_host,
-              base::StringPiece lower_ascii_domain) {
-  if (canonicalized_host.empty() || lower_ascii_domain.empty())
+bool DomainIs(base::StringPiece canonical_host,
+              base::StringPiece canonical_domain) {
+  if (canonical_host.empty() || canonical_domain.empty())
     return false;
 
   // If the host name ends with a dot but the input domain doesn't, then we
   // ignore the dot in the host name.
-  size_t host_len = canonicalized_host.length();
-  if (canonicalized_host.back() == '.' && lower_ascii_domain.back() != '.')
+  size_t host_len = canonical_host.length();
+  if (canonical_host.back() == '.' && canonical_domain.back() != '.')
     --host_len;
 
-  if (host_len < lower_ascii_domain.length())
+  if (host_len < canonical_domain.length())
     return false;
 
   // |host_first_pos| is the start of the compared part of the host name, not
   // start of the whole host name.
   const char* host_first_pos =
-      canonicalized_host.data() + host_len - lower_ascii_domain.length();
+      canonical_host.data() + host_len - canonical_domain.length();
 
-  if (!base::LowerCaseEqualsASCII(
-          base::StringPiece(host_first_pos, lower_ascii_domain.length()),
-          lower_ascii_domain)) {
+  if (base::StringPiece(host_first_pos, canonical_domain.length()) !=
+      canonical_domain) {
     return false;
   }
 
@@ -701,7 +725,7 @@ bool DomainIs(base::StringPiece canonicalized_host,
   // if the host name is longer than the input domain name, then the character
   // immediately before the compared part should be a dot. For example,
   // www.google.com has domain "google.com", but www.iamnotgoogle.com does not.
-  if (lower_ascii_domain[0] != '.' && host_len > lower_ascii_domain.length() &&
+  if (canonical_domain[0] != '.' && host_len > canonical_domain.length() &&
       *(host_first_pos - 1) != '.') {
     return false;
   }
@@ -787,6 +811,7 @@ bool ReplaceComponents(const char* spec,
 
 void DecodeURLEscapeSequences(const char* input,
                               int length,
+                              DecodeURLMode mode,
                               CanonOutputW* output) {
   RawCanonOutputT<char> unescaped_chars;
   for (int i = 0; i < length; i++) {
@@ -804,6 +829,7 @@ void DecodeURLEscapeSequences(const char* input,
     }
   }
 
+  int output_initial_length = output->length();
   // Convert that 8-bit to UTF-16. It's not clear IE does this at all to
   // JavaScript URLs, but Firefox and Safari do.
   for (int i = 0; i < unescaped_chars.length(); i++) {
@@ -821,15 +847,19 @@ void DecodeURLEscapeSequences(const char* input,
         // Valid UTF-8 character, convert to UTF-16.
         AppendUTF16Value(code_point, output);
         i = next_character;
+      } else if (mode == DecodeURLMode::kUTF8) {
+        DCHECK_EQ(code_point, 0xFFFDU);
+        AppendUTF16Value(code_point, output);
+        i = next_character;
       } else {
-        // If there are any sequences that are not valid UTF-8, we keep
-        // invalid code points and promote to UTF-16. We copy all characters
-        // from the current position to the end of the identified sequence.
-        while (i < next_character) {
-          output->push_back(static_cast<unsigned char>(unescaped_chars.at(i)));
-          i++;
-        }
-        output->push_back(static_cast<unsigned char>(unescaped_chars.at(i)));
+        // If there are any sequences that are not valid UTF-8, we
+        // revert |output| changes, and promote any bytes to UTF-16. We
+        // copy all characters from the beginning to the end of the
+        // identified sequence.
+        output->set_length(output_initial_length);
+        for (int j = 0; j < unescaped_chars.length(); ++j)
+          output->push_back(static_cast<unsigned char>(unescaped_chars.at(j)));
+        break;
       }
     }
   }

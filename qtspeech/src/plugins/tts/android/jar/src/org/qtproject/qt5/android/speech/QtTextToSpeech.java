@@ -50,6 +50,8 @@ import android.util.Log;
 import java.lang.Float;
 import java.util.HashMap;
 import java.util.Locale;
+import java.util.List;
+import java.util.ArrayList;
 
 public class QtTextToSpeech
 {
@@ -60,6 +62,7 @@ public class QtTextToSpeech
 
     private TextToSpeech mTts;
     private final long mId;
+    private boolean mInitialized = false;
     private float mPitch = 1.0f;
     private float mRate = 1.0f;
     private float mVolume = 1.0f;
@@ -70,8 +73,10 @@ public class QtTextToSpeech
         public void onInit(int status) {
             Log.w("QtTextToSpeech", "tts initialized");
             if (status == TextToSpeech.SUCCESS) {
+                mInitialized = true;
                 notifyReady(mId);
             } else {
+                mInitialized = false;
                 notifyError(mId);
             }
         }
@@ -206,4 +211,54 @@ public class QtTextToSpeech
         return (result != TextToSpeech.LANG_NOT_SUPPORTED) && (result != TextToSpeech.LANG_MISSING_DATA);
     }
 
+    public List<Object> getAvailableVoices()
+    {
+        if (mInitialized && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            //Log.d("QtTextToSpeech", "Voices: " + mTts.getVoices());
+            return new ArrayList<Object>(mTts.getVoices());
+        }
+        return new ArrayList<Object>();
+    }
+
+    public List<Locale> getAvailableLocales()
+    {
+        if (mInitialized && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            //Log.d("QtTextToSpeech", "Locales: " + mTts.getAvailableLanguages());
+            return new ArrayList<Locale>(mTts.getAvailableLanguages());
+        }
+        return new ArrayList<Locale>();
+    }
+
+    public Locale getLocale()
+    {
+        //Log.d("QtTextToSpeech", "getLocale: " + mLocale);
+        return mTts.getLanguage();
+    }
+
+    public Object getVoice()
+    {
+        if (mInitialized && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            return mTts.getVoice();
+        }
+        return null;
+    }
+
+    public boolean setVoice(String voiceName)
+    {
+        if (!mInitialized)
+            return false;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+             for (android.speech.tts.Voice voice : mTts.getVoices()) {
+                 if (voice.getName().equals(voiceName)) {
+                     int result = mTts.setVoice(voice);
+                     if (result == TextToSpeech.SUCCESS) {
+                         //Log.d("QtTextToSpeech", "setVoice: " + voice);
+                         return true;
+                     }
+                     break;
+                 }
+             }
+        }
+        return false;
+    }
 }

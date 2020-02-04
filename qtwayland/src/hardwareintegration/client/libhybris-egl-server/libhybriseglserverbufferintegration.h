@@ -81,9 +81,9 @@ protected:
     void libhybris_buffer_add_fd(int32_t fd) override;
 
 private:
-    LibHybrisEglServerBufferIntegration *m_integration;
+    LibHybrisEglServerBufferIntegration *m_integration = nullptr;
     EGLImageKHR m_image;
-    QOpenGLTexture *m_texture;
+    QOpenGLTexture *m_texture = nullptr;
     int m_numFds;
     QVector<int32_t> m_ints;
     QVector<int32_t> m_fds;
@@ -118,7 +118,7 @@ private:
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC m_gl_egl_image_target_texture;
     PFNEGLHYBRISCREATEREMOTEBUFFERPROC m_egl_create_buffer;
     QWaylandDisplay *m_display = nullptr;
-    EGLDisplay m_egl_display;
+    EGLDisplay m_egl_display = EGL_NO_DISPLAY;
     bool m_egl_initialized = false;
 };
 

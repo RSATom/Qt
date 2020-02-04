@@ -11,7 +11,7 @@
 #include "components/webcrypto/crypto_data.h"
 #include "components/webcrypto/status.h"
 #include "crypto/openssl_util.h"
-#include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/blink/public/platform/web_crypto_key_algorithm.h"
 #include "third_party/boringssl/src/include/openssl/digest.h"
 #include "third_party/boringssl/src/include/openssl/evp.h"
 #include "third_party/boringssl/src/include/openssl/rsa.h"
@@ -78,10 +78,10 @@ Status RsaSign(const blink::WebCryptoKey& key,
 
   crypto::OpenSSLErrStackTracer err_tracer(FROM_HERE);
   bssl::ScopedEVP_MD_CTX ctx;
-  EVP_PKEY_CTX* pctx = NULL;  // Owned by |ctx|.
+  EVP_PKEY_CTX* pctx = nullptr;  // Owned by |ctx|.
 
-  EVP_PKEY* private_key = NULL;
-  const EVP_MD* digest = NULL;
+  EVP_PKEY* private_key = nullptr;
+  const EVP_MD* digest = nullptr;
   Status status = GetPKeyAndDigest(key, &private_key, &digest);
   if (status.IsError())
     return status;
@@ -90,7 +90,7 @@ Status RsaSign(const blink::WebCryptoKey& key,
   // returns a maximum allocation size, while the call without a NULL returns
   // the real one, which may be smaller.
   size_t sig_len = 0;
-  if (!EVP_DigestSignInit(ctx.get(), &pctx, digest, NULL, private_key)) {
+  if (!EVP_DigestSignInit(ctx.get(), &pctx, digest, nullptr, private_key)) {
     return Status::OperationError();
   }
 
@@ -100,7 +100,7 @@ Status RsaSign(const blink::WebCryptoKey& key,
     return status;
 
   if (!EVP_DigestSignUpdate(ctx.get(), data.bytes(), data.byte_length()) ||
-      !EVP_DigestSignFinal(ctx.get(), NULL, &sig_len)) {
+      !EVP_DigestSignFinal(ctx.get(), nullptr, &sig_len)) {
     return Status::OperationError();
   }
 
@@ -122,15 +122,15 @@ Status RsaVerify(const blink::WebCryptoKey& key,
 
   crypto::OpenSSLErrStackTracer err_tracer(FROM_HERE);
   bssl::ScopedEVP_MD_CTX ctx;
-  EVP_PKEY_CTX* pctx = NULL;  // Owned by |ctx|.
+  EVP_PKEY_CTX* pctx = nullptr;  // Owned by |ctx|.
 
-  EVP_PKEY* public_key = NULL;
-  const EVP_MD* digest = NULL;
+  EVP_PKEY* public_key = nullptr;
+  const EVP_MD* digest = nullptr;
   Status status = GetPKeyAndDigest(key, &public_key, &digest);
   if (status.IsError())
     return status;
 
-  if (!EVP_DigestVerifyInit(ctx.get(), &pctx, digest, NULL, public_key))
+  if (!EVP_DigestVerifyInit(ctx.get(), &pctx, digest, nullptr, public_key))
     return Status::OperationError();
 
   // Set PSS-specific options (if applicable).

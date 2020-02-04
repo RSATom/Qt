@@ -7,53 +7,33 @@
 
 #include <stdint.h>
 
+#include "services/ws/common/types.h"
+
 // Typedefs for the transport types. These typedefs match that of the mojom
 // file, see it for specifics.
 
 namespace aura {
 
-// Used to identify windows and change ids.
-using Id = uint32_t;
-
-// Used to identify a client as well as a client-specific window id. For
-// example, the Id for a window consists of the ClientSpecificId of the client
-// and the ClientSpecificId of the window.
-using ClientSpecificId = uint16_t;
-
-constexpr Id kInvalidServerId = 0;
+constexpr ws::Id kInvalidServerId = 0;
 
 enum class WindowMusType {
-  // The window is an embed root. That is, the client received this window by
-  // way of another client calling Embed().
+  // The window is an embed root in the embedded client. That is, the client
+  // received this window by way of another client calling Embed(). In other
+  // words, this is the embedded side of an embedding.
   // NOTE: in the client that called Embed() the window type is LOCAL.
   EMBED,
 
-  // The window is an embedded client in an owner client.
-  EMBED_IN_OWNER,
-
   // The window was created by requesting a top level
   // (WindowTree::NewTopLevel()).
-  // NOTE: in the window manager (the one responsible for actually creating the
-  // real window) the window is of type TOP_LEVEL_IN_WM.
   TOP_LEVEL,
-
-  // The window is a top level window in the window manager.
-  TOP_LEVEL_IN_WM,
-
-  // The window is a display root for the window manager and was automatically
-  // created by mus.
-  DISPLAY_AUTOMATICALLY_CREATED,
-
-  // The window is a display root for the window manager and was manually
-  // created.
-  DISPLAY_MANUALLY_CREATED,
 
   // The window was created locally.
   LOCAL,
 
   // Not one of the above. This means the window is visible to the client and
-  // not one of the above values. Practically this means this client is the
-  // window manager and the window was created by another client.
+  // not one of the above values. For example, if
+  // |kEmbedFlagEmbedderInterceptsEvents| is used, then the embedder sees
+  // Windows created by the embedded client.
   OTHER,
 };
 

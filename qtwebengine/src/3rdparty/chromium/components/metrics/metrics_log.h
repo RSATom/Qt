@@ -17,23 +17,27 @@
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "components/metrics/metrics_service_client.h"
-#include "components/metrics/proto/chrome_user_metrics_extension.pb.h"
+#include "third_party/metrics_proto/chrome_user_metrics_extension.pb.h"
 
 class PrefService;
 
 namespace base {
+class HistogramFlattener;
 class HistogramSamples;
+class HistogramSnapshotManager;
 }
 
 namespace metrics {
 
-namespace internal {
-extern const int kOmniboxEventLimit;
-extern const int kUserActionEventLimit;
-}
-
 class MetricsProvider;
 class MetricsServiceClient;
+class DelegatingProvider;
+
+namespace internal {
+// Maximum number of events before truncation.
+constexpr int kOmniboxEventLimit = 5000;
+constexpr int kUserActionEventLimit = 5000;
+}  // namespace internal
 
 class MetricsLog {
  public:
@@ -41,6 +45,33 @@ class MetricsLog {
     INITIAL_STABILITY_LOG,  // The initial log containing stability stats.
     ONGOING_LOG,            // Subsequent logs in a session.
     INDEPENDENT_LOG,        // An independent log from a previous session.
+  };
+
+  // Loads "independent" metrics from a metrics provider and executes a
+  // callback when complete, which could be immediate or after some
+  // execution on a background thread.
+  class IndependentMetricsLoader {
+   public:
+    explicit IndependentMetricsLoader(std::unique_ptr<MetricsLog> log);
+    ~IndependentMetricsLoader();
+
+    // Call ProvideIndependentMetrics (which may execute on a background thread)
+    // for the |metrics_provider| and execute the |done_callback| when complete
+    // with the result (true if successful). Though this can be called multiple
+    // times to include data from multiple providers, later calls will override
+    // system profile information set by earlier calls.
+    void Run(base::OnceCallback<void(bool)> done_callback,
+             MetricsProvider* metrics_provider);
+
+    // Extract the filled log. No more Run() operations can be done after this.
+    std::unique_ptr<MetricsLog> ReleaseLog();
+
+   private:
+    std::unique_ptr<MetricsLog> log_;
+    std::unique_ptr<base::HistogramFlattener> flattener_;
+    std::unique_ptr<base::HistogramSnapshotManager> snapshot_manager_;
+
+    DISALLOW_COPY_AND_ASSIGN(IndependentMetricsLoader);
   };
 
   // Creates a new metrics log of the specified type.
@@ -54,8 +85,7 @@ class MetricsLog {
   MetricsLog(const std::string& client_id,
              int session_id,
              LogType log_type,
-             MetricsServiceClient* client,
-             PrefService* local_state);
+             MetricsServiceClient* client);
   virtual ~MetricsLog();
 
   // Registers local state prefs used by this class.
@@ -87,48 +117,28 @@ class MetricsLog {
   void RecordHistogramDelta(const std::string& histogram_name,
                             const base::HistogramSamples& snapshot);
 
-
   // TODO(rkaplow): I think this can be a little refactored as it currently
   // records a pretty arbitrary set of things.
   // Records the current operating environment, including metrics provided by
-  // the specified set of |metrics_providers|.  Takes the list of synthetic
-  // trial IDs as a parameter. A synthetic trial is one that is set up
-  // dynamically by code in Chrome. For example, a pref may be mapped to a
-  // synthetic trial such that the group is determined by the pref value. The
-  // current environment is returned serialized as a string.
-  std::string RecordEnvironment(
-      const std::vector<std::unique_ptr<MetricsProvider>>& metrics_providers,
-      int64_t install_date,
-      int64_t metrics_reporting_enabled_date);
-
-  // Loads a saved system profile and the associated metrics into the log.
-  // Returns true on success. Keep calling it with fresh logs until it returns
-  // false.
-  bool LoadIndependentMetrics(MetricsProvider* metrics_provider);
+  // the specified |delegating_provider|. The current environment is
+  // returned as a SystemProfileProto.
+  const SystemProfileProto& RecordEnvironment(
+      DelegatingProvider* delegating_provider);
 
   // Loads the environment proto that was saved by the last RecordEnvironment()
   // call from prefs. On success, returns true and |app_version| contains the
   // recovered version. Otherwise (if there was no saved environment in prefs
   // or it could not be decoded), returns false and |app_version| is empty.
-  bool LoadSavedEnvironmentFromPrefs(std::string* app_version);
+  bool LoadSavedEnvironmentFromPrefs(PrefService* local_state,
+                                     std::string* app_version);
 
-  // Writes application stability metrics, including stability metrics provided
-  // by the specified set of |metrics_providers|. The system profile portion of
-  // the log must have already been filled in by a call to RecordEnvironment()
-  // or LoadSavedEnvironmentFromPrefs().
-  // NOTE: Has the side-effect of clearing the stability prefs..
-  //
-  // If this log is of type INITIAL_STABILITY_LOG, records additional info such
-  // as number of incomplete shutdowns as well as extra breakpad and debugger
-  // stats.
-  void RecordStabilityMetrics(
-      const std::vector<std::unique_ptr<MetricsProvider>>& metrics_providers,
-      base::TimeDelta incremental_uptime,
-      base::TimeDelta uptime);
+  // Record data from providers about the previous session into the log.
+  void RecordPreviousSessionData(DelegatingProvider* delegating_provider);
 
-  // Records general metrics based on the specified |metrics_providers|.
-  void RecordGeneralMetrics(
-      const std::vector<std::unique_ptr<MetricsProvider>>& metrics_providers);
+  // Record data from providers about the current session into the log.
+  void RecordCurrentSessionData(DelegatingProvider* delegating_provider,
+                                base::TimeDelta incremental_uptime,
+                                base::TimeDelta uptime);
 
   // Stop writing to this record and generate the encoded representation.
   // None of the Record* methods can be called after this is called.
@@ -160,17 +170,9 @@ class MetricsLog {
   }
 
  private:
-  // Returns true if the environment has already been filled in by a call to
-  // RecordEnvironment() or LoadSavedEnvironmentFromPrefs().
-  bool HasEnvironment() const;
-
   // Write the default state of the enable metrics checkbox.
   void WriteMetricsEnableDefault(EnableMetricsDefault metrics_default,
                                  SystemProfileProto* system_profile);
-
-  // Returns true if the stability metrics have already been filled in by a
-  // call to RecordStabilityMetrics().
-  bool HasStabilityMetrics() const;
 
   // Within the stability group, write attributes that need to be updated asap
   // and can't be delayed until the user decides to restart chromium.
@@ -196,7 +198,9 @@ class MetricsLog {
   // The time when the current log was created.
   const base::TimeTicks creation_time_;
 
-  PrefService* local_state_;
+  // True if the environment has already been filled in by a call to
+  // RecordEnvironment() or LoadSavedEnvironmentFromPrefs().
+  bool has_environment_;
 
   DISALLOW_COPY_AND_ASSIGN(MetricsLog);
 };

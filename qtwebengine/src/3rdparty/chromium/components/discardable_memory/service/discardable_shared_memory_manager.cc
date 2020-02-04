@@ -5,31 +5,32 @@
 #include "components/discardable_memory/service/discardable_shared_memory_manager.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/atomic_sequence_num.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/debug/crash_logging.h"
 #include "base/macros.h"
 #include "base/memory/discardable_memory.h"
-#include "base/memory/memory_coordinator_client_registry.h"
-#include "base/memory/ptr_util.h"
+#include "base/memory/shared_memory_tracker.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/numerics/safe_math.h"
 #include "base/process/memory.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "base/sys_info.h"
+#include "base/synchronization/waitable_event.h"
+#include "base/system/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "components/crash/core/common/crash_key.h"
 #include "components/discardable_memory/common/discardable_shared_memory_heap.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
-#include "mojo/public/cpp/system/platform_handle.h"
 
 #if defined(OS_LINUX)
 #include "base/files/file_path.h"
@@ -40,23 +41,7 @@
 namespace discardable_memory {
 namespace {
 
-const char kSingleProcess[] = "single-process";
-
 const int kInvalidUniqueClientID = -1;
-
-const uint64_t kBrowserTracingProcessId = std::numeric_limits<uint64_t>::max();
-
-uint64_t ClientProcessUniqueIdToTracingProcessId(int client_id) {
-  // TODO(penghuang): Move this function to right place.
-  // https://crbug.com/661257
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(kSingleProcess))
-    return kBrowserTracingProcessId;
-  // The hash value is incremented so that the tracing id is never equal to
-  // MemoryDumpManager::kInvalidTracingProcessId.
-  return static_cast<uint64_t>(base::Hash(
-             reinterpret_cast<const char*>(&client_id), sizeof(client_id))) +
-         1;
-}
 
 // mojom::DiscardableSharedMemoryManager implementation. It contains the
 // |client_id_| which is not visible to client. We associate allocations with a
@@ -67,13 +52,15 @@ class MojoDiscardableSharedMemoryManagerImpl
  public:
   MojoDiscardableSharedMemoryManagerImpl(
       int32_t client_id,
-      ::discardable_memory::DiscardableSharedMemoryManager* manager)
+      base::WeakPtr<::discardable_memory::DiscardableSharedMemoryManager>
+          manager)
       : client_id_(client_id), manager_(manager) {}
 
   ~MojoDiscardableSharedMemoryManagerImpl() override {
     // Remove this client from the |manager_|, so all allocated discardable
     // memory belong to this client will be released.
-    manager_->ClientRemoved(client_id_);
+    if (manager_)
+      manager_->ClientRemoved(client_id_);
   }
 
   // mojom::DiscardableSharedMemoryManager overrides:
@@ -81,21 +68,22 @@ class MojoDiscardableSharedMemoryManagerImpl
       uint32_t size,
       int32_t id,
       AllocateLockedDiscardableSharedMemoryCallback callback) override {
-    base::SharedMemoryHandle handle;
-    manager_->AllocateLockedDiscardableSharedMemoryForClient(client_id_, size,
-                                                             id, &handle);
-    mojo::ScopedSharedBufferHandle memory =
-        mojo::WrapSharedMemoryHandle(handle, size, false /* read_only */);
-    std::move(callback).Run(std::move(memory));
+    base::UnsafeSharedMemoryRegion region;
+    if (manager_) {
+      manager_->AllocateLockedDiscardableSharedMemoryForClient(client_id_, size,
+                                                               id, &region);
+    }
+    std::move(callback).Run(std::move(region));
   }
 
   void DeletedDiscardableSharedMemory(int32_t id) override {
-    manager_->ClientDeletedDiscardableSharedMemory(id, client_id_);
+    if (manager_)
+      manager_->ClientDeletedDiscardableSharedMemory(id, client_id_);
   }
 
  private:
   const int32_t client_id_;
-  ::discardable_memory::DiscardableSharedMemoryManager* const manager_;
+  base::WeakPtr<::discardable_memory::DiscardableSharedMemoryManager> manager_;
 
   DISALLOW_COPY_AND_ASSIGN(MojoDiscardableSharedMemoryManagerImpl);
 };
@@ -164,6 +152,12 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
 int64_t GetDefaultMemoryLimit() {
   const int kMegabyte = 1024 * 1024;
 
+#if defined(CHROMECAST_BUILD)
+  // Bypass IsLowEndDevice() check and fix max_default_memory_limit to 64MB on
+  // Chromecast devices. Set value here as IsLowEndDevice() is used on some, but
+  // not all Chromecast devices.
+  int64_t max_default_memory_limit = 64 * kMegabyte;
+#else
 #if defined(OS_ANDROID)
   // Limits the number of FDs used to 32, assuming a 4MB allocation size.
   int64_t max_default_memory_limit = 128 * kMegabyte;
@@ -174,6 +168,7 @@ int64_t GetDefaultMemoryLimit() {
   // Use 1/8th of discardable memory on low-end devices.
   if (base::SysInfo::IsLowEndDevice())
     max_default_memory_limit /= 8;
+#endif
 
 #if defined(OS_LINUX)
   base::FilePath shmem_dir;
@@ -230,7 +225,9 @@ DiscardableSharedMemoryManager::DiscardableSharedMemoryManager()
       // Current thread might not have a task runner in tests.
       enforce_memory_policy_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       enforce_memory_policy_pending_(false),
-      weak_ptr_factory_(this) {
+      mojo_thread_message_loop_(base::MessageLoopCurrent::GetNull()),
+      weak_ptr_factory_(this),
+      mojo_thread_weak_ptr_factory_(this) {
   DCHECK_NE(memory_limit_, 0u);
   enforce_memory_policy_callback_ =
       base::Bind(&DiscardableSharedMemoryManager::EnforceMemoryPolicy,
@@ -238,20 +235,48 @@ DiscardableSharedMemoryManager::DiscardableSharedMemoryManager()
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "DiscardableSharedMemoryManager",
       base::ThreadTaskRunnerHandle::Get());
-  base::MemoryCoordinatorClientRegistry::GetInstance()->Register(this);
 }
 
 DiscardableSharedMemoryManager::~DiscardableSharedMemoryManager() {
   base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
       this);
+
+  if (mojo_thread_message_loop_) {
+    if (mojo_thread_message_loop_ == base::MessageLoopCurrent::Get()) {
+      mojo_thread_message_loop_->RemoveDestructionObserver(this);
+      mojo_thread_message_loop_ = base::MessageLoopCurrent::GetNull();
+    } else {
+      // If mojom::DiscardableSharedMemoryManager implementation is running in
+      // another thread, we need invalidate all related weak ptrs on that
+      // thread.
+      base::WaitableEvent event(
+          base::WaitableEvent::ResetPolicy::MANUAL,
+          base::WaitableEvent::InitialState::NOT_SIGNALED);
+      bool result = mojo_thread_message_loop_->task_runner()->PostTask(
+          FROM_HERE,
+          base::BindOnce(
+              &DiscardableSharedMemoryManager::InvalidateMojoThreadWeakPtrs,
+              base::Unretained(this), &event));
+      LOG_IF(ERROR, !result) << "Invalidate mojo weak ptrs failed!";
+      if (result)
+        event.Wait();
+    }
+  }
 }
 
 void DiscardableSharedMemoryManager::Bind(
     mojom::DiscardableSharedMemoryManagerRequest request,
     const service_manager::BindSourceInfo& source_info) {
+  DCHECK(!mojo_thread_message_loop_ ||
+         mojo_thread_message_loop_ == base::MessageLoopCurrent::Get());
+  if (!mojo_thread_message_loop_) {
+    mojo_thread_message_loop_ = base::MessageLoopCurrent::Get();
+    mojo_thread_message_loop_->AddDestructionObserver(this);
+  }
+
   mojo::MakeStrongBinding(
-      base::MakeUnique<MojoDiscardableSharedMemoryManagerImpl>(
-          next_client_id_++, this),
+      std::make_unique<MojoDiscardableSharedMemoryManagerImpl>(
+          next_client_id_++, mojo_thread_weak_ptr_factory_.GetWeakPtr()),
       std::move(request));
 }
 
@@ -263,16 +288,16 @@ DiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(size_t size) {
 
   // Note: Use DiscardableSharedMemoryHeap for in-process allocation
   // of discardable memory if the cost of each allocation is too high.
-  base::SharedMemoryHandle handle;
+  base::UnsafeSharedMemoryRegion region;
   AllocateLockedDiscardableSharedMemory(kInvalidUniqueClientID, size, new_id,
-                                        &handle);
+                                        &region);
   std::unique_ptr<base::DiscardableSharedMemory> memory(
-      new base::DiscardableSharedMemory(handle));
+      new base::DiscardableSharedMemory(std::move(region)));
   if (!memory->Map(size))
     base::TerminateBecauseOutOfMemory(size);
   // Close file descriptor to avoid running out.
   memory->Close();
-  return base::MakeUnique<DiscardableMemoryImpl>(
+  return std::make_unique<DiscardableMemoryImpl>(
       std::move(memory),
       base::Bind(
           &DiscardableSharedMemoryManager::DeletedDiscardableSharedMemory,
@@ -302,7 +327,6 @@ bool DiscardableSharedMemoryManager::OnMemoryDump(
       if (!segment->memory()->mapped_size())
         continue;
 
-      // The "size" will be inherited form the shared global dump.
       std::string dump_name = base::StringPrintf(
           "discardable/process_%x/segment_%d", client_id, segment_id);
       base::trace_event::MemoryAllocatorDump* dump =
@@ -318,33 +342,8 @@ bool DiscardableSharedMemoryManager::OnMemoryDump(
           segment->memory()->IsMemoryLocked() ? segment->memory()->mapped_size()
                                               : 0u);
 
-      // Create the cross-process ownership edge. If the client creates a
-      // corresponding dump for the same segment, this will avoid to
-      // double-count them in tracing. If, instead, no other process will emit a
-      // dump with the same guid, the segment will be accounted to the browser.
-      const uint64_t client_tracing_id =
-          ClientProcessUniqueIdToTracingProcessId(client_id);
-      base::trace_event::MemoryAllocatorDumpGuid shared_segment_guid =
-          DiscardableSharedMemoryHeap::GetSegmentGUIDForTracing(
-              client_tracing_id, segment_id);
-      pmd->CreateSharedGlobalAllocatorDump(shared_segment_guid);
-      pmd->AddOwnershipEdge(dump->guid(), shared_segment_guid);
-
-#if defined(COUNT_RESIDENT_BYTES_SUPPORTED)
-      if (args.level_of_detail ==
-          base::trace_event::MemoryDumpLevelOfDetail::DETAILED) {
-        size_t resident_size =
-            base::trace_event::ProcessMemoryDump::CountResidentBytes(
-                segment->memory()->memory(), segment->memory()->mapped_size());
-
-        // This is added to the global dump since it has to be attributed to
-        // both the allocator dumps involved.
-        pmd->GetSharedGlobalAllocatorDump(shared_segment_guid)
-            ->AddScalar("resident_size",
-                        base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-                        static_cast<uint64_t>(resident_size));
-      }
-#endif  // defined(COUNT_RESIDENT_BYTES_SUPPORTED)
+      segment->memory()->CreateSharedMemoryOwnershipEdge(dump, pmd,
+                                                         /*is_owned=*/false);
     }
   }
   return true;
@@ -355,9 +354,9 @@ void DiscardableSharedMemoryManager::
         int client_id,
         size_t size,
         int32_t id,
-        base::SharedMemoryHandle* shared_memory_handle) {
+        base::UnsafeSharedMemoryRegion* shared_memory_region) {
   AllocateLockedDiscardableSharedMemory(client_id, size, id,
-                                        shared_memory_handle);
+                                        shared_memory_region);
 }
 
 void DiscardableSharedMemoryManager::ClientDeletedDiscardableSharedMemory(
@@ -404,44 +403,28 @@ size_t DiscardableSharedMemoryManager::GetBytesAllocated() {
   return bytes_allocated_;
 }
 
-void DiscardableSharedMemoryManager::OnMemoryStateChange(
-    base::MemoryState state) {
-  // Don't use SetMemoryLimit() as it frees up existing allocations.
-  // OnPurgeMemory() is called to actually free up memory.
-  base::AutoLock lock(lock_);
-  switch (state) {
-    case base::MemoryState::NORMAL:
-      memory_limit_ = default_memory_limit_;
-      break;
-    case base::MemoryState::THROTTLED:
-      memory_limit_ = 0;
-      break;
-    case base::MemoryState::SUSPENDED:
-    // Note that SUSPENDED never occurs in the main browser process so far.
-    // Fall through.
-    case base::MemoryState::UNKNOWN:
-      NOTREACHED();
-      break;
-  }
-}
-
-void DiscardableSharedMemoryManager::OnPurgeMemory() {
-  base::AutoLock lock(lock_);
-  ReduceMemoryUsageUntilWithinLimit(0);
+void DiscardableSharedMemoryManager::WillDestroyCurrentMessageLoop() {
+  // The mojo thead is going to be destroyed. We should invalidate all related
+  // weak ptrs and remove the destrunction observer.
+  DCHECK(mojo_thread_message_loop_->IsBoundToCurrentThread());
+  DLOG_IF(WARNING, mojo_thread_weak_ptr_factory_.HasWeakPtrs())
+      << "Some MojoDiscardableSharedMemoryManagerImpls are still alive. They "
+         "will be leaked.";
+  InvalidateMojoThreadWeakPtrs(nullptr);
 }
 
 void DiscardableSharedMemoryManager::AllocateLockedDiscardableSharedMemory(
     int client_id,
     size_t size,
     int32_t id,
-    base::SharedMemoryHandle* shared_memory_handle) {
+    base::UnsafeSharedMemoryRegion* shared_memory_region) {
   base::AutoLock lock(lock_);
 
   // Make sure |id| is not already in use.
   MemorySegmentMap& client_segments = clients_[client_id];
   if (client_segments.find(id) != client_segments.end()) {
     LOG(ERROR) << "Invalid discardable shared memory ID";
-    *shared_memory_handle = base::SharedMemoryHandle();
+    *shared_memory_region = base::UnsafeSharedMemoryRegion();
     return;
   }
 
@@ -462,21 +445,21 @@ void DiscardableSharedMemoryManager::AllocateLockedDiscardableSharedMemory(
   std::unique_ptr<base::DiscardableSharedMemory> memory(
       new base::DiscardableSharedMemory);
   if (!memory->CreateAndMap(size)) {
-    *shared_memory_handle = base::SharedMemoryHandle();
+    *shared_memory_region = base::UnsafeSharedMemoryRegion();
     return;
   }
 
   base::CheckedNumeric<size_t> checked_bytes_allocated = bytes_allocated_;
   checked_bytes_allocated += memory->mapped_size();
   if (!checked_bytes_allocated.IsValid()) {
-    *shared_memory_handle = base::SharedMemoryHandle();
+    *shared_memory_region = base::UnsafeSharedMemoryRegion();
     return;
   }
 
   bytes_allocated_ = checked_bytes_allocated.ValueOrDie();
   BytesAllocatedChanged(bytes_allocated_);
 
-  *shared_memory_handle = base::SharedMemory::DuplicateHandle(memory->handle());
+  *shared_memory_region = memory->DuplicateRegion();
   // Close file descriptor to avoid running out.
   memory->Close();
 
@@ -496,7 +479,7 @@ void DiscardableSharedMemoryManager::DeletedDiscardableSharedMemory(
 
   MemorySegmentMap& client_segments = clients_[client_id];
 
-  MemorySegmentMap::iterator segment_it = client_segments.find(id);
+  auto segment_it = client_segments.find(id);
   if (segment_it == client_segments.end()) {
     LOG(ERROR) << "Invalid discardable shared memory ID";
     return;
@@ -609,10 +592,9 @@ void DiscardableSharedMemoryManager::ReleaseMemory(
 
 void DiscardableSharedMemoryManager::BytesAllocatedChanged(
     size_t new_bytes_allocated) const {
-  static const char kTotalDiscardableMemoryAllocatedKey[] =
-      "total-discardable-memory-allocated";
-  base::debug::SetCrashKeyValue(kTotalDiscardableMemoryAllocatedKey,
-                                base::Uint64ToString(new_bytes_allocated));
+  static crash_reporter::CrashKeyString<24> total_discardable_memory(
+      "total-discardable-memory-allocated");
+  total_discardable_memory.Set(base::NumberToString(new_bytes_allocated));
 }
 
 base::Time DiscardableSharedMemoryManager::Now() const {
@@ -630,6 +612,16 @@ void DiscardableSharedMemoryManager::ScheduleEnforceMemoryPolicy() {
   enforce_memory_policy_task_runner_->PostDelayedTask(
       FROM_HERE, enforce_memory_policy_callback_,
       base::TimeDelta::FromMilliseconds(kEnforceMemoryPolicyDelayMs));
+}
+
+void DiscardableSharedMemoryManager::InvalidateMojoThreadWeakPtrs(
+    base::WaitableEvent* event) {
+  DCHECK(mojo_thread_message_loop_->IsBoundToCurrentThread());
+  mojo_thread_weak_ptr_factory_.InvalidateWeakPtrs();
+  mojo_thread_message_loop_->RemoveDestructionObserver(this);
+  mojo_thread_message_loop_ = base::MessageLoopCurrent::GetNull();
+  if (event)
+    event->Signal();
 }
 
 }  // namespace discardable_memory

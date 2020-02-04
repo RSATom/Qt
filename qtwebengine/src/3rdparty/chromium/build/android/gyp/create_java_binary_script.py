@@ -67,9 +67,7 @@ os.execvp("java", java_cmd)
 def main(argv):
   argv = build_utils.ExpandFileArgs(argv)
   parser = optparse.OptionParser()
-  build_utils.AddDepfileOption(parser)
   parser.add_option('--output', help='Output path for executable script.')
-  parser.add_option('--jar-path', help='Path to the main jar.')
   parser.add_option('--main-class',
       help='Name of the java class with the "main" entry point.')
   parser.add_option('--classpath', action='append', default=[],
@@ -86,7 +84,7 @@ def main(argv):
   else:
     noverify_flag = ''
 
-  classpath = [options.jar_path]
+  classpath = []
   for cp_arg in options.classpath:
     classpath += build_utils.ParseGnList(cp_arg)
 
@@ -98,7 +96,7 @@ def main(argv):
   bootclasspath = [os.path.relpath(p, run_dir) for p in bootclasspath]
   classpath = [os.path.relpath(p, run_dir) for p in classpath]
 
-  with open(options.output, 'w') as script:
+  with build_utils.AtomicOutput(options.output) as script:
     script.write(script_template.format(
       classpath=('"%s"' % '", "'.join(classpath)),
       bootclasspath=('"%s"' % '", "'.join(bootclasspath)
@@ -108,9 +106,6 @@ def main(argv):
       noverify_flag=noverify_flag))
 
   os.chmod(options.output, 0750)
-
-  if options.depfile:
-    build_utils.WriteDepfile(options.depfile, options.output)
 
 
 if __name__ == '__main__':

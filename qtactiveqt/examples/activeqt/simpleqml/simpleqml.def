@@ -1,5 +1,3 @@
-; simpleqml.def : Declares the module parameters.
-
 EXPORTS
     DllCanUnloadNow      PRIVATE
     DllGetClassObject    PRIVATE

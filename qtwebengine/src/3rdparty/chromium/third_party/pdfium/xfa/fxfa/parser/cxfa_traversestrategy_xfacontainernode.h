@@ -8,26 +8,23 @@
 #define XFA_FXFA_PARSER_CXFA_TRAVERSESTRATEGY_XFACONTAINERNODE_H_
 
 #include "xfa/fxfa/parser/cxfa_node.h"
-#include "xfa/fxfa/parser/xfa_utils.h"
+#include "xfa/fxfa/parser/cxfa_nodeiteratortemplate.h"
 
 class CXFA_TraverseStrategy_XFAContainerNode {
  public:
   static CXFA_Node* GetFirstChild(CXFA_Node* pTemplateNode) {
-    return pTemplateNode->GetNodeItem(XFA_NODEITEM_FirstChild,
-                                      XFA_ObjectType::ContainerNode);
+    return pTemplateNode->GetFirstContainerChild();
   }
   static CXFA_Node* GetNextSibling(CXFA_Node* pTemplateNode) {
-    return pTemplateNode->GetNodeItem(XFA_NODEITEM_NextSibling,
-                                      XFA_ObjectType::ContainerNode);
+    return pTemplateNode->GetNextContainerSibling();
   }
   static CXFA_Node* GetParent(CXFA_Node* pTemplateNode) {
-    return pTemplateNode->GetNodeItem(XFA_NODEITEM_Parent,
-                                      XFA_ObjectType::ContainerNode);
+    return pTemplateNode->GetContainerParent();
   }
 };
 
-typedef CXFA_NodeIteratorTemplate<CXFA_Node,
-                                  CXFA_TraverseStrategy_XFAContainerNode>
-    CXFA_ContainerIterator;
+using CXFA_ContainerIterator =
+    CXFA_NodeIteratorTemplate<CXFA_Node,
+                              CXFA_TraverseStrategy_XFAContainerNode>;
 
 #endif  // XFA_FXFA_PARSER_CXFA_TRAVERSESTRATEGY_XFACONTAINERNODE_H_

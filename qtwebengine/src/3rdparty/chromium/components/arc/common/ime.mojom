@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Next MinVersion: 6
+// Next MinVersion: 12
 
 module arc.mojom;
 
-import "screen_rect.mojom";
+import "components/arc/common/gfx.mojom";
 
 // Represents the type of text input field currently focused.
 [Extensible]
@@ -24,24 +24,14 @@ enum TextInputType {
   DATETIME,
 };
 
-// TODO(yhanada): Switch to use gfx.mojom.Rect. See crbug.com/723224.
-// Represents the text insertion points in the container screen coordinates.
-struct CursorRect {
-  int32 left;
-  int32 top;
-  int32 right;
-  int32 bottom;
-};
-
-// TODO(yhanada): Switch to use gfx.mojom.Range. See crbug.com/723224.
-// Represents the range in the text. It is an open interval [start, end).
-[MinVersion=5]
-struct TextRange {
-  // Start offset in UTF-16 index.
-  uint32 start;
-  // End offset in UTF-16 index.
-  uint32 end;
-};
+// Maps to ui::TextInputFlags in ui/base/ime/text_input_flags.h.
+// Some flags are still missing here because they're not yet supported in ARC++
+// IME.
+const int32 TEXT_INPUT_FLAG_NONE = 0;
+const int32 TEXT_INPUT_FLAG_AUTOCAPITALIZE_NONE = 64;         // 1 << 6
+const int32 TEXT_INPUT_FLAG_AUTOCAPITALIZE_CHARACTERS = 128;  // 1 << 7
+const int32 TEXT_INPUT_FLAG_AUTOCAPITALIZE_WORDS = 256;       // 1 << 8
+const int32 TEXT_INPUT_FLAG_AUTOCAPITALIZE_SENTENCES = 512;   // 1 << 9
 
 // Represents a single segment of text currently composed by IME.
 struct CompositionSegment {
@@ -53,39 +43,66 @@ struct CompositionSegment {
   bool emphasized;
 };
 
-// Next method ID: 4
+// Next method ID: 6
 interface ImeHost {
   // Notifies Chrome that the text input focus is changed.
-  OnTextInputTypeChanged@0(TextInputType type);
+  // Each bit of the bitmask |flags| corresponds to TEXT_INPUT_FLAG_*.
+  OnTextInputTypeChanged@0(
+      TextInputType type,
+      [MinVersion=10] bool is_personalized_learning_allowed,
+      [MinVersion=11] int32 flags);
 
   // Notifies Chrome that the cursor poisition has changed.
-  OnCursorRectChanged@1(CursorRect rect);
+  //
+  // |rect| describes the coordinates in physical pixels.
+  // If |is_screen_coordinates| is set to true, its origin (0,0) is the top-left
+  // of the primary display. Otherwise it is the top-left of the window that has
+  // the IME focus.
+  OnCursorRectChanged@1(Rect rect,
+                        [MinVersion=8] bool is_screen_coordinates);
 
   // Notifies Chrome that the current composition is canceled.
   [MinVersion=1] OnCancelComposition@2();
 
   // Show virtual keyboard of Chrome OS if needed.
-  [MinVersion=2] ShowImeIfNeeded@3();
+  [MinVersion=2] ShowVirtualKeyboardIfEnabled@3();
 
   // Notifies Chrome that the cursor position has changed and
   // also sends surrounding text.
+  //
+  // |rect| describes the coordinates in physical pixels.
+  // If |is_screen_coordinates| is set to true, its origin (0,0) is the top-left
+  // of the primary display. Otherwise it is the top-left of the window that has
+  // the IME focus.
   //
   // |text_range|, |text_in_range| and |selection_range| are piggy-backed
   // into this method because Chrome OS IME tries to retrieve these information
   // synchronously, so we need to update them all at once to keep consistency.
   [MinVersion=5] OnCursorRectChangedWithSurroundingText@4(
-      CursorRect rect,           // The cursor position.
-      TextRange text_range,      // The range of |text_in_range| in the current
-                                 // text in the editor.
-      string text_in_range,      // The text around the cursor.
-      TextRange selection_range  // The range of the selected text
-                                 // in the current text in the editor.
+      Rect rect,              // The cursor position.
+      Range text_range,       // The range of |text_in_range| in the current
+                                  // text in the editor.
+      string text_in_range,       // The text around the cursor.
+      Range selection_range,  // The range of the selected text
+                                  // in the current text in the editor.
+      [MinVersion=8] bool is_screen_coordinates  // Whether or not the |rect|
+                                                 // are in screen coordinates.
       );
+
+  // Requests Chrome to hide the virtual keyboard.
+  // Howver, hiding can be canceled if a text field gets focus.
+  // TODO(yhanada): We might be able to remove this method by adding an argument
+  //                to OnTextInputTypeChanged().
+  [MinVersion=9] RequestHideIme@5();
 };
 
-// Next method ID: 6
+// Next method ID: 7
 interface ImeInstance {
-  Init@0(ImeHost host_ptr);
+  // DEPRECATED: Please use Init@6 instead.
+  InitDeprecated@0(ImeHost host_ptr);
+
+  // Establishes full-duplex communication with the host.
+  [MinVersion=6] Init@6(ImeHost host_ptr) => ();
 
   // Sets composition text and attributes requested by the host IME.
   SetCompositionText@1(string text, array<CompositionSegment> segments);
@@ -96,11 +113,13 @@ interface ImeInstance {
   // Commits the specified text and clears the composition.
   InsertText@3(string text);
 
-  // Informs the virtual keyboard bounds on screen is changing.
-  // |new_bounds| Represents a ChromeOS virtual keyboard bounds in ChromeOS
-  // screen coordinate, physical pixel as a unit.
-  // When all members are zero value, virtual keyboard is being hidden.
-  [MinVersion=3] OnKeyboardBoundsChanging@4(ScreenRect new_bounds);
+  // Informs the virtual keyboard availability and bounds on screen is changing.
+  // |is_available| whether a virtual keyboard is visible or not.
+  // |new_bounds| Represents a virtual keyboard bounds covering below windows in
+  // screen coordinate. physical pixel as a unit.
+  [MinVersion=3] OnKeyboardAppearanceChanging@4(
+      Rect new_bounds,
+      [MinVersion=7] bool is_available);
 
   // Deletes current selection plus the specified number of char16 values
   // before and after selection or caret.

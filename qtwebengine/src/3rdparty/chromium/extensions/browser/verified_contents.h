@@ -8,9 +8,11 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/version.h"
@@ -23,13 +25,16 @@ namespace extensions {
 // corruption of extension files on local disk.
 class VerifiedContents {
  public:
-  // Note: the public_key must remain valid for the lifetime of this object.
-  VerifiedContents(const uint8_t* public_key, size_t public_key_size);
   ~VerifiedContents();
 
-  // Returns true if we successfully parsed the verified_contents.json file at
-  // |path| and validated the enclosed signature. The
-  bool InitFrom(const base::FilePath& path);
+  // Returns verified contents after successfully parsing verified_contents.json
+  // file at |path| and validating the enclosed signature. Returns nullptr on
+  // failure.
+  // Note: |public_key| must remain valid for the lifetime of the returned
+  // object.
+  static std::unique_ptr<VerifiedContents> Create(
+      base::span<const uint8_t> public_key,
+      const base::FilePath& path);
 
   int block_size() const { return block_size_; }
   const std::string& extension_id() const { return extension_id_; }
@@ -45,6 +50,9 @@ class VerifiedContents {
   bool valid_signature() { return valid_signature_; }
 
  private:
+  // Note: the public_key must remain valid for the lifetime of this object.
+  explicit VerifiedContents(base::span<const uint8_t> public_key);
+
   // Returns the base64url-decoded "payload" field from the json at |path|, if
   // the signature was valid.
   bool GetPayload(const base::FilePath& path, std::string* payload);
@@ -57,9 +65,12 @@ class VerifiedContents {
                        const std::string& payload,
                        const std::string& signature_bytes);
 
+  bool TreeHashRootEqualsImpl(
+      const base::FilePath::StringType& normalized_relative_path,
+      const std::string& expected) const;
+
   // The public key we should use for signature verification.
-  const uint8_t* public_key_;
-  const size_t public_key_size_;
+  base::span<const uint8_t> public_key_;
 
   // Indicates whether the signature was successfully validated or not.
   bool valid_signature_;

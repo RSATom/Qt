@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/values.h"
-#include "chrome/browser/extensions/api/sync_file_system/sync_file_system_api_helpers.h"
+#include "chrome/browser/apps/platform_apps/api/sync_file_system/sync_file_system_api_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync_file_system/sync_file_system_service.h"
 #include "chrome/browser/sync_file_system/sync_file_system_service_factory.h"
@@ -32,13 +32,12 @@ FileMetadataHandler::~FileMetadataHandler() {}
 
 void FileMetadataHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
-      "getExtensions",
-      base::Bind(&FileMetadataHandler::GetExtensions,
-                 base::Unretained(this)));
+      "getExtensions", base::BindRepeating(&FileMetadataHandler::GetExtensions,
+                                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "getFileMetadata",
-      base::Bind(&FileMetadataHandler::GetFileMetadata,
-                 base::Unretained(this)));
+      base::BindRepeating(&FileMetadataHandler::GetFileMetadata,
+                          base::Unretained(this)));
 }
 
 void FileMetadataHandler::GetFileMetadata(

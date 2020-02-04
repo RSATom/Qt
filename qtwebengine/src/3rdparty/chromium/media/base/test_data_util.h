@@ -17,11 +17,20 @@ namespace media {
 
 class DecoderBuffer;
 
+// Common test results.
+extern const char kFailed[];
+extern const char kEnded[];
+extern const char kErrorEvent[];
+extern const char kError[];
+
 // Returns a file path for a file in the media/test/data directory.
 base::FilePath GetTestDataFilePath(const std::string& name);
 
 // Returns relative path for test data folder: media/test/data.
 base::FilePath GetTestDataPath();
+
+// Returns the mime type for media/test/data/<file_name>.
+std::string GetMimeTypeForFile(const std::string& file_name);
 
 // Returns a string containing key value query params in the form of:
 // "key_1=value_1&key_2=value2"

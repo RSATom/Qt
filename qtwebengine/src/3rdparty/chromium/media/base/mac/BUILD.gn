@@ -2,9 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
+
 assert(is_mac || is_ios)
 
-source_set("mac") {
+jumbo_source_set("mac") {
   # Note: This source_set is depended on only by //media. In the component
   # build, if other component targets also depend on it, multiple copies of
   # the ObjC classes declared in the files below will cause warnings at
@@ -27,13 +29,10 @@ source_set("mac") {
     ]
   }
   set_sources_assignment_filter(sources_assignment_filter)
-  configs += [
-    "//media:media_config",
-    "//media:media_implementation",
-  ]
+  configs += [ "//media:subcomponent_config" ]
 
   deps = [
-    "//ppapi/features",
+    "//media/base",
     "//ui/gfx:color_space",
   ]
 }
@@ -46,6 +45,7 @@ source_set("unit_tests") {
   libs = [ "CoreVideo.framework" ]
   configs += [ "//media:media_config" ]
   deps = [
+    "//media:test_support",
     "//testing/gtest",
     "//ui/gfx:color_space",
   ]

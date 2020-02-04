@@ -67,11 +67,7 @@ component("crypto") {
     "signature_verifier.h",
     "symmetric_key.cc",
     "symmetric_key.h",
-    "wincrypt_shim.h",
   ]
-
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
     ":platform",
@@ -133,7 +129,6 @@ test("crypto_unittests") {
     "ec_private_key_unittest.cc",
     "ec_signature_creator_unittest.cc",
     "encryptor_unittest.cc",
-    "hkdf_unittest.cc",
     "hmac_unittest.cc",
     "nss_key_util_unittest.cc",
     "nss_util_unittest.cc",
@@ -155,8 +150,6 @@ test("crypto_unittests") {
       "nss_util_unittest.cc",
     ]
   }
-
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   deps = [
     ":crypto",
@@ -218,6 +211,6 @@ group("platform") {
   # (use_nss_certs).
   if (use_nss_certs) {
     public_configs = [ ":platform_config" ]
-    public_configs += [ "//third_party/nss:system_nss_no_ssl_config" ]
+    public_configs += [ "//build/config/linux/nss:system_nss_no_ssl_config" ]
   }
 }

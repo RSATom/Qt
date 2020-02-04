@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "components/webcrypto/algorithms/asymmetric_key_util.h"
 #include "components/webcrypto/algorithms/util.h"
 #include "components/webcrypto/blink_key_handle.h"
@@ -17,8 +17,8 @@
 #include "components/webcrypto/jwk.h"
 #include "components/webcrypto/status.h"
 #include "crypto/openssl_util.h"
-#include "third_party/WebKit/public/platform/WebCryptoAlgorithmParams.h"
-#include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/blink/public/platform/web_crypto_algorithm_params.h"
+#include "third_party/blink/public/platform/web_crypto_key_algorithm.h"
 #include "third_party/boringssl/src/include/openssl/bn.h"
 #include "third_party/boringssl/src/include/openssl/bytestring.h"
 #include "third_party/boringssl/src/include/openssl/ec.h"
@@ -82,7 +82,7 @@ Status ReadJwkCrv(const JwkReader& jwk,
   if (status.IsError())
     return status;
 
-  for (size_t i = 0; i < arraysize(kJwkCrvMappings); ++i) {
+  for (size_t i = 0; i < base::size(kJwkCrvMappings); ++i) {
     if (kJwkCrvMappings[i].jwk_curve == jwk_curve) {
       *named_curve = kJwkCrvMappings[i].named_curve;
       return Status::Success();
@@ -95,7 +95,7 @@ Status ReadJwkCrv(const JwkReader& jwk,
 // Converts a WebCryptoNamedCurve to an equivalent JWK "crv".
 Status WebCryptoCurveToJwkCrv(blink::WebCryptoNamedCurve named_curve,
                               std::string* jwk_crv) {
-  for (size_t i = 0; i < arraysize(kJwkCrvMappings); ++i) {
+  for (size_t i = 0; i < base::size(kJwkCrvMappings); ++i) {
     if (kJwkCrvMappings[i].named_curve == named_curve) {
       *jwk_crv = kJwkCrvMappings[i].jwk_curve;
       return Status::Success();
@@ -203,7 +203,7 @@ Status GetPublicKey(EC_KEY* ec,
   y->reset(BN_new());
 
   if (!EC_POINT_get_affine_coordinates_GFp(group, point, x->get(), y->get(),
-                                           NULL)) {
+                                           nullptr)) {
     return Status::OperationError();
   }
 
@@ -677,6 +677,9 @@ Status EcAlgorithm::DeserializeKeyForClone(
     default:
       return Status::ErrorUnexpected();
   }
+
+  if (!status.IsSuccess())
+    return status;
 
   // There is some duplicated information in the serialized format used by
   // structured clone (since the KeyAlgorithm is serialized separately from the

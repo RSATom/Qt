@@ -142,7 +142,6 @@ public class CursorHandle implements ViewTreeObserver.OnPreDrawListener
 
             m_cursorView = new CursorView(context, this);
             m_cursorView.setImageDrawable(drawable);
-            // m_layout.addView(m_cursorView);
 
             m_popup = new PopupWindow(context, null, android.R.attr.textSelectHandleWindowStyle);
             m_popup.setSplitTouchEnabled(true);
@@ -167,11 +166,11 @@ public class CursorHandle implements ViewTreeObserver.OnPreDrawListener
         int y2 = y + location[1] + m_yShift;
 
         if (m_id == QtNative.IdCursorHandle) {
-            x2 -= m_cursorView.getWidth() / 2 ;
+            x2 -= m_popup.getWidth() / 2 ;
         } else if ((m_id == QtNative.IdLeftHandle && !m_rtl) || (m_id == QtNative.IdRightHandle && m_rtl)) {
-            x2 -= m_cursorView.getWidth() * 3 / 4;
+            x2 -= m_popup.getWidth() * 3 / 4;
         } else {
-            x2 -= m_cursorView.getWidth() / 4;
+            x2 -= m_popup.getWidth() / 4;
         }
 
         if (m_popup.isShowing()) {
@@ -183,6 +182,14 @@ public class CursorHandle implements ViewTreeObserver.OnPreDrawListener
 
         m_posX = x;
         m_posY = y;
+    }
+
+    public int bottom()
+    {
+        initOverlay();
+        final int[] location = new int[2];
+        m_cursorView.getLocationOnScreen(location);
+        return location[1] + m_cursorView.getHeight();
     }
 
     public void hide() {

@@ -8,7 +8,7 @@
  */
 
 /** @polymerBehavior */
-var SetManufacturerModelBehavior = {
+const SetManufacturerModelBehavior = {
   properties: {
     /** @type {!CupsPrinterInfo} */
     activePrinter: {
@@ -17,14 +17,25 @@ var SetManufacturerModelBehavior = {
     },
 
     /** @type {?Array<string>} */
-    manufacturerList: {
-      type: Array,
-    },
+    manufacturerList: Array,
 
     /** @type {?Array<string>} */
-    modelList: {
-      type: Array,
+    modelList: Array,
+
+    /**
+     * Whether the user selected PPD file is valid.
+     * @private
+     */
+    invalidPPD_: {
+      type: Boolean,
+      value: false,
     },
+
+    /**
+     * The base name of a newly selected PPD file.
+     * @private
+     */
+    newUserPPD_: String,
   },
 
   observers: [
@@ -36,6 +47,19 @@ var SetManufacturerModelBehavior = {
     settings.CupsPrintersBrowserProxyImpl.getInstance()
         .getCupsPrinterManufacturersList()
         .then(this.manufacturerListChanged_.bind(this));
+  },
+
+  /**
+   * @param {string} path The full path of the file
+   * @return {string} The base name of the file
+   * @public
+   */
+  getBaseName: function(path) {
+    if (path && path.length > 0) {
+      return path.substring(path.lastIndexOf('/') + 1);
+    } else {
+      return '';
+    }
   },
 
   /**
@@ -66,8 +90,9 @@ var SetManufacturerModelBehavior = {
    * @private
    */
   manufacturerListChanged_: function(manufacturersInfo) {
-    if (!manufacturersInfo.success)
+    if (!manufacturersInfo.success) {
       return;
+    }
     this.manufacturerList = manufacturersInfo.manufacturers;
     if (this.activePrinter.ppdManufacturer.length != 0) {
       settings.CupsPrintersBrowserProxyImpl.getInstance()
@@ -81,27 +106,18 @@ var SetManufacturerModelBehavior = {
    * @private
    */
   modelListChanged_: function(modelsInfo) {
-    if (modelsInfo.success)
+    if (modelsInfo.success) {
       this.modelList = modelsInfo.models;
+    }
   },
 
   /**
-   * @param {string} path
+   * @param {string} path The full path to the selected PPD file
    * @private
    */
   printerPPDPathChanged_: function(path) {
     this.set('activePrinter.printerPPDPath', path);
-  },
-
-  /**
-   * @param {string} path The full path of the file
-   * @return {string} The base name of the file
-   * @private
-   */
-  getBaseName_: function(path) {
-    if (path && path.length > 0)
-      return path.substring(path.lastIndexOf('/') + 1);
-    else
-      return '';
+    this.invalidPPD_ = !path;
+    this.newUserPPD_ = this.getBaseName(path);
   },
 };

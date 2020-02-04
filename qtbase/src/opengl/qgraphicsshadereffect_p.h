@@ -74,13 +74,13 @@ public:
     void setPixelShaderFragment(const QByteArray& code);
 
 protected:
-    void draw(QPainter *painter) Q_DECL_OVERRIDE;
+    void draw(QPainter *painter) override;
     void setUniformsDirty();
     virtual void setUniforms(QGLShaderProgram *program);
 
 private:
     Q_DECLARE_PRIVATE(QGraphicsShaderEffect)
-    Q_DISABLE_COPY(QGraphicsShaderEffect)
+    Q_DISABLE_COPY_MOVE(QGraphicsShaderEffect)
 
     friend class QGLCustomShaderEffectStage;
 };

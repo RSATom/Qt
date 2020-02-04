@@ -15,12 +15,14 @@
 #ifndef LIBSHADERC_SRC_SHADERC_PRIVATE_H_
 #define LIBSHADERC_SRC_SHADERC_PRIVATE_H_
 
+#include <cassert>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "shaderc/shaderc.h"
 
+#include "libshaderc_util/compiler.h"
 #include "spirv-tools/libspirv.h"
 
 // Described in shaderc.h.
@@ -84,11 +86,56 @@ class shaderc_compilation_result_spv_binary
 };
 
 namespace shaderc_util {
-class GlslInitializer;
+class GlslangInitializer;
 }
 
 struct shaderc_compiler {
-  shaderc_util::GlslInitializer* initializer;
+  shaderc_util::GlslangInitializer* initializer;
 };
+
+// Converts a shader stage from shaderc_shader_kind into a shaderc_util::Compiler::Stage.
+// This is only valid for a specifically named shader stage, e.g. vertex through fragment,
+// or compute.
+inline shaderc_util::Compiler::Stage shaderc_convert_specific_stage(
+    shaderc_shader_kind kind) {
+  switch (kind) {
+    case shaderc_vertex_shader:
+      return shaderc_util::Compiler::Stage::Vertex;
+    case shaderc_fragment_shader:
+      return shaderc_util::Compiler::Stage::Fragment;
+    case shaderc_tess_control_shader:
+      return shaderc_util::Compiler::Stage::TessControl;
+    case shaderc_tess_evaluation_shader:
+      return shaderc_util::Compiler::Stage::TessEval;
+    case shaderc_geometry_shader:
+      return shaderc_util::Compiler::Stage::Geometry;
+    case shaderc_compute_shader:
+      return shaderc_util::Compiler::Stage::Compute;
+#if NV_EXTENSIONS
+    case shaderc_raygen_shader:
+      return shaderc_util::Compiler::Stage::RayGenNV;
+    case shaderc_intersection_shader:
+      return shaderc_util::Compiler::Stage::IntersectNV;
+    case shaderc_anyhit_shader:
+      return shaderc_util::Compiler::Stage::AnyHitNV;
+    case shaderc_closesthit_shader:
+      return shaderc_util::Compiler::Stage::ClosestHitNV;
+    case shaderc_miss_shader:
+      return shaderc_util::Compiler::Stage::MissNV;
+    case shaderc_callable_shader:
+      return shaderc_util::Compiler::Stage::CallableNV;
+    case shaderc_task_shader:
+      return shaderc_util::Compiler::Stage::TaskNV;
+    case shaderc_mesh_shader:
+      return shaderc_util::Compiler::Stage::MeshNV;
+#endif
+    default:
+      // We don't care about the other kinds.
+      break;
+  }
+  // This should not occur.
+  assert(false && "Should have specified a specific stage");
+  return shaderc_util::Compiler::Stage::TessEval;
+}
 
 #endif  // LIBSHADERC_SRC_SHADERC_PRIVATE_H_

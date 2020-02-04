@@ -6,11 +6,13 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
+#include "base/task/post_task.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "net/base/net_errors.h"
@@ -38,26 +40,48 @@ bool CheckLRUListOrder(const base::LinkedList<MemEntryImpl>& lru_list) {
   return true;
 }
 
+// Returns the next entry after |node| in |lru_list| that's not a child
+// of |node|.  This is useful when dooming, since dooming a parent entry
+// will also doom its children.
+base::LinkNode<MemEntryImpl>* NextSkippingChildren(
+    const base::LinkedList<MemEntryImpl>& lru_list,
+    base::LinkNode<MemEntryImpl>* node) {
+  MemEntryImpl* cur = node->value();
+  do {
+    node = node->next();
+  } while (node != lru_list.end() && node->value()->parent() == cur);
+  return node;
+}
+
 }  // namespace
 
 MemBackendImpl::MemBackendImpl(net::NetLog* net_log)
-    : max_size_(0), current_size_(0), net_log_(net_log), weak_factory_(this) {
-}
+    : max_size_(0),
+      current_size_(0),
+      net_log_(net_log),
+      memory_pressure_listener_(
+          base::BindRepeating(&MemBackendImpl::OnMemoryPressure,
+                              base::Unretained(this))),
+      weak_factory_(this) {}
 
 MemBackendImpl::~MemBackendImpl() {
   DCHECK(CheckLRUListOrder(lru_list_));
   while (!entries_.empty())
     entries_.begin()->second->Doom();
-  DCHECK_EQ(0, current_size_);
+
+  if (!post_cleanup_callback_.is_null())
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, std::move(post_cleanup_callback_));
 }
 
 // static
-std::unique_ptr<Backend> MemBackendImpl::CreateBackend(int max_bytes,
-                                                       net::NetLog* net_log) {
-  std::unique_ptr<MemBackendImpl> cache(new MemBackendImpl(net_log));
-  cache->SetMaxSize(max_bytes);
-  if (cache->Init())
-    return std::move(cache);
+std::unique_ptr<MemBackendImpl> MemBackendImpl::CreateBackend(
+    int64_t max_bytes,
+    net::NetLog* net_log) {
+  std::unique_ptr<MemBackendImpl> cache(
+      std::make_unique<MemBackendImpl>(net_log));
+  if (cache->SetMaxSize(max_bytes) && cache->Init())
+    return cache;
 
   LOG(ERROR) << "Unable to create cache";
   return nullptr;
@@ -85,10 +109,8 @@ bool MemBackendImpl::Init() {
   return true;
 }
 
-bool MemBackendImpl::SetMaxSize(int max_bytes) {
-  static_assert(sizeof(max_bytes) == sizeof(max_size_),
-                "unsupported int model");
-  if (max_bytes < 0)
+bool MemBackendImpl::SetMaxSize(int64_t max_bytes) {
+  if (max_bytes < 0 || max_bytes > std::numeric_limits<int>::max())
     return false;
 
   // Zero size means use the default.
@@ -99,7 +121,7 @@ bool MemBackendImpl::SetMaxSize(int max_bytes) {
   return true;
 }
 
-int MemBackendImpl::MaxFileSize() const {
+int64_t MemBackendImpl::MaxFileSize() const {
   return max_size_ / 8;
 }
 
@@ -132,6 +154,11 @@ bool MemBackendImpl::HasExceededStorageSize() const {
   return current_size_ > max_size_;
 }
 
+void MemBackendImpl::SetPostCleanupCallback(base::OnceClosure cb) {
+  DCHECK(post_cleanup_callback_.is_null());
+  post_cleanup_callback_ = std::move(cb);
+}
+
 net::CacheType MemBackendImpl::GetCacheType() const {
   return net::MEMORY_CACHE;
 }
@@ -140,10 +167,28 @@ int32_t MemBackendImpl::GetEntryCount() const {
   return static_cast<int32_t>(entries_.size());
 }
 
-int MemBackendImpl::OpenEntry(const std::string& key,
-                              Entry** entry,
-                              const CompletionCallback& callback) {
-  EntryMap::iterator it = entries_.find(key);
+net::Error MemBackendImpl::OpenOrCreateEntry(const std::string& key,
+                                             net::RequestPriority priority,
+                                             EntryWithOpened* entry_struct,
+                                             CompletionOnceCallback callback) {
+  net::Error rv = OpenEntry(key, priority, &(entry_struct->entry),
+                            CompletionOnceCallback());
+  if (rv == net::OK) {
+    entry_struct->opened = true;
+    return rv;
+  }
+  // Key was not opened, try creating it instead.
+  rv = CreateEntry(key, priority, &(entry_struct->entry),
+                   CompletionOnceCallback());
+  entry_struct->opened = false;
+  return rv;
+}
+
+net::Error MemBackendImpl::OpenEntry(const std::string& key,
+                                     net::RequestPriority request_priority,
+                                     Entry** entry,
+                                     CompletionOnceCallback callback) {
+  auto it = entries_.find(key);
   if (it == entries_.end())
     return net::ERR_FAILED;
 
@@ -153,24 +198,27 @@ int MemBackendImpl::OpenEntry(const std::string& key,
   return net::OK;
 }
 
-int MemBackendImpl::CreateEntry(const std::string& key,
-                                Entry** entry,
-                                const CompletionCallback& callback) {
+net::Error MemBackendImpl::CreateEntry(const std::string& key,
+                                       net::RequestPriority request_priority,
+                                       Entry** entry,
+                                       CompletionOnceCallback callback) {
   std::pair<EntryMap::iterator, bool> create_result =
       entries_.insert(EntryMap::value_type(key, nullptr));
   const bool did_insert = create_result.second;
   if (!did_insert)
     return net::ERR_FAILED;
 
-  MemEntryImpl* cache_entry = new MemEntryImpl(this, key, net_log_);
+  MemEntryImpl* cache_entry =
+      new MemEntryImpl(weak_factory_.GetWeakPtr(), key, net_log_);
   create_result.first->second = cache_entry;
   *entry = cache_entry;
   return net::OK;
 }
 
-int MemBackendImpl::DoomEntry(const std::string& key,
-                              const CompletionCallback& callback) {
-  EntryMap::iterator it = entries_.find(key);
+net::Error MemBackendImpl::DoomEntry(const std::string& key,
+                                     net::RequestPriority priority,
+                                     CompletionOnceCallback callback) {
+  auto it = entries_.find(key);
   if (it == entries_.end())
     return net::ERR_FAILED;
 
@@ -178,13 +226,13 @@ int MemBackendImpl::DoomEntry(const std::string& key,
   return net::OK;
 }
 
-int MemBackendImpl::DoomAllEntries(const CompletionCallback& callback) {
-  return DoomEntriesBetween(Time(), Time(), callback);
+net::Error MemBackendImpl::DoomAllEntries(CompletionOnceCallback callback) {
+  return DoomEntriesBetween(Time(), Time(), std::move(callback));
 }
 
-int MemBackendImpl::DoomEntriesBetween(Time initial_time,
-                                       Time end_time,
-                                       const CompletionCallback& callback) {
+net::Error MemBackendImpl::DoomEntriesBetween(Time initial_time,
+                                              Time end_time,
+                                              CompletionOnceCallback callback) {
   if (end_time.is_null())
     end_time = Time::Max();
   DCHECK_GE(end_time, initial_time);
@@ -194,27 +242,27 @@ int MemBackendImpl::DoomEntriesBetween(Time initial_time,
     node = node->next();
   while (node != lru_list_.end() && node->value()->GetLastUsed() < end_time) {
     MemEntryImpl* to_doom = node->value();
-    node = node->next();
+    node = NextSkippingChildren(lru_list_, node);
     to_doom->Doom();
   }
 
   return net::OK;
 }
 
-int MemBackendImpl::DoomEntriesSince(Time initial_time,
-                                     const CompletionCallback& callback) {
-  return DoomEntriesBetween(initial_time, Time::Max(), callback);
+net::Error MemBackendImpl::DoomEntriesSince(Time initial_time,
+                                            CompletionOnceCallback callback) {
+  return DoomEntriesBetween(initial_time, Time::Max(), std::move(callback));
 }
 
-int MemBackendImpl::CalculateSizeOfAllEntries(
-    const CompletionCallback& callback) {
+int64_t MemBackendImpl::CalculateSizeOfAllEntries(
+    Int64CompletionOnceCallback callback) {
   return current_size_;
 }
 
-int MemBackendImpl::CalculateSizeOfEntriesBetween(
+int64_t MemBackendImpl::CalculateSizeOfEntriesBetween(
     base::Time initial_time,
     base::Time end_time,
-    const CompletionCallback& callback) {
+    Int64CompletionOnceCallback callback) {
   if (end_time.is_null())
     end_time = Time::Max();
   DCHECK_GE(end_time, initial_time);
@@ -236,13 +284,13 @@ class MemBackendImpl::MemIterator final : public Backend::Iterator {
   explicit MemIterator(base::WeakPtr<MemBackendImpl> backend)
       : backend_(backend) {}
 
-  int OpenNextEntry(Entry** next_entry,
-                    const CompletionCallback& callback) override {
+  net::Error OpenNextEntry(Entry** next_entry,
+                           CompletionOnceCallback callback) override {
     if (!backend_)
       return net::ERR_FAILED;
 
     if (!backend_keys_) {
-      backend_keys_ = base::MakeUnique<Strings>(backend_->entries_.size());
+      backend_keys_ = std::make_unique<Strings>(backend_->entries_.size());
       for (const auto& iter : backend_->entries_)
         backend_keys_->push_back(iter.first);
       current_ = backend_keys_->begin();
@@ -284,7 +332,7 @@ std::unique_ptr<Backend::Iterator> MemBackendImpl::CreateIterator() {
 }
 
 void MemBackendImpl::OnExternalCacheHit(const std::string& key) {
-  EntryMap::iterator it = entries_.find(key);
+  auto it = entries_.find(key);
   if (it != entries_.end())
     it->second->UpdateStateOnUse(MemEntryImpl::ENTRY_WAS_NOT_MODIFIED);
 }
@@ -313,15 +361,34 @@ size_t MemBackendImpl::DumpMemoryStats(
 void MemBackendImpl::EvictIfNeeded() {
   if (current_size_ <= max_size_)
     return;
-
   int target_size = std::max(0, max_size_ - kDefaultEvictionSize);
+  EvictTill(target_size);
+}
 
+void MemBackendImpl::EvictTill(int target_size) {
   base::LinkNode<MemEntryImpl>* entry = lru_list_.head();
   while (current_size_ > target_size && entry != lru_list_.end()) {
     MemEntryImpl* to_doom = entry->value();
-    entry = entry->next();
+    entry = NextSkippingChildren(lru_list_, entry);
+
     if (!to_doom->InUse())
       to_doom->Doom();
+  }
+}
+
+void MemBackendImpl::OnMemoryPressure(
+    base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
+  switch (memory_pressure_level) {
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE:
+      // Not supposed to get this here, but if there is no problem, there is
+      // no problem...
+      break;
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE:
+      EvictTill(max_size_ / 2);
+      break;
+    case base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL:
+      EvictTill(max_size_ / 10);
+      break;
   }
 }
 

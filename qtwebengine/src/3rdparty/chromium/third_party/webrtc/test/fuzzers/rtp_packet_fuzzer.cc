@@ -8,9 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/rtp_rtcp/include/rtp_header_extension_map.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_header_extensions.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_packet_received.h"
+#include <bitset>
+
+#include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
+#include "modules/rtp_rtcp/source/rtp_generic_frame_descriptor_extension.h"
+#include "modules/rtp_rtcp/source/rtp_header_extensions.h"
+#include "modules/rtp_rtcp/source/rtp_packet_received.h"
 
 namespace webrtc {
 
@@ -94,6 +97,10 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
         VideoSendTiming timing;
         packet.GetExtension<VideoTimingExtension>(&timing);
         break;
+      case kRtpExtensionFrameMarking:
+        FrameMarking frame_marking;
+        packet.GetExtension<FrameMarkingExtension>(&frame_marking);
+        break;
       case kRtpExtensionRtpStreamId: {
         std::string rsid;
         packet.GetExtension<RtpStreamId>(&rsid);
@@ -102,6 +109,21 @@ void FuzzOneInput(const uint8_t* data, size_t size) {
       case kRtpExtensionRepairedRtpStreamId: {
         std::string rsid;
         packet.GetExtension<RepairedRtpStreamId>(&rsid);
+        break;
+      }
+      case kRtpExtensionMid: {
+        std::string mid;
+        packet.GetExtension<RtpMid>(&mid);
+        break;
+      }
+      case kRtpExtensionGenericFrameDescriptor: {
+        RtpGenericFrameDescriptor descriptor;
+        packet.GetExtension<RtpGenericFrameDescriptorExtension>(&descriptor);
+        break;
+      }
+      case kRtpExtensionColorSpace: {
+        ColorSpace color_space;
+        packet.GetExtension<ColorSpaceExtension>(&color_space);
         break;
       }
     }

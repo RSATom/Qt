@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -48,14 +48,14 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
-    width: 200
-    height: 200
+    width: 300
+    height: 300
     visible: true
     when: windowShown
     name: "Tumbler"
@@ -107,6 +107,10 @@ TestCase {
         return Qt.point(tumblerXCenter(), yCenter);
     }
 
+    function itemTopLeftPos(visualItemIndex) {
+        return Qt.point(tumbler.leftPadding, tumbler.topPadding + (tumblerDelegateHeight * visualItemIndex));
+    }
+
     function checkItemSizes() {
         var contentChildren = tumbler.wrap ? tumblerView.children : tumblerView.contentItem.children;
         verify(contentChildren.length >= tumbler.count);
@@ -124,6 +128,21 @@ TestCase {
             }
 
             var grandChild = findView(child);
+            if (grandChild)
+                return grandChild;
+        }
+
+        return null;
+    }
+
+    function findDelegateWithText(parent, text) {
+        for (var i = 0; i < parent.children.length; ++i) {
+            var child = parent.children[i];
+            if (child.hasOwnProperty("text") && child.text === text) {
+                return child;
+            }
+
+            var grandChild = findDelegateWithText(child, text);
             if (grandChild)
                 return grandChild;
         }
@@ -279,13 +298,7 @@ TestCase {
         tryCompare(tumbler, "currentIndex", data.currentIndex);
 
         tumblerView = findView(tumbler);
-        // TODO: replace once QTBUG-19708 is fixed.
-        for (var delay = 1000; delay >= 0; delay -= 50) {
-            if (tumblerView.currentItem)
-                break;
-            wait(50);
-        }
-        verify(tumblerView.currentItem);
+        tryVerify(function() { return tumblerView.currentItem });
         compare(tumblerView.currentIndex, data.currentIndex);
         compare(tumblerView.currentItem.text, data.currentIndex.toString());
 
@@ -344,12 +357,12 @@ TestCase {
         tumbler.forceActiveFocus();
         keyClick(Qt.Key_Down);
         tryCompare(tumblerView, "offset", 3.0);
+        tryCompare(tumbler, "moving", false);
         firstItemCenterPos = itemCenterPos(0);
         firstItem = tumblerView.itemAt(firstItemCenterPos.x, firstItemCenterPos.y);
         verify(firstItem);
         // Test QTBUG-40298.
         actualPos = testCase.mapFromItem(firstItem, 0, 0);
-        tryCompare(tumbler, "moving", false);
         fuzzyCompare(actualPos.x, tumbler.leftPadding, 0.0001);
         fuzzyCompare(actualPos.y, tumbler.topPadding, 0.0001);
 
@@ -500,6 +513,7 @@ TestCase {
         Text {
             text: parent.displacement.toFixed(2)
             anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
         }
 
         property real displacement: Tumbler.displacement
@@ -1016,8 +1030,8 @@ TestCase {
         if (data.bottom !== undefined)
             tumbler.bottomPadding = data.bottom;
 
-        compare(tumbler.availableWidth, implicitTumblerWidth - tumbler.leftPadding - tumbler.rightPadding);
-        compare(tumbler.availableHeight, implicitTumblerHeight - tumbler.topPadding - tumbler.bottomPadding);
+        compare(tumbler.availableWidth, tumbler.implicitWidth - tumbler.leftPadding - tumbler.rightPadding);
+        compare(tumbler.availableHeight, tumbler.implicitHeight - tumbler.topPadding - tumbler.bottomPadding);
         compare(tumbler.contentItem.x, tumbler.leftPadding);
         compare(tumbler.contentItem.y, tumbler.topPadding);
 
@@ -1111,5 +1125,136 @@ TestCase {
 
         var label = row.label;
         compare(label.text, "2");
+    }
+
+    function test_positionViewAtIndex_data() {
+        return [
+            // Should be 20, 21, ... but there is a documented limitation for this in positionViewAtIndex()'s docs.
+            { tag: "wrap=true, mode=Beginning", wrap: true, mode: Tumbler.Beginning, expectedVisibleIndices: [21, 22, 23, 24, 25] },
+            { tag: "wrap=true, mode=Center", wrap: true, mode: Tumbler.Center, expectedVisibleIndices: [18, 19, 20, 21, 22] },
+            { tag: "wrap=true, mode=End", wrap: true, mode: Tumbler.End, expectedVisibleIndices: [16, 17, 18, 19, 20] },
+            // Same as Beginning; should start at 20.
+            { tag: "wrap=true, mode=Contain", wrap: true, mode: Tumbler.Contain, expectedVisibleIndices: [21, 22, 23, 24, 25] },
+            { tag: "wrap=true, mode=SnapPosition", wrap: true, mode: Tumbler.SnapPosition, expectedVisibleIndices: [18, 19, 20, 21, 22] },
+            { tag: "wrap=false, mode=Beginning", wrap: false, mode: Tumbler.Beginning, expectedVisibleIndices: [20, 21, 22, 23, 24] },
+            { tag: "wrap=false, mode=Center", wrap: false, mode: Tumbler.Center, expectedVisibleIndices: [18, 19, 20, 21, 22] },
+            { tag: "wrap=false, mode=End", wrap: false, mode: Tumbler.End, expectedVisibleIndices: [16, 17, 18, 19, 20] },
+            { tag: "wrap=false, mode=Visible", wrap: false, mode: Tumbler.Visible, expectedVisibleIndices: [16, 17, 18, 19, 20] },
+            { tag: "wrap=false, mode=Contain", wrap: false, mode: Tumbler.Contain, expectedVisibleIndices: [16, 17, 18, 19, 20] },
+            { tag: "wrap=false, mode=SnapPosition", wrap: false, mode: Tumbler.SnapPosition, expectedVisibleIndices: [18, 19, 20, 21, 22] }
+        ]
+    }
+
+    function test_positionViewAtIndex(data) {
+        createTumbler({ wrap: data.wrap, model: 40, visibleItemCount: 5 })
+        compare(tumbler.wrap, data.wrap)
+
+        waitForRendering(tumbler)
+
+        tumbler.positionViewAtIndex(20, data.mode)
+        tryCompare(tumbler, "moving", false)
+
+        compare(tumbler.visibleItemCount, 5)
+        for (var i = 0; i < 5; ++i) {
+            // Find the item through its text, as that's easier than child/itemAt().
+            var text = data.expectedVisibleIndices[i].toString()
+            var item = findDelegateWithText(tumblerView, text)
+            verify(item, "found no item with text \"" + text + "\"")
+            compare(item.text, data.expectedVisibleIndices[i].toString())
+
+            // Ensure that it's at the position we expect.
+            var expectedPos = itemTopLeftPos(i)
+            var actualPos = testCase.mapFromItem(item, 0, 0)
+            compare(actualPos.x, expectedPos.x, "expected delegate with text " + item.text
+                + " to have an x pos of " + expectedPos.x + " but it was " + actualPos.x)
+            compare(actualPos.y, expectedPos.y, "expected delegate with text " + item.text
+                + " to have an y pos of " + expectedPos.y + " but it was " + actualPos.y)
+        }
+    }
+
+    Component {
+        id: setCurrentIndexOnImperativeModelChangeComponent
+
+        Tumbler {
+            onModelChanged: currentIndex = model - 2
+        }
+    }
+
+    function test_setCurrentIndexOnImperativeModelChange() {
+        var tumbler = createTemporaryObject(setCurrentIndexOnImperativeModelChangeComponent, testCase);
+        verify(tumbler);
+
+        tumbler.model = 4
+        compare(tumbler.count, 4);
+        tumblerView = findView(tumbler);
+        tryCompare(tumblerView, "count", 4);
+
+        // 4 - 2 = 2
+        compare(tumbler.currentIndex, 2);
+
+        ++tumbler.model;
+        compare(tumbler.count, 5);
+        compare(tumbler.wrap, true);
+        tumblerView = findView(tumbler);
+        tryCompare(tumblerView, "count", 5);
+        // 5 - 2 = 3
+        compare(tumbler.currentIndex, 3);
+    }
+
+    Component {
+        id: setCurrentIndexOnDeclarativeModelChangeComponent
+
+        Item {
+            property alias tumbler: tumbler
+
+            property int setting: 4
+
+            Tumbler {
+                id: tumbler
+                model: setting
+                onModelChanged: currentIndex = model - 2
+            }
+        }
+    }
+
+    function test_setCurrentIndexOnDeclarativeModelChange() {
+        var root = createTemporaryObject(setCurrentIndexOnDeclarativeModelChangeComponent, testCase);
+        verify(root);
+
+        var tumbler = root.tumbler;
+        compare(tumbler.count, 4);
+        compare(tumbler.wrap, false);
+        tumblerView = findView(tumbler);
+        tryCompare(tumblerView, "count", 4);
+        // 4 - 2 = 2
+        compare(tumbler.currentIndex, 2);
+
+        ++root.setting;
+        compare(tumbler.count, 5);
+        compare(tumbler.wrap, true);
+        tumblerView = findView(tumbler);
+        tryCompare(tumblerView, "count", 5);
+        // 5 - 2 = 3
+        compare(tumbler.currentIndex, 3);
+    }
+
+    function test_displacementAfterResizing() {
+        createTumbler({
+            width: 200,
+            wrap: false,
+            delegate: displacementDelegate,
+            model: 30,
+            visibleItemCount: 7,
+            currentIndex: 15
+        })
+
+        var delegate = findChild(tumblerView, "delegate15")
+        verify(delegate)
+
+        tryCompare(delegate, "displacement", 0)
+
+        // Resizing the Tumbler shouldn't affect the displacement.
+        tumbler.height *= 1.4
+        tryCompare(delegate, "displacement", 0)
     }
 }

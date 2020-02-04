@@ -20,15 +20,10 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/launch.h"
 #include "base/strings/safe_sprintf.h"
-#include "base/third_party/valgrind/valgrind.h"
 
 namespace sandbox {
 
 namespace {
-bool IsRunningOnValgrind() {
-  return RUNNING_ON_VALGRIND;
-}
-
 const char kProcSelfSetgroups[] = "/proc/self/setgroups";
 }  // namespace
 
@@ -55,12 +50,6 @@ bool NamespaceUtils::WriteToIdMapFile(const char* map_file, generic_id_t id) {
 
 // static
 bool NamespaceUtils::KernelSupportsUnprivilegedNamespace(int type) {
-  // Valgrind will let clone(2) pass-through, but doesn't support unshare(),
-  // so always consider namespaces unsupported there.
-  if (IsRunningOnValgrind()) {
-    return false;
-  }
-
   // As of Linux 3.8, /proc/self/ns/* files exist for all namespace types. Since
   // user namespaces were added in 3.8, it is OK to rely on the existence of
   // /proc/self/ns/*.

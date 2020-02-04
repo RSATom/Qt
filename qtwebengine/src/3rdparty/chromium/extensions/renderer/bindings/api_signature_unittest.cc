@@ -4,7 +4,6 @@
 
 #include "extensions/renderer/bindings/api_signature.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "extensions/renderer/bindings/api_binding_test.h"
 #include "extensions/renderer/bindings/api_binding_test_util.h"
@@ -13,6 +12,7 @@
 #include "extensions/renderer/bindings/argument_spec.h"
 #include "extensions/renderer/bindings/argument_spec_builder.h"
 #include "gin/converter.h"
+#include "gin/dictionary.h"
 
 namespace extensions {
 namespace {
@@ -22,14 +22,14 @@ using SpecVector = std::vector<std::unique_ptr<ArgumentSpec>>;
 std::unique_ptr<APISignature> OneString() {
   SpecVector specs;
   specs.push_back(ArgumentSpecBuilder(ArgumentType::STRING, "string").Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> StringAndInt() {
   SpecVector specs;
   specs.push_back(ArgumentSpecBuilder(ArgumentType::STRING, "string").Build());
   specs.push_back(ArgumentSpecBuilder(ArgumentType::INTEGER, "int").Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> StringOptionalIntAndBool() {
@@ -38,7 +38,7 @@ std::unique_ptr<APISignature> StringOptionalIntAndBool() {
   specs.push_back(
       ArgumentSpecBuilder(ArgumentType::INTEGER, "int").MakeOptional().Build());
   specs.push_back(ArgumentSpecBuilder(ArgumentType::BOOLEAN, "bool").Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> OneObject() {
@@ -51,11 +51,11 @@ std::unique_ptr<APISignature> OneObject() {
               "prop2",
               ArgumentSpecBuilder(ArgumentType::STRING).MakeOptional().Build())
           .Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> NoArgs() {
-  return base::MakeUnique<APISignature>(SpecVector());
+  return std::make_unique<APISignature>(SpecVector());
 }
 
 std::unique_ptr<APISignature> IntAndCallback() {
@@ -63,7 +63,7 @@ std::unique_ptr<APISignature> IntAndCallback() {
   specs.push_back(ArgumentSpecBuilder(ArgumentType::INTEGER, "int").Build());
   specs.push_back(
       ArgumentSpecBuilder(ArgumentType::FUNCTION, "callback").Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> IntAndOptionalCallback() {
@@ -72,7 +72,7 @@ std::unique_ptr<APISignature> IntAndOptionalCallback() {
   specs.push_back(ArgumentSpecBuilder(ArgumentType::FUNCTION, "callback")
                       .MakeOptional()
                       .Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> OptionalIntAndCallback() {
@@ -81,7 +81,7 @@ std::unique_ptr<APISignature> OptionalIntAndCallback() {
       ArgumentSpecBuilder(ArgumentType::INTEGER, "int").MakeOptional().Build());
   specs.push_back(
       ArgumentSpecBuilder(ArgumentType::FUNCTION, "callback").Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> OptionalCallback() {
@@ -89,7 +89,7 @@ std::unique_ptr<APISignature> OptionalCallback() {
   specs.push_back(ArgumentSpecBuilder(ArgumentType::FUNCTION, "callback")
                       .MakeOptional()
                       .Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> IntAnyOptionalObjectOptionalCallback() {
@@ -106,21 +106,21 @@ std::unique_ptr<APISignature> IntAnyOptionalObjectOptionalCallback() {
   specs.push_back(ArgumentSpecBuilder(ArgumentType::FUNCTION, "callback")
                       .MakeOptional()
                       .Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> RefObj() {
   SpecVector specs;
   specs.push_back(
       ArgumentSpecBuilder(ArgumentType::REF, "obj").SetRef("refObj").Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> RefEnum() {
   SpecVector specs;
   specs.push_back(
       ArgumentSpecBuilder(ArgumentType::REF, "enum").SetRef("refEnum").Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
 }
 
 std::unique_ptr<APISignature> OptionalObjectAndCallback() {
@@ -135,7 +135,34 @@ std::unique_ptr<APISignature> OptionalObjectAndCallback() {
   specs.push_back(ArgumentSpecBuilder(ArgumentType::FUNCTION, "callback")
                       .MakeOptional()
                       .Build());
-  return base::MakeUnique<APISignature>(std::move(specs));
+  return std::make_unique<APISignature>(std::move(specs));
+}
+
+std::unique_ptr<APISignature> OptionalIntAndNumber() {
+  SpecVector specs;
+  specs.push_back(
+      ArgumentSpecBuilder(ArgumentType::INTEGER, "int").MakeOptional().Build());
+  specs.push_back(ArgumentSpecBuilder(ArgumentType::DOUBLE, "num").Build());
+  return std::make_unique<APISignature>(std::move(specs));
+}
+
+std::unique_ptr<APISignature> OptionalIntAndInt() {
+  SpecVector specs;
+  specs.push_back(
+      ArgumentSpecBuilder(ArgumentType::INTEGER, "int").MakeOptional().Build());
+  specs.push_back(ArgumentSpecBuilder(ArgumentType::INTEGER, "int2").Build());
+  return std::make_unique<APISignature>(std::move(specs));
+}
+
+std::vector<v8::Local<v8::Value>> StringToV8Vector(
+    v8::Local<v8::Context> context,
+    const char* args) {
+  v8::Local<v8::Value> v8_args = V8ValueFromScriptSource(context, args);
+  EXPECT_FALSE(v8_args.IsEmpty());
+  EXPECT_TRUE(v8_args->IsArray());
+  std::vector<v8::Local<v8::Value>> vector_args;
+  EXPECT_TRUE(gin::ConvertFromV8(context->GetIsolate(), v8_args, &vector_args));
+  return vector_args;
 }
 
 }  // namespace
@@ -179,6 +206,19 @@ class APISignatureTest : public APIBindingTest {
             expected_error);
   }
 
+  void ExpectResponsePass(const APISignature& signature,
+                          base::StringPiece arg_values) {
+    RunResponseTest(signature, arg_values, base::nullopt);
+  }
+
+  void ExpectResponseFailure(const APISignature& signature,
+                             base::StringPiece arg_values,
+                             const std::string& expected_error) {
+    RunResponseTest(signature, arg_values, expected_error);
+  }
+
+  const APITypeReferenceMap& type_refs() const { return type_refs_; }
+
  private:
   void RunTest(const APISignature& signature,
                base::StringPiece arg_values,
@@ -210,6 +250,27 @@ class APISignatureTest : public APIBindingTest {
     }
   }
 
+  void RunResponseTest(const APISignature& signature,
+                       base::StringPiece arg_values,
+                       base::Optional<std::string> expected_error) {
+    SCOPED_TRACE(arg_values);
+    v8::Local<v8::Context> context = MainContext();
+    v8::Local<v8::Value> v8_args = V8ValueFromScriptSource(context, arg_values);
+    ASSERT_FALSE(v8_args.IsEmpty());
+    ASSERT_TRUE(v8_args->IsArray());
+    std::vector<v8::Local<v8::Value>> vector_args;
+    ASSERT_TRUE(gin::ConvertFromV8(isolate(), v8_args, &vector_args));
+
+    std::string error;
+    bool should_succeed = !expected_error;
+    bool success =
+        signature.ValidateResponse(context, vector_args, type_refs_, &error);
+    EXPECT_EQ(should_succeed, success) << error;
+    ASSERT_EQ(should_succeed, error.empty());
+    if (!should_succeed)
+      EXPECT_EQ(*expected_error, error);
+  }
+
   APITypeReferenceMap type_refs_;
 
   DISALLOW_COPY_AND_ASSIGN(APISignatureTest);
@@ -221,48 +282,39 @@ TEST_F(APISignatureTest, BasicSignatureParsing) {
   v8::HandleScope handle_scope(isolate());
 
   {
+    SCOPED_TRACE("OneString");
     auto signature = OneString();
     ExpectPass(*signature, "['foo']", "['foo']", false);
     ExpectPass(*signature, "['']", "['']", false);
-    ExpectFailure(
-        *signature, "[1]",
-        ArgumentError("string", InvalidType(kTypeString, kTypeInteger)));
-    ExpectFailure(*signature, "[]", MissingRequiredArgument("string"));
-    ExpectFailure(
-        *signature, "[{}]",
-        ArgumentError("string", InvalidType(kTypeString, kTypeObject)));
-    ExpectFailure(*signature, "['foo', 'bar']", TooManyArguments());
+    ExpectFailure(*signature, "[1]", NoMatchingSignature());
+    ExpectFailure(*signature, "[]", NoMatchingSignature());
+    ExpectFailure(*signature, "[{}]", NoMatchingSignature());
+    ExpectFailure(*signature, "['foo', 'bar']", NoMatchingSignature());
   }
 
   {
+    SCOPED_TRACE("StringAndInt");
     auto signature = StringAndInt();
     ExpectPass(*signature, "['foo', 42]", "['foo',42]", false);
     ExpectPass(*signature, "['foo', -1]", "['foo',-1]", false);
-    ExpectFailure(
-        *signature, "[1]",
-        ArgumentError("string", InvalidType(kTypeString, kTypeInteger)));
-    ExpectFailure(*signature, "['foo'];", MissingRequiredArgument("int"));
-    ExpectFailure(
-        *signature, "[1, 'foo']",
-        ArgumentError("string", InvalidType(kTypeString, kTypeInteger)));
-    ExpectFailure(*signature, "['foo', 'foo']",
-                  ArgumentError("int", InvalidType(kTypeInteger, kTypeString)));
-    ExpectFailure(*signature, "['foo', '1']",
-                  ArgumentError("int", InvalidType(kTypeInteger, kTypeString)));
-    ExpectFailure(*signature, "['foo', 2.3]",
-                  ArgumentError("int", InvalidType(kTypeInteger, kTypeDouble)));
+    ExpectFailure(*signature, "[1]", NoMatchingSignature());
+    ExpectFailure(*signature, "['foo'];", NoMatchingSignature());
+    ExpectFailure(*signature, "[1, 'foo']", NoMatchingSignature());
+    ExpectFailure(*signature, "['foo', 'foo']", NoMatchingSignature());
+    ExpectFailure(*signature, "['foo', '1']", NoMatchingSignature());
+    ExpectFailure(*signature, "['foo', 2.3]", NoMatchingSignature());
   }
 
   {
+    SCOPED_TRACE("StringOptionalIntAndBool");
     auto signature = StringOptionalIntAndBool();
     ExpectPass(*signature, "['foo', 42, true]", "['foo',42,true]", false);
     ExpectPass(*signature, "['foo', true]", "['foo',null,true]", false);
-    ExpectFailure(
-        *signature, "['foo', 'bar', true]",
-        ArgumentError("bool", InvalidType(kTypeBoolean, kTypeString)));
+    ExpectFailure(*signature, "['foo', 'bar', true]", NoMatchingSignature());
   }
 
   {
+    SCOPED_TRACE("OneObject");
     auto signature = OneObject();
     ExpectPass(*signature, "[{prop1: 'foo'}]", "[{'prop1':'foo'}]", false);
     ExpectFailure(*signature,
@@ -271,41 +323,42 @@ TEST_F(APISignatureTest, BasicSignatureParsing) {
   }
 
   {
+    SCOPED_TRACE("NoArgs");
     auto signature = NoArgs();
     ExpectPass(*signature, "[]", "[]", false);
-    ExpectFailure(*signature, "[0]", TooManyArguments());
-    ExpectFailure(*signature, "['']", TooManyArguments());
-    ExpectFailure(*signature, "[null]", TooManyArguments());
-    ExpectFailure(*signature, "[undefined]", TooManyArguments());
+    ExpectFailure(*signature, "[0]", NoMatchingSignature());
+    ExpectFailure(*signature, "['']", NoMatchingSignature());
+    ExpectFailure(*signature, "[null]", NoMatchingSignature());
+    ExpectFailure(*signature, "[undefined]", NoMatchingSignature());
   }
 
   {
+    SCOPED_TRACE("IntAndCallback");
     auto signature = IntAndCallback();
     ExpectPass(*signature, "[1, function() {}]", "[1]", true);
-    ExpectFailure(
-        *signature, "[function() {}]",
-        ArgumentError("int", InvalidType(kTypeInteger, kTypeFunction)));
-    ExpectFailure(*signature, "[1]", MissingRequiredArgument("callback"));
+    ExpectFailure(*signature, "[function() {}]", NoMatchingSignature());
+    ExpectFailure(*signature, "[1]", NoMatchingSignature());
   }
 
   {
+    SCOPED_TRACE("OptionalIntAndCallback");
     auto signature = OptionalIntAndCallback();
     ExpectPass(*signature, "[1, function() {}]", "[1]", true);
     ExpectPass(*signature, "[function() {}]", "[null]", true);
-    ExpectFailure(*signature, "[1]", MissingRequiredArgument("callback"));
+    ExpectFailure(*signature, "[1]", NoMatchingSignature());
   }
 
   {
+    SCOPED_TRACE("OptionalCallback");
     auto signature = OptionalCallback();
     ExpectPass(*signature, "[function() {}]", "[]", true);
     ExpectPass(*signature, "[]", "[]", false);
     ExpectPass(*signature, "[undefined]", "[]", false);
-    ExpectFailure(
-        *signature, "[0]",
-        ArgumentError("callback", InvalidType(kTypeFunction, kTypeInteger)));
+    ExpectFailure(*signature, "[0]", NoMatchingSignature());
   }
 
   {
+    SCOPED_TRACE("IntAnyOptionalObjectOptionalCallback");
     auto signature = IntAnyOptionalObjectOptionalCallback();
     ExpectPass(*signature, "[4, {foo: 'bar'}, function() {}]",
                "[4,{'foo':'bar'},null]", true);
@@ -315,10 +368,11 @@ TEST_F(APISignatureTest, BasicSignatureParsing) {
                false);
     ExpectFailure(*signature, "[4, function() {}]",
                   ArgumentError("any", UnserializableValue()));
-    ExpectFailure(*signature, "[4]", MissingRequiredArgument("any"));
+    ExpectFailure(*signature, "[4]", NoMatchingSignature());
   }
 
   {
+    SCOPED_TRACE("OptionalObjectAndCallback");
     auto signature = OptionalObjectAndCallback();
     ExpectPass(*signature, "[{prop1: 1}]", "[{'prop1':1}]", false);
     ExpectPass(*signature, "[]", "[null]", false);
@@ -331,6 +385,28 @@ TEST_F(APISignatureTest, BasicSignatureParsing) {
         *signature, "[{prop1: 'str'}, function() {}]",
         ArgumentError("obj", PropertyError("prop1", InvalidType(kTypeInteger,
                                                                 kTypeString))));
+  }
+
+  {
+    SCOPED_TRACE("OptionalIntAndNumber");
+    auto signature = OptionalIntAndNumber();
+    ExpectPass(*signature, "[1.0, 1.0]", "[1,1.0]", false);
+    ExpectPass(*signature, "[1, 1]", "[1,1.0]", false);
+    ExpectPass(*signature, "[1.0]", "[null,1.0]", false);
+    ExpectPass(*signature, "[1]", "[null,1.0]", false);
+    ExpectFailure(*signature, "[1.0, null]", NoMatchingSignature());
+    ExpectFailure(*signature, "[1, null]", NoMatchingSignature());
+  }
+
+  {
+    SCOPED_TRACE("OptionalIntAndInt");
+    auto signature = OptionalIntAndInt();
+    ExpectPass(*signature, "[1.0, 1.0]", "[1,1]", false);
+    ExpectPass(*signature, "[1, 1]", "[1,1]", false);
+    ExpectPass(*signature, "[1.0]", "[null,1]", false);
+    ExpectPass(*signature, "[1]", "[null,1]", false);
+    ExpectFailure(*signature, "[1.0, null]", NoMatchingSignature());
+    ExpectFailure(*signature, "[1, null]", NoMatchingSignature());
   }
 }
 
@@ -384,21 +460,11 @@ TEST_F(APISignatureTest, ParseIgnoringSchema) {
   v8::HandleScope handle_scope(isolate());
   v8::Local<v8::Context> context = MainContext();
 
-  auto string_to_v8_vector = [context](base::StringPiece args) {
-    v8::Local<v8::Value> v8_args = V8ValueFromScriptSource(context, args);
-    EXPECT_FALSE(v8_args.IsEmpty());
-    EXPECT_TRUE(v8_args->IsArray());
-    std::vector<v8::Local<v8::Value>> vector_args;
-    EXPECT_TRUE(
-        gin::ConvertFromV8(context->GetIsolate(), v8_args, &vector_args));
-    return vector_args;
-  };
-
   {
     // Test with providing an optional callback.
     auto signature = IntAndOptionalCallback();
     std::vector<v8::Local<v8::Value>> v8_args =
-        string_to_v8_vector("[1, function() {}]");
+        StringToV8Vector(context, "[1, function() {}]");
     v8::Local<v8::Function> callback;
     std::unique_ptr<base::ListValue> parsed;
     EXPECT_TRUE(signature->ConvertArgumentsIgnoringSchema(context, v8_args,
@@ -412,7 +478,7 @@ TEST_F(APISignatureTest, ParseIgnoringSchema) {
     // Test with omitting the optional callback.
     auto signature = IntAndOptionalCallback();
     std::vector<v8::Local<v8::Value>> v8_args =
-        string_to_v8_vector("[1, null]");
+        StringToV8Vector(context, "[1, null]");
     v8::Local<v8::Function> callback;
     std::unique_ptr<base::ListValue> parsed;
     EXPECT_TRUE(signature->ConvertArgumentsIgnoringSchema(context, v8_args,
@@ -427,7 +493,7 @@ TEST_F(APISignatureTest, ParseIgnoringSchema) {
     // is (unfortunately) allowed and used.
     auto signature = OneString();
     std::vector<v8::Local<v8::Value>> v8_args =
-        string_to_v8_vector("[{not: 'a string'}]");
+        StringToV8Vector(context, "[{not: 'a string'}]");
     v8::Local<v8::Function> callback;
     std::unique_ptr<base::ListValue> parsed;
     EXPECT_TRUE(signature->ConvertArgumentsIgnoringSchema(context, v8_args,
@@ -435,6 +501,114 @@ TEST_F(APISignatureTest, ParseIgnoringSchema) {
     ASSERT_TRUE(parsed);
     EXPECT_EQ(R"([{"not":"a string"}])", ValueToString(*parsed));
     EXPECT_TRUE(callback.IsEmpty());
+  }
+
+  {
+    auto signature = OneObject();
+    std::vector<v8::Local<v8::Value>> v8_args = StringToV8Vector(
+        context, "[{prop1: 'foo', other: 'bar', nullProp: null}]");
+    v8::Local<v8::Function> callback;
+    std::unique_ptr<base::ListValue> parsed;
+    EXPECT_TRUE(signature->ConvertArgumentsIgnoringSchema(context, v8_args,
+                                                          &parsed, &callback));
+    ASSERT_TRUE(parsed);
+    EXPECT_EQ(R"([{"other":"bar","prop1":"foo"}])", ValueToString(*parsed));
+    EXPECT_TRUE(callback.IsEmpty());
+  }
+
+  {
+    // Unserializable arguments are inserted as "null" in the argument list in
+    // order to match existing JS bindings behavior.
+    // See https://crbug.com/924045.
+    auto signature = OneString();
+    std::vector<v8::Local<v8::Value>> v8_args =
+        StringToV8Vector(context, "[1, undefined, 1/0]");
+    v8::Local<v8::Function> callback;
+    std::unique_ptr<base::ListValue> parsed;
+    EXPECT_TRUE(signature->ConvertArgumentsIgnoringSchema(context, v8_args,
+                                                          &parsed, &callback));
+    ASSERT_TRUE(parsed);
+    EXPECT_EQ("[1,null,null]", ValueToString(*parsed));
+  }
+}
+
+TEST_F(APISignatureTest, ParseArgumentsToV8) {
+  v8::HandleScope handle_scope(isolate());
+  v8::Local<v8::Context> context = MainContext();
+
+  // Test that parsing a signature returns values that are free of tricky
+  // getters. This is more thoroughly tested in the ArgumentSpec conversion
+  // unittests, but verify that it applies to signature parsing.
+  auto signature = OneObject();
+  constexpr char kTrickyArgs[] = R"(
+      [{
+        get prop1() {
+          if (this.got)
+            return 'bar';
+          this.got = true;
+          return 'foo';
+        },
+        prop2: 'baz'
+      }])";
+  std::vector<v8::Local<v8::Value>> args =
+      StringToV8Vector(context, kTrickyArgs);
+
+  std::vector<v8::Local<v8::Value>> args_out;
+  std::string error;
+  ASSERT_TRUE(signature->ParseArgumentsToV8(context, args, type_refs(),
+                                            &args_out, &error));
+  ASSERT_EQ(1u, args_out.size());
+  ASSERT_TRUE(args_out[0]->IsObject());
+  gin::Dictionary dict(isolate(), args_out[0].As<v8::Object>());
+
+  std::string prop1;
+  ASSERT_TRUE(dict.Get("prop1", &prop1));
+  EXPECT_EQ("foo", prop1);
+
+  std::string prop2;
+  ASSERT_TRUE(dict.Get("prop2", &prop2));
+  EXPECT_EQ("baz", prop2);
+}
+
+// Tests response validation, which is stricter than typical validation.
+TEST_F(APISignatureTest, ValidateResponse) {
+  using namespace api_errors;
+
+  v8::HandleScope handle_scope(isolate());
+
+  {
+    auto signature = StringAndInt();
+    ExpectResponsePass(*signature, "['hello', 42]");
+    ExpectResponseFailure(
+        *signature, "['hello', 'goodbye']",
+        ArgumentError("int", InvalidType(kTypeInteger, kTypeString)));
+  }
+
+  {
+    auto signature = StringOptionalIntAndBool();
+    ExpectResponsePass(*signature, "['hello', 42, true]");
+    ExpectResponsePass(*signature, "['hello', null, true]");
+    // Responses are not allowed to omit optional inner parameters.
+    ExpectResponseFailure(
+        *signature, "['hello', true]",
+        ArgumentError("int", InvalidType(kTypeInteger, kTypeBoolean)));
+  }
+
+  {
+    SpecVector specs;
+    specs.push_back(
+        ArgumentSpecBuilder(ArgumentType::STRING, "string").Build());
+    specs.push_back(ArgumentSpecBuilder(ArgumentType::INTEGER, "int")
+                        .MakeOptional()
+                        .Build());
+    auto signature = std::make_unique<APISignature>(std::move(specs));
+    // Responses *are* allowed to omit optional trailing parameters (which will
+    // then be `undefined` to the caller).
+    ExpectResponsePass(*signature, "['hello']");
+
+    ExpectResponseFailure(
+        *signature, "['hello', true]",
+        ArgumentError("int", InvalidType(kTypeInteger, kTypeBoolean)));
   }
 }
 

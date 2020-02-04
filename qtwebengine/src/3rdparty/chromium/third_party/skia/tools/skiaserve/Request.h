@@ -10,9 +10,7 @@
 
 #include "SkTypes.h"
 
-#if SK_SUPPORT_GPU
 #include "GrContextFactory.h"
-#endif
 
 #include "SkDebugCanvas.h"
 #include "SkPicture.h"
@@ -41,7 +39,6 @@ struct Request {
     sk_sp<SkData> drawToPng(int n, int m = -1);
     sk_sp<SkData> writeOutSkp();
     SkCanvas* getCanvas();
-    SkBitmap* getBitmapFromCanvas(SkCanvas* canvas);
     bool enableGPU(bool enable);
     bool setOverdraw(bool enable);
     bool setColorMode(int mode);
@@ -68,7 +65,6 @@ struct Request {
 
 private:
     sk_sp<SkData> writeCanvasToPng(SkCanvas* canvas);
-    void drawToCanvas(int n, int m = -1);
     SkSurface* createCPUSurface();
     SkSurface* createGPUSurface();
     SkIRect getBounds();

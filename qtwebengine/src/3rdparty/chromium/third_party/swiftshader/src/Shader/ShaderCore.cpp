@@ -114,35 +114,30 @@ namespace sw
 
 	Float4 exponential2(RValue<Float4> x, bool pp)
 	{
-		Float4 x0;
-		Float4 x1;
-		Int4 x2;
+		// This implementation is based on 2^(i + f) = 2^i * 2^f,
+		// where i is the integer part of x and f is the fraction.
 
-		x0 = x;
-
+		// For 2^i we can put the integer part directly in the exponent of
+		// the IEEE-754 floating-point number. Clamp to prevent overflow
+		// past the representation of infinity.
+		Float4 x0 = x;
 		x0 = Min(x0, As<Float4>(Int4(0x43010000)));   // 129.00000e+0f
 		x0 = Max(x0, As<Float4>(Int4(0xC2FDFFFF)));   // -126.99999e+0f
-		x1 = x0;
-		x1 -= Float4(0.5f);
-		x2 = RoundInt(x1);
-		x1 = Float4(x2);
-		x2 += Int4(0x0000007F);   // 127
-		x2 = x2 << 23;
-		x0 -= x1;
-		x1 = As<Float4>(Int4(0x3AF61905));   // 1.8775767e-3f
-		x1 *= x0;
-		x1 += As<Float4>(Int4(0x3C134806));   // 8.9893397e-3f
-		x1 *= x0;
-		x1 += As<Float4>(Int4(0x3D64AA23));   // 5.5826318e-2f
-		x1 *= x0;
-		x1 += As<Float4>(Int4(0x3E75EAD4));   // 2.4015361e-1f
-		x1 *= x0;
-		x1 += As<Float4>(Int4(0x3F31727B));   // 6.9315308e-1f
-		x1 *= x0;
-		x1 += As<Float4>(Int4(0x3F7FFFFF));   // 9.9999994e-1f
-		x1 *= As<Float4>(x2);
 
-		return x1;
+		Int4 i = RoundInt(x0 - Float4(0.5f));
+		Float4 ii = As<Float4>((i + Int4(127)) << 23);   // Add single-precision bias, and shift into exponent.
+
+		// For the fractional part use a polynomial
+		// which approximates 2^f in the 0 to 1 range.
+		Float4 f = x0 - Float4(i);
+		Float4 ff = As<Float4>(Int4(0x3AF61905));     // 1.8775767e-3f
+		ff = ff * f + As<Float4>(Int4(0x3C134806));   // 8.9893397e-3f
+		ff = ff * f + As<Float4>(Int4(0x3D64AA23));   // 5.5826318e-2f
+		ff = ff * f + As<Float4>(Int4(0x3E75EAD4));   // 2.4015361e-1f
+		ff = ff * f + As<Float4>(Int4(0x3F31727B));   // 6.9315308e-1f
+		ff = ff * f + Float4(1.0f);
+
+		return ii * ff;
 	}
 
 	Float4 logarithm2(RValue<Float4> x, bool absolute, bool pp)
@@ -166,13 +161,14 @@ namespace sw
 
 		x1 += (x0 - Float4(1.0f)) * x2;
 
-		return x1;
+		Int4 pos_inf_x = CmpEQ(As<Int4>(x), Int4(0x7F800000));
+		return As<Float4>((pos_inf_x & As<Int4>(x)) | (~pos_inf_x & As<Int4>(x1)));
 	}
 
 	Float4 exponential(RValue<Float4> x, bool pp)
 	{
 		// FIXME: Propagate the constant
-		return exponential2(Float4(1.44269541f) * x, pp);   // 1/ln(2)
+		return exponential2(Float4(1.44269504f) * x, pp);   // 1/ln(2)
 	}
 
 	Float4 logarithm(RValue<Float4> x, bool absolute, bool pp)
@@ -226,7 +222,7 @@ namespace sw
 
 		Float4 rsq;
 
-		if(!pp && rsqPrecision >= IEEE)
+		if(!pp)
 		{
 			rsq = Float4(1.0f) / Sqrt(abs);
 		}
@@ -238,10 +234,9 @@ namespace sw
 			{
 				rsq = rsq * (Float4(3.0f) - rsq * rsq * abs) * Float4(0.5f);
 			}
-		}
 
-		int big = 0x7F7FFFFF;
-		rsq = Min(rsq, Float4((float&)big));
+			rsq = As<Float4>(CmpNEQ(As<Int4>(abs), Int4(0x7F800000)) & As<Int4>(rsq));
+		}
 
 		return rsq;
 	}
@@ -287,6 +282,21 @@ namespace sw
 		Float4 y = x * Float4(1.59154943e-1f);   // 1/2pi
 		y = y - Round(y);
 
+		if(!pp)
+		{
+			// From the paper: "A Fast, Vectorizable Algorithm for Producing Single-Precision Sine-Cosine Pairs"
+			// This implementation passes OpenGL ES 3.0 precision requirements, at the cost of more operations:
+			// !pp : 17 mul, 7 add, 1 sub, 1 reciprocal
+			//  pp : 4 mul, 2 add, 2 abs
+
+			Float4 y2 = y * y;
+			Float4 c1 = y2 * (y2 * (y2 * Float4(-0.0204391631f) + Float4(0.2536086171f)) + Float4(-1.2336977925f)) + Float4(1.0f);
+			Float4 s1 = y * (y2 * (y2 * (y2 * Float4(-0.0046075748f) + Float4(0.0796819754f)) + Float4(-0.645963615f)) + Float4(1.5707963235f));
+			Float4 c2 = (c1 * c1) - (s1 * s1);
+			Float4 s2 = Float4(2.0f) * s1 * c1;
+			return Float4(2.0f) * s2 * c2 * reciprocal(s2 * s2 + c2 * c2, pp, true);
+		}
+
 		const Float4 A = Float4(-16.0f);
 		const Float4 B = Float4(8.0f);
 		const Float4 C = Float4(7.75160950e-1f);
@@ -324,51 +334,94 @@ namespace sw
 
 	Float4 arcsin(RValue<Float4> x, bool pp)
 	{
-		// x*(pi/2-sqrt(1-x*x)*pi/5)
-		return x * (Float4(1.57079632e+0f) - Sqrt(Float4(1.0f) - x*x) * Float4(6.28318531e-1f));
+		if(false) // Simpler implementation fails even lowp precision tests
+		{
+			// x*(pi/2-sqrt(1-x*x)*pi/5)
+			return x * (Float4(1.57079632e+0f) - Sqrt(Float4(1.0f) - x*x) * Float4(6.28318531e-1f));
+		}
+		else
+		{
+			// From 4.4.45, page 81 of the Handbook of Mathematical Functions, by Milton Abramowitz and Irene Stegun
+			const Float4 half_pi(1.57079632f);
+			const Float4 a0(1.5707288f);
+			const Float4 a1(-0.2121144f);
+			const Float4 a2(0.0742610f);
+			const Float4 a3(-0.0187293f);
+			Float4 absx = Abs(x);
+			return As<Float4>(As<Int4>(half_pi - Sqrt(Float4(1.0f) - absx) * (a0 + absx * (a1 + absx * (a2 + absx * a3)))) ^
+			       (As<Int4>(x) & Int4(0x80000000)));
+		}
+	}
+
+	// Approximation of atan in [0..1]
+	Float4 arctan_01(Float4 x, bool pp)
+	{
+		if(pp)
+		{
+			return x * (Float4(-0.27f) * x + Float4(1.05539816f));
+		}
+		else
+		{
+			// From 4.4.49, page 81 of the Handbook of Mathematical Functions, by Milton Abramowitz and Irene Stegun
+			const Float4 a2(-0.3333314528f);
+			const Float4 a4(0.1999355085f);
+			const Float4 a6(-0.1420889944f);
+			const Float4 a8(0.1065626393f);
+			const Float4 a10(-0.0752896400f);
+			const Float4 a12(0.0429096138f);
+			const Float4 a14(-0.0161657367f);
+			const Float4 a16(0.0028662257f);
+			Float4 x2 = x * x;
+			return (x + x * (x2 * (a2 + x2 * (a4 + x2 * (a6 + x2 * (a8 + x2 * (a10 + x2 * (a12 + x2 * (a14 + x2 * a16)))))))));
+		}
 	}
 
 	Float4 arctan(RValue<Float4> x, bool pp)
 	{
-		Int4 O = CmpNLT(Abs(x), Float4(1.0f));
-		Float4 y = As<Float4>((O & As<Int4>(Float4(1.0f) / x)) | (~O & As<Int4>(x)));   // FIXME: Vector select
+		Float4 absx = Abs(x);
+		Int4 O = CmpNLT(absx, Float4(1.0f));
+		Float4 y = As<Float4>((O & As<Int4>(Float4(1.0f) / absx)) | (~O & As<Int4>(absx))); // FIXME: Vector select
 
-		// Approximation of atan in [-1..1]
-		Float4 theta = y * (Float4(-0.27f) * Abs(y) + Float4(1.05539816f));
-
-		// +/-pi/2 depending on sign of x
-		Float4 sgnPi_2 = As<Float4>(As<Int4>(Float4(1.57079632e+0f)) ^ (As<Int4>(x) & Int4(0x80000000)));
-
-		theta = As<Float4>((O & As<Int4>(sgnPi_2 - theta)) | (~O & As<Int4>(theta)));   // FIXME: Vector select
-
-		return theta;
+		const Float4 half_pi(1.57079632f);
+		Float4 theta = arctan_01(y, pp);
+		return As<Float4>(((O & As<Int4>(half_pi - theta)) | (~O & As<Int4>(theta))) ^ // FIXME: Vector select
+		       (As<Int4>(x) & Int4(0x80000000)));
 	}
 
 	Float4 arctan(RValue<Float4> y, RValue<Float4> x, bool pp)
 	{
+		const Float4 pi(3.14159265f);            // pi
+		const Float4 minus_pi(-3.14159265f);     // -pi
+		const Float4 half_pi(1.57079632f);       // pi/2
+		const Float4 quarter_pi(7.85398163e-1f); // pi/4
+
 		// Rotate to upper semicircle when in lower semicircle
 		Int4 S = CmpLT(y, Float4(0.0f));
-		Float4 theta = As<Float4>(S & As<Int4>(Float4(-3.14159265e+0f)));   // -pi
+		Float4 theta = As<Float4>(S & As<Int4>(minus_pi));
 		Float4 x0 = As<Float4>((As<Int4>(y) & Int4(0x80000000)) ^ As<Int4>(x));
 		Float4 y0 = Abs(y);
 
 		// Rotate to right quadrant when in left quadrant
 		Int4 Q = CmpLT(x0, Float4(0.0f));
-		theta += As<Float4>(Q & As<Int4>(Float4(1.57079632e+0f)));   // pi/2
-		Float4 x1 = As<Float4>((Q & As<Int4>(y0)) | (~Q & As<Int4>(x0)));    // FIXME: Vector select
-		Float4 y1 = As<Float4>((Q & As<Int4>(-x0)) | (~Q & As<Int4>(y0)));   // FIXME: Vector select
+		theta += As<Float4>(Q & As<Int4>(half_pi));
+		Float4 x1 = As<Float4>((Q & As<Int4>(y0)) | (~Q & As<Int4>(x0)));  // FIXME: Vector select
+		Float4 y1 = As<Float4>((Q & As<Int4>(-x0)) | (~Q & As<Int4>(y0))); // FIXME: Vector select
 
-		// Rotate to first octant when in second octant
+		// Mirror to first octant when in second octant
 		Int4 O = CmpNLT(y1, x1);
-		theta += As<Float4>(O & As<Int4>(Float4(7.85398163e-1f)));   // pi/4
-		Float4 x2 = As<Float4>((O & As<Int4>(Float4(7.07106781e-1f) * x1 + Float4(7.07106781e-1f) * y1)) | (~O & As<Int4>(x1)));   // sqrt(2)/2   // FIXME: Vector select
-		Float4 y2 = As<Float4>((O & As<Int4>(Float4(7.07106781e-1f) * y1 - Float4(7.07106781e-1f) * x1)) | (~O & As<Int4>(y1)));   // FIXME: Vector select
+		Float4 x2 = As<Float4>((O & As<Int4>(y1)) | (~O & As<Int4>(x1))); // FIXME: Vector select
+		Float4 y2 = As<Float4>((O & As<Int4>(x1)) | (~O & As<Int4>(y1))); // FIXME: Vector select
 
 		// Approximation of atan in [0..1]
-		Float4 y_x = y2 / x2;
-		theta += y_x * (Float4(-0.27f) * y_x + Float4(1.05539816f));
+		Int4 zero_x = CmpEQ(x2, Float4(0.0f));
+		Int4 inf_y = IsInf(y2); // Since x2 >= y2, this means x2 == y2 == inf, so we use 45 degrees or pi/4
+		Float4 atan2_theta = arctan_01(y2 / x2, pp);
+		theta += As<Float4>((~zero_x & ~inf_y & ((O & As<Int4>(half_pi - atan2_theta)) | (~O & (As<Int4>(atan2_theta))))) | // FIXME: Vector select
+		                    (inf_y & As<Int4>(quarter_pi)));
 
-		return theta;
+		// Recover loss of precision for tiny theta angles
+		Int4 precision_loss = S & Q & O & ~inf_y; // This combination results in (-pi + half_pi + half_pi - atan2_theta) which is equivalent to -atan2_theta
+		return As<Float4>((precision_loss & As<Int4>(-atan2_theta)) | (~precision_loss & As<Int4>(theta))); // FIXME: Vector select
 	}
 
 	Float4 sineh(RValue<Float4> x, bool pp)
@@ -429,6 +482,18 @@ namespace sw
 		row1 = UnpackHigh(tmp2, tmp3);
 		row2 = UnpackLow(tmp0, tmp1);
 		row3 = UnpackHigh(tmp0, tmp1);
+	}
+
+	void transpose4x3(Short4 &row0, Short4 &row1, Short4 &row2, Short4 &row3)
+	{
+		Int2 tmp0 = UnpackHigh(row0, row1);
+		Int2 tmp1 = UnpackHigh(row2, row3);
+		Int2 tmp2 = UnpackLow(row0, row1);
+		Int2 tmp3 = UnpackLow(row2, row3);
+
+		row0 = UnpackLow(tmp2, tmp3);
+		row1 = UnpackHigh(tmp2, tmp3);
+		row2 = UnpackLow(tmp0, tmp1);
 	}
 
 	void transpose4x4(Float4 &row0, Float4 &row1, Float4 &row2, Float4 &row3)
@@ -493,6 +558,100 @@ namespace sw
 		case 3: transpose4x3(row0, row1, row2, row3); break;
 		case 4: transpose4x4(row0, row1, row2, row3); break;
 		}
+	}
+
+	const Vector4f RegisterFile::operator[](RValue<Int4> index)
+	{
+		ASSERT(indirectAddressable);
+
+		Int index0 = Extract(index, 0);
+		Int index1 = Extract(index, 1);
+		Int index2 = Extract(index, 2);
+		Int index3 = Extract(index, 3);
+
+		Vector4f r;
+
+		r.x.x = Extract(x[0][index0], 0);
+		r.x.y = Extract(x[0][index1], 1);
+		r.x.z = Extract(x[0][index2], 2);
+		r.x.w = Extract(x[0][index3], 3);
+
+		r.y.x = Extract(y[0][index0], 0);
+		r.y.y = Extract(y[0][index1], 1);
+		r.y.z = Extract(y[0][index2], 2);
+		r.y.w = Extract(y[0][index3], 3);
+
+		r.z.x = Extract(z[0][index0], 0);
+		r.z.y = Extract(z[0][index1], 1);
+		r.z.z = Extract(z[0][index2], 2);
+		r.z.w = Extract(z[0][index3], 3);
+
+		r.w.x = Extract(w[0][index0], 0);
+		r.w.y = Extract(w[0][index1], 1);
+		r.w.z = Extract(w[0][index2], 2);
+		r.w.w = Extract(w[0][index3], 3);
+
+		return r;
+	}
+
+	void RegisterFile::scatter_x(Int4 index, RValue<Float4> r)
+	{
+		ASSERT(indirectAddressable);
+
+		Int index0 = Extract(index, 0);
+		Int index1 = Extract(index, 1);
+		Int index2 = Extract(index, 2);
+		Int index3 = Extract(index, 3);
+
+		x[0][index0] = Insert(x[0][index0], Extract(r, 0), 0);
+		x[0][index1] = Insert(x[0][index1], Extract(r, 1), 1);
+		x[0][index2] = Insert(x[0][index2], Extract(r, 2), 2);
+		x[0][index3] = Insert(x[0][index3], Extract(r, 3), 3);
+	}
+
+	void RegisterFile::scatter_y(Int4 index, RValue<Float4> r)
+	{
+		ASSERT(indirectAddressable);
+
+		Int index0 = Extract(index, 0);
+		Int index1 = Extract(index, 1);
+		Int index2 = Extract(index, 2);
+		Int index3 = Extract(index, 3);
+
+		y[0][index0] = Insert(y[0][index0], Extract(r, 0), 0);
+		y[0][index1] = Insert(y[0][index1], Extract(r, 1), 1);
+		y[0][index2] = Insert(y[0][index2], Extract(r, 2), 2);
+		y[0][index3] = Insert(y[0][index3], Extract(r, 3), 3);
+	}
+
+	void RegisterFile::scatter_z(Int4 index, RValue<Float4> r)
+	{
+		ASSERT(indirectAddressable);
+
+		Int index0 = Extract(index, 0);
+		Int index1 = Extract(index, 1);
+		Int index2 = Extract(index, 2);
+		Int index3 = Extract(index, 3);
+
+		z[0][index0] = Insert(z[0][index0], Extract(r, 0), 0);
+		z[0][index1] = Insert(z[0][index1], Extract(r, 1), 1);
+		z[0][index2] = Insert(z[0][index2], Extract(r, 2), 2);
+		z[0][index3] = Insert(z[0][index3], Extract(r, 3), 3);
+	}
+
+	void RegisterFile::scatter_w(Int4 index, RValue<Float4> r)
+	{
+		ASSERT(indirectAddressable);
+
+		Int index0 = Extract(index, 0);
+		Int index1 = Extract(index, 1);
+		Int index2 = Extract(index, 2);
+		Int index3 = Extract(index, 3);
+
+		w[0][index0] = Insert(w[0][index0], Extract(r, 0), 0);
+		w[0][index1] = Insert(w[0][index1], Extract(r, 1), 1);
+		w[0][index2] = Insert(w[0][index2], Extract(r, 2), 2);
+		w[0][index3] = Insert(w[0][index3], Extract(r, 3), 3);
 	}
 
 	void ShaderCore::mov(Vector4f &dst, const Vector4f &src, bool integerDestination)
@@ -656,7 +815,7 @@ namespace sw
 
 	void ShaderCore::rcpx(Vector4f &dst, const Vector4f &src, bool pp)
 	{
-		Float4 rcp = reciprocal(src.x, pp, true);
+		Float4 rcp = reciprocal(src.x, pp, true, true);
 
 		dst.x = rcp;
 		dst.y = rcp;
@@ -708,24 +867,27 @@ namespace sw
 
 	void ShaderCore::imod(Vector4f &dst, const Vector4f &src0, const Vector4f &src1)
 	{
-		cmp0i(dst.x, src1.x, src0.x, src1.x);
+		Float4 intMax(As<Float4>(Int4(INT_MAX)));
+		cmp0i(dst.x, src1.x, intMax, src1.x);
 		dst.x = As<Float4>(As<Int4>(src0.x) % As<Int4>(dst.x));
-		cmp0i(dst.y, src1.y, src0.y, src1.y);
+		cmp0i(dst.y, src1.y, intMax, src1.y);
 		dst.y = As<Float4>(As<Int4>(src0.y) % As<Int4>(dst.y));
-		cmp0i(dst.z, src1.z, src0.z, src1.z);
+		cmp0i(dst.z, src1.z, intMax, src1.z);
 		dst.z = As<Float4>(As<Int4>(src0.z) % As<Int4>(dst.z));
-		cmp0i(dst.w, src1.w, src0.w, src1.w);
+		cmp0i(dst.w, src1.w, intMax, src1.w);
 		dst.w = As<Float4>(As<Int4>(src0.w) % As<Int4>(dst.w));
 	}
+
 	void ShaderCore::umod(Vector4f &dst, const Vector4f &src0, const Vector4f &src1)
 	{
-		cmp0i(dst.x, src1.x, src0.x, src1.x);
+		Float4 uintMax(As<Float4>(UInt4(UINT_MAX)));
+		cmp0i(dst.x, src1.x, uintMax, src1.x);
 		dst.x = As<Float4>(As<UInt4>(src0.x) % As<UInt4>(dst.x));
-		cmp0i(dst.y, src1.y, src0.y, src1.y);
+		cmp0i(dst.y, src1.y, uintMax, src1.y);
 		dst.y = As<Float4>(As<UInt4>(src0.y) % As<UInt4>(dst.y));
-		cmp0i(dst.z, src1.z, src0.z, src1.z);
+		cmp0i(dst.z, src1.z, uintMax, src1.z);
 		dst.z = As<Float4>(As<UInt4>(src0.z) % As<UInt4>(dst.z));
-		cmp0i(dst.w, src1.w, src0.w, src1.w);
+		cmp0i(dst.w, src1.w, uintMax, src1.w);
 		dst.w = As<Float4>(As<UInt4>(src0.w) % As<UInt4>(dst.w));
 	}
 
@@ -1025,6 +1187,22 @@ namespace sw
 		dst.y = src0.y * (src1.y - src2.y) + src2.y;
 		dst.z = src0.z * (src1.z - src2.z) + src2.z;
 		dst.w = src0.w * (src1.w - src2.w) + src2.w;
+	}
+
+	void ShaderCore::isinf(Vector4f &dst, const Vector4f &src)
+	{
+		dst.x = As<Float4>(IsInf(src.x));
+		dst.y = As<Float4>(IsInf(src.y));
+		dst.z = As<Float4>(IsInf(src.z));
+		dst.w = As<Float4>(IsInf(src.w));
+	}
+
+	void ShaderCore::isnan(Vector4f &dst, const Vector4f &src)
+	{
+		dst.x = As<Float4>(IsNan(src.x));
+		dst.y = As<Float4>(IsNan(src.y));
+		dst.z = As<Float4>(IsNan(src.z));
+		dst.w = As<Float4>(IsNan(src.w));
 	}
 
 	void ShaderCore::smooth(Vector4f &dst, const Vector4f &edge0, const Vector4f &edge1, const Vector4f &x)
@@ -1515,9 +1693,9 @@ namespace sw
 		dst.w = arctanh(src.w, pp);
 	}
 
-	void ShaderCore::expp(Vector4f &dst, const Vector4f &src, unsigned short version)
+	void ShaderCore::expp(Vector4f &dst, const Vector4f &src, unsigned short shaderModel)
 	{
-		if(version < 0x0200)
+		if(shaderModel < 0x0200)
 		{
 			Float4 frc = Frac(src.x);
 			Float4 floor = src.x - frc;
@@ -1533,9 +1711,9 @@ namespace sw
 		}
 	}
 
-	void ShaderCore::logp(Vector4f &dst, const Vector4f &src, unsigned short version)
+	void ShaderCore::logp(Vector4f &dst, const Vector4f &src, unsigned short shaderModel)
 	{
-		if(version < 0x0200)
+		if(shaderModel < 0x0200)
 		{
 			Float4 tmp0;
 			Float4 tmp1;

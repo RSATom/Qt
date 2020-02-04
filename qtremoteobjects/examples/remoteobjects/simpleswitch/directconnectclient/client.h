@@ -61,7 +61,7 @@ class Client : public QObject
     Q_OBJECT
 public:
     Client(QSharedPointer<SimpleSwitchReplica> ptr);
-    ~Client();
+    ~Client() override;
     void initConnections();// function connect signals and slots of source and client
 
 Q_SIGNALS:

@@ -45,6 +45,8 @@
 #include <qvalidator.h>
 #include <qdebug.h>
 
+#include <algorithm>
+#include <cmath>
 #include <float.h>
 
 QT_BEGIN_NAMESPACE
@@ -61,10 +63,10 @@ class QSpinBoxPrivate : public QAbstractSpinBoxPrivate
     Q_DECLARE_PUBLIC(QSpinBox)
 public:
     QSpinBoxPrivate();
-    void emitSignals(EmitPolicy ep, const QVariant &) Q_DECL_OVERRIDE;
+    void emitSignals(EmitPolicy ep, const QVariant &) override;
 
-    virtual QVariant valueFromText(const QString &n) const Q_DECL_OVERRIDE;
-    virtual QString textFromValue(const QVariant &n) const Q_DECL_OVERRIDE;
+    virtual QVariant valueFromText(const QString &n) const override;
+    virtual QString textFromValue(const QVariant &n) const override;
     QVariant validateAndInterpret(QString &input, int &pos,
                                   QValidator::State &state) const;
 
@@ -75,6 +77,8 @@ public:
     }
 
     int displayIntegerBase;
+
+    QVariant calculateAdaptiveDecimalStep(int steps) const override;
 };
 
 class QDoubleSpinBoxPrivate : public QAbstractSpinBoxPrivate
@@ -82,10 +86,10 @@ class QDoubleSpinBoxPrivate : public QAbstractSpinBoxPrivate
     Q_DECLARE_PUBLIC(QDoubleSpinBox)
 public:
     QDoubleSpinBoxPrivate();
-    void emitSignals(EmitPolicy ep, const QVariant &) Q_DECL_OVERRIDE;
+    void emitSignals(EmitPolicy ep, const QVariant &) override;
 
-    virtual QVariant valueFromText(const QString &n) const Q_DECL_OVERRIDE;
-    virtual QString textFromValue(const QVariant &n) const Q_DECL_OVERRIDE;
+    virtual QVariant valueFromText(const QString &n) const override;
+    virtual QString textFromValue(const QVariant &n) const override;
     QVariant validateAndInterpret(QString &input, int &pos,
                                   QValidator::State &state) const;
     double round(double input) const;
@@ -100,6 +104,8 @@ public:
     // When fiddling with the decimals property, we may lose precision in these properties.
     double actualMin;
     double actualMax;
+
+    QVariant calculateAdaptiveDecimalStep(int steps) const override;
 };
 
 
@@ -415,6 +421,47 @@ void QSpinBox::setRange(int minimum, int maximum)
 }
 
 /*!
+    Sets the step type for the spin box to \a stepType, which is single
+    step or adaptive decimal step.
+
+    Adaptive decimal step means that the step size will continuously be
+    adjusted to one power of ten below the current \l value. So when
+    the value is 1100, the step is set to 100, so stepping up once
+    increases it to 1200. For 1200 stepping up takes it to 1300. For
+    negative values, stepping down from -1100 goes to -1200.
+
+    Step direction is taken into account to handle edges cases, so
+    that stepping down from 100 takes the value to 99 instead of 90.
+    Thus a step up followed by a step down -- or vice versa -- always
+    lands on the starting value; 99 -> 100 -> 99.
+
+    Setting this will cause the spin box to disregard the value of
+    \l singleStep, although it is preserved so that \l singleStep
+    comes into effect if adaptive decimal step is later turned off.
+
+    \since 5.12
+*/
+
+void QSpinBox::setStepType(QAbstractSpinBox::StepType stepType)
+{
+    Q_D(QSpinBox);
+    d->stepType = stepType;
+}
+
+/*!
+    \property QSpinBox::stepType
+    \brief The step type.
+
+    The step type can be single step or adaptive decimal step.
+*/
+
+QAbstractSpinBox::StepType QSpinBox::stepType() const
+{
+    Q_D(const QSpinBox);
+    return d->stepType;
+}
+
+/*!
     \property QSpinBox::displayIntegerBase
 
     \brief the base used to display the value of the spin box
@@ -681,6 +728,10 @@ void QDoubleSpinBox::setPrefix(const QString &prefix)
 
     d->prefix = prefix;
     d->updateEdit();
+
+    d->cachedSizeHint = QSize();
+    d->cachedMinimumSizeHint = QSize(); // minimumSizeHint cares about the prefix
+    updateGeometry();
 }
 
 /*!
@@ -844,6 +895,50 @@ void QDoubleSpinBox::setRange(double minimum, double maximum)
     d->actualMin = minimum;
     d->actualMax = maximum;
     d->setRange(QVariant(d->round(minimum)), QVariant(d->round(maximum)));
+}
+
+/*!
+    Sets the step type for the spin box to \a stepType, which is single
+    step or adaptive decimal step.
+
+    Adaptive decimal step means that the step size will continuously be
+    adjusted to one power of ten below the current \l value. So when
+    the value is 1100, the step is set to 100, so stepping up once
+    increases it to 1200. For 1200 stepping up takes it to 1300. For
+    negative values, stepping down from -1100 goes to -1200.
+
+    It also works for any decimal values, 0.041 is increased to 0.042
+    by stepping once.
+
+    Step direction is taken into account to handle edges cases, so
+    that stepping down from 100 takes the value to 99 instead of 90.
+    Thus a step up followed by a step down -- or vice versa -- always
+    lands on the starting value; 99 -> 100 -> 99.
+
+    Setting this will cause the spin box to disregard the value of
+    \l singleStep, although it is preserved so that \l singleStep
+    comes into effect if adaptive decimal step is later turned off.
+
+    \since 5.12
+*/
+
+void QDoubleSpinBox::setStepType(StepType stepType)
+{
+    Q_D(QDoubleSpinBox);
+    d->stepType = stepType;
+}
+
+/*!
+    \property QDoubleSpinBox::stepType
+    \brief The step type.
+
+    The step type can be single step or adaptive decimal step.
+*/
+
+QAbstractSpinBox::StepType QDoubleSpinBox::stepType() const
+{
+    Q_D(const QDoubleSpinBox);
+    return d->stepType;
 }
 
 /*!
@@ -1043,10 +1138,14 @@ QVariant QSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
             num = copy.toInt(&ok, displayIntegerBase);
         } else {
             num = locale.toInt(copy, &ok);
-            if (!ok && copy.contains(locale.groupSeparator()) && (max >= 1000 || min <= -1000)) {
-                QString copy2 = copy;
-                copy2.remove(locale.groupSeparator());
-                num = locale.toInt(copy2, &ok);
+            if (!ok && (max >= 1000 || min <= -1000)) {
+                const QChar sep = locale.groupSeparator();
+                const QChar doubleSep[2] = {sep, sep};
+                if (copy.contains(sep) && !copy.contains(QString(doubleSep, 2))) {
+                    QString copy2 = copy;
+                    copy2.remove(locale.groupSeparator());
+                    num = locale.toInt(copy2, &ok);
+                }
             }
         }
         QSBDEBUG() << __FILE__ << __LINE__<< "num is set to" << num;
@@ -1076,6 +1175,22 @@ QVariant QSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
     QSBDEBUG() << "cachedText is set to '" << cachedText << "' state is set to "
                << state << " and value is set to " << cachedValue;
     return cachedValue;
+}
+
+QVariant QSpinBoxPrivate::calculateAdaptiveDecimalStep(int steps) const
+{
+    const int intValue = value.toInt();
+    const int absValue = qAbs(intValue);
+
+    if (absValue < 100)
+        return 1;
+
+    const bool valueNegative = intValue < 0;
+    const bool stepsNegative = steps < 0;
+    const int signCompensation = (valueNegative == stepsNegative) ? 0 : 1;
+
+    const int log = static_cast<int>(std::log10(absValue - signCompensation)) - 1;
+    return static_cast<int>(std::pow(10, log));
 }
 
 // --- QDoubleSpinBoxPrivate ---
@@ -1301,6 +1416,27 @@ QString QDoubleSpinBoxPrivate::textFromValue(const QVariant &f) const
 {
     Q_Q(const QDoubleSpinBox);
     return q->textFromValue(f.toDouble());
+}
+
+QVariant QDoubleSpinBoxPrivate::calculateAdaptiveDecimalStep(int steps) const
+{
+    const double doubleValue = value.toDouble();
+    const double minStep = std::pow(10, -decimals);
+    double absValue = qAbs(doubleValue);
+
+    if (absValue < minStep)
+        return minStep;
+
+    const bool valueNegative = doubleValue < 0;
+    const bool stepsNegative = steps < 0;
+    if (valueNegative != stepsNegative)
+        absValue /= 1.01;
+
+    const double shift = std::pow(10, 1 - std::floor(std::log10(absValue)));
+    const double absRounded = round(absValue * shift) / shift;
+    const double log = floorf(std::log10(absRounded)) - 1;
+
+    return std::max(minStep, std::pow(10, log));
 }
 
 /*! \reimp */

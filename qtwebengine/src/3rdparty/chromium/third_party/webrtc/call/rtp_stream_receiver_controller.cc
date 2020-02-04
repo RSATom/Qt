@@ -8,8 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/call/rtp_stream_receiver_controller.h"
-#include "webrtc/rtc_base/ptr_util.h"
+#include "call/rtp_stream_receiver_controller.h"
+
+#include "absl/memory/memory.h"
+#include "rtc_base/logging.h"
 
 namespace webrtc {
 
@@ -18,7 +20,12 @@ RtpStreamReceiverController::Receiver::Receiver(
     uint32_t ssrc,
     RtpPacketSinkInterface* sink)
     : controller_(controller), sink_(sink) {
-  controller_->AddSink(ssrc, sink_);
+  const bool sink_added = controller_->AddSink(ssrc, sink_);
+  if (!sink_added) {
+    RTC_LOG(LS_ERROR)
+        << "RtpStreamReceiverController::Receiver::Receiver: Sink "
+        << "could not be added for SSRC=" << ssrc << ".";
+  }
 }
 
 RtpStreamReceiverController::Receiver::~Receiver() {
@@ -28,14 +35,18 @@ RtpStreamReceiverController::Receiver::~Receiver() {
   controller_->RemoveSink(sink_);
 }
 
-RtpStreamReceiverController::RtpStreamReceiverController() = default;
+RtpStreamReceiverController::RtpStreamReceiverController() {
+  // At this level the demuxer is only configured to demux by SSRC, so don't
+  // worry about MIDs (MIDs are handled by upper layers).
+  demuxer_.set_use_mid(false);
+}
+
 RtpStreamReceiverController::~RtpStreamReceiverController() = default;
 
 std::unique_ptr<RtpStreamReceiverInterface>
-RtpStreamReceiverController::CreateReceiver(
-    uint32_t ssrc,
-    RtpPacketSinkInterface* sink) {
-  return rtc::MakeUnique<Receiver>(this, ssrc, sink);
+RtpStreamReceiverController::CreateReceiver(uint32_t ssrc,
+                                            RtpPacketSinkInterface* sink) {
+  return absl::make_unique<Receiver>(this, ssrc, sink);
 }
 
 bool RtpStreamReceiverController::OnRtpPacket(const RtpPacketReceived& packet) {
@@ -43,7 +54,7 @@ bool RtpStreamReceiverController::OnRtpPacket(const RtpPacketReceived& packet) {
   return demuxer_.OnRtpPacket(packet);
 }
 
-void RtpStreamReceiverController::AddSink(uint32_t ssrc,
+bool RtpStreamReceiverController::AddSink(uint32_t ssrc,
                                           RtpPacketSinkInterface* sink) {
   rtc::CritScope cs(&lock_);
   return demuxer_.AddSink(ssrc, sink);

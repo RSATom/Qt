@@ -57,11 +57,21 @@ void Usage() {
   printf("  -copy_input_duration        >0 Copies the input duration\n");
   printf("\n");
   printf("Video options:\n");
-  printf("  -display_width <int>        Display width in pixels\n");
-  printf("  -display_height <int>       Display height in pixels\n");
-  printf("  -pixel_width <int>          Override pixel width\n");
-  printf("  -pixel_height <int>         Override pixel height\n");
-  printf("  -stereo_mode <int>          3D video mode\n");
+  printf("  -display_width <int>           Display width in pixels\n");
+  printf("  -display_height <int>          Display height in pixels\n");
+  printf("  -pixel_width <int>             Override pixel width\n");
+  printf("  -pixel_height <int>            Override pixel height\n");
+  printf("  -projection_type <int>         Set/override projection type:\n");
+  printf("                                   0: Rectangular\n");
+  printf("                                   1: Equirectangular\n");
+  printf("                                   2: Cube map\n");
+  printf("                                   3: Mesh\n");
+  printf("  -projection_file <string>      Override projection private data");
+  printf("                                 with contents of this file\n");
+  printf("  -projection_pose_yaw <float>   Projection pose yaw\n");
+  printf("  -projection_pose_pitch <float> Projection pose pitch\n");
+  printf("  -projection_pose_roll <float>  Projection pose roll\n");
+  printf("  -stereo_mode <int>             3D video mode\n");
   printf("\n");
   printf("VP9 options:\n");
   printf("  -profile <int>              VP9 profile\n");
@@ -149,6 +159,32 @@ int ParseArgWebVTT(char* argv[], int* argv_index, int argc_check,
   return 0;  // not a WebVTT arg
 }
 
+bool CopyVideoProjection(const mkvparser::Projection& parser_projection,
+                         mkvmuxer::Projection* muxer_projection) {
+  typedef mkvmuxer::Projection::ProjectionType MuxerProjType;
+  const int kTypeNotPresent = mkvparser::Projection::kTypeNotPresent;
+  if (parser_projection.type != kTypeNotPresent) {
+    muxer_projection->set_type(
+        static_cast<MuxerProjType>(parser_projection.type));
+  }
+  if (parser_projection.private_data &&
+      parser_projection.private_data_length > 0) {
+    if (!muxer_projection->SetProjectionPrivate(
+            parser_projection.private_data,
+            parser_projection.private_data_length)) {
+      return false;
+    }
+  }
+
+  const float kValueNotPresent = mkvparser::Projection::kValueNotPresent;
+  if (parser_projection.pose_yaw != kValueNotPresent)
+    muxer_projection->set_pose_yaw(parser_projection.pose_yaw);
+  if (parser_projection.pose_pitch != kValueNotPresent)
+    muxer_projection->set_pose_pitch(parser_projection.pose_pitch);
+  if (parser_projection.pose_roll != kValueNotPresent)
+    muxer_projection->set_pose_roll(parser_projection.pose_roll);
+  return true;
+}
 }  // end namespace
 
 int main(int argc, char* argv[]) {
@@ -182,6 +218,11 @@ int main(int argc, char* argv[]) {
   uint64_t pixel_width = 0;
   uint64_t pixel_height = 0;
   uint64_t stereo_mode = 0;
+  const char* projection_file = 0;
+  int64_t projection_type = mkvparser::Projection::kTypeNotPresent;
+  float projection_pose_roll = mkvparser::Projection::kValueNotPresent;
+  float projection_pose_pitch = mkvparser::Projection::kValueNotPresent;
+  float projection_pose_yaw = mkvparser::Projection::kValueNotPresent;
   int vp9_profile = -1;  // No profile set.
   int vp9_level = -1;  // No level set.
 
@@ -252,6 +293,16 @@ int main(int argc, char* argv[]) {
       pixel_height = strtol(argv[++i], &end, 10);
     } else if (!strcmp("-stereo_mode", argv[i]) && i < argc_check) {
       stereo_mode = strtol(argv[++i], &end, 10);
+    } else if (!strcmp("-projection_type", argv[i]) && i < argc_check) {
+      projection_type = strtol(argv[++i], &end, 10);
+    } else if (!strcmp("-projection_file", argv[i]) && i < argc_check) {
+      projection_file = argv[++i];
+    } else if (!strcmp("-projection_pose_roll", argv[i]) && i < argc_check) {
+      projection_pose_roll = strtof(argv[++i], &end);
+    } else if (!strcmp("-projection_pose_pitch", argv[i]) && i < argc_check) {
+      projection_pose_pitch = strtof(argv[++i], &end);
+    } else if (!strcmp("-projection_pose_yaw", argv[i]) && i < argc_check) {
+      projection_pose_yaw = strtof(argv[++i], &end);
     } else if (!strcmp("-profile", argv[i]) && i < argc_check) {
       vp9_profile = static_cast<int>(strtol(argv[++i], &end, 10));
     } else if (!strcmp("-level", argv[i]) && i < argc_check) {
@@ -294,7 +345,7 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
-  const std::auto_ptr<mkvparser::Segment> parser_segment(parser_segment_);
+  const std::unique_ptr<mkvparser::Segment> parser_segment(parser_segment_);
   ret = parser_segment->Load();
   if (ret < 0) {
     printf("\n Segment::Load() failed.");
@@ -417,32 +468,56 @@ int main(int argc, char* argv[]) {
           return EXIT_FAILURE;
       }
 
-      if (pVideoTrack->GetProjection()) {
+      if (pVideoTrack->GetProjection() ||
+          projection_type != mkvparser::Projection::kTypeNotPresent) {
         mkvmuxer::Projection muxer_projection;
         const mkvparser::Projection* const parser_projection =
             pVideoTrack->GetProjection();
         typedef mkvmuxer::Projection::ProjectionType MuxerProjType;
-        const int kTypeNotPresent = mkvparser::Projection::kTypeNotPresent;
-        if (parser_projection->type != kTypeNotPresent) {
-          muxer_projection.set_type(
-              static_cast<MuxerProjType>(parser_projection->type));
+        if (parser_projection &&
+            !CopyVideoProjection(*parser_projection, &muxer_projection)) {
+          printf("\n Unable to copy video projection.\n");
+          return EXIT_FAILURE;
         }
-        if (parser_projection->private_data &&
-            parser_projection->private_data_length > 0) {
-          if (!muxer_projection.SetProjectionPrivate(
-                  parser_projection->private_data,
-                  parser_projection->private_data_length)) {
+        // Override the values that came from parser if set on command line.
+        if (projection_type != mkvparser::Projection::kTypeNotPresent) {
+          muxer_projection.set_type(
+              static_cast<MuxerProjType>(projection_type));
+          if (projection_type == mkvparser::Projection::kRectangular &&
+              projection_file != NULL) {
+            printf("\n Rectangular projection must not have private data.\n");
+            return EXIT_FAILURE;
+          } else if ((projection_type == mkvparser::Projection::kCubeMap ||
+                      projection_type == mkvparser::Projection::kMesh) &&
+                     projection_file == NULL) {
+            printf("\n Mesh or CubeMap projection must have private data.\n");
             return EXIT_FAILURE;
           }
+          if (projection_file != NULL) {
+            std::string contents;
+            if (!libwebm::GetFileContents(projection_file, &contents) ||
+                contents.size() == 0) {
+              printf("\n Failed to read file \"%s\" or file is empty\n",
+                     projection_file);
+              return EXIT_FAILURE;
+            }
+            if (!muxer_projection.SetProjectionPrivate(
+                    reinterpret_cast<uint8_t*>(&contents[0]),
+                    contents.size())) {
+              printf("\n Failed to SetProjectionPrivate of length %zu.\n",
+                     contents.size());
+              return EXIT_FAILURE;
+            }
+          }
         }
-
         const float kValueNotPresent = mkvparser::Projection::kValueNotPresent;
-        if (parser_projection->pose_yaw != kValueNotPresent)
-          muxer_projection.set_pose_yaw(parser_projection->pose_yaw);
-        if (parser_projection->pose_pitch != kValueNotPresent)
-          muxer_projection.set_pose_pitch(parser_projection->pose_pitch);
-        if (parser_projection->pose_roll != kValueNotPresent)
-          muxer_projection.set_pose_roll(parser_projection->pose_roll);
+        if (projection_pose_yaw != kValueNotPresent)
+          muxer_projection.set_pose_yaw(projection_pose_yaw);
+        if (projection_pose_pitch != kValueNotPresent)
+          muxer_projection.set_pose_pitch(projection_pose_pitch);
+        if (projection_pose_roll != kValueNotPresent)
+          muxer_projection.set_pose_roll(projection_pose_roll);
+
         if (!video->SetProjection(muxer_projection))
           return EXIT_FAILURE;
       }
@@ -468,10 +543,22 @@ int main(int argc, char* argv[]) {
         video->set_frame_rate(rate);
       }
 
-      if (vp9_profile >= 0 || vp9_level >= 0) {
+      size_t parser_private_size;
+      const unsigned char* const parser_private_data =
+          pVideoTrack->GetCodecPrivate(parser_private_size);
+
+      if (!strcmp(video->codec_id(), mkvmuxer::Tracks::kAv1CodecId)) {
+        if (parser_private_data == NULL || parser_private_size == 0) {
+          printf("AV1 input track has no CodecPrivate. %s is invalid.", input);
+          return EXIT_FAILURE;
+        }
+      }
+
+      if (!strcmp(video->codec_id(), mkvmuxer::Tracks::kVp9CodecId) &&
+          (vp9_profile >= 0 || vp9_level >= 0)) {
         const int kMaxVp9PrivateSize = 6;
-        unsigned char private_data[kMaxVp9PrivateSize];
-        int private_size = 0;
+        unsigned char vp9_private_data[kMaxVp9PrivateSize];
+        int vp9_private_size = 0;
         if (vp9_profile >= 0) {
           if (vp9_profile < 0 || vp9_profile > 3) {
             printf("\n VP9 profile(%d) is not valid.\n", vp9_profile);
@@ -479,9 +566,9 @@ int main(int argc, char* argv[]) {
           }
           const uint8_t kVp9ProfileId = 1;
           const uint8_t kVp9ProfileIdLength = 1;
-          private_data[private_size++] = kVp9ProfileId;
-          private_data[private_size++] = kVp9ProfileIdLength;
-          private_data[private_size++] = vp9_profile;
+          vp9_private_data[vp9_private_size++] = kVp9ProfileId;
+          vp9_private_data[vp9_private_size++] = kVp9ProfileIdLength;
+          vp9_private_data[vp9_private_size++] = vp9_profile;
         }
 
         if (vp9_level >= 0) {
@@ -501,11 +588,16 @@ int main(int argc, char* argv[]) {
           }
           const uint8_t kVp9LevelId = 2;
           const uint8_t kVp9LevelIdLength = 1;
-          private_data[private_size++] = kVp9LevelId;
-          private_data[private_size++] = kVp9LevelIdLength;
-          private_data[private_size++] = vp9_level;
+          vp9_private_data[vp9_private_size++] = kVp9LevelId;
+          vp9_private_data[vp9_private_size++] = kVp9LevelIdLength;
+          vp9_private_data[vp9_private_size++] = vp9_level;
         }
-        if (!video->SetCodecPrivate(private_data, private_size)) {
+        if (!video->SetCodecPrivate(vp9_private_data, vp9_private_size)) {
+          printf("\n Could not add video private data.\n");
+          return EXIT_FAILURE;
+        }
+      } else if (parser_private_data && parser_private_size > 0) {
+        if (!video->SetCodecPrivate(parser_private_data, parser_private_size)) {
           printf("\n Could not add video private data.\n");
           return EXIT_FAILURE;
         }

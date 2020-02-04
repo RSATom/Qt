@@ -4,20 +4,20 @@
 
 #include <stddef.h>
 #include <sstream>
+#include <unordered_map>
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/containers/id_map.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/id_map.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/dom_distiller/content/browser/distiller_javascript_utils.h"
 #include "components/dom_distiller/content/browser/distiller_page_web_contents.h"
@@ -29,8 +29,8 @@
 #include "components/dom_distiller/core/proto/distilled_article.pb.h"
 #include "components/dom_distiller/core/proto/distilled_page.pb.h"
 #include "components/dom_distiller/core/task_tracker.h"
-#include "components/leveldb_proto/proto_database.h"
-#include "components/leveldb_proto/proto_database_impl.h"
+#include "components/leveldb_proto/public/proto_database.h"
+#include "components/leveldb_proto/public/proto_database_provider.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
@@ -49,8 +49,7 @@ namespace dom_distiller {
 
 namespace {
 
-typedef base::hash_map<std::string, std::string> FileToUrlMap;
-
+typedef std::unordered_map<std::string, std::string> FileToUrlMap;
 }
 
 // Factory for creating a Distiller that creates different DomDistillerOptions
@@ -132,9 +131,8 @@ std::unique_ptr<DomDistillerService> CreateDomDistillerService(
 
   // TODO(cjhopman): use an in-memory database instead of an on-disk one with
   // temporary directory.
-  std::unique_ptr<leveldb_proto::ProtoDatabaseImpl<ArticleEntry>> db(
-      new leveldb_proto::ProtoDatabaseImpl<ArticleEntry>(
-          background_task_runner));
+  auto db = leveldb_proto::ProtoDatabaseProvider::CreateUniqueDB<ArticleEntry>(
+      background_task_runner);
   std::unique_ptr<DomDistillerStore> dom_distiller_store(
       new DomDistillerStore(std::move(db), db_path));
 
@@ -143,7 +141,7 @@ std::unique_ptr<DomDistillerService> CreateDomDistillerService(
   std::unique_ptr<DistillerURLFetcherFactory> distiller_url_fetcher_factory(
       new DistillerURLFetcherFactory(
           content::BrowserContext::GetDefaultStoragePartition(context)
-              ->GetURLRequestContext()));
+              ->GetURLLoaderFactoryForBrowserProcess()));
 
   dom_distiller::proto::DomDistillerOptions options;
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(kExtractTextOnly)) {
@@ -186,7 +184,7 @@ std::unique_ptr<DomDistillerService> CreateDomDistillerService(
 void AddComponentsTestResources() {
   base::FilePath pak_file;
   base::FilePath pak_dir;
-  PathService::Get(base::DIR_MODULE, &pak_dir);
+  base::PathService::Get(base::DIR_MODULE, &pak_dir);
   pak_file =
       pak_dir.Append(FILE_PATH_LITERAL("components_tests_resources.pak"));
   ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
@@ -422,7 +420,7 @@ class ContentExtractor : public ContentBrowserTest {
     requests_.clear();
     service_.reset();
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+        FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
   }
 
   size_t pending_tasks_;

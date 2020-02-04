@@ -30,16 +30,16 @@ void CustomGeometrySource::loadDescription(FileSource&) {
 
 void CustomGeometrySource::setTileData(const CanonicalTileID& tileID,
                                      const GeoJSON& data) {
-    loader->invoke(&CustomTileLoader::setTileData, tileID, data);
+    loader->self().invoke(&CustomTileLoader::setTileData, tileID, data);
 }
 
 void CustomGeometrySource::invalidateTile(const CanonicalTileID& tileID) {
-    loader->invoke(&CustomTileLoader::invalidateTile, tileID);
+    loader->self().invoke(&CustomTileLoader::invalidateTile, tileID);
 }
 
 void CustomGeometrySource::invalidateRegion(const LatLngBounds& bounds) {
-    loader->invoke(&CustomTileLoader::invalidateRegion, bounds, impl().getZoomRange());
+    loader->self().invoke(&CustomTileLoader::invalidateRegion, bounds, impl().getZoomRange());
 }
-    
+
 } // namespace style
 } // namespace mbgl

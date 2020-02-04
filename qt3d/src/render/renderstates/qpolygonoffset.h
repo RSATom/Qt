@@ -48,7 +48,7 @@ namespace Qt3DRender {
 
 class QPolygonOffsetPrivate;
 
-class QT3DRENDERSHARED_EXPORT QPolygonOffset : public QRenderState
+class Q_3DRENDERSHARED_EXPORT QPolygonOffset : public QRenderState
 {
     Q_OBJECT
 
@@ -71,7 +71,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QPolygonOffset)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

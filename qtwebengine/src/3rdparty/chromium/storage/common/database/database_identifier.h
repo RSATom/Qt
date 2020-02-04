@@ -7,23 +7,32 @@
 
 #include <string>
 
+#include "base/component_export.h"
 #include "base/strings/string_piece.h"
-#include "storage/common/storage_common_export.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace storage {
 
-STORAGE_COMMON_EXPORT std::string GetIdentifierFromOrigin(
-    const GURL& origin);
-STORAGE_COMMON_EXPORT GURL GetOriginFromIdentifier(
-    const std::string& identifier);
-STORAGE_COMMON_EXPORT bool IsValidOriginIdentifier(
-    const std::string& identifier);
+COMPONENT_EXPORT(STORAGE_COMMON)
+std::string GetIdentifierFromOrigin(const url::Origin& origin);
+COMPONENT_EXPORT(STORAGE_COMMON)
+url::Origin GetOriginFromIdentifier(const std::string& identifier);
 
-class STORAGE_COMMON_EXPORT DatabaseIdentifier {
+// TODO(jsbell): Remove use of the GURL variants.
+COMPONENT_EXPORT(STORAGE_COMMON)
+std::string GetIdentifierFromOrigin(const GURL& origin);
+COMPONENT_EXPORT(STORAGE_COMMON)
+GURL GetOriginURLFromIdentifier(const std::string& identifier);
+
+COMPONENT_EXPORT(STORAGE_COMMON)
+bool IsValidOriginIdentifier(const std::string& identifier);
+
+class COMPONENT_EXPORT(STORAGE_COMMON) DatabaseIdentifier {
  public:
   static const DatabaseIdentifier UniqueFileIdentifier();
   static DatabaseIdentifier CreateFromOrigin(const GURL& origin);
+  static DatabaseIdentifier CreateFromOrigin(const url::Origin& origin);
   static DatabaseIdentifier Parse(const std::string& identifier);
   ~DatabaseIdentifier();
 

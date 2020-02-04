@@ -17,8 +17,6 @@ class CONTENT_EXPORT MemoryMonitorAndroid : public MemoryMonitor {
  public:
   static std::unique_ptr<MemoryMonitorAndroid> Create();
 
-  static bool Register(JNIEnv* env);
-
   // C++ counter-part of ActivityManager.MemoryInfo
   struct MemoryInfo {
     jlong avail_mem;
@@ -49,11 +47,7 @@ class CONTENT_EXPORT MemoryMonitorAndroid : public MemoryMonitor {
   Delegate* delegate() { return delegate_.get(); }
 
  private:
-  void OnApplicationStateChange(base::android::ApplicationState state);
-
   std::unique_ptr<Delegate> delegate_;
-  std::unique_ptr<base::android::ApplicationStatusListener>
-      application_state_listener_;
 
   DISALLOW_COPY_AND_ASSIGN(MemoryMonitorAndroid);
 };

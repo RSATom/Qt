@@ -18,34 +18,38 @@
 #include <wchar.h>
 
 // _FX_OS_ values:
-#define _FX_WIN32_DESKTOP_ 1
-#define _FX_WIN64_DESKTOP_ 2
-#define _FX_LINUX_DESKTOP_ 4
-#define _FX_MACOSX_ 7
-#define _FX_ANDROID_ 12
+#define _FX_OS_WIN32_ 1
+#define _FX_OS_WIN64_ 2
+#define _FX_OS_LINUX_ 4
+#define _FX_OS_MACOSX_ 7
+#define _FX_OS_ANDROID_ 12
+#define _FX_OS_WASM_ 13
 
-// _FXM_PLATFORM_ values;
-#define _FXM_PLATFORM_WINDOWS_ 1  // _FX_WIN32_DESKTOP_ or _FX_WIN64_DESKTOP_.
-#define _FXM_PLATFORM_LINUX_ 2    // _FX_LINUX_DESKTOP_ always.
-#define _FXM_PLATFORM_APPLE_ 3    // _FX_MACOSX_ always.
-#define _FXM_PLATFORM_ANDROID_ 4  // _FX_ANDROID_ always.
+// _FX_PLATFORM_ values;
+#define _FX_PLATFORM_WINDOWS_ 1  // _FX_OS_WIN32_ or _FX_OS_WIN64_.
+#define _FX_PLATFORM_LINUX_ 2    // _FX_OS_LINUX_ or _FX_OS_WASM_.
+#define _FX_PLATFORM_APPLE_ 3    // _FX_OS_MACOSX_ always.
+#define _FX_PLATFORM_ANDROID_ 4  // _FX_OS_ANDROID_ always.
 
 #ifndef _FX_OS_
 #if defined(__ANDROID__)
-#define _FX_OS_ _FX_ANDROID_
-#define _FXM_PLATFORM_ _FXM_PLATFORM_ANDROID_
+#define _FX_OS_ _FX_OS_ANDROID_
+#define _FX_PLATFORM_ _FX_PLATFORM_ANDROID_
 #elif defined(_WIN32)
-#define _FX_OS_ _FX_WIN32_DESKTOP_
-#define _FXM_PLATFORM_ _FXM_PLATFORM_WINDOWS_
+#define _FX_OS_ _FX_OS_WIN32_
+#define _FX_PLATFORM_ _FX_PLATFORM_WINDOWS_
 #elif defined(_WIN64)
-#define _FX_OS_ _FX_WIN64_DESKTOP_
-#define _FXM_PLATFORM_ _FXM_PLATFORM_WINDOWS_
+#define _FX_OS_ _FX_OS_WIN64_
+#define _FX_PLATFORM_ _FX_PLATFORM_WINDOWS_
 #elif defined(__linux__)
-#define _FX_OS_ _FX_LINUX_DESKTOP_
-#define _FXM_PLATFORM_ _FXM_PLATFORM_LINUX_
+#define _FX_OS_ _FX_OS_LINUX_
+#define _FX_PLATFORM_ _FX_PLATFORM_LINUX_
 #elif defined(__APPLE__)
-#define _FX_OS_ _FX_MACOSX_
-#define _FXM_PLATFORM_ _FXM_PLATFORM_APPLE_
+#define _FX_OS_ _FX_OS_MACOSX_
+#define _FX_PLATFORM_ _FX_PLATFORM_APPLE_
+#elif defined(__asmjs__) || defined(__wasm__)
+#define _FX_OS_ _FX_OS_WASM_
+#define _FX_PLATFORM_ _FX_PLATFORM_LINUX_
 #endif
 #endif  // _FX_OS_
 
@@ -53,15 +57,23 @@
 #error Sorry, can not figure out target OS. Please specify _FX_OS_ macro.
 #endif
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#error Sorry, VC++ 2015 or later is required to compile PDFium.
+#endif  // defined(_MSC_VER) && _MSC_VER < 1900
+
+#if _FX_OS_ == _FX_OS_WASM_ && defined(PDF_ENABLE_V8)
+#error Cannot compile v8 with wasm.
+#endif  // PDF_ENABLE_V8
+
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 #include <windows.h>
 #include <sal.h>
-#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
 #include <Carbon/Carbon.h>
 #include <libkern/OSAtomic.h>
-#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,20 +84,15 @@ extern "C" {
 #define IsFloatSmaller(fa, fb) ((fa) < (fb) && !IsFloatZero((fa) - (fb)))
 #define IsFloatEqual(fa, fb) IsFloatZero((fa) - (fb))
 
-// PDFium string sizes are limited to 2^31-1, and the value is signed to
-// allow -1 as a placeholder for "unknown".
-// TODO(palmer): it should be a |size_t|, or at least unsigned.
-typedef int FX_STRSIZE;
-
 // PDFium file sizes match the platform, but PDFium itself does not support
 // files larger than 2GB even if the platform does. The value must be signed
 // to support -1 error returns.
 // TODO(tsepez): support larger files.
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 #define FX_FILESIZE int32_t
-#else  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#else  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 #define FX_FILESIZE off_t
-#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
 #ifndef ASSERT
 #ifndef NDEBUG
@@ -106,19 +113,9 @@ typedef int FX_STRSIZE;
 #define FX_BEZIER 0.5522847498308f
 
 // NOTE: prevent use of the return value from snprintf() since some platforms
-// have different return values (e.g. windows _vsnprintf()), and provide
-// versions that always NUL-terminate.
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_ && _MSC_VER < 1900
-void FXSYS_snprintf(char* str,
-                    size_t size,
-                    _Printf_format_string_ const char* fmt,
-                    ...);
-void FXSYS_vsnprintf(char* str, size_t size, const char* fmt, va_list ap);
-#else  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_ && _MSC_VER < 1900
+// have different return values.
 #define FXSYS_snprintf (void)snprintf
 #define FXSYS_vsnprintf (void)vsnprintf
-#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_ && _MSC_VER < 1900
-
 #define FXSYS_sprintf DO_NOT_USE_SPRINTF_DIE_DIE_DIE
 #define FXSYS_vsprintf DO_NOT_USE_VSPRINTF_DIE_DIE_DIE
 
@@ -127,16 +124,13 @@ void FXSYS_vsnprintf(char* str, size_t size, const char* fmt, va_list ap);
 
 #include "third_party/base/numerics/safe_conversions.h"
 
-#define FXSYS_strlen(ptr) pdfium::base::checked_cast<FX_STRSIZE>(strlen(ptr))
-#define FXSYS_wcslen(ptr) pdfium::base::checked_cast<FX_STRSIZE>(wcslen(ptr))
-
 // Overloaded functions for C++ templates
-inline FX_STRSIZE FXSYS_len(const char* ptr) {
-  return FXSYS_strlen(ptr);
+inline size_t FXSYS_len(const char* ptr) {
+  return strlen(ptr);
 }
 
-inline FX_STRSIZE FXSYS_len(const wchar_t* ptr) {
-  return FXSYS_wcslen(ptr);
+inline size_t FXSYS_len(const wchar_t* ptr) {
+  return wcslen(ptr);
 }
 
 inline int FXSYS_cmp(const char* ptr1, const char* ptr2, size_t len) {
@@ -156,20 +150,15 @@ inline const wchar_t* FXSYS_chr(const wchar_t* ptr, wchar_t ch, size_t len) {
 }
 
 extern "C" {
-#else
-#define FXSYS_strlen(ptr) ((FX_STRSIZE)strlen(ptr))
-#define FXSYS_wcslen(ptr) ((FX_STRSIZE)wcslen(ptr))
 #endif  // __cplusplus
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 #define FXSYS_GetACP GetACP
 #define FXSYS_itoa _itoa
 #define FXSYS_strlwr _strlwr
 #define FXSYS_strupr _strupr
 #define FXSYS_stricmp _stricmp
 #define FXSYS_pow(a, b) (float)powf(a, b)
-#define FXSYS_GetFullPathName GetFullPathName
-#define FXSYS_GetModuleFileName GetModuleFileName
 size_t FXSYS_wcsftime(wchar_t* strDest,
                       size_t maxsize,
                       const wchar_t* format,
@@ -189,7 +178,9 @@ size_t FXSYS_wcsftime(wchar_t* strDest,
 #define FXSYS_wcslwr _wcslwr
 #define FXSYS_wcsupr _wcsupr
 #endif  // _NATIVE_WCHAR_T_DEFINED
-#else   // _FXM_PLATFORM == _FXM_PLATFORM_WINDOWS_
+
+#else  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+
 int FXSYS_GetACP();
 char* FXSYS_itoa(int value, char* str, int radix);
 int FXSYS_WideCharToMultiByte(uint32_t codepage,
@@ -206,11 +197,6 @@ int FXSYS_MultiByteToWideChar(uint32_t codepage,
                               int blen,
                               wchar_t* buf,
                               int buflen);
-uint32_t FXSYS_GetFullPathName(const char* filename,
-                               uint32_t buflen,
-                               char* buf,
-                               char** filepart);
-uint32_t FXSYS_GetModuleFileName(void* hModule, char* buf, uint32_t bufsize);
 char* FXSYS_strlwr(char* str);
 char* FXSYS_strupr(char* str);
 int FXSYS_stricmp(const char*, const char*);
@@ -219,8 +205,14 @@ wchar_t* FXSYS_wcslwr(wchar_t* str);
 wchar_t* FXSYS_wcsupr(wchar_t* str);
 #define FXSYS_pow(a, b) (float)pow(a, b)
 #define FXSYS_wcsftime wcsftime
-#endif  // _FXM_PLATFORM == _FXM_PLATFORM_WINDOWS_
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
+#define FXWORD_GET_LSBFIRST(p)                                \
+  (static_cast<uint16_t>((static_cast<uint16_t>(p[1]) << 8) | \
+                         (static_cast<uint16_t>(p[0]))))
+#define FXWORD_GET_MSBFIRST(p)                                \
+  (static_cast<uint16_t>((static_cast<uint16_t>(p[0]) << 8) | \
+                         (static_cast<uint16_t>(p[1]))))
 #define FXDWORD_GET_LSBFIRST(p)                                                \
   ((static_cast<uint32_t>(p[3]) << 24) | (static_cast<uint32_t>(p[2]) << 16) | \
    (static_cast<uint32_t>(p[1]) << 8) | (static_cast<uint32_t>(p[0])))
@@ -231,19 +223,18 @@ int32_t FXSYS_atoi(const char* str);
 uint32_t FXSYS_atoui(const char* str);
 int32_t FXSYS_wtoi(const wchar_t* str);
 int64_t FXSYS_atoi64(const char* str);
-int64_t FXSYS_wtoi64(const wchar_t* str);
 const char* FXSYS_i64toa(int64_t value, char* str, int radix);
 int FXSYS_round(float f);
 #define FXSYS_sqrt2(a, b) (float)sqrt((a) * (a) + (b) * (b))
 #ifdef __cplusplus
-};      // extern C
+}  // extern C
 #endif  // __cplusplus
 
 // To print a size_t value in a portable way:
 //   size_t size;
 //   printf("xyz: %" PRIuS, size);
 // The "u" in the macro corresponds to %u, and S is for "size".
-#if _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
+#if _FX_PLATFORM_ != _FX_PLATFORM_WINDOWS_
 
 #if (defined(_INTTYPES_H) || defined(_INTTYPES_H_)) && !defined(PRId64)
 #error "inttypes.h has already been included before this header file, but "
@@ -260,30 +251,20 @@ int FXSYS_round(float f);
 #define PRIuS "zu"
 #endif
 
-#else  // _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
+#else  // _FX_PLATFORM_ != _FX_PLATFORM_WINDOWS_
 
 #if !defined(PRIuS)
 #define PRIuS "Iu"
 #endif
 
-#endif  // _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
+#endif  // _FX_PLATFORM_ != _FX_PLATFORM_WINDOWS_
 
 // Prevent a function from ever being inlined, typically because we'd
 // like it to appear in stack traces.
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 #define NEVER_INLINE __declspec(noinline)
-#else  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#else  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 #define NEVER_INLINE __attribute__((__noinline__))
-#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-
-// Handle differnces between platform's variadic function implementations.
-#if defined(__ARMCC_VERSION) ||                                              \
-    (!defined(_MSC_VER) && (_FX_CPU_ == _FX_X64_ || _FX_CPU_ == _FX_IA64_ || \
-                            _FX_CPU_ == _FX_ARM64_)) ||                      \
-    defined(__native_client__)
-#define FX_VA_COPY(dst, src) va_copy((dst), (src))
-#else
-#define FX_VA_COPY(dst, src) ((dst) = (src))
-#endif
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
 #endif  // CORE_FXCRT_FX_SYSTEM_H_

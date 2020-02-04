@@ -18,9 +18,11 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/eme_constants.h"
+#include "media/base/encryption_pattern.h"
+#include "media/base/encryption_scheme.h"
 #include "media/base/test_helpers.h"
 #include "media/base/video_decoder_config.h"
-#include "media/remoting/rpc.pb.h"
+#include "media/remoting/media_remoting_rpc.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -113,7 +115,7 @@ TEST_F(ProtoUtilsTest, PassValidDecoderBuffer) {
 TEST_F(ProtoUtilsTest, AudioDecoderConfigConversionTest) {
   const std::string extra_data = "ACEG";
   const EncryptionScheme encryption_scheme(
-      EncryptionScheme::CIPHER_MODE_AES_CTR, EncryptionScheme::Pattern(20, 40));
+      EncryptionScheme::CIPHER_MODE_AES_CTR, EncryptionPattern(20, 40));
   AudioDecoderConfig audio_config(
       kCodecAAC, kSampleFormatF32, CHANNEL_LAYOUT_MONO, 48000,
       std::vector<uint8_t>(extra_data.begin(), extra_data.end()),
@@ -132,17 +134,18 @@ TEST_F(ProtoUtilsTest, AudioDecoderConfigConversionTest) {
 
 TEST_F(ProtoUtilsTest, PipelineStatisticsConversion) {
   PipelineStatistics original;
-  // Note: Fill the structure with non-zero bytes to ensure this test is
-  // initializing *all* fields.
-  memset(&original, 0xcd, sizeof(original));
+  // NOTE: all fields should be initialised here.
   original.audio_bytes_decoded = 123;
   original.video_bytes_decoded = 456;
   original.video_frames_decoded = 789;
+  original.video_frames_decoded_power_efficient = 0;
   original.video_frames_dropped = 21;
   original.audio_memory_usage = 32;
   original.video_memory_usage = 43;
   original.video_keyframe_distance_average = base::TimeDelta::Max();
   original.video_frame_duration_average = base::TimeDelta::Max();
+  original.audio_decoder_name = "TestAudioDecoder";
+  original.video_decoder_name = "TestVideoDecoder";
 
   // There is no convert-to-proto function, so just do that here.
   pb::PipelineStatistics pb_stats;
@@ -154,14 +157,20 @@ TEST_F(ProtoUtilsTest, PipelineStatisticsConversion) {
   pb_stats.set_video_memory_usage(original.video_memory_usage);
   pb_stats.set_video_frame_duration_average_usec(
       original.video_frame_duration_average.InMicroseconds());
+  pb_stats.set_audio_decoder_name(original.audio_decoder_name);
+  pb_stats.set_video_decoder_name(original.video_decoder_name);
 
   PipelineStatistics converted;
-  memset(&converted, ~0xcd, sizeof(converted));  // See note above.
+  // NOTE: fields will all be initialized with 0xcd. Forcing the conversion to
+  // properly assigned them. Don't memset() over non-primitive types like
+  // std::string since this will trigger corruption.
+  memset(&converted, 0xcd, sizeof(converted) - sizeof(std::string) * 2);
+  converted.video_decoder_name = converted.audio_decoder_name = "0xcdcdcdcd";
   ConvertProtoToPipelineStatistics(pb_stats, &converted);
 
   // If this fails, did media::PipelineStatistics add/change fields that are not
   // being set by media::remoting::ConvertProtoToPipelineStatistics()?
-  EXPECT_EQ(0, memcmp(&original, &converted, sizeof(converted)));
+  EXPECT_EQ(original, converted);
 }
 
 TEST_F(ProtoUtilsTest, VideoDecoderConfigConversionTest) {

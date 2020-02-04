@@ -11,7 +11,7 @@
 #include "base/files/file_path.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
@@ -441,7 +441,7 @@ base::NativeLibrary GSSAPISharedLibrary::LoadSharedLibrary() {
 #endif
     };
     library_names = kDefaultLibraryNames;
-    num_lib_names = arraysize(kDefaultLibraryNames);
+    num_lib_names = base::size(kDefaultLibraryNames);
   }
 
   for (size_t i = 0; i < num_lib_names; ++i) {
@@ -636,6 +636,10 @@ OM_uint32 GSSAPISharedLibrary::inquire_context(
                           open);
 }
 
+const std::string& GSSAPISharedLibrary::GetLibraryNameForTesting() {
+  return gssapi_library_name_;
+}
+
 ScopedSecurityContext::ScopedSecurityContext(GSSAPILibrary* gssapi_lib)
     : security_context_(GSS_C_NO_CONTEXT),
       gssapi_lib_(gssapi_lib) {
@@ -667,8 +671,7 @@ HttpAuthGSSAPI::HttpAuthGSSAPI(GSSAPILibrary* library,
   DCHECK(library_);
 }
 
-HttpAuthGSSAPI::~HttpAuthGSSAPI() {
-}
+HttpAuthGSSAPI::~HttpAuthGSSAPI() = default;
 
 bool HttpAuthGSSAPI::Init() {
   if (!library_)
@@ -702,7 +705,7 @@ int HttpAuthGSSAPI::GenerateAuthToken(const AuthCredentials* credentials,
                                       const std::string& spn,
                                       const std::string& channel_bindings,
                                       std::string* auth_token,
-                                      const CompletionCallback& /*callback*/) {
+                                      CompletionOnceCallback /*callback*/) {
   DCHECK(auth_token);
 
   gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;

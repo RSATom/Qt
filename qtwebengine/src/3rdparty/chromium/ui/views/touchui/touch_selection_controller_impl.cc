@@ -1,26 +1,29 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/views/touchui/touch_selection_controller_impl.h"
 
-#include "base/macros.h"
+#include <set>
+
+#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/env.h"
+#include "ui/aura/mus/window_port_mus.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_targeter.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/path.h"
 #include "ui/resources/grit/ui_resources.h"
+#include "ui/views/views_delegate.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/wm/core/coordinate_conversion.h"
-#include "ui/wm/core/masked_window_targeter.h"
 
 namespace {
 
@@ -73,14 +76,14 @@ const int kSelectionHandleBarBottomAllowance = 3;
 
 // Creates a widget to host SelectionHandleView.
 views::Widget* CreateTouchSelectionPopupWidget(
-    gfx::NativeView context,
+    gfx::NativeView parent,
     views::WidgetDelegate* widget_delegate) {
   views::Widget* widget = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
   params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
   params.shadow_type = views::Widget::InitParams::SHADOW_TYPE_NONE;
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.parent = context;
+  params.parent = parent;
   params.delegate = widget_delegate;
   widget->Init(params);
   return widget;
@@ -115,7 +118,7 @@ gfx::Image* GetRightHandleImage() {
 
 // Return the appropriate handle image based on the bound's type
 gfx::Image* GetHandleImage(gfx::SelectionBound::Type bound_type) {
-  switch(bound_type) {
+  switch (bound_type) {
     case gfx::SelectionBound::LEFT:
       return GetLeftHandleImage();
     case gfx::SelectionBound::CENTER:
@@ -125,14 +128,15 @@ gfx::Image* GetHandleImage(gfx::SelectionBound::Type bound_type) {
     default:
       NOTREACHED() << "Invalid touch handle bound type: " << bound_type;
       return nullptr;
-  };
+  }
 }
 
 // Calculates the bounds of the widget containing the selection handle based
-// on the SelectionBound's type and location
+// on the SelectionBound's type and location.
 gfx::Rect GetSelectionWidgetBounds(const gfx::SelectionBound& bound) {
   gfx::Size image_size = GetHandleImage(bound.type())->Size();
   int widget_width = image_size.width() + 2 * kSelectionHandleHorizPadding;
+  // Extend the widget height to handle touch events below the painted image.
   int widget_height = bound.GetHeight() + image_size.height() +
                       kSelectionHandleVerticalVisualOffset +
                       kSelectionHandleVertPadding;
@@ -153,7 +157,7 @@ gfx::Rect GetSelectionWidgetBounds(const gfx::SelectionBound& bound) {
     default:
       NOTREACHED() << "Undefined bound type.";
       break;
-  };
+  }
   return gfx::Rect(
       widget_left, bound.edge_top_rounded().y(), widget_width, widget_height);
 }
@@ -204,41 +208,29 @@ gfx::Rect BoundToRect(const gfx::SelectionBound& bound) {
 
 namespace views {
 
-typedef TouchSelectionControllerImpl::EditingHandleView EditingHandleView;
-
-class TouchHandleWindowTargeter : public wm::MaskedWindowTargeter {
- public:
-  TouchHandleWindowTargeter(aura::Window* window,
-                            EditingHandleView* handle_view);
-
-  ~TouchHandleWindowTargeter() override {}
-
- private:
-  // wm::MaskedWindowTargeter:
-  bool GetHitTestMask(aura::Window* window, gfx::Path* mask) const override;
-
-  EditingHandleView* handle_view_;
-
-  DISALLOW_COPY_AND_ASSIGN(TouchHandleWindowTargeter);
-};
+using EditingHandleView = TouchSelectionControllerImpl::EditingHandleView;
 
 // A View that displays the text selection handle.
 class TouchSelectionControllerImpl::EditingHandleView
-    : public views::WidgetDelegateView {
+    : public WidgetDelegateView {
  public:
   EditingHandleView(TouchSelectionControllerImpl* controller,
-                    gfx::NativeView context,
+                    gfx::NativeView parent,
                     bool is_cursor_handle)
       : controller_(controller),
         image_(GetCenterHandleImage()),
         is_cursor_handle_(is_cursor_handle),
         draw_invisible_(false),
         weak_ptr_factory_(this) {
-    widget_.reset(CreateTouchSelectionPopupWidget(context, this));
+    widget_.reset(CreateTouchSelectionPopupWidget(parent, this));
 
+    targeter_ = new aura::WindowTargeter();
     aura::Window* window = widget_->GetNativeWindow();
-    window->SetEventTargeter(std::unique_ptr<ui::EventTargeter>(
-        new TouchHandleWindowTargeter(window, this)));
+    // For Mus clients, adjust targeting of the handle's client root window,
+    // constructed by the window server for the handle's "content" window.
+    if (window->env()->mode() == aura::Env::Mode::MUS)
+      window = window->GetRootWindow();
+    window->SetEventTargeter(std::unique_ptr<aura::WindowTargeter>(targeter_));
 
     // We are owned by the TouchSelectionControllerImpl.
     set_owned_by_client();
@@ -250,26 +242,12 @@ class TouchSelectionControllerImpl::EditingHandleView
     return selection_bound_.type();
   }
 
-  // Overridden from views::WidgetDelegateView:
-  bool WidgetHasHitTestMask() const override { return true; }
-
-  void GetWidgetHitTestMask(gfx::Path* mask) const override {
-    gfx::Size image_size = image_->Size();
-    mask->addRect(
-        SkIntToScalar(0),
-        SkIntToScalar(selection_bound_.GetHeight() +
-                      kSelectionHandleVerticalVisualOffset),
-        SkIntToScalar(image_size.width()) + 2 * kSelectionHandleHorizPadding,
-        SkIntToScalar(selection_bound_.GetHeight() +
-                      kSelectionHandleVerticalVisualOffset +
-                      image_size.height() + kSelectionHandleVertPadding));
-  }
-
+  // WidgetDelegateView:
   void DeleteDelegate() override {
     // We are owned and deleted by TouchSelectionControllerImpl.
   }
 
-  // Overridden from views::View:
+  // View:
   void OnPaint(gfx::Canvas* canvas) override {
     if (draw_invisible_)
       return;
@@ -366,19 +344,23 @@ class TouchSelectionControllerImpl::EditingHandleView
         SchedulePaint();
     }
 
-    if (!is_visible)
-      return;
+    if (is_visible) {
+      selection_bound_.SetEdge(bound.edge_top(), bound.edge_bottom());
 
-    selection_bound_.SetEdge(bound.edge_top(), bound.edge_bottom());
+      widget_->SetBounds(GetSelectionWidgetBounds(selection_bound_));
 
-    widget_->SetBounds(GetSelectionWidgetBounds(selection_bound_));
+      aura::Window* window = widget_->GetNativeView();
+      gfx::Point edge_top = selection_bound_.edge_top_rounded();
+      gfx::Point edge_bottom = selection_bound_.edge_bottom_rounded();
+      wm::ConvertPointFromScreen(window, &edge_top);
+      wm::ConvertPointFromScreen(window, &edge_bottom);
+      selection_bound_.SetEdge(gfx::PointF(edge_top), gfx::PointF(edge_bottom));
+    }
 
-    aura::Window* window = widget_->GetNativeView();
-    gfx::Point edge_top = selection_bound_.edge_top_rounded();
-    gfx::Point edge_bottom = selection_bound_.edge_bottom_rounded();
-    wm::ConvertPointFromScreen(window, &edge_top);
-    wm::ConvertPointFromScreen(window, &edge_bottom);
-    selection_bound_.SetEdge(gfx::PointF(edge_top), gfx::PointF(edge_bottom));
+    const gfx::Insets insets(
+        selection_bound_.GetHeight() + kSelectionHandleVerticalVisualOffset, 0,
+        0, 0);
+    targeter_->SetInsets(insets, insets);
   }
 
   void SetDrawInvisible(bool draw_invisible) {
@@ -391,6 +373,12 @@ class TouchSelectionControllerImpl::EditingHandleView
  private:
   std::unique_ptr<Widget> widget_;
   TouchSelectionControllerImpl* controller_;
+
+  // A WindowTargeter that shifts the hit-test target below the apparent bounds
+  // to make dragging easier. The |widget_|'s NativeWindow takes ownership over
+  // the |targeter_| but since the |widget_|'s lifetime is known to this class,
+  // it can safely access the |targeter_|.
+  aura::WindowTargeter* targeter_;
 
   // In local coordinates
   gfx::SelectionBound selection_bound_;
@@ -416,47 +404,34 @@ class TouchSelectionControllerImpl::EditingHandleView
   DISALLOW_COPY_AND_ASSIGN(EditingHandleView);
 };
 
-TouchHandleWindowTargeter::TouchHandleWindowTargeter(
-    aura::Window* window,
-    EditingHandleView* handle_view)
-    : wm::MaskedWindowTargeter(window),
-      handle_view_(handle_view) {
-}
-
-bool TouchHandleWindowTargeter::GetHitTestMask(aura::Window* window,
-                                               gfx::Path* mask) const {
-  handle_view_->GetWidgetHitTestMask(mask);
-  return true;
-}
-
 TouchSelectionControllerImpl::TouchSelectionControllerImpl(
     ui::TouchEditable* client_view)
     : client_view_(client_view),
-      client_widget_(nullptr),
-      selection_handle_1_(new EditingHandleView(this,
-                                                client_view->GetNativeView(),
-                                                false)),
-      selection_handle_2_(new EditingHandleView(this,
-                                                client_view->GetNativeView(),
-                                                false)),
-      cursor_handle_(new EditingHandleView(this,
-                                           client_view->GetNativeView(),
-                                           true)),
-      command_executed_(false),
-      dragging_handle_(nullptr) {
+      selection_handle_1_(
+          new EditingHandleView(this, client_view->GetNativeView(), false)),
+      selection_handle_2_(
+          new EditingHandleView(this, client_view->GetNativeView(), false)),
+      cursor_handle_(
+          new EditingHandleView(this, client_view->GetNativeView(), true)) {
   selection_start_time_ = base::TimeTicks::Now();
   aura::Window* client_window = client_view_->GetNativeView();
   client_widget_ = Widget::GetTopLevelWidgetForNativeView(client_window);
+  // Observe client widget moves and resizes to update the selection handles.
   if (client_widget_)
     client_widget_->AddObserver(this);
-  aura::Env::GetInstance()->AddPreTargetHandler(this);
+
+  // Observe certain event types sent to any event target, to hide this ui.
+  aura::Env* env = aura::Env::GetInstance();
+  std::set<ui::EventType> types = {ui::ET_MOUSE_PRESSED, ui::ET_MOUSE_MOVED,
+                                   ui::ET_KEY_PRESSED, ui::ET_MOUSEWHEEL};
+  env->AddEventObserver(this, env, types);
 }
 
 TouchSelectionControllerImpl::~TouchSelectionControllerImpl() {
   UMA_HISTOGRAM_BOOLEAN("Event.TouchSelection.EndedWithAction",
                         command_executed_);
   HideQuickMenu();
-  aura::Env::GetInstance()->RemovePreTargetHandler(this);
+  aura::Env::GetInstance()->RemoveEventObserver(this);
   if (client_widget_)
     client_widget_->RemoveObserver(this);
 }
@@ -641,6 +616,16 @@ void TouchSelectionControllerImpl::RunContextMenu() {
   client_view_->OpenContextMenu(anchor);
 }
 
+bool TouchSelectionControllerImpl::ShouldShowQuickMenu() {
+  NOTREACHED();
+  return false;
+}
+
+base::string16 TouchSelectionControllerImpl::GetSelectedText() {
+  NOTREACHED();
+  return base::string16();
+}
+
 void TouchSelectionControllerImpl::OnWidgetClosing(Widget* widget) {
   DCHECK_EQ(client_widget_, widget);
   client_widget_->RemoveObserver(this);
@@ -654,27 +639,27 @@ void TouchSelectionControllerImpl::OnWidgetBoundsChanged(
   SelectionChanged();
 }
 
-void TouchSelectionControllerImpl::OnKeyEvent(ui::KeyEvent* event) {
-  client_view_->DestroyTouchSelection();
-}
+void TouchSelectionControllerImpl::OnEvent(const ui::Event& event) {
+  if (event.IsMouseEvent()) {
+    // Check IsMouseEventsEnabled, except on Mus, where it's disabled on touch
+    // events in this client, but not re-enabled on mouse events elsewhere.
+    auto* cursor = aura::client::GetCursorClient(
+        client_view_->GetNativeView()->GetRootWindow());
+    if (cursor && !cursor->IsMouseEventsEnabled() &&
+        aura::Env::GetInstance()->mode() != aura::Env::Mode::MUS) {
+      return;
+    }
 
-void TouchSelectionControllerImpl::OnMouseEvent(ui::MouseEvent* event) {
-  aura::client::CursorClient* cursor_client = aura::client::GetCursorClient(
-      client_view_->GetNativeView()->GetRootWindow());
-  if (cursor_client && !cursor_client->IsMouseEventsEnabled())
-    return;
+    // Windows OS unhandled WM_POINTER* may be redispatched as WM_MOUSE*.
+    // Avoid adjusting the handles on synthesized events or events generated
+    // from touch as this can clear an active selection generated by the pen.
+    if ((event.flags() & (ui::EF_IS_SYNTHESIZED | ui::EF_FROM_TOUCH)) ||
+        event.AsMouseEvent()->pointer_details().pointer_type ==
+            ui::EventPointerType::POINTER_TYPE_PEN) {
+      return;
+    }
+  }
 
-  // Do not hide handles on mouse-capture-changed event which might occur when a
-  // selection handle is released. Normally, cursor client should report mouse
-  // events as disabled (the above check), but there are crashes on Windows
-  // devices suggesting it is not always the case (see crbug.com/459423).
-  if (event->type() == ui::ET_MOUSE_CAPTURE_CHANGED)
-    return;
-
-  client_view_->DestroyTouchSelection();
-}
-
-void TouchSelectionControllerImpl::OnScrollEvent(ui::ScrollEvent* event) {
   client_view_->DestroyTouchSelection();
 }
 
@@ -778,11 +763,11 @@ gfx::Rect TouchSelectionControllerImpl::GetExpectedHandleBounds(
   return GetSelectionWidgetBounds(bound);
 }
 
-views::WidgetDelegateView* TouchSelectionControllerImpl::GetHandle1View() {
+WidgetDelegateView* TouchSelectionControllerImpl::GetHandle1View() {
   return selection_handle_1_.get();
 }
 
-views::WidgetDelegateView* TouchSelectionControllerImpl::GetHandle2View() {
+WidgetDelegateView* TouchSelectionControllerImpl::GetHandle2View() {
   return selection_handle_2_.get();
 }
 

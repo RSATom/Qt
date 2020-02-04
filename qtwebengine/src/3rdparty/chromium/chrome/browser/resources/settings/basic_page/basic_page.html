@@ -3,6 +3,8 @@
 <link rel="import" href="chrome://resources/cr_elements/hidden_style_css.html">
 <link rel="import" href="chrome://resources/html/web_ui_listener_behavior.html">
 <link rel="import" href="../appearance_page/appearance_page.html">
+<link rel="import" href="../autofill_page/autofill_page.html">
+<link rel="import" href="../change_password_page/change_password_page.html">
 <link rel="import" href="../controls/settings_idle_load.html">
 <link rel="import" href="../on_startup_page/on_startup_page.html">
 <link rel="import" href="../people_page/people_page.html">
@@ -17,6 +19,7 @@
 <link rel="import" href="../android_apps_page/android_apps_browser_proxy.html">
 <link rel="import" href="../android_apps_page/android_apps_page.html">
 <link rel="import" href="../bluetooth_page/bluetooth_page.html">
+<link rel="import" href="../crostini_page/crostini_page.html">
 <link rel="import" href="../device_page/device_page.html">
 <link rel="import" href="../internet_page/internet_page.html">
 <link rel="import" href="../multidevice_page/multidevice_page.html">
@@ -24,10 +27,6 @@
 
 <if expr="not chromeos">
 <link rel="import" href="../default_browser_page/default_browser_page.html">
-</if>
-
-<if expr="is_win">
-<link rel="import" href="../chrome_cleanup_page/chrome_cleanup_page.html">
 </if>
 
 <!-- TODO(michaelpg): Rename to something better than "basic" now that this page
@@ -42,20 +41,18 @@
       }
 
       #advancedToggle {
-        --paper-button: {
-          text-transform: none;
-        }
-        @apply(--settings-actionable);
+        @apply --settings-actionable;
         align-items: center;
         display: flex;
         margin-bottom: 3px;
         margin-top: 12px;  /* Part of a 48px spacer (33px + 12px + 3px). */
         min-height: 32px;
         padding: 0 12px;
+        text-transform: none;
       }
 
       #secondaryUserBanner {
-        @apply(--shadow-elevation-2dp);
+        @apply --cr-card-elevation;
         align-items: center;
         background-color: white;
         border-radius: 2px;
@@ -89,7 +86,7 @@
       }
 
       iron-icon {
-        -webkit-margin-start: 16px;
+        margin-inline-start: 16px;
       }
     </style>
     <template is="dom-if" if="[[showBasicPage_(
@@ -122,18 +119,35 @@
             </settings-bluetooth-page>
           </settings-section>
         </template>
-</if>
-<if expr="is_win">
-        <template is="dom-if" if="[[showChromeCleanup]]" restamp>
-          <settings-section section="chromeCleanup">
-            <settings-chrome-cleanup-page></settings-chrome-cleanup-page>
+        <template is="dom-if" if="[[showPage_(pageVisibility.multidevice)]]"
+            restamp>
+          <settings-section page-title="$i18n{multidevicePageTitle}"
+              section="multidevice">
+            <settings-multidevice-page prefs="{{prefs}}">
+            </settings-multidevice-page>
           </settings-section>
         </template>
 </if>
+        <template is="dom-if" if="[[showChangePassword]]" restamp>
+          <settings-section section="changePassword">
+            <settings-change-password-page></settings-change-password-page>
+          </settings-section>
+        </template>
         <template is="dom-if" if="[[showPage_(pageVisibility.people)]]" restamp>
           <settings-section page-title="$i18n{peoplePageTitle}"
               section="people">
-            <settings-people-page prefs="{{prefs}}"></settings-people-page>
+            <settings-people-page prefs="{{prefs}}"
+                page-visibility="[[pageVisibility]]">
+            </settings-people-page>
+          </settings-section>
+        </template>
+        <template is="dom-if" if="[[showPage_(pageVisibility.autofill)]]"
+            restamp>
+          <settings-section page-title="$i18n{autofillPageTitle}"
+              section="autofill">
+            <settings-autofill-page prefs="{{prefs}}"
+                page-visibility="[[pageVisibility]]">
+            </settings-autofill-page>
           </settings-section>
         </template>
         <template is="dom-if" if="[[showPage_(pageVisibility.appearance)]]"
@@ -149,26 +163,45 @@
         <template is="dom-if" if="[[showPage_(pageVisibility.device)]]" restamp>
           <settings-section page-title="$i18n{devicePageTitle}"
               section="device">
-            <settings-device-page prefs="{{prefs}}"></settings-device-page>
+            <settings-device-page prefs="{{prefs}}"
+                show-crostini="[[showCrostini]]">
+            </settings-device-page>
           </settings-section>
         </template>
 </if>
         <template is="dom-if" if="[[showPage_(pageVisibility.search)]]" restamp>
           <settings-section page-title="$i18n{searchPageTitle}"
               section="search">
+<if expr="chromeos">
+            <settings-search-page prefs="{{prefs}}"
+                 arc-enabled="[[prefs.arc.enabled.value]]"
+                 voice-interaction-value-prop-accepted="[[
+                     prefs.arc.voice_interaction_value_prop.accepted.value]]">
+            </settings-search-page>
+</if>
+<if expr="not chromeos">
             <settings-search-page prefs="{{prefs}}"></settings-search-page>
+</if>
           </settings-section>
         </template>
 <if expr="chromeos">
-        <template is="dom-if"
-            if="[[shouldShowAndroidApps_(showAndroidApps, androidAppsInfo, pageVisibility)]]"
-            restamp>
+        <template is="dom-if" if="[[shouldCreateAndroidAppsSection_(
+            showAndroidApps, pageVisibility)]]" restamp>
           <settings-section page-title="$i18n{androidAppsPageTitle}"
-              section="androidApps">
+              section="androidApps" hidden$="[[!shouldShowAndroidAppsSection_(
+              androidAppsInfo)]]">
             <settings-android-apps-page prefs="{{prefs}}"
                 android-apps-info="[[androidAppsInfo]]"
                 have-play-store-app="[[havePlayStoreApp]]">
             </settings-android-apps-page>
+          </settings-section>
+        </template>
+        <template is="dom-if" if="[[showCrostini]]" restamp>
+          <settings-section page-title="$i18n{crostiniPageTitle}"
+              section="crostini">
+            <settings-crostini-page prefs="{{prefs}}"
+                allow-crostini="[[allowCrostini_]]">
+            </settings-crostini-page>
           </settings-section>
         </template>
 </if>
@@ -196,8 +229,8 @@
           inSearchMode, hasExpandedSection_)]]">
         <div id="toggleSpacer"></div>
         <h2 id="toggleContainer">
-          <paper-button id="advancedToggle" active="{{advancedToggleExpanded}}"
-              aria-active-attribute="aria-expanded" toggles>
+          <paper-button id="advancedToggle" on-click="advancedToggleClicked_"
+              aria-expanded$="[[boolToString_(advancedToggleExpanded)]]">
             <span>$i18n{advancedPageTitle}</span>
             <iron-icon icon="[[getArrowIcon_(advancedToggleExpanded)]]">
             </iron-icon>
@@ -205,99 +238,82 @@
         </h2>
       </template>
 
-      <template is="settings-idle-load" id="advancedPageTemplate"
-          url="/lazy_load.html">
-        <div id="advancedPage" hidden$="[[!showAdvancedPage_(
-            currentRoute_, inSearchMode, hasExpandedSection_,
-            advancedToggleExpanded)]]">
+      <settings-idle-load id="advancedPageTemplate" url="/lazy_load.html">
+        <template>
+          <div id="advancedPage" hidden$="[[!showAdvancedPage_(
+              currentRoute_, inSearchMode, hasExpandedSection_,
+              advancedToggleExpanded)]]">
 <if expr="chromeos">
-          <template is="dom-if" if="[[showPage_(pageVisibility.dateTime)]]"
-              restamp>
-            <settings-section page-title="$i18n{dateTimePageTitle}"
-                section="dateTime">
-              <settings-date-time-page prefs="{{prefs}}"
-                  page-visibility="[[pageVisibility.dateTime]]">
-              </settings-date-time-page>
-            </settings-section>
-          </template>
+            <template is="dom-if" if="[[showPage_(pageVisibility.dateTime)]]"
+                restamp>
+              <settings-section page-title="$i18n{dateTimePageTitle}"
+                  section="dateTime">
+                <settings-date-time-page prefs="{{prefs}}"
+                    page-visibility="[[pageVisibility.dateTime]]">
+                </settings-date-time-page>
+              </settings-section>
+            </template>
 </if>
-          <template is="dom-if" if="[[showPage_(pageVisibility.privacy)]]"
-              restamp>
-            <settings-section page-title="$i18n{privacyPageTitle}"
-                section="privacy">
-              <settings-privacy-page prefs="{{prefs}}"
-                  page-visibility="[[pageVisibility.privacy]]">
-              </settings-privacy-page>
-            </settings-section>
-          </template>
-          <template is="dom-if"
-              if="[[showPage_(pageVisibility.passwordsAndForms)]]" restamp>
-            <settings-section
-                page-title="$i18n{passwordsAndAutofillPageTitle}"
-                section="passwordsAndForms">
-              <settings-passwords-and-forms-page prefs="{{prefs}}">
-              </settings-passwords-and-forms-page>
-            </settings-section>
-          </template>
-          <template is="dom-if" if="[[showPage_(pageVisibility.languages)]]"
-              restamp>
-            <settings-section page-title="$i18n{languagesPageTitle}"
-                section="languages">
-              <settings-languages-page prefs="{{prefs}}">
-              </settings-languages-page>
-            </settings-section>
-          </template>
-          <template is="dom-if" if="[[showPage_(pageVisibility.downloads)]]"
-              restamp>
-            <settings-section page-title="$i18n{downloadsPageTitle}"
-                section="downloads">
-              <settings-downloads-page prefs="{{prefs}}"
-                  page-visibility="[[pageVisibility.downloads]]">
-              </settings-downloads-page>
-            </settings-section>
-          </template>
-          <template is="dom-if" if="[[showPage_(pageVisibility.printing)]]"
-              restamp>
-            <settings-section page-title="$i18n{printingPageTitle}"
-                section="printing">
-              <settings-printing-page prefs="{{prefs}}">
-              </settings-printing-page>
-            </settings-section>
-          </template>
-<if expr="chromeos">
-          <template is="dom-if"
-              if="[[shouldShowMultidevice_(showMultidevice, pageVisibility)]]"
-              restamp>
-            <settings-section page-title="$i18n{multidevicePageTitle}"
-                section="multidevice">
-              <settings-multidevice-page prefs="{{prefs}}">
-              </settings-multidevice-page>
-            </settings-section>
-          </template>
-</if>
-          <template is="dom-if" if="[[showPage_(pageVisibility.a11y)]]" restamp>
-            <settings-section page-title="$i18n{a11yPageTitle}" section="a11y">
-              <settings-a11y-page prefs="{{prefs}}"></settings-a11y-page>
-            </settings-section>
-          </template>
+            <template is="dom-if" if="[[showPage_(pageVisibility.privacy)]]"
+                restamp>
+              <settings-section page-title="$i18n{privacyPageTitle}"
+                  section="privacy">
+                <settings-privacy-page prefs="{{prefs}}"
+                    page-visibility="[[pageVisibility.privacy]]">
+                </settings-privacy-page>
+              </settings-section>
+            </template>
+            <template is="dom-if" if="[[showPage_(pageVisibility.languages)]]"
+                restamp>
+              <settings-section page-title="$i18n{languagesPageTitle}"
+                  section="languages">
+                <settings-languages-page prefs="{{prefs}}">
+                </settings-languages-page>
+              </settings-section>
+            </template>
+            <template is="dom-if" if="[[showPage_(pageVisibility.downloads)]]"
+                restamp>
+              <settings-section page-title="$i18n{downloadsPageTitle}"
+                  section="downloads">
+                <settings-downloads-page prefs="{{prefs}}"
+                    page-visibility="[[pageVisibility.downloads]]">
+                </settings-downloads-page>
+              </settings-section>
+            </template>
+            <template is="dom-if" if="[[showPage_(pageVisibility.printing)]]"
+                restamp>
+              <settings-section page-title="$i18n{printingPageTitle}"
+                  section="printing">
+                <settings-printing-page prefs="{{prefs}}">
+                </settings-printing-page>
+              </settings-section>
+            </template>
+            <template is="dom-if" if="[[showPage_(pageVisibility.a11y)]]"
+                restamp>
+              <settings-section page-title="$i18n{a11yPageTitle}"
+                  section="a11y">
+                <settings-a11y-page prefs="{{prefs}}"></settings-a11y-page>
+              </settings-section>
+            </template>
 <if expr="not chromeos">
-          <template is="dom-if" if="[[showPage_(pageVisibility.system)]]"
-              restamp>
-            <settings-section page-title="$i18n{systemPageTitle}"
-                section="system">
-              <settings-system-page prefs="{{prefs}}"></settings-system-page>
-            </settings-section>
-          </template>
+            <template is="dom-if" if="[[showPage_(pageVisibility.system)]]"
+                restamp>
+              <settings-section page-title="$i18n{systemPageTitle}"
+                  section="system">
+                <settings-system-page prefs="{{prefs}}"></settings-system-page>
+              </settings-section>
+            </template>
 </if>
-          <template is="dom-if" if="[[showPage_(pageVisibility.reset)]]"
-              restamp>
-            <settings-section page-title="$i18n{resetPageTitle}"
-                section="reset">
-              <settings-reset-page></settings-reset-page>
-            </settings-section>
-          </template>
-        </div>
-      </template>
+            <template is="dom-if" if="[[showPage_(pageVisibility.reset)]]"
+                restamp>
+              <settings-section page-title="$i18n{resetPageTitle}"
+                  section="reset">
+                <settings-reset-page prefs="{{prefs}}"></settings-reset-page>
+              </settings-section>
+            </template>
+          </div>
+        </template>
+      </settings-idle-load>
     </template>
   </template>
   <script src="basic_page.js"></script>

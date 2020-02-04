@@ -57,7 +57,7 @@ class Q_WIDGETS_EXPORT QGraphicsTransform : public QObject
 {
     Q_OBJECT
 public:
-    QGraphicsTransform(QObject *parent = Q_NULLPTR);
+    QGraphicsTransform(QObject *parent = nullptr);
     ~QGraphicsTransform();
 
     virtual void applyTo(QMatrix4x4 *matrix) const = 0;
@@ -85,7 +85,7 @@ class Q_WIDGETS_EXPORT QGraphicsScale : public QGraphicsTransform
     Q_PROPERTY(qreal yScale READ yScale WRITE setYScale NOTIFY yScaleChanged)
     Q_PROPERTY(qreal zScale READ zScale WRITE setZScale NOTIFY zScaleChanged)
 public:
-    QGraphicsScale(QObject *parent = Q_NULLPTR);
+    QGraphicsScale(QObject *parent = nullptr);
     ~QGraphicsScale();
 
     QVector3D origin() const;
@@ -100,7 +100,7 @@ public:
     qreal zScale() const;
     void setZScale(qreal);
 
-    void applyTo(QMatrix4x4 *matrix) const Q_DECL_OVERRIDE;
+    void applyTo(QMatrix4x4 *matrix) const override;
 
 Q_SIGNALS:
     void originChanged();
@@ -123,7 +123,7 @@ class Q_WIDGETS_EXPORT QGraphicsRotation : public QGraphicsTransform
     Q_PROPERTY(qreal angle READ angle WRITE setAngle NOTIFY angleChanged)
     Q_PROPERTY(QVector3D axis READ axis WRITE setAxis NOTIFY axisChanged)
 public:
-    QGraphicsRotation(QObject *parent = Q_NULLPTR);
+    QGraphicsRotation(QObject *parent = nullptr);
     ~QGraphicsRotation();
 
     QVector3D origin() const;
@@ -136,7 +136,7 @@ public:
     void setAxis(const QVector3D &axis);
     void setAxis(Qt::Axis axis);
 
-    void applyTo(QMatrix4x4 *matrix) const Q_DECL_OVERRIDE;
+    void applyTo(QMatrix4x4 *matrix) const override;
 
 Q_SIGNALS:
     void originChanged();

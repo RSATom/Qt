@@ -21,11 +21,6 @@ LIBS_PRIVATE += $$NINJA_LIB_DIRS $$NINJA_LIBS
 QMAKE_LFLAGS += $$NINJA_LFLAGS
 POST_TARGETDEPS += $$NINJA_TARGETDEPS
 
-#ninja compiles with std::__debug
-linux: CONFIG(debug, debug|release) {
-    DEFINES += _GLIBCXX_DEBUG
-}
-
 # Fixme: -Werror=unused-parameter in core
 QMAKE_CXXFLAGS_WARN_ON =
 
@@ -36,12 +31,15 @@ win32: QMAKE_CXXFLAGS_WARN_ON = -wd4577
 win32: DEFINES += NOMINMAX
 
 CHROMIUM_SRC_DIR = $$QTWEBENGINE_ROOT/$$getChromiumSrcDir()
-INCLUDEPATH += $$CHROMIUM_SRC_DIR
+INCLUDEPATH += $$CHROMIUM_SRC_DIR \
+               $$OUT_PWD/../../core/$$getConfigDir()/gen
 
 SOURCES += \
     main.cpp
 
 QMAKE_TARGET_DESCRIPTION = "Qt WebEngine Dictionary Converter"
+
+CONFIG += c++14
 
 # Support converting dictionaries in a prefix build, by supplying
 # the path to the ICU data file located in the Qt build path, rather

@@ -4,7 +4,8 @@
 
 #include "components/ui_devtools/views/widget_element.h"
 
-#include "components/ui_devtools/views/ui_element_delegate.h"
+#include "components/ui_devtools/Protocol.h"
+#include "components/ui_devtools/ui_element_delegate.h"
 
 namespace ui_devtools {
 
@@ -14,10 +15,14 @@ WidgetElement::WidgetElement(views::Widget* widget,
     : UIElement(UIElementType::WIDGET, ui_element_delegate, parent),
       widget_(widget) {
   widget_->AddRemovalsObserver(this);
+  widget_->AddObserver(this);
 }
 
 WidgetElement::~WidgetElement() {
-  widget_->RemoveRemovalsObserver(this);
+  if (widget_) {
+    widget_->RemoveRemovalsObserver(this);
+    widget_->RemoveObserver(this);
+  }
 }
 
 void WidgetElement::OnWillRemoveView(views::Widget* widget, views::View* view) {
@@ -33,6 +38,17 @@ void WidgetElement::OnWidgetBoundsChanged(views::Widget* widget,
                                           const gfx::Rect& new_bounds) {
   DCHECK_EQ(widget, widget_);
   delegate()->OnUIElementBoundsChanged(this);
+}
+
+void WidgetElement::OnWidgetDestroyed(views::Widget* widget) {
+  DCHECK_EQ(widget, widget_);
+  delegate()->OnUIElementRemoved(this);
+  widget_ = nullptr;
+}
+
+std::vector<std::pair<std::string, std::string>>
+WidgetElement::GetCustomProperties() const {
+  return {};
 }
 
 void WidgetElement::GetBounds(gfx::Rect* bounds) const {
@@ -56,16 +72,41 @@ void WidgetElement::SetVisible(bool visible) {
     widget_->Hide();
 }
 
-std::pair<aura::Window*, gfx::Rect> WidgetElement::GetNodeWindowAndBounds()
+std::unique_ptr<protocol::Array<std::string>> WidgetElement::GetAttributes()
     const {
+  auto attributes = protocol::Array<std::string>::create();
+  attributes->addItem("name");
+  attributes->addItem(widget_->GetName());
+  attributes->addItem("active");
+  attributes->addItem(widget_->IsActive() ? "true" : "false");
+  return attributes;
+}
+
+std::pair<gfx::NativeWindow, gfx::Rect>
+WidgetElement::GetNodeWindowAndScreenBounds() const {
   return std::make_pair(widget_->GetNativeWindow(),
                         widget_->GetWindowBoundsInScreen());
 }
 
 // static
-views::Widget* WidgetElement::From(UIElement* element) {
+views::Widget* WidgetElement::From(const UIElement* element) {
   DCHECK_EQ(UIElementType::WIDGET, element->type());
-  return static_cast<WidgetElement*>(element)->widget_;
+  return static_cast<const WidgetElement*>(element)->widget_;
 }
 
+template <>
+int UIElement::FindUIElementIdForBackendElement<views::Widget>(
+    views::Widget* element) const {
+  if (type_ == UIElementType::WIDGET &&
+      UIElement::GetBackingElement<views::Widget, WidgetElement>(this) ==
+          element) {
+    return node_id_;
+  }
+  for (auto* child : children_) {
+    int ui_element_id = child->FindUIElementIdForBackendElement(element);
+    if (ui_element_id)
+      return ui_element_id;
+  }
+  return 0;
+}
 }  // namespace ui_devtools

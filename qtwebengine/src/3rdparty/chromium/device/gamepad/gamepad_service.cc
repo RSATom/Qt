@@ -15,6 +15,7 @@
 #include "device/gamepad/gamepad_consumer.h"
 #include "device/gamepad/gamepad_data_fetcher.h"
 #include "device/gamepad/gamepad_provider.h"
+#include "services/service_manager/public/cpp/connector.h"
 
 namespace device {
 
@@ -56,6 +57,15 @@ GamepadService* GamepadService::GetInstance() {
   return g_gamepad_service;
 }
 
+void GamepadService::StartUp(
+    std::unique_ptr<service_manager::Connector> service_manager_connector) {
+  service_manager_connector_ = std::move(service_manager_connector);
+}
+
+service_manager::Connector* GamepadService::GetConnector() {
+  return service_manager_connector_.get();
+}
+
 void GamepadService::ConsumerBecameActive(device::GamepadConsumer* consumer) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
 
@@ -64,9 +74,25 @@ void GamepadService::ConsumerBecameActive(device::GamepadConsumer* consumer) {
 
   std::pair<ConsumerSet::iterator, bool> insert_result =
       consumers_.insert(consumer);
-  insert_result.first->is_active = true;
-  if (!insert_result.first->did_observe_user_gesture &&
-      !gesture_callback_pending_) {
+  const ConsumerInfo& info = *insert_result.first;
+  info.is_active = true;
+  if (info.did_observe_user_gesture) {
+    auto consumer_state_it = inactive_consumer_state_.find(consumer);
+    if (consumer_state_it != inactive_consumer_state_.end()) {
+      const std::vector<bool>& old_connected_state = consumer_state_it->second;
+      Gamepads gamepads;
+      provider_->GetCurrentGamepadData(&gamepads);
+      for (size_t i = 0; i < Gamepads::kItemsLengthCap; ++i) {
+        const Gamepad& gamepad = gamepads.items[i];
+        if (gamepad.connected) {
+          info.consumer->OnGamepadConnected(i, gamepad);
+        } else if (old_connected_state[i] && !gamepad.connected) {
+          info.consumer->OnGamepadDisconnected(i, gamepad);
+        }
+      }
+      inactive_consumer_state_.erase(consumer_state_it);
+    }
+  } else if (!gesture_callback_pending_) {
     gesture_callback_pending_ = true;
     provider_->RegisterForUserGesture(
         base::Bind(&GamepadService::OnUserGesture, base::Unretained(this)));
@@ -79,21 +105,34 @@ void GamepadService::ConsumerBecameActive(device::GamepadConsumer* consumer) {
 void GamepadService::ConsumerBecameInactive(device::GamepadConsumer* consumer) {
   DCHECK(provider_);
   DCHECK(num_active_consumers_ > 0);
-  DCHECK(consumers_.count(consumer) > 0);
-  DCHECK(consumers_.find(consumer)->is_active);
+  auto consumer_it = consumers_.find(consumer);
+  DCHECK(consumer_it != consumers_.end());
+  const ConsumerInfo& info = *consumer_it;
+  DCHECK(info.is_active);
 
-  consumers_.find(consumer)->is_active = false;
+  info.is_active = false;
   if (--num_active_consumers_ == 0)
     provider_->Pause();
+
+  // Save the current state of connected gamepads.
+  if (info.did_observe_user_gesture) {
+    Gamepads gamepads;
+    provider_->GetCurrentGamepadData(&gamepads);
+    std::vector<bool> connected_state(Gamepads::kItemsLengthCap);
+    for (size_t i = 0; i < Gamepads::kItemsLengthCap; ++i)
+      connected_state[i] = gamepads.items[i].connected;
+    inactive_consumer_state_[consumer] = connected_state;
+  }
 }
 
 void GamepadService::RemoveConsumer(device::GamepadConsumer* consumer) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
 
-  ConsumerSet::iterator it = consumers_.find(consumer);
+  auto it = consumers_.find(consumer);
   if (it->is_active && --num_active_consumers_ == 0)
     provider_->Pause();
   consumers_.erase(it);
+  inactive_consumer_state_.erase(consumer);
 }
 
 void GamepadService::RegisterForUserGesture(const base::Closure& closure) {
@@ -107,47 +146,67 @@ void GamepadService::Terminate() {
 }
 
 void GamepadService::OnGamepadConnectionChange(bool connected,
-                                               int index,
+                                               uint32_t index,
                                                const Gamepad& pad) {
   if (connected) {
     main_thread_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&GamepadService::OnGamepadConnected,
-                              base::Unretained(this), index, pad));
+        FROM_HERE, base::BindOnce(&GamepadService::OnGamepadConnected,
+                                  base::Unretained(this), index, pad));
   } else {
     main_thread_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&GamepadService::OnGamepadDisconnected,
-                              base::Unretained(this), index, pad));
+        FROM_HERE, base::BindOnce(&GamepadService::OnGamepadDisconnected,
+                                  base::Unretained(this), index, pad));
   }
 }
 
-void GamepadService::OnGamepadConnected(int index, const Gamepad& pad) {
+void GamepadService::OnGamepadConnected(uint32_t index, const Gamepad& pad) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
 
-  for (ConsumerSet::iterator it = consumers_.begin(); it != consumers_.end();
-       ++it) {
+  for (auto it = consumers_.begin(); it != consumers_.end(); ++it) {
     if (it->did_observe_user_gesture && it->is_active)
       it->consumer->OnGamepadConnected(index, pad);
   }
 }
 
-void GamepadService::OnGamepadDisconnected(int index, const Gamepad& pad) {
+void GamepadService::OnGamepadDisconnected(uint32_t index, const Gamepad& pad) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
 
-  for (ConsumerSet::iterator it = consumers_.begin(); it != consumers_.end();
-       ++it) {
+  for (auto it = consumers_.begin(); it != consumers_.end(); ++it) {
     if (it->did_observe_user_gesture && it->is_active)
       it->consumer->OnGamepadDisconnected(index, pad);
   }
 }
 
-base::SharedMemoryHandle GamepadService::DuplicateSharedMemoryHandle() {
-  DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
-  return provider_->DuplicateSharedMemoryHandle();
+void GamepadService::PlayVibrationEffectOnce(
+    uint32_t pad_index,
+    mojom::GamepadHapticEffectType type,
+    mojom::GamepadEffectParametersPtr params,
+    mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback callback) {
+  if (!provider_) {
+    std::move(callback).Run(
+        mojom::GamepadHapticsResult::GamepadHapticsResultError);
+    return;
+  }
+
+  provider_->PlayVibrationEffectOnce(pad_index, type, std::move(params),
+                                     std::move(callback));
 }
 
-mojo::ScopedSharedBufferHandle GamepadService::GetSharedBufferHandle() {
+void GamepadService::ResetVibrationActuator(
+    uint32_t pad_index,
+    mojom::GamepadHapticsManager::ResetVibrationActuatorCallback callback) {
+  if (!provider_) {
+    std::move(callback).Run(
+        mojom::GamepadHapticsResult::GamepadHapticsResultError);
+    return;
+  }
+
+  provider_->ResetVibrationActuator(pad_index, std::move(callback));
+}
+
+base::ReadOnlySharedMemoryRegion GamepadService::DuplicateSharedMemoryRegion() {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
-  return provider_->GetSharedBufferHandle();
+  return provider_->DuplicateSharedMemoryRegion();
 }
 
 void GamepadService::OnUserGesture() {
@@ -158,14 +217,13 @@ void GamepadService::OnUserGesture() {
   if (!provider_ || num_active_consumers_ == 0)
     return;
 
-  for (ConsumerSet::iterator it = consumers_.begin(); it != consumers_.end();
-       ++it) {
+  for (auto it = consumers_.begin(); it != consumers_.end(); ++it) {
     if (!it->did_observe_user_gesture && it->is_active) {
       const ConsumerInfo& info = *it;
       info.did_observe_user_gesture = true;
       Gamepads gamepads;
       provider_->GetCurrentGamepadData(&gamepads);
-      for (unsigned i = 0; i < Gamepads::kItemsLengthCap; ++i) {
+      for (size_t i = 0; i < Gamepads::kItemsLengthCap; ++i) {
         const Gamepad& pad = gamepads.items[i];
         if (pad.connected)
           info.consumer->OnGamepadConnected(i, pad);

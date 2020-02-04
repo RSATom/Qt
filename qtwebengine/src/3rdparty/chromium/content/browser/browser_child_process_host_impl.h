@@ -22,7 +22,7 @@
 #include "content/public/browser/browser_child_process_host.h"
 #include "content/public/browser/child_process_data.h"
 #include "content/public/common/child_process_host_delegate.h"
-#include "mojo/edk/embedder/outgoing_broker_client_invitation.h"
+#include "mojo/public/cpp/system/invitation.h"
 
 #if defined(OS_WIN)
 #include "base/win/object_watcher.h"
@@ -44,7 +44,7 @@ class ChildConnection;
 /// class because it lives on the UI thread.
 class CONTENT_EXPORT BrowserChildProcessHostImpl
     : public BrowserChildProcessHost,
-      public NON_EXPORTED_BASE(ChildProcessHostDelegate),
+      public ChildProcessHostDelegate,
 #if defined(OS_WIN)
       public base::win::ObjectWatcher::Delegate,
 #endif
@@ -64,6 +64,10 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
   // from FieldTrials.
   static void CopyFeatureAndFieldTrialFlags(base::CommandLine* cmd_line);
 
+  // Appends kTraceStartup and kTraceRecordMode flags to the command line, if
+  // needed.
+  static void CopyTraceStartupFlags(base::CommandLine* cmd_line);
+
   // BrowserChildProcessHost implementation:
   bool Send(IPC::Message* message) override;
   void Launch(std::unique_ptr<SandboxedProcessLauncherDelegate> delegate,
@@ -71,16 +75,15 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
               bool terminate_on_shutdown) override;
   const ChildProcessData& GetData() const override;
   ChildProcessHost* GetHost() const override;
-  base::TerminationStatus GetTerminationStatus(bool known_dead,
-                                               int* exit_code) override;
+  ChildProcessTerminationInfo GetTerminationInfo(bool known_dead) override;
   std::unique_ptr<base::SharedPersistentMemoryAllocator> TakeMetricsAllocator()
       override;
   void SetName(const base::string16& name) override;
-  void SetHandle(base::ProcessHandle handle) override;
+  void SetMetricsName(const std::string& metrics_name) override;
+  void SetProcess(base::Process process) override;
   service_manager::mojom::ServiceRequest TakeInProcessServiceRequest() override;
 
   // ChildProcessHostDelegate implementation:
-  bool CanShutdown() override;
   void OnChannelInitialized(IPC::Channel* channel) override;
   void OnChildDisconnected() override;
   const base::Process& GetProcess() const override;
@@ -101,7 +104,16 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
   // Adds an IPC message filter.
   void AddFilter(BrowserMessageFilter* filter);
 
-  static void HistogramBadMessageTerminated(int process_type);
+  // Unlike Launch(), AppendExtraCommandLineSwitches will not be called
+  // in this function. If AppendExtraCommandLineSwitches has been called before
+  // reaching launch, call this function instead so the command line switches
+  // won't be appended twice
+  void LaunchWithoutExtraCommandLineSwitches(
+      std::unique_ptr<SandboxedProcessLauncherDelegate> delegate,
+      std::unique_ptr<base::CommandLine> cmd_line,
+      bool terminate_on_shutdown);
+
+  static void HistogramBadMessageTerminated(ProcessType process_type);
 
   BrowserChildProcessHostDelegate* delegate() const { return delegate_; }
 
@@ -109,9 +121,8 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
     return child_connection_.get();
   }
 
-  mojo::edk::OutgoingBrokerClientInvitation*
-  GetInProcessBrokerClientInvitation() {
-    return broker_client_invitation_.get();
+  mojo::OutgoingInvitation* GetInProcessMojoInvitation() {
+    return &mojo_invitation_;
   }
 
   IPC::Channel* child_channel() const { return channel_; }
@@ -153,11 +164,11 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
 #endif
 
   ChildProcessData data_;
+  std::string metrics_name_;
   BrowserChildProcessHostDelegate* delegate_;
   std::unique_ptr<ChildProcessHost> child_process_host_;
 
-  std::unique_ptr<mojo::edk::OutgoingBrokerClientInvitation>
-      broker_client_invitation_;
+  mojo::OutgoingInvitation mojo_invitation_;
   std::unique_ptr<ChildConnection> child_connection_;
 
   std::unique_ptr<ChildProcessLauncher> child_process_;

@@ -41,20 +41,20 @@
 #define PERMISSION_MANAGER_QT_H
 
 #include "base/callback.h"
-#include "content/public/browser/permission_manager.h"
-#include "browser_context_adapter.h"
+#include "content/public/browser/permission_controller_delegate.h"
+
+#include "profile_adapter.h"
 
 #include <QHash>
-#include <QList>
 
 namespace QtWebEngineCore {
 
-class PermissionManagerQt : public content::PermissionManager {
+class PermissionManagerQt : public content::PermissionControllerDelegate {
 
 public:
     PermissionManagerQt();
     ~PermissionManagerQt();
-    typedef BrowserContextAdapter::PermissionType PermissionType;
+    typedef ProfileAdapter::PermissionType PermissionType;
 
     void permissionRequestReply(const QUrl &origin, PermissionType type, bool reply);
     bool checkPermission(const QUrl &origin, PermissionType type);
@@ -67,12 +67,15 @@ public:
         bool user_gesture,
         const base::Callback<void(blink::mojom::PermissionStatus)>& callback) override;
 
-    void CancelPermissionRequest(int request_id) override;
-
     blink::mojom::PermissionStatus GetPermissionStatus(
         content::PermissionType permission,
         const GURL& requesting_origin,
         const GURL& embedding_origin) override;
+
+    blink::mojom::PermissionStatus GetPermissionStatusForFrame(
+        content::PermissionType permission,
+        content::RenderFrameHost *render_frame_host,
+        const GURL& requesting_origin) override;
 
     void ResetPermission(
         content::PermissionType permission,
@@ -89,8 +92,8 @@ public:
 
     int SubscribePermissionStatusChange(
         content::PermissionType permission,
+        content::RenderFrameHost* render_frame_host,
         const GURL& requesting_origin,
-        const GURL& embedding_origin,
         const base::Callback<void(blink::mojom::PermissionStatus)>& callback) override;
 
     void UnsubscribePermissionStatusChange(int subscription_id) override;

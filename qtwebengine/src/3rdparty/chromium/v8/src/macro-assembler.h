@@ -5,7 +5,9 @@
 #ifndef V8_MACRO_ASSEMBLER_H_
 #define V8_MACRO_ASSEMBLER_H_
 
-#include "src/assembler-inl.h"
+#include "src/frames.h"
+#include "src/heap/heap.h"
+#include "src/turbo-assembler.h"
 
 // Helper types to make boolean flag easier to read at call-site.
 enum InvokeFlag {
@@ -30,6 +32,8 @@ enum AllocationFlags {
   PRETENURE = 1 << 3,
 };
 
+// This is the only place allowed to include the platform-specific headers.
+#define INCLUDED_FROM_MACRO_ASSEMBLER_H
 #if V8_TARGET_ARCH_IA32
 #include "src/ia32/macro-assembler-ia32.h"
 #elif V8_TARGET_ARCH_X64
@@ -55,6 +59,7 @@ enum AllocationFlags {
 #else
 #error Unsupported target architecture.
 #endif
+#undef INCLUDED_FROM_MACRO_ASSEMBLER_H
 
 namespace v8 {
 namespace internal {
@@ -170,96 +175,49 @@ class AllowExternalCallThatCantCauseGC: public FrameScope {
       : FrameScope(masm, StackFrame::NONE) { }
 };
 
-
-class NoCurrentFrameScope {
+// Prevent the use of the RootArray during the lifetime of this
+// scope object.
+class NoRootArrayScope {
  public:
-  explicit NoCurrentFrameScope(MacroAssembler* masm)
-      : masm_(masm), saved_(masm->has_frame()) {
-    masm->set_has_frame(false);
+  explicit NoRootArrayScope(TurboAssembler* masm)
+      : masm_(masm), old_value_(masm->root_array_available()) {
+    masm->set_root_array_available(false);
   }
 
-  ~NoCurrentFrameScope() {
-    masm_->set_has_frame(saved_);
-  }
+  ~NoRootArrayScope() { masm_->set_root_array_available(old_value_); }
 
  private:
-  MacroAssembler* masm_;
-  bool saved_;
+  TurboAssembler* masm_;
+  bool old_value_;
 };
-
-
-// Support for "structured" code comments.
-#ifdef DEBUG
-
-class Comment {
- public:
-  Comment(Assembler* assembler, const char* msg);
-  ~Comment();
-
- private:
-  Assembler* assembler_;
-  const char* msg_;
-};
-
-#else
-
-class Comment {
- public:
-  Comment(Assembler*, const char*) {}
-};
-
-#endif  // DEBUG
-
 
 // Wrapper class for passing expected and actual parameter counts as
 // either registers or immediate values. Used to make sure that the
 // caller provides exactly the expected number of parameters to the
 // callee.
-class ParameterCount BASE_EMBEDDED {
+class ParameterCount {
  public:
   explicit ParameterCount(Register reg) : reg_(reg), immediate_(0) {}
-  explicit ParameterCount(int imm) : reg_(no_reg), immediate_(imm) {}
+  explicit ParameterCount(uint16_t imm) : reg_(no_reg), immediate_(imm) {}
 
-  bool is_reg() const { return !reg_.is(no_reg); }
+  bool is_reg() const { return reg_.is_valid(); }
   bool is_immediate() const { return !is_reg(); }
 
   Register reg() const {
     DCHECK(is_reg());
     return reg_;
   }
-  int immediate() const {
+  uint16_t immediate() const {
     DCHECK(is_immediate());
     return immediate_;
   }
 
  private:
   const Register reg_;
-  const int immediate_;
+  const uint16_t immediate_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(ParameterCount);
 };
-
-
-class AllocationUtils {
- public:
-  static ExternalReference GetAllocationTopReference(
-      Isolate* isolate, AllocationFlags flags) {
-    if ((flags & PRETENURE) != 0) {
-      return ExternalReference::old_space_allocation_top_address(isolate);
-    }
-    return ExternalReference::new_space_allocation_top_address(isolate);
-  }
-
-
-  static ExternalReference GetAllocationLimitReference(
-      Isolate* isolate, AllocationFlags flags) {
-    if ((flags & PRETENURE) != 0) {
-      return ExternalReference::old_space_allocation_limit_address(isolate);
-    }
-    return ExternalReference::new_space_allocation_limit_address(isolate);
-  }
-};
-
 
 }  // namespace internal
 }  // namespace v8

@@ -15,15 +15,15 @@
 #include "content/public/test/render_view_test.h"
 #include "content/renderer/render_view_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/web/WebFrameContentDumper.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/web/web_frame_content_dumper.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_view.h"
 
 #include <Carbon/Carbon.h>  // for the kVK_* constants.
 #include <Cocoa/Cocoa.h>
 
 using blink::WebFrameContentDumper;
-using blink::WebCompositionUnderline;
+using blink::WebImeTextSpan;
 
 namespace content {
 
@@ -97,7 +97,7 @@ TEST_F(RenderViewTest, MacTestCmdUp) {
   render_thread_->sink().ClearMessages();
 
   const char* kArrowDownScrollDown = "40,false,false,true,false\n9844";
-  view->OnSetEditCommandsForNextKeyEvent(
+  view->GetWidget()->OnSetEditCommandsForNextKeyEvent(
       EditCommands(1, EditCommand("moveToEndOfDocument", "")));
   SendNativeKeyEvent(NativeWebKeyboardEvent(arrowDownKeyDown));
   base::RunLoop().RunUntilIdle();
@@ -108,7 +108,7 @@ TEST_F(RenderViewTest, MacTestCmdUp) {
   EXPECT_EQ(kArrowDownScrollDown, output);
 
   const char* kArrowUpScrollUp = "38,false,false,true,false\n0";
-  view->OnSetEditCommandsForNextKeyEvent(
+  view->GetWidget()->OnSetEditCommandsForNextKeyEvent(
       EditCommands(1, EditCommand("moveToBeginningOfDocument", "")));
   SendNativeKeyEvent(NativeWebKeyboardEvent(arrowUpKeyDown));
   base::RunLoop().RunUntilIdle();
@@ -124,7 +124,7 @@ TEST_F(RenderViewTest, MacTestCmdUp) {
   ExecuteJavaScriptForTests("allowKeyEvents = false; window.scrollTo(0, 100)");
 
   const char* kArrowDownNoScroll = "40,false,false,true,false\n100";
-  view->OnSetEditCommandsForNextKeyEvent(
+  view->GetWidget()->OnSetEditCommandsForNextKeyEvent(
       EditCommands(1, EditCommand("moveToEndOfDocument", "")));
   SendNativeKeyEvent(NativeWebKeyboardEvent(arrowDownKeyDown));
   base::RunLoop().RunUntilIdle();
@@ -135,7 +135,7 @@ TEST_F(RenderViewTest, MacTestCmdUp) {
   EXPECT_EQ(kArrowDownNoScroll, output);
 
   const char* kArrowUpNoScroll = "38,false,false,true,false\n100";
-  view->OnSetEditCommandsForNextKeyEvent(
+  view->GetWidget()->OnSetEditCommandsForNextKeyEvent(
       EditCommands(1, EditCommand("moveToBeginningOfDocument", "")));
   SendNativeKeyEvent(NativeWebKeyboardEvent(arrowUpKeyDown));
   base::RunLoop().RunUntilIdle();
@@ -179,15 +179,6 @@ TEST_F(RenderViewTest, HandleIPCsInSwappedOutState) {
       TextInputClientMsg_StringForRange(routing_id, Range()));
   view->OnMessageReceived(
       TextInputClientMsg_CharacterIndexForPoint(routing_id, Point()));
-
-  // Simulate some IME related IPCs.
-  using Text = base::string16;
-  using Underlines = std::vector<blink::WebCompositionUnderline>;
-  view->OnMessageReceived(InputMsg_ImeSetComposition(
-      routing_id, Text(), Underlines(), Range(), 0, 0));
-  view->OnMessageReceived(
-      InputMsg_ImeCommitText(routing_id, Text(), Underlines(), Range(), 0));
-  view->OnMessageReceived(InputMsg_ImeFinishComposingText(routing_id, false));
 }
 
 }  // namespace content

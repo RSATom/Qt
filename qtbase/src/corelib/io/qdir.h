@@ -105,7 +105,10 @@ public:
     ~QDir();
 
     QDir &operator=(const QDir &);
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QDir::setPath() instead")
     QDir &operator=(const QString &path);
+#endif
 #ifdef Q_COMPILER_RVALUE_REFS
     QDir &operator=(QDir &&other) Q_DECL_NOTHROW { swap(other); return *this; }
 #endif
@@ -118,7 +121,10 @@ public:
     QString absolutePath() const;
     QString canonicalPath() const;
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use QDir::addSearchPath() instead")
     static void addResourceSearchPath(const QString &path);
+#endif
 
     static void setSearchPaths(const QString &prefix, const QStringList &searchPaths);
     static void addSearchPath(const QString &prefix, const QString &path);
@@ -206,7 +212,7 @@ public:
     static inline QDir temp() { return QDir(tempPath()); }
     static QString tempPath();
 
-#ifndef QT_NO_REGEXP
+#if QT_CONFIG(regularexpression)
     static bool match(const QStringList &filters, const QString &fileName);
     static bool match(const QString &filter, const QString &fileName);
 #endif

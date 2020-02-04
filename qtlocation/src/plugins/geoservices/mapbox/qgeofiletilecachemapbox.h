@@ -50,8 +50,8 @@ public:
     ~QGeoFileTileCacheMapbox();
 
 protected:
-    QString tileSpecToFilename(const QGeoTileSpec &spec, const QString &format, const QString &directory) const Q_DECL_OVERRIDE;
-    QGeoTileSpec filenameToTileSpec(const QString &filename) const Q_DECL_OVERRIDE;
+    QString tileSpecToFilename(const QGeoTileSpec &spec, const QString &format, const QString &directory) const override;
+    QGeoTileSpec filenameToTileSpec(const QString &filename) const override;
 
     QList<QGeoMapType> m_mapTypes;
     QMap<QString, int> m_mapNameToId;

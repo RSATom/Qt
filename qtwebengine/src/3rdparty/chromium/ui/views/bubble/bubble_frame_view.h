@@ -5,9 +5,12 @@
 #ifndef UI_VIEWS_BUBBLE_BUBBLE_FRAME_VIEW_H_
 #define UI_VIEWS_BUBBLE_BUBBLE_FRAME_VIEW_H_
 
+#include <memory>
+
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/time/time.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/controls/button/button.h"
@@ -17,6 +20,7 @@
 namespace views {
 
 class BubbleBorder;
+class FootnoteContainerView;
 class ImageView;
 
 // The non-client frame view of bubble-styled widgets.
@@ -34,15 +38,15 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
       const base::string16& title_text);
 
   // Creates a close button used in the corner of the dialog.
-  static Button* CreateCloseButton(ButtonListener* listener);
+  static Button* CreateCloseButton(ButtonListener* listener, bool is_dark_mode);
 
   // NonClientFrameView:
   gfx::Rect GetBoundsForClientView() const override;
   gfx::Rect GetWindowBoundsForClientBounds(
       const gfx::Rect& client_bounds) const override;
-  bool GetClientMask(const gfx::Size& size, gfx::Path* path) const override;
+  bool GetClientMask(const gfx::Size& size, SkPath* path) const override;
   int NonClientHitTest(const gfx::Point& point) override;
-  void GetWindowMask(const gfx::Size& size, gfx::Path* window_mask) override;
+  void GetWindowMask(const gfx::Size& size, SkPath* window_mask) override;
   void ResetWindowControls() override;
   void UpdateWindowIcon() override;
   void UpdateWindowTitle() override;
@@ -54,17 +58,17 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
 
   // View:
   const char* GetClassName() const override;
-  gfx::Insets GetInsets() const override;
   gfx::Size CalculatePreferredSize() const override;
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
   void Layout() override;
   void OnPaint(gfx::Canvas* canvas) override;
-  void PaintChildren(const ui::PaintContext& context) override;
+  void PaintChildren(const PaintInfo& paint_info) override;
   void OnThemeChanged() override;
   void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
+  void VisibilityChanged(View* starting_from, bool is_visible) override;
 
   // ButtonListener:
   void ButtonPressed(Button* sender, const ui::Event& event) override;
@@ -84,6 +88,9 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   gfx::Insets content_margins() const { return content_margins_; }
 
   void SetFootnoteView(View* view);
+  void set_footnote_margins(const gfx::Insets& footnote_margins) {
+    footnote_margins_ = footnote_margins;
+  }
 
   // Given the size of the contents and the rect to point at, returns the bounds
   // of the bubble window. The bubble's arrow location may change if the bubble
@@ -92,13 +99,21 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
                                    const gfx::Size& client_size,
                                    bool adjust_if_offscreen);
 
-  bool close_button_clicked() const { return close_button_clicked_; }
-
   Button* GetCloseButtonForTest() { return close_; }
+
+  // Resets the time when view has been shown. Tests may need to call this
+  // method if they use events that could be otherwise treated as unintended.
+  // See IsPossiblyUnintendedInteraction().
+  void ResetViewShownTimeStampForTesting();
 
  protected:
   // Returns the available screen bounds if the frame were to show in |rect|.
   virtual gfx::Rect GetAvailableScreenBounds(const gfx::Rect& rect) const;
+
+  // Override and return true to allow client view to overlap into the title
+  // area when HasTitle() returns false and/or ShouldShowCloseButton() returns
+  // true. Returns false by default.
+  virtual bool ExtendClientIntoTitle() const;
 
   bool IsCloseButtonVisible() const;
   gfx::Rect GetCloseButtonMirroredBounds() const;
@@ -106,8 +121,10 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
  private:
   FRIEND_TEST_ALL_PREFIXES(BubbleFrameViewTest, GetBoundsForClientView);
   FRIEND_TEST_ALL_PREFIXES(BubbleFrameViewTest, RemoveFootnoteView);
+  FRIEND_TEST_ALL_PREFIXES(BubbleFrameViewTest, LayoutWithIcon);
+  FRIEND_TEST_ALL_PREFIXES(BubbleFrameViewTest, IgnorePossiblyUnintendedClicks);
   FRIEND_TEST_ALL_PREFIXES(BubbleDelegateTest, CloseReasons);
-  FRIEND_TEST_ALL_PREFIXES(BubbleDialogDelegateTest, CloseMethods);
+  FRIEND_TEST_ALL_PREFIXES(BubbleDialogDelegateViewTest, CloseMethods);
 
   // Mirrors the bubble's arrow location on the |vertical| or horizontal axis,
   // if the generated window bounds don't fit in the monitor bounds.
@@ -150,6 +167,9 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   // Margins between the content and the inside of the border, in pixels.
   gfx::Insets content_margins_;
 
+  // Margins between the footnote view and the footnote container.
+  gfx::Insets footnote_margins_;
+
   // The optional title icon.
   views::ImageView* title_icon_;
 
@@ -163,10 +183,10 @@ class VIEWS_EXPORT BubbleFrameView : public NonClientFrameView,
   Button* close_;
 
   // A view to contain the footnote view, if it exists.
-  View* footnote_container_;
+  FootnoteContainerView* footnote_container_;
 
-  // Whether the close button was clicked.
-  bool close_button_clicked_;
+  // Time when view has been shown.
+  base::TimeTicks view_shown_time_stamp_;
 
   DISALLOW_COPY_AND_ASSIGN(BubbleFrameView);
 };

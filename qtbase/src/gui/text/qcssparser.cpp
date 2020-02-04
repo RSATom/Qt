@@ -115,6 +115,7 @@ static const QCssKnownValue properties[NumProperties - 1] = {
     { "float", Float },
     { "font", Font },
     { "font-family", FontFamily },
+    { "font-kerning", FontKerning },
     { "font-size", FontSize },
     { "font-style", FontStyle },
     { "font-variant", FontVariant },
@@ -345,13 +346,6 @@ static const QCssKnownValue styleFeatures[NumKnownStyleFeatures - 1] = {
     { "none", StyleFeature_None }
 };
 
-#if defined(Q_CC_MSVC) && _MSC_VER < 1600
-static bool operator<(const QCssKnownValue &prop1, const QCssKnownValue &prop2)
-{
-    return QString::compare(QString::fromLatin1(prop1.name), QLatin1String(prop2.name), Qt::CaseInsensitive) < 0;
-}
-#endif
-
 static bool operator<(const QString &name, const QCssKnownValue &prop)
 {
     return QString::compare(name, QLatin1String(prop.name), Qt::CaseInsensitive) < 0;
@@ -375,6 +369,7 @@ static inline bool isInheritable(Property propertyId)
 {
     switch (propertyId) {
     case Font:
+    case FontKerning:
     case FontFamily:
     case FontSize:
     case FontStyle:
@@ -728,7 +723,8 @@ static ColorData parseColorValue(QCss::Value v)
     if (lst.count() != 2)
         return ColorData();
 
-    if ((lst.at(0).compare(QLatin1String("palette"), Qt::CaseInsensitive)) == 0) {
+    const QString &identifier = lst.at(0);
+    if ((identifier.compare(QLatin1String("palette"), Qt::CaseInsensitive)) == 0) {
         int role = findKnownValue(lst.at(1).trimmed(), values, NumKnownValues);
         if (role >= Value_FirstColorRole && role <= Value_LastColorRole)
             return (QPalette::ColorRole)(role-Value_FirstColorRole);
@@ -736,8 +732,16 @@ static ColorData parseColorValue(QCss::Value v)
         return ColorData();
     }
 
-    bool rgb = lst.at(0).startsWith(QLatin1String("rgb"));
-    bool rgba = lst.at(0).startsWith(QLatin1String("rgba"));
+    const bool rgb = identifier.startsWith(QLatin1String("rgb"));
+    const bool hsv = !rgb && identifier.startsWith(QLatin1String("hsv"));
+    const bool hsl = !rgb && !hsv && identifier.startsWith(QLatin1String("hsl"));
+
+    if (!rgb && !hsv && !hsl)
+        return ColorData();
+
+    const bool hasAlpha = identifier.size() == 4 && identifier.at(3) == QLatin1Char('a');
+    if (identifier.size() > 3 && !hasAlpha)
+        return ColorData();
 
     Parser p(lst.at(1));
     if (!p.testExpr())
@@ -750,7 +754,8 @@ static ColorData parseColorValue(QCss::Value v)
 
     for (int i = 0; i < qMin(tokenCount, 7); i += 2) {
         if (colorDigits.at(i).type == Value::Percentage) {
-            colorDigits[i].variant = colorDigits.at(i).variant.toReal() * (255. / 100.);
+            const qreal maxRange = (rgb || i != 0) ? 255. : 359.;
+            colorDigits[i].variant = colorDigits.at(i).variant.toReal() * (maxRange / 100.);
             colorDigits[i].type = Value::Number;
         } else if (colorDigits.at(i).type != Value::Number) {
             return ColorData();
@@ -761,20 +766,29 @@ static ColorData parseColorValue(QCss::Value v)
     if (tokenCount < 5)
         return ColorData();
 
+    // ### Qt6: replace this with a check and return invalid color when token count does not match
+    if (hasAlpha && tokenCount != 7)
+        qWarning("QCssParser::parseColorValue: Specified color with alpha value but no alpha given: '%s'", qPrintable(lst.join(QLatin1Char(' '))));
+    if (!hasAlpha && tokenCount != 5)
+        qWarning("QCssParser::parseColorValue: Specified color without alpha value but alpha given: '%s'", qPrintable(lst.join(QLatin1Char(' '))));
+
     int v1 = colorDigits.at(0).variant.toInt();
     int v2 = colorDigits.at(2).variant.toInt();
     int v3 = colorDigits.at(4).variant.toInt();
     int alpha = 255;
-    if (tokenCount >= 7) {
+    if (tokenCount == 7) {
         int alphaValue = colorDigits.at(6).variant.toInt();
-        if (rgba && alphaValue <= 1)
+        if (alphaValue <= 1)
             alpha = colorDigits.at(6).variant.toReal() * 255.;
         else
             alpha = alphaValue;
     }
 
-    return rgb ? QColor::fromRgb(v1, v2, v3, alpha)
-               : QColor::fromHsv(v1, v2, v3, alpha);
+    if (rgb)
+        return QColor::fromRgb(v1, v2, v3, alpha);
+    if (hsv)
+        return QColor::fromHsv(v1, v2, v3, alpha);
+    return QColor::fromHsl(v1, v2, v3, alpha);
 }
 
 static QColor colorFromData(const ColorData& c, const QPalette &pal)
@@ -1149,6 +1163,19 @@ static bool setFontStyleFromValue(const QCss::Value &value, QFont *font)
     return false;
 }
 
+static bool setFontKerningFromValue(const QCss::Value &value, QFont *font)
+{
+    if (value.type != Value::KnownIdentifier)
+        return false ;
+    switch (value.variant.toInt()) {
+        case Value_Normal: font->setKerning(true); return true;
+        case Value_None: font->setKerning(false); return true;
+        case Value_Auto: return true;
+        default: break;
+    }
+    return false;
+}
+
 static bool setFontWeightFromValue(const QCss::Value &value, QFont *font)
 {
     if (value.type == Value::KnownIdentifier) {
@@ -1173,11 +1200,13 @@ static bool setFontWeightFromValue(const QCss::Value &value, QFont *font)
 static bool setFontFamilyFromValues(const QVector<QCss::Value> &values, QFont *font, int start = 0)
 {
     QString family;
+    QStringList families;
     bool shouldAddSpace = false;
     for (int i = start; i < values.count(); ++i) {
         const QCss::Value &v = values.at(i);
         if (v.type == Value::TermOperatorComma) {
-            family += QLatin1Char(',');
+            families << family;
+            family.clear();
             shouldAddSpace = false;
             continue;
         }
@@ -1189,9 +1218,12 @@ static bool setFontFamilyFromValues(const QVector<QCss::Value> &values, QFont *f
         family += str;
         shouldAddSpace = true;
     }
-    if (family.isEmpty())
+    if (!family.isEmpty())
+        families << family;
+    if (families.isEmpty())
         return false;
-    font->setFamily(family);
+    font->setFamily(families.at(0));
+    font->setFamilies(families);
     return true;
 }
 
@@ -1281,6 +1313,7 @@ bool ValueExtractor::extractFont(QFont *font, int *fontSizeAdjustment)
             case FontStyle: setFontStyleFromValue(val, font); break;
             case FontWeight: setFontWeightFromValue(val, font); break;
             case FontFamily: setFontFamilyFromValues(decl.d->values, font); break;
+            case FontKerning: setFontKerningFromValue(val, font); break;
             case TextDecoration: setTextDecorationFromValues(decl.d->values, font); break;
             case Font: parseShorthandFontProperty(decl.d->values, font, fontSizeAdjustment); break;
             case FontVariant: setFontVariantFromValue(val, font); break;
@@ -1975,7 +2008,7 @@ bool StyleSelector::basicSelectorMatches(const BasicSelector &sel, NodePtr node)
 }
 
 void StyleSelector::matchRule(NodePtr node, const StyleRule &rule, StyleSheetOrigin origin,
-                               int depth, QMap<uint, StyleRule> *weightedRules)
+                               int depth, QMultiMap<uint, StyleRule> *weightedRules)
 {
     for (int j = 0; j < rule.selectors.count(); ++j) {
         const Selector& selector = rule.selectors.at(j);
@@ -1989,7 +2022,7 @@ void StyleSelector::matchRule(NodePtr node, const StyleRule &rule, StyleSheetOri
                 newRule.selectors[0] = selector;
             }
             //We might have rules with the same weight if they came from a rule with several selectors
-            weightedRules->insertMulti(weight, newRule);
+            weightedRules->insert(weight, newRule);
         }
     }
 }
@@ -2002,7 +2035,7 @@ QVector<StyleRule> StyleSelector::styleRulesForNode(NodePtr node)
     if (styleSheets.isEmpty())
         return rules;
 
-    QMap<uint, StyleRule> weightedRules; // (spec, rule) that will be sorted below
+    QMultiMap<uint, StyleRule> weightedRules; // (spec, rule) that will be sorted below
 
     //prune using indexed stylesheet
     for (int sheetIdx = 0; sheetIdx < styleSheets.count(); ++sheetIdx) {
@@ -2714,8 +2747,10 @@ bool Parser::parseFunction(QString *name, QString *args)
 {
     *name = lexem();
     name->chop(1);
+    // until(RPAREN) needs FUNCTION token at index-1 to work properly
+    int start = index;
     skipSpace();
-    const int start = index;
+    std::swap(start, index);
     if (!until(RPAREN)) return false;
     for (int i = start; i < index - 1; ++i)
         args->append(symbols.at(i).lexem());

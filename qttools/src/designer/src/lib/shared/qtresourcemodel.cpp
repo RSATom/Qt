@@ -29,15 +29,15 @@
 #include "qtresourcemodel_p.h"
 #include "rcc_p.h"
 
-#include <QtCore/QStringList>
-#include <QtCore/QMap>
-#include <QtCore/QResource>
-#include <QtCore/QFileInfo>
-#include <QtCore/QIODevice>
-#include <QtCore/QDir>
-#include <QtCore/QDebug>
-#include <QtCore/QBuffer>
-#include <QtCore/QFileSystemWatcher>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qresource.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qiodevice.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qbuffer.h>
+#include <QtCore/qfilesystemwatcher.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -126,9 +126,7 @@ QtResourceSet::QtResourceSet(QtResourceModel *model) :
     d_ptr->q_ptr = this;
 }
 
-QtResourceSet::~QtResourceSet()
-{
-}
+QtResourceSet::~QtResourceSet() = default;
 
 QStringList QtResourceSet::activeResourceFilePaths() const
 {
@@ -418,7 +416,7 @@ void QtResourceModelPrivate::setWatcherEnabled(const QString &path, bool enable)
 void QtResourceModelPrivate::addWatcher(const QString &path)
 {
     QMap<QString, bool>::ConstIterator it = m_fileWatchedMap.constFind(path);
-    if (it != m_fileWatchedMap.constEnd() && it.value() == false)
+    if (it != m_fileWatchedMap.constEnd() && !it.value())
         return;
 
     m_fileWatchedMap.insert(path, true);

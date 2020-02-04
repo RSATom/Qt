@@ -17,8 +17,12 @@ namespace SkSL {
  * A 'discard' statement.
  */
 struct DiscardStatement : public Statement {
-    DiscardStatement(Position position)
-    : INHERITED(position, kDiscard_Kind) {}
+    DiscardStatement(int offset)
+    : INHERITED(offset, kDiscard_Kind) {}
+
+    std::unique_ptr<Statement> clone() const override {
+        return std::unique_ptr<Statement>(new DiscardStatement(fOffset));
+    }
 
     String description() const override {
         return String("discard;");

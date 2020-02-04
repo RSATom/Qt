@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/trace_event/trace_event_argument.h"
+#include "cc/trees/transform_node.h"
+#include "base/trace_event/traced_value.h"
 #include "cc/base/math_util.h"
 #include "cc/layers/layer.h"
 #include "cc/trees/property_tree.h"
-#include "cc/trees/transform_node.h"
 #include "ui/gfx/geometry/point3_f.h"
 
 namespace cc {
@@ -103,12 +103,14 @@ void TransformNode::update_post_local_transform(
 void TransformNode::AsValueInto(base::trace_event::TracedValue* value) const {
   value->SetInteger("id", id);
   value->SetInteger("parent_id", parent_id);
-  value->SetInteger("element_id", element_id.id_);
+  element_id.AddToTracedValue(value);
   MathUtil::AddToTracedValue("pre_local", pre_local, value);
   MathUtil::AddToTracedValue("local", local, value);
   MathUtil::AddToTracedValue("post_local", post_local, value);
   value->SetInteger("source_node_id", source_node_id);
   value->SetInteger("sorting_context_id", sorting_context_id);
+  value->SetInteger("flattens_inherited_transform",
+                    flattens_inherited_transform);
   MathUtil::AddToTracedValue("scroll_offset", scroll_offset, value);
   MathUtil::AddToTracedValue("snap_amount", snap_amount, value);
 }
@@ -119,7 +121,7 @@ TransformCachedNodeData::TransformCachedNodeData()
 TransformCachedNodeData::TransformCachedNodeData(
     const TransformCachedNodeData& other) = default;
 
-TransformCachedNodeData::~TransformCachedNodeData() {}
+TransformCachedNodeData::~TransformCachedNodeData() = default;
 
 bool TransformCachedNodeData::operator==(
     const TransformCachedNodeData& other) const {

@@ -96,6 +96,7 @@ typedef void (*QImageCleanupFunction)(void*);
 
 class Q_GUI_EXPORT QImage : public QPaintDevice
 {
+    Q_GADGET
 public:
     enum InvertMode { InvertRgb, InvertRgba };
     enum Format {
@@ -124,32 +125,33 @@ public:
         Format_A2RGB30_Premultiplied,
         Format_Alpha8,
         Format_Grayscale8,
-#if 0
-        // reserved for future use
+        Format_RGBX64,
+        Format_RGBA64,
+        Format_RGBA64_Premultiplied,
         Format_Grayscale16,
-#endif
 #ifndef Q_QDOC
         NImageFormats
 #endif
     };
+    Q_ENUM(Format)
 
     QImage() Q_DECL_NOEXCEPT;
     QImage(const QSize &size, Format format);
     QImage(int width, int height, Format format);
-    QImage(uchar *data, int width, int height, Format format, QImageCleanupFunction cleanupFunction = Q_NULLPTR, void *cleanupInfo = Q_NULLPTR);
-    QImage(const uchar *data, int width, int height, Format format, QImageCleanupFunction cleanupFunction = Q_NULLPTR, void *cleanupInfo = Q_NULLPTR);
-    QImage(uchar *data, int width, int height, int bytesPerLine, Format format, QImageCleanupFunction cleanupFunction = Q_NULLPTR, void *cleanupInfo = Q_NULLPTR);
-    QImage(const uchar *data, int width, int height, int bytesPerLine, Format format, QImageCleanupFunction cleanupFunction = Q_NULLPTR, void *cleanupInfo = Q_NULLPTR);
+    QImage(uchar *data, int width, int height, Format format, QImageCleanupFunction cleanupFunction = nullptr, void *cleanupInfo = nullptr);
+    QImage(const uchar *data, int width, int height, Format format, QImageCleanupFunction cleanupFunction = nullptr, void *cleanupInfo = nullptr);
+    QImage(uchar *data, int width, int height, int bytesPerLine, Format format, QImageCleanupFunction cleanupFunction = nullptr, void *cleanupInfo = nullptr);
+    QImage(const uchar *data, int width, int height, int bytesPerLine, Format format, QImageCleanupFunction cleanupFunction = nullptr, void *cleanupInfo = nullptr);
 
 #ifndef QT_NO_IMAGEFORMAT_XPM
     explicit QImage(const char * const xpm[]);
 #endif
-    explicit QImage(const QString &fileName, const char *format = Q_NULLPTR);
+    explicit QImage(const QString &fileName, const char *format = nullptr);
 
     QImage(const QImage &);
 #ifdef Q_COMPILER_RVALUE_REFS
     inline QImage(QImage &&other) Q_DECL_NOEXCEPT
-        : QPaintDevice(), d(Q_NULLPTR)
+        : QPaintDevice(), d(nullptr)
     { qSwap(d, other.d); }
 #endif
     ~QImage();
@@ -164,7 +166,7 @@ public:
 
     bool isNull() const;
 
-    int devType() const Q_DECL_OVERRIDE;
+    int devType() const override;
 
     bool operator==(const QImage &) const;
     bool operator!=(const QImage &) const;
@@ -194,6 +196,8 @@ public:
     Q_REQUIRED_RESULT QImage convertToFormat(Format f, const QVector<QRgb> &colorTable, Qt::ImageConversionFlags flags = Qt::AutoColor) const;
     bool reinterpretAsFormat(Format f);
 
+    void convertTo(Format f, Qt::ImageConversionFlags flags = Qt::AutoColor);
+
     int width() const;
     int height() const;
     QSize size() const;
@@ -222,7 +226,11 @@ public:
     uchar *scanLine(int);
     const uchar *scanLine(int) const;
     const uchar *constScanLine(int) const;
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+    qsizetype bytesPerLine() const;
+#else
     int bytesPerLine() const;
+#endif
 
     bool valid(int x, int y) const;
     bool valid(const QPoint &pt) const;
@@ -294,16 +302,16 @@ public:
 
 
     bool load(QIODevice *device, const char* format);
-    bool load(const QString &fileName, const char *format = Q_NULLPTR);
-    bool loadFromData(const uchar *buf, int len, const char *format = Q_NULLPTR);
-    inline bool loadFromData(const QByteArray &data, const char *aformat = Q_NULLPTR)
+    bool load(const QString &fileName, const char *format = nullptr);
+    bool loadFromData(const uchar *buf, int len, const char *format = nullptr);
+    inline bool loadFromData(const QByteArray &data, const char *aformat = nullptr)
         { return loadFromData(reinterpret_cast<const uchar *>(data.constData()), data.size(), aformat); }
 
-    bool save(const QString &fileName, const char *format = Q_NULLPTR, int quality = -1) const;
-    bool save(QIODevice *device, const char *format = Q_NULLPTR, int quality = -1) const;
+    bool save(const QString &fileName, const char *format = nullptr, int quality = -1) const;
+    bool save(QIODevice *device, const char *format = nullptr, int quality = -1) const;
 
-    static QImage fromData(const uchar *data, int size, const char *format = Q_NULLPTR);
-    inline static QImage fromData(const QByteArray &data, const char *format = Q_NULLPTR)
+    static QImage fromData(const uchar *data, int size, const char *format = nullptr);
+    inline static QImage fromData(const QByteArray &data, const char *format = nullptr)
         { return fromData(reinterpret_cast<const uchar *>(data.constData()), data.size(), format); }
 
 #if QT_DEPRECATED_SINCE(5, 0)
@@ -311,7 +319,7 @@ public:
 #endif
     qint64 cacheKey() const;
 
-    QPaintEngine *paintEngine() const Q_DECL_OVERRIDE;
+    QPaintEngine *paintEngine() const override;
 
     // Auxiliary data
     int dotsPerMeterX() const;
@@ -329,13 +337,13 @@ public:
     static QPixelFormat toPixelFormat(QImage::Format format) Q_DECL_NOTHROW;
     static QImage::Format toImageFormat(QPixelFormat format) Q_DECL_NOTHROW;
 
-    // Platform spesific conversion functions
+    // Platform specific conversion functions
 #if defined(Q_OS_DARWIN) || defined(Q_QDOC)
     CGImageRef toCGImage() const Q_DECL_CF_RETURNS_RETAINED;
 #endif
 
 #if QT_DEPRECATED_SINCE(5, 0)
-    QT_DEPRECATED inline QString text(const char *key, const char *lang = Q_NULLPTR) const;
+    QT_DEPRECATED inline QString text(const char *key, const char *lang = nullptr) const;
     QT_DEPRECATED inline QList<QImageTextKeyLang> textList() const;
     QT_DEPRECATED inline QStringList textLanguages() const;
     QT_DEPRECATED inline QString text(const QImageTextKeyLang&) const;
@@ -349,7 +357,7 @@ public:
 #endif
 
 protected:
-    virtual int metric(PaintDeviceMetric metric) const Q_DECL_OVERRIDE;
+    virtual int metric(PaintDeviceMetric metric) const override;
     QImage mirrored_helper(bool horizontal, bool vertical) const;
     QImage rgbSwapped_helper() const;
     void mirrored_inplace(bool horizontal, bool vertical);

@@ -6,30 +6,23 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
-#include "content/public/common/service_names.mojom.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
-#include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "services/service_manager/public/cpp/local_interface_provider.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 
-namespace {
-// Returns the browser's SpellCheckPanelHost interface.
-spellcheck::mojom::SpellCheckPanelHostPtr GetSpellCheckPanelHost() {
-  spellcheck::mojom::SpellCheckPanelHostPtr spell_check_panel_host;
-  DCHECK(content::RenderThread::Get());
-  content::RenderThread::Get()->GetConnector()->BindInterface(
-      content::mojom::kBrowserServiceName, &spell_check_panel_host);
-  return spell_check_panel_host;
-}
-}
-
-SpellCheckPanel::SpellCheckPanel(content::RenderFrame* render_frame)
+SpellCheckPanel::SpellCheckPanel(
+    content::RenderFrame* render_frame,
+    service_manager::BinderRegistry* registry,
+    service_manager::LocalInterfaceProvider* embedder_provider)
     : content::RenderFrameObserver(render_frame),
-      spelling_panel_visible_(false) {
+      spelling_panel_visible_(false),
+      embedder_provider_(embedder_provider) {
   DCHECK(render_frame);
-  render_frame->GetInterfaceRegistry()->AddInterface(base::Bind(
+  DCHECK(embedder_provider);
+  registry->AddInterface(base::BindRepeating(
       &SpellCheckPanel::SpellCheckPanelRequest, base::Unretained(this)));
   render_frame->GetWebFrame()->SetSpellCheckPanelHostClient(this);
 }
@@ -72,9 +65,16 @@ void SpellCheckPanel::ToggleSpellPanel(bool visible) {
   DCHECK(render_frame->GetWebFrame());
 
   // Tell our frame whether the spelling panel is visible or not so
-  // that it won't need to make ipc calls later.
+  // that it won't need to make mojo calls later.
   spelling_panel_visible_ = visible;
 
   render_frame->GetWebFrame()->ExecuteCommand(
       blink::WebString::FromUTF8("ToggleSpellPanel"));
+}
+
+spellcheck::mojom::SpellCheckPanelHostPtr
+SpellCheckPanel::GetSpellCheckPanelHost() {
+  spellcheck::mojom::SpellCheckPanelHostPtr spell_check_panel_host;
+  embedder_provider_->GetInterface(&spell_check_panel_host);
+  return spell_check_panel_host;
 }

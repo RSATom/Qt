@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -91,7 +92,7 @@ QT_BEGIN_NAMESPACE
     but if other instances of QPluginLoader are using the same
     library, the call will fail, and unloading will only happen when
     every instance has called unload(). Right before the unloading
-    happen, the root component will also be deleted.
+    happens, the root component will also be deleted.
 
     See \l{How to Create Qt Plugins} for more information about
     how to make your application extensible through plugins.
@@ -173,7 +174,7 @@ QPluginLoader::~QPluginLoader()
 
 /*!
     Returns the root component object of the plugin. The plugin is
-    loaded if necessary. The function returns 0 if the plugin could
+    loaded if necessary. The function returns \nullptr if the plugin could
     not be loaded or if the root component object could not be
     instantiated.
 
@@ -474,7 +475,19 @@ QVector<QStaticPlugin> QPluginLoader::staticPlugins()
 */
 QJsonObject QStaticPlugin::metaData() const
 {
-    return qJsonFromRawLibraryMetaData(rawMetaData()).object();
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    // the data is already loaded, so this doesn't matter
+    qsizetype rawMetaDataSize = INT_MAX;
+    const char *ptr = rawMetaData();
+#else
+    auto ptr = static_cast<const char *>(rawMetaData);
+#endif
+
+    QString errMsg;
+    QJsonDocument doc = qJsonFromRawLibraryMetaData(ptr, rawMetaDataSize, &errMsg);
+    Q_ASSERT(doc.isObject());
+    Q_ASSERT(errMsg.isEmpty());
+    return doc.object();
 }
 
 QT_END_NAMESPACE

@@ -7,7 +7,7 @@
 #if V8_TARGET_ARCH_ARM64
 
 #include "src/arm64/utils-arm64.h"
-#include "src/assembler.h"
+#include "src/cpu-features.h"
 
 namespace v8 {
 namespace internal {
@@ -15,7 +15,7 @@ namespace internal {
 class CacheLineSizes {
  public:
   CacheLineSizes() {
-#ifdef USE_SIMULATOR
+#if defined(USE_SIMULATOR) || defined(V8_OS_WIN)
     cache_type_register_ = 0;
 #else
     // Copy the content of the cache type register to a core register.
@@ -31,14 +31,16 @@ class CacheLineSizes {
   uint32_t ExtractCacheLineSize(int cache_line_size_shift) const {
     // The cache type register holds the size of cache lines in words as a
     // power of two.
-    return 4 << ((cache_type_register_ >> cache_line_size_shift) & 0xf);
+    return 4 << ((cache_type_register_ >> cache_line_size_shift) & 0xF);
   }
 
   uint32_t cache_type_register_;
 };
 
 void CpuFeatures::FlushICache(void* address, size_t length) {
-#ifdef V8_HOST_ARCH_ARM64
+#if defined(V8_OS_WIN)
+  FlushInstructionCache(GetCurrentProcess(), address, length);
+#elif defined(V8_HOST_ARCH_ARM64)
   // The code below assumes user space cache operations are allowed. The goal
   // of this routine is to make sure the code generated is visible to the I
   // side of the CPU.
@@ -49,8 +51,8 @@ void CpuFeatures::FlushICache(void* address, size_t length) {
   uintptr_t dsize = sizes.dcache_line_size();
   uintptr_t isize = sizes.icache_line_size();
   // Cache line sizes are always a power of 2.
-  DCHECK(CountSetBits(dsize, 64) == 1);
-  DCHECK(CountSetBits(isize, 64) == 1);
+  DCHECK_EQ(CountSetBits(dsize, 64), 1);
+  DCHECK_EQ(CountSetBits(isize, 64), 1);
   uintptr_t dstart = start & ~(dsize - 1);
   uintptr_t istart = start & ~(isize - 1);
   uintptr_t end = start + length;

@@ -7,9 +7,11 @@ qtConfig(opengl):!qtConfig(opengles2):!qtConfig(dynamicgl): LIBS *= -lopengl32
 
 mingw: LIBS *= -luuid
 # For the dialog helpers:
-LIBS += -lshlwapi -lshell32 -ladvapi32
+LIBS += -lshlwapi -lshell32 -ladvapi32 -lwtsapi32
 
-DEFINES *= QT_NO_CAST_FROM_ASCII
+QMAKE_USE_PRIVATE += d3d9/nolink
+
+DEFINES *= QT_NO_CAST_FROM_ASCII QT_NO_FOREACH
 
 SOURCES += \
     $$PWD/qwindowswindow.cpp \
@@ -18,6 +20,7 @@ SOURCES += \
     $$PWD/qwindowsscreen.cpp \
     $$PWD/qwindowskeymapper.cpp \
     $$PWD/qwindowsmousehandler.cpp \
+    $$PWD/qwindowspointerhandler.cpp \
     $$PWD/qwindowsole.cpp \
     $$PWD/qwindowsdropdataobject.cpp \
     $$PWD/qwindowsmime.cpp \
@@ -40,6 +43,7 @@ HEADERS += \
     $$PWD/qwindowsscreen.h \
     $$PWD/qwindowskeymapper.h \
     $$PWD/qwindowsmousehandler.h \
+    $$PWD/qwindowspointerhandler.h \
     $$PWD/qtwindowsglobal.h \
     $$PWD/qwindowsole.h \
     $$PWD/qwindowsdropdataobject.h \
@@ -53,7 +57,7 @@ HEADERS += \
     $$PWD/qwindowsservices.h \
     $$PWD/qwindowsnativeinterface.h \
     $$PWD/qwindowsopengltester.h \
-    $$PWD/qwindowsthreadpoolrunner.h
+    $$PWD/qwindowsthreadpoolrunner.h \
     $$PWD/qwin10helpers.h
 
 INCLUDEPATH += $$PWD
@@ -109,7 +113,7 @@ qtConfig(imageformat_png):RESOURCES += $$PWD/cursors.qrc
 
 RESOURCES += $$PWD/openglblacklists.qrc
 
-qtConfig(accessibility): include($$PWD/accessible/accessible.pri)
+qtConfig(accessibility): include($$PWD/uiautomation/uiautomation.pri)
 
 qtConfig(combined-angle-lib) {
     DEFINES *= LIBEGL_NAME=$${LIBQTANGLE_NAME}

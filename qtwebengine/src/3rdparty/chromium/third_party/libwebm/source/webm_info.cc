@@ -28,12 +28,12 @@
 
 namespace {
 
-using mkvparser::ContentEncoding;
-using std::string;
-using std::wstring;
 using libwebm::Indent;
 using libwebm::kNanosecondsPerSecond;
 using libwebm::kNanosecondsPerSecondi;
+using mkvparser::ContentEncoding;
+using std::string;
+using std::wstring;
 
 const char VERSION_STRING[] = "1.0.4.5";
 
@@ -709,8 +709,14 @@ void PrintVP9Info(const uint8_t* data, int size, FILE* o, int64_t time_ns,
 
   do {
     const size_t frame_length = (count > 0) ? sizes[i] : size;
-    parser->SetFrame(data, frame_length);
-    parser->ParseUncompressedHeader();
+    if (frame_length > std::numeric_limits<int>::max() ||
+        static_cast<int>(frame_length) > size) {
+      fprintf(o, " invalid VP9 frame size (%u)\n",
+              static_cast<uint32_t>(frame_length));
+      return;
+    }
+    if (!parser->ParseUncompressedHeader(data, frame_length))
+      return;
     level_stats->AddFrame(*parser, time_ns);
 
     // const int frame_marker = (data[0] >> 6) & 0x3;
@@ -1085,8 +1091,8 @@ bool OutputCues(const mkvparser::Segment& segment,
   indent->Adjust(libwebm::kIncreaseIndent);
 
   do {
-    for (int track_num = 1; track_num <= num_tracks; ++track_num) {
-      const mkvparser::Track* const track = tracks.GetTrackByNumber(track_num);
+    for (int track_num = 0; track_num < num_tracks; ++track_num) {
+      const mkvparser::Track* const track = tracks.GetTrackByIndex(track_num);
       const mkvparser::CuePoint::TrackPosition* const track_pos =
           cue_point->Find(track);
 
@@ -1095,7 +1101,7 @@ bool OutputCues(const mkvparser::Segment& segment,
             (track->GetType() == mkvparser::Track::kVideo) ? 'V' : 'A';
         fprintf(o, "%sCue Point:%d type:%c track:%d",
                 indent->indent_str().c_str(), cue_point_num, track_type,
-                track_num);
+                static_cast<int>(track->GetNumber()));
 
         if (options.output_seconds) {
           fprintf(o, " secs:%g",
@@ -1183,8 +1189,7 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
-  // TODO(fgalligan): Replace auto_ptr with scoped_ptr.
-  std::auto_ptr<mkvparser::MkvReader> reader(
+  std::unique_ptr<mkvparser::MkvReader> reader(
       new (std::nothrow) mkvparser::MkvReader());  // NOLINT
   if (reader->Open(input.c_str())) {
     fprintf(stderr, "Error opening file:%s\n", input.c_str());
@@ -1192,7 +1197,7 @@ int main(int argc, char* argv[]) {
   }
 
   long long int pos = 0;
-  std::auto_ptr<mkvparser::EBMLHeader> ebml_header(
+  std::unique_ptr<mkvparser::EBMLHeader> ebml_header(
       new (std::nothrow) mkvparser::EBMLHeader());  // NOLINT
   if (ebml_header->Parse(reader.get(), pos) < 0) {
     fprintf(stderr, "Error parsing EBML header.\n");
@@ -1210,7 +1215,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Segment::CreateInstance() failed.\n");
     return EXIT_FAILURE;
   }
-  std::auto_ptr<mkvparser::Segment> segment(temp_segment);
+  std::unique_ptr<mkvparser::Segment> segment(temp_segment);
 
   if (segment->Load() < 0) {
     fprintf(stderr, "Segment::Load() failed.\n");
@@ -1306,15 +1311,16 @@ int main(int argc, char* argv[]) {
     level_stats.set_duration(segment->GetInfo()->GetDuration());
     const vp9_parser::Vp9Level level = level_stats.GetLevel();
     fprintf(out, "VP9 Level:%d\n", level);
-    fprintf(out, "mlsr:%" PRId64 " mlps:%" PRId64
-                 " abr:%g mcs:%g cr:%g mct:%d"
-                 " mad:%d mrf:%d\n",
-            level_stats.GetMaxLumaSampleRate(),
-            level_stats.GetMaxLumaPictureSize(),
-            level_stats.GetAverageBitRate(), level_stats.GetMaxCpbSize(),
-            level_stats.GetCompressionRatio(), level_stats.GetMaxColumnTiles(),
-            level_stats.GetMinimumAltrefDistance(),
-            level_stats.GetMaxReferenceFrames());
+    fprintf(
+        out,
+        "mlsr:%" PRId64 " mlps:%" PRId64 " mlpb:%" PRId64
+        " abr:%g mcs:%g cr:%g mct:%d"
+        " mad:%d mrf:%d\n",
+        level_stats.GetMaxLumaSampleRate(), level_stats.GetMaxLumaPictureSize(),
+        level_stats.GetMaxLumaPictureBreadth(), level_stats.GetAverageBitRate(),
+        level_stats.GetMaxCpbSize(), level_stats.GetCompressionRatio(),
+        level_stats.GetMaxColumnTiles(), level_stats.GetMinimumAltrefDistance(),
+        level_stats.GetMaxReferenceFrames());
   }
   return EXIT_SUCCESS;
 }

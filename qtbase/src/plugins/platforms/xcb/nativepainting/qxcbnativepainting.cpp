@@ -44,7 +44,7 @@
 
 QT_BEGIN_NAMESPACE
 
-QXcbX11Data *qt_x11Data = Q_NULLPTR;
+QXcbX11Data *qt_x11Data = nullptr;
 
 void qt_xcb_native_x11_info_init(QXcbConnection *conn)
 {
@@ -111,7 +111,7 @@ void qt_xcb_native_x11_info_init(QXcbConnection *conn)
 QVector<XRectangle> qt_region_to_xrectangles(const QRegion &r)
 {
     const int numRects = r.rectCount();
-    const QVector<QRect> input = r.rects();
+    const auto input = r.begin();
     QVector<XRectangle> output(numRects);
     for (int i = 0; i < numRects; ++i) {
         const QRect &in = input[i];
@@ -128,7 +128,7 @@ class QXcbX11InfoData : public QSharedData, public QX11InfoData
 {};
 
 QXcbX11Info::QXcbX11Info()
-    : d(Q_NULLPTR)
+    : d(nullptr)
 {}
 
 QXcbX11Info::~QXcbX11Info()

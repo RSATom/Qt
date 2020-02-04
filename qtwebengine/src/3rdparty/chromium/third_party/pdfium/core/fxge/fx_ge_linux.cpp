@@ -9,11 +9,12 @@
 
 #include "core/fxcrt/fx_codepage.h"
 #include "core/fxge/cfx_folderfontinfo.h"
+#include "core/fxge/cfx_fontmgr.h"
 #include "core/fxge/cfx_gemodule.h"
-#include "core/fxge/ifx_systemfontinfo.h"
+#include "core/fxge/systemfontinfo_iface.h"
 #include "third_party/base/ptr_util.h"
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_LINUX_
+#if _FX_PLATFORM_ == _FX_PLATFORM_LINUX_
 namespace {
 
 const size_t kLinuxGpNameSize = 6;
@@ -44,29 +45,28 @@ const char* const g_LinuxHGFontList[] = {
 size_t GetJapanesePreference(const char* facearr,
                              int weight,
                              int pitch_family) {
-  CFX_ByteString face = facearr;
-  if (face.Find("Gothic") >= 0 ||
-      face.Find("\x83\x53\x83\x56\x83\x62\x83\x4e") >= 0) {
-    if (face.Find("PGothic") >= 0 ||
-        face.Find("\x82\x6f\x83\x53\x83\x56\x83\x62\x83\x4e") >= 0) {
+  ByteString face = facearr;
+  if (face.Contains("Gothic") ||
+      face.Contains("\x83\x53\x83\x56\x83\x62\x83\x4e")) {
+    if (face.Contains("PGothic") ||
+        face.Contains("\x82\x6f\x83\x53\x83\x56\x83\x62\x83\x4e")) {
       return 0;
     }
     return 1;
   }
-  if (face.Find("Mincho") >= 0 || face.Find("\x96\xbe\x92\xa9") >= 0) {
-    if (face.Find("PMincho") >= 0 ||
-        face.Find("\x82\x6f\x96\xbe\x92\xa9") >= 0) {
+  if (face.Contains("Mincho") || face.Contains("\x96\xbe\x92\xa9")) {
+    if (face.Contains("PMincho") || face.Contains("\x82\x6f\x96\xbe\x92\xa9")) {
       return 2;
     }
     return 3;
   }
-  if (!(pitch_family & FXFONT_FF_ROMAN) && weight > 400)
+  if (!FontFamilyIsRoman(pitch_family) && weight > 400)
     return 0;
 
   return 2;
 }
 
-class CFX_LinuxFontInfo : public CFX_FolderFontInfo {
+class CFX_LinuxFontInfo final : public CFX_FolderFontInfo {
  public:
   CFX_LinuxFontInfo() {}
   ~CFX_LinuxFontInfo() override {}
@@ -75,8 +75,7 @@ class CFX_LinuxFontInfo : public CFX_FolderFontInfo {
                 bool bItalic,
                 int charset,
                 int pitch_family,
-                const char* family,
-                int& iExact) override;
+                const char* family) override;
   bool ParseFontCfg(const char** pUserPaths);
 };
 
@@ -84,13 +83,11 @@ void* CFX_LinuxFontInfo::MapFont(int weight,
                                  bool bItalic,
                                  int charset,
                                  int pitch_family,
-                                 const char* cstr_face,
-                                 int& iExact) {
+                                 const char* cstr_face) {
   void* font = GetSubstFont(cstr_face);
-  if (font) {
-    iExact = 1;
+  if (font)
     return font;
-  }
+
   bool bCJK = true;
   switch (charset) {
     case FX_CHARSET_ShiftJIS: {
@@ -104,24 +101,24 @@ void* CFX_LinuxFontInfo::MapFont(int weight,
       break;
     }
     case FX_CHARSET_ChineseSimplified: {
-      for (size_t i = 0; i < FX_ArraySize(g_LinuxGbFontList); ++i) {
-        auto it = m_FontList.find(g_LinuxGbFontList[i]);
+      for (const char* name : g_LinuxGbFontList) {
+        auto it = m_FontList.find(name);
         if (it != m_FontList.end())
           return it->second.get();
       }
       break;
     }
     case FX_CHARSET_ChineseTraditional: {
-      for (size_t i = 0; i < FX_ArraySize(g_LinuxB5FontList); ++i) {
-        auto it = m_FontList.find(g_LinuxB5FontList[i]);
+      for (const char* name : g_LinuxB5FontList) {
+        auto it = m_FontList.find(name);
         if (it != m_FontList.end())
           return it->second.get();
       }
       break;
     }
     case FX_CHARSET_Hangul: {
-      for (size_t i = 0; i < FX_ArraySize(g_LinuxHGFontList); ++i) {
-        auto it = m_FontList.find(g_LinuxHGFontList[i]);
+      for (const char* name : g_LinuxHGFontList) {
+        auto it = m_FontList.find(name);
         if (it != m_FontList.end())
           return it->second.get();
       }
@@ -145,7 +142,7 @@ bool CFX_LinuxFontInfo::ParseFontCfg(const char** pUserPaths) {
 
 }  // namespace
 
-std::unique_ptr<IFX_SystemFontInfo> IFX_SystemFontInfo::CreateDefault(
+std::unique_ptr<SystemFontInfoIface> SystemFontInfoIface::CreateDefault(
     const char** pUserPaths) {
   auto pInfo = pdfium::MakeUnique<CFX_LinuxFontInfo>();
   if (!pInfo->ParseFontCfg(pUserPaths)) {
@@ -159,8 +156,8 @@ std::unique_ptr<IFX_SystemFontInfo> IFX_SystemFontInfo::CreateDefault(
 
 void CFX_GEModule::InitPlatform() {
   m_pFontMgr->SetSystemFontInfo(
-      IFX_SystemFontInfo::CreateDefault(m_pUserFontPaths));
+      SystemFontInfoIface::CreateDefault(m_pUserFontPaths));
 }
 
 void CFX_GEModule::DestroyPlatform() {}
-#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_LINUX_
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_LINUX_

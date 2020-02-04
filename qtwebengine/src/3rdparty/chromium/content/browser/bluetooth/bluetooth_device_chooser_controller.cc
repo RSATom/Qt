@@ -10,7 +10,6 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -42,50 +41,49 @@ namespace {
 // displayed levels.
 //
 // RSSI values from UMA in RecordRSSISignalStrength are charted here:
-// https://goo.gl/photos/pCoAkF7mPyza9B1k7 (2016-12-08)
+// https://photos.app.goo.gl/6R0ksxWzBsfvrbXH2 (2017-10-18)
 // with a copy-paste of table data at every 5dBm:
 //  dBm   CDF* Histogram Bucket Quantity (hand drawn estimate)
-// -100 00.0%  -
-//  -95 00.4%  --
-//  -90 01.9%  ---
-//  -85 05.1%  ---
-//  -80 09.2%  ----
-//  -75 14.9%  -----
-//  -70 22.0%  ------
-//  -65 32.4%  --------
-//  -60 47.9%  ---------
-//  -55 60.4%  --------
-//  -50 72.8%  ---------
-//  -45 85.5%  -------
-//  -40 94.5%  -----
-//  -35 97.4%  ---
-//  -30 99.0%  --
-//  -25 99.7%  -
+// -100 00.26%
+//  -95 01.22% ---
+//  -90 04.14% -----------
+//  -85 11.24% ----------------------------
+//  -80 18.29% ----------------------------
+//  -75 27.13% -----------------------------------
+//  -70 37.72% ------------------------------------------
+//  -65 49.42% ----------------------------------------------
+//  -60 62.91% -----------------------------------------------------
+//  -55 74.35% ---------------------------------------------
+//  -50 83.07% ----------------------------------
+//  -45 88.43% ---------------------
+//  -40 92.41% ---------------
+//  -35 94.84% ---------
+//  -30 95.96% ----
+//  -25 96.60% --
+//  -20 96.90% -
+//  -15 97.07%
+//  -10 97.21%
+//   -5 97.34%
+//    0 97.47%
 //
 // CDF: Cumulative Distribution Function:
 // https://en.wikipedia.org/wiki/Cumulative_distribution_function
 //
 // Conversion to signal strengths is done by selecting 4 threshold points
 // equally spaced through the CDF.
-const int k20thPercentileRSSI = -71;
-const int k40thPercentileRSSI = -63;
-const int k60thPercentileRSSI = -55;
-const int k80thPercentileRSSI = -47;
+const int k20thPercentileRSSI = -79;
+const int k40thPercentileRSSI = -69;
+const int k60thPercentileRSSI = -61;
+const int k80thPercentileRSSI = -52;
 
 }  // namespace
 
 namespace content {
 
-bool BluetoothDeviceChooserController::use_test_scan_duration_ = false;
+// Sets the default duration for a Bluetooth scan to 60 seconds.
+int64_t BluetoothDeviceChooserController::scan_duration_ = 60;
 
 namespace {
-// Max length of device name in filter. Bluetooth 5.0 3.C.3.2.2.3 states that
-// the maximum device name length is 248 bytes (UTF-8 encoded).
-constexpr size_t kMaxLengthForDeviceName = 248;
-
-// The duration of a Bluetooth Scan in seconds.
-constexpr int kScanDuration = 60;
-constexpr int kTestScanDuration = 0;
 
 void LogRequestDeviceOptions(
     const blink::mojom::WebBluetoothRequestDeviceOptionsPtr& options) {
@@ -111,47 +109,6 @@ void LogRequestDeviceOptions(
         DVLOG(1) << "\t\t" << service.canonical_value();
       DVLOG(1) << "\t]";
     }
-  }
-}
-
-bool IsEmptyOrInvalidFilter(
-    const blink::mojom::WebBluetoothLeScanFilterPtr& filter) {
-  // At least one member needs to be present.
-  if (!filter->name && !filter->name_prefix && !filter->services)
-    return true;
-
-  // The renderer will never send a name or a name_prefix longer than
-  // kMaxLengthForDeviceName.
-  if (filter->name && filter->name->size() > kMaxLengthForDeviceName)
-    return true;
-  if (filter->name_prefix && filter->name_prefix->size() == 0)
-    return true;
-  if (filter->name_prefix &&
-      filter->name_prefix->size() > kMaxLengthForDeviceName)
-    return true;
-
-  return false;
-}
-
-bool HasEmptyOrInvalidFilter(
-    const base::Optional<
-        std::vector<blink::mojom::WebBluetoothLeScanFilterPtr>>& filters) {
-  if (!filters) {
-    return true;
-  }
-
-  return filters->empty()
-             ? true
-             : filters->end() != std::find_if(filters->begin(), filters->end(),
-                                              IsEmptyOrInvalidFilter);
-}
-
-bool IsOptionsInvalid(
-    const blink::mojom::WebBluetoothRequestDeviceOptionsPtr& options) {
-  if (options->accept_all_devices) {
-    return options->filters.has_value();
-  } else {
-    return HasEmptyOrInvalidFilter(options->filters);
   }
 }
 
@@ -218,7 +175,7 @@ std::unique_ptr<device::BluetoothDiscoveryFilter> ComputeScanFilter(
   // devices so performing a Dual scan will find devices that the API is not
   // able to interact with. To avoid wasting power and confusing users with
   // devices they are not able to interact with, we only perform an LE Scan.
-  auto discovery_filter = base::MakeUnique<device::BluetoothDiscoveryFilter>(
+  auto discovery_filter = std::make_unique<device::BluetoothDiscoveryFilter>(
       device::BLUETOOTH_TRANSPORT_LE);
   for (const BluetoothUUID& service : services) {
     discovery_filter->AddUUID(service);
@@ -231,8 +188,7 @@ void StopDiscoverySession(
   // Nothing goes wrong if the discovery session fails to stop, and we don't
   // need to wait for it before letting the user's script proceed, so we ignore
   // the results here.
-  discovery_session->Stop(base::Bind(&base::DoNothing),
-                          base::Bind(&base::DoNothing));
+  discovery_session->Stop(base::DoNothing(), base::DoNothing());
 }
 
 UMARequestDeviceOutcome OutcomeFromChooserEvent(BluetoothChooser::Event event) {
@@ -277,15 +233,11 @@ BluetoothDeviceChooserController::BluetoothDeviceChooserController(
       web_contents_(WebContents::FromRenderFrameHost(render_frame_host_)),
       discovery_session_timer_(
           FROM_HERE,
-          // TODO(jyasskin): Add a way for tests to control the dialog
-          // directly, and change this to a reasonable discovery timeout.
-          base::TimeDelta::FromSeconds(
-              use_test_scan_duration_ ? kTestScanDuration : kScanDuration),
+          base::TimeDelta::FromSeconds(scan_duration_),
           base::Bind(&BluetoothDeviceChooserController::StopDeviceDiscovery,
                      // base::Timer guarantees it won't call back after its
                      // destructor starts.
-                     base::Unretained(this)),
-          /*is_repeating=*/false),
+                     base::Unretained(this))),
       weak_ptr_factory_(this) {
   CHECK(adapter_);
 }
@@ -314,13 +266,6 @@ void BluetoothDeviceChooserController::GetDevice(
 
   success_callback_ = success_callback;
   error_callback_ = error_callback;
-
-  // The renderer should never send invalid options.
-  if (IsOptionsInvalid(options)) {
-    web_bluetooth_service_->CrashRendererAndClosePipe(
-        bad_message::BDH_INVALID_OPTIONS);
-    return;
-  }
   options_ = std::move(options);
   LogRequestDeviceOptions(options_);
 
@@ -348,9 +293,9 @@ void BluetoothDeviceChooserController::GetDevice(
                           REQUEST_DEVICE_FROM_CROSS_ORIGIN_IFRAME);
     return;
   }
-  // The above also excludes unique origins, which are not even same-origin with
+  // The above also excludes opaque origins, which are not even same-origin with
   // themselves.
-  DCHECK(!requesting_origin.unique());
+  DCHECK(!requesting_origin.opaque());
 
   if (!adapter_->IsPresent()) {
     DVLOG(1) << "Bluetooth Adapter not present. Can't serve requestDevice.";
@@ -393,7 +338,7 @@ void BluetoothDeviceChooserController::GetDevice(
 
   if (WebContentsDelegate* delegate = web_contents_->GetDelegate()) {
     chooser_ = delegate->RunBluetoothChooser(render_frame_host_,
-                                             chooser_event_handler);
+                                             std::move(chooser_event_handler));
   }
 
   if (!chooser_.get()) {
@@ -486,8 +431,16 @@ int BluetoothDeviceChooserController::CalculateSignalStrengthLevel(
   }
 }
 
-void BluetoothDeviceChooserController::SetTestScanDurationForTesting() {
-  BluetoothDeviceChooserController::use_test_scan_duration_ = true;
+void BluetoothDeviceChooserController::SetTestScanDurationForTesting(
+    TestScanDurationSetting setting) {
+  switch (setting) {
+    case TestScanDurationSetting::IMMEDIATE_TIMEOUT:
+      scan_duration_ = 0;
+      break;
+    case TestScanDurationSetting::NEVER_TIMEOUT:
+      scan_duration_ = base::TimeDelta::Max().InSeconds();
+      break;
+  }
 }
 
 void BluetoothDeviceChooserController::PopulateConnectedDevices() {
@@ -609,9 +562,8 @@ void BluetoothDeviceChooserController::OnBluetoothChooserEvent(
 void BluetoothDeviceChooserController::PostSuccessCallback(
     const std::string& device_address) {
   if (!base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE,
-          base::Bind(success_callback_, base::Passed(std::move(options_)),
-                     device_address))) {
+          FROM_HERE, base::BindOnce(success_callback_, std::move(options_),
+                                    device_address))) {
     LOG(WARNING) << "No TaskRunner.";
   }
 }
@@ -619,7 +571,7 @@ void BluetoothDeviceChooserController::PostSuccessCallback(
 void BluetoothDeviceChooserController::PostErrorCallback(
     blink::mojom::WebBluetoothResult error) {
   if (!base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(error_callback_, error))) {
+          FROM_HERE, base::BindOnce(error_callback_, error))) {
     LOG(WARNING) << "No TaskRunner.";
   }
 }

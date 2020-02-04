@@ -8,10 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <string>
+#include <stdint.h>
+#include <string.h>
 
-#include "webrtc/common_video/include/i420_buffer_pool.h"
-#include "webrtc/test/gtest.h"
+#include "api/video/i420_buffer.h"
+#include "api/video/video_frame_buffer.h"
+#include "common_video/include/i420_buffer_pool.h"
+#include "rtc_base/scoped_ref_ptr.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 

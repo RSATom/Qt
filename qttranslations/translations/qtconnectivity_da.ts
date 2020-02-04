@@ -56,10 +56,6 @@
         <translation>Manglende placeringstilladelse. Søgning er ikke mulig.</translation>
     </message>
     <message>
-        <source>Missing Location permission. Search is not possible</source>
-        <translation>Manglende placeringstilladelse. Søgning er ikke mulig</translation>
-    </message>
-    <message>
         <source>Classic Discovery cannot be started</source>
         <translation>Klassisk opdagelse kan ikke startes</translation>
     </message>
@@ -412,7 +408,7 @@
     </message>
     <message>
         <source>Current Time Service</source>
-        <translation>Aktuelle tid-tjeneste</translation>
+        <translation>Nuværende tid-tjeneste</translation>
     </message>
     <message>
         <source>Reference Time Update Service</source>
@@ -750,7 +746,7 @@
     </message>
     <message>
         <source>Current Time</source>
-        <translation>Aktuelle tid</translation>
+        <translation>Nuværende tid</translation>
     </message>
     <message>
         <source>Scan Refresh</source>
@@ -1150,11 +1146,11 @@
     </message>
     <message>
         <source>Magnetic Flux Density 2D</source>
-        <translation type="unfinished"></translation>
+        <translation>Tæthed af magnetisk flux 2D</translation>
     </message>
     <message>
         <source>Magnetic Flux Density 3D</source>
-        <translation type="unfinished"></translation>
+        <translation>Tæthed af magnetisk flux 3D</translation>
     </message>
     <message>
         <source>Language</source>

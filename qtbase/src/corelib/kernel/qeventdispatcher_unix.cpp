@@ -130,7 +130,7 @@ static void initThreadPipeFD(int fd)
 
 bool QThreadPipe::init()
 {
-#if defined(Q_OS_NACL)
+#if defined(Q_OS_NACL) || defined(Q_OS_WASM)
    // do nothing.
 #elif defined(Q_OS_VXWORKS)
     qsnprintf(name, sizeof(name), "/pipe/qt_%08x", int(taskIdSelf()));
@@ -225,7 +225,7 @@ int QThreadPipe::check(const pollfd &pfd)
 QEventDispatcherUNIXPrivate::QEventDispatcherUNIXPrivate()
 {
     if (Q_UNLIKELY(threadPipe.init() == false))
-        qFatal("QEventDispatcherUNIXPrivate(): Can not continue without a thread pipe");
+        qFatal("QEventDispatcherUNIXPrivate(): Cannot continue without a thread pipe");
 }
 
 QEventDispatcherUNIXPrivate::~QEventDispatcherUNIXPrivate()

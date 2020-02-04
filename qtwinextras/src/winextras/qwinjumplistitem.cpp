@@ -42,8 +42,8 @@
 #include "qwinjumplistitem_p.h"
 #include "qwinjumplistcategory_p.h"
 
-#include <QtCore/QDebug>
-#include <QtCore/QDir>
+#include <QtCore/qdebug.h>
+#include <QtCore/qdir.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -86,9 +86,7 @@ QWinJumpListItem::QWinJumpListItem(QWinJumpListItem::Type type) :
 /*!
     Destroys the QWinJumpListItem.
  */
-QWinJumpListItem::~QWinJumpListItem()
-{
-}
+QWinJumpListItem::~QWinJumpListItem() = default;
 
 /*!
     Sets the item \a type.

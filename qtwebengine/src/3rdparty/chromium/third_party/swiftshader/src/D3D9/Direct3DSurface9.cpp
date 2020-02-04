@@ -76,7 +76,8 @@ namespace D3D9
 		return (pool != D3DPOOL_DEFAULT) || (usage & D3DUSAGE_DYNAMIC) || lockableOverride;
 	}
 
-	Direct3DSurface9::Direct3DSurface9(Direct3DDevice9 *device, Unknown *container, int width, int height, D3DFORMAT format, D3DPOOL pool, D3DMULTISAMPLE_TYPE multiSample, unsigned int quality, bool lockableOverride, unsigned long usage) : Direct3DResource9(device, D3DRTYPE_SURFACE, pool, memoryUsage(width, height, format)), Surface(getParentResource(container), width, height, sampleCount(multiSample, quality), translateFormat(format), isLockable(pool, usage, lockableOverride), (usage & D3DUSAGE_RENDERTARGET) || (usage & D3DUSAGE_DEPTHSTENCIL)), container(container), width(width), height(height), format(format), pool(pool), multiSample(multiSample), quality(quality), lockable(isLockable(pool, usage, lockableOverride)), usage(usage)
+	Direct3DSurface9::Direct3DSurface9(Direct3DDevice9 *device, Unknown *container, int width, int height, D3DFORMAT format, D3DPOOL pool, D3DMULTISAMPLE_TYPE multiSample, unsigned int quality, bool lockableOverride, unsigned long usage)
+		: Direct3DResource9(device, D3DRTYPE_SURFACE, pool, memoryUsage(width, height, multiSample, quality, format)), Surface(getParentResource(container), width, height, 1, 0, sampleCount(multiSample, quality), translateFormat(format), isLockable(pool, usage, lockableOverride), (usage & D3DUSAGE_RENDERTARGET) || (usage & D3DUSAGE_DEPTHSTENCIL)), container(container), width(width), height(height), format(format), pool(pool), multiSample(multiSample), quality(quality), lockable(isLockable(pool, usage, lockableOverride)), usage(usage)
 	{
 		parentTexture = dynamic_cast<Direct3DBaseTexture9*>(container);
 	}
@@ -343,7 +344,6 @@ namespace D3D9
 	{
 		switch(format)
 		{
-		#if S3TC_SUPPORT
 		case D3DFMT_NULL:			return sw::FORMAT_NULL;
 		case D3DFMT_DXT1:			return sw::FORMAT_DXT1;
 		case D3DFMT_DXT2:			return sw::FORMAT_DXT3;
@@ -352,7 +352,6 @@ namespace D3D9
 		case D3DFMT_DXT5:			return sw::FORMAT_DXT5;
 		case D3DFMT_ATI1:			return sw::FORMAT_ATI1;
 		case D3DFMT_ATI2:			return sw::FORMAT_ATI2;
-		#endif
 		case D3DFMT_R3G3B2:			return sw::FORMAT_R3G3B2;
 		case D3DFMT_A8R3G3B2:		return sw::FORMAT_A8R3G3B2;
 		case D3DFMT_X4R4G4B4:		return sw::FORMAT_X4R4G4B4;
@@ -410,8 +409,8 @@ namespace D3D9
 		return Surface::bytes(translateFormat(format));
 	}
 
-	unsigned int Direct3DSurface9::memoryUsage(int width, int height, D3DFORMAT format)
+	unsigned int Direct3DSurface9::memoryUsage(int width, int height, D3DMULTISAMPLE_TYPE multiSample, unsigned int quality, D3DFORMAT format)
 	{
-		return Surface::size(width, height, 1, translateFormat(format));
+		return Surface::size(width, height, 1, 0, sampleCount(multiSample, quality), translateFormat(format));
 	}
 }

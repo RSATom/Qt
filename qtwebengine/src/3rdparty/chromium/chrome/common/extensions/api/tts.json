@@ -15,6 +15,7 @@
       {
         "id": "VoiceGender",
         "type": "string",
+        "deprecated": "Gender is deprecated and is ignored.",
         "enum": ["male", "female"]
       },
       {
@@ -68,6 +69,7 @@
           "gender": {
             "$ref": "VoiceGender",
             "optional": true,
+            "deprecated": "Gender is deprecated and will be ignored.",
             "description": "This voice's gender."
           },
           "remote": {
@@ -82,7 +84,7 @@
           },
           "eventTypes": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {"$ref": "EventType"},
             "optional": true,
             "description": "All of the callback event types that this voice is capable of sending."
           }
@@ -129,6 +131,7 @@
               "gender": {
                 "$ref": "VoiceGender",
                 "optional": true,
+                "deprecated": "Gender is deprecated and will be ignored.",
                 "description": "Gender of voice for synthesized speech."
               },
               "rate": {

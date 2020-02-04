@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "extensions/common/extension_id.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -30,12 +31,6 @@ class Warning {
     kInvalid = 0,
     // An extension caused excessive network delays.
     kNetworkDelay,
-    // This extension failed to modify a network request because the
-    // modification conflicted with a modification of another extension.
-    kNetworkConflict,
-    // This extension failed to redirect a network request because another
-    // extension with higher precedence redirected to a different target.
-    kRedirectConflict,
     // The extension repeatedly flushed WebKit's in-memory cache, which slows
     // down the overall performance.
     kRepeatedCacheFlushes,
@@ -43,6 +38,8 @@ class Warning {
     // another extension with higher precedence determined a different filename.
     kDownloadFilenameConflict,
     kReloadTooFrequent,
+    // The declarative net request ruleset for the extension failed to load.
+    kRulesetFailedToLoad,
     kMaxWarningType
   };
 
@@ -54,24 +51,6 @@ class Warning {
   // Factory methods for various warning types.
   static Warning CreateNetworkDelayWarning(
       const std::string& extension_id);
-  static Warning CreateNetworkConflictWarning(
-      const std::string& extension_id);
-  static Warning CreateRedirectConflictWarning(
-      const std::string& extension_id,
-      const std::string& winning_extension_id,
-      const GURL& attempted_redirect_url,
-      const GURL& winning_redirect_url);
-  static Warning CreateRequestHeaderConflictWarning(
-      const std::string& extension_id,
-      const std::string& winning_extension_id,
-      const std::string& conflicting_header);
-  static Warning CreateResponseHeaderConflictWarning(
-      const std::string& extension_id,
-      const std::string& winning_extension_id,
-      const std::string& conflicting_header);
-  static Warning CreateCredentialsConflictWarning(
-      const std::string& extension_id,
-      const std::string& winning_extension_id);
   static Warning CreateRepeatedCacheFlushesWarning(
       const std::string& extension_id);
   static Warning CreateDownloadFilenameConflictWarning(
@@ -81,6 +60,8 @@ class Warning {
       const base::FilePath& winning_filename);
   static Warning CreateReloadTooFrequentWarning(
       const std::string& extension_id);
+  static Warning CreateRulesetFailedToLoadWarning(
+      const ExtensionId& extension_id);
 
   // Returns the specific warning type.
   WarningType warning_type() const { return type_; }

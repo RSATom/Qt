@@ -6,9 +6,9 @@
 #define MEDIA_BLINK_BUFFERED_DATA_SOURCE_HOST_IMPL_H_
 
 #include <stdint.h>
-#include <deque>
 
 #include "base/callback.h"
+#include "base/containers/circular_deque.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/time/tick_clock.h"
@@ -40,7 +40,7 @@ class MEDIA_BLINK_EXPORT BufferedDataSourceHostImpl
     : public BufferedDataSourceHost {
  public:
   BufferedDataSourceHostImpl(base::Closure progress_cb,
-                             base::TickClock* tick_clock);
+                             const base::TickClock* tick_clock);
   ~BufferedDataSourceHostImpl() override;
 
   // BufferedDataSourceHost implementation.
@@ -62,7 +62,7 @@ class MEDIA_BLINK_EXPORT BufferedDataSourceHostImpl
                       double playback_rate) const;
 
   // Caller must make sure |tick_clock| is valid for lifetime of this object.
-  void SetTickClockForTest(base::TickClock* tick_clock);
+  void SetTickClockForTest(const base::TickClock* tick_clock);
 
  private:
   // Returns number of bytes not yet loaded in the given interval.
@@ -85,10 +85,10 @@ class MEDIA_BLINK_EXPORT BufferedDataSourceHostImpl
 
   // Contains how much we had downloaded at a given time.
   // Pruned to contain roughly the last 10 seconds of data.
-  std::deque<std::pair<base::TimeTicks, uint64_t>> download_history_;
+  base::circular_deque<std::pair<base::TimeTicks, uint64_t>> download_history_;
   base::Closure progress_cb_;
 
-  base::TickClock* tick_clock_;
+  const base::TickClock* tick_clock_;
 
   FRIEND_TEST_ALL_PREFIXES(BufferedDataSourceHostImplTest, CanPlayThrough);
   FRIEND_TEST_ALL_PREFIXES(BufferedDataSourceHostImplTest,

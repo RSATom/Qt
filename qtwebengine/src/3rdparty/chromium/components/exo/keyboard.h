@@ -8,12 +8,15 @@
 #include <vector>
 
 #include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
+#include "base/observer_list.h"
 #include "components/exo/keyboard_observer.h"
+#include "components/exo/seat_observer.h"
 #include "components/exo/surface_observer.h"
-#include "components/exo/wm_helper.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
+#include "ui/keyboard/keyboard_controller_observer.h"
 
 namespace ui {
 enum class DomCode;
@@ -23,18 +26,20 @@ class KeyEvent;
 namespace exo {
 class KeyboardDelegate;
 class KeyboardDeviceConfigurationDelegate;
+class Seat;
 class Surface;
 
 // This class implements a client keyboard that represents one or more keyboard
 // devices.
 class Keyboard : public ui::EventHandler,
-                 public WMHelper::FocusObserver,
-                 public WMHelper::InputDeviceEventObserver,
-                 public WMHelper::TabletModeObserver,
-                 public SurfaceObserver {
+                 public SurfaceObserver,
+                 public SeatObserver,
+                 public keyboard::KeyboardControllerObserver {
  public:
-  explicit Keyboard(KeyboardDelegate* delegate);
+  Keyboard(KeyboardDelegate* delegate, Seat* seat);
   ~Keyboard() override;
+
+  KeyboardDelegate* delegate() const { return delegate_; }
 
   bool HasDeviceConfigurationDelegate() const;
   void SetDeviceConfigurationDelegate(
@@ -53,24 +58,19 @@ class Keyboard : public ui::EventHandler,
   // Overridden from ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override;
 
-  // Overridden WMHelper::FocusObserver:
-  void OnWindowFocused(aura::Window* gained_focus,
-                       aura::Window* lost_focus) override;
-
   // Overridden from SurfaceObserver:
   void OnSurfaceDestroying(Surface* surface) override;
 
-  // Overridden from ui::InputDeviceEventObserver:
-  void OnKeyboardDeviceConfigurationChanged() override;
+  // Overridden from SeatObserver:
+  void OnSurfaceFocusing(Surface* gaining_focus) override;
+  void OnSurfaceFocused(Surface* gained_focus) override;
 
-  // Overridden from WMHelper::TabletModeObserver:
-  void OnTabletModeStarted() override;
-  void OnTabletModeEnding() override;
-  void OnTabletModeEnded() override;
+  // Overridden from keyboard::KeyboardControllerObserver
+  void OnKeyboardEnabledChanged(bool is_enabled) override;
 
  private:
-  // Returns the effective focus for |window|.
-  Surface* GetEffectiveFocus(aura::Window* window) const;
+  // Change keyboard focus to |surface|.
+  void SetFocus(Surface* surface);
 
   // Processes expired key state changes in |pending_key_acks_| as they have not
   // been acknowledged.
@@ -79,9 +79,20 @@ class Keyboard : public ui::EventHandler,
   // Schedule next call of ProcessExpiredPendingKeyAcks after |delay|
   void ScheduleProcessExpiredPendingKeyAcks(base::TimeDelta delay);
 
+  // Adds/Removes pre or post event handler depending on if key acks are needed.
+  // If key acks are needed, pre target handler will be added because this class
+  // wants to dispatch keys before they are consumed by Chrome. Otherwise, post
+  // target handler will be added because all accelerators should be handled by
+  // Chrome before they are dispatched by this class.
+  void AddEventHandler();
+  void RemoveEventHandler();
+
   // The delegate instance that all events except for events about device
   // configuration are dispatched to.
   KeyboardDelegate* const delegate_;
+
+  // Seat that the Keyboard recieves focus events from.
+  Seat* const seat_;
 
   // The delegate instance that events about device configuration are dispatched
   // to.
@@ -93,8 +104,10 @@ class Keyboard : public ui::EventHandler,
   // The current focus surface for the keyboard.
   Surface* focus_ = nullptr;
 
-  // Vector of currently pressed keys.
-  std::vector<ui::DomCode> pressed_keys_;
+  // Set of currently pressed keys. First value is a platform code and second
+  // value is the code that was delivered to client. See Seat.h for more
+  // details.
+  base::flat_map<ui::DomCode, ui::DomCode> pressed_keys_;
 
   // Current set of modifier flags.
   int modifier_flags_ = 0;
@@ -109,7 +122,12 @@ class Keyboard : public ui::EventHandler,
   // Delay until a key state change expected to be acknowledged is expired.
   const base::TimeDelta expiration_delay_for_pending_key_acks_;
 
-  base::ObserverList<KeyboardObserver> observer_list_;
+  // True when the ARC app window is focused.
+  // TODO(yhanada, https://crbug.com/847500): Remove this when we find a way to
+  // fix https://crbug.com/847500 without breaking ARC++ apps.
+  bool focus_belongs_to_arc_app_ = false;
+
+  base::ObserverList<KeyboardObserver>::Unchecked observer_list_;
 
   base::WeakPtrFactory<Keyboard> weak_ptr_factory_;
 

@@ -8,23 +8,21 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_TEST_OPUS_TEST_H_
-#define WEBRTC_MODULES_AUDIO_CODING_TEST_OPUS_TEST_H_
+#ifndef MODULES_AUDIO_CODING_TEST_OPUS_TEST_H_
+#define MODULES_AUDIO_CODING_TEST_OPUS_TEST_H_
 
 #include <math.h>
 
 #include <memory>
 
-#include "webrtc/modules/audio_coding/codecs/opus/opus_interface.h"
-#include "webrtc/modules/audio_coding/acm2/acm_resampler.h"
-#include "webrtc/modules/audio_coding/test/ACMTest.h"
-#include "webrtc/modules/audio_coding/test/Channel.h"
-#include "webrtc/modules/audio_coding/test/PCMFile.h"
-#include "webrtc/modules/audio_coding/test/TestStereo.h"
+#include "modules/audio_coding/acm2/acm_resampler.h"
+#include "modules/audio_coding/codecs/opus/opus_interface.h"
+#include "modules/audio_coding/test/PCMFile.h"
+#include "modules/audio_coding/test/TestStereo.h"
 
 namespace webrtc {
 
-class OpusTest : public ACMTest {
+class OpusTest {
  public:
   OpusTest();
   ~OpusTest();
@@ -58,4 +56,4 @@ class OpusTest : public ACMTest {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_CODING_TEST_OPUS_TEST_H_
+#endif  // MODULES_AUDIO_CODING_TEST_OPUS_TEST_H_

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -40,38 +40,47 @@
 #ifndef WEB_CHANNEL_IPC_TRANSPORT_H
 #define WEB_CHANNEL_IPC_TRANSPORT_H
 
-
-#include <QtWebChannel/QWebChannelAbstractTransport>
-#include "content/public/browser/web_contents_observer.h"
-
 #include "qtwebenginecoreglobal.h"
-#include <QtCore/QObject>
+
+#include "content/public/browser/web_contents_observer.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
+#include "content/public/browser/web_contents_binding_set.h"
+#include "qtwebengine/browser/qtwebchannel.mojom.h"
+
+#include <QWebChannelAbstractTransport>
 
 QT_FORWARD_DECLARE_CLASS(QString)
 
 namespace QtWebEngineCore {
 
 class WebChannelIPCTransportHost : public QWebChannelAbstractTransport
-        , public content::WebContentsObserver
-{
+        , private content::WebContentsObserver
+        , qtwebchannel::mojom::WebChannelTransportHost {
 public:
-    WebChannelIPCTransportHost(content::WebContents *, uint worldId = 0, QObject *parent = 0);
-    virtual ~WebChannelIPCTransportHost();
+    WebChannelIPCTransportHost(content::WebContents *webContents, uint32_t worldId = 0, QObject *parent = nullptr);
+    ~WebChannelIPCTransportHost() override;
 
-    // WebContentsObserver
-    void RenderViewHostChanged(content::RenderViewHost* old_host, content::RenderViewHost* new_host) override;
-    void RenderViewCreated(content::RenderViewHost* render_view_host) override;
+    void setWorldId(uint32_t worldId);
+    uint32_t worldId() const;
 
     // QWebChannelAbstractTransport
     void sendMessage(const QJsonObject &message) override;
 
-    void setWorldId(uint worldId);
-    uint worldId() const { return m_worldId; }
-
 private:
-    bool OnMessageReceived(const IPC::Message& message) override;
+    void setWorldId(content::RenderFrameHost *frame, uint32_t worldId);
+    void resetWorldId();
     void onWebChannelMessage(const std::vector<char> &message);
-    uint m_worldId;
+
+    // WebContentsObserver
+    void RenderFrameCreated(content::RenderFrameHost *frame) override;
+
+    // qtwebchannel::mojom::WebChannelTransportHost
+    void DispatchWebChannelMessage(const std::vector<uint8_t> &binaryJson) override;
+
+    // Empty only during construction/destruction. Synchronized to all the
+    // WebChannelIPCTransports/RenderFrames in the observed WebContents.
+    uint32_t m_worldId;
+    content::WebContentsFrameBindingSet<qtwebchannel::mojom::WebChannelTransportHost> m_binding;
 };
 
 } // namespace

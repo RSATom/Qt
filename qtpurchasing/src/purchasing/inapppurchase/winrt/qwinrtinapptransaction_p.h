@@ -60,7 +60,7 @@ public:
                                     QInAppProduct *product,
                                     FailureReason reason,
                                     const QString &receipt,
-                                    QObject *parent = Q_NULLPTR);
+                                    QObject *parent = nullptr);
 
     FailureReason failureReason() const override { return m_failureReason; }
 

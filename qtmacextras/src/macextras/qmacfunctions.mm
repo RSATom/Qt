@@ -98,6 +98,7 @@ QByteArray fromNSData(const NSData *data)
 }
 #endif // QT_DEPRECATED_SINCE
 
+#if QT_DEPRECATED_SINCE(5, 12)
 /*!
     \fn CGImageRef QtMac::toCGImageRef(const QPixmap &pixmap)
 
@@ -124,6 +125,7 @@ CGImageRef toCGImageRef(const QPixmap &pixmap)
     return pixmap.toCGImageRef();
 #endif
 }
+#endif
 
 /*!
     \fn QPixmap QtMac::fromCGImageRef(CGImageRef image)

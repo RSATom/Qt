@@ -2,16 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "content/common/font_cache_dispatcher_win.h"
+#include "content/public/common/font_cache_dispatcher_win.h"
 
 #include <map>
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/profiler/scoped_tracker.h"
+#include "base/stl_util.h"
 #include "base/strings/string16.h"
-#include "content/common/child_process_messages.h"
+#include "base/thread_annotations.h"
+#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "services/service_manager/public/cpp/bind_source_info.h"
 
 namespace content {
 namespace {
@@ -23,10 +27,6 @@ class FontCache {
   static FontCache* GetInstance() { return base::Singleton<FontCache>::get(); }
 
   void PreCacheFont(const LOGFONT& font, FontCacheDispatcher* dispatcher) {
-    // TODO(ananta): Remove ScopedTracker below once crbug.com/90127 is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION("90127 FontCache::PreCacheFont"));
-
     base::AutoLock lock(mutex_);
 
     // Fetch the font into memory.
@@ -45,11 +45,7 @@ class FontCache {
 
     base::string16 font_name = font.lfFaceName;
     int ref_count_inc = 1;
-    FontNameVector::iterator it =
-        std::find(dispatcher_font_map_[dispatcher].begin(),
-                  dispatcher_font_map_[dispatcher].end(),
-                  font_name);
-    if (it == dispatcher_font_map_[dispatcher].end()) {
+    if (!base::ContainsValue(dispatcher_font_map_[dispatcher], font_name)) {
       // Requested font is new to cache.
       dispatcher_font_map_[dispatcher].push_back(font_name);
     } else {
@@ -127,50 +123,30 @@ class FontCache {
   FontCache() {
   }
 
-  std::map<base::string16, CacheElement> cache_;
-  DispatcherToFontNames dispatcher_font_map_;
+  std::map<base::string16, CacheElement> cache_ GUARDED_BY(mutex_);
+  DispatcherToFontNames dispatcher_font_map_ GUARDED_BY(mutex_);
   base::Lock mutex_;
 
   DISALLOW_COPY_AND_ASSIGN(FontCache);
 };
 
-}
+}  // namespace
 
-FontCacheDispatcher::FontCacheDispatcher()
-    : sender_(NULL) {
-}
-
-bool FontCacheDispatcher::Send(IPC::Message* message) {
-  if (sender_)
-    return sender_->Send(message);
-
-  delete message;
-  return false;
-}
+FontCacheDispatcher::FontCacheDispatcher() {}
 
 FontCacheDispatcher::~FontCacheDispatcher() {
 }
 
-void FontCacheDispatcher::OnFilterAdded(IPC::Channel* channel) {
-  sender_ = channel;
+// static
+void FontCacheDispatcher::Create(
+    mojom::FontCacheWinRequest request,
+    const service_manager::BindSourceInfo& source_info) {
+  mojo::MakeStrongBinding(std::make_unique<FontCacheDispatcher>(),
+                          std::move(request));
 }
 
-bool FontCacheDispatcher::OnMessageReceived(const IPC::Message& message) {
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(FontCacheDispatcher, message)
-    IPC_MESSAGE_HANDLER(ChildProcessHostMsg_PreCacheFont, OnPreCacheFont)
-    IPC_MESSAGE_HANDLER(ChildProcessHostMsg_ReleaseCachedFonts,
-                        OnReleaseCachedFonts)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-  return handled;
-}
-
-void FontCacheDispatcher::OnChannelClosing() {
-  sender_ = NULL;
-}
-
-void FontCacheDispatcher::OnPreCacheFont(const LOGFONT& font) {
+void FontCacheDispatcher::PreCacheFont(const LOGFONT& log_font,
+                                       PreCacheFontCallback callback) {
   // If a child process is running in a sandbox, GetTextMetrics()
   // can sometimes fail. If a font has not been loaded
   // previously, GetTextMetrics() will try to load the font
@@ -184,10 +160,13 @@ void FontCacheDispatcher::OnPreCacheFont(const LOGFONT& font) {
   // need to load that file, hence no permission issues there.  Therefore,
   // when a font is asked to be cached, we always recreates the font object
   // to avoid the case that an in-cache font is swapped out by GDI.
-  FontCache::GetInstance()->PreCacheFont(font, this);
+  FontCache::GetInstance()->PreCacheFont(log_font, this);
+
+  // Run |callback| to indicate this synchronous handler finished.
+  std::move(callback).Run();
 }
 
-void FontCacheDispatcher::OnReleaseCachedFonts() {
+void FontCacheDispatcher::ReleaseCachedFonts() {
   // Release cached fonts that requested from a pid by decrementing the ref
   // count.  When ref count is zero, the handles are released.
   FontCache::GetInstance()->ReleaseCachedFonts(this);

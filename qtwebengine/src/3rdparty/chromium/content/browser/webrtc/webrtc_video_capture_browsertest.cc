@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/webrtc/webrtc_webcam_browsertest.h"
 #include "content/public/browser/browser_child_process_host.h"
 #include "content/public/common/child_process_host.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_manager_connection.h"
 #include "content/public/test/browser_test_utils.h"
@@ -15,27 +17,16 @@
 #include "media/base/media_switches.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "services/video_capture/public/cpp/constants.h"
-#include "services/video_capture/public/interfaces/constants.mojom.h"
-#include "services/video_capture/public/interfaces/testing_controls.mojom.h"
+#include "services/video_capture/public/mojom/constants.mojom.h"
+#include "services/video_capture/public/mojom/testing_controls.mojom.h"
 
 namespace content {
-
-#if defined(OS_ANDROID)
-// Mojo video capture is currently not supported on Android
-// TODO(chfremer): Enable as soon as https://crbug.com/720500 is resolved.
-#define MAYBE_RecoverFromCrashInVideoCaptureProcess \
-  DISABLED_RecoverFromCrashInVideoCaptureProcess
-#else
-#define MAYBE_RecoverFromCrashInVideoCaptureProcess \
-  RecoverFromCrashInVideoCaptureProcess
-#endif  // defined(OS_ANDROID)
 
 namespace {
 
 static const char kVideoCaptureHtmlFile[] = "/media/video_capture_test.html";
 static const char kStartVideoCaptureAndVerifySize[] =
-    "startVideoCaptureAndVerifySize()";
+    "startVideoCaptureAndVerifySize(320, 200)";
 static const char kWaitForVideoToTurnBlack[] = "waitForVideoToTurnBlack()";
 static const char kVerifyHasReceivedTrackEndedEvent[] =
     "verifyHasReceivedTrackEndedEvent()";
@@ -46,10 +37,14 @@ static const char kVerifyHasReceivedTrackEndedEvent[] =
 // JavaScript level.
 class WebRtcVideoCaptureBrowserTest : public ContentBrowserTest {
  protected:
+  WebRtcVideoCaptureBrowserTest() {
+    scoped_feature_list_.InitAndEnableFeature(features::kMojoVideoCapture);
+  }
+
+  ~WebRtcVideoCaptureBrowserTest() override {}
+
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kUseFakeDeviceForMediaStream);
-    command_line->AppendSwitchASCII(switches::kEnableFeatures,
-                                    video_capture::kMojoVideoCapture.name);
     command_line->AppendSwitch(switches::kUseFakeUIForMediaStream);
     base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
         switches::kEnableBlinkFeatures, "GetUserMedia");
@@ -58,13 +53,23 @@ class WebRtcVideoCaptureBrowserTest : public ContentBrowserTest {
   void SetUp() override {
     ASSERT_TRUE(embedded_test_server()->InitializeAndListen());
     EnablePixelOutput();
+    embedded_test_server()->StartAcceptingConnections();
     ContentBrowserTest::SetUp();
   }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(WebRtcVideoCaptureBrowserTest);
 };
 
 IN_PROC_BROWSER_TEST_F(WebRtcVideoCaptureBrowserTest,
-                       MAYBE_RecoverFromCrashInVideoCaptureProcess) {
-  embedded_test_server()->StartAcceptingConnections();
+                       RecoverFromCrashInVideoCaptureProcess) {
+  // This test only makes sense if the video capture service runs in a
+  // separate process.
+  if (!features::IsVideoCaptureServiceEnabledForOutOfProcess())
+    return;
+
   GURL url(embedded_test_server()->GetURL(kVideoCaptureHtmlFile));
   NavigateToURL(shell(), url);
 

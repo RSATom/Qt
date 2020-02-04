@@ -6,9 +6,10 @@
 
 #include <stddef.h>
 
-#include "base/memory/ptr_util.h"
 #include "ui/display/types/display_mode.h"
+#include "ui/display/types/display_snapshot.h"
 #include "ui/display/types/gamma_ramp_rgb_entry.h"
+#include "ui/ozone/common/linux/drm_util_linux.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_manager.h"
@@ -71,10 +72,10 @@ DrmGpuDisplayManager::DrmGpuDisplayManager(ScreenManager* screen_manager,
 DrmGpuDisplayManager::~DrmGpuDisplayManager() {
 }
 
-std::vector<DisplaySnapshot_Params> DrmGpuDisplayManager::GetDisplays() {
+MovableDisplaySnapshots DrmGpuDisplayManager::GetDisplays() {
   std::vector<std::unique_ptr<DrmDisplay>> old_displays;
   old_displays.swap(displays_);
-  std::vector<DisplaySnapshot_Params> params_list;
+  MovableDisplaySnapshots params_list;
 
   const DrmDeviceVector& devices = drm_device_manager_->GetDrmDevices();
   size_t device_index = 0;
@@ -89,7 +90,7 @@ std::vector<DisplaySnapshot_Params> DrmGpuDisplayManager::GetDisplays() {
         displays_.push_back(std::move(*it));
         old_displays.erase(it);
       } else {
-        displays_.push_back(base::MakeUnique<DrmDisplay>(screen_manager_, drm));
+        displays_.push_back(std::make_unique<DrmDisplay>(screen_manager_, drm));
       }
       params_list.push_back(
           displays_.back()->Update(display_info.get(), device_index));
@@ -99,17 +100,6 @@ std::vector<DisplaySnapshot_Params> DrmGpuDisplayManager::GetDisplays() {
 
   NotifyScreenManager(displays_, old_displays);
   return params_list;
-}
-
-void DrmGpuDisplayManager::GetScanoutFormats(
-    gfx::AcceleratedWidget widget,
-    std::vector<gfx::BufferFormat>* scanout_formats) {
-  const std::vector<uint32_t>& fourcc_formats =
-      drm_device_manager_->GetDrmDevice(widget)
-          ->plane_manager()
-          ->GetSupportedFormats();
-  for (auto& fourcc : fourcc_formats)
-    scanout_formats->push_back(GetBufferFormatFromFourCCFormat(fourcc));
 }
 
 bool DrmGpuDisplayManager::TakeDisplayControl() {
@@ -200,18 +190,40 @@ bool DrmGpuDisplayManager::SetHDCPState(int64_t display_id,
   return display->SetHDCPState(state);
 }
 
-void DrmGpuDisplayManager::SetColorCorrection(
+void DrmGpuDisplayManager::SetColorMatrix(
     int64_t display_id,
-    const std::vector<display::GammaRampRGBEntry>& degamma_lut,
-    const std::vector<display::GammaRampRGBEntry>& gamma_lut,
-    const std::vector<float>& correction_matrix) {
+    const std::vector<float>& color_matrix) {
   DrmDisplay* display = FindDisplay(display_id);
   if (!display) {
     LOG(ERROR) << "There is no display with ID " << display_id;
     return;
   }
 
-  display->SetColorCorrection(degamma_lut, gamma_lut, correction_matrix);
+  display->SetColorMatrix(color_matrix);
+}
+
+void DrmGpuDisplayManager::SetBackgroundColor(
+    int64_t display_id,
+    const uint64_t background_color) {
+  DrmDisplay* display = FindDisplay(display_id);
+  if (!display) {
+    LOG(ERROR) << "There is no display with ID" << display_id;
+    return;
+  }
+
+  display->SetBackgroundColor(background_color);
+}
+
+void DrmGpuDisplayManager::SetGammaCorrection(
+    int64_t display_id,
+    const std::vector<display::GammaRampRGBEntry>& degamma_lut,
+    const std::vector<display::GammaRampRGBEntry>& gamma_lut) {
+  DrmDisplay* display = FindDisplay(display_id);
+  if (!display) {
+    LOG(ERROR) << "There is no display with ID " << display_id;
+    return;
+  }
+  display->SetGammaCorrection(degamma_lut, gamma_lut);
 }
 
 DrmDisplay* DrmGpuDisplayManager::FindDisplay(int64_t display_id) {

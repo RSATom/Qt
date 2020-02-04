@@ -57,6 +57,7 @@
 #include <private/qv4value_p.h>
 #include <private/qv4functionobject_p.h>
 #include <private/qv4scopedvalue_p.h>
+#include <private/qv4jscall_p.h>
 #include <private/qv4qobjectwrapper_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -65,12 +66,12 @@ class QQuickCanvasTextureProvider : public QSGTextureProvider
 {
 public:
     QSGTexture *tex;
-    QSGTexture *texture() const Q_DECL_OVERRIDE { return tex; }
+    QSGTexture *texture() const override { return tex; }
     void fireTextureChanged() { emit textureChanged(); }
 };
 
 QQuickCanvasPixmap::QQuickCanvasPixmap(const QImage& image)
-    : m_pixmap(0)
+    : m_pixmap(nullptr)
     , m_image(image)
 {
 
@@ -122,7 +123,7 @@ QHash<QQmlEngine *,QQuickContext2DRenderThread*> QQuickContext2DRenderThread::re
 QMutex QQuickContext2DRenderThread::renderThreadsMutex;
 
 QQuickContext2DRenderThread::QQuickContext2DRenderThread(QQmlEngine *eng)
-    : QThread(eng), m_engine(eng), m_eventLoopQuitHack(0)
+    : QThread(eng), m_engine(eng), m_eventLoopQuitHack(nullptr)
 {
     Q_ASSERT(eng);
     m_eventLoopQuitHack = new QObject;
@@ -143,7 +144,7 @@ QQuickContext2DRenderThread::~QQuickContext2DRenderThread()
 
 QQuickContext2DRenderThread *QQuickContext2DRenderThread::instance(QQmlEngine *engine)
 {
-    QQuickContext2DRenderThread *thread = 0;
+    QQuickContext2DRenderThread *thread = nullptr;
     renderThreadsMutex.lock();
     if (renderThreads.contains(engine))
         thread = renderThreads.value(engine);
@@ -182,7 +183,7 @@ public:
 
 QQuickCanvasItemPrivate::QQuickCanvasItemPrivate()
     : QQuickItemPrivate()
-    , context(0)
+    , context(nullptr)
     , canvasSize(1, 1)
     , tileSize(1, 1)
     , hasCanvasSize(false)
@@ -191,9 +192,9 @@ QQuickCanvasItemPrivate::QQuickCanvasItemPrivate()
     , available(false)
     , renderTarget(QQuickCanvasItem::Image)
     , renderStrategy(QQuickCanvasItem::Immediate)
-    , textureProvider(0)
-    , node(0)
-    , nodeTexture(0)
+    , textureProvider(nullptr)
+    , node(nullptr)
+    , nodeTexture(nullptr)
 {
     implicitAntialiasing = true;
 }
@@ -212,7 +213,7 @@ QQuickCanvasItemPrivate::~QQuickCanvasItemPrivate()
     \inherits Item
     \ingroup qtquick-canvas
     \ingroup qtquick-visual
-    \brief Provides a 2D canvas item enabling drawing via JavaScript
+    \brief Provides a 2D canvas item enabling drawing via JavaScript.
 
     The Canvas item allows drawing of straight and curved lines, simple and
     complex shapes, graphs, and referenced graphic images.  It can also add
@@ -633,16 +634,16 @@ void QQuickCanvasItem::releaseResources()
 
     if (d->context) {
         delete d->context;
-        d->context = 0;
+        d->context = nullptr;
     }
-    d->node = 0; // managed by the scene graph, just reset the pointer
+    d->node = nullptr; // managed by the scene graph, just reset the pointer
     if (d->textureProvider) {
         QQuickWindowQObjectCleanupJob::schedule(window(), d->textureProvider);
-        d->textureProvider = 0;
+        d->textureProvider = nullptr;
     }
     if (d->nodeTexture) {
         QQuickWindowQObjectCleanupJob::schedule(window(), d->nodeTexture);
-        d->nodeTexture = 0;
+        d->nodeTexture = nullptr;
     }
 }
 
@@ -662,12 +663,12 @@ void QQuickCanvasItem::invalidateSceneGraph()
     Q_D(QQuickCanvasItem);
     if (d->context)
         d->context->deleteLater();
-    d->context = 0;
-    d->node = 0; // managed by the scene graph, just reset the pointer
+    d->context = nullptr;
+    d->node = nullptr; // managed by the scene graph, just reset the pointer
     delete d->textureProvider;
-    d->textureProvider = 0;
+    d->textureProvider = nullptr;
     delete d->nodeTexture;
-    d->nodeTexture = 0;
+    d->nodeTexture = nullptr;
 }
 
 void QQuickCanvasItem::schedulePolish()
@@ -697,14 +698,14 @@ void QQuickCanvasItem::itemChange(QQuickItem::ItemChange change, const QQuickIte
         return;
     }
 
-    if (value.window== 0)
+    if (value.window== nullptr)
         return;
 
     d->window = value.window;
     QSGRenderContext *context = QQuickWindowPrivate::get(d->window)->context;
 
     // Rendering to FramebufferObject needs a valid OpenGL context.
-    if (context != 0 && (d->renderTarget != FramebufferObject || context->isValid())) {
+    if (context != nullptr && (d->renderTarget != FramebufferObject || context->isValid())) {
         // Defer the call. In some (arguably incorrect) cases we get here due
         // to ItemSceneChange with the user-supplied property values not yet
         // set. Work this around by a deferred invoke. (QTBUG-49692)
@@ -726,15 +727,16 @@ void QQuickCanvasItem::updatePolish()
         QMap<int, QV4::PersistentValue> animationCallbacks = d->animationCallbacks;
         d->animationCallbacks.clear();
 
-        QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(qmlEngine(this));
+        QV4::ExecutionEngine *v4 = qmlEngine(this)->handle();
         QV4::Scope scope(v4);
-        QV4::ScopedCallData callData(scope, 1);
-        callData->thisObject = QV4::QObjectWrapper::wrap(v4, this);
+        QV4::ScopedFunctionObject function(scope);
+        QV4::JSCallData jsCall(scope, 1);
+        *jsCall->thisObject = QV4::QObjectWrapper::wrap(v4, this);
 
         for (auto it = animationCallbacks.cbegin(), end = animationCallbacks.cend(); it != end; ++it) {
-            QV4::ScopedFunctionObject f(scope, it.value().value());
-            callData->args[0] = QV4::Primitive::fromUInt32(QDateTime::currentMSecsSinceEpoch() / 1000);
-            f->call(scope, callData);
+            function = it.value().value();
+            jsCall->args[0] = QV4::Value::fromUInt32(QDateTime::currentMSecsSinceEpoch());
+            function->call(jsCall);
         }
     }
     else {
@@ -761,11 +763,11 @@ QSGNode *QQuickCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData
 
     if (!d->context || d->canvasWindow.size().isEmpty()) {
         if (d->textureProvider) {
-            d->textureProvider->tex = 0;
+            d->textureProvider->tex = nullptr;
             d->textureProvider->fireTextureChanged();
         }
         delete oldNode;
-        return 0;
+        return nullptr;
     }
 
     QSGInternalImageNode *node = static_cast<QSGInternalImageNode *>(oldNode);
@@ -790,13 +792,13 @@ QSGNode *QQuickCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData
     QSGTexture *texture = factory->textureForNextFrame(d->nodeTexture, window());
     if (!texture) {
         delete node;
-        d->node = 0;
-        d->nodeTexture = 0;
+        d->node = nullptr;
+        d->nodeTexture = nullptr;
         if (d->textureProvider) {
-            d->textureProvider->tex = 0;
+            d->textureProvider->tex = nullptr;
             d->textureProvider->fireTextureChanged();
         }
-        return 0;
+        return nullptr;
     }
 
     d->nodeTexture = texture;
@@ -831,7 +833,7 @@ QSGTextureProvider *QQuickCanvasItem::textureProvider() const
     if (!w || !w->isSceneGraphInitialized()
             || QThread::currentThread() != QQuickWindowPrivate::get(w)->context->thread()) {
         qWarning("QQuickCanvasItem::textureProvider: can only be queried on the rendering thread of an exposed window");
-        return 0;
+        return nullptr;
     }
 #endif
     if (!d->textureProvider)
@@ -848,13 +850,15 @@ QSGTextureProvider *QQuickCanvasItem::textureProvider() const
     The \a contextId parameter names the required context. The Canvas item
     will return a context that implements the required drawing mode. After the
     first call to getContext, any subsequent call to getContext with the same
-    contextId will return the same context object.
+    contextId will return the same context object. Any additional arguments
+    (\a args) are currently ignored.
 
     If the context type is not supported or the canvas has previously been
     requested to provide a different and incompatible context type, \c null
     will be returned.
 
     Canvas only supports a 2d context.
+
 */
 
 void QQuickCanvasItem::getContext(QQmlV4Function *args)
@@ -877,7 +881,7 @@ void QQuickCanvasItem::getContext(QQmlV4Function *args)
 
     QString contextId = str->toQString();
 
-    if (d->context != 0) {
+    if (d->context != nullptr) {
         if (d->context->contextNames().contains(contextId, Qt::CaseInsensitive)) {
             args->setReturnValue(d->context->v4value());
             return;
@@ -897,7 +901,7 @@ void QQuickCanvasItem::getContext(QQmlV4Function *args)
 /*!
     \qmlmethod int QtQuick::Canvas::requestAnimationFrame(callback)
 
-    This function schedules callback to be invoked before composing the Qt Quick
+    This function schedules \a callback to be invoked before composing the Qt Quick
     scene.
 */
 
@@ -960,7 +964,7 @@ void QQuickCanvasItem::requestPaint()
 /*!
     \qmlmethod QtQuick::Canvas::markDirty(rect area)
 
-    Mark the given \a area as dirty, so that when this area is visible the
+    Marks the given \a area as dirty, so that when this area is visible the
     canvas renderer will redraw it. This will trigger the \c paint signal.
 
     \sa paint, requestPaint()
@@ -984,16 +988,16 @@ void QQuickCanvasItem::checkAnimationCallbacks()
 }
 
 /*!
-  \qmlmethod bool QtQuick::Canvas::save(string filename)
+    \qmlmethod bool QtQuick::Canvas::save(string filename)
 
-   Save the current canvas content into an image file \a filename.
-   The saved image format is automatically decided by the \a filename's
-   suffix.
+    Saves the current canvas content into an image file \a filename.
+    The saved image format is automatically decided by the \a filename's
+    suffix. Returns \c true on success.
 
-   Note: calling this method will force painting the whole canvas, not just the
-   current canvas visible window.
+    \note Calling this method will force painting the whole canvas, not just the
+    current canvas visible window.
 
-   \sa canvasWindow, canvasSize, toDataURL()
+    \sa canvasWindow, canvasSize, toDataURL()
 */
 bool QQuickCanvasItem::save(const QString &filename) const
 {
@@ -1023,15 +1027,17 @@ QQmlRefPointer<QQuickCanvasPixmap> QQuickCanvasItem::loadedPixmap(const QUrl& ur
 */
 
 /*!
-  \qmlmethod QtQuick::Canvas::loadImage(url image)
-    Loads the given \c image asynchronously.
+    \qmlmethod QtQuick::Canvas::loadImage(url image)
 
-    When the image is ready, \l imageLoaded will be emitted.
-    The loaded image can be unloaded by the unloadImage() method.
+    Loads the given \a image asynchronously.
 
-    Note: Only loaded images can be painted on the Canvas item.
-  \sa unloadImage, imageLoaded, isImageLoaded(),
-      Context2D::createImageData(), Context2D::drawImage()
+    Once the image is ready, imageLoaded() signal will be emitted.
+    The loaded image can be unloaded with the unloadImage() method.
+
+    \note Only loaded images can be painted on the Canvas item.
+
+    \sa unloadImage(), imageLoaded(), isImageLoaded(),
+        Context2D::createImageData(), Context2D::drawImage()
 */
 void QQuickCanvasItem::loadImage(const QUrl& url)
 {
@@ -1051,14 +1057,15 @@ void QQuickCanvasItem::loadImage(const QUrl& url)
     }
 }
 /*!
-  \qmlmethod QtQuick::Canvas::unloadImage(url image)
-  Unloads the \c image.
+    \qmlmethod QtQuick::Canvas::unloadImage(url image)
 
-  Once an image is unloaded it cannot be painted by the canvas context
-  unless it is loaded again.
+    Unloads the \a image.
 
-  \sa loadImage(), imageLoaded, isImageLoaded(),
-      Context2D::createImageData(), Context2D::drawImage
+    Once an image is unloaded, it cannot be painted by the canvas context
+    unless it is loaded again.
+
+    \sa loadImage(), imageLoaded(), isImageLoaded(),
+        Context2D::createImageData(), Context2D::drawImage
 */
 void QQuickCanvasItem::unloadImage(const QUrl& url)
 {
@@ -1067,10 +1074,11 @@ void QQuickCanvasItem::unloadImage(const QUrl& url)
 }
 
 /*!
-  \qmlmethod QtQuick::Canvas::isImageError(url image)
-  Returns true if the \a image failed to load.
+    \qmlmethod QtQuick::Canvas::isImageError(url image)
 
-  \sa loadImage()
+    Returns \c true if the \a image failed to load, \c false otherwise.
+
+    \sa loadImage()
 */
 bool QQuickCanvasItem::isImageError(const QUrl& url) const
 {
@@ -1208,7 +1216,7 @@ void QQuickCanvasItem::initializeContext(QQuickCanvasContext *context, const QVa
 
     d->context = context;
     d->context->init(this, args);
-    d->context->setV4Engine(QQmlEnginePrivate::get(qmlEngine(this))->v4engine());
+    d->context->setV4Engine(qmlEngine(this)->handle());
     connect(d->context, SIGNAL(textureChanged()), SLOT(update()));
     connect(d->context, SIGNAL(textureChanged()), SIGNAL(painted()));
     emit contextChanged();

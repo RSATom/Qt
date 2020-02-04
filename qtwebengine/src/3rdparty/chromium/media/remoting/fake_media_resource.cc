@@ -28,8 +28,9 @@ FakeDemuxerStream::FakeDemuxerStream(bool is_audio) {
     gfx::Size size(640, 480);
     gfx::Rect rect(0, 0, 640, 480);
     video_config_.Initialize(kCodecH264, H264PROFILE_BASELINE,
-                             PIXEL_FORMAT_I420, COLOR_SPACE_SD_REC601, size,
-                             rect, size, std::vector<uint8_t>(), Unencrypted());
+                             PIXEL_FORMAT_I420, VideoColorSpace::REC601(),
+                             VIDEO_ROTATION_0, size, rect, size,
+                             std::vector<uint8_t>(), Unencrypted());
   }
   ON_CALL(*this, Read(_))
       .WillByDefault(Invoke(this, &FakeDemuxerStream::FakeRead));
@@ -68,10 +69,6 @@ bool FakeDemuxerStream::SupportsConfigChanges() {
   return false;
 }
 
-VideoRotation FakeDemuxerStream::video_rotation() {
-  return VIDEO_ROTATION_0;
-}
-
 void FakeDemuxerStream::CreateFakeFrame(size_t size,
                                         bool key_frame,
                                         int pts_ms) {
@@ -90,27 +87,22 @@ void FakeDemuxerStream::CreateFakeFrame(size_t size,
 
   // Sends frame out if there is pending read callback. Otherwise, stores it
   // in the buffer queue.
-  if (pending_read_cb_.is_null()) {
+  if (!pending_read_cb_) {
     buffer_queue_.push_back(input_buffer);
   } else {
-    base::ResetAndReturn(&pending_read_cb_).Run(kOk, input_buffer);
+    std::move(pending_read_cb_).Run(kOk, input_buffer);
   }
 }
 
 FakeMediaResource::FakeMediaResource()
     : demuxer_stream_(new FakeDemuxerStream(true)) {}
 
-FakeMediaResource::~FakeMediaResource() {}
+FakeMediaResource::~FakeMediaResource() = default;
 
 std::vector<DemuxerStream*> FakeMediaResource::GetAllStreams() {
   std::vector<DemuxerStream*> streams;
   streams.push_back(demuxer_stream_.get());
   return streams;
-}
-
-void FakeMediaResource::SetStreamStatusChangeCB(
-    const StreamStatusChangeCB& cb) {
-  NOTIMPLEMENTED();
 }
 
 }  // namespace remoting

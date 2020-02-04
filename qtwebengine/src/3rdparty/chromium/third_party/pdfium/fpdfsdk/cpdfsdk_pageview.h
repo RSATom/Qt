@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "core/fpdfapi/page/cpdf_page.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_annot.h"
+#include "fpdfsdk/cpdfsdk_annothandlermgr.h"
 
 class CFX_RenderDevice;
 class CPDF_AnnotList;
@@ -21,20 +22,13 @@ class CPDF_RenderOptions;
 
 class CPDFSDK_PageView final : public CPDF_Page::View {
  public:
-  CPDFSDK_PageView(CPDFSDK_FormFillEnvironment* pFormFillEnv,
-                   UnderlyingPageType* page);
+  CPDFSDK_PageView(CPDFSDK_FormFillEnvironment* pFormFillEnv, IPDF_Page* page);
   ~CPDFSDK_PageView();
 
-#ifdef PDF_ENABLE_XFA
   void PageView_OnDraw(CFX_RenderDevice* pDevice,
-                       CFX_Matrix* pUser2Device,
+                       const CFX_Matrix& mtUser2Device,
                        CPDF_RenderOptions* pOptions,
                        const FX_RECT& pClip);
-#else   // PDF_ENABLE_XFA
-  void PageView_OnDraw(CFX_RenderDevice* pDevice,
-                       CFX_Matrix* pUser2Device,
-                       CPDF_RenderOptions* pOptions);
-#endif  // PDF_ENABLE_XFA
 
   void LoadFXAnnots();
   CPDFSDK_Annot* GetFocusAnnot();
@@ -50,8 +44,7 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
   bool DeleteAnnot(CPDFSDK_Annot* pAnnot);
   CPDFSDK_Annot* AddAnnot(CXFA_FFWidget* pPDFAnnot);
   CPDFSDK_Annot* GetAnnotByXFAWidget(CXFA_FFWidget* hWidget);
-
-  CPDFXFA_Page* GetPDFXFAPage() { return m_page; }
+  CPDFXFA_Page* GetPDFXFAPage() { return ToXFAPage(m_page); }
 #endif  // PDF_ENABLE_XFA
 
   CPDF_Page* GetPDFPage() const;
@@ -60,14 +53,25 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
     return m_pFormFillEnv.Get();
   }
 
-  CFX_WideString GetSelectedText();
+  WideString GetFocusedFormText();
+  WideString GetSelectedText();
+  void ReplaceSelection(const WideString& text);
 
+  bool CanUndo();
+  bool CanRedo();
+  bool Undo();
+  bool Redo();
+
+  bool OnFocus(const CFX_PointF& point, uint32_t nFlag);
   bool OnLButtonDown(const CFX_PointF& point, uint32_t nFlag);
   bool OnLButtonUp(const CFX_PointF& point, uint32_t nFlag);
+  bool OnLButtonDblClk(const CFX_PointF& point, uint32_t nFlag);
+
 #ifdef PDF_ENABLE_XFA
   bool OnRButtonDown(const CFX_PointF& point, uint32_t nFlag);
   bool OnRButtonUp(const CFX_PointF& point, uint32_t nFlag);
 #endif  // PDF_ENABLE_XFA
+
   bool OnChar(int nChar, uint32_t nFlag);
   bool OnKeyDown(int nKeyCode, int nFlag);
   bool OnKeyUp(int nKeyCode, int nFlag);
@@ -78,25 +82,18 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
                     const CFX_PointF& point,
                     int nFlag);
 
-  void GetCurrentMatrix(CFX_Matrix& matrix) { matrix = m_curMatrix; }
+  const CFX_Matrix& GetCurrentMatrix() const { return m_curMatrix; }
   void UpdateRects(const std::vector<CFX_FloatRect>& rects);
   void UpdateView(CPDFSDK_Annot* pAnnot);
 
   int GetPageIndex() const;
 
   void SetValid(bool bValid) { m_bValid = bValid; }
-  bool IsValid() { return m_bValid; }
-
-  void SetLock(bool bLocked) { m_bLocked = bLocked; }
-  bool IsLocked() { return m_bLocked; }
-
+  bool IsValid() const { return m_bValid; }
+  bool IsLocked() const { return m_bLocked; }
   void SetBeingDestroyed() { m_bBeingDestroyed = true; }
   bool IsBeingDestroyed() const { return m_bBeingDestroyed; }
-
-#ifndef PDF_ENABLE_XFA
-  bool OwnsPage() const { return m_bOwnsPage; }
-  void TakePageOwnership() { m_bOwnsPage = true; }
-#endif  // PDF_ENABLE_XFA
+  void TakePageOwnership() { m_pOwnsPage.Reset(ToPDFPage(m_page)); }
 
  private:
   CPDFSDK_Annot* GetFXAnnotAtPoint(const CFX_PointF& point);
@@ -104,21 +101,24 @@ class CPDFSDK_PageView final : public CPDF_Page::View {
 
   int GetPageIndexForStaticPDF() const;
 
+  void EnterWidget(CPDFSDK_AnnotHandlerMgr* pAnnotHandlerMgr,
+                   CPDFSDK_Annot::ObservedPtr* pAnnot,
+                   uint32_t nFlag);
+  void ExitWidget(CPDFSDK_AnnotHandlerMgr* pAnnotHandlerMgr,
+                  bool callExitCallback,
+                  uint32_t nFlag);
+
   CFX_Matrix m_curMatrix;
-  UnderlyingPageType* const m_page;
+  IPDF_Page* const m_page;
   std::unique_ptr<CPDF_AnnotList> m_pAnnotList;
   std::vector<CPDFSDK_Annot*> m_SDKAnnotArray;
-  CFX_UnownedPtr<CPDFSDK_FormFillEnvironment> const m_pFormFillEnv;
+  UnownedPtr<CPDFSDK_FormFillEnvironment> const m_pFormFillEnv;
   CPDFSDK_Annot::ObservedPtr m_pCaptureWidget;
-#ifndef PDF_ENABLE_XFA
-  bool m_bOwnsPage;
-#endif  // PDF_ENABLE_XFA
-  bool m_bEnterWidget;
-  bool m_bExitWidget;
-  bool m_bOnWidget;
-  bool m_bValid;
-  bool m_bLocked;
-  bool m_bBeingDestroyed;
+  RetainPtr<CPDF_Page> m_pOwnsPage;
+  bool m_bOnWidget = false;
+  bool m_bValid = false;
+  bool m_bLocked = false;
+  bool m_bBeingDestroyed = false;
 };
 
 #endif  // FPDFSDK_CPDFSDK_PAGEVIEW_H_

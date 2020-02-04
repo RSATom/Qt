@@ -141,6 +141,7 @@ ONC_EXPORT extern const char kRoamingHome[];
 ONC_EXPORT extern const char kRoamingRequired[];
 ONC_EXPORT extern const char kRoamingRoaming[];
 ONC_EXPORT extern const char kRoamingState[];
+ONC_EXPORT extern const char kScanning[];
 ONC_EXPORT extern const char kServingOperator[];
 ONC_EXPORT extern const char kSignalStrength[];
 ONC_EXPORT extern const char kSIMLockStatus[];
@@ -170,6 +171,7 @@ ONC_EXPORT extern const char kAccessPointName[];
 ONC_EXPORT extern const char kName[];
 ONC_EXPORT extern const char kUsername[];
 ONC_EXPORT extern const char kPassword[];
+ONC_EXPORT extern const char kAuthentication[];
 ONC_EXPORT extern const char kLocalizedName[];
 ONC_EXPORT extern const char kLanguage[];
 }  // namespace cellular_apn
@@ -208,6 +210,8 @@ ONC_EXPORT extern const char kIPv6[];
 ONC_EXPORT extern const char kNameServers[];
 ONC_EXPORT extern const char kRoutingPrefix[];
 ONC_EXPORT extern const char kSearchDomains[];
+ONC_EXPORT extern const char kIncludedRoutes[];
+ONC_EXPORT extern const char kExcludedRoutes[];
 ONC_EXPORT extern const char kType[];
 ONC_EXPORT extern const char kWebProxyAutoDiscoveryUrl[];
 }  // namespace ipconfig
@@ -233,6 +237,7 @@ ONC_EXPORT extern const char kBSSID[];
 ONC_EXPORT extern const char kEAP[];
 ONC_EXPORT extern const char kFrequency[];
 ONC_EXPORT extern const char kFrequencyList[];
+ONC_EXPORT extern const char kFTEnabled[];
 ONC_EXPORT extern const char kHexSSID[];
 ONC_EXPORT extern const char kHiddenSSID[];
 ONC_EXPORT extern const char kPassphrase[];
@@ -241,6 +246,7 @@ ONC_EXPORT extern const char kSSID[];
 ONC_EXPORT extern const char kSecurity[];
 ONC_EXPORT extern const char kSecurityNone[];
 ONC_EXPORT extern const char kSignalStrength[];
+ONC_EXPORT extern const char kTetheringState[];
 ONC_EXPORT extern const char kWEP_PSK[];
 ONC_EXPORT extern const char kWEP_8021X[];
 ONC_EXPORT extern const char kWPA_PSK[];
@@ -325,6 +331,7 @@ ONC_EXPORT extern const char kServerCAPEMs[];
 ONC_EXPORT extern const char kServerCARef[];
 ONC_EXPORT extern const char kServerCARefs[];
 ONC_EXPORT extern const char kSubjectMatch[];
+ONC_EXPORT extern const char kTLSVersionMax[];
 ONC_EXPORT extern const char kUseSystemCAs[];
 ONC_EXPORT extern const char kUseProactiveKeyCaching[];
 }  // namespace eap
@@ -338,6 +345,7 @@ ONC_EXPORT extern const char kOpenVPN[];
 ONC_EXPORT extern const char kPassword[];
 ONC_EXPORT extern const char kSaveCredentials[];
 ONC_EXPORT extern const char kThirdPartyVpn[];
+ONC_EXPORT extern const char kArcVpn[];
 ONC_EXPORT extern const char kTypeL2TP_IPsec[];
 ONC_EXPORT extern const char kType[];
 ONC_EXPORT extern const char kUsername[];
@@ -370,6 +378,7 @@ ONC_EXPORT extern const char kAuth[];
 ONC_EXPORT extern const char kCipher[];
 ONC_EXPORT extern const char kCompLZO[];
 ONC_EXPORT extern const char kCompNoAdapt[];
+ONC_EXPORT extern const char kExtraHosts[];
 ONC_EXPORT extern const char kIgnoreDefaultRoute[];
 ONC_EXPORT extern const char kInteract[];
 ONC_EXPORT extern const char kKeyDirection[];
@@ -396,6 +405,7 @@ ONC_EXPORT extern const char kShaper[];
 ONC_EXPORT extern const char kStaticChallenge[];
 ONC_EXPORT extern const char kTLSAuthContents[];
 ONC_EXPORT extern const char kTLSRemote[];
+ONC_EXPORT extern const char kTLSVersionMin[];
 ONC_EXPORT extern const char kUserAuthenticationType[];
 ONC_EXPORT extern const char kVerb[];
 ONC_EXPORT extern const char kVerifyHash[];
@@ -414,6 +424,10 @@ ONC_EXPORT extern const char kExtensionID[];
 ONC_EXPORT extern const char kProviderName[];
 }  // third_party_vpn
 
+namespace arc_vpn {
+ONC_EXPORT extern const char kTunnelChrome[];
+}  // namespace arc_vpn
+
 namespace verify_x509 {
 ONC_EXPORT extern const char kName[];
 ONC_EXPORT extern const char kType[];
@@ -426,10 +440,14 @@ ONC_EXPORT extern const char kSubject[];
 }  // namespace verify_x509
 
 namespace substitutes {
-ONC_EXPORT extern const char kEmailField[];
-ONC_EXPORT extern const char kLoginIDField[];
+ONC_EXPORT extern const char kLoginEmail[];
+ONC_EXPORT extern const char kLoginID[];
 ONC_EXPORT extern const char kCertSANEmail[];
 ONC_EXPORT extern const char kCertSANUPN[];
+ONC_EXPORT extern const char kCertSubjectCommonName[];
+ONC_EXPORT extern const char kDeviceSerialNumber[];
+ONC_EXPORT extern const char kDeviceAssetId[];
+ONC_EXPORT extern const char kPasswordPlaceholderVerbatim[];
 }  // namespace substitutes
 
 namespace proxy {
@@ -450,6 +468,8 @@ ONC_EXPORT extern const char kWPAD[];
 namespace global_network_config {
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToAutoconnect[];
 ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToConnect[];
+ONC_EXPORT extern const char kAllowOnlyPolicyNetworksToConnectIfAvailable[];
+ONC_EXPORT extern const char kBlacklistedHexSSIDs[];
 ONC_EXPORT extern const char kDisableNetworkTypes[];
 }  // global_network_config
 
@@ -459,6 +479,12 @@ ONC_EXPORT extern const char kDisabled[];
 ONC_EXPORT extern const char kEnabling[];
 ONC_EXPORT extern const char kEnabled[];
 }  // device_state
+
+namespace tethering_state {
+ONC_EXPORT extern const char kTetheringConfirmedState[];
+ONC_EXPORT extern const char kTetheringNotDetectedState[];
+ONC_EXPORT extern const char kTetheringSuspectedState[];
+}  // namespace tethering_state
 
 }  // namespace onc
 

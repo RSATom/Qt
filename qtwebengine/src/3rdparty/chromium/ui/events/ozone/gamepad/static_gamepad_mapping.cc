@@ -8,7 +8,7 @@
 #include <map>
 #include <vector>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "ui/events/ozone/evdev/event_device_info.h"
 #include "ui/events/ozone/gamepad/static_gamepad_mapping.h"
 #include "ui/events/ozone/gamepad/webgamepad_constants.h"
@@ -20,9 +20,9 @@ typedef bool (*GamepadMapperFunction)(uint16_t key,
                                       GamepadEventType* mapped_type,
                                       uint16_t* mapped_code);
 
-#define DO_MAPPING                                                   \
-  DoGamepadMapping(key_mapping, arraysize(key_mapping), abs_mapping, \
-                   arraysize(abs_mapping), type, code, mapped_type,  \
+#define DO_MAPPING                                                    \
+  DoGamepadMapping(key_mapping, base::size(key_mapping), abs_mapping, \
+                   base::size(abs_mapping), type, code, mapped_type,  \
                    mapped_code)
 
 bool DoGamepadMapping(const KeyMapEntry* key_mapping,
@@ -148,6 +148,26 @@ bool DualShock4Mapper(uint16_t type,
       TO_ABS(ABS_RX, WG_BUTTON_LT), TO_ABS(ABS_RY, WG_BUTTON_RT),
       TO_ABS(ABS_Z, WG_ABS_RX),     TO_ABS(ABS_RZ, WG_ABS_RY),
       TO_BTN(ABS_HAT0X, kHAT_X),    TO_BTN(ABS_HAT0Y, kHAT_Y)};
+  return DO_MAPPING;
+}
+
+bool NintendoSwitchPro(uint16_t type,
+                       uint16_t code,
+                       GamepadEventType* mapped_type,
+                       uint16_t* mapped_code) {
+  static const KeyMapType key_mapping = {
+      {BTN_A, WG_BUTTON_A},           {BTN_B, WG_BUTTON_B},
+      {BTN_C, WG_BUTTON_X},           {BTN_X, WG_BUTTON_Y},
+      {BTN_Y, WG_BUTTON_L1},          {BTN_Z, WG_BUTTON_R1},
+      {BTN_TL, WG_BUTTON_LT},         {BTN_TR, WG_BUTTON_RT},
+      {BTN_TL2, WG_BUTTON_SELECT},    {BTN_TR2, WG_BUTTON_START},
+      {BTN_SELECT, WG_BUTTON_THUMBL}, {BTN_START, WG_BUTTON_THUMBR},
+      {BTN_MODE, WG_BUTTON_MODE}};
+
+  static const AbsMapType abs_mapping = {
+      TO_ABS(ABS_X, WG_ABS_X),   TO_ABS(ABS_Y, WG_ABS_Y),
+      TO_ABS(ABS_RX, WG_ABS_RX), TO_ABS(ABS_RY, WG_ABS_RY),
+      TO_BTN(ABS_HAT0X, kHAT_X), TO_BTN(ABS_HAT0Y, kHAT_Y)};
   return DO_MAPPING;
 }
 
@@ -459,12 +479,15 @@ static const struct MappingData {
     {0x054c, 0x0268, PlaystationSixAxisMapper},  // Playstation 3.
     {0x054c, 0x05c4, DualShock4Mapper},          // Dualshock 4.
     // Nintendo switch.
+    {0x057e, 0x2009, NintendoSwitchPro},    // Nintendo switch pro.
     {0x057e, 0x2006, NintendoSwitchLeft},   // Nintendo switch left.
     {0x057e, 0x2007, NintendoSwitchRight},  // Nintendo switch right.
     // NES style gamepad.
-    {0x0583, 0x2060, IBuffalocClassicMapper},  // iBuffalo Classic.
-    {0x0079, 0x0011, ClassicNESMapper},        // Classic NES controller.
-    {0x12bd, 0xd015, SNesRetroMapper},         // Hitgaming SNES retro.
+    {0x0583, 0x2060, IBuffalocClassicMapper},         // iBuffalo Classic.
+    {0x0079, 0x0011, ClassicNESMapper},               // Classic NES controller.
+    {0x12bd, 0xd015, SNesRetroMapper},                // Hitgaming SNES retro.
+    {0x3810, 0x9, Vendor_046dProduct_b501Mapper},     // FC30 Pro, bluetooth.
+    {0x1002, 0x9000, Vendor_046dProduct_b501Mapper},  // FC30 Pro, wired.
     // Android gamepad.
     {0x0b05, 0x4500, ADT1Mapper},  // Nexus player controller (asus gamepad).
     {0x1532, 0x0900, ADT1Mapper},  // Razer serval.
@@ -500,7 +523,7 @@ class StaticGamepadMapper : public GamepadMapper {
 };
 
 GamepadMapper* GetStaticGamepadMapper(uint16_t vendor_id, uint16_t product_id) {
-  for (size_t i = 0; i < arraysize(AvailableMappings); i++) {
+  for (size_t i = 0; i < base::size(AvailableMappings); i++) {
     if (AvailableMappings[i].vendor_id == vendor_id &&
         AvailableMappings[i].product_id == product_id) {
       return new StaticGamepadMapper(AvailableMappings[i].mapper);

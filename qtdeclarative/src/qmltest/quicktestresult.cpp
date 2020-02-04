@@ -39,6 +39,7 @@
 ****************************************************************************/
 
 #include "quicktestresult_p.h"
+#include "quicktest.h"
 #include <QtTest/qtestcase.h>
 #include <QtTest/qtestsystem.h>
 #include <QtTest/private/qtestblacklist_p.h>
@@ -57,9 +58,11 @@
 #include <QtCore/qmap.h>
 #include <QtCore/qbytearray.h>
 #include <QtCore/qcoreapplication.h>
+#include <QtCore/qdatetime.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/QUrl>
 #include <QtCore/QDir>
+#include <QtCore/qregularexpression.h>
 #include <QtQuick/qquickwindow.h>
 #include <QtGui/qvector3d.h>
 #include <QtGui/qimagewriter.h>
@@ -72,7 +75,7 @@
 
 QT_BEGIN_NAMESPACE
 
-static const char *globalProgramName = 0;
+static const char *globalProgramName = nullptr;
 static bool loggingStarted = false;
 static QBenchmarkGlobalData globalBenchmarkData;
 
@@ -87,7 +90,7 @@ class Q_QUICK_TEST_EXPORT QuickTestImageObject : public QObject
     Q_PROPERTY(QSize size READ size CONSTANT)
 
 public:
-    QuickTestImageObject(const QImage& img, QObject *parent = 0)
+    QuickTestImageObject(const QImage& img, QObject *parent = nullptr)
         : QObject(parent)
         , m_image(img)
     {
@@ -142,7 +145,7 @@ public Q_SLOTS:
         QImageWriter writer(filePath);
         if (!writer.write(m_image)) {
             QQmlEngine *engine = qmlContext(this)->engine();
-            QV4::ExecutionEngine *v4 = QV8Engine::getV4(engine->handle());
+            QV4::ExecutionEngine *v4 = engine->handle();
             v4->throwError(QStringLiteral("Can't save to %1: %2").arg(filePath, writer.errorString()));
         }
     }
@@ -171,9 +174,9 @@ class QuickTestResultPrivate
 {
 public:
     QuickTestResultPrivate()
-        : table(0)
-        , benchmarkIter(0)
-        , benchmarkData(0)
+        : table(nullptr)
+        , benchmarkIter(nullptr)
+        , benchmarkData(nullptr)
         , iterCount(0)
     {
     }
@@ -260,10 +263,10 @@ void QuickTestResult::setFunctionName(const QString &name)
             QString fullName = d->testCaseName + QLatin1String("::") + name;
             QTestResult::setCurrentTestFunction
                 (d->intern(fullName).constData());
-            QTestPrivate::checkBlackLists(fullName.toUtf8().constData(), 0);
+            QTestPrivate::checkBlackLists(fullName.toUtf8().constData(), nullptr);
         }
     } else {
-        QTestResult::setCurrentTestFunction(0);
+        QTestResult::setCurrentTestFunction(nullptr);
     }
     d->functionName = name;
     emit functionNameChanged();
@@ -292,7 +295,7 @@ void QuickTestResult::setDataTag(const QString &tag)
         QTestPrivate::checkBlackLists((testCaseName() + QLatin1String("::") + functionName()).toUtf8().constData(), tag.toUtf8().constData());
         emit dataTagChanged();
     } else {
-        QTestResult::setCurrentTestData(0);
+        QTestResult::setCurrentTestData(nullptr);
     }
 }
 
@@ -379,6 +382,16 @@ QStringList QuickTestResult::functionsToRun() const
 }
 
 /*!
+    \qmlproperty list<string> TestResult::tagsToRun
+
+    This property returns the list of test function's data tags to be run
+*/
+QStringList QuickTestResult::tagsToRun() const
+{
+    return QTest::testTags;
+}
+
+/*!
     \qmlmethod TestResult::reset()
 
     Resets all pass/fail/skip counters and prepare for testing.
@@ -437,7 +450,7 @@ void QuickTestResult::clearTestTable()
 {
     Q_D(QuickTestResult);
     delete d->table;
-    d->table = 0;
+    d->table = nullptr;
 }
 
 void QuickTestResult::finishTestData()
@@ -624,9 +637,18 @@ void QuickTestResult::warn(const QString &message, const QUrl &location, int lin
     QTestLog::warn(message.toLatin1().constData(), qtestFixUrl(location).toLatin1().constData(), line);
 }
 
-void QuickTestResult::ignoreWarning(const QString &message)
+void QuickTestResult::ignoreWarning(const QJSValue &message)
 {
-    QTestLog::ignoreMessage(QtWarningMsg, message.toLatin1().constData());
+    if (message.isRegExp()) {
+        // ### we should probably handle QRegularExpression conversion engine-side
+        QRegExp re = message.toVariant().toRegExp();
+        QRegularExpression::PatternOptions opts = re.caseSensitivity() ==
+            Qt::CaseInsensitive ? QRegularExpression::CaseInsensitiveOption : QRegularExpression::NoPatternOption;
+        QRegularExpression re2(re.pattern(), opts);
+        QTestLog::ignoreMessage(QtWarningMsg, re2);
+    } else {
+        QTestLog::ignoreMessage(QtWarningMsg, message.toString().toLatin1());
+    }
 }
 
 void QuickTestResult::wait(int ms)
@@ -744,7 +766,7 @@ void QuickTestResult::stopBenchmark()
 {
     Q_D(QuickTestResult);
     delete d->benchmarkIter;
-    d->benchmarkIter = 0;
+    d->benchmarkIter = nullptr;
 }
 
 QObject *QuickTestResult::grabImage(QQuickItem *item)
@@ -758,12 +780,22 @@ QObject *QuickTestResult::grabImage(QQuickItem *item)
         QQmlEngine::setContextForObject(o, qmlContext(this));
         return o;
     }
-    return 0;
+    return nullptr;
 }
 
 QObject *QuickTestResult::findChild(QObject *parent, const QString &objectName)
 {
     return parent ? parent->findChild<QObject*>(objectName) : 0;
+}
+
+bool QuickTestResult::isPolishScheduled(QQuickItem *item) const
+{
+    return QQuickTest::qIsPolishScheduled(item);
+}
+
+bool QuickTestResult::waitForItemPolished(QQuickItem *item, int timeout)
+{
+    return QQuickTest::qWaitForItemPolished(item, timeout);
 }
 
 namespace QTest {
@@ -781,12 +813,11 @@ void QuickTestResult::setProgramName(const char *name)
 {
     if (name) {
         QTestPrivate::parseBlackList();
-        QTestPrivate::parseGpuBlackList();
         QTestResult::reset();
     } else if (!name && loggingStarted) {
         QTestResult::setCurrentTestObject(globalProgramName);
         QTestLog::stopLogging();
-        QTestResult::setCurrentTestObject(0);
+        QTestResult::setCurrentTestObject(nullptr);
     }
     globalProgramName = name;
     QTestResult::setCurrentTestObject(globalProgramName);
@@ -808,7 +839,7 @@ int QuickTestResult::exitCode()
 #endif
 }
 
+QT_END_NAMESPACE
+
 #include "quicktestresult.moc"
 #include "moc_quicktestresult_p.cpp"
-
-QT_END_NAMESPACE

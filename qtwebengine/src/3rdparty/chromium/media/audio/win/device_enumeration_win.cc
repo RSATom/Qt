@@ -2,20 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "media/audio/win/device_enumeration_win.h"
+
 #include <MMDeviceAPI.h>
 #include <mmsystem.h>
 #include <objbase.h>
 #include <Functiondiscoverykeys_devpkey.h>  // MMDeviceAPI.h must come first
 #include <stddef.h>
+#include <wrl/client.h>
 
 #include "base/logging.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_co_mem.h"
-#include "base/win/scoped_comptr.h"
 #include "base/win/scoped_propvariant.h"
 #include "media/audio/win/audio_manager_win.h"
+#include "media/audio/win/core_audio_util_win.h"
 
-using base::win::ScopedComPtr;
 using base::win::ScopedCoMem;
 
 // Taken from Mmddk.h.
@@ -29,7 +32,7 @@ static bool GetDeviceNamesWinImpl(EDataFlow data_flow,
                                   AudioDeviceNames* device_names) {
   // It is assumed that this method is called from a COM thread, i.e.,
   // CoInitializeEx() is not called here again to avoid STA/MTA conflicts.
-  ScopedComPtr<IMMDeviceEnumerator> enumerator;
+  Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator;
   HRESULT hr =
       ::CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL,
                          CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&enumerator));
@@ -41,7 +44,7 @@ static bool GetDeviceNamesWinImpl(EDataFlow data_flow,
 
   // Generate a collection of active audio endpoint devices.
   // This method will succeed even if all devices are disabled.
-  ScopedComPtr<IMMDeviceCollection> collection;
+  Microsoft::WRL::ComPtr<IMMDeviceCollection> collection;
   hr = enumerator->EnumAudioEndpoints(data_flow, DEVICE_STATE_ACTIVE,
                                       collection.GetAddressOf());
   if (FAILED(hr))
@@ -60,7 +63,7 @@ static bool GetDeviceNamesWinImpl(EDataFlow data_flow,
   for (UINT i = 0; i < number_of_active_devices; ++i) {
     // Retrieve unique name of endpoint device.
     // Example: "{0.0.1.00000000}.{8db6020f-18e3-4f25-b6f5-7726c9122574}".
-    ScopedComPtr<IMMDevice> audio_device;
+    Microsoft::WRL::ComPtr<IMMDevice> audio_device;
     hr = collection->Item(i, audio_device.GetAddressOf());
     if (FAILED(hr))
       continue;
@@ -73,7 +76,7 @@ static bool GetDeviceNamesWinImpl(EDataFlow data_flow,
 
     // Retrieve user-friendly name of endpoint device.
     // Example: "Microphone (Realtek High Definition Audio)".
-    ScopedComPtr<IPropertyStore> properties;
+    Microsoft::WRL::ComPtr<IPropertyStore> properties;
     hr = audio_device->OpenPropertyStore(STGM_READ, properties.GetAddressOf());
     if (SUCCEEDED(hr)) {
       base::win::ScopedPropVariant friendly_name;
@@ -85,6 +88,13 @@ static bool GetDeviceNamesWinImpl(EDataFlow data_flow,
           friendly_name.get().pwszVal) {
         device.device_name = base::WideToUTF8(friendly_name.get().pwszVal);
       }
+
+      // Append suffix to USB and Bluetooth devices.
+      std::string controller_id = CoreAudioUtil::GetAudioControllerID(
+          audio_device.Get(), enumerator.Get());
+      std::string suffix = GetDeviceSuffixWin(controller_id);
+      if (!suffix.empty())
+        device.device_name += suffix;
     }
 
     // Add combination of user-friendly and unique name to the output list.
@@ -153,6 +163,21 @@ bool GetInputDeviceNamesWinXP(AudioDeviceNames* device_names) {
 bool GetOutputDeviceNamesWinXP(AudioDeviceNames* device_names) {
   return GetDeviceNamesWinXPImpl<waveOutGetNumDevs, WAVEOUTCAPSW,
                                  waveOutGetDevCapsW>(device_names);
+}
+
+std::string GetDeviceSuffixWin(const std::string& controller_id) {
+  std::string suffix;
+  if (controller_id.size() >= 21 && controller_id.substr(0, 8) == "USB\\VID_" &&
+      controller_id.substr(12, 5) == "&PID_") {
+    suffix = " (" + base::ToLowerASCII(controller_id.substr(8, 4)) + ":" +
+             base::ToLowerASCII(controller_id.substr(17, 4)) + ")";
+  } else if ((controller_id.size() >= 22 &&
+              controller_id.substr(0, 22) == "BTHHFENUM\\BthHFPAudio\\") ||
+             (controller_id.size() >= 8 &&
+              controller_id.substr(0, 8) == "BTHENUM\\")) {
+    suffix = " (Bluetooth)";
+  }
+  return suffix;
 }
 
 }  // namespace media

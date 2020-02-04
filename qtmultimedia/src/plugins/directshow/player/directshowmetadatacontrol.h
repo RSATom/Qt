@@ -55,19 +55,17 @@ class DirectShowMetaDataControl : public QMetaDataReaderControl
     Q_OBJECT
 public:
     DirectShowMetaDataControl(QObject *parent = 0);
-    ~DirectShowMetaDataControl();
+    ~DirectShowMetaDataControl() override;
 
-    bool isMetaDataAvailable() const;
+    bool isMetaDataAvailable() const override;
 
-    QVariant metaData(const QString &key) const;
-    QStringList availableMetaData() const;
+    QVariant metaData(const QString &key) const override;
+    QStringList availableMetaData() const override;
 
-    void reset();
-    void updateMetadata(IFilterGraph2 *graph, IBaseFilter *source,
-                        const QString &fileSrc = QString());
+    void setMetadata(const QVariantMap &metadata);
 
-protected:
-    void customEvent(QEvent *event);
+    static void updateMetadata(const QString &fileSrc, QVariantMap &metadata);
+    static void updateMetadata(IFilterGraph2 *graph, IBaseFilter *source, QVariantMap &metadata);
 
 private:
     void setMetadataAvailable(bool available);

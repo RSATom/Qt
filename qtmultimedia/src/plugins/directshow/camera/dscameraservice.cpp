@@ -48,19 +48,31 @@
 #include "dsimagecapturecontrol.h"
 #include "dscameraviewfindersettingscontrol.h"
 #include "dscameraimageprocessingcontrol.h"
+#include "directshowcameraexposurecontrol.h"
+#include "directshowcameracapturedestinationcontrol.h"
+#include "directshowcameracapturebufferformatcontrol.h"
+#include "directshowvideoprobecontrol.h"
+#include "directshowcamerazoomcontrol.h"
+#include "directshowcameraimageencodercontrol.h"
 
 QT_BEGIN_NAMESPACE
 
 DSCameraService::DSCameraService(QObject *parent):
     QMediaService(parent)
+  , m_session(new DSCameraSession(this))
+  , m_control(new DSCameraControl(m_session))
+  , m_videoDevice(new DSVideoDeviceControl(m_session))
   , m_videoRenderer(0)
+  , m_imageCapture(new DSImageCaptureControl(m_session))
+  , m_viewfinderSettings(new DSCameraViewfinderSettingsControl(m_session))
+  , m_imageProcessingControl(new DSCameraImageProcessingControl(m_session))
+  , m_exposureControl(new DirectShowCameraExposureControl(m_session))
+  , m_captureDestinationControl(new DirectShowCameraCaptureDestinationControl(m_session))
+  , m_captureBufferFormatControl(new DirectShowCameraCaptureBufferFormatControl)
+  , m_videoProbeControl(nullptr)
+  , m_zoomControl(new DirectShowCameraZoomControl(m_session))
+  , m_imageEncoderControl(new DirectShowCameraImageEncoderControl(m_session))
 {
-    m_session = new DSCameraSession(this);
-    m_control = new DSCameraControl(m_session);
-    m_videoDevice = new DSVideoDeviceControl(m_session);
-    m_imageCapture = new DSImageCaptureControl(m_session);
-    m_viewfinderSettings = new DSCameraViewfinderSettingsControl(m_session);
-    m_imageProcessingControl = new DSCameraImageProcessingControl(m_session);
 }
 
 DSCameraService::~DSCameraService()
@@ -71,7 +83,13 @@ DSCameraService::~DSCameraService()
     delete m_videoDevice;
     delete m_videoRenderer;
     delete m_imageCapture;
+    delete m_imageEncoderControl;
     delete m_session;
+    delete m_exposureControl;
+    delete m_captureDestinationControl;
+    delete m_captureBufferFormatControl;
+    delete m_videoProbeControl;
+    delete m_zoomControl;
 }
 
 QMediaControl* DSCameraService::requestControl(const char *name)
@@ -98,6 +116,30 @@ QMediaControl* DSCameraService::requestControl(const char *name)
     if (qstrcmp(name, QCameraImageProcessingControl_iid) == 0)
         return m_imageProcessingControl;
 
+    if (qstrcmp(name, QCameraExposureControl_iid) == 0)
+        return m_exposureControl;
+
+    if (qstrcmp(name, QCameraCaptureDestinationControl_iid) == 0)
+        return m_captureDestinationControl;
+
+    if (qstrcmp(name, QCameraCaptureBufferFormatControl_iid) == 0)
+        return m_captureBufferFormatControl;
+
+    if (qstrcmp(name, QMediaVideoProbeControl_iid) == 0) {
+        if (!m_videoProbeControl)
+            m_videoProbeControl = new DirectShowVideoProbeControl;
+
+        m_videoProbeControl->ref();
+        m_session->addVideoProbe(m_videoProbeControl);
+        return m_videoProbeControl;
+    }
+
+    if (qstrcmp(name, QCameraZoomControl_iid) == 0)
+        return m_zoomControl;
+
+    if (qstrcmp(name, QImageEncoderControl_iid) == 0)
+        return m_imageEncoderControl;
+
     return 0;
 }
 
@@ -107,6 +149,14 @@ void DSCameraService::releaseControl(QMediaControl *control)
         delete m_videoRenderer;
         m_videoRenderer = 0;
         return;
+    }
+
+    if (control == m_videoProbeControl) {
+        m_session->removeVideoProbe(m_videoProbeControl);
+        if (!m_videoProbeControl->deref()) {
+            delete m_videoProbeControl;
+            m_videoProbeControl = nullptr;
+        }
     }
 }
 

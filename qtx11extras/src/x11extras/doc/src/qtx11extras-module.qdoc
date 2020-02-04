@@ -36,14 +36,12 @@
     To include the definitions of the module's classes, use the
     following directive:
 
-    \code
-    #include <QX11Info>
-    \endcode
+    \snippet code/doc_src_qtx11extras.cpp 0
 
+    \if !defined(qtforpython)
     To link against the module, add this line to your \l {qmake Manual}{qmake} \c
     .pro file:
 
-    \code
-    QT += x11extras
-    \endcode
+    \snippet code/doc_src_qtx11extras.cpp 1
+    \endif
 */

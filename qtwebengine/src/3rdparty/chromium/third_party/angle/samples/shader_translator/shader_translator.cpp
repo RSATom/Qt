@@ -63,6 +63,8 @@ void GenerateResources(ShBuiltInResources *resources)
 
     resources->OES_standard_derivatives = 0;
     resources->OES_EGL_image_external = 0;
+    resources->EXT_geometry_shader      = 1;
+    resources->ANGLE_texture_multisample = 0;
 }
 
 int main(int argc, char *argv[])
@@ -74,6 +76,7 @@ int main(int argc, char *argv[])
     ShHandle vertexCompiler = 0;
     ShHandle fragmentCompiler = 0;
     ShHandle computeCompiler  = 0;
+    ShHandle geometryCompiler       = 0;
     ShShaderSpec spec = SH_GLES2_SPEC;
     ShShaderOutput output = SH_ESSL_OUTPUT;
 
@@ -268,11 +271,29 @@ int main(int argc, char *argv[])
                   }
                   compiler = computeCompiler;
                   break;
-
+              case GL_GEOMETRY_SHADER_EXT:
+                  if (geometryCompiler == 0)
+                  {
+                      geometryCompiler =
+                          sh::ConstructCompiler(GL_GEOMETRY_SHADER_EXT, spec, output, &resources);
+                  }
+                  compiler = geometryCompiler;
+                  break;
               default: break;
             }
             if (compiler)
             {
+                switch (output)
+                {
+                    case SH_HLSL_3_0_OUTPUT:
+                    case SH_HLSL_4_1_OUTPUT:
+                    case SH_HLSL_4_0_FL9_3_OUTPUT:
+                        compileOptions &= ~SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER;
+                        break;
+                    default:
+                        break;
+                }
+
                 bool compiled = CompileFile(argv[0], compiler, compileOptions);
 
                 LogMsg("BEGIN", "COMPILER", numCompiles, "INFO LOG");
@@ -307,7 +328,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    if ((vertexCompiler == 0) && (fragmentCompiler == 0) && (computeCompiler == 0))
+    if ((vertexCompiler == 0) && (fragmentCompiler == 0) && (computeCompiler == 0) &&
+        (geometryCompiler == 0))
         failCode = EFailUsage;
     if (failCode == EFailUsage)
         usage();
@@ -318,6 +340,8 @@ int main(int argc, char *argv[])
         sh::Destruct(fragmentCompiler);
     if (computeCompiler)
         sh::Destruct(computeCompiler);
+    if (geometryCompiler)
+        sh::Destruct(geometryCompiler);
 
     sh::Finalize();
 
@@ -389,6 +413,8 @@ sh::GLenum FindShaderType(const char *fileName)
             return GL_VERTEX_SHADER;
         if (strncmp(ext, ".comp", 5) == 0)
             return GL_COMPUTE_SHADER;
+        if (strncmp(ext, ".geom", 5) == 0)
+            return GL_GEOMETRY_SHADER_EXT;
     }
 
     return GL_FRAGMENT_SHADER;
@@ -546,9 +572,14 @@ void PrintVariable(const std::string &prefix, size_t index, const sh::ShaderVari
       default: typeName = "UNKNOWN"; break;
     }
 
-    printf("%s %u : name=%s, mappedName=%s, type=%s, arraySize=%u\n", prefix.c_str(),
+    printf("%s %u : name=%s, mappedName=%s, type=%s, arraySizes=", prefix.c_str(),
            static_cast<unsigned int>(index), var.name.c_str(), var.mappedName.c_str(),
-           typeName.c_str(), var.arraySize);
+           typeName.c_str());
+    for (unsigned int arraySize : var.arraySizes)
+    {
+        printf("%u ", arraySize);
+    }
+    printf("\n");
     if (var.fields.size())
     {
         std::string structPrefix;
@@ -564,10 +595,11 @@ void PrintVariable(const std::string &prefix, size_t index, const sh::ShaderVari
 static void PrintActiveVariables(ShHandle compiler)
 {
     const std::vector<sh::Uniform> *uniforms       = sh::GetUniforms(compiler);
-    const std::vector<sh::Varying> *varyings       = sh::GetVaryings(compiler);
+    const std::vector<sh::Varying> *inputVaryings  = sh::GetInputVaryings(compiler);
+    const std::vector<sh::Varying> *outputVaryings = sh::GetOutputVaryings(compiler);
     const std::vector<sh::Attribute> *attributes   = sh::GetAttributes(compiler);
     const std::vector<sh::OutputVariable> *outputs = sh::GetOutputVariables(compiler);
-    for (size_t varCategory = 0; varCategory < 4; ++varCategory)
+    for (size_t varCategory = 0; varCategory < 5; ++varCategory)
     {
         size_t numVars = 0;
         std::string varCategoryName;
@@ -578,10 +610,15 @@ static void PrintActiveVariables(ShHandle compiler)
         }
         else if (varCategory == 1)
         {
-            numVars = varyings->size();
-            varCategoryName = "varying";
+            numVars         = inputVaryings->size();
+            varCategoryName = "input varying";
         }
         else if (varCategory == 2)
+        {
+            numVars         = outputVaryings->size();
+            varCategoryName = "output varying";
+        }
+        else if (varCategory == 3)
         {
             numVars = attributes->size();
             varCategoryName = "attribute";
@@ -598,8 +635,10 @@ static void PrintActiveVariables(ShHandle compiler)
             if (varCategory == 0)
                 var = &((*uniforms)[i]);
             else if (varCategory == 1)
-                var = &((*varyings)[i]);
+                var = &((*inputVaryings)[i]);
             else if (varCategory == 2)
+                var = &((*outputVaryings)[i]);
+            else if (varCategory == 3)
                 var = &((*attributes)[i]);
             else
                 var = &((*outputs)[i]);

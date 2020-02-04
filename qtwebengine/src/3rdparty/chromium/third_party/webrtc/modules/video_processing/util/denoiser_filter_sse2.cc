@@ -8,8 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "modules/video_processing/util/denoiser_filter_sse2.h"
+
 #include <emmintrin.h>
-#include "webrtc/modules/video_processing/util/denoiser_filter_sse2.h"
+#include <stdlib.h>
+#include <string.h>
 
 namespace webrtc {
 

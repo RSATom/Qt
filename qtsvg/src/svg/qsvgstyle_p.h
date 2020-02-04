@@ -577,6 +577,7 @@ public:
     void setStopLink(const QString &link, QSvgTinyDocument *doc);
     QString stopLink() const { return m_link; }
     void resolveStops();
+    void resolveStops_helper(QStringList *visited);
 
     void setMatrix(const QMatrix &matrix);
     QMatrix  qmatrix() const

@@ -56,12 +56,13 @@ QT_BEGIN_NAMESPACE
 static QBearerEngineImpl *getEngineFromId(const QString &id)
 {
     QNetworkConfigurationManagerPrivate *priv = qNetworkConfigurationManagerPrivate();
-
-    const auto engines = priv->engines();
-    for (QBearerEngine *engine : engines) {
-        QBearerEngineImpl *engineImpl = qobject_cast<QBearerEngineImpl *>(engine);
-        if (engineImpl && engineImpl->hasIdentifier(id))
-            return engineImpl;
+    if (priv) {
+        const auto engines = priv->engines();
+        for (QBearerEngine *engine : engines) {
+            QBearerEngineImpl *engineImpl = qobject_cast<QBearerEngineImpl *>(engine);
+            if (engineImpl && engineImpl->hasIdentifier(id))
+                return engineImpl;
+        }
     }
 
     return 0;
@@ -81,8 +82,6 @@ public:
 Q_SIGNALS:
     void forcedSessionClose(const QNetworkConfiguration &config);
 };
-
-#include "qnetworksession_impl.moc"
 
 Q_GLOBAL_STATIC(QNetworkSessionManagerPrivate, sessionManager);
 
@@ -432,3 +431,5 @@ void QNetworkSessionPrivateImpl::decrementTimeout()
 }
 
 QT_END_NAMESPACE
+
+#include "qnetworksession_impl.moc"

@@ -7,8 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/feature_list.h"
 #include "base/stl_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -16,12 +15,16 @@
 #include "components/content_settings/core/browser/website_settings_registry.h"
 #include "components/content_settings/core/common/content_settings.h"
 
+#if defined(OS_ANDROID)
+#include "media/base/android/media_drm_bridge.h"
+#endif
+
 namespace content_settings {
 
 namespace {
 
-base::LazyInstance<ContentSettingsRegistry>::DestructorAtExit g_instance =
-    LAZY_INSTANCE_INITIALIZER;
+base::LazyInstance<ContentSettingsRegistry>::DestructorAtExit
+    g_content_settings_registry_instance = LAZY_INSTANCE_INITIALIZER;
 
 // TODO(raymes): These overloaded functions make the registration code clearer.
 // When initializer lists are available they won't be needed. The initializer
@@ -33,14 +36,14 @@ std::vector<std::string> WhitelistedSchemes() {
 std::vector<std::string> WhitelistedSchemes(const char* scheme1,
                                             const char* scheme2) {
   const char* schemes[] = {scheme1, scheme2};
-  return std::vector<std::string>(schemes, schemes + arraysize(schemes));
+  return std::vector<std::string>(schemes, schemes + base::size(schemes));
 }
 
 std::vector<std::string> WhitelistedSchemes(const char* scheme1,
                                             const char* scheme2,
                                             const char* scheme3) {
   const char* schemes[] = {scheme1, scheme2, scheme3};
-  return std::vector<std::string>(schemes, schemes + arraysize(schemes));
+  return std::vector<std::string>(schemes, schemes + base::size(schemes));
 }
 
 std::set<ContentSetting> ValidSettings() {
@@ -50,14 +53,14 @@ std::set<ContentSetting> ValidSettings() {
 std::set<ContentSetting> ValidSettings(ContentSetting setting1,
                                        ContentSetting setting2) {
   ContentSetting settings[] = {setting1, setting2};
-  return std::set<ContentSetting>(settings, settings + arraysize(settings));
+  return std::set<ContentSetting>(settings, settings + base::size(settings));
 }
 
 std::set<ContentSetting> ValidSettings(ContentSetting setting1,
                                        ContentSetting setting2,
                                        ContentSetting setting3) {
   ContentSetting settings[] = {setting1, setting2, setting3};
-  return std::set<ContentSetting>(settings, settings + arraysize(settings));
+  return std::set<ContentSetting>(settings, settings + base::size(settings));
 }
 
 std::set<ContentSetting> ValidSettings(ContentSetting setting1,
@@ -65,14 +68,27 @@ std::set<ContentSetting> ValidSettings(ContentSetting setting1,
                                        ContentSetting setting3,
                                        ContentSetting setting4) {
   ContentSetting settings[] = {setting1, setting2, setting3, setting4};
-  return std::set<ContentSetting>(settings, settings + arraysize(settings));
+  return std::set<ContentSetting>(settings, settings + base::size(settings));
+}
+
+ContentSetting GetInitialDefaultContentSettingForProtectedMediaIdentifier() {
+// On Android, the default value is ALLOW or ASK depending on whether per-origin
+// provisioning is used (https://crbug.com/854737 and https://crbug.com/904883).
+// On ChromeOS the default value is always ASK.
+#if defined(OS_ANDROID)
+  return media::MediaDrmBridge::IsPerOriginProvisioningSupported()
+             ? CONTENT_SETTING_ALLOW
+             : CONTENT_SETTING_ASK;
+#else
+  return CONTENT_SETTING_ASK;
+#endif  // defined(OS_ANDROID)
 }
 
 }  // namespace
 
 // static
 ContentSettingsRegistry* ContentSettingsRegistry::GetInstance() {
-  return g_instance.Pointer();
+  return g_content_settings_registry_instance.Pointer();
 }
 
 ContentSettingsRegistry::ContentSettingsRegistry()
@@ -123,28 +139,34 @@ void ContentSettingsRegistry::Init() {
            WhitelistedSchemes(kChromeUIScheme, kChromeDevToolsScheme),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_SESSION_ONLY),
-           WebsiteSettingsInfo::REQUESTING_DOMAIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::COOKIES_SCOPE,
            WebsiteSettingsRegistry::ALL_PLATFORMS,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_IMAGES, "images", CONTENT_SETTING_ALLOW,
            WebsiteSettingsInfo::SYNCABLE,
            WhitelistedSchemes(kChromeUIScheme, kChromeDevToolsScheme,
                               kExtensionScheme),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
-           WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            WebsiteSettingsRegistry::DESKTOP,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_JAVASCRIPT, "javascript",
            CONTENT_SETTING_ALLOW, WebsiteSettingsInfo::SYNCABLE,
            WhitelistedSchemes(kChromeUIScheme, kChromeDevToolsScheme,
                               kExtensionScheme),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
-           WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_PLUGINS, "plugins",
            CONTENT_SETTING_DETECT_IMPORTANT_CONTENT,
@@ -153,18 +175,22 @@ void ContentSettingsRegistry::Init() {
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK,
                          CONTENT_SETTING_DETECT_IMPORTANT_CONTENT),
-           WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            WebsiteSettingsRegistry::DESKTOP,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::EPHEMERAL,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_POPUPS, "popups", CONTENT_SETTING_BLOCK,
            WebsiteSettingsInfo::SYNCABLE,
            WhitelistedSchemes(kChromeUIScheme, kChromeDevToolsScheme,
                               kExtensionScheme),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
-           WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            WebsiteSettingsRegistry::ALL_PLATFORMS,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_GEOLOCATION, "geolocation",
            CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
@@ -174,48 +200,58 @@ void ContentSettingsRegistry::Init() {
            WebsiteSettingsInfo::REQUESTING_ORIGIN_AND_TOP_LEVEL_ORIGIN_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
   Register(CONTENT_SETTINGS_TYPE_NOTIFICATIONS, "notifications",
            CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
            // See also NotificationPermissionContext::DecidePermission which
            // implements additional incognito exceptions.
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
   Register(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC, "media-stream-mic",
            CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(kChromeUIScheme, kChromeDevToolsScheme),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
   Register(CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA, "media-stream-camera",
            CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(kChromeUIScheme, kChromeDevToolsScheme),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
   Register(CONTENT_SETTINGS_TYPE_PPAPI_BROKER, "ppapi-broker",
            CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(kChromeUIScheme, kChromeDevToolsScheme),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            WebsiteSettingsRegistry::DESKTOP,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS, "automatic-downloads",
            CONTENT_SETTING_ASK, WebsiteSettingsInfo::SYNCABLE,
@@ -223,73 +259,96 @@ void ContentSettingsRegistry::Init() {
                               kExtensionScheme),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK),
-           WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
+  // TODO(raymes): We're temporarily making midi sysex unsyncable while we roll
+  // out the kPermissionDelegation feature. We may want to make it syncable
+  // again sometime in the future. See https://crbug.com/879954 for details.
   Register(CONTENT_SETTINGS_TYPE_MIDI_SYSEX, "midi-sysex", CONTENT_SETTING_ASK,
-           WebsiteSettingsInfo::SYNCABLE, WhitelistedSchemes(),
+           WebsiteSettingsInfo::UNSYNCABLE, WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK),
            WebsiteSettingsInfo::REQUESTING_ORIGIN_AND_TOP_LEVEL_ORIGIN_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
+  const auto protected_media_identifier_setting =
+      GetInitialDefaultContentSettingForProtectedMediaIdentifier();
   Register(CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER,
-           "protected-media-identifier", CONTENT_SETTING_ASK,
+           "protected-media-identifier", protected_media_identifier_setting,
            WebsiteSettingsInfo::UNSYNCABLE, WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK),
            WebsiteSettingsInfo::REQUESTING_ORIGIN_AND_TOP_LEVEL_ORIGIN_SCOPE,
            WebsiteSettingsRegistry::PLATFORM_ANDROID |
                WebsiteSettingsRegistry::PLATFORM_CHROMEOS,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           protected_media_identifier_setting == CONTENT_SETTING_ALLOW
+               ? ContentSettingsInfo::INHERIT_IN_INCOGNITO
+               : ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
   Register(CONTENT_SETTINGS_TYPE_DURABLE_STORAGE, "durable-storage",
            CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
                          CONTENT_SETTING_ASK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
   Register(CONTENT_SETTINGS_TYPE_BACKGROUND_SYNC, "background-sync",
            CONTENT_SETTING_ALLOW, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 
   Register(CONTENT_SETTINGS_TYPE_AUTOPLAY, "autoplay", CONTENT_SETTING_ALLOW,
            WebsiteSettingsInfo::UNSYNCABLE, WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_SOUND, "sound", CONTENT_SETTING_ALLOW,
            WebsiteSettingsInfo::UNSYNCABLE, WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_ADS, "subresource-filter",
            CONTENT_SETTING_BLOCK, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   // Content settings that aren't used to store any data. TODO(raymes): use a
   // different mechanism rather than content settings to represent these.
@@ -298,25 +357,89 @@ void ContentSettingsRegistry::Init() {
   Register(CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS, "protocol-handler",
            CONTENT_SETTING_DEFAULT, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(), ValidSettings(),
-           WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            WebsiteSettingsRegistry::DESKTOP,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_MIXEDSCRIPT, "mixed-script",
            CONTENT_SETTING_DEFAULT, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(), ValidSettings(),
-           WebsiteSettingsInfo::TOP_LEVEL_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
            WebsiteSettingsRegistry::DESKTOP,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
 
   Register(CONTENT_SETTINGS_TYPE_BLUETOOTH_GUARD, "bluetooth-guard",
            CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
            WhitelistedSchemes(),
            ValidSettings(CONTENT_SETTING_ASK, CONTENT_SETTING_BLOCK),
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_AND_TOP_LEVEL_ORIGIN_SCOPE,
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
            WebsiteSettingsRegistry::DESKTOP |
                WebsiteSettingsRegistry::PLATFORM_ANDROID,
-           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE);
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
+
+  Register(CONTENT_SETTINGS_TYPE_ACCESSIBILITY_EVENTS, "accessibility-events",
+           CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
+           WhitelistedSchemes(),
+           ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
+                         CONTENT_SETTING_ASK),
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsRegistry::DESKTOP |
+               WebsiteSettingsRegistry::PLATFORM_ANDROID,
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
+
+  // TODO(crbug.com/904439): Update this to "SECURE_ONLY" once
+  // DeviceOrientationEvents and DeviceMotionEvents are only fired in secure
+  // contexts.
+  Register(CONTENT_SETTINGS_TYPE_SENSORS, "sensors", CONTENT_SETTING_ALLOW,
+           WebsiteSettingsInfo::UNSYNCABLE, WhitelistedSchemes(),
+           ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsRegistry::DESKTOP |
+               WebsiteSettingsRegistry::PLATFORM_ANDROID,
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_AND_INSECURE_ORIGINS);
+
+  Register(CONTENT_SETTINGS_TYPE_CLIPBOARD_READ, "clipboard",
+           CONTENT_SETTING_ASK, WebsiteSettingsInfo::UNSYNCABLE,
+           WhitelistedSchemes(),
+           ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK,
+                         CONTENT_SETTING_ASK),
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsRegistry::DESKTOP |
+               WebsiteSettingsRegistry::PLATFORM_ANDROID,
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
+
+  Register(CONTENT_SETTINGS_TYPE_PAYMENT_HANDLER, "payment-handler",
+           CONTENT_SETTING_ALLOW, WebsiteSettingsInfo::UNSYNCABLE,
+           WhitelistedSchemes(),
+           ValidSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_BLOCK),
+           WebsiteSettingsInfo::SINGLE_ORIGIN_ONLY_SCOPE,
+           WebsiteSettingsRegistry::DESKTOP |
+               WebsiteSettingsRegistry::PLATFORM_ANDROID,
+           ContentSettingsInfo::INHERIT_IN_INCOGNITO,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
+
+  Register(CONTENT_SETTINGS_TYPE_USB_GUARD, "usb-guard", CONTENT_SETTING_ASK,
+           WebsiteSettingsInfo::UNSYNCABLE, WhitelistedSchemes(),
+           ValidSettings(CONTENT_SETTING_ASK, CONTENT_SETTING_BLOCK),
+           WebsiteSettingsInfo::SINGLE_ORIGIN_WITH_EMBEDDED_EXCEPTIONS_SCOPE,
+           WebsiteSettingsRegistry::DESKTOP |
+               WebsiteSettingsRegistry::PLATFORM_ANDROID,
+           ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+           ContentSettingsInfo::PERSISTENT,
+           ContentSettingsInfo::EXCEPTIONS_ON_SECURE_ORIGINS_ONLY);
 }
 
 void ContentSettingsRegistry::Register(
@@ -328,7 +451,9 @@ void ContentSettingsRegistry::Register(
     const std::set<ContentSetting>& valid_settings,
     WebsiteSettingsInfo::ScopingType scoping_type,
     Platforms platforms,
-    ContentSettingsInfo::IncognitoBehavior incognito_behavior) {
+    ContentSettingsInfo::IncognitoBehavior incognito_behavior,
+    ContentSettingsInfo::StorageBehavior storage_behavior,
+    ContentSettingsInfo::OriginRestriction origin_restriction) {
   // Ensure that nothing has been registered yet for the given type.
   DCHECK(!website_settings_registry_->Get(type));
   std::unique_ptr<base::Value> default_value(
@@ -345,9 +470,9 @@ void ContentSettingsRegistry::Register(
     return;
 
   DCHECK(!base::ContainsKey(content_settings_info_, type));
-  content_settings_info_[type] = base::MakeUnique<ContentSettingsInfo>(
+  content_settings_info_[type] = std::make_unique<ContentSettingsInfo>(
       website_settings_info, whitelisted_schemes, valid_settings,
-      incognito_behavior);
+      incognito_behavior, storage_behavior, origin_restriction);
 }
 
 }  // namespace content_settings

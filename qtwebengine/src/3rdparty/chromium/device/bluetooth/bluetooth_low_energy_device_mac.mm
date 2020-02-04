@@ -14,6 +14,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
 #include "device/bluetooth/bluetooth_adapter_mac.h"
+#include "device/bluetooth/bluetooth_adapter_mac_metrics.h"
 #include "device/bluetooth/bluetooth_device.h"
 #include "device/bluetooth/bluetooth_low_energy_peripheral_delegate.h"
 #include "device/bluetooth/bluetooth_remote_gatt_characteristic_mac.h"
@@ -55,6 +56,8 @@ BluetoothLowEnergyDeviceMac::~BluetoothLowEnergyDeviceMac() {
   if (IsGattConnected()) {
     GetMacAdapter()->DisconnectGatt(this);
   }
+
+  [peripheral_ setDelegate:nil];
 }
 
 std::string BluetoothLowEnergyDeviceMac::GetIdentifier() const {
@@ -100,7 +103,7 @@ base::Optional<std::string> BluetoothLowEnergyDeviceMac::GetName() const {
 }
 
 bool BluetoothLowEnergyDeviceMac::IsPaired() const {
-  return false;
+  return GetMacAdapter()->IsBluetoothLowEnergyDeviceSystemPaired(identifier_);
 }
 
 bool BluetoothLowEnergyDeviceMac::IsConnected() const {
@@ -222,6 +225,7 @@ void BluetoothLowEnergyDeviceMac::DidDiscoverPrimaryServices(NSError* error) {
     discovery_pending_count_ = 0;
     return;
   }
+  RecordDidDiscoverPrimaryServicesResult(error);
   if (error) {
     // TODO(http://crbug.com/609320): Need to pass the error.
     // TODO(http://crbug.com/609844): Decide what to do if discover failed
@@ -268,6 +272,7 @@ void BluetoothLowEnergyDeviceMac::DidDiscoverPrimaryServices(NSError* error) {
 void BluetoothLowEnergyDeviceMac::DidDiscoverCharacteristics(
     CBService* cb_service,
     NSError* error) {
+  RecordDidDiscoverCharacteristicsResult(error);
   if (error) {
     // TODO(http://crbug.com/609320): Need to pass the error.
     // TODO(http://crbug.com/609844): Decide what to do if discover failed
@@ -347,6 +352,7 @@ void BluetoothLowEnergyDeviceMac::DidUpdateNotificationState(
 void BluetoothLowEnergyDeviceMac::DidDiscoverDescriptors(
     CBCharacteristic* cb_characteristic,
     NSError* error) {
+  RecordDidDiscoverDescriptorsResult(error);
   if (error) {
     // TODO(http://crbug.com/609320): Need to pass the error.
     // TODO(http://crbug.com/609844): Decide what to do if discover failed
@@ -403,12 +409,17 @@ std::string BluetoothLowEnergyDeviceMac::GetPeripheralIdentifier(
 // static
 std::string BluetoothLowEnergyDeviceMac::GetPeripheralHashAddress(
     CBPeripheral* peripheral) {
+  return GetPeripheralHashAddress(GetPeripheralIdentifier(peripheral));
+}
+
+// static
+std::string BluetoothLowEnergyDeviceMac::GetPeripheralHashAddress(
+    base::StringPiece device_identifier) {
   const size_t kCanonicalAddressNumberOfBytes = 6;
   char raw[kCanonicalAddressNumberOfBytes];
-  crypto::SHA256HashString(GetPeripheralIdentifier(peripheral), raw,
-                           sizeof(raw));
-  std::string hash = base::HexEncode(raw, sizeof(raw));
-  return BluetoothDevice::CanonicalizeAddress(hash);
+  crypto::SHA256HashString(device_identifier, raw, sizeof(raw));
+  return BluetoothDevice::CanonicalizeAddress(
+      base::HexEncode(raw, sizeof(raw)));
 }
 
 void BluetoothLowEnergyDeviceMac::DidConnectPeripheral() {
@@ -457,6 +468,10 @@ BluetoothAdapterMac* BluetoothLowEnergyDeviceMac::GetMacAdapter() {
   return static_cast<BluetoothAdapterMac*>(this->adapter_);
 }
 
+BluetoothAdapterMac* BluetoothLowEnergyDeviceMac::GetMacAdapter() const {
+  return static_cast<BluetoothAdapterMac*>(this->adapter_);
+}
+
 CBPeripheral* BluetoothLowEnergyDeviceMac::GetPeripheral() {
   return peripheral_;
 }
@@ -502,6 +517,7 @@ BluetoothLowEnergyDeviceMac::GetBluetoothRemoteGattDescriptorMac(
 void BluetoothLowEnergyDeviceMac::DidDisconnectPeripheral(NSError* error) {
   connected_ = false;
   VLOG(1) << *this << ": Disconnected from peripheral.";
+  RecordDidDisconnectPeripheralResult(error);
   if (error) {
     VLOG(1) << *this
             << ": Bluetooth error: " << BluetoothAdapterMac::String(error);

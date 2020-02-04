@@ -7,7 +7,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "third_party/WebKit/public/web/WebSettings.h"
+#include "third_party/blink/public/web/web_settings.h"
 
 using blink::WebSettings;
 
@@ -20,36 +20,29 @@ const char kCommonScript[] = "Zyyy";
   static_assert(static_cast<int>(a) == static_cast<int>(b), \
                 "mismatching enums: " #a)
 
-STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_MAC, WebSettings::kEditingBehaviorMac);
-STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_WIN, WebSettings::kEditingBehaviorWin);
-STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_UNIX, WebSettings::kEditingBehaviorUnix);
+STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_MAC, WebSettings::EditingBehavior::kMac);
+STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_WIN, WebSettings::EditingBehavior::kWin);
+STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_UNIX, WebSettings::EditingBehavior::kUnix);
 STATIC_ASSERT_ENUM(EDITING_BEHAVIOR_ANDROID,
-                   WebSettings::kEditingBehaviorAndroid);
+                   WebSettings::EditingBehavior::kAndroid);
 
 STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_DEFAULT,
-                   WebSettings::kV8CacheOptionsDefault);
-STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_NONE, WebSettings::kV8CacheOptionsNone);
-STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_PARSE, WebSettings::kV8CacheOptionsParse);
-STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_CODE, WebSettings::kV8CacheOptionsCode);
-STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_LAST, WebSettings::kV8CacheOptionsCode);
-
-STATIC_ASSERT_ENUM(ProgressBarCompletion::LOAD_EVENT,
-                   WebSettings::ProgressBarCompletion::kLoadEvent);
-STATIC_ASSERT_ENUM(ProgressBarCompletion::RESOURCES_BEFORE_DCL,
-                   WebSettings::ProgressBarCompletion::kResourcesBeforeDCL);
-STATIC_ASSERT_ENUM(ProgressBarCompletion::DOM_CONTENT_LOADED,
-                   WebSettings::ProgressBarCompletion::kDOMContentLoaded);
-STATIC_ASSERT_ENUM(
-    ProgressBarCompletion::RESOURCES_BEFORE_DCL_AND_SAME_ORIGIN_IFRAMES,
-    WebSettings::ProgressBarCompletion::
-        kResourcesBeforeDCLAndSameOriginIFrames);
+                   WebSettings::V8CacheOptions::kDefault);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_NONE, WebSettings::V8CacheOptions::kNone);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_CODE, WebSettings::V8CacheOptions::kCode);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_CODE_WITHOUT_HEAT_CHECK,
+                   WebSettings::V8CacheOptions::kCodeWithoutHeatCheck);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_FULLCODE_WITHOUT_HEAT_CHECK,
+                   WebSettings::V8CacheOptions::kFullCodeWithoutHeatCheck);
+STATIC_ASSERT_ENUM(V8_CACHE_OPTIONS_LAST,
+                   WebSettings::V8CacheOptions::kFullCodeWithoutHeatCheck);
 
 STATIC_ASSERT_ENUM(IMAGE_ANIMATION_POLICY_ALLOWED,
-                   WebSettings::kImageAnimationPolicyAllowed);
+                   WebSettings::ImageAnimationPolicy::kAllowed);
 STATIC_ASSERT_ENUM(IMAGE_ANIMATION_POLICY_ANIMATION_ONCE,
-                   WebSettings::kImageAnimationPolicyAnimateOnce);
+                   WebSettings::ImageAnimationPolicy::kAnimateOnce);
 STATIC_ASSERT_ENUM(IMAGE_ANIMATION_POLICY_NO_ANIMATION,
-                   WebSettings::kImageAnimationPolicyNoAnimation);
+                   WebSettings::ImageAnimationPolicy::kNoAnimation);
 
 STATIC_ASSERT_ENUM(ui::POINTER_TYPE_NONE, blink::kPointerTypeNone);
 STATIC_ASSERT_ENUM(ui::POINTER_TYPE_COARSE, blink::kPointerTypeCoarse);
@@ -79,7 +72,6 @@ WebPreferences::WebPreferences()
       loads_images_automatically(true),
       images_enabled(true),
       plugins_enabled(true),
-      encrypted_media_enabled(true),
       dom_paste_enabled(false),  // enables execCommand("paste")
       shrinks_standalone_images_to_fit(true),
       text_areas_are_resizable(true),
@@ -90,15 +82,18 @@ WebPreferences::WebPreferences()
       xss_auditor_enabled(true),
       dns_prefetching_enabled(true),
       data_saver_enabled(false),
+      data_saver_holdback_web_api_enabled(false),
       local_storage_enabled(false),
       databases_enabled(false),
       application_cache_enabled(false),
       tabs_to_links(true),
       history_entry_requires_user_gesture(false),
+      disable_ipc_flooding_protection(false),
       hyperlink_auditing_enabled(true),
       allow_universal_access_from_file_urls(false),
       allow_file_access_from_file_urls(false),
-      experimental_webgl_enabled(false),
+      webgl1_enabled(true),
+      webgl2_enabled(true),
       pepper_3d_enabled(false),
       flash_3d_enabled(true),
       flash_stage3d_enabled(false),
@@ -109,7 +104,6 @@ WebPreferences::WebPreferences()
       hide_scrollbars(false),
       accelerated_2d_canvas_enabled(false),
       minimum_accelerated_2d_canvas_size(257 * 256),
-      disable_2d_canvas_copy_on_write(false),
       antialiased_2d_canvas_disabled(false),
       antialiased_clips_2d_canvas_enabled(true),
       accelerated_2d_canvas_msaa_sample_count(0),
@@ -127,6 +121,7 @@ WebPreferences::WebPreferences()
       should_print_backgrounds(false),
       should_clear_document_background(true),
       enable_scroll_animator(false),
+      prefers_reduced_motion(false),
       touch_event_feature_detection_enabled(false),
       enable_error_page(true),
       touch_adjustment_enabled(true),
@@ -156,11 +151,13 @@ WebPreferences::WebPreferences()
       shrinks_viewport_contents_to_fit(true),
       viewport_style(ViewportStyle::MOBILE),
       always_show_context_menu_on_touch(false),
+      smooth_scroll_for_find_enabled(true),
 #else
       viewport_meta_enabled(false),
       shrinks_viewport_contents_to_fit(false),
       viewport_style(ViewportStyle::DEFAULT),
       always_show_context_menu_on_touch(true),
+      smooth_scroll_for_find_enabled(false),
 #endif
       main_frame_resizes_are_orientation_changes(false),
       initialize_at_minimum_page_scale(true),
@@ -175,18 +172,25 @@ WebPreferences::WebPreferences()
       v8_cache_options(V8_CACHE_OPTIONS_DEFAULT),
       record_whole_document(false),
       cookie_enabled(true),
-      pepper_accelerated_video_decode_enabled(false),
+      accelerated_video_decode_enabled(false),
       animation_policy(IMAGE_ANIMATION_POLICY_ALLOWED),
       user_gesture_required_for_presentation(true),
       text_track_margin_percentage(0.0f),
-      page_popups_suppressed(false),
-#if defined(OS_ANDROID)
+      immersive_mode_enabled(false),
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
+      double_tap_to_zoom_enabled(true),
+#else
+      double_tap_to_zoom_enabled(false),
+#endif
+#if !defined(OS_ANDROID)
+      text_autosizing_enabled(false),
+      fullscreen_supported(false),
+#else
       text_autosizing_enabled(true),
       font_scale_factor(1.0f),
       device_scale_adjustment(1.0f),
       force_enable_zoom(false),
       fullscreen_supported(true),
-      double_tap_to_zoom_enabled(true),
       support_deprecated_target_density_dpi(false),
       use_legacy_background_size_shorthand_behavior(false),
       wide_viewport_quirk(false),
@@ -199,18 +203,15 @@ WebPreferences::WebPreferences()
       clobber_user_agent_initial_scale_quirk(false),
       ignore_main_frame_overflow_hidden_quirk(false),
       report_screen_size_in_physical_pixels_quirk(false),
-      resue_global_for_unowned_main_frame(false),
-      progress_bar_completion(ProgressBarCompletion::LOAD_EVENT),
+      reuse_global_for_unowned_main_frame(false),
       spellcheck_enabled_by_default(true),
       video_fullscreen_orientation_lock_enabled(false),
       video_rotate_to_fullscreen_enabled(false),
       video_fullscreen_detection_enabled(false),
       embedded_media_experience_enabled(false),
-      page_popups_suppressed(false),
-      fullscreen_supported(false),
+      css_hex_alpha_color_enabled(true),
+      enable_media_download_in_product_help(false),
       scroll_top_left_interop_enabled(true),
-#else   // defined(OS_ANDROID)
-      fullscreen_supported(false),
 #endif  // defined(OS_ANDROID)
 #if defined(OS_ANDROID)
       default_minimum_page_scale_factor(0.25f),
@@ -223,15 +224,15 @@ WebPreferences::WebPreferences()
       default_maximum_page_scale_factor(4.f),
 #endif
       hide_download_ui(false),
-      background_video_track_optimization_enabled(false),
       presentation_receiver(false),
       media_controls_enabled(true),
       do_not_update_selection_on_mutating_selection_range(false),
-#if defined(OS_ANDROID)
-      autoplay_policy(AutoplayPolicy::kUserGestureRequired) {
-#else
-      autoplay_policy(AutoplayPolicy::kNoUserGestureRequired) {
-#endif  // defined(OS_ANDROID)
+      autoplay_policy(AutoplayPolicy::kDocumentUserActivationRequired),
+      low_priority_iframes_threshold(net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN),
+      picture_in_picture_enabled(true),
+      translate_service_available(false),
+      network_quality_estimator_web_holdback(
+          net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN) {
   standard_font_family_map[kCommonScript] =
       base::ASCIIToUTF16("Times New Roman");
   fixed_font_family_map[kCommonScript] = base::ASCIIToUTF16("Courier New");

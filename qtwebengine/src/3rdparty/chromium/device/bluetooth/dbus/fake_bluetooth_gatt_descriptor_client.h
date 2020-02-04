@@ -42,7 +42,7 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothGattDescriptorClient
   ~FakeBluetoothGattDescriptorClient() override;
 
   // DBusClient override.
-  void Init(dbus::Bus* bus) override;
+  void Init(dbus::Bus* bus, const std::string& bluetooth_service_name) override;
 
   // BluetoothGattDescriptorClient overrides.
   void AddObserver(Observer* observer) override;
@@ -91,7 +91,7 @@ class DEVICE_BLUETOOTH_EXPORT FakeBluetoothGattDescriptorClient
   PropertiesMap properties_;
 
   // List of observers interested in event notifications from us.
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
   // Weak pointer factory for generating 'this' pointers that might live longer
   // than we do.

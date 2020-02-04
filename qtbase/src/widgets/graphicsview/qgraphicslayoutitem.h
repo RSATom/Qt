@@ -54,7 +54,7 @@ class QGraphicsItem;
 class Q_WIDGETS_EXPORT QGraphicsLayoutItem
 {
 public:
-    QGraphicsLayoutItem(QGraphicsLayoutItem *parent = Q_NULLPTR, bool isLayout = false);
+    QGraphicsLayoutItem(QGraphicsLayoutItem *parent = nullptr, bool isLayout = false);
     virtual ~QGraphicsLayoutItem();
 
     void setSizePolicy(const QSizePolicy &policy);
@@ -116,7 +116,9 @@ private:
     friend class QGraphicsLayout;
 };
 
+#ifndef Q_CLANG_QDOC
 Q_DECLARE_INTERFACE(QGraphicsLayoutItem, "org.qt-project.Qt.QGraphicsLayoutItem")
+#endif
 
 inline void QGraphicsLayoutItem::setMinimumSize(qreal aw, qreal ah)
 { setMinimumSize(QSizeF(aw, ah)); }

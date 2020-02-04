@@ -7,13 +7,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/debug/leak_annotations.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
@@ -99,7 +99,7 @@ class CaptureToEventList : public Thread {
 // Observer that writes a value into |event_list| when a message loop has been
 // destroyed.
 class CapturingDestructionObserver
-    : public base::MessageLoop::DestructionObserver {
+    : public base::MessageLoopCurrent::DestructionObserver {
  public:
   // |event_list| must remain valid throughout the observer's lifetime.
   explicit CapturingDestructionObserver(EventList* event_list)
@@ -109,7 +109,7 @@ class CapturingDestructionObserver
   // DestructionObserver implementation:
   void WillDestroyCurrentMessageLoop() override {
     event_list_->push_back(THREAD_EVENT_MESSAGE_LOOP_DESTROYED);
-    event_list_ = NULL;
+    event_list_ = nullptr;
   }
 
  private:
@@ -120,8 +120,8 @@ class CapturingDestructionObserver
 
 // Task that adds a destruction observer to the current message loop.
 void RegisterDestructionObserver(
-    base::MessageLoop::DestructionObserver* observer) {
-  base::MessageLoop::current()->AddDestructionObserver(observer);
+    base::MessageLoopCurrent::DestructionObserver* observer) {
+  base::MessageLoopCurrent::Get()->AddDestructionObserver(observer);
 }
 
 // Task that calls GetThreadId() of |thread|, stores the result into |id|, then
@@ -150,7 +150,7 @@ TEST_F(ThreadTest, StartWithOptions_StackSize) {
   options.stack_size = 3072 * sizeof(uintptr_t);
 #endif
   EXPECT_TRUE(a.StartWithOptions(options));
-  EXPECT_TRUE(a.message_loop());
+  EXPECT_TRUE(a.task_runner());
   EXPECT_TRUE(a.IsRunning());
 
   base::WaitableEvent event(base::WaitableEvent::ResetPolicy::AUTOMATIC,
@@ -173,7 +173,7 @@ TEST_F(ThreadTest, StartWithOptions_NonJoinable) {
   Thread::Options options;
   options.joinable = false;
   EXPECT_TRUE(a->StartWithOptions(options));
-  EXPECT_TRUE(a->message_loop());
+  EXPECT_TRUE(a->task_runner());
   EXPECT_TRUE(a->IsRunning());
 
   // Without this call this test is racy. The above IsRunning() succeeds because
@@ -210,7 +210,7 @@ TEST_F(ThreadTest, TwoTasksOnJoinableThread) {
   {
     Thread a("TwoTasksOnJoinableThread");
     EXPECT_TRUE(a.Start());
-    EXPECT_TRUE(a.message_loop());
+    EXPECT_TRUE(a.task_runner());
 
     // Test that all events are dispatched before the Thread object is
     // destroyed.  We do this by dispatching a sleep event before the
@@ -250,18 +250,18 @@ TEST_F(ThreadTest, DISABLED_DestroyWhileRunningNonJoinableIsSafe) {
 TEST_F(ThreadTest, StopSoon) {
   Thread a("StopSoon");
   EXPECT_TRUE(a.Start());
-  EXPECT_TRUE(a.message_loop());
+  EXPECT_TRUE(a.task_runner());
   EXPECT_TRUE(a.IsRunning());
   a.StopSoon();
   a.Stop();
-  EXPECT_FALSE(a.message_loop());
+  EXPECT_FALSE(a.task_runner());
   EXPECT_FALSE(a.IsRunning());
 }
 
 TEST_F(ThreadTest, StopTwiceNop) {
   Thread a("StopTwiceNop");
   EXPECT_TRUE(a.Start());
-  EXPECT_TRUE(a.message_loop());
+  EXPECT_TRUE(a.task_runner());
   EXPECT_TRUE(a.IsRunning());
   a.StopSoon();
   // Calling StopSoon() a second time should be a nop.
@@ -269,7 +269,7 @@ TEST_F(ThreadTest, StopTwiceNop) {
   a.Stop();
   // Same with Stop().
   a.Stop();
-  EXPECT_FALSE(a.message_loop());
+  EXPECT_FALSE(a.task_runner());
   EXPECT_FALSE(a.IsRunning());
   // Calling them when not running should also nop.
   a.StopSoon();
@@ -295,7 +295,7 @@ TEST_F(ThreadTest, DISABLED_StopOnNonOwningThreadIsDeath) {
 
 TEST_F(ThreadTest, TransferOwnershipAndStop) {
   std::unique_ptr<Thread> a =
-      base::MakeUnique<Thread>("TransferOwnershipAndStop");
+      std::make_unique<Thread>("TransferOwnershipAndStop");
   EXPECT_TRUE(a->StartAndWaitForTesting());
   EXPECT_TRUE(a->IsRunning());
 
@@ -314,7 +314,7 @@ TEST_F(ThreadTest, TransferOwnershipAndStop) {
                        thread_to_stop->Stop();
                        event_to_signal->Signal();
                      },
-                     base::Passed(&a), base::Unretained(&event)));
+                     std::move(a), base::Unretained(&event)));
 
   event.Wait();
 }
@@ -322,23 +322,23 @@ TEST_F(ThreadTest, TransferOwnershipAndStop) {
 TEST_F(ThreadTest, StartTwice) {
   Thread a("StartTwice");
 
-  EXPECT_FALSE(a.message_loop());
+  EXPECT_FALSE(a.task_runner());
   EXPECT_FALSE(a.IsRunning());
 
   EXPECT_TRUE(a.Start());
-  EXPECT_TRUE(a.message_loop());
+  EXPECT_TRUE(a.task_runner());
   EXPECT_TRUE(a.IsRunning());
 
   a.Stop();
-  EXPECT_FALSE(a.message_loop());
+  EXPECT_FALSE(a.task_runner());
   EXPECT_FALSE(a.IsRunning());
 
   EXPECT_TRUE(a.Start());
-  EXPECT_TRUE(a.message_loop());
+  EXPECT_TRUE(a.task_runner());
   EXPECT_TRUE(a.IsRunning());
 
   a.Stop();
-  EXPECT_FALSE(a.message_loop());
+  EXPECT_FALSE(a.task_runner());
   EXPECT_FALSE(a.IsRunning());
 }
 
@@ -355,7 +355,7 @@ TEST_F(ThreadTest, StartTwiceNonJoinableNotAllowed) {
   Thread::Options options;
   options.joinable = false;
   EXPECT_TRUE(a->StartWithOptions(options));
-  EXPECT_TRUE(a->message_loop());
+  EXPECT_TRUE(a->task_runner());
   EXPECT_TRUE(a->IsRunning());
 
   // Signaled when last task on |a| is processed.
@@ -445,7 +445,7 @@ TEST_F(ThreadTest, SleepInsideInit) {
 //
 //  (1) Thread::CleanUp()
 //  (2) MessageLoop::~MessageLoop()
-//      MessageLoop::DestructionObservers called.
+//      MessageLoopCurrent::DestructionObservers called.
 TEST_F(ThreadTest, CleanUp) {
   EventList captured_events;
   CapturingDestructionObserver loop_destruction_observer(&captured_events);
@@ -454,7 +454,7 @@ TEST_F(ThreadTest, CleanUp) {
     // Start a thread which writes its event into |captured_events|.
     CaptureToEventList t(&captured_events);
     EXPECT_TRUE(t.Start());
-    EXPECT_TRUE(t.message_loop());
+    EXPECT_TRUE(t.task_runner());
     EXPECT_TRUE(t.IsRunning());
 
     // Register an observer that writes into |captured_events| once the
@@ -550,12 +550,12 @@ class ExternalMessageLoopThread : public Thread {
 
 TEST_F(ThreadTest, ExternalMessageLoop) {
   ExternalMessageLoopThread a;
-  EXPECT_FALSE(a.message_loop());
+  EXPECT_FALSE(a.task_runner());
   EXPECT_FALSE(a.IsRunning());
   a.VerifyUsingExternalMessageLoop(false);
 
   a.InstallMessageLoop();
-  EXPECT_TRUE(a.message_loop());
+  EXPECT_TRUE(a.task_runner());
   EXPECT_TRUE(a.IsRunning());
   a.VerifyUsingExternalMessageLoop(true);
 
@@ -566,7 +566,7 @@ TEST_F(ThreadTest, ExternalMessageLoop) {
   EXPECT_TRUE(ran);
 
   a.Stop();
-  EXPECT_FALSE(a.message_loop());
+  EXPECT_FALSE(a.task_runner());
   EXPECT_FALSE(a.IsRunning());
   a.VerifyUsingExternalMessageLoop(true);
 

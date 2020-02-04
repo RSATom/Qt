@@ -150,7 +150,7 @@ public:
     }
 
 private:
-    Q_DISABLE_COPY(QWidgetBackingStoreTracker)
+    Q_DISABLE_COPY_MOVE(QWidgetBackingStoreTracker)
 
 private:
     QWidgetBackingStore* m_ptr;
@@ -181,6 +181,7 @@ struct QTLWExtra {
     QRect frameStrut;
     QRect normalGeometry; // used by showMin/maximized/FullScreen
     Qt::WindowFlags savedFlags; // Save widget flags while showing fullscreen
+    // ### TODO replace initialScreenIndex with QScreen *, in case the screens change at runtime
     int initialScreenIndex; // Screen number when passing a QDesktop[Screen]Widget as parent.
 
     QVector<QPlatformTextureList *> widgetTextures;
@@ -190,7 +191,6 @@ struct QTLWExtra {
     uint posIncludesFrame : 1;
     uint sizeAdjusted : 1;
     uint inTopLevelResize : 1;
-    uint inRepaint : 1;
     uint embedded : 1;
 
     // *************************** Platform specific values (bit fields first) **********
@@ -268,7 +268,7 @@ struct QWExtra {
 
     // *************************** Platform specific values (bit fields first) **********
 #if 0 /* Used to be included in Qt4 for Q_WS_WIN */ // <----------------------------------------------------------- WIN
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QOleDropTarget *dropTarget; // drop target
     QList<QPointer<QWidget> > oleDropWidgets;
 #endif
@@ -352,9 +352,12 @@ public:
     void update(T t);
 
     void init(QWidget *desktopWidget, Qt::WindowFlags f);
-    void create_sys(WId window, bool initializeWindow, bool destroyOldWindow);
+    void create();
     void createRecursively();
     void createWinId();
+
+    bool setScreenForPoint(const QPoint &pos);
+    bool setScreen(QScreen *screen);
 
     void createTLExtra();
     void createExtra();
@@ -382,10 +385,11 @@ public:
 
     void updateFont(const QFont &);
     inline void setFont_helper(const QFont &font) {
-        if (data.fnt.resolve() == font.resolve() && data.fnt == font)
+        if (directFontResolveMask == font.resolve() && data.fnt == font)
             return;
         updateFont(font);
     }
+    QFont localFont() const;
     void resolveFont();
     QFont naturalWidgetFont(uint inheritedMask) const;
 
@@ -395,11 +399,12 @@ public:
     void setLocale_helper(const QLocale &l, bool forceUpdate = false);
     void resolveLocale();
 
-    void setStyle_helper(QStyle *newStyle, bool propagate, bool metalHack = false);
+    void setStyle_helper(QStyle *newStyle, bool propagate);
     void inheritStyle();
 
     void setUpdatesEnabled_helper(bool );
 
+    bool updateBrushOrigin(QPainter *, const QBrush &brush) const;
     void paintBackground(QPainter *, const QRegion &, int flags = DrawAsRoot) const;
     bool isAboutToShow() const;
     QRegion prepareToRender(const QRegion &region, QWidget::RenderFlags renderFlags);
@@ -449,11 +454,12 @@ public:
     void scrollChildren(int dx, int dy);
     void moveRect(const QRect &, int dx, int dy);
     void scrollRect(const QRect &, int dx, int dy);
-    void invalidateBuffer_resizeHelper(const QPoint &oldPos, const QSize &oldSize);
-    // ### Qt 4.6: Merge into a template function (after MSVC isn't supported anymore).
-    void invalidateBuffer(const QRegion &);
-    void invalidateBuffer(const QRect &);
-    bool isOverlapped(const QRect&) const;
+    void invalidateBackingStore_resizeHelper(const QPoint &oldPos, const QSize &oldSize);
+
+    template <class T>
+    void invalidateBackingStore(const T &);
+
+    QRegion overlappedRegion(const QRect &rect, bool breakAfterFirst = false) const;
     void syncBackingStore();
     void syncBackingStore(const QRegion &region);
 
@@ -481,9 +487,9 @@ public:
     void hide_sys();
     void hide_helper();
     void _q_showIfNotHidden();
+    void setVisible(bool);
 
     void setEnabled_helper(bool);
-    void registerDropSite(bool);
     static void adjustFlags(Qt::WindowFlags &flags, QWidget *w = 0);
 
     void updateFrameStrut();
@@ -602,6 +608,11 @@ public:
     inline bool nativeChildrenForced() const
     {
         return extra ? extra->nativeChildrenForced : false;
+    }
+
+    inline QRect effectiveRectFor(const QRegion &region) const
+    {
+        return effectiveRectFor(region.boundingRect());
     }
 
     inline QRect effectiveRectFor(const QRect &rect) const
@@ -729,6 +740,7 @@ public:
 #endif
 
     // Other variables.
+    uint directFontResolveMask;
     uint inheritedFontResolveMask;
     uint inheritedPaletteResolveMask;
     short leftmargin;
@@ -800,7 +812,7 @@ public:
     bool shouldShowMaximizeButton();
     void winUpdateIsOpaque();
     void reparentChildren();
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QOleDropTarget *registerOleDnd(QWidget *widget);
     void unregisterOleDnd(QWidget *widget, QOleDropTarget *target);
 #endif
@@ -913,26 +925,26 @@ public:
         : QGraphicsEffectSourcePrivate(), m_widget(widget), context(0), updateDueToGraphicsEffect(false)
     {}
 
-    void detach() Q_DECL_OVERRIDE
+    void detach() override
     { m_widget->d_func()->graphicsEffect = 0; }
 
-    const QGraphicsItem *graphicsItem() const Q_DECL_OVERRIDE
+    const QGraphicsItem *graphicsItem() const override
     { return 0; }
 
-    const QWidget *widget() const Q_DECL_OVERRIDE
+    const QWidget *widget() const override
     { return m_widget; }
 
-    void update() Q_DECL_OVERRIDE
+    void update() override
     {
         updateDueToGraphicsEffect = true;
         m_widget->update();
         updateDueToGraphicsEffect = false;
     }
 
-    bool isPixmap() const Q_DECL_OVERRIDE
+    bool isPixmap() const override
     { return false; }
 
-    void effectBoundingRectChanged() Q_DECL_OVERRIDE
+    void effectBoundingRectChanged() override
     {
         // ### This function should take a rect parameter; then we can avoid
         // updating too much on the parent widget.
@@ -942,16 +954,16 @@ public:
             update();
     }
 
-    const QStyleOption *styleOption() const Q_DECL_OVERRIDE
+    const QStyleOption *styleOption() const override
     { return 0; }
 
-    QRect deviceRect() const Q_DECL_OVERRIDE
+    QRect deviceRect() const override
     { return m_widget->window()->rect(); }
 
-    QRectF boundingRect(Qt::CoordinateSystem system) const Q_DECL_OVERRIDE;
-    void draw(QPainter *p) Q_DECL_OVERRIDE;
+    QRectF boundingRect(Qt::CoordinateSystem system) const override;
+    void draw(QPainter *p) override;
     QPixmap pixmap(Qt::CoordinateSystem system, QPoint *offset,
-                   QGraphicsEffect::PixmapPadMode mode) const Q_DECL_OVERRIDE;
+                   QGraphicsEffect::PixmapPadMode mode) const override;
 
     QWidget *m_widget;
     QWidgetPaintContext *context;

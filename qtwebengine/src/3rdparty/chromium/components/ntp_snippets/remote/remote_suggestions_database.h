@@ -16,7 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
-#include "components/leveldb_proto/proto_database.h"
+#include "components/leveldb_proto/public/proto_database.h"
 #include "components/ntp_snippets/remote/remote_suggestion.h"
 
 namespace base {
@@ -31,12 +31,19 @@ class SnippetProto;
 // TODO(gaschler): implement a Fake version for testing
 class RemoteSuggestionsDatabase {
  public:
-  using SnippetsCallback = base::Callback<void(RemoteSuggestion::PtrVector)>;
-  using SnippetImageCallback = base::Callback<void(std::string)>;
+  using SnippetsCallback =
+      base::OnceCallback<void(RemoteSuggestion::PtrVector)>;
+  using SnippetImageCallback = base::OnceCallback<void(std::string)>;
 
+  // Creates a RemoteSuggestionsDatabase backed by real ProtoDatabases.
+  RemoteSuggestionsDatabase(const base::FilePath& database_dir);
+  // Creates a RemoteSuggestionsDatabase backed by the passed-in ProtoDatabases,
+  // useful for testing.
   RemoteSuggestionsDatabase(
-      const base::FilePath& database_dir,
-      scoped_refptr<base::SequencedTaskRunner> file_task_runner);
+      std::unique_ptr<leveldb_proto::ProtoDatabase<SnippetProto>> database,
+      std::unique_ptr<leveldb_proto::ProtoDatabase<SnippetImageProto>>
+          image_database,
+      const base::FilePath& database_dir);
   ~RemoteSuggestionsDatabase();
 
   // Returns whether the database has finished initialization. While this is
@@ -52,7 +59,7 @@ class RemoteSuggestionsDatabase {
   void SetErrorCallback(const base::Closure& error_callback);
 
   // Loads all snippets from storage and passes them to |callback|.
-  void LoadSnippets(const SnippetsCallback& callback);
+  void LoadSnippets(SnippetsCallback callback);
 
   // Adds or updates the given snippet.
   void SaveSnippet(const RemoteSuggestion& snippet);
@@ -66,8 +73,7 @@ class RemoteSuggestionsDatabase {
 
   // Loads the image data for the snippet with the given ID and passes it to
   // |callback|. Passes an empty string if not found.
-  void LoadImage(const std::string& snippet_id,
-                 const SnippetImageCallback& callback);
+  void LoadImage(const std::string& snippet_id, SnippetImageCallback callback);
 
   // Adds or updates the image data for the given snippet ID.
   void SaveImage(const std::string& snippet_id, const std::string& image_data);
@@ -90,16 +96,20 @@ class RemoteSuggestionsDatabase {
   using ImageKeyEntryVector =
       leveldb_proto::ProtoDatabase<SnippetImageProto>::KeyEntryVector;
 
+  RemoteSuggestionsDatabase(
+      scoped_refptr<base::SequencedTaskRunner> task_runner,
+      const base::FilePath& database_dir);
+
   // Callbacks for ProtoDatabase<SnippetProto> operations.
   void OnDatabaseInited(bool success);
-  void OnDatabaseLoaded(const SnippetsCallback& callback,
+  void OnDatabaseLoaded(SnippetsCallback callback,
                         bool success,
                         std::unique_ptr<std::vector<SnippetProto>> entries);
   void OnDatabaseSaved(bool success);
 
   // Callbacks for ProtoDatabase<SnippetImageProto> operations.
   void OnImageDatabaseInited(bool success);
-  void OnImageDatabaseLoaded(const SnippetImageCallback& callback,
+  void OnImageDatabaseLoaded(SnippetImageCallback callback,
                              bool success,
                              std::unique_ptr<SnippetImageProto> entry);
   void OnImageDatabaseSaved(bool success);
@@ -108,11 +118,11 @@ class RemoteSuggestionsDatabase {
 
   void ProcessPendingLoads();
 
-  void LoadSnippetsImpl(const SnippetsCallback& callback);
+  void LoadSnippetsImpl(SnippetsCallback callback);
   void SaveSnippetsImpl(std::unique_ptr<KeyEntryVector> entries_to_save);
 
   void LoadImageImpl(const std::string& snippet_id,
-                     const SnippetImageCallback& callback);
+                     SnippetImageCallback callback);
   void DeleteUnreferencedImages(
       std::unique_ptr<std::set<std::string>> references,
       bool load_keys_success,

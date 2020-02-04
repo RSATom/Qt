@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include "base/command_line.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "gpu/command_buffer/common/gles2_cmd_format.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
@@ -14,7 +15,6 @@
 #include "gpu/command_buffer/service/context_state.h"
 #include "gpu/command_buffer/service/gl_surface_mock.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_unittest.h"
-
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
@@ -50,6 +50,54 @@ namespace gpu {
 namespace gles2 {
 
 using namespace cmds;
+
+TEST_P(GLES2DecoderTest, DisableVertexAttribArrayValidArgs) {
+  SetDriverVertexAttribEnabled(1, false);
+  SpecializedSetup<cmds::DisableVertexAttribArray, 0>(true);
+  cmds::DisableVertexAttribArray cmd;
+  cmd.Init(1);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+}
+
+TEST_P(GLES2DecoderTest, EnableVertexAttribArrayValidArgs) {
+  SetDriverVertexAttribEnabled(1, true);
+  SpecializedSetup<cmds::EnableVertexAttribArray, 0>(true);
+  cmds::EnableVertexAttribArray cmd;
+  cmd.Init(1);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+}
+
+TEST_P(GLES2DecoderWithShaderTest, EnabledVertexAttribArrayIsDisabledIfUnused) {
+  SetupExpectationsForApplyingDefaultDirtyState();
+
+  // Set up and enable attribs 0, 1, 2
+  SetupAllNeededVertexBuffers();
+  // Enable attrib 3, and verify it's called in the driver
+  {
+    EXPECT_CALL(*gl_, EnableVertexAttribArray(3))
+        .Times(1)
+        .RetiresOnSaturation();
+    cmds::EnableVertexAttribArray cmd;
+    cmd.Init(3);
+    EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  }
+  DoVertexAttribPointer(3, 2, GL_FLOAT, 0, 0);
+
+  // Expect the draw call below causes attrib 3 to be disabled in the driver
+  EXPECT_CALL(*gl_, DisableVertexAttribArray(3)).Times(1).RetiresOnSaturation();
+  // Perform a draw which uses only attributes 0, 1, 2 - not attrib 3
+  {
+    EXPECT_CALL(*gl_, DrawArrays(GL_TRIANGLES, 0, kNumVertices))
+        .Times(1)
+        .RetiresOnSaturation();
+    DrawArrays cmd;
+    cmd.Init(GL_TRIANGLES, 0, kNumVertices);
+    EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+    EXPECT_EQ(GL_NO_ERROR, GetGLError());
+  }
+}
 
 TEST_P(GLES2DecoderWithShaderTest, GetVertexAttribPointervSucceeds) {
   const GLuint kOffsetToTestFor = sizeof(float) * 4;
@@ -159,15 +207,15 @@ TEST_P(GLES2DecoderWithShaderTest, VertexAttribPointer) {
   static const GLsizei stride_offset[] = {
       0, 0, 1, 0, 1, 0, 0,
   };
-  for (size_t tt = 0; tt < arraysize(types); ++tt) {
+  for (size_t tt = 0; tt < base::size(types); ++tt) {
     GLenum type = types[tt];
     GLsizei num_bytes = sizes[tt];
-    for (size_t ii = 0; ii < arraysize(indices); ++ii) {
+    for (size_t ii = 0; ii < base::size(indices); ++ii) {
       GLuint index = indices[ii];
       for (GLint size = 0; size < 5; ++size) {
-        for (size_t oo = 0; oo < arraysize(offset_mult); ++oo) {
+        for (size_t oo = 0; oo < base::size(offset_mult); ++oo) {
           GLuint offset = num_bytes * offset_mult[oo] + offset_offset[oo];
-          for (size_t ss = 0; ss < arraysize(stride_mult); ++ss) {
+          for (size_t ss = 0; ss < base::size(stride_mult); ++ss) {
             GLsizei stride = num_bytes * stride_mult[ss] + stride_offset[ss];
             for (int normalize = 0; normalize < 2; ++normalize) {
               bool index_good = index < static_cast<GLuint>(kNumVertexAttribs);
@@ -226,13 +274,13 @@ TEST_P(GLES2DecoderWithShaderTest, VertexAttribPointer) {
 
 class GLES2DecoderVertexArraysOESTest : public GLES2DecoderWithShaderTest {
  public:
-  GLES2DecoderVertexArraysOESTest() {}
+  GLES2DecoderVertexArraysOESTest() = default;
 
   bool vertex_array_deleted_manually_;
 
   void SetUp() override {
     InitState init;
-    init.gl_version = "opengl es 2.0";
+    init.gl_version = "OpenGL ES 2.0";
     init.bind_generates_resource = true;
     InitDecoder(init);
     SetupDefaultProgram();
@@ -263,7 +311,7 @@ class GLES2DecoderVertexArraysOESTest : public GLES2DecoderWithShaderTest {
     cmd->Init(1, &temp);
     EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(*cmd, sizeof(temp)));
     EXPECT_EQ(GL_NO_ERROR, GetGLError());
-    EXPECT_TRUE(GetVertexArrayInfo(kNewClientId) != NULL);
+    EXPECT_TRUE(GetVertexArrayInfo(kNewClientId) != nullptr);
     AddExpectationsForDeleteVertexArraysOES();
   }
 
@@ -274,13 +322,13 @@ class GLES2DecoderVertexArraysOESTest : public GLES2DecoderWithShaderTest {
     cmd->Init(3, temp);
     EXPECT_EQ(error::kInvalidArguments,
               ExecuteImmediateCmd(*cmd, sizeof(temp)));
-    EXPECT_TRUE(GetVertexArrayInfo(kNewClientId) == NULL);
-    EXPECT_TRUE(GetVertexArrayInfo(kNewClientId + 1) == NULL);
+    EXPECT_TRUE(GetVertexArrayInfo(kNewClientId) == nullptr);
+    EXPECT_TRUE(GetVertexArrayInfo(kNewClientId + 1) == nullptr);
     GLuint null_id[2] = {kNewClientId, 0};
     cmd->Init(2, null_id);
     EXPECT_EQ(error::kInvalidArguments,
               ExecuteImmediateCmd(*cmd, sizeof(temp)));
-    EXPECT_TRUE(GetVertexArrayInfo(kNewClientId) == NULL);
+    EXPECT_TRUE(GetVertexArrayInfo(kNewClientId) == nullptr);
   }
 
   void GenVertexArraysOESImmediateInvalidArgs() {
@@ -300,7 +348,7 @@ class GLES2DecoderVertexArraysOESTest : public GLES2DecoderWithShaderTest {
     EXPECT_EQ(error::kNoError,
               ExecuteImmediateCmd(cmd, sizeof(client_vertexarray_id_)));
     EXPECT_EQ(GL_NO_ERROR, GetGLError());
-    EXPECT_TRUE(GetVertexArrayInfo(client_vertexarray_id_) == NULL);
+    EXPECT_TRUE(GetVertexArrayInfo(client_vertexarray_id_) == nullptr);
     vertex_array_deleted_manually_ = true;
   }
 
@@ -322,7 +370,7 @@ class GLES2DecoderVertexArraysOESTest : public GLES2DecoderWithShaderTest {
     EXPECT_EQ(error::kNoError,
               ExecuteImmediateCmd(cmd, sizeof(client_vertexarray_id_)));
     EXPECT_EQ(GL_NO_ERROR, GetGLError());
-    EXPECT_TRUE(GetVertexArrayInfo(client_vertexarray_id_) == NULL);
+    EXPECT_TRUE(GetVertexArrayInfo(client_vertexarray_id_) == nullptr);
     vertex_array_deleted_manually_ = true;
   }
 
@@ -366,7 +414,7 @@ INSTANTIATE_TEST_CASE_P(Service,
 class GLES2DecoderEmulatedVertexArraysOESTest
     : public GLES2DecoderVertexArraysOESTest {
  public:
-  GLES2DecoderEmulatedVertexArraysOESTest() {}
+  GLES2DecoderEmulatedVertexArraysOESTest() = default;
 
   void SetUp() override {
     InitState init;
@@ -477,7 +525,7 @@ TEST_P(GLES2DecoderTest, BufferDataGLError) {
   DoBindBuffer(GL_ARRAY_BUFFER, client_buffer_id_, kServiceBufferId);
   BufferManager* manager = group().buffer_manager();
   Buffer* buffer = manager->GetBuffer(client_buffer_id_);
-  ASSERT_TRUE(buffer != NULL);
+  ASSERT_TRUE(buffer != nullptr);
   EXPECT_EQ(0, buffer->size());
   EXPECT_CALL(*gl_, GetError())
       .WillOnce(Return(GL_NO_ERROR))

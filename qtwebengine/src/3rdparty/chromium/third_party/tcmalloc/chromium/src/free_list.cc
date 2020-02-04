@@ -58,10 +58,9 @@
 // new head |previous| pointer gets changed from pointing to the former
 // head to NULL.
 
-
-#include <limits>
-#include <stddef.h>
 #include "free_list.h"
+#include <stddef.h>
+#include <limits>
 
 #if defined(TCMALLOC_USE_DOUBLYLINKED_FREELIST)
 
@@ -72,32 +71,33 @@ namespace tcmalloc {
 // |start| will point to the first node of the range, |end| will point
 // to the last node in the range. |n| must be <= FL_Size(|*head|)
 // If |n| > 0, |head| must not be NULL.
-void FL_PopRange(void **head, int n, void **start, void **end) {
+void FL_PopRange(void** head, int n, void** start, void** end) {
   if (n == 0) {
     *start = NULL;
     *end = NULL;
     return;
   }
 
-  *start = *head; // Remember the first node in the range.
-  void *tmp = *head;
-  for (int i = 1; i < n; ++i) { // Find end of range.
+  *start = *head;  // Remember the first node in the range.
+  void* tmp = *head;
+  for (int i = 1; i < n; ++i) {  // Find end of range.
     tmp = FL_Next(tmp);
   }
-  *end = tmp; // |end| now set to point to last node in range.
+  *end = tmp;  // |end| now set to point to last node in range.
   *head = FL_Next(*end);
-  FL_SetNext(*end, NULL); // Unlink range from list.
+  FL_SetNext(*end, NULL);  // Unlink range from list.
 
-  if (*head ) { // Fixup popped list.
+  if (*head) {  // Fixup popped list.
     FL_SetPrevious(*head, NULL);
   }
 }
 
-// Pushes the nodes in the list begginning at |start| whose last node
+// Pushes the nodes in the list beginning at |start| whose last node
 // is |end| into the linked list at |*head|. |*head| is updated to
 // point be the new head of the list.  |head| must not be NULL.
-void FL_PushRange(void **head, void *start, void *end) {
-  if (!start) return;
+void FL_PushRange(void** head, void* start, void* end) {
+  if (!start)
+    return;
 
   // Sanity checking of ends of list to push is done by calling
   // FL_Next and FL_Previous.
@@ -107,8 +107,8 @@ void FL_PushRange(void **head, void *start, void *end) {
   ASSERT(FL_Next_No_Check(end) == NULL);
 
   if (*head) {
-    FL_EqualityCheck(FL_Previous_No_Check(*head), (void*)NULL,
-                     __FILE__, __LINE__);
+    FL_EqualityCheck(FL_Previous_No_Check(*head), (void*)NULL, __FILE__,
+                     __LINE__);
     FL_SetNext(end, *head);
     FL_SetPrevious(*head, end);
   }
@@ -116,11 +116,11 @@ void FL_PushRange(void **head, void *start, void *end) {
 }
 
 // Calculates the size of the list that begins at |head|.
-size_t FL_Size(void *head){
+size_t FL_Size(void* head) {
   int count = 0;
   if (head) {
-    FL_EqualityCheck(FL_Previous_No_Check(head), (void*)NULL,
-                     __FILE__, __LINE__);
+    FL_EqualityCheck(FL_Previous_No_Check(head), (void*)NULL, __FILE__,
+                     __LINE__);
   }
   while (head) {
     count++;
@@ -129,17 +129,17 @@ size_t FL_Size(void *head){
   return count;
 }
 
-} // namespace tcmalloc
+}  // namespace tcmalloc
 
 #else
-#include "linked_list.h" // for SLL_SetNext
+#include "linked_list.h"  // for SLL_SetNext
 
 namespace {
 
-inline void FL_SetNext(void *t, void *n) {
-  tcmalloc::SLL_SetNext(t,n);
+inline void FL_SetNext(void* t, void* n) {
+  tcmalloc::SLL_SetNext(t, n);
 }
 
-}
+}  // namespace
 
-#endif // TCMALLOC_USE_DOUBLYLINKED_FREELIST
+#endif  // TCMALLOC_USE_DOUBLYLINKED_FREELIST

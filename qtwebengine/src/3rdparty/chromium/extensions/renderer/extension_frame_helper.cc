@@ -4,6 +4,8 @@
 
 #include "extensions/renderer/extension_frame_helper.h"
 
+#include <set>
+
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/timer/elapsed_timer.h"
@@ -14,15 +16,20 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/manifest_handlers/background_info.h"
+#include "extensions/renderer/api/automation/automation_api_helper.h"
 #include "extensions/renderer/console.h"
-#include "extensions/renderer/content_watcher.h"
 #include "extensions/renderer/dispatcher.h"
-#include "extensions/renderer/messaging_bindings.h"
+#include "extensions/renderer/extension_bindings_system.h"
+#include "extensions/renderer/renderer_messaging_service.h"
 #include "extensions/renderer/script_context.h"
-#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
-#include "third_party/WebKit/public/web/WebConsoleMessage.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "extensions/renderer/script_context_set.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/web/web_console_message.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_document_loader.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_settings.h"
+#include "third_party/blink/public/web/web_view.h"
 
 namespace extensions {
 
@@ -90,6 +97,15 @@ enum class PortType {
   NATIVE_APP,
 };
 
+// Returns an extension hosted in the |render_frame| (or nullptr if the frame
+// doesn't host an extension).
+const Extension* GetExtensionFromFrame(content::RenderFrame* render_frame) {
+  DCHECK(render_frame);
+  ScriptContext* context =
+      ScriptContextSet::GetMainWorldContextForFrame(render_frame);
+  return context ? context->effective_extension() : nullptr;
+}
+
 }  // namespace
 
 ExtensionFrameHelper::ExtensionFrameHelper(content::RenderFrame* render_frame,
@@ -103,6 +119,10 @@ ExtensionFrameHelper::ExtensionFrameHelper(content::RenderFrame* render_frame,
       did_create_current_document_element_(false),
       weak_ptr_factory_(this) {
   g_frame_helpers.Get().insert(this);
+  if (render_frame->IsMainFrame()) {
+    // Manages its own lifetime.
+    new AutomationApiHelper(render_frame);
+  }
 }
 
 ExtensionFrameHelper::~ExtensionFrameHelper() {
@@ -125,6 +145,42 @@ std::vector<content::RenderFrame*> ExtensionFrameHelper::GetExtensionFrames(
 }
 
 // static
+v8::Local<v8::Array> ExtensionFrameHelper::GetV8MainFrames(
+    v8::Local<v8::Context> context,
+    const std::string& extension_id,
+    int browser_window_id,
+    int tab_id,
+    ViewType view_type) {
+  // WebFrame::ScriptCanAccess uses the isolate's current context. We need to
+  // make sure that the current context is the one we're expecting.
+  DCHECK(context == context->GetIsolate()->GetCurrentContext());
+  std::vector<content::RenderFrame*> render_frames =
+      GetExtensionFrames(extension_id, browser_window_id, tab_id, view_type);
+  v8::Local<v8::Array> v8_frames = v8::Array::New(context->GetIsolate());
+
+  int v8_index = 0;
+  for (content::RenderFrame* frame : render_frames) {
+    if (!frame->IsMainFrame())
+      continue;
+
+    blink::WebLocalFrame* web_frame = frame->GetWebFrame();
+    if (!blink::WebFrame::ScriptCanAccess(web_frame))
+      continue;
+
+    v8::Local<v8::Context> frame_context = web_frame->MainWorldScriptContext();
+    if (!frame_context.IsEmpty()) {
+      v8::Local<v8::Value> window = frame_context->Global();
+      CHECK(!window.IsEmpty());
+      v8::Maybe<bool> maybe =
+          v8_frames->CreateDataProperty(context, v8_index++, window);
+      CHECK(maybe.IsJust() && maybe.FromJust());
+    }
+  }
+
+  return v8_frames;
+}
+
+// static
 content::RenderFrame* ExtensionFrameHelper::GetBackgroundPageFrame(
     const std::string& extension_id) {
   for (const ExtensionFrameHelper* helper : g_frame_helpers.Get()) {
@@ -137,6 +193,74 @@ content::RenderFrame* ExtensionFrameHelper::GetBackgroundPageFrame(
         return helper->render_frame();
     }
   }
+  return nullptr;
+}
+
+v8::Local<v8::Value> ExtensionFrameHelper::GetV8BackgroundPageMainFrame(
+    v8::Isolate* isolate,
+    const std::string& extension_id) {
+  content::RenderFrame* main_frame = GetBackgroundPageFrame(extension_id);
+
+  v8::Local<v8::Value> background_page;
+  blink::WebLocalFrame* web_frame =
+      main_frame ? main_frame->GetWebFrame() : nullptr;
+  if (web_frame && blink::WebFrame::ScriptCanAccess(web_frame))
+    background_page = web_frame->MainWorldScriptContext()->Global();
+  else
+    background_page = v8::Undefined(isolate);
+
+  return background_page;
+}
+
+// static
+content::RenderFrame* ExtensionFrameHelper::FindFrame(
+    content::RenderFrame* relative_to_frame,
+    const std::string& name) {
+  // Only pierce browsing instance boundaries if |relative_to_frame| is an
+  // extension.
+  const Extension* extension = GetExtensionFromFrame(relative_to_frame);
+  if (!extension)
+    return nullptr;
+
+  for (const ExtensionFrameHelper* target : g_frame_helpers.Get()) {
+    // Skip frames with a mismatched name.
+    if (target->render_frame()->GetWebFrame()->AssignedName().Utf8() != name)
+      continue;
+
+    // Only pierce browsing instance boundaries if the target frame is from the
+    // same extension (but not when another extension shares the same renderer
+    // process because of reuse trigerred by process limit).
+    if (extension != GetExtensionFromFrame(target->render_frame()))
+      continue;
+
+    // TODO(lukasza): https://crbug.com/764487: Investigate if we can further
+    // restrict scenarios that allow piercing of browsing instance boundaries.
+    // We hope that the piercing is only needed if the source or target frames
+    // are for background contents or background page.
+    ViewType target_view_type = target->view_type();
+    ViewType source_view_type =
+        ExtensionFrameHelper::Get(relative_to_frame)->view_type();
+    UMA_HISTOGRAM_ENUMERATION(
+        "Extensions.BrowsingInstanceViolation.ExtensionType",
+        extension->GetType(), Manifest::NUM_LOAD_TYPES);
+    UMA_HISTOGRAM_ENUMERATION(
+        "Extensions.BrowsingInstanceViolation.SourceExtensionViewType",
+        source_view_type, VIEW_TYPE_LAST + 1);
+    UMA_HISTOGRAM_ENUMERATION(
+        "Extensions.BrowsingInstanceViolation.TargetExtensionViewType",
+        target_view_type, VIEW_TYPE_LAST + 1);
+    bool is_background_source_or_target =
+        source_view_type == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE ||
+        source_view_type == VIEW_TYPE_BACKGROUND_CONTENTS ||
+        target_view_type == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE ||
+        target_view_type == VIEW_TYPE_BACKGROUND_CONTENTS;
+    UMA_HISTOGRAM_BOOLEAN(
+        "Extensions.BrowsingInstanceViolation.IsBackgroundSourceOrTarget",
+        is_background_source_or_target);
+
+    return target->render_frame();
+  }
+
   return nullptr;
 }
 
@@ -193,16 +317,22 @@ void ExtensionFrameHelper::ScheduleAtDocumentIdle(
   document_idle_callbacks_.push_back(callback);
 }
 
-void ExtensionFrameHelper::DidMatchCSS(
-    const blink::WebVector<blink::WebString>& newly_matching_selectors,
-    const blink::WebVector<blink::WebString>& stopped_matching_selectors) {
-  extension_dispatcher_->content_watcher()->DidMatchCSS(
-      render_frame()->GetWebFrame(), newly_matching_selectors,
-      stopped_matching_selectors);
-}
-
 void ExtensionFrameHelper::DidStartProvisionalLoad(
-    blink::WebDataSource* data_source) {
+    blink::WebDocumentLoader* document_loader,
+    bool is_content_initiated) {
+  // New window created by chrome.app.window.create() must not start parsing the
+  // document immediately. The chrome.app.window.create() callback (if any)
+  // needs to be called prior to the new window's 'load' event. The parser will
+  // be resumed when it happens. It doesn't apply to sandboxed pages.
+  if (view_type_ == VIEW_TYPE_APP_WINDOW && render_frame()->IsMainFrame() &&
+      !has_started_first_navigation_ &&
+      GURL(document_loader->GetUrl()).SchemeIs(kExtensionScheme) &&
+      !ScriptContext::IsSandboxedPage(document_loader->GetUrl())) {
+    document_loader->BlockParser();
+  }
+
+  has_started_first_navigation_ = true;
+
   if (!delayed_main_world_script_initialization_)
     return;
 
@@ -256,45 +386,49 @@ bool ExtensionFrameHelper::OnMessageReceived(const IPC::Message& message) {
                         OnNotifyRendererViewType)
     IPC_MESSAGE_HANDLER(ExtensionMsg_Response, OnExtensionResponse)
     IPC_MESSAGE_HANDLER(ExtensionMsg_MessageInvoke, OnExtensionMessageInvoke)
+    IPC_MESSAGE_HANDLER(ExtensionMsg_SetFrameName, OnSetFrameName)
+    IPC_MESSAGE_HANDLER(ExtensionMsg_AppWindowClosed, OnAppWindowClosed)
+    IPC_MESSAGE_HANDLER(ExtensionMsg_SetSpatialNavigationEnabled,
+                        OnSetSpatialNavigationEnabled)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
 }
 
 void ExtensionFrameHelper::OnExtensionValidateMessagePort(const PortId& id) {
-  MessagingBindings::ValidateMessagePort(
-      extension_dispatcher_->script_context_set(), id, render_frame());
+  extension_dispatcher_->bindings_system()
+      ->GetMessagingService()
+      ->ValidateMessagePort(extension_dispatcher_->script_context_set(), id,
+                            render_frame());
 }
 
 void ExtensionFrameHelper::OnExtensionDispatchOnConnect(
     const PortId& target_port_id,
     const std::string& channel_name,
     const ExtensionMsg_TabConnectionInfo& source,
-    const ExtensionMsg_ExternalConnectionInfo& info,
-    const std::string& tls_channel_id) {
-  MessagingBindings::DispatchOnConnect(
-      extension_dispatcher_->script_context_set(),
-      target_port_id,
-      channel_name,
-      source,
-      info,
-      tls_channel_id,
-      render_frame());
+    const ExtensionMsg_ExternalConnectionInfo& info) {
+  extension_dispatcher_->bindings_system()
+      ->GetMessagingService()
+      ->DispatchOnConnect(extension_dispatcher_->script_context_set(),
+                          target_port_id, channel_name, source, info,
+                          render_frame());
 }
 
 void ExtensionFrameHelper::OnExtensionDeliverMessage(const PortId& target_id,
                                                      const Message& message) {
-  MessagingBindings::DeliverMessage(
-      extension_dispatcher_->script_context_set(), target_id, message,
-      render_frame());
+  extension_dispatcher_->bindings_system()
+      ->GetMessagingService()
+      ->DeliverMessage(extension_dispatcher_->script_context_set(), target_id,
+                       message, render_frame());
 }
 
 void ExtensionFrameHelper::OnExtensionDispatchOnDisconnect(
     const PortId& id,
     const std::string& error_message) {
-  MessagingBindings::DispatchOnDisconnect(
-      extension_dispatcher_->script_context_set(), id, error_message,
-      render_frame());
+  extension_dispatcher_->bindings_system()
+      ->GetMessagingService()
+      ->DispatchOnDisconnect(extension_dispatcher_->script_context_set(), id,
+                             error_message, render_frame());
 }
 
 void ExtensionFrameHelper::OnExtensionSetTabId(int tab_id) {
@@ -330,6 +464,35 @@ void ExtensionFrameHelper::OnExtensionMessageInvoke(
     const base::ListValue& args) {
   extension_dispatcher_->InvokeModuleSystemMethod(
       render_frame(), extension_id, module_name, function_name, args);
+}
+
+void ExtensionFrameHelper::OnSetFrameName(const std::string& name) {
+  render_frame()->GetWebFrame()->SetName(blink::WebString::FromUTF8(name));
+}
+
+void ExtensionFrameHelper::OnAppWindowClosed(bool send_onclosed) {
+  DCHECK(render_frame()->IsMainFrame());
+
+  if (!send_onclosed)
+    return;
+
+  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  v8::Local<v8::Context> v8_context =
+      render_frame()->GetWebFrame()->MainWorldScriptContext();
+  ScriptContext* script_context =
+      ScriptContextSet::GetContextByV8Context(v8_context);
+  if (!script_context)
+    return;
+  script_context->module_system()->CallModuleMethodSafe("app.window",
+                                                        "onAppWindowClosed");
+}
+
+void ExtensionFrameHelper::OnSetSpatialNavigationEnabled(bool enabled) {
+  render_frame()
+      ->GetRenderView()
+      ->GetWebView()
+      ->GetSettings()
+      ->SetSpatialNavigationEnabled(enabled);
 }
 
 void ExtensionFrameHelper::OnDestruct() {

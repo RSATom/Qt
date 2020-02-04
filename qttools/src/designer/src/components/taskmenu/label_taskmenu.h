@@ -29,8 +29,8 @@
 #ifndef LABEL_TASKMENU_H
 #define LABEL_TASKMENU_H
 
-#include <QtWidgets/QLabel>
-#include <QtCore/QPointer>
+#include <QtWidgets/qlabel.h>
+#include <QtCore/qpointer.h>
 
 #include <qdesigner_taskmenu_p.h>
 #include <extensionfactory_p.h>
@@ -47,8 +47,8 @@ class LabelTaskMenu: public QDesignerTaskMenu
 public:
     explicit LabelTaskMenu(QLabel *button, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private slots:
     void editRichText();

@@ -12,8 +12,8 @@
 #include "base/logging.h"
 #include "base/mac/bundle_locations.h"
 #include "base/mac/mac_logging.h"
-#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "build/build_config.h"
 
@@ -21,13 +21,14 @@
 #import <AppKit/AppKit.h>
 #endif
 
-#if !defined(OS_IOS)
 extern "C" {
+CFTypeID SecKeyGetTypeID();
+#if !defined(OS_IOS)
 CFTypeID SecACLGetTypeID();
 CFTypeID SecTrustedApplicationGetTypeID();
 Boolean _CFIsObjC(CFTypeID typeID, CFTypeRef obj);
-}  // extern "C"
 #endif
+}  // extern "C"
 
 namespace base {
 namespace mac {
@@ -88,7 +89,7 @@ bool IsBackgroundOnlyProcess() {
   // bundle dictionary.  It needs to look at the actual running .app's
   // Info.plist to access its LSUIElement property.
   NSDictionary* info_dictionary = [base::mac::MainBundle() infoDictionary];
-  return [[info_dictionary objectForKey:@"LSUIElement"] boolValue] != NO;
+  return [info_dictionary[@"LSUIElement"] boolValue] != NO;
 }
 
 FilePath PathForFrameworkBundleResource(CFStringRef resourceName) {
@@ -116,12 +117,12 @@ bool GetSearchPathDirectory(NSSearchPathDirectory directory,
                             NSSearchPathDomainMask domain_mask,
                             FilePath* result) {
   DCHECK(result);
-  NSArray* dirs =
+  NSArray<NSString*>* dirs =
       NSSearchPathForDirectoriesInDomains(directory, domain_mask, YES);
   if ([dirs count] < 1) {
     return false;
   }
-  *result = NSStringToFilePath([dirs objectAtIndex:0]);
+  *result = NSStringToFilePath(dirs[0]);
   return true;
 }
 
@@ -148,7 +149,7 @@ FilePath GetUserLibraryPath() {
 //   returns - path to the application bundle, or empty on error
 FilePath GetAppBundlePath(const FilePath& exec_name) {
   const char kExt[] = ".app";
-  const size_t kExtLength = arraysize(kExt) - 1;
+  const size_t kExtLength = base::size(kExt) - 1;
 
   // Split the path into components.
   std::vector<std::string> components;
@@ -214,6 +215,8 @@ TYPE_NAME_FOR_CF_TYPE_DEFN(CTFont);
 TYPE_NAME_FOR_CF_TYPE_DEFN(CTRun);
 
 #if !defined(OS_IOS)
+TYPE_NAME_FOR_CF_TYPE_DEFN(SecCertificate);
+TYPE_NAME_FOR_CF_TYPE_DEFN(SecKey);
 TYPE_NAME_FOR_CF_TYPE_DEFN(SecPolicy);
 #endif
 
@@ -412,6 +415,8 @@ CFCastStrict<CTFontRef>(const CFTypeRef& cf_val) {
 
 #if !defined(OS_IOS)
 CF_CAST_DEFN(SecACL);
+CF_CAST_DEFN(SecCertificate);
+CF_CAST_DEFN(SecKey);
 CF_CAST_DEFN(SecPolicy);
 CF_CAST_DEFN(SecTrustedApplication);
 #endif
@@ -431,10 +436,16 @@ std::string GetValueFromDictionaryErrorMessage(
       " instead";
 }
 
+NSURL* FilePathToNSURL(const FilePath& path) {
+  if (NSString* path_string = FilePathToNSString(path))
+    return [NSURL fileURLWithPath:path_string];
+  return nil;
+}
+
 NSString* FilePathToNSString(const FilePath& path) {
   if (path.empty())
     return nil;
-  return [NSString stringWithUTF8String:path.value().c_str()];
+  return @(path.value().c_str());  // @() does UTF8 conversion.
 }
 
 FilePath NSStringToFilePath(NSString* str) {

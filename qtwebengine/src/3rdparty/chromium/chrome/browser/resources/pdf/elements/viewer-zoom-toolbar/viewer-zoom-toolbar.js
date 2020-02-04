@@ -4,8 +4,8 @@
 
 (function() {
 
-var FIT_TO_PAGE = 0;
-var FIT_TO_WIDTH = 1;
+const FIT_TO_PAGE_BUTTON_STATE = 0;
+const FIT_TO_WIDTH_BUTTON_STATE = 1;
 
 Polymer({
   is: 'viewer-zoom-toolbar',
@@ -35,10 +35,11 @@ Polymer({
    * Handle clicks of the fit-button.
    */
   fitToggle: function() {
-    if (this.$['fit-button'].activeIndex == FIT_TO_WIDTH)
-      this.fire('fit-to-width');
-    else
-      this.fire('fit-to-page');
+    this.fireFitToChangedEvent_(
+        this.$['fit-button'].activeIndex == FIT_TO_WIDTH_BUTTON_STATE ?
+            FittingType.FIT_TO_WIDTH :
+            FittingType.FIT_TO_PAGE,
+        true);
   },
 
   /**
@@ -48,11 +49,38 @@ Polymer({
     this.fitToggle();
 
     // Toggle the button state since there was no mouse click.
-    var button = this.$['fit-button'];
-    if (button.activeIndex == FIT_TO_WIDTH)
-      button.activeIndex = FIT_TO_PAGE;
-    else
-      button.activeIndex = FIT_TO_WIDTH;
+    const button = this.$['fit-button'];
+    button.activeIndex =
+        (button.activeIndex == FIT_TO_WIDTH_BUTTON_STATE ?
+             FIT_TO_PAGE_BUTTON_STATE :
+             FIT_TO_WIDTH_BUTTON_STATE);
+  },
+
+  /**
+   * Handle forcing zoom via scripting to a fitting type.
+   * @param {FittingType} fittingType Page fitting type to force.
+   */
+  forceFit: function(fittingType) {
+    this.fireFitToChangedEvent_(fittingType, false);
+
+    // Set the button state since there was no mouse click.
+    const nextButtonState =
+        (fittingType == FittingType.FIT_TO_WIDTH ? FIT_TO_PAGE_BUTTON_STATE :
+                                                   FIT_TO_WIDTH_BUTTON_STATE);
+    this.$['fit-button'].activeIndex = nextButtonState;
+  },
+
+  /**
+   * @private
+   * Fire a 'fit-to-changed' {CustomEvent} with the given FittingType as detail.
+   * @param {FittingType} fittingType to include as payload.
+   * @param {boolean} userInitiated whether the event was initiated by a user
+   *     action.
+   */
+  fireFitToChangedEvent_: function(fittingType, userInitiated) {
+    this.fire(
+        'fit-to-changed',
+        {fittingType: fittingType, userInitiated: userInitiated});
   },
 
   /**
@@ -87,5 +115,4 @@ Polymer({
     }
   },
 });
-
 })();

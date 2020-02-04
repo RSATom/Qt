@@ -2,8 +2,7 @@
 # http://about.travis-ci.org/docs/user/build-configuration/
 # This file can be validated on: http://lint.travis-ci.org/
 
-sudo: false
-dist: trusty
+dist: xenial
 language: cpp
 
 compiler:
@@ -14,40 +13,66 @@ os:
   - osx
 
 env:
-  - BUILD_TYPE=Debug
-  - BUILD_TYPE=RelWithDebInfo
+  - BUILD_TYPE=Debug CPU_LEVEL=AVX
+  - BUILD_TYPE=Debug CPU_LEVEL=AVX2
+  - BUILD_TYPE=RelWithDebInfo CPU_LEVEL=AVX
+  - BUILD_TYPE=RelWithDebInfo CPU_LEVEL=AVX2
 
 matrix:
-  allow_failures:
-    - compiler: clang
-      env: BUILD_TYPE=RelWithDebInfo
+  exclude:
+    # GCC fails on recent Travis OSX images.
+    # https://github.com/travis-ci/travis-ci/issues/9640
+    - compiler: gcc
+      os: osx
+    # Travis OSX servers seem to run on pre-Haswell CPUs. Attempting to use AVX2
+    # results in crashes.
+    - env: BUILD_TYPE=Debug CPU_LEVEL=AVX2
+      os: osx
+    - env: BUILD_TYPE=RelWithDebInfo CPU_LEVEL=AVX2
+      os: osx
 
 addons:
   apt:
-    # List of whitelisted in travis packages for ubuntu-precise can be found here:
-    #   https://github.com/travis-ci/apt-package-whitelist/blob/master/ubuntu-precise
+    # List of whitelisted in travis packages for ubuntu-trusty can be found here:
+    #   https://github.com/travis-ci/apt-package-whitelist/blob/master/ubuntu-trusty
     # List of whitelisted in travis apt-sources:
     #   https://github.com/travis-ci/apt-source-whitelist/blob/master/ubuntu.json
     sources:
+    - llvm-toolchain-xenial-7
     - ubuntu-toolchain-r-test
-    - llvm-toolchain-trusty-4.0
+    packages:
+    - clang-7
+    - cmake
+    - gcc-8
+    - g++-8
+    - ninja-build
+  homebrew:
     packages:
     - cmake
-    - gcc-6
-    - g++-6
-    - clang-4.0
+    - gcc@8
+    - ninja
+
+before_install:
+# The Travis VM image for Mac already has a link at /usr/local/include/c++,
+# causing Homebrew's gcc installation to error out. This was reported to
+# Homebrew maintainers at https://github.com/Homebrew/brew/issues/1742 and
+# removing the link emerged as a workaround.
+- if [ "$TRAVIS_OS_NAME" == "osx" ]; then rm -f /usr/local/include/c++ ; fi
 
 install:
-# Travis doesn't have a nice way to install homebrew packages yet.
-# https://github.com/travis-ci/travis-ci/issues/5377
-- if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew update; fi
-- if [ "$TRAVIS_OS_NAME" == "osx" ]; then brew install gcc@6; fi
-# /usr/bin/gcc is stuck to old versions by on both Linux and OSX.
-- if [ "$CXX" = "g++" ]; then export CXX="g++-6" CC="gcc-6"; fi
+# /usr/bin/gcc is stuck to old versions on both Linux and OSX.
+- if [ "$CXX" = "g++" ]; then export CXX="g++-8" CC="gcc-8"; fi
 - echo ${CC}
 - echo ${CXX}
 - ${CXX} --version
+- cmake --version
+
+before_script:
+- mkdir -p build && cd build
+- cmake .. -G Ninja -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+    -DSNAPPY_REQUIRE_${CPU_LEVEL}=ON
+- cmake --build .
+- cd ..
 
 script:
-- mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE &&
-      CTEST_OUTPUT_ON_FAILURE=1 make all test
+- build/snappy_unittest

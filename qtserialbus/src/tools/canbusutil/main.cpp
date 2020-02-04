@@ -34,6 +34,9 @@
 **
 ****************************************************************************/
 
+#include "canbusutil.h"
+#include "sigtermhandler.h"
+
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QTextStream>
@@ -41,15 +44,10 @@
 
 #include <signal.h>
 
-#include "canbusutil.h"
-#include "sigtermhandler.h"
-
-#define PROGRAMNAME "canbusutil"
-
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    QCoreApplication::setApplicationName(QStringLiteral(PROGRAMNAME));
+    QCoreApplication::setApplicationName(QStringLiteral("canbusutil"));
     QCoreApplication::setApplicationVersion(QStringLiteral(QT_VERSION_STR));
 
     QScopedPointer<SigTermHandler> s(SigTermHandler::instance());
@@ -104,29 +102,65 @@ int main(int argc, char *argv[])
             CanBusUtil::tr("Show available CAN bus devices for the given plugin."));
     parser.addOption(listDevicesOption);
 
+    const QCommandLineOption canFdOption({"f", "can-fd"},
+            CanBusUtil::tr("Enable CAN FD functionality when listening."));
+    parser.addOption(canFdOption);
+
+    const QCommandLineOption loopbackOption({"c", "local-loopback"},
+            CanBusUtil::tr("Transmits all sent frames to other local applications."));
+    parser.addOption(loopbackOption);
+
+    const QCommandLineOption receiveOwnOption({"o", "receive-own"},
+            CanBusUtil::tr("Receive each sent frame on successful transmission."));
+    parser.addOption(receiveOwnOption);
+
+    const QCommandLineOption bitrateOption({"b", "bitrate"},
+            CanBusUtil::tr("Set the CAN bus bitrate to the given value."),
+            QStringLiteral("bitrate"));
+    parser.addOption(bitrateOption);
+
+    const QCommandLineOption dataBitrateOption({"a", "data-bitrate"},
+            CanBusUtil::tr("Set the CAN FD data bitrate to the given value."),
+            QStringLiteral("bitrate"));
+    parser.addOption(dataBitrateOption);
+
     parser.process(app);
 
-    if (parser.isSet(listOption)) {
-        util.printPlugins();
-        return 0;
-    }
+    if (parser.isSet(listOption))
+        return util.printPlugins();
 
     QString data;
     const QStringList args = parser.positionalArguments();
+
+    if (parser.isSet(canFdOption))
+        util.setConfigurationParameter(QCanBusDevice::CanFdKey, true);
+    if (parser.isSet(loopbackOption))
+        util.setConfigurationParameter(QCanBusDevice::LoopbackKey, true);
+    if (parser.isSet(receiveOwnOption))
+        util.setConfigurationParameter(QCanBusDevice::ReceiveOwnKey, true);
+    if (!parser.value(bitrateOption).isEmpty()) {
+        util.setConfigurationParameter(QCanBusDevice::BitRateKey,
+                                       parser.value(bitrateOption).toInt());
+    }
+    if (!parser.value(dataBitrateOption).isEmpty()) {
+        util.setConfigurationParameter(QCanBusDevice::DataBitRateKey,
+                                       parser.value(dataBitrateOption).toInt());
+    }
+
     if (parser.isSet(listeningOption)) {
         util.setShowTimeStamp(parser.isSet(showTimeStampOption));
         util.setShowFdFlags(parser.isSet(showFdFlagsOption));
     } else if (args.size() == 3) {
-        data = args[2];
+        data = args.at(2);
     } else if (args.size() == 1 && parser.isSet(listDevicesOption)) {
-        return util.printDevices(args[0]);
+        return util.printDevices(args.at(0));
     } else if (args.size() != 2) {
-        fprintf(stderr, "Invalid number of arguments (%d given).\n\n%s",
-            args.size(), qPrintable(parser.helpText()));
+        output << CanBusUtil::tr("Invalid number of arguments (%1 given).").arg(args.size());
+        output << endl << endl << parser.helpText();
         return 1;
     }
 
-    if (!util.start(args[0], args[1], data))
+    if (!util.start(args.at(0), args.at(1), data))
         return -1;
 
     return app.exec();

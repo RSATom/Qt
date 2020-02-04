@@ -263,7 +263,7 @@ private:
     public:\
         classname(QObject *parent = Q_NULLPTR);\
         virtual ~classname();\
-        void copyValuesFrom(QSensorReading *other);\
+        void copyValuesFrom(QSensorReading *other) override;\
     private:\
         QScopedPointer<pclassname> d;
 

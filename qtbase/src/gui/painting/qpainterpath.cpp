@@ -71,6 +71,24 @@
 
 QT_BEGIN_NAMESPACE
 
+static inline bool isValidCoord(qreal c)
+{
+    if (sizeof(qreal) >= sizeof(double))
+        return qIsFinite(c) && fabs(c) < 1e128;
+    else
+        return qIsFinite(c) && fabsf(float(c)) < 1e16f;
+}
+
+static bool hasValidCoords(QPointF p)
+{
+    return isValidCoord(p.x()) && isValidCoord(p.y());
+}
+
+static bool hasValidCoords(QRectF r)
+{
+    return isValidCoord(r.x()) && isValidCoord(r.y()) && isValidCoord(r.width()) && isValidCoord(r.height());
+}
+
 struct QPainterPathPrivateDeleter
 {
     static inline void cleanup(QPainterPathPrivate *d)
@@ -629,6 +647,57 @@ QPainterPath::~QPainterPath()
 }
 
 /*!
+    Clears the path elements stored.
+
+    This allows the path to reuse previous memory allocations.
+
+    \sa reserve(), capacity()
+    \since 5.13
+*/
+void QPainterPath::clear()
+{
+    if (!d_ptr)
+        return;
+
+    detach();
+    d_func()->clear();
+    d_func()->elements.append( {0, 0, MoveToElement} );
+}
+
+/*!
+    Reserves a given amount of elements in QPainterPath's internal memory.
+
+    Attempts to allocate memory for at least \a size elements.
+
+    \sa clear(), capacity(), QVector::reserve()
+    \since 5.13
+*/
+void QPainterPath::reserve(int size)
+{
+    Q_D(QPainterPath);
+    if ((!d && size > 0) || (d && d->elements.capacity() < size)) {
+        ensureData();
+        detach();
+        d_func()->elements.reserve(size);
+    }
+}
+
+/*!
+    Returns the number of elements allocated by the QPainterPath.
+
+    \sa clear(), reserve()
+    \since 5.13
+*/
+int QPainterPath::capacity() const
+{
+    Q_D(QPainterPath);
+    if (d)
+        return d->elements.capacity();
+
+    return 0;
+}
+
+/*!
     Closes the current subpath by drawing a line to the beginning of
     the subpath, automatically starting a new path. The current point
     of the new path is (0, 0).
@@ -675,9 +744,9 @@ void QPainterPath::moveTo(const QPointF &p)
     printf("QPainterPath::moveTo() (%.2f,%.2f)\n", p.x(), p.y());
 #endif
 
-    if (!qt_is_finite(p.x()) || !qt_is_finite(p.y())) {
+    if (!hasValidCoords(p)) {
 #ifndef QT_NO_DEBUG
-        qWarning("QPainterPath::moveTo: Adding point where x or y is NaN or Inf, ignoring call");
+        qWarning("QPainterPath::moveTo: Adding point with invalid coordinates, ignoring call");
 #endif
         return;
     }
@@ -725,9 +794,9 @@ void QPainterPath::lineTo(const QPointF &p)
     printf("QPainterPath::lineTo() (%.2f,%.2f)\n", p.x(), p.y());
 #endif
 
-    if (!qt_is_finite(p.x()) || !qt_is_finite(p.y())) {
+    if (!hasValidCoords(p)) {
 #ifndef QT_NO_DEBUG
-        qWarning("QPainterPath::lineTo: Adding point where x or y is NaN or Inf, ignoring call");
+        qWarning("QPainterPath::lineTo: Adding point with invalid coordinates, ignoring call");
 #endif
         return;
     }
@@ -784,10 +853,9 @@ void QPainterPath::cubicTo(const QPointF &c1, const QPointF &c2, const QPointF &
            c1.x(), c1.y(), c2.x(), c2.y(), e.x(), e.y());
 #endif
 
-    if (!qt_is_finite(c1.x()) || !qt_is_finite(c1.y()) || !qt_is_finite(c2.x()) || !qt_is_finite(c2.y())
-        || !qt_is_finite(e.x()) || !qt_is_finite(e.y())) {
+    if (!hasValidCoords(c1) || !hasValidCoords(c2) || !hasValidCoords(e)) {
 #ifndef QT_NO_DEBUG
-        qWarning("QPainterPath::cubicTo: Adding point where x or y is NaN or Inf, ignoring call");
+        qWarning("QPainterPath::cubicTo: Adding point with invalid coordinates, ignoring call");
 #endif
         return;
     }
@@ -841,9 +909,9 @@ void QPainterPath::quadTo(const QPointF &c, const QPointF &e)
            c.x(), c.y(), e.x(), e.y());
 #endif
 
-    if (!qt_is_finite(c.x()) || !qt_is_finite(c.y()) || !qt_is_finite(e.x()) || !qt_is_finite(e.y())) {
+    if (!hasValidCoords(c) || !hasValidCoords(e)) {
 #ifndef QT_NO_DEBUG
-        qWarning("QPainterPath::quadTo: Adding point where x or y is NaN or Inf, ignoring call");
+        qWarning("QPainterPath::quadTo: Adding point with invalid coordinates, ignoring call");
 #endif
         return;
     }
@@ -912,10 +980,9 @@ void QPainterPath::arcTo(const QRectF &rect, qreal startAngle, qreal sweepLength
            rect.x(), rect.y(), rect.width(), rect.height(), startAngle, sweepLength);
 #endif
 
-    if ((!qt_is_finite(rect.x()) && !qt_is_finite(rect.y())) || !qt_is_finite(rect.width()) || !qt_is_finite(rect.height())
-        || !qt_is_finite(startAngle) || !qt_is_finite(sweepLength)) {
+    if (!hasValidCoords(rect) || !isValidCoord(startAngle) || !isValidCoord(sweepLength)) {
 #ifndef QT_NO_DEBUG
-        qWarning("QPainterPath::arcTo: Adding arc where a parameter is NaN or Inf, ignoring call");
+        qWarning("QPainterPath::arcTo: Adding point with invalid coordinates, ignoring call");
 #endif
         return;
     }
@@ -1018,9 +1085,9 @@ QPointF QPainterPath::currentPosition() const
 */
 void QPainterPath::addRect(const QRectF &r)
 {
-    if (!qt_is_finite(r.x()) || !qt_is_finite(r.y()) || !qt_is_finite(r.width()) || !qt_is_finite(r.height())) {
+    if (!hasValidCoords(r)) {
 #ifndef QT_NO_DEBUG
-        qWarning("QPainterPath::addRect: Adding rect where a parameter is NaN or Inf, ignoring call");
+        qWarning("QPainterPath::addRect: Adding point with invalid coordinates, ignoring call");
 #endif
         return;
     }
@@ -1033,7 +1100,6 @@ void QPainterPath::addRect(const QRectF &r)
 
     bool first = d_func()->elements.size() < 2;
 
-    d_func()->elements.reserve(d_func()->elements.size() + 5);
     moveTo(r.x(), r.y());
 
     Element l1 = { r.x() + r.width(), r.y(), LineToElement };
@@ -1071,8 +1137,6 @@ void QPainterPath::addPolygon(const QPolygonF &polygon)
     ensureData();
     detach();
 
-    d_func()->elements.reserve(d_func()->elements.size() + polygon.size());
-
     moveTo(polygon.constFirst());
     for (int i=1; i<polygon.size(); ++i) {
         Element elm = { polygon.at(i).x(), polygon.at(i).y(), LineToElement };
@@ -1101,10 +1165,9 @@ void QPainterPath::addPolygon(const QPolygonF &polygon)
 */
 void QPainterPath::addEllipse(const QRectF &boundingRect)
 {
-    if (!qt_is_finite(boundingRect.x()) || !qt_is_finite(boundingRect.y())
-        || !qt_is_finite(boundingRect.width()) || !qt_is_finite(boundingRect.height())) {
+    if (!hasValidCoords(boundingRect)) {
 #ifndef QT_NO_DEBUG
-        qWarning("QPainterPath::addEllipse: Adding ellipse where a parameter is NaN or Inf, ignoring call");
+        qWarning("QPainterPath::addEllipse: Adding point with invalid coordinates, ignoring call");
 #endif
         return;
     }
@@ -1115,9 +1178,7 @@ void QPainterPath::addEllipse(const QRectF &boundingRect)
     ensureData();
     detach();
 
-    Q_D(QPainterPath);
     bool first = d_func()->elements.size() < 2;
-    d->elements.reserve(d->elements.size() + 13);
 
     QPointF pts[12];
     int point_count;
@@ -1294,7 +1355,6 @@ void QPainterPath::addRegion(const QRegion &region)
     ensureData();
     detach();
 
-    d_func()->elements.reserve(region.rectCount() * 5);
     for (const QRect &rect : region)
         addRect(rect);
 }
@@ -2277,13 +2337,19 @@ static inline bool epsilonCompare(const QPointF &a, const QPointF &b, const QSiz
 bool QPainterPath::operator==(const QPainterPath &path) const
 {
     QPainterPathData *d = reinterpret_cast<QPainterPathData *>(d_func());
-    if (path.d_func() == d)
+    QPainterPathData *other_d = path.d_func();
+    if (other_d == d) {
         return true;
-    else if (!d || !path.d_func())
+    } else if (!d || !other_d) {
+        if (!other_d && isEmpty() && elementAt(0) == QPointF() && d->fillRule == Qt::OddEvenFill)
+            return true;
+        if (!d && path.isEmpty() && path.elementAt(0) == QPointF() && other_d->fillRule == Qt::OddEvenFill)
+            return true;
         return false;
-    else if (d->fillRule != path.d_func()->fillRule)
+    }
+    else if (d->fillRule != other_d->fillRule)
         return false;
-    else if (d->elements.size() != path.d_func()->elements.size())
+    else if (d->elements.size() != other_d->elements.size())
         return false;
 
     const qreal qt_epsilon = sizeof(qreal) == sizeof(double) ? 1e-12 : qreal(1e-5);
@@ -2293,8 +2359,8 @@ bool QPainterPath::operator==(const QPainterPath &path) const
     epsilon.rheight() *= qt_epsilon;
 
     for (int i = 0; i < d->elements.size(); ++i)
-        if (d->elements.at(i).type != path.d_func()->elements.at(i).type
-            || !epsilonCompare(d->elements.at(i), path.d_func()->elements.at(i), epsilon))
+        if (d->elements.at(i).type != other_d->elements.at(i).type
+            || !epsilonCompare(d->elements.at(i), other_d->elements.at(i), epsilon))
             return false;
 
     return true;
@@ -2452,6 +2518,7 @@ QDataStream &operator<<(QDataStream &s, const QPainterPath &p)
 */
 QDataStream &operator>>(QDataStream &s, QPainterPath &p)
 {
+    bool errorDetected = false;
     int size;
     s >> size;
 
@@ -2463,7 +2530,6 @@ QDataStream &operator>>(QDataStream &s, QPainterPath &p)
         Q_ASSERT(p.d_func()->elements.at(0).type == QPainterPath::MoveToElement);
         p.d_func()->elements.clear();
     }
-    p.d_func()->elements.reserve(p.d_func()->elements.size() + size);
     for (int i=0; i<size; ++i) {
         int type;
         double x, y;
@@ -2471,10 +2537,11 @@ QDataStream &operator>>(QDataStream &s, QPainterPath &p)
         s >> x;
         s >> y;
         Q_ASSERT(type >= 0 && type <= 3);
-        if (!qt_is_finite(x) || !qt_is_finite(y)) {
+        if (!isValidCoord(qreal(x)) || !isValidCoord(qreal(y))) {
 #ifndef QT_NO_DEBUG
-            qWarning("QDataStream::operator>>: NaN or Inf element found in path, skipping it");
+            qWarning("QDataStream::operator>>: Invalid QPainterPath coordinates read, skipping it");
 #endif
+            errorDetected = true;
             continue;
         }
         QPainterPath::Element elm = { qreal(x), qreal(y), QPainterPath::ElementType(type) };
@@ -2483,10 +2550,12 @@ QDataStream &operator>>(QDataStream &s, QPainterPath &p)
     s >> p.d_func()->cStart;
     int fillRule;
     s >> fillRule;
-    Q_ASSERT(fillRule == Qt::OddEvenFill || Qt::WindingFill);
+    Q_ASSERT(fillRule == Qt::OddEvenFill || fillRule == Qt::WindingFill);
     p.d_func()->fillRule = Qt::FillRule(fillRule);
     p.d_func()->dirtyBounds = true;
     p.d_func()->dirtyControlBounds = true;
+    if (errorDetected)
+        p = QPainterPath();  // Better than to return path with possibly corrupt datastructure, which would likely cause crash
     return s;
 }
 #endif // QT_NO_DATASTREAM
@@ -3194,6 +3263,7 @@ void QPainterPath::addRoundedRect(const QRectF &rect, qreal xRadius, qreal yRadi
   Adds the given rectangle \a x, \a y, \a w, \a h  with rounded corners to the path.
  */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
   \obsolete
 
@@ -3260,6 +3330,17 @@ void QPainterPath::addRoundRect(const QRectF &r, int xRnd, int yRnd)
 
   \sa addRoundedRect()
 */
+void QPainterPath::addRoundRect(const QRectF &rect,
+                                int roundness)
+{
+    int xRnd = roundness;
+    int yRnd = roundness;
+    if (rect.width() > rect.height())
+        xRnd = int(roundness * rect.height()/rect.width());
+    else
+        yRnd = int(roundness * rect.width()/rect.height());
+    addRoundedRect(rect, xRnd, yRnd, Qt::RelativeSize);
+}
 
 /*!
   \obsolete
@@ -3276,6 +3357,11 @@ void QPainterPath::addRoundRect(const QRectF &r, int xRnd, int yRnd)
 
   \sa addRoundedRect()
  */
+void QPainterPath::addRoundRect(qreal x, qreal y, qreal w, qreal h,
+                                int xRnd, int yRnd)
+{
+    addRoundedRect(QRectF(x, y, w, h), xRnd, yRnd, Qt::RelativeSize);
+}
 
 /*!
   \obsolete
@@ -3295,6 +3381,12 @@ void QPainterPath::addRoundRect(const QRectF &r, int xRnd, int yRnd)
 
   \sa addRoundedRect()
 */
+void QPainterPath::addRoundRect(qreal x, qreal y, qreal w, qreal h,
+                                int roundness)
+{
+    addRoundedRect(QRectF(x, y, w, h), roundness, Qt::RelativeSize);
+}
+#endif
 
 /*!
     \since 4.3
@@ -3349,6 +3441,7 @@ QPainterPath QPainterPath::subtracted(const QPainterPath &p) const
     return clipper.clip(QPathClipper::BoolSub);
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \since 4.3
     \obsolete
@@ -3361,6 +3454,7 @@ QPainterPath QPainterPath::subtractedInverted(const QPainterPath &p) const
 {
     return p.subtracted(*this);
 }
+#endif
 
 /*!
     \since 4.4

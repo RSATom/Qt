@@ -8,10 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/video/encoder_rtcp_feedback.h"
+#include "video/encoder_rtcp_feedback.h"
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/video/vie_encoder.h"
+#include "api/video/video_stream_encoder_interface.h"
+#include "rtc_base/checks.h"
 
 static const int kMinKeyFrameRequestIntervalMs = 300;
 
@@ -19,11 +19,11 @@ namespace webrtc {
 
 EncoderRtcpFeedback::EncoderRtcpFeedback(Clock* clock,
                                          const std::vector<uint32_t>& ssrcs,
-                                         ViEEncoder* encoder)
+                                         VideoStreamEncoderInterface* encoder)
     : clock_(clock),
       ssrcs_(ssrcs),
-      vie_encoder_(encoder),
-      time_last_intra_request_ms_(ssrcs.size(), -1) {
+      video_stream_encoder_(encoder),
+      time_last_intra_request_ms_(-1) {
   RTC_DCHECK(!ssrcs.empty());
 }
 
@@ -36,31 +36,19 @@ bool EncoderRtcpFeedback::HasSsrc(uint32_t ssrc) {
   return false;
 }
 
-size_t EncoderRtcpFeedback::GetStreamIndex(uint32_t ssrc) {
-  for (size_t i = 0; i < ssrcs_.size(); ++i) {
-    if (ssrcs_[i] == ssrc)
-      return i;
-  }
-  RTC_NOTREACHED() << "Unknown ssrc " << ssrc;
-  return 0;
-}
-
 void EncoderRtcpFeedback::OnReceivedIntraFrameRequest(uint32_t ssrc) {
   RTC_DCHECK(HasSsrc(ssrc));
-  size_t index = GetStreamIndex(ssrc);
   {
-    // TODO(mflodman): Move to ViEEncoder after some more changes making it
-    // easier to test there.
     int64_t now_ms = clock_->TimeInMilliseconds();
     rtc::CritScope lock(&crit_);
-    if (time_last_intra_request_ms_[index] + kMinKeyFrameRequestIntervalMs >
-        now_ms) {
+    if (time_last_intra_request_ms_ + kMinKeyFrameRequestIntervalMs > now_ms) {
       return;
     }
-    time_last_intra_request_ms_[index] = now_ms;
+    time_last_intra_request_ms_ = now_ms;
   }
 
-  vie_encoder_->OnReceivedIntraFrameRequest(index);
+  // Always produce key frame for all streams.
+  video_stream_encoder_->SendKeyFrame();
 }
 
 }  // namespace webrtc

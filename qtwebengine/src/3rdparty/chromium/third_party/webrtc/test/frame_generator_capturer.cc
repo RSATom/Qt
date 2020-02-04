@@ -8,89 +8,37 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/test/frame_generator_capturer.h"
+#include "test/frame_generator_capturer.h"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/platform_thread.h"
-#include "webrtc/rtc_base/task_queue.h"
-#include "webrtc/rtc_base/timeutils.h"
-#include "webrtc/system_wrappers/include/clock.h"
-#include "webrtc/test/frame_generator.h"
-#include "webrtc/video_send_stream.h"
+#include "absl/memory/memory.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/task_queue.h"
+#include "rtc_base/task_utils/repeating_task.h"
+#include "rtc_base/time_utils.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 namespace test {
 
-class FrameGeneratorCapturer::InsertFrameTask : public rtc::QueuedTask {
- public:
-  // Repeats in |repeat_interval_ms|. One-time if |repeat_interval_ms| == 0.
-  InsertFrameTask(
-      webrtc::test::FrameGeneratorCapturer* frame_generator_capturer,
-      uint32_t repeat_interval_ms)
-      : frame_generator_capturer_(frame_generator_capturer),
-        repeat_interval_ms_(repeat_interval_ms),
-        intended_run_time_ms_(-1) {}
-
- private:
-  bool Run() override {
-    bool task_completed = true;
-    if (repeat_interval_ms_ > 0) {
-      // This is not a one-off frame. Check if the frame interval for this
-      // task queue is the same same as the current configured frame rate.
-      uint32_t current_interval_ms =
-          1000 / frame_generator_capturer_->GetCurrentConfiguredFramerate();
-      if (repeat_interval_ms_ != current_interval_ms) {
-        // Frame rate has changed since task was started, create a new instance.
-        rtc::TaskQueue::Current()->PostDelayedTask(
-            std::unique_ptr<rtc::QueuedTask>(new InsertFrameTask(
-                frame_generator_capturer_, current_interval_ms)),
-            current_interval_ms);
-      } else {
-        // Schedule the next frame capture event to happen at approximately the
-        // correct absolute time point.
-        int64_t delay_ms;
-        int64_t time_now_ms = rtc::TimeMillis();
-        if (intended_run_time_ms_ > 0) {
-          delay_ms = time_now_ms - intended_run_time_ms_;
-        } else {
-          delay_ms = 0;
-          intended_run_time_ms_ = time_now_ms;
-        }
-        intended_run_time_ms_ += repeat_interval_ms_;
-        if (delay_ms < repeat_interval_ms_) {
-          rtc::TaskQueue::Current()->PostDelayedTask(
-              std::unique_ptr<rtc::QueuedTask>(this),
-              repeat_interval_ms_ - delay_ms);
-        } else {
-          rtc::TaskQueue::Current()->PostDelayedTask(
-              std::unique_ptr<rtc::QueuedTask>(this), 0);
-          LOG(LS_ERROR)
-              << "Frame Generator Capturer can't keep up with requested fps";
-        }
-        // Repost of this instance, make sure it is not deleted.
-        task_completed = false;
-      }
-    }
-    frame_generator_capturer_->InsertFrame();
-    // Task should be deleted only if it's not repeating.
-    return task_completed;
-  }
-
-  webrtc::test::FrameGeneratorCapturer* const frame_generator_capturer_;
-  const uint32_t repeat_interval_ms_;
-  int64_t intended_run_time_ms_;
-};
-
-FrameGeneratorCapturer* FrameGeneratorCapturer::Create(int width,
-                                                       int height,
-                                                       int target_fps,
-                                                       Clock* clock) {
-  std::unique_ptr<FrameGeneratorCapturer> capturer(new FrameGeneratorCapturer(
-      clock, FrameGenerator::CreateSquareGenerator(width, height), target_fps));
+FrameGeneratorCapturer* FrameGeneratorCapturer::Create(
+    int width,
+    int height,
+    absl::optional<FrameGenerator::OutputType> type,
+    absl::optional<int> num_squares,
+    int target_fps,
+    Clock* clock) {
+  auto capturer = absl::make_unique<FrameGeneratorCapturer>(
+      clock,
+      FrameGenerator::CreateSquareGenerator(width, height, type, num_squares),
+      target_fps);
   if (!capturer->Init())
     return nullptr;
 
@@ -103,11 +51,27 @@ FrameGeneratorCapturer* FrameGeneratorCapturer::CreateFromYuvFile(
     size_t height,
     int target_fps,
     Clock* clock) {
-  std::unique_ptr<FrameGeneratorCapturer> capturer(new FrameGeneratorCapturer(
+  auto capturer = absl::make_unique<FrameGeneratorCapturer>(
       clock,
       FrameGenerator::CreateFromYuvFile(std::vector<std::string>(1, file_name),
                                         width, height, 1),
-      target_fps));
+      target_fps);
+  if (!capturer->Init())
+    return nullptr;
+
+  return capturer.release();
+}
+
+FrameGeneratorCapturer* FrameGeneratorCapturer::CreateSlideGenerator(
+    int width,
+    int height,
+    int frame_repeat_count,
+    int target_fps,
+    Clock* clock) {
+  auto capturer = absl::make_unique<FrameGeneratorCapturer>(
+      clock,
+      FrameGenerator::CreateSlideGenerator(width, height, frame_repeat_count),
+      target_fps);
   if (!capturer->Init())
     return nullptr;
 
@@ -119,14 +83,13 @@ FrameGeneratorCapturer::FrameGeneratorCapturer(
     std::unique_ptr<FrameGenerator> frame_generator,
     int target_fps)
     : clock_(clock),
-      sending_(false),
-      sink_(nullptr),
+      sending_(true),
       sink_wants_observer_(nullptr),
       frame_generator_(std::move(frame_generator)),
-      target_fps_(target_fps),
+      source_fps_(target_fps),
+      target_capture_fps_(target_fps),
       first_frame_capture_time_(-1),
-      task_queue_("FrameGenCapQ",
-                  rtc::TaskQueue::Priority::HIGH) {
+      task_queue_("FrameGenCapQ", rtc::TaskQueue::Priority::HIGH) {
   RTC_DCHECK(frame_generator_);
   RTC_DCHECK_GT(target_fps, 0);
 }
@@ -140,18 +103,24 @@ void FrameGeneratorCapturer::SetFakeRotation(VideoRotation rotation) {
   fake_rotation_ = rotation;
 }
 
+void FrameGeneratorCapturer::SetFakeColorSpace(
+    absl::optional<ColorSpace> color_space) {
+  rtc::CritScope cs(&lock_);
+  fake_color_space_ = color_space;
+}
+
 bool FrameGeneratorCapturer::Init() {
   // This check is added because frame_generator_ might be file based and should
   // not crash because a file moved.
   if (frame_generator_.get() == nullptr)
     return false;
 
-  int framerate_fps = GetCurrentConfiguredFramerate();
-  task_queue_.PostDelayedTask(
-      std::unique_ptr<rtc::QueuedTask>(
-          new InsertFrameTask(this, 1000 / framerate_fps)),
-      1000 / framerate_fps);
-
+  RepeatingTaskHandle::DelayedStart(
+      &task_queue_, TimeDelta::seconds(1) / GetCurrentConfiguredFramerate(),
+      [this] {
+        InsertFrame();
+        return TimeDelta::seconds(1) / GetCurrentConfiguredFramerate();
+      });
   return true;
 }
 
@@ -159,18 +128,23 @@ void FrameGeneratorCapturer::InsertFrame() {
   rtc::CritScope cs(&lock_);
   if (sending_) {
     VideoFrame* frame = frame_generator_->NextFrame();
+    // TODO(srte): Use more advanced frame rate control to allow arbritrary
+    // fractions.
+    int decimation =
+        std::round(static_cast<double>(source_fps_) / target_capture_fps_);
+    for (int i = 1; i < decimation; ++i)
+      frame = frame_generator_->NextFrame();
     frame->set_timestamp_us(clock_->TimeInMicroseconds());
     frame->set_ntp_time_ms(clock_->CurrentNtpInMilliseconds());
     frame->set_rotation(fake_rotation_);
+    if (fake_color_space_) {
+      frame->set_color_space(&fake_color_space_.value());
+    }
     if (first_frame_capture_time_ == -1) {
       first_frame_capture_time_ = frame->ntp_time_ms();
     }
 
-    if (sink_) {
-      rtc::Optional<VideoFrame> out_frame = AdaptFrame(*frame);
-      if (out_frame)
-        sink_->OnFrame(*out_frame);
-    }
+    TestVideoCapturer::OnFrame(*frame);
   }
 }
 
@@ -189,6 +163,24 @@ void FrameGeneratorCapturer::ChangeResolution(size_t width, size_t height) {
   frame_generator_->ChangeResolution(width, height);
 }
 
+void FrameGeneratorCapturer::ChangeFramerate(int target_framerate) {
+  rtc::CritScope cs(&lock_);
+  RTC_CHECK(target_capture_fps_ > 0);
+  if (target_framerate > source_fps_)
+    RTC_LOG(LS_WARNING) << "Target framerate clamped from " << target_framerate
+                        << " to " << source_fps_;
+  if (source_fps_ % target_capture_fps_ != 0) {
+    int decimation =
+        std::round(static_cast<double>(source_fps_) / target_capture_fps_);
+    int effective_rate = target_capture_fps_ / decimation;
+    RTC_LOG(LS_WARNING) << "Target framerate, " << target_framerate
+                        << ", is an uneven fraction of the source rate, "
+                        << source_fps_
+                        << ". The framerate will be :" << effective_rate;
+  }
+  target_capture_fps_ = std::min(source_fps_, target_framerate);
+}
+
 void FrameGeneratorCapturer::SetSinkWantsObserver(SinkWantsObserver* observer) {
   rtc::CritScope cs(&lock_);
   RTC_DCHECK(!sink_wants_observer_);
@@ -198,45 +190,41 @@ void FrameGeneratorCapturer::SetSinkWantsObserver(SinkWantsObserver* observer) {
 void FrameGeneratorCapturer::AddOrUpdateSink(
     rtc::VideoSinkInterface<VideoFrame>* sink,
     const rtc::VideoSinkWants& wants) {
+  TestVideoCapturer::AddOrUpdateSink(sink, wants);
   rtc::CritScope cs(&lock_);
-  RTC_CHECK(!sink_ || sink_ == sink);
-  sink_ = sink;
-  if (sink_wants_observer_)
+  if (sink_wants_observer_) {
+    // Tests need to observe unmodified sink wants.
     sink_wants_observer_->OnSinkWantsChanged(sink, wants);
+  }
+  UpdateFps(GetSinkWants().max_framerate_fps);
+}
 
-  // Handle framerate within this class, just pass on resolution for possible
-  // adaptation.
-  rtc::VideoSinkWants resolution_wants = wants;
-  resolution_wants.max_framerate_fps = std::numeric_limits<int>::max();
-  VideoCapturer::AddOrUpdateSink(sink, resolution_wants);
+void FrameGeneratorCapturer::RemoveSink(
+    rtc::VideoSinkInterface<VideoFrame>* sink) {
+  TestVideoCapturer::RemoveSink(sink);
 
-  // Ignore any requests for framerate higher than initially configured.
-  if (wants.max_framerate_fps < target_fps_) {
-    wanted_fps_.emplace(wants.max_framerate_fps);
+  rtc::CritScope cs(&lock_);
+  UpdateFps(GetSinkWants().max_framerate_fps);
+}
+
+void FrameGeneratorCapturer::UpdateFps(int max_fps) {
+  if (max_fps < target_capture_fps_) {
+    wanted_fps_.emplace(max_fps);
   } else {
     wanted_fps_.reset();
   }
 }
 
-void FrameGeneratorCapturer::RemoveSink(
-    rtc::VideoSinkInterface<VideoFrame>* sink) {
-  rtc::CritScope cs(&lock_);
-  RTC_CHECK(sink_ == sink);
-  sink_ = nullptr;
-}
-
 void FrameGeneratorCapturer::ForceFrame() {
   // One-time non-repeating task,
-  // therefore repeat_interval_ms is 0 in InsertFrameTask()
-  task_queue_.PostTask(
-      std::unique_ptr<rtc::QueuedTask>(new InsertFrameTask(this, 0)));
+  task_queue_.PostTask([this] { InsertFrame(); });
 }
 
 int FrameGeneratorCapturer::GetCurrentConfiguredFramerate() {
   rtc::CritScope cs(&lock_);
-  if (wanted_fps_ && *wanted_fps_ < target_fps_)
+  if (wanted_fps_ && *wanted_fps_ < target_capture_fps_)
     return *wanted_fps_;
-  return target_fps_;
+  return target_capture_fps_;
 }
 
 }  // namespace test

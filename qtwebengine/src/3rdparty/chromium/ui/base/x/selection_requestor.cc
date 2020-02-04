@@ -5,14 +5,14 @@
 #include "ui/base/x/selection_requestor.h"
 
 #include <algorithm>
-#include <X11/Xlib.h>
 
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "ui/base/x/selection_owner.h"
 #include "ui/base/x/selection_utils.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/events/platform/platform_event_source.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/gfx/x/x11_types.h"
 
@@ -21,16 +21,15 @@ namespace ui {
 namespace {
 
 const char kChromeSelection[] = "CHROME_SELECTION";
-const char kIncr[] = "INCR";
 
 // The period of |abort_timer_|. Arbitrary but must be <= than
 // kRequestTimeoutMs.
-const int kTimerPeriodMs = 100;
+const int KSelectionRequestorTimerPeriodMs = 100;
 
 // The amount of time to wait for a request to complete before aborting it.
 const int kRequestTimeoutMs = 10000;
 
-static_assert(kTimerPeriodMs <= kRequestTimeoutMs,
+static_assert(KSelectionRequestorTimerPeriodMs <= kRequestTimeoutMs,
               "timer period must be <= request timeout");
 
 // Combines |data| into a single RefCountedMemory object.
@@ -39,16 +38,15 @@ scoped_refptr<base::RefCountedMemory> CombineRefCountedMemory(
   if (data.size() == 1u)
     return data[0];
 
-  size_t length = 0;
-  for (size_t i = 0; i < data.size(); ++i)
-    length += data[i]->size();
+  size_t combined_length = 0;
+  for (const auto& datum : data)
+    combined_length += datum->size();
   std::vector<unsigned char> combined_data;
-  combined_data.reserve(length);
+  combined_data.reserve(combined_length);
 
-  for (size_t i = 0; i < data.size(); ++i) {
-    combined_data.insert(combined_data.end(),
-                         data[i]->front(),
-                         data[i]->front() + data[i]->size());
+  for (const auto& datum : data) {
+    combined_data.insert(combined_data.end(), datum->front(),
+                         datum->front() + datum->size());
   }
   return base::RefCountedBytes::TakeVector(&combined_data);
 }
@@ -60,7 +58,7 @@ SelectionRequestor::SelectionRequestor(XDisplay* x_display,
                                        PlatformEventDispatcher* dispatcher)
     : x_display_(x_display),
       x_window_(x_window),
-      x_property_(None),
+      x_property_(x11::None),
       dispatcher_(dispatcher),
       current_request_index_(0u) {
   x_property_ = gfx::GetAtom(kChromeSelection);
@@ -83,8 +81,7 @@ bool SelectionRequestor::PerformBlockingConvertSelection(
     ConvertSelectionForCurrentRequest();
   BlockTillSelectionNotifyForRequest(&request);
 
-  std::vector<Request*>::iterator request_it = std::find(
-      requests_.begin(), requests_.end(), &request);
+  auto request_it = std::find(requests_.begin(), requests_.end(), &request);
   CHECK(request_it != requests_.end());
   if (static_cast<int>(current_request_index_) >
       request_it - requests_.begin()) {
@@ -111,22 +108,17 @@ void SelectionRequestor::PerformBlockingConvertSelectionWithParameter(
     XAtom target,
     const std::vector<XAtom>& parameter) {
   SetAtomArrayProperty(x_window_, kChromeSelection, "ATOM", parameter);
-  PerformBlockingConvertSelection(selection, target, NULL, NULL, NULL);
+  PerformBlockingConvertSelection(selection, target, nullptr, nullptr, nullptr);
 }
 
 SelectionData SelectionRequestor::RequestAndWaitForTypes(
     XAtom selection,
     const std::vector<XAtom>& types) {
-  for (std::vector<XAtom>::const_iterator it = types.begin();
-       it != types.end(); ++it) {
+  for (const XAtom& item : types) {
     scoped_refptr<base::RefCountedMemory> data;
-    XAtom type = None;
-    if (PerformBlockingConvertSelection(selection,
-                                        *it,
-                                        &data,
-                                        NULL,
-                                        &type) &&
-        type == *it) {
+    XAtom type = x11::None;
+    if (PerformBlockingConvertSelection(selection, item, &data, nullptr,
+                                        &type) && type == item) {
       return SelectionData(type, data);
     }
   }
@@ -142,7 +134,7 @@ void SelectionRequestor::OnSelectionNotify(const XEvent& event) {
       request->selection != event.xselection.selection ||
       request->target != event.xselection.target) {
     // ICCCM requires us to delete the property passed into SelectionNotify.
-    if (event_property != None)
+    if (event_property != x11::None)
       XDeleteProperty(x_display_, x_window_, event_property);
     return;
   }
@@ -160,14 +152,14 @@ void SelectionRequestor::OnSelectionNotify(const XEvent& event) {
       request->out_data.push_back(out_data);
     }
   }
-  if (event_property != None)
+  if (event_property != x11::None)
     XDeleteProperty(x_display_, x_window_, event_property);
 
   if (request->out_type == gfx::GetAtom(kIncr)) {
     request->data_sent_incrementally = true;
     request->out_data.clear();
     request->out_data_items = 0u;
-    request->out_type = None;
+    request->out_type = x11::None;
     request->timeout = base::TimeTicks::Now() +
         base::TimeDelta::FromMilliseconds(kRequestTimeoutMs);
   } else {
@@ -188,7 +180,7 @@ void SelectionRequestor::OnPropertyEvent(const XEvent& event) {
 
   scoped_refptr<base::RefCountedMemory> out_data;
   size_t out_data_items = 0u;
-  Atom out_type = None;
+  Atom out_type = x11::None;
   bool success = ui::GetRawBytesOfProperty(x_window_,
                                            x_property_,
                                            &out_data,
@@ -199,7 +191,7 @@ void SelectionRequestor::OnPropertyEvent(const XEvent& event) {
     return;
   }
 
-  if (request->out_type != None && request->out_type != out_type) {
+  if (request->out_type != x11::None && request->out_type != out_type) {
     CompleteRequest(current_request_index_, false);
     return;
   }
@@ -249,27 +241,21 @@ void SelectionRequestor::CompleteRequest(size_t index, bool success) {
 void SelectionRequestor::ConvertSelectionForCurrentRequest() {
   Request* request = GetCurrentRequest();
   if (request) {
-    XConvertSelection(x_display_,
-                      request->selection,
-                      request->target,
-                      x_property_,
-                      x_window_,
-                      CurrentTime);
+    XConvertSelection(x_display_, request->selection, request->target,
+                      x_property_, x_window_, x11::CurrentTime);
   }
 }
 
 void SelectionRequestor::BlockTillSelectionNotifyForRequest(Request* request) {
   if (PlatformEventSource::GetInstance()) {
     if (!abort_timer_.IsRunning()) {
-      abort_timer_.Start(FROM_HERE,
-                         base::TimeDelta::FromMilliseconds(kTimerPeriodMs),
-                         this,
-                         &SelectionRequestor::AbortStaleRequests);
+      abort_timer_.Start(
+          FROM_HERE,
+          base::TimeDelta::FromMilliseconds(KSelectionRequestorTimerPeriodMs),
+          this, &SelectionRequestor::AbortStaleRequests);
     }
 
-    base::MessageLoop::ScopedNestableTaskAllower allow_nested(
-        base::MessageLoopForUI::current());
-    base::RunLoop run_loop;
+    base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
     request->quit_closure = run_loop.QuitClosure();
     run_loop.Run();
 
@@ -292,8 +278,9 @@ void SelectionRequestor::BlockTillSelectionNotifyForRequest(Request* request) {
 }
 
 SelectionRequestor::Request* SelectionRequestor::GetCurrentRequest() {
-  return current_request_index_ == requests_.size() ?
-      NULL : requests_[current_request_index_];
+  return current_request_index_ == requests_.size()
+             ? nullptr
+             : requests_[current_request_index_];
 }
 
 SelectionRequestor::Request::Request(XAtom selection,
@@ -303,11 +290,10 @@ SelectionRequestor::Request::Request(XAtom selection,
       target(target),
       data_sent_incrementally(false),
       out_data_items(0u),
-      out_type(None),
+      out_type(x11::None),
       success(false),
       timeout(timeout),
-      completed(false) {
-}
+      completed(false) {}
 
 SelectionRequestor::Request::~Request() {
 }

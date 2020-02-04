@@ -44,7 +44,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 class QChartViewPrivate;
 
-class QT_CHARTS_EXPORT QChartView : public QGraphicsView
+class Q_CHARTS_EXPORT QChartView : public QGraphicsView
 {
     Q_OBJECT
     Q_ENUMS(RubberBand)
@@ -59,8 +59,8 @@ public:
 
     Q_DECLARE_FLAGS(RubberBands, RubberBand)
 
-    explicit QChartView(QWidget *parent = Q_NULLPTR);
-    explicit QChartView(QChart *chart, QWidget *parent = Q_NULLPTR);
+    explicit QChartView(QWidget *parent = nullptr);
+    explicit QChartView(QChart *chart, QWidget *parent = nullptr);
     ~QChartView();
 
     void setRubberBand(const RubberBands &rubberBands);
@@ -70,10 +70,15 @@ public:
     void setChart(QChart *chart);
 
 protected:
-    void resizeEvent(QResizeEvent *event);
-    void mousePressEvent(QMouseEvent *event);
-    void mouseMoveEvent(QMouseEvent *event);
-    void mouseReleaseEvent(QMouseEvent *event);
+    void resizeEvent(QResizeEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+#ifdef Q_OS_MACOS
+#if QT_CONFIG(wheelevent)
+    void wheelEvent(QWheelEvent *event) override;
+#endif
+#endif
 
     QScopedPointer<QChartViewPrivate> d_ptr;
 

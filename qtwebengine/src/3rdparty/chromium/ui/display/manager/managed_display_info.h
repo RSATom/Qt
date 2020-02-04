@@ -7,13 +7,11 @@
 
 #include <stdint.h>
 #include <algorithm>
-#include <array>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/memory/ref_counted.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager_export.h"
 #include "ui/display/types/display_constants.h"
@@ -22,41 +20,10 @@
 
 namespace display {
 
-// A struct that represents all the data required for touch calibration for the
-// display.
-struct DISPLAY_MANAGER_EXPORT TouchCalibrationData {
-  // CalibrationPointPair.first -> display point
-  // CalibrationPointPair.second -> touch point
-  using CalibrationPointPair = std::pair<gfx::Point, gfx::Point>;
-  using CalibrationPointPairQuad = std::array<CalibrationPointPair, 4>;
-  TouchCalibrationData();
-  TouchCalibrationData(const CalibrationPointPairQuad& point_pairs,
-                       const gfx::Size& bounds);
-  TouchCalibrationData(const TouchCalibrationData& calibration_data);
-
-  static bool CalibrationPointPairCompare(const CalibrationPointPair& pair_1,
-                                          const CalibrationPointPair& pair_2) {
-    return pair_1.first.y() < pair_2.first.y()
-               ? true
-               : pair_1.first.x() < pair_2.first.x();
-  }
-
-  bool operator==(TouchCalibrationData other) const;
-
-  // Calibration point pairs used during calibration. Each point pair contains a
-  // display point and the corresponding touch point.
-  CalibrationPointPairQuad point_pairs;
-
-  // Bounds of the touch display when the calibration was performed.
-  gfx::Size bounds;
-};
-
 // A class that represents the display's mode info.
-class DISPLAY_MANAGER_EXPORT ManagedDisplayMode
-    : public base::RefCounted<ManagedDisplayMode> {
+class DISPLAY_MANAGER_EXPORT ManagedDisplayMode {
  public:
   ManagedDisplayMode();
-
   explicit ManagedDisplayMode(const gfx::Size& size);
 
   ManagedDisplayMode(const gfx::Size& size,
@@ -68,13 +35,17 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayMode
                      float refresh_rate,
                      bool is_interlaced,
                      bool native,
-                     float ui_scale,
                      float device_scale_factor);
+
+  ~ManagedDisplayMode();
+  ManagedDisplayMode(const ManagedDisplayMode& other);
+  ManagedDisplayMode& operator=(const ManagedDisplayMode& other);
+
   // Returns the size in DIP which is visible to the user.
   gfx::Size GetSizeInDIP(bool is_internal) const;
 
   // Returns true if |other| has same size and scale factors.
-  bool IsEquivalent(const scoped_refptr<ManagedDisplayMode>& other) const;
+  bool IsEquivalent(const ManagedDisplayMode& other) const;
 
   const gfx::Size& size() const { return size_; }
   bool is_interlaced() const { return is_interlaced_; }
@@ -82,26 +53,15 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayMode
 
   bool native() const { return native_; }
 
-  bool is_default() const { return is_default_; }
-  void set_is_default(bool is_default) { is_default_ = is_default; }
-
   // Missing from ui::ManagedDisplayMode
-  float ui_scale() const { return ui_scale_; }
   float device_scale_factor() const { return device_scale_factor_; }
 
  private:
-  ~ManagedDisplayMode();
-  friend class base::RefCounted<ManagedDisplayMode>;
-
-  gfx::Size size_;             // Physical pixel size of the display.
-  float refresh_rate_;         // Refresh rate of the display, in Hz.
-  bool is_interlaced_;         // True if mode is interlaced.
-  bool native_;                // True if mode is native mode of the display.
-  bool is_default_ = false;    // True if mode is one with default UI scale.
-  float ui_scale_;             // The UI scale factor of the mode.
-  float device_scale_factor_;  // The device scale factor of the mode.
-
-  DISALLOW_COPY_AND_ASSIGN(ManagedDisplayMode);
+  gfx::Size size_;              // Physical pixel size of the display.
+  float refresh_rate_ = 0.0f;   // Refresh rate of the display, in Hz.
+  bool is_interlaced_ = false;  // True if mode is interlaced.
+  bool native_ = false;         // True if mode is native mode of the display.
+  float device_scale_factor_ = 1.0f;  // The device scale factor of the mode.
 };
 
 // ManagedDisplayInfo contains metadata for each display. This is used to create
@@ -109,7 +69,7 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayMode
 // environment. This class is intentionally made copiable.
 class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
  public:
-  using ManagedDisplayModeList = std::vector<scoped_refptr<ManagedDisplayMode>>;
+  using ManagedDisplayModeList = std::vector<ManagedDisplayMode>;
 
   // Creates a ManagedDisplayInfo from string spec. 100+200-1440x800 creates
   // display
@@ -117,7 +77,7 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
   // The format is
   //
   // [origin-]widthxheight[*device_scale_factor][#resolutions list]
-  //     [/<properties>][@ui-scale]
+  //     [/<properties>][@zoom-factor]
   //
   // where [] are optional:
   // - |origin| is given in x+y- format.
@@ -126,24 +86,24 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
   //   (5%), and one rotation property where 'r' is 90 degree clock-wise
   //   (to the 'r'ight) 'u' is 180 degrees ('u'pside-down) and 'l' is
   //   270 degrees (to the 'l'eft).
-  // - ui-scale is floating value, e.g. @1.5 or @1.25.
+  // - zoom-factor is floating value, e.g. @1.5 or @1.25.
   // - |resolution list| is the list of size that is given in
   //   |width x height [% refresh_rate]| separated by '|'.
   //
   // A couple of examples:
   // "100x100"
   //      100x100 window at 0,0 origin. 1x device scale factor. no overscan.
-  //      no rotation. 1.0 ui scale.
+  //      no rotation. 1.0 zoom factor.
   // "5+5-300x200*2"
   //      300x200 window at 5,5 origin. 2x device scale factor.
-  //      no overscan, no rotation. 1.0 ui scale.
+  //      no overscan, no rotation. 1.0 zoom factor.
   // "300x200/ol"
   //      300x200 window at 0,0 origin. 1x device scale factor.
   //      with 5% overscan. rotated to left (90 degree counter clockwise).
-  //      1.0 ui scale.
+  //      1.0 zoom factor.
   // "10+20-300x200/u@1.5"
   //      300x200 window at 10,20 origin. 1x device scale factor.
-  //      no overscan. flipped upside-down (180 degree) and 1.5 ui scale.
+  //      no overscan. flipped upside-down (180 degree) and 1.5 zoom factor.
   // "200x100#300x200|200x100%59.0|100x100%60"
   //      200x100 window at 0,0 origin, with 3 possible resolutions,
   //      300x200, 200x100 at 59 Hz, and 100x100 at 60 Hz.
@@ -176,26 +136,25 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
   }
   Display::TouchSupport touch_support() const { return touch_support_; }
 
-  // Associate the input device with identifier |id| with this display.
-  void AddInputDevice(int id);
-
-  // Clear the list of input devices associated with this display.
-  void ClearInputDevices();
-
-  // The input device ids that are associated with this display.
-  std::vector<int> input_devices() const { return input_devices_; }
-
   // Gets/Sets the device scale factor of the display.
   float device_scale_factor() const { return device_scale_factor_; }
   void set_device_scale_factor(float scale) { device_scale_factor_ = scale; }
+
+  float zoom_factor() const { return zoom_factor_; }
+  void set_zoom_factor(float zoom_factor) { zoom_factor_ = zoom_factor; }
+  void set_is_zoom_factor_from_ui_scale(bool is_zoom_factor_from_ui_scale) {
+    is_zoom_factor_from_ui_scale_ = is_zoom_factor_from_ui_scale;
+  }
+  bool is_zoom_factor_from_ui_scale() const {
+    return is_zoom_factor_from_ui_scale_;
+  }
 
   // Gets/Sets the device DPI of the display.
   float device_dpi() const { return device_dpi_; }
   void set_device_dpi(float dpi) { device_dpi_ = dpi; }
 
   // The native bounds for the display. The size of this can be
-  // different from the |size_in_pixel| when overscan insets are set
-  // and/or |configured_ui_scale_| is set.
+  // different from the |size_in_pixel| when overscan insets are set.
   const gfx::Rect& bounds_in_native() const { return bounds_in_native_; }
 
   // The size for the display in pixels.
@@ -205,12 +164,6 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
   const gfx::Insets& overscan_insets_in_dip() const {
     return overscan_insets_in_dip_;
   }
-
-  // Sets/gets configured ui scale. This can be different from the ui
-  // scale actually used when the scale is 2.0 and DSF is 2.0.
-  // (the effective ui scale is 1.0 in this case).
-  float configured_ui_scale() const { return configured_ui_scale_; }
-  void set_configured_ui_scale(float scale) { configured_ui_scale_ = scale; }
 
   // Sets the rotation for the given |source|. Setting a new rotation will also
   // have it become the active rotation.
@@ -239,13 +192,9 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
   //    uses 1.0f DFS unless 0.8x UI scaling is specified.
   float GetEffectiveDeviceScaleFactor() const;
 
-  // Returns the ui scale used for the device scale factor. This
-  // return 1.0f if the ui scale and dsf are both set to 2.0.
-  float GetEffectiveUIScale() const;
-
-  // Copy the display info except for fields that can be modified by a
-  // user (|rotation_| and |configured_ui_scale_|). |rotation_| and
-  // |configured_ui_scale_| are copied when the |another_info| isn't native one.
+  // Copy the display info except for fields that can be modified by a user
+  // (|rotation_|). |rotation_| is copied when the |another_info| isn't native
+  // one.
   void Copy(const ManagedDisplayInfo& another_info);
 
   // Update the |bounds_in_native_| and |size_in_pixel_| using
@@ -272,35 +221,13 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
   // display.
   void SetManagedDisplayModes(const ManagedDisplayModeList& display_modes);
 
-
-  // Sets/Gets the touch calibration data for the display.
-  void SetTouchCalibrationData(const TouchCalibrationData& calibration_data);
-  TouchCalibrationData
-      GetTouchCalibrationData() const & { return touch_calibration_data_; }
-  bool has_touch_calibration_data() const
-      { return has_touch_calibration_data_; }
-  void clear_touch_calibration_data() { has_touch_calibration_data_ = false; }
-
   // Returns the native mode size. If a native mode is not present, return an
   // empty size.
   gfx::Size GetNativeModeSize() const;
 
-  ColorCalibrationProfile color_profile() const { return color_profile_; }
-
-  // Sets the color profile. It will ignore if the specified |profile| is not in
-  // |available_color_profiles_|.
-  void SetColorProfile(ColorCalibrationProfile profile);
-
-  // Returns true if |profile| is in |available_color_profiles_|.
-  bool IsColorProfileAvailable(ColorCalibrationProfile profile) const;
-
-  const std::vector<ColorCalibrationProfile>& available_color_profiles() const {
-    return available_color_profiles_;
-  }
-
-  void set_available_color_profiles(
-      const std::vector<ColorCalibrationProfile>& profiles) {
-    available_color_profiles_ = profiles;
+  const gfx::ColorSpace& color_space() const { return color_space_; }
+  void set_color_space(const gfx::ColorSpace& color_space) {
+    color_space_ = color_space;
   }
 
   bool is_aspect_preserving_scaling() const {
@@ -317,38 +244,39 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
     maximum_cursor_size_ = size;
   }
 
+  const std::string& manufacturer_id() const { return manufacturer_id_; }
+  void set_manufacturer_id(const std::string& id) { manufacturer_id_ = id; }
+
+  const std::string& product_id() const { return product_id_; }
+  void set_product_id(const std::string& id) { product_id_ = id; }
+
+  int32_t year_of_manufacture() const { return year_of_manufacture_; }
+  void set_year_of_manufacture(int32_t year) { year_of_manufacture_ = year; }
+
   // Returns a string representation of the ManagedDisplayInfo, excluding
-  // display
-  // modes.
+  // display modes.
   std::string ToString() const;
 
   // Returns a string representation of the ManagedDisplayInfo, including
-  // display
-  // modes.
+  // display modes.
   std::string ToFullString() const;
 
  private:
-  // Returns true if this display should use DSF=1.25 for UI scaling; i.e.
-  // SetUse125DSFForUIScaling(true) is called and this is the internal display.
-  bool Use125DSFForUIScaling() const;
-
   int64_t id_;
   std::string name_;
+  std::string manufacturer_id_;
+  std::string product_id_;
+  int32_t year_of_manufacture_;
   base::FilePath sys_path_;
   bool has_overscan_;
   std::map<Display::RotationSource, Display::Rotation> rotations_;
   Display::RotationSource active_rotation_source_;
   Display::TouchSupport touch_support_;
-  bool has_touch_calibration_data_;
 
-  // The set of input devices associated with this display.
-  std::vector<int> input_devices_;
-
-  // This specifies the device's pixel density. (For example, a
-  // display whose DPI is higher than the threshold is considered to have
-  // device_scale_factor = 2.0 on Chrome OS).  This is used by the
-  // grapics layer to choose and draw appropriate images and scale
-  // layers properly.
+  // This specifies the device's pixel density. (For example, a display whose
+  // DPI is higher than the threshold is considered to have device_scale_factor
+  // = 2.0 on Chrome OS).  This is used by the graphics layer to choose and draw
+  // appropriate images and scale layers properly.
   float device_scale_factor_;
   gfx::Rect bounds_in_native_;
 
@@ -360,13 +288,15 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
   gfx::Size size_in_pixel_;
   gfx::Insets overscan_insets_in_dip_;
 
-  // The pixel scale of the display. This is used to simply expand (or
-  // shrink) the desktop over the native display resolution (useful in
-  // HighDPI display).  Note that this should not be confused with the
-  // device scale factor, which specifies the pixel density of the
-  // display. The actuall scale value to be used depends on the device
-  // scale factor.  See |GetEffectiveScaleFactor()|.
-  float configured_ui_scale_;
+  // The zoom level currently applied to the display. This value is appended
+  // multiplicatively to the device scale factor to get the effecting scaling
+  // for a display.
+  float zoom_factor_;
+
+  // True if the |zoom_factor_| currently set is a port of the ui-scale. This is
+  // needed to correctly compute zoom values and effective device scale factor
+  // for FHD devices with 1.25 device scale factor.
+  bool is_zoom_factor_from_ui_scale_;
 
   // True if this comes from native platform (DisplayChangeObserver).
   bool native_;
@@ -383,17 +313,12 @@ class DISPLAY_MANAGER_EXPORT ManagedDisplayInfo {
   // The list of modes supported by this display.
   ManagedDisplayModeList display_modes_;
 
-  // The current profile of the color calibration.
-  ColorCalibrationProfile color_profile_;
-
-  // The list of available variations for the color calibration.
-  std::vector<ColorCalibrationProfile> available_color_profiles_;
-
   // Maximum cursor size.
   gfx::Size maximum_cursor_size_;
 
-  // Information associated to touch calibration for the display.
-  TouchCalibrationData touch_calibration_data_;
+  // Colorimetry information of the Display (if IsValid()), including e.g.
+  // transfer and primaries information, retrieved from its EDID.
+  gfx::ColorSpace color_space_;
 
   // If you add a new member, you need to update Copy().
 };

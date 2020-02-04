@@ -85,8 +85,7 @@ Eviction::Eviction()
       ptr_factory_(this) {
 }
 
-Eviction::~Eviction() {
-}
+Eviction::~Eviction() = default;
 
 void Eviction::Init(BackendImpl* backend) {
   // We grab a bunch of info from the backend to make the code a little cleaner
@@ -241,7 +240,6 @@ bool Eviction::ShouldTrim() {
     return false;
   }
 
-  UMA_HISTOGRAM_COUNTS_1M("DiskCache.TrimDelays", trim_delays_);
   trim_delays_ = 0;
   return true;
 }

@@ -3,7 +3,9 @@
 // found in the LICENSE file.
 
 // This file intentionally does not have header guards, it's included
-// inside a macro to generate enum values.
+// inside a macro to generate enum values. The following line silences a
+// presubmit warning that would otherwise be triggered by this:
+// no-include-guard-because-multiply-included
 
 // This file contains the list of network errors.
 
@@ -109,7 +111,7 @@ NET_ERROR(CONTEXT_SHUT_DOWN, -26)
 
 // The request failed because the response was delivered along with requirements
 // which are not met ('X-Frame-Options' and 'Content-Security-Policy' ancestor
-// checks, for instance).
+// checks and 'Cross-Origin-Resource-Policy', for instance).
 NET_ERROR(BLOCKED_BY_RESPONSE, -27)
 
 // The request failed after the response was received, based on client-side
@@ -259,9 +261,12 @@ NET_ERROR(NETWORK_ACCESS_DENIED, -138)
 NET_ERROR(TEMPORARILY_THROTTLED, -139)
 
 // A request to create an SSL tunnel connection through the HTTPS proxy
-// received a non-200 (OK) and non-407 (Proxy Auth) response.  The response
-// body might include a description of why the request failed.
-NET_ERROR(HTTPS_PROXY_TUNNEL_RESPONSE, -140)
+// received a 302 (temporary redirect) response.  The response body might
+// include a description of why the request failed.
+//
+// TODO(https://crbug.com/928551): This is deprecated and should not be used by
+// new code.
+NET_ERROR(HTTPS_PROXY_TUNNEL_RESPONSE_REDIRECT, -140)
 
 // We were unable to sign the CertificateVerify data of an SSL client auth
 // handshake with the client certificate's private key.
@@ -404,6 +409,34 @@ NET_ERROR(READ_IF_READY_NOT_IMPLEMENTED, -174)
 //    is unlikely.
 NET_ERROR(SSL_VERSION_INTERFERENCE, -175)
 
+// No socket buffer space is available.
+NET_ERROR(NO_BUFFER_SPACE, -176)
+
+// There were no common signature algorithms between our client certificate
+// private key and the server's preferences.
+NET_ERROR(SSL_CLIENT_AUTH_NO_COMMON_ALGORITHMS, -177)
+
+// TLS 1.3 early data was rejected by the server. This will be received before
+// any data is returned from the socket. The request should be retried with
+// early data disabled.
+NET_ERROR(EARLY_DATA_REJECTED, -178)
+
+// TLS 1.3 early data was offered, but the server responded with TLS 1.2 or
+// earlier. This is an internal error code to account for a
+// backwards-compatibility issue with early data and TLS 1.2. It will be
+// received before any data is returned from the socket. The request should be
+// retried with early data disabled.
+//
+// See https://tools.ietf.org/html/rfc8446#appendix-D.3 for details.
+NET_ERROR(WRONG_VERSION_ON_EARLY_DATA, -179)
+
+// TLS 1.3 was enabled, but a lower version was negotiated and the server
+// returned a value indicating it supported TLS 1.3. This is part of a security
+// check in TLS 1.3, but it may also indicate the user is behind a buggy
+// TLS-terminating proxy which implemented TLS 1.2 incorrectly. (See
+// https://crbug.com/boringssl/226.)
+NET_ERROR(TLS13_DOWNGRADE_DETECTED, -180)
+
 // Certificate error codes
 //
 // The values of certificate error codes must be consecutive.
@@ -511,13 +544,17 @@ NET_ERROR(CERT_VALIDITY_TOO_LONG, -213)
 // did not provide CT information that complied with the policy.
 NET_ERROR(CERTIFICATE_TRANSPARENCY_REQUIRED, -214)
 
+// The certificate chained to a legacy Symantec root that is no longer trusted.
+// https://g.co/chrome/symantecpkicerts
+NET_ERROR(CERT_SYMANTEC_LEGACY, -215)
+
 // Add new certificate error codes here.
 //
 // Update the value of CERT_END whenever you add a new certificate error
 // code.
 
 // The value immediately past the last certificate error code.
-NET_ERROR(CERT_END, -215)
+NET_ERROR(CERT_END, -216)
 
 // The URL is invalid.
 NET_ERROR(INVALID_URL, -300)
@@ -592,8 +629,8 @@ NET_ERROR(ENCODING_CONVERSION_FAILED, -333)
 // The server sent an FTP directory listing in a format we do not understand.
 NET_ERROR(UNRECOGNIZED_FTP_DIRECTORY_LISTING_FORMAT, -334)
 
-// Attempted use of an unknown SPDY stream id.
-NET_ERROR(INVALID_SPDY_STREAM, -335)
+// Obsolete.  Was only logged in NetLog when an HTTP/2 pushed stream expired.
+// NET_ERROR(INVALID_SPDY_STREAM, -335)
 
 // There are no supported proxies in the provided list.
 NET_ERROR(NO_SUPPORTED_PROXIES, -336)
@@ -722,6 +759,29 @@ NET_ERROR(CONTENT_DECODING_INIT_FAILED, -371)
 // SpdyStream layer.
 NET_ERROR(SPDY_RST_STREAM_NO_ERROR_RECEIVED, -372)
 
+// The pushed stream claimed by the request is no longer available.
+NET_ERROR(SPDY_PUSHED_STREAM_NOT_AVAILABLE, -373)
+
+// A pushed stream was claimed and later reset by the server. When this happens,
+// the request should be retried.
+NET_ERROR(SPDY_CLAIMED_PUSHED_STREAM_RESET_BY_SERVER, -374)
+
+// An HTTP transaction was retried too many times due for authentication or
+// invalid certificates. This may be due to a bug in the net stack that would
+// otherwise infinite loop, or if the server or proxy continually requests fresh
+// credentials or presents a fresh invalid certificate.
+NET_ERROR(TOO_MANY_RETRIES, -375)
+
+// Received an HTTP/2 frame on a closed stream.
+NET_ERROR(SPDY_STREAM_CLOSED, -376)
+
+// Client is refusing an HTTP/2 stream.
+NET_ERROR(SPDY_CLIENT_REFUSED_STREAM, -377)
+
+// A pushed HTTP/2 stream was claimed by a request based on matching URL and
+// request headers, but the pushed response headers do not match the request.
+NET_ERROR(SPDY_PUSHED_RESPONSE_DOES_NOT_MATCH, -378)
+
 // The cache does not have the requested entry.
 NET_ERROR(CACHE_MISS, -400)
 
@@ -764,6 +824,11 @@ NET_ERROR(CACHE_LOCK_TIMEOUT, -409)
 // credentials aren't available.  There isn't a way to get them at that point.
 NET_ERROR(CACHE_AUTH_FAILURE_AFTER_READ, -410)
 
+// Internal not-quite error code for the HTTP cache. In-memory hints suggest
+// that the cache entry would not have been useable with the transaction's
+// current configuration (e.g. load flags, mode, etc.)
+NET_ERROR(CACHE_ENTRY_NOT_SUITABLE, -411)
+
 // The server's response was insecure (e.g. there was a cert error).
 NET_ERROR(INSECURE_RESPONSE, -501)
 
@@ -773,6 +838,9 @@ NET_ERROR(NO_PRIVATE_KEY_FOR_CERT, -502)
 
 // An error adding a certificate to the OS certificate database.
 NET_ERROR(ADD_USER_CERT_FAILED, -503)
+
+// An error occurred while handling a signed exchange.
+NET_ERROR(INVALID_SIGNED_EXCHANGE, -504)
 
 // *** Code -600 is reserved (was FTP_PASV_COMMAND_FAILED). ***
 
@@ -882,3 +950,6 @@ NET_ERROR(DNS_SEARCH_EMPTY, -805)
 
 // Failed to sort addresses according to RFC3484.
 NET_ERROR(DNS_SORT_ERROR, -806)
+
+// Failed to resolve over HTTP, fallback to legacy
+NET_ERROR(DNS_HTTP_FAILED, -807)

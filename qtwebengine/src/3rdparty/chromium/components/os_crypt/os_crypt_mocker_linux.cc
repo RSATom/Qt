@@ -8,38 +8,20 @@
 
 #include "base/base64.h"
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/rand_util.h"
 #include "components/os_crypt/key_storage_config_linux.h"
 #include "components/os_crypt/os_crypt.h"
 
 namespace {
 
-static base::LazyInstance<OSCryptMockerLinux>::Leaky g_mocker =
-    LAZY_INSTANCE_INITIALIZER;
-
-KeyStorageLinux* GetKeyStorage() {
-  return OSCryptMockerLinux::GetInstance();
+std::unique_ptr<KeyStorageLinux> CreateNewMock() {
+  return std::make_unique<OSCryptMockerLinux>();
 }
 
-std::string* GetPassword() {
-  return OSCryptMockerLinux::GetInstance()->GetKeyPtr();
 }
 
-}  // namespace
-
-std::string OSCryptMockerLinux::GetKey() {
-  if (key_.empty())
-    base::Base64Encode(base::RandBytesAsString(16), &key_);
+std::string OSCryptMockerLinux::GetKeyImpl() {
   return key_;
-}
-
-bool OSCryptMockerLinux::Init() {
-  return true;
-}
-
-void OSCryptMockerLinux::ResetTo(base::StringPiece new_key) {
-  key_ = new_key.as_string();
 }
 
 std::string* OSCryptMockerLinux::GetKeyPtr() {
@@ -47,18 +29,19 @@ std::string* OSCryptMockerLinux::GetKeyPtr() {
 }
 
 // static
-OSCryptMockerLinux* OSCryptMockerLinux::GetInstance() {
-  return g_mocker.Pointer();
-}
-
-// static
-void OSCryptMockerLinux::SetUpWithSingleton() {
-  UseMockKeyStorageForTesting(&GetKeyStorage, &GetPassword);
-  OSCrypt::SetConfig(base::MakeUnique<os_crypt::Config>());
+void OSCryptMockerLinux::SetUp() {
+  UseMockKeyStorageForTesting(
+      &CreateNewMock, nullptr /* get the key from the provider above */);
+  OSCrypt::SetConfig(std::make_unique<os_crypt::Config>());
 }
 
 // static
 void OSCryptMockerLinux::TearDown() {
   UseMockKeyStorageForTesting(nullptr, nullptr);
   ClearCacheForTesting();
+}
+
+bool OSCryptMockerLinux::Init() {
+  key_ = "the_encryption_key";
+  return true;
 }

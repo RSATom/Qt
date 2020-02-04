@@ -36,7 +36,7 @@
 
 QT_BEGIN_NAMESPACE
 
-QString project_builtin_regx() //calculate the builtin regular expression..
+static QString project_builtin_regx() //calculate the builtin regular expression..
 {
     QString ret;
     QStringList builtin_exts;
@@ -229,7 +229,7 @@ ProjectGenerator::init()
 
     ProStringList &h = v["HEADERS"];
     bool no_qt_files = true;
-    static const char *srcs[] = { "SOURCES", "YACCSOURCES", "LEXSOURCES", "FORMS", 0 };
+    static const char *srcs[] = { "SOURCES", "YACCSOURCES", "LEXSOURCES", "FORMS", nullptr };
     for (int i = 0; srcs[i]; i++) {
         const ProStringList &l = v[srcs[i]];
         QMakeSourceFileInfo::SourceFileType type = QMakeSourceFileInfo::TYPE_C;
@@ -345,14 +345,10 @@ ProjectGenerator::writeMakefile(QTextStream &t)
           << getWritableVar("CONFIG_REMOVE", false)
           << getWritableVar("INCLUDEPATH") << endl;
 
-        t << "# The following define makes your compiler warn you if you use any\n"
-             "# feature of Qt which has been marked as deprecated (the exact warnings\n"
-             "# depend on your compiler). Please consult the documentation of the\n"
-             "# deprecated API in order to know how to port your code away from it.\n"
-             "DEFINES += QT_DEPRECATED_WARNINGS\n"
-             "\n"
-             "# You can also make your code fail to compile if you use deprecated APIs.\n"
+        t << "# You can make your code fail to compile if you use deprecated APIs.\n"
              "# In order to do so, uncomment the following line.\n"
+             "# Please consult the documentation of the deprecated API in order to know\n"
+             "# how to port your code away from it.\n"
              "# You can also select to disable deprecated APIs only up to a certain version of Qt.\n"
              "#DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0\n\n";
 
@@ -473,18 +469,11 @@ ProjectGenerator::getWritableVar(const char *vk, bool)
 bool
 ProjectGenerator::openOutput(QFile &file, const QString &build) const
 {
-    QString outdir;
-    if(!file.fileName().isEmpty()) {
-        QFileInfo fi(fileInfo(file.fileName()));
-        if(fi.isDir())
-            outdir = fi.path() + QDir::separator();
-    }
-    if(!outdir.isEmpty() || file.fileName().isEmpty()) {
-        QString dir = qmake_getpwd();
-        int s = dir.lastIndexOf('/');
-        if(s != -1)
-            dir = dir.right(dir.length() - (s + 1));
-        file.setFileName(outdir + dir + Option::pro_ext);
+    ProString fileName = file.fileName();
+    if (!fileName.endsWith(Option::pro_ext)) {
+        if (fileName.isEmpty())
+            fileName = fileInfo(Option::output_dir).fileName();
+        file.setFileName(fileName + Option::pro_ext);
     }
     return MakefileGenerator::openOutput(file, build);
 }

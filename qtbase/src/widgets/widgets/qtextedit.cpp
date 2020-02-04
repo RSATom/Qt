@@ -49,7 +49,9 @@
 #include <qpainter.h>
 #include <qevent.h>
 #include <qdebug.h>
+#if QT_CONFIG(draganddrop)
 #include <qdrag.h>
+#endif
 #include <qclipboard.h>
 #if QT_CONFIG(menu)
 #include <qmenu.h>
@@ -84,24 +86,32 @@ class QTextEditControl : public QWidgetTextControl
 public:
     inline QTextEditControl(QObject *parent) : QWidgetTextControl(parent) {}
 
-    virtual QMimeData *createMimeDataFromSelection() const Q_DECL_OVERRIDE {
+    virtual QMimeData *createMimeDataFromSelection() const override {
         QTextEdit *ed = qobject_cast<QTextEdit *>(parent());
         if (!ed)
             return QWidgetTextControl::createMimeDataFromSelection();
         return ed->createMimeDataFromSelection();
     }
-    virtual bool canInsertFromMimeData(const QMimeData *source) const Q_DECL_OVERRIDE {
+    virtual bool canInsertFromMimeData(const QMimeData *source) const override {
         QTextEdit *ed = qobject_cast<QTextEdit *>(parent());
         if (!ed)
             return QWidgetTextControl::canInsertFromMimeData(source);
         return ed->canInsertFromMimeData(source);
     }
-    virtual void insertFromMimeData(const QMimeData *source) Q_DECL_OVERRIDE {
+    virtual void insertFromMimeData(const QMimeData *source) override {
         QTextEdit *ed = qobject_cast<QTextEdit *>(parent());
         if (!ed)
             QWidgetTextControl::insertFromMimeData(source);
         else
             ed->insertFromMimeData(source);
+    }
+    QVariant loadResource(int type, const QUrl &name) override {
+        auto *ed = qobject_cast<QTextEdit *>(parent());
+        if (!ed)
+            return QWidgetTextControl::loadResource(type, name);
+
+        QUrl resolvedName = ed->d_func()->resolveUrl(name);
+        return ed->loadResource(type, resolvedName);
     }
 };
 
@@ -546,7 +556,8 @@ void QTextEditPrivate::_q_ensureVisible(const QRectF &_rect)
 
     This property gets and sets the text editor's contents as plain
     text. Previous contents are removed and undo/redo history is reset
-    when the property is set.
+    when the property is set. currentCharFormat() is also reset, unless
+    textCursor() is already at the beginning of the document.
 
     If the text edit has another content type, it will not be replaced
     by plain text if you call toPlainText(). The only exception to this
@@ -735,6 +746,7 @@ void QTextEdit::setAlignment(Qt::Alignment a)
     QTextCursor cursor = d->control->textCursor();
     cursor.mergeBlockFormat(fmt);
     d->control->setTextCursor(cursor);
+    d->relayoutDocument();
 }
 
 /*!
@@ -1024,7 +1036,12 @@ void QTextEdit::paste()
 /*!
     Deletes all the text in the text edit.
 
-    Note that the undo/redo history is cleared by this function.
+    Notes:
+    \list
+    \li The undo/redo history is also cleared.
+    \li currentCharFormat() is reset, unless textCursor()
+    is already at the beginning of the document.
+    \endlist
 
     \sa cut(), setPlainText(), setHtml()
 */
@@ -1129,9 +1146,13 @@ void QTextEdit::timerEvent(QTimerEvent *e)
     Changes the text of the text edit to the string \a text.
     Any previous text is removed.
 
-    \a text is interpreted as plain text.
-
-    Note that the undo/redo history is cleared by this function.
+    Notes:
+    \list
+    \li \a text is interpreted as plain text.
+    \li The undo/redo history is also cleared.
+    \li currentCharFormat() is reset, unless textCursor()
+    is already at the beginning of the document.
+    \endlist
 
     \sa toPlainText()
 */
@@ -1165,7 +1186,8 @@ QString QTextEdit::toPlainText() const
 
     setHtml() changes the text of the text edit.  Any previous text is
     removed and the undo/redo history is cleared. The input text is
-    interpreted as rich text in html format.
+    interpreted as rich text in html format. currentCharFormat() is also
+    reset, unless textCursor() is already at the beginning of the document.
 
     \note It is the responsibility of the caller to make sure that the
     text is correctly decoded when a QString containing HTML is created
@@ -1516,8 +1538,7 @@ void QTextEditPrivate::paint(QPainter *p, QPaintEvent *e)
         layout->setViewport(QRect());
 
     if (!placeholderText.isEmpty() && doc->isEmpty() && !control->isPreediting()) {
-        QColor col = control->palette().text().color();
-        col.setAlpha(128);
+        const QColor col = control->palette().placeholderText().color();
         p->setPen(col);
         const int margin = int(doc->documentMargin());
         p->drawText(viewport->rect().adjusted(margin, margin, -margin, -margin), Qt::AlignTop | Qt::TextWordWrap, placeholderText);
@@ -1648,7 +1669,7 @@ void QTextEdit::contextMenuEvent(QContextMenuEvent *e)
 }
 #endif // QT_NO_CONTEXTMENU
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*! \reimp
 */
 void QTextEdit::dragEnterEvent(QDragEnterEvent *e)
@@ -1689,7 +1710,7 @@ void QTextEdit::dropEvent(QDropEvent *e)
     d->sendControlEvent(e);
 }
 
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*! \reimp
  */
@@ -2047,7 +2068,7 @@ void QTextEdit::setAcceptRichText(bool accept)
     \inmodule QtWidgets
 
     \brief The QTextEdit::ExtraSelection structure provides a way of specifying a
-           character format for a given selection in a document
+           character format for a given selection in a document.
 */
 
 /*!
@@ -2309,8 +2330,6 @@ void QTextEdit::scrollToAnchor(const QString &name)
 }
 
 /*!
-    \fn QTextEdit::zoomIn(int range)
-
     Zooms in on the text by making the base font size \a range
     points larger and recalculating all font sizes to be the new size.
     This does not change the size of any images.
@@ -2323,10 +2342,6 @@ void QTextEdit::zoomIn(int range)
 }
 
 /*!
-    \fn QTextEdit::zoomOut(int range)
-
-    \overload
-
     Zooms out on the text by making the base font size \a range points
     smaller and recalculating all font sizes to be the new size. This
     does not change the size of any images.
@@ -2532,6 +2547,27 @@ bool QTextEdit::find(const QString &exp, QTextDocument::FindFlags options)
 */
 #ifndef QT_NO_REGEXP
 bool QTextEdit::find(const QRegExp &exp, QTextDocument::FindFlags options)
+{
+    Q_D(QTextEdit);
+    return d->control->find(exp, options);
+}
+#endif
+
+/*!
+    \fn bool QTextEdit::find(const QRegularExpression &exp, QTextDocument::FindFlags options)
+
+    \since 5.13
+    \overload
+
+    Finds the next occurrence, matching the regular expression, \a exp, using the given
+    \a options. The QTextDocument::FindCaseSensitively option is ignored for this overload,
+    use QRegularExpression::CaseInsensitiveOption instead.
+
+    Returns \c true if a match was found and changes the cursor to select the match;
+    otherwise returns \c false.
+*/
+#if QT_CONFIG(regularexpression)
+bool QTextEdit::find(const QRegularExpression &exp, QTextDocument::FindFlags options)
 {
     Q_D(QTextEdit);
     return d->control->find(exp, options);

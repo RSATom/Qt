@@ -4,19 +4,23 @@
 
 #include "media/midi/task_service.h"
 
+#include <limits>
+
+#include "base/bind.h"
+#include "base/message_loop/message_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "build/build_config.h"
 
 namespace midi {
 
-namespace {
+constexpr TaskService::RunnerId TaskService::kDefaultRunnerId;
+constexpr TaskService::InstanceId TaskService::kInvalidInstanceId;
 
-constexpr TaskService::InstanceId kInvalidInstanceId = -1;
-
-}  // namespace
-
-TaskService::TaskService()
-    : next_instance_id_(0), bound_instance_id_(kInvalidInstanceId) {}
+TaskService::TaskService() : no_tasks_in_flight_cv_(&tasks_in_flight_lock_) {
+  DETACH_FROM_SEQUENCE(instance_binding_sequence_checker_);
+}
 
 TaskService::~TaskService() {
   std::vector<std::unique_ptr<base::Thread>> threads;
@@ -31,42 +35,66 @@ TaskService::~TaskService() {
 }
 
 bool TaskService::BindInstance() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(instance_binding_sequence_checker_);
   base::AutoLock lock(lock_);
   if (bound_instance_id_ != kInvalidInstanceId)
     return false;
-  bound_instance_id_ = next_instance_id_++;
+
+  // If the InstanceId reaches to the limit, just fail rather than doing
+  // something nicer for such impractical case.
+  if (std::numeric_limits<InstanceId>::max() == next_instance_id_)
+    return false;
+
+  bound_instance_id_ = ++next_instance_id_;
 
   DCHECK(!default_task_runner_);
   default_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+
   return true;
 }
 
 bool TaskService::UnbindInstance() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(instance_binding_sequence_checker_);
   {
     base::AutoLock lock(lock_);
     if (bound_instance_id_ == kInvalidInstanceId)
       return false;
+
+    DCHECK_EQ(next_instance_id_, bound_instance_id_);
     bound_instance_id_ = kInvalidInstanceId;
 
     DCHECK(default_task_runner_);
     default_task_runner_ = nullptr;
   }
   // From now on RunTask will never run any task bound to the instance id.
-  // But invoked tasks might be still running here. To ensure no task run on
-  // quitting this method, take writer lock of |task_lock_|.
-  base::subtle::AutoWriteLock task_lock(task_lock_);
+  // But invoked tasks might be still running here. To ensure no task runs on
+  // quitting this method, wait for all tasks to complete.
+  base::AutoLock tasks_in_flight_lock(tasks_in_flight_lock_);
+  // TODO(https://crbug.com/796830): Remove sync operations on the I/O thread.
+  base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
+  while (tasks_in_flight_ > 0)
+    no_tasks_in_flight_cv_.Wait();
+
   return true;
 }
 
+bool TaskService::IsOnTaskRunner(RunnerId runner_id) {
+  base::AutoLock lock(lock_);
+  if (bound_instance_id_ == kInvalidInstanceId)
+    return false;
+
+  if (runner_id == kDefaultRunnerId)
+    return default_task_runner_->BelongsToCurrentThread();
+
+  size_t thread = runner_id - 1;
+  if (threads_.size() <= thread || !threads_[thread])
+    return false;
+
+  return threads_[thread]->task_runner()->BelongsToCurrentThread();
+}
+
 void TaskService::PostStaticTask(RunnerId runner_id, base::OnceClosure task) {
-  {
-    // Disallow to post a task when no instance is bound, so that new threads
-    // can not be created after the thread finalization in the destructor.
-    base::AutoLock lock(lock_);
-    if (bound_instance_id_ == kInvalidInstanceId)
-      return;
-  }
-  scoped_refptr<base::SingleThreadTaskRunner> runner;
+  DCHECK_NE(kDefaultRunnerId, runner_id);
   GetTaskRunner(runner_id)->PostTask(FROM_HERE, std::move(task));
 }
 
@@ -100,6 +128,10 @@ void TaskService::PostBoundDelayedTask(RunnerId runner_id,
       delay);
 }
 
+void TaskService::OverflowInstanceIdForTesting() {
+  next_instance_id_ = std::numeric_limits<InstanceId>::max();
+}
+
 scoped_refptr<base::SingleThreadTaskRunner> TaskService::GetTaskRunner(
     RunnerId runner_id) {
   base::AutoLock lock(lock_);
@@ -111,12 +143,15 @@ scoped_refptr<base::SingleThreadTaskRunner> TaskService::GetTaskRunner(
 
   size_t thread = runner_id - 1;
   if (!threads_[thread]) {
-    threads_[thread] = base::MakeUnique<base::Thread>(
+    threads_[thread] = std::make_unique<base::Thread>(
         base::StringPrintf("MidiService_TaskService_Thread(%zu)", runner_id));
+    base::Thread::Options options;
 #if defined(OS_WIN)
     threads_[thread]->init_com_with_mta(true);
+#elif defined(OS_MACOSX)
+    options.message_loop_type = base::MessageLoop::TYPE_UI;
 #endif
-    threads_[thread]->Start();
+    threads_[thread]->StartWithOptions(options);
   }
   return threads_[thread]->task_runner();
 }
@@ -124,14 +159,26 @@ scoped_refptr<base::SingleThreadTaskRunner> TaskService::GetTaskRunner(
 void TaskService::RunTask(InstanceId instance_id,
                           RunnerId runner_id,
                           base::OnceClosure task) {
-  base::subtle::AutoReadLock task_lock(task_lock_);
   {
-    base::AutoLock lock(lock_);
-    // If UnbindInstance() is already called, do nothing.
-    if (instance_id != bound_instance_id_)
-      return;
+    base::AutoLock tasks_in_flight_lock(tasks_in_flight_lock_);
+    ++tasks_in_flight_;
   }
-  std::move(task).Run();
+
+  if (IsInstanceIdStillBound(instance_id))
+    std::move(task).Run();
+
+  {
+    base::AutoLock tasks_in_flight_lock(tasks_in_flight_lock_);
+    --tasks_in_flight_;
+    DCHECK_GE(tasks_in_flight_, 0);
+    if (tasks_in_flight_ == 0)
+      no_tasks_in_flight_cv_.Signal();
+  }
+}
+
+bool TaskService::IsInstanceIdStillBound(InstanceId instance_id) {
+  base::AutoLock lock(lock_);
+  return instance_id == bound_instance_id_;
 }
 
 }  // namespace midi

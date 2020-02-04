@@ -70,12 +70,15 @@ class QWebGLWebSocketServerPrivate
 {
 public:
     QWebSocketServer *server = nullptr;
+    quint16 initialPort = 0;
 };
 
-QWebGLWebSocketServer::QWebGLWebSocketServer(QObject *parent) :
+QWebGLWebSocketServer::QWebGLWebSocketServer(quint16 port, QObject *parent) :
     QObject(parent),
     d_ptr(new QWebGLWebSocketServerPrivate)
-{}
+{
+    d_ptr->initialPort = port;
+}
 
 QWebGLWebSocketServer::~QWebGLWebSocketServer()
 {}
@@ -107,8 +110,20 @@ QVariant QWebGLWebSocketServer::queryValue(int id)
 void QWebGLWebSocketServer::create()
 {
     Q_D(QWebGLWebSocketServer);
-    d->server = new QWebSocketServer(QLatin1String("qtwebgl"), QWebSocketServer::NonSecureMode);
-    if (d->server->listen(QHostAddress::Any)) {
+    const QString serverName = QLatin1String("qtwebgl");
+    const QUrl url(QString::fromUtf8(qgetenv("QT_WEBGL_WEBSOCKETSERVER")));
+    QHostAddress hostAddress(url.host());
+    if (!url.isValid() || url.isEmpty() || !(url.scheme() == "ws" || url.scheme() == "wss")) {
+        d->server = new QWebSocketServer(serverName, QWebSocketServer::NonSecureMode);
+        hostAddress = QHostAddress::Any;
+    } else {
+        d->server = new QWebSocketServer(serverName,
+#if QT_CONFIG(ssl)
+                                         url.scheme() == "wss" ? QWebSocketServer::SecureMode :
+#endif
+                                                                 QWebSocketServer::NonSecureMode);
+    }
+    if (d->server->listen(hostAddress, url.port(d->initialPort))) {
         connect(d->server, &QWebSocketServer::newConnection,
                 this, &QWebGLWebSocketServer::onNewConnection);
     } else {
@@ -191,14 +206,7 @@ void QWebGLWebSocketServer::sendMessage(QWebSocket *socket,
             serialize(parameters);
             stream << (quint32)0xbaadf00d;
         }
-        const quint32 totalMessageSize = data.size();
-        const quint32 maxMessageSize = 1024;
-        for (quint32 i = 0; i <= data.size() / maxMessageSize; ++i) {
-            const quint32 offset = i * maxMessageSize;
-            const quint32 size = qMin(totalMessageSize - offset, maxMessageSize);
-            const auto chunk = QByteArray::fromRawData(data.constData() + offset, size);
-            socket->sendBinaryMessage(chunk);
-        }
+        socket->sendBinaryMessage(data);
         return;
     }
     case MessageType::CreateCanvas:
@@ -270,6 +278,7 @@ void QWebGLWebSocketServer::onNewConnection()
 #endif
             },
             { QStringLiteral("loadingScreen"), qgetenv("QT_WEBGL_LOADINGSCREEN") },
+            { QStringLiteral("mouseTracking"), qgetenv("QT_WEBGL_MOUSETRACKING") },
             { QStringLiteral("supportedFunctions"),
               QVariant::fromValue(QWebGLContext::supportedFunctions()) },
             { "sysinfo",
@@ -282,7 +291,7 @@ void QWebGLWebSocketServer::onNewConnection()
                     { QStringLiteral("machineHostName"), QSysInfo::machineHostName() },
                     { QStringLiteral("prettyProductName"), QSysInfo::prettyProductName() },
                     { QStringLiteral("productType"), QSysInfo::productType() },
-                    { QStringLiteral("productVersion"), QSysInfo::productVersion() }
+                    { QStringLiteral("productVersion"), QSysInfo::productVersion() },
                 }
             }
         };

@@ -7,10 +7,14 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/unguessable_token.h"
 #include "content/browser/devtools/devtools_url_request_interceptor.h"
 #include "content/browser/devtools/protocol/network.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/resource_type.h"
+#include "net/cookies/canonical_cookie.h"
+#include "net/http/http_raw_request_headers.h"
+#include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job.h"
 
@@ -23,19 +27,18 @@ namespace content {
 
 // A URLRequestJob that allows programmatic request blocking / modification or
 // response mocking.  This class should only be accessed on the IO thread.
-class DevToolsURLInterceptorRequestJob : public net::URLRequestJob,
-                                         public net::URLRequest::Delegate {
+class DevToolsURLInterceptorRequestJob : public net::URLRequestJob {
  public:
   DevToolsURLInterceptorRequestJob(
-      scoped_refptr<DevToolsURLRequestInterceptor::State>
-          devtools_url_request_interceptor_state,
+      DevToolsURLRequestInterceptor* interceptor,
       const std::string& interception_id,
+      intptr_t owning_entry_id,
       net::URLRequest* original_request,
       net::NetworkDelegate* original_network_delegate,
-      WebContents* web_contents,
-      base::WeakPtr<protocol::NetworkHandler> network_handler,
-      bool is_redirect,
-      ResourceType resource_type);
+      const base::UnguessableToken& devtools_token,
+      DevToolsNetworkInterceptor::RequestInterceptedCallback callback,
+      ResourceType resource_type,
+      DevToolsNetworkInterceptor::InterceptionStage stage_to_intercept);
 
   ~DevToolsURLInterceptorRequestJob() override;
 
@@ -55,38 +58,35 @@ class DevToolsURLInterceptorRequestJob : public net::URLRequestJob,
 
   void SetAuth(const net::AuthCredentials& credentials) override;
   void CancelAuth() override;
-
-  // net::URLRequest::Delegate methods:
-  void OnAuthRequired(net::URLRequest* request,
-                      net::AuthChallengeInfo* auth_info) override;
-  void OnCertificateRequested(
-      net::URLRequest* request,
-      net::SSLCertRequestInfo* cert_request_info) override;
-  void OnSSLCertificateError(net::URLRequest* request,
-                             const net::SSLInfo& ssl_info,
-                             bool fatal) override;
-  void OnResponseStarted(net::URLRequest* request, int net_error) override;
-  void OnReadCompleted(net::URLRequest* request, int bytes_read) override;
-  void OnReceivedRedirect(net::URLRequest* request,
-                          const net::RedirectInfo& redirect_info,
-                          bool* defer_redirect) override;
+  void SetRequestHeadersCallback(net::RequestHeadersCallback callback) override;
+  void SetResponseHeadersCallback(
+      net::ResponseHeadersCallback callback) override;
+  void ContinueDespiteLastError() override;
 
   // Must be called on IO thread.
   void StopIntercepting();
 
   using ContinueInterceptedRequestCallback =
       protocol::Network::Backend::ContinueInterceptedRequestCallback;
+  using GetResponseBodyForInterceptionCallback =
+      protocol::Network::Backend::GetResponseBodyForInterceptionCallback;
+  using InterceptionStage = DevToolsNetworkInterceptor::InterceptionStage;
 
   // Must be called only once per interception. Must be called on IO thread.
   void ContinueInterceptedRequest(
-      std::unique_ptr<DevToolsURLRequestInterceptor::Modifications>
-          modifications,
+      std::unique_ptr<DevToolsNetworkInterceptor::Modifications> modifications,
       std::unique_ptr<ContinueInterceptedRequestCallback> callback);
+  void GetResponseBody(
+      std::unique_ptr<GetResponseBodyForInterceptionCallback> callback);
 
-  WebContents* web_contents() const { return web_contents_; }
+  intptr_t owning_entry_id() const { return owning_entry_id_; }
 
  private:
+  std::unique_ptr<InterceptedRequestInfo> BuildRequestInfo();
+
   class SubRequest;
+  class InterceptedRequest;
+  class MockResponseDetails;
 
   // We keep a copy of the original request details to facilitate the
   // Network.modifyRequest command which could potentially change any of these
@@ -96,6 +96,8 @@ class DevToolsURLInterceptorRequestJob : public net::URLRequestJob,
                    const std::string& method,
                    std::unique_ptr<net::UploadDataStream> post_data,
                    const net::HttpRequestHeaders& extra_request_headers,
+                   const std::string& referrer,
+                   net::URLRequest::ReferrerPolicy referrer_policy,
                    const net::RequestPriority& priority,
                    const net::URLRequestContext* url_request_context);
     ~RequestDetails();
@@ -103,102 +105,65 @@ class DevToolsURLInterceptorRequestJob : public net::URLRequestJob,
     GURL url;
     std::string method;
     std::unique_ptr<net::UploadDataStream> post_data;
+    std::string cookie_line;
     net::HttpRequestHeaders extra_request_headers;
+    std::string referrer;
+    net::URLRequest::ReferrerPolicy referrer_policy;
     net::RequestPriority priority;
     const net::URLRequestContext* url_request_context;
   };
 
-  // If the request was either allowed or modified, a SubRequest will be used to
-  // perform the fetch and the results proxied to the original request. This
-  // gives us the flexibility to pretend redirects didn't happen if the user
-  // chooses to mock the response.  Note this SubRequest is ignored by the
-  // interceptor.
-  class SubRequest {
-   public:
-    SubRequest(
-        DevToolsURLInterceptorRequestJob::RequestDetails& request_details,
-        DevToolsURLInterceptorRequestJob* devtools_interceptor_request_job,
-        scoped_refptr<DevToolsURLRequestInterceptor::State>
-            devtools_url_request_interceptor_state);
-    ~SubRequest();
+  void StartWithCookies(const net::CookieList& cookies);
 
-    void Cancel();
+  // Callbacks from SubRequest.
+  void OnSubRequestAuthRequired(net::AuthChallengeInfo* auth_info);
+  void OnSubRequestRedirectReceived(const net::URLRequest& request,
+                                    const net::RedirectInfo& redirectinfo,
+                                    bool* defer_redirect);
+  void OnSubRequestResponseStarted(const net::Error& net_error);
+  void OnSubRequestHeadersReceived(const net::Error& net_error);
 
-    net::URLRequest* request() const { return request_.get(); }
-
-   private:
-    std::unique_ptr<net::URLRequest> request_;
-
-    DevToolsURLInterceptorRequestJob*
-        devtools_interceptor_request_job_;  // NOT OWNED.
-
-    scoped_refptr<DevToolsURLRequestInterceptor::State>
-        devtools_url_request_interceptor_state_;
-    bool fetch_in_progress_;
-  };
-
-  class MockResponseDetails {
-   public:
-    MockResponseDetails(std::string response_bytes,
-                        base::TimeTicks response_time);
-
-    MockResponseDetails(
-        const scoped_refptr<net::HttpResponseHeaders>& response_headers,
-        std::string response_bytes,
-        size_t read_offset,
-        base::TimeTicks response_time);
-
-    ~MockResponseDetails();
-
-    scoped_refptr<net::HttpResponseHeaders>& response_headers() {
-      return response_headers_;
-    }
-
-    base::TimeTicks response_time() const { return response_time_; }
-
-    int ReadRawData(net::IOBuffer* buf, int buf_size);
-
-   private:
-    scoped_refptr<net::HttpResponseHeaders> response_headers_;
-    std::string response_bytes_;
-    size_t read_offset_;
-    base::TimeTicks response_time_;
-  };
+  // Callbacks from InterceptedRequest.
+  void OnInterceptedRequestResponseStarted(const net::Error& net_error);
+  void OnInterceptedRequestResponseReady(const net::IOBuffer& buf, int result);
 
   // Retrieves the response headers from either the |sub_request_| or the
   // |mock_response_|.  In some cases (e.g. file access) this may be null.
   const net::HttpResponseHeaders* GetHttpResponseHeaders() const;
 
-  void ProcessInterceptionRespose(
-      std::unique_ptr<DevToolsURLRequestInterceptor::Modifications>
-          modification);
+  void ProcessRedirect(int status_code, const std::string& new_url);
+  void ProcessInterceptionResponse(
+      std::unique_ptr<DevToolsNetworkInterceptor::Modifications> modification);
 
-  bool ProcessAuthRespose(
-      std::unique_ptr<DevToolsURLRequestInterceptor::Modifications>
-          modification);
+  void ProcessAuthResponse(
+      const DevToolsNetworkInterceptor::AuthChallengeResponse& response);
 
   enum class WaitingForUserResponse {
     NOT_WAITING,
-    WAITING_FOR_INTERCEPTION_RESPONSE,
-    WAITING_FOR_AUTH_RESPONSE,
+    WAITING_FOR_REQUEST_ACK,
+    WAITING_FOR_RESPONSE_ACK,
+    WAITING_FOR_AUTH_ACK,
   };
 
-  scoped_refptr<DevToolsURLRequestInterceptor::State>
-      devtools_url_request_interceptor_state_;
+  DevToolsURLRequestInterceptor* const interceptor_;
   RequestDetails request_details_;
   std::unique_ptr<SubRequest> sub_request_;
   std::unique_ptr<MockResponseDetails> mock_response_details_;
   std::unique_ptr<net::RedirectInfo> redirect_;
   WaitingForUserResponse waiting_for_user_response_;
-  bool intercepting_requests_;
-  bool killed_;
   scoped_refptr<net::AuthChallengeInfo> auth_info_;
 
   const std::string interception_id_;
-  WebContents* const web_contents_;
-  const base::WeakPtr<protocol::NetworkHandler> network_handler_;
-  const bool is_redirect_;
+  const intptr_t owning_entry_id_;
+  const base::UnguessableToken devtools_token_;
+  DevToolsNetworkInterceptor::RequestInterceptedCallback callback_;
   const ResourceType resource_type_;
+  InterceptionStage stage_to_intercept_;
+  std::vector<std::unique_ptr<GetResponseBodyForInterceptionCallback>>
+      pending_body_requests_;
+
+  net::RequestHeadersCallback request_headers_callback_;
+  net::ResponseHeadersCallback response_headers_callback_;
   base::WeakPtrFactory<DevToolsURLInterceptorRequestJob> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsURLInterceptorRequestJob);

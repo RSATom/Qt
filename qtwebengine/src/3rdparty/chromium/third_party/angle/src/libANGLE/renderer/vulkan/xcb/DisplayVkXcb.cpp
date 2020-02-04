@@ -11,6 +11,7 @@
 
 #include <xcb/xcb.h>
 
+#include "libANGLE/renderer/vulkan/vk_caps_utils.h"
 #include "libANGLE/renderer/vulkan/xcb/WindowSurfaceVkXcb.h"
 
 namespace rx
@@ -18,8 +19,7 @@ namespace rx
 
 DisplayVkXcb::DisplayVkXcb(const egl::DisplayState &state)
     : DisplayVk(state), mXcbConnection(nullptr)
-{
-}
+{}
 
 egl::Error DisplayVkXcb::initialize(egl::Display *display)
 {
@@ -59,6 +59,21 @@ SurfaceImpl *DisplayVkXcb::createWindowSurfaceVk(const egl::SurfaceState &state,
                                                  EGLint height)
 {
     return new WindowSurfaceVkXcb(state, window, width, height, mXcbConnection);
+}
+
+egl::ConfigSet DisplayVkXcb::generateConfigs()
+{
+    constexpr GLenum kColorFormats[] = {GL_BGRA8_EXT, GL_BGRX8_ANGLEX};
+    constexpr EGLint kSampleCounts[] = {0};
+    return egl_vk::GenerateConfigs(kColorFormats, egl_vk::kConfigDepthStencilFormats, kSampleCounts,
+                                   this);
+}
+
+bool DisplayVkXcb::checkConfigSupport(egl::Config *config)
+{
+    // TODO(geofflang): Test for native support and modify the config accordingly.
+    // anglebug.com/2692
+    return true;
 }
 
 const char *DisplayVkXcb::getWSIName() const

@@ -12,9 +12,11 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "content/browser/android/java/gin_java_bound_object.h"
 #include "content/common/android/gin_java_bridge_errors.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "content/public/browser/render_process_host_observer.h"
 
 namespace base {
 class ListValue;
@@ -29,13 +31,18 @@ namespace content {
 class GinJavaBridgeDispatcherHost;
 class RenderFrameHost;
 
-class GinJavaBridgeMessageFilter : public BrowserMessageFilter {
+class GinJavaBridgeMessageFilter : public BrowserMessageFilter,
+                                   public RenderProcessHostObserver {
  public:
   // BrowserMessageFilter
   void OnDestruct() const override;
   bool OnMessageReceived(const IPC::Message& message) override;
   base::TaskRunner* OverrideTaskRunnerForMessage(
       const IPC::Message& message) override;
+
+  // RenderProcessHostObserver
+  void RenderProcessExited(RenderProcessHost* rph,
+                           const ChildProcessTerminationInfo& info) override;
 
   // Called on the UI thread.
   void AddRoutingIdForHost(GinJavaBridgeDispatcherHost* host,
@@ -45,20 +52,10 @@ class GinJavaBridgeMessageFilter : public BrowserMessageFilter {
   static scoped_refptr<GinJavaBridgeMessageFilter> FromHost(
       GinJavaBridgeDispatcherHost* host, bool create_if_not_exists);
 
-  // Removes the filter, which triggers its deletion. Needs to be called when
-  // the corresponding RenderProcessHost cleans itself up, e.g. on renderer
-  // process exit.
-  static void RemoveFilter(GinJavaBridgeDispatcherHost* host);
-
  private:
   friend class BrowserThread;
   friend class base::DeleteHelper<GinJavaBridgeMessageFilter>;
 
-  // ContentViewCore (who owns GinJavaBridgeDispatcherHost) outlives
-  // WebContents, and GinJavaBridgeDispatcherHost removes itself from the map on
-  // WebContents destruction, so there is no risk that the pointer would become
-  // stale.
-  //
   // The filter keeps its own routing map of RenderFrames for two reasons:
   //  1. Message dispatching must be done on the background thread,
   //     without resorting to the UI thread, which can be in fact currently
@@ -66,13 +63,13 @@ class GinJavaBridgeMessageFilter : public BrowserMessageFilter {
   //  2. As RenderFrames pass away earlier than JavaScript wrappers,
   //     messages from the latter can arrive after the RenderFrame has been
   //     removed from the WebContents' routing table.
-  typedef std::map<int32_t, GinJavaBridgeDispatcherHost*> HostMap;
+  typedef std::map<int32_t, scoped_refptr<GinJavaBridgeDispatcherHost>> HostMap;
 
   GinJavaBridgeMessageFilter();
   ~GinJavaBridgeMessageFilter() override;
 
   // Called on the background thread.
-  GinJavaBridgeDispatcherHost* FindHost();
+  scoped_refptr<GinJavaBridgeDispatcherHost> FindHost();
   void OnGetMethods(GinJavaBoundObject::ObjectID object_id,
                     std::set<std::string>* returned_method_names);
   void OnHasMethod(GinJavaBoundObject::ObjectID object_id,
@@ -86,7 +83,7 @@ class GinJavaBridgeMessageFilter : public BrowserMessageFilter {
   void OnObjectWrapperDeleted(GinJavaBoundObject::ObjectID object_id);
 
   // Accessed both from UI and background threads.
-  HostMap hosts_;
+  HostMap hosts_ GUARDED_BY(hosts_lock_);
   base::Lock hosts_lock_;
 
   // The routing id of the RenderFrameHost whose request we are processing.

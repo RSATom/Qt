@@ -55,9 +55,6 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityUploader {
       const scoped_refptr<net::URLRequestContextGetter>&
           url_request_context_getter);
 
-  // Returns true if the request originated from domain reliability uploader.
-  static bool OriginatedFromDomainReliability(const net::URLRequest& request);
-
   // Uploads |report_json| to |upload_url| and calls |callback| when the upload
   // has either completed or failed.
   virtual void UploadReport(const std::string& report_json,
@@ -70,7 +67,16 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityUploader {
   // lifetime issues at destruction.
   virtual void Shutdown();
 
-  virtual void set_discard_uploads(bool discard_uploads) = 0;
+  // Sets whether the uploader will discard uploads but pretend they succeeded.
+  // In Chrome, this is used when the user has not opted in to metrics
+  // collection; in unittests, this is used in combination with
+  // GetDiscardedUploadCount to simplify checking whether a test scenario
+  // generates an upload or not.
+  virtual void SetDiscardUploads(bool discard_uploads) = 0;
+
+  // Gets the number of uploads that have been discarded after SetDiscardUploads
+  // was called with true.
+  virtual int GetDiscardedUploadCount() const = 0;
 
   static int GetURLRequestUploadDepth(const net::URLRequest& request);
 };

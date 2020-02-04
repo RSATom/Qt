@@ -103,7 +103,7 @@
 */
 
 /*!
-    \fn QAbstractAnimation::finished()
+    \fn void QAbstractAnimation::finished()
 
     QAbstractAnimation emits this signal after the animation has stopped and
     has reached the end.
@@ -114,7 +114,7 @@
 */
 
 /*!
-    \fn QAbstractAnimation::stateChanged(QAbstractAnimation::State newState, QAbstractAnimation::State oldState)
+    \fn void QAbstractAnimation::stateChanged(QAbstractAnimation::State newState, QAbstractAnimation::State oldState)
 
     QAbstractAnimation emits this signal whenever the state of the animation has
     changed from \a oldState to \a newState. This signal is emitted after the virtual
@@ -124,7 +124,7 @@
 */
 
 /*!
-    \fn QAbstractAnimation::currentLoopChanged(int currentLoop)
+    \fn void QAbstractAnimation::currentLoopChanged(int currentLoop)
 
     QAbstractAnimation emits this signal whenever the current loop
     changes. \a currentLoop is the current loop.
@@ -133,7 +133,7 @@
 */
 
 /*!
-    \fn QAbstractAnimation::directionChanged(QAbstractAnimation::Direction newDirection);
+    \fn void QAbstractAnimation::directionChanged(QAbstractAnimation::Direction newDirection);
 
     QAbstractAnimation emits this signal whenever the direction has been
     changed. \a newDirection is the new direction.
@@ -152,8 +152,6 @@
 #include <QtCore/qthreadstorage.h>
 #include <QtCore/qcoreevent.h>
 #include <QtCore/qpointer.h>
-
-#ifndef QT_NO_ANIMATION
 
 #define DEFAULT_TIMER_INTERVAL 16
 #define PAUSE_TIMER_COARSE_THRESHOLD 2000
@@ -215,9 +213,7 @@ typedef QList<QAbstractAnimation*>::ConstIterator AnimationListConstIt;
     QUnifiedTimer drives animations indirectly, via QAbstractAnimationTimer.
 */
 
-#ifndef QT_NO_THREAD
 Q_GLOBAL_STATIC(QThreadStorage<QUnifiedTimer *>, unifiedTimer)
-#endif
 
 QUnifiedTimer::QUnifiedTimer() :
     QObject(), defaultDriver(this), lastTick(0), timingInterval(DEFAULT_TIMER_INTERVAL),
@@ -234,18 +230,12 @@ QUnifiedTimer::QUnifiedTimer() :
 QUnifiedTimer *QUnifiedTimer::instance(bool create)
 {
     QUnifiedTimer *inst;
-#ifndef QT_NO_THREAD
     if (create && !unifiedTimer()->hasLocalData()) {
         inst = new QUnifiedTimer;
         unifiedTimer()->setLocalData(inst);
     } else {
         inst = unifiedTimer() ? unifiedTimer()->localData() : 0;
     }
-#else
-    Q_UNUSED(create);
-    static QUnifiedTimer unifiedTimer;
-    inst = &unifiedTimer;
-#endif
     return inst;
 }
 
@@ -554,7 +544,7 @@ bool QUnifiedTimer::canUninstallAnimationDriver(QAnimationDriver *d)
     return d == driver && driver != &defaultDriver;
 }
 
-#ifndef QT_NO_THREAD
+#if QT_CONFIG(thread)
 Q_GLOBAL_STATIC(QThreadStorage<QAnimationTimer *>, animationTimer)
 #endif
 
@@ -569,7 +559,7 @@ QAnimationTimer::QAnimationTimer() :
 QAnimationTimer *QAnimationTimer::instance(bool create)
 {
     QAnimationTimer *inst;
-#ifndef QT_NO_THREAD
+#if QT_CONFIG(thread)
     if (create && !animationTimer()->hasLocalData()) {
         inst = new QAnimationTimer;
         animationTimer()->setLocalData(inst);
@@ -783,6 +773,7 @@ QAnimationDriver::~QAnimationDriver()
 }
 
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     Sets the time at which an animation driver should start at.
 
@@ -809,6 +800,7 @@ qint64 QAnimationDriver::startTime() const
 {
     return 0;
 }
+#endif
 
 
 /*!
@@ -1071,10 +1063,12 @@ QAbstractAnimation::~QAbstractAnimation()
     if (d->state != Stopped) {
         QAbstractAnimation::State oldState = d->state;
         d->state = Stopped;
-        emit stateChanged(oldState, d->state);
+        emit stateChanged(d->state, oldState);
         if (oldState == QAbstractAnimation::Running)
             QAnimationTimer::unregisterAnimation(this);
     }
+    if (d->group)
+        d->group->removeAnimation(this);
 }
 
 /*!
@@ -1093,7 +1087,7 @@ QAbstractAnimation::State QAbstractAnimation::state() const
 
 /*!
     If this animation is part of a QAnimationGroup, this function returns a
-    pointer to the group; otherwise, it returns 0.
+    pointer to the group; otherwise, it returns \nullptr.
 
     \sa QAnimationGroup::addAnimation()
 */
@@ -1485,5 +1479,3 @@ QT_END_NAMESPACE
 
 #include "moc_qabstractanimation.cpp"
 #include "moc_qabstractanimation_p.cpp"
-
-#endif //QT_NO_ANIMATION

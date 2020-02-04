@@ -42,7 +42,7 @@
 
 #include <QtCore/qobject.h>
 
-#ifndef QT_NO_FILESYSTEMWATCHER
+QT_REQUIRE_CONFIG(filesystemwatcher);
 
 QT_BEGIN_NAMESPACE
 
@@ -55,8 +55,8 @@ class Q_CORE_EXPORT QFileSystemWatcher : public QObject
     Q_DECLARE_PRIVATE(QFileSystemWatcher)
 
 public:
-    QFileSystemWatcher(QObject *parent = Q_NULLPTR);
-    QFileSystemWatcher(const QStringList &paths, QObject *parent = Q_NULLPTR);
+    QFileSystemWatcher(QObject *parent = nullptr);
+    QFileSystemWatcher(const QStringList &paths, QObject *parent = nullptr);
     ~QFileSystemWatcher();
 
     bool addPath(const QString &file);
@@ -78,5 +78,4 @@ private:
 
 QT_END_NAMESPACE
 
-#endif // QT_NO_FILESYSTEMWATCHER
 #endif // QFILESYSTEMWATCHER_H

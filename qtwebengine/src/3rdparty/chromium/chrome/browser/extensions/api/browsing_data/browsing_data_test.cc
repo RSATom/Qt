@@ -5,24 +5,41 @@
 #include <memory>
 #include <string>
 
+#include "base/callback.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
+#include "base/test/bind_test_util.h"
 #include "base/values.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
-
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_delegate.h"
 #include "chrome/browser/extensions/api/browsing_data/browsing_data_api.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/account_reconcilor_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/signin/scoped_account_consistency.h"
+#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/browser_sync/profile_sync_service.h"
 #include "components/browsing_data/core/browsing_data_utils.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/core/browser/account_reconcilor.h"
+#include "components/signin/core/browser/signin_buildflags.h"
 #include "content/public/browser/browsing_data_remover.h"
+#include "content/public/browser/storage_partition.h"
+#include "google_apis/gaia/gaia_urls.h"
+#include "google_apis/gaia/google_service_auth_error.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
+#include "net/cookies/canonical_cookie.h"
+#include "services/identity/public/cpp/identity_manager.h"
+#include "services/identity/public/cpp/identity_test_utils.h"
+#include "url/gurl.h"
 
 using extension_function_test_utils::RunFunctionAndReturnError;
 using extension_function_test_utils::RunFunctionAndReturnSingleResult;
@@ -60,6 +77,10 @@ class ExtensionBrowsingDataTest : public InProcessBrowserTest {
   }
 
  protected:
+  void SetUp() override {
+    InProcessBrowserTest::SetUp();
+  }
+
   void SetUpOnMainThread() override {
     remover_ =
         content::BrowserContext::GetBrowsingDataRemover(browser()->profile());
@@ -154,6 +175,9 @@ class ExtensionBrowsingDataTest : public InProcessBrowserTest {
                                  int expected_origin_type_mask,
                                  int expected_removal_mask) {
     PrefService* prefs = browser()->profile()->GetPrefs();
+    prefs->SetInteger(
+        browsing_data::prefs::kLastClearBrowsingDataTab,
+        static_cast<int>(browsing_data::ClearBrowsingDataTab::ADVANCED));
     prefs->SetBoolean(
         browsing_data::prefs::kDeleteCache,
         !!(data_type_flags & content::BrowsingDataRemover::DATA_TYPE_CACHE));
@@ -183,6 +207,35 @@ class ExtensionBrowsingDataTest : public InProcessBrowserTest {
         !!(data_type_flags &
            ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PLUGIN_DATA));
 
+    VerifyRemovalMask(expected_origin_type_mask, expected_removal_mask);
+  }
+
+  void SetBasicPrefsAndVerifySettings(int data_type_flags,
+                                      int expected_origin_type_mask,
+                                      int expected_removal_mask) {
+    PrefService* prefs = browser()->profile()->GetPrefs();
+    prefs->SetInteger(
+        browsing_data::prefs::kLastClearBrowsingDataTab,
+        static_cast<int>(browsing_data::ClearBrowsingDataTab::BASIC));
+    prefs->SetBoolean(
+        browsing_data::prefs::kDeleteCacheBasic,
+        !!(data_type_flags & content::BrowsingDataRemover::DATA_TYPE_CACHE));
+    prefs->SetBoolean(
+        browsing_data::prefs::kDeleteCookiesBasic,
+        !!(data_type_flags & content::BrowsingDataRemover::DATA_TYPE_COOKIES));
+    prefs->SetBoolean(browsing_data::prefs::kDeleteBrowsingHistoryBasic,
+                      !!(data_type_flags &
+                         ChromeBrowsingDataRemoverDelegate::DATA_TYPE_HISTORY));
+    prefs->SetBoolean(
+        prefs::kClearPluginLSODataEnabled,
+        !!(data_type_flags &
+           ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PLUGIN_DATA));
+
+    VerifyRemovalMask(expected_origin_type_mask, expected_removal_mask);
+  }
+
+  void VerifyRemovalMask(int expected_origin_type_mask,
+                         int expected_removal_mask) {
     scoped_refptr<BrowsingDataSettingsFunction> function =
         new BrowsingDataSettingsFunction();
     SCOPED_TRACE("settings");
@@ -210,6 +263,8 @@ class ExtensionBrowsingDataTest : public InProcessBrowserTest {
                   content::BrowsingDataRemover::DATA_TYPE_APP_CACHE) |
         GetAsMask(data_to_remove, "cache",
                   content::BrowsingDataRemover::DATA_TYPE_CACHE) |
+        GetAsMask(data_to_remove, "cacheStorage",
+                  content::BrowsingDataRemover::DATA_TYPE_CACHE_STORAGE) |
         GetAsMask(data_to_remove, "cookies",
                   content::BrowsingDataRemover::DATA_TYPE_COOKIES) |
         GetAsMask(data_to_remove, "downloads",
@@ -230,8 +285,6 @@ class ExtensionBrowsingDataTest : public InProcessBrowserTest {
                   ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PASSWORDS) |
         GetAsMask(data_to_remove, "serviceWorkers",
                   content::BrowsingDataRemover::DATA_TYPE_SERVICE_WORKERS) |
-        GetAsMask(data_to_remove, "cacheStorage",
-                  content::BrowsingDataRemover::DATA_TYPE_CACHE_STORAGE) |
         GetAsMask(data_to_remove, "webSQL",
                   content::BrowsingDataRemover::DATA_TYPE_WEB_SQL) |
         GetAsMask(data_to_remove, "serverBoundCertificates",
@@ -263,6 +316,34 @@ class ExtensionBrowsingDataTest : public InProcessBrowserTest {
   content::BrowsingDataRemover* remover_;
 };
 
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+// Sets the APISID Gaia cookie, which is monitored by the AccountReconcilor.
+bool SetGaiaCookieForProfile(Profile* profile) {
+  GURL google_url = GaiaUrls::GetInstance()->google_url();
+  net::CanonicalCookie cookie("APISID", std::string(), "." + google_url.host(),
+                              "/", base::Time(), base::Time(), base::Time(),
+                              false, false, net::CookieSameSite::DEFAULT_MODE,
+                              net::COOKIE_PRIORITY_DEFAULT);
+
+  bool success = false;
+  base::RunLoop loop;
+  base::OnceClosure loop_quit = loop.QuitClosure();
+  base::OnceCallback<void(bool)> callback =
+      base::BindLambdaForTesting([&success, &loop_quit](bool s) {
+        success = s;
+        std::move(loop_quit).Run();
+      });
+  network::mojom::CookieManager* cookie_manager =
+      content::BrowserContext::GetDefaultStoragePartition(profile)
+          ->GetCookieManagerForBrowserProcess();
+  cookie_manager->SetCanonicalCookie(
+      cookie, true, true,
+      mojo::WrapCallbackWithDefaultInvokeIfNotRun(std::move(callback), false));
+  loop.Run();
+  return success;
+}
+#endif
+
 }  // namespace
 
 IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, RemovalProhibited) {
@@ -271,6 +352,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, RemovalProhibited) {
 
   CheckRemovalPermitted("{\"appcache\": true}", true);
   CheckRemovalPermitted("{\"cache\": true}", true);
+  CheckRemovalPermitted("{\"cacheStorage\": true}", true);
   CheckRemovalPermitted("{\"cookies\": true}", true);
   CheckRemovalPermitted("{\"downloads\": true}", false);
   CheckRemovalPermitted("{\"fileSystems\": true}", true);
@@ -281,7 +363,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, RemovalProhibited) {
   CheckRemovalPermitted("{\"serverBoundCertificates\": true}", true);
   CheckRemovalPermitted("{\"passwords\": true}", true);
   CheckRemovalPermitted("{\"serviceWorkers\": true}", true);
-  CheckRemovalPermitted("{\"cacheStorage\": true}", true);
   CheckRemovalPermitted("{\"webSQL\": true}", true);
 
   // The entire removal is prohibited if any part is.
@@ -313,6 +394,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, RemoveBrowsingDataAll) {
       content::BrowsingDataRemover::DATA_TYPE_COOKIES |
           content::BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS |
           (content::BrowsingDataRemover::DATA_TYPE_DOM_STORAGE &
+           ~content::BrowsingDataRemover::DATA_TYPE_BACKGROUND_FETCH &
            ~content::BrowsingDataRemover::DATA_TYPE_EMBEDDER_DOM_STORAGE) |
           content::BrowsingDataRemover::DATA_TYPE_CACHE |
           content::BrowsingDataRemover::DATA_TYPE_DOWNLOADS |
@@ -321,6 +403,107 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, RemoveBrowsingDataAll) {
           ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PASSWORDS,
       GetRemovalMask());
 }
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+// Test that Sync is not paused when browsing data is cleared.
+IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, Syncing) {
+  Profile* profile = browser()->profile();
+  // Set a Gaia cookie.
+  ASSERT_TRUE(SetGaiaCookieForProfile(profile));
+  // Set a Sync account and a secondary account.
+  const char kPrimaryAccountEmail[] = "primary@email.com";
+  const char kSecondaryAccountEmail[] = "secondary@email.com";
+
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  AccountInfo primary_account_info = identity::MakePrimaryAccountAvailable(
+      identity_manager, kPrimaryAccountEmail);
+  AccountInfo secondary_account_info =
+      identity::MakeAccountAvailable(identity_manager, kSecondaryAccountEmail);
+
+  // Sync is running.
+  browser_sync::ProfileSyncService* sync_service =
+      ProfileSyncServiceFactory::GetForProfile(profile);
+  sync_service->GetUserSettings()->SetFirstSetupComplete();
+
+  sync_ui_util::MessageType sync_status =
+      sync_ui_util::GetStatus(profile, sync_service, identity_manager);
+  ASSERT_EQ(sync_ui_util::SYNCED, sync_status);
+  // Clear browsing data.
+  scoped_refptr<BrowsingDataRemoveFunction> function =
+      new BrowsingDataRemoveFunction();
+  EXPECT_EQ(NULL, RunFunctionAndReturnSingleResult(
+                      function.get(), kRemoveEverythingArguments, browser()));
+  // Check that the Sync token was not revoked.
+  EXPECT_TRUE(identity_manager->HasAccountWithRefreshToken(
+      primary_account_info.account_id));
+  EXPECT_FALSE(
+      identity_manager->HasAccountWithRefreshTokenInPersistentErrorState(
+          primary_account_info.account_id));
+  // Check that the secondary token was revoked.
+  EXPECT_FALSE(identity_manager->HasAccountWithRefreshToken(
+      secondary_account_info.account_id));
+}
+
+// Test that Sync is paused when browsing data is cleared if Sync was in
+// authentication error.
+IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, SyncError) {
+  Profile* profile = browser()->profile();
+  // Set a Gaia cookie.
+  ASSERT_TRUE(SetGaiaCookieForProfile(profile));
+  // Set a Sync account with authentication error.
+  const char kAccountEmail[] = "account@email.com";
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  AccountInfo account_info =
+      identity::MakePrimaryAccountAvailable(identity_manager, kAccountEmail);
+  identity::UpdatePersistentErrorOfRefreshTokenForAccount(
+      identity_manager, account_info.account_id,
+      GoogleServiceAuthError::FromInvalidGaiaCredentialsReason(
+          GoogleServiceAuthError::InvalidGaiaCredentialsReason::
+              CREDENTIALS_REJECTED_BY_SERVER));
+
+  // Sync is not running.
+  sync_ui_util::MessageType sync_status = sync_ui_util::GetStatus(
+      profile, ProfileSyncServiceFactory::GetForProfile(profile),
+      identity_manager);
+  ASSERT_NE(sync_ui_util::SYNCED, sync_status);
+  // Clear browsing data.
+  scoped_refptr<BrowsingDataRemoveFunction> function =
+      new BrowsingDataRemoveFunction();
+  EXPECT_EQ(NULL, RunFunctionAndReturnSingleResult(
+                      function.get(), kRemoveEverythingArguments, browser()));
+  // Check that the account was not removed and Sync was paused.
+  EXPECT_TRUE(
+      identity_manager->HasAccountWithRefreshToken(account_info.account_id));
+  EXPECT_EQ(GoogleServiceAuthError::InvalidGaiaCredentialsReason::
+                CREDENTIALS_REJECTED_BY_CLIENT,
+            identity_manager
+                ->GetErrorStateOfRefreshTokenForAccount(account_info.account_id)
+                .GetInvalidGaiaCredentialsReason());
+}
+
+// Test that the tokens are revoked when browsing data is cleared when there is
+// no primary account.
+IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, NotSyncing) {
+  Profile* profile = browser()->profile();
+  // Set a Gaia cookie.
+  ASSERT_TRUE(SetGaiaCookieForProfile(profile));
+  // Set a non-Sync account.
+  const char kAccountEmail[] = "account@email.com";
+  auto* identity_manager = IdentityManagerFactory::GetForProfile(profile);
+  AccountInfo account_info =
+      identity::MakeAccountAvailable(identity_manager, kAccountEmail);
+  // Clear browsing data.
+  scoped_refptr<BrowsingDataRemoveFunction> function =
+      new BrowsingDataRemoveFunction();
+  EXPECT_EQ(NULL, RunFunctionAndReturnSingleResult(
+                      function.get(), kRemoveEverythingArguments, browser()));
+  // Check that the account was removed.
+  EXPECT_FALSE(
+      identity_manager->HasAccountWithRefreshToken(account_info.account_id));
+}
+#endif
 
 IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, BrowsingDataOriginTypeMask) {
   RunBrowsingDataRemoveFunctionAndCompareOriginTypeMask("{}", 0);
@@ -355,6 +538,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest,
   RunBrowsingDataRemoveWithKeyAndCompareRemovalMask(
       "cache", content::BrowsingDataRemover::DATA_TYPE_CACHE);
   RunBrowsingDataRemoveWithKeyAndCompareRemovalMask(
+      "cacheStorage", content::BrowsingDataRemover::DATA_TYPE_CACHE_STORAGE);
+  RunBrowsingDataRemoveWithKeyAndCompareRemovalMask(
       "cookies", content::BrowsingDataRemover::DATA_TYPE_COOKIES);
   RunBrowsingDataRemoveWithKeyAndCompareRemovalMask(
       "downloads", content::BrowsingDataRemover::DATA_TYPE_DOWNLOADS);
@@ -378,8 +563,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest,
       "serviceWorkers",
       content::BrowsingDataRemover::DATA_TYPE_SERVICE_WORKERS);
   RunBrowsingDataRemoveWithKeyAndCompareRemovalMask(
-      "cacheStorage", content::BrowsingDataRemover::DATA_TYPE_CACHE_STORAGE);
-  RunBrowsingDataRemoveWithKeyAndCompareRemovalMask(
       "webSQL", content::BrowsingDataRemover::DATA_TYPE_WEB_SQL);
 }
 
@@ -397,6 +580,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest,
 IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest,
                        BrowsingDataRemovalInputFromSettings) {
   PrefService* prefs = browser()->profile()->GetPrefs();
+  prefs->SetInteger(
+      browsing_data::prefs::kLastClearBrowsingDataTab,
+      static_cast<int>(browsing_data::ClearBrowsingDataTab::ADVANCED));
   prefs->SetBoolean(browsing_data::prefs::kDeleteCache, true);
   prefs->SetBoolean(browsing_data::prefs::kDeleteBrowsingHistory, true);
   prefs->SetBoolean(browsing_data::prefs::kDeleteDownloadHistory, true);
@@ -443,6 +629,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, ShortcutFunctionRemovalMask) {
       content::BrowsingDataRemover::DATA_TYPE_APP_CACHE);
   RunAndCompareRemovalMask<BrowsingDataRemoveCacheFunction>(
       content::BrowsingDataRemover::DATA_TYPE_CACHE);
+  RunAndCompareRemovalMask<BrowsingDataRemoveCacheStorageFunction>(
+      content::BrowsingDataRemover::DATA_TYPE_CACHE_STORAGE);
   RunAndCompareRemovalMask<BrowsingDataRemoveCookiesFunction>(
       content::BrowsingDataRemover::DATA_TYPE_COOKIES |
       content::BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS);
@@ -496,6 +684,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, SettingsFunctionSimple) {
   SetPrefsAndVerifySettings(
       ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PASSWORDS, 0,
       ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PASSWORDS);
+  SetBasicPrefsAndVerifySettings(content::BrowsingDataRemover::DATA_TYPE_CACHE,
+                                 0,
+                                 content::BrowsingDataRemover::DATA_TYPE_CACHE);
+  SetBasicPrefsAndVerifySettings(
+      ChromeBrowsingDataRemoverDelegate::DATA_TYPE_HISTORY, 0,
+      ChromeBrowsingDataRemoverDelegate::DATA_TYPE_HISTORY);
 }
 
 // Test cookie and app data settings.
@@ -504,6 +698,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, SettingsFunctionSiteData) {
       (content::BrowsingDataRemover::DATA_TYPE_COOKIES |
        content::BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS |
        content::BrowsingDataRemover::DATA_TYPE_DOM_STORAGE) &
+      ~content::BrowsingDataRemover::DATA_TYPE_BACKGROUND_FETCH &
       ~content::BrowsingDataRemover::DATA_TYPE_EMBEDDER_DOM_STORAGE;
   int supported_site_data =
       supported_site_data_except_plugins |
@@ -524,6 +719,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, SettingsFunctionSiteData) {
       content::BrowsingDataRemover::DATA_TYPE_COOKIES |
           ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PLUGIN_DATA,
       UNPROTECTED_WEB, supported_site_data);
+  SetBasicPrefsAndVerifySettings(
+      content::BrowsingDataRemover::DATA_TYPE_COOKIES, UNPROTECTED_WEB,
+      supported_site_data_except_plugins);
 }
 
 // Test an arbitrary assortment of settings.
@@ -532,6 +730,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowsingDataTest, SettingsFunctionAssorted) {
       (content::BrowsingDataRemover::DATA_TYPE_COOKIES |
        content::BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS |
        content::BrowsingDataRemover::DATA_TYPE_DOM_STORAGE) &
+      ~content::BrowsingDataRemover::DATA_TYPE_BACKGROUND_FETCH &
       ~content::BrowsingDataRemover::DATA_TYPE_EMBEDDER_DOM_STORAGE;
 
   SetPrefsAndVerifySettings(

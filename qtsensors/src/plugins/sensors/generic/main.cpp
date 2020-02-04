@@ -61,12 +61,12 @@ class genericSensorPlugin : public QObject, public QSensorPluginInterface, publi
     Q_PLUGIN_METADATA(IID "com.qt-project.Qt.QSensorPluginInterface/1.0" FILE "plugin.json")
     Q_INTERFACES(QSensorPluginInterface QSensorChangesInterface)
 public:
-    void registerSensors()
+    void registerSensors() override
     {
         // Nothing to register here
     }
 
-    void sensorsChanged()
+    void sensorsChanged() override
     {
         if (!QSensor::defaultSensorForType(QAccelerometer::type).isEmpty()) {
             // There is an accelerometer available. Register the backends
@@ -110,7 +110,7 @@ public:
         }
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
 #ifdef QTSENSORS_GENERICORIENTATIONSENSOR
         if (sensor->identifier() == genericorientationsensor::id)

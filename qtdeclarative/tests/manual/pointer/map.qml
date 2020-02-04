@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the manual tests of the Qt Toolkit.
@@ -26,8 +26,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.8
-import Qt.labs.handlers 1.0
+import QtQuick 2.12
 
 Item {
     width: 640
@@ -40,6 +39,7 @@ Item {
         y: (parent.height - height) / 2
         width: image.width
         height: image.height
+        transform: Rotation { id: tilt; origin.x: width / 2; origin.y: height / 2; axis { x: 1; y: 0; z: 0 } }
 
         Image {
             id: image
@@ -48,18 +48,39 @@ Item {
             source: "resources/map.svgz"
             Component.onCompleted: { width = implicitWidth; height = implicitHeight }
         }
+
+        Text {
+            anchors.centerIn: parent
+            text: image.sourceSize.width + " x " + image.sourceSize.height +
+                  " scale " + map.scale.toFixed(2) + " active scale " + pinch.activeScale.toFixed(2)
+        }
+    }
+
+    DragHandler {
+        objectName: "single-point drag"
+        target: map
+    }
+
+    DragHandler {
+        id: tiltHandler
+        objectName: "two-point tilt"
+        minimumPointCount: 2
+        maximumPointCount: 2
+        xAxis.enabled: false
+        target: null
+        onTranslationChanged: tilt.angle = translation.y / -2
     }
 
     PinchHandler {
         id: pinch
+        objectName: "two-point pinch"
         target: map
         minimumScale: 0.1
         maximumScale: 10
+        xAxis.enabled: false
+        yAxis.enabled: false
         onActiveChanged: if (!active) reRenderIfNecessary()
-    }
-
-    DragHandler {
-        target: map
+        grabPermissions: PinchHandler.TakeOverForbidden // don't allow takeover if pinch has started
     }
 
     function reRenderIfNecessary() {

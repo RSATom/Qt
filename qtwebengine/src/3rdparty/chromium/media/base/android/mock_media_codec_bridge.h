@@ -5,10 +5,17 @@
 #ifndef MEDIA_BASE_ANDROID_MOCK_MEDIA_CODEC_BRIDGE_H_
 #define MEDIA_BASE_ANDROID_MOCK_MEDIA_CODEC_BRIDGE_H_
 
+#include "base/android/scoped_java_ref.h"
 #include "media/base/android/media_codec_bridge.h"
 #include "media/base/android/test_destruction_observable.h"
+#include "media/base/hdr_metadata.h"
+#include "media/base/video_codecs.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+namespace base {
+class WaitableEvent;
+}
 
 namespace media {
 
@@ -17,6 +24,12 @@ class MockMediaCodecBridge : public MediaCodecBridge,
  public:
   MockMediaCodecBridge();
   ~MockMediaCodecBridge() override;
+
+  // Helpers for conveniently setting expectations.
+  enum IsEos { kEos, kNotEos };
+  void AcceptOneInput(IsEos eos = kNotEos);
+  void ProduceOneOutput(IsEos eos = kNotEos);
+
   MOCK_METHOD0(Stop, void());
   MOCK_METHOD0(Flush, MediaCodecStatus());
   MOCK_METHOD1(GetOutputSize, MediaCodecStatus(gfx::Size* size));
@@ -56,10 +69,37 @@ class MockMediaCodecBridge : public MediaCodecBridge,
       CopyFromOutputBuffer,
       MediaCodecStatus(int index, size_t offset, void* dst, size_t num));
   MOCK_METHOD0(GetName, std::string());
-  MOCK_METHOD1(SetSurface, bool(jobject surface));
+  MOCK_METHOD1(SetSurface,
+               bool(const base::android::JavaRef<jobject>& surface));
   MOCK_METHOD2(SetVideoBitrate, void(int bps, int frame_rate));
   MOCK_METHOD0(RequestKeyFrameSoon, void());
   MOCK_METHOD0(IsAdaptivePlaybackSupported, bool());
+  MOCK_METHOD2(OnBuffersAvailable,
+               void(JNIEnv*, const base::android::JavaParamRef<jobject>&));
+
+  // Set an optional WaitableEvent that we'll signal on destruction.
+  void SetCodecDestroyedEvent(base::WaitableEvent* event);
+
+  // Return true if the codec is already drained.
+  bool IsDrained() const;
+
+  static std::unique_ptr<MediaCodecBridge> CreateVideoDecoder(
+      VideoCodec codec,
+      CodecType codec_type,
+      const gfx::Size& size,  // Output frame size.
+      const base::android::JavaRef<jobject>& surface,
+      const base::android::JavaRef<jobject>& media_crypto,
+      const std::vector<uint8_t>& csd0,
+      const std::vector<uint8_t>& csd1,
+      const VideoColorSpace& color_space,
+      const base::Optional<HDRMetadata>& hdr_metadata,
+      bool allow_adaptive_playback,
+      base::RepeatingClosure on_buffers_available_cb);
+
+ private:
+  base::WaitableEvent* destruction_event_ = nullptr;
+  // Is the codec in the drained state?
+  bool is_drained_ = true;
 };
 
 }  // namespace media

@@ -326,9 +326,9 @@ QAndroidJniObject::~QAndroidJniObject()
 }
 
 /*!
-    \fn T QAndroidJniObject::callMethod(const char *methodName, const char *signature, ...) const
+    \fn template <typename T> T QAndroidJniObject::callMethod(const char *methodName, const char *sig, ...) const
 
-    Calls the method \a methodName with \a signature and returns the value.
+    Calls the method \a methodName with a signature \a sig and returns the value.
 
     \code
     QAndroidJniObject myJavaString = ...;
@@ -338,7 +338,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn T QAndroidJniObject::callMethod(const char *methodName) const
+    \fn template <typename T> T QAndroidJniObject::callMethod(const char *methodName) const
 
     Calls the method \a methodName and returns the value.
 
@@ -374,7 +374,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn T QAndroidJniObject::callStaticMethod(jclass clazz, const char *methodName)
+    \fn template <typename T> T QAndroidJniObject::callStaticMethod(jclass clazz, const char *methodName)
 
     Calls the static method \a methodName on \a clazz and returns the value.
 
@@ -387,7 +387,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn T QAndroidJniObject::callStaticMethod(const char *className, const char *methodName)
+    \fn template <typename T> T QAndroidJniObject::callStaticMethod(const char *className, const char *methodName)
 
     Calls the static method \a methodName on class \a className and returns the value.
 
@@ -397,7 +397,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn T QAndroidJniObject::callStaticMethod(const char *className, const char *methodName, const char *signature, ...)
+    \fn template <typename T> T QAndroidJniObject::callStaticMethod(const char *className, const char *methodName, const char *signature, ...)
 
     Calls the static method with \a methodName with \a signature on class \a className with optional arguments.
 
@@ -411,7 +411,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn T QAndroidJniObject::callStaticMethod(jclass clazz, const char *methodName, const char *signature, ...)
+    \fn template <typename T> T QAndroidJniObject::callStaticMethod(jclass clazz, const char *methodName, const char *signature, ...)
 
     Calls the static method \a methodName with \a signature on \a clazz and returns the value.
 
@@ -547,7 +547,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn void QAndroidJniObject::setField(const char *fieldName, T value)
+    \fn template <typename T> void QAndroidJniObject::setField(const char *fieldName, T value)
 
     Sets the value of \a fieldName to \a value.
 
@@ -562,7 +562,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn void QAndroidJniObject::setField(const char *fieldName, const char *signature, T value)
+    \fn template <typename T> void QAndroidJniObject::setField(const char *fieldName, const char *signature, T value)
 
     Sets the value of \a fieldName with \a signature to \a value.
 
@@ -574,25 +574,25 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn void QAndroidJniObject::setStaticField(const char *className, const char *fieldName, T value)
+    \fn template <typename T> void QAndroidJniObject::setStaticField(const char *className, const char *fieldName, T value)
 
     Sets the value of the static field \a fieldName in class \a className to \a value.
 */
 
 /*!
-    \fn void QAndroidJniObject::setStaticField(const char *className, const char *fieldName, const char *signature, T value);
+    \fn template <typename T> void QAndroidJniObject::setStaticField(const char *className, const char *fieldName, const char *signature, T value);
 
     Sets the static field with \a fieldName and \a signature to \a value on class \a className.
 */
 
 /*!
-    \fn void QAndroidJniObject::setStaticField(jclass clazz, const char *fieldName, T value)
+    \fn template <typename T> void QAndroidJniObject::setStaticField(jclass clazz, const char *fieldName, T value)
 
     Sets the static field \a fieldName of the class \a clazz to \a value.
 */
 
 /*!
-    \fn void QAndroidJniObject::setStaticField(jclass clazz, const char *fieldName, const char *signature, T value);
+    \fn template <typename T> void QAndroidJniObject::setStaticField(jclass clazz, const char *fieldName, const char *signature, T value);
 
     Sets the static field with \a fieldName and \a signature to \a value on class \a clazz.
 */
@@ -626,7 +626,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn T QAndroidJniObject::object() const
+    \fn template <typename T> T QAndroidJniObject::object() const
 
     Returns the object held by the QAndroidJniObject as type T.
 
@@ -650,7 +650,7 @@ QAndroidJniObject::~QAndroidJniObject()
 */
 
 /*!
-    \fn QAndroidJniObject &QAndroidJniObject::operator=(T object)
+    \fn template <typename T> QAndroidJniObject &QAndroidJniObject::operator=(T object)
 
     Replace the current object with \a object. The old Java object will be released.
 */

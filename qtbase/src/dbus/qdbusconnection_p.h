@@ -59,7 +59,6 @@
 
 #include <QtCore/qatomic.h>
 #include <QtCore/qhash.h>
-#include <QtCore/qmutex.h>
 #include <QtCore/qobject.h>
 #include <QtCore/qpointer.h>
 #include <QtCore/qreadwritelock.h>
@@ -95,7 +94,7 @@ class QDBusServer;
 class QDBusErrorInternal
 {
     mutable DBusError error;
-    Q_DISABLE_COPY(QDBusErrorInternal)
+    Q_DISABLE_COPY_MOVE(QDBusErrorInternal)
 public:
     inline QDBusErrorInternal() { q_dbus_error_init(&error); }
     inline ~QDBusErrorInternal() { q_dbus_error_free(&error); }
@@ -122,6 +121,15 @@ public:
         QSocketNotifier *write;
     };
 
+    struct ArgMatchRules {
+        QStringList args;
+        QString arg0namespace;
+        bool operator==(const ArgMatchRules &other) const {
+            return args == other.args &&
+                   arg0namespace == other.arg0namespace;
+        }
+    };
+
     struct SignalHook
     {
         inline SignalHook() : obj(0), midx(-1) { }
@@ -129,7 +137,7 @@ public:
         QObject* obj;
         int midx;
         QVector<int> params;
-        QStringList argumentMatch;
+        ArgMatchRules argumentMatch;
         QByteArray matchRule;
     };
 
@@ -149,14 +157,6 @@ public:
             { return name < other; }
         inline bool operator<(const QStringRef &other) const
             { return QStringRef(&name) < other; }
-#if defined(Q_CC_MSVC) && _MSC_VER < 1600
-        inline bool operator<(const ObjectTreeNode &other) const
-            { return name < other.name; }
-        friend inline bool operator<(const QString &str, const ObjectTreeNode &obj)
-            { return str < obj.name; }
-        friend inline bool operator<(const QStringRef &str, const ObjectTreeNode &obj)
-            { return str < QStringRef(&obj.name); }
-#endif
         inline bool isActive() const
         { return obj || !children.isEmpty(); }
 
@@ -198,7 +198,6 @@ public:
     ~QDBusConnectionPrivate();
 
     void createBusService();
-    void setDispatchEnabled(bool enable);
     void setPeer(DBusConnection *connection, const QDBusErrorInternal &error);
     void setConnection(DBusConnection *connection, const QDBusErrorInternal &error);
     void setServer(QDBusServer *object, DBusServer *server, const QDBusErrorInternal &error);
@@ -217,11 +216,18 @@ public:
     QDBusMessage sendWithReplyLocal(const QDBusMessage &message);
     QDBusPendingCallPrivate *sendWithReplyAsync(const QDBusMessage &message, QObject *receiver,
                                                 const char *returnMethod, const char *errorMethod,int timeout = -1);
+
     bool connectSignal(const QString &service, const QString &path, const QString& interface,
                        const QString &name, const QStringList &argumentMatch, const QString &signature,
                        QObject *receiver, const char *slot);
     bool disconnectSignal(const QString &service, const QString &path, const QString& interface,
                           const QString &name, const QStringList &argumentMatch, const QString &signature,
+                          QObject *receiver, const char *slot);
+    bool connectSignal(const QString &service, const QString &path, const QString& interface,
+                       const QString &name, const ArgMatchRules &argumentMatch, const QString &signature,
+                       QObject *receiver, const char *slot);
+    bool disconnectSignal(const QString &service, const QString &path, const QString& interface,
+                          const QString &name, const ArgMatchRules &argumentMatch, const QString &signature,
                           QObject *receiver, const char *slot);
     void registerObject(const ObjectTreeNode *node);
     void unregisterObject(const QString &path, QDBusConnection::UnregisterMode mode);
@@ -271,10 +277,11 @@ private:
     void _q_newConnection(QDBusConnectionPrivate *newConnection);
 
 protected:
-    void timerEvent(QTimerEvent *e) Q_DECL_OVERRIDE;
+    void timerEvent(QTimerEvent *e) override;
 
 public slots:
     // public slots
+    void setDispatchEnabled(bool enable);
     void doDispatch();
     void socketRead(int);
     void socketWrite(int);
@@ -312,9 +319,6 @@ public:
         QDBusServer *serverObject;
     };
 
-    // the dispatch lock protects everything related to the DBusConnection or DBusServer
-    // including the timeouts and watches
-    QMutex dispatchLock;
     union {
         DBusConnection *connection;
         DBusServer *server;
@@ -344,7 +348,7 @@ public:
     static bool prepareHook(QDBusConnectionPrivate::SignalHook &hook, QString &key,
                             const QString &service,
                             const QString &path, const QString &interface, const QString &name,
-                            const QStringList &argMatch,
+                            const ArgMatchRules &argMatch,
                             QObject *receiver, const char *signal, int minMIdx,
                             bool buildSignature);
     static DBusHandlerResult messageFilter(DBusConnection *, DBusMessage *, void *);
@@ -390,7 +394,9 @@ public:
 public slots:
     void execute()
     {
-        con->setDispatchEnabled(true);
+        // This call cannot race with something disabling dispatch only because dispatch is
+        // never re-disabled from Qt code on an in-use connection once it has been enabled.
+        QMetaObject::invokeMethod(con, "setDispatchEnabled", Qt::QueuedConnection, Q_ARG(bool, true));
         if (!con->ref.deref())
             con->deleteLater();
         deleteLater();

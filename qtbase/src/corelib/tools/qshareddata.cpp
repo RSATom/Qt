@@ -59,9 +59,9 @@ QT_BEGIN_NAMESPACE
     Constructs a QSharedData object with a reference count of 0.
 */
 
-/*! \fn QSharedData::QSharedData(const QSharedData& other)
+/*! \fn QSharedData::QSharedData(const QSharedData& )
     Constructs a QSharedData object with reference count 0.
-    \a other is ignored.
+    The parameter is ignored.
 */
 
 /*!
@@ -142,9 +142,7 @@ QT_BEGIN_NAMESPACE
     would just predeclare the private subclass \c EmployeeData in \c
     {employee.h} this way:
 
-    \code
-    class EmployeeData;
-    \endcode
+    \snippet code/src_corelib_tools_qshareddata.cpp 0
 
     If we had done it that way here, the copy constructor shown would be
     required. Since the copy constructor is trivial, you might as well
@@ -248,86 +246,86 @@ QT_BEGIN_NAMESPACE
   \internal
  */
 
-/*! \fn T& QSharedDataPointer::operator*()
+/*! \fn template <class T> T& QSharedDataPointer<T>::operator*()
     Provides access to the shared data object's members.
     This function calls detach().
 */
 
-/*! \fn const T& QSharedDataPointer::operator*() const
+/*! \fn template <class T> const T& QSharedDataPointer<T>::operator*() const
     Provides const access to the shared data object's members.
     This function does \e not call detach().
 */
 
-/*! \fn T* QSharedDataPointer::operator->()
+/*! \fn template <class T> T* QSharedDataPointer<T>::operator->()
     Provides access to the shared data object's members.
     This function calls detach().
 */
 
-/*! \fn const T* QSharedDataPointer::operator->() const
+/*! \fn template <class T> const T* QSharedDataPointer<T>::operator->() const
     Provides const access to the shared data object's members.
     This function does \e not call detach().
 */
 
-/*! \fn QSharedDataPointer::operator T*()
+/*! \fn template <class T> QSharedDataPointer<T>::operator T*()
     Returns a pointer to the shared data object.
     This function calls detach().
 
     \sa data(), constData()
 */
 
-/*! \fn QSharedDataPointer::operator const T*() const
+/*! \fn template <class T> QSharedDataPointer<T>::operator const T*() const
     Returns a pointer to the shared data object.
     This function does \e not call detach().
 */
 
-/*! \fn T* QSharedDataPointer::data()
+/*! \fn template <class T> T* QSharedDataPointer<T>::data()
     Returns a pointer to the shared data object.
     This function calls detach().
 
     \sa constData()
 */
 
-/*! \fn const T* QSharedDataPointer::data() const
+/*! \fn template <class T> const T* QSharedDataPointer<T>::data() const
     Returns a pointer to the shared data object.
     This function does \e not call detach().
 */
 
-/*! \fn const T* QSharedDataPointer::constData() const
+/*! \fn template <class T> const T* QSharedDataPointer<T>::constData() const
     Returns a const pointer to the shared data object.
     This function does \e not call detach().
 
     \sa data()
 */
 
-/*! \fn void QSharedDataPointer::swap(QSharedDataPointer &other)
+/*! \fn template <class T> void QSharedDataPointer<T>::swap(QSharedDataPointer &other)
   Swap this instance's shared data pointer with the shared
   data pointer in \a other.
  */
 
 /*!
-    \fn QSharedDataPointer<T> &QSharedDataPointer::operator=(QSharedDataPointer<T> &&other)
+    \fn template <class T> QSharedDataPointer<T> &QSharedDataPointer<T>::operator=(QSharedDataPointer<T> &&other)
 
     Move-assigns \a other to this QSharedDataPointer instance.
 
     \since 5.2
 */
 
-/*! \fn bool QSharedDataPointer::operator==(const QSharedDataPointer<T>& other) const
+/*! \fn template <class T> bool QSharedDataPointer<T>::operator==(const QSharedDataPointer<T>& other) const
     Returns \c true if \a other and \e this have the same \e{d pointer}.
     This function does \e not call detach().
 */
 
-/*! \fn bool QSharedDataPointer::operator!=(const QSharedDataPointer<T>& other) const
+/*! \fn template <class T> bool QSharedDataPointer<T>::operator!=(const QSharedDataPointer<T>& other) const
     Returns \c true if \a other and \e this do \e not have the same
     \e{d pointer}. This function does \e not call detach().
 */
 
-/*! \fn QSharedDataPointer::QSharedDataPointer()
-    Constructs a QSharedDataPointer initialized with a null \e{d pointer}.
+/*! \fn template <class T> QSharedDataPointer<T>::QSharedDataPointer()
+    Constructs a QSharedDataPointer initialized with \nullptr as \e{d pointer}.
 */
 
 /*!
-    \fn QSharedDataPointer::QSharedDataPointer(QSharedDataPointer &&o)
+    \fn template <class T> QSharedDataPointer<T>::QSharedDataPointer(QSharedDataPointer &&o)
 
     Move-constructs a QSharedDataPointer instance, making it point at the same
     object that \a o was pointing to.
@@ -335,45 +333,45 @@ QT_BEGIN_NAMESPACE
     \since 5.2
 */
 
-/*! \fn QSharedDataPointer::~QSharedDataPointer()
+/*! \fn template <class T> QSharedDataPointer<T>::~QSharedDataPointer()
     Decrements the reference count of the shared data object.
     If the reference count becomes 0, the shared data object
     is deleted. \e This is then destroyed.
 */
 
-/*! \fn QSharedDataPointer::QSharedDataPointer(T* sharedData)
+/*! \fn template <class T> QSharedDataPointer<T>::QSharedDataPointer(T* data)
     Constructs a QSharedDataPointer with \e{d pointer} set to
-    \a sharedData and increments \a{sharedData}'s reference count.
+    \a data and increments \a{data}'s reference count.
 */
 
-/*! \fn QSharedDataPointer::QSharedDataPointer(const QSharedDataPointer<T>& other)
+/*! \fn template <class T> QSharedDataPointer<T>::QSharedDataPointer(const QSharedDataPointer<T>& o)
     Sets the \e{d pointer} of \e this to the \e{d pointer} in
-    \a other and increments the reference count of the shared
+    \a o and increments the reference count of the shared
     data object.
 */
 
-/*! \fn QSharedDataPointer<T>& QSharedDataPointer::operator=(const QSharedDataPointer<T>& other)
+/*! \fn template <class T> QSharedDataPointer<T>& QSharedDataPointer<T>::operator=(const QSharedDataPointer<T>& o)
     Sets the \e{d pointer} of \e this to the \e{d pointer} of
-    \a other and increments the reference count of the shared
+    \a o and increments the reference count of the shared
     data object. The reference count of the old shared data
     object of \e this is decremented.  If the reference count
     of the old shared data object becomes 0, the old shared
     data object is deleted.
 */
 
-/*! \fn QSharedDataPointer& QSharedDataPointer::operator=(T* sharedData)
-    Sets the \e{d pointer} og \e this to \a sharedData and increments
-    \a{sharedData}'s reference count. The reference count of the old
+/*! \fn template <class T> QSharedDataPointer& QSharedDataPointer<T>::operator=(T* o)
+    Sets the \e{d pointer} og \e this to \a o and increments
+    \a{o}'s reference count. The reference count of the old
     shared data object of \e this is decremented.  If the reference
     count of the old shared data object becomes 0, the old shared data
     object is deleted.
 */
 
-/*! \fn bool QSharedDataPointer::operator!() const
-    Returns \c true if the \e{d pointer} of \e this is null.
+/*! \fn template <class T> bool QSharedDataPointer<T>::operator!() const
+    Returns \c true if the \e{d pointer} of \e this is \nullptr.
 */
 
-/*! \fn void QSharedDataPointer::detach()
+/*! \fn template <class T> void QSharedDataPointer<T>::detach()
     If the shared data object's reference count is greater than 1, this
     function creates a deep copy of the shared data object and sets the
     \e{d pointer} of \e this to the copy.
@@ -383,7 +381,7 @@ QT_BEGIN_NAMESPACE
     required. You don't need to call it yourself.
 */
 
-/*! \fn T *QSharedDataPointer::clone()
+/*! \fn template <class T> T *QSharedDataPointer<T>::clone()
     \since 4.5
 
     Creates and returns a deep copy of the current data. This function
@@ -396,13 +394,7 @@ QT_BEGIN_NAMESPACE
     a template-specialization of this function for your own type, like
     the example below:
 
-    \code
-      template<>
-      EmployeeData *QSharedDataPointer<EmployeeData>::clone()
-      {
-          return d->clone();
-      }
-    \endcode
+    \snippet code/src_corelib_tools_qshareddata.cpp 1
 
     In the example above, the template specialization for the clone()
     function calls the \e {EmployeeData::clone()} virtual function. A
@@ -449,71 +441,71 @@ QT_BEGIN_NAMESPACE
     \sa QSharedData, QSharedDataPointer
 */
 
-/*! \fn T& QExplicitlySharedDataPointer::operator*() const
+/*! \fn template <class T> T& QExplicitlySharedDataPointer<T>::operator*() const
     Provides access to the shared data object's members.
 */
 
-/*! \fn T* QExplicitlySharedDataPointer::operator->()
+/*! \fn template <class T> T* QExplicitlySharedDataPointer<T>::operator->()
     Provides access to the shared data object's members.
 */
 
-/*! \fn const T* QExplicitlySharedDataPointer::operator->() const
+/*! \fn template <class T> const T* QExplicitlySharedDataPointer<T>::operator->() const
     Provides const access to the shared data object's members.
 */
 
-/*! \fn T* QExplicitlySharedDataPointer::data() const
+/*! \fn template <class T> T* QExplicitlySharedDataPointer<T>::data() const
     Returns a pointer to the shared data object.
 */
 
-/*! \fn const T* QExplicitlySharedDataPointer::constData() const
+/*! \fn template <class T> const T* QExplicitlySharedDataPointer<T>::constData() const
     Returns a const pointer to the shared data object.
 
     \sa data()
 */
 
-/*! \fn void QExplicitlySharedDataPointer::swap(QExplicitlySharedDataPointer &other)
+/*! \fn template <class T> void QExplicitlySharedDataPointer<T>::swap(QExplicitlySharedDataPointer &other)
   Swap this instance's explicitly shared data pointer with
   the explicitly shared data pointer in \a other.
  */
 
-/*! \fn bool QExplicitlySharedDataPointer::operator==(const QExplicitlySharedDataPointer<T>& other) const
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator==(const QExplicitlySharedDataPointer<T>& other) const
     Returns \c true if \a other and \e this have the same \e{d pointer}.
 */
 
 /*!
-    \fn QExplicitlySharedDataPointer<T> &QExplicitlySharedDataPointer::operator=(QExplicitlySharedDataPointer<T> &&other)
+    \fn template <class T> QExplicitlySharedDataPointer<T> &QExplicitlySharedDataPointer<T>::operator=(QExplicitlySharedDataPointer<T> &&other)
 
     Move-assigns \a other to this QExplicitlySharedDataPointer instance.
 
     \since 5.2
 */
 
-/*! \fn bool QExplicitlySharedDataPointer::operator==(const T* ptr) const
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator==(const T* ptr) const
     Returns \c true if the \e{d pointer} of \e this is \a ptr.
  */
 
-/*! \fn bool QExplicitlySharedDataPointer::operator!=(const QExplicitlySharedDataPointer<T>& other) const
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator!=(const QExplicitlySharedDataPointer<T>& other) const
     Returns \c true if \a other and \e this do \e not have the same
     \e{d pointer}.
 */
 
-/*! \fn bool QExplicitlySharedDataPointer::operator!=(const T* ptr) const
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator!=(const T* ptr) const
     Returns \c true if the \e{d pointer} of \e this is \e not \a ptr.
  */
 
-/*! \fn QExplicitlySharedDataPointer::QExplicitlySharedDataPointer()
-    Constructs a QExplicitlySharedDataPointer initialized with a null
-    \e{d pointer}.
+/*! \fn template <class T> QExplicitlySharedDataPointer<T>::QExplicitlySharedDataPointer()
+    Constructs a QExplicitlySharedDataPointer initialized with \nullptr
+    as \e{d pointer}.
 */
 
-/*! \fn QExplicitlySharedDataPointer::~QExplicitlySharedDataPointer()
+/*! \fn template <class T> QExplicitlySharedDataPointer<T>::~QExplicitlySharedDataPointer()
     Decrements the reference count of the shared data object.
     If the reference count becomes 0, the shared data object
     is deleted. \e This is then destroyed.
 */
 
 /*!
-    \fn QExplicitlySharedDataPointer::QExplicitlySharedDataPointer(QExplicitlySharedDataPointer &&o)
+    \fn template <class T> QExplicitlySharedDataPointer<T>::QExplicitlySharedDataPointer(QExplicitlySharedDataPointer &&o)
 
     Move-constructs a QExplicitlySharedDataPointer instance, making it point at the same
     object that \a o was pointing to.
@@ -521,24 +513,24 @@ QT_BEGIN_NAMESPACE
     \since 5.2
 */
 
-/*! \fn QExplicitlySharedDataPointer::QExplicitlySharedDataPointer(T* sharedData)
+/*! \fn template <class T> QExplicitlySharedDataPointer<T>::QExplicitlySharedDataPointer(T* data)
     Constructs a QExplicitlySharedDataPointer with \e{d pointer}
-    set to \a sharedData and increments \a{sharedData}'s reference
+    set to \a data and increments \a{data}'s reference
     count.
 */
 
-/*! \fn QExplicitlySharedDataPointer::QExplicitlySharedDataPointer(const QExplicitlySharedDataPointer<T>& other)
+/*! \fn template <class T> QExplicitlySharedDataPointer<T>::QExplicitlySharedDataPointer(const QExplicitlySharedDataPointer<T>& o)
     This standard copy constructor sets the \e {d pointer} of \e this to
-    the \e {d pointer} in \a other and increments the reference count of
+    the \e {d pointer} in \a o and increments the reference count of
     the shared data object.
 */
 
-/*! \fn QExplicitlySharedDataPointer::QExplicitlySharedDataPointer(const QExplicitlySharedDataPointer<X>& other)
-    This copy constructor is different in that it allows \a other to be
+/*! \fn template <class T> template <class X> QExplicitlySharedDataPointer<T>::QExplicitlySharedDataPointer(const QExplicitlySharedDataPointer<X>& o)
+    This copy constructor is different in that it allows \a o to be
     a different type of explicitly shared data pointer but one that has
     a compatible shared data object.
 
-    By default, the \e{d pointer} of \a other (of type \c{X *}) gets
+    By default, the \e{d pointer} of \a o (of type \c{X *}) gets
     implicitly converted to the type \c{T *}; the result of this
     conversion is set as the \e{d pointer} of \e{this}, and the
     reference count of the shared data object is incremented.
@@ -546,7 +538,7 @@ QT_BEGIN_NAMESPACE
     However, if the macro
     \c{QT_ENABLE_QEXPLICITLYSHAREDDATAPOINTER_STATICCAST} is defined
     before including the \c{QExplicitlySharedDataPointer} header, then
-    the \e{d pointer} of \a other undergoes a \c{static_cast} to the
+    the \e{d pointer} of \a o undergoes a \c{static_cast} to the
     type \c{T *}. The result of the cast is then set as the
     \e{d pointer} of \e{this}, and the reference count of the shared data
     object is incremented.
@@ -554,10 +546,7 @@ QT_BEGIN_NAMESPACE
     \warning relying on such \c{static_cast} is potentially dangerous,
     because it allows code like this to compile:
 
-    \code
-        QExplicitlySharedDataPointer<Base> base(new Base);
-        QExplicitlySharedDataPointer<Derived> derived(base); // !!! DANGER !!!
-    \endcode
+    \snippet code/src_corelib_tools_qshareddata.cpp 2
 
     Starting from Qt 5.4 the cast is disabled by default. It is
     possible to enable it back by defining the
@@ -566,39 +555,46 @@ QT_BEGIN_NAMESPACE
     compile without modifications.
 */
 
-/*! \fn QExplicitlySharedDataPointer<T>& QExplicitlySharedDataPointer::operator=(const QExplicitlySharedDataPointer<T>& other)
+/*! \fn template <class T> QExplicitlySharedDataPointer<T>& QExplicitlySharedDataPointer<T>::operator=(const QExplicitlySharedDataPointer<T>& o)
     Sets the \e{d pointer} of \e this to the \e{d pointer} of
-    \a other and increments the reference count of the shared
+    \a o and increments the reference count of the shared
     data object. The reference count of the old shared data
     object of \e this is decremented.  If the reference count
     of the old shared data object becomes 0, the old shared
     data object is deleted.
 */
 
-/*! \fn QExplicitlySharedDataPointer& QExplicitlySharedDataPointer::operator=(T* sharedData)
-    Sets the \e{d pointer} of \e this to \a sharedData and
-    increments \a{sharedData}'s reference count. The reference
+/*! \fn template <class T> QExplicitlySharedDataPointer& QExplicitlySharedDataPointer<T>::operator=(T* o)
+    Sets the \e{d pointer} of \e this to \a o and
+    increments \a{o}'s reference count. The reference
     count of the old shared data object of \e this is decremented.
     If the reference count of the old shared data object becomes
     0, the old shared data object is deleted.
 */
 
-/*! \fn void QExplicitlySharedDataPointer::reset()
-    Resets \e this to be null. i.e., this function sets the
-    \e{d pointer} of \e this to 0, but first it decrements
+/*! \fn template <class T> void QExplicitlySharedDataPointer<T>::reset()
+    Resets \e this to be null - i.e., this function sets the
+    \e{d pointer} of \e this to \nullptr, but first it decrements
     the reference count of the shared data object and deletes
     the shared data object if the reference count became 0.
  */
 
-/*! \fn QExplicitlySharedDataPointer::operator bool () const
+/*! \fn template <class T> T *QExplicitlySharedDataPointer<T>::take()
+    \since 5.12
+
+    Returns a pointer to the shared object, and resets \e this to be \nullptr.
+    That is, this function sets the \e{d pointer} of \e this to \nullptr.
+ */
+
+/*! \fn template <class T> QExplicitlySharedDataPointer<T>::operator bool () const
     Returns \c true if the \e{d pointer} of \e this is \e not null.
  */
 
-/*! \fn bool QExplicitlySharedDataPointer::operator!() const
-    Returns \c true if the \e{d pointer} of \e this is null.
+/*! \fn template <class T> bool QExplicitlySharedDataPointer<T>::operator!() const
+    Returns \c true if the \e{d pointer} of \e this is \nullptr.
 */
 
-/*! \fn void QExplicitlySharedDataPointer::detach()
+/*! \fn template <class T> void QExplicitlySharedDataPointer<T>::detach()
     If the shared data object's reference count is greater than 1, this
     function creates a deep copy of the shared data object and sets the
     \e{d pointer} of \e this to the copy.
@@ -610,7 +606,7 @@ QT_BEGIN_NAMESPACE
     everywhere in your code, consider using QSharedDataPointer instead.
 */
 
-/*! \fn T *QExplicitlySharedDataPointer::clone()
+/*! \fn template <class T> T *QExplicitlySharedDataPointer<T>::clone()
     \since 4.5
 
     Creates and returns a deep copy of the current data. This function
@@ -618,7 +614,7 @@ QT_BEGIN_NAMESPACE
     order to create the new copy. This function uses the \e {operator
     new} and calls the copy constructor of the type T.
 
-    See QSharedDataPointer::clone() for an explanation of how to use it.
+    See QSharedDataPointer<T>::clone() for an explanation of how to use it.
 */
 
 /*!

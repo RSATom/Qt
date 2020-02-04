@@ -9,16 +9,15 @@
 
 #include "gm.h"
 
-#if SK_SUPPORT_GPU
-
 #include "GrContext.h"
 #include "GrDefaultGeoProcFactory.h"
+#include "GrMemoryPool.h"
 #include "GrOpFlushState.h"
 #include "GrPathUtils.h"
 #include "GrRenderTargetContextPriv.h"
-#include "GrTest.h"
 #include "SkColorPriv.h"
 #include "SkGeometry.h"
+#include "SkPointPriv.h"
 #include "SkTLList.h"
 #include "effects/GrConvexPolyEffect.h"
 #include "ops/GrMeshDrawOp.h"
@@ -42,52 +41,63 @@ class PolyBoundsOp : public GrMeshDrawOp {
 public:
     DEFINE_OP_CLASS_ID
 
+    static std::unique_ptr<GrDrawOp> Make(GrContext* context,
+                                          GrPaint&& paint,
+                                          const SkRect& rect) {
+        GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
+
+        return pool->allocate<PolyBoundsOp>(std::move(paint), rect);
+    }
+
     const char* name() const override { return "PolyBoundsOp"; }
 
-    static std::unique_ptr<GrDrawOp> Make(GrPaint&& paint, const SkRect& rect) {
-        return std::unique_ptr<GrDrawOp>(new PolyBoundsOp(std::move(paint), rect));
+    void visitProxies(const VisitProxyFunc& func, VisitorType) const override {
+        fProcessors.visitProxies(func);
     }
 
     FixedFunctionFlags fixedFunctionFlags() const override { return FixedFunctionFlags::kNone; }
 
-    RequiresDstTexture finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
-        auto analysis = fProcessors.finalize(
-                fColor, GrProcessorAnalysisCoverage::kNone, clip, false, caps, &fColor);
-        return analysis.requiresDstTexture() ? RequiresDstTexture::kYes : RequiresDstTexture::kNo;
+    GrProcessorSet::Analysis finalize(const GrCaps& caps, const GrAppliedClip* clip) override {
+        return fProcessors.finalize(fColor, GrProcessorAnalysisCoverage::kNone, clip, false, caps,
+                                    &fColor);
     }
 
 private:
+    friend class ::GrOpMemoryPool; // for ctor
+
     PolyBoundsOp(GrPaint&& paint, const SkRect& rect)
             : INHERITED(ClassID())
-            , fColor(paint.getColor())
+            , fColor(paint.getColor4f())
             , fProcessors(std::move(paint))
             , fRect(outset(rect)) {
         this->setBounds(sorted_rect(fRect), HasAABloat::kNo, IsZeroArea::kNo);
     }
 
-    void onPrepareDraws(Target* target) const override {
+    void onPrepareDraws(Target* target) override {
         using namespace GrDefaultGeoProcFactory;
 
         Color color(fColor);
         sk_sp<GrGeometryProcessor> gp(GrDefaultGeoProcFactory::Make(
-                color, Coverage::kSolid_Type, LocalCoords::kUnused_Type, SkMatrix::I()));
+                target->caps().shaderCaps(),
+                color,
+                Coverage::kSolid_Type,
+                LocalCoords::kUnused_Type,
+                SkMatrix::I()));
 
-        size_t vertexStride = gp->getVertexStride();
-        SkASSERT(vertexStride == sizeof(SkPoint));
-        QuadHelper helper;
-        SkPoint* verts = reinterpret_cast<SkPoint*>(helper.init(target, vertexStride, 1));
+        SkASSERT(gp->vertexStride() == sizeof(SkPoint));
+        QuadHelper helper(target, sizeof(SkPoint), 1);
+        SkPoint* verts = reinterpret_cast<SkPoint*>(helper.vertices());
         if (!verts) {
             return;
         }
 
-        fRect.toQuad(verts);
+        SkPointPriv::SetRectTriStrip(verts, fRect, sizeof(SkPoint));
 
-        helper.recordDraw(target, gp.get(), target->makePipeline(0, &fProcessors));
+        auto pipe = target->makePipeline(0, std::move(fProcessors), target->detachAppliedClip());
+        helper.recordDraw(target, std::move(gp), pipe.fPipeline, pipe.fFixedDynamicState);
     }
 
-    bool onCombineIfPossible(GrOp* op, const GrCaps& caps) override { return false; }
-
-    GrColor fColor;
+    SkPMColor4f fColor;
     GrProcessorSet fProcessors;
     SkRect fRect;
 
@@ -175,6 +185,11 @@ protected:
             return;
         }
 
+        GrContext* context = canvas->getGrContext();
+        if (!context) {
+            return;
+        }
+
         SkScalar y = 0;
         constexpr SkScalar kDX = 12.f;
         for (PathList::Iter iter(fPaths, PathList::Iter::kHead_IterStart);
@@ -183,24 +198,24 @@ protected:
             const SkPath* path = iter.get();
             SkScalar x = 0;
 
-            for (int et = 0; et < kGrProcessorEdgeTypeCnt; ++et) {
+            for (int et = 0; et < kGrClipEdgeTypeCnt; ++et) {
                 const SkMatrix m = SkMatrix::MakeTrans(x, y);
                 SkPath p;
                 path->transform(m, &p);
 
-                GrPrimitiveEdgeType edgeType = (GrPrimitiveEdgeType) et;
-                sk_sp<GrFragmentProcessor> fp(GrConvexPolyEffect::Make(edgeType, p));
+                GrClipEdgeType edgeType = (GrClipEdgeType) et;
+                std::unique_ptr<GrFragmentProcessor> fp(GrConvexPolyEffect::Make(edgeType, p));
                 if (!fp) {
                     continue;
                 }
 
                 GrPaint grPaint;
-                grPaint.setColor4f(GrColor4f(0, 0, 0, 1.f));
+                grPaint.setColor4f({ 0, 0, 0, 1.f });
                 grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
                 grPaint.addCoverageFragmentProcessor(std::move(fp));
 
                 std::unique_ptr<GrDrawOp> op =
-                        PolyBoundsOp::Make(std::move(grPaint), p.getBounds());
+                        PolyBoundsOp::Make(context, std::move(grPaint), p.getBounds());
                 renderTargetContext->priv().testingOnly_addDrawOp(std::move(op));
 
                 x += SkScalarCeilToScalar(path->getBounds().width() + kDX);
@@ -225,21 +240,22 @@ protected:
 
             SkScalar x = 0;
 
-            for (int et = 0; et < kGrProcessorEdgeTypeCnt; ++et) {
+            for (int et = 0; et < kGrClipEdgeTypeCnt; ++et) {
                 SkRect rect = *iter.get();
                 rect.offset(x, y);
-                GrPrimitiveEdgeType edgeType = (GrPrimitiveEdgeType) et;
-                sk_sp<GrFragmentProcessor> fp(GrConvexPolyEffect::Make(edgeType, rect));
+                GrClipEdgeType edgeType = (GrClipEdgeType) et;
+                std::unique_ptr<GrFragmentProcessor> fp(GrConvexPolyEffect::Make(edgeType, rect));
                 if (!fp) {
                     continue;
                 }
 
                 GrPaint grPaint;
-                grPaint.setColor4f(GrColor4f(0, 0, 0, 1.f));
+                grPaint.setColor4f({ 0, 0, 0, 1.f });
                 grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
                 grPaint.addCoverageFragmentProcessor(std::move(fp));
 
-                std::unique_ptr<GrDrawOp> op = PolyBoundsOp::Make(std::move(grPaint), rect);
+                std::unique_ptr<GrDrawOp> op = PolyBoundsOp::Make(context, std::move(grPaint),
+                                                                  rect);
                 renderTargetContext->priv().testingOnly_addDrawOp(std::move(op));
 
                 x += SkScalarCeilToScalar(rect.width() + kDX);
@@ -270,5 +286,3 @@ private:
 
 DEF_GM(return new ConvexPolyEffect;)
 }
-
-#endif

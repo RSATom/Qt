@@ -9,9 +9,10 @@
 #include <dxdiag.h>
 #include <windows.h>
 
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/win/scoped_com_initializer.h"
+#include "base/win/com_init_util.h"
 #include "gpu/config/gpu_info_collector.h"
 
 namespace gpu {
@@ -34,7 +35,7 @@ void RecurseDiagnosticTree(DxDiagNode* output,
   if (SUCCEEDED(hr)) {
     for (DWORD i = 0; i < prop_count; i++) {
       WCHAR prop_name16[256];
-      hr = container->EnumPropNames(i, prop_name16, arraysize(prop_name16));
+      hr = container->EnumPropNames(i, prop_name16, base::size(prop_name16));
       if (SUCCEEDED(hr)) {
         std::string prop_name8 = base::WideToUTF8(prop_name16);
 
@@ -70,14 +71,13 @@ void RecurseDiagnosticTree(DxDiagNode* output,
     if (SUCCEEDED(hr)) {
       for (DWORD i = 0; i < child_count; i++) {
         WCHAR child_name16[256];
-        hr = container->EnumChildContainerNames(i,
-                                                child_name16,
-                                                arraysize(child_name16));
+        hr = container->EnumChildContainerNames(i, child_name16,
+                                                base::size(child_name16));
         if (SUCCEEDED(hr)) {
           std::string child_name8 = base::WideToUTF8(child_name16);
           DxDiagNode* output_child = &output->children[child_name8];
 
-          IDxDiagContainer* child_container = NULL;
+          IDxDiagContainer* child_container = nullptr;
           hr = container->GetChildContainer(child_name16, &child_container);
           if (SUCCEEDED(hr)) {
             RecurseDiagnosticTree(output_child, child_container, depth - 1);
@@ -92,30 +92,29 @@ void RecurseDiagnosticTree(DxDiagNode* output,
 }  // namespace anonymous
 
 bool GetDxDiagnostics(DxDiagNode* output) {
+  // CLSID_DxDiagProvider is configured as an STA only object.
+  base::win::AssertComApartmentType(base::win::ComApartmentType::STA);
+
   HRESULT hr;
   bool success = false;
-  base::win::ScopedCOMInitializer com_initializer;
-
-  IDxDiagProvider* provider = NULL;
-  hr = CoCreateInstance(CLSID_DxDiagProvider,
-                         NULL,
-                         CLSCTX_INPROC_SERVER,
-                         IID_IDxDiagProvider,
-                         reinterpret_cast<void**>(&provider));
+  IDxDiagProvider* provider = nullptr;
+  hr = CoCreateInstance(CLSID_DxDiagProvider, nullptr, CLSCTX_INPROC_SERVER,
+                        IID_IDxDiagProvider,
+                        reinterpret_cast<void**>(&provider));
   if (SUCCEEDED(hr)) {
     DXDIAG_INIT_PARAMS params = { sizeof(params) };
     params.dwDxDiagHeaderVersion = DXDIAG_DX9_SDK_VERSION;
     params.bAllowWHQLChecks = FALSE;
-    params.pReserved = NULL;
+    params.pReserved = nullptr;
 
     hr = provider->Initialize(&params);
     if (SUCCEEDED(hr)) {
-      IDxDiagContainer* root = NULL;
+      IDxDiagContainer* root = nullptr;
       hr = provider->GetRootContainer(&root);
       if (SUCCEEDED(hr)) {
         // Limit to the DisplayDevices subtree. The tree in its entirity is
         // enormous and only this branch contains useful information.
-        IDxDiagContainer* display_devices = NULL;
+        IDxDiagContainer* display_devices = nullptr;
         hr = root->GetChildContainer(L"DxDiag_DisplayDevices",
                                      &display_devices);
         if (SUCCEEDED(hr)) {

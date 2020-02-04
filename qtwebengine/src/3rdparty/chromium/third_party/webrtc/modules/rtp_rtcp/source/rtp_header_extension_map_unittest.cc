@@ -7,14 +7,13 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "webrtc/modules/rtp_rtcp/include/rtp_header_extension_map.h"
+#include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 
 #include <vector>
 
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_header_extensions.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/typedefs.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "modules/rtp_rtcp/source/rtp_header_extensions.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
@@ -58,11 +57,18 @@ TEST(RtpHeaderExtensionTest, RegisterDuringContruction) {
   EXPECT_EQ(3, map.GetId(AbsoluteSendTime::kId));
 }
 
+TEST(RtpHeaderExtensionTest, RegisterTwoByteHeaderExtensions) {
+  RtpHeaderExtensionMap map;
+  // Two-byte header extension needed for id: [15-255].
+  EXPECT_TRUE(map.Register<TransmissionOffset>(18));
+  EXPECT_TRUE(map.Register<AbsoluteSendTime>(255));
+}
+
 TEST(RtpHeaderExtensionTest, RegisterIllegalArg) {
   RtpHeaderExtensionMap map;
-  // Valid range for id: [1-14].
+  // Valid range for id: [1-255].
   EXPECT_FALSE(map.Register<TransmissionOffset>(0));
-  EXPECT_FALSE(map.Register<TransmissionOffset>(15));
+  EXPECT_FALSE(map.Register<TransmissionOffset>(256));
 }
 
 TEST(RtpHeaderExtensionTest, Idempotent) {
@@ -81,17 +87,6 @@ TEST(RtpHeaderExtensionTest, NonUniqueId) {
 
   EXPECT_FALSE(map.Register<AudioLevel>(3));
   EXPECT_TRUE(map.Register<AudioLevel>(4));
-}
-
-TEST(RtpHeaderExtensionTest, GetTotalLength) {
-  RtpHeaderExtensionMap map;
-  constexpr RtpExtensionSize kExtensionSizes[] = {
-      {TransmissionOffset::kId, TransmissionOffset::kValueSizeBytes}};
-  EXPECT_EQ(0u, map.GetTotalLengthInBytes(kExtensionSizes));
-  EXPECT_TRUE(map.Register<TransmissionOffset>(3));
-  static constexpr size_t kRtpOneByteHeaderLength = 4;
-  EXPECT_EQ(kRtpOneByteHeaderLength + (TransmissionOffset::kValueSizeBytes + 1),
-            map.GetTotalLengthInBytes(kExtensionSizes));
 }
 
 TEST(RtpHeaderExtensionTest, GetType) {

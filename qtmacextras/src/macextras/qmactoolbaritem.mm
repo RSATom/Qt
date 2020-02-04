@@ -169,7 +169,8 @@ void QMacToolBarItem::setIcon(const QIcon &icon)
         return;
 
     if (pixmap.isNull() == false) {
-        [d->toolbarItem setImage: QtMac::toNSImage(pixmap)];
+        NSImage *image = [[NSImage alloc] initWithCGImage:pixmap.toImage().toCGImage() size:NSZeroSize];
+        d->toolbarItem.image = [image autorelease];
     }
 }
 

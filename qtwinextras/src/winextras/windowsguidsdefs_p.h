@@ -51,8 +51,8 @@
 // We mean it.
 //
 
-#include <QtGlobal>
-#include <qt_windows.h>
+#include <QtCore/qglobal.h>
+#include <QtCore/qt_windows.h>
 
 QT_BEGIN_NAMESPACE
 

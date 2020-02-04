@@ -36,8 +36,9 @@ class PepperDeviceEnumerationHostHelper::ScopedEnumerationRequest
       // If no delegate, return an empty list of devices.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
-          base::Bind(&ScopedEnumerationRequest::EnumerateDevicesCallbackBody,
-                     AsWeakPtr(), std::vector<ppapi::DeviceRefData>()));
+          base::BindOnce(
+              &ScopedEnumerationRequest::EnumerateDevicesCallbackBody,
+              AsWeakPtr(), std::vector<ppapi::DeviceRefData>()));
       return;
     }
 
@@ -65,8 +66,9 @@ class PepperDeviceEnumerationHostHelper::ScopedEnumerationRequest
     if (sync_call_) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
-          base::Bind(&ScopedEnumerationRequest::EnumerateDevicesCallbackBody,
-                     AsWeakPtr(), devices));
+          base::BindOnce(
+              &ScopedEnumerationRequest::EnumerateDevicesCallbackBody,
+              AsWeakPtr(), devices));
     } else {
       callback_.Run(devices);
       // This object may have been destroyed at this point.
@@ -91,7 +93,7 @@ class PepperDeviceEnumerationHostHelper::ScopedMonitoringRequest
       : owner_(owner),
         callback_(callback),
         requested_(false),
-        subscription_id_(0) {
+        subscription_id_(0u) {
     DCHECK(owner_);
     if (!owner->delegate_) {
       return;
@@ -118,7 +120,7 @@ class PepperDeviceEnumerationHostHelper::ScopedMonitoringRequest
   PepperDeviceEnumerationHostHelper* const owner_;
   PepperDeviceEnumerationHostHelper::Delegate::DevicesCallback callback_;
   bool requested_;
-  int subscription_id_;
+  size_t subscription_id_;
 
   DISALLOW_COPY_AND_ASSIGN(ScopedMonitoringRequest);
 };
@@ -191,7 +193,7 @@ int32_t PepperDeviceEnumerationHostHelper::OnMonitorDeviceChange(
 
 int32_t PepperDeviceEnumerationHostHelper::OnStopMonitoringDeviceChange(
     HostMessageContext* /* context */) {
-  monitor_.reset(NULL);
+  monitor_.reset(nullptr);
   return PP_OK;
 }
 
@@ -199,7 +201,7 @@ void PepperDeviceEnumerationHostHelper::OnEnumerateDevicesComplete(
     const std::vector<ppapi::DeviceRefData>& devices) {
   DCHECK(enumerate_devices_context_.is_valid());
 
-  enumerate_.reset(NULL);
+  enumerate_.reset(nullptr);
 
   enumerate_devices_context_.params.set_result(PP_OK);
   resource_host_->host()->SendReply(

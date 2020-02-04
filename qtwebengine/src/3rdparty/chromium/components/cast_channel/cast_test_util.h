@@ -10,11 +10,13 @@
 
 #include "base/macros.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "components/cast_channel/cast_message_handler.h"
 #include "components/cast_channel/cast_socket.h"
 #include "components/cast_channel/cast_socket_service.h"
 #include "components/cast_channel/cast_transport.h"
 #include "components/cast_channel/proto/cast_channel.pb.h"
 #include "net/base/ip_endpoint.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace cast_channel {
@@ -67,32 +69,28 @@ class MockCastSocketObserver : public CastSocket::Observer {
 
 class MockCastSocketService : public CastSocketService {
  public:
-  MockCastSocketService();
+  explicit MockCastSocketService(
+      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
   ~MockCastSocketService() override;
 
-  int OpenSocket(const net::IPEndPoint& ip_endpoint,
-                 net::NetLog* net_log,
-                 CastSocket::OnOpenCallback open_cb,
-                 CastSocket::Observer* observer) override {
+  void OpenSocket(NetworkContextGetter network_context_getter,
+                  const CastSocketOpenParams& open_params,
+                  CastSocket::OnOpenCallback open_cb) override {
     // Unit test should not call |open_cb| more than once. Just use
     // base::AdaptCallbackForRepeating to pass |open_cb| to a mock method.
-    return OpenSocketInternal(
-        ip_endpoint, net_log,
-        base::AdaptCallbackForRepeating(std::move(open_cb)), observer);
+    OpenSocketInternal(open_params.ip_endpoint,
+                       base::AdaptCallbackForRepeating(std::move(open_cb)));
   }
 
-  MOCK_METHOD4(OpenSocketInternal,
-               int(const net::IPEndPoint& ip_endpoint,
-                   net::NetLog* net_log,
-                   const base::Callback<void(int, ChannelError)>& open_cb,
-                   CastSocket::Observer* observer));
+  MOCK_METHOD2(OpenSocketInternal,
+               void(const net::IPEndPoint& ip_endpoint,
+                    const base::Callback<void(CastSocket*)>& open_cb));
   MOCK_CONST_METHOD1(GetSocket, CastSocket*(int channel_id));
 };
 
 class MockCastSocket : public CastSocket {
  public:
-  using MockOnOpenCallback =
-      base::Callback<void(int channel_id, ChannelError error_state)>;
+  using MockOnOpenCallback = base::Callback<void(CastSocket* socket)>;
 
   MockCastSocket();
   ~MockCastSocket() override;
@@ -144,6 +142,48 @@ class MockCastSocket : public CastSocket {
   DISALLOW_COPY_AND_ASSIGN(MockCastSocket);
 };
 
+class MockCastMessageHandler : public CastMessageHandler {
+ public:
+  explicit MockCastMessageHandler(MockCastSocketService* socket_service);
+  ~MockCastMessageHandler() override;
+
+  MOCK_METHOD3(EnsureConnection,
+               void(int, const std::string&, const std::string&));
+  MOCK_METHOD3(RequestAppAvailability,
+               void(CastSocket* socket,
+                    const std::string& app_id,
+                    GetAppAvailabilityCallback callback));
+  MOCK_METHOD1(RequestReceiverStatus, void(int channel_id));
+  MOCK_METHOD3(SendBroadcastMessage,
+               void(int,
+                    const std::vector<std::string>&,
+                    const BroadcastRequest&));
+  MOCK_METHOD4(LaunchSession,
+               void(int,
+                    const std::string&,
+                    base::TimeDelta,
+                    LaunchSessionCallback callback));
+  MOCK_METHOD3(StopSession,
+               void(int channel_id,
+                    const std::string& session_id,
+                    ResultCallback callback));
+  MOCK_METHOD2(SendAppMessage,
+               Result(int channel_id, const CastMessage& message));
+  MOCK_METHOD4(SendMediaRequest,
+               base::Optional<int>(int channel_id,
+                                   const base::Value& body,
+                                   const std::string& source_id,
+                                   const std::string& destination_id));
+  MOCK_METHOD4(SendSetVolumeRequest,
+               Result(int channel_id,
+                      const base::Value& body,
+                      const std::string& source_id,
+                      ResultCallback callback));
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MockCastMessageHandler);
+};
+
 // Creates the IPEndpoint 192.168.1.1.
 net::IPEndPoint CreateIPEndPointForTest();
 
@@ -162,7 +202,7 @@ ACTION_TEMPLATE(PostCompletionCallbackTask,
                 HAS_1_TEMPLATE_PARAMS(int, cb_idx),
                 AND_1_VALUE_PARAMS(rv)) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(testing::get<cb_idx>(args), rv));
+      FROM_HERE, base::BindOnce(testing::get<cb_idx>(args), rv));
 }
 
 }  // namespace cast_channel

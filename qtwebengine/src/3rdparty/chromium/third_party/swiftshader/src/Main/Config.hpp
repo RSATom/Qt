@@ -20,11 +20,7 @@
 #define PERF_HUD 0       // Display time spent on vertex, setup and pixel processing for each thread
 #define PERF_PROFILE 0   // Profile various pipeline stages and display the timing in SwiftConfig
 
-#if defined(_WIN32)
-#define S3TC_SUPPORT 1
-#else
-#define S3TC_SUPPORT 0
-#endif
+#define ASTC_SUPPORT 0
 
 // Worker thread count when not set by SwiftConfig
 // 0 = process affinity count (recommended)
@@ -84,11 +80,11 @@ namespace sw
 		TEXTURE_IMAGE_UNITS = 16,
 		VERTEX_TEXTURE_IMAGE_UNITS = 16,
 		TOTAL_IMAGE_UNITS = TEXTURE_IMAGE_UNITS + VERTEX_TEXTURE_IMAGE_UNITS,
-		FRAGMENT_UNIFORM_VECTORS = 224,
-		VERTEX_UNIFORM_VECTORS = 256,
-		MAX_VERTEX_INPUTS = 16,
-		MAX_VERTEX_OUTPUTS = 22,
-		MAX_FRAGMENT_INPUTS = 20,
+		FRAGMENT_UNIFORM_VECTORS = 264,
+		VERTEX_UNIFORM_VECTORS = 259,
+		MAX_VERTEX_INPUTS = 32,
+		MAX_VERTEX_OUTPUTS = 34,
+		MAX_FRAGMENT_INPUTS = 32,
 		MAX_FRAGMENT_UNIFORM_BLOCKS = 12,
 		MAX_VERTEX_UNIFORM_BLOCKS = 12,
 		MAX_UNIFORM_BUFFER_BINDINGS = MAX_FRAGMENT_UNIFORM_BLOCKS + MAX_VERTEX_UNIFORM_BLOCKS,   // Limited to 127 by SourceParameter.bufferIndex in Shader.hpp
@@ -98,7 +94,14 @@ namespace sw
 		MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS = 64,
 		MIN_PROGRAM_TEXEL_OFFSET = -8,
 		MAX_PROGRAM_TEXEL_OFFSET = 7,
+		MAX_TEXTURE_LOD = MIPMAP_LEVELS - 2,   // Trilinear accesses lod+1
 		RENDERTARGETS = 8,
+		NUM_TEMPORARY_REGISTERS = 4096,
+		MAX_SHADER_CALL_SITES = 2048,
+		MAX_SHADER_NESTED_LOOPS = 4,
+		MAX_SHADER_NESTED_IFS = 24 + 24,
+		MAX_SHADER_CALL_STACK_SIZE = 16,
+		MAX_SHADER_ENABLE_STACK_SIZE = 1 + 24,
 	};
 }
 

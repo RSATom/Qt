@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_IDENTITY_IDENTITY_GET_AUTH_TOKEN_FUNCTION_H_
 #define CHROME_BROWSER_EXTENSIONS_API_IDENTITY_IDENTITY_GET_AUTH_TOKEN_FUNCTION_H_
 
+#include "base/callback_list.h"
 #include "chrome/browser/extensions/api/identity/gaia_web_auth_flow.h"
 #include "chrome/browser/extensions/api/identity/identity_mint_queue.h"
 #include "chrome/browser/extensions/chrome_extension_function.h"
@@ -12,7 +13,12 @@
 #include "google_apis/gaia/oauth2_mint_token_flow.h"
 #include "google_apis/gaia/oauth2_token_service.h"
 #include "services/identity/public/cpp/account_state.h"
-#include "services/identity/public/interfaces/identity_manager.mojom.h"
+#include "services/identity/public/mojom/identity_manager.mojom.h"
+
+namespace identity {
+class AccessTokenFetcher;
+struct AccessTokenInfo;
+}  // namespace identity
 
 namespace extensions {
 
@@ -50,7 +56,7 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
     return token_key_.get();
   }
 
-  void Shutdown();
+  void OnIdentityAPIShutdown();
 
  protected:
   ~IdentityGetAuthTokenFunction() override;
@@ -65,18 +71,20 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
                            const std::string& expiration) override;
 
   // Starts a login access token request.
-  virtual void StartLoginAccessTokenRequest();
+  virtual void StartTokenKeyAccountAccessTokenRequest();
 
 // TODO(blundell): Investigate feasibility of moving the ChromeOS use case
 // to use the Identity Service instead of being an
 // OAuth2TokenService::Consumer.
 #if defined(OS_CHROMEOS)
-  // OAuth2TokenService::Consumer implementation:
-  void OnGetTokenSuccess(const OAuth2TokenService::Request* request,
-                         const std::string& access_token,
-                         const base::Time& expiration_time) override;
+  void OnGetTokenSuccess(
+      const OAuth2TokenService::Request* request,
+      const OAuth2AccessTokenConsumer::TokenResponse& token_response) override;
   void OnGetTokenFailure(const OAuth2TokenService::Request* request,
                          const GoogleServiceAuthError& error) override;
+
+  void OnAccessTokenFetchCompleted(GoogleServiceAuthError error,
+                                   identity::AccessTokenInfo access_token_info);
 #endif
 
   // Invoked on completion of IdentityManager::GetAccessToken().
@@ -97,7 +105,14 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   // Exposed for testing.
   virtual OAuth2MintTokenFlow* CreateMintTokenFlow();
 
-  std::unique_ptr<OAuth2TokenService::Request> login_token_request_;
+  // Pending request for an access token from the device account (via
+  // DeviceOAuth2TokenService).
+  std::unique_ptr<OAuth2TokenService::Request> device_access_token_request_;
+
+  // Pending fetcher for an access token for |token_key_.account_id| (via
+  // IdentityManager).
+  std::unique_ptr<identity::AccessTokenFetcher>
+      token_key_account_access_token_fetcher_;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(GetAuthTokenFunctionTest,
@@ -139,6 +154,9 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   void CompleteFunctionWithResult(const std::string& access_token);
   void CompleteFunctionWithError(const std::string& error);
 
+  // Whether a signin flow should be initiated in the user's current state.
+  bool ShouldStartSigninFlow();
+
   // Initiate/complete the sub-flows.
   void StartSigninFlow();
   void StartMintTokenFlow(IdentityMintRequestQueue::MintType type);
@@ -158,7 +176,7 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   // will be called only in Chrome OS for:
   // 1. Enterprise kiosk mode.
   // 2. Whitelisted first party apps in public session.
-  virtual void StartDeviceLoginAccessTokenRequest();
+  virtual void StartDeviceAccessTokenRequest();
 
   bool IsOriginWhitelistedInPublicSession();
 #endif
@@ -168,7 +186,7 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   virtual void ShowOAuthApprovalDialog(const IssueAdviceInfo& issue_advice);
 
   // Checks if there is a master login token to mint tokens for the extension.
-  bool HasLoginToken() const;
+  bool HasRefreshTokenForTokenKeyAccount() const;
 
   // Maps OAuth2 protocol errors to an error message returned to the
   // developer in chrome.runtime.lastError.
@@ -177,7 +195,11 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   std::string GetOAuth2ClientId() const;
 
   // Gets the Identity Manager, lazily binding it.
-  ::identity::mojom::IdentityManager* GetIdentityManager();
+  // TODO(https://crbug.com/913853): As of Dec 2018, the chrome.identity
+  // API is the only client of the Identity Service. It should be migrated to
+  // the IdentityManager soon after the IdentityManager is backed by the
+  // Identity Service.
+  ::identity::mojom::IdentityManager* GetMojoIdentityManager();
 
   bool interactive_;
   bool should_prompt_for_scopes_;
@@ -193,7 +215,11 @@ class IdentityGetAuthTokenFunction : public ChromeAsyncExtensionFunction,
   IssueAdviceInfo issue_advice_;
   std::unique_ptr<GaiaWebAuthFlow> gaia_web_auth_flow_;
 
-  identity::mojom::IdentityManagerPtr identity_manager_;
+  // Invoked when IdentityAPI is shut down.
+  std::unique_ptr<base::CallbackList<void()>::Subscription>
+      identity_api_shutdown_subscription_;
+
+  identity::mojom::IdentityManagerPtr mojo_identity_manager_;
 };
 
 }  // namespace extensions

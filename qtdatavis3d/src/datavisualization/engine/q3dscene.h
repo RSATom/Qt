@@ -55,7 +55,7 @@ class QT_DATAVISUALIZATION_EXPORT Q3DScene : public QObject
     Q_PROPERTY(QPoint graphPositionQuery READ graphPositionQuery WRITE setGraphPositionQuery NOTIFY graphPositionQueryChanged REVISION 1)
 
 public:
-    explicit Q3DScene(QObject *parent = Q_NULLPTR);
+    explicit Q3DScene(QObject *parent = nullptr);
     virtual ~Q3DScene();
 
     QRect viewport() const;

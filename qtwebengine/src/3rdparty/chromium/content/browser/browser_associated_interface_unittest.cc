@@ -12,9 +12,11 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "content/public/browser/browser_associated_interface.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/test/test_browser_associated_interfaces.mojom.h"
@@ -47,13 +49,16 @@ class ProxyRunner : public IPC::Listener {
     std::unique_ptr<IPC::ChannelFactory> factory;
     if (for_server) {
       factory = IPC::ChannelMojo::CreateServerFactory(
-          std::move(pipe), ipc_task_runner);
+          std::move(pipe), ipc_task_runner,
+          base::ThreadTaskRunnerHandle::Get());
     } else {
       factory = IPC::ChannelMojo::CreateClientFactory(
-          std::move(pipe), ipc_task_runner);
+          std::move(pipe), ipc_task_runner,
+          base::ThreadTaskRunnerHandle::Get());
     }
-    channel_ = IPC::ChannelProxy::Create(
-        std::move(factory), this, ipc_task_runner);
+    channel_ =
+        IPC::ChannelProxy::Create(std::move(factory), this, ipc_task_runner,
+                                  base::ThreadTaskRunnerHandle::Get());
   }
 
   void ShutDown() { channel_.reset(); }
@@ -106,7 +111,7 @@ class TestDriverMessageFilter
   void RequestQuit(RequestQuitCallback callback) override {
     EXPECT_EQ(kNumTestMessages, message_count_);
     std::move(callback).Run();
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   std::string next_expected_string_;
@@ -119,7 +124,7 @@ class TestClientRunner {
       : client_thread_("Test client") {
     client_thread_.Start();
     client_thread_.task_runner()->PostTask(
-        FROM_HERE, base::Bind(&RunTestClient, base::Passed(&pipe)));
+        FROM_HERE, base::BindOnce(&RunTestClient, std::move(pipe)));
   }
 
   ~TestClientRunner() {
@@ -146,11 +151,9 @@ class TestClientRunner {
       proxy.channel()->Send(message.release());
     }
 
-    driver->RequestQuit(base::MessageLoop::QuitWhenIdleClosure());
+    driver->RequestQuit(base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
 
-    base::MessageLoop::ScopedNestableTaskAllower allow_nested_loops(
-        base::MessageLoop::current());
-    base::RunLoop().Run();
+    base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).Run();
 
     proxy.ShutDown();
     io_thread.Stop();
@@ -163,8 +166,9 @@ class TestClientRunner {
 TEST_F(BrowserAssociatedInterfaceTest, Basic) {
   TestBrowserThreadBundle browser_threads_;
   mojo::MessagePipe pipe;
-  ProxyRunner proxy(std::move(pipe.handle0), true,
-                    BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
+  ProxyRunner proxy(
+      std::move(pipe.handle0), true,
+      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}));
   AddFilterToChannel(new TestDriverMessageFilter, proxy.channel());
 
   TestClientRunner client(std::move(pipe.handle1));

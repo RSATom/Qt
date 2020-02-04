@@ -13,30 +13,29 @@
 
 class CXFA_Measurement {
  public:
-  explicit CXFA_Measurement(const CFX_WideStringC& wsMeasure);
+  explicit CXFA_Measurement(WideStringView wsMeasure);
   CXFA_Measurement();
-  CXFA_Measurement(float fValue, XFA_UNIT eUnit);
+  CXFA_Measurement(float fValue, XFA_Unit eUnit);
 
-  void Set(const CFX_WideStringC& wsMeasure);
-  void Set(float fValue, XFA_UNIT eUnit) {
+  static XFA_Unit GetUnitFromString(WideStringView wsUnit);
+
+  void Set(float fValue, XFA_Unit eUnit) {
     m_fValue = fValue;
     m_eUnit = eUnit;
   }
 
-  XFA_UNIT GetUnit(const CFX_WideStringC& wsUnit);
-  XFA_UNIT GetUnit() const { return m_eUnit; }
+  XFA_Unit GetUnit() const { return m_eUnit; }
   float GetValue() const { return m_fValue; }
 
-  bool ToString(CFX_WideString& wsMeasure) const;
-  bool ToUnit(XFA_UNIT eUnit, float& fValue) const;
-  float ToUnit(XFA_UNIT eUnit) const {
-    float f;
-    return ToUnit(eUnit, f) ? f : 0;
-  }
+  WideString ToString() const;
+  float ToUnit(XFA_Unit eUnit) const;
 
  private:
+  void SetString(WideStringView wsMeasure);
+  bool ToUnitInternal(XFA_Unit eUnit, float* fValue) const;
+
   float m_fValue;
-  XFA_UNIT m_eUnit;
+  XFA_Unit m_eUnit;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_MEASUREMENT_H_

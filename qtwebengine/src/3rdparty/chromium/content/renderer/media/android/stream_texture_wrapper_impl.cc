@@ -12,8 +12,6 @@
 
 using gpu::gles2::GLES2Interface;
 
-static const uint32_t kGLTextureExternalOES = GL_TEXTURE_EXTERNAL_OES;
-
 namespace {
 // Non-member function to allow it to run even after this class is deleted.
 void OnReleaseTexture(scoped_refptr<content::StreamTextureFactory> factories,
@@ -71,21 +69,19 @@ void StreamTextureWrapperImpl::ReallocateVideoFrame(
   DCHECK(main_task_runner_->BelongsToCurrentThread());
 
   GLES2Interface* gl = factory_->ContextGL();
-  GLuint texture_target = kGLTextureExternalOES;
-  GLuint texture_id_ref = gl->CreateAndConsumeTextureCHROMIUM(
-      texture_target, texture_mailbox_.name);
-  const GLuint64 fence_sync = gl->InsertFenceSyncCHROMIUM();
+  GLuint texture_target = GL_TEXTURE_EXTERNAL_OES;
+  GLuint texture_id_ref =
+      gl->CreateAndConsumeTextureCHROMIUM(texture_mailbox_.name);
   gl->Flush();
 
   gpu::SyncToken texture_mailbox_sync_token;
-  gl->GenUnverifiedSyncTokenCHROMIUM(fence_sync,
-                                     texture_mailbox_sync_token.GetData());
   if (texture_mailbox_sync_token.namespace_id() ==
       gpu::CommandBufferNamespace::IN_PROCESS) {
     // TODO(boliu): Remove this once Android WebView switches to IPC-based
     // command buffer for video.
-    GLbyte* sync_tokens[] = {texture_mailbox_sync_token.GetData()};
-    gl->VerifySyncTokensCHROMIUM(sync_tokens, arraysize(sync_tokens));
+    gl->GenSyncTokenCHROMIUM(texture_mailbox_sync_token.GetData());
+  } else {
+    gl->GenUnverifiedSyncTokenCHROMIUM(texture_mailbox_sync_token.GetData());
   }
 
   gpu::MailboxHolder holders[media::VideoFrame::kMaxPlanes] = {
@@ -111,6 +107,12 @@ void StreamTextureWrapperImpl::ReallocateVideoFrame(
 void StreamTextureWrapperImpl::ForwardStreamTextureForSurfaceRequest(
     const base::UnguessableToken& request_token) {
   stream_texture_proxy_->ForwardStreamTextureForSurfaceRequest(request_token);
+}
+
+void StreamTextureWrapperImpl::ClearReceivedFrameCBOnAnyThread() {
+  // Safely stop StreamTextureProxy from signaling the arrival of new frames.
+  if (stream_texture_proxy_)
+    stream_texture_proxy_->ClearReceivedFrameCB();
 }
 
 void StreamTextureWrapperImpl::SetCurrentFrameInternal(
@@ -164,8 +166,8 @@ void StreamTextureWrapperImpl::InitializeOnMainThread(
   DCHECK(main_task_runner_->BelongsToCurrentThread());
   DVLOG(2) << __func__;
 
-  stream_texture_proxy_ = factory_->CreateProxy(
-      kGLTextureExternalOES, &texture_id_, &texture_mailbox_);
+  stream_texture_proxy_ =
+      factory_->CreateProxy(&texture_id_, &texture_mailbox_);
   if (!stream_texture_proxy_) {
     init_cb.Run(false);
     return;
@@ -180,15 +182,9 @@ void StreamTextureWrapperImpl::InitializeOnMainThread(
 }
 
 void StreamTextureWrapperImpl::Destroy() {
-  // Safely stop StreamTextureProxy from signaling the arrival of new frames.
-  // |stream_texture_proxy_| will be cleared on the main task runner, and its
-  // deleter will destroy the underlying object on the right task runner.
-  if (stream_texture_proxy_)
-    stream_texture_proxy_->ClearReceivedFrameCB();
-
   if (!main_task_runner_->BelongsToCurrentThread()) {
     // base::Unretained is safe here because this function is the only one that
-    // can can call delete.
+    // can call delete.
     main_task_runner_->PostTask(
         FROM_HERE,
         base::Bind(&StreamTextureWrapperImpl::Destroy, base::Unretained(this)));

@@ -4,7 +4,10 @@ HTML.tocdepth             = 2
 include(html-header-online.qdocconf)
 include(html-footer-online.qdocconf)
 
+defines                  += onlinedocs
+
 #uncomment if navigation bar is not wanted
 #HTML.nonavigationbar      = "true"
 
-sourcedirs += includes-online
+sourcedirs += includes-online \
+              includes

@@ -8,7 +8,6 @@
 #include "base/bind.h"
 #include "base/strings/nullable_string16.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/dom_storage/dom_storage_area.h"
 #include "content/browser/dom_storage/dom_storage_context_wrapper.h"
@@ -16,6 +15,7 @@
 #include "content/browser/dom_storage/dom_storage_namespace.h"
 #include "content/browser/dom_storage/dom_storage_task_runner.h"
 #include "content/common/dom_storage/dom_storage_messages.h"
+#include "content/public/browser/browser_thread.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -47,23 +47,21 @@ void DOMStorageMessageFilter::UninitializeInSequence() {
 
 void DOMStorageMessageFilter::OnFilterAdded(IPC::Channel* channel) {
   context_->task_runner()->PostShutdownBlockingTask(
-      FROM_HERE,
-      DOMStorageTaskRunner::PRIMARY_SEQUENCE,
-      base::Bind(&DOMStorageMessageFilter::InitializeInSequence, this));
+      FROM_HERE, DOMStorageTaskRunner::PRIMARY_SEQUENCE,
+      base::BindOnce(&DOMStorageMessageFilter::InitializeInSequence, this));
 }
 
 void DOMStorageMessageFilter::OnFilterRemoved() {
   context_->task_runner()->PostShutdownBlockingTask(
-      FROM_HERE,
-      DOMStorageTaskRunner::PRIMARY_SEQUENCE,
-      base::Bind(&DOMStorageMessageFilter::UninitializeInSequence, this));
+      FROM_HERE, DOMStorageTaskRunner::PRIMARY_SEQUENCE,
+      base::BindOnce(&DOMStorageMessageFilter::UninitializeInSequence, this));
 }
 
 base::TaskRunner* DOMStorageMessageFilter::OverrideTaskRunnerForMessage(
     const IPC::Message& message) {
   if (IPC_MESSAGE_CLASS(message) == DOMStorageMsgStart)
     return context_->task_runner();
-  return NULL;
+  return nullptr;
 }
 
 bool DOMStorageMessageFilter::OnMessageReceived(const IPC::Message& message) {
@@ -87,11 +85,11 @@ bool DOMStorageMessageFilter::OnMessageReceived(const IPC::Message& message) {
 }
 
 void DOMStorageMessageFilter::OnOpenStorageArea(int connection_id,
-                                                int64_t namespace_id,
+                                                const std::string& namespace_id,
                                                 const GURL& origin) {
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
-  base::Optional<bad_message::BadMessageReason>
-      error = host_->OpenStorageArea(connection_id, namespace_id, origin);
+  base::Optional<bad_message::BadMessageReason> error = host_->OpenStorageArea(
+      connection_id, namespace_id, url::Origin::Create(origin));
   if (error)
     bad_message::ReceivedBadMessage(this, error.value());
 }
@@ -112,27 +110,30 @@ void DOMStorageMessageFilter::OnLoadStorageArea(int connection_id,
 }
 
 void DOMStorageMessageFilter::OnSetItem(
-    int connection_id, const base::string16& key,
-    const base::string16& value, const GURL& page_url) {
-  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
-  DCHECK_EQ(0, connection_dispatching_message_for_);
-  base::AutoReset<int> auto_reset(&connection_dispatching_message_for_,
-                            connection_id);
-  base::NullableString16 not_used;
-  bool success = host_->SetAreaItem(connection_id, key, value,
-                                    page_url, &not_used);
-  Send(new DOMStorageMsg_AsyncOperationComplete(success));
-}
-
-void DOMStorageMessageFilter::OnRemoveItem(
-    int connection_id, const base::string16& key,
+    int connection_id,
+    const base::string16& key,
+    const base::string16& value,
+    const base::NullableString16& client_old_value,
     const GURL& page_url) {
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK_EQ(0, connection_dispatching_message_for_);
   base::AutoReset<int> auto_reset(&connection_dispatching_message_for_,
                             connection_id);
-  base::string16 not_used;
-  host_->RemoveAreaItem(connection_id, key, page_url, &not_used);
+  bool success =
+      host_->SetAreaItem(connection_id, key, value, client_old_value, page_url);
+  Send(new DOMStorageMsg_AsyncOperationComplete(success));
+}
+
+void DOMStorageMessageFilter::OnRemoveItem(
+    int connection_id,
+    const base::string16& key,
+    const base::NullableString16& client_old_value,
+    const GURL& page_url) {
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_EQ(0, connection_dispatching_message_for_);
+  base::AutoReset<int> auto_reset(&connection_dispatching_message_for_,
+                            connection_id);
+  host_->RemoveAreaItem(connection_id, key, client_old_value, page_url);
   Send(new DOMStorageMsg_AsyncOperationComplete(true));
 }
 
@@ -194,7 +195,7 @@ void DOMStorageMessageFilter::SendDOMStorageEvent(
   if (originated_in_process ||
       host_->HasAreaOpen(area->namespace_id(), area->origin())) {
     DOMStorageMsg_Event_Params params;
-    params.origin = area->origin();
+    params.origin = area->origin().GetURL();
     params.page_url = page_url;
     params.connection_id = connection_dispatching_message_for_;
     params.key = key;

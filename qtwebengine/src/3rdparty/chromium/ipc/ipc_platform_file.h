@@ -8,16 +8,16 @@
 #include "base/files/file.h"
 #include "base/process/process.h"
 #include "build/build_config.h"
-#include "ipc/ipc_export.h"
+#include "ipc/ipc_message_support_export.h"
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include "base/file_descriptor_posix.h"
 #endif
 
 namespace IPC {
 
 #if defined(OS_WIN)
-class IPC_EXPORT PlatformFileForTransit {
+class IPC_MESSAGE_SUPPORT_EXPORT PlatformFileForTransit {
  public:
   // Creates an invalid platform file.
   PlatformFileForTransit();
@@ -40,14 +40,14 @@ class IPC_EXPORT PlatformFileForTransit {
  private:
   HANDLE handle_;
 };
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 typedef base::FileDescriptor PlatformFileForTransit;
 #endif
 
 inline PlatformFileForTransit InvalidPlatformFileForTransit() {
 #if defined(OS_WIN)
   return PlatformFileForTransit();
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   return base::FileDescriptor();
 #endif
 }
@@ -56,7 +56,7 @@ inline base::PlatformFile PlatformFileForTransitToPlatformFile(
     const PlatformFileForTransit& transit) {
 #if defined(OS_WIN)
   return transit.GetHandle();
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   return transit.fd;
 #endif
 }
@@ -65,21 +65,21 @@ inline base::File PlatformFileForTransitToFile(
     const PlatformFileForTransit& transit) {
 #if defined(OS_WIN)
   return base::File(transit.GetHandle());
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   return base::File(transit.fd);
 #endif
 }
 
 // Creates a new handle that can be passed through IPC. The result must be
 // passed to the IPC layer as part of a message, or else it will leak.
-IPC_EXPORT PlatformFileForTransit GetPlatformFileForTransit(
-    base::PlatformFile file,
-    bool close_source_handle);
+IPC_MESSAGE_SUPPORT_EXPORT PlatformFileForTransit
+GetPlatformFileForTransit(base::PlatformFile file, bool close_source_handle);
 
 // Creates a new handle that can be passed through IPC. The result must be
 // passed to the IPC layer as part of a message, or else it will leak.
 // Note that this function takes ownership of |file|.
-IPC_EXPORT PlatformFileForTransit TakePlatformFileForTransit(base::File file);
+IPC_MESSAGE_SUPPORT_EXPORT PlatformFileForTransit
+TakePlatformFileForTransit(base::File file);
 
 }  // namespace IPC
 

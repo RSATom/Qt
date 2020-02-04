@@ -87,6 +87,12 @@ FcObjectValidType (FcObject object, FcType type)
 	    if (type == FcTypeLangSet || type == FcTypeString)
 		return FcTrue;
 	    break;
+	case FcTypeRange:
+	    if (type == FcTypeRange ||
+		type == FcTypeDouble ||
+		type == FcTypeInteger)
+		return FcTrue;
+	    break;
 	default:
 	    if (type == t->type)
 		return FcTrue;
@@ -132,6 +138,8 @@ static const FcConstant _FcBaseConstants[] = {
     { (FcChar8 *) "thin",	    "weight",   FC_WEIGHT_THIN, },
     { (FcChar8 *) "extralight",	    "weight",   FC_WEIGHT_EXTRALIGHT, },
     { (FcChar8 *) "ultralight",	    "weight",   FC_WEIGHT_EXTRALIGHT, },
+    { (FcChar8 *) "demilight",	    "weight",   FC_WEIGHT_DEMILIGHT, },
+    { (FcChar8 *) "semilight",	    "weight",   FC_WEIGHT_DEMILIGHT, },
     { (FcChar8 *) "light",	    "weight",   FC_WEIGHT_LIGHT, },
     { (FcChar8 *) "book",	    "weight",	FC_WEIGHT_BOOK, },
     { (FcChar8 *) "regular",	    "weight",   FC_WEIGHT_REGULAR, },
@@ -250,6 +258,11 @@ FcNameBool (const FcChar8 *v, FcBool *result)
 	*result = FcFalse;
 	return FcTrue;
     }
+    if (c0 == 'd' || c0 == 'x' || c0 == '2')
+    {
+	*result = FcDontCare;
+	return FcTrue;
+    }
     if (c0 == 'o')
     {
 	c1 = v[1];
@@ -264,6 +277,11 @@ FcNameBool (const FcChar8 *v, FcBool *result)
 	    *result = FcFalse;
 	    return FcTrue;
 	}
+	if (c1 == 'r')
+	{
+	    *result = FcDontCare;
+	    return FcTrue;
+	}
     }
     return FcFalse;
 }
@@ -273,6 +291,8 @@ FcNameConvert (FcType type, FcChar8 *string)
 {
     FcValue	v;
     FcMatrix	m;
+    double	b, e;
+    char	*p;
 
     v.type = type;
     switch ((int) v.type) {
@@ -306,6 +326,44 @@ FcNameConvert (FcType type, FcChar8 *string)
 	v.u.l = FcNameParseLangSet (string);
 	if (!v.u.l)
 	    v.type = FcTypeVoid;
+	break;
+    case FcTypeRange:
+	if (sscanf ((char *) string, "[%lg %lg]", &b, &e) != 2)
+	{
+	    char *sc, *ec;
+	    size_t len = strlen ((const char *) string);
+	    int si, ei;
+
+	    sc = malloc (len + 1);
+	    ec = malloc (len + 1);
+	    if (sc && ec && sscanf ((char *) string, "[%s %[^]]]", sc, ec) == 2)
+	    {
+		if (FcNameConstant ((const FcChar8 *) sc, &si) &&
+		    FcNameConstant ((const FcChar8 *) ec, &ei))
+		    v.u.r =  FcRangeCreateDouble (si, ei);
+		else
+		    goto bail1;
+	    }
+	    else
+	    {
+	    bail1:
+		v.type = FcTypeDouble;
+		if (FcNameConstant (string, &si))
+		{
+		    v.u.d = (double) si;
+		} else {
+		    v.u.d = strtod ((char *) string, &p);
+		    if (p != NULL && p[0] != 0)
+			v.type = FcTypeVoid;
+		}
+	    }
+	    if (sc)
+		free (sc);
+	    if (ec)
+		free (ec);
+	}
+	else
+	    v.u.r = FcRangeCreateDouble (b, e);
 	break;
     default:
 	break;
@@ -420,6 +478,8 @@ FcNameParse (const FcChar8 *name)
 		if ((c = FcNameGetConstant (save)))
 		{
 		    t = FcNameGetObjectType ((char *) c->object);
+		    if (t == NULL)
+			goto bail2;
 		    switch ((int) t->type) {
 		    case FcTypeInteger:
 		    case FcTypeDouble:
@@ -428,6 +488,10 @@ FcNameParse (const FcChar8 *name)
 			break;
 		    case FcTypeBool:
 			if (!FcPatternAddBool (pat, c->object, c->value))
+			    goto bail2;
+			break;
+		    case FcTypeRange:
+			if (!FcPatternAddInteger (pat, c->object, c->value))
 			    goto bail2;
 			break;
 		    default:
@@ -488,7 +552,10 @@ FcNameUnparseValue (FcStrBuf	*buf,
     case FcTypeString:
 	return FcNameUnparseString (buf, v.u.s, escape);
     case FcTypeBool:
-	return FcNameUnparseString (buf, v.u.b ? (FcChar8 *) "True" : (FcChar8 *) "False", 0);
+	return FcNameUnparseString (buf,
+				    v.u.b == FcTrue  ? (FcChar8 *) "True" :
+				    v.u.b == FcFalse ? (FcChar8 *) "False" :
+				                       (FcChar8 *) "DontCare", 0);
     case FcTypeMatrix:
 	sprintf ((char *) temp, "%g %g %g %g",
 		 v.u.m->xx, v.u.m->xy, v.u.m->yx, v.u.m->yy);
@@ -499,6 +566,9 @@ FcNameUnparseValue (FcStrBuf	*buf,
 	return FcNameUnparseLangSet (buf, v.u.l);
     case FcTypeFTFace:
 	return FcTrue;
+    case FcTypeRange:
+	sprintf ((char *) temp, "[%g %g]", v.u.r->begin, v.u.r->end);
+	return FcNameUnparseString (buf, temp, 0);
     }
     return FcFalse;
 }
@@ -531,12 +601,13 @@ FcNameUnparse (FcPattern *pat)
 FcChar8 *
 FcNameUnparseEscaped (FcPattern *pat, FcBool escape)
 {
-    FcStrBuf		    buf;
-    FcChar8		    buf_static[8192];
+    FcStrBuf		    buf, buf2;
+    FcChar8		    buf_static[8192], buf2_static[256];
     int			    i;
     FcPatternElt	    *e;
 
     FcStrBufInit (&buf, buf_static, sizeof (buf_static));
+    FcStrBufInit (&buf2, buf2_static, sizeof (buf2_static));
     e = FcPatternObjectFindElt (pat, FC_FAMILY_OBJECT);
     if (e)
     {
@@ -546,10 +617,17 @@ FcNameUnparseEscaped (FcPattern *pat, FcBool escape)
     e = FcPatternObjectFindElt (pat, FC_SIZE_OBJECT);
     if (e)
     {
-	if (!FcNameUnparseString (&buf, (FcChar8 *) "-", 0))
+	FcChar8 *p;
+
+	if (!FcNameUnparseString (&buf2, (FcChar8 *) "-", 0))
 	    goto bail0;
-	if (!FcNameUnparseValueList (&buf, FcPatternEltValues(e), escape ? (FcChar8 *) FC_ESCAPE_FIXED : 0))
+	if (!FcNameUnparseValueList (&buf2, FcPatternEltValues(e), escape ? (FcChar8 *) FC_ESCAPE_FIXED : 0))
 	    goto bail0;
+	p = FcStrBufDoneStatic (&buf2);
+	FcStrBufDestroy (&buf2);
+	if (strlen ((const char *)p) > 1)
+	    if (!FcStrBufString (&buf, p))
+		goto bail0;
     }
     for (i = 0; i < NUM_OBJECT_TYPES; i++)
     {

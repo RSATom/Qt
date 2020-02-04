@@ -42,8 +42,10 @@
 #define ANDROIDINPUTCONTEXT_H
 
 #include <qpa/qplatforminputcontext.h>
+#include <functional>
 #include <jni.h>
 #include <qevent.h>
+#include <QTimer>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,6 +60,22 @@ class QAndroidInputContext: public QPlatformInputContext
     };
 
 public:
+    enum EditContext : uint32_t {
+        CutButton       = 1 << 0,
+        CopyButton      = 1 << 1,
+        PasteButton     = 1 << 2,
+        SelectAllButton = 1 << 3,
+        AllButtons      = CutButton | CopyButton | PasteButton | SelectAllButton
+    };
+
+    enum HandleMode {
+        Hidden        = 0,
+        ShowCursor    = 1,
+        ShowSelection = 2,
+        ShowEditPopup = 0x100
+    };
+    Q_DECLARE_FLAGS(HandleModes, HandleMode)
+
     struct ExtractedText
     {
         ExtractedText() { clear(); }
@@ -118,25 +136,24 @@ public:
     jboolean paste();
 
 public slots:
+    void safeCall(const std::function<void()> &func, Qt::ConnectionType conType = Qt::BlockingQueuedConnection);
     void updateCursorPosition();
     void updateSelectionHandles();
     void handleLocationChanged(int handleId, int x, int y);
     void touchDown(int x, int y);
     void longPress(int x, int y);
     void keyDown();
+    void hideSelectionHandles();
 
 private slots:
     void showInputPanelLater(Qt::ApplicationState);
 
 private:
-    void sendInputMethodEventThreadSafe(QInputMethodEvent *event);
-    Q_INVOKABLE void sendInputMethodEventUnsafe(QInputMethodEvent *event);
-
-    QSharedPointer<QInputMethodQueryEvent> focusObjectInputMethodQueryThreadSafe(Qt::InputMethodQueries queries = Qt::ImQueryAll);
-    Q_INVOKABLE QInputMethodQueryEvent *focusObjectInputMethodQueryUnsafe(Qt::InputMethodQueries queries);
-
-    Q_INVOKABLE QVariant queryFocusObjectUnsafe(Qt::InputMethodQuery query, QVariant argument);
-    QVariant queryFocusObjectThreadSafe(Qt::InputMethodQuery query, QVariant argument);
+    void sendInputMethodEvent(QInputMethodEvent *event);
+    QSharedPointer<QInputMethodQueryEvent> focusObjectInputMethodQuery(Qt::InputMethodQueries queries = Qt::ImQueryAll);
+    bool focusObjectIsComposing() const;
+    void focusObjectStartComposing();
+    bool focusObjectStopComposing();
 
 private:
     ExtractedText m_extractedText;
@@ -144,18 +161,12 @@ private:
     int m_composingTextStart;
     int m_composingCursor;
     QMetaObject::Connection m_updateCursorPosConnection;
-    bool m_blockUpdateSelection;
-    enum CursorHandleShowMode {
-        CursorHandleNotShown,
-        CursorHandleShowNormal = 1,
-        CursorHandleShowSelection = 2,
-        CursorHandleShowPopup = 3
-    };
-    CursorHandleShowMode m_cursorHandleShown;
-    QAtomicInt m_batchEditNestingLevel;
+    HandleModes m_handleMode;
+    int m_batchEditNestingLevel;
     QObject *m_focusObject;
+    QTimer m_hideCursorHandleTimer;
 };
-
+Q_DECLARE_OPERATORS_FOR_FLAGS(QAndroidInputContext::HandleModes)
 QT_END_NAMESPACE
 
 #endif // ANDROIDINPUTCONTEXT_H

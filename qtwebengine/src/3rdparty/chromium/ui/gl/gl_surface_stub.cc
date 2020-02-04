@@ -4,6 +4,9 @@
 
 #include "ui/gl/gl_surface_stub.h"
 
+#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
+
 namespace gl {
 
 void GLSurfaceStub::Destroy() {
@@ -11,6 +14,7 @@ void GLSurfaceStub::Destroy() {
 
 bool GLSurfaceStub::Resize(const gfx::Size& size,
                            float scale_factor,
+                           ColorSpace color_space,
                            bool has_alpha) {
   return true;
 }
@@ -19,7 +23,12 @@ bool GLSurfaceStub::IsOffscreen() {
   return false;
 }
 
-gfx::SwapResult GLSurfaceStub::SwapBuffers() {
+gfx::SwapResult GLSurfaceStub::SwapBuffers(
+    const PresentationCallback& callback) {
+  gfx::PresentationFeedback feedback(base::TimeTicks::Now(), base::TimeDelta(),
+                                     0 /* flags */);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(callback, std::move(feedback)));
   return gfx::SwapResult::SWAP_ACK;
 }
 
@@ -45,6 +54,10 @@ bool GLSurfaceStub::SupportsDCLayers() const {
 
 gfx::Vector2d GLSurfaceStub::GetDrawOffset() const {
   return supports_draw_rectangle_ ? gfx::Vector2d(100, 200) : gfx::Vector2d();
+}
+
+bool GLSurfaceStub::SupportsPresentationCallback() {
+  return true;
 }
 
 GLSurfaceStub::~GLSurfaceStub() {}

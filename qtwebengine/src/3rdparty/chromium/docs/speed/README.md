@@ -5,8 +5,6 @@
   * **Contact**: **speed@chromium.org**
   * **Escalation**:
     * benhenry@chromium.org (TPM)
-    * rschoen@chromium.org (PM)
-    * parisa@chromium.org (eng director)
   * **File a bug**: [template](https://bugs.chromium.org/p/chromium/issues/entry?template=Speed%20Bug)
   * **Regression postmortem**: [template](https://docs.google.com/document/d/1fvfhFNOoUL9rB0XAEe1MYefyM_9yriR1IPjdxdm7PaQ/edit?disco=AAAABKdHwCg)
 
@@ -20,7 +18,7 @@
 
 ## Core Teams and Work
 
-  * **[Speed tracks](speed_tracks.md)**: Most of the speed 
+  * **[Speed tracks](speed_tracks.md)**: Most of the speed
     work on Chrome is organized into these tracks.
   * **[Chrome Speed Operations](chrome_speed_operations.md)**: provides the
     benchmarks, infrastructure, and releasing oversight to track regressions.
@@ -29,6 +27,13 @@
     * Benchmark-specific discussion: benchmarking-dev@chromium.org
     <!--- TODO: Requests for new benchmarks: chrome-benchmarking-request mailing list link -->
     * Performance dashboard, bisect, try jobs: speed-services-dev@chromium.org
-  * **[Chrome Speed Metrics](https://docs.google.com/document/d/1wBT5fauGf8bqW2Wcg2A5Z-3_ZvgPhE8fbp1Xe6xfGRs/edit#heading=h.8ieoiiwdknwt)**: provides a set of high-quality metrics that represent real-world user experience, and exposes these metrics to both Chrome and Web Developers.
-    * General discussion: progressive-web-metrics@chromium.org
-    * The actual metrics: [tracking](https://docs.google.com/spreadsheets/d/1gY5hkKPp8RNVqmOw1d-bo-f9EXLqtq4wa3Z7Q8Ek9Tk/edit#gid=0)
+  * **Chrome Speed Metrics**: provides a set of high-quality metrics that represent real-world user experience, and exposes these metrics to both Chrome and Web Developers.
+    * General discussion: speed-metrics-dev@chromium.org
+    * The actual metrics: [speed launch metrics survey.](https://docs.google.com/document/d/1Ww487ZskJ-xBmJGwPO-XPz_QcJvw-kSNffm0nPhVpj8/edit#heading=h.2uunmi119swk)
+
+## For Googlers
+
+  * We have a bi-weekly meeting to keep everyone in sync. Join chrome-speed@ or
+    contact benhenry@chromium.org for more information.
+  * Have something to include in our Milestone-based Speed report to the Chrome
+    team? Please keep track of it [here](https://goto.google.com/speed-improvement).

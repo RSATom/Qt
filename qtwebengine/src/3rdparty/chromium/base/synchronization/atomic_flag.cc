@@ -13,20 +13,18 @@ AtomicFlag::AtomicFlag() {
   // Set() from the same sequence after. Note: the sequencing requirements are
   // necessary for IsSet()'s callers to know which sequence's memory operations
   // they are synchronized with.
-  set_sequence_checker_.DetachFromSequence();
+  DETACH_FROM_SEQUENCE(set_sequence_checker_);
 }
+
+AtomicFlag::~AtomicFlag() = default;
 
 void AtomicFlag::Set() {
-  DCHECK(set_sequence_checker_.CalledOnValidSequence());
-  base::subtle::Release_Store(&flag_, 1);
-}
-
-bool AtomicFlag::IsSet() const {
-  return base::subtle::Acquire_Load(&flag_) != 0;
+  DCHECK_CALLED_ON_VALID_SEQUENCE(set_sequence_checker_);
+  flag_.store(1, std::memory_order_release);
 }
 
 void AtomicFlag::UnsafeResetForTesting() {
-  base::subtle::Release_Store(&flag_, 0);
+  flag_.store(0, std::memory_order_release);
 }
 
 }  // namespace base

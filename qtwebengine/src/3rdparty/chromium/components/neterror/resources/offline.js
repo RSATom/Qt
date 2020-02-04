@@ -20,6 +20,8 @@ function Runner(outerContainerId, opt_config) {
   this.outerContainerEl = document.querySelector(outerContainerId);
   this.containerEl = null;
   this.snackbarEl = null;
+  // A div to intercept touch events. Only set while (playing && useTouch).
+  this.touchController = null;
 
   this.config = opt_config || Runner.config;
   // Logical dimensions of the container.
@@ -34,6 +36,7 @@ function Runner(outerContainerId, opt_config) {
   this.distanceRan = 0;
 
   this.highestScore = 0;
+  this.syncHighestScore = false;
 
   this.time = 0;
   this.runningTime = 0;
@@ -67,10 +70,12 @@ function Runner(outerContainerId, opt_config) {
     this.setupDisabledRunner();
   } else {
     this.loadImages();
+
+    window['initializeEasterEggHighScore'] =
+        this.initializeHighScore.bind(this);
   }
 }
 window['Runner'] = Runner;
-
 
 /**
  * Default game width.
@@ -94,9 +99,6 @@ var IS_IOS = /iPad|iPhone|iPod/.test(window.navigator.platform);
 var IS_MOBILE = /Android/.test(window.navigator.userAgent) || IS_IOS;
 
 /** @const */
-var IS_TOUCH_ENABLED = 'ontouchstart' in window;
-
-/** @const */
 var ARCADE_MODE_URL = 'chrome://dino/';
 
 /**
@@ -107,6 +109,8 @@ Runner.config = {
   ACCELERATION: 0.001,
   BG_CLOUD_SPEED: 0.2,
   BOTTOM_PAD: 10,
+  // Scroll Y threshold at which the game can be activated.
+  CANVAS_IN_VIEW_OFFSET: -10,
   CLEAR_TIME: 3000,
   CLOUD_FREQUENCY: 0.5,
   GAMEOVER_CLEAR_TIME: 750,
@@ -220,8 +224,8 @@ Runner.events = {
   CLICK: 'click',
   KEYDOWN: 'keydown',
   KEYUP: 'keyup',
-  MOUSEDOWN: 'mousedown',
-  MOUSEUP: 'mouseup',
+  POINTERDOWN: 'pointerdown',
+  POINTERUP: 'pointerup',
   RESIZE: 'resize',
   TOUCHEND: 'touchend',
   TOUCHSTART: 'touchstart',
@@ -382,10 +386,6 @@ Runner.prototype = {
 
     this.outerContainerEl.appendChild(this.containerEl);
 
-    if (IS_MOBILE) {
-      this.createTouchController();
-    }
-
     this.startListening();
     this.update();
 
@@ -399,6 +399,9 @@ Runner.prototype = {
   createTouchController: function() {
     this.touchController = document.createElement('div');
     this.touchController.className = Runner.classes.TOUCH_CONTROLLER;
+    this.touchController.addEventListener(Runner.events.TOUCHSTART, this);
+    this.touchController.addEventListener(Runner.events.TOUCHEND, this);
+    this.outerContainerEl.appendChild(this.touchController);
   },
 
   /**
@@ -482,10 +485,7 @@ Runner.prototype = {
       this.containerEl.style.webkitAnimation = 'intro .4s ease-out 1 both';
       this.containerEl.style.width = this.dimensions.WIDTH + 'px';
 
-      if (this.touchController) {
-        this.outerContainerEl.appendChild(this.touchController);
-      }
-      this.playing = true;
+      this.setPlayStatus(true);
       this.activated = true;
     } else if (this.crashed) {
       this.restart();
@@ -523,6 +523,16 @@ Runner.prototype = {
   },
 
   /**
+   * Checks whether the canvas area is in the viewport of the browser
+   * through the current scroll position.
+   * @return boolean.
+   */
+  isCanvasInView: function() {
+    return this.containerEl.getBoundingClientRect().top >
+        Runner.config.CANVAS_IN_VIEW_OFFSET;
+  },
+
+  /**
    * Update the game frame and schedules the next one.
    */
   update: function() {
@@ -530,6 +540,7 @@ Runner.prototype = {
 
     var now = getTimeStamp();
     var deltaTime = now - (this.time || now);
+
     this.time = now;
 
     if (this.playing) {
@@ -615,12 +626,12 @@ Runner.prototype = {
       switch (evtType) {
         case events.KEYDOWN:
         case events.TOUCHSTART:
-        case events.MOUSEDOWN:
+        case events.POINTERDOWN:
           this.onKeyDown(e);
           break;
         case events.KEYUP:
         case events.TOUCHEND:
-        case events.MOUSEUP:
+        case events.POINTERUP:
           this.onKeyUp(e);
           break;
       }
@@ -635,16 +646,10 @@ Runner.prototype = {
     document.addEventListener(Runner.events.KEYDOWN, this);
     document.addEventListener(Runner.events.KEYUP, this);
 
-    if (IS_MOBILE) {
-      // Mobile only touch devices.
-      this.touchController.addEventListener(Runner.events.TOUCHSTART, this);
-      this.touchController.addEventListener(Runner.events.TOUCHEND, this);
-      this.containerEl.addEventListener(Runner.events.TOUCHSTART, this);
-    } else {
-      // Mouse.
-      document.addEventListener(Runner.events.MOUSEDOWN, this);
-      document.addEventListener(Runner.events.MOUSEUP, this);
-    }
+    // Touch / pointer.
+    this.containerEl.addEventListener(Runner.events.TOUCHSTART, this);
+    document.addEventListener(Runner.events.POINTERDOWN, this);
+    document.addEventListener(Runner.events.POINTERUP, this);
   },
 
   /**
@@ -654,14 +659,14 @@ Runner.prototype = {
     document.removeEventListener(Runner.events.KEYDOWN, this);
     document.removeEventListener(Runner.events.KEYUP, this);
 
-    if (IS_MOBILE) {
+    if (this.touchController) {
       this.touchController.removeEventListener(Runner.events.TOUCHSTART, this);
       this.touchController.removeEventListener(Runner.events.TOUCHEND, this);
-      this.containerEl.removeEventListener(Runner.events.TOUCHSTART, this);
-    } else {
-      document.removeEventListener(Runner.events.MOUSEDOWN, this);
-      document.removeEventListener(Runner.events.MOUSEUP, this);
     }
+
+    this.containerEl.removeEventListener(Runner.events.TOUCHSTART, this);
+    document.removeEventListener(Runner.events.POINTERDOWN, this);
+    document.removeEventListener(Runner.events.POINTERUP, this);
   },
 
   /**
@@ -674,40 +679,46 @@ Runner.prototype = {
       e.preventDefault();
     }
 
-    if (!this.crashed && !this.paused) {
-      if (Runner.keycodes.JUMP[e.keyCode] ||
-          e.type == Runner.events.TOUCHSTART) {
-        e.preventDefault();
-        // Starting the game for the first time.
-        if (!this.playing) {
-          this.loadSounds();
-          this.playing = true;
-          this.update();
-          if (window.errorPageController) {
-            errorPageController.trackEasterEgg();
+    if (this.isCanvasInView()) {
+      if (!this.crashed && !this.paused) {
+        if (Runner.keycodes.JUMP[e.keyCode] ||
+            e.type == Runner.events.TOUCHSTART) {
+          e.preventDefault();
+          // Starting the game for the first time.
+          if (!this.playing) {
+            // Started by touch so create a touch controller.
+            if (!this.touchController && e.type == Runner.events.TOUCHSTART) {
+              this.createTouchController();
+            }
+            this.loadSounds();
+            this.setPlayStatus(true);
+            this.update();
+            if (window.errorPageController) {
+              errorPageController.trackEasterEgg();
+            }
+          }
+          // Start jump.
+          if (!this.tRex.jumping && !this.tRex.ducking) {
+            this.playSound(this.soundFx.BUTTON_PRESS);
+            this.tRex.startJump(this.currentSpeed);
+          }
+        } else if (this.playing && Runner.keycodes.DUCK[e.keyCode]) {
+          e.preventDefault();
+          if (this.tRex.jumping) {
+            // Speed drop, activated only when jump key is not pressed.
+            this.tRex.setSpeedDrop();
+          } else if (!this.tRex.jumping && !this.tRex.ducking) {
+            // Duck.
+            this.tRex.setDuck(true);
           }
         }
-        // Start jump.
-        if (!this.tRex.jumping && !this.tRex.ducking) {
-          this.playSound(this.soundFx.BUTTON_PRESS);
-          this.tRex.startJump(this.currentSpeed);
-        }
-      } else if (this.playing && Runner.keycodes.DUCK[e.keyCode]) {
-        e.preventDefault();
-        if (this.tRex.jumping) {
-          // Speed drop, activated only when jump key is not pressed.
-          this.tRex.setSpeedDrop();
-        } else if (!this.tRex.jumping && !this.tRex.ducking) {
-          // Duck.
-          this.tRex.setDuck(true);
-        }
+      // iOS only triggers touchstart and no pointer events.
+      } else if (IS_IOS && this.crashed && e.type == Runner.events.TOUCHSTART &&
+          e.currentTarget == this.containerEl) {
+        this.handleGameOverClicks(e);
       }
-    } else if (this.crashed && e.type == Runner.events.TOUCHSTART &&
-        e.currentTarget == this.containerEl) {
-      this.restart();
     }
   },
-
 
   /**
    * Process key up.
@@ -717,7 +728,7 @@ Runner.prototype = {
     var keyCode = String(e.keyCode);
     var isjumpKey = Runner.keycodes.JUMP[keyCode] ||
        e.type == Runner.events.TOUCHEND ||
-       e.type == Runner.events.MOUSEDOWN;
+       e.type == Runner.events.POINTERUP;
 
     if (this.isRunning() && isjumpKey) {
       this.tRex.endJump();
@@ -728,15 +739,38 @@ Runner.prototype = {
       // Check that enough time has elapsed before allowing jump key to restart.
       var deltaTime = getTimeStamp() - this.time;
 
-      if (Runner.keycodes.RESTART[keyCode] || this.isLeftClickOnCanvas(e) ||
+      if (this.isCanvasInView() &&
+          (Runner.keycodes.RESTART[keyCode] || this.isLeftClickOnCanvas(e) ||
           (deltaTime >= this.config.GAMEOVER_CLEAR_TIME &&
-          Runner.keycodes.JUMP[keyCode])) {
-        this.restart();
+          Runner.keycodes.JUMP[keyCode]))) {
+        this.handleGameOverClicks(e);
       }
     } else if (this.paused && isjumpKey) {
       // Reset the jump state
       this.tRex.reset();
       this.play();
+    }
+  },
+
+  /**
+   * Handle interactions on the game over screen state.
+   * A user is able to tap the high score twice to reset it.
+   * @param {Event} e
+   */
+  handleGameOverClicks: function(e) {
+    e.preventDefault();
+    if (this.distanceMeter.hasClickedOnHighScore(e) && this.highestScore) {
+      if (this.distanceMeter.isHighScoreFlashing()) {
+        // Subsequent click, reset the high score.
+        this.saveHighScore(0, true);
+        this.distanceMeter.resetHighScore();
+      } else {
+        // First click, flash the high score.
+        this.distanceMeter.startHighScoreFlashing();
+      }
+    } else {
+      this.distanceMeter.cancelHighScoreFlashing();
+      this.restart();
     }
   },
 
@@ -748,7 +782,7 @@ Runner.prototype = {
    */
   isLeftClickOnCanvas: function(e) {
     return e.button != null && e.button < 2 &&
-        e.type == Runner.events.MOUSEUP && e.target == this.canvas;
+        e.type == Runner.events.POINTERUP && e.target == this.canvas;
   },
 
   /**
@@ -770,6 +804,42 @@ Runner.prototype = {
   },
 
   /**
+   * Set the initial high score as stored in the user's profile.
+   * @param {integer} highScore
+   */
+  initializeHighScore: function(highScore) {
+    this.syncHighestScore = true;
+    highScore = Math.ceil(highScore);
+    if (highScore < this.highestScore) {
+      if (window.errorPageController) {
+        errorPageController.updateEasterEggHighScore(this.highestScore);
+      }
+      return;
+    }
+    this.highestScore = highScore;
+    this.distanceMeter.setHighScore(this.highestScore);
+  },
+
+  /**
+   * Sets the current high score and saves to the profile if available.
+   * @param {number} distanceRan Total distance ran.
+   * @param {boolean} opt_resetScore Whether to reset the score.
+   */
+  saveHighScore: function(distanceRan, opt_resetScore) {
+    this.highestScore = Math.ceil(distanceRan);
+    this.distanceMeter.setHighScore(this.highestScore);
+
+    // Store the new high score in the profile.
+    if (this.syncHighestScore && window.errorPageController) {
+      if (opt_resetScore) {
+        errorPageController.resetEasterEggHighScore();
+      } else {
+        errorPageController.updateEasterEggHighScore(this.highestScore);
+      }
+    }
+  },
+
+  /**
    * Game over state.
    */
   gameOver: function() {
@@ -778,7 +848,7 @@ Runner.prototype = {
 
     this.stop();
     this.crashed = true;
-    this.distanceMeter.acheivement = false;
+    this.distanceMeter.achievement = false;
 
     this.tRex.update(100, Trex.status.CRASHED);
 
@@ -793,8 +863,7 @@ Runner.prototype = {
 
     // Update the high score.
     if (this.distanceRan > this.highestScore) {
-      this.highestScore = Math.ceil(this.distanceRan);
-      this.distanceMeter.setHighScore(this.highestScore);
+      this.saveHighScore(this.distanceRan);
     }
 
     // Reset the time clock.
@@ -802,7 +871,7 @@ Runner.prototype = {
   },
 
   stop: function() {
-    this.playing = false;
+    this.setPlayStatus(false);
     this.paused = true;
     cancelAnimationFrame(this.raqId);
     this.raqId = 0;
@@ -810,7 +879,7 @@ Runner.prototype = {
 
   play: function() {
     if (!this.crashed) {
-      this.playing = true;
+      this.setPlayStatus(true);
       this.paused = false;
       this.tRex.update(0, Trex.status.RUNNING);
       this.time = getTimeStamp();
@@ -822,7 +891,7 @@ Runner.prototype = {
     if (!this.raqId) {
       this.playCount++;
       this.runningTime = 0;
-      this.playing = true;
+      this.setPlayStatus(true);
       this.paused = false;
       this.crashed = false;
       this.distanceRan = 0;
@@ -835,8 +904,15 @@ Runner.prototype = {
       this.tRex.reset();
       this.playSound(this.soundFx.BUTTON_PRESS);
       this.invert(true);
+      this.bdayFlashTimer = null;
       this.update();
     }
+  },
+
+  setPlayStatus: function(isPlaying) {
+    if (this.touchController)
+      this.touchController.classList.toggle(HIDDEN_CLASS, !isPlaying);
+    this.playing = isPlaying;
   },
 
   /**
@@ -866,9 +942,10 @@ Runner.prototype = {
     var scaledCanvasHeight = this.dimensions.HEIGHT * scale;
     // Positions the game container at 10% of the available vertical window
     // height minus the game container height.
-    var translateY = Math.max(0, (windowHeight - scaledCanvasHeight -
+    var translateY = Math.ceil(Math.max(0, (windowHeight - scaledCanvasHeight -
         Runner.config.ARCADE_MODE_INITIAL_TOP_POSITION) *
-        Runner.config.ARCADE_MODE_TOP_POSITION_PERCENT);
+        Runner.config.ARCADE_MODE_TOP_POSITION_PERCENT)) *
+        window.devicePixelRatio;
     this.containerEl.style.transform = 'scale(' + scale + ') translateY(' +
         translateY + 'px)';
   },
@@ -1637,7 +1714,7 @@ Trex.animFrames = {
     msPerFrame: 1000 / 60
   },
   DUCKING: {
-    frames: [262, 321],
+    frames: [264, 323],
     msPerFrame: 1000 / 8
   }
 };
@@ -1725,6 +1802,7 @@ Trex.prototype = {
     var sourceWidth = this.ducking && this.status != Trex.status.CRASHED ?
         this.config.WIDTH_DUCK : this.config.WIDTH;
     var sourceHeight = this.config.HEIGHT;
+    var outputHeight = sourceHeight;
 
     if (IS_HIDPI) {
       sourceX *= 2;
@@ -1742,7 +1820,7 @@ Trex.prototype = {
       this.canvasCtx.drawImage(Runner.imageSprite, sourceX, sourceY,
           sourceWidth, sourceHeight,
           this.xPos, this.yPos,
-          this.config.WIDTH_DUCK, this.config.HEIGHT);
+          this.config.WIDTH_DUCK, outputHeight);
     } else {
       // Crashed whilst ducking. Trex is standing up so needs adjustment.
       if (this.ducking && this.status == Trex.status.CRASHED) {
@@ -1752,8 +1830,9 @@ Trex.prototype = {
       this.canvasCtx.drawImage(Runner.imageSprite, sourceX, sourceY,
           sourceWidth, sourceHeight,
           this.xPos, this.yPos,
-          this.config.WIDTH, this.config.HEIGHT);
+          this.config.WIDTH, outputHeight);
     }
+    this.canvasCtx.globalAlpha = 1;
   },
 
   /**
@@ -1841,8 +1920,6 @@ Trex.prototype = {
       this.reset();
       this.jumpCount++;
     }
-
-    this.update(deltaTime);
   },
 
   /**
@@ -1905,11 +1982,14 @@ function DistanceMeter(canvas, spritePos, canvasWidth) {
   this.container = null;
 
   this.digits = [];
-  this.acheivement = false;
+  this.achievement = false;
   this.defaultString = '';
   this.flashTimer = 0;
   this.flashIterations = 0;
   this.invertTrigger = false;
+  this.flashingRafId = null;
+  this.highScoreBounds = {};
+  this.highScoreFlashing = false;
 
   this.config = DistanceMeter.config;
   this.maxScoreUnits = this.config.MAX_DISTANCE_UNITS;
@@ -1953,7 +2033,10 @@ DistanceMeter.config = {
   FLASH_DURATION: 1000 / 4,
 
   // Flash iterations for achievement animation.
-  FLASH_ITERATIONS: 3
+  FLASH_ITERATIONS: 3,
+
+  // Padding around the high score hit area.
+  HIGH_SCORE_HIT_AREA_PADDING: 4
 };
 
 
@@ -2051,7 +2134,7 @@ DistanceMeter.prototype = {
     var paint = true;
     var playSound = false;
 
-    if (!this.acheivement) {
+    if (!this.achievement) {
       distance = this.getActualDistance(distance);
       // Score has gone beyond the initial digit count.
       if (distance > this.maxScore && this.maxScoreUnits ==
@@ -2066,7 +2149,7 @@ DistanceMeter.prototype = {
         // Acheivement unlocked
         if (distance % this.config.ACHIEVEMENT_DISTANCE == 0) {
           // Flash score and play sound.
-          this.acheivement = true;
+          this.achievement = true;
           this.flashTimer = 0;
           playSound = true;
         }
@@ -2091,7 +2174,7 @@ DistanceMeter.prototype = {
           this.flashIterations++;
         }
       } else {
-        this.acheivement = false;
+        this.achievement = false;
         this.flashIterations = 0;
         this.flashTimer = 0;
       }
@@ -2133,12 +2216,139 @@ DistanceMeter.prototype = {
     this.highScore = ['10', '11', ''].concat(highScoreStr.split(''));
   },
 
+
+  /**
+   * Whether a clicked is in the high score area.
+   * @param {TouchEvent|ClickEvent} e Event object.
+   * @return {boolean} Whether the click was in the high score bounds.
+   */
+  hasClickedOnHighScore: function(e) {
+    var x = 0;
+    var y = 0;
+
+    if (e.touches) {
+      // Bounds for touch differ from pointer.
+      var canvasBounds = this.canvas.getBoundingClientRect();
+      x = e.touches[0].clientX - canvasBounds.left;
+      y = e.touches[0].clientY - canvasBounds.top;
+    } else {
+      x = e.offsetX;
+      y = e.offsetY;
+    }
+
+    this.highScoreBounds = this.getHighScoreBounds();
+    return x >= this.highScoreBounds.x && x <=
+        this.highScoreBounds.x + this.highScoreBounds.width &&
+        y >= this.highScoreBounds.y && y <=
+        this.highScoreBounds.y + this.highScoreBounds.height;
+  },
+
+  /**
+   * Get the bounding box for the high score.
+   * @return {Object} Object with x, y, width and height properties.
+   */
+  getHighScoreBounds: function() {
+    return {
+      x: (this.x - (this.maxScoreUnits * 2) *
+          DistanceMeter.dimensions.WIDTH) -
+          DistanceMeter.config.HIGH_SCORE_HIT_AREA_PADDING,
+      y: this.y,
+      width: DistanceMeter.dimensions.WIDTH * (this.highScore.length + 1) +
+          DistanceMeter.config.HIGH_SCORE_HIT_AREA_PADDING,
+      height: DistanceMeter.dimensions.HEIGHT +
+          (DistanceMeter.config.HIGH_SCORE_HIT_AREA_PADDING * 2)
+    };
+  },
+
+  /**
+   * Animate flashing the high score to indicate ready for resetting.
+   * The flashing stops following this.config.FLASH_ITERATIONS x 2 flashes.
+   */
+  flashHighScore: function() {
+    var now = getTimeStamp();
+    var deltaTime = now - (this.frameTimeStamp || now);
+    var paint = true;
+    this.frameTimeStamp = now;
+
+    // Reached the max number of flashes.
+    if (this.flashIterations > this.config.FLASH_ITERATIONS * 2) {
+      this.cancelHighScoreFlashing();
+      return;
+    }
+
+    this.flashTimer += deltaTime;
+
+    if (this.flashTimer < this.config.FLASH_DURATION) {
+      paint = false;
+    } else if (this.flashTimer > this.config.FLASH_DURATION * 2) {
+      this.flashTimer = 0;
+      this.flashIterations++;
+    }
+
+    if (paint) {
+      this.drawHighScore();
+    } else {
+      this.clearHighScoreBounds();
+    }
+    // Frame update.
+    this.flashingRafId =
+        requestAnimationFrame(this.flashHighScore.bind(this));
+  },
+
+  /**
+   * Draw empty rectangle over high score.
+   */
+  clearHighScoreBounds: function() {
+    this.canvasCtx.save();
+    this.canvasCtx.fillStyle = '#fff';
+    this.canvasCtx.rect(this.highScoreBounds.x, this.highScoreBounds.y,
+        this.highScoreBounds.width, this.highScoreBounds.height);
+    this.canvasCtx.fill();
+    this.canvasCtx.restore();
+  },
+
+  /**
+   * Starts the flashing of the high score.
+   */
+  startHighScoreFlashing() {
+    this.highScoreFlashing = true;
+    this.flashHighScore();
+  },
+
+  /**
+   * Whether high score is flashing.
+   * @return {boolean}
+   */
+  isHighScoreFlashing() {
+    return this.highScoreFlashing;
+  },
+
+  /**
+   * Stop flashing the high score.
+   */
+  cancelHighScoreFlashing: function() {
+    cancelAnimationFrame(this.flashingRafId);
+    this.flashIterations = 0;
+    this.flashTimer = 0;
+    this.highScoreFlashing = false;
+    this.clearHighScoreBounds();
+    this.drawHighScore();
+  },
+
+  /**
+   * Clear the high score.
+   */
+  resetHighScore: function() {
+    this.setHighScore(0);
+    this.cancelHighScoreFlashing();
+  },
+
   /**
    * Reset the distance meter back to '00000'.
    */
   reset: function() {
     this.update(0);
-    this.acheivement = false;
+    this.achievement = false;
   }
 };
 
@@ -2198,7 +2408,8 @@ Cloud.prototype = {
     this.canvasCtx.save();
     var sourceWidth = Cloud.config.WIDTH;
     var sourceHeight = Cloud.config.HEIGHT;
-
+    var outputWidth = sourceWidth;
+    var outputHeight = sourceHeight;
     if (IS_HIDPI) {
       sourceWidth = sourceWidth * 2;
       sourceHeight = sourceHeight * 2;
@@ -2208,7 +2419,7 @@ Cloud.prototype = {
         this.spritePos.y,
         sourceWidth, sourceHeight,
         this.xPos, this.yPos,
-        Cloud.config.WIDTH, Cloud.config.HEIGHT);
+        outputWidth, outputHeight);
 
     this.canvasCtx.restore();
   },

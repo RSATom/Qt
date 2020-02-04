@@ -7,8 +7,9 @@
 
 #include "base/synchronization/lock.h"
 #include "base/threading/platform_thread.h"
-#include "content/public/child/worker_thread.h"
 #include "content/public/renderer/render_thread_observer.h"
+#include "content/public/renderer/worker_thread.h"
+#include "extensions/renderer/event_bookkeeper.h"
 #include "ipc/ipc_sync_message_filter.h"
 
 namespace base {
@@ -22,7 +23,6 @@ class RenderThread;
 struct ExtensionMsg_DispatchEvent_Params;
 namespace extensions {
 class ExtensionBindingsSystem;
-class ResourceBundleSourceMap;
 class ScriptContext;
 class V8SchemaRegistry;
 
@@ -51,8 +51,15 @@ class WorkerThreadDispatcher : public content::RenderThreadObserver,
 
   void AddWorkerData(int64_t service_worker_version_id,
                      ScriptContext* context,
-                     ResourceBundleSourceMap* source_map);
+                     std::unique_ptr<ExtensionBindingsSystem> bindings_system);
   void RemoveWorkerData(int64_t service_worker_version_id);
+
+  EventBookkeeper* event_bookkeeper() { return &event_bookkeeper_; }
+
+  // Called when a service worker context started running.
+  void DidStartContext(int64_t service_worker_version_id);
+  // Called when a service worker context was destroyed.
+  void DidStopContext(int64_t service_worker_version_id);
 
   // content::RenderThreadObserver:
   bool OnControlMessageReceived(const IPC::Message& message) override;
@@ -81,6 +88,8 @@ class WorkerThreadDispatcher : public content::RenderThreadObserver,
   using IDToTaskRunnerMap = std::map<base::PlatformThreadId, base::TaskRunner*>;
   IDToTaskRunnerMap task_runner_map_;
   base::Lock task_runner_map_lock_;
+
+  EventBookkeeper event_bookkeeper_;
 
   DISALLOW_COPY_AND_ASSIGN(WorkerThreadDispatcher);
 };

@@ -5,8 +5,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/event.h"
 #include "ui/events/event_target_iterator.h"
@@ -23,6 +23,40 @@ typedef std::vector<std::string> HandlerSequenceRecorder;
 namespace ui {
 namespace test {
 
+class SelfDestroyingEventProcessor : public TestEventProcessor {
+ public:
+  SelfDestroyingEventProcessor() {}
+
+ protected:
+  EventDispatchDetails PostDispatchEvent(EventTarget* target,
+                                         const Event& event) override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(SelfDestroyingEventProcessor);
+};
+
+class SelfDestroyingTestEventTarget : public TestEventTarget {
+ public:
+  SelfDestroyingTestEventTarget()
+      : processor_(new SelfDestroyingEventProcessor()) {}
+
+  TestEventProcessor* processor() { return processor_.get(); }
+
+  void DestroyProcessor() { processor_.reset(); }
+
+ private:
+  std::unique_ptr<SelfDestroyingEventProcessor> processor_;
+
+  DISALLOW_COPY_AND_ASSIGN(SelfDestroyingTestEventTarget);
+};
+
+EventDispatchDetails SelfDestroyingEventProcessor::PostDispatchEvent(
+    EventTarget* target,
+    const Event& event) {
+  static_cast<SelfDestroyingTestEventTarget*>(target)->DestroyProcessor();
+  return EventDispatchDetails();
+}
+
 class EventProcessorTest : public testing::Test {
  public:
   EventProcessorTest() {}
@@ -31,10 +65,10 @@ class EventProcessorTest : public testing::Test {
  protected:
   // testing::Test:
   void SetUp() override {
-    processor_.SetRoot(base::MakeUnique<TestEventTarget>());
+    processor_.SetRoot(std::make_unique<TestEventTarget>());
     processor_.Reset();
     root()->SetEventTargeter(
-        base::MakeUnique<TestEventTargeter>(root(), false));
+        std::make_unique<TestEventTargeter>(root(), false));
   }
 
   TestEventTarget* root() {
@@ -63,7 +97,7 @@ class EventProcessorTest : public testing::Test {
 TEST_F(EventProcessorTest, Basic) {
   std::unique_ptr<TestEventTarget> child(new TestEventTarget());
   child->SetEventTargeter(
-      base::MakeUnique<TestEventTargeter>(child.get(), false));
+      std::make_unique<TestEventTargeter>(child.get(), false));
   SetTarget(child.get());
   root()->AddChild(std::move(child));
 
@@ -369,8 +403,26 @@ TEST_F(EventProcessorTest, HandlerSequence) {
 
   std::string expected[] = { "PreR", "PreC", "PreG", "G", "PostG", "PostC",
       "PostR", "PreR", "PreC", "C", "PostC", "PostR", "PreR", "R", "PostR" };
-  EXPECT_EQ(std::vector<std::string>(
-      expected, expected + arraysize(expected)), recorder);
+  EXPECT_EQ(std::vector<std::string>(expected, expected + base::size(expected)),
+            recorder);
+
+  root()->RemovePreTargetHandler(&pre_root);
+  child_r->RemovePreTargetHandler(&pre_child);
+  grandchild_r->RemovePreTargetHandler(&pre_grandchild);
+}
+
+TEST(EventProcessorCrashTest, Basic) {
+  std::unique_ptr<TestEventTarget> root(new TestEventTarget());
+  std::unique_ptr<SelfDestroyingTestEventTarget> target(
+      new SelfDestroyingTestEventTarget());
+  root->SetEventTargeter(
+      std::make_unique<TestEventTargeter>(target.get(), false));
+  TestEventProcessor* processor = target->processor();
+  processor->SetRoot(std::move(root));
+
+  MouseEvent mouse(ET_MOUSE_MOVED, gfx::Point(10, 10), gfx::Point(10, 10),
+                   EventTimeForNow(), EF_NONE, EF_NONE);
+  EXPECT_TRUE(processor->OnEventFromSource(&mouse).dispatcher_destroyed);
 }
 
 }  // namespace test

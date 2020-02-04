@@ -14,6 +14,14 @@ TEST(GaiaAuthUtilTest, EmailAddressNoOp) {
   EXPECT_EQ(lower_case, CanonicalizeEmail(lower_case));
 }
 
+TEST(GaiaAuthUtilTest, InvalidEmailAddress) {
+  const char invalid_email1[] = "user";
+  const char invalid_email2[] = "user@@what.com";
+  EXPECT_EQ(invalid_email1, CanonicalizeEmail(invalid_email1));
+  EXPECT_EQ(invalid_email2, CanonicalizeEmail(invalid_email2));
+  EXPECT_EQ("user", CanonicalizeEmail("USER"));
+}
+
 TEST(GaiaAuthUtilTest, EmailAddressIgnoreCaps) {
   EXPECT_EQ(CanonicalizeEmail("user@what.com"),
             CanonicalizeEmail("UsEr@what.com"));
@@ -37,6 +45,11 @@ TEST(GaiaAuthUtilTest, EmailAddressMatchWithOneUsernameDot) {
 TEST(GaiaAuthUtilTest, EmailAddressIgnoreOneUsernameDot) {
   EXPECT_EQ(CanonicalizeEmail("us.er@gmail.com"),
             CanonicalizeEmail("UsEr@gmail.com"));
+}
+
+TEST(GaiaAuthUtilTest, EmailAddressIgnoreOneUsernameDotAndIgnoreCaps) {
+  EXPECT_EQ(CanonicalizeEmail("user@gmail.com"),
+            CanonicalizeEmail("US.ER@GMAIL.COM"));
 }
 
 TEST(GaiaAuthUtilTest, EmailAddressIgnoreManyUsernameDots) {
@@ -243,6 +256,29 @@ TEST(GaiaAuthUtilTest, ParseListAccountsWithSignedOutAccounts) {
   ASSERT_EQ(1u, signed_out_accounts.size());
   ASSERT_EQ("u.2@g.c", signed_out_accounts[0].email);
   ASSERT_TRUE(signed_out_accounts[0].signed_out);
+}
+
+TEST(GaiaAuthUtilTest, ParseListAccountsVerifiedAccounts) {
+  std::vector<ListedAccount> accounts;
+  std::vector<ListedAccount> signed_out_accounts;
+
+  ASSERT_TRUE(ParseListAccountsData(
+      "[\"foo\","
+      "[[\"a\",0,\"n\",\"a@g.c\",\"photo\",0,0,0,0,1,\"45\"],"
+      "[\"b\",0,\"n\",\"b@g.c\",\"photo\",0,0,0,0,1,\"45\","
+      "null,null,null,null,0],"
+      "[\"c\",0,\"n\",\"c@g.c\",\"photo\",0,0,0,0,1,\"45\","
+      "null,null,null,null,1]]]",
+      &accounts, &signed_out_accounts));
+
+  ASSERT_EQ(3u, accounts.size());
+  ASSERT_EQ("a@g.c", accounts[0].email);
+  EXPECT_TRUE(accounts[0].verified);  // Accounts are verified by default.
+  ASSERT_EQ("b@g.c", accounts[1].email);
+  EXPECT_FALSE(accounts[1].verified);
+  ASSERT_EQ("c@g.c", accounts[2].email);
+  EXPECT_TRUE(accounts[2].verified);
+  ASSERT_EQ(0u, signed_out_accounts.size());
 }
 
 TEST(GaiaAuthUtilTest, ParseListAccountsAcceptsNull) {

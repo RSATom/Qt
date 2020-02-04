@@ -3,6 +3,10 @@ MODULE = waylandcompositor
 
 QT = core gui-private
 
+qtConfig(xkbcommon) {
+    QT_FOR_PRIVATE += xkbcommon_support-private
+}
+
 qtHaveModule(quick): QT += quick
 
 CONFIG -= precompile_header
@@ -30,5 +34,7 @@ include ($$PWD/compositor_api/compositor_api.pri)
 include ($$PWD/extensions/extensions.pri)
 
 MODULE_PLUGIN_TYPES = \
-    wayland-graphics-integration-server
+    wayland-graphics-integration-server \
+    wayland-hardware-layer-integration \
+
 load(qt_module)

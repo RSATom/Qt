@@ -13,23 +13,13 @@
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
 #include "content/public/browser/devtools_manager_delegate.h"
-#include "printing/features/features.h"
-
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
-#include "headless/lib/browser/headless_print_manager.h"
-#include "headless/public/headless_export.h"
-#endif
 
 namespace headless {
 class HeadlessBrowserImpl;
 
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
-// Exported for tests.
-HEADLESS_EXPORT std::unique_ptr<base::DictionaryValue> ParsePrintSettings(
-    int command_id,
-    const base::DictionaryValue* params,
-    HeadlessPrintSettings* settings);
-#endif
+namespace protocol {
+class HeadlessDevToolsSession;
+}
 
 class HeadlessDevToolsManagerDelegate
     : public content::DevToolsManagerDelegate {
@@ -39,56 +29,31 @@ class HeadlessDevToolsManagerDelegate
   ~HeadlessDevToolsManagerDelegate() override;
 
   // DevToolsManagerDelegate implementation:
-  base::DictionaryValue* HandleCommand(content::DevToolsAgentHost* agent_host,
-                                       base::DictionaryValue* command) override;
-  bool HandleAsyncCommand(content::DevToolsAgentHost* agent_host,
-                          base::DictionaryValue* command,
-                          const CommandCallback& callback) override;
+  void HandleCommand(content::DevToolsAgentHost* agent_host,
+                     content::DevToolsAgentHostClient* client,
+                     std::unique_ptr<base::DictionaryValue> command,
+                     const std::string& message,
+                     NotHandledCallback callback) override;
   scoped_refptr<content::DevToolsAgentHost> CreateNewTarget(
       const GURL& url) override;
   std::string GetDiscoveryPageHTML() override;
-  std::string GetFrontendResource(const std::string& path) override;
+  bool HasBundledFrontendResources() override;
+  void ClientAttached(content::DevToolsAgentHost* agent_host,
+                      content::DevToolsAgentHostClient* client) override;
+  void ClientDetached(content::DevToolsAgentHost* agent_host,
+                      content::DevToolsAgentHostClient* client) override;
+
+  std::vector<content::BrowserContext*> GetBrowserContexts() override;
+  content::BrowserContext* GetDefaultBrowserContext() override;
+  content::BrowserContext* CreateBrowserContext() override;
+  void DisposeBrowserContext(content::BrowserContext* context,
+                             DisposeCallback callback) override;
 
  private:
-  std::unique_ptr<base::DictionaryValue> CreateTarget(
-      int command_id,
-      const base::DictionaryValue* params);
-  std::unique_ptr<base::DictionaryValue> CloseTarget(
-      int command_id,
-      const base::DictionaryValue* params);
-  std::unique_ptr<base::DictionaryValue> CreateBrowserContext(
-      int command_id,
-      const base::DictionaryValue* params);
-  std::unique_ptr<base::DictionaryValue> DisposeBrowserContext(
-      int command_id,
-      const base::DictionaryValue* params);
-  std::unique_ptr<base::DictionaryValue> GetWindowForTarget(
-      int command_id,
-      const base::DictionaryValue* params);
-  std::unique_ptr<base::DictionaryValue> GetWindowBounds(
-      int command_id,
-      const base::DictionaryValue* params);
-  std::unique_ptr<base::DictionaryValue> SetWindowBounds(
-      int command_id,
-      const base::DictionaryValue* params);
-  void PrintToPDF(content::DevToolsAgentHost* agent_host,
-                  int command_id,
-                  const base::DictionaryValue* params,
-                  const CommandCallback& callback);
-
   base::WeakPtr<HeadlessBrowserImpl> browser_;
-
-  using CommandMemberCallback =
-      base::Callback<std::unique_ptr<base::DictionaryValue>(
-          int command_id,
-          const base::DictionaryValue* params)>;
-  using AsyncCommandMemberCallback =
-      base::Callback<void(content::DevToolsAgentHost* agent_host,
-                          int command_id,
-                          const base::DictionaryValue* params,
-                          const CommandCallback& callback)>;
-  std::map<std::string, CommandMemberCallback> command_map_;
-  std::map<std::string, AsyncCommandMemberCallback> async_command_map_;
+  std::map<content::DevToolsAgentHostClient*,
+           std::unique_ptr<protocol::HeadlessDevToolsSession>>
+      sessions_;
 };
 
 }  // namespace headless

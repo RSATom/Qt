@@ -11,7 +11,6 @@
  */
 class ZoomManager {
   /**
-   * Constructs a ZoomManager.
    * @param {!Viewport} viewport A Viewport for which to manage zoom.
    * @param {number} initialZoom The initial browser zoom level.
    */
@@ -25,6 +24,7 @@ class ZoomManager {
 
   /**
    * Creates the appropriate kind of zoom manager given the zoom behavior.
+   *
    * @param {BrowserApi.ZoomBehavior} zoomBehavior How to manage zoom.
    * @param {!Viewport} viewport A Viewport for which to manage zoom.
    * @param {Function} setBrowserZoomFunction A function that sets the browser
@@ -45,6 +45,7 @@ class ZoomManager {
 
   /**
    * Invoked when a browser-initiated zoom-level change occurs.
+   *
    * @param {number} newZoom the zoom level to zoom to.
    */
   onBrowserZoomChange(newZoom) {}
@@ -57,6 +58,7 @@ class ZoomManager {
   /**
    * Combines the internal pdf zoom and the browser zoom to
    * produce the total zoom level for the viewer.
+   *
    * @param {number} internalZoom the zoom level internal to the viewer.
    * @return {number} the total zoom level.
    */
@@ -67,6 +69,7 @@ class ZoomManager {
   /**
    * Given a zoom level, return the internal zoom level needed to
    * produce that zoom level.
+   *
    * @param {number} totalZoom the total zoom level.
    * @return {number} the zoom level internal to the viewer.
    */
@@ -76,11 +79,12 @@ class ZoomManager {
 
   /**
    * Returns whether two numbers are approximately equal.
+   *
    * @param {number} a The first number.
    * @param {number} b The second number.
    */
   floatingPointEquals(a, b) {
-    let MIN_ZOOM_DELTA = 0.01;
+    const MIN_ZOOM_DELTA = 0.01;
     // If the zoom level is close enough to the current zoom level, don't
     // change it. This avoids us getting into an infinite loop of zoom changes
     // due to floating point error.
@@ -100,6 +104,7 @@ class InactiveZoomManager extends ZoomManager {}
 class ActiveZoomManager extends ZoomManager {
   /**
    * Constructs a ActiveZoomManager.
+   *
    * @param {!Viewport} viewport A Viewport for which to manage zoom.
    * @param {Function} setBrowserZoomFunction A function that sets the browser
    *     zoom to the provided value.
@@ -113,6 +118,7 @@ class ActiveZoomManager extends ZoomManager {
 
   /**
    * Invoked when a browser-initiated zoom-level change occurs.
+   *
    * @param {number} newZoom the zoom level to zoom to.
    */
   onBrowserZoomChange(newZoom) {
@@ -120,11 +126,13 @@ class ActiveZoomManager extends ZoomManager {
     // change events. Either, the change occurred before our update and will be
     // overwritten, or the change being reported is the change we are making,
     // which we have already handled.
-    if (this.changingBrowserZoom_)
+    if (this.changingBrowserZoom_) {
       return;
+    }
 
-    if (this.floatingPointEquals(this.browserZoom_, newZoom))
+    if (this.floatingPointEquals(this.browserZoom_, newZoom)) {
       return;
+    }
 
     this.browserZoom_ = newZoom;
     this.viewport_.setZoom(newZoom);
@@ -138,28 +146,30 @@ class ActiveZoomManager extends ZoomManager {
     // previous extension-initiated zoom-level change, ignore this zoom change.
     // Once the browser zoom level is changed, we check whether the extension's
     // zoom level matches the most recently sent zoom level.
-    if (this.changingBrowserZoom_)
+    if (this.changingBrowserZoom_) {
       return;
+    }
 
-    let zoom = this.viewport_.zoom;
-    if (this.floatingPointEquals(this.browserZoom_, zoom))
+    const zoom = this.viewport_.zoom;
+    if (this.floatingPointEquals(this.browserZoom_, zoom)) {
       return;
+    }
 
-    this.changingBrowserZoom_ =
-        this.setBrowserZoomFunction_(zoom).then(function() {
-          this.browserZoom_ = zoom;
-          this.changingBrowserZoom_ = null;
+    this.changingBrowserZoom_ = this.setBrowserZoomFunction_(zoom).then(() => {
+      this.browserZoom_ = zoom;
+      this.changingBrowserZoom_ = null;
 
-          // The extension's zoom level may have changed while the browser zoom
-          // change was in progress. We call back into onPdfZoomChange to ensure
-          // the browser zoom is up to date.
-          this.onPdfZoomChange();
-        }.bind(this));
+      // The extension's zoom level may have changed while the browser zoom
+      // change was in progress. We call back into onPdfZoomChange to ensure
+      // the browser zoom is up to date.
+      this.onPdfZoomChange();
+    });
   }
 
   /**
    * Combines the internal pdf zoom and the browser zoom to
    * produce the total zoom level for the viewer.
+   *
    * @param {number} internalZoom the zoom level internal to the viewer.
    * @return {number} the total zoom level.
    */
@@ -172,6 +182,7 @@ class ActiveZoomManager extends ZoomManager {
   /**
    * Given a zoom level, return the internal zoom level needed to
    * produce that zoom level.
+   *
    * @param {number} totalZoom the total zoom level.
    * @return {number} the zoom level internal to the viewer.
    */
@@ -189,10 +200,11 @@ class ActiveZoomManager extends ZoomManager {
 class EmbeddedZoomManager extends ZoomManager {
   /**
    * Invoked when a browser-initiated zoom-level change occurs.
+   *
    * @param {number} newZoom the new browser zoom level.
    */
   onBrowserZoomChange(newZoom) {
-    let oldZoom = this.browserZoom_;
+    const oldZoom = this.browserZoom_;
     this.browserZoom_ = newZoom;
     this.viewport_.updateZoomFromBrowserChange(oldZoom);
   }

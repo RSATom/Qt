@@ -9,6 +9,7 @@
 #include "GrContext.h"
 #include "GrOpList.h"
 #include "GrRenderTarget.h"
+#include "GrResourceProvider.h"
 #include "GrSurfacePriv.h"
 #include "GrTexture.h"
 
@@ -18,18 +19,24 @@
 size_t GrSurface::WorstCaseSize(const GrSurfaceDesc& desc, bool useNextPow2) {
     size_t size;
 
-    int width = useNextPow2 ? GrNextPow2(desc.fWidth) : desc.fWidth;
-    int height = useNextPow2 ? GrNextPow2(desc.fHeight) : desc.fHeight;
+    int width = useNextPow2
+                ? SkTMax(GrResourceProvider::kMinScratchTextureSize, GrNextPow2(desc.fWidth))
+                : desc.fWidth;
+    int height = useNextPow2
+                ? SkTMax(GrResourceProvider::kMinScratchTextureSize, GrNextPow2(desc.fHeight))
+                : desc.fHeight;
 
     bool isRenderTarget = SkToBool(desc.fFlags & kRenderTarget_GrSurfaceFlag);
     if (isRenderTarget) {
         // We own one color value for each MSAA sample.
-        int colorValuesPerPixel = SkTMax(1, desc.fSampleCnt);
-        if (desc.fSampleCnt) {
+        SkASSERT(desc.fSampleCnt >= 1);
+        int colorValuesPerPixel = desc.fSampleCnt;
+        if (desc.fSampleCnt > 1) {
             // Worse case, we own the resolve buffer so that is one more sample per pixel.
             colorValuesPerPixel += 1;
         }
         SkASSERT(kUnknown_GrPixelConfig != desc.fConfig);
+        SkASSERT(!GrPixelConfigIsCompressed(desc.fConfig));
         size_t colorBytes = (size_t) width * height * GrBytesPerPixel(desc.fConfig);
 
         // This would be a nice assert to have (i.e., we aren't creating 0 width/height surfaces).
@@ -39,7 +46,11 @@ size_t GrSurface::WorstCaseSize(const GrSurfaceDesc& desc, bool useNextPow2) {
         size = colorValuesPerPixel * colorBytes;
         size += colorBytes/3; // in case we have to mipmap
     } else {
-        size = (size_t) width * height * GrBytesPerPixel(desc.fConfig);
+        if (GrPixelConfigIsCompressed(desc.fConfig)) {
+            size = GrCompressedFormatDataSize(desc.fConfig, width, height);
+        } else {
+            size = (size_t)width * height * GrBytesPerPixel(desc.fConfig);
+        }
 
         size += size/3;  // in case we have to mipmap
     }
@@ -51,18 +62,28 @@ size_t GrSurface::ComputeSize(GrPixelConfig config,
                               int width,
                               int height,
                               int colorSamplesPerPixel,
-                              bool hasMIPMaps,
+                              GrMipMapped mipMapped,
                               bool useNextPow2) {
-    width = useNextPow2 ? GrNextPow2(width) : width;
-    height = useNextPow2 ? GrNextPow2(height) : height;
+    size_t colorSize;
+
+    width = useNextPow2
+            ? SkTMax(GrResourceProvider::kMinScratchTextureSize, GrNextPow2(width))
+            : width;
+    height = useNextPow2
+            ? SkTMax(GrResourceProvider::kMinScratchTextureSize, GrNextPow2(height))
+            : height;
 
     SkASSERT(kUnknown_GrPixelConfig != config);
-    size_t colorSize = (size_t)width * height * GrBytesPerPixel(config);
+    if (GrPixelConfigIsCompressed(config)) {
+        colorSize = GrCompressedFormatDataSize(config, width, height);
+    } else {
+        colorSize = (size_t)width * height * GrBytesPerPixel(config);
+    }
     SkASSERT(colorSize > 0);
 
     size_t finalSize = colorSamplesPerPixel * colorSize;
 
-    if (hasMIPMaps) {
+    if (GrMipMapped::kYes == mipMapped) {
         // We don't have to worry about the mipmaps being a different size than
         // we'd expect because we never change fDesc.fWidth/fHeight.
         finalSize += colorSize/3;

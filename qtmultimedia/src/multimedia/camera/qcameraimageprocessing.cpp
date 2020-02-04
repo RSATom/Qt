@@ -130,7 +130,7 @@ void QCameraImageProcessingPrivate::initControls()
     if (service)
         imageControl = qobject_cast<QCameraImageProcessingControl *>(service->requestControl(QCameraImageProcessingControl_iid));
 
-    available = (imageControl != 0);
+    available = (imageControl != nullptr);
 
     if (!imageControl)
         imageControl = new QCameraImageProcessingFakeControl(q_ptr);
@@ -314,7 +314,7 @@ qreal QCameraImageProcessing::denoisingLevel() const
 /*!
     Sets the denoising adjustment \a level.
 
-    Valid sharpening values range between -1.0 and 1.0, with a default of 0.
+    Valid denoising values range between -1.0 and 1.0, with a default of 0.
 
     If the parameter value is set to 0, the amount of denoising applied
     is selected by camera and depends on camera capabilities and settings.
@@ -400,6 +400,6 @@ bool QCameraImageProcessing::isColorFilterSupported(QCameraImageProcessing::Colo
 
 }
 
+QT_END_NAMESPACE
 
 #include "moc_qcameraimageprocessing.cpp"
-QT_END_NAMESPACE

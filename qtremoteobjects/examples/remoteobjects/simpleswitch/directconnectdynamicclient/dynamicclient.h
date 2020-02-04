@@ -62,7 +62,7 @@ class DynamicClient : public QObject
     Q_OBJECT
 public:
     DynamicClient(QSharedPointer<QRemoteObjectDynamicReplica> ptr);
-    ~DynamicClient();
+    ~DynamicClient() override;
 
 Q_SIGNALS:
     void echoSwitchState(bool switchState);// this signal is connected with server_slot(..) slot of source object and echoes back switch state received from source

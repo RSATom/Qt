@@ -52,9 +52,9 @@
 #define FTPDATACHANNEL_H
 
 #include <QObject>
+#include <QScopedPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include <QScopedPointer>
 
 class FtpDataChannel : public QObject
 {
@@ -75,7 +75,8 @@ public:
     // Something like "a,b,c,d,xxx,yyy" where
     // - a.b.c.d would be the IP address in decimal/dot notation and
     // - xxx,yyy are the upper and lower 8 bits of the TCP port in decimal
-    // (This will only work if the local address we're listening on is actually meaningful)
+    // (This will only work if the local address we're listening on
+    // is actually meaningful)
     QString portspec() const;
 
 signals:

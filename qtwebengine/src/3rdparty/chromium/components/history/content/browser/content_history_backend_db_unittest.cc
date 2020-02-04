@@ -21,7 +21,7 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "components/history/core/test/history_backend_db_base_test.h"
 
 namespace history {
@@ -44,7 +44,7 @@ struct InterruptReasonAssociation {
 // in order.
 const InterruptReasonAssociation current_reasons[] = {
 #define INTERRUPT_REASON(a, b) { #a, b },
-#include "content/public/browser/download_interrupt_reason_values.h"
+#include "components/download/public/common/download_interrupt_reason_values.h"
 #undef INTERRUPT_REASON
 };
 
@@ -77,6 +77,7 @@ const InterruptReasonAssociation historical_reasons[] = {
     {"SERVER_FORBIDDEN", 36},
     {"SERVER_UNREACHABLE", 37},
     {"SERVER_CONTENT_LENGTH_MISMATCH", 38},
+    {"SERVER_CROSS_ORIGIN_REDIRECT", 39},
     {"USER_CANCELED", 40},
     {"USER_SHUTDOWN", 41},
     {"CRASH", 50},
@@ -88,11 +89,11 @@ TEST_F(ContentHistoryBackendDBTest,
        ConfirmDownloadInterruptReasonBackwardsCompatible) {
   // Are there any cases in which a historical number has been repurposed
   // for an error other than it's original?
-  for (size_t i = 0; i < arraysize(current_reasons); i++) {
+  for (size_t i = 0; i < base::size(current_reasons); i++) {
     const InterruptReasonAssociation& cur_reason(current_reasons[i]);
     bool found = false;
 
-    for (size_t j = 0; j < arraysize(historical_reasons); ++j) {
+    for (size_t j = 0; j < base::size(historical_reasons); ++j) {
       const InterruptReasonAssociation& hist_reason(historical_reasons[j]);
 
       if (hist_reason.value == cur_reason.value) {

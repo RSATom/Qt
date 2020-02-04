@@ -26,8 +26,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import org.qtproject.pngdumper 1.0
+import QtQuick 2.12
+import org.qtproject.pngdumper 1.12
 
 Rectangle {
     id: main

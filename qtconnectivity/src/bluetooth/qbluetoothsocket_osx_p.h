@@ -79,10 +79,9 @@
 
 QT_BEGIN_NAMESPACE
 
-class QBluetoothServiceDiscoveryAgent;
 class QBluetoothAddress;
 
-class QBluetoothSocketPrivate : public QBluetoothSocketPrivateBase, public OSXBluetooth::ChannelDelegate
+class QBluetoothSocketPrivate : public QBluetoothSocketBasePrivate, public OSXBluetooth::ChannelDelegate
 {
     friend class QBluetoothSocket;
     friend class QBluetoothServer;
@@ -104,7 +103,7 @@ public:
     quint16 peerPort() const;
 
     void _q_readNotify();
-    void _q_writeNotify() Q_DECL_OVERRIDE;
+    void _q_writeNotify() override;
 
 private:
     // Create a socket from an external source (without connectToService).
@@ -112,16 +111,14 @@ private:
     bool setChannel(IOBluetoothL2CAPChannel *channel);
 
     // L2CAP and RFCOMM delegate
-    void setChannelError(IOReturn errorCode) Q_DECL_OVERRIDE;
-    void channelOpenComplete() Q_DECL_OVERRIDE;
-    void channelClosed() Q_DECL_OVERRIDE;
-    void readChannelData(void *data, std::size_t size) Q_DECL_OVERRIDE;
-    void writeComplete() Q_DECL_OVERRIDE;
+    void setChannelError(IOReturn errorCode) override;
+    void channelOpenComplete() override;
+    void channelClosed() override;
+    void readChannelData(void *data, std::size_t size) override;
+    void writeComplete() override;
 
     qint64 writeData(const char *data, qint64 maxSize);
     qint64 readData(char *data, qint64 maxSize);
-
-    QBluetoothSocket *q_ptr;
 
     QScopedPointer<QBluetoothServiceDiscoveryAgent> discoveryAgent;
 

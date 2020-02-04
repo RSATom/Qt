@@ -1,11 +1,5 @@
-[transparentWebEngineViews]
-windows
+[javascriptClipboard:default]
+opensuse-leap
 
-[inputEventForwardingDisabledWhenActiveFocusOnPressDisabled]
-*
-
-[transparentWebEngineViews]
-*
-
-[basicRenderingSanity]
-*
+[javascriptClipboard:canPaste]
+opensuse-leap

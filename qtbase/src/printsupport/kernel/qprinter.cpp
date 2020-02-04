@@ -149,7 +149,12 @@ void QPrinterPrivate::initEngines(QPrinter::OutputFormat format, const QPrinterI
         printEngine = ps->createNativePrintEngine(printerMode, printerName);
         paintEngine = ps->createPaintEngine(printEngine, printerMode);
     } else {
-        const auto pdfEngineVersion = (pdfVersion == QPrinter::PdfVersion_1_4 ? QPdfEngine::Version_1_4 : QPdfEngine::Version_A1b);
+        static const QHash<QPrinter::PdfVersion, QPdfEngine::PdfVersion> engineMapping {
+            {QPrinter::PdfVersion_1_4, QPdfEngine::Version_1_4},
+            {QPrinter::PdfVersion_A1b, QPdfEngine::Version_A1b},
+            {QPrinter::PdfVersion_1_6, QPdfEngine::Version_1_6}
+        };
+        const auto pdfEngineVersion = engineMapping.value(pdfVersion, QPdfEngine::Version_1_4);
         QPdfPrintEngine *pdfEngine = new QPdfPrintEngine(printerMode, pdfEngineVersion);
         paintEngine = pdfEngine;
         printEngine = pdfEngine;
@@ -224,15 +229,17 @@ void QPrinterPrivate::setProperty(QPrintEngine::PrintEnginePropertyKey key, cons
 class QPrinterPagedPaintDevicePrivate : public QPagedPaintDevicePrivate
 {
 public:
-    QPrinterPagedPaintDevicePrivate(QPrinterPrivate *d)
-        : QPagedPaintDevicePrivate(), pd(d)
+    QPrinterPagedPaintDevicePrivate(QPrinter *p)
+        : QPagedPaintDevicePrivate(), m_printer(p)
     {}
 
     virtual ~QPrinterPagedPaintDevicePrivate()
     {}
 
-    bool setPageLayout(const QPageLayout &newPageLayout) Q_DECL_OVERRIDE
+    bool setPageLayout(const QPageLayout &newPageLayout) override
     {
+        QPrinterPrivate *pd = QPrinterPrivate::get(m_printer);
+
         if (pd->paintEngine->type() != QPaintEngine::Pdf
             && pd->printEngine->printerState() == QPrinter::Active) {
             qWarning("QPrinter::setPageLayout: Cannot be changed while printer is active");
@@ -242,14 +249,13 @@ public:
         // Try to set the print engine page layout
         pd->setProperty(QPrintEngine::PPK_QPageLayout, QVariant::fromValue(newPageLayout));
 
-        // Set QPagedPaintDevice layout to match the current print engine value
-        m_pageLayout = pageLayout();
-
         return pageLayout().isEquivalentTo(newPageLayout);
     }
 
-    bool setPageSize(const QPageSize &pageSize) Q_DECL_OVERRIDE
+    bool setPageSize(const QPageSize &pageSize) override
     {
+        QPrinterPrivate *pd = QPrinterPrivate::get(m_printer);
+
         if (pd->paintEngine->type() != QPaintEngine::Pdf
             && pd->printEngine->printerState() == QPrinter::Active) {
             qWarning("QPrinter::setPageLayout: Cannot be changed while printer is active");
@@ -260,46 +266,38 @@ public:
         // Try to set the print engine page size
         pd->setProperty(QPrintEngine::PPK_QPageSize, QVariant::fromValue(pageSize));
 
-        // Set QPagedPaintDevice layout to match the current print engine value
-        m_pageLayout = pageLayout();
-
         return pageLayout().pageSize().isEquivalentTo(pageSize);
     }
 
-    bool setPageOrientation(QPageLayout::Orientation orientation) Q_DECL_OVERRIDE
+    bool setPageOrientation(QPageLayout::Orientation orientation) override
     {
+        QPrinterPrivate *pd = QPrinterPrivate::get(m_printer);
+
         // Set the print engine value
         pd->setProperty(QPrintEngine::PPK_Orientation, orientation);
-
-        // Set QPagedPaintDevice layout to match the current print engine value
-        m_pageLayout = pageLayout();
 
         return pageLayout().orientation() == orientation;
     }
 
-    bool setPageMargins(const QMarginsF &margins) Q_DECL_OVERRIDE
+    bool setPageMargins(const QMarginsF &margins, QPageLayout::Unit units) override
     {
-        return setPageMargins(margins, pageLayout().units());
-    }
+        QPrinterPrivate *pd = QPrinterPrivate::get(m_printer);
 
-    bool setPageMargins(const QMarginsF &margins, QPageLayout::Unit units) Q_DECL_OVERRIDE
-    {
         // Try to set print engine margins
         QPair<QMarginsF, QPageLayout::Unit> pair = qMakePair(margins, units);
         pd->setProperty(QPrintEngine::PPK_QPageMargins, QVariant::fromValue(pair));
 
-        // Set QPagedPaintDevice layout to match the current print engine value
-        m_pageLayout = pageLayout();
-
         return pageLayout().margins() == margins && pageLayout().units() == units;
     }
 
-    QPageLayout pageLayout() const Q_DECL_OVERRIDE
+    QPageLayout pageLayout() const override
     {
+        QPrinterPrivate *pd = QPrinterPrivate::get(m_printer);
+
         return pd->printEngine->property(QPrintEngine::PPK_QPageLayout).value<QPageLayout>();
     }
 
-    QPrinterPrivate *pd;
+    QPrinter *m_printer;
 };
 
 
@@ -554,11 +552,9 @@ public:
     Creates a new printer object with the given \a mode.
 */
 QPrinter::QPrinter(PrinterMode mode)
-    : QPagedPaintDevice(),
+    : QPagedPaintDevice(new QPrinterPagedPaintDevicePrivate(this)),
       d_ptr(new QPrinterPrivate(this))
 {
-    delete d;
-    d = new QPrinterPagedPaintDevicePrivate(d_func());
     d_ptr->init(QPrinterInfo(), mode);
 }
 
@@ -568,11 +564,9 @@ QPrinter::QPrinter(PrinterMode mode)
     Creates a new printer object with the given \a printer and \a mode.
 */
 QPrinter::QPrinter(const QPrinterInfo& printer, PrinterMode mode)
-    : QPagedPaintDevice(),
+    : QPagedPaintDevice(new QPrinterPagedPaintDevicePrivate(this)),
       d_ptr(new QPrinterPrivate(this))
 {
-    delete d;
-    d = new QPrinterPagedPaintDevicePrivate(d_func());
     d_ptr->init(printer, mode);
 }
 
@@ -1469,8 +1463,6 @@ void QPrinter::setFullPage(bool fp)
     Q_D(QPrinter);
     // Set the print engine
     d->setProperty(QPrintEngine::PPK_FullPage, fp);
-    // Set QPagedPaintDevice layout to match the current print engine value
-    devicePageLayout() = pageLayout();
 }
 
 
@@ -1856,7 +1848,7 @@ QList<int> QPrinter::supportedResolutions() const
         = d->printEngine->property(QPrintEngine::PPK_SupportedResolutions).toList();
     QList<int> intlist;
     intlist.reserve(varlist.size());
-    for (auto var : varlist)
+    for (const auto &var : varlist)
         intlist << var.toInt();
     return intlist;
 }

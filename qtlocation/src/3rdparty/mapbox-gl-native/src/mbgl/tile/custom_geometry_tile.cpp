@@ -3,8 +3,9 @@
 #include <mbgl/renderer/query.hpp>
 #include <mbgl/renderer/tile_parameters.hpp>
 #include <mbgl/actor/scheduler.hpp>
-#include <mbgl/style/filter_evaluator.hpp>
 #include <mbgl/util/string.hpp>
+#include <mbgl/tile/tile_observer.hpp>
+#include <mbgl/style/custom_tile_loader.hpp>
 
 #include <mapbox/geojsonvt.hpp>
 
@@ -19,7 +20,8 @@ CustomGeometryTile::CustomGeometryTile(const OverscaledTileID& overscaledTileID,
     necessity(TileNecessity::Optional),
     options(options_),
     loader(loader_),
-    actor(*Scheduler::GetCurrent(), std::bind(&CustomGeometryTile::setTileData, this, std::placeholders::_1)) {
+    mailbox(std::make_shared<Mailbox>(*Scheduler::GetCurrent())),
+    actorRef(*this, mailbox) {
 }
 
 CustomGeometryTile::~CustomGeometryTile() {
@@ -36,21 +38,27 @@ void CustomGeometryTile::setTileData(const GeoJSON& geoJSON) {
         vtOptions.extent = util::EXTENT;
         vtOptions.buffer = ::round(scale * options.buffer);
         vtOptions.tolerance = scale * options.tolerance;
-        featureData = mapbox::geojsonvt::geoJSONToTile(geoJSON, id.canonical.z, id.canonical.x, id.canonical.y, vtOptions).features;
-    } else {
-        setNecessity(TileNecessity::Optional);
+        featureData = mapbox::geojsonvt::geoJSONToTile(geoJSON,
+            id.canonical.z, id.canonical.x, id.canonical.y,
+            vtOptions, options.wrap, options.clip).features;
     }
     setData(std::make_unique<GeoJSONTileData>(std::move(featureData)));
+}
+
+void CustomGeometryTile::invalidateTileData() {
+    stale = true;
+    observer->onTileChanged(*this);
 }
 
 //Fetching tile data for custom sources is assumed to be an expensive operation.
 // Only required tiles make fetchTile requests. Attempt to cancel a tile
 // that is no longer required.
 void CustomGeometryTile::setNecessity(TileNecessity newNecessity) {
-   if (newNecessity != necessity) {
+   if (newNecessity != necessity || stale ) {
         necessity = newNecessity;
         if (necessity == TileNecessity::Required) {
-            loader.invoke(&style::CustomTileLoader::fetchTile, id, actor.self());
+            loader.invoke(&style::CustomTileLoader::fetchTile, id, actorRef);
+            stale = false;
         } else if (!isRenderable()) {
             loader.invoke(&style::CustomTileLoader::cancelTile, id);
         }
@@ -70,7 +78,7 @@ void CustomGeometryTile::querySourceFeatures(
             auto feature = layer->getFeature(i);
             
             // Apply filter, if any
-            if (queryOptions.filter && !(*queryOptions.filter)(*feature)) {
+            if (queryOptions.filter && !(*queryOptions.filter)(style::expression::EvaluationContext { static_cast<float>(id.overscaledZ), feature.get() })) {
                 continue;
             }
 

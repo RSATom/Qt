@@ -54,25 +54,25 @@
 #include <spacer_widget_p.h>
 
 // SDK
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerWidgetBoxInterface>
-#include <QtDesigner/QDesignerIntegrationInterface>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractwidgetbox.h>
+#include <QtDesigner/abstractintegration.h>
 
-#include <QtWidgets/QUndoGroup>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QSplitter>
-#include <QtGui/QMouseEvent>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QSizeGrip>
-#ifndef QT_NO_CLIPBOARD
-#include <QtGui/QClipboard>
+#include <QtWidgets/qundogroup.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qsizegrip.h>
+#if QT_CONFIG(clipboard)
+#include <QtGui/qclipboard.h>
 #endif
-#include <QtWidgets/QMdiArea>
-#include <QtWidgets/QMdiSubWindow>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QMessageBox>
+#include <QtWidgets/qmdiarea.h>
+#include <QtWidgets/qmdisubwindow.h>
+#include <QtWidgets/qdesktopwidget.h>
+#include <QtWidgets/qmessagebox.h>
 
 #include <QtCore/qdebug.h>
 
@@ -157,7 +157,7 @@ bool FormWindowManager::eventFilter(QObject *o, QEvent *e)
     case QEvent::ChildAdded:
     case QEvent::ChildPolished:
     case QEvent::ChildRemoved:
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     case QEvent::Clipboard:
 #endif
     case QEvent::ContentsRectChange:
@@ -297,7 +297,7 @@ void FormWindowManager::removeFormWindow(QDesignerFormWindowInterface *w)
         setActiveFormWindow(0);
 
     // Make sure that widget box is enabled by default
-    if (m_formWindows.size() == 0 && m_core->widgetBox())
+    if (m_formWindows.isEmpty() && m_core->widgetBox())
         m_core->widgetBox()->setEnabled(true);
 
 }
@@ -364,7 +364,7 @@ QWidget *FormWindowManager::findManagedWidget(FormWindow *fw, QWidget *w)
 
 void FormWindowManager::setupActions()
 {
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     const QIcon cutIcon = QIcon::fromTheme(QStringLiteral("edit-cut"), createIconSet(QStringLiteral("editcut.png")));
     m_actionCut = new QAction(cutIcon, tr("Cu&t"), this);
     m_actionCut->setObjectName(QStringLiteral("__qt_cut_action"));
@@ -530,7 +530,7 @@ void FormWindowManager::setupActions()
     m_actionShowFormWindowSettingsDialog->setEnabled(false);
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void FormWindowManager::slotActionCutActivated()
 {
     m_activeFormWindow->cut();
@@ -742,10 +742,10 @@ QWidgetList FormWindowManager::layoutsToBeBroken(QWidget *w) const
 
 }
 
-QMap<QWidget *, bool> FormWindowManager::getUnsortedLayoutsToBeBroken(bool firstOnly) const
+QSet<QWidget *> FormWindowManager::getUnsortedLayoutsToBeBroken(bool firstOnly) const
 {
     // Return a set of layouts to be broken.
-    QMap<QWidget *, bool> layouts;
+    QSet<QWidget *> layouts;
 
     QWidgetList selection = m_activeFormWindow->selectedWidgets();
     if (selection.isEmpty() && m_activeFormWindow->mainContainer())
@@ -756,7 +756,7 @@ QMap<QWidget *, bool> FormWindowManager::getUnsortedLayoutsToBeBroken(bool first
         const QWidgetList &list = layoutsToBeBroken(selectedWidget);
         if (!list.empty()) {
             for (QWidget *widget : list)
-                layouts.insert(widget, true);
+                layouts.insert(widget);
             if (firstOnly)
                 return layouts;
         }
@@ -774,12 +774,10 @@ QWidgetList FormWindowManager::layoutsToBeBroken() const
 {
     // Get all layouts. This is a list of all 'red' layouts (QLayoutWidgets)
     // up to the first 'real' widget with a layout in hierarchy order.
-    QMap<QWidget *, bool> unsortedLayouts = getUnsortedLayoutsToBeBroken(false);
+    const QSet<QWidget *> unsortedLayouts = getUnsortedLayoutsToBeBroken(false);
     // Sort in order of hierarchy
     QWidgetList orderedLayoutList;
-    const QMap<QWidget *, bool>::const_iterator lscend  = unsortedLayouts.constEnd();
-    for (QMap<QWidget *, bool>::const_iterator itLay = unsortedLayouts.constBegin(); itLay != lscend; ++itLay) {
-        QWidget *wToBeInserted = itLay.key();
+    for (QWidget *wToBeInserted : unsortedLayouts) {
         if (!orderedLayoutList.contains(wToBeInserted)) {
             // try to find first child, use as insertion position, else append
             const QWidgetList::iterator firstChildPos = findFirstChildOf(orderedLayoutList.begin(), orderedLayoutList.end(), wToBeInserted);
@@ -816,7 +814,7 @@ void FormWindowManager::slotUpdateActions()
     int selectedWidgetCount = 0;
     int laidoutWidgetCount = 0;
     int unlaidoutWidgetCount = 0;
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     bool pasteAvailable = false;
 #endif
     bool layoutAvailable = false;
@@ -834,7 +832,7 @@ void FormWindowManager::slotUpdateActions()
         QWidgetList simplifiedSelection = m_activeFormWindow->selectedWidgets();
 
         selectedWidgetCount = simplifiedSelection.count();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
         pasteAvailable = qApp->clipboard()->mimeData() && qApp->clipboard()->mimeData()->hasText();
 #endif
 
@@ -904,7 +902,7 @@ void FormWindowManager::slotUpdateActions()
         }
     } while(false);
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     m_actionCut->setEnabled(selectedWidgetCount > 0);
     m_actionCopy->setEnabled(selectedWidgetCount > 0);
     m_actionPaste->setEnabled(pasteAvailable);
@@ -1000,7 +998,7 @@ void FormWindowManager::slotActionShowFormWindowSettingsDialog()
 QAction *FormWindowManager::action(Action action) const
 {
     switch (action) {
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     case QDesignerFormWindowManagerInterface::CutAction:
         return m_actionCut;
     case QDesignerFormWindowManagerInterface::CopyAction:

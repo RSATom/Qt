@@ -101,18 +101,18 @@ private:
     void retain();
     void finishReadFromClient(bool exhausted = false);
 
-    QWaylandCompositor *m_compositor;
+    QWaylandCompositor *m_compositor = nullptr;
     QList<DataDevice *> m_data_device_list;
 
-    DataSource *m_current_selection_source;
+    DataSource *m_current_selection_source = nullptr;
 
     QMimeData m_retainedData;
-    QSocketNotifier *m_retainedReadNotifier;
+    QSocketNotifier *m_retainedReadNotifier = nullptr;
     QList<QSocketNotifier *> m_obsoleteRetainedReadNotifiers;
-    int m_retainedReadIndex;
+    int m_retainedReadIndex = 0;
     QByteArray m_retainedReadBuf;
 
-    bool m_compositorOwnsSelection;
+    bool m_compositorOwnsSelection = false;
 
 
     static void comp_accept(struct wl_client *client,

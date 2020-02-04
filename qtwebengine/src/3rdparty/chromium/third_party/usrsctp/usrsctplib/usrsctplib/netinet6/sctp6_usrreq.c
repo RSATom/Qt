@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2001-2007, by Cisco Systems, Inc. All rights reserved.
  * Copyright (c) 2008-2012, by Randall Stewart. All rights reserved.
  * Copyright (c) 2008-2012, by Michael Tuexen. All rights reserved.
@@ -32,7 +34,7 @@
 
 #ifdef __FreeBSD__
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/sys/netinet6/sctp6_usrreq.c 313330 2017-02-06 08:49:57Z ae $");
+__FBSDID("$FreeBSD: head/sys/netinet6/sctp6_usrreq.c 332273 2018-04-08 12:08:20Z tuexen $");
 #endif
 
 #include <netinet/sctp_os.h>
@@ -78,7 +80,7 @@ in6_sin6_2_sin(struct sockaddr_in *sin, struct sockaddr_in6 *sin6)
 #if defined(__Userspace_os_Windows)
 	uint32_t temp;
 #endif
-	bzero(sin, sizeof(*sin));
+	memset(sin, 0, sizeof(*sin));
 #ifdef HAVE_SIN_LEN
 	sin->sin_len = sizeof(struct sockaddr_in);
 #endif
@@ -109,7 +111,7 @@ in6_sin6_2_sin_in_sock(struct sockaddr *nam)
 void
 in6_sin_2_v4mapsin6(struct sockaddr_in *sin, struct sockaddr_in6 *sin6)
 {
-	bzero(sin6, sizeof(struct sockaddr_in6));
+	memset(sin6, 0, sizeof(struct sockaddr_in6));
  	sin6->sin6_family = AF_INET6;
 #ifdef HAVE_SIN6_LEN
 	sin6->sin6_len = sizeof(struct sockaddr_in6);
@@ -149,9 +151,7 @@ sctp6_input(struct mbuf **i_pak, int *offp, int proto)
 	struct sctphdr *sh;
 	struct sctp_chunkhdr *ch;
 	int length, offset;
-#if !defined(SCTP_WITH_NO_CSUM)
 	uint8_t compute_crc;
-#endif
 #if defined(__FreeBSD__)
 	uint32_t mflowid;
 	uint8_t mflowtype;
@@ -290,9 +290,6 @@ sctp6_input(struct mbuf **i_pak, int *offp, int proto)
 		goto out;
 	}
 	ecn_bits = ((ntohl(ip6->ip6_flow) >> 20) & 0x000000ff);
-#if defined(SCTP_WITH_NO_CSUM)
-	SCTP_STAT_INCR(sctps_recvnocrc);
-#else
 #if defined(__FreeBSD__) && __FreeBSD_version >= 800000
 	if (m->m_pkthdr.csum_flags & CSUM_SCTP_VALID) {
 		SCTP_STAT_INCR(sctps_recvhwcrc);
@@ -301,21 +298,18 @@ sctp6_input(struct mbuf **i_pak, int *offp, int proto)
 #else
 	if (SCTP_BASE_SYSCTL(sctp_no_csum_on_loopback) &&
 	    (IN6_ARE_ADDR_EQUAL(&src.sin6_addr, &dst.sin6_addr))) {
-		SCTP_STAT_INCR(sctps_recvnocrc);
+		SCTP_STAT_INCR(sctps_recvhwcrc);
 		compute_crc = 0;
 	} else {
 #endif
 		SCTP_STAT_INCR(sctps_recvswcrc);
 		compute_crc = 1;
 	}
-#endif
 	sctp_common_input_processing(&m, iphlen, offset, length,
 	                             (struct sockaddr *)&src,
 	                             (struct sockaddr *)&dst,
 	                             sh, ch,
-#if !defined(SCTP_WITH_NO_CSUM)
 	                             compute_crc,
-#endif
 	                             ecn_bits,
 #if defined(__FreeBSD__)
 	                             mflowtype, mflowid, fibnum,
@@ -350,7 +344,7 @@ sctp6_notify(struct sctp_inpcb *inp,
              struct sctp_nets *net,
              uint8_t icmp6_type,
              uint8_t icmp6_code,
-             uint16_t next_mtu)
+             uint32_t next_mtu)
 {
 #if defined(__APPLE__) || defined(SCTP_SO_LOCK_TESTING)
 	struct socket *so;
@@ -396,6 +390,10 @@ sctp6_notify(struct sctp_inpcb *inp,
 		}
 		break;
 	case ICMP6_PACKET_TOO_BIG:
+		if (net->dest_state & SCTP_ADDR_NO_PMTUD) {
+			SCTP_TCB_UNLOCK(stcb);
+			break;
+		}
 		if (SCTP_OS_TIMER_PENDING(&net->pmtu_timer.timer)) {
 			timer_stopped = 1;
 			sctp_timer_stop(SCTP_TIMER_TYPE_PATHMTURAISE, inp, stcb, net,
@@ -404,11 +402,11 @@ sctp6_notify(struct sctp_inpcb *inp,
 			timer_stopped = 0;
 		}
 		/* Update the path MTU. */
+		if (net->port) {
+			next_mtu -= sizeof(struct udphdr);
+		}
 		if (net->mtu > next_mtu) {
 			net->mtu = next_mtu;
-			if (net->port) {
-				net->mtu -= sizeof(struct udphdr);
-			}
 		}
 		/* Update the association MTU */
 		if (stcb->asoc.smallest_mtu > next_mtu) {
@@ -427,7 +425,11 @@ sctp6_notify(struct sctp_inpcb *inp,
 }
 
 void
+#if defined(__APPLE__) && !defined(APPLE_LEOPARD) && !defined(APPLE_SNOWLEOPARD) && !defined(APPLE_LION) && !defined(APPLE_MOUNTAINLION) && !defined(APPLE_ELCAPITAN)
+sctp6_ctlinput(int cmd, struct sockaddr *pktdst, void *d, struct ifnet *ifp SCTP_UNUSED)
+#else
 sctp6_ctlinput(int cmd, struct sockaddr *pktdst, void *d)
+#endif
 {
 	struct ip6ctlparam *ip6cp;
 	struct sctp_inpcb *inp;
@@ -478,7 +480,7 @@ sctp6_ctlinput(int cmd, struct sockaddr *pktdst, void *d)
 		}
 
 		/* Copy out the port numbers and the verification tag. */
-		bzero(&sh, sizeof(sh));
+		memset(&sh, 0, sizeof(sh));
 		m_copydata(ip6cp->ip6c_m,
 		           ip6cp->ip6c_off,
 		           sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint32_t),
@@ -568,7 +570,7 @@ sctp6_ctlinput(int cmd, struct sockaddr *pktdst, void *d)
 			sctp6_notify(inp, stcb, net,
 			             ip6cp->ip6c_icmp6->icmp6_type,
 			             ip6cp->ip6c_icmp6->icmp6_code,
-			             (uint16_t)ntohl(ip6cp->ip6c_icmp6->icmp6_mtu));
+			             ntohl(ip6cp->ip6c_icmp6->icmp6_mtu));
 		} else {
 #if defined(__FreeBSD__) && __FreeBSD_version < 500000
 			if (PRC_IS_REDIRECT(cmd) && (inp != NULL)) {
@@ -1247,7 +1249,7 @@ sctp6_connect(struct socket *so, struct mbuf *nam, struct proc *p)
 	if (inp->sctp_flags & SCTP_PCB_FLAGS_CONNECTED) {
 		stcb = LIST_FIRST(&inp->sctp_asoc_list);
 		if (stcb) {
-			SCTP_TCB_UNLOCK(stcb);
+			SCTP_TCB_LOCK(stcb);
 		}
 		SCTP_INP_RUNLOCK(inp);
 	} else {
@@ -1325,10 +1327,10 @@ sctp6_getaddr(struct socket *so, struct mbuf *nam)
 	if (sin6 == NULL)
 		return (ENOMEM);
 #elif defined(__Panda__)
-	bzero(sin6, sizeof(*sin6));
+	memset(sin6, 0, sizeof(*sin6));
 #else
 	SCTP_BUF_LEN(nam) = sizeof(*sin6);
-	bzero(sin6, sizeof(*sin6));
+	memset(sin6, 0, sizeof(*sin6));
 #endif
 	sin6->sin6_family = AF_INET6;
 #ifdef HAVE_SIN6_LEN

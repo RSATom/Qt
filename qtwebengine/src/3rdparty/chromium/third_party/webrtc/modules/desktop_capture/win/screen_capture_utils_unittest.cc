@@ -8,13 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/desktop_capture/win/screen_capture_utils.h"
+#include "modules/desktop_capture/win/screen_capture_utils.h"
 
-#include <vector>
 #include <string>
+#include <vector>
 
-#include "webrtc/modules/desktop_capture/desktop_capturer.h"
-#include "webrtc/test/gtest.h"
+#include "modules/desktop_capture/desktop_capturer.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
@@ -22,9 +22,9 @@ TEST(ScreenCaptureUtilsTest, GetScreenList) {
   DesktopCapturer::SourceList screens;
   std::vector<std::string> device_names;
 
-  GetScreenList(&screens);
+  ASSERT_TRUE(GetScreenList(&screens));
   screens.clear();
-  GetScreenList(&screens, &device_names);
+  ASSERT_TRUE(GetScreenList(&screens, &device_names));
 
   ASSERT_EQ(screens.size(), device_names.size());
 }

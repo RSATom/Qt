@@ -4,27 +4,49 @@
 
 #include "net/dns/record_rdata.h"
 
+#include <numeric>
+
 #include "base/big_endian.h"
-#include "net/dns/dns_protocol.h"
 #include "net/dns/dns_response.h"
+#include "net/dns/public/dns_protocol.h"
 
 namespace net {
 
 static const size_t kSrvRecordMinimumSize = 6;
 
-RecordRdata::RecordRdata() {
+RecordRdata::RecordRdata() = default;
+
+bool RecordRdata::HasValidSize(const base::StringPiece& data, uint16_t type) {
+  switch (type) {
+    case dns_protocol::kTypeSRV:
+      return data.size() >= kSrvRecordMinimumSize;
+    case dns_protocol::kTypeA:
+      return data.size() == IPAddress::kIPv4AddressSize;
+    case dns_protocol::kTypeAAAA:
+      return data.size() == IPAddress::kIPv6AddressSize;
+    case dns_protocol::kTypeCNAME:
+    case dns_protocol::kTypePTR:
+    case dns_protocol::kTypeTXT:
+    case dns_protocol::kTypeNSEC:
+    case dns_protocol::kTypeOPT:
+    case dns_protocol::kTypeSOA:
+      return true;
+    default:
+      VLOG(1) << "Unsupported RDATA type.";
+      return false;
+  }
 }
 
 SrvRecordRdata::SrvRecordRdata() : priority_(0), weight_(0), port_(0) {
 }
 
-SrvRecordRdata::~SrvRecordRdata() {}
+SrvRecordRdata::~SrvRecordRdata() = default;
 
 // static
 std::unique_ptr<SrvRecordRdata> SrvRecordRdata::Create(
     const base::StringPiece& data,
     const DnsRecordParser& parser) {
-  if (data.size() < kSrvRecordMinimumSize)
+  if (!HasValidSize(data, kType))
     return std::unique_ptr<SrvRecordRdata>();
 
   std::unique_ptr<SrvRecordRdata> rdata(new SrvRecordRdata);
@@ -55,17 +77,15 @@ bool SrvRecordRdata::IsEqual(const RecordRdata* other) const {
       target_ == srv_other->target_;
 }
 
-ARecordRdata::ARecordRdata() {
-}
+ARecordRdata::ARecordRdata() = default;
 
-ARecordRdata::~ARecordRdata() {
-}
+ARecordRdata::~ARecordRdata() = default;
 
 // static
 std::unique_ptr<ARecordRdata> ARecordRdata::Create(
     const base::StringPiece& data,
     const DnsRecordParser& parser) {
-  if (data.size() != IPAddress::kIPv4AddressSize)
+  if (!HasValidSize(data, kType))
     return std::unique_ptr<ARecordRdata>();
 
   std::unique_ptr<ARecordRdata> rdata(new ARecordRdata);
@@ -84,17 +104,15 @@ bool ARecordRdata::IsEqual(const RecordRdata* other) const {
   return address_ == a_other->address_;
 }
 
-AAAARecordRdata::AAAARecordRdata() {
-}
+AAAARecordRdata::AAAARecordRdata() = default;
 
-AAAARecordRdata::~AAAARecordRdata() {
-}
+AAAARecordRdata::~AAAARecordRdata() = default;
 
 // static
 std::unique_ptr<AAAARecordRdata> AAAARecordRdata::Create(
     const base::StringPiece& data,
     const DnsRecordParser& parser) {
-  if (data.size() != IPAddress::kIPv6AddressSize)
+  if (!HasValidSize(data, kType))
     return std::unique_ptr<AAAARecordRdata>();
 
   std::unique_ptr<AAAARecordRdata> rdata(new AAAARecordRdata);
@@ -113,11 +131,9 @@ bool AAAARecordRdata::IsEqual(const RecordRdata* other) const {
   return address_ == a_other->address_;
 }
 
-CnameRecordRdata::CnameRecordRdata() {
-}
+CnameRecordRdata::CnameRecordRdata() = default;
 
-CnameRecordRdata::~CnameRecordRdata() {
-}
+CnameRecordRdata::~CnameRecordRdata() = default;
 
 // static
 std::unique_ptr<CnameRecordRdata> CnameRecordRdata::Create(
@@ -142,11 +158,9 @@ bool CnameRecordRdata::IsEqual(const RecordRdata* other) const {
   return cname_ == cname_other->cname_;
 }
 
-PtrRecordRdata::PtrRecordRdata() {
-}
+PtrRecordRdata::PtrRecordRdata() = default;
 
-PtrRecordRdata::~PtrRecordRdata() {
-}
+PtrRecordRdata::~PtrRecordRdata() = default;
 
 // static
 std::unique_ptr<PtrRecordRdata> PtrRecordRdata::Create(
@@ -170,11 +184,9 @@ bool PtrRecordRdata::IsEqual(const RecordRdata* other) const {
   return ptrdomain_ == ptr_other->ptrdomain_;
 }
 
-TxtRecordRdata::TxtRecordRdata() {
-}
+TxtRecordRdata::TxtRecordRdata() = default;
 
-TxtRecordRdata::~TxtRecordRdata() {
-}
+TxtRecordRdata::~TxtRecordRdata() = default;
 
 // static
 std::unique_ptr<TxtRecordRdata> TxtRecordRdata::Create(
@@ -207,11 +219,9 @@ bool TxtRecordRdata::IsEqual(const RecordRdata* other) const {
   return texts_ == txt_other->texts_;
 }
 
-NsecRecordRdata::NsecRecordRdata() {
-}
+NsecRecordRdata::NsecRecordRdata() = default;
 
-NsecRecordRdata::~NsecRecordRdata() {
-}
+NsecRecordRdata::~NsecRecordRdata() = default;
 
 // static
 std::unique_ptr<NsecRecordRdata> NsecRecordRdata::Create(
@@ -274,6 +284,68 @@ bool NsecRecordRdata::GetBit(unsigned i) const {
 
   unsigned bit_num = 7 - i % 8;
   return (bitmap_[byte_num] & (1 << bit_num)) != 0;
+}
+
+OptRecordRdata::OptRecordRdata() = default;
+
+OptRecordRdata::~OptRecordRdata() = default;
+
+// static
+std::unique_ptr<OptRecordRdata> OptRecordRdata::Create(
+    const base::StringPiece& data,
+    const DnsRecordParser& parser) {
+  std::unique_ptr<OptRecordRdata> rdata(new OptRecordRdata);
+  rdata->buf_.assign(data.begin(), data.end());
+
+  base::BigEndianReader reader(data.data(), data.size());
+  while (reader.remaining() > 0) {
+    uint16_t opt_code, opt_data_size;
+    base::StringPiece opt_data;
+
+    if (!(reader.ReadU16(&opt_code) && reader.ReadU16(&opt_data_size) &&
+          reader.ReadPiece(&opt_data, opt_data_size))) {
+      return std::unique_ptr<OptRecordRdata>();
+    }
+    rdata->opts_.push_back(Opt(opt_code, opt_data));
+  }
+
+  return rdata;
+}
+
+uint16_t OptRecordRdata::Type() const {
+  return OptRecordRdata::kType;
+}
+
+bool OptRecordRdata::IsEqual(const RecordRdata* other) const {
+  if (other->Type() != Type())
+    return false;
+  const OptRecordRdata* opt_other = static_cast<const OptRecordRdata*>(other);
+  return opt_other->opts_ == opts_;
+}
+
+void OptRecordRdata::AddOpt(const Opt& opt) {
+  base::StringPiece opt_data = opt.data();
+
+  // Resize buffer to accommodate new OPT.
+  const size_t orig_rdata_size = buf_.size();
+  buf_.resize(orig_rdata_size + Opt::kHeaderSize + opt_data.size());
+
+  // Start writing from the end of the existing rdata.
+  base::BigEndianWriter writer(buf_.data() + orig_rdata_size, buf_.size());
+  bool success = writer.WriteU16(opt.code()) &&
+                 writer.WriteU16(opt_data.size()) &&
+                 writer.WriteBytes(opt_data.data(), opt_data.size());
+  DCHECK(success);
+
+  opts_.push_back(opt);
+}
+
+OptRecordRdata::Opt::Opt(uint16_t code, base::StringPiece data) : code_(code) {
+  data.CopyToString(&data_);
+}
+
+bool OptRecordRdata::Opt::operator==(const OptRecordRdata::Opt& other) const {
+  return code_ == other.code_ && data_ == other.data_;
 }
 
 }  // namespace net

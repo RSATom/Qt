@@ -13,7 +13,7 @@
 #include "core/fpdfapi/cmaps/cmap_int.h"
 #include "core/fpdfapi/font/cfx_stockfontarray.h"
 #include "core/fpdfapi/font/cpdf_cmapmanager.h"
-#include "core/fxcrt/fx_basic.h"
+#include "third_party/base/span.h"
 
 class CPDF_FontGlobals {
  public:
@@ -28,17 +28,25 @@ class CPDF_FontGlobals {
                  uint32_t index,
                  std::unique_ptr<CPDF_Font> pFont);
 
-  CPDF_CMapManager m_CMapManager;
-  struct {
-    CFX_UnownedPtr<const FXCMAP_CMap> m_pMapList;
-    uint32_t m_Count;
-  } m_EmbeddedCharsets[CIDSET_NUM_SETS];
-  struct {
-    const uint16_t* m_pMap;
-    uint32_t m_Count;
-  } m_EmbeddedToUnicodes[CIDSET_NUM_SETS];
+  void SetEmbeddedCharset(size_t idx, pdfium::span<const FXCMAP_CMap> map) {
+    m_EmbeddedCharsets[idx] = map;
+  }
+  pdfium::span<const FXCMAP_CMap> GetEmbeddedCharset(size_t idx) const {
+    return m_EmbeddedCharsets[idx];
+  }
+  void SetEmbeddedToUnicode(size_t idx, pdfium::span<const uint16_t> map) {
+    m_EmbeddedToUnicodes[idx] = map;
+  }
+  pdfium::span<const uint16_t> GetEmbeddedToUnicode(size_t idx) {
+    return m_EmbeddedToUnicodes[idx];
+  }
+
+  CPDF_CMapManager* GetCMapManager() { return &m_CMapManager; }
 
  private:
+  CPDF_CMapManager m_CMapManager;
+  pdfium::span<const FXCMAP_CMap> m_EmbeddedCharsets[CIDSET_NUM_SETS];
+  pdfium::span<const uint16_t> m_EmbeddedToUnicodes[CIDSET_NUM_SETS];
   std::map<CPDF_Document*, std::unique_ptr<CFX_StockFontArray>> m_StockMap;
 };
 

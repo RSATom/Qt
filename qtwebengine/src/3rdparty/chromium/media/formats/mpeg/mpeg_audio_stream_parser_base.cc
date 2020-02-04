@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/message_loop/message_loop.h"
 #include "media/base/media_log.h"
 #include "media/base/media_tracks.h"
 #include "media/base/media_util.h"
@@ -60,10 +59,10 @@ MPEGAudioStreamParserBase::MPEGAudioStreamParserBase(uint32_t start_code_mask,
       audio_codec_(audio_codec),
       codec_delay_(codec_delay) {}
 
-MPEGAudioStreamParserBase::~MPEGAudioStreamParserBase() {}
+MPEGAudioStreamParserBase::~MPEGAudioStreamParserBase() = default;
 
 void MPEGAudioStreamParserBase::Init(
-    const InitCB& init_cb,
+    InitCB init_cb,
     const NewConfigCB& config_cb,
     const NewBuffersCB& new_buffers_cb,
     bool ignore_text_tracks,
@@ -73,7 +72,7 @@ void MPEGAudioStreamParserBase::Init(
     MediaLog* media_log) {
   DVLOG(1) << __func__;
   DCHECK_EQ(state_, UNINITIALIZED);
-  init_cb_ = init_cb;
+  init_cb_ = std::move(init_cb);
   config_cb_ = config_cb;
   new_buffers_cb_ = new_buffers_cb;
   new_segment_cb_ = new_segment_cb;
@@ -90,6 +89,10 @@ void MPEGAudioStreamParserBase::Flush() {
   if (timestamp_helper_)
     timestamp_helper_->SetBaseTimestamp(base::TimeDelta());
   in_media_segment_ = false;
+}
+
+bool MPEGAudioStreamParserBase::GetGenerateTimestampsFlag() const {
+  return true;
 }
 
 bool MPEGAudioStreamParserBase::Parse(const uint8_t* buf, int size) {
@@ -210,6 +213,8 @@ int MPEGAudioStreamParserBase::ParseFrame(const uint8_t* data,
     config_.Initialize(audio_codec_, kSampleFormatF32, channel_layout,
                        sample_rate, extra_data, Unencrypted(),
                        base::TimeDelta(), codec_delay_);
+    if (audio_codec_ == kCodecAAC)
+      config_.disable_discard_decoder_delay();
 
     base::TimeDelta base_timestamp;
     if (timestamp_helper_)
@@ -225,11 +230,10 @@ int MPEGAudioStreamParserBase::ParseFrame(const uint8_t* data,
     if (!config_cb_.Run(std::move(media_tracks), TextTrackConfigMap()))
       return -1;
 
-    if (!init_cb_.is_null()) {
+    if (init_cb_) {
       InitParameters params(kInfiniteDuration);
       params.detected_audio_track_count = 1;
-      params.auto_update_timestamp_offset = true;
-      base::ResetAndReturn(&init_cb_).Run(params);
+      std::move(init_cb_).Run(params);
     }
   }
 
@@ -277,12 +281,15 @@ int MPEGAudioStreamParserBase::ParseIcecastHeader(const uint8_t* data,
 int MPEGAudioStreamParserBase::ParseID3v1(const uint8_t* data, int size) {
   DVLOG(1) << __func__ << "(" << size << ")";
 
-  if (size < kID3v1Size)
-    return 0;
-
   // TODO(acolwell): Add code to actually validate ID3v1 data and
   // expose it as a metadata text track.
-  return !memcmp(data, "TAG+", 4) ? kID3v1ExtendedSize : kID3v1Size;
+
+  if (size < 4)
+    return 0;
+
+  int needed_size = !memcmp(data, "TAG+", 4) ? kID3v1ExtendedSize : kID3v1Size;
+
+  return (size < needed_size) ? 0 : needed_size;
 }
 
 int MPEGAudioStreamParserBase::ParseID3v2(const uint8_t* data, int size) {
@@ -364,7 +371,7 @@ int MPEGAudioStreamParserBase::FindNextValidStartCode(const uint8_t* data,
         return 0;
 
       if (sync_bytes > 0) {
-        DCHECK_LT(sync_bytes, sync_size);
+        DCHECK_LE(sync_bytes, sync_size);
 
         // Skip over this frame so we can check the next one.
         sync += frame_size;

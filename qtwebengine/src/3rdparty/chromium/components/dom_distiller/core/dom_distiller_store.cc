@@ -44,11 +44,11 @@ DomDistillerStore::DomDistillerStore(
     const base::FilePath& database_dir)
     : database_(std::move(database)),
       database_loaded_(false),
-      attachment_store_(syncer::AttachmentStore::CreateInMemoryStore()),
       weak_ptr_factory_(this) {
   database_->Init(kDatabaseUMAClientName, database_dir,
-                  base::Bind(&DomDistillerStore::OnDatabaseInit,
-                             weak_ptr_factory_.GetWeakPtr()));
+                  leveldb_proto::CreateSimpleOptions(),
+                  base::BindOnce(&DomDistillerStore::OnDatabaseInit,
+                                 weak_ptr_factory_.GetWeakPtr()));
 }
 
 DomDistillerStore::DomDistillerStore(
@@ -57,20 +57,15 @@ DomDistillerStore::DomDistillerStore(
     const base::FilePath& database_dir)
     : database_(std::move(database)),
       database_loaded_(false),
-      attachment_store_(syncer::AttachmentStore::CreateInMemoryStore()),
       model_(initial_data),
       weak_ptr_factory_(this) {
   database_->Init(kDatabaseUMAClientName, database_dir,
-                  base::Bind(&DomDistillerStore::OnDatabaseInit,
-                             weak_ptr_factory_.GetWeakPtr()));
+                  leveldb_proto::CreateSimpleOptions(),
+                  base::BindOnce(&DomDistillerStore::OnDatabaseInit,
+                                 weak_ptr_factory_.GetWeakPtr()));
 }
 
 DomDistillerStore::~DomDistillerStore() {}
-
-// DomDistillerStoreInterface implementation.
-syncer::SyncableService* DomDistillerStore::GetSyncableService() {
-  return this;
-}
 
 bool DomDistillerStore::GetEntryById(const std::string& entry_id,
                                      ArticleEntry* entry) {
@@ -79,122 +74,6 @@ bool DomDistillerStore::GetEntryById(const std::string& entry_id,
 
 bool DomDistillerStore::GetEntryByUrl(const GURL& url, ArticleEntry* entry) {
   return model_.GetEntryByUrl(url, entry);
-}
-
-void DomDistillerStore::UpdateAttachments(
-    const std::string& entry_id,
-    std::unique_ptr<ArticleAttachmentsData> attachments_data,
-    const UpdateAttachmentsCallback& callback) {
-  if (!GetEntryById(entry_id, nullptr)) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  base::Bind(callback, false));
-  }
-
-  std::unique_ptr<sync_pb::ArticleAttachments> article_attachments(
-      new sync_pb::ArticleAttachments());
-  syncer::AttachmentList attachment_list;
-  attachments_data->CreateSyncAttachments(&attachment_list,
-                                          article_attachments.get());
-
-  attachment_store_->Write(
-      attachment_list,
-      base::Bind(&DomDistillerStore::OnAttachmentsWrite,
-                 weak_ptr_factory_.GetWeakPtr(), entry_id,
-                 base::Passed(&article_attachments), callback));
-}
-
-void DomDistillerStore::OnAttachmentsWrite(
-    const std::string& entry_id,
-    std::unique_ptr<sync_pb::ArticleAttachments> article_attachments,
-    const UpdateAttachmentsCallback& callback,
-    const syncer::AttachmentStore::Result& result) {
-  bool success = false;
-  switch (result) {
-    case syncer::AttachmentStore::UNSPECIFIED_ERROR:
-    case syncer::AttachmentStore::STORE_INITIALIZATION_FAILED:
-      break;
-    case syncer::AttachmentStore::SUCCESS:
-      success = true;
-      break;
-  }
-
-  if (success) {
-    ArticleEntry entry;
-    bool has_entry = GetEntryById(entry_id, &entry);
-    if (!has_entry) {
-      success = false;
-      attachment_store_->Drop(GetAttachmentIds(*article_attachments),
-                              syncer::AttachmentStore::DropCallback());
-    } else {
-      if (entry.has_attachments()) {
-        attachment_store_->Drop(GetAttachmentIds(entry.attachments()),
-                                syncer::AttachmentStore::DropCallback());
-      }
-      entry.set_allocated_attachments(article_attachments.release());
-
-      SyncChangeList changes_to_apply;
-      changes_to_apply.push_back(SyncChange(
-          FROM_HERE, SyncChange::ACTION_UPDATE, CreateLocalData(entry)));
-
-      SyncChangeList changes_applied;
-      SyncChangeList changes_missing;
-
-      ApplyChangesToModel(changes_to_apply, &changes_applied, &changes_missing);
-
-      DCHECK_EQ(size_t(0), changes_missing.size());
-      DCHECK_EQ(size_t(1), changes_applied.size());
-
-      ApplyChangesToSync(FROM_HERE, changes_applied);
-      ApplyChangesToDatabase(changes_applied);
-    }
-  }
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                base::Bind(callback, success));
-}
-
-void DomDistillerStore::GetAttachments(
-    const std::string& entry_id,
-    const GetAttachmentsCallback& callback) {
-  ArticleEntry entry;
-  if (!model_.GetEntryById(entry_id, &entry)
-      || !entry.has_attachments()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, false, nullptr));
-    return;
-  }
-
-  // TODO(cjhopman): This should use GetOrDownloadAttachments() once there is a
-  // feasible way to use that.
-  attachment_store_->Read(GetAttachmentIds(entry.attachments()),
-                          base::Bind(&DomDistillerStore::OnAttachmentsRead,
-                                     weak_ptr_factory_.GetWeakPtr(),
-                                     entry.attachments(), callback));
-}
-
-void DomDistillerStore::OnAttachmentsRead(
-    const sync_pb::ArticleAttachments& attachments_proto,
-    const GetAttachmentsCallback& callback,
-    const syncer::AttachmentStore::Result& result,
-    std::unique_ptr<syncer::AttachmentMap> attachments,
-    std::unique_ptr<syncer::AttachmentIdList> missing) {
-  bool success = false;
-  switch (result) {
-    case syncer::AttachmentStore::UNSPECIFIED_ERROR:
-    case syncer::AttachmentStore::STORE_INITIALIZATION_FAILED:
-      break;
-    case syncer::AttachmentStore::SUCCESS:
-      DCHECK(missing->empty());
-      success = true;
-      break;
-  }
-  std::unique_ptr<ArticleAttachmentsData> attachments_data;
-  if (success) {
-    attachments_data = ArticleAttachmentsData::GetFromAttachmentMap(
-        attachments_proto, *attachments);
-  }
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(callback, success, base::Passed(&attachments_data)));
 }
 
 bool DomDistillerStore::AddEntry(const ArticleEntry& entry) {
@@ -209,35 +88,18 @@ bool DomDistillerStore::RemoveEntry(const ArticleEntry& entry) {
   return ChangeEntry(entry, SyncChange::ACTION_DELETE);
 }
 
-namespace {
-
-bool VerifyAttachmentsUnchanged(const ArticleEntry& entry,
-                                const DomDistillerModel& model) {
-    ArticleEntry currentEntry;
-    model.GetEntryById(entry.entry_id(), &currentEntry);
-    DCHECK_EQ(currentEntry.has_attachments(), entry.has_attachments());
-    if (currentEntry.has_attachments()) {
-      DCHECK_EQ(currentEntry.attachments().SerializeAsString(),
-                entry.attachments().SerializeAsString());
-    }
-    return true;
-}
-
-}  // namespace
-
 bool DomDistillerStore::ChangeEntry(const ArticleEntry& entry,
                                     SyncChange::SyncChangeType changeType) {
   if (!database_loaded_) {
     return false;
   }
 
-  bool hasEntry = model_.GetEntryById(entry.entry_id(), NULL);
+  bool hasEntry = model_.GetEntryById(entry.entry_id(), nullptr);
   if (hasEntry) {
     if (changeType == SyncChange::ACTION_ADD) {
       DVLOG(1) << "Already have entry with id " << entry.entry_id() << ".";
       return false;
     }
-    DCHECK(VerifyAttachmentsUnchanged(entry, model_));
   } else if (changeType != SyncChange::ACTION_ADD) {
     DVLOG(1) << "No entry with id " << entry.entry_id() << " found.";
     return false;
@@ -260,7 +122,6 @@ bool DomDistillerStore::ChangeEntry(const ArticleEntry& entry,
   DCHECK_EQ(size_t(0), changes_missing.size());
   DCHECK_EQ(size_t(1), changes_applied.size());
 
-  ApplyChangesToSync(FROM_HERE, changes_applied);
   ApplyChangesToDatabase(changes_applied);
 
   return true;
@@ -278,54 +139,10 @@ std::vector<ArticleEntry> DomDistillerStore::GetEntries() const {
   return model_.GetEntries();
 }
 
-// syncer::SyncableService implementation.
-SyncMergeResult DomDistillerStore::MergeDataAndStartSyncing(
-    ModelType type,
-    const SyncDataList& initial_sync_data,
-    std::unique_ptr<syncer::SyncChangeProcessor> sync_processor,
-    std::unique_ptr<syncer::SyncErrorFactory> error_handler) {
-  DCHECK_EQ(syncer::ARTICLES, type);
-  DCHECK(!sync_processor_);
-  DCHECK(!error_factory_);
-  sync_processor_ = std::move(sync_processor);
-  error_factory_ = std::move(error_handler);
-
-  SyncChangeList database_changes;
-  SyncChangeList sync_changes;
-  SyncMergeResult result =
-      MergeDataWithModel(initial_sync_data, &database_changes, &sync_changes);
-  ApplyChangesToDatabase(database_changes);
-  ApplyChangesToSync(FROM_HERE, sync_changes);
-
-  return result;
-}
-
-void DomDistillerStore::StopSyncing(ModelType type) {
-  sync_processor_.reset();
-  error_factory_.reset();
-}
-
-SyncDataList DomDistillerStore::GetAllSyncData(ModelType type) const {
-  return model_.GetAllSyncData();
-}
-
-SyncError DomDistillerStore::ProcessSyncChanges(
-    const tracked_objects::Location& from_here,
-    const SyncChangeList& change_list) {
-  DCHECK(database_loaded_);
-  SyncChangeList database_changes;
-  SyncChangeList sync_changes;
-  ApplyChangesToModel(change_list, &database_changes, &sync_changes);
-  ApplyChangesToDatabase(database_changes);
-  DCHECK_EQ(size_t(0), sync_changes.size());
-  return SyncError();
-}
-
 void DomDistillerStore::NotifyObservers(const syncer::SyncChangeList& changes) {
   if (observers_.might_have_observers() && changes.size() > 0) {
     std::vector<DomDistillerObserver::ArticleUpdate> article_changes;
-    for (SyncChangeList::const_iterator it = changes.begin();
-         it != changes.end(); ++it) {
+    for (auto it = changes.begin(); it != changes.end(); ++it) {
       DomDistillerObserver::ArticleUpdate article_update;
       switch (it->change_type()) {
         case SyncChange::ACTION_ADD:
@@ -365,8 +182,8 @@ void DomDistillerStore::OnDatabaseInit(bool success) {
     database_.reset();
     return;
   }
-  database_->LoadEntries(base::Bind(&DomDistillerStore::OnDatabaseLoad,
-                                    weak_ptr_factory_.GetWeakPtr()));
+  database_->LoadEntries(base::BindOnce(&DomDistillerStore::OnDatabaseLoad,
+                                        weak_ptr_factory_.GetWeakPtr()));
 }
 
 void DomDistillerStore::OnDatabaseLoad(bool success,
@@ -379,15 +196,13 @@ void DomDistillerStore::OnDatabaseLoad(bool success,
   database_loaded_ = true;
 
   SyncDataList data;
-  for (EntryVector::iterator it = entries->begin(); it != entries->end();
-       ++it) {
+  for (auto it = entries->begin(); it != entries->end(); ++it) {
     data.push_back(CreateLocalData(*it));
   }
   SyncChangeList changes_applied;
   SyncChangeList database_changes_needed;
   MergeDataWithModel(data, &changes_applied, &database_changes_needed);
   ApplyChangesToDatabase(database_changes_needed);
-  ApplyChangesToSync(FROM_HERE, changes_applied);
 }
 
 void DomDistillerStore::OnDatabaseSave(bool success) {
@@ -396,26 +211,7 @@ void DomDistillerStore::OnDatabaseSave(bool success) {
              << " Disabling modifications and sync.";
     database_.reset();
     database_loaded_ = false;
-    StopSyncing(syncer::ARTICLES);
   }
-}
-
-bool DomDistillerStore::ApplyChangesToSync(
-    const tracked_objects::Location& from_here,
-    const SyncChangeList& change_list) {
-  if (!sync_processor_) {
-    return false;
-  }
-  if (change_list.empty()) {
-    return true;
-  }
-
-  SyncError error = sync_processor_->ProcessSyncChanges(from_here, change_list);
-  if (error.IsSet()) {
-    StopSyncing(syncer::ARTICLES);
-    return false;
-  }
-  return true;
 }
 
 bool DomDistillerStore::ApplyChangesToDatabase(
@@ -431,8 +227,7 @@ bool DomDistillerStore::ApplyChangesToDatabase(
   std::unique_ptr<std::vector<std::string>> keys_to_remove(
       new std::vector<std::string>());
 
-  for (SyncChangeList::const_iterator it = change_list.begin();
-       it != change_list.end(); ++it) {
+  for (auto it = change_list.begin(); it != change_list.end(); ++it) {
     if (it->change_type() == SyncChange::ACTION_DELETE) {
       ArticleEntry entry = GetEntryFromChange(*it);
       keys_to_remove->push_back(entry.entry_id());
@@ -443,8 +238,8 @@ bool DomDistillerStore::ApplyChangesToDatabase(
   }
   database_->UpdateEntries(std::move(entries_to_save),
                            std::move(keys_to_remove),
-                           base::Bind(&DomDistillerStore::OnDatabaseSave,
-                                      weak_ptr_factory_.GetWeakPtr()));
+                           base::BindOnce(&DomDistillerStore::OnDatabaseSave,
+                                          weak_ptr_factory_.GetWeakPtr()));
   return true;
 }
 
@@ -456,7 +251,7 @@ SyncMergeResult DomDistillerStore::MergeDataWithModel(
   DCHECK(changes_applied);
   DCHECK(changes_missing);
 
-  SyncMergeResult result(syncer::ARTICLES);
+  SyncMergeResult result(syncer::DEPRECATED_ARTICLES);
   result.set_num_items_before_association(model_.GetNumEntries());
 
   SyncChangeList changes_to_apply;

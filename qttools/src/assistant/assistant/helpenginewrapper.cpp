@@ -39,13 +39,13 @@
 #include <QtCore/QTimer>
 #include <QtHelp/QHelpContentModel>
 #include <QtHelp/QHelpEngine>
+#include <QtHelp/QHelpFilterEngine>
 #include <QtHelp/QHelpIndexModel>
 #include <QtHelp/QHelpSearchEngine>
 
 QT_BEGIN_NAMESPACE
 
 namespace {
-    const QString Unfiltered;
     const QString AppFontKey(QLatin1String("appFont"));
     const QString AppWritingSystemKey(QLatin1String("appWritingSystem"));
     const QString BookmarksKey(QLatin1String("Bookmarks"));
@@ -104,15 +104,7 @@ private:
     QMap<QString, RecentSignal> m_recentQchUpdates;
 };
 
-const QString HelpEngineWrapper::TrUnfiltered()
-{
-    static QString s;
-    if (s.isEmpty())
-        s = HelpEngineWrapper::tr("Unfiltered");
-    return s;
-}
-
-HelpEngineWrapper *HelpEngineWrapper::helpEngineWrapper = 0;
+HelpEngineWrapper *HelpEngineWrapper::helpEngineWrapper = nullptr;
 
 HelpEngineWrapper &HelpEngineWrapper::instance(const QString &collectionFile)
 {
@@ -130,7 +122,7 @@ void HelpEngineWrapper::removeInstance()
 {
     TRACE_OBJ
     delete helpEngineWrapper;
-    helpEngineWrapper = 0;
+    helpEngineWrapper = nullptr;
 }
 
 HelpEngineWrapper::HelpEngineWrapper(const QString &collectionFile)
@@ -146,6 +138,7 @@ HelpEngineWrapper::HelpEngineWrapper(const QString &collectionFile)
      * This call is reverted by initialDocSetupDone(), which must be
      * called after the new docs have been installed.
      */
+//  TODO: probably remove it
     disconnect(d->m_helpEngine, &QHelpEngineCore::setupFinished,
             searchEngine(), &QHelpSearchEngine::scheduleIndexDocumentation);
 
@@ -153,8 +146,6 @@ HelpEngineWrapper::HelpEngineWrapper(const QString &collectionFile)
             this, &HelpEngineWrapper::documentationRemoved);
     connect(d, &HelpEngineWrapperPrivate::documentationUpdated,
             this, &HelpEngineWrapper::documentationUpdated);
-    connect(d->m_helpEngine, &QHelpEngineCore::currentFilterChanged,
-            this, &HelpEngineWrapper::handleCurrentFilterChanged);
     connect(d->m_helpEngine, &QHelpEngineCore::setupFinished,
             this, &HelpEngineWrapper::setupFinished);
 }
@@ -175,6 +166,7 @@ HelpEngineWrapper::~HelpEngineWrapper()
 void HelpEngineWrapper::initialDocSetupDone()
 {
     TRACE_OBJ
+//  TODO: probably remove it
     connect(d->m_helpEngine, &QHelpEngineCore::setupFinished,
             searchEngine(), &QHelpSearchEngine::scheduleIndexDocumentation);
     setupData();
@@ -257,43 +249,6 @@ bool HelpEngineWrapper::setupData()
     return d->m_helpEngine->setupData();
 }
 
-bool HelpEngineWrapper::addCustomFilter(const QString &filterName,
-                                        const QStringList &attributes)
-{
-    TRACE_OBJ
-    return d->m_helpEngine->addCustomFilter(filterName, attributes);
-}
-
-bool HelpEngineWrapper::removeCustomFilter(const QString &filterName)
-{
-    TRACE_OBJ
-    return d->m_helpEngine->removeCustomFilter(filterName);
-}
-
-void HelpEngineWrapper::setCurrentFilter(const QString &currentFilter)
-{
-    TRACE_OBJ
-    const QString &filter
-            = currentFilter == TrUnfiltered() ? Unfiltered : currentFilter;
-    d->m_helpEngine->setCurrentFilter(filter);
-}
-
-const QString HelpEngineWrapper::currentFilter() const
-{
-    TRACE_OBJ
-    const QString &filter = d->m_helpEngine->currentFilter();
-    return filter == Unfiltered ? TrUnfiltered() : filter;
-}
-
-const QStringList HelpEngineWrapper::customFilters() const
-{
-    TRACE_OBJ
-    QStringList filters = d->m_helpEngine->customFilters();
-    filters.removeOne(Unfiltered);
-    filters.prepend(TrUnfiltered());
-    return filters;
-}
-
 QUrl HelpEngineWrapper::findFile(const QUrl &url) const
 {
     TRACE_OBJ
@@ -312,22 +267,15 @@ QMap<QString, QUrl> HelpEngineWrapper::linksForIdentifier(const QString &id) con
     return d->m_helpEngine->linksForIdentifier(id);
 }
 
-const QStringList HelpEngineWrapper::filterAttributes() const
-{
-    TRACE_OBJ
-    return d->m_helpEngine->filterAttributes();
-}
-
-const QStringList HelpEngineWrapper::filterAttributes(const QString &filterName) const
-{
-    TRACE_OBJ
-    return d->m_helpEngine->filterAttributes(filterName);
-}
-
 QString HelpEngineWrapper::error() const
 {
     TRACE_OBJ
     return d->m_helpEngine->error();
+}
+
+QHelpFilterEngine *HelpEngineWrapper::filterEngine() const
+{
+    return d->m_helpEngine->filterEngine();
 }
 
 const QStringList HelpEngineWrapper::qtDocInfo(const QString &component) const
@@ -692,14 +640,6 @@ void HelpEngineWrapper::setBrowserWritingSystem(QFontDatabase::WritingSystem sys
     d->m_helpEngine->setCustomValue(BrowserWritingSystemKey, system);
 }
 
-void HelpEngineWrapper::handleCurrentFilterChanged(const QString &filter)
-{
-    TRACE_OBJ
-    const QString &filterToReport
-            = filter == Unfiltered ? TrUnfiltered() : filter;
-    emit currentFilterChanged(filterToReport);
-}
-
 bool HelpEngineWrapper::showTabs() const
 {
     TRACE_OBJ
@@ -751,20 +691,18 @@ HelpEngineWrapperPrivate::HelpEngineWrapperPrivate(const QString &collectionFile
       m_qchWatcher(new QFileSystemWatcher(this))
 {
     TRACE_OBJ
-    if (!m_helpEngine->customFilters().contains(Unfiltered))
-        m_helpEngine->addCustomFilter(Unfiltered, QStringList());
     initFileSystemWatchers();
+    m_helpEngine->setUsesFilterEngine(true);
 }
 
 void HelpEngineWrapperPrivate::initFileSystemWatchers()
 {
     TRACE_OBJ
-    for (const QString &ns : m_helpEngine->registeredDocumentations()) {
-        const QString &docFile = m_helpEngine->documentationFileName(ns);
-        m_qchWatcher->addPath(docFile);
-        connect(m_qchWatcher, &QFileSystemWatcher::fileChanged, this,
-                QOverload<const QString &>::of(&HelpEngineWrapperPrivate::qchFileChanged));
-    }
+    for (const QString &ns : m_helpEngine->registeredDocumentations())
+        m_qchWatcher->addPath(m_helpEngine->documentationFileName(ns));
+
+    connect(m_qchWatcher, &QFileSystemWatcher::fileChanged, this,
+            QOverload<const QString &>::of(&HelpEngineWrapperPrivate::qchFileChanged));
     checkDocFilesWatched();
 }
 

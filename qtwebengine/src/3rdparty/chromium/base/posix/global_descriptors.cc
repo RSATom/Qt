@@ -33,15 +33,14 @@ int GlobalDescriptors::Get(Key key) const {
   const int ret = MaybeGet(key);
 
   if (ret == -1)
-    DLOG(FATAL) << "Unknown global descriptor: " << key;
+    DLOG(DCHECK) << "Unknown global descriptor: " << key;
   return ret;
 }
 
 int GlobalDescriptors::MaybeGet(Key key) const {
-  for (Mapping::const_iterator
-       i = descriptors_.begin(); i != descriptors_.end(); ++i) {
-    if (i->key == key)
-      return i->fd;
+  for (const auto& i : descriptors_) {
+    if (i.key == key)
+      return i.fd;
   }
 
   return -1;
@@ -51,8 +50,7 @@ base::ScopedFD GlobalDescriptors::TakeFD(
     Key key,
     base::MemoryMappedFile::Region* region) {
   base::ScopedFD fd;
-  for (Mapping::iterator i = descriptors_.begin(); i != descriptors_.end();
-       ++i) {
+  for (auto i = descriptors_.begin(); i != descriptors_.end(); ++i) {
     if (i->key == key) {
       *region = i->region;
       fd.reset(i->fd);
@@ -86,7 +84,7 @@ base::MemoryMappedFile::Region GlobalDescriptors::GetRegion(Key key) const {
     if (i.key == key)
       return i.region;
   }
-  DLOG(FATAL) << "Unknown global descriptor: " << key;
+  DLOG(DCHECK) << "Unknown global descriptor: " << key;
   return base::MemoryMappedFile::Region::kWholeFile;
 }
 
@@ -94,8 +92,8 @@ void GlobalDescriptors::Reset(const Mapping& mapping) {
   descriptors_ = mapping;
 }
 
-GlobalDescriptors::GlobalDescriptors() {}
+GlobalDescriptors::GlobalDescriptors() = default;
 
-GlobalDescriptors::~GlobalDescriptors() {}
+GlobalDescriptors::~GlobalDescriptors() = default;
 
 }  // namespace base

@@ -82,15 +82,13 @@ class QQuickSwitchPrivate : public QQuickAbstractButtonPrivate
     Q_DECLARE_PUBLIC(QQuickSwitch)
 
 public:
-    QQuickSwitchPrivate() : position(0) { }
-
     qreal positionAt(const QPointF &point) const;
 
     bool canDrag(const QPointF &movePoint) const;
     void handleMove(const QPointF &point) override;
     void handleRelease(const QPointF &point) override;
 
-    qreal position;
+    qreal position = 0;
 };
 
 qreal QQuickSwitchPrivate::positionAt(const QPointF &point) const
@@ -231,10 +229,14 @@ void QQuickSwitch::buttonChange(ButtonChange change)
         QQuickAbstractButton::buttonChange(change);
 }
 
+QFont QQuickSwitch::defaultFont() const
+{
+    return QQuickTheme::font(QQuickTheme::Switch);
+}
+
 QPalette QQuickSwitch::defaultPalette() const
 {
-    // ### TODO: add QPlatformTheme::SwitchPalette
-    return QQuickControlPrivate::themePalette(QPlatformTheme::CheckBoxPalette);
+    return QQuickTheme::palette(QQuickTheme::Switch);
 }
 
 QT_END_NAMESPACE

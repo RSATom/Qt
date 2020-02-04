@@ -48,7 +48,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-places
     \ingroup qml-QtLocation5-places-models
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The ImageModel type provides a model of place images.
 

@@ -8,20 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/remote_bitrate_estimator/remote_bitrate_estimator_single_stream.h"
-#include "webrtc/modules/remote_bitrate_estimator/remote_bitrate_estimator_unittest_helper.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "modules/remote_bitrate_estimator/remote_bitrate_estimator_single_stream.h"
+
+#include "modules/remote_bitrate_estimator/remote_bitrate_estimator_unittest_helper.h"
+#include "rtc_base/constructor_magic.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
-class RemoteBitrateEstimatorSingleTest :
-    public RemoteBitrateEstimatorTest {
+class RemoteBitrateEstimatorSingleTest : public RemoteBitrateEstimatorTest {
  public:
   RemoteBitrateEstimatorSingleTest() {}
   virtual void SetUp() {
     bitrate_estimator_.reset(new RemoteBitrateEstimatorSingleStream(
         bitrate_observer_.get(), &clock_));
   }
+
  protected:
   RTC_DISALLOW_COPY_AND_ASSIGN(RemoteBitrateEstimatorSingleTest);
 };
@@ -55,7 +57,7 @@ TEST_F(RemoteBitrateEstimatorSingleTest, CapacityDropThreeStreamsWrap) {
 }
 
 TEST_F(RemoteBitrateEstimatorSingleTest, CapacityDropThirteenStreamsWrap) {
-  CapacityDropTestHelper(13, true, 733, 0);
+  CapacityDropTestHelper(13, true, 567, 0);
 }
 
 TEST_F(RemoteBitrateEstimatorSingleTest, CapacityDropNineteenStreamsWrap) {

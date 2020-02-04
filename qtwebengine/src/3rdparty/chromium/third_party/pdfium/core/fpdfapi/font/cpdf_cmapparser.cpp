@@ -17,7 +17,6 @@
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxge/fx_freetype.h"
 #include "third_party/base/logging.h"
-#include "third_party/base/stl_util.h"
 
 namespace {
 
@@ -32,10 +31,10 @@ CIDSet CIDSetFromSizeT(size_t index) {
   return static_cast<CIDSet>(index);
 }
 
-CFX_ByteStringC CMap_GetString(const CFX_ByteStringC& word) {
+ByteStringView CMap_GetString(ByteStringView word) {
   if (word.GetLength() <= 2)
-    return CFX_ByteStringC();
-  return CFX_ByteStringC(&word[1], word.GetLength() - 2);
+    return ByteStringView();
+  return word.Right(word.GetLength() - 2);
 }
 
 }  // namespace
@@ -45,7 +44,7 @@ CPDF_CMapParser::CPDF_CMapParser(CPDF_CMap* pCMap)
 
 CPDF_CMapParser::~CPDF_CMapParser() {}
 
-void CPDF_CMapParser::ParseWord(const CFX_ByteStringC& word) {
+void CPDF_CMapParser::ParseWord(ByteStringView word) {
   if (word.IsEmpty()) {
     return;
   }
@@ -70,7 +69,7 @@ void CPDF_CMapParser::ParseWord(const CFX_ByteStringC& word) {
     m_CodeSeq = 0;
   } else if (word == "usecmap") {
   } else if (m_Status == 1 || m_Status == 2) {
-    m_CodePoints[m_CodeSeq] = CMap_GetCode(word);
+    m_CodePoints[m_CodeSeq] = GetCode(word);
     m_CodeSeq++;
     uint32_t StartCode, EndCode;
     uint16_t StartCID;
@@ -90,8 +89,8 @@ void CPDF_CMapParser::ParseWord(const CFX_ByteStringC& word) {
     }
     if (EndCode < 0x10000) {
       for (uint32_t code = StartCode; code <= EndCode; code++) {
-        m_pCMap->m_DirectCharcodeToCIDTable[code] =
-            static_cast<uint16_t>(StartCID + code - StartCode);
+        m_pCMap->SetDirectCharcodeToCIDTable(
+            code, static_cast<uint16_t>(StartCID + code - StartCode));
       }
     } else {
       m_AdditionalCharcodeToCIDMappings.push_back(
@@ -101,33 +100,38 @@ void CPDF_CMapParser::ParseWord(const CFX_ByteStringC& word) {
   } else if (m_Status == 3) {
     m_Status = 0;
   } else if (m_Status == 4) {
-    m_pCMap->m_Charset = CharsetFromOrdering(CMap_GetString(word));
+    m_pCMap->SetCharset(CharsetFromOrdering(CMap_GetString(word)));
     m_Status = 0;
   } else if (m_Status == 5) {
     m_Status = 0;
   } else if (m_Status == 6) {
-    m_pCMap->m_bVertical = CMap_GetCode(word) != 0;
+    m_pCMap->SetVertical(GetCode(word) != 0);
     m_Status = 0;
   } else if (m_Status == 7) {
     if (word == "endcodespacerange") {
-      uint32_t nSegs = pdfium::CollectionSize<uint32_t>(m_CodeRanges);
-      if (nSegs > 1) {
-        m_pCMap->m_CodingScheme = CPDF_CMap::MixedFourBytes;
-        m_pCMap->m_MixedFourByteLeadingRanges = m_CodeRanges;
-      } else if (nSegs == 1) {
-        m_pCMap->m_CodingScheme = (m_CodeRanges[0].m_CharSize == 2)
-                                      ? CPDF_CMap::TwoBytes
-                                      : CPDF_CMap::OneByte;
+      const auto& code_ranges = m_pCMap->GetMixedFourByteLeadingRanges();
+      size_t nSegs = code_ranges.size() + m_PendingRanges.size();
+      if (nSegs == 1) {
+        const auto& first_range =
+            code_ranges.size() > 0 ? code_ranges[0] : m_PendingRanges[0];
+        m_pCMap->SetCodingScheme((first_range.m_CharSize == 2)
+                                     ? CPDF_CMap::TwoBytes
+                                     : CPDF_CMap::OneByte);
+      } else if (nSegs > 1) {
+        m_pCMap->SetCodingScheme(CPDF_CMap::MixedFourBytes);
+        for (const auto& range : m_PendingRanges)
+          m_pCMap->AppendMixedFourByteLeadingRanges(range);
+        m_PendingRanges.clear();
       }
       m_Status = 0;
     } else {
-      if (word.GetLength() == 0 || word.GetAt(0) != '<') {
+      if (word.GetLength() == 0 || word[0] != '<') {
         return;
       }
       if (m_CodeSeq % 2) {
         CPDF_CMap::CodeRange range;
-        if (CMap_GetCodeRange(range, m_LastWord.AsStringC(), word))
-          m_CodeRanges.push_back(range);
+        if (GetCodeRange(range, m_LastWord.AsStringView(), word))
+          m_PendingRanges.push_back(range);
       }
       m_CodeSeq++;
     }
@@ -135,37 +139,37 @@ void CPDF_CMapParser::ParseWord(const CFX_ByteStringC& word) {
   m_LastWord = word;
 }
 
-// Static.
-uint32_t CPDF_CMapParser::CMap_GetCode(const CFX_ByteStringC& word) {
+uint32_t CPDF_CMapParser::GetCode(ByteStringView word) const {
+  if (word.IsEmpty())
+    return 0;
+
   pdfium::base::CheckedNumeric<uint32_t> num = 0;
-  if (word.GetAt(0) == '<') {
-    for (int i = 1; i < word.GetLength() && std::isxdigit(word.GetAt(i)); ++i) {
-      num = num * 16 + FXSYS_HexCharToInt(word.GetAt(i));
+  if (word[0] == '<') {
+    for (size_t i = 1; i < word.GetLength() && std::isxdigit(word[i]); ++i) {
+      num = num * 16 + FXSYS_HexCharToInt(word[i]);
       if (!num.IsValid())
         return 0;
     }
     return num.ValueOrDie();
   }
 
-  for (int i = 0; i < word.GetLength() && std::isdigit(word.GetAt(i)); ++i) {
-    num =
-        num * 10 + FXSYS_DecimalCharToInt(static_cast<wchar_t>(word.GetAt(i)));
+  for (size_t i = 0; i < word.GetLength() && std::isdigit(word[i]); ++i) {
+    num = num * 10 + FXSYS_DecimalCharToInt(static_cast<wchar_t>(word[i]));
     if (!num.IsValid())
       return 0;
   }
   return num.ValueOrDie();
 }
 
-// Static.
-bool CPDF_CMapParser::CMap_GetCodeRange(CPDF_CMap::CodeRange& range,
-                                        const CFX_ByteStringC& first,
-                                        const CFX_ByteStringC& second) {
-  if (first.GetLength() == 0 || first.GetAt(0) != '<')
+bool CPDF_CMapParser::GetCodeRange(CPDF_CMap::CodeRange& range,
+                                   ByteStringView first,
+                                   ByteStringView second) const {
+  if (first.GetLength() == 0 || first[0] != '<')
     return false;
 
-  int i;
+  size_t i;
   for (i = 1; i < first.GetLength(); ++i) {
-    if (first.GetAt(i) == '>') {
+    if (first[i] == '>') {
       break;
     }
   }
@@ -174,20 +178,16 @@ bool CPDF_CMapParser::CMap_GetCodeRange(CPDF_CMap::CodeRange& range,
     return false;
 
   for (i = 0; i < range.m_CharSize; ++i) {
-    uint8_t digit1 = first.GetAt(i * 2 + 1);
-    uint8_t digit2 = first.GetAt(i * 2 + 2);
+    uint8_t digit1 = first[i * 2 + 1];
+    uint8_t digit2 = first[i * 2 + 2];
     range.m_Lower[i] =
         FXSYS_HexCharToInt(digit1) * 16 + FXSYS_HexCharToInt(digit2);
   }
 
-  uint32_t size = second.GetLength();
+  size_t size = second.GetLength();
   for (i = 0; i < range.m_CharSize; ++i) {
-    uint8_t digit1 = ((uint32_t)i * 2 + 1 < size)
-                         ? second.GetAt((FX_STRSIZE)i * 2 + 1)
-                         : '0';
-    uint8_t digit2 = ((uint32_t)i * 2 + 2 < size)
-                         ? second.GetAt((FX_STRSIZE)i * 2 + 2)
-                         : '0';
+    uint8_t digit1 = (i * 2 + 1 < size) ? second[i * 2 + 1] : '0';
+    uint8_t digit2 = (i * 2 + 2 < size) ? second[i * 2 + 2] : '0';
     range.m_Upper[i] =
         FXSYS_HexCharToInt(digit1) * 16 + FXSYS_HexCharToInt(digit2);
   }
@@ -195,7 +195,7 @@ bool CPDF_CMapParser::CMap_GetCodeRange(CPDF_CMap::CodeRange& range,
 }
 
 // static
-CIDSet CPDF_CMapParser::CharsetFromOrdering(const CFX_ByteStringC& ordering) {
+CIDSet CPDF_CMapParser::CharsetFromOrdering(ByteStringView ordering) {
   for (size_t charset = 1; charset < FX_ArraySize(g_CharsetNames); ++charset) {
     if (ordering == g_CharsetNames[charset])
       return CIDSetFromSizeT(charset);

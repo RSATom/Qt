@@ -11,6 +11,7 @@
 #include "base/debug/crash_logging.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/renderer/pepper/message_channel.h"
@@ -19,25 +20,27 @@
 #include "content/renderer/pepper/plugin_module.h"
 #include "content/renderer/pepper/v8object_var.h"
 #include "content/renderer/render_frame_impl.h"
+#include "content/renderer/renderer_blink_platform_impl.h"
 #include "ppapi/shared_impl/ppapi_globals.h"
 #include "ppapi/shared_impl/var_tracker.h"
-#include "third_party/WebKit/public/platform/WebCoalescedInputEvent.h"
-#include "third_party/WebKit/public/platform/WebPoint.h"
-#include "third_party/WebKit/public/platform/WebRect.h"
-#include "third_party/WebKit/public/platform/WebSize.h"
-#include "third_party/WebKit/public/web/WebAssociatedURLLoaderClient.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebElement.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
-#include "third_party/WebKit/public/web/WebPluginContainer.h"
-#include "third_party/WebKit/public/web/WebPluginParams.h"
-#include "third_party/WebKit/public/web/WebPrintParams.h"
-#include "third_party/WebKit/public/web/WebPrintPresetOptions.h"
-#include "third_party/WebKit/public/web/WebPrintScalingOption.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/public/platform/web_coalesced_input_event.h"
+#include "third_party/blink/public/platform/web_point.h"
+#include "third_party/blink/public/platform/web_rect.h"
+#include "third_party/blink/public/platform/web_size.h"
+#include "third_party/blink/public/web/web_associated_url_loader_client.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_element.h"
+#include "third_party/blink/public/web/web_frame.h"
+#include "third_party/blink/public/web/web_plugin_container.h"
+#include "third_party/blink/public/web/web_plugin_params.h"
+#include "third_party/blink/public/web/web_print_params.h"
+#include "third_party/blink/public/web/web_print_preset_options.h"
+#include "third_party/blink/public/web/web_print_scaling_option.h"
 #include "url/gurl.h"
 
 using ppapi::V8ObjectVar;
-using blink::WebCanvas;
 using blink::WebPlugin;
 using blink::WebPluginContainer;
 using blink::WebPluginParams;
@@ -79,7 +82,10 @@ PepperWebPluginImpl::PepperWebPluginImpl(
   init_data_->url = params.url;
 
   // Set subresource URL for crash reporting.
-  base::debug::SetCrashKeyValue("subresource_url", init_data_->url.spec());
+  static base::debug::CrashKeyString* subresource_url =
+      base::debug::AllocateCrashKeyString("subresource_url",
+                                          base::debug::CrashKeySize::Size256);
+  base::debug::SetCrashKeyString(subresource_url, init_data_->url.spec());
 
   if (throttler_)
     throttler_->SetWebPlugin(this);
@@ -183,7 +189,7 @@ v8::Local<v8::Object> PepperWebPluginImpl::V8ScriptableObject(
   return result;
 }
 
-void PepperWebPluginImpl::Paint(WebCanvas* canvas, const WebRect& rect) {
+void PepperWebPluginImpl::Paint(cc::PaintCanvas* canvas, const WebRect& rect) {
   // Re-entrancy may cause JS to try to execute script on the plugin before it
   // is fully initialized. See: crbug.com/715747.
   if (instance_ && !instance_->FlashIsFullscreenOrPending())
@@ -232,7 +238,7 @@ void PepperWebPluginImpl::DidReceiveResponse(
   instance_->HandleDocumentLoad(response);
 }
 
-void PepperWebPluginImpl::DidReceiveData(const char* data, int data_length) {
+void PepperWebPluginImpl::DidReceiveData(const char* data, size_t data_length) {
   // Re-entrancy may cause JS to try to execute script on the plugin before it
   // is fully initialized. See: crbug.com/715747.
   if (!instance_)
@@ -251,7 +257,7 @@ void PepperWebPluginImpl::DidFinishLoading() {
   blink::WebAssociatedURLLoaderClient* document_loader =
       instance_->document_loader();
   if (document_loader)
-    document_loader->DidFinishLoading(0.0);
+    document_loader->DidFinishLoading();
 }
 
 void PepperWebPluginImpl::DidFailLoading(const blink::WebURLError& error) {
@@ -283,6 +289,99 @@ WebString PepperWebPluginImpl::SelectionAsMarkup() const {
   if (!instance_)
     return WebString();
   return WebString::FromUTF16(instance_->GetSelectedText(true));
+}
+
+bool PepperWebPluginImpl::CanEditText() const {
+  return instance_ && instance_->CanEditText();
+}
+
+bool PepperWebPluginImpl::HasEditableText() const {
+  return instance_ && instance_->HasEditableText();
+}
+
+bool PepperWebPluginImpl::CanUndo() const {
+  return instance_ && instance_->CanUndo();
+}
+
+bool PepperWebPluginImpl::CanRedo() const {
+  return instance_ && instance_->CanRedo();
+}
+
+bool PepperWebPluginImpl::ExecuteEditCommand(const blink::WebString& name) {
+  return ExecuteEditCommand(name, WebString());
+}
+
+bool PepperWebPluginImpl::ExecuteEditCommand(const blink::WebString& name,
+                                             const blink::WebString& value) {
+  if (!instance_)
+    return false;
+
+  if (name == "Cut") {
+    if (!HasSelection() || !CanEditText())
+      return false;
+
+    if (!clipboard_) {
+      blink::Platform::Current()->GetConnector()->BindInterface(
+          blink::Platform::Current()->GetBrowserServiceName(), &clipboard_);
+    }
+    base::string16 markup;
+    base::string16 text;
+    if (instance_) {
+      markup = instance_->GetSelectedText(true);
+      text = instance_->GetSelectedText(false);
+    }
+    clipboard_->WriteHtml(ui::CLIPBOARD_TYPE_COPY_PASTE, markup, GURL());
+    clipboard_->WriteText(ui::CLIPBOARD_TYPE_COPY_PASTE, text);
+    clipboard_->CommitWrite(ui::CLIPBOARD_TYPE_COPY_PASTE);
+
+    instance_->ReplaceSelection("");
+    return true;
+  }
+
+  // If the clipboard contains something other than text (e.g. an image),
+  // ClipboardHost::ReadText() returns an empty string. The empty string is
+  // then pasted, replacing any selected text. This behavior is consistent with
+  // that of HTML text form fields.
+  if (name == "Paste" || name == "PasteAndMatchStyle") {
+    if (!CanEditText())
+      return false;
+
+    if (!clipboard_) {
+      blink::Platform::Current()->GetConnector()->BindInterface(
+          blink::Platform::Current()->GetBrowserServiceName(), &clipboard_);
+    }
+    base::string16 text;
+    clipboard_->ReadText(ui::CLIPBOARD_TYPE_COPY_PASTE, &text);
+
+    instance_->ReplaceSelection(base::UTF16ToUTF8(text));
+    return true;
+  }
+
+  if (name == "SelectAll") {
+    if (!CanEditText())
+      return false;
+
+    instance_->SelectAll();
+    return true;
+  }
+
+  if (name == "Undo") {
+    if (!CanUndo())
+      return false;
+
+    instance_->Undo();
+    return true;
+  }
+
+  if (name == "Redo") {
+    if (!CanRedo())
+      return false;
+
+    instance_->Redo();
+    return true;
+  }
+
+  return false;
 }
 
 WebURL PepperWebPluginImpl::LinkAtPosition(const WebPoint& position) const {
@@ -341,7 +440,7 @@ int PepperWebPluginImpl::PrintBegin(const WebPrintParams& print_params) {
   return instance_->PrintBegin(print_params);
 }
 
-void PepperWebPluginImpl::PrintPage(int page_number, blink::WebCanvas* canvas) {
+void PepperWebPluginImpl::PrintPage(int page_number, cc::PaintCanvas* canvas) {
   // Re-entrancy may cause JS to try to execute script on the plugin before it
   // is fully initialized. See: crbug.com/715747.
   if (instance_)

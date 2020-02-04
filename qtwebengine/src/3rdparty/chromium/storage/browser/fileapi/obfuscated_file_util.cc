@@ -8,14 +8,12 @@
 #include <stdint.h>
 
 #include <memory>
-#include <queue>
 #include <tuple>
 
+#include "base/containers/queue.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -31,7 +29,6 @@
 #include "storage/browser/fileapi/sandbox_isolated_origin_database.h"
 #include "storage/browser/fileapi/sandbox_origin_database.h"
 #include "storage/browser/fileapi/sandbox_prioritized_origin_database.h"
-#include "storage/browser/fileapi/timed_task_helper.h"
 #include "storage/browser/quota/quota_manager.h"
 #include "storage/common/database/database_identifier.h"
 #include "storage/common/fileapi/file_system_util.h"
@@ -50,8 +47,8 @@ namespace storage {
 
 namespace {
 
-typedef SandboxDirectoryDatabase::FileId FileId;
-typedef SandboxDirectoryDatabase::FileInfo FileInfo;
+using FileId = SandboxDirectoryDatabase::FileId;
+using FileInfo = SandboxDirectoryDatabase::FileInfo;
 
 void InitFileInfo(
     SandboxDirectoryDatabase::FileInfo* file_info,
@@ -92,8 +89,8 @@ bool AllocateQuota(FileSystemOperationContext* context, int64_t growth) {
 void UpdateUsage(FileSystemOperationContext* context,
                  const FileSystemURL& url,
                  int64_t growth) {
-  context->update_observers()->Notify(
-      &FileUpdateObserver::OnUpdate, std::make_tuple(url, growth));
+  context->update_observers()->Notify(&FileUpdateObserver::OnUpdate, url,
+                                      growth);
 }
 
 void TouchDirectory(SandboxDirectoryDatabase* db, FileId dir_id) {
@@ -135,7 +132,7 @@ class ObfuscatedFileEnumerator final
     recurse_queue_.push(record);
   }
 
-  ~ObfuscatedFileEnumerator() override {}
+  ~ObfuscatedFileEnumerator() override = default;
 
   base::FilePath Next() override {
     FileInfo file_info;
@@ -174,8 +171,8 @@ class ObfuscatedFileEnumerator final
   }
 
  private:
-  typedef SandboxDirectoryDatabase::FileId FileId;
-  typedef SandboxDirectoryDatabase::FileInfo FileInfo;
+  using FileId = SandboxDirectoryDatabase::FileId;
+  using FileInfo = SandboxDirectoryDatabase::FileInfo;
 
   struct FileRecord {
     FileId file_id;
@@ -200,7 +197,7 @@ class ObfuscatedFileEnumerator final
   FileSystemURL root_url_;
   bool recursive_;
 
-  std::queue<FileRecord> recurse_queue_;
+  base::queue<FileRecord> recurse_queue_;
   std::vector<FileId> display_stack_;
   base::FilePath current_parent_virtual_path_;
 
@@ -211,7 +208,7 @@ class ObfuscatedFileEnumerator final
 class ObfuscatedOriginEnumerator
     : public ObfuscatedFileUtil::AbstractOriginEnumerator {
  public:
-  typedef SandboxOriginDatabase::OriginRecord OriginRecord;
+  using OriginRecord = SandboxOriginDatabase::OriginRecord;
   ObfuscatedOriginEnumerator(
       SandboxOriginDatabaseInterface* origin_database,
       const base::FilePath& base_file_path)
@@ -220,7 +217,7 @@ class ObfuscatedOriginEnumerator
       origin_database->ListAllOrigins(&origins_);
   }
 
-  ~ObfuscatedOriginEnumerator() override {}
+  ~ObfuscatedOriginEnumerator() override = default;
 
   // Returns the next origin.  Returns empty if there are no more origins.
   GURL Next() override {
@@ -230,7 +227,7 @@ class ObfuscatedOriginEnumerator
       origins_.pop_back();
     }
     current_ = record;
-    return storage::GetOriginFromIdentifier(record.origin);
+    return storage::GetOriginURLFromIdentifier(record.origin);
   }
 
   // Returns the current origin's information.
@@ -256,27 +253,31 @@ ObfuscatedFileUtil::ObfuscatedFileUtil(
     storage::SpecialStoragePolicy* special_storage_policy,
     const base::FilePath& file_system_directory,
     leveldb::Env* env_override,
-    base::SequencedTaskRunner* file_task_runner,
-    const GetTypeStringForURLCallback& get_type_string_for_url,
+    GetTypeStringForURLCallback get_type_string_for_url,
     const std::set<std::string>& known_type_strings,
     SandboxFileSystemBackendDelegate* sandbox_delegate)
     : special_storage_policy_(special_storage_policy),
       file_system_directory_(file_system_directory),
       env_override_(env_override),
       db_flush_delay_seconds_(10 * 60),  // 10 mins.
-      file_task_runner_(file_task_runner),
-      get_type_string_for_url_(get_type_string_for_url),
+      get_type_string_for_url_(std::move(get_type_string_for_url)),
       known_type_strings_(known_type_strings),
       sandbox_delegate_(sandbox_delegate) {
+  DCHECK(!get_type_string_for_url_.is_null());
+  DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
 ObfuscatedFileUtil::~ObfuscatedFileUtil() {
+  // Destruction can happen on any sequence.
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+
   DropDatabases();
 }
 
 base::File ObfuscatedFileUtil::CreateOrOpen(
     FileSystemOperationContext* context,
     const FileSystemURL& url, int file_flags) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::File file = CreateOrOpenInternal(context, url, file_flags);
   if (file.IsValid() && file_flags & base::File::FLAG_WRITE &&
       context->quota_limit_type() == storage::kQuotaLimitTypeUnlimited &&
@@ -290,6 +291,8 @@ base::File::Error ObfuscatedFileUtil::EnsureFileExists(
     FileSystemOperationContext* context,
     const FileSystemURL& url,
     bool* created) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(url, true);
   if (!db)
     return base::File::FILE_ERROR_FAILED;
@@ -323,8 +326,7 @@ base::File::Error ObfuscatedFileUtil::EnsureFileExists(
   if (created && base::File::FILE_OK == error) {
     *created = true;
     UpdateUsage(context, url, growth);
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnCreateFile, std::make_tuple(url));
+    context->change_observers()->Notify(&FileChangeObserver::OnCreateFile, url);
   }
   return error;
 }
@@ -334,6 +336,8 @@ base::File::Error ObfuscatedFileUtil::CreateDirectory(
     const FileSystemURL& url,
     bool exclusive,
     bool recursive) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(url, true);
   if (!db)
     return base::File::FILE_ERROR_FAILED;
@@ -352,8 +356,8 @@ base::File::Error ObfuscatedFileUtil::CreateDirectory(
     return base::File::FILE_OK;
   }
 
-  std::vector<base::FilePath::StringType> components;
-  VirtualPath::GetComponents(url.path(), &components);
+  std::vector<base::FilePath::StringType> components =
+      VirtualPath::GetComponents(url.path());
   FileId parent_id = 0;
   size_t index;
   for (index = 0; index < components.size(); ++index) {
@@ -382,8 +386,8 @@ base::File::Error ObfuscatedFileUtil::CreateDirectory(
     if (error != base::File::FILE_OK)
       return error;
     UpdateUsage(context, url, growth);
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnCreateDirectory, std::make_tuple(url));
+    context->change_observers()->Notify(&FileChangeObserver::OnCreateDirectory,
+                                        url);
     if (first) {
       first = false;
       TouchDirectory(db, file_info.parent_id);
@@ -397,6 +401,7 @@ base::File::Error ObfuscatedFileUtil::GetFileInfo(
     const FileSystemURL& url,
     base::File::Info* file_info,
     base::FilePath* platform_file_path) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(url, false);
   if (!db)
     return base::File::FILE_ERROR_NOT_FOUND;
@@ -404,21 +409,15 @@ base::File::Error ObfuscatedFileUtil::GetFileInfo(
   if (!db->GetFileWithPath(url.path(), &file_id))
     return base::File::FILE_ERROR_NOT_FOUND;
   FileInfo local_info;
-  return GetFileInfoInternal(db, context, url,
-                             file_id, &local_info,
-                             file_info, platform_file_path);
-}
-
-std::unique_ptr<FileSystemFileUtil::AbstractFileEnumerator>
-ObfuscatedFileUtil::CreateFileEnumerator(FileSystemOperationContext* context,
-                                         const FileSystemURL& root_url) {
-  return CreateFileEnumerator(context, root_url, false /* recursive */);
+  return GetFileInfoInternal(db, context, url, file_id, &local_info, file_info,
+                             platform_file_path);
 }
 
 base::File::Error ObfuscatedFileUtil::GetLocalFilePath(
     FileSystemOperationContext* context,
     const FileSystemURL& url,
     base::FilePath* local_path) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(url, false);
   if (!db)
     return base::File::FILE_ERROR_NOT_FOUND;
@@ -443,6 +442,7 @@ base::File::Error ObfuscatedFileUtil::Touch(
     const FileSystemURL& url,
     const base::Time& last_access_time,
     const base::Time& last_modified_time) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(url, false);
   if (!db)
     return base::File::FILE_ERROR_NOT_FOUND;
@@ -469,6 +469,7 @@ base::File::Error ObfuscatedFileUtil::Truncate(
     FileSystemOperationContext* context,
     const FileSystemURL& url,
     int64_t length) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::File::Info file_info;
   base::FilePath local_path;
   base::File::Error error =
@@ -482,8 +483,7 @@ base::File::Error ObfuscatedFileUtil::Truncate(
   error = NativeFileUtil::Truncate(local_path, length);
   if (error == base::File::FILE_OK) {
     UpdateUsage(context, url, growth);
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnModifyFile, std::make_tuple(url));
+    context->change_observers()->Notify(&FileChangeObserver::OnModifyFile, url);
   }
   return error;
 }
@@ -494,6 +494,7 @@ base::File::Error ObfuscatedFileUtil::CopyOrMoveFile(
     const FileSystemURL& dest_url,
     CopyOrMoveOption option,
     bool copy) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Cross-filesystem copies and moves should be handled via CopyInForeignFile.
   DCHECK(src_url.origin() == dest_url.origin());
   DCHECK(src_url.type() == dest_url.type());
@@ -608,18 +609,16 @@ base::File::Error ObfuscatedFileUtil::CopyOrMoveFile(
     return error;
 
   if (overwrite) {
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnModifyFile,
-        std::make_tuple(dest_url));
+    context->change_observers()->Notify(&FileChangeObserver::OnModifyFile,
+                                        dest_url);
   } else {
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnCreateFileFrom,
-        std::make_tuple(dest_url, src_url));
+    context->change_observers()->Notify(&FileChangeObserver::OnCreateFileFrom,
+                                        dest_url, src_url);
   }
 
   if (!copy) {
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnRemoveFile, std::make_tuple(src_url));
+    context->change_observers()->Notify(&FileChangeObserver::OnRemoveFile,
+                                        src_url);
     TouchDirectory(db, src_file_info.parent_id);
   }
 
@@ -633,6 +632,7 @@ base::File::Error ObfuscatedFileUtil::CopyInForeignFile(
     FileSystemOperationContext* context,
     const base::FilePath& src_file_path,
     const FileSystemURL& dest_url) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(dest_url, true);
   if (!db)
     return base::File::FILE_ERROR_FAILED;
@@ -697,11 +697,11 @@ base::File::Error ObfuscatedFileUtil::CopyInForeignFile(
     return error;
 
   if (overwrite) {
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnModifyFile, std::make_tuple(dest_url));
+    context->change_observers()->Notify(&FileChangeObserver::OnModifyFile,
+                                        dest_url);
   } else {
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnCreateFile, std::make_tuple(dest_url));
+    context->change_observers()->Notify(&FileChangeObserver::OnCreateFile,
+                                        dest_url);
   }
 
   UpdateUsage(context, dest_url, growth);
@@ -712,6 +712,7 @@ base::File::Error ObfuscatedFileUtil::CopyInForeignFile(
 base::File::Error ObfuscatedFileUtil::DeleteFile(
     FileSystemOperationContext* context,
     const FileSystemURL& url) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(url, true);
   if (!db)
     return base::File::FILE_ERROR_FAILED;
@@ -741,8 +742,7 @@ base::File::Error ObfuscatedFileUtil::DeleteFile(
   UpdateUsage(context, url, growth);
   TouchDirectory(db, file_info.parent_id);
 
-  context->change_observers()->Notify(
-      &FileChangeObserver::OnRemoveFile, std::make_tuple(url));
+  context->change_observers()->Notify(&FileChangeObserver::OnRemoveFile, url);
 
   if (error == base::File::FILE_ERROR_NOT_FOUND)
     return base::File::FILE_OK;
@@ -756,6 +756,7 @@ base::File::Error ObfuscatedFileUtil::DeleteFile(
 base::File::Error ObfuscatedFileUtil::DeleteDirectory(
     FileSystemOperationContext* context,
     const FileSystemURL& url) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(url, true);
   if (!db)
     return base::File::FILE_ERROR_FAILED;
@@ -776,8 +777,8 @@ base::File::Error ObfuscatedFileUtil::DeleteDirectory(
   AllocateQuota(context, growth);
   UpdateUsage(context, url, growth);
   TouchDirectory(db, file_info.parent_id);
-  context->change_observers()->Notify(
-      &FileChangeObserver::OnRemoveDirectory, std::make_tuple(url));
+  context->change_observers()->Notify(&FileChangeObserver::OnRemoveDirectory,
+                                      url);
   return base::File::FILE_OK;
 }
 
@@ -787,6 +788,7 @@ storage::ScopedFile ObfuscatedFileUtil::CreateSnapshotFile(
     base::File::Error* error,
     base::File::Info* file_info,
     base::FilePath* platform_path) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // We're just returning the local file information.
   *error = GetFileInfo(context, url, file_info, platform_path);
   if (*error == base::File::FILE_OK && file_info->is_directory) {
@@ -800,6 +802,7 @@ std::unique_ptr<FileSystemFileUtil::AbstractFileEnumerator>
 ObfuscatedFileUtil::CreateFileEnumerator(FileSystemOperationContext* context,
                                          const FileSystemURL& root_url,
                                          bool recursive) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(root_url, false);
   if (!db) {
     return std::unique_ptr<AbstractFileEnumerator>(new EmptyFileEnumerator());
@@ -811,6 +814,7 @@ ObfuscatedFileUtil::CreateFileEnumerator(FileSystemOperationContext* context,
 bool ObfuscatedFileUtil::IsDirectoryEmpty(
     FileSystemOperationContext* context,
     const FileSystemURL& url) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(url, false);
   if (!db)
     return true;  // Not a great answer, but it's what others do.
@@ -837,6 +841,7 @@ base::FilePath ObfuscatedFileUtil::GetDirectoryForOriginAndType(
     const std::string& type_string,
     bool create,
     base::File::Error* error_code) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::FilePath origin_dir = GetDirectoryForOrigin(origin, create, error_code);
   if (origin_dir.empty())
     return base::FilePath();
@@ -859,9 +864,14 @@ base::FilePath ObfuscatedFileUtil::GetDirectoryForOriginAndType(
 bool ObfuscatedFileUtil::DeleteDirectoryForOriginAndType(
     const GURL& origin,
     const std::string& type_string) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DestroyDirectoryDatabase(origin, type_string);
 
-  const base::FilePath origin_path = GetDirectoryForOrigin(origin, false, NULL);
+  const base::FilePath origin_path =
+      GetDirectoryForOrigin(origin, false, nullptr);
+  if (origin_path.empty())
+    return true;
+
   if (!type_string.empty()) {
     // Delete the filesystem type directory.
     base::File::Error error = base::File::FILE_OK;
@@ -878,12 +888,10 @@ bool ObfuscatedFileUtil::DeleteDirectoryForOriginAndType(
     // At this point we are sure we had successfully deleted the origin/type
     // directory (i.e. we're ready to just return true).
     // See if we have other directories in this origin directory.
-    for (std::set<std::string>::iterator iter = known_type_strings_.begin();
-         iter != known_type_strings_.end();
-         ++iter) {
-      if (*iter == type_string)
+    for (const std::string& type : known_type_strings_) {
+      if (type == type_string)
         continue;
-      if (base::DirectoryExists(origin_path.AppendASCII(*iter))) {
+      if (base::DirectoryExists(origin_path.AppendASCII(type))) {
         // Other type's directory exists; just return true here.
         return true;
       }
@@ -902,6 +910,8 @@ bool ObfuscatedFileUtil::DeleteDirectoryForOriginAndType(
 void ObfuscatedFileUtil::CloseFileSystemForOriginAndType(
     const GURL& origin,
     const std::string& type_string) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   const std::string key_prefix = GetDirectoryDatabaseKey(origin, type_string);
   for (auto iter = directories_.lower_bound(key_prefix);
        iter != directories_.end();) {
@@ -915,6 +925,8 @@ void ObfuscatedFileUtil::CloseFileSystemForOriginAndType(
 
 ObfuscatedFileUtil::AbstractOriginEnumerator*
 ObfuscatedFileUtil::CreateOriginEnumerator() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   std::vector<SandboxOriginDatabase::OriginRecord> origins;
 
   InitOriginDatabase(GURL(), false);
@@ -925,6 +937,8 @@ ObfuscatedFileUtil::CreateOriginEnumerator() {
 void ObfuscatedFileUtil::DestroyDirectoryDatabase(
     const GURL& origin,
     const std::string& type_string) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   // If |type_string| is empty, delete all filesystem types under |origin|.
   const std::string key_prefix = GetDirectoryDatabaseKey(origin, type_string);
   for (auto iter = directories_.lower_bound(key_prefix);
@@ -950,12 +964,14 @@ int64_t ObfuscatedFileUtil::ComputeFilePathCost(const base::FilePath& path) {
 
 void ObfuscatedFileUtil::MaybePrepopulateDatabase(
     const std::vector<std::string>& type_strings_to_prepopulate) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   SandboxPrioritizedOriginDatabase database(file_system_directory_,
                                             env_override_);
   std::string origin_string = database.GetPrimaryOrigin();
   if (origin_string.empty() || !database.HasOriginPath(origin_string))
     return;
-  const GURL origin = storage::GetOriginFromIdentifier(origin_string);
+  const GURL origin = storage::GetOriginURLFromIdentifier(origin_string);
 
   // Prepopulate the directory database(s) if and only if this instance
   // has primary origin and the directory database is already there.
@@ -970,7 +986,7 @@ void ObfuscatedFileUtil::MaybePrepopulateDatabase(
     if (error != base::File::FILE_OK)
       continue;
     std::unique_ptr<SandboxDirectoryDatabase> db =
-        base::MakeUnique<SandboxDirectoryDatabase>(path, env_override_);
+        std::make_unique<SandboxDirectoryDatabase>(path, env_override_);
     if (db->Init(SandboxDirectoryDatabase::FAIL_ON_CORRUPTION)) {
       directories_[GetDirectoryDatabaseKey(origin, type_string)] =
           std::move(db);
@@ -986,6 +1002,7 @@ base::FilePath ObfuscatedFileUtil::GetDirectoryForURL(
     const FileSystemURL& url,
     bool create,
     base::File::Error* error_code) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return GetDirectoryForOriginAndType(
       url.origin(), CallGetTypeStringForURL(url), create, error_code);
 }
@@ -1004,6 +1021,7 @@ base::File::Error ObfuscatedFileUtil::GetFileInfoInternal(
     FileInfo* local_info,
     base::File::Info* file_info,
     base::FilePath* platform_file_path) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(db);
   DCHECK(context);
   DCHECK(file_info);
@@ -1048,6 +1066,7 @@ base::File ObfuscatedFileUtil::CreateAndOpenFile(
     FileSystemOperationContext* context,
     const FileSystemURL& dest_url,
     FileInfo* dest_file_info, int file_flags) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(dest_url, true);
 
   base::FilePath root, dest_local_path;
@@ -1088,6 +1107,7 @@ base::File::Error ObfuscatedFileUtil::CreateFile(
     const base::FilePath& src_file_path,
     const FileSystemURL& dest_url,
     FileInfo* dest_file_info) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   SandboxDirectoryDatabase* db = GetDirectoryDatabase(dest_url, true);
 
   base::FilePath root, dest_local_path;
@@ -1128,6 +1148,7 @@ base::File::Error ObfuscatedFileUtil::CommitCreateFile(
     const base::FilePath& local_path,
     SandboxDirectoryDatabase* db,
     FileInfo* dest_file_info) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // This removes the root, including the trailing slash, leaving a relative
   // path.
   dest_file_info->data_path = base::FilePath(
@@ -1144,6 +1165,7 @@ base::File::Error ObfuscatedFileUtil::CommitCreateFile(
 
 base::FilePath ObfuscatedFileUtil::DataPathToLocalPath(
     const FileSystemURL& url, const base::FilePath& data_path) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::File::Error error = base::File::FILE_OK;
   base::FilePath root = GetDirectoryForURL(url, false, &error);
   if (error != base::File::FILE_OK)
@@ -1164,10 +1186,12 @@ std::string ObfuscatedFileUtil::GetDirectoryDatabaseKey(
 // Still doesn't answer the quota issue, though.
 SandboxDirectoryDatabase* ObfuscatedFileUtil::GetDirectoryDatabase(
     const FileSystemURL& url, bool create) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   std::string key = GetDirectoryDatabaseKey(
       url.origin(), CallGetTypeStringForURL(url));
   if (key.empty())
-    return NULL;
+    return nullptr;
 
   auto iter = directories_.find(key);
   if (iter != directories_.end()) {
@@ -1180,16 +1204,17 @@ SandboxDirectoryDatabase* ObfuscatedFileUtil::GetDirectoryDatabase(
   if (error != base::File::FILE_OK) {
     LOG(WARNING) << "Failed to get origin+type directory: "
                  << url.DebugString() << " error:" << error;
-    return NULL;
+    return nullptr;
   }
   MarkUsed();
   directories_[key] =
-      base::MakeUnique<SandboxDirectoryDatabase>(path, env_override_);
+      std::make_unique<SandboxDirectoryDatabase>(path, env_override_);
   return directories_[key].get();
 }
 
 base::FilePath ObfuscatedFileUtil::GetDirectoryForOrigin(
     const GURL& origin, bool create, base::File::Error* error_code) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!InitOriginDatabase(origin, create)) {
     if (error_code) {
       *error_code = create ?
@@ -1249,27 +1274,35 @@ void ObfuscatedFileUtil::InvalidateUsageCache(
 }
 
 void ObfuscatedFileUtil::MarkUsed() {
-  if (!timer_)
-    timer_.reset(new TimedTaskHelper(file_task_runner_.get()));
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (timer_->IsRunning()) {
-    timer_->Reset();
+  if (timer_.IsRunning()) {
+    timer_.Reset();
   } else {
-    timer_->Start(FROM_HERE,
-                  base::TimeDelta::FromSeconds(db_flush_delay_seconds_),
-                  base::Bind(&ObfuscatedFileUtil::DropDatabases,
-                             base::Unretained(this)));
+    timer_.Start(FROM_HERE,
+                 base::TimeDelta::FromSeconds(db_flush_delay_seconds_),
+                 base::BindOnce(&ObfuscatedFileUtil::DropDatabases,
+                                base::Unretained(this)));
   }
 }
 
 void ObfuscatedFileUtil::DropDatabases() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   origin_database_.reset();
   directories_.clear();
-  timer_.reset();
+  timer_.Stop();
+}
+
+void ObfuscatedFileUtil::RewriteDatabases() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (origin_database_)
+    origin_database_->RewriteDatabase();
 }
 
 bool ObfuscatedFileUtil::InitOriginDatabase(const GURL& origin_hint,
                                             bool create) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   if (origin_database_)
     return true;
 
@@ -1292,17 +1325,6 @@ bool ObfuscatedFileUtil::InitOriginDatabase(const GURL& origin_hint,
   const std::string isolated_origin_string =
       storage::GetIdentifierFromOrigin(origin_hint);
 
-  // TODO(kinuko): Deprecate this after a few release cycles, e.g. around M33.
-  base::FilePath isolated_origin_dir = file_system_directory_.Append(
-      SandboxIsolatedOriginDatabase::kObsoleteOriginDirectory);
-  if (base::DirectoryExists(isolated_origin_dir) &&
-      prioritized_origin_database->GetSandboxOriginDatabase()) {
-    SandboxIsolatedOriginDatabase::MigrateBackFromObsoleteOriginDatabase(
-        isolated_origin_string,
-        file_system_directory_,
-        prioritized_origin_database->GetSandboxOriginDatabase());
-  }
-
   prioritized_origin_database->InitializePrimaryOrigin(
       isolated_origin_string);
 
@@ -1315,6 +1337,7 @@ base::File::Error ObfuscatedFileUtil::GenerateNewLocalPath(
     const FileSystemURL& url,
     base::FilePath* root,
     base::FilePath* local_path) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(local_path);
   int64_t number;
   if (!db || !db->GetNextInteger(&number))
@@ -1343,6 +1366,7 @@ base::File::Error ObfuscatedFileUtil::GenerateNewLocalPath(
 base::File ObfuscatedFileUtil::CreateOrOpenInternal(
     FileSystemOperationContext* context,
     const FileSystemURL& url, int file_flags) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!(file_flags & (base::File::FLAG_DELETE_ON_CLOSE |
         base::File::FLAG_HIDDEN | base::File::FLAG_EXCLUSIVE_READ |
         base::File::FLAG_EXCLUSIVE_WRITE)));
@@ -1369,8 +1393,8 @@ base::File ObfuscatedFileUtil::CreateOrOpenInternal(
     base::File file = CreateAndOpenFile(context, url, &file_info, file_flags);
     if (file.IsValid()) {
       UpdateUsage(context, url, growth);
-      context->change_observers()->Notify(
-          &FileChangeObserver::OnCreateFile, std::make_tuple(url));
+      context->change_observers()->Notify(&FileChangeObserver::OnCreateFile,
+                                          url);
     }
     return file;
   }
@@ -1412,8 +1436,7 @@ base::File ObfuscatedFileUtil::CreateOrOpenInternal(
   // If truncating we need to update the usage.
   if (delta) {
     UpdateUsage(context, url, delta);
-    context->change_observers()->Notify(
-        &FileChangeObserver::OnModifyFile, std::make_tuple(url));
+    context->change_observers()->Notify(&FileChangeObserver::OnModifyFile, url);
   }
   return file;
 }

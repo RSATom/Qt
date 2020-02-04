@@ -8,20 +8,21 @@
 // but cannot really "fail". There is no point in making these tests part
 // of any test automation run.
 
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include <GLES2/gl2extchromium.h>
 #include <stddef.h>
 #include <stdio.h>
+
 #include <cmath>
 #include <string>
 #include <vector>
 
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
-#include <GLES2/gl2extchromium.h>
-
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
-#include "base/macros.h"
+#include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -31,6 +32,7 @@
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
 #include "gpu/ipc/gl_in_process_context.h"
+#include "gpu/ipc/test_gpu_thread_holder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkTypes.h"
@@ -54,7 +56,7 @@ const char* const kQualityNames[] = {
 class GLHelperBenchmark : public testing::Test {
  protected:
   void SetUp() override {
-    gpu::gles2::ContextCreationAttribHelper attributes;
+    gpu::ContextCreationAttribs attributes;
     attributes.alpha_size = 8;
     attributes.depth_size = 24;
     attributes.red_size = 8;
@@ -66,16 +68,16 @@ class GLHelperBenchmark : public testing::Test {
     attributes.bind_generates_resource = false;
     attributes.gpu_preference = gl::PreferDiscreteGpu;
 
-    context_.reset(
-        gpu::GLInProcessContext::Create(nullptr,                 /* service */
-                                        nullptr,                 /* surface */
-                                        true,                    /* offscreen */
-                                        gpu::kNullSurfaceHandle, /* window */
-                                        nullptr, /* share_context */
-                                        attributes, gpu::SharedMemoryLimits(),
-                                        nullptr, /* gpu_memory_buffer_manager */
-                                        nullptr, /* image_factory */
-                                        base::ThreadTaskRunnerHandle::Get()));
+    context_ = std::make_unique<gpu::GLInProcessContext>();
+    auto result = context_->Initialize(
+        gpu::GetTestGpuThreadHolder()->GetTaskExecutor(), nullptr, /* surface */
+        true,                    /* offscreen */
+        gpu::kNullSurfaceHandle, /* window */
+        attributes, gpu::SharedMemoryLimits(),
+        nullptr, /* gpu_memory_buffer_manager */
+        nullptr, /* image_factory */
+        base::ThreadTaskRunnerHandle::Get());
+    DCHECK_EQ(result, gpu::ContextResult::kSuccess);
     gl_ = context_->GetImplementation();
     gpu::ContextSupport* support = context_->GetImplementation();
 
@@ -84,9 +86,9 @@ class GLHelperBenchmark : public testing::Test {
   }
 
   void TearDown() override {
-    helper_scaling_.reset(NULL);
-    helper_.reset(NULL);
-    context_.reset(NULL);
+    helper_scaling_.reset(nullptr);
+    helper_.reset(nullptr);
+    context_.reset(nullptr);
   }
 
   void LoadPngFileToSkBitmap(const base::FilePath& filename, SkBitmap* bitmap) {
@@ -120,7 +122,7 @@ class GLHelperBenchmark : public testing::Test {
   gpu::gles2::GLES2Interface* gl_;
   std::unique_ptr<GLHelper> helper_;
   std::unique_ptr<GLHelperScaling> helper_scaling_;
-  std::deque<GLHelperScaling::ScaleOp> x_ops_, y_ops_;
+  base::circular_deque<GLHelperScaling::ScaleOp> x_ops_, y_ops_;
 };
 
 TEST_F(GLHelperBenchmark, ScaleBenchmark) {
@@ -129,9 +131,9 @@ TEST_F(GLHelperBenchmark, ScaleBenchmark) {
   int input_sizes[] = {3200, 2040, 2560, 1476,  // Pixel tab size
                        1920, 1080, 1280, 720,  800, 480, 256, 144};
 
-  for (size_t q = 0; q < arraysize(kQualities); q++) {
-    for (size_t outsize = 0; outsize < arraysize(output_sizes); outsize += 2) {
-      for (size_t insize = 0; insize < arraysize(input_sizes); insize += 2) {
+  for (size_t q = 0; q < base::size(kQualities); q++) {
+    for (size_t outsize = 0; outsize < base::size(output_sizes); outsize += 2) {
+      for (size_t insize = 0; insize < base::size(input_sizes); insize += 2) {
         uint32_t src_texture;
         gl_->GenTextures(1, &src_texture);
         uint32_t dst_texture;
@@ -150,17 +152,23 @@ TEST_F(GLHelperBenchmark, ScaleBenchmark) {
         gl_->BindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         gl_->BindTexture(GL_TEXTURE_2D, dst_texture);
         gl_->TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, dst_size.width(),
-                        dst_size.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+                        dst_size.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                        nullptr);
         gl_->BindTexture(GL_TEXTURE_2D, src_texture);
         gl_->TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, src_size.width(),
                         src_size.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
                         input.getPixels());
 
-        gfx::Rect src_subrect(0, 0, src_size.width(), src_size.height());
-        std::unique_ptr<GLHelper::ScalerInterface> scaler(helper_->CreateScaler(
-            kQualities[q], src_size, src_subrect, dst_size, false, false));
+        std::unique_ptr<GLHelper::ScalerInterface> scaler =
+            helper_->CreateScaler(
+                kQualities[q],
+                gfx::Vector2d(src_size.width(), src_size.height()),
+                gfx::Vector2d(dst_size.width(), dst_size.height()), false,
+                false, false);
         // Scale once beforehand before we start measuring.
-        scaler->Scale(src_texture, dst_texture);
+        const gfx::Rect output_rect(dst_size);
+        scaler->Scale(src_texture, src_size, gfx::Vector2dF(), dst_texture,
+                      output_rect);
         gl_->Finish();
 
         base::TimeTicks start_time = base::TimeTicks::Now();
@@ -169,7 +177,8 @@ TEST_F(GLHelperBenchmark, ScaleBenchmark) {
         while (true) {
           for (int i = 0; i < 50; i++) {
             iterations++;
-            scaler->Scale(src_texture, dst_texture);
+            scaler->Scale(src_texture, src_size, gfx::Vector2dF(), dst_texture,
+                          output_rect);
             gl_->Flush();
           }
           gl_->Finish();
@@ -196,57 +205,6 @@ TEST_F(GLHelperBenchmark, ScaleBenchmark) {
       }
     }
   }
-}
-
-// This is more of a test utility than a test.
-// Put an PNG image called "testimage.png" in your
-// current directory, then run this test. It will
-// create testoutput_Q_P.png, where Q is the scaling
-// mode and P is the scaling percentage taken from
-// the table below.
-TEST_F(GLHelperBenchmark, DISABLED_ScaleTestImage) {
-  int percents[] = {
-      230, 180, 150, 110, 90, 70, 50, 49, 40, 20, 10,
-  };
-
-  SkBitmap input;
-  LoadPngFileToSkBitmap(base::FilePath(FILE_PATH_LITERAL("testimage.png")),
-                        &input);
-
-  uint32_t framebuffer;
-  gl_->GenFramebuffers(1, &framebuffer);
-  uint32_t src_texture;
-  gl_->GenTextures(1, &src_texture);
-  const gfx::Size src_size(input.width(), input.height());
-  gl_->BindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-  gl_->BindTexture(GL_TEXTURE_2D, src_texture);
-  gl_->TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, src_size.width(),
-                  src_size.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                  input.getPixels());
-
-  for (size_t q = 0; q < arraysize(kQualities); q++) {
-    for (size_t p = 0; p < arraysize(percents); p++) {
-      const gfx::Size dst_size(input.width() * percents[p] / 100,
-                               input.height() * percents[p] / 100);
-      uint32_t dst_texture = helper_->CopyAndScaleTexture(
-          src_texture, src_size, dst_size, false, kQualities[q]);
-
-      SkBitmap output_pixels;
-      output_pixels.allocN32Pixels(dst_size.width(), dst_size.height());
-
-      helper_->ReadbackTextureSync(
-          dst_texture, gfx::Rect(0, 0, dst_size.width(), dst_size.height()),
-          static_cast<unsigned char*>(output_pixels.getPixels()),
-          kN32_SkColorType);
-      gl_->DeleteTextures(1, &dst_texture);
-      std::string filename = base::StringPrintf("testoutput_%s_%d.ppm",
-                                                kQualityNames[q], percents[p]);
-      VLOG(0) << "Writing " << filename;
-      SaveToFile(&output_pixels, base::FilePath::FromUTF8Unsafe(filename));
-    }
-  }
-  gl_->DeleteTextures(1, &src_texture);
-  gl_->DeleteFramebuffers(1, &framebuffer);
 }
 
 }  // namespace viz

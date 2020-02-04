@@ -14,6 +14,7 @@ namespace switches {
 extern const char kAllowHTTPBackgroundPage[];
 extern const char kAllowLegacyExtensionManifests[];
 extern const char kDisableDesktopCaptureAudio[];
+extern const char kDisableExtensionsHttpThrottling[];
 extern const char kDisableTabForDesktopShare[];
 extern const char kEmbeddedExtensionOptions[];
 extern const char kEnableEmbeddedExtensionOptions[];
@@ -24,19 +25,17 @@ extern const char kErrorConsole[];
 extern const char kExtensionProcess[];
 extern const char kExtensionsOnChromeURLs[];
 extern const char kForceDevModeHighlighting[];
+extern const char kForceEmptyCorbAllowlist[];
 extern const char kLoadApps[];
 extern const char kLoadExtension[];
-extern const char kScriptsRequireAction[];
-extern const char kEnableScriptsRequireAction[];
 #if defined(CHROMIUM_BUILD)
 extern const char kPromptForExternalExtensions[];
 #endif
+extern const char kSetExtensionThrottleTestParams[];
 extern const char kShowComponentExtensionOptions[];
 extern const char kTraceAppSource[];
-extern const char kNativeCrxBindings[];
 extern const char kWhitelistedExtensionID[];
 extern const char kEnableCrxHashCheck[];
-extern const char kYieldBetweenContentScriptRuns[];
 
 }  // namespace switches
 

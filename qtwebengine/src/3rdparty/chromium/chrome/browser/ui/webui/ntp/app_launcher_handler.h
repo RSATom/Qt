@@ -9,7 +9,6 @@
 #include <set>
 #include <string>
 
-#include "apps/metrics_names.h"
 #include "base/macros.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
@@ -25,9 +24,12 @@
 #include "extensions/common/extension.h"
 
 class ExtensionEnableFlow;
-class ExtensionService;
 class PrefChangeRegistrar;
 class Profile;
+
+namespace extensions {
+class ExtensionService;
+}
 
 namespace favicon_base {
 struct FaviconImageResult;
@@ -45,14 +47,13 @@ class AppLauncherHandler
       public content::NotificationObserver,
       public extensions::ExtensionRegistryObserver {
  public:
-  explicit AppLauncherHandler(ExtensionService* extension_service);
+  explicit AppLauncherHandler(extensions::ExtensionService* extension_service);
   ~AppLauncherHandler() override;
 
   // Populate a dictionary with the information from an extension.
-  static void CreateAppInfo(
-      const extensions::Extension* extension,
-      ExtensionService* service,
-      base::DictionaryValue* value);
+  static void CreateAppInfo(const extensions::Extension* extension,
+                            extensions::ExtensionService* service,
+                            base::DictionaryValue* value);
 
   // Registers values (strings etc.) for the page.
   static void GetLocalizedValues(Profile* profile,
@@ -130,12 +131,6 @@ class AppLauncherHandler
   // page_index].
   void HandleGenerateAppForLink(const base::ListValue* args);
 
-  // Handles "stopShowingAppLauncherPromo" message with unused |args|.
-  void HandleStopShowingAppLauncherPromo(const base::ListValue* args);
-
-  // Handles "learnMore" message with unused |args|.
-  void HandleOnLearnMore(const base::ListValue* args);
-
   // Handles "pageSelected" message with |args| containing [page_index].
   void HandlePageSelected(const base::ListValue* args);
 
@@ -176,8 +171,6 @@ class AppLauncherHandler
 
   void OnExtensionPreferenceChanged();
 
-  void OnLocalStatePreferenceChanged();
-
   // Called when an app is removed (unloaded or uninstalled). Updates the UI.
   void AppRemoved(const extensions::Extension* extension, bool is_uninstall);
 
@@ -186,7 +179,7 @@ class AppLauncherHandler
 
   // The apps are represented in the extensions model, which
   // outlives us since it's owned by our containing profile.
-  ExtensionService* const extension_service_;
+  extensions::ExtensionService* const extension_service_;
 
   // We monitor changes to the extension system so that we can reload the apps
   // when necessary.

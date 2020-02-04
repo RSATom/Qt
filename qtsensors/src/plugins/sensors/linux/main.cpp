@@ -52,14 +52,14 @@ class LinuxSensorPlugin : public QObject, public QSensorPluginInterface, public 
     Q_PLUGIN_METADATA(IID "com.qt-project.Qt.QSensorPluginInterface/1.0" FILE "plugin.json")
     Q_INTERFACES(QSensorPluginInterface)
 public:
-    void registerSensors()
+    void registerSensors() override
     {
         QString path = QString::fromLatin1(qgetenv("QT_ACCEL_FILEPATH"));
         if (!path.isEmpty() && !QSensorManager::isBackendRegistered(QAccelerometer::type, LinuxSysAccelerometer::id))
             QSensorManager::registerBackend(QAccelerometer::type, LinuxSysAccelerometer::id, this);
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == LinuxSysAccelerometer::id)
             return new LinuxSysAccelerometer(sensor);

@@ -12,16 +12,24 @@
 #include "media/base/pipeline_status.h"
 #include "media/base/ranges.h"
 #include "media/blink/media_blink_export.h"
-#include "third_party/WebKit/public/platform/WebEncryptedMediaTypes.h"
-#include "third_party/WebKit/public/platform/WebMediaPlayer.h"
-#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
-#include "third_party/WebKit/public/platform/WebSetSinkIdCallbacks.h"
-#include "third_party/WebKit/public/platform/WebTimeRange.h"
+#include "media/mojo/interfaces/media_metrics_provider.mojom.h"
+#include "third_party/blink/public/platform/web_encrypted_media_types.h"
+#include "third_party/blink/public/platform/web_media_player.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_set_sink_id_callbacks.h"
+#include "third_party/blink/public/platform/web_time_range.h"
 #include "url/gurl.h"
+
+namespace blink {
+class WebLocalFrame;
+}  // namespace blink
 
 namespace media {
 
 class MediaLog;
+
+// Translates a |url| into the appropriate URL scheme.
+mojom::MediaURLScheme MEDIA_BLINK_EXPORT GetMediaURLScheme(const GURL& url);
 
 blink::WebTimeRanges MEDIA_BLINK_EXPORT
 ConvertToWebTimeRanges(const Ranges<base::TimeDelta>& ranges);
@@ -30,11 +38,10 @@ blink::WebMediaPlayer::NetworkState MEDIA_BLINK_EXPORT
 PipelineErrorToNetworkState(PipelineStatus error);
 
 // Report various metrics to UMA and RAPPOR.
-void MEDIA_BLINK_EXPORT
-ReportMetrics(blink::WebMediaPlayer::LoadType load_type,
-              const GURL& url,
-              const blink::WebSecurityOrigin& security_origin,
-              MediaLog* media_log);
+void MEDIA_BLINK_EXPORT ReportMetrics(blink::WebMediaPlayer::LoadType load_type,
+                                      const GURL& url,
+                                      const blink::WebLocalFrame& frame,
+                                      MediaLog* media_log);
 
 // Report metrics about pipeline errors.
 void MEDIA_BLINK_EXPORT
@@ -52,8 +59,8 @@ ConvertToWebInitDataType(EmeInitDataType init_data_type);
 
 // Wraps a blink::WebSetSinkIdCallbacks into a media::OutputDeviceStatusCB
 // and binds it to the current thread
-OutputDeviceStatusCB MEDIA_BLINK_EXPORT
-ConvertToOutputDeviceStatusCB(blink::WebSetSinkIdCallbacks* web_callbacks);
+OutputDeviceStatusCB MEDIA_BLINK_EXPORT ConvertToOutputDeviceStatusCB(
+    std::unique_ptr<blink::WebSetSinkIdCallbacks> callbacks);
 
 }  // namespace media
 

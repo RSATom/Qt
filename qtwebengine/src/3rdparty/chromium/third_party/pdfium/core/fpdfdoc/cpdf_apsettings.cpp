@@ -11,6 +11,7 @@
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfdoc/cpdf_formcontrol.h"
+#include "core/fxge/cfx_color.h"
 
 CPDF_ApSettings::CPDF_ApSettings(CPDF_Dictionary* pDict) : m_pDict(pDict) {}
 
@@ -18,7 +19,7 @@ CPDF_ApSettings::CPDF_ApSettings(const CPDF_ApSettings& that) = default;
 
 CPDF_ApSettings::~CPDF_ApSettings() {}
 
-bool CPDF_ApSettings::HasMKEntry(const CFX_ByteString& csEntry) const {
+bool CPDF_ApSettings::HasMKEntry(const ByteString& csEntry) const {
   return m_pDict && m_pDict->KeyExist(csEntry);
 }
 
@@ -27,8 +28,8 @@ int CPDF_ApSettings::GetRotation() const {
 }
 
 FX_ARGB CPDF_ApSettings::GetColor(int& iColorType,
-                                  const CFX_ByteString& csEntry) const {
-  iColorType = COLORTYPE_TRANSPARENT;
+                                  const ByteString& csEntry) const {
+  iColorType = CFX_Color::kTransparent;
   if (!m_pDict)
     return 0;
 
@@ -37,21 +38,21 @@ FX_ARGB CPDF_ApSettings::GetColor(int& iColorType,
     return 0;
 
   FX_ARGB color = 0;
-  size_t dwCount = pEntry->GetCount();
+  size_t dwCount = pEntry->size();
   if (dwCount == 1) {
-    iColorType = COLORTYPE_GRAY;
+    iColorType = CFX_Color::kGray;
     float g = pEntry->GetNumberAt(0) * 255;
     return ArgbEncode(255, (int)g, (int)g, (int)g);
   }
   if (dwCount == 3) {
-    iColorType = COLORTYPE_RGB;
+    iColorType = CFX_Color::kRGB;
     float r = pEntry->GetNumberAt(0) * 255;
     float g = pEntry->GetNumberAt(1) * 255;
     float b = pEntry->GetNumberAt(2) * 255;
     return ArgbEncode(255, (int)r, (int)g, (int)b);
   }
   if (dwCount == 4) {
-    iColorType = COLORTYPE_CMYK;
+    iColorType = CFX_Color::kCMYK;
     float c = pEntry->GetNumberAt(0);
     float m = pEntry->GetNumberAt(1);
     float y = pEntry->GetNumberAt(2);
@@ -65,7 +66,7 @@ FX_ARGB CPDF_ApSettings::GetColor(int& iColorType,
 }
 
 float CPDF_ApSettings::GetOriginalColor(int index,
-                                        const CFX_ByteString& csEntry) const {
+                                        const ByteString& csEntry) const {
   if (!m_pDict)
     return 0;
 
@@ -75,8 +76,8 @@ float CPDF_ApSettings::GetOriginalColor(int index,
 
 void CPDF_ApSettings::GetOriginalColor(int& iColorType,
                                        float fc[4],
-                                       const CFX_ByteString& csEntry) const {
-  iColorType = COLORTYPE_TRANSPARENT;
+                                       const ByteString& csEntry) const {
+  iColorType = CFX_Color::kTransparent;
   for (int i = 0; i < 4; i++)
     fc[i] = 0;
 
@@ -87,17 +88,17 @@ void CPDF_ApSettings::GetOriginalColor(int& iColorType,
   if (!pEntry)
     return;
 
-  size_t dwCount = pEntry->GetCount();
+  size_t dwCount = pEntry->size();
   if (dwCount == 1) {
-    iColorType = COLORTYPE_GRAY;
+    iColorType = CFX_Color::kGray;
     fc[0] = pEntry->GetNumberAt(0);
   } else if (dwCount == 3) {
-    iColorType = COLORTYPE_RGB;
+    iColorType = CFX_Color::kRGB;
     fc[0] = pEntry->GetNumberAt(0);
     fc[1] = pEntry->GetNumberAt(1);
     fc[2] = pEntry->GetNumberAt(2);
   } else if (dwCount == 4) {
-    iColorType = COLORTYPE_CMYK;
+    iColorType = CFX_Color::kCMYK;
     fc[0] = pEntry->GetNumberAt(0);
     fc[1] = pEntry->GetNumberAt(1);
     fc[2] = pEntry->GetNumberAt(2);
@@ -105,12 +106,11 @@ void CPDF_ApSettings::GetOriginalColor(int& iColorType,
   }
 }
 
-CFX_WideString CPDF_ApSettings::GetCaption(
-    const CFX_ByteString& csEntry) const {
-  return m_pDict ? m_pDict->GetUnicodeTextFor(csEntry) : CFX_WideString();
+WideString CPDF_ApSettings::GetCaption(const ByteString& csEntry) const {
+  return m_pDict ? m_pDict->GetUnicodeTextFor(csEntry) : WideString();
 }
 
-CPDF_Stream* CPDF_ApSettings::GetIcon(const CFX_ByteString& csEntry) const {
+CPDF_Stream* CPDF_ApSettings::GetIcon(const ByteString& csEntry) const {
   return m_pDict ? m_pDict->GetStreamFor(csEntry) : nullptr;
 }
 

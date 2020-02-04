@@ -9,17 +9,15 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/time/time.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_server.h"
 #include "net/base/load_flags.h"
-#include "net/log/net_log_source_type.h"
-#include "net/log/net_log_with_source.h"
-#include "net/proxy/proxy_server.h"
-#include "net/proxy/proxy_service.h"
+#include "net/base/proxy_server.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/socket/socket_test_util.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
@@ -32,7 +30,8 @@ namespace data_reduction_proxy {
 
 TEST(ChromeNetworkDailyDataSavingMetricsTest,
      GetDataReductionProxyRequestType) {
-  base::MessageLoopForIO message_loop;
+  base::test::ScopedTaskEnvironment task_environment{
+      base::test::ScopedTaskEnvironment::MainThreadType::IO};
   std::unique_ptr<DataReductionProxyTestContext> test_context =
       DataReductionProxyTestContext::Builder()
           .Build();
@@ -171,11 +170,12 @@ TEST(ChromeNetworkDailyDataSavingMetricsTest,
     net::TestURLRequestContext context(true);
     net::MockClientSocketFactory mock_socket_factory;
     context.set_client_socket_factory(&mock_socket_factory);
-    // Set the |proxy_service| to use |test_case.proxy_server| for requests.
-    std::unique_ptr<net::ProxyService> proxy_service(
-        net::ProxyService::CreateFixedFromPacResult(
-            test_case.proxy_server.ToPacString()));
-    context.set_proxy_service(proxy_service.get());
+    // Set the |proxy_resolution_service| to use |test_case.proxy_server| for requests.
+    std::unique_ptr<net::ProxyResolutionService> proxy_resolution_service(
+        net::ProxyResolutionService::CreateFixedFromPacResult(
+            test_case.proxy_server.ToPacString(),
+            TRAFFIC_ANNOTATION_FOR_TESTS));
+    context.set_proxy_resolution_service(proxy_resolution_service.get());
     context.Init();
 
     // Create a fake URLRequest and fill it with the appropriate response
@@ -189,7 +189,7 @@ TEST(ChromeNetworkDailyDataSavingMetricsTest,
         MockRead(net::SYNCHRONOUS, net::OK),
     };
     net::StaticSocketDataProvider socket_data_provider(
-        mock_reads, arraysize(mock_reads), nullptr, 0);
+        mock_reads, base::span<net::MockWrite>());
     mock_socket_factory.AddSocketDataProvider(&socket_data_provider);
 
     net::TestDelegate delegate;
@@ -204,11 +204,9 @@ TEST(ChromeNetworkDailyDataSavingMetricsTest,
       net::ProxyInfo proxy_info;
       proxy_info.UseProxyList(
           data_reduction_proxy_config.proxy_rules().proxies_for_http);
-      EXPECT_TRUE(context.proxy_service()->MarkProxiesAsBadUntil(
+      EXPECT_TRUE(context.proxy_resolution_service()->MarkProxiesAsBadUntil(
           proxy_info, test_case.bypass_duration,
-          std::vector<net::ProxyServer>(),
-          net::NetLogWithSource::Make(context.net_log(),
-                                      net::NetLogSourceType::NONE)));
+          std::vector<net::ProxyServer>(), net::NetLogWithSource()));
     }
 
     EXPECT_EQ(test_case.expected_request_type,

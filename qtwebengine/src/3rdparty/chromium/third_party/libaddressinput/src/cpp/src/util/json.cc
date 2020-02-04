@@ -14,11 +14,9 @@
 
 #include "json.h"
 
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
-
 #include <cassert>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -34,6 +32,9 @@ using rapidjson::Value;
 
 class Json::JsonImpl {
  public:
+  JsonImpl(const JsonImpl&) = delete;
+  JsonImpl& operator=(const JsonImpl&) = delete;
+
   explicit JsonImpl(const std::string& json)
       : document_(new Document),
         value_(document_.get()),
@@ -44,9 +45,8 @@ class Json::JsonImpl {
   }
 
   ~JsonImpl() {
-    for (std::vector<const Json*>::const_iterator it = dictionaries_.begin();
-         it != dictionaries_.end(); ++it) {
-      delete *it;
+    for (auto ptr : dictionaries_) {
+      delete ptr;
     }
   }
 
@@ -65,15 +65,14 @@ class Json::JsonImpl {
   }
 
   bool GetStringValueForKey(const std::string& key, std::string* value) const {
-    assert(value != NULL);
+    assert(value != nullptr);
 
     Value::ConstMemberIterator member = value_->FindMember(key.c_str());
     if (member == value_->MemberEnd() || !member->value.IsString()) {
       return false;
     }
 
-    value->assign(member->value.GetString(),
-                  member->value.GetStringLength());
+    value->assign(member->value.GetString(), member->value.GetStringLength());
     return true;
   }
 
@@ -84,14 +83,15 @@ class Json::JsonImpl {
         value_(value),
         dictionaries_(),
         valid_(true) {
-    assert(value_ != NULL);
+    assert(value_ != nullptr);
     assert(value_->IsObject());
   }
 
-  // An owned JSON document. Can be NULL if the JSON document is not owned.
-  const scoped_ptr<Document> document_;
+  // An owned JSON document. Can be nullptr if the JSON document is not owned.
+  const std::unique_ptr<Document> document_;
 
-  // A JSON document that is not owned. Cannot be NULL. Can point to document_.
+  // A JSON document that is not owned. Cannot be nullptr. Can point to
+  // document_.
   const Value* const value_;
 
   // Owned JSON objects of sub-dictionaries.
@@ -99,31 +99,29 @@ class Json::JsonImpl {
 
   // True if the JSON object was parsed successfully.
   bool valid_;
-
-  DISALLOW_COPY_AND_ASSIGN(JsonImpl);
 };
 
 Json::Json() : impl_() {}
 
-Json::~Json() {}
+Json::~Json() = default;
 
 bool Json::ParseObject(const std::string& json) {
-  assert(impl_ == NULL);
+  assert(impl_ == nullptr);
   impl_.reset(new JsonImpl(json));
   if (!impl_->valid()) {
     impl_.reset();
   }
-  return impl_ != NULL;
+  return impl_ != nullptr;
 }
 
 const std::vector<const Json*>& Json::GetSubDictionaries() const {
-  assert(impl_ != NULL);
+  assert(impl_ != nullptr);
   return impl_->GetSubDictionaries();
 }
 
 bool Json::GetStringValueForKey(const std::string& key,
                                 std::string* value) const {
-  assert(impl_ != NULL);
+  assert(impl_ != nullptr);
   return impl_->GetStringValueForKey(key, value);
 }
 

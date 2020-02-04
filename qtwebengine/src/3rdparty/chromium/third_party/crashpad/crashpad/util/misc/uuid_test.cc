@@ -20,8 +20,8 @@
 #include <string>
 
 #include "base/format_macros.h"
-#include "base/macros.h"
 #include "base/scoped_generic.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "gtest/gtest.h"
 
@@ -45,22 +45,22 @@ TEST(UUID, UUID) {
   EXPECT_EQ(uuid_zero.data_5[5], 0u);
   EXPECT_EQ(uuid_zero.ToString(), "00000000-0000-0000-0000-000000000000");
 
-  const uint8_t kBytes[16] = {0x00,
-                              0x01,
-                              0x02,
-                              0x03,
-                              0x04,
-                              0x05,
-                              0x06,
-                              0x07,
-                              0x08,
-                              0x09,
-                              0x0a,
-                              0x0b,
-                              0x0c,
-                              0x0d,
-                              0x0e,
-                              0x0f};
+  static constexpr uint8_t kBytes[16] = {0x00,
+                                         0x01,
+                                         0x02,
+                                         0x03,
+                                         0x04,
+                                         0x05,
+                                         0x06,
+                                         0x07,
+                                         0x08,
+                                         0x09,
+                                         0x0a,
+                                         0x0b,
+                                         0x0c,
+                                         0x0d,
+                                         0x0e,
+                                         0x0f};
   UUID uuid;
   uuid.InitializeFromBytes(kBytes);
   EXPECT_EQ(uuid.data_1, 0x00010203u);
@@ -95,12 +95,12 @@ TEST(UUID, UUID) {
   ++uuid.data_3;
   EXPECT_NE(uuid, uuid_2);
   --uuid.data_3;
-  for (size_t index = 0; index < arraysize(uuid.data_4); ++index) {
+  for (size_t index = 0; index < base::size(uuid.data_4); ++index) {
     ++uuid.data_4[index];
     EXPECT_NE(uuid, uuid_2);
     --uuid.data_4[index];
   }
-  for (size_t index = 0; index < arraysize(uuid.data_5); ++index) {
+  for (size_t index = 0; index < base::size(uuid.data_5); ++index) {
     ++uuid.data_5[index];
     EXPECT_NE(uuid, uuid_2);
     --uuid.data_5[index];
@@ -110,22 +110,22 @@ TEST(UUID, UUID) {
   // have been valid.
   EXPECT_EQ(uuid_2, uuid);
 
-  const uint8_t kMoreBytes[16] = {0xff,
-                                  0xee,
-                                  0xdd,
-                                  0xcc,
-                                  0xbb,
-                                  0xaa,
-                                  0x99,
-                                  0x88,
-                                  0x77,
-                                  0x66,
-                                  0x55,
-                                  0x44,
-                                  0x33,
-                                  0x22,
-                                  0x11,
-                                  0x00};
+  static constexpr uint8_t kMoreBytes[16] = {0xff,
+                                             0xee,
+                                             0xdd,
+                                             0xcc,
+                                             0xbb,
+                                             0xaa,
+                                             0x99,
+                                             0x88,
+                                             0x77,
+                                             0x66,
+                                             0x55,
+                                             0x44,
+                                             0x33,
+                                             0x22,
+                                             0x11,
+                                             0x00};
   uuid.InitializeFromBytes(kMoreBytes);
   EXPECT_EQ(uuid.data_1, 0xffeeddccu);
   EXPECT_EQ(uuid.data_2, 0xbbaau);
@@ -164,7 +164,7 @@ TEST(UUID, UUID) {
 }
 
 TEST(UUID, FromString) {
-  const struct TestCase {
+  static constexpr struct TestCase {
     const char* uuid_string;
     bool success;
   } kCases[] = {
@@ -190,7 +190,7 @@ TEST(UUID, FromString) {
   uuid_zero.InitializeToZero();
   const std::string empty_uuid = uuid_zero.ToString();
 
-  for (size_t index = 0; index < arraysize(kCases); ++index) {
+  for (size_t index = 0; index < base::size(kCases); ++index) {
     const TestCase& test_case = kCases[index];
     SCOPED_TRACE(base::StringPrintf(
         "index %" PRIuS ": %s", index, test_case.uuid_string));
@@ -214,6 +214,31 @@ TEST(UUID, FromString) {
   // Mixed case.
   uuid.InitializeFromString("5762C15D-50b5-4171-a2e9-7429C9EC6CAB");
   EXPECT_EQ(uuid.ToString(), "5762c15d-50b5-4171-a2e9-7429c9ec6cab");
+
+  // Test accepting a StringPiece16.
+  // clang-format off
+  static constexpr base::char16 kChar16UUID[] = {
+      'f', '3', '2', 'e', '5', 'b', 'd', 'c', '-',
+      '2', '6', '8', '1', '-',
+      '4', 'c', '7', '3', '-',
+      'a', '4', 'e', '6', '-',
+      '3', '3', '3', 'f', 'f', 'd', '3', '3', 'b', '3', '3', '3',
+  };
+  // clang-format on
+  EXPECT_TRUE(uuid.InitializeFromString(
+      base::StringPiece16(kChar16UUID, base::size(kChar16UUID))));
+  EXPECT_EQ(uuid.ToString(), "f32e5bdc-2681-4c73-a4e6-333ffd33b333");
+
+#if defined(OS_WIN)
+  // Test accepting a StringPiece16 via L"" literals on Windows.
+  EXPECT_TRUE(
+      uuid.InitializeFromString(L"F32E5BDC-2681-4C73-A4E6-444FFD44B444"));
+  EXPECT_EQ(uuid.ToString(), "f32e5bdc-2681-4c73-a4e6-444ffd44b444");
+
+  EXPECT_TRUE(
+      uuid.InitializeFromString(L"5762C15D-50b5-4171-a2e9-5555C5EC5CAB"));
+  EXPECT_EQ(uuid.ToString(), "5762c15d-50b5-4171-a2e9-5555c5ec5cab");
+#endif  // OS_WIN
 }
 
 #if defined(OS_WIN)

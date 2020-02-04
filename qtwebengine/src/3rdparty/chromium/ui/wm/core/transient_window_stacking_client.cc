@@ -8,6 +8,7 @@
 
 #include <algorithm>
 
+#include "ui/aura/client/transient_window_client.h"
 #include "ui/wm/core/transient_window_manager.h"
 #include "ui/wm/core/window_util.h"
 
@@ -44,8 +45,8 @@ void FindCommonTransientAncestor(Window** window1, Window** window2) {
     return;
   }
   // Walk the two chains backwards and look for the first difference.
-  Window::Windows::reverse_iterator it1 = ancestors1.rbegin();
-  Window::Windows::reverse_iterator it2 = ancestors2.rbegin();
+  auto it1 = ancestors1.rbegin();
+  auto it2 = ancestors2.rbegin();
   for (; it1  != ancestors1.rend() && it2  != ancestors2.rend(); ++it1, ++it2) {
     if (*it1 != *it2) {
       *window1 = *it1;
@@ -74,8 +75,11 @@ bool TransientWindowStackingClient::AdjustStacking(
     Window** target,
     Window::StackDirection* direction) {
   const TransientWindowManager* transient_manager =
-      TransientWindowManager::Get(static_cast<const Window*>(*child));
+      TransientWindowManager::GetIfExists(*child);
   if (transient_manager && transient_manager->IsStackingTransient(*target))
+    return true;
+
+  if (!(*child)->parent()->ShouldRestackTransientChildren())
     return true;
 
   // For windows that have transient children stack the transient ancestors that

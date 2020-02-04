@@ -58,21 +58,29 @@ void ReportUsage(Usage usage) {
 
 }  // namespace
 
-MidiManager::MidiManager(MidiService* service)
-    : initialization_state_(InitializationState::NOT_STARTED),
-      finalized_(false),
-      result_(Result::NOT_INITIALIZED),
-      data_sent_(false),
-      data_received_(false),
-      service_(service) {
+MidiManager::MidiManager(MidiService* service) : service_(service) {
   ReportUsage(Usage::CREATED);
 }
 
 MidiManager::~MidiManager() {
-  // Make sure that Finalize() is called to clean up resources allocated on
-  // the Chrome_IOThread.
   base::AutoLock auto_lock(lock_);
-  CHECK(finalized_);
+  DCHECK(pending_clients_.empty() && clients_.empty());
+
+  if (session_thread_runner_) {
+    DCHECK(session_thread_runner_->BelongsToCurrentThread());
+    session_thread_runner_ = nullptr;
+  }
+
+  UMA_HISTOGRAM_ENUMERATION("Media.Midi.ResultOnShutdown", result_,
+                            static_cast<Sample>(Result::MAX) + 1);
+
+  UMA_HISTOGRAM_ENUMERATION(
+      "Media.Midi.SendReceiveUsage",
+      data_sent_ ? (data_received_ ? SendReceiveUsage::SENT_AND_RECEIVED
+                                   : SendReceiveUsage::SENT)
+                 : (data_received_ ? SendReceiveUsage::RECEIVED
+                                   : SendReceiveUsage::NO_USE),
+      static_cast<Sample>(SendReceiveUsage::MAX) + 1);
 }
 
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && \
@@ -83,29 +91,6 @@ MidiManager* MidiManager::Create(MidiService* service) {
 }
 #endif
 
-void MidiManager::Shutdown() {
-  UMA_HISTOGRAM_ENUMERATION("Media.Midi.ResultOnShutdown", result_,
-                            static_cast<Sample>(Result::MAX) + 1);
-  bool shutdown_synchronously = false;
-  {
-    base::AutoLock auto_lock(lock_);
-    if (session_thread_runner_) {
-      if (session_thread_runner_->BelongsToCurrentThread()) {
-        shutdown_synchronously = true;
-      } else {
-        session_thread_runner_->PostTask(
-            FROM_HERE, base::Bind(&MidiManager::ShutdownOnSessionThread,
-                                  base::Unretained(this)));
-      }
-      session_thread_runner_ = nullptr;
-    } else {
-      finalized_ = true;
-    }
-  }
-  if (shutdown_synchronously)
-    ShutdownOnSessionThread();
-}
-
 void MidiManager::StartSession(MidiManagerClient* client) {
   ReportUsage(Usage::SESSION_STARTED);
 
@@ -113,6 +98,7 @@ void MidiManager::StartSession(MidiManagerClient* client) {
 
   {
     base::AutoLock auto_lock(lock_);
+
     if (clients_.find(client) != clients_.end() ||
         pending_clients_.find(client) != pending_clients_.end()) {
       // Should not happen. But just in case the renderer is compromised.
@@ -120,20 +106,18 @@ void MidiManager::StartSession(MidiManagerClient* client) {
       return;
     }
 
-    // Do not accept a new request if Shutdown() was already called.
-    if (finalized_) {
-      client->CompleteStartSession(Result::INITIALIZATION_ERROR);
-      return;
-    }
-
     if (initialization_state_ == InitializationState::COMPLETED) {
       // Platform dependent initialization was already finished for previously
       // initialized clients.
       if (result_ == Result::OK) {
-        AddInitialPorts(client);
-        clients_.insert(client);
+        for (const auto& info : input_ports_)
+          client->AddInputPort(info);
+        for (const auto& info : output_ports_)
+          client->AddOutputPort(info);
       }
+
       // Complete synchronously with |result_|;
+      clients_.insert(client);
       client->CompleteStartSession(result_);
       return;
     }
@@ -165,33 +149,43 @@ void MidiManager::StartSession(MidiManagerClient* client) {
   }
 }
 
-void MidiManager::EndSession(MidiManagerClient* client) {
+bool MidiManager::EndSession(MidiManagerClient* client) {
   ReportUsage(Usage::SESSION_ENDED);
 
   // At this point, |client| can be in the destruction process, and calling
   // any method of |client| is dangerous. Calls on clients *must* be protected
   // by |lock_| to prevent race conditions.
   base::AutoLock auto_lock(lock_);
+  if (clients_.find(client) == clients_.end() &&
+      pending_clients_.find(client) == pending_clients_.end()) {
+    return false;
+  }
+
   clients_.erase(client);
   pending_clients_.erase(client);
+  return true;
 }
 
-void MidiManager::AccumulateMidiBytesSent(MidiManagerClient* client, size_t n) {
+bool MidiManager::HasOpenSession() {
   base::AutoLock auto_lock(lock_);
-  data_sent_ = true;
-  if (clients_.find(client) == clients_.end())
-    return;
-
-  // Continue to hold lock_ here in case another thread is currently doing
-  // EndSession.
-  client->AccumulateMidiBytesSent(n);
+  return clients_.size() != 0u;
 }
 
 void MidiManager::DispatchSendMidiData(MidiManagerClient* client,
                                        uint32_t port_index,
                                        const std::vector<uint8_t>& data,
-                                       double timestamp) {
+                                       base::TimeTicks timestamp) {
   NOTREACHED();
+}
+
+void MidiManager::EndAllSessions() {
+  base::AutoLock lock(lock_);
+  for (auto* client : pending_clients_)
+    client->Detach();
+  for (auto* client : clients_)
+    client->Detach();
+  pending_clients_.clear();
+  clients_.clear();
 }
 
 void MidiManager::StartInitialization() {
@@ -199,24 +193,40 @@ void MidiManager::StartInitialization() {
 }
 
 void MidiManager::CompleteInitialization(Result result) {
-  bool complete_asynchronously = false;
-  {
-    base::AutoLock auto_lock(lock_);
-    if (session_thread_runner_) {
-      if (session_thread_runner_->BelongsToCurrentThread()) {
-        complete_asynchronously = true;
-      } else {
-        session_thread_runner_->PostTask(
-            FROM_HERE, base::Bind(&MidiManager::CompleteInitializationInternal,
-                                  base::Unretained(this), result));
-      }
+  DCHECK_EQ(InitializationState::STARTED, initialization_state_);
+
+  TRACE_EVENT0("midi", "MidiManager::CompleteInitialization");
+  ReportUsage(Usage::INITIALIZED);
+
+  base::AutoLock auto_lock(lock_);
+  if (!session_thread_runner_)
+    return;
+  DCHECK(session_thread_runner_->BelongsToCurrentThread());
+
+  UMA_HISTOGRAM_ENUMERATION("Media.Midi.InputPorts", input_ports_.size(),
+                            kMaxUmaDevices + 1);
+  UMA_HISTOGRAM_ENUMERATION("Media.Midi.OutputPorts", output_ports_.size(),
+                            kMaxUmaDevices + 1);
+
+  DCHECK(clients_.empty());
+  initialization_state_ = InitializationState::COMPLETED;
+  result_ = result;
+
+  for (auto* client : pending_clients_) {
+    if (result_ == Result::OK) {
+      for (const auto& info : input_ports_)
+        client->AddInputPort(info);
+      for (const auto& info : output_ports_)
+        client->AddOutputPort(info);
     }
+
+    clients_.insert(client);
+    client->CompleteStartSession(result_);
   }
-  if (complete_asynchronously)
-    CompleteInitializationInternal(result);
+  pending_clients_.clear();
 }
 
-void MidiManager::AddInputPort(const MidiPortInfo& info) {
+void MidiManager::AddInputPort(const mojom::PortInfo& info) {
   ReportUsage(Usage::INPUT_PORT_ADDED);
   base::AutoLock auto_lock(lock_);
   input_ports_.push_back(info);
@@ -224,7 +234,7 @@ void MidiManager::AddInputPort(const MidiPortInfo& info) {
     client->AddInputPort(info);
 }
 
-void MidiManager::AddOutputPort(const MidiPortInfo& info) {
+void MidiManager::AddOutputPort(const mojom::PortInfo& info) {
   ReportUsage(Usage::OUTPUT_PORT_ADDED);
   base::AutoLock auto_lock(lock_);
   output_ports_.push_back(info);
@@ -248,10 +258,27 @@ void MidiManager::SetOutputPortState(uint32_t port_index, PortState state) {
     client->SetOutputPortState(port_index, state);
 }
 
+mojom::PortState MidiManager::GetOutputPortState(uint32_t port_index) {
+  base::AutoLock auto_lock(lock_);
+  DCHECK_LT(port_index, output_ports_.size());
+  return output_ports_[port_index].state;
+}
+
+void MidiManager::AccumulateMidiBytesSent(MidiManagerClient* client, size_t n) {
+  base::AutoLock auto_lock(lock_);
+  data_sent_ = true;
+  if (clients_.find(client) == clients_.end())
+    return;
+
+  // Continue to hold lock_ here in case another thread is currently doing
+  // EndSession.
+  client->AccumulateMidiBytesSent(n);
+}
+
 void MidiManager::ReceiveMidiData(uint32_t port_index,
                                   const uint8_t* data,
                                   size_t length,
-                                  double timestamp) {
+                                  base::TimeTicks timestamp) {
   base::AutoLock auto_lock(lock_);
   data_received_ = true;
 
@@ -259,55 +286,14 @@ void MidiManager::ReceiveMidiData(uint32_t port_index,
     client->ReceiveMidiData(port_index, data, length, timestamp);
 }
 
-void MidiManager::CompleteInitializationInternal(Result result) {
-  TRACE_EVENT0("midi", "MidiManager::CompleteInitialization");
-  ReportUsage(Usage::INITIALIZED);
-  UMA_HISTOGRAM_ENUMERATION("Media.Midi.InputPorts", input_ports_.size(),
-                            kMaxUmaDevices + 1);
-  UMA_HISTOGRAM_ENUMERATION("Media.Midi.OutputPorts", output_ports_.size(),
-                            kMaxUmaDevices + 1);
-
+size_t MidiManager::GetClientCountForTesting() {
   base::AutoLock auto_lock(lock_);
-  DCHECK(clients_.empty());
-  DCHECK_EQ(initialization_state_, InitializationState::STARTED);
-  initialization_state_ = InitializationState::COMPLETED;
-  result_ = result;
-
-  for (auto* client : pending_clients_) {
-    if (result_ == Result::OK) {
-      AddInitialPorts(client);
-      clients_.insert(client);
-    }
-    client->CompleteStartSession(result_);
-  }
-  pending_clients_.clear();
+  return clients_.size();
 }
 
-void MidiManager::AddInitialPorts(MidiManagerClient* client) {
-  lock_.AssertAcquired();
-
-  for (const auto& info : input_ports_)
-    client->AddInputPort(info);
-  for (const auto& info : output_ports_)
-    client->AddOutputPort(info);
-}
-
-void MidiManager::ShutdownOnSessionThread() {
-  Finalize();
+size_t MidiManager::GetPendingClientCountForTesting() {
   base::AutoLock auto_lock(lock_);
-  finalized_ = true;
-
-  // Detach all clients so that they do not call MidiManager methods any more.
-  for (auto* client : clients_)
-    client->Detach();
-
-  UMA_HISTOGRAM_ENUMERATION(
-      "Media.Midi.SendReceiveUsage",
-      data_sent_ ? (data_received_ ? SendReceiveUsage::SENT_AND_RECEIVED
-                                   : SendReceiveUsage::SENT)
-                 : (data_received_ ? SendReceiveUsage::RECEIVED
-                                   : SendReceiveUsage::NO_USE),
-      static_cast<Sample>(SendReceiveUsage::MAX) + 1);
+  return pending_clients_.size();
 }
 
 }  // namespace midi

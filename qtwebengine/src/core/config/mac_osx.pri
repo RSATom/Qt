@@ -24,12 +24,10 @@ system("$${QMAKE_CLANG_PATH} --version")
 gn_args += \
     is_clang=true \
     use_sysroot=false \
-    use_kerberos=false \
     clang_base_path=\"$${QMAKE_CLANG_DIR}\" \
     clang_use_chrome_plugins=false \
     mac_deployment_target=\"$${QMAKE_MACOSX_DEPLOYMENT_TARGET}\" \
     mac_sdk_min=\"$${QMAKE_MAC_SDK_VERSION}\" \
-    toolkit_views=false \
     use_external_popup_menu=false
 
 qtConfig(webengine-spellchecker) {

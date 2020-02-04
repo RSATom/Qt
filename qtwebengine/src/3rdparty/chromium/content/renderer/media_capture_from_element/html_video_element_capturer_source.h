@@ -13,7 +13,7 @@
 #include "media/base/video_frame_pool.h"
 #include "media/base/video_types.h"
 #include "media/capture/video_capturer_source.h"
-#include "third_party/WebKit/public/platform/WebSize.h"
+#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
@@ -40,11 +40,13 @@ class CONTENT_EXPORT HtmlVideoElementCapturerSource final
   static std::unique_ptr<HtmlVideoElementCapturerSource>
   CreateFromWebMediaPlayerImpl(
       blink::WebMediaPlayer* player,
-      const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner);
+      const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
   HtmlVideoElementCapturerSource(
       const base::WeakPtr<blink::WebMediaPlayer>& player,
-      const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner);
+      const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   ~HtmlVideoElementCapturerSource() override;
 
   // media::VideoCapturerSource Implementation.
@@ -55,6 +57,8 @@ class CONTENT_EXPORT HtmlVideoElementCapturerSource final
   void StopCapture() override;
 
  private:
+  friend class HTMLVideoElementCapturerSourceTest;
+
   // This method includes collecting data from the WebMediaPlayer and converting
   // it into a format suitable for MediaStreams.
   void sendNewFrame();
@@ -65,11 +69,17 @@ class CONTENT_EXPORT HtmlVideoElementCapturerSource final
 
   const base::WeakPtr<blink::WebMediaPlayer> web_media_player_;
   const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
+  const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  bool is_opaque_;
 
   // These three configuration items are passed on StartCapture();
   RunningCallback running_callback_;
   VideoCaptureDeliverFrameCB new_frame_callback_;
   double capture_frame_rate_;
+
+  // TimeTicks on which the first captured VideoFrame is produced.
+  base::TimeTicks start_capture_time_;
 
   // Target time for the next frame.
   base::TimeTicks next_capture_time_;

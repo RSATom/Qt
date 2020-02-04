@@ -1,1 +1,1 @@
-#include "../../src/corelib/arch/qatomic_cxx11.h"
+#include "../../src/corelib/thread/qatomic_cxx11.h"

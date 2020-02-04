@@ -25,9 +25,7 @@ namespace autofill {
 namespace {
 
 const char* const kFieldTypes[] = {
-  "text",
-  "tel",
-  "number",
+    "text", "tel", "number",
 };
 
 }  // namespace
@@ -40,7 +38,8 @@ class PhoneFieldTest : public testing::Test {
   // Downcast for tests.
   static std::unique_ptr<PhoneField> Parse(AutofillScanner* scanner) {
     std::unique_ptr<FormField> field = PhoneField::Parse(scanner);
-    return base::WrapUnique(static_cast<PhoneField*>(field.release()));
+    return std::unique_ptr<PhoneField>(
+        static_cast<PhoneField*>(field.release()));
   }
 
   void Clear() {
@@ -71,7 +70,7 @@ TEST_F(PhoneFieldTest, Empty) {
 }
 
 TEST_F(PhoneFieldTest, NonParse) {
-  list_.push_back(base::MakeUnique<AutofillField>());
+  list_.push_back(std::make_unique<AutofillField>());
   AutofillScanner scanner(list_);
   field_ = Parse(&scanner);
   ASSERT_EQ(nullptr, field_.get());
@@ -87,7 +86,7 @@ TEST_F(PhoneFieldTest, ParseOneLinePhone) {
     field.label = ASCIIToUTF16("Phone");
     field.name = ASCIIToUTF16("phone");
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone1")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("phone1")));
 
     AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
@@ -107,12 +106,12 @@ TEST_F(PhoneFieldTest, ParseTwoLinePhone) {
     field.label = ASCIIToUTF16("Area Code");
     field.name = ASCIIToUTF16("area code");
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("areacode1")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("areacode1")));
 
     field.label = ASCIIToUTF16("Phone");
     field.name = ASCIIToUTF16("phone");
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone2")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("phone2")));
 
     AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
@@ -139,25 +138,25 @@ TEST_F(PhoneFieldTest, ThreePartPhoneNumber) {
     field.name = ASCIIToUTF16("dayphone1");
     field.max_length = 0;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("areacode1")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("areacode1")));
 
     field.label = ASCIIToUTF16("-");
     field.name = ASCIIToUTF16("dayphone2");
     field.max_length = 3;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("prefix2")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("prefix2")));
 
     field.label = ASCIIToUTF16("-");
     field.name = ASCIIToUTF16("dayphone3");
     field.max_length = 4;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("suffix3")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("suffix3")));
 
     field.label = ASCIIToUTF16("ext.:");
     field.name = ASCIIToUTF16("dayphone4");
     field.max_length = 0;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("ext4")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("ext4")));
 
     AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
@@ -183,17 +182,17 @@ TEST_F(PhoneFieldTest, ThreePartPhoneNumberPrefixSuffix) {
     field.label = ASCIIToUTF16("Phone:");
     field.name = ASCIIToUTF16("area");
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("areacode1")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("areacode1")));
 
     field.label = base::string16();
     field.name = ASCIIToUTF16("prefix");
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("prefix2")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("prefix2")));
 
     field.label = base::string16();
     field.name = ASCIIToUTF16("suffix");
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("suffix3")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("suffix3")));
 
     AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
@@ -216,19 +215,19 @@ TEST_F(PhoneFieldTest, ThreePartPhoneNumberPrefixSuffix2) {
     field.name = ASCIIToUTF16("phone1");
     field.max_length = 3;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone1")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("phone1")));
 
     field.label = ASCIIToUTF16(")");
     field.name = ASCIIToUTF16("phone2");
     field.max_length = 3;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone2")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("phone2")));
 
     field.label = base::string16();
     field.name = ASCIIToUTF16("phone3");
     field.max_length = 4;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone3")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("phone3")));
 
     AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
@@ -253,13 +252,45 @@ TEST_F(PhoneFieldTest, CountryAndCityAndPhoneNumber) {
     field.name = ASCIIToUTF16("CountryCode");
     field.max_length = 3;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("country")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("country")));
 
     field.label = ASCIIToUTF16("Phone Number");
     field.name = ASCIIToUTF16("PhoneNumber");
     field.max_length = 10;
     list_.push_back(
-        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone")));
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("phone")));
+
+    AutofillScanner scanner(list_);
+    field_ = Parse(&scanner);
+    ASSERT_NE(nullptr, field_.get());
+    field_->AddClassifications(&field_candidates_map_);
+    CheckField("country", PHONE_HOME_COUNTRY_CODE);
+    CheckField("phone", PHONE_HOME_CITY_AND_NUMBER);
+  }
+}
+
+TEST_F(PhoneFieldTest, CountryAndCityAndPhoneNumberWithLongerMaxLength) {
+  // Phone in format <country code>:3 - <city and number>:14
+  // The |maxlength| is considered, otherwise it's too broad.
+  FormFieldData field;
+
+  for (const char* field_type : kFieldTypes) {
+    Clear();
+
+    field.form_control_type = field_type;
+    field.label = ASCIIToUTF16("Phone Number");
+    field.name = ASCIIToUTF16("CountryCode");
+    field.max_length = 3;
+    list_.push_back(
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("country")));
+
+    // Verify if websites expect a longer formatted number like:
+    // (514)-123-1234, autofill is able to classify correctly.
+    field.label = ASCIIToUTF16("Phone Number");
+    field.name = ASCIIToUTF16("PhoneNumber");
+    field.max_length = 14;
+    list_.push_back(
+        std::make_unique<AutofillField>(field, ASCIIToUTF16("phone")));
 
     AutofillScanner scanner(list_);
     field_ = Parse(&scanner);

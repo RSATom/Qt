@@ -8,21 +8,26 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_DESKTOP_CAPTURE_CROPPING_WINDOW_CAPTURER_H_
-#define WEBRTC_MODULES_DESKTOP_CAPTURE_CROPPING_WINDOW_CAPTURER_H_
+#ifndef MODULES_DESKTOP_CAPTURE_CROPPING_WINDOW_CAPTURER_H_
+#define MODULES_DESKTOP_CAPTURE_CROPPING_WINDOW_CAPTURER_H_
 
 #include <memory>
 
-#include "webrtc/modules/desktop_capture/desktop_capturer.h"
-#include "webrtc/modules/desktop_capture/desktop_capture_options.h"
+#include "modules/desktop_capture/desktop_capture_options.h"
+#include "modules/desktop_capture/desktop_capture_types.h"
+#include "modules/desktop_capture/desktop_capturer.h"
+#include "modules/desktop_capture/desktop_frame.h"
+#include "modules/desktop_capture/desktop_geometry.h"
+#include "modules/desktop_capture/shared_memory.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
 // WindowCapturer implementation that uses a screen capturer to capture the
 // whole screen and crops the video frame to the window area when the captured
 // window is on top.
-class CroppingWindowCapturer : public DesktopCapturer,
-                               public DesktopCapturer::Callback {
+class RTC_EXPORT CroppingWindowCapturer : public DesktopCapturer,
+                                          public DesktopCapturer::Callback {
  public:
   static std::unique_ptr<DesktopCapturer> CreateCapturer(
       const DesktopCaptureOptions& options);
@@ -38,6 +43,7 @@ class CroppingWindowCapturer : public DesktopCapturer,
   bool GetSourceList(SourceList* sources) override;
   bool SelectSource(SourceId id) override;
   bool FocusOnSelectedSource() override;
+  bool IsOccluded(const DesktopVector& pos) override;
 
   // DesktopCapturer::Callback implementation, passed to |screen_capturer_| to
   // intercept the capture result.
@@ -55,7 +61,9 @@ class CroppingWindowCapturer : public DesktopCapturer,
   virtual bool ShouldUseScreenCapturer() = 0;
 
   // Returns the window area relative to the top left of the virtual screen
-  // within the bounds of the virtual screen.
+  // within the bounds of the virtual screen. This function should return the
+  // DesktopRect in full desktop coordinates, i.e. the top-left monitor starts
+  // from (0, 0).
   virtual DesktopRect GetWindowRectInVirtualScreen() = 0;
 
   WindowId selected_window() const { return selected_window_; }
@@ -72,5 +80,4 @@ class CroppingWindowCapturer : public DesktopCapturer,
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_DESKTOP_CAPTURE_CROPPING_WINDOW_CAPTURER_H_
-
+#endif  // MODULES_DESKTOP_CAPTURE_CROPPING_WINDOW_CAPTURER_H_

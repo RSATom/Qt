@@ -8,8 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/rate_limiter.h"
-#include "webrtc/system_wrappers/include/clock.h"
+#include "rtc_base/rate_limiter.h"
+
+#include <limits>
+
+#include "absl/types/optional.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 
@@ -29,7 +33,7 @@ RateLimiter::~RateLimiter() {}
 bool RateLimiter::TryUseRate(size_t packet_size_bytes) {
   rtc::CritScope cs(&lock_);
   int64_t now_ms = clock_->TimeInMilliseconds();
-  rtc::Optional<uint32_t> current_rate = current_rate_.Rate(now_ms);
+  absl::optional<uint32_t> current_rate = current_rate_.Rate(now_ms);
   if (current_rate) {
     // If there is a current rate, check if adding bytes would cause maximum
     // bitrate target to be exceeded. If there is NOT a valid current rate,

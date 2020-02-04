@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "content/common/content_security_policy/csp_context.h"
+#include "content/public/common/origin_util.h"
 
 namespace content {
 
@@ -14,9 +15,11 @@ bool ShouldCheckPolicy(const ContentSecurityPolicy& policy,
                        CSPContext::CheckCSPDisposition check_csp_disposition) {
   switch (check_csp_disposition) {
     case CSPContext::CHECK_REPORT_ONLY_CSP:
-      return policy.header.type == blink::kWebContentSecurityPolicyTypeReport;
+      return policy.header.type ==
+             blink::mojom::ContentSecurityPolicyType::kReport;
     case CSPContext::CHECK_ENFORCED_CSP:
-      return policy.header.type == blink::kWebContentSecurityPolicyTypeEnforce;
+      return policy.header.type ==
+             blink::mojom::ContentSecurityPolicyType::kEnforce;
     case CSPContext::CHECK_ALL_CSP:
       return true;
   }
@@ -31,40 +34,47 @@ CSPContext::~CSPContext() {}
 
 bool CSPContext::IsAllowedByCsp(CSPDirective::Name directive_name,
                                 const GURL& url,
-                                bool is_redirect,
+                                bool has_followed_redirect,
+                                bool is_response_check,
                                 const SourceLocation& source_location,
-                                CheckCSPDisposition check_csp_disposition) {
+                                CheckCSPDisposition check_csp_disposition,
+                                bool is_form_submission) {
   if (SchemeShouldBypassCSP(url.scheme_piece()))
     return true;
 
   bool allow = true;
   for (const auto& policy : policies_) {
     if (ShouldCheckPolicy(policy, check_csp_disposition)) {
-      allow &= ContentSecurityPolicy::Allow(policy, directive_name, url,
-                                            is_redirect, this, source_location);
+      allow &= ContentSecurityPolicy::Allow(
+          policy, directive_name, url, has_followed_redirect, is_response_check,
+          this, source_location, is_form_submission);
     }
   }
+
+  DCHECK(allow || check_csp_disposition != CSPContext::CHECK_REPORT_ONLY_CSP);
+
   return allow;
 }
 
 bool CSPContext::ShouldModifyRequestUrlForCsp(
-    const GURL& url,
-    bool is_subresource_or_form_submission,
-    GURL* new_url) {
+    bool is_subresource_or_form_submission) {
   for (const auto& policy : policies_) {
-    if (url.scheme() == "http" &&
-        ContentSecurityPolicy::ShouldUpgradeInsecureRequest(policy) &&
+    if (ContentSecurityPolicy::ShouldUpgradeInsecureRequest(policy) &&
         is_subresource_or_form_submission) {
-      *new_url = url;
-      GURL::Replacements replacements;
-      replacements.SetSchemeStr("https");
-      if (url.port() == "80")
-        replacements.SetPortStr("443");
-      *new_url = new_url->ReplaceComponents(replacements);
       return true;
     }
   }
   return false;
+}
+
+void CSPContext::ModifyRequestUrlForCsp(GURL* url) {
+  if (url->SchemeIs(url::kHttpScheme) && !IsOriginSecure(*url)) {
+    // Updating the URL's scheme also implicitly updates the URL's port from 80
+    // to 443 if needed.
+    GURL::Replacements replacements;
+    replacements.SetSchemeStr(url::kHttpsScheme);
+    *url = url->ReplaceComponents(replacements);
+  }
 }
 
 void CSPContext::SetSelf(const url::Origin origin) {
@@ -72,7 +82,7 @@ void CSPContext::SetSelf(const url::Origin origin) {
 
   // When the origin is unique, no URL should match with 'self'. That's why
   // |self_source_| stays undefined here.
-  if (origin.unique())
+  if (origin.opaque())
     return;
 
   if (origin.scheme() == url::kFileScheme) {
@@ -88,12 +98,16 @@ void CSPContext::SetSelf(const url::Origin origin) {
   DCHECK_NE("", self_source_->scheme);
 }
 
+void CSPContext::SetSelf(const CSPSource& self_source) {
+  self_source_ = self_source;
+}
+
 bool CSPContext::SchemeShouldBypassCSP(const base::StringPiece& scheme) {
   return false;
 }
 
 void CSPContext::SanitizeDataForUseInCspViolation(
-    bool is_redirect,
+    bool has_followed_redirect,
     CSPDirective::Name directive,
     GURL* blocked_url,
     SourceLocation* source_location) const {
@@ -113,8 +127,9 @@ CSPViolationParams::CSPViolationParams(
     const std::string& console_message,
     const GURL& blocked_url,
     const std::vector<std::string>& report_endpoints,
+    bool use_reporting_api,
     const std::string& header,
-    const blink::WebContentSecurityPolicyType& disposition,
+    const blink::mojom::ContentSecurityPolicyType& disposition,
     bool after_redirect,
     const SourceLocation& source_location)
     : directive(directive),
@@ -122,6 +137,7 @@ CSPViolationParams::CSPViolationParams(
       console_message(console_message),
       blocked_url(blocked_url),
       report_endpoints(report_endpoints),
+      use_reporting_api(use_reporting_api),
       header(header),
       disposition(disposition),
       after_redirect(after_redirect),
@@ -129,7 +145,6 @@ CSPViolationParams::CSPViolationParams(
 
 CSPViolationParams::CSPViolationParams(const CSPViolationParams& other) =
     default;
-
 CSPViolationParams::~CSPViolationParams() {}
 
 }  // namespace content

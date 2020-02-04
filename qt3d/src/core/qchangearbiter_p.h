@@ -77,13 +77,13 @@ class QAbstractPostman;
 class QScene;
 
 
-class QT3DCORE_PRIVATE_EXPORT QAbstractArbiter : public QLockableObserverInterface
+class Q_3DCORE_PRIVATE_EXPORT QAbstractArbiter : public QLockableObserverInterface
 {
 public:
     virtual QAbstractPostman *postman() const = 0;
 };
 
-class QT3DCORE_PRIVATE_EXPORT QChangeArbiter Q_DECL_FINAL
+class Q_3DCORE_PRIVATE_EXPORT QChangeArbiter final
         : public QObject
         , public QAbstractArbiter
 {
@@ -105,14 +105,14 @@ public:
     void registerSceneObserver(QSceneObserverInterface *observer);
     void unregisterSceneObserver(QSceneObserverInterface *observer);
 
-    void sceneChangeEvent(const QSceneChangePtr &e) Q_DECL_OVERRIDE;         // QLockableObserverInterface impl
-    void sceneChangeEventWithLock(const QSceneChangePtr &e) Q_DECL_OVERRIDE; // QLockableObserverInterface impl
-    void sceneChangeEventWithLock(const QSceneChangeList &e) Q_DECL_OVERRIDE; // QLockableObserverInterface impl
+    void sceneChangeEvent(const QSceneChangePtr &e) override;         // QLockableObserverInterface impl
+    void sceneChangeEventWithLock(const QSceneChangePtr &e) override; // QLockableObserverInterface impl
+    void sceneChangeEventWithLock(const QSceneChangeList &e) override; // QLockableObserverInterface impl
 
     Q_INVOKABLE void setPostman(Qt3DCore::QAbstractPostman *postman);
     Q_INVOKABLE void setScene(Qt3DCore::QScene *scene);
 
-    QAbstractPostman *postman() const Q_DECL_FINAL;
+    QAbstractPostman *postman() const final;
     QScene *scene() const;
 
     static void createUnmanagedThreadLocalChangeQueue(void *changeArbiter);

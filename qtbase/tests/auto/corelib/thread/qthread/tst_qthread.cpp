@@ -465,8 +465,8 @@ void tst_QThread::start()
 
 void tst_QThread::terminate()
 {
-#if defined(Q_OS_WINRT)
-    QSKIP("Thread termination is not supported on WinRT.");
+#if defined(Q_OS_WINRT) || defined(Q_OS_ANDROID)
+    QSKIP("Thread termination is not supported on WinRT or Android.");
 #endif
     Terminate_Thread thread;
     {
@@ -531,8 +531,8 @@ void tst_QThread::finished()
 
 void tst_QThread::terminated()
 {
-#if defined(Q_OS_WINRT)
-    QSKIP("Thread termination is not supported on WinRT.");
+#if defined(Q_OS_WINRT) || defined(Q_OS_ANDROID)
+    QSKIP("Thread termination is not supported on WinRT or Android.");
 #endif
     SignalRecorder recorder;
     Terminate_Thread thread;
@@ -988,9 +988,7 @@ void tst_QThread::exitAndStart()
     connect(&sync2, SIGNAL(propChanged(int)), &sync1, SLOT(setProp(int)), Qt::QueuedConnection);
     connect(&sync1, SIGNAL(propChanged(int)), &thread, SLOT(quit()), Qt::QueuedConnection);
     QMetaObject::invokeMethod(&sync2, "setProp", Qt::QueuedConnection , Q_ARG(int, 89));
-    QTest::qWait(50);
-    while(!thread.wait(10))
-        QTest::qWait(10);
+    QTRY_VERIFY(thread.wait(10));
     QCOMPARE(sync2.m_prop, 89);
     QCOMPARE(sync1.m_prop, 89);
 }
@@ -1026,9 +1024,7 @@ void tst_QThread::exitAndExec()
     connect(&sync2, SIGNAL(propChanged(int)), &sync1, SLOT(setProp(int)), Qt::QueuedConnection);
     connect(&sync1, SIGNAL(propChanged(int)), &thread, SLOT(quit()), Qt::QueuedConnection);
     QMetaObject::invokeMethod(&sync2, "setProp", Qt::QueuedConnection , Q_ARG(int, 89));
-    QTest::qWait(50);
-    while(!thread.wait(10))
-        QTest::qWait(10);
+    QTRY_VERIFY(thread.wait(10));
     QCOMPARE(sync2.m_prop, 89);
     QCOMPARE(sync1.m_prop, 89);
 }

@@ -8,7 +8,6 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -28,10 +27,10 @@ typedef std::map<std::string, IconLoader::IconSize> QueryIconSizeMap;
 const char kFileIconPath[] = "fileicon";
 
 // URL parameter specifying icon size.
-const char kIconSize[] = "iconsize";
+const char kIconSizeParameter[] = "iconsize";
 
 // URL parameter specifying scale factor.
-const char kScaleFactor[] = "scale";
+const char kScaleFactorParameter[] = "scale";
 
 // Assuming the url is of the form '/path?query', convert the path portion into
 // a FilePath and return the resulting |file_path| and |query|.  The path
@@ -71,9 +70,9 @@ void ParseQueryParams(const std::string& query,
   base::SplitStringIntoKeyValuePairs(query, '=', '&', &parameters);
   for (base::StringPairs::const_iterator iter = parameters.begin();
        iter != parameters.end(); ++iter) {
-    if (icon_size && iter->first == kIconSize)
+    if (icon_size && iter->first == kIconSizeParameter)
       *icon_size = SizeStringToIconSize(iter->second);
-    else if (scale_factor && iter->first == kScaleFactor)
+    else if (scale_factor && iter->first == kScaleFactorParameter)
       webui::ParseScaleFactor(iter->second, scale_factor);
   }
 }
@@ -104,8 +103,7 @@ void FileIconSource::FetchFileIcon(
   if (icon) {
     scoped_refptr<base::RefCountedBytes> icon_data(new base::RefCountedBytes);
     gfx::PNGCodec::EncodeBGRASkBitmap(
-        icon->ToImageSkia()->GetRepresentation(scale_factor).sk_bitmap(),
-        false,
+        icon->ToImageSkia()->GetRepresentation(scale_factor).GetBitmap(), false,
         &icon_data->data());
 
     callback.Run(icon_data.get());
@@ -155,10 +153,10 @@ void FileIconSource::OnFileIconDataAvailable(const IconRequestDetails& details,
   if (icon) {
     scoped_refptr<base::RefCountedBytes> icon_data(new base::RefCountedBytes);
     gfx::PNGCodec::EncodeBGRASkBitmap(
-        icon->ToImageSkia()->GetRepresentation(
-            details.scale_factor).sk_bitmap(),
-        false,
-        &icon_data->data());
+        icon->ToImageSkia()
+            ->GetRepresentation(details.scale_factor)
+            .GetBitmap(),
+        false, &icon_data->data());
 
     details.callback.Run(icon_data.get());
   } else {

@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/coverage/coverage.gni")
 import("//build/config/ios/ios_sdk.gni")
 import("//build/config/sysroot.gni")
 import("//build/toolchain/toolchain.gni")
@@ -64,9 +65,6 @@ config("compiler") {
   # an Objective C struct won't be called, which is very bad.
   cflags_objcc = [ "-fobjc-call-cxx-cdtors" ]
 
-  cflags_c = [ "-std=c99" ]
-  cflags_objc = cflags_c
-
   ldflags = common_ios_flags
 }
 
@@ -100,8 +98,8 @@ config("runtime_library") {
   cflags = common_flags
   ldflags = common_flags
 
-  if (ios_enable_coverage) {
-    configs = [ ":enable_coverage" ]
+  if (use_clang_coverage) {
+    configs = [ "//build/config/coverage:default_coverage" ]
   }
 }
 
@@ -125,16 +123,6 @@ config("xctest_config") {
     "Foundation.framework",
     "XCTest.framework",
   ]
-}
-
-# This enables support for LLVM code coverage. See
-# http://llvm.org/docs/CoverageMappingFormat.html.
-config("enable_coverage") {
-  cflags = [
-    "-fprofile-instr-generate",
-    "-fcoverage-mapping",
-  ]
-  ldflags = [ "-fprofile-instr-generate" ]
 }
 
 group("xctest") {

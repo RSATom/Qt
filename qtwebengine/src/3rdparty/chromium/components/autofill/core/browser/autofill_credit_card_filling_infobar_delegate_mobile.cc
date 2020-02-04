@@ -4,9 +4,9 @@
 
 #include "components/autofill/core/browser/autofill_credit_card_filling_infobar_delegate_mobile.h"
 
-#include "base/memory/ptr_util.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/common/autofill_constants.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "components/grit/components_scaled_resources.h"
 #include "components/infobars/core/infobar_delegate.h"
 #include "components/strings/grit/components_strings.h"
@@ -17,9 +17,9 @@ namespace autofill {
 AutofillCreditCardFillingInfoBarDelegateMobile::
     AutofillCreditCardFillingInfoBarDelegateMobile(
         const CreditCard& card,
-        const base::Closure& card_filling_callback)
+        base::OnceClosure card_filling_callback)
     : ConfirmInfoBarDelegate(),
-      card_filling_callback_(card_filling_callback),
+      card_filling_callback_(std::move(card_filling_callback)),
       had_user_interaction_(false),
       was_shown_(false),
       issuer_icon_id_(CreditCard::IconResourceId(card.network())),
@@ -28,7 +28,9 @@ AutofillCreditCardFillingInfoBarDelegateMobile::
 #else
       card_label_(base::string16(kMidlineEllipsis) + card.LastFourDigits()),
 #endif
-      card_sub_label_(card.AbbreviatedExpirationDateForDisplay()) {
+      card_sub_label_(card.AbbreviatedExpirationDateForDisplay(
+          !features::
+              IsAutofillSaveCardDialogUnlabeledExpirationDateEnabled())) {
 }
 
 AutofillCreditCardFillingInfoBarDelegateMobile::
@@ -62,7 +64,7 @@ void AutofillCreditCardFillingInfoBarDelegateMobile::InfoBarDismissed() {
 }
 
 bool AutofillCreditCardFillingInfoBarDelegateMobile::Accept() {
-  card_filling_callback_.Run();
+  std::move(card_filling_callback_).Run();
   LogUserAction(AutofillMetrics::INFOBAR_ACCEPTED);
   return true;
 }
@@ -70,11 +72,6 @@ bool AutofillCreditCardFillingInfoBarDelegateMobile::Accept() {
 bool AutofillCreditCardFillingInfoBarDelegateMobile::Cancel() {
   LogUserAction(AutofillMetrics::INFOBAR_DENIED);
   return true;
-}
-
-infobars::InfoBarDelegate::Type
-AutofillCreditCardFillingInfoBarDelegateMobile::GetInfoBarType() const {
-  return PAGE_ACTION_TYPE;
 }
 
 infobars::InfoBarDelegate::InfoBarIdentifier

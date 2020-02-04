@@ -10,15 +10,12 @@
 #include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/threading/thread_checker.h"
+#include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 
 namespace metrics {
-
-typedef base::Callback<void(const std::string&, int, bool)>
-    UpdateUsagePrefCallbackType;
 
 // Records the data use of user traffic and UMA traffic in user prefs. Taking
 // into account those prefs it can verify whether certain UMA log upload is
@@ -26,7 +23,7 @@ typedef base::Callback<void(const std::string&, int, bool)>
 class DataUseTracker {
  public:
   explicit DataUseTracker(PrefService* local_state);
-  ~DataUseTracker();
+  virtual ~DataUseTracker();
 
   // Returns an instance of |DataUseTracker| with provided |local_state| if
   // users data use should be tracked and null pointer otherwise.
@@ -36,9 +33,10 @@ class DataUseTracker {
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
   // Updates data usage tracking prefs with the specified values.
-  void UpdateMetricsUsagePrefs(const std::string& service_name,
-                               int message_size,
-                               bool is_cellular);
+  static void UpdateMetricsUsagePrefs(int message_size,
+                                      bool is_cellular,
+                                      bool is_metrics_service_usage,
+                                      PrefService* local_state);
 
   // Returns whether a log with provided |log_bytes| can be uploaded according
   // to data use ratio and UMA quota provided by variations.
@@ -49,6 +47,11 @@ class DataUseTracker {
   FRIEND_TEST_ALL_PREFIXES(DataUseTrackerTest, CheckRemoveExpiredEntries);
   FRIEND_TEST_ALL_PREFIXES(DataUseTrackerTest, CheckComputeTotalDataUse);
   FRIEND_TEST_ALL_PREFIXES(DataUseTrackerTest, CheckCanUploadUMALog);
+
+  // Updates data usage tracking prefs with the specified values.
+  void UpdateMetricsUsagePrefsInternal(int message_size,
+                                       bool is_cellular,
+                                       bool is_metrics_service_usage);
 
   // Updates provided |pref_name| for a current date with the given message
   // size.
@@ -79,7 +82,7 @@ class DataUseTracker {
 
   PrefService* local_state_;
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(DataUseTracker);
 };

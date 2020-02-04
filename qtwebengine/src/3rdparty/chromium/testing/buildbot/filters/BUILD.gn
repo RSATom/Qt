@@ -20,13 +20,35 @@ source_set("browser_tests_filters") {
   testonly = true
 
   data = [
-    "//testing/buildbot/filters/isolate-extensions.browser_tests.filter",
-    "//testing/buildbot/filters/mash.browser_tests.filter",
-    "//testing/buildbot/filters/mojo.fyi.browser_tests.filter",
-    "//testing/buildbot/filters/mojo.fyi.mus.browser_tests.filter",
-    "//testing/buildbot/filters/mojo.fyi.network_browser_tests.filter",
-    "//testing/buildbot/filters/mus.browser_tests.filter",
-    "//testing/buildbot/filters/site-per-process.browser_tests.filter",
+    "//testing/buildbot/filters/chromeos.mash.browser_tests.filter",
+    "//testing/buildbot/filters/chromeos.mash.fyi.browser_tests.filter",
+    "//testing/buildbot/filters/mojo.fyi.chromeos.network_browser_tests.filter",
+    "//testing/buildbot/filters/webui_polymer2_browser_tests.filter",
+    "//testing/buildbot/filters/webrtc_functional.browser_tests.filter",
+  ]
+}
+
+source_set("chromeos_filters") {
+  data = [
+    "//testing/buildbot/filters/chromeos.base_unittests.filter",
+    "//testing/buildbot/filters/chromeos.media_unittests.filter",
+    "//testing/buildbot/filters/chromeos.services_unittests.filter",
+  ]
+}
+
+source_set("chrome_public_test_apk_filters") {
+  testonly = true
+
+  data = [
+    "//testing/buildbot/filters/mojo.fyi.network_chrome_public_test_apk.filter",
+  ]
+}
+
+source_set("content_unittests_filters") {
+  testonly = true
+
+  data = [
+    "//testing/buildbot/filters/webrtc.content_unittests.filter",
   ]
 }
 
@@ -35,9 +57,18 @@ source_set("content_browsertests_filters") {
 
   data = [
     "//testing/buildbot/filters/cast-linux.content_browsertests.filter",
-    "//testing/buildbot/filters/isolate-extensions.content_browsertests.filter",
-    "//testing/buildbot/filters/mojo.fyi.network_content_browsertests.filter",
-    "//testing/buildbot/filters/site-per-process.content_browsertests.filter",
+    "//testing/buildbot/filters/site_isolation_android.content_browsertests.filter",
+  ]
+}
+
+source_set("fuchsia_filters") {
+  data = [
+    "//testing/buildbot/filters/fuchsia.base_perftests.filter",
+    "//testing/buildbot/filters/fuchsia.content_unittests.filter",
+    "//testing/buildbot/filters/fuchsia.mojo_unittests.filter",
+    "//testing/buildbot/filters/fuchsia.net_perftests.filter",
+    "//testing/buildbot/filters/fuchsia.net_unittests.filter",
+    "//testing/buildbot/filters/fuchsia.ui_base_unittests.filter",
   ]
 }
 
@@ -45,15 +76,24 @@ source_set("interactive_ui_tests_filters") {
   testonly = true
 
   data = [
-    "//testing/buildbot/filters/site-per-process.interactive_ui_tests.filter",
+    "//testing/buildbot/filters/chromeos.mash.fyi.interactive_ui_tests.filter",
+    "//testing/buildbot/filters/mojo.fyi.chromeos.network_interactive_ui_tests.filter",
+    "//testing/buildbot/filters/webui_polymer2_interactive_ui_tests.filter",
   ]
 }
 
-source_set("ash_unittests_filters") {
+source_set("webview_cts_tests_filters") {
   testonly = true
 
   data = [
-    "//testing/buildbot/filters/ash_unittests_mash.filter",
-    "//testing/buildbot/filters/ash_unittests_mus.filter",
+    "//testing/buildbot/filters/mojo.fyi.network_webview_CTS_test.filter",
+  ]
+}
+
+source_set("webview_instrumentation_test_apk_filters") {
+  testonly = true
+
+  data = [
+    "//testing/buildbot/filters/mojo.fyi.network_webview_instrumentation_test_apk.filter",
   ]
 }

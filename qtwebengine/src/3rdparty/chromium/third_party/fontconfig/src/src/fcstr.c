@@ -26,9 +26,6 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
-#ifdef HAVE_REGEX_H
-#include <regex.h>
-#endif
 
 
 /* Objects MT-safe for readonly access. */
@@ -240,55 +237,6 @@ FcStrCmp (const FcChar8 *s1, const FcChar8 *s2)
 	    break;
     }
     return (int) c1 - (int) c2;
-}
-
-#ifdef USE_REGEX
-static FcBool
-_FcStrRegexCmp (const FcChar8 *s, const FcChar8 *regex, int cflags, int eflags)
-{
-    int ret = -1;
-    regex_t reg;
-
-    if ((ret = regcomp (&reg, (const char *)regex, cflags)) != 0)
-    {
-	if (FcDebug () & FC_DBG_MATCHV)
-	{
-	    char buf[512];
-
-	    regerror (ret, &reg, buf, 512);
-	    printf("Regexp compile error: %s\n", buf);
-	}
-	return FcFalse;
-    }
-    ret = regexec (&reg, (const char *)s, 0, NULL, eflags);
-    if (ret != 0)
-    {
-	if (FcDebug () & FC_DBG_MATCHV)
-	{
-	    char buf[512];
-
-	    regerror (ret, &reg, buf, 512);
-	    printf("Regexp exec error: %s\n", buf);
-	}
-    }
-    regfree (&reg);
-
-    return ret == 0 ? FcTrue : FcFalse;
-}
-#else
-#  define _FcStrRegexCmp(_s_, _regex_, _cflags_, _eflags_)	(FcFalse)
-#endif
-
-FcBool
-FcStrRegexCmp (const FcChar8 *s, const FcChar8 *regex)
-{
-	return _FcStrRegexCmp (s, regex, REG_EXTENDED | REG_NOSUB, 0);
-}
-
-FcBool
-FcStrRegexCmpIgnoreCase (const FcChar8 *s, const FcChar8 *regex)
-{
-	return _FcStrRegexCmp (s, regex, REG_EXTENDED | REG_NOSUB | REG_ICASE, 0);
 }
 
 /*
@@ -919,17 +867,32 @@ FcStrUsesHome (const FcChar8 *s)
     return *s == '~';
 }
 
+FcBool
+FcStrIsAbsoluteFilename (const FcChar8 *s)
+{
+#ifdef _WIN32
+    if (*s == '\\' ||
+	(isalpha (*s) && s[1] == ':' && (s[2] == '/' || s[2] == '\\')))
+	return FcTrue;
+#endif
+    return *s == '/';
+}
+
 FcChar8 *
 FcStrBuildFilename (const FcChar8 *path,
 		    ...)
 {
     va_list ap;
-    FcStrSet *sset = FcStrSetCreate ();
+    FcStrSet *sset;
     FcStrList *list;
     FcChar8 *s, *ret = NULL, *p;
     size_t len = 0;
 
-    if (!sset || !path)
+    if (!path)
+	return NULL;
+
+    sset = FcStrSetCreateEx (FCSS_ALLOW_DUPLICATES | FCSS_GROW_BY_64);
+    if (!sset)
 	return NULL;
 
     if (!FcStrSetAdd (sset, path))
@@ -990,7 +953,7 @@ FcStrCopyFilename (const FcChar8 *s)
 	if (!home)
 	    return NULL;
 	size = strlen ((char *) home) + strlen ((char *) s);
-	full = (FcChar8 *) malloc (size);
+	full = (FcChar8 *) malloc (size + 1);
 	if (!full)
 	    return NULL;
 	strcpy ((char *) full, (char *) home);
@@ -1178,6 +1141,12 @@ FcStrCanonFilename (const FcChar8 *s)
 FcStrSet *
 FcStrSetCreate (void)
 {
+    return FcStrSetCreateEx (FCSS_DEFAULT);
+}
+
+FcStrSet *
+FcStrSetCreateEx (unsigned int control)
+{
     FcStrSet	*set = malloc (sizeof (FcStrSet));
     if (!set)
 	return 0;
@@ -1185,29 +1154,42 @@ FcStrSetCreate (void)
     set->num = 0;
     set->size = 0;
     set->strs = 0;
+    set->control = control;
     return set;
+}
+
+static FcBool
+_FcStrSetGrow (FcStrSet *set, int growElements)
+{
+    /* accommodate an additional NULL entry at the end of the array */
+    FcChar8 **strs = malloc ((set->size + growElements + 1) * sizeof (FcChar8 *));
+    if (!strs)
+        return FcFalse;
+    if (set->num)
+        memcpy (strs, set->strs, set->num * sizeof (FcChar8 *));
+    if (set->strs)
+        free (set->strs);
+    set->size = set->size + growElements;
+    set->strs = strs;
+    return FcTrue;
 }
 
 static FcBool
 _FcStrSetAppend (FcStrSet *set, FcChar8 *s)
 {
-    if (FcStrSetMember (set, s))
+    if (!FcStrSetHasControlBit (set, FCSS_ALLOW_DUPLICATES))
     {
-	FcStrFree (s);
-	return FcTrue;
+        if (FcStrSetMember (set, s))
+        {
+            FcStrFree (s);
+            return FcTrue;
+        }
     }
     if (set->num == set->size)
     {
-	FcChar8	**strs = malloc ((set->size + 2) * sizeof (FcChar8 *));
-
-	if (!strs)
-	    return FcFalse;
-	if (set->num)
-	    memcpy (strs, set->strs, set->num * sizeof (FcChar8 *));
-	if (set->strs)
-	    free (set->strs);
-	set->size = set->size + 1;
-	set->strs = strs;
+        int growElements = FcStrSetHasControlBit (set, FCSS_GROW_BY_64) ? 64 : 1;
+        if (!_FcStrSetGrow(set, growElements))
+            return FcFalse;
     }
     set->strs[set->num++] = s;
     set->strs[set->num] = 0;

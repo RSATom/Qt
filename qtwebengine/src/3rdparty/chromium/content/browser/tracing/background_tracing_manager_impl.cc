@@ -13,24 +13,32 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "base/values.h"
+#include "components/tracing/common/trace_startup_config.h"
 #include "content/browser/tracing/background_memory_tracing_observer.h"
+#include "content/browser/tracing/background_startup_tracing_observer.h"
 #include "content/browser/tracing/background_tracing_rule.h"
 #include "content/browser/tracing/trace_message_filter.h"
 #include "content/browser/tracing/tracing_controller_impl.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/tracing_delegate.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
+#include "services/tracing/public/cpp/trace_event_agent.h"
+
+using base::trace_event::TraceConfig;
 
 namespace content {
 
 namespace {
 
-base::LazyInstance<BackgroundTracingManagerImpl>::Leaky g_controller =
-    LAZY_INSTANCE_INITIALIZER;
+base::LazyInstance<BackgroundTracingManagerImpl>::Leaky
+    g_background_tracing_manager = LAZY_INSTANCE_INITIALIZER;
 
 // These values are used for a histogram. Do not reorder.
 enum BackgroundTracingMetrics {
@@ -42,8 +50,11 @@ enum BackgroundTracingMetrics {
   FINALIZATION_ALLOWED = 5,
   FINALIZATION_DISALLOWED = 6,
   FINALIZATION_STARTED = 7,
-  FINALIZATION_COMPLETE = 8,
+  OBSOLETE_FINALIZATION_COMPLETE = 8,
   SCENARIO_ACTION_FAILED_LOWRES_CLOCK = 9,
+  UPLOAD_FAILED = 10,
+  UPLOAD_SUCCEEDED = 11,
+  STARTUP_SCENARIO_TRIGGERED = 12,
   NUMBER_OF_BACKGROUND_TRACING_METRICS,
 };
 
@@ -85,7 +96,7 @@ BackgroundTracingManager* BackgroundTracingManager::GetInstance() {
 }
 
 BackgroundTracingManagerImpl* BackgroundTracingManagerImpl::GetInstance() {
-  return g_controller.Pointer();
+  return g_background_tracing_manager.Pointer();
 }
 
 BackgroundTracingManagerImpl::BackgroundTracingManagerImpl()
@@ -96,24 +107,32 @@ BackgroundTracingManagerImpl::BackgroundTracingManagerImpl()
       trigger_handle_ids_(0),
       triggered_named_event_handle_(-1) {
   AddEnabledStateObserver(BackgroundMemoryTracingObserver::GetInstance());
+  AddEnabledStateObserver(BackgroundStartupTracingObserver::GetInstance());
 }
 
 BackgroundTracingManagerImpl::~BackgroundTracingManagerImpl() {
   NOTREACHED();
 }
 
+void BackgroundTracingManagerImpl::AddMetadataGeneratorFunction() {
+  tracing::TraceEventAgent::GetInstance()->AddMetadataGeneratorFunction(
+      base::BindRepeating(&BackgroundTracingManagerImpl::GenerateMetadataDict,
+                          base::Unretained(this)));
+}
+
 void BackgroundTracingManagerImpl::WhenIdle(
     base::Callback<void()> idle_callback) {
   CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  idle_callback_ = idle_callback;
+  idle_callback_ = std::move(idle_callback);
 }
 
 bool BackgroundTracingManagerImpl::SetActiveScenario(
     std::unique_ptr<BackgroundTracingConfig> config,
-    const BackgroundTracingManager::ReceiveCallback& receive_callback,
+    BackgroundTracingManager::ReceiveCallback receive_callback,
     DataFiltering data_filtering) {
   CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  RecordBackgroundTracingMetric(SCENARIO_ACTIVATION_REQUESTED);
+  if (config)
+    RecordBackgroundTracingMetric(SCENARIO_ACTIVATION_REQUESTED);
 
   if (is_tracing_)
     return false;
@@ -121,31 +140,49 @@ bool BackgroundTracingManagerImpl::SetActiveScenario(
   // If we don't have a high resolution timer available, traces will be
   // too inaccurate to be useful.
   if (!base::TimeTicks::IsHighResolution()) {
-    RecordBackgroundTracingMetric(SCENARIO_ACTION_FAILED_LOWRES_CLOCK);
+    if (config)
+      RecordBackgroundTracingMetric(SCENARIO_ACTION_FAILED_LOWRES_CLOCK);
     return false;
   }
 
+  std::unique_ptr<content::BackgroundTracingConfigImpl> config_impl(
+      static_cast<BackgroundTracingConfigImpl*>(config.release()));
+  config_impl = BackgroundStartupTracingObserver::GetInstance()
+                    ->IncludeStartupConfigIfNeeded(std::move(config_impl));
+  if (BackgroundStartupTracingObserver::GetInstance()
+          ->enabled_in_current_session()) {
+    // Anonymize data for startup tracing by default. We currently do not
+    // support storing the config in preferences for next session.
+    data_filtering = DataFiltering::ANONYMIZE_DATA;
+    RecordBackgroundTracingMetric(STARTUP_SCENARIO_TRIGGERED);
+  } else {
+    // If startup config was not set and tracing was enabled, then do not set
+    // any scenario.
+    if (base::trace_event::TraceLog::GetInstance()->IsEnabled())
+      return false;
+  }
+
+  if (!config_impl)
+    return false;
+
   bool requires_anonymized_data = (data_filtering == ANONYMIZE_DATA);
 
-  // If the I/O thread isn't running, this is a startup scenario and
-  // we have to wait until initialization is finished to validate that the
-  // scenario can run.
-  if (BrowserThread::IsThreadInitialized(BrowserThread::IO)) {
+  // If the profile hasn't loaded or been created yet, this is a startup
+  // scenario and we have to wait until initialization is finished to validate
+  // that the scenario can run.
+  if (!delegate_ || delegate_->IsProfileLoaded()) {
     // TODO(oysteine): Retry when time_until_allowed has elapsed.
-    if (config && delegate_ &&
+    if (config_impl && delegate_ &&
         !delegate_->IsAllowedToBeginBackgroundScenario(
-            *config.get(), requires_anonymized_data)) {
+            *config_impl.get(), requires_anonymized_data)) {
       return false;
     }
   } else {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::Bind(&BackgroundTracingManagerImpl::ValidateStartupScenario,
-                   base::Unretained(this)));
+        base::BindOnce(&BackgroundTracingManagerImpl::ValidateStartupScenario,
+                       base::Unretained(this)));
   }
-
-  std::unique_ptr<const content::BackgroundTracingConfigImpl> config_impl(
-      static_cast<BackgroundTracingConfigImpl*>(config.release()));
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
@@ -170,23 +207,21 @@ bool BackgroundTracingManagerImpl::SetActiveScenario(
   }
 
   config_ = std::move(config_impl);
-  receive_callback_ = receive_callback;
+  receive_callback_ = std::move(receive_callback);
   requires_anonymized_data_ = requires_anonymized_data;
 
-  if (config_) {
-    DCHECK(!config_->rules().empty());
-    for (const auto& rule : config_->rules())
-      rule->Install();
+  DCHECK(!config_->rules().empty());
+  for (const auto& rule : config_->rules())
+    rule->Install();
 
-    if (!config_->enable_blink_features().empty()) {
-      command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
-                                      config_->enable_blink_features());
-    }
+  if (!config_->enable_blink_features().empty()) {
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    config_->enable_blink_features());
+  }
 
-    if (!config_->disable_blink_features().empty()) {
-      command_line->AppendSwitchASCII(switches::kDisableBlinkFeatures,
-                                      config_->disable_blink_features());
-    }
+  if (!config_->disable_blink_features().empty()) {
+    command_line->AppendSwitchASCII(switches::kDisableBlinkFeatures,
+                                    config_->disable_blink_features());
   }
 
   // Notify observers before starting tracing.
@@ -308,12 +343,15 @@ BackgroundTracingManagerImpl::GetRuleAbleToTriggerTracing(
 void BackgroundTracingManagerImpl::OnHistogramTrigger(
     const std::string& histogram_name) {
   if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&BackgroundTracingManagerImpl::OnHistogramTrigger,
-                   base::Unretained(this), histogram_name));
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
+        base::BindOnce(&BackgroundTracingManagerImpl::OnHistogramTrigger,
+                       base::Unretained(this), histogram_name));
     return;
   }
+
+  if (!config_)
+    return;
 
   for (const auto& rule : config_->rules()) {
     if (rule->ShouldTriggerNamedEvent(histogram_name))
@@ -325,10 +363,10 @@ void BackgroundTracingManagerImpl::TriggerNamedEvent(
     BackgroundTracingManagerImpl::TriggerHandle handle,
     StartedFinalizingCallback callback) {
   if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
-        base::Bind(&BackgroundTracingManagerImpl::TriggerNamedEvent,
-                   base::Unretained(this), handle, callback));
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
+        base::BindOnce(&BackgroundTracingManagerImpl::TriggerNamedEvent,
+                       base::Unretained(this), handle, std::move(callback)));
     return;
   }
 
@@ -348,23 +386,27 @@ void BackgroundTracingManagerImpl::TriggerNamedEvent(
 
   if (!is_valid_trigger) {
     if (!callback.is_null())
-      callback.Run(false);
+      std::move(callback).Run(false);
     return;
   }
 
   triggered_named_event_handle_ = handle;
-  OnRuleTriggered(triggered_rule, callback);
+  OnRuleTriggered(triggered_rule, std::move(callback));
 }
 
 void BackgroundTracingManagerImpl::OnRuleTriggered(
     const BackgroundTracingRule* triggered_rule,
     StartedFinalizingCallback callback) {
-  CHECK(config_);
+  // Config can be null here if scenario was aborted when validation and rule
+  // was triggered just before validation. If validation kicked in after this
+  // point, we still check before uploading.
+  if (!config_)
+    return;
 
   double trigger_chance = triggered_rule->trigger_chance();
   if (trigger_chance < 1.0 && base::RandDouble() > trigger_chance) {
     if (!callback.is_null())
-      callback.Run(false);
+      std::move(callback).Run(false);
     return;
   }
 
@@ -389,7 +431,7 @@ void BackgroundTracingManagerImpl::OnRuleTriggered(
         trace_delay = -1;
       } else {
         if (!callback.is_null())
-          callback.Run(false);
+          std::move(callback).Run(false);
         return;
       }
     }
@@ -399,7 +441,7 @@ void BackgroundTracingManagerImpl::OnRuleTriggered(
     // otherwise we do nothing.
     if (!is_tracing_ || is_gathering_ || tracing_timer_) {
       if (!callback.is_null())
-        callback.Run(false);
+        std::move(callback).Run(false);
       return;
     }
 
@@ -407,9 +449,9 @@ void BackgroundTracingManagerImpl::OnRuleTriggered(
   }
 
   if (trace_delay < 0) {
-    BeginFinalizing(callback);
+    BeginFinalizing(std::move(callback));
   } else {
-    tracing_timer_.reset(new TracingTimer(callback));
+    tracing_timer_.reset(new TracingTimer(std::move(callback)));
     tracing_timer_->StartTimer(trace_delay);
   }
 
@@ -447,7 +489,7 @@ void BackgroundTracingManagerImpl::InvalidateTriggerHandlesForTesting() {
 void BackgroundTracingManagerImpl::SetRuleTriggeredCallbackForTesting(
     const base::Closure& callback) {
   rule_triggered_callback_for_testing_ = callback;
-};
+}
 
 void BackgroundTracingManagerImpl::FireTimerForTesting() {
   DCHECK(tracing_timer_);
@@ -457,31 +499,35 @@ void BackgroundTracingManagerImpl::FireTimerForTesting() {
 void BackgroundTracingManagerImpl::StartTracing(
     BackgroundTracingConfigImpl::CategoryPreset preset,
     base::trace_event::TraceRecordMode record_mode) {
-  base::trace_event::TraceConfig trace_config(
-      GetCategoryFilterStringForCategoryPreset(preset), record_mode);
+  TraceConfig config = GetConfigForCategoryPreset(preset, record_mode);
   if (requires_anonymized_data_)
-    trace_config.EnableArgumentFilter();
+    config.EnableArgumentFilter();
+#if defined(OS_ANDROID)
+  // Set low trace buffer size on Android in order to upload small trace files.
+  if (config_->tracing_mode() == BackgroundTracingConfigImpl::PREEMPTIVE)
+    config.SetTraceBufferSizeInEvents(20000);
+#endif
 
-  if (preset ==
-      BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_MEMORY_LIGHT) {
-    // On memory light mode, the periodic memory dumps are disabled.
-    // TODO(ssid): Remove this when memory-infra supports peak detection
-    // crbug.com/609935.
-    base::trace_event::TraceConfig::MemoryDumpConfig memory_config;
-    memory_config.allowed_dump_modes =
-        std::set<base::trace_event::MemoryDumpLevelOfDetail>(
-            {base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND});
-    trace_config.ResetMemoryDumpConfig(memory_config);
+  // Activate the categories immediately. StartTracing eventually does this
+  // itself, but asynchronously via PostTask, and in the meantime events will be
+  // dropped. This ensures that we start recording events for those categories
+  // immediately.
+  if (is_tracing_) {
+    uint8_t modes = base::trace_event::TraceLog::RECORDING_MODE;
+    if (!config.event_filters().empty())
+      modes |= base::trace_event::TraceLog::FILTERING_MODE;
+    base::trace_event::TraceLog::GetInstance()->SetEnabled(config, modes);
   }
 
-  is_tracing_ = TracingController::GetInstance()->StartTracing(
-      trace_config,
-      base::Bind(&BackgroundTracingManagerImpl::OnStartTracingDone,
-                 base::Unretained(this), preset));
+  is_tracing_ = TracingControllerImpl::GetInstance()->StartTracing(
+      config, base::BindOnce(&BackgroundTracingManagerImpl::OnStartTracingDone,
+                             base::Unretained(this), preset));
+
   RecordBackgroundTracingMetric(RECORDING_ENABLED);
 }
 
 void BackgroundTracingManagerImpl::OnFinalizeStarted(
+    base::Closure started_finalizing_closure,
     std::unique_ptr<const base::DictionaryValue> metadata,
     base::RefCountedString* file_contents) {
   CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
@@ -493,17 +539,20 @@ void BackgroundTracingManagerImpl::OnFinalizeStarted(
   if (!receive_callback_.is_null()) {
     receive_callback_.Run(
         file_contents, std::move(metadata),
-        base::Bind(&BackgroundTracingManagerImpl::OnFinalizeComplete,
-                   base::Unretained(this)));
+        base::BindOnce(&BackgroundTracingManagerImpl::OnFinalizeComplete,
+                       base::Unretained(this)));
   }
+
+  if (!started_finalizing_closure.is_null())
+    std::move(started_finalizing_closure).Run();
 }
 
-void BackgroundTracingManagerImpl::OnFinalizeComplete() {
+void BackgroundTracingManagerImpl::OnFinalizeComplete(bool success) {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(&BackgroundTracingManagerImpl::OnFinalizeComplete,
-                   base::Unretained(this)));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(&BackgroundTracingManagerImpl::OnFinalizeComplete,
+                       base::Unretained(this), success));
     return;
   }
 
@@ -527,20 +576,33 @@ void BackgroundTracingManagerImpl::OnFinalizeComplete() {
     AbortScenario();
   }
 
-  RecordBackgroundTracingMetric(FINALIZATION_COMPLETE);
+  if (success) {
+    RecordBackgroundTracingMetric(UPLOAD_SUCCEEDED);
+  } else {
+    RecordBackgroundTracingMetric(UPLOAD_FAILED);
+  }
 }
 
-void BackgroundTracingManagerImpl::AddCustomMetadata() {
-  base::DictionaryValue metadata_dict;
+bool BackgroundTracingManagerImpl::IsAllowedFinalization() const {
+  return !delegate_ ||
+         (config_ && delegate_->IsAllowedToEndBackgroundScenario(
+                         *config_.get(), requires_anonymized_data_));
+}
 
-  std::unique_ptr<base::DictionaryValue> config_dict(
-      new base::DictionaryValue());
-  config_->IntoDict(config_dict.get());
-  metadata_dict.Set("config", std::move(config_dict));
+std::unique_ptr<base::DictionaryValue>
+BackgroundTracingManagerImpl::GenerateMetadataDict() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  auto metadata_dict = std::make_unique<base::DictionaryValue>();
+  if (config_) {
+    auto config_dict = std::make_unique<base::DictionaryValue>();
+    config_->IntoDict(config_dict.get());
+    metadata_dict->Set("config", std::move(config_dict));
+    metadata_dict->SetString("scenario_name", config_->scenario_name());
+  }
   if (last_triggered_rule_)
-    metadata_dict.Set("last_triggered_rule", std::move(last_triggered_rule_));
-
-  TracingController::GetInstance()->AddMetadata(metadata_dict);
+    metadata_dict->Set("last_triggered_rule", std::move(last_triggered_rule_));
+  return metadata_dict;
 }
 
 void BackgroundTracingManagerImpl::BeginFinalizing(
@@ -550,71 +612,162 @@ void BackgroundTracingManagerImpl::BeginFinalizing(
   triggered_named_event_handle_ = -1;
   tracing_timer_.reset();
 
-  bool is_allowed_finalization =
-      !delegate_ || (config_ &&
-                     delegate_->IsAllowedToEndBackgroundScenario(
-                         *config_.get(), requires_anonymized_data_));
-
-  scoped_refptr<TracingControllerImpl::TraceDataSink> trace_data_sink;
+  scoped_refptr<TracingControllerImpl::TraceDataEndpoint> trace_data_endpoint;
+  bool is_allowed_finalization = IsAllowedFinalization();
+  base::Closure started_finalizing_closure;
+  if (!callback.is_null()) {
+    started_finalizing_closure =
+        base::BindRepeating(callback, is_allowed_finalization);
+  }
   if (is_allowed_finalization) {
-    trace_data_sink = TracingControllerImpl::CreateCompressedStringSink(
-        TracingControllerImpl::CreateCallbackEndpoint(
-            base::Bind(&BackgroundTracingManagerImpl::OnFinalizeStarted,
-                       base::Unretained(this))));
+    trace_data_endpoint = TracingControllerImpl::CreateCompressedStringEndpoint(
+        TracingControllerImpl::CreateCallbackEndpoint(base::Bind(
+            &BackgroundTracingManagerImpl::OnFinalizeStarted,
+            base::Unretained(this), std::move(started_finalizing_closure))),
+        true /* compress_with_background_priority */);
     RecordBackgroundTracingMetric(FINALIZATION_ALLOWED);
-    AddCustomMetadata();
   } else {
+    if (!std::move(callback).is_null()) {
+      trace_data_endpoint =
+          TracingControllerImpl::CreateCallbackEndpoint(base::BindRepeating(
+              [](base::Closure closure,
+                 std::unique_ptr<const base::DictionaryValue> metadata,
+                 base::RefCountedString* file_contents) {
+                std::move(closure).Run();
+              },
+              std::move(started_finalizing_closure)));
+    }
     RecordBackgroundTracingMetric(FINALIZATION_DISALLOWED);
   }
 
-  content::TracingController::GetInstance()->StopTracing(trace_data_sink);
-
-  if (!callback.is_null())
-    callback.Run(is_allowed_finalization);
+  content::TracingControllerImpl::GetInstance()->StopTracing(
+      trace_data_endpoint);
 }
 
 void BackgroundTracingManagerImpl::AbortScenario() {
+  if (is_tracing_) {
+    scoped_refptr<TracingControllerImpl::TraceDataEndpoint> trace_data_endpoint;
+    trace_data_endpoint =
+        TracingControllerImpl::CreateCallbackEndpoint(base::BindRepeating(
+            &BackgroundTracingManagerImpl::OnAbortScenarioReceived,
+            base::Unretained(this)));
+
+    content::TracingControllerImpl::GetInstance()->StopTracing(
+        trace_data_endpoint);
+  } else {
+    OnAbortScenarioReceived(nullptr, nullptr);
+  }
+}
+
+void BackgroundTracingManagerImpl::OnAbortScenarioReceived(
+    std::unique_ptr<const base::DictionaryValue> metadata,
+    base::RefCountedString* trace_str) {
+  if (base::trace_event::TraceLog::GetInstance()->IsEnabled()) {
+    // Since the BackgroundTracingManager directly enables tracing
+    // in TraceLog, in addition to going through Mojo, there's an edge-case
+    // where tracing is rapidly stopped after starting, too quickly for the
+    // TraceEventAgent of the browser process to register itself, which means
+    // that we're left in a state where the Mojo interface doesn't think we're
+    // tracing but TraceLog is still enabled. If that's the case, we abort
+    // tracing here.
+    auto record_mode =
+        (config_->tracing_mode() == BackgroundTracingConfigImpl::PREEMPTIVE)
+            ? base::trace_event::RECORD_CONTINUOUSLY
+            : base::trace_event::RECORD_UNTIL_FULL;
+    TraceConfig config =
+        GetConfigForCategoryPreset(config_->category_preset(), record_mode);
+
+    uint8_t modes = base::trace_event::TraceLog::RECORDING_MODE;
+    if (!config.event_filters().empty())
+      modes |= base::trace_event::TraceLog::FILTERING_MODE;
+    base::trace_event::TraceLog::GetInstance()->SetDisabled(modes);
+  }
+
   is_tracing_ = false;
   triggered_named_event_handle_ = -1;
   config_.reset();
   tracing_timer_.reset();
 
-  content::TracingController::GetInstance()->StopTracing(nullptr);
+  for (auto* observer : background_tracing_observers_)
+    observer->OnScenarioAborted();
 }
 
-std::string
-BackgroundTracingManagerImpl::GetCategoryFilterStringForCategoryPreset(
-    BackgroundTracingConfigImpl::CategoryPreset preset) const {
+TraceConfig BackgroundTracingManagerImpl::GetConfigForCategoryPreset(
+    BackgroundTracingConfigImpl::CategoryPreset preset,
+    base::trace_event::TraceRecordMode record_mode) const {
   switch (preset) {
     case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK:
-      return "benchmark,toplevel";
+      return TraceConfig("benchmark,toplevel", record_mode);
     case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_DEEP:
-      return "*,disabled-by-default-benchmark.detailed,"
-             "disabled-by-default-v8.cpu_profile,"
-             "disabled-by-default-v8.runtime_stats";
+      return TraceConfig(
+          "*,disabled-by-default-benchmark.detailed,"
+          "disabled-by-default-v8.cpu_profile,"
+          "disabled-by-default-v8.runtime_stats",
+          record_mode);
     case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_GPU:
-      return "benchmark,toplevel,gpu";
+      return TraceConfig(
+          "benchmark,toplevel,gpu,base,mojom,ipc,"
+          "disabled-by-default-system_stats,disabled-by-default-cpu_profiler",
+          record_mode);
     case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_IPC:
-      return "benchmark,toplevel,ipc";
-    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_STARTUP:
-      return "benchmark,toplevel,startup,disabled-by-default-file,"
-             "disabled-by-default-toplevel.flow,"
-             "disabled-by-default-ipc.flow";
+      return TraceConfig("benchmark,toplevel,ipc", record_mode);
+    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_STARTUP: {
+      auto config =
+          tracing::TraceStartupConfig::GetDefaultBrowserStartupConfig();
+      config.SetTraceRecordMode(record_mode);
+      return config;
+    }
     case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_BLINK_GC:
-      return "blink_gc,disabled-by-default-blink_gc";
-    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_MEMORY_HEAVY:
-    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_MEMORY_LIGHT:
-      return "-*,disabled-by-default-memory-infra";
+      return TraceConfig("blink_gc,disabled-by-default-blink_gc", record_mode);
     case BackgroundTracingConfigImpl::CategoryPreset::
         BENCHMARK_EXECUTION_METRIC:
-      return "blink.console,v8";
+      return TraceConfig("blink.console,v8", record_mode);
+    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_NAVIGATION: {
+      auto config = TraceConfig(
+          "benchmark,toplevel,ipc,base,browser,navigation,omnibox,ui,shutdown,"
+          "safe_browsing,Java,EarlyJava,loading,startup,"
+          "disabled-by-default-system_stats,disabled-by-default-cpu_profiler",
+          record_mode);
+      // Filter only browser process events.
+      base::trace_event::TraceConfig::ProcessFilterConfig process_config(
+          {base::GetCurrentProcId()});
+      config.SetProcessFilterConfig(process_config);
+      return config;
+    }
+    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_RENDERERS:
+      return TraceConfig(
+          "benchmark,toplevel,ipc,base,ui,v8,renderer,blink,blink_gc,"
+          "disabled-by-default-v8.gc,"
+          "disabled-by-default-blink_gc,"
+          "disabled-by-default-renderer.scheduler,"
+          "disabled-by-default-system_stats,disabled-by-default-cpu_profiler",
+          record_mode);
+    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_SERVICEWORKER:
+      return TraceConfig(
+          "benchmark,toplevel,ipc,base,ServiceWorker,CacheStorage,Blob,"
+          "loader,loading,navigation,blink.user_timing,"
+          "disabled-by-default-network",
+          record_mode);
     case BackgroundTracingConfigImpl::CategoryPreset::BLINK_STYLE:
-      return "blink_style";
+      return TraceConfig("blink_style", record_mode);
+
+    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_MEMORY_HEAVY:
+      return TraceConfig("-*,disabled-by-default-memory-infra", record_mode);
+    case BackgroundTracingConfigImpl::CategoryPreset::BENCHMARK_MEMORY_LIGHT: {
+      // On memory light mode, the periodic memory dumps are disabled.
+      base::trace_event::TraceConfig::MemoryDumpConfig memory_config;
+      memory_config.allowed_dump_modes =
+          std::set<base::trace_event::MemoryDumpLevelOfDetail>(
+              {base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND});
+      TraceConfig config("-*,disabled-by-default-memory-infra", record_mode);
+      config.ResetMemoryDumpConfig(memory_config);
+      return config;
+    }
     case BackgroundTracingConfigImpl::CategoryPreset::CATEGORY_PRESET_UNSET:
       NOTREACHED();
   }
   NOTREACHED();
-  return "";
+  return TraceConfig();
 }
 
-}  // namspace content
+}  // namespace content

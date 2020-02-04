@@ -178,6 +178,6 @@ QAmbientLightReading *QAmbientLightSensor::reading() const
     return static_cast<QAmbientLightReading*>(QSensor::reading());
 }
 
-#include "moc_qambientlightsensor.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qambientlightsensor.cpp"

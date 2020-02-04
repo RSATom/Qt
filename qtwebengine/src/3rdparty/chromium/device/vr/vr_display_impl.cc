@@ -7,100 +7,98 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "device/vr/vr_device.h"
-#include "device/vr/vr_device_manager.h"
-#include "device/vr/vr_service_impl.h"
+#include "device/vr/vr_device_base.h"
+
+namespace {
+constexpr int kMaxImageHeightOrWidth = 8000;
+}  // namespace
 
 namespace device {
 
-VRDisplayImpl::VRDisplayImpl(device::VRDevice* device,
-                             int render_frame_process_id,
-                             int render_frame_routing_id,
-                             mojom::VRServiceClient* service_client,
-                             mojom::VRDisplayInfoPtr display_info)
-    : binding_(this),
-      device_(device),
-      render_frame_process_id_(render_frame_process_id),
-      render_frame_routing_id_(render_frame_routing_id),
-      weak_ptr_factory_(this) {
-  device_->AddDisplay(this);
-  mojom::VRDisplayPtr display;
-  binding_.Bind(mojo::MakeRequest(&display));
-  service_client->OnDisplayConnected(
-      std::move(display), mojo::MakeRequest(&client_), std::move(display_info));
+VRDisplayImpl::VRDisplayImpl(
+    VRDeviceBase* device,
+    mojom::XRFrameDataProviderRequest magic_window_request,
+    mojom::XRSessionControllerRequest session_request)
+    : magic_window_binding_(this, std::move(magic_window_request)),
+      environment_binding_(this),
+      session_controller_binding_(this, std::move(session_request)),
+      device_(device) {
+  // Unretained is safe because the binding will close when we are destroyed,
+  // so we won't receive any more callbacks after that.
+  session_controller_binding_.set_connection_error_handler(base::BindOnce(
+      &VRDisplayImpl::OnMojoConnectionError, base::Unretained(this)));
 }
 
-VRDisplayImpl::~VRDisplayImpl() {
-  device_->RemoveDisplay(this);
-}
+VRDisplayImpl::~VRDisplayImpl() = default;
 
-void VRDisplayImpl::OnChanged(mojom::VRDisplayInfoPtr vr_device_info) {
-  client_->OnChanged(std::move(vr_device_info));
-}
-
-void VRDisplayImpl::OnExitPresent() {
-  client_->OnExitPresent();
-}
-
-void VRDisplayImpl::OnBlur() {
-  client_->OnBlur();
-}
-
-void VRDisplayImpl::OnFocus() {
-  client_->OnFocus();
-}
-
-void VRDisplayImpl::OnActivate(mojom::VRDisplayEventReason reason,
-                               const base::Callback<void(bool)>& on_handled) {
-  client_->OnActivate(reason, on_handled);
-}
-
-void VRDisplayImpl::OnDeactivate(mojom::VRDisplayEventReason reason) {
-  client_->OnDeactivate(reason);
-}
-
-void VRDisplayImpl::RequestPresent(bool secure_origin,
-                                   mojom::VRSubmitFrameClientPtr submit_client,
-                                   mojom::VRPresentationProviderRequest request,
-                                   RequestPresentCallback callback) {
-  if (!device_->IsAccessAllowed(this)) {
-    std::move(callback).Run(false);
-    return;
-  }
-
-  device_->RequestPresent(std::move(submit_client), std::move(request),
-                          base::Bind(&VRDisplayImpl::RequestPresentResult,
-                                     weak_ptr_factory_.GetWeakPtr(),
-                                     base::Passed(&callback), secure_origin));
-}
-
-void VRDisplayImpl::RequestPresentResult(RequestPresentCallback callback,
-                                         bool secure_origin,
-                                         bool success) {
-  if (success) {
-    device_->SetPresentingDisplay(this);
-    device_->SetSecureOrigin(secure_origin);
-  }
-  std::move(callback).Run(success);
-}
-
-void VRDisplayImpl::ExitPresent() {
-  if (device_->CheckPresentingDisplay(this))
-    device_->ExitPresent();
-}
-
-void VRDisplayImpl::GetNextMagicWindowPose(
-    GetNextMagicWindowPoseCallback callback) {
-  if (!device_->IsAccessAllowed(this)) {
+// Gets frame data for sessions.
+void VRDisplayImpl::GetFrameData(
+    mojom::XRFrameDataProvider::GetFrameDataCallback callback) {
+  if (device_->HasExclusiveSession() || restrict_frame_data_) {
     std::move(callback).Run(nullptr);
     return;
   }
-  device_->GetNextMagicWindowPose(this, std::move(callback));
+
+  device_->GetInlineFrameData(std::move(callback));
 }
 
-void VRDisplayImpl::SetListeningForActivate(bool listening) {
-  listening_for_activate_ = listening;
-  device_->OnListeningForActivateChanged(this);
+void VRDisplayImpl::GetEnvironmentIntegrationProvider(
+    mojom::XREnvironmentIntegrationProviderAssociatedRequest
+        environment_request) {
+  if (!device_->GetVRDisplayInfo()
+           ->capabilities->canProvideEnvironmentIntegration) {
+    // Environment integration is not supported. This call should not
+    // be made on this device.
+    mojo::ReportBadMessage("Environment integration is not supported.");
+    return;
+  }
+
+  environment_binding_.Bind(std::move(environment_request));
+}
+
+void VRDisplayImpl::UpdateSessionGeometry(const gfx::Size& frame_size,
+                                          display::Display::Rotation rotation) {
+  // Check for a valid frame size.
+
+  // TODO(https://crbug.com/841062, https://crbug.com/836496): Reconsider how we
+  // check the sizes.
+  if (frame_size.width() <= 0 || frame_size.height() <= 0 ||
+      frame_size.width() > kMaxImageHeightOrWidth ||
+      frame_size.height() > kMaxImageHeightOrWidth) {
+    DLOG(ERROR) << "Invalid frame size passed to UpdateSessionGeometry.";
+    return;
+  }
+
+  session_frame_size_ = frame_size;
+  session_rotation_ = rotation;
+}
+
+void VRDisplayImpl::RequestHitTest(
+    mojom::XRRayPtr ray,
+    mojom::XREnvironmentIntegrationProvider::RequestHitTestCallback callback) {
+  if (restrict_frame_data_) {
+    std::move(callback).Run(base::nullopt);
+    return;
+  }
+  device_->RequestHitTest(std::move(ray), std::move(callback));
+}
+
+// XRSessionController
+void VRDisplayImpl::SetFrameDataRestricted(bool frame_data_restricted) {
+  restrict_frame_data_ = frame_data_restricted;
+  if (device_->ShouldPauseTrackingWhenFrameDataRestricted()) {
+    if (restrict_frame_data_) {
+      device_->PauseTracking();
+    } else {
+      device_->ResumeTracking();
+    }
+  }
+}
+
+void VRDisplayImpl::OnMojoConnectionError() {
+  magic_window_binding_.Close();
+  session_controller_binding_.Close();
+  device_->EndMagicWindowSession(this);  // This call will destroy us.
 }
 
 }  // namespace device

@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/threading/sequence_local_storage_map.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -88,7 +88,7 @@ TEST_F(SequenceLocalStorageSlotTest, GetReferenceModifiable) {
 
 // Verify that a move-only type can be stored in sequence local storage.
 TEST_F(SequenceLocalStorageSlotTest, SetGetWithMoveOnlyType) {
-  std::unique_ptr<int> int_unique_ptr = MakeUnique<int>(5);
+  std::unique_ptr<int> int_unique_ptr = std::make_unique<int>(5);
 
   SequenceLocalStorageSlot<std::unique_ptr<int>> slot;
   slot.Set(std::move(int_unique_ptr));
@@ -125,14 +125,14 @@ TEST(SequenceLocalStorageSlotMultipleMapTest, SetGetMultipleMapsOneSlot) {
 
   // Set the value of the slot to be the index of the current
   // SequenceLocalStorageMaps in the vector
-  for (unsigned int i = 0; i < arraysize(sequence_local_storage_maps); ++i) {
+  for (unsigned int i = 0; i < base::size(sequence_local_storage_maps); ++i) {
     internal::ScopedSetSequenceLocalStorageMapForCurrentThread
         scoped_sequence_local_storage(&sequence_local_storage_maps[i]);
 
     slot.Set(i);
   }
 
-  for (unsigned int i = 0; i < arraysize(sequence_local_storage_maps); ++i) {
+  for (unsigned int i = 0; i < base::size(sequence_local_storage_maps); ++i) {
     internal::ScopedSetSequenceLocalStorageMapForCurrentThread
         scoped_sequence_local_storage(&sequence_local_storage_maps[i]);
 

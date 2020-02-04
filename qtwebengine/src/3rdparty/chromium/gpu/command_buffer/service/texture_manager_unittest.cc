@@ -17,8 +17,10 @@
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/framebuffer_manager.h"
 #include "gpu/command_buffer/service/gl_stream_texture_image.h"
+#include "gpu/command_buffer/service/gl_stream_texture_image_stub.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_mock.h"
 #include "gpu/command_buffer/service/gpu_service_test.h"
+#include "gpu/command_buffer/service/gpu_tracer.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/mocks.h"
@@ -71,27 +73,29 @@ class TextureManagerTest : public GpuServiceTest {
 
   TextureManagerTest() {
     GpuDriverBugWorkarounds gpu_driver_bug_workaround;
-    feature_info_ = new FeatureInfo(gpu_driver_bug_workaround);
+    feature_info_ =
+        new FeatureInfo(gpu_driver_bug_workaround, GpuFeatureInfo());
   }
 
-  ~TextureManagerTest() override {}
+  ~TextureManagerTest() override = default;
 
  protected:
   void SetUp() override {
     GpuServiceTest::SetUp();
     manager_.reset(new TextureManager(
-        NULL, feature_info_.get(), kMaxTextureSize, kMaxCubeMapTextureSize,
+        nullptr, feature_info_.get(), kMaxTextureSize, kMaxCubeMapTextureSize,
         kMaxRectangleTextureSize, kMax3DTextureSize, kMaxArrayTextureLayers,
         kUseDefaultTextures, nullptr, &discardable_manager_));
     SetupFeatureInfo("", "OpenGL ES 2.0", CONTEXT_TYPE_OPENGLES2);
     TestHelper::SetupTextureManagerInitExpectations(
-        gl_.get(), false, false, false, "", kUseDefaultTextures);
+        gl_.get(), false, false, false, {}, kUseDefaultTextures);
     manager_->Initialize();
-    error_state_.reset(new ::testing::StrictMock<gles2::MockErrorState>());
+    error_state_.reset(new ::testing::StrictMock<MockErrorState>());
   }
 
   void TearDown() override {
-    manager_->Destroy(false);
+    manager_->MarkContextLost();
+    manager_->Destroy();
     manager_.reset();
     GpuServiceTest::TearDown();
   }
@@ -141,39 +145,6 @@ const GLint TextureManagerTest::kMaxExternalLevels;
 const GLint TextureManagerTest::kMax3dLevels;
 #endif
 
-class GLStreamTextureImageStub : public GLStreamTextureImage {
- public:
-  GLStreamTextureImageStub() {}
-
-  // Overridden from GLImage:
-  gfx::Size GetSize() override { return gfx::Size(); }
-  unsigned GetInternalFormat() override { return 0; }
-  bool BindTexImage(unsigned target) override { return false; }
-  void ReleaseTexImage(unsigned target) override {}
-  bool CopyTexImage(unsigned target) override { return false; }
-  bool CopyTexSubImage(unsigned target,
-                       const gfx::Point& offset,
-                       const gfx::Rect& rect) override {
-    return false;
-  }
-  bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                            int z_order,
-                            gfx::OverlayTransform transform,
-                            const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect) override {
-    return false;
-  }
-  void Flush() override {}
-  void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
-                    uint64_t process_tracing_id,
-                    const std::string& dump_name) override {}
-  bool EmulatingRGB() const override { return false; }
-  void GetTextureMatrix(float matrix[16]) override {}
-
- protected:
-  ~GLStreamTextureImageStub() override {}
-};
-
 TEST_F(TextureManagerTest, Basic) {
   const GLuint kClient1Id = 1;
   const GLuint kService1Id = 11;
@@ -184,13 +155,13 @@ TEST_F(TextureManagerTest, Basic) {
   manager_->CreateTexture(kClient1Id, kService1Id);
   // Check texture got created.
   scoped_refptr<TextureRef> texture = manager_->GetTexture(kClient1Id);
-  ASSERT_TRUE(texture.get() != NULL);
+  ASSERT_TRUE(texture.get() != nullptr);
   EXPECT_EQ(kService1Id, texture->service_id());
   EXPECT_EQ(kClient1Id, texture->client_id());
   EXPECT_EQ(texture->texture(), manager_->GetTextureForServiceId(
       texture->service_id()));
   // Check we get nothing for a non-existent texture.
-  EXPECT_TRUE(manager_->GetTexture(kClient2Id) == NULL);
+  EXPECT_TRUE(manager_->GetTexture(kClient2Id) == nullptr);
   // Check trying to a remove non-existent textures does not crash.
   manager_->RemoveTexture(kClient2Id);
   // Check that it gets deleted when the last reference is released.
@@ -199,7 +170,7 @@ TEST_F(TextureManagerTest, Basic) {
       .RetiresOnSaturation();
   // Check we can't get the texture after we remove it.
   manager_->RemoveTexture(kClient1Id);
-  EXPECT_TRUE(manager_->GetTexture(kClient1Id) == NULL);
+  EXPECT_TRUE(manager_->GetTexture(kClient1Id) == nullptr);
   EXPECT_EQ(0u, texture->client_id());
 }
 
@@ -210,7 +181,7 @@ TEST_F(TextureManagerTest, SetParameter) {
   manager_->CreateTexture(kClient1Id, kService1Id);
   // Check texture got created.
   TextureRef* texture_ref = manager_->GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   Texture* texture = texture_ref->texture();
   manager_->SetTarget(texture_ref, GL_TEXTURE_2D);
   SetParameter(texture_ref, GL_TEXTURE_MIN_FILTER, GL_NEAREST, GL_NO_ERROR);
@@ -240,77 +211,83 @@ TEST_F(TextureManagerTest, SetParameter) {
 
 TEST_F(TextureManagerTest, UseDefaultTexturesTrue) {
   bool use_default_textures = true;
-  TestHelper::SetupTextureManagerInitExpectations(gl_.get(),
-      false, false, false, "GL_ANGLE_texture_usage", use_default_textures);
+  TestHelper::SetupTextureManagerInitExpectations(
+      gl_.get(), false, false, false, {"GL_ANGLE_texture_usage"},
+      use_default_textures);
   TextureManager manager(nullptr, feature_info_.get(), kMaxTextureSize,
                          kMaxCubeMapTextureSize, kMaxRectangleTextureSize,
                          kMax3DTextureSize, kMaxArrayTextureLayers,
                          use_default_textures, nullptr, &discardable_manager_);
   manager.Initialize();
 
-  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_2D) != NULL);
-  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_CUBE_MAP) != NULL);
+  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_2D) != nullptr);
+  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_CUBE_MAP) != nullptr);
 
   // TODO(vmiura): Test GL_TEXTURE_EXTERNAL_OES & GL_TEXTURE_RECTANGLE_ARB.
 
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureManagerTest, UseDefaultTexturesFalse) {
   bool use_default_textures = false;
-  TestHelper::SetupTextureManagerInitExpectations(gl_.get(),
-      false, false, false, "GL_ANGLE_texture_usage", use_default_textures);
+  TestHelper::SetupTextureManagerInitExpectations(
+      gl_.get(), false, false, false, {"GL_ANGLE_texture_usage"},
+      use_default_textures);
   TextureManager manager(nullptr, feature_info_.get(), kMaxTextureSize,
                          kMaxCubeMapTextureSize, kMaxRectangleTextureSize,
                          kMax3DTextureSize, kMaxArrayTextureLayers,
                          use_default_textures, nullptr, &discardable_manager_);
   manager.Initialize();
 
-  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_2D) == NULL);
-  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_CUBE_MAP) == NULL);
+  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_2D) == nullptr);
+  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_CUBE_MAP) == nullptr);
 
   // TODO(vmiura): Test GL_TEXTURE_EXTERNAL_OES & GL_TEXTURE_RECTANGLE_ARB.
 
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureManagerTest, UseDefaultTexturesTrueES3) {
   bool use_default_textures = true;
   SetupFeatureInfo("", "OpenGL ES 3.0", CONTEXT_TYPE_OPENGLES3);
-  TestHelper::SetupTextureManagerInitExpectations(gl_.get(),
-      true, true, false, "", use_default_textures);
+  TestHelper::SetupTextureManagerInitExpectations(gl_.get(), true, true, false,
+                                                  {}, use_default_textures);
   TextureManager manager(nullptr, feature_info_.get(), kMaxTextureSize,
                          kMaxCubeMapTextureSize, kMaxRectangleTextureSize,
                          kMax3DTextureSize, kMaxArrayTextureLayers,
                          use_default_textures, nullptr, &discardable_manager_);
   manager.Initialize();
 
-  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_3D) != NULL);
-  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_2D_ARRAY) != NULL);
+  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_3D) != nullptr);
+  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_2D_ARRAY) != nullptr);
 
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureManagerTest, UseDefaultTexturesFalseES3) {
   bool use_default_textures = false;
   SetupFeatureInfo("", "OpenGL ES 3.0", CONTEXT_TYPE_OPENGLES3);
-  TestHelper::SetupTextureManagerInitExpectations(gl_.get(),
-      true, true, false, "", use_default_textures);
+  TestHelper::SetupTextureManagerInitExpectations(gl_.get(), true, true, false,
+                                                  {}, use_default_textures);
   TextureManager manager(nullptr, feature_info_.get(), kMaxTextureSize,
                          kMaxCubeMapTextureSize, kMaxRectangleTextureSize,
                          kMax3DTextureSize, kMaxArrayTextureLayers,
                          use_default_textures, nullptr, &discardable_manager_);
   manager.Initialize();
 
-  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_3D) == NULL);
-  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_2D_ARRAY) == NULL);
+  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_3D) == nullptr);
+  EXPECT_TRUE(manager.GetDefaultTextureInfo(GL_TEXTURE_2D_ARRAY) == nullptr);
 
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureManagerTest, TextureUsageExt) {
   TestHelper::SetupTextureManagerInitExpectations(
-      gl_.get(), false, false, false, "GL_ANGLE_texture_usage",
+      gl_.get(), false, false, false, {"GL_ANGLE_texture_usage"},
       kUseDefaultTextures);
   TextureManager manager(nullptr, feature_info_.get(), kMaxTextureSize,
                          kMaxCubeMapTextureSize, kMaxRectangleTextureSize,
@@ -323,20 +300,21 @@ TEST_F(TextureManagerTest, TextureUsageExt) {
   manager.CreateTexture(kClient1Id, kService1Id);
   // Check texture got created.
   TextureRef* texture_ref = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   TestHelper::SetTexParameteriWithExpectations(
       gl_.get(), error_state_.get(), &manager, texture_ref,
       GL_TEXTURE_USAGE_ANGLE, GL_FRAMEBUFFER_ATTACHMENT_ANGLE, GL_NO_ERROR);
   EXPECT_EQ(static_cast<GLenum>(GL_FRAMEBUFFER_ATTACHMENT_ANGLE),
             texture_ref->texture()->usage());
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureManagerTest, Destroy) {
   const GLuint kClient1Id = 1;
   const GLuint kService1Id = 11;
   TestHelper::SetupTextureManagerInitExpectations(
-      gl_.get(), false, false, false, "", kUseDefaultTextures);
+      gl_.get(), false, false, false, {}, kUseDefaultTextures);
   TextureManager manager(nullptr, feature_info_.get(), kMaxTextureSize,
                          kMaxCubeMapTextureSize, kMaxRectangleTextureSize,
                          kMax3DTextureSize, kMaxArrayTextureLayers,
@@ -346,16 +324,16 @@ TEST_F(TextureManagerTest, Destroy) {
   manager.CreateTexture(kClient1Id, kService1Id);
   // Check texture got created.
   TextureRef* texture = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture != NULL);
+  ASSERT_TRUE(texture != nullptr);
   EXPECT_CALL(*gl_, DeleteTextures(1, ::testing::Pointee(kService1Id)))
       .Times(1)
       .RetiresOnSaturation();
   TestHelper::SetupTextureManagerDestructionExpectations(
-      gl_.get(), false, false, "", kUseDefaultTextures);
-  manager.Destroy(true);
+      gl_.get(), false, false, {}, kUseDefaultTextures);
+  manager.Destroy();
   // Check that resources got freed.
   texture = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture == NULL);
+  ASSERT_TRUE(texture == nullptr);
 }
 
 TEST_F(TextureManagerTest, MaxValues) {
@@ -504,7 +482,8 @@ TEST_F(TextureManagerTest, ValidForTargetNPOT) {
   EXPECT_TRUE(manager.ValidForTarget(GL_TEXTURE_2D, 1, 5, 2, 1));
   // Check NPOT height on level 1
   EXPECT_TRUE(manager.ValidForTarget(GL_TEXTURE_2D, 1, 2, 5, 1));
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureManagerTest, AlphaLuminanceCompatibilityProfile) {
@@ -512,8 +491,8 @@ TEST_F(TextureManagerTest, AlphaLuminanceCompatibilityProfile) {
   const GLuint kServiceId = 11;
 
   SetupFeatureInfo("", "2.1", CONTEXT_TYPE_OPENGLES2);
-  TestHelper::SetupTextureManagerInitExpectations(gl_.get(), false, false,
-      false, "", kUseDefaultTextures);
+  TestHelper::SetupTextureManagerInitExpectations(
+      gl_.get(), false, false, false, {}, kUseDefaultTextures);
   TextureManager manager(nullptr, feature_info_.get(), kMaxTextureSize,
                          kMaxCubeMapTextureSize, kMaxRectangleTextureSize,
                          kMax3DTextureSize, kMaxArrayTextureLayers,
@@ -554,7 +533,7 @@ TEST_F(TextureManagerTest, AlphaLuminanceCoreProfileEmulation) {
 
   SetupFeatureInfo("", "4.2", CONTEXT_TYPE_OPENGLES3);
   TestHelper::SetupTextureManagerInitExpectations(gl_.get(), true, true, true,
-      "", kUseDefaultTextures);
+                                                  {}, kUseDefaultTextures);
   TextureManager manager(nullptr, feature_info_.get(), kMaxTextureSize,
                          kMaxCubeMapTextureSize, kMaxRectangleTextureSize,
                          kMax3DTextureSize, kMaxArrayTextureLayers,
@@ -661,7 +640,7 @@ class TextureTestBase : public GpuServiceTest {
   TextureTestBase()
       : feature_info_(new FeatureInfo()) {
   }
-  ~TextureTestBase() override { texture_ref_ = NULL; }
+  ~TextureTestBase() override { texture_ref_ = nullptr; }
 
  protected:
   void SetUpBase(MemoryTracker* memory_tracker, const std::string& extensions) {
@@ -675,17 +654,17 @@ class TextureTestBase : public GpuServiceTest {
         kMaxCubeMapTextureSize, kMaxRectangleTextureSize, kMax3DTextureSize,
         kMaxArrayTextureLayers, kUseDefaultTextures, nullptr,
         &discardable_manager_));
-    decoder_.reset(new ::testing::StrictMock<gles2::MockGLES2Decoder>(
-        &command_buffer_service_));
-    error_state_.reset(new ::testing::StrictMock<gles2::MockErrorState>());
+    decoder_.reset(new ::testing::StrictMock<MockGLES2Decoder>(
+        &command_buffer_service_, &outputter_));
+    error_state_.reset(new ::testing::StrictMock<MockErrorState>());
     manager_->CreateTexture(kClient1Id, kService1Id);
     texture_ref_ = manager_->GetTexture(kClient1Id);
-    ASSERT_TRUE(texture_ref_.get() != NULL);
+    ASSERT_TRUE(texture_ref_.get() != nullptr);
   }
 
   void TearDown() override {
     if (texture_ref_.get()) {
-      // If it's not in the manager then setting texture_ref_ to NULL will
+      // If it's not in the manager then setting texture_ref_ to nullptr will
       // delete the texture.
       if (!texture_ref_->client_id()) {
         // Check that it gets deleted when the last reference is released.
@@ -694,9 +673,10 @@ class TextureTestBase : public GpuServiceTest {
             .Times(1)
             .RetiresOnSaturation();
       }
-      texture_ref_ = NULL;
+      texture_ref_ = nullptr;
     }
-    manager_->Destroy(false);
+    manager_->MarkContextLost();
+    manager_->Destroy();
     manager_.reset();
     GpuServiceTest::TearDown();
   }
@@ -709,6 +689,7 @@ class TextureTestBase : public GpuServiceTest {
   }
 
   FakeCommandBufferServiceBase command_buffer_service_;
+  TraceOutputter outputter_;
   std::unique_ptr<MockGLES2Decoder> decoder_;
   std::unique_ptr<MockErrorState> error_state_;
   scoped_refptr<FeatureInfo> feature_info_;
@@ -719,23 +700,21 @@ class TextureTestBase : public GpuServiceTest {
 
 class TextureTest : public TextureTestBase {
  protected:
-  void SetUp() override { SetUpBase(NULL, std::string()); }
+  void SetUp() override { SetUpBase(nullptr, std::string()); }
 };
 
 class TextureMemoryTrackerTest : public TextureTestBase {
  protected:
-  void SetUp() override {
-    mock_memory_tracker_ = new StrictMock<MockMemoryTracker>();
-    SetUpBase(mock_memory_tracker_.get(), std::string());
-  }
+  void SetUp() override { SetUpBase(&mock_memory_tracker_, std::string()); }
 
-  scoped_refptr<MockMemoryTracker> mock_memory_tracker_;
+  StrictMock<MockMemoryTracker> mock_memory_tracker_;
 };
 
-#define EXPECT_MEMORY_ALLOCATION_CHANGE(old_size, new_size)   \
-  EXPECT_CALL(*mock_memory_tracker_.get(),                    \
-              TrackMemoryAllocatedChange(old_size, new_size)) \
-      .Times(1).RetiresOnSaturation()
+#define EXPECT_MEMORY_ALLOCATION_CHANGE(old_size, new_size)    \
+  EXPECT_CALL(mock_memory_tracker_,                            \
+              TrackMemoryAllocatedChange(new_size - old_size)) \
+      .Times(1)                                                \
+      .RetiresOnSaturation()
 
 TEST_F(TextureTest, Basic) {
   Texture* texture = texture_ref_->texture();
@@ -841,7 +820,37 @@ TEST_F(TextureMemoryTrackerTest, EstimatedSize) {
                          0, GL_RGBA, GL_UNSIGNED_BYTE, gfx::Rect(8, 4));
   // Add expectation for texture deletion.
   EXPECT_MEMORY_ALLOCATION_CHANGE(256, 0);
-  EXPECT_MEMORY_ALLOCATION_CHANGE(0, 0);
+}
+
+TEST_F(TextureMemoryTrackerTest, LightweightRef) {
+  manager_->SetTarget(texture_ref_.get(), GL_TEXTURE_2D);
+  EXPECT_MEMORY_ALLOCATION_CHANGE(0, 64);
+  manager_->SetLevelInfo(texture_ref_.get(), GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 1,
+                         0, GL_RGBA, GL_UNSIGNED_BYTE, gfx::Rect(4, 4));
+
+  Texture* texture = texture_ref_->texture();
+  MemoryTypeTracker* old_tracker = texture->GetMemTracker();
+
+  EXPECT_MEMORY_ALLOCATION_CHANGE(64, 0);
+  texture->SetLightweightRef();
+  EXPECT_EQ(nullptr, texture->GetMemTracker());
+
+  EXPECT_MEMORY_ALLOCATION_CHANGE(0, 64);
+  texture->RemoveLightweightRef(true);
+  EXPECT_EQ(old_tracker, texture->GetMemTracker());
+
+  EXPECT_MEMORY_ALLOCATION_CHANGE(64, 0);
+  texture->SetLightweightRef();
+  EXPECT_EQ(nullptr, texture->GetMemTracker());
+
+  manager_->RemoveTexture(texture_ref_->client_id());
+  texture_ref_ = nullptr;
+
+  EXPECT_CALL(*gl_,
+              DeleteTextures(1, ::testing::Pointee(texture->service_id())))
+      .Times(1)
+      .RetiresOnSaturation();
+  texture->RemoveLightweightRef(true);
 }
 
 TEST_F(TextureTest, POT2D) {
@@ -936,11 +945,12 @@ TEST_F(TextureMemoryTrackerTest, MarkMipmapsGenerated) {
   manager_->SetLevelInfo(texture_ref_.get(), GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 1,
                          0, GL_RGBA, GL_UNSIGNED_BYTE, gfx::Rect(4, 4));
   EXPECT_MEMORY_ALLOCATION_CHANGE(64, 0);
+  EXPECT_MEMORY_ALLOCATION_CHANGE(0, 80);
+  EXPECT_MEMORY_ALLOCATION_CHANGE(80, 0);
   EXPECT_MEMORY_ALLOCATION_CHANGE(0, 84);
   EXPECT_TRUE(manager_->CanGenerateMipmaps(texture_ref_.get()));
   manager_->MarkMipmapsGenerated(texture_ref_.get());
   EXPECT_MEMORY_ALLOCATION_CHANGE(84, 0);
-  EXPECT_MEMORY_ALLOCATION_CHANGE(0, 0);
 }
 
 TEST_F(TextureTest, UnusedMips) {
@@ -1010,7 +1020,7 @@ TEST_F(TextureTest, NPOT2DNPOTOK) {
                          kUseDefaultTextures, nullptr, &discardable_manager_);
   manager.CreateTexture(kClient1Id, kService1Id);
   TextureRef* texture_ref = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   Texture* texture = texture_ref->texture();
 
   manager.SetTarget(texture_ref, GL_TEXTURE_2D);
@@ -1025,7 +1035,8 @@ TEST_F(TextureTest, NPOT2DNPOTOK) {
   manager.MarkMipmapsGenerated(texture_ref);
   EXPECT_TRUE(TextureTestHelper::IsTextureComplete(texture));
   EXPECT_TRUE(manager.CanRender(texture_ref));
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureTest, POTCubeMap) {
@@ -1308,7 +1319,7 @@ TEST_F(TextureTest, FloatNotLinear) {
                          kUseDefaultTextures, nullptr, &discardable_manager_);
   manager.CreateTexture(kClient1Id, kService1Id);
   TextureRef* texture_ref = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   manager.SetTarget(texture_ref, GL_TEXTURE_2D);
   Texture* texture = texture_ref->texture();
   EXPECT_EQ(static_cast<GLenum>(GL_TEXTURE_2D), texture->target());
@@ -1323,7 +1334,8 @@ TEST_F(TextureTest, FloatNotLinear) {
       gl_.get(), error_state_.get(), &manager, texture_ref,
       GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST, GL_NO_ERROR);
   EXPECT_TRUE(manager.CanRender(texture_ref));
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureTest, FloatLinear) {
@@ -1337,14 +1349,15 @@ TEST_F(TextureTest, FloatLinear) {
                          kUseDefaultTextures, nullptr, &discardable_manager_);
   manager.CreateTexture(kClient1Id, kService1Id);
   TextureRef* texture_ref = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   manager.SetTarget(texture_ref, GL_TEXTURE_2D);
   Texture* texture = texture_ref->texture();
   EXPECT_EQ(static_cast<GLenum>(GL_TEXTURE_2D), texture->target());
   manager.SetLevelInfo(texture_ref, GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 1, 0,
                        GL_RGBA, GL_FLOAT, gfx::Rect(1, 1));
   EXPECT_TRUE(manager.CanRender(texture_ref));
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureTest, HalfFloatNotLinear) {
@@ -1358,7 +1371,7 @@ TEST_F(TextureTest, HalfFloatNotLinear) {
                          kUseDefaultTextures, nullptr, &discardable_manager_);
   manager.CreateTexture(kClient1Id, kService1Id);
   TextureRef* texture_ref = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   manager.SetTarget(texture_ref, GL_TEXTURE_2D);
   Texture* texture = texture_ref->texture();
   EXPECT_EQ(static_cast<GLenum>(GL_TEXTURE_2D), texture->target());
@@ -1373,7 +1386,8 @@ TEST_F(TextureTest, HalfFloatNotLinear) {
       gl_.get(), error_state_.get(), &manager, texture_ref,
       GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST, GL_NO_ERROR);
   EXPECT_TRUE(manager.CanRender(texture_ref));
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureTest, HalfFloatLinear) {
@@ -1387,14 +1401,15 @@ TEST_F(TextureTest, HalfFloatLinear) {
                          kUseDefaultTextures, nullptr, &discardable_manager_);
   manager.CreateTexture(kClient1Id, kService1Id);
   TextureRef* texture_ref = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   manager.SetTarget(texture_ref, GL_TEXTURE_2D);
   Texture* texture = texture_ref->texture();
   EXPECT_EQ(static_cast<GLenum>(GL_TEXTURE_2D), texture->target());
   manager.SetLevelInfo(texture_ref, GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 1, 0,
                        GL_RGBA, GL_HALF_FLOAT_OES, gfx::Rect(1, 1));
   EXPECT_TRUE(manager.CanRender(texture_ref));
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureTest, EGLImageExternal) {
@@ -1408,12 +1423,13 @@ TEST_F(TextureTest, EGLImageExternal) {
                          kUseDefaultTextures, nullptr, &discardable_manager_);
   manager.CreateTexture(kClient1Id, kService1Id);
   TextureRef* texture_ref = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   manager.SetTarget(texture_ref, GL_TEXTURE_EXTERNAL_OES);
   Texture* texture = texture_ref->texture();
   EXPECT_EQ(static_cast<GLenum>(GL_TEXTURE_EXTERNAL_OES), texture->target());
   EXPECT_FALSE(manager.CanGenerateMipmaps(texture_ref));
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureTest, DepthTexture) {
@@ -1427,12 +1443,13 @@ TEST_F(TextureTest, DepthTexture) {
                          kUseDefaultTextures, nullptr, &discardable_manager_);
   manager.CreateTexture(kClient1Id, kService1Id);
   TextureRef* texture_ref = manager.GetTexture(kClient1Id);
-  ASSERT_TRUE(texture_ref != NULL);
+  ASSERT_TRUE(texture_ref != nullptr);
   manager.SetTarget(texture_ref, GL_TEXTURE_2D);
   manager.SetLevelInfo(texture_ref, GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 4, 4,
                        1, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, gfx::Rect());
   EXPECT_FALSE(manager.CanGenerateMipmaps(texture_ref));
-  manager.Destroy(false);
+  manager.MarkContextLost();
+  manager.Destroy();
 }
 
 TEST_F(TextureTest, SafeUnsafe) {
@@ -1500,7 +1517,7 @@ TEST_F(TextureTest, SafeUnsafe) {
   manager_->CreateTexture(kClient2Id, kService2Id);
   scoped_refptr<TextureRef> texture_ref2(
       manager_->GetTexture(kClient2Id));
-  ASSERT_TRUE(texture_ref2.get() != NULL);
+  ASSERT_TRUE(texture_ref2.get() != nullptr);
   manager_->SetTarget(texture_ref2.get(), GL_TEXTURE_2D);
   EXPECT_FALSE(manager_->HaveUnsafeTextures());
   EXPECT_FALSE(manager_->HaveUnclearedMips());
@@ -1520,7 +1537,7 @@ TEST_F(TextureTest, SafeUnsafe) {
   manager_->CreateTexture(kClient3Id, kService3Id);
   scoped_refptr<TextureRef> texture_ref3(
       manager_->GetTexture(kClient3Id));
-  ASSERT_TRUE(texture_ref3.get() != NULL);
+  ASSERT_TRUE(texture_ref3.get() != nullptr);
   manager_->SetTarget(texture_ref3.get(), GL_TEXTURE_2D);
   manager_->SetLevelInfo(texture_ref3.get(), GL_TEXTURE_2D, 0, GL_RGBA, 8, 8, 1,
                          0, GL_RGBA, GL_UNSIGNED_BYTE, gfx::Rect(2, 2));
@@ -1554,13 +1571,13 @@ TEST_F(TextureTest, SafeUnsafe) {
   EXPECT_CALL(*gl_, DeleteTextures(1, ::testing::Pointee(kService2Id)))
       .Times(1)
       .RetiresOnSaturation();
-  texture_ref2 = NULL;
+  texture_ref2 = nullptr;
   EXPECT_TRUE(manager_->HaveUnsafeTextures());
   EXPECT_TRUE(manager_->HaveUnclearedMips());
   EXPECT_CALL(*gl_, DeleteTextures(1, ::testing::Pointee(kService3Id)))
       .Times(1)
       .RetiresOnSaturation();
-  texture_ref3 = NULL;
+  texture_ref3 = nullptr;
   EXPECT_FALSE(manager_->HaveUnsafeTextures());
   EXPECT_FALSE(manager_->HaveUnclearedMips());
 }
@@ -1634,7 +1651,7 @@ TEST_F(TextureTest, UseDeletedTexture) {
   EXPECT_CALL(*gl_, DeleteTextures(1, ::testing::Pointee(kService2Id)))
       .Times(1)
       .RetiresOnSaturation();
-  texture_ref = NULL;
+  texture_ref = nullptr;
 }
 
 TEST_F(TextureTest, GetLevelImage) {
@@ -1642,24 +1659,24 @@ TEST_F(TextureTest, GetLevelImage) {
   manager_->SetLevelInfo(texture_ref_.get(), GL_TEXTURE_2D, 1, GL_RGBA, 2, 2, 1,
                          0, GL_RGBA, GL_UNSIGNED_BYTE, gfx::Rect(2, 2));
   Texture* texture = texture_ref_->texture();
-  EXPECT_TRUE(texture->GetLevelImage(GL_TEXTURE_2D, 1) == NULL);
+  EXPECT_TRUE(texture->GetLevelImage(GL_TEXTURE_2D, 1) == nullptr);
   // Set image.
   scoped_refptr<gl::GLImage> image(new gl::GLImageStub);
   manager_->SetLevelImage(texture_ref_.get(), GL_TEXTURE_2D, 1, image.get(),
                           Texture::BOUND);
-  EXPECT_FALSE(texture->GetLevelImage(GL_TEXTURE_2D, 1) == NULL);
-  EXPECT_TRUE(texture->GetLevelStreamTextureImage(GL_TEXTURE_2D, 1) == NULL);
+  EXPECT_FALSE(texture->GetLevelImage(GL_TEXTURE_2D, 1) == nullptr);
+  EXPECT_TRUE(texture->GetLevelStreamTextureImage(GL_TEXTURE_2D, 1) == nullptr);
   // Remove it.
   manager_->SetLevelImage(texture_ref_.get(), GL_TEXTURE_2D, 1, nullptr,
                           Texture::UNBOUND);
-  EXPECT_TRUE(texture->GetLevelImage(GL_TEXTURE_2D, 1) == NULL);
+  EXPECT_TRUE(texture->GetLevelImage(GL_TEXTURE_2D, 1) == nullptr);
   manager_->SetLevelImage(texture_ref_.get(), GL_TEXTURE_2D, 1, image.get(),
                           Texture::UNBOUND);
   // Image should be reset when SetLevelInfo is called.
   manager_->SetLevelInfo(texture_ref_.get(), GL_TEXTURE_2D, 1, GL_RGBA, 2, 2, 1,
                          0, GL_RGBA, GL_UNSIGNED_BYTE, gfx::Rect(2, 2));
-  EXPECT_TRUE(texture->GetLevelImage(GL_TEXTURE_2D, 1) == NULL);
-  EXPECT_TRUE(texture->GetLevelStreamTextureImage(GL_TEXTURE_2D, 1) == NULL);
+  EXPECT_TRUE(texture->GetLevelImage(GL_TEXTURE_2D, 1) == nullptr);
+  EXPECT_TRUE(texture->GetLevelStreamTextureImage(GL_TEXTURE_2D, 1) == nullptr);
 }
 
 TEST_F(TextureTest, GetLevelStreamTextureImage) {
@@ -1674,17 +1691,17 @@ TEST_F(TextureTest, GetLevelStreamTextureImage) {
   manager_->SetLevelStreamTextureImage(texture_ref_.get(),
                                        GL_TEXTURE_EXTERNAL_OES, 0, image.get(),
                                        Texture::BOUND, 0);
-  EXPECT_FALSE(texture->GetLevelImage(GL_TEXTURE_EXTERNAL_OES, 0) == NULL);
-  EXPECT_FALSE(
-      texture->GetLevelStreamTextureImage(GL_TEXTURE_EXTERNAL_OES, 0) == NULL);
+  EXPECT_FALSE(texture->GetLevelImage(GL_TEXTURE_EXTERNAL_OES, 0) == nullptr);
+  EXPECT_FALSE(texture->GetLevelStreamTextureImage(GL_TEXTURE_EXTERNAL_OES,
+                                                   0) == nullptr);
 
   // Replace it as a normal image.
   scoped_refptr<gl::GLImage> image2(new gl::GLImageStub);
   manager_->SetLevelImage(texture_ref_.get(), GL_TEXTURE_EXTERNAL_OES, 0,
                           image2.get(), Texture::BOUND);
-  EXPECT_FALSE(texture->GetLevelImage(GL_TEXTURE_EXTERNAL_OES, 0) == NULL);
+  EXPECT_FALSE(texture->GetLevelImage(GL_TEXTURE_EXTERNAL_OES, 0) == nullptr);
   EXPECT_TRUE(texture->GetLevelStreamTextureImage(GL_TEXTURE_EXTERNAL_OES, 0) ==
-              NULL);
+              nullptr);
 
   // Image should be reset when SetLevelInfo is called.
   manager_->SetLevelStreamTextureImage(texture_ref_.get(),
@@ -1693,9 +1710,9 @@ TEST_F(TextureTest, GetLevelStreamTextureImage) {
   manager_->SetLevelInfo(texture_ref_.get(), GL_TEXTURE_EXTERNAL_OES, 0,
                          GL_RGBA, 2, 2, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                          gfx::Rect(2, 2));
-  EXPECT_TRUE(texture->GetLevelImage(GL_TEXTURE_EXTERNAL_OES, 0) == NULL);
+  EXPECT_TRUE(texture->GetLevelImage(GL_TEXTURE_EXTERNAL_OES, 0) == nullptr);
   EXPECT_TRUE(texture->GetLevelStreamTextureImage(GL_TEXTURE_EXTERNAL_OES, 0) ==
-              NULL);
+              nullptr);
 }
 
 TEST_F(TextureTest, SetLevelImageState) {
@@ -1887,7 +1904,7 @@ class ProduceConsumeTextureTest : public TextureTest,
                                   public ::testing::WithParamInterface<GLenum> {
  public:
   void SetUp() override {
-    TextureTest::SetUpBase(NULL, "GL_OES_EGL_image_external");
+    TextureTest::SetUpBase(nullptr, "GL_OES_EGL_image_external");
     manager_->CreateTexture(kClient2Id, kService2Id);
     texture2_ = manager_->GetTexture(kClient2Id);
 
@@ -1906,7 +1923,7 @@ class ProduceConsumeTextureTest : public TextureTest,
             DeleteTextures(1, ::testing::Pointee(texture2_->service_id())))
             .Times(1).RetiresOnSaturation();
       }
-      texture2_ = NULL;
+      texture2_ = nullptr;
     }
     TextureTest::TearDown();
   }
@@ -1978,11 +1995,7 @@ class ProduceConsumeTextureTest : public TextureTest,
     return info;
   }
 
-  Texture* Produce(TextureRef* texture_ref) {
-    Texture* texture = manager_->Produce(texture_ref);
-    EXPECT_TRUE(texture != NULL);
-    return texture;
-  }
+  Texture* Produce(TextureRef* texture_ref) { return texture_ref->texture(); }
 
   void Consume(GLuint client_id, Texture* texture) {
     EXPECT_TRUE(manager_->Consume(client_id, texture));
@@ -2157,28 +2170,22 @@ class CountingMemoryTracker : public MemoryTracker {
   CountingMemoryTracker() {
     current_size_ = 0;
   }
+  ~CountingMemoryTracker() override = default;
 
-  void TrackMemoryAllocatedChange(size_t old_size,
-                                  size_t new_size) override {
-    current_size_ += new_size - old_size;
+  void TrackMemoryAllocatedChange(uint64_t delta) override {
+    current_size_ += delta;
   }
 
-  bool EnsureGPUMemoryAvailable(size_t size_needed) override { return true; }
-
-  size_t GetSize() {
-    return current_size_;
-  }
+  uint64_t GetSize() const override { return current_size_; }
 
   uint64_t ClientTracingId() const override { return 0; }
 
   int ClientId() const override { return 0; }
 
-  uint64_t ShareGroupTracingGUID() const override { return 0; }
+  uint64_t ContextGroupTracingId() const override { return 0; }
 
  private:
-  ~CountingMemoryTracker() override {}
-
-  size_t current_size_;
+  uint64_t current_size_;
   DISALLOW_COPY_AND_ASSIGN(CountingMemoryTracker);
 };
 
@@ -2188,22 +2195,20 @@ class SharedTextureTest : public GpuServiceTest {
 
   SharedTextureTest() : feature_info_(new FeatureInfo()) {}
 
-  ~SharedTextureTest() override {}
+  ~SharedTextureTest() override = default;
 
   void SetUp() override {
     GpuServiceTest::SetUp();
-    memory_tracker1_ = new CountingMemoryTracker;
     texture_manager1_.reset(new TextureManager(
-        memory_tracker1_.get(), feature_info_.get(),
+        &memory_tracker1_, feature_info_.get(),
         TextureManagerTest::kMaxTextureSize,
         TextureManagerTest::kMaxCubeMapTextureSize,
         TextureManagerTest::kMaxRectangleTextureSize,
         TextureManagerTest::kMax3DTextureSize,
         TextureManagerTest::kMaxArrayTextureLayers, kUseDefaultTextures,
         nullptr, &discardable_manager_));
-    memory_tracker2_ = new CountingMemoryTracker;
     texture_manager2_.reset(new TextureManager(
-        memory_tracker2_.get(), feature_info_.get(),
+        &memory_tracker2_, feature_info_.get(),
         TextureManagerTest::kMaxTextureSize,
         TextureManagerTest::kMaxCubeMapTextureSize,
         TextureManagerTest::kMaxRectangleTextureSize,
@@ -2212,17 +2217,19 @@ class SharedTextureTest : public GpuServiceTest {
         nullptr, &discardable_manager_));
     SetupFeatureInfo("", "OpenGL ES 2.0", CONTEXT_TYPE_OPENGLES2);
     TestHelper::SetupTextureManagerInitExpectations(
-        gl_.get(), false, false, false, "", kUseDefaultTextures);
+        gl_.get(), false, false, false, {}, kUseDefaultTextures);
     texture_manager1_->Initialize();
     TestHelper::SetupTextureManagerInitExpectations(
-        gl_.get(), false, false, false, "", kUseDefaultTextures);
+        gl_.get(), false, false, false, {}, kUseDefaultTextures);
     texture_manager2_->Initialize();
   }
 
   void TearDown() override {
-    texture_manager2_->Destroy(false);
+    texture_manager2_->MarkContextLost();
+    texture_manager2_->Destroy();
     texture_manager2_.reset();
-    texture_manager1_->Destroy(false);
+    texture_manager1_->MarkContextLost();
+    texture_manager1_->Destroy();
     texture_manager1_.reset();
     GpuServiceTest::TearDown();
   }
@@ -2248,9 +2255,9 @@ class SharedTextureTest : public GpuServiceTest {
 
   scoped_refptr<FeatureInfo> feature_info_;
   ServiceDiscardableManager discardable_manager_;
-  scoped_refptr<CountingMemoryTracker> memory_tracker1_;
+  CountingMemoryTracker memory_tracker1_;
   std::unique_ptr<TextureManager> texture_manager1_;
-  scoped_refptr<CountingMemoryTracker> memory_tracker2_;
+  CountingMemoryTracker memory_tracker2_;
   std::unique_ptr<TextureManager> texture_manager2_;
 };
 
@@ -2260,14 +2267,14 @@ TEST_F(SharedTextureTest, DeleteTextures) {
       texture_manager2_->Consume(20, ref1->texture());
   EXPECT_CALL(*gl_, DeleteTextures(1, _))
       .Times(0);
-  ref1 = NULL;
+  ref1 = nullptr;
   texture_manager1_->RemoveTexture(10);
   testing::Mock::VerifyAndClearExpectations(gl_.get());
 
   EXPECT_CALL(*gl_, DeleteTextures(1, _))
       .Times(1)
       .RetiresOnSaturation();
-  ref2 = NULL;
+  ref2 = nullptr;
   texture_manager2_->RemoveTexture(20);
   testing::Mock::VerifyAndClearExpectations(gl_.get());
 }
@@ -2388,8 +2395,8 @@ TEST_F(SharedTextureTest, FBOCompletenessCheck) {
 }
 
 TEST_F(SharedTextureTest, Memory) {
-  size_t initial_memory1 = memory_tracker1_->GetSize();
-  size_t initial_memory2 = memory_tracker2_->GetSize();
+  size_t initial_memory1 = memory_tracker1_.GetSize();
+  size_t initial_memory2 = memory_tracker2_.GetSize();
 
   // Newly created texture is unrenderable.
   scoped_refptr<TextureRef> ref1 = texture_manager1_->CreateTexture(10, 10);
@@ -2399,31 +2406,29 @@ TEST_F(SharedTextureTest, Memory) {
 
   EXPECT_LT(0u, ref1->texture()->estimated_size());
   EXPECT_EQ(initial_memory1 + ref1->texture()->estimated_size(),
-            memory_tracker1_->GetSize());
+            memory_tracker1_.GetSize());
 
   // Associate new texture ref to other texture manager, it doesn't account for
   // the texture memory, the first memory tracker still has it.
   scoped_refptr<TextureRef> ref2 =
       texture_manager2_->Consume(20, ref1->texture());
   EXPECT_EQ(initial_memory1 + ref1->texture()->estimated_size(),
-            memory_tracker1_->GetSize());
-  EXPECT_EQ(initial_memory2, memory_tracker2_->GetSize());
+            memory_tracker1_.GetSize());
+  EXPECT_EQ(initial_memory2, memory_tracker2_.GetSize());
 
   // Delete the texture, memory should go to the remaining tracker.
   texture_manager1_->RemoveTexture(10);
-  ref1 = NULL;
-  EXPECT_EQ(initial_memory1,
-            memory_tracker1_->GetSize());
+  ref1 = nullptr;
+  EXPECT_EQ(initial_memory1, memory_tracker1_.GetSize());
   EXPECT_EQ(initial_memory2 + ref2->texture()->estimated_size(),
-            memory_tracker2_->GetSize());
+            memory_tracker2_.GetSize());
 
   EXPECT_CALL(*gl_, DeleteTextures(1, _))
       .Times(1)
       .RetiresOnSaturation();
-  ref2 = NULL;
+  ref2 = nullptr;
   texture_manager2_->RemoveTexture(20);
-  EXPECT_EQ(initial_memory2,
-            memory_tracker2_->GetSize());
+  EXPECT_EQ(initial_memory2, memory_tracker2_.GetSize());
 }
 
 TEST_F(SharedTextureTest, Images) {
@@ -2471,8 +2476,8 @@ TEST_F(SharedTextureTest, Images) {
 
 class TextureFormatTypeValidationTest : public TextureManagerTest {
  public:
-  TextureFormatTypeValidationTest() {}
-  ~TextureFormatTypeValidationTest() override {}
+  TextureFormatTypeValidationTest() = default;
+  ~TextureFormatTypeValidationTest() override = default;
 
  protected:
   void ExpectValid(
@@ -2729,6 +2734,20 @@ TEST_F(TextureFormatTypeValidationTest, ES3Basic) {
               GL_DEPTH32F_STENCIL8);
 
   ExpectInvalid(true, GL_RGB_INTEGER, GL_INT, GL_RGBA8);
+}
+
+TEST_F(TextureFormatTypeValidationTest, ES2WithTextureNorm16) {
+  SetupFeatureInfo("GL_EXT_texture_norm16", "OpenGL ES 2.0",
+                   CONTEXT_TYPE_OPENGLES2);
+
+  ExpectValid(true, GL_RED, GL_UNSIGNED_SHORT, GL_RED);
+}
+
+TEST_F(TextureFormatTypeValidationTest, ES3WithTextureNorm16) {
+  SetupFeatureInfo("GL_EXT_texture_norm16", "OpenGL ES 3.0",
+                   CONTEXT_TYPE_OPENGLES3);
+
+  ExpectValid(true, GL_RED, GL_UNSIGNED_SHORT, GL_R16_EXT);
 }
 
 }  // namespace gles2

@@ -13,31 +13,13 @@
 namespace v8 {
 namespace internal {
 
+class BigInt;
 template <typename T>
 class Handle;
-class UnicodeCache;
 
-// Maximum number of significant digits in decimal representation.
-// The longest possible double in decimal representation is
-// (2^53 - 1) * 2 ^ -1074 that is (2 ^ 53 - 1) * 5 ^ 1074 / 10 ^ 1074
-// (768 digits). If we parse a number whose first digits are equal to a
-// mean of 2 adjacent doubles (that could have up to 769 digits) the result
-// must be rounded to the bigger one unless the tail consists of zeros, so
-// we don't need to preserve all the digits.
-const int kMaxSignificantDigits = 772;
-
-
-inline bool isDigit(int x, int radix) {
-  return (x >= '0' && x <= '9' && x < '0' + radix)
-      || (radix > 10 && x >= 'a' && x < 'a' + radix - 10)
-      || (radix > 10 && x >= 'A' && x < 'A' + radix - 10);
-}
-
-
-inline bool isBinaryDigit(int x) {
-  return x == '0' || x == '1';
-}
-
+// The limit for the the fractionDigits/precision for toFixed, toPrecision
+// and toExponential.
+const int kMaxFractionDigits = 100;
 
 // The fast double-to-(unsigned-)int conversion routine does not guarantee
 // rounding towards zero.
@@ -49,12 +31,13 @@ inline int FastD2IChecked(double x) {
   return static_cast<int>(x);
 }
 
-
 // The fast double-to-(unsigned-)int conversion routine does not guarantee
 // rounding towards zero.
-// The result is unspecified if x is infinite or NaN, or if the rounded
+// The result is undefined if x is infinite or NaN, or if the rounded
 // integer value is outside the range of type int.
 inline int FastD2I(double x) {
+  DCHECK(x <= INT_MAX);
+  DCHECK(x >= INT_MIN);
   return static_cast<int32_t>(x);
 }
 
@@ -106,40 +89,38 @@ enum ConversionFlags {
 
 
 // Converts a string into a double value according to ECMA-262 9.3.1
-double StringToDouble(UnicodeCache* unicode_cache,
-                      Vector<const uint8_t> str,
-                      int flags,
+double StringToDouble(Vector<const uint8_t> str, int flags,
                       double empty_string_val = 0);
-double StringToDouble(UnicodeCache* unicode_cache,
-                      Vector<const uc16> str,
-                      int flags,
+double StringToDouble(Vector<const uc16> str, int flags,
                       double empty_string_val = 0);
 // This version expects a zero-terminated character array.
-double StringToDouble(UnicodeCache* unicode_cache,
-                      const char* str,
-                      int flags,
-                      double empty_string_val = 0);
+double StringToDouble(const char* str, int flags, double empty_string_val = 0);
 
-// Converts a string into an integer.
-double StringToInt(UnicodeCache* unicode_cache,
-                   Vector<const uint8_t> vector,
-                   int radix);
+double StringToInt(Isolate* isolate, Handle<String> string, int radix);
 
+// This follows https://tc39.github.io/proposal-bigint/#sec-string-to-bigint
+// semantics: "" => 0n.
+MaybeHandle<BigInt> StringToBigInt(Isolate* isolate, Handle<String> string);
 
-double StringToInt(UnicodeCache* unicode_cache,
-                   Vector<const uc16> vector,
-                   int radix);
+// This version expects a zero-terminated character array. Radix will
+// be inferred from string prefix (case-insensitive):
+//   0x -> hex
+//   0o -> octal
+//   0b -> binary
+V8_EXPORT_PRIVATE MaybeHandle<BigInt> BigIntLiteral(Isolate* isolate,
+                                                    const char* string);
 
 const int kDoubleToCStringMinBufferSize = 100;
 
 // Converts a double to a string value according to ECMA-262 9.8.1.
 // The buffer should be large enough for any floating point number.
 // 100 characters is enough.
-const char* DoubleToCString(double value, Vector<char> buffer);
+V8_EXPORT_PRIVATE const char* DoubleToCString(double value,
+                                              Vector<char> buffer);
 
 // Convert an int to a null-terminated string. The returned string is
 // located inside the buffer, but not necessarily at the start.
-const char* IntToCString(int n, Vector<char> buffer);
+V8_EXPORT_PRIVATE const char* IntToCString(int n, Vector<char> buffer);
 
 // Additional number to string conversions for the number type.
 // The caller is responsible for calling free on the returned pointer.
@@ -176,21 +157,22 @@ inline bool IsUint32Double(double value);
 inline bool DoubleToUint32IfEqualToSelf(double value, uint32_t* uint32_value);
 
 // Convert from Number object to C integer.
-inline uint32_t PositiveNumberToUint32(Object* number);
-inline int32_t NumberToInt32(Object* number);
-inline uint32_t NumberToUint32(Object* number);
-inline int64_t NumberToInt64(Object* number);
+inline uint32_t PositiveNumberToUint32(Object number);
+inline int32_t NumberToInt32(Object number);
+inline uint32_t NumberToUint32(Object number);
+inline int64_t NumberToInt64(Object number);
+inline uint64_t PositiveNumberToUint64(Object number);
 
-double StringToDouble(UnicodeCache* unicode_cache, Handle<String> string,
-                      int flags, double empty_string_val = 0.0);
+double StringToDouble(Isolate* isolate, Handle<String> string, int flags,
+                      double empty_string_val = 0.0);
 
-inline bool TryNumberToSize(Object* number, size_t* result);
+inline bool TryNumberToSize(Object number, size_t* result);
 
 // Converts a number into size_t.
-inline size_t NumberToSize(Object* number);
+inline size_t NumberToSize(Object number);
 
 // returns DoubleToString(StringToDouble(string)) == string
-bool IsSpecialIndex(UnicodeCache* unicode_cache, String* string);
+bool IsSpecialIndex(String string);
 
 }  // namespace internal
 }  // namespace v8

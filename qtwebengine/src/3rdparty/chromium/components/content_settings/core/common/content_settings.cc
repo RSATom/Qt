@@ -5,9 +5,10 @@
 #include "components/content_settings/core/common/content_settings.h"
 
 #include <algorithm>
+#include <memory>
+#include <utility>
 
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/stl_util.h"
 #include "build/build_config.h"
 #include "components/content_settings/core/common/content_settings_utils.h"
@@ -20,7 +21,7 @@ struct HistogramValue {
 };
 
 // WARNING: The value specified here for a type should match exactly the value
-// specified in the ContentType enum in histograms.xml. Since these values are
+// specified in the ContentType enum in enums.xml. Since these values are
 // used for histograms, please do not reuse the same value for a different
 // content setting. Always append to the end and increment.
 //
@@ -28,7 +29,7 @@ struct HistogramValue {
 // content settings type name instead.
 //
 // The array size must be explicit for the static_asserts below.
-constexpr size_t kNumHistogramValues = 30;
+constexpr size_t kNumHistogramValues = 41;
 constexpr HistogramValue kHistogramValue[kNumHistogramValues] = {
     {CONTENT_SETTINGS_TYPE_COOKIES, 0},
     {CONTENT_SETTINGS_TYPE_IMAGES, 1},
@@ -60,6 +61,17 @@ constexpr HistogramValue kHistogramValue[kNumHistogramValues] = {
     {CONTENT_SETTINGS_TYPE_PASSWORD_PROTECTION, 34},
     {CONTENT_SETTINGS_TYPE_MEDIA_ENGAGEMENT, 35},
     {CONTENT_SETTINGS_TYPE_SOUND, 36},
+    {CONTENT_SETTINGS_TYPE_CLIENT_HINTS, 37},
+    {CONTENT_SETTINGS_TYPE_SENSORS, 38},
+    {CONTENT_SETTINGS_TYPE_ACCESSIBILITY_EVENTS, 39},
+    {CONTENT_SETTINGS_TYPE_CLIPBOARD_READ, 40},
+    {CONTENT_SETTINGS_TYPE_CLIPBOARD_WRITE, 41},
+    {CONTENT_SETTINGS_TYPE_PLUGINS_DATA, 42},
+    {CONTENT_SETTINGS_TYPE_PAYMENT_HANDLER, 43},
+    {CONTENT_SETTINGS_TYPE_USB_GUARD, 44},
+    {CONTENT_SETTINGS_TYPE_BACKGROUND_FETCH, 45},
+    {CONTENT_SETTINGS_TYPE_INTENT_PICKER_DISPLAY, 46},
+    {CONTENT_SETTINGS_TYPE_IDLE_DETECTION, 47},
 };
 
 }  // namespace
@@ -73,7 +85,7 @@ ContentSetting IntToContentSetting(int content_setting) {
 
 int ContentSettingTypeToHistogramValue(ContentSettingsType content_setting,
                                        size_t* num_values) {
-  *num_values = arraysize(kHistogramValue);
+  *num_values = base::size(kHistogramValue);
 
   // Verify the array is sorted by enum type and contains all values.
   DCHECK(std::is_sorted(std::begin(kHistogramValue), std::end(kHistogramValue),
@@ -98,7 +110,7 @@ int ContentSettingTypeToHistogramValue(ContentSettingsType content_setting,
 ContentSettingPatternSource::ContentSettingPatternSource(
     const ContentSettingsPattern& primary_pattern,
     const ContentSettingsPattern& secondary_pattern,
-    std::unique_ptr<base::Value> setting_value,
+    base::Value setting_value,
     const std::string& source,
     bool incognito)
     : primary_pattern(primary_pattern),
@@ -118,8 +130,7 @@ ContentSettingPatternSource& ContentSettingPatternSource::operator=(
     const ContentSettingPatternSource& other) {
   primary_pattern = other.primary_pattern;
   secondary_pattern = other.secondary_pattern;
-  if (other.setting_value)
-    setting_value = base::MakeUnique<base::Value>(*(other.setting_value));
+  setting_value = other.setting_value.Clone();
   source = other.source;
   incognito = other.incognito;
   return *this;
@@ -128,7 +139,17 @@ ContentSettingPatternSource& ContentSettingPatternSource::operator=(
 ContentSettingPatternSource::~ContentSettingPatternSource() {}
 
 ContentSetting ContentSettingPatternSource::GetContentSetting() const {
-  return content_settings::ValueToContentSetting(setting_value.get());
+  return content_settings::ValueToContentSetting(&setting_value);
+}
+
+// static
+bool RendererContentSettingRules::IsRendererContentSetting(
+    ContentSettingsType content_type) {
+  return content_type == CONTENT_SETTINGS_TYPE_IMAGES ||
+         content_type == CONTENT_SETTINGS_TYPE_JAVASCRIPT ||
+         content_type == CONTENT_SETTINGS_TYPE_AUTOPLAY ||
+         content_type == CONTENT_SETTINGS_TYPE_CLIENT_HINTS ||
+         content_type == CONTENT_SETTINGS_TYPE_POPUPS;
 }
 
 RendererContentSettingRules::RendererContentSettingRules() {}

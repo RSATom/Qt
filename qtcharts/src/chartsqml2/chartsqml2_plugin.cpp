@@ -31,27 +31,27 @@
 #include <QtCharts/QAbstractAxis>
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QLogValueAxis>
-#include "declarativecategoryaxis.h"
+#include "declarativecategoryaxis_p.h"
 #include <QtCharts/QBarCategoryAxis>
-#include "declarativechart.h"
-#include "declarativepolarchart.h"
-#include "declarativexypoint.h"
-#include "declarativelineseries.h"
-#include "declarativesplineseries.h"
-#include "declarativeareaseries.h"
-#include "declarativescatterseries.h"
-#include "declarativebarseries.h"
-#include "declarativeboxplotseries.h"
-#include "declarativecandlestickseries.h"
-#include "declarativepieseries.h"
-#include "declarativeaxes.h"
+#include "declarativechart_p.h"
+#include "declarativepolarchart_p.h"
+#include "declarativexypoint_p.h"
+#include "declarativelineseries_p.h"
+#include "declarativesplineseries_p.h"
+#include "declarativeareaseries_p.h"
+#include "declarativescatterseries_p.h"
+#include "declarativebarseries_p.h"
+#include "declarativeboxplotseries_p.h"
+#include "declarativecandlestickseries_p.h"
+#include "declarativepieseries_p.h"
+#include "declarativeaxes_p.h"
 #include <QtCharts/QVXYModelMapper>
 #include <QtCharts/QHXYModelMapper>
 #include <QtCharts/QHPieModelMapper>
 #include <QtCharts/QVPieModelMapper>
 #include <QtCharts/QHBarModelMapper>
 #include <QtCharts/QVBarModelMapper>
-#include "declarativemargins.h"
+#include "declarativemargins_p.h"
 #include <QtCharts/QAreaLegendMarker>
 #include <QtCharts/QBarLegendMarker>
 #include <QtCharts/QPieLegendMarker>
@@ -139,13 +139,6 @@ QML_DECLARE_TYPE(QScatterSeries)
 QML_DECLARE_TYPE(QSplineSeries)
 QML_DECLARE_TYPE(QStackedBarSeries)
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtCharts);
-#endif
-}
-
 QT_CHARTS_BEGIN_NAMESPACE
 
 class QtChartsQml2Plugin : public QQmlExtensionPlugin
@@ -155,7 +148,7 @@ class QtChartsQml2Plugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QtChartsQml2Plugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QtChartsQml2Plugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     virtual void registerTypes(const char *uri)
     {
         Q_ASSERT(QLatin1String(uri) == QLatin1String("QtCharts"));
@@ -350,6 +343,12 @@ public:
             QLatin1String("Trying to create uncreatable: CandlestickModelMapper."));
         qmlRegisterType<QHCandlestickModelMapper>(uri, 2, 2, "HCandlestickModelMapper");
         qmlRegisterType<QVCandlestickModelMapper>(uri, 2, 2, "VCandlestickModelMapper");
+
+        // QtCharts 2.3
+        qmlRegisterType<QValueAxis, 1>(uri, 2, 3, "ValueAxis");
+
+        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions
+        qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
     }
 
 };

@@ -8,6 +8,7 @@
 #include "content/browser/media/session/media_session_controller.h"
 #include "content/browser/media/session/media_session_impl.h"
 #include "content/common/media/media_player_delegate_messages.h"
+#include "content/public/test/test_service_manager_context.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -18,6 +19,10 @@ class MediaSessionControllerTest : public RenderViewHostImplTestHarness {
  public:
   void SetUp() override {
     RenderViewHostImplTestHarness::SetUp();
+
+    test_service_manager_context_ =
+        std::make_unique<content::TestServiceManagerContext>();
+
     id_ = WebContentsObserver::MediaPlayerId(contents()->GetMainFrame(), 0);
     controller_ = CreateController();
   }
@@ -26,6 +31,8 @@ class MediaSessionControllerTest : public RenderViewHostImplTestHarness {
     // Destruct the controller prior to any other teardown to avoid out of order
     // destruction relative to the MediaSession instance.
     controller_.reset();
+
+    test_service_manager_context_.reset();
     RenderViewHostImplTestHarness::TearDown();
   }
 
@@ -49,10 +56,22 @@ class MediaSessionControllerTest : public RenderViewHostImplTestHarness {
     controller_->OnResume(controller_->get_player_id_for_testing());
   }
 
+  void SeekForward(base::TimeDelta seek_time) {
+    controller_->OnSeekForward(controller_->get_player_id_for_testing(),
+                               seek_time);
+  }
+
+  void SeekBackward(base::TimeDelta seek_time) {
+    controller_->OnSeekBackward(controller_->get_player_id_for_testing(),
+                                seek_time);
+  }
+
   void SetVolumeMultiplier(double multiplier) {
     controller_->OnSetVolumeMultiplier(controller_->get_player_id_for_testing(),
                                        multiplier);
   }
+
+  void ResetHasSessionBit() { controller_->has_session_ = false; }
 
   template <typename T>
   bool ReceivedMessagePlayPause() {
@@ -64,9 +83,28 @@ class MediaSessionControllerTest : public RenderViewHostImplTestHarness {
     if (!T::Read(msg, &result))
       return false;
 
-    EXPECT_EQ(id_.second, std::get<0>(result));
+    EXPECT_EQ(id_.delegate_id, std::get<0>(result));
     test_sink().ClearMessages();
-    return id_.second == std::get<0>(result);
+    return id_.delegate_id == std::get<0>(result);
+  }
+
+  template <typename T>
+  bool ReceivedMessageSeek(base::TimeDelta expected_seek_time) {
+    const IPC::Message* msg = test_sink().GetUniqueMessageMatching(T::ID);
+    if (!msg)
+      return false;
+
+    std::tuple<int, base::TimeDelta> result;
+    if (!T::Read(msg, &result))
+      return false;
+
+    EXPECT_EQ(id_.delegate_id, std::get<0>(result));
+    if (id_.delegate_id != std::get<0>(result))
+      return false;
+
+    EXPECT_EQ(expected_seek_time, std::get<1>(result));
+    test_sink().ClearMessages();
+    return expected_seek_time == std::get<1>(result);
   }
 
   template <typename T>
@@ -79,8 +117,8 @@ class MediaSessionControllerTest : public RenderViewHostImplTestHarness {
     if (!T::Read(msg, &result))
       return false;
 
-    EXPECT_EQ(id_.second, std::get<0>(result));
-    if (id_.second != std::get<0>(result))
+    EXPECT_EQ(id_.delegate_id, std::get<0>(result));
+    if (id_.delegate_id != std::get<0>(result))
       return false;
 
     EXPECT_EQ(expected_multiplier, std::get<1>(result));
@@ -88,8 +126,13 @@ class MediaSessionControllerTest : public RenderViewHostImplTestHarness {
     return expected_multiplier == std::get<1>(result);
   }
 
-  WebContentsObserver::MediaPlayerId id_;
+  WebContentsObserver::MediaPlayerId id_ =
+      WebContentsObserver::MediaPlayerId::createMediaPlayerIdForTests();
   std::unique_ptr<MediaSessionController> controller_;
+
+ private:
+  std::unique_ptr<content::TestServiceManagerContext>
+      test_service_manager_context_;
 };
 
 TEST_F(MediaSessionControllerTest, NoAudioNoSession) {
@@ -126,6 +169,16 @@ TEST_F(MediaSessionControllerTest, BasicControls) {
   // Likewise verify the resume behavior.
   Resume();
   EXPECT_TRUE(ReceivedMessagePlayPause<MediaPlayerDelegateMsg_Play>());
+
+  // ...as well as the seek behavior.
+  const base::TimeDelta kTestSeekForwardTime = base::TimeDelta::FromSeconds(1);
+  SeekForward(kTestSeekForwardTime);
+  EXPECT_TRUE(ReceivedMessageSeek<MediaPlayerDelegateMsg_SeekForward>(
+      kTestSeekForwardTime));
+  const base::TimeDelta kTestSeekBackwardTime = base::TimeDelta::FromSeconds(2);
+  SeekBackward(kTestSeekBackwardTime);
+  EXPECT_TRUE(ReceivedMessageSeek<MediaPlayerDelegateMsg_SeekBackward>(
+      kTestSeekBackwardTime));
 
   // Verify destruction of the controller removes its session.
   controller_.reset();
@@ -212,6 +265,18 @@ TEST_F(MediaSessionControllerTest, Reinitialize) {
   EXPECT_FALSE(media_session()->IsActive());
   EXPECT_FALSE(media_session()->IsControllable());
   EXPECT_EQ(current_player_id, controller_->get_player_id_for_testing());
+}
+
+TEST_F(MediaSessionControllerTest, RemovePlayerIfSessionReset) {
+  ASSERT_TRUE(controller_->Initialize(
+      true, false, media::MediaContentType::Persistent, nullptr));
+  EXPECT_TRUE(media_session()->IsActive());
+
+  ResetHasSessionBit();
+  EXPECT_TRUE(media_session()->IsActive());
+
+  controller_.reset();
+  EXPECT_FALSE(media_session()->IsActive());
 }
 
 }  // namespace content

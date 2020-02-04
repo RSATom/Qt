@@ -31,6 +31,10 @@
 #include <private/qtimezoneprivate_p.h>
 #include <qlocale.h>
 
+#if defined(Q_OS_WIN) && !QT_CONFIG(icu)
+#  define USING_WIN_TZ
+#endif
+
 class tst_QTimeZone : public QObject
 {
     Q_OBJECT
@@ -45,8 +49,12 @@ private slots:
     void dataStreamTest();
     void isTimeZoneIdAvailable();
     void availableTimeZoneIds();
+    void specificTransition_data();
+    void specificTransition();
     void transitionEachZone_data();
     void transitionEachZone();
+    void checkOffset_data();
+    void checkOffset();
     void stressTest();
     void windowsId();
     void isValidId_data();
@@ -396,6 +404,66 @@ void tst_QTimeZone::isTimeZoneIdAvailable()
 #endif // QT_BUILD_INTERNAL
 }
 
+void tst_QTimeZone::specificTransition_data()
+{
+    QTest::addColumn<QByteArray>("zone");
+    QTest::addColumn<QDate>("start");
+    QTest::addColumn<QDate>("stop");
+    QTest::addColumn<int>("count");
+    QTest::addColumn<QDateTime>("atUtc");
+    // In minutes:
+    QTest::addColumn<int>("offset");
+    QTest::addColumn<int>("stdoff");
+    QTest::addColumn<int>("dstoff");
+
+    // Moscow ditched DST on 2010-10-31 but has since changed standard offset twice.
+#ifdef USING_WIN_TZ
+    // Win7 is too old to know about this transition:
+    if (QOperatingSystemVersion::current() > QOperatingSystemVersion::Windows7)
+#endif
+    {
+        QTest::newRow("Moscow/2014") // From original bug-report
+            << QByteArray("Europe/Moscow")
+            << QDate(2011, 4, 1) << QDate(2017, 12,31) << 1
+            << QDateTime(QDate(2014, 10, 26), QTime(2, 0, 0),
+                         Qt::OffsetFromUTC, 4 * 3600).toUTC()
+            << 3 * 3600 << 3 * 3600 << 0;
+    }
+    QTest::newRow("Moscow/2011") // Transition on 2011-03-27
+        << QByteArray("Europe/Moscow")
+        << QDate(2010, 11, 1) << QDate(2014, 10, 25) << 1
+        << QDateTime(QDate(2011, 3, 27), QTime(2, 0, 0),
+                     Qt::OffsetFromUTC, 3 * 3600).toUTC()
+        << 4 * 3600 << 4 * 3600 << 0;
+}
+
+void tst_QTimeZone::specificTransition()
+{
+    // Regression test for QTBUG-42021 (on MS-Win)
+    QFETCH(QByteArray, zone);
+    QFETCH(QDate, start);
+    QFETCH(QDate, stop);
+    QFETCH(int, count);
+    // No attempt to check abbreviations; to much cross-platform variation.
+    QFETCH(QDateTime, atUtc);
+    QFETCH(int, offset);
+    QFETCH(int, stdoff);
+    QFETCH(int, dstoff);
+
+    QTimeZone timeZone(zone);
+    if (!timeZone.isValid())
+        QSKIP("Missing time-zone data");
+    QTimeZone::OffsetDataList transits =
+        timeZone.transitions(QDateTime(start, QTime(0, 0), timeZone),
+                             QDateTime(stop, QTime(23, 59), timeZone));
+    QCOMPARE(transits.length(), count);
+    const QTimeZone::OffsetData &transition = transits.at(0);
+    QCOMPARE(transition.offsetFromUtc, offset);
+    QCOMPARE(transition.standardTimeOffset, stdoff);
+    QCOMPARE(transition.daylightTimeOffset, dstoff);
+    QCOMPARE(transition.atUtc, atUtc);
+}
+
 void tst_QTimeZone::transitionEachZone_data()
 {
     QTest::addColumn<QByteArray>("zone");
@@ -413,8 +481,9 @@ void tst_QTimeZone::transitionEachZone_data()
     };
 
     QString name;
+    const auto zones = QTimeZone::availableTimeZoneIds();
     for (int k = sizeof(table) / sizeof(table[0]); k-- > 0; ) {
-        foreach (QByteArray zone, QTimeZone::availableTimeZoneIds()) {
+        for (const QByteArray &zone : zones) {
             name.sprintf("%s@%d", zone.constData(), table[k].year);
             QTest::newRow(name.toUtf8().constData())
                 << zone
@@ -436,6 +505,17 @@ void tst_QTimeZone::transitionEachZone()
     QTimeZone named(zone);
 
     for (int i = start; i < stop; i++) {
+#ifdef USING_WIN_TZ
+        // See QTBUG-64985: MS's TZ APIs' misdescription of Europe/Samara leads
+        // to mis-disambiguation of its fall-back here.
+        if (zone == "Europe/Samara" && i == -3) {
+            continue;
+        }
+#endif
+#ifdef Q_OS_ANDROID
+        if (zone == "America/Mazatlan" || zone == "Mexico/BajaSur")
+            QSKIP("Crashes on Android, see QTBUG-69132");
+#endif
         qint64 here = secs + i * 3600;
         QDateTime when = QDateTime::fromMSecsSinceEpoch(here * 1000, named);
         qint64 stamp = when.toMSecsSinceEpoch();
@@ -444,6 +524,60 @@ void tst_QTimeZone::transitionEachZone()
         QCOMPARE(stamp % 1000, 0);
         QCOMPARE(here - stamp / 1000, 0);
     }
+}
+
+void tst_QTimeZone::checkOffset_data()
+{
+    QTest::addColumn<QByteArray>("zoneName");
+    QTest::addColumn<QDateTime>("when");
+    QTest::addColumn<int>("netOffset");
+    QTest::addColumn<int>("stdOffset");
+    QTest::addColumn<int>("dstOffset");
+
+    struct {
+        const char *zone, *nick;
+        int year, month, day, hour, min, sec;
+        int std, dst;
+    } table[] = {
+        // Zone with no transitions (QTBUG-74614, QTBUG-74666, when TZ backend uses minimal data)
+        { "Etc/UTC", "epoch", 1970, 1, 1, 0, 0, 0, 0, 0 },
+        { "Etc/UTC", "pre_int32", 1901, 12, 13, 20, 45, 51, 0, 0 },
+        { "Etc/UTC", "post_int32", 2038, 1, 19, 3, 14, 9, 0, 0 },
+        { "Etc/UTC", "post_uint32", 2106, 2, 7, 6, 28, 17, 0, 0 },
+        { "Etc/UTC", "initial", -292275056, 5, 16, 16, 47, 5, 0, 0 },
+        { "Etc/UTC", "final", 292278994, 8, 17, 7, 12, 55, 0, 0 },
+        // Kiev: regression test for QTBUG-64122 (on MS):
+        { "Europe/Kiev", "summer", 2017, 10, 27, 12, 0, 0, 2 * 3600, 3600 },
+        { "Europe/Kiev", "winter", 2017, 10, 29, 12, 0, 0, 2 * 3600, 0 }
+    };
+    for (const auto &entry : table) {
+        QTimeZone zone(entry.zone);
+        if (zone.isValid()) {
+            QTest::addRow("%s@%s", entry.zone, entry.nick)
+                << QByteArray(entry.zone)
+                << QDateTime(QDate(entry.year, entry.month, entry.day),
+                             QTime(entry.hour, entry.min, entry.sec), zone)
+                << entry.dst + entry.std << entry.std << entry.dst;
+        } else {
+            qWarning("Skipping %s@%s test as zone is invalid", entry.zone, entry.nick);
+        }
+    }
+}
+
+void tst_QTimeZone::checkOffset()
+{
+    QFETCH(QByteArray, zoneName);
+    QFETCH(QDateTime, when);
+    QFETCH(int, netOffset);
+    QFETCH(int, stdOffset);
+    QFETCH(int, dstOffset);
+
+    QTimeZone zone(zoneName);
+    QVERIFY(zone.isValid()); // It was when _data() added the row !
+    QCOMPARE(zone.offsetFromUtc(when), netOffset);
+    QCOMPARE(zone.standardTimeOffset(when), stdOffset);
+    QCOMPARE(zone.daylightTimeOffset(when), dstOffset);
+    QCOMPARE(zone.isDaylightTime(when), dstOffset != 0);
 }
 
 void tst_QTimeZone::availableTimeZoneIds()
@@ -712,7 +846,7 @@ void tst_QTimeZone::utcTest()
 
 void tst_QTimeZone::icuTest()
 {
-#if defined(QT_BUILD_INTERNAL) && defined(QT_USE_ICU)
+#if defined(QT_BUILD_INTERNAL) && QT_CONFIG(icu)
     // Known datetimes
     qint64 std = QDateTime(QDate(2012, 1, 1), QTime(0, 0, 0), Qt::UTC).toMSecsSinceEpoch();
     qint64 dst = QDateTime(QDate(2012, 6, 1), QTime(0, 0, 0), Qt::UTC).toMSecsSinceEpoch();
@@ -760,12 +894,12 @@ void tst_QTimeZone::icuTest()
 
     testCetPrivate(tzp);
     testEpochTranPrivate(QIcuTimeZonePrivate("America/Toronto"));
-#endif // QT_USE_ICU
+#endif // icu
 }
 
 void tst_QTimeZone::tzTest()
 {
-#if defined QT_BUILD_INTERNAL && defined Q_OS_UNIX && !defined Q_OS_DARWIN
+#if defined QT_BUILD_INTERNAL && defined Q_OS_UNIX && !defined Q_OS_DARWIN && !defined Q_OS_ANDROID
     // Known datetimes
     qint64 std = QDateTime(QDate(2012, 1, 1), QTime(0, 0, 0), Qt::UTC).toMSecsSinceEpoch();
     qint64 dst = QDateTime(QDate(2012, 6, 1), QTime(0, 0, 0), Qt::UTC).toMSecsSinceEpoch();
@@ -786,7 +920,7 @@ void tst_QTimeZone::tzTest()
     QLocale enUS("en_US");
     // Only test names in debug mode, names used can vary by ICU version installed
     if (debug) {
-#ifdef QT_USE_ICU
+#if QT_CONFIG(icu)
         QCOMPARE(tzp.displayName(QTimeZone::StandardTime, QTimeZone::LongName, enUS),
                 QString("Central European Standard Time"));
         QCOMPARE(tzp.displayName(QTimeZone::StandardTime, QTimeZone::ShortName, enUS),
@@ -825,7 +959,7 @@ void tst_QTimeZone::tzTest()
                 QString("CET"));
         QCOMPARE(tzp.displayName(QTimeZone::GenericTime, QTimeZone::OffsetName, enUS),
                 QString("CET"));
-#endif // QT_USE_ICU
+#endif // icu
 
         // Test Abbreviations
         QCOMPARE(tzp.abbreviation(std), QString("CET"));
@@ -1002,7 +1136,7 @@ void tst_QTimeZone::darwinTypes()
 
 void tst_QTimeZone::winTest()
 {
-#if defined(QT_BUILD_INTERNAL) && defined(Q_OS_WIN)
+#if defined(QT_BUILD_INTERNAL) && defined(USING_WIN_TZ)
     // Known datetimes
     qint64 std = QDateTime(QDate(2012, 1, 1), QTime(0, 0, 0), Qt::UTC).toMSecsSinceEpoch();
     qint64 dst = QDateTime(QDate(2012, 6, 1), QTime(0, 0, 0), Qt::UTC).toMSecsSinceEpoch();
@@ -1053,7 +1187,7 @@ void tst_QTimeZone::winTest()
 
     testCetPrivate(tzp);
     testEpochTranPrivate(QWinTimeZonePrivate("America/Toronto"));
-#endif // Q_OS_WIN
+#endif // QT_BUILD_INTERNAL && USING_WIN_TZ
 }
 
 #ifdef QT_BUILD_INTERNAL
@@ -1165,7 +1299,7 @@ void tst_QTimeZone::testEpochTranPrivate(const QTimeZonePrivate &tzp)
     // 1970-04-26 02:00 EST, -5 -> -4
     const QDateTime after = QDateTime(QDate(1970, 4, 26), QTime(2, 0), Qt::OffsetFromUTC, -5 * 3600);
     const QDateTime found = QDateTime::fromMSecsSinceEpoch(tran.atMSecsSinceEpoch, Qt::UTC);
-#ifdef Q_OS_WIN // MS gets the date wrong: 5th April instead of 26th.
+#ifdef USING_WIN_TZ // MS gets the date wrong: 5th April instead of 26th.
     QCOMPARE(found.toOffsetFromUtc(-5 * 3600).time(), after.time());
 #else
     QCOMPARE(found, after);
@@ -1177,7 +1311,8 @@ void tst_QTimeZone::testEpochTranPrivate(const QTimeZonePrivate &tzp)
     // Pre-epoch time-zones might not be supported at all:
     tran = tzp.nextTransition(QDateTime(QDate(1601, 1, 1), QTime(0, 0),
                                         Qt::UTC).toMSecsSinceEpoch());
-    if (tran.atMSecsSinceEpoch != QTimeZonePrivate::invalidSeconds()
+    if (tran.atMSecsSinceEpoch != QTimeZonePrivate::invalidMSecs()
+        // Toronto *did* have a transition before 1970 (DST since 1918):
         && tran.atMSecsSinceEpoch < 0) {
         // ... but, if they are, we should be able to search back to them:
         tran = tzp.previousTransition(0); // i.e. last before epoch

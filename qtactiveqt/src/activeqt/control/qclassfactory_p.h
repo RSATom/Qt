@@ -71,28 +71,30 @@ QT_BEGIN_NAMESPACE
 // One instance of this class for each ActiveX the server can provide.
 class QClassFactory : public IClassFactory2
 {
+    Q_DISABLE_COPY(QClassFactory)
 public:
     QClassFactory(CLSID clsid);
 
     virtual ~QClassFactory();
 
     // IUnknown
-    unsigned long WINAPI AddRef();
-    unsigned long WINAPI Release();
-    HRESULT WINAPI QueryInterface(REFIID iid, LPVOID *iface);
+    unsigned long WINAPI AddRef() override;
+    unsigned long WINAPI Release() override;
+    HRESULT WINAPI QueryInterface(REFIID iid, LPVOID *iface) override;
 
     HRESULT WINAPI CreateInstanceHelper(IUnknown *pUnkOuter, REFIID iid, void **ppObject);
 
     // IClassFactory
-    HRESULT WINAPI CreateInstance(IUnknown *pUnkOuter, REFIID iid, void **ppObject);
+    HRESULT WINAPI CreateInstance(IUnknown *pUnkOuter, REFIID iid, void **ppObject) override;
 
-    HRESULT WINAPI LockServer(BOOL fLock);
+    HRESULT WINAPI LockServer(BOOL fLock) override;
     // IClassFactory2
-    HRESULT WINAPI RequestLicKey(DWORD, BSTR *pKey);
+    HRESULT WINAPI RequestLicKey(DWORD, BSTR *pKey) override;
 
-    HRESULT WINAPI GetLicInfo(LICINFO *pLicInfo);
+    HRESULT WINAPI GetLicInfo(LICINFO *pLicInfo) override;
 
-    HRESULT WINAPI CreateInstanceLic(IUnknown *pUnkOuter, IUnknown * /* pUnkReserved */, REFIID iid, BSTR bKey, PVOID *ppObject);
+    HRESULT WINAPI CreateInstanceLic(IUnknown *pUnkOuter, IUnknown *pUnkReserved,
+                                     REFIID iid, BSTR bKey, PVOID *ppObject) override;
 
     static void cleanupCreatedApplication(QCoreApplication &app);
 

@@ -4,11 +4,13 @@
 
 source_set("web_state_list") {
   sources = [
+    "active_web_state_observation_forwarder.h",
+    "active_web_state_observation_forwarder.mm",
+    "all_web_state_observation_forwarder.h",
+    "all_web_state_observation_forwarder.mm",
     "web_state_list.h",
     "web_state_list.mm",
     "web_state_list_delegate.h",
-    "web_state_list_fast_enumeration_helper.h",
-    "web_state_list_fast_enumeration_helper.mm",
     "web_state_list_metrics_observer.h",
     "web_state_list_metrics_observer.mm",
     "web_state_list_observer.h",
@@ -26,7 +28,6 @@ source_set("web_state_list") {
     "//base",
     "//ios/chrome/browser/sessions:serialisation",
     "//ios/web",
-    "//ui/base",
   ]
   libs = [ "Foundation.framework" ]
   configs += [ "//build/config/compiler:enable_arc" ]
@@ -48,7 +49,8 @@ source_set("test_support") {
 source_set("unit_tests") {
   testonly = true
   sources = [
-    "web_state_list_fast_enumeration_helper_unittest.mm",
+    "active_web_state_observation_forwarder_unittest.mm",
+    "all_web_state_observation_forwarder_unittest.mm",
     "web_state_list_order_controller_unittest.mm",
     "web_state_list_serialization_unittest.mm",
     "web_state_list_unittest.mm",
@@ -63,7 +65,6 @@ source_set("unit_tests") {
     "//ios/web/public/test/fakes",
     "//net",
     "//testing/gtest",
-    "//ui/base",
     "//url",
   ]
   configs += [ "//build/config/compiler:enable_arc" ]

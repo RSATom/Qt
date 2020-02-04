@@ -13,8 +13,9 @@ GLContextStub::GLContextStub() : GLContextStub(nullptr) {}
 GLContextStub::GLContextStub(GLShareGroup* share_group)
     : GLContextReal(share_group),
       use_stub_api_(false),
-      version_str_("OpenGL ES 3.0"),
-      extensions_("GL_EXT_framebuffer_object") {}
+      version_str_("OpenGL ES 3.0") {
+  SetExtensionsString("GL_EXT_framebuffer_object");
+}
 
 bool GLContextStub::Initialize(GLSurface* compatible_surface,
                                const GLContextAttribs& attribs) {
@@ -40,9 +41,6 @@ void* GLContextStub::GetHandle() {
   return nullptr;
 }
 
-void GLContextStub::OnSetSwapInterval(int interval) {
-}
-
 std::string GLContextStub::GetGLVersion() {
   return version_str_;
 }
@@ -51,13 +49,12 @@ std::string GLContextStub::GetGLRenderer() {
   return std::string("CHROMIUM");
 }
 
-bool GLContextStub::WasAllocatedUsingRobustnessExtension() {
-  return HasExtension("GL_ARB_robustness") ||
-         HasExtension("GL_KHR_robustness") || HasExtension("GL_EXT_robustness");
-}
-
-std::string GLContextStub::GetExtensions() {
-  return extensions_;
+unsigned int GLContextStub::CheckStickyGraphicsResetStatus() {
+  DCHECK(IsCurrent(nullptr));
+  if ((graphics_reset_status_ == GL_NO_ERROR) && HasRobustness()) {
+    graphics_reset_status_ = glGetGraphicsResetStatusARB();
+  }
+  return graphics_reset_status_;
 }
 
 void GLContextStub::SetUseStubApi(bool stub_api) {
@@ -65,11 +62,16 @@ void GLContextStub::SetUseStubApi(bool stub_api) {
 }
 
 void GLContextStub::SetExtensionsString(const char* extensions) {
-  extensions_ = extensions;
+  SetExtensionsFromString(extensions);
 }
 
 void GLContextStub::SetGLVersionString(const char* version_str) {
   version_str_ = std::string(version_str ? version_str : "");
+}
+
+bool GLContextStub::HasRobustness() {
+  return HasExtension("GL_ARB_robustness") ||
+         HasExtension("GL_KHR_robustness") || HasExtension("GL_EXT_robustness");
 }
 
 GLContextStub::~GLContextStub() {}
@@ -80,8 +82,8 @@ GLApi* GLContextStub::CreateGLApi(DriverGL* driver) {
     if (!version_str_.empty()) {
       stub_api->set_version(version_str_);
     }
-    if (!extensions_.empty()) {
-      stub_api->set_extensions(extensions_);
+    if (!extension_string().empty()) {
+      stub_api->set_extensions(extension_string());
     }
     return stub_api;
   }

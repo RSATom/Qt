@@ -7,79 +7,30 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <memory>
 #include <set>
 #include <vector>
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/autofill/core/common/signatures_util.h"
 #include "components/password_manager/core/browser/password_form_user_action.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "url/gurl.h"
 
+namespace autofill {
+struct FormData;
+}
+
 namespace password_manager {
 
-// URL Keyed Metrics.
-
-// This metric records whether a submission of a password form has been
-// observed. The values 0 and 1 correspond to false and true respectively.
-extern const char kUkmSubmissionObserved[];
-
-// This metric records the outcome of a password form submission. The values are
-// numbered according to PasswordFormMetricsRecorder::SubmitResult.
-// Note that no metric is recorded for kSubmitResultNotSubmitted.
-extern const char kUkmSubmissionResult[];
-
-// This metric records the classification of a form at submission time. The
-// values correspond to PasswordFormMetricsRecorder::SubmittedFormType.
-// Note that no metric is recorded for kSubmittedFormTypeUnspecified.
-extern const char kUkmSubmissionFormType[];
-
-// This metric records the boolean value indicating whether a password update
-// prompt was shown, which asked the user for permission to update a password.
-extern const char kUkmUpdatingPromptShown[];
-
-// This metric records the reason why a password update prompt was shown to ask
-// the user for permission to update a password. The values correspond to
-// PasswordFormMetricsRecorder::BubbleTrigger.
-extern const char kUkmUpdatingPromptTrigger[];
-
-// This metric records how a user interacted with an updating prompt. The values
-// correspond to PasswordFormMetricsRecorder::BubbleDismissalReason.
-extern const char kUkmUpdatingPromptInteraction[];
-
-// This metric records the boolean value indicating whether a password save
-// prompt was shown, which asked the user for permission to save a new
-// credential.
-extern const char kUkmSavingPromptShown[];
-
-// This metric records the reason why a password save prompt was shown to ask
-// the user for permission to save a new credential. The values correspond to
-// PasswordFormMetricsRecorder::BubbleTrigger.
-extern const char kUkmSavingPromptTrigger[];
-
-// This metric records how a user interacted with a saving prompt. The values
-// correspond to PasswordFormMetricsRecorder::BubbleDismissalReason.
-extern const char kUkmSavingPromptInteraction[];
-
-// This metric records attempts to fill a password form. Values correspond to
-// PasswordFormMetricsRecorder::ManagerFillEvent.
-extern const char kUkmManagerFillEvent[];
-
-// This metric records what the user does with a form. Values correspond to the
-// enum UserAction.
-extern const char kUkmUserActionSimplified[];
-
-// This metric records what the user does with all UI entry points of the
-// password manager, like bubbles, context menus, forms, form fields, etc.
-// in relation to a given form. Values correspond to the enum
-// DetailedUserAction. In contrast to kUkmUserActionSimplified, ths metric is
-// intended to be extensible with new user action types.
-extern const char kUkmUserAction[];
-
 class FormFetcher;
+struct InteractionsStats;
 
 // The pupose of this class is to record various types of metrics about the
 // behavior of the PasswordFormManager and its interaction with the user and
@@ -98,17 +49,9 @@ class PasswordFormMetricsRecorder
     : public base::RefCounted<PasswordFormMetricsRecorder> {
  public:
   // Records UKM metrics and reports them on destruction. The |source_id| is
-  // (re-)bound to |main_frame_url| shortly before reporting. As such it is
-  // crucial that the |source_id| is never bound to a different URL by another
-  // consumer. The reason for this late binding is that metrics can be
-  // collected for a WebContents for a long period of time and by the time the
-  // reporting happens, the binding of |source_id| to |main_frame_url| is
-  // already purged. |ukm_recorder| may be a nullptr, in which case no UKM
-  // metrics are recorded.
+  // the ID of the WebContents document that the forms belong to.
   PasswordFormMetricsRecorder(bool is_main_frame_secure,
-                              ukm::UkmRecorder* ukm_recorder,
-                              ukm::SourceId source_id,
-                              const GURL& main_frame_url);
+                              ukm::SourceId source_id);
 
   // ManagerAction - What does the PasswordFormManager do with this form? Either
   // it fills it, or it doesn't. If it doesn't fill it, that's either
@@ -211,10 +154,126 @@ class PasswordFormMetricsRecorder
   // relation to a given form. In contrast to UserAction, it is intended to be
   // extensible.
   enum class DetailedUserAction {
-    kUnknown = 0,
-
     // Interactions with password bubble.
     kEditedUsernameInBubble = 100,
+    kSelectedDifferentPasswordInBubble = 101,
+    kTriggeredManualFallbackForSaving = 102,
+    kObsoleteTriggeredManualFallbackForUpdating = 103,  // unused
+
+    // Interactions with form.
+    kCorrectedUsernameInForm = 200,
+  };
+
+  // Result of comparing of the old and new form parsing for filling.
+  enum class ParsingComparisonResult {
+    kSame,
+    kDifferent,
+    // Old and new parsers use different identification mechanism for unnamed
+    // fields, so the difference in parsing of anonymous fields is expected.
+    kAnonymousFields,
+    kMax
+  };
+
+  // Result of comparing of the old and new form parsing for saving. Multiple
+  // values are meant to be combined and reported in a single number as a
+  // bitmask.
+  enum class ParsingOnSavingDifference {
+    // Different fields were identified for username or password.
+    kFields = 1 << 0,
+    // Signon_realms are different.
+    kSignonRealm = 1 << 1,
+    // One password form manager wants to update, the other to save as new.
+    kNewLoginStatus = 1 << 2,
+    // One password form manager thinks the password is generated, the other
+    // does not.
+    kGenerated = 1 << 3,
+  };
+
+  // Indicator whether the user has seen a password generation popup and why.
+  enum class PasswordGenerationPopupShown {
+    kNotShown = 0,
+    kShownAutomatically = 1,
+    kShownManually = 2,
+  };
+
+  // Metric: PasswordGeneration.UserDecision
+  enum class GeneratedPasswordStatus {
+    // The generated password was accepted by the user.
+    kPasswordAccepted = 0,
+    // The generated password was edited by the user in the field in which
+    // it was filled after being accepted.
+    kPasswordEdited = 1,
+    // The generated password was deleted by the user from the field
+    // in which it was filled after being accepted.
+    kPasswordDeleted = 2,
+    kPasswordRejectedInDialogObsolete = 3,  // obsolete
+    kMaxValue = kPasswordRejectedInDialogObsolete
+  };
+
+  // Represents form differences.
+  // 1.This is a bit mask, so new values must be powers of 2.
+  // 2.This is used for UMA, so no deletion, only adding at the end.
+  enum FormDataDifferences {
+    // Different number of fields.
+    kFieldsNumber = 1 << 0,
+    kRendererFieldIDs = 1 << 1,
+    kAutocompleteAttributes = 1 << 2,
+    kFormControlTypes = 1 << 3,
+    kMaxFormDifferencesValue = 1 << 4,
+  };
+
+  // Used in UMA histogram, please do NOT reorder.
+  // Metric: "PasswordManager.FirstWaitForUsernameReason"
+  // This metric records why the browser instructs the renderer not to fill the
+  // credentials on page load but to wait for the user to confirm the credential
+  // to be filled. This decision is only recorded for the first time, the
+  // browser informs the renderer about credentials for a given form.
+  enum class WaitForUsernameReason {
+    // Credentials may be filled on page load.
+    kDontWait = 0,
+    // User is browsing in incognito mode.
+    kIncognitoMode = 1,
+    // A credential exists for a PSL matched site but not for the current
+    // security origin.
+    kPublicSuffixMatch = 2,
+    // Form is suspected to be a password change form. (Only recorded for old
+    // form parser)
+    kFormNotGoodForFilling = 3,
+    // User is on an HTTP site where passwords are filled on account selection
+    // (FOAS).
+    kFoasOnHTTP = 4,
+    kMaxValue = kFoasOnHTTP,
+  };
+
+  // This metric records the user experience with the passwords filling. The
+  // first 4 buckets are ranging from the best (automatic) to the worst (the
+  // user has to type already saved password). Next 2 buckets showed the cases
+  // when it was impossible to help because the unknown credentials were
+  // submitted. The last bucket are strange cases, that the submitted form has
+  // nor user input, nor autofilled data in password fields.
+  enum class FillingAssistance {
+    // Credential fields were filled automatically.
+    kAutomatic = 0,
+    // Credential fields were filled with involving manual filling (but none
+    // required typing).
+    kManual = 1,
+    // Password was filled (automatically or manually), known username was
+    // typed.
+    kUsernameTypedPasswordFilled = 2,
+    // Known password was typed.
+    kKnownPasswordTyped = 3,
+    // Unknown password was typed while some credentials were stored.
+    kNewPasswordTypedWhileCredentialsExisted = 4,
+    // No saved credentials.
+    kNoSavedCredentials = 5,
+    // Neither user input nor filling.
+    kNoUserInputNoFillingInPasswordFields = 6,
+    // Domain is blacklisted and no other credentials exist.
+    kNoSavedCredentialsAndBlacklisted = 7,
+    // No credentials exist and the user has ignored the save bubble too often,
+    // meaning that they won't be asked to save credentials anymore.
+    kNoSavedCredentialsAndBlacklistedBySmartBubble = 8,
+    kMaxValue = kNoSavedCredentialsAndBlacklistedBySmartBubble,
   };
 
   // The maximum number of combinations of the ManagerAction, UserAction and
@@ -239,20 +298,49 @@ class PasswordFormMetricsRecorder
   // Called if the user could generate a password for this form.
   void MarkGenerationAvailable();
 
-  // Stores whether the form has had its password auto generated by the browser.
-  void SetHasGeneratedPassword(bool has_generated_password);
+  // Stores the user action associated with a generated password.
+  void SetGeneratedPasswordStatus(GeneratedPasswordStatus status);
 
-  // Stores the password manager and user actions and logs them.
+  // Reports the priority of a PasswordGenerationRequirementsSpec for a
+  // generated password. This can be used for debugging as a 0 means that
+  // no spec was used, a 10 means that the spec came from autofill and was crowd
+  // sourced, a 20 means that it was overrideen per domain and a 30 means that
+  // is was overridden for the form.
+  void ReportSpecPriorityForGeneratedPassword(uint32_t spec_priority);
+
+  // Stores the password manager action. During destruction the last
+  // set value will be logged.
   void SetManagerAction(ManagerAction manager_action);
-  void SetUserAction(UserAction user_action);
+
+  // Calculates the user's action depending on the submitted form and existing
+  // matches. Also inspects |manager_action_| to correctly detect if the
+  // user chose a credential.
+  void CalculateUserAction(
+      const std::map<base::string16, const autofill::PasswordForm*>&
+          best_matches,
+      const autofill::PasswordForm& submitted_form);
+
+  // Allow tests to explicitly set a value for |user_action_|.
+  void SetUserActionForTesting(UserAction user_action);
+
+  // Gets the current value of |user_action_|.
+  UserAction GetUserAction() const;
 
   // Call these if/when we know the form submission worked or failed.
   // These routines are used to update internal statistics ("ActionsTaken").
   void LogSubmitPassed();
   void LogSubmitFailed();
 
+  // This can be called multiple times in which case the last value is reported.
+  void SetPasswordGenerationPopupShown(bool generation_popup_was_shown,
+                                       bool is_manual_generation);
+
   // Call this once the submitted form type has been determined.
   void SetSubmittedFormType(SubmittedFormType form_type);
+
+  // Call this when a password is saved to indicate which path led to
+  // submission.
+  void SetSubmissionIndicatorEvent(autofill::SubmissionIndicatorEvent event);
 
   // Records all histograms in the PasswordManager.SuppressedAccount.* family.
   // Takes the FormFetcher intance which owns the login data from PasswordStore.
@@ -283,6 +371,52 @@ class PasswordFormMetricsRecorder
 
   // Records a DetailedUserAction UKM metric.
   void RecordDetailedUserAction(DetailedUserAction action);
+
+  // Hash algorithm for RecordFormSignature. Public for testing.
+  static int64_t HashFormSignature(autofill::FormSignature form_signature);
+
+  // Records a low entropy hash of the form signature in order to be able to
+  // distinguish two forms on the same site.
+  void RecordFormSignature(autofill::FormSignature form_signature);
+
+  // Records old and new form parsings comparison result.
+  void RecordParsingsComparisonResult(
+      ParsingComparisonResult comparison_result);
+
+  // Records the comparison of the old and new password form parsing for saving.
+  // |comparison_result| is a bitmask of values from ParsingOnSavingDifference.
+  void RecordParsingOnSavingDifference(uint64_t comparison_result);
+
+  // Records the readonly status encoded with parsing success after parsing for
+  // filling. The |value| is constructed as follows: The least significant bit
+  // says whether parsing succeeded (1) or not (0). The rest, shifted by one
+  // bit to the right is the FormDataParser::ReadonlyPasswordFields
+  // representation of the readonly status.
+  void RecordReadonlyWhenFilling(uint64_t value);
+
+  // Records the readonly status encoded with parsing success after parsing for
+  // creating pending credentials. See RecordReadonlyWhenFilling for the meaning
+  // of |value|.
+  void RecordReadonlyWhenSaving(uint64_t value);
+
+  // Records that Chrome noticed that it should show a manual fallback for
+  // saving.
+  void RecordShowManualFallbackForSaving(bool has_generated_password,
+                                         bool is_update);
+
+  void RecordFormChangeBitmask(uint32_t bitmask);
+
+  void RecordFirstFillingResult(int32_t result);
+  void RecordFirstWaitForUsernameReason(WaitForUsernameReason reason);
+
+  // Calculates FillingAssistance metric for |submitted_form|. The result is
+  // stored in |filling_assistance_| and recorded in the destructor in case when
+  // the successful submission is detected.
+  void CalculateFillingAssistanceMetric(
+      const autofill::FormData& submitted_form,
+      const std::set<base::string16>& saved_usernames,
+      const std::set<base::string16>& saved_passwords,
+      const std::vector<InteractionsStats>& interactions_stats);
 
  private:
   friend class base::RefCounted<PasswordFormMetricsRecorder>;
@@ -329,13 +463,6 @@ class PasswordFormMetricsRecorder
   int GetHistogramSampleForSuppressedAccounts(
       SuppressedAccountExistence best_matching_account) const;
 
-  // Records a metric into |ukm_entry_builder_| if it is not nullptr.
-  void RecordUkmMetric(const char* metric_name, int64_t value);
-
-  // Returns true if an |action| should be recorded multiple times per life-cyle
-  // of a PasswordFormMetricsRecorder.
-  static bool IsRepeatedUserAction(DetailedUserAction action);
-
   // True if the main frame's visible URL, at the time this PasswordFormManager
   // was created, is secure.
   const bool is_main_frame_secure_;
@@ -343,8 +470,11 @@ class PasswordFormMetricsRecorder
   // Whether the user can choose to generate a password for this form.
   bool generation_available_ = false;
 
-  // Whether this form has an auto generated password.
-  bool has_generated_password_ = false;
+  // Contains the generated password's status, which resulted from a user
+  // action.
+  base::Optional<GeneratedPasswordStatus> generated_password_status_;
+
+  base::Optional<uint32_t> spec_priority_of_generated_password_;
 
   // Tracks which bubble is currently being displayed to the user.
   CurrentBubbleOfInterest current_bubble_ = CurrentBubbleOfInterest::kNone;
@@ -354,6 +484,11 @@ class PasswordFormMetricsRecorder
 
   // Whether the user was shown a prompt to save a new credential.
   bool save_prompt_shown_ = false;
+
+  // Whether the user was shown a password generation popup and why.
+  // Only reportet when a popup was shown.
+  PasswordGenerationPopupShown password_generation_popup_shown_ =
+      PasswordGenerationPopupShown::kNotShown;
 
   // These three fields record the "ActionsTaken" by the browser and
   // the user with this form, and the result. They are combined and
@@ -367,25 +502,29 @@ class PasswordFormMetricsRecorder
   // data the user has entered.
   SubmittedFormType submitted_form_type_ = kSubmittedFormTypeUnspecified;
 
-  // Recorder to which metrics are sent. Has to outlive this
-  // PasswordFormMetricsRecorder.
-  ukm::UkmRecorder* ukm_recorder_;
-
-  // A SourceId of |ukm_recorder_|. This id gets bound to |main_frame_url_| on
-  // destruction. It can be shared across multiple metrics recorders as long as
-  // they all bind it to the same URL.
+  // The UKM SourceId of the document the form belongs to.
   ukm::SourceId source_id_;
 
-  // URL for which UKMs are reported.
-  GURL main_frame_url_;
+  // Holds URL keyed metrics (UKMs) to be recorded on destruction.
+  ukm::builders::PasswordForm ukm_entry_builder_;
 
-  // Records URL keyed metrics (UKMs) and submits them on its destruction. May
-  // be a nullptr in which case no recording is expected.
-  std::unique_ptr<ukm::UkmEntryBuilder> ukm_entry_builder_;
+  // Counter for DetailedUserActions observed during the lifetime of a
+  // PasswordFormManager. Reported upon destruction.
+  std::map<DetailedUserAction, int64_t> detailed_user_actions_counts_;
 
-  // Set of observed user actions that are only recorded once for the lifetime
-  // of a PasswordFormMetricsRecorder.
-  std::set<DetailedUserAction> one_time_report_user_actions_;
+  // Bitmap of whether and why a manual fallback for saving was shown:
+  // 1 = the fallback was shown.
+  // 2 = the password was generated.
+  // 4 = this was an update prompt.
+  base::Optional<uint32_t> showed_manual_fallback_for_saving_;
+
+  base::Optional<uint32_t> form_changes_bitmask_;
+
+  bool recorded_first_filling_result_ = false;
+
+  bool recorded_wait_for_username_reason_ = false;
+
+  base::Optional<FillingAssistance> filling_assistance_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordFormMetricsRecorder);
 };

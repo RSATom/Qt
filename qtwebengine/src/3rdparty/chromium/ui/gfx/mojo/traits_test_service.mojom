@@ -6,15 +6,13 @@ module gfx.mojom;
 
 import "ui/gfx/mojo/accelerated_widget.mojom";
 import "ui/gfx/mojo/buffer_types.mojom";
+import "ui/gfx/mojo/rrect_f.mojom";
 import "ui/gfx/mojo/selection_bound.mojom";
 import "ui/gfx/mojo/transform.mojom";
 
 // All functions on this interface echo their arguments to test StructTraits
 // serialization and deserialization.
 interface TraitsTestService {
-  [Sync]
-  EchoAcceleratedWidget(AcceleratedWidget w) => (AcceleratedWidget pass);
-
   [Sync]
   EchoSelectionBound(SelectionBound s) => (SelectionBound pass);
 
@@ -24,4 +22,7 @@ interface TraitsTestService {
   [Sync]
   EchoGpuMemoryBufferHandle(GpuMemoryBufferHandle g)
       => (GpuMemoryBufferHandle pass);
+
+  [Sync]
+  EchoRRectF(RRectF t) => (RRectF pass);
 };

@@ -7,11 +7,11 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "ipc/ipc_message.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/host/host_message_context.h"
@@ -51,12 +51,12 @@ class MyResourceHost : public ResourceHost {
       : ResourceHost(host, instance, resource),
         msg_type_(msg_type),
         reply_msg_type_(reply_msg_type),
-        last_reply_message_loop_(NULL) {}
+        last_reply_task_runner_(NULL) {}
 
   const IPC::Message& last_handled_msg() const { return last_handled_msg_; }
   const IPC::Message& last_reply_msg() const { return last_reply_msg_; }
-  base::MessageLoop* last_reply_message_loop() const {
-    return last_reply_message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> last_reply_task_runner() const {
+    return last_reply_task_runner_;
   }
 
   void AddMessageFilter(scoped_refptr<ResourceMessageFilter> filter) {
@@ -77,7 +77,7 @@ class MyResourceHost : public ResourceHost {
   void SendReply(const ReplyMessageContext& context,
                  const IPC::Message& msg) override {
     last_reply_msg_ = msg;
-    last_reply_message_loop_ = base::MessageLoop::current();
+    last_reply_task_runner_ = base::ThreadTaskRunnerHandle::Get();
     g_handler_completion.Signal();
   }
 
@@ -87,7 +87,7 @@ class MyResourceHost : public ResourceHost {
 
   IPC::Message last_handled_msg_;
   IPC::Message last_reply_msg_;
-  base::MessageLoop* last_reply_message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> last_reply_task_runner_;
 };
 
 // Dummy message filter which simply stores a copy of messages it handles.
@@ -106,11 +106,12 @@ class MyResourceFilter : public ResourceMessageFilter {
       : ResourceMessageFilter(io_thread.task_runner()),
         task_runner_(bg_thread.task_runner()),
         msg_type_(msg_type),
-        reply_msg_type_(reply_msg_type),
-        last_message_loop_(NULL) {}
+        reply_msg_type_(reply_msg_type) {}
 
   const IPC::Message& last_handled_msg() const { return last_handled_msg_; }
-  base::MessageLoop* last_message_loop() const { return last_message_loop_; }
+  scoped_refptr<base::SingleThreadTaskRunner> last_task_runner() const {
+    return last_task_runner_;
+  }
 
   scoped_refptr<base::TaskRunner> OverrideTaskRunnerForMessage(
       const IPC::Message& msg) override {
@@ -123,7 +124,7 @@ class MyResourceFilter : public ResourceMessageFilter {
       const IPC::Message& msg,
       HostMessageContext* context) override {
     last_handled_msg_ = msg;
-    last_message_loop_ = base::MessageLoop::current();
+    last_task_runner_ = base::ThreadTaskRunnerHandle::Get();
     if (msg.type() == msg_type_) {
       context->reply_msg = IPC::Message(0, reply_msg_type_,
                                         IPC::Message::PRIORITY_NORMAL);
@@ -138,7 +139,7 @@ class MyResourceFilter : public ResourceMessageFilter {
   uint32_t reply_msg_type_;
 
   IPC::Message last_handled_msg_;
-  base::MessageLoop* last_message_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> last_task_runner_;
 };
 
 }  // namespace
@@ -176,20 +177,20 @@ class ResourceMessageFilterTest : public testing::Test {
     host.HandleMessage(message1, &context);
     g_handler_completion.Wait();
     EXPECT_EQ(filter1->last_handled_msg().type(), message1.type());
-    EXPECT_EQ(filter1->last_message_loop(), bg_thread1.message_loop());
+    EXPECT_EQ(filter1->last_task_runner(), bg_thread1.task_runner());
     EXPECT_EQ(host.last_reply_msg().type(),
               static_cast<uint32_t>(REPLY_MSG1_TYPE));
-    EXPECT_EQ(host.last_reply_message_loop(), io_thread.message_loop());
+    EXPECT_EQ(host.last_reply_task_runner(), io_thread.task_runner());
     g_handler_completion.Reset();
 
     // Message 2 handled by the second filter.
     host.HandleMessage(message2, &context);
     g_handler_completion.Wait();
     EXPECT_EQ(filter2->last_handled_msg().type(), message2.type());
-    EXPECT_EQ(filter2->last_message_loop(), bg_thread2.message_loop());
+    EXPECT_EQ(filter2->last_task_runner(), bg_thread2.task_runner());
     EXPECT_EQ(host.last_reply_msg().type(),
               static_cast<uint32_t>(REPLY_MSG2_TYPE));
-    EXPECT_EQ(host.last_reply_message_loop(), io_thread.message_loop());
+    EXPECT_EQ(host.last_reply_task_runner(), io_thread.task_runner());
     g_handler_completion.Reset();
 
     // Message 3 handled by the resource host.

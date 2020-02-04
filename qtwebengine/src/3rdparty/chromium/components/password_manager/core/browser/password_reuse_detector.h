@@ -28,9 +28,6 @@ struct ReverseStringLess {
   bool operator()(const base::string16& lhs, const base::string16& rhs) const;
 };
 
-// Used to identify chrome sync password in password entry event.
-extern const char kSyncPasswordDomain[];
-
 // Per-profile class responsible for detection of password reuse, i.e. that the
 // user input on some site contains the password saved on another site.
 // It receives saved passwords through PasswordStoreConsumer interface.
@@ -58,10 +55,27 @@ class PasswordReuseDetector : public PasswordStoreConsumer {
                   PasswordReuseDetectorConsumer* consumer);
 
   // Stores internal |sync_password_data| for password reuse checking.
-  void UseSyncPasswordHash(base::Optional<SyncPasswordData> sync_password_data);
+  void UseSyncPasswordHash(base::Optional<PasswordHashData> sync_password_data);
 
-  // Clears a sync password hash if it was saved.
-  void ClearSyncPasswordHash();
+  // Stores a vector of PasswordHashData for Gaia password reuse checking.
+  void UseGaiaPasswordHash(
+      base::Optional<std::vector<PasswordHashData>> password_hash_data_list);
+
+  // Stores a vector of PasswordHashData for enterprise password reuse checking.
+  void UseNonGaiaEnterprisePasswordHash(
+      base::Optional<std::vector<PasswordHashData>> password_hash_data_list);
+
+  // Stores enterprise login URLs and change password URL.
+  // These URLs should be skipped in enterprise password reuse checking.
+  void UseEnterprisePasswordURLs(
+      base::Optional<std::vector<GURL>> enterprise_login_urls,
+      base::Optional<GURL> enterprise_change_password_url);
+
+  void ClearGaiaPasswordHash(const std::string& username);
+
+  void ClearAllGaiaPasswordHash();
+
+  void ClearAllEnterprisePasswordHash();
 
  private:
   using passwords_iterator = std::map<base::string16,
@@ -71,23 +85,37 @@ class PasswordReuseDetector : public PasswordStoreConsumer {
   // Add password from |form| to |passwords_|.
   void AddPassword(const autofill::PasswordForm& form);
 
-  // Returns true iff a reuse of a sync password is found. If reuse is found it
-  // is reported to |consumer|.
-  bool CheckSyncPasswordReuse(const base::string16& input,
-                              const std::string& domain,
-                              PasswordReuseDetectorConsumer* consumer);
+  // If Gaia password reuse is found, return the PasswordHashData of the reused
+  // password. If no reuse is found, return |base::nullopt|.
+  base::Optional<PasswordHashData> CheckGaiaPasswordReuse(
+      const base::string16& input,
+      const std::string& domain);
 
-  // Returns true iff a reuse of a saved password is found. If reuse is found it
-  // is reported to |consumer|.
-  bool CheckSavedPasswordReuse(const base::string16& input,
-                               const std::string& domain,
-                               PasswordReuseDetectorConsumer* consumer);
+  // If Non-Gaia enterprise password reuse is found, return the PasswordHashData
+  // of the the reused password. If no reuse is found, return |base::nullopt|.
+  base::Optional<PasswordHashData> CheckNonGaiaEnterprisePasswordReuse(
+      const base::string16& input,
+      const std::string& domain);
+
+  // If saved-password reuse is found, fill in the registry-controlled
+  // domains that match any reused password, and return the length of the
+  // longest password matched.  If no reuse is found, return 0.
+  size_t CheckSavedPasswordReuse(
+      const base::string16& input,
+      const std::string& domain,
+      std::vector<std::string>* matching_domains_out);
 
   // Returns the iterator to |passwords_| that corresponds to the longest key in
   // |passwords_| that is a suffix of |input|. Returns passwords_.end() in case
   // when no key in |passwords_| is a prefix of |input|.
-  passwords_iterator FindSavedPassword(const base::string16& input);
+  passwords_iterator FindFirstSavedPassword(const base::string16& input);
 
+  // Call this repeatedly with iterator from |FindFirstSavedPassword| to
+  // find other matching passwords. This returns the iterator to |passwords_|
+  // that is the next previous matching entry that's a suffix of |input|, or
+  // passwords_.end() if there are no more.
+  passwords_iterator FindNextSavedPassword(const base::string16& input,
+                                           passwords_iterator it);
   // Contains all passwords.
   // A key is a password.
   // A value is a set of registry controlled domains on which the password
@@ -98,7 +126,12 @@ class PasswordReuseDetector : public PasswordStoreConsumer {
   // of times how many different sites it's saved on.
   int saved_passwords_ = 0;
 
-  base::Optional<SyncPasswordData> sync_password_data_;
+  base::Optional<std::vector<PasswordHashData>> gaia_password_hash_data_list_;
+
+  base::Optional<std::vector<PasswordHashData>>
+      enterprise_password_hash_data_list_;
+
+  base::Optional<std::vector<GURL>> enterprise_password_urls_;
 
   DISALLOW_COPY_AND_ASSIGN(PasswordReuseDetector);
 };

@@ -16,7 +16,15 @@
 
 #include "libshaderc_util/universal_unistd.h"
 
+#if _WIN32
+// Need _fileno from stdio.h
+// Need _O_BINARY and _O_TEXT from fcntl.h
+#include <fcntl.h>
+#include <stdio.h>
+#endif
+
 #include <errno.h>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -90,13 +98,13 @@ bool ReadFile(const std::string& input_file_name,
 }
 
 std::ostream* GetOutputStream(const string_piece& output_filename,
-                              std::ofstream* file_stream) {
+                              std::ofstream* file_stream, std::ostream* err) {
   std::ostream* stream = &std::cout;
   if (output_filename != "-") {
     file_stream->open(output_filename.str(), std::ios_base::binary);
     stream = file_stream;
     if (file_stream->fail()) {
-      std::cerr << "glslc: error: cannot open output file: '" << output_filename
+      *err << "glslc: error: cannot open output file: '" << output_filename
                 << "'";
       if (access(output_filename.str().c_str(), W_OK) != 0) {
         OutputFileErrorMessage(errno);
@@ -118,6 +126,20 @@ bool WriteFile(std::ostream* stream, const string_piece& output_data) {
   }
   stream->flush();
   return true;
+}
+
+void FlushAndSetBinaryModeOnStdout() {
+  std::fflush(stdout);
+#if _WIN32
+  _setmode(_fileno(stdout), _O_BINARY);
+#endif
+}
+
+void FlushAndSetTextModeOnStdout() {
+  std::fflush(stdout);
+#if _WIN32
+  _setmode(_fileno(stdout), _O_TEXT);
+#endif
 }
 
 }  // namespace shaderc_util

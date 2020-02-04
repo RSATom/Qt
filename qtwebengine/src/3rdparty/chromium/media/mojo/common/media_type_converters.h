@@ -14,11 +14,8 @@
 
 namespace media {
 class AudioBuffer;
-class AudioDecoderConfig;
 class DecoderBuffer;
 class DecryptConfig;
-struct CdmConfig;
-struct CdmKeyInformation;
 }
 
 // These are specializations of mojo::TypeConverter and have to be in the mojo
@@ -38,51 +35,15 @@ struct TypeConverter<std::unique_ptr<media::DecryptConfig>,
 };
 
 template <>
-struct TypeConverter<media::mojom::DecoderBufferPtr,
-                     scoped_refptr<media::DecoderBuffer>> {
+struct TypeConverter<media::mojom::DecoderBufferPtr, media::DecoderBuffer> {
   static media::mojom::DecoderBufferPtr Convert(
-      const scoped_refptr<media::DecoderBuffer>& input);
+      const media::DecoderBuffer& input);
 };
 template <>
 struct TypeConverter<scoped_refptr<media::DecoderBuffer>,
                      media::mojom::DecoderBufferPtr> {
   static scoped_refptr<media::DecoderBuffer> Convert(
       const media::mojom::DecoderBufferPtr& input);
-};
-
-template <>
-struct TypeConverter<media::mojom::AudioDecoderConfigPtr,
-                     media::AudioDecoderConfig> {
-  static media::mojom::AudioDecoderConfigPtr Convert(
-      const media::AudioDecoderConfig& input);
-};
-template <>
-struct TypeConverter<media::AudioDecoderConfig,
-                     media::mojom::AudioDecoderConfigPtr> {
-  static media::AudioDecoderConfig Convert(
-      const media::mojom::AudioDecoderConfigPtr& input);
-};
-
-template <>
-struct TypeConverter<media::mojom::CdmKeyInformationPtr,
-                     media::CdmKeyInformation> {
-  static media::mojom::CdmKeyInformationPtr Convert(
-      const media::CdmKeyInformation& input);
-};
-template <>
-struct TypeConverter<std::unique_ptr<media::CdmKeyInformation>,
-                     media::mojom::CdmKeyInformationPtr> {
-  static std::unique_ptr<media::CdmKeyInformation> Convert(
-      const media::mojom::CdmKeyInformationPtr& input);
-};
-
-template <>
-struct TypeConverter<media::mojom::CdmConfigPtr, media::CdmConfig> {
-  static media::mojom::CdmConfigPtr Convert(const media::CdmConfig& input);
-};
-template <>
-struct TypeConverter<media::CdmConfig, media::mojom::CdmConfigPtr> {
-  static media::CdmConfig Convert(const media::mojom::CdmConfigPtr& input);
 };
 
 template <>

@@ -72,9 +72,9 @@ void LoadAppsFromCommandLine(ShellExtensionSystem* extension_system,
   if (launch_app) {
     base::FilePath current_directory;
     base::PathService::Get(base::DIR_CURRENT, &current_directory);
-    apps::LaunchPlatformAppWithCommandLineAndLaunchId(
-        browser_context, launch_app, launch_app->id(), *command_line,
-        current_directory, SOURCE_COMMAND_LINE);
+    apps::LaunchPlatformAppWithCommandLine(browser_context, launch_app,
+                                           *command_line, current_directory,
+                                           SOURCE_COMMAND_LINE);
   } else {
     LOG(ERROR) << "Could not load any apps.";
   }
@@ -92,7 +92,7 @@ void DefaultShellBrowserMainDelegate::Start(
     content::BrowserContext* browser_context) {
   ShellExtensionSystem* extension_system =
       static_cast<ShellExtensionSystem*>(ExtensionSystem::Get(browser_context));
-  extension_system->Init();
+  extension_system->FinishInitialization();
 
   LoadExtensionsFromCommandLine(extension_system);
   LoadAppsFromCommandLine(extension_system, browser_context);
@@ -101,9 +101,10 @@ void DefaultShellBrowserMainDelegate::Start(
 void DefaultShellBrowserMainDelegate::Shutdown() {
 }
 
-DesktopController* DefaultShellBrowserMainDelegate::CreateDesktopController() {
+DesktopController* DefaultShellBrowserMainDelegate::CreateDesktopController(
+    content::BrowserContext* context) {
 #if defined(USE_AURA)
-  return new ShellDesktopControllerAura();
+  return new ShellDesktopControllerAura(context);
 #elif defined(OS_MACOSX)
   return new ShellDesktopControllerMac();
 #else

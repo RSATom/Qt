@@ -62,10 +62,10 @@
 
 #include <stdlib.h>
 
-static QPixmap genIcon(const QSize &iconSize, const QString &, const QColor &color)
+static QPixmap genIcon(const QSize &iconSize, const QString &, const QColor &color, qreal pixelRatio)
 {
-    int w = iconSize.width();
-    int h = iconSize.height();
+    int w = qRound(iconSize.width() * pixelRatio);
+    int h = qRound(iconSize.height() * pixelRatio);
 
     QImage image(w, h, QImage::Format_ARGB32_Premultiplied);
     image.fill(0);
@@ -75,38 +75,41 @@ static QPixmap genIcon(const QSize &iconSize, const QString &, const QColor &col
     extern void render_qt_text(QPainter *, int, int, const QColor &);
     render_qt_text(&p, w, h, color);
 
-    return QPixmap::fromImage(image, Qt::DiffuseDither | Qt::DiffuseAlphaDither);
+    QPixmap pm = QPixmap::fromImage(image, Qt::DiffuseDither | Qt::DiffuseAlphaDither);
+    pm.setDevicePixelRatio(pixelRatio);
+    return pm;
 }
 
-static QPixmap genIcon(const QSize &iconSize, int number, const QColor &color)
-{ return genIcon(iconSize, QString::number(number), color); }
+static QPixmap genIcon(const QSize &iconSize, int number, const QColor &color, qreal pixelRatio)
+{ return genIcon(iconSize, QString::number(number), color, pixelRatio); }
 
 ToolBar::ToolBar(const QString &title, QWidget *parent)
     : QToolBar(parent)
-    , spinbox(Q_NULLPTR)
-    , spinboxAction(Q_NULLPTR)
+    , spinbox(nullptr)
+    , spinboxAction(nullptr)
 {
     setWindowTitle(title);
     setObjectName(title);
 
     setIconSize(QSize(32, 32));
 
+    qreal dpr = devicePixelRatioF();
     menu = new QMenu("One", this);
-    menu->setIcon(genIcon(iconSize(), 1, Qt::black));
-    menu->addAction(genIcon(iconSize(), "A", Qt::blue), "A");
-    menu->addAction(genIcon(iconSize(), "B", Qt::blue), "B");
-    menu->addAction(genIcon(iconSize(), "C", Qt::blue), "C");
+    menu->setIcon(genIcon(iconSize(), 1, Qt::black, dpr));
+    menu->addAction(genIcon(iconSize(), "A", Qt::blue, dpr), "A");
+    menu->addAction(genIcon(iconSize(), "B", Qt::blue, dpr), "B");
+    menu->addAction(genIcon(iconSize(), "C", Qt::blue, dpr), "C");
     addAction(menu->menuAction());
 
-    QAction *two = addAction(genIcon(iconSize(), 2, Qt::white), "Two");
+    QAction *two = addAction(genIcon(iconSize(), 2, Qt::white, dpr), "Two");
     QFont boldFont;
     boldFont.setBold(true);
     two->setFont(boldFont);
 
-    addAction(genIcon(iconSize(), 3, Qt::red), "Three");
-    addAction(genIcon(iconSize(), 4, Qt::green), "Four");
-    addAction(genIcon(iconSize(), 5, Qt::blue), "Five");
-    addAction(genIcon(iconSize(), 6, Qt::yellow), "Six");
+    addAction(genIcon(iconSize(), 3, Qt::red, dpr), "Three");
+    addAction(genIcon(iconSize(), 4, Qt::green, dpr), "Four");
+    addAction(genIcon(iconSize(), 5, Qt::blue, dpr), "Five");
+    addAction(genIcon(iconSize(), 6, Qt::yellow, dpr), "Six");
     orderAction = new QAction(this);
     orderAction->setText(tr("Order Items in Tool Bar"));
     connect(orderAction, &QAction::triggered, this, &ToolBar::order);
@@ -205,7 +208,7 @@ ToolBar::ToolBar(const QString &title, QWidget *parent)
 void ToolBar::updateMenu()
 {
     QMainWindow *mainWindow = qobject_cast<QMainWindow *>(parentWidget());
-    Q_ASSERT(mainWindow != 0);
+    Q_ASSERT(mainWindow);
 
     const Qt::ToolBarArea area = mainWindow->toolBarArea(this);
     const Qt::ToolBarAreas areas = allowedAreas();
@@ -241,7 +244,8 @@ void ToolBar::order()
 {
     QList<QAction *> ordered;
     QList<QAction *> actions1 = actions();
-    foreach (QAction *action, findChildren<QAction *>()) {
+    const QList<QAction *> childActions = findChildren<QAction *>();
+    for (QAction *action : childActions) {
         if (!actions1.contains(action))
             continue;
         actions1.removeAll(action);
@@ -310,7 +314,7 @@ void ToolBar::place(Qt::ToolBarArea area, bool p)
         return;
 
     QMainWindow *mainWindow = qobject_cast<QMainWindow *>(parentWidget());
-    Q_ASSERT(mainWindow != 0);
+    Q_ASSERT(mainWindow);
 
     mainWindow->addToolBar(area, this);
 
@@ -352,7 +356,7 @@ void ToolBar::placeBottom(bool p)
 void ToolBar::insertToolBarBreak()
 {
     QMainWindow *mainWindow = qobject_cast<QMainWindow *>(parentWidget());
-    Q_ASSERT(mainWindow != 0);
+    Q_ASSERT(mainWindow);
 
     mainWindow->insertToolBarBreak(this);
 }

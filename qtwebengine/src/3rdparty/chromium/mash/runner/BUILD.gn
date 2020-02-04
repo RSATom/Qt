@@ -12,14 +12,11 @@ executable("runner") {
   deps = [
     "//base",
     "//base:i18n",
-    "//build/config:exe_and_shlib_deps",
-    "//mojo/edk/system",
+    "//base/test:test_support",
+    "//mash:mash_catalog_source",
+    "//mojo/core/embedder",
     "//services/service_manager",
     "//services/service_manager/runner:init",
     "//services/service_manager/standalone",
-  ]
-
-  data_deps = [
-    "//mash:mash_catalog",
   ]
 }

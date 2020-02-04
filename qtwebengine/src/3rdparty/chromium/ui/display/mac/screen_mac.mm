@@ -11,16 +11,15 @@
 #include <map>
 #include <memory>
 
-#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
+#include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/mac/sdk_forward_declarations.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/timer/timer.h"
 #include "ui/display/display.h"
 #include "ui/display/display_change_notifier.h"
-#include "ui/gfx/color_space_switches.h"
 #include "ui/gfx/icc_profile.h"
 #include "ui/gfx/mac/coordinate_conversion.h"
 
@@ -74,25 +73,37 @@ Display BuildDisplayForScreen(NSScreen* screen) {
     display.set_bounds(gfx::ScreenRectFromNSRect(frame));
     display.set_work_area(gfx::ScreenRectFromNSRect(visible_frame));
   }
-  CGFloat scale = [screen backingScaleFactor];
 
+  // Compute device scale factor
+  CGFloat scale = [screen backingScaleFactor];
   if (Display::HasForceDeviceScaleFactor())
     scale = Display::GetForcedDeviceScaleFactor();
-
   display.set_device_scale_factor(scale);
 
-  if (!Display::HasForceColorProfile()) {
-    // On Sierra, we need to operate in a single screen's color space because
-    // IOSurfaces do not opt-out of color correction.
-    // https://crbug.com/654488
-    CGColorSpaceRef color_space = [[screen colorSpace] CGColorSpace];
-    static bool color_correct_rendering_enabled =
-        base::FeatureList::IsEnabled(features::kColorCorrectRendering);
-    if (base::mac::IsAtLeastOS10_12() && !color_correct_rendering_enabled)
-      color_space = base::mac::GetSystemColorSpace();
-    display.set_color_space(
-        gfx::ICCProfile::FromCGColorSpace(color_space).GetColorSpace());
+  // Compute the color profile.
+  gfx::ICCProfile icc_profile;
+  CGColorSpaceRef cg_color_space = [[screen colorSpace] CGColorSpace];
+  if (cg_color_space) {
+    base::ScopedCFTypeRef<CFDataRef> cf_icc_profile(
+        CGColorSpaceCopyICCProfile(cg_color_space));
+    if (cf_icc_profile) {
+      icc_profile = gfx::ICCProfile::FromData(CFDataGetBytePtr(cf_icc_profile),
+                                              CFDataGetLength(cf_icc_profile));
+    }
   }
+  icc_profile.HistogramDisplay(display.id());
+  gfx::ColorSpace screen_color_space = icc_profile.GetColorSpace();
+  if (Display::HasForceDisplayColorProfile()) {
+    if (Display::HasEnsureForcedColorProfile()) {
+      CHECK_EQ(screen_color_space, display.color_space())
+          << "The display's color space does not match the color space that "
+             "was forced by the command line. This will cause pixel tests to "
+             "fail.";
+    }
+  } else {
+    display.set_color_space(screen_color_space);
+  }
+
   display.set_color_depth(NSBitsPerPixelFromDepth([screen depth]));
   display.set_depth_per_component(NSBitsPerSampleFromDepth([screen depth]));
   display.set_is_monochrome(CGDisplayUsesForceToGray());
@@ -125,11 +136,10 @@ CGFloat GetMinimumDistanceToCorner(const NSPoint& point, NSScreen* screen) {
 class ScreenMac : public Screen {
  public:
   ScreenMac()
-      : configure_timer_(
-            FROM_HERE,
-            base::TimeDelta::FromMilliseconds(kConfigureDelayMs),
-            base::Bind(&ScreenMac::ConfigureTimerFired, base::Unretained(this)),
-            false) {
+      : configure_timer_(FROM_HERE,
+                         base::TimeDelta::FromMilliseconds(kConfigureDelayMs),
+                         base::Bind(&ScreenMac::ConfigureTimerFired,
+                                    base::Unretained(this))) {
     old_displays_ = displays_ = BuildDisplaysFromQuartz();
     CGDisplayRegisterReconfigurationCallback(
         ScreenMac::DisplayReconfigurationCallBack, this);
@@ -158,9 +168,10 @@ class ScreenMac : public Screen {
     return gfx::ScreenPointFromNSPoint([NSEvent mouseLocation]);
   }
 
-  bool IsWindowUnderCursor(gfx::NativeWindow window) override {
-    NOTIMPLEMENTED();
-    return false;
+  bool IsWindowUnderCursor(gfx::NativeWindow native_window) override {
+    NSWindow* window = native_window.GetNativeNSWindow();
+    return [NSWindow windowNumberAtPoint:[NSEvent mouseLocation]
+             belowWindowWithWindowNumber:0] == [window windowNumber];
   }
 
   gfx::NativeWindow GetWindowAtScreenPoint(const gfx::Point& point) override {
@@ -174,7 +185,9 @@ class ScreenMac : public Screen {
     return displays_;
   }
 
-  Display GetDisplayNearestWindow(gfx::NativeWindow window) const override {
+  Display GetDisplayNearestWindow(
+      gfx::NativeWindow native_window) const override {
+    NSWindow* window = native_window.GetNativeNSWindow();
     EnsureDisplaysValid();
     if (displays_.size() == 1)
       return displays_[0];
@@ -192,10 +205,11 @@ class ScreenMac : public Screen {
     return GetCachedDisplayForScreen(match_screen);
   }
 
-  Display GetDisplayNearestView(gfx::NativeView view) const override {
+  Display GetDisplayNearestView(gfx::NativeView native_view) const override {
+    NSView* view = native_view.GetNativeNSView();
     NSWindow* window = [view window];
     if (!window)
-      window = [NSApp keyWindow];
+      return GetPrimaryDisplay();
     return GetDisplayNearestWindow(window);
   }
 
@@ -298,7 +312,7 @@ class ScreenMac : public Screen {
     // doesn't hurt.
     CGDirectDisplayID online_displays[128];
     CGDisplayCount online_display_count = 0;
-    if (CGGetOnlineDisplayList(arraysize(online_displays), online_displays,
+    if (CGGetOnlineDisplayList(base::size(online_displays), online_displays,
                                &online_display_count) != kCGErrorSuccess) {
       return std::vector<Display>(1, BuildPrimaryDisplay());
     }
@@ -343,7 +357,7 @@ class ScreenMac : public Screen {
   std::vector<Display> old_displays_;
 
   // The timer to delay configuring outputs and notifying observers.
-  base::Timer configure_timer_;
+  base::RetainingOneShotTimer configure_timer_;
 
   // The observer notified by NSScreenColorSpaceDidChangeNotification.
   base::scoped_nsobject<id> screen_color_change_observer_;
@@ -356,12 +370,14 @@ class ScreenMac : public Screen {
 }  // namespace
 
 // static
-gfx::NativeWindow Screen::GetWindowForView(gfx::NativeView view) {
-  NSWindow* window = nil;
+gfx::NativeWindow Screen::GetWindowForView(gfx::NativeView native_view) {
 #if !defined(USE_AURA)
-  window = [view window];
-#endif
+  NSView* view = native_view.GetNativeNSView();
+  return [view window];
+#else
+  gfx::NativeWindow window = nil;
   return window;
+#endif
 }
 
 #if !defined(USE_AURA)

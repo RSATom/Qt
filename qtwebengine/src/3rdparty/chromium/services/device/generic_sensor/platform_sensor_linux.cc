@@ -14,19 +14,22 @@ namespace {
 
 // Checks if at least one value has been changed.
 bool HaveValuesChanged(const SensorReading& lhs, const SensorReading& rhs) {
-  return lhs.values[0] != rhs.values[0] || lhs.values[1] != rhs.values[1] ||
-         lhs.values[2] != rhs.values[2];
+  for (size_t i = 0; i < SensorReadingRaw::kValuesCount; ++i) {
+    if (lhs.raw.values[i] != rhs.raw.values[i])
+      return true;
+  }
+  return false;
 }
 
 }  // namespace
 
 PlatformSensorLinux::PlatformSensorLinux(
     mojom::SensorType type,
-    mojo::ScopedSharedBufferMapping mapping,
+    SensorReadingSharedBuffer* reading_buffer,
     PlatformSensorProvider* provider,
     const SensorInfoLinux* sensor_device,
     scoped_refptr<base::SingleThreadTaskRunner> polling_thread_task_runner)
-    : PlatformSensor(type, std::move(mapping), provider),
+    : PlatformSensor(type, reading_buffer, provider),
       default_configuration_(
           PlatformSensorConfiguration(sensor_device->device_frequency)),
       reporting_mode_(sensor_device->reporting_mode),
@@ -48,15 +51,14 @@ mojom::ReportingMode PlatformSensorLinux::GetReportingMode() {
 
 void PlatformSensorLinux::UpdatePlatformSensorReading(SensorReading reading) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  bool notifyNeeded = false;
-  if (GetReportingMode() == mojom::ReportingMode::ON_CHANGE) {
-    if (!HaveValuesChanged(reading, old_values_))
-      return;
-    notifyNeeded = true;
+  if (GetReportingMode() == mojom::ReportingMode::ON_CHANGE &&
+      !HaveValuesChanged(reading, old_values_)) {
+    return;
   }
   old_values_ = reading;
-  reading.timestamp = (base::TimeTicks::Now() - base::TimeTicks()).InSecondsF();
-  UpdateSensorReading(reading, notifyNeeded);
+  reading.raw.timestamp =
+      (base::TimeTicks::Now() - base::TimeTicks()).InSecondsF();
+  UpdateSharedBufferAndNotifyClients(reading);
 }
 
 void PlatformSensorLinux::NotifyPlatformSensorError() {

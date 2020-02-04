@@ -40,8 +40,6 @@
 #include "qhttpnetworkreply_p.h"
 #include "qhttpnetworkconnection_p.h"
 
-#ifndef QT_NO_HTTP
-
 #ifndef QT_NO_SSL
 #    include <QtNetwork/qsslkey.h>
 #    include <QtNetwork/qsslcipher.h>
@@ -392,7 +390,8 @@ qint64 QHttpNetworkReplyPrivate::bytesAvailable() const
 bool QHttpNetworkReplyPrivate::isCompressed()
 {
     QByteArray encoding = headerField("content-encoding");
-    return qstricmp(encoding.constData(), "gzip") == 0 || qstricmp(encoding.constData(), "deflate") == 0;
+    return encoding.compare("gzip", Qt::CaseInsensitive) == 0 ||
+            encoding.compare("deflate", Qt::CaseInsensitive) == 0;
 }
 
 void QHttpNetworkReplyPrivate::removeAutoDecompressHeader()
@@ -403,7 +402,7 @@ void QHttpNetworkReplyPrivate::removeAutoDecompressHeader()
     QList<QPair<QByteArray, QByteArray> >::Iterator it = fields.begin(),
                                                    end = fields.end();
     while (it != end) {
-        if (qstricmp(name.constData(), it->first.constData()) == 0) {
+        if (name.compare(it->first, Qt::CaseInsensitive) == 0) {
             removedContentLength = strtoull(it->second.constData(), nullptr, 0);
             fields.erase(it);
             break;
@@ -1035,5 +1034,3 @@ void QHttpNetworkReply::ignoreSslErrors(const QList<QSslError> &errors)
 
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_HTTP

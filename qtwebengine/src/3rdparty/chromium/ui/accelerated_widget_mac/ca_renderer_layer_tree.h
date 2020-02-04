@@ -8,7 +8,6 @@
 #include <IOSurface/IOSurface.h>
 #include <QuartzCore/QuartzCore.h>
 
-#include <deque>
 #include <memory>
 #include <vector>
 
@@ -52,15 +51,8 @@ class ACCELERATED_WIDGET_MAC_EXPORT CARendererLayerTree {
   // not re-used by |this| will be removed from the CALayer hierarchy.
   void CommitScheduledCALayers(CALayer* superlayer,
                                std::unique_ptr<CARendererLayerTree> old_tree,
+                               const gfx::Size& pixel_size,
                                float scale_factor);
-
-  // Check to see if the CALayer tree can be represented entirely by a video
-  // layer on a black background. If so, then set |fullscreen_low_power_layer|
-  // to draw this content and return true. Otherwise return false. This is to
-  // be called after committing scheduled CALayers.
-
-  bool CommitFullscreenLowPowerLayer(
-      AVSampleBufferDisplayLayer109* fullscreen_low_power_layer);
 
   // Returns the contents used for a given solid color.
   id ContentsForSolidColorForTesting(unsigned int color);
@@ -89,13 +81,22 @@ class ACCELERATED_WIDGET_MAC_EXPORT CARendererLayerTree {
     bool AddContentLayer(CARendererLayerTree* tree,
                          const CARendererLayerParams& params);
 
+    // Workaround for https://crbug.com/923427. Only allow any
+    // AVSampleBufferDisplayLayer if there is exactly one video quad.
+    void EnforceOnlyOneAVLayer();
+
     // Allocate CALayers for this layer and its children, and set their
     // properties appropriately. Re-use the CALayers from |old_layer| if
     // possible. If re-using a CALayer from |old_layer|, reset its |ca_layer|
     // to nil, so that its destructor will not remove an active CALayer.
     void CommitToCA(CALayer* superlayer,
                     RootLayer* old_layer,
+                    const gfx::Size& pixel_size,
                     float scale_factor);
+
+    // Return true if the CALayer tree is just a video layer on a black or
+    // transparent background, false otherwise.
+    bool WantsFullcreenLowPowerBackdrop() const;
 
     std::vector<ClipAndSortingLayer> clip_and_sorting_layers;
     base::scoped_nsobject<CALayer> ca_layer;
@@ -175,7 +176,7 @@ class ACCELERATED_WIDGET_MAC_EXPORT CARendererLayerTree {
     const base::ScopedCFTypeRef<CVPixelBufferRef> cv_pixel_buffer;
     scoped_refptr<SolidColorContents> solid_color_contents;
     gfx::RectF contents_rect;
-    gfx::Rect rect;
+    gfx::RectF rect;
     unsigned background_color = 0;
     // Note that the CoreAnimation edge antialiasing mask is not the same as
     // the edge antialiasing mask passed to the constructor.

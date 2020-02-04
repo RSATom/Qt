@@ -7,13 +7,15 @@
 
 #include <stdint.h>
 
+#include <set>
 #include <string>
 
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
-#include "net/cookies/cookie_store.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/mojom/cookie_manager.mojom.h"
 
 class GURL;
 
@@ -28,6 +30,13 @@ class FileSystemContext;
 namespace net {
 class URLRequestContextGetter;
 }
+
+namespace network {
+namespace mojom {
+class CookieManager;
+class NetworkContext;
+}
+}  // namespace network
 
 namespace storage {
 class QuotaManager;
@@ -45,8 +54,10 @@ class BrowserContext;
 class CacheStorageContext;
 class DOMStorageContext;
 class IndexedDBContext;
+class GeneratedCodeCacheContext;
 class PlatformNotificationContext;
 class ServiceWorkerContext;
+class SharedWorkerService;
 
 #if !defined(OS_ANDROID)
 class HostZoomLevelContext;
@@ -63,8 +74,31 @@ class ZoomLevelDelegate;
 class CONTENT_EXPORT StoragePartition {
  public:
   virtual base::FilePath GetPath() = 0;
+  // These can't be called when the network service is enabled, since net/ runs
+  // in a separate process.
   virtual net::URLRequestContextGetter* GetURLRequestContext() = 0;
   virtual net::URLRequestContextGetter* GetMediaURLRequestContext() = 0;
+
+  // Returns a raw mojom::NetworkContext pointer. When network service crashes
+  // or restarts, the raw pointer will not be valid or safe to use. Therefore,
+  // caller should not hold onto this pointer beyond the same message loop task.
+  virtual network::mojom::NetworkContext* GetNetworkContext() = 0;
+
+  // Returns a pointer/info to a URLLoaderFactory/CookieManager owned by
+  // the storage partition. Prefer to use this instead of creating a new
+  // URLLoaderFactory when issuing requests from the Browser process, to
+  // share resources and preserve ordering.
+  // The returned info from |GetURLLoaderFactoryForBrowserProcessIOThread()|
+  // must be consumed on the IO thread to get the actual factory, and is safe to
+  // use after StoragePartition has gone.
+  // The returned SharedURLLoaderFactory can be held on and will work across
+  // network process restarts.
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactoryForBrowserProcess() = 0;
+  virtual std::unique_ptr<network::SharedURLLoaderFactoryInfo>
+  GetURLLoaderFactoryForBrowserProcessIOThread() = 0;
+  virtual network::mojom::CookieManager*
+  GetCookieManagerForBrowserProcess() = 0;
   virtual storage::QuotaManager* GetQuotaManager() = 0;
   virtual AppCacheService* GetAppCacheService() = 0;
   virtual storage::FileSystemContext* GetFileSystemContext() = 0;
@@ -72,7 +106,9 @@ class CONTENT_EXPORT StoragePartition {
   virtual DOMStorageContext* GetDOMStorageContext() = 0;
   virtual IndexedDBContext* GetIndexedDBContext() = 0;
   virtual ServiceWorkerContext* GetServiceWorkerContext() = 0;
+  virtual SharedWorkerService* GetSharedWorkerService() = 0;
   virtual CacheStorageContext* GetCacheStorageContext() = 0;
+  virtual GeneratedCodeCacheContext* GetGeneratedCodeCacheContext() = 0;
 #if !defined(OS_ANDROID)
   virtual HostZoomMap* GetHostZoomMap() = 0;
   virtual HostZoomLevelContext* GetHostZoomLevelContext() = 0;
@@ -91,6 +127,7 @@ class CONTENT_EXPORT StoragePartition {
     REMOVE_DATA_MASK_SERVICE_WORKERS = 1 << 7,
     REMOVE_DATA_MASK_CACHE_STORAGE = 1 << 8,
     REMOVE_DATA_MASK_PLUGIN_PRIVATE_DATA = 1 << 9,
+    REMOVE_DATA_MASK_BACKGROUND_FETCH = 1 << 10,
     REMOVE_DATA_MASK_ALL = 0xFFFFFFFF,
 
     // Corresponds to storage::kStorageTypeTemporary.
@@ -107,8 +144,7 @@ class CONTENT_EXPORT StoragePartition {
   // inside this StoragePartition for the given |storage_origin|.
   // Note session dom storage is not cleared even if you specify
   // REMOVE_DATA_MASK_LOCAL_STORAGE.
-  // |callback| is called when data deletion is done or at least the deletion is
-  // scheduled.
+  // No notification is dispatched upon completion.
   //
   // TODO(ajwong): Right now, the embedder may have some
   // URLRequestContextGetter objects that the StoragePartition does not know
@@ -117,9 +153,7 @@ class CONTENT_EXPORT StoragePartition {
   // is fixed.
   virtual void ClearDataForOrigin(uint32_t remove_mask,
                                   uint32_t quota_storage_remove_mask,
-                                  const GURL& storage_origin,
-                                  net::URLRequestContextGetter* rq_context,
-                                  const base::Closure& callback) = 0;
+                                  const GURL& storage_origin) = 0;
 
   // A callback type to check if a given origin matches a storage policy.
   // Can be passed empty/null where used, which means the origin will always
@@ -127,44 +161,45 @@ class CONTENT_EXPORT StoragePartition {
   typedef base::Callback<bool(const GURL&, storage::SpecialStoragePolicy*)>
       OriginMatcherFunction;
 
-  // A callback type to check if a given cookie should be cleared.
-  using CookieMatcherFunction = net::CookieStore::CookiePredicate;
-
   // Similar to ClearDataForOrigin().
   // Deletes all data out for the StoragePartition if |storage_origin| is empty.
-  // |origin_matcher| is present if special storage policy is to be handled,
-  // otherwise the callback can be null (base::Callback::is_null() == true).
   // |callback| is called when data deletion is done or at least the deletion is
   // scheduled.
-  // storage_origin and origin_matcher_function are used for different
-  // subsystems. One does not imply the other.
   virtual void ClearData(uint32_t remove_mask,
                          uint32_t quota_storage_remove_mask,
                          const GURL& storage_origin,
-                         const OriginMatcherFunction& origin_matcher,
                          const base::Time begin,
                          const base::Time end,
-                         const base::Closure& callback) = 0;
+                         base::OnceClosure callback) = 0;
 
   // Similar to ClearData().
   // Deletes all data out for the StoragePartition.
   // * |origin_matcher| is present if special storage policy is to be handled,
   //   otherwise the callback should be null (base::Callback::is_null()==true).
   //   The origin matcher does not apply to cookies, instead use:
-  // * |cookies_matcher| is present if special cookie clearing is to be handled.
-  //   If the callback is null all cookies withing the time range will be
-  //   cleared.
+  // * |cookie_deletion_filter| identifies the cookies to delete and will be
+  //   used if |remove_mask| has the REMOVE_DATA_MASK_COOKIES bit set. Note:
+  //   CookieDeletionFilterPtr also contains a time interval
+  //   (created_after_time/created_before_time), so when deleting cookies
+  //   |begin| and |end| will be used ignoring the interval in
+  //   |cookie_deletion_filter|.
+  //   If |perform_storage_cleanup| is true, the storage will try to remove
+  //   traces about deleted data from disk. This is an expensive operation that
+  //   should only be performed if we are sure that almost all data will be
+  //   deleted anyway.
   // * |callback| is called when data deletion is done or at least the deletion
   //   is scheduled.
   // Note: Make sure you know what you are doing before clearing cookies
   // selectively. You don't want to break the web.
-  virtual void ClearData(uint32_t remove_mask,
-                         uint32_t quota_storage_remove_mask,
-                         const OriginMatcherFunction& origin_matcher,
-                         const CookieMatcherFunction& cookie_matcher,
-                         const base::Time begin,
-                         const base::Time end,
-                         const base::Closure& callback) = 0;
+  virtual void ClearData(
+      uint32_t remove_mask,
+      uint32_t quota_storage_remove_mask,
+      const OriginMatcherFunction& origin_matcher,
+      network::mojom::CookieDeletionFilterPtr cookie_deletion_filter,
+      bool perform_storage_cleanup,
+      const base::Time begin,
+      const base::Time end,
+      base::OnceClosure callback) = 0;
 
   // Clears the HTTP and media caches associated with this StoragePartition's
   // request contexts. If |begin| and |end| are not null, only entries with
@@ -174,15 +209,30 @@ class CONTENT_EXPORT StoragePartition {
       const base::Time begin,
       const base::Time end,
       const base::Callback<bool(const GURL&)>& url_matcher,
-      const base::Closure& callback) = 0;
+      base::OnceClosure callback) = 0;
+
+  // Clears code caches associated with this StoragePartition.
+  // TODO(crbug.com/866419): Currently we just clear entire caches.
+  // Change it to conditionally clear entries based on the filters.
+  virtual void ClearCodeCaches(base::OnceClosure callback) = 0;
 
   // Write any unwritten data to disk.
   // Note: this method does not sync the data - it only ensures that any
   // unwritten data has been written out to the filesystem.
   virtual void Flush() = 0;
 
+  // Resets all URLLoaderFactories bound to this partition's network context.
+  virtual void ResetURLLoaderFactories() = 0;
+
   // Clear the bluetooth allowed devices map. For test use only.
   virtual void ClearBluetoothAllowedDevicesMapForTesting() = 0;
+
+  // Call |FlushForTesting()| on Network Service related interfaces. For test
+  // use only.
+  virtual void FlushNetworkInterfaceForTesting() = 0;
+
+  // Wait until all deletions tasks are finished. For test use only.
+  virtual void WaitForDeletionTasksForTesting() = 0;
 
  protected:
   virtual ~StoragePartition() {}

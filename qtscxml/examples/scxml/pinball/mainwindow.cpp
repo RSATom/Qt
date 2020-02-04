@@ -51,8 +51,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-#include <QStringListModel>
 #include <QScxmlStateMachine>
+#include <QStringListModel>
 
 QT_USE_NAMESPACE
 

@@ -21,9 +21,8 @@
 #define I18N_ADDRESSINPUT_RULE_H_
 
 #include <libaddressinput/address_field.h>
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -42,6 +41,9 @@ struct RE2ptr;
 //    }
 class Rule {
  public:
+  Rule(const Rule&) = delete;
+  Rule& operator=(const Rule&) = delete;
+
   Rule();
   ~Rule();
 
@@ -89,7 +91,7 @@ class Rule {
   const std::vector<std::string>& GetLanguages() const { return languages_; }
 
   // Returns a pointer to a RE2 regular expression object created from the
-  // postal code format string, if specified, or NULL otherwise. The regular
+  // postal code format string, if specified, or nullptr otherwise. The regular
   // expression is anchored to the beginning of the string so that it can be
   // used either with RE2::PartialMatch() to perform prefix matching or else
   // with RE2::FullMatch() to perform matching against the entire string.
@@ -145,7 +147,7 @@ class Rule {
   std::vector<AddressField> required_;
   std::vector<std::string> sub_keys_;
   std::vector<std::string> languages_;
-  scoped_ptr<const RE2ptr> postal_code_matcher_;
+  std::unique_ptr<const RE2ptr> postal_code_matcher_;
   std::string sole_postal_code_;
   int admin_area_name_message_id_;
   int postal_code_name_message_id_;
@@ -155,8 +157,6 @@ class Rule {
   std::string latin_name_;
   std::string postal_code_example_;
   std::string post_service_url_;
-
-  DISALLOW_COPY_AND_ASSIGN(Rule);
 };
 
 }  // namespace addressinput

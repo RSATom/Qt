@@ -50,6 +50,12 @@ QT_BEGIN_NAMESPACE
 
 namespace QtWayland {
 
+static void handlePopupCreated(QWaylandQuickShellSurfaceItem *parentItem, QWaylandXdgPopupV5 *popup)
+{
+    if (parentItem->surface() == popup->parentSurface())
+        QWaylandQuickShellSurfaceItemPrivate::get(parentItem)->maybeCreateAutoPopup(popup);
+}
+
 XdgShellV5Integration::XdgShellV5Integration(QWaylandQuickShellSurfaceItem *item)
     : QWaylandQuickShellIntegration(item)
     , m_item(item)
@@ -65,7 +71,10 @@ XdgShellV5Integration::XdgShellV5Integration(QWaylandQuickShellSurfaceItem *item
     connect(m_xdgSurface, &QWaylandXdgSurfaceV5::unsetMaximized, this, &XdgShellV5Integration::handleUnsetMaximized);
     connect(m_xdgSurface, &QWaylandXdgSurfaceV5::maximizedChanged, this, &XdgShellV5Integration::handleMaximizedChanged);
     connect(m_xdgSurface, &QWaylandXdgSurfaceV5::activatedChanged, this, &XdgShellV5Integration::handleActivatedChanged);
-    connect(m_xdgSurface->surface(), &QWaylandSurface::sizeChanged, this, &XdgShellV5Integration::handleSurfaceSizeChanged);
+    connect(m_xdgSurface->surface(), &QWaylandSurface::destinationSizeChanged, this, &XdgShellV5Integration::handleSurfaceSizeChanged);
+    connect(m_xdgSurface->shell(), &QWaylandXdgShellV5::xdgPopupCreated, this, [item](QWaylandXdgPopupV5 *popup){
+        handlePopupCreated(item, popup);
+    });
 }
 
 XdgShellV5Integration::~XdgShellV5Integration()
@@ -130,7 +139,7 @@ void XdgShellV5Integration::handleStartResize(QWaylandSeat *seat, QWaylandXdgSur
     resizeState.resizeEdges = edges;
     resizeState.initialWindowSize = m_xdgSurface->windowGeometry().size();
     resizeState.initialPosition = m_item->moveItem()->position();
-    resizeState.initialSurfaceSize = m_item->surface()->size();
+    resizeState.initialSurfaceSize = m_item->surface()->destinationSize();
     resizeState.initialized = false;
 }
 
@@ -185,14 +194,14 @@ void XdgShellV5Integration::handleActivatedChanged()
 void XdgShellV5Integration::handleSurfaceSizeChanged()
 {
     if (grabberState == GrabberState::Resize) {
-        qreal x = resizeState.initialPosition.x();
-        qreal y = resizeState.initialPosition.y();
+        qreal dx = 0;
+        qreal dy = 0;
         if (resizeState.resizeEdges & QWaylandXdgSurfaceV5::ResizeEdge::TopEdge)
-            y += resizeState.initialSurfaceSize.height() - m_item->surface()->size().height();
-
+            dy = resizeState.initialSurfaceSize.height() - m_item->surface()->destinationSize().height();
         if (resizeState.resizeEdges & QWaylandXdgSurfaceV5::ResizeEdge::LeftEdge)
-            x += resizeState.initialSurfaceSize.width() - m_item->surface()->size().width();
-        m_item->moveItem()->setPosition(QPointF(x, y));
+            dx = resizeState.initialSurfaceSize.width() - m_item->surface()->destinationSize().width();
+        QPointF offset = m_item->mapFromSurface({dx, dy});
+        m_item->moveItem()->setPosition(resizeState.initialPosition + offset);
     }
 }
 
@@ -203,16 +212,21 @@ XdgPopupV5Integration::XdgPopupV5Integration(QWaylandQuickShellSurfaceItem *item
     , m_xdgShell(QWaylandXdgPopupV5Private::get(m_xdgPopup)->m_xdgShell)
 {
     item->setSurface(m_xdgPopup->surface());
-    if (item->view()->output())
-        item->moveItem()->setPosition(QPointF(m_xdgPopup->position() * item->view()->output()->scaleFactor()));
-    else
+    if (item->view()->output()) {
+        QPoint position = item->mapFromSurface(m_xdgPopup->position()).toPoint();
+        item->moveItem()->setPosition(position);
+    } else {
         qWarning() << "XdgPopupV5Integration popup item without output" << item;
+    }
 
     QWaylandClient *client = m_xdgPopup->surface()->client();
     auto shell = m_xdgShell;
     QWaylandQuickShellEventFilter::startFilter(client, [shell]() { shell->closeAllPopups(); });
 
     connect(m_xdgPopup, &QWaylandXdgPopupV5::destroyed, this, &XdgPopupV5Integration::handlePopupDestroyed);
+    connect(m_xdgPopup->shell(), &QWaylandXdgShellV5::xdgPopupCreated, this, [item](QWaylandXdgPopupV5 *popup) {
+        handlePopupCreated(item, popup);
+    });
 }
 
 XdgPopupV5Integration::~XdgPopupV5Integration()

@@ -31,38 +31,39 @@
 #include "formwindow.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerTaskMenuExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/taskmenu.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/abstractpropertyeditor.h>
 
 // shared
 #include <qdesigner_utils_p.h>
 #include <formwindowbase_p.h>
-#include <itemviewfindwidget.h>
 #include <qdesigner_dnditem_p.h>
 #include <textpropertyeditor_p.h>
 #include <qdesigner_command_p.h>
 #include <grid_p.h>
 
 // Qt
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QScrollBar>
-#include <QtGui/QPainter>
-#include <QtWidgets/QVBoxLayout>
-#include <QtCore/QItemSelectionModel>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QTreeView>
-#include <QtWidgets/QStyledItemDelegate>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qscrollbar.h>
+#include <QtGui/qpainter.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtCore/qitemselectionmodel.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qtreeview.h>
+#include <QtWidgets/qstyleditemdelegate.h>
 #include <QtGui/qevent.h>
 
-#include <QtCore/QVector>
-#include <QtCore/QDebug>
+#include <QtCore/qsortfilterproxymodel.h>
+#include <QtCore/qvector.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -118,7 +119,7 @@ class ObjectInspectorDelegate : public QStyledItemDelegate {
 public:
     explicit ObjectInspectorDelegate(QObject *parent = 0);
 
-    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE;
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 };
 
 ObjectInspectorDelegate::ObjectInspectorDelegate(QObject *parent) :
@@ -146,8 +147,8 @@ public:
     ObjectInspectorTreeView(QWidget *parent = 0) :  QTreeView(parent) {}
 
 protected:
-    void mouseMoveEvent (QMouseEvent * event) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent *event) Q_DECL_OVERRIDE;
+    void mouseMoveEvent (QMouseEvent * event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 };
 
@@ -186,12 +187,13 @@ void ObjectInspectorTreeView::keyPressEvent(QKeyEvent *event)
 // ------------ ObjectInspectorPrivate
 
 class ObjectInspector::ObjectInspectorPrivate {
+    Q_DISABLE_COPY(ObjectInspectorPrivate)
 public:
     ObjectInspectorPrivate(QDesignerFormEditorInterface *core);
     ~ObjectInspectorPrivate();
 
+    QLineEdit *filterLineEdit() const { return m_filterLineEdit; }
     QTreeView *treeView() const { return m_treeView; }
-    ItemViewFindWidget *findWidget() const { return m_findWidget; }
     QDesignerFormEditorInterface *core() const { return m_core; }
     const QPointer<FormWindowBase> &formWindow() const { return m_formWindow; }
 
@@ -209,6 +211,10 @@ public:
     void slotSelectionChanged(const QItemSelection & selected, const QItemSelection &deselected);
     void getSelection(Selection &s) const;
 
+    QModelIndexList indexesOf(QObject *o) const;
+    QObject *objectAt(const QModelIndex &index) const;
+    QObjectVector indexesToObjects(const QModelIndexList &indexes) const;
+
     void slotHeaderDoubleClicked(int column)       {  m_treeView->resizeColumnToContents(column); }
     void slotPopupContextMenu(QWidget *parent, const QPoint &pos);
 
@@ -223,9 +229,10 @@ private:
     void selectIndexRange(const QModelIndexList &indexes, unsigned flags);
 
     QDesignerFormEditorInterface *m_core;
+    QLineEdit *m_filterLineEdit;
     QTreeView *m_treeView;
     ObjectInspectorModel *m_model;
-    ItemViewFindWidget *m_findWidget;
+    QSortFilterProxyModel *m_filterModel;
     QPointer<FormWindowBase> m_formWindow;
     QPointer<QWidget> m_formFakeDropTarget;
     bool m_withinClearSelection;
@@ -233,13 +240,26 @@ private:
 
 ObjectInspector::ObjectInspectorPrivate::ObjectInspectorPrivate(QDesignerFormEditorInterface *core) :
     m_core(core),
+    m_filterLineEdit(new QLineEdit),
     m_treeView(new ObjectInspectorTreeView),
     m_model(new ObjectInspectorModel(m_treeView)),
-    m_findWidget(new ItemViewFindWidget(
-        ItemViewFindWidget::NarrowLayout | ItemViewFindWidget::NoWholeWords)),
+    m_filterModel(new QSortFilterProxyModel(m_treeView)),
     m_withinClearSelection(false)
 {
-    m_treeView->setModel(m_model);
+    m_filterModel->setRecursiveFilteringEnabled(true);
+    m_filterLineEdit->setPlaceholderText(ObjectInspector::tr("Filter"));
+    m_filterLineEdit->setClearButtonEnabled(true);
+    connect(m_filterLineEdit, &QLineEdit::textChanged,
+            m_filterModel, &QSortFilterProxyModel::setFilterFixedString);
+    // Filtering text collapses nodes, expand on clear.
+    connect(m_filterLineEdit, &QLineEdit::textChanged,
+            m_core, [this] (const QString &text) {
+                if (text.isEmpty())
+                    this->m_treeView->expandAll();
+            });
+    m_filterModel->setSourceModel(m_model);
+    m_filterModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
+    m_treeView->setModel(m_filterModel);
     m_treeView->setItemDelegate(new ObjectInspectorDelegate);
     m_treeView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     m_treeView->header()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -269,7 +289,7 @@ QWidget *ObjectInspector::ObjectInspectorPrivate::managedWidgetAt(const QPoint &
         return 0;
 
     const  QPoint pos = m_treeView->viewport()->mapFromGlobal(global_mouse_pos);
-    QObject *o = m_model->objectAt(m_treeView->indexAt(pos));
+    QObject *o = objectAt(m_treeView->indexAt(pos));
 
     if (!o || !o->isWidgetType())
         return 0;
@@ -299,7 +319,7 @@ void ObjectInspector::ObjectInspectorPrivate::showContainersCurrentPage(QWidget 
                 if (count > 1 && !c->widget(c->currentIndex())->isAncestorOf(widget)) {
                     for (int i = 0; i < count; i++)
                         if (c->widget(i)->isAncestorOf(widget)) {
-                            if (macroStarted == false) {
+                            if (!macroStarted) {
                                 macroStarted = true;
                                 fw->beginCommand(tr("Change Current Page"));
                             }
@@ -313,7 +333,7 @@ void ObjectInspector::ObjectInspectorPrivate::showContainersCurrentPage(QWidget 
         }
         w = w->parentWidget();
     }
-    if (macroStarted == true)
+    if (macroStarted)
         fw->endCommand();
 }
 
@@ -384,6 +404,23 @@ void  ObjectInspector::ObjectInspectorPrivate::dropEvent (QDropEvent * event)
     mimeData->acceptEvent(event);
 }
 
+QModelIndexList ObjectInspector::ObjectInspectorPrivate::indexesOf(QObject *o) const
+{
+    QModelIndexList result;
+    const auto srcIndexes = m_model->indexesOf(o);
+    if (!srcIndexes.isEmpty()) {
+        result.reserve(srcIndexes.size());
+        for (const auto &srcIndex : srcIndexes)
+            result.append(m_filterModel->mapFromSource(srcIndex));
+    }
+    return result;
+}
+
+QObject *ObjectInspector::ObjectInspectorPrivate::objectAt(const QModelIndex &index) const
+{
+    return m_model->objectAt(m_filterModel->mapToSource(index));
+}
+
 bool ObjectInspector::ObjectInspectorPrivate::selectObject(QObject *o)
 {
     if (!m_core->metaDataBase()->item(o))
@@ -391,7 +428,7 @@ bool ObjectInspector::ObjectInspectorPrivate::selectObject(QObject *o)
 
     typedef QSet<QModelIndex> ModelIndexSet;
 
-    const QModelIndexList objectIndexes = m_model->indexesOf(o);
+    const QModelIndexList objectIndexes = indexesOf(o);
     if (objectIndexes.empty())
         return false;
 
@@ -498,7 +535,7 @@ void ObjectInspector::ObjectInspectorPrivate::setFormWindowBlocked(QDesignerForm
             if (currentIndexes.empty()) {
                 applySelection = true;
             } else {
-                applySelection = selectionType(m_formWindow, m_model->objectAt(currentIndexes.front())) == ManagedWidgetSelection;
+                applySelection = selectionType(m_formWindow, objectAt(currentIndexes.front())) == ManagedWidgetSelection;
             }
         }
         if (applySelection)
@@ -519,14 +556,14 @@ void ObjectInspector::ObjectInspectorPrivate::applyCursorSelection()
     // Set the current widget first which also clears the selection
     QWidget *currentWidget = cursor->current();
     if (currentWidget)
-        selectIndexRange(m_model->indexesOf(currentWidget), MakeCurrent);
+        selectIndexRange(indexesOf(currentWidget), MakeCurrent);
     else
         m_treeView->selectionModel()->clearSelection();
 
     for (int i = 0;i < count; i++) {
         QWidget *widget = cursor->selectedWidget(i);
         if (widget != currentWidget)
-            selectIndexRange(m_model->indexesOf(widget), AddToSelection);
+            selectIndexRange(indexesOf(widget), AddToSelection);
     }
 }
 
@@ -555,7 +592,7 @@ void ObjectInspector::ObjectInspectorPrivate::slotSelectionChanged(const QItemSe
 
 // Convert indexes to object vectors taking into account that
 // some index lists are multicolumn ranges
-static inline QObjectVector indexesToObjects(const ObjectInspectorModel *model, const QModelIndexList &indexes)
+QObjectVector ObjectInspector::ObjectInspectorPrivate::indexesToObjects(const QModelIndexList &indexes) const
 {
     if (indexes.empty())
         return  QObjectVector();
@@ -564,7 +601,7 @@ static inline QObjectVector indexesToObjects(const ObjectInspectorModel *model, 
     const QModelIndexList::const_iterator icend = indexes.constEnd();
     for (QModelIndexList::const_iterator it = indexes.constBegin(); it != icend; ++it)
         if (it->column() == 0)
-            rc.push_back(model->objectAt(*it));
+            rc.append(objectAt(*it));
     return rc;
 }
 
@@ -576,7 +613,7 @@ bool ObjectInspector::ObjectInspectorPrivate::checkManagedWidgetSelection(const 
     QItemSelectionModel *selectionModel = m_treeView->selectionModel();
     const QModelIndexList::const_iterator cscend = rowSelection.constEnd();
     for (QModelIndexList::const_iterator it = rowSelection.constBegin(); it != cscend; ++it) {
-        QObject *object = m_model->objectAt(*it);
+        QObject *object = objectAt(*it);
         if (selectionType(m_formWindow, object) == ManagedWidgetSelection) {
             isManagedWidgetSelection = true;
             break;
@@ -588,7 +625,7 @@ bool ObjectInspector::ObjectInspectorPrivate::checkManagedWidgetSelection(const 
     // Need to unselect unmanaged ones
     const bool blocked = selectionModel->blockSignals(true);
     for (QModelIndexList::const_iterator it = rowSelection.constBegin(); it != cscend; ++it) {
-        QObject *object = m_model->objectAt(*it);
+        QObject *object = objectAt(*it);
         if (selectionType(m_formWindow, object) != ManagedWidgetSelection)
             selectionModel->select(*it, QItemSelectionModel::Deselect|QItemSelectionModel::Rows);
     }
@@ -599,8 +636,8 @@ bool ObjectInspector::ObjectInspectorPrivate::checkManagedWidgetSelection(const 
 void ObjectInspector::ObjectInspectorPrivate::synchronizeSelection(const QItemSelection & selectedSelection, const QItemSelection &deselectedSelection)
 {
     // Synchronize form window cursor.
-    const QObjectVector deselected = indexesToObjects(m_model, deselectedSelection.indexes());
-    const QObjectVector newlySelected = indexesToObjects(m_model, selectedSelection.indexes());
+    const QObjectVector deselected = indexesToObjects(deselectedSelection.indexes());
+    const QObjectVector newlySelected = indexesToObjects(selectedSelection.indexes());
 
     const QModelIndexList currentSelectedIndexes = m_treeView->selectionModel()->selectedRows(0);
 
@@ -664,8 +701,8 @@ void ObjectInspector::ObjectInspectorPrivate::getSelection(Selection &s) const
         return;
 
     // sort objects
-    for (const QModelIndex &index : currentSelectedIndexes)
-        if (QObject *object = m_model->objectAt(index))
+    for (const QModelIndex &index : currentSelectedIndexes) {
+        if (QObject *object = objectAt(index)) {
             switch (selectionType(m_formWindow, object)) {
             case NoSelection:
                 break;
@@ -682,6 +719,8 @@ void ObjectInspector::ObjectInspectorPrivate::getSelection(Selection &s) const
                 s.managed.push_back(qobject_cast<QWidget *>(object));
                 break;
             }
+        }
+    }
 }
 
 // Utility to create a task menu
@@ -705,11 +744,12 @@ void ObjectInspector::ObjectInspectorPrivate::slotPopupContextMenu(QWidget * /*p
     if (m_formWindow == 0 || m_formWindow->currentTool() != 0)
         return;
 
-    if (QObject *object = m_model->objectAt(m_treeView->indexAt(pos)))
+    if (QObject *object = objectAt(m_treeView->indexAt(pos))) {
         if (QMenu *menu = createTaskMenu(object, m_formWindow)) {
             menu->exec(m_treeView->viewport()->mapToGlobal(pos));
             delete menu;
         }
+    }
 }
 
 // ------------ ObjectInspector
@@ -718,8 +758,9 @@ ObjectInspector::ObjectInspector(QDesignerFormEditorInterface *core, QWidget *pa
     m_impl(new ObjectInspectorPrivate(core))
 {
     QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(QMargins());
 
+    vbox->addWidget(m_impl->filterLineEdit());
     QTreeView *treeView = m_impl->treeView();
     vbox->addWidget(treeView);
 
@@ -732,19 +773,6 @@ ObjectInspector::ObjectInspector(QDesignerFormEditorInterface *core, QWidget *pa
     connect(treeView->header(), &QHeaderView::sectionDoubleClicked,
             this, &ObjectInspector::slotHeaderDoubleClicked);
     setAcceptDrops(true);
-
-    ItemViewFindWidget *findWidget = m_impl->findWidget();
-    vbox->addWidget(findWidget);
-
-    findWidget->setItemView(treeView);
-    QAction *findAction = new QAction(
-            ItemViewFindWidget::findIconSet(),
-            tr("&Find in Text..."),
-            this);
-    findAction->setShortcut(QKeySequence::Find);
-    findAction->setShortcutContext(Qt::WidgetWithChildrenShortcut);
-    addAction(findAction);
-    connect(findAction, &QAction::triggered, findWidget, &AbstractFindWidget::activate);
 }
 
 ObjectInspector::~ObjectInspector()

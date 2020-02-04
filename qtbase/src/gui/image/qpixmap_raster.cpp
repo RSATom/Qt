@@ -89,7 +89,7 @@ QRasterPlatformPixmap::~QRasterPlatformPixmap()
 {
 }
 
-QImage::Format QRasterPlatformPixmap::systemOpaqueFormat()
+QImage::Format QRasterPlatformPixmap::systemNativeFormat()
 {
     if (!QGuiApplication::primaryScreen())
         return QImage::Format_RGB32;
@@ -107,7 +107,7 @@ void QRasterPlatformPixmap::resize(int width, int height)
     if (pixelType() == BitmapType)
         format = QImage::Format_MonoLSB;
     else
-        format = systemOpaqueFormat();
+        format = systemNativeFormat();
 
     image = QImage(width, height, format);
     w = width;
@@ -193,21 +193,19 @@ void QRasterPlatformPixmap::fill(const QColor &color)
         if (alpha != 255) {
             if (!image.hasAlphaChannel()) {
                 QImage::Format toFormat = qt_alphaVersionForPainting(image.format());
-                if (!image.isNull() && qt_depthForFormat(image.format()) == qt_depthForFormat(toFormat)) {
-                    image.detach();
-                    image.d->format = toFormat;
-                } else {
+                if (!image.reinterpretAsFormat(toFormat))
                     image = QImage(image.width(), image.height(), toFormat);
-                }
             }
         }
-        pixel = qPremultiply(color.rgba());
-        const QPixelLayout *layout = &qPixelLayouts[image.format()];
-        layout->convertFromARGB32PM(&pixel, &pixel, 1, 0, 0);
+        image.fill(color);
+        return;
     } else if (image.format() == QImage::Format_Alpha8) {
         pixel = qAlpha(color.rgba());
     } else if (image.format() == QImage::Format_Grayscale8) {
         pixel = qGray(color.rgba());
+    } else if (image.format() == QImage::Format_Grayscale16) {
+        QRgba64 c = color.rgba64();
+        pixel = qGray(c.red(), c.green(), c.blue());
     } else
     {
         pixel = 0;
@@ -314,8 +312,9 @@ void QRasterPlatformPixmap::createPixmapForImage(QImage sourceImage, Qt::ImageCo
                     ? QImage::Format_ARGB32_Premultiplied
                     : QImage::Format_RGB32;
         } else {
-            QImage::Format opaqueFormat = systemOpaqueFormat();
-            QImage::Format alphaFormat = qt_alphaVersionForPainting(opaqueFormat);
+            QImage::Format nativeFormat = systemNativeFormat();
+            QImage::Format opaqueFormat = qt_opaqueVersionForPainting(nativeFormat);
+            QImage::Format alphaFormat = qt_alphaVersionForPainting(nativeFormat);
 
             if (!sourceImage.hasAlphaChannel()) {
                 format = opaqueFormat;

@@ -119,7 +119,8 @@ convenience for the applications' rendering mechanism.
   rasterizer      String  Which rasterizer is in use (deprecated)
   outline         Bool    Whether the glyphs are outlines
   scalable        Bool    Whether glyphs can be scaled
-  scale           Double  Scale factor for point->pixel conversions
+  color           Bool    Whether any glyphs have color
+  scale           Double  Scale factor for point->pixel conversions (deprecated)
   dpi             Double  Target dots per inch
   rgba            Int     unknown, rgb, bgr, vrgb, vbgr,
                           none - subpixel geometry
@@ -130,9 +131,15 @@ convenience for the applications' rendering mechanism.
                           font supports
   fontversion     Int     Version number of the font
   capability      String  List of layout capabilities in the font
+  fontformat      String  String name of the font format
   embolden        Bool    Rasterizer should synthetically embolden the font
+  embeddedbitmap  Bool    Use the embedded bitmap instead of the outline
+  decorative      Bool    Whether the style is a decorative variant
   fontfeatures    String  List of the feature tags in OpenType to be enabled
+  namelang        String  Language name to be used for the default value of
+                          familylang, stylelang, and fullnamelang
   prgname         String  String  Name of the running program
+  postscriptname  String  Font family name in PostScript
     </programlisting>
   </refsect2>
   <refsect2>
@@ -251,7 +258,7 @@ debugging messages.
   MEMORY         512    Monitor fontconfig memory usage
   CONFIG        1024    Monitor which config files are loaded
   LANGSET       2048    Dump char sets used to construct lang values
-  OBJTYPES      4096    Display message when value typechecks fail
+  MATCH2        4096    Display font-matching transformation in patterns
   </programlisting>
   <para>
 Add the value of the desired debug levels together and assign that (in
@@ -314,9 +321,9 @@ the configuration file, the directory that can be accessed first in the list
 will be used to store the cache files.  If it starts with '~', it refers to
 a directory in the users home directory.  If 'prefix' is set to "xdg", the value in the XDG_CACHE_HOME environment variable will be added as the path prefix. please see XDG Base Directory Specification for more details.
 The default directory is ``$XDG_CACHE_HOME/fontconfig'' and it contains the cache files
-named ``<literal>&lt;hash value&gt;</literal>-<literal>&lt;architecture&gt;</literal>.cache-<literal>&lt;version</literal>'',
-where <literal>&lt;version&gt;</literal> is the font configureation file
-version number (currently 3).
+named ``<literal>&lt;hash value&gt;</literal>-<literal>&lt;architecture&gt;</literal>.cache-<literal>&lt;version&gt;</literal>'',
+where <literal>&lt;version&gt;</literal> is the fontconfig cache file
+version number (currently 7).
   </para></refsect2>
   <refsect2><title><literal>&lt;include ignore_missing="no" prefix="default"&gt;</literal></title><para>
 This element contains the name of an additional configuration file or
@@ -473,6 +480,8 @@ symbolic names for common font values:
   extralight      weight          40
   ultralight      weight          40
   light           weight          50
+  demilight       weight          55
+  semilight       weight          55
   book            weight          75
   regular         weight          80
   normal          weight          80
@@ -580,9 +589,9 @@ This is an example of a system-wide configuration file
 	Names not including any well known alias are given 'sans-serif'
 --&gt;
 &lt;match target="pattern"&gt;
-	&lt;test qual="all" name="family" mode="not_eq"&gt;&lt;string&gt;sans-serif&lt;/string&gt;&lt;/test&gt;
-	&lt;test qual="all" name="family" mode="not_eq"&gt;&lt;string&gt;serif&lt;/string&gt;&lt;/test&gt;
-	&lt;test qual="all" name="family" mode="not_eq"&gt;&lt;string&gt;monospace&lt;/string&gt;&lt;/test&gt;
+	&lt;test qual="all" name="family" compare="not_eq"&gt;&lt;string&gt;sans-serif&lt;/string&gt;&lt;/test&gt;
+	&lt;test qual="all" name="family" compare="not_eq"&gt;&lt;string&gt;serif&lt;/string&gt;&lt;/test&gt;
+	&lt;test qual="all" name="family" compare="not_eq"&gt;&lt;string&gt;monospace&lt;/string&gt;&lt;/test&gt;
 	&lt;edit name="family" mode="append_last"&gt;&lt;string&gt;sans-serif&lt;/string&gt;&lt;/edit&gt;
 &lt;/match&gt;
 
@@ -644,7 +653,7 @@ This is an example of a system-wide configuration file
 	add 'monospace' as the alternative
 --&gt;
 &lt;match target="pattern"&gt;
-	&lt;test name="family" mode="eq"&gt;
+	&lt;test name="family" compare="eq"&gt;
 		&lt;string&gt;Courier New&lt;/string&gt;
 	&lt;/test&gt;
 	&lt;edit name="family" mode="prepend"&gt;
@@ -652,7 +661,7 @@ This is an example of a system-wide configuration file
 	&lt;/edit&gt;
 &lt;/match&gt;
 &lt;match target="pattern"&gt;
-	&lt;test name="family" mode="eq"&gt;
+	&lt;test name="family" compare="eq"&gt;
 		&lt;string&gt;Courier&lt;/string&gt;
 	&lt;/test&gt;
 	&lt;edit name="family" mode="prepend"&gt;
@@ -774,17 +783,33 @@ is used to override the default configuration file.
 is used to override the default configuration directory.
   </para>
   <para>
+<emphasis>FONTCONFIG_SYSROOT</emphasis>
+is used to set a default sysroot directory.
+  </para>
+  <para>
 <emphasis>FC_DEBUG</emphasis>
 is used to output the detailed debugging messages. see <link linkend="debug">Debugging Applications</link> section for more details.
+  </para>
+  <para>
+<emphasis>FC_DBG_MATCH_FILTER</emphasis>
+is used to filter out the patterns. this takes a comma-separated list of object names and effects only when FC_DEBUG has MATCH2. see <link linkend="debug">Debugging Applications</link> section for more details.
+  </para>
+  <para>
+<emphasis>FC_LANG</emphasis>
+is used to specify the default language as the weak binding in the query. if this isn't set, the default language will be determined from current locale.
   </para>
   <para>
 <emphasis>FONTCONFIG_USE_MMAP</emphasis>
 is used to control the use of mmap(2) for the cache files if available. this take a boolean value. fontconfig will checks if the cache files are stored on the filesystem that is safe to use mmap(2). explicitly setting this environment variable will causes skipping this check and enforce to use or not use mmap(2) anyway.
   </para>
+  <para>
+<emphasis>SOURCE_DATE_EPOCH</emphasis>
+is used to ensure <literal>fc-cache(1)</literal> generates files in a deterministic manner in order to support reproducible builds. When set to a numeric representation of UNIX timestamp, fontconfig will prefer this value over using the modification timestamps of the input files in order to identify which cache files require regeneration. If <literal>SOURCE_DATE_EPOCH</literal> is not set (or is newer than the mtime of the directory), the existing behaviour is unchanged.
+  </para>
 </refsect1>
 <refsect1><title>See Also</title>
   <para>
-fc-cat(1), fc-cache(1), fc-list(1), fc-match(1), fc-query(1)
+fc-cat(1), fc-cache(1), fc-list(1), fc-match(1), fc-query(1), <ulink url="https://reproducible-builds.org/specs/source-date-epoch/">SOURCE_DATE_EPOCH</ulink>.
   </para>
 </refsect1>
 <refsect1><title>Version</title>

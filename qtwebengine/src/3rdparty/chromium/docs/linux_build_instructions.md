@@ -1,6 +1,6 @@
 # Checking out and building Chromium on Linux
 
-There are instructions for other platforms linked from the 
+There are instructions for other platforms linked from the
 [get the code](get_the_code.md) page.
 
 ## Instructions for Google Employees
@@ -15,7 +15,7 @@ Are you a Google employee? See
 *   A 64-bit Intel machine with at least 8GB of RAM. More than 16GB is highly
     recommended.
 *   At least 100GB of free disk space.
-*   You must have Git and Python installed already.
+*   You must have Git and Python v2 installed already.
 
 Most development is done on Ubuntu (currently 14.04, Trusty Tahr). There are
 some instructions for other distros below, but they are mostly unsupported.
@@ -34,6 +34,14 @@ in your `~/.bashrc` or `~/.zshrc`). Assuming you cloned `depot_tools` to
 
 ```shell
 $ export PATH="$PATH:/path/to/depot_tools"
+```
+
+When cloning `depot_tools` to your home directory **do not** use `~` on PATH,
+otherwise `gclient runhooks` will fail to run. Rather, you should use either
+`$HOME` or the absolute path:
+
+```shell
+$ export PATH="$PATH:${HOME}/depot_tools"
 ```
 
 ## Get the code
@@ -76,6 +84,10 @@ $ cd src
 Once you have checked out the code, and assuming you're using Ubuntu, run
 [build/install-build-deps.sh](/build/install-build-deps.sh)
 
+```shell
+$ ./build/install-build-deps.sh
+```
+
 You may need to adjust the build dependencies for other distros. There are
 some [notes](#notes) at the end of this document, but we make no guarantees
 for their accuracy.
@@ -97,10 +109,10 @@ development and testing purposes.
 
 ## Setting up the build
 
-Chromium uses [Ninja](https://ninja-build.org) as its main build tool along
-with a tool called [GN](../tools/gn/docs/quick_start.md) to generate `.ninja`
-files. You can create any number of *build directories* with different
-configurations. To create a build directory, run:
+Chromium uses [Ninja](https://ninja-build.org) as its main build tool along with
+a tool called [GN](https://gn.googlesource.com/gn/+/master/docs/quick_start.md)
+to generate `.ninja` files. You can create any number of *build directories*
+with different configurations. To create a build directory, run:
 
 ```shell
 $ gn gen out/Default
@@ -122,11 +134,20 @@ $ gn gen out/Default
 This section contains some things you can change to speed up your builds,
 sorted so that the things that make the biggest difference are first.
 
+#### Jumbo/Unity builds
+
+Jumbo builds merge many translation units ("source files") and compile them
+together. Since a large portion of Chromium's code is in shared header files,
+this dramatically reduces the total amount of work needed. Check out the
+[Jumbo / Unity builds](jumbo.md) for more information.
+
+Enable jumbo builds by setting the GN arg `use_jumbo_build=true`.
+
 #### Disable NaCl
 
 By default, the build includes support for
 [Native Client (NaCl)](https://developer.chrome.com/native-client), but
-most of the time you won't need it. You can set the GN argument 
+most of the time you won't need it. You can set the GN argument
 `enable_nacl=false` and it won't be built.
 
 #### Include fewer debug symbols
@@ -157,7 +178,7 @@ use_debug_fission=false
 is_clang=false
 ```
 
-See these links for more on the 
+See these links for more on the
 [bundled_binutils limitation](https://github.com/icecc/icecream/commit/b2ce5b9cc4bd1900f55c3684214e409fa81e7a92),
 the [debug fission limitation](http://gcc.gnu.org/wiki/DebugFission).
 
@@ -167,7 +188,7 @@ See [related bug](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=808181).
 #### ccache
 
 You can use [ccache](https://ccache.samba.org) to speed up local builds (again,
-this is not useful if you're using a Googler using Goma).
+this is not useful if you're a Googler using Goma).
 
 Increase your ccache hit rate by setting `CCACHE_BASEDIR` to a parent directory
 that the working directories all have in common (e.g.,
@@ -222,12 +243,15 @@ hyperthreaded, 12 GB RAM)
 Build Chromium (the "chrome" target) with Ninja using the command:
 
 ```shell
-$ ninja -C out/Default chrome
+$ autoninja -C out/Default chrome
 ```
+
+(`autoninja` is a wrapper that automatically provides optimal values for the
+arguments passed to `ninja`.)
 
 You can get a list of all of the other build targets from GN by running `gn ls
 out/Default` from the command line. To compile one, pass the GN label to Ninja
-with no preceding "//" (so, for `//chrome/test:unit_tests` use `ninja -C
+with no preceding "//" (so, for `//chrome/test:unit_tests` use `autoninja -C
 out/Default chrome/test:unit_tests`).
 
 ## Run Chromium
@@ -320,8 +344,7 @@ Instead of running `install-build-deps.sh` to install build dependencies, run:
 
 ```shell
 $ sudo pacman -S --needed python perl gcc gcc-libs bison flex gperf pkgconfig \
-nss alsa-lib gconf glib2 gtk2 nspr ttf-ms-fonts freetype2 cairo dbus \
-libgnome-keyring
+nss alsa-lib glib2 gtk3 nspr ttf-ms-fonts freetype2 cairo dbus libgnome-keyring
 ```
 
 For the optional packages on Arch Linux:
@@ -330,6 +353,21 @@ For the optional packages on Arch Linux:
 *   `wdiff` is not in the main repository but `dwdiff` is. You can get `wdiff`
     in AUR/`yaourt`
 *   `sun-java6-fonts` do not seem to be in main repository or AUR.
+
+### Crostini (Debian based)
+
+First install the `file` command for the script to run properly:
+
+```shell
+$ sudo apt-get install file
+```
+
+Then invoke install-build-deps.sh with the `--no-arm` argument,
+because the ARM toolchain doesn't exist for this configuration:
+
+```shell
+$ sudo install-build-deps.sh --no-arm
+```
 
 ### Debian
 
@@ -370,41 +408,25 @@ Instead of running `build/install-build-deps.sh`, run:
 su -c 'yum install git python bzip2 tar pkgconfig atk-devel alsa-lib-devel \
 bison binutils brlapi-devel bluez-libs-devel bzip2-devel cairo-devel \
 cups-devel dbus-devel dbus-glib-devel expat-devel fontconfig-devel \
-freetype-devel gcc-c++ GConf2-devel glib2-devel glibc.i686 gperf \
-glib2-devel gtk2-devel gtk3-devel java-1.*.0-openjdk-devel libatomic \
-libcap-devel libffi-devel libgcc.i686 libgnome-keyring-devel libjpeg-devel \
-libstdc++.i686 libX11-devel libXScrnSaver-devel libXtst-devel \
-libxkbcommon-x11-devel ncurses-compat-libs nspr-devel nss-devel pam-devel \
-pango-devel pciutils-devel pulseaudio-libs-devel zlib.i686 httpd mod_ssl \
-php php-cli python-psutil wdiff'
+freetype-devel gcc-c++ glib2-devel glibc.i686 gperf glib2-devel \
+gtk3-devel java-1.*.0-openjdk-devel libatomic libcap-devel libffi-devel \
+libgcc.i686 libgnome-keyring-devel libjpeg-devel libstdc++.i686 libX11-devel \
+libXScrnSaver-devel libXtst-devel libxkbcommon-x11-devel ncurses-compat-libs \
+nspr-devel nss-devel pam-devel pango-devel pciutils-devel \
+pulseaudio-libs-devel zlib.i686 httpd mod_ssl php php-cli python-psutil wdiff \
+xorg-x11-server-Xvfb'
 ```
 
-The `msttcorefonts` packages can be obtained by following [these
-instructions](http://www.fedorafaq.org/#installfonts). For the optional
-packages:
+The fonts needed by Blink's web tests can be obtained by following [these
+instructions](https://gist.github.com/pwnall/32a3b11c2b10f6ae5c6a6de66c1e12ae).
+For the optional packages:
 
 * `php-cgi` is provided by the `php-cli` package.
-* `sun-java6-fonts` doesn't exist in Fedora repositories, needs investigating.
+* `sun-java6-fonts` is covered by the instructions linked above.
 
 ### Gentoo
 
 You can just run `emerge www-client/chromium`.
-
-### Mandriva
-
-Instead of running `build/install-build-deps.sh`, run:
-
-```shell
-urpmi lib64fontconfig-devel lib64alsa2-devel lib64dbus-1-devel \
-lib64GConf2-devel lib64freetype6-devel lib64atk1.0-devel lib64gtk+2.0_0-devel \
-lib64pango1.0-devel lib64cairo-devel lib64nss-devel lib64nspr-devel g++ python \
-perl bison flex subversion gperf
-```
-
-* `msttcorefonts` are not available, you will need to build your own (see
-  instructions, not hard to do, see
-  [mandriva_msttcorefonts.md](mandriva_msttcorefonts.md)) or use `drakfont` to
-  import the fonts from a Windows installation.
 
 ### OpenSUSE
 
@@ -413,16 +435,14 @@ Use `zypper` command to install dependencies:
 (openSUSE 11.1 and higher)
 
 ```shell
-sudo zypper in subversion pkg-config python perl \
-     bison flex gperf mozilla-nss-devel glib2-devel gtk-devel \
-     wdiff lighttpd gcc gcc-c++ gconf2-devel mozilla-nspr \
-     mozilla-nspr-devel php5-fastcgi alsa-devel libexpat-devel \
+sudo zypper in subversion pkg-config python perl bison flex gperf \
+     mozilla-nss-devel glib2-devel gtk-devel wdiff lighttpd gcc gcc-c++ \
+     mozilla-nspr mozilla-nspr-devel php5-fastcgi alsa-devel libexpat-devel \
      libjpeg-devel libbz2-devel
 ```
 
 For 11.0, use `libnspr4-0d` and `libnspr4-dev` instead of `mozilla-nspr` and
-`mozilla-nspr-devel`, and use `php5-cgi` instead of `php5-fastcgi`. And need
-`gtk2-devel`.
+`mozilla-nspr-devel`, and use `php5-cgi` instead of `php5-fastcgi`.
 
 (openSUSE 11.0)
 
@@ -430,7 +450,7 @@ For 11.0, use `libnspr4-0d` and `libnspr4-dev` instead of `mozilla-nspr` and
 sudo zypper in subversion pkg-config python perl \
      bison flex gperf mozilla-nss-devel glib2-devel gtk-devel \
      libnspr4-0d libnspr4-dev wdiff lighttpd gcc gcc-c++ libexpat-devel \
-     php5-cgi gconf2-devel alsa-devel gtk2-devel jpeg-devel
+     php5-cgi alsa-devel gtk3-devel jpeg-devel
 ```
 
 The Ubuntu package `sun-java6-fonts` contains a subset of Java of the fonts used.

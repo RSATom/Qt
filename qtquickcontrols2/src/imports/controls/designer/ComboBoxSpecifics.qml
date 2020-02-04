@@ -34,9 +34,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
+import QtQuick 2.12
 import HelperWidgets 2.0
-import QtQuick.Layouts 1.0
+import QtQuick.Layouts 1.12
 
 Column {
     width: parent.width
@@ -67,6 +67,38 @@ Column {
                     minimumValue: -9999999
                     decimals: 0
                     backendValue: backendValues.currentIndex
+                    Layout.fillWidth: true
+                }
+            }
+        Label {
+            text: qsTr("Editable")
+            tooltip: qsTr("Whether the combo box is editable.")
+        }
+        SecondColumnLayout {
+            CheckBox {
+                text: backendValues.editable.valueToString
+                backendValue: backendValues.editable
+                Layout.fillWidth: true
+            }
+        }
+        Label {
+            text: qsTr("Flat")
+            tooltip: qsTr("Whether the combo box button is flat.")
+        }
+        SecondColumnLayout {
+            CheckBox {
+                text: backendValues.flat.valueToString
+                backendValue: backendValues.flat
+                Layout.fillWidth: true
+            }
+        }
+        Label {
+                text: qsTr("DisplayText")
+                tooltip: qsTr("Holds the text that is displayed on the combo box button.")
+            }
+            SecondColumnLayout {
+                LineEdit {
+                    backendValue: backendValues.displayText
                     Layout.fillWidth: true
                 }
             }

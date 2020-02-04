@@ -64,7 +64,7 @@ class QRegistrySource : public QObject
 
 public:
     explicit QRegistrySource(QObject *parent = nullptr);
-    ~QRegistrySource();
+    ~QRegistrySource() override;
 
     QRemoteObjectSourceLocations sourceLocations() const;
 

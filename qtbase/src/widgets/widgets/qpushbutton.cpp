@@ -53,7 +53,9 @@
 #include "qpushbutton.h"
 #include "qstyle.h"
 #include "qstyleoption.h"
+#if QT_CONFIG(toolbar)
 #include "qtoolbar.h"
+#endif
 #include "qdebug.h"
 #include "qlayoutitem.h"
 #if QT_CONFIG(dialogbuttonbox)
@@ -461,7 +463,7 @@ void QPushButton::keyPressEvent(QKeyEvent *e)
             click();
             break;
         }
-        // fall through
+        Q_FALLTHROUGH();
     default:
         QAbstractButton::keyPressEvent(e);
     }
@@ -543,8 +545,8 @@ void QPushButton::setMenu(QMenu* menu)
 }
 
 /*!
-    Returns the button's associated popup menu or 0 if no popup menu
-    has been set.
+    Returns the button's associated popup menu or \nullptr if no popup
+    menu has been set.
 
     \sa setMenu()
 */
@@ -596,7 +598,7 @@ QPoint QPushButtonPrivate::adjustedMenuPosition()
     Q_Q(QPushButton);
 
     bool horizontal = true;
-#if !defined(QT_NO_TOOLBAR)
+#if QT_CONFIG(toolbar)
     QToolBar *tb = qobject_cast<QToolBar*>(parent);
     if (tb && tb->orientation() == Qt::Vertical)
         horizontal = false;

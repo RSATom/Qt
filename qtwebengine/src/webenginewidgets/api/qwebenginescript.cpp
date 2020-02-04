@@ -67,6 +67,8 @@ using QtWebEngineCore::UserScript;
     Use QWebEnginePage::scripts() and QWebEngineProfile::scripts() to access
     the collection of scripts associated with a single page or a
     number of pages sharing the same profile.
+
+    \sa {Script Injection}
 */
 /*!
     \enum QWebEngineScript::InjectionPoint
@@ -224,6 +226,8 @@ quint32 QWebEngineScript::worldId() const
 
 /*!
     Sets the world ID of the isolated world to \a id when running this script.
+
+    Must be between \c 0 and \c 256.
  */
 void QWebEngineScript::setWorldId(quint32 id)
 {

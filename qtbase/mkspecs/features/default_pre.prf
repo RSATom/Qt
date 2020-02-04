@@ -11,7 +11,7 @@ CONFIG = \
     testcase_targets import_plugins import_qpa_plugin \
     $$CONFIG
 
-!build_pass:defined(QT_EDITION, var):!equals(QT_EDITION, "OpenSource"):!equals(QT_EDITION, "Preview") {
+!build_pass:!isEmpty(QT_LICHECK):!QTDIR_build {
     #
     # call license checker (but cache result for one day)
     #
@@ -24,6 +24,12 @@ CONFIG = \
         cache(QMAKE_LICHECK_TIMESTAMP, set stash, today)
     }
     unset(today)
+}
+
+CONFIG(debug, debug|release) {
+    DEFINES += $$DEFINES_DEBUG
+} else {
+    DEFINES += $$DEFINES_RELEASE
 }
 
 load(toolchain)

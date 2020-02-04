@@ -7,23 +7,34 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/single_thread_task_runner.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
-#include "third_party/WebKit/public/platform/InterfaceRegistry.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
+#include "third_party/blink/public/platform/interface_registry.h"
 
 namespace content {
 
-class BlinkInterfaceRegistryImpl : public blink::InterfaceRegistry {
+class BlinkInterfaceRegistryImpl final : public blink::InterfaceRegistry {
  public:
-  explicit BlinkInterfaceRegistryImpl(
-      base::WeakPtr<service_manager::BinderRegistry> interface_registry);
+  BlinkInterfaceRegistryImpl(
+      base::WeakPtr<service_manager::BinderRegistry> interface_registry,
+      base::WeakPtr<blink::AssociatedInterfaceRegistry>
+          associated_interface_registry);
   ~BlinkInterfaceRegistryImpl();
 
   // blink::InterfaceRegistry override.
-  void AddInterface(const char* name,
-                    const blink::InterfaceFactory& factory) override;
+  void AddInterface(
+      const char* name,
+      const blink::InterfaceFactory& factory,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner) override;
+  void AddAssociatedInterface(
+      const char* name,
+      const blink::AssociatedInterfaceFactory& factory) override;
 
  private:
   const base::WeakPtr<service_manager::BinderRegistry> interface_registry_;
+  const base::WeakPtr<blink::AssociatedInterfaceRegistry>
+      associated_interface_registry_;
 
   DISALLOW_COPY_AND_ASSIGN(BlinkInterfaceRegistryImpl);
 };

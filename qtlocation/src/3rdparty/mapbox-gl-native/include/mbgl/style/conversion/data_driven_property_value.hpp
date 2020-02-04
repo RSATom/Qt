@@ -4,13 +4,11 @@
 #include <mbgl/style/conversion.hpp>
 #include <mbgl/style/conversion/constant.hpp>
 #include <mbgl/style/conversion/function.hpp>
-#include <mbgl/style/conversion/expression.hpp>
 #include <mbgl/style/expression/is_expression.hpp>
 #include <mbgl/style/expression/is_constant.hpp>
-#include <mbgl/style/expression/find_zoom_curve.hpp>
-
-#include <unordered_set>
-
+#include <mbgl/style/expression/literal.hpp>
+#include <mbgl/style/expression/value.hpp>
+#include <mbgl/style/expression/parsing_context.hpp>
 
 namespace mbgl {
 namespace style {
@@ -18,50 +16,60 @@ namespace conversion {
 
 template <class T>
 struct Converter<DataDrivenPropertyValue<T>> {
+    optional<DataDrivenPropertyValue<T>> operator()(const Convertible& value, Error& error, bool convertTokens) const {
+        using namespace mbgl::style::expression;
 
-    optional<DataDrivenPropertyValue<T>> operator()(const Convertible& value, Error& error) const {
         if (isUndefined(value)) {
             return DataDrivenPropertyValue<T>();
-        } else if (expression::isExpression(value)) {
-            optional<std::unique_ptr<Expression>> expression = convert<std::unique_ptr<Expression>>(
-                value,
-                error,
-                valueTypeToExpressionType<T>());
-            
-            if (!expression) {
+        }
+
+        optional<PropertyExpression<T>> expression;
+
+        if (isExpression(value)) {
+            ParsingContext ctx(valueTypeToExpressionType<T>());
+            ParseResult parsed = ctx.parseLayerPropertyExpression(value);
+            if (!parsed) {
+                error = { ctx.getCombinedErrors() };
                 return {};
             }
-            
-            if (isFeatureConstant(**expression)) {
-                return DataDrivenPropertyValue<T>(CameraFunction<T>(std::move(*expression)));
-            } else if (isZoomConstant(**expression)) {
-                return DataDrivenPropertyValue<T>(SourceFunction<T>(std::move(*expression)));
-            } else {
-                return DataDrivenPropertyValue<T>(CompositeFunction<T>(std::move(*expression)));
-            }
-        } else if (!isObject(value)) {
+            expression = PropertyExpression<T>(std::move(*parsed));
+        } else if (isObject(value)) {
+            expression = convertFunctionToExpression<T>(value, error, convertTokens);
+        } else {
             optional<T> constant = convert<T>(value, error);
             if (!constant) {
                 return {};
             }
-            return DataDrivenPropertyValue<T>(*constant);
-        } else if (!objectMember(value, "property")) {
-            optional<CameraFunction<T>> function = convert<CameraFunction<T>>(value, error);
-            if (!function) {
-                return {};
-            }
-            return DataDrivenPropertyValue<T>(*function);
-        } else {
-            optional<CompositeFunction<T>> composite = convert<CompositeFunction<T>>(value, error);
-            if (composite) {
-                return DataDrivenPropertyValue<T>(*composite);
-            }
-            optional<SourceFunction<T>> source = convert<SourceFunction<T>>(value, error);
-            if (!source) {
-                return {};
-            }
-            return DataDrivenPropertyValue<T>(*source);
+            return convertTokens ? maybeConvertTokens(*constant) : DataDrivenPropertyValue<T>(*constant);
         }
+
+        if (!expression) {
+            return {};
+        } else if (!(*expression).isFeatureConstant() || !(*expression).isZoomConstant()) {
+            return { std::move(*expression) };
+        } else if ((*expression).getExpression().getKind() == Kind::Literal) {
+            optional<T> constant = fromExpressionValue<T>(
+                static_cast<const Literal&>((*expression).getExpression()).getValue());
+            if (!constant) {
+                return {};
+            }
+            return DataDrivenPropertyValue<T>(*constant);
+        } else {
+            assert(false);
+            error = { "expected a literal expression" };
+            return {};
+        }
+    }
+
+    template <class S>
+    DataDrivenPropertyValue<T> maybeConvertTokens(const S& t) const {
+        return DataDrivenPropertyValue<T>(t);
+    };
+
+    DataDrivenPropertyValue<T> maybeConvertTokens(const std::string& t) const {
+        return hasTokens(t)
+            ? DataDrivenPropertyValue<T>(PropertyExpression<T>(convertTokenStringToExpression(t)))
+            : DataDrivenPropertyValue<T>(t);
     }
 };
 

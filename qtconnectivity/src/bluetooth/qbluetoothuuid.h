@@ -58,6 +58,7 @@ struct quint128
 class Q_BLUETOOTH_EXPORT QBluetoothUuid : public QUuid
 {
 public:
+    //TODO Qt 6: Convert enums to scoped enums (see QTBUG-65831)
     enum ProtocolUuid {
         Sdp = 0x0001,
         Udp = 0x0002,
@@ -381,10 +382,12 @@ public:
     bool operator==(const QBluetoothUuid &other) const;
     bool operator!=(const QBluetoothUuid &other) const { return !operator==(other); }
 
+    QBluetoothUuid &operator=(const QBluetoothUuid &other) = default;
+
     int minimumSize() const;
 
-    quint16 toUInt16(bool *ok = Q_NULLPTR) const;
-    quint32 toUInt32(bool *ok = Q_NULLPTR) const;
+    quint16 toUInt16(bool *ok = nullptr) const;
+    quint32 toUInt32(bool *ok = nullptr) const;
     quint128 toUInt128() const;
 
     static QString serviceClassToString(ServiceClassUuid uuid);
@@ -392,6 +395,18 @@ public:
     static QString characteristicToString(CharacteristicType uuid);
     static QString descriptorToString(DescriptorType uuid);
 };
+
+#ifndef QT_NO_DATASTREAM
+inline QDataStream &operator<<(QDataStream &s, const QBluetoothUuid &uuid)
+{
+    return s << static_cast<const QUuid &>(uuid);
+}
+
+inline QDataStream &operator>>(QDataStream &s, QBluetoothUuid &uuid)
+{
+    return s >> static_cast<QUuid &>(uuid);
+}
+#endif
 
 #ifndef QT_NO_DEBUG_STREAM
 /// TODO: Move implementation to .cpp, uninline and add Q_BLUETOOTH_EXPORT for Qt 6

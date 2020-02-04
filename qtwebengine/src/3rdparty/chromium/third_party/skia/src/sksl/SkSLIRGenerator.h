@@ -16,6 +16,7 @@
 #include "ast/SkSLASTContinueStatement.h"
 #include "ast/SkSLASTDiscardStatement.h"
 #include "ast/SkSLASTDoStatement.h"
+#include "ast/SkSLASTEnum.h"
 #include "ast/SkSLASTExpression.h"
 #include "ast/SkSLASTExpressionStatement.h"
 #include "ast/SkSLASTExtension.h"
@@ -49,6 +50,7 @@
 #include "ir/SkSLType.h"
 #include "ir/SkSLTypeReference.h"
 #include "ir/SkSLVarDeclarations.h"
+#include "ir/SkSLVariableReference.h"
 
 namespace SkSL {
 
@@ -61,9 +63,10 @@ public:
     IRGenerator(const Context* context, std::shared_ptr<SymbolTable> root,
                 ErrorReporter& errorReporter);
 
-    void convertProgram(String text,
+    void convertProgram(Program::Kind kind,
+                        const char* text,
+                        size_t length,
                         SymbolTable& types,
-                        Modifiers::Flag* defaultPrecision,
                         std::vector<std::unique_ptr<ProgramElement>>* result);
 
     /**
@@ -74,16 +77,21 @@ public:
     std::unique_ptr<Expression> constantFold(const Expression& left,
                                              Token::Kind op,
                                              const Expression& right) const;
+
+    std::unique_ptr<Expression> getArg(int offset, String name) const;
+
     Program::Inputs fInputs;
     const Program::Settings* fSettings;
     const Context& fContext;
+    Program::Kind fKind;
 
 private:
     /**
      * Prepare to compile a program. Resets state, pushes a new symbol table, and installs the
      * settings.
      */
-    void start(const Program::Settings* settings);
+    void start(const Program::Settings* settings,
+               std::vector<std::unique_ptr<ProgramElement>>* inherited);
 
     /**
      * Performs cleanup after compilation is complete.
@@ -95,34 +103,35 @@ private:
 
     std::unique_ptr<VarDeclarations> convertVarDeclarations(const ASTVarDeclarations& decl,
                                                             Variable::Storage storage);
-    void convertFunction(const ASTFunction& f,
-                         std::vector<std::unique_ptr<ProgramElement>>* out);
+    void convertFunction(const ASTFunction& f);
     std::unique_ptr<Statement> convertStatement(const ASTStatement& statement);
     std::unique_ptr<Expression> convertExpression(const ASTExpression& expression);
     std::unique_ptr<ModifiersDeclaration> convertModifiersDeclaration(
                                                                   const ASTModifiersDeclaration& m);
 
     const Type* convertType(const ASTType& type);
-    std::unique_ptr<Expression> call(Position position,
+    std::unique_ptr<Expression> call(int offset,
                                      const FunctionDeclaration& function,
                                      std::vector<std::unique_ptr<Expression>> arguments);
-    bool determineCallCost(const FunctionDeclaration& function,
-                           const std::vector<std::unique_ptr<Expression>>& arguments,
-                           int* outCost);
-    std::unique_ptr<Expression> call(Position position, std::unique_ptr<Expression> function,
+    int callCost(const FunctionDeclaration& function,
+                 const std::vector<std::unique_ptr<Expression>>& arguments);
+    std::unique_ptr<Expression> call(int offset, std::unique_ptr<Expression> function,
                                      std::vector<std::unique_ptr<Expression>> arguments);
+    int coercionCost(const Expression& expr, const Type& type);
     std::unique_ptr<Expression> coerce(std::unique_ptr<Expression> expr, const Type& type);
+    std::unique_ptr<Expression> convertAppend(int offset,
+                                           const std::vector<std::unique_ptr<ASTExpression>>& args);
     std::unique_ptr<Block> convertBlock(const ASTBlock& block);
     std::unique_ptr<Statement> convertBreak(const ASTBreakStatement& b);
     std::unique_ptr<Expression> convertNumberConstructor(
-                                                   Position position,
+                                                   int offset,
                                                    const Type& type,
                                                    std::vector<std::unique_ptr<Expression>> params);
     std::unique_ptr<Expression> convertCompoundConstructor(
-                                                   Position position,
+                                                   int offset,
                                                    const Type& type,
                                                    std::vector<std::unique_ptr<Expression>> params);
-    std::unique_ptr<Expression> convertConstructor(Position position,
+    std::unique_ptr<Expression> convertConstructor(int offset,
                                                    const Type& type,
                                                    std::vector<std::unique_ptr<Expression>> params);
     std::unique_ptr<Statement> convertContinue(const ASTContinueStatement& c);
@@ -142,29 +151,25 @@ private:
     std::unique_ptr<Expression> convertPrefixExpression(const ASTPrefixExpression& expression);
     std::unique_ptr<Statement> convertReturn(const ASTReturnStatement& r);
     std::unique_ptr<Section> convertSection(const ASTSection& e);
-    std::unique_ptr<Expression> getCap(Position position, String name);
-    std::unique_ptr<Expression> getArg(Position position, String name);
+    std::unique_ptr<Expression> getCap(int offset, String name);
     std::unique_ptr<Expression> convertSuffixExpression(const ASTSuffixExpression& expression);
+    std::unique_ptr<Expression> convertTypeField(int offset, const Type& type,
+                                                 StringFragment field);
     std::unique_ptr<Expression> convertField(std::unique_ptr<Expression> base,
-                                             const String& field);
+                                             StringFragment field);
     std::unique_ptr<Expression> convertSwizzle(std::unique_ptr<Expression> base,
-                                               const String& fields);
+                                               StringFragment fields);
     std::unique_ptr<Expression> convertTernaryExpression(const ASTTernaryExpression& expression);
     std::unique_ptr<Statement> convertVarDeclarationStatement(const ASTVarDeclarationStatement& s);
     std::unique_ptr<Statement> convertWhile(const ASTWhileStatement& w);
-    std::unique_ptr<Block> applyInvocationIDWorkaround(
-                                                 std::unique_ptr<Block> main,
-                                                 std::vector<std::unique_ptr<ProgramElement>>* out);
+    void convertEnum(const ASTEnum& e);
+    std::unique_ptr<Block> applyInvocationIDWorkaround(std::unique_ptr<Block> main);
+    // returns a statement which converts sk_Position from device to normalized coordinates
+    std::unique_ptr<Statement> getNormalizeSkPositionCode();
 
-    /**
-     * Wraps an expression in code that applies a colorspace transformation to it. This is used
-     * to implement texture(sampler, coord, colorSpaceXForm).
-     */
-    std::unique_ptr<Expression> applyColorSpace(std::unique_ptr<Expression> texture,
-                                                std::unique_ptr<Expression> xform);
-    void fixRectSampling(std::vector<std::unique_ptr<Expression>>& arguments);
     void checkValid(const Expression& expr);
-    void markWrittenTo(const Expression& expr, bool readWrite);
+    void setRefKind(const Expression& expr, VariableReference::RefKind kind);
+    void getConstantInt(const Expression& value, int64_t* out);
 
     const FunctionDeclaration* fCurrentFunction;
     std::unordered_map<String, Program::Settings::Value> fCapsMap;
@@ -178,6 +183,12 @@ private:
     int fTmpCount;
     ErrorReporter& fErrors;
     int fInvocations;
+    std::vector<std::unique_ptr<ProgramElement>>* fProgramElements;
+    const Variable* fSkPerVertex = nullptr;
+    Variable* fRTAdjust;
+    Variable* fRTAdjustInterfaceBlock;
+    int fRTAdjustFieldIndex;
+    bool fStarted = false;
 
     friend class AutoSymbolTable;
     friend class AutoLoopLevel;

@@ -43,6 +43,7 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QHash>
 #include <QtCore/qfunctions_winrt.h>
+#include <QtCore/private/qfsfileengine_p.h>
 
 #include <wrl.h>
 #include <windows.storage.h>
@@ -122,10 +123,6 @@ QWinRTFileEngineHandler::QWinRTFileEngineHandler()
 {
 }
 
-QWinRTFileEngineHandler::~QWinRTFileEngineHandler()
-{
-}
-
 void QWinRTFileEngineHandler::registerFile(const QString &fileName, IStorageItem *file)
 {
     handlerInstance->d_func()->files.insert(QDir::cleanPath(fileName), file);
@@ -144,7 +141,7 @@ QAbstractFileEngine *QWinRTFileEngineHandler::create(const QString &fileName) co
     if (file != d->files.end())
         return new QWinRTFileEngine(fileName, file.value().Get());
 
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 static HRESULT getDestinationFolder(const QString &fileName, const QString &newFileName,
@@ -168,7 +165,7 @@ static HRESULT getDestinationFolder(const QString &fileName, const QString &newF
 
         const QString newFilePath = QDir::toNativeSeparators(newFileInfo.absolutePath());
         HStringReference nativeNewFilePath(reinterpret_cast<LPCWSTR>(newFilePath.utf16()),
-                                           newFilePath.length());
+                                           uint(newFilePath.length()));
         hr = folderFactory->GetFolderFromPathAsync(nativeNewFilePath.Get(), &op);
     }
     if (FAILED(hr))
@@ -178,10 +175,6 @@ static HRESULT getDestinationFolder(const QString &fileName, const QString &newF
 
 QWinRTFileEngine::QWinRTFileEngine(const QString &fileName, IStorageItem *file)
     : d_ptr(new QWinRTFileEnginePrivate(fileName, file))
-{
-}
-
-QWinRTFileEngine::~QWinRTFileEngine()
 {
 }
 
@@ -204,7 +197,19 @@ bool QWinRTFileEngine::open(QIODevice::OpenMode openMode)
     hr = QWinRTFunctions::await(op, d->stream.GetAddressOf());
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::OpenError, false);
 
-    d->openMode = openMode;
+    const ProcessOpenModeResult res = processOpenModeFlags(openMode);
+    if (!res.ok) {
+        setError(QFileDevice::OpenError, res.error);
+        return false;
+    }
+    d->openMode = res.openMode;
+    if (d->openMode & QIODevice::Truncate) {
+        if (!setSize(0)) {
+            close();
+            setError(QFileDevice::OpenError, QLatin1String("Could not truncate file"));
+            return false;
+        }
+    }
 
     return SUCCEEDED(hr);
 }
@@ -265,6 +270,29 @@ qint64 QWinRTFileEngine::size() const
     return qint64(size);
 }
 
+bool QWinRTFileEngine::setSize(qint64 size)
+{
+    Q_D(QWinRTFileEngine);
+    if (!d->stream) {
+        setError(QFileDevice::ResizeError, QLatin1String("File must be open to be resized"));
+        return false;
+    }
+
+    if (size < 0) {
+        setError(QFileDevice::ResizeError, QLatin1String("File size cannot be negative"));
+        return false;
+    }
+
+    HRESULT hr = d->stream->put_Size(static_cast<quint64>(size));
+    RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::ResizeError, false);
+    if (!flush()) {
+        setError(QFileDevice::ResizeError, QLatin1String("Could not flush file"));
+        return false;
+    }
+
+    return true;
+}
+
 qint64 QWinRTFileEngine::pos() const
 {
     Q_D(const QWinRTFileEngine);
@@ -278,7 +306,7 @@ bool QWinRTFileEngine::seek(qint64 pos)
     if (!d->stream)
         return false;
 
-    HRESULT hr = d->stream->Seek(pos);
+    HRESULT hr = d->stream->Seek(UINT64(pos));
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::PositionError, false);
     d->pos = pos;
     return SUCCEEDED(hr);
@@ -311,7 +339,8 @@ bool QWinRTFileEngine::copy(const QString &newName)
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::CopyError, false);
 
     const QString destinationName = QFileInfo(newName).fileName();
-    HStringReference nativeDestinationName(reinterpret_cast<LPCWSTR>(destinationName.utf16()), destinationName.length());
+    HStringReference nativeDestinationName(reinterpret_cast<LPCWSTR>(destinationName.utf16()),
+                                           uint(destinationName.length()));
     ComPtr<IAsyncOperation<StorageFile *>> op;
     hr = file->CopyOverloadDefaultOptions(destinationFolder.Get(), nativeDestinationName.Get(), &op);
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::CopyError, false);
@@ -332,7 +361,8 @@ bool QWinRTFileEngine::rename(const QString &newName)
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::RenameError, false);
 
     const QString destinationName = QFileInfo(newName).fileName();
-    HStringReference nativeDestinationName(reinterpret_cast<LPCWSTR>(destinationName.utf16()), destinationName.length());
+    HStringReference nativeDestinationName(reinterpret_cast<LPCWSTR>(destinationName.utf16()),
+                                           uint(destinationName.length()));
     ComPtr<IAsyncAction> op;
     hr = d->file->RenameAsyncOverloadDefaultOptions(nativeDestinationName.Get(), &op);
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::RenameError, false);
@@ -349,7 +379,8 @@ bool QWinRTFileEngine::renameOverwrite(const QString &newName)
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::RenameError, false);
 
     const QString destinationName = QFileInfo(newName).fileName();
-    HStringReference nativeDestinationName(reinterpret_cast<LPCWSTR>(destinationName.utf16()), destinationName.length());
+    HStringReference nativeDestinationName(reinterpret_cast<LPCWSTR>(destinationName.utf16()),
+                                           uint(destinationName.length()));
     ComPtr<IAsyncAction> op;
     hr = d->file->RenameAsync(nativeDestinationName.Get(), NameCollisionOption_ReplaceExisting, &op);
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::RenameError, false);
@@ -451,7 +482,7 @@ qint64 QWinRTFileEngine::read(char *data, qint64 maxlen)
     HRESULT hr = d->stream.As(&stream);
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::ReadError, -1);
 
-    UINT32 length = qBound(quint64(0), quint64(maxlen), quint64(UINT_MAX));
+    UINT32 length = UINT32(qBound(quint64(0), quint64(maxlen), quint64(UINT32_MAX)));
     ComPtr<IBuffer> buffer;
     hr = d->bufferFactory->Create(length, &buffer);
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::ReadError, -1);
@@ -494,7 +525,7 @@ qint64 QWinRTFileEngine::write(const char *data, qint64 maxlen)
     HRESULT hr = d->stream.As(&stream);
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::WriteError, -1);
 
-    UINT32 length = qBound(quint64(0), quint64(maxlen), quint64(UINT_MAX));
+    UINT32 length = UINT32(qBound(quint64(0), quint64(maxlen), quint64(UINT_MAX)));
     ComPtr<IBuffer> buffer;
     hr = d->bufferFactory->Create(length, &buffer);
     RETURN_AND_SET_ERROR_IF_FAILED(QFileDevice::WriteError, -1);

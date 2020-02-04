@@ -15,7 +15,7 @@ namespace {
 
 base::FilePath MakeTestFilePath(const char* file) {
   base::FilePath path;
-  PathService::Get(base::DIR_SOURCE_ROOT, &path);
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &path);
   return path.AppendASCII("components/test/data/update_client")
       .AppendASCII(file);
 }
@@ -65,6 +65,18 @@ TEST(UpdateClientUtils, IsValidBrand) {
   EXPECT_FALSE(IsValidBrand(std::string("\"")));     // Has "
   EXPECT_FALSE(IsValidBrand(std::string("\\")));     // Has backslash.
   EXPECT_FALSE(IsValidBrand(std::string("\xaa")));   // Has non-ASCII char.
+}
+
+TEST(UpdateClientUtils, GetCrxComponentId) {
+  static const uint8_t kHash[16] = {
+      0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+      0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+  };
+  CrxComponent component;
+  component.pk_hash.assign(kHash, kHash + sizeof(kHash));
+
+  EXPECT_EQ(std::string("abcdefghijklmnopabcdefghijklmnop"),
+            GetCrxComponentID(component));
 }
 
 // Tests that the name of an InstallerAttribute matches ^[-_=a-zA-Z0-9]{1,256}$
@@ -146,6 +158,34 @@ TEST(UpdateClientUtils, RemoveUnsecureUrls) {
   urls.assign(std::begin(test5), std::end(test5));
   RemoveUnsecureUrls(&urls);
   EXPECT_EQ(0u, urls.size());
+}
+
+TEST(UpdateClientUtils, ToInstallerResult) {
+  enum EnumA {
+    ENTRY0 = 10,
+    ENTRY1 = 20,
+  };
+
+  enum class EnumB {
+    ENTRY0 = 0,
+    ENTRY1,
+  };
+
+  const auto result1 = ToInstallerResult(EnumA::ENTRY0);
+  EXPECT_EQ(110, result1.error);
+  EXPECT_EQ(0, result1.extended_error);
+
+  const auto result2 = ToInstallerResult(ENTRY1, 10000);
+  EXPECT_EQ(120, result2.error);
+  EXPECT_EQ(10000, result2.extended_error);
+
+  const auto result3 = ToInstallerResult(EnumB::ENTRY0);
+  EXPECT_EQ(100, result3.error);
+  EXPECT_EQ(0, result3.extended_error);
+
+  const auto result4 = ToInstallerResult(EnumB::ENTRY1, 20000);
+  EXPECT_EQ(101, result4.error);
+  EXPECT_EQ(20000, result4.extended_error);
 }
 
 }  // namespace update_client

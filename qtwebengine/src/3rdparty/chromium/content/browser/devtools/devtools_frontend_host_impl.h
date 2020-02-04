@@ -7,28 +7,31 @@
 
 #include "base/macros.h"
 #include "content/public/browser/devtools_frontend_host.h"
-#include "content/public/browser/web_contents_observer.h"
+#include "mojo/public/cpp/bindings/associated_binding.h"
+#include "third_party/blink/public/web/devtools_frontend.mojom.h"
 
 namespace content {
 
+class WebContents;
+
 class DevToolsFrontendHostImpl : public DevToolsFrontendHost,
-                                 public WebContentsObserver {
+                                 public blink::mojom::DevToolsFrontendHost {
  public:
   DevToolsFrontendHostImpl(
-      RenderFrameHost* frontend_main_frame,
+      RenderFrameHost* frame_host,
       const HandleMessageCallback& handle_message_callback);
   ~DevToolsFrontendHostImpl() override;
 
   void BadMessageRecieved() override;
 
  private:
-  // WebContentsObserver overrides.
-  bool OnMessageReceived(const IPC::Message& message,
-                         RenderFrameHost* render_frame_host) override;
+  // blink::mojom::DevToolsFrontendHost implementation.
+  void DispatchEmbedderMessage(const std::string& message) override;
 
-  void OnDispatchOnEmbedder(const std::string& message);
-
+  WebContents* web_contents_;
   HandleMessageCallback handle_message_callback_;
+  mojo::AssociatedBinding<blink::mojom::DevToolsFrontendHost> binding_;
+
   DISALLOW_COPY_AND_ASSIGN(DevToolsFrontendHostImpl);
 };
 

@@ -9,14 +9,17 @@
  *
  */
 
-#include "webrtc/modules/video_coding/codecs/vp9/vp9_frame_buffer_pool.h"
+#ifdef RTC_ENABLE_VP9
+
+#include "modules/video_coding/codecs/vp9/vp9_frame_buffer_pool.h"
 
 #include "vpx/vpx_codec.h"
 #include "vpx/vpx_decoder.h"
 #include "vpx/vpx_frame_buffer.h"
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/ref_counted_object.h"
 
 namespace webrtc {
 
@@ -69,7 +72,7 @@ Vp9FrameBufferPool::GetFrameBuffer(size_t min_size) {
       available_buffer = new rtc::RefCountedObject<Vp9FrameBuffer>();
       allocated_buffers_.push_back(available_buffer);
       if (allocated_buffers_.size() > max_num_buffers_) {
-        LOG(LS_WARNING)
+        RTC_LOG(LS_WARNING)
             << allocated_buffers_.size() << " Vp9FrameBuffers have been "
             << "allocated by a Vp9FrameBufferPool (exceeding what is "
             << "considered reasonable, " << max_num_buffers_ << ").";
@@ -137,3 +140,5 @@ int32_t Vp9FrameBufferPool::VpxReleaseFrameBuffer(void* user_priv,
 }
 
 }  // namespace webrtc
+
+#endif  // RTC_ENABLE_VP9

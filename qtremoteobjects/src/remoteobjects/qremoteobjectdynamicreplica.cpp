@@ -40,14 +40,14 @@
 #include "qremoteobjectdynamicreplica.h"
 #include "qremoteobjectreplica_p.h"
 
-#include <QMetaProperty>
+#include <QtCore/qmetaobject.h>
 
 QT_BEGIN_NAMESPACE
 
 /*!
     \class QRemoteObjectDynamicReplica
     \inmodule QtRemoteObjects
-    \brief A dynamically instantiated \l {Replica}
+    \brief A dynamically instantiated \l {Replica}.
 
     There are generated replicas (replicas having the header files produced by the \l {repc} {Replica Compiler}), and dynamic replicas, which are generated on-the-fly.  This is the class for the dynamic type of replica.
 
@@ -78,15 +78,27 @@ QRemoteObjectDynamicReplica::~QRemoteObjectDynamicReplica()
 
 /*!
     \internal
-    Returns a pointer to the dynamically generated meta-object of this object, or 0 if the object is not initialized.  This function overrides the QObject::metaObject() virtual function to provide the same functionality for dynamic replicas.
+    Returns a pointer to the dynamically generated meta-object of this object, or
+    QRemoteObjectDynamicReplica's metaObject if the object is not initialized.  This
+    function overrides the QObject::metaObject() virtual function to provide the same
+    functionality for dynamic replicas.
 
     \sa QObject::metaObject(), {Replica Initialization}
 */
 const QMetaObject* QRemoteObjectDynamicReplica::metaObject() const
 {
-    QSharedPointer<QRemoteObjectReplicaPrivate> d = qSharedPointerCast<QRemoteObjectReplicaPrivate>(d_ptr);
+    auto impl = qSharedPointerCast<QRemoteObjectReplicaImplementation>(d_impl);
+    // Returning nullptr will likely result in a crash if this type is used before the
+    // definition is received.  Note: QRemoteObjectDynamicReplica doesn't include the
+    // QObject macro, so it's metaobject would resolve to QRemoteObjectReplica::metaObject()
+    // if we weren't overriding it.
+    if (!impl->m_metaObject) {
+        qWarning() << "Dynamic metaobject is not assigned, returning generic Replica metaObject.";
+        qWarning() << "This may cause issues if used for more than checking the Replica state.";
+        return QRemoteObjectReplica::metaObject();
+    }
 
-    return d->m_metaObject ? d->m_metaObject : QRemoteObjectReplica::metaObject();
+    return impl->m_metaObject;
 }
 
 /*!
@@ -97,8 +109,6 @@ const QMetaObject* QRemoteObjectDynamicReplica::metaObject() const
 */
 void *QRemoteObjectDynamicReplica::qt_metacast(const char *name)
 {
-    QSharedPointer<QRemoteObjectReplicaPrivate> d = qSharedPointerCast<QRemoteObjectReplicaPrivate>(d_ptr);
-
     if (!name)
         return 0;
 
@@ -106,7 +116,8 @@ void *QRemoteObjectDynamicReplica::qt_metacast(const char *name)
         return static_cast<void*>(const_cast<QRemoteObjectDynamicReplica*>(this));
 
     // not entirely sure that one is needed... TODO: check
-    if (QString::fromLatin1(name) == d->m_objectName)
+    auto impl = qSharedPointerCast<QRemoteObjectReplicaImplementation>(d_impl);
+    if (QString::fromLatin1(name) == impl->m_objectName)
         return static_cast<void*>(const_cast<QRemoteObjectDynamicReplica*>(this));
 
     return QObject::qt_metacast(name);
@@ -122,11 +133,11 @@ int QRemoteObjectDynamicReplica::qt_metacall(QMetaObject::Call call, int id, voi
 {
     static const bool debugArgs = qEnvironmentVariableIsSet("QT_REMOTEOBJECT_DEBUG_ARGUMENTS");
 
-    QSharedPointer<QRemoteObjectReplicaPrivate> d = qSharedPointerCast<QRemoteObjectReplicaPrivate>(d_ptr);
+    auto impl = qSharedPointerCast<QConnectedReplicaImplementation>(d_impl);
 
     int saved_id = id;
     id = QRemoteObjectReplica::qt_metacall(call, id, argv);
-    if (id < 0 || d->m_metaObject == nullptr)
+    if (id < 0 || impl->m_metaObject == nullptr)
         return id;
 
     if (call == QMetaObject::ReadProperty || call == QMetaObject::WriteProperty) {
@@ -135,12 +146,19 @@ int QRemoteObjectDynamicReplica::qt_metacall(QMetaObject::Call call, int id, voi
 
         if (call == QMetaObject::WriteProperty) {
             QVariantList args;
-            args << QVariant(mp.userType(), argv[0]);
+            if (mp.userType() == QMetaType::QVariant)
+                args << *reinterpret_cast<QVariant*>(argv[0]);
+            else
+                args << QVariant(mp.userType(), argv[0]);
             QRemoteObjectReplica::send(QMetaObject::WriteProperty, saved_id, args);
         } else {
-            const QVariant value = propAsVariant(id);
-            QMetaType::destruct(mp.userType(), argv[0]);
-            QMetaType::construct(mp.userType(), argv[0], value.data());
+            if (mp.userType() == QMetaType::QVariant)
+                *reinterpret_cast<QVariant*>(argv[0]) = impl->m_propertyStorage[id];
+            else {
+                const QVariant value = propAsVariant(id);
+                QMetaType::destruct(mp.userType(), argv[0]);
+                QMetaType::construct(mp.userType(), argv[0], value.data());
+            }
             const bool readStatus = true;
             // Caller supports QVariant returns? Then we can also report errors
             // by storing an invalid variant.
@@ -152,23 +170,35 @@ int QRemoteObjectDynamicReplica::qt_metacall(QMetaObject::Call call, int id, voi
 
         id = -1;
     } else if (call == QMetaObject::InvokeMetaMethod) {
-        if (id < d->m_numSignals) {
+        if (id < impl->m_numSignals) {
+            qCDebug(QT_REMOTEOBJECT) << "DynamicReplica Activate" << impl->m_metaObject->method(saved_id).methodSignature();
             // signal relay from Source world to Replica
-            QMetaObject::activate(this, d->m_metaObject, id, argv);
+            QMetaObject::activate(this, impl->m_metaObject, id, argv);
 
         } else {
             // method relay from Replica to Source
-            const QMetaMethod mm = d->m_metaObject->method(saved_id);
+            const QMetaMethod mm = impl->m_metaObject->method(saved_id);
             const QList<QByteArray> types = mm.parameterTypes();
 
             const int typeSize = types.size();
             QVariantList args;
             args.reserve(typeSize);
             for (int i = 0; i < typeSize; ++i) {
-                if (d->m_metaObject->indexOfEnumerator(types[i].constData()) != -1)
-                    args.push_back(QVariant(QMetaType::Int, argv[i + 1]));
-                else
-                    args.push_back(QVariant(QMetaType::type(types[i].constData()), argv[i + 1]));
+                const int type = QMetaType::type(types[i].constData());
+                if (impl->m_metaObject->indexOfEnumerator(types[i].constData()) != -1) {
+                    const auto size = QMetaType(type).sizeOf();
+                    switch (size) {
+                    case 1: args.push_back(QVariant(QMetaType::Char, argv[i + 1])); break;
+                    case 2: args.push_back(QVariant(QMetaType::Short, argv[i + 1])); break;
+                    case 4: args.push_back(QVariant(QMetaType::Int, argv[i + 1])); break;
+                    // Qt currently only supports enum values of 4 or less bytes (QMetaEnum value(index) returns int)
+//                    case 8: args.push_back(QVariant(QMetaType::Int, argv[i + 1])); break;
+                    default:
+                        qWarning() << "Invalid enum detected (Dynamic Replica)" << QMetaType::typeName(type) << "with size" << size;
+                        args.push_back(QVariant(QMetaType::Int, argv[i + 1])); break;
+                    }
+                } else
+                    args.push_back(QVariant(type, argv[i + 1]));
             }
 
             if (debugArgs) {

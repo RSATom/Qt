@@ -256,7 +256,7 @@ QIODevice *QPulseAudioOutput::start()
     m_pullMode = false;
 
     if (!open())
-        return Q_NULLPTR;
+        return nullptr;
 
     m_audioSource = new PulseOutputPrivate(this);
     m_audioSource->open(QIODevice::WriteOnly|QIODevice::Unbuffered);
@@ -276,6 +276,7 @@ bool QPulseAudioOutput::open()
     if (!pulseEngine->context() || pa_context_get_state(pulseEngine->context()) != PA_CONTEXT_READY) {
         setError(QAudio::FatalError);
         setState(QAudio::StoppedState);
+        emit stateChanged(m_deviceState);
         return false;
     }
 
@@ -284,6 +285,7 @@ bool QPulseAudioOutput::open()
     if (!pa_sample_spec_valid(&spec)) {
         setError(QAudio::OpenError);
         setState(QAudio::StoppedState);
+        emit stateChanged(m_deviceState);
         return false;
     }
 
@@ -308,7 +310,34 @@ bool QPulseAudioOutput::open()
     if (!m_category.isNull())
         pa_proplist_sets(propList, PA_PROP_MEDIA_ROLE, m_category.toLatin1().constData());
 
-    m_stream = pa_stream_new_with_proplist(pulseEngine->context(), m_streamName.constData(), &m_spec, 0, propList);
+    static const auto mapName = qEnvironmentVariable("QT_PA_CHANNEL_MAP");
+    pa_channel_map_def_t mapDef = PA_CHANNEL_MAP_DEFAULT;
+    if (mapName == QLatin1String("ALSA"))
+        mapDef = PA_CHANNEL_MAP_ALSA;
+    else if (mapName == QLatin1String("AUX"))
+        mapDef = PA_CHANNEL_MAP_AUX;
+    else if (mapName == QLatin1String("WAVEEX"))
+        mapDef = PA_CHANNEL_MAP_WAVEEX;
+    else if (mapName == QLatin1String("OSS"))
+        mapDef = PA_CHANNEL_MAP_OSS;
+    else if (!mapName.isEmpty())
+        qWarning() << "Unknown pulse audio channel mapping definition:" << mapName;
+
+    pa_channel_map m;
+    auto channelMap = pa_channel_map_init_extend(&m, m_spec.channels, mapDef);
+    if (!channelMap)
+        qWarning() << "QAudioOutput: pa_channel_map_init_extend() Could not initialize channel map";
+
+    m_stream = pa_stream_new_with_proplist(pulseEngine->context(), m_streamName.constData(), &m_spec, channelMap, propList);
+    if (!m_stream) {
+        qWarning() << "QAudioOutput: pa_stream_new_with_proplist() failed!";
+        pulseEngine->unlock();
+        setError(QAudio::OpenError);
+        setState(QAudio::StoppedState);
+        emit stateChanged(m_deviceState);
+        return false;
+    }
+
     pa_proplist_free(propList);
 
     pa_stream_set_state_callback(m_stream, outputStreamStateCallback, this);
@@ -336,6 +365,7 @@ bool QPulseAudioOutput::open()
         pulseEngine->unlock();
         setError(QAudio::OpenError);
         setState(QAudio::StoppedState);
+        emit stateChanged(m_deviceState);
         return false;
     }
 
@@ -444,7 +474,7 @@ void QPulseAudioOutput::userFeed()
 
         int audioBytesPulled = m_audioSource->read(m_audioBuffer, input);
         Q_ASSERT(audioBytesPulled <= input);
-        if (audioBytesPulled > 0) {
+        if (m_audioBuffer && audioBytesPulled > 0) {
             if (audioBytesPulled > input) {
                 qWarning() << "QPulseAudioOutput::userFeed() - Invalid audio data size provided from user:"
                            << audioBytesPulled << "should be less than" << input;
@@ -466,8 +496,7 @@ void QPulseAudioOutput::userFeed()
 
     if (m_notifyInterval && (m_timeStamp.elapsed() + m_elapsedTimeOffset) > m_notifyInterval) {
         emit notify();
-        m_elapsedTimeOffset = m_timeStamp.elapsed() + m_elapsedTimeOffset - m_notifyInterval;
-        m_timeStamp.restart();
+        m_elapsedTimeOffset = m_timeStamp.restart() + m_elapsedTimeOffset - m_notifyInterval;
     }
 }
 

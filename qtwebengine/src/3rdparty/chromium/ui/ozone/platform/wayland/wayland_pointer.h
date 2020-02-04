@@ -5,16 +5,35 @@
 #ifndef UI_OZONE_PLATFORM_WAYLAND_WAYLAND_POINTER_H_
 #define UI_OZONE_PLATFORM_WAYLAND_WAYLAND_POINTER_H_
 
+#include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "ui/events/ozone/evdev/event_dispatch_callback.h"
 #include "ui/gfx/geometry/point_f.h"
+#include "ui/ozone/platform/wayland/wayland_cursor.h"
 #include "ui/ozone/platform/wayland/wayland_object.h"
 
 namespace ui {
+
+class WaylandWindow;
 
 class WaylandPointer {
  public:
   WaylandPointer(wl_pointer* pointer, const EventDispatchCallback& callback);
   virtual ~WaylandPointer();
+
+  void set_connection(WaylandConnection* connection) {
+    connection_ = connection;
+    cursor_->Init(obj_.get(), connection_);
+  }
+
+  int GetFlagsWithKeyboardModifiers();
+  void ResetFlags();
+
+  WaylandCursor* cursor() { return cursor_.get(); }
+
+  void reset_window_with_pointer_focus() {
+    window_with_pointer_focus_ = nullptr;
+  }
 
  private:
   // wl_pointer_listener
@@ -45,10 +64,27 @@ class WaylandPointer {
                    uint32_t axis,
                    wl_fixed_t value);
 
+  void MaybeSetOrResetImplicitGrab();
+
+  WaylandConnection* connection_ = nullptr;
+  std::unique_ptr<WaylandCursor> cursor_;
   wl::Object<wl_pointer> obj_;
   EventDispatchCallback callback_;
   gfx::PointF location_;
+  // Flags is a bitmask of EventFlags corresponding to the pointer/keyboard
+  // state.
   int flags_ = 0;
+
+  // Keeps track of current modifiers. These are needed in order to properly
+  // update |flags_| with newest modifiers.
+  int keyboard_modifiers_ = 0;
+
+  // The window the mouse is over.
+  WaylandWindow* window_with_pointer_focus_ = nullptr;
+
+  base::WeakPtrFactory<WaylandPointer> weak_ptr_factory_;
+
+  DISALLOW_COPY_AND_ASSIGN(WaylandPointer);
 };
 
 }  // namespace ui

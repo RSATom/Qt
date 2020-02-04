@@ -12,6 +12,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/compiler_specific.h"
@@ -19,9 +20,11 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "ui/accessibility/ax_enums.h"
+#include "third_party/skia/include/core/SkPath.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/class_property.h"
+#include "ui/base/clipboard/clipboard_format_type.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/drop_target_event.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
@@ -36,12 +39,12 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/gfx/path.h"
+#include "ui/views/paint_info.h"
 #include "ui/views/view_targeter.h"
 #include "ui/views/views_export.h"
 
 #if defined(OS_WIN)
-#include "base/win/scoped_comptr.h"
+#include <wrl/client.h>
 #endif
 
 using ui::OSExchangeData;
@@ -49,9 +52,8 @@ using ui::OSExchangeData;
 namespace gfx {
 class Canvas;
 class Insets;
-class Path;
 class Transform;
-}
+}  // namespace gfx
 
 namespace ui {
 struct AXActionData;
@@ -63,7 +65,7 @@ class NativeTheme;
 class PaintContext;
 class ThemeProvider;
 class TransformRecorder;
-}
+}  // namespace ui
 
 namespace views {
 
@@ -74,7 +76,7 @@ class DragController;
 class FocusManager;
 class FocusTraversable;
 class LayoutManager;
-class NativeViewAccessibility;
+class ViewAccessibility;
 class ScrollView;
 class ViewObserver;
 class Widget;
@@ -85,7 +87,7 @@ class PreEventDispatchHandler;
 class PostEventDispatchHandler;
 class RootView;
 class ScopedChildrenLock;
-}
+}  // namespace internal
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -165,6 +167,96 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
     View* move_view;
   };
 
+  // During paint, the origin of each view in physical pixel is calculated by
+  //   view_origin_pixel = ROUND(view.origin() * device_scale_factor)
+  //
+  // Thus in a view hierarchy, the offset between two views, view_i and view_j,
+  // is calculated by:
+  //   view_offset_ij_pixel = SUM [view_origin_pixel.OffsetFromOrigin()]
+  //                        {For all views along the path from view_i to view_j}
+  //
+  // But the offset between the two layers, the layer in view_i and the layer in
+  // view_j, is computed by
+  //   view_offset_ij_dip = SUM [view.origin().OffsetFromOrigin()]
+  //                        {For all views along the path from view_i to view_j}
+  //
+  //   layer_offset_ij_pixel = ROUND (view_offset_ij_dip * device_scale_factor)
+  //
+  // Due to this difference in the logic for computation of offset, the values
+  // view_offset_ij_pixel and layer_offset_ij_pixel may not always be equal.
+  // They will differ by some subpixel_offset. This leads to bugs like
+  // crbug.com/734787.
+  // The subpixel offset needs to be applied to the layer to get the correct
+  // output during paint.
+  //
+  // This class manages the computation of subpixel offset internally when
+  // working with offsets.
+  class LayerOffsetData {
+   public:
+    LayerOffsetData(float device_scale_factor = 1.f,
+                    const gfx::Vector2d& offset = gfx::Vector2d())
+        : device_scale_factor_(device_scale_factor) {
+      AddOffset(offset);
+    }
+
+    const gfx::Vector2d& offset() const { return offset_; }
+
+    const gfx::Vector2dF GetSubpixelOffset() const {
+      // |rounded_pixel_offset_| is stored in physical pixel space. Convert it
+      // into DIP space before returning.
+      gfx::Vector2dF subpixel_offset(rounded_pixel_offset_);
+      subpixel_offset.Scale(1.f / device_scale_factor_);
+      return subpixel_offset;
+    }
+
+    LayerOffsetData& operator+=(const gfx::Vector2d& offset) {
+      AddOffset(offset);
+      return *this;
+    }
+
+    LayerOffsetData operator+(const gfx::Vector2d& offset) const {
+      LayerOffsetData offset_data(*this);
+      offset_data.AddOffset(offset);
+      return offset_data;
+    }
+
+   private:
+    // Adds the |offset_to_parent| to the total |offset_| and updates the
+    // |rounded_pixel_offset_| value.
+    void AddOffset(const gfx::Vector2d& offset_to_parent) {
+      // Add the DIP |offset_to_parent| amount to the total offset.
+      offset_ += offset_to_parent;
+
+      // Convert |offset_to_parent| to physical pixel coordinates.
+      gfx::Vector2dF fractional_pixel_offset(
+          offset_to_parent.x() * device_scale_factor_,
+          offset_to_parent.y() * device_scale_factor_);
+
+      // Since pixels cannot be fractional, we need to round the offset to get
+      // the correct physical pixel coordinate.
+      gfx::Vector2dF integral_pixel_offset(
+          gfx::ToRoundedInt(fractional_pixel_offset.x()),
+          gfx::ToRoundedInt(fractional_pixel_offset.y()));
+
+      // |integral_pixel_offset - fractional_pixel_offset| gives the subpixel
+      // offset amount for |offset_to_parent|. This is added to
+      // |rounded_pixel_offset_| to update the total subpixel offset.
+      rounded_pixel_offset_ += integral_pixel_offset - fractional_pixel_offset;
+    }
+
+    // Total offset so far. This stores the offset between two nodes in the view
+    // hierarchy.
+    gfx::Vector2d offset_;
+
+    // This stores the value such that if added to
+    // |offset_ * device_scale_factor| will give the correct aligned offset in
+    // physical pixels.
+    gfx::Vector2dF rounded_pixel_offset_;
+
+    // The device scale factor at which the subpixel offset is being computed.
+    float device_scale_factor_;
+  };
+
   // Creation and lifetime -----------------------------------------------------
 
   View();
@@ -172,6 +264,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // By default a View is owned by its parent unless specified otherwise here.
   void set_owned_by_client() { owned_by_client_ = true; }
+  bool owned_by_client() const { return owned_by_client_; }
 
   // Tree operations -----------------------------------------------------------
 
@@ -180,8 +273,37 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   virtual Widget* GetWidget();
 
   // Adds |view| as a child of this view, optionally at |index|.
-  void AddChildView(View* view);
-  void AddChildViewAt(View* view, int index);
+  // Returns the raw pointer for callers which want to hold a pointer to the
+  // added view. This requires declaring the function as a template in order to
+  // return the actual passed-in type.
+  template <typename T>
+  T* AddChildView(std::unique_ptr<T> view) {
+    DCHECK(!view->owned_by_client())
+        << "This should only be called if the client is passing ownership of "
+           "|view| to the parent View.";
+    return AddChildView<T>(view.release());
+  }
+  template <typename T>
+  T* AddChildViewAt(std::unique_ptr<T> view, int index) {
+    DCHECK(!view->owned_by_client())
+        << "This should only be called if the client is passing ownership of "
+           "|view| to the parent View.";
+    return AddChildViewAt<T>(view.release(), index);
+  }
+
+  // Prefer using the AddChildView(std::unique_ptr) overloads over raw pointers
+  // for new code.
+  template <typename T>
+  T* AddChildView(T* view) {
+    if (static_cast<View*>(view)->parent_ != this)
+      AddChildViewAtImpl(view, child_count());
+    return view;
+  }
+  template <typename T>
+  T* AddChildViewAt(T* view, int index) {
+    AddChildViewAtImpl(view, index);
+    return view;
+  }
 
   // Moves |view| to the specified |index|. A negative value for |index| moves
   // the view at the end.
@@ -227,7 +349,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // position accessors.
   // Transformations are not applied on the size/position. For example, if
   // bounds is (0, 0, 100, 100) and it is scaled by 0.5 along the X axis, the
-  // width will still be 100 (although when painted, it will be 50x50, painted
+  // width will still be 100 (although when painted, it will be 50x100, painted
   // at location (0, 0)).
 
   void SetBounds(int x, int y, int width, int height);
@@ -269,6 +391,11 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Return the bounds of the View in screen coordinate system.
   gfx::Rect GetBoundsInScreen() const;
+
+  // Return the bounds that an anchored widget should anchor to. These can be
+  // different from |GetBoundsInScreen()| when a view is larger than its visible
+  // size, for instance to provide a larger hittable area.
+  virtual gfx::Rect GetAnchorBoundsInScreen() const;
 
   // Returns the baseline of this view, or -1 if this view has no baseline. The
   // return value is relative to the preferred height.
@@ -326,6 +453,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // Views as |children_|. The default implementation returns |children_|,
   // subclass if the paint order should differ from that of |children_|.
   // This order is taken into account by painting and targeting implementations.
+  // NOTE: see SetPaintToLayer() for details on painting and views with layers.
   virtual View::Views GetChildrenInZOrder();
 
   // Transformations -----------------------------------------------------------
@@ -335,7 +463,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   gfx::Transform GetTransform() const;
 
   // Clipping is done relative to the view's local bounds.
-  void set_clip_path(const gfx::Path& path) { clip_path_ = path; }
+  void set_clip_path(const SkPath& path) { clip_path_ = path; }
 
   // Sets the transform to the supplied transform.
   void SetTransform(const gfx::Transform& transform);
@@ -346,6 +474,10 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // . SetPaintToLayer(ui::LayerType) has been invoked.
   // View creates the Layer only when it exists in a Widget with a non-NULL
   // Compositor.
+  // Enabling a view to have a layer impacts painting of sibling views.
+  // Specifically views with layers effectively paint in a z-order that is
+  // always above any sibling views that do not have layers. This happens
+  // regardless of the ordering returned by GetChildrenInZOrder().
   void SetPaintToLayer(ui::LayerType layer_type = ui::LAYER_TEXTURED);
 
   // Please refer to the comments above the DestroyLayerImpl() function for
@@ -411,7 +543,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // specific to the current Layout Manager)
   virtual void Layout();
 
-  // TODO(beng): I think we should remove this.
   // Mark this view and all parents to require a relayout. This ensures the
   // next call to Layout() will propagate to this view, even if the bounds of
   // parent views do not change.
@@ -419,14 +550,27 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Gets/Sets the Layout Manager used by this view to size and place its
   // children.
+  //
   // The LayoutManager is owned by the View and is deleted when the view is
-  // deleted, or when a new LayoutManager is installed.
+  // deleted, or when a new LayoutManager is installed. Call
+  // SetLayoutManager(nullptr) to clear it.
+  //
+  // SetLayoutManager returns a bare pointer version of the input parameter
+  // (now owned by the view). If code needs to use the layout manager after
+  // being assigned, use this pattern:
+  //
+  //   views::BoxLayout* box_layout = SetLayoutManager(
+  //       std::make_unique<views::BoxLayout>(...));
+  //   box_layout->Foo();
   LayoutManager* GetLayoutManager() const;
-  void SetLayoutManager(LayoutManager* layout);
-
-  // Adjust the layer's offset so that it snaps to the physical pixel boundary.
-  // This has no effect if the view does not have an associated layer.
-  void SnapLayerToPixelBoundary();
+  template <typename LayoutManager>
+  LayoutManager* SetLayoutManager(
+      std::unique_ptr<LayoutManager> layout_manager) {
+    LayoutManager* lm = layout_manager.get();
+    SetLayoutManagerImpl(std::move(layout_manager));
+    return lm;
+  }
+  void SetLayoutManager(std::nullptr_t);
 
   // Attributes ----------------------------------------------------------------
 
@@ -435,7 +579,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Return the receiving view's class name. A view class is a string which
   // uniquely identifies the view class. It is intended to be used as a way to
-  // find out during run time if a view can be safely casted to a specific view
+  // find out during run time if a view can be safely cast to a specific view
   // subclass. The default implementation returns kViewClassName.
   virtual const char* GetClassName() const;
 
@@ -543,7 +687,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // for View coordinates and language direction as required, allows the View
   // to paint itself via the various OnPaint*() event handlers and then paints
   // the hierarchy beneath it.
-  void Paint(const ui::PaintContext& parent_context);
+  void Paint(const PaintInfo& parent_paint_info);
 
   // The background object may be null.
   void SetBackground(std::unique_ptr<Background> b);
@@ -646,7 +790,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // The provided event is in the receiver's coordinate system.
   //
   // Return true if you processed the event and want to receive subsequent
-  // MouseDraggged and MouseReleased events.  This also stops the event from
+  // MouseDragged and MouseReleased events.  This also stops the event from
   // bubbling.  If you return false, the event will bubble through parent
   // views.
   //
@@ -721,7 +865,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   virtual void SetMouseHandler(View* new_mouse_handler);
 
   // Invoked when a key is pressed or released.
-  // Subclasser should return true if the event has been processed and false
+  // Subclasses should return true if the event has been processed and false
   // otherwise. If the event has not been processed, the parent will be given a
   // chance.
   virtual bool OnKeyPressed(const ui::KeyEvent& event);
@@ -772,6 +916,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   ui::EventTargeter* GetEventTargeter() override;
   void ConvertEventToTarget(ui::EventTarget* target,
                             ui::LocatedEvent* event) override;
+  gfx::PointF GetScreenLocationF(const ui::LocatedEvent& event) const override;
 
   // Overridden from ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override;
@@ -900,7 +1045,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // Provides default implementation for context menu handling. The default
   // implementation calls the ShowContextMenu of the current
   // ContextMenuController (if it is not NULL). Overridden in subclassed views
-  // to provide right-click menu display triggerd by the keyboard (i.e. for the
+  // to provide right-click menu display triggered by the keyboard (i.e. for the
   // Chrome toolbar Back and Forward buttons). No source needs to be specified,
   // as it is always equal to the current View.
   virtual void ShowContextMenu(const gfx::Point& p,
@@ -947,9 +1092,8 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // |formats| is a bitmask of the formats defined bye OSExchangeData::Format.
   // The default implementation returns false, which means the view doesn't
   // support dropping.
-  virtual bool GetDropFormats(
-      int* formats,
-      std::set<ui::Clipboard::FormatType>* format_types);
+  virtual bool GetDropFormats(int* formats,
+                              std::set<ui::ClipboardFormatType>* format_types);
 
   // Override and return true if the data must be available before any drop
   // methods should be invoked. The default is false.
@@ -989,6 +1133,9 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Accessibility -------------------------------------------------------------
 
+  // Get the object managing the accessibility interface for this View.
+  ViewAccessibility& GetViewAccessibility();
+
   // Modifies |node_data| to reflect the current accessible state of this view.
   virtual void GetAccessibleNodeData(ui::AXNodeData* node_data) {}
 
@@ -1008,8 +1155,12 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // cases where the view is a native control that's already sending a
   // native accessibility event and the duplicate event would cause
   // problems.
-  void NotifyAccessibilityEvent(ui::AXEvent event_type,
+  void NotifyAccessibilityEvent(ax::mojom::Event event_type,
                                 bool send_native_event);
+
+  // Views may override this function to know when an accessibility
+  // event is fired. This will be called by NotifyAccessibilityEvent.
+  virtual void OnAccessibilityEvent(ax::mojom::Event event_type);
 
   // Scrolling -----------------------------------------------------------------
   // TODO(beng): Figure out if this can live somewhere other than View, i.e.
@@ -1021,9 +1172,13 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // the child view, such as Viewport, to override appropriately.
   virtual void ScrollRectToVisible(const gfx::Rect& rect);
 
+  // Scrolls the view's bounds or some subset thereof to be visible. By default
+  // this function calls ScrollRectToVisible(GetLocalBounds()).
+  virtual void ScrollViewToVisible();
+
   // The following methods are used by ScrollView to determine the amount
   // to scroll relative to the visible bounds of the view. For example, a
-  // return value of 10 indicates the scrollview should scroll 10 pixels in
+  // return value of 10 indicates the scroll_view should scroll 10 pixels in
   // the appropriate direction.
   //
   // Each method takes the following parameters:
@@ -1152,7 +1307,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Responsible for calling Paint() on child Views. Override to control the
   // order child Views are painted.
-  virtual void PaintChildren(const ui::PaintContext& context);
+  virtual void PaintChildren(const PaintInfo& info);
 
   // Override to provide rendering in any part of the View's bounds. Typically
   // this is the "contents" of the view. If you override this method you will
@@ -1167,11 +1322,18 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // Override to paint a border not specified by SetBorder().
   virtual void OnPaintBorder(gfx::Canvas* canvas);
 
+  // Returns the type of scaling to be done for this View. Override this to
+  // change the default scaling type from |kScaleToFit|. You would want to
+  // override this for a view and return |kScaleToScaleFactor| in cases where
+  // scaling should cause no distortion. Such as in the case of an image or
+  // an icon.
+  virtual PaintInfo::ScaleType GetPaintScaleType() const;
+
   // Accelerated painting ------------------------------------------------------
 
   // Returns the offset from this view to the nearest ancestor with a layer. If
   // |layer_parent| is non-NULL it is set to the nearest ancestor with a layer.
-  virtual gfx::Vector2d CalculateOffsetToAncestorWithLayer(
+  virtual LayerOffsetData CalculateOffsetToAncestorWithLayer(
       ui::Layer** layer_parent);
 
   // Updates the view's layer's parent. Called when a view is added to a view
@@ -1184,16 +1346,17 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // recurses through all children. This is used when adding a layer to an
   // existing view to make sure all descendants that have layers are parented to
   // the right layer.
-  void MoveLayerToParent(ui::Layer* parent_layer, const gfx::Point& point);
+  void MoveLayerToParent(ui::Layer* parent_layer,
+                         const LayerOffsetData& offset_data);
 
   // Called to update the bounds of any child layers within this View's
   // hierarchy when something happens to the hierarchy.
-  void UpdateChildLayerBounds(const gfx::Vector2d& offset);
+  void UpdateChildLayerBounds(const LayerOffsetData& offset_data);
 
   // Overridden from ui::LayerDelegate:
   void OnPaintLayer(const ui::PaintContext& context) override;
-  void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override;
-  void OnDeviceScaleFactorChanged(float device_scale_factor) override;
+  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                  float new_device_scale_factor) override;
 
   // Finds the layer that this view paints to (it may belong to an ancestor
   // view), then reorders the immediate children of that layer to match the
@@ -1235,11 +1398,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // Widget::ThemeChanged().
   virtual void OnThemeChanged() {}
 
-  // Called when the locale has changed, overriding allows individual Views to
-  // update locale-dependent strings.
-  // To dispatch a locale changed notification, call Widget::LocaleChanged().
-  virtual void OnLocaleChanged() {}
-
   // Tooltips ------------------------------------------------------------------
 
   // Views must invoke this when the tooltip text they are to display changes.
@@ -1271,22 +1429,6 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // hierarchy).
   virtual void OnNativeThemeChanged(const ui::NativeTheme* theme) {}
 
-  // Debugging -----------------------------------------------------------------
-
-#if !defined(NDEBUG)
-  // Returns string containing a graph of the views hierarchy in graphViz DOT
-  // language (http://graphviz.org/). Can be called within debugger and save
-  // to a file to compile/view.
-  // Note: Assumes initial call made with first = true.
-  virtual std::string PrintViewGraph(bool first);
-
-  // Some classes may own an object which contains the children to displayed in
-  // the views hierarchy. The above function gives the class the flexibility to
-  // decide which object should be used to obtain the children, but this
-  // function makes the decision explicit.
-  std::string DoPrintViewGraph(bool first, View* view_with_children);
-#endif
-
  private:
   friend class internal::PreEventDispatchHandler;
   friend class internal::PostEventDispatchHandler;
@@ -1294,7 +1436,11 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   friend class internal::ScopedChildrenLock;
   friend class FocusManager;
   friend class ViewLayerTest;
+  friend class ViewLayerPixelCanvasTest;
   friend class Widget;
+  FRIEND_TEST_ALL_PREFIXES(ViewTest, PaintWithMovedViewUsesCache);
+  FRIEND_TEST_ALL_PREFIXES(ViewTest, PaintWithMovedViewUsesCacheInRTL);
+  FRIEND_TEST_ALL_PREFIXES(ViewTest, PaintWithUnknownInvalidation);
 
   // Painting  -----------------------------------------------------------------
 
@@ -1319,17 +1465,15 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // during painting.
   bool ShouldPaint() const;
 
-  // Returns the offset that should be used when constructing the paint context
-  // for this view.
-  gfx::Vector2d GetPaintContextOffset() const;
-
   // Adjusts the transform of |recorder| in advance of painting.
-  void SetupTransformRecorderForPainting(ui::TransformRecorder* recorder) const;
+  void SetUpTransformRecorderForPainting(
+      const gfx::Vector2d& offset_from_parent,
+      ui::TransformRecorder* recorder) const;
 
   // Recursively calls the painting method |func| on all non-layered children,
   // in Z order.
-  void RecursivePaintHelper(void (View::*func)(const ui::PaintContext&),
-                            const ui::PaintContext& context);
+  void RecursivePaintHelper(void (View::*func)(const PaintInfo&),
+                            const PaintInfo& info);
 
   // Invokes Paint() and, if necessary, PaintDebugRects().  Should be called
   // only on the root of a widget/layer.  PaintDebugRects() is invoked as a
@@ -1340,9 +1484,12 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // Draws a semitransparent rect to indicate the bounds of this view.
   // Recursively does the same for all children.  Invoked only with
   // --draw-view-bounds-rects.
-  void PaintDebugRects(const ui::PaintContext& parent_context);
+  void PaintDebugRects(const PaintInfo& paint_info);
 
   // Tree operations -----------------------------------------------------------
+
+  // Adds |view| as a child of this view at |index|.
+  void AddChildViewAtImpl(View* view, int index);
 
   // Removes |view| from the hierarchy tree.  If |update_focus_cycle| is true,
   // the next and previous focusable views of views pointing to this view are
@@ -1412,8 +1559,8 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   void AddDescendantToNotify(View* view);
   void RemoveDescendantToNotify(View* view);
 
-  // Sets the layer's bounds given in DIP coordinates.
-  void SetLayerBounds(const gfx::Rect& bounds_in_dip);
+  // Non-templatized backend for SetLayoutManager().
+  void SetLayoutManagerImpl(std::unique_ptr<LayoutManager> layout);
 
   // Transformations -----------------------------------------------------------
 
@@ -1492,6 +1639,14 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // this subtree.
   void OrphanLayers();
 
+  // Adjust the layer's offset so that it snaps to the physical pixel boundary.
+  // This has no effect if the view does not have an associated layer.
+  void SnapLayerToPixelBoundary(const LayerOffsetData& offset_data);
+
+  // Sets the layer's bounds given in DIP coordinates.
+  void SetLayerBounds(const gfx::Size& size_in_dip,
+                      const LayerOffsetData& layer_offset_data);
+
   // Input ---------------------------------------------------------------------
 
   bool ProcessMousePressed(const ui::MouseEvent& event);
@@ -1525,13 +1680,10 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // views in the hierarchy.
   void PropagateThemeChanged();
 
-  // Used to propagate locale changed notifications from the root view to all
-  // views in the hierarchy.
-  void PropagateLocaleChanged();
-
   // Used to propagate device scale factor changed notifications from the root
   // view to all views in the hierarchy.
-  void PropagateDeviceScaleFactorChanged(float device_scale_factor);
+  void PropagateDeviceScaleFactorChanged(float old_device_scale_factor,
+                                         float new_device_scale_factor);
 
   // Tooltips ------------------------------------------------------------------
 
@@ -1559,22 +1711,22 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // False if this View is owned by its parent - i.e. it will be deleted by its
   // parent during its parents destruction. False is the default.
-  bool owned_by_client_;
+  bool owned_by_client_ = false;
 
   // Attributes ----------------------------------------------------------------
 
   // The id of this View. Used to find this View.
-  int id_;
+  int id_ = 0;
 
   // The group of this view. Some view subclasses use this id to find other
   // views of the same group. For example radio button uses this information
   // to find other radio buttons.
-  int group_;
+  int group_ = -1;
 
   // Tree operations -----------------------------------------------------------
 
   // This view's parent.
-  View* parent_;
+  View* parent_ = nullptr;
 
   // This view's children.
   Views children_;
@@ -1582,10 +1734,10 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 #if DCHECK_IS_ON()
   // True while iterating over |children_|. Used to detect and DCHECK when
   // |children_| is mutated during iteration.
-  mutable bool iterating_;
+  mutable bool iterating_ = false;
 #endif
 
-  bool can_process_events_within_subtree_;
+  bool can_process_events_within_subtree_ = true;
 
   // Size and disposition ------------------------------------------------------
 
@@ -1595,10 +1747,10 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   gfx::Rect bounds_;
 
   // Whether this view is visible.
-  bool visible_;
+  bool visible_ = true;
 
   // Whether this view is enabled.
-  bool enabled_;
+  bool enabled_ = true;
 
   // When this flag is on, a View receives a mouse-enter and mouse-leave event
   // even if a descendant View is the event-recipient for the real mouse
@@ -1613,11 +1765,11 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // still into this view, this view receives a mouse-enter event if this flag
   // is turned off, but doesn't if this flag is turned on.
   // This flag is initialized to false.
-  bool notify_enter_exit_on_child_;
+  bool notify_enter_exit_on_child_ = false;
 
   // Whether or not RegisterViewForVisibleBoundsNotification on the RootView
   // has been invoked.
-  bool registered_for_visible_bounds_notification_;
+  bool registered_for_visible_bounds_notification_ = false;
 
   // List of descendants wanting notification when their visible bounds change.
   std::unique_ptr<Views> descendants_to_notify_;
@@ -1626,19 +1778,19 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Painting will be clipped to this path. TODO(estade): this doesn't work for
   // layers.
-  gfx::Path clip_path_;
+  SkPath clip_path_;
 
   // Layout --------------------------------------------------------------------
 
   // Whether the view needs to be laid out.
-  bool needs_layout_;
+  bool needs_layout_ = true;
 
   // The View's LayoutManager defines the sizing heuristics applied to child
   // Views. The default is absolute positioning according to bounds_.
   std::unique_ptr<LayoutManager> layout_manager_;
 
   // Whether this View's layer should be snapped to the pixel boundary.
-  bool snap_layer_to_pixel_boundary_;
+  bool snap_layer_to_pixel_boundary_ = false;
 
   // Painting ------------------------------------------------------------------
 
@@ -1663,42 +1815,42 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // Indicates whether or not the gfx::Canvas object passed to View::Paint()
   // is going to be flipped horizontally (using the appropriate transform) on
   // right-to-left locales for this View.
-  bool flip_canvas_on_paint_for_rtl_ui_;
+  bool flip_canvas_on_paint_for_rtl_ui_ = false;
 
   // Accelerated painting ------------------------------------------------------
 
-  bool paint_to_layer_;
+  bool paint_to_layer_ = false;
 
   // Accelerators --------------------------------------------------------------
 
   // Focus manager accelerators registered on.
-  FocusManager* accelerator_focus_manager_;
+  FocusManager* accelerator_focus_manager_ = nullptr;
 
   // The list of accelerators. List elements in the range
   // [0, registered_accelerator_count_) are already registered to FocusManager,
   // and the rest are not yet.
   std::unique_ptr<std::vector<ui::Accelerator>> accelerators_;
-  size_t registered_accelerator_count_;
+  size_t registered_accelerator_count_ = 0;
 
   // Focus ---------------------------------------------------------------------
 
   // Next view to be focused when the Tab key is pressed.
-  View* next_focusable_view_;
+  View* next_focusable_view_ = nullptr;
 
   // Next view to be focused when the Shift-Tab key combination is pressed.
-  View* previous_focusable_view_;
+  View* previous_focusable_view_ = nullptr;
 
   // The focus behavior of the view in regular and accessibility mode.
-  FocusBehavior focus_behavior_;
+  FocusBehavior focus_behavior_ = FocusBehavior::NEVER;
 
   // Context menus -------------------------------------------------------------
 
   // The menu controller.
-  ContextMenuController* context_menu_controller_;
+  ContextMenuController* context_menu_controller_ = nullptr;
 
   // Drag and drop -------------------------------------------------------------
 
-  DragController* drag_controller_;
+  DragController* drag_controller_ = nullptr;
 
   // Input  --------------------------------------------------------------------
 
@@ -1706,12 +1858,12 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
 
   // Accessibility -------------------------------------------------------------
 
-  // The accessibility element used to represent this View.
-  std::unique_ptr<NativeViewAccessibility> native_view_accessibility_;
+  // Manages the accessibility interface for this View.
+  std::unique_ptr<ViewAccessibility> view_accessibility_;
 
   // Observers -------------------------------------------------------------
 
-  base::ObserverList<ViewObserver> observers_;
+  base::ObserverList<ViewObserver>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(View);
 };

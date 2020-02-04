@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2016 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,30 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MEDIA_ENGINE_INTERNALENCODERFACTORY_H_
-#define WEBRTC_MEDIA_ENGINE_INTERNALENCODERFACTORY_H_
+#ifndef MEDIA_ENGINE_INTERNALENCODERFACTORY_H_
+#define MEDIA_ENGINE_INTERNALENCODERFACTORY_H_
 
-#include <vector>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "webrtc/media/engine/webrtcvideoencoderfactory.h"
+#include "media/engine/internal_encoder_factory.h"
 
-namespace cricket {
-
-class InternalEncoderFactory : public WebRtcVideoEncoderFactory {
- public:
-  InternalEncoderFactory();
-  virtual ~InternalEncoderFactory();
-
-  // WebRtcVideoEncoderFactory implementation.
-  webrtc::VideoEncoder* CreateVideoEncoder(
-      const cricket::VideoCodec& codec) override;
-  const std::vector<cricket::VideoCodec>& supported_codecs() const override;
-  void DestroyVideoEncoder(webrtc::VideoEncoder* encoder) override;
-
- private:
-  std::vector<cricket::VideoCodec> supported_codecs_;
-};
-
-}  // namespace cricket
-
-#endif  // WEBRTC_MEDIA_ENGINE_INTERNALENCODERFACTORY_H_
+#endif  // MEDIA_ENGINE_INTERNALENCODERFACTORY_H_

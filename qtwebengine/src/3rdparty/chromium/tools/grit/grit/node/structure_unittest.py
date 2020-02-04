@@ -9,6 +9,7 @@
 import os
 import os.path
 import sys
+import zlib
 if __name__ == '__main__':
   sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
@@ -55,7 +56,8 @@ class StructureUnittest(unittest.TestCase):
     grd.RunGatherers()
     node, = grd.GetChildrenOfType(structure.StructureNode)
     filename = node.Process(tempfile.gettempdir())
-    with open(os.path.join(tempfile.gettempdir(), filename)) as f:
+    filepath = os.path.join(tempfile.gettempdir(), filename)
+    with open(filepath) as f:
       result = f.read()
       self.failUnlessEqual(('<h1>Hello!</h1>\n'
                             'Some cool things are foo, bar, baz.\n'
@@ -63,6 +65,36 @@ class StructureUnittest(unittest.TestCase):
                             '<p>\n'
                             '  Hello!\n'
                             '</p>\n'), result)
+    os.remove(filepath)
+
+  def testCompressGzip(self):
+    test_data_root = util.PathFromRoot('grit/testdata')
+    root = util.ParseGrdForUnittest('''
+        <structures>
+          <structure name="TEST_TXT" file="test_text.txt"
+                   compress="gzip" type="chrome_html" />
+        </structures>''', base_dir=test_data_root)
+    struct, = root.GetChildrenOfType(structure.StructureNode)
+    struct.RunPreSubstitutionGatherer()
+    compressed = struct.GetDataPackValue(lang='en', encoding=1)
+
+    decompressed_data = zlib.decompress(compressed, 16 + zlib.MAX_WBITS)
+    self.assertEqual(util.ReadFile(
+        os.path.join(test_data_root, "test_text.txt"), util.BINARY),
+                     decompressed_data)
+
+  def testNotCompressed(self):
+    test_data_root = util.PathFromRoot('grit/testdata')
+    root = util.ParseGrdForUnittest('''
+        <structures>
+          <structure name="TEST_TXT" file="test_text.txt" type="chrome_html" />
+        </structures>''', base_dir=test_data_root)
+    struct, = root.GetChildrenOfType(structure.StructureNode)
+    struct.RunPreSubstitutionGatherer()
+    data = struct.GetDataPackValue(lang='en', encoding=1)
+
+    self.assertEqual(util.ReadFile(
+        os.path.join(test_data_root, "test_text.txt"), util.BINARY), data)
 
 
 if __name__ == '__main__':

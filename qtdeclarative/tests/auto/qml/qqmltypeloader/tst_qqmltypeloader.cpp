@@ -31,8 +31,12 @@
 #include <QtQml/qqmlnetworkaccessmanagerfactory.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qquickitem.h>
+#if QT_CONFIG(process)
+#include <QtCore/qprocess.h>
+#endif
 #include <QtQml/private/qqmlengine_p.h>
 #include <QtQml/private/qqmltypeloader_p.h>
+#include "../../shared/testhttpserver.h"
 #include "../../shared/util.h"
 
 class tst_QQMLTypeLoader : public QQmlDataTest
@@ -48,6 +52,11 @@ private slots:
     void keepSingleton();
     void keepRegistrations();
     void intercept();
+    void redirect();
+    void qmlSingletonWithinModule();
+    void multiSingletonModule();
+    void implicitComponentModule();
+    void qrcRootPathUrl();
 };
 
 void tst_QQMLTypeLoader::testLoadComplete()
@@ -61,7 +70,7 @@ void tst_QQMLTypeLoader::testLoadComplete()
     QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QObject *rootObject = window->rootObject();
-    QTRY_VERIFY(rootObject != 0);
+    QTRY_VERIFY(rootObject != nullptr);
     QTRY_COMPARE(rootObject->property("created").toInt(), 2);
     QTRY_COMPARE(rootObject->property("loaded").toInt(), 2);
     delete window;
@@ -85,7 +94,7 @@ void tst_QQMLTypeLoader::trimCache()
         QUrl url = testFileUrl("trim_cache.qml");
         url.setQuery(QString::number(i));
 
-        QQmlTypeData *data = loader.getType(url);
+        QQmlTypeData *data = loader.getType(url).take();
         // Run an event loop to receive the callback that release()es.
         QTRY_COMPARE(data->count(), 2);
 
@@ -136,7 +145,7 @@ void tst_QQMLTypeLoader::trimCache3()
     QQmlProperty::write(window->rootObject(), "source", QString());
 
     // handle our deleteLater and cleanup
-    QCoreApplication::sendPostedEvents(0, QEvent::DeferredDelete);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     QCoreApplication::processEvents();
     window->engine()->collectGarbage();
 
@@ -173,7 +182,7 @@ class TestObject : public QObject
 {
     Q_OBJECT
 public:
-    TestObject(QObject *parent = 0) : QObject(parent) {}
+    TestObject(QObject *parent = nullptr) : QObject(parent) {}
 };
 
 QML_DECLARE_TYPE(TestObject)
@@ -408,6 +417,98 @@ void tst_QQMLTypeLoader::intercept()
     QVERIFY(factory.loadedFiles.contains(dataDirectory() + "/Fast/Fast.qml"));
     QVERIFY(factory.loadedFiles.contains(dataDirectory() + "/GenericView.qml"));
     QVERIFY(factory.loadedFiles.contains(QLatin1String(QT_TESTCASE_BUILDDIR) + "/Slow/qmldir"));
+}
+
+void tst_QQMLTypeLoader::redirect()
+{
+    TestHTTPServer server;
+    QVERIFY2(server.listen(), qPrintable(server.errorString()));
+    QVERIFY(server.serveDirectory(dataDirectory()));
+    server.addRedirect("Base.qml", server.urlString("/redirected/Redirected.qml"));
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(server.urlString("/Load.qml"), QQmlComponent::Asynchronous);
+    QTRY_VERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QObject *object = component.create();
+    QTRY_COMPARE(object->property("xy").toInt(), 323232);
+}
+
+void tst_QQMLTypeLoader::qmlSingletonWithinModule()
+{
+    qmlClearTypeRegistrations();
+    QQmlEngine engine;
+    qmlRegisterSingletonType(testFileUrl("Singleton.qml"), "modulewithsingleton", 1, 0, "Singleton");
+
+    QQmlComponent component(&engine, testFileUrl("singletonuser.qml"));
+    QCOMPARE(component.status(), QQmlComponent::Ready);
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(!obj.isNull());
+    QVERIFY(obj->property("ok").toBool());
+}
+
+static void checkCleanCacheLoad(const QString &testCase)
+{
+#if QT_CONFIG(process)
+    const char *skipKey = "QT_TST_QQMLTYPELOADER_SKIP_MISMATCH";
+    if (qEnvironmentVariableIsSet(skipKey))
+        return;
+    for (int i = 0; i < 5; ++i) {
+        QProcess child;
+        child.setProgram(QCoreApplication::applicationFilePath());
+        child.setArguments(QStringList(testCase));
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QLatin1String("QT_LOGGING_RULES"), QLatin1String("qt.qml.diskcache.debug=true"));
+        env.insert(QLatin1String(skipKey), QLatin1String("1"));
+        child.setProcessEnvironment(env);
+        child.start();
+        QVERIFY(child.waitForFinished());
+        QCOMPARE(child.exitCode(), 0);
+        QVERIFY(!child.readAllStandardOutput().contains("Checksum mismatch for cached version"));
+        QVERIFY(!child.readAllStandardError().contains("Checksum mismatch for cached version"));
+    }
+#else
+    Q_UNUSED(testCase);
+#endif
+}
+
+void tst_QQMLTypeLoader::multiSingletonModule()
+{
+    qmlClearTypeRegistrations();
+    QQmlEngine engine;
+    engine.addImportPath(testFile("imports"));
+
+    qmlRegisterSingletonType(testFileUrl("CppRegisteredSingleton1.qml"), "cppsingletonmodule",
+                             1, 0, "CppRegisteredSingleton1");
+    qmlRegisterSingletonType(testFileUrl("CppRegisteredSingleton2.qml"), "cppsingletonmodule",
+                             1, 0, "CppRegisteredSingleton2");
+
+    QQmlComponent component(&engine, testFileUrl("multisingletonuser.qml"));
+    QCOMPARE(component.status(), QQmlComponent::Ready);
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(!obj.isNull());
+    QVERIFY(obj->property("ok").toBool());
+
+    checkCleanCacheLoad(QLatin1String("multiSingletonModule"));
+}
+
+void tst_QQMLTypeLoader::implicitComponentModule()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("implicitcomponent.qml"));
+    QCOMPARE(component.status(), QQmlComponent::Ready);
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(!obj.isNull());
+
+    checkCleanCacheLoad(QLatin1String("implicitComponentModule"));
+}
+
+void tst_QQMLTypeLoader::qrcRootPathUrl()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("qrcRootPath.qml"));
+    QCOMPARE(component.status(), QQmlComponent::Ready);
 }
 
 QTEST_MAIN(tst_QQMLTypeLoader)

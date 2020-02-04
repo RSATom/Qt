@@ -37,11 +37,24 @@
 **
 ****************************************************************************/
 
+//
+//  W A R N I N G
+//  -------------
+//
+// This file is not part of the Qt API.  It exists purely as an
+// implementation detail.  This header file may change from version to
+// version without notice, or even be removed.
+//
+// We mean it.
+//
+
 #ifndef WEB_CONTENTS_ADAPTER_H
 #define WEB_CONTENTS_ADAPTER_H
 
-#include "qtwebenginecoreglobal.h"
+#include "qtwebenginecoreglobal_p.h"
 #include "web_contents_adapter_client.h"
+#include <memory>
+#include <QtGui/qtgui-config.h>
 #include <QtWebEngineCore/qwebenginehttprequest.h>
 
 #include <QScopedPointer>
@@ -52,42 +65,55 @@
 namespace content {
 class WebContents;
 struct WebPreferences;
+struct OpenURLParams;
+class SiteInstance;
 }
 
 QT_BEGIN_NAMESPACE
 class QAccessibleInterface;
 class QDragEnterEvent;
 class QDragMoveEvent;
+class QDropEvent;
 class QMimeData;
 class QPageLayout;
 class QString;
+class QTemporaryDir;
 class QWebChannel;
 QT_END_NAMESPACE
 
 namespace QtWebEngineCore {
 
-class BrowserContextQt;
-class MessagePassingInterface;
-class WebContentsAdapterPrivate;
+class DevToolsFrontendQt;
 class FaviconManager;
+class MessagePassingInterface;
+class ProfileQt;
+class RenderViewObserverHostQt;
+class WebChannelIPCTransportHost;
+class WebEngineContext;
 
-class QWEBENGINE_EXPORT WebContentsAdapter : public QEnableSharedFromThis<WebContentsAdapter> {
+class Q_WEBENGINECORE_PRIVATE_EXPORT WebContentsAdapter : public QEnableSharedFromThis<WebContentsAdapter> {
 public:
     static QSharedPointer<WebContentsAdapter> createFromSerializedNavigationHistory(QDataStream &input, WebContentsAdapterClient *adapterClient);
-    // Takes ownership of the WebContents.
-    WebContentsAdapter(content::WebContents *webContents = 0);
+    WebContentsAdapter();
+    WebContentsAdapter(std::unique_ptr<content::WebContents> webContents);
     ~WebContentsAdapter();
-    void initialize(WebContentsAdapterClient *adapterClient);
-    void reattachRWHV();
+
+    void setClient(WebContentsAdapterClient *adapterClient);
+
+    bool isInitialized() const;
+
+    // These and only these methods will initialize the WebContentsAdapter. All
+    // other methods below will do nothing until one of these has been called.
+    void loadDefault();
+    void load(const QUrl &url);
+    void load(const QWebEngineHttpRequest &request);
+    void setContent(const QByteArray &data, const QString &mimeType, const QUrl &baseUrl);
 
     bool canGoBack() const;
     bool canGoForward() const;
     void stop();
     void reload();
     void reloadAndBypassCache();
-    void load(const QUrl &url);
-    void load(const QWebEngineHttpRequest &request);
-    void setContent(const QByteArray &data, const QString &mimeType, const QUrl &baseUrl);
     void save(const QString &filePath = QString(), int savePageFormat = -1);
     QUrl activeUrl() const;
     QUrl requestedUrl() const;
@@ -148,52 +174,79 @@ public:
     void exitFullScreen();
     void requestClose();
     void changedFullScreen();
+    void openDevToolsFrontend(QSharedPointer<WebContentsAdapter> devtoolsFrontend);
+    void closeDevToolsFrontend();
+    void devToolsFrontendDestroyed(DevToolsFrontendQt *frontend);
 
     void wasShown();
     void wasHidden();
     void grantMediaAccessPermission(const QUrl &securityOrigin, WebContentsAdapterClient::MediaRequestFlags flags);
     void runGeolocationRequestCallback(const QUrl &securityOrigin, bool allowed);
     void grantMouseLockPermission(bool granted);
+    void runUserNotificationRequestCallback(const QUrl &securityOrigin, bool allowed);
 
-    void dpiScaleChanged();
-    void backgroundColorChanged();
+    void setBackgroundColor(const QColor &color);
     QAccessibleInterface *browserAccessible();
-    BrowserContextQt* browserContext();
-    BrowserContextAdapter* browserContextAdapter();
+    ProfileQt* profile();
+    ProfileAdapter* profileAdapter();
+#if QT_CONFIG(webengine_webchannel)
     QWebChannel *webChannel() const;
     void setWebChannel(QWebChannel *, uint worldId);
+#endif
     FaviconManager *faviconManager();
 
     QPointF lastScrollOffset() const;
     QSizeF lastContentsSize() const;
 
+#if QT_CONFIG(draganddrop)
     void startDragging(QObject *dragSource, const content::DropData &dropData,
                        Qt::DropActions allowedActions, const QPixmap &pixmap, const QPoint &offset);
-    void enterDrag(QDragEnterEvent *e, const QPoint &screenPos);
-    Qt::DropAction updateDragPosition(QDragMoveEvent *e, const QPoint &screenPos);
+    void enterDrag(QDragEnterEvent *e, const QPointF &screenPos);
+    Qt::DropAction updateDragPosition(QDragMoveEvent *e, const QPointF &screenPos);
     void updateDragAction(int action);
-    void endDragging(const QPoint &clientPos, const QPoint &screenPos);
+    void endDragging(QDropEvent *e, const QPointF &screenPos);
     void leaveDrag();
+#endif // QT_CONFIG(draganddrop)
     void printToPDF(const QPageLayout&, const QString&);
-    quint64 printToPDFCallbackResult(const QPageLayout &, const bool colorMode = true);
+    quint64 printToPDFCallbackResult(const QPageLayout &,
+                                     bool colorMode = true,
+                                     bool useCustomMargins = true);
 
-    // meant to be used within WebEngineCore only
-    content::WebContents *webContents() const;
     void replaceMisspelling(const QString &word);
-
     void viewSource();
     bool canViewSource();
     void focusIfNecessary();
     bool isFindTextInProgress() const;
+    bool hasFocusedFrame() const;
 
+    // meant to be used within WebEngineCore only
+    void initialize(content::SiteInstance *site);
+    content::WebContents *webContents() const;
 
 private:
     Q_DISABLE_COPY(WebContentsAdapter)
-    Q_DECLARE_PRIVATE(WebContentsAdapter)
     void waitForUpdateDragActionCalled();
     bool handleDropDataFileContents(const content::DropData &dropData, QMimeData *mimeData);
 
-    QScopedPointer<WebContentsAdapterPrivate> d_ptr;
+    ProfileAdapter *m_profileAdapter;
+    std::unique_ptr<content::WebContents> m_webContents;
+    std::unique_ptr<WebContentsDelegateQt> m_webContentsDelegate;
+    std::unique_ptr<RenderViewObserverHostQt> m_renderViewObserverHost;
+#if QT_CONFIG(webengine_webchannel)
+    std::unique_ptr<WebChannelIPCTransportHost> m_webChannelTransport;
+    QWebChannel *m_webChannel;
+    unsigned int m_webChannelWorld;
+#endif
+    WebContentsAdapterClient *m_adapterClient;
+    quint64 m_nextRequestId;
+    int m_lastFindRequestId;
+    std::unique_ptr<content::DropData> m_currentDropData;
+    uint m_currentDropAction;
+    bool m_updateDragActionCalled;
+    QPointF m_lastDragClientPos;
+    QPointF m_lastDragScreenPos;
+    std::unique_ptr<QTemporaryDir> m_dndTmpDir;
+    DevToolsFrontendQt *m_devToolsFrontend;
 };
 
 } // namespace QtWebEngineCore

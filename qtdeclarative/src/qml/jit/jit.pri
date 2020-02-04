@@ -1,22 +1,14 @@
-include(../../3rdparty/masm/masm-defs.pri)
-
 INCLUDEPATH += $$PWD
 INCLUDEPATH += $$OUT_PWD
 
-HEADERS += \
-    $$PWD/qv4assembler_p.h \
-    $$PWD/qv4regalloc_p.h \
-    $$PWD/qv4targetplatform_p.h \
-    $$PWD/qv4isel_masm_p.h \
-    $$PWD/qv4binop_p.h \
-    $$PWD/qv4unop_p.h \
-    $$PWD/qv4registerinfo_p.h
-
 SOURCES += \
-    $$PWD/qv4assembler.cpp \
-    $$PWD/qv4regalloc.cpp \
-    $$PWD/qv4isel_masm.cpp \
-    $$PWD/qv4binop.cpp \
-    $$PWD/qv4unop.cpp \
+    $$PWD/qv4jithelpers.cpp \
+    $$PWD/qv4baselinejit.cpp \
+    $$PWD/qv4baselineassembler.cpp \
+    $$PWD/qv4assemblercommon.cpp
 
-include(../../3rdparty/masm/masm.pri)
+HEADERS += \
+    $$PWD/qv4jithelpers_p.h \
+    $$PWD/qv4baselinejit_p.h \
+    $$PWD/qv4baselineassembler_p.h \
+    $$PWD/qv4assemblercommon_p.h

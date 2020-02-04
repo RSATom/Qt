@@ -6,149 +6,182 @@
 
 #include <memory>
 
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/child/scoped_child_process_reference.h"
-#include "content/common/service_worker/embedded_worker_messages.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/common/content_client.h"
-#include "content/renderer/service_worker/embedded_worker_devtools_agent.h"
+#include "content/renderer/render_thread_impl.h"
 #include "content/renderer/service_worker/service_worker_context_client.h"
-#include "content/renderer/service_worker/web_service_worker_installed_scripts_manager_impl.h"
-#include "third_party/WebKit/public/platform/WebContentSettingsClient.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerInstalledScriptsManager.h"
-#include "third_party/WebKit/public/web/WebEmbeddedWorker.h"
-#include "third_party/WebKit/public/web/WebEmbeddedWorkerStartData.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
+#include "third_party/blink/public/platform/web_content_settings_client.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/web/web_console_message.h"
+#include "third_party/blink/public/web/web_embedded_worker.h"
+#include "third_party/blink/public/web/web_embedded_worker_start_data.h"
 
 namespace content {
 
-EmbeddedWorkerInstanceClientImpl::WorkerWrapper::WorkerWrapper(
-    std::unique_ptr<blink::WebEmbeddedWorker> worker,
-    int devtools_agent_route_id)
-    : worker_(std::move(worker)),
-      devtools_agent_(base::MakeUnique<EmbeddedWorkerDevToolsAgent>(
-          worker_.get(),
-          devtools_agent_route_id)) {}
-
-EmbeddedWorkerInstanceClientImpl::WorkerWrapper::~WorkerWrapper() = default;
-
 // static
 void EmbeddedWorkerInstanceClientImpl::Create(
-    base::TimeTicks blink_initialized_time,
     scoped_refptr<base::SingleThreadTaskRunner> io_thread_runner,
-    mojom::EmbeddedWorkerInstanceClientRequest request,
-    const service_manager::BindSourceInfo& source_info) {
+    mojom::EmbeddedWorkerInstanceClientRequest request) {
   // This won't be leaked because the lifetime will be managed internally.
-  EmbeddedWorkerInstanceClientImpl* client =
-      new EmbeddedWorkerInstanceClientImpl(std::move(io_thread_runner),
-                                           std::move(request));
-  client->blink_initialized_time_ = blink_initialized_time;
+  // See the class documentation for detail.
+  new EmbeddedWorkerInstanceClientImpl(std::move(io_thread_runner),
+                                       std::move(request));
 }
 
 void EmbeddedWorkerInstanceClientImpl::WorkerContextDestroyed() {
-  DCHECK(wrapper_);
+  DCHECK(worker_);
   TRACE_EVENT0("ServiceWorker",
                "EmbeddedWorkerInstanceClientImpl::WorkerContextDestroyed");
-
-  wrapper_.reset();
+  // Destroys |this|.
+  worker_.reset();
 }
 
 void EmbeddedWorkerInstanceClientImpl::StartWorker(
-    const EmbeddedWorkerStartParams& params,
-    mojom::ServiceWorkerEventDispatcherRequest dispatcher_request,
-    mojom::ServiceWorkerInstalledScriptsInfoPtr installed_scripts_info,
-    mojom::EmbeddedWorkerInstanceHostAssociatedPtrInfo instance_host) {
+    mojom::EmbeddedWorkerStartParamsPtr params) {
   DCHECK(ChildThreadImpl::current());
-  DCHECK(!wrapper_);
+  DCHECK(!worker_);
   TRACE_EVENT0("ServiceWorker",
                "EmbeddedWorkerInstanceClientImpl::StartWorker");
+  auto start_timing = mojom::EmbeddedWorkerStartTiming::New();
+  start_timing->start_worker_received_time = base::TimeTicks::Now();
+  DCHECK(!params->provider_info->cache_storage ||
+         base::FeatureList::IsEnabled(
+             blink::features::kEagerCacheStorageSetupForServiceWorkers));
+  blink::mojom::CacheStoragePtrInfo cache_storage =
+      std::move(params->provider_info->cache_storage);
+  service_manager::mojom::InterfaceProviderPtrInfo interface_provider =
+      std::move(params->provider_info->interface_provider);
+  blink::PrivacyPreferences privacy_preferences(
+      params->renderer_preferences.enable_do_not_track,
+      params->renderer_preferences.enable_referrers);
 
-  auto client = base::MakeUnique<ServiceWorkerContextClient>(
-      params.embedded_worker_id, params.service_worker_version_id, params.scope,
-      params.script_url, std::move(dispatcher_request),
-      std::move(instance_host), std::move(temporal_self_));
-  client->set_blink_initialized_time(blink_initialized_time_);
-  client->set_start_worker_received_time(base::TimeTicks::Now());
-  wrapper_ = StartWorkerContext(params, std::move(installed_scripts_info),
-                                std::move(client));
+  auto client = std::make_unique<ServiceWorkerContextClient>(
+      params->embedded_worker_id, params->service_worker_version_id,
+      params->scope, params->script_url,
+      !params->installed_scripts_info.is_null(),
+      std::move(params->renderer_preferences),
+      std::move(params->service_worker_request),
+      std::move(params->controller_request), std::move(params->instance_host),
+      std::move(params->provider_info), std::move(temporal_self_),
+      std::move(start_timing), std::move(params->preference_watcher_request),
+      std::move(params->subresource_loader_factories),
+      RenderThreadImpl::current()
+          ->GetWebMainThreadScheduler()
+          ->DefaultTaskRunner());
+  // Record UMA to indicate StartWorker is received on renderer.
+  StartWorkerHistogramEnum metric =
+      params->is_installed ? StartWorkerHistogramEnum::RECEIVED_ON_INSTALLED
+                           : StartWorkerHistogramEnum::RECEIVED_ON_UNINSTALLED;
+  UMA_HISTOGRAM_ENUMERATION(
+      "ServiceWorker.EmbeddedWorkerInstanceClient.StartWorker", metric,
+      StartWorkerHistogramEnum::NUM_TYPES);
+  worker_ = StartWorkerContext(
+      std::move(params), std::move(client), std::move(cache_storage),
+      std::move(interface_provider), std::move(privacy_preferences));
 }
 
 void EmbeddedWorkerInstanceClientImpl::StopWorker() {
   // StopWorker must be called after StartWorker is called.
   DCHECK(ChildThreadImpl::current());
-  DCHECK(wrapper_);
+  DCHECK(worker_);
 
   TRACE_EVENT0("ServiceWorker", "EmbeddedWorkerInstanceClientImpl::StopWorker");
-  wrapper_->worker()->TerminateWorkerContext();
+  worker_->TerminateWorkerContext();
 }
 
 void EmbeddedWorkerInstanceClientImpl::ResumeAfterDownload() {
-  DCHECK(wrapper_);
-  DCHECK(wrapper_->worker());
-  wrapper_->worker()->ResumeAfterDownload();
+  DCHECK(worker_);
+  worker_->ResumeAfterDownload();
 }
 
 void EmbeddedWorkerInstanceClientImpl::AddMessageToConsole(
-    blink::WebConsoleMessage::Level level,
+    blink::mojom::ConsoleMessageLevel level,
     const std::string& message) {
-  DCHECK(wrapper_);
-  DCHECK(wrapper_->worker());
-  wrapper_->worker()->AddMessageToConsole(
+  DCHECK(worker_);
+  worker_->AddMessageToConsole(
       blink::WebConsoleMessage(level, blink::WebString::FromUTF8(message)));
+}
+
+void EmbeddedWorkerInstanceClientImpl::BindDevToolsAgent(
+    blink::mojom::DevToolsAgentHostAssociatedPtrInfo host,
+    blink::mojom::DevToolsAgentAssociatedRequest request) {
+  DCHECK(worker_);
+  worker_->BindDevToolsAgent(host.PassHandle(), request.PassHandle());
 }
 
 EmbeddedWorkerInstanceClientImpl::EmbeddedWorkerInstanceClientImpl(
     scoped_refptr<base::SingleThreadTaskRunner> io_thread_runner,
-    mojo::InterfaceRequest<mojom::EmbeddedWorkerInstanceClient> request)
+    mojom::EmbeddedWorkerInstanceClientRequest request)
     : binding_(this, std::move(request)),
       temporal_self_(this),
       io_thread_runner_(std::move(io_thread_runner)) {
-  binding_.set_connection_error_handler(base::Bind(
+  binding_.set_connection_error_handler(base::BindOnce(
       &EmbeddedWorkerInstanceClientImpl::OnError, base::Unretained(this)));
 }
 
 EmbeddedWorkerInstanceClientImpl::~EmbeddedWorkerInstanceClientImpl() {}
 
 void EmbeddedWorkerInstanceClientImpl::OnError() {
-  // Removes myself if it's owned by myself.
+  // Destroys |this| if |temporal_self_| still owns this (i.e., StartWorker()
+  // was not yet called).
   temporal_self_.reset();
 }
 
-std::unique_ptr<EmbeddedWorkerInstanceClientImpl::WorkerWrapper>
+std::unique_ptr<blink::WebEmbeddedWorker>
 EmbeddedWorkerInstanceClientImpl::StartWorkerContext(
-    const EmbeddedWorkerStartParams& params,
-    mojom::ServiceWorkerInstalledScriptsInfoPtr installed_scripts_info,
-    std::unique_ptr<ServiceWorkerContextClient> context_client) {
-  std::unique_ptr<blink::WebServiceWorkerInstalledScriptsManager> manager;
-  if (ServiceWorkerUtils::IsScriptStreamingEnabled()) {
-    DCHECK(installed_scripts_info);
-    manager = WebServiceWorkerInstalledScriptsManagerImpl::Create(
-        std::move(installed_scripts_info), io_thread_runner_);
+    mojom::EmbeddedWorkerStartParamsPtr params,
+    std::unique_ptr<ServiceWorkerContextClient> context_client,
+    blink::mojom::CacheStoragePtrInfo cache_storage,
+    service_manager::mojom::InterfaceProviderPtrInfo interface_provider,
+    blink::PrivacyPreferences privacy_preferences) {
+  std::unique_ptr<blink::WebServiceWorkerInstalledScriptsManagerParams>
+      installed_scripts_manager_params;
+  // |installed_scripts_info| is null if scripts should be served by net layer,
+  // when the worker is not installed, or the worker is launched for checking
+  // the update.
+  if (params->installed_scripts_info) {
+    installed_scripts_manager_params = std::make_unique<
+        blink::WebServiceWorkerInstalledScriptsManagerParams>();
+    installed_scripts_manager_params->installed_scripts_urls =
+        std::move(params->installed_scripts_info->installed_urls);
+    installed_scripts_manager_params->manager_request =
+        params->installed_scripts_info->manager_request.PassMessagePipe();
+    installed_scripts_manager_params->manager_host_ptr =
+        params->installed_scripts_info->manager_host_ptr.PassHandle();
+    DCHECK(installed_scripts_manager_params->manager_request.is_valid());
+    DCHECK(installed_scripts_manager_params->manager_host_ptr.is_valid());
   }
 
-  auto wrapper = base::MakeUnique<WorkerWrapper>(
-      blink::WebEmbeddedWorker::Create(std::move(context_client),
-                                       std::move(manager), nullptr),
-      params.worker_devtools_agent_route_id);
+  auto worker = blink::WebEmbeddedWorker::Create(
+      std::move(context_client), std::move(installed_scripts_manager_params),
+      params->content_settings_proxy.PassHandle(), cache_storage.PassHandle(),
+      interface_provider.PassHandle());
 
   blink::WebEmbeddedWorkerStartData start_data;
-  start_data.script_url = params.script_url;
-  start_data.user_agent =
-      blink::WebString::FromUTF8(GetContentClient()->GetUserAgent());
+  start_data.script_url = params->script_url;
+  start_data.user_agent = blink::WebString::FromUTF8(params->user_agent);
+  start_data.script_type = params->script_type;
   start_data.wait_for_debugger_mode =
-      params.wait_for_debugger
+      params->wait_for_debugger
           ? blink::WebEmbeddedWorkerStartData::kWaitForDebugger
           : blink::WebEmbeddedWorkerStartData::kDontWaitForDebugger;
-  start_data.v8_cache_options = static_cast<blink::WebSettings::V8CacheOptions>(
-      params.settings.v8_cache_options);
-  start_data.data_saver_enabled = params.settings.data_saver_enabled;
+  start_data.devtools_worker_token = params->devtools_worker_token;
+  start_data.v8_cache_options =
+      static_cast<blink::WebSettings::V8CacheOptions>(params->v8_cache_options);
   start_data.pause_after_download_mode =
-      params.pause_after_download
+      params->pause_after_download
           ? blink::WebEmbeddedWorkerStartData::kPauseAfterDownload
           : blink::WebEmbeddedWorkerStartData::kDontPauseAfterDownload;
+  start_data.privacy_preferences = std::move(privacy_preferences);
 
-  wrapper->worker()->StartWorkerContext(start_data);
-  return wrapper;
+  worker->StartWorkerContext(start_data);
+  return worker;
 }
 
 }  // namespace content

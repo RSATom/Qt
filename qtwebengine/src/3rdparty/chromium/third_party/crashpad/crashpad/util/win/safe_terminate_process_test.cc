@@ -22,6 +22,7 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "gtest/gtest.h"
 #include "test/errors.h"
@@ -91,6 +92,8 @@ class ScopedExecutablePatch {
   DISALLOW_COPY_AND_ASSIGN(ScopedExecutablePatch);
 };
 
+// SafeTerminateProcess is calling convention specific only for x86.
+#if defined(ARCH_CPU_X86_FAMILY)
 TEST(SafeTerminateProcess, PatchBadly) {
   // This is a test of SafeTerminateProcess(), but it doesn’t actually terminate
   // anything. Instead, it works with a process handle for the current process
@@ -117,13 +120,13 @@ TEST(SafeTerminateProcess, PatchBadly) {
   // Make sure that TerminateProcess() works as a baseline.
   SetLastError(ERROR_SUCCESS);
   EXPECT_FALSE(TerminateProcess(process, 0));
-  EXPECT_EQ(GetLastError(), ERROR_ACCESS_DENIED);
+  EXPECT_EQ(GetLastError(), static_cast<DWORD>(ERROR_ACCESS_DENIED));
 
   // Make sure that SafeTerminateProcess() works, calling through to
   // TerminateProcess() properly.
   SetLastError(ERROR_SUCCESS);
   EXPECT_FALSE(SafeTerminateProcess(process, 0));
-  EXPECT_EQ(GetLastError(), ERROR_ACCESS_DENIED);
+  EXPECT_EQ(GetLastError(), static_cast<DWORD>(ERROR_ACCESS_DENIED));
 
   {
     // Patch TerminateProcess() badly. This turns it into a no-op that returns 0
@@ -134,7 +137,7 @@ TEST(SafeTerminateProcess, PatchBadly) {
     // https://crashpad.chromium.org/bug/179. In reality, this only affects
     // 32-bit x86, as there’s no calling convention confusion on x86_64. It
     // doesn’t hurt to run this test in the 64-bit environment, though.
-    const uint8_t patch[] = {
+    static constexpr uint8_t patch[] = {
 #if defined(ARCH_CPU_X86)
         0x31, 0xc0,  // xor eax, eax
 #elif defined(ARCH_CPU_X86_64)
@@ -146,31 +149,29 @@ TEST(SafeTerminateProcess, PatchBadly) {
     };
 
     void* target = reinterpret_cast<void*>(TerminateProcess);
-    ScopedExecutablePatch executable_patch(target, patch, arraysize(patch));
+    ScopedExecutablePatch executable_patch(target, patch, base::size(patch));
 
     // Make sure that SafeTerminateProcess() can be called. Since it’s been
     // patched with a no-op stub, GetLastError() shouldn’t be modified.
     SetLastError(ERROR_SUCCESS);
     EXPECT_FALSE(SafeTerminateProcess(process, 0));
-    EXPECT_EQ(GetLastError(), ERROR_SUCCESS);
+    EXPECT_EQ(GetLastError(), static_cast<DWORD>(ERROR_SUCCESS));
   }
 
   // Now that the real TerminateProcess() has been restored, verify that it
   // still works properly.
   SetLastError(ERROR_SUCCESS);
   EXPECT_FALSE(SafeTerminateProcess(process, 0));
-  EXPECT_EQ(GetLastError(), ERROR_ACCESS_DENIED);
+  EXPECT_EQ(GetLastError(), static_cast<DWORD>(ERROR_ACCESS_DENIED));
 }
+#endif  // ARCH_CPU_X86_FAMILY
 
 TEST(SafeTerminateProcess, TerminateChild) {
-  base::FilePath test_executable = TestPaths::Executable();
-  std::wstring child_executable =
-      test_executable.DirName()
-          .Append(test_executable.BaseName().RemoveFinalExtension().value() +
-                  L"_safe_terminate_process_test_child.exe")
-          .value();
-
-  ChildLauncher child(child_executable, std::wstring());
+  base::FilePath child_executable =
+      TestPaths::BuildArtifact(L"util",
+                               L"safe_terminate_process_test_child",
+                               TestPaths::FileType::kExecutable);
+  ChildLauncher child(child_executable, L"");
   ASSERT_NO_FATAL_FAILURE(child.Start());
 
   constexpr DWORD kExitCode = 0x51ee9d1e;  // Sort of like “sleep and die.”

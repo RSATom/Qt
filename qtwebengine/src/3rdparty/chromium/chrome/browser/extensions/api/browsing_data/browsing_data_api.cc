@@ -11,27 +11,33 @@
 #include <string>
 #include <utility>
 
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
-
-#include "base/task_scheduler/post_task.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_delegate.h"
 #include "chrome/browser/plugins/plugin_data_remover_helper.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/signin/account_reconcilor_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
-#include "components/browsing_data/core/browsing_data_utils.h"
 #include "components/browsing_data/core/pref_names.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/extension.h"
+#include "services/identity/public/cpp/identity_manager.h"
 
 using content::BrowserThread;
+using browsing_data::ClearBrowsingDataTab;
+using browsing_data::BrowsingDataType;
 
 namespace extension_browsing_data_api_constants {
-
 // Parameter name keys.
 const char kDataRemovalPermittedKey[] = "dataRemovalPermitted";
 const char kDataToRemoveKey[] = "dataToRemove";
@@ -65,8 +71,9 @@ const char kUnprotectedWebKey[] = "unprotectedWeb";
 // The placeholder will be filled by the name of the affected data type (e.g.,
 // "history").
 const char kBadDataTypeDetails[] = "Invalid value for data type '%s'.";
-const char kDeleteProhibitedError[] = "Browsing history and downloads are not "
-                                      "permitted to be removed.";
+const char kDeleteProhibitedError[] =
+    "Browsing history and downloads are not "
+    "permitted to be removed.";
 
 }  // namespace extension_browsing_data_api_constants
 
@@ -121,10 +128,31 @@ bool IsRemovalPermitted(int removal_mask, PrefService* prefs) {
   return true;
 }
 
+// Returns true if Sync is currently running (i.e. enabled and not in error).
+bool IsSyncRunning(Profile* profile) {
+  syncer::SyncService* sync_service =
+      ProfileSyncServiceFactory::GetSyncServiceForProfile(profile);
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  sync_ui_util::MessageType sync_status =
+      sync_ui_util::GetStatus(profile, sync_service, identity_manager);
+  return sync_status == sync_ui_util::SYNCED;
+}
 }  // namespace
+
+bool BrowsingDataSettingsFunction::isDataTypeSelected(
+    BrowsingDataType data_type,
+    ClearBrowsingDataTab tab) {
+  std::string pref_name;
+  bool success = GetDeletionPreferenceFromDataType(data_type, tab, &pref_name);
+  return success && prefs_->GetBoolean(pref_name);
+}
 
 ExtensionFunction::ResponseAction BrowsingDataSettingsFunction::Run() {
   prefs_ = Profile::FromBrowserContext(browser_context())->GetPrefs();
+
+  ClearBrowsingDataTab tab = static_cast<ClearBrowsingDataTab>(
+      prefs_->GetInteger(browsing_data::prefs::kLastClearBrowsingDataTab));
 
   // Fill origin types.
   // The "cookies" and "hosted apps" UI checkboxes both map to
@@ -135,15 +163,17 @@ ExtensionFunction::ResponseAction BrowsingDataSettingsFunction::Run() {
       new base::DictionaryValue);
   origin_types->SetBoolean(
       extension_browsing_data_api_constants::kUnprotectedWebKey,
-      prefs_->GetBoolean(browsing_data::prefs::kDeleteCookies));
+      isDataTypeSelected(BrowsingDataType::COOKIES, tab));
   origin_types->SetBoolean(
       extension_browsing_data_api_constants::kProtectedWebKey,
-      prefs_->GetBoolean(browsing_data::prefs::kDeleteHostedAppsData));
+      isDataTypeSelected(BrowsingDataType::HOSTED_APPS_DATA, tab));
   origin_types->SetBoolean(
       extension_browsing_data_api_constants::kExtensionsKey, false);
 
   // Fill deletion time period.
-  int period_pref = prefs_->GetInteger(browsing_data::prefs::kDeleteTimePeriod);
+  int period_pref =
+      prefs_->GetInteger(browsing_data::GetTimePeriodPreferenceName(tab));
+
   browsing_data::TimePeriod period =
       static_cast<browsing_data::TimePeriod>(period_pref);
   double since = 0;
@@ -162,8 +192,8 @@ ExtensionFunction::ResponseAction BrowsingDataSettingsFunction::Run() {
   std::unique_ptr<base::DictionaryValue> permitted(new base::DictionaryValue);
 
   bool delete_site_data =
-      prefs_->GetBoolean(browsing_data::prefs::kDeleteCookies) ||
-      prefs_->GetBoolean(browsing_data::prefs::kDeleteHostedAppsData);
+      isDataTypeSelected(BrowsingDataType::COOKIES, tab) ||
+      isDataTypeSelected(BrowsingDataType::HOSTED_APPS_DATA, tab);
 
   SetDetails(selected.get(), permitted.get(),
              extension_browsing_data_api_constants::kAppCacheKey,
@@ -200,19 +230,19 @@ ExtensionFunction::ResponseAction BrowsingDataSettingsFunction::Run() {
 
   SetDetails(selected.get(), permitted.get(),
              extension_browsing_data_api_constants::kHistoryKey,
-             prefs_->GetBoolean(browsing_data::prefs::kDeleteBrowsingHistory));
+             isDataTypeSelected(BrowsingDataType::HISTORY, tab));
   SetDetails(selected.get(), permitted.get(),
              extension_browsing_data_api_constants::kDownloadsKey,
-             prefs_->GetBoolean(browsing_data::prefs::kDeleteDownloadHistory));
+             isDataTypeSelected(BrowsingDataType::DOWNLOADS, tab));
   SetDetails(selected.get(), permitted.get(),
              extension_browsing_data_api_constants::kCacheKey,
-             prefs_->GetBoolean(browsing_data::prefs::kDeleteCache));
+             isDataTypeSelected(BrowsingDataType::CACHE, tab));
   SetDetails(selected.get(), permitted.get(),
              extension_browsing_data_api_constants::kFormDataKey,
-             prefs_->GetBoolean(browsing_data::prefs::kDeleteFormData));
+             isDataTypeSelected(BrowsingDataType::FORM_DATA, tab));
   SetDetails(selected.get(), permitted.get(),
              extension_browsing_data_api_constants::kPasswordsKey,
-             prefs_->GetBoolean(browsing_data::prefs::kDeletePasswords));
+             isDataTypeSelected(BrowsingDataType::PASSWORDS, tab));
 
   std::unique_ptr<base::DictionaryValue> result(new base::DictionaryValue);
   result->Set(extension_browsing_data_api_constants::kOptionsKey,
@@ -238,11 +268,9 @@ BrowsingDataRemoverFunction::BrowsingDataRemoverFunction() : observer_(this) {}
 
 void BrowsingDataRemoverFunction::OnBrowsingDataRemoverDone() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
+  synced_data_deletion_.reset();
   observer_.RemoveAll();
-
   this->SendResponse(true);
-
   Release();  // Balanced in RunAsync.
 }
 
@@ -301,21 +329,34 @@ bool BrowsingDataRemoverFunction::RunAsync() {
 
 BrowsingDataRemoverFunction::~BrowsingDataRemoverFunction() {}
 
+bool BrowsingDataRemoverFunction::IsPauseSyncAllowed() {
+  return true;
+}
+
 void BrowsingDataRemoverFunction::CheckRemovingPluginDataSupported(
     scoped_refptr<PluginPrefs> plugin_prefs) {
   if (!PluginDataRemoverHelper::IsSupported(plugin_prefs.get()))
     removal_mask_ &= ~ChromeBrowsingDataRemoverDelegate::DATA_TYPE_PLUGIN_DATA;
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&BrowsingDataRemoverFunction::StartRemoving, this));
 }
 
 void BrowsingDataRemoverFunction::StartRemoving() {
+  Profile* profile = GetProfile();
   content::BrowsingDataRemover* remover =
-      content::BrowserContext::GetBrowsingDataRemover(GetProfile());
+      content::BrowserContext::GetBrowsingDataRemover(profile);
+
   // Add a ref (Balanced in OnBrowsingDataRemoverDone)
   AddRef();
+
+  // Prevent Sync from being paused, if required.
+  DCHECK(!synced_data_deletion_);
+  if (!IsPauseSyncAllowed() && IsSyncRunning(profile)) {
+    synced_data_deletion_ = AccountReconcilorFactory::GetForProfile(profile)
+                                ->GetScopedSyncDataDeletion();
+  }
 
   // Create a BrowsingDataRemover, set the current object as an observer (so
   // that we're notified after removal) and call remove() with the arguments
@@ -401,6 +442,10 @@ bool BrowsingDataRemoveFunction::GetRemovalMask(int* removal_mask) {
   }
 
   return true;
+}
+
+bool BrowsingDataRemoveFunction::IsPauseSyncAllowed() {
+  return false;
 }
 
 bool BrowsingDataRemoveAppcacheFunction::GetRemovalMask(int* removal_mask) {

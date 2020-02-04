@@ -9,19 +9,22 @@
 
 #include "base/callback.h"
 #include "base/feature_list.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/autofill/core/browser/autofill_driver.h"
-#include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_manager.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/form_structure.h"
+#include "components/autofill/core/browser/mock_autocomplete_history_manager.h"
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/browser/test_autofill_driver.h"
+#include "components/autofill/core/browser/test_credit_card_save_manager.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "components/autofill/core/common/autofill_constants.h"
+#include "components/autofill/core/common/autofill_features.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -35,9 +38,10 @@ class MockAutofillManager : public AutofillManager {
  public:
   MockAutofillManager(TestAutofillDriver* driver,
                       TestAutofillClient* client,
-                      PersonalDataManager* pdm)
+                      PersonalDataManager* pdm,
+                      AutocompleteHistoryManager* ahm)
       // Force to use the constructor designated for unit test.
-      : AutofillManager(driver, client, pdm) {}
+      : AutofillManager(driver, client, pdm, ahm) {}
   virtual ~MockAutofillManager() {}
 
   MOCK_METHOD5(FillCreditCardForm,
@@ -46,6 +50,8 @@ class MockAutofillManager : public AutofillManager {
                     const FormFieldData& field,
                     const CreditCard& credit_card,
                     const base::string16& cvc));
+
+  using AutofillManager::mutable_form_structures;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockAutofillManager);
@@ -56,15 +62,40 @@ class MockAutofillManager : public AutofillManager {
 class AutofillAssistantTest : public testing::Test {
  protected:
   AutofillAssistantTest()
-      : message_loop_(),
+      : task_environment_(),
         autofill_client_(),
         autofill_driver_(),
         pdm_(),
-        autofill_manager_(&autofill_driver_, &autofill_client_, &pdm_),
-        autofill_assistant_(&autofill_manager_) {}
+        ahm_() {}
+
+  void SetUp() {
+    payments::TestPaymentsClient* payments_client =
+        new payments::TestPaymentsClient(
+            autofill_driver_.GetURLLoaderFactory(), autofill_client_.GetPrefs(),
+            autofill_client_.GetIdentityManager(), &pdm_);
+    autofill_client_.set_test_payments_client(
+        std::unique_ptr<payments::TestPaymentsClient>(payments_client));
+    TestCreditCardSaveManager* credit_card_save_manager =
+        new TestCreditCardSaveManager(&autofill_driver_, &autofill_client_,
+                                      payments_client, &pdm_);
+    autofill::TestFormDataImporter* test_form_data_importer =
+        new TestFormDataImporter(
+            &autofill_client_, payments_client,
+            std::unique_ptr<CreditCardSaveManager>(credit_card_save_manager),
+            &pdm_, "en-US");
+    autofill_client_.set_test_form_data_importer(
+        std::unique_ptr<TestFormDataImporter>(test_form_data_importer));
+
+    autofill_manager_ = std::make_unique<MockAutofillManager>(
+        &autofill_driver_, &autofill_client_, &pdm_, &ahm_);
+
+    autofill_assistant_ =
+        std::make_unique<AutofillAssistant>(autofill_manager_.get());
+  }
 
   void EnableAutofillCreditCardAssist() {
-    scoped_feature_list_.InitAndEnableFeature(kAutofillCreditCardAssist);
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kAutofillCreditCardAssist);
   }
 
   // Returns a valid credit card form.
@@ -104,16 +135,17 @@ class AutofillAssistantTest : public testing::Test {
   std::unique_ptr<FormStructure> CreateValidCreditCardForm() {
     std::unique_ptr<FormStructure> form_structure;
     form_structure.reset(new FormStructure(CreateValidCreditCardFormData()));
-    form_structure->DetermineHeuristicTypes(nullptr /* ukm_service */);
+    form_structure->DetermineHeuristicTypes();
     return form_structure;
   }
 
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
   TestAutofillClient autofill_client_;
   testing::NiceMock<TestAutofillDriver> autofill_driver_;
   TestPersonalDataManager pdm_;
-  MockAutofillManager autofill_manager_;
-  AutofillAssistant autofill_assistant_;
+  MockAutocompleteHistoryManager ahm_;
+  std::unique_ptr<MockAutofillManager> autofill_manager_;
+  std::unique_ptr<AutofillAssistant> autofill_assistant_;
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
@@ -126,23 +158,25 @@ MATCHER_P(CreditCardMatches, guid, "") {
 TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOff) {
   std::unique_ptr<FormStructure> form_structure = CreateValidCreditCardForm();
 
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_FALSE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_FALSE(autofill_assistant_->CanShowCreditCardAssist());
 }
 
 // Tests that with the feature enabled and proper input,
 // CanShowCreditCardAssist() behaves as expected.
 TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn) {
   EnableAutofillCreditCardAssist();
-  std::unique_ptr<FormStructure> form_structure = CreateValidCreditCardForm();
 
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  EXPECT_FALSE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  EXPECT_FALSE(autofill_assistant_->CanShowCreditCardAssist());
 
   // With valid input, the function extracts the credit card form properly.
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_TRUE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  std::unique_ptr<FormStructure> form_structure = CreateValidCreditCardForm();
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_TRUE(autofill_assistant_->CanShowCreditCardAssist());
 }
 
 // Tests that with the feature enabled and proper input,
@@ -152,12 +186,13 @@ TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn_Secure) {
 
   // Can be shown if the context is secure.
   FormData form = CreateValidCreditCardFormData();
-  std::unique_ptr<FormStructure> form_structure(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(nullptr /* ukm_service */);
+  auto form_structure = std::make_unique<FormStructure>(form);
+  form_structure->DetermineHeuristicTypes();
 
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_TRUE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_TRUE(autofill_assistant_->CanShowCreditCardAssist());
 }
 
 // Tests that with the feature enabled and proper input,
@@ -169,12 +204,13 @@ TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn_NotSecure) {
   FormData form = CreateValidCreditCardFormData();
   form.origin = GURL("http://myform.com");
   form.action = GURL("http://myform.com/submit");
-  std::unique_ptr<FormStructure> form_structure(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(nullptr /* ukm_service */);
+  auto form_structure = std::make_unique<FormStructure>(form);
+  form_structure->DetermineHeuristicTypes();
 
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_FALSE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_FALSE(autofill_assistant_->CanShowCreditCardAssist());
 }
 
 TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn_Javascript) {
@@ -184,12 +220,13 @@ TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn_Javascript) {
   // function (which is a valid url).
   FormData form = CreateValidCreditCardFormData();
   form.action = GURL("javascript:alert('hello');");
-  std::unique_ptr<FormStructure> form_structure(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(nullptr /* ukm_service */);
+  auto form_structure = std::make_unique<FormStructure>(form);
+  form_structure->DetermineHeuristicTypes();
 
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_TRUE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_TRUE(autofill_assistant_->CanShowCreditCardAssist());
 }
 
 TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn_WeirdJs) {
@@ -199,12 +236,13 @@ TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn_WeirdJs) {
   // function that may or may not be valid.
   FormData form = CreateValidCreditCardFormData();
   form.action = GURL("javascript:myFunc");
-  std::unique_ptr<FormStructure> form_structure(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(nullptr /* ukm_service */);
+  auto form_structure = std::make_unique<FormStructure>(form);
+  form_structure->DetermineHeuristicTypes();
 
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_TRUE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_TRUE(autofill_assistant_->CanShowCreditCardAssist());
 }
 
 TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn_EmptyAction) {
@@ -213,12 +251,13 @@ TEST_F(AutofillAssistantTest, CanShowCreditCardAssist_FeatureOn_EmptyAction) {
   // Can be shown if the context is secure and the form action is empty.
   FormData form = CreateValidCreditCardFormData();
   form.action = GURL();
-  std::unique_ptr<FormStructure> form_structure(new FormStructure(form));
-  form_structure->DetermineHeuristicTypes(nullptr /* ukm_service */);
+  auto form_structure = std::make_unique<FormStructure>(form);
+  form_structure->DetermineHeuristicTypes();
 
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_TRUE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_TRUE(autofill_assistant_->CanShowCreditCardAssist());
 }
 
 TEST_F(AutofillAssistantTest, ShowAssistForCreditCard_ValidCard_CancelCvc) {
@@ -226,9 +265,10 @@ TEST_F(AutofillAssistantTest, ShowAssistForCreditCard_ValidCard_CancelCvc) {
   std::unique_ptr<FormStructure> form_structure = CreateValidCreditCardForm();
 
   // Will extract the credit card form data.
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_TRUE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_TRUE(autofill_assistant_->CanShowCreditCardAssist());
 
   // Create a valid card for the assist.
   CreditCard card;
@@ -236,11 +276,11 @@ TEST_F(AutofillAssistantTest, ShowAssistForCreditCard_ValidCard_CancelCvc) {
                           "1");
 
   // FillCreditCardForm should not be called if the user cancelled the CVC.
-  EXPECT_CALL(autofill_manager_, FillCreditCardForm(_, _, _, _, _)).Times(0);
+  EXPECT_CALL(*autofill_manager_, FillCreditCardForm(_, _, _, _, _)).Times(0);
 
-  autofill_assistant_.ShowAssistForCreditCard(card);
+  autofill_assistant_->ShowAssistForCreditCard(card);
   static_cast<CardUnmaskDelegate*>(
-      autofill_manager_.GetOrCreateFullCardRequest())
+      autofill_manager_->GetOrCreateFullCardRequest())
       ->OnUnmaskPromptClosed();
 }
 
@@ -249,9 +289,10 @@ TEST_F(AutofillAssistantTest, ShowAssistForCreditCard_ValidCard_SubmitCvc) {
   std::unique_ptr<FormStructure> form_structure = CreateValidCreditCardForm();
 
   // Will extract the credit card form data.
-  std::vector<std::unique_ptr<FormStructure>> form_structures;
-  form_structures.push_back(std::move(form_structure));
-  EXPECT_TRUE(autofill_assistant_.CanShowCreditCardAssist(form_structures));
+  auto& form_structures = *autofill_manager_->mutable_form_structures();
+  auto signature = form_structure->form_signature();
+  form_structures[signature] = std::move(form_structure);
+  EXPECT_TRUE(autofill_assistant_->CanShowCreditCardAssist());
 
   // Create a valid card for the assist.
   CreditCard card;
@@ -261,16 +302,16 @@ TEST_F(AutofillAssistantTest, ShowAssistForCreditCard_ValidCard_SubmitCvc) {
   // FillCreditCardForm ends up being called after user has accepted the
   // prompt.
   EXPECT_CALL(
-      autofill_manager_,
+      *autofill_manager_,
       FillCreditCardForm(kNoQueryId, _, _, CreditCardMatches(card.guid()),
                          base::ASCIIToUTF16("123")));
 
-  autofill_assistant_.ShowAssistForCreditCard(card);
+  autofill_assistant_->ShowAssistForCreditCard(card);
 
   CardUnmaskDelegate::UnmaskResponse unmask_response;
   unmask_response.cvc = base::ASCIIToUTF16("123");
   static_cast<CardUnmaskDelegate*>(
-      autofill_manager_.GetOrCreateFullCardRequest())
+      autofill_manager_->GetOrCreateFullCardRequest())
       ->OnUnmaskResponse(unmask_response);
 }
 

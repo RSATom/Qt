@@ -5,12 +5,16 @@
 #ifndef EXTENSIONS_COMMON_MANIFEST_HANDLER_H_
 #define EXTENSIONS_COMMON_MANIFEST_HANDLER_H_
 
+#include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "base/containers/small_map.h"
+#include "base/containers/span.h"
+#include "base/gtest_prod_util.h"
 #include "base/lazy_instance.h"
-#include "base/memory/linked_ptr.h"
 #include "base/strings/string16.h"
 #include "extensions/common/manifest.h"
 
@@ -60,14 +64,6 @@ class ManifestHandler {
   // Defaults to empty.
   virtual const std::vector<std::string> PrerequisiteKeys() const;
 
-  // Associate us with our keys() in the manifest. A handler can register
-  // for multiple keys. The global registry takes ownership of this;
-  // if it has an existing handler for |key|, it replaces it with this.
-  // Manifest handlers must be registered at process startup in
-  // common_manifest_handlers.cc or chrome_manifest_handlers.cc:
-  // (new MyManifestHandler)->Register();
-  void Register();
-
   // Creates a |ManifestPermission| instance for the given manifest key |name|.
   // The returned permission does not contain any permission data, so this
   // method is usually used before calling |FromValue| or |Read|. Returns
@@ -80,6 +76,9 @@ class ManifestHandler {
   // no manifest key in the extension manifest for this handler.
   virtual ManifestPermission* CreateInitialRequiredPermission(
       const Extension* extension);
+
+  // The keys this handler is responsible for.
+  virtual base::span<const char* const> Keys() const = 0;
 
   // Calling FinalizeRegistration indicates that there are no more
   // manifest handlers to be registered.
@@ -117,24 +116,36 @@ class ManifestHandler {
   static const std::vector<std::string> SingleKey(const std::string& key);
 
  private:
-  // The keys to register us for (in Register).
-  virtual const std::vector<std::string> Keys() const = 0;
+  DISALLOW_COPY_AND_ASSIGN(ManifestHandler);
 };
 
 // The global registry for manifest handlers.
 class ManifestHandlerRegistry {
+ public:
+  // Get the one true instance.
+  static ManifestHandlerRegistry* Get();
+
+  // Registers a ManifestHandler, associating it with its keys. If there is
+  // already a handler registered for any key |handler| manages, this method
+  // will DCHECK.
+  void RegisterHandler(std::unique_ptr<ManifestHandler> handler);
+
  private:
   friend class ManifestHandler;
   friend class ScopedTestingManifestHandlerRegistry;
   friend struct base::LazyInstanceTraitsBase<ManifestHandlerRegistry>;
+  FRIEND_TEST_ALL_PREFIXES(ManifestHandlerPerfTest, MANUAL_CommonInitialize);
+  FRIEND_TEST_ALL_PREFIXES(ManifestHandlerPerfTest, MANUAL_LookupTest);
+  FRIEND_TEST_ALL_PREFIXES(ManifestHandlerPerfTest,
+                           MANUAL_CommonMeasureFinalization);
+  FRIEND_TEST_ALL_PREFIXES(ChromeExtensionsClientTest,
+                           CheckManifestHandlerRegistryForOverflow);
 
   ManifestHandlerRegistry();
   ~ManifestHandlerRegistry();
 
   void Finalize();
 
-  void RegisterManifestHandler(const std::string& key,
-                               linked_ptr<ManifestHandler> handler);
   bool ParseExtension(Extension* extension, base::string16* error);
   bool ValidateExtension(const Extension* extension,
                          std::string* error,
@@ -146,14 +157,32 @@ class ManifestHandlerRegistry {
       const Extension* extension,
       ManifestPermissionSet* permission_set);
 
+  // Reset the one true instance.
+  static void ResetForTesting();
+
   // Overrides the current global ManifestHandlerRegistry with
   // |registry|, returning the current one.
   static ManifestHandlerRegistry* SetForTesting(
       ManifestHandlerRegistry* new_registry);
 
-  typedef std::map<std::string, linked_ptr<ManifestHandler> >
-      ManifestHandlerMap;
-  typedef std::map<ManifestHandler*, int> ManifestHandlerPriorityMap;
+  // The owned collection of manifest handlers. These are then referenced by
+  // raw pointer in maps for keys and priority.
+  std::vector<std::unique_ptr<ManifestHandler>> owned_manifest_handlers_;
+
+  // This number is derived from determining the total number of manifest
+  // handlers that are installed for all build configurations. It is
+  // checked through a unit test:
+  // ChromeExtensionsClientTest.CheckManifestHandlerRegistryForOverflow.
+  //
+  // Any new manifest handlers added may cause the small_map to overflow
+  // to the backup std::unordered_map, which we don't want, as that would
+  // defeat the optimization of using small_map.
+  static constexpr size_t kHandlerMax = 72;
+  using FallbackMap = std::unordered_map<std::string, ManifestHandler*>;
+  using ManifestHandlerMap = base::small_map<FallbackMap, kHandlerMax>;
+  using FallbackPriorityMap = std::unordered_map<ManifestHandler*, int>;
+  using ManifestHandlerPriorityMap =
+      base::small_map<FallbackPriorityMap, kHandlerMax>;
 
   // Puts the manifest handlers in order such that each handler comes after
   // any handlers for their PrerequisiteKeys. If there is no handler for
@@ -169,6 +198,8 @@ class ManifestHandlerRegistry {
   ManifestHandlerPriorityMap priority_map_;
 
   bool is_finalized_;
+
+  DISALLOW_COPY_AND_ASSIGN(ManifestHandlerRegistry);
 };
 
 }  // namespace extensions

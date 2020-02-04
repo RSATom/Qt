@@ -24,6 +24,8 @@ MojoAudioDecoder::MojoAudioDecoder(
     mojom::AudioDecoderPtr remote_decoder)
     : task_runner_(task_runner),
       remote_decoder_info_(remote_decoder.PassInterface()),
+      writer_capacity_(
+          GetDefaultDecoderBufferConverterCapacity(DemuxerStream::AUDIO)),
       client_binding_(this) {
   DVLOG(1) << __func__;
 }
@@ -36,10 +38,15 @@ std::string MojoAudioDecoder::GetDisplayName() const {
   return "MojoAudioDecoder";
 }
 
+bool MojoAudioDecoder::IsPlatformDecoder() const {
+  return true;
+}
+
 void MojoAudioDecoder::Initialize(const AudioDecoderConfig& config,
                                   CdmContext* cdm_context,
                                   const InitCB& init_cb,
-                                  const OutputCB& output_cb) {
+                                  const OutputCB& output_cb,
+                                  const WaitingCB& waiting_cb) {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
 
@@ -49,7 +56,7 @@ void MojoAudioDecoder::Initialize(const AudioDecoderConfig& config,
   // This could happen during reinitialization.
   if (remote_decoder_.encountered_error()) {
     DVLOG(1) << __func__ << ": Connection error happened.";
-    task_runner_->PostTask(FROM_HERE, base::Bind(init_cb, false));
+    task_runner_->PostTask(FROM_HERE, base::BindOnce(init_cb, false));
     return;
   }
 
@@ -60,12 +67,13 @@ void MojoAudioDecoder::Initialize(const AudioDecoderConfig& config,
 
   if (config.is_encrypted() && CdmContext::kInvalidCdmId == cdm_id) {
     DVLOG(1) << __func__ << ": Invalid CdmContext.";
-    task_runner_->PostTask(FROM_HERE, base::Bind(init_cb, false));
+    task_runner_->PostTask(FROM_HERE, base::BindOnce(init_cb, false));
     return;
   }
 
   init_cb_ = init_cb;
   output_cb_ = output_cb;
+  waiting_cb_ = waiting_cb;
 
   // Using base::Unretained(this) is safe because |this| owns |remote_decoder_|,
   // and the callback won't be dispatched if |remote_decoder_| is destroyed.
@@ -74,7 +82,7 @@ void MojoAudioDecoder::Initialize(const AudioDecoderConfig& config,
       base::Bind(&MojoAudioDecoder::OnInitialized, base::Unretained(this)));
 }
 
-void MojoAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& media_buffer,
+void MojoAudioDecoder::Decode(scoped_refptr<DecoderBuffer> media_buffer,
                               const DecodeCB& decode_cb) {
   DVLOG(3) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
@@ -86,14 +94,14 @@ void MojoAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& media_buffer,
   }
 
   mojom::DecoderBufferPtr buffer =
-      mojo_decoder_buffer_writer_->WriteDecoderBuffer(media_buffer);
+      mojo_decoder_buffer_writer_->WriteDecoderBuffer(std::move(media_buffer));
   if (!buffer) {
     task_runner_->PostTask(FROM_HERE,
                            base::Bind(decode_cb, DecodeStatus::DECODE_ERROR));
     return;
   }
 
-  DCHECK(decode_cb_.is_null());
+  DCHECK(!decode_cb_);
   decode_cb_ = decode_cb;
 
   remote_decoder_->Decode(
@@ -106,17 +114,17 @@ void MojoAudioDecoder::Reset(const base::Closure& closure) {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   if (remote_decoder_.encountered_error()) {
-    if (!decode_cb_.is_null()) {
-      task_runner_->PostTask(FROM_HERE,
-                             base::Bind(base::ResetAndReturn(&decode_cb_),
-                                        DecodeStatus::DECODE_ERROR));
+    if (decode_cb_) {
+      task_runner_->PostTask(
+          FROM_HERE,
+          base::BindOnce(std::move(decode_cb_), DecodeStatus::DECODE_ERROR));
     }
 
     task_runner_->PostTask(FROM_HERE, closure);
     return;
   }
 
-  DCHECK(reset_cb_.is_null());
+  DCHECK(!reset_cb_);
   reset_cb_ = closure;
   remote_decoder_->Reset(
       base::Bind(&MojoAudioDecoder::OnResetDone, base::Unretained(this)));
@@ -153,20 +161,27 @@ void MojoAudioDecoder::OnBufferDecoded(mojom::AudioBufferPtr buffer) {
   output_cb_.Run(buffer.To<scoped_refptr<AudioBuffer>>());
 }
 
+void MojoAudioDecoder::OnWaiting(WaitingReason reason) {
+  DVLOG(1) << __func__;
+  DCHECK(task_runner_->BelongsToCurrentThread());
+
+  waiting_cb_.Run(reason);
+}
+
 void MojoAudioDecoder::OnConnectionError() {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(remote_decoder_.encountered_error());
 
-  if (!init_cb_.is_null()) {
-    base::ResetAndReturn(&init_cb_).Run(false);
+  if (init_cb_) {
+    std::move(init_cb_).Run(false);
     return;
   }
 
-  if (!decode_cb_.is_null())
-    base::ResetAndReturn(&decode_cb_).Run(DecodeStatus::DECODE_ERROR);
-  if (!reset_cb_.is_null())
-    base::ResetAndReturn(&reset_cb_).Run();
+  if (decode_cb_)
+    std::move(decode_cb_).Run(DecodeStatus::DECODE_ERROR);
+  if (reset_cb_)
+    std::move(reset_cb_).Run();
 }
 
 void MojoAudioDecoder::OnInitialized(bool success,
@@ -179,20 +194,21 @@ void MojoAudioDecoder::OnInitialized(bool success,
   if (success && !mojo_decoder_buffer_writer_) {
     mojo::ScopedDataPipeConsumerHandle remote_consumer_handle;
     mojo_decoder_buffer_writer_ = MojoDecoderBufferWriter::Create(
-        DemuxerStream::AUDIO, &remote_consumer_handle);
+        writer_capacity_, &remote_consumer_handle);
+
     // Pass consumer end to |remote_decoder_|.
     remote_decoder_->SetDataSource(std::move(remote_consumer_handle));
   }
 
-  base::ResetAndReturn(&init_cb_).Run(success);
+  std::move(init_cb_).Run(success);
 }
 
 void MojoAudioDecoder::OnDecodeStatus(DecodeStatus status) {
   DVLOG(1) << __func__ << ": status:" << status;
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  DCHECK(!decode_cb_.is_null());
-  base::ResetAndReturn(&decode_cb_).Run(status);
+  DCHECK(decode_cb_);
+  std::move(decode_cb_).Run(status);
 }
 
 void MojoAudioDecoder::OnResetDone() {
@@ -200,10 +216,10 @@ void MojoAudioDecoder::OnResetDone() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   // For pending decodes OnDecodeStatus() should arrive before OnResetDone().
-  DCHECK(decode_cb_.is_null());
+  DCHECK(!decode_cb_);
 
-  DCHECK(!reset_cb_.is_null());
-  base::ResetAndReturn(&reset_cb_).Run();
+  DCHECK(reset_cb_);
+  std::move(reset_cb_).Run();
 }
 
 }  // namespace media

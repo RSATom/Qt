@@ -27,10 +27,11 @@
 
 /*!
     \page qtquickcontrols2-customize.html
-    \title Customizing Qt Quick Controls 2
+    \keyword Customizing Qt Quick Controls 2
+    \title Customizing Qt Quick Controls
     \brief A set of UI controls to create user interfaces in Qt Quick
 
-    Qt Quick Controls 2 consist of a hierarchy (tree) of items. In order to
+    Qt Quick Controls consist of a hierarchy (tree) of items. In order to
     provide a custom look and feel, the default QML implementation of each
     item can be replaced with a custom one.
 
@@ -47,9 +48,9 @@
     can override the \l {Control::}{background} item and set the radius
     property of Rectangle:
 
-    \qml
-    import QtQuick 2.6
-    import QtQuick.Controls 2.1
+    \qml \QtMinorVersion
+    import QtQuick 2.\1
+    import QtQuick.Controls 2.\1
 
     ApplicationWindow {
         width: 400
@@ -91,8 +92,8 @@
     module itself, we'll call the file \c MyButton.qml. To use the control in
     your application, refer to it by its filename:
 
-    \qml
-    import QtQuick.Controls 2.1
+    \qml \QtMinorVersion
+    import QtQuick.Controls 2.\1
 
     ApplicationWindow {
         MyButton {
@@ -107,8 +108,8 @@
     subfolder in your project named (for example) \c controls. To use the
     control, first import the folder into a namespace:
 
-    \qml
-    import QtQuick.Controls 2.1
+    \qml \QtMinorVersion
+    import QtQuick.Controls 2.\1
     import "controls" as MyControls
 
     ApplicationWindow {
@@ -119,7 +120,7 @@
     \endqml
 
     As you now have the \c MyControls namespace, you can name the controls after
-    their actual counterparts in the Qt Quick Controls 2 module. You can repeat
+    their actual counterparts in the Qt Quick Controls module. You can repeat
     this process for any control that you wish to add.
 
     An added benefit of these three methods is that it's not necessary to
@@ -132,9 +133,9 @@
 
     \section2 Definition of a Style
 
-    In Qt Quick Controls 2, a style is essentially an interchangeable set of
+    In Qt Quick Controls, a style is essentially an interchangeable set of
     QML files within a single directory. There are three requirements for a style
-    to be \l {Using Styles in Qt Quick Controls 2}{usable}:
+    to be \l {Using Styles in Qt Quick Controls}{usable}:
 
     \list
     \li At least one QML file whose name matches a control (for example,
@@ -143,7 +144,7 @@
         {QtQuick.Templates} import as the root item. For example,
         Button.qml must contain a Button template as its root item.
 
-        If we instead used the corresponding type from the \l {Qt Quick Controls 2}
+        If we instead used the corresponding type from the \l {Qt Quick Controls}
         {QtQuick.Controls} import as we did in the previous section, it would not work:
         the control we were defining would try to derive from itself.
     \li The files must be in a directory in the filesystem or in the
@@ -170,6 +171,22 @@
     What this means is that you can implement as many controls as you like for
     your custom style, and place them almost anywhere. It also allows users to
     create their own styles for your application.
+
+    \section3 Previewing Custom Styles in Qt Quick Designer
+
+    Using the approach above, it is possible to preview a custom style
+    in \l {Using Qt Quick Designer}{Qt Quick Designer}. In order to do so,
+    ensure that the project has a
+    \l {Qt Quick Controls Configuration File}{qtquickcontrols2.conf} file,
+    and that the following entry exists:
+
+    \badcode
+    [Controls]
+    Style=MyStyle
+    \endcode
+
+    For more information, take a look at the
+    \l {Qt Quick Controls - Flat Style}{Flat Style example}.
 
     \section2 Style-specific C++ Extensions
 
@@ -312,9 +329,9 @@
     Next, we add a drop shadow to the \l {Control::}{background} delegate of
     the Button:
 
-    \code
+    \code \QtMinorVersion
     // ...
-    import QtGraphicalEffects 1.0
+    import QtGraphicalEffects 1.\1
     import MyStyle 1.0
     // ...
 
@@ -343,9 +360,9 @@
     To try out the attached property, we create a \l Row with two Buttons in
     \c main.qml:
 
-    \qml
-    import QtQuick 2.6
-    import QtQuick.Controls 2.1
+    \qml \QtMinorVersion
+    import QtQuick 2.\1
+    import QtQuick.Controls 2.\1
 
     import MyStyle 1.0
 
@@ -374,7 +391,7 @@
 
     With that in place, we can run our example. To tell the application to
     use our new style, we pass \c {-style :/mystyle} as an application
-    argument, but there are \l {Using Styles in Qt Quick Controls 2}{many
+    argument, but there are \l {Using Styles in Qt Quick Controls}{many
     ways} to specify the style to use.
 
     The end result:
@@ -400,9 +417,9 @@
         to customize the \l {ApplicationWindow::overlay}{modal} and
         \l {ApplicationWindow::overlay}{modeless} items.
 
-        \code
-        import QtQuick 2.7
-        import QtQuick.Controls 2.0
+        \code \QtMinorVersion
+        import QtQuick 2.\1
+        import QtQuick.Controls 2.\1
 
         ApplicationWindow {
             visible: true
@@ -564,8 +581,8 @@
         \image qtquickcontrols2-menu-custom.png
 
         \quotefromfile qtquickcontrols2-menu-custom.qml
-        \skipto import QtQuick 2.10
-        \printuntil import QtQuick.Controls 2.3
+        \skipto import QtQuick
+        \printuntil import QtQuick.Controls
         \skipto Menu
         \printto eof
 
@@ -579,8 +596,8 @@
         \image qtquickcontrols2-menubar-custom.png
 
         \quotefromfile qtquickcontrols2-menubar-custom.qml
-        \skipto import QtQuick 2.10
-        \printuntil import QtQuick.Controls 2.3
+        \skipto import QtQuick
+        \printuntil import QtQuick.Controls
         \skipto MenuBar
         \printto eof
 
@@ -611,8 +628,8 @@
         \image qtquickcontrols2-popup-custom.png
 
         \quotefromfile qtquickcontrols2-popup-custom.qml
-        \skipto import QtQuick 2.6
-        \printuntil import QtQuick.Controls 2.0
+        \skipto import QtQuick 2.12
+        \printuntil import QtQuick.Controls 2.12
         \codeline
         \skipto Popup
         \printuntil {
@@ -718,6 +735,15 @@
         \image qtquickcontrols2-spinbox-custom.png
 
         \snippet qtquickcontrols2-spinbox-custom.qml file
+
+
+    \section2 Customizing SplitView
+
+        SplitView consists of a visual \l {SplitView::handle}{handle} delegate.
+
+        \image qtquickcontrols2-splitview-custom.png
+
+        \snippet qtquickcontrols2-splitview-custom.qml 1
 
 
     \section2 Customizing StackView
@@ -837,8 +863,8 @@
         and \l {Popup::contentItem}{content item}.
 
         \quotefromfile qtquickcontrols2-tooltip-custom.qml
-        \skipto import QtQuick 2.6
-        \printuntil import QtQuick.Controls 2.1
+        \skipto import QtQuick
+        \printuntil import QtQuick.Controls
         \skipto ToolTip
         \printuntil }
         \printuntil }

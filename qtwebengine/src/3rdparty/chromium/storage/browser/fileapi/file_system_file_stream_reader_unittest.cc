@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -38,20 +39,20 @@ namespace {
 const char kURLOrigin[] = "http://remote/";
 const char kTestFileName[] = "test.dat";
 const char kTestData[] = "0123456789";
-const int kTestDataSize = arraysize(kTestData) - 1;
+const int kTestDataSize = base::size(kTestData) - 1;
 
 void ReadFromReader(storage::FileSystemFileStreamReader* reader,
                     std::string* data,
                     size_t size,
                     int* result) {
-  ASSERT_TRUE(reader != NULL);
-  ASSERT_TRUE(result != NULL);
+  ASSERT_TRUE(reader != nullptr);
+  ASSERT_TRUE(result != nullptr);
   *result = net::OK;
   net::TestCompletionCallback callback;
   size_t total_bytes_read = 0;
   while (total_bytes_read < size) {
-    scoped_refptr<net::IOBufferWithSize> buf(
-        new net::IOBufferWithSize(size - total_bytes_read));
+    scoped_refptr<net::IOBufferWithSize> buf =
+        base::MakeRefCounted<net::IOBufferWithSize>(size - total_bytes_read);
     int rv = reader->Read(buf.get(), buf->size(), callback.callback());
     if (rv == net::ERR_IO_PENDING)
       rv = callback.WaitForResult();
@@ -70,19 +71,18 @@ void NeverCalled(int unused) { ADD_FAILURE(); }
 
 class FileSystemFileStreamReaderTest : public testing::Test {
  public:
-  FileSystemFileStreamReaderTest() {}
+  FileSystemFileStreamReaderTest() = default;
 
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
     file_system_context_ =
-        CreateFileSystemContextForTesting(NULL, temp_dir_.GetPath());
+        CreateFileSystemContextForTesting(nullptr, temp_dir_.GetPath());
 
     file_system_context_->OpenFileSystem(
-        GURL(kURLOrigin),
-        storage::kFileSystemTypeTemporary,
+        GURL(kURLOrigin), storage::kFileSystemTypeTemporary,
         storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-        base::Bind(&OnOpenFileSystem));
+        base::BindOnce(&OnOpenFileSystem));
     base::RunLoop().RunUntilIdle();
 
     WriteFile(kTestFileName, kTestData, kTestDataSize,
@@ -157,7 +157,7 @@ TEST_F(FileSystemFileStreamReaderTest, NonExistent) {
 
 TEST_F(FileSystemFileStreamReaderTest, Empty) {
   const char kFileName[] = "empty";
-  WriteFile(kFileName, NULL, 0, NULL);
+  WriteFile(kFileName, nullptr, 0, nullptr);
 
   std::unique_ptr<FileSystemFileStreamReader> reader(
       CreateFileReader(kFileName, 0, base::Time()));
@@ -197,7 +197,7 @@ TEST_F(FileSystemFileStreamReaderTest, GetLengthAfterModified) {
     result = callback.WaitForResult();
   ASSERT_EQ(net::ERR_UPLOAD_FILE_CHANGED, result);
 
-  // With NULL expected modification time this should work.
+  // With nullptr expected modification time this should work.
   reader.reset(CreateFileReader(kTestFileName, 0, base::Time()));
   result = reader->GetLength(callback.callback());
   if (result == net::ERR_IO_PENDING)
@@ -239,7 +239,7 @@ TEST_F(FileSystemFileStreamReaderTest, ReadAfterModified) {
   ASSERT_EQ(net::ERR_UPLOAD_FILE_CHANGED, result);
   ASSERT_EQ(0U, data.size());
 
-  // With NULL expected modification time this should work.
+  // With nullptr expected modification time this should work.
   data.clear();
   reader.reset(CreateFileReader(kTestFileName, 0, base::Time()));
   ReadFromReader(reader.get(), &data, kTestDataSize, &result);
@@ -262,9 +262,9 @@ TEST_F(FileSystemFileStreamReaderTest, DeleteWithUnfinishedRead) {
       CreateFileReader(kTestFileName, 0, base::Time()));
 
   net::TestCompletionCallback callback;
-  scoped_refptr<net::IOBufferWithSize> buf(
-      new net::IOBufferWithSize(kTestDataSize));
-  int rv = reader->Read(buf.get(), buf->size(), base::Bind(&NeverCalled));
+  scoped_refptr<net::IOBufferWithSize> buf =
+      base::MakeRefCounted<net::IOBufferWithSize>(kTestDataSize);
+  int rv = reader->Read(buf.get(), buf->size(), base::BindOnce(&NeverCalled));
   ASSERT_TRUE(rv == net::ERR_IO_PENDING || rv >= 0);
 
   // Delete immediately.

@@ -26,8 +26,10 @@
 ****************************************************************************/
 
 /*!
-    \example automotive
-    \title Qt Quick Controls 2 - Imagine Style Example: Automotive
+    \example imagine/automotive
+    \keyword Qt Quick Controls - Imagine Style Example: Automotive
+    \title Qt Quick Controls - Imagine Style Example: Automotive
+    \keyword Qt Quick Controls 2 - Imagine Style Example: Automotive
     \ingroup qtquickcontrols2-examples
     \brief An automotive user interface using custom Imagine style assets.
 

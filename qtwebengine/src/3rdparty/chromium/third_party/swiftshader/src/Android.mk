@@ -1,29 +1,39 @@
-LOCAL_PATH:= $(call my-dir)
-
-# Use Subzero as the Reactor JIT back-end on ARM, else LLVM.
-ifeq ($(TARGET_ARCH),$(filter $(TARGET_ARCH),arm))
-use_subzero := true
-endif
+LOCAL_PATH := $(call my-dir)
+swiftshader_src_root := $(LOCAL_PATH)
 
 COMMON_C_INCLUDES += \
 	bionic \
 	$(LOCAL_PATH)/../include \
 	$(LOCAL_PATH)/OpenGL/ \
-	$(LOCAL_PATH) \
-	$(LOCAL_PATH)/Renderer/ \
-	$(LOCAL_PATH)/Common/ \
-	$(LOCAL_PATH)/Shader/ \
-	$(LOCAL_PATH)/Main/
+	$(LOCAL_PATH)
 
-ifdef use_subzero
+ifdef REACTOR_USE_SUBZERO
+
 COMMON_C_INCLUDES += \
 	$(LOCAL_PATH)/../third_party/subzero/ \
 	$(LOCAL_PATH)/../third_party/llvm-subzero/include/ \
 	$(LOCAL_PATH)/../third_party/llvm-subzero/build/Android/include/ \
 	$(LOCAL_PATH)/../third_party/subzero/pnacl-llvm/include/
+
 else
+
+ifeq ($(REACTOR_LLVM_VERSION),3)
 COMMON_C_INCLUDES += \
 	$(LOCAL_PATH)/../third_party/LLVM/include
+else
+COMMON_C_INCLUDES += \
+	$(LOCAL_PATH)/../third_party/llvm-7.0/llvm/include \
+	$(LOCAL_PATH)/../third_party/llvm-7.0/configs/android/include \
+	$(LOCAL_PATH)/../third_party/llvm-7.0/configs/common/include
+endif
+
+endif
+
+# Project Treble is introduced from Oreo MR1
+ifeq ($(shell test $(PLATFORM_SDK_VERSION) -ge 27 && echo OreoMR1),OreoMR1)
+COMMON_SHARED_LIBRARIES := libnativewindow liblog
+COMMON_HEADER_LIBRARIES := libhardware_headers libnativebase_headers
+COMMON_STATIC_LIBRARIES := libarect
 endif
 
 # Marshmallow does not have stlport, but comes with libc++ by default
@@ -50,17 +60,22 @@ COMMON_SRC_FILES += \
 	Main/FrameBufferAndroid.cpp \
 	Main/SwiftConfig.cpp
 
-ifdef use_subzero
+COMMON_SRC_FILES += \
+	Reactor/Routine.cpp \
+	Reactor/Debug.cpp \
+	Reactor/DebugAndroid.cpp \
+	Reactor/ExecutableMemory.cpp
+
+ifdef REACTOR_USE_SUBZERO
 COMMON_SRC_FILES += \
 	Reactor/SubzeroReactor.cpp \
-	Reactor/Routine.cpp \
 	Reactor/Optimizer.cpp
 else
 COMMON_SRC_FILES += \
 	Reactor/LLVMReactor.cpp \
-	Reactor/Routine.cpp \
 	Reactor/LLVMRoutine.cpp \
-	Reactor/LLVMRoutineManager.cpp
+	Reactor/LLVMRoutineManager.cpp \
+	Reactor/CPUID.cpp
 endif
 
 COMMON_SRC_FILES += \
@@ -104,16 +119,28 @@ COMMON_SRC_FILES += \
 
 COMMON_CFLAGS := \
 	-DLOG_TAG=\"swiftshader\" \
+	-Wall \
+	-Werror \
+	-Wno-format \
+	-Wno-switch \
+	-Wno-unused-local-typedef \
 	-Wno-unused-parameter \
+	-Wno-unused-value \
+	-Wno-unused-variable \
 	-Wno-implicit-exception-spec-mismatch \
+	-Wno-implicit-fallthrough \
 	-Wno-overloaded-virtual \
 	-Wno-non-virtual-dtor \
+	-Wno-attributes \
+	-Wno-unknown-attributes \
+	-Wno-unknown-warning-option \
 	-fno-operator-names \
 	-msse2 \
 	-D__STDC_CONSTANT_MACROS \
 	-D__STDC_LIMIT_MACROS \
 	-DANDROID_PLATFORM_SDK_VERSION=$(PLATFORM_SDK_VERSION) \
-	-std=c++11
+	-std=c++11 \
+	-DNO_SANITIZE_FUNCTION=
 
 ifneq (16,${PLATFORM_SDK_VERSION})
 COMMON_CFLAGS += -Xclang -fuse-init-array
@@ -129,6 +156,9 @@ COMMON_C_INCLUDES += \
 	system/core/libsync
 endif
 
+# Common LLVM defines
+COMMON_CFLAGS += -DREACTOR_LLVM_VERSION=$(REACTOR_LLVM_VERSION)
+
 # Common Subzero defines
 COMMON_CFLAGS += -DALLOW_DUMP=0 -DALLOW_TIMERS=0 -DALLOW_LLVM_CL=0 -DALLOW_LLVM_IR=0 -DALLOW_LLVM_IR_AS_INPUT=0 -DALLOW_MINIMAL_BUILD=0 -DALLOW_WASM=0 -DICE_THREAD_LOCAL_HACK=1
 
@@ -140,19 +170,31 @@ LOCAL_CFLAGS_arm += -DSZTARGET=ARM32
 include $(CLEAR_VARS)
 LOCAL_CLANG := true
 LOCAL_MODULE := swiftshader_top_release
+LOCAL_VENDOR_MODULE := true
 LOCAL_MODULE_TAGS := optional
 LOCAL_SRC_FILES := $(COMMON_SRC_FILES)
 LOCAL_CFLAGS := $(COMMON_CFLAGS) -fomit-frame-pointer -ffunction-sections -fdata-sections -DANGLE_DISABLE_TRACE
 LOCAL_C_INCLUDES := $(COMMON_C_INCLUDES)
+LOCAL_SHARED_LIBRARIES := $(COMMON_SHARED_LIBRARIES)
+LOCAL_HEADER_LIBRARIES := $(COMMON_HEADER_LIBRARIES)
+LOCAL_STATIC_LIBRARIES := $(COMMON_STATIC_LIBRARIES)
 include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_CLANG := true
 LOCAL_MODULE := swiftshader_top_debug
+LOCAL_VENDOR_MODULE := true
 LOCAL_MODULE_TAGS := optional
 LOCAL_SRC_FILES := $(COMMON_SRC_FILES)
 LOCAL_CFLAGS := $(COMMON_CFLAGS) -UNDEBUG -g -O0 -DDEFAULT_THREAD_COUNT=1
 LOCAL_C_INCLUDES := $(COMMON_C_INCLUDES)
+LOCAL_SHARED_LIBRARIES := $(COMMON_SHARED_LIBRARIES)
+LOCAL_HEADER_LIBRARIES := $(COMMON_HEADER_LIBRARIES)
+LOCAL_STATIC_LIBRARIES := $(COMMON_STATIC_LIBRARIES)
 include $(BUILD_STATIC_LIBRARY)
 
-include $(call all-makefiles-under,$(LOCAL_PATH))
+include $(swiftshader_src_root)/Reactor/Android.mk
+include $(swiftshader_src_root)/OpenGL/libGLESv2/Android.mk
+include $(swiftshader_src_root)/OpenGL/libGLES_CM/Android.mk
+include $(swiftshader_src_root)/OpenGL/libEGL/Android.mk
+include $(swiftshader_src_root)/OpenGL/compiler/Android.mk

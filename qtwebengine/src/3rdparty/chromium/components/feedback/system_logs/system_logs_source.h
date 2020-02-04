@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_FEEDBACK_SYSTEM_LOGS_SYSTEM_LOGS_SOURCE_H_
 #define COMPONENTS_FEEDBACK_SYSTEM_LOGS_SYSTEM_LOGS_SOURCE_H_
 
+#include <memory>
 #include <string>
 
 #include "base/callback.h"
@@ -15,7 +16,8 @@ namespace system_logs {
 using SystemLogsResponse = FeedbackCommon::SystemLogsMap;
 
 // Callback that the data sources use to return data.
-using SysLogsSourceCallback = base::Callback<void(SystemLogsResponse*)>;
+using SysLogsSourceCallback =
+    base::OnceCallback<void(std::unique_ptr<SystemLogsResponse>)>;
 
 // The SystemLogsSource provides an interface for the data sources that
 // the SystemLogsFetcher class uses to fetch logs and other information.
@@ -26,7 +28,7 @@ class SystemLogsSource {
   virtual ~SystemLogsSource();
 
   // Fetches data and passes it by pointer to the callback
-  virtual void Fetch(const SysLogsSourceCallback& callback) = 0;
+  virtual void Fetch(SysLogsSourceCallback callback) = 0;
 
   const std::string& source_name() const { return source_name_; }
 

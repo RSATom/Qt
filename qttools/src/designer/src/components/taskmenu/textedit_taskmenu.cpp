@@ -28,10 +28,10 @@
 
 #include "textedit_taskmenu.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QAction>
-#include <QtCore/QEvent>
+#include <QtWidgets/qaction.h>
+#include <QtCore/qcoreevent.h>
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -69,9 +69,7 @@ void TextEditTaskMenu::initialize()
     m_taskActions.append(sep);
 }
 
-TextEditTaskMenu::~TextEditTaskMenu()
-{
-}
+TextEditTaskMenu::~TextEditTaskMenu() = default;
 
 QAction *TextEditTaskMenu::preferredEditAction() const
 {

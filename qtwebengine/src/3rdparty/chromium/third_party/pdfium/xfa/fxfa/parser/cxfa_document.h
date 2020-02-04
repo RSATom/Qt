@@ -9,11 +9,12 @@
 
 #include <map>
 #include <memory>
-#include <set>
 #include <vector>
 
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fxfa/fxfa.h"
 #include "xfa/fxfa/parser/cxfa_localemgr.h"
+#include "xfa/fxfa/parser/cxfa_nodeowner.h"
 
 enum XFA_VERSION {
   XFA_VERSION_UNKNOWN = 0,
@@ -40,57 +41,49 @@ enum XFA_DocFlag {
   XFA_DOCFLAG_Scripting = 0x0008
 };
 
-class CFX_XMLDoc;
+class CFXJSE_Engine;
+class CJS_Runtime;
 class CScript_DataWindow;
 class CScript_EventPseudoModel;
 class CScript_HostPseudoModel;
-class CScript_LogPseudoModel;
 class CScript_LayoutPseudoModel;
+class CScript_LogPseudoModel;
 class CScript_SignaturePseudoModel;
-class CXFA_Document;
-class CXFA_LayoutItem;
+class CXFA_FFNotify;
 class CXFA_LayoutProcessor;
 class CXFA_Node;
-class CXFA_LayoutProcessor;
-class CXFA_DocumentParser;
-class CXFA_ContainerLayoutItem;
-class CXFA_FFNotify;
-class CXFA_ScriptContext;
+class CXFA_Object;
 
-class CXFA_Document {
+class CXFA_Document final : public CXFA_NodeOwner {
  public:
-  explicit CXFA_Document(CXFA_DocumentParser* pParser);
-  ~CXFA_Document();
+  explicit CXFA_Document(CXFA_FFNotify* notify);
+  ~CXFA_Document() override;
 
-  CXFA_ScriptContext* InitScriptContext(v8::Isolate* pIsolate);
+  CFXJSE_Engine* InitScriptContext(CJS_Runtime* fxjs_runtime);
 
   CXFA_Node* GetRoot() const { return m_pRootNode; }
-
-  CFX_XMLDoc* GetXMLDoc() const;
-  CXFA_FFNotify* GetNotify() const;
-  CXFA_LocaleMgr* GetLocalMgr();
+  CXFA_FFNotify* GetNotify() const { return notify_.Get(); }
+  CXFA_LocaleMgr* GetLocaleMgr();
   CXFA_Object* GetXFAObject(XFA_HashCode wsNodeNameHash);
-  CXFA_Node* GetNodeByID(CXFA_Node* pRoot, const CFX_WideStringC& wsID);
-  CXFA_Node* GetNotBindNode(const std::vector<CXFA_Object*>& arrayNodes);
+  CXFA_Node* GetNodeByID(CXFA_Node* pRoot, WideStringView wsID) const;
+  CXFA_Node* GetNotBindNode(
+      const std::vector<UnownedPtr<CXFA_Object>>& arrayNodes) const;
   CXFA_LayoutProcessor* GetLayoutProcessor();
-  CXFA_LayoutProcessor* GetDocLayout();
-  CXFA_ScriptContext* GetScriptContext();
+  CFXJSE_Engine* GetScriptContext() const;
 
-  void SetRoot(CXFA_Node* pNewRoot);
+  void SetRoot(CXFA_Node* pNewRoot) { m_pRootNode = pNewRoot; }
 
-  void AddPurgeNode(CXFA_Node* pNode);
-  bool RemovePurgeNode(CXFA_Node* pNode);
-  void PurgeNodes();
-
-  bool HasFlag(uint32_t dwFlag) { return (m_dwDocFlags & dwFlag) == dwFlag; }
+  bool HasFlag(uint32_t dwFlag) const {
+    return (m_dwDocFlags & dwFlag) == dwFlag;
+  }
   void SetFlag(uint32_t dwFlag, bool bOn);
 
   bool IsInteractive();
   XFA_VERSION GetCurVersionMode() { return m_eCurVersionMode; }
-  XFA_VERSION RecognizeXFAVersionNumber(const CFX_WideString& wsTemplateNS);
+  XFA_VERSION RecognizeXFAVersionNumber(const WideString& wsTemplateNS);
+  FormType GetFormType() const;
 
-  CXFA_Node* CreateNode(uint32_t dwPacket, XFA_Element eElement);
-  CXFA_Node* CreateNode(const XFA_PACKETINFO* pPacket, XFA_Element eElement);
+  CXFA_Node* CreateNode(XFA_PacketType packet, XFA_Element eElement);
 
   void DoProtoMerge();
   void DoDataMerge();
@@ -105,22 +98,24 @@ class CXFA_Document {
 
   void ClearLayoutData();
 
-  std::map<uint32_t, CXFA_Node*> m_rgGlobalBinding;
+  CXFA_Node* GetGlobalBinding(uint32_t dwNameHash);
+  void RegisterGlobalBinding(uint32_t dwNameHash, CXFA_Node* pDataNode);
+
   std::vector<CXFA_Node*> m_pPendingPageSet;
 
  private:
-  CXFA_DocumentParser* m_pParser;
+  UnownedPtr<CXFA_FFNotify> notify_;
   CXFA_Node* m_pRootNode;
-  std::unique_ptr<CXFA_ScriptContext> m_pScriptContext;
+  std::map<uint32_t, CXFA_Node*> m_rgGlobalBinding;
+  std::unique_ptr<CFXJSE_Engine> m_pScriptContext;
   std::unique_ptr<CXFA_LayoutProcessor> m_pLayoutProcessor;
-  std::unique_ptr<CXFA_LocaleMgr> m_pLocalMgr;
+  std::unique_ptr<CXFA_LocaleMgr> m_pLocaleMgr;
   std::unique_ptr<CScript_DataWindow> m_pScriptDataWindow;
   std::unique_ptr<CScript_EventPseudoModel> m_pScriptEvent;
   std::unique_ptr<CScript_HostPseudoModel> m_pScriptHost;
   std::unique_ptr<CScript_LogPseudoModel> m_pScriptLog;
   std::unique_ptr<CScript_LayoutPseudoModel> m_pScriptLayout;
   std::unique_ptr<CScript_SignaturePseudoModel> m_pScriptSignature;
-  std::set<CXFA_Node*> m_PurgeNodes;
   XFA_VERSION m_eCurVersionMode;
   uint32_t m_dwDocFlags;
 };

@@ -28,33 +28,34 @@ class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
   ~CPDFSDK_BAAnnot() override;
 
   // CPDFSDK_Annot
+  CPDFSDK_BAAnnot* AsBAAnnot() override;
   CPDF_Annot::Subtype GetAnnotSubtype() const override;
   void SetRect(const CFX_FloatRect& rect) override;
   CFX_FloatRect GetRect() const override;
   CPDF_Annot* GetPDFAnnot() const override;
+  int GetLayoutOrder() const override;
+
+  virtual CPDF_Action GetAAction(CPDF_AAction::AActionType eAAT);
+  virtual bool IsAppearanceValid();
+  virtual bool IsAppearanceValid(CPDF_Annot::AppearanceMode mode);
+  virtual void DrawAppearance(CFX_RenderDevice* pDevice,
+                              const CFX_Matrix& mtUser2Device,
+                              CPDF_Annot::AppearanceMode mode,
+                              const CPDF_RenderOptions* pOptions);
 
   CPDF_Dictionary* GetAnnotDict() const;
   CPDF_Annot* GetPDFPopupAnnot() const;
 
   CPDF_Dictionary* GetAPDict() const;
 
-  void SetContents(const CFX_WideString& sContents);
-  CFX_WideString GetContents() const;
-
-  void SetAnnotName(const CFX_WideString& sName);
-  CFX_WideString GetAnnotName() const;
-
-  void SetModifiedDate(const FX_SYSTEMTIME& st);
-  FX_SYSTEMTIME GetModifiedDate() const;
+  void SetAnnotName(const WideString& sName);
+  WideString GetAnnotName() const;
 
   void SetFlags(uint32_t nFlags);
   uint32_t GetFlags() const;
 
-  void SetAppState(const CFX_ByteString& str);
-  CFX_ByteString GetAppState() const;
-
-  void SetStructParent(int key);
-  int GetStructParent() const;
+  void SetAppState(const ByteString& str);
+  ByteString GetAppState() const;
 
   void SetBorderWidth(int nWidth);
   int GetBorderWidth() const;
@@ -62,38 +63,16 @@ class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
   void SetBorderStyle(BorderStyle nStyle);
   BorderStyle GetBorderStyle() const;
 
-  void SetColor(FX_COLORREF color);
-  void RemoveColor();
-  bool GetColor(FX_COLORREF& color) const;
-
   bool IsVisible() const;
 
   CPDF_Action GetAction() const;
-  void SetAction(const CPDF_Action& a);
-  void RemoveAction();
 
   CPDF_AAction GetAAction() const;
-  void SetAAction(const CPDF_AAction& aa);
-  void RemoveAAction();
-
-  virtual CPDF_Action GetAAction(CPDF_AAction::AActionType eAAT);
-  virtual bool IsAppearanceValid();
-  virtual bool IsAppearanceValid(CPDF_Annot::AppearanceMode mode);
-  virtual void DrawAppearance(CFX_RenderDevice* pDevice,
-                              const CFX_Matrix* pUser2Device,
-                              CPDF_Annot::AppearanceMode mode,
-                              const CPDF_RenderOptions* pOptions);
-
-  void DrawBorder(CFX_RenderDevice* pDevice,
-                  const CFX_Matrix* pUser2Device,
-                  const CPDF_RenderOptions* pOptions);
-
-  void ClearCachedAP();
 
   void SetOpenState(bool bState);
 
  protected:
-  CFX_UnownedPtr<CPDF_Annot> const m_pAnnot;
+  UnownedPtr<CPDF_Annot> const m_pAnnot;
 };
 
 #endif  // FPDFSDK_CPDFSDK_BAANNOT_H_

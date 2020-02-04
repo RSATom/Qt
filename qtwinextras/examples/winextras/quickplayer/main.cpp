@@ -50,6 +50,8 @@
 
 #include <QQmlApplicationEngine>
 #include <QGuiApplication>
+#include <QCommandLineParser>
+#include <QCommandLineOption>
 #include <QWindow>
 #include <QQmlContext>
 #include <QStandardPaths>
@@ -57,21 +59,32 @@
 
 int main(int argc, char *argv[])
 {
+    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QGuiApplication app(argc, argv);
-    app.setApplicationName("QuickPlayer");
-    app.setOrganizationName("QtWinExtras");
-    app.setOrganizationDomain("qt-project.org");
-    app.setApplicationDisplayName("QtWinExtras Quick Player");
+    QCoreApplication::setApplicationName(QStringLiteral("QuickPlayer"));
+    QCoreApplication::setApplicationVersion(QLatin1String(QT_VERSION_STR));
+    QCoreApplication::setOrganizationName(QStringLiteral("QtWinExtras"));
+    QCoreApplication::setOrganizationDomain(QStringLiteral("qt-project.org"));
+    QGuiApplication::setApplicationDisplayName(QStringLiteral("QtWinExtras Quick Player"));
 
     QQmlApplicationEngine engine;
     const QStringList musicPaths = QStandardPaths::standardLocations(QStandardPaths::MusicLocation);
     const QUrl musicUrl = QUrl::fromLocalFile(musicPaths.isEmpty() ? QDir::homePath() : musicPaths.first());
     engine.rootContext()->setContextProperty(QStringLiteral("musicUrl"), musicUrl);
-    const QStringList arguments = QCoreApplication::arguments();
-    const QUrl commandLineUrl = arguments.size() > 1 ? QUrl::fromLocalFile(arguments.at(1)) : QUrl();
+
+    QCommandLineParser parser;
+    parser.setApplicationDescription(QGuiApplication::applicationDisplayName());
+    parser.addHelpOption();
+    parser.addVersionOption();
+    parser.addPositionalArgument(QStringLiteral("url"), QStringLiteral("The URL to open."));
+    parser.process(app);
+    QUrl commandLineUrl;
+    if (!parser.positionalArguments().isEmpty())
+        commandLineUrl = QUrl::fromUserInput(parser.positionalArguments().constFirst(), QDir::currentPath(), QUrl::AssumeLocalFile);
     engine.rootContext()->setContextProperty(QStringLiteral("url"), commandLineUrl);
-    engine.load(QUrl("qrc:/main.qml"));
-    QObject* root = engine.rootObjects().value(0);
+
+    engine.load(QUrl(QStringLiteral("qrc:/main.qml")));
+    QObject *root = engine.rootObjects().value(0);
     if (QWindow *window = qobject_cast<QWindow *>(root))
         window->show();
     else

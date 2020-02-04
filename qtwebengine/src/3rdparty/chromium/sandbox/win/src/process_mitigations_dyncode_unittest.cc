@@ -8,6 +8,8 @@
 
 #include <string>
 
+#include "base/files/file_util.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
 #include "base/win/windows_version.h"
@@ -51,7 +53,7 @@ int DynamicCodeTest(DynCodeAPI which_test, wchar_t* path) {
       // Test VirtualAlloc with PAGE_EXECUTE_READWRITE.
       //-----------------------------------------------
       // Size rounds up to one page.
-      void* allocation = ::VirtualAlloc(NULL, 1, MEM_RESERVE | MEM_COMMIT,
+      void* allocation = ::VirtualAlloc(nullptr, 1, MEM_RESERVE | MEM_COMMIT,
                                         PAGE_EXECUTE_READWRITE);
       if (!allocation) {
         DWORD error = ::GetLastError();
@@ -84,9 +86,9 @@ int DynamicCodeTest(DynCodeAPI which_test, wchar_t* path) {
       // (Custom created mapping.)
       //-----------------------------------------------------------
       HANDLE section =
-          ::CreateFileMappingW(INVALID_HANDLE_VALUE, NULL,
+          ::CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
                                PAGE_EXECUTE_READWRITE, 0, 4096, L"TestMapping");
-      if (section == NULL) {
+      if (!section) {
         DWORD error = ::GetLastError();
         return static_cast<int>(error);
       }
@@ -96,7 +98,7 @@ int DynamicCodeTest(DynCodeAPI which_test, wchar_t* path) {
       HANDLE* view = reinterpret_cast<HANDLE*>(::MapViewOfFile(
           section, FILE_MAP_EXECUTE | FILE_MAP_WRITE, 0, 0, 4096));
 
-      if (view == NULL) {
+      if (!view) {
         DWORD error = ::GetLastError();
         return static_cast<int>(error);
       }
@@ -110,22 +112,22 @@ int DynamicCodeTest(DynCodeAPI which_test, wchar_t* path) {
       // (Existing file on disk mapping.)
       //-----------------------------------------------------------
       // Caller should have passed in a non-null file path.
-      if (path == nullptr)
+      if (!path)
         return sandbox::SBOX_TEST_INVALID_PARAMETER;
 
       // Note: INVALID_HANDLE_VALUE
       HANDLE file_handle =
           ::CreateFile(path, GENERIC_EXECUTE | GENERIC_READ | GENERIC_WRITE,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
-                       FILE_ATTRIBUTE_NORMAL, NULL);
+                       FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
       if (file_handle == INVALID_HANDLE_VALUE) {
         DWORD error = ::GetLastError();
         return static_cast<int>(error);
       }
 
       HANDLE mapping_handle = ::CreateFileMapping(
-          file_handle, NULL, PAGE_EXECUTE_READWRITE, 0, 1, NULL);
-      if (mapping_handle == NULL) {
+          file_handle, nullptr, PAGE_EXECUTE_READWRITE, 0, 1, nullptr);
+      if (!mapping_handle) {
         ::CloseHandle(file_handle);
         DWORD error = ::GetLastError();
         return static_cast<int>(error);
@@ -135,7 +137,7 @@ int DynamicCodeTest(DynCodeAPI which_test, wchar_t* path) {
       // Any other access request will succeed even with the mitigation enabled.
       void* view_start = ::MapViewOfFile(
           mapping_handle, FILE_MAP_EXECUTE | FILE_MAP_WRITE, 0, 0, 0);
-      if (view_start == NULL) {
+      if (!view_start) {
         ::CloseHandle(mapping_handle);
         ::CloseHandle(file_handle);
         DWORD error = ::GetLastError();
@@ -161,16 +163,16 @@ class DynamicCodeOptOutThread {
   DynamicCodeOptOutThread(bool mitigation,
                           DynCodeAPI which_test,
                           wchar_t* path = nullptr)
-      : thread_(NULL),
+      : thread_(nullptr),
         opt_out_(mitigation),
         which_api_test_(which_test),
         file_path_(path),
         return_code_(sandbox::SBOX_TEST_NOT_FOUND) {}
 
   ~DynamicCodeOptOutThread() {
-    if (thread_ != NULL) {
+    if (thread_) {
       ::CloseHandle(thread_);
-      thread_ = NULL;
+      thread_ = nullptr;
     }
   }
 
@@ -184,11 +186,11 @@ class DynamicCodeOptOutThread {
   // Main function.  Call this to create and start the test thread.
   // Call Join() to get the test result.
   void Start() {
-    if (thread_ != NULL)
+    if (thread_)
       return;
 
     thread_ = ::CreateThread(nullptr, 0, StaticThreadFunc, this, 0, nullptr);
-    if (thread_ == NULL) {
+    if (!thread_) {
       return_code_ = ::GetLastError();
       return;
     }
@@ -197,7 +199,7 @@ class DynamicCodeOptOutThread {
   // Wait for test thread to finish, and get the final test result.
   int Join() {
     // Handle case where thread creation failed.
-    if (thread_ == NULL)
+    if (!thread_)
       return return_code_;
 
     // NOTE: TestTimeouts::action_max_timeout() is not long enough here.  In
@@ -308,14 +310,21 @@ void DynamicCodeTestHarness(sandbox::MitigationFlags which_mitigation,
 
   // Ensure sandbox access to the file on disk.
   base::FilePath dll_path;
-  EXPECT_TRUE(base::PathService::Get(base::DIR_EXE, &dll_path));
+  ASSERT_TRUE(base::PathService::Get(base::DIR_EXE, &dll_path));
   dll_path = dll_path.Append(hooking_dll::g_hook_dll_file);
 
+  // File must be writable, so create a writable copy in a temporary directory.
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  base::FilePath temp_dll_path =
+      temp_dir.GetPath().Append(hooking_dll::g_hook_dll_file);
+  ASSERT_TRUE(base::CopyFile(dll_path, temp_dll_path));
+
   EXPECT_TRUE(runner.AddFsRule(sandbox::TargetPolicy::FILES_ALLOW_ANY,
-                               dll_path.value().c_str()));
+                               temp_dll_path.value().c_str()));
 
   test = base::StringPrintf(L"%ls %u \"%ls\"", shared.c_str(), MAPVIEWFILE,
-                            dll_path.value().c_str());
+                            temp_dll_path.value().c_str());
   EXPECT_EQ((expect_success ? sandbox::SBOX_TEST_SUCCEEDED
                             : ERROR_DYNAMIC_CODE_BLOCKED),
             runner.RunTest(test.c_str()));
@@ -334,7 +343,7 @@ namespace sandbox {
 // - Arg1 is a DynCodeAPI indicating which API to test.
 // - [OPTIONAL] If Arg1 is MAPVIEWFILE, Arg2 is a file path to map.
 SBOX_TESTS_COMMAND int TestWin81DynamicCode(int argc, wchar_t** argv) {
-  if (argc < 1 || argv[0] == nullptr)
+  if (argc < 1 || !argv[0])
     return SBOX_TEST_INVALID_PARAMETER;
 
   // Arg1
@@ -357,7 +366,7 @@ SBOX_TESTS_COMMAND int TestWin81DynamicCode(int argc, wchar_t** argv) {
 // - [OPTIONAL] If Arg2 is MAPVIEWFILE, Arg3 is a file path to map.
 SBOX_TESTS_COMMAND int TestWin10DynamicCodeWithOptOut(int argc,
                                                       wchar_t** argv) {
-  if (argc < 2 || argv[0] == nullptr || argv[1] == nullptr)
+  if (argc < 2 || !argv[0] || !argv[1])
     return SBOX_TEST_INVALID_PARAMETER;
 
   // Arg1
@@ -397,6 +406,11 @@ TEST(ProcessMitigationsTest, CheckWin81DynamicCodePolicySuccess) {
   if (base::win::GetVersion() < base::win::VERSION_WIN8_1)
     return;
 
+// TODO(crbug.com/805414): Windows ASan hotpatching requires dynamic code.
+#if defined(ADDRESS_SANITIZER)
+  return;
+#endif
+
   base::string16 test_command = L"CheckPolicy ";
   test_command += std::to_wstring(TESTPOLICY_DYNAMICCODE);
 
@@ -433,8 +447,9 @@ TEST(ProcessMitigationsTest, CheckWin81DynamicCode_BaseCase) {
   if (base::win::GetVersion() < base::win::VERSION_WIN8_1)
     return;
 
-  HANDLE mutex = ::CreateMutexW(NULL, FALSE, hooking_dll::g_hooking_dll_mutex);
-  EXPECT_TRUE(mutex != NULL);
+  HANDLE mutex =
+      ::CreateMutexW(nullptr, false, hooking_dll::g_hooking_dll_mutex);
+  EXPECT_TRUE(mutex);
   EXPECT_EQ(WAIT_OBJECT_0,
             ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
 
@@ -451,8 +466,9 @@ TEST(ProcessMitigationsTest, CheckWin81DynamicCode_TestMitigation) {
   if (base::win::GetVersion() < base::win::VERSION_WIN8_1)
     return;
 
-  HANDLE mutex = ::CreateMutexW(NULL, FALSE, hooking_dll::g_hooking_dll_mutex);
-  EXPECT_TRUE(mutex != NULL);
+  HANDLE mutex =
+      ::CreateMutexW(nullptr, false, hooking_dll::g_hooking_dll_mutex);
+  EXPECT_TRUE(mutex);
   EXPECT_EQ(WAIT_OBJECT_0,
             ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
 
@@ -475,6 +491,11 @@ TEST(ProcessMitigationsTest, CheckWin81DynamicCode_TestMitigation) {
 TEST(ProcessMitigationsTest, CheckWin10DynamicCodeOptOutPolicySuccess) {
   if (base::win::GetVersion() < base::win::VERSION_WIN10_RS1)
     return;
+
+// TODO(crbug.com/805414): Windows ASan hotpatching requires dynamic code.
+#if defined(ADDRESS_SANITIZER)
+  return;
+#endif
 
   base::string16 test_command = L"CheckPolicy ";
   test_command += std::to_wstring(TESTPOLICY_DYNAMICCODEOPTOUT);
@@ -513,8 +534,9 @@ TEST(ProcessMitigationsTest, CheckWin10DynamicCodeOptOut_BaseCase) {
   if (base::win::GetVersion() < base::win::VERSION_WIN10_RS1)
     return;
 
-  HANDLE mutex = ::CreateMutexW(NULL, FALSE, hooking_dll::g_hooking_dll_mutex);
-  EXPECT_TRUE(mutex != NULL);
+  HANDLE mutex =
+      ::CreateMutexW(nullptr, false, hooking_dll::g_hooking_dll_mutex);
+  EXPECT_TRUE(mutex);
   EXPECT_EQ(WAIT_OBJECT_0,
             ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
 
@@ -533,8 +555,9 @@ TEST(ProcessMitigationsTest, CheckWin10DynamicCodeOptOut_TestMitigation) {
   if (base::win::GetVersion() < base::win::VERSION_WIN10_RS1)
     return;
 
-  HANDLE mutex = ::CreateMutexW(NULL, FALSE, hooking_dll::g_hooking_dll_mutex);
-  EXPECT_TRUE(mutex != NULL);
+  HANDLE mutex =
+      ::CreateMutexW(nullptr, false, hooking_dll::g_hooking_dll_mutex);
+  EXPECT_TRUE(mutex);
   EXPECT_EQ(WAIT_OBJECT_0,
             ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
 
@@ -554,8 +577,9 @@ TEST(ProcessMitigationsTest,
   if (base::win::GetVersion() < base::win::VERSION_WIN10_RS1)
     return;
 
-  HANDLE mutex = ::CreateMutexW(NULL, FALSE, hooking_dll::g_hooking_dll_mutex);
-  EXPECT_TRUE(mutex != NULL);
+  HANDLE mutex =
+      ::CreateMutexW(nullptr, false, hooking_dll::g_hooking_dll_mutex);
+  EXPECT_TRUE(mutex);
   EXPECT_EQ(WAIT_OBJECT_0,
             ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
 

@@ -10,6 +10,7 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
+#include "base/observer_list.h"
 #include "base/values.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -27,10 +28,33 @@ class RulesRegistry;
 // registering rules on initialization will be logged with UMA.
 class RulesCacheDelegate {
  public:
+  class Observer {
+   public:
+    // Called when |UpdateRules| is called on the |RulesCacheDelegate|.
+    virtual void OnUpdateRules() = 0;
 
-  explicit RulesCacheDelegate(bool log_storage_init_delay);
+   protected:
+    virtual ~Observer() {}
+  };
+
+  // Determines the type of a cache, indicating whether or not its rules are
+  // persisted to storage.
+  enum class Type {
+    // An ephemeral RulesCacheDelegate never persists to storage when
+    // |UpdateRules()| is called. It merely tracks rule state on the UI thread.
+    kEphemeral,
+
+    // Persistent RulesCacheDelegate writes the new rule set into storage every
+    // time |UpdateRules()| is called, in addition to tracking rule state on the
+    // UI thread.
+    kPersistent,
+  };
+
+  RulesCacheDelegate(Type type, bool log_storage_init_delay);
 
   virtual ~RulesCacheDelegate();
+
+  Type type() const { return type_; }
 
   // Returns a key for the state store. The associated preference is a boolean
   // indicating whether there are some declarative rules stored in the rule
@@ -41,8 +65,14 @@ class RulesCacheDelegate {
   // Initialize the storage functionality.
   void Init(RulesRegistry* registry);
 
-  void WriteToStorage(const std::string& extension_id,
-                      std::unique_ptr<base::Value> value);
+  void UpdateRules(const std::string& extension_id, base::Value value);
+
+  // Indicates whether or not this registry has any registered rules cached.
+  bool HasRules() const;
+
+  // Adds or removes an observer.
+  void AddObserver(Observer* observer);
+  void RemoveObserver(Observer* observer);
 
   base::WeakPtr<RulesCacheDelegate> GetWeakPtr() {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -54,6 +84,8 @@ class RulesCacheDelegate {
                            DeclarativeRulesStored);
   FRIEND_TEST_ALL_PREFIXES(RulesRegistryWithCacheTest,
                            RulesStoredFlagMultipleRegistries);
+
+  const Type type_;
 
   static const char kRulesStoredKey[];
 
@@ -81,10 +113,15 @@ class RulesCacheDelegate {
 
   content::BrowserContext* browser_context_;
 
-  // The key under which rules are stored.
+  // Indicates whether the ruleset is non-empty. Valid for both |kEphemeral| and
+  // |kPersistent| cache types.
+  bool has_nonempty_ruleset_ = false;
+
+  // The key under which rules are stored. Only used for |kPersistent| caches.
   std::string storage_key_;
 
-  // The key under which we store whether the rules have been stored.
+  // The key under which we store whether the rules have been stored. Only used
+  // for |kPersistent| caches.
   std::string rules_stored_key_;
 
   // A set of extension IDs that have rules we are reading from storage.
@@ -103,6 +140,8 @@ class RulesCacheDelegate {
 
   // We notified the RulesRegistry that the rules are loaded.
   bool notified_registry_;
+
+  base::ObserverList<Observer>::Unchecked observers_;
 
   // Use this factory to generate weak pointers bound to the UI thread.
   base::WeakPtrFactory<RulesCacheDelegate> weak_ptr_factory_;

@@ -13,6 +13,7 @@
 #include <string>
 #include <utility>
 
+#include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -23,7 +24,6 @@
 #include "storage/browser/fileapi/file_system_options.h"
 #include "storage/browser/fileapi/file_system_quota_util.h"
 #include "storage/browser/fileapi/task_runner_bound_observer_list.h"
-#include "storage/browser/storage_browser_export.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -32,6 +32,10 @@ class SequencedTaskRunner;
 namespace content {
 class SandboxFileSystemBackendDelegateTest;
 class SandboxFileSystemTestHelper;
+}
+
+namespace leveldb {
+class Env;
 }
 
 namespace storage {
@@ -57,10 +61,10 @@ class SandboxQuotaObserver;
 
 // Delegate implementation of the some methods in Sandbox/SyncFileSystemBackend.
 // An instance of this class is created and owned by FileSystemContext.
-class STORAGE_EXPORT SandboxFileSystemBackendDelegate
+class COMPONENT_EXPORT(STORAGE_BROWSER) SandboxFileSystemBackendDelegate
     : public FileSystemQuotaUtil {
  public:
-  typedef FileSystemBackend::OpenFileSystemCallback OpenFileSystemCallback;
+  using OpenFileSystemCallback = FileSystemBackend::OpenFileSystemCallback;
 
   // The FileSystem directory name.
   static const base::FilePath::CharType kFileSystemDirectory[];
@@ -86,7 +90,8 @@ class STORAGE_EXPORT SandboxFileSystemBackendDelegate
       base::SequencedTaskRunner* file_task_runner,
       const base::FilePath& profile_path,
       storage::SpecialStoragePolicy* special_storage_policy,
-      const FileSystemOptions& file_system_options);
+      const FileSystemOptions& file_system_options,
+      leveldb::Env* env_override);
 
   ~SandboxFileSystemBackendDelegate() override;
 
@@ -106,12 +111,11 @@ class STORAGE_EXPORT SandboxFileSystemBackendDelegate
       bool create);
 
   // FileSystemBackend helpers.
-  void OpenFileSystem(
-      const GURL& origin_url,
-      FileSystemType type,
-      OpenFileSystemMode mode,
-      const OpenFileSystemCallback& callback,
-      const GURL& root_url);
+  void OpenFileSystem(const GURL& origin_url,
+                      FileSystemType type,
+                      OpenFileSystemMode mode,
+                      OpenFileSystemCallback callback,
+                      const GURL& root_url);
   std::unique_ptr<FileSystemOperationContext> CreateFileSystemOperationContext(
       const FileSystemURL& url,
       FileSystemContext* context,
@@ -133,6 +137,9 @@ class STORAGE_EXPORT SandboxFileSystemBackendDelegate
       storage::QuotaManagerProxy* proxy,
       const GURL& origin_url,
       FileSystemType type) override;
+  void PerformStorageCleanupOnFileTaskRunner(FileSystemContext* context,
+                                             storage::QuotaManagerProxy* proxy,
+                                             FileSystemType type) override;
   void GetOriginsForTypeOnFileTaskRunner(FileSystemType type,
                                          std::set<GURL>* origins) override;
   void GetOriginsForHostOnFileTaskRunner(FileSystemType type,
@@ -232,6 +239,7 @@ class STORAGE_EXPORT SandboxFileSystemBackendDelegate
   ObfuscatedFileUtil* obfuscated_file_util();
 
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
+  scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy_;
 
   std::unique_ptr<AsyncFileUtil> sandbox_file_util_;
   std::unique_ptr<FileSystemUsageCache> file_system_usage_cache_;
@@ -248,7 +256,7 @@ class STORAGE_EXPORT SandboxFileSystemBackendDelegate
   // Accessed only on the file thread.
   std::set<GURL> visited_origins_;
 
-  std::set<std::pair<GURL, FileSystemType> > sticky_dirty_origins_;
+  std::set<std::pair<GURL, FileSystemType>> sticky_dirty_origins_;
 
   std::map<FileSystemType, UpdateObserverList> update_observers_;
   std::map<FileSystemType, ChangeObserverList> change_observers_;

@@ -40,7 +40,7 @@
 #include "qwindowsinternalmimedata.h"
 #include "qwindowscontext.h"
 #include "qwindowsmime.h"
-#include <QDebug>
+#include <QtCore/qdebug.h>
 /*!
     \class QWindowsInternalMimeDataBase
     \brief Base for implementations of QInternalMimeData using a IDataObject COM object.
@@ -70,7 +70,7 @@ bool QWindowsInternalMimeData::hasFormat_sys(const QString &mime) const
         return false;
 
     const QWindowsMimeConverter &mc = QWindowsContext::instance()->mimeConverter();
-    const bool has = mc.converterToMime(mime, pDataObj) != 0;
+    const bool has = mc.converterToMime(mime, pDataObj) != nullptr;
     releaseDataObject(pDataObj);
     qCDebug(lcQpaMime) << __FUNCTION__ <<  mime << has;
     return has;

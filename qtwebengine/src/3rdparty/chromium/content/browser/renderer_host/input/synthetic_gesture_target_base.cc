@@ -8,7 +8,7 @@
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/renderer_host/ui_events_helper.h"
 #include "content/common/input_messages.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/events/blink/web_input_event_traits.h"
 #include "ui/events/event.h"
 #include "ui/latency/latency_info.h"
@@ -18,6 +18,7 @@ using blink::WebTouchEvent;
 using blink::WebTouchPoint;
 using blink::WebMouseEvent;
 using blink::WebMouseWheelEvent;
+using blink::WebGestureEvent;
 
 namespace content {
 namespace {
@@ -48,35 +49,69 @@ void SyntheticGestureTargetBase::DispatchInputEventToPlatform(
                "type", WebInputEvent::GetName(event.GetType()));
 
   ui::LatencyInfo latency_info;
-  latency_info.AddLatencyNumber(ui::INPUT_EVENT_LATENCY_UI_COMPONENT, 0, 0);
+  latency_info.AddLatencyNumber(ui::INPUT_EVENT_LATENCY_UI_COMPONENT);
 
   if (WebInputEvent::IsTouchEventType(event.GetType())) {
     const WebTouchEvent& web_touch =
         static_cast<const WebTouchEvent&>(event);
 
     // Check that all touch pointers are within the content bounds.
-    for (unsigned i = 0; i < web_touch.touches_length; i++)
-      CHECK(web_touch.touches[i].state != WebTouchPoint::kStatePressed ||
-            PointIsWithinContents(web_touch.touches[i].PositionInWidget().x,
-                                  web_touch.touches[i].PositionInWidget().y))
-          << "Touch coordinates are not within content bounds on TouchStart.";
-
+    for (unsigned i = 0; i < web_touch.touches_length; i++) {
+      if (web_touch.touches[i].state == WebTouchPoint::kStatePressed &&
+          !PointIsWithinContents(web_touch.touches[i].PositionInWidget().x,
+                                 web_touch.touches[i].PositionInWidget().y)) {
+        LOG(WARNING)
+            << "Touch coordinates are not within content bounds on TouchStart.";
+        return;
+      }
+    }
     DispatchWebTouchEventToPlatform(web_touch, latency_info);
   } else if (event.GetType() == WebInputEvent::kMouseWheel) {
     const WebMouseWheelEvent& web_wheel =
         static_cast<const WebMouseWheelEvent&>(event);
-    CHECK(PointIsWithinContents(web_wheel.PositionInWidget().x,
-                                web_wheel.PositionInWidget().y))
-        << "Mouse wheel position is not within content bounds.";
+    if (!PointIsWithinContents(web_wheel.PositionInWidget().x,
+                               web_wheel.PositionInWidget().y)) {
+      LOG(WARNING) << "Mouse wheel position is not within content bounds.";
+      return;
+    }
     DispatchWebMouseWheelEventToPlatform(web_wheel, latency_info);
   } else if (WebInputEvent::IsMouseEventType(event.GetType())) {
     const WebMouseEvent& web_mouse =
         static_cast<const WebMouseEvent&>(event);
-    CHECK(event.GetType() != WebInputEvent::kMouseDown ||
-          PointIsWithinContents(web_mouse.PositionInWidget().x,
-                                web_mouse.PositionInWidget().y))
-        << "Mouse pointer is not within content bounds on MouseDown.";
+    if (event.GetType() == WebInputEvent::kMouseDown &&
+        !PointIsWithinContents(web_mouse.PositionInWidget().x,
+                               web_mouse.PositionInWidget().y)) {
+      LOG(WARNING)
+          << "Mouse pointer is not within content bounds on MouseDown.";
+      return;
+    }
     DispatchWebMouseEventToPlatform(web_mouse, latency_info);
+  } else if (WebInputEvent::IsPinchGestureEventType(event.GetType())) {
+    const WebGestureEvent& web_pinch =
+        static_cast<const WebGestureEvent&>(event);
+    // Touchscreen pinches should be injected as touch events.
+    DCHECK_EQ(blink::kWebGestureDeviceTouchpad, web_pinch.SourceDevice());
+    if (event.GetType() == WebInputEvent::kGesturePinchBegin &&
+        !PointIsWithinContents(web_pinch.PositionInWidget().x,
+                               web_pinch.PositionInWidget().y)) {
+      LOG(WARNING)
+          << "Pinch coordinates are not within content bounds on PinchBegin.";
+      return;
+    }
+    DispatchWebGestureEventToPlatform(web_pinch, latency_info);
+  } else if (WebInputEvent::IsFlingGestureEventType(event.GetType())) {
+    const WebGestureEvent& web_fling =
+        static_cast<const WebGestureEvent&>(event);
+    // Touchscreen swipe should be injected as touch events.
+    DCHECK_EQ(blink::kWebGestureDeviceTouchpad, web_fling.SourceDevice());
+    if (event.GetType() == WebInputEvent::kGestureFlingStart &&
+        !PointIsWithinContents(web_fling.PositionInWidget().x,
+                               web_fling.PositionInWidget().y)) {
+      LOG(WARNING)
+          << "Fling coordinates are not within content bounds on FlingStart.";
+      return;
+    }
+    DispatchWebGestureEventToPlatform(web_fling, latency_info);
   } else {
     NOTREACHED();
   }
@@ -88,13 +123,19 @@ void SyntheticGestureTargetBase::DispatchWebTouchEventToPlatform(
   // We assume that platforms supporting touch have their own implementation of
   // SyntheticGestureTarget to route the events through their respective input
   // stack.
-  CHECK(false) << "Touch events not supported for this browser.";
+  LOG(ERROR) << "Touch events not supported for this browser.";
 }
 
 void SyntheticGestureTargetBase::DispatchWebMouseWheelEventToPlatform(
       const blink::WebMouseWheelEvent& web_wheel,
       const ui::LatencyInfo& latency_info) {
   host_->ForwardWheelEventWithLatencyInfo(web_wheel, latency_info);
+}
+
+void SyntheticGestureTargetBase::DispatchWebGestureEventToPlatform(
+    const blink::WebGestureEvent& web_gesture,
+    const ui::LatencyInfo& latency_info) {
+  host_->ForwardGestureEventWithLatencyInfo(web_gesture, latency_info);
 }
 
 void SyntheticGestureTargetBase::DispatchWebMouseEventToPlatform(
@@ -117,11 +158,28 @@ float SyntheticGestureTargetBase::GetTouchSlopInDips() const {
   return kTouchSlopInDips;
 }
 
+float SyntheticGestureTargetBase::GetSpanSlopInDips() const {
+  // * 2 because span is the distance between two touch points in a pinch-zoom
+  // gesture so we're accounting for movement in two points.
+  return 2.f * GetTouchSlopInDips();
+}
+
 float SyntheticGestureTargetBase::GetMinScalingSpanInDips() const {
   // The minimum scaling distance is only relevant for touch gestures and the
   // base target doesn't support touch.
   NOTREACHED();
   return 0.0f;
+}
+
+int SyntheticGestureTargetBase::GetMouseWheelMinimumGranularity() const {
+  return host_->GetView()->GetMouseWheelMinimumGranularity();
+}
+
+void SyntheticGestureTargetBase::WaitForTargetAck(
+    SyntheticGestureParams::GestureType type,
+    SyntheticGestureParams::GestureSourceType source,
+    base::OnceClosure callback) const {
+  host_->WaitForInputProcessed(type, source, std::move(callback));
 }
 
 bool SyntheticGestureTargetBase::PointIsWithinContents(int x, int y) const {

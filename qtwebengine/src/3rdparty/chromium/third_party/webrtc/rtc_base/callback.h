@@ -13,7 +13,7 @@
  */
 
 // To generate callback.h from callback.h.pump, execute:
-// /home/build/google3/third_party/gtest/scripts/pump.py callback.h.pump
+// ../third_party/googletest/src/googletest/scripts/pump.py callback.h.pump
 
 // Callbacks are callable object containers. They can hold a function pointer
 // or a function object and behave like a value type. Internally, data is
@@ -59,11 +59,12 @@
 //   my_callback = Callback1<int, int>();
 //   cout << my_callback.empty() << endl;  // true
 
-#ifndef WEBRTC_RTC_BASE_CALLBACK_H_
-#define WEBRTC_RTC_BASE_CALLBACK_H_
+#ifndef RTC_BASE_CALLBACK_H_
+#define RTC_BASE_CALLBACK_H_
 
-#include "webrtc/rtc_base/refcount.h"
-#include "webrtc/rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/ref_count.h"
+#include "rtc_base/ref_counted_object.h"
+#include "rtc_base/scoped_ref_ptr.h"
 
 namespace rtc {
 
@@ -72,8 +73,9 @@ class Callback0 {
  public:
   // Default copy operations are appropriate for this class.
   Callback0() {}
-  template <class T> Callback0(const T& functor)
-      : helper_(new RefCountedObject< HelperImpl<T> >(functor)) {}
+  template <class T>
+  Callback0(const T& functor)
+      : helper_(new RefCountedObject<HelperImpl<T> >(functor)) {}
   R operator()() {
     if (empty())
       return R();
@@ -86,24 +88,23 @@ class Callback0 {
     virtual ~Helper() {}
     virtual R Run() = 0;
   };
-  template <class T> struct HelperImpl : Helper {
+  template <class T>
+  struct HelperImpl : Helper {
     explicit HelperImpl(const T& functor) : functor_(functor) {}
-    virtual R Run() {
-      return functor_();
-    }
+    virtual R Run() { return functor_(); }
     T functor_;
   };
   scoped_refptr<Helper> helper_;
 };
 
-template <class R,
-          class P1>
+template <class R, class P1>
 class Callback1 {
  public:
   // Default copy operations are appropriate for this class.
   Callback1() {}
-  template <class T> Callback1(const T& functor)
-      : helper_(new RefCountedObject< HelperImpl<T> >(functor)) {}
+  template <class T>
+  Callback1(const T& functor)
+      : helper_(new RefCountedObject<HelperImpl<T> >(functor)) {}
   R operator()(P1 p1) {
     if (empty())
       return R();
@@ -116,25 +117,23 @@ class Callback1 {
     virtual ~Helper() {}
     virtual R Run(P1 p1) = 0;
   };
-  template <class T> struct HelperImpl : Helper {
+  template <class T>
+  struct HelperImpl : Helper {
     explicit HelperImpl(const T& functor) : functor_(functor) {}
-    virtual R Run(P1 p1) {
-      return functor_(p1);
-    }
+    virtual R Run(P1 p1) { return functor_(p1); }
     T functor_;
   };
   scoped_refptr<Helper> helper_;
 };
 
-template <class R,
-          class P1,
-          class P2>
+template <class R, class P1, class P2>
 class Callback2 {
  public:
   // Default copy operations are appropriate for this class.
   Callback2() {}
-  template <class T> Callback2(const T& functor)
-      : helper_(new RefCountedObject< HelperImpl<T> >(functor)) {}
+  template <class T>
+  Callback2(const T& functor)
+      : helper_(new RefCountedObject<HelperImpl<T> >(functor)) {}
   R operator()(P1 p1, P2 p2) {
     if (empty())
       return R();
@@ -147,26 +146,23 @@ class Callback2 {
     virtual ~Helper() {}
     virtual R Run(P1 p1, P2 p2) = 0;
   };
-  template <class T> struct HelperImpl : Helper {
+  template <class T>
+  struct HelperImpl : Helper {
     explicit HelperImpl(const T& functor) : functor_(functor) {}
-    virtual R Run(P1 p1, P2 p2) {
-      return functor_(p1, p2);
-    }
+    virtual R Run(P1 p1, P2 p2) { return functor_(p1, p2); }
     T functor_;
   };
   scoped_refptr<Helper> helper_;
 };
 
-template <class R,
-          class P1,
-          class P2,
-          class P3>
+template <class R, class P1, class P2, class P3>
 class Callback3 {
  public:
   // Default copy operations are appropriate for this class.
   Callback3() {}
-  template <class T> Callback3(const T& functor)
-      : helper_(new RefCountedObject< HelperImpl<T> >(functor)) {}
+  template <class T>
+  Callback3(const T& functor)
+      : helper_(new RefCountedObject<HelperImpl<T> >(functor)) {}
   R operator()(P1 p1, P2 p2, P3 p3) {
     if (empty())
       return R();
@@ -179,27 +175,23 @@ class Callback3 {
     virtual ~Helper() {}
     virtual R Run(P1 p1, P2 p2, P3 p3) = 0;
   };
-  template <class T> struct HelperImpl : Helper {
+  template <class T>
+  struct HelperImpl : Helper {
     explicit HelperImpl(const T& functor) : functor_(functor) {}
-    virtual R Run(P1 p1, P2 p2, P3 p3) {
-      return functor_(p1, p2, p3);
-    }
+    virtual R Run(P1 p1, P2 p2, P3 p3) { return functor_(p1, p2, p3); }
     T functor_;
   };
   scoped_refptr<Helper> helper_;
 };
 
-template <class R,
-          class P1,
-          class P2,
-          class P3,
-          class P4>
+template <class R, class P1, class P2, class P3, class P4>
 class Callback4 {
  public:
   // Default copy operations are appropriate for this class.
   Callback4() {}
-  template <class T> Callback4(const T& functor)
-      : helper_(new RefCountedObject< HelperImpl<T> >(functor)) {}
+  template <class T>
+  Callback4(const T& functor)
+      : helper_(new RefCountedObject<HelperImpl<T> >(functor)) {}
   R operator()(P1 p1, P2 p2, P3 p3, P4 p4) {
     if (empty())
       return R();
@@ -212,7 +204,8 @@ class Callback4 {
     virtual ~Helper() {}
     virtual R Run(P1 p1, P2 p2, P3 p3, P4 p4) = 0;
   };
-  template <class T> struct HelperImpl : Helper {
+  template <class T>
+  struct HelperImpl : Helper {
     explicit HelperImpl(const T& functor) : functor_(functor) {}
     virtual R Run(P1 p1, P2 p2, P3 p3, P4 p4) {
       return functor_(p1, p2, p3, p4);
@@ -222,18 +215,14 @@ class Callback4 {
   scoped_refptr<Helper> helper_;
 };
 
-template <class R,
-          class P1,
-          class P2,
-          class P3,
-          class P4,
-          class P5>
+template <class R, class P1, class P2, class P3, class P4, class P5>
 class Callback5 {
  public:
   // Default copy operations are appropriate for this class.
   Callback5() {}
-  template <class T> Callback5(const T& functor)
-      : helper_(new RefCountedObject< HelperImpl<T> >(functor)) {}
+  template <class T>
+  Callback5(const T& functor)
+      : helper_(new RefCountedObject<HelperImpl<T> >(functor)) {}
   R operator()(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5) {
     if (empty())
       return R();
@@ -246,7 +235,8 @@ class Callback5 {
     virtual ~Helper() {}
     virtual R Run(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5) = 0;
   };
-  template <class T> struct HelperImpl : Helper {
+  template <class T>
+  struct HelperImpl : Helper {
     explicit HelperImpl(const T& functor) : functor_(functor) {}
     virtual R Run(P1 p1, P2 p2, P3 p3, P4 p4, P5 p5) {
       return functor_(p1, p2, p3, p4, p5);
@@ -257,4 +247,4 @@ class Callback5 {
 };
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_CALLBACK_H_
+#endif  // RTC_BASE_CALLBACK_H_

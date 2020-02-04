@@ -7,8 +7,10 @@
 #include <stddef.h>
 
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 using storage::DatabaseIdentifier;
 
@@ -40,12 +42,19 @@ TEST(DatabaseIdentifierTest, CreateIdentifierFromOrigin) {
     {"http://[::ffff:8190:3426]", "http_[__ffff_8190_3426]_0"},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
-    GURL origin(cases[i].origin);
-    DatabaseIdentifier identifier =
-        DatabaseIdentifier::CreateFromOrigin(origin);
-    EXPECT_EQ(cases[i].expectedIdentifier, identifier.ToString())
-        << "test case " << cases[i].origin;
+  for (const auto& test_case : cases) {
+    GURL origin_url(test_case.origin);
+    url::Origin origin = url::Origin::Create(origin_url);
+
+    DatabaseIdentifier identifier_from_url =
+        DatabaseIdentifier::CreateFromOrigin(origin_url);
+    EXPECT_EQ(test_case.expectedIdentifier, identifier_from_url.ToString())
+        << "test case " << test_case.origin;
+
+    DatabaseIdentifier identifier_from_origin =
+        DatabaseIdentifier::CreateFromOrigin(origin_url);
+    EXPECT_EQ(test_case.expectedIdentifier, identifier_from_origin.ToString())
+        << "test case " << test_case.origin;
   }
 }
 
@@ -157,17 +166,32 @@ TEST(DatabaseIdentifierTest, CreateIdentifierAllHostChars) {
     {"x\x80x", "__0", false},
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
-    GURL origin("http://" + cases[i].hostname);
-    DatabaseIdentifier identifier =
+  for (size_t i = 0; i < base::size(cases); ++i) {
+    GURL origin_url("http://" + cases[i].hostname);
+    url::Origin origin = url::Origin::Create(origin_url);
+    DatabaseIdentifier identifier_from_url =
+        DatabaseIdentifier::CreateFromOrigin(origin_url);
+    DatabaseIdentifier identifier_from_origin =
         DatabaseIdentifier::CreateFromOrigin(origin);
-    EXPECT_EQ(cases[i].expected, identifier.ToString())
+    EXPECT_EQ(cases[i].expected, identifier_from_url.ToString())
         << "test case " << i << " :\"" << cases[i].hostname << "\"";
+    EXPECT_EQ(cases[i].expected, identifier_from_origin.ToString())
+        << "test case " << i << " :\"" << cases[i].hostname << "\"";
+    EXPECT_EQ(identifier_from_url.ToString(),
+              identifier_from_origin.ToString());
     if (cases[i].shouldRoundTrip) {
-      DatabaseIdentifier parsed_identifier =
-          DatabaseIdentifier::Parse(identifier.ToString());
-      EXPECT_EQ(identifier.ToString(), parsed_identifier.ToString())
+      DatabaseIdentifier parsed_identifier_from_url =
+          DatabaseIdentifier::Parse(identifier_from_url.ToString());
+      EXPECT_EQ(identifier_from_url.ToString(),
+                parsed_identifier_from_url.ToString())
           << "test case " << i << " :\"" << cases[i].hostname << "\"";
+      DatabaseIdentifier parsed_identifier_from_origin =
+          DatabaseIdentifier::Parse(identifier_from_origin.ToString());
+      EXPECT_EQ(identifier_from_origin.ToString(),
+                parsed_identifier_from_origin.ToString())
+          << "test case " << i << " :\"" << cases[i].hostname << "\"";
+      EXPECT_EQ(parsed_identifier_from_url.ToString(),
+                parsed_identifier_from_origin.ToString());
     }
   }
 }
@@ -215,19 +239,18 @@ TEST(DatabaseIdentifierTest, ExtractOriginDataFromIdentifier) {
      "http", "[::ffff:8190:3426]", 0, GURL("http://[::ffff:8190:3426]"), false},
   };
 
-  for (size_t i = 0; i < arraysize(valid_cases); ++i) {
-    DatabaseIdentifier identifier =
-        DatabaseIdentifier::Parse(valid_cases[i].str);
-    EXPECT_EQ(valid_cases[i].expected_scheme, identifier.scheme())
-        << "test case " << valid_cases[i].str;
-    EXPECT_EQ(valid_cases[i].expected_host, identifier.hostname())
-        << "test case " << valid_cases[i].str;
-    EXPECT_EQ(valid_cases[i].expected_port, identifier.port())
-        << "test case " << valid_cases[i].str;
-    EXPECT_EQ(valid_cases[i].expected_origin, identifier.ToOrigin())
-        << "test case " << valid_cases[i].str;
-    EXPECT_EQ(valid_cases[i].expected_unique, identifier.is_unique())
-        << "test case " << valid_cases[i].str;
+  for (const auto& valid_case : valid_cases) {
+    DatabaseIdentifier identifier = DatabaseIdentifier::Parse(valid_case.str);
+    EXPECT_EQ(valid_case.expected_scheme, identifier.scheme())
+        << "test case " << valid_case.str;
+    EXPECT_EQ(valid_case.expected_host, identifier.hostname())
+        << "test case " << valid_case.str;
+    EXPECT_EQ(valid_case.expected_port, identifier.port())
+        << "test case " << valid_case.str;
+    EXPECT_EQ(valid_case.expected_origin, identifier.ToOrigin())
+        << "test case " << valid_case.str;
+    EXPECT_EQ(valid_case.expected_unique, identifier.is_unique())
+        << "test case " << valid_case.str;
   }
 
   std::string bogus_components[] = {
@@ -243,34 +266,40 @@ TEST(DatabaseIdentifierTest, ExtractOriginDataFromIdentifier) {
     "http_bytes_after_port_0abcd",
   };
 
-  for (size_t i = 0; i < arraysize(bogus_components); ++i) {
-    DatabaseIdentifier identifier =
-        DatabaseIdentifier::Parse(bogus_components[i]);
-    EXPECT_EQ("__0", identifier.ToString())
-        << "test case " << bogus_components[i];
+  for (const auto& bogus_component : bogus_components) {
+    DatabaseIdentifier identifier = DatabaseIdentifier::Parse(bogus_component);
+    EXPECT_EQ("__0", identifier.ToString()) << "test case " << bogus_component;
     EXPECT_EQ(GURL("null"), identifier.ToOrigin())
-        << "test case " << bogus_components[i];
-    EXPECT_EQ(true, identifier.is_unique())
-        << "test case " << bogus_components[i];
+        << "test case " << bogus_component;
+    EXPECT_EQ(true, identifier.is_unique()) << "test case " << bogus_component;
   }
 }
 
-static GURL ToAndFromOriginIdentifier(const GURL origin_url) {
+static GURL GURLToAndFromOriginIdentifier(const GURL& origin_url) {
   std::string id = storage::GetIdentifierFromOrigin(origin_url);
+  return storage::GetOriginURLFromIdentifier(id);
+}
+
+static url::Origin OriginToAndFromOriginIdentifier(const url::Origin& origin) {
+  std::string id = storage::GetIdentifierFromOrigin(origin);
   return storage::GetOriginFromIdentifier(id);
 }
 
 static void TestValidOriginIdentifier(bool expected_result,
                                       const std::string& id) {
-  EXPECT_EQ(expected_result,
-            storage::IsValidOriginIdentifier(id));
+  EXPECT_EQ(expected_result, storage::IsValidOriginIdentifier(id));
 }
 
 TEST(DatabaseIdentifierTest, OriginIdentifiers) {
-  const GURL kFileOrigin(GURL("file:///").GetOrigin());
-  const GURL kHttpOrigin(GURL("http://bar/").GetOrigin());
-  EXPECT_EQ(kFileOrigin, ToAndFromOriginIdentifier(kFileOrigin));
-  EXPECT_EQ(kHttpOrigin, ToAndFromOriginIdentifier(kHttpOrigin));
+  const GURL kFileOriginURL(GURL("file:///").GetOrigin());
+  const GURL kHttpOriginURL(GURL("http://bar/").GetOrigin());
+  const url::Origin kFileOrigin = url::Origin::Create(kFileOriginURL);
+  const url::Origin kHttpOrigin = url::Origin::Create(kHttpOriginURL);
+
+  EXPECT_EQ(kFileOriginURL, GURLToAndFromOriginIdentifier(kFileOriginURL));
+  EXPECT_EQ(kHttpOriginURL, GURLToAndFromOriginIdentifier(kHttpOriginURL));
+  EXPECT_EQ(kFileOrigin, OriginToAndFromOriginIdentifier(kFileOrigin));
+  EXPECT_EQ(kHttpOrigin, OriginToAndFromOriginIdentifier(kHttpOrigin));
 }
 
 TEST(DatabaseIdentifierTest, IsValidOriginIdentifier) {

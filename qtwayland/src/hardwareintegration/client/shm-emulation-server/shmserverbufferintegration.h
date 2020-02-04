@@ -57,15 +57,13 @@ class ShmServerBufferIntegration;
 class ShmServerBuffer : public QWaylandServerBuffer
 {
 public:
-    ShmServerBuffer(ShmServerBufferIntegration *integration, const QString &key, int32_t width, int32_t height, int32_t bytes_per_line, int32_t format);
-    ~ShmServerBuffer();
+    ShmServerBuffer(const QString &key, const QSize &size, int bytesPerLine, QWaylandServerBuffer::Format format);
+    ~ShmServerBuffer() override;
     QOpenGLTexture* toOpenGlTexture() override;
 private:
-    ShmServerBufferIntegration *m_integration;
-    QOpenGLTexture *m_texture;
+    QOpenGLTexture *m_texture = nullptr;
     QString m_key;
     int m_bpl;
-    int m_format;
 };
 
 class ShmServerBufferIntegration
@@ -75,7 +73,7 @@ class ShmServerBufferIntegration
 public:
     void initialize(QWaylandDisplay *display) override;
 
-    virtual QWaylandServerBuffer *serverBuffer(struct qt_server_buffer *buffer) override;
+    QWaylandServerBuffer *serverBuffer(struct qt_server_buffer *buffer) override;
 
 protected:
     void shm_emulation_server_buffer_server_buffer_created(qt_server_buffer *id, const QString &key, int32_t width, int32_t height, int32_t bytes_per_line, int32_t format) override;

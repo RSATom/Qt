@@ -64,7 +64,7 @@ class Q_MULTIMEDIAWIDGETS_EXPORT QVideoWidget : public QWidget, public QMediaBin
     Q_PROPERTY(int saturation READ saturation WRITE setSaturation NOTIFY saturationChanged)
 
 public:
-    explicit QVideoWidget(QWidget *parent = Q_NULLPTR);
+    explicit QVideoWidget(QWidget *parent = nullptr);
     ~QVideoWidget();
 
     QMediaObject *mediaObject() const override;
@@ -81,6 +81,9 @@ public:
     int saturation() const;
 
     QSize sizeHint() const override;
+#if defined(Q_OS_WIN)
+    bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
+#endif
 
 public Q_SLOTS:
     void setFullScreen(bool fullScreen);
@@ -106,10 +109,6 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
     bool setMediaObject(QMediaObject *object) override;
-
-#if defined(Q_WS_WIN)
-    bool winEvent(MSG *message, long *result);
-#endif
 
     QVideoWidget(QVideoWidgetPrivate &dd, QWidget *parent);
     QVideoWidgetPrivate *d_ptr;

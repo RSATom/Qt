@@ -7,8 +7,8 @@
 #include <memory>
 
 #include "base/trace_event/trace_event.h"
+#include "content/browser/browser_main_runner_impl.h"
 #include "content/common/content_constants_internal.h"
-#include "content/public/browser/browser_main_runner.h"
 
 namespace content {
 
@@ -33,11 +33,12 @@ class ScopedBrowserMainEvent {
 int BrowserMain(const MainFunctionParams& parameters) {
   ScopedBrowserMainEvent scoped_browser_main_event;
 
-  base::trace_event::TraceLog::GetInstance()->SetProcessName("Browser");
+  base::trace_event::TraceLog::GetInstance()->set_process_name("Browser");
   base::trace_event::TraceLog::GetInstance()->SetProcessSortIndex(
       kTraceEventBrowserProcessSortIndex);
 
-  std::unique_ptr<BrowserMainRunner> main_runner(BrowserMainRunner::Create());
+  std::unique_ptr<BrowserMainRunnerImpl> main_runner(
+      BrowserMainRunnerImpl::Create());
 
   int exit_code = main_runner->Initialize(parameters);
   if (exit_code >= 0)

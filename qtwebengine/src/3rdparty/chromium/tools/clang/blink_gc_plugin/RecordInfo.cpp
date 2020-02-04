@@ -76,6 +76,34 @@ bool RecordInfo::IsHeapAllocatedCollection() {
   return Config::IsGCCollection(name_);
 }
 
+bool RecordInfo::HasOptionalFinalizer() {
+  if (!IsHeapAllocatedCollection())
+    return false;
+  // Heap collections may have a finalizer but it is optional (i.e. may be
+  // delayed until FinalizeGarbageCollectedObject() gets called), unless there
+  // is an inline buffer. Vector, Deque, and ListHashSet can have an inline
+  // buffer.
+  if (name_ != "Vector" && name_ != "Deque" && name_ != "HeapVector" &&
+      name_ != "HeapDeque")
+    return true;
+  ClassTemplateSpecializationDecl* tmpl =
+      dyn_cast<ClassTemplateSpecializationDecl>(record_);
+  // These collections require template specialization so tmpl should always be
+  // non-null for valid code.
+  if (!tmpl)
+    return false;
+  const TemplateArgumentList& args = tmpl->getTemplateArgs();
+  if (args.size() < 2)
+    return true;
+  TemplateArgument arg = args[1];
+  // The second template argument must be void or 0 so there is no inline
+  // buffer.
+  return (arg.getKind() == TemplateArgument::Type &&
+          arg.getAsType()->isVoidType()) ||
+         (arg.getKind() == TemplateArgument::Integral &&
+          arg.getAsIntegral().getExtValue() == 0);
+}
+
 // Test if a record is derived from a garbage collected base.
 bool RecordInfo::IsGCDerived() {
   // If already computed, return the known result.
@@ -503,6 +531,11 @@ void RecordInfo::DetermineTracingMethods() {
 // TODO: Add classes with a finalize() method that specialize FinalizerTrait.
 bool RecordInfo::NeedsFinalization() {
   if (does_need_finalization_ == kNotComputed) {
+    if (HasOptionalFinalizer()) {
+      does_need_finalization_ = kFalse;
+      return does_need_finalization_;
+    }
+
     // Rely on hasNonTrivialDestructor(), but if the only
     // identifiable reason for it being true is the presence
     // of a safely ignorable class as a direct base,
@@ -625,12 +658,6 @@ Edge* RecordInfo::CreateEdge(const Type* type) {
     return 0;
   }
 
-  if (Config::IsOwnPtr(info->name()) && info->GetTemplateArgs(1, &args)) {
-    if (Edge* ptr = CreateEdge(args[0]))
-      return new OwnPtr(ptr);
-    return 0;
-  }
-
   if (Config::IsUniquePtr(info->name()) && info->GetTemplateArgs(1, &args)) {
     // Check that this is std::unique_ptr
     NamespaceDecl* ns =
@@ -676,12 +703,11 @@ Edge* RecordInfo::CreateEdge(const Type* type) {
 
   if (Config::IsGCCollection(info->name()) ||
       Config::IsWTFCollection(info->name())) {
-    bool is_root = Config::IsPersistentGCCollection(info->name());
-    bool on_heap = is_root || info->IsHeapAllocatedCollection();
+    bool on_heap = info->IsHeapAllocatedCollection();
     size_t count = Config::CollectionDimension(info->name());
     if (!info->GetTemplateArgs(count, &args))
       return 0;
-    Collection* edge = new Collection(info, on_heap, is_root);
+    Collection* edge = new Collection(info, on_heap);
     for (TemplateArgs::iterator it = args.begin(); it != args.end(); ++it) {
       if (Edge* member = CreateEdge(*it)) {
         edge->members().push_back(member);
@@ -690,6 +716,20 @@ Edge* RecordInfo::CreateEdge(const Type* type) {
       // argument is a primitive type or just not fully known yet).
     }
     return edge;
+  }
+
+  if (Config::IsTraceWrapperMember(info->name()) &&
+      info->GetTemplateArgs(1, &args)) {
+    if (Edge* ptr = CreateEdge(args[0]))
+      return new TraceWrapperMember(ptr);
+    return 0;
+  }
+
+  if (Config::IsTraceWrapperV8Reference(info->name()) &&
+      info->GetTemplateArgs(1, &args)) {
+    if (Edge* ptr = CreateEdge(args[0]))
+      return new TraceWrapperV8Reference(ptr);
+    return 0;
   }
 
   return new Value(info);

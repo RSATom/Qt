@@ -17,36 +17,40 @@
 #include "third_party/libjingle_xmpp/xmpp/xmppclient.h"
 #include "third_party/libjingle_xmpp/xmpp/xmppclientsettings.h"
 #include "third_party/libjingle_xmpp/xmpp/xmppengine.h"
-#include "webrtc/rtc_base/firewallsocketserver.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/physicalsocketserver.h"
+#include "third_party/webrtc/rtc_base/firewall_socket_server.h"
+#include "third_party/webrtc/rtc_base/physical_socket_server.h"
+#include "third_party/webrtc_overrides/rtc_base/logging.h"
 
 namespace notifier {
 
 Login::Delegate::~Delegate() {}
 
 Login::Login(Delegate* delegate,
-             const buzz::XmppClientSettings& user_settings,
-             const scoped_refptr<net::URLRequestContextGetter>&
-                request_context_getter,
+             const jingle_xmpp::XmppClientSettings& user_settings,
+             jingle_glue::GetProxyResolvingSocketFactoryCallback
+                 get_socket_factory_callback,
              const ServerList& servers,
              bool try_ssltcp_first,
-             const std::string& auth_mechanism)
+             const std::string& auth_mechanism,
+             const net::NetworkTrafficAnnotationTag& traffic_annotation,
+             network::NetworkConnectionTracker* network_connection_tracker)
     : delegate_(delegate),
       login_settings_(user_settings,
-                      request_context_getter,
+                      get_socket_factory_callback,
                       servers,
                       try_ssltcp_first,
-                      auth_mechanism) {
-  net::NetworkChangeNotifier::AddIPAddressObserver(this);
-  net::NetworkChangeNotifier::AddConnectionTypeObserver(this);
+                      auth_mechanism,
+                      traffic_annotation),
+      network_connection_tracker_(network_connection_tracker) {
+  if (network_connection_tracker_)
+    network_connection_tracker_->AddNetworkConnectionObserver(this);
   // TODO(akalin): Add as DNSObserver once bug 130610 is fixed.
   ResetReconnectState();
 }
 
 Login::~Login() {
-  net::NetworkChangeNotifier::RemoveConnectionTypeObserver(this);
-  net::NetworkChangeNotifier::RemoveIPAddressObserver(this);
+  if (network_connection_tracker_)
+    network_connection_tracker_->RemoveNetworkConnectionObserver(this);
 }
 
 void Login::StartConnection() {
@@ -54,7 +58,7 @@ void Login::StartConnection() {
   single_attempt_.reset(new SingleLoginAttempt(login_settings_, this));
 }
 
-void Login::UpdateXmppSettings(const buzz::XmppClientSettings& user_settings) {
+void Login::UpdateXmppSettings(const jingle_xmpp::XmppClientSettings& user_settings) {
   DVLOG(1) << "XMPP settings updated";
   login_settings_.set_user_settings(user_settings);
 }
@@ -64,7 +68,7 @@ void Login::UpdateXmppSettings(const buzz::XmppClientSettings& user_settings) {
 //
 // TODO(akalin): Add unit tests to enforce the behavior above.
 
-void Login::OnConnect(base::WeakPtr<buzz::XmppTaskParentInterface> base_task) {
+void Login::OnConnect(base::WeakPtr<jingle_xmpp::XmppTaskParentInterface> base_task) {
   DVLOG(1) << "Connected";
   ResetReconnectState();
   delegate_->OnConnect(base_task);
@@ -90,14 +94,11 @@ void Login::OnSettingsExhausted() {
   delegate_->OnTransientDisconnection();
 }
 
-void Login::OnIPAddressChanged() {
-  DVLOG(1) << "IP address changed";
-  OnNetworkEvent();
-}
+void Login::OnConnectionChanged(network::mojom::ConnectionType type) {
+  if (type == network::mojom::ConnectionType::CONNECTION_NONE)
+    return;
 
-void Login::OnConnectionTypeChanged(
-    net::NetworkChangeNotifier::ConnectionType type) {
-  DVLOG(1) << "Connection type changed";
+  DVLOG(1) << "Network changed";
   OnNetworkEvent();
 }
 

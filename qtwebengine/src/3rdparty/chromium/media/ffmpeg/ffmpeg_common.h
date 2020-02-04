@@ -24,28 +24,10 @@
 
 // Include FFmpeg header files.
 extern "C" {
-#if !BUILDFLAG(USE_SYSTEM_FFMPEG)
-// Disable deprecated features which result in spammy compile warnings.  This
-// list of defines must mirror those in the 'defines' section of FFmpeg's
-// BUILD.gn file or the headers below will generate different structures!
-#define FF_API_CONVERGENCE_DURATION 0
-#endif  // !BUILDFLAG(USE_SYSTEM_FFMPEG)
-// Upstream libavcodec/utils.c still uses the deprecated
-// av_dup_packet(), causing deprecation warnings.
-// The normal fix for such things is to disable the feature as below,
-// but the upstream code does not yet compile with it disabled.
-// (In this case, the fix is replacing the call with a new function.)
-// In the meantime, we directly disable those warnings in the C file.
-//#define FF_API_AVPACKET_OLD_API 0
-
 // Temporarily disable possible loss of data warning.
-// TODO(scherkus): fix and upstream the compiler warnings.
 MSVC_PUSH_DISABLE_WARNING(4244);
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#if !BUILDFLAG(USE_SYSTEM_FFMPEG)
-#include <libavformat/internal.h>
-#endif  // !BUILDFLAG(USE_SYSTEM_FFMPEG)
 #include <libavformat/avio.h>
 #include <libavutil/avutil.h>
 #include <libavutil/imgutils.h>
@@ -56,6 +38,8 @@ MSVC_POP_WARNING();
 }  // extern "C"
 
 namespace media {
+
+constexpr int64_t kNoFFmpegTimestamp = static_cast<int64_t>(AV_NOPTS_VALUE);
 
 class AudioDecoderConfig;
 class EncryptionScheme;
@@ -153,8 +137,8 @@ AVPixelFormatToVideoPixelFormat(AVPixelFormat pixel_format);
 // Converts video formats to its corresponding FFmpeg's pixel formats.
 AVPixelFormat VideoPixelFormatToAVPixelFormat(VideoPixelFormat video_format);
 
-ColorSpace AVColorSpaceToColorSpace(AVColorSpace color_space,
-                                    AVColorRange color_range);
+VideoColorSpace AVColorSpaceToColorSpace(AVColorSpace color_space,
+                                         AVColorRange color_range);
 
 // Converts an AVERROR error number to a description.
 std::string AVErrorToString(int errnum);

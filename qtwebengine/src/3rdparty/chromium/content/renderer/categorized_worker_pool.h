@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "base/callback.h"
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/condition_variable.h"
@@ -18,6 +17,10 @@
 #include "cc/raster/task_graph_runner.h"
 #include "cc/raster/task_graph_work_queue.h"
 #include "content/common/content_export.h"
+
+namespace base {
+class SingleThreadTaskRunner;
+}
 
 namespace content {
 
@@ -35,7 +38,7 @@ class CONTENT_EXPORT CategorizedWorkerPool : public base::TaskRunner,
   CategorizedWorkerPool();
 
   // Overridden from base::TaskRunner:
-  bool PostDelayedTask(const tracked_objects::Location& from_here,
+  bool PostDelayedTask(const base::Location& from_here,
                        base::OnceClosure task,
                        base::TimeDelta delay) override;
   bool RunsTasksInCurrentSequence() const override;
@@ -69,9 +72,11 @@ class CONTENT_EXPORT CategorizedWorkerPool : public base::TaskRunner,
   // Create a new sequenced task graph runner.
   scoped_refptr<base::SequencedTaskRunner> CreateSequencedTaskRunner();
 
-  base::PlatformThreadId background_worker_thread_id() const {
-    return threads_.back()->tid();
-  }
+  // Runs the callback on the specified task-runner once the background worker
+  // thread is initialized.
+  void SetBackgroundingCallback(
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      base::OnceCallback<void(base::PlatformThreadId)> callback);
 
  protected:
   ~CategorizedWorkerPool() override;
@@ -145,6 +150,9 @@ class CONTENT_EXPORT CategorizedWorkerPool : public base::TaskRunner,
   base::ConditionVariable has_namespaces_with_finished_running_tasks_cv_;
   // Set during shutdown. Tells Run() to return when no more tasks are pending.
   bool shutdown_;
+
+  base::OnceCallback<void(base::PlatformThreadId)> backgrounding_callback_;
+  scoped_refptr<base::SingleThreadTaskRunner> background_task_runner_;
 };
 
 }  // namespace content

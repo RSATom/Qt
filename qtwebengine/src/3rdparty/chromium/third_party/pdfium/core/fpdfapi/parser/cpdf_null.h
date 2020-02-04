@@ -11,14 +11,16 @@
 
 #include "core/fpdfapi/parser/cpdf_object.h"
 
-class CPDF_Null : public CPDF_Object {
+class CPDF_Null final : public CPDF_Object {
  public:
   CPDF_Null();
 
   // CPDF_Object.
   Type GetType() const override;
   std::unique_ptr<CPDF_Object> Clone() const override;
-  bool WriteTo(IFX_ArchiveStream* archive) const override;
+  bool WriteTo(IFX_ArchiveStream* archive,
+               const CPDF_Encryptor* encryptor) const override;
+  bool IsNull() const override;
 };
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_NULL_H_

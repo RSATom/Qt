@@ -51,8 +51,8 @@ Processor Support
 
 Building the Library
 --------------------
-NASM needed to be installed for assembly code: workable version 2.10.06 or above, nasm can downloaded from http://www.nasm.us/
-For Mac OSX 64-bit NASM needed to be below version 2.11.08 as nasm 2.11.08 will introduce error when using RIP-relative addresses in Mac OSX 64-bit
+NASM needed to be installed for assembly code: workable version 2.10.06 or above, NASM can downloaded from http://www.nasm.us/.
+For Mac OSX 64-bit NASM needed to be below version 2.11.08 as NASM 2.11.08 will introduce error when using RIP-relative addresses in Mac OSX 64-bit
 
 To build the arm assembly for Windows Phone, gas-preprocessor is required. It can be downloaded from git://git.libav.org/gas-preprocessor.git
 
@@ -96,11 +96,11 @@ For other details on building using make on the command line, see
 For Windows Builds
 ------------------
 
-Our Windows builds use MinGW which can be found here - http://www.mingw.org/
+Our Windows builds use MinGW which can be downloaded from http://www.mingw.org/
 
 To build with gcc, add the MinGW bin directory (e.g. `/c/MinGW/bin`) to your path and follow the 'For All Platforms' instructions below.
 
-To build with Visual Studio you will need to set up your path to run cl.exe.  The easiest way is to start MSYS from a developer command line session - http://msdn.microsoft.com/en-us/library/ms229859(v=vs.110).aspx  If you need to do it by hand here is an example from a Windows 64bit install of VS2012:
+To build with Visual Studio you will need to set up your path to run cl.exe.  The easiest way is to start MSYS from a developer command line session.  Instructions can be found at http://msdn.microsoft.com/en-us/library/ms229859(v=vs.110).aspx.  If you need to do it by hand here is an example from a Windows 64bit install of VS2012:
 
     export PATH="$PATH:/c/Program Files (x86)/Microsoft Visual Studio 11.0/VC/bin:/c/Program Files (x86)/Microsoft Visual Studio 11.0/Common7/IDE"
 
@@ -111,7 +111,7 @@ You will also need to set your INCLUDE and LIB paths to point to your VS and SDK
 
 Then add `OS=msvc` to the make line of the 'For All Platforms' instructions.
 
-For Windows Phone builds
+For Windows Phone Builds
 ------------------------
 
 Follow the instructions above for normal Windows builds, but use `OS=msvc-wp`
@@ -124,14 +124,20 @@ If building for Windows Phone with MSVC 2013, there's no included bat file that 
 
 This is only necessary for building the DLL; the static library can be built without setting this.
 
+Note, only Windows Phone 8.1 or newer is supported, 8.0 is no longer supported.
+
 For All Platforms
 -------------------
+
+Using make
+----------
+
 From the main project directory:
 - `make` for automatically detecting architecture and building accordingly
-- `make ARCH=i386` for x86 32bit builds
-- `make ARCH=x86_64` for x86 64bit builds
+- `make ARCH=i386` for x86 32-bit builds
+- `make ARCH=x86_64` for x86 64-bit builds
 - `make V=No` for a silent build (not showing the actual compiler commands)
-- `make DEBUGSYMBOLS=True` for two libraries, one is normal libraries, another one is removed the debugging symbol table entries (those created by the -g option )
+- `make DEBUGSYMBOLS=True` for two libraries, one is normal libraries, another one is removed the debugging symbol table entries (those created by the -g option)
 
 The command line programs `h264enc` and `h264dec` will appear in the main project directory.
 
@@ -139,11 +145,37 @@ A shell script to run the command-line apps is in `testbin/CmdLineExample.sh`
 
 Usage information can be found in `testbin/CmdLineReadMe`
 
+Using meson
+-----------
+
+Meson build definitions have been added, and are known to work on Linux
+and Windows, for x86 and x86 64-bit.
+
+See <http://mesonbuild.com/Installing.html> for instructions on how to
+install meson, then:
+
+``` shell
+meson builddir
+ninja -C builddir
+```
+
+Run the tests with:
+
+``` shell
+meson test -C builddir -v
+```
+
+Install with:
+
+``` shell
+ninja -C builddir install
+```
+
 Using the Source
 ----------------
 - `codec` - encoder, decoder, console (test app), build (makefile, vcproj)
-- `build` - scripts for Makefile build system.
-- `test` - GTest unittest files.
+- `build` - scripts for Makefile build system
+- `test` - GTest unittest files
 - `testbin` - autobuild scripts, test app config files
 - `res` - yuv and bitstream test files
 

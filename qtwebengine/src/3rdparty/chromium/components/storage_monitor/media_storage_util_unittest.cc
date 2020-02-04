@@ -4,17 +4,16 @@
 
 #include <string>
 
+#include "base/bind_helpers.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/synchronization/waitable_event.h"
+#include "base/task/post_task.h"
 #include "components/storage_monitor/media_storage_util.h"
 #include "components/storage_monitor/removable_device_constants.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "components/storage_monitor/test_storage_monitor.h"
-#include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -24,14 +23,11 @@ const char kImageCaptureDeviceId[] = "ic:xyz";
 
 }  // namespace
 
-using content::BrowserThread;
-
 namespace storage_monitor {
 
 class MediaStorageUtilTest : public testing::Test {
  public:
-  MediaStorageUtilTest()
-      : thread_bundle_(content::TestBrowserThreadBundle::REAL_FILE_THREAD) {}
+  MediaStorageUtilTest() {}
   ~MediaStorageUtilTest() override {}
 
   // Verify mounted device type.
@@ -67,24 +63,13 @@ class MediaStorageUtilTest : public testing::Test {
   }
 
   void TearDown() override {
-    WaitForFileThread();
     TestStorageMonitor::Destroy();
   }
 
-  static void PostQuitToUIThread() {
-    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                            base::MessageLoop::QuitWhenIdleClosure());
-  }
-
-  static void WaitForFileThread() {
-    BrowserThread::PostTask(BrowserThread::FILE,
-                            FROM_HERE,
-                            base::Bind(&PostQuitToUIThread));
-    base::RunLoop().Run();
-  }
+  void RunUntilIdle() { test_browser_thread_bundle_.RunUntilIdle(); }
 
  private:
-  content::TestBrowserThreadBundle thread_bundle_;
+  content::TestBrowserThreadBundle test_browser_thread_bundle_;
   TestStorageMonitor* monitor_;
   base::ScopedTempDir scoped_temp_dir_;
 };
@@ -95,11 +80,11 @@ TEST_F(MediaStorageUtilTest, MediaDeviceAttached) {
   // Create a dummy mount point with DCIM Directory.
   base::FilePath mount_point(CreateMountPoint(true));
   ASSERT_FALSE(mount_point.empty());
-  BrowserThread::PostTask(
-      BrowserThread::FILE, FROM_HERE,
-      base::Bind(&MediaStorageUtilTest::CheckDCIMDeviceType,
-                 base::Unretained(this), mount_point));
-  base::RunLoop().RunUntilIdle();
+  base::PostTaskWithTraits(
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
+      base::BindOnce(&MediaStorageUtilTest::CheckDCIMDeviceType,
+                     base::Unretained(this), mount_point));
+  RunUntilIdle();
 }
 
 // Test to verify that HasDcim() function returns false for a given non-media
@@ -108,11 +93,11 @@ TEST_F(MediaStorageUtilTest, NonMediaDeviceAttached) {
   // Create a dummy mount point without DCIM Directory.
   base::FilePath mount_point(CreateMountPoint(false));
   ASSERT_FALSE(mount_point.empty());
-  BrowserThread::PostTask(
-      BrowserThread::FILE, FROM_HERE,
-      base::Bind(&MediaStorageUtilTest::CheckNonDCIMDeviceType,
-                 base::Unretained(this), mount_point));
-  base::RunLoop().RunUntilIdle();
+  base::PostTaskWithTraits(
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
+      base::BindOnce(&MediaStorageUtilTest::CheckNonDCIMDeviceType,
+                     base::Unretained(this), mount_point));
+  RunUntilIdle();
 }
 
 TEST_F(MediaStorageUtilTest, CanCreateFileSystemForImageCapture) {
@@ -130,26 +115,14 @@ TEST_F(MediaStorageUtilTest, DetectDeviceFiltered) {
   MediaStorageUtil::DeviceIdSet devices;
   devices.insert(kImageCaptureDeviceId);
 
-  base::WaitableEvent event(base::WaitableEvent::ResetPolicy::MANUAL,
-                            base::WaitableEvent::InitialState::NOT_SIGNALED);
-  base::Closure signal_event =
-      base::Bind(&base::WaitableEvent::Signal, base::Unretained(&event));
-
-  // We need signal_event to be executed on the FILE thread, as the test thread
-  // is blocked. Therefore, we invoke FilterAttachedDevices on the FILE thread.
-  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
-                          base::Bind(&MediaStorageUtil::FilterAttachedDevices,
-                                     base::Unretained(&devices), signal_event));
-  event.Wait();
+  MediaStorageUtil::FilterAttachedDevices(&devices, base::DoNothing());
+  RunUntilIdle();
   EXPECT_FALSE(devices.find(kImageCaptureDeviceId) != devices.end());
 
   ProcessAttach(kImageCaptureDeviceId, FILE_PATH_LITERAL("/location"));
   devices.insert(kImageCaptureDeviceId);
-  event.Reset();
-  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
-                          base::Bind(&MediaStorageUtil::FilterAttachedDevices,
-                                     base::Unretained(&devices), signal_event));
-  event.Wait();
+  MediaStorageUtil::FilterAttachedDevices(&devices, base::DoNothing());
+  RunUntilIdle();
 
   EXPECT_TRUE(devices.find(kImageCaptureDeviceId) != devices.end());
 }

@@ -110,4 +110,16 @@
     \snippet weatherinfo/weatherinfo.qml 3
     \snippet weatherinfo/weatherinfo.qml 4
 
+    \section1 Files and Attributions
+
+    The example bundles the following images from Third-Party sources:
+
+    \table
+    \row
+        \li \l{weatherinfo-tango-icons}{Tango Icons}
+        \li Public Domain
+    \row
+        \li \l{weatherinfo-tango-weather-pack}{Tango Weather Icon Pack by Darkobra}
+        \li Public Domain
+    \endtable
 */

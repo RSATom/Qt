@@ -1,9 +1,0 @@
-{
-  "dependencies": [
-    "test_runner",
-    "sdk"
-  ],
-  "scripts": [
-    "IntegrationTestRunner.js"
-  ]
-}

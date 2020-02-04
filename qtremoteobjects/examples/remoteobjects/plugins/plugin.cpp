@@ -83,7 +83,7 @@ public:
         connect(d_ptr.data(), SIGNAL(sendCustom(PresetInfo)), this, SLOT(testCustom(PresetInfo)));
     }
 
-    ~TimeModel()
+    ~TimeModel() override
     {
     }
 
@@ -120,7 +120,7 @@ class QExampleQmlPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QQmlExtensionInterface")
 
 public:
-    void initializeEngine(QQmlEngine *engine, const char *uri)
+    void initializeEngine(QQmlEngine *engine, const char *uri) override
     {
         Q_UNUSED(engine);
         Q_UNUSED(uri);
@@ -128,7 +128,7 @@ public:
         engine->addImportPath(QStringLiteral("qrc:/qml"));
         m_client.setRegistryUrl(QUrl(QStringLiteral("local:registry")));
     }
-    void registerTypes(const char *uri)
+    void registerTypes(const char *uri) override
     {
         Q_ASSERT(uri == QLatin1String("TimeExample"));
         qmlRegisterType<TimeModel>(uri, 1, 0, "Time");

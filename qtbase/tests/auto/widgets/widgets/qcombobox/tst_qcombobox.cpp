@@ -852,8 +852,8 @@ void tst_QComboBox::autoCompletionCaseSensitivity()
     // case insensitive
     testWidget->clearEditText();
     QSignalSpy spyReturn(testWidget, SIGNAL(activated(int)));
-    testWidget->setAutoCompletionCaseSensitivity(Qt::CaseInsensitive);
-    QCOMPARE(testWidget->autoCompletionCaseSensitivity(), Qt::CaseInsensitive);
+    testWidget->completer()->setCaseSensitivity(Qt::CaseInsensitive);
+    QCOMPARE(testWidget->completer()->caseSensitivity(), Qt::CaseInsensitive);
 
     QTest::keyClick(testWidget->lineEdit(), Qt::Key_A);
     qApp->processEvents();
@@ -886,8 +886,8 @@ void tst_QComboBox::autoCompletionCaseSensitivity()
 
     // case sensitive
     testWidget->clearEditText();
-    testWidget->setAutoCompletionCaseSensitivity(Qt::CaseSensitive);
-    QCOMPARE(testWidget->autoCompletionCaseSensitivity(), Qt::CaseSensitive);
+    testWidget->completer()->setCaseSensitivity(Qt::CaseSensitive);
+    QCOMPARE(testWidget->completer()->caseSensitivity(), Qt::CaseSensitive);
     QTest::keyClick(testWidget->lineEdit(), Qt::Key_A);
     qApp->processEvents();
     QCOMPARE(testWidget->currentText(), QString("aww"));
@@ -1671,7 +1671,17 @@ void tst_QComboBox::setCustomModelAndView()
     QTRY_VERIFY(combo.view()->isVisible());
     const QRect subItemRect = view->visualRect(model->indexFromItem(subItem));
     QWidget *window = view->window();
+
+    // QComboBox sometimes ignores the mouse click event for doubleClickInterval
+    // depending on which tests have been run previously. On arm this happens
+    // more often than on x86. Search for maybeIgnoreMouseButtonRelease to see
+    // why this happens.
+    QTest::qWait(QApplication::doubleClickInterval());
+
     QTest::mouseClick(window->windowHandle(), Qt::LeftButton, 0, view->mapTo(window, subItemRect.center()));
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QTRY_COMPARE(combo.currentText(), subItem21Text);
 }
 
@@ -1995,19 +2005,16 @@ void tst_QComboBox::flaggedItems()
     QApplication::setActiveWindow(&comboBox);
     comboBox.activateWindow();
     comboBox.setFocus();
+    QVERIFY(QTest::qWaitForWindowActive(&comboBox));
     QTRY_VERIFY(comboBox.isVisible());
     QTRY_VERIFY(comboBox.hasFocus());
 
     if (editable)
         comboBox.lineEdit()->selectAll();
 
-    QSignalSpy indexChangedInt(&comboBox, SIGNAL(currentIndexChanged(int)));
     for (int i = 0; i < keyMovementList.count(); ++i) {
         Qt::Key key = keyMovementList[i];
         QTest::keyClick(&comboBox, key);
-        if (indexChangedInt.count() != i + 1) {
-            QTest::qWait(400);
-        }
     }
 
     QCOMPARE(comboBox.currentIndex() , expectedIndex);
@@ -2052,13 +2059,13 @@ void tst_QComboBox::mouseWheel_data()
     QTest::newRow("upper locked") << disabled << start << wheel << expected;
 
     wheel = -1;
-#ifdef Q_OS_DARWIN
+    const bool allowsWheelScroll = QApplication::style()->styleHint(QStyle::SH_ComboBox_AllowWheelScrolling);
     // on OS X & iOS mouse wheel shall have no effect on combo box
-    expected = start;
-#else
-    // on other OSes we should jump to next enabled item (no. 5)
-    expected = 5;
-#endif
+    if (!allowsWheelScroll)
+        expected = start;
+    else // on other OSes we should jump to next enabled item (no. 5)
+        expected = 5;
+
     QTest::newRow("jump over") << disabled << start << wheel << expected;
 
     disabled.clear();
@@ -2191,8 +2198,8 @@ void tst_QComboBox::itemListPosition()
     if (const QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme())
         useFullScreenForPopupMenu = theme->themeHint(QPlatformTheme::UseFullScreenForPopupMenu).toBool();
     const QRect screen = useFullScreenForPopupMenu ?
-                         QApplication::desktop()->screenGeometry(scrNumber) :
-                         QApplication::desktop()->availableGeometry(scrNumber);
+                         QApplication::screens().at(scrNumber)->geometry() :
+                         QApplication::screens().at(scrNumber)->availableGeometry();
 
     topLevel.move(screen.width() - topLevel.sizeHint().width() - 10, 0); //puts the combo to the top-right corner
 
@@ -2314,7 +2321,7 @@ void tst_QComboBox::task191329_size()
     setFrameless(&tableCombo);
     tableCombo.move(200, 200);
     int rows;
-    if (QApplication::desktop()->screenGeometry().height() < 480)
+    if (QApplication::primaryScreen()->geometry().height() < 480)
         rows = 8;
     else
         rows = 15;
@@ -2379,6 +2386,9 @@ void tst_QComboBox::task190205_setModelAdjustToContents()
     correctBox.addItems(finalContent);
     correctBox.showNormal();
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "WinRT does not support more than 1 native top level widget", Abort);
+#endif
     QVERIFY(QTest::qWaitForWindowExposed(&box));
     QVERIFY(QTest::qWaitForWindowExposed(&correctBox));
 
@@ -2393,8 +2403,7 @@ void tst_QComboBox::task248169_popupWithMinimalSize()
 
     QComboBox comboBox;
     comboBox.addItems(initialContent);
-    QDesktopWidget desktop;
-    QRect desktopSize = desktop.availableGeometry();
+    QRect desktopSize = QGuiApplication::primaryScreen()->availableGeometry();
     comboBox.view()->setMinimumWidth(desktopSize.width() / 2);
 
     comboBox.setGeometry(desktopSize.width() - (desktopSize.width() / 4), (desktopSize.width() / 4), (desktopSize.width() / 2), (desktopSize.width() / 4));
@@ -2410,6 +2419,7 @@ void tst_QComboBox::task248169_popupWithMinimalSize()
 #if defined QT_BUILD_INTERNAL
     QFrame *container = comboBox.findChild<QComboBoxPrivateContainer *>();
     QVERIFY(container);
+    QDesktopWidget desktop;
     QTRY_VERIFY(desktop.screenGeometry(container).contains(container->geometry()));
 #endif
 }
@@ -2447,7 +2457,7 @@ void tst_QComboBox::task220195_keyBoardSelection2()
     combo.addItem( QLatin1String("foo3"));
     combo.show();
     QApplication::setActiveWindow(&combo);
-    QTRY_COMPARE(QApplication::activeWindow(), static_cast<QWidget *>(&combo));
+    QVERIFY(QTest::qWaitForWindowActive(&combo));
 
     combo.setCurrentIndex(-1);
     QVERIFY(combo.currentText().isNull());
@@ -2722,32 +2732,18 @@ void tst_QComboBox::resetModel()
 
 }
 
-static inline void centerCursor(const QWidget *w)
-{
-#ifndef QT_NO_CURSOR
-    // Force cursor movement to prevent QCursor::setPos() from returning prematurely on QPA:
-    const QPoint target(w->mapToGlobal(w->rect().center()));
-    QCursor::setPos(QPoint(target.x() + 1, target.y()));
-    QCursor::setPos(target);
-#else // !QT_NO_CURSOR
-    Q_UNUSED(w)
-#endif
-}
-
 void tst_QComboBox::keyBoardNavigationWithMouse()
 {
     QComboBox combo;
     combo.setEditable(false);
     setFrameless(&combo);
-    combo.move(200, 200);
-    for (int i = 0; i < 80; i++)
-        combo.addItem( QString::number(i));
+    for (int i = 0; i < 200; i++)
+        combo.addItem(QString::number(i));
 
+    combo.move(200, 200);
     combo.showNormal();
-    centerCursor(&combo); // QTBUG-33973, cursor needs to be within view from start on Mac.
     QApplication::setActiveWindow(&combo);
     QVERIFY(QTest::qWaitForWindowActive(&combo));
-    QCOMPARE(QApplication::activeWindow(), static_cast<QWidget *>(&combo));
 
     QCOMPARE(combo.currentText(), QLatin1String("0"));
 
@@ -2755,18 +2751,12 @@ void tst_QComboBox::keyBoardNavigationWithMouse()
     QTRY_VERIFY(combo.hasFocus());
 
     QTest::keyClick(combo.lineEdit(), Qt::Key_Space);
-    QTest::qWait(30);
     QTRY_VERIFY(combo.view());
     QTRY_VERIFY(combo.view()->isVisible());
-    QTest::qWait(130);
 
     QCOMPARE(combo.currentText(), QLatin1String("0"));
 
-    // When calling cursor function, Windows CE responds with: This function is not supported on this system.
-#if !defined Q_OS_QNX
-    // Force cursor movement to prevent QCursor::setPos() from returning prematurely on QPA:
-    centerCursor(combo.view());
-    QTest::qWait(200);
+    QTest::mouseMove(&combo, combo.rect().center());
 
 #define GET_SELECTION(SEL) \
     QCOMPARE(combo.view()->selectionModel()->selection().count(), 1); \
@@ -2774,23 +2764,19 @@ void tst_QComboBox::keyBoardNavigationWithMouse()
     SEL = combo.view()->selectionModel()->selection().indexes().first().row()
 
     int selection;
-    GET_SELECTION(selection);
+    GET_SELECTION(selection); // get initial selection
 
-    //since we moved the mouse is in the middle it should even be around 5;
-    QVERIFY2(selection > 3, (QByteArrayLiteral("selection=") + QByteArray::number(selection)).constData());
-
-    static const int final = 40;
+    const int final = 40;
     for (int i = selection + 1;  i <= final; i++)
     {
         QTest::keyClick(combo.view(), Qt::Key_Down);
-        QTest::qWait(20);
         GET_SELECTION(selection);
         QCOMPARE(selection, i);
     }
 
     QTest::keyClick(combo.view(), Qt::Key_Enter);
     QTRY_COMPARE(combo.currentText(), QString::number(final));
-#endif
+#undef GET_SELECTION
 }
 
 void tst_QComboBox::task_QTBUG_1071_changingFocusEmitsActivated()
@@ -3273,7 +3259,7 @@ void tst_QComboBox::task_QTBUG_49831_scrollerNotActivated()
 class QTBUG_56693_Model : public QStandardItemModel
 {
 public:
-    QTBUG_56693_Model(QObject *parent = Q_NULLPTR)
+    QTBUG_56693_Model(QObject *parent = nullptr)
         : QStandardItemModel(parent)
     { }
 
@@ -3301,7 +3287,7 @@ public:
 
     }
 
-    void drawControl(ControlElement element, const QStyleOption *opt, QPainter *p, const QWidget *w = Q_NULLPTR) const override
+    void drawControl(ControlElement element, const QStyleOption *opt, QPainter *p, const QWidget *w = nullptr) const override
     {
         if (element == CE_MenuItem)
             if (const QStyleOptionMenuItem *menuItem = qstyleoption_cast<const QStyleOptionMenuItem *>(opt))
@@ -3337,6 +3323,9 @@ void tst_QComboBox::task_QTBUG_56693_itemFontFromModel()
     QVERIFY(container);
     QVERIFY(QTest::qWaitForWindowExposed(container));
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QCOMPARE(proxyStyle->italicItemsNo, 5);
 
     box.hidePopup();
@@ -3438,6 +3427,11 @@ void tst_QComboBox::task_QTBUG_52027_mapCompleterIndex()
     model->setSourceModel(cbox.model());
     model->setFilterFixedString("foobar1");
     completer->setModel(model);
+
+    if (QGuiApplication::platformName() == "offscreen") {
+        QWARN("Offscreen platform requires explicit activateWindow()");
+        cbox.activateWindow();
+    }
 
     QApplication::setActiveWindow(&cbox);
     QVERIFY(QTest::qWaitForWindowActive(&cbox));

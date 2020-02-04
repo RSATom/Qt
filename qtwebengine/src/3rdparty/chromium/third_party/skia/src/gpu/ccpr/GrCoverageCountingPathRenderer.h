@@ -8,128 +8,109 @@
 #ifndef GrCoverageCountingPathRenderer_DEFINED
 #define GrCoverageCountingPathRenderer_DEFINED
 
-#include "GrAllocator.h"
+#include <map>
+#include "GrCCPerOpListPaths.h"
 #include "GrOnFlushResourceProvider.h"
 #include "GrPathRenderer.h"
-#include "SkTInternalLList.h"
-#include "ccpr/GrCCPRAtlas.h"
-#include "ccpr/GrCCPRCoverageOpsBuilder.h"
-#include "ops/GrDrawOp.h"
-#include <map>
+#include "GrRenderTargetOpList.h"
+#include "ccpr/GrCCPerFlushResources.h"
+
+class GrCCDrawPathsOp;
+class GrCCPathCache;
 
 /**
  * This is a path renderer that draws antialiased paths by counting coverage in an offscreen
- * buffer. (See GrCCPRCoverageProcessor, GrCCPRPathProcessor)
+ * buffer. (See GrCCCoverageProcessor, GrCCPathProcessor.)
  *
  * It also serves as the per-render-target tracker for pending path draws, and at the start of
  * flush, it compiles GPU buffers and renders a "coverage count atlas" for the upcoming paths.
  */
-class GrCoverageCountingPathRenderer
-    : public GrPathRenderer
-    , public GrOnFlushCallbackObject {
-
-    struct RTPendingOps;
-
+class GrCoverageCountingPathRenderer : public GrPathRenderer, public GrOnFlushCallbackObject {
 public:
     static bool IsSupported(const GrCaps&);
-    static sk_sp<GrCoverageCountingPathRenderer> CreateIfSupported(const GrCaps&);
+
+    enum class AllowCaching : bool {
+        kNo = false,
+        kYes = true
+    };
+
+    static sk_sp<GrCoverageCountingPathRenderer> CreateIfSupported(const GrCaps&, AllowCaching,
+                                                                   uint32_t contextUniqueID);
+
+    using PendingPathsMap = std::map<uint32_t, sk_sp<GrCCPerOpListPaths>>;
+
+    // In DDL mode, Ganesh needs to be able to move the pending GrCCPerOpListPaths to the DDL object
+    // (detachPendingPaths) and then return them upon replay (mergePendingPaths).
+    PendingPathsMap detachPendingPaths() { return std::move(fPendingPaths); }
+
+    void mergePendingPaths(const PendingPathsMap& paths) {
+#ifdef SK_DEBUG
+        // Ensure there are no duplicate opList IDs between the incoming path map and ours.
+        // This should always be true since opList IDs are globally unique and these are coming
+        // from different DDL recordings.
+        for (const auto& it : paths) {
+            SkASSERT(!fPendingPaths.count(it.first));
+        }
+#endif
+
+        fPendingPaths.insert(paths.begin(), paths.end());
+    }
+
+    std::unique_ptr<GrFragmentProcessor> makeClipProcessor(uint32_t oplistID,
+                                                           const SkPath& deviceSpacePath,
+                                                           const SkIRect& accessRect, int rtWidth,
+                                                           int rtHeight, const GrCaps&);
+
+    // GrOnFlushCallbackObject overrides.
+    void preFlush(GrOnFlushResourceProvider*, const uint32_t* opListIDs, int numOpListIDs,
+                  SkTArray<sk_sp<GrRenderTargetContext>>* out) override;
+    void postFlush(GrDeferredUploadToken, const uint32_t* opListIDs, int numOpListIDs) override;
+
+    void purgeCacheEntriesOlderThan(GrProxyProvider*, const GrStdSteadyClock::time_point&);
+
+    // If a path spans more pixels than this, we need to crop it or else analytic AA can run out of
+    // fp32 precision.
+    static constexpr float kPathCropThreshold = 1 << 16;
+
+    static void CropPath(const SkPath&, const SkIRect& cropbox, SkPath* out);
+
+    // Maximum inflation of path bounds due to stroking (from width, miter, caps). Strokes wider
+    // than this will be converted to fill paths and drawn by the CCPR filler instead.
+    static constexpr float kMaxBoundsInflationFromStroke = 4096;
+
+    static float GetStrokeDevWidth(const SkMatrix&, const SkStrokeRec&,
+                                   float* inflationRadius = nullptr);
+
+private:
+    GrCoverageCountingPathRenderer(AllowCaching, uint32_t contextUniqueID);
 
     // GrPathRenderer overrides.
     StencilSupport onGetStencilSupport(const GrShape&) const override {
         return GrPathRenderer::kNoSupport_StencilSupport;
     }
-    bool onCanDrawPath(const CanDrawPathArgs& args) const override;
-    bool onDrawPath(const DrawPathArgs&) final;
+    CanDrawPath onCanDrawPath(const CanDrawPathArgs&) const override;
+    bool onDrawPath(const DrawPathArgs&) override;
 
-    // GrOnFlushCallbackObject overrides.
-    void preFlush(GrOnFlushResourceProvider*, const uint32_t* opListIDs, int numOpListIDs,
-                  SkTArray<sk_sp<GrRenderTargetContext>>* results) override;
-    void postFlush() override;
+    GrCCPerOpListPaths* lookupPendingPaths(uint32_t opListID);
+    void recordOp(std::unique_ptr<GrCCDrawPathsOp>, const DrawPathArgs&);
 
-    // This is the Op that ultimately draws a path into its final destination, using the atlas we
-    // generate at flush time.
-    class DrawPathsOp : public GrDrawOp {
-    public:
-        DEFINE_OP_CLASS_ID
-        SK_DECLARE_INTERNAL_LLIST_INTERFACE(DrawPathsOp);
+    // fPendingPaths holds the GrCCPerOpListPaths objects that have already been created, but not
+    // flushed, and those that are still being created. All GrCCPerOpListPaths objects will first
+    // reside in fPendingPaths, then be moved to fFlushingPaths during preFlush().
+    PendingPathsMap fPendingPaths;
 
-        DrawPathsOp(GrCoverageCountingPathRenderer*, const DrawPathArgs&, GrColor);
+    // fFlushingPaths holds the GrCCPerOpListPaths objects that are currently being flushed.
+    // (It will only contain elements when fFlushing is true.)
+    SkSTArray<4, sk_sp<GrCCPerOpListPaths>> fFlushingPaths;
 
-        // GrDrawOp overrides.
-        const char* name() const override { return "GrCoverageCountingPathRenderer::DrawPathsOp"; }
-        FixedFunctionFlags fixedFunctionFlags() const override { return FixedFunctionFlags::kNone; }
-        RequiresDstTexture finalize(const GrCaps&, const GrAppliedClip*) override;
-        void wasRecorded(GrRenderTargetOpList*) override;
-        bool onCombineIfPossible(GrOp* other, const GrCaps& caps) override;
-        void onPrepare(GrOpFlushState*) override {}
-        void onExecute(GrOpFlushState*) override;
+    std::unique_ptr<GrCCPathCache> fPathCache;
 
-    private:
-        SkPath::FillType getFillType() const {
-            SkASSERT(fDebugInstanceCount >= 1);
-            return fHeadDraw.fPath.getFillType();
-        }
+    SkDEBUGCODE(bool fFlushing = false);
 
-        struct SingleDraw  {
-            using ScissorMode = GrCCPRCoverageOpsBuilder::ScissorMode;
-            SkIRect       fClipBounds;
-            ScissorMode   fScissorMode;
-            SkMatrix      fMatrix;
-            SkPath        fPath;
-            GrColor       fColor;
-            SingleDraw*   fNext = nullptr;
-        };
-
-        SingleDraw& getOnlyPathDraw() {
-            SkASSERT(&fHeadDraw == fTailDraw);
-            SkASSERT(1 == fDebugInstanceCount);
-            return fHeadDraw;
-        }
-
-        struct AtlasBatch {
-            const GrCCPRAtlas*   fAtlas;
-            int                  fEndInstanceIdx;
-        };
-
-        void addAtlasBatch(const GrCCPRAtlas* atlas, int endInstanceIdx) {
-            SkASSERT(endInstanceIdx > fBaseInstance);
-            SkASSERT(fAtlasBatches.empty() ||
-                     endInstanceIdx > fAtlasBatches.back().fEndInstanceIdx);
-            fAtlasBatches.push_back() = {atlas, endInstanceIdx};
-        }
-
-        GrCoverageCountingPathRenderer* const   fCCPR;
-        const uint32_t                          fSRGBFlags;
-        GrProcessorSet                          fProcessors;
-        SingleDraw                              fHeadDraw;
-        SingleDraw*                             fTailDraw;
-        RTPendingOps*                           fOwningRTPendingOps;
-        int                                     fBaseInstance;
-        SkDEBUGCODE(int                         fDebugInstanceCount;)
-        SkSTArray<1, AtlasBatch, true>          fAtlasBatches;
-
-        friend class GrCoverageCountingPathRenderer;
-
-        typedef GrDrawOp INHERITED;
-    };
-
-private:
-    GrCoverageCountingPathRenderer() = default;
-
-    struct RTPendingOps {
-        SkTInternalLList<DrawPathsOp>                 fOpList;
-        GrCCPRCoverageOpsBuilder::MaxBufferItems      fMaxBufferItems;
-        GrSTAllocator<256, DrawPathsOp::SingleDraw>   fDrawsAllocator;
-    };
-
-    // Map from render target ID to the individual render target's pending path ops.
-    std::map<uint32_t, RTPendingOps>   fRTPendingOpsMap;
-
-    sk_sp<GrBuffer>                    fPerFlushIndexBuffer;
-    sk_sp<GrBuffer>                    fPerFlushVertexBuffer;
-    sk_sp<GrBuffer>                    fPerFlushInstanceBuffer;
-    GrSTAllocator<4, GrCCPRAtlas>      fPerFlushAtlases;
-    SkDEBUGCODE(bool                   fFlushing = false;)
+public:
+    void testingOnly_drawPathDirectly(const DrawPathArgs&);
+    const GrCCPerFlushResources* testingOnly_getCurrentFlushResources();
+    const GrCCPathCache* testingOnly_getPathCache() const;
 };
 
 #endif

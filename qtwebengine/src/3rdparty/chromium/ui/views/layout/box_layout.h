@@ -15,7 +15,7 @@
 namespace gfx {
 class Rect;
 class Size;
-}
+}  // namespace gfx
 
 namespace views {
 
@@ -33,9 +33,10 @@ class VIEWS_EXPORT BoxLayout : public LayoutManager {
     kVertical,
   };
 
-  // This specifies where along the main axis the children should be laid out.
-  // e.g. a horizontal layout of MAIN_AXIS_ALIGNMENT_END will result in the
-  // child views being right-aligned.
+  // This specifies that the start/center/end of the collective child views is
+  // aligned with the start/center/end of the host view. e.g. a horizontal
+  // layout of MAIN_AXIS_ALIGNMENT_END will result in the child views being
+  // right-aligned.
   enum MainAxisAlignment {
     MAIN_AXIS_ALIGNMENT_START,
     MAIN_AXIS_ALIGNMENT_CENTER,
@@ -128,14 +129,23 @@ class VIEWS_EXPORT BoxLayout : public LayoutManager {
     minimum_cross_axis_size_ = size;
   }
 
+  void set_between_child_spacing(int spacing) {
+    between_child_spacing_ = spacing;
+  }
+
   // Sets the flex weight for the given |view|. Using the preferred size as
   // the basis, free space along the main axis is distributed to views in the
   // ratio of their flex weights. Similarly, if the views will overflow the
   // parent, space is subtracted in these ratios.
+  // If true is passed in for |use_min_size|, the given view's minimum size
+  // is then obtained from calling View::GetMinimumSize(). This will be the
+  // minimum allowed size for the view along the main axis. False
+  // for |use_min_size| (the default) will allow the |view| to be resized to a
+  // minimum size of 0.
   //
   // A flex of 0 means this view is not resized. Flex values must not be
   // negative.
-  void SetFlexForView(const View* view, int flex);
+  void SetFlexForView(const View* view, int flex, bool use_min_size = false);
 
   // Clears the flex for the given |view|, causing it to use the default
   // flex.
@@ -187,10 +197,18 @@ class VIEWS_EXPORT BoxLayout : public LayoutManager {
     DISALLOW_COPY_AND_ASSIGN(ViewWrapper);
   };
 
-  using FlexMap = std::map<const View*, int>;
+  struct Flex {
+    int flex_weight;
+    bool use_min_size;
+  };
+
+  using FlexMap = std::map<const View*, Flex>;
 
   // Returns the flex for the specified |view|.
   int GetFlexForView(const View* view) const;
+
+  // Returns the minimum size for the specified |view|.
+  int GetMinimumSizeForView(const View* view) const;
 
   // Returns the size and position along the main axis of |rect|.
   int MainAxisSize(const gfx::Rect& rect) const;
@@ -293,7 +311,7 @@ class VIEWS_EXPORT BoxLayout : public LayoutManager {
   gfx::Insets inside_border_insets_;
 
   // Spacing to put in between child views.
-  const int between_child_spacing_;
+  int between_child_spacing_;
 
   // The alignment of children in the main axis. This is
   // MAIN_AXIS_ALIGNMENT_START by default.
@@ -321,6 +339,6 @@ class VIEWS_EXPORT BoxLayout : public LayoutManager {
   DISALLOW_IMPLICIT_CONSTRUCTORS(BoxLayout);
 };
 
-} // namespace views
+}  // namespace views
 
 #endif  // UI_VIEWS_LAYOUT_BOX_LAYOUT_H_

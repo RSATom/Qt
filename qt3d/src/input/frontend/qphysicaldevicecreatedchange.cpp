@@ -56,7 +56,7 @@ QPhysicalDeviceCreatedChangeBasePrivate::QPhysicalDeviceCreatedChangeBasePrivate
 /*!
     \class QPhysicalDeviceCreatedChangeBase
     \inmodule Qt3DInput
-    \brief Base class for handling changes in physical devices
+    \brief Base class for handling changes in physical devices.
 */
 QPhysicalDeviceCreatedChangeBase::QPhysicalDeviceCreatedChangeBase(const QAbstractPhysicalDevice *device)
     : Qt3DCore::QNodeCreatedChangeBase(*new QPhysicalDeviceCreatedChangeBasePrivate(device), device)
@@ -71,7 +71,7 @@ QPhysicalDeviceCreatedChangeBase::~QPhysicalDeviceCreatedChangeBase()
 /*!
     Returns a list of node ids.
 */
-Qt3DCore::QNodeIdVector QPhysicalDeviceCreatedChangeBase::axisSettingIds() const
+Qt3DCore::QNodeIdVector Qt3DInput::QPhysicalDeviceCreatedChangeBase::axisSettingIds() const
 {
     Q_D(const QPhysicalDeviceCreatedChangeBase);
     return d->m_axisSettingIds;

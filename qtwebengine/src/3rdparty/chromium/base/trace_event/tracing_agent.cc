@@ -7,7 +7,7 @@
 namespace base {
 namespace trace_event {
 
-TracingAgent::~TracingAgent() {}
+TracingAgent::~TracingAgent() = default;
 
 bool TracingAgent::SupportsExplicitClockSync() {
   return false;
@@ -15,7 +15,7 @@ bool TracingAgent::SupportsExplicitClockSync() {
 
 void TracingAgent::RecordClockSyncMarker(
     const std::string& sync_id,
-    const RecordClockSyncMarkerCallback& callback) {
+    RecordClockSyncMarkerCallback callback) {
   DCHECK(SupportsExplicitClockSync());
 }
 

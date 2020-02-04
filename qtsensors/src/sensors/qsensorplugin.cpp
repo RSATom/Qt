@@ -39,6 +39,8 @@
 
 #include "qsensorplugin.h"
 
+QT_BEGIN_NAMESPACE
+
 /*!
     \class QSensorPluginInterface
     \ingroup sensors_backend
@@ -99,3 +101,5 @@ QSensorChangesInterface::~QSensorChangesInterface()
 
     \sa {Creating a sensor plugin}
 */
+
+QT_END_NAMESPACE

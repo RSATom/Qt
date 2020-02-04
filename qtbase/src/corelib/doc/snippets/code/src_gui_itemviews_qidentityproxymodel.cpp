@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Stephen Kelly <stephen.kelly@kdab.com>
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:BSD$
 ** Commercial License Usage
@@ -58,7 +58,7 @@ class DateFormatProxyModel : public QIdentityProxyModel
     m_formatString = formatString;
   }
 
-  QVariant data(const QModelIndex &index, int role) const
+  QVariant data(const QModelIndex &index, int role) const override
   {
     if (role != Qt::DisplayRole)
       return QIdentityProxyModel::data(index, role);

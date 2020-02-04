@@ -41,6 +41,7 @@
 #import "qiosviewcontroller.h"
 
 #include <QtCore/qscopedvaluerollback.h>
+#include <QtCore/private/qcore_mac_p.h>
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QWindow>
@@ -56,12 +57,8 @@
 
 // -------------------------------------------------------------------------
 
-@interface QIOSViewController () {
-  @public
-    QPointer<QT_PREPEND_NAMESPACE(QIOSScreen)> m_screen;
-    BOOL m_updatingProperties;
-    QMetaObject::Connection m_focusWindowChangeConnection;
-}
+@interface QIOSViewController ()
+@property (nonatomic, assign) QPointer<QT_PREPEND_NAMESPACE(QIOSScreen)> platformScreen;
 @property (nonatomic, assign) BOOL changingOrientation;
 @end
 
@@ -72,7 +69,7 @@
 
 @implementation QIOSDesktopManagerView
 
-- (id)init
+- (instancetype)init
 {
     if (!(self = [super init]))
         return nil;
@@ -125,7 +122,7 @@
 {
     Q_UNUSED(subview);
 
-    QT_PREPEND_NAMESPACE(QIOSScreen) *screen = self.qtViewController->m_screen;
+    QT_PREPEND_NAMESPACE(QIOSScreen) *screen = self.qtViewController.platformScreen;
 
     // The 'window' property of our view is not valid until the window
     // has been shown, so we have to access it through the QIOSScreen.
@@ -170,7 +167,7 @@
         // here. iOS will still use the latest rendered frame to create the
         // application switcher thumbnail, but it will be based on the last
         // active orientation of the application.
-        QIOSScreen *screen = self.qtViewController->m_screen;
+        QIOSScreen *screen = self.qtViewController.platformScreen;
         qCDebug(lcQpaWindow) << "ignoring layout of subviews while suspended,"
             << "likely system snapshot of" << screen->screen()->primaryOrientation();
         return;
@@ -246,7 +243,10 @@
 
 // -------------------------------------------------------------------------
 
-@implementation QIOSViewController
+@implementation QIOSViewController {
+    BOOL m_updatingProperties;
+    QMetaObject::Connection m_focusWindowChangeConnection;
+}
 
 #ifndef Q_OS_TVOS
 @synthesize prefersStatusBarHidden;
@@ -254,11 +254,10 @@
 @synthesize preferredStatusBarStyle;
 #endif
 
-- (id)initWithQIOSScreen:(QT_PREPEND_NAMESPACE(QIOSScreen) *)screen
+- (instancetype)initWithQIOSScreen:(QT_PREPEND_NAMESPACE(QIOSScreen) *)screen
 {
     if (self = [self init]) {
-        m_screen = screen;
-
+        self.platformScreen = screen;
 
         self.changingOrientation = NO;
 #ifndef Q_OS_TVOS
@@ -273,6 +272,20 @@
         m_focusWindowChangeConnection = QObject::connect(qApp, &QGuiApplication::focusWindowChanged, [self]() {
             [self updateProperties];
         });
+
+        QIOSApplicationState *applicationState = &QIOSIntegration::instance()->applicationState;
+        QObject::connect(applicationState, &QIOSApplicationState::applicationStateDidChange,
+            [self](Qt::ApplicationState oldState, Qt::ApplicationState newState) {
+                if (oldState == Qt::ApplicationSuspended && newState != Qt::ApplicationSuspended) {
+                    // We may have ignored an earlier layout because the application was suspended,
+                    // and we didn't want to render anything at that moment in fear of being killed
+                    // due to rendering in the background, so we trigger an explicit layout when
+                    // coming out of the suspended state.
+                    qCDebug(lcQpaWindow) << "triggering root VC layout when coming out of suspended state";
+                    [self.view setNeedsLayout];
+                }
+            }
+        );
     }
 
     return self;
@@ -293,15 +306,17 @@
 {
     [super viewDidLoad];
 
+    Q_ASSERT(!qt_apple_isApplicationExtension());
+
 #ifndef Q_OS_TVOS
     NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
     [center addObserver:self selector:@selector(willChangeStatusBarFrame:)
             name:UIApplicationWillChangeStatusBarFrameNotification
-            object:[UIApplication sharedApplication]];
+            object:qt_apple_sharedApplication()];
 
     [center addObserver:self selector:@selector(didChangeStatusBarOrientation:)
             name:UIApplicationDidChangeStatusBarOrientationNotification
-            object:[UIApplication sharedApplication]];
+            object:qt_apple_sharedApplication()];
 #endif
 }
 
@@ -316,7 +331,7 @@
 - (BOOL)shouldAutorotate
 {
 #ifndef Q_OS_TVOS
-    return m_screen && m_screen->uiScreen() == [UIScreen mainScreen] && !self.lockedOrientation;
+    return self.platformScreen && self.platformScreen->uiScreen() == [UIScreen mainScreen] && !self.lockedOrientation;
 #else
     return NO;
 #endif
@@ -396,8 +411,8 @@
     if (!QCoreApplication::instance())
         return;
 
-    if (m_screen)
-        m_screen->updateProperties();
+    if (self.platformScreen)
+        self.platformScreen->updateProperties();
 }
 
 // -------------------------------------------------------------------------
@@ -407,12 +422,12 @@
     if (!isQtApplication())
         return;
 
-    if (!m_screen || !m_screen->screen())
+    if (!self.platformScreen || !self.platformScreen->screen())
         return;
 
     // For now we only care about the main screen, as both the statusbar
     // visibility and orientation is only appropriate for the main screen.
-    if (m_screen->uiScreen() != [UIScreen mainScreen])
+    if (self.platformScreen->uiScreen() != [UIScreen mainScreen])
         return;
 
     // Prevent recursion caused by updating the status bar appearance (position
@@ -434,14 +449,13 @@
         return;
 
     // We only care about changes to focusWindow that involves our screen
-    if (!focusWindow->screen() || focusWindow->screen()->handle() != m_screen)
+    if (!focusWindow->screen() || focusWindow->screen()->handle() != self.platformScreen)
         return;
 
     // All decisions are based on the the top level window
     focusWindow = qt_window_private(focusWindow)->topLevelWindow();
 
 #ifndef Q_OS_TVOS
-    UIApplication *uiApplication = [UIApplication sharedApplication];
 
     // -------------- Status bar style and visbility ---------------
 
@@ -464,6 +478,8 @@
 
 
     // -------------- Content orientation ---------------
+
+    UIApplication *uiApplication = qt_apple_sharedApplication();
 
     static BOOL kAnimateContentOrientationChanges = YES;
 

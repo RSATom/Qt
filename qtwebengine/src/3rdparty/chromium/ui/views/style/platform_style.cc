@@ -4,11 +4,11 @@
 
 #include "ui/views/style/platform_style.h"
 
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/range/range.h"
 #include "ui/gfx/shadow_value.h"
+#include "ui/gfx/utf16_indexing.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/label_button.h"
@@ -25,7 +25,7 @@
 namespace views {
 namespace {
 
-#if !defined(DESKTOP_LINUX) && !defined(OS_MACOSX)
+#if !defined(DESKTOP_LINUX)
 // Default text and shadow colors for STYLE_BUTTON.
 const SkColor kStyleButtonTextColor = SK_ColorBLACK;
 const SkColor kStyleButtonShadowColor = SK_ColorWHITE;
@@ -33,46 +33,61 @@ const SkColor kStyleButtonShadowColor = SK_ColorWHITE;
 
 }  // namespace
 
+#if defined(OS_WIN) || defined(OS_CHROMEOS)
+const bool PlatformStyle::kIsOkButtonLeading = true;
+#else
+const bool PlatformStyle::kIsOkButtonLeading = false;
+#endif
+
+// Set kFocusHaloInset to negative half of kFocusHaloThickness to draw half of
+// the focus ring inside and half outside the parent elmeent
+const float PlatformStyle::kFocusHaloThickness = 2.f;
+const float PlatformStyle::kFocusHaloInset = -1.f;
+
 #if !defined(OS_MACOSX)
 
 const int PlatformStyle::kMinLabelButtonWidth = 70;
 const int PlatformStyle::kMinLabelButtonHeight = 33;
-const bool PlatformStyle::kDefaultLabelButtonHasBoldFont = true;
 const bool PlatformStyle::kDialogDefaultButtonCanBeCancel = true;
 const bool PlatformStyle::kSelectWordOnRightClick = false;
 const bool PlatformStyle::kSelectAllOnRightClickWhenUnfocused = false;
-const CustomButton::NotifyAction PlatformStyle::kMenuNotifyActivationAction =
-    CustomButton::NOTIFY_ON_RELEASE;
-const CustomButton::KeyClickAction PlatformStyle::kKeyClickActionOnSpace =
-    CustomButton::CLICK_ON_KEY_RELEASE;
+const Button::NotifyAction PlatformStyle::kMenuNotifyActivationAction =
+    Button::NOTIFY_ON_RELEASE;
+const Button::KeyClickAction PlatformStyle::kKeyClickActionOnSpace =
+    Button::CLICK_ON_KEY_RELEASE;
 const bool PlatformStyle::kReturnClicksFocusedControl = true;
+const bool PlatformStyle::kTableViewSupportsKeyboardNavigationByCell = true;
 const bool PlatformStyle::kTreeViewSelectionPaintsEntireRow = false;
-const bool PlatformStyle::kTreeViewUsesOpenIcon = true;
 const bool PlatformStyle::kUseRipples = true;
-const bool PlatformStyle::kMirrorBubbleArrowInRTLByDefault = true;
+const bool PlatformStyle::kTextfieldScrollsToStartOnFocusChange = false;
+const bool PlatformStyle::kTextfieldUsesDragCursorWhenDraggable = true;
+const bool PlatformStyle::kPreferFocusRings = false;
+const bool PlatformStyle::kInactiveWidgetControlsAppearDisabled = false;
 
 // static
 std::unique_ptr<ScrollBar> PlatformStyle::CreateScrollBar(bool is_horizontal) {
 #if defined(OS_CHROMEOS)
-  return base::MakeUnique<OverlayScrollBar>(is_horizontal);
+  return std::make_unique<OverlayScrollBar>(is_horizontal);
 #else
-  return base::MakeUnique<ScrollBarViews>(is_horizontal);
+  return std::make_unique<ScrollBarViews>(is_horizontal);
 #endif
-}
-
-// static
-SkColor PlatformStyle::TextColorForButton(
-    const ButtonColorByState& color_by_state,
-    const LabelButton& button) {
-  return color_by_state[button.state()];
 }
 
 // static
 void PlatformStyle::OnTextfieldEditFailed() {}
 
+// static
+gfx::Range PlatformStyle::RangeToDeleteBackwards(const base::string16& text,
+                                                 size_t cursor_position) {
+  // Delete one code point, which may be two UTF-16 words.
+  size_t previous_grapheme_index =
+      gfx::UTF16OffsetToIndex(text, cursor_position, -1);
+  return gfx::Range(cursor_position, previous_grapheme_index);
+}
+
 #endif  // OS_MACOSX
 
-#if !defined(DESKTOP_LINUX) && !defined(OS_MACOSX)
+#if !defined(DESKTOP_LINUX)
 // static
 void PlatformStyle::ApplyLabelButtonTextStyle(
     Label* label,

@@ -7,40 +7,42 @@
 
 #include <memory>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_base.h"
+#include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
-#include "base/threading/thread_checker.h"
+#include "base/single_thread_task_runner.h"
 #include "components/metrics/metrics_provider.h"
 #include "components/metrics/net/wifi_access_point_info_provider.h"
-#include "components/metrics/proto/system_profile.pb.h"
-#include "net/base/network_change_notifier.h"
 #include "net/base/network_interfaces.h"
 #include "net/nqe/effective_connection_type.h"
-
-namespace net {
-class NetworkQualityEstimator;
-}
+#include "services/network/public/cpp/network_connection_tracker.h"
+#include "third_party/metrics_proto/system_profile.pb.h"
 
 namespace metrics {
 
-// Registers as observer with net::NetworkChangeNotifier and keeps track of
-// the network environment.
+SystemProfileProto::Network::EffectiveConnectionType
+ConvertEffectiveConnectionType(
+    net::EffectiveConnectionType effective_connection_type);
+
+// Registers as observer with network::NetworkConnectionTracker and keeps track
+// of the network environment.
 class NetworkMetricsProvider
     : public MetricsProvider,
-      public net::NetworkChangeNotifier::ConnectionTypeObserver {
+      public network::NetworkConnectionTracker::NetworkConnectionObserver {
  public:
   // Class that provides |this| with the network quality estimator.
   class NetworkQualityEstimatorProvider {
    public:
     virtual ~NetworkQualityEstimatorProvider() {}
 
-    // Returns the network quality estimator. May be nullptr.
-    virtual net::NetworkQualityEstimator* GetNetworkQualityEstimator() = 0;
-
-    // Returns the task runner on which |this| should be used and destroyed.
-    virtual scoped_refptr<base::SequencedTaskRunner> GetTaskRunner() = 0;
+    // Provides |this| with |callback| that would be invoked by |this| every
+    // time there is a change in the network quality estimates.
+    virtual void PostReplyOnNetworkQualityChanged(
+        base::RepeatingCallback<void(net::EffectiveConnectionType)>
+            callback) = 0;
 
    protected:
     NetworkQualityEstimatorProvider() {}
@@ -52,26 +54,28 @@ class NetworkMetricsProvider
   // Creates a NetworkMetricsProvider, where
   // |network_quality_estimator_provider| should be set if it is useful to
   // attach the quality of the network to the metrics report.
-  explicit NetworkMetricsProvider(
-      std::unique_ptr<NetworkQualityEstimatorProvider>
-          network_quality_estimator_provider = nullptr);
+  NetworkMetricsProvider(network::NetworkConnectionTrackerAsyncGetter
+                             network_connection_tracker_async_getter,
+                         std::unique_ptr<NetworkQualityEstimatorProvider>
+                             network_quality_estimator_provider = nullptr);
   ~NetworkMetricsProvider() override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(NetworkMetricsProviderTest, EffectiveConnectionType);
   FRIEND_TEST_ALL_PREFIXES(NetworkMetricsProviderTest,
                            ECTAmbiguousOnConnectionTypeChange);
-
-  // Listens to the changes in the effective conection type.
-  class EffectiveConnectionTypeObserver;
+  FRIEND_TEST_ALL_PREFIXES(NetworkMetricsProviderTest,
+                           ECTNotAmbiguousOnUnknownOrOffline);
+  FRIEND_TEST_ALL_PREFIXES(NetworkMetricsProviderTest,
+                           ConnectionTypeIsAmbiguous);
 
   // MetricsProvider:
-  void ProvideGeneralMetrics(ChromeUserMetricsExtension* uma_proto) override;
+  void ProvideCurrentSessionData(
+      ChromeUserMetricsExtension* uma_proto) override;
   void ProvideSystemProfileMetrics(SystemProfileProto* system_profile) override;
 
-  // ConnectionTypeObserver:
-  void OnConnectionTypeChanged(
-      net::NetworkChangeNotifier::ConnectionType type) override;
+  // NetworkConnectionObserver:
+  void OnConnectionChanged(network::mojom::ConnectionType type) override;
 
   SystemProfileProto::Network::ConnectionType GetConnectionType() const;
   SystemProfileProto::Network::WifiPHYLayerProtocol GetWifiPHYLayerProtocol()
@@ -92,14 +96,26 @@ class NetworkMetricsProvider
   // Logs metrics that are functions of other metrics being uploaded.
   void LogAggregatedMetrics();
 
-  // Notifies |this| that the effective connection type of the current network
-  // has changed to |type|.
   void OnEffectiveConnectionTypeChanged(net::EffectiveConnectionType type);
+
+  // Used as a callback to be given to NetworkConnectionTracker async getter to
+  // set the |network_connection_tracker_|.
+  void SetNetworkConnectionTracker(
+      network::NetworkConnectionTracker* network_connection_tracker);
+
+  // Watches for network connection changes.
+  // This |network_connection_tracker_| raw pointer is not owned by this class.
+  // It is obtained from the global |g_network_connection_tracker| pointer in
+  // //content/public/browser/network_service_instance.cc and points to the same
+  // object.
+  network::NetworkConnectionTracker* network_connection_tracker_;
 
   // True if |connection_type_| changed during the lifetime of the log.
   bool connection_type_is_ambiguous_;
-  // The connection type according to net::NetworkChangeNotifier.
-  net::NetworkChangeNotifier::ConnectionType connection_type_;
+  // The connection type according to network::NetworkConnectionTracker.
+  network::mojom::ConnectionType connection_type_;
+  // True if the network connection tracker has been initialized.
+  bool network_connection_tracker_initialized_;
 
   // True if |wifi_phy_layer_protocol_| changed during the lifetime of the log.
   bool wifi_phy_layer_protocol_is_ambiguous_;
@@ -110,7 +126,7 @@ class NetworkMetricsProvider
   // Helper object for retrieving connected wifi access point information.
   std::unique_ptr<WifiAccessPointInfoProvider> wifi_access_point_info_provider_;
 
-  // These metrics track histogram totals for the Net.ErrorCodesForMainFrame3
+  // These metrics track histogram totals for the Net.ErrorCodesForMainFrame4
   // histogram. They are used to compute deltas at upload time.
   base::HistogramBase::Count total_aborts_;
   base::HistogramBase::Count total_codes_;
@@ -118,15 +134,6 @@ class NetworkMetricsProvider
   // Provides the network quality estimator. May be null.
   std::unique_ptr<NetworkQualityEstimatorProvider>
       network_quality_estimator_provider_;
-
-  // Listens to the changes in the effective connection type. Initialized and
-  // destroyed using |network_quality_task_runner_|. May be null.
-  std::unique_ptr<EffectiveConnectionTypeObserver>
-      effective_connection_type_observer_;
-
-  // Task runner using which |effective_connection_type_observer_| is
-  // initialized and destroyed. May be null.
-  scoped_refptr<base::SequencedTaskRunner> network_quality_task_runner_;
 
   // Last known effective connection type.
   net::EffectiveConnectionType effective_connection_type_;
@@ -136,7 +143,7 @@ class NetworkMetricsProvider
   net::EffectiveConnectionType min_effective_connection_type_;
   net::EffectiveConnectionType max_effective_connection_type_;
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   base::WeakPtrFactory<NetworkMetricsProvider> weak_ptr_factory_;
 

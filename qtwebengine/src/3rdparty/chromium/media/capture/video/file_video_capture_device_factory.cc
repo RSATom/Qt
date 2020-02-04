@@ -7,7 +7,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
 #include "media/base/media_switches.h"
 #include "media/capture/video/file_video_capture_device.h"
@@ -29,13 +29,13 @@ base::FilePath GetFilePathFromCommandLine() {
 std::unique_ptr<VideoCaptureDevice> FileVideoCaptureDeviceFactory::CreateDevice(
     const VideoCaptureDeviceDescriptor& device_descriptor) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 #if defined(OS_WIN)
   return std::unique_ptr<VideoCaptureDevice>(new FileVideoCaptureDevice(
-      base::FilePath(base::SysUTF8ToWide(device_descriptor.display_name))));
+      base::FilePath(base::SysUTF8ToWide(device_descriptor.display_name()))));
 #else
   return std::unique_ptr<VideoCaptureDevice>(new FileVideoCaptureDevice(
-      base::FilePath(device_descriptor.display_name)));
+      base::FilePath(device_descriptor.display_name())));
 #endif
 }
 
@@ -67,7 +67,7 @@ void FileVideoCaptureDeviceFactory::GetSupportedFormats(
     const VideoCaptureDeviceDescriptor& device_descriptor,
     VideoCaptureFormats* supported_formats) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   VideoCaptureFormat capture_format;
   if (!FileVideoCaptureDevice::GetVideoCaptureFormat(
@@ -76,6 +76,12 @@ void FileVideoCaptureDeviceFactory::GetSupportedFormats(
   }
 
   supported_formats->push_back(capture_format);
+}
+
+void FileVideoCaptureDeviceFactory::GetCameraLocationsAsync(
+    std::unique_ptr<VideoCaptureDeviceDescriptors> device_descriptors,
+    DeviceDescriptorsCallback result_callback) {
+  std::move(result_callback).Run(std::move(device_descriptors));
 }
 
 }  // namespace media

@@ -13,26 +13,26 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/webui/signin/signin_email_confirmation_ui.h"
 #include "chrome/common/url_constants.h"
+#include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
 // Dialog size.
-const int kDialogWidth = 512;
-const int kDialogMinHeight = 200;
-const int kDialogMaxHeight = 700;
+const int kSigninEmailConfirmationDialogWidth = 512;
+const int kSigninEmailConfirmationDialogMinHeight = 200;
+const int kSigninEmailConfirmationDialogMaxHeight = 700;
 
 // Dialog action key;
-const char kActionKey[] = "action";
+const char kSigninEmailConfirmationActionKey[] = "action";
 
 // Dialog action values.
-const char kActionCancel[] = "cancel";
-const char kActionCreateNewUser[] = "createNewUser";
-const char kActionStartSync[] = "startSync";
+const char kSigninEmailConfirmationActionCancel[] = "cancel";
+const char kSigninEmailConfirmationActionCreateNewUser[] = "createNewUser";
+const char kSigninEmailConfirmationActionStartSync[] = "startSync";
 
 }  // namespace
 
@@ -56,7 +56,9 @@ class SigninEmailConfirmationDialog::DialogWebContentsObserver
     signin_email_confirmation_dialog_->CloseDialog();
   }
 
-  SigninEmailConfirmationDialog* signin_email_confirmation_dialog_;
+  SigninEmailConfirmationDialog* const signin_email_confirmation_dialog_;
+
+  DISALLOW_COPY_AND_ASSIGN(DialogWebContentsObserver);
 };
 
 SigninEmailConfirmationDialog::SigninEmailConfirmationDialog(
@@ -90,21 +92,31 @@ void SigninEmailConfirmationDialog::AskForConfirmation(
 }
 
 void SigninEmailConfirmationDialog::ShowDialog() {
-  gfx::Size minSize(kDialogWidth, kDialogMinHeight);
-  gfx::Size maxSize(kDialogWidth, kDialogMaxHeight);
+  gfx::Size min_size(kSigninEmailConfirmationDialogWidth,
+                     kSigninEmailConfirmationDialogMinHeight);
+  gfx::Size max_size(kSigninEmailConfirmationDialogWidth,
+                     kSigninEmailConfirmationDialogMaxHeight);
   ConstrainedWebDialogDelegate* dialog_delegate =
       ShowConstrainedWebDialogWithAutoResize(profile_, this, web_contents_,
-                                             minSize, maxSize);
+                                             min_size, max_size);
 
   content::WebContents* dialog_web_contents = dialog_delegate->GetWebContents();
-  dialog_observer_.reset(
-      new DialogWebContentsObserver(dialog_web_contents, this));
+
+  // Clear the zoom level for the dialog so that it is not affected by the page
+  // zoom setting.
+  const GURL dialog_url = GetDialogContentURL();
+  content::HostZoomMap::Get(dialog_web_contents->GetSiteInstance())
+      ->SetZoomLevelForHostAndScheme(dialog_url.scheme(), dialog_url.host(), 0);
+
+  dialog_observer_ =
+      std::make_unique<DialogWebContentsObserver>(dialog_web_contents, this);
 }
 
 void SigninEmailConfirmationDialog::CloseDialog() {
   content::WebContents* dialog_web_contents = GetDialogWebContents();
-  if (dialog_web_contents == nullptr)
+  if (!dialog_web_contents)
     return;
+
   content::WebUI* web_ui = dialog_web_contents->GetWebUI();
   if (web_ui) {
     SigninEmailConfirmationUI* signin_email_confirmation_ui =
@@ -147,7 +159,7 @@ void SigninEmailConfirmationDialog::GetDialogSize(gfx::Size* size) const {
   // horizontally when it appears. Avoid setting a dialog height in here as
   // this dialog auto-resizes.
   if (size->IsEmpty())
-    size->set_width(kDialogWidth);
+    size->set_width(kSigninEmailConfirmationDialogWidth);
 }
 
 std::string SigninEmailConfirmationDialog::GetDialogArgs() const {
@@ -166,12 +178,13 @@ void SigninEmailConfirmationDialog::OnDialogClosed(
       base::DictionaryValue::From(base::JSONReader::Read(json_retval)));
   if (ret_value) {
     std::string action_string;
-    if (ret_value->GetString(kActionKey, &action_string)) {
-      if (action_string == kActionCancel) {
+    if (ret_value->GetString(kSigninEmailConfirmationActionKey,
+                             &action_string)) {
+      if (action_string == kSigninEmailConfirmationActionCancel) {
         action = CLOSE;
-      } else if (action_string == kActionCreateNewUser) {
+      } else if (action_string == kSigninEmailConfirmationActionCreateNewUser) {
         action = CREATE_NEW_USER;
-      } else if (action_string == kActionStartSync) {
+      } else if (action_string == kSigninEmailConfirmationActionStartSync) {
         action = START_SYNC;
       } else {
         NOTREACHED() << "Unexpected action value [" << action_string << "]";

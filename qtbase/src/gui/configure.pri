@@ -1,58 +1,57 @@
 # custom tests
 
 defineTest(qtConfLibrary_freetype) {
-    TRY_INCLUDEPATHS = $$EXTRA_INCLUDEPATH $$QMAKE_INCDIR_X11
-    haiku: TRY_INCLUDEPATHS += /system/develop/headers
-    TRY_INCLUDEPATHS += $$QMAKE_DEFAULT_INCDIR
-    for (p, TRY_INCLUDEPATHS) {
-        includedir = $$p/freetype2
-        exists($$includedir) {
-            $${1}.includedir = "$$val_escape(includedir)"
-            export($${1}.includedir)
-            return(true)
+    input = $$eval($${2}.alias)
+    isEmpty(config.input.$${input}.incdir) {
+        TRY_INCLUDEPATHS = $$EXTRA_INCLUDEPATH $$QMAKE_INCDIR_X11
+        haiku: TRY_INCLUDEPATHS += /system/develop/headers
+        TRY_INCLUDEPATHS += $$QMAKE_DEFAULT_INCDIRS
+        for (p, TRY_INCLUDEPATHS) {
+            includedir = $$p/freetype2
+            exists($$includedir) {
+                config.input.$${input}.incdir = $$includedir
+                export(config.input.$${input}.incdir)
+                break()
+            }
         }
     }
-    return(true)
-}
-
-# Check for Direct X SDK (include, lib, and direct shader compiler 'fxc').
-# Up to Direct X SDK June 2010 and for MinGW, this is pointed to by the
-# DXSDK_DIR variable. Starting with Windows Kit 8, it is included in
-# the Windows SDK. Checking for the header is not sufficient, since it
-# is also present in MinGW.
-defineTest(qtConfTest_directX) {
-    dxdir = $$getenv("DXSDK_DIR")
-    !isEmpty(dxdir) {
-        EXTRA_INCLUDEPATH += $$dxdir/include
-        equals(QT_ARCH, x86_64): \
-            EXTRA_LIBDIR += $$dxdir/lib/x64
-        else: \
-            EXTRA_LIBDIR += $$dxdir/lib/x86
-        EXTRA_PATH += $$dxdir/Utilities/bin/x86
-    }
-
-    $$qtConfEvaluate("features.sse2") {
-        ky = $$size($${1}.files._KEYS_)
-        $${1}.files._KEYS_ += $$ky
-        # Not present on MinGW-32
-        $${1}.files.$${ky} = "intrin.h"
-    }
-
-    qtConfTest_files($${1}): return(true)
+    qtConfLibrary_inline($$1, $$2): return(true)
     return(false)
 }
 
-defineTest(qtConfTest_xkbConfigRoot) {
-    qtConfTest_getPkgConfigVariable($${1}): return(true)
-
-    for (dir, $$list("/usr/share/X11/xkb", "/usr/local/share/X11/xkb")) {
-        exists($$dir) {
-            $${1}.value = $$dir
-            export($${1}.value)
-            $${1}.cache += value
-            export($${1}.cache)
-            return(true)
+# Check for Direct X shader compiler 'fxc'.
+# Up to Direct X SDK June 2010 and for MinGW, this is pointed to by the
+# DXSDK_DIR variable. Starting with Windows Kit 8, it is included in
+# the Windows SDK.
+defineTest(qtConfTest_fxc) {
+    !mingw {
+        fxc = $$qtConfFindInPath("fxc.exe")
+    } else {
+        equals(QMAKE_HOST.arch, x86_64): \
+            fns = x64/fxc.exe
+        else: \
+            fns = x86/fxc.exe
+        dxdir = $$(DXSDK_DIR)
+        !isEmpty(dxdir) {
+            fxc = $$dxdir/Utilities/bin/$$fns
+        } else {
+            winkitbindir = $$(WindowsSdkVerBinPath)
+            !isEmpty(winkitbindir) {
+                fxc = $$winkitbindir/$$fns
+            } else {
+                winkitdir = $$(WindowsSdkDir)
+                !isEmpty(winkitdir): \
+                    fxc = $$winkitdir/bin/$$fns
+            }
         }
+    }
+
+    !isEmpty(fxc):exists($$fxc) {
+        $${1}.value = $$clean_path($$fxc)
+        export($${1}.value)
+        $${1}.cache += value
+        export($${1}.cache)
+        return(true)
     }
     return(false)
 }
@@ -70,6 +69,7 @@ defineTest(qtConfTest_qpaDefaultPlatform) {
     else: qnx: name = qnx
     else: integrity: name = integrityfb
     else: haiku: name = haiku
+    else: wasm: name = wasm
     else: name = xcb
 
     $${1}.value = $$name

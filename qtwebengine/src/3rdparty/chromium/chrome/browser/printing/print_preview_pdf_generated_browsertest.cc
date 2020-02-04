@@ -16,6 +16,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/span.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -24,7 +25,6 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/md5.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -141,8 +141,7 @@ class PrintPreviewObserver : public WebContentsObserver {
 
   bool OnMessageReceived(const IPC::Message& message) override {
     IPC_BEGIN_MESSAGE_MAP(PrintPreviewObserver, message)
-      IPC_MESSAGE_HANDLER(PrintHostMsg_DidGetPreviewPageCount,
-                          OnDidGetPreviewPageCount)
+      IPC_MESSAGE_HANDLER(PrintHostMsg_DidStartPreview, OnDidStartPreview)
     IPC_END_MESSAGE_MAP()
     return false;
   }
@@ -214,7 +213,7 @@ class PrintPreviewObserver : public WebContentsObserver {
 
   // Saves the print preview settings to be sent to the print preview dialog.
   void SetPrintPreviewSettings(const PrintPreviewSettings& settings) {
-    settings_ = base::MakeUnique<PrintPreviewSettings>(settings);
+    settings_ = std::make_unique<PrintPreviewSettings>(settings);
   }
 
   // Returns the setting that could not be set in the preview dialog.
@@ -253,13 +252,13 @@ class PrintPreviewObserver : public WebContentsObserver {
     void RegisterMessages() override {
       web_ui()->RegisterMessageCallback(
           "UILoadedForTest",
-          base::Bind(&UIDoneLoadingMessageHandler::HandleDone,
-                     base::Unretained(this)));
+          base::BindRepeating(&UIDoneLoadingMessageHandler::HandleDone,
+                              base::Unretained(this)));
 
       web_ui()->RegisterMessageCallback(
           "UIFailedLoadingForTest",
-          base::Bind(&UIDoneLoadingMessageHandler::HandleFailure,
-                     base::Unretained(this)));
+          base::BindRepeating(&UIDoneLoadingMessageHandler::HandleFailure,
+                              base::Unretained(this)));
     }
 
    private:
@@ -268,10 +267,10 @@ class PrintPreviewObserver : public WebContentsObserver {
     DISALLOW_COPY_AND_ASSIGN(UIDoneLoadingMessageHandler);
   };
 
-  // Called when the observer gets the IPC message stating that the page count
-  // is ready.
-  void OnDidGetPreviewPageCount(
-        const PrintHostMsg_DidGetPreviewPageCount_Params &params) {
+  // Called when the observer gets the IPC message with the preview document's
+  // properties.
+  void OnDidStartPreview(const PrintHostMsg_DidStartPreview_Params& params,
+                         const PrintHostMsg_PreviewIds& ids) {
     WebContents* web_contents = GetDialog();
     ASSERT_TRUE(web_contents);
     Observe(web_contents);
@@ -281,7 +280,7 @@ class PrintPreviewObserver : public WebContentsObserver {
     ASSERT_TRUE(ui->web_ui());
 
     ui->web_ui()->AddMessageHandler(
-        base::MakeUnique<UIDoneLoadingMessageHandler>(this));
+        std::make_unique<UIDoneLoadingMessageHandler>(this));
     ui->SendEnableManipulateSettingsForTest();
   }
 
@@ -341,8 +340,10 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
     std::string pdf_data;
 
     ASSERT_TRUE(base::ReadFileToString(pdf_file_save_path_, &pdf_data));
-    ASSERT_TRUE(chrome_pdf::GetPDFDocInfo(pdf_data.data(), pdf_data.size(),
-                                          &num_pages, &max_width_in_points));
+
+    auto pdf_span = base::as_bytes(base::make_span(pdf_data));
+    ASSERT_TRUE(
+        chrome_pdf::GetPDFDocInfo(pdf_span, &num_pages, &max_width_in_points));
 
     ASSERT_GT(num_pages, 0);
     double max_width_in_pixels =
@@ -351,8 +352,7 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
     for (int i = 0; i < num_pages; ++i) {
       double width_in_points, height_in_points;
       ASSERT_TRUE(chrome_pdf::GetPDFPageSizeByIndex(
-          pdf_data.data(), pdf_data.size(), i, &width_in_points,
-          &height_in_points));
+          pdf_span, i, &width_in_points, &height_in_points));
 
       double width_in_pixels = ConvertUnitDouble(
           width_in_points, kPointsPerInch, kDpi);
@@ -369,7 +369,9 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
 
       total_height_in_pixels += height_in_pixels;
       gfx::Rect rect(width_in_pixels, height_in_pixels);
-      PdfRenderSettings settings(rect, gfx::Point(0, 0), kDpi, true,
+      PdfRenderSettings settings(rect, gfx::Point(0, 0), gfx::Size(kDpi, kDpi),
+                                 /*autorotate=*/false,
+                                 /*use_color=*/true,
                                  PdfRenderSettings::Mode::NORMAL);
 
       int int_max = std::numeric_limits<int>::max();
@@ -384,9 +386,9 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
                                             settings.area.size().GetArea());
 
       ASSERT_TRUE(chrome_pdf::RenderPDFPageToBitmap(
-          pdf_data.data(), pdf_data.size(), i, page_bitmap_data.data(),
-          settings.area.size().width(), settings.area.size().height(),
-          settings.dpi, settings.autorotate));
+          pdf_span, i, page_bitmap_data.data(), settings.area.size().width(),
+          settings.area.size().height(), settings.dpi.width(),
+          settings.dpi.height(), settings.autorotate, settings.use_color));
       FillPng(&page_bitmap_data, width_in_pixels, max_width_in_pixels,
               settings.area.size().height());
       bitmap_data.insert(bitmap_data.end(),
@@ -418,8 +420,8 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
     const uint8_t kColorByte = 255;
     std::vector<uint8_t> filled_bitmap(
         desired_width * kColorChannels * height, kColorByte);
-    std::vector<uint8_t>::iterator filled_bitmap_it = filled_bitmap.begin();
-    std::vector<uint8_t>::iterator bitmap_it = bitmap->begin();
+    auto filled_bitmap_it = filled_bitmap.begin();
+    auto bitmap_it = bitmap->begin();
 
     for (int i = 0; i < height; ++i) {
       std::copy(
@@ -456,7 +458,7 @@ class PrintPreviewPdfGeneratedBrowserTest : public InProcessBrowserTest {
         browser()->tab_strip_model()->GetActiveWebContents();
     ASSERT_TRUE(tab);
 
-    print_preview_observer_ = base::MakeUnique<PrintPreviewObserver>(
+    print_preview_observer_ = std::make_unique<PrintPreviewObserver>(
         browser(), tab, pdf_file_save_path_);
     chrome::DuplicateTab(browser());
 

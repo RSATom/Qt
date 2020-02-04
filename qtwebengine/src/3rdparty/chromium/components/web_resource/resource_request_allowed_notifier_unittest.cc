@@ -4,45 +4,15 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/web_resource/eula_accepted_notifier.h"
 #include "components/web_resource/resource_request_allowed_notifier_test_util.h"
+#include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace web_resource {
-
-// Override NetworkChangeNotifier to simulate connection type changes for tests.
-class TestNetworkChangeNotifier : public net::NetworkChangeNotifier {
- public:
-  TestNetworkChangeNotifier()
-      : net::NetworkChangeNotifier(),
-        connection_type_to_return_(
-            net::NetworkChangeNotifier::CONNECTION_UNKNOWN) {
-  }
-
-  // Simulates a change of the connection type to |type|. This will notify any
-  // objects that are NetworkChangeNotifiers.
-  void SimulateNetworkConnectionChange(
-      net::NetworkChangeNotifier::ConnectionType type) {
-    connection_type_to_return_ = type;
-    net::NetworkChangeNotifier::NotifyObserversOfConnectionTypeChangeForTests(
-        connection_type_to_return_);
-    base::RunLoop().RunUntilIdle();
-  }
-
- private:
-  ConnectionType GetCurrentConnectionType() const override {
-    return connection_type_to_return_;
-  }
-
-  // The currently simulated network connection type. If this is set to
-  // CONNECTION_NONE, then NetworkChangeNotifier::IsOffline will return true.
-  net::NetworkChangeNotifier::ConnectionType connection_type_to_return_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestNetworkChangeNotifier);
-};
 
 // EulaAcceptedNotifier test class that allows mocking the EULA accepted state
 // and issuing simulated notifications.
@@ -70,17 +40,30 @@ class TestEulaAcceptedNotifier : public EulaAcceptedNotifier {
   DISALLOW_COPY_AND_ASSIGN(TestEulaAcceptedNotifier);
 };
 
+enum class ConnectionTrackerResponseMode {
+  kSynchronous,
+  kAsynchronous,
+};
+
 // A test fixture class for ResourceRequestAllowedNotifier tests that require
 // network state simulations. This also acts as the service implementing the
 // ResourceRequestAllowedNotifier::Observer interface.
 class ResourceRequestAllowedNotifierTest
     : public testing::Test,
-      public ResourceRequestAllowedNotifier::Observer {
+      public ResourceRequestAllowedNotifier::Observer,
+      public testing::WithParamInterface<ConnectionTrackerResponseMode> {
  public:
   ResourceRequestAllowedNotifierTest()
-      : resource_request_allowed_notifier_(&prefs_),
+      : resource_request_allowed_notifier_(
+            &prefs_,
+            network::TestNetworkConnectionTracker::GetInstance()),
         eula_notifier_(new TestEulaAcceptedNotifier),
         was_notified_(false) {
+    auto* tracker = network::TestNetworkConnectionTracker::GetInstance();
+    tracker->SetRespondSynchronously(
+        GetParam() == ConnectionTrackerResponseMode::kSynchronous);
+    tracker->SetConnectionType(network::mojom::ConnectionType::CONNECTION_WIFI);
+
     resource_request_allowed_notifier_.InitWithEulaAcceptNotifier(
         this, base::WrapUnique(eula_notifier_));
   }
@@ -91,14 +74,10 @@ class ResourceRequestAllowedNotifierTest
   // ResourceRequestAllowedNotifier::Observer override:
   void OnResourceRequestsAllowed() override { was_notified_ = true; }
 
-  // Network manipulation methods:
-  void SetWaitingForNetwork(bool waiting) {
-    resource_request_allowed_notifier_.SetWaitingForNetworkForTesting(waiting);
-  }
-
-  void SimulateNetworkConnectionChange(
-      net::NetworkChangeNotifier::ConnectionType type) {
-    network_notifier.SimulateNetworkConnectionChange(type);
+  void SimulateNetworkConnectionChange(network::mojom::ConnectionType type) {
+    network::TestNetworkConnectionTracker::GetInstance()->SetConnectionType(
+        type);
+    base::RunLoop().RunUntilIdle();
   }
 
   // Simulate a resource request from the test service. It returns true if
@@ -124,9 +103,8 @@ class ResourceRequestAllowedNotifierTest
   // Used in tests involving the EULA. Disables both the EULA accepted state
   // and the network.
   void DisableEulaAndNetwork() {
-    SetWaitingForNetwork(true);
     SimulateNetworkConnectionChange(
-        net::NetworkChangeNotifier::CONNECTION_NONE);
+        network::mojom::ConnectionType::CONNECTION_NONE);
     SetWaitingForEula(true);
     SetNeedsEulaAcceptance(true);
   }
@@ -141,103 +119,138 @@ class ResourceRequestAllowedNotifierTest
   }
 
  private:
-  base::MessageLoopForUI message_loop;
-  TestNetworkChangeNotifier network_notifier;
-  TestingPrefServiceSimple prefs_;
+  base::test::ScopedTaskEnvironment task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::UI};
   TestRequestAllowedNotifier resource_request_allowed_notifier_;
+  TestingPrefServiceSimple prefs_;
   TestEulaAcceptedNotifier* eula_notifier_;  // Weak, owned by RRAN.
   bool was_notified_;
 
   DISALLOW_COPY_AND_ASSIGN(ResourceRequestAllowedNotifierTest);
 };
 
-TEST_F(ResourceRequestAllowedNotifierTest, DoNotNotifyIfOffline) {
-  SetWaitingForNetwork(true);
+TEST_P(ResourceRequestAllowedNotifierTest, NotifyOnInitialNetworkState) {
+  if (GetParam() == ConnectionTrackerResponseMode::kSynchronous) {
+    EXPECT_TRUE(SimulateResourceRequest());
+  } else {
+    EXPECT_FALSE(SimulateResourceRequest());
+    base::RunLoop().RunUntilIdle();
+    EXPECT_TRUE(was_notified());
+  }
+}
+
+TEST_P(ResourceRequestAllowedNotifierTest, DoNotNotifyIfOffline) {
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_FALSE(SimulateResourceRequest());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_NONE);
+
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_FALSE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, DoNotNotifyIfOnlineToOnline) {
-  SetWaitingForNetwork(false);
+TEST_P(ResourceRequestAllowedNotifierTest, DoNotNotifyIfOnlineToOnline) {
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_TRUE(SimulateResourceRequest());
+
   SimulateNetworkConnectionChange(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+      network::mojom::ConnectionType::CONNECTION_ETHERNET);
   EXPECT_FALSE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, NotifyOnReconnect) {
-  SetWaitingForNetwork(true);
-  EXPECT_FALSE(SimulateResourceRequest());
+TEST_P(ResourceRequestAllowedNotifierTest, NotifyOnReconnect) {
   SimulateNetworkConnectionChange(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+      network::mojom::ConnectionType::CONNECTION_NONE);
+  EXPECT_FALSE(SimulateResourceRequest());
+
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_ETHERNET);
   EXPECT_TRUE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, NoNotifyOnWardriving) {
-  SetWaitingForNetwork(false);
+TEST_P(ResourceRequestAllowedNotifierTest, NoNotifyOnWardriving) {
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_TRUE(SimulateResourceRequest());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_FALSE(was_notified());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_3G);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_3G);
   EXPECT_FALSE(was_notified());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_4G);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_4G);
   EXPECT_FALSE(was_notified());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_FALSE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, NoNotifyOnFlakyConnection) {
-  // SimulateResourceRequest() returns true because network is online.
-  SetWaitingForNetwork(false);
+TEST_P(ResourceRequestAllowedNotifierTest, NoNotifyOnFlakyConnection) {
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_TRUE(SimulateResourceRequest());
-  // The callback is nerver invoked whatever happens on network connection.
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_FALSE(was_notified());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_FALSE(was_notified());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_FALSE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, NotifyOnFlakyConnection) {
-  SetWaitingForNetwork(false);
+TEST_P(ResourceRequestAllowedNotifierTest, NotifyOnFlakyConnection) {
+  // First, the observer queries the state while the network is connected.
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_TRUE(SimulateResourceRequest());
-  // Network goes online, but not notified because SimulateResourceRequest()
-  // returns true before.
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_FALSE(was_notified());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_NONE);
+  EXPECT_FALSE(was_notified());
+
+  // Now, the observer queries the state while the network is disconnected.
   EXPECT_FALSE(SimulateResourceRequest());
-  // Now, SimulateResourceRequest() returns false and will be notified later.
-  EXPECT_FALSE(was_notified());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_TRUE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, NoNotifyOnEulaAfterGoOffline) {
+TEST_P(ResourceRequestAllowedNotifierTest, NoNotifyOnEulaAfterGoOffline) {
   DisableEulaAndNetwork();
   EXPECT_FALSE(SimulateResourceRequest());
 
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_FALSE(was_notified());
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_FALSE(was_notified());
   SimulateEulaAccepted();
   EXPECT_FALSE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, NoRequestNoNotify) {
+TEST_P(ResourceRequestAllowedNotifierTest, NoRequestNoNotify) {
   // Ensure that if the observing service does not request access, it does not
-  // get notified, even if the criteria is met. Note that this is done by not
+  // get notified, even if the criteria are met. Note that this is done by not
   // calling SimulateResourceRequest here.
-  SetWaitingForNetwork(true);
   SimulateNetworkConnectionChange(
-      net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+      network::mojom::ConnectionType::CONNECTION_NONE);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_ETHERNET);
   EXPECT_FALSE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, EulaOnlyNetworkOffline) {
+TEST_P(ResourceRequestAllowedNotifierTest, EulaOnlyNetworkOffline) {
   DisableEulaAndNetwork();
   EXPECT_FALSE(SimulateResourceRequest());
 
@@ -245,39 +258,48 @@ TEST_F(ResourceRequestAllowedNotifierTest, EulaOnlyNetworkOffline) {
   EXPECT_FALSE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, EulaFirst) {
+TEST_P(ResourceRequestAllowedNotifierTest, EulaFirst) {
   DisableEulaAndNetwork();
   EXPECT_FALSE(SimulateResourceRequest());
 
   SimulateEulaAccepted();
   EXPECT_FALSE(was_notified());
 
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_TRUE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, NetworkFirst) {
+TEST_P(ResourceRequestAllowedNotifierTest, NetworkFirst) {
   DisableEulaAndNetwork();
   EXPECT_FALSE(SimulateResourceRequest());
 
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_FALSE(was_notified());
 
   SimulateEulaAccepted();
   EXPECT_TRUE(was_notified());
 }
 
-TEST_F(ResourceRequestAllowedNotifierTest, NoRequestNoNotifyEula) {
+TEST_P(ResourceRequestAllowedNotifierTest, NoRequestNoNotifyEula) {
   // Ensure that if the observing service does not request access, it does not
-  // get notified, even if the criteria is met. Note that this is done by not
+  // get notified, even if the criteria are met. Note that this is done by not
   // calling SimulateResourceRequest here.
   DisableEulaAndNetwork();
 
-  SimulateNetworkConnectionChange(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SimulateNetworkConnectionChange(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_FALSE(was_notified());
 
   SimulateEulaAccepted();
   EXPECT_FALSE(was_notified());
 }
+
+INSTANTIATE_TEST_CASE_P(
+    ,
+    ResourceRequestAllowedNotifierTest,
+    testing::Values(ConnectionTrackerResponseMode::kSynchronous,
+                    ConnectionTrackerResponseMode::kAsynchronous));
 
 }  // namespace web_resource

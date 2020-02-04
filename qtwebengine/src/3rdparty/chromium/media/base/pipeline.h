@@ -13,6 +13,7 @@
 #include "media/base/buffering_state.h"
 #include "media/base/cdm_context.h"
 #include "media/base/media_export.h"
+#include "media/base/media_status.h"
 #include "media/base/media_track.h"
 #include "media/base/pipeline_metadata.h"
 #include "media/base/pipeline_status.h"
@@ -20,6 +21,7 @@
 #include "media/base/text_track.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_rotation.h"
+#include "media/base/waiting.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace media {
@@ -34,6 +36,7 @@ class MEDIA_EXPORT Pipeline {
     // Executed whenever an error occurs except when the error occurs during
     // Start/Seek/Resume or Suspend. Those errors are reported via |seek_cb|
     // and |suspend_cb| respectively.
+    // NOTE: The client is responsible for calling Pipeline::Stop().
     virtual void OnError(PipelineStatus status) = 0;
 
     // Executed whenever the media reaches the end.
@@ -56,8 +59,8 @@ class MEDIA_EXPORT Pipeline {
     virtual void OnAddTextTrack(const TextTrackConfig& config,
                                 const AddTextTrackDoneCB& done_cb) = 0;
 
-    // Executed whenever the key needed to decrypt the stream is not available.
-    virtual void OnWaitingForDecryptionKey() = 0;
+    // Executed whenever the pipeline is waiting because of |reason|.
+    virtual void OnWaiting(WaitingReason reason) = 0;
 
     // Executed for the first video frame and whenever natural size changes.
     virtual void OnVideoNaturalSizeChange(const gfx::Size& size) = 0;
@@ -72,27 +75,82 @@ class MEDIA_EXPORT Pipeline {
     // configs provided by OnMetadata.
     virtual void OnAudioConfigChange(const AudioDecoderConfig& config) = 0;
     virtual void OnVideoConfigChange(const VideoDecoderConfig& config) = 0;
+
+    // Executed whenever the underlying AudioDecoder or VideoDecoder changes
+    // during playback.
+    virtual void OnAudioDecoderChange(const std::string& name) = 0;
+    virtual void OnVideoDecoderChange(const std::string& name) = 0;
+
+    // Executed whenever an important status change has happened, and that this
+    // change was not initiated by Pipeline or Pipeline::Client.
+    // Only used with FlingingRenderer, when an external device pauses/resumes
+    // a video that is playing remotely.
+    virtual void OnRemotePlayStateChange(MediaStatus::State state) = 0;
   };
 
   virtual ~Pipeline() {}
+
+  // StartType provides the option to start the pipeline without a renderer;
+  // pipeline initialization will stop once metadata has been retrieved. The
+  // flags below indicate when suspended start will be invoked.
+  enum class StartType {
+    kNormal,                            // Follow the normal startup path.
+    kSuspendAfterMetadataForAudioOnly,  // Suspend after metadata for audio
+                                        // only.
+    kSuspendAfterMetadata,              // Always suspend after metadata.
+  };
 
   // Build a pipeline to using the given |demuxer| and |renderer| to construct
   // a filter chain, executing |seek_cb| when the initial seek has completed.
   // Methods on PipelineClient may be called up until Stop() has completed.
   // It is an error to call this method after the pipeline has already started.
-  virtual void Start(Demuxer* demuxer,
+  //
+  // If a |start_type| is specified which allows suspension, pipeline startup
+  // will halt after metadata has been retrieved and the pipeline will be in a
+  // suspended state.
+  virtual void Start(StartType start_type,
+                     Demuxer* demuxer,
                      std::unique_ptr<Renderer> renderer,
                      Client* client,
                      const PipelineStatusCB& seek_cb) = 0;
 
+  // Track switching works similarly for both audio and video. Callbacks are
+  // used to notify when it is time to procede to the next step, since many of
+  // the operations are asynchronous.
+  // ──────────────────── Track Switch Control Flow ───────────────────────
+  //  pipeline | demuxer | demuxer_stream | renderer | video/audio_renderer
+  //           |         |                |          |
+  //           |         |                |          |
+  //           |         |                |          |
+  //     switch track    |                |          |
+  //      --------->     |                |          |
+  //           | disable/enable stream    |          |
+  //           |      ----------->        |          |
+  //    active streams   |                |          |
+  //      <---------     |                |          |
+  //           |        switch track      |          |
+  //      -------------------------------------->    |
+  //           |         |                |    Flush/Restart/Reset
+  //           |         |                |     --------------->
+  //     Notify pipeline of completed track change (via callback)
+  //      <-----------------------------------------------------
+  // ──────────────────── Sometime in the future ──────────────────────────
+  //           |         |                | OnBufferingStateChange
+  //           |         |                |    <----------------
+  //           | OnBufferingStateChange   |          |
+  //     <--------------------------------------     |
+  //           |         |                |          |
+  //           |         |                |          |
   // |enabled_track_ids| contains track ids of enabled audio tracks.
   virtual void OnEnabledAudioTracksChanged(
-      const std::vector<MediaTrack::Id>& enabled_track_ids) = 0;
+      const std::vector<MediaTrack::Id>& enabled_track_ids,
+      base::OnceClosure change_completed_cb) = 0;
 
   // |selected_track_id| is either empty, which means no video track is
   // selected, or contains the selected video track id.
   virtual void OnSelectedVideoTrackChanged(
-      base::Optional<MediaTrack::Id> selected_track_id) = 0;
+      base::Optional<MediaTrack::Id> selected_track_id,
+      base::OnceClosure change_completed_cb) = 0;
 
   // Stops the pipeline. This is a blocking function.
   // If the pipeline is started, it must be stopped before destroying it.
@@ -134,6 +192,11 @@ class MEDIA_EXPORT Pipeline {
   // returns true, it is expected that Stop() will be called before destroying
   // the pipeline.
   virtual bool IsRunning() const = 0;
+
+  // Returns true if the pipeline has been suspended via Suspend() or during
+  // Start(). If IsSuspended() returns true, it is expected that Resume() will
+  // be called to resume playback.
+  virtual bool IsSuspended() const = 0;
 
   // Gets the current playback rate of the pipeline.  When the pipeline is
   // started, the playback rate will be 0.0.  A rate of 1.0 indicates

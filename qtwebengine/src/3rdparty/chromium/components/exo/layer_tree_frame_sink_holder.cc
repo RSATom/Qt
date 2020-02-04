@@ -4,9 +4,12 @@
 
 #include "components/exo/layer_tree_frame_sink_holder.h"
 
-#include "cc/output/layer_tree_frame_sink.h"
-#include "cc/resources/returned_resource.h"
-#include "components/exo/surface.h"
+#include "base/stl_util.h"
+#include "base/threading/thread_task_runner_handle.h"
+#include "cc/trees/layer_tree_frame_sink.h"
+#include "components/exo/surface_tree_host.h"
+#include "components/viz/common/hit_test/hit_test_region_list.h"
+#include "components/viz/common/resources/returned_resource.h"
 
 namespace exo {
 
@@ -14,35 +17,101 @@ namespace exo {
 // LayerTreeFrameSinkHolder, public:
 
 LayerTreeFrameSinkHolder::LayerTreeFrameSinkHolder(
-    Surface* surface,
+    SurfaceTreeHost* surface_tree_host,
     std::unique_ptr<cc::LayerTreeFrameSink> frame_sink)
-    : surface_(surface),
+    : surface_tree_host_(surface_tree_host),
       frame_sink_(std::move(frame_sink)),
-      weak_factory_(this) {
-  surface_->AddSurfaceObserver(this);
+      weak_ptr_factory_(this) {
   frame_sink_->BindToClient(this);
 }
 
 LayerTreeFrameSinkHolder::~LayerTreeFrameSinkHolder() {
-  frame_sink_->DetachFromClient();
-  if (surface_)
-    surface_->RemoveSurfaceObserver(this);
+  if (frame_sink_)
+    frame_sink_->DetachFromClient();
 
-  // Release all resources which aren't returned from LayerTreeFrameSink.
   for (auto& callback : release_callbacks_)
-    callback.second.Run(gpu::SyncToken(), false);
+    std::move(callback.second).Run(gpu::SyncToken(), true /* lost */);
+
+  if (lifetime_manager_)
+    lifetime_manager_->RemoveObserver(this);
+}
+
+// static
+void LayerTreeFrameSinkHolder::DeleteWhenLastResourceHasBeenReclaimed(
+    std::unique_ptr<LayerTreeFrameSinkHolder> holder) {
+  if (holder->last_frame_size_in_pixels_.IsEmpty()) {
+    // Delete sink holder immediately if no frame has been submitted.
+    DCHECK(holder->last_frame_resources_.empty());
+    return;
+  }
+
+  // Submit an empty frame to ensure that pending release callbacks will be
+  // processed in a finite amount of time.
+  viz::CompositorFrame frame;
+  frame.metadata.begin_frame_ack.source_id =
+      viz::BeginFrameArgs::kManualSourceId;
+  frame.metadata.begin_frame_ack.sequence_number =
+      viz::BeginFrameArgs::kStartingFrameNumber;
+  frame.metadata.begin_frame_ack.has_damage = true;
+  frame.metadata.frame_token = ++holder->next_frame_token_;
+  frame.metadata.device_scale_factor = holder->last_frame_device_scale_factor_;
+  frame.metadata.local_surface_id_allocation_time =
+      holder->last_local_surface_id_allocation_time_;
+  std::unique_ptr<viz::RenderPass> pass = viz::RenderPass::Create();
+  pass->SetNew(1, gfx::Rect(holder->last_frame_size_in_pixels_),
+               gfx::Rect(holder->last_frame_size_in_pixels_), gfx::Transform());
+  frame.render_pass_list.push_back(std::move(pass));
+  holder->last_frame_resources_.clear();
+  holder->frame_sink_->SubmitCompositorFrame(std::move(frame),
+                                             /*hit_test_data_changed=*/true,
+                                             /*show_hit_test_borders=*/false);
+
+  // Delete sink holder immediately if not waiting for resources to be
+  // reclaimed.
+  if (holder->release_callbacks_.empty())
+    return;
+
+  WMHelper::LifetimeManager* lifetime_manager =
+      WMHelper::GetInstance()->GetLifetimeManager();
+  holder->lifetime_manager_ = lifetime_manager;
+  holder->surface_tree_host_ = nullptr;
+
+  // If we have pending release callbacks then extend the lifetime of holder
+  // by adding it as a LifetimeManager observer. The holder will delete itself
+  // when LifetimeManager shuts down or when all pending release callbacks have
+  // been called.
+  lifetime_manager->AddObserver(holder.release());
+}
+
+void LayerTreeFrameSinkHolder::SubmitCompositorFrame(
+    viz::CompositorFrame frame) {
+  last_frame_size_in_pixels_ = frame.size_in_pixels();
+  last_frame_device_scale_factor_ = frame.metadata.device_scale_factor;
+  last_local_surface_id_allocation_time_ =
+      frame.metadata.local_surface_id_allocation_time;
+  last_frame_resources_.clear();
+  for (auto& resource : frame.resource_list)
+    last_frame_resources_.push_back(resource.id);
+  frame_sink_->SubmitCompositorFrame(std::move(frame),
+                                     /*hit_test_data_changed=*/true,
+                                     /*show_hit_test_borders=*/false);
+}
+
+void LayerTreeFrameSinkHolder::DidNotProduceFrame(
+    const viz::BeginFrameAck& ack) {
+  frame_sink_->DidNotProduceFrame(ack);
 }
 
 bool LayerTreeFrameSinkHolder::HasReleaseCallbackForResource(
-    cc::ResourceId id) {
+    viz::ResourceId id) {
   return release_callbacks_.find(id) != release_callbacks_.end();
 }
 
 void LayerTreeFrameSinkHolder::SetResourceReleaseCallback(
-    cc::ResourceId id,
-    const cc::ReleaseCallback& callback) {
+    viz::ResourceId id,
+    viz::ReleaseCallback callback) {
   DCHECK(!callback.is_null());
-  release_callbacks_[id] = callback;
+  release_callbacks_[id] = std::move(callback);
 }
 
 int LayerTreeFrameSinkHolder::AllocateResourceId() {
@@ -50,41 +119,77 @@ int LayerTreeFrameSinkHolder::AllocateResourceId() {
 }
 
 base::WeakPtr<LayerTreeFrameSinkHolder> LayerTreeFrameSinkHolder::GetWeakPtr() {
-  return weak_factory_.GetWeakPtr();
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // cc::LayerTreeFrameSinkClient overrides:
 
-void LayerTreeFrameSinkHolder::SetBeginFrameSource(
-    cc::BeginFrameSource* source) {
-  if (surface_)
-    surface_->SetBeginFrameSource(source);
+base::Optional<viz::HitTestRegionList>
+LayerTreeFrameSinkHolder::BuildHitTestData() {
+  return {};
 }
 
 void LayerTreeFrameSinkHolder::ReclaimResources(
-    const std::vector<cc::ReturnedResource>& resources) {
+    const std::vector<viz::ReturnedResource>& resources) {
   for (auto& resource : resources) {
+    // Skip resources that are also in last frame. This can happen if
+    // the frame sink id changed.
+    if (base::ContainsValue(last_frame_resources_, resource.id)) {
+      continue;
+    }
     auto it = release_callbacks_.find(resource.id);
     DCHECK(it != release_callbacks_.end());
     if (it != release_callbacks_.end()) {
-      it->second.Run(resource.sync_token, resource.lost);
+      std::move(it->second).Run(resource.sync_token, resource.lost);
       release_callbacks_.erase(it);
     }
   }
+
+  if (lifetime_manager_ && release_callbacks_.empty())
+    ScheduleDelete();
 }
 
 void LayerTreeFrameSinkHolder::DidReceiveCompositorFrameAck() {
-  if (surface_)
-    surface_->DidReceiveCompositorFrameAck();
+  if (surface_tree_host_)
+    surface_tree_host_->DidReceiveCompositorFrameAck();
+}
+
+void LayerTreeFrameSinkHolder::DidPresentCompositorFrame(
+    uint32_t presentation_token,
+    const gfx::PresentationFeedback& feedback) {
+  if (surface_tree_host_)
+    surface_tree_host_->DidPresentCompositorFrame(presentation_token, feedback);
+}
+
+void LayerTreeFrameSinkHolder::DidLoseLayerTreeFrameSink() {
+  last_frame_resources_.clear();
+  for (auto& callback : release_callbacks_)
+    std::move(callback.second).Run(gpu::SyncToken(), true /* lost */);
+  release_callbacks_.clear();
+
+  if (lifetime_manager_)
+    ScheduleDelete();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// SurfaceObserver overrides:
+// LayerTreeFrameSinkHolder, private:
 
-void LayerTreeFrameSinkHolder::OnSurfaceDestroying(Surface* surface) {
-  surface_->RemoveSurfaceObserver(this);
-  surface_ = nullptr;
+void LayerTreeFrameSinkHolder::ScheduleDelete() {
+  if (delete_pending_)
+    return;
+  delete_pending_ = true;
+  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+}
+
+void LayerTreeFrameSinkHolder::OnDestroyed() {
+  lifetime_manager_->RemoveObserver(this);
+  lifetime_manager_ = nullptr;
+
+  // Make sure frame sink never outlives the shell.
+  frame_sink_->DetachFromClient();
+  frame_sink_.reset();
+  ScheduleDelete();
 }
 
 }  // namespace exo

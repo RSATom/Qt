@@ -6,12 +6,16 @@
 #define UI_GFX_COLOR_SPACE_H_
 
 #include <stdint.h>
+
 #include <ostream>
+#include <string>
+#include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
 #include "ui/gfx/color_space_export.h"
 
 namespace IPC {
@@ -49,16 +53,15 @@ class COLOR_SPACE_EXPORT ColorSpace {
     WIDE_GAMUT_COLOR_SPIN,
     // Primaries defined by the primary matrix |custom_primary_matrix_|.
     CUSTOM,
-    // For color spaces defined by an ICC profile which cannot be represented
-    // parametrically. Any ColorTransform using this color space will use the
-    // ICC profile directly to compute a transform LUT.
-    ICC_BASED,
-    LAST = ICC_BASED,
+    LAST = CUSTOM,
   };
 
   enum class TransferID : uint8_t {
     INVALID,
     BT709,
+    // On macOS, BT709 hardware decoded video frames, when displayed as
+    // overlays, will have a transfer function of gamma=1.961.
+    BT709_APPLE,
     GAMMA18,
     GAMMA22,
     GAMMA24,
@@ -87,9 +90,7 @@ class COLOR_SPACE_EXPORT ColorSpace {
     LINEAR_HDR,
     // A parametric transfer function defined by |custom_transfer_params_|.
     CUSTOM,
-    // See PrimaryID::ICC_BASED.
-    ICC_BASED,
-    LAST = ICC_BASED,
+    LAST = CUSTOM,
   };
 
   enum class MatrixID : uint8_t {
@@ -104,7 +105,8 @@ class COLOR_SPACE_EXPORT ColorSpace {
     BT2020_NCL,
     BT2020_CL,
     YDZDX,
-    LAST = YDZDX,
+    GBR,
+    LAST = GBR,
   };
 
   enum class RangeID : uint8_t {
@@ -118,39 +120,75 @@ class COLOR_SPACE_EXPORT ColorSpace {
     LAST = DERIVED,
   };
 
-  ColorSpace();
+  constexpr ColorSpace() {}
   ColorSpace(PrimaryID primaries, TransferID transfer);
+  constexpr ColorSpace(PrimaryID primaries,
+                       TransferID transfer,
+                       MatrixID matrix,
+                       RangeID full_range)
+      : primaries_(primaries),
+        transfer_(transfer),
+        matrix_(matrix),
+        range_(full_range) {}
+
   ColorSpace(PrimaryID primaries,
-             TransferID transfer,
+             const SkColorSpaceTransferFn& fn,
              MatrixID matrix,
              RangeID full_range);
-  ColorSpace(const ColorSpace& other);
-  ColorSpace(ColorSpace&& other);
-  ColorSpace& operator=(const ColorSpace& other);
-  ~ColorSpace();
+  explicit ColorSpace(const SkColorSpace& sk_color_space);
 
   // Returns true if this is not the default-constructor object.
   bool IsValid() const;
 
-  static ColorSpace CreateSRGB();
-  static ColorSpace CreateDisplayP3D65();
-  static ColorSpace CreateCustom(const SkMatrix44& to_XYZD50,
-                                 TransferID transfer_id);
-  static ColorSpace CreateCustom(const SkMatrix44& to_XYZD50,
+  static constexpr ColorSpace CreateSRGB() {
+    return ColorSpace(PrimaryID::BT709, TransferID::IEC61966_2_1, MatrixID::RGB,
+                      RangeID::FULL);
+  }
+
+  static constexpr ColorSpace CreateDisplayP3D65() {
+    return ColorSpace(PrimaryID::SMPTEST432_1, TransferID::IEC61966_2_1,
+                      MatrixID::RGB, RangeID::FULL);
+  }
+  static ColorSpace CreateCustom(const skcms_Matrix3x3& to_XYZD50,
                                  const SkColorSpaceTransferFn& fn);
-  static ColorSpace CreateXYZD50();
+  static constexpr ColorSpace CreateXYZD50() {
+    return ColorSpace(PrimaryID::XYZ_D50, TransferID::LINEAR, MatrixID::RGB,
+                      RangeID::FULL);
+  }
 
   // Extended sRGB matches sRGB for values in [0, 1], and extends the transfer
   // function to all real values.
-  static ColorSpace CreateExtendedSRGB();
+  static constexpr ColorSpace CreateExtendedSRGB() {
+    return ColorSpace(PrimaryID::BT709, TransferID::IEC61966_2_1_HDR,
+                      MatrixID::RGB, RangeID::FULL);
+  }
+
   // scRGB uses the same primaries as sRGB but has a linear transfer function
   // for all real values.
-  static ColorSpace CreateSCRGBLinear();
+  static constexpr ColorSpace CreateSCRGBLinear() {
+    return ColorSpace(PrimaryID::BT709, TransferID::LINEAR_HDR, MatrixID::RGB,
+                      RangeID::FULL);
+  }
 
-  // TODO: Remove these, and replace with more generic constructors.
-  static ColorSpace CreateJpeg();
-  static ColorSpace CreateREC601();
-  static ColorSpace CreateREC709();
+  // TODO(ccameron): Remove these, and replace with more generic constructors.
+  static constexpr ColorSpace CreateJpeg() {
+    // TODO(ccameron): Determine which primaries and transfer function were
+    // intended here.
+    return ColorSpace(PrimaryID::BT709, TransferID::IEC61966_2_1,
+                      MatrixID::SMPTE170M, RangeID::FULL);
+  }
+  static constexpr ColorSpace CreateREC601() {
+    return ColorSpace(PrimaryID::SMPTE170M, TransferID::SMPTE170M,
+                      MatrixID::SMPTE170M, RangeID::LIMITED);
+  }
+  static constexpr ColorSpace CreateREC709() {
+    return ColorSpace(PrimaryID::BT709, TransferID::BT709, MatrixID::BT709,
+                      RangeID::LIMITED);
+  }
+
+  // Generates a process global unique ID that can be used to key a color space.
+  static int GetNextId();
+  static int kInvalidId;
 
   bool operator==(const ColorSpace& other) const;
   bool operator!=(const ColorSpace& other) const;
@@ -160,27 +198,47 @@ class COLOR_SPACE_EXPORT ColorSpace {
 
   // Returns true if the decoded values can be outside of the 0.0-1.0 range.
   bool IsHDR() const;
+
   // Returns true if the encoded values can be outside of the 0.0-1.0 range.
   bool FullRangeEncodedValues() const;
 
-  // Returns true if this color space can be represented parametrically.
-  bool IsParametric() const;
+  // Returns true if this color space is parametric (or a sufficiently accurate
+  // approximation of its ICCProfile that we can use it directly).
+  bool IsParametricAccurate() const;
+
   // Return a parametric approximation of this color space (if it is not already
   // parametric).
-  gfx::ColorSpace GetParametricApproximation() const;
+  ColorSpace GetParametricApproximation() const;
+
+  // Return this color space with any YUV to RGB conversion stripped off.
+  ColorSpace GetAsRGB() const;
 
   // Return this color space with any range adjust or YUV to RGB conversion
   // stripped off.
-  gfx::ColorSpace GetAsFullRangeRGB() const;
+  ColorSpace GetAsFullRangeRGB() const;
+
+  // Return a color space where all values are bigger/smaller by the given
+  // factor. If you convert colors from SRGB to SRGB.GetScaledColorSpace(2.0)
+  // everything will be half as bright in linear lumens.
+  ColorSpace GetScaledColorSpace(float factor) const;
+
+  // If |this| is the final output color space, return the color space that
+  // would be appropriate for rasterization.
+  ColorSpace GetRasterColorSpace() const;
+
+  // If |this| is the final output color space, return the color space that
+  // would be appropriate for blending.
+  ColorSpace GetBlendingColorSpace() const;
 
   // This will return nullptr for non-RGB spaces, spaces with non-FULL
   // range, and unspecified spaces.
   sk_sp<SkColorSpace> ToSkColorSpace() const;
 
-  // Populate |icc_profile| with an ICC profile that represents this color
-  // space. Returns false if this space is not representable.
-  bool GetICCProfile(ICCProfile* icc_profile) const;
+  // For YUV color spaces, return the closest SkYUVColorSpace.
+  // Returns true if a close match is found.
+  bool ToSkYUVColorSpace(SkYUVColorSpace* out) const;
 
+  void GetPrimaryMatrix(skcms_Matrix3x3* to_XYZD50) const;
   void GetPrimaryMatrix(SkMatrix44* to_XYZD50) const;
   bool GetTransferFunction(SkColorSpaceTransferFn* fn) const;
   bool GetInverseTransferFunction(SkColorSpaceTransferFn* fn) const;
@@ -190,6 +248,12 @@ class COLOR_SPACE_EXPORT ColorSpace {
   void GetRangeAdjustMatrix(SkMatrix44* matrix) const;
 
  private:
+  static void GetPrimaryMatrix(PrimaryID, skcms_Matrix3x3* to_XYZD50);
+  static bool GetTransferFunction(TransferID, SkColorSpaceTransferFn* fn);
+
+  void SetCustomTransferFunction(const SkColorSpaceTransferFn& fn);
+  void SetCustomPrimaries(const skcms_Matrix3x3& to_XYZD50);
+
   // Returns true if the transfer function is defined by an
   // SkColorSpaceTransferFn which is extended to all real values.
   bool HasExtendedSkTransferFn() const;
@@ -207,16 +271,18 @@ class COLOR_SPACE_EXPORT ColorSpace {
   // order.
   float custom_transfer_params_[7] = {0, 0, 0, 0, 0, 0, 0};
 
-  // This is used to look up the ICCProfile from which this ColorSpace was
-  // created, if possible.
+  // This is set if and only if this color space is to represent an ICC profile
+  // that cannot be sufficiently accurately represented with a custom primary
+  // matrix and transfer function. It can be used to look up the original
+  // ICCProfile to create a LUT based transform.
   uint64_t icc_profile_id_ = 0;
-  sk_sp<SkColorSpace> icc_profile_sk_color_space_;
 
   friend class ICCProfile;
+  friend class ICCProfileCache;
   friend class ColorTransform;
   friend class ColorTransformInternal;
   friend class ColorSpaceWin;
-  friend struct IPC::ParamTraits<gfx::ColorSpace>;
+  friend struct IPC::ParamTraits<ColorSpace>;
   FRIEND_TEST_ALL_PREFIXES(SimpleColorSpace, GetColorSpace);
 };
 

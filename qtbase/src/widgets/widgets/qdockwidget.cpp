@@ -45,6 +45,7 @@
 #include <qdrawutil.h>
 #include <qevent.h>
 #include <qfontmetrics.h>
+#include <qproxystyle.h>
 #include <qwindow.h>
 #include <qscreen.h>
 #include <qmainwindow.h>
@@ -53,6 +54,8 @@
 #include <qdebug.h>
 
 #include <private/qwidgetresizehandler_p.h>
+#include <private/qstylesheetstyle_p.h>
+#include <qpa/qplatformtheme.h>
 
 #include "qdockwidget_p.h"
 #include "qmainwindowlayout_p.h"
@@ -64,16 +67,19 @@ extern QString qt_setWindowTitle_helperHelper(const QString&, const QWidget*); /
 // qmainwindow.cpp
 extern QMainWindowLayout *qt_mainwindow_layout(const QMainWindow *window);
 
+static const QMainWindow *mainwindow_from_dock(const QDockWidget *dock)
+{
+    for (const QWidget *p = dock->parentWidget(); p; p = p->parentWidget()) {
+        if (const QMainWindow *window = qobject_cast<const QMainWindow*>(p))
+            return window;
+    }
+    return nullptr;
+}
+
 static inline QMainWindowLayout *qt_mainwindow_layout_from_dock(const QDockWidget *dock)
 {
-    const QWidget *p = dock->parentWidget();
-    while (p) {
-        const QMainWindow *window = qobject_cast<const QMainWindow*>(p);
-        if (window)
-            return qt_mainwindow_layout(window);
-        p = p->parentWidget();
-    }
-    return Q_NULLPTR;
+    auto mainWindow = mainwindow_from_dock(dock);
+    return mainWindow ? qt_mainwindow_layout(mainWindow) : nullptr;
 }
 
 static inline bool hasFeature(const QDockWidgetPrivate *priv, QDockWidget::DockWidgetFeature feature)
@@ -120,20 +126,71 @@ class QDockWidgetTitleButton : public QAbstractButton
 public:
     QDockWidgetTitleButton(QDockWidget *dockWidget);
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override
     { return sizeHint(); }
 
-    void enterEvent(QEvent *event) Q_DECL_OVERRIDE;
-    void leaveEvent(QEvent *event) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
-};
+    void enterEvent(QEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 
+protected:
+    bool event(QEvent *event) override;
+
+private:
+    QSize dockButtonIconSize() const;
+
+    mutable int m_iconSize = -1;
+};
 
 QDockWidgetTitleButton::QDockWidgetTitleButton(QDockWidget *dockWidget)
     : QAbstractButton(dockWidget)
 {
     setFocusPolicy(Qt::NoFocus);
+}
+
+bool QDockWidgetTitleButton::event(QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::StyleChange:
+    case QEvent::ScreenChangeInternal:
+        m_iconSize = -1;
+        break;
+    default:
+        break;
+    }
+    return QAbstractButton::event(event);
+}
+
+static inline bool isWindowsStyle(const QStyle *style)
+{
+    // Note: QStyleSheetStyle inherits QWindowsStyle
+    const QStyle *effectiveStyle = style;
+
+#if QT_CONFIG(style_stylesheet)
+    if (style->inherits("QStyleSheetStyle"))
+      effectiveStyle = static_cast<const QStyleSheetStyle *>(style)->baseStyle();
+#endif
+#if !defined(QT_NO_STYLE_PROXY)
+    if (style->inherits("QProxyStyle"))
+      effectiveStyle = static_cast<const QProxyStyle *>(style)->baseStyle();
+#endif
+
+    return effectiveStyle->inherits("QWindowsStyle");
+}
+
+QSize QDockWidgetTitleButton::dockButtonIconSize() const
+{
+    if (m_iconSize < 0) {
+        m_iconSize = style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, this);
+        // Dock Widget title buttons on Windows where historically limited to size 10
+        // (from small icon size 16) since only a 10x10 XPM was provided.
+        // Adding larger pixmaps to the icons thus caused the icons to grow; limit
+        // this to qpiScaled(10) here.
+        if (isWindowsStyle(style()))
+            m_iconSize = qMin((10 * logicalDpiX()) / 96, m_iconSize);
+    }
+    return QSize(m_iconSize, m_iconSize);
 }
 
 QSize QDockWidgetTitleButton::sizeHint() const
@@ -142,8 +199,7 @@ QSize QDockWidgetTitleButton::sizeHint() const
 
     int size = 2*style()->pixelMetric(QStyle::PM_DockWidgetTitleBarButtonMargin, 0, this);
     if (!icon().isNull()) {
-        int iconSize = style()->pixelMetric(QStyle::PM_SmallIconSize, 0, this);
-        QSize sz = icon().actualSize(QSize(iconSize, iconSize));
+        const QSize sz = icon().actualSize(dockButtonIconSize());
         size += qMax(sz.width(), sz.height());
     }
 
@@ -186,8 +242,7 @@ void QDockWidgetTitleButton::paintEvent(QPaintEvent *)
     opt.activeSubControls = 0;
     opt.features = QStyleOptionToolButton::None;
     opt.arrowType = Qt::NoArrow;
-    int size = style()->pixelMetric(QStyle::PM_SmallIconSize, 0, this);
-    opt.iconSize = QSize(size, size);
+    opt.iconSize = dockButtonIconSize();
     style()->drawComplexControl(QStyle::CC_ToolButton, &opt, &p, this);
 }
 
@@ -611,6 +666,8 @@ void QDockWidgetPrivate::init()
     QObject::connect(button, SIGNAL(clicked()), q, SLOT(close()));
     layout->setWidgetForRole(QDockWidgetLayout::CloseButton, button);
 
+    font = QApplication::font("QDockWidgetTitle");
+
 #ifndef QT_NO_ACTION
     toggleViewAction = new QAction(q);
     toggleViewAction->setCheckable(true);
@@ -785,8 +842,9 @@ void QDockWidgetPrivate::endDrag(bool abort)
     q->releaseMouse();
 
     if (state->dragging) {
-        QMainWindowLayout *mwLayout = qt_mainwindow_layout_from_dock(q);
-        Q_ASSERT(mwLayout != 0);
+        const QMainWindow *mainWindow = mainwindow_from_dock(q);
+        Q_ASSERT(mainWindow != nullptr);
+        QMainWindowLayout *mwLayout = qt_mainwindow_layout(mainWindow);
 
         if (abort || !mwLayout->plug(state->widgetItem)) {
             if (hasFeature(this, QDockWidget::DockWidgetFloatable)) {
@@ -807,8 +865,12 @@ void QDockWidgetPrivate::endDrag(bool abort)
                 } else {
                     setResizerActive(false);
                 }
-                if (q->isFloating()) // Might not be floating when dragging a QDockWidgetGroupWindow
+                if (q->isFloating()) { // Might not be floating when dragging a QDockWidgetGroupWindow
                     undockedGeometry = q->geometry();
+#if QT_CONFIG(tabwidget)
+                    tabPosition = mwLayout->tabPosition(mainWindow->dockWidgetArea(q));
+#endif
+                }
                 q->activateWindow();
             } else {
                 // The tab was not plugged back in the QMainWindow but the QDockWidget cannot
@@ -869,7 +931,8 @@ bool QDockWidgetPrivate::mousePressEvent(QMouseEvent *event)
         initDrag(event->pos(), false);
 
         if (state)
-            state->ctrlDrag = hasFeature(this, QDockWidget::DockWidgetFloatable) && event->modifiers() & Qt::ControlModifier;
+            state->ctrlDrag = (hasFeature(this, QDockWidget::DockWidgetFloatable) && event->modifiers() & Qt::ControlModifier) ||
+                              (!hasFeature(this, QDockWidget::DockWidgetMovable) && q->isFloating());
 
         return true;
     }
@@ -991,7 +1054,8 @@ void QDockWidgetPrivate::nonClientAreaMouseEvent(QMouseEvent *event)
             initDrag(event->pos(), true);
             if (state == 0)
                 break;
-            state->ctrlDrag = event->modifiers() & Qt::ControlModifier;
+            state->ctrlDrag = (event->modifiers() & Qt::ControlModifier) ||
+                              (!hasFeature(this, QDockWidget::DockWidgetMovable) && q->isFloating());
             startDrag();
             break;
         case QEvent::NonClientAreaMouseMove:
@@ -1419,6 +1483,7 @@ void QDockWidget::closeEvent(QCloseEvent *event)
 void QDockWidget::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event)
+    Q_D(QDockWidget);
 
     QDockWidgetLayout *layout
         = qobject_cast<QDockWidgetLayout*>(this->layout());
@@ -1439,6 +1504,11 @@ void QDockWidget::paintEvent(QPaintEvent *event)
         // the title may wish to extend out to all sides (eg. Vista style)
         QStyleOptionDockWidget titleOpt;
         initStyleOption(&titleOpt);
+        if (font() == QApplication::font("QDockWidget")) {
+            titleOpt.fontMetrics = QFontMetrics(d->font);
+            p.setFont(d->font);
+        }
+
         p.drawControl(QStyle::CE_DockWidgetTitle, titleOpt);
     }
 }
@@ -1670,8 +1740,8 @@ void QDockWidget::setTitleBarWidget(QWidget *widget)
 
 /*!
     \since 4.3
-    Returns the custom title bar widget set on the QDockWidget, or 0 if no
-    custom title bar has been set.
+    Returns the custom title bar widget set on the QDockWidget, or
+    \nullptr if no custom title bar has been set.
 
     \sa setTitleBarWidget()
 */

@@ -210,6 +210,21 @@ Profile.prototype.deleteCode = function(start) {
   }
 };
 
+/**
+ * Adds source positions for given code.
+ */
+Profile.prototype.addSourcePositions = function(
+    start, script, startPos, endPos, sourcePositions, inliningPositions,
+    inlinedFunctions) {
+  // CLI does not need source code => ignore.
+};
+
+/**
+ * Adds script source code.
+ */
+Profile.prototype.addScriptSource = function(script, source) {
+  // CLI does not need source code => ignore.
+};
 
 /**
  * Reports about moving of a dynamic code entry.
@@ -850,6 +865,7 @@ function JsonProfile() {
   this.codeEntries_ = [];
   this.functionEntries_ = [];
   this.ticks_ = [];
+  this.scripts_ = [];
 }
 
 JsonProfile.prototype.addLibrary = function(
@@ -876,16 +892,24 @@ JsonProfile.prototype.addStaticCode = function(
 
 JsonProfile.prototype.addCode = function(
     kind, name, timestamp, start, size) {
+  let codeId = this.codeEntries_.length;
+  // Find out if we have a static code entry for the code. If yes, we will
+  // make sure it is written to the JSON file just once.
+  let staticEntry = this.codeMap_.findAddress(start);
+  if (staticEntry && staticEntry.entry.type === 'CPP') {
+    codeId = staticEntry.entry.codeId;
+  }
+
   var entry = new CodeMap.CodeEntry(size, name, 'CODE');
   this.codeMap_.addCode(start, entry);
 
-  entry.codeId = this.codeEntries_.length;
-  this.codeEntries_.push({
+  entry.codeId = codeId;
+  this.codeEntries_[codeId] = {
     name : entry.name,
     timestamp: timestamp,
     type : entry.type,
     kind : kind
-  });
+  };
 
   return entry;
 };
@@ -952,6 +976,48 @@ JsonProfile.prototype.moveCode = function(from, to) {
   }
 };
 
+JsonProfile.prototype.addSourcePositions = function(
+    start, script, startPos, endPos, sourcePositions, inliningPositions,
+    inlinedFunctions) {
+  var entry = this.codeMap_.findDynamicEntryByStartAddress(start);
+  if (!entry) return;
+  var codeId = entry.codeId;
+
+  // Resolve the inlined functions list.
+  if (inlinedFunctions.length > 0) {
+    inlinedFunctions = inlinedFunctions.substring(1).split("S");
+    for (var i = 0; i < inlinedFunctions.length; i++) {
+      var funcAddr = parseInt(inlinedFunctions[i]);
+      var func = this.codeMap_.findDynamicEntryByStartAddress(funcAddr);
+      if (!func || func.funcId === undefined) {
+        printErr("Could not find function " + inlinedFunctions[i]);
+        inlinedFunctions[i] = null;
+      } else {
+        inlinedFunctions[i] = func.funcId;
+      }
+    }
+  } else {
+    inlinedFunctions = [];
+  }
+
+  this.codeEntries_[entry.codeId].source = {
+    script : script,
+    start : startPos,
+    end : endPos,
+    positions : sourcePositions,
+    inlined : inliningPositions,
+    fns : inlinedFunctions
+  };
+};
+
+JsonProfile.prototype.addScriptSource = function(script, url, source) {
+  this.scripts_[script] = {
+    name : url,
+    source : source
+  };
+};
+
+
 JsonProfile.prototype.deoptCode = function(
     timestamp, code, inliningId, scriptOffset, bailoutType,
     sourcePositionText, deoptReasonText) {
@@ -1007,21 +1073,37 @@ JsonProfile.prototype.recordTick = function(time_ns, vmState, stack) {
   this.ticks_.push({ tm : time_ns, vm : vmState, s : processedStack });
 };
 
+function writeJson(s) {
+  write(JSON.stringify(s, null, 2));
+}
+
 JsonProfile.prototype.writeJson = function() {
   // Write out the JSON in a partially manual way to avoid creating too-large
   // strings in one JSON.stringify call when there are a lot of ticks.
   write('{\n')
-  write('  "code": ' + JSON.stringify(this.codeEntries_) + ',\n');
-  write('  "functions": ' + JSON.stringify(this.functionEntries_) + ',\n');
+
+  write('  "code": ');
+  writeJson(this.codeEntries_);
+  write(',\n');
+
+  write('  "functions": ');
+  writeJson(this.functionEntries_);
+  write(',\n');
+
   write('  "ticks": [\n');
   for (var i = 0; i < this.ticks_.length; i++) {
-    write('    ' + JSON.stringify(this.ticks_[i]));
+    write('    ');
+    writeJson(this.ticks_[i]);
     if (i < this.ticks_.length - 1) {
       write(',\n');
     } else {
       write('\n');
     }
   }
-  write('  ]\n');
+  write('  ],\n');
+
+  write('  "scripts": ');
+  writeJson(this.scripts_);
+
   write('}\n');
 };

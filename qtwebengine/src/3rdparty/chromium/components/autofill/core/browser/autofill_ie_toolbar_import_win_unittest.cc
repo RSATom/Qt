@@ -6,7 +6,7 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/win/registry.h"
 #include "components/autofill/core/browser/autofill_profile.h"
@@ -14,6 +14,8 @@
 #include "components/autofill/core/browser/field_types.h"
 #include "components/os_crypt/os_crypt.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#include <windows.h>
 
 using base::win::RegKey;
 
@@ -139,7 +141,7 @@ void AutofillIeToolbarImportTest::SetUp() {
 }
 
 void AutofillIeToolbarImportTest::TearDown() {
-  EXPECT_EQ(ERROR_SUCCESS, RegOverridePredefKey(HKEY_CURRENT_USER, NULL));
+  EXPECT_EQ(ERROR_SUCCESS, RegOverridePredefKey(HKEY_CURRENT_USER, nullptr));
   temp_hkcu_hive_key_.Close();
   RegKey key(HKEY_CURRENT_USER, kUnitTestRegistrySubKey, KEY_ALL_ACCESS);
   key.DeleteKey(L"");
@@ -150,13 +152,13 @@ TEST_F(AutofillIeToolbarImportTest, TestAutofillImport) {
   profile_key.Create(HKEY_CURRENT_USER, kProfileKey, KEY_ALL_ACCESS);
   EXPECT_TRUE(profile_key.Valid());
 
-  CreateSubkey(&profile_key, L"0", profile1, arraysize(profile1));
-  CreateSubkey(&profile_key, L"1", profile2, arraysize(profile2));
+  CreateSubkey(&profile_key, L"0", profile1, base::size(profile1));
+  CreateSubkey(&profile_key, L"1", profile2, base::size(profile2));
 
   RegKey cc_key;
   cc_key.Create(HKEY_CURRENT_USER, kCreditCardKey, KEY_ALL_ACCESS);
   EXPECT_TRUE(cc_key.Valid());
-  CreateSubkey(&cc_key, L"0", credit_card, arraysize(credit_card));
+  CreateSubkey(&cc_key, L"0", credit_card, base::size(credit_card));
   EncryptAndWrite(&cc_key, &empty_password);
   EncryptAndWrite(&cc_key, &empty_salt);
 

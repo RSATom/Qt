@@ -138,6 +138,17 @@ class SessionHistoryTest : public ContentBrowserTest {
   }
 };
 
+class SessionHistoryScrollAnchorTest : public SessionHistoryTest {
+ protected:
+  SessionHistoryScrollAnchorTest() = default;
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    SessionHistoryTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitchASCII("enable-blink-features",
+                                    "ScrollAnchorSerialization");
+  }
+};
+
 // If this flakes, use http://crbug.com/61619 on windows and
 // http://crbug.com/102094 on mac.
 IN_PROC_BROWSER_TEST_F(SessionHistoryTest, BasicBackForward) {
@@ -462,25 +473,29 @@ IN_PROC_BROWSER_TEST_F(SessionHistoryTest, LocationChangeInSubframe) {
   EXPECT_EQ("Default Title", GetTabTitle());
 }
 
+IN_PROC_BROWSER_TEST_F(SessionHistoryScrollAnchorTest,
+                       LocationChangeInSubframe) {
+  ASSERT_NO_FATAL_FAILURE(
+      NavigateAndCheckTitle("location_redirect.html", "Default Title"));
+
+  NavigateToURL(shell(), GURL("javascript:void(frames[0].navigate())"));
+  EXPECT_EQ("foo", GetTabTitle());
+
+  GoBack();
+  EXPECT_EQ("Default Title", GetTabTitle());
+}
+
 // http://code.google.com/p/chromium/issues/detail?id=56267
 IN_PROC_BROWSER_TEST_F(SessionHistoryTest, HistoryLength) {
-  int length;
-  ASSERT_TRUE(ExecuteScriptAndExtractInt(
-      shell(), "domAutomationController.send(history.length)", &length));
-  EXPECT_EQ(1, length);
-
+  EXPECT_EQ(1, EvalJs(shell(), "history.length"));
   NavigateToURL(shell(), GetURL("title1.html"));
 
-  ASSERT_TRUE(ExecuteScriptAndExtractInt(
-      shell(), "domAutomationController.send(history.length)", &length));
-  EXPECT_EQ(2, length);
+  EXPECT_EQ(2, EvalJs(shell(), "history.length"));
 
   // Now test that history.length is updated when the navigation is committed.
   NavigateToURL(shell(), GetURL("record_length.html"));
 
-  ASSERT_TRUE(ExecuteScriptAndExtractInt(
-      shell(), "domAutomationController.send(history.length)", &length));
-  EXPECT_EQ(3, length);
+  EXPECT_EQ(3, EvalJs(shell(), "history.length"));
 
   GoBack();
   GoBack();
@@ -488,9 +503,7 @@ IN_PROC_BROWSER_TEST_F(SessionHistoryTest, HistoryLength) {
   // Ensure history.length is properly truncated.
   NavigateToURL(shell(), GetURL("title2.html"));
 
-  ASSERT_TRUE(ExecuteScriptAndExtractInt(
-      shell(), "domAutomationController.send(history.length)", &length));
-  EXPECT_EQ(2, length);
+  EXPECT_EQ(2, EvalJs(shell(), "history.length"));
 }
 
 // Test that verifies that a cross-process transfer doesn't lose session
@@ -514,8 +527,7 @@ IN_PROC_BROWSER_TEST_F(SessionHistoryTest, GoBackToCrossSitePostWithRedirect) {
 
   // Submit the form.
   TestNavigationObserver form_post_observer(shell()->web_contents(), 1);
-  EXPECT_TRUE(
-      ExecuteScript(shell(), "document.getElementById('text-form').submit();"));
+  EXPECT_TRUE(ExecJs(shell(), "document.getElementById('text-form').submit()"));
   form_post_observer.Wait();
 
   // Verify that we arrived at the expected, redirected location.
@@ -524,13 +536,9 @@ IN_PROC_BROWSER_TEST_F(SessionHistoryTest, GoBackToCrossSitePostWithRedirect) {
 
   // Verify that POST body got preserved by 307 redirect.  This expectation
   // comes from: https://tools.ietf.org/html/rfc7231#section-6.4.7
-  std::string body;
-  EXPECT_TRUE(ExecuteScriptAndExtractString(
-      shell(),
-      "window.domAutomationController.send("
-      "document.getElementsByTagName('pre')[0].innerText);",
-      &body));
-  EXPECT_EQ("text=value\n", body);
+  EXPECT_EQ(
+      "text=value\n",
+      EvalJs(shell(), "document.getElementsByTagName('pre')[0].innerText"));
 
   // Navigate to a page from yet another site.
   EXPECT_TRUE(NavigateToURL(shell(), page_to_go_back_from));
@@ -545,13 +553,9 @@ IN_PROC_BROWSER_TEST_F(SessionHistoryTest, GoBackToCrossSitePostWithRedirect) {
             shell()->web_contents()->GetLastCommittedURL());
 
   // Again verify that POST body got preserved by 307 redirect.
-  std::string body_after_back_navigation;
-  EXPECT_TRUE(ExecuteScriptAndExtractString(
-      shell(),
-      "window.domAutomationController.send("
-      "document.getElementsByTagName('pre')[0].innerText);",
-      &body_after_back_navigation));
-  EXPECT_EQ("text=value\n", body_after_back_navigation);
+  EXPECT_EQ(
+      "text=value\n",
+      EvalJs(shell(), "document.getElementsByTagName('pre')[0].innerText"));
 }
 
 }  // namespace content

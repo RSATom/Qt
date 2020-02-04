@@ -4,6 +4,8 @@
 
 #include "components/storage_monitor/storage_monitor.h"
 
+#include <utility>
+
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/storage_monitor/removable_storage_observer.h"
@@ -13,7 +15,7 @@ namespace storage_monitor {
 
 namespace {
 
-StorageMonitor* g_storage_monitor = NULL;
+StorageMonitor* g_storage_monitor = nullptr;
 
 }  // namespace
 
@@ -50,15 +52,21 @@ void StorageMonitor::ReceiverImpl::MarkInitialized() {
 }
 
 // static
-void StorageMonitor::Create() {
+void StorageMonitor::Create(
+    std::unique_ptr<service_manager::Connector> connector) {
   delete g_storage_monitor;
   g_storage_monitor = CreateInternal();
+  g_storage_monitor->connector_ = std::move(connector);
+}
+
+service_manager::Connector* StorageMonitor::GetConnector() {
+  return connector_.get();
 }
 
 // static
 void StorageMonitor::Destroy() {
   delete g_storage_monitor;
-  g_storage_monitor = NULL;
+  g_storage_monitor = nullptr;
 }
 
 StorageMonitor* StorageMonitor::GetInstance() {
@@ -75,9 +83,7 @@ std::vector<StorageInfo> StorageMonitor::GetAllAvailableStorages() const {
   std::vector<StorageInfo> results;
 
   base::AutoLock lock(storage_lock_);
-  for (StorageMap::const_iterator it = storage_map_.begin();
-       it != storage_map_.end();
-       ++it) {
+  for (auto it = storage_map_.begin(); it != storage_map_.end(); ++it) {
     results.push_back(it->second);
   }
   return results;
@@ -151,8 +157,7 @@ StorageMonitor::Receiver* StorageMonitor::receiver() const {
 
 void StorageMonitor::MarkInitialized() {
   initialized_ = true;
-  for (std::vector<base::Closure>::iterator iter =
-           on_initialize_callbacks_.begin();
+  for (auto iter = on_initialize_callbacks_.begin();
        iter != on_initialize_callbacks_.end(); ++iter) {
     iter->Run();
   }
@@ -181,7 +186,7 @@ void StorageMonitor::ProcessDetach(const std::string& id) {
   StorageInfo info;
   {
     base::AutoLock lock(storage_lock_);
-    StorageMap::iterator it = storage_map_.find(id);
+    auto it = storage_map_.find(id);
     if (it == storage_map_.end())
       return;
     info = it->second;

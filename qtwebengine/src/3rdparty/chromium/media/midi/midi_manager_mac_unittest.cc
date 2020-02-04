@@ -15,6 +15,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/synchronization/lock.h"
+#include "media/midi/midi_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace midi {
@@ -35,8 +36,8 @@ class FakeMidiManagerClient : public MidiManagerClient {
         unexpected_callback_(false) {}
 
   // MidiManagerClient implementation.
-  void AddInputPort(const MidiPortInfo& info) override {}
-  void AddOutputPort(const MidiPortInfo& info) override {
+  void AddInputPort(const mojom::PortInfo& info) override {}
+  void AddOutputPort(const mojom::PortInfo& info) override {
     base::AutoLock lock(lock_);
     // AddOutputPort may be called before CompleteStartSession() is invoked
     // if one or more MIDI devices including virtual ports are connected.
@@ -67,7 +68,7 @@ class FakeMidiManagerClient : public MidiManagerClient {
   void ReceiveMidiData(uint32_t port_index,
                        const uint8_t* data,
                        size_t size,
-                       double timestamp) override {}
+                       base::TimeTicks timestamp) override {}
   void AccumulateMidiBytesSent(size_t size) override {}
   void Detach() override {}
 
@@ -89,7 +90,7 @@ class FakeMidiManagerClient : public MidiManagerClient {
     EXPECT_FALSE(unexpected_callback_);
     return result_;
   }
-  MidiPortInfo WaitForPort() {
+  mojom::PortInfo WaitForPort() {
     while (GetWaitForPort()) {
       base::RunLoop run_loop;
       run_loop.RunUntilIdle();
@@ -102,7 +103,7 @@ class FakeMidiManagerClient : public MidiManagerClient {
   base::Lock lock_;
   Result result_;
   bool wait_for_result_;
-  MidiPortInfo info_;
+  mojom::PortInfo info_;
   bool wait_for_port_;
   bool unexpected_callback_;
 
@@ -112,24 +113,22 @@ class FakeMidiManagerClient : public MidiManagerClient {
 class MidiManagerMacTest : public ::testing::Test {
  public:
   MidiManagerMacTest()
-      : manager_(new MidiManagerMac(nullptr)),
-        message_loop_(new base::MessageLoop) {}
+      : service_(std::make_unique<MidiService>()),
+        message_loop_(std::make_unique<base::MessageLoop>()) {}
   ~MidiManagerMacTest() override {
-    manager_->Shutdown();
+    service_->Shutdown();
     base::RunLoop run_loop;
     run_loop.RunUntilIdle();
   }
 
  protected:
   void StartSession(MidiManagerClient* client) {
-    manager_->StartSession(client);
+    service_->StartSession(client);
   }
-  void EndSession(MidiManagerClient* client) {
-    manager_->EndSession(client);
-  }
+  void EndSession(MidiManagerClient* client) { service_->EndSession(client); }
 
  private:
-  std::unique_ptr<MidiManager> manager_;
+  std::unique_ptr<MidiService> service_;
   std::unique_ptr<base::MessageLoop> message_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(MidiManagerMacTest);
@@ -160,7 +159,7 @@ TEST_F(MidiManagerMacTest, MidiNotification) {
   EXPECT_NE(0, id);
 
   // Wait until the created device is notified to MidiManagerMac.
-  MidiPortInfo info = client->WaitForPort();
+  mojom::PortInfo info = client->WaitForPort();
   EXPECT_EQ("DestinationTest", info.name);
 
   EndSession(client.get());

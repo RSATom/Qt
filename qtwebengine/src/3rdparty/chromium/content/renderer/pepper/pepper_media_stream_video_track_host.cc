@@ -12,8 +12,8 @@
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
-#include "content/renderer/media/media_stream_video_source.h"
-#include "content/renderer/media/media_stream_video_track.h"
+#include "content/renderer/media/stream/media_stream_video_source.h"
+#include "content/renderer/media/stream/media_stream_video_track.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/video_util.h"
 #include "ppapi/c/pp_errors.h"
@@ -31,8 +31,8 @@ using ppapi::MediaStreamVideoTrackShared;
 
 namespace {
 
-const int32_t kDefaultNumberOfBuffers = 4;
-const int32_t kMaxNumberOfBuffers = 8;
+const int32_t kDefaultNumberOfVideoBuffers = 4;
+const int32_t kMaxNumberOfVideoBuffers = 8;
 // Filter mode for scaling frames.
 const libyuv::FilterMode kFilterMode = libyuv::kFilterBox;
 
@@ -209,7 +209,8 @@ PepperMediaStreamVideoTrackHost::FrameDeliverer::~FrameDeliverer() {
 void PepperMediaStreamVideoTrackHost::FrameDeliverer::DeliverVideoFrame(
     const scoped_refptr<media::VideoFrame>& frame) {
   io_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&FrameDeliverer::DeliverFrameOnIO, this, frame));
+      FROM_HERE,
+      base::BindOnce(&FrameDeliverer::DeliverFrameOnIO, this, frame));
 }
 
 void PepperMediaStreamVideoTrackHost::FrameDeliverer::DeliverFrameOnIO(
@@ -227,7 +228,7 @@ PepperMediaStreamVideoTrackHost::PepperMediaStreamVideoTrackHost(
     const blink::WebMediaStreamTrack& track)
     : PepperMediaStreamTrackHostBase(host, instance, resource),
       track_(track),
-      number_of_buffers_(kDefaultNumberOfBuffers),
+      number_of_buffers_(kDefaultNumberOfVideoBuffers),
       source_frame_format_(PP_VIDEOFRAME_FORMAT_UNKNOWN),
       plugin_frame_format_(PP_VIDEOFRAME_FORMAT_UNKNOWN),
       frame_data_size_(0),
@@ -241,7 +242,7 @@ PepperMediaStreamVideoTrackHost::PepperMediaStreamVideoTrackHost(
     PP_Instance instance,
     PP_Resource resource)
     : PepperMediaStreamTrackHostBase(host, instance, resource),
-      number_of_buffers_(kDefaultNumberOfBuffers),
+      number_of_buffers_(kDefaultNumberOfVideoBuffers),
       source_frame_format_(PP_VIDEOFRAME_FORMAT_UNKNOWN),
       plugin_frame_format_(PP_VIDEOFRAME_FORMAT_UNKNOWN),
       frame_data_size_(0),
@@ -368,7 +369,7 @@ void PepperMediaStreamVideoTrackHost::OnVideoFrame(
   // TODO(penghuang): Check |frame->end_of_stream()| and close the track.
   scoped_refptr<media::VideoFrame> frame = video_frame;
   // Drop alpha channel since we do not support it yet.
-  if (frame->format() == media::PIXEL_FORMAT_YV12A)
+  if (frame->format() == media::PIXEL_FORMAT_I420A)
     frame = media::WrapAsI420VideoFrame(video_frame);
   PP_VideoFrame_Format ppformat = ToPpapiFormat(frame->format());
   if (ppformat == PP_VIDEOFRAME_FORMAT_UNKNOWN)
@@ -478,8 +479,8 @@ int32_t PepperMediaStreamVideoTrackHost::OnHostMsgConfigure(
   plugin_frame_size_ = new_size;
 
   int32_t buffers = attributes.buffers
-                        ? std::min(kMaxNumberOfBuffers, attributes.buffers)
-                        : kDefaultNumberOfBuffers;
+                        ? std::min(kMaxNumberOfVideoBuffers, attributes.buffers)
+                        : kDefaultNumberOfVideoBuffers;
   if (buffers != number_of_buffers_)
     changed = true;
   number_of_buffers_ = buffers;
@@ -514,7 +515,8 @@ void PepperMediaStreamVideoTrackHost::InitBlinkTrack() {
                            false /* remote */);
   MediaStreamVideoSource* const source =
       new VideoSource(weak_factory_.GetWeakPtr());
-  webkit_source.SetExtraData(source);  // Takes ownership of |source|.
+  webkit_source.SetPlatformSource(
+      base::WrapUnique(source));  // Takes ownership of |source|.
 
   const bool enabled = true;
   track_ = MediaStreamVideoTrack::CreateVideoTrack(
@@ -527,8 +529,8 @@ void PepperMediaStreamVideoTrackHost::InitBlinkTrack() {
 }
 
 void PepperMediaStreamVideoTrackHost::OnTrackStarted(
-    MediaStreamSource* source,
-    MediaStreamRequestResult result,
+    blink::WebPlatformMediaStreamSource* source,
+    blink::MediaStreamRequestResult result,
     const blink::WebString& result_name) {
   DVLOG(3) << "OnTrackStarted result: " << result;
 }

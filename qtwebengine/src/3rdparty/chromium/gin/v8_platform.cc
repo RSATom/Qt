@@ -6,48 +6,37 @@
 
 #include <algorithm>
 
+#include "base/allocator/partition_allocator/address_space_randomization.h"
+#include "base/allocator/partition_allocator/page_allocator.h"
 #include "base/bind.h"
+#include "base/bit_cast.h"
+#include "base/bits.h"
 #include "base/debug/stack_trace.h"
 #include "base/location.h"
-#include "base/sys_info.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_scheduler.h"
+#include "base/logging.h"
+#include "base/rand_util.h"
+#include "base/system/sys_info.h"
+#include "base/task/post_task.h"
+#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/task_traits.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "gin/per_isolate_data.h"
 
 namespace gin {
 
 namespace {
 
-constexpr base::TaskTraits kBackgroundThreadTaskTraits = {
-    base::TaskPriority::USER_VISIBLE};
-
 base::LazyInstance<V8Platform>::Leaky g_v8_platform = LAZY_INSTANCE_INITIALIZER;
 
-void RunWithLocker(v8::Isolate* isolate, v8::Task* task) {
-  v8::Locker lock(isolate);
-  task->Run();
-}
+constexpr base::TaskTraits kLowPriorityTaskTraits = {
+    base::TaskPriority::BEST_EFFORT};
 
-class IdleTaskWithLocker : public v8::IdleTask {
- public:
-  IdleTaskWithLocker(v8::Isolate* isolate, v8::IdleTask* task)
-      : isolate_(isolate), task_(task) {}
+constexpr base::TaskTraits kDefaultTaskTraits = {
+    base::TaskPriority::USER_VISIBLE};
 
-  ~IdleTaskWithLocker() override = default;
-
-  // v8::IdleTask implementation.
-  void Run(double deadline_in_seconds) override {
-    v8::Locker lock(isolate_);
-    task_->Run(deadline_in_seconds);
-  }
-
- private:
-  v8::Isolate* isolate_;
-  std::unique_ptr<v8::IdleTask> task_;
-
-  DISALLOW_COPY_AND_ASSIGN(IdleTaskWithLocker);
-};
+constexpr base::TaskTraits kBlockingTaskTraits = {
+    base::TaskPriority::USER_BLOCKING};
 
 void PrintStackTrace() {
   base::debug::StackTrace trace;
@@ -74,7 +63,14 @@ class ConvertableToTraceFormatWrapper final
 class EnabledStateObserverImpl final
     : public base::trace_event::TraceLog::EnabledStateObserver {
  public:
-  EnabledStateObserverImpl() = default;
+  EnabledStateObserverImpl() {
+    base::trace_event::TraceLog::GetInstance()->AddEnabledStateObserver(this);
+  }
+
+  ~EnabledStateObserverImpl() override {
+    base::trace_event::TraceLog::GetInstance()->RemoveEnabledStateObserver(
+        this);
+  }
 
   void OnTraceLogEnabled() final {
     base::AutoLock lock(mutex_);
@@ -94,12 +90,9 @@ class EnabledStateObserverImpl final
     {
       base::AutoLock lock(mutex_);
       DCHECK(!observers_.count(observer));
-      if (observers_.empty()) {
-        base::trace_event::TraceLog::GetInstance()->AddEnabledStateObserver(
-            this);
-      }
       observers_.insert(observer);
     }
+
     // Fire the observer if recording is already in progress.
     if (base::trace_event::TraceLog::GetInstance()->IsEnabled())
       observer->OnTraceEnabled();
@@ -109,10 +102,6 @@ class EnabledStateObserverImpl final
     base::AutoLock lock(mutex_);
     DCHECK(observers_.count(observer) == 1);
     observers_.erase(observer);
-    if (observers_.empty()) {
-      base::trace_event::TraceLog::GetInstance()->RemoveEnabledStateObserver(
-          this);
-    }
   }
 
  private:
@@ -124,6 +113,156 @@ class EnabledStateObserverImpl final
 
 base::LazyInstance<EnabledStateObserverImpl>::Leaky g_trace_state_dispatcher =
     LAZY_INSTANCE_INITIALIZER;
+
+// TODO(skyostil): Deduplicate this with the clamper in Blink.
+class TimeClamper {
+ public:
+// As site isolation is enabled on desktop platforms, we can safely provide
+// more timing resolution. Jittering is still enabled everywhere.
+#if defined(OS_ANDROID)
+  static constexpr double kResolutionSeconds = 100e-6;
+#else
+  static constexpr double kResolutionSeconds = 5e-6;
+#endif
+
+  TimeClamper() : secret_(base::RandUint64()) {}
+
+  double ClampTimeResolution(double time_seconds) const {
+    bool was_negative = false;
+    if (time_seconds < 0) {
+      was_negative = true;
+      time_seconds = -time_seconds;
+    }
+    // For each clamped time interval, compute a pseudorandom transition
+    // threshold. The reported time will either be the start of that interval or
+    // the next one depending on which side of the threshold |time_seconds| is.
+    double interval = floor(time_seconds / kResolutionSeconds);
+    double clamped_time = interval * kResolutionSeconds;
+    double tick_threshold = ThresholdFor(clamped_time);
+
+    if (time_seconds >= tick_threshold)
+      clamped_time = (interval + 1) * kResolutionSeconds;
+    if (was_negative)
+      clamped_time = -clamped_time;
+    return clamped_time;
+  }
+
+ private:
+  inline double ThresholdFor(double clamped_time) const {
+    uint64_t time_hash = MurmurHash3(bit_cast<int64_t>(clamped_time) ^ secret_);
+    return clamped_time + kResolutionSeconds * ToDouble(time_hash);
+  }
+
+  static inline double ToDouble(uint64_t value) {
+    // Exponent for double values for [1.0 .. 2.0]
+    static const uint64_t kExponentBits = uint64_t{0x3FF0000000000000};
+    static const uint64_t kMantissaMask = uint64_t{0x000FFFFFFFFFFFFF};
+    uint64_t random = (value & kMantissaMask) | kExponentBits;
+    return bit_cast<double>(random) - 1;
+  }
+
+  static inline uint64_t MurmurHash3(uint64_t value) {
+    value ^= value >> 33;
+    value *= uint64_t{0xFF51AFD7ED558CCD};
+    value ^= value >> 33;
+    value *= uint64_t{0xC4CEB9FE1A85EC53};
+    value ^= value >> 33;
+    return value;
+  }
+
+  const uint64_t secret_;
+  DISALLOW_COPY_AND_ASSIGN(TimeClamper);
+};
+
+base::LazyInstance<TimeClamper>::Leaky g_time_clamper =
+    LAZY_INSTANCE_INITIALIZER;
+
+#if BUILDFLAG(USE_PARTITION_ALLOC)
+base::PageAccessibilityConfiguration GetPageConfig(
+    v8::PageAllocator::Permission permission) {
+  switch (permission) {
+    case v8::PageAllocator::Permission::kRead:
+      return base::PageRead;
+    case v8::PageAllocator::Permission::kReadWrite:
+      return base::PageReadWrite;
+    case v8::PageAllocator::Permission::kReadWriteExecute:
+      return base::PageReadWriteExecute;
+    case v8::PageAllocator::Permission::kReadExecute:
+      return base::PageReadExecute;
+    default:
+      DCHECK_EQ(v8::PageAllocator::Permission::kNoAccess, permission);
+      return base::PageInaccessible;
+  }
+}
+
+class PageAllocator : public v8::PageAllocator {
+ public:
+  ~PageAllocator() override = default;
+
+  size_t AllocatePageSize() override {
+    return base::kPageAllocationGranularity;
+  }
+
+  size_t CommitPageSize() override { return base::kSystemPageSize; }
+
+  void SetRandomMmapSeed(int64_t seed) override {
+    base::SetRandomPageBaseSeed(seed);
+  }
+
+  void* GetRandomMmapAddr() override { return base::GetRandomPageBase(); }
+
+  void* AllocatePages(void* address,
+                      size_t length,
+                      size_t alignment,
+                      v8::PageAllocator::Permission permissions) override {
+    base::PageAccessibilityConfiguration config = GetPageConfig(permissions);
+    bool commit = (permissions != v8::PageAllocator::Permission::kNoAccess);
+    return base::AllocPages(address, length, alignment, config,
+                            base::PageTag::kV8, commit);
+  }
+
+  bool FreePages(void* address, size_t length) override {
+    base::FreePages(address, length);
+    return true;
+  }
+
+  bool ReleasePages(void* address, size_t length, size_t new_length) override {
+    DCHECK_LT(new_length, length);
+    uint8_t* release_base = reinterpret_cast<uint8_t*>(address) + new_length;
+    size_t release_size = length - new_length;
+#if defined(OS_POSIX)
+    // On POSIX, we can unmap the trailing pages.
+    base::FreePages(release_base, release_size);
+#else  // defined(OS_WIN)
+    // On Windows, we can only de-commit the trailing pages.
+    base::DecommitSystemPages(release_base, release_size);
+#endif
+    return true;
+  }
+
+  bool SetPermissions(void* address,
+                      size_t length,
+                      Permission permissions) override {
+    // If V8 sets permissions to none, we can discard the memory.
+    if (permissions == v8::PageAllocator::Permission::kNoAccess) {
+      base::DecommitSystemPages(address, length);
+      return true;
+    } else {
+      return base::TrySetSystemPagesAccess(address, length,
+                                           GetPageConfig(permissions));
+    }
+  }
+
+  bool DiscardSystemPages(void* address, size_t size) override {
+    base::DiscardSystemPages(address, size);
+    return true;
+  }
+};
+
+base::LazyInstance<PageAllocator>::Leaky g_page_allocator =
+    LAZY_INSTANCE_INITIALIZER;
+
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC)
 
 }  // namespace
 
@@ -193,68 +332,98 @@ V8Platform* V8Platform::Get() { return g_v8_platform.Pointer(); }
 
 V8Platform::V8Platform() : tracing_controller_(new TracingControllerImpl) {}
 
-V8Platform::~V8Platform() {}
+V8Platform::~V8Platform() = default;
 
-size_t V8Platform::NumberOfAvailableBackgroundThreads() {
-  return std::max(1, base::TaskScheduler::GetInstance()
-                         ->GetMaxConcurrentTasksWithTraitsDeprecated(
-                             kBackgroundThreadTaskTraits));
+#if BUILDFLAG(USE_PARTITION_ALLOC)
+v8::PageAllocator* V8Platform::GetPageAllocator() {
+  return g_page_allocator.Pointer();
 }
 
-void V8Platform::CallOnBackgroundThread(
-    v8::Task* task,
-    v8::Platform::ExpectedRuntime expected_runtime) {
-  base::PostTaskWithTraits(FROM_HERE, kBackgroundThreadTaskTraits,
-                           base::Bind(&v8::Task::Run, base::Owned(task)));
+void V8Platform::OnCriticalMemoryPressure() {
+// We only have a reservation on 32-bit Windows systems.
+// TODO(bbudge) Make the #if's in BlinkInitializer match.
+#if defined(OS_WIN) && defined(ARCH_CPU_32_BITS)
+  base::ReleaseReservation();
+#endif
+}
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC)
+
+std::shared_ptr<v8::TaskRunner> V8Platform::GetForegroundTaskRunner(
+    v8::Isolate* isolate) {
+  PerIsolateData* data = PerIsolateData::From(isolate);
+  return data->task_runner();
+}
+
+int V8Platform::NumberOfWorkerThreads() {
+  // V8Platform assumes the scheduler uses the same set of workers for default
+  // and user blocking tasks.
+  const int num_foreground_workers =
+      base::TaskScheduler::GetInstance()
+          ->GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated(
+              kDefaultTaskTraits);
+  DCHECK_EQ(num_foreground_workers,
+            base::TaskScheduler::GetInstance()
+                ->GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated(
+                    kBlockingTaskTraits));
+  return std::max(1, num_foreground_workers);
+}
+
+void V8Platform::CallOnWorkerThread(std::unique_ptr<v8::Task> task) {
+  base::PostTaskWithTraits(FROM_HERE, kDefaultTaskTraits,
+                           base::BindOnce(&v8::Task::Run, std::move(task)));
+}
+
+void V8Platform::CallBlockingTaskOnWorkerThread(
+    std::unique_ptr<v8::Task> task) {
+  base::PostTaskWithTraits(FROM_HERE, kBlockingTaskTraits,
+                           base::BindOnce(&v8::Task::Run, std::move(task)));
+}
+
+void V8Platform::CallLowPriorityTaskOnWorkerThread(
+    std::unique_ptr<v8::Task> task) {
+  base::PostTaskWithTraits(FROM_HERE, kLowPriorityTaskTraits,
+                           base::BindOnce(&v8::Task::Run, std::move(task)));
+}
+
+void V8Platform::CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task,
+                                           double delay_in_seconds) {
+  base::PostDelayedTaskWithTraits(
+      FROM_HERE, kDefaultTaskTraits,
+      base::BindOnce(&v8::Task::Run, std::move(task)),
+      base::TimeDelta::FromSecondsD(delay_in_seconds));
 }
 
 void V8Platform::CallOnForegroundThread(v8::Isolate* isolate, v8::Task* task) {
   PerIsolateData* data = PerIsolateData::From(isolate);
-  if (data->access_mode() == IsolateHolder::kUseLocker) {
-    data->task_runner()->PostTask(
-        FROM_HERE, base::Bind(RunWithLocker, base::Unretained(isolate),
-                              base::Owned(task)));
-  } else {
-    data->task_runner()->PostTask(
-        FROM_HERE, base::Bind(&v8::Task::Run, base::Owned(task)));
-  }
+  data->task_runner()->PostTask(std::unique_ptr<v8::Task>(task));
 }
 
 void V8Platform::CallDelayedOnForegroundThread(v8::Isolate* isolate,
                                                v8::Task* task,
                                                double delay_in_seconds) {
   PerIsolateData* data = PerIsolateData::From(isolate);
-  if (data->access_mode() == IsolateHolder::kUseLocker) {
-    data->task_runner()->PostDelayedTask(
-        FROM_HERE,
-        base::Bind(RunWithLocker, base::Unretained(isolate), base::Owned(task)),
-        base::TimeDelta::FromSecondsD(delay_in_seconds));
-  } else {
-    data->task_runner()->PostDelayedTask(
-        FROM_HERE, base::Bind(&v8::Task::Run, base::Owned(task)),
-        base::TimeDelta::FromSecondsD(delay_in_seconds));
-  }
+  data->task_runner()->PostDelayedTask(std::unique_ptr<v8::Task>(task),
+                                       delay_in_seconds);
 }
 
 void V8Platform::CallIdleOnForegroundThread(v8::Isolate* isolate,
                                             v8::IdleTask* task) {
   PerIsolateData* data = PerIsolateData::From(isolate);
-  DCHECK(data->idle_task_runner());
-  if (data->access_mode() == IsolateHolder::kUseLocker) {
-    data->idle_task_runner()->PostIdleTask(
-        new IdleTaskWithLocker(isolate, task));
-  } else {
-    data->idle_task_runner()->PostIdleTask(task);
-  }
+  data->task_runner()->PostIdleTask(std::unique_ptr<v8::IdleTask>(task));
 }
 
 bool V8Platform::IdleTasksEnabled(v8::Isolate* isolate) {
-  return PerIsolateData::From(isolate)->idle_task_runner() != nullptr;
+  return PerIsolateData::From(isolate)->task_runner()->IdleTasksEnabled();
 }
 
 double V8Platform::MonotonicallyIncreasingTime() {
   return base::TimeTicks::Now().ToInternalValue() /
       static_cast<double>(base::Time::kMicrosecondsPerSecond);
+}
+
+double V8Platform::CurrentClockTimeMillis() {
+  double now_seconds = base::Time::Now().ToJsTime() / 1000;
+  return g_time_clamper.Get().ClampTimeResolution(now_seconds) * 1000;
 }
 
 v8::TracingController* V8Platform::GetTracingController() {

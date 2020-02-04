@@ -11,6 +11,7 @@
 
 #include "base/strings/string_piece.h"
 #include "net/base/net_export.h"
+#include "net/disk_cache/simple/simple_file_tracker.h"
 
 namespace base {
 class FilePath;
@@ -46,12 +47,14 @@ NET_EXPORT_PRIVATE std::string GetFilenameFromKeyAndFileIndex(
     const std::string& key,
     int file_index);
 
-// Same as |GetFilenameFromKeyAndIndex| above, but using a hex string.
-std::string GetFilenameFromEntryHashAndFileIndex(uint64_t entry_hash,
-                                                 int file_index);
+// Same as |GetFilenameFromKeyAndIndex| above, but using a numeric key.
+NET_EXPORT_PRIVATE std::string GetFilenameFromEntryFileKeyAndFileIndex(
+    const SimpleFileTracker::EntryFileKey& key,
+    int file_index);
 
 // Given a |key| for an entry, returns the name of the sparse data file.
-std::string GetSparseFilenameFromEntryHash(uint64_t entry_hash);
+NET_EXPORT_PRIVATE std::string GetSparseFilenameFromEntryFileKey(
+    const SimpleFileTracker::EntryFileKey& key);
 
 // Given the size of a key, the size in bytes of the header at the beginning
 // of a simple cache file.
@@ -81,6 +84,10 @@ NET_EXPORT_PRIVATE bool GetMTime(const base::FilePath& path,
 // an open file and continue to use that file. After deleting an open file, it
 // is possible to immediately create a new file with the same name.
 NET_EXPORT_PRIVATE bool SimpleCacheDeleteFile(const base::FilePath& path);
+
+uint32_t Crc32(const char* data, int length);
+
+uint32_t IncrementalCrc32(uint32_t previous_crc, const char* data, int length);
 
 }  // namespace simple_util
 

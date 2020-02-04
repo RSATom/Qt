@@ -8,8 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/video_capture/video_capture_impl.h"
-#include "webrtc/rtc_base/refcount.h"
+#include "modules/video_capture/video_capture.h"
+#include "modules/video_capture/video_capture_impl.h"
+#include "rtc_base/ref_counted_object.h"
+#include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
 

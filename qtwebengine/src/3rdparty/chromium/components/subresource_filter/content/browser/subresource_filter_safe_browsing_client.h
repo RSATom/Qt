@@ -14,7 +14,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
-#include "components/safe_browsing_db/util.h"
+#include "components/safe_browsing/db/util.h"
 
 class GURL;
 
@@ -45,8 +45,11 @@ class SubresourceFilterSafeBrowsingClient {
     size_t request_id = 0;
     safe_browsing::SBThreatType threat_type =
         safe_browsing::SBThreatType::SB_THREAT_TYPE_SAFE;
-    safe_browsing::ThreatPatternType pattern_type =
-        safe_browsing::ThreatPatternType::NONE;
+
+    // The metadata should generally be lightweight enough to copy around
+    // without performance implications. Refactor this class if that ever
+    // changes.
+    safe_browsing::ThreatMetadata threat_metadata;
     base::TimeDelta check_time;
     bool finished = false;
 

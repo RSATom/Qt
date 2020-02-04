@@ -52,11 +52,11 @@
 //
 #include <QtNetwork/private/qtnetworkglobal_p.h>
 
-#ifndef QT_NO_HTTP
-
 #include <private/qhttpnetworkheader_p.h>
 #include <QtNetwork/qnetworkrequest.h>
 #include <qmetatype.h>
+
+QT_REQUIRE_CONFIG(http);
 
 QT_BEGIN_NAMESPACE
 
@@ -90,18 +90,18 @@ public:
     QHttpNetworkRequest &operator=(const QHttpNetworkRequest &other);
     bool operator==(const QHttpNetworkRequest &other) const;
 
-    QUrl url() const Q_DECL_OVERRIDE;
-    void setUrl(const QUrl &url) Q_DECL_OVERRIDE;
+    QUrl url() const override;
+    void setUrl(const QUrl &url) override;
 
-    int majorVersion() const Q_DECL_OVERRIDE;
-    int minorVersion() const Q_DECL_OVERRIDE;
+    int majorVersion() const override;
+    int minorVersion() const override;
 
-    qint64 contentLength() const Q_DECL_OVERRIDE;
-    void setContentLength(qint64 length) Q_DECL_OVERRIDE;
+    qint64 contentLength() const override;
+    void setContentLength(qint64 length) override;
 
-    QList<QPair<QByteArray, QByteArray> > header() const Q_DECL_OVERRIDE;
-    QByteArray headerField(const QByteArray &name, const QByteArray &defaultValue = QByteArray()) const Q_DECL_OVERRIDE;
-    void setHeaderField(const QByteArray &name, const QByteArray &data) Q_DECL_OVERRIDE;
+    QList<QPair<QByteArray, QByteArray> > header() const override;
+    QByteArray headerField(const QByteArray &name, const QByteArray &defaultValue = QByteArray()) const override;
+    void setHeaderField(const QByteArray &name, const QByteArray &data) override;
     void prependHeaderField(const QByteArray &name, const QByteArray &data);
 
     Operation operation() const;
@@ -121,6 +121,9 @@ public:
 
     bool isHTTP2Allowed() const;
     void setHTTP2Allowed(bool b);
+
+    bool isHTTP2Direct() const;
+    void setHTTP2Direct(bool b);
 
     bool withCredentials() const;
     void setWithCredentials(bool b);
@@ -144,6 +147,8 @@ public:
     QByteArray methodName() const;
     QByteArray uri(bool throughProxy) const;
 
+    QString peerVerifyName() const;
+    void setPeerVerifyName(const QString &peerName);
 private:
     QSharedDataPointer<QHttpNetworkRequestPrivate> d;
     friend class QHttpNetworkRequestPrivate;
@@ -173,19 +178,18 @@ public:
     bool pipeliningAllowed;
     bool spdyAllowed;
     bool http2Allowed;
+    bool http2Direct;
     bool withCredentials;
     bool ssl;
     bool preConnect;
     int redirectCount;
     QNetworkRequest::RedirectPolicy redirectPolicy;
+    QString peerVerifyName;
 };
 
 
 QT_END_NAMESPACE
 
 Q_DECLARE_METATYPE(QHttpNetworkRequest)
-
-#endif // QT_NO_HTTP
-
 
 #endif // QHTTPNETWORKREQUEST_H

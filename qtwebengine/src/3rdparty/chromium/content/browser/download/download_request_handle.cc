@@ -6,13 +6,13 @@
 
 #include "base/bind.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace content {
-
-DownloadRequestHandleInterface::~DownloadRequestHandleInterface() {}
 
 DownloadRequestHandle::DownloadRequestHandle(
     const DownloadRequestHandle& other) = default;
@@ -32,32 +32,22 @@ WebContents* DownloadRequestHandle::GetWebContents() const {
   return web_contents_getter_.is_null() ? nullptr : web_contents_getter_.Run();
 }
 
-DownloadManager* DownloadRequestHandle::GetDownloadManager() const {
-  WebContents* web_contents = GetWebContents();
-  if (web_contents == nullptr)
-    return nullptr;
-  BrowserContext* context = web_contents->GetBrowserContext();
-  if (context == nullptr)
-    return nullptr;
-  return BrowserContext::GetDownloadManager(context);
+void DownloadRequestHandle::PauseRequest() {
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(&DownloadResourceHandler::PauseRequest, handler_));
 }
 
-void DownloadRequestHandle::PauseRequest() const {
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&DownloadResourceHandler::PauseRequest, handler_));
+void DownloadRequestHandle::ResumeRequest() {
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(&DownloadResourceHandler::ResumeRequest, handler_));
 }
 
-void DownloadRequestHandle::ResumeRequest() const {
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&DownloadResourceHandler::ResumeRequest, handler_));
-}
-
-void DownloadRequestHandle::CancelRequest(bool user_cancel) const {
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&DownloadResourceHandler::CancelRequest, handler_));
+void DownloadRequestHandle::CancelRequest(bool user_cancel) {
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(&DownloadResourceHandler::CancelRequest, handler_));
 }
 
 }  // namespace content

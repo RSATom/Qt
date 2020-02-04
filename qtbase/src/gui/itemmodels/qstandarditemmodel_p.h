@@ -54,13 +54,14 @@
 #include <QtGui/private/qtguiglobal_p.h>
 #include "private/qabstractitemmodel_p.h"
 
-#ifndef QT_NO_STANDARDITEMMODEL
-
 #include <QtCore/qlist.h>
 #include <QtCore/qpair.h>
 #include <QtCore/qstack.h>
 #include <QtCore/qvariant.h>
 #include <QtCore/qvector.h>
+#include <QtCore/qdebug.h>
+
+QT_REQUIRE_CONFIG(standarditemmodel);
 
 QT_BEGIN_NAMESPACE
 
@@ -69,6 +70,7 @@ class QStandardItemData
 public:
     inline QStandardItemData() : role(-1) {}
     inline QStandardItemData(int r, const QVariant &v) : role(r), value(v) {}
+    inline QStandardItemData(const std::pair<const int&, const QVariant&> &p) : role(p.first), value(p.second) {}
     int role;
     QVariant value;
     inline bool operator==(const QStandardItemData &other) const { return role == other.role && value == other.value; }
@@ -91,6 +93,15 @@ inline QDataStream &operator<<(QDataStream &out, const QStandardItemData &data)
     return out;
 }
 
+inline QDebug &operator<<(QDebug &debug, const QStandardItemData &data)
+{
+    QDebugStateSaver saver(debug);
+    debug.nospace() << data.role
+                    << " "
+                    << data.value;
+    return debug.space();
+}
+
 #endif // QT_NO_DATASTREAM
 
 class QStandardItemPrivate
@@ -103,7 +114,7 @@ public:
           rows(0),
           columns(0),
           q_ptr(0),
-          lastIndexOf(2)
+          lastKnownIndex(-1)
         { }
 
     inline int childIndex(int row, int column) const {
@@ -113,12 +124,40 @@ public:
         }
         return (row * columnCount()) + column;
     }
-    inline int childIndex(const QStandardItem *child) {
-        int start = qMax(0, lastIndexOf -2);
-        lastIndexOf = children.indexOf(const_cast<QStandardItem*>(child), start);
-        if (lastIndexOf == -1 && start != 0)
-            lastIndexOf = children.lastIndexOf(const_cast<QStandardItem*>(child), start);
-        return lastIndexOf;
+    inline int childIndex(const QStandardItem *child) const {
+        const int lastChild = children.size() - 1;
+        int &childsLastIndexInParent = child->d_func()->lastKnownIndex;
+        if (childsLastIndexInParent != -1 && childsLastIndexInParent <= lastChild) {
+            if (children.at(childsLastIndexInParent) == child)
+                return childsLastIndexInParent;
+        } else {
+            childsLastIndexInParent = lastChild / 2;
+        }
+
+        // assuming the item is in the vicinity of the previous index, iterate forwards and
+        // backwards through the children
+        int backwardIter = childsLastIndexInParent - 1;
+        int forwardIter = childsLastIndexInParent;
+        Q_FOREVER {
+            if (forwardIter <= lastChild) {
+                if (children.at(forwardIter) == child) {
+                    childsLastIndexInParent = forwardIter;
+                    break;
+                }
+                ++forwardIter;
+            } else if (backwardIter < 0) {
+                childsLastIndexInParent = -1;
+                break;
+            }
+            if (backwardIter >= 0) {
+                if (children.at(backwardIter) == child) {
+                    childsLastIndexInParent = backwardIter;
+                    break;
+                }
+                --backwardIter;
+            }
+        }
+        return childsLastIndexInParent;
     }
     QPair<int, int> position() const;
     void setChild(int row, int column, QStandardItem *item,
@@ -159,7 +198,7 @@ public:
 
     QStandardItem *q_ptr;
 
-    int lastIndexOf;
+    mutable int lastKnownIndex; // this is a cached value
 };
 
 class QStandardItemModelPrivate : public QAbstractItemModelPrivate
@@ -168,7 +207,7 @@ class QStandardItemModelPrivate : public QAbstractItemModelPrivate
 
 public:
     QStandardItemModelPrivate();
-    virtual ~QStandardItemModelPrivate();
+    ~QStandardItemModelPrivate();
 
     void init();
 
@@ -189,7 +228,7 @@ public:
     }
 
     void sort(QStandardItem *parent, int column, Qt::SortOrder order);
-    void itemChanged(QStandardItem *item);
+    void itemChanged(QStandardItem *item, const QVector<int> &roles = QVector<int>());
     void rowsAboutToBeInserted(QStandardItem *parent, int start, int end);
     void columnsAboutToBeInserted(QStandardItem *parent, int start, int end);
     void rowsAboutToBeRemoved(QStandardItem *parent, int start, int end);
@@ -212,7 +251,5 @@ public:
 };
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_STANDARDITEMMODEL
 
 #endif // QSTANDARDITEMMODEL_P_H

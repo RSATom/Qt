@@ -6,11 +6,10 @@
 #define DEVICE_BLUETOOTH_BLUEZ_BLUETOOTH_SOCKET_BLUEZ_H_
 
 #include <memory>
-#include <queue>
 #include <string>
 
+#include "base/containers/queue.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/sequenced_task_runner.h"
 #include "dbus/object_path.h"
 #include "device/bluetooth/bluetooth_adapter.h"
@@ -187,7 +186,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothSocketBlueZ
     bool accepting;
     bool cancelled;
   };
-  std::queue<linked_ptr<ConnectionRequest>> connection_request_queue_;
+  base::queue<std::unique_ptr<ConnectionRequest>> connection_request_queue_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothSocketBlueZ);
 };

@@ -10,9 +10,10 @@
 /**
  * @typedef {{url: string,
  *            label: string,
- *            isGaiaAvatar: (boolean|undefined)}}
+ *            isGaiaAvatar: (boolean|undefined),
+ *            selected: (boolean|undefined)}}
  */
-var AvatarIcon;
+let AvatarIcon;
 
 Polymer({
   is: 'cr-profile-avatar-selector',
@@ -47,12 +48,19 @@ Polymer({
     },
   },
 
+  /** @private */
+  getSelectedClass_: function(isSelected) {
+    // TODO(dpapad): Rename 'iron-selected' to 'selected' now that this CSS
+    // class is not assigned by any iron-* behavior.
+    return isSelected ? 'iron-selected' : '';
+  },
+
   /**
    * @param {string} iconUrl
-   * @return {string} A CSS imageset for multiple scale factors.
+   * @return {string} A CSS image-set for multiple scale factors.
    * @private
    */
-  getIconImageset_: function(iconUrl) {
+  getIconImageSet_: function(iconUrl) {
     return cr.icon.getImage(iconUrl);
   },
 
@@ -61,13 +69,15 @@ Polymer({
    * @private
    */
   onAvatarTap_: function(e) {
-    // TODO(dpapad): Rename 'iron-selected' to 'selected' now that this CSS
-    // class is not assigned by any iron-* behavior.
-    if (this.selectedAvatarElement_)
+    // Manual selection for profile creation
+    if (this.selectedAvatarElement_) {
       this.selectedAvatarElement_.classList.remove('iron-selected');
-
+    }
     this.selectedAvatarElement_ = /** @type {!HTMLElement} */ (e.target);
     this.selectedAvatarElement_.classList.add('iron-selected');
+
+    // |selectedAvatar| is set to pass back selection to the owner of this
+    // component.
     this.selectedAvatar =
         /** @type {!{model: {item: !AvatarIcon}}} */ (e).model.item;
   },

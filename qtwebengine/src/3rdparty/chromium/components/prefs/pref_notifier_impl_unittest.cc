@@ -49,13 +49,12 @@ class MockPrefNotifier : public PrefNotifierImpl {
  public:
   explicit MockPrefNotifier(PrefService* pref_service)
       : PrefNotifierImpl(pref_service) {}
-  virtual ~MockPrefNotifier() {}
+  ~MockPrefNotifier() override {}
 
   MOCK_METHOD1(FireObservers, void(const std::string& path));
 
   size_t CountObserver(const std::string& path, PrefObserver* obs) {
-    PrefObserverMap::const_iterator observer_iterator =
-        pref_observers()->find(path);
+    auto observer_iterator = pref_observers()->find(path);
     if (observer_iterator == pref_observers()->end())
       return false;
 
@@ -105,8 +104,8 @@ TEST_F(PrefNotifierTest, OnInitializationCompleted) {
   MockPrefNotifier notifier(&pref_service_);
   MockPrefInitObserver observer;
   notifier.AddInitObserver(
-      base::Bind(&MockPrefInitObserver::OnInitializationCompleted,
-                 base::Unretained(&observer)));
+      base::BindOnce(&MockPrefInitObserver::OnInitializationCompleted,
+                     base::Unretained(&observer)));
   EXPECT_CALL(observer, OnInitializationCompleted(true));
   notifier.OnInitializationCompleted(true);
 }

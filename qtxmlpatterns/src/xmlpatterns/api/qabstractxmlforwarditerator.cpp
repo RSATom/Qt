@@ -97,7 +97,7 @@
  */
 
 /*!
-  \fn T QAbstractXmlForwardIterator::current() const = 0;
+  \fn T QAbstractXmlForwardIterator::current() const = 0
 
   Returns the current item in the sequence. If this function is called
   before the first call to next(), a null object is returned. If the
@@ -105,7 +105,7 @@
  */
 
 /*!
-  \fn qint64 QAbstractXmlForwardIterator::position() const = 0;
+  \fn qint64 QAbstractXmlForwardIterator::position() const = 0
 
    Returns the current position in the sequence represented
    by \e this.
@@ -115,7 +115,7 @@
  */
 
 /*!
-  \fn bool qIsForwardIteratorEnd(const T &unit)
+  \fn template<typename T> bool qIsForwardIteratorEnd(const T &unit)
   \since 4.4
   \relates QAbstractXmlForwardIterator
 
@@ -150,7 +150,7 @@
  */
 
 /*!
-  \fn QAbstractXmlForwardIterator<T>::Ptr QAbstractXmlForwardIterator::toReversed();
+  \fn template<typename T> QAbstractXmlForwardIterator<T>::Ptr QAbstractXmlForwardIterator<T>::toReversed()
   \internal
 
   Returns a reverse iterator for the sequence.
@@ -164,7 +164,7 @@
  */
 
 /*!
-  \fn QList<T> QAbstractXmlForwardIterator<T>::toList();
+  \fn template<typename T> QList<T> QAbstractXmlForwardIterator<T>::toList()
   \internal
 
    Performs a copy of this QAbstractXmlForwardIterator(with copy()),
@@ -178,7 +178,7 @@
  */
 
 /*!
-  \fn T QAbstractXmlForwardIterator::last();
+  \fn T QAbstractXmlForwardIterator::last()
   \internal
 
    Returns the item at the end of this QAbstractXmlForwardIterator.
@@ -186,13 +186,13 @@
  */
 
 /*!
-  \fn T QAbstractXmlForwardIterator::isEmpty();
+  \fn T QAbstractXmlForwardIterator::isEmpty()
   \internal
   Returns true if the sequence is empty.
  */
 
 /*!
-  \fn qint64 QAbstractXmlForwardIterator::sizeHint() const;
+  \fn qint64 QAbstractXmlForwardIterator::sizeHint() const
   \internal
 
   Gives a hint to the size of the contained sequence. The hint is
@@ -202,7 +202,7 @@
  */
 
 /*!
-  \fn typename QAbstractXmlForwardIterator<T>::Ptr QAbstractXmlForwardIterator::copy() const;
+  \fn template <typename T> QAbstractXmlForwardIterator<T>::Ptr QAbstractXmlForwardIterator<T>::copy() const
   \internal
 
    Copies this QAbstractXmlForwardIterator and returns the copy.
@@ -232,7 +232,7 @@
  */
 
 /*!
-  \fn QPatternist::ListIteratorPlatform::ListIteratorPlatform(const ListType &list);
+  \fn QPatternist::ListIteratorPlatform::ListIteratorPlatform(const ListType &list)
 
   Constructs a ListIteratorPlatform that walks the given \a list.
  */
@@ -256,7 +256,7 @@
  */
 
 /*!
-   \fn QPatternist::makeListIterator(const QList<T> &qList)
+   \fn template<typename T> QAbstractXmlForwardIterator<T>::Ptr QPatternist::makeListIterator(const QList<T> &qList)
    \relates QPatternist::ListIterator
 
    An object generator for ListIterator.

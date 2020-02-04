@@ -12,17 +12,14 @@
 class CXFA_ContainerLayoutItem : public CXFA_LayoutItem {
  public:
   explicit CXFA_ContainerLayoutItem(CXFA_Node* pNode);
+  ~CXFA_ContainerLayoutItem() override;
 
   CXFA_LayoutProcessor* GetLayout() const;
   int32_t GetPageIndex() const;
   CFX_SizeF GetPageSize() const;
   CXFA_Node* GetMasterPage() const;
 
-  CXFA_Node* m_pOldSubform;
+  UnownedPtr<CXFA_Node> m_pOldSubform;
 };
-
-inline CXFA_ContainerLayoutItem* ToContainerLayoutItem(CXFA_LayoutItem* pItem) {
-  return pItem ? pItem->AsContainerLayoutItem() : nullptr;
-}
 
 #endif  // XFA_FXFA_PARSER_CXFA_CONTAINERLAYOUTITEM_H_

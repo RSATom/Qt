@@ -6,17 +6,23 @@ if (is_android) {
   import("//build/config/android/config.gni")
 }
 
+# TODO(crbug.com/753619): Enable crash reporting on Fuchsia.
+assert(!is_fuchsia)
+
 source_set("browser") {
   sources = [
-    "crash_dump_manager_android.cc",
-    "crash_dump_manager_android.h",
-    "crash_dump_observer_android.cc",
-    "crash_dump_observer_android.h",
+    "child_exit_observer_android.cc",
+    "child_exit_observer_android.h",
+    "child_process_crash_observer_android.cc",
+    "child_process_crash_observer_android.h",
+    "crash_memory_metrics_collector_android.cc",
+    "crash_memory_metrics_collector_android.h",
+    "crash_metrics_reporter_android.cc",
+    "crash_metrics_reporter_android.h",
   ]
 
   deps = [
     "//base",
-    "//breakpad:client",
     "//components/crash/content/app",
     "//content/public/browser",
     "//content/public/common",
@@ -30,20 +36,39 @@ source_set("browser") {
       "crash_handler_host_linux.cc",
       "crash_handler_host_linux.h",
     ]
-    deps += [
-      "//breakpad:client",
-      "//components/crash/content/app:app_non_mac_win",
-    ]
+  }
+
+  if (!is_chromeos) {
+    deps += [ "//third_party/crashpad/crashpad/client" ]
+  }
+
+  if (!is_android) {
+    deps += [ "//third_party/breakpad:client" ]
   }
 
   # This is not in the GYP build but this target includes breakpad client
   # headers, so add the dependency here.
-  if (is_posix && !is_ios) {
-    configs += [ "//breakpad:client_config" ]
-    public_configs = [ "//breakpad:client_config" ]
+  if ((is_posix && !is_ios) || is_fuchsia) {
+    configs += [ "//third_party/breakpad:client_config" ]
+    public_configs = [ "//third_party/breakpad:client_config" ]
   }
 
   if (is_android) {
-    deps += [ "//components/crash/android:jni_headers" ]
+    deps += [
+      "//components/crash/android:jni_headers",
+      "//mojo/public/cpp/bindings",
+    ]
   }
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "crash_metrics_reporter_android_unittest.cc",
+  ]
+  deps = [
+    ":browser",
+    "//base/test:test_support",
+    "//testing/gtest",
+  ]
 }

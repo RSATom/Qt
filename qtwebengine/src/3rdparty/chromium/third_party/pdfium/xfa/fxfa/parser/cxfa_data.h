@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,29 +7,12 @@
 #ifndef XFA_FXFA_PARSER_CXFA_DATA_H_
 #define XFA_FXFA_PARSER_CXFA_DATA_H_
 
-#include "core/fxcrt/fx_system.h"
-#include "core/fxge/fx_dib.h"
-#include "xfa/fxfa/fxfa_basic.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
-
-class CXFA_Data {
+class CXFA_Data final : public CXFA_Node {
  public:
-  static FX_ARGB ToColor(const CFX_WideStringC& wsValue);
-
-  explicit CXFA_Data(CXFA_Node* pNode) : m_pNode(pNode) {}
-
-  explicit operator bool() const { return !!m_pNode; }
-  CXFA_Node* GetNode() const { return m_pNode; }
-  XFA_Element GetElementType() const;
-
- protected:
-  bool TryMeasure(XFA_ATTRIBUTE eAttr,
-                  float& fValue,
-                  bool bUseDefault = false) const;
-  bool SetMeasure(XFA_ATTRIBUTE eAttr, float fValue);
-
-  CXFA_Node* m_pNode;
+  CXFA_Data(CXFA_Document* doc, XFA_PacketType packet);
+  ~CXFA_Data() override;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_DATA_H_

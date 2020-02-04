@@ -8,7 +8,7 @@
 #include "base/macros.h"
 #include "chrome/browser/printing/print_view_manager_base.h"
 #include "content/public/browser/web_contents_user_data.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 
 namespace content {
 class RenderFrameHost;
@@ -23,17 +23,15 @@ class PrintViewManager : public PrintViewManagerBase,
  public:
   ~PrintViewManager() override;
 
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
   // Same as PrintNow(), but for the case where a user prints with the system
   // dialog from print preview.
   // |dialog_shown_callback| is called when the print dialog is shown.
-  bool PrintForSystemDialogNow(const base::Closure& dialog_shown_callback);
+  bool PrintForSystemDialogNow(base::OnceClosure dialog_shown_callback);
 
   // Same as PrintNow(), but for the case where a user press "ctrl+shift+p" to
   // show the native system dialog. This can happen from both initiator and
   // preview dialog.
   bool BasicPrint(content::RenderFrameHost* rfh);
-#endif  // ENABLE_BASIC_PRINTING
 
   // Initiate print preview of the current document by first notifying the
   // renderer. Since this happens asynchronous, the print preview dialog
@@ -45,8 +43,12 @@ class PrintViewManager : public PrintViewManagerBase,
   // a particular WebNode.
   void PrintPreviewForWebNode(content::RenderFrameHost* rfh);
 
-  // Notify PrintViewManager that print preview has finished. Unfreeze the
-  // renderer in the case of scripted print preview.
+  // Notify PrintViewManager that print preview is about to finish. Unblock the
+  // renderer in the case of scripted print preview if needed.
+  void PrintPreviewAlmostDone();
+
+  // Notify PrintViewManager that print preview has finished. Unblock the
+  // renderer in the case of scripted print preview if needed.
   void PrintPreviewDone();
 
   // content::WebContentsObserver implementation.
@@ -57,8 +59,10 @@ class PrintViewManager : public PrintViewManagerBase,
 
   content::RenderFrameHost* print_preview_rfh() { return print_preview_rfh_; }
 
- private:
+ protected:
   explicit PrintViewManager(content::WebContents* web_contents);
+
+ private:
   friend class content::WebContentsUserData<PrintViewManager>;
 
   enum PrintPreviewState {
@@ -66,6 +70,8 @@ class PrintViewManager : public PrintViewManagerBase,
     USER_INITIATED_PREVIEW,
     SCRIPTED_PREVIEW,
   };
+
+  struct FrameDispatchHelper;
 
   // IPC Message handlers.
   void OnDidShowPrintDialog(content::RenderFrameHost* rfh);
@@ -75,17 +81,28 @@ class PrintViewManager : public PrintViewManagerBase,
                                   bool source_is_modifiable);
   void OnScriptedPrintPreviewReply(IPC::Message* reply_msg);
 
-  base::Closure on_print_dialog_shown_callback_;
+  void MaybeUnblockScriptedPreviewRPH();
+
+  base::OnceClosure on_print_dialog_shown_callback_;
 
   // Current state of print preview for this view.
-  PrintPreviewState print_preview_state_;
+  PrintPreviewState print_preview_state_ = NOT_PREVIEWING;
 
   // The current RFH that is print previewing. It should be a nullptr when
   // |print_preview_state_| is NOT_PREVIEWING.
-  content::RenderFrameHost* print_preview_rfh_;
+  content::RenderFrameHost* print_preview_rfh_ = nullptr;
 
   // Keeps track of the pending callback during scripted print preview.
-  content::RenderProcessHost* scripted_print_preview_rph_;
+  content::RenderProcessHost* scripted_print_preview_rph_ = nullptr;
+
+  // True if |scripted_print_preview_rph_| needs to be unblocked.
+  bool scripted_print_preview_rph_set_blocked_ = false;
+
+  // Indicates whether we're switching from print preview to system dialog. This
+  // flag is true between PrintForSystemDialogNow() and PrintPreviewDone().
+  bool is_switching_to_system_dialog_ = false;
+
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
 
   DISALLOW_COPY_AND_ASSIGN(PrintViewManager);
 };

@@ -63,7 +63,7 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT QTextureImagePrivate : public QAbstractTextureImagePrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QTextureImagePrivate : public QAbstractTextureImagePrivate
 {
 public:
     QTextureImagePrivate()
@@ -85,8 +85,8 @@ class Q_AUTOTEST_EXPORT QImageTextureDataFunctor : public QTextureImageDataGener
 public:
     explicit QImageTextureDataFunctor(const QUrl &url, bool mirrored);
     // Will be executed from within a QAspectJob
-    QTextureImageDataPtr operator ()() Q_DECL_FINAL;
-    bool operator ==(const QTextureImageDataGenerator &other) const Q_DECL_FINAL;
+    QTextureImageDataPtr operator ()() final;
+    bool operator ==(const QTextureImageDataGenerator &other) const final;
     inline QTextureImage::Status status() const { return m_status; }
     QT3D_FUNCTOR(QImageTextureDataFunctor)
 

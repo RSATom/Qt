@@ -11,32 +11,18 @@
 #include <mbgl/util/url.hpp>
 #include <mbgl/util/thread.hpp>
 #include <mbgl/util/work_request.hpp>
+#include <mbgl/util/stopwatch.hpp>
 
 #include <cassert>
-
-namespace {
-
-const std::string assetProtocol = "asset://";
-
-bool isAssetURL(const std::string& url) {
-    return std::equal(assetProtocol.begin(), assetProtocol.end(), url.begin());
-}
-
-} // namespace
 
 namespace mbgl {
 
 class DefaultFileSource::Impl {
 public:
-    Impl(ActorRef<Impl> self, std::shared_ptr<FileSource> assetFileSource_, const std::string& cachePath, uint64_t maximumCacheSize)
+    Impl(std::shared_ptr<FileSource> assetFileSource_, std::string cachePath, uint64_t maximumCacheSize)
             : assetFileSource(assetFileSource_)
-            , localFileSource(std::make_unique<LocalFileSource>()) {
-        // Initialize the Database asynchronously so as to not block Actor creation.
-        self.invoke(&Impl::initializeOfflineDatabase, cachePath, maximumCacheSize);
-    }
-
-    void initializeOfflineDatabase(std::string cachePath, uint64_t maximumCacheSize) {
-        offlineDatabase = std::make_unique<OfflineDatabase>(cachePath, maximumCacheSize);
+            , localFileSource(std::make_unique<LocalFileSource>())
+            , offlineDatabase(std::make_unique<OfflineDatabase>(cachePath, maximumCacheSize)) {
     }
 
     void setAPIBaseURL(const std::string& url) {
@@ -118,7 +104,7 @@ public:
             ref.invoke(&FileSourceRequest::setResponse, res);
         };
 
-        if (isAssetURL(resource.url)) {
+        if (AssetFileSource::acceptsURL(resource.url)) {
             //Asset request
             tasks[req] = assetFileSource->request(resource, callback);
         } else if (LocalFileSource::acceptsURL(resource.url)) {
@@ -161,8 +147,17 @@ public:
 
             // Get from the online file source
             if (resource.hasLoadingMethod(Resource::LoadingMethod::Network)) {
+                MBGL_TIMING_START(watch);
                 tasks[req] = onlineFileSource.request(resource, [=] (Response onlineResponse) mutable {
                     this->offlineDatabase->put(resource, onlineResponse);
+                    if (resource.kind == Resource::Kind::Tile) {
+                        // onlineResponse.data will be null if data not modified
+                        MBGL_TIMING_FINISH(watch,
+                                           " Action: " << "Requesting," <<
+                                           " URL: " << resource.url.c_str() <<
+                                           " Size: " << (onlineResponse.data != nullptr ? onlineResponse.data->size() : 0) << "B," <<
+                                           " Time")
+                    }
                     callback(onlineResponse);
                 });
             }

@@ -13,10 +13,10 @@
  *   y: number
  * }}
  */
-var DragPosition;
+let DragPosition;
 
 /** @polymerBehavior */
-var DragBehavior = {
+const DragBehavior = {
   properties: {
     /** Whether or not drag is enabled (e.g. not mirrored). */
     dragEnabled: Boolean,
@@ -24,9 +24,9 @@ var DragBehavior = {
 
   /**
    * The id of the element being dragged, or empty if not dragging.
-   * @private {string}
+   * @protected {string}
    */
-  dragId_: '',
+  dragId: '',
 
   /** @private {!HTMLDivElement|undefined} */
   container_: undefined,
@@ -70,20 +70,23 @@ var DragBehavior = {
       return;
     }
 
-    if (opt_container !== undefined)
+    if (opt_container !== undefined) {
       this.container_ = opt_container;
+    }
 
     this.addListeners_();
 
-    if (opt_callback !== undefined)
+    if (opt_callback !== undefined) {
       this.callback_ = opt_callback;
+    }
   },
 
   /** @private */
   addListeners_: function() {
-    var container = this.container_;
-    if (!container || this.mouseDownListener_)
+    const container = this.container_;
+    if (!container || this.mouseDownListener_) {
       return;
+    }
     this.mouseDownListener_ = this.onMouseDown_.bind(this);
     container.addEventListener('mousedown', this.mouseDownListener_);
 
@@ -103,9 +106,10 @@ var DragBehavior = {
 
   /** @private */
   removeListeners_: function() {
-    var container = this.container_;
-    if (!container || !this.mouseDownListener_)
+    const container = this.container_;
+    if (!container || !this.mouseDownListener_) {
       return;
+    }
     container.removeEventListener('mousedown', this.mouseDownListener_);
     this.mouseDownListener_ = null;
     container.removeEventListener('mousemove', this.mouseMoveListener_);
@@ -115,8 +119,9 @@ var DragBehavior = {
     container.removeEventListener('touchmove', this.touchMoveListener_);
     this.touchMoveListener_ = null;
     container.removeEventListener('touchend', this.endDragListener_);
-    if (this.endDragListener_)
+    if (this.endDragListener_) {
       window.removeEventListener('mouseup', this.endDragListener_);
+    }
     this.endDragListener_ = null;
   },
 
@@ -126,10 +131,11 @@ var DragBehavior = {
    * @private
    */
   onMouseDown_: function(e) {
-    if (e.button != 0 || !e.target.getAttribute('draggable'))
+    if (e.button != 0 || !e.target.getAttribute('draggable')) {
       return true;
+    }
     e.preventDefault();
-    var target = assertInstanceof(e.target, HTMLElement);
+    const target = assertInstanceof(e.target, HTMLElement);
     return this.startDrag_(target, {x: e.pageX, y: e.pageY});
   },
 
@@ -149,13 +155,14 @@ var DragBehavior = {
    * @private
    */
   onTouchStart_: function(e) {
-    if (e.touches.length != 1)
+    if (e.touches.length != 1) {
       return false;
+    }
 
     e.preventDefault();
-    var touch = e.touches[0];
+    const touch = e.touches[0];
     this.lastTouchLocation_ = {x: touch.pageX, y: touch.pageY};
-    var target = assertInstanceof(e.target, HTMLElement);
+    const target = assertInstanceof(e.target, HTMLElement);
     return this.startDrag_(target, this.lastTouchLocation_);
   },
 
@@ -165,18 +172,21 @@ var DragBehavior = {
    * @private
    */
   onTouchMove_: function(e) {
-    if (e.touches.length != 1)
+    if (e.touches.length != 1) {
       return true;
+    }
 
-    var touchLocation = {x: e.touches[0].pageX, y: e.touches[0].pageY};
+    const touchLocation = {x: e.touches[0].pageX, y: e.touches[0].pageY};
     // Touch move events can happen even if the touch location doesn't change
     // and on small unintentional finger movements. Ignore these small changes.
     if (this.lastTouchLocation_) {
-      /** @const */ var IGNORABLE_TOUCH_MOVE_PX = 1;
-      var xDiff = Math.abs(touchLocation.x - this.lastTouchLocation_.x);
-      var yDiff = Math.abs(touchLocation.y - this.lastTouchLocation_.y);
-      if (xDiff <= IGNORABLE_TOUCH_MOVE_PX && yDiff <= IGNORABLE_TOUCH_MOVE_PX)
+      const IGNORABLE_TOUCH_MOVE_PX = 1;
+      const xDiff = Math.abs(touchLocation.x - this.lastTouchLocation_.x);
+      const yDiff = Math.abs(touchLocation.y - this.lastTouchLocation_.y);
+      if (xDiff <= IGNORABLE_TOUCH_MOVE_PX &&
+          yDiff <= IGNORABLE_TOUCH_MOVE_PX) {
         return true;
+      }
     }
     this.lastTouchLocation_ = touchLocation;
     e.preventDefault();
@@ -191,7 +201,7 @@ var DragBehavior = {
    */
   startDrag_: function(target, eventLocation) {
     assert(this.dragEnabled);
-    this.dragId_ = target.id;
+    this.dragId = target.id;
     this.dragStartLocation_ = eventLocation;
     return false;
   },
@@ -203,9 +213,10 @@ var DragBehavior = {
    */
   endDrag_: function(e) {
     assert(this.dragEnabled);
-    if (this.dragId_ && this.callback_)
-      this.callback_(this.dragId_, null);
-    this.dragId_ = '';
+    if (this.dragId && this.callback_) {
+      this.callback_(this.dragId, null);
+    }
+    this.dragId = '';
     this.lastTouchLocation_ = null;
     return false;
   },
@@ -218,14 +229,15 @@ var DragBehavior = {
    */
   processDrag_: function(e, eventLocation) {
     assert(this.dragEnabled);
-    if (!this.dragId_)
+    if (!this.dragId) {
       return true;
+    }
     if (this.callback_) {
-      var delta = {
+      const delta = {
         x: eventLocation.x - this.dragStartLocation_.x,
         y: eventLocation.y - this.dragStartLocation_.y,
       };
-      this.callback_(this.dragId_, delta);
+      this.callback_(this.dragId, delta);
     }
     return false;
   },

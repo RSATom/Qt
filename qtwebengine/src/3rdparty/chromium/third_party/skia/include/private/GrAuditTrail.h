@@ -23,13 +23,13 @@ class GrOp;
  * to json.
  *
  * Capturing this information is expensive and consumes a lot of memory, therefore it is important
- * to enable auditing only when required and disable it promptly. The AutoEnable class helps to 
+ * to enable auditing only when required and disable it promptly. The AutoEnable class helps to
  * ensure that the audit trail is disabled in a timely fashion. Once the information has been dealt
  * with, be sure to call reset(), or the log will simply keep growing.
  */
 class GrAuditTrail {
 public:
-    GrAuditTrail() 
+    GrAuditTrail()
     : fClientID(kGrAuditTrailInvalidID)
     , fEnabled(false) {}
 
@@ -164,22 +164,18 @@ private:
 };
 
 #define GR_AUDIT_TRAIL_INVOKE_GUARD(audit_trail, invoke, ...) \
-    if (audit_trail->isEnabled()) {                           \
-        audit_trail->invoke(__VA_ARGS__);                     \
-    }
+        if (audit_trail->isEnabled()) audit_trail->invoke(__VA_ARGS__)
 
 #define GR_AUDIT_TRAIL_AUTO_FRAME(audit_trail, framename) \
-    GR_AUDIT_TRAIL_INVOKE_GUARD((audit_trail), pushFrame, framename);
+    GR_AUDIT_TRAIL_INVOKE_GUARD((audit_trail), pushFrame, framename)
 
 #define GR_AUDIT_TRAIL_RESET(audit_trail) \
     //GR_AUDIT_TRAIL_INVOKE_GUARD(audit_trail, fullReset);
 
 #define GR_AUDIT_TRAIL_ADD_OP(audit_trail, op, proxy_id) \
-    GR_AUDIT_TRAIL_INVOKE_GUARD(audit_trail, addOp, op, proxy_id);
+    GR_AUDIT_TRAIL_INVOKE_GUARD(audit_trail, addOp, op, proxy_id)
 
 #define GR_AUDIT_TRAIL_OPS_RESULT_COMBINED(audit_trail, combineWith, op) \
-    GR_AUDIT_TRAIL_INVOKE_GUARD(audit_trail, opsCombined, combineWith, op);
-
-#define GR_AUDIT_TRAIL_OP_RESULT_NEW(audit_trail, op) // Doesn't do anything now, one day...
+    GR_AUDIT_TRAIL_INVOKE_GUARD(audit_trail, opsCombined, combineWith, op)
 
 #endif

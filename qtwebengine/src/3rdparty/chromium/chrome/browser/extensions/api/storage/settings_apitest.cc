@@ -35,6 +35,7 @@
 #include "extensions/browser/api/storage/settings_namespace.h"
 #include "extensions/browser/api/storage/storage_frontend.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/value_builder.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
@@ -64,7 +65,7 @@ const char kManagedStorageExtensionId[] = "kjmkgkdkpedkejedfhmfcenooemhbpbo";
 class MockSchemaRegistryObserver : public policy::SchemaRegistry::Observer {
  public:
   MockSchemaRegistryObserver() {}
-  virtual ~MockSchemaRegistryObserver() {}
+  ~MockSchemaRegistryObserver() override {}
 
   MOCK_METHOD1(OnSchemaRegistryUpdated, void(bool));
 };
@@ -482,7 +483,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionSettingsApiTest, ManagedStorage) {
           .Set("string-policy", "value")
           .Set("int-policy", -123)
           .Set("double-policy", 456e7)
-          .SetBoolean("boolean-policy", true)
+          .Set("boolean-policy", true)
           .Set("list-policy", extensions::ListBuilder()
                                   .Append("one")
                                   .Append("two")
@@ -569,5 +570,40 @@ IN_PROC_BROWSER_TEST_F(ExtensionSettingsApiTest, ManagedStorageDisabled) {
   ASSERT_TRUE(RunExtensionTest("settings/managed_storage_disabled"))
       << message_;
 }
+
+class StorageAreaApiTest : public ExtensionSettingsApiTest,
+                           public ::testing::WithParamInterface<bool> {
+ public:
+  StorageAreaApiTest() = default;
+  ~StorageAreaApiTest() override = default;
+
+  void SetUp() override {
+    if (GetParam()) {
+      scoped_feature_list_.InitAndEnableFeature(
+          extensions_features::kNativeCrxBindings);
+    } else {
+      scoped_feature_list_.InitAndDisableFeature(
+          extensions_features::kNativeCrxBindings);
+    }
+    ExtensionSettingsApiTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(StorageAreaApiTest);
+};
+
+IN_PROC_BROWSER_TEST_P(StorageAreaApiTest, StorageAreaOnChanged) {
+  ASSERT_TRUE(RunExtensionTest("settings/storage_area")) << message_;
+}
+
+INSTANTIATE_TEST_CASE_P(StorageAreaNativeBindings,
+                        StorageAreaApiTest,
+                        ::testing::Values(true));
+
+INSTANTIATE_TEST_CASE_P(StorageAreaJSBindings,
+                        StorageAreaApiTest,
+                        ::testing::Values(false));
 
 }  // namespace extensions

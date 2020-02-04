@@ -11,7 +11,7 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/system_monitor/system_monitor.h"
+#include "base/system/system_monitor.h"
 #include "device/udev_linux/udev.h"
 #include "device/udev_linux/udev_linux.h"
 
@@ -44,13 +44,13 @@ DeviceMonitorLinux::DeviceMonitorLinux(
       base::Bind(&DeviceMonitorLinux::Initialize, base::Unretained(this)));
 }
 
-DeviceMonitorLinux::~DeviceMonitorLinux() {}
+DeviceMonitorLinux::~DeviceMonitorLinux() = default;
 
 void DeviceMonitorLinux::Initialize() {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
 
   // We want to be notified of IO message loop destruction to delete |udev_|.
-  base::MessageLoop::current()->AddDestructionObserver(this);
+  base::MessageLoopCurrent::Get()->AddDestructionObserver(this);
 
   std::vector<device::UdevLinux::UdevMonitorFilter> filters;
   for (const SubsystemMap& entry : kSubsystemMap) {

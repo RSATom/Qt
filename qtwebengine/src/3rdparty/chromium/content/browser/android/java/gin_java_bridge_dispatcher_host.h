@@ -15,6 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "content/browser/android/java/gin_java_bound_object.h"
 #include "content/browser/android/java/gin_java_method_invocation_helper.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -25,7 +26,7 @@ class ListValue;
 
 namespace content {
 
-// This class handles injecting Java objects into a single ContentViewCore /
+// This class handles injecting Java objects into a single WebContents /
 // WebView. The Java object itself lives in the browser process on a background
 // thread, while multiple JavaScript wrapper objects (one per frame) are created
 // on the renderer side.  The injected Java objects are identified by ObjectID,
@@ -50,7 +51,6 @@ class GinJavaBridgeDispatcherHost
   void RenderFrameCreated(RenderFrameHost* render_frame_host) override;
   void DocumentAvailableInMainFrame() override;
   void WebContentsDestroyed() override;
-  void RenderProcessGone(base::TerminationStatus status) override;
   void RenderViewHostChanged(RenderViewHost* old_host,
                              RenderViewHost* new_host) override;
 
@@ -95,9 +95,9 @@ class GinJavaBridgeDispatcherHost
   bool FindObjectId(const base::android::JavaRef<jobject>& object,
                     GinJavaBoundObject::ObjectID* object_id);
   void RemoveFromRetainedObjectSetLocked(const JavaObjectWeakGlobalRef& ref);
-  JavaObjectWeakGlobalRef RemoveHolderAndAdvanceLocked(
-      int32_t holder,
-      ObjectMap::iterator* iter_ptr);
+  JavaObjectWeakGlobalRef RemoveHolderLocked(int32_t holder,
+                                             ObjectMap::iterator* iter_ptr)
+      EXCLUSIVE_LOCKS_REQUIRED(objects_lock_);
 
   // The following objects are used only on the UI thread.
 
@@ -112,11 +112,11 @@ class GinJavaBridgeDispatcherHost
   // this set so that it doesn't get garbage collected while it's still
   // potentially in use. Although the set is managed native side, it's owned
   // and defined in Java so that pushing refs into it does not create new GC
-  // roots that would prevent ContentViewCore from being garbage collected.
+  // roots that would prevent WebContents from being garbage collected.
   JavaObjectWeakGlobalRef retained_object_set_;
   // Note that retained_object_set_ does not need to be consistent
   // with objects_.
-  ObjectMap objects_;
+  ObjectMap objects_ GUARDED_BY(objects_lock_);
   base::Lock objects_lock_;
 
   // The following objects are only used on the background thread.

@@ -17,7 +17,7 @@
 #include "third_party/skia/include/core/SkCanvas.h"
 
 namespace cc {
-
+class ImageProvider;
 class PaintFlags;
 
 // A PaintCanvas derived class that passes PaintCanvas APIs through to
@@ -25,13 +25,28 @@ class PaintFlags;
 // and then playing back to an SkCanvas.
 class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
  public:
-  explicit SkiaPaintCanvas(SkCanvas* canvas);
-  explicit SkiaPaintCanvas(const SkBitmap& bitmap);
+  struct CC_PAINT_EXPORT ContextFlushes {
+    ContextFlushes();
+
+    bool enable;
+    int max_draws_before_flush;
+  };
+
+  explicit SkiaPaintCanvas(SkCanvas* canvas,
+                           ImageProvider* image_provider = nullptr,
+                           ContextFlushes context_flushes = ContextFlushes());
+  explicit SkiaPaintCanvas(const SkBitmap& bitmap,
+                           ImageProvider* image_provider = nullptr);
   explicit SkiaPaintCanvas(const SkBitmap& bitmap, const SkSurfaceProps& props);
   // If |target_color_space| is non-nullptr, then this will wrap |canvas| in a
   // SkColorSpaceXformCanvas.
-  SkiaPaintCanvas(SkCanvas* canvas, sk_sp<SkColorSpace> target_color_space);
+  SkiaPaintCanvas(SkCanvas* canvas,
+                  sk_sp<SkColorSpace> target_color_space,
+                  ImageProvider* image_provider = nullptr,
+                  ContextFlushes context_flushes = ContextFlushes());
   ~SkiaPaintCanvas() override;
+
+  void reset_image_provider() { image_provider_ = nullptr; }
 
   SkMetaData& getMetaData() override;
   SkImageInfo imageInfo() const override;
@@ -40,9 +55,7 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
 
   int save() override;
   int saveLayer(const SkRect* bounds, const PaintFlags* flags) override;
-  int saveLayerAlpha(const SkRect* bounds,
-                     uint8_t alpha,
-                     bool preserve_lcd_text_requests) override;
+  int saveLayerAlpha(const SkRect* bounds, uint8_t alpha) override;
 
   void restore() override;
   int getSaveCount() const override;
@@ -58,8 +71,6 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
                  SkClipOp op,
                  bool do_anti_alias) override;
   void clipPath(const SkPath& path, SkClipOp op, bool do_anti_alias) override;
-  bool quickReject(const SkRect& rect) const override;
-  bool quickReject(const SkPath& path) const override;
   SkRect getLocalClipBounds() const override;
   bool getLocalClipBounds(SkRect* bounds) const override;
   SkIRect getDeviceClipBounds() const override;
@@ -79,15 +90,6 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   void drawDRRect(const SkRRect& outer,
                   const SkRRect& inner,
                   const PaintFlags& flags) override;
-  void drawCircle(SkScalar cx,
-                  SkScalar cy,
-                  SkScalar radius,
-                  const PaintFlags& flags) override;
-  void drawArc(const SkRect& oval,
-               SkScalar start_angle,
-               SkScalar sweep_angle,
-               bool use_center,
-               const PaintFlags& flags) override;
   void drawRoundRect(const SkRect& rect,
                      SkScalar rx,
                      SkScalar ry,
@@ -102,20 +104,9 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
                      const SkRect& dst,
                      const PaintFlags* flags,
                      SrcRectConstraint constraint) override;
-  void drawBitmap(const SkBitmap& bitmap,
-                  SkScalar left,
-                  SkScalar top,
-                  const PaintFlags* flags) override;
-
-  void drawText(const void* text,
-                size_t byte_length,
-                SkScalar x,
-                SkScalar y,
-                const PaintFlags& flags) override;
-  void drawPosText(const void* text,
-                   size_t byte_length,
-                   const SkPoint pos[],
-                   const PaintFlags& flags) override;
+  void drawSkottie(scoped_refptr<SkottieWrapper> skottie,
+                   const SkRect& dst,
+                   float t) override;
   void drawTextBlob(sk_sp<SkTextBlob> blob,
                     SkScalar x,
                     SkScalar y,
@@ -135,17 +126,28 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   using PaintCanvas::clipRect;
   using PaintCanvas::clipRRect;
   using PaintCanvas::clipPath;
-  using PaintCanvas::drawBitmap;
   using PaintCanvas::drawColor;
   using PaintCanvas::drawImage;
   using PaintCanvas::drawPicture;
 
+  // Same as the above drawPicture() except using the given custom data
+  // raster callback.
+  void drawPicture(
+      sk_sp<const PaintRecord> record,
+      PlaybackParams::CustomDataRasterCallback custom_raster_callback);
+
  private:
   void WrapCanvasInColorSpaceXformCanvas(
       sk_sp<SkColorSpace> target_color_space);
+  void FlushAfterDrawIfNeeded();
+
   SkCanvas* canvas_;
   std::unique_ptr<SkCanvas> owned_;
   std::unique_ptr<SkCanvas> color_space_xform_canvas_;
+  ImageProvider* image_provider_ = nullptr;
+
+  const ContextFlushes context_flushes_;
+  int num_of_ops_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(SkiaPaintCanvas);
 };

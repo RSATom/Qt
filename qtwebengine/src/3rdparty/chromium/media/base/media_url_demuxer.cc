@@ -12,20 +12,15 @@ namespace media {
 MediaUrlDemuxer::MediaUrlDemuxer(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
     const GURL& media_url,
-    const GURL& first_party_for_cookies)
-    : params_{media_url, first_party_for_cookies}, task_runner_(task_runner) {}
+    const GURL& site_for_cookies)
+    : params_{media_url, site_for_cookies}, task_runner_(task_runner) {}
 
-MediaUrlDemuxer::~MediaUrlDemuxer() {}
+MediaUrlDemuxer::~MediaUrlDemuxer() = default;
 
 // Should never be called since MediaResource::Type is URL.
 std::vector<DemuxerStream*> MediaUrlDemuxer::GetAllStreams() {
   NOTREACHED();
   return std::vector<DemuxerStream*>();
-}
-
-// Should never be called since MediaResource::Type is URL.
-void MediaUrlDemuxer::SetStreamStatusChangeCB(const StreamStatusChangeCB& cb) {
-  NOTREACHED();
 }
 
 MediaUrlParams MediaUrlDemuxer::GetMediaUrlParams() const {
@@ -41,10 +36,9 @@ std::string MediaUrlDemuxer::GetDisplayName() const {
 }
 
 void MediaUrlDemuxer::Initialize(DemuxerHost* host,
-                                 const PipelineStatusCB& status_cb,
-                                 bool enable_text_tracks) {
+                                 const PipelineStatusCB& status_cb) {
   DVLOG(1) << __func__;
-  task_runner_->PostTask(FROM_HERE, base::Bind(status_cb, PIPELINE_OK));
+  task_runner_->PostTask(FROM_HERE, base::BindOnce(status_cb, PIPELINE_OK));
 }
 
 void MediaUrlDemuxer::StartWaitingForSeek(base::TimeDelta seek_time) {}
@@ -53,7 +47,7 @@ void MediaUrlDemuxer::CancelPendingSeek(base::TimeDelta seek_time) {}
 
 void MediaUrlDemuxer::Seek(base::TimeDelta time,
                            const PipelineStatusCB& status_cb) {
-  task_runner_->PostTask(FROM_HERE, base::Bind(status_cb, PIPELINE_OK));
+  task_runner_->PostTask(FROM_HERE, base::BindOnce(status_cb, PIPELINE_OK));
 }
 
 void MediaUrlDemuxer::Stop() {}
@@ -75,9 +69,22 @@ int64_t MediaUrlDemuxer::GetMemoryUsage() const {
 
 void MediaUrlDemuxer::OnEnabledAudioTracksChanged(
     const std::vector<MediaTrack::Id>& track_ids,
-    base::TimeDelta curr_time) {}
+    base::TimeDelta curr_time,
+    TrackChangeCB change_completed_cb) {
+  // TODO(tmathmeyer): potentially support track changes for this renderer.
+  std::vector<DemuxerStream*> streams;
+  std::move(change_completed_cb).Run(DemuxerStream::AUDIO, streams);
+  DLOG(WARNING) << "Track changes are not supported.";
+}
+
 void MediaUrlDemuxer::OnSelectedVideoTrackChanged(
-    base::Optional<MediaTrack::Id> selected_track_id,
-    base::TimeDelta curr_time) {}
+    const std::vector<MediaTrack::Id>& track_ids,
+    base::TimeDelta curr_time,
+    TrackChangeCB change_completed_cb) {
+  // TODO(tmathmeyer): potentially support track changes for this renderer.
+  std::vector<DemuxerStream*> streams;
+  std::move(change_completed_cb).Run(DemuxerStream::VIDEO, streams);
+  DLOG(WARNING) << "Track changes are not supported.";
+}
 
 }  // namespace media

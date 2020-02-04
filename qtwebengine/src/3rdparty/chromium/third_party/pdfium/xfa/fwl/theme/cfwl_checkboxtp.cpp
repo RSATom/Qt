@@ -13,19 +13,21 @@
 #include "xfa/fwl/cfwl_themebackground.h"
 #include "xfa/fwl/cfwl_themetext.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fxgraphics/cxfa_color.h"
-#include "xfa/fxgraphics/cxfa_path.h"
+#include "xfa/fxgraphics/cxfa_gecolor.h"
+#include "xfa/fxgraphics/cxfa_gepath.h"
 
 namespace {
 
 const int kSignPath = 100;
 
-}  // namespace
+CFX_PointF ScaleBezierPoint(const CFX_PointF& point) {
+  CFX_PointF scaled_point(point);
+  scaled_point.x *= FX_BEZIER;
+  scaled_point.y *= FX_BEZIER;
+  return scaled_point;
+}
 
-#define CHECKBOX_COLOR_BOXLT1 (ArgbEncode(255, 172, 168, 153))
-#define CHECKBOX_COLOR_BOXLT2 (ArgbEncode(255, 113, 111, 100))
-#define CHECKBOX_COLOR_BOXRB1 (ArgbEncode(255, 241, 239, 226))
-#define CHECKBOX_COLOR_BOXRB2 (ArgbEncode(255, 255, 255, 255))
+}  // namespace
 
 CFWL_CheckBoxTP::CFWL_CheckBoxTP() : m_pThemeData(new CKBThemeData) {
   SetThemeData();
@@ -46,111 +48,104 @@ void CFWL_CheckBoxTP::Finalize() {
   CFWL_WidgetTP::Finalize();
 }
 
-void CFWL_CheckBoxTP::DrawText(CFWL_ThemeText* pParams) {
+void CFWL_CheckBoxTP::DrawText(const CFWL_ThemeText& pParams) {
   if (!m_pTextOut)
     return;
 
-  m_pTextOut->SetTextColor(pParams->m_dwStates & CFWL_PartState_Disabled
+  m_pTextOut->SetTextColor(pParams.m_dwStates & CFWL_PartState_Disabled
                                ? FWLTHEME_CAPACITY_TextDisColor
                                : FWLTHEME_CAPACITY_TextColor);
   CFWL_WidgetTP::DrawText(pParams);
 }
 
 void CFWL_CheckBoxTP::DrawSignCheck(CXFA_Graphics* pGraphics,
-                                    const CFX_RectF* pRtSign,
+                                    const CFX_RectF& rtSign,
                                     FX_ARGB argbFill,
-                                    CFX_Matrix* pMatrix) {
+                                    const CFX_Matrix& matrix) {
   if (!m_pCheckPath)
-    InitCheckPath(pRtSign->width);
+    InitCheckPath(rtSign.width);
 
   CFX_Matrix mt;
-  mt.SetIdentity();
-  mt.Translate(pRtSign->left, pRtSign->top);
-  mt.Concat(*pMatrix);
-  CXFA_Color crFill(argbFill);
+  mt.Translate(rtSign.left, rtSign.top);
+  mt.Concat(matrix);
   pGraphics->SaveGraphState();
-  pGraphics->SetFillColor(&crFill);
+  pGraphics->SetFillColor(CXFA_GEColor(argbFill));
   pGraphics->FillPath(m_pCheckPath.get(), FXFILL_WINDING, &mt);
   pGraphics->RestoreGraphState();
 }
 
 void CFWL_CheckBoxTP::DrawSignCircle(CXFA_Graphics* pGraphics,
-                                     const CFX_RectF* pRtSign,
+                                     const CFX_RectF& rtSign,
                                      FX_ARGB argbFill,
-                                     CFX_Matrix* pMatrix) {
-  CXFA_Path path;
-  path.AddEllipse(*pRtSign);
-  CXFA_Color crFill(argbFill);
+                                     const CFX_Matrix& matrix) {
+  CXFA_GEPath path;
+  path.AddEllipse(rtSign);
   pGraphics->SaveGraphState();
-  pGraphics->SetFillColor(&crFill);
-  pGraphics->FillPath(&path, FXFILL_WINDING, pMatrix);
+  pGraphics->SetFillColor(CXFA_GEColor(argbFill));
+  pGraphics->FillPath(&path, FXFILL_WINDING, &matrix);
   pGraphics->RestoreGraphState();
 }
 
 void CFWL_CheckBoxTP::DrawSignCross(CXFA_Graphics* pGraphics,
-                                    const CFX_RectF* pRtSign,
+                                    const CFX_RectF& rtSign,
                                     FX_ARGB argbFill,
-                                    CFX_Matrix* pMatrix) {
-  CXFA_Path path;
-  float fRight = pRtSign->right();
-  float fBottom = pRtSign->bottom();
-  path.AddLine(pRtSign->TopLeft(), CFX_PointF(fRight, fBottom));
-  path.AddLine(CFX_PointF(pRtSign->left, fBottom),
-               CFX_PointF(fRight, pRtSign->top));
+                                    const CFX_Matrix& matrix) {
+  CXFA_GEPath path;
+  float fRight = rtSign.right();
+  float fBottom = rtSign.bottom();
+  path.AddLine(rtSign.TopLeft(), CFX_PointF(fRight, fBottom));
+  path.AddLine(CFX_PointF(rtSign.left, fBottom),
+               CFX_PointF(fRight, rtSign.top));
 
-  CXFA_Color crFill(argbFill);
   pGraphics->SaveGraphState();
-  pGraphics->SetStrokeColor(&crFill);
+  pGraphics->SetStrokeColor(CXFA_GEColor(argbFill));
   pGraphics->SetLineWidth(1.0f);
-  pGraphics->StrokePath(&path, pMatrix);
+  pGraphics->StrokePath(&path, &matrix);
   pGraphics->RestoreGraphState();
 }
 
 void CFWL_CheckBoxTP::DrawSignDiamond(CXFA_Graphics* pGraphics,
-                                      const CFX_RectF* pRtSign,
+                                      const CFX_RectF& rtSign,
                                       FX_ARGB argbFill,
-                                      CFX_Matrix* pMatrix) {
-  CXFA_Path path;
-  float fWidth = pRtSign->width;
-  float fHeight = pRtSign->height;
-  float fBottom = pRtSign->bottom();
-  path.MoveTo(CFX_PointF(pRtSign->left + fWidth / 2, pRtSign->top));
-  path.LineTo(CFX_PointF(pRtSign->left, pRtSign->top + fHeight / 2));
-  path.LineTo(CFX_PointF(pRtSign->left + fWidth / 2, fBottom));
-  path.LineTo(CFX_PointF(pRtSign->right(), pRtSign->top + fHeight / 2));
-  path.LineTo(CFX_PointF(pRtSign->left + fWidth / 2, pRtSign->top));
+                                      const CFX_Matrix& matrix) {
+  CXFA_GEPath path;
+  float fWidth = rtSign.width;
+  float fHeight = rtSign.height;
+  float fBottom = rtSign.bottom();
+  path.MoveTo(CFX_PointF(rtSign.left + fWidth / 2, rtSign.top));
+  path.LineTo(CFX_PointF(rtSign.left, rtSign.top + fHeight / 2));
+  path.LineTo(CFX_PointF(rtSign.left + fWidth / 2, fBottom));
+  path.LineTo(CFX_PointF(rtSign.right(), rtSign.top + fHeight / 2));
+  path.LineTo(CFX_PointF(rtSign.left + fWidth / 2, rtSign.top));
 
-  CXFA_Color crFill(argbFill);
   pGraphics->SaveGraphState();
-  pGraphics->SetFillColor(&crFill);
-  pGraphics->FillPath(&path, FXFILL_WINDING, pMatrix);
+  pGraphics->SetFillColor(CXFA_GEColor(argbFill));
+  pGraphics->FillPath(&path, FXFILL_WINDING, &matrix);
   pGraphics->RestoreGraphState();
 }
 
 void CFWL_CheckBoxTP::DrawSignSquare(CXFA_Graphics* pGraphics,
-                                     const CFX_RectF* pRtSign,
+                                     const CFX_RectF& rtSign,
                                      FX_ARGB argbFill,
-                                     CFX_Matrix* pMatrix) {
-  CXFA_Path path;
-  path.AddRectangle(pRtSign->left, pRtSign->top, pRtSign->width,
-                    pRtSign->height);
-  CXFA_Color crFill(argbFill);
+                                     const CFX_Matrix& matrix) {
+  CXFA_GEPath path;
+  path.AddRectangle(rtSign.left, rtSign.top, rtSign.width, rtSign.height);
   pGraphics->SaveGraphState();
-  pGraphics->SetFillColor(&crFill);
-  pGraphics->FillPath(&path, FXFILL_WINDING, pMatrix);
+  pGraphics->SetFillColor(CXFA_GEColor(argbFill));
+  pGraphics->FillPath(&path, FXFILL_WINDING, &matrix);
   pGraphics->RestoreGraphState();
 }
 
 void CFWL_CheckBoxTP::DrawSignStar(CXFA_Graphics* pGraphics,
-                                   const CFX_RectF* pRtSign,
+                                   const CFX_RectF& rtSign,
                                    FX_ARGB argbFill,
-                                   CFX_Matrix* pMatrix) {
-  CXFA_Path path;
-  float fBottom = pRtSign->bottom();
+                                   const CFX_Matrix& matrix) {
+  CXFA_GEPath path;
+  float fBottom = rtSign.bottom();
   float fRadius =
-      (pRtSign->top - fBottom) / (1 + static_cast<float>(cos(FX_PI / 5.0f)));
-  CFX_PointF ptCenter((pRtSign->left + pRtSign->right()) / 2.0f,
-                      (pRtSign->top + fBottom) / 2.0f);
+      (rtSign.top - fBottom) / (1 + static_cast<float>(cos(FX_PI / 5.0f)));
+  CFX_PointF ptCenter((rtSign.left + rtSign.right()) / 2.0f,
+                      (rtSign.top + fBottom) / 2.0f);
 
   CFX_PointF points[5];
   float fAngel = FX_PI / 10.0f;
@@ -170,11 +165,9 @@ void CFWL_CheckBoxTP::DrawSignStar(CXFA_Graphics* pGraphics,
 
     path.LineTo(points[nNext]);
   }
-
-  CXFA_Color crFill(argbFill);
   pGraphics->SaveGraphState();
-  pGraphics->SetFillColor(&crFill);
-  pGraphics->FillPath(&path, FXFILL_WINDING, pMatrix);
+  pGraphics->SetFillColor(CXFA_GEColor(argbFill));
+  pGraphics->FillPath(&path, FXFILL_WINDING, &matrix);
   pGraphics->RestoreGraphState();
 }
 
@@ -218,7 +211,7 @@ void CFWL_CheckBoxTP::SetThemeData() {
 
 void CFWL_CheckBoxTP::InitCheckPath(float fCheckLen) {
   if (!m_pCheckPath) {
-    m_pCheckPath = pdfium::MakeUnique<CXFA_Path>();
+    m_pCheckPath = pdfium::MakeUnique<CXFA_GEPath>();
 
     float fWidth = kSignPath;
     float fHeight = -kSignPath;
@@ -242,24 +235,24 @@ void CFWL_CheckBoxTP::InitCheckPath(float fCheckLen) {
     CFX_PointF pt15(fWidth / 3.5f, fBottom + fHeight * 3.5f / 5.0f);
     m_pCheckPath->MoveTo(pt1);
 
-    CFX_PointF p1 = CFX_PointF(pt12.x - pt1.x, pt12.y - pt1.y) * FX_BEZIER;
-    CFX_PointF p2 = CFX_PointF(pt21.x - pt2.x, pt21.y - pt2.y) * FX_BEZIER;
+    CFX_PointF p1 = ScaleBezierPoint(pt12 - pt1);
+    CFX_PointF p2 = ScaleBezierPoint(pt21 - pt2);
     m_pCheckPath->BezierTo(pt1 + p1, pt2 + p2, pt2);
 
-    p1 = CFX_PointF(pt23.x - pt2.x, pt23.y - pt2.y) * FX_BEZIER;
-    p2 = CFX_PointF(pt32.x - pt3.x, pt32.y - pt3.y) * FX_BEZIER;
+    p1 = ScaleBezierPoint(pt23 - pt2);
+    p2 = ScaleBezierPoint(pt32 - pt3);
     m_pCheckPath->BezierTo(pt2 + p1, pt3 + p2, pt3);
 
-    p1 = CFX_PointF(pt34.x - pt3.x, pt34.y - pt3.y) * FX_BEZIER;
-    p2 = CFX_PointF(pt43.x - pt4.x, pt43.y - pt4.y) * FX_BEZIER;
+    p1 = ScaleBezierPoint(pt34 - pt3);
+    p2 = ScaleBezierPoint(pt43 - pt4);
     m_pCheckPath->BezierTo(pt3 + p1, pt4 + p2, pt4);
 
-    p1 = CFX_PointF(pt45.x - pt4.x, pt45.y - pt4.y) * FX_BEZIER;
-    p2 = CFX_PointF(pt54.x - pt5.x, pt54.y - pt5.y) * FX_BEZIER;
+    p1 = ScaleBezierPoint(pt45 - pt4);
+    p2 = ScaleBezierPoint(pt54 - pt5);
     m_pCheckPath->BezierTo(pt4 + p1, pt5 + p2, pt5);
 
-    p1 = CFX_PointF(pt51.x - pt5.x, pt51.y - pt5.y) * FX_BEZIER;
-    p2 = CFX_PointF(pt15.x - pt1.x, pt15.y - pt1.y) * FX_BEZIER;
+    p1 = ScaleBezierPoint(pt51 - pt5);
+    p2 = ScaleBezierPoint(pt15 - pt1);
     m_pCheckPath->BezierTo(pt5 + p1, pt1 + p2, pt1);
 
     float fScale = fCheckLen / kSignPath;
@@ -270,14 +263,14 @@ void CFWL_CheckBoxTP::InitCheckPath(float fCheckLen) {
   }
 }
 
-void CFWL_CheckBoxTP::DrawBackground(CFWL_ThemeBackground* pParams) {
-  if (pParams->m_iPart != CFWL_Part::CheckBox)
+void CFWL_CheckBoxTP::DrawBackground(const CFWL_ThemeBackground& pParams) {
+  if (pParams.m_iPart != CFWL_Part::CheckBox)
     return;
 
-  if ((pParams->m_dwStates & CFWL_PartState_Checked) ||
-      (pParams->m_dwStates & CFWL_PartState_Neutral)) {
-    DrawCheckSign(pParams->m_pWidget, pParams->m_pGraphics, pParams->m_rtPart,
-                  pParams->m_dwStates, &pParams->m_matrix);
+  if ((pParams.m_dwStates & CFWL_PartState_Checked) ||
+      (pParams.m_dwStates & CFWL_PartState_Neutral)) {
+    DrawCheckSign(pParams.m_pWidget, pParams.m_pGraphics.Get(),
+                  pParams.m_rtPart, pParams.m_dwStates, pParams.m_matrix);
   }
 }
 
@@ -285,7 +278,7 @@ void CFWL_CheckBoxTP::DrawCheckSign(CFWL_Widget* pWidget,
                                     CXFA_Graphics* pGraphics,
                                     const CFX_RectF& pRtBox,
                                     int32_t iState,
-                                    CFX_Matrix* pMatrix) {
+                                    const CFX_Matrix& matrix) {
   CFX_RectF rtSign(pRtBox);
   uint32_t dwColor = iState & CFWL_PartState_Neutral ? 0xFFA9A9A9 : 0xFF000000;
 
@@ -293,22 +286,22 @@ void CFWL_CheckBoxTP::DrawCheckSign(CFWL_Widget* pWidget,
   rtSign.Deflate(rtSign.width / 4, rtSign.height / 4);
   switch (dwStyle & FWL_STYLEEXT_CKB_SignShapeMask) {
     case FWL_STYLEEXT_CKB_SignShapeCheck:
-      DrawSignCheck(pGraphics, &rtSign, dwColor, pMatrix);
+      DrawSignCheck(pGraphics, rtSign, dwColor, matrix);
       break;
     case FWL_STYLEEXT_CKB_SignShapeCircle:
-      DrawSignCircle(pGraphics, &rtSign, dwColor, pMatrix);
+      DrawSignCircle(pGraphics, rtSign, dwColor, matrix);
       break;
     case FWL_STYLEEXT_CKB_SignShapeCross:
-      DrawSignCross(pGraphics, &rtSign, dwColor, pMatrix);
+      DrawSignCross(pGraphics, rtSign, dwColor, matrix);
       break;
     case FWL_STYLEEXT_CKB_SignShapeDiamond:
-      DrawSignDiamond(pGraphics, &rtSign, dwColor, pMatrix);
+      DrawSignDiamond(pGraphics, rtSign, dwColor, matrix);
       break;
     case FWL_STYLEEXT_CKB_SignShapeSquare:
-      DrawSignSquare(pGraphics, &rtSign, dwColor, pMatrix);
+      DrawSignSquare(pGraphics, rtSign, dwColor, matrix);
       break;
     case FWL_STYLEEXT_CKB_SignShapeStar:
-      DrawSignStar(pGraphics, &rtSign, dwColor, pMatrix);
+      DrawSignStar(pGraphics, rtSign, dwColor, matrix);
       break;
     default:
       break;

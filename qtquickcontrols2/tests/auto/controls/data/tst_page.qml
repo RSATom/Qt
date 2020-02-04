@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
@@ -132,6 +132,8 @@ TestCase {
         verify(control.contentItem)
         compare(control.contentWidth, 0)
         compare(control.contentHeight, 0)
+        compare(control.implicitContentWidth, 0)
+        compare(control.implicitContentHeight, 0)
     }
 
     function test_oneChild() {
@@ -140,6 +142,8 @@ TestCase {
 
         compare(control.contentWidth, 100)
         compare(control.contentHeight, 30)
+        compare(control.implicitContentWidth, 100)
+        compare(control.implicitContentHeight, 30)
         compare(control.implicitWidth, 100 + control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, 30 + control.topPadding + control.bottomPadding)
     }
@@ -150,6 +154,8 @@ TestCase {
 
         compare(control.contentWidth, 0)
         compare(control.contentHeight, 0)
+        compare(control.implicitContentWidth, 0)
+        compare(control.implicitContentHeight, 0)
         compare(control.implicitWidth, Math.max(control.leftPadding + control.rightPadding,
             control.background ? control.background.implicitWidth : 0))
         compare(control.implicitHeight, Math.max(control.topPadding + control.bottomPadding,
@@ -162,6 +168,8 @@ TestCase {
 
         compare(control.contentWidth, 100)
         compare(control.contentHeight, 30)
+        compare(control.implicitContentWidth, 100)
+        compare(control.implicitContentHeight, 30)
         compare(control.implicitWidth, 100 + control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, 30 + control.topPadding + control.bottomPadding)
     }
@@ -233,10 +241,13 @@ TestCase {
                                       + control.header.implicitHeight + control.footer.implicitHeight + 2 * control.spacing)
 
         control.header.implicitWidth = 150
-        compare(control.implicitWidth, control.header.implicitWidth + control.leftPadding + control.rightPadding)
+        compare(control.implicitWidth, control.header.implicitWidth)
 
         control.footer.implicitWidth = 160
-        compare(control.implicitWidth, control.footer.implicitWidth + control.leftPadding + control.rightPadding)
+        compare(control.implicitWidth, control.footer.implicitWidth)
+
+        control.contentItem.implicitWidth = 170
+        compare(control.implicitWidth, control.contentItem.implicitWidth + control.leftPadding + control.rightPadding)
     }
 
     function test_spacing_data() {

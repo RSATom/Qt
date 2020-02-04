@@ -10,6 +10,7 @@
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/payments/payments_util.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/common/autofill_clock.h"
 
@@ -19,12 +20,22 @@ namespace payments {
 FullCardRequest::FullCardRequest(RiskDataLoader* risk_data_loader,
                                  payments::PaymentsClient* payments_client,
                                  PersonalDataManager* personal_data_manager)
+    : FullCardRequest(risk_data_loader,
+                      payments_client,
+                      personal_data_manager,
+                      base::TimeTicks()) {}
+
+FullCardRequest::FullCardRequest(RiskDataLoader* risk_data_loader,
+                                 payments::PaymentsClient* payments_client,
+                                 PersonalDataManager* personal_data_manager,
+                                 base::TimeTicks form_parsed_timestamp)
     : risk_data_loader_(risk_data_loader),
       payments_client_(payments_client),
       personal_data_manager_(personal_data_manager),
       result_delegate_(nullptr),
       ui_delegate_(nullptr),
       should_unmask_card_(false),
+      form_parsed_timestamp_(form_parsed_timestamp),
       weak_ptr_factory_(this) {
   DCHECK(risk_data_loader_);
   DCHECK(payments_client_);
@@ -55,8 +66,12 @@ void FullCardRequest::GetFullCard(const CreditCard& card,
   should_unmask_card_ = card.record_type() == CreditCard::MASKED_SERVER_CARD ||
                         (card.record_type() == CreditCard::FULL_SERVER_CARD &&
                          card.ShouldUpdateExpiration(AutofillClock::Now()));
-  if (should_unmask_card_)
+  if (should_unmask_card_) {
     payments_client_->Prepare();
+    request_->billing_customer_number = GetBillingCustomerId(
+        personal_data_manager_, payments_client_->GetPrefService(),
+        /*should_log_validity=*/true);
+  }
 
   ui_delegate_->ShowUnmaskPrompt(request_->card, reason,
                                  weak_ptr_factory_.GetWeakPtr());
@@ -87,7 +102,7 @@ void FullCardRequest::OnUnmaskResponse(const UnmaskResponse& response) {
 
   if (!should_unmask_card_) {
     if (result_delegate_)
-      result_delegate_->OnFullCardRequestSucceeded(request_->card,
+      result_delegate_->OnFullCardRequestSucceeded(*this, request_->card,
                                                    response.cvc);
     if (ui_delegate_)
       ui_delegate_->OnUnmaskVerificationResult(AutofillClient::SUCCESS);
@@ -97,10 +112,8 @@ void FullCardRequest::OnUnmaskResponse(const UnmaskResponse& response) {
   }
 
   request_->user_response = response;
-  if (!request_->risk_data.empty()) {
-    real_pan_request_timestamp_ = AutofillClock::Now();
-    payments_client_->UnmaskCard(*request_);
-  }
+  if (!request_->risk_data.empty())
+    SendUnmaskCardRequest();
 }
 
 void FullCardRequest::OnUnmaskPromptClosed() {
@@ -112,10 +125,15 @@ void FullCardRequest::OnUnmaskPromptClosed() {
 
 void FullCardRequest::OnDidGetUnmaskRiskData(const std::string& risk_data) {
   request_->risk_data = risk_data;
-  if (!request_->user_response.cvc.empty()) {
-    real_pan_request_timestamp_ = AutofillClock::Now();
-    payments_client_->UnmaskCard(*request_);
-  }
+  if (!request_->user_response.cvc.empty())
+    SendUnmaskCardRequest();
+}
+
+void FullCardRequest::SendUnmaskCardRequest() {
+  real_pan_request_timestamp_ = AutofillClock::Now();
+  payments_client_->UnmaskCard(*request_,
+                               base::BindOnce(&FullCardRequest::OnDidGetRealPan,
+                                              weak_ptr_factory_.GetWeakPtr()));
 }
 
 void FullCardRequest::OnDidGetRealPan(AutofillClient::PaymentsRpcResult result,
@@ -152,7 +170,7 @@ void FullCardRequest::OnDidGetRealPan(AutofillClient::PaymentsRpcResult result,
 
       if (result_delegate_)
         result_delegate_->OnFullCardRequestSucceeded(
-            request_->card, request_->user_response.cvc);
+            *this, request_->card, request_->user_response.cvc);
       Reset();
       break;
     }

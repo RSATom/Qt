@@ -15,11 +15,13 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/time/time.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/overlay_transform.h"
+#include "ui/ozone/common/linux/gbm_device.h"
 #include "ui/ozone/platform/drm/common/scoped_drm_types.h"
-#include "ui/ozone/platform/drm/gpu/hardware_display_plane_manager.h"
+#include "ui/ozone/platform/drm/gpu/page_flip_request.h"
 
 typedef struct _drmEventContext drmEventContext;
 typedef struct _drmModeModeInfo drmModeModeInfo;
@@ -33,24 +35,64 @@ struct GammaRampRGBEntry;
 namespace ui {
 
 class HardwareDisplayPlaneManager;
+class DrmDevice;
+
+class DrmPropertyBlobMetadata {
+ public:
+  DrmPropertyBlobMetadata(DrmDevice* drm, uint32_t id);
+  ~DrmPropertyBlobMetadata();
+
+  uint32_t id() const { return id_; }
+
+ private:
+  DrmDevice* drm_;  // Not owned;
+  uint32_t id_;
+
+  DISALLOW_COPY_AND_ASSIGN(DrmPropertyBlobMetadata);
+};
+
+using ScopedDrmPropertyBlob = std::unique_ptr<DrmPropertyBlobMetadata>;
 
 // Wraps DRM calls into a nice interface. Used to provide different
 // implementations of the DRM calls. For the actual implementation the DRM API
 // would be called. In unit tests this interface would be stubbed.
 class DrmDevice : public base::RefCountedThreadSafe<DrmDevice> {
  public:
-  typedef base::Callback<void(unsigned int /* frame */,
-                              unsigned int /* seconds */,
-                              unsigned int /* useconds */)> PageFlipCallback;
+  using PageFlipCallback =
+      base::OnceCallback<void(unsigned int /* frame */,
+                              base::TimeTicks /* timestamp */)>;
+
+  struct Property {
+    // Unique identifier for the property. 0 denotes an invalid ID.
+    uint32_t id;
+
+    // Depending on the property, this may be an actual value describing the
+    // property or an ID of another property.
+    uint64_t value;
+  };
 
   DrmDevice(const base::FilePath& device_path,
             base::File file,
-            bool is_primary_device);
+            bool is_primary_device,
+            std::unique_ptr<GbmDevice> gbm_device);
 
   bool is_primary_device() const { return is_primary_device_; }
 
+  bool is_atomic() const { return is_atomic_; }
+
+  bool allow_addfb2_modifiers() const { return allow_addfb2_modifiers_; }
+
   // Open device.
-  virtual bool Initialize(bool use_atomic);
+  virtual bool Initialize();
+
+  // Returns all the DRM resources for this device. This includes CRTC,
+  // connectors, and encoders state.
+  virtual ScopedDrmResourcesPtr GetResources();
+
+  // Returns the properties associated with object with id |object_id| and type
+  // |object_type|. |object_type| is one of DRM_MODE_OBJECT_*.
+  virtual ScopedDrmObjectPropertyPtr GetObjectProperties(uint32_t object_id,
+                                                         uint32_t object_type);
 
   // Get the CRTC state. This is generally used to save state before using the
   // CRTC. When the user finishes using the CRTC, the user should restore the
@@ -98,18 +140,18 @@ class DrmDevice : public base::RefCountedThreadSafe<DrmDevice> {
   // immediately. Upon completion of the pageflip event, the CRTC will be
   // displaying the buffer with ID |framebuffer| and will have a DRM event
   // queued on |fd_|.
+  //
+  // On success, true is returned and |page_flip_request| will receive a
+  // callback signalling completion of the flip.
   virtual bool PageFlip(uint32_t crtc_id,
                         uint32_t framebuffer,
-                        const PageFlipCallback& callback);
+                        scoped_refptr<PageFlipRequest> page_flip_request);
 
-  // Schedule an overlay to be show during the page flip for CRTC |crtc_id|.
-  // |source| location from |framebuffer| will be shown on overlay
-  // |overlay_plane|, in the bounds specified by |location| on the screen.
-  virtual bool PageFlipOverlay(uint32_t crtc_id,
-                               uint32_t framebuffer,
-                               const gfx::Rect& location,
-                               const gfx::Rect& source,
-                               int overlay_plane);
+  // Returns the list of all planes available on this DRM device.
+  virtual ScopedDrmPlaneResPtr GetPlaneResources();
+
+  // Returns the properties associated with plane with id |plane_id|.
+  virtual ScopedDrmPlanePtr GetPlane(uint32_t plane_id);
 
   // Returns the property with name |name| associated with |connector|. Returns
   // NULL if property not found. If the returned value is valid, it must be
@@ -117,22 +159,42 @@ class DrmDevice : public base::RefCountedThreadSafe<DrmDevice> {
   virtual ScopedDrmPropertyPtr GetProperty(drmModeConnector* connector,
                                            const char* name);
 
+  virtual ScopedDrmPropertyPtr GetProperty(uint32_t id);
+
   // Sets the value of property with ID |property_id| to |value|. The property
   // is applied to the connector with ID |connector_id|.
   virtual bool SetProperty(uint32_t connector_id,
                            uint32_t property_id,
                            uint64_t value);
 
-  // Can be used to query device/driver |capability|. Sets the value of
-  // |capability to |value|. Returns true in case of a succesful query.
-  virtual bool GetCapability(uint64_t capability, uint64_t* value);
+  // Creates a property blob with data |blob| of size |size|.
+  virtual ScopedDrmPropertyBlob CreatePropertyBlob(void* blob, size_t size);
 
-  // Return a binary blob associated with |connector|. The binary blob is
+  virtual void DestroyPropertyBlob(uint32_t id);
+
+  // Returns a binary blob associated with |property_id|. May be nullptr if the
+  // property couldn't be found.
+  virtual ScopedDrmPropertyBlobPtr GetPropertyBlob(uint32_t property_id);
+
+  // Returns a binary blob associated with |connector|. The binary blob is
   // associated with the property with name |name|. Return NULL if the property
   // could not be found or if the property does not have a binary blob. If valid
   // the returned object must be freed using FreePropertyBlob().
   virtual ScopedDrmPropertyBlobPtr GetPropertyBlob(drmModeConnector* connector,
                                                    const char* name);
+
+  // Sets a property (defined by {|property_id|, |property_value|} on an object
+  // with ID |object_id| and type |object_type|.
+  // |object_id| and |property_id| are unique identifiers.
+  // |object_type| is one of DRM_MODE_OBJECT_*.
+  virtual bool SetObjectProperty(uint32_t object_id,
+                                 uint32_t object_type,
+                                 uint32_t property_id,
+                                 uint32_t property_value);
+
+  // Can be used to query device/driver |capability|. Sets the value of
+  // |capability| to |value|. Returns true in case of a succesful query.
+  virtual bool GetCapability(uint64_t capability, uint64_t* value);
 
   // Set the cursor to be displayed in CRTC |crtc_id|. (width, height) is the
   // cursor size pointed by |handle|.
@@ -155,18 +217,18 @@ class DrmDevice : public base::RefCountedThreadSafe<DrmDevice> {
 
   virtual bool CloseBufferHandle(uint32_t handle);
 
-  virtual bool CommitProperties(drmModeAtomicReq* properties,
-                                uint32_t flags,
-                                uint32_t crtc_count,
-                                const PageFlipCallback& callback);
-
-  virtual bool SetColorCorrection(
-      uint32_t crtc_id,
-      const std::vector<display::GammaRampRGBEntry>& degamma_lut,
-      const std::vector<display::GammaRampRGBEntry>& gamma_lut,
-      const std::vector<float>& correction_matrix);
+  // On success, true is returned and |page_flip_request| will receive a
+  // callback signalling completion of the flip, if provided.
+  virtual bool CommitProperties(
+      drmModeAtomicReq* properties,
+      uint32_t flags,
+      uint32_t crtc_count,
+      scoped_refptr<PageFlipRequest> page_flip_request);
 
   virtual bool SetCapability(uint64_t capability, uint64_t value);
+
+  virtual bool SetGammaRamp(uint32_t crtc_id,
+                            const std::vector<display::GammaRampRGBEntry>& lut);
 
   // Drm master related
   virtual bool SetMaster();
@@ -177,6 +239,8 @@ class DrmDevice : public base::RefCountedThreadSafe<DrmDevice> {
   base::FilePath device_path() const { return device_path_; }
 
   HardwareDisplayPlaneManager* plane_manager() { return plane_manager_.get(); }
+
+  GbmDevice* gbm_device() const { return gbm_.get(); }
 
  protected:
   friend class base::RefCountedThreadSafe<DrmDevice>;
@@ -189,21 +253,24 @@ class DrmDevice : public base::RefCountedThreadSafe<DrmDevice> {
   class IOWatcher;
   class PageFlipManager;
 
-  bool SetGammaRamp(uint32_t crtc_id,
-                    const std::vector<display::GammaRampRGBEntry>& lut);
-
   // Path to the DRM device (in sysfs).
   const base::FilePath device_path_;
 
   // DRM device.
-  base::File file_;
+  const base::File file_;
 
   std::unique_ptr<PageFlipManager> page_flip_manager_;
 
   // Watcher for |fd_| listening for page flip events.
   std::unique_ptr<IOWatcher> watcher_;
 
-  bool is_primary_device_;
+  const bool is_primary_device_;
+
+  bool is_atomic_ = false;
+
+  bool allow_addfb2_modifiers_ = false;
+
+  const std::unique_ptr<GbmDevice> gbm_;
 
   DISALLOW_COPY_AND_ASSIGN(DrmDevice);
 };

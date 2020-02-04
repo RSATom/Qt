@@ -123,7 +123,7 @@ public:
 
     static bool sendEvent(QObject *receiver, QEvent *event);
     static void postEvent(QObject *receiver, QEvent *event, int priority = Qt::NormalEventPriority);
-    static void sendPostedEvents(QObject *receiver = Q_NULLPTR, int event_type = 0);
+    static void sendPostedEvents(QObject *receiver = nullptr, int event_type = 0);
     static void removePostedEvents(QObject *receiver, int eventType = 0);
 #if QT_DEPRECATED_SINCE(5, 3)
     QT_DEPRECATED static bool hasPendingEvents();
@@ -155,7 +155,7 @@ public:
 
     static QString translate(const char * context,
                              const char * key,
-                             const char * disambiguation = Q_NULLPTR,
+                             const char * disambiguation = nullptr,
                              int n = -1);
 #if QT_DEPRECATED_SINCE(5, 0)
     enum Encoding { UnicodeUTF8, Latin1, DefaultCodec = UnicodeUTF8, CodecForTr = UnicodeUTF8 };
@@ -187,7 +187,7 @@ Q_SIGNALS:
     void applicationVersionChanged();
 
 protected:
-    bool event(QEvent *) Q_DECL_OVERRIDE;
+    bool event(QEvent *) override;
 
     virtual bool compressEvent(QEvent *, QObject *receiver, QPostEventList *);
 #endif // QT_NO_QOBJECT
@@ -229,25 +229,17 @@ private:
     friend class QClassFactory;
 };
 
-#ifndef QT_NO_QOBJECT
-inline bool QCoreApplication::sendEvent(QObject *receiver, QEvent *event)
-{  if (event) event->spont = false; return notifyInternal2(receiver, event); }
-
-inline bool QCoreApplication::sendSpontaneousEvent(QObject *receiver, QEvent *event)
-{ if (event) event->spont = true; return notifyInternal2(receiver, event); }
-#endif
-
 #ifdef QT_NO_DEPRECATED
 #  define QT_DECLARE_DEPRECATED_TR_FUNCTIONS(context)
 #else
 #  define QT_DECLARE_DEPRECATED_TR_FUNCTIONS(context) \
-    QT_DEPRECATED static inline QString trUtf8(const char *sourceText, const char *disambiguation = Q_NULLPTR, int n = -1) \
+    QT_DEPRECATED static inline QString trUtf8(const char *sourceText, const char *disambiguation = nullptr, int n = -1) \
         { return QCoreApplication::translate(#context, sourceText, disambiguation, n); }
 #endif
 
 #define Q_DECLARE_TR_FUNCTIONS(context) \
 public: \
-    static inline QString tr(const char *sourceText, const char *disambiguation = Q_NULLPTR, int n = -1) \
+    static inline QString tr(const char *sourceText, const char *disambiguation = nullptr, int n = -1) \
         { return QCoreApplication::translate(#context, sourceText, disambiguation, n); } \
     QT_DECLARE_DEPRECATED_TR_FUNCTIONS(context) \
 private:

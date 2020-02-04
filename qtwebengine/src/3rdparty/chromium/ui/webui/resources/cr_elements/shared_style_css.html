@@ -1,5 +1,6 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
+<link rel="import" href="../html/polymer.html">
+
+<link rel="import" href="shared_vars_css.html">
 <link rel="import" href="hidden_style_css.html">
 <link rel="import" href="cr_icons_css.html">
 
@@ -8,43 +9,8 @@
 <dom-module id="cr-shared-style">
   <template>
     <style include="cr-hidden-style cr-icons">
-      /* Chrome spinners should be blue. */
-      paper-spinner {
-        --paper-spinner-layer-1-color: var(--google-blue-500);
-        --paper-spinner-layer-2-color: var(--google-blue-500);
-        --paper-spinner-layer-3-color: var(--google-blue-500);
-        --paper-spinner-layer-4-color: var(--google-blue-500);
-      }
-
-      .action-button {
-        background: var(--google-blue-500);
-        color: white;
-        --paper-button-flat-keyboard-focus: {
-          background: rgb(58, 117, 215);  /* 88% of --google-blue-500 */
-        };
-      }
-
-      .action-button[disabled] {
-        opacity: .2;
-      }
-
-      .cancel-button {
-        --paper-button-flat-keyboard-focus: {
-          background: rgba(0, 0, 0, .12);
-        };
-        -webkit-margin-end: 8px;
-        color: var(--paper-grey-600);
-      }
-
-      .action-button,
-      .cancel-button {
-        font-weight: 500;
-        line-height: 154%;
-        padding: 8px 16px;
-      }
-
       [actionable] {
-        @apply(--cr-actionable);
+        @apply --cr-actionable;
       }
 
       .subpage-arrow,
@@ -55,6 +21,15 @@
       [actionable] :-webkit-any(.subpage-arrow, .icon-external),
       [actionable]:-webkit-any(.subpage-arrow, .icon-external) {
         display: block;
+      }
+
+      /* Horizontal rule line. */
+      .hr {
+        border-top: var(--cr-separator-line);
+      }
+
+      iron-list.cr-separators > *:not([first]) {
+        border-top: var(--cr-separator-line);
       }
 
       [scrollable] {
@@ -70,8 +45,8 @@
         border-bottom-color: var(--google-grey-300);
       }
       [scrollable] iron-list > :not(.no-outline):focus {
-        @apply(--cr-list-item-focus);
-        @apply(--cr-selectable-focus);
+        @apply --cr-list-item-focus;
+        @apply --cr-selectable-focus;
       }
 
       .scroll-container {
@@ -80,12 +55,21 @@
         min-height: 1px;
       }
 
-      [selectable]:focus,
-      [selectable] > :focus {
-        @apply(--cr-selectable-focus);
+      [selectable]:not(cr-radio-group):focus,
+      [selectable]:not(cr-radio-group) > :focus {
+        @apply --cr-selectable-focus;
       }
-      [selectable] > * {
-        @apply(--cr-actionable);
+      [selectable]:not(cr-radio-group) > * {
+        @apply --cr-actionable;
+      }
+
+      /** Styles for elements that implement the CrContainerShadowBehavior */
+      #cr-container-shadow {
+        @apply --cr-container-shadow;
+      }
+
+      #cr-container-shadow.has-shadow {
+        opacity: var(--cr-container-shadow-max-opacity);
       }
     </style>
   </template>

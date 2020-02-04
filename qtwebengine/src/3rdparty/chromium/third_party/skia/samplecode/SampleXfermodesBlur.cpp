@@ -5,20 +5,22 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
+#include "SkBitmap.h"
 #include "SkBlurMask.h"
 #include "SkCanvas.h"
 #include "SkCornerPathEffect.h"
+#include "SkFont.h"
 #include "SkGradientShader.h"
 #include "SkGraphics.h"
 #include "SkPath.h"
 #include "SkRandom.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
+#include "SkUTF.h"
 #include "SkColorPriv.h"
 #include "SkColorFilter.h"
+#include "SkTextUtils.h"
 #include "SkTime.h"
 #include "SkTypeface.h"
 
@@ -26,21 +28,20 @@
 #include "SkColorPriv.h"
 #include "SkBlurMaskFilter.h"
 
-static void setNamedTypeface(SkPaint* paint, const char name[]) {
-    paint->setTypeface(SkTypeface::MakeFromName(name, SkFontStyle()));
+static void setNamedTypeface(SkFont* font, const char name[]) {
+    font->setTypeface(SkTypeface::MakeFromName(name, SkFontStyle()));
 }
 
 static uint16_t gBG[] = { 0xFFFF, 0xCCCF, 0xCCCF, 0xFFFF };
 
-class XfermodesBlurView : public SampleView {
+class XfermodesBlurView : public Sample {
     SkBitmap    fBG;
     SkBitmap    fSrcB, fDstB;
 
     void draw_mode(SkCanvas* canvas, SkBlendMode mode, int alpha, SkScalar x, SkScalar y) {
         SkPaint p;
-        p.setMaskFilter(SkBlurMaskFilter::Make(kNormal_SkBlurStyle,
-                                               SkBlurMask::ConvertRadiusToSigma(5),
-                                               SkBlurMaskFilter::kNone_BlurFlag));
+        p.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle,
+                                               SkBlurMask::ConvertRadiusToSigma(5)));
 
         SkScalar ww = SkIntToScalar(W);
         SkScalar hh = SkIntToScalar(H);
@@ -72,10 +73,9 @@ public:
     }
 
 protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt) {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "XfermodesBlur");
+    virtual bool onQuery(Sample::Event* evt) {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "XfermodesBlur");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -83,29 +83,6 @@ protected:
 
     virtual void onDrawContent(SkCanvas* canvas) {
         canvas->translate(SkIntToScalar(10), SkIntToScalar(20));
-
-        if (false) {
-            SkPaint paint;
-            paint.setAntiAlias(true);
-            paint.setTextSize(50);
-            paint.setTypeface(SkTypeface::MakeFromName("Arial Unicode MS", SkFontStyle()));
-            char buffer[10];
-            size_t len = SkUTF8_FromUnichar(0x8500, buffer);
-            canvas->drawText(buffer, len, 40, 40, paint);
-            return;
-        }
-        if (false) {
-            SkPaint paint;
-            paint.setAntiAlias(true);
-
-            SkRect r0 = { 0, 0, 10.5f, 20 };
-            SkRect r1 = { 10.5f, 10, 20, 30 };
-            paint.setColor(SK_ColorRED);
-            canvas->drawRect(r0, paint);
-            paint.setColor(SK_ColorBLUE);
-            canvas->drawRect(r1, paint);
-            return;
-        }
 
         const SkBlendMode gModes[] = {
             SkBlendMode::kClear,
@@ -130,11 +107,9 @@ protected:
         auto s = SkShader::MakeBitmapShader(fBG, SkShader::kRepeat_TileMode,
                                             SkShader::kRepeat_TileMode, &m);
 
-        SkPaint labelP;
-        labelP.setAntiAlias(true);
-        labelP.setLCDRenderText(true);
-        labelP.setTextAlign(SkPaint::kCenter_Align);
-        setNamedTypeface(&labelP, "Menlo Regular");
+        SkFont font;
+        font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+        setNamedTypeface(&font, "Menlo Regular");
 
         const int W = 5;
 
@@ -160,8 +135,8 @@ protected:
                 canvas->drawRect(r, p);
 
                 const char* label = SkBlendMode_Name(gModes[i]);
-                canvas->drawString(label,
-                                 x + w/2, y - labelP.getTextSize()/2, labelP);
+                SkTextUtils::DrawString(canvas, label, x + w/2, y - font.getSize()/2, font, SkPaint(),
+                                        SkTextUtils::kCenter_Align);
                 x += w + SkIntToScalar(10);
                 if ((i % W) == W - 1) {
                     x = x0;
@@ -173,10 +148,9 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new XfermodesBlurView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new XfermodesBlurView(); )

@@ -8,6 +8,8 @@
 #include <stdint.h>
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/logging.h"
@@ -42,6 +44,15 @@ void WebUIDataSource::Update(BrowserContext* browser_context,
   URLDataManager::UpdateWebUIDataSource(browser_context, source_name,
                                         std::move(update));
 }
+
+namespace {
+
+std::string CleanUpPath(const std::string& path) {
+  // Remove the query string for named resource lookups.
+  return path.substr(0, path.find_first_of('?'));
+}
+
+}  // namespace
 
 // Internal class to hide the fact that WebUIDataSourceImpl implements
 // URLDataSource.
@@ -87,9 +98,9 @@ class WebUIDataSourceImpl::InternalDataSource : public URLDataSource {
   bool ShouldDenyXFrameOptions() const override {
     return parent_->deny_xframe_options_;
   }
+  bool ShouldServeMimeTypeAsContentTypeHeader() const override { return true; }
   bool IsGzipped(const std::string& path) const override {
-    return parent_->use_gzip_ &&
-        parent_->excluded_paths_.find(path) == parent_->excluded_paths_.end();
+    return parent_->IsGzipped(path);
   }
 
  private:
@@ -97,7 +108,8 @@ class WebUIDataSourceImpl::InternalDataSource : public URLDataSource {
 };
 
 WebUIDataSourceImpl::WebUIDataSourceImpl(const std::string& source_name)
-    : URLDataSourceImpl(source_name, new InternalDataSource(this)),
+    : URLDataSourceImpl(source_name,
+                        std::make_unique<InternalDataSource>(this)),
       source_name_(source_name),
       default_resource_(-1),
       add_csp_(true),
@@ -112,25 +124,24 @@ WebUIDataSourceImpl::WebUIDataSourceImpl(const std::string& source_name)
 WebUIDataSourceImpl::~WebUIDataSourceImpl() {
 }
 
-void WebUIDataSourceImpl::AddString(const std::string& name,
+void WebUIDataSourceImpl::AddString(base::StringPiece name,
                                     const base::string16& value) {
   // TODO(dschuyler): Share only one copy of these strings.
-  localized_strings_.SetString(name, value);
-  replacements_[name] = base::UTF16ToUTF8(value);
+  localized_strings_.SetKey(name, base::Value(value));
+  replacements_[name.as_string()] = base::UTF16ToUTF8(value);
 }
 
-void WebUIDataSourceImpl::AddString(const std::string& name,
+void WebUIDataSourceImpl::AddString(base::StringPiece name,
                                     const std::string& value) {
-  localized_strings_.SetString(name, value);
-  replacements_[name] = value;
+  localized_strings_.SetKey(name, base::Value(value));
+  replacements_[name.as_string()] = value;
 }
 
-void WebUIDataSourceImpl::AddLocalizedString(const std::string& name,
-                                             int ids) {
-  localized_strings_.SetString(
-      name, GetContentClient()->GetLocalizedString(ids));
-  replacements_[name] =
+void WebUIDataSourceImpl::AddLocalizedString(base::StringPiece name, int ids) {
+  std::string utf8_str =
       base::UTF16ToUTF8(GetContentClient()->GetLocalizedString(ids));
+  localized_strings_.SetKey(name, base::Value(utf8_str));
+  replacements_[name.as_string()] = utf8_str;
 }
 
 void WebUIDataSourceImpl::AddLocalizedStrings(
@@ -140,7 +151,7 @@ void WebUIDataSourceImpl::AddLocalizedStrings(
                                               &replacements_);
 }
 
-void WebUIDataSourceImpl::AddBoolean(const std::string& name, bool value) {
+void WebUIDataSourceImpl::AddBoolean(base::StringPiece name, bool value) {
   localized_strings_.SetBoolean(name, value);
   // TODO(dschuyler): Change name of |localized_strings_| to |load_time_data_|
   // or similar. These values haven't been found as strings for
@@ -149,21 +160,20 @@ void WebUIDataSourceImpl::AddBoolean(const std::string& name, bool value) {
   // replacements.
 }
 
-void WebUIDataSourceImpl::AddInteger(const std::string& name, int32_t value) {
+void WebUIDataSourceImpl::AddInteger(base::StringPiece name, int32_t value) {
   localized_strings_.SetInteger(name, value);
 }
 
-void WebUIDataSourceImpl::SetJsonPath(const std::string& path) {
+void WebUIDataSourceImpl::SetJsonPath(base::StringPiece path) {
   DCHECK(json_path_.empty());
   DCHECK(!path.empty());
 
-  json_path_ = path;
-  excluded_paths_.insert(json_path_);
+  json_path_ = path.as_string();
 }
 
-void WebUIDataSourceImpl::AddResourcePath(const std::string &path,
+void WebUIDataSourceImpl::AddResourcePath(base::StringPiece path,
                                           int resource_id) {
-  path_to_idr_map_[path] = resource_id;
+  path_to_idr_map_[path.as_string()] = resource_id;
 }
 
 void WebUIDataSourceImpl::SetDefaultResource(int resource_id) {
@@ -209,11 +219,14 @@ void WebUIDataSourceImpl::DisableDenyXFrameOptions() {
   deny_xframe_options_ = false;
 }
 
-void WebUIDataSourceImpl::UseGzip(
-    const std::unordered_set<std::string>& excluded_paths) {
+void WebUIDataSourceImpl::UseGzip() {
   use_gzip_ = true;
-  for (const auto& path : excluded_paths)
-    excluded_paths_.insert(path);
+}
+
+void WebUIDataSourceImpl::UseGzip(
+    base::RepeatingCallback<bool(const std::string&)> is_gzipped_callback) {
+  UseGzip();
+  is_gzipped_callback_ = std::move(is_gzipped_callback);
 }
 
 const ui::TemplateReplacements* WebUIDataSourceImpl::GetReplacements() const {
@@ -276,8 +289,7 @@ void WebUIDataSourceImpl::StartDataRequest(
   int resource_id = default_resource_;
   std::map<std::string, int>::iterator result;
   // Remove the query string for named resource lookups.
-  std::string file_path = path.substr(0, path.find_first_of('?'));
-  result = path_to_idr_map_.find(file_path);
+  result = path_to_idr_map_.find(CleanUpPath(path));
   if (result != path_to_idr_map_.end())
     resource_id = result->second;
   DCHECK_NE(resource_id, -1);
@@ -291,6 +303,22 @@ void WebUIDataSourceImpl::SendLocalizedStringsAsJSON(
   std::string template_data;
   webui::AppendJsonJS(&localized_strings_, &template_data);
   callback.Run(base::RefCountedString::TakeString(&template_data));
+}
+
+const base::DictionaryValue* WebUIDataSourceImpl::GetLocalizedStrings() const {
+  return &localized_strings_;
+}
+
+bool WebUIDataSourceImpl::IsGzipped(const std::string& path) const {
+  if (!use_gzip_)
+    return false;
+
+  // TODO(dbeam): does anybody care about the "dirty" path (i.e. stuff after ?).
+  const std::string clean_path = CleanUpPath(path);
+  if (!json_path_.empty() && clean_path == json_path_)
+    return false;
+
+  return is_gzipped_callback_.is_null() || is_gzipped_callback_.Run(clean_path);
 }
 
 }  // namespace content

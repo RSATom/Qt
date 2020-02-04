@@ -54,11 +54,11 @@ class QWinRTPlayerRendererControl : public QWinRTAbstractVideoRendererControl
     Q_OBJECT
 public:
     explicit QWinRTPlayerRendererControl(IMFMediaEngineEx *engine, IMFDXGIDeviceManager *manager, quint32 resetToken, QObject *parent);
-    ~QWinRTPlayerRendererControl();
+    ~QWinRTPlayerRendererControl() override;
 
     bool ensureReady();
 
-    bool render(ID3D11Texture2D *texture) Q_DECL_OVERRIDE;
+    bool render(ID3D11Texture2D *texture) override;
 
 private:
     QScopedPointer<QWinRTPlayerRendererControlPrivate> d_ptr;

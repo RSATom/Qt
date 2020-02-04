@@ -73,6 +73,7 @@ QT_BEGIN_NAMESPACE
   respectively.
 */
 
+namespace QtGraphicsAnchorLayout {
 /*!
   \internal
 
@@ -198,7 +199,7 @@ struct SequentialAnchorData : public AnchorData
 #endif
     }
 
-    virtual void updateChildrenSizes() Q_DECL_OVERRIDE;
+    virtual void updateChildrenSizes() override;
     void calculateSizeHints();
 
     QVector<AnchorVertex*> m_children;          // list of vertices in the sequence
@@ -226,7 +227,7 @@ struct ParallelAnchorData : public AnchorData
 #endif
     }
 
-    virtual void updateChildrenSizes() Q_DECL_OVERRIDE;
+    virtual void updateChildrenSizes() override;
     bool calculateSizeHints();
 
     bool secondForward() const {
@@ -326,6 +327,9 @@ public:
     QSet<AnchorData *> positives;
     QSet<AnchorData *> negatives;
 };
+} // namespace QtGraphicsAnchorLayout
+using namespace QtGraphicsAnchorLayout;
+
 Q_DECLARE_TYPEINFO(GraphPath, Q_MOVABLE_TYPE);
 
 class QGraphicsAnchorLayoutPrivate;
@@ -345,6 +349,9 @@ public:
     qreal spacing() const;
 
     void setSizePolicy(QSizePolicy::Policy policy);
+
+    static QGraphicsAnchorPrivate *get(QGraphicsAnchor *q)
+    { return q->d_func(); }
 
     QGraphicsAnchorLayoutPrivate *layoutPrivate;
     AnchorData *data;

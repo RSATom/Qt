@@ -64,6 +64,9 @@
 #include <openssl/obj.h>
 #include <openssl/x509v3.h>
 
+#include "internal.h"
+
+
 static GENERAL_NAMES *v2i_subject_alt(X509V3_EXT_METHOD *method,
                                       X509V3_CTX *ctx,
                                       STACK_OF(CONF_VALUE) *nval);
@@ -166,9 +169,9 @@ STACK_OF(CONF_VALUE) *i2v_GENERAL_NAME(X509V3_EXT_METHOD *method,
             for (i = 0; i < 8; i++) {
                 BIO_snprintf(htmp, sizeof htmp, "%X", p[0] << 8 | p[1]);
                 p += 2;
-                strcat(oline, htmp);
+                BUF_strlcat(oline, htmp, sizeof(oline));
                 if (i != 7)
-                    strcat(oline, ":");
+                    BUF_strlcat(oline, ":", sizeof(oline));
             }
         } else {
             if (!X509V3_add_value("IP Address", "<invalid>", &ret))
@@ -261,7 +264,7 @@ static GENERAL_NAMES *v2i_issuer_alt(X509V3_EXT_METHOD *method,
     }
     for (i = 0; i < sk_CONF_VALUE_num(nval); i++) {
         cnf = sk_CONF_VALUE_value(nval, i);
-        if (!name_cmp(cnf->name, "issuer") && cnf->value &&
+        if (!x509v3_name_cmp(cnf->name, "issuer") && cnf->value &&
             !strcmp(cnf->value, "copy")) {
             if (!copy_issuer(ctx, gens))
                 goto err;
@@ -331,11 +334,11 @@ static GENERAL_NAMES *v2i_subject_alt(X509V3_EXT_METHOD *method,
     }
     for (i = 0; i < sk_CONF_VALUE_num(nval); i++) {
         cnf = sk_CONF_VALUE_value(nval, i);
-        if (!name_cmp(cnf->name, "email") && cnf->value &&
+        if (!x509v3_name_cmp(cnf->name, "email") && cnf->value &&
             !strcmp(cnf->value, "copy")) {
             if (!copy_email(ctx, gens, 0))
                 goto err;
-        } else if (!name_cmp(cnf->name, "email") && cnf->value &&
+        } else if (!x509v3_name_cmp(cnf->name, "email") && cnf->value &&
                    !strcmp(cnf->value, "move")) {
             if (!copy_email(ctx, gens, 1))
                 goto err;
@@ -545,19 +548,19 @@ GENERAL_NAME *v2i_GENERAL_NAME_ex(GENERAL_NAME *out,
         return NULL;
     }
 
-    if (!name_cmp(name, "email"))
+    if (!x509v3_name_cmp(name, "email"))
         type = GEN_EMAIL;
-    else if (!name_cmp(name, "URI"))
+    else if (!x509v3_name_cmp(name, "URI"))
         type = GEN_URI;
-    else if (!name_cmp(name, "DNS"))
+    else if (!x509v3_name_cmp(name, "DNS"))
         type = GEN_DNS;
-    else if (!name_cmp(name, "RID"))
+    else if (!x509v3_name_cmp(name, "RID"))
         type = GEN_RID;
-    else if (!name_cmp(name, "IP"))
+    else if (!x509v3_name_cmp(name, "IP"))
         type = GEN_IPADD;
-    else if (!name_cmp(name, "dirName"))
+    else if (!x509v3_name_cmp(name, "dirName"))
         type = GEN_DIRNAME;
-    else if (!name_cmp(name, "otherName"))
+    else if (!x509v3_name_cmp(name, "otherName"))
         type = GEN_OTHERNAME;
     else {
         OPENSSL_PUT_ERROR(X509V3, X509V3_R_UNSUPPORTED_OPTION);
@@ -588,8 +591,7 @@ static int do_othername(GENERAL_NAME *gen, char *value, X509V3_CTX *ctx)
     objtmp = OPENSSL_malloc(objlen + 1);
     if (objtmp == NULL)
         return 0;
-    strncpy(objtmp, value, objlen);
-    objtmp[objlen] = 0;
+    BUF_strlcpy(objtmp, value, objlen + 1);
     gen->d.otherName->type_id = OBJ_txt2obj(objtmp, 0);
     OPENSSL_free(objtmp);
     if (!gen->d.otherName->type_id)

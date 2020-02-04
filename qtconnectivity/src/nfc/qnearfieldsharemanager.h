@@ -53,7 +53,7 @@ class Q_NFC_EXPORT QNearFieldShareManager : public QObject
     Q_OBJECT
 
 public:
-    explicit QNearFieldShareManager(QObject *parent = Q_NULLPTR);
+    explicit QNearFieldShareManager(QObject *parent = nullptr);
     ~QNearFieldShareManager();
 
     enum ShareError {

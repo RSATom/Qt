@@ -8,7 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/rtp_rtcp/source/dtmf_queue.h"
+#include "modules/rtp_rtcp/source/dtmf_queue.h"
+
+#include <stddef.h>
+
+#include "rtc_base/checks.h"
 
 namespace {
 constexpr size_t kDtmfOutbandMax = 20;

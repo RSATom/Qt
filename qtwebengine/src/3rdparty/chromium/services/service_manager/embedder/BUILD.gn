@@ -2,85 +2,80 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-component("embedder") {
-  sources = [
-    "embedded_service_info.cc",
-    "embedded_service_info.h",
-    "embedded_service_runner.cc",
-    "embedded_service_runner.h",
-    "manifest_utils.cc",
-    "manifest_utils.h",
-  ]
-
-  # iOS embeds the Service Manager but does not use service_manager::Main() (and
-  # cannot use or even build it as-is).
-  if (!is_ios) {
-    sources += [
-      "main.cc",
+if (!is_ios) {
+  # iOS embeds the Service Manager but does not use anything in this library.
+  # This avoids having an empty component library target, which can otherwise be
+  # problematic.
+  component("embedder") {
+    public = [
       "main.h",
-      "main_delegate.cc",
       "main_delegate.h",
       "process_type.h",
-      "service_manager_embedder_export.h",
-      "set_process_title.cc",
       "set_process_title.h",
-      "set_process_title_linux.cc",
       "set_process_title_linux.h",
-      "shared_file_util.cc",
       "shared_file_util.h",
-      "switches.cc",
-      "switches.h",
-    ]
-  }
-
-  if (is_mac) {
-    sources += [
-      "mac_init.h",
-      "mac_init.mm",
     ]
 
-    libs = [ "Foundation.framework" ]
-  }
+    sources = [
+      "main.cc",
+      "main_delegate.cc",
+      "set_process_title.cc",
+      "set_process_title_linux.cc",
+      "shared_file_util.cc",
+    ]
 
-  deps = [
-    "//base:base_static",
-  ]
+    if (is_mac) {
+      sources += [
+        "mac_init.h",
+        "mac_init.mm",
+      ]
 
-  public_deps = [
-    "//base",
-    "//services/service_manager/public/cpp",
-  ]
+      libs = [ "Foundation.framework" ]
+    }
 
-  if (!is_ios) {
-    # deps of ServiceManager::Main and related functionality.
-    deps += [
-      "//base/allocator:features",
+    deps = [
+      "//base:base_static",
+      "//base:i18n",
+      "//base/allocator:buildflags",
       "//components/tracing:startup_tracing",
-      "//ui/base",
     ]
 
-    public_deps += [
-      "//mojo/edk/system",
+    public_deps = [
+      ":embedder_result_codes",
+      ":embedder_switches",
+      "//base",
+      "//mojo/core/embedder",
       "//services/service_manager/background:lib",
-      "//services/service_manager/public/cpp/standalone_service",
+      "//services/service_manager/public/cpp",
+      "//services/service_manager/public/cpp/service_executable:support",
+      "//services/service_manager/public/mojom",
       "//services/service_manager/runner:init",
       "//services/service_manager/runner/common",
     ]
-  }
 
-  defines = [ "SERVICE_MANAGER_EMBEDDER_IMPL" ]
+    if (!is_nacl) {
+      # NaCl stuff should not depend on skia as it would require platform and
+      # cpu properties set.
+      deps += [ "//ui/base" ]
+    }
+
+    defines = [ "IS_SERVICE_MANAGER_EMBEDDER_IMPL" ]
+  }
 }
 
-source_set("unittests") {
-  testonly = true
-
+component("embedder_switches") {
   sources = [
-    "manifest_utils_unittest.cc",
+    "switches.cc",
+    "switches.h",
   ]
-
   deps = [
-    ":embedder",
     "//base",
-    "//testing/gtest",
+  ]
+  defines = [ "IS_SERVICE_MANAGER_EMBEDDER_SWITCHES_IMPL" ]
+}
+
+source_set("embedder_result_codes") {
+  sources = [
+    "result_codes.h",
   ]
 }

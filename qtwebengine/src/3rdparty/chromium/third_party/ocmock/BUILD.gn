@@ -13,6 +13,9 @@ config("ocmock_warnings") {
   cflags = [
     "-Wno-semicolon-before-method-body",
     "-Wno-undeclared-selector",
+
+    # https://github.com/erikdoe/ocmock/issues/369
+    "-Wno-incompatible-pointer-types",
   ]
 }
 
@@ -98,9 +101,7 @@ source_set("ocmock") {
     "//testing/gtest",
   ]
   public_configs = [ ":ocmock_config" ]
-  configs -= [
-    "//build/config/compiler:chromium_code",
-  ]
+  configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     ":ocmock_warnings",
     "//build/config/compiler:no_chromium_code",

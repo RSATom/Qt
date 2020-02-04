@@ -52,7 +52,7 @@
 
 // constructor
 Client::Client(QSharedPointer<SimpleSwitchReplica> ptr) :
-    QObject(nullptr), reptr(ptr)
+    QObject(nullptr), clientSwitchState(false), reptr(ptr)
 {
     //connect signal for replica initialized with initialization slot
     initConnections();

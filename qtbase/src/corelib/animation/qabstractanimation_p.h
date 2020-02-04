@@ -58,7 +58,7 @@
 #include <private/qobject_p.h>
 #include <qabstractanimation.h>
 
-#ifndef QT_NO_ANIMATION
+QT_REQUIRE_CONFIG(animation);
 
 QT_BEGIN_NAMESPACE
 
@@ -116,7 +116,7 @@ class QDefaultAnimationDriver : public QAnimationDriver
     Q_OBJECT
 public:
     QDefaultAnimationDriver(QUnifiedTimer *timer);
-    void timerEvent(QTimerEvent *e) Q_DECL_OVERRIDE;
+    void timerEvent(QTimerEvent *e) override;
 
 private Q_SLOTS:
     void startTimer();
@@ -196,7 +196,7 @@ public:
     qint64 elapsed() const;
 
 protected:
-    void timerEvent(QTimerEvent *) Q_DECL_OVERRIDE;
+    void timerEvent(QTimerEvent *) override;
 
 private Q_SLOTS:
     void startTimers();
@@ -265,11 +265,11 @@ public:
     */
     static void updateAnimationTimer();
 
-    void restartAnimationTimer() Q_DECL_OVERRIDE;
-    void updateAnimationsTime(qint64 delta) Q_DECL_OVERRIDE;
+    void restartAnimationTimer() override;
+    void updateAnimationsTime(qint64 delta) override;
 
     //useful for profiling/debugging
-    int runningAnimationCount() Q_DECL_OVERRIDE { return animations.count(); }
+    int runningAnimationCount() override { return animations.count(); }
 
 private Q_SLOTS:
     void startAnimations();
@@ -295,7 +295,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-#endif //QT_NO_ANIMATION
 
 #endif //QABSTRACTANIMATION_P_H

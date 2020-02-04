@@ -6,7 +6,7 @@
 #include <time.h>
 
 #include "base/compiler_specific.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/third_party/nspr/prtime.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -75,13 +75,12 @@ TEST_F(PRTimeTest, ParseTimeTest1) {
   time_t current_time = 0;
   time(&current_time);
 
-  const int BUFFER_SIZE = 64;
-  struct tm local_time = {0};
-  char time_buf[BUFFER_SIZE] = {0};
+  struct tm local_time = {};
+  char time_buf[64] = {};
 #if defined(OS_WIN)
   localtime_s(&local_time, &current_time);
-  asctime_s(time_buf, arraysize(time_buf), &local_time);
-#elif defined(OS_POSIX)
+  asctime_s(time_buf, base::size(time_buf), &local_time);
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   localtime_r(&current_time, &local_time);
   asctime_r(&local_time, time_buf);
 #endif

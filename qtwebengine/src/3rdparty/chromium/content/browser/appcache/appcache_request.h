@@ -15,10 +15,13 @@ namespace net {
 class URLRequest;
 }
 
+namespace network {
+struct ResourceRequest;
+}
+
 namespace content {
 class AppCacheURLLoaderRequest;
 class AppCacheURLRequest;
-struct ResourceRequest;
 
 // Interface for an AppCache request. Subclasses implement this interface to
 // wrap custom request objects like URLRequest, etc to ensure that these
@@ -34,7 +37,7 @@ class CONTENT_EXPORT AppCacheRequest {
   virtual const std::string& GetMethod() const = 0;
 
   // Used for cookie policy.
-  virtual const GURL& GetFirstPartyForCookies() const = 0;
+  virtual const GURL& GetSiteForCookies() const = 0;
 
   // The referrer for this request.
   virtual const GURL GetReferrer() const = 0;
@@ -80,7 +83,7 @@ class CONTENT_EXPORT AppCacheRequest {
 
   // Returns the underlying ResourceRequest. Please note that only one of
   // GetURLRequest() and GetResourceRequest() should return valid results.
-  virtual ResourceRequest* GetResourceRequest();
+  virtual network::ResourceRequest* GetResourceRequest();
 
   SEQUENCE_CHECKER(sequence_checker_);
 

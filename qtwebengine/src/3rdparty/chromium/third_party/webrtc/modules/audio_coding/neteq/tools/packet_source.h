@@ -8,15 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_NETEQ_TOOLS_PACKET_SOURCE_H_
-#define WEBRTC_MODULES_AUDIO_CODING_NETEQ_TOOLS_PACKET_SOURCE_H_
+#ifndef MODULES_AUDIO_CODING_NETEQ_TOOLS_PACKET_SOURCE_H_
+#define MODULES_AUDIO_CODING_NETEQ_TOOLS_PACKET_SOURCE_H_
 
 #include <bitset>
 #include <memory>
 
-#include "webrtc/modules/audio_coding/neteq/tools/packet.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/typedefs.h"
+#include "modules/audio_coding/neteq/tools/packet.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 namespace test {
@@ -33,13 +32,8 @@ class PacketSource {
 
   virtual void FilterOutPayloadType(uint8_t payload_type);
 
-  virtual void SelectSsrc(uint32_t ssrc);
-
  protected:
   std::bitset<128> filter_;  // Payload type is 7 bits in the RFC.
-  // If SSRC filtering discards all packet that do not match the SSRC.
-  bool use_ssrc_filter_;  // True when SSRC filtering is active.
-  uint32_t ssrc_;  // The selected SSRC. All other SSRCs will be discarded.
 
  private:
   RTC_DISALLOW_COPY_AND_ASSIGN(PacketSource);
@@ -47,4 +41,4 @@ class PacketSource {
 
 }  // namespace test
 }  // namespace webrtc
-#endif  // WEBRTC_MODULES_AUDIO_CODING_NETEQ_TOOLS_PACKET_SOURCE_H_
+#endif  // MODULES_AUDIO_CODING_NETEQ_TOOLS_PACKET_SOURCE_H_

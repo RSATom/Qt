@@ -4,7 +4,8 @@
 
 #include "components/password_manager/core/browser/fake_form_fetcher.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/statistics_table.h"
 
@@ -31,6 +32,11 @@ FormFetcher::State FakeFormFetcher::GetState() const {
 const std::vector<InteractionsStats>& FakeFormFetcher::GetInteractionsStats()
     const {
   return stats_;
+}
+
+const std::vector<const autofill::PasswordForm*>&
+FakeFormFetcher::GetNonFederatedMatches() const {
+  return non_federated_;
 }
 
 const std::vector<const autofill::PasswordForm*>&
@@ -61,6 +67,7 @@ void FakeFormFetcher::SetNonFederated(
     const std::vector<const autofill::PasswordForm*>& non_federated,
     size_t filtered_count) {
   state_ = State::NOT_WAITING;
+  non_federated_ = non_federated;
   for (Consumer* consumer : consumers_) {
     consumer->ProcessMatches(non_federated, filtered_count);
   }
@@ -71,7 +78,7 @@ void FakeFormFetcher::Fetch() {
 }
 
 std::unique_ptr<FormFetcher> FakeFormFetcher::Clone() {
-  return base::MakeUnique<FakeFormFetcher>();
+  return std::make_unique<FakeFormFetcher>();
 }
 
 }  // namespace password_manager

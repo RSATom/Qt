@@ -1,3 +1,4 @@
+// -*- Mode: C++; c-basic-offset: 2; indent-tabs-mode: nil -*-
 // Copyright (c) 2011, Google Inc.
 // All rights reserved.
 //
@@ -57,6 +58,14 @@
 #endif
 #include <gperftools/tcmalloc.h>
 
+#if __cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1900)
+#define CPP_NOTHROW noexcept
+#define CPP_BADALLOC
+#else
+#define CPP_NOTHROW throw()
+#define CPP_BADALLOC throw(std::bad_alloc)
+#endif
+
 static void ReplaceSystemAlloc();  // defined in the .h files below
 
 #if defined(TCMALLOC_DONT_REPLACE_SYSTEM_ALLOC)
@@ -83,7 +92,7 @@ static void ReplaceSystemAlloc() { PatchWindowsFunctions(); }
 // we define allocator functions in Chromium's base/allocator/allocator_shim.cc
 // on Windows.  We don't include libc_override_redefine.h here.
 // ReplaceSystemAlloc() is defined here instead.
-static void ReplaceSystemAlloc() { }
+static void ReplaceSystemAlloc() {}
 
 #elif defined(__APPLE__)
 #include "libc_override_osx.h"

@@ -55,6 +55,7 @@ For Chromium contributors that have different nicks on other domains.
 | jshin             | jshin           | jungshik        |
 | jww               | jww\_\_         | jww             |
 | jyasskin          | jyasskin        | jyasskin        |
+| katie             |                 | katydek         |
 | karen             | kareng          | kareng          |
 | keescook          | kees            | keescook        |
 | koz               |                 | jameskozianski  |
@@ -62,9 +63,9 @@ For Chromium contributors that have different nicks on other domains.
 | levin             | dave\_levin     | levin           |
 | lfg               | lfg\_           | lfg             |
 | littledan         | littledan       | dehrenberg      |
+| loonybear         | loonybear       | lunalu          |
 | luken             | luken_chromium  | luken           |
 | mark              | markmentovai    | mmentovai       |
-| mattm             | mattm\_c, mattm\_g | mattm           |
 | mbarbella         | mbarbella       | mbarbella       |
 | mmeade            | mmeade          | mmeade          |
 | mednik            | mednik          | mednik          |
@@ -83,7 +84,6 @@ For Chromium contributors that have different nicks on other domains.
 | pwnall            | pwnall          | costan          |
 | rch               | RyanHamilton    | rch             |
 | rdevlin.cronin    | rdcronin        | rdcronin        |
-| reillyg           | reillyeon       | reillyg         |
 | rlp               | rpetterson      | rlp             |
 | robliao           | robliao         | robliao         |
 | rsleevi           | sleevi, rsleevi | sleevi          |

@@ -29,9 +29,10 @@ std::unique_ptr<EventListener> EventListener::ForExtension(
     const std::string& extension_id,
     content::RenderProcessHost* process,
     std::unique_ptr<base::DictionaryValue> filter) {
-  return base::WrapUnique(new EventListener(event_name, extension_id, GURL(),
-                                            process, false, kNonWorkerThreadId,
-                                            std::move(filter)));
+  return base::WrapUnique(
+      new EventListener(event_name, extension_id, GURL(), process, false,
+                        blink::mojom::kInvalidServiceWorkerVersionId,
+                        kMainThreadId, std::move(filter)));
 }
 
 // static
@@ -45,8 +46,9 @@ std::unique_ptr<EventListener> EventListener::ForURL(
   // for the same process. See crbug.com/536858 for details. // TODO(devlin): If
   // we dispatched events to processes more intelligently this could be avoided.
   return base::WrapUnique(new EventListener(
-      event_name, ExtensionId(), url::Origin(listener_url).GetURL(), process,
-      false, kNonWorkerThreadId, std::move(filter)));
+      event_name, ExtensionId(), url::Origin::Create(listener_url).GetURL(),
+      process, false, blink::mojom::kInvalidServiceWorkerVersionId,
+      kMainThreadId, std::move(filter)));
 }
 
 std::unique_ptr<EventListener> EventListener::ForExtensionServiceWorker(
@@ -54,11 +56,12 @@ std::unique_ptr<EventListener> EventListener::ForExtensionServiceWorker(
     const std::string& extension_id,
     content::RenderProcessHost* process,
     const GURL& service_worker_scope,
+    int64_t service_worker_version_id,
     int worker_thread_id,
     std::unique_ptr<base::DictionaryValue> filter) {
-  return base::WrapUnique(
-      new EventListener(event_name, extension_id, service_worker_scope, process,
-                        true, worker_thread_id, std::move(filter)));
+  return base::WrapUnique(new EventListener(
+      event_name, extension_id, service_worker_scope, process, true,
+      service_worker_version_id, worker_thread_id, std::move(filter)));
 }
 
 EventListener::~EventListener() {}
@@ -71,6 +74,7 @@ bool EventListener::Equals(const EventListener* other) const {
          extension_id_ == other->extension_id_ &&
          listener_url_ == other->listener_url_ && process_ == other->process_ &&
          is_for_service_worker_ == other->is_for_service_worker_ &&
+         service_worker_version_id_ == other->service_worker_version_id_ &&
          worker_thread_id_ == other->worker_thread_id_ &&
          ((!!filter_.get()) == (!!other->filter_.get())) &&
          (!filter_.get() || filter_->Equals(other->filter_.get()));
@@ -80,9 +84,10 @@ std::unique_ptr<EventListener> EventListener::Copy() const {
   std::unique_ptr<DictionaryValue> filter_copy;
   if (filter_)
     filter_copy = filter_->CreateDeepCopy();
-  return base::WrapUnique(new EventListener(
-      event_name_, extension_id_, listener_url_, process_,
-      is_for_service_worker_, worker_thread_id_, std::move(filter_copy)));
+  return base::WrapUnique(
+      new EventListener(event_name_, extension_id_, listener_url_, process_,
+                        is_for_service_worker_, service_worker_version_id_,
+                        worker_thread_id_, std::move(filter_copy)));
 }
 
 bool EventListener::IsLazy() const {
@@ -90,7 +95,11 @@ bool EventListener::IsLazy() const {
 }
 
 void EventListener::MakeLazy() {
-  DCHECK_EQ(worker_thread_id_, kNonWorkerThreadId);
+  // A lazy listener neither has a process attached to it nor it has a worker
+  // thread id (if the listener was for a service worker), so reset these values
+  // below to reflect that.
+  if (is_for_service_worker_)
+    worker_thread_id_ = kMainThreadId;
   process_ = nullptr;
 }
 
@@ -103,6 +112,7 @@ EventListener::EventListener(const std::string& event_name,
                              const GURL& listener_url,
                              content::RenderProcessHost* process,
                              bool is_for_service_worker,
+                             int64_t service_worker_version_id,
                              int worker_thread_id,
                              std::unique_ptr<DictionaryValue> filter)
     : event_name_(event_name),
@@ -110,9 +120,17 @@ EventListener::EventListener(const std::string& event_name,
       listener_url_(listener_url),
       process_(process),
       is_for_service_worker_(is_for_service_worker),
+      service_worker_version_id_(service_worker_version_id),
       worker_thread_id_(worker_thread_id),
       filter_(std::move(filter)),
-      matcher_id_(-1) {}
+      matcher_id_(-1) {
+  if (!IsLazy()) {
+    DCHECK_EQ(is_for_service_worker, worker_thread_id != kMainThreadId);
+    DCHECK_EQ(is_for_service_worker,
+              service_worker_version_id !=
+                  blink::mojom::kInvalidServiceWorkerVersionId);
+  }
+}
 
 EventListenerMap::EventListenerMap(Delegate* delegate)
     : delegate_(delegate) {
@@ -142,7 +160,7 @@ bool EventListenerMap::AddListener(std::unique_ptr<EventListener> listener) {
 
 std::unique_ptr<EventMatcher> EventListenerMap::ParseEventMatcher(
     DictionaryValue* filter_dict) {
-  return base::MakeUnique<EventMatcher>(filter_dict->CreateDeepCopy(),
+  return std::make_unique<EventMatcher>(filter_dict->CreateDeepCopy(),
                                         MSG_ROUTING_NONE);
 }
 
@@ -163,7 +181,7 @@ bool EventListenerMap::RemoveListener(const EventListener* listener) {
 
 bool EventListenerMap::HasListenerForEvent(
     const std::string& event_name) const {
-  ListenerMap::const_iterator it = listeners_.find(event_name);
+  auto it = listeners_.find(event_name);
   return it != listeners_.end() && !it->second.empty();
 }
 
@@ -213,8 +231,7 @@ void EventListenerMap::RemoveListenersForExtension(
     const std::string& extension_id) {
   for (auto& it : listeners_) {
     auto& listener_map = it.second;
-    for (ListenerList::iterator it2 = listener_map.begin();
-         it2 != listener_map.end();) {
+    for (auto it2 = listener_map.begin(); it2 != listener_map.end();) {
       if ((*it2)->extension_id() == extension_id) {
         std::unique_ptr<EventListener> listener_removed = std::move(*it2);
         CleanupListener(listener_removed.get());
@@ -236,8 +253,23 @@ void EventListenerMap::LoadUnfilteredLazyListeners(
   }
 }
 
+void EventListenerMap::LoadUnfilteredWorkerListeners(
+    const ExtensionId& extension_id,
+    const std::set<std::string>& event_names) {
+  for (const auto& name : event_names) {
+    AddListener(EventListener::ForExtensionServiceWorker(
+        name, extension_id, nullptr,
+        // TODO(lazyboy): We need to store correct scopes of each worker into
+        // ExtensionPrefs for events. This currently assumes all workers are
+        // registered in the '/' scope. https://crbug.com/773103.
+        Extension::GetBaseURLFromExtensionId(extension_id),
+        blink::mojom::kInvalidServiceWorkerVersionId, kMainThreadId, nullptr));
+  }
+}
+
 void EventListenerMap::LoadFilteredLazyListeners(
     const std::string& extension_id,
+    bool is_for_service_worker,
     const DictionaryValue& filtered) {
   for (DictionaryValue::Iterator it(filtered); !it.IsAtEnd(); it.Advance()) {
     // We skip entries if they are malformed.
@@ -248,11 +280,20 @@ void EventListenerMap::LoadFilteredLazyListeners(
       const DictionaryValue* filter = nullptr;
       if (!filter_list->GetDictionary(i, &filter))
         continue;
-      // Currently this is only used for lazy background page events.
-      // TODO(lazyboy): Add extension SW lazy events.
-      AddListener(
-          EventListener::ForExtension(it.key(), extension_id, nullptr,
-                                      base::WrapUnique(filter->DeepCopy())));
+      if (is_for_service_worker) {
+        AddListener(EventListener::ForExtensionServiceWorker(
+            it.key(), extension_id, nullptr,
+            // TODO(lazyboy): We need to store correct scopes of each worker
+            // into ExtensionPrefs for events. This currently assumes all
+            // workers are registered in the '/' scope.
+            // https://crbug.com/773103.
+            Extension::GetBaseURLFromExtensionId(extension_id),
+            blink::mojom::kInvalidServiceWorkerVersionId, kMainThreadId,
+            nullptr));
+      } else {
+        AddListener(EventListener::ForExtension(it.key(), extension_id, nullptr,
+                                                filter->CreateDeepCopy()));
+      }
     }
   }
 }
@@ -283,8 +324,7 @@ void EventListenerMap::RemoveListenersForProcess(
   CHECK(process);
   for (auto& it : listeners_) {
     auto& listener_map = it.second;
-    for (ListenerList::iterator it2 = listener_map.begin();
-         it2 != listener_map.end();) {
+    for (auto it2 = listener_map.begin(); it2 != listener_map.end();) {
       if ((*it2)->process() == process) {
         std::unique_ptr<EventListener> listener_removed = std::move(*it2);
         CleanupListener(listener_removed.get());

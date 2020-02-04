@@ -7,12 +7,14 @@ syntax = "proto2";
 option optimize_for = LITE_RUNTIME;
 
 package power_manager;
+option go_package = "power_manager_proto";
 
 // Power supply status sent from powerd to Chrome.
 message PowerSupplyProperties {
   // For any of these power sources, the system may be consuming power at a high
   // enough rate that the battery is discharging rather than charging; see
-  // BatteryState.
+  // BatteryState. See the PowerSource submessage's |type| field for more
+  // details about the active power source.
   enum ExternalPower {
     // AC/line/mains or USB PD power is connected. This is typically the
     // highest-power source that can be attached to the system.
@@ -72,11 +74,38 @@ message PowerSupplyProperties {
       // Next value to use: 11
     }
 
-    // Opaque ID corresponding to the device; see |external_power_source_id|.
+    enum Type {
+      // Unspecified type.
+      OTHER = 0;
+
+      // Dedicated charger. Typically single-purpose and non-USB (e.g. barrel
+      // jack plugs). Corresponds to kernel-reported type "Mains". This source
+      // is reported by the ACPI driver and may also appear (along with a USB_PD
+      // source) on Type-C-only systems if the ACPI driver is present.
+      MAINS = 1;
+
+      // USB Type-C, including dedicated Type-C chargers. Typically >= 7.5W.
+      // Corresponds to kernel-reported types "USB_C", "USB_PD", "USB_PD_DRP",
+      // and "BrickID".
+      USB_C = 2;
+
+      // USB Battery Charging r1.2. Typically <= 7.5W. Corresponds to
+      // kernel-reported types "USB", "USB_ACA", "USB_CDP", and "USB_DCP".
+      USB_BC_1_2 = 3;
+
+      // Next value to use: 4
+    }
+
+    // Opaque ID corresponding to the device. Do not use this for any purpose
+    // beyond comparisons with |external_power_source_id| or as an argument to
+    // powerd's SetPowerSource D-Bus method.
     optional string id = 1;
 
     // The charging port to which this power source is connected.
     optional Port port = 7;
+
+    // Power source type.
+    optional Type type = 8;
 
     // Raw strings read from |manufacturer| and |model_name| files in sysfs.
     optional string manufacturer_id = 4;
@@ -91,7 +120,7 @@ message PowerSupplyProperties {
     // to do so by the user.
     optional bool active_by_default = 3;
 
-    // Next ID to use: 8
+    // Next ID to use: 9
   }
 
   // Current state of the external power source.
@@ -107,25 +136,28 @@ message PowerSupplyProperties {
   optional BatteryState battery_state = 15;
 
   // Estimated battery charge as a percent of its total capacity, in the
-  // range [0.0, 100.0].
-  optional double battery_percent = 7;
+  // range [0.0, 100.0]. Unset if a battery isn't present.
+  optional double battery_percent = 7 [default = -1.0];
 
   // Estimated time until the battery is empty, in seconds, or zero if the
   // battery isn't discharging. -1 if the estimated time would be huge
-  // (e.g. because the current is zero or close to zero).
+  // (e.g. because the current is zero or close to zero). Unset if a battery
+  // isn't present.
   optional int64 battery_time_to_empty_sec = 5;
 
   // Estimated time until the battery is full, in seconds, or zero if the
   // battery isn't charging. -1 if the estimated time would be huge (e.g.
-  // because the current is zero or close to zero).
+  // because the current is zero or close to zero). Unset if a battery isn't
+  // present.
   optional int64 battery_time_to_full_sec = 6;
 
   // True when |battery_time_to_*| can't be trusted, e.g. because the power
-  // source just changed.
+  // source just changed. Unset if a battery isn't present.
   optional bool is_calculating_battery_time = 12 [default = false];
 
-  // The battery discharge rate measured in W. Positive if the battery is
-  // being discharged and negative if it's being charged.
+  // The battery discharge rate measured in W. Positive if the battery is being
+  // discharged, negative if it's being charged, or unset if a battery isn't
+  // present.
   optional double battery_discharge_rate = 16;
 
   // True if it is possible for some connected devices to function as either

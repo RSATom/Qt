@@ -50,18 +50,15 @@
 
 #include <QtQuickTemplates2/private/qquickcontainer_p.h>
 #include <QtQuickTemplates2/private/qquickcontrol_p_p.h>
-#include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtQml/private/qqmlobjectmodel_p.h>
 
 QT_BEGIN_NAMESPACE
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickContainerPrivate : public QQuickControlPrivate, public QQuickItemChangeListener
+class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickContainerPrivate : public QQuickControlPrivate
 {
     Q_DECLARE_PUBLIC(QQuickContainer)
 
 public:
-    QQuickContainerPrivate();
-
     static QQuickContainerPrivate *get(QQuickContainer *container)
     {
         return container->d_func();
@@ -93,11 +90,18 @@ public:
     static QQuickItem *contentChildren_at(QQmlListProperty<QQuickItem> *prop, int index);
     static void contentChildren_clear(QQmlListProperty<QQuickItem> *prop);
 
+    void updateContentWidth();
+    void updateContentHeight();
+
+    bool hasContentWidth = false;
+    bool hasContentHeight = false;
+    qreal contentWidth = 0;
+    qreal contentHeight = 0;
     QObjectList contentData;
-    QQmlObjectModel *contentModel;
-    int currentIndex;
-    bool updatingCurrent;
-    QQuickItemPrivate::ChangeTypes changeTypes;
+    QQmlObjectModel *contentModel = nullptr;
+    int currentIndex = -1;
+    bool updatingCurrent = false;
+    QQuickItemPrivate::ChangeTypes changeTypes = Destroyed | Parent | SiblingOrder;
 };
 
 QT_END_NAMESPACE

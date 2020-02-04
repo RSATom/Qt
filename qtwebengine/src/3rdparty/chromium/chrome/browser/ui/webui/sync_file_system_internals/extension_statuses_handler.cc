@@ -29,7 +29,7 @@ namespace syncfs_internals {
 namespace {
 
 void ConvertExtensionStatusToDictionary(
-    const base::WeakPtr<ExtensionService>& extension_service,
+    const base::WeakPtr<extensions::ExtensionService>& extension_service,
     const base::Callback<void(const base::ListValue&)>& callback,
     const std::map<GURL, std::string>& status_map) {
   if (!extension_service) {
@@ -38,9 +38,7 @@ void ConvertExtensionStatusToDictionary(
   }
 
   base::ListValue list;
-  for (std::map<GURL, std::string>::const_iterator itr = status_map.begin();
-       itr != status_map.end();
-       ++itr) {
+  for (auto itr = status_map.begin(); itr != status_map.end(); ++itr) {
     std::string extension_id = itr->first.HostNoBrackets();
 
     // Join with human readable extension name.
@@ -70,8 +68,8 @@ ExtensionStatusesHandler::~ExtensionStatusesHandler() {}
 void ExtensionStatusesHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "getExtensionStatuses",
-      base::Bind(&ExtensionStatusesHandler::GetExtensionStatuses,
-                 base::Unretained(this)));
+      base::BindRepeating(&ExtensionStatusesHandler::GetExtensionStatuses,
+                          base::Unretained(this)));
 }
 
 // static
@@ -87,7 +85,7 @@ void ExtensionStatusesHandler::GetExtensionStatusesAsDictionary(
     return;
   }
 
-  ExtensionService* extension_service =
+  extensions::ExtensionService* extension_service =
       extensions::ExtensionSystem::Get(profile)->extension_service();
   if (!extension_service) {
     callback.Run(base::ListValue());

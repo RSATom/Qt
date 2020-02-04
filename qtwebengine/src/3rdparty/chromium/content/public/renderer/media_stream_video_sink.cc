@@ -4,11 +4,11 @@
 
 #include "content/public/renderer/media_stream_video_sink.h"
 
-#include "content/renderer/media/media_stream_video_track.h"
+#include "content/renderer/media/stream/media_stream_video_track.h"
 
 namespace content {
 
-MediaStreamVideoSink::MediaStreamVideoSink() : MediaStreamSink() {}
+MediaStreamVideoSink::MediaStreamVideoSink() : blink::WebMediaStreamSink() {}
 
 MediaStreamVideoSink::~MediaStreamVideoSink() {
   // Ensure this sink has disconnected from the track.

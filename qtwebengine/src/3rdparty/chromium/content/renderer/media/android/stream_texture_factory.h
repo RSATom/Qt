@@ -15,7 +15,7 @@
 #include "base/unguessable_token.h"
 #include "cc/layers/video_frame_provider.h"
 #include "content/common/content_export.h"
-#include "content/renderer/gpu/stream_texture_host_android.h"
+#include "content/renderer/stream_texture_host_android.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -26,7 +26,7 @@ class GLES2Interface;
 class GpuChannelHost;
 }  // namespace gpu
 
-namespace ui {
+namespace ws {
 class ContextProviderCommandBuffer;
 }
 
@@ -90,7 +90,7 @@ class CONTENT_EXPORT StreamTextureFactory
     : public base::RefCounted<StreamTextureFactory> {
  public:
   static scoped_refptr<StreamTextureFactory> Create(
-      scoped_refptr<ui::ContextProviderCommandBuffer> context_provider);
+      scoped_refptr<ws::ContextProviderCommandBuffer> context_provider);
 
   // Create the StreamTextureProxy object. This internally calls
   // CreateSteamTexture with the recieved arguments. CreateSteamTexture
@@ -100,8 +100,7 @@ class CONTENT_EXPORT StreamTextureFactory
   // nullptr is returned and *texture_id will be set to 0. If the route_id is
   // valid it returns StreamTextureProxy object. The caller needs to take care
   // of cleaning up the texture_id.
-  ScopedStreamTextureProxy CreateProxy(unsigned texture_target,
-                                       unsigned* texture_id,
+  ScopedStreamTextureProxy CreateProxy(unsigned* texture_id,
                                        gpu::Mailbox* texture_mailbox);
 
   gpu::gles2::GLES2Interface* ContextGL();
@@ -109,16 +108,15 @@ class CONTENT_EXPORT StreamTextureFactory
  private:
   friend class base::RefCounted<StreamTextureFactory>;
   StreamTextureFactory(
-      scoped_refptr<ui::ContextProviderCommandBuffer> context_provider);
+      scoped_refptr<ws::ContextProviderCommandBuffer> context_provider);
   ~StreamTextureFactory();
   // Creates a gpu::StreamTexture and returns its id.  Sets |*texture_id| to the
   // client-side id of the gpu::StreamTexture. The texture is produced into
   // a mailbox so it can be shipped in a VideoFrame.
-  unsigned CreateStreamTexture(unsigned texture_target,
-                               unsigned* texture_id,
+  unsigned CreateStreamTexture(unsigned* texture_id,
                                gpu::Mailbox* texture_mailbox);
 
-  scoped_refptr<ui::ContextProviderCommandBuffer> context_provider_;
+  scoped_refptr<ws::ContextProviderCommandBuffer> context_provider_;
   scoped_refptr<gpu::GpuChannelHost> channel_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(StreamTextureFactory);

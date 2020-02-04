@@ -10,14 +10,15 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/optional.h"
 #include "media/base/decrypt_config.h"
+#include "media/base/encryption_pattern.h"
 #include "media/base/encryption_scheme.h"
 #include "media/base/media_util.h"
 #include "media/base/stream_parser_buffer.h"
 #include "media/base/timestamp_constants.h"
 #include "media/base/video_frame.h"
-#include "media/filters/h264_parser.h"
 #include "media/formats/common/offset_byte_queue.h"
 #include "media/formats/mp2t/mp2t_common.h"
+#include "media/video/h264_parser.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -202,7 +203,7 @@ EsParserH264::EsParserH264(const NewVideoConfigCB& new_video_config_cb,
       next_access_unit_pos_(0),
       use_hls_sample_aes_(use_hls_sample_aes),
       get_decrypt_config_cb_(get_decrypt_config_cb) {
-  DCHECK_EQ(!get_decrypt_config_cb_.is_null(), use_hls_sample_aes_);
+  DCHECK_EQ(!!get_decrypt_config_cb_, use_hls_sample_aes_);
 }
 #endif
 
@@ -334,8 +335,12 @@ bool EsParserH264::ParseFromEsQueue() {
       case H264NALU::kPPS: {
         DVLOG(LOG_LEVEL_ES) << "NALU: PPS";
         int pps_id;
-        if (h264_parser_->ParsePPS(&pps_id) != H264Parser::kOk)
-          return false;
+        if (h264_parser_->ParsePPS(&pps_id) != H264Parser::kOk) {
+          // Allow PPS parsing to fail if SPS have not been parsed yet,
+          // since it is possible to have a PPS before SPS in the stream.
+          if (last_video_decoder_config_.IsValidConfig())
+            return false;
+        }
         break;
       }
       case H264NALU::kIDRSlice:
@@ -418,10 +423,9 @@ bool EsParserH264::EmitFrame(int64_t access_unit_pos,
 #if BUILDFLAG(ENABLE_HLS_SAMPLE_AES)
     if (use_hls_sample_aes_) {
       // Note that for SampleAES the (encrypt,skip) pattern is constant.
-      scheme =
-          EncryptionScheme(EncryptionScheme::CIPHER_MODE_AES_CBC,
-                           EncryptionScheme::Pattern(kSampleAESEncryptBlocks,
-                                                     kSampleAESSkipBlocks));
+      scheme = EncryptionScheme(
+          EncryptionScheme::CIPHER_MODE_AES_CBC,
+          EncryptionPattern(kSampleAESEncryptBlocks, kSampleAESSkipBlocks));
     }
 #endif
     RCHECK(UpdateVideoDecoderConfig(sps, scheme));
@@ -436,9 +440,15 @@ bool EsParserH264::EmitFrame(int64_t access_unit_pos,
   CHECK_GE(es_size, access_unit_size);
 
 #if BUILDFLAG(ENABLE_HLS_SAMPLE_AES)
+  const DecryptConfig* base_decrypt_config = nullptr;
+  if (use_hls_sample_aes_) {
+    DCHECK(get_decrypt_config_cb_);
+    base_decrypt_config = get_decrypt_config_cb_.Run();
+  }
+
   std::unique_ptr<uint8_t[]> adjusted_au;
   std::vector<SubsampleEntry> subsamples;
-  if (use_hls_sample_aes_) {
+  if (use_hls_sample_aes_ && base_decrypt_config) {
     adjusted_au = AdjustAUForSampleAES(es, &access_unit_size, protected_blocks_,
                                        &subsamples);
     protected_blocks_.clear();
@@ -455,13 +465,32 @@ bool EsParserH264::EmitFrame(int64_t access_unit_pos,
   stream_parser_buffer->SetDecodeTimestamp(current_timing_desc.dts);
   stream_parser_buffer->set_timestamp(current_timing_desc.pts);
 #if BUILDFLAG(ENABLE_HLS_SAMPLE_AES)
-  if (use_hls_sample_aes_) {
-    DCHECK(!get_decrypt_config_cb_.is_null());
-    const DecryptConfig* base_decrypt_config = get_decrypt_config_cb_.Run();
-    RCHECK(base_decrypt_config);
-    std::unique_ptr<DecryptConfig> decrypt_config(new DecryptConfig(
-        base_decrypt_config->key_id(), base_decrypt_config->iv(), subsamples));
-    stream_parser_buffer->set_decrypt_config(std::move(decrypt_config));
+  if (use_hls_sample_aes_ && base_decrypt_config) {
+    switch (base_decrypt_config->encryption_mode()) {
+      case EncryptionMode::kUnencrypted:
+        // As |base_decrypt_config| is specified, the stream is encrypted,
+        // so this shouldn't happen.
+        NOTREACHED();
+        break;
+      case EncryptionMode::kCenc:
+        stream_parser_buffer->set_decrypt_config(
+            DecryptConfig::CreateCencConfig(base_decrypt_config->key_id(),
+                                            base_decrypt_config->iv(),
+                                            subsamples));
+        break;
+      case EncryptionMode::kCbcs:
+        // Note that for SampleAES the (encrypt,skip) pattern is constant.
+        // If not specified in |base_decrypt_config|, use default values.
+        stream_parser_buffer->set_decrypt_config(
+            DecryptConfig::CreateCbcsConfig(
+                base_decrypt_config->key_id(), base_decrypt_config->iv(),
+                subsamples,
+                base_decrypt_config->HasPattern()
+                    ? base_decrypt_config->encryption_pattern()
+                    : EncryptionPattern(kSampleAESEncryptBlocks,
+                                        kSampleAESSkipBlocks)));
+        break;
+    }
   }
 #endif
   return es_adapter_.OnNewBuffer(stream_parser_buffer);
@@ -491,10 +520,24 @@ bool EsParserH264::UpdateVideoDecoderConfig(const H264SPS* sps,
   if (natural_size.width() == 0)
     return false;
 
+  VideoCodecProfile profile =
+      H264Parser::ProfileIDCToVideoCodecProfile(sps->profile_idc);
+  if (profile == VIDEO_CODEC_PROFILE_UNKNOWN) {
+    DVLOG(1) << "Unrecognized SPS profile_idc 0x" << std::hex
+             << sps->profile_idc;
+    return false;
+  }
+
   VideoDecoderConfig video_decoder_config(
-      kCodecH264, H264Parser::ProfileIDCToVideoCodecProfile(sps->profile_idc),
-      PIXEL_FORMAT_YV12, COLOR_SPACE_HD_REC709, coded_size.value(),
-      visible_rect.value(), natural_size, EmptyExtraData(), scheme);
+      kCodecH264, profile, PIXEL_FORMAT_I420, VideoColorSpace::REC709(),
+      VIDEO_ROTATION_0, coded_size.value(), visible_rect.value(), natural_size,
+      EmptyExtraData(), scheme);
+
+  if (!video_decoder_config.IsValidConfig()) {
+    DVLOG(1) << "Invalid video config: "
+             << video_decoder_config.AsHumanReadableString();
+    return false;
+  }
 
   if (!video_decoder_config.Matches(last_video_decoder_config_)) {
     DVLOG(1) << "Profile IDC: " << sps->profile_idc;

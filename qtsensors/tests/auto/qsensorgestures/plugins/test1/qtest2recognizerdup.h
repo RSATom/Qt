@@ -39,12 +39,12 @@ public:
     QTest2RecognizerDup(QObject *parent = 0);
     ~QTest2RecognizerDup();
 
-    void create();
+    void create() override;
 
-    QString id() const;
-    bool start();
-    bool stop();
-    bool isActive();
+    QString id() const override;
+    bool start() override;
+    bool stop() override;
+    bool isActive() override;
 
     int thresholdTime() const;
     void setThresholdTime(int msec);

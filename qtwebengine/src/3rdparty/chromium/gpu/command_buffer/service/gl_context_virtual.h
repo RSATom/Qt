@@ -10,7 +10,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "gpu/gpu_export.h"
+#include "build/build_config.h"
+#include "gpu/gpu_gles2_export.h"
 #include "ui/gl/gl_context.h"
 
 namespace gl {
@@ -20,16 +21,14 @@ class GLSurface;
 }
 
 namespace gpu {
-namespace gles2 {
-class GLES2Decoder;
-}
+class GLContextVirtualDelegate;
 
 // Encapsulates a virtual OpenGL context.
-class GPU_EXPORT GLContextVirtual : public gl::GLContext {
+class GPU_GLES2_EXPORT GLContextVirtual : public gl::GLContext {
  public:
   GLContextVirtual(gl::GLShareGroup* share_group,
                    gl::GLContext* shared_context,
-                   base::WeakPtr<gles2::GLES2Decoder> decoder);
+                   base::WeakPtr<GLContextVirtualDelegate> delegate);
 
   // Implement GLContext.
   bool Initialize(gl::GLSurface* compatible_surface,
@@ -39,24 +38,30 @@ class GPU_EXPORT GLContextVirtual : public gl::GLContext {
   bool IsCurrent(gl::GLSurface* surface) override;
   void* GetHandle() override;
   scoped_refptr<gl::GPUTimingClient> CreateGPUTimingClient() override;
-  void OnSetSwapInterval(int interval) override;
   std::string GetGLVersion() override;
   std::string GetGLRenderer() override;
-  std::string GetExtensions() override;
+  const gfx::ExtensionSet& GetExtensions() override;
   void SetSafeToForceGpuSwitch() override;
-  bool WasAllocatedUsingRobustnessExtension() override;
+  unsigned int CheckStickyGraphicsResetStatus() override;
   void SetUnbindFboOnMakeCurrent() override;
-  gl::YUVToRGBConverter* GetYUVToRGBConverter() override;
+  gl::YUVToRGBConverter* GetYUVToRGBConverter(
+      const gfx::ColorSpace& color_space) override;
   void ForceReleaseVirtuallyCurrent() override;
+#if defined(OS_MACOSX)
+  uint64_t BackpressureFenceCreate() override;
+  void BackpressureFenceWait(uint64_t fence) override;
+  void FlushForDriverCrashWorkaround() override;
+#endif
 
  protected:
   ~GLContextVirtual() override;
+  void ResetExtensions() override;
 
  private:
   void Destroy();
 
   scoped_refptr<gl::GLContext> shared_context_;
-  base::WeakPtr<gles2::GLES2Decoder> decoder_;
+  base::WeakPtr<GLContextVirtualDelegate> delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(GLContextVirtual);
 };

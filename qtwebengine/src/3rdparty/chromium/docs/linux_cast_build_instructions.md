@@ -98,10 +98,10 @@ development and testing purposes.
 
 ## Setting up the build
 
-Chromium uses [Ninja](https://ninja-build.org) as its main build tool along
-with a tool called [GN](../tools/gn/docs/quick_start.md) to generate `.ninja`
-files. You can create any number of *build directories* with different
-configurations. To create a build directory, run:
+Chromium uses [Ninja](https://ninja-build.org) as its main build tool along with
+a tool called [GN](https://gn.googlesource.com/gn/+/master/docs/quick_start.md)
+to generate `.ninja` files. You can create any number of *build directories*
+with different configurations. To create a build directory, run:
 
 ```shell
 $ gn gen out/Default --args='is_chromecast=true'
@@ -128,8 +128,11 @@ You might try some of the suggestions on the
 Build cast\_shell with Ninja using the command:
 
 ```shell
-$ ninja -C out/Default cast_shell
+$ autoninja -C out/Default cast_shell
 ```
+
+(`autoninja` is a wrapper that automatically provides optimal values for the
+arguments passed to `ninja`.)
 
 ## Run cast\_shell
 

@@ -4,7 +4,6 @@
 
 #include <stdint.h>
 
-#include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "chrome/browser/extensions/api/image_writer_private/error_messages.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation.h"
@@ -17,7 +16,7 @@ namespace image_writer {
 using content::BrowserThread;
 
 void Operation::Write(const base::Closure& continuation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  DCHECK(IsRunningInCorrectSequence());
   if (IsCancelled()) {
     return;
   }
@@ -38,7 +37,7 @@ void Operation::Write(const base::Closure& continuation) {
 }
 
 void Operation::VerifyWrite(const base::Closure& continuation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  DCHECK(IsRunningInCorrectSequence());
 
   if (IsCancelled()) {
     return;

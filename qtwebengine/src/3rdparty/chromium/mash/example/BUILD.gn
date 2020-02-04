@@ -12,18 +12,9 @@ group("example") {
     "//mash/example/views_examples",
     "//mash/example/window_type_launcher",
     "//mash/runner",
-    "//mash/simple_wm",
   ]
 
   if (is_chromeos) {
-    deps += [ "//ash/mus" ]
+    deps += [ "//ash:ash_service" ]
   }
-}
-
-catalog("catalog") {
-  standalone_services = [
-    "//mash/example/views_examples:manifest",
-    "//mash/example/window_type_launcher:manifest",
-    "//mash/simple_wm:manifest",
-  ]
 }

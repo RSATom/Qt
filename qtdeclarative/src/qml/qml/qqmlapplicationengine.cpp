@@ -70,11 +70,13 @@ void QQmlApplicationEnginePrivate::cleanUp()
 void QQmlApplicationEnginePrivate::init()
 {
     Q_Q(QQmlApplicationEngine);
-    q->connect(q, SIGNAL(quit()), QCoreApplication::instance(), SLOT(quit()));
-    q->connect(q, &QQmlApplicationEngine::exit, QCoreApplication::instance(), &QCoreApplication::exit);
+    q->connect(q, &QQmlApplicationEngine::quit, QCoreApplication::instance(),
+               &QCoreApplication::quit, Qt::QueuedConnection);
+    q->connect(q, &QQmlApplicationEngine::exit, QCoreApplication::instance(),
+               &QCoreApplication::exit, Qt::QueuedConnection);
 #if QT_CONFIG(translation)
     QTranslator* qtTranslator = new QTranslator;
-    if (qtTranslator->load(QLatin1String("qt_") + QLocale::system().name(), QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
+    if (qtTranslator->load(QLocale(), QLatin1String("qt"), QLatin1String("_"), QLibraryInfo::location(QLibraryInfo::TranslationsPath), QLatin1String(".qm")))
         QCoreApplication::installTranslator(qtTranslator);
     translators << qtTranslator;
 #endif
@@ -88,10 +90,10 @@ void QQmlApplicationEnginePrivate::loadTranslations(const QUrl &rootFile)
     if (rootFile.scheme() != QLatin1String("file") && rootFile.scheme() != QLatin1String("qrc"))
         return;
 
-    QFileInfo fi(rootFile.toLocalFile());
+    QFileInfo fi(QQmlFile::urlToLocalFileOrQrc(rootFile));
 
     QTranslator *translator = new QTranslator;
-    if (translator->load(QLatin1String("qml_") + QLocale::system().name(), fi.path() + QLatin1String("/i18n"))) {
+    if (translator->load(QLocale(), QLatin1String("qml"), QLatin1String("_"), fi.path() + QLatin1String("/i18n"), QLatin1String(".qm"))) {
         QCoreApplication::installTranslator(translator);
         translators << translator;
     } else {
@@ -128,7 +130,7 @@ void QQmlApplicationEnginePrivate::finishLoad(QQmlComponent *c)
     case QQmlComponent::Error:
         qWarning() << "QQmlApplicationEngine failed to load component";
         qWarning() << qPrintable(c->errorString());
-        q->objectCreated(0, c->url());
+        q->objectCreated(nullptr, c->url());
         break;
     case QQmlComponent::Ready: {
         auto newObj = c->create();
@@ -178,6 +180,9 @@ void QQmlApplicationEnginePrivate::finishLoad(QQmlComponent *c)
   \list
   \li Connecting Qt.quit() to QCoreApplication::quit()
   \li Automatically loads translation files from an i18n directory adjacent to the main QML file.
+      \list
+          \li Translation files must have "qml_" prefix e.g. qml_ja_JP.qm.
+      \endlist
   \li Automatically sets an incubation controller if the scene contains a QQuickWindow.
   \li Automatically sets a \c QQmlFileSelector as the url interceptor, applying file selectors to all
   QML files and assets.
@@ -248,10 +253,12 @@ QQmlApplicationEngine::~QQmlApplicationEngine()
 /*!
   Loads the root QML file located at \a url. The object tree defined by the file
   is created immediately for local file urls. Remote urls are loaded asynchronously,
-  listen to the objectCreated signal to determine when the object
-  tree is ready.
+  listen to the \l {QQmlApplicationEngine::objectCreated()}{objectCreated} signal to
+  determine when the object tree is ready.
 
-  If an error occurs, error messages are printed with qWarning.
+  If an error occurs, the \l {QQmlApplicationEngine::objectCreated()}{objectCreated}
+  signal is emitted with a null pointer as parameter and error messages are printed
+  with qWarning.
 */
 void QQmlApplicationEngine::load(const QUrl &url)
 {

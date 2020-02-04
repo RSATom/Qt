@@ -4,8 +4,8 @@
 
 import("//build/config/features.gni")
 import("//media/media_options.gni")
-import("//remoting/remoting_options.gni")
 import("//remoting/remoting_locales.gni")
+import("//remoting/remoting_options.gni")
 import("//remoting/remoting_version.gni")
 
 if (is_win) {
@@ -14,6 +14,9 @@ if (is_win) {
 if (is_mac) {
   import("//build/config/mac/rules.gni")
   import("//third_party/icu/config.gni")
+}
+if (is_chromeos) {
+  import("//ui/ozone/ozone.gni")
 }
 
 source_set("common") {
@@ -43,23 +46,41 @@ source_set("common") {
 
   deps = [
     "//base:i18n",
+    "//mojo/core/embedder",
     "//net",
     "//remoting/base",
-    "//remoting/host",
+    "//remoting/host:common",
     "//remoting/protocol",
     "//remoting/resources",
     "//remoting/signaling",
   ]
-
-  if (is_desktop_linux) {
+  if (use_gtk) {
     deps += [
       "//build/config/linux/gtk",
 
-      # GTK pulls pangoft2, which requires HarfBuzz symbols. Since we
-      # link our own HarfBuzz, avoid mixing symbols from system HarfBuzz
-      # and own ones, hence the dependency to harfbuzz-ng here.
-      "//third_party/harfbuzz-ng",
+      # GTK pulls pangoft2, which requires HarfBuzz symbols. When linking
+      # our own HarfBuzz avoid mixing symbols from system HarfBuzz and
+      # our own through the indirect dependency to harfbuzz-ng here.
+      "//third_party:freetype_harfbuzz",
     ]
+  }
+}
+
+if (is_chromeos) {
+  source_set("chrome_os_host") {
+    sources = [
+      "it2me_native_messaging_host_chromeos.cc",
+      "it2me_native_messaging_host_chromeos.h",
+    ]
+
+    deps = [
+      ":common",
+      "//skia",
+    ]
+
+    if (use_ozone) {
+      deps += [ "//ui/ozone" ]
+    }
   }
 }
 
@@ -203,7 +224,6 @@ if (!is_chromeos && enable_remoting_host) {
 
       deps = [
         ":common",
-        "//build/config:exe_and_shlib_deps",
         "//remoting/host",
         "//remoting/host/native_messaging",
         "//remoting/proto",
@@ -231,7 +251,7 @@ if (!is_chromeos && enable_remoting_host) {
         deps += [ "//third_party/webrtc_overrides:init_webrtc" ]
       }
 
-      if (is_desktop_linux) {
+      if (use_gtk) {
         deps += [ "//build/config/linux/gtk" ]
       }
     }

@@ -10,12 +10,24 @@
 
 namespace device {
 
+// For a connected gamepad, specify the type of bus through which it is
+// connected. This allows for specialized mappings depending on how the device
+// is connected. For instance, a gamepad may require different mappers for USB
+// and Bluetooth.
+enum GamepadBusType {
+  GAMEPAD_BUS_UNKNOWN,
+  GAMEPAD_BUS_USB,
+  GAMEPAD_BUS_BLUETOOTH
+};
+
 typedef void (*GamepadStandardMappingFunction)(const Gamepad& original,
                                                Gamepad* mapped);
 
 GamepadStandardMappingFunction GetGamepadStandardMappingFunction(
-    const base::StringPiece& vendor_id,
-    const base::StringPiece& product_id);
+    const uint16_t vendor_id,
+    const uint16_t product_id,
+    const uint16_t version_number,
+    GamepadBusType bus_type);
 
 // This defines our canonical mapping order for gamepad-like devices. If these
 // items cannot all be satisfied, it is a case-by-case judgement as to whether
@@ -58,9 +70,6 @@ enum CanonicalAxisIndex {
   AXIS_INDEX_COUNT
 };
 
-// Matches XInput's trigger deadzone
-const float kDefaultButtonPressedThreshold = 30.f / 255.f;
-
 // Common mapping functions
 GamepadButton AxisToButton(float input);
 GamepadButton AxisNegativeAsButton(float input);
@@ -68,6 +77,7 @@ GamepadButton AxisPositiveAsButton(float input);
 GamepadButton ButtonFromButtonAndAxis(GamepadButton button, float axis);
 GamepadButton NullButton();
 void DpadFromAxis(Gamepad* mapped, float dir);
+float RenormalizeAndClampAxis(float value, float min, float max);
 
 }  // namespace device
 

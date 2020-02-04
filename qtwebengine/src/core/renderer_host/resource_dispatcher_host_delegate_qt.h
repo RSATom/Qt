@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -41,53 +41,35 @@
 #define RESOURCE_DISPATCHER_HOST_DELEGATE_QT_H
 
 #include "content/public/browser/resource_dispatcher_host_delegate.h"
-#include "content/public/browser/resource_dispatcher_host_login_delegate.h"
+#include "extensions/buildflags/buildflags.h"
 
 #include "web_contents_adapter_client.h"
 
 namespace QtWebEngineCore {
 
-class AuthenticationDialogController;
-
-class ResourceDispatcherHostLoginDelegateQt : public content::ResourceDispatcherHostLoginDelegate {
-public:
-    ResourceDispatcherHostLoginDelegateQt(net::AuthChallengeInfo *authInfo, net::URLRequest *request);
-    ~ResourceDispatcherHostLoginDelegateQt();
-
-    // ResourceDispatcherHostLoginDelegate implementation
-    virtual void OnRequestCancelled();
-
-    QUrl url() const;
-    QString realm() const;
-    QString host() const;
-    bool isProxy() const;
-
-    void sendAuthToRequester(bool success, const QString &user, const QString &password);
-
-private:
-    void triggerDialog();
-    void destroy();
-
-    int m_renderProcessId;
-    int m_renderFrameId;
-
-    scoped_refptr<net::AuthChallengeInfo> m_authInfo;
-
-    // The request that wants login data.
-    // Must only be accessed on the IO thread.
-    net::URLRequest *m_request;
-
-    // This member is used to keep authentication dialog controller alive until
-    // authorization is sent or cancelled.
-    QSharedPointer<AuthenticationDialogController> m_dialogController;
-};
-
 class ResourceDispatcherHostDelegateQt : public content::ResourceDispatcherHostDelegate {
 public:
-    bool HandleExternalProtocol(const GURL& url,
-                                content::ResourceRequestInfo* info) override;
+    // If the stream will be rendered in a BrowserPlugin, |payload| will contain
+    // the data that should be given to the old ResourceHandler to forward to the
+    // renderer process.
+    bool ShouldInterceptResourceAsStream(net::URLRequest *request,
+                                         const std::string &mime_type,
+                                         GURL *origin,
+                                         std::string *payload) override;
 
-    content::ResourceDispatcherHostLoginDelegate* CreateLoginDelegate(net::AuthChallengeInfo *authInfo, net::URLRequest *request) override;
+    // Informs the delegate that a Stream was created. The Stream can be read from
+    // the blob URL of the Stream, but can only be read once.
+    void OnStreamCreated(net::URLRequest *request,
+                         std::unique_ptr<content::StreamInfo> stream) override;
+private:
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    struct StreamTargetInfo {
+        std::string extension_id;
+        std::string view_id;
+    };
+    std::map<net::URLRequest *, StreamTargetInfo> stream_target_info_;
+#endif
+
 };
 
 } // namespace QtWebEngineCore

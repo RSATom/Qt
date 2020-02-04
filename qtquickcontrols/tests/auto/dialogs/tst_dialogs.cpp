@@ -51,6 +51,11 @@ private slots:
     void dialogImplicitWidth_data();
     void dialogImplicitWidth();
     void dialogContentResize();
+    void dialogButtonHandler_data();
+    void dialogButtonHandler();
+    void dialogKeyHandler_data();
+    void dialogKeyHandler();
+    void dialogWithDynamicTitle();
 
     // FileDialog
     void fileDialogDefaultModality();
@@ -111,6 +116,142 @@ void tst_dialogs::dialogContentResize()
     QVERIFY(userContent);
     QVERIFY(userContent->width() > 350);
     QVERIFY(userContent->height() > 200);
+}
+
+void tst_dialogs::dialogButtonHandler_data()
+{
+    QTest::addColumn<int>("standardButtons");
+    QTest::addColumn<bool>("mustBlock");
+    QTest::addColumn<QString>("expectedAction");
+
+    QTest::newRow("Cancel, ignored") <<
+        int(QQuickAbstractDialog::Cancel) <<
+        false <<
+        "rejected";
+    QTest::newRow("Cancel, blocked") <<
+        int(QQuickAbstractDialog::Cancel) <<
+        true <<
+        "";
+    QTest::newRow("OK, ignored") <<
+        int(QQuickAbstractDialog::Ok) <<
+        false <<
+        "accepted";
+    QTest::newRow("OK, blocked") <<
+        int(QQuickAbstractDialog::Ok) <<
+        true <<
+        "";
+}
+
+void tst_dialogs::dialogButtonHandler()
+{
+    QFETCH(int, standardButtons);
+    QFETCH(bool, mustBlock);
+    QFETCH(QString, expectedAction);
+
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty("buttonsFromTest", standardButtons);
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("DialogButtonHandler.qml"));
+    QObject *root = component.create();
+    QScopedPointer<QObject> cleanup(root);
+    QVERIFY2(root, qPrintable(component.errorString()));
+
+    root->setProperty("visible", true);
+    root->setProperty("mustBlock", mustBlock);
+
+    QQuickWindow *window = root->findChild<QQuickWindow*>();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    /* Hack to find the created buttons: since they are created by a
+     * QQuickRepeater, they don't appear on the hierarchy tree; therefore, we
+     * first need to find the repeater, and then to get its child. */
+    const QList<QQuickItem*> children = root->findChildren<QQuickItem*>();
+    QQuickItem *buttonWidget = nullptr;
+    for (QQuickItem *child: children) {
+        if (qstrcmp(child->metaObject()->className(), "QQuickRepeater") == 0 &&
+            child->property("count").toInt() > 0) {
+            int index = 0;
+            QMetaObject::invokeMethod(child,
+                                      "itemAt",
+                                      Q_RETURN_ARG(QQuickItem *, buttonWidget),
+                                      Q_ARG(int, index));
+            break;
+        }
+    }
+    QVERIFY(buttonWidget);
+
+    const QPointF buttonCenterF(buttonWidget->width() / 2,
+                                buttonWidget->height() / 2);
+    const QPoint buttonCenter = buttonWidget->mapToScene(buttonCenterF).toPoint();
+
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, buttonCenter);
+    QTRY_VERIFY(root->property("handlerWasCalled").toBool());
+
+    QCOMPARE(root->property("buttonCode").toInt(), standardButtons);
+    QCOMPARE(root->property("keyCode").toInt(), 0);
+
+    QCOMPARE(root->property("actionCalled").toString(), expectedAction);
+}
+
+void tst_dialogs::dialogKeyHandler_data()
+{
+    QTest::addColumn<int>("key");
+    QTest::addColumn<bool>("mustBlock");
+    QTest::addColumn<int>("expectedButton");
+    QTest::addColumn<QString>("expectedAction");
+
+    QTest::newRow("Escape, ignored") <<
+        int(Qt::Key_Escape) <<
+        false <<
+        int(QQuickAbstractDialog::Cancel) <<
+        "rejected";
+    QTest::newRow("Cancel, blocked") <<
+        int(Qt::Key_Escape) <<
+        true <<
+        int(QQuickAbstractDialog::Cancel) <<
+        "";
+    QTest::newRow("Enter, ignored") <<
+        int(Qt::Key_Enter) <<
+        false <<
+        int(QQuickAbstractDialog::Ok) <<
+        "accepted";
+    QTest::newRow("Enter, blocked") <<
+        int(Qt::Key_Enter) <<
+        true <<
+        int(QQuickAbstractDialog::Ok) <<
+        "";
+}
+
+void tst_dialogs::dialogKeyHandler()
+{
+    QFETCH(int, key);
+    QFETCH(bool, mustBlock);
+    QFETCH(int, expectedButton);
+    QFETCH(QString, expectedAction);
+
+    QQmlEngine engine;
+    QQuickAbstractDialog::StandardButtons buttons =
+        QQuickAbstractDialog::Ok | QQuickAbstractDialog::Cancel;
+    engine.rootContext()->setContextProperty("buttonsFromTest", int(buttons));
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("DialogButtonHandler.qml"));
+    QObject *root = component.create();
+    QScopedPointer<QObject> cleanup(root);
+    QVERIFY2(root, qPrintable(component.errorString()));
+
+    root->setProperty("visible", true);
+    root->setProperty("mustBlock", mustBlock);
+
+    QQuickWindow *window = root->findChild<QQuickWindow*>();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+
+    QTest::keyClick(window, Qt::Key(key));
+    QTRY_VERIFY(root->property("handlerWasCalled").toBool());
+
+    QCOMPARE(root->property("buttonCode").toInt(), expectedButton);
+    QCOMPARE(root->property("keyCode").toInt(), key);
+
+    QCOMPARE(root->property("actionCalled").toString(), expectedAction);
 }
 
 void tst_dialogs::fileDialogDefaultModality()
@@ -228,6 +369,21 @@ void tst_dialogs::fileDialogDefaultSuffix()
     QCOMPARE(dlg->property("defaultSuffix").toString(), QString("txt"));
     dlg->setProperty("defaultSuffix", QString());
     QCOMPARE(dlg->property("defaultSuffix").toString(), QString());
+}
+
+void tst_dialogs::dialogWithDynamicTitle()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("DialogWithDynamicTitle.qml"));
+    QObject *dlg = component.create();
+    QScopedPointer<QObject> cleanup(dlg);
+    QVERIFY2(dlg, qPrintable(component.errorString()));
+    QWindow *window = dlg->findChild<QWindow *>();
+    QVERIFY(window);
+    QTRY_COMPARE(window->title(), QLatin1String("Title"));
+    dlg->setProperty("newTitle", true);
+    QTRY_COMPARE(window->title(), QLatin1String("New Title"));
 }
 
 QTEST_MAIN(tst_dialogs)

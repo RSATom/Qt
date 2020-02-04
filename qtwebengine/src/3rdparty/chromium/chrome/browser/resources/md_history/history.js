@@ -4,13 +4,17 @@
 
 // Send the history query immediately. This allows the query to process during
 // the initial page startup.
-chrome.send('queryHistory', ['', 0, RESULTS_PER_PAGE]);
+chrome.send('queryHistory', ['', RESULTS_PER_PAGE]);
 chrome.send('getForeignSessions');
 
 /** @type {Promise} */
-var upgradePromise = null;
-/** @type {boolean} */
-var resultsRendered = false;
+let upgradePromise = null;
+
+/**
+ * Adding this on |window| since it is accessed by tests.
+ * @type {boolean}
+ */
+window.resultsRendered = false;
 
 /**
  * @return {!Promise} Resolves once the history-app has been fully upgraded.
@@ -18,6 +22,7 @@ var resultsRendered = false;
 function waitForAppUpgrade() {
   if (!upgradePromise) {
     upgradePromise = new Promise(function(resolve, reject) {
+      // TODO(dpapad): Need to update this to work with Polymer 2.
       if (window.Polymer && Polymer.isInstance &&
           Polymer.isInstance($('history-app'))) {
         resolve();
@@ -38,12 +43,12 @@ function waitForAppUpgrade() {
  */
 function historyResult(info, results) {
   waitForAppUpgrade().then(function() {
-    var app = /** @type {HistoryAppElement} */ ($('history-app'));
+    const app = /** @type {HistoryAppElement} */ ($('history-app'));
     app.historyResult(info, results);
     document.body.classList.remove('loading');
 
-    if (!resultsRendered) {
-      resultsRendered = true;
+    if (!window.resultsRendered) {
+      window.resultsRendered = true;
       app.onFirstRender();
     }
   });
@@ -52,16 +57,14 @@ function historyResult(info, results) {
 /**
  * Called by the history backend after receiving results and after discovering
  * the existence of other forms of browsing history.
- * @param {boolean} hasSyncedResults Whether there are synced results.
  * @param {boolean} includeOtherFormsOfBrowsingHistory Whether to include
  *     a sentence about the existence of other forms of browsing history.
  */
-function showNotification(
-    hasSyncedResults, includeOtherFormsOfBrowsingHistory) {
+function showNotification(includeOtherFormsOfBrowsingHistory) {
   waitForAppUpgrade().then(function() {
-    var app = /** @type {HistoryAppElement} */ ($('history-app'));
-    app.showSidebarFooter = includeOtherFormsOfBrowsingHistory;
-    app.hasSyncedResults = hasSyncedResults;
+    const app = /** @type {HistoryAppElement} */ ($('history-app'));
+    app.set(
+        'footerInfo.otherFormsOfHistory', includeOtherFormsOfBrowsingHistory);
   });
 }
 

@@ -40,7 +40,7 @@ class StringUtil {
   }
   static String fromInteger(int number) { return base::IntToString(number); }
   static String fromDouble(double number) {
-    return base::DoubleToString(number);
+    return base::NumberToString(number);
   }
   static double toDouble(const char* s, size_t len, bool* ok) {
     double v = 0.0;
@@ -56,6 +56,8 @@ class StringUtil {
   static void builderAppend(StringBuilder& builder, const char* s, size_t len) {
     builder.append(s, len);
   }
+  static void builderAppendQuotedString(StringBuilder& builder,
+                                        const String& str);
   static void builderReserve(StringBuilder& builder, unsigned capacity) {
     builder.reserveCapacity(capacity);
   }
@@ -72,6 +74,19 @@ class StringUtil {
   static std::unique_ptr<Value> parseJSON(const String& string);
 };
 
+// A read-only sequence of uninterpreted bytes with reference-counted storage.
+// Though the templates for generating the protocol bindings reference
+// this type, thus far it's not used in the Chrome layer, so we provide no
+// implementation here and rely on the linker optimizing it away. If this
+// changes, look to content/browser/devtools/protocol_string{.h,.cc} for
+// inspiration.
+class Binary {
+ public:
+  const uint8_t* data() const;
+  size_t size() const;
+  String toBase64() const;
+  static Binary fromBase64(const String& base64, bool* success);
+};
 }  // namespace protocol
 }  // namespace ui_devtools
 

@@ -62,6 +62,9 @@ class QGeoRoutingManager;
 class QGeoMappingManager;
 
 class QGeoServiceProviderFactory;
+class QGeoServiceProviderFactoryV2;
+class QGeoServiceProviderFactoryV3;
+class QQmlEngine;
 
 class QGeoServiceProviderPrivate
 {
@@ -82,6 +85,8 @@ public:
     Flags features(const char *enumName);
 
     QGeoServiceProviderFactory *factory;
+    QGeoServiceProviderFactoryV2 *factoryV2 = nullptr;
+    QGeoServiceProviderFactoryV3 *factoryV3 = nullptr;
     QJsonObject metaData;
 
     QVariantMap parameterMap;
@@ -93,16 +98,20 @@ public:
     QGeoRoutingManager *routingManager;
     QGeoMappingManager *mappingManager;
     QPlaceManager *placeManager;
+    QNavigationManager *navigationManager = nullptr;
+    QQmlEngine *qmlEngine = nullptr;
 
     QGeoServiceProvider::Error geocodeError;
     QGeoServiceProvider::Error routingError;
     QGeoServiceProvider::Error mappingError;
     QGeoServiceProvider::Error placeError;
+    QGeoServiceProvider::Error navigationError = QGeoServiceProvider::NoError;
 
     QString geocodeErrorString;
     QString routingErrorString;
     QString mappingErrorString;
     QString placeErrorString;
+    QString navigationErrorString;
 
     QGeoServiceProvider::Error error;
     QString errorString;

@@ -43,6 +43,7 @@ QT_BEGIN_NAMESPACE
 #define QT_QUICK_CONTROLS_TEST_MAIN(name) \
     int main(int argc, char **argv) \
     { \
+        QTEST_SET_MAIN_SOURCE_PATH \
         QtQuickControlsTestApp* app = 0; \
         if (!QCoreApplication::instance()) \
             app = new QtQuickControlsTestApp(argc, argv); \

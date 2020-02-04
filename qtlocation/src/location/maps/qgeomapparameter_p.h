@@ -52,6 +52,7 @@
 #include <QObject>
 #include <QString>
 #include <QtLocation/private/qlocationglobal_p.h>
+#include <QVariantMap>
 
 QT_BEGIN_NAMESPACE
 
@@ -62,12 +63,18 @@ class Q_LOCATION_PRIVATE_EXPORT QGeoMapParameter : public QObject
     Q_PROPERTY(QString type READ type WRITE setType)
 public:
     explicit QGeoMapParameter(QObject *parent = 0);
+    QGeoMapParameter(const QList<QPair<QLatin1String, QVariant>> &properties, QObject *parent = 0);
     virtual ~QGeoMapParameter();
+
+    bool operator==(const QGeoMapParameter &other) const;
 
     virtual QString type() const;
     virtual void setType(const QString &type);
 
     void updateProperty(const char *propertyName, QVariant value);
+
+    QVariantMap toVariantMap() const;
+    bool hasProperty(const char *propertyName);
 
 Q_SIGNALS:
     void propertyUpdated(QGeoMapParameter *param, const char *propertyName);

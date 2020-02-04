@@ -115,13 +115,15 @@ bool QPlaceContentPrivate::compare(const QPlaceContentPrivate *other) const
     Defines the type of content.
     \value NoType
         The content object is default constructed, any other content type may be assigned
-        to this content object.
+        to this content object
     \value ImageType
-        The content object is an image.
+        The content object is an image
     \value ReviewType
-        The content object is a review.
+        The content object is a review
     \value EditorialType
         The content object is an editorial
+    \value CustomType
+        The content object is of a custom type
 */
 
 /*!

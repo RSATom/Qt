@@ -20,6 +20,10 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/text_constants.h"
 
+namespace cc {
+class SkottieWrapper;
+}  // namespace cc
+
 namespace gfx {
 
 class Rect;
@@ -69,7 +73,7 @@ class GFX_EXPORT Canvas {
 
     // Specifies if words can be split by new lines.
     // This only works with MULTI_LINE.
-    CHARACTER_BREAK = 1 << 8,
+    CHARACTER_BREAKABLE = 1 << 8,
 
     // Instructs DrawStringRect() to not use subpixel rendering.  This is useful
     // when rendering text onto a fully- or partially-transparent background
@@ -114,7 +118,8 @@ class GFX_EXPORT Canvas {
                             int* width,
                             int* height,
                             int line_height,
-                            int flags);
+                            int flags,
+                            Typesetter typesetter = Typesetter::DEFAULT);
 
   // This is same as SizeStringInt except that fractional size is returned.
   // See comment in GetStringWidthF for its usage.
@@ -123,12 +128,14 @@ class GFX_EXPORT Canvas {
                               float* width,
                               float* height,
                               int line_height,
-                              int flags);
+                              int flags,
+                              Typesetter typesetter = Typesetter::DEFAULT);
 
   // Returns the number of horizontal pixels needed to display the specified
   // |text| with |font_list|.
   static int GetStringWidth(const base::string16& text,
-                            const FontList& font_list);
+                            const FontList& font_list,
+                            Typesetter typesetter = Typesetter::DEFAULT);
 
   // This is same as GetStringWidth except that fractional width is returned.
   // Use this method for the scenario that multiple string widths need to be
@@ -136,7 +143,8 @@ class GFX_EXPORT Canvas {
   // adding multiple ceiled widths could cause more precision loss for certain
   // platform like Mac where the fractioal width is used.
   static float GetStringWidthF(const base::string16& text,
-                               const FontList& font_list);
+                               const FontList& font_list,
+                               Typesetter typesetter = Typesetter::DEFAULT);
 
   // Returns the default text alignment to be used when drawing text on a
   // Canvas based on the directionality of the system locale language.
@@ -356,6 +364,13 @@ class GFX_EXPORT Canvas {
                        const SkPath& path,
                        const cc::PaintFlags& flags);
 
+  // Draws the frame of the |skottie| animation specified by the normalized time
+  // instant t [0->first frame .. 1->last frame] onto the region corresponded by
+  // |dst| in the canvas.
+  void DrawSkottie(scoped_refptr<cc::SkottieWrapper> skottie,
+                   const Rect& dst,
+                   float t);
+
   // Draws text with the specified color, fonts and location. The text is
   // aligned to the left, vertically centered, clipped to the region. If the
   // text is too big, it is truncated and '...' is added to the end.
@@ -402,6 +417,8 @@ class GFX_EXPORT Canvas {
                     int w,
                     int h,
                     float tile_scale = 1.0f,
+                    SkShader::TileMode tile_mode_x = SkShader::kRepeat_TileMode,
+                    SkShader::TileMode tile_mode_y = SkShader::kRepeat_TileMode,
                     cc::PaintFlags* flags = nullptr);
 
   // Helper for TileImageInt().  Initializes |flags| for tiling |image| with the
@@ -414,6 +431,8 @@ class GFX_EXPORT Canvas {
                                float tile_scale_y,
                                int dest_x,
                                int dest_y,
+                               SkShader::TileMode tile_mode_x,
+                               SkShader::TileMode tile_mode_y,
                                cc::PaintFlags* flags);
 
   // Apply transformation on the canvas.

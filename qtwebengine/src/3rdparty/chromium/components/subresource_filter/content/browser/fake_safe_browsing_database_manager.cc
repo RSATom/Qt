@@ -7,16 +7,28 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "url/gurl.h"
 
-FakeSafeBrowsingDatabaseManager::FakeSafeBrowsingDatabaseManager() {}
+FakeSafeBrowsingDatabaseManager::FakeSafeBrowsingDatabaseManager()
+    : weak_factory_(this) {}
+
+void FakeSafeBrowsingDatabaseManager::AddBlacklistedUrl(
+    const GURL& url,
+    safe_browsing::SBThreatType threat_type,
+    const safe_browsing::ThreatMetadata& metadata) {
+  url_to_threat_type_[url] = std::make_pair(threat_type, metadata);
+}
 
 void FakeSafeBrowsingDatabaseManager::AddBlacklistedUrl(
     const GURL& url,
     safe_browsing::SBThreatType threat_type,
     safe_browsing::ThreatPatternType pattern_type) {
-  url_to_threat_type_[url] = std::make_pair(threat_type, pattern_type);
+  safe_browsing::ThreatMetadata metadata;
+  metadata.threat_pattern_type = pattern_type;
+  AddBlacklistedUrl(url, threat_type, metadata);
 }
 
 void FakeSafeBrowsingDatabaseManager::RemoveBlacklistedUrl(const GURL& url) {
@@ -37,8 +49,6 @@ FakeSafeBrowsingDatabaseManager::~FakeSafeBrowsingDatabaseManager() {}
 bool FakeSafeBrowsingDatabaseManager::CheckUrlForSubresourceFilter(
     const GURL& url,
     Client* client) {
-  DCHECK(CanCheckSubresourceFilter());
-
   if (synchronous_failure_ && !url_to_threat_type_.count(url))
     return true;
 
@@ -48,11 +58,12 @@ bool FakeSafeBrowsingDatabaseManager::CheckUrlForSubresourceFilter(
   checks_.insert(client);
   if (simulate_timeout_)
     return false;
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
-      base::Bind(&FakeSafeBrowsingDatabaseManager::
-                     OnCheckUrlForSubresourceFilterComplete,
-                 base::Unretained(this), base::Unretained(client), url));
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO},
+      base::BindOnce(&FakeSafeBrowsingDatabaseManager::
+                         OnCheckUrlForSubresourceFilterComplete,
+                     weak_factory_.GetWeakPtr(), base::Unretained(client),
+                     url));
   return false;
 }
 
@@ -68,7 +79,7 @@ void FakeSafeBrowsingDatabaseManager::OnCheckUrlForSubresourceFilterComplete(
   auto it = url_to_threat_type_.find(url);
   if (it != url_to_threat_type_.end()) {
     threat_type = it->second.first;
-    metadata.threat_pattern_type = it->second.second;
+    metadata = it->second.second;
   }
   client->OnCheckBrowseUrlResult(url, threat_type, metadata);
 
@@ -95,10 +106,6 @@ void FakeSafeBrowsingDatabaseManager::CancelCheck(Client* client) {
 }
 bool FakeSafeBrowsingDatabaseManager::CanCheckResourceType(
     content::ResourceType /* resource_type */) const {
-  return true;
-}
-
-bool FakeSafeBrowsingDatabaseManager::CanCheckSubresourceFilter() const {
   return true;
 }
 

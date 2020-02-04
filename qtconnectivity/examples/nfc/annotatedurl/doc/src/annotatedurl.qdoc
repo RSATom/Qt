@@ -30,12 +30,52 @@
 \title Annotated URL Example
 \brief An example showing reading from formatted NFC Data Exchange Format (NDEF) messages.
 
-The Annotated URL example displays the contents of specifically formatted NFC
-Data Exchange Format (NDEF) messages read from an NFC Tag. The NDEF message
-should contain a URI record, an optional \c image/* MIME record, and one or more
-localized Text records.
+The Annotated URL example displays the contents of specifically
+formatted NFC Data Exchange Format (NDEF) messages read from an NFC
+Tag. The NDEF message should contain a URI record, an optional \c
+image/* MIME record, and one or more localized Text records.
 
+This is the initial state of the example:
 \image annotatedurl.png
+
+In this example the NFC Tag used contains a text record. The UI
+gets updated accordingly to:
+
+\image annotatedurl2.png
+
+\section1 AnnotatedUrl Class Definition
+
+The \c AnnotatedUrl class wraps the \c QNearFieldManager, the class
+providing the NFC Tag detection functionality. NDEF messages are read
+by the QNearFieldManager and forwarded to a handler contained in the
+\c AnnotatedUrl class. After parsing the NDEF message the class emits
+the signal AnnotatedUrl::annotatedUrl(const QUrl &url, const QString
+&title, const QPixmap &pixmap). The UI reacts to the signal displaying
+the contents of the NDEF message.
+
+\snippet annotatedurl/annotatedurl.h 0
+
+\section1 AnnotatedUrl Handler Implementation
+
+NFC messages read by the \c QNearFieldManager are forwarded to
+AnnotatedUrl::handleMessage. The callback signature details can be
+read in \l{QNearFieldManager::registerNdefMessageHandler}.
+
+\snippet annotatedurl/annotatedurl.cpp handleMessage 1
+
+Because NFC messages are composed of several NDEF records, looping
+through all of the records allows the extraction of the 3 parameters
+to be displayed in the UI: the Uri, the Title and the Pixmap:
+
+
+\snippet annotatedurl/annotatedurl.cpp handleMessage 2
+\snippet annotatedurl/annotatedurl.cpp handleMessage 3
+
+Finally after having extracted the parameters of the NFC message the
+corresponding signal is emitted so that the UI can handle it.
+
+\snippet annotatedurl/annotatedurl.cpp handleMessage 4
+
 
 \include examples-run.qdocinc
 

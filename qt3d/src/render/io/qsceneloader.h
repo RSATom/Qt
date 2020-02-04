@@ -51,7 +51,7 @@ namespace Qt3DRender {
 
 class QSceneLoaderPrivate;
 
-class QT3DRENDERSHARED_EXPORT QSceneLoader : public Qt3DCore::QComponent
+class Q_3DRENDERSHARED_EXPORT QSceneLoader : public Qt3DCore::QComponent
 {
     Q_OBJECT
     Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
@@ -60,7 +60,7 @@ public:
     explicit QSceneLoader(Qt3DCore::QNode *parent = nullptr);
     ~QSceneLoader();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
     enum Status {
         None = 0,
         Loading,
@@ -100,7 +100,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QSceneLoader)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

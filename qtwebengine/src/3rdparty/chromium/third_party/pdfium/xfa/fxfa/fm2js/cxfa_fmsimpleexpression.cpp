@@ -7,25 +7,16 @@
 #include "xfa/fxfa/fm2js/cxfa_fmsimpleexpression.h"
 
 #include <algorithm>
+#include <iostream>
 #include <utility>
 
+#include "core/fxcrt/autorestorer.h"
+#include "core/fxcrt/cfx_widetextbuf.h"
 #include "core/fxcrt/fx_extension.h"
 #include "third_party/base/logging.h"
+#include "xfa/fxfa/fm2js/cxfa_fmtojavascriptdepth.h"
 
 namespace {
-
-// Indexed by XFA_FM_SimpleExpressionType
-const wchar_t* const gs_lpStrExpFuncName[] = {
-    L"pfm_rt.asgn_val_op", L"pfm_rt.log_or_op",  L"pfm_rt.log_and_op",
-    L"pfm_rt.eq_op",       L"pfm_rt.neq_op",     L"pfm_rt.lt_op",
-    L"pfm_rt.le_op",       L"pfm_rt.gt_op",      L"pfm_rt.ge_op",
-    L"pfm_rt.plus_op",     L"pfm_rt.minus_op",   L"pfm_rt.mul_op",
-    L"pfm_rt.div_op",      L"pfm_rt.pos_op",     L"pfm_rt.neg_op",
-    L"pfm_rt.log_not_op",  L"pfm_rt.",           L"pfm_rt.dot_acc",
-    L"pfm_rt.dotdot_acc",  L"pfm_rt.concat_obj", L"pfm_rt.is_obj",
-    L"pfm_rt.is_ary",      L"pfm_rt.get_val",    L"pfm_rt.get_jsobj",
-    L"pfm_rt.var_filter",
-};
 
 const wchar_t* const g_BuiltInFuncs[] = {
     L"Abs",          L"Apr",       L"At",       L"Avg",
@@ -47,7 +38,7 @@ const wchar_t* const g_BuiltInFuncs[] = {
     L"Within",       L"WordNum",
 };
 
-const FX_STRSIZE g_BuiltInFuncsMaxLen = 12;
+const size_t g_BuiltInFuncsMaxLen = 12;
 
 struct XFA_FMSOMMethod {
   const wchar_t* m_wsSomMethodName;
@@ -80,437 +71,332 @@ const XFA_FMSOMMethod gs_FMSomMethods[] = {
 
 }  // namespace
 
-CFX_WideStringC XFA_FM_EXPTypeToString(
-    XFA_FM_SimpleExpressionType simpleExpType) {
-  return gs_lpStrExpFuncName[simpleExpType];
-}
-
-CXFA_FMSimpleExpression::CXFA_FMSimpleExpression(uint32_t line, XFA_FM_TOKEN op)
-    : m_line(line), m_op(op) {}
-
-bool CXFA_FMSimpleExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  return true;
-}
-
-bool CXFA_FMSimpleExpression::ToImpliedReturnJS(CFX_WideTextBuf& javascript) {
-  return true;
-}
+CXFA_FMSimpleExpression::CXFA_FMSimpleExpression(XFA_FM_TOKEN op) : m_op(op) {}
 
 XFA_FM_TOKEN CXFA_FMSimpleExpression::GetOperatorToken() const {
   return m_op;
 }
 
-CXFA_FMNullExpression::CXFA_FMNullExpression(uint32_t line)
-    : CXFA_FMSimpleExpression(line, TOKnull) {}
+CXFA_FMNullExpression::CXFA_FMNullExpression()
+    : CXFA_FMSimpleExpression(TOKnull) {}
 
-bool CXFA_FMNullExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << L"null";
-  return true;
+bool CXFA_FMNullExpression::ToJavaScript(CFX_WideTextBuf* js, ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
+    return false;
+
+  *js << "null";
+  return !CXFA_IsTooBig(js);
 }
 
-CXFA_FMNumberExpression::CXFA_FMNumberExpression(uint32_t line,
-                                                 CFX_WideStringC wsNumber)
-    : CXFA_FMSimpleExpression(line, TOKnumber), m_wsNumber(wsNumber) {}
+CXFA_FMNumberExpression::CXFA_FMNumberExpression(WideStringView wsNumber)
+    : CXFA_FMSimpleExpression(TOKnumber), m_wsNumber(wsNumber) {}
 
-CXFA_FMNumberExpression::~CXFA_FMNumberExpression() {}
+CXFA_FMNumberExpression::~CXFA_FMNumberExpression() = default;
 
-bool CXFA_FMNumberExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << m_wsNumber;
-  return true;
+bool CXFA_FMNumberExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                           ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
+    return false;
+
+  *js << m_wsNumber;
+  return !CXFA_IsTooBig(js);
 }
 
-CXFA_FMStringExpression::CXFA_FMStringExpression(uint32_t line,
-                                                 CFX_WideStringC wsString)
-    : CXFA_FMSimpleExpression(line, TOKstring), m_wsString(wsString) {}
+CXFA_FMStringExpression::CXFA_FMStringExpression(WideStringView wsString)
+    : CXFA_FMSimpleExpression(TOKstring), m_wsString(wsString) {}
 
-CXFA_FMStringExpression::~CXFA_FMStringExpression() {}
+CXFA_FMStringExpression::~CXFA_FMStringExpression() = default;
 
-bool CXFA_FMStringExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  CFX_WideString tempStr(m_wsString);
+bool CXFA_FMStringExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                           ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
+    return false;
+
+  WideString tempStr(m_wsString);
   if (tempStr.GetLength() <= 2) {
-    javascript << tempStr;
-    return true;
+    *js << tempStr;
+    return !CXFA_IsTooBig(js);
   }
-  javascript.AppendChar(L'\"');
-  for (int32_t i = 1; i < tempStr.GetLength() - 1; i++) {
+
+  *js << "\"";
+  for (size_t i = 1; i < tempStr.GetLength() - 1; i++) {
     wchar_t oneChar = tempStr[i];
     switch (oneChar) {
       case L'\"':
-        i++;
-        javascript << L"\\\"";
+        ++i;
+        *js << "\\\"";
         break;
       case 0x0d:
         break;
       case 0x0a:
-        javascript << L"\\n";
+        *js << "\\n";
         break;
       default:
-        javascript.AppendChar(oneChar);
+        js->AppendChar(oneChar);
         break;
     }
   }
-  javascript.AppendChar(L'\"');
-  return true;
+  *js << "\"";
+  return !CXFA_IsTooBig(js);
 }
 
 CXFA_FMIdentifierExpression::CXFA_FMIdentifierExpression(
-    uint32_t line,
-    CFX_WideStringC wsIdentifier)
-    : CXFA_FMSimpleExpression(line, TOKidentifier),
-      m_wsIdentifier(wsIdentifier) {}
+    WideStringView wsIdentifier)
+    : CXFA_FMSimpleExpression(TOKidentifier), m_wsIdentifier(wsIdentifier) {}
 
-CXFA_FMIdentifierExpression::~CXFA_FMIdentifierExpression() {}
+CXFA_FMIdentifierExpression::~CXFA_FMIdentifierExpression() = default;
 
-bool CXFA_FMIdentifierExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  CFX_WideString tempStr(m_wsIdentifier);
-  if (tempStr == L"$") {
-    tempStr = L"this";
-  } else if (tempStr == L"!") {
-    tempStr = L"xfa.datasets";
-  } else if (tempStr == L"$data") {
-    tempStr = L"xfa.datasets.data";
-  } else if (tempStr == L"$event") {
-    tempStr = L"xfa.event";
-  } else if (tempStr == L"$form") {
-    tempStr = L"xfa.form";
-  } else if (tempStr == L"$host") {
-    tempStr = L"xfa.host";
-  } else if (tempStr == L"$layout") {
-    tempStr = L"xfa.layout";
-  } else if (tempStr == L"$template") {
-    tempStr = L"xfa.template";
-  } else if (tempStr[0] == L'!') {
-    tempStr = EXCLAMATION_IN_IDENTIFIER + tempStr.Mid(1);
-  }
-  javascript << tempStr;
-  return true;
-}
+bool CXFA_FMIdentifierExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                               ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
+    return false;
 
-CXFA_FMUnaryExpression::CXFA_FMUnaryExpression(
-    uint32_t line,
-    XFA_FM_TOKEN op,
-    std::unique_ptr<CXFA_FMSimpleExpression> pExp)
-    : CXFA_FMSimpleExpression(line, op), m_pExp(std::move(pExp)) {}
+  if (m_wsIdentifier.EqualsASCII("$"))
+    *js << "this";
+  else if (m_wsIdentifier.EqualsASCII("!"))
+    *js << "xfa.datasets";
+  else if (m_wsIdentifier.EqualsASCII("$data"))
+    *js << "xfa.datasets.data";
+  else if (m_wsIdentifier.EqualsASCII("$event"))
+    *js << "xfa.event";
+  else if (m_wsIdentifier.EqualsASCII("$form"))
+    *js << "xfa.form";
+  else if (m_wsIdentifier.EqualsASCII("$host"))
+    *js << "xfa.host";
+  else if (m_wsIdentifier.EqualsASCII("$layout"))
+    *js << "xfa.layout";
+  else if (m_wsIdentifier.EqualsASCII("$template"))
+    *js << "xfa.template";
+  else if (m_wsIdentifier[0] == L'!')
+    *js << "pfm__excl__"
+        << m_wsIdentifier.Right(m_wsIdentifier.GetLength() - 1);
+  else
+    *js << m_wsIdentifier;
 
-CXFA_FMUnaryExpression::~CXFA_FMUnaryExpression() {}
-
-bool CXFA_FMUnaryExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  return true;
-}
-
-CXFA_FMBinExpression::CXFA_FMBinExpression(
-    uint32_t line,
-    XFA_FM_TOKEN op,
-    std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
-    std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
-    : CXFA_FMSimpleExpression(line, op),
-      m_pExp1(std::move(pExp1)),
-      m_pExp2(std::move(pExp2)) {}
-
-CXFA_FMBinExpression::~CXFA_FMBinExpression() {}
-
-bool CXFA_FMBinExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  return true;
+  return !CXFA_IsTooBig(js);
 }
 
 CXFA_FMAssignExpression::CXFA_FMAssignExpression(
-    uint32_t line,
     XFA_FM_TOKEN op,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
-    : CXFA_FMBinExpression(line, op, std::move(pExp1), std::move(pExp2)) {}
+    : CXFA_FMSimpleExpression(op),
+      m_pExp1(std::move(pExp1)),
+      m_pExp2(std::move(pExp2)) {}
 
-bool CXFA_FMAssignExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << L"if (";
-  javascript << gs_lpStrExpFuncName[ISFMOBJECT];
-  javascript << L"(";
+CXFA_FMAssignExpression::~CXFA_FMAssignExpression() = default;
+
+bool CXFA_FMAssignExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                           ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
+    return false;
+
   CFX_WideTextBuf tempExp1;
-  if (!m_pExp1->ToJavaScript(tempExp1))
+  if (!m_pExp1->ToJavaScript(&tempExp1, ReturnType::kInfered))
     return false;
-  javascript << tempExp1;
-  javascript << L"))\n{\n";
-  javascript << gs_lpStrExpFuncName[ASSIGN];
-  javascript << L"(";
-  javascript << tempExp1;
-  javascript << L", ";
-  if (CFXA_IsTooBig(javascript))
-    return false;
+
+  *js << "if (pfm_rt.is_obj(" << tempExp1 << "))\n{\n";
+  if (type == ReturnType::kImplied)
+    *js << "pfm_ret = ";
 
   CFX_WideTextBuf tempExp2;
-  if (!m_pExp2->ToJavaScript(tempExp2))
+  if (!m_pExp2->ToJavaScript(&tempExp2, ReturnType::kInfered))
     return false;
-  javascript << tempExp2;
-  javascript << L");\n}\n";
+
+  *js << "pfm_rt.asgn_val_op(" << tempExp1 << ", " << tempExp2 << ");\n}\n";
+
   if (m_pExp1->GetOperatorToken() == TOKidentifier &&
-      tempExp1.AsStringC() != L"this") {
-    javascript << L"else\n{\n";
-    javascript << tempExp1;
-    javascript << L" = ";
-    javascript << gs_lpStrExpFuncName[ASSIGN];
-    javascript << L"(";
-    javascript << tempExp1;
-    javascript << L", ";
-    javascript << tempExp2;
-    javascript << L");\n}\n";
+      !tempExp1.AsStringView().EqualsASCII("this")) {
+    *js << "else\n{\n";
+    if (type == ReturnType::kImplied)
+      *js << "pfm_ret = ";
+
+    *js << tempExp1 << " = pfm_rt.asgn_val_op";
+    *js << "(" << tempExp1 << ", " << tempExp2 << ");\n";
+    *js << "}\n";
   }
-  return !CFXA_IsTooBig(javascript);
+  return !CXFA_IsTooBig(js);
 }
 
-bool CXFA_FMAssignExpression::ToImpliedReturnJS(CFX_WideTextBuf& javascript) {
-  javascript << L"if (";
-  javascript << gs_lpStrExpFuncName[ISFMOBJECT];
-  javascript << L"(";
-  CFX_WideTextBuf tempExp1;
-  if (!m_pExp1->ToJavaScript(tempExp1))
-    return false;
-  javascript << tempExp1;
-  javascript << L"))\n{\n";
-  javascript << RUNTIMEFUNCTIONRETURNVALUE;
-  javascript << L" = ";
-  javascript << gs_lpStrExpFuncName[ASSIGN];
-  javascript << L"(";
-  javascript << tempExp1;
-  javascript << L", ";
-  if (CFXA_IsTooBig(javascript))
+CXFA_FMBinExpression::CXFA_FMBinExpression(
+    const WideString& opName,
+    XFA_FM_TOKEN op,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
+    : CXFA_FMSimpleExpression(op),
+      m_OpName(opName),
+      m_pExp1(std::move(pExp1)),
+      m_pExp2(std::move(pExp2)) {}
+
+CXFA_FMBinExpression::~CXFA_FMBinExpression() = default;
+
+bool CXFA_FMBinExpression::ToJavaScript(CFX_WideTextBuf* js, ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
     return false;
 
-  CFX_WideTextBuf tempExp2;
-  if (!m_pExp2->ToJavaScript(tempExp2))
+  *js << "pfm_rt." << m_OpName << "(";
+  if (!m_pExp1->ToJavaScript(js, ReturnType::kInfered))
     return false;
-  javascript << tempExp2;
-  javascript << L");\n}\n";
-  if (m_pExp1->GetOperatorToken() == TOKidentifier &&
-      tempExp1.AsStringC() != L"this") {
-    javascript << L"else\n{\n";
-    javascript << RUNTIMEFUNCTIONRETURNVALUE;
-    javascript << L" = ";
-    javascript << tempExp1;
-    javascript << L" = ";
-    javascript << gs_lpStrExpFuncName[ASSIGN];
-    javascript << L"(";
-    javascript << tempExp1;
-    javascript << L", ";
-    javascript << tempExp2;
-    javascript << L");\n}\n";
-  }
-  return !CFXA_IsTooBig(javascript);
+  *js << ", ";
+  if (!m_pExp2->ToJavaScript(js, ReturnType::kInfered))
+    return false;
+  *js << ")";
+  return !CXFA_IsTooBig(js);
 }
 
 CXFA_FMLogicalOrExpression::CXFA_FMLogicalOrExpression(
-    uint32_t line,
     XFA_FM_TOKEN op,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
-    : CXFA_FMBinExpression(line, op, std::move(pExp1), std::move(pExp2)) {}
-
-bool CXFA_FMLogicalOrExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << gs_lpStrExpFuncName[LOGICALOR];
-  javascript << L"(";
-  if (!m_pExp1->ToJavaScript(javascript))
-    return false;
-  javascript << L", ";
-  if (!m_pExp2->ToJavaScript(javascript))
-    return false;
-  javascript << L")";
-  return !CFXA_IsTooBig(javascript);
-}
+    : CXFA_FMBinExpression(L"log_or_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
 
 CXFA_FMLogicalAndExpression::CXFA_FMLogicalAndExpression(
-    uint32_t line,
     XFA_FM_TOKEN op,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
-    : CXFA_FMBinExpression(line, op, std::move(pExp1), std::move(pExp2)) {}
+    : CXFA_FMBinExpression(L"log_and_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
 
-bool CXFA_FMLogicalAndExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << gs_lpStrExpFuncName[LOGICALAND];
-  javascript << L"(";
-  if (!m_pExp1->ToJavaScript(javascript))
-    return false;
-  javascript << L", ";
-  if (!m_pExp2->ToJavaScript(javascript))
-    return false;
-  javascript << L")";
-  return !CFXA_IsTooBig(javascript);
-}
-
-CXFA_FMEqualityExpression::CXFA_FMEqualityExpression(
-    uint32_t line,
+CXFA_FMEqualExpression::CXFA_FMEqualExpression(
     XFA_FM_TOKEN op,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
-    : CXFA_FMBinExpression(line, op, std::move(pExp1), std::move(pExp2)) {}
+    : CXFA_FMBinExpression(L"eq_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
 
-bool CXFA_FMEqualityExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  switch (m_op) {
-    case TOKeq:
-    case TOKkseq:
-      javascript << gs_lpStrExpFuncName[EQUALITY];
-      break;
-    case TOKne:
-    case TOKksne:
-      javascript << gs_lpStrExpFuncName[NOTEQUALITY];
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
-  javascript << L"(";
-  if (!m_pExp1->ToJavaScript(javascript))
-    return false;
-  javascript << L", ";
-  if (!m_pExp2->ToJavaScript(javascript))
-    return false;
-  javascript << L")";
-  return !CFXA_IsTooBig(javascript);
-}
-
-CXFA_FMRelationalExpression::CXFA_FMRelationalExpression(
-    uint32_t line,
+CXFA_FMNotEqualExpression::CXFA_FMNotEqualExpression(
     XFA_FM_TOKEN op,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
-    : CXFA_FMBinExpression(line, op, std::move(pExp1), std::move(pExp2)) {}
+    : CXFA_FMBinExpression(L"neq_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
 
-bool CXFA_FMRelationalExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  switch (m_op) {
-    case TOKlt:
-    case TOKkslt:
-      javascript << gs_lpStrExpFuncName[LESS];
-      break;
-    case TOKgt:
-    case TOKksgt:
-      javascript << gs_lpStrExpFuncName[GREATER];
-      break;
-    case TOKle:
-    case TOKksle:
-      javascript << gs_lpStrExpFuncName[LESSEQUAL];
-      break;
-    case TOKge:
-    case TOKksge:
-      javascript << gs_lpStrExpFuncName[GREATEREQUAL];
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
-  javascript << L"(";
-  if (!m_pExp1->ToJavaScript(javascript))
-    return false;
-  javascript << L", ";
-  if (!m_pExp2->ToJavaScript(javascript))
-    return false;
-  javascript << L")";
-  return !CFXA_IsTooBig(javascript);
-}
-
-CXFA_FMAdditiveExpression::CXFA_FMAdditiveExpression(
-    uint32_t line,
+CXFA_FMGtExpression::CXFA_FMGtExpression(
     XFA_FM_TOKEN op,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
-    : CXFA_FMBinExpression(line, op, std::move(pExp1), std::move(pExp2)) {}
+    : CXFA_FMBinExpression(L"gt_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
 
-bool CXFA_FMAdditiveExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  switch (m_op) {
-    case TOKplus:
-      javascript << gs_lpStrExpFuncName[PLUS];
-      break;
-    case TOKminus:
-      javascript << gs_lpStrExpFuncName[MINUS];
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
-  javascript << L"(";
-  if (!m_pExp1->ToJavaScript(javascript))
-    return false;
-  javascript << L", ";
-  if (!m_pExp2->ToJavaScript(javascript))
-    return false;
-  javascript << L")";
-  return !CFXA_IsTooBig(javascript);
-}
-
-CXFA_FMMultiplicativeExpression::CXFA_FMMultiplicativeExpression(
-    uint32_t line,
+CXFA_FMGeExpression::CXFA_FMGeExpression(
     XFA_FM_TOKEN op,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
-    : CXFA_FMBinExpression(line, op, std::move(pExp1), std::move(pExp2)) {}
+    : CXFA_FMBinExpression(L"ge_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
 
-bool CXFA_FMMultiplicativeExpression::ToJavaScript(
-    CFX_WideTextBuf& javascript) {
-  switch (m_op) {
-    case TOKmul:
-      javascript << gs_lpStrExpFuncName[MULTIPLE];
-      break;
-    case TOKdiv:
-      javascript << gs_lpStrExpFuncName[DIVIDE];
-      break;
-    default:
-      NOTREACHED();
-      break;
-  }
-  javascript << L"(";
-  if (!m_pExp1->ToJavaScript(javascript))
+CXFA_FMLtExpression::CXFA_FMLtExpression(
+    XFA_FM_TOKEN op,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
+    : CXFA_FMBinExpression(L"lt_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
+
+CXFA_FMLeExpression::CXFA_FMLeExpression(
+    XFA_FM_TOKEN op,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
+    : CXFA_FMBinExpression(L"le_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
+
+CXFA_FMPlusExpression::CXFA_FMPlusExpression(
+    XFA_FM_TOKEN op,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
+    : CXFA_FMBinExpression(L"plus_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
+
+CXFA_FMMinusExpression::CXFA_FMMinusExpression(
+    XFA_FM_TOKEN op,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
+    : CXFA_FMBinExpression(L"minus_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
+
+CXFA_FMMulExpression::CXFA_FMMulExpression(
+    XFA_FM_TOKEN op,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
+    : CXFA_FMBinExpression(L"mul_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
+
+CXFA_FMDivExpression::CXFA_FMDivExpression(
+    XFA_FM_TOKEN op,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp1,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp2)
+    : CXFA_FMBinExpression(L"div_op",
+                           op,
+                           std::move(pExp1),
+                           std::move(pExp2)) {}
+
+CXFA_FMUnaryExpression::CXFA_FMUnaryExpression(
+    const WideString& opName,
+    XFA_FM_TOKEN op,
+    std::unique_ptr<CXFA_FMSimpleExpression> pExp)
+    : CXFA_FMSimpleExpression(op), m_OpName(opName), m_pExp(std::move(pExp)) {}
+
+CXFA_FMUnaryExpression::~CXFA_FMUnaryExpression() = default;
+
+bool CXFA_FMUnaryExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                          ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
     return false;
-  javascript << L", ";
-  if (!m_pExp2->ToJavaScript(javascript))
+
+  *js << "pfm_rt." << m_OpName.c_str() << "(";
+  if (!m_pExp->ToJavaScript(js, ReturnType::kInfered))
     return false;
-  javascript << L")";
-  return !CFXA_IsTooBig(javascript);
+  *js << ")";
+  return !CXFA_IsTooBig(js);
 }
 
 CXFA_FMPosExpression::CXFA_FMPosExpression(
-    uint32_t line,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp)
-    : CXFA_FMUnaryExpression(line, TOKplus, std::move(pExp)) {}
-
-bool CXFA_FMPosExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << gs_lpStrExpFuncName[POSITIVE];
-  javascript << L"(";
-  if (!m_pExp->ToJavaScript(javascript))
-    return false;
-  javascript << L")";
-  return true;
-}
+    : CXFA_FMUnaryExpression(L"pos_op", TOKplus, std::move(pExp)) {}
 
 CXFA_FMNegExpression::CXFA_FMNegExpression(
-    uint32_t line,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp)
-    : CXFA_FMUnaryExpression(line, TOKminus, std::move(pExp)) {}
-
-bool CXFA_FMNegExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << gs_lpStrExpFuncName[NEGATIVE];
-  javascript << L"(";
-  if (!m_pExp->ToJavaScript(javascript))
-    return false;
-  javascript << L")";
-  return true;
-}
+    : CXFA_FMUnaryExpression(L"neg_op", TOKminus, std::move(pExp)) {}
 
 CXFA_FMNotExpression::CXFA_FMNotExpression(
-    uint32_t line,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp)
-    : CXFA_FMUnaryExpression(line, TOKksnot, std::move(pExp)) {}
-
-bool CXFA_FMNotExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << gs_lpStrExpFuncName[NOT];
-  javascript << L"(";
-  if (!m_pExp->ToJavaScript(javascript))
-    return false;
-  javascript << L")";
-  return true;
-}
+    : CXFA_FMUnaryExpression(L"log_not_op", TOKksnot, std::move(pExp)) {}
 
 CXFA_FMCallExpression::CXFA_FMCallExpression(
-    uint32_t line,
     std::unique_ptr<CXFA_FMSimpleExpression> pExp,
     std::vector<std::unique_ptr<CXFA_FMSimpleExpression>>&& pArguments,
     bool bIsSomMethod)
-    : CXFA_FMUnaryExpression(line, TOKcall, std::move(pExp)),
+    : CXFA_FMSimpleExpression(TOKcall),
+      m_pExp(std::move(pExp)),
       m_bIsSomMethod(bIsSomMethod),
       m_Arguments(std::move(pArguments)) {}
 
@@ -520,12 +406,12 @@ bool CXFA_FMCallExpression::IsBuiltInFunc(CFX_WideTextBuf* funcName) {
   if (funcName->GetLength() > g_BuiltInFuncsMaxLen)
     return false;
 
-  auto cmpFunc = [](const wchar_t* iter, const CFX_WideString& val) -> bool {
-    return val.CompareNoCase(iter) > 0;
-  };
-  CFX_WideString str = funcName->MakeString();
+  WideString str = funcName->MakeString();
   const wchar_t* const* pMatchResult = std::lower_bound(
-      std::begin(g_BuiltInFuncs), std::end(g_BuiltInFuncs), str, cmpFunc);
+      std::begin(g_BuiltInFuncs), std::end(g_BuiltInFuncs), str,
+      [](const wchar_t* iter, const WideString& val) -> bool {
+        return val.CompareNoCase(iter) > 0;
+      });
   if (pMatchResult != std::end(g_BuiltInFuncs) &&
       !str.CompareNoCase(*pMatchResult)) {
     funcName->Clear();
@@ -536,13 +422,12 @@ bool CXFA_FMCallExpression::IsBuiltInFunc(CFX_WideTextBuf* funcName) {
 }
 
 uint32_t CXFA_FMCallExpression::IsMethodWithObjParam(
-    const CFX_WideString& methodName) {
-  auto cmpFunc = [](const XFA_FMSOMMethod iter, const CFX_WideString& val) {
-    return val.Compare(iter.m_wsSomMethodName) > 0;
-  };
-  const XFA_FMSOMMethod* result =
-      std::lower_bound(std::begin(gs_FMSomMethods), std::end(gs_FMSomMethods),
-                       methodName, cmpFunc);
+    const WideString& methodName) {
+  const XFA_FMSOMMethod* result = std::lower_bound(
+      std::begin(gs_FMSomMethods), std::end(gs_FMSomMethods), methodName,
+      [](const XFA_FMSOMMethod iter, const WideString& val) {
+        return val.Compare(iter.m_wsSomMethodName) > 0;
+      });
   if (result != std::end(gs_FMSomMethods) &&
       !methodName.Compare(result->m_wsSomMethodName)) {
     return result->m_dParameters;
@@ -550,272 +435,260 @@ uint32_t CXFA_FMCallExpression::IsMethodWithObjParam(
   return 0;
 }
 
-bool CXFA_FMCallExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  CFX_WideTextBuf funcName;
-  if (!m_pExp->ToJavaScript(funcName))
+bool CXFA_FMCallExpression::ToJavaScript(CFX_WideTextBuf* js, ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
     return false;
+
+  CFX_WideTextBuf funcName;
+  if (!m_pExp->ToJavaScript(&funcName, ReturnType::kInfered))
+    return false;
+
   if (m_bIsSomMethod) {
-    javascript << funcName;
-    javascript << L"(";
+    *js << funcName << "(";
     uint32_t methodPara = IsMethodWithObjParam(funcName.MakeString());
     if (methodPara > 0) {
       for (size_t i = 0; i < m_Arguments.size(); ++i) {
         // Currently none of our expressions use objects for a parameter over
         // the 6th. Make sure we don't overflow the shift when doing this
         // check. If we ever need more the 32 object params we can revisit.
-        if (i < 32 && (methodPara & (0x01 << i)) > 0) {
-          javascript << gs_lpStrExpFuncName[GETFMJSOBJ];
-        } else {
-          javascript << gs_lpStrExpFuncName[GETFMVALUE];
-        }
-        javascript << L"(";
-        const auto& expr = m_Arguments[i];
-        if (!expr->ToJavaScript(javascript))
+        *js << "pfm_rt.get_";
+        if (i < 32 && (methodPara & (0x01 << i)) > 0)
+          *js << "jsobj";
+        else
+          *js << "val";
+
+        *js << "(";
+        if (!m_Arguments[i]->ToJavaScript(js, ReturnType::kInfered))
           return false;
-        javascript << L")";
-        if (i + 1 < m_Arguments.size()) {
-          javascript << L", ";
-        }
-        if (CFXA_IsTooBig(javascript))
-          return false;
+        *js << ")";
+        if (i + 1 < m_Arguments.size())
+          *js << ", ";
       }
     } else {
       for (const auto& expr : m_Arguments) {
-        javascript << gs_lpStrExpFuncName[GETFMVALUE];
-        javascript << L"(";
-        if (!expr->ToJavaScript(javascript))
+        *js << "pfm_rt.get_val(";
+        if (!expr->ToJavaScript(js, ReturnType::kInfered))
           return false;
-        javascript << L")";
+        *js << ")";
         if (expr != m_Arguments.back())
-          javascript << L", ";
-        if (CFXA_IsTooBig(javascript))
-          return false;
+          *js << ", ";
       }
     }
-    javascript << L")";
+    *js << ")";
+    return !CXFA_IsTooBig(js);
+  }
+
+  bool isEvalFunc = false;
+  bool isExistsFunc = false;
+  if (!IsBuiltInFunc(&funcName)) {
+    // If a function is not a SomMethod or a built-in then the input was
+    // invalid, so failing. The scanner/lexer should catch this, but currently
+    // doesn't. This failure will bubble up to the top-level and cause the
+    // transpile to fail.
+    return false;
+  }
+
+  if (funcName.AsStringView().EqualsASCII("Eval")) {
+    isEvalFunc = true;
+    *js << "eval.call(this, pfm_rt.Translate";
   } else {
-    bool isEvalFunc = false;
-    bool isExistsFunc = false;
-    if (IsBuiltInFunc(&funcName)) {
-      if (funcName.AsStringC() == L"Eval") {
-        isEvalFunc = true;
-        javascript << L"eval.call(this, ";
-        javascript << gs_lpStrExpFuncName[CALL];
-        javascript << L"Translate";
-      } else if (funcName.AsStringC() == L"Exists") {
-        isExistsFunc = true;
-        javascript << gs_lpStrExpFuncName[CALL];
-        javascript << funcName;
-      } else {
-        javascript << gs_lpStrExpFuncName[CALL];
-        javascript << funcName;
-      }
+    if (funcName.AsStringView().EqualsASCII("Exists"))
+      isExistsFunc = true;
+
+    *js << "pfm_rt." << funcName;
+  }
+
+  *js << "(";
+  if (isExistsFunc) {
+    *js << "\n(\nfunction ()\n{\ntry\n{\n";
+    if (!m_Arguments.empty()) {
+      *js << "return ";
+      if (!m_Arguments[0]->ToJavaScript(js, ReturnType::kInfered))
+        return false;
+      *js << ";\n}\n";
     } else {
-      // If a function is not a SomMethod or a built-in then the input was
-      // invalid, so failing. The scanner/lexer should catch this, but currently
-      // doesn't. This failure will bubble up to the top-level and cause the
-      // transpile to fail.
-      return false;
+      *js << "return 0;\n}\n";
     }
-    javascript << L"(";
-    if (isExistsFunc) {
-      javascript << L"\n(\nfunction ()\n{\ntry\n{\n";
-      if (!m_Arguments.empty()) {
-        const auto& expr = m_Arguments[0];
-        javascript << L"return ";
-        if (!expr->ToJavaScript(javascript))
-          return false;
-        javascript << L";\n}\n";
-      } else {
-        javascript << L"return 0;\n}\n";
-      }
-      javascript << L"catch(accessExceptions)\n";
-      javascript << L"{\nreturn 0;\n}\n}\n).call(this)\n";
-    } else {
-      for (const auto& expr : m_Arguments) {
-        if (!expr->ToJavaScript(javascript))
-          return false;
-        if (expr != m_Arguments.back())
-          javascript << L", ";
-        if (CFXA_IsTooBig(javascript))
-          return false;
-      }
-    }
-    javascript << L")";
-    if (isEvalFunc) {
-      javascript << L")";
+    *js << "catch(accessExceptions)\n";
+    *js << "{\nreturn 0;\n}\n}\n).call(this)\n";
+  } else {
+    for (const auto& expr : m_Arguments) {
+      if (!expr->ToJavaScript(js, ReturnType::kInfered))
+        return false;
+      if (expr != m_Arguments.back())
+        *js << ", ";
     }
   }
-  return true;
+  *js << ")";
+  if (isEvalFunc)
+    *js << ")";
+
+  return !CXFA_IsTooBig(js);
 }
 
 CXFA_FMDotAccessorExpression::CXFA_FMDotAccessorExpression(
-    uint32_t line,
     std::unique_ptr<CXFA_FMSimpleExpression> pAccessor,
     XFA_FM_TOKEN op,
-    CFX_WideStringC wsIdentifier,
+    WideStringView wsIdentifier,
     std::unique_ptr<CXFA_FMSimpleExpression> pIndexExp)
-    : CXFA_FMBinExpression(line,
-                           op,
-                           std::move(pAccessor),
-                           std::move(pIndexExp)),
-      m_wsIdentifier(wsIdentifier) {}
+    : CXFA_FMSimpleExpression(op),
+      m_wsIdentifier(wsIdentifier),
+      m_pExp1(std::move(pAccessor)),
+      m_pExp2(std::move(pIndexExp)) {}
 
-CXFA_FMDotAccessorExpression::~CXFA_FMDotAccessorExpression() {}
+CXFA_FMDotAccessorExpression::~CXFA_FMDotAccessorExpression() = default;
 
-bool CXFA_FMDotAccessorExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << gs_lpStrExpFuncName[DOT];
-  javascript << L"(";
+bool CXFA_FMDotAccessorExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                                ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
+    return false;
+
+  *js << "pfm_rt.dot_acc(";
+
   CFX_WideTextBuf tempExp1;
   if (m_pExp1) {
-    if (!m_pExp1->ToJavaScript(tempExp1))
+    if (!m_pExp1->ToJavaScript(&tempExp1, ReturnType::kInfered))
       return false;
-    javascript << tempExp1;
+
+    *js << tempExp1;
   } else {
-    javascript << L"null";
+    *js << "null";
   }
-  javascript << L", ";
-  javascript << L"\"";
-  if (CFXA_IsTooBig(javascript))
-    return false;
+  *js << ", \"";
 
   if (m_pExp1 && m_pExp1->GetOperatorToken() == TOKidentifier)
-    javascript << tempExp1;
-  javascript << L"\", ";
-  if (m_op == TOKdotscream) {
-    javascript << L"\"#";
-    javascript << m_wsIdentifier;
-    javascript << L"\", ";
-  } else if (m_op == TOKdotstar) {
-    javascript << L"\"*\", ";
-  } else if (m_op == TOKcall) {
-    javascript << L"\"\", ";
-  } else {
-    javascript << L"\"";
-    javascript << m_wsIdentifier;
-    javascript << L"\", ";
-  }
-  if (!m_pExp2->ToJavaScript(javascript))
+    *js << tempExp1;
+
+  *js << "\", ";
+  if (m_op == TOKdotscream)
+    *js << "\"#" << m_wsIdentifier << "\", ";
+  else if (m_op == TOKdotstar)
+    *js << "\"*\", ";
+  else if (m_op == TOKcall)
+    *js << "\"\", ";
+  else
+    *js << "\"" << m_wsIdentifier << "\", ";
+
+  if (!m_pExp2->ToJavaScript(js, ReturnType::kInfered))
     return false;
-  javascript << L")";
-  return !CFXA_IsTooBig(javascript);
+
+  *js << ")";
+  return !CXFA_IsTooBig(js);
 }
 
 CXFA_FMIndexExpression::CXFA_FMIndexExpression(
-    uint32_t line,
     XFA_FM_AccessorIndex accessorIndex,
     std::unique_ptr<CXFA_FMSimpleExpression> pIndexExp,
     bool bIsStarIndex)
-    : CXFA_FMUnaryExpression(line, TOKlbracket, std::move(pIndexExp)),
+    : CXFA_FMSimpleExpression(TOKlbracket),
+      m_pExp(std::move(pIndexExp)),
       m_accessorIndex(accessorIndex),
       m_bIsStarIndex(bIsStarIndex) {}
 
-bool CXFA_FMIndexExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
+CXFA_FMIndexExpression::~CXFA_FMIndexExpression() = default;
+
+bool CXFA_FMIndexExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                          ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
+    return false;
+
   switch (m_accessorIndex) {
     case ACCESSOR_NO_INDEX:
-      javascript << L"0";
+      *js << "0";
       break;
     case ACCESSOR_NO_RELATIVEINDEX:
-      javascript << L"1";
+      *js << "1";
       break;
     case ACCESSOR_POSITIVE_INDEX:
-      javascript << L"2";
+      *js << "2";
       break;
     case ACCESSOR_NEGATIVE_INDEX:
-      javascript << L"3";
+      *js << "3";
       break;
     default:
-      javascript << L"0";
+      *js << "0";
   }
-  if (!m_bIsStarIndex) {
-    javascript << L", ";
-    if (m_pExp) {
-      if (!m_pExp->ToJavaScript(javascript))
-        return false;
-    } else {
-      javascript << L"0";
-    }
+  if (m_bIsStarIndex)
+    return !CXFA_IsTooBig(js);
+
+  *js << ", ";
+  if (m_pExp) {
+    if (!m_pExp->ToJavaScript(js, ReturnType::kInfered))
+      return false;
+  } else {
+    *js << "0";
   }
-  return true;
+  return !CXFA_IsTooBig(js);
 }
 
 CXFA_FMDotDotAccessorExpression::CXFA_FMDotDotAccessorExpression(
-    uint32_t line,
     std::unique_ptr<CXFA_FMSimpleExpression> pAccessor,
     XFA_FM_TOKEN op,
-    CFX_WideStringC wsIdentifier,
+    WideStringView wsIdentifier,
     std::unique_ptr<CXFA_FMSimpleExpression> pIndexExp)
-    : CXFA_FMBinExpression(line,
-                           op,
-                           std::move(pAccessor),
-                           std::move(pIndexExp)),
-      m_wsIdentifier(wsIdentifier) {}
+    : CXFA_FMSimpleExpression(op),
+      m_wsIdentifier(wsIdentifier),
+      m_pExp1(std::move(pAccessor)),
+      m_pExp2(std::move(pIndexExp)) {}
 
-CXFA_FMDotDotAccessorExpression::~CXFA_FMDotDotAccessorExpression() {}
+CXFA_FMDotDotAccessorExpression::~CXFA_FMDotDotAccessorExpression() = default;
 
-bool CXFA_FMDotDotAccessorExpression::ToJavaScript(
-    CFX_WideTextBuf& javascript) {
-  javascript << gs_lpStrExpFuncName[DOTDOT];
-  javascript << L"(";
-  CFX_WideTextBuf tempExp1;
-  if (!m_pExp1->ToJavaScript(tempExp1))
-    return false;
-  javascript << tempExp1;
-  javascript << L", ";
-  javascript << L"\"";
-  if (CFXA_IsTooBig(javascript))
+bool CXFA_FMDotDotAccessorExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                                   ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
     return false;
 
-  if (m_pExp1->GetOperatorToken() == TOKidentifier)
-    javascript << tempExp1;
-  javascript << L"\", ";
-  javascript << L"\"";
-  javascript << m_wsIdentifier;
-  javascript << L"\", ";
-  if (!m_pExp2->ToJavaScript(javascript))
+  *js << "pfm_rt.dotdot_acc(";
+  if (!m_pExp1->ToJavaScript(js, ReturnType::kInfered))
     return false;
-  javascript << L")";
-  return !CFXA_IsTooBig(javascript);
+  *js << ", "
+      << "\"";
+  if (m_pExp1->GetOperatorToken() == TOKidentifier) {
+    if (!m_pExp1->ToJavaScript(js, ReturnType::kInfered))
+      return false;
+  }
+
+  *js << "\", \"" << m_wsIdentifier << "\", ";
+  if (!m_pExp2->ToJavaScript(js, ReturnType::kInfered))
+    return false;
+  *js << ")";
+  return !CXFA_IsTooBig(js);
 }
 
 CXFA_FMMethodCallExpression::CXFA_FMMethodCallExpression(
-    uint32_t line,
     std::unique_ptr<CXFA_FMSimpleExpression> pAccessorExp1,
     std::unique_ptr<CXFA_FMSimpleExpression> pCallExp)
-    : CXFA_FMBinExpression(line,
-                           TOKdot,
-                           std::move(pAccessorExp1),
-                           std::move(pCallExp)) {}
+    : CXFA_FMSimpleExpression(TOKdot),
+      m_pExp1(std::move(pAccessorExp1)),
+      m_pExp2(std::move(pCallExp)) {}
 
-bool CXFA_FMMethodCallExpression::ToJavaScript(CFX_WideTextBuf& javascript) {
-  javascript << L"(\nfunction ()\n{\n";
-  javascript << L"var method_return_value = null;\n";
-  javascript << L"var accessor_object = ";
-  if (!m_pExp1->ToJavaScript(javascript))
-    return false;
-  javascript << L";\n";
-  javascript << L"if (";
-  javascript << gs_lpStrExpFuncName[ISFMARRAY];
-  javascript << L"(accessor_object))\n{\n";
-  javascript << L"for(var index = accessor_object.length - 1; index > 1; "
-                L"index--)\n{\n";
-  javascript << L"method_return_value = accessor_object[index].";
-  if (CFXA_IsTooBig(javascript))
+CXFA_FMMethodCallExpression::~CXFA_FMMethodCallExpression() = default;
+
+bool CXFA_FMMethodCallExpression::ToJavaScript(CFX_WideTextBuf* js,
+                                               ReturnType type) {
+  CXFA_FMToJavaScriptDepth depthManager;
+  if (CXFA_IsTooBig(js) || !depthManager.IsWithinMaxDepth())
     return false;
 
-  CFX_WideTextBuf tempExp2;
-  if (!m_pExp2->ToJavaScript(tempExp2))
+  CFX_WideTextBuf buf;
+  if (!m_pExp1->ToJavaScript(&buf, ReturnType::kInfered))
     return false;
-  javascript << tempExp2;
-  javascript << L";\n}\n}\n";
-  javascript << L"else\n{\nmethod_return_value = accessor_object.";
-  javascript << tempExp2;
-  javascript << L";\n}\n";
-  javascript << L"return method_return_value;\n";
-  javascript << L"}\n).call(this)";
-  return !CFXA_IsTooBig(javascript);
+
+  *js << "(function() {\n";
+  *js << "  return pfm_method_runner(" << buf << ", function(obj) {\n";
+  *js << "    return obj.";
+  if (!m_pExp2->ToJavaScript(js, ReturnType::kInfered))
+    return false;
+  *js << ";\n";
+  *js << "  });\n";
+  *js << "}).call(this)";
+  return !CXFA_IsTooBig(js);
 }
 
-bool CFXA_IsTooBig(const CFX_WideTextBuf& javascript) {
-  return javascript.GetSize() > 256 * 1024 * 1024;
+bool CXFA_IsTooBig(const CFX_WideTextBuf* js) {
+  return js->GetSize() >= 256 * 1024 * 1024;
 }

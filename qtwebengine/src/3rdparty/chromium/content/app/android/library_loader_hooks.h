@@ -7,18 +7,17 @@
 
 #include <jni.h>
 
+#include "base/android/library_loader/library_loader_hooks.h"
 
 namespace content {
-
-// Register all content JNI functions now, rather than waiting for the process
-// of fully loading the native library to complete.
-bool EnsureJniRegistered(JNIEnv* env);
 
 // Do the intialization of content needed immediately after the native library
 // has loaded.
 // This is designed to be used as a hook function to be passed to
 // base::android::SetLibraryLoadedHook
-bool LibraryLoaded(JNIEnv* env, jclass clazz);
+bool LibraryLoaded(JNIEnv* env,
+                   jclass clazz,
+                   base::android::LibraryProcessType library_process_type);
 
 }  // namespace content
 

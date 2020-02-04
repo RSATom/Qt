@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 
+#include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -18,7 +19,6 @@
 #include "net/http/http_byte_range.h"
 #include "net/url_request/url_request_job.h"
 #include "storage/browser/fileapi/file_system_url.h"
-#include "storage/browser/storage_browser_export.h"
 
 class GURL;
 
@@ -30,7 +30,8 @@ namespace storage {
 class FileSystemContext;
 
 // A request job that handles reading filesystem: URLs
-class STORAGE_EXPORT FileSystemURLRequestJob : public net::URLRequestJob {
+class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemURLRequestJob
+    : public net::URLRequestJob {
  public:
   FileSystemURLRequestJob(
       net::URLRequest* request,
@@ -42,7 +43,9 @@ class STORAGE_EXPORT FileSystemURLRequestJob : public net::URLRequestJob {
   void Start() override;
   void Kill() override;
   int ReadRawData(net::IOBuffer* buf, int buf_size) override;
-  bool IsRedirectResponse(GURL* location, int* http_status_code) override;
+  bool IsRedirectResponse(GURL* location,
+                          int* http_status_code,
+                          bool* insecure_scheme_was_upgraded) override;
   void SetExtraRequestHeaders(const net::HttpRequestHeaders& headers) override;
   void GetResponseInfo(net::HttpResponseInfo* info) override;
 

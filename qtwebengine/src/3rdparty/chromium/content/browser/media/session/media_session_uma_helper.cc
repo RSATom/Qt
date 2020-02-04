@@ -15,26 +15,22 @@ namespace content {
 using HistogramBase = base::HistogramBase;
 
 MediaSessionUmaHelper::MediaSessionUmaHelper()
-    : clock_(new base::DefaultTickClock())
-{}
+    : clock_(base::DefaultTickClock::GetInstance()) {}
 
 MediaSessionUmaHelper::~MediaSessionUmaHelper()
 {}
 
 // static
 void MediaSessionUmaHelper::RecordMediaSessionUserAction(
-    MediaSessionUserAction action) {
-  UMA_HISTOGRAM_ENUMERATION(
-      "Media.Session.UserAction", static_cast<HistogramBase::Sample>(action),
-      static_cast<HistogramBase::Sample>(MediaSessionUserAction::Count));
+    MediaSessionUserAction action,
+    bool focused) {
+  UMA_HISTOGRAM_ENUMERATION("Media.Session.UserAction", action);
+  UMA_HISTOGRAM_BOOLEAN("Media.Session.UserAction.Focus", focused);
 }
 
 void MediaSessionUmaHelper::RecordSessionSuspended(
     MediaSessionSuspendedSource source) const {
-  UMA_HISTOGRAM_ENUMERATION(
-      "Media.Session.Suspended",
-      static_cast<HistogramBase::Sample>(source),
-      static_cast<HistogramBase::Sample>(MediaSessionSuspendedSource::Count));
+  UMA_HISTOGRAM_ENUMERATION("Media.Session.Suspended", source);
 }
 
 void MediaSessionUmaHelper::RecordRequestAudioFocusResult(bool result) const {
@@ -67,8 +63,8 @@ void MediaSessionUmaHelper::OnSessionInactive() {
 }
 
 void MediaSessionUmaHelper::SetClockForTest(
-    std::unique_ptr<base::TickClock> testing_clock) {
-  clock_ = std::move(testing_clock);
+    const base::TickClock* testing_clock) {
+  clock_ = testing_clock;
 }
 
 }  // namespace content

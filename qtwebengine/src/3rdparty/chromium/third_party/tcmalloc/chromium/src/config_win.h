@@ -1,4 +1,6 @@
 /* A manual version of config.h fit for windows machines. */
+#error \
+    "File copied from older tcmalloc version. Must be updated for new versions."
 
 /* Sometimes we accidentally #include this config.h instead of the one
    in .. -- this is particularly true for msys/mingw, which uses the
@@ -20,13 +22,13 @@
 #define WIN32_OVERRIDE_ALLOCATORS
 
 /* the location of <hash_map> */
-#define HASH_MAP_H  <hash_map>
+#define HASH_MAP_H <hash_map>
 
 /* the namespace of hash_map/hash_set */
-#define HASH_NAMESPACE  stdext
+#define HASH_NAMESPACE stdext
 
 /* the location of <hash_set> */
-#define HASH_SET_H  <hash_set>
+#define HASH_SET_H <hash_set>
 
 /* Define to 1 if your libc has a snprintf implementation */
 #undef HAVE_SNPRINTF
@@ -41,7 +43,7 @@
 #undef HAVE_CYGWIN_SIGNAL_H
 
 /* Define to 1 if you have the declaration of `cfree', and to 0 if you don't.
-   */
+ */
 #undef HAVE_DECL_CFREE
 
 /* Define to 1 if you have the declaration of `memalign', and to 0 if you
@@ -57,11 +59,11 @@
 #undef HAVE_DECL_PVALLOC
 
 /* Define to 1 if you have the declaration of `uname', and to 0 if you don't.
-   */
+ */
 #undef HAVE_DECL_UNAME
 
 /* Define to 1 if you have the declaration of `valloc', and to 0 if you don't.
-   */
+ */
 #undef HAVE_DECL_VALLOC
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
@@ -83,7 +85,7 @@
 #undef HAVE_GETEUID
 
 /* Define to 1 if you have the `getpagesize' function. */
-#define HAVE_GETPAGESIZE 1   /* we define it in windows/port.cc */
+#define HAVE_GETPAGESIZE 1 /* we define it in windows/port.cc */
 
 /* Define to 1 if you have the <glob.h> header file. */
 #undef HAVE_GLOB_H
@@ -217,7 +219,7 @@
 #undef INT32_EQUALS_INTPTR
 
 /* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
+ */
 #undef LT_OBJDIR
 
 /* Define to 1 if your C compiler doesn't accept -c and -o together. */
@@ -253,19 +255,19 @@
    used internally, to compile the DLL, and every DLL source file #includes
    "config.h" before anything else. */
 #ifndef PERFTOOLS_DLL_DECL
-# define PERFTOOLS_IS_A_DLL  1   /* not set if you're statically linking */
-# define PERFTOOLS_DLL_DECL  __declspec(dllexport)
-# define PERFTOOLS_DLL_DECL_FOR_UNITTESTS  __declspec(dllimport)
+#define PERFTOOLS_IS_A_DLL 1 /* not set if you're statically linking */
+#define PERFTOOLS_DLL_DECL __declspec(dllexport)
+#define PERFTOOLS_DLL_DECL_FOR_UNITTESTS __declspec(dllimport)
 #endif
 
 /* printf format code for printing a size_t and ssize_t */
-#define PRIdS  "Id"
+#define PRIdS "Id"
 
 /* printf format code for printing a size_t and ssize_t */
-#define PRIuS  "Iu"
+#define PRIuS "Iu"
 
 /* printf format code for printing a size_t and ssize_t */
-#define PRIxS  "Ix"
+#define PRIxS "Ix"
 
 /* Define to necessary symbol if this constant uses a non-standard name on
    your system. */
@@ -275,14 +277,14 @@
 #define STDC_HEADERS 1
 
 /* the namespace where STL code like vector<> is defined */
-#define STL_NAMESPACE  std
+#define STL_NAMESPACE std
 
 /* Version number of package */
 #undef VERSION
 
 /* C99 says: define this to get the PRI... macros from stdint.h */
 #ifndef __STDC_FORMAT_MACROS
-# define __STDC_FORMAT_MACROS 1
+#define __STDC_FORMAT_MACROS 1
 #endif
 
 /* Define to `__inline__' or `__inline' if that's what the C compiler
@@ -299,7 +301,7 @@
 // 0x0501 for patch_functions.cc to have access to GetModuleHandleEx.
 // (This latter is an optimization we could take out if need be.)
 #ifndef _WIN32_WINNT
-# define _WIN32_WINNT 0x0501
+#define _WIN32_WINNT 0x0501
 #endif
 
 // We want to make sure not to ever try to #include heap-checker.h
@@ -308,4 +310,4 @@
 // TODO(csilvers): include windows/port.h in every relevant source file instead?
 #include "windows/port.h"
 
-#endif  /* GOOGLE_PERFTOOLS_WINDOWS_CONFIG_H_ */
+#endif /* GOOGLE_PERFTOOLS_WINDOWS_CONFIG_H_ */

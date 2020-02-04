@@ -3,11 +3,11 @@
 // found in the LICENSE file.
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
+#include "chrome/browser/devtools/protocol/browser_handler.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -42,7 +42,7 @@ class CheckWaiter {
   bool Check() {
     if (callback_.Run() != expected_ &&
         base::Time::NowFromSystemTime() < timeout_) {
-      base::MessageLoop::current()->task_runner()->PostTask(
+      base::MessageLoopCurrent::Get()->task_runner()->PostTask(
           FROM_HERE, base::BindOnce(base::IgnoreResult(&CheckWaiter::Check),
                                     base::Unretained(this)));
       return false;
@@ -65,24 +65,23 @@ class CheckWaiter {
 
 class DevToolsManagerDelegateTest : public InProcessBrowserTest {
  public:
-  std::unique_ptr<base::DictionaryValue> SendCommand(std::string state) {
-    auto params = base::MakeUnique<base::DictionaryValue>();
-    auto bounds_object = base::MakeUnique<base::DictionaryValue>();
-    bounds_object->SetString("windowState", state);
-    params->Set("bounds", std::move(bounds_object));
-    params->SetInteger("windowId", browser()->session_id().id());
-    return ChromeDevToolsManagerDelegate::SetWindowBounds(0, params.get());
+  void SendCommand(const std::string& state) {
+    auto window_bounds =
+        protocol::Browser::Bounds::Create().SetWindowState(state).Build();
+    BrowserHandler handler(nullptr, "");
+    handler.SetWindowBounds(browser()->session_id().id(),
+                            std::move(window_bounds));
   }
 
-  std::unique_ptr<base::DictionaryValue> UpdateBounds() {
-    auto params = base::MakeUnique<base::DictionaryValue>();
-    auto bounds_object = base::MakeUnique<base::DictionaryValue>();
-    bounds_object->SetString("windowState", "normal");
-    bounds_object->SetInteger("left", 200);
-    bounds_object->SetInteger("height", 400);
-    params->Set("bounds", std::move(bounds_object));
-    params->SetInteger("windowId", browser()->session_id().id());
-    return ChromeDevToolsManagerDelegate::SetWindowBounds(0, params.get());
+  void UpdateBounds() {
+    auto window_bounds = protocol::Browser::Bounds::Create()
+                             .SetWindowState("normal")
+                             .SetLeft(200)
+                             .SetHeight(400)
+                             .Build();
+    BrowserHandler handler(nullptr, "");
+    handler.SetWindowBounds(browser()->session_id().id(),
+                            std::move(window_bounds));
   }
 
   void CheckIsMaximized(bool maximized) {
@@ -123,13 +122,20 @@ class DevToolsManagerDelegateTest : public InProcessBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest, NormalWindowChangeBounds) {
-  browser()->window()->SetBounds(gfx::Rect(100, 100, 500, 600));
-  CheckWindowBounds(gfx::Rect(100, 100, 500, 600));
+  browser()->window()->SetBounds(gfx::Rect(100, 100, 600, 600));
+  CheckWindowBounds(gfx::Rect(100, 100, 600, 600));
   UpdateBounds();
-  CheckWindowBounds(gfx::Rect(200, 100, 500, 400));
+  CheckWindowBounds(gfx::Rect(200, 100, 600, 400));
 }
 
-IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest, NormalToMaximizedWindow) {
+#if defined(OS_MACOSX)
+// MacViews does not yet implement maximized windows: https://crbug.com/836327
+#define MAYBE_NormalToMaximizedWindow DISABLED_NormalToMaximizedWindow
+#else
+#define MAYBE_NormalToMaximizedWindow NormalToMaximizedWindow
+#endif
+IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest,
+                       MAYBE_NormalToMaximizedWindow) {
   CheckIsMaximized(false);
   SendCommand("maximized");
   CheckIsMaximized(true);
@@ -153,8 +159,14 @@ IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest, NormalToFullscreenWindow) {
   CheckIsFullscreen(true);
 }
 
+#if defined(OS_MACOSX)
+// MacViews does not yet implement maximized windows: https://crbug.com/836327
+#define MAYBE_MaximizedToMinimizedWindow DISABLED_MaximizedToMinimizedWindow
+#else
+#define MAYBE_MaximizedToMinimizedWindow MaximizedToMinimizedWindow
+#endif
 IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest,
-                       MaximizedToMinimizedWindow) {
+                       MAYBE_MaximizedToMinimizedWindow) {
   browser()->window()->Maximize();
   CheckIsMaximized(true);
 
@@ -163,19 +175,19 @@ IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest,
   CheckIsMinimized(true);
 }
 
+#if defined(OS_MACOSX)
+// MacViews does not yet implement maximized windows: https://crbug.com/836327
+#define MAYBE_MaximizedToFullscreenWindow DISABLED_MaximizedToFullscreenWindow
+#else
+#define MAYBE_MaximizedToFullscreenWindow MaximizedToFullscreenWindow
+#endif
 IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest,
-                       MaximizedToFullscreenWindow) {
+                       MAYBE_MaximizedToFullscreenWindow) {
   browser()->window()->Maximize();
   CheckIsMaximized(true);
 
-#if defined(OS_MACOSX)
-  ui::test::ScopedFakeNSWindowFullscreen faker;
-#endif
   CheckIsFullscreen(false);
   SendCommand("fullscreen");
-#if defined(OS_MACOSX)
-  faker.FinishTransition();
-#endif
   CheckIsFullscreen(true);
 }
 
@@ -186,7 +198,14 @@ IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest, ShowMinimizedWindow) {
   CheckIsMinimized(false);
 }
 
-IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest, RestoreMaximizedWindow) {
+#if defined(OS_MACOSX)
+// MacViews does not yet implement maximized windows: https://crbug.com/836327
+#define MAYBE_RestoreMaximizedWindow DISABLED_RestoreMaximizedWindow
+#else
+#define MAYBE_RestoreMaximizedWindow RestoreMaximizedWindow
+#endif
+IN_PROC_BROWSER_TEST_F(DevToolsManagerDelegateTest,
+                       MAYBE_RestoreMaximizedWindow) {
   browser()->window()->Maximize();
   CheckIsMaximized(true);
   SendCommand("normal");

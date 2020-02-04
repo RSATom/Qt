@@ -31,7 +31,7 @@ SkiaTraceMemoryDumpImpl::SkiaTraceMemoryDumpImpl(
               ? SkTraceMemoryDump::kLight_LevelOfDetail
               : SkTraceMemoryDump::kObjectsBreakdowns_LevelOfDetail) {}
 
-SkiaTraceMemoryDumpImpl::~SkiaTraceMemoryDumpImpl() {}
+SkiaTraceMemoryDumpImpl::~SkiaTraceMemoryDumpImpl() = default;
 
 void SkiaTraceMemoryDumpImpl::dumpNumericValue(const char* dumpName,
                                                const char* valueName,
@@ -73,6 +73,12 @@ void SkiaTraceMemoryDumpImpl::setDiscardableMemoryBacking(
 SkTraceMemoryDump::LevelOfDetail SkiaTraceMemoryDumpImpl::getRequestedDetails()
     const {
   return request_level_;
+}
+
+bool SkiaTraceMemoryDumpImpl::shouldDumpWrappedObjects() const {
+  // Chrome already dumps objects it imports into Skia. Avoid duplicate dumps
+  // by asking Skia not to dump them.
+  return false;
 }
 
 }  // namespace skia

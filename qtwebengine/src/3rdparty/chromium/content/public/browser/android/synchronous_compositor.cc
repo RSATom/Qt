@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/threading/thread_restrictions.h"
-#include "cc/output/compositor_frame.h"
+#include "components/viz/common/quads/compositor_frame.h"
 
 namespace content {
 
@@ -37,7 +37,8 @@ SynchronousCompositor::FrameFuture::GetFrame() {
   DCHECK(!waited_);
   waited_ = true;
 #endif
-  base::ThreadRestrictions::ScopedAllowWait wait;
+  base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope
+      allow_base_sync_primitives;
   waitable_event_.Wait();
   return std::move(frame_);
 }

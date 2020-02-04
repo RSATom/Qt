@@ -16,6 +16,7 @@
 #include "media/base/android/media_codec_util.h"
 #include "media/base/audio_timestamp_helper.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/base/cdm_context.h"
 #include "media/base/timestamp_constants.h"
 #include "media/formats/ac3/ac3_util.h"
 
@@ -30,7 +31,7 @@ MediaCodecAudioDecoder::MediaCodecAudioDecoder(
       channel_count_(0),
       channel_layout_(CHANNEL_LAYOUT_NONE),
       sample_rate_(0),
-      media_drm_bridge_cdm_context_(nullptr),
+      media_crypto_context_(nullptr),
       cdm_registration_id_(0),
       pool_(new AudioBufferMemoryPool()),
       weak_factory_(this) {
@@ -42,14 +43,14 @@ MediaCodecAudioDecoder::~MediaCodecAudioDecoder() {
 
   codec_loop_.reset();
 
-  if (media_drm_bridge_cdm_context_) {
+  if (media_crypto_context_) {
     DCHECK(cdm_registration_id_);
 
     // Cancel previously registered callback (if any).
-    media_drm_bridge_cdm_context_->SetMediaCryptoReadyCB(
-        MediaDrmBridgeCdmContext::MediaCryptoReadyCB());
+    media_crypto_context_->SetMediaCryptoReadyCB(
+        MediaCryptoContext::MediaCryptoReadyCB());
 
-    media_drm_bridge_cdm_context_->UnregisterPlayer(cdm_registration_id_);
+    media_crypto_context_->UnregisterPlayer(cdm_registration_id_);
   }
 
   ClearInputQueue(DecodeStatus::ABORTED);
@@ -62,9 +63,12 @@ std::string MediaCodecAudioDecoder::GetDisplayName() const {
 void MediaCodecAudioDecoder::Initialize(const AudioDecoderConfig& config,
                                         CdmContext* cdm_context,
                                         const InitCB& init_cb,
-                                        const OutputCB& output_cb) {
+                                        const OutputCB& output_cb,
+                                        const WaitingCB& waiting_cb) {
   DVLOG(1) << __func__ << ": " << config.AsHumanReadableString();
   DCHECK_NE(state_, STATE_WAITING_FOR_MEDIA_CRYPTO);
+  DCHECK(output_cb);
+  DCHECK(waiting_cb);
 
   // Initialization and reinitialization should not be called during pending
   // decode.
@@ -79,6 +83,8 @@ void MediaCodecAudioDecoder::Initialize(const AudioDecoderConfig& config,
     sample_format_ = kSampleFormatAc3;
   else if (config.codec() == kCodecEAC3)
     sample_format_ = kSampleFormatEac3;
+  else if (config.codec() == kCodecMpegHAudio)
+    sample_format_ = kSampleFormatMpegHAudio;
 
   if (state_ == STATE_ERROR) {
     DVLOG(1) << "Decoder is in error state.";
@@ -98,22 +104,29 @@ void MediaCodecAudioDecoder::Initialize(const AudioDecoderConfig& config,
     return;
   }
 
-  if (config.is_encrypted() && !cdm_context) {
-    NOTREACHED() << "The stream is encrypted but there is no CDM context";
-    bound_init_cb.Run(false);
-    return;
-  }
-
   config_ = config;
+
+  // TODO(xhwang): Check whether BindToCurrentLoop is needed here.
   output_cb_ = BindToCurrentLoop(output_cb);
+  waiting_cb_ = BindToCurrentLoop(waiting_cb);
 
   SetInitialConfiguration();
 
   if (config_.is_encrypted() && !media_crypto_) {
+    media_crypto_context_ =
+        cdm_context ? cdm_context->GetMediaCryptoContext() : nullptr;
+    if (!media_crypto_context_) {
+      LOG(ERROR) << "The stream is encrypted but there is no CdmContext or "
+                    "MediaCryptoContext is not supported";
+      SetState(STATE_ERROR);
+      bound_init_cb.Run(false);
+      return;
+    }
+
     // Postpone initialization after MediaCrypto is available.
     // SetCdm uses init_cb in a method that's already bound to the current loop.
     SetState(STATE_WAITING_FOR_MEDIA_CRYPTO);
-    SetCdm(cdm_context, init_cb);
+    SetCdm(init_cb);
     return;
   }
 
@@ -130,9 +143,18 @@ bool MediaCodecAudioDecoder::CreateMediaCodecLoop() {
   DVLOG(1) << __func__ << ": config:" << config_.AsHumanReadableString();
 
   codec_loop_.reset();
-  jobject media_crypto_obj = media_crypto_ ? media_crypto_->obj() : nullptr;
+  const base::android::JavaRef<jobject>& media_crypto =
+      media_crypto_ ? *media_crypto_ : nullptr;
   std::unique_ptr<MediaCodecBridge> audio_codec_bridge(
-      MediaCodecBridgeImpl::CreateAudioDecoder(config_, media_crypto_obj));
+      MediaCodecBridgeImpl::CreateAudioDecoder(
+          config_, media_crypto,
+          // Use the asynchronous API if we're on Marshallow or higher.
+          base::android::BuildInfo::GetInstance()->sdk_int() >=
+                  base::android::SDK_VERSION_MARSHMALLOW
+              ? BindToCurrentLoop(base::BindRepeating(
+                    &MediaCodecAudioDecoder::PumpMediaCodecLoop,
+                    weak_factory_.GetWeakPtr()))
+              : base::RepeatingClosure()));
   if (!audio_codec_bridge) {
     DLOG(ERROR) << __func__ << " failed: cannot create MediaCodecBridge";
     return false;
@@ -146,7 +168,7 @@ bool MediaCodecAudioDecoder::CreateMediaCodecLoop() {
   return true;
 }
 
-void MediaCodecAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
+void MediaCodecAudioDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
                                     const DecodeCB& decode_cb) {
   DecodeCB bound_decode_cb = BindToCurrentLoop(decode_cb);
 
@@ -169,7 +191,7 @@ void MediaCodecAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
 
   DCHECK(codec_loop_);
 
-  DVLOG(2) << __func__ << " " << buffer->AsHumanReadableString();
+  DVLOG(3) << __func__ << " " << buffer->AsHumanReadableString();
 
   DCHECK_EQ(state_, STATE_READY) << " unexpected state " << AsString(state_);
 
@@ -177,13 +199,13 @@ void MediaCodecAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
   // time".
   DCHECK(input_queue_.empty());
 
-  input_queue_.push_back(std::make_pair(buffer, bound_decode_cb));
+  input_queue_.push_back(std::make_pair(std::move(buffer), bound_decode_cb));
 
-  codec_loop_->DoPendingWork();
+  codec_loop_->ExpectWork();
 }
 
 void MediaCodecAudioDecoder::Reset(const base::Closure& closure) {
-  DVLOG(1) << __func__;
+  DVLOG(2) << __func__;
 
   ClearInputQueue(DecodeStatus::ABORTED);
 
@@ -207,13 +229,8 @@ bool MediaCodecAudioDecoder::NeedsBitstreamConversion() const {
   return config_.codec() == kCodecAAC;
 }
 
-void MediaCodecAudioDecoder::SetCdm(CdmContext* cdm_context,
-                                    const InitCB& init_cb) {
-  DCHECK(cdm_context);
-
-  // On Android platform the CdmContext must be a MediaDrmBridgeCdmContext.
-  media_drm_bridge_cdm_context_ =
-      static_cast<media::MediaDrmBridgeCdmContext*>(cdm_context);
+void MediaCodecAudioDecoder::SetCdm(const InitCB& init_cb) {
+  DCHECK(media_crypto_context_);
 
   // Register CDM callbacks. The callbacks registered will be posted back to
   // this thread via BindToCurrentLoop.
@@ -223,12 +240,12 @@ void MediaCodecAudioDecoder::SetCdm(CdmContext* cdm_context,
   // destructed as well. So the |cdm_unset_cb| will never have a chance to be
   // called.
   // TODO(xhwang): Remove |cdm_unset_cb| after it's not used on all platforms.
-  cdm_registration_id_ = media_drm_bridge_cdm_context_->RegisterPlayer(
+  cdm_registration_id_ = media_crypto_context_->RegisterPlayer(
       media::BindToCurrentLoop(base::Bind(&MediaCodecAudioDecoder::OnKeyAdded,
                                           weak_factory_.GetWeakPtr())),
-      base::Bind(&base::DoNothing));
+      base::DoNothing());
 
-  media_drm_bridge_cdm_context_->SetMediaCryptoReadyCB(media::BindToCurrentLoop(
+  media_crypto_context_->SetMediaCryptoReadyCB(media::BindToCurrentLoop(
       base::Bind(&MediaCodecAudioDecoder::OnMediaCryptoReady,
                  weak_factory_.GetWeakPtr(), init_cb)));
 }
@@ -244,20 +261,20 @@ void MediaCodecAudioDecoder::OnKeyAdded() {
 
 void MediaCodecAudioDecoder::OnMediaCryptoReady(
     const InitCB& init_cb,
-    MediaDrmBridgeCdmContext::JavaObjectPtr media_crypto,
+    JavaObjectPtr media_crypto,
     bool /*requires_secure_video_codec*/) {
   DVLOG(1) << __func__;
 
   DCHECK(state_ == STATE_WAITING_FOR_MEDIA_CRYPTO);
+  DCHECK(media_crypto);
 
-  if (!media_crypto) {
+  if (media_crypto->is_null()) {
     LOG(ERROR) << "MediaCrypto is not available, can't play encrypted stream.";
     SetState(STATE_UNINITIALIZED);
     init_cb.Run(false);
     return;
   }
 
-  DCHECK(!media_crypto->is_null());
   media_crypto_ = std::move(media_crypto);
 
   // We assume this is a part of the initialization process, thus MediaCodec
@@ -283,9 +300,9 @@ bool MediaCodecAudioDecoder::IsAnyInputPending() const {
 }
 
 MediaCodecLoop::InputData MediaCodecAudioDecoder::ProvideInputData() {
-  DVLOG(2) << __func__;
+  DVLOG(3) << __func__;
 
-  scoped_refptr<DecoderBuffer> decoder_buffer = input_queue_.front().first;
+  const DecoderBuffer* decoder_buffer = input_queue_.front().first.get();
 
   MediaCodecLoop::InputData input_data;
   if (decoder_buffer->end_of_stream()) {
@@ -294,7 +311,9 @@ MediaCodecLoop::InputData MediaCodecAudioDecoder::ProvideInputData() {
     input_data.memory = static_cast<const uint8_t*>(decoder_buffer->data());
     input_data.length = decoder_buffer->data_size();
     const DecryptConfig* decrypt_config = decoder_buffer->decrypt_config();
-    if (decrypt_config && decrypt_config->is_encrypted()) {
+    if (decrypt_config) {
+      // TODO(crbug.com/813845): Use encryption scheme settings from
+      // DecryptConfig.
       input_data.key_id = decrypt_config->key_id();
       input_data.iv = decrypt_config->iv();
       input_data.subsamples = decrypt_config->subsamples();
@@ -332,7 +351,7 @@ void MediaCodecAudioDecoder::ClearInputQueue(DecodeStatus decode_status) {
 }
 
 void MediaCodecAudioDecoder::SetState(State new_state) {
-  DVLOG(1) << __func__ << ": " << AsString(state_) << "->"
+  DVLOG(3) << __func__ << ": " << AsString(state_) << "->"
            << AsString(new_state);
   state_ = new_state;
 }
@@ -343,9 +362,17 @@ void MediaCodecAudioDecoder::OnCodecLoopError() {
   ClearInputQueue(DecodeStatus::DECODE_ERROR);
 }
 
-void MediaCodecAudioDecoder::OnDecodedEos(
+bool MediaCodecAudioDecoder::OnDecodedEos(
     const MediaCodecLoop::OutputBuffer& out) {
   DVLOG(2) << __func__ << " pts:" << out.pts;
+
+  // Rarely, we seem to get multiple EOSes or, possibly, unsolicited ones from
+  // MediaCodec.  Just transition to the error state.
+  // https://crbug.com/818866
+  if (!input_queue_.size() || !input_queue_.front().first->end_of_stream()) {
+    LOG(WARNING) << "MCAD received unexpected eos";
+    return false;
+  }
 
   // If we've transitioned into the error state, then we don't really know what
   // to do.  If we transitioned because of OnCodecError, then all of our
@@ -353,15 +380,16 @@ void MediaCodecAudioDecoder::OnDecodedEos(
   // MCL does not call us back after OnCodecError(), since it stops decoding.
   // So, we shouldn't be in that state.  So, just DCHECK here.
   DCHECK_NE(state_, STATE_ERROR);
-  DCHECK(input_queue_.size());
-  DCHECK(input_queue_.front().first->end_of_stream());
+
   input_queue_.front().second.Run(DecodeStatus::OK);
   input_queue_.pop_front();
+
+  return true;
 }
 
 bool MediaCodecAudioDecoder::OnDecodedFrame(
     const MediaCodecLoop::OutputBuffer& out) {
-  DVLOG(2) << __func__ << " pts:" << out.pts;
+  DVLOG(3) << __func__ << " pts:" << out.pts;
 
   DCHECK_NE(out.size, 0U);
   DCHECK_NE(out.index, MediaCodecLoop::kInvalidBufferIndex);
@@ -443,6 +471,11 @@ bool MediaCodecAudioDecoder::OnDecodedFrame(
   return true;
 }
 
+void MediaCodecAudioDecoder::OnWaiting(WaitingReason reason) {
+  DVLOG(2) << __func__;
+  waiting_cb_.Run(reason);
+}
+
 bool MediaCodecAudioDecoder::OnOutputFormatChanged() {
   DVLOG(2) << __func__;
   MediaCodecBridge* media_codec = codec_loop_->GetCodec();
@@ -499,6 +532,10 @@ void MediaCodecAudioDecoder::SetInitialConfiguration() {
 
   sample_rate_ = config_.samples_per_second();
   timestamp_helper_.reset(new AudioTimestampHelper(sample_rate_));
+}
+
+void MediaCodecAudioDecoder::PumpMediaCodecLoop() {
+  codec_loop_->ExpectWork();
 }
 
 #undef RETURN_STRING

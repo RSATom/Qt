@@ -56,7 +56,7 @@ public:
         Key();
         Key(const Key &other);
 #ifdef Q_COMPILER_RVALUE_REFS
-        Key(Key &&other) Q_DECL_NOTHROW : d(other.d) { other.d = Q_NULLPTR; }
+        Key(Key &&other) Q_DECL_NOTHROW : d(other.d) { other.d = nullptr; }
         Key &operator =(Key &&other) Q_DECL_NOTHROW { swap(other); return *this; }
 #endif
         ~Key();
@@ -76,8 +76,12 @@ public:
 
     static int cacheLimit();
     static void setCacheLimit(int);
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use bool find(const QString &, QPixmap *) instead")
     static QPixmap *find(const QString &key);
+    QT_DEPRECATED_X("Use bool find(const QString &, QPixmap *) instead")
     static bool find(const QString &key, QPixmap &pixmap);
+#endif
     static bool find(const QString &key, QPixmap *pixmap);
     static bool find(const Key &key, QPixmap *pixmap);
     static bool insert(const QString &key, const QPixmap &pixmap);

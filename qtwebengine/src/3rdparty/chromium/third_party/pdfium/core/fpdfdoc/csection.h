@@ -11,7 +11,8 @@
 #include <vector>
 
 #include "core/fpdfdoc/cline.h"
-#include "core/fpdfdoc/cpvt_sectioninfo.h"
+#include "core/fpdfdoc/cpvt_wordinfo.h"
+#include "core/fpdfdoc/cpvt_wordrange.h"
 #include "core/fpdfdoc/ctypeset.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_system.h"
@@ -26,7 +27,6 @@ class CSection final {
   explicit CSection(CPDF_VariableText* pVT);
   ~CSection();
 
-  void ResetAll();
   void ResetLinePlace();
   CPVT_WordPlace AddWord(const CPVT_WordPlace& place,
                          const CPVT_WordInfo& wordinfo);
@@ -46,7 +46,7 @@ class CSection final {
   CPVT_WordPlace SearchWordPlace(float fx, const CPVT_WordRange& range) const;
 
   CPVT_WordPlace SecPlace;
-  CPVT_SectionInfo m_SecInfo;
+  CPVT_FloatRect m_Rect;
   std::vector<std::unique_ptr<CLine>> m_LineArray;
   std::vector<std::unique_ptr<CPVT_WordInfo>> m_WordArray;
 
@@ -57,7 +57,7 @@ class CSection final {
   void ClearRightWords(int32_t nWordIndex);
   void ClearMidWords(int32_t nBeginIndex, int32_t nEndIndex);
 
-  CFX_UnownedPtr<CPDF_VariableText> const m_pVT;
+  UnownedPtr<CPDF_VariableText> const m_pVT;
 };
 
 #endif  // CORE_FPDFDOC_CSECTION_H_

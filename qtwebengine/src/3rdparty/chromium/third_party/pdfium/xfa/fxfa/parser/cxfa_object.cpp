@@ -6,84 +6,72 @@
 
 #include "xfa/fxfa/parser/cxfa_object.h"
 
+#include <utility>
+
 #include "core/fxcrt/fx_extension.h"
-#include "fxjs/cfxjse_value.h"
-#include "xfa/fxfa/app/cxfa_ffnotify.h"
+#include "fxjs/xfa/cfxjse_engine.h"
+#include "fxjs/xfa/cfxjse_value.h"
+#include "fxjs/xfa/cjx_object.h"
+#include "xfa/fxfa/cxfa_ffnotify.h"
 #include "xfa/fxfa/parser/cxfa_document.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
-#include "xfa/fxfa/parser/cxfa_nodelist.h"
+#include "xfa/fxfa/parser/cxfa_thisproxy.h"
+#include "xfa/fxfa/parser/cxfa_treelist.h"
+#include "xfa/fxfa/parser/xfa_basic_data.h"
 
 CXFA_Object::CXFA_Object(CXFA_Document* pDocument,
                          XFA_ObjectType objectType,
                          XFA_Element elementType,
-                         const CFX_WideStringC& elementName)
-    : CFXJSE_HostObject(kXFA),
-      m_pDocument(pDocument),
+                         std::unique_ptr<CJX_Object> jsObject)
+    : m_pDocument(pDocument),
       m_objectType(objectType),
       m_elementType(elementType),
-      m_elementNameHash(FX_HashCode_GetW(elementName, false)),
-      m_elementName(elementName) {}
+      m_elementName(XFA_ElementToName(elementType)),
+      m_elementNameHash(FX_HashCode_GetAsIfW(m_elementName, false)),
+      m_pJSObject(std::move(jsObject)) {}
 
-CXFA_Object::~CXFA_Object() {}
+CXFA_Object::~CXFA_Object() = default;
 
-void CXFA_Object::Script_ObjectClass_ClassName(CFXJSE_Value* pValue,
-                                               bool bSetting,
-                                               XFA_ATTRIBUTE eAttribute) {
-  if (bSetting) {
-    ThrowInvalidPropertyException();
-    return;
-  }
-  pValue->SetString(FX_UTF8Encode(GetClassName()).AsStringC());
+CXFA_Object* CXFA_Object::AsCXFAObject() {
+  return this;
 }
 
-void CXFA_Object::ThrowInvalidPropertyException() const {
-  ThrowException(L"Invalid property set operation.");
+WideString CXFA_Object::GetSOMExpression() {
+  CFXJSE_Engine* pScriptContext = m_pDocument->GetScriptContext();
+  if (!pScriptContext)
+    return WideString();
+
+  return pScriptContext->GetSomExpression(ToNode(this));
 }
 
-void CXFA_Object::ThrowIndexOutOfBoundsException() const {
-  ThrowException(L"Index value is out of bounds.");
-}
-
-void CXFA_Object::ThrowParamCountMismatchException(
-    const CFX_WideString& method) const {
-  ThrowException(L"Incorrect number of parameters calling method '%.16s'.",
-                 method.c_str());
-}
-
-void CXFA_Object::ThrowArgumentMismatchException() const {
-  ThrowException(L"Argument mismatch in property or function argument.");
-}
-
-void CXFA_Object::ThrowException(const wchar_t* str, ...) const {
-  CFX_WideString wsMessage;
-  va_list arg_ptr;
-  va_start(arg_ptr, str);
-  wsMessage.FormatV(str, arg_ptr);
-  va_end(arg_ptr);
-  ASSERT(!wsMessage.IsEmpty());
-  FXJSE_ThrowMessage(wsMessage.UTF8Encode().AsStringC());
+CXFA_List* CXFA_Object::AsList() {
+  return IsList() ? static_cast<CXFA_List*>(this) : nullptr;
 }
 
 CXFA_Node* CXFA_Object::AsNode() {
   return IsNode() ? static_cast<CXFA_Node*>(this) : nullptr;
 }
 
-CXFA_NodeList* CXFA_Object::AsNodeList() {
-  return IsNodeList() ? static_cast<CXFA_NodeList*>(this) : nullptr;
+CXFA_TreeList* CXFA_Object::AsTreeList() {
+  return IsTreeList() ? static_cast<CXFA_TreeList*>(this) : nullptr;
 }
 
-const CXFA_Node* CXFA_Object::AsNode() const {
-  return IsNode() ? static_cast<const CXFA_Node*>(this) : nullptr;
+CXFA_ThisProxy* CXFA_Object::AsThisProxy() {
+  return IsThisProxy() ? static_cast<CXFA_ThisProxy*>(this) : nullptr;
 }
 
-const CXFA_NodeList* CXFA_Object::AsNodeList() const {
-  return IsNodeList() ? static_cast<const CXFA_NodeList*>(this) : nullptr;
+CXFA_List* ToList(CXFA_Object* pObj) {
+  return pObj ? pObj->AsList() : nullptr;
 }
 
 CXFA_Node* ToNode(CXFA_Object* pObj) {
   return pObj ? pObj->AsNode() : nullptr;
 }
 
-const CXFA_Node* ToNode(const CXFA_Object* pObj) {
-  return pObj ? pObj->AsNode() : nullptr;
+CXFA_TreeList* ToTreeList(CXFA_Object* pObj) {
+  return pObj ? pObj->AsTreeList() : nullptr;
+}
+
+CXFA_ThisProxy* ToThisProxy(CXFA_Object* pObj) {
+  return pObj ? pObj->AsThisProxy() : nullptr;
 }

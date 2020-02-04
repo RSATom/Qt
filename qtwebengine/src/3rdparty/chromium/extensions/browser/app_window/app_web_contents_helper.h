@@ -6,7 +6,8 @@
 #define EXTENSIONS_BROWSER_APP_WINDOW_APP_WEB_CONTENTS_HELPER_H_
 
 #include "base/macros.h"
-#include "content/public/common/media_stream_request.h"
+#include "content/public/browser/media_stream_request.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
 namespace blink {
 class WebGestureEvent;
@@ -14,6 +15,7 @@ class WebGestureEvent;
 
 namespace content {
 class BrowserContext;
+class RenderFrameHost;
 struct OpenURLParams;
 class WebContents;
 }
@@ -46,12 +48,13 @@ class AppWebContentsHelper {
   // WebContentsDelegate.
   void RequestMediaAccessPermission(
       const content::MediaStreamRequest& request,
-      const content::MediaResponseCallback& callback) const;
+      content::MediaResponseCallback callback) const;
 
   // Checks permission to use the camera or microphone. See
   // WebContentsDelegate.
-  bool CheckMediaAccessPermission(const GURL& security_origin,
-                                  content::MediaStreamType type) const;
+  bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
+                                  const GURL& security_origin,
+                                  blink::MediaStreamType type) const;
 
  private:
   const Extension* GetExtension() const;

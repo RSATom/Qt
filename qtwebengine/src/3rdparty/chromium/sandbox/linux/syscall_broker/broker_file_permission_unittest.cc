@@ -157,12 +157,24 @@ void CheckPerm(const BrokerFilePermission& perm,
       case O_NDELAY:
 #endif
       case kSyncFlag:
-      case O_TRUNC:
         ASSERT_TRUE(
             perm.CheckOpen(path, access_flags | flag, &file_to_open, NULL));
         break;
-      case O_CLOEXEC:
+      case O_TRUNC: {
+        // The effect of (O_RDONLY | O_TRUNC) is undefined, and in some cases it
+        // actually truncates, so deny.
+        bool result =
+            perm.CheckOpen(path, access_flags | flag, &file_to_open, NULL);
+        if (access_flags == O_RDONLY) {
+          ASSERT_FALSE(result);
+        } else {
+          ASSERT_TRUE(result);
+        }
+        break;
+      }
       case O_CREAT:
+        continue;  // Handled below.
+      case O_CLOEXEC:
       default:
         ASSERT_FALSE(
             perm.CheckOpen(path, access_flags | flag, &file_to_open, NULL));
@@ -196,6 +208,14 @@ TEST(BrokerFilePermission, ReadOnlyRecursive) {
   // expected.
 }
 
+// Explicit test for O_RDONLY|O_TRUNC, which should be denied due to
+// undefined behavior.
+TEST(BrokerFilePermission, ReadOnlyTruncate) {
+  const char kPath[] = "/tmp/good";
+  BrokerFilePermission perm = BrokerFilePermission::ReadOnly(kPath);
+  ASSERT_FALSE(perm.CheckOpen(kPath, O_RDONLY | O_TRUNC, nullptr, nullptr));
+}
+
 TEST(BrokerFilePermission, WriteOnly) {
   const char kPath[] = "/tmp/good";
   BrokerFilePermission perm = BrokerFilePermission::WriteOnly(kPath);
@@ -225,29 +245,43 @@ void CheckUnlink(BrokerFilePermission& perm,
                  int access_flags) {
   bool unlink;
   ASSERT_FALSE(perm.CheckOpen(path, access_flags, NULL, &unlink));
-  ASSERT_FALSE(perm.CheckOpen(path, access_flags | O_CREAT, NULL, &unlink));
   ASSERT_TRUE(
       perm.CheckOpen(path, access_flags | O_CREAT | O_EXCL, NULL, &unlink));
   ASSERT_TRUE(unlink);
 }
 
-TEST(BrokerFilePermission, ReadWriteCreateUnlink) {
-  const char kPath[] = "/tmp/good";
+TEST(BrokerFilePermission, ReadWriteCreateTemporaryRecursive) {
+  const char kPath[] = "/tmp/good/";
+  const char kPathFile[] = "/tmp/good/file";
   BrokerFilePermission perm =
-      BrokerFilePermission::ReadWriteCreateUnlink(kPath);
-  CheckUnlink(perm, kPath, O_RDWR);
+      BrokerFilePermission::ReadWriteCreateTemporaryRecursive(kPath);
+  CheckUnlink(perm, kPathFile, O_RDWR);
   // Don't do anything here, so that ASSERT works in the subfunction as
   // expected.
 }
 
-TEST(BrokerFilePermission, ReadWriteCreateUnlinkRecursive) {
-  const char kPath[] = "/tmp/good/";
-  const char kPathFile[] = "/tmp/good/file";
+TEST(BrokerFilePermission, StatOnlyWithIntermediateDirs) {
+  const char kPath[] = "/tmp/good/path";
+  const char kLeading1[] = "/";
+  const char kLeading2[] = "/tmp";
+  const char kLeading3[] = "/tmp/good/path";
+  const char kTrailing[] = "/tmp/good/path/bad";
+
   BrokerFilePermission perm =
-      BrokerFilePermission::ReadWriteCreateUnlinkRecursive(kPath);
-  CheckUnlink(perm, kPathFile, O_RDWR);
-  // Don't do anything here, so that ASSERT works in the subfunction as
-  // expected.
+      BrokerFilePermission::StatOnlyWithIntermediateDirs(kPath);
+  // No open or access permission.
+  ASSERT_FALSE(perm.CheckOpen(kPath, O_RDONLY, NULL, NULL));
+  ASSERT_FALSE(perm.CheckOpen(kPath, O_WRONLY, NULL, NULL));
+  ASSERT_FALSE(perm.CheckOpen(kPath, O_RDWR, NULL, NULL));
+  ASSERT_FALSE(perm.CheckAccess(kPath, R_OK, NULL));
+  ASSERT_FALSE(perm.CheckAccess(kPath, W_OK, NULL));
+
+  // Stat for all leading paths, but not trailing paths.
+  ASSERT_TRUE(perm.CheckStat(kPath, NULL));
+  ASSERT_TRUE(perm.CheckStat(kLeading1, NULL));
+  ASSERT_TRUE(perm.CheckStat(kLeading2, NULL));
+  ASSERT_TRUE(perm.CheckStat(kLeading3, NULL));
+  ASSERT_FALSE(perm.CheckStat(kTrailing, NULL));
 }
 
 TEST(BrokerFilePermission, ValidatePath) {

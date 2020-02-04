@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//services/service_manager/public/cpp/service.gni")
 import("//services/service_manager/public/service_manifest.gni")
 
 source_set("lib") {
@@ -15,17 +14,18 @@ source_set("lib") {
     "user_id_map.h",
   ]
 
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
+
   deps = [
     "//base",
-    "//components/filesystem:lib",
-    "//components/filesystem/public/interfaces",
-    "//components/leveldb:lib",
-    "//components/leveldb/public/interfaces",
-    "//mojo/common",
-    "//mojo/common:common_base",
-    "//services/file/public/interfaces",
+    "//components/services/filesystem:lib",
+    "//components/services/filesystem/public/interfaces",
+    "//components/services/leveldb:lib",
+    "//components/services/leveldb/public/interfaces",
+    "//mojo/public/cpp/system",
+    "//services/file/public/mojom",
     "//services/service_manager/public/cpp",
-    "//services/service_manager/public/interfaces",
+    "//services/service_manager/public/mojom",
     "//url",
   ]
 }

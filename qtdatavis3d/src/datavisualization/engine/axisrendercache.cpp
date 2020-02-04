@@ -201,7 +201,7 @@ int AxisRenderCache::maxLabelWidth(const QStringList &labels) const
     labelFont.setPointSize(textureFontSize);
     QFontMetrics labelFM(labelFont);
     for (int i = 0; i < labels.size(); i++) {
-        int newWidth = labelFM.width(labels.at(i));
+        int newWidth = labelFM.horizontalAdvance(labels.at(i));
         if (labelWidth < newWidth)
             labelWidth = newWidth;
     }

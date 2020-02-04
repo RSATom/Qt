@@ -229,6 +229,19 @@ void QPlaceReply::abort()
 */
 
 /*!
+    \fn void QPlaceReply::contentUpdated()
+
+    This signal is emitted when this reply has updated content available.
+    Depending on the plugin, this signal may never be emitted or emitted
+    multiple times before \l QPlaceReply::finished() is emitted, as some
+    backends are able to return the requested content asynchronously and
+    incrementally.
+
+    \note Do not delete or deleteLater this reply object in the slot
+    connected to this signal. Do it only upon \l QPlaceReply::finished.
+*/
+
+/*!
     \fn void QPlaceReply::error(QPlaceReply::Error error, const QString &errorString)
 
     This signal is emitted when an error has been detected in the processing of

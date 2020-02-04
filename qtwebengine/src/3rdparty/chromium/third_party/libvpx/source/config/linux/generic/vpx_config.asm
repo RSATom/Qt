@@ -1,6 +1,7 @@
 @ This file was created from a .asm file
 @  using the ads2gas.pl script.
 	.equ DO1STROUNDING, 0
+	.syntax unified
 .equ ARCH_ARM ,  0
 .equ ARCH_MIPS ,  0
 .equ ARCH_X86 ,  0
@@ -20,7 +21,9 @@
 .equ HAVE_SSE4_1 ,  0
 .equ HAVE_AVX ,  0
 .equ HAVE_AVX2 ,  0
+.equ HAVE_AVX512 ,  0
 .equ HAVE_VSX ,  0
+.equ HAVE_MMI ,  0
 .equ HAVE_VPX_PORTS ,  1
 .equ HAVE_PTHREAD_H ,  1
 .equ HAVE_UNISTD_H ,  0
@@ -73,15 +76,17 @@
 .equ CONFIG_MULTI_RES_ENCODING ,  1
 .equ CONFIG_TEMPORAL_DENOISING ,  1
 .equ CONFIG_VP9_TEMPORAL_DENOISING ,  1
+.equ CONFIG_CONSISTENT_RECODE ,  0
 .equ CONFIG_COEFFICIENT_RANGE_CHECKING ,  0
 .equ CONFIG_VP9_HIGHBITDEPTH ,  1
 .equ CONFIG_BETTER_HW_COMPATIBILITY ,  0
 .equ CONFIG_EXPERIMENTAL ,  0
 .equ CONFIG_SIZE_LIMIT ,  1
 .equ CONFIG_ALWAYS_ADJUST_BPM ,  0
-.equ CONFIG_SPATIAL_SVC ,  0
 .equ CONFIG_FP_MB_STATS ,  0
 .equ CONFIG_EMULATE_HARDWARE ,  0
+.equ CONFIG_NON_GREEDY_MV ,  0
+.equ CONFIG_ML_VAR_PARTITION ,  0
 .equ DECODE_WIDTH_LIMIT ,  16384
 .equ DECODE_HEIGHT_LIMIT ,  16384
 	.section	.note.GNU-stack,"",%progbits

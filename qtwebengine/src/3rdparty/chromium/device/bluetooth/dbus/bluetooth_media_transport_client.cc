@@ -17,18 +17,9 @@
 
 namespace {
 
-// TODO(mcchou): Add these service constants into dbus/service_constants.h
-// later.
-const char kBluetoothMediaTransportInterface[] = "org.bluez.MediaTransport1";
-
 // Constants used to indicate exceptional error conditions.
 const char kNoResponseError[] = "org.chromium.Error.NoResponse";
 const char kUnexpectedResponse[] = "org.chromium.Error.UnexpectedResponse";
-
-// Method names of Media Transport interface.
-const char kAcquire[] = "Acquire";
-const char kTryAcquire[] = "TryAcquire";
-const char kRelease[] = "Release";
 
 }  // namespace
 
@@ -63,7 +54,7 @@ BluetoothMediaTransportClient::Properties::Properties(
   RegisterProperty(kVolumeProperty, &volume);
 }
 
-BluetoothMediaTransportClient::Properties::~Properties() {}
+BluetoothMediaTransportClient::Properties::~Properties() = default;
 
 class BluetoothMediaTransportClientImpl
     : public BluetoothMediaTransportClient,
@@ -73,7 +64,8 @@ class BluetoothMediaTransportClientImpl
       : object_manager_(nullptr), weak_ptr_factory_(this) {}
 
   ~BluetoothMediaTransportClientImpl() override {
-    object_manager_->UnregisterInterface(kBluetoothMediaTransportInterface);
+    object_manager_->UnregisterInterface(
+        bluetooth_media_transport::kBluetoothMediaTransportInterface);
   }
 
   // dbus::ObjectManager::Interface overrides.
@@ -119,7 +111,8 @@ class BluetoothMediaTransportClientImpl
   Properties* GetProperties(const dbus::ObjectPath& object_path) override {
     DCHECK(object_manager_);
     return static_cast<Properties*>(object_manager_->GetProperties(
-        object_path, kBluetoothMediaTransportInterface));
+        object_path,
+        bluetooth_media_transport::kBluetoothMediaTransportInterface));
   }
 
   void Acquire(const dbus::ObjectPath& object_path,
@@ -129,7 +122,9 @@ class BluetoothMediaTransportClientImpl
 
     DCHECK(object_manager_);
 
-    dbus::MethodCall method_call(kBluetoothMediaTransportInterface, kAcquire);
+    dbus::MethodCall method_call(
+        bluetooth_media_transport::kBluetoothMediaTransportInterface,
+        bluetooth_media_transport::kAcquire);
 
     // Get object proxy.
     scoped_refptr<dbus::ObjectProxy> object_proxy(
@@ -138,10 +133,11 @@ class BluetoothMediaTransportClientImpl
     // Call Acquire method of Media Transport interface.
     object_proxy->CallMethodWithErrorCallback(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothMediaTransportClientImpl::OnAcquireSuccess,
-                   weak_ptr_factory_.GetWeakPtr(), callback, error_callback),
-        base::Bind(&BluetoothMediaTransportClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(), error_callback));
+        base::BindOnce(&BluetoothMediaTransportClientImpl::OnAcquireSuccess,
+                       weak_ptr_factory_.GetWeakPtr(), callback,
+                       error_callback),
+        base::BindOnce(&BluetoothMediaTransportClientImpl::OnError,
+                       weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
   void TryAcquire(const dbus::ObjectPath& object_path,
@@ -151,8 +147,9 @@ class BluetoothMediaTransportClientImpl
 
     DCHECK(object_manager_);
 
-    dbus::MethodCall method_call(kBluetoothMediaTransportInterface,
-                                 kTryAcquire);
+    dbus::MethodCall method_call(
+        bluetooth_media_transport::kBluetoothMediaTransportInterface,
+        bluetooth_media_transport::kTryAcquire);
 
     // Get object proxy.
     scoped_refptr<dbus::ObjectProxy> object_proxy(
@@ -161,10 +158,11 @@ class BluetoothMediaTransportClientImpl
     // Call TryAcquire method of Media Transport interface.
     object_proxy->CallMethodWithErrorCallback(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothMediaTransportClientImpl::OnAcquireSuccess,
-                   weak_ptr_factory_.GetWeakPtr(), callback, error_callback),
-        base::Bind(&BluetoothMediaTransportClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(), error_callback));
+        base::BindOnce(&BluetoothMediaTransportClientImpl::OnAcquireSuccess,
+                       weak_ptr_factory_.GetWeakPtr(), callback,
+                       error_callback),
+        base::BindOnce(&BluetoothMediaTransportClientImpl::OnError,
+                       weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
   void Release(const dbus::ObjectPath& object_path,
@@ -174,7 +172,9 @@ class BluetoothMediaTransportClientImpl
 
     DCHECK(object_manager_);
 
-    dbus::MethodCall method_call(kBluetoothMediaTransportInterface, kRelease);
+    dbus::MethodCall method_call(
+        bluetooth_media_transport::kBluetoothMediaTransportInterface,
+        bluetooth_media_transport::kRelease);
 
     // Get object proxy.
     scoped_refptr<dbus::ObjectProxy> object_proxy(
@@ -183,20 +183,22 @@ class BluetoothMediaTransportClientImpl
     // Call TryAcquire method of Media Transport interface.
     object_proxy->CallMethodWithErrorCallback(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothMediaTransportClientImpl::OnSuccess,
-                   weak_ptr_factory_.GetWeakPtr(), callback),
-        base::Bind(&BluetoothMediaTransportClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(), error_callback));
+        base::BindOnce(&BluetoothMediaTransportClientImpl::OnSuccess,
+                       weak_ptr_factory_.GetWeakPtr(), callback),
+        base::BindOnce(&BluetoothMediaTransportClientImpl::OnError,
+                       weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
  protected:
-  void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus,
+            const std::string& bluetooth_service_name) override {
     DCHECK(bus);
     object_manager_ = bus->GetObjectManager(
-        bluetooth_object_manager::kBluetoothObjectManagerServiceName,
+        bluetooth_service_name,
         dbus::ObjectPath(
             bluetooth_object_manager::kBluetoothObjectManagerServicePath));
-    object_manager_->RegisterInterface(kBluetoothMediaTransportInterface, this);
+    object_manager_->RegisterInterface(
+        bluetooth_media_transport::kBluetoothMediaTransportInterface, this);
   }
 
  private:
@@ -267,16 +269,17 @@ class BluetoothMediaTransportClientImpl
   dbus::ObjectManager* object_manager_;
 
   // List of observers interested in event notifications from us.
-  base::ObserverList<BluetoothMediaTransportClient::Observer> observers_;
+  base::ObserverList<BluetoothMediaTransportClient::Observer>::Unchecked
+      observers_;
 
   base::WeakPtrFactory<BluetoothMediaTransportClientImpl> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothMediaTransportClientImpl);
 };
 
-BluetoothMediaTransportClient::BluetoothMediaTransportClient() {}
+BluetoothMediaTransportClient::BluetoothMediaTransportClient() = default;
 
-BluetoothMediaTransportClient::~BluetoothMediaTransportClient() {}
+BluetoothMediaTransportClient::~BluetoothMediaTransportClient() = default;
 
 BluetoothMediaTransportClient* BluetoothMediaTransportClient::Create() {
   return new BluetoothMediaTransportClientImpl();

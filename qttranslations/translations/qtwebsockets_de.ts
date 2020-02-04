@@ -58,6 +58,10 @@
         <translation>Ungültige Statuszeile in Antwort: %1.</translation>
     </message>
     <message>
+        <source>Malformed header in response: %1.</source>
+        <translation>Die Antwort enthält einen ungültigen Header: %1.</translation>
+    </message>
+    <message>
         <source>QWebSocketPrivate::processHandshake: Connection closed while reading header.</source>
         <translation>QWebSocketPrivate::processHandshake: Verbindung während des Auslesens des Headers geschlossen.</translation>
     </message>

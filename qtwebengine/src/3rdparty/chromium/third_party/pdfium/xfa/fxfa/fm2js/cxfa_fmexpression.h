@@ -12,168 +12,143 @@
 
 #include "xfa/fxfa/fm2js/cxfa_fmsimpleexpression.h"
 
-enum XFA_FM_EXPTYPE {
-  XFA_FM_EXPTYPE_UNKNOWN,
-  XFA_FM_EXPTYPE_FUNC,
-  XFA_FM_EXPTYPE_VAR,
-  XFA_FM_EXPTYPE_EXP,
-  XFA_FM_EXPTYPE_BLOCK,
-  XFA_FM_EXPTYPE_IF,
-  XFA_FM_EXPTYPE_BREAK,
-  XFA_FM_EXPTYPE_CONTINUE,
-};
+class CFX_WideTextBuf;
 
 class CXFA_FMExpression {
  public:
-  explicit CXFA_FMExpression(uint32_t line);
-  CXFA_FMExpression(uint32_t line, XFA_FM_EXPTYPE type);
-  virtual ~CXFA_FMExpression() {}
+  virtual ~CXFA_FMExpression() = default;
+  virtual bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) = 0;
 
-  virtual bool ToJavaScript(CFX_WideTextBuf& javascript);
-  virtual bool ToImpliedReturnJS(CFX_WideTextBuf&);
-  uint32_t GetLine() { return m_line; }
-  XFA_FM_EXPTYPE GetExpType() const { return m_type; }
-
- private:
-  XFA_FM_EXPTYPE m_type;
-  uint32_t m_line;
+ protected:
+  CXFA_FMExpression();
 };
 
-class CXFA_FMFunctionDefinition : public CXFA_FMExpression {
+class CXFA_FMFunctionDefinition final : public CXFA_FMExpression {
  public:
-  // Takes ownership of |arguments| and |expressions|.
   CXFA_FMFunctionDefinition(
-      uint32_t line,
-      bool isGlobal,
-      const CFX_WideStringC& wsName,
-      std::vector<CFX_WideStringC>&& arguments,
+      WideStringView wsName,
+      std::vector<WideStringView>&& arguments,
       std::vector<std::unique_ptr<CXFA_FMExpression>>&& expressions);
   ~CXFA_FMFunctionDefinition() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
-  CFX_WideStringC m_wsName;
-  std::vector<CFX_WideStringC> m_pArguments;
+  WideStringView m_wsName;
+  std::vector<WideStringView> m_pArguments;
   std::vector<std::unique_ptr<CXFA_FMExpression>> m_pExpressions;
-  bool m_isGlobal;
 };
 
-class CXFA_FMVarExpression : public CXFA_FMExpression {
+class CXFA_FMAST {
  public:
-  CXFA_FMVarExpression(uint32_t line,
-                       const CFX_WideStringC& wsName,
-                       std::unique_ptr<CXFA_FMExpression> pInit);
+  explicit CXFA_FMAST(
+      std::vector<std::unique_ptr<CXFA_FMExpression>> expressions);
+  ~CXFA_FMAST();
+
+  bool ToJavaScript(CFX_WideTextBuf* js);
+
+ private:
+  std::vector<std::unique_ptr<CXFA_FMExpression>> expressions_;
+};
+
+class CXFA_FMVarExpression final : public CXFA_FMExpression {
+ public:
+  CXFA_FMVarExpression(WideStringView wsName,
+                       std::unique_ptr<CXFA_FMSimpleExpression> pInit);
   ~CXFA_FMVarExpression() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
-  CFX_WideStringC m_wsName;
-  std::unique_ptr<CXFA_FMExpression> m_pInit;
+  WideStringView m_wsName;
+  std::unique_ptr<CXFA_FMSimpleExpression> m_pInit;
 };
 
-class CXFA_FMExpExpression : public CXFA_FMExpression {
+class CXFA_FMExpExpression final : public CXFA_FMExpression {
  public:
-  CXFA_FMExpExpression(uint32_t line,
-                       std::unique_ptr<CXFA_FMSimpleExpression> pExpression);
+  explicit CXFA_FMExpExpression(
+      std::unique_ptr<CXFA_FMSimpleExpression> pExpression);
   ~CXFA_FMExpExpression() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
   std::unique_ptr<CXFA_FMSimpleExpression> m_pExpression;
 };
 
-class CXFA_FMBlockExpression : public CXFA_FMExpression {
+class CXFA_FMBlockExpression final : public CXFA_FMExpression {
  public:
   CXFA_FMBlockExpression(
-      uint32_t line,
       std::vector<std::unique_ptr<CXFA_FMExpression>>&& pExpressionList);
   ~CXFA_FMBlockExpression() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
   std::vector<std::unique_ptr<CXFA_FMExpression>> m_ExpressionList;
 };
 
-class CXFA_FMDoExpression : public CXFA_FMExpression {
+class CXFA_FMDoExpression final : public CXFA_FMExpression {
  public:
-  CXFA_FMDoExpression(uint32_t line, std::unique_ptr<CXFA_FMExpression> pList);
+  explicit CXFA_FMDoExpression(std::unique_ptr<CXFA_FMExpression> pList);
   ~CXFA_FMDoExpression() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
   std::unique_ptr<CXFA_FMExpression> m_pList;
 };
 
-class CXFA_FMIfExpression : public CXFA_FMExpression {
+class CXFA_FMIfExpression final : public CXFA_FMExpression {
  public:
-  CXFA_FMIfExpression(uint32_t line,
-                      std::unique_ptr<CXFA_FMSimpleExpression> pExpression,
-                      std::unique_ptr<CXFA_FMExpression> pIfExpression,
-                      std::unique_ptr<CXFA_FMExpression> pElseExpression);
+  CXFA_FMIfExpression(
+      std::unique_ptr<CXFA_FMSimpleExpression> pExpression,
+      std::unique_ptr<CXFA_FMExpression> pIfExpression,
+      std::vector<std::unique_ptr<CXFA_FMIfExpression>> pElseIfExpressions,
+      std::unique_ptr<CXFA_FMExpression> pElseExpression);
   ~CXFA_FMIfExpression() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
   std::unique_ptr<CXFA_FMSimpleExpression> m_pExpression;
   std::unique_ptr<CXFA_FMExpression> m_pIfExpression;
+  std::vector<std::unique_ptr<CXFA_FMIfExpression>> m_pElseIfExpressions;
   std::unique_ptr<CXFA_FMExpression> m_pElseExpression;
 };
 
-class CXFA_FMLoopExpression : public CXFA_FMExpression {
+class CXFA_FMWhileExpression final : public CXFA_FMExpression {
  public:
-  explicit CXFA_FMLoopExpression(uint32_t line) : CXFA_FMExpression(line) {}
-  ~CXFA_FMLoopExpression() override;
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
-};
-
-class CXFA_FMWhileExpression : public CXFA_FMLoopExpression {
- public:
-  CXFA_FMWhileExpression(uint32_t line,
-                         std::unique_ptr<CXFA_FMSimpleExpression> pCodition,
+  CXFA_FMWhileExpression(std::unique_ptr<CXFA_FMSimpleExpression> pCodition,
                          std::unique_ptr<CXFA_FMExpression> pExpression);
   ~CXFA_FMWhileExpression() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
   std::unique_ptr<CXFA_FMSimpleExpression> m_pCondition;
   std::unique_ptr<CXFA_FMExpression> m_pExpression;
 };
 
-class CXFA_FMBreakExpression : public CXFA_FMExpression {
+class CXFA_FMBreakExpression final : public CXFA_FMExpression {
  public:
-  explicit CXFA_FMBreakExpression(uint32_t line);
+  CXFA_FMBreakExpression();
   ~CXFA_FMBreakExpression() override;
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 };
 
-class CXFA_FMContinueExpression : public CXFA_FMExpression {
+class CXFA_FMContinueExpression final : public CXFA_FMExpression {
  public:
-  explicit CXFA_FMContinueExpression(uint32_t line);
+  CXFA_FMContinueExpression();
   ~CXFA_FMContinueExpression() override;
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 };
 
-class CXFA_FMForExpression : public CXFA_FMLoopExpression {
+class CXFA_FMForExpression final : public CXFA_FMExpression {
  public:
-  CXFA_FMForExpression(uint32_t line,
-                       const CFX_WideStringC& wsVariant,
+  CXFA_FMForExpression(WideStringView wsVariant,
                        std::unique_ptr<CXFA_FMSimpleExpression> pAssignment,
                        std::unique_ptr<CXFA_FMSimpleExpression> pAccessor,
                        int32_t iDirection,
@@ -181,11 +156,10 @@ class CXFA_FMForExpression : public CXFA_FMLoopExpression {
                        std::unique_ptr<CXFA_FMExpression> pList);
   ~CXFA_FMForExpression() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
-  CFX_WideStringC m_wsVariant;
+  WideStringView m_wsVariant;
   std::unique_ptr<CXFA_FMSimpleExpression> m_pAssignment;
   std::unique_ptr<CXFA_FMSimpleExpression> m_pAccessor;
   const bool m_bDirection;
@@ -193,21 +167,19 @@ class CXFA_FMForExpression : public CXFA_FMLoopExpression {
   std::unique_ptr<CXFA_FMExpression> m_pList;
 };
 
-class CXFA_FMForeachExpression : public CXFA_FMLoopExpression {
+class CXFA_FMForeachExpression final : public CXFA_FMExpression {
  public:
   // Takes ownership of |pAccessors|.
   CXFA_FMForeachExpression(
-      uint32_t line,
-      const CFX_WideStringC& wsIdentifier,
+      WideStringView wsIdentifier,
       std::vector<std::unique_ptr<CXFA_FMSimpleExpression>>&& pAccessors,
       std::unique_ptr<CXFA_FMExpression> pList);
   ~CXFA_FMForeachExpression() override;
 
-  bool ToJavaScript(CFX_WideTextBuf& javascript) override;
-  bool ToImpliedReturnJS(CFX_WideTextBuf&) override;
+  bool ToJavaScript(CFX_WideTextBuf* js, ReturnType type) override;
 
  private:
-  CFX_WideStringC m_wsIdentifier;
+  WideStringView m_wsIdentifier;
   std::vector<std::unique_ptr<CXFA_FMSimpleExpression>> m_pAccessors;
   std::unique_ptr<CXFA_FMExpression> m_pList;
 };

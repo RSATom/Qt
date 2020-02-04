@@ -54,7 +54,7 @@
 #include <Qt3DRender/private/backendnode_p.h>
 #include <QtGui/qquaternion.h>
 #include <QtGui/qvector3d.h>
-#include <QMatrix4x4>
+#include <Qt3DCore/private/matrix4x4_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -71,19 +71,19 @@ public:
     Transform();
     void cleanup();
 
-    QMatrix4x4 transformMatrix() const;
+    Matrix4x4 transformMatrix() const;
     QVector3D scale() const;
     QQuaternion rotation() const;
     QVector3D translation() const;
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     void updateMatrix();
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
-    QMatrix4x4 m_transformMatrix;
+    Matrix4x4 m_transformMatrix;
     QQuaternion m_rotation;
     QVector3D m_scale;
     QVector3D m_translation;

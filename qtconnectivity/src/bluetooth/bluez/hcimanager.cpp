@@ -40,7 +40,7 @@
 
 #include "hcimanager_p.h"
 
-#include "qbluetoothsocket_p.h"
+#include "qbluetoothsocketbase_p.h"
 #include "qlowenergyconnectionparameters.h"
 
 #include <QtCore/qloggingcategory.h>
@@ -53,16 +53,12 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#define HCIGETCONNLIST  _IOR('H', 212, int)
-#define HCIGETDEVINFO   _IOR('H', 211, int)
-#define HCIGETDEVLIST   _IOR('H', 210, int)
-
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(QT_BT_BLUEZ)
 
 HciManager::HciManager(const QBluetoothAddress& deviceAdapter, QObject *parent) :
-    QObject(parent), hciSocket(-1), hciDev(-1), notifier(0)
+    QObject(parent), hciSocket(-1), hciDev(-1)
 {
     hciSocket = ::socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
     if (hciSocket < 0) {
@@ -118,8 +114,8 @@ int HciManager::hciForAddress(const QBluetoothAddress &deviceAdapter)
     bdaddr_t adapter;
     convertAddress(deviceAdapter.toUInt64(), adapter.b);
 
-    struct hci_dev_req *devRequest = 0;
-    struct hci_dev_list_req *devRequestList = 0;
+    struct hci_dev_req *devRequest = nullptr;
+    struct hci_dev_list_req *devRequestList = nullptr;
     struct hci_dev_info devInfo;
     const int devListSize = sizeof(struct hci_dev_list_req)
                         + HCI_MAX_DEV * sizeof(struct hci_dev_req);

@@ -43,9 +43,9 @@
 #include "qtwindowsglobal.h"
 #include <QtCore/qt_windows.h>
 
-#include <QtCore/QScopedPointer>
-#include <QtCore/QSharedPointer>
-#include <QtCore/QLoggingCategory>
+#include <QtCore/qscopedpointer.h>
+#include <QtCore/qsharedpointer.h>
+#include <QtCore/qloggingcategory.h>
 
 #define STRICT_TYPED_ITEMIDS
 #include <shlobj.h>
@@ -57,7 +57,6 @@ struct _SHSTOCKICONINFO;
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(lcQpaWindows)
-Q_DECLARE_LOGGING_CATEGORY(lcQpaBackingStore)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaEvents)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaGl)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaMime)
@@ -66,10 +65,12 @@ Q_DECLARE_LOGGING_CATEGORY(lcQpaDialogs)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaMenus)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaTablet)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaAccessibility)
+Q_DECLARE_LOGGING_CATEGORY(lcQpaUiAutomation)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaTrayIcon)
 
 class QWindow;
 class QPlatformScreen;
+class QPlatformWindow;
 class QWindowsMenuBar;
 class QWindowsScreenManager;
 class QWindowsTabletSupport;
@@ -84,28 +85,40 @@ class QTouchDevice;
 struct QWindowsUser32DLL
 {
     inline void init();
-    inline bool initTouch();
+    inline bool supportsPointerApi();
 
-    typedef BOOL (WINAPI *IsTouchWindow)(HWND, PULONG); // Windows 7
-    typedef BOOL (WINAPI *RegisterTouchWindow)(HWND, ULONG);
-    typedef BOOL (WINAPI *UnregisterTouchWindow)(HWND);
-    typedef BOOL (WINAPI *GetTouchInputInfo)(HANDLE, UINT, PVOID, int);
-    typedef BOOL (WINAPI *CloseTouchInputHandle)(HANDLE);
+    typedef BOOL (WINAPI *EnableMouseInPointer)(BOOL);
+    typedef BOOL (WINAPI *GetPointerType)(UINT32, PVOID);
+    typedef BOOL (WINAPI *GetPointerInfo)(UINT32, PVOID);
+    typedef BOOL (WINAPI *GetPointerDeviceRects)(HANDLE, RECT *, RECT *);
+    typedef BOOL (WINAPI *GetPointerTouchInfo)(UINT32, PVOID);
+    typedef BOOL (WINAPI *GetPointerFrameTouchInfo)(UINT32, UINT32 *, PVOID);
+    typedef BOOL (WINAPI *GetPointerFrameTouchInfoHistory)(UINT32, UINT32 *, UINT32 *, PVOID);
+    typedef BOOL (WINAPI *GetPointerPenInfo)(UINT32, PVOID);
+    typedef BOOL (WINAPI *GetPointerPenInfoHistory)(UINT32, UINT32 *, PVOID);
+    typedef BOOL (WINAPI *SkipPointerFrameMessages)(UINT32);
     typedef BOOL (WINAPI *SetProcessDPIAware)();
     typedef BOOL (WINAPI *AddClipboardFormatListener)(HWND);
     typedef BOOL (WINAPI *RemoveClipboardFormatListener)(HWND);
     typedef BOOL (WINAPI *GetDisplayAutoRotationPreferences)(DWORD *);
     typedef BOOL (WINAPI *SetDisplayAutoRotationPreferences)(DWORD);
+    typedef BOOL (WINAPI *AdjustWindowRectExForDpi)(LPRECT,DWORD,BOOL,DWORD,UINT);
     typedef BOOL (WINAPI *EnableNonClientDpiScaling)(HWND);
     typedef int  (WINAPI *GetWindowDpiAwarenessContext)(HWND);
     typedef int  (WINAPI *GetAwarenessFromDpiAwarenessContext)(int);
+    typedef BOOL (WINAPI *SystemParametersInfoForDpi)(UINT, UINT, PVOID, UINT, UINT);
 
-    // Touch functions from Windows 7 onwards (also for use with Q_CC_MSVC).
-    IsTouchWindow isTouchWindow = nullptr;
-    RegisterTouchWindow registerTouchWindow = nullptr;
-    UnregisterTouchWindow unregisterTouchWindow = nullptr;
-    GetTouchInputInfo getTouchInputInfo = nullptr;
-    CloseTouchInputHandle closeTouchInputHandle = nullptr;
+    // Windows pointer functions (Windows 8 or later).
+    EnableMouseInPointer enableMouseInPointer = nullptr;
+    GetPointerType getPointerType = nullptr;
+    GetPointerInfo getPointerInfo = nullptr;
+    GetPointerDeviceRects getPointerDeviceRects = nullptr;
+    GetPointerTouchInfo getPointerTouchInfo = nullptr;
+    GetPointerFrameTouchInfo getPointerFrameTouchInfo = nullptr;
+    GetPointerFrameTouchInfoHistory getPointerFrameTouchInfoHistory = nullptr;
+    GetPointerPenInfo getPointerPenInfo = nullptr;
+    GetPointerPenInfoHistory getPointerPenInfoHistory = nullptr;
+    SkipPointerFrameMessages skipPointerFrameMessages = nullptr;
 
     // Windows Vista onwards
     SetProcessDPIAware setProcessDPIAware = nullptr;
@@ -119,9 +132,11 @@ struct QWindowsUser32DLL
     GetDisplayAutoRotationPreferences getDisplayAutoRotationPreferences = nullptr;
     SetDisplayAutoRotationPreferences setDisplayAutoRotationPreferences = nullptr;
 
+    AdjustWindowRectExForDpi adjustWindowRectExForDpi = nullptr;
     EnableNonClientDpiScaling enableNonClientDpiScaling = nullptr;
     GetWindowDpiAwarenessContext getWindowDpiAwarenessContext = nullptr;
     GetAwarenessFromDpiAwarenessContext getAwarenessFromDpiAwarenessContext = nullptr;
+    SystemParametersInfoForDpi systemParametersInfoForDpi = nullptr;
 };
 
 // Shell scaling library (Windows 8.1 onwards)
@@ -146,7 +161,8 @@ public:
     enum SystemInfoFlags
     {
         SI_RTL_Extensions = 0x1,
-        SI_SupportsTouch = 0x2
+        SI_SupportsTouch = 0x2,
+        SI_SupportsPointer = 0x4,
     };
 
     // Verbose flag set by environment variable QT_QPA_VERBOSE
@@ -157,6 +173,8 @@ public:
 
     bool initTouch();
     bool initTouch(unsigned integrationOptions); // For calls from QWindowsIntegration::QWindowsIntegration() only.
+    bool initTablet(unsigned integrationOptions);
+    bool initPointer(unsigned integrationOptions);
 
     int defaultDPI() const;
 
@@ -185,6 +203,8 @@ public:
     QWindowsWindow *findPlatformWindowAt(HWND parent, const QPoint &screenPoint,
                                              unsigned cwex_flags) const;
 
+    static bool shouldHaveNonClientDpiScaling(const QWindow *window);
+
     QWindow *windowUnderMouse() const;
     void clearWindowUnderMouse();
 
@@ -203,11 +223,15 @@ public:
     void setProcessDpiAwareness(QtWindows::ProcessDpiAwareness dpiAwareness);
     static int processDpiAwareness();
 
+    void setDetectAltGrModifier(bool a);
+
     // Returns a combination of SystemInfoFlags
     unsigned systemInfo() const;
 
     bool useRTLExtensions() const;
     QList<int> possibleKeys(const QKeyEvent *e) const;
+
+    static bool isSessionLocked();
 
     QWindowsMimeConverter &mimeConverter() const;
     QWindowsScreenManager &screenManager();
@@ -220,15 +244,30 @@ public:
     bool asyncExpose() const;
     void setAsyncExpose(bool value);
 
+    static bool systemParametersInfo(unsigned action, unsigned param, void *out, unsigned dpi = 0);
+    static bool systemParametersInfoForScreen(unsigned action, unsigned param, void *out,
+                                              const QPlatformScreen *screen = nullptr);
+    static bool systemParametersInfoForWindow(unsigned action, unsigned param, void *out,
+                                              const QPlatformWindow *win = nullptr);
+    static bool nonClientMetrics(NONCLIENTMETRICS *ncm, unsigned dpi = 0);
+    static bool nonClientMetricsForScreen(NONCLIENTMETRICS *ncm,
+                                          const QPlatformScreen *screen = nullptr);
+    static bool nonClientMetricsForWindow(NONCLIENTMETRICS *ncm,
+                                          const QPlatformWindow *win = nullptr);
+
     static DWORD readAdvancedExplorerSettings(const wchar_t *subKey, DWORD defaultValue);
 
     QTouchDevice *touchDevice() const;
+
+    static bool filterNativeEvent(MSG *msg, LRESULT *result);
+    static bool filterNativeEvent(QWindow *window, MSG *msg, LRESULT *result);
 
 private:
     void handleFocusEvent(QtWindows::WindowsEventType et, QWindowsWindow *w);
 #ifndef QT_NO_CONTEXTMENU
     bool handleContextMenuEvent(QWindow *window, const MSG &msg);
 #endif
+    void handleExitSizeMove(QWindow *window);
     void unregisterWindowClasses();
 
     QScopedPointer<QWindowsContextPrivate> d;

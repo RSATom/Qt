@@ -3,34 +3,29 @@
 // found in the LICENSE file.
 
 #include <cryptohi.h>
+#include <pk11pub.h>
 
 #include <memory>
 #include <utility>
 
 #include "base/json/json_writer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service_factory.h"
-#include "chrome/browser/chromeos/policy/device_policy_cros_browser_test.h"
-#include "chrome/browser/chromeos/policy/user_policy_test_helper.h"
-#include "chrome/browser/extensions/extension_apitest.h"
+#include "chrome/browser/extensions/api/platform_keys/platform_keys_test_base.h"
 #include "chrome/browser/net/nss_context.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/policy/profile_policy_connector_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/chromeos_switches.h"
 #include "components/policy/policy_constants.h"
-#include "components/signin/core/account_id/account_id.h"
-#include "components/user_manager/user_names.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/test/test_utils.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "crypto/nss_util_internal.h"
+#include "crypto/scoped_nss_types.h"
+#include "crypto/scoped_test_nss_db.h"
 #include "crypto/scoped_test_system_nss_key_slot.h"
-#include "extensions/browser/extension_registry.h"
-#include "extensions/browser/notification_types.h"
-#include "net/base/net_errors.h"
 #include "net/cert/nss_cert_database.h"
 #include "net/cert/test_root_certs.h"
 #include "net/test/cert_test_util.h"
@@ -38,98 +33,82 @@
 
 namespace {
 
-enum DeviceStatus { DEVICE_STATUS_ENROLLED, DEVICE_STATUS_NOT_ENROLLED };
-
-enum UserStatus {
-  USER_STATUS_MANAGED_AFFILIATED_DOMAIN,
-  USER_STATUS_MANAGED_OTHER_DOMAIN,
-  USER_STATUS_UNMANAGED
-};
-
-class PlatformKeysTest : public ExtensionApiTest {
+class PlatformKeysTest : public PlatformKeysTestBase {
  public:
-  PlatformKeysTest(DeviceStatus device_status,
+  enum class UserClientCertSlot { kPrivateSlot, kPublicSlot };
+
+  PlatformKeysTest(EnrollmentStatus enrollment_status,
                    UserStatus user_status,
-                   bool key_permission_policy)
-      : device_status_(device_status),
-        user_status_(user_status),
-        key_permission_policy_(key_permission_policy) {
-    if (user_status_ != USER_STATUS_UNMANAGED)
-      SetupInitialEmptyPolicy();
-  }
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionApiTest::SetUpCommandLine(command_line);
-
-    if (policy_helper_)
-      policy_helper_->UpdateCommandLine(command_line);
-
-    command_line->AppendSwitchASCII(
-        chromeos::switches::kLoginUser,
-        user_manager::StubAccountId().GetUserEmail());
-  }
-
-  void SetUpInProcessBrowserTestFixture() override {
-    ExtensionApiTest::SetUpInProcessBrowserTestFixture();
-
-    if (device_status_ == DEVICE_STATUS_ENROLLED) {
-      device_policy_test_helper_.device_policy()->policy_data().set_username(
-          user_status_ == USER_STATUS_MANAGED_AFFILIATED_DOMAIN
-              ? user_manager::StubAccountId().GetUserEmail()
-              : "someuser@anydomain.com");
-
-      device_policy_test_helper_.device_policy()->Build();
-      device_policy_test_helper_.MarkAsEnterpriseOwned();
-    }
-  }
+                   bool key_permission_policy,
+                   UserClientCertSlot user_client_cert_slot)
+      : PlatformKeysTestBase(SystemTokenStatus::EXISTS,
+                             enrollment_status,
+                             user_status),
+        key_permission_policy_(key_permission_policy),
+        user_client_cert_slot_(user_client_cert_slot) {}
 
   void SetUpOnMainThread() override {
-    if (policy_helper_)
-      policy_helper_->WaitForInitialPolicy(browser()->profile());
-
-    {
+    if (!IsPreTest()) {
+      // Set up the private slot before
+      // |PlatformKeysTestBase::SetUpOnMainThread| triggers the user sign-in.
+      ASSERT_TRUE(user_private_slot_db_.is_open());
       base::RunLoop loop;
-      content::BrowserThread::PostTask(
-          content::BrowserThread::IO, FROM_HERE,
-          base::BindOnce(&PlatformKeysTest::SetUpTestSystemSlotOnIO,
+      base::PostTaskWithTraitsAndReply(
+          FROM_HERE, {content::BrowserThread::IO},
+          base::BindOnce(&PlatformKeysTest::SetPrivateSoftwareSlotOnIO,
                          base::Unretained(this),
-                         browser()->profile()->GetResourceContext(),
-                         loop.QuitClosure()));
+                         crypto::ScopedPK11Slot(
+                             PK11_ReferenceSlot(user_private_slot_db_.slot()))),
+          loop.QuitClosure());
       loop.Run();
     }
 
-    ExtensionApiTest::SetUpOnMainThread();
+    PlatformKeysTestBase::SetUpOnMainThread();
+
+    if (IsPreTest())
+      return;
 
     {
       base::RunLoop loop;
       GetNSSCertDatabaseForProfile(
-          browser()->profile(),
-          base::Bind(&PlatformKeysTest::SetupTestCerts, base::Unretained(this),
-                     loop.QuitClosure()));
+          profile(),
+          base::BindRepeating(&PlatformKeysTest::SetupTestCerts,
+                              base::Unretained(this), loop.QuitClosure()));
       loop.Run();
     }
 
     base::FilePath extension_path = test_data_dir_.AppendASCII("platform_keys");
     extension_ = LoadExtension(extension_path);
 
-    if (policy_helper_ && key_permission_policy_)
-      SetupKeyPermissionPolicy();
+    if (user_status() != UserStatus::UNMANAGED && key_permission_policy_)
+      SetupKeyPermissionUserPolicy();
   }
 
-  void TearDownOnMainThread() override {
-    ExtensionApiTest::TearDownOnMainThread();
+  void SetupKeyPermissionUserPolicy() {
+    policy::PolicyMap policy;
 
-    base::RunLoop loop;
-    content::BrowserThread::PostTask(
-        content::BrowserThread::IO, FROM_HERE,
-        base::BindOnce(&PlatformKeysTest::TearDownTestSystemSlotOnIO,
-                       base::Unretained(this), loop.QuitClosure()));
-    loop.Run();
+    // Set up the test policy that gives |extension_| the permission to access
+    // corporate keys.
+    std::unique_ptr<base::DictionaryValue> key_permissions_policy =
+        std::make_unique<base::DictionaryValue>();
+    {
+      std::unique_ptr<base::DictionaryValue> cert1_key_permission(
+          new base::DictionaryValue);
+      cert1_key_permission->SetKey("allowCorporateKeyUsage", base::Value(true));
+      key_permissions_policy->SetWithoutPathExpansion(
+          extension_->id(), std::move(cert1_key_permission));
+    }
+
+    policy.Set(policy::key::kKeyPermissions, policy::POLICY_LEVEL_MANDATORY,
+               policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+               std::move(key_permissions_policy), nullptr);
+
+    mock_policy_provider()->UpdateChromePolicy(policy);
   }
 
   chromeos::PlatformKeysService* GetPlatformKeysService() {
     return chromeos::PlatformKeysServiceFactory::GetForBrowserContext(
-        browser()->profile());
+        profile());
   }
 
   bool RunExtensionTest(const std::string& test_suite_name) {
@@ -138,15 +117,16 @@ class PlatformKeysTest : public ExtensionApiTest {
 
     // Only if the current user is of the same domain as the device is enrolled
     // to, the system token is available to the extension.
-    if (device_status_ == DEVICE_STATUS_ENROLLED &&
-        user_status_ == USER_STATUS_MANAGED_AFFILIATED_DOMAIN) {
+    if (system_token_status() == SystemTokenStatus::EXISTS &&
+        enrollment_status() == EnrollmentStatus::ENROLLED &&
+        user_status() == UserStatus::MANAGED_AFFILIATED_DOMAIN) {
       system_token_availability = "systemTokenEnabled";
     }
 
     GURL url = extension_->GetResourceURL(base::StringPrintf(
         "basic.html?%s#%s", system_token_availability.c_str(),
         test_suite_name.c_str()));
-    return RunExtensionSubtest("", url.spec());
+    return TestExtension(url.spec());
   }
 
   void RegisterClient1AsCorporateKey() {
@@ -172,47 +152,16 @@ class PlatformKeysTest : public ExtensionApiTest {
   }
 
  protected:
-  const DeviceStatus device_status_;
-  const UserStatus user_status_;
-
+  // Imported into user's private or public slot, depending on the value of
+  // |user_client_cert_slot_|.
   scoped_refptr<net::X509Certificate> client_cert1_;
+  // Imported into system slot.
   scoped_refptr<net::X509Certificate> client_cert2_;
   const extensions::Extension* extension_;
 
  private:
-  void SetupInitialEmptyPolicy() {
-    policy_helper_.reset(new policy::UserPolicyTestHelper(
-        user_manager::StubAccountId().GetUserEmail()));
-    policy_helper_->Init(
-        base::DictionaryValue() /* empty mandatory policy */,
-        base::DictionaryValue() /* empty recommended policy */);
-  }
-
-  void SetupKeyPermissionPolicy() {
-    // Set up the test policy that gives |extension_| the permission to access
-    // corporate keys.
-    base::DictionaryValue key_permissions_policy;
-    {
-      std::unique_ptr<base::DictionaryValue> cert1_key_permission(
-          new base::DictionaryValue);
-      cert1_key_permission->SetBooleanWithoutPathExpansion(
-          "allowCorporateKeyUsage", true);
-      key_permissions_policy.SetWithoutPathExpansion(
-          extension_->id(), std::move(cert1_key_permission));
-    }
-
-    std::string key_permissions_policy_str;
-    base::JSONWriter::WriteWithOptions(key_permissions_policy,
-                                       base::JSONWriter::OPTIONS_PRETTY_PRINT,
-                                       &key_permissions_policy_str);
-
-    base::DictionaryValue user_policy;
-    user_policy.SetStringWithoutPathExpansion(policy::key::kKeyPermissions,
-                                              key_permissions_policy_str);
-
-    policy_helper_->UpdatePolicy(
-        user_policy, base::DictionaryValue() /* empty recommended policy */,
-        browser()->profile());
+  void SetPrivateSoftwareSlotOnIO(crypto::ScopedPK11Slot slot) {
+    crypto::SetPrivateSoftwareSlotForChromeOSUserForTesting(std::move(slot));
   }
 
   void GotPermissionsForExtension(
@@ -221,7 +170,8 @@ class PlatformKeysTest : public ExtensionApiTest {
           permissions_for_ext) {
     std::string client_cert1_spki =
         chromeos::platform_keys::GetSubjectPublicKeyInfo(client_cert1_);
-    permissions_for_ext->RegisterKeyForCorporateUsage(client_cert1_spki);
+    permissions_for_ext->RegisterKeyForCorporateUsage(
+        client_cert1_spki, {chromeos::KeyPermissions::KeyLocation::kUserSlot});
     done_callback.Run();
   }
 
@@ -233,16 +183,23 @@ class PlatformKeysTest : public ExtensionApiTest {
   }
 
   void SetupTestClientCerts(net::NSSCertDatabase* cert_db) {
+    // Sanity check to ensure that
+    // SetPrivateSoftwareSlotForChromeOSUserForTesting took effect.
+    EXPECT_EQ(user_private_slot_db_.slot(), cert_db->GetPrivateSlot().get());
+    EXPECT_NE(cert_db->GetPrivateSlot().get(), cert_db->GetPublicSlot().get());
+
+    auto* slot = user_client_cert_slot_ == UserClientCertSlot::kPrivateSlot
+                     ? cert_db->GetPrivateSlot().get()
+                     : cert_db->GetPublicSlot().get();
     client_cert1_ = net::ImportClientCertAndKeyFromFile(
-        net::GetTestCertsDirectory(), "client_1.pem", "client_1.pk8",
-        cert_db->GetPrivateSlot().get());
+        net::GetTestCertsDirectory(), "client_1.pem", "client_1.pk8", slot);
     ASSERT_TRUE(client_cert1_.get());
 
     // Import a second client cert signed by another CA than client_1 into the
     // system wide key slot.
     client_cert2_ = net::ImportClientCertAndKeyFromFile(
         net::GetTestCertsDirectory(), "client_2.pem", "client_2.pk8",
-        test_system_slot_->slot());
+        test_system_slot()->slot());
     ASSERT_TRUE(client_cert2_.get());
   }
 
@@ -255,28 +212,11 @@ class PlatformKeysTest : public ExtensionApiTest {
         test_data_dir_.AppendASCII("platform_keys").AppendASCII("root.pem"));
   }
 
-  void SetUpTestSystemSlotOnIO(content::ResourceContext* context,
-                               const base::Closure& done_callback) {
-    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-    test_system_slot_.reset(new crypto::ScopedTestSystemNSSKeySlot());
-    ASSERT_TRUE(test_system_slot_->ConstructedSuccessfully());
-
-    content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                     done_callback);
-  }
-
-  void TearDownTestSystemSlotOnIO(const base::Closure& done_callback) {
-    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-    test_system_slot_.reset();
-
-    content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                     done_callback);
-  }
-
   const bool key_permission_policy_;
-  std::unique_ptr<policy::UserPolicyTestHelper> policy_helper_;
-  policy::DevicePolicyCrosTestHelper device_policy_test_helper_;
-  std::unique_ptr<crypto::ScopedTestSystemNSSKeySlot> test_system_slot_;
+  const UserClientCertSlot user_client_cert_slot_;
+  crypto::ScopedTestNSSDB user_private_slot_db_;
+
+  DISALLOW_COPY_AND_ASSIGN(PlatformKeysTest);
 };
 
 class TestSelectDelegate
@@ -304,7 +244,7 @@ class TestSelectDelegate
     scoped_refptr<net::X509Certificate> selection;
     if (certs_to_select_.back()) {
       for (scoped_refptr<net::X509Certificate> cert : certs) {
-        if (cert->Equals(certs_to_select_.back().get())) {
+        if (cert->EqualsExcludingChain(certs_to_select_.back().get())) {
           selection = cert;
           break;
         }
@@ -319,45 +259,65 @@ class TestSelectDelegate
   net::CertificateList certs_to_select_;
 };
 
-class UnmanagedPlatformKeysTest
-    : public PlatformKeysTest,
-      public ::testing::WithParamInterface<DeviceStatus> {
- public:
-  UnmanagedPlatformKeysTest()
-      : PlatformKeysTest(GetParam(),
-                         USER_STATUS_UNMANAGED,
-                         false /* unused */) {}
+struct UnmanagedPlatformKeysTestParams {
+  UnmanagedPlatformKeysTestParams(
+      PlatformKeysTestBase::EnrollmentStatus enrollment_status,
+      PlatformKeysTest::UserClientCertSlot user_client_cert_slot)
+      : enrollment_status_(enrollment_status),
+        user_client_cert_slot_(user_client_cert_slot) {}
+
+  PlatformKeysTestBase::EnrollmentStatus enrollment_status_;
+  PlatformKeysTest::UserClientCertSlot user_client_cert_slot_;
 };
 
-struct Params {
-  Params(DeviceStatus device_status, UserStatus user_status)
-      : device_status_(device_status), user_status_(user_status) {}
+class UnmanagedPlatformKeysTest
+    : public PlatformKeysTest,
+      public ::testing::WithParamInterface<UnmanagedPlatformKeysTestParams> {
+ public:
+  UnmanagedPlatformKeysTest()
+      : PlatformKeysTest(GetParam().enrollment_status_,
+                         UserStatus::UNMANAGED,
+                         false /* unused */,
+                         GetParam().user_client_cert_slot_) {}
+};
 
-  DeviceStatus device_status_;
-  UserStatus user_status_;
+struct ManagedPlatformKeysTestParams {
+  ManagedPlatformKeysTestParams(
+      PlatformKeysTestBase::EnrollmentStatus enrollment_status,
+      PlatformKeysTestBase::UserStatus user_status)
+      : enrollment_status_(enrollment_status), user_status_(user_status) {}
+
+  PlatformKeysTestBase::EnrollmentStatus enrollment_status_;
+  PlatformKeysTestBase::UserStatus user_status_;
 };
 
 class ManagedWithPermissionPlatformKeysTest
     : public PlatformKeysTest,
-      public ::testing::WithParamInterface<Params> {
+      public ::testing::WithParamInterface<ManagedPlatformKeysTestParams> {
  public:
   ManagedWithPermissionPlatformKeysTest()
-      : PlatformKeysTest(GetParam().device_status_,
+      : PlatformKeysTest(GetParam().enrollment_status_,
                          GetParam().user_status_,
-                         true /* grant the extension key permission */) {}
+                         true /* grant the extension key permission */,
+                         UserClientCertSlot::kPrivateSlot) {}
 };
 
 class ManagedWithoutPermissionPlatformKeysTest
     : public PlatformKeysTest,
-      public ::testing::WithParamInterface<Params> {
+      public ::testing::WithParamInterface<ManagedPlatformKeysTestParams> {
  public:
   ManagedWithoutPermissionPlatformKeysTest()
-      : PlatformKeysTest(GetParam().device_status_,
+      : PlatformKeysTest(GetParam().enrollment_status_,
                          GetParam().user_status_,
-                         false /* do not grant key permission */) {}
+                         false /* do not grant key permission */,
+                         UserClientCertSlot::kPrivateSlot) {}
 };
 
 }  // namespace
+
+IN_PROC_BROWSER_TEST_P(UnmanagedPlatformKeysTest, PRE_Basic) {
+  RunPreTest();
+}
 
 // At first interactively selects |client_cert1_| and |client_cert2_| to grant
 // permissions and afterwards runs more basic tests.
@@ -370,9 +330,13 @@ IN_PROC_BROWSER_TEST_P(UnmanagedPlatformKeysTest, Basic) {
   certs.push_back(client_cert1_);
 
   GetPlatformKeysService()->SetSelectDelegate(
-      base::WrapUnique(new TestSelectDelegate(certs)));
+      std::make_unique<TestSelectDelegate>(certs));
 
   ASSERT_TRUE(RunExtensionTest("basicTests")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_P(UnmanagedPlatformKeysTest, PRE_Permissions) {
+  RunPreTest();
 }
 
 // On interactive calls, the simulated user always selects |client_cert1_| if
@@ -382,24 +346,45 @@ IN_PROC_BROWSER_TEST_P(UnmanagedPlatformKeysTest, Permissions) {
   certs.push_back(client_cert1_);
 
   GetPlatformKeysService()->SetSelectDelegate(
-      base::WrapUnique(new TestSelectDelegate(certs)));
+      std::make_unique<TestSelectDelegate>(certs));
 
   ASSERT_TRUE(RunExtensionTest("permissionTests")) << message_;
 }
 
-INSTANTIATE_TEST_CASE_P(Unmanaged,
-                        UnmanagedPlatformKeysTest,
-                        ::testing::Values(DEVICE_STATUS_ENROLLED,
-                                          DEVICE_STATUS_NOT_ENROLLED));
+INSTANTIATE_TEST_CASE_P(
+    Unmanaged,
+    UnmanagedPlatformKeysTest,
+    ::testing::Values(UnmanagedPlatformKeysTestParams(
+                          PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+                          PlatformKeysTest::UserClientCertSlot::kPrivateSlot),
+                      UnmanagedPlatformKeysTestParams(
+                          PlatformKeysTestBase::EnrollmentStatus::NOT_ENROLLED,
+                          PlatformKeysTest::UserClientCertSlot::kPrivateSlot),
+                      UnmanagedPlatformKeysTestParams(
+                          PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+                          PlatformKeysTest::UserClientCertSlot::kPublicSlot),
+                      UnmanagedPlatformKeysTestParams(
+                          PlatformKeysTestBase::EnrollmentStatus::NOT_ENROLLED,
+                          PlatformKeysTest::UserClientCertSlot::kPublicSlot)));
+
+IN_PROC_BROWSER_TEST_P(ManagedWithoutPermissionPlatformKeysTest,
+                       PRE_UserPermissionsBlocked) {
+  RunPreTest();
+}
 
 IN_PROC_BROWSER_TEST_P(ManagedWithoutPermissionPlatformKeysTest,
                        UserPermissionsBlocked) {
   // To verify that the user is not prompted for any certificate selection,
   // set up a delegate that fails on any invocation.
   GetPlatformKeysService()->SetSelectDelegate(
-      base::MakeUnique<TestSelectDelegate>(net::CertificateList()));
+      std::make_unique<TestSelectDelegate>(net::CertificateList()));
 
   ASSERT_TRUE(RunExtensionTest("managedProfile")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_P(ManagedWithoutPermissionPlatformKeysTest,
+                       PRE_CorporateKeyAccessBlocked) {
+  RunPreTest();
 }
 
 // A corporate key must not be useable if there is no policy permitting it.
@@ -410,7 +395,7 @@ IN_PROC_BROWSER_TEST_P(ManagedWithoutPermissionPlatformKeysTest,
   // To verify that the user is not prompted for any certificate selection,
   // set up a delegate that fails on any invocation.
   GetPlatformKeysService()->SetSelectDelegate(
-      base::WrapUnique(new TestSelectDelegate(net::CertificateList())));
+      std::make_unique<TestSelectDelegate>(net::CertificateList()));
 
   ASSERT_TRUE(RunExtensionTest("corporateKeyWithoutPermissionTests"))
       << message_;
@@ -420,9 +405,20 @@ INSTANTIATE_TEST_CASE_P(
     ManagedWithoutPermission,
     ManagedWithoutPermissionPlatformKeysTest,
     ::testing::Values(
-        Params(DEVICE_STATUS_ENROLLED, USER_STATUS_MANAGED_AFFILIATED_DOMAIN),
-        Params(DEVICE_STATUS_ENROLLED, USER_STATUS_MANAGED_OTHER_DOMAIN),
-        Params(DEVICE_STATUS_NOT_ENROLLED, USER_STATUS_MANAGED_OTHER_DOMAIN)));
+        ManagedPlatformKeysTestParams(
+            PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+            PlatformKeysTestBase::UserStatus::MANAGED_AFFILIATED_DOMAIN),
+        ManagedPlatformKeysTestParams(
+            PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+            PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN),
+        ManagedPlatformKeysTestParams(
+            PlatformKeysTestBase::EnrollmentStatus::NOT_ENROLLED,
+            PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN)));
+
+IN_PROC_BROWSER_TEST_P(ManagedWithPermissionPlatformKeysTest,
+                       PRE_PolicyGrantsAccessToCorporateKey) {
+  RunPreTest();
+}
 
 IN_PROC_BROWSER_TEST_P(ManagedWithPermissionPlatformKeysTest,
                        PolicyGrantsAccessToCorporateKey) {
@@ -434,18 +430,31 @@ IN_PROC_BROWSER_TEST_P(ManagedWithPermissionPlatformKeysTest,
   certs.push_back(client_cert1_);
 
   GetPlatformKeysService()->SetSelectDelegate(
-      base::MakeUnique<TestSelectDelegate>(certs));
+      std::make_unique<TestSelectDelegate>(certs));
 
   ASSERT_TRUE(RunExtensionTest("corporateKeyWithPermissionTests")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_P(ManagedWithPermissionPlatformKeysTest,
+                       PRE_PolicyDoesGrantAccessToNonCorporateKey) {
+  RunPreTest();
+}
+
+IN_PROC_BROWSER_TEST_P(ManagedWithPermissionPlatformKeysTest,
                        PolicyDoesGrantAccessToNonCorporateKey) {
-  // The policy grants access to corporate keys but none are available.
+  // The policy grants access to corporate keys.
   // As the profile is managed, the user must not be able to grant any
-  // certificate permission. Set up a delegate that fails on any invocation.
+  // certificate permission.
+  // If the user is not affilited, no corporate keys are available. Set up a
+  // delegate that fails on any invocation. If the user is affiliated, client_2
+  // on the system token will be avialable for selection, as it is implicitly
+  // corporate.
+  net::CertificateList certs;
+  if (user_status() == UserStatus::MANAGED_AFFILIATED_DOMAIN)
+    certs.push_back(nullptr);
+
   GetPlatformKeysService()->SetSelectDelegate(
-      base::MakeUnique<TestSelectDelegate>(net::CertificateList()));
+      std::make_unique<TestSelectDelegate>(certs));
 
   ASSERT_TRUE(RunExtensionTest("policyDoesGrantAccessToNonCorporateKey"))
       << message_;
@@ -455,6 +464,12 @@ INSTANTIATE_TEST_CASE_P(
     ManagedWithPermission,
     ManagedWithPermissionPlatformKeysTest,
     ::testing::Values(
-        Params(DEVICE_STATUS_ENROLLED, USER_STATUS_MANAGED_AFFILIATED_DOMAIN),
-        Params(DEVICE_STATUS_ENROLLED, USER_STATUS_MANAGED_OTHER_DOMAIN),
-        Params(DEVICE_STATUS_NOT_ENROLLED, USER_STATUS_MANAGED_OTHER_DOMAIN)));
+        ManagedPlatformKeysTestParams(
+            PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+            PlatformKeysTestBase::UserStatus::MANAGED_AFFILIATED_DOMAIN),
+        ManagedPlatformKeysTestParams(
+            PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+            PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN),
+        ManagedPlatformKeysTestParams(
+            PlatformKeysTestBase::EnrollmentStatus::NOT_ENROLLED,
+            PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN)));

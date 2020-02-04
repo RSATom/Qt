@@ -13,10 +13,13 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/observer_list_threadsafe.h"
-#include "chrome/browser/ui/passwords/password_manager_presenter.h"
-#include "chrome/browser/ui/passwords/password_ui_view.h"
+#include "base/optional.h"
+#include "base/strings/string16.h"
+#include "chrome/browser/ui/passwords/settings/password_manager_presenter.h"
+#include "chrome/browser/ui/passwords/settings/password_ui_view.h"
 #include "chrome/common/extensions/api/passwords_private.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/password_manager/core/browser/ui/export_progress_status.h"
 #include "extensions/browser/extension_function.h"
 
 namespace content {
@@ -30,6 +33,9 @@ namespace extensions {
 // have changed.
 class PasswordsPrivateDelegate : public KeyedService {
  public:
+  using PlaintextPasswordCallback =
+      base::OnceCallback<void(base::Optional<base::string16>)>;
+
   ~PasswordsPrivateDelegate() override {}
 
   // Sends the saved passwords list to the event router.
@@ -50,30 +56,47 @@ class PasswordsPrivateDelegate : public KeyedService {
   virtual void GetPasswordExceptionsList(
       const ExceptionEntriesCallback& callback) = 0;
 
-  // Removes the saved password entry corresponding to |origin_url| and
-  // |username|.
-  // |origin_url| The origin for the URL where the password is used; should be
-  //     obtained using CreateUrlCollectionFromForm().origin.
-  // |username| The username used in conjunction with the saved password.
-  virtual void RemoveSavedPassword(
-      const std::string& origin_url, const std::string& username) = 0;
+  // Removes the saved password entry corresponding to the |id| generated for
+  // each entry of the password list.
+  // |id| the id created when going over the list of saved passwords.
+  virtual void RemoveSavedPassword(int id) = 0;
 
-  // Removes the saved password exception entry corresponding to
-  // |exception_url|.
-  // |exception_url| The URL corresponding to the exception to remove; should
-  //     be obtained using CreateUrlCollectionFromForm().origin.
-  virtual void RemovePasswordException(const std::string& exception_url) = 0;
+  // Removes the saved password exception entry corresponding set in the
+  // given |id|
+  // |id| The id for the exception url entry being removed.
+  virtual void RemovePasswordException(int id) = 0;
 
-  // Requests the plain text password for entry corresponding to |origin_url|
-  // and |username|.
-  // |origin_url| The origin for the URL where the password is used; should be
-  //     obtained using CreateUrlCollectionFromForm().origin.
-  // |username| The username used in conjunction with the saved password.
-  // |native_window| The Chrome host window; will be used to show an OS-level
-  //     authentication dialog if necessary.
-  virtual void RequestShowPassword(const std::string& origin_url,
-                                   const std::string& username,
+  // Undoes the last removal of a saved password or exception.
+  virtual void UndoRemoveSavedPasswordOrException() = 0;
+
+  // Requests the plain text password for entry corresponding to the |id|
+  // generated for each entry of the password list.
+  // |id| the id created when going over the list of saved passwords.
+  // |callback| The callback that gets invoked with the saved password if it
+  // could be obtained successfully, or base::nullopt otherwise.
+  // |web_contents| The web content object used as the UI; will be used to show
+  //     an OS-level authentication dialog if necessary.
+  virtual void RequestShowPassword(int id,
+                                   PlaintextPasswordCallback callback,
                                    content::WebContents* web_contents) = 0;
+
+  // Trigger the password import procedure, allowing the user to select a file
+  // containing passwords to import.
+  virtual void ImportPasswords(content::WebContents* web_contents) = 0;
+
+  // Trigger the password export procedure, allowing the user to save a file
+  // containing their passwords. |callback| will be called with an error
+  // message if the request is rejected, because another export is in progress.
+  virtual void ExportPasswords(
+      base::OnceCallback<void(const std::string&)> callback,
+      content::WebContents* web_contents) = 0;
+
+  // Cancel any ongoing export.
+  virtual void CancelExportPasswords() = 0;
+
+  // Get the most recent progress status.
+  virtual api::passwords_private::ExportProgressStatus
+  GetExportProgressStatus() = 0;
 };
 
 }  // namespace extensions

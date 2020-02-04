@@ -96,20 +96,20 @@ private:
     void setDragIcon(QWaylandSurface *icon);
 #endif
 
-    QWaylandCompositor *m_compositor;
-    QWaylandSeat *m_seat;
+    QWaylandCompositor *m_compositor = nullptr;
+    QWaylandSeat *m_seat = nullptr;
 
-    DataSource *m_selectionSource;
+    DataSource *m_selectionSource = nullptr;
 
 #if QT_CONFIG(draganddrop)
-    struct ::wl_client *m_dragClient;
-    DataSource *m_dragDataSource;
+    struct ::wl_client *m_dragClient = nullptr;
+    DataSource *m_dragDataSource = nullptr;
 
-    QWaylandSurface *m_dragFocus;
-    Resource *m_dragFocusResource;
+    QWaylandSurface *m_dragFocus = nullptr;
+    Resource *m_dragFocusResource = nullptr;
 
-    QWaylandSurface *m_dragIcon;
-    QWaylandSurface *m_dragOrigin;
+    QWaylandSurface *m_dragIcon = nullptr;
+    QWaylandSurface *m_dragOrigin = nullptr;
 #endif
 };
 

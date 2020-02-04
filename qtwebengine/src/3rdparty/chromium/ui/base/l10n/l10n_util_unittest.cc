@@ -11,9 +11,8 @@
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/rtl.h"
 #include "base/i18n/time_formatting.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/icu_test_util.h"
@@ -22,16 +21,13 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 #include "third_party/icu/source/common/unicode/locid.h"
+#include "ui/base/grit/ui_base_test_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_collator.h"
 #include "ui/base/ui_base_paths.h"
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include <cstdlib>
-#endif
-
-#if !defined(OS_MACOSX)
-#include "ui/base/test/data/resource.h"
 #endif
 
 using base::ASCIIToUTF16;
@@ -55,9 +51,7 @@ class StringWrapper {
 class L10nUtilTest : public PlatformTest {
 };
 
-#if defined(OS_WIN)
-// TODO(beng): disabled until app strings move to app.
-TEST_F(L10nUtilTest, DISABLED_GetString) {
+TEST_F(L10nUtilTest, GetString) {
   std::string s = l10n_util::GetStringUTF8(IDS_SIMPLE);
   EXPECT_EQ(std::string("Hello World!"), s);
 
@@ -67,9 +61,11 @@ TEST_F(L10nUtilTest, DISABLED_GetString) {
   EXPECT_EQ(std::string("Hello, chrome. Your number is 10."), s);
 
   base::string16 s16 = l10n_util::GetStringFUTF16Int(IDS_PLACEHOLDERS_2, 20);
-  EXPECT_EQ(UTF8ToUTF16("You owe me $20."), s16);
+
+  // Consecutive '$' characters override any placeholder functionality.
+  // See //base/strings/string_util.h ReplaceStringPlaceholders().
+  EXPECT_EQ(UTF8ToUTF16("You owe me $$1."), s16);
 }
-#endif  // defined(OS_WIN)
 
 #if !defined(OS_MACOSX) && !defined(OS_ANDROID)
 // On Mac, we are disabling this test because GetApplicationLocale() as an
@@ -108,14 +104,14 @@ TEST_F(L10nUtilTest, GetAppLocale) {
   // pak files for this test.
   base::ScopedPathOverride locale_dir_override(ui::DIR_LOCALES);
   base::FilePath new_locale_dir;
-  ASSERT_TRUE(PathService::Get(ui::DIR_LOCALES, &new_locale_dir));
+  ASSERT_TRUE(base::PathService::Get(ui::DIR_LOCALES, &new_locale_dir));
   // Make fake locale files.
   std::string filenames[] = {
       "am", "ca", "ca@valencia", "en-GB", "en-US", "es",    "es-419", "fil",
       "fr", "he", "nb",          "pt-BR", "pt-PT", "zh-CN", "zh-TW",
   };
 
-  for (size_t i = 0; i < arraysize(filenames); ++i) {
+  for (size_t i = 0; i < base::size(filenames); ++i) {
     base::FilePath filename = new_locale_dir.AppendASCII(
         filenames[i] + ".pak");
     base::WriteFile(filename, "", 0);
@@ -387,10 +383,10 @@ TEST_F(L10nUtilTest, GetAppLocale) {
 
 TEST_F(L10nUtilTest, SortStringsUsingFunction) {
   std::vector<std::unique_ptr<StringWrapper>> strings;
-  strings.push_back(base::MakeUnique<StringWrapper>(UTF8ToUTF16("C")));
-  strings.push_back(base::MakeUnique<StringWrapper>(UTF8ToUTF16("d")));
-  strings.push_back(base::MakeUnique<StringWrapper>(UTF8ToUTF16("b")));
-  strings.push_back(base::MakeUnique<StringWrapper>(UTF8ToUTF16("a")));
+  strings.push_back(std::make_unique<StringWrapper>(UTF8ToUTF16("C")));
+  strings.push_back(std::make_unique<StringWrapper>(UTF8ToUTF16("d")));
+  strings.push_back(std::make_unique<StringWrapper>(UTF8ToUTF16("b")));
+  strings.push_back(std::make_unique<StringWrapper>(UTF8ToUTF16("a")));
   l10n_util::SortStringsUsingMethod("en-US",
                                     &strings,
                                     &StringWrapper::string);

@@ -16,7 +16,7 @@
 #include "ui/gfx/range/range.h"
 #include "ui/gfx/selection_bound.h"
 
-struct ViewHostMsg_SelectionBounds_Params;
+struct WidgetHostMsg_SelectionBounds_Params;
 
 namespace content {
 
@@ -136,7 +136,7 @@ class CONTENT_EXPORT TextInputManager {
     bool user_initiated_ = false;
   };
 
-  TextInputManager();
+  explicit TextInputManager(bool should_do_learning);
   ~TextInputManager();
 
   // Returns the currently active widget, i.e., the RWH which is associated with
@@ -186,8 +186,13 @@ class CONTENT_EXPORT TextInputManager {
   // Updates the selection bounds for the |view|. In Aura, selection bounds are
   // used to provide the InputMethod with the position of the caret, e.g., in
   // setting the position of the ui::ImeWindow.
-  void SelectionBoundsChanged(RenderWidgetHostViewBase* view,
-                              const ViewHostMsg_SelectionBounds_Params& params);
+  void SelectionBoundsChanged(
+      RenderWidgetHostViewBase* view,
+      const WidgetHostMsg_SelectionBounds_Params& params);
+
+  // Notify observers that the selection bounds have been updated. This is also
+  // called when a view with a selection is reactivated.
+  void NotifySelectionBoundsChanged(RenderWidgetHostViewBase* view);
 
   // Called when the composition range and/or character bounds have changed.
   void ImeCompositionRangeChanged(
@@ -232,6 +237,8 @@ class CONTENT_EXPORT TextInputManager {
       RenderWidgetHostViewBase* view);
   const gfx::Range* GetCompositionRangeForTesting() const;
 
+  bool should_do_learning() const { return should_do_learning_; }
+
  private:
   // This class is used to create maps which hold specific IME state for a
   // view.
@@ -255,7 +262,11 @@ class CONTENT_EXPORT TextInputManager {
   ViewMap<CompositionRangeInfo> composition_range_info_map_;
   ViewMap<TextSelection> text_selection_map_;
 
-  base::ObserverList<Observer> observer_list_;
+  // Whether the text input should be used to improve typing suggestions for the
+  // user.
+  bool should_do_learning_;
+
+  base::ObserverList<Observer>::Unchecked observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(TextInputManager);
 };

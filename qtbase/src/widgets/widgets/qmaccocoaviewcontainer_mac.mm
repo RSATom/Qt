@@ -108,11 +108,9 @@ QMacCocoaViewContainerPrivate::~QMacCocoaViewContainerPrivate()
 }
 
 /*!
-    \fn QMacCocoaViewContainer::QMacCocoaViewContainer(NSView *cocoaViewToWrap, QWidget *parent)
-
-    Create a new QMacCocoaViewContainer using the NSView pointer in \a
-    cocoaViewToWrap with parent, \a parent. QMacCocoaViewContainer will
-    retain \a cocoaViewToWrap.
+    Create a new QMacCocoaViewContainer using the NSView pointer in
+    the \a view with parent, \a parent. QMacCocoaViewContainer will
+    retain the \a view.
 
 */
 QMacCocoaViewContainer::QMacCocoaViewContainer(NSView *view, QWidget *parent)
@@ -167,6 +165,11 @@ void QMacCocoaViewContainer::setCocoaView(NSView *view)
     Q_ASSERT(window->handle());
 
     [oldView release];
+
+    // The QWindow::destroy()) call above will explicitly hide this widget.
+    // Clear the hidden state here so it can be implicitly shown again.
+    setAttribute(Qt::WA_WState_Hidden, false);
+
 }
 
 QT_END_NAMESPACE

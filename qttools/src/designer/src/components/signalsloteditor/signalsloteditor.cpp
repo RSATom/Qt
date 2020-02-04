@@ -35,16 +35,16 @@
 #include <qdesigner_formwindowcommand_p.h>
 
 #include <QtDesigner/private/ui4_p.h>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractmetadatabase.h>
 
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QUndoCommand>
-#include <QtWidgets/QMenu>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qundostack.h>
+#include <QtWidgets/qmenu.h>
 
-#include <QtCore/QCoreApplication>
-#include <QtCore/QDebug>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -137,7 +137,7 @@ void SignalSlotConnection::updateVisibility()
 QString SignalSlotConnection::toString() const
 {
     return QCoreApplication::translate("SignalSlotConnection", "SENDER(%1), SIGNAL(%2), RECEIVER(%3), SLOT(%4)")
-        .arg(sender()).arg(signal()).arg(receiver()).arg(slot());
+        .arg(sender(), signal(), receiver(), slot());
 }
 
 SignalSlotConnection::State SignalSlotConnection::isValid(const QWidget *background) const
@@ -173,8 +173,8 @@ class SetMemberCommand : public QUndoCommand, public CETypes
 public:
     SetMemberCommand(SignalSlotConnection *con, EndPoint::Type type,
                         const QString &member, SignalSlotEditor *editor);
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     const QString m_old_member;
     const QString m_new_member;
@@ -227,8 +227,8 @@ public:
                                      SignalSlotConnection *conn,
                                      const QString &newSignal,
                                      const QString &newSlot);
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 
 private:
     SignalSlotConnection *m_conn;

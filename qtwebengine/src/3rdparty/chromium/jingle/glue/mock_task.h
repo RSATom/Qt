@@ -12,11 +12,11 @@
 
 namespace jingle_glue {
 
-class MockTask : public rtc::Task {
+class MockTask : public jingle_xmpp::Task {
  public:
   MockTask(TaskParent* parent);
 
-  virtual ~MockTask();
+  ~MockTask() override;
 
   MOCK_METHOD0(ProcessStart, int());
 };

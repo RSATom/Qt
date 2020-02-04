@@ -42,7 +42,7 @@
 QT_CHARTS_BEGIN_NAMESPACE
 /*!
     \class QValueAxis
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QValueAxis class adds values to a chart's axes.
 
     A value axis can be set up to show an axis line with tick marks, grid lines, and shades.
@@ -136,6 +136,54 @@ QT_CHARTS_BEGIN_NAMESPACE
   \qmlproperty int ValueAxis::minorTickCount
   The number of minor tick marks on the axis. This indicates how many grid lines are drawn
   between major ticks on the chart. Labels are not drawn for minor ticks. The default value is 0.
+*/
+
+/*!
+  \property QValueAxis::tickAnchor
+  \since 5.12
+  \brief The base value where the dynamically placed tick marks and labels are started from.
+*/
+/*!
+  \qmlproperty real ValueAxis::tickAnchor
+  \since QtCharts 2.3
+  The base value where the dynamically placed tick marks and labels are started from.
+*/
+
+/*!
+  \property QValueAxis::tickInterval
+  \since 5.12
+  \brief The interval between dynamically placed tick marks and labels.
+*/
+/*!
+  \qmlproperty real ValueAxis::tickInterval
+  \since QtCharts 2.3
+  The interval between dynamically placed tick marks and labels.
+*/
+
+/*!
+ \enum QValueAxis::TickType
+
+ This enum describes how the ticks and labels are positioned on the axis.
+
+ \value TicksDynamic Ticks are placed according to tickAnchor and tickInterval values.
+ \value TicksFixed Ticks are placed evenly across the axis range. The tickCount value
+ specifies the number of ticks.
+ */
+/*!
+  \property QValueAxis::tickType
+  \since 5.12
+  \brief The positioning method of tick and labels.
+*/
+/*!
+  \qmlproperty enumeration ValueAxis::tickType
+  \since QtCharts 2.3
+
+  The positioning method of tick and labels.
+
+ \value ValueAxis.TicksDynamic
+        Ticks are placed according to tickAnchor and tickInterval values.
+ \value ValueAxis.TicksFixed
+        Ticks are placed evenly across the axis range. The tickCount value specifies the number of ticks.
 */
 
 /*!
@@ -296,6 +344,52 @@ int QValueAxis::minorTickCount() const
     return d->m_minorTickCount;
 }
 
+
+void QValueAxis::setTickInterval(qreal interval)
+{
+    Q_D(QValueAxis);
+    if (d->m_tickInterval != interval) {
+        d->m_tickInterval = interval;
+        emit tickIntervalChanged(interval);
+    }
+}
+
+qreal QValueAxis::tickInterval() const
+{
+    Q_D(const QValueAxis);
+    return d->m_tickInterval;
+}
+
+void QValueAxis::setTickAnchor(qreal anchor)
+{
+    Q_D(QValueAxis);
+    if (d->m_tickAnchor != anchor) {
+        d->m_tickAnchor = anchor;
+        emit tickAnchorChanged(anchor);
+    }
+}
+
+qreal QValueAxis::tickAnchor() const
+{
+    Q_D(const QValueAxis);
+    return d->m_tickAnchor;
+}
+
+void QValueAxis::setTickType(QValueAxis::TickType type)
+{
+    Q_D(QValueAxis);
+    if (d->m_tickType != type) {
+        d->m_tickType = type;
+        emit tickTypeChanged(type);
+    }
+}
+
+QValueAxis::TickType QValueAxis::tickType() const
+{
+    Q_D(const QValueAxis);
+    return d->m_tickType;
+}
+
 void QValueAxis::setLabelFormat(const QString &format)
 {
     Q_D(QValueAxis);
@@ -355,7 +449,10 @@ QValueAxisPrivate::QValueAxisPrivate(QValueAxis *q)
       m_tickCount(5),
       m_minorTickCount(0),
       m_format(),
-      m_applying(false)
+      m_applying(false),
+      m_tickInterval(0.0),
+      m_tickAnchor(0.0),
+      m_tickType(QValueAxis::TicksFixed)
 {
 
 }
@@ -436,6 +533,7 @@ void QValueAxisPrivate::initializeGraphics(QGraphicsItem *parent)
             axis = new ChartValueAxisY(q,parent);
         if (orientation() == Qt::Horizontal)
             axis = new ChartValueAxisX(q,parent);
+        axis->setLabelsEditable(q->labelsEditable());
     }
 
     if (m_chart->chartType() == QChart::ChartTypePolar) {
@@ -466,7 +564,7 @@ void QValueAxisPrivate::initializeDomain(AbstractDomain *domain)
     }
 }
 
+QT_CHARTS_END_NAMESPACE
+
 #include "moc_qvalueaxis.cpp"
 #include "moc_qvalueaxis_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

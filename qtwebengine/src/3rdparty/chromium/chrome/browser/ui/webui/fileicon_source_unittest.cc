@@ -3,8 +3,9 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/fileicon_source.h"
-#include "base/macros.h"
+
 #include "base/memory/ref_counted_memory.h"
+#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/icon_manager.h"
 #include "chrome/browser/profiles/profile.h"
@@ -25,7 +26,7 @@ class TestFileIconSource : public FileIconSource {
                     IconLoader::IconSize icon_size,
                     const content::URLDataSource::GotDataCallback& callback));
 
-  virtual ~TestFileIconSource() {}
+  ~TestFileIconSource() override {}
 };
 
 class FileIconSourceTest : public testing::Test {
@@ -105,7 +106,7 @@ TEST_F(FileIconSourceTest, FileIconSource_Parse) {
   ui::test::ScopedSetSupportedScaleFactors scoped_supported(
       supported_scale_factors);
 
-  for (unsigned i = 0; i < arraysize(kBasicExpectations); i++) {
+  for (unsigned i = 0; i < base::size(kBasicExpectations); i++) {
     std::unique_ptr<TestFileIconSource> source(CreateFileIconSource());
     content::URLDataSource::GotDataCallback callback;
     EXPECT_CALL(*source.get(),

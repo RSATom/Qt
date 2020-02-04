@@ -4,8 +4,8 @@
 
 #
 # Most of this file was ported over from Blink's
-# Tools/Scripts/webkitpy/layout_tests/layout_package/json_results_generator.py
-# Tools/Scripts/webkitpy/common/net/file_uploader.py
+# tools/blinkpy/web_tests/layout_package/json_results_generator.py
+# tools/blinkpy/common/net/file_uploader.py
 #
 
 import json
@@ -380,6 +380,7 @@ class JSONResultsGeneratorBase(object):
                          urllib2.quote(self._test_type),
                          urllib2.quote(self._master_name)))
 
+    # pylint: disable=redefined-variable-type
     try:
       # FIXME: We should talk to the network via a Host object.
       results_file = urllib2.urlopen(results_file_url)
@@ -391,6 +392,7 @@ class JSONResultsGeneratorBase(object):
         error = http_error
     except urllib2.URLError, url_error:
       error = url_error
+    # pylint: enable=redefined-variable-type
 
     if old_results:
       # Strip the prefix and suffix so we can get the actual JSON object.

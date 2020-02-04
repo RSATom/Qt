@@ -144,34 +144,6 @@ def CheckDoubleAngles(input_api, output_api, white_list=CC_SOURCE_FILES,
     return [output_api.PresubmitError('Use >> instead of > >:', items=errors)]
   return []
 
-def CheckUniquePtr(input_api, output_api,
-                   white_list=CC_SOURCE_FILES, black_list=None):
-  black_list = tuple(black_list or input_api.DEFAULT_BLACK_LIST)
-  source_file_filter = lambda x: input_api.FilterSourceFile(x,
-                                                            white_list,
-                                                            black_list)
-  errors = []
-  for f in input_api.AffectedSourceFiles(source_file_filter):
-    for line_number, line in f.ChangedContents():
-      # Disallow:
-      # return std::unique_ptr<T>(foo);
-      # bar = std::unique_ptr<T>(foo);
-      # But allow:
-      # return std::unique_ptr<T[]>(foo);
-      # bar = std::unique_ptr<T[]>(foo);
-      if re.search(r'(=|\breturn)\s*std::unique_ptr<.*?(?<!])>\([^)]+\)', line):
-        errors.append(output_api.PresubmitError(
-          ('%s:%d uses explicit std::unique_ptr constructor. ' +
-           'Use base::MakeUnique<T>() instead.') %
-          (f.LocalPath(), line_number)))
-      # Disallow:
-      # std::unique_ptr<T>()
-      if re.search(r'\bstd::unique_ptr<.*?>\(\)', line):
-        errors.append(output_api.PresubmitError(
-          '%s:%d uses std::unique_ptr<T>(). Use nullptr instead.' %
-          (f.LocalPath(), line_number)))
-  return errors
-
 def FindUnquotedQuote(contents, pos):
   match = re.search(r"(?<!\\)(?P<quote>\")", contents[pos:])
   return -1 if not match else match.start("quote") + pos
@@ -311,19 +283,7 @@ def CheckChangeOnUpload(input_api, output_api):
   results += CheckChangeLintsClean(input_api, output_api)
   results += CheckTodos(input_api, output_api)
   results += CheckDoubleAngles(input_api, output_api)
-  results += CheckUniquePtr(input_api, output_api)
   results += CheckNamespace(input_api, output_api)
   results += CheckForUseOfWrongClock(input_api, output_api)
   results += FindUselessIfdefs(input_api, output_api)
   return results
-
-def PostUploadHook(cl, change, output_api):
-  """git cl upload will call this hook after the issue is created/modified.
-
-  This hook adds an extra try bot list to the CL description in order to run
-  Blink tests in addition to the CQ try bots.
-  """
-  return output_api.EnsureCQIncludeTrybotsAreAdded(
-    cl,
-    ['master.tryserver.blink:linux_trusty_blink_rel'],
-    'Automatically added Blink trybots to run Blink tests on CQ.')

@@ -32,6 +32,40 @@
           "checked": {"type": "boolean", "optional": true, "description": "Indicates this item should be drawn with a check."},
           "enabled": {"type": "boolean", "optional": true, "description": "Indicates this item is enabled."}
         }
+      },
+      {
+        "id": "FocusReason",
+        "type": "string",
+        "description": "Describes how the text field was focused",
+        "enum": ["mouse", "touch", "pen", "other"]
+      },
+      {
+        "id": "InputContextType",
+        "type": "string",
+        "description": "Type of value this text field edits, (Text, Number, URL, etc)",
+        "enum": ["text", "search", "tel", "url", "email", "number", "password"]
+      },
+      {
+        "id": "AutoCapitalizeType",
+        "type": "string",
+        "description": "The auto-capitalize type of the text field.",
+        "enum": ["characters", "words", "sentences"]
+      },
+      {
+        "id": "InputContext",
+        "type": "object",
+        "description": "Describes an input Context",
+        "properties": {
+          "contextID": {"type": "integer", "description": "This is used to specify targets of text field operations.  This ID becomes invalid as soon as onBlur is called."},
+          "type": {"$ref": "InputContextType", "description": "Type of value this text field edits, (Text, Number, URL, etc)"},
+          "autoCorrect": {"type": "boolean", "description": "Whether the text field wants auto-correct."},
+          "autoComplete": {"type": "boolean", "description": "Whether the text field wants auto-complete."},
+          "autoCapitalize": {"$ref": "AutoCapitalizeType", "description": "The auto-capitalize type of the text field."},
+          "spellCheck": {"type": "boolean", "description": "Whether the text field wants spell-check."},
+          "shouldDoLearning": {"type": "boolean", "description": "Whether text entered into the text field should be used to improve typing suggestions for the user."},
+          "focusReason": {"$ref": "FocusReason", "description": "How the text field was focused"},
+	  "hasBeenPassword": {"type": "boolean", "description": "Whether the text field has ever been a password field."}
+        }
       }
     ],
     "functions": [
@@ -242,6 +276,123 @@
             "description": "ID of the input method to open options for."
           }
         ]
+      }, {
+        "name": "getCompositionBounds",
+        "type": "function",
+        "description": "Gets the composition bounds",
+        "parameters": [
+          {
+            "type": "function",
+            "name": "callback",
+            "description": "Callback which is called to provide the result",
+            "parameters": [
+              {
+                "name": "boundsList",
+                "type": "array",
+                "description": "List of bounds information.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                    "w": {"type": "integer"},
+                    "h": {"type": "integer"}
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }, {
+        "name": "getSurroundingText",
+        "type": "function",
+        "description": "Gets the surrounding text of the current selection",
+        "parameters": [
+          {
+            "name": "beforeLength",
+            "type": "integer",
+            "description": "The number of characters before the current selection."
+          },
+          {
+            "name": "afterLength",
+            "type": "integer",
+            "description": "The number of characters after the current selection."
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "description": "Callback which is called to provide the result",
+            "parameters": [
+              {
+                "name": "surroundingInfo",
+                "type": "object",
+                "description": "The surrouding text info.",
+                "properties": {
+                  "before": {"type": "string"},
+                  "selected": {"type": "string"},
+                  "after": {"type": "string"}
+                }
+              }
+            ]
+          }
+        ]
+      }, {
+        "name": "getSetting",
+        "type": "function",
+        "description": "Gets the current value of a setting for a particular input method",
+        "parameters": [
+          {
+            "name": "engineID",
+            "type": "string",
+            "description": "The ID of the engine (e.g. 'zh-t-i0-pinyin', 'xkb:us::eng')"
+          },
+          {
+            "name": "key",
+            "type": "string",
+            "description": "The setting to get"
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "description": "Callback to receive the setting",
+            "parameters": [
+              {
+                "name": "setting",
+                "type": "any",
+                "optional": true,
+                "description": "The value for the requested setting, or null if there's no value"
+              }
+            ]
+          }
+        ]
+      }, {
+        "name": "setSetting",
+        "type": "function",
+        "description": "Sets the value of a setting for a particular input method",
+        "parameters": [
+          {
+            "name": "engineID",
+            "type": "string",
+            "description": "The ID of the engine (e.g. 'zh-t-i0-pinyin', 'xkb:us::eng')"
+          },
+          {
+            "name": "key",
+            "type": "string",
+            "description": "The setting to set"
+          },
+          {
+            "name": "value",
+            "type": "any",
+            "description": "The new value of the setting"
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "optional": true,
+            "description": "Callback to notify that the new value has been set",
+            "parameters": []
+          }
+        ]
       }
     ],
     "events": [
@@ -345,6 +496,49 @@
               "$ref": "MenuItem"
             },
             "description": "MenuItems to add or update."
+          }
+        ]
+      }, {
+        "name": "onFocus",
+        "type": "function",
+        "description": "This event is sent when focus enters a text box. It is sent to all extensions that are listening to this event, and enabled by the user.",
+        "parameters": [
+          {
+            "$ref": "InputContext",
+            "name": "context",
+            "description": "Describes the text field that has acquired focus."
+          }
+        ]
+      }, {
+        "name": "onSettingsChanged",
+        "type": "function",
+        "description": "This event is sent when the settings for any input method changed. It is sent to all extensions that are listening to this event, and enabled by the user.",
+        "parameters": [
+          {
+            "name": "engineID",
+            "type": "string",
+            "description": "ID of the engine that changed"
+          },
+          {
+            "name": "key",
+            "type": "string",
+            "description": "The setting that changed"
+          },
+          {
+            "name": "value",
+            "type": "any",
+            "description": "The new value of the setting"
+	  }
+	]
+      }, {
+        "name": "onScreenProjectionChanged",
+        "type": "function",
+        "description": "This event is sent when the screen is being mirrored or the desktop is being cast.",
+        "parameters": [
+          {
+            "name": "isProjected",
+	    "type": "boolean",
+            "description": "Whether the screen is projected."
           }
         ]
       }

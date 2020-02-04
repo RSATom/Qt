@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2017 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
@@ -71,6 +71,8 @@ class Q_GUI_EXPORT QPlatformWindow : public QPlatformSurface
 {
     Q_DECLARE_PRIVATE(QPlatformWindow)
 public:
+    Q_DISABLE_COPY_MOVE(QPlatformWindow)
+
     explicit QPlatformWindow(QWindow *window);
     ~QPlatformWindow() override;
 
@@ -79,7 +81,7 @@ public:
     QWindow *window() const;
     QPlatformWindow *parent() const;
 
-    QPlatformScreen *screen() const;
+    QPlatformScreen *screen() const override;
 
     virtual QSurfaceFormat format() const override;
 
@@ -100,6 +102,7 @@ public:
     virtual void setWindowTitle(const QString &title);
     virtual void setWindowFilePath(const QString &title);
     virtual void setWindowIcon(const QIcon &icon);
+    virtual bool close();
     virtual void raise();
     virtual void lower();
 
@@ -107,7 +110,7 @@ public:
     virtual bool isActive() const;
     virtual bool isAncestorOf(const QPlatformWindow *child) const;
     virtual bool isEmbedded() const;
-    virtual bool isForeignWindow() const { return window()->type() == Qt::ForeignWindow; };
+    virtual bool isForeignWindow() const { return false; };
     virtual QPoint mapToGlobal(const QPoint &pos) const;
     virtual QPoint mapFromGlobal(const QPoint &pos) const;
 
@@ -126,9 +129,10 @@ public:
 
     virtual bool setWindowModified(bool modified);
 
-    virtual void windowEvent(QEvent *event);
+    virtual bool windowEvent(QEvent *event);
 
     virtual bool startSystemResize(const QPoint &pos, Qt::Corner corner);
+    virtual bool startSystemMove(const QPoint &pos);
 
     virtual void setFrameStrutEventsEnabled(bool enabled);
     virtual bool frameStrutEventsEnabled() const;
@@ -142,6 +146,8 @@ public:
         const QRect &initialGeometry, int defaultWidth, int defaultHeight);
 
     virtual void requestUpdate();
+    bool hasPendingUpdateRequest() const;
+    virtual void deliverUpdateRequest();
 
     // Window property accessors. Platform plugins should use these
     // instead of accessing QWindow directly.
@@ -160,8 +166,6 @@ protected:
     static QSize constrainWindowSize(const QSize &size);
 
     QScopedPointer<QPlatformWindowPrivate> d_ptr;
-private:
-    Q_DISABLE_COPY(QPlatformWindow)
 };
 
 QT_END_NAMESPACE

@@ -21,7 +21,6 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "gtest/gtest.h"
 #include "minidump/minidump_extensions.h"
 #include "minidump/minidump_file_writer.h"
@@ -66,8 +65,7 @@ void GetCrashpadInfoStream(
 
 TEST(MinidumpCrashpadInfoWriter, Empty) {
   MinidumpFileWriter minidump_file_writer;
-  auto crashpad_info_writer =
-      base::WrapUnique(new MinidumpCrashpadInfoWriter());
+  auto crashpad_info_writer = std::make_unique<MinidumpCrashpadInfoWriter>();
   EXPECT_FALSE(crashpad_info_writer->IsUseful());
 
   ASSERT_TRUE(minidump_file_writer.AddStream(std::move(crashpad_info_writer)));
@@ -91,8 +89,7 @@ TEST(MinidumpCrashpadInfoWriter, Empty) {
 
 TEST(MinidumpCrashpadInfoWriter, ReportAndClientID) {
   MinidumpFileWriter minidump_file_writer;
-  auto crashpad_info_writer =
-      base::WrapUnique(new MinidumpCrashpadInfoWriter());
+  auto crashpad_info_writer = std::make_unique<MinidumpCrashpadInfoWriter>();
 
   UUID report_id;
   ASSERT_TRUE(
@@ -127,19 +124,18 @@ TEST(MinidumpCrashpadInfoWriter, ReportAndClientID) {
 
 TEST(MinidumpCrashpadInfoWriter, SimpleAnnotations) {
   MinidumpFileWriter minidump_file_writer;
-  auto crashpad_info_writer =
-      base::WrapUnique(new MinidumpCrashpadInfoWriter());
+  auto crashpad_info_writer = std::make_unique<MinidumpCrashpadInfoWriter>();
 
-  const char kKey[] =
+  static constexpr char kKey[] =
       "a thing that provides a means of gaining access to or understanding "
       "something";
-  const char kValue[] =
+  static constexpr char kValue[] =
       "the numerical amount denoted by an algebraic term; a magnitude, "
       "quantity, or number";
   auto simple_string_dictionary_writer =
-      base::WrapUnique(new MinidumpSimpleStringDictionaryWriter());
+      std::make_unique<MinidumpSimpleStringDictionaryWriter>();
   auto simple_string_dictionary_entry_writer =
-      base::WrapUnique(new MinidumpSimpleStringDictionaryEntryWriter());
+      std::make_unique<MinidumpSimpleStringDictionaryEntryWriter>();
   simple_string_dictionary_entry_writer->SetKeyValue(kKey, kValue);
   simple_string_dictionary_writer->AddEntry(
       std::move(simple_string_dictionary_entry_writer));
@@ -174,15 +170,14 @@ TEST(MinidumpCrashpadInfoWriter, SimpleAnnotations) {
 }
 
 TEST(MinidumpCrashpadInfoWriter, CrashpadModuleList) {
-  const uint32_t kMinidumpModuleListIndex = 3;
+  constexpr uint32_t kMinidumpModuleListIndex = 3;
 
   MinidumpFileWriter minidump_file_writer;
-  auto crashpad_info_writer =
-      base::WrapUnique(new MinidumpCrashpadInfoWriter());
+  auto crashpad_info_writer = std::make_unique<MinidumpCrashpadInfoWriter>();
 
   auto module_list_writer =
-      base::WrapUnique(new MinidumpModuleCrashpadInfoListWriter());
-  auto module_writer = base::WrapUnique(new MinidumpModuleCrashpadInfoWriter());
+      std::make_unique<MinidumpModuleCrashpadInfoListWriter>();
+  auto module_writer = std::make_unique<MinidumpModuleCrashpadInfoWriter>();
   module_list_writer->AddModule(std::move(module_writer),
                                 kMinidumpModuleListIndex);
   crashpad_info_writer->SetModuleList(std::move(module_list_writer));
@@ -230,18 +225,18 @@ TEST(MinidumpCrashpadInfoWriter, InitializeFromSnapshot) {
   ASSERT_TRUE(
       client_id.InitializeFromString("fedcba98-7654-3210-0123-456789abcdef"));
 
-  const char kKey[] = "version";
-  const char kValue[] = "40.0.2214.111";
-  const char kEntry[] = "This is a simple annotation in a list.";
+  static constexpr char kKey[] = "version";
+  static constexpr char kValue[] = "40.0.2214.111";
+  static constexpr char kEntry[] = "This is a simple annotation in a list.";
 
   // Test with a useless module, one that doesn’t carry anything that would
   // require MinidumpCrashpadInfo or any child object.
-  auto process_snapshot = base::WrapUnique(new TestProcessSnapshot());
+  auto process_snapshot = std::make_unique<TestProcessSnapshot>();
 
-  auto module_snapshot = base::WrapUnique(new TestModuleSnapshot());
+  auto module_snapshot = std::make_unique<TestModuleSnapshot>();
   process_snapshot->AddModule(std::move(module_snapshot));
 
-  auto info_writer = base::WrapUnique(new MinidumpCrashpadInfoWriter());
+  auto info_writer = std::make_unique<MinidumpCrashpadInfoWriter>();
   info_writer->InitializeFromSnapshot(process_snapshot.get());
   EXPECT_FALSE(info_writer->IsUseful());
 

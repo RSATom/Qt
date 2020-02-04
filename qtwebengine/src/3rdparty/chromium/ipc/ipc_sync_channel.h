@@ -5,11 +5,12 @@
 #ifndef IPC_IPC_SYNC_CHANNEL_H_
 #define IPC_IPC_SYNC_CHANNEL_H_
 
-#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "base/component_export.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
@@ -32,7 +33,6 @@ class SyncHandleRegistry;
 
 namespace IPC {
 
-class ChannelFactory;
 class SyncMessage;
 
 // This is similar to ChannelProxy, with the added feature of supporting sending
@@ -69,7 +69,7 @@ class SyncMessage;
 // is more than this object.  If the message loop goes away while this object
 // is running and it's used to send a message, then it will use the invalid
 // message loop pointer to proxy it to the ipc thread.
-class IPC_EXPORT SyncChannel : public ChannelProxy {
+class COMPONENT_EXPORT(IPC) SyncChannel : public ChannelProxy {
  public:
   enum RestrictDispatchGroup {
     kRestrictDispatchGroup_None = 0,
@@ -83,13 +83,7 @@ class IPC_EXPORT SyncChannel : public ChannelProxy {
       IPC::Channel::Mode mode,
       Listener* listener,
       const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
-      bool create_pipe_now,
-      base::WaitableEvent* shutdown_event);
-
-  static std::unique_ptr<SyncChannel> Create(
-      std::unique_ptr<ChannelFactory> factory,
-      Listener* listener,
-      const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& listener_task_runner,
       bool create_pipe_now,
       base::WaitableEvent* shutdown_event);
 
@@ -99,6 +93,7 @@ class IPC_EXPORT SyncChannel : public ChannelProxy {
   static std::unique_ptr<SyncChannel> Create(
       Listener* listener,
       const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& listener_task_runner,
       base::WaitableEvent* shutdown_event);
 
   ~SyncChannel() override;
@@ -139,6 +134,7 @@ class IPC_EXPORT SyncChannel : public ChannelProxy {
     SyncContext(
         Listener* listener,
         const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+        const scoped_refptr<base::SingleThreadTaskRunner>& listener_task_runner,
         base::WaitableEvent* shutdown_event);
 
     // Adds information about an outgoing sync message to the context so that
@@ -199,7 +195,7 @@ class IPC_EXPORT SyncChannel : public ChannelProxy {
 
     void OnShutdownEventSignaled(base::WaitableEvent* event);
 
-    typedef std::deque<PendingSyncMsg> PendingSyncMessageQueue;
+    using PendingSyncMessageQueue = base::circular_deque<PendingSyncMsg>;
     PendingSyncMessageQueue deserializers_;
     bool reject_new_deserializers_ = false;
     base::Lock deserializers_lock_;
@@ -216,6 +212,7 @@ class IPC_EXPORT SyncChannel : public ChannelProxy {
   SyncChannel(
       Listener* listener,
       const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& listener_task_runner,
       base::WaitableEvent* shutdown_event);
 
   void OnDispatchEventSignaled(base::WaitableEvent* event);

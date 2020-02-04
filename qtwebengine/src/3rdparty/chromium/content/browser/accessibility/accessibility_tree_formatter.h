@@ -11,11 +11,18 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "base/process/process_handle.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/common/content_export.h"
+#include "ui/gfx/native_widget_types.h"
+
+namespace {
+const char kChildrenDictAttr[] = "children";
+}
 
 namespace content {
 
@@ -44,7 +51,7 @@ class CONTENT_EXPORT AccessibilityTreeFormatter {
   };
 
   // Create the appropriate native subclass of AccessibilityTreeFormatter.
-  static AccessibilityTreeFormatter* Create();
+  static std::unique_ptr<AccessibilityTreeFormatter> Create();
 
   static bool MatchesFilters(
       const std::vector<Filter>& filters,
@@ -71,12 +78,36 @@ class CONTENT_EXPORT AccessibilityTreeFormatter {
   //     "children": [ ]
   //   } ]
   // }
-  std::unique_ptr<base::DictionaryValue> BuildAccessibilityTree(
-      BrowserAccessibility* root);
+  // Build an accessibility tree for the current Chrome app.
+  virtual std::unique_ptr<base::DictionaryValue> BuildAccessibilityTree(
+      BrowserAccessibility* root) = 0;
+
+  // Build an accessibility tree for any process with a window.
+  virtual std::unique_ptr<base::DictionaryValue>
+  BuildAccessibilityTreeForProcess(base::ProcessId pid) = 0;
+
+  // Build an accessibility tree for any window.
+  virtual std::unique_ptr<base::DictionaryValue>
+  BuildAccessibilityTreeForWindow(gfx::AcceleratedWidget widget) = 0;
+
+  // Build an accessibility tree for an application with a name matching the
+  // given pattern.
+  virtual std::unique_ptr<base::DictionaryValue>
+  BuildAccessibilityTreeForPattern(const base::StringPiece& pattern) = 0;
+
+  // Returns a filtered accesibility tree using the current filters.
+  std::unique_ptr<base::DictionaryValue> FilterAccessibilityTree(
+      const base::DictionaryValue& dict);
 
   // Dumps a BrowserAccessibility tree into a string.
   void FormatAccessibilityTree(
       BrowserAccessibility* root, base::string16* contents);
+  void FormatAccessibilityTree(const base::DictionaryValue& tree_node,
+                               base::string16* contents);
+
+  static base::string16 DumpAccessibilityTreeFromManager(
+      BrowserAccessibilityManager* ax_mgr,
+      bool internal);
 
   // Set regular expression filters that apply to each component of every
   // line before it's output.
@@ -115,17 +146,15 @@ class CONTENT_EXPORT AccessibilityTreeFormatter {
   // Overridden by platform subclasses.
   //
 
-  virtual uint32_t ChildCount(const BrowserAccessibility& node) const;
-
-  virtual BrowserAccessibility* GetChild(const BrowserAccessibility& node,
-                                         uint32_t i) const;
-
-  // Add the attributes for each node into the given dict.
-  virtual void AddProperties(const BrowserAccessibility& node,
-                             base::DictionaryValue* dict) = 0;
-
-  // Returns a platform specific representation of a BrowserAccessibility.
-  virtual base::string16 ToString(const base::DictionaryValue& node) = 0;
+  // Process accessibility tree with filters for output.
+  // Given a dictionary that contains a platform-specific dictionary
+  // representing an accessibility tree, and utilizing filters_:
+  // - Returns a filtered text view as one large string.
+  // - Provides a filtered version of the dictionary in an out param,
+  //   (only if the out param is provided).
+  virtual base::string16 ProcessTreeForOutput(
+      const base::DictionaryValue& node,
+      base::DictionaryValue* filtered_dict_result = nullptr) = 0;
 
   //
   // Utility functions to be used by each platform.
@@ -137,10 +166,11 @@ class CONTENT_EXPORT AccessibilityTreeFormatter {
                                    const base::DictionaryValue& value);
 
   // Writes the given attribute string out to |line| if it matches the filters.
-  void WriteAttribute(bool include_by_default,
+  // Returns false if the attribute was filtered out.
+  bool WriteAttribute(bool include_by_default,
                       const base::string16& attr,
                       base::string16* line);
-  void WriteAttribute(bool include_by_default,
+  bool WriteAttribute(bool include_by_default,
                       const std::string& attr,
                       base::string16* line);
 
@@ -150,8 +180,6 @@ class CONTENT_EXPORT AccessibilityTreeFormatter {
   void RecursiveFormatAccessibilityTree(const BrowserAccessibility& node,
                                         base::string16* contents,
                                         int indent);
-  void RecursiveBuildAccessibilityTree(const BrowserAccessibility& node,
-                                       base::DictionaryValue* tree_node);
   void RecursiveFormatAccessibilityTree(const base::DictionaryValue& tree_node,
                                         base::string16* contents,
                                         int depth = 0);

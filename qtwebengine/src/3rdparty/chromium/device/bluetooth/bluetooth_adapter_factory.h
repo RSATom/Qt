@@ -27,8 +27,8 @@ namespace device {
 // TODO(crbug.com/569709): Use ValuesForTesting for all functions.
 class DEVICE_BLUETOOTH_EXPORT BluetoothAdapterFactory {
  public:
-  typedef base::Callback<void(scoped_refptr<BluetoothAdapter> adapter)>
-      AdapterCallback;
+  using AdapterCallback =
+      base::OnceCallback<void(scoped_refptr<BluetoothAdapter> adapter)>;
 
   ~BluetoothAdapterFactory();
 
@@ -50,9 +50,17 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothAdapterFactory {
   // initializing it if necessary. |callback| is called with the adapter
   // instance passed only once the adapter is fully initialized and ready to
   // use.
-  static void GetAdapter(const AdapterCallback& callback);
+  static void GetAdapter(AdapterCallback callback);
 
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+  // Returns the shared instance of the classic adapter, creating and
+  // initializing it if necessary. |callback| is called with the adapter
+  // instance passed only once the adapter is fully initialized and ready to
+  // use.
+  // For all platforms except Windows this is equivalent to calling
+  // GetAdapter(), as the default adapter already supports Bluetooth classic.
+  static void GetClassicAdapter(AdapterCallback callback);
+
+#if defined(OS_LINUX)
   // Calls |BluetoothAdapter::Shutdown| on the adapter if
   // present.
   static void Shutdown();

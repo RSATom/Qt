@@ -40,6 +40,17 @@
 #ifndef LOCATIONSINGLETON_H
 #define LOCATIONSINGLETON_H
 
+//
+//  W A R N I N G
+//  -------------
+//
+// This file is not part of the Qt API.  It exists purely as an
+// implementation detail.  This header file may change from version to
+// version without notice, or even be removed.
+//
+// We mean it.
+//
+
 #include <QtCore/QObject>
 #include <QtCore/qnumeric.h>
 #include <QtPositioning/QGeoCoordinate>
@@ -50,6 +61,7 @@
 #include <QtPositioning/QGeoPolygon>
 #include <QtQml/QJSValue>
 #include <QVariant>
+#include <QPointF>
 
 class LocationSingleton : public QObject
 {
@@ -77,13 +89,17 @@ public:
     Q_INVOKABLE QGeoPath path() const;
     Q_INVOKABLE QGeoPath path(const QJSValue &value, qreal width = 0.0) const;
 
-    Q_INVOKABLE QGeoPath polygon() const;
-    Q_INVOKABLE QGeoPath polygon(const QVariantList &value) const;
+    Q_INVOKABLE QGeoPolygon polygon() const;
+    Q_INVOKABLE QGeoPolygon polygon(const QVariantList &value) const;
+    Q_INVOKABLE QGeoPolygon polygon(const QVariantList &perimeter, const QVariantList &holes) const;
 
     Q_INVOKABLE QGeoCircle shapeToCircle(const QGeoShape &shape) const;
     Q_INVOKABLE QGeoRectangle shapeToRectangle(const QGeoShape &shape) const;
     Q_INVOKABLE QGeoPath shapeToPath(const QGeoShape &shape) const;
     Q_INVOKABLE QGeoPolygon shapeToPolygon(const QGeoShape &shape) const;
+
+    Q_REVISION(12) Q_INVOKABLE QGeoCoordinate mercatorToCoord(const QPointF &mercator) const;
+    Q_REVISION(12) Q_INVOKABLE QPointF coordToMercator(const QGeoCoordinate &coord) const;
 };
 
 #endif // LOCATIONSINGLETON_H

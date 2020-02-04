@@ -93,8 +93,11 @@ public:
     };
     Q_DECLARE_FLAGS(AddMembers, AddMember)
 
-    enum MetaObjectFlag {
-        DynamicMetaObject = 0x01
+    // ### TODO Qt6: remove me and use the MetaObjectFlags enum from qmetaobject_p.h
+    enum MetaObjectFlag { // keep it in sync with enum MetaObjectFlags from qmetaobject_p.h
+        DynamicMetaObject = 0x01,
+        RequiresVariantMetaObject = 0x02,
+        PropertyAccessInStaticMetaCall = 0x04 // since Qt 5.5, property code is in the static metacall
     };
     Q_DECLARE_FLAGS(MetaObjectFlags, MetaObjectFlag)
 
@@ -181,7 +184,7 @@ public:
 #endif
 
 private:
-    Q_DISABLE_COPY(QMetaObjectBuilder)
+    Q_DISABLE_COPY_MOVE(QMetaObjectBuilder)
 
     QMetaObjectBuilderPrivate *d;
 
@@ -296,6 +299,9 @@ public:
     int index() const { return _index; }
 
     QByteArray name() const;
+
+    QByteArray enumName() const;
+    void setEnumName(const QByteArray &alias);
 
     bool isFlag() const;
     void setIsFlag(bool value);

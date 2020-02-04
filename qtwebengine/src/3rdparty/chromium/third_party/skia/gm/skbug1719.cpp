@@ -7,8 +7,8 @@
 
 #include "gm.h"
 #include "sk_tool_utils.h"
-#include "SkBlurMaskFilter.h"
 #include "SkColorFilter.h"
+#include "SkMaskFilter.h"
 #include "SkPath.h"
 
 /**
@@ -19,8 +19,7 @@
  *
  * The correct image should look like a thin stroked round rect.
  */
-DEF_SIMPLE_GM_BG(skbug1719, canvas, 300, 100,
-                 sk_tool_utils::color_to_565(0xFF303030)) {
+DEF_SIMPLE_GM_BG(skbug1719, canvas, 300, 100, 0xFF303030) {
         canvas->translate(SkIntToScalar(-800), SkIntToScalar(-650));
 
         // The data is lifted from an SKP that exhibited the bug.
@@ -62,8 +61,7 @@ DEF_SIMPLE_GM_BG(skbug1719, canvas, 300, 100,
         paint.setAntiAlias(true);
         paint.setColor(0xFF000000);
         paint.setMaskFilter(
-            SkBlurMaskFilter::Make(kNormal_SkBlurStyle, 0.78867501f,
-                                   SkBlurMaskFilter::kHighQuality_BlurFlag));
+            SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 0.78867501f));
         paint.setColorFilter(SkColorFilter::MakeModeFilter(0xBFFFFFFF, SkBlendMode::kSrcIn));
 
         canvas->clipPath(clipPath, true);

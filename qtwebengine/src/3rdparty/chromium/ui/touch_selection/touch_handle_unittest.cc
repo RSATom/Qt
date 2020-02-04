@@ -4,7 +4,6 @@
 
 #include "ui/touch_selection/touch_handle.h"
 
-#include "base/memory/ptr_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/test/motion_event_test_utils.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -109,7 +108,7 @@ class TouchHandleTest : public testing::Test, public TouchHandleClient {
   void SetNeedsAnimate() override { needs_animate_ = true; }
 
   std::unique_ptr<TouchHandleDrawable> CreateDrawable() override {
-    return base::MakeUnique<MockTouchHandleDrawable>(&drawable_data_);
+    return std::make_unique<MockTouchHandleDrawable>(&drawable_data_);
   }
 
   base::TimeDelta GetMaxTapDuration() const override {
@@ -331,14 +330,17 @@ TEST_F(TouchHandleTest, Enabled) {
   // Dragging should not be allowed while the handle is disabled.
   base::TimeTicks event_time = base::TimeTicks::Now();
   const float kOffset = kDefaultDrawableSize / 2.f;
-  MockMotionEvent event(
-      MockMotionEvent::ACTION_DOWN, event_time, kOffset, kOffset);
+  MockMotionEvent event(MockMotionEvent::Action::DOWN, event_time, kOffset,
+                        kOffset);
   EXPECT_FALSE(handle.WillHandleTouchEvent(event));
 
   // Disabling mid-animation should cancel the animation.
   handle.SetEnabled(true);
-  UpdateHandleVisibility(handle, false, TouchHandle::ANIMATION_SMOOTH);
-  EXPECT_TRUE(drawable().visible);
+  UpdateHandleVisibility(handle, true, TouchHandle::ANIMATION_SMOOTH);
+  EXPECT_TRUE(drawable().enabled);
+  EXPECT_EQ(0.f, drawable().alpha);
+  // Since alpha value is 0, visibility of drawable will be false.
+  EXPECT_FALSE(drawable().visible);
   EXPECT_TRUE(GetAndResetNeedsAnimate());
   handle.SetEnabled(false);
   EXPECT_FALSE(drawable().enabled);
@@ -363,50 +365,51 @@ TEST_F(TouchHandleTest, Drag) {
   const float kOffset = kDefaultDrawableSize / 2.f;
 
   // The handle must be visible to trigger drag.
-  MockMotionEvent event(
-      MockMotionEvent::ACTION_DOWN, event_time, kOffset, kOffset);
+  MockMotionEvent event(MockMotionEvent::Action::DOWN, event_time, kOffset,
+                        kOffset);
   EXPECT_FALSE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(IsDragging());
   UpdateHandleVisibility(handle, true, TouchHandle::ANIMATION_NONE);
 
-  // ACTION_DOWN must fall within the drawable region to trigger drag.
-  event = MockMotionEvent(MockMotionEvent::ACTION_DOWN, event_time, 50, 50);
+  // Action::DOWN must fall within the drawable region to trigger drag.
+  event = MockMotionEvent(MockMotionEvent::Action::DOWN, event_time, 50, 50);
   EXPECT_FALSE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(IsDragging());
 
-  // Only ACTION_DOWN will trigger drag.
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_MOVE, event_time, kOffset, kOffset);
+  // Only Action::DOWN will trigger drag.
+  event = MockMotionEvent(MockMotionEvent::Action::MOVE, event_time, kOffset,
+                          kOffset);
   EXPECT_FALSE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(IsDragging());
 
   // Start the drag.
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_DOWN, event_time, kOffset, kOffset);
+  event = MockMotionEvent(MockMotionEvent::Action::DOWN, event_time, kOffset,
+                          kOffset);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(IsDragging());
 
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_MOVE, event_time, kOffset + 10, kOffset + 15);
+  event = MockMotionEvent(MockMotionEvent::Action::MOVE, event_time,
+                          kOffset + 10, kOffset + 15);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(GetAndResetHandleDragged());
   EXPECT_TRUE(IsDragging());
   EXPECT_EQ(gfx::PointF(10, 15), DragPosition());
 
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_MOVE, event_time, kOffset - 10, kOffset - 15);
+  event = MockMotionEvent(MockMotionEvent::Action::MOVE, event_time,
+                          kOffset - 10, kOffset - 15);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(GetAndResetHandleDragged());
   EXPECT_TRUE(IsDragging());
   EXPECT_EQ(gfx::PointF(-10, -15), DragPosition());
 
-  event = MockMotionEvent(MockMotionEvent::ACTION_UP);
+  event = MockMotionEvent(MockMotionEvent::Action::UP);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(GetAndResetHandleDragged());
   EXPECT_FALSE(IsDragging());
 
-  // Non-ACTION_DOWN events after the drag has terminated should not be handled.
-  event = MockMotionEvent(MockMotionEvent::ACTION_CANCEL);
+  // Non-Action::DOWN events after the drag has terminated should not be
+  // handled.
+  event = MockMotionEvent(MockMotionEvent::Action::CANCEL);
   EXPECT_FALSE(handle.WillHandleTouchEvent(event));
 }
 
@@ -415,7 +418,7 @@ TEST_F(TouchHandleTest, DragDefersOrientationChange) {
   ASSERT_EQ(drawable().orientation, TouchHandleOrientation::RIGHT);
   UpdateHandleVisibility(handle, true, TouchHandle::ANIMATION_NONE);
 
-  MockMotionEvent event(MockMotionEvent::ACTION_DOWN);
+  MockMotionEvent event(MockMotionEvent::Action::DOWN);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(IsDragging());
 
@@ -423,13 +426,13 @@ TEST_F(TouchHandleTest, DragDefersOrientationChange) {
   UpdateHandleOrientation(handle, TouchHandleOrientation::LEFT);
   EXPECT_EQ(TouchHandleOrientation::RIGHT, drawable().orientation);
 
-  event = MockMotionEvent(MockMotionEvent::ACTION_MOVE);
+  event = MockMotionEvent(MockMotionEvent::Action::MOVE);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(GetAndResetHandleDragged());
   EXPECT_TRUE(IsDragging());
   EXPECT_EQ(TouchHandleOrientation::RIGHT, drawable().orientation);
 
-  event = MockMotionEvent(MockMotionEvent::ACTION_UP);
+  event = MockMotionEvent(MockMotionEvent::Action::UP);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(GetAndResetHandleDragged());
   EXPECT_FALSE(IsDragging());
@@ -441,7 +444,7 @@ TEST_F(TouchHandleTest, DragDefersFade) {
                      kDefaultViewportRect);
   UpdateHandleVisibility(handle, true, TouchHandle::ANIMATION_NONE);
 
-  MockMotionEvent event(MockMotionEvent::ACTION_DOWN);
+  MockMotionEvent event(MockMotionEvent::Action::DOWN);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(IsDragging());
 
@@ -451,12 +454,12 @@ TEST_F(TouchHandleTest, DragDefersFade) {
   EXPECT_TRUE(drawable().visible);
   EXPECT_EQ(1.f, drawable().alpha);
 
-  event = MockMotionEvent(MockMotionEvent::ACTION_MOVE);
+  event = MockMotionEvent(MockMotionEvent::Action::MOVE);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(NeedsAnimate());
   EXPECT_TRUE(drawable().visible);
 
-  event = MockMotionEvent(MockMotionEvent::ACTION_UP);
+  event = MockMotionEvent(MockMotionEvent::Action::UP);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(IsDragging());
   EXPECT_TRUE(NeedsAnimate());
@@ -478,8 +481,7 @@ TEST_F(TouchHandleTest, DragTargettingUsesTouchSize) {
   const float kTouchSize = 24.f;
   const float kOffset = kDefaultDrawableSize + kTouchSize / 2.001f;
 
-  MockMotionEvent event(
-      MockMotionEvent::ACTION_DOWN, event_time, kOffset, 0);
+  MockMotionEvent event(MockMotionEvent::Action::DOWN, event_time, kOffset, 0);
   event.SetTouchMajor(0.f);
   EXPECT_FALSE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(IsDragging());
@@ -497,8 +499,8 @@ TEST_F(TouchHandleTest, DragTargettingUsesTouchSize) {
   EXPECT_TRUE(IsDragging());
 
   // The touch hit test region should be circular.
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_DOWN, event_time, kOffset, kOffset);
+  event = MockMotionEvent(MockMotionEvent::Action::DOWN, event_time, kOffset,
+                          kOffset);
   event.SetTouchMajor(kTouchSize);
   EXPECT_FALSE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(IsDragging());
@@ -512,17 +514,16 @@ TEST_F(TouchHandleTest, DragTargettingUsesTouchSize) {
   EXPECT_TRUE(IsDragging());
 
   // Ensure a touch size of 0 can still register a hit.
-  event = MockMotionEvent(MockMotionEvent::ACTION_DOWN,
-                          event_time,
-                          kDefaultDrawableSize / 2.f,
-                          kDefaultDrawableSize / 2.f);
+  event =
+      MockMotionEvent(MockMotionEvent::Action::DOWN, event_time,
+                      kDefaultDrawableSize / 2.f, kDefaultDrawableSize / 2.f);
   event.SetTouchMajor(0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(IsDragging());
 
   // Touches centered above the handle region should never register a hit, even
   // if the touch region intersects the handle region.
-  event = MockMotionEvent(MockMotionEvent::ACTION_DOWN, event_time,
+  event = MockMotionEvent(MockMotionEvent::Action::DOWN, event_time,
                           kDefaultDrawableSize / 2.f, -kTouchSize / 3.f);
   event.SetTouchMajor(kTouchSize);
   EXPECT_FALSE(handle.WillHandleTouchEvent(event));
@@ -536,43 +537,43 @@ TEST_F(TouchHandleTest, Tap) {
 
   base::TimeTicks event_time = base::TimeTicks::Now();
 
-  // ACTION_CANCEL shouldn't trigger a tap.
-  MockMotionEvent event(MockMotionEvent::ACTION_DOWN, event_time, 0, 0);
+  // Action::CANCEL shouldn't trigger a tap.
+  MockMotionEvent event(MockMotionEvent::Action::DOWN, event_time, 0, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   event_time += base::TimeDelta::FromMilliseconds(50);
-  event = MockMotionEvent(MockMotionEvent::ACTION_CANCEL, event_time, 0, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::CANCEL, event_time, 0, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(GetAndResetHandleTapped());
 
   // Long press shouldn't trigger a tap.
-  event = MockMotionEvent(MockMotionEvent::ACTION_DOWN, event_time, 0, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::DOWN, event_time, 0, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   event_time += 2 * GetMaxTapDuration();
-  event = MockMotionEvent(MockMotionEvent::ACTION_UP, event_time, 0, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::UP, event_time, 0, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(GetAndResetHandleTapped());
 
   // Only a brief tap within the slop region should trigger a tap.
-  event = MockMotionEvent(MockMotionEvent::ACTION_DOWN, event_time, 0, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::DOWN, event_time, 0, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   event_time += GetMaxTapDuration() / 2;
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_MOVE, event_time, kDefaultTapSlop / 2.f, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::MOVE, event_time,
+                          kDefaultTapSlop / 2.f, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_UP, event_time, kDefaultTapSlop / 2.f, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::UP, event_time,
+                          kDefaultTapSlop / 2.f, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(GetAndResetHandleTapped());
 
   // Moving beyond the slop region shouldn't trigger a tap.
-  event = MockMotionEvent(MockMotionEvent::ACTION_DOWN, event_time, 0, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::DOWN, event_time, 0, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   event_time += GetMaxTapDuration() / 2;
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_MOVE, event_time, kDefaultTapSlop * 2.f, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::MOVE, event_time,
+                          kDefaultTapSlop * 2.f, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
-  event = MockMotionEvent(
-      MockMotionEvent::ACTION_UP, event_time, kDefaultTapSlop * 2.f, 0);
+  event = MockMotionEvent(MockMotionEvent::Action::UP, event_time,
+                          kDefaultTapSlop * 2.f, 0);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(GetAndResetHandleTapped());
 }
@@ -636,7 +637,7 @@ TEST_F(TouchHandleTest, DragDefersMirrorChange) {
   const float kOffset = kDefaultDrawableSize / 2.f;
 
   // Start the drag.
-  MockMotionEvent event(MockMotionEvent::ACTION_DOWN, event_time, kOffset,
+  MockMotionEvent event(MockMotionEvent::Action::DOWN, event_time, kOffset,
                         kOffset);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_TRUE(IsDragging());
@@ -649,7 +650,7 @@ TEST_F(TouchHandleTest, DragDefersMirrorChange) {
   EXPECT_FALSE(drawable().mirror_horizontal);
 
   // Mirror flag changes will be deferred until the drag ends.
-  event = MockMotionEvent(MockMotionEvent::ACTION_UP);
+  event = MockMotionEvent(MockMotionEvent::Action::UP);
   EXPECT_TRUE(handle.WillHandleTouchEvent(event));
   EXPECT_FALSE(GetAndResetHandleDragged());
   EXPECT_FALSE(IsDragging());

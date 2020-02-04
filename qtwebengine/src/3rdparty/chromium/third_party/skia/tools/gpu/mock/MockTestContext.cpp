@@ -10,6 +10,8 @@
 
 #include "MockTestContext.h"
 
+#include "GrContext.h"
+
 namespace {
 
 class MockTestContext : public sk_gpu_test::TestContext {
@@ -17,17 +19,20 @@ public:
     MockTestContext() {}
     ~MockTestContext() override {}
 
-    virtual GrBackend backend() override { return kMock_GrBackend; }
-    virtual GrBackendContext backendContext() override {
-        return reinterpret_cast<GrBackendContext>(nullptr);
-    }
+    virtual GrBackendApi backend() override { return GrBackendApi::kMock; }
+
     void testAbandon() override {}
     void submit() override {}
     void finish() override {}
 
+    sk_sp<GrContext> makeGrContext(const GrContextOptions& options) override {
+        return GrContext::MakeMock(nullptr, options);
+    }
+
 protected:
     void teardown() override {}
     void onPlatformMakeCurrent() const override {}
+    std::function<void()> onPlatformGetAutoContextRestore() const override { return nullptr; }
     void onPlatformSwapBuffers() const override {}
 
 private:

@@ -34,26 +34,25 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Material 2.3
-import QtQuick.Controls.Material.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Material 2.12
+import QtQuick.Controls.Material.impl 2.12
 
 T.DelayButton {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            contentItem.implicitWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             contentItem.implicitHeight + topPadding + bottomPadding)
-    baselineOffset: contentItem.y + contentItem.baselineOffset
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding)
 
-    // external vertical padding is 6 (to increase touch area)
+    topInset: 6
+    bottomInset: 6
     padding: 12
-    leftPadding: padding - 4
-    rightPadding: padding - 4
+    horizontalPadding: padding - 4
 
     Material.elevation: control.down ? 8 : 2
 
@@ -75,12 +74,8 @@ T.DelayButton {
     // TODO: Add a proper ripple/ink effect for mouse/touch input and focus state
     background: Rectangle {
         implicitWidth: 64
-        implicitHeight: 48
+        implicitHeight: control.Material.buttonHeight
 
-        // external vertical padding is 6 (to increase touch area)
-        y: 6
-        width: parent.width
-        height: parent.height - 12
         radius: 2
         color: !control.enabled ? control.Material.buttonDisabledColor : control.Material.buttonColor
 

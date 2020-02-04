@@ -42,9 +42,11 @@
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlproperty.h>
 #include <QtQuick/private/qquickaccessibleattached_p.h>
+#include <QtQuick/private/qquicklistview_p.h>
+#include <QtQuick/private/qquicktext_p.h>
 
 #include "../../shared/util.h"
-
+#include "../shared/visualtestutil.h"
 
 #define EXPECT(cond) \
     do { \
@@ -128,7 +130,7 @@ void tst_QQuickAccessible::commonTests_data()
 {
     QTest::addColumn<QString>("accessibleRoleFileName");
 
-    QTest::newRow("StaticText") << "statictext.qml";
+    QTest::newRow("Text") << "text.qml";
     QTest::newRow("PushButton") << "pushbutton.qml";
 }
 
@@ -143,7 +145,7 @@ void tst_QQuickAccessible::commonTests()
     view->setSource(testFileUrl(accessibleRoleFileName));
     view->show();
 //    view->setFocus();
-    QVERIFY(view->rootObject() != 0);
+    QVERIFY(view->rootObject() != nullptr);
 
     QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(view);
     QVERIFY(iface);
@@ -160,10 +162,10 @@ void tst_QQuickAccessible::quickAttachedProperties()
         component.setData("import QtQuick 2.0\nItem {\n"
                                 "}", QUrl());
         QObject *object = component.create();
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QObject *attachedObject = QQuickAccessibleAttached::attachedProperties(object);
-        QCOMPARE(attachedObject, static_cast<QObject*>(0));
+        QCOMPARE(attachedObject, static_cast<QObject*>(nullptr));
         delete object;
     }
 
@@ -181,7 +183,7 @@ void tst_QQuickAccessible::quickAttachedProperties()
                                 "Accessible.role: Accessible.Button\n"
                                 "}", QUrl());
         QObject *object = component.create();
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QObject *attachedObject = QQuickAccessibleAttached::attachedProperties(object);
         QVERIFY(attachedObject);
@@ -207,7 +209,7 @@ void tst_QQuickAccessible::quickAttachedProperties()
                                 "Accessible.description: \"Duck\"\n"
                                 "}", QUrl());
         QObject *object = component.create();
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QObject *attachedObject = QQuickAccessibleAttached::attachedProperties(object);
         QVERIFY(attachedObject);
@@ -224,6 +226,72 @@ void tst_QQuickAccessible::quickAttachedProperties()
         }
         delete object;
     }
+
+    // Check overriding of attached role for Text
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick 2.0\nText {\n"
+                          "Accessible.role: Accessible.Button\n"
+                          "Accessible.name: \"TextButton\"\n"
+                          "Accessible.description: \"Text Button\"\n"
+                          "}", QUrl());
+        QObject *object = component.create();
+        QVERIFY(object != nullptr);
+
+        QObject *attachedObject = QQuickAccessibleAttached::attachedProperties(object);
+        QVERIFY(attachedObject);
+        if (attachedObject) {
+            QVariant p = attachedObject->property("role");
+            QCOMPARE(p.isNull(), false);
+            QCOMPARE(p.toInt(), int(QAccessible::PushButton));
+            p = attachedObject->property("name");
+            QCOMPARE(p.isNull(), false);
+            QCOMPARE(p.toString(), QLatin1String("TextButton"));
+            p = attachedObject->property("description");
+            QCOMPARE(p.isNull(), false);
+            QCOMPARE(p.toString(), QLatin1String("Text Button"));
+        }
+        delete object;
+    }
+    // Check overriding of attached role for Text
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick 2.0\nListView {\n"
+                          "id: list\n"
+                          "model: 5\n"
+                          "delegate: Text {\n"
+                          "objectName: \"acc_text\"\n"
+                          "Accessible.role: Accessible.Button\n"
+                          "Accessible.name: \"TextButton\"\n"
+                          "Accessible.description: \"Text Button\"\n"
+                          "}\n"
+                          "}", QUrl());
+        QObject *object = component.create();
+        QVERIFY(object != nullptr);
+
+        QQuickListView *listview = qobject_cast<QQuickListView *>(object);
+        QVERIFY(listview != nullptr);
+        QQuickItem *contentItem = listview->contentItem();
+        QQuickText *childItem = QQuickVisualTestUtil::findItem<QQuickText>(contentItem, "acc_text");
+        QVERIFY(childItem != nullptr);
+
+        QObject *attachedObject = QQuickAccessibleAttached::attachedProperties(childItem);
+        QVERIFY(attachedObject);
+        if (attachedObject) {
+            QVariant p = attachedObject->property("role");
+            QCOMPARE(p.isNull(), false);
+            QCOMPARE(p.toInt(), int(QAccessible::PushButton));
+            p = attachedObject->property("name");
+            QCOMPARE(p.isNull(), false);
+            QCOMPARE(p.toString(), QLatin1String("TextButton"));
+            p = attachedObject->property("description");
+            QCOMPARE(p.isNull(), false);
+            QCOMPARE(p.toString(), QLatin1String("Text Button"));
+        }
+        delete object;
+    }
     QTestAccessibility::clearEvents();
 }
 
@@ -234,7 +302,7 @@ void tst_QQuickAccessible::basicPropertiesTest()
     QCOMPARE(app->childCount(), 0);
 
     QQuickView *window = new QQuickView();
-    window->setSource(testFileUrl("statictext.qml"));
+    window->setSource(testFileUrl("text.qml"));
     window->show();
     QCOMPARE(app->childCount(), 1);
 
@@ -244,7 +312,7 @@ void tst_QQuickAccessible::basicPropertiesTest()
 
     QAccessibleInterface *item = iface->child(0);
     QVERIFY(item);
-    QCOMPARE(item->childCount(), 2);
+    QCOMPARE(item->childCount(), 5);
     QCOMPARE(item->rect().size(), QSize(400, 400));
     QCOMPARE(item->role(), QAccessible::Client);
     QCOMPARE(iface->indexOfChild(item), 0);
@@ -270,9 +338,73 @@ void tst_QQuickAccessible::basicPropertiesTest()
     QCOMPARE(text2->rect().y(), item->rect().y() + 40);
     QCOMPARE(text2->role(), QAccessible::StaticText);
     QCOMPARE(item->indexOfChild(text2), 1);
+    QCOMPARE(text2->state().editable, 0);
+    QCOMPARE(text2->state().readOnly, 1);
 
     QCOMPARE(iface->indexOfChild(text2), -1);
     QCOMPARE(text2->indexOfChild(item), -1);
+
+    // TextInput
+    QAccessibleInterface *textInput = item->child(2);
+    QVERIFY(textInput);
+    QCOMPARE(textInput->childCount(), 0);
+    QCOMPARE(textInput->role(), QAccessible::EditableText);
+    QCOMPARE(textInput->state().editable, 1);
+    QCOMPARE(textInput->state().readOnly, 0);
+    QCOMPARE(textInput->state().multiLine, 0);
+    QCOMPARE(textInput->state().focusable, 1);
+    QCOMPARE(textInput->text(QAccessible::Value), "A text input");
+    auto textInterface = textInput->textInterface();
+    QVERIFY(textInterface);
+    auto editableTextInterface = textInput->editableTextInterface();
+    QEXPECT_FAIL("", "EditableTextInterface is not implemented", Continue);
+    QVERIFY(editableTextInterface);
+    auto newText = QString("a new text");
+    textInput->setText(QAccessible::Value, newText);
+    QCOMPARE(textInput->text(QAccessible::Value), newText);
+
+    // TextEdit
+    QAccessibleInterface *textEdit = item->child(3);
+    QVERIFY(textEdit);
+    QCOMPARE(textEdit->childCount(), 0);
+    QCOMPARE(textEdit->role(), QAccessible::EditableText);
+    QCOMPARE(textEdit->state().editable, 1);
+    QCOMPARE(textEdit->state().readOnly, 0);
+    QCOMPARE(textEdit->state().focusable, 1);
+    QCOMPARE(textEdit->text(QAccessible::Value), "A multi-line text edit\nTesting Accessibility.");
+    auto textEditTextInterface = textEdit->textInterface();
+    QVERIFY(textEditTextInterface);
+    auto textEditEditableTextInterface = textEdit->editableTextInterface();
+    QEXPECT_FAIL("", "EditableTextInterface is not implemented", Continue);
+    QVERIFY(textEditEditableTextInterface);
+    textEdit->setText(QAccessible::Value, newText);
+    QCOMPARE(textEdit->text(QAccessible::Value), newText);
+    QEXPECT_FAIL("", "multi line is not implemented", Continue);
+    QCOMPARE(textInput->state().multiLine, 1);
+
+    // Text "Hello 3"
+    QAccessibleInterface *text3 = item->child(4);
+    QVERIFY(text3);
+    QCOMPARE(text3->childCount(), 0);
+    QCOMPARE(text3->text(QAccessible::Name), QLatin1String("Hello 3"));
+    QCOMPARE(text3->role(), QAccessible::StaticText);
+    QCOMPARE(item->indexOfChild(text3), 4);
+    QCOMPARE(text3->state().editable, 0);
+    QCOMPARE(text3->state().readOnly, 0);
+    // test implicit state values due to role change
+    QQuickAccessibleAttached *attached = QQuickAccessibleAttached::attachedProperties(text3->object());
+    attached->setRole(QAccessible::StaticText);
+    QCOMPARE(text3->role(), QAccessible::StaticText);
+    QCOMPARE(text3->state().readOnly, 1);
+
+    // see if implicit changes back
+    attached->setRole(QAccessible::EditableText);
+    QEXPECT_FAIL("", "EditableText does not implicitly set readOnly to false", Continue);
+    QCOMPARE(text3->state().readOnly, 0);
+    // explicitly set state
+    attached->set_readOnly(false);
+    attached->setRole(QAccessible::StaticText);
+    QCOMPARE(text3->state().readOnly, 0);
 
     delete window;
     QTestAccessibility::clearEvents();
@@ -282,7 +414,7 @@ QAccessibleInterface *topLevelChildAt(QAccessibleInterface *iface, int x, int y)
 {
     QAccessibleInterface *child = iface->childAt(x, y);
     if (!child)
-        return 0;
+        return nullptr;
 
     QAccessibleInterface *childOfChild;
     while ( ( childOfChild = child->childAt(x, y)) ) {

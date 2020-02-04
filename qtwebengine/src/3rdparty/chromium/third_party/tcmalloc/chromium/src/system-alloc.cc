@@ -1,3 +1,4 @@
+// -*- Mode: C++; c-basic-offset: 2; indent-tabs-mode: nil -*-
 // Copyright (c) 2005, Google Inc.
 // All rights reserved.
 // 
@@ -47,11 +48,12 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>                     // for sbrk, getpagesize, off_t
 #endif
-#include <new>                          // for operator new
 #include <gperftools/malloc_extension.h>
+#include <new>  // for operator new
 #include "base/basictypes.h"
 #include "base/commandlineflags.h"
-#include "base/spinlock.h"              // for SpinLockHolder, SpinLock, etc
+#include "base/spinlock.h"  // for SpinLockHolder, SpinLock, etc
+#include "build/build_config.h"
 #include "common.h"
 #include "internal_logging.h"
 
@@ -59,6 +61,14 @@
 // form of the name instead.
 #ifndef MAP_ANONYMOUS
 # define MAP_ANONYMOUS MAP_ANON
+#endif
+
+// Linux added support for MADV_FREE in 4.5 but we aren't ready to use it
+// yet. Among other things, using compile-time detection leads to poor
+// results when compiling on a system with MADV_FREE and running on a
+// system without it. See https://github.com/gperftools/gperftools/issues/780.
+#if defined(__linux__) && defined(MADV_FREE) && !defined(TCMALLOC_USE_MADV_FREE)
+# undef MADV_FREE
 #endif
 
 // MADV_FREE is specifically designed for use by malloc(), but only
@@ -84,21 +94,20 @@ static const bool kDebugMode = true;
 #endif
 
 // TODO(sanjay): Move the code below into the tcmalloc namespace
+using tcmalloc::kCrash;
 using tcmalloc::kLog;
 using tcmalloc::Log;
 
-// Anonymous namespace to avoid name conflicts on "CheckAddressBits".
-namespace {
-
 // Check that no bit is set at position ADDRESS_BITS or higher.
-template <int ADDRESS_BITS> bool CheckAddressBits(uintptr_t ptr) {
-  return (ptr >> ADDRESS_BITS) == 0;
+static bool CheckAddressBits(uintptr_t ptr) {
+  bool always_ok = (kAddressBits == 8 * sizeof(void*));
+  // this is a bit insane but otherwise we get compiler warning about
+  // shifting right by word size even if this code is dead :(
+  int shift_bits = always_ok ? 0 : kAddressBits;
+  return always_ok || ((ptr >> shift_bits) == 0);
 }
 
-// Specialize for the bit width of a pointer to avoid undefined shift.
-template <> bool CheckAddressBits<8 * sizeof(void*)>(uintptr_t ptr) {
-  return true;
-}
+namespace {
 
 #if defined(OS_LINUX) && defined(__x86_64__)
 #define ASLR_IS_SUPPORTED
@@ -116,7 +125,7 @@ struct ranctx {
   u4 d;
 };
 
-#define rot(x,k) (((x)<<(k))|((x)>>(32-(k))))
+#define rot(x, k) (((x) << (k)) | ((x) >> (32 - (k))))
 
 u4 ranval(ranctx* x) {
   /* xxx: the generator being tested */
@@ -133,7 +142,7 @@ void raninit(ranctx* x, u4 seed) {
   x->a = 0xf1ea5eed;
   x->b = x->c = x->d = seed;
   for (i = 0; i < 20; ++i) {
-    (void) ranval(x);
+    (void)ranval(x);
   }
 }
 
@@ -175,21 +184,21 @@ void* GetRandomAddrHint() {
     volatile char c;
     // Pre-initialize our seed with a "random" address in case /dev/urandom is
     // not available.
-    uint32_t seed = (reinterpret_cast<uint64_t>(&c) >> 32) ^
-                    reinterpret_cast<uint64_t>(&c);
+    uint32_t seed =
+        (reinterpret_cast<uint64_t>(&c) >> 32) ^ reinterpret_cast<uint64_t>(&c);
     int urandom_fd = open("/dev/urandom", O_RDONLY);
     if (urandom_fd >= 0) {
-      ssize_t len;
-      len = read(urandom_fd, &seed, sizeof(seed));
-      ASSERT(len == sizeof(seed));
+      const ssize_t length = read(urandom_fd, &seed, sizeof(seed));
+      ASSERT(length == sizeof(seed));
       int ret = close(urandom_fd);
       ASSERT(ret == 0);
     }
     raninit(&ctx, seed);
   }
-  uint64_t random_address = (static_cast<uint64_t>(ranval(&ctx)) << 32) |
-                            ranval(&ctx);
-  // A a bit-wise "and" won't bias our random distribution.
+  uint64_t random_address =
+      (static_cast<uint64_t>(ranval(&ctx)) << 32) | ranval(&ctx);
+  // A bit-wise "and" won't bias our random distribution because of all the 0xfs
+  // in the high-order bits.
   random_address &= kRandomAddressMask;
   return reinterpret_cast<void*>(random_address);
 #endif  // ASLR_IS_SUPPORTED
@@ -213,13 +222,13 @@ void* AllocWithMmap(size_t length, bool is_aslr_enabled) {
 #endif  // ASLR_IS_SUPPORTED
 
   // address_hint is likely to make us grow an existing mapping.
-  void* result = mmap(address_hint, length, PROT_READ|PROT_WRITE,
-                      MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+  void* result = mmap(address_hint, length, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #if defined(ASLR_IS_SUPPORTED)
   if (result == address_hint) {
     // If mmap() succeeded at a address_hint, our next mmap() will try to grow
     // the current mapping as long as it's compatible with our ASLR mask.
-    // This has been done for performance reasons, see crbug.com/173371.
+    // This has been done for performance reasons, see https://crbug.com/173371.
     // It should be possible to strike a better balance between performance
     // and security but will be done at a later date.
     // If this overflows, it could only set address_hint to NULL, which is
@@ -234,17 +243,10 @@ void* AllocWithMmap(size_t length, bool is_aslr_enabled) {
   return result;
 }
 
-}  // Anonymous namespace to avoid name conflicts on "CheckAddressBits".
+}  // Anonymous namespace.
 
 COMPILE_ASSERT(kAddressBits <= 8 * sizeof(void*),
                address_bits_larger_than_pointer_size);
-
-// Structure for discovering alignment
-union MemoryAligner {
-  void*  p;
-  double d;
-  size_t s;
-} CACHELINE_ALIGNED;
 
 static SpinLock spinlock(SpinLock::LINKER_INITIALIZED);
 
@@ -255,7 +257,10 @@ static size_t pagesize = 0;
 #endif
 
 // The current system allocator
-SysAllocator* sys_alloc = NULL;
+SysAllocator* tcmalloc_sys_alloc = NULL;
+
+// Number of bytes taken from system.
+size_t TCMalloc_SystemTaken = 0;
 
 // Configuration parameters.
 DEFINE_int32(malloc_devmem_start,
@@ -272,6 +277,10 @@ DEFINE_bool(malloc_skip_sbrk,
 DEFINE_bool(malloc_skip_mmap,
             EnvToBool("TCMALLOC_SKIP_MMAP", false),
             "Whether mmap can be used to obtain memory.");
+DEFINE_bool(malloc_disable_memory_release,
+            EnvToBool("TCMALLOC_DISABLE_MEMORY_RELEASE", false),
+            "Whether MADV_FREE/MADV_DONTNEED should be used"
+            " to return unused memory to the system.");
 
 DEFINE_bool(malloc_random_allocator,
 #if defined(ASLR_IS_SUPPORTED)
@@ -288,7 +297,10 @@ public:
   }
   void* Alloc(size_t size, size_t *actual_size, size_t alignment);
 };
-static char sbrk_space[sizeof(SbrkSysAllocator)];
+static union {
+  char buf[sizeof(SbrkSysAllocator)];
+  void *ptr;
+} sbrk_space;
 
 class MmapSysAllocator : public SysAllocator {
 public:
@@ -296,7 +308,10 @@ public:
   }
   void* Alloc(size_t size, size_t *actual_size, size_t alignment);
 };
-static char mmap_space[sizeof(MmapSysAllocator)];
+static union {
+  char buf[sizeof(MmapSysAllocator)];
+  void *ptr;
+} mmap_space;
 
 class DevMemSysAllocator : public SysAllocator {
 public:
@@ -330,14 +345,17 @@ class DefaultSysAllocator : public SysAllocator {
   SysAllocator* allocs_[kMaxAllocators];
   const char* names_[kMaxAllocators];
 };
-static char default_space[sizeof(DefaultSysAllocator)];
+static union {
+  char buf[sizeof(DefaultSysAllocator)];
+  void *ptr;
+} default_space;
 static const char sbrk_name[] = "SbrkSysAllocator";
 static const char mmap_name[] = "MmapSysAllocator";
 
 
 void* SbrkSysAllocator::Alloc(size_t size, size_t *actual_size,
                               size_t alignment) {
-#ifndef HAVE_SBRK
+#if !defined(HAVE_SBRK) || defined(__UCLIBC__)
   return NULL;
 #else
   // Check if we should use sbrk allocation.
@@ -579,10 +597,16 @@ void* DefaultSysAllocator::Alloc(size_t size, size_t *actual_size,
   return NULL;
 }
 
+ATTRIBUTE_WEAK ATTRIBUTE_NOINLINE
+SysAllocator *tc_get_sysalloc_override(SysAllocator *def)
+{
+  return def;
+}
+
 static bool system_alloc_inited = false;
 void InitSystemAllocators(void) {
-  MmapSysAllocator *mmap = new (mmap_space) MmapSysAllocator();
-  SbrkSysAllocator *sbrk = new (sbrk_space) SbrkSysAllocator();
+  MmapSysAllocator *mmap = new (mmap_space.buf) MmapSysAllocator();
+  SbrkSysAllocator *sbrk = new (sbrk_space.buf) SbrkSysAllocator();
 
   // In 64-bit debug mode, place the mmap allocator first since it
   // allocates pointers that do not fit in 32 bits and therefore gives
@@ -591,9 +615,9 @@ void InitSystemAllocators(void) {
   // likely to look like pointers and therefore the conservative gc in
   // the heap-checker is less likely to misinterpret a number as a
   // pointer).
-  DefaultSysAllocator *sdef = new (default_space) DefaultSysAllocator();
-  // Unfortunately, this code runs before flags are initialized. So
-  // we can't use FLAGS_malloc_random_allocator.
+  DefaultSysAllocator *sdef = new (default_space.buf) DefaultSysAllocator();
+// Unfortunately, this code runs before flags are initialized. So
+// we can't use FLAGS_malloc_random_allocator.
 #if defined(ASLR_IS_SUPPORTED)
   // Our only random allocator is mmap.
   sdef->SetChildAllocator(mmap, 0, mmap_name);
@@ -606,7 +630,7 @@ void InitSystemAllocators(void) {
     sdef->SetChildAllocator(mmap, 1, mmap_name);
   }
 #endif  // ASLR_IS_SUPPORTED
-  sys_alloc = sdef;
+  tcmalloc_sys_alloc = tc_get_sysalloc_override(sdef);
 }
 
 void* TCMalloc_SystemAlloc(size_t size, size_t *actual_size,
@@ -624,41 +648,49 @@ void* TCMalloc_SystemAlloc(size_t size, size_t *actual_size,
   // Enforce minimum alignment
   if (alignment < sizeof(MemoryAligner)) alignment = sizeof(MemoryAligner);
 
-  void* result = sys_alloc->Alloc(size, actual_size, alignment);
+  size_t actual_size_storage;
+  if (actual_size == NULL) {
+    actual_size = &actual_size_storage;
+  }
+
+  void* result = tcmalloc_sys_alloc->Alloc(size, actual_size, alignment);
   if (result != NULL) {
-    if (actual_size) {
-      CheckAddressBits<kAddressBits>(
-          reinterpret_cast<uintptr_t>(result) + *actual_size - 1);
-    } else {
-      CheckAddressBits<kAddressBits>(
-          reinterpret_cast<uintptr_t>(result) + size - 1);
-    }
+    CHECK_CONDITION(
+      CheckAddressBits(reinterpret_cast<uintptr_t>(result) + *actual_size - 1));
+    TCMalloc_SystemTaken += *actual_size;
   }
   return result;
 }
 
-size_t TCMalloc_SystemAddGuard(void* start, size_t size) {
+void TCMalloc_SystemAddGuard(void* start, size_t size) {
 #ifdef HAVE_GETPAGESIZE
   if (pagesize == 0)
     pagesize = getpagesize();
 
-  if (size < pagesize || (reinterpret_cast<size_t>(start) % pagesize) != 0)
-    return 0;
+  if (size < pagesize || (reinterpret_cast<size_t>(start) % pagesize) != 0) {
+    Log(kCrash, __FILE__, __LINE__,
+        "FATAL ERROR: alloc size (%d) < pagesize (%d), or start address (%p) "
+        "is not page aligned\n",
+        size, pagesize, start);
+    return;
+  }
 
-  if (!mprotect(start, pagesize, PROT_NONE))
-    return pagesize;
+  if (mprotect(start, pagesize, PROT_NONE)) {
+    Log(kCrash, __FILE__, __LINE__,
+        "FATAL ERROR: mprotect(%p, %d, PROT_NONE) failed: %s\n", start,
+        pagesize, strerror(errno));
+  }
 #endif
-
-  return 0;
 }
 
-void TCMalloc_SystemRelease(void* start, size_t length) {
+bool TCMalloc_SystemRelease(void* start, size_t length) {
 #ifdef MADV_FREE
   if (FLAGS_malloc_devmem_start) {
     // It's not safe to use MADV_FREE/MADV_DONTNEED if we've been
     // mapping /dev/mem for heap memory.
-    return;
+    return false;
   }
+  if (FLAGS_malloc_disable_memory_release) return false;
   if (pagesize == 0) pagesize = getpagesize();
   const size_t pagemask = pagesize - 1;
 
@@ -677,15 +709,16 @@ void TCMalloc_SystemRelease(void* start, size_t length) {
   ASSERT(new_end <= end);
 
   if (new_end > new_start) {
-    // Note -- ignoring most return codes, because if this fails it
-    // doesn't matter...
-    while (madvise(reinterpret_cast<char*>(new_start), new_end - new_start,
-                   MADV_FREE) == -1 &&
-           errno == EAGAIN) {
-      // NOP
-    }
+    int result;
+    do {
+      result = madvise(reinterpret_cast<char*>(new_start),
+          new_end - new_start, MADV_FREE);
+    } while (result == -1 && errno == EAGAIN);
+
+    return result != -1;
   }
 #endif
+  return false;
 }
 
 void TCMalloc_SystemCommit(void* start, size_t length) {

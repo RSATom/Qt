@@ -25,6 +25,9 @@ const char kMinimalShaderWithoutVersion[] = "void main(){}";
 const char kMinimalShader[] =
     "#version 140\n"
     "void main(){}";
+const char kMinimalHlslShader[] =
+    "float4 EntryPoint(uint index : SV_VERTEXID) : SV_POSITION\n"
+    "{ return float4(1.0, 2.0, 3.0, 4.0); }";
 const char kMinimalShaderWithMacro[] =
     "#version 140\n"
     "#define E main\n"
@@ -44,8 +47,8 @@ const char kValuelessPredefinitionShader[] =
 // because some versions of glslang will error out for a too-low version
 // when generating SPIR-V.
 const char kDeprecatedAttributeShader[] =
-    "#version 140\n"
-    "attribute float x;\n"
+    "#version 400\n"
+    "layout(location = 0) attribute float x;\n"
     "void main() {}\n";
 
 // By default the compiler will emit a warning as version 550 is an unknown
@@ -77,9 +80,9 @@ const char kTwoErrorsShader[] =
 
 // Compiler should generate two warnings.
 const char kTwoWarningsShader[] =
-    "#version 140\n"
-    "attribute float x;\n"
-    "attribute float y;\n"
+    "#version 400\n"
+    "layout(location = 0) attribute float x;\n"
+    "layout(location = 1) attribute float y;\n"
     "void main(){}\n";
 
 // A shader that compiles under OpenGL compatibility profile rules,
@@ -93,7 +96,7 @@ const char kOpenGLCompatibilityFragmentShader[] =
 
 // A shader that compiles under OpenGL core profile rules.
 const char kOpenGLVertexShader[] =
-    R"(#version 140
+    R"(#version 330
        void main() { int t = gl_VertexID; })";
 
 // Empty 310 es shader. It is valid for vertex, fragment, compute shader kind.
@@ -173,6 +176,50 @@ const char kComputeOnlyShaderWithPragma[] =
     "    uvec3 temp = gl_WorkGroupID;\n"
     "}";
 
+// NV mesh shader without #pragma.
+const char kNVMeshShader[] =
+    "#version 450\n"
+    "#extension GL_NV_mesh_shader : enable\n"
+    "layout(local_size_x=8) in;\n"
+    "layout(max_vertices=5) out;\n"
+    "layout(max_primitives=10) out;\n"
+    "layout(triangles) out;\n"
+    "void main() {\n"
+    "  gl_MeshVerticesNV[gl_LocalInvocationID.x].gl_Position = vec4(0.0);\n"
+    "}\n";
+
+// NV mesh shader with #pragma annotation.
+const char kNVMeshShaderWithPragma[] =
+    "#version 450\n"
+    "#extension GL_NV_mesh_shader : enable\n"
+    "#pragma shader_stage(mesh)\n"
+    "layout(local_size_x=8) in;\n"
+    "layout(max_vertices=5) out;\n"
+    "layout(max_primitives=10) out;\n"
+    "layout(triangles) out;\n"
+    "void main() {\n"
+    "  gl_MeshVerticesNV[gl_LocalInvocationID.x].gl_Position = vec4(0.0);\n"
+    "}\n";
+
+// NV task shader without #pragma annotation.
+const char kNVTaskShader[] =
+    "#version 450\n"
+    "#extension GL_NV_mesh_shader : enable\n"
+    "layout(local_size_x=8) in;\n"
+    "void main() {\n"
+    "  gl_TaskCountNV = 2;\n"
+    "}\n";
+
+// NV task shader with #pragma annotation.
+const char kNVTaskShaderWithPragma[] =
+    "#version 450\n"
+    "#extension GL_NV_mesh_shader : enable\n"
+    "#pragma shader_stage(task)\n"
+    "layout(local_size_x=8) in;\n"
+    "void main() {\n"
+    "  gl_TaskCountNV = 2;\n"
+    "}\n";
+
 // Vertex only shader with invalid #pragma annotation.
 const char kVertexOnlyShaderWithInvalidPragma[] =
     "#version 310 es\n"
@@ -186,20 +233,31 @@ const char kVertexOnlyShaderWithInvalidPragma[] =
 const char* kMinimalShaderDisassemblySubstrings[] = {
     "; SPIR-V\n"
     "; Version: 1.0\n"
-    "; Generator: Khronos Glslang Reference Front End; 1\n"
+    "; Generator: Google Shaderc over Glslang; 7\n"
     "; Bound:",
 
-    "               OpCapability Shader\n"
-    "          %1 = OpExtInstImport \"GLSL.std.450\"\n"
+    "               OpCapability Shader\n",
+    "          %1 = OpExtInstImport \"GLSL.std.450\"\n",
     "               OpMemoryModel Logical GLSL450\n",
+    "               OpReturn\n",
+    "               OpFunctionEnd\n"};
 
-    "               OpReturn\n"
+const char* kMinimalShaderDebugInfoDisassemblySubstrings[] = {
+    "; SPIR-V\n"
+    "; Version: 1.0\n"
+    "; Generator: Google Shaderc over Glslang; 7\n"
+    "; Bound:",
+
+    "               OpCapability Shader\n",
+    "          %2 = OpExtInstImport \"GLSL.std.450\"\n",
+    "               OpMemoryModel Logical GLSL450\n",
+    "               OpReturn\n",
     "               OpFunctionEnd\n"};
 
 const char kMinimalShaderAssembly[] = R"(
     ; SPIR-V
     ; Version: 1.0
-    ; Generator: Khronos Glslang Reference Front End; 1
+    ; Generator: Google Shaderc over Glslang; 7
     ; Bound: 6
     ; Schema: 0
 
@@ -215,6 +273,132 @@ const char kMinimalShaderAssembly[] = R"(
     %5 = OpLabel
          OpReturn
          OpFunctionEnd)";
+
+const char kShaderWithUniformsWithoutBindings[] =
+    R"(#version 450
+       #extension GL_ARB_sparse_texture2 : enable
+       uniform texture2D my_tex;
+       uniform sampler my_sam;
+       layout(rgba32f) uniform image2D my_img;
+       layout(rgba32f) uniform imageBuffer my_imbuf;
+       uniform block { float x; float y; } my_ubo;
+       void main() {
+         texture(sampler2D(my_tex,my_sam),vec2(1.0));
+         vec4 t;
+         sparseImageLoadARB(my_img,ivec2(0),t);
+         imageLoad(my_imbuf,42);
+         float x = my_ubo.x;
+       })";
+
+// A GLSL vertex shader with a weirdly packed block.
+const char kGlslShaderWeirdPacking[] =
+    R"(#version 450
+       buffer B { float x; vec3 foo; } my_ssbo;
+       void main() { my_ssbo.x = 1.0; })";
+
+// A HLSL fragment shader with a weirdly packed block.
+const char kHlslFragShaderWithRegisters[] =
+    R"(Buffer<float> t4 : register(t4);
+       Buffer<float> t5 : register(t5);
+       float4 main() : SV_Target0 {
+         return float4(t4.Load(0) + t5.Load(1));
+       })";
+
+// A GLSL compute shader using a regular barrier.
+const char kGlslShaderComputeBarrier[] =
+    R"(#version 450
+       void main() { barrier(); })";
+
+// A GLSL compute shader using the Subgroups feature.
+const char kGlslShaderComputeSubgroupBarrier[] =
+    R"(#version 450
+       #extension GL_KHR_shader_subgroup_basic : enable
+       void main() { subgroupBarrier(); })";
+
+#ifdef NV_EXTENSIONS
+// A GLSL task shader using a regular barrier.
+const char kGlslShaderTaskBarrier[] =
+    R"(#version 450
+       #extension GL_NV_mesh_shader : enable
+       layout(local_size_x = 32) in;
+       void main() { barrier(); })";
+
+// A GLSL task shader using the Subgroups feature.
+const char kGlslShaderTaskSubgroupBarrier[] =
+    R"(#version 450
+       #extension GL_NV_mesh_shader : enable
+       #extension GL_KHR_shader_subgroup_basic : enable
+       layout(local_size_x = 32) in;
+       void main() { subgroupBarrier(); })";
+
+// A GLSL mesh shader using a regular barrier.
+const char kGlslShaderMeshBarrier[] =
+    R"(#version 450
+       #extension GL_NV_mesh_shader : enable
+       layout(local_size_x = 32) in;
+       layout(max_vertices=81) out;
+       layout(max_primitives=32) out;
+       layout(triangles) out;
+       void main() { barrier(); })";
+
+// A GLSL mesh shader using the Subgroups feature.
+const char kGlslShaderMeshSubgroupBarrier[] =
+    R"(#version 450
+       #extension GL_NV_mesh_shader : enable
+       #extension GL_KHR_shader_subgroup_basic : enable
+       layout(local_size_x = 32) in;
+       layout(max_vertices=81) out;
+       layout(max_primitives=32) out;
+       layout(triangles) out;
+       void main() { subgroupBarrier(); })";
+#endif
+
+const char kGlslMultipleFnShader[] =
+    R"(#version 450
+       layout(location=0) flat in  int inVal;
+       layout(location=0)      out int outVal;
+       int foo(int a) { return a; }
+       void main() { outVal = foo(inVal); })";
+
+const char kHlslShaderWithCounterBuffer[] =
+    R"(RWStructuredBuffer<uint> Ainc;
+       float4 main() : SV_Target0 {
+         return float4(Ainc.IncrementCounter(), 0, 0, 0);
+       })";
+
+const char kHlslWaveActiveSumeComputeShader[] =
+  R"(struct S { uint val; uint result; };
+
+     [[vk::binding(0,0)]]
+     RWStructuredBuffer<S> MyBuffer;
+
+     [numthreads(32, 1, 1)]
+     void main(uint3 id : SV_DispatchThreadID) {
+       MyBuffer[id.x].result = WaveActiveSum(MyBuffer[id.x].val);
+     })";
+
+const char kHlslMemLayoutResourceSelect[] =
+    R"(cbuffer Foo { float a; float3 b; }
+
+       [[vk::binding(0,0)]]
+       Texture2D Tex;
+       [[vk::binding(1,0)]]
+       SamplerState Sampler1;
+       [[vk::binding(2,0)]]
+       SamplerState Sampler2;
+
+       static const int val = 42;
+
+       float4 main() : SV_Target {
+         SamplerState samp;
+
+         if (val > 5)
+           samp = Sampler1;
+         else
+           samp = Sampler2;
+
+         return Tex.Sample(samp, float2(0.5, 0.5)) + float4(a, b);
+       })";
 
 #ifdef __cplusplus
 }

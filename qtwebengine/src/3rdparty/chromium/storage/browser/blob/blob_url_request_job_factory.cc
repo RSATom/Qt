@@ -15,7 +15,6 @@
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/blob/blob_url_request_job.h"
-#include "storage/browser/fileapi/file_system_context.h"
 
 namespace storage {
 
@@ -50,7 +49,7 @@ std::unique_ptr<net::URLRequest> BlobProtocolHandler::CreateBlobRequest(
           destination: LOCAL
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting: "This feature cannot be disabled by settings."
           policy_exception_justification:
             "Not implemented. This is a local data fetch request and has no "
@@ -77,22 +76,21 @@ BlobDataHandle* BlobProtocolHandler::GetRequestBlobDataHandle(
   return static_cast<BlobDataHandle*>(request->GetUserData(&kUserDataKey));
 }
 
-BlobProtocolHandler::BlobProtocolHandler(
-    BlobStorageContext* context,
-    storage::FileSystemContext* file_system_context)
-    : file_system_context_(file_system_context) {
+BlobProtocolHandler::BlobProtocolHandler(BlobStorageContext* context) {
   if (context)
     context_ = context->AsWeakPtr();
 }
 
-BlobProtocolHandler::~BlobProtocolHandler() {
-}
+BlobProtocolHandler::~BlobProtocolHandler() = default;
 
 net::URLRequestJob* BlobProtocolHandler::MaybeCreateJob(
     net::URLRequest* request, net::NetworkDelegate* network_delegate) const {
   return new storage::BlobURLRequestJob(request, network_delegate,
-                                        LookupBlobHandle(request),
-                                        file_system_context_.get());
+                                        LookupBlobHandle(request));
+}
+
+bool BlobProtocolHandler::IsSafeRedirectTarget(const GURL& location) const {
+  return false;
 }
 
 BlobDataHandle* BlobProtocolHandler::LookupBlobHandle(
@@ -101,7 +99,7 @@ BlobDataHandle* BlobProtocolHandler::LookupBlobHandle(
   if (blob_data_handle)
     return blob_data_handle;
   if (!context_.get())
-    return NULL;
+    return nullptr;
 
   // Support looking up based on uuid, the FeedbackExtensionAPI relies on this.
   // TODO(michaeln): Replace this use case and others like it with a BlobReader
@@ -109,7 +107,7 @@ BlobDataHandle* BlobProtocolHandler::LookupBlobHandle(
   const std::string kPrefix("blob:uuid/");
   if (!base::StartsWith(request->url().spec(), kPrefix,
                         base::CompareCase::SENSITIVE))
-    return NULL;
+    return nullptr;
   std::string uuid = request->url().spec().substr(kPrefix.length());
   std::unique_ptr<BlobDataHandle> handle = context_->GetBlobDataFromUUID(uuid);
   BlobDataHandle* handle_ptr = handle.get();

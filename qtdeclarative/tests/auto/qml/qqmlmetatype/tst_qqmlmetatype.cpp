@@ -35,6 +35,7 @@
 
 #include <private/qqmlmetatype_p.h>
 #include <private/qqmlpropertyvalueinterceptor_p.h>
+#include <private/qqmlengine_p.h>
 #include <private/qhashedstring_p.h>
 #include "../../shared/util.h"
 
@@ -62,6 +63,13 @@ private slots:
     void defaultObject();
     void unregisterCustomType();
     void unregisterCustomSingletonType();
+
+    void normalizeUrls();
+    void unregisterAttachedProperties();
+    void revisionedGroupedProperties();
+
+    void enumsInRecursiveImport_data();
+    void enumsInRecursiveImport();
 };
 
 class TestType : public QObject
@@ -225,17 +233,13 @@ void tst_qqmlmetatype::qmlType()
 
 void tst_qqmlmetatype::invalidQmlTypeName()
 {
-    QStringList currFailures = QQmlMetaType::typeRegistrationFailures();
+    QTest::ignoreMessage(QtWarningMsg, "Invalid QML element name \"testtype\"; type names must begin with an uppercase letter");
+    QTest::ignoreMessage(QtWarningMsg, "Invalid QML element name \"Test$Type\"");
+    QTest::ignoreMessage(QtWarningMsg, "Invalid QML element name \"EndingInSlash/\"");
+
     QCOMPARE(qmlRegisterType<TestType>("TestNamespace", 1, 0, "Test$Type"), -1); // should fail due to invalid QML type name.
     QCOMPARE(qmlRegisterType<TestType>("Test", 1, 0, "EndingInSlash/"), -1);
-    QStringList nowFailures = QQmlMetaType::typeRegistrationFailures();
-
-    foreach (const QString &f, currFailures)
-        nowFailures.removeOne(f);
-
-    QCOMPARE(nowFailures.size(), 2);
-    QCOMPARE(nowFailures.at(0), QStringLiteral("Invalid QML element name \"Test$Type\""));
-    QCOMPARE(nowFailures.at(1), QStringLiteral("Invalid QML element name \"EndingInSlash/\""));
+    QCOMPARE(qmlRegisterType<TestType>("Test", 1, 0, "testtype"), -1);
 }
 
 void tst_qqmlmetatype::prettyTypeName()
@@ -271,7 +275,7 @@ void tst_qqmlmetatype::defaultObject()
     TestType t;
     ParserStatusTestType p;
 
-    QVERIFY(QQmlMetaType::defaultProperty((QObject *)0).name() == 0);
+    QVERIFY(QQmlMetaType::defaultProperty((QObject *)nullptr).name() == nullptr);
     QVERIFY(!QQmlMetaType::defaultProperty(&o).name());
     QVERIFY(!QQmlMetaType::defaultProperty(&p).name());
     QCOMPARE(QString(QQmlMetaType::defaultProperty(&t).name()), QString("foo"));
@@ -521,6 +525,140 @@ void tst_qqmlmetatype::unregisterCustomSingletonType()
         QCOMPARE(stringVal.type(), QVariant::String);
         QCOMPARE(stringVal.toString(), QStringLiteral("StaticProvider #1"));
     }
+}
+
+void tst_qqmlmetatype::normalizeUrls()
+{
+    const QUrl url("qrc:///tstqqmlmetatype/data/CompositeType.qml");
+    QVERIFY(!QQmlMetaType::qmlType(url).isValid());
+    const auto registrationId = qmlRegisterType(url, "Test", 1, 0, "ResourceCompositeType");
+    QVERIFY(QQmlMetaType::qmlType(url, /*includeNonFileImports=*/true).isValid());
+    QUrl normalizedURL("qrc:/tstqqmlmetatype/data/CompositeType.qml");
+    QVERIFY(QQmlMetaType::qmlType(normalizedURL, /*includeNonFileImports=*/true).isValid());
+    qmlUnregisterType(registrationId);
+    QVERIFY(!QQmlMetaType::qmlType(url, /*includeNonFileImports=*/true).isValid());
+}
+
+void tst_qqmlmetatype::unregisterAttachedProperties()
+{
+    qmlClearTypeRegistrations();
+
+    const QUrl dummy("qrc:///doesnotexist.qml");
+    {
+        QQmlEngine e;
+        QQmlComponent c(&e);
+        c.setData("import QtQuick 2.2\n Item { }", dummy);
+
+        const QQmlType attachedType = QQmlMetaType::qmlType("QtQuick/KeyNavigation", 2, 2);
+        QCOMPARE(attachedType.attachedPropertiesType(QQmlEnginePrivate::get(&e)),
+                 attachedType.metaObject());
+
+        QVERIFY(c.create());
+    }
+
+    qmlClearTypeRegistrations();
+    {
+        QQmlEngine e;
+        QQmlComponent c(&e);
+
+        // The extra import shuffles the type IDs around, so that we
+        // get a different ID for the attached properties. If the attached
+        // properties aren't properly cleared, this will crash.
+        c.setData("import QtQml.StateMachine 1.0 \n"
+                  "import QtQuick 2.2 \n"
+                  "Item { KeyNavigation.up: null }", dummy);
+
+        const QQmlType attachedType = QQmlMetaType::qmlType("QtQuick/KeyNavigation", 2, 2);
+        QCOMPARE(attachedType.attachedPropertiesType(QQmlEnginePrivate::get(&e)),
+                 attachedType.metaObject());
+
+        QVERIFY(c.create());
+    }
+}
+
+class Grouped : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int prop READ prop WRITE setProp NOTIFY propChanged REVISION 1)
+public:
+    int prop() const { return m_prop; }
+    void setProp(int prop)
+    {
+        if (prop != m_prop) {
+            m_prop = prop;
+            emit propChanged(prop);
+        }
+    }
+
+signals:
+    Q_REVISION(1) void propChanged(int prop);
+
+private:
+    int m_prop = 0;
+};
+
+class MyItem : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(Grouped *grouped READ grouped CONSTANT)
+public:
+    MyItem() : m_grouped(new Grouped) {}
+    Grouped *grouped() const { return m_grouped.data(); }
+
+private:
+    QScopedPointer<Grouped> m_grouped;
+};
+
+void tst_qqmlmetatype::revisionedGroupedProperties()
+{
+    qmlClearTypeRegistrations();
+    qmlRegisterType<MyItem>("GroupedTest", 1, 0, "MyItem");
+    qmlRegisterType<MyItem, 1>("GroupedTest", 1, 1, "MyItem");
+    qmlRegisterUncreatableType<Grouped>("GroupedTest", 1, 0, "Grouped", "Grouped");
+    qmlRegisterUncreatableType<Grouped, 1>("GroupedTest", 1, 1, "Grouped", "Grouped");
+
+    {
+        QQmlEngine engine;
+        QQmlComponent valid(&engine, testFileUrl("revisionedGroupedPropertiesValid.qml"));
+        QVERIFY(valid.isReady());
+        QScopedPointer<QObject> obj(valid.create());
+        QVERIFY(!obj.isNull());
+    }
+
+    {
+        QQmlEngine engine;
+        QQmlComponent invalid(&engine, testFileUrl("revisionedGroupedPropertiesInvalid.qml"));
+        QVERIFY(invalid.isError());
+    }
+}
+
+void tst_qqmlmetatype::enumsInRecursiveImport_data()
+{
+    QTest::addColumn<QString>("importPath");
+    QTest::addColumn<QUrl>("componentUrl");
+
+    QTest::addRow("data directory") << dataDirectory()
+                                    << testFileUrl("enumsInRecursiveImport.qml");
+
+    // The qrc case behaves differently because we failed to detect the recursion in type loading
+    // due to varying numbers of slashes after the "qrc:" in the URLs.
+    QTest::addRow("resources") << QStringLiteral("qrc:/data")
+                               << QUrl("qrc:/data/enumsInRecursiveImport.qml");
+}
+
+void tst_qqmlmetatype::enumsInRecursiveImport()
+{
+    QFETCH(QString, importPath);
+    QFETCH(QUrl, componentUrl);
+
+    qmlClearTypeRegistrations();
+    QQmlEngine engine;
+    engine.addImportPath(importPath);
+    QQmlComponent c(&engine, componentUrl);
+    QVERIFY(c.isReady());
+    QScopedPointer<QObject> obj(c.create());
+    QVERIFY(!obj.isNull());
+    QTRY_COMPARE(obj->property("color").toString(), QString("green"));
 }
 
 QTEST_MAIN(tst_qqmlmetatype)

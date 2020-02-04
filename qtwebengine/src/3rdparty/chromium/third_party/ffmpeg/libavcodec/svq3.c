@@ -263,7 +263,7 @@ static void svq3_add_idct_c(uint8_t *dst, int16_t *block,
     int i;
 
     if (dc) {
-        dc       = 13 * 13 * (dc == 1 ? 1538 * block[0]
+        dc       = 13 * 13 * (dc == 1 ? 1538U* block[0]
                                       : qmul * (block[0] >> 3) / 2);
         block[0] = 0;
     }
@@ -281,16 +281,16 @@ static void svq3_add_idct_c(uint8_t *dst, int16_t *block,
     }
 
     for (i = 0; i < 4; i++) {
-        const int z0 = 13 * (block[i + 4 * 0] +      block[i + 4 * 2]);
-        const int z1 = 13 * (block[i + 4 * 0] -      block[i + 4 * 2]);
-        const int z2 =  7 *  block[i + 4 * 1] - 17 * block[i + 4 * 3];
-        const int z3 = 17 *  block[i + 4 * 1] +  7 * block[i + 4 * 3];
-        const int rr = (dc + 0x80000);
+        const unsigned z0 = 13 * (block[i + 4 * 0] +      block[i + 4 * 2]);
+        const unsigned z1 = 13 * (block[i + 4 * 0] -      block[i + 4 * 2]);
+        const unsigned z2 =  7 *  block[i + 4 * 1] - 17 * block[i + 4 * 3];
+        const unsigned z3 = 17 *  block[i + 4 * 1] +  7 * block[i + 4 * 3];
+        const int rr = (dc + 0x80000u);
 
-        dst[i + stride * 0] = av_clip_uint8(dst[i + stride * 0] + ((z0 + z3) * qmul + rr >> 20));
-        dst[i + stride * 1] = av_clip_uint8(dst[i + stride * 1] + ((z1 + z2) * qmul + rr >> 20));
-        dst[i + stride * 2] = av_clip_uint8(dst[i + stride * 2] + ((z1 - z2) * qmul + rr >> 20));
-        dst[i + stride * 3] = av_clip_uint8(dst[i + stride * 3] + ((z0 - z3) * qmul + rr >> 20));
+        dst[i + stride * 0] = av_clip_uint8(dst[i + stride * 0] + ((int)((z0 + z3) * qmul + rr) >> 20));
+        dst[i + stride * 1] = av_clip_uint8(dst[i + stride * 1] + ((int)((z1 + z2) * qmul + rr) >> 20));
+        dst[i + stride * 2] = av_clip_uint8(dst[i + stride * 2] + ((int)((z1 - z2) * qmul + rr) >> 20));
+        dst[i + stride * 3] = av_clip_uint8(dst[i + stride * 3] + ((int)((z0 - z3) * qmul + rr) >> 20));
     }
 
     memset(block, 0, 16 * sizeof(int16_t));
@@ -524,8 +524,8 @@ static inline int svq3_mc_dir(SVQ3Context *s, int size, int mode,
             if (mode != PREDICT_MODE) {
                 svq3_pred_motion(s, k, part_width >> 2, dir, 1, &mx, &my);
             } else {
-                mx = s->next_pic->motion_val[0][b_xy][0] << 1;
-                my = s->next_pic->motion_val[0][b_xy][1] << 1;
+                mx = s->next_pic->motion_val[0][b_xy][0] * 2;
+                my = s->next_pic->motion_val[0][b_xy][1] * 2;
 
                 if (dir == 0) {
                     mx = mx * s->frame_num_offset /
@@ -1036,25 +1036,24 @@ static int svq3_decode_slice_header(AVCodecContext *avctx)
         slice_bits   = slice_length * 8;
         slice_bytes  = slice_length + length - 1;
 
-        if (8LL*slice_bytes > get_bits_left(&s->gb)) {
-            av_log(avctx, AV_LOG_ERROR, "slice after bitstream end\n");
-            return -1;
-        }
-
         skip_bits(&s->gb, 8);
 
         av_fast_malloc(&s->slice_buf, &s->slice_size, slice_bytes + AV_INPUT_BUFFER_PADDING_SIZE);
         if (!s->slice_buf)
             return AVERROR(ENOMEM);
 
+        if (slice_bytes * 8LL > get_bits_left(&s->gb)) {
+            av_log(avctx, AV_LOG_ERROR, "slice after bitstream end\n");
+            return AVERROR_INVALIDDATA;
+        }
         memcpy(s->slice_buf, s->gb.buffer + s->gb.index / 8, slice_bytes);
 
+        if (s->watermark_key) {
+            uint32_t header = AV_RL32(&s->slice_buf[1]);
+            AV_WL32(&s->slice_buf[1], header ^ s->watermark_key);
+        }
         init_get_bits(&s->gb_slice, s->slice_buf, slice_bits);
 
-        if (s->watermark_key) {
-            uint32_t header = AV_RL32(&s->gb_slice.buffer[1]);
-            AV_WL32(&s->gb_slice.buffer[1], header ^ s->watermark_key);
-        }
         if (length > 0) {
             memmove(s->slice_buf, &s->slice_buf[slice_length], length - 1);
         }
@@ -1065,16 +1064,15 @@ static int svq3_decode_slice_header(AVCodecContext *avctx)
         av_log(s->avctx, AV_LOG_ERROR, "illegal slice type %u \n", slice_id);
         return -1;
     }
-    if (get_bits1(&s->gb_slice)) {
-        avpriv_report_missing_feature(s->avctx, "Media key encryption");
-        return AVERROR_PATCHWELCOME;
-    }
 
     s->slice_type = ff_h264_golomb_to_pict_type[slice_id];
 
     if ((header & 0x9F) == 2) {
-        i = (s->mb_num < 64) ? 5 : av_log2(s->mb_num - 1);
+        i = (s->mb_num < 64) ? 6 : (1 + av_log2(s->mb_num - 1));
         get_bits(&s->gb_slice, i);
+    } else if (get_bits1(&s->gb_slice)) {
+        avpriv_report_missing_feature(s->avctx, "Media key encryption");
+        return AVERROR_PATCHWELCOME;
     }
 
     s->slice_num      = get_bits(&s->gb_slice, 8);

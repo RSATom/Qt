@@ -63,9 +63,6 @@ SFrameBSInfo*   pFrameBsInfo;
 int32_t         iSliceIndex;    // slice index, zero based
 int32_t         iThreadIndex;   // thread index, zero based
 
-// for dynamic slicing mode
-int32_t         iStartMbIndex;  // inclusive
-int32_t         iEndMbIndex;    // exclusive
 } SSliceThreadPrivateData;
 
 typedef struct TagSliceThreading {
@@ -77,8 +74,6 @@ WELS_EVENT                      pSliceCodedMasterEvent; // events for signalling
 WELS_EVENT                      pReadySliceCodingEvent[MAX_THREADS_NUM];        // events for slice coding ready, [iThreadIdx]
 WELS_EVENT                      pUpdateMbListEvent[MAX_THREADS_NUM];            // signal to update mb list neighbor for various slices
 WELS_EVENT                      pFinUpdateMbListEvent[MAX_THREADS_NUM]; // signal to indicate finish updating mb list
-WELS_EVENT                      pExitEncodeEvent[MAX_THREADS_NUM];                      // event for exit encoding event
-WELS_EVENT                      pThreadMasterEvent[MAX_THREADS_NUM];    // event for indicating that some event has been signalled to the thread
 
 WELS_MUTEX                      mutexSliceNumUpdate;    // for dynamic slicing mode MT
 
@@ -90,6 +85,7 @@ uint8_t*                        pThreadBsBuffer[MAX_THREADS_NUM]; //actual memor
 bool                            bThreadBsBufferUsage[MAX_THREADS_NUM];
 WELS_MUTEX                      mutexThreadBsBufferUsage;
 WELS_MUTEX                      mutexEvent;
+WELS_MUTEX                      mutexThreadSlcBuffReallocate;
 } SSliceThreading;
 
 #endif//MULTIPLE_THREADING_DEFINES_H__

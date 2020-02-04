@@ -46,12 +46,17 @@
 #include <QtCore/qscopedpointer.h>
 #include <QtCore/qstring.h>
 
+#include <functional>
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 
 class QObject;
 class QUrl;
+class QWebEngineClientCertificateStore;
 class QWebEngineCookieStore;
 class QWebEngineDownloadItem;
+class QWebEngineNotification;
 class QWebEnginePage;
 class QWebEnginePagePrivate;
 class QWebEngineProfilePrivate;
@@ -106,7 +111,10 @@ public:
     void setHttpCacheMaximumSize(int maxSize);
 
     QWebEngineCookieStore* cookieStore();
+#if QT_DEPRECATED_SINCE(5, 13)
     void setRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor);
+#endif
+    void setUrlRequestInterceptor(QWebEngineUrlRequestInterceptor *interceptor);
 
     void clearAllVisitedLinks();
     void clearVisitedLinks(const QList<QUrl> &urls);
@@ -128,19 +136,27 @@ public:
     void setSpellCheckEnabled(bool enabled);
     bool isSpellCheckEnabled() const;
 
+    void setUseForGlobalCertificateVerification(bool enabled = true);
+    bool isUsedForGlobalCertificateVerification() const;
+
+    QString downloadPath() const;
+    void setDownloadPath(const QString &path);
+
+    void setNotificationPresenter(std::function<void(std::unique_ptr<QWebEngineNotification>)> notificationPresenter);
+
+    QWebEngineClientCertificateStore *clientCertificateStore();
+
     static QWebEngineProfile *defaultProfile();
 
 Q_SIGNALS:
     void downloadRequested(QWebEngineDownloadItem *download);
-
-private Q_SLOTS:
-    void destroyedUrlSchemeHandler(QWebEngineUrlSchemeHandler *obj);
 
 private:
     Q_DISABLE_COPY(QWebEngineProfile)
     Q_DECLARE_PRIVATE(QWebEngineProfile)
     QWebEngineProfile(QWebEngineProfilePrivate *, QObject *parent = Q_NULLPTR);
 
+    friend class QWebEnginePage;
     friend class QWebEnginePagePrivate;
     friend class QWebEngineUrlSchemeHandler;
     QScopedPointer<QWebEngineProfilePrivate> d_ptr;

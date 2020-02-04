@@ -52,13 +52,13 @@
 
 #include "ui_qaxselect.h"
 
-#include <QtCore/QFileInfo>
-#include <QtCore/QSortFilterProxyModel>
-#include <QtCore/QItemSelectionModel>
-#include <QtCore/QSysInfo>
-#include <QtCore/QTextStream>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QPushButton>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qsortfilterproxymodel.h>
+#include <QtCore/qitemselectionmodel.h>
+#include <QtCore/qsysinfo.h>
+#include <QtCore/qtextstream.h>
+#include <QtWidgets/qdesktopwidget.h>
+#include <QtWidgets/qpushbutton.h>
 
 #include <qt_windows.h>
 
@@ -67,21 +67,34 @@
 
 QT_BEGIN_NAMESPACE
 
+/*!
+    \since 5.13
+
+    \enum QAxSelect::SandboxingLevel
+
+    The SandboxingLevel enumeration defines the desired level of ActiveX sandboxing.
+
+    \value SandboxingNone No specific sandboxing desired
+    \value SandboxingProcess Run ActiveX control in a separate process
+    \value SandboxingLowIntegrity Run ActiveX control in a separate low-integrity process
+
+    Sandboxing requires that the ActiveX is either built as an EXE, or as a DLL with AppID "DllSurrogate" enabled.
+*/
+
 enum ControlType { InProcessControl, OutOfProcessControl };
 
 struct Control
 {
-    inline Control() : type(InProcessControl), wordSize(0) {}
     int compare(const Control &rhs) const;
     QString toolTip() const;
 
-    ControlType type;
+    ControlType type = InProcessControl;
     QString clsid;
     QString name;
     QString dll;
     QString version;
     QString rootKey;
-    unsigned wordSize;
+    unsigned wordSize = 0;
 };
 
 inline int Control::compare(const Control &rhs) const
@@ -328,8 +341,9 @@ public:
     \inmodule QAxContainer
 
     QAxSelect dialog can be used to provide users with a way to browse the registered COM
-    components of the system and select one. The CLSID of the selected component can
-    then be used in the application to e.g. initialize a QAxWidget:
+    components of the system and select one. It also provides a combo box for selecting
+    desired sandboxing level. The CLSID of the selected component can then be used in the
+    application to e.g. initialize a QAxWidget:
 
     \snippet src_activeqt_container_qaxselect.cpp 0
 
@@ -360,6 +374,9 @@ QAxSelect::QAxSelect(QWidget *parent, Qt::WindowFlags flags)
     d->filterModel->setSourceModel(new ControlList(this));
     d->selectUi.ActiveXList->setModel(d->filterModel);
 
+    QStringList sandboxingOptions = { QLatin1String("None"), QLatin1String("Process isolation"), QLatin1String("Low integrity process") };
+    d->selectUi.SandboxingCombo->addItems(sandboxingOptions);
+
     connect(d->selectUi.ActiveXList->selectionModel(), &QItemSelectionModel::currentChanged,
             this, &QAxSelect::onActiveXListCurrentChanged);
     connect(d->selectUi.ActiveXList, &QAbstractItemView::activated,
@@ -379,9 +396,7 @@ QAxSelect::QAxSelect(QWidget *parent, Qt::WindowFlags flags)
 /*!
     Destroys the QAxSelect object.
 */
-QAxSelect::~QAxSelect()
-{
-}
+QAxSelect::~QAxSelect() = default;
 
 /*!
     \fn QString QAxSelect::clsid() const
@@ -391,6 +406,22 @@ QAxSelect::~QAxSelect()
 QString QAxSelect::clsid() const
 {
     return d->selectUi.ActiveX->text().trimmed();
+}
+
+/*!
+    \since 5.13
+
+    Returns the desired level of sandboxing for the ActiveX control.
+*/
+QAxSelect::SandboxingLevel QAxSelect::sandboxingLevel() const
+{
+    int idx = d->selectUi.SandboxingCombo->currentIndex();
+    if (idx == 1)
+        return SandboxingProcess;
+    else if (idx == 2)
+        return SandboxingLowIntegrity;
+    else
+        return SandboxingNone;
 }
 
 void QAxSelect::onActiveXListCurrentChanged(const QModelIndex &index)

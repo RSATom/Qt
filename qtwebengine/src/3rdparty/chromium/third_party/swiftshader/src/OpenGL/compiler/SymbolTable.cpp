@@ -34,14 +34,13 @@
 int TSymbolTableLevel::uniqueId = 0;
 
 TType::TType(const TPublicType &p) :
-	type(p.type), precision(p.precision), qualifier(p.qualifier), invariant(p.invariant), layoutQualifier(p.layoutQualifier),
+	type(p.type), precision(p.precision), qualifier(p.qualifier),
 	primarySize(p.primarySize), secondarySize(p.secondarySize), array(p.array), arraySize(p.arraySize), maxArraySize(0),
-	arrayInformationType(0), interfaceBlock(0), structure(0), deepestStructNesting(0), mangled(0)
+	arrayInformationType(0), interfaceBlock(0), layoutQualifier(p.layoutQualifier), structure(0), mangled(0)
 {
 	if (p.userDef)
 	{
 		structure = p.userDef->getStruct();
-		computeDeepestStructNesting();
 	}
 }
 
@@ -64,6 +63,7 @@ void TType::buildMangledName(TString& mangledName)
 	case EbtSampler3D:          mangledName += "s3";     break;
 	case EbtSamplerCube:        mangledName += "sC";     break;
 	case EbtSampler2DArray:		mangledName += "s2a";    break;
+	case EbtSampler2DRect:      mangledName += "s2r";    break;
 	case EbtSamplerExternalOES: mangledName += "sext";   break;
 	case EbtISampler2D:  		mangledName += "is2";    break;
 	case EbtISampler3D: 		mangledName += "is3";    break;
@@ -105,16 +105,11 @@ size_t TType::getStructSize() const
 	return getStruct()->objectSize();
 }
 
-void TType::computeDeepestStructNesting()
-{
-	deepestStructNesting = structure ? structure->deepestNesting() : 0;
-}
-
 bool TStructure::containsArrays() const
 {
-	for(size_t i = 0; i < mFields->size(); ++i)
+	for(const auto& field : *mFields)
 	{
-		const TType *fieldType = (*mFields)[i]->type();
+		const TType *fieldType = field->type();
 		if(fieldType->isArray() || fieldType->isStructureContainingArrays())
 			return true;
 	}
@@ -123,9 +118,9 @@ bool TStructure::containsArrays() const
 
 bool TStructure::containsType(TBasicType type) const
 {
-	for(size_t i = 0; i < mFields->size(); ++i)
+	for(const auto& field : *mFields)
 	{
-		const TType *fieldType = (*mFields)[i]->type();
+		const TType *fieldType = field->type();
 		if(fieldType->getBasicType() == type || fieldType->isStructureContainingType(type))
 			return true;
 	}
@@ -134,23 +129,31 @@ bool TStructure::containsType(TBasicType type) const
 
 bool TStructure::containsSamplers() const
 {
-	for(size_t i = 0; i < mFields->size(); ++i)
+	for(const auto& field : *mFields)
 	{
-		const TType *fieldType = (*mFields)[i]->type();
+		const TType *fieldType = field->type();
 		if(IsSampler(fieldType->getBasicType()) || fieldType->isStructureContainingSamplers())
 			return true;
 	}
 	return false;
 }
 
+void TStructure::setMatrixPackingIfUnspecified(TLayoutMatrixPacking matrixPacking)
+{
+	for(auto& field : *mFields)
+	{
+		field->type()->setMatrixPackingIfUnspecified(matrixPacking);
+	}
+}
+
 TString TFieldListCollection::buildMangledName() const
 {
 	TString mangledName(mangledNamePrefix());
 	mangledName += *mName;
-	for(size_t i = 0; i < mFields->size(); ++i)
+	for(const auto& field : *mFields)
 	{
 		mangledName += '-';
-		mangledName += (*mFields)[i]->type()->getMangledName();
+		mangledName += field->type()->getMangledName();
 	}
 	return mangledName;
 }
@@ -158,9 +161,9 @@ TString TFieldListCollection::buildMangledName() const
 size_t TFieldListCollection::calculateObjectSize() const
 {
 	size_t size = 0;
-	for(size_t i = 0; i < mFields->size(); ++i)
+	for(const auto& field : *mFields)
 	{
-		size_t fieldSize = (*mFields)[i]->type()->getObjectSize();
+		size_t fieldSize = field->type()->getObjectSize();
 		if(fieldSize > INT_MAX - size)
 			size = INT_MAX;
 		else
@@ -172,8 +175,8 @@ size_t TFieldListCollection::calculateObjectSize() const
 int TStructure::calculateDeepestNesting() const
 {
 	int maxNesting = 0;
-	for(size_t i = 0; i < mFields->size(); ++i)
-		maxNesting = std::max(maxNesting, (*mFields)[i]->type()->getDeepestStructNesting());
+	for(const auto& field : *mFields)
+		maxNesting = std::max(maxNesting, field->type()->getDeepestStructNesting());
 	return 1 + maxNesting;
 }
 
@@ -193,6 +196,35 @@ TSymbolTableLevel::~TSymbolTableLevel()
 {
 	for (tLevel::iterator it = level.begin(); it != level.end(); ++it)
 		delete (*it).second;
+}
+
+bool TSymbolTableLevel::insert(TSymbol *symbol)
+{
+	symbol->setUniqueId(nextUniqueId());
+
+	// returning true means symbol was added to the table
+	tInsertResult result = level.insert(tLevelPair(symbol->getMangledName(), symbol));
+
+	return result.second;
+}
+
+bool TSymbolTableLevel::insertUnmangled(TFunction *function)
+{
+	function->setUniqueId(nextUniqueId());
+
+	// returning true means symbol was added to the table
+	tInsertResult result = level.insert(tLevelPair(function->getName(), function));
+
+	return result.second;
+}
+
+TSymbol *TSymbolTableLevel::find(const TString &name) const
+{
+	tLevel::const_iterator it = level.find(name);
+	if (it == level.end())
+		return 0;
+	else
+		return (*it).second;
 }
 
 TSymbol *TSymbolTable::find(const TString &name, int shaderVersion, bool *builtIn, bool *sameScope) const

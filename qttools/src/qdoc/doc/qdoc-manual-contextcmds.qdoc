@@ -47,9 +47,7 @@
 
     \list
       \li \l {abstract-command} {\\abstract}
-      \li \l {compat-command}{\\compat},
       \li \l {contentspage-command}{\\contentspage},
-      \li \l {indexpage-command}{\\indexpage},
       \li \l {ingroup-command}{\\ingroup},
       \li \l {inherits-command}{\\inherits},
       \li \l {inmodule-command}{\\inmodule},
@@ -123,22 +121,15 @@
     \endraw
     \endquotation
 
-    The \l {indexpage-command} {\\indexpage} and \l
-    {startpage-command} {\\startpage} commands create links to the
-    page's index page and start page. These links can be used by
-    browsers and search engines.
+    The \l {startpage-command} {\\startpage} command creates a link to
+    the page the author wants as the first page of a multipage document.
 
-    The index page is typically an alphabetical list of the document's
-    titles and topics, while the start page is the page considered by
-    the author to be the starting point of a multipage document.
-
-    The links are included in the generated HTML source code, but have
-    no visual effect on the documentation:
+    The link is included in the generated HTML source code but has no
+    visual effect on the documentation:
 
     \code
     <head>
         ...
-        <link rel="index" href="index.html" />
         <link rel="start" href="basicqt.html" />
         ...
     </head>
@@ -186,19 +177,6 @@
     contents page. The command follows the same syntax and argument
     convention as the \l {previouspage-command} {\\previouspage}
     command.
-
-    \target indexpage-command
-    \section2 \\indexpage
-
-    The \\indexpage command specifies an index page for the current
-    document. The command must stand alone on its own line, and its
-    unique argument is the title of the index document.
-
-    QDoc will generate a link to the index page and include it in the
-    generated HTML file, but this has no visual effect on the
-    documentation. The generated link type tells browsers and search
-    engines which document is considered by the author to be the
-    index page of the collection.
 */
 
 /*!
@@ -211,8 +189,7 @@
 
     These commands are for indicating that a documented element has
     some special status. The element could be marked as about to be
-    made obsolete, or that it is provided for compatibility with an
-    earlier version, or is simply not to be included in the public
+    made obsolete, or that it is simply not to be included in the public
     interface. The \l {since-command}{\\since} command is for
     specifying the version number in which a function or class first
     appeared. The \l {qmlabstract-command} {\\qmlabstract} command is
@@ -237,83 +214,6 @@
     generated. It the abstract QML type is not marked internal, it
     will have a reference page in the documentation.
 
-    \target compat-command
-    \section1 \\compat
-
-    The \\compat command is for indicating that a class or function is
-    part of the support library provided to keep old source code
-    working.
-
-    The command must stand on its own line.
-
-    Usually an equivalent function or class is provided as an
-    alternative.
-
-    If the command is used in the documentation of a class, the
-    command expands to a warning that the referenced class is part of
-    the support library. The warning is located at the top of the
-    documentation page.
-
-    \code
-    \beginqdoc
-        \class MyQt3SupportClass
-        \compat
-    \endqdoc
-    \endcode
-
-    QDoc renders this at the top of the MyQt3SupportClass class
-    reference page.
-
-    \quotation
-        \b {This class is part of the Qt 3 support
-        library.} It is provided to keep old source code
-        working. We strongly advise against using it in new
-        code. See the \l
-        {http://doc.qt.io/qt-4.8/porting4.html} {Porting
-        Guide} for more information.
-    \endquotation
-
-    If the command is used when documenting a function, QDoc will
-    create and link to a separate page documenting Qt 3 support
-    members when generating the reference documentation for the
-    associated class.
-
-    \code
-    \beginqdoc
-        \fn MyClass::MyQt3SupportMemberFunction
-        \compat
-
-        Use MyNewFunction() instead.
-    \endqdoc
-    \endcode
-
-    QDoc renders this in \c{myclass-qt3.html} as:
-
-    \quotation
-        \raw HTML
-        <h1>Qt 3 Support Members for MyClass</h1>
-        \endraw
-
-        \b {The following class members are part of the Qt 3
-        support layer.} They are provided to help you port old code to
-        Qt 4. We advise against using them in new code.
-
-        ...
-
-        \list
-            \li void MyQt3SupportMemberFunction()
-            \li ...
-        \endlist
-
-        \raw HTML
-        <hr />
-        <h2>Member Function Documentation</h2>
-        <h3>void MyQt3SupportMemberFunction ()</h3>
-        <p>Use MyNewFunction() instead.</p>
-        \endraw
-        ...
-    \endquotation
-
     \target default-command
     \section1 \\default
 
@@ -336,6 +236,24 @@
 
     See how QDoc renders this property on the reference page for the
     \l {State::changes}{State} type.
+
+    \target dontdocument-command
+    \section1 \\dontdocument
+
+    The \\dontdocument command is only used in a dontdocument.qdoc file
+    for a particular module. This file specifies publically declared
+    classes or structs that are not meant to be documented. QDoc will
+    not print warnings about missing \\class comments for these classes
+    and structs.
+
+    Below you will find the \\dontdocument command in the
+    dontdocument.qdoc for widgets:
+
+    \badcode
+    / *!
+       \dontdocument (QTypeInfo QMetaTypeId)
+    * /
+    \endcode
 
     \target obsolete-command
     \section1 \\obsolete

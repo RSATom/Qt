@@ -29,7 +29,7 @@ class ShaderExecutable11 : public ShaderExecutableD3D
     ShaderExecutable11(const void *function, size_t length, d3d11::GeometryShader &&executable);
     ShaderExecutable11(const void *function, size_t length, d3d11::ComputeShader &&executable);
 
-    virtual ~ShaderExecutable11();
+    ~ShaderExecutable11() override;
 
     const d3d11::PixelShader &getPixelShader() const;
     const d3d11::VertexShader &getVertexShader() const;
@@ -49,9 +49,11 @@ class UniformStorage11 : public UniformStorageD3D
 {
   public:
     UniformStorage11(size_t initialSize);
-    virtual ~UniformStorage11();
+    ~UniformStorage11() override;
 
-    gl::Error getConstantBuffer(Renderer11 *renderer, const d3d11::Buffer **bufferOut);
+    angle::Result getConstantBuffer(const gl::Context *context,
+                                    Renderer11 *renderer,
+                                    const d3d11::Buffer **bufferOut);
 
   private:
     d3d11::Buffer mConstantBuffer;
@@ -59,4 +61,4 @@ class UniformStorage11 : public UniformStorageD3D
 
 }  // namespace rx
 
-#endif // LIBANGLE_RENDERER_D3D_D3D11_SHADEREXECUTABLE11_H_
+#endif  // LIBANGLE_RENDERER_D3D_D3D11_SHADEREXECUTABLE11_H_

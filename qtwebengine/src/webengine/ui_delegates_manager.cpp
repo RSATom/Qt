@@ -44,6 +44,7 @@
 #include <color_chooser_controller.h>
 #include <file_picker_controller.h>
 #include <javascript_dialog_controller.h>
+#include <touch_selection_menu_controller.h>
 #include <web_contents_adapter_client.h>
 
 #include <QFileInfo>
@@ -54,6 +55,7 @@
 #include <QCursor>
 #include <QList>
 #include <QScreen>
+#include <QTimer>
 #include <QGuiApplication>
 
 // Uncomment for QML debugging
@@ -62,7 +64,7 @@
 namespace QtWebEngineCore {
 
 #define NO_SEPARATOR
-#if defined(Q_OS_WIN)
+#if defined(Q_CC_MSVC) && !defined(Q_CC_CLANG)
 #define FILE_NAME_CASE_STATEMENT(TYPE, COMPONENT) \
     case UIDelegatesManager::TYPE:\
         return QString::fromLatin1(#TYPE ##".qml");
@@ -84,8 +86,8 @@ static QString fileNameForComponent(UIDelegatesManager::ComponentType type)
 
 static QPoint calculateToolTipPosition(QPoint &position, QSize &toolTip) {
     QRect screen;
-    QList<QScreen *> screens = QGuiApplication::screens();
-    Q_FOREACH (const QScreen *src, screens)
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    for (const QScreen *src : screens)
         if (src->availableGeometry().contains(position))
             screen = src->availableGeometry();
 
@@ -119,18 +121,13 @@ const char *defaultPropertyName(QObject *obj)
     return info.value();
 }
 
-MenuItemHandler::MenuItemHandler(QObject *parent)
-    : QObject(parent)
-{
-}
-
 #define COMPONENT_MEMBER_INIT(TYPE, COMPONENT) \
     , COMPONENT##Component(0)
 
 UIDelegatesManager::UIDelegatesManager(QQuickWebEngineView *view)
     : m_view(view)
-    , m_messageBubbleItem(0)
     , m_toolTip(nullptr)
+    , m_touchSelectionMenu(nullptr)
     FOR_EACH_COMPONENT_TYPE(COMPONENT_MEMBER_INIT, NO_SEPARATOR)
 {
 }
@@ -144,15 +141,21 @@ UIDelegatesManager::~UIDelegatesManager()
         component = &COMPONENT##Component; \
         break;
 
-bool UIDelegatesManager::initializeImportDirs(QStringList &dirs, QQmlEngine *engine) {
-    foreach (const QString &path, engine->importPathList()) {
-        QFileInfo fi(path % QLatin1String("/QtWebEngine/Controls1Delegates/"));
-        if (fi.exists()) {
+bool UIDelegatesManager::initializeImportDirs(QStringList &dirs, QQmlEngine *engine)
+{
+    const QStringList paths = engine->importPathList();
+    for (const QString &path : paths) {
+        QString importPath = path % QLatin1String("/QtWebEngine/Controls1Delegates/");
+
+        // resource paths have to be tested using the ":/" prefix
+        if (importPath.startsWith(QLatin1String("qrc:/")))
+            importPath.remove(0, 3);
+
+        QFileInfo fi(importPath);
+        if (fi.exists())
             dirs << fi.absolutePath();
-            return true;
-        }
     }
-    return false;
+    return !dirs.isEmpty();
 }
 
 bool UIDelegatesManager::ensureComponentLoaded(ComponentType type)
@@ -178,16 +181,21 @@ bool UIDelegatesManager::ensureComponentLoaded(ComponentType type)
     if (!engine)
         return false;
 
-    foreach (const QString &importDir, m_importDirs) {
-        QFileInfo fi(importDir % QLatin1Char('/') % fileName);
-        if (!fi.exists())
+    for (const QString &importDir : qAsConst(m_importDirs)) {
+        const QString componentFilePath = importDir % QLatin1Char('/') % fileName;
+
+        if (!QFileInfo(componentFilePath).exists())
             continue;
+
         // FIXME: handle async loading
-        *component = (new QQmlComponent(engine, QUrl::fromLocalFile(fi.absoluteFilePath()),
+        *component = (new QQmlComponent(engine,
+                                        importDir.startsWith(QLatin1String(":/")) ? QUrl(QLatin1String("qrc") + componentFilePath)
+                                                                                  : QUrl::fromLocalFile(componentFilePath),
                                         QQmlComponent::PreferSynchronous, m_view));
 
         if ((*component)->status() != QQmlComponent::Ready) {
-            foreach (const QQmlError &err, (*component)->errors())
+            const QList<QQmlError> errs = (*component)->errors();
+            for (const QQmlError &err : errs)
                 qWarning("QtWebEngine: component error: %s\n", qPrintable(err.toString()));
             delete *component;
             *component = nullptr;
@@ -202,26 +210,25 @@ bool UIDelegatesManager::ensureComponentLoaded(ComponentType type)
     if (!prop.isSignalProperty()) \
         qWarning("%s is missing %s signal property.\n", qPrintable(location.toString()), qPrintable(prop.name()));
 
-void UIDelegatesManager::addMenuItem(MenuItemHandler *menuItemHandler, const QString &text, const QString &iconName, bool enabled,
-                                     bool checkable, bool checked)
+void UIDelegatesManager::addMenuItem(QQuickWebEngineAction *action, QObject *menu, bool checkable, bool checked)
 {
-    Q_ASSERT(menuItemHandler);
+    Q_ASSERT(action);
     if (!ensureComponentLoaded(MenuItem))
         return;
     QObject *it = menuItemComponent->beginCreate(qmlContext(m_view));
 
-    QQmlProperty(it, QStringLiteral("text")).write(text);
-    QQmlProperty(it, QStringLiteral("iconName")).write(iconName);
-    QQmlProperty(it, QStringLiteral("enabled")).write(enabled);
+    QQmlProperty(it, QStringLiteral("text")).write(action->text());
+    QQmlProperty(it, QStringLiteral("iconName")).write(action->iconName());
+    QQmlProperty(it, QStringLiteral("enabled")).write(action->isEnabled());
     QQmlProperty(it, QStringLiteral("checkable")).write(checkable);
     QQmlProperty(it, QStringLiteral("checked")).write(checked);
 
     QQmlProperty signal(it, QStringLiteral("onTriggered"));
     CHECK_QML_SIGNAL_PROPERTY(signal, menuItemComponent->url());
-    QObject::connect(it, signal.method(), menuItemHandler, QMetaMethod::fromSignal(&MenuItemHandler::triggered));
+    const QMetaObject *actionMeta = action->metaObject();
+    QObject::connect(it, signal.method(), action, actionMeta->method(actionMeta->indexOfSlot("trigger()")));
     menuItemComponent->completeCreate();
 
-    QObject *menu = menuItemHandler->parent();
     it->setParent(menu);
 
     QQmlListReference entries(menu, defaultPropertyName(menu), qmlEngine(m_view));
@@ -239,7 +246,7 @@ void UIDelegatesManager::addMenuSeparator(QObject *menu)
     sep->setParent(menu);
 
     QQmlListReference entries(menu, defaultPropertyName(menu), qmlEngine(m_view));
-    if (entries.isValid())
+    if (entries.isValid() && entries.count() > 0)
         entries.append(sep);
 }
 
@@ -317,7 +324,7 @@ void UIDelegatesManager::showDialog(QSharedPointer<JavaScriptDialogController> d
         return;
     }
 
-    QQmlComponent *dialogComponent = Q_NULLPTR;
+    QQmlComponent *dialogComponent = nullptr;
     switch (dialogComponentType) {
     FOR_EACH_COMPONENT_TYPE(ASSIGN_DIALOG_COMPONENT_DATA_CASE_STATEMENT, NO_SEPARATOR)
     default:
@@ -504,12 +511,7 @@ public:
         if (pos.isNull() || !item->contains(pos))
             return;
         const QPoint oldPos = QCursor::pos();
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 7, 0))
         const QPoint globalPos = item->mapToGlobal(QPointF(pos)).toPoint();
-#else
-        const QPoint posInWindow = item->mapToItem(item->window()->contentItem(), QPointF(pos)).toPoint();
-        const QPoint globalPos = item->window()->mapToGlobal(posInWindow);
-#endif
         if (oldPos == globalPos)
             return;
         m_oldCursorPos = oldPos;
@@ -533,39 +535,6 @@ void UIDelegatesManager::showMenu(QObject *menu)
     // temporarily to the right position.
     TemporaryCursorMove tcm(m_view, menu->property("pos").toPoint());
     QMetaObject::invokeMethod(menu, "popup");
-}
-
-void UIDelegatesManager::showMessageBubble(const QRect &anchor, const QString &mainText, const QString &subText)
-{
-    if (!ensureComponentLoaded(MessageBubble))
-        return;
-
-    Q_ASSERT(m_messageBubbleItem.isNull());
-
-    QQmlContext *context = qmlContext(m_view);
-    m_messageBubbleItem.reset(qobject_cast<QQuickItem *>(messageBubbleComponent->beginCreate(context)));
-    m_messageBubbleItem->setParentItem(m_view);
-    messageBubbleComponent->completeCreate();
-
-    QQmlProperty(m_messageBubbleItem.data(), QStringLiteral("maxWidth")).write(anchor.size().width());
-    QQmlProperty(m_messageBubbleItem.data(), QStringLiteral("mainText")).write(mainText);
-    QQmlProperty(m_messageBubbleItem.data(), QStringLiteral("subText")).write(subText);
-    QQmlProperty(m_messageBubbleItem.data(), QStringLiteral("x")).write(anchor.x());
-    QQmlProperty(m_messageBubbleItem.data(), QStringLiteral("y")).write(anchor.y() + anchor.size().height());
-}
-
-void UIDelegatesManager::hideMessageBubble()
-{
-    m_messageBubbleItem.reset();
-}
-
-void UIDelegatesManager::moveMessageBubble(const QRect &anchor)
-{
-    if (m_messageBubbleItem.isNull())
-        return;
-
-    QQmlProperty(m_messageBubbleItem.data(), QStringLiteral("x")).write(anchor.x());
-    QQmlProperty(m_messageBubbleItem.data(), QStringLiteral("y")).write(anchor.y() + anchor.size().height());
 }
 
 void UIDelegatesManager::showToolTip(const QString &text)
@@ -602,6 +571,82 @@ void UIDelegatesManager::showToolTip(const QString &text)
     QMetaObject::invokeMethod(m_toolTip.data(), "open");
 }
 
+QQuickItem *UIDelegatesManager::createTouchHandle()
+{
+    if (!ensureComponentLoaded(TouchHandle))
+        return nullptr;
+
+    QQmlContext *context = qmlContext(m_view);
+    QObject *touchHandle = touchHandleComponent->beginCreate(context);
+    QQuickItem *item = qobject_cast<QQuickItem *>(touchHandle);
+    Q_ASSERT(item);
+    item->setParentItem(m_view);
+    touchHandleComponent->completeCreate();
+
+    return item;
+}
+
+void UIDelegatesManager::showTouchSelectionMenu(QtWebEngineCore::TouchSelectionMenuController *menuController, const QRect &bounds, const int spacing)
+{
+    if (!ensureComponentLoaded(TouchSelectionMenu))
+        return;
+
+    QQmlContext *context = qmlContext(m_view);
+    m_touchSelectionMenu.reset(touchSelectionMenuComponent->beginCreate(context));
+    if (QQuickItem *item = qobject_cast<QQuickItem *>(m_touchSelectionMenu.data()))
+        item->setParentItem(m_view);
+    m_touchSelectionMenu->setParent(m_view);
+
+    QQmlProperty(m_touchSelectionMenu.data(), QStringLiteral("width")).write(bounds.width());
+    QQmlProperty(m_touchSelectionMenu.data(), QStringLiteral("height")).write(bounds.height());
+    QQmlProperty(m_touchSelectionMenu.data(), QStringLiteral("x")).write(bounds.x());
+    QQmlProperty(m_touchSelectionMenu.data(), QStringLiteral("y")).write(bounds.y());
+    QQmlProperty(m_touchSelectionMenu.data(), QStringLiteral("border.width")).write(spacing);
+
+    // Cut button
+    bool cutEnabled = menuController->isCommandEnabled(TouchSelectionMenuController::Cut);
+    QQmlProperty(m_touchSelectionMenu.data(), QStringLiteral("isCutEnabled")).write(cutEnabled);
+    if (cutEnabled) {
+        QQmlProperty cutSignal(m_touchSelectionMenu.data(), QStringLiteral("onCutTriggered"));
+        CHECK_QML_SIGNAL_PROPERTY(cutSignal, touchSelectionMenuComponent->url());
+        int cutIndex = menuController->metaObject()->indexOfSlot("cut()");
+        QObject::connect(m_touchSelectionMenu.data(), cutSignal.method(), menuController, menuController->metaObject()->method(cutIndex));
+    }
+
+    // Copy button
+    bool copyEnabled = menuController->isCommandEnabled(TouchSelectionMenuController::Copy);
+    QQmlProperty(m_touchSelectionMenu.data(), QStringLiteral("isCopyEnabled")).write(copyEnabled);
+    if (copyEnabled) {
+        QQmlProperty copySignal(m_touchSelectionMenu.data(), QStringLiteral("onCopyTriggered"));
+        CHECK_QML_SIGNAL_PROPERTY(copySignal, touchSelectionMenuComponent->url());
+        int copyIndex = menuController->metaObject()->indexOfSlot("copy()");
+        QObject::connect(m_touchSelectionMenu.data(), copySignal.method(), menuController, menuController->metaObject()->method(copyIndex));
+    }
+
+    // Paste button
+    bool pasteEnabled = menuController->isCommandEnabled(TouchSelectionMenuController::Paste);
+    QQmlProperty(m_touchSelectionMenu.data(), QStringLiteral("isPasteEnabled")).write(pasteEnabled);
+    if (pasteEnabled) {
+        QQmlProperty pasteSignal(m_touchSelectionMenu.data(), QStringLiteral("onPasteTriggered"));
+        CHECK_QML_SIGNAL_PROPERTY(pasteSignal, touchSelectionMenuComponent->url());
+        int pasteIndex = menuController->metaObject()->indexOfSlot("paste()");
+        QObject::connect(m_touchSelectionMenu.data(), pasteSignal.method(), menuController, menuController->metaObject()->method(pasteIndex));
+    }
+
+    // Context menu button
+    QQmlProperty contextMenuSignal(m_touchSelectionMenu.data(), QStringLiteral("onContextMenuTriggered"));
+    CHECK_QML_SIGNAL_PROPERTY(contextMenuSignal, touchSelectionMenuComponent->url());
+    int contextMenuIndex = menuController->metaObject()->indexOfSlot("runContextMenu()");
+    QObject::connect(m_touchSelectionMenu.data(), contextMenuSignal.method(), menuController, menuController->metaObject()->method(contextMenuIndex));
+
+    touchSelectionMenuComponent->completeCreate();
+}
+
+void UIDelegatesManager::hideTouchSelectionMenu()
+{
+    QTimer::singleShot(0, m_view, [this] { m_touchSelectionMenu.reset(); });
+}
+
 UI2DelegatesManager::UI2DelegatesManager(QQuickWebEngineView *view) : UIDelegatesManager(view)
 {
 
@@ -609,15 +654,26 @@ UI2DelegatesManager::UI2DelegatesManager(QQuickWebEngineView *view) : UIDelegate
 
 bool UI2DelegatesManager::initializeImportDirs(QStringList &dirs, QQmlEngine *engine)
 {
-    foreach (const QString &path, engine->importPathList()) {
-        QFileInfo fi1(path % QLatin1String("/QtWebEngine/Controls1Delegates/"));
-        QFileInfo fi2(path % QLatin1String("/QtWebEngine/Controls2Delegates/"));
-        if (fi1.exists() && fi2.exists()) {
-            dirs << fi2.absolutePath() << fi1.absolutePath();
-            return true;
+    const QStringList paths = engine->importPathList();
+    for (const QString &path : paths) {
+        QString controls2ImportPath = path % QLatin1String("/QtWebEngine/Controls2Delegates/");
+        QString controls1ImportPath = path % QLatin1String("/QtWebEngine/Controls1Delegates/");
+
+        // resource paths have to be tested using the ":/" prefix
+        if (controls2ImportPath.startsWith(QLatin1String("qrc:/"))) {
+            controls2ImportPath.remove(0, 3);
+            controls1ImportPath.remove(0, 3);
         }
+
+        QFileInfo fi2(controls2ImportPath);
+        if (fi2.exists())
+            dirs << fi2.absolutePath();
+
+        QFileInfo fi1(controls1ImportPath);
+        if (fi1.exists())
+            dirs << fi1.absolutePath();
     }
-    return false;
+    return !dirs.isEmpty();
 }
 
 QObject *UI2DelegatesManager::addMenu(QObject *parentMenu, const QString &title, const QPoint &pos)
@@ -648,28 +704,25 @@ QObject *UI2DelegatesManager::addMenu(QObject *parentMenu, const QString &title,
     return menu;
 }
 
-void UI2DelegatesManager::addMenuItem(MenuItemHandler *menuItemHandler, const QString &text,
-                                      const QString &/*iconName*/, bool enabled,
-                                      bool checkable, bool checked)
+void UI2DelegatesManager::addMenuItem(QQuickWebEngineAction *action, QObject *menu, bool checkable, bool checked)
 {
-    Q_ASSERT(menuItemHandler);
+    Q_ASSERT(action);
     if (!ensureComponentLoaded(MenuItem))
         return;
 
     QObject *it = menuItemComponent->beginCreate(qmlContext(m_view));
 
-    it->setProperty("text", text);
-    it->setProperty("enabled", enabled);
+    it->setProperty("text", action->text());
+    it->setProperty("enabled", action->isEnabled());
     it->setProperty("checked", checked);
     it->setProperty("checkable", checkable);
 
     QQmlProperty signal(it, QStringLiteral("onTriggered"));
     CHECK_QML_SIGNAL_PROPERTY(signal, menuItemComponent->url());
-    QObject::connect(it, signal.method(), menuItemHandler,
-                     QMetaMethod::fromSignal(&MenuItemHandler::triggered));
+    const QMetaObject *actionMeta = action->metaObject();
+    QObject::connect(it, signal.method(), action, actionMeta->method(actionMeta->indexOfSlot("trigger()")));
     menuItemComponent->completeCreate();
 
-    QObject *menu = menuItemHandler->parent();
     it->setParent(menu);
 
     QQmlListReference entries(menu, defaultPropertyName(menu), qmlEngine(m_view));

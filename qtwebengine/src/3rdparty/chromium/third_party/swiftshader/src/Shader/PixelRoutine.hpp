@@ -15,7 +15,7 @@
 #ifndef sw_PixelRoutine_hpp
 #define sw_PixelRoutine_hpp
 
-#include "QuadRasterizer.hpp"
+#include "Renderer/QuadRasterizer.hpp"
 
 namespace sw
 {
@@ -65,8 +65,6 @@ namespace sw
 		UShort4 convertFixed16(Float4 &cf, bool saturate = true);
 		void linearToSRGB12_16(Vector4s &c);
 
-		SamplerCore *sampler[TEXTURE_IMAGE_UNITS];
-
 	private:
 		Float4 interpolateCentroid(Float4 &x, Float4 &y, Float4 &rhw, Pointer<Byte> planeEquation, bool flat, bool perspective);
 		void stencilTest(Pointer<Byte> &sBuffer, int q, Int &x, Int &sMask, Int &cMask);
@@ -85,7 +83,6 @@ namespace sw
 		void writeDepth(Pointer<Byte> &zBuffer, int q, Int &x, Float4 &z, Int &zMask);
 
 		void sRGBtoLinear16_12_16(Vector4s &c);
-		void sRGBtoLinear12_16(Vector4s &c);
 		void linearToSRGB16_12_16(Vector4s &c);
 		Float4 sRGBtoLinear(const Float4 &x);
 

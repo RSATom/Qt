@@ -6,13 +6,14 @@
 
 #include <algorithm>
 #include <list>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/io_buffer.h"
@@ -93,7 +94,7 @@ std::string URLRequestTestJob::test_headers() {
       "HTTP/1.1 200 OK\n"
       "Content-type: text/html\n"
       "\n";
-  return std::string(kHeaders, arraysize(kHeaders));
+  return std::string(kHeaders, base::size(kHeaders));
 }
 
 // static getter for redirect response headers
@@ -102,7 +103,7 @@ std::string URLRequestTestJob::test_redirect_headers() {
       "HTTP/1.1 302 MOVED\n"
       "Location: somewhere\n"
       "\n";
-  return std::string(kHeaders, arraysize(kHeaders));
+  return std::string(kHeaders, base::size(kHeaders));
 }
 
 // static getter for redirect response headers
@@ -132,13 +133,13 @@ std::string URLRequestTestJob::test_error_headers() {
   static const char kHeaders[] =
       "HTTP/1.1 500 BOO HOO\n"
       "\n";
-  return std::string(kHeaders, arraysize(kHeaders));
+  return std::string(kHeaders, base::size(kHeaders));
 }
 
 // static
 std::unique_ptr<URLRequestJobFactory::ProtocolHandler>
 URLRequestTestJob::CreateProtocolHandler() {
-  return base::MakeUnique<TestJobProtocolHandler>();
+  return std::make_unique<TestJobProtocolHandler>();
 }
 
 URLRequestTestJob::URLRequestTestJob(URLRequest* request,
@@ -180,10 +181,7 @@ URLRequestTestJob::URLRequestTestJob(URLRequest* request,
       weak_factory_(this) {}
 
 URLRequestTestJob::~URLRequestTestJob() {
-  g_pending_jobs.Get().erase(
-      std::remove(
-          g_pending_jobs.Get().begin(), g_pending_jobs.Get().end(), this),
-      g_pending_jobs.Get().end());
+  base::Erase(g_pending_jobs.Get(), this);
 }
 
 bool URLRequestTestJob::GetMimeType(std::string* mime_type) const {
@@ -301,7 +299,8 @@ int64_t URLRequestTestJob::GetTotalReceivedBytes() const {
 }
 
 bool URLRequestTestJob::IsRedirectResponse(GURL* location,
-                                           int* http_status_code) {
+                                           int* http_status_code,
+                                           bool* insecure_scheme_was_upgraded) {
   if (!response_headers_.get())
     return false;
 
@@ -309,6 +308,7 @@ bool URLRequestTestJob::IsRedirectResponse(GURL* location,
   if (!response_headers_->IsRedirect(&value))
     return false;
 
+  *insecure_scheme_was_upgraded = false;
   *location = request_->url().Resolve(value);
   *http_status_code = response_headers_->response_code();
   return true;
@@ -318,10 +318,7 @@ void URLRequestTestJob::Kill() {
   stage_ = DONE;
   URLRequestJob::Kill();
   weak_factory_.InvalidateWeakPtrs();
-  g_pending_jobs.Get().erase(
-      std::remove(
-          g_pending_jobs.Get().begin(), g_pending_jobs.Get().end(), this),
-      g_pending_jobs.Get().end());
+  base::Erase(g_pending_jobs.Get(), this);
 }
 
 void URLRequestTestJob::ProcessNextOperation() {

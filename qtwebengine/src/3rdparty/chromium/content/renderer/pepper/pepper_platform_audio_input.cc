@@ -11,7 +11,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/child/child_process.h"
-#include "content/renderer/media/audio_input_message_filter.h"
+#include "content/renderer/media/audio/audio_input_ipc_factory.h"
 #include "content/renderer/pepper/pepper_audio_input_host.h"
 #include "content/renderer/pepper/pepper_media_device_manager.h"
 #include "content/renderer/render_frame_impl.h"
@@ -41,7 +41,7 @@ PepperPlatformAudioInput* PepperPlatformAudioInput::Create(
     audio_input->AddRef();
     return audio_input.get();
   }
-  return NULL;
+  return nullptr;
 }
 
 void PepperPlatformAudioInput::StartCapture() {
@@ -49,7 +49,7 @@ void PepperPlatformAudioInput::StartCapture() {
 
   io_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&PepperPlatformAudioInput::StartCaptureOnIOThread, this));
+      base::BindOnce(&PepperPlatformAudioInput::StartCaptureOnIOThread, this));
 }
 
 void PepperPlatformAudioInput::StopCapture() {
@@ -57,7 +57,7 @@ void PepperPlatformAudioInput::StopCapture() {
 
   io_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&PepperPlatformAudioInput::StopCaptureOnIOThread, this));
+      base::BindOnce(&PepperPlatformAudioInput::StopCaptureOnIOThread, this));
 }
 
 void PepperPlatformAudioInput::ShutDown() {
@@ -69,45 +69,39 @@ void PepperPlatformAudioInput::ShutDown() {
 
   // Called on the main thread to stop all audio callbacks. We must only change
   // the client on the main thread, and the delegates from the I/O thread.
-  client_ = NULL;
+  client_ = nullptr;
   io_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&PepperPlatformAudioInput::ShutDownOnIOThread, this));
+      base::BindOnce(&PepperPlatformAudioInput::ShutDownOnIOThread, this));
 }
 
 void PepperPlatformAudioInput::OnStreamCreated(
-    base::SharedMemoryHandle handle,
+    base::ReadOnlySharedMemoryRegion shared_memory_region,
     base::SyncSocket::Handle socket_handle,
-    int length,
-    int total_segments,
     bool initially_muted) {
+  DCHECK(shared_memory_region.IsValid());
 #if defined(OS_WIN)
-  DCHECK(handle.IsValid());
   DCHECK(socket_handle);
 #else
-  DCHECK(base::SharedMemory::IsHandleValid(handle));
   DCHECK_NE(-1, socket_handle);
 #endif
-  DCHECK(length);
-  // TODO(yzshen): Make use of circular buffer scheme. crbug.com/181449.
-  DCHECK_EQ(1, total_segments);
+  DCHECK_GT(shared_memory_region.GetSize(), 0u);
 
   if (base::ThreadTaskRunnerHandle::Get().get() != main_task_runner_.get()) {
     // If shutdown has occurred, |client_| will be NULL and the handles will be
     // cleaned up on the main thread.
     main_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&PepperPlatformAudioInput::OnStreamCreated, this, handle,
-                   socket_handle, length, total_segments, initially_muted));
+        FROM_HERE, base::BindOnce(&PepperPlatformAudioInput::OnStreamCreated,
+                                  this, std::move(shared_memory_region),
+                                  socket_handle, initially_muted));
   } else {
     // Must dereference the client only on the main thread. Shutdown may have
     // occurred while the request was in-flight, so we need to NULL check.
     if (client_) {
-      client_->StreamCreated(handle, length, socket_handle);
+      client_->StreamCreated(std::move(shared_memory_region), socket_handle);
     } else {
-      // Clean up the handles.
+      // Clean up the handle.
       base::SyncSocket temp_socket(socket_handle);
-      base::SharedMemory temp_shared_memory(handle, false);
     }
   }
 }
@@ -131,14 +125,14 @@ PepperPlatformAudioInput::~PepperPlatformAudioInput() {
 }
 
 PepperPlatformAudioInput::PepperPlatformAudioInput()
-    : client_(NULL),
+    : client_(nullptr),
       main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       io_task_runner_(ChildProcess::current()->io_task_runner()),
       render_frame_id_(MSG_ROUTING_NONE),
       create_stream_sent_(false),
       pending_open_device_(false),
-      pending_open_device_id_(-1) {
-}
+      pending_open_device_id_(-1),
+      ipc_startup_state_(kIdle) {}
 
 bool PepperPlatformAudioInput::Initialize(
     int render_frame_id,
@@ -159,14 +153,10 @@ bool PepperPlatformAudioInput::Initialize(
   if (!GetMediaDeviceManager())
     return false;
 
-  ipc_ = RenderThreadImpl::current()
-             ->audio_input_message_filter()
-             ->CreateAudioInputIPC(render_frame_id);
 
   params_.Reset(media::AudioParameters::AUDIO_PCM_LINEAR,
                 media::CHANNEL_LAYOUT_MONO,
                 sample_rate,
-                ppapi::kBitsPerAudioInputSample,
                 frames_per_buffer);
 
   // We need to open the device and obtain the label and session ID before
@@ -185,23 +175,38 @@ bool PepperPlatformAudioInput::Initialize(
 void PepperPlatformAudioInput::InitializeOnIOThread(int session_id) {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
 
+  if (ipc_startup_state_ != kStopped)
+    ipc_ = AudioInputIPCFactory::get()->CreateAudioInputIPC(
+        render_frame_id_, media::AudioSourceParameters(session_id));
   if (!ipc_)
     return;
 
   // We will be notified by OnStreamCreated().
   create_stream_sent_ = true;
-  ipc_->CreateStream(this, session_id, params_, false, 1);
+  ipc_->CreateStream(this, params_, false, 1);
+
+  if (ipc_startup_state_ == kStarted)
+    ipc_->RecordStream();
 }
 
 void PepperPlatformAudioInput::StartCaptureOnIOThread() {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
 
-  if (ipc_)
-    ipc_->RecordStream();
+  if (!ipc_) {
+    ipc_startup_state_ = kStarted;
+    return;
+  }
+
+  ipc_->RecordStream();
 }
 
 void PepperPlatformAudioInput::StopCaptureOnIOThread() {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
+
+  if (!ipc_) {
+    ipc_startup_state_ = kStopped;
+    return;
+  }
 
   // TODO(yzshen): We cannot re-start capturing if the stream is closed.
   if (ipc_ && create_stream_sent_) {
@@ -216,7 +221,7 @@ void PepperPlatformAudioInput::ShutDownOnIOThread() {
   StopCaptureOnIOThread();
 
   main_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&PepperPlatformAudioInput::CloseDevice, this));
+      FROM_HERE, base::BindOnce(&PepperPlatformAudioInput::CloseDevice, this));
 
   Release();  // Release for the delegate, balances out the reference taken in
               // PepperPlatformAudioInput::Create.
@@ -239,8 +244,9 @@ void PepperPlatformAudioInput::OnDeviceOpened(int request_id,
       int session_id = device_manager->GetSessionID(
           PP_DEVICETYPE_DEV_AUDIOCAPTURE, label);
       io_task_runner_->PostTask(
-          FROM_HERE, base::Bind(&PepperPlatformAudioInput::InitializeOnIOThread,
-                                this, session_id));
+          FROM_HERE,
+          base::BindOnce(&PepperPlatformAudioInput::InitializeOnIOThread, this,
+                         session_id));
     } else {
       // Shutdown has occurred.
       CloseDevice();
@@ -280,8 +286,9 @@ PepperMediaDeviceManager* PepperPlatformAudioInput::GetMediaDeviceManager() {
 
   RenderFrameImpl* const render_frame =
       RenderFrameImpl::FromRoutingID(render_frame_id_);
-  return render_frame ?
-      PepperMediaDeviceManager::GetForRenderFrame(render_frame).get() : NULL;
+  return render_frame
+             ? PepperMediaDeviceManager::GetForRenderFrame(render_frame).get()
+             : nullptr;
 }
 
 }  // namespace content

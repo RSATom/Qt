@@ -10,19 +10,19 @@
 
 // Borrowed from Chromium's src/base/threading/thread_checker.h.
 
-#ifndef WEBRTC_RTC_BASE_THREAD_CHECKER_H_
-#define WEBRTC_RTC_BASE_THREAD_CHECKER_H_
+#ifndef RTC_BASE_THREAD_CHECKER_H_
+#define RTC_BASE_THREAD_CHECKER_H_
 
 // Apart from debug builds, we also enable the thread checker in
 // builds with RTC_DCHECK_IS_ON so that trybots and waterfall bots
 // with this define will get the same level of thread checking as
 // debug bots.
-#define ENABLE_THREAD_CHECKER RTC_DCHECK_IS_ON
+#define RTC_ENABLE_THREAD_CHECKER RTC_DCHECK_IS_ON
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/thread_annotations.h"
-#include "webrtc/rtc_base/thread_checker_impl.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/thread_annotations.h"
+#include "rtc_base/thread_checker_impl.h"
 
 namespace rtc {
 
@@ -32,9 +32,7 @@ namespace rtc {
 // right version for your build configuration.
 class ThreadCheckerDoNothing {
  public:
-  bool CalledOnValidThread() const {
-    return true;
-  }
+  bool CalledOnValidThread() const { return true; }
 
   void DetachFromThread() {}
 };
@@ -70,25 +68,23 @@ class ThreadCheckerDoNothing {
 // }
 //
 // In Release mode, CalledOnValidThread will always return true.
-#if ENABLE_THREAD_CHECKER
-class LOCKABLE ThreadChecker : public ThreadCheckerImpl {
-};
+#if RTC_ENABLE_THREAD_CHECKER
+class RTC_LOCKABLE ThreadChecker : public ThreadCheckerImpl {};
 #else
-class LOCKABLE ThreadChecker : public ThreadCheckerDoNothing {
-};
-#endif  // ENABLE_THREAD_CHECKER
+class RTC_LOCKABLE ThreadChecker : public ThreadCheckerDoNothing {};
+#endif  // RTC_ENABLE_THREAD_CHECKER
 
-#undef ENABLE_THREAD_CHECKER
+#undef RTC_ENABLE_THREAD_CHECKER
 
 namespace internal {
-class SCOPED_LOCKABLE AnnounceOnThread {
+class RTC_SCOPED_LOCKABLE AnnounceOnThread {
  public:
-  template<typename ThreadLikeObject>
+  template <typename ThreadLikeObject>
   explicit AnnounceOnThread(const ThreadLikeObject* thread_like_object)
-      EXCLUSIVE_LOCK_FUNCTION(thread_like_object) {}
-  ~AnnounceOnThread() UNLOCK_FUNCTION() {}
+      RTC_EXCLUSIVE_LOCK_FUNCTION(thread_like_object) {}
+  ~AnnounceOnThread() RTC_UNLOCK_FUNCTION() {}
 
-  template<typename ThreadLikeObject>
+  template <typename ThreadLikeObject>
   static bool IsCurrent(const ThreadLikeObject* thread_like_object) {
     return thread_like_object->IsCurrent();
   }
@@ -103,8 +99,8 @@ class SCOPED_LOCKABLE AnnounceOnThread {
 }  // namespace internal
 }  // namespace rtc
 
-// RUN_ON/ACCESS_ON/RTC_DCHECK_RUN_ON macros allows to annotate variables are
-// accessed from same thread/task queue.
+// RTC_RUN_ON/RTC_GUARDED_BY/RTC_DCHECK_RUN_ON macros allows to annotate
+// variables are accessed from same thread/task queue.
 // Using tools designed to check mutexes, it checks at compile time everywhere
 // variable is access, there is a run-time dcheck thread/task queue is correct.
 //
@@ -117,12 +113,12 @@ class SCOPED_LOCKABLE AnnounceOnThread {
 //
 //  private:
 //   rtc::Thread* network_thread_;
-//   int transport_ ACCESS_ON(network_thread_);
+//   int transport_ RTC_GUARDED_BY(network_thread_);
 // };
 //
 // class ExampleThreadChecker {
 //  public:
-//   int CalledFromPacer() RUN_ON(pacer_thread_checker_) {
+//   int CalledFromPacer() RTC_RUN_ON(pacer_thread_checker_) {
 //     return var2_;
 //   }
 //
@@ -133,7 +129,7 @@ class SCOPED_LOCKABLE AnnounceOnThread {
 //   }
 //
 //  private:
-//   int pacer_var_ ACCESS_ON(pacer_thread_checker_);
+//   int pacer_var_ RTC_GUARDED_BY(pacer_thread_checker_);
 //   rtc::ThreadChecker pacer_thread_checker_;
 // };
 //
@@ -149,30 +145,27 @@ class SCOPED_LOCKABLE AnnounceOnThread {
 //
 //    private:
 //     rtc::TaskQueue* const encoder_queue_;
-//     Frame var_ ACCESS_ON(encoder_queue_);
+//     Frame var_ RTC_GUARDED_BY(encoder_queue_);
 //   };
 //
 //   void Encode() {
 //     // Will fail at runtime when DCHECK is enabled:
 //     // encoder_->Encode();
 //     // Will work:
-//     rtc::scoped_ref_ptr<Encoder> encoder = encoder_;
+//     rtc::scoped_refptr<Encoder> encoder = encoder_;
 //     encoder_->Queue()->PostTask([encoder] { encoder->Encode(); });
 //   }
 //
 //  private:
-//   rtc::scoped_ref_ptr<Encoder> encoder_;
+//   rtc::scoped_refptr<Encoder> encoder_;
 // }
 
-// Document if a variable/field is not shared and should be accessed from
-// same thread/task queue.
-#define ACCESS_ON(x) THREAD_ANNOTATION_ATTRIBUTE__(guarded_by(x))
-
 // Document if a function expected to be called from same thread/task queue.
-#define RUN_ON(x) THREAD_ANNOTATION_ATTRIBUTE__(exclusive_locks_required(x))
+#define RTC_RUN_ON(x) \
+  RTC_THREAD_ANNOTATION_ATTRIBUTE__(exclusive_locks_required(x))
 
-#define RTC_DCHECK_RUN_ON(thread_like_object) \
+#define RTC_DCHECK_RUN_ON(thread_like_object)                           \
   rtc::internal::AnnounceOnThread thread_announcer(thread_like_object); \
   RTC_DCHECK(rtc::internal::AnnounceOnThread::IsCurrent(thread_like_object))
 
-#endif  // WEBRTC_RTC_BASE_THREAD_CHECKER_H_
+#endif  // RTC_BASE_THREAD_CHECKER_H_

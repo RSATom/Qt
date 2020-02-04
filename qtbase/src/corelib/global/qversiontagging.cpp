@@ -84,6 +84,25 @@ make_versioned_symbol(SYM, QT_VERSION_MAJOR, 8, "@");
 make_versioned_symbol(SYM, QT_VERSION_MAJOR, 9, "@");
 #endif
 #if QT_VERSION_MINOR > 10
+make_versioned_symbol(SYM, QT_VERSION_MAJOR, 10, "@");
+#endif
+#if QT_VERSION_MINOR > 11
+make_versioned_symbol(SYM, QT_VERSION_MAJOR, 11, "@");
+#endif
+#if QT_VERSION_MINOR > 12
+make_versioned_symbol(SYM, QT_VERSION_MAJOR, 12, "@");
+#endif
+#if QT_VERSION_MINOR > 13
+make_versioned_symbol(SYM, QT_VERSION_MAJOR, 13, "@");
+#endif
+#if QT_VERSION_MINOR > 14
+make_versioned_symbol(SYM, QT_VERSION_MAJOR, 14, "@");
+#endif
+#if QT_VERSION_MINOR > 15
+make_versioned_symbol(SYM, QT_VERSION_MAJOR, 15, "@");
+#endif
+#if QT_VERSION_MINOR > 16
+// We don't expect there will be a Qt 5.17
 #  error "Please update this file with more Qt versions."
 #endif
 

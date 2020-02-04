@@ -57,13 +57,12 @@ MDnsAPI* MDnsAPI::Get(content::BrowserContext* context) {
   return BrowserContextKeyedAPIFactory<MDnsAPI>::Get(context);
 }
 
-static base::LazyInstance<
-    BrowserContextKeyedAPIFactory<MDnsAPI>>::DestructorAtExit g_factory =
-    LAZY_INSTANCE_INITIALIZER;
+static base::LazyInstance<BrowserContextKeyedAPIFactory<MDnsAPI>>::
+    DestructorAtExit g_mdns_api_factory = LAZY_INSTANCE_INITIALIZER;
 
 // static
 BrowserContextKeyedAPIFactory<MDnsAPI>* MDnsAPI::GetFactoryInstance() {
-  return g_factory.Pointer();
+  return g_mdns_api_factory.Pointer();
 }
 
 void MDnsAPI::SetDnsSdRegistryForTesting(DnsSdRegistry* dns_sd_registry) {
@@ -75,7 +74,7 @@ void MDnsAPI::SetDnsSdRegistryForTesting(DnsSdRegistry* dns_sd_registry) {
 void MDnsAPI::ForceDiscovery() {
   DCHECK(thread_checker_.CalledOnValidThread());
   DnsSdRegistry* registry = dns_sd_registry();
-  return registry->ForceDiscovery();
+  return registry->ResetAndDiscover();
 }
 
 DnsSdRegistry* MDnsAPI::dns_sd_registry() {
@@ -114,8 +113,8 @@ void MDnsAPI::UpdateMDnsListeners() {
   // mDNS unregistration is performed for difference(previous, cur).
   // The mDNS device list is refreshed if the listener count has grown for
   // a service type in union(cur, previous).
-  ServiceTypeCounts::iterator i_cur = current_service_counts.begin();
-  ServiceTypeCounts::iterator i_prev = prev_service_counts_.begin();
+  auto i_cur = current_service_counts.begin();
+  auto i_prev = prev_service_counts_.begin();
   while (i_cur != current_service_counts.end() ||
          i_prev != prev_service_counts_.end()) {
     if (i_prev == prev_service_counts_.end() ||
@@ -167,14 +166,14 @@ void MDnsAPI::OnDnsSdEvent(const std::string& service_type,
     }
     mdns::MDnsService mdns_service;
     mdns_service.service_name = service.service_name;
-    mdns_service.service_host_port = service.service_host_port;
+    mdns_service.service_host_port = service.service_host_port.ToString();
     mdns_service.ip_address = service.ip_address;
     mdns_service.service_data = service.service_data;
     args.push_back(std::move(mdns_service));
   }
 
   std::unique_ptr<base::ListValue> results = mdns::OnServiceList::Create(args);
-  auto event = base::MakeUnique<Event>(events::MDNS_ON_SERVICE_LIST,
+  auto event = std::make_unique<Event>(events::MDNS_ON_SERVICE_LIST,
                                        mdns::OnServiceList::kEventName,
                                        std::move(results), browser_context_);
   event->filter_info.service_type = service_type;

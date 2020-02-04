@@ -16,17 +16,15 @@
 #include "base/optional.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
 #include "ui/aura/window_observer.h"
-#include "ui/base/cursor/cursor_data.h"
+#include "ui/base/cursor/cursor.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/transform.h"
 
 namespace ui {
-
 namespace mojom {
 enum class CursorType : int32_t;
 }
-
 }  // namespace ui
 
 namespace aura {
@@ -41,6 +39,7 @@ enum class ChangeType {
   ADD_TRANSIENT_WINDOW,
   BOUNDS,
   CAPTURE,
+  CHILD_MODAL_PARENT,
   DELETE_WINDOW,
   DRAG_LOOP,
   FOCUS,
@@ -57,6 +56,9 @@ enum class ChangeType {
   TRANSFORM,
   VISIBLE,
 };
+
+// Print a human-readable string representation of |change_type| for logging.
+std::string ChangeTypeToString(ChangeType change_type);
 
 // InFlightChange is used to track function calls to the server and take the
 // appropriate action when the call fails, or the same property changes while
@@ -294,7 +296,7 @@ class InFlightPropertyChange : public InFlightChange {
 
 class InFlightCursorChange : public InFlightChange {
  public:
-  InFlightCursorChange(WindowMus* window, const ui::CursorData& revert_value);
+  InFlightCursorChange(WindowMus* window, const ui::Cursor& revert_value);
   ~InFlightCursorChange() override;
 
   // InFlightChange:
@@ -302,7 +304,7 @@ class InFlightCursorChange : public InFlightChange {
   void Revert() override;
 
  private:
-  ui::CursorData revert_cursor_;
+  ui::Cursor revert_cursor_;
 
   DISALLOW_COPY_AND_ASSIGN(InFlightCursorChange);
 };

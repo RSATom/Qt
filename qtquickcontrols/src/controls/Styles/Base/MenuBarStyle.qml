@@ -46,7 +46,7 @@ import QtQuick.Controls.Private 1.0
     \inqmlmodule QtQuick.Controls.Styles
     \since 5.3
     \ingroup controlsstyling
-    \brief Provides custom styling for MenuBar
+    \brief Provides custom styling for MenuBar.
 
     \note Styling menu bars may not be supported on platforms using native menu bars
     through their QPA plugin.

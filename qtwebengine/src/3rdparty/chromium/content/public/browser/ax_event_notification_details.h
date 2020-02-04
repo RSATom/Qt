@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "content/common/content_export.h"
+#include "ui/accessibility/ax_event.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/ax_relative_bounds.h"
 #include "ui/accessibility/ax_tree_data.h"
@@ -23,11 +24,14 @@ struct CONTENT_EXPORT AXEventNotificationDetails {
   AXEventNotificationDetails(const AXEventNotificationDetails& other);
   ~AXEventNotificationDetails();
 
-  ui::AXTreeUpdate update;
-  ui::AXEvent event_type;
-  int id;
-  int ax_tree_id;
-  ui::AXEventFrom event_from;
+  // The unique ID of the accessibility tree this event bundle applies to.
+  ui::AXTreeID ax_tree_id;
+
+  // Zero or more updates to the accessibility tree to apply first.
+  std::vector<ui::AXTreeUpdate> updates;
+
+  // Zero or more events to fire after the tree updates have been applied.
+  std::vector<ui::AXEvent> events;
 };
 
 // Use this object in conjunction with the
@@ -40,7 +44,7 @@ struct CONTENT_EXPORT AXLocationChangeNotificationDetails {
   ~AXLocationChangeNotificationDetails();
 
   int id;
-  int ax_tree_id;
+  ui::AXTreeID ax_tree_id;
   ui::AXRelativeBounds new_location;
 };
 

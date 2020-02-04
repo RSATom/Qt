@@ -17,10 +17,10 @@
 
 #include "VertexRoutine.hpp"
 #include "ShaderCore.hpp"
-#include "SamplerCore.hpp"
 
-#include "Stream.hpp"
-#include "Types.hpp"
+#include "SamplerCore.hpp"
+#include "Renderer/Stream.hpp"
+#include "Common/Types.hpp"
 
 namespace sw
 {
@@ -37,40 +37,42 @@ namespace sw
 	private:
 		const VertexShader *const shader;
 
-		RegisterArray<4096> r;   // Temporary registers
+		RegisterArray<NUM_TEMPORARY_REGISTERS> r;   // Temporary registers
 		Vector4f a0;
-		Array<Int, 4> aL;
+		Array<Int, MAX_SHADER_NESTED_LOOPS> aL;
 		Vector4f p0;
 
-		Array<Int, 4> increment;
-		Array<Int, 4> iteration;
+		Array<Int, MAX_SHADER_NESTED_LOOPS> increment;
+		Array<Int, MAX_SHADER_NESTED_LOOPS> iteration;
 
 		Int loopDepth;
 		Int stackIndex;   // FIXME: Inc/decrement callStack
-		Array<UInt, 16> callStack;
+		Array<UInt, MAX_SHADER_CALL_STACK_SIZE> callStack;
 
 		Int enableIndex;
-		Array<Int4, 1 + 24> enableStack;
+		Array<Int4, MAX_SHADER_ENABLE_STACK_SIZE> enableStack;
 		Int4 enableBreak;
 		Int4 enableContinue;
 		Int4 enableLeave;
 
 		Int instanceID;
+		Int4 vertexID;
 
 		typedef Shader::DestinationParameter Dst;
 		typedef Shader::SourceParameter Src;
 		typedef Shader::Control Control;
 		typedef Shader::Usage Usage;
 
-		void pipeline() override;
-		void program();
+		void pipeline(UInt &index) override;
+		void program(UInt &index);
 		void passThrough();
 
 		Vector4f fetchRegister(const Src &src, unsigned int offset = 0);
 		Vector4f readConstant(const Src &src, unsigned int offset = 0);
 		RValue<Pointer<Byte>> uniformAddress(int bufferIndex, unsigned int index);
-		RValue<Pointer<Byte>> uniformAddress(int bufferIndex, unsigned int index, Int& offset);
-		Int relativeAddress(const Shader::Parameter &var, int bufferIndex = -1);
+		RValue<Pointer<Byte>> uniformAddress(int bufferIndex, unsigned int index, Int &offset);
+		Int relativeAddress(const Shader::Relative &rel, int bufferIndex = -1);
+		Int4 dynamicAddress(const Shader::Relative &rel);
 		Int4 enableMask(const Shader::Instruction *instruction);
 
 		void M3X2(Vector4f &dst, Vector4f &src0, Src &src1);
@@ -84,6 +86,7 @@ namespace sw
 		void BREAK(Int4 &condition);
 		void CONTINUE();
 		void TEST();
+		void SCALAR();
 		void CALL(int labelIndex, int callSiteIndex);
 		void CALLNZ(int labelIndex, int callSiteIndex, const Src &src);
 		void CALLNZb(int labelIndex, int callSiteIndex, const Src &boolRegister);
@@ -106,33 +109,32 @@ namespace sw
 		void SWITCH();
 		void RET();
 		void LEAVE();
-		void TEXLDL(Vector4f &dst, Vector4f &src, const Src&);
 		void TEX(Vector4f &dst, Vector4f &src, const Src&);
-		void TEXOFFSET(Vector4f &dst, Vector4f &src, const Src&, Vector4f &src2);
-		void TEXLDL(Vector4f &dst, Vector4f &src, const Src&, Vector4f &src2);
-		void TEXELFETCH(Vector4f &dst, Vector4f &src, const Src&);
-		void TEXELFETCH(Vector4f &dst, Vector4f &src, const Src&, Vector4f &src2);
-		void TEXGRAD(Vector4f &dst, Vector4f &src, const Src&, Vector4f &src2, Vector4f &src3);
-		void TEXGRAD(Vector4f &dst, Vector4f &src, const Src&, Vector4f &src2, Vector4f &src3, Vector4f &src4);
+		void TEXOFFSET(Vector4f &dst, Vector4f &src, const Src&, Vector4f &offset);
+		void TEXLOD(Vector4f &dst, Vector4f &src, const Src&, Float4 &lod);
+		void TEXLODOFFSET(Vector4f &dst, Vector4f &src, const Src&, Vector4f &offset, Float4 &lod);
+		void TEXELFETCH(Vector4f &dst, Vector4f &src, const Src&, Float4 &lod);
+		void TEXELFETCHOFFSET(Vector4f &dst, Vector4f &src, const Src&, Vector4f &offset, Float4 &lod);
+		void TEXGRAD(Vector4f &dst, Vector4f &src, const Src&, Vector4f &dsx, Vector4f &dsy);
+		void TEXGRADOFFSET(Vector4f &dst, Vector4f &src, const Src&, Vector4f &dsx, Vector4f &dsy, Vector4f &offset);
 		void TEXSIZE(Vector4f &dst, Float4 &lod, const Src&);
 
-		void sampleTexture(Vector4f &c, const Src &s, Vector4f &uvwq, Vector4f &dsx, Vector4f &dsy, Vector4f &offset, SamplerFunction function);
+		Vector4f sampleTexture(const Src &s, Vector4f &uvwq, Float4 &lod, Vector4f &dsx, Vector4f &dsy, Vector4f &offset, SamplerFunction function);
+		Vector4f sampleTexture(int sampler, Vector4f &uvwq, Float4 &lod, Vector4f &dsx, Vector4f &dsy, Vector4f &offset, SamplerFunction function);
 
-		SamplerCore *sampler[VERTEX_TEXTURE_IMAGE_UNITS];
+		BoundedIndex<MAX_SHADER_NESTED_IFS> ifDepth = 0;
+		BoundedIndex<MAX_SHADER_NESTED_LOOPS> loopRepDepth = 0;
+		BoundedIndex<MAX_SHADER_CALL_SITES> currentLabel = -1;
+		bool scalar = false;
 
-		int ifDepth;
-		int loopRepDepth;
-		int breakDepth;
-		int currentLabel;
-		bool whileTest;
-
-		BasicBlock *ifFalseBlock[24 + 24];
-		BasicBlock *loopRepTestBlock[4];
-		BasicBlock *loopRepEndBlock[4];
-		BasicBlock *labelBlock[2048];
-		std::vector<BasicBlock*> callRetBlock[2048];
+		BasicBlock *ifFalseBlock[MAX_SHADER_NESTED_IFS];
+		BasicBlock *loopRepTestBlock[MAX_SHADER_NESTED_LOOPS];
+		BasicBlock *loopRepEndBlock[MAX_SHADER_NESTED_LOOPS];
+		BasicBlock *labelBlock[MAX_SHADER_CALL_SITES];
+		std::vector<BasicBlock*> callRetBlock[MAX_SHADER_CALL_SITES];
 		BasicBlock *returnBlock;
-		bool isConditionalIf[24 + 24];
+		bool isConditionalIf[MAX_SHADER_NESTED_IFS];
+		std::vector<Int4> restoreContinue;
 	};
 }
 

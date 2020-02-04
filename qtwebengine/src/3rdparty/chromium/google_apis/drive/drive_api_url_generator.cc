@@ -8,7 +8,6 @@
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "google_apis/drive/drive_switches.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/escape.h"
 #include "net/base/url_util.h"
@@ -21,8 +20,8 @@ namespace {
 // TODO(yamaguchi): Make a utility function to compose some of these URLs by a
 // version and a resource name.
 const char kDriveV2AboutUrl[] = "drive/v2/about";
-const char kDriveV2AppsUrl[] = "drive/v2/apps";
 const char kDriveV2ChangelistUrl[] = "drive/v2/changes";
+const char kDriveV2StartPageTokenUrl[] = "drive/v2/changes/startPageToken";
 const char kDriveV2FilesUrl[] = "drive/v2/files";
 const char kDriveV2FileUrlPrefix[] = "drive/v2/files/";
 const char kDriveV2ChildrenUrlFormat[] = "drive/v2/files/%s/children";
@@ -48,14 +47,6 @@ const char kCorporaDefault[] = "default";
 const char kCorporaTeamDrive[] = "teamDrive";
 const char kTeamDriveId[] = "teamDriveId";
 
-// apps.delete and file.authorize API is exposed through a special endpoint
-// v2internal that is accessible only by the official API key for Chrome.
-const char kDriveV2InternalAppsUrl[] = "drive/v2internal/apps";
-const char kDriveV2AppsDeleteUrlFormat[] = "drive/v2internal/apps/%s";
-const char kDriveV2FilesAuthorizeUrlFormat[] =
-    "drive/v2internal/files/%s/authorize?appId=%s";
-const char kDriveV2InternalFileUrlPrefix[] = "drive/v2internal/files/";
-
 GURL AddResumableUploadParam(const GURL& url) {
   return net::AppendOrReplaceQueryParameter(url, "uploadType", "resumable");
 }
@@ -79,13 +70,9 @@ const char* GetCorporaString(FilesListCorpora corpora) {
 
 }  // namespace
 
-DriveApiUrlGenerator::DriveApiUrlGenerator(
-    const GURL& base_url, const GURL& base_thumbnail_url,
-    TeamDrivesIntegrationStatus team_drives_integration)
-    : base_url_(base_url),
-      base_thumbnail_url_(base_thumbnail_url),
-      enable_team_drives_(
-          team_drives_integration == TEAM_DRIVES_INTEGRATION_ENABLED) {
+DriveApiUrlGenerator::DriveApiUrlGenerator(const GURL& base_url,
+                                           const GURL& base_thumbnail_url)
+    : base_url_(base_url), base_thumbnail_url_(base_thumbnail_url) {
   // Do nothing.
 }
 
@@ -106,29 +93,11 @@ GURL DriveApiUrlGenerator::GetAboutGetUrl() const {
   return base_url_.Resolve(kDriveV2AboutUrl);
 }
 
-GURL DriveApiUrlGenerator::GetAppsListUrl(bool use_internal_endpoint) const {
-  return base_url_.Resolve(use_internal_endpoint ?
-      kDriveV2InternalAppsUrl : kDriveV2AppsUrl);
-}
-
-GURL DriveApiUrlGenerator::GetAppsDeleteUrl(const std::string& app_id) const {
-  return base_url_.Resolve(base::StringPrintf(
-      kDriveV2AppsDeleteUrlFormat, net::EscapePath(app_id).c_str()));
-}
-
 GURL DriveApiUrlGenerator::GetFilesGetUrl(const std::string& file_id,
-                                          bool use_internal_endpoint,
                                           const GURL& embed_origin) const {
-  const char* url_prefix = nullptr;
-  if (use_internal_endpoint)
-    url_prefix = kDriveV2InternalFileUrlPrefix;
-  else
-    url_prefix = kDriveV2FileUrlPrefix;
-
-  GURL url = base_url_.Resolve(url_prefix + net::EscapePath(file_id));
-
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  GURL url =
+      base_url_.Resolve(kDriveV2FileUrlPrefix + net::EscapePath(file_id));
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
 
   if (!embed_origin.is_empty()) {
     // Construct a valid serialized embed origin from an url, according to
@@ -145,23 +114,11 @@ GURL DriveApiUrlGenerator::GetFilesGetUrl(const std::string& file_id,
   return url;
 }
 
-GURL DriveApiUrlGenerator::GetFilesAuthorizeUrl(
-    const std::string& file_id,
-    const std::string& app_id) const {
-  GURL url = base_url_.Resolve(base::StringPrintf(
-      kDriveV2FilesAuthorizeUrlFormat, net::EscapePath(file_id).c_str(),
-      net::EscapePath(app_id).c_str()));
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
-  return url;
-}
-
 GURL DriveApiUrlGenerator::GetFilesInsertUrl(
     const std::string& visibility) const {
   GURL url =  base_url_.Resolve(kDriveV2FilesUrl);
 
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   if (!visibility.empty())
     url = net::AppendOrReplaceQueryParameter(url, "visibility", visibility);
 
@@ -174,8 +131,7 @@ GURL DriveApiUrlGenerator::GetFilesPatchUrl(const std::string& file_id,
   GURL url =
       base_url_.Resolve(kDriveV2FileUrlPrefix + net::EscapePath(file_id));
 
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   // setModifiedDate is "false" by default.
   if (set_modified_date)
     url = net::AppendOrReplaceQueryParameter(url, "setModifiedDate", "true");
@@ -193,8 +149,7 @@ GURL DriveApiUrlGenerator::GetFilesCopyUrl(
   GURL url =  base_url_.Resolve(base::StringPrintf(
       kDriveV2FileCopyUrlFormat, net::EscapePath(file_id).c_str()));
 
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   if (!visibility.empty())
     url = net::AppendOrReplaceQueryParameter(url, "visibility", visibility);
 
@@ -207,16 +162,12 @@ GURL DriveApiUrlGenerator::GetFilesListUrl(int max_results,
                                            const std::string& team_drive_id,
                                            const std::string& q) const {
   GURL url = base_url_.Resolve(kDriveV2FilesUrl);
-  if (enable_team_drives_) {
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
-    url =
-        net::AppendOrReplaceQueryParameter(url, kIncludeTeamDriveItems, "true");
-    url = net::AppendOrReplaceQueryParameter(url, kCorpora,
-                                             GetCorporaString(corpora));
-    if (!team_drive_id.empty())
-      url =
-          net::AppendOrReplaceQueryParameter(url, kTeamDriveId, team_drive_id);
-  }
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kIncludeTeamDriveItems, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kCorpora,
+                                           GetCorporaString(corpora));
+  if (!team_drive_id.empty())
+    url = net::AppendOrReplaceQueryParameter(url, kTeamDriveId, team_drive_id);
   // maxResults is 100 by default.
   if (max_results != 100) {
     url = net::AppendOrReplaceQueryParameter(
@@ -235,16 +186,14 @@ GURL DriveApiUrlGenerator::GetFilesListUrl(int max_results,
 GURL DriveApiUrlGenerator::GetFilesDeleteUrl(const std::string& file_id) const {
   GURL url = base_url_.Resolve(base::StringPrintf(
       kDriveV2FileDeleteUrlFormat, net::EscapePath(file_id).c_str()));
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   return url;
 }
 
 GURL DriveApiUrlGenerator::GetFilesTrashUrl(const std::string& file_id) const {
   GURL url = base_url_.Resolve(base::StringPrintf(
       kDriveV2FileTrashUrlFormat, net::EscapePath(file_id).c_str()));
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   return url;
 }
 
@@ -257,14 +206,10 @@ GURL DriveApiUrlGenerator::GetChangesListUrl(
   DCHECK_GE(start_change_id, 0);
 
   GURL url = base_url_.Resolve(kDriveV2ChangelistUrl);
-  if (enable_team_drives_) {
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
-    url = net::AppendOrReplaceQueryParameter(url, kIncludeTeamDriveItems,
-                                             "true");
-    if (!team_drive_id.empty()) {
-      url =
-          net::AppendOrReplaceQueryParameter(url, kTeamDriveId, team_drive_id);
-    }
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kIncludeTeamDriveItems, "true");
+  if (!team_drive_id.empty()) {
+    url = net::AppendOrReplaceQueryParameter(url, kTeamDriveId, team_drive_id);
   }
   // includeDeleted is "true" by default.
   if (!include_deleted)
@@ -290,8 +235,7 @@ GURL DriveApiUrlGenerator::GetChildrenInsertUrl(
     const std::string& file_id) const {
   GURL url = base_url_.Resolve(base::StringPrintf(
       kDriveV2ChildrenUrlFormat, net::EscapePath(file_id).c_str()));
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   return url;
 }
 
@@ -308,8 +252,7 @@ GURL DriveApiUrlGenerator::GetInitiateUploadNewFileUrl(
   GURL url = AddResumableUploadParam(
       base_url_.Resolve(kDriveV2UploadNewFileUrl));
 
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   // setModifiedDate is "false" by default.
   if (set_modified_date)
     url = net::AppendOrReplaceQueryParameter(url, "setModifiedDate", "true");
@@ -325,8 +268,7 @@ GURL DriveApiUrlGenerator::GetInitiateUploadExistingFileUrl(
       net::EscapePath(resource_id));
   url = AddResumableUploadParam(url);
 
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   // setModifiedDate is "false" by default.
   if (set_modified_date)
     url = net::AppendOrReplaceQueryParameter(url, "setModifiedDate", "true");
@@ -339,8 +281,7 @@ GURL DriveApiUrlGenerator::GetMultipartUploadNewFileUrl(
   GURL url = AddMultipartUploadParam(
       base_url_.Resolve(kDriveV2UploadNewFileUrl));
 
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   // setModifiedDate is "false" by default.
   if (set_modified_date)
     url = net::AppendOrReplaceQueryParameter(url, "setModifiedDate", "true");
@@ -356,8 +297,7 @@ GURL DriveApiUrlGenerator::GetMultipartUploadExistingFileUrl(
       net::EscapePath(resource_id));
   url = AddMultipartUploadParam(url);
 
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   // setModifiedDate is "false" by default.
   if (set_modified_date)
     url = net::AppendOrReplaceQueryParameter(url, "setModifiedDate", "true");
@@ -369,8 +309,7 @@ GURL DriveApiUrlGenerator::GenerateDownloadFileUrl(
     const std::string& resource_id) const {
   GURL url = base_url_.Resolve(base::StringPrintf(
       kDriveV2DownloadUrlFormat, net::EscapePath(resource_id).c_str()));
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   return url;
 }
 
@@ -378,8 +317,7 @@ GURL DriveApiUrlGenerator::GetPermissionsInsertUrl(
     const std::string& resource_id) const {
   GURL url = base_url_.Resolve(base::StringPrintf(
       kDriveV2PermissionsUrlFormat, net::EscapePath(resource_id).c_str()));
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   return url;
 }
 
@@ -395,8 +333,7 @@ GURL DriveApiUrlGenerator::GetThumbnailUrl(const std::string& resource_id,
 
 GURL DriveApiUrlGenerator::GetBatchUploadUrl() const {
   GURL url = base_url_.Resolve(kDriveV2BatchUploadUrl);
-  if (enable_team_drives_)
-    url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
   return url;
 }
 
@@ -412,6 +349,18 @@ GURL DriveApiUrlGenerator::GetTeamDriveListUrl(
   }
   if (!page_token.empty())
     url = net::AppendOrReplaceQueryParameter(url, "pageToken", page_token);
+
+  return url;
+}
+
+GURL DriveApiUrlGenerator::GetStartPageTokenUrl(
+    const std::string& team_drive) const {
+  GURL url = base_url_.Resolve(kDriveV2StartPageTokenUrl);
+
+  url = net::AppendOrReplaceQueryParameter(url, kSupportsTeamDrives, "true");
+
+  if (!team_drive.empty())
+    url = net::AppendOrReplaceQueryParameter(url, kTeamDriveId, team_drive);
 
   return url;
 }

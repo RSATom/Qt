@@ -47,37 +47,40 @@ class VcprojGenerator : public Win32MakefileGenerator
     bool is64Bit;
     bool writeVcprojParts(QTextStream &);
 
-    bool writeMakefile(QTextStream &);
-    bool writeProjectMakefile();
+    bool writeMakefile(QTextStream &) override;
+    bool writeProjectMakefile() override;
 
-    void init();
+    void init() override;
 
 public:
     VcprojGenerator();
     ~VcprojGenerator();
 
     QString defaultMakefile() const;
-    QString precompH, precompHFilename, precompCPP,
+    QString precompH, precompHFilename, precompSource,
             precompObj, precompPch;
-    bool autogenPrecompCPP;
+    bool autogenPrecompSource;
     static bool hasBuiltinCompiler(const QString &file);
 
     QHash<QString, QStringList> extraCompilerSources;
     QHash<QString, QString> extraCompilerOutputs;
     const QString customBuildToolFilterFileSuffix;
     bool usePCH;
+    bool pchIsCFile = false;
     VCProjectWriter *projectWriter;
 
 protected:
     virtual VCProjectWriter *createProjectWriter();
-    virtual bool doDepends() const { return false; } //never necesary
+    bool doDepends() const override { return false; } // Never necessary
     using Win32MakefileGenerator::replaceExtraCompilerVariables;
-    virtual QString replaceExtraCompilerVariables(const QString &, const QStringList &, const QStringList &, ReplaceFor);
-    virtual bool supportsMetaBuild() { return true; }
-    virtual bool supportsMergedBuilds() { return true; }
-    virtual bool mergeBuildProject(MakefileGenerator *other);
+    QString replaceExtraCompilerVariables(const QString &, const QStringList &, const QStringList &, ReplaceFor) override;
+    QString extraCompilerName(const ProString &extraCompiler, const QStringList &inputs,
+                              const QStringList &outputs);
+    bool supportsMetaBuild() override { return true; }
+    bool supportsMergedBuilds() override { return true; }
+    bool mergeBuildProject(MakefileGenerator *other) override;
 
-    virtual bool openOutput(QFile &file, const QString &build) const;
+    bool openOutput(QFile &file, const QString &build) const override;
 
     virtual void initProject();
     void initConfiguration();
@@ -131,6 +134,7 @@ private:
     ProString firstInputFileName(const ProString &extraCompilerName) const;
     QString firstExpandedOutputFileName(const ProString &extraCompilerName);
     void createCustomBuildToolFakeFile(const QString &cbtFilePath, const QString &realOutFilePath);
+    bool otherFiltersContain(const QString &fileName) const;
     friend class VCFilter;
 };
 

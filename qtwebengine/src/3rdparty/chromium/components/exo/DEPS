@@ -7,6 +7,7 @@ include_rules = [
   "+device/gamepad",
   "+gpu",
   "+mojo/public/cpp",
+  "+services/ws/public/mojom",
   "+third_party/khronos",
   "+third_party/skia",
   "+ui",
@@ -14,6 +15,10 @@ include_rules = [
 
 specific_include_rules = {
   "run_all_unittests\.cc": [
-    "+mojo/edk/embedder/embedder.h",
+    "+mojo/core/embedder/embedder.h",
+  ],
+
+  "surface_unittest\.cc": [
+    "+components/viz/test",
   ],
 }

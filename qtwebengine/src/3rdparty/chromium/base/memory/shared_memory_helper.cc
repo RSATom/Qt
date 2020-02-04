@@ -11,6 +11,7 @@
 #include "base/debug/alias.h"
 #endif  // defined(OS_CHROMEOS)
 
+#include "base/stl_util.h"
 #include "base/threading/thread_restrictions.h"
 
 namespace base {
@@ -30,13 +31,13 @@ using ScopedPathUnlinker =
 
 #if !defined(OS_ANDROID)
 bool CreateAnonymousSharedMemory(const SharedMemoryCreateOptions& options,
-                                 ScopedFILE* fp,
+                                 ScopedFD* fd,
                                  ScopedFD* readonly_fd,
                                  FilePath* path) {
-#if !(defined(OS_MACOSX) && !defined(OS_IOS)) && !defined(OS_FUCHSIA)
+#if defined(OS_LINUX)
   // It doesn't make sense to have a open-existing private piece of shmem
   DCHECK(!options.open_existing_deprecated);
-#endif  // !(defined(OS_MACOSX) && !defined(OS_IOS)
+#endif  // defined(OS_LINUX)
   // Q: Why not use the shm_open() etc. APIs?
   // A: Because they're limited to 4mb on OS X.  FFFFFFFUUUUUUUUUUU
   FilePath directory;
@@ -44,9 +45,9 @@ bool CreateAnonymousSharedMemory(const SharedMemoryCreateOptions& options,
   if (!GetShmemTempDir(options.executable, &directory))
     return false;
 
-  fp->reset(base::CreateAndOpenTemporaryFileInDir(directory, path));
+  fd->reset(base::CreateAndOpenFdForTemporaryFileInDir(directory, path));
 
-  if (!*fp)
+  if (!fd->is_valid())
     return false;
 
   // Deleting the file prevents anyone else from mapping it in (making it
@@ -59,20 +60,20 @@ bool CreateAnonymousSharedMemory(const SharedMemoryCreateOptions& options,
     readonly_fd->reset(HANDLE_EINTR(open(path->value().c_str(), O_RDONLY)));
     if (!readonly_fd->is_valid()) {
       DPLOG(ERROR) << "open(\"" << path->value() << "\", O_RDONLY) failed";
-      fp->reset();
+      fd->reset();
       return false;
     }
   }
   return true;
 }
 
-bool PrepareMapFile(ScopedFILE fp,
+bool PrepareMapFile(ScopedFD fd,
                     ScopedFD readonly_fd,
                     int* mapped_file,
                     int* readonly_mapped_file) {
   DCHECK_EQ(-1, *mapped_file);
   DCHECK_EQ(-1, *readonly_mapped_file);
-  if (fp == NULL)
+  if (!fd.is_valid())
     return false;
 
   // This function theoretically can block on the disk, but realistically
@@ -82,7 +83,7 @@ bool PrepareMapFile(ScopedFILE fp,
 
   if (readonly_fd.is_valid()) {
     struct stat st = {};
-    if (fstat(fileno(fp.get()), &st))
+    if (fstat(fd.get(), &st))
       NOTREACHED();
 
     struct stat readonly_st = {};
@@ -94,10 +95,9 @@ bool PrepareMapFile(ScopedFILE fp,
     }
   }
 
-  *mapped_file = HANDLE_EINTR(dup(fileno(fp.get())));
+  *mapped_file = HANDLE_EINTR(dup(fd.get()));
   if (*mapped_file == -1) {
-    NOTREACHED() << "Call to dup failed, errno=" << errno;
-
+    DPCHECK(false) << "dup failed";
 #if defined(OS_CHROMEOS)
     if (errno == EMFILE) {
       // We're out of file descriptors and are probably about to crash somewhere
@@ -130,16 +130,16 @@ bool PrepareMapFile(ScopedFILE fp,
       // begins.
       crash_ptr = strncpy(crash_ptr, kFileDataMarker, strlen(kFileDataMarker));
       for (int i = original_fd_limit; i >= 0; --i) {
-        memset(buf, 0, arraysize(buf));
-        memset(fd_path, 0, arraysize(fd_path));
-        snprintf(fd_path, arraysize(fd_path) - 1, "/proc/self/fd/%d", i);
-        ssize_t count = readlink(fd_path, buf, arraysize(buf) - 1);
+        memset(buf, 0, base::size(buf));
+        memset(fd_path, 0, base::size(fd_path));
+        snprintf(fd_path, base::size(fd_path) - 1, "/proc/self/fd/%d", i);
+        ssize_t count = readlink(fd_path, buf, base::size(buf) - 1);
         if (count < 0) {
           PLOG(ERROR) << "readlink failed for: " << fd_path;
           continue;
         }
 
-        if (crash_ptr + count + 1 < crash_buffer + arraysize(crash_buffer)) {
+        if (crash_ptr + count + 1 < crash_buffer + base::size(crash_buffer)) {
           crash_ptr = strncpy(crash_ptr, buf, count + 1);
         }
         LOG(ERROR) << i << ": " << buf;

@@ -8,6 +8,7 @@
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -52,7 +53,7 @@ GURL CreateRawFileSystemURL(const std::string& type_str,
 
 class FileSystemContextTest : public testing::Test {
  public:
-  FileSystemContextTest() {}
+  FileSystemContextTest() = default;
 
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
@@ -61,7 +62,6 @@ class FileSystemContextTest : public testing::Test {
 
     mock_quota_manager_ = new MockQuotaManager(
         false /* is_incognito */, data_dir_.GetPath(),
-        base::ThreadTaskRunnerHandle::Get().get(),
         base::ThreadTaskRunnerHandle::Get().get(), storage_policy_.get());
   }
 
@@ -102,12 +102,12 @@ class FileSystemContextTest : public testing::Test {
   scoped_refptr<MockQuotaManager> mock_quota_manager_;
 };
 
-// It is not valid to pass NULL ExternalMountPoints to FileSystemContext on
+// It is not valid to pass nullptr ExternalMountPoints to FileSystemContext on
 // ChromeOS.
 #if !defined(OS_CHROMEOS)
 TEST_F(FileSystemContextTest, NullExternalMountPoints) {
   scoped_refptr<FileSystemContext> file_system_context(
-      CreateFileSystemContextForTest(NULL));
+      CreateFileSystemContextForTest(nullptr));
 
   // Cracking system external mount and isolated mount points should work.
   std::string isolated_name = "root";
@@ -172,7 +172,7 @@ TEST_F(FileSystemContextTest, FileSystemContextKeepsMountPointsAlive) {
       CreateFileSystemContextForTest(mount_points.get()));
 
   // Release a MountPoints reference created in the test.
-  mount_points = NULL;
+  mount_points = nullptr;
 
   // FileSystemContext should keep a reference to the |mount_points|, so it
   // should be able to resolve the URL.
@@ -290,7 +290,7 @@ TEST_F(FileSystemContextTest, CrackFileSystemURL) {
        FPL(""), std::string()},
   };
 
-  for (size_t i = 0; i < arraysize(kTestCases); ++i) {
+  for (size_t i = 0; i < base::size(kTestCases); ++i) {
     const base::FilePath virtual_path =
         base::FilePath::FromUTF8Unsafe(
             kTestCases[i].root).Append(kVirtualPathNoRoot);

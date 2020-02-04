@@ -10,10 +10,11 @@
 
 #include "base/numerics/safe_conversions.h"
 #include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "cc/base/math_util.h"
-#include "cc/debug/traced_value.h"
 #include "cc/tiles/tile_manager.h"
+#include "components/viz/common/resources/resource_sizes.h"
+#include "components/viz/common/traced_value.h"
 
 namespace cc {
 
@@ -49,7 +50,7 @@ Tile::~Tile() {
 }
 
 void Tile::AsValueInto(base::trace_event::TracedValue* value) const {
-  TracedValue::MakeDictIntoImplicitSnapshotWithCategory(
+  viz::TracedValue::MakeDictIntoImplicitSnapshotWithCategory(
       TRACE_DISABLED_BY_DEFAULT("cc.debug"), value, "cc::Tile", this);
   value->SetDouble("contents_scale", contents_scale_key());
 
@@ -80,8 +81,8 @@ size_t Tile::GPUMemoryUsageInBytes() const {
   if (draw_info_.resource_) {
     // We can use UncheckedSizeInBytes, since the tile size is determined by the
     // compositor.
-    return ResourceUtil::UncheckedSizeInBytes<size_t>(
-        draw_info_.resource_->size(), draw_info_.resource_->format());
+    return viz::ResourceSizes::UncheckedSizeInBytes<size_t>(
+        draw_info_.resource_size(), draw_info_.resource_format());
   }
   return 0;
 }

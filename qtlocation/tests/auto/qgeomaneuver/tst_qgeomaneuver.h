@@ -69,6 +69,7 @@ private Q_SLOTS:
     void waypoint_data();
     void isValid();
     void operators();
+    void alternateImplementation();
     //End Unit Test for QGeoRouteManeuver
 
 private:

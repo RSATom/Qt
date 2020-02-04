@@ -31,14 +31,16 @@
     \brief Exposes C++ functionality to Qt Quick.
     \ingroup modules
 
-    The Qt WebEngine module exposes C++ functionality to Qt Quick.
+    The \QWE module exposes C++ functionality to Qt Quick.
 
     To include the definitions of the module's classes, use the
     following directive:
 
     \snippet qtwebengine_build_snippet.qdoc 1
 
+    \if !defined(qtforpython)
     To link against the module, add the following to your qmake project file:
 
     \snippet qtwebengine_build_snippet.qdoc 0
+    \endif
 */

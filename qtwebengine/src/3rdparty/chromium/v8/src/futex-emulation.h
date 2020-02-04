@@ -35,6 +35,18 @@ class Handle;
 class Isolate;
 class JSArrayBuffer;
 
+class AtomicsWaitWakeHandle {
+ public:
+  explicit AtomicsWaitWakeHandle(Isolate* isolate) : isolate_(isolate) {}
+
+  void Wake();
+  inline bool has_stopped() const { return stopped_; }
+
+ private:
+  Isolate* isolate_;
+  bool stopped_ = false;
+};
+
 class FutexWaitListNode {
  public:
   FutexWaitListNode()
@@ -50,12 +62,17 @@ class FutexWaitListNode {
  private:
   friend class FutexEmulation;
   friend class FutexWaitList;
+  friend class ResetWaitingOnScopeExit;
 
   base::ConditionVariable cond_;
+  // prev_ and next_ are protected by FutexEmulation::mutex_.
   FutexWaitListNode* prev_;
   FutexWaitListNode* next_;
   void* backing_store_;
   size_t wait_addr_;
+  // waiting_ and interrupted_ are protected by FutexEmulation::mutex_
+  // if this node is currently contained in FutexEmulation::wait_list_
+  // or an AtomicsWaitWakeHandle has access to it.
   bool waiting_;
   bool interrupted_;
 
@@ -79,6 +96,16 @@ class FutexWaitList {
   DISALLOW_COPY_AND_ASSIGN(FutexWaitList);
 };
 
+class ResetWaitingOnScopeExit {
+ public:
+  explicit ResetWaitingOnScopeExit(FutexWaitListNode* node) : node_(node) {}
+  ~ResetWaitingOnScopeExit() { node_->waiting_ = false; }
+
+ private:
+  FutexWaitListNode* node_;
+
+  DISALLOW_COPY_AND_ASSIGN(ResetWaitingOnScopeExit);
+};
 
 class FutexEmulation : public AllStatic {
  public:
@@ -91,25 +118,44 @@ class FutexEmulation : public AllStatic {
   // |rel_timeout_ms| can be Infinity.
   // If woken, return "ok", otherwise return "timed-out". The initial check and
   // the decision to wait happen atomically.
-  static Object* Wait(Isolate* isolate, Handle<JSArrayBuffer> array_buffer,
-                      size_t addr, int32_t value, double rel_timeout_ms);
+  static Object WaitJs(Isolate* isolate, Handle<JSArrayBuffer> array_buffer,
+                       size_t addr, int32_t value, double rel_timeout_ms);
+
+  // Same as WaitJs above except it returns 0 (ok), 1 (not equal) and 2 (timed
+  // out) as expected by Wasm.
+  static Object Wait32(Isolate* isolate, Handle<JSArrayBuffer> array_buffer,
+                       size_t addr, int32_t value, double rel_timeout_ms);
+
+  // Same as Wait32 above except it checks for an int64_t value in the
+  // array_buffer.
+  static Object Wait64(Isolate* isolate, Handle<JSArrayBuffer> array_buffer,
+                       size_t addr, int64_t value, double rel_timeout_ms);
 
   // Wake |num_waiters_to_wake| threads that are waiting on the given |addr|.
   // |num_waiters_to_wake| can be kWakeAll, in which case all waiters are
   // woken. The rest of the waiters will continue to wait. The return value is
   // the number of woken waiters.
-  static Object* Wake(Isolate* isolate, Handle<JSArrayBuffer> array_buffer,
-                      size_t addr, uint32_t num_waiters_to_wake);
+  static Object Wake(Handle<JSArrayBuffer> array_buffer, size_t addr,
+                     uint32_t num_waiters_to_wake);
 
   // Return the number of threads waiting on |addr|. Should only be used for
   // testing.
-  static Object* NumWaitersForTesting(Isolate* isolate,
-                                      Handle<JSArrayBuffer> array_buffer,
-                                      size_t addr);
+  static Object NumWaitersForTesting(Handle<JSArrayBuffer> array_buffer,
+                                     size_t addr);
 
  private:
   friend class FutexWaitListNode;
+  friend class AtomicsWaitWakeHandle;
 
+  template <typename T>
+  static Object Wait(Isolate* isolate, Handle<JSArrayBuffer> array_buffer,
+                     size_t addr, T value, double rel_timeout_ms);
+
+  // `mutex_` protects the composition of `wait_list_` (i.e. no elements may be
+  // added or removed without holding this mutex), as well as the `waiting_`
+  // and `interrupted_` fields for each individual list node that is currently
+  // part of the list. It must be the mutex used together with the `cond_`
+  // condition variable of such nodes.
   static base::LazyMutex mutex_;
   static base::LazyInstance<FutexWaitList>::type wait_list_;
 };

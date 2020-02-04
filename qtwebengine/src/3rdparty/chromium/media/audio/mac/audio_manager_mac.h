@@ -16,6 +16,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "media/audio/audio_manager_base.h"
 #include "media/audio/mac/audio_device_listener_mac.h"
 
@@ -60,6 +61,8 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
       const AudioParameters& params,
       const std::string& device_id,
       const LogCallback& log_callback) override;
+
+  std::string GetDefaultInputDeviceID() override;
   std::string GetDefaultOutputDeviceID() override;
 
   // Used to track destruction of input and output streams.
@@ -75,6 +78,9 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
 
   static int HardwareSampleRateForDevice(AudioDeviceID device_id);
   static int HardwareSampleRate();
+  static bool GetDefaultOutputDevice(AudioDeviceID* device);
+  static AudioDeviceID GetAudioDeviceIdByUId(bool is_input,
+                                             const std::string& device_id);
 
   // OSX has issues with starting streams as the system goes into suspend and
   // immediately after it wakes up from resume.  See http://crbug.com/160920.
@@ -84,7 +90,7 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
   // Streams should consult ShouldDeferStreamStart() and if true check the value
   // again after |kStartDelayInSecsForPowerEvents| has elapsed. If false, the
   // stream may be started immediately.
-  // TOOD(henrika): track UMA statistics related to defer start to come up with
+  // TODO(henrika): track UMA statistics related to defer start to come up with
   // a suitable delay value.
   enum { kStartDelayInSecsForPowerEvents = 5 };
   bool ShouldDeferStreamStart() const;
@@ -112,12 +118,38 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
                              bool* size_was_changed,
                              size_t* io_buffer_frame_size);
 
+  // Returns the latency for the given audio unit and device. Total latency is
+  // the sum of the latency of the AudioUnit, device, and stream. If any one
+  // component of the latency can't be retrieved it is considered as zero.
+  static base::TimeDelta GetHardwareLatency(AudioUnit audio_unit,
+                                            AudioDeviceID device_id,
+                                            AudioObjectPropertyScope scope,
+                                            int sample_rate);
+
   // Number of constructed output and input streams.
   size_t output_streams() const { return output_streams_.size(); }
   size_t low_latency_input_streams() const {
     return low_latency_input_streams_.size();
   }
   size_t basic_input_streams() const { return basic_input_streams_.size(); }
+
+  bool DeviceSupportsAmbientNoiseReduction(AudioDeviceID device_id);
+  bool SuppressNoiseReduction(AudioDeviceID device_id);
+  void UnsuppressNoiseReduction(AudioDeviceID device_id);
+
+  // The state of a single device for which we've tried to disable Ambient Noise
+  // Reduction. If the device initially has ANR enabled, it will be turned off
+  // as the suppression count goes from 0 to 1 and turned on again as the count
+  // returns to 0.
+  struct NoiseReductionState {
+    enum State { DISABLED, ENABLED };
+    State initial_state = DISABLED;
+    int suppression_count = 0;
+  };
+
+  // Keep track of the devices that we've changed the Ambient Noise Reduction
+  // setting on.
+  std::map<AudioDeviceID, NoiseReductionState> device_noise_reduction_states_;
 
  protected:
   AudioParameters GetPreferredOutputStreamParameters(
@@ -152,6 +184,8 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
   // account.
   bool IncreaseIOBufferSizeIfPossible(AudioDeviceID device_id);
 
+  std::string GetDefaultDeviceID(bool is_input);
+
   std::unique_ptr<AudioDeviceListenerMac> output_device_listener_;
 
   // Track the output sample-rate and the default output device
@@ -181,6 +215,8 @@ class MEDIA_EXPORT AudioManagerMac : public AudioManagerBase {
   // Set to true in the destructor. Ensures that methods that touches native
   // Core Audio APIs are not executed during shutdown.
   bool in_shutdown_;
+
+  base::WeakPtrFactory<AudioManagerMac> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioManagerMac);
 };

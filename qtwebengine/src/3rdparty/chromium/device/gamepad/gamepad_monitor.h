@@ -9,13 +9,12 @@
 #include "base/macros.h"
 #include "device/gamepad/gamepad_consumer.h"
 #include "device/gamepad/gamepad_export.h"
-#include "device/gamepad/public/interfaces/gamepad.mojom.h"
+#include "device/gamepad/public/mojom/gamepad.mojom.h"
 
 namespace device {
 
-class DEVICE_GAMEPAD_EXPORT GamepadMonitor
-    : public GamepadConsumer,
-      NON_EXPORTED_BASE(public mojom::GamepadMonitor) {
+class DEVICE_GAMEPAD_EXPORT GamepadMonitor : public GamepadConsumer,
+                                             public mojom::GamepadMonitor {
  public:
   GamepadMonitor();
   ~GamepadMonitor() override;
@@ -23,8 +22,10 @@ class DEVICE_GAMEPAD_EXPORT GamepadMonitor
   static void Create(mojom::GamepadMonitorRequest request);
 
   // GamepadConsumer implementation.
-  void OnGamepadConnected(unsigned index, const Gamepad& gamepad) override;
-  void OnGamepadDisconnected(unsigned index, const Gamepad& gamepad) override;
+  void OnGamepadConnected(uint32_t index, const Gamepad& gamepad) override;
+  void OnGamepadDisconnected(uint32_t index, const Gamepad& gamepad) override;
+  void OnGamepadButtonOrAxisChanged(uint32_t index,
+                                    const Gamepad& gamepad) override;
 
   // mojom::GamepadMonitor implementation.
   void GamepadStartPolling(GamepadStartPollingCallback callback) override;

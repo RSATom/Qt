@@ -5,22 +5,21 @@
 #ifndef CONTENT_RENDERER_ACCESSIBILITY_RENDER_ACCESSIBILITY_IMPL_H_
 #define CONTENT_RENDERER_ACCESSIBILITY_RENDER_ACCESSIBILITY_IMPL_H_
 
+#include <unordered_map>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/common/ax_content_node_data.h"
 #include "content/public/renderer/render_accessibility.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "content/renderer/accessibility/blink_ax_tree_source.h"
-#include "third_party/WebKit/public/web/WebAXObject.h"
+#include "third_party/blink/public/web/web_ax_context.h"
+#include "third_party/blink/public/web/web_ax_object.h"
 #include "ui/accessibility/ax_relative_bounds.h"
 #include "ui/accessibility/ax_tree.h"
 #include "ui/accessibility/ax_tree_serializer.h"
 #include "ui/gfx/geometry/rect_f.h"
-
-struct AccessibilityHostMsg_EventParams;
 
 namespace blink {
 class WebDocument;
@@ -29,6 +28,7 @@ class WebNode;
 
 namespace ui {
 struct AXActionData;
+struct AXEvent;
 }
 
 namespace content {
@@ -41,7 +41,7 @@ class RenderFrameImpl;
 // on-screen keyboard should be shown.
 //
 // An instance of this class belongs to RenderFrameImpl. Accessibility is
-// initialized based on the AccessibilityMode of RenderFrameImpl; it lazily
+// initialized based on the ui::AXMode of RenderFrameImpl; it lazily
 // starts as Off or EditableTextOnly depending on the operating system, and
 // switches to Complete if assistive technology is detected or a flag is set.
 //
@@ -61,12 +61,11 @@ class CONTENT_EXPORT RenderAccessibilityImpl
  public:
   // Request a one-time snapshot of the accessibility tree without
   // enabling accessibility if it wasn't already enabled.
-  static void SnapshotAccessibilityTree(
-      RenderFrameImpl* render_frame,
-      AXContentTreeUpdate* response);
+  static void SnapshotAccessibilityTree(RenderFrameImpl* render_frame,
+                                        AXContentTreeUpdate* response,
+                                        ui::AXMode ax_mode);
 
-  RenderAccessibilityImpl(RenderFrameImpl* render_frame,
-                          AccessibilityMode mode);
+  RenderAccessibilityImpl(RenderFrameImpl* render_frame, ui::AXMode mode);
   ~RenderAccessibilityImpl() override;
 
   // RenderAccessibility implementation.
@@ -75,12 +74,14 @@ class CONTENT_EXPORT RenderAccessibilityImpl
   void OnPluginRootNodeUpdated() override;
 
   // RenderFrameObserver implementation.
+  void DidCreateNewDocument() override;
   void AccessibilityModeChanged() override;
   bool OnMessageReceived(const IPC::Message& message) override;
 
   // Called when an accessibility notification occurs in Blink.
   void HandleWebAccessibilityEvent(const blink::WebAXObject& obj,
-                                   blink::WebAXEvent event);
+                                   ax::mojom::Event event);
+  void MarkWebAXObjectDirty(const blink::WebAXObject& obj, bool subtree);
 
   // Called when a new find in page result is highlighted.
   void HandleAccessibilityFindInPageResult(
@@ -93,12 +94,9 @@ class CONTENT_EXPORT RenderAccessibilityImpl
 
   void AccessibilityFocusedNodeChanged(const blink::WebNode& node);
 
-  // This can be called before deleting a RenderAccessibilityImpl instance due
-  // to the accessibility mode changing, as opposed to during frame destruction
-  // (when there'd be no point).
-  void DisableAccessibility();
-
-  void HandleAXEvent(const blink::WebAXObject& obj, ui::AXEvent event);
+  void HandleAXEvent(const blink::WebAXObject& obj,
+                     ax::mojom::Event event,
+                     int action_request_id = -1);
 
  protected:
   // Returns the main top-level document for this page, or NULL if there's
@@ -113,10 +111,12 @@ class CONTENT_EXPORT RenderAccessibilityImpl
   // versions. If any have moved, send an IPC with the new locations.
   void SendLocationChanges();
 
-  // The RenderFrameImpl that owns us.
-  RenderFrameImpl* render_frame_;
-
  private:
+  struct DirtyObject {
+    blink::WebAXObject obj;
+    ax::mojom::EventFrom event_from;
+  };
+
   // RenderFrameObserver implementation.
   void OnDestruct() override;
 
@@ -126,15 +126,33 @@ class CONTENT_EXPORT RenderAccessibilityImpl
   void OnFatalError();
   void OnReset(int reset_token);
 
-  void OnHitTest(const gfx::Point& point, ui::AXEvent event_to_fire);
-  void OnSetAccessibilityFocus(const blink::WebAXObject& obj);
+  void OnHitTest(const gfx::Point& point,
+                 ax::mojom::Event event_to_fire,
+                 int action_request_id);
+  void OnLoadInlineTextBoxes(const blink::WebAXObject& obj);
   void OnGetImageData(const blink::WebAXObject& obj, const gfx::Size& max_size);
   void AddPluginTreeToUpdate(AXContentTreeUpdate* update);
+  void Scroll(const blink::WebAXObject& target,
+              ax::mojom::Action scroll_action);
   void ScrollPlugin(int id_to_make_visible);
+  ax::mojom::EventFrom GetEventFrom();
+  void ScheduleSendAccessibilityEventsIfNeeded();
+  void RecordImageMetrics(AXContentTreeUpdate* update);
+
+  // The RenderFrameImpl that owns us.
+  RenderFrameImpl* render_frame_;
+
+  // This keeps accessibility enabled as long as it lives.
+  std::unique_ptr<blink::WebAXContext> ax_context_;
 
   // Events from Blink are collected until they are ready to be
   // sent to the browser.
-  std::vector<AccessibilityHostMsg_EventParams> pending_events_;
+  std::vector<ui::AXEvent> pending_events_;
+
+  // Objects that need to be re-serialized, the next time
+  // we send an event bundle to the browser - but don't specifically need
+  // an event fired.
+  std::vector<DirtyObject> dirty_objects_;
 
   // The adapter that exposes Blink's accessibility tree to AXTreeSerializer.
   BlinkAXTreeSource tree_source_;
@@ -153,7 +171,7 @@ class CONTENT_EXPORT RenderAccessibilityImpl
   PluginAXTreeSource* plugin_tree_source_;
 
   // Current location of every object, so we can detect when it moves.
-  base::hash_map<int, ui::AXRelativeBounds> locations_;
+  std::unordered_map<int, ui::AXRelativeBounds> locations_;
 
   // The most recently observed scroll offset of the root document element.
   // TODO(dmazzoni): remove once https://bugs.webkit.org/show_bug.cgi?id=73460

@@ -10,8 +10,9 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "components/history/core/browser/history_types.h"
-#include "sql/connection.h"
+#include "sql/database.h"
 #include "sql/init_status.h"
 #include "sql/meta_table.h"
 #include "sql/statement.h"
@@ -28,7 +29,7 @@ class HistoryBackendClient;
 
 // The minimum number of days after which last_requested field gets updated.
 // All earlier updates are ignored.
-static const int kFaviconUpdateLastRequestedAfterDays = 14;
+static const int kFaviconUpdateLastRequestedAfterDays = 10;
 
 // This database interface is owned by the history backend and runs on the
 // history thread. It is a totally separate component from history partially
@@ -62,9 +63,13 @@ class ThumbnailDatabase {
   // unused space in the file. It can be VERY SLOW.
   void Vacuum();
 
-  // Try to trim the cache memory used by the database.  If |aggressively| is
-  // true try to trim all unused cache, otherwise trim by half.
-  void TrimMemory(bool aggressively);
+  // Release all non-essential memory associated with this database connection.
+  void TrimMemory();
+
+  // Get all on-demand favicon bitmaps that have been last requested prior to
+  // |threshold|.
+  std::map<favicon_base::FaviconID, IconMappingsForExpiry>
+  GetOldOnDemandFavicons(base::Time threshold);
 
   // Favicon Bitmaps -----------------------------------------------------------
 
@@ -131,6 +136,11 @@ class ThumbnailDatabase {
   // of the bitmaps for |icon_id| to be out of date.
   bool SetFaviconOutOfDate(favicon_base::FaviconID icon_id);
 
+  // Retrieves the newest |last_updated| time across all bitmaps for |icon_id|.
+  // Returns true if successful and if there is at least one bitmap.
+  bool GetFaviconLastUpdatedTime(favicon_base::FaviconID icon_id,
+                                 base::Time* last_updated);
+
   // Mark all bitmaps of type ON_DEMAND at |icon_url| as requested at |time|.
   // This postpones their automatic eviction from the database. Not all calls
   // end up in a write into the DB:
@@ -181,15 +191,26 @@ class ThumbnailDatabase {
   // Returns true if there are icon mappings for the given page and icon types.
   // The matched icon mappings are returned in the |mapping_data| parameter if
   // it is not NULL.
-  bool GetIconMappingsForPageURL(const GURL& page_url,
-                                 int required_icon_types,
-                                 std::vector<IconMapping>* mapping_data);
+  bool GetIconMappingsForPageURL(
+      const GURL& page_url,
+      const favicon_base::IconTypeSet& required_icon_types,
+      std::vector<IconMapping>* mapping_data);
 
   // Returns true if there is any matched icon mapping for the given page.
   // All matched icon mappings are returned in descent order of IconType if
   // mapping_data is not NULL.
   bool GetIconMappingsForPageURL(const GURL& page_url,
                                  std::vector<IconMapping>* mapping_data);
+
+  // Given |url|, returns the |page_url| page mapped to an icon with
+  // |required_icon_types|, where |page_url| has host = url.host(). This allows
+  // for icons to be retrieved when a full URL is not available. For example,
+  // |url| = http://www.google.com would match
+  // |page_url| = https://www.google.com/search. The returned optional will be
+  // empty if no such |page_url| exists.
+  base::Optional<GURL> FindFirstPageURLForHost(
+      const GURL& url,
+      const favicon_base::IconTypeSet& required_icon_types);
 
   // Adds a mapping between the given page_url and icon_id.
   // Returns the new mapping id if the adding succeeds, otherwise 0 is returned.
@@ -199,6 +220,10 @@ class ThumbnailDatabase {
   // Deletes the icon mapping entries for the given page url.
   // Returns true if the deletion succeeded.
   bool DeleteIconMappings(const GURL& page_url);
+
+  // Deletes the icon mapping entries for the given favicon ID.
+  // Returns true if the deletion succeeded.
+  bool DeleteIconMappingsForFaviconId(favicon_base::FaviconID id);
 
   // Deletes the icon mapping with |mapping_id|.
   // Returns true if the deletion succeeded.
@@ -236,6 +261,12 @@ class ThumbnailDatabase {
   // so failure causes any outer transaction to be rolled back.
   bool RetainDataForPageUrls(const std::vector<GURL>& urls_to_keep);
 
+  // For historical reasons, and for backward compatibility, the icon type
+  // values stored in the DB are powers of two. Conversion functions
+  // exposed publicly for testing.
+  static int ToPersistedIconType(favicon_base::IconType icon_type);
+  static favicon_base::IconType FromPersistedIconType(int icon_type);
+
  private:
   FRIEND_TEST_ALL_PREFIXES(ThumbnailDatabaseTest, RetainDataForPageUrls);
   FRIEND_TEST_ALL_PREFIXES(ThumbnailDatabaseTest,
@@ -252,7 +283,7 @@ class ThumbnailDatabase {
   // it is created.
   // |db| is the database to open.
   // |db_name| is a path to the database file.
-  sql::InitStatus OpenDatabase(sql::Connection* db,
+  sql::InitStatus OpenDatabase(sql::Database* db,
                                const base::FilePath& db_name);
 
   // Helper function to implement internals of Init().  This allows
@@ -275,7 +306,7 @@ class ThumbnailDatabase {
   // Returns true if the |favicons| database is missing a column.
   bool IsFaviconDBStructureIncorrect();
 
-  sql::Connection db_;
+  sql::Database db_;
   sql::MetaTable meta_table_;
 
   HistoryBackendClient* backend_client_;

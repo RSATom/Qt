@@ -36,6 +36,7 @@
 
 #include "qquickmaterialbusyindicator_p.h"
 
+#include <QtCore/qmath.h>
 #include <QtCore/qeasingcurve.h>
 #include <QtGui/qpainter.h>
 #include <QtQuick/qsgimagenode.h>
@@ -76,21 +77,16 @@ protected:
     void updateCurrentTime(int time) override;
 
 private:
-    int m_lastStartAngle;
-    int m_lastEndAngle;
-    qreal m_width;
-    qreal m_height;
-    qreal m_devicePixelRatio;
+    int m_lastStartAngle = 0;
+    int m_lastEndAngle = 0;
+    qreal m_width = 0;
+    qreal m_height = 0;
+    qreal m_devicePixelRatio = 1;
     QColor m_color;
 };
 
 QQuickMaterialBusyIndicatorNode::QQuickMaterialBusyIndicatorNode(QQuickMaterialBusyIndicator *item)
-    : QQuickAnimatedNode(item),
-      m_lastStartAngle(0),
-      m_lastEndAngle(0),
-      m_width(0),
-      m_height(0),
-      m_devicePixelRatio(1)
+    : QQuickAnimatedNode(item)
 {
     setLoopCount(Infinite);
     setCurrentTime(item->elapsed());
@@ -124,7 +120,7 @@ void QQuickMaterialBusyIndicatorNode::updateCurrentTime(int time)
     QPen pen;
     QSGImageNode *textureNode = static_cast<QSGImageNode *>(firstChild());
     pen.setColor(m_color);
-    pen.setWidth(4 * m_devicePixelRatio);
+    pen.setWidth(qCeil(size / 12) * m_devicePixelRatio);
     painter.setPen(pen);
 
     const qreal percentageComplete = time / qreal(RotationAnimationDuration);
@@ -178,7 +174,7 @@ void QQuickMaterialBusyIndicatorNode::sync(QQuickItem *item)
 }
 
 QQuickMaterialBusyIndicator::QQuickMaterialBusyIndicator(QQuickItem *parent) :
-    QQuickItem(parent), m_elapsed(0), m_color(Qt::black)
+    QQuickItem(parent)
 {
     setFlag(ItemHasContents);
 }

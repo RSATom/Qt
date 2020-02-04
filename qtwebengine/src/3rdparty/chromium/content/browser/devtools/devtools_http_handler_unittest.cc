@@ -16,13 +16,17 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/devtools_manager_delegate.h"
 #include "content/public/browser/devtools_socket_factory.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
@@ -51,13 +55,13 @@ class DummyServerSocket : public net::ServerSocket {
   }
 
   int Accept(std::unique_ptr<net::StreamSocket>* socket,
-             const net::CompletionCallback& callback) override {
+             net::CompletionOnceCallback callback) override {
     return net::ERR_IO_PENDING;
   }
 };
 
 void QuitFromHandlerThread(const base::Closure& quit_closure) {
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, quit_closure);
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI}, quit_closure);
 }
 
 class DummyServerSocketFactory : public DevToolsSocketFactory {
@@ -68,14 +72,13 @@ class DummyServerSocketFactory : public DevToolsSocketFactory {
         quit_closure_2_(quit_closure_2) {}
 
   ~DummyServerSocketFactory() override {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE, quit_closure_2_);
+    base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI}, quit_closure_2_);
   }
 
  protected:
   std::unique_ptr<net::ServerSocket> CreateForHttpServer() override {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&QuitFromHandlerThread, quit_closure_1_));
+        FROM_HERE, base::BindOnce(&QuitFromHandlerThread, quit_closure_1_));
     return base::WrapUnique(new DummyServerSocket());
   }
 
@@ -98,7 +101,7 @@ class FailingServerSocketFactory : public DummyServerSocketFactory {
  private:
   std::unique_ptr<net::ServerSocket> CreateForHttpServer() override {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&QuitFromHandlerThread, quit_closure_1_));
+        FROM_HERE, base::BindOnce(&QuitFromHandlerThread, quit_closure_1_));
     return nullptr;
   }
 };
@@ -136,8 +139,7 @@ TEST_F(DevToolsHttpHandlerTest, TestStartStop) {
       new DummyServerSocketFactory(run_loop.QuitClosure(),
                                    run_loop_2.QuitClosure()));
   DevToolsAgentHost::StartRemoteDebuggingServer(
-      std::move(factory), std::string(), base::FilePath(), base::FilePath(),
-      std::string(), std::string());
+      std::move(factory), base::FilePath(), base::FilePath());
   // Our dummy socket factory will post a quit message once the server will
   // become ready.
   run_loop.Run();
@@ -153,8 +155,7 @@ TEST_F(DevToolsHttpHandlerTest, TestServerSocketFailed) {
                                      run_loop_2.QuitClosure()));
   LOG(INFO) << "Following error message is expected:";
   DevToolsAgentHost::StartRemoteDebuggingServer(
-      std::move(factory), std::string(), base::FilePath(), base::FilePath(),
-      std::string(), std::string());
+      std::move(factory), base::FilePath(), base::FilePath());
   // Our dummy socket factory will post a quit message once the server will
   // become ready.
   run_loop.Run();
@@ -175,8 +176,7 @@ TEST_F(DevToolsHttpHandlerTest, TestDevToolsActivePort) {
                                    run_loop_2.QuitClosure()));
 
   DevToolsAgentHost::StartRemoteDebuggingServer(
-      std::move(factory), std::string(), temp_dir.GetPath(), base::FilePath(),
-      std::string(), std::string());
+      std::move(factory), temp_dir.GetPath(), base::FilePath());
   // Our dummy socket factory will post a quit message once the server will
   // become ready.
   run_loop.Run();
@@ -191,8 +191,10 @@ TEST_F(DevToolsHttpHandlerTest, TestDevToolsActivePort) {
   EXPECT_TRUE(base::PathExists(active_port_file));
   std::string file_contents;
   EXPECT_TRUE(base::ReadFileToString(active_port_file, &file_contents));
+  std::vector<std::string> tokens = base::SplitString(
+      file_contents, "\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   int port = 0;
-  EXPECT_TRUE(base::StringToInt(file_contents, &port));
+  EXPECT_TRUE(base::StringToInt(tokens[0], &port));
   EXPECT_EQ(static_cast<int>(kDummyPort), port);
 }
 

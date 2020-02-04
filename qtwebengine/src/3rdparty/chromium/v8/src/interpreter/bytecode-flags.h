@@ -43,7 +43,8 @@ class CreateClosureFlags {
   class PretenuredBit : public BitField8<bool, 0, 1> {};
   class FastNewClosureBit : public BitField8<bool, PretenuredBit::kNext, 1> {};
 
-  static uint8_t Encode(bool pretenure, bool is_function_scope);
+  static uint8_t Encode(bool pretenure, bool is_function_scope,
+                        bool might_always_opt);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(CreateClosureFlags);
@@ -54,6 +55,7 @@ class CreateClosureFlags {
   V(String, string)            \
   V(Symbol, symbol)            \
   V(Boolean, boolean)          \
+  V(BigInt, bigint)            \
   V(Undefined, undefined)      \
   V(Function, function)        \
   V(Object, object)            \
@@ -78,9 +80,10 @@ class TestTypeOfFlags {
 
 class StoreLookupSlotFlags {
  public:
-  class LanguageModeBit : public BitField8<bool, 0, 1> {};
+  class LanguageModeBit : public BitField8<LanguageMode, 0, 1> {};
   class LookupHoistingModeBit
       : public BitField8<bool, LanguageModeBit::kNext, 1> {};
+  STATIC_ASSERT(LanguageModeSize <= LanguageModeBit::kNumValues);
 
   static uint8_t Encode(LanguageMode language_mode,
                         LookupHoistingMode lookup_hoisting_mode);

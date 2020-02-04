@@ -61,7 +61,7 @@ class Q_MULTIMEDIA_EXPORT QMediaPlayer : public QMediaObject
     Q_OBJECT
     Q_PROPERTY(QMediaContent media READ media WRITE setMedia NOTIFY mediaChanged)
     Q_PROPERTY(QMediaContent currentMedia READ currentMedia NOTIFY currentMediaChanged)
-    Q_PROPERTY(QMediaPlaylist * playlist READ playlist WRITE setPlaylist)
+    Q_PROPERTY(QMediaPlaylist* playlist READ playlist WRITE setPlaylist)
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(qint64 position READ position WRITE setPosition NOTIFY positionChanged)
     Q_PROPERTY(int volume READ volume WRITE setVolume NOTIFY volumeChanged)
@@ -73,7 +73,8 @@ class Q_MULTIMEDIA_EXPORT QMediaPlayer : public QMediaObject
     Q_PROPERTY(qreal playbackRate READ playbackRate WRITE setPlaybackRate NOTIFY playbackRateChanged)
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(MediaStatus mediaStatus READ mediaStatus NOTIFY mediaStatusChanged)
-    Q_PROPERTY(QAudio::Role audioRole READ audioRole WRITE setAudioRole)
+    Q_PROPERTY(QAudio::Role audioRole READ audioRole WRITE setAudioRole NOTIFY audioRoleChanged)
+    Q_PROPERTY(QString customAudioRole READ customAudioRole WRITE setCustomAudioRole NOTIFY customAudioRoleChanged)
     Q_PROPERTY(QString error READ errorString)
     Q_ENUMS(State)
     Q_ENUMS(MediaStatus)
@@ -119,7 +120,7 @@ public:
         MediaIsPlaylist
     };
 
-    explicit QMediaPlayer(QObject *parent = Q_NULLPTR, Flags flags = Flags());
+    explicit QMediaPlayer(QObject *parent = nullptr, Flags flags = Flags());
     ~QMediaPlayer();
 
     static QMultimedia::SupportEstimate hasSupport(const QString &mimeType,
@@ -162,6 +163,9 @@ public:
     QAudio::Role audioRole() const;
     void setAudioRole(QAudio::Role audioRole);
     QList<QAudio::Role> supportedAudioRoles() const;
+    QString customAudioRole() const;
+    void setCustomAudioRole(const QString &audioRole);
+    QStringList supportedCustomAudioRoles() const;
 
 public Q_SLOTS:
     void play();
@@ -174,7 +178,7 @@ public Q_SLOTS:
 
     void setPlaybackRate(qreal rate);
 
-    void setMedia(const QMediaContent &media, QIODevice *stream = Q_NULLPTR);
+    void setMedia(const QMediaContent &media, QIODevice *stream = nullptr);
     void setPlaylist(QMediaPlaylist *playlist);
 
     void setNetworkConfigurations(const QList<QNetworkConfiguration> &configurations);
@@ -200,6 +204,7 @@ Q_SIGNALS:
     void playbackRateChanged(qreal rate);
 
     void audioRoleChanged(QAudio::Role role);
+    void customAudioRoleChanged(const QString &role);
 
     void error(QMediaPlayer::Error error);
 

@@ -59,7 +59,7 @@ class IOSSensorPlugin : public QObject, public QSensorPluginInterface, public QS
     Q_PLUGIN_METADATA(IID "com.qt-project.Qt.QSensorPluginInterface/1.0" FILE "plugin.json")
     Q_INTERFACES(QSensorPluginInterface)
 public:
-    void registerSensors()
+    void registerSensors() override
     {
 #ifdef HAVE_COREMOTION
         QSensorManager::registerBackend(QAccelerometer::type, IOSAccelerometer::id, this);
@@ -78,7 +78,7 @@ public:
 #endif
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
 #ifdef HAVE_COREMOTION
         if (sensor->identifier() == IOSAccelerometer::id)

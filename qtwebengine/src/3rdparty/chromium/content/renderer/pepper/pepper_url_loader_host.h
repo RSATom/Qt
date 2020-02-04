@@ -11,13 +11,12 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/weak_ptr.h"
 #include "content/common/content_export.h"
 #include "ppapi/host/resource_host.h"
 #include "ppapi/proxy/resource_message_params.h"
 #include "ppapi/shared_impl/url_request_info_data.h"
 #include "ppapi/shared_impl/url_response_info_data.h"
-#include "third_party/WebKit/public/web/WebAssociatedURLLoaderClient.h"
+#include "third_party/blink/public/web/web_associated_url_loader_client.h"
 
 namespace blink {
 class WebAssociatedURLLoader;
@@ -45,14 +44,14 @@ class PepperURLLoaderHost : public ppapi::host::ResourceHost,
       ppapi::host::HostMessageContext* context) override;
 
   // blink::WebAssociatedURLLoaderClient implementation.
-  bool WillFollowRedirect(const blink::WebURLRequest& new_request,
+  bool WillFollowRedirect(const blink::WebURL& new_url,
                           const blink::WebURLResponse& redir_response) override;
   void DidSendData(unsigned long long bytes_sent,
                    unsigned long long total_bytes_to_be_sent) override;
   void DidReceiveResponse(const blink::WebURLResponse& response) override;
-  void DidDownloadData(int data_length) override;
+  void DidDownloadData(unsigned long long data_length) override;
   void DidReceiveData(const char* data, int data_length) override;
-  void DidFinishLoading(double finish_time) override;
+  void DidFinishLoading() override;
   void DidFail(const blink::WebURLError& error) override;
 
  private:
@@ -96,7 +95,6 @@ class PepperURLLoaderHost : public ppapi::host::ResourceHost,
 
   // Converts a WebURLResponse to a URLResponseInfo and saves it.
   void SaveResponse(const blink::WebURLResponse& response);
-  void DidDataFromWebURLResponse(const ppapi::URLResponseInfoData& data);
 
   // Sends the UpdateProgress message (if necessary) to the plugin.
   void UpdateProgress();
@@ -138,8 +136,6 @@ class PepperURLLoaderHost : public ppapi::host::ResourceHost,
   // PpapiPluginMsg_URLLoader_ReceivedResponse to the plugin, which introduces
   // ordering constraints on following messages to the plugin.
   bool pending_response_;
-
-  base::WeakPtrFactory<PepperURLLoaderHost> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PepperURLLoaderHost);
 };

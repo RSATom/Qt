@@ -14,18 +14,19 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
+#include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "content/browser/url_loader_factory_getter.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/appcache_service.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 
 namespace base {
 class FilePath;
-class SingleThreadTaskRunner;
 }  // namespace base
 
 namespace net {
@@ -39,7 +40,6 @@ class SpecialStoragePolicy;
 namespace content {
 FORWARD_DECLARE_TEST(AppCacheServiceImplTest, ScheduleReinitialize);
 class AppCacheBackendImpl;
-class AppCacheExecutableHandlerFactory;
 class AppCacheQuotaClient;
 class AppCachePolicy;
 class AppCacheServiceImplTest;
@@ -65,9 +65,9 @@ class CONTENT_EXPORT AppCacheStorageReference
 // Class that manages the application cache service. Sends notifications
 // to many frontends.  One instance per user-profile. Each instance has
 // exclusive access to its cache_directory on disk.
-class CONTENT_EXPORT AppCacheServiceImpl
-    : public AppCacheService {
+class CONTENT_EXPORT AppCacheServiceImpl : public AppCacheService {
  public:
+  using OnceCompletionCallback = base::OnceCallback<void(int)>;
 
   class CONTENT_EXPORT Observer {
    public:
@@ -87,9 +87,7 @@ class CONTENT_EXPORT AppCacheServiceImpl
   explicit AppCacheServiceImpl(storage::QuotaManagerProxy* quota_manager_proxy);
   ~AppCacheServiceImpl() override;
 
-  void Initialize(
-      const base::FilePath& cache_directory,
-      const scoped_refptr<base::SingleThreadTaskRunner>& cache_thread);
+  void Initialize(const base::FilePath& cache_directory);
 
   void AddObserver(Observer* observer) {
     observers_.AddObserver(observer);
@@ -105,15 +103,15 @@ class CONTENT_EXPORT AppCacheServiceImpl
 
   // AppCacheService implementation:
   void GetAllAppCacheInfo(AppCacheInfoCollection* collection,
-                          const net::CompletionCallback& callback) override;
+                          OnceCompletionCallback callback) override;
   void DeleteAppCacheGroup(const GURL& manifest_url,
-                           const net::CompletionCallback& callback) override;
+                           net::CompletionOnceCallback callback) override;
 
   // Deletes all appcaches for the origin, 'callback' is invoked upon
   // completion. This method always completes asynchronously.
   // (virtual for unit testing)
-  virtual void DeleteAppCachesForOrigin(
-      const GURL& origin, const net::CompletionCallback& callback);
+  virtual void DeleteAppCachesForOrigin(const url::Origin& origin,
+                                        net::CompletionOnceCallback callback);
 
   // Checks the integrity of 'response_id' by reading the headers and data.
   // If it cannot be read, the cache group for 'manifest_url' is deleted.
@@ -138,18 +136,6 @@ class CONTENT_EXPORT AppCacheServiceImpl
     appcache_policy_ = policy;
   }
 
-  // The factory may be null, in which case invocations of exe handlers
-  // will result in an error response.
-  // The service does NOT assume ownership of the factory, it is the callers
-  // responsibility to ensure that the pointer remains valid while set.
-  AppCacheExecutableHandlerFactory* handler_factory() const {
-    return handler_factory_;
-  }
-  void set_handler_factory(
-      AppCacheExecutableHandlerFactory* factory) {
-    handler_factory_ = factory;
-  }
-
   storage::SpecialStoragePolicy* special_storage_policy() const {
     return special_storage_policy_.get();
   }
@@ -166,10 +152,10 @@ class CONTENT_EXPORT AppCacheServiceImpl
   // Each child process in chrome uses a distinct backend instance.
   // See chrome/browser/AppCacheDispatcherHost.
   void RegisterBackend(AppCacheBackendImpl* backend_impl);
-  void UnregisterBackend(AppCacheBackendImpl* backend_impl);
+  virtual void UnregisterBackend(AppCacheBackendImpl* backend_impl);
   AppCacheBackendImpl* GetBackend(int id) const {
-    BackendMap::const_iterator it = backends_.find(id);
-    return (it != backends_.end()) ? it->second : NULL;
+    auto it = backends_.find(id);
+    return (it != backends_.end()) ? it->second : nullptr;
   }
 
   AppCacheStorage* storage() const { return storage_.get(); }
@@ -181,6 +167,18 @@ class CONTENT_EXPORT AppCacheServiceImpl
   // Disables the exit-time deletion of session-only data.
   void set_force_keep_session_state() { force_keep_session_state_ = true; }
   bool force_keep_session_state() const { return force_keep_session_state_; }
+
+  // The following two functions are invoked in the network service world to
+  // set/get a pointer to the URLLoaderFactoryGetter instance which is used to
+  // get to the network URL loader factory.
+  void set_url_loader_factory_getter(
+      URLLoaderFactoryGetter* loader_factory_getter) {
+    url_loader_factory_getter_ = loader_factory_getter;
+  }
+
+  URLLoaderFactoryGetter* url_loader_factory_getter() const {
+    return url_loader_factory_getter_.get();
+  }
 
  protected:
   friend class content::AppCacheServiceImplTest;
@@ -194,23 +192,18 @@ class CONTENT_EXPORT AppCacheServiceImpl
   class GetInfoHelper;
   class CheckResponseHelper;
 
-  using PendingAsyncHelpers =
-      std::map<AsyncHelper*, std::unique_ptr<AsyncHelper>>;
-  using BackendMap = std::map<int, AppCacheBackendImpl*>;
-
   void Reinitialize();
 
   base::FilePath cache_directory_;
   scoped_refptr<base::SequencedTaskRunner> db_task_runner_;
-  scoped_refptr<base::SingleThreadTaskRunner> cache_thread_;
   AppCachePolicy* appcache_policy_;
   AppCacheQuotaClient* quota_client_;
-  AppCacheExecutableHandlerFactory* handler_factory_;
   std::unique_ptr<AppCacheStorage> storage_;
   scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy_;
   scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy_;
-  PendingAsyncHelpers pending_helpers_;
-  BackendMap backends_;  // One 'backend' per child process.
+  std::map<AsyncHelper*, std::unique_ptr<AsyncHelper>> pending_helpers_;
+  // One 'backend' per child process.
+  std::map<int, AppCacheBackendImpl*> backends_;
   // Context for use during cache updates.
   net::URLRequestContext* request_context_;
   // If true, nothing (not even session-only data) should be deleted on exit.
@@ -218,7 +211,12 @@ class CONTENT_EXPORT AppCacheServiceImpl
   base::Time last_reinit_time_;
   base::TimeDelta next_reinit_delay_;
   base::OneShotTimer reinit_timer_;
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
+
+  // In the network service world contains the pointer to the
+  // URLLoaderFactoryGetter instance which is used to get to the network
+  // URL loader factory.
+  scoped_refptr<URLLoaderFactoryGetter> url_loader_factory_getter_;
 
  private:
   base::WeakPtrFactory<AppCacheServiceImpl> weak_factory_;

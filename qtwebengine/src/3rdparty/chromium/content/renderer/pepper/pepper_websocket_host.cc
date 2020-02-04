@@ -14,11 +14,11 @@
 #include "ppapi/host/host_message_context.h"
 #include "ppapi/host/ppapi_host.h"
 #include "ppapi/proxy/ppapi_messages.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/WebURL.h"
-#include "third_party/WebKit/public/web/WebArrayBuffer.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebPluginContainer.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/web/web_array_buffer.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_plugin_container.h"
 
 using blink::WebArrayBuffer;
 using blink::WebDocument;
@@ -216,10 +216,8 @@ int32_t PepperWebSocketHost::OnHostMsgConnect(
 
   // Validate protocols.
   std::string protocol_string;
-  for (std::vector<std::string>::const_iterator vector_it = protocols.begin();
-       vector_it != protocols.end();
+  for (auto vector_it = protocols.begin(); vector_it != protocols.end();
        ++vector_it) {
-
     // Check containing characters.
     for (std::string::const_iterator string_it = vector_it->begin();
          string_it != vector_it->end();

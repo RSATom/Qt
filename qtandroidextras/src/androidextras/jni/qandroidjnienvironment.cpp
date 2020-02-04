@@ -83,6 +83,19 @@ QT_BEGIN_NAMESPACE
     Returns the JNI Environment pointer.
  */
 
+/*!
+    \fn jclass QAndroidJniEnvironment::findClass(const char *className)
+
+    Searches for \a className using all available class loaders. Qt on Android
+    uses a custom class loader to load all the .jar files and it must be used
+    to find any classes that are created by that class loader because these
+    classes are not visible in the default class loader.
+
+    Returns the class pointer or null if is not found.
+
+    \since Qt 5.12
+ */
+
 
 QAndroidJniEnvironment::QAndroidJniEnvironment()
     : d(new QJNIEnvironmentPrivate)
@@ -106,6 +119,11 @@ JNIEnv *QAndroidJniEnvironment::operator->()
 QAndroidJniEnvironment::operator JNIEnv*() const
 {
     return d->jniEnv;
+}
+
+jclass QAndroidJniEnvironment::findClass(const char *className)
+{
+    return QJNIEnvironmentPrivate::findClass(className, d->jniEnv);
 }
 
 static void clearException(bool silent)

@@ -102,7 +102,7 @@ Window {
 
                 Dial {
                     id: volumeDial
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    Layout.alignment: Qt.AlignCenter
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
@@ -124,7 +124,7 @@ Window {
                 ControlLabel {
                     id: volumeText
                     text: "Volume"
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    Layout.alignment: Qt.AlignCenter
                 }
             }
 
@@ -136,7 +136,7 @@ Window {
 
                 Dial {
                     id: dial2
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    Layout.alignment: Qt.AlignCenter
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
@@ -151,7 +151,7 @@ Window {
                 ControlLabel {
                     id: trebleText
                     text: "Treble"
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    Layout.alignment: Qt.AlignCenter
                 }
             }
         }

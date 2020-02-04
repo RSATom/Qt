@@ -31,8 +31,8 @@
 #include "formwindowmanager.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/qextensionmanager.h>
 
 // shared
 #include <qdesigner_command_p.h>
@@ -42,16 +42,16 @@
 #include <formwindowbase_p.h>
 #include <grid_p.h>
 
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QWidget>
-#include <QtGui/QMouseEvent>
-#include <QtWidgets/QStylePainter>
-#include <QtWidgets/QGridLayout>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QStyleOptionToolButton>
-#include <QtWidgets/QApplication>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qwidget.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qstylepainter.h>
+#include <QtWidgets/qgridlayout.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qstyleoption.h>
+#include <QtWidgets/qapplication.h>
 
-#include <QtCore/QVariant>
+#include <QtCore/qvariant.h>
 #include <QtCore/qdebug.h>
 
 #include <algorithm>
@@ -93,7 +93,7 @@ WidgetHandle::WidgetHandle(FormWindow *parent, WidgetHandle::Type t, WidgetSelec
 
 void WidgetHandle::updateCursor()
 {
-#ifndef QT_NO_CURSOR
+#if QT_CONFIG(cursor)
     if (!m_active) {
         setCursor(Qt::ArrowCursor);
         return;
@@ -681,8 +681,7 @@ void WidgetSelection::updateGeometry()
 
 void WidgetSelection::hide()
 {
-    for (int i = WidgetHandle::LeftTop; i < WidgetHandle::TypeCount; ++i) {
-        WidgetHandle *h = m_handles[ i ];
+    for (WidgetHandle *h : m_handles) {
         if (h)
             h->hide();
     }
@@ -690,8 +689,7 @@ void WidgetSelection::hide()
 
 void WidgetSelection::show()
 {
-    for (int i = WidgetHandle::LeftTop; i < WidgetHandle::TypeCount; ++i) {
-        WidgetHandle *h = m_handles[ i ];
+    for (WidgetHandle *h : m_handles) {
         if (h) {
             h->show();
             h->raise();
@@ -701,8 +699,7 @@ void WidgetSelection::show()
 
 void WidgetSelection::update()
 {
-    for (int i = WidgetHandle::LeftTop; i < WidgetHandle::TypeCount; ++i) {
-        WidgetHandle *h = m_handles[ i ];
+    for (WidgetHandle *h : m_handles) {
         if (h)
             h->update();
     }

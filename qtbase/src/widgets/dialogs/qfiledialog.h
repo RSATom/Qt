@@ -46,6 +46,8 @@
 #include <QtCore/qurl.h>
 #include <QtWidgets/qdialog.h>
 
+#include <functional>
+
 QT_REQUIRE_CONFIG(filedialog);
 
 QT_BEGIN_NAMESPACE
@@ -64,19 +66,22 @@ class Q_WIDGETS_EXPORT QFileDialog : public QDialog
     Q_PROPERTY(ViewMode viewMode READ viewMode WRITE setViewMode)
     Q_PROPERTY(FileMode fileMode READ fileMode WRITE setFileMode)
     Q_PROPERTY(AcceptMode acceptMode READ acceptMode WRITE setAcceptMode)
-    Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly DESIGNABLE false)
-    Q_PROPERTY(bool resolveSymlinks READ resolveSymlinks WRITE setResolveSymlinks DESIGNABLE false)
-    Q_PROPERTY(bool confirmOverwrite READ confirmOverwrite WRITE setConfirmOverwrite DESIGNABLE false)
     Q_PROPERTY(QString defaultSuffix READ defaultSuffix WRITE setDefaultSuffix)
+#if QT_DEPRECATED_SINCE(5, 13)
+    Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly DESIGNABLE false)
+    Q_PROPERTY(bool confirmOverwrite READ confirmOverwrite WRITE setConfirmOverwrite DESIGNABLE false)
+    Q_PROPERTY(bool resolveSymlinks READ resolveSymlinks WRITE setResolveSymlinks DESIGNABLE false)
     Q_PROPERTY(bool nameFilterDetailsVisible READ isNameFilterDetailsVisible
                WRITE setNameFilterDetailsVisible DESIGNABLE false)
+#endif
     Q_PROPERTY(Options options READ options WRITE setOptions)
     Q_PROPERTY(QStringList supportedSchemes READ supportedSchemes WRITE setSupportedSchemes)
 
 public:
     enum ViewMode { Detail, List };
     Q_ENUM(ViewMode)
-    enum FileMode { AnyFile, ExistingFile, Directory, ExistingFiles, DirectoryOnly };
+    enum FileMode { AnyFile, ExistingFile, Directory, ExistingFiles,
+                    DirectoryOnly Q_DECL_ENUMERATOR_DEPRECATED_X("Use setOption(ShowDirsOnly, true) instead")};
     Q_ENUM(FileMode)
     enum AcceptMode { AcceptOpen, AcceptSave };
     Q_ENUM(AcceptMode)
@@ -98,7 +103,7 @@ public:
     Q_FLAG(Options)
 
     QFileDialog(QWidget *parent, Qt::WindowFlags f);
-    explicit QFileDialog(QWidget *parent = Q_NULLPTR,
+    explicit QFileDialog(QWidget *parent = nullptr,
                          const QString &caption = QString(),
                          const QString &directory = QString(),
                          const QString &filter = QString());
@@ -117,8 +122,12 @@ public:
     void selectUrl(const QUrl &url);
     QList<QUrl> selectedUrls() const;
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use setOption(HideNameFilterDetails, !enabled) instead")
     void setNameFilterDetailsVisible(bool enabled);
+    QT_DEPRECATED_X("Use !testOption(HideNameFilterDetails) instead")
     bool isNameFilterDetailsVisible() const;
+#endif
 
     void setNameFilter(const QString &filter);
     void setNameFilters(const QStringList &filters);
@@ -127,7 +136,7 @@ public:
     QString selectedMimeTypeFilter() const;
     QString selectedNameFilter() const;
 
-#ifndef QT_NO_MIMETYPE
+#if QT_CONFIG(mimetype)
     void setMimeTypeFilters(const QStringList &filters);
     QStringList mimeTypeFilters() const;
     void selectMimeTypeFilter(const QString &filter);
@@ -145,11 +154,15 @@ public:
     void setAcceptMode(AcceptMode mode);
     AcceptMode acceptMode() const;
 
+#if QT_DEPRECATED_SINCE(5, 13)
     void setReadOnly(bool enabled);
     bool isReadOnly() const;
 
+    QT_DEPRECATED_X("Use setOption(DontResolveSymlinks, !enabled) instead")
     void setResolveSymlinks(bool enabled);
+    QT_DEPRECATED_X("Use !testOption(DontResolveSymlinks) instead")
     bool resolveSymlinks() const;
+#endif
 
     void setSidebarUrls(const QList<QUrl> &urls);
     QList<QUrl> sidebarUrls() const;
@@ -157,8 +170,12 @@ public:
     QByteArray saveState() const;
     bool restoreState(const QByteArray &state);
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use setOption(DontConfirmOverwrite, !enabled) instead")
     void setConfirmOverwrite(bool enabled);
+    QT_DEPRECATED_X("Use !testOption(DontConfirmOverwrite) instead")
     bool confirmOverwrite() const;
+#endif
 
     void setDefaultSuffix(const QString &suffix);
     QString defaultSuffix() const;
@@ -178,7 +195,7 @@ public:
     void setSupportedSchemes(const QStringList &schemes);
     QStringList supportedSchemes() const;
 
-#ifndef QT_NO_PROXYMODEL
+#if QT_CONFIG(proxymodel)
     void setProxyModel(QAbstractProxyModel *model);
     QAbstractProxyModel *proxyModel() const;
 #endif
@@ -190,7 +207,7 @@ public:
 
     using QDialog::open;
     void open(QObject *receiver, const char *member);
-    void setVisible(bool visible) Q_DECL_OVERRIDE;
+    void setVisible(bool visible) override;
 
 Q_SIGNALS:
     void fileSelected(const QString &file);
@@ -207,68 +224,70 @@ Q_SIGNALS:
 
 public:
 
-    static QString getOpenFileName(QWidget *parent = Q_NULLPTR,
+    static QString getOpenFileName(QWidget *parent = nullptr,
                                    const QString &caption = QString(),
                                    const QString &dir = QString(),
                                    const QString &filter = QString(),
-                                   QString *selectedFilter = Q_NULLPTR,
+                                   QString *selectedFilter = nullptr,
                                    Options options = Options());
 
-    static QUrl getOpenFileUrl(QWidget *parent = Q_NULLPTR,
+    static QUrl getOpenFileUrl(QWidget *parent = nullptr,
                                const QString &caption = QString(),
                                const QUrl &dir = QUrl(),
                                const QString &filter = QString(),
-                               QString *selectedFilter = Q_NULLPTR,
+                               QString *selectedFilter = nullptr,
                                Options options = Options(),
                                const QStringList &supportedSchemes = QStringList());
 
-    static QString getSaveFileName(QWidget *parent = Q_NULLPTR,
+    static QString getSaveFileName(QWidget *parent = nullptr,
                                    const QString &caption = QString(),
                                    const QString &dir = QString(),
                                    const QString &filter = QString(),
-                                   QString *selectedFilter = Q_NULLPTR,
+                                   QString *selectedFilter = nullptr,
                                    Options options = Options());
 
-    static QUrl getSaveFileUrl(QWidget *parent = Q_NULLPTR,
+    static QUrl getSaveFileUrl(QWidget *parent = nullptr,
                                const QString &caption = QString(),
                                const QUrl &dir = QUrl(),
                                const QString &filter = QString(),
-                               QString *selectedFilter = Q_NULLPTR,
+                               QString *selectedFilter = nullptr,
                                Options options = Options(),
                                const QStringList &supportedSchemes = QStringList());
 
-    static QString getExistingDirectory(QWidget *parent = Q_NULLPTR,
+    static QString getExistingDirectory(QWidget *parent = nullptr,
                                         const QString &caption = QString(),
                                         const QString &dir = QString(),
                                         Options options = ShowDirsOnly);
 
-    static QUrl getExistingDirectoryUrl(QWidget *parent = Q_NULLPTR,
+    static QUrl getExistingDirectoryUrl(QWidget *parent = nullptr,
                                         const QString &caption = QString(),
                                         const QUrl &dir = QUrl(),
                                         Options options = ShowDirsOnly,
                                         const QStringList &supportedSchemes = QStringList());
 
-    static QStringList getOpenFileNames(QWidget *parent = Q_NULLPTR,
+    static QStringList getOpenFileNames(QWidget *parent = nullptr,
                                         const QString &caption = QString(),
                                         const QString &dir = QString(),
                                         const QString &filter = QString(),
-                                        QString *selectedFilter = Q_NULLPTR,
+                                        QString *selectedFilter = nullptr,
                                         Options options = Options());
 
-    static QList<QUrl> getOpenFileUrls(QWidget *parent = Q_NULLPTR,
+    static QList<QUrl> getOpenFileUrls(QWidget *parent = nullptr,
                                        const QString &caption = QString(),
                                        const QUrl &dir = QUrl(),
                                        const QString &filter = QString(),
-                                       QString *selectedFilter = Q_NULLPTR,
+                                       QString *selectedFilter = nullptr,
                                        Options options = Options(),
                                        const QStringList &supportedSchemes = QStringList());
 
+    static void getOpenFileContent(const QString &nameFilter,
+                                   const std::function<void(const QString &, const QByteArray &)> &fileContentsReady);
 
 protected:
     QFileDialog(const QFileDialogArgs &args);
-    void done(int result) Q_DECL_OVERRIDE;
-    void accept() Q_DECL_OVERRIDE;
-    void changeEvent(QEvent *e) Q_DECL_OVERRIDE;
+    void done(int result) override;
+    void accept() override;
+    void changeEvent(QEvent *e) override;
 
 private:
     Q_DECLARE_PRIVATE(QFileDialog)

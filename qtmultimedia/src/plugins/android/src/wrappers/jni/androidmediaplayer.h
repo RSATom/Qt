@@ -41,7 +41,9 @@
 #define ANDROIDMEDIAPLAYER_H
 
 #include <QObject>
+#include <QNetworkRequest>
 #include <QtCore/private/qjni_p.h>
+#include <QAudio>
 
 QT_BEGIN_NAMESPACE
 
@@ -103,6 +105,7 @@ public:
     bool isPlaying();
     int volume();
     bool isMuted();
+    qreal playbackRate();
     jobject display();
 
     void play();
@@ -110,10 +113,13 @@ public:
     void stop();
     void seekTo(qint32 msec);
     void setMuted(bool mute);
-    void setDataSource(const QString &path);
+    void setDataSource(const QNetworkRequest &request);
     void prepareAsync();
     void setVolume(int volume);
+    bool setPlaybackRate(qreal rate);
     void setDisplay(AndroidSurfaceTexture *surfaceTexture);
+    void setAudioRole(QAudio::Role role);
+    void setCustomAudioRole(const QString &role);
 
     static bool initJNI(JNIEnv *env);
 

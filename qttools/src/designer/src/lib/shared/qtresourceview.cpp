@@ -31,33 +31,33 @@
 #include "qtresourceeditordialog_p.h"
 #include "iconloader_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QSplitter>
-#include <QtWidgets/QTreeWidget>
-#include <QtWidgets/QListWidget>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QVBoxLayout>
-#include <QtGui/QPainter>
-#include <QtCore/QFileInfo>
-#include <QtCore/QDir>
-#include <QtCore/QQueue>
-#include <QtGui/QPainter>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QApplication>
-#ifndef QT_NO_CLIPBOARD
-#include <QtGui/QClipboard>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtWidgets/qtreewidget.h>
+#include <QtWidgets/qlistwidget.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtGui/qpainter.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qqueue.h>
+#include <QtGui/qpainter.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qapplication.h>
+#if QT_CONFIG(clipboard)
+#include <QtGui/qclipboard.h>
 #endif
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QLineEdit>
-#include <QtGui/QDrag>
-#include <QtCore/QMimeData>
-#include <QtXml/QDomDocument>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtGui/qdrag.h>
+#include <QtCore/qmimedata.h>
+#include <QtXml/qdom.h>
 
 #include <algorithm>
 
@@ -79,7 +79,7 @@ public:
     ResourceListWidget(QWidget *parent = 0);
 
 protected:
-    void startDrag(Qt::DropActions supportedActions) Q_DECL_OVERRIDE;
+    void startDrag(Qt::DropActions supportedActions) override;
 };
 
 ResourceListWidget::ResourceListWidget(QWidget *parent) :
@@ -134,7 +134,7 @@ public:
     void slotResourceActivated(QListWidgetItem *);
     void slotEditResources();
     void slotReloadResources();
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     void slotCopyResourcePath();
 #endif
     void slotListWidgetContextMenuRequested(const QPoint &pos);
@@ -238,7 +238,7 @@ void QtResourceViewPrivate::slotReloadResources()
     }
 }
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
 void QtResourceViewPrivate::slotCopyResourcePath()
 {
     const QString path = q_ptr->selectedResource();
@@ -302,7 +302,7 @@ void QtResourceViewPrivate::updateActions()
 
 void QtResourceViewPrivate::slotResourceSetActivated(QtResourceSet *resourceSet)
 {
-    Q_UNUSED(resourceSet)
+    Q_UNUSED(resourceSet);
 
     updateActions();
 
@@ -574,7 +574,7 @@ QtResourceView::QtResourceView(QDesignerFormEditorInterface *core, QWidget *pare
     connect(d_ptr->m_reloadResourcesAction, SIGNAL(triggered()), this, SLOT(slotReloadResources()));
     d_ptr->m_reloadResourcesAction->setEnabled(false);
 
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     QIcon copyIcon = QIcon::fromTheme(QStringLiteral("edit-copy"), qdesigner_internal::createIconSet(QStringLiteral("editcopy.png")));
     d_ptr->m_copyResourcePathAction = new QAction(copyIcon, tr("Copy Path"), this);
     connect(d_ptr->m_copyResourcePathAction, SIGNAL(triggered()), this, SLOT(slotCopyResourcePath()));
@@ -598,7 +598,7 @@ QtResourceView::QtResourceView(QDesignerFormEditorInterface *core, QWidget *pare
     d_ptr->m_splitter->addWidget(d_ptr->m_listWidget);
 
     QLayout *layout = new QVBoxLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->setSpacing(0);
     layout->addWidget(d_ptr->m_toolBar);
     layout->addWidget(d_ptr->m_splitter);

@@ -3,14 +3,14 @@
  * found in the LICENSE file. */
 
 body {
-  -webkit-margin-start: 0;
+  margin-inline-start: 0;
 }
 
 body > .page {
-  -webkit-margin-end: 0;
-  -webkit-padding-end: 10px;
-  -webkit-padding-start: 10px;
+  margin-inline-end: 0;
   min-width: 0;
+  padding-inline-end: 10px;
+  padding-inline-start: 10px;
 }
 
 #filter-overlay {
@@ -30,12 +30,12 @@ body header > h1 {
 }
 
 body section {
-  -webkit-padding-start: 0;
   max-width: none;
+  padding-inline-start: 0;
 }
 
 body section > h3 {
-  -webkit-margin-start: 0;
+  margin-inline-start: 0;
 }
 
 #status-box-container {
@@ -50,7 +50,7 @@ fieldset {
 }
 
 fieldset + fieldset {
-  -webkit-margin-start: 20px;
+  margin-inline-start: 20px;
 }
 
 div.status-entry {
@@ -63,7 +63,7 @@ div.status-entry:last-child {
 }
 
 div.label {
-  -webkit-margin-end: 1em;
+  margin-inline-end: 1em;
   white-space: nowrap;
 }
 
@@ -167,31 +167,25 @@ div.name {
   width: 15%;
 }
 
+.no-help-link .name-link {
+  color: inherit;
+  pointer-events: none;
+  text-decoration: none;
+}
+
 div.elide,
-span.value {
+span.value,
+span.status  {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-button.toggle-expanded-value {
+button.overflow-link {
   padding: 0;
 }
 
-tbody.has-overflowed-value span.value {
-  display: none;
-}
-
-tbody:not(.has-overflowed-value) button.toggle-expanded-value {
-  display: none;
-}
-
-tbody:not(.has-overflowed-value) > tr.expanded-value-container,
-tbody:not(.show-overflowed-value) > tr.expanded-value-container {
-  display: none;
-}
-
-td.expanded-value {
+td.expanded-text {
   white-space: pre;
   word-wrap: break-word;
 }

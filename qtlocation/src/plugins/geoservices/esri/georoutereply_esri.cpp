@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -87,7 +87,7 @@ void GeoRouteReplyEsri::networkReplyFinished()
 
 void GeoRouteReplyEsri::networkReplyError(QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
     reply->deleteLater();
     setError(QGeoRouteReply::CommunicationError, reply->errorString());

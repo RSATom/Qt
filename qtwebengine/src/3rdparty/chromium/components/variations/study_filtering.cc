@@ -12,6 +12,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "components/variations/client_filterable_state.h"
+#include "components/variations/proto/study.pb.h"
 
 namespace variations {
 namespace {
@@ -19,6 +20,17 @@ namespace {
 // Converts |date_time| in Study date format to base::Time.
 base::Time ConvertStudyDateToBaseTime(int64_t date_time) {
   return base::Time::UnixEpoch() + base::TimeDelta::FromSeconds(date_time);
+}
+
+// Similar to base::ContainsValue(), but specifically for ASCII strings and
+// case-insensitive comparison.
+template <typename Collection>
+bool ContainsStringIgnoreCaseASCII(const Collection& collection,
+                                   const std::string& value) {
+  return std::find_if(std::begin(collection), std::end(collection),
+                      [&value](const std::string& s) -> bool {
+                        return base::EqualsCaseInsensitiveASCII(s, value);
+                      }) != std::end(collection);
 }
 
 }  // namespace
@@ -62,31 +74,21 @@ bool CheckStudyHardwareClass(const Study::Filter& filter,
     return true;
   }
 
+  // Note: This logic changed in M66. Prior to M66, this used substring
+  // comparison logic to match hardware classes. In M66, it was made consistent
+  // with other filters.
+
   // Checks if we are supposed to filter for a specified set of
   // hardware_classes. Note that this means this overrides the
   // exclude_hardware_class in case that ever occurs (which it shouldn't).
   if (filter.hardware_class_size() > 0) {
-    for (int i = 0; i < filter.hardware_class_size(); ++i) {
-      // Check if the entry is a substring of |hardware_class|.
-      size_t position = hardware_class.find(filter.hardware_class(i));
-      if (position != std::string::npos)
-        return true;
-    }
-    // None of the requested hardware_classes match.
-    return false;
+    return ContainsStringIgnoreCaseASCII(filter.hardware_class(),
+                                         hardware_class);
   }
 
-  // Omit if matches any of the exclude entries.
-  for (int i = 0; i < filter.exclude_hardware_class_size(); ++i) {
-    // Check if the entry is a substring of |hardware_class|.
-    size_t position = hardware_class.find(
-        filter.exclude_hardware_class(i));
-    if (position != std::string::npos)
-      return false;
-  }
-
-  // None of the exclusions match, so this accepts.
-  return true;
+  // Omit if we match the blacklist.
+  return !ContainsStringIgnoreCaseASCII(filter.exclude_hardware_class(),
+                                        hardware_class);
 }
 
 bool CheckStudyLocale(const Study::Filter& filter, const std::string& locale) {
@@ -263,6 +265,14 @@ bool ShouldAddStudy(const Study& study,
       DVLOG(1) << "Filtered out study " << study.name() << " due to country.";
       return false;
     }
+  }
+
+  // TODO(paulmiller): Remove this once https://crbug.com/866722 is resolved.
+  if (study.consistency() == Study_Consistency_PERMANENT &&
+      !client_state.supports_permanent_consistency) {
+    DVLOG(1) << "Filtered out study " << study.name()
+             << " due to supports_permanent_consistency.";
+    return false;
   }
 
   DVLOG(1) << "Kept study " << study.name() << ".";

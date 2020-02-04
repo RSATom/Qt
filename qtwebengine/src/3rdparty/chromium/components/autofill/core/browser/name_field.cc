@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_scanner.h"
@@ -23,13 +22,12 @@ namespace {
 class FullNameField : public NameField {
  public:
   static std::unique_ptr<FullNameField> Parse(AutofillScanner* scanner);
+  explicit FullNameField(AutofillField* field);
 
  protected:
   void AddClassifications(FieldCandidatesMap* field_candidates) const override;
 
  private:
-  explicit FullNameField(AutofillField* field);
-
   AutofillField* field_;
 
   DISALLOW_COPY_AND_ASSIGN(FullNameField);
@@ -63,7 +61,7 @@ class FirstLastNameField : public NameField {
 // static
 std::unique_ptr<FormField> NameField::Parse(AutofillScanner* scanner) {
   if (scanner->IsEnd())
-    return NULL;
+    return nullptr;
 
   // Try FirstLastNameField first since it's more specific.
   std::unique_ptr<FormField> field = FirstLastNameField::Parse(scanner);
@@ -80,19 +78,20 @@ void NameField::AddClassifications(FieldCandidatesMap* field_candidates) const {
 std::unique_ptr<FullNameField> FullNameField::Parse(AutofillScanner* scanner) {
   // Exclude e.g. "username" or "nickname" fields.
   scanner->SaveCursor();
-  bool should_ignore = ParseField(scanner, UTF8ToUTF16(kNameIgnoredRe), NULL);
+  bool should_ignore =
+      ParseField(scanner, UTF8ToUTF16(kNameIgnoredRe), nullptr);
   scanner->Rewind();
   if (should_ignore)
-    return NULL;
+    return nullptr;
 
   // Searching for any label containing the word "name" is too general;
   // for example, Travelocity_Edit travel profile.html contains a field
   // "Travel Profile Name".
-  AutofillField* field = NULL;
+  AutofillField* field = nullptr;
   if (ParseField(scanner, UTF8ToUTF16(kNameRe), &field))
-    return base::WrapUnique(new FullNameField(field));
+    return std::make_unique<FullNameField>(field);
 
-  return NULL;
+  return nullptr;
 }
 
 void FullNameField::AddClassifications(
@@ -110,7 +109,7 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::ParseSpecificName(
   std::unique_ptr<FirstLastNameField> v(new FirstLastNameField);
   scanner->SaveCursor();
 
-  AutofillField* next = NULL;
+  AutofillField* next = nullptr;
   if (ParseField(scanner, UTF8ToUTF16(kNameSpecificRe), &v->first_name_) &&
       ParseEmptyLabel(scanner, &next)) {
     if (ParseEmptyLabel(scanner, &v->last_name_)) {
@@ -126,7 +125,7 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::ParseSpecificName(
   }
 
   scanner->Rewind();
-  return NULL;
+  return nullptr;
 }
 
 // static
@@ -149,8 +148,8 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::ParseComponentNames(
   while (!scanner->IsEnd()) {
     // Skip over any unrelated fields, e.g. "username" or "nickname".
     if (ParseFieldSpecifics(scanner, UTF8ToUTF16(kNameIgnoredRe),
-                            MATCH_DEFAULT | MATCH_SELECT, NULL)) {
-          continue;
+                            MATCH_DEFAULT | MATCH_SELECT, nullptr)) {
+      continue;
     }
 
     if (!v->first_name_ &&
@@ -188,7 +187,7 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::ParseComponentNames(
     return v;
 
   scanner->Rewind();
-  return NULL;
+  return nullptr;
 }
 
 // static
@@ -201,11 +200,10 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::Parse(
 }
 
 FirstLastNameField::FirstLastNameField()
-    : first_name_(NULL),
-      middle_name_(NULL),
-      last_name_(NULL),
-      middle_initial_(false) {
-}
+    : first_name_(nullptr),
+      middle_name_(nullptr),
+      last_name_(nullptr),
+      middle_initial_(false) {}
 
 void FirstLastNameField::AddClassifications(
     FieldCandidatesMap* field_candidates) const {

@@ -35,9 +35,10 @@ class WM_CORE_EXPORT DefaultActivationClient : public ActivationClient,
   void ActivateWindow(aura::Window* window) override;
   void DeactivateWindow(aura::Window* window) override;
   const aura::Window* GetActiveWindow() const override;
-  aura::Window* GetActivatableWindow(aura::Window* window) override;
-  aura::Window* GetToplevelWindow(aura::Window* window) override;
-  bool CanActivateWindow(aura::Window* window) const override;
+  aura::Window* GetActivatableWindow(aura::Window* window) const override;
+  const aura::Window* GetToplevelWindow(
+      const aura::Window* window) const override;
+  bool CanActivateWindow(const aura::Window* window) const override;
 
   // Overridden from WindowObserver:
   void OnWindowDestroyed(aura::Window* window) override;
@@ -60,7 +61,7 @@ class WM_CORE_EXPORT DefaultActivationClient : public ActivationClient,
   // The window which was active before the currently active one.
   aura::Window* last_active_;
 
-  base::ObserverList<ActivationChangeObserver> observers_;
+  base::ObserverList<ActivationChangeObserver>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(DefaultActivationClient);
 };

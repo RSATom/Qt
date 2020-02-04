@@ -6,13 +6,19 @@
 #define COMPONENTS_OS_CRYPT_OS_CRYPT_MOCKER_H_
 
 #include "base/macros.h"
+#include "build/build_config.h"
 
 // Handles the mocking of OSCrypt, such that it does not reach system level
 // services.
 class OSCryptMocker {
  public:
   // Inject mocking into OSCrypt.
-  static void SetUpWithSingleton();
+  static void SetUp();
+
+#if defined(OS_MACOSX)
+  // Pretend that backend for storing keys is unavailable.
+  static void SetBackendLocked(bool locked);
+#endif
 
   // Restore OSCrypt to its real behaviour.
   static void TearDown();

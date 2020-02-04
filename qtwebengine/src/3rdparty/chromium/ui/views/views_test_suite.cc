@@ -22,6 +22,11 @@
 #include "ui/aura/env.h"
 #endif
 
+#if defined(OS_CHROMEOS)
+#include "base/command_line.h"
+#include "ui/gl/gl_switches.h"
+#endif
+
 namespace views {
 
 ViewsTestSuite::ViewsTestSuite(int argc, char** argv)
@@ -31,41 +36,47 @@ ViewsTestSuite::~ViewsTestSuite() {}
 
 int ViewsTestSuite::RunTests() {
   return base::LaunchUnitTests(
-      argc_, argv_, base::Bind(&ViewsTestSuite::Run, base::Unretained(this)));
+      argc_, argv_,
+      base::BindOnce(&ViewsTestSuite::Run, base::Unretained(this)));
 }
 
 int ViewsTestSuite::RunTestsSerially() {
   return base::LaunchUnitTestsSerially(
-      argc_, argv_, base::Bind(&ViewsTestSuite::Run, base::Unretained(this)));
+      argc_, argv_,
+      base::BindOnce(&ViewsTestSuite::Run, base::Unretained(this)));
 }
 
 void ViewsTestSuite::Initialize() {
   base::TestSuite::Initialize();
-  gl::GLSurfaceTestSupport::InitializeOneOff();
 
-#if defined(OS_MACOSX)
-  gpu::ImageTransportSurface::SetAllowOSMesaForTesting(true);
+#if defined(OS_CHROMEOS) && defined(MEMORY_SANITIZER)
+  // Force software-gl. This is necessary for mus tests to avoid an msan warning
+  // in gl init.
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kOverrideUseSoftwareGLForTests);
 #endif
+
+  gl::GLSurfaceTestSupport::InitializeOneOff();
 
   ui::RegisterPathProvider();
 
   base::FilePath ui_test_pak_path;
-  ASSERT_TRUE(PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
+  ASSERT_TRUE(base::PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
   ui::ResourceBundle::InitSharedInstanceWithPakPath(ui_test_pak_path);
-#if defined(USE_AURA)
+#if defined(USE_AURA) && !defined(OS_CHROMEOS)
   InitializeEnv();
 #endif
 }
 
 void ViewsTestSuite::Shutdown() {
-#if defined(USE_AURA)
+#if defined(USE_AURA) && !defined(OS_CHROMEOS)
   DestroyEnv();
 #endif
   ui::ResourceBundle::CleanupSharedInstance();
   base::TestSuite::Shutdown();
 }
 
-#if defined(USE_AURA)
+#if defined(USE_AURA) && !defined(OS_CHROMEOS)
 void ViewsTestSuite::InitializeEnv() {
   env_ = aura::Env::CreateInstance();
 }

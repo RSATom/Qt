@@ -12,8 +12,8 @@
 #include "build/build_config.h"
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_flags.h"
+#include "third_party/skia/include/core/SkPath.h"
 #include "ui/base/layout.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
@@ -21,7 +21,6 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/gfx/path.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/native_theme/common_theme.h"
 #include "ui/native_theme/native_theme_features.h"
@@ -48,6 +47,7 @@ const SkColor kTrackColor = SkColorSetRGB(0xF1, 0xF1, 0xF1);
 ////////////////////////////////////////////////////////////////////////////////
 // NativeTheme:
 
+#if !defined(OS_MACOSX)
 // static
 NativeTheme* NativeTheme::GetInstanceForWeb() {
   return NativeThemeAura::web_instance();
@@ -58,7 +58,8 @@ NativeTheme* NativeTheme::GetInstanceForWeb() {
 NativeTheme* NativeTheme::GetInstanceForNativeUi() {
   return NativeThemeAura::instance();
 }
-#endif
+#endif  // OS_WIN
+#endif  // !OS_MACOSX
 
 ////////////////////////////////////////////////////////////////////////////////
 // NativeThemeAura:
@@ -86,15 +87,15 @@ NativeThemeAura::~NativeThemeAura() {}
 
 // static
 NativeThemeAura* NativeThemeAura::instance() {
-  CR_DEFINE_STATIC_LOCAL(NativeThemeAura, s_native_theme, (false));
-  return &s_native_theme;
+  static base::NoDestructor<NativeThemeAura> s_native_theme(false);
+  return s_native_theme.get();
 }
 
 // static
 NativeThemeAura* NativeThemeAura::web_instance() {
-  CR_DEFINE_STATIC_LOCAL(NativeThemeAura, s_native_theme_for_web,
-                         (IsOverlayScrollbarEnabled()));
-  return &s_native_theme_for_web;
+  static base::NoDestructor<NativeThemeAura> s_native_theme_for_web(
+      IsOverlayScrollbarEnabled());
+  return s_native_theme_for_web.get();
 }
 
 // This implementation returns hardcoded colors.
@@ -113,7 +114,7 @@ void NativeThemeAura::PaintMenuPopupBackground(
     flags.setAntiAlias(true);
     flags.setColor(color);
 
-    gfx::Path path;
+    SkPath path;
     SkRect rect = SkRect::MakeWH(SkIntToScalar(size.width()),
                                  SkIntToScalar(size.height()));
     SkScalar radius = SkIntToScalar(menu_background.corner_radius);
@@ -148,7 +149,7 @@ void NativeThemeAura::PaintArrowButton(cc::PaintCanvas* canvas,
       break;
     case kHovered:
       bg_color = SkColorSetRGB(0xD2, 0xD2, 0xD2);
-    // Fall through.
+      FALLTHROUGH;
     case kNormal:
       arrow_color = SkColorSetRGB(0x50, 0x50, 0x50);
       break;

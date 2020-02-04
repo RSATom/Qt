@@ -46,6 +46,7 @@ class tst_ShaderCache : public QObject
 
 private Q_SLOTS:
     void insert();
+    void insertAfterRemoval();
     void value();
     void removeRef();
     void purge();
@@ -79,6 +80,32 @@ void tst_ShaderCache::insert()
     QCOMPARE(cache.m_programRefs.values().first().first(), nodeId);
 
     QCOMPARE(cache.m_pendingRemoval.isEmpty(), true);
+}
+
+void tst_ShaderCache::insertAfterRemoval()
+{
+    // GIVEN
+    ShaderCache cache;
+    auto dna = ProgramDNA(12345);
+    auto nodeId = QNodeId::createId();
+
+    // WHEN
+    QOpenGLShaderProgram *shaderProgram = new QOpenGLShaderProgram();
+    cache.insert(dna, nodeId, shaderProgram);
+    cache.getShaderProgramAndAddRef(dna, nodeId);
+    cache.removeRef(dna, nodeId);
+    shaderProgram = cache.getShaderProgramAndAddRef(dna, nodeId);
+
+    // THEN
+    QVERIFY(!cache.m_pendingRemoval.contains(dna));
+
+    // WHEN
+    cache.removeRef(dna, nodeId);
+    cache.getShaderProgramAndAddRef(dna, nodeId);
+    cache.purge();
+
+    // THEN
+    QCOMPARE(cache.m_programHash.size(), 1);
 }
 
 void tst_ShaderCache::value()
@@ -131,6 +158,19 @@ void tst_ShaderCache::value()
     auto dnaC = ProgramDNA(54321);
     auto uncachedProgram = cache.getShaderProgramAndAddRef(dnaC, nodeIdB);
     QVERIFY(uncachedProgram == nullptr);
+
+    cache.clear();
+    // Test inserting nullptr.
+    cache.insert(dnaA, nodeIdA, nullptr);
+    bool wasPresent = false;
+    cachedProgramA = cache.getShaderProgramAndAddRef(dnaA, nodeIdA, &wasPresent);
+    QCOMPARE(wasPresent, true);
+    QCOMPARE(cachedProgramA, nullptr);
+    cache.clear();
+    // Test wasPresent==false.
+    cachedProgramB = cache.getShaderProgramAndAddRef(dnaB, nodeIdB, &wasPresent);
+    QCOMPARE(wasPresent, false);
+    QCOMPARE(cachedProgramB, nullptr);
 }
 
 void tst_ShaderCache::removeRef()

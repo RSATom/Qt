@@ -9,13 +9,13 @@
 
 #include "xfa/fwl/theme/cfwl_widgettp.h"
 
-class CFWL_EditTP : public CFWL_WidgetTP {
+class CFWL_EditTP final : public CFWL_WidgetTP {
  public:
   CFWL_EditTP();
   ~CFWL_EditTP() override;
 
-  // CFWL_WidgeTTP
-  void DrawBackground(CFWL_ThemeBackground* pParams) override;
+  // CFWL_WidgetTP
+  void DrawBackground(const CFWL_ThemeBackground& pParams) override;
 };
 
 #endif  // XFA_FWL_THEME_CFWL_EDITTP_H_

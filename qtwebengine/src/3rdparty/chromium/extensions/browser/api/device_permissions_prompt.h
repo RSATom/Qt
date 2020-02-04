@@ -15,7 +15,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
-#include "device/usb/public/interfaces/device_manager.mojom.h"
+#include "device/usb/public/mojom/device_manager.mojom.h"
+#include "services/device/public/mojom/hid.mojom.h"
 
 namespace content {
 class BrowserContext;
@@ -24,7 +25,6 @@ class WebContents;
 
 namespace device {
 class HidDeviceFilter;
-class HidDeviceInfo;
 class UsbDevice;
 }
 
@@ -38,8 +38,8 @@ class DevicePermissionsPrompt {
  public:
   using UsbDevicesCallback = base::Callback<void(
       const std::vector<scoped_refptr<device::UsbDevice>>&)>;
-  using HidDevicesCallback = base::Callback<void(
-      const std::vector<scoped_refptr<device::HidDeviceInfo>>&)>;
+  using HidDevicesCallback =
+      base::Callback<void(std::vector<device::mojom::HidDeviceInfoPtr>)>;
 
   // Context information available to the UI implementation.
   class Prompt : public base::RefCounted<Prompt> {

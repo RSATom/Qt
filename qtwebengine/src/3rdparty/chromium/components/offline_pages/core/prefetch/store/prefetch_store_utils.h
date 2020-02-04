@@ -8,18 +8,19 @@
 #include <stdint.h>
 
 namespace sql {
-class Connection;
+class Database;
 }  // namespace sql
 
 namespace offline_pages {
 
-// Creates an offline ID for the prefetch item.
-int64_t GenerateOfflineId();
-
-// Deletes a prefetch item by its offline ID. Returns whether it was the item
-// was successfully deleted.
-bool DeletePrefetchItemByOfflineIdSync(sql::Connection* db, int64_t offline_id);
-
+// Useful helper functions to implement PrefetchStore related operations.
+class PrefetchStoreUtils {
+ public:
+  // Deletes a prefetch item by its offline ID. Returns whether it was the item
+  // was successfully deleted.
+  static bool DeletePrefetchItemByOfflineIdSync(sql::Database* db,
+                                                int64_t offline_id);
+};
 }  // namespace offline_pages
 
 #endif  // COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_STORE_PREFETCH_STORE_UTILS_H_

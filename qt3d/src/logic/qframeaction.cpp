@@ -51,6 +51,12 @@ QFrameActionPrivate::QFrameActionPrivate()
 }
 
 /*!
+    \namespace Qt3DLogic::Logic
+    \inmodule Qt3DLogic
+
+    \brief Used to import and use the module's QML types.
+*/
+/*!
     \class Qt3DLogic::QFrameAction
     \inmodule Qt3DLogic
     \since 5.5
@@ -121,12 +127,12 @@ void QFrameAction::onTriggered(float dt)
 
 /*!
     \qmlsignal Qt3D.Logic::FrameAction::triggered(real dt)
-    This signal is emitted each frame.
+    This signal is emitted each frame with \a dt being the time (in seconds) since the last triggering.
 */
 
 /*!
-    \fn QFrameAction::triggered(float dt)
-    This signal is emitted each frame with \a dt being the time since the last triggering.
+    \fn Qt3DLogic::QFrameAction::triggered(float dt)
+    This signal is emitted each frame with \a dt being the time (in seconds) since the last triggering.
 */
 } // namespace Qt3DLogic
 

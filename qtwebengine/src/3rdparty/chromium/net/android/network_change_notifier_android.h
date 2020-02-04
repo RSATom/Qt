@@ -16,7 +16,6 @@
 
 namespace net {
 
-struct DnsConfig;
 class NetworkChangeNotifierAndroidTest;
 class NetworkChangeNotifierFactoryAndroid;
 
@@ -72,11 +71,11 @@ class NET_EXPORT_PRIVATE NetworkChangeNotifierAndroid
   void OnNetworkDisconnected(NetworkHandle network) override;
   void OnNetworkMadeDefault(NetworkHandle network) override;
 
-  static bool Register(JNIEnv* env);
-
-  // Promote GetMaxBandwidthForConnectionSubtype to public for the Android
+  // Promote GetMaxBandwidthMbpsForConnectionSubtype to public for the Android
   // delegate class.
-  using NetworkChangeNotifier::GetMaxBandwidthForConnectionSubtype;
+  using NetworkChangeNotifier::GetMaxBandwidthMbpsForConnectionSubtype;
+
+  static NetworkChangeCalculatorParams NetworkChangeCalculatorParamsAndroid();
 
  protected:
   void OnFinalizingMetricsLogRecord() override;
@@ -90,10 +89,8 @@ class NET_EXPORT_PRIVATE NetworkChangeNotifierAndroid
   // Enable NetworkHandles support for tests.
   void ForceNetworkHandlesSupportedForTesting();
 
-  NetworkChangeNotifierAndroid(NetworkChangeNotifierDelegateAndroid* delegate,
-                               const DnsConfig* dns_config_for_testing);
-
-  static NetworkChangeCalculatorParams NetworkChangeCalculatorParamsAndroid();
+  explicit NetworkChangeNotifierAndroid(
+      NetworkChangeNotifierDelegateAndroid* delegate);
 
   NetworkChangeNotifierDelegateAndroid* const delegate_;
   std::unique_ptr<DnsConfigServiceThread> dns_config_service_thread_;

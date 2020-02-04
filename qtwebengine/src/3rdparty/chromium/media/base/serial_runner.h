@@ -6,9 +6,9 @@
 #define MEDIA_BASE_SERIAL_RUNNER_H_
 
 #include <memory>
-#include <queue>
 
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -26,6 +26,7 @@ namespace media {
 // the completion callback as the series progresses.
 class MEDIA_EXPORT SerialRunner {
  public:
+  // TODO(dalecurtis): Change SerialRunner to use OnceCallback.
   typedef base::Callback<void(const base::Closure&)> BoundClosure;
   typedef base::Callback<void(const PipelineStatusCB&)> BoundPipelineStatusCB;
 
@@ -46,7 +47,7 @@ class MEDIA_EXPORT SerialRunner {
     BoundPipelineStatusCB Pop();
     bool empty();
 
-    std::queue<BoundPipelineStatusCB> bound_fns_;
+    base::queue<BoundPipelineStatusCB> bound_fns_;
   };
 
   // Executes the bound functions in series, executing |done_cb| when finished.

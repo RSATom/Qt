@@ -46,7 +46,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
  \class QPolarChart
- \inmodule Qt Charts
+ \inmodule QtCharts
  \brief The QPolarChart presents data in polar charts.
 
  Polar charts present data in a circular graph, where the placement of data
@@ -145,6 +145,6 @@ QPolarChart::PolarOrientation QPolarChart::axisPolarOrientation(QAbstractAxis *a
         return PolarOrientationRadial;
 }
 
-#include "moc_qpolarchart.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_qpolarchart.cpp"

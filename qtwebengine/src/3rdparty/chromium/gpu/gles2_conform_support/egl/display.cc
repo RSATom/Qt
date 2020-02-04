@@ -4,6 +4,8 @@
 
 #include "gpu/gles2_conform_support/egl/display.h"
 
+#include "base/stl_util.h"
+#include "build/build_config.h"
 #include "gpu/gles2_conform_support/egl/config.h"
 #include "gpu/gles2_conform_support/egl/context.h"
 #include "gpu/gles2_conform_support/egl/surface.h"
@@ -85,7 +87,7 @@ EGLBoolean Display::ChooseConfig(ThreadState* ts,
   if (!configs)
     config_size = 0;
   *num_config = 0;
-  for (size_t i = 0; i < arraysize(configs_); ++i) {
+  for (size_t i = 0; i < base::size(configs_); ++i) {
     if (configs_[i]->Matches(attrib_list)) {
       if (*num_config < config_size) {
         configs[*num_config] = configs_[i].get();
@@ -108,9 +110,9 @@ EGLBoolean Display::GetConfigs(ThreadState* ts,
   InitializeConfigsIfNeeded();
   if (!configs)
     config_size = 0;
-  *num_config = arraysize(configs_);
+  *num_config = base::size(configs_);
   size_t count =
-      std::min(arraysize(configs_), static_cast<size_t>(config_size));
+      std::min(base::size(configs_), static_cast<size_t>(config_size));
   for (size_t i = 0; i < count; ++i)
     configs[i] = configs_[i].get();
   return ts->ReturnSuccess(EGL_TRUE);
@@ -214,7 +216,12 @@ EGLSurface Display::CreateWindowSurface(ThreadState* ts,
     return result;
   }
   scoped_refptr<gl::GLSurface> gl_surface;
-  gl_surface = gl::init::CreateViewGLSurface(win);
+#if defined(OS_MACOSX)
+  gfx::AcceleratedWidget widget = gfx::kNullAcceleratedWidget;
+#else
+  gfx::AcceleratedWidget widget = static_cast<gfx::AcceleratedWidget>(win);
+#endif
+  gl_surface = gl::init::CreateViewGLSurface(widget);
   if (!gl_surface)
     return ts->ReturnError(EGL_BAD_ALLOC, EGL_NO_SURFACE);
   surfaces_.emplace_back(new Surface(gl_surface.get(), config));
@@ -347,19 +354,6 @@ EGLBoolean Display::DestroyContext(ThreadState* ts, EGLContext ctx) {
 uint64_t Display::GenerateFenceSyncRelease() {
   base::AutoLock auto_lock(lock_);
   return next_fence_sync_release_++;
-}
-
-bool Display::IsFenceSyncRelease(uint64_t release) {
-  base::AutoLock auto_lock(lock_);
-  return release > 0 && release < next_fence_sync_release_;
-}
-
-bool Display::IsFenceSyncFlushed(uint64_t release) {
-  return IsFenceSyncRelease(release);
-}
-
-bool Display::IsFenceSyncFlushReceived(uint64_t release) {
-  return IsFenceSyncRelease(release);
 }
 
 void Display::InitializeConfigsIfNeeded() {

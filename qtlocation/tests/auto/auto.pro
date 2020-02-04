@@ -23,16 +23,17 @@ qtHaveModule(location) {
            qplacesearchresult \
            qplacesearchreply \
            qplacesearchsuggestionreply \
-           qplaceuser \
+           qplaceuser
+
+    !android: SUBDIRS += \
            qplacemanager \
            qplacemanager_nokia \
            qplacemanager_unsupported \
            placesplugin_unsupported
 
     #misc tests
-    SUBDIRS +=  qmlinterface \
-           cmake \
-           doublevectors
+    SUBDIRS +=   doublevectors
+    !android: SUBDIRS += cmake qmlinterface # looks for .qmls locally
 
     #Map and Navigation tests
     SUBDIRS += geotestplugin \
@@ -40,26 +41,28 @@ qtHaveModule(location) {
            qgeocameracapabilities\
            qgeocameradata \
            qgeocodereply \
-           qgeocodingmanager \
            qgeomaneuver \
            qgeotiledmapscene \
            qgeoroute \
            qgeoroutereply \
            qgeorouterequest \
            qgeoroutesegment \
-           qgeoroutingmanager \
            qgeoroutingmanagerplugins \
-           qgeoserviceprovider \
-           qgeotiledmap \
            qgeotilespec \
            qgeoroutexmlparser \
            maptype \
-           nokia_services \
            qgeocameratiles
 
-    qtHaveModule(quick) {
-        SUBDIRS += declarative_core \
-                declarative_geoshape
+    # These use plugins
+    !android: SUBDIRS += qgeoserviceprovider \
+                         qgeoroutingmanager \
+                         nokia_services \
+                         qgeocodingmanager \
+                         qgeotiledmap
+
+    qtHaveModule(quick):!android {
+        SUBDIRS += declarative_geoshape \
+                   declarative_core
 
         !mac: SUBDIRS += declarative_ui
     }
@@ -67,10 +70,7 @@ qtHaveModule(location) {
 
 
 SUBDIRS += \
-           positionplugin \
-           positionplugintest \
            qgeoaddress \
-           qgeoareamonitor \
            qgeoshape \
            qgeorectangle \
            qgeocircle \
@@ -79,7 +79,15 @@ SUBDIRS += \
            qgeocoordinate \
            qgeolocation \
            qgeopositioninfo \
-           qgeopositioninfosource \
            qgeosatelliteinfo \
            qgeosatelliteinfosource \
+           qgeojson \
            qnmeapositioninfosource
+
+!android: SUBDIRS += \
+            positionplugin \
+            positionplugintest \
+            qgeoareamonitor \
+            qgeopositioninfosource \
+            qgeosatelliteinfosource \
+            qnmeapositioninfosource

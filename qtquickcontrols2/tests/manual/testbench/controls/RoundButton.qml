@@ -48,8 +48,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Controls 2.3
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 
 QtObject {
     property var supportedStates: [
@@ -58,23 +58,17 @@ QtObject {
         ["pressed"],
         ["checked"],
         ["checked", "disabled"],
-        ["checked", "hovered"],
         ["highlighted"],
         ["highlighted", "disabled"],
-        ["highlighted", "hovered"],
         ["highlighted", "pressed"],
         ["highlighted", "checked"],
-        ["highlighted", "checkable", "hovered"],
         ["highlighted", "checkable", "pressed"],
         ["highlighted", "checkable", "checked"],
-        ["hovered"],
         ["flat"],
         ["flat", "disabled"],
-        ["flat", "hovered"],
         ["flat", "pressed"],
         ["flat", "checked"],
         ["flat", "checkable"],
-        ["flat", "checkable", "hovered"],
         ["flat", "checkable", "pressed"],
         ["flat", "checkable", "checked", "pressed"],
         ["flat", "checkable", "highlighted"],

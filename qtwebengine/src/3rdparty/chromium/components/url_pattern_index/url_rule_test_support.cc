@@ -41,12 +41,12 @@ void AddDomains(const std::vector<std::string>& domains, proto::UrlRule* rule) {
 }
 
 url::Origin GetOrigin(base::StringPiece origin_string) {
-  return !origin_string.empty() ? url::Origin(GURL(origin_string))
+  return !origin_string.empty() ? url::Origin::Create(GURL(origin_string))
                                 : url::Origin();
 }
 
 bool IsThirdParty(const GURL& url, const url::Origin& first_party_origin) {
-  return first_party_origin.unique() ||
+  return first_party_origin.opaque() ||
          !net::registry_controlled_domains::SameDomainOrHost(
              url, first_party_origin,
              net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);

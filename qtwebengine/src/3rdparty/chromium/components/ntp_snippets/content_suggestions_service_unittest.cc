@@ -10,10 +10,10 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/test/mock_callback.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/time/default_clock.h"
 #include "components/ntp_snippets/category_info.h"
 #include "components/ntp_snippets/category_rankers/constant_category_ranker.h"
@@ -22,6 +22,7 @@
 #include "components/ntp_snippets/category_status.h"
 #include "components/ntp_snippets/content_suggestion.h"
 #include "components/ntp_snippets/content_suggestions_provider.h"
+#include "components/ntp_snippets/logger.h"
 #include "components/ntp_snippets/mock_content_suggestions_provider.h"
 #include "components/ntp_snippets/remote/remote_suggestions_provider_impl.h"
 #include "components/ntp_snippets/user_classifier.h"
@@ -38,6 +39,7 @@ using testing::IsEmpty;
 using testing::Mock;
 using testing::Property;
 using testing::Return;
+using testing::SizeIs;
 using testing::StrictMock;
 using testing::UnorderedElementsAre;
 
@@ -67,8 +69,8 @@ class MockServiceObserver : public ContentSuggestionsService::Observer {
 class ContentSuggestionsServiceTest : public testing::Test {
  public:
   ContentSuggestionsServiceTest()
-      : pref_service_(base::MakeUnique<TestingPrefServiceSimple>()),
-        category_ranker_(base::MakeUnique<ConstantCategoryRanker>()) {}
+      : pref_service_(std::make_unique<TestingPrefServiceSimple>()),
+        category_ranker_(std::make_unique<ConstantCategoryRanker>()) {}
 
   void SetUp() override {
     RegisterPrefs();
@@ -126,7 +128,7 @@ class ContentSuggestionsServiceTest : public testing::Test {
   MockContentSuggestionsProvider* MakeRegisteredMockProvider(
       const std::vector<Category>& provided_categories) {
     auto provider =
-        base::MakeUnique<testing::StrictMock<MockContentSuggestionsProvider>>(
+        std::make_unique<testing::StrictMock<MockContentSuggestionsProvider>>(
             service(), provided_categories);
     MockContentSuggestionsProvider* result = provider.get();
     service()->RegisterProvider(std::move(provider));
@@ -152,14 +154,14 @@ class ContentSuggestionsServiceTest : public testing::Test {
     ASSERT_FALSE(service_);
 
     // TODO(jkrcal): Replace by a mock.
-    auto user_classifier = base::MakeUnique<UserClassifier>(
-        pref_service_.get(), base::MakeUnique<base::DefaultClock>());
+    auto user_classifier = std::make_unique<UserClassifier>(
+        pref_service_.get(), base::DefaultClock::GetInstance());
 
-    service_ = base::MakeUnique<ContentSuggestionsService>(
-        enabled, /*signin_manager=*/nullptr, /*history_service=*/nullptr,
+    service_ = std::make_unique<ContentSuggestionsService>(
+        enabled, /*identity_manager=*/nullptr, /*history_service=*/nullptr,
         /*large_icon_service=*/nullptr, pref_service_.get(),
         std::move(category_ranker_), std::move(user_classifier),
-        /*scheduler=*/nullptr);
+        /*scheduler=*/nullptr, /*debug_logger=*/std::make_unique<Logger>());
   }
 
   void ResetService() {
@@ -279,17 +281,17 @@ TEST_F(ContentSuggestionsServiceTest, ShouldRedirectFetchSuggestionImage) {
                                     CreateSuggestions(articles_category, {1}));
   ContentSuggestion::ID suggestion_id(articles_category, "1");
 
-  EXPECT_CALL(*provider1, FetchSuggestionImage(suggestion_id, _));
-  EXPECT_CALL(*provider2, FetchSuggestionImage(_, _)).Times(0);
+  EXPECT_CALL(*provider1, FetchSuggestionImageMock(suggestion_id, _));
+  EXPECT_CALL(*provider2, FetchSuggestionImageMock(_, _)).Times(0);
   service()->FetchSuggestionImage(
-      suggestion_id, base::Bind(&ContentSuggestionsServiceTest::OnImageFetched,
-                                base::Unretained(this)));
+      suggestion_id,
+      base::BindOnce(&ContentSuggestionsServiceTest::OnImageFetched,
+                     base::Unretained(this)));
 }
 
 TEST_F(ContentSuggestionsServiceTest,
        ShouldCallbackEmptyImageForUnavailableProvider) {
-  // Setup the current thread's MessageLoop.
-  base::MessageLoop message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
 
   base::RunLoop run_loop;
   // Assuming there will never be a category with the id below.
@@ -297,8 +299,9 @@ TEST_F(ContentSuggestionsServiceTest,
   EXPECT_CALL(*this, OnImageFetched(Property(&gfx::Image::IsEmpty, Eq(true))))
       .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
   service()->FetchSuggestionImage(
-      suggestion_id, base::Bind(&ContentSuggestionsServiceTest::OnImageFetched,
-                                base::Unretained(this)));
+      suggestion_id,
+      base::BindOnce(&ContentSuggestionsServiceTest::OnImageFetched,
+                     base::Unretained(this)));
   run_loop.Run();
 }
 
@@ -550,7 +553,7 @@ TEST_F(ContentSuggestionsServiceTest, ShouldForwardClearHistoryToProviders) {
 
 TEST_F(ContentSuggestionsServiceTest,
        ShouldForwardClearHistoryToCategoryRanker) {
-  auto mock_ranker = base::MakeUnique<MockCategoryRanker>();
+  auto mock_ranker = std::make_unique<MockCategoryRanker>();
   MockCategoryRanker* raw_mock_ranker = mock_ranker.get();
   SetCategoryRanker(std::move(mock_ranker));
 
@@ -574,8 +577,7 @@ TEST_F(ContentSuggestionsServiceTest, ShouldForwardDeleteAllHistoryURLs) {
       MakeRegisteredMockProvider(category);
   EXPECT_CALL(*provider, ClearHistory(base::Time(), base::Time::Max(), _));
   static_cast<history::HistoryServiceObserver*>(service())->OnURLsDeleted(
-      /*history_service=*/nullptr, /*all_history=*/true, /*expired=*/false,
-      history::URLRows(), /*favicon_urls=*/std::set<GURL>());
+      /*history_service=*/nullptr, history::DeletionInfo::ForAllHistory());
 
   service()->RemoveObserver(&observer);
 }
@@ -588,15 +590,19 @@ TEST_F(ContentSuggestionsServiceTest, ShouldIgnoreExpiredURLDeletions) {
   service()->AddObserver(&observer);
 
   static_cast<history::HistoryServiceObserver*>(service())->OnURLsDeleted(
-      /*history_service=*/nullptr, /*all_history=*/true,
-      /*expired=*/true, history::URLRows(),
-      /*favicon_urls=*/std::set<GURL>());
+      /*history_service=*/nullptr,
+      history::DeletionInfo(history::DeletionTimeRange::AllTime(),
+                            /*expired=*/true, history::URLRows(),
+                            /*favicon_urls=*/std::set<GURL>(),
+                            /*restrict_urls=*/base::nullopt));
   static_cast<history::HistoryServiceObserver*>(service())->OnURLsDeleted(
-      /*history_service=*/nullptr, /*all_history=*/false,
-      /*expired=*/true,
-      history::URLRows({history::URLRow(GURL("http://google.com")),
-                        history::URLRow(GURL("http://maps.google.com"))}),
-      /*favicon_urls=*/std::set<GURL>());
+      /*history_service=*/nullptr,
+      history::DeletionInfo(history::DeletionTimeRange::Invalid(),
+                            /*expired=*/true,
+                            {history::URLRow(GURL("http://google.com")),
+                             history::URLRow(GURL("http://maps.google.com"))},
+                            /*favicon_urls=*/std::set<GURL>(),
+                            /*restrict_urls=*/base::nullopt));
 
   service()->RemoveObserver(&observer);
 }
@@ -605,9 +611,7 @@ TEST_F(ContentSuggestionsServiceTest, ShouldIgnoreEmptyURLDeletions) {
   Category category = Category::FromKnownCategory(KnownCategories::DOWNLOADS);
   MakeRegisteredMockProvider(category);
   static_cast<history::HistoryServiceObserver*>(service())->OnURLsDeleted(
-      /*history_service=*/nullptr, /*all_history=*/false,
-      /*expired=*/false, history::URLRows(),
-      /*favicon_urls=*/std::set<GURL>());
+      /*history_service=*/nullptr, history::DeletionInfo::ForUrls({}, {}));
 }
 
 TEST_F(ContentSuggestionsServiceTest,
@@ -616,10 +620,10 @@ TEST_F(ContentSuggestionsServiceTest,
   MakeRegisteredMockProvider(category);
   // Single URLs should not trigger
   static_cast<history::HistoryServiceObserver*>(service())->OnURLsDeleted(
-      /*history_service=*/nullptr, /*all_history=*/false,
-      /*expired=*/false,
-      history::URLRows({history::URLRow(GURL("http://google.com"))}),
-      /*favicon_urls=*/std::set<GURL>());
+      /*history_service=*/nullptr,
+      history::DeletionInfo::ForUrls(
+          {history::URLRow(GURL("http://google.com"))},
+          /*favicon_urls=*/std::set<GURL>()));
 }
 
 TEST_F(ContentSuggestionsServiceTest,
@@ -634,11 +638,11 @@ TEST_F(ContentSuggestionsServiceTest,
   EXPECT_CALL(*provider, ClearHistory(base::Time(), base::Time::Max(), _));
 
   static_cast<history::HistoryServiceObserver*>(service())->OnURLsDeleted(
-      /*history_service=*/nullptr, /*all_history=*/false,
-      /*expired=*/false,
-      history::URLRows({history::URLRow(GURL("http://google.com")),
-                        history::URLRow(GURL("http://youtube.com"))}),
-      /*favicon_urls=*/std::set<GURL>());
+      /*history_service=*/nullptr,
+      history::DeletionInfo::ForUrls(
+          {history::URLRow(GURL("http://google.com")),
+           history::URLRow(GURL("http://youtube.com"))},
+          /*favicon_urls=*/std::set<GURL>()));
 
   service()->RemoveObserver(&observer);
 }
@@ -649,7 +653,7 @@ TEST_F(ContentSuggestionsServiceTest, ShouldForwardFetch) {
   MockContentSuggestionsProvider* provider =
       MakeRegisteredMockProvider(category);
   provider->FireCategoryStatusChangedWithCurrentStatus(category);
-  EXPECT_CALL(*provider, Fetch(category, known_suggestions, _));
+  EXPECT_CALL(*provider, FetchMock(category, known_suggestions, _));
   service()->Fetch(category, known_suggestions, FetchDoneCallback());
 }
 
@@ -774,7 +778,7 @@ TEST_F(ContentSuggestionsServiceTest, ShouldReturnCategoriesInOrderToDisplay) {
   const Category first_category = Category::FromRemoteCategory(1);
   const Category second_category = Category::FromRemoteCategory(2);
 
-  auto fake_ranker = base::MakeUnique<FakeCategoryRanker>();
+  auto fake_ranker = std::make_unique<FakeCategoryRanker>();
   FakeCategoryRanker* raw_fake_ranker = fake_ranker.get();
   SetCategoryRanker(std::move(fake_ranker));
 
@@ -801,7 +805,7 @@ TEST_F(ContentSuggestionsServiceTest, ShouldReturnCategoriesInOrderToDisplay) {
 
 TEST_F(ContentSuggestionsServiceTest,
        ShouldForwardDismissedCategoryToCategoryRanker) {
-  auto mock_ranker = base::MakeUnique<MockCategoryRanker>();
+  auto mock_ranker = std::make_unique<MockCategoryRanker>();
   MockCategoryRanker* raw_mock_ranker = mock_ranker.get();
   SetCategoryRanker(std::move(mock_ranker));
 

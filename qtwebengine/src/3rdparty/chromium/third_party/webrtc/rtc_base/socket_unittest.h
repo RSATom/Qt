@@ -8,11 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SOCKET_UNITTEST_H_
-#define WEBRTC_RTC_BASE_SOCKET_UNITTEST_H_
+#ifndef RTC_BASE_SOCKET_UNITTEST_H_
+#define RTC_BASE_SOCKET_UNITTEST_H_
 
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/thread.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -21,10 +21,11 @@ namespace rtc {
 // socketserver, and call the SocketTest test methods.
 class SocketTest : public testing::Test {
  protected:
-  SocketTest() : kIPv4Loopback(INADDR_LOOPBACK),
-                 kIPv6Loopback(in6addr_loopback),
-                 ss_(nullptr) {}
-  virtual void SetUp() { ss_ = Thread::Current()->socketserver(); }
+  SocketTest()
+      : kIPv4Loopback(INADDR_LOOPBACK),
+        kIPv6Loopback(in6addr_loopback),
+        ss_(nullptr) {}
+  void SetUp() override;
   void TestConnectIPv4();
   void TestConnectIPv6();
   void TestConnectWithDnsLookupIPv4();
@@ -65,8 +66,9 @@ class SocketTest : public testing::Test {
   const IPAddress kIPv6Loopback;
 
  protected:
-  void TcpInternal(const IPAddress& loopback, size_t data_size,
-      ptrdiff_t max_send_size);
+  void TcpInternal(const IPAddress& loopback,
+                   size_t data_size,
+                   ptrdiff_t max_send_size);
 
  private:
   void ConnectInternal(const IPAddress& loopback);
@@ -97,4 +99,4 @@ bool IsUnspecOrEmptyIP(const IPAddress& address);
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_SOCKET_UNITTEST_H_
+#endif  // RTC_BASE_SOCKET_UNITTEST_H_

@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/stl_util.h"
+#include "content/browser/child_process_security_policy_impl.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
 #include "mojo/public/cpp/bindings/interface_ptr_set.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -24,9 +25,9 @@ class BroadcastChannelProvider::Connection
              blink::mojom::BroadcastChannelClientAssociatedRequest connection,
              BroadcastChannelProvider* service);
 
-  void OnMessage(const std::vector<uint8_t>& message) override;
-  void MessageToClient(const std::vector<uint8_t>& message) const {
-    client_->OnMessage(message);
+  void OnMessage(blink::CloneableMessage message) override;
+  void MessageToClient(const blink::CloneableMessage& message) const {
+    client_->OnMessage(message.ShallowClone());
   }
   const url::Origin& origin() const { return origin_; }
   const std::string& name() const { return name_; }
@@ -59,15 +60,16 @@ BroadcastChannelProvider::Connection::Connection(
 }
 
 void BroadcastChannelProvider::Connection::OnMessage(
-    const std::vector<uint8_t>& message) {
+    blink::CloneableMessage message) {
   service_->ReceivedMessageOnConnection(this, message);
 }
 
 BroadcastChannelProvider::BroadcastChannelProvider() {}
 
-void BroadcastChannelProvider::Connect(
+mojo::BindingId BroadcastChannelProvider::Connect(
+    RenderProcessHostId render_process_host_id,
     blink::mojom::BroadcastChannelProviderRequest request) {
-  bindings_.AddBinding(this, std::move(request));
+  return bindings_.AddBinding(this, std::move(request), render_process_host_id);
 }
 
 void BroadcastChannelProvider::ConnectToChannel(
@@ -75,6 +77,13 @@ void BroadcastChannelProvider::ConnectToChannel(
     const std::string& name,
     blink::mojom::BroadcastChannelClientAssociatedPtrInfo client,
     blink::mojom::BroadcastChannelClientAssociatedRequest connection) {
+  RenderProcessHostId process_id = bindings_.dispatch_context();
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  if (!policy->CanAccessDataForOrigin(process_id, origin.GetURL())) {
+    mojo::ReportBadMessage("BROADCAST_CHANNEL_INVALID_ORIGIN");
+    return;
+  }
+
   std::unique_ptr<Connection> c(new Connection(origin, name, std::move(client),
                                                std::move(connection), this));
   c->set_connection_error_handler(
@@ -102,7 +111,7 @@ void BroadcastChannelProvider::UnregisterConnection(Connection* c) {
 
 void BroadcastChannelProvider::ReceivedMessageOnConnection(
     Connection* c,
-    const std::vector<uint8_t>& message) {
+    const blink::CloneableMessage& message) {
   auto& connections = connections_[c->origin()];
   for (auto it = connections.lower_bound(c->name()),
             end = connections.upper_bound(c->name());

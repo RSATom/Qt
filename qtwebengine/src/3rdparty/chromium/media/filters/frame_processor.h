@@ -28,7 +28,8 @@ class MEDIA_EXPORT FrameProcessor {
   typedef base::Callback<void(base::TimeDelta)> UpdateDurationCB;
 
   FrameProcessor(const UpdateDurationCB& update_duration_cb,
-                 MediaLog* media_log);
+                 MediaLog* media_log,
+                 ChunkDemuxerStream::RangeApi range_api);
   ~FrameProcessor();
 
   // This must be called exactly once, before doing any track buffer creation or
@@ -95,8 +96,9 @@ class MEDIA_EXPORT FrameProcessor {
   MseTrackBuffer* FindTrack(StreamParser::TrackId id);
 
   // Signals all track buffers' streams that a coded frame group is starting
-  // with decode timestamp |start_timestamp|.
-  void NotifyStartOfCodedFrameGroup(DecodeTimestamp start_timestamp);
+  // with |start_dts| and |start_pts|.
+  void NotifyStartOfCodedFrameGroup(DecodeTimestamp start_dts,
+                                    base::TimeDelta start_pts);
 
   // Helper that signals each track buffer to append any processed, but not yet
   // appended, frames to its stream. Returns true on success, or false if one or
@@ -122,11 +124,11 @@ class MEDIA_EXPORT FrameProcessor {
   bool HandlePartialAppendWindowTrimming(
       base::TimeDelta append_window_start,
       base::TimeDelta append_window_end,
-      const scoped_refptr<StreamParserBuffer>& buffer);
+      scoped_refptr<StreamParserBuffer> buffer);
 
   // Helper that processes one frame with the coded frame processing algorithm.
   // Returns false on error or true on success.
-  bool ProcessFrame(const scoped_refptr<StreamParserBuffer>& frame,
+  bool ProcessFrame(scoped_refptr<StreamParserBuffer> frame,
                     base::TimeDelta append_window_start,
                     base::TimeDelta append_window_end,
                     base::TimeDelta* timestamp_offset);
@@ -154,10 +156,10 @@ class MEDIA_EXPORT FrameProcessor {
   // Tracks whether or not we need to notify all track buffers of a new coded
   // frame group (see https://w3c.github.io/media-source/#coded-frame-group)
   // upon the next successfully processed frame.  Set true initially and upon
-  // detection of 'segments' mode discontinuity, parser reset during 'segments'
-  // mode, or switching from 'sequence' to 'segments' mode.  Individual track
-  // buffers can also be notified of an updated coded frame group start in edge
-  // cases. See further comments in ProcessFrame().
+  // detection of DTS discontinuity, parser reset during 'segments' mode, or
+  // switching from 'sequence' to 'segments' mode.  Individual track buffers can
+  // also be notified of an updated coded frame group start in edge cases. See
+  // further comments in ProcessFrame().
   bool pending_notify_all_group_start_ = true;
 
   // Tracks the MSE coded frame processing variable of same name.
@@ -175,6 +177,10 @@ class MEDIA_EXPORT FrameProcessor {
   // MediaLog for reporting messages and properties to debug content and engine.
   MediaLog* media_log_;
 
+  // For differentiating behavior based on buffering by DTS interval versus PTS
+  // interval. See https://crbug.com/718641.
+  const ChunkDemuxerStream::RangeApi range_api_;
+
   // Callback for reporting problematic conditions that are not necessarily
   // errors.
   SourceBufferParseWarningCB parse_warning_cb_;
@@ -182,7 +188,11 @@ class MEDIA_EXPORT FrameProcessor {
   // Counters that limit spam to |media_log_| for frame processor warnings.
   int num_dropped_preroll_warnings_ = 0;
   int num_dts_beyond_pts_warnings_ = 0;
+  int num_audio_non_keyframe_warnings_ = 0;
   int num_muxed_sequence_mode_warnings_ = 0;
+  int num_skipped_empty_frame_warnings_ = 0;
+  int num_partial_discard_warnings_ = 0;
+  int num_dropped_frame_warnings_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(FrameProcessor);
 };

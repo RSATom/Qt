@@ -30,15 +30,14 @@ class MEDIA_EXPORT AudioDeviceThread : public base::PlatformThread::Delegate {
   class Callback {
    public:
     Callback(const AudioParameters& audio_parameters,
-             base::SharedMemoryHandle memory,
-             int memory_length,
-             int total_segments);
+             uint32_t segment_length,
+             uint32_t total_segments);
 
     // One time initialization for the callback object on the audio thread.
     void InitializeOnAudioThread();
 
-    // Derived implementations must call shared_memory_.Map appropriately
-    // before Process can be called.
+    // Derived implementations must map shared memory appropriately before
+    // Process can be called.
     virtual void MapSharedMemory() = 0;
 
     // Called whenever we receive notifications about pending input data.
@@ -52,10 +51,9 @@ class MEDIA_EXPORT AudioDeviceThread : public base::PlatformThread::Delegate {
     // constructor and must never change.
     const AudioParameters audio_parameters_;
 
-    base::SharedMemory shared_memory_;
-    const int memory_length_;
-    const int total_segments_;
-    const int segment_length_;
+    const uint32_t memory_length_;
+    const uint32_t total_segments_;
+    const uint32_t segment_length_;
 
     // Detached in constructor and attached in InitializeOnAudioThread() which
     // is called on the audio device thread. Sub-classes can then use it for
@@ -69,10 +67,12 @@ class MEDIA_EXPORT AudioDeviceThread : public base::PlatformThread::Delegate {
   // Creates and automatically starts the audio thread.
   AudioDeviceThread(Callback* callback,
                     base::SyncSocket::Handle socket,
-                    const char* thread_name);
+                    const char* thread_name,
+                    base::ThreadPriority thread_priority);
 
   // This tells the audio thread to stop and clean up the data; this is a
   // synchronous process and the thread will stop before the method returns.
+  // Blocking call, see base/threading/thread_restrictions.h.
   ~AudioDeviceThread() override;
 
  private:

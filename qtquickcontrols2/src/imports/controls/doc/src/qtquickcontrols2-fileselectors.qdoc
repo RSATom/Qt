@@ -27,11 +27,11 @@
 
 /*!
     \page qtquickcontrols2-fileselectors.html
-    \title Using File Selectors with Qt Quick Controls 2
+    \title Using File Selectors with Qt Quick Controls
 
     \l {QFileSelector}{File selectors} provide a convenient way of selecting
     file variants. Qt offers the platform name and the locale as built-in
-    selectors. Qt Quick Controls 2 extends the built-in selectors with the name
+    selectors. Qt Quick Controls extends the built-in selectors with the name
     (lowercase) of the style that an application is running with.
 
     By using file selectors, style-specific tweaks can be applied without
@@ -41,7 +41,7 @@
     to some code duplication, but on the other hand, cuts the aforementioned
     hard dependency to the style, and leads to simpler and more efficient
     QML code. The same technique is used to implement the \l {Styling Qt
-    Quick Controls 2}{Qt Quick Controls 2 styles}.
+    Quick Controls}{Qt Quick Controls styles}.
 
     The following example demonstrates a custom rounded button that has a
     styled drop shadow in the \l {Material Style}{Material style}, and looks
@@ -59,10 +59,10 @@
     \c material selector will be present and the \c +material/CustomButton.qml
     version will be used instead.
 
-    \code
+    \code \QtMinorVersion
     // main.qml
-    import QtQuick 2.6
-    import QtQuick.Controls 2.1
+    import QtQuick 2.\1
+    import QtQuick.Controls 2.\1
 
     ApplicationWindow {
         id: window
@@ -78,10 +78,10 @@
     The base implementation of the custom button is a simple rounded
     flat button.
 
-    \code
+    \code \QtMinorVersion
     // CustomButton.qml
-    import QtQuick 2.6
-    import QtQuick.Controls 2.1
+    import QtQuick 2.\1
+    import QtQuick.Controls 2.\1
 
     Button {
         id: control
@@ -99,12 +99,12 @@
     Material style, requests a dark theme to get light text, and creates
     a drop shadow for the background.
 
-    \code
+    \code \QtMinorVersion
     // +material/CustomButton.qml
-    import QtQuick 2.6
-    import QtGraphicalEffects 1.0
-    import QtQuick.Controls 2.1
-    import QtQuick.Controls.Material 2.1
+    import QtQuick 2.\1
+    import QtGraphicalEffects 1.\1
+    import QtQuick.Controls 2.\1
+    import QtQuick.Controls.Material 2.\1
 
     Button {
         id: control
@@ -136,6 +136,6 @@
     \list
       \li \l {QFileSelector}
       \li \l {QQmlFileSelector}
-      \li \l {Styling Qt Quick Controls 2}
+      \li \l {Styling Qt Quick Controls}
     \endlist
 */

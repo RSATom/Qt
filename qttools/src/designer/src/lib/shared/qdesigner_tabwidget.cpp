@@ -32,19 +32,19 @@
 #include "promotiontaskmenu_p.h"
 #include "formwindowbase_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QTabBar>
-#include <QtWidgets/QAction>
-#include <QtGui/QMouseEvent>
-#include <QtGui/QDrag>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QTabWidget>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qtabbar.h>
+#include <QtWidgets/qaction.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qdrag.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qtabwidget.h>
 
 #include <QtCore/qdebug.h>
-#include <QtCore/QMimeData>
+#include <QtCore/qmimedata.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -88,9 +88,7 @@ QTabWidgetEventFilter::QTabWidgetEventFilter(QTabWidget *parent) :
     connect(m_actionDeletePage, &QAction::triggered, this, &QTabWidgetEventFilter::removeCurrentPage);
 }
 
-QTabWidgetEventFilter::~QTabWidgetEventFilter()
-{
-}
+QTabWidgetEventFilter::~QTabWidgetEventFilter() = default;
 
 void QTabWidgetEventFilter::install(QTabWidget *tabWidget)
 {
@@ -100,10 +98,7 @@ void QTabWidgetEventFilter::install(QTabWidget *tabWidget)
 QTabWidgetEventFilter *QTabWidgetEventFilter::eventFilterOf(const QTabWidget *tabWidget)
 {
     // Look for 1st order children only..otherwise, we might get filters of nested tab widgets
-    const QObjectList children = tabWidget->children();
-    const QObjectList::const_iterator cend = children.constEnd();
-    for (QObjectList::const_iterator it = children.constBegin(); it != cend; ++it) {
-        QObject *o = *it;
+    for (QObject *o : tabWidget->children()) {
         if (!o->isWidgetType())
             if (QTabWidgetEventFilter *ef = qobject_cast<QTabWidgetEventFilter*>(o))
                 return ef;
@@ -222,7 +217,7 @@ bool QTabWidgetEventFilter::eventFilter(QObject *o, QEvent *e)
 
             m_tabWidget->removeTab(m_dragIndex);
 
-            const Qt::DropActions dropAction = drg->start(Qt::MoveAction);
+            const Qt::DropActions dropAction = drg->exec(Qt::MoveAction);
 
             if (dropAction == Qt::IgnoreAction) {
                 // abort

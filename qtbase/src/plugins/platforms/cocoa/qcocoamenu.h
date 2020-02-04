@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Copyright (C) 2012 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author James Turner <james.turner@kdab.com>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -45,6 +45,8 @@
 #include <qpa/qplatformmenu.h>
 #include "qcocoamenuitem.h"
 
+Q_FORWARD_DECLARE_OBJC_CLASS(QT_MANGLE_NAMESPACE(QCocoaNSMenu));
+
 QT_BEGIN_NAMESPACE
 
 class QCocoaMenuBar;
@@ -55,32 +57,31 @@ public:
     QCocoaMenu();
     ~QCocoaMenu();
 
-    void insertMenuItem(QPlatformMenuItem *menuItem, QPlatformMenuItem *before) Q_DECL_OVERRIDE;
-    void removeMenuItem(QPlatformMenuItem *menuItem) Q_DECL_OVERRIDE;
-    void syncMenuItem(QPlatformMenuItem *menuItem) Q_DECL_OVERRIDE;
-    void setEnabled(bool enabled) Q_DECL_OVERRIDE;
-    bool isEnabled() const Q_DECL_OVERRIDE;
-    void setVisible(bool visible) Q_DECL_OVERRIDE;
-    void showPopup(const QWindow *parentWindow, const QRect &targetRect, const QPlatformMenuItem *item) Q_DECL_OVERRIDE;
-    void dismiss() Q_DECL_OVERRIDE;
+    void insertMenuItem(QPlatformMenuItem *menuItem, QPlatformMenuItem *before) override;
+    void removeMenuItem(QPlatformMenuItem *menuItem) override;
+    void syncMenuItem(QPlatformMenuItem *menuItem) override;
+    void setEnabled(bool enabled) override;
+    bool isEnabled() const override;
+    void setVisible(bool visible) override;
+    void showPopup(const QWindow *parentWindow, const QRect &targetRect, const QPlatformMenuItem *item) override;
+    void dismiss() override;
 
-    void syncSeparatorsCollapsible(bool enable) Q_DECL_OVERRIDE;
+    void syncSeparatorsCollapsible(bool enable) override;
 
     void propagateEnabledState(bool enabled);
 
-    void setIcon(const QIcon &icon) Q_DECL_OVERRIDE { Q_UNUSED(icon) }
+    void setIcon(const QIcon &icon) override { Q_UNUSED(icon) }
 
-    void setText(const QString &text) Q_DECL_OVERRIDE;
-    void setMinimumWidth(int width) Q_DECL_OVERRIDE;
-    void setFont(const QFont &font) Q_DECL_OVERRIDE;
+    void setText(const QString &text) override;
+    void setMinimumWidth(int width) override;
+    void setFont(const QFont &font) override;
 
-    inline NSMenu *nsMenu() const
-        { return m_nativeMenu; }
+    NSMenu *nsMenu() const;
 
     inline bool isVisible() const { return m_visible; }
 
-    QPlatformMenuItem *menuItemAt(int position) const Q_DECL_OVERRIDE;
-    QPlatformMenuItem *menuItemForTag(quintptr tag) const Q_DECL_OVERRIDE;
+    QPlatformMenuItem *menuItemAt(int position) const override;
+    QPlatformMenuItem *menuItemForTag(quintptr tag) const override;
 
     QList<QCocoaMenuItem *> items() const;
     QList<QCocoaMenuItem *> merged() const;
@@ -91,9 +92,14 @@ public:
     bool isOpen() const;
     void setIsOpen(bool isOpen);
 
-    void timerEvent(QTimerEvent *e) Q_DECL_OVERRIDE;
+    bool isAboutToShow() const;
+    void setIsAboutToShow(bool isAbout);
+
+    void timerEvent(QTimerEvent *e) override;
 
     void syncMenuItem_helper(QPlatformMenuItem *menuItem, bool menubarUpdate);
+
+    void setItemTargetAction(QCocoaMenuItem *item) const;
 
 private:
     QCocoaMenuItem *itemOrNull(int index) const;
@@ -101,13 +107,14 @@ private:
     void scheduleUpdate();
 
     QList<QCocoaMenuItem *> m_menuItems;
-    NSMenu *m_nativeMenu;
+    QT_MANGLE_NAMESPACE(QCocoaNSMenu) *m_nativeMenu;
     NSMenuItem *m_attachedItem;
     int m_updateTimer;
     bool m_enabled:1;
     bool m_parentEnabled:1;
     bool m_visible:1;
     bool m_isOpen:1;
+    bool m_isAboutToShow:1;
 };
 
 QT_END_NAMESPACE

@@ -7,16 +7,13 @@
 
 #include <memory>
 
-#include "base/memory/ref_counted.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
-#include "content/public/browser/devtools_external_agent_proxy.h"
-#include "content/public/browser/devtools_external_agent_proxy_delegate.h"
 
 namespace content {
 
-class ForwardingAgentHost
-    : public DevToolsAgentHostImpl,
-      public DevToolsExternalAgentProxy {
+class DevToolsExternalAgentProxyDelegate;
+
+class ForwardingAgentHost : public DevToolsAgentHostImpl {
  public:
   ForwardingAgentHost(
       const std::string& id,
@@ -25,18 +22,11 @@ class ForwardingAgentHost
  private:
   ~ForwardingAgentHost() override;
 
-  // DevToolsExternalAgentProxy implementation.
-  void DispatchOnClientHost(const std::string& message) override;
-  void ConnectionClosed() override;
+  // DevToolsAgentHostImpl overrides.
+  bool AttachSession(DevToolsSession* session) override;
+  void DetachSession(DevToolsSession* session) override;
 
-  // DevToolsAgentHostImpl implementation.
-  void AttachSession(DevToolsSession* session) override;
-  void DetachSession(int session_id) override;
-  bool DispatchProtocolMessage(
-      DevToolsSession* session,
-      const std::string& message) override;
-
-  // DevToolsAgentHost implementation
+  // DevToolsAgentHost implementation.
   std::string GetType() override;
   std::string GetTitle() override;
   GURL GetURL() override;
@@ -48,9 +38,7 @@ class ForwardingAgentHost
   base::TimeTicks GetLastActivityTime() override;
 
   std::unique_ptr<DevToolsExternalAgentProxyDelegate> delegate_;
-  std::string type_;
-  std::string title_;
-  GURL url_;
+  DISALLOW_COPY_AND_ASSIGN(ForwardingAgentHost);
 };
 
 }  // namespace content

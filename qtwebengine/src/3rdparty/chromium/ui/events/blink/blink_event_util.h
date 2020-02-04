@@ -7,9 +7,11 @@
 
 #include <memory>
 
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
-#include "third_party/WebKit/public/platform/WebTouchEvent.h"
+#include "build/build_config.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/platform/web_touch_event.h"
+#include "ui/events/event_constants.h"
 #include "ui/events/gesture_detection/motion_event.h"
 
 namespace gfx {
@@ -19,6 +21,7 @@ class Vector2d;
 
 namespace ui {
 enum class DomCode;
+class GestureEventAndroid;
 struct GestureEventData;
 struct GestureEventDetails;
 class MotionEvent;
@@ -41,7 +44,8 @@ CoalesceScrollAndPinch(const blink::WebGestureEvent* second_last_event,
 
 blink::WebTouchEvent CreateWebTouchEventFromMotionEvent(
     const MotionEvent& event,
-    bool may_cause_scrolling);
+    bool may_cause_scrolling,
+    bool hovering);
 
 blink::WebGestureEvent CreateWebGestureEvent(const GestureEventDetails& details,
                                              base::TimeTicks timestamp,
@@ -72,6 +76,8 @@ std::unique_ptr<blink::WebInputEvent> TranslateAndScaleWebInputEvent(
 
 blink::WebInputEvent::Type ToWebMouseEventType(MotionEvent::Action action);
 
+EventType WebEventTypeToEventType(blink::WebInputEvent::Type type);
+
 void SetWebPointerPropertiesFromMotionEventData(
     blink::WebPointerProperties& webPointerProperties,
     int pointer_id,
@@ -79,23 +85,36 @@ void SetWebPointerPropertiesFromMotionEventData(
     float orientation_rad,
     float tilt_x,
     float tilt_y,
+    float twist,
+    float tangential_pressure,
     int android_buttons_changed,
-    int tool_type);
+    MotionEvent::ToolType tool_type);
 
 int WebEventModifiersToEventFlags(int modifiers);
 
 blink::WebInputEvent::Modifiers DomCodeToWebInputEventModifiers(
     ui::DomCode code);
 
-bool IsGestureScrollOrFlingOrPinch(blink::WebInputEvent::Type);
+bool IsGestureScrollOrPinch(blink::WebInputEvent::Type);
+
+bool IsGestureScroll(blink::WebInputEvent::Type);
 
 bool IsContinuousGestureEvent(blink::WebInputEvent::Type);
+
+EventPointerType WebPointerTypeToEventPointerType(
+    blink::WebPointerProperties::PointerType type);
 
 inline const blink::WebGestureEvent& ToWebGestureEvent(
     const blink::WebInputEvent& event) {
   DCHECK(blink::WebInputEvent::IsGestureEventType(event.GetType()));
   return static_cast<const blink::WebGestureEvent&>(event);
 }
+
+#if defined(OS_ANDROID)
+// Convenience method that converts an instance to blink event.
+std::unique_ptr<blink::WebGestureEvent>
+CreateWebGestureEventFromGestureEventAndroid(const GestureEventAndroid& event);
+#endif
 
 }  // namespace ui
 

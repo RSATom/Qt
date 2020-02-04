@@ -6,21 +6,24 @@
 
 #include <string>
 
+#include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/prefs/testing_pref_service.h"
+#include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "extensions/browser/api/file_system/file_system_delegate.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/manifest.h"
-#include "extensions/common/test_util.h"
+#include "extensions/common/permissions/permissions_data.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using extensions::file_system_api::ConsentProvider;
@@ -82,6 +85,11 @@ class TestingConsentProviderDelegate
     return whitelisted_component_id_.compare(extension.id()) == 0;
   }
 
+  bool HasRequestDownloadsPermission(const Extension& extension) override {
+    return extension.permissions_data()->HasAPIPermission(
+        APIPermission::kFileSystemRequestDownloads);
+  }
+
   int show_dialog_counter_;
   int show_notification_counter_;
   ui::DialogButton dialog_button_;
@@ -108,8 +116,11 @@ class FileSystemApiConsentProviderTest : public testing::Test {
     TestingBrowserProcess::GetGlobal()->SetLocalState(
         testing_pref_service_.get());
     user_manager_ = new chromeos::FakeChromeUserManager;
-    scoped_user_manager_enabler_.reset(
-        new chromeos::ScopedUserManagerEnabler(user_manager_));
+    scoped_user_manager_enabler_ =
+        std::make_unique<user_manager::ScopedUserManager>(
+            base::WrapUnique(user_manager_));
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+    download_volume_ = Volume::CreateForDownloads(temp_dir_.GetPath());
   }
 
   void TearDown() override {
@@ -124,34 +135,37 @@ class FileSystemApiConsentProviderTest : public testing::Test {
   std::unique_ptr<TestingPrefServiceSimple> testing_pref_service_;
   chromeos::FakeChromeUserManager*
       user_manager_;  // Owned by the scope enabler.
-  std::unique_ptr<chromeos::ScopedUserManagerEnabler>
-      scoped_user_manager_enabler_;
+  std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_enabler_;
   content::TestBrowserThreadBundle thread_bundle_;
+  base::ScopedTempDir temp_dir_;
+  std::unique_ptr<Volume> download_volume_;
 };
 
 TEST_F(FileSystemApiConsentProviderTest, ForNonKioskApps) {
   // Component apps are not granted unless they are whitelisted.
   {
-    scoped_refptr<Extension> component_extension(
-        test_util::BuildApp(
-            std::move(ExtensionBuilder().SetLocation(Manifest::COMPONENT)))
+    scoped_refptr<const Extension> component_extension(
+        ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+            .SetLocation(Manifest::COMPONENT)
             .Build());
     TestingConsentProviderDelegate delegate;
     ConsentProvider provider(&delegate);
-    EXPECT_FALSE(provider.IsGrantable(*component_extension));
+    EXPECT_EQ(provider.GetGrantVolumesMode(*component_extension),
+              FileSystemDelegate::kGrantNone);
   }
 
-  // Whitelitsed component apps are instantly granted access without asking
+  // Whitelisted component apps are instantly granted access without asking
   // user.
   {
-    scoped_refptr<Extension> whitelisted_component_extension(
-        test_util::BuildApp(
-            std::move(ExtensionBuilder().SetLocation(Manifest::COMPONENT)))
+    scoped_refptr<const Extension> whitelisted_component_extension(
+        ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+            .SetLocation(Manifest::COMPONENT)
             .Build());
     TestingConsentProviderDelegate delegate;
     delegate.SetComponentWhitelist(whitelisted_component_extension->id());
     ConsentProvider provider(&delegate);
-    EXPECT_TRUE(provider.IsGrantable(*whitelisted_component_extension));
+    EXPECT_EQ(provider.GetGrantVolumesMode(*whitelisted_component_extension),
+              FileSystemDelegate::kGrantAll);
 
     ConsentProvider::Consent result = ConsentProvider::CONSENT_IMPOSSIBLE;
     provider.RequestConsent(*whitelisted_component_extension.get(), nullptr,
@@ -164,14 +178,43 @@ TEST_F(FileSystemApiConsentProviderTest, ForNonKioskApps) {
     EXPECT_EQ(ConsentProvider::CONSENT_GRANTED, result);
   }
 
+  // Whitelisted extensions are instantly granted downloads access without
+  // asking user.
+  {
+    scoped_refptr<const Extension> whitelisted_extension(
+        ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+            .SetLocation(Manifest::COMPONENT)
+            .AddPermission("fileSystem.requestDownloads")
+            .Build());
+    TestingConsentProviderDelegate delegate;
+    ConsentProvider provider(&delegate);
+    EXPECT_EQ(provider.GetGrantVolumesMode(*whitelisted_extension),
+              FileSystemDelegate::kGrantPerVolume);
+    EXPECT_FALSE(
+        provider.IsGrantableForVolume(*whitelisted_extension, volume_));
+    EXPECT_TRUE(provider.IsGrantableForVolume(*whitelisted_extension,
+                                              download_volume_->AsWeakPtr()));
+
+    ConsentProvider::Consent result = ConsentProvider::CONSENT_IMPOSSIBLE;
+    provider.RequestConsent(*whitelisted_extension.get(), nullptr,
+                            download_volume_->AsWeakPtr(), true /* writable */,
+                            base::BindRepeating(&OnConsentReceived, &result));
+    base::RunLoop().RunUntilIdle();
+
+    EXPECT_EQ(0, delegate.show_dialog_counter());
+    EXPECT_EQ(0, delegate.show_notification_counter());
+    EXPECT_EQ(ConsentProvider::CONSENT_GRANTED, result);
+  }
+
   // Non-component apps in non-kiosk mode will be rejected instantly, without
   // asking for user consent.
   {
-    scoped_refptr<Extension> non_component_extension(
-        test_util::CreateEmptyExtension());
+    scoped_refptr<const Extension> non_component_extension(
+        ExtensionBuilder("Test").Build());
     TestingConsentProviderDelegate delegate;
     ConsentProvider provider(&delegate);
-    EXPECT_FALSE(provider.IsGrantable(*non_component_extension));
+    EXPECT_EQ(provider.GetGrantVolumesMode(*non_component_extension),
+              FileSystemDelegate::kGrantNone);
   }
 }
 
@@ -179,12 +222,10 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
   // Non-component apps in auto-launch kiosk mode will be granted access
   // instantly without asking for user consent, but with a notification.
   {
-    scoped_refptr<Extension> auto_launch_kiosk_app(
-        test_util::BuildApp(ExtensionBuilder())
-            .MergeManifest(DictionaryBuilder()
-                               .SetBoolean("kiosk_enabled", true)
-                               .SetBoolean("kiosk_only", true)
-                               .Build())
+    scoped_refptr<const Extension> auto_launch_kiosk_app(
+        ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+            .SetManifestKey("kiosk_enabled", true)
+            .SetManifestKey("kiosk_only", true)
             .Build());
     user_manager_->AddKioskAppUser(
         AccountId::FromUserEmail(auto_launch_kiosk_app->id()));
@@ -194,7 +235,8 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
     TestingConsentProviderDelegate delegate;
     delegate.SetIsAutoLaunched(true);
     ConsentProvider provider(&delegate);
-    EXPECT_TRUE(provider.IsGrantable(*auto_launch_kiosk_app));
+    EXPECT_EQ(provider.GetGrantVolumesMode(*auto_launch_kiosk_app),
+              FileSystemDelegate::kGrantAll);
 
     ConsentProvider::Consent result = ConsentProvider::CONSENT_IMPOSSIBLE;
     provider.RequestConsent(*auto_launch_kiosk_app.get(), nullptr, volume_,
@@ -209,12 +251,10 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
 
   // Non-component apps in manual-launch kiosk mode will be granted access after
   // receiving approval from the user.
-  scoped_refptr<Extension> manual_launch_kiosk_app(
-      test_util::BuildApp(ExtensionBuilder())
-          .MergeManifest(DictionaryBuilder()
-                             .SetBoolean("kiosk_enabled", true)
-                             .SetBoolean("kiosk_only", true)
-                             .Build())
+  scoped_refptr<const Extension> manual_launch_kiosk_app(
+      ExtensionBuilder("Test", ExtensionBuilder::Type::PLATFORM_APP)
+          .SetManifestKey("kiosk_enabled", true)
+          .SetManifestKey("kiosk_only", true)
           .Build());
   user_manager::User* const manual_kiosk_app_user =
       user_manager_->AddKioskAppUser(
@@ -224,7 +264,8 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
     TestingConsentProviderDelegate delegate;
     delegate.SetDialogButton(ui::DIALOG_BUTTON_OK);
     ConsentProvider provider(&delegate);
-    EXPECT_TRUE(provider.IsGrantable(*manual_launch_kiosk_app));
+    EXPECT_EQ(provider.GetGrantVolumesMode(*manual_launch_kiosk_app),
+              FileSystemDelegate::kGrantAll);
 
     ConsentProvider::Consent result = ConsentProvider::CONSENT_IMPOSSIBLE;
     provider.RequestConsent(*manual_launch_kiosk_app.get(), nullptr, volume_,
@@ -243,7 +284,8 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
     TestingConsentProviderDelegate delegate;
     ConsentProvider provider(&delegate);
     delegate.SetDialogButton(ui::DIALOG_BUTTON_CANCEL);
-    EXPECT_TRUE(provider.IsGrantable(*manual_launch_kiosk_app));
+    EXPECT_EQ(provider.GetGrantVolumesMode(*manual_launch_kiosk_app),
+              FileSystemDelegate::kGrantAll);
 
     ConsentProvider::Consent result = ConsentProvider::CONSENT_IMPOSSIBLE;
     provider.RequestConsent(*manual_launch_kiosk_app.get(), nullptr, volume_,

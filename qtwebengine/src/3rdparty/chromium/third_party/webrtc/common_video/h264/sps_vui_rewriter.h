@@ -9,16 +9,15 @@
  *
  */
 
-#ifndef WEBRTC_COMMON_VIDEO_H264_SPS_VUI_REWRITER_H_
-#define WEBRTC_COMMON_VIDEO_H264_SPS_VUI_REWRITER_H_
+#ifndef COMMON_VIDEO_H264_SPS_VUI_REWRITER_H_
+#define COMMON_VIDEO_H264_SPS_VUI_REWRITER_H_
 
-#include "webrtc/common_video/h264/sps_parser.h"
-#include "webrtc/rtc_base/buffer.h"
-#include "webrtc/rtc_base/optional.h"
+#include <stddef.h>
+#include <stdint.h>
 
-namespace rtc {
-class BitBuffer;
-}
+#include "absl/types/optional.h"
+#include "common_video/h264/sps_parser.h"
+#include "rtc_base/buffer.h"
 
 namespace webrtc {
 
@@ -43,12 +42,13 @@ class SpsVuiRewriter : private SpsParser {
   // SPS state. This function assumes that any previous headers
   // (NALU start, type, Stap-A, etc) have already been parsed and that RBSP
   // decoding has been performed.
-  static ParseResult ParseAndRewriteSps(const uint8_t* buffer,
-                                        size_t length,
-                                        rtc::Optional<SpsParser::SpsState>* sps,
-                                        rtc::Buffer* destination);
+  static ParseResult ParseAndRewriteSps(
+      const uint8_t* buffer,
+      size_t length,
+      absl::optional<SpsParser::SpsState>* sps,
+      rtc::Buffer* destination);
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_COMMON_VIDEO_H264_SPS_VUI_REWRITER_H_
+#endif  // COMMON_VIDEO_H264_SPS_VUI_REWRITER_H_

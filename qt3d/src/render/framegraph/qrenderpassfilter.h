@@ -53,7 +53,7 @@ class QRenderPassFilterPrivate;
 class QFilterKey;
 class QParameter;
 
-class QT3DRENDERSHARED_EXPORT QRenderPassFilter : public QFrameGraphNode
+class Q_3DRENDERSHARED_EXPORT QRenderPassFilter : public QFrameGraphNode
 {
     Q_OBJECT
 
@@ -74,7 +74,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QRenderPassFilter)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

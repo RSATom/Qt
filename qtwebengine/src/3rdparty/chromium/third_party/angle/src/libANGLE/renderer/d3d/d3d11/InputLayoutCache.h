@@ -27,7 +27,29 @@
 
 namespace rx
 {
-struct PackedAttributeLayout;
+struct PackedAttributeLayout
+{
+    PackedAttributeLayout();
+    PackedAttributeLayout(const PackedAttributeLayout &other);
+
+    void addAttributeData(GLenum glType,
+                          UINT semanticIndex,
+                          angle::FormatID vertexFormatID,
+                          unsigned int divisor);
+
+    bool operator==(const PackedAttributeLayout &other) const;
+
+    enum Flags
+    {
+        FLAG_USES_INSTANCED_SPRITES     = 0x1,
+        FLAG_INSTANCED_SPRITES_ACTIVE   = 0x2,
+        FLAG_INSTANCED_RENDERING_ACTIVE = 0x4,
+    };
+
+    uint32_t numAttributes;
+    uint32_t flags;
+    gl::AttribArray<uint64_t> attributeData;
+};
 }  // namespace rx
 
 namespace std
@@ -49,33 +71,12 @@ class Program;
 
 namespace rx
 {
+class Context11;
 struct TranslatedAttribute;
 struct TranslatedIndexData;
 struct SourceIndexData;
 class ProgramD3D;
 class Renderer11;
-
-struct PackedAttributeLayout
-{
-    PackedAttributeLayout();
-    void addAttributeData(GLenum glType,
-                          UINT semanticIndex,
-                          gl::VertexFormatType vertexFormatType,
-                          unsigned int divisor);
-
-    bool operator==(const PackedAttributeLayout &other) const;
-
-    enum Flags
-    {
-        FLAG_USES_INSTANCED_SPRITES     = 0x1,
-        FLAG_INSTANCED_SPRITES_ACTIVE   = 0x2,
-        FLAG_INSTANCED_RENDERING_ACTIVE = 0x4,
-    };
-
-    size_t numAttributes;
-    unsigned int flags;
-    std::array<uint32_t, gl::MAX_VERTEX_ATTRIBS> attributeData;
-};
 
 class InputLayoutCache : angle::NonCopyable
 {
@@ -85,34 +86,27 @@ class InputLayoutCache : angle::NonCopyable
 
     void clear();
 
-    gl::Error applyVertexBuffers(Renderer11 *renderer,
-                                 const gl::State &state,
-                                 const std::vector<TranslatedAttribute> &vertexArrayAttribs,
-                                 const std::vector<TranslatedAttribute> &currentValueAttribs,
-                                 GLenum mode,
-                                 GLint start,
-                                 TranslatedIndexData *indexInfo,
-                                 GLsizei numIndicesPerInstance);
-
-    gl::Error updateVertexOffsetsForPointSpritesEmulation(Renderer11 *renderer,
-                                                          GLint startVertex,
-                                                          GLsizei emulatedInstanceId);
-
     // Useful for testing
     void setCacheSize(size_t newCacheSize);
 
+    angle::Result getInputLayout(Context11 *context,
+                                 const gl::State &state,
+                                 const std::vector<const TranslatedAttribute *> &currentAttributes,
+                                 const AttribIndexArray &sortedSemanticIndices,
+                                 gl::PrimitiveMode mode,
+                                 GLsizei vertexCount,
+                                 GLsizei instances,
+                                 const d3d11::InputLayout **inputLayoutOut);
+
   private:
-    gl::Error updateInputLayout(Renderer11 *renderer,
-                                const gl::State &state,
-                                GLenum mode,
-                                const AttribIndexArray &sortedSemanticIndices,
-                                GLsizei numIndicesPerInstance);
-    gl::Error createInputLayout(Renderer11 *renderer,
-                                const AttribIndexArray &sortedSemanticIndices,
-                                GLenum mode,
-                                gl::Program *program,
-                                GLsizei numIndicesPerInstance,
-                                d3d11::InputLayout *inputLayoutOut);
+    angle::Result createInputLayout(
+        Context11 *context11,
+        const AttribIndexArray &sortedSemanticIndices,
+        const std::vector<const TranslatedAttribute *> &currentAttributes,
+        gl::PrimitiveMode mode,
+        GLsizei vertexCount,
+        GLsizei instances,
+        d3d11::InputLayout *inputLayoutOut);
 
     // Starting cache size.
     static constexpr size_t kDefaultCacheSize = 1024;
@@ -122,13 +116,8 @@ class InputLayoutCache : angle::NonCopyable
 
     using LayoutCache = angle::base::HashingMRUCache<PackedAttributeLayout, d3d11::InputLayout>;
     LayoutCache mLayoutCache;
-
-    std::vector<const TranslatedAttribute *> mCurrentAttributes;
-
-    d3d11::Buffer mPointSpriteVertexBuffer;
-    d3d11::Buffer mPointSpriteIndexBuffer;
 };
 
 }  // namespace rx
 
-#endif // LIBANGLE_RENDERER_D3D_D3D11_INPUTLAYOUTCACHE_H_
+#endif  // LIBANGLE_RENDERER_D3D_D3D11_INPUTLAYOUTCACHE_H_

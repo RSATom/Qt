@@ -37,7 +37,8 @@ function InstallMinGW
 {
     Param (
         [string] $release = $(BadParam("release file name")),
-        [string] $sha1    = $(BadParam("SHA1 checksum of the file"))
+        [string] $sha1    = $(BadParam("SHA1 checksum of the file")),
+        [string] $suffix  = ""
     )
 
     $arch, $version, $null, $threading, $ex_handling, $build_ver, $revision = $release.split('-')
@@ -45,7 +46,7 @@ function InstallMinGW
     if ($arch -eq "i686") { $win_arch = "Win32" }
     elseif ($arch -eq "x86_64") { $win_arch = "Win64" }
 
-    $envvar = "MINGW$version"
+    $envvar = "MINGW$version$suffix"
     $envvar = $envvar -replace '["."]'
     $targetdir = "C:\$envvar"
     $url_cache = "\\ci-files01-hki.intra.qt.io\provisioning\windows\" + $release + ".7z"
@@ -55,14 +56,13 @@ function InstallMinGW
     Download $url_official $url_cache $mingwPackage
     Verify-Checksum $mingwPackage $sha1
 
-    Get-ChildItem $mingwPackage | % {& "C:\Utils\sevenzip\7z.exe" "x" $_.fullname "-o$TARGETDIR"}
+    Extract-7Zip $mingwPackage $TARGETDIR
 
-    echo "Adding MinGW environment variable."
-    [Environment]::SetEnvironmentVariable("$envvar", "$targetdir\mingw32", [EnvironmentVariableTarget]::Machine)
+    Set-EnvironmentVariable "$envvar" ("$targetdir\mingw" + $win_arch.Substring($win_arch.get_Length()-2))
 
-    echo "Cleaning $mingwPackage.."
-    Remove-Item -Recurse -Force "$mingwPackage"
+    Write-Host "Cleaning $mingwPackage.."
+    Remove-Item -Recurse -Force -Path "$mingwPackage"
 
-    echo "MinGW = $version $release" >> ~\versions.txt
+    Write-Output "MinGW = $version $release" >> ~\versions.txt
 
 }

@@ -38,7 +38,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 class QBoxPlotSeriesPrivate;
 
-class QT_CHARTS_EXPORT QBoxPlotSeries : public QAbstractSeries
+class Q_CHARTS_EXPORT QBoxPlotSeries : public QAbstractSeries
 {
     Q_OBJECT
     Q_PROPERTY(bool boxOutlineVisible READ boxOutlineVisible WRITE setBoxOutlineVisible NOTIFY boxOutlineVisibilityChanged)
@@ -47,7 +47,7 @@ class QT_CHARTS_EXPORT QBoxPlotSeries : public QAbstractSeries
     Q_PROPERTY(QBrush brush READ brush WRITE setBrush NOTIFY brushChanged)
     Q_PROPERTY(int count READ count NOTIFY countChanged REVISION 1)
 public:
-    explicit QBoxPlotSeries(QObject *parent = Q_NULLPTR);
+    explicit QBoxPlotSeries(QObject *parent = nullptr);
     ~QBoxPlotSeries();
 
     bool append(QBoxSet *box);

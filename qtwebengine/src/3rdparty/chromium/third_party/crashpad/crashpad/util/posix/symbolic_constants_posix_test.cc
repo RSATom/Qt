@@ -17,19 +17,20 @@
 #include <signal.h>
 #include <sys/types.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "gtest/gtest.h"
 
-#define NUL_TEST_DATA(string) { string, arraysize(string) - 1 }
+#define NUL_TEST_DATA(string) \
+  { string, base::size(string) - 1 }
 
 namespace crashpad {
 namespace test {
 namespace {
 
-const struct {
+constexpr struct {
   int signal;
   const char* full_name;
   const char* short_name;
@@ -67,7 +68,9 @@ const struct {
     {SIGINFO, "SIGINFO", "INFO"},
 #elif defined(OS_LINUX) || defined(OS_ANDROID)
     {SIGPWR, "SIGPWR", "PWR"},
+#if !defined(ARCH_CPU_MIPS_FAMILY)
     {SIGSTKFLT, "SIGSTKFLT", "STKFLT"},
+#endif
 #endif
 };
 
@@ -113,7 +116,7 @@ void TestSignalToString(int value,
 }
 
 TEST(SymbolicConstantsPOSIX, SignalToString) {
-  for (size_t index = 0; index < arraysize(kSignalTestData); ++index) {
+  for (size_t index = 0; index < base::size(kSignalTestData); ++index) {
     SCOPED_TRACE(base::StringPrintf("index %zu", index));
     TestSignalToString(kSignalTestData[index].signal,
                        kSignalTestData[index].full_name,
@@ -122,9 +125,9 @@ TEST(SymbolicConstantsPOSIX, SignalToString) {
 
 #if defined(OS_LINUX) || defined(OS_ANDROID)
   // NSIG is 64 to account for real-time signals.
-  const int kSignalCount = 32;
+  constexpr int kSignalCount = 32;
 #else
-  const int kSignalCount = NSIG;
+  constexpr int kSignalCount = NSIG;
 #endif
 
   for (int signal = 0; signal < kSignalCount + 8; ++signal) {
@@ -157,7 +160,7 @@ void TestStringToSignal(const base::StringPiece& string,
 }
 
 TEST(SymbolicConstantsPOSIX, StringToSignal) {
-  const StringToSymbolicConstantOptions kOptions[] = {
+  static constexpr StringToSymbolicConstantOptions kOptions[] = {
       0,
       kAllowFullName,
       kAllowShortName,
@@ -168,12 +171,11 @@ TEST(SymbolicConstantsPOSIX, StringToSignal) {
       kAllowFullName | kAllowShortName | kAllowNumber,
   };
 
-  for (size_t option_index = 0;
-       option_index < arraysize(kOptions);
+  for (size_t option_index = 0; option_index < base::size(kOptions);
        ++option_index) {
     SCOPED_TRACE(base::StringPrintf("option_index %zu", option_index));
     StringToSymbolicConstantOptions options = kOptions[option_index];
-    for (size_t index = 0; index < arraysize(kSignalTestData); ++index) {
+    for (size_t index = 0; index < base::size(kSignalTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       int signal = kSignalTestData[index].signal;
       {
@@ -198,7 +200,7 @@ TEST(SymbolicConstantsPOSIX, StringToSignal) {
       }
     }
 
-    const char* const kNegativeTestData[] = {
+    static constexpr const char* kNegativeTestData[] = {
         "SIGHUP ",
         " SIGINT",
         "QUIT ",
@@ -211,12 +213,12 @@ TEST(SymbolicConstantsPOSIX, StringToSignal) {
         "",
     };
 
-    for (size_t index = 0; index < arraysize(kNegativeTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNegativeTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       TestStringToSignal(kNegativeTestData[index], options, false, 0);
     }
 
-    const struct {
+    static constexpr struct {
       const char* string;
       size_t length;
     } kNULTestData[] = {
@@ -232,7 +234,7 @@ TEST(SymbolicConstantsPOSIX, StringToSignal) {
         NUL_TEST_DATA("1\0002"),
     };
 
-    for (size_t index = 0; index < arraysize(kNULTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNULTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       base::StringPiece string(kNULTestData[index].string,
                                kNULTestData[index].length);

@@ -5,52 +5,74 @@
 #include "ui/ozone/platform/wayland/wayland_test.h"
 
 #include "base/run_loop.h"
+#include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
+#include "ui/platform_window/platform_window_init_properties.h"
+
+#if BUILDFLAG(USE_XKBCOMMON)
+#include "ui/ozone/platform/wayland/wayland_xkb_keyboard_layout_engine.h"
+#else
+#include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
+#endif
 
 using ::testing::SaveArg;
 using ::testing::_;
 
 namespace ui {
 
-WaylandTest::WaylandTest()
-    : window(&delegate, &connection, gfx::Rect(0, 0, 800, 600)) {}
+WaylandTest::WaylandTest() {
+#if BUILDFLAG(USE_XKBCOMMON)
+  KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
+      std::make_unique<WaylandXkbKeyboardLayoutEngine>(
+          xkb_evdev_code_converter_));
+#else
+  KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
+      std::make_unique<StubKeyboardLayoutEngine>());
+#endif
+  connection_.reset(new WaylandConnection);
+  connection_proxy_.reset(new WaylandConnectionProxy(connection_.get()));
+  window_ = std::make_unique<WaylandWindow>(&delegate_, connection_.get());
+}
 
 WaylandTest::~WaylandTest() {}
 
 void WaylandTest::SetUp() {
-  ASSERT_TRUE(server.Start());
-  ASSERT_TRUE(connection.Initialize());
-  EXPECT_CALL(delegate, OnAcceleratedWidgetAvailable(_, _))
-      .WillOnce(SaveArg<0>(&widget));
-  ASSERT_TRUE(window.Initialize());
-  ASSERT_NE(widget, gfx::kNullAcceleratedWidget);
+  ASSERT_TRUE(server_.Start(GetParam()));
+  ASSERT_TRUE(connection_->Initialize());
+  EXPECT_CALL(delegate_, OnAcceleratedWidgetAvailable(_))
+      .WillOnce(SaveArg<0>(&widget_));
+  PlatformWindowInitProperties properties;
+  properties.bounds = gfx::Rect(0, 0, 800, 600);
+  properties.type = PlatformWindowType::kWindow;
+  ASSERT_TRUE(window_->Initialize(std::move(properties)));
+  ASSERT_NE(widget_, gfx::kNullAcceleratedWidget);
 
   // Wait for the client to flush all pending requests from initialization.
   base::RunLoop().RunUntilIdle();
 
   // Pause the server after it has responded to all incoming events.
-  server.Pause();
+  server_.Pause();
 
-  surface = server.GetObject<wl::MockSurface>(widget);
-  ASSERT_TRUE(surface);
+  surface_ = server_.GetObject<wl::MockSurface>(widget_);
+  ASSERT_TRUE(surface_);
 
-  initialized = true;
+  initialized_ = true;
 }
 
 void WaylandTest::TearDown() {
-  if (initialized)
+  if (initialized_)
     Sync();
 }
 
 void WaylandTest::Sync() {
   // Resume the server, flushing its pending events.
-  server.Resume();
+  server_.Resume();
 
   // Wait for the client to finish processing these events.
   base::RunLoop().RunUntilIdle();
 
   // Pause the server, after it has finished processing any follow-up requests
   // from the client.
-  server.Pause();
+  server_.Pause();
 }
 
 }  // namespace ui

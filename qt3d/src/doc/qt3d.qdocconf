@@ -1,16 +1,14 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qt3d.qdocconf)
 
 project                 = Qt3D
 description             = Qt 3D Reference Documentation
 version                 = $QT_VERSION
 
-examplesinstallpath     = qt3d
+moduleheader            = Qt3DDoc
+includepaths            = -I .
 
-indexes +=  $QT_INSTALL_DOCS/qtcore/qtcore.index \
-            $QT_INSTALL_DOCS/qtgui/qtgui.index \
-            $QT_INSTALL_DOCS/qtqml/qtqml.index \
-            $QT_INSTALL_DOCS/qtquick/qtquick.index \
-            $QT_INSTALL_DOCS/qmake/qmake.index
+examplesinstallpath     = qt3d
 
 qhp.projects            = Qt3D
 
@@ -24,17 +22,22 @@ qhp.Qt3D.filterAttributes                   = qt3d $QT_VERSION qtrefdoc
 qhp.Qt3D.customFilters.Qt.name              = Qt3D $QT_VERSION
 qhp.Qt3D.customFilters.Qt.filterAttributes  = qt3d $QT_VERSION
 
-qhp.Qt3D.subprojects                    = classes qmltypes
+qhp.Qt3D.subprojects                    = classes qmltypes examples
 
 qhp.Qt3D.subprojects.classes.title      = C++ Classes
 qhp.Qt3D.subprojects.classes.indexTitle = Qt 3D C++ Classes
-qhp.Qt3D.subprojects.classes.selectors  = class fake:headerfile
+qhp.Qt3D.subprojects.classes.selectors  = class doc:headerfile
 qhp.Qt3D.subprojects.classes.sortPages  = true
 
 qhp.Qt3D.subprojects.qmltypes.title      = QML Types
 qhp.Qt3D.subprojects.qmltypes.indexTitle = Qt 3D QML Types
 qhp.Qt3D.subprojects.qmltypes.selectors  = qmlclass
 qhp.Qt3D.subprojects.qmltypes.sortPages  = true
+
+qhp.Qt3D.subprojects.examples.title      = Examples
+qhp.Qt3D.subprojects.examples.indexTitle = Qt 3D Examples
+qhp.Qt3D.subprojects.examples.selectors  = doc:example
+qhp.Qt3D.subprojects.examples.sortPages  = true
 
 tagfile                 = qt3d.tags
 
@@ -49,10 +52,20 @@ headerdirs += . \
               ../input \
               ../extras \
               ../animation \
-              ../quick3d/quick3dscene2d
+              ../quick3d/quick3dscene2d \
+              ../quick3d/imports/scene3d
 
 # Exclude private header files from the documentation build
 excludefiles += "*_p.h"
+
+# Add some private headers explicitly to avoid documentation warnings
+headers       = ../core/transforms/matrix4x4_p.h \
+                ../core/transforms/vector3d_p.h \
+                ../render/raycasting/qray3d_p.h \
+                ../animation/frontend/qchannelmappingcreatedchange_p.h \
+                ../input/frontend/qabstractphysicaldeviceproxy_p.h \
+                ../input/frontend/qinputdeviceintegration_p.h \
+                ../quick3d/imports/scene3d/scene3ditem_p.h
 
 sourcedirs += . \
               ../render \
@@ -63,7 +76,9 @@ sourcedirs += . \
               ../input \
               ../extras \
               ../animation \
-              ../quick3d/quick3dscene2d
+              ../quick3d/quick3dscene2d \
+              ../quick3d/imports/scene3d
+
 
 exampledirs += ../../examples/qt3d \
                snippets
@@ -72,7 +87,8 @@ examples.fileextensions       += "*.fraq *.geom *.vert"
 examples.imageextensions      += "*.png"
 
 excludedirs += \
-              ../plugins/renderplugins
+              ../plugins/renderplugins \
+              ../plugins/sceneparsers
 
 macro.TODO = " "
 imagedirs   += images \
@@ -85,16 +101,15 @@ imagedirs   += images \
                ../../examples/qt3d/scene2d/doc/images \
                ../../examples/qt3d/advancedcustommaterial/doc/images
 
-Cpp.ignoretokens     += QT3DINPUTSHARED_EXPORT \
-                        QT3DCORESHARED_EXPORT \
-                        QT3DLOGIC_PRIVATE_EXPORT \
-                        QT3DLOGICSHARED_EXPORT \
-                        QT3DRENDERSHARED_EXPORT \
-                        QT3DRENDERSHARED_PRIVATE_EXPORT \
-                        QT3DQUICKSHARED_PRIVATE_EXPORT \
-                        QT3DEXTRASSHARED_EXPORT \
-                        QT3DANIMATIONSHARED_EXPORT \
-                        QT3DQUICKSCENE2DSHARED_EXPORT
+Cpp.ignoretokens     += Q_3DINPUTSHARED_EXPORT \
+                        Q_3DCORESHARED_EXPORT \
+                        Q_3DLOGICSHARED_EXPORT \
+                        Q_3DRENDERSHARED_EXPORT \
+                        Q_3DRENDERSHARED_PRIVATE_EXPORT \
+                        Q_3DQUICKSHARED_PRIVATE_EXPORT \
+                        Q_3DEXTRASSHARED_EXPORT \
+                        Q_3DANIMATIONSHARED_EXPORT \
+                        Q_3DQUICKSCENE2DSHARED_EXPORT
 
 Cpp.ignoredirectives += Q_DECLARE_LOGGING_CATEGORY
 

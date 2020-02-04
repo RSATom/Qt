@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'previewconfigurationwidget.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,14 +10,11 @@
 #define PREVIEWCONFIGURATIONWIDGET_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QFormLayout>
 #include <QtWidgets/QGroupBox>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QToolButton>
 #include <textpropertyeditor_p.h>
@@ -43,40 +40,40 @@ public:
     void setupUi(QGroupBox *PreviewConfigurationWidget)
     {
         if (PreviewConfigurationWidget->objectName().isEmpty())
-            PreviewConfigurationWidget->setObjectName(QStringLiteral("PreviewConfigurationWidget"));
+            PreviewConfigurationWidget->setObjectName(QString::fromUtf8("PreviewConfigurationWidget"));
         PreviewConfigurationWidget->setCheckable(true);
         formLayout = new QFormLayout(PreviewConfigurationWidget);
-        formLayout->setObjectName(QStringLiteral("formLayout"));
+        formLayout->setObjectName(QString::fromUtf8("formLayout"));
         m_styleLabel = new QLabel(PreviewConfigurationWidget);
-        m_styleLabel->setObjectName(QStringLiteral("m_styleLabel"));
+        m_styleLabel->setObjectName(QString::fromUtf8("m_styleLabel"));
 
         formLayout->setWidget(0, QFormLayout::LabelRole, m_styleLabel);
 
         m_styleCombo = new QComboBox(PreviewConfigurationWidget);
-        m_styleCombo->setObjectName(QStringLiteral("m_styleCombo"));
+        m_styleCombo->setObjectName(QString::fromUtf8("m_styleCombo"));
 
         formLayout->setWidget(0, QFormLayout::FieldRole, m_styleCombo);
 
         m_appStyleSheetLabel = new QLabel(PreviewConfigurationWidget);
-        m_appStyleSheetLabel->setObjectName(QStringLiteral("m_appStyleSheetLabel"));
+        m_appStyleSheetLabel->setObjectName(QString::fromUtf8("m_appStyleSheetLabel"));
 
         formLayout->setWidget(1, QFormLayout::LabelRole, m_appStyleSheetLabel);
 
         hboxLayout = new QHBoxLayout();
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         m_appStyleSheetLineEdit = new qdesigner_internal::TextPropertyEditor(PreviewConfigurationWidget);
-        m_appStyleSheetLineEdit->setObjectName(QStringLiteral("m_appStyleSheetLineEdit"));
+        m_appStyleSheetLineEdit->setObjectName(QString::fromUtf8("m_appStyleSheetLineEdit"));
         m_appStyleSheetLineEdit->setMinimumSize(QSize(149, 0));
 
         hboxLayout->addWidget(m_appStyleSheetLineEdit);
 
         m_appStyleSheetChangeButton = new QToolButton(PreviewConfigurationWidget);
-        m_appStyleSheetChangeButton->setObjectName(QStringLiteral("m_appStyleSheetChangeButton"));
+        m_appStyleSheetChangeButton->setObjectName(QString::fromUtf8("m_appStyleSheetChangeButton"));
 
         hboxLayout->addWidget(m_appStyleSheetChangeButton);
 
         m_appStyleSheetClearButton = new QToolButton(PreviewConfigurationWidget);
-        m_appStyleSheetClearButton->setObjectName(QStringLiteral("m_appStyleSheetClearButton"));
+        m_appStyleSheetClearButton->setObjectName(QString::fromUtf8("m_appStyleSheetClearButton"));
 
         hboxLayout->addWidget(m_appStyleSheetClearButton);
 
@@ -84,19 +81,19 @@ public:
         formLayout->setLayout(1, QFormLayout::FieldRole, hboxLayout);
 
         m_skinLabel = new QLabel(PreviewConfigurationWidget);
-        m_skinLabel->setObjectName(QStringLiteral("m_skinLabel"));
+        m_skinLabel->setObjectName(QString::fromUtf8("m_skinLabel"));
 
         formLayout->setWidget(2, QFormLayout::LabelRole, m_skinLabel);
 
         hboxLayout1 = new QHBoxLayout();
-        hboxLayout1->setObjectName(QStringLiteral("hboxLayout1"));
+        hboxLayout1->setObjectName(QString::fromUtf8("hboxLayout1"));
         m_skinCombo = new QComboBox(PreviewConfigurationWidget);
-        m_skinCombo->setObjectName(QStringLiteral("m_skinCombo"));
+        m_skinCombo->setObjectName(QString::fromUtf8("m_skinCombo"));
 
         hboxLayout1->addWidget(m_skinCombo);
 
         m_skinRemoveButton = new QToolButton(PreviewConfigurationWidget);
-        m_skinRemoveButton->setObjectName(QStringLiteral("m_skinRemoveButton"));
+        m_skinRemoveButton->setObjectName(QString::fromUtf8("m_skinRemoveButton"));
 
         hboxLayout1->addWidget(m_skinRemoveButton);
 
@@ -111,14 +108,14 @@ public:
 
     void retranslateUi(QGroupBox *PreviewConfigurationWidget)
     {
-        PreviewConfigurationWidget->setWindowTitle(QApplication::translate("PreviewConfigurationWidget", "Form", nullptr));
-        PreviewConfigurationWidget->setTitle(QApplication::translate("PreviewConfigurationWidget", "Print/Preview Configuration", nullptr));
-        m_styleLabel->setText(QApplication::translate("PreviewConfigurationWidget", "Style", nullptr));
-        m_appStyleSheetLabel->setText(QApplication::translate("PreviewConfigurationWidget", "Style sheet", nullptr));
-        m_appStyleSheetChangeButton->setText(QApplication::translate("PreviewConfigurationWidget", "...", nullptr));
-        m_appStyleSheetClearButton->setText(QApplication::translate("PreviewConfigurationWidget", "...", nullptr));
-        m_skinLabel->setText(QApplication::translate("PreviewConfigurationWidget", "Device skin", nullptr));
-        m_skinRemoveButton->setText(QApplication::translate("PreviewConfigurationWidget", "...", nullptr));
+        PreviewConfigurationWidget->setWindowTitle(QCoreApplication::translate("PreviewConfigurationWidget", "Form", nullptr));
+        PreviewConfigurationWidget->setTitle(QCoreApplication::translate("PreviewConfigurationWidget", "Print/Preview Configuration", nullptr));
+        m_styleLabel->setText(QCoreApplication::translate("PreviewConfigurationWidget", "Style", nullptr));
+        m_appStyleSheetLabel->setText(QCoreApplication::translate("PreviewConfigurationWidget", "Style sheet", nullptr));
+        m_appStyleSheetChangeButton->setText(QCoreApplication::translate("PreviewConfigurationWidget", "...", nullptr));
+        m_appStyleSheetClearButton->setText(QCoreApplication::translate("PreviewConfigurationWidget", "...", nullptr));
+        m_skinLabel->setText(QCoreApplication::translate("PreviewConfigurationWidget", "Device skin", nullptr));
+        m_skinRemoveButton->setText(QCoreApplication::translate("PreviewConfigurationWidget", "...", nullptr));
     } // retranslateUi
 
 };

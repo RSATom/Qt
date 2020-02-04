@@ -13,12 +13,31 @@ template <typename T>
 static T LocalGetAs(const std::vector<int8_t>& data,
                     uint32_t offset,
                     size_t size) {
-  const int8_t* p = &data[0] + offset;
-  if (offset + size > data.size()) {
-    NOTREACHED();
-    return NULL;
-  }
+  const int8_t* p = data.data() + offset;
+  DCHECK_LE(offset + size, data.size());
   return static_cast<T>(static_cast<const void*>(p));
+}
+
+// Writes the strimg pointed by name and of maximum size buffsize. If length is
+// !null, it receives the number of characters written (excluding the final \0).
+// This is a helper function for GetActive*Helper functions that return names.
+void FillNameAndLength(GLsizei bufsize,
+                       GLsizei* length,
+                       char* name,
+                       const std::string& string) {
+  // Length of string (without final \0) that we will write to the
+  // buffer.
+  GLsizei max_length = 0;
+  if (name && (bufsize > 0)) {
+    DCHECK_LE(string.size(), static_cast<size_t>(INT_MAX));
+    // Note: bufsize counts the terminating \0, but not string.size().
+    max_length = std::min(bufsize - 1, static_cast<GLsizei>(string.size()));
+    memcpy(name, string.data(), max_length);
+    name[max_length] = '\0';
+  }
+  if (length) {
+    *length = max_length;
+  }
 }
 
 }  // namespace
@@ -34,8 +53,7 @@ ProgramInfoManager::Program::VertexAttrib::VertexAttrib(
       name(_name) {
 }
 
-ProgramInfoManager::Program::VertexAttrib::~VertexAttrib() {
-}
+ProgramInfoManager::Program::VertexAttrib::~VertexAttrib() = default;
 
 ProgramInfoManager::Program::UniformInfo::UniformInfo(
     GLsizei _size, GLenum _type, const std::string& _name)
@@ -49,8 +67,7 @@ ProgramInfoManager::Program::UniformInfo::UniformInfo(
 ProgramInfoManager::Program::UniformInfo::UniformInfo(
     const UniformInfo& other) = default;
 
-ProgramInfoManager::Program::UniformInfo::~UniformInfo() {
-}
+ProgramInfoManager::Program::UniformInfo::~UniformInfo() = default;
 
 ProgramInfoManager::Program::UniformES3::UniformES3()
     : block_index(-1),
@@ -60,8 +77,7 @@ ProgramInfoManager::Program::UniformES3::UniformES3()
       is_row_major(0) {
 }
 
-ProgramInfoManager::Program::UniformES3::~UniformES3() {
-}
+ProgramInfoManager::Program::UniformES3::~UniformES3() = default;
 
 ProgramInfoManager::Program::UniformBlock::UniformBlock()
     : binding(0),
@@ -73,8 +89,7 @@ ProgramInfoManager::Program::UniformBlock::UniformBlock()
 ProgramInfoManager::Program::UniformBlock::UniformBlock(
     const UniformBlock& other) = default;
 
-ProgramInfoManager::Program::UniformBlock::~UniformBlock() {
-}
+ProgramInfoManager::Program::UniformBlock::~UniformBlock() = default;
 
 ProgramInfoManager::Program::TransformFeedbackVarying::
 TransformFeedbackVarying()
@@ -83,8 +98,7 @@ TransformFeedbackVarying()
 }
 
 ProgramInfoManager::Program::TransformFeedbackVarying::
-~TransformFeedbackVarying() {
-}
+    ~TransformFeedbackVarying() = default;
 
 ProgramInfoManager::Program::Program()
     : cached_es2_(false),
@@ -101,8 +115,7 @@ ProgramInfoManager::Program::Program()
 
 ProgramInfoManager::Program::Program(const Program& other) = default;
 
-ProgramInfoManager::Program::~Program() {
-}
+ProgramInfoManager::Program::~Program() = default;
 
 // TODO(gman): Add a faster lookup.
 GLint ProgramInfoManager::Program::GetAttribLocation(
@@ -118,19 +131,21 @@ GLint ProgramInfoManager::Program::GetAttribLocation(
 
 const ProgramInfoManager::Program::VertexAttrib*
 ProgramInfoManager::Program::GetAttribInfo(GLint index) const {
-  return (static_cast<size_t>(index) < attrib_infos_.size()) ?
-      &attrib_infos_[index] : NULL;
+  return (static_cast<size_t>(index) < attrib_infos_.size())
+             ? &attrib_infos_[index]
+             : nullptr;
 }
 
 const ProgramInfoManager::Program::UniformInfo*
 ProgramInfoManager::Program::GetUniformInfo(GLint index) const {
-  return (static_cast<size_t>(index) < uniform_infos_.size()) ?
-      &uniform_infos_[index] : NULL;
+  return (static_cast<size_t>(index) < uniform_infos_.size())
+             ? &uniform_infos_[index]
+             : nullptr;
 }
 
 const ProgramInfoManager::Program::UniformBlock*
 ProgramInfoManager::Program::GetUniformBlock(GLuint index) const {
-  return (index < uniform_blocks_.size()) ? &uniform_blocks_[index] : NULL;
+  return (index < uniform_blocks_.size()) ? &uniform_blocks_[index] : nullptr;
 }
 
 GLint ProgramInfoManager::Program::GetUniformLocation(
@@ -188,7 +203,7 @@ void ProgramInfoManager::Program::CacheFragDataIndex(const std::string& name,
 
 GLint ProgramInfoManager::Program::GetFragDataLocation(
     const std::string& name) const {
-  base::hash_map<std::string, GLint>::const_iterator iter =
+  std::unordered_map<std::string, GLint>::const_iterator iter =
       frag_data_locations_.find(name);
   if (iter == frag_data_locations_.end())
     return -1;
@@ -259,8 +274,9 @@ void ProgramInfoManager::Program::UniformBlockBinding(
 
 const ProgramInfoManager::Program::TransformFeedbackVarying*
 ProgramInfoManager::Program::GetTransformFeedbackVarying(GLuint index) const {
-  return (index < transform_feedback_varyings_.size()) ?
-      &transform_feedback_varyings_[index] : NULL;
+  return (index < transform_feedback_varyings_.size())
+             ? &transform_feedback_varyings_[index]
+             : nullptr;
 }
 
 bool ProgramInfoManager::Program::GetUniformsiv(
@@ -591,19 +607,16 @@ bool ProgramInfoManager::Program::IsCached(ProgramInfoType type) const {
   }
 }
 
+ProgramInfoManager::ProgramInfoManager() = default;
 
-ProgramInfoManager::ProgramInfoManager() {
-}
-
-ProgramInfoManager::~ProgramInfoManager() {
-}
+ProgramInfoManager::~ProgramInfoManager() = default;
 
 ProgramInfoManager::Program* ProgramInfoManager::GetProgramInfo(
     GLES2Implementation* gl, GLuint program, ProgramInfoType type) {
   lock_.AssertAcquired();
   ProgramInfoMap::iterator it = program_infos_.find(program);
   if (it == program_infos_.end()) {
-    return NULL;
+    return nullptr;
   }
   Program* info = &it->second;
   if (info->IsCached(type))
@@ -649,7 +662,7 @@ ProgramInfoManager::Program* ProgramInfoManager::GetProgramInfo(
       break;
     default:
       NOTREACHED();
-      return NULL;
+      return nullptr;
   }
   return info;
 }
@@ -818,18 +831,7 @@ bool ProgramInfoManager::GetActiveAttrib(
         if (type) {
           *type = attrib_info->type;
         }
-        if (length || name) {
-          GLsizei max_size = std::min(
-              static_cast<size_t>(bufsize) - 1,
-              std::max(static_cast<size_t>(0), attrib_info->name.size()));
-          if (length) {
-            *length = max_size;
-          }
-          if (name && bufsize > 0) {
-            memcpy(name, attrib_info->name.c_str(), max_size);
-            name[max_size] = '\0';
-          }
-        }
+        FillNameAndLength(bufsize, length, name, attrib_info->name);
         return true;
       }
     }
@@ -854,18 +856,7 @@ bool ProgramInfoManager::GetActiveUniform(
         if (type) {
           *type = uniform_info->type;
         }
-        if (length || name) {
-          GLsizei max_size = std::min(
-              static_cast<size_t>(bufsize) - 1,
-              std::max(static_cast<size_t>(0), uniform_info->name.size()));
-          if (length) {
-            *length = max_size;
-          }
-          if (name && bufsize > 0) {
-            memcpy(name, uniform_info->name.c_str(), max_size);
-            name[max_size] = '\0';
-          }
-        }
+        FillNameAndLength(bufsize, length, name, uniform_info->name);
         return true;
       }
     }
@@ -890,30 +881,13 @@ bool ProgramInfoManager::GetActiveUniformBlockName(
     GLES2Implementation* gl, GLuint program, GLuint index,
     GLsizei buf_size, GLsizei* length, char* name) {
   DCHECK_LE(0, buf_size);
-  if (!name) {
-    buf_size = 0;
-  }
   {
     base::AutoLock auto_lock(lock_);
     Program* info = GetProgramInfo(gl, program, kES3UniformBlocks);
     if (info) {
       const Program::UniformBlock* uniform_block = info->GetUniformBlock(index);
       if (uniform_block) {
-        if (buf_size == 0) {
-          if (length) {
-            *length = 0;
-          }
-        } else if (length || name) {
-          GLsizei max_size = std::min(
-              buf_size - 1, static_cast<GLsizei>(uniform_block->name.size()));
-          if (length) {
-            *length = max_size;
-          }
-          if (name) {
-            memcpy(name, uniform_block->name.data(), max_size);
-            name[max_size] = '\0';
-          }
-        }
+        FillNameAndLength(buf_size, length, name, uniform_block->name);
         return true;
       }
     }
@@ -1015,17 +989,7 @@ bool ProgramInfoManager::GetTransformFeedbackVarying(
         if (type) {
           *type = varying->type;
         }
-        if (length || name) {
-          GLsizei max_size = std::min(
-              bufsize - 1, static_cast<GLsizei>(varying->name.size()));
-          if (length) {
-            *length = static_cast<GLsizei>(max_size);
-          }
-          if (name && bufsize > 0) {
-            memcpy(name, varying->name.c_str(), max_size);
-            name[max_size] = '\0';
-          }
-        }
+        FillNameAndLength(bufsize, length, name, varying->name);
         return true;
       }
     }

@@ -53,7 +53,7 @@
 
 #include "qtwebenginewidgetsglobal.h"
 
-#include "qwebenginedownloaditem_p.h"
+#include "qwebenginedownloaditem.h"
 #include "qwebengineprofile_p.h"
 #include <QString>
 
@@ -81,8 +81,11 @@ public:
 
     qint64 totalBytes;
     qint64 receivedBytes;
+    QWebEnginePage *page;
 
-    void update(const QtWebEngineCore::BrowserContextAdapterClient::DownloadItemInfo &info);
+    void update(const QtWebEngineCore::ProfileAdapterClient::DownloadItemInfo &info);
+
+    void setFinished();
 };
 
 QT_END_NAMESPACE

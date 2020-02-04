@@ -31,9 +31,9 @@
 #include "formwindow.h"
 #include "formeditor.h"
 
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QLayout>
+#include <QtWidgets/qlayout.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -45,9 +45,7 @@ QLayoutWidgetPropertySheet::QLayoutWidgetPropertySheet(QLayoutWidget *object, QO
     clearFakeProperties();
 }
 
-QLayoutWidgetPropertySheet::~QLayoutWidgetPropertySheet()
-{
-}
+QLayoutWidgetPropertySheet::~QLayoutWidgetPropertySheet() = default;
 
 bool QLayoutWidgetPropertySheet::isVisible(int index) const
 {

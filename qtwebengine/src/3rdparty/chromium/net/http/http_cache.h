@@ -26,8 +26,9 @@
 #include "base/threading/thread_checker.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "net/base/cache_type.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/load_states.h"
 #include "net/base/net_export.h"
 #include "net/base/request_priority.h"
@@ -37,10 +38,13 @@
 class GURL;
 
 namespace base {
-class SingleThreadTaskRunner;
 namespace trace_event {
 class ProcessMemoryDump;
 }
+
+namespace android {
+class ApplicationStatusListener;
+}  // namespace android
 }  // namespace base
 
 namespace disk_cache {
@@ -81,20 +85,23 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
     // |callback| because the object can be deleted from within the callback.
     virtual int CreateBackend(NetLog* net_log,
                               std::unique_ptr<disk_cache::Backend>* backend,
-                              const CompletionCallback& callback) = 0;
+                              CompletionOnceCallback callback) = 0;
+
+#if defined(OS_ANDROID)
+    virtual void SetAppStatusListener(
+        base::android::ApplicationStatusListener* app_status_listener){};
+#endif
   };
 
   // A default backend factory for the common use cases.
   class NET_EXPORT DefaultBackend : public BackendFactory {
    public:
-    // |path| is the destination for any files used by the backend, and
-    // |thread| is the thread where disk operations should take place. If
+    // |path| is the destination for any files used by the backend. If
     // |max_bytes| is  zero, a default value will be calculated automatically.
     DefaultBackend(CacheType type,
                    BackendType backend_type,
                    const base::FilePath& path,
-                   int max_bytes,
-                   const scoped_refptr<base::SingleThreadTaskRunner>& thread);
+                   int max_bytes);
     ~DefaultBackend() override;
 
     // Returns a factory for an in-memory cache.
@@ -103,14 +110,53 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
     // BackendFactory implementation.
     int CreateBackend(NetLog* net_log,
                       std::unique_ptr<disk_cache::Backend>* backend,
-                      const CompletionCallback& callback) override;
+                      CompletionOnceCallback callback) override;
+
+#if defined(OS_ANDROID)
+    void SetAppStatusListener(
+        base::android::ApplicationStatusListener* app_status_listener) override;
+#endif
 
    private:
     CacheType type_;
     BackendType backend_type_;
     const base::FilePath path_;
     int max_bytes_;
-    scoped_refptr<base::SingleThreadTaskRunner> thread_;
+#if defined(OS_ANDROID)
+    base::android::ApplicationStatusListener* app_status_listener_ = nullptr;
+#endif
+  };
+
+  // Whether a transaction can join parallel writing or not is a function of the
+  // transaction as well as the current writers (if present). This enum
+  // captures that decision as well as when a Writers object is first created.
+  // This is also used to log metrics so should be consistent with the values in
+  // enums.xml and should only be appended to.
+  enum ParallelWritingPattern {
+    // Used as the default value till the transaction is in initial headers
+    // phase.
+    PARALLEL_WRITING_NONE,
+    // The transaction creates a writers object. This is only logged for
+    // transactions that did not fail to join existing writers earlier.
+    PARALLEL_WRITING_CREATE,
+    // The transaction joins existing writers.
+    PARALLEL_WRITING_JOIN,
+    // The transaction cannot join existing writers since either itself or
+    // existing writers instance is serving a range request.
+    PARALLEL_WRITING_NOT_JOIN_RANGE,
+    // The transaction cannot join existing writers since either itself or
+    // existing writers instance is serving a non GET request.
+    PARALLEL_WRITING_NOT_JOIN_METHOD_NOT_GET,
+    // The transaction cannot join existing writers since it does not have cache
+    // write privileges.
+    PARALLEL_WRITING_NOT_JOIN_READ_ONLY,
+    // Writers does not exist and the transaction does not need to create one
+    // since it is going to read from the cache.
+    PARALLEL_WRITING_NONE_CACHE_READ,
+    // Unable to join since the entry is too big for cache backend to handle.
+    PARALLEL_WRITING_NOT_JOIN_TOO_BIG_FOR_CACHE,
+    // On adding a value here, make sure to add in enums.xml as well.
+    PARALLEL_WRITING_MAX
   };
 
   // The number of minutes after a resource is prefetched that it can be used
@@ -148,7 +194,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // |callback| will be notified when the operation completes. The pointer that
   // receives the |backend| must remain valid until the operation completes.
   int GetBackend(disk_cache::Backend** backend,
-                 const CompletionCallback& callback);
+                 CompletionOnceCallback callback);
 
   // Returns the current backend (can be NULL).
   disk_cache::Backend* GetCurrentBackend() const;
@@ -163,21 +209,19 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // not changed. This method returns without blocking, and the operation will
   // be performed asynchronously without any completion notification.
   // Takes ownership of |buf|.
-  void WriteMetadata(const GURL& url,
-                     RequestPriority priority,
-                     base::Time expected_response_time,
-                     IOBuffer* buf,
-                     int buf_len);
+  virtual void WriteMetadata(const GURL& url,
+                             RequestPriority priority,
+                             base::Time expected_response_time,
+                             IOBuffer* buf,
+                             int buf_len);
 
   // Get/Set the cache's mode.
   void set_mode(Mode value) { mode_ = value; }
   Mode mode() { return mode_; }
 
   // Get/Set the cache's clock. These are public only for testing.
-  void SetClockForTesting(std::unique_ptr<base::Clock> clock) {
-    clock_ = std::move(clock);
-  }
-  base::Clock* clock() const { return clock_.get(); }
+  void SetClockForTesting(base::Clock* clock) { clock_ = clock; }
+  base::Clock* clock() const { return clock_; }
 
   // Close currently active sockets so that fresh page loads will not use any
   // recycled connections.  For sockets currently in use, they may not close
@@ -188,8 +232,11 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   void CloseIdleConnections();
 
   // Called whenever an external cache in the system reuses the resource
-  // referred to by |url| and |http_method|.
-  void OnExternalCacheHit(const GURL& url, const std::string& http_method);
+  // referred to by |url| and |http_method|, inside a page with a top-level
+  // URL at |top_frame_origin|.
+  void OnExternalCacheHit(const GURL& url,
+                          const std::string& http_method,
+                          base::Optional<url::Origin> top_frame_origin);
 
   // Causes all transactions created after this point to simulate lock timeout
   // and effectively bypass the cache lock whenever there is lock contention.
@@ -247,8 +294,10 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   class Transaction;
   class WorkItem;
   class Writers;
-  friend class WritersTest;  // To access ActiveEntry in the test class.
-  friend class MockHttpCacheTransaction;
+
+  friend class WritersTest;
+  friend class TestHttpCacheTransaction;
+  friend class TestHttpCache;
   friend class Transaction;
   friend class ViewCacheHelper;
   struct PendingOp;  // Info for an entry under construction.
@@ -270,22 +319,31 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   //
   // A transaction goes through these state transitions.
   //
-  // Write mode transactions:
-  // add_to_entry_queue-> headers_transaction -> writer
+  // Write mode transactions eligible for shared writing:
+  // add_to_entry_queue-> headers_transaction -> writers (first writer)
+  // add_to_entry_queue-> headers_transaction -> done_headers_queue -> writers
+  // (subsequent writers)
   // add_to_entry_queue-> headers_transaction -> done_headers_queue -> readers
-  // (once the data is written to the cache by another writer)
+  // (transactions not eligible for shared writing - once the data is written to
+  // the cache by writers)
   //
   // Read only transactions:
   // add_to_entry_queue-> headers_transaction -> done_headers_queue -> readers
-  // (once the data is written to the cache by the writer)
+  // (once the data is written to the cache by writers)
 
-  struct ActiveEntry {
+  struct NET_EXPORT_PRIVATE ActiveEntry {
     explicit ActiveEntry(disk_cache::Entry* entry);
     ~ActiveEntry();
     size_t EstimateMemoryUsage() const;
 
     // Returns true if no transactions are associated with this entry.
     bool HasNoTransactions();
+
+    // Returns true if no transactions are associated with this entry and
+    // writers is not present.
+    bool SafeToDestroy();
+
+    bool TransactionInReaders(Transaction* transaction) const;
 
     disk_cache::Entry* disk_entry = nullptr;
 
@@ -294,18 +352,18 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
 
     // Transaction currently in the headers phase, either validating the
     // response or getting new headers. This can exist simultaneously with
-    // writer or readers while validating existing headers.
+    // writers or readers while validating existing headers.
     Transaction* headers_transaction = nullptr;
 
     // Transactions that have completed their headers phase and are waiting
     // to read the response body or write the response body.
     TransactionList done_headers_queue;
 
-    // Transaction currently reading from the network and writing to the cache.
-    Transaction* writer = nullptr;
+    // Transactions currently reading from the network and writing to the cache.
+    std::unique_ptr<Writers> writers;
 
-    // Transactions that can only read from the cache. Only one of writer or
-    // readers can exist at a time.
+    // Transactions that can only read from the cache. Only one of writers or
+    // readers can be non-empty at a time.
     TransactionSet readers;
 
     // The following variables are true if OnProcessQueuedTransactions is posted
@@ -326,7 +384,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // Creates the |backend| object and notifies the |callback| when the operation
   // completes. Returns an error code.
   int CreateBackend(disk_cache::Backend** backend,
-                    const CompletionCallback& callback);
+                    CompletionOnceCallback callback);
 
   // Makes sure that the backend creation is complete before allowing the
   // provided transaction to use the object. Returns an error code.  |trans|
@@ -354,8 +412,10 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // be currently in use.
   int AsyncDoomEntry(const std::string& key, Transaction* trans);
 
-  // Dooms the entry associated with a GET for a given |url|.
-  void DoomMainEntryForUrl(const GURL& url);
+  // Dooms the entry associated with a GET for a given |url|, loaded from
+  // a page with top-level frame at |top_frame_origin|.
+  void DoomMainEntryForUrl(const GURL& url,
+                           base::Optional<url::Origin> top_frame_origin);
 
   // Closes a previously doomed entry.
   void FinalizeDoomedEntry(ActiveEntry* entry);
@@ -382,7 +442,9 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
 
   // Opens the disk cache entry associated with |key|, returning an ActiveEntry
   // in |*entry|. |trans| will be notified via its IO callback if this method
-  // returns ERR_IO_PENDING.
+  // returns ERR_IO_PENDING. This should not be called if there already is
+  // an active entry associated with |key|, e.g. you should call FindActiveEntry
+  // first.
   int OpenEntry(const std::string& key, ActiveEntry** entry,
                 Transaction* trans);
 
@@ -392,7 +454,8 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   int CreateEntry(const std::string& key, ActiveEntry** entry,
                   Transaction* trans);
 
-  // Destroys an ActiveEntry (active or doomed).
+  // Destroys an ActiveEntry (active or doomed). Should only be called if
+  // entry->SafeToDestroy() returns true.
   void DestroyEntry(ActiveEntry* entry);
 
   // Adds a transaction to an ActiveEntry. This method returns ERR_IO_PENDING
@@ -411,23 +474,28 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
                               bool is_partial);
 
   // Called when the transaction has finished working with this entry.
-  // |process_cancel| is true if the transaction could have been writing the
-  // response body and was cancelled by the caller instead of running
-  // to completion. This will be confirmed and if true, its impact on queued
-  // transactions will be processed.
+  // |entry_is_complete| is true if the transaction finished reading/writing
+  // from the entry successfully, else it's false.
   void DoneWithEntry(ActiveEntry* entry,
                      Transaction* transaction,
-                     bool process_cancel,
+                     bool entry_is_complete,
                      bool is_partial);
 
-  // Called when the transaction has finished writing to this entry. |success|
-  // is false if the cache entry should be deleted.
-  void DoneWritingToEntry(ActiveEntry* entry,
-                          bool success,
-                          Transaction* transaction);
+  // Invoked when writers wants to doom the entry and restart any queued and
+  // headers transactions.
+  // Virtual so that it can be extended in tests.
+  virtual void WritersDoomEntryRestartTransactions(ActiveEntry* entry);
 
-  // Called when the transaction has finished reading from this entry.
-  void DoneReadingFromEntry(ActiveEntry* entry, Transaction* transaction);
+  // Invoked when current transactions in writers have completed writing to the
+  // cache. It may be successful completion of the response or failure as given
+  // by |success|. Must delete the writers object.
+  // |entry| is the owner of writers.
+  // |should_keep_entry| indicates if the entry should be doomed/destroyed.
+  // Virtual so that it can be extended in tests.
+  virtual void WritersDoneWritingToEntry(ActiveEntry* entry,
+                                         bool success,
+                                         bool should_keep_entry,
+                                         TransactionSet make_readers);
 
   // Called when the transaction has received a non-matching response to
   // validation and it's not the transaction responsible for writing the
@@ -442,11 +510,10 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
 
   // Processes either writer's failure to write response body or
   // headers_transactions's failure to write headers.
-  void ProcessEntryFailure(ActiveEntry* entry, Transaction* transaction);
+  void ProcessEntryFailure(ActiveEntry* entry);
 
   // Restarts headers_transaction and done_headers_queue transactions.
-  void RestartHeadersPhaseTransactions(ActiveEntry* entry,
-                                       Transaction* transaction);
+  void RestartHeadersPhaseTransactions(ActiveEntry* entry);
 
   // Restarts the headers_transaction by setting its state. Since the
   // headers_transaction is awaiting an asynchronous operation completion,
@@ -463,23 +530,28 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // already.
   void ProcessAddToEntryQueue(ActiveEntry* entry);
 
+  // Returns if the transaction can join other transactions for writing to
+  // the cache simultaneously. It is only supported for non-Read only,
+  // GET requests which are not range requests.
+  ParallelWritingPattern CanTransactionJoinExistingWriters(
+      Transaction* transaction);
+
   // Invoked when a transaction that has already completed the response headers
   // phase can resume reading/writing the response body. It will invoke the IO
   // callback of the transaction. This is a helper function for
   // OnProcessQueuedTransactions.
   void ProcessDoneHeadersQueue(ActiveEntry* entry);
 
+  // Adds a transaction to writers.
+  void AddTransactionToWriters(ActiveEntry* entry,
+                               Transaction* transaction,
+                               ParallelWritingPattern parallel_writing_pattern);
+
   // Returns true if this transaction can write headers to the entry.
   bool CanTransactionWriteResponseHeaders(ActiveEntry* entry,
                                           Transaction* transaction,
                                           bool is_partial,
                                           bool is_match) const;
-
-  // Returns true if any transactions in the ActiveEntry depend on this
-  // transaction to complete writing to the cache.
-  bool HasDependentTransactions(ActiveEntry* entry,
-                                Transaction* transaction,
-                                bool is_partial) const;
 
   // Returns true if a transaction is currently writing the response body.
   bool IsWritingInProgress(ActiveEntry* entry) const;
@@ -508,12 +580,10 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // Processes BackendCallback notifications.
   void OnIOComplete(int result, PendingOp* entry);
 
-  // Helper to conditionally delete |pending_op| if the HttpCache object it
-  // is meant for has been deleted.
-  //
-  // TODO(ajwong): The PendingOp lifetime management is very tricky.  It might
-  // be possible to simplify it using either base::Owned() or base::Passed()
-  // with the callback.
+  // Helper to conditionally delete |pending_op| if HttpCache has been deleted.
+  // This is necessary because |pending_op| owns a disk_cache::Backend that has
+  // been passed in to CreateCacheBackend(), therefore must live until callback
+  // is called.
   static void OnPendingOpComplete(const base::WeakPtr<HttpCache>& cache,
                                   PendingOp* pending_op,
                                   int result);
@@ -550,7 +620,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   std::unique_ptr<PlaybackCacheMap> playback_cache_map_;
 
   // A clock that can be swapped out for testing.
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
 
   THREAD_CHECKER(thread_checker_);
 

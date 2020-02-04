@@ -39,6 +39,7 @@ TEST(FileTest, Create) {
     File file(file_path, base::File::FLAG_OPEN | base::File::FLAG_READ);
     EXPECT_FALSE(file.IsValid());
     EXPECT_EQ(base::File::FILE_ERROR_NOT_FOUND, file.error_details());
+    EXPECT_EQ(base::File::FILE_ERROR_NOT_FOUND, base::File::GetLastFileError());
   }
 
   {
@@ -80,6 +81,7 @@ TEST(FileTest, Create) {
     EXPECT_FALSE(file.IsValid());
     EXPECT_FALSE(file.created());
     EXPECT_EQ(base::File::FILE_ERROR_EXISTS, file.error_details());
+    EXPECT_EQ(base::File::FILE_ERROR_EXISTS, base::File::GetLastFileError());
   }
 
   {
@@ -111,8 +113,7 @@ TEST(FileTest, SelfSwap) {
   FilePath file_path = temp_dir.GetPath().AppendASCII("create_file_1");
   File file(file_path,
             base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_DELETE_ON_CLOSE);
-  using namespace std;
-  swap(file, file);
+  std::swap(file, file);
   EXPECT_TRUE(file.IsValid());
 }
 
@@ -177,6 +178,10 @@ TEST(FileTest, ReadWrite) {
   int bytes_written = file.Write(0, data_to_write, 0);
   EXPECT_EQ(0, bytes_written);
 
+  // Write 0 bytes, with buf=nullptr.
+  bytes_written = file.Write(0, nullptr, 0);
+  EXPECT_EQ(0, bytes_written);
+
   // Write "test" to the file.
   bytes_written = file.Write(0, data_to_write, kTestDataSize);
   EXPECT_EQ(kTestDataSize, bytes_written);
@@ -233,6 +238,25 @@ TEST(FileTest, ReadWrite) {
     EXPECT_EQ(data_to_write[i - kOffsetBeyondEndOfFile], data_read_2[i]);
 }
 
+TEST(FileTest, GetLastFileError) {
+#if defined(OS_WIN)
+  ::SetLastError(ERROR_ACCESS_DENIED);
+#else
+  errno = EACCES;
+#endif
+  EXPECT_EQ(File::FILE_ERROR_ACCESS_DENIED, File::GetLastFileError());
+
+  base::ScopedTempDir temp_dir;
+  EXPECT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  FilePath nonexistent_path(temp_dir.GetPath().AppendASCII("nonexistent"));
+  File file(nonexistent_path, File::FLAG_OPEN | File::FLAG_READ);
+  File::Error last_error = File::GetLastFileError();
+  EXPECT_FALSE(file.IsValid());
+  EXPECT_EQ(File::FILE_ERROR_NOT_FOUND, file.error_details());
+  EXPECT_EQ(File::FILE_ERROR_NOT_FOUND, last_error);
+}
+
 TEST(FileTest, Append) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
@@ -245,6 +269,10 @@ TEST(FileTest, Append) {
 
   // Write 0 bytes to the file.
   int bytes_written = file.Write(0, data_to_write, 0);
+  EXPECT_EQ(0, bytes_written);
+
+  // Write 0 bytes, with buf=nullptr.
+  bytes_written = file.Write(0, nullptr, 0);
   EXPECT_EQ(0, bytes_written);
 
   // Write "test" to the file.
@@ -326,6 +354,13 @@ TEST(FileTest, Length) {
   EXPECT_EQ(file_size, bytes_read);
   for (int i = 0; i < file_size; i++)
     EXPECT_EQ(data_to_write[i], data_read[i]);
+
+  // Close the file and reopen with base::File::FLAG_CREATE_ALWAYS, and make
+  // sure the file is empty (old file was overridden).
+  file.Close();
+  file.Initialize(file_path,
+                  base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
+  EXPECT_EQ(0, file.GetLength());
 }
 
 // Flakily fails: http://crbug.com/86494
@@ -506,6 +541,33 @@ TEST(FileTest, DuplicateDeleteOnClose) {
 }
 
 #if defined(OS_WIN)
+// Flakily times out on Windows, see http://crbug.com/846276.
+#define MAYBE_WriteDataToLargeOffset DISABLED_WriteDataToLargeOffset
+#else
+#define MAYBE_WriteDataToLargeOffset WriteDataToLargeOffset
+#endif
+TEST(FileTest, MAYBE_WriteDataToLargeOffset) {
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  FilePath file_path = temp_dir.GetPath().AppendASCII("file");
+  File file(file_path,
+            (base::File::FLAG_CREATE | base::File::FLAG_READ |
+             base::File::FLAG_WRITE | base::File::FLAG_DELETE_ON_CLOSE));
+  ASSERT_TRUE(file.IsValid());
+
+  const char kData[] = "this file is sparse.";
+  const int kDataLen = sizeof(kData) - 1;
+  const int64_t kLargeFileOffset = (1LL << 31);
+
+  // If the file fails to write, it is probably we are running out of disk space
+  // and the file system doesn't support sparse file.
+  if (file.Write(kLargeFileOffset - kDataLen - 1, kData, kDataLen) < 0)
+    return;
+
+  ASSERT_EQ(kDataLen, file.Write(kLargeFileOffset + 1, kData, kDataLen));
+}
+
+#if defined(OS_WIN)
 TEST(FileTest, GetInfoForDirectory) {
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
@@ -682,5 +744,19 @@ TEST(FileTest, NoDeleteOnCloseWithMappedFile) {
 
   file.Close();
   ASSERT_TRUE(base::PathExists(file_path));
+}
+
+// Check that we handle the async bit being set incorrectly in a sane way.
+TEST(FileTest, UseSyncApiWithAsyncFile) {
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  FilePath file_path = temp_dir.GetPath().AppendASCII("file");
+
+  File file(file_path, base::File::FLAG_CREATE | base::File::FLAG_WRITE |
+                           base::File::FLAG_ASYNC);
+  File lying_file(file.TakePlatformFile(), false /* async */);
+  ASSERT_TRUE(lying_file.IsValid());
+
+  ASSERT_EQ(lying_file.WriteAtCurrentPos("12345", 5), -1);
 }
 #endif  // defined(OS_WIN)

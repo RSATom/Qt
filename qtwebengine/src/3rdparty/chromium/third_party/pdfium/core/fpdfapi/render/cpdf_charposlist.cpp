@@ -8,12 +8,9 @@
 
 #include "core/fpdfapi/font/cpdf_cidfont.h"
 #include "core/fpdfapi/font/cpdf_font.h"
-#include "third_party/base/stl_util.h"
+#include "core/fxge/cfx_renderdevice.h"
 
-CPDF_CharPosList::CPDF_CharPosList() {
-  m_pCharPos = nullptr;
-  m_nChars = 0;
-}
+CPDF_CharPosList::CPDF_CharPosList() = default;
 
 CPDF_CharPosList::~CPDF_CharPosList() {
   FX_Free(m_pCharPos);
@@ -23,12 +20,11 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
                             const std::vector<float>& charPos,
                             CPDF_Font* pFont,
                             float FontSize) {
-  int nChars = pdfium::CollectionSize<int>(charCodes);
-  m_pCharPos = FX_Alloc(FXTEXT_CHARPOS, nChars);
+  m_pCharPos = FX_Alloc(FXTEXT_CHARPOS, charCodes.size());
   m_nChars = 0;
   CPDF_CIDFont* pCIDFont = pFont->AsCIDFont();
   bool bVertWriting = pCIDFont && pCIDFont->IsVertWriting();
-  for (int iChar = 0; iChar < nChars; iChar++) {
+  for (size_t iChar = 0; iChar < charCodes.size(); ++iChar) {
     uint32_t CharCode = charCodes[iChar];
     if (CharCode == static_cast<uint32_t>(-1))
       continue;
@@ -37,13 +33,15 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
     FXTEXT_CHARPOS& charpos = m_pCharPos[m_nChars++];
     if (pCIDFont)
       charpos.m_bFontStyle = true;
-    CFX_WideString unicode = pFont->UnicodeFromCharCode(CharCode);
-    charpos.m_Unicode = !unicode.IsEmpty() ? unicode.GetAt(0) : CharCode;
+    WideString unicode = pFont->UnicodeFromCharCode(CharCode);
+    charpos.m_Unicode = !unicode.IsEmpty() ? unicode[0] : CharCode;
     charpos.m_GlyphIndex = pFont->GlyphFromCharCode(CharCode, &bVert);
     uint32_t GlyphID = charpos.m_GlyphIndex;
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
     charpos.m_ExtGID = pFont->GlyphFromCharCodeExt(CharCode);
-    GlyphID = charpos.m_ExtGID;
+    GlyphID = charpos.m_ExtGID != static_cast<uint32_t>(-1)
+                  ? charpos.m_ExtGID
+                  : charpos.m_GlyphIndex;
 #endif
     CFX_Font* pCurrentFont;
     if (GlyphID != static_cast<uint32_t>(-1)) {
@@ -55,7 +53,7 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
       charpos.m_GlyphIndex = pFont->FallbackGlyphFromCharcode(
           charpos.m_FallbackFontPosition, CharCode);
       pCurrentFont = pFont->GetFontFallback(charpos.m_FallbackFontPosition);
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
       charpos.m_ExtGID = charpos.m_GlyphIndex;
 #endif
     }
@@ -65,14 +63,14 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
     else
       charpos.m_FontCharWidth = 0;
 
-    charpos.m_Origin = CFX_PointF(iChar ? charPos[iChar - 1] : 0, 0);
+    charpos.m_Origin = CFX_PointF(iChar > 0 ? charPos[iChar - 1] : 0, 0);
     charpos.m_bGlyphAdjust = false;
 
     float scalingFactor = 1.0f;
     if (!pFont->IsEmbedded() && pFont->HasFontWidths() && !bVertWriting &&
-        !(pCurrentFont->GetSubstFont()->m_SubstFlags & FXFONT_SUBST_MM)) {
-      int pdfGlyphWidth = pFont->GetCharWidthF(CharCode);
-      int ftGlyphWidth =
+        !pCurrentFont->GetSubstFont()->m_bFlagMM) {
+      uint32_t pdfGlyphWidth = pFont->GetCharWidthF(CharCode);
+      uint32_t ftGlyphWidth =
           pCurrentFont ? pCurrentFont->GetGlyphWidth(charpos.m_GlyphIndex) : 0;
       if (ftGlyphWidth && pdfGlyphWidth > ftGlyphWidth + 1) {
         // Move the initial x position by half of the excess (transformed to
@@ -82,7 +80,6 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
       } else if (pdfGlyphWidth && ftGlyphWidth &&
                  pdfGlyphWidth < ftGlyphWidth) {
         scalingFactor = static_cast<float>(pdfGlyphWidth) / ftGlyphWidth;
-        ASSERT(scalingFactor >= 0.0f);
         charpos.m_AdjustMatrix[0] = scalingFactor;
         charpos.m_AdjustMatrix[1] = 0.0f;
         charpos.m_AdjustMatrix[2] = 0.0f;

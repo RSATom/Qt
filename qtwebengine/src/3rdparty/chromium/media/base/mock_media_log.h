@@ -16,9 +16,20 @@
 // |outer| is the std::string searched for substring |sub|.
 #define CONTAINS_STRING(outer, sub) (std::string::npos != (outer).find(sub))
 
-// "media_log_" is expected to be a MockMediaLog, optionally a StrictMock, in
-// scope of the usage of this macro.
-#define EXPECT_MEDIA_LOG(x) EXPECT_CALL(media_log_, DoAddEventLogString((x)))
+// Assumes |media_log_| is available which is a MockMediaLog, optionally a
+// NiceMock or StrictMock, in scope of the usage of this macro.
+#define EXPECT_MEDIA_LOG(x) EXPECT_MEDIA_LOG_ON(media_log_, x)
+
+// Same as EXPECT_MEDIA_LOG, but for LIMITED_MEDIA_LOG.
+#define EXPECT_LIMITED_MEDIA_LOG(x, count, max) \
+  if (count < max) {                            \
+    EXPECT_MEDIA_LOG_ON(media_log_, x);         \
+    count++;                                    \
+  }
+
+// |log| is expected to evaluate to a MockMediaLog, optionally a NiceMock or
+// StrictMock, in scope of the usage of this macro.
+#define EXPECT_MEDIA_LOG_ON(log, x) EXPECT_CALL((log), DoAddEventLogString((x)))
 
 namespace media {
 
@@ -32,7 +43,7 @@ class MockMediaLog : public MediaLog {
   // Trampoline method to workaround GMOCK problems with std::unique_ptr<>.
   // Also simplifies tests to be able to string match on the log string
   // representation on the added event.
-  void AddEvent(std::unique_ptr<MediaLogEvent> event) override {
+  void AddEventLocked(std::unique_ptr<MediaLogEvent> event) override {
     DoAddEventLogString(MediaEventToLogString(*event));
   }
 

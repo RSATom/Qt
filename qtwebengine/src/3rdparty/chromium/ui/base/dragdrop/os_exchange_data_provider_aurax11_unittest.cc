@@ -4,14 +4,11 @@
 
 #include "ui/base/dragdrop/os_exchange_data_provider_aurax11.h"
 
-// Clean up X11 header polution
-#undef None
-#undef Bool
-
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/base/dragdrop/file_info.h"
 #include "ui/events/platform/x11/x11_event_source_glib.h"
 #include "ui/gfx/x/x11_atom_cache.h"
@@ -36,8 +33,7 @@ class OSExchangeDataProviderAuraX11Test : public testing::Test {
     scoped_refptr<base::RefCountedMemory> mem(
         base::RefCountedString::TakeString(&contents_copy));
 
-    provider.format_map_.Insert(gfx::GetAtom(ui::Clipboard::kMimeTypeURIList),
-                                mem);
+    provider.format_map_.Insert(gfx::GetAtom(ui::kMimeTypeURIList), mem);
   }
 
  protected:

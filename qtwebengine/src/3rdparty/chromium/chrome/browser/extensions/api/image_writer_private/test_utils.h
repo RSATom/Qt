@@ -7,10 +7,12 @@
 
 #include <stdint.h>
 
+#include <memory>
+
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/image_writer_private/image_writer_utility_client.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation_manager.h"
@@ -35,14 +37,15 @@ const int kTestFileSize = 32 * 1024;
 const int kImagePattern = 0x55555555; // 01010101
 // Pattern to use in the device file.
 const int kDevicePattern = 0xAAAAAAAA; // 10101010
+// Disk file system type
+const char kTestFileSystemType[] = "vfat";
 
 // A mock around the operation manager for tracking callbacks.  Note that there
 // are non-virtual methods on this class that should not be called in tests.
 class MockOperationManager : public OperationManager {
  public:
-  MockOperationManager();
   explicit MockOperationManager(content::BrowserContext* context);
-  virtual ~MockOperationManager();
+  ~MockOperationManager() override;
 
   MOCK_METHOD3(OnProgress, void(const ExtensionId& extension_id,
                                 image_writer_api::Stage stage,
@@ -67,12 +70,21 @@ class FakeDiskMountManager : public chromeos::disks::MockDiskMountManager {
 
   void UnmountDeviceRecursively(
       const std::string& device_path,
-      const UnmountDeviceRecursivelyCallbackType& callback) override;
+      UnmountDeviceRecursivelyCallbackType callback) override;
 
  private:
   DiskMap disks_;
 };
 #endif
+
+struct SimulateProgressInfo {
+  SimulateProgressInfo(const std::vector<int>& progress_list,
+                       bool will_succeed);
+  ~SimulateProgressInfo();
+  SimulateProgressInfo(const SimulateProgressInfo&);
+  std::vector<int> progress_list;
+  bool will_succeed;
+};
 
 class FakeImageWriterClient : public ImageWriterUtilityClient {
  public:
@@ -94,10 +106,14 @@ class FakeImageWriterClient : public ImageWriterUtilityClient {
 
   void Shutdown() override;
 
-  // Sets a callback for when a Write call is made.
-  void SetWriteCallback(const base::Closure& write_callback);
-  // Sets a callback for when a Verify call is made.
-  void SetVerifyCallback(const base::Closure& verify_callback);
+  // Issues Operation::Progress() calls with items in |progress_list| on
+  // Operation Write(). Sends Operation::Success() iff |will_succeed| is true,
+  // otherwise issues an error.
+  void SimulateProgressOnWrite(const std::vector<int>& progress_list,
+                               bool will_succeed);
+  // Same as SimulateProgressOnWrite, but applies to Operation::VerifyWrite().
+  void SimulateProgressOnVerifyWrite(const std::vector<int>& progress_list,
+                                     bool will_succeed);
 
   // Triggers the progress callback.
   void Progress(int64_t progress);
@@ -108,22 +124,34 @@ class FakeImageWriterClient : public ImageWriterUtilityClient {
   // Triggers the cancel callback.
   void Cancel();
 
- private:
+ protected:
   ~FakeImageWriterClient() override;
+
+ private:
+  void SimulateProgressAndCompletion(const SimulateProgressInfo& info);
 
   ProgressCallback progress_callback_;
   SuccessCallback success_callback_;
   ErrorCallback error_callback_;
   CancelCallback cancel_callback_;
 
-  base::Closure write_callback_;
-  base::Closure verify_callback_;
+  base::Optional<SimulateProgressInfo> simulate_on_write_;
+  base::Optional<SimulateProgressInfo> simulate_on_verify_;
 };
 
 class ImageWriterTestUtils {
  public:
   ImageWriterTestUtils();
   virtual ~ImageWriterTestUtils();
+
+#if !defined(OS_CHROMEOS)
+  using UtilityClientCreationCallback =
+      base::OnceCallback<void(FakeImageWriterClient*)>;
+  void RunOnUtilityClientCreation(UtilityClientCreationCallback callback);
+
+  // Called when an instance of utility client is created.
+  void OnUtilityClientCreated(FakeImageWriterClient* client);
+#endif
 
   // Verifies that the data in image_path was written to the file at
   // device_path.  This is different from base::ContentsEqual because the device
@@ -152,10 +180,6 @@ class ImageWriterTestUtils {
   const base::FilePath& GetImagePath();
   const base::FilePath& GetDevicePath();
 
-#if !defined(OS_CHROMEOS)
-  FakeImageWriterClient* GetUtilityClient();
-#endif
-
  protected:
   base::ScopedTempDir temp_dir_;
   base::FilePath test_image_path_;
@@ -163,6 +187,9 @@ class ImageWriterTestUtils {
 
 #if !defined(OS_CHROMEOS)
   scoped_refptr<FakeImageWriterClient> client_;
+  ImageWriterUtilityClient::ImageWriterUtilityClientFactory
+      utility_client_factory_;
+  base::OnceCallback<void(FakeImageWriterClient*)> client_creation_callback_;
 #endif
 };
 
@@ -177,7 +204,6 @@ class ImageWriterUnitTestBase : public testing::Test {
 
   ImageWriterTestUtils test_utils_;
 
- private:
   content::TestBrowserThreadBundle thread_bundle_;
 };
 

@@ -16,6 +16,7 @@ static CSPDirective::Name CSPFallback(CSPDirective::Name directive) {
     case CSPDirective::DefaultSrc:
     case CSPDirective::FormAction:
     case CSPDirective::UpgradeInsecureRequests:
+    case CSPDirective::NavigateTo:
       return CSPDirective::Unknown;
 
     case CSPDirective::FrameSrc:
@@ -32,6 +33,19 @@ static CSPDirective::Name CSPFallback(CSPDirective::Name directive) {
   return CSPDirective::Unknown;
 }
 
+// Looks by name for a directive in a list of directives.
+// If it is not found, returns nullptr.
+static const CSPDirective* FindDirective(
+    const CSPDirective::Name name,
+    const std::vector<CSPDirective>& directives) {
+  for (const CSPDirective& directive : directives) {
+    if (directive.name == name) {
+      return &directive;
+    }
+  }
+  return nullptr;
+}
+
 std::string ElideURLForReportViolation(const GURL& url) {
   // TODO(arthursonzogni): the url length should be limited to 1024 char. Find
   // a function that will not break the utf8 encoding while eliding the string.
@@ -43,7 +57,7 @@ void ReportViolation(CSPContext* context,
                      const CSPDirective& directive,
                      const CSPDirective::Name directive_name,
                      const GURL& url,
-                     bool is_redirect,
+                     bool has_followed_redirect,
                      const SourceLocation& source_location) {
   // We should never have a violation against `child-src` or `default-src`
   // directly; the effective directive should always be one of the explicit
@@ -57,18 +71,20 @@ void ReportViolation(CSPContext* context,
   // renderers.
   GURL safe_url = url;
   SourceLocation safe_source_location = source_location;
-  context->SanitizeDataForUseInCspViolation(is_redirect, directive_name,
-                                            &safe_url, &safe_source_location);
+  context->SanitizeDataForUseInCspViolation(
+      has_followed_redirect, directive_name, &safe_url, &safe_source_location);
 
   std::stringstream message;
 
-  if (policy.header.type == blink::kWebContentSecurityPolicyTypeReport)
+  if (policy.header.type == blink::mojom::ContentSecurityPolicyType::kReport)
     message << "[Report Only] ";
 
   if (directive_name == CSPDirective::FormAction)
     message << "Refused to send form data to '";
   else if (directive_name == CSPDirective::FrameSrc)
     message << "Refused to frame '";
+  else if (directive_name == CSPDirective::NavigateTo)
+    message << "Refused to navigate to '";
 
   message << ElideURLForReportViolation(safe_url)
           << "' because it violates the following Content Security Policy "
@@ -86,8 +102,9 @@ void ReportViolation(CSPContext* context,
   context->ReportContentSecurityPolicyViolation(CSPViolationParams(
       CSPDirective::NameToString(directive.name),
       CSPDirective::NameToString(directive_name), message.str(), safe_url,
-      policy.report_endpoints, policy.header.header_value, policy.header.type,
-      is_redirect, safe_source_location));
+      policy.report_endpoints, policy.use_reporting_api,
+      policy.header.header_value, policy.header.type, has_followed_redirect,
+      safe_source_location));
 }
 
 bool AllowDirective(CSPContext* context,
@@ -95,13 +112,16 @@ bool AllowDirective(CSPContext* context,
                     const CSPDirective& directive,
                     CSPDirective::Name directive_name,
                     const GURL& url,
-                    bool is_redirect,
+                    bool has_followed_redirect,
+                    bool is_response_check,
                     const SourceLocation& source_location) {
-  if (CSPSourceList::Allow(directive.source_list, url, context, is_redirect))
+  if (CSPSourceList::Allow(directive.source_list, url, context,
+                           has_followed_redirect, is_response_check)) {
     return true;
+  }
 
-  ReportViolation(context, policy, directive, directive_name, url, is_redirect,
-                  source_location);
+  ReportViolation(context, policy, directive, directive_name, url,
+                  has_followed_redirect, source_location);
   return false;
 }
 
@@ -123,42 +143,52 @@ bool ShouldBypassContentSecurityPolicy(CSPContext* context, const GURL& url) {
 
 }  // namespace
 
-ContentSecurityPolicy::ContentSecurityPolicy()
-    : header(std::string(),
-             blink::kWebContentSecurityPolicyTypeEnforce,
-             blink::kWebContentSecurityPolicySourceHTTP) {}
+ContentSecurityPolicy::ContentSecurityPolicy() = default;
 
 ContentSecurityPolicy::ContentSecurityPolicy(
     const ContentSecurityPolicyHeader& header,
     const std::vector<CSPDirective>& directives,
-    const std::vector<std::string>& report_endpoints)
+    const std::vector<std::string>& report_endpoints,
+    bool use_reporting_api)
     : header(header),
       directives(directives),
-      report_endpoints(report_endpoints) {}
+      report_endpoints(report_endpoints),
+      use_reporting_api(use_reporting_api) {}
 
-ContentSecurityPolicy::ContentSecurityPolicy(const ContentSecurityPolicy&) =
-    default;
+ContentSecurityPolicy::ContentSecurityPolicy(
+    const ContentSecurityPolicy& other) = default;
+
 ContentSecurityPolicy::~ContentSecurityPolicy() = default;
 
 // static
 bool ContentSecurityPolicy::Allow(const ContentSecurityPolicy& policy,
                                   CSPDirective::Name directive_name,
                                   const GURL& url,
-                                  bool is_redirect,
+                                  bool has_followed_redirect,
+                                  bool is_response_check,
                                   CSPContext* context,
-                                  const SourceLocation& source_location) {
-  if (ShouldBypassContentSecurityPolicy(context, url)) return true;
+                                  const SourceLocation& source_location,
+                                  bool is_form_submission) {
+  if (ShouldBypassContentSecurityPolicy(context, url))
+    return true;
+
+  // 'navigate-to' has no effect when doing a form submission and a
+  // 'form-action' directive is present.
+  if (is_form_submission && directive_name == CSPDirective::Name::NavigateTo &&
+      FindDirective(CSPDirective::Name::FormAction, policy.directives)) {
+    return true;
+  }
 
   CSPDirective::Name current_directive_name = directive_name;
   do {
-    for (const CSPDirective& directive : policy.directives) {
-      if (directive.name == current_directive_name) {
-        bool allowed =
-            AllowDirective(context, policy, directive, directive_name, url,
-                           is_redirect, source_location);
-        return allowed ||
-               policy.header.type == blink::kWebContentSecurityPolicyTypeReport;
-      }
+    const CSPDirective* current_directive =
+        FindDirective(current_directive_name, policy.directives);
+    if (current_directive) {
+      bool allowed = AllowDirective(context, policy, *current_directive,
+                                    directive_name, url, has_followed_redirect,
+                                    is_response_check, source_location);
+      return allowed || policy.header.type ==
+                            blink::mojom::ContentSecurityPolicyType::kReport;
     }
     current_directive_name = CSPFallback(current_directive_name);
   } while (current_directive_name != CSPDirective::Unknown);

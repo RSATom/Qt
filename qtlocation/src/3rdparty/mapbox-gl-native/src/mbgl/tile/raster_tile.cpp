@@ -24,9 +24,6 @@ RasterTile::RasterTile(const OverscaledTileID& id_,
 
 RasterTile::~RasterTile() = default;
 
-void RasterTile::cancel() {
-}
-
 void RasterTile::setError(std::exception_ptr err) {
     loaded = true;
     observer->onTileError(*this, err);
@@ -40,7 +37,7 @@ void RasterTile::setMetadata(optional<Timestamp> modified_, optional<Timestamp> 
 void RasterTile::setData(std::shared_ptr<const std::string> data) {
     pending = true;
     ++correlationID;
-    worker.invoke(&RasterTileWorker::parse, data, correlationID);
+    worker.self().invoke(&RasterTileWorker::parse, data, correlationID);
 }
 
 void RasterTile::onParsed(std::unique_ptr<RasterBucket> result, const uint64_t resultCorrelationID) {

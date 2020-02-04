@@ -66,6 +66,8 @@ this manner, but the type cannot be used instantiated as a QML object type
 from QML. This is useful, for example, if a type has enums that should be
 exposed to QML but the type itself should not be instantiable.
 
+For a quick guide to choosing the correct approach to expose C++ types to QML,
+see \l {Choosing the Correct Integration Method Between C++ and QML}.
 
 \section2 Registering an Instantiable Object Type
 
@@ -140,9 +142,10 @@ types:
 \li qmlRegisterType() (with no parameters) registers a C++ type that is not
 instantiable and cannot be referred to from QML. This enables the engine to
 coerce any inherited types that are instantiable from QML.
-\li qmlRegisterInterface() registers a Qt interface type with a specific QML
-type name. The type is not instantiable from QML but can be referred to by its
-type name.
+\li qmlRegisterInterface() registers an existing Qt interface type. The type is
+not instantiable from QML, and you cannot declare QML properties with it. Using
+C++ properties of this type from QML will do the expected interface casts,
+though.
 \li qmlRegisterUncreatableType() registers a named C++ type that is not
 instantiable but should be identifiable as a type to the QML type system. This
 is useful if a type's enums or attached properties should be accessible from QML
@@ -297,6 +300,8 @@ qmlRegisterRevision<BaseType,1>("MyTypes", 1, 1);
 This is useful when deriving from base classes provided by other authors,
 e.g. when extending classes from the Qt Quick module.
 
+\note The QML engine does not support revisions for properties or signals of
+grouped and attached property objects.
 
 \section2 Registering Extension Objects
 
@@ -466,7 +471,7 @@ will be accessible to the \e attachee:
 class MessageBoardAttachedType : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(bool expired READ expired WRITE expired NOTIFY expiredChanged)
+    Q_PROPERTY(bool expired READ expired WRITE setExpired NOTIFY expiredChanged)
 public:
     MessageBoardAttachedType(QObject *parent);
     bool expired() const;
@@ -488,7 +493,7 @@ class MessageBoard : public QObject
 {
     Q_OBJECT
 public:
-    static MessageBoard *qmlAttachedProperties(QObject *object)
+    static MessageBoardAttachedType *qmlAttachedProperties(QObject *object)
     {
         return new MessageBoardAttachedType(object);
     }
@@ -689,7 +694,7 @@ public:
     QQmlListProperty<Message> messages();
 
 private:
-    QList<Message *> messages;
+    QList<Message *> m_messages;
 };
 \endcode
 

@@ -61,6 +61,19 @@
 #endif
 
 #if defined(__cplusplus)
+#ifdef Q_CC_MINGW
+#  include <unistd.h> // Define _POSIX_THREAD_SAFE_FUNCTIONS to obtain localtime_r()
+#endif
+#include <time.h>
+
+QT_BEGIN_NAMESPACE
+
+// These behave as if they consult the environment, so need to share its locking:
+Q_CORE_EXPORT void qTzSet();
+Q_CORE_EXPORT time_t qMkTime(struct tm *when);
+
+QT_END_NAMESPACE
+
 #if !QT_HAS_BUILTIN(__builtin_available)
 #include <initializer_list>
 #include <QtCore/qoperatingsystemversion.h>

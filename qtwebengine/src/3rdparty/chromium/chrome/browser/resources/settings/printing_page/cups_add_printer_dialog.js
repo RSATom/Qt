@@ -19,7 +19,7 @@
  * Different dialogs in add printer flow.
  * @enum {string}
  */
-var AddPrinterDialogs = {
+const AddPrinterDialogs = {
   DISCOVERY: 'add-printer-discovery-dialog',
   MANUALLY: 'add-printer-manually-dialog',
   CONFIGURING: 'add-printer-configuring-dialog',
@@ -29,9 +29,9 @@ var AddPrinterDialogs = {
 /**
  * The maximum height of the discovered printers list when the searching spinner
  * is not showing.
- * @const {number}
+ * @type {number}
  */
-var kPrinterListFullHeight = 350;
+const kPrinterListFullHeight = 350;
 
 /**
  * Return a reset CupsPrinterInfo object.
@@ -42,7 +42,6 @@ function getEmptyPrinter_() {
     ppdManufacturer: '',
     ppdModel: '',
     printerAddress: '',
-    printerAutoconf: false,
     printerDescription: '',
     printerId: '',
     printerManufacturer: '',
@@ -50,6 +49,12 @@ function getEmptyPrinter_() {
     printerMakeAndModel: '',
     printerName: '',
     printerPPDPath: '',
+    printerPpdReference: {
+      userSuppliedPpdUrl: '',
+      effectiveMakeAndModel: '',
+      autoconf: false,
+    },
+    printerPpdReferenceResolved: false,
     printerProtocol: 'ipp',
     printerQueue: '',
     printerStatus: '',
@@ -127,21 +132,30 @@ Polymer({
     // We're abandoning discovery in favor of manual specification, so
     // drop the selection if one exists.
     this.selectedPrinter = getEmptyPrinter_();
-    this.$$('add-printer-dialog').close();
+    this.close();
     this.fire('open-manually-add-printer-dialog');
   },
 
   /** @private */
   onCancelTap_: function() {
     this.stopDiscoveringPrinters_();
-    this.$$('add-printer-dialog').close();
+    this.close();
   },
 
   /** @private */
   switchToConfiguringDialog_: function() {
     this.stopDiscoveringPrinters_();
-    this.$$('add-printer-dialog').close();
+    this.close();
     this.fire('open-configuring-printer-dialog');
+  },
+
+  /**
+   * @param {?CupsPrinterInfo} selectedPrinter
+   * @return {boolean} Whether the add printer button is enabled.
+   * @private
+   */
+  canAddPrinter_: function(selectedPrinter) {
+    return !!selectedPrinter && !!selectedPrinter.printerName;
   },
 });
 
@@ -175,19 +189,22 @@ Polymer({
     this.fire('open-configuring-printer-dialog');
   },
 
-  /** @private */
-  onAddressChanged_: function() {
-    // TODO(xdai): Check if the printer address exists and then show the
-    // corresponding message after the API is ready.
-    // The format of address is: ip-address-or-hostname:port-number.
-  },
-
   /**
    * @param {!Event} event
    * @private
    */
   onProtocolChange_: function(event) {
     this.set('newPrinter.printerProtocol', event.target.value);
+  },
+
+  /**
+   * @param {string} name
+   * @param {string} address
+   * @return {boolean} Whether the add printer button is enabled.
+   * @private
+   */
+  canAddPrinter_: function(name, address) {
+    return settings.printing.isNameAndAddressValid(name, address);
   },
 });
 
@@ -198,21 +215,20 @@ Polymer({
     SetManufacturerModelBehavior,
   ],
 
-  properties: {
-    setupFailed: {
-      type: Boolean,
-      value: false,
-    },
+  close: function() {
+    this.$$('add-printer-dialog').close();
   },
 
   /** @private */
   onCancelTap_: function() {
-    this.$$('add-printer-dialog').close();
+    this.close();
+    settings.CupsPrintersBrowserProxyImpl.getInstance().cancelPrinterSetUp(
+        this.activePrinter);
   },
 
   /** @private */
   switchToConfiguringDialog_: function() {
-    this.$$('add-printer-dialog').close();
+    this.close();
     this.fire('open-configuring-printer-dialog');
   },
 
@@ -224,7 +240,8 @@ Polymer({
    * @private
    */
   canAddPrinter_: function(ppdManufacturer, ppdModel, printerPPDPath) {
-    return !!((ppdManufacturer && ppdModel) || printerPPDPath);
+    return settings.printing.isPPDInfoValid(
+        ppdManufacturer, ppdModel, printerPPDPath);
   },
 });
 
@@ -244,7 +261,7 @@ Polymer({
 
   /** @private */
   onCancelConfiguringTap_: function() {
-    this.$$('add-printer-dialog').close();
+    this.close();
     this.fire('configuring-dialog-closed');
   },
 
@@ -262,12 +279,6 @@ Polymer({
     /** @type {!CupsPrinterInfo} */
     newPrinter: {
       type: Object,
-    },
-
-    /** @type {boolean} whether the new printer setup is failed. */
-    setupFailed: {
-      type: Boolean,
-      value: false,
     },
 
     configuringDialogTitle: String,
@@ -331,9 +342,9 @@ Polymer({
    * @private
    */
   resetData_: function() {
-    if (this.newPrinter)
+    if (this.newPrinter) {
       this.newPrinter = getEmptyPrinter_();
-    this.setupFailed = false;
+    }
   },
 
   /** @private */
@@ -368,14 +379,19 @@ Polymer({
    * @private
    * */
   onPrinterFound_: function(info) {
-    this.newPrinter.printerAutoconf = info.autoconf;
     this.newPrinter.printerManufacturer = info.manufacturer;
     this.newPrinter.printerModel = info.model;
     this.newPrinter.printerMakeAndModel = info.makeAndModel;
+    this.newPrinter.printerPpdReference.userSuppliedPpdUrl =
+        info.ppdRefUserSuppliedPpdUrl;
+    this.newPrinter.printerPpdReference.effectiveMakeAndModel =
+        info.ppdRefEffectiveMakeAndModel;
+    this.newPrinter.printerPpdReference.autoconf = info.autoconf;
+    this.newPrinter.printerPpdReferenceResolved = info.ppdReferenceResolved;
 
     // Add the printer if it's configurable. Otherwise, forward to the
     // manufacturer dialog.
-    if (this.newPrinter.printerAutoconf) {
+    if (this.newPrinter.printerPpdReferenceResolved) {
       this.addPrinter_();
     } else {
       this.switchToManufacturerDialog_();
@@ -473,10 +489,10 @@ Polymer({
 
     this.set(domIfBooleanName, true);
     this.async(function() {
-      var dialog = this.$$(toDialog);
-      dialog.addEventListener('close', function() {
+      const dialog = this.$$(toDialog);
+      dialog.addEventListener('close', () => {
         this.set(domIfBooleanName, false);
-      }.bind(this));
+      });
     });
   },
 
@@ -501,15 +517,8 @@ Polymer({
   onAddPrinter_: function(success, printerName) {
     // 'on-add-cups-printer' event might be triggered by editing an existing
     // printer, in which case there is no configuring dialog.
-    if (!this.$$('add-printer-configuring-dialog'))
-      return;
-
-    this.$$('add-printer-configuring-dialog').close();
-    if (success)
-      return;
-
-    if (this.previousDialog_ == AddPrinterDialogs.MANUFACTURER) {
-      this.setupFailed = true;
+    if (this.$$('add-printer-configuring-dialog')) {
+      this.$$('add-printer-configuring-dialog').close();
     }
   },
 });

@@ -9,6 +9,24 @@
 
 
 /**
+ * Whether the most visited tiles have finished loading, i.e. we've received the
+ * 'loaded' postMessage from the iframe. Used by tests to detect that loading
+ * has completed.
+ * @type {boolean}
+ */
+var tilesAreLoaded = false;
+
+
+/**
+ * Whether the Most Visited and edit custom link iframes should be created while
+ * running tests. Currently the SimpleJavascriptTests are flaky due to some
+ * raciness in the creation/destruction of the iframe. crbug.com/786313.
+ * @type {boolean}
+ */
+let iframesAndVoiceSearchDisabledForTesting = false;
+
+
+/**
  * Controls rendering the new tab page for InstantExtended.
  * @return {Object} A limited interface for testing the local NTP.
  */
@@ -17,13 +35,11 @@ function LocalNTP() {
 
 
 /**
- * Alias for document.getElementById.
- * @param {string} id The ID of the element to find.
- * @return {HTMLElement} The found element or null if not found.
+ * Called by tests to disable the creation of Most Visited and edit custom link
+ * iframes.
  */
-function $(id) {
-  // eslint-disable-next-line no-restricted-properties
-  return document.getElementById(id);
+function disableIframesAndVoiceSearchForTesting() {
+  iframesAndVoiceSearchDisabledForTesting = true;
 }
 
 
@@ -31,24 +47,18 @@ function $(id) {
  * Specifications for an NTP design (not comprehensive).
  *
  * numTitleLines: Number of lines to display in titles.
- * tileWidth: The width of each suggestion tile, in px.
- * tileMargin: Spacing between successive tiles, in px.
  * titleColor: The 4-component color of title text.
  * titleColorAgainstDark: The 4-component color of title text against a dark
  *   theme.
  *
  * @type {{
  *   numTitleLines: number,
- *   tileWidth: number,
- *   tileMargin: number,
  *   titleColor: string,
  *   titleColorAgainstDark: string,
  * }}
  */
 var NTP_DESIGN = {
   numTitleLines: 1,
-  tileWidth: 154,
-  tileMargin: 16,
   titleColor: [50, 50, 50, 255],
   titleColorAgainstDark: [210, 210, 210, 255],
 };
@@ -60,19 +70,38 @@ var NTP_DESIGN = {
  * @const
  */
 var CLASSES = {
-  ALTERNATE_LOGO: 'alternate-logo', // Shows white logo if required by theme
+  // Shows a Google search style fakebox.
+  ALTERNATE_FAKEBOX: 'alternate-fakebox',
+  ALTERNATE_LOGO: 'alternate-logo',  // Shows white logo if required by theme
+  // Applies styles to dialogs used in customization.
+  CUSTOMIZE_DIALOG: 'customize-dialog',
   DARK: 'dark',
   DEFAULT_THEME: 'default-theme',
   DELAYED_HIDE_NOTIFICATION: 'mv-notice-delayed-hide',
-  FAKEBOX_FOCUS: 'fakebox-focused', // Applies focus styles to the fakebox
+  FAKEBOX_FOCUS: 'fakebox-focused',  // Applies focus styles to the fakebox
+  // Shows a search icon in the fakebox.
+  SHOW_FAKEBOX_ICON: 'show-fakebox-icon',
+  SHOW_EDIT_DIALOG: 'show',      // Displays the edit custom link dialog.
+  HIDE_BODY_OVERFLOW: 'hidden',  // Prevents scrolling while the edit custom
+                                 // link dialog is open.
+  // Applies float animations to the Most Visited notification
+  FLOAT_UP: 'float-up',
   // Applies drag focus style to the fakebox
   FAKEBOX_DRAG_FOCUS: 'fakebox-drag-focused',
-  HIDE_FAKEBOX_AND_LOGO: 'hide-fakebox-logo',
-  HIDE_NOTIFICATION: 'mv-notice-hide',
+  // Applies a different style to the error notification if a link is present.
+  HAS_LINK: 'has-link',
+  HIDE_FAKEBOX: 'hide-fakebox',
+  HIDE_NOTIFICATION: 'notice-hide',
+  INITED: 'inited',  // Reveals the <body> once init() is done.
   LEFT_ALIGN_ATTRIBUTION: 'left-align-attribution',
+  MATERIAL_DESIGN_ICONS:
+      'md-icons',  // Applies Material Design styles to Most Visited.
   // Vertically centers the most visited section for a non-Google provided page.
   NON_GOOGLE_PAGE: 'non-google-page',
-  RTL: 'rtl'  // Right-to-left language text.
+  NON_WHITE_BG: 'non-white-bg',
+  RTL: 'rtl',  // Right-to-left language text.
+  // Applied when the doodle notifier should be shown instead of the doodle.
+  USE_NOTIFIER: 'use-notifier',
 };
 
 
@@ -84,20 +113,113 @@ var CLASSES = {
 var IDS = {
   ATTRIBUTION: 'attribution',
   ATTRIBUTION_TEXT: 'attribution-text',
-  CUSTOM_THEME_STYLE: 'ct-style',
+  CUSTOM_LINKS_EDIT_IFRAME: 'custom-links-edit',
+  CUSTOM_LINKS_EDIT_IFRAME_DIALOG: 'custom-links-edit-dialog',
+  ERROR_NOTIFICATION: 'error-notice',
+  ERROR_NOTIFICATION_CONTAINER: 'error-notice-container',
+  ERROR_NOTIFICATION_LINK: 'error-notice-link',
+  ERROR_NOTIFICATION_MSG: 'error-notice-msg',
   FAKEBOX: 'fakebox',
   FAKEBOX_INPUT: 'fakebox-input',
   FAKEBOX_TEXT: 'fakebox-text',
+  FAKEBOX_MICROPHONE: 'fakebox-microphone',
   LOGO: 'logo',
+  MOST_VISITED: 'most-visited',
   NOTIFICATION: 'mv-notice',
+  NOTIFICATION_CONTAINER: 'mv-notice-container',
   NOTIFICATION_CLOSE_BUTTON: 'mv-notice-x',
   NOTIFICATION_MESSAGE: 'mv-msg',
   NTP_CONTENTS: 'ntp-contents',
+  PROMO: 'promo',
   RESTORE_ALL_LINK: 'mv-restore',
+  SUGGESTIONS: 'suggestions',
   TILES: 'mv-tiles',
   TILES_IFRAME: 'mv-single',
-  UNDO_LINK: 'mv-undo'
+  UNDO_LINK: 'mv-undo',
 };
+
+
+/**
+ * Counterpart of search_provider_logos::LogoType.
+ * @enum {string}
+ * @const
+ */
+var LOGO_TYPE = {
+  SIMPLE: 'SIMPLE',
+  ANIMATED: 'ANIMATED',
+  INTERACTIVE: 'INTERACTIVE',
+};
+
+
+/**
+ * The different types of events that are logged from the NTP. This enum is
+ * used to transfer information from the NTP JavaScript to the renderer and is
+ * not used as a UMA enum histogram's logged value.
+ * Note: Keep in sync with common/ntp_logging_events.h
+ * @enum {number}
+ * @const
+ */
+var LOG_TYPE = {
+  // A static Doodle was shown, coming from cache.
+  NTP_STATIC_LOGO_SHOWN_FROM_CACHE: 30,
+  // A static Doodle was shown, coming from the network.
+  NTP_STATIC_LOGO_SHOWN_FRESH: 31,
+  // A call-to-action Doodle image was shown, coming from cache.
+  NTP_CTA_LOGO_SHOWN_FROM_CACHE: 32,
+  // A call-to-action Doodle image was shown, coming from the network.
+  NTP_CTA_LOGO_SHOWN_FRESH: 33,
+
+  // A static Doodle was clicked.
+  NTP_STATIC_LOGO_CLICKED: 34,
+  // A call-to-action Doodle was clicked.
+  NTP_CTA_LOGO_CLICKED: 35,
+  // An animated Doodle was clicked.
+  NTP_ANIMATED_LOGO_CLICKED: 36,
+
+  // The One Google Bar was shown.
+  NTP_ONE_GOOGLE_BAR_SHOWN: 37,
+
+  // 'Cancel' was clicked in the 'Edit shortcut' dialog.
+  NTP_CUSTOMIZE_SHORTCUT_CANCEL: 54,
+  // 'Done' was clicked in the 'Edit shortcut' dialog.
+  NTP_CUSTOMIZE_SHORTCUT_DONE: 55,
+};
+
+
+/**
+ * The maximum number of tiles to show in the Most Visited section.
+ * @type {number}
+ * @const
+ */
+const MAX_NUM_TILES_MOST_VISITED = 8;
+
+
+/**
+ * The maximum number of tiles to show in the Most Visited section if custom
+ * links is enabled.
+ * @type {number}
+ * @const
+ */
+const MAX_NUM_TILES_CUSTOM_LINKS = 10;
+
+
+/**
+ * Background colors considered "white". Used to determine if it is possible to
+ * display a Google Doodle, or if the notifier should be used instead. Also used
+ * to determine if a colored or white logo should be used.
+ * @type {Array<string>}
+ * @const
+ */
+var WHITE_BACKGROUND_COLORS = ['rgba(255,255,255,1)', 'rgba(0,0,0,0)'];
+
+
+/**
+ * Background color for Chrome dark mode. Used to determine if it is possible to
+ * display a Google Doodle, or if the notifier should be used instead.
+ * @type {string}
+ * @const
+ */
+const DARK_MODE_BACKGROUND_COLOR = 'rgba(50,54,57,1)';
 
 
 /**
@@ -105,9 +227,14 @@ var IDS = {
  * @enum {number}
  * @const
  */
-var KEYCODE = {
-  ENTER: 13
-};
+var KEYCODE = {ENTER: 13, SPACE: 32};
+
+
+/**
+ * The period of time (ms) before the Most Visited notification is hidden.
+ * @type {number}
+ */
+const NOTIFICATION_TIMEOUT = 10000;
 
 
 /**
@@ -119,11 +246,11 @@ var lastBlacklistedTile = null;
 
 
 /**
- * Current number of tiles columns shown based on the window width, including
- * those that just contain filler.
- * @type {number}
+ * The timeout function for automatically hiding the pop-up notification. Only
+ * set if a notification is visible.
+ * @type {?Object}
  */
-var numColumnsShown = 0;
+let delayedHideNotification;
 
 
 /**
@@ -133,76 +260,194 @@ var numColumnsShown = 0;
 var ntpApiHandle;
 
 
-/** @type {number} @const */
-var MAX_NUM_TILES_TO_SHOW = 8;
-
-
-/** @type {number} @const */
-var MIN_NUM_COLUMNS = 2;
-
-
-/** @type {number} @const */
-var MAX_NUM_COLUMNS = 4;
-
-
-/** @type {number} @const */
-var NUM_ROWS = 2;
+/**
+ * True if dark mode is enabled.
+ * @type {boolean}
+ */
+let isDarkModeEnabled = false;
 
 
 /**
- * Minimum total padding to give to the left and right of the most visited
- * section. Used to determine how many tiles to show.
- * @type {number}
- * @const
+ * Returns a timeout that can be executed early.
+ * @param {!Function} timeout The timeout function.
+ * @param {number} delay The timeout delay.
+ * @param {Object} previousContainer The pre-existing notification container.
+ * @return {Object}
  */
-var MIN_TOTAL_HORIZONTAL_PADDING = 200;
+function createExecutableTimeout(timeout, delay, previousContainer) {
+  let timeoutId = window.setTimeout(timeout, delay);
+  return {
+    previousContainer: previousContainer,
+    clear: () => {
+      window.clearTimeout(timeoutId);
+    },
+    trigger: () => {
+      window.clearTimeout(timeoutId);
+      return timeout();
+    }
+  };
+}
+
+
+/**
+ * Returns theme background info, first checking for history.state.notheme. If
+ * the page has notheme set, returns a fallback light-colored theme (or dark-
+ * colored theme if dark mode is enabled). This is used when the doodle is
+ * displayed after clicking the notifier.
+ */
+function getThemeBackgroundInfo() {
+  if (history.state && history.state.notheme) {
+    return {
+      alternateLogo: false,
+      backgroundColorRgba:
+          (isDarkModeEnabled ? [50, 54, 57, 255] : [255, 255, 255, 255]),
+      colorRgba: [255, 255, 255, 255],
+      headerColorRgba: [150, 150, 150, 255],
+      linkColorRgba: [6, 55, 116, 255],
+      sectionBorderColorRgba: [150, 150, 150, 255],
+      textColorLightRgba: [102, 102, 102, 255],
+      textColorRgba: [0, 0, 0, 255],
+      usingDarkMode: isDarkModeEnabled,
+      usingDefaultTheme: true,
+    };
+  }
+  return ntpApiHandle.themeBackgroundInfo;
+}
 
 
 /**
  * Heuristic to determine whether a theme should be considered to be dark, so
  * the colors of various UI elements can be adjusted.
+ *
+ * The user theme/custom background will always take precedence over dark mode
+ * when considering darkness. Therefore, dark mode should only be checked if
+ * this is the default NTP. Dark mode is considered a dark theme if enabled.
+ *
  * @param {ThemeBackgroundInfo|undefined} info Theme background information.
  * @return {boolean} Whether the theme is dark.
  * @private
  */
-function getIsThemeDark(info) {
-  if (!info)
-    return false;
+function getIsThemeDark() {
+  var info = getThemeBackgroundInfo();
+  // Only check for dark mode if this is the default NTP (i.e. no theme or
+  // custom background set).
+  if (!info || info.usingDefaultTheme && !info.customBackgroundConfigured) {
+    // Dark mode is always considered a dark theme.
+    return isDarkModeEnabled;
+  }
+
   // Heuristic: light text implies dark theme.
   var rgba = info.textColorRgba;
   var luminance = 0.3 * rgba[0] + 0.59 * rgba[1] + 0.11 * rgba[2];
   return luminance >= 128;
 }
 
-
 /**
  * Updates the NTP based on the current theme.
  * @private
  */
 function renderTheme() {
-  var info = ntpApiHandle.themeBackgroundInfo;
-  var isThemeDark = getIsThemeDark(info);
-  $(IDS.NTP_CONTENTS).classList.toggle(CLASSES.DARK, isThemeDark);
+  $(IDS.NTP_CONTENTS).classList.toggle(CLASSES.DARK, getIsThemeDark());
+
+  var info = getThemeBackgroundInfo();
   if (!info) {
     return;
   }
 
-  var background = [convertToRGBAColor(info.backgroundColorRgba),
-                    info.imageUrl,
-                    info.imageTiling,
-                    info.imageHorizontalAlignment,
-                    info.imageVerticalAlignment].join(' ').trim();
+  const useDarkMode = !!info.usingDarkMode;
+  if (isDarkModeEnabled != useDarkMode) {
+    document.documentElement.setAttribute('darkmode', useDarkMode);
+    isDarkModeEnabled = useDarkMode;
+  }
 
-  document.body.style.background = background;
-  document.body.classList.toggle(CLASSES.ALTERNATE_LOGO, info.alternateLogo);
+  var background = [
+    convertToRGBAColor(info.backgroundColorRgba), info.imageUrl,
+    info.imageTiling, info.imageHorizontalAlignment, info.imageVerticalAlignment
+  ].join(' ').trim();
+
+  // If a custom background has been selected the image will be applied to the
+  // custom-background element instead of the body.
+  if (!info.customBackgroundConfigured) {
+    document.body.style.background = background;
+  }
+
+  // Dark mode uses a white Google logo.
+  const useWhiteLogo =
+      info.alternateLogo || (info.usingDefaultTheme && isDarkModeEnabled);
+  document.body.classList.toggle(CLASSES.ALTERNATE_LOGO, useWhiteLogo);
+  const isNonWhiteBackground = !WHITE_BACKGROUND_COLORS.includes(background);
+  document.body.classList.toggle(CLASSES.NON_WHITE_BG, isNonWhiteBackground);
+
+  // The doodle notifier should be shown for non-default backgrounds. This
+  // includes non-white backgrounds, excluding dark mode gray if dark mode is
+  // enabled.
+  const isDefaultBackground = WHITE_BACKGROUND_COLORS.includes(background) ||
+      (isDarkModeEnabled && background === DARK_MODE_BACKGROUND_COLOR);
+  document.body.classList.toggle(CLASSES.USE_NOTIFIER, !isDefaultBackground);
+
   updateThemeAttribution(info.attributionUrl, info.imageHorizontalAlignment);
   setCustomThemeStyle(info);
 
-  // Inform the most visited iframe of the new theme.
-  var themeinfo = {cmd: 'updateTheme'};
-  themeinfo.tileBorderColor = convertToRGBAColor(info.sectionBorderColorRgba);
-  themeinfo.tileHoverBorderColor = convertToRGBAColor(info.headerColorRgba);
-  themeinfo.isThemeDark = isThemeDark;
+  if (info.customBackgroundConfigured) {
+    var imageWithOverlay = [
+      customBackgrounds.CUSTOM_BACKGROUND_OVERLAY, 'url(' + info.imageUrl + ')'
+    ].join(',').trim();
+
+    if (imageWithOverlay != document.body.style.backgroundImage) {
+      customBackgrounds.closeCustomizationDialog();
+      customBackgrounds.clearAttribution();
+    }
+
+    // |image| and |imageWithOverlay| use the same url as their source. Waiting
+    // to display the custom background until |image| is fully loaded ensures
+    // that |imageWithOverlay| is also loaded.
+    $('custom-bg').style.backgroundImage = imageWithOverlay;
+    var image = new Image();
+    image.onload = function() {
+      $('custom-bg').style.opacity = '1';
+    };
+    image.src = info.imageUrl;
+
+    customBackgrounds.setAttribution(
+        info.attribution1, info.attribution2, info.attributionActionUrl);
+  } else {
+    $('custom-bg').style.opacity = '0';
+    window.setTimeout(function() {
+      $('custom-bg').style.backgroundImage = '';
+    }, 1000);
+    customBackgrounds.clearAttribution();
+  }
+
+  $(customBackgrounds.IDS.RESTORE_DEFAULT)
+      .classList.toggle(
+          customBackgrounds.CLASSES.OPTION_DISABLED,
+          !info.customBackgroundConfigured);
+  $(customBackgrounds.IDS.RESTORE_DEFAULT).tabIndex =
+      (info.customBackgroundConfigured ? 0 : -1);
+
+  if (configData.isGooglePage) {
+    // Hide the settings menu or individual options if the related features are
+    // disabled.
+    customBackgrounds.setMenuVisibility();
+  }
+}
+
+/**
+ * Sends the current theme info to the most visited iframe.
+ * @private
+ */
+function sendThemeInfoToMostVisitedIframe() {
+  var info = getThemeBackgroundInfo();
+  if (!info) {
+    return;
+  }
+
+  var isThemeDark = getIsThemeDark();
+
+  var message = {cmd: 'updateTheme'};
+  message.isThemeDark = isThemeDark;
+  message.isUsingTheme = !info.usingDefaultTheme;
+  message.isDarkMode = !!info.usingDarkMode;
 
   var titleColor = NTP_DESIGN.titleColor;
   if (!info.usingDefaultTheme && info.textColorRgba) {
@@ -210,9 +455,32 @@ function renderTheme() {
   } else if (isThemeDark) {
     titleColor = NTP_DESIGN.titleColorAgainstDark;
   }
-  themeinfo.tileTitleColor = convertToRGBAColor(titleColor);
+  message.tileTitleColor = convertToRGBAColor(titleColor);
 
-  $(IDS.TILES_IFRAME).contentWindow.postMessage(themeinfo, '*');
+  $(IDS.TILES_IFRAME).contentWindow.postMessage(message, '*');
+}
+
+
+/**
+ * Updates the OneGoogleBar (if it is loaded) based on the current theme.
+ * TODO(crbug.com/918582): Add support for OGB dark mode.
+ * @private
+ */
+function renderOneGoogleBarTheme() {
+  if (!window.gbar) {
+    return;
+  }
+  try {
+    var oneGoogleBarApi = window.gbar.a;
+    var oneGoogleBarPromise = oneGoogleBarApi.bf();
+    oneGoogleBarPromise.then(function(oneGoogleBar) {
+      var isThemeDark = getIsThemeDark();
+      var setForegroundStyle = oneGoogleBar.pc.bind(oneGoogleBar);
+      setForegroundStyle(isThemeDark ? 1 : 0);
+    });
+  } catch (err) {
+    console.log('Failed setting OneGoogleBar theme:\n' + err);
+  }
 }
 
 
@@ -221,7 +489,18 @@ function renderTheme() {
  * @private
  */
 function onThemeChange() {
+  // Save the current dark mode state to check if dark mode has changed.
+  const usingDarkMode = isDarkModeEnabled;
+
   renderTheme();
+  renderOneGoogleBarTheme();
+  sendThemeInfoToMostVisitedIframe();
+
+  // If dark mode has been changed, refresh the MV tiles to render the
+  // appropriate icon.
+  if (usingDarkMode != isDarkModeEnabled) {
+    reloadTiles();
+  }
 }
 
 
@@ -231,40 +510,24 @@ function onThemeChange() {
  * @private
  */
 function setCustomThemeStyle(themeInfo) {
-  var customStyleElement = $(IDS.CUSTOM_THEME_STYLE);
-  var head = document.head;
+  var textColor = null;
+  var textColorLight = null;
+  var mvxFilter = null;
   if (!themeInfo.usingDefaultTheme) {
-    $(IDS.NTP_CONTENTS).classList.remove(CLASSES.DEFAULT_THEME);
-    var themeStyle =
-      '#attribution {' +
-      '  color: ' + convertToRGBAColor(themeInfo.textColorLightRgba) + ';' +
-      '}' +
-      '#mv-msg {' +
-      '  color: ' + convertToRGBAColor(themeInfo.textColorRgba) + ';' +
-      '}' +
-      '#mv-notice-links span {' +
-      '  color: ' + convertToRGBAColor(themeInfo.textColorLightRgba) + ';' +
-      '}' +
-      '#mv-notice-x {' +
-      '  -webkit-filter: drop-shadow(0 0 0 ' +
-          convertToRGBAColor(themeInfo.textColorRgba) + ');' +
-      '}';
-
-    if (customStyleElement) {
-      customStyleElement.textContent = themeStyle;
-    } else {
-      customStyleElement = document.createElement('style');
-      customStyleElement.type = 'text/css';
-      customStyleElement.id = IDS.CUSTOM_THEME_STYLE;
-      customStyleElement.textContent = themeStyle;
-      head.appendChild(customStyleElement);
-    }
-
-  } else {
-    $(IDS.NTP_CONTENTS).classList.add(CLASSES.DEFAULT_THEME);
-    if (customStyleElement)
-      head.removeChild(customStyleElement);
+    textColor = convertToRGBAColor(themeInfo.textColorRgba);
+    textColorLight = convertToRGBAColor(themeInfo.textColorLightRgba);
+    mvxFilter = 'drop-shadow(0 0 0 ' + textColor + ')';
   }
+
+  $(IDS.NTP_CONTENTS)
+      .classList.toggle(CLASSES.DEFAULT_THEME, themeInfo.usingDefaultTheme);
+
+  document.body.style.setProperty('--text-color', textColor);
+  document.body.style.setProperty('--text-color-light', textColorLight);
+  // Themes reuse the "light" text color for links too.
+  document.body.style.setProperty('--text-color-link', textColorLight);
+  $(IDS.NOTIFICATION_CLOSE_BUTTON)
+      .style.setProperty('--theme-filter', mvxFilter);
 }
 
 
@@ -333,36 +596,206 @@ function onMostVisitedChange() {
  * them to the iframe.
  */
 function reloadTiles() {
+  // Don't attempt to load tiles if the MV data isn't available yet - this can
+  // happen occasionally, see https://crbug.com/794942. In that case, we should
+  // get an onMostVisitedChange call once they are available.
+  // Note that MV data being available is different from having > 0 tiles. There
+  // can legitimately be 0 tiles, e.g. if the user blacklisted them all.
+  if (!ntpApiHandle.mostVisitedAvailable) {
+    return;
+  }
+
   var pages = ntpApiHandle.mostVisited;
   var cmds = [];
-  for (var i = 0; i < Math.min(MAX_NUM_TILES_TO_SHOW, pages.length); ++i) {
-    cmds.push({cmd: 'tile', rid: pages[i].rid});
+  let maxNumTiles = configData.isGooglePage ? MAX_NUM_TILES_CUSTOM_LINKS :
+                                              MAX_NUM_TILES_MOST_VISITED;
+  for (var i = 0; i < Math.min(maxNumTiles, pages.length); ++i) {
+    cmds.push({cmd: 'tile', rid: pages[i].rid, darkMode: isDarkModeEnabled});
   }
-  cmds.push({cmd: 'show', maxVisible: numColumnsShown * NUM_ROWS});
+  cmds.push({cmd: 'show'});
 
   $(IDS.TILES_IFRAME).contentWindow.postMessage(cmds, '*');
 }
 
 
 /**
- * Shows the blacklist notification and triggers a delay to hide it.
+ * Callback for embeddedSearch.newTabPage.onaddcustomlinkdone. Called when the
+ * custom link was successfully added. Shows the "Shortcut added" notification.
+ * @param {boolean} success True if the link was successfully added.
  */
-function showNotification() {
-  var notification = $(IDS.NOTIFICATION);
-  notification.classList.remove(CLASSES.HIDE_NOTIFICATION);
-  notification.classList.remove(CLASSES.DELAYED_HIDE_NOTIFICATION);
-  notification.scrollTop;
-  notification.classList.add(CLASSES.DELAYED_HIDE_NOTIFICATION);
+function onAddCustomLinkDone(success) {
+  if (success) {
+    showNotification(configData.translatedStrings.linkAddedMsg);
+  } else {
+    showErrorNotification(configData.translatedStrings.linkCantCreate);
+  }
+  ntpApiHandle.logEvent(LOG_TYPE.NTP_CUSTOMIZE_SHORTCUT_DONE);
 }
 
 
 /**
- * Hides the blacklist notification.
+ * Callback for embeddedSearch.newTabPage.onupdatecustomlinkdone. Called when
+ * the custom link was successfully updated. Shows the "Shortcut edited"
+ * notification.
+ * @param {boolean} success True if the link was successfully updated.
+ */
+function onUpdateCustomLinkDone(success) {
+  if (success) {
+    showNotification(configData.translatedStrings.linkEditedMsg);
+  } else {
+    showErrorNotification(configData.translatedStrings.linkCantEdit);
+  }
+}
+
+
+/**
+ * Callback for embeddedSearch.newTabPage.ondeletecustomlinkdone. Called when
+ * the custom link was successfully deleted. Shows the "Shortcut deleted"
+ * notification.
+ * @param {boolean} success True if the link was successfully deleted.
+ */
+function onDeleteCustomLinkDone(success) {
+  if (success) {
+    showNotification(configData.translatedStrings.linkRemovedMsg);
+  } else {
+    showErrorNotification(configData.translatedStrings.linkCantRemove);
+  }
+}
+
+
+/**
+ * Shows the Most Visited pop-up notification and triggers a delay to hide it.
+ * The message will be set to |msg|.
+ * @param {string} msg The notification message.
+ */
+function showNotification(msg) {
+  $(IDS.NOTIFICATION_MESSAGE).textContent = msg;
+
+  if (configData.isGooglePage) {
+    floatUpNotification($(IDS.NOTIFICATION), $(IDS.NOTIFICATION_CONTAINER));
+  } else {
+    var notification = $(IDS.NOTIFICATION);
+    notification.classList.remove(CLASSES.HIDE_NOTIFICATION);
+    notification.classList.remove(CLASSES.DELAYED_HIDE_NOTIFICATION);
+    notification.scrollTop;
+    notification.classList.add(CLASSES.DELAYED_HIDE_NOTIFICATION);
+  }
+
+  $(IDS.UNDO_LINK).focus();
+}
+
+
+/**
+ * Hides the Most Visited pop-up notification.
  */
 function hideNotification() {
-  var notification = $(IDS.NOTIFICATION);
-  notification.classList.add(CLASSES.HIDE_NOTIFICATION);
-  notification.classList.remove(CLASSES.DELAYED_HIDE_NOTIFICATION);
+  if (configData.isGooglePage) {
+    floatDownNotification($(IDS.NOTIFICATION), $(IDS.NOTIFICATION_CONTAINER));
+  } else {
+    var notification = $(IDS.NOTIFICATION);
+    notification.classList.add(CLASSES.HIDE_NOTIFICATION);
+    notification.classList.remove(CLASSES.DELAYED_HIDE_NOTIFICATION);
+  }
+}
+
+
+/**
+ * Shows the error pop-up notification and triggers a delay to hide it. The
+ * message will be set to |msg|. If |linkName| and |linkOnClick| are present,
+ * shows an error link with text set to |linkName| and onclick handled by
+ * |linkOnClick|.
+ * @param {string} msg The notification message.
+ * @param {?string} linkName The error link text.
+ * @param {?Function} linkOnClick The error link onclick handler.
+ */
+function showErrorNotification(msg, linkName, linkOnClick) {
+  let notification = $(IDS.ERROR_NOTIFICATION);
+  $(IDS.ERROR_NOTIFICATION_MSG).textContent = msg;
+  if (linkName && linkOnClick) {
+    let notificationLink = $(IDS.ERROR_NOTIFICATION_LINK);
+    notificationLink.textContent = linkName;
+    notificationLink.onclick = linkOnClick;
+    notification.classList.add(CLASSES.HAS_LINK);
+  } else {
+    notification.classList.remove(CLASSES.HAS_LINK);
+  }
+  floatUpNotification(notification, $(IDS.ERROR_NOTIFICATION_CONTAINER));
+}
+
+
+/**
+ * Animates the specified notification to float up. Automatically hides any
+ * pre-existing notification and sets a delayed timer to hide the new
+ * notification.
+ * @param {!Element} notification The notification element.
+ * @param {!Element} notificationContainer The notification container element.
+ */
+function floatUpNotification(notification, notificationContainer) {
+  // Show middle-slot promo if one is present.
+  if ($(IDS.PROMO) !== null) {
+    $(IDS.PROMO).classList.add(CLASSES.HIDE_NOTIFICATION);
+  }
+
+  // Hide pre-existing notification if it was different type. Clear timeout and
+  // replace it with the new timeout and new message if it was the same type.
+  if (delayedHideNotification) {
+    if (delayedHideNotification.previousContainer === notificationContainer) {
+      delayedHideNotification.clear();
+    } else {
+      delayedHideNotification.trigger();
+    }
+    delayedHideNotification = null;
+  }
+
+  notification.classList.remove(CLASSES.HIDE_NOTIFICATION);
+  // Timeout is required for the "float up" transition to work. Modifying the
+  // "display" property prevents transitions from activating.
+  window.setTimeout(() => {
+    notificationContainer.classList.add(CLASSES.FLOAT_UP);
+  }, 20);
+
+  // Automatically hide the notification after a period of time.
+  delayedHideNotification = createExecutableTimeout(() => {
+    floatDownNotification(notification, notificationContainer);
+  }, NOTIFICATION_TIMEOUT, notificationContainer);
+}
+
+
+/**
+ * Animates the pop-up notification to float down, and clears the timeout to
+ * hide the notification.
+ * @param {!Element} notification The notification element.
+ * @param {!Element} notificationContainer The notification container element.
+ */
+function floatDownNotification(notification, notificationContainer) {
+  if (!notificationContainer.classList.contains(CLASSES.FLOAT_UP)) {
+    return;
+  }
+
+  // Hide middle-slot promo if one is present.
+  if ($(IDS.PROMO) !== null) {
+    $(IDS.PROMO).classList.remove(CLASSES.HIDE_NOTIFICATION);
+  }
+
+  // Clear the timeout to hide the notification.
+  if (delayedHideNotification) {
+    delayedHideNotification.clear();
+    delayedHideNotification = null;
+  }
+
+  // Reset notification visibility once the animation is complete.
+  notificationContainer.classList.remove(CLASSES.FLOAT_UP);
+  let afterHide = (event) => {
+    if (event.propertyName === 'bottom') {
+      notification.classList.add(CLASSES.HIDE_NOTIFICATION);
+      notification.classList.remove(CLASSES.HAS_LINK);
+      notificationContainer.removeEventListener('transitionend', afterHide);
+    }
+    // Blur the hidden items.
+    $(IDS.UNDO_LINK).blur();
+    $(IDS.RESTORE_ALL_LINK).blur();
+  };
+  notificationContainer.addEventListener('transitionend', afterHide);
 }
 
 
@@ -372,7 +805,11 @@ function hideNotification() {
  */
 function onUndo() {
   hideNotification();
-  if (lastBlacklistedTile != null) {
+  // Focus on the omnibox after the notification is hidden.
+  window.chrome.embeddedSearch.searchBox.startCapturingKeyStrokes();
+  if (configData.isGooglePage) {
+    ntpApiHandle.undoCustomLinkAction();
+  } else if (lastBlacklistedTile != null) {
     ntpApiHandle.undoMostVisitedDeletion(lastBlacklistedTile);
   }
 }
@@ -384,53 +821,12 @@ function onUndo() {
  */
 function onRestoreAll() {
   hideNotification();
-  ntpApiHandle.undoAllMostVisitedDeletions();
-}
-
-
-/**
- * Recomputes the number of tile columns, and width of various contents based
- * on the width of the window.
- * @return {boolean} Whether the number of tile columns has changed.
- */
-function updateContentWidth() {
-  var tileRequiredWidth = NTP_DESIGN.tileWidth + NTP_DESIGN.tileMargin;
-  // If innerWidth is zero, then use the maximum snap size.
-  var maxSnapSize = MAX_NUM_COLUMNS * tileRequiredWidth -
-      NTP_DESIGN.tileMargin + MIN_TOTAL_HORIZONTAL_PADDING;
-  var innerWidth = window.innerWidth || maxSnapSize;
-  // Each tile has left and right margins that sum to NTP_DESIGN.tileMargin.
-  var availableWidth = innerWidth + NTP_DESIGN.tileMargin -
-      MIN_TOTAL_HORIZONTAL_PADDING;
-  var newNumColumns = Math.floor(availableWidth / tileRequiredWidth);
-  newNumColumns =
-      Math.max(MIN_NUM_COLUMNS, Math.min(newNumColumns, MAX_NUM_COLUMNS));
-
-  if (numColumnsShown === newNumColumns)
-    return false;
-
-  numColumnsShown = newNumColumns;
-  // We add an extra pixel because rounding errors on different zooms can
-  // make the width shorter than it should be.
-  var tilesContainerWidth = Math.ceil(numColumnsShown * tileRequiredWidth) + 1;
-  $(IDS.TILES).style.width = tilesContainerWidth + 'px';
-  // -2 to account for border.
-  var fakeboxWidth = (tilesContainerWidth - NTP_DESIGN.tileMargin - 2);
-  $(IDS.FAKEBOX).style.width = fakeboxWidth + 'px';
-  return true;
-}
-
-
-/**
- * Resizes elements because the number of tile columns may need to change in
- * response to resizing. Also shows or hides extra tiles tiles according to the
- * new width of the page.
- */
-function onResize() {
-  if (updateContentWidth()) {
-    // If the number of tile columns changes, inform the iframe.
-    $(IDS.TILES_IFRAME).contentWindow.postMessage(
-        {cmd: 'tilesVisible', maxVisible: numColumnsShown * NUM_ROWS}, '*');
+  // Focus on the omnibox after the notification is hidden.
+  window.chrome.embeddedSearch.searchBox.startCapturingKeyStrokes();
+  if (configData.isGooglePage) {
+    ntpApiHandle.resetCustomLinks();
+  } else {
+    ntpApiHandle.undoAllMostVisitedDeletions();
   }
 }
 
@@ -443,7 +839,7 @@ function onInputStart() {
   if (isFakeboxFocused()) {
     setFakeboxFocus(false);
     setFakeboxDragFocus(false);
-    setFakeboxAndLogoVisibility(false);
+    setFakeboxVisibility(false);
   }
 }
 
@@ -453,7 +849,7 @@ function onInputStart() {
  * (re-enables the fakebox and unhides the logo.)
  */
 function onInputCancel() {
-  setFakeboxAndLogoVisibility(true);
+  setFakeboxVisibility(true);
 }
 
 
@@ -485,15 +881,16 @@ function isFakeboxFocused() {
  * @return {boolean} True if the click occurred in an enabled fakebox.
  */
 function isFakeboxClick(event) {
-  return $(IDS.FAKEBOX).contains(event.target);
+  return $(IDS.FAKEBOX).contains(event.target) &&
+      !$(IDS.FAKEBOX_MICROPHONE).contains(event.target);
 }
 
 
 /**
  * @param {boolean} show True to show the fakebox and logo.
  */
-function setFakeboxAndLogoVisibility(show) {
-  document.body.classList.toggle(CLASSES.HIDE_FAKEBOX_AND_LOGO, !show);
+function setFakeboxVisibility(show) {
+  document.body.classList.toggle(CLASSES.HIDE_FAKEBOX, !show);
 }
 
 
@@ -504,38 +901,128 @@ function setFakeboxAndLogoVisibility(show) {
  */
 function registerKeyHandler(element, keycode, handler) {
   element.addEventListener('keydown', function(event) {
-    if (event.keyCode == keycode)
+    if (event.keyCode == keycode) {
       handler(event);
+    }
   });
 }
 
 
 /**
- * Event handler for the focus changed and blacklist messages on link elements.
- * Used to toggle visual treatment on the tiles (depending on the message).
+ * Event handler for messages from the most visited and edit custom link iframe.
  * @param {Event} event Event received.
  */
 function handlePostMessage(event) {
   var cmd = event.data.cmd;
   var args = event.data;
-  if (cmd == 'tileBlacklisted') {
-    showNotification();
+  if (cmd === 'loaded') {
+    tilesAreLoaded = true;
+    if (configData.isGooglePage) {
+      // Show search suggestions if they were previously hidden.
+      if ($(IDS.SUGGESTIONS)) {
+        $(IDS.SUGGESTIONS).style.visibility = 'visible';
+      }
+      if (!$('one-google-loader')) {
+        // Load the OneGoogleBar script. It'll create a global variable name
+        // "og" which is a dict corresponding to the native OneGoogleBarData
+        // type. We do this only after all the tiles have loaded, to avoid
+        // slowing down the main page load.
+        var ogScript = document.createElement('script');
+        ogScript.id = 'one-google-loader';
+        ogScript.src = 'chrome-search://local-ntp/one-google.js';
+        document.body.appendChild(ogScript);
+        ogScript.onload = function() {
+          injectOneGoogleBar(og);
+        };
+      }
+      if (!$('promo-loader')) {
+        var promoScript = document.createElement('script');
+        promoScript.id = 'promo-loader';
+        promoScript.src = 'chrome-search://local-ntp/promo.js';
+        document.body.appendChild(promoScript);
+        promoScript.onload = function() {
+          injectPromo(promo);
+        };
+      }
+      $(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT)
+          .classList.toggle(
+              customBackgrounds.CLASSES.OPTION_DISABLED,
+              !args.showRestoreDefault);
+      $(customBackgrounds.IDS.CUSTOM_LINKS_RESTORE_DEFAULT).tabIndex =
+          (args.showRestoreDefault ? 0 : -1);
+    }
+  } else if (cmd === 'tileBlacklisted') {
+    if (configData.isGooglePage) {
+      showNotification(configData.translatedStrings.linkRemovedMsg);
+    } else {
+      showNotification(
+          configData.translatedStrings.thumbnailRemovedNotification);
+    }
     lastBlacklistedTile = args.tid;
 
     ntpApiHandle.deleteMostVisitedItem(args.tid);
+  } else if (cmd === 'resizeDoodle') {
+    doodles.resizeDoodleHandler(args);
+  } else if (cmd === 'startEditLink') {
+    $(IDS.CUSTOM_LINKS_EDIT_IFRAME)
+        .contentWindow.postMessage({cmd: 'linkData', tid: args.tid}, '*');
+    // Small delay to allow the dialog to finish setting up before displaying.
+    window.setTimeout(function() {
+      $(IDS.CUSTOM_LINKS_EDIT_IFRAME_DIALOG).showModal();
+    }, 10);
+  } else if (cmd === 'closeDialog') {
+    $(IDS.CUSTOM_LINKS_EDIT_IFRAME_DIALOG).close();
+  } else if (cmd === 'focusMenu') {
+    // Focus the edited tile's menu or the add shortcut tile after closing the
+    // custom link edit dialog without saving.
+    $(IDS.TILES_IFRAME)
+        .contentWindow.postMessage({cmd: 'focusMenu', tid: args.tid}, '*');
   }
-  // TODO(treib): Should we also handle the 'loaded' message from the iframe
-  // here? We could hide the page until it arrives, to avoid flicker.
 }
 
+function showSearchSuggestions() {
+  // Inject search suggestions as early as possible to avoid shifting of other
+  // elements.
+  if (!$('search-suggestions-loader')) {
+    var ssScript = document.createElement('script');
+    ssScript.id = 'search-suggestions-loader';
+    ssScript.src = 'chrome-search://local-ntp/search-suggestions.js';
+    ssScript.async = false;
+    document.body.appendChild(ssScript);
+    ssScript.onload = function() {
+      injectSearchSuggestions(search_suggestions);
+    };
+  }
+}
+
+
+/**
+ * Enables Material Design styles for the Most Visited section. Implicitly
+ * enables Material Design for the rest of NTP.
+ */
+function enableMDIcons() {
+  $(IDS.MOST_VISITED).classList.add(CLASSES.MATERIAL_DESIGN_ICONS);
+  $(IDS.TILES).classList.add(CLASSES.MATERIAL_DESIGN_ICONS);
+  animations.addRippleAnimations();
+}
 
 /**
  * Prepares the New Tab Page by adding listeners, the most visited pages
  * section, and Google-specific elements for a Google-provided page.
  */
 function init() {
+  // If an accessibility tool is in use, increase the time for which the
+  // "tile was blacklisted" notification is shown.
+  if (configData.isAccessibleBrowser) {
+    document.body.style.setProperty('--mv-notice-time', '30s');
+  }
+
   // Hide notifications after fade out, so we can't focus on links via keyboard.
-  $(IDS.NOTIFICATION).addEventListener('transitionend', hideNotification);
+  $(IDS.NOTIFICATION).addEventListener('transitionend', (event) => {
+    if (event.properyName === 'opacity') {
+      hideNotification();
+    }
+  });
 
   $(IDS.NOTIFICATION_MESSAGE).textContent =
       configData.translatedStrings.thumbnailRemovedNotification;
@@ -543,21 +1030,22 @@ function init() {
   var undoLink = $(IDS.UNDO_LINK);
   undoLink.addEventListener('click', onUndo);
   registerKeyHandler(undoLink, KEYCODE.ENTER, onUndo);
+  registerKeyHandler(undoLink, KEYCODE.SPACE, onUndo);
   undoLink.textContent = configData.translatedStrings.undoThumbnailRemove;
 
   var restoreAllLink = $(IDS.RESTORE_ALL_LINK);
   restoreAllLink.addEventListener('click', onRestoreAll);
   registerKeyHandler(restoreAllLink, KEYCODE.ENTER, onRestoreAll);
+  registerKeyHandler(restoreAllLink, KEYCODE.SPACE, onRestoreAll);
   restoreAllLink.textContent =
-      configData.translatedStrings.restoreThumbnailsShort;
+      (configData.isGooglePage ?
+           configData.translatedStrings.restoreDefaultLinks :
+           configData.translatedStrings.restoreThumbnailsShort);
 
   $(IDS.ATTRIBUTION_TEXT).textContent =
       configData.translatedStrings.attributionIntro;
 
   $(IDS.NOTIFICATION_CLOSE_BUTTON).addEventListener('click', hideNotification);
-
-  window.addEventListener('resize', onResize);
-  updateContentWidth();
 
   var embeddedSearchApiHandle = window.chrome.embeddedSearch;
 
@@ -565,9 +1053,27 @@ function init() {
   ntpApiHandle.onthemechange = onThemeChange;
   ntpApiHandle.onmostvisitedchange = onMostVisitedChange;
 
+  renderTheme();
+
   var searchboxApiHandle = embeddedSearchApiHandle.searchBox;
 
   if (configData.isGooglePage) {
+    showSearchSuggestions();
+    enableMDIcons();
+
+    ntpApiHandle.onaddcustomlinkdone = onAddCustomLinkDone;
+    ntpApiHandle.onupdatecustomlinkdone = onUpdateCustomLinkDone;
+    ntpApiHandle.ondeletecustomlinkdone = onDeleteCustomLinkDone;
+
+    customBackgrounds.init(showErrorNotification, hideNotification);
+
+    if (configData.alternateFakebox) {
+      document.body.classList.add(CLASSES.ALTERNATE_FAKEBOX);
+    }
+    if (configData.fakeboxSearchIcon) {
+      document.body.classList.add(CLASSES.SHOW_FAKEBOX_ICON);
+    }
+
     // Set up the fakebox (which only exists on the Google NTP).
     ntpApiHandle.oninputstart = onInputStart;
     ntpApiHandle.oninputcancel = onInputCancel;
@@ -579,12 +1085,19 @@ function init() {
     $(IDS.FAKEBOX_TEXT).textContent =
         configData.translatedStrings.searchboxPlaceholder;
 
+    if (!iframesAndVoiceSearchDisabledForTesting) {
+      speech.init(
+          configData.googleBaseUrl, configData.translatedStrings,
+          $(IDS.FAKEBOX_MICROPHONE), searchboxApiHandle);
+    }
+
     // Listener for updating the key capture state.
     document.body.onmousedown = function(event) {
-      if (isFakeboxClick(event))
+      if (isFakeboxClick(event)) {
         searchboxApiHandle.startCapturingKeyStrokes();
-      else if (isFakeboxFocused())
+      } else if (isFakeboxFocused()) {
         searchboxApiHandle.stopCapturingKeyStrokes();
+      }
     };
     searchboxApiHandle.onkeycapturechange = function() {
       setFakeboxFocus(searchboxApiHandle.isKeyCaptureEnabled);
@@ -594,8 +1107,9 @@ function init() {
       event.preventDefault();
       // Send pasted text to Omnibox.
       var text = event.clipboardData.getData('text/plain');
-      if (text)
+      if (text) {
         searchboxApiHandle.paste(text);
+      }
     };
     inputbox.ondrop = function(event) {
       event.preventDefault();
@@ -611,20 +1125,18 @@ function init() {
     inputbox.ondragleave = function() {
       setFakeboxDragFocus(false);
     };
+    utils.disableOutlineOnMouseClick($(IDS.FAKEBOX_MICROPHONE));
 
     // Update the fakebox style to match the current key capturing state.
     setFakeboxFocus(searchboxApiHandle.isKeyCaptureEnabled);
+    // Also tell the browser that we're capturing, otherwise it's possible that
+    // both fakebox and Omnibox have visible focus at the same time, see
+    // crbug.com/792850.
+    if (searchboxApiHandle.isKeyCaptureEnabled) {
+      searchboxApiHandle.startCapturingKeyStrokes();
+    }
 
-    // Inject the OneGoogleBar loader script. It'll create a global variable
-    // named "og" with the following fields:
-    //  .html - the main bar HTML.
-    //  .end_of_body_html - HTML to be inserted at the end of the body.
-    var ogScript = document.createElement('script');
-    ogScript.src = 'chrome-search://local-ntp/one-google.js';
-    document.body.appendChild(ogScript);
-    ogScript.onload = function() {
-      injectOneGoogleBar(og.html, og.end_of_body_html);
-    };
+    doodles.init();
   } else {
     document.body.classList.add(CLASSES.NON_GOOGLE_PAGE);
   }
@@ -637,28 +1149,115 @@ function init() {
     document.documentElement.classList.add(CLASSES.RTL);
   }
 
+  if (!iframesAndVoiceSearchDisabledForTesting) {
+    createIframes();
+  }
+
+  document.body.classList.add(CLASSES.INITED);
+}
+
+
+/**
+ * Create the Most Visited and edit custom links iframes.
+ */
+function createIframes() {
   // Collect arguments for the most visited iframe.
   var args = [];
 
-  if (searchboxApiHandle.rtl)
-    args.push('rtl=1');
-  if (NTP_DESIGN.numTitleLines > 1)
-    args.push('ntl=' + NTP_DESIGN.numTitleLines);
+  var searchboxApiHandle = window.chrome.embeddedSearch.searchBox;
 
+  if (searchboxApiHandle.rtl) {
+    args.push('rtl=1');
+  }
+  if (NTP_DESIGN.numTitleLines > 1) {
+    args.push('ntl=' + NTP_DESIGN.numTitleLines);
+  }
+
+  args.push(
+      'title=' +
+      encodeURIComponent(configData.translatedStrings.mostVisitedTitle));
   args.push('removeTooltip=' +
       encodeURIComponent(configData.translatedStrings.removeThumbnailTooltip));
+
+  if (isDarkModeEnabled) {
+    args.push('enableDarkMode=1');
+  }
+
+  if (configData.isGooglePage) {
+    args.push('enableCustomLinks=1');
+    args.push(
+        'addLink=' +
+        encodeURIComponent(configData.translatedStrings.addLinkTitle));
+    args.push(
+        'addLinkTooltip=' +
+        encodeURIComponent(configData.translatedStrings.addLinkTooltip));
+    args.push(
+        'editLinkTooltip=' +
+        encodeURIComponent(configData.translatedStrings.editLinkTooltip));
+  }
 
   // Create the most visited iframe.
   var iframe = document.createElement('iframe');
   iframe.id = IDS.TILES_IFRAME;
-  iframe.tabIndex = 1;
+  iframe.name = IDS.TILES_IFRAME;
+  iframe.title = configData.translatedStrings.mostVisitedTitle;
   iframe.src = 'chrome-search://most-visited/single.html?' + args.join('&');
   $(IDS.TILES).appendChild(iframe);
 
   iframe.onload = function() {
     reloadTiles();
-    renderTheme();
+    sendThemeInfoToMostVisitedIframe();
   };
+
+  if (configData.isGooglePage) {
+    // Collect arguments for the edit custom link iframe.
+    let clArgs = [];
+
+    if (searchboxApiHandle.rtl) {
+      clArgs.push('rtl=1');
+    }
+
+    if (isDarkModeEnabled) {
+      clArgs.push('enableDarkMode=1');
+    }
+
+    clArgs.push(
+        'addTitle=' +
+        encodeURIComponent(configData.translatedStrings.addLinkTitle));
+    clArgs.push(
+        'editTitle=' +
+        encodeURIComponent(configData.translatedStrings.editLinkTitle));
+    clArgs.push(
+        'nameField=' +
+        encodeURIComponent(configData.translatedStrings.nameField));
+    clArgs.push(
+        'urlField=' +
+        encodeURIComponent(configData.translatedStrings.urlField));
+    clArgs.push(
+        'linkRemove=' +
+        encodeURIComponent(configData.translatedStrings.linkRemove));
+    clArgs.push(
+        'linkCancel=' +
+        encodeURIComponent(configData.translatedStrings.linkCancel));
+    clArgs.push(
+        'linkDone=' +
+        encodeURIComponent(configData.translatedStrings.linkDone));
+    clArgs.push(
+        'invalidUrl=' +
+        encodeURIComponent(configData.translatedStrings.invalidUrl));
+
+    // Create the edit custom link iframe.
+    let clIframe = document.createElement('iframe');
+    clIframe.id = IDS.CUSTOM_LINKS_EDIT_IFRAME;
+    clIframe.name = IDS.CUSTOM_LINKS_EDIT_IFRAME;
+    clIframe.title = configData.translatedStrings.editLinkTitle;
+    clIframe.src = 'chrome-search://most-visited/edit.html?' + clArgs.join('&');
+    let clIframeDialog = document.createElement('dialog');
+    clIframeDialog.id = IDS.CUSTOM_LINKS_EDIT_IFRAME_DIALOG;
+    clIframeDialog.classList.add(CLASSES.CUSTOMIZE_DIALOG);
+    clIframeDialog.appendChild(clIframe);
+    document.body.appendChild(clIframeDialog);
+  }
 
   window.addEventListener('message', handlePostMessage);
 }
@@ -673,46 +1272,91 @@ function listen() {
 
 
 /**
+ * Injects a middle-slot promo into the page. Called asynchronously, so that it
+ * doesn't block the main page load.
+ */
+function injectPromo(promo) {
+  if (promo.promoHtml == '') {
+    return;
+  }
+
+  let promoContainer = document.createElement('div');
+  promoContainer.id = IDS.PROMO;
+  promoContainer.innerHTML += promo.promoHtml;
+  $(IDS.NTP_CONTENTS).appendChild(promoContainer);
+
+  if (promo.promoLogUrl) {
+    navigator.sendBeacon(promo.promoLogUrl);
+  }
+}
+
+
+/**
+ * Injects search suggestions into the page. Called *synchronously* with cached
+ * data as not to cause shifting of the most visited tiles.
+ */
+function injectSearchSuggestions(suggestions) {
+  if (suggestions.suggestionsHtml === '') {
+    return;
+  }
+
+  let suggestionsContainer = document.createElement('div');
+  suggestionsContainer.id = IDS.SUGGESTIONS;
+  suggestionsContainer.style.visibility = 'hidden';
+  suggestionsContainer.innerHTML += suggestions.suggestionsHtml;
+  // TODO(crbug/944624): Revert after experiment is complete.
+  $('user-content-wrapper')
+      .insertAdjacentElement('afterbegin', suggestionsContainer);
+
+  let endOfBodyScript = document.createElement('script');
+  endOfBodyScript.type = 'text/javascript';
+  endOfBodyScript.appendChild(
+      document.createTextNode(suggestions.suggestionsEndOfBodyScript));
+  document.body.appendChild(endOfBodyScript);
+}
+
+
+/**
  * Injects the One Google Bar into the page. Called asynchronously, so that it
  * doesn't block the main page load.
  */
-function injectOneGoogleBar(barHtml, endOfBodyHtml) {
-  var inHeadStyle = document.createElement('link');
-  inHeadStyle.rel = "stylesheet";
-  inHeadStyle.href = 'chrome-search://local-ntp/one-google/in-head.css';
+function injectOneGoogleBar(ogb) {
+  var inHeadStyle = document.createElement('style');
+  inHeadStyle.type = 'text/css';
+  inHeadStyle.appendChild(document.createTextNode(ogb.inHeadStyle));
   document.head.appendChild(inHeadStyle);
 
-  inHeadStyle.onload = function() {
-    var inHeadScript = document.createElement('script');
-    inHeadScript.src = 'chrome-search://local-ntp/one-google/in-head.js';
-    document.head.appendChild(inHeadScript);
+  var inHeadScript = document.createElement('script');
+  inHeadScript.type = 'text/javascript';
+  inHeadScript.appendChild(document.createTextNode(ogb.inHeadScript));
+  document.head.appendChild(inHeadScript);
 
-    inHeadScript.onload = function() {
-      var ogElem = $('one-google');
-      ogElem.innerHTML = barHtml;
-      ogElem.classList.remove('hidden');
+  renderOneGoogleBarTheme();
 
-      var afterBarScript = document.createElement('script');
-      afterBarScript.src =
-          'chrome-search://local-ntp/one-google/after-bar.js';
-      ogElem.parentNode.insertBefore(afterBarScript, ogElem.nextSibling);
+  var ogElem = $('one-google');
+  ogElem.innerHTML = ogb.barHtml;
+  ogElem.classList.remove('hidden');
 
-      afterBarScript.onload = function() {
-        $('one-google-end-of-body').innerHTML = endOfBodyHtml;
+  var afterBarScript = document.createElement('script');
+  afterBarScript.type = 'text/javascript';
+  afterBarScript.appendChild(document.createTextNode(ogb.afterBarScript));
+  ogElem.parentNode.insertBefore(afterBarScript, ogElem.nextSibling);
 
-        var endOfBodyScript = document.createElement('script');
-        endOfBodyScript.src =
-            'chrome-search://local-ntp/one-google/end-of-body.js';
-        document.body.appendChild(endOfBodyScript);
-      };
-    };
-  };
+  $('one-google-end-of-body').innerHTML = ogb.endOfBodyHtml;
+
+  var endOfBodyScript = document.createElement('script');
+  endOfBodyScript.type = 'text/javascript';
+  endOfBodyScript.appendChild(document.createTextNode(ogb.endOfBodyScript));
+  document.body.appendChild(endOfBodyScript);
+
+  ntpApiHandle.logEvent(LOG_TYPE.NTP_ONE_GOOGLE_BAR_SHOWN);
 }
 
 
 return {
   init: init,  // Exposed for testing.
-  listen: listen
+  listen: listen,
+  disableIframesAndVoiceSearchForTesting: disableIframesAndVoiceSearchForTesting
 };
 
 }

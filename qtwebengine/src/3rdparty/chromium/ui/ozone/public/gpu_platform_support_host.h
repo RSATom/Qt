@@ -5,10 +5,13 @@
 #ifndef UI_OZONE_PUBLIC_GPU_PLATFORM_SUPPORT_HOST_H_
 #define UI_OZONE_PUBLIC_GPU_PLATFORM_SUPPORT_HOST_H_
 
+#include <string>
+
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
+#include "mojo/public/cpp/bindings/binding.h"
 #include "ui/ozone/ozone_base_export.h"
 
 namespace ui {
@@ -22,10 +25,16 @@ namespace ui {
 // Under X11, we don't need any GPU messages for display configuration.
 // That's why there's no real functionality here: it's purely mechanism
 // to support additional messages needed by specific platforms.
-class OZONE_BASE_EXPORT GpuPlatformSupportHost : public IPC::Listener {
+class OZONE_BASE_EXPORT GpuPlatformSupportHost {
  public:
+  using GpuHostBindInterfaceCallback =
+      base::RepeatingCallback<void(const std::string&,
+                                   mojo::ScopedMessagePipeHandle)>;
+  using GpuHostTerminateCallback =
+      base::OnceCallback<void(const std::string& message)>;
+
   GpuPlatformSupportHost();
-  ~GpuPlatformSupportHost() override;
+  virtual ~GpuPlatformSupportHost();
 
   // Called when the GPU process is spun up.
   // This is called from browser IO thread.
@@ -38,6 +47,18 @@ class OZONE_BASE_EXPORT GpuPlatformSupportHost : public IPC::Listener {
   // Called when the GPU process is destroyed.
   // This is called from browser UI thread.
   virtual void OnChannelDestroyed(int host_id) = 0;
+
+  // Called to handle an IPC message. Note that this can be called from any
+  // thread.
+  virtual void OnMessageReceived(const IPC::Message& message) = 0;
+
+  // Called when the GPU service is launched.
+  // Called from the browser IO thread.
+  virtual void OnGpuServiceLaunched(
+      scoped_refptr<base::SingleThreadTaskRunner> host_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> io_runner,
+      GpuHostBindInterfaceCallback binder,
+      GpuHostTerminateCallback terminate_callback) = 0;
 };
 
 // create a stub implementation.

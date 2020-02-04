@@ -56,7 +56,7 @@ QT_BEGIN_NAMESPACE
     QBluetoothLocalDevice provides functions for getting and setting the state of local Bluetooth
     devices.
 
-    On iOS, this class cannot be used because the platform does not expose
+    On iOS and Windows, this class cannot be used because the platform does not expose
     any data or API which may provide information on the local Bluetooth device.
 */
 
@@ -270,12 +270,17 @@ bool QBluetoothLocalDevice::isValid() const
 */
 
 /*!
-  \fn QBluetoothLocalDevice::pairingConfirmation(bool accept)
+  \fn QBluetoothLocalDevice::pairingConfirmation(bool confirmation)
 
-  To be called after getting a pairingDisplayConfirmation().  The \a accept parameter either
+  To be called after getting a pairingDisplayConfirmation(). The \a confirmation parameter either
   accepts the pairing or rejects it.
 
   Accepting a pairing always refers to the last pairing request issued via \l requestPairing().
+
+  \note This function requires BLUETOOTH_PRIVILEGED permission on Android which is generally not
+  obtainable for 3rdparty. Android's default handler for pairing requests will do this on behalf
+  of the user and the application can ignore this call. Nevertheless the proper Android calls are made
+  in case the application does have the required permissions.
 */
 
 /*!
@@ -321,6 +326,6 @@ bool QBluetoothLocalDevice::isValid() const
   the resulting local device selects the local default device.
 */
 
-#include "moc_qbluetoothlocaldevice.cpp"
-
 QT_END_NAMESPACE
+
+#include "moc_qbluetoothlocaldevice.cpp"

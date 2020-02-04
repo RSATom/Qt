@@ -13,6 +13,7 @@
 namespace v8 {
 namespace internal {
 
+class BytecodeArray;
 class SourcePositionTableBuilder;
 
 namespace interpreter {
@@ -21,6 +22,10 @@ class BytecodeLabel;
 class BytecodeNode;
 class BytecodeJumpTable;
 class ConstantArrayBuilder;
+
+namespace bytecode_array_writer_unittest {
+class BytecodeArrayWriterUnittest;
+}  // namespace bytecode_array_writer_unittest
 
 // Class for emitting bytecode as the final stage of the bytecode
 // generation pipeline.
@@ -38,7 +43,9 @@ class V8_EXPORT_PRIVATE BytecodeArrayWriter final {
   void BindJumpTableEntry(BytecodeJumpTable* jump_table, int case_value);
   Handle<BytecodeArray> ToBytecodeArray(Isolate* isolate, int register_count,
                                         int parameter_count,
-                                        Handle<FixedArray> handler_table);
+                                        Handle<ByteArray> handler_table);
+
+  bool RemainderOfBlockIsDead() const { return exit_seen_in_block_; }
 
  private:
   // Maximum sized packed bytecode is comprised of a prefix bytecode,
@@ -92,7 +99,7 @@ class V8_EXPORT_PRIVATE BytecodeArrayWriter final {
 
   bool exit_seen_in_block_;
 
-  friend class BytecodeArrayWriterUnittest;
+  friend class bytecode_array_writer_unittest::BytecodeArrayWriterUnittest;
   DISALLOW_COPY_AND_ASSIGN(BytecodeArrayWriter);
 };
 

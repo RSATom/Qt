@@ -6,19 +6,28 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_EMBEDDER_IN_PROCESS_GPU_MEMORY_BUFFER_MANAGER_H_
 
 #include "base/memory/weak_ptr.h"
+#include "components/viz/service/viz_service_export.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
+#include "gpu/ipc/common/gpu_memory_buffer_support.h"
 
 namespace gpu {
-class GpuChannelManager;
+class GpuMemoryBufferFactory;
+class SyncPointManager;
 }
 
 namespace viz {
 
-class InProcessGpuMemoryBufferManager : public gpu::GpuMemoryBufferManager {
+// GpuMemoryBufferManager implementation usable from any thread in the GPU
+// process. Must be created and destroyed on the same thread.
+class VIZ_SERVICE_EXPORT InProcessGpuMemoryBufferManager
+    : public gpu::GpuMemoryBufferManager {
  public:
-  explicit InProcessGpuMemoryBufferManager(
-      gpu::GpuChannelManager* channel_manager);
-
+  // |gpu_memory_buffer_factory| and |sync_point_manager| must outlive |this|.
+  InProcessGpuMemoryBufferManager(
+      gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
+      gpu::SyncPointManager* sync_point_manager);
+  // Note: Any GpuMemoryBuffers that haven't been destroyed yet will be leaked
+  // until the GpuMemoryBufferFactory is destroyed.
   ~InProcessGpuMemoryBufferManager() override;
 
   // gpu::GpuMemoryBufferManager:
@@ -31,14 +40,22 @@ class InProcessGpuMemoryBufferManager : public gpu::GpuMemoryBufferManager {
                                const gpu::SyncToken& sync_token) override;
 
  private:
-  void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
-                              int client_id,
-                              const gpu::SyncToken& sync_token);
+  // Provided as callback when a GpuMemoryBuffer should be destroyed.
+  void ShouldDestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
+                                    const gpu::SyncToken& sync_token);
+  void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id);
+
+  gpu::GpuMemoryBufferSupport gpu_memory_buffer_support_;
   const int client_id_;
   int next_gpu_memory_id_ = 1;
-  gpu::GpuChannelManager* channel_manager_;
+
+  gpu::GpuMemoryBufferFactory* const gpu_memory_buffer_factory_;
+  gpu::SyncPointManager* const sync_point_manager_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   base::WeakPtr<InProcessGpuMemoryBufferManager> weak_ptr_;
-  base::WeakPtrFactory<InProcessGpuMemoryBufferManager> weak_factory_;
+
+  base::WeakPtrFactory<InProcessGpuMemoryBufferManager> weak_ptr_factory_;
+
   DISALLOW_COPY_AND_ASSIGN(InProcessGpuMemoryBufferManager);
 };
 

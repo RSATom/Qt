@@ -55,6 +55,8 @@ private slots:
 
     void touchDrag();
     void touchesThenPinch();
+    void unloadHandlerWithPassiveGrab();
+    void dragHandlerInParentStealingGrabFromItem();
 
 private:
     void createView(QScopedPointer<QQuickView> &window, const char *fileName);
@@ -72,7 +74,7 @@ void tst_MptaInterop::createView(QScopedPointer<QQuickView> &window, const char 
 
     window->show();
     QVERIFY(QTest::qWaitForWindowActive(window.data()));
-    QVERIFY(window->rootObject() != 0);
+    QVERIFY(window->rootObject() != nullptr);
 }
 
 void tst_MptaInterop::initTestCase()
@@ -105,12 +107,12 @@ void tst_MptaInterop::touchDrag()
     // Press one touchpoint:
     // DragHandler gets a passive grab
     // PinchHandler declines, because it wants 3 touchpoints
-    // MPTA doesn't get a chance, because DragHandler accepted the single EventPoint
+    // MPTA grabs because DragHandler doesn't accept the single EventPoint
     QPoint p1 = mpta->mapToScene(QPointF(20, 20)).toPoint();
     touch.press(1, p1).commit();
     QQuickTouchUtils::flush(window);
     auto pointerEvent = QQuickWindowPrivate::get(window)->pointerEventInstance(touchPointerDevice);
-    QCOMPARE(tp.at(0)->property("pressed").toBool(), false);
+    QCOMPARE(tp.at(0)->property("pressed").toBool(), true);
     QTRY_VERIFY(pointerEvent->point(0)->passiveGrabbers().contains(drag));
 
     // Start moving
@@ -161,7 +163,7 @@ void tst_MptaInterop::touchesThenPinch()
     QPoint p1 = mpta->mapToScene(QPointF(20, 20)).toPoint();
     touch.press(1, p1).commit();
     QQuickTouchUtils::flush(window);
-    QTRY_COMPARE(pointerEvent->point(0)->exclusiveGrabber(), nullptr);
+    QTRY_COMPARE(pointerEvent->point(0)->exclusiveGrabber(), mpta);
     QTRY_COMPARE(pointerEvent->point(0)->passiveGrabbers().first(), drag);
 
     // Press a second touchpoint: MPTA grabs it
@@ -170,56 +172,50 @@ void tst_MptaInterop::touchesThenPinch()
     QQuickTouchUtils::flush(window);
     QVERIFY(tp.at(0)->property("pressed").toBool());
     QTRY_VERIFY(tp.at(1)->property("pressed").toBool());
-    QCOMPARE(mptaPressedSpy.count(), 1);
+    QCOMPARE(mptaPressedSpy.count(), 2);
 
-    // ATM it's required that when PinchHandler sees the third touchpoint,
-    // the pre-existing points must have moved far enough to exceed the drag threshold.
-    // If MPTA is allowed to grab that third point, then PinchHandler won't steal.
-    // TODO should we change that?  make sure that if PH has a passive grab, it always gets updated even though MPTA has the grab?
-    for (int i = 0; i < 2; ++i) {
-        p1 += QPoint(dragThreshold, dragThreshold);
-        p2 += QPoint(dragThreshold, dragThreshold);
-        touch.move(1, p1).move(2, p2).commit();
-    }
-
-    // Press a third touchpoint: PinchHandler grabs, MPTA loses its grabs
+    // Press a third touchpoint: MPTA grabs it too
     QPoint p3 = mpta->mapToScene(QPointF(110, 200)).toPoint();
     touch.stationary(1).stationary(2).press(3, p3).commit();
     QQuickTouchUtils::flush(window);
-    QCOMPARE(tp.at(0)->property("pressed").toBool(), false);
-    QCOMPARE(tp.at(1)->property("pressed").toBool(), false);
-    QCOMPARE(tp.at(2)->property("pressed").toBool(), false);
-    QCOMPARE(mptaPressedSpy.count(), 1);
-    QCOMPARE(mptaCanceledSpy.count(), 1);
-    QTRY_COMPARE(pointerEvent->point(0)->exclusiveGrabber(), pinch);
-    QTRY_COMPARE(pointerEvent->point(1)->exclusiveGrabber(), pinch);
-    QTRY_COMPARE(pointerEvent->point(2)->exclusiveGrabber(), pinch);
-    QVERIFY(pinch->active());
+    QCOMPARE(tp.at(0)->property("pressed").toBool(), true);
+    QCOMPARE(tp.at(1)->property("pressed").toBool(), true);
+    QCOMPARE(tp.at(2)->property("pressed").toBool(), true);
+    QCOMPARE(mptaPressedSpy.count(), 3);
+    QCOMPARE(mptaCanceledSpy.count(), 0);
+    QCOMPARE(pointerEvent->point(0)->exclusiveGrabber(), mpta);
+    QCOMPARE(pointerEvent->point(1)->exclusiveGrabber(), mpta);
+    QCOMPARE(pointerEvent->point(2)->exclusiveGrabber(), mpta);
+    QVERIFY(!pinch->active());
 
     // Start moving: PinchHandler steals the exclusive grab from MPTA as soon as dragThreshold is exceeded
     int pinchStoleGrab = 0;
-    for (int i = 0; i < 8; ++i) {
-        p1 += QPoint(dragThreshold / 2, dragThreshold / 2);
-        p2 += QPoint(dragThreshold / 2, dragThreshold / 2);
-        p3 += QPoint(-dragThreshold / 2, dragThreshold / 2);
+
+    const QPointF c = (p1 + p2 + p3)/3;     // centroid of p1,p2,p3
+    QTransform xform;   // transform to rotate around the centroid
+    xform.translate(c.x(), c.y()).rotate(1).translate(-c.x(), -c.y());
+
+    for (int i = 0; i < 16; ++i) {
+        p1 = xform.map(p1);
+        p2 = xform.map(p2);
+        p3 = xform.map(p3);
         touch.move(1, p1).move(2, p2).move(3, p3).commit();
         QQuickTouchUtils::flush(window);
-        QTRY_COMPARE(tp.at(0)->property("pressed").toBool(), false);
-        QCOMPARE(tp.at(1)->property("pressed").toBool(), false);
-        QCOMPARE(tp.at(2)->property("pressed").toBool(), false);
-        if (!pinchStoleGrab && pointerEvent->point(0)->exclusiveGrabber() == pinch)
+        if (!pinchStoleGrab && pointerEvent->point(0)->exclusiveGrabber() == pinch) {
             pinchStoleGrab = i;
+            QCOMPARE(tp.at(0)->property("pressed").toBool(), false);
+            QCOMPARE(tp.at(1)->property("pressed").toBool(), false);
+            QCOMPARE(tp.at(2)->property("pressed").toBool(), false);
+        }
     }
-    qCDebug(lcPointerTests) << "pinch started after" << pinchStoleGrab << "moves; ended with scale" << pinch->scale() << "rot" << pinch->rotation();
-    QTRY_VERIFY(pinch->rotation() > 8);
-    QVERIFY(pinch->scale() > 1);
+    qCDebug(lcPointerTests) << "pinch started after" << pinchStoleGrab << "moves; ended with scale" << pinch->activeScale() << "rot" << pinch->rotation();
+    QTRY_VERIFY(pinch->rotation() > 4);
+    QVERIFY(pinch->activeScale() > 1);
 
     // Press one more point (pinkie finger)
     QPoint p4 = mpta->mapToScene(QPointF(300, 200)).toPoint();
     touch.move(1, p1).move(2, p2).move(3, p3).press(4, p4).commit();
-    // PinchHandler gives up its grabs (only on non-stationary points at this time: see QQuickPointerHandler::handlePointerEvent())
-    // because it has minimum touch points 3, maximum touch points 3, and now there are 4 points.
-    // MPTA grabs all points which are not already grabbed
+    // PinchHandler deactivates, which lets MPTA grab all the points
     QTRY_COMPARE(pointerEvent->point(0)->exclusiveGrabber(), mpta);
     QCOMPARE(pointerEvent->point(1)->exclusiveGrabber(), mpta);
     QCOMPARE(pointerEvent->point(2)->exclusiveGrabber(), mpta);
@@ -269,17 +265,83 @@ void tst_MptaInterop::touchesThenPinch()
 
     // Release another finger
     touch.stationary(2).release(3, p3).commit();
-    // Move some more: DragHandler reacts.
-    // It had a passive grab this whole time; now it activates and gets an exclusive grab.
+    // Move some more: DragHandler eventually reacts.
+    int dragTookGrab = 0;
     for (int i = 0; i < 8; ++i) {
         p2 += QPoint(8, -8);
         touch.move(2, p2).commit();
-        QTRY_COMPARE(pointerEvent->point(0)->exclusiveGrabber(), drag);
+        QQuickTouchUtils::flush(window);
+        QVERIFY(pointerEvent->point(0)->passiveGrabbers().contains(drag));
+        if (!dragTookGrab && pointerEvent->point(0)->exclusiveGrabber() == drag)
+            dragTookGrab = i;
     }
+    qCDebug(lcPointerTests) << "drag started after" << dragTookGrab << "moves; ended with translation" << drag->translation();
+    QCOMPARE(pointerEvent->point(0)->exclusiveGrabber(), drag);
+    QTRY_VERIFY(drag->translation().x() > 0);
 
     touch.release(2, p2).commit();
     QQuickTouchUtils::flush(window);
     QTRY_COMPARE(mptaReleasedSpy.count(), 1);
+}
+
+void tst_MptaInterop::unloadHandlerWithPassiveGrab()
+{
+    QScopedPointer<QQuickView> windowPtr;
+    createView(windowPtr, "unloadHandlerOnPress.qml");
+    QQuickView * window = windowPtr.data();
+
+    QPointer<QQuickPointerHandler> handler = window->rootObject()->findChild<QQuickPointerHandler*>();
+    QVERIFY(handler);
+    QQuickMultiPointTouchArea *mpta = window->rootObject()->findChild<QQuickMultiPointTouchArea*>();
+    QVERIFY(mpta);
+
+    QPoint point(90, 90);
+    QTest::mousePress(window, Qt::LeftButton, 0, point);
+    QCOMPARE(window->mouseGrabberItem(), mpta);
+    QTRY_VERIFY(handler.isNull()); // it got unloaded
+    QTest::mouseRelease(window, Qt::LeftButton, 0, point); // QTBUG-73819: don't crash
+}
+
+void tst_MptaInterop::dragHandlerInParentStealingGrabFromItem() // QTBUG-75025
+{
+    const int dragThreshold = QGuiApplication::styleHints()->startDragDistance();
+    QScopedPointer<QQuickView> windowPtr;
+    createView(windowPtr, "dragParentOfMPTA.qml");
+    QQuickView * window = windowPtr.data();
+    auto pointerEvent = QQuickWindowPrivate::get(window)->pointerEventInstance(QQuickPointerDevice::genericMouseDevice());
+
+    QPointer<QQuickPointerHandler> handler = window->rootObject()->findChild<QQuickPointerHandler*>();
+    QVERIFY(handler);
+    QQuickMultiPointTouchArea *mpta = window->rootObject()->findChild<QQuickMultiPointTouchArea*>();
+    QVERIFY(mpta);
+
+    // In QTBUG-75025 there is a QQ Controls Button; the MPTA here stands in for that,
+    // simply as an Item that grabs the mouse.  The bug has nothing to do with MPTA specifically.
+
+    QPoint point(20, 20);
+    QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, point);
+    QCOMPARE(window->mouseGrabberItem(), mpta);
+    QCOMPARE(window->rootObject()->property("touchpointPressed").toBool(), true);
+
+    // Start dragging
+    // DragHandler keeps monitoring, due to its passive grab,
+    // and eventually steals the exclusive grab from MPTA
+    int dragStoleGrab = 0;
+    for (int i = 0; i < 4; ++i) {
+        point += QPoint(dragThreshold / 2, 0);
+        QTest::mouseMove(window, point);
+        if (!dragStoleGrab && pointerEvent->point(0)->exclusiveGrabber() == handler)
+            dragStoleGrab = i;
+    }
+    if (dragStoleGrab)
+        qCDebug(lcPointerTests, "DragHandler stole the grab after %d events", dragStoleGrab);
+    QVERIFY(dragStoleGrab > 1);
+    QCOMPARE(handler->active(), true);
+    QCOMPARE(window->rootObject()->property("touchpointPressed").toBool(), false);
+
+    QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, point);
+    QCOMPARE(handler->active(), false);
+    QCOMPARE(window->rootObject()->property("touchpointPressed").toBool(), false);
 }
 
 QTEST_MAIN(tst_MptaInterop)

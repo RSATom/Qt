@@ -4,9 +4,10 @@
 
 ANDROID_WHITELISTED_LICENSES = [
   'A(pple )?PSL 2(\.0)?',
+  'Android Software Development Kit License',
   'Apache( Version)? 2(\.0)?',
   '(New )?([23]-Clause )?BSD( [23]-Clause)?( with advertising clause)?',
-  'L?GPL ?v?2(\.[01])?( or later)?',
+  'L?GPL ?v?2(\.[01])?( or later)?( with the classpath exception)?',
   'MIT(/X11)?(-like)?',
   'MPL 1\.1 ?/ ?GPL 2(\.0)? ?/ ?LGPL 2\.1',
   'MPL 2(\.0)?',
@@ -17,6 +18,7 @@ ANDROID_WHITELISTED_LICENSES = [
   'SGI Free Software License B',
   'University of Illinois\/NCSA Open Source',
   'X11',
+  'Zlib',
 ]
 
 def LicenseIsCompatibleWithAndroid(input_api, license):
@@ -46,9 +48,17 @@ def _CheckThirdPartyReadmesUpdated(input_api, output_api):
         not local_path.startswith('third_party' + input_api.os_path.sep +
                                   'WebKit' + input_api.os_path.sep) and
         not local_path.startswith('third_party' + input_api.os_path.sep +
+                                  'blink' + input_api.os_path.sep) and
+        not local_path.startswith('third_party' + input_api.os_path.sep +
                                   'mojo' + input_api.os_path.sep) and
         not local_path.startswith('third_party' + input_api.os_path.sep +
-                                  'boringssl' + input_api.os_path.sep)):
+                                  'boringssl' + input_api.os_path.sep) and
+        not local_path.startswith('third_party' + input_api.os_path.sep +
+                                  'closure_compiler' + input_api.os_path.sep +
+                                  'externs' + input_api.os_path.sep) and
+        not local_path.startswith('third_party' + input_api.os_path.sep +
+                                  'closure_compiler' + input_api.os_path.sep +
+                                  'interfaces' + input_api.os_path.sep)):
       files.append(f)
       if local_path.endswith("README.chromium"):
         readmes.append(f)

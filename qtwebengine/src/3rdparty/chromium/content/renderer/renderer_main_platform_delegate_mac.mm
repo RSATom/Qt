@@ -10,41 +10,38 @@
 #include <stdint.h>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
-#include "content/common/sandbox_init_mac.h"
-#include "content/common/sandbox_mac.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/sandbox_init.h"
 #include "sandbox/mac/seatbelt.h"
+#include "sandbox/mac/system_services.h"
+#include "services/service_manager/sandbox/mac/sandbox_mac.h"
 
 extern "C" {
-void CGSSetDenyWindowServerConnections(bool);
-void CGSShutdownServerConnections();
-OSStatus SetApplicationIsDaemon(Boolean isDaemon);
+CGError CGSSetDenyWindowServerConnections(bool);
 };
 
 namespace content {
 
 namespace {
 
-// This disconnects from the window server, and then indicates that Chrome
-// should continue execution without access to launchservicesd.
-void DisconnectWindowServer() {
-  // Now disconnect from WindowServer, after all objects have been warmed up.
-  // Shutting down the connection requires connecting to WindowServer,
-  // so do this before actually engaging the sandbox. This may cause two log
-  // messages to be printed to the system logger on certain OS versions.
-  CGSSetDenyWindowServerConnections(true);
-  CGSShutdownServerConnections();
-  // Allow the process to continue without a LaunchServices ASN. The
-  // INIT_Process function in HIServices will abort if it cannot connect to
-  // launchservicesd to get an ASN. By setting this flag, HIServices skips
-  // that.
-  SetApplicationIsDaemon(true);
+// This tells Core Graphics not to attempt to connect to the WindowServer (and
+// verifies there are no existing open connections), and then indicates that
+// Chrome should continue execution without access to launchservicesd.
+void DisableSystemServices() {
+  // Tell the WindowServer that we don't want to make any future connections.
+  // This will return Success as long as there are no open connections, which
+  // is what we want.
+  CGError result = CGSSetDenyWindowServerConnections(true);
+  CHECK_EQ(result, kCGErrorSuccess);
+
+  sandbox::DisableLaunchServices();
 }
 
 // You are about to read a pretty disgusting hack. In a static initializer,
@@ -95,15 +92,9 @@ void DisconnectCFNotificationCenter() {
     // Convert the string to an address.
     std::string port_address_std_string =
         base::SysCFStringRefToUTF8(port_address_string);
-#if __LP64__
     uint64_t port_address = 0;
     if (!base::HexStringToUInt64(port_address_std_string, &port_address))
       continue;
-#else
-    uint32_t port_address = 0;
-    if (!base::HexStringToUInt(port_address_std_string, &port_address))
-      continue;
-#endif
 
     // Cast the address to an object.
     CFMachPortRef mach_port = reinterpret_cast<CFMachPortRef>(port_address);
@@ -154,12 +145,12 @@ void RendererMainPlatformDelegate::PlatformUninitialize() {
 bool RendererMainPlatformDelegate::EnableSandbox() {
   bool sandbox_initialized = sandbox::Seatbelt::IsSandboxed();
 
-  // If the sandbox is already engaged, just disconnect from the window server.
+  // If the sandbox is already engaged, just disable system services.
   if (sandbox_initialized) {
-    DisconnectWindowServer();
+    DisableSystemServices();
   } else {
-    sandbox_initialized = InitializeSandboxWithPostWarmupHook(
-        base::BindOnce(&DisconnectWindowServer));
+    sandbox_initialized =
+        InitializeSandbox(base::BindOnce(&DisableSystemServices));
   }
 
   // The sandbox is now engaged. Make sure that the renderer has not connected

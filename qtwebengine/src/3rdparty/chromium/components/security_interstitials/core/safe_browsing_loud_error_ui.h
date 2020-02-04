@@ -36,7 +36,7 @@ class SafeBrowsingLoudErrorUI
 
   // Implement BaseSafeBrowsingErrorUI.
   void PopulateStringsForHtml(base::DictionaryValue* load_time_data) override;
-  void HandleCommand(SecurityInterstitialCommands command) override;
+  void HandleCommand(SecurityInterstitialCommand command) override;
 
   int GetHTMLTemplateId() const override;
 
@@ -47,6 +47,7 @@ class SafeBrowsingLoudErrorUI
   void PopulateMalwareLoadTimeData(base::DictionaryValue* load_time_data);
   void PopulateHarmfulLoadTimeData(base::DictionaryValue* load_time_data);
   void PopulatePhishingLoadTimeData(base::DictionaryValue* load_time_data);
+  void PopulateBillingLoadTimeData(base::DictionaryValue* load_time_data);
 
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingLoudErrorUI);
 };

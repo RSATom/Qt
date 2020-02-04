@@ -4,13 +4,14 @@
 
 #include "content/browser/appcache/appcache_url_loader_request.h"
 #include "content/public/common/resource_type.h"
+#include "net/url_request/redirect_util.h"
 #include "net/url_request/url_request.h"
 
 namespace content {
 
 // static
 std::unique_ptr<AppCacheURLLoaderRequest> AppCacheURLLoaderRequest::Create(
-    const ResourceRequest& request) {
+    const network::ResourceRequest& request) {
   return std::unique_ptr<AppCacheURLLoaderRequest>(
       new AppCacheURLLoaderRequest(request));
 }
@@ -25,8 +26,8 @@ const std::string& AppCacheURLLoaderRequest::GetMethod() const {
   return request_.method;
 }
 
-const GURL& AppCacheURLLoaderRequest::GetFirstPartyForCookies() const {
-  return request_.first_party_for_cookies;
+const GURL& AppCacheURLLoaderRequest::GetSiteForCookies() const {
+  return request_.site_for_cookies;
 }
 
 const GURL AppCacheURLLoaderRequest::GetReferrer() const {
@@ -34,8 +35,9 @@ const GURL AppCacheURLLoaderRequest::GetReferrer() const {
 }
 
 bool AppCacheURLLoaderRequest::IsSuccess() const {
-  int response_code = GetResponseCode();
-  return (response_code >= 200 && response_code <= 226);
+  if (response_.headers)
+    return true;
+  return false;
 }
 
 bool AppCacheURLLoaderRequest::IsCancelled() const {
@@ -54,10 +56,13 @@ int AppCacheURLLoaderRequest::GetResponseCode() const {
 
 std::string AppCacheURLLoaderRequest::GetResponseHeaderByName(
     const std::string& name) const {
-  return std::string();
+  std::string header;
+  if (response_.headers)
+    response_.headers->GetNormalizedHeader(name, &header);
+  return header;
 }
 
-ResourceRequest* AppCacheURLLoaderRequest::GetResourceRequest() {
+network::ResourceRequest* AppCacheURLLoaderRequest::GetResourceRequest() {
   return &request_;
 }
 
@@ -65,8 +70,27 @@ AppCacheURLLoaderRequest* AppCacheURLLoaderRequest::AsURLLoaderRequest() {
   return this;
 }
 
+base::WeakPtr<AppCacheURLLoaderRequest> AppCacheURLLoaderRequest::GetWeakPtr() {
+  return weak_factory_.GetWeakPtr();
+}
+
+void AppCacheURLLoaderRequest::UpdateWithRedirectInfo(
+    const net::RedirectInfo& redirect_info) {
+  bool not_used_clear_body;
+  net::RedirectUtil::UpdateHttpRequest(
+      request_.url, request_.method, redirect_info,
+      base::nullopt /* removed_request_headers */,
+      base::nullopt /* modified_request_headers */, &request_.headers,
+      &not_used_clear_body);
+  request_.url = redirect_info.new_url;
+  request_.method = redirect_info.new_method;
+  request_.referrer = GURL(redirect_info.new_referrer);
+  request_.referrer_policy = redirect_info.new_referrer_policy;
+  request_.site_for_cookies = redirect_info.new_site_for_cookies;
+}
+
 AppCacheURLLoaderRequest::AppCacheURLLoaderRequest(
-    const ResourceRequest& request)
-    : request_(request) {}
+    const network::ResourceRequest& request)
+    : request_(request), weak_factory_(this) {}
 
 }  // namespace content

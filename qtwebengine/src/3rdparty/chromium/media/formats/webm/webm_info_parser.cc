@@ -18,7 +18,7 @@ WebMInfoParser::WebMInfoParser()
       duration_(-1) {
 }
 
-WebMInfoParser::~WebMInfoParser() {}
+WebMInfoParser::~WebMInfoParser() = default;
 
 int WebMInfoParser::Parse(const uint8_t* buf, int size) {
   timecode_scale_ = -1;
@@ -48,6 +48,11 @@ bool WebMInfoParser::OnListEnd(int id) {
 bool WebMInfoParser::OnUInt(int id, int64_t val) {
   if (id != kWebMIdTimecodeScale)
     return true;
+
+  if (val <= 0) {
+    DVLOG(1) << "TimeCodeScale of " << val << " is invalid. Must be > 0.";
+    return false;
+  }
 
   if (timecode_scale_ != -1) {
     DVLOG(1) << "Multiple values for id " << std::hex << id << " specified";

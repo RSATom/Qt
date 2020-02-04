@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <memory>
 
+#include "base/debug/elf_reader_linux.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/format_macros.h"
@@ -15,9 +17,15 @@
 #include "build/build_config.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/os_metrics.h"
 
+// Symbol with virtual address of the start of ELF header of the current binary.
+extern char __ehdr_start;
+
 namespace memory_instrumentation {
 
 namespace {
+
+using mojom::VmRegion;
+using mojom::VmRegionPtr;
 
 const uint32_t kMaxLineSize = 4096;
 
@@ -27,7 +35,6 @@ base::ScopedFD OpenStatm(base::ProcessId pid) {
       (pid == base::kNullProcessId ? "self" : base::IntToString(pid)) +
       "/statm";
   base::ScopedFD fd = base::ScopedFD(open(name.c_str(), O_RDONLY));
-  DCHECK(fd.is_valid());
   return fd;
 }
 
@@ -53,8 +60,28 @@ std::unique_ptr<base::ProcessMetrics> CreateProcessMetrics(
   return base::ProcessMetrics::CreateProcessMetrics(pid);
 }
 
+struct ModuleData {
+  std::string path;
+  std::string build_id;
+};
+
+ModuleData GetMainModuleData() {
+  ModuleData module_data;
+  Dl_info dl_info;
+  if (dladdr(&__ehdr_start, &dl_info)) {
+    base::Optional<std::string> build_id =
+        base::debug::ReadElfBuildId(&__ehdr_start);
+    if (build_id) {
+      module_data.path = dl_info.dli_fname;
+      module_data.build_id = *build_id;
+    }
+  }
+  return module_data;
+}
+
 bool ParseSmapsHeader(const char* header_line,
-                      base::trace_event::ProcessMemoryMaps::VMRegion* region) {
+                      const ModuleData& main_module_data,
+                      VmRegion* region) {
   // e.g., "00400000-00421000 r-xp 00000000 fc:01 1234  /foo.so\n"
   bool res = true;  // Whether this region should be appended or skipped.
   uint64_t end_addr = 0;
@@ -63,8 +90,9 @@ bool ParseSmapsHeader(const char* header_line,
 
   if (sscanf(header_line, "%" SCNx64 "-%" SCNx64 " %4c %*s %*s %*s%4095[^\n]\n",
              &region->start_address, &end_addr, protection_flags,
-             mapped_file) != 4)
+             mapped_file) != 4) {
     return false;
+  }
 
   if (end_addr > region->start_address) {
     region->size_in_bytes = end_addr - region->start_address;
@@ -76,25 +104,33 @@ bool ParseSmapsHeader(const char* header_line,
 
   region->protection_flags = 0;
   if (protection_flags[0] == 'r') {
-    region->protection_flags |=
-        base::trace_event::ProcessMemoryMaps::VMRegion::kProtectionFlagsRead;
+    region->protection_flags |= VmRegion::kProtectionFlagsRead;
   }
   if (protection_flags[1] == 'w') {
-    region->protection_flags |=
-        base::trace_event::ProcessMemoryMaps::VMRegion::kProtectionFlagsWrite;
+    region->protection_flags |= VmRegion::kProtectionFlagsWrite;
   }
   if (protection_flags[2] == 'x') {
-    region->protection_flags |=
-        base::trace_event::ProcessMemoryMaps::VMRegion::kProtectionFlagsExec;
+    region->protection_flags |= VmRegion::kProtectionFlagsExec;
   }
   if (protection_flags[3] == 's') {
-    region->protection_flags |= base::trace_event::ProcessMemoryMaps::VMRegion::
-        kProtectionFlagsMayshare;
+    region->protection_flags |= VmRegion::kProtectionFlagsMayshare;
   }
 
   region->mapped_file = mapped_file;
   base::TrimWhitespaceASCII(region->mapped_file, base::TRIM_ALL,
                             &region->mapped_file);
+
+  // Build ID is needed to symbolize heap profiles, and is generated only on
+  // official builds. Build ID is only added for the current library (chrome)
+  // since it is racy to read other libraries which can be unmapped any time.
+#if defined(OFFICIAL_BUILD)
+  if (!region->mapped_file.empty() &&
+      base::StartsWith(main_module_data.path, region->mapped_file,
+                       base::CompareCase::SENSITIVE) &&
+      !main_module_data.build_id.empty()) {
+    region->module_debugid = main_module_data.build_id;
+  }
+#endif  // defined(OFFICIAL_BUILD)
 
   return res;
 }
@@ -105,9 +141,7 @@ uint64_t ReadCounterBytes(char* counter_line) {
   return res == 1 ? counter_value * 1024 : 0;
 }
 
-uint32_t ParseSmapsCounter(
-    char* counter_line,
-    base::trace_event::ProcessMemoryMaps::VMRegion* region) {
+uint32_t ParseSmapsCounter(char* counter_line, VmRegion* region) {
   // A smaps counter lines looks as follows: "RSS:  0 Kb\n"
   uint32_t res = 1;
   char counter_name[20];
@@ -135,7 +169,7 @@ uint32_t ParseSmapsCounter(
 }
 
 uint32_t ReadLinuxProcSmapsFile(FILE* smaps_file,
-                                base::trace_event::ProcessMemoryMaps* pmm) {
+                                std::vector<VmRegionPtr>* maps) {
   if (!smaps_file)
     return 0;
 
@@ -145,26 +179,26 @@ uint32_t ReadLinuxProcSmapsFile(FILE* smaps_file,
   const uint32_t kNumExpectedCountersPerRegion = 6;
   uint32_t counters_parsed_for_current_region = 0;
   uint32_t num_valid_regions = 0;
-  base::trace_event::ProcessMemoryMaps::VMRegion region;
   bool should_add_current_region = false;
+  VmRegion region;
+  ModuleData main_module_data = GetMainModuleData();
   for (;;) {
     line[0] = '\0';
     if (fgets(line, kMaxLineSize, smaps_file) == nullptr || !strlen(line))
       break;
     if (isxdigit(line[0]) && !isupper(line[0])) {
-      region = base::trace_event::ProcessMemoryMaps::VMRegion();
+      region = VmRegion();
       counters_parsed_for_current_region = 0;
-      should_add_current_region = ParseSmapsHeader(line, &region);
-    } else {
+      should_add_current_region =
+          ParseSmapsHeader(line, main_module_data, &region);
+    } else if (should_add_current_region) {
       counters_parsed_for_current_region += ParseSmapsCounter(line, &region);
       DCHECK_LE(counters_parsed_for_current_region,
                 kNumExpectedCountersPerRegion);
       if (counters_parsed_for_current_region == kNumExpectedCountersPerRegion) {
-        if (should_add_current_region) {
-          pmm->AddVMRegion(region);
-          ++num_valid_regions;
-          should_add_current_region = false;
-        }
+        maps->push_back(VmRegion::New(region));
+        ++num_valid_regions;
+        should_add_current_region = false;
       }
     }
   }
@@ -203,35 +237,32 @@ bool OSMetrics::FillOSMemoryDump(base::ProcessId pid,
   uint64_t rss_anon_bytes = (resident_pages - shared_pages) * page_size;
   uint64_t vm_swap_bytes = process_metrics->GetVmSwapBytes();
 
-  dump->platform_private_footprint.rss_anon_bytes = rss_anon_bytes;
-  dump->platform_private_footprint.vm_swap_bytes = vm_swap_bytes;
-  dump->resident_set_kb = process_metrics->GetWorkingSetSize() / 1024;
+  dump->platform_private_footprint->rss_anon_bytes = rss_anon_bytes;
+  dump->platform_private_footprint->vm_swap_bytes = vm_swap_bytes;
+  dump->resident_set_kb = process_metrics->GetResidentSetSize() / 1024;
 
   return true;
 }
 
 // static
-bool OSMetrics::FillProcessMemoryMaps(
-    base::ProcessId pid,
-    base::trace_event::ProcessMemoryDump* pmd) {
+std::vector<VmRegionPtr> OSMetrics::GetProcessMemoryMaps(base::ProcessId pid) {
+  std::vector<VmRegionPtr> maps;
   uint32_t res = 0;
   if (g_proc_smaps_for_testing) {
-    res =
-        ReadLinuxProcSmapsFile(g_proc_smaps_for_testing, pmd->process_mmaps());
+    res = ReadLinuxProcSmapsFile(g_proc_smaps_for_testing, &maps);
   } else {
     std::string file_name =
         "/proc/" +
         (pid == base::kNullProcessId ? "self" : base::IntToString(pid)) +
         "/smaps";
     base::ScopedFILE smaps_file(fopen(file_name.c_str(), "r"));
-    res = ReadLinuxProcSmapsFile(smaps_file.get(), pmd->process_mmaps());
+    res = ReadLinuxProcSmapsFile(smaps_file.get(), &maps);
   }
 
   if (!res)
-    return false;
+    return std::vector<VmRegionPtr>();
 
-  pmd->set_has_process_mmaps();
-  return true;
+  return maps;
 }
 
 }  // namespace memory_instrumentation

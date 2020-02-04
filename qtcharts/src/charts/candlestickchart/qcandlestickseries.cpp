@@ -46,7 +46,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 /*!
     \class QCandlestickSeries
     \since 5.8
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QCandlestickSeries class presents data as candlesticks.
 
     This class acts as a container for single candlestick items. Each item is drawn to its own category
@@ -553,7 +553,7 @@ bool QCandlestickSeries::remove(const QList<QCandlestickSet *> &sets)
         emit candlestickSetsRemoved(sets);
         emit countChanged();
         foreach (QCandlestickSet *set, sets)
-            set->deleteLater();
+            delete set;
     }
 
     return success;
@@ -630,7 +630,7 @@ void QCandlestickSeries::clear()
         emit candlestickSetsRemoved(sets);
         emit countChanged();
         foreach (QCandlestickSet *set, sets)
-            set->deleteLater();
+            delete set;
     }
 }
 
@@ -931,6 +931,7 @@ QCandlestickSeriesPrivate::QCandlestickSeriesPrivate(QCandlestickSeries *q)
 QCandlestickSeriesPrivate::~QCandlestickSeriesPrivate()
 {
     disconnect(this, 0, 0, 0);
+    qDeleteAll(m_sets);
 }
 
 void QCandlestickSeriesPrivate::initializeDomain()
@@ -1154,7 +1155,7 @@ void QCandlestickSeriesPrivate::populateBarCategories(QBarCategoryAxis *axis)
     }
 }
 
+QT_CHARTS_END_NAMESPACE
+
 #include "moc_qcandlestickseries.cpp"
 #include "moc_qcandlestickseries_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

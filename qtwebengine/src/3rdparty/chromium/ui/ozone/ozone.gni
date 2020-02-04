@@ -6,6 +6,10 @@ import("//build/config/chromecast_build.gni")
 import("//build/config/ui.gni")
 
 declare_args() {
+  # Ozone extra platforms file path. Can be overridden to build out of
+  # tree ozone platforms.
+  ozone_extra_path = "//ui/ozone/ozone_extra.gni"
+
   # Select platforms automatically. Turn this off for manual control.
   ozone_auto_platforms = use_ozone
 }
@@ -24,11 +28,22 @@ declare_args() {
   # Compile the 'headless' platform.
   ozone_platform_headless = false
 
+  # Compile the 'scenic' platform.
+  ozone_platform_scenic = false
+
   # Compile the 'x11' platform.
   ozone_platform_x11 = false
 
   # Compile the 'wayland' platform.
   ozone_platform_wayland = false
+
+  # Compile the 'windows' platform.
+  ozone_platform_windows = false
+
+  # Compile the 'magma' platform.
+  ozone_platform_magma = false
+
+  # Compile an external platform.
   ozone_platform_external = false
 
   if (ozone_auto_platforms) {
@@ -38,8 +53,8 @@ declare_args() {
 
     if (is_cast_audio_only) {
       # Just use headless for audio-only Cast platforms.
-    } else if (is_chromecast) {
-      # Enable the Cast ozone platform on all A/V Cast builds.
+    } else if (is_chromecast && !is_fuchsia) {
+      # Enable the Cast ozone platform on all A/V Cast builds except Fuchsia.
       ozone_platform_cast = true
 
       # For visual desktop Chromecast builds, override the default "headless"
@@ -60,11 +75,26 @@ declare_args() {
       ozone_platform = "x11"
       ozone_platform_wayland = true
       ozone_platform_x11 = true
+    } else if (is_win) {
+      ozone_platform = "windows"
+      ozone_platform_windows = true
+    } else if (is_fuchsia) {
+      ozone_platform = "scenic"
+      ozone_platform_scenic = true
+      ozone_platform_magma = true
     }
   }
 }
 
+import(ozone_extra_path)
+
+_ozone_extra_directory = get_path_info(ozone_extra_path, "dir")
+
+# Extra paths to add to targets visibility list.
+ozone_external_platform_visibility = [ "$_ozone_extra_directory/*" ]
+
 assert(use_ozone || !(ozone_platform_cast || ozone_platform_gbm ||
                           ozone_platform_headless || ozone_platform_x11 ||
-                          ozone_platform_wayland || ozone_platform_external),
+                          ozone_platform_wayland || ozone_platform_windows ||
+                          ozone_platform_magma || ozone_platform_scenic || ozone_platform_external),
        "Must set use_ozone to select ozone platforms")

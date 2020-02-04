@@ -17,6 +17,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -74,7 +75,25 @@ const (
 	cppGuard     = "#if defined(__cplusplus)"
 	commentStart = "/* "
 	commentEnd   = " */"
+	lineComment  = "// "
 )
+
+func isComment(line string) bool {
+	return strings.HasPrefix(line, commentStart) || strings.HasPrefix(line, lineComment)
+}
+
+func commentSubject(line string) string {
+	if strings.HasPrefix(line, "A ") {
+		line = line[len("A "):]
+	} else if strings.HasPrefix(line, "An ") {
+		line = line[len("An "):]
+	}
+	idx := strings.IndexAny(line, " ,")
+	if idx < 0 {
+		return line
+	}
+	return line[:idx]
+}
 
 func extractComment(lines []string, lineNo int) (comment []string, rest []string, restLineNo int, err error) {
 	if len(lines) == 0 {
@@ -84,7 +103,10 @@ func extractComment(lines []string, lineNo int) (comment []string, rest []string
 	restLineNo = lineNo
 	rest = lines
 
-	if !strings.HasPrefix(rest[0], commentStart) {
+	var isBlock bool
+	if strings.HasPrefix(rest[0], commentStart) {
+		isBlock = true
+	} else if !strings.HasPrefix(rest[0], lineComment) {
 		panic("extractComment called on non-comment")
 	}
 	commentParagraph := rest[0][len(commentStart):]
@@ -92,25 +114,34 @@ func extractComment(lines []string, lineNo int) (comment []string, rest []string
 	restLineNo++
 
 	for len(rest) > 0 {
-		i := strings.Index(commentParagraph, commentEnd)
-		if i >= 0 {
-			if i != len(commentParagraph)-len(commentEnd) {
-				err = fmt.Errorf("garbage after comment end on line %d", restLineNo)
+		if isBlock {
+			i := strings.Index(commentParagraph, commentEnd)
+			if i >= 0 {
+				if i != len(commentParagraph)-len(commentEnd) {
+					err = fmt.Errorf("garbage after comment end on line %d", restLineNo)
+					return
+				}
+				commentParagraph = commentParagraph[:i]
+				if len(commentParagraph) > 0 {
+					comment = append(comment, commentParagraph)
+				}
 				return
 			}
-			commentParagraph = commentParagraph[:i]
+		}
+
+		line := rest[0]
+		if isBlock {
+			if !strings.HasPrefix(line, " *") {
+				err = fmt.Errorf("comment doesn't start with block prefix on line %d: %s", restLineNo, line)
+				return
+			}
+		} else if !strings.HasPrefix(line, "//") {
 			if len(commentParagraph) > 0 {
 				comment = append(comment, commentParagraph)
 			}
 			return
 		}
-
-		line := rest[0]
-		if !strings.HasPrefix(line, " *") {
-			err = fmt.Errorf("comment doesn't start with block prefix on line %d: %s", restLineNo, line)
-			return
-		}
-		if len(line) == 2 || line[2] != '/' {
+		if len(line) == 2 || !isBlock || line[2] != '/' {
 			line = line[2:]
 		}
 		if strings.HasPrefix(line, "   ") {
@@ -199,6 +230,9 @@ func skipLine(s string) string {
 	return ""
 }
 
+var stackOfRegexp = regexp.MustCompile(`STACK_OF\(([^)]*)\)`)
+var lhashOfRegexp = regexp.MustCompile(`LHASH_OF\(([^)]*)\)`)
+
 func getNameFromDecl(decl string) (string, bool) {
 	for strings.HasPrefix(decl, "#if") || strings.HasPrefix(decl, "#elif") {
 		decl = skipLine(decl)
@@ -232,8 +266,9 @@ func getNameFromDecl(decl string) (string, bool) {
 		return decl[:i], true
 	}
 	decl = strings.TrimPrefix(decl, "OPENSSL_EXPORT ")
-	decl = strings.TrimPrefix(decl, "STACK_OF(")
-	decl = strings.TrimPrefix(decl, "LHASH_OF(")
+	decl = strings.TrimPrefix(decl, "const ")
+	decl = stackOfRegexp.ReplaceAllString(decl, "STACK_OF_$1")
+	decl = lhashOfRegexp.ReplaceAllString(decl, "LHASH_OF_$1")
 	i := strings.Index(decl, "(")
 	if i < 0 {
 		return "", false
@@ -309,7 +344,7 @@ func (config *Config) parseHeader(path string) (*HeaderFile, error) {
 	}
 
 	oldLines = lines
-	if len(lines) > 0 && strings.HasPrefix(lines[0], commentStart) {
+	if len(lines) > 0 && isComment(lines[0]) {
 		comment, rest, restLineNo, err := extractComment(lines, lineNo)
 		if err != nil {
 			return nil, err
@@ -345,7 +380,7 @@ func (config *Config) parseHeader(path string) (*HeaderFile, error) {
 
 		var section HeaderSection
 
-		if strings.HasPrefix(line, commentStart) {
+		if isComment(line) {
 			comment, rest, restLineNo, err := extractComment(lines, lineNo)
 			if err != nil {
 				return nil, err
@@ -380,7 +415,7 @@ func (config *Config) parseHeader(path string) (*HeaderFile, error) {
 
 			var comment []string
 			var decl string
-			if strings.HasPrefix(line, commentStart) {
+			if isComment(line) {
 				comment, lines, lineNo, err = extractComment(lines, lineNo)
 				if err != nil {
 					return nil, err
@@ -404,17 +439,22 @@ func (config *Config) parseHeader(path string) (*HeaderFile, error) {
 				// As a matter of style, comments should start
 				// with the name of the thing that they are
 				// commenting on. We make an exception here for
-				// #defines (because we often have blocks of
-				// them) and collective comments, which are
-				// detected by starting with “The” or “These”.
+				// collective comments, which are detected by
+				// starting with “The” or “These”.
 				if len(comment) > 0 &&
-					!strings.HasPrefix(comment[0], name) &&
-					!strings.HasPrefix(comment[0], "A "+name) &&
-					!strings.HasPrefix(comment[0], "An "+name) &&
-					!strings.HasPrefix(decl, "#define ") &&
+					len(name) > 0 &&
 					!strings.HasPrefix(comment[0], "The ") &&
 					!strings.HasPrefix(comment[0], "These ") {
-					return nil, fmt.Errorf("Comment for %q doesn't seem to match line %s:%d\n", name, path, declLineNo)
+					subject := commentSubject(comment[0])
+					ok := subject == name
+					if l := len(subject); l > 0 && subject[l-1] == '*' {
+						// Groups of names, notably #defines, are often
+						// denoted with a wildcard.
+						ok = strings.HasPrefix(name, subject[:l-1])
+					}
+					if !ok {
+						return nil, fmt.Errorf("comment for %q doesn't seem to match line %s:%d\n", name, path, declLineNo)
+					}
 				}
 				anchor := sanitizeAnchor(name)
 				// TODO(davidben): Enforce uniqueness. This is
@@ -459,7 +499,13 @@ func firstSentence(paragraphs []string) string {
 	return s
 }
 
+// markupPipeWords converts |s| into an HTML string, safe to be included outside
+// a tag, while also marking up words surrounded by |.
 func markupPipeWords(allDecls map[string]string, s string) template.HTML {
+	// It is safe to look for '|' in the HTML-escaped version of |s|
+	// below. The escaped version cannot include '|' instead tags because
+	// there are no tags by construction.
+	s = template.HTMLEscapeString(s)
 	ret := ""
 
 	for {
@@ -549,12 +595,12 @@ func generate(outPath string, config *Config) (map[string]string, error) {
       <a href="headers.html">All headers</a>
     </div>
 
-    {{range .Preamble}}<p>{{. | html | markupPipeWords}}</p>{{end}}
+    {{range .Preamble}}<p>{{. | markupPipeWords}}</p>{{end}}
 
     <ol>
       {{range .Sections}}
         {{if not .IsPrivate}}
-          {{if .Anchor}}<li class="header"><a href="#{{.Anchor}}">{{.Preamble | firstSentence | html | markupPipeWords}}</a></li>{{end}}
+          {{if .Anchor}}<li class="header"><a href="#{{.Anchor}}">{{.Preamble | firstSentence | markupPipeWords}}</a></li>{{end}}
           {{range .Decls}}
             {{if .Anchor}}<li><a href="#{{.Anchor}}"><tt>{{.Name}}</tt></a></li>{{end}}
           {{end}}
@@ -567,14 +613,14 @@ func generate(outPath string, config *Config) (map[string]string, error) {
         <div class="section" {{if .Anchor}}id="{{.Anchor}}"{{end}}>
         {{if .Preamble}}
           <div class="sectionpreamble">
-          {{range .Preamble}}<p>{{. | html | markupPipeWords}}</p>{{end}}
+          {{range .Preamble}}<p>{{. | markupPipeWords}}</p>{{end}}
           </div>
         {{end}}
 
         {{range .Decls}}
           <div class="decl" {{if .Anchor}}id="{{.Anchor}}"{{end}}>
           {{range .Comment}}
-            <p>{{. | html | markupPipeWords | newlinesToBR | markupFirstWord}}</p>
+            <p>{{. | markupPipeWords | newlinesToBR | markupFirstWord}}</p>
           {{end}}
           <pre>{{.Decl}}</pre>
           </div>

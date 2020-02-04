@@ -25,7 +25,7 @@ class ScreenObserverDelegate
     : public display::DisplayObserver,
       public base::RefCountedThreadSafe<ScreenObserverDelegate> {
  public:
-  ScreenObserverDelegate(
+  static scoped_refptr<ScreenObserverDelegate> Create(
       DisplayRotationObserver* observer,
       scoped_refptr<base::SingleThreadTaskRunner> display_task_runner);
 
@@ -36,11 +36,12 @@ class ScreenObserverDelegate
  private:
   friend class base::RefCountedThreadSafe<ScreenObserverDelegate>;
 
+  ScreenObserverDelegate(
+      DisplayRotationObserver* observer,
+      scoped_refptr<base::SingleThreadTaskRunner> display_task_runner);
   ~ScreenObserverDelegate() override;
 
   // DisplayObserver implementations.
-  void OnDisplayAdded(const display::Display& /*new_display*/) override;
-  void OnDisplayRemoved(const display::Display& /*old_display*/) override;
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t metrics) override;
 

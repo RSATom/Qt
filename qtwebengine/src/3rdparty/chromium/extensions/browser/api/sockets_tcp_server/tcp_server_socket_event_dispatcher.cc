@@ -7,6 +7,8 @@
 #include <utility>
 
 #include "base/lazy_instance.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "extensions/browser/api/socket/tcp_socket.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extensions_browser_client.h"
@@ -117,19 +119,24 @@ void TCPServerSocketEventDispatcher::StartAccept(const AcceptParams& params) {
     return;
 
   socket->Accept(
-      base::Bind(&TCPServerSocketEventDispatcher::AcceptCallback, params));
+      base::BindOnce(&TCPServerSocketEventDispatcher::AcceptCallback, params));
 }
 
 // static
 void TCPServerSocketEventDispatcher::AcceptCallback(
     const AcceptParams& params,
     int result_code,
-    std::unique_ptr<net::TCPClientSocket> socket) {
+    network::mojom::TCPConnectedSocketPtr socket,
+    const base::Optional<net::IPEndPoint>& remote_addr,
+    mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
+    mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
   DCHECK_CURRENTLY_ON(params.thread_id);
+  DCHECK_GE(net::OK, result_code);
 
-  if (result_code >= 0) {
-    ResumableTCPSocket* client_socket =
-        new ResumableTCPSocket(std::move(socket), params.extension_id, true);
+  if (result_code == net::OK) {
+    ResumableTCPSocket* client_socket = new ResumableTCPSocket(
+        std::move(socket), std::move(receive_pipe_handle),
+        std::move(send_pipe_handle), remote_addr, params.extension_id);
     client_socket->set_paused(true);
     int client_socket_id = params.client_sockets->Add(client_socket);
 
@@ -146,9 +153,8 @@ void TCPServerSocketEventDispatcher::AcceptCallback(
 
     // Post a task to delay the "accept" until the socket is available, as
     // calling StartAccept at this point would error with ERR_IO_PENDING.
-    BrowserThread::PostTask(
-        params.thread_id,
-        FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {params.thread_id},
         base::Bind(&TCPServerSocketEventDispatcher::StartAccept, params));
   } else {
     // Dispatch "onAcceptError" event but don't start another accept to avoid
@@ -178,8 +184,8 @@ void TCPServerSocketEventDispatcher::PostEvent(const AcceptParams& params,
                                                std::unique_ptr<Event> event) {
   DCHECK_CURRENTLY_ON(params.thread_id);
 
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::Bind(&DispatchEvent, params.browser_context_id, params.extension_id,
                  base::Passed(std::move(event))));
 }

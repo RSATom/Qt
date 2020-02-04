@@ -9,6 +9,10 @@ if (is_android) {
 
 static_library("core") {
   sources = [
+    "fail_state.h",
+    "filtered_offline_item_observer.cc",
+    "filtered_offline_item_observer.h",
+    "launch_location.h",
     "offline_content_aggregator.cc",
     "offline_content_aggregator.h",
     "offline_content_provider.h",
@@ -16,6 +20,7 @@ static_library("core") {
     "offline_item.h",
     "offline_item_filter.h",
     "offline_item_state.h",
+    "pending_state.h",
     "throttled_offline_content_provider.cc",
     "throttled_offline_content_provider.h",
   ]
@@ -28,6 +33,7 @@ static_library("core") {
   ]
 
   deps = [
+    "utilities:utilities",
     "//ui/gfx/geometry",
   ]
 
@@ -37,6 +43,8 @@ static_library("core") {
       "android/offline_content_aggregator_bridge.h",
       "android/offline_item_bridge.cc",
       "android/offline_item_bridge.h",
+      "android/offline_item_share_info_bridge.cc",
+      "android/offline_item_share_info_bridge.h",
       "android/offline_item_visuals_bridge.cc",
       "android/offline_item_visuals_bridge.h",
     ]
@@ -49,12 +57,14 @@ source_set("unit_tests") {
   testonly = true
 
   sources = [
+    "filtered_offline_item_observer_unittest.cc",
     "offline_content_aggregator_unittest.cc",
     "throttled_offline_content_provider_unittest.cc",
   ]
 
   deps = [
     ":core",
+    "utilities:unit_tests",
     "//base/test:test_support",
     "//components/offline_items_collection/core/test_support",
   ]
@@ -64,13 +74,16 @@ if (is_android) {
   android_library("core_java") {
     java_files = [
       "android/java/src/org/chromium/components/offline_items_collection/bridges/OfflineItemBridge.java",
+      "android/java/src/org/chromium/components/offline_items_collection/bridges/OfflineItemShareInfoBridge.java",
       "android/java/src/org/chromium/components/offline_items_collection/bridges/OfflineItemVisualsBridge.java",
       "android/java/src/org/chromium/components/offline_items_collection/ContentId.java",
       "android/java/src/org/chromium/components/offline_items_collection/LegacyHelpers.java",
       "android/java/src/org/chromium/components/offline_items_collection/OfflineContentAggregatorBridge.java",
       "android/java/src/org/chromium/components/offline_items_collection/OfflineContentProvider.java",
       "android/java/src/org/chromium/components/offline_items_collection/OfflineItem.java",
+      "android/java/src/org/chromium/components/offline_items_collection/OfflineItemShareInfo.java",
       "android/java/src/org/chromium/components/offline_items_collection/OfflineItemVisuals.java",
+      "android/java/src/org/chromium/components/offline_items_collection/ShareCallback.java",
       "android/java/src/org/chromium/components/offline_items_collection/VisualsCallback.java",
     ]
 
@@ -78,7 +91,7 @@ if (is_android) {
 
     deps = [
       "//base:base_java",
-      "//third_party/android_tools:android_support_annotations_java",
+      "//third_party/android_deps:android_support_annotations_java",
     ]
   }
 
@@ -88,6 +101,7 @@ if (is_android) {
     sources = [
       "android/java/src/org/chromium/components/offline_items_collection/OfflineContentAggregatorBridge.java",
       "android/java/src/org/chromium/components/offline_items_collection/bridges/OfflineItemBridge.java",
+      "android/java/src/org/chromium/components/offline_items_collection/bridges/OfflineItemShareInfoBridge.java",
       "android/java/src/org/chromium/components/offline_items_collection/bridges/OfflineItemVisualsBridge.java",
     ]
 
@@ -98,9 +112,12 @@ if (is_android) {
     visibility = [ ":*" ]
 
     sources = [
+      "fail_state.h",
+      "launch_location.h",
       "offline_item.h",
       "offline_item_filter.h",
       "offline_item_state.h",
+      "pending_state.h",
     ]
   }
 }

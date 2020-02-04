@@ -5,21 +5,23 @@
 #include "components/browsing_data/core/counters/autofill_counter.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 #include <vector>
 
-#include "base/memory/ptr_util.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/driver/sync_user_settings.h"
 
 namespace {
 
 bool IsAutofillSyncEnabled(const syncer::SyncService* sync_service) {
-  return sync_service && sync_service->IsFirstSetupComplete() &&
-         sync_service->IsSyncActive() &&
+  return sync_service &&
+         sync_service->GetUserSettings()->IsFirstSetupComplete() &&
+         sync_service->IsSyncFeatureActive() &&
          sync_service->GetActiveDataTypes().Has(syncer::AUTOFILL);
 }
 
@@ -57,10 +59,18 @@ void AutofillCounter::SetPeriodStartForTesting(
   period_start_for_testing_ = period_start_for_testing;
 }
 
+void AutofillCounter::SetPeriodEndForTesting(
+    const base::Time& period_end_for_testing) {
+  period_end_for_testing_ = period_end_for_testing;
+}
+
 void AutofillCounter::Count() {
   const base::Time start = period_start_for_testing_.is_null()
                                ? GetPeriodStart()
                                : period_start_for_testing_;
+  const base::Time end = period_end_for_testing_.is_null()
+                             ? GetPeriodEnd()
+                             : period_end_for_testing_;
 
   CancelAllRequests();
 
@@ -70,7 +80,7 @@ void AutofillCounter::Count() {
   // and last modified time) lies within the deletion time range. Otherwise,
   // it only decreases the count property, but always to a nonzero value,
   // and the suggestion is retained. Therefore here as well, we must only count
-  // the entries that are entirely contained in [start, base::Time::Max()).
+  // the entries that are entirely contained in [start, end).
   // Further, many of these entries may contain the same values, as they are
   // simply the same data point entered on different forms. For example,
   // [name, value] pairs such as:
@@ -81,9 +91,9 @@ void AutofillCounter::Count() {
   // they constitute the same suggestion - "my email". Therefore, for the final
   // output, we will consider all entries with the same value as one suggestion,
   // and increment the counter only if all entries with the given value are
-  // contained in the interval [start, base::Time::Max()).
-  suggestions_query_ = web_data_service_->GetCountOfValuesContainedBetween(
-      start, base::Time::Max(), this);
+  // contained in the interval [start, end).
+  suggestions_query_ =
+      web_data_service_->GetCountOfValuesContainedBetween(start, end, this);
 
   // Count the credit cards.
   credit_cards_query_ = web_data_service_->GetCreditCards(this);
@@ -117,6 +127,9 @@ void AutofillCounter::OnWebDataServiceRequestDone(
   const base::Time start = period_start_for_testing_.is_null()
                                ? GetPeriodStart()
                                : period_start_for_testing_;
+  const base::Time end = period_end_for_testing_.is_null()
+                             ? GetPeriodEnd()
+                             : period_end_for_testing_;
 
   if (handle == suggestions_query_) {
     // Autocomplete suggestions.
@@ -136,8 +149,9 @@ void AutofillCounter::OnWebDataServiceRequestDone(
 
     num_credit_cards_ = std::count_if(
         credit_cards.begin(), credit_cards.end(),
-        [start](const std::unique_ptr<autofill::CreditCard>& card) {
-          return card->modification_date() >= start;
+        [start, end](const std::unique_ptr<autofill::CreditCard>& card) {
+          return (card->modification_date() >= start &&
+                  card->modification_date() < end);
         });
     credit_cards_query_ = 0;
 
@@ -152,8 +166,10 @@ void AutofillCounter::OnWebDataServiceRequestDone(
 
     num_addresses_ = std::count_if(
         addresses.begin(), addresses.end(),
-        [start](const std::unique_ptr<autofill::AutofillProfile>& address) {
-          return address->modification_date() >= start;
+        [start,
+         end](const std::unique_ptr<autofill::AutofillProfile>& address) {
+          return (address->modification_date() >= start &&
+                  address->modification_date() < end);
         });
     addresses_query_ = 0;
 
@@ -165,7 +181,7 @@ void AutofillCounter::OnWebDataServiceRequestDone(
   if (suggestions_query_ || credit_cards_query_ || addresses_query_)
     return;
 
-  auto reported_result = base::MakeUnique<AutofillResult>(
+  auto reported_result = std::make_unique<AutofillResult>(
       this, num_suggestions_, num_credit_cards_, num_addresses_,
       sync_tracker_.IsSyncActive());
   ReportResult(std::move(reported_result));

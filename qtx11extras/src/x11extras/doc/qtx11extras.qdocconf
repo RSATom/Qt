@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtx11extras.qdocconf)
 
 project                 = QtX11Extras
 description             = Qt X11 Extras Reference Documentation

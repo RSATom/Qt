@@ -55,38 +55,12 @@
 
 QT_BEGIN_NAMESPACE
 
+namespace {
+const auto slerpThreshold = 0.01f;
+}
+
 namespace Qt3DAnimation {
 namespace Animation {
-
-int componentsForType(int type)
-{
-    int componentCount = 1;
-    switch (type) {
-    case QMetaType::Float:
-    case QVariant::Double:
-        componentCount = 1;
-        break;
-
-    case QVariant::Vector2D:
-        componentCount = 2;
-        break;
-
-    case QVariant::Vector3D:
-    case QVariant::Color:
-        componentCount = 3;
-        break;
-
-    case QVariant::Vector4D:
-    case QVariant::Quaternion:
-        componentCount = 4;
-        break;
-
-    default:
-        qWarning() << "Unhandled animation type";
-    }
-
-    return componentCount;
-}
 
 inline QVector<float> valueToVector(const QVector3D &value)
 {
@@ -109,6 +83,9 @@ ClipEvaluationData evaluationDataForClip(AnimationClip *clip,
                                                 animatorData.loopCount, result.currentLoop);
     result.isFinalFrame = isFinalFrame(result.localTime, clip->duration(),
                                        result.currentLoop, animatorData.loopCount);
+    const bool hasNormalizedTime = isValidNormalizedTime(animatorData.normalizedLocalTime);
+    result.normalizedLocalTime = hasNormalizedTime ? animatorData.normalizedLocalTime
+                                                   : result.localTime / clip->duration();
     return result;
 }
 
@@ -175,7 +152,10 @@ double phaseFromElapsedTime(double t_current_local,
     later be used as part of the format vector in the formatClipResults() function to
     remap the channels into the standard W, X, Y, Z order required by QQuaternion.
 */
-ComponentIndices channelComponentsToIndices(const Channel &channel, int dataType, int offset)
+ComponentIndices channelComponentsToIndices(const Channel &channel,
+                                            int dataType,
+                                            int expectedComponentCount,
+                                            int offset)
 {
 #if defined Q_COMPILER_UNIFORM_INIT
     static const QVector<char> standardSuffixes = { 'X', 'Y', 'Z', 'W' };
@@ -189,20 +169,22 @@ ComponentIndices channelComponentsToIndices(const Channel &channel, int dataType
 
     switch (dataType) {
     case QVariant::Quaternion:
-        return channelComponentsToIndicesHelper(channel, dataType, offset, quaternionSuffixes);
+        return channelComponentsToIndicesHelper(channel, expectedComponentCount,
+                                                offset, quaternionSuffixes);
     case QVariant::Color:
-        return channelComponentsToIndicesHelper(channel, dataType, offset, colorSuffixes);
+        return channelComponentsToIndicesHelper(channel, expectedComponentCount,
+                                                offset, colorSuffixes);
     default:
-        return channelComponentsToIndicesHelper(channel, dataType, offset, standardSuffixes);
+        return channelComponentsToIndicesHelper(channel, expectedComponentCount,
+                                                offset, standardSuffixes);
     }
 }
 
 ComponentIndices channelComponentsToIndicesHelper(const Channel &channel,
-                                                  int dataType,
+                                                  int expectedComponentCount,
                                                   int offset,
                                                   const QVector<char> &suffixes)
 {
-    const int expectedComponentCount = componentsForType(dataType);
     const int actualComponentCount = channel.channelComponents.size();
     if (actualComponentCount != expectedComponentCount) {
         qWarning() << "Data type expects" << expectedComponentCount
@@ -256,8 +238,86 @@ ClipResults evaluateClipAtLocalTime(AnimationClip *clip, float localTime)
     const QVector<Channel> &channels = clip->channels();
     int i = 0;
     for (const Channel &channel : channels) {
-        for (const auto &channelComponent : qAsConst(channel.channelComponents))
-            channelResults[i++] = channelComponent.fcurve.evaluateAtTime(localTime);
+        if (channel.name.contains(QStringLiteral("Rotation")) &&
+                        channel.channelComponents.size() == 4) {
+
+            // Try to SLERP
+            const int nbKeyframes = channel.channelComponents[0].fcurve.keyframeCount();
+            const bool canSlerp = std::find_if(std::begin(channel.channelComponents)+1,
+                                               std::end(channel.channelComponents),
+                                               [nbKeyframes](const ChannelComponent &v) {
+                return v.fcurve.keyframeCount() != nbKeyframes;
+            }) == std::end(channel.channelComponents);
+
+            if (!canSlerp) {
+                // Interpolate per component
+                for (const auto &channelComponent : qAsConst(channel.channelComponents)) {
+                    const int lowerKeyframeBound = channelComponent.fcurve.lowerKeyframeBound(localTime);
+                    channelResults[i++] = channelComponent.fcurve.evaluateAtTime(localTime, lowerKeyframeBound);
+                }
+            } else {
+                // There's only one keyframe. We cant compute omega. Interpolate per component
+                if (channel.channelComponents[0].fcurve.keyframeCount() == 1) {
+                    for (const auto &channelComponent : qAsConst(channel.channelComponents))
+                        channelResults[i++] = channelComponent.fcurve.keyframe(0).value;
+                } else {
+                    auto quaternionFromChannel = [channel](const int keyframe) {
+                        const float w = channel.channelComponents[0].fcurve.keyframe(keyframe).value;
+                        const float x = channel.channelComponents[1].fcurve.keyframe(keyframe).value;
+                        const float y = channel.channelComponents[2].fcurve.keyframe(keyframe).value;
+                        const float z = channel.channelComponents[3].fcurve.keyframe(keyframe).value;
+                        QQuaternion quat{w,x,y,z};
+                        quat.normalize();
+                        return quat;
+                    };
+
+                    const int lowerKeyframeBound = channel.channelComponents[0].fcurve.lowerKeyframeBound(localTime);
+                    const auto lowerQuat = quaternionFromChannel(lowerKeyframeBound);
+                    const auto higherQuat = quaternionFromChannel(lowerKeyframeBound + 1);
+                    auto cosHalfTheta = QQuaternion::dotProduct(lowerQuat, higherQuat);
+                    // If the two keyframe quaternions are equal, just return the first one as the interpolated value.
+                    if (std::abs(cosHalfTheta) >= 1.0f) {
+                        channelResults[i++] = lowerQuat.scalar();
+                        channelResults[i++] = lowerQuat.x();
+                        channelResults[i++] = lowerQuat.y();
+                        channelResults[i++] = lowerQuat.z();
+                    } else {
+                        const auto sinHalfTheta = std::sqrt(1.0f - std::pow(cosHalfTheta,2.0f));
+                        if (std::abs(sinHalfTheta) < ::slerpThreshold) {
+                            auto initial_i = i;
+                            for (const auto &channelComponent : qAsConst(channel.channelComponents))
+                                channelResults[i++] = channelComponent.fcurve.evaluateAtTime(localTime, lowerKeyframeBound);
+
+                            // Normalize the resulting quaternion
+                            QQuaternion quat{channelResults[initial_i], channelResults[initial_i+1], channelResults[initial_i+2], channelResults[initial_i+3]};
+                            quat.normalize();
+                            channelResults[initial_i+0] = quat.scalar();
+                            channelResults[initial_i+1] = quat.x();
+                            channelResults[initial_i+2] = quat.y();
+                            channelResults[initial_i+3] = quat.z();
+                        } else {
+                            const auto reverseQ1 = cosHalfTheta < 0 ? -1.0f : 1.0f;
+                            cosHalfTheta *= reverseQ1;
+                            const auto halfTheta = std::acos(cosHalfTheta);
+                            for (const auto &channelComponent : qAsConst(channel.channelComponents))
+                                channelResults[i++] = channelComponent.fcurve.evaluateAtTimeAsSlerp(localTime,
+                                                                                                    lowerKeyframeBound,
+                                                                                                    halfTheta,
+                                                                                                    sinHalfTheta,
+                                                                                                    reverseQ1);
+                        }
+                    }
+                }
+            }
+        } else {
+            // If the channel is not a Rotation, apply linear interpolation per channel component
+            // TODO How do we handle other interpolations. For exammple, color interpolation
+            // in a linear perceptual way or other non linear spaces?
+            for (const auto &channelComponent : qAsConst(channel.channelComponents)) {
+                const int lowerKeyframeBound = channelComponent.fcurve.lowerKeyframeBound(localTime);
+                channelResults[i++] = channelComponent.fcurve.evaluateAtTime(localTime, lowerKeyframeBound);
+            }
+        }
     }
     return channelResults;
 }
@@ -269,30 +329,44 @@ ClipResults evaluateClipAtPhase(AnimationClip *clip, float phase)
     return evaluateClipAtLocalTime(clip, localTime);
 }
 
+template<typename Container>
+Container mapChannelResultsToContainer(const MappingData &mappingData,
+                                       const QVector<float> &channelResults)
+{
+    Container r;
+    r.reserve(channelResults.size());
+
+    const ComponentIndices channelIndices = mappingData.channelIndices;
+    for (const int channelIndex : channelIndices)
+        r.push_back(channelResults.at(channelIndex));
+
+    return r;
+}
+
 QVariant buildPropertyValue(const MappingData &mappingData, const QVector<float> &channelResults)
 {
-    QVariant v;
+    const int vectorOfFloatType = qMetaTypeId<QVector<float>>();
+
+    if (mappingData.type == vectorOfFloatType)
+        return QVariant::fromValue(channelResults);
 
     switch (mappingData.type) {
     case QMetaType::Float:
     case QVariant::Double: {
-        v = QVariant::fromValue(channelResults[mappingData.channelIndices[0]]);
-        break;
+        return QVariant::fromValue(channelResults[mappingData.channelIndices[0]]);
     }
 
     case QVariant::Vector2D: {
         const QVector2D vector(channelResults[mappingData.channelIndices[0]],
                 channelResults[mappingData.channelIndices[1]]);
-        v = QVariant::fromValue(vector);
-        break;
+        return QVariant::fromValue(vector);
     }
 
     case QVariant::Vector3D: {
         const QVector3D vector(channelResults[mappingData.channelIndices[0]],
                 channelResults[mappingData.channelIndices[1]],
                 channelResults[mappingData.channelIndices[2]]);
-        v = QVariant::fromValue(vector);
-        break;
+        return QVariant::fromValue(vector);
     }
 
     case QVariant::Vector4D: {
@@ -300,8 +374,7 @@ QVariant buildPropertyValue(const MappingData &mappingData, const QVector<float>
                 channelResults[mappingData.channelIndices[1]],
                 channelResults[mappingData.channelIndices[2]],
                 channelResults[mappingData.channelIndices[3]]);
-        v = QVariant::fromValue(vector);
-        break;
+        return QVariant::fromValue(vector);
     }
 
     case QVariant::Quaternion: {
@@ -310,30 +383,35 @@ QVariant buildPropertyValue(const MappingData &mappingData, const QVector<float>
                 channelResults[mappingData.channelIndices[2]],
                 channelResults[mappingData.channelIndices[3]]);
         q.normalize();
-        v = QVariant::fromValue(q);
-        break;
+        return QVariant::fromValue(q);
     }
 
     case QVariant::Color: {
-        const QColor color = QColor::fromRgbF(channelResults[mappingData.channelIndices[0]],
+        const QColor color =
+                QColor::fromRgbF(channelResults[mappingData.channelIndices[0]],
                 channelResults[mappingData.channelIndices[1]],
                 channelResults[mappingData.channelIndices[2]]);
-        v = QVariant::fromValue(color);
-        break;
+        return QVariant::fromValue(color);
     }
 
+    case QVariant::List: {
+        const QVariantList results = mapChannelResultsToContainer<QVariantList>(
+                    mappingData, channelResults);
+        return QVariant::fromValue(results);
+    }
     default:
         qWarning() << "Unhandled animation type" << mappingData.type;
         break;
     }
 
-    return v;
+    return QVariant();
 }
 
 QVector<Qt3DCore::QSceneChangePtr> preparePropertyChanges(Qt3DCore::QNodeId animatorId,
                                                           const QVector<MappingData> &mappingDataVec,
                                                           const QVector<float> &channelResults,
-                                                          bool finalFrame)
+                                                          bool finalFrame,
+                                                          float normalizedLocalTime)
 {
     QVector<Qt3DCore::QSceneChangePtr> changes;
     QVarLengthArray<Skeleton *, 4> dirtySkeletons;
@@ -390,6 +468,15 @@ QVector<Qt3DCore::QSceneChangePtr> preparePropertyChanges(Qt3DCore::QNodeId anim
     for (const auto skeleton : dirtySkeletons)
         skeleton->sendLocalPoses();
 
+    if (isValidNormalizedTime(normalizedLocalTime)) {
+        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(animatorId);
+        e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
+        e->setPropertyName("normalizedTime");
+        e->setValue(normalizedLocalTime);
+        Qt3DCore::QPropertyUpdatedChangeBasePrivate::get(e.data())->m_isIntermediate = !finalFrame;
+        changes.push_back(e);
+    }
+
     // If it's the final frame, notify the frontend that we've stopped
     if (finalFrame) {
         auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(animatorId);
@@ -398,6 +485,7 @@ QVector<Qt3DCore::QSceneChangePtr> preparePropertyChanges(Qt3DCore::QNodeId anim
         e->setValue(false);
         changes.push_back(e);
     }
+
     return changes;
 }
 
@@ -463,13 +551,17 @@ QVector<MappingData> buildPropertyMappings(const QVector<ChannelMapping*> &chann
 
             if (mappingData.type == static_cast<int>(QVariant::Invalid)) {
                 qWarning() << "Unknown type for node id =" << mappingData.targetId
-                           << "and property =" << mapping->property()
+                           << "and property =" << mapping->propertyName()
                            << "and callback =" << mapping->callback();
                 continue;
             }
 
             // Try to find matching channel name and type
-            const ChannelNameAndType nameAndType = { mapping->channelName(), mapping->type(), mapping->peerId() };
+            const ChannelNameAndType nameAndType = { mapping->channelName(),
+                                                     mapping->type(),
+                                                     mapping->componentCount(),
+                                                     mapping->peerId()
+                                                   };
             const int index = channelNamesAndTypes.indexOf(nameAndType);
             if (index != -1) {
                 // Do we have any animation data for this channel? If not, don't bother
@@ -574,7 +666,10 @@ QVector<ChannelNameAndType> buildRequiredChannelsAndTypes(Handler *handler,
         case ChannelMapping::ChannelMappingType:
         case ChannelMapping::CallbackMappingType: {
             // Get the name and type
-            const ChannelNameAndType nameAndType{ mapping->channelName(), mapping->type(), mappingId };
+            const ChannelNameAndType nameAndType{ mapping->channelName(),
+                                                  mapping->type(),
+                                                  mapping->componentCount(),
+                                                  mappingId };
 
             // Add if not already contained
             if (!namesAndTypes.contains(nameAndType))
@@ -623,7 +718,7 @@ QVector<ComponentIndices> assignChannelComponentIndices(const QVector<ChannelNam
     int baseIndex = 0;
     for (const auto &entry : namesAndTypes) {
         // Populate indices in order
-        const int componentCount = componentsForType(entry.type);
+        const int componentCount = entry.componentCount;
         ComponentIndices indices(componentCount);
         std::iota(indices.begin(), indices.end(), baseIndex);
 
@@ -709,6 +804,7 @@ ClipFormat generateClipFormatIndices(const QVector<ChannelNameAndType> &targetCh
             const int baseIndex = clip->channelComponentBaseIndex(clipChannelIndex);
             const auto channelIndices = channelComponentsToIndices(clip->channels()[clipChannelIndex],
                                                                    targetChannel.type,
+                                                                   targetChannel.componentCount,
                                                                    baseIndex);
             std::copy(channelIndices.begin(), channelIndices.end(), formatIt);
 
@@ -838,7 +934,7 @@ QVector<float> defaultValueForChannel(Handler *handler,
         }
 
         // Everything else gets all zeros
-        const int componentCount = componentsForType(channelDescription.type);
+        const int componentCount = mapping->componentCount();
         result = QVector<float>(componentCount, 0.0f);
         break;
     }

@@ -11,6 +11,7 @@
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "media/base/android/media_codec_bridge.h"
@@ -22,12 +23,8 @@
 
 namespace media {
 
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.media
-enum class CodecType {
-  kAny,
-  kSecure,    // Note that all secure codecs are HW codecs.
-  kSoftware,  // In some cases hardware codecs could hang the GPU process.
-};
+class VideoColorSpace;
+struct HDRMetadata;
 
 // A bridge to a Java MediaCodec.
 class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
@@ -38,13 +35,24 @@ class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
       VideoCodec codec,
       CodecType codec_type,
       const gfx::Size& size,  // Output frame size.
-      jobject surface,        // Output surface, optional.
-      jobject media_crypto,   // MediaCrypto object, optional.
+      const base::android::JavaRef<jobject>&
+          surface,  // Output surface, optional.
+      const base::android::JavaRef<jobject>&
+          media_crypto,  // MediaCrypto object, optional.
       // Codec specific data. See MediaCodec docs.
       const std::vector<uint8_t>& csd0,
       const std::vector<uint8_t>& csd1,
+      const VideoColorSpace& color_space,
+      const base::Optional<HDRMetadata>& hdr_metadata,
       // Should adaptive playback be allowed if supported.
-      bool allow_adaptive_playback = true);
+      bool allow_adaptive_playback = true,
+      // Enables the async MediaCodec.Callback API. |on_buffers_available_cb|
+      // will be called when input or output buffers are available. This will be
+      // called on an arbitrary thread, so use BindToCurrentLoop if needed.
+      //
+      // May only be used on API level 23 and higher.
+      base::RepeatingClosure on_buffers_available_cb =
+          base::RepeatingClosure());
 
   // Creates and starts a new MediaCodec configured for encoding. Returns
   // nullptr on failure.
@@ -60,7 +68,18 @@ class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
   // nullptr on failure.
   static std::unique_ptr<MediaCodecBridge> CreateAudioDecoder(
       const AudioDecoderConfig& config,
-      jobject media_crypto);
+      const base::android::JavaRef<jobject>& media_crypto,
+      // Enables the async MediaCodec.Callback API. |on_buffers_available_cb|
+      // will be called when input or output buffers are available. This will be
+      // called on an arbitrary thread, so use BindToCurrentLoop if needed.
+      //
+      // May only be used on API level 23 and higher.
+      base::RepeatingClosure on_buffers_available_cb =
+          base::RepeatingClosure());
+
+  // Required for tests that wish to use a |on_buffers_available_cb| when
+  // creating a MediaCodec. Does nothing unless on API level 23+.
+  static void SetupCallbackHandlerForTesting();
 
   ~MediaCodecBridgeImpl() override;
 
@@ -103,18 +122,14 @@ class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
                                         void* dst,
                                         size_t num) override;
   std::string GetName() override;
-  bool SetSurface(jobject surface) override;
+  bool SetSurface(const base::android::JavaRef<jobject>& surface) override;
   void SetVideoBitrate(int bps, int frame_rate) override;
   void RequestKeyFrameSoon() override;
-  bool IsAdaptivePlaybackSupported() override;
 
  private:
-  MediaCodecBridgeImpl(const std::string& mime,
-                       CodecType codec_type,
-                       MediaCodecDirection direction);
-
-  // Calls MediaCodec#start(). Returns whether it was successful.
-  bool Start();
+  MediaCodecBridgeImpl(base::android::ScopedJavaGlobalRef<jobject> j_bridge,
+                       base::RepeatingClosure on_buffers_available_cb =
+                           base::RepeatingClosure());
 
   // Fills the given input buffer. Returns false if |data_size| exceeds the
   // input buffer's capacity (and doesn't touch the input buffer in that case).
@@ -130,6 +145,12 @@ class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
                                           size_t offset,
                                           const uint8_t** addr,
                                           size_t* capacity);
+
+  void OnBuffersAvailable(
+      JNIEnv* /* env */,
+      const base::android::JavaParamRef<jobject>& /* obj */) override;
+
+  base::RepeatingClosure on_buffers_available_cb_;
 
   // The Java MediaCodecBridge instance.
   base::android::ScopedJavaGlobalRef<jobject> j_bridge_;

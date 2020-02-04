@@ -118,6 +118,7 @@ static const AVOption showfreqs_options[] = {
         { "cauchy",   "Cauchy",           0, AV_OPT_TYPE_CONST, {.i64=WFUNC_CAUCHY},   0, 0, FLAGS, "win_func" },
         { "parzen",   "Parzen",           0, AV_OPT_TYPE_CONST, {.i64=WFUNC_PARZEN},   0, 0, FLAGS, "win_func" },
         { "poisson",  "Poisson",          0, AV_OPT_TYPE_CONST, {.i64=WFUNC_POISSON},  0, 0, FLAGS, "win_func" },
+        { "bohman",   "Bohman",           0, AV_OPT_TYPE_CONST, {.i64=WFUNC_BOHMAN} ,  0, 0, FLAGS, "win_func" },
     { "overlap",  "set window overlap", OFFSET(overlap), AV_OPT_TYPE_FLOAT, {.dbl=1.}, 0., 1., FLAGS },
     { "averaging", "set time averaging", OFFSET(avg), AV_OPT_TYPE_INT, {.i64=1}, 0, INT32_MAX, FLAGS },
     { "colors", "set channels colors", OFFSET(colors), AV_OPT_TYPE_STRING, {.str = "red|green|blue|yellow|orange|lime|pink|magenta|brown" }, 0, 0, FLAGS },
@@ -218,7 +219,7 @@ static int config_output(AVFilterLink *outlink)
                                       sizeof(*s->window_func_lut));
     if (!s->window_func_lut)
         return AVERROR(ENOMEM);
-    ff_generate_window_func(s->window_func_lut, s->win_size, s->win_func, &overlap);
+    generate_window_func(s->window_func_lut, s->win_size, s->win_func, &overlap);
     if (s->overlap == 1.)
         s->overlap = overlap;
     s->hop_size = (1. - s->overlap) * s->win_size;
@@ -434,6 +435,7 @@ static int plot_freqs(AVFilterLink *inlink, AVFrame *in)
 
     av_free(colors);
     out->pts = in->pts;
+    out->sample_aspect_ratio = (AVRational){1,1};
     return ff_filter_frame(outlink, out);
 }
 

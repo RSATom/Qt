@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
+#include "build/build_config.h"
 #include "components/os_crypt/keychain_password_mac.h"
 #include "components/os_crypt/os_crypt_switches.h"
 #include "crypto/apple_keychain.h"
@@ -20,7 +21,21 @@
 #include "crypto/mock_apple_keychain.h"
 #include "crypto/symmetric_key.h"
 
+#if defined(OS_IOS)
+#include "components/os_crypt/encryption_key_creation_util_ios.h"
+#else
+#include "base/threading/thread_task_runner_handle.h"
+#include "components/os_crypt/encryption_key_creation_util_mac.h"
+#include "components/os_crypt/os_crypt_pref_names_mac.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#endif
+
 using crypto::AppleKeychain;
+
+namespace os_crypt {
+class EncryptionKeyCreationUtil;
+}
 
 namespace {
 
@@ -34,26 +49,43 @@ const size_t kDerivedKeySizeInBits = 128;
 const size_t kEncryptionIterations = 1003;
 
 // TODO(dhollowa): Refactor to allow dependency injection of Keychain.
-static bool use_mock_keychain = false;
+bool use_mock_keychain = false;
+
+// This flag is used to make the GetEncryptionKey method return NULL if used
+// along with mock Keychain.
+bool use_locked_mock_keychain = false;
 
 // Prefix for cypher text returned by current encryption version.  We prefix
 // the cypher text with this string so that future data migration can detect
 // this and migrate to different encryption without data loss.
 const char kEncryptionVersionPrefix[] = "v10";
 
-// This lock is used to make the GetEncrytionKey method thread-safe.
+// A utility which prevents overwriting the encryption key. This is temporary
+// pointer that is non-NULL between initialization and getting the encryption
+// key for the first time.
+os_crypt::EncryptionKeyCreationUtil* g_key_creation_util = nullptr;
+
+// This lock is used to make the GetEncrytionKey and
+// OSCrypt::GetRawEncryptionKey methods thread-safe.
 base::LazyInstance<base::Lock>::Leaky g_lock = LAZY_INSTANCE_INITIALIZER;
+
+// The cached AES encryption key singleton.
+crypto::SymmetricKey* g_cached_encryption_key = nullptr;
+
+// true if |g_cached_encryption_key| has been initialized.
+bool g_key_is_cached = false;
 
 // Generates a newly allocated SymmetricKey object based on the password found
 // in the Keychain.  The generated key is for AES encryption.  Returns NULL key
 // in the case password access is denied or key generation error occurs.
 crypto::SymmetricKey* GetEncryptionKey() {
-  static crypto::SymmetricKey* cached_encryption_key = NULL;
-  static bool key_is_cached = false;
   base::AutoLock auto_lock(g_lock.Get());
 
-  if (key_is_cached)
-    return cached_encryption_key;
+  if (use_mock_keychain && use_locked_mock_keychain)
+    return nullptr;
+
+  if (g_key_is_cached)
+    return g_cached_encryption_key;
 
   static bool mock_keychain_command_line_flag =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -64,32 +96,60 @@ crypto::SymmetricKey* GetEncryptionKey() {
     crypto::MockAppleKeychain keychain;
     password = keychain.GetEncryptionPassword();
   } else {
+#if defined(OS_IOS)
+    DCHECK(!g_key_creation_util);
+    g_key_creation_util = new os_crypt::EncryptionKeyCreationUtilIOS();
+#endif
+    DCHECK(g_key_creation_util);
     AppleKeychain keychain;
-    KeychainPassword encryptor_password(keychain);
+    KeychainPassword encryptor_password(
+        keychain,
+        std::unique_ptr<EncryptionKeyCreationUtil>(g_key_creation_util));
     password = encryptor_password.GetPassword();
+    g_key_creation_util = nullptr;
   }
 
   // Subsequent code must guarantee that the correct key is cached before
   // returning.
-  key_is_cached = true;
+  g_key_is_cached = true;
 
   if (password.empty())
-    return cached_encryption_key;
+    return g_cached_encryption_key;
 
   std::string salt(kSalt);
 
   // Create an encryption key from our password and salt. The key is
   // intentionally leaked.
-  cached_encryption_key = crypto::SymmetricKey::DeriveKeyFromPassword(
-                              crypto::SymmetricKey::AES, password, salt,
-                              kEncryptionIterations, kDerivedKeySizeInBits)
-                              .release();
-  ANNOTATE_LEAKING_OBJECT_PTR(cached_encryption_key);
-  DCHECK(cached_encryption_key);
-  return cached_encryption_key;
+  g_cached_encryption_key =
+      crypto::SymmetricKey::DeriveKeyFromPasswordUsingPbkdf2(
+          crypto::SymmetricKey::AES, password, salt, kEncryptionIterations,
+          kDerivedKeySizeInBits)
+          .release();
+  ANNOTATE_LEAKING_OBJECT_PTR(g_cached_encryption_key);
+  DCHECK(g_cached_encryption_key);
+  return g_cached_encryption_key;
 }
 
 }  // namespace
+
+// static
+std::string OSCrypt::GetRawEncryptionKey() {
+  crypto::SymmetricKey* key = GetEncryptionKey();
+  if (!key)
+    return std::string();
+  return key->key();
+}
+
+// static
+void OSCrypt::SetRawEncryptionKey(const std::string& raw_key) {
+  base::AutoLock auto_lock(g_lock.Get());
+  DCHECK(!g_key_is_cached) << "Encryption key already set.";
+  if (!raw_key.empty()) {
+    auto key = crypto::SymmetricKey::Import(crypto::SymmetricKey::AES, raw_key);
+    g_cached_encryption_key = key.release();
+  }
+  g_key_is_cached = true;
+}
 
 bool OSCrypt::EncryptString16(const base::string16& plaintext,
                               std::string* ciphertext) {
@@ -152,21 +212,48 @@ bool OSCrypt::DecryptString(const std::string& ciphertext,
       ciphertext.substr(strlen(kEncryptionVersionPrefix));
 
   crypto::SymmetricKey* encryption_key = GetEncryptionKey();
-  if (!encryption_key)
+  if (!encryption_key) {
+    VLOG(1) << "Decryption failed: could not get the key";
     return false;
+  }
 
   std::string iv(kCCBlockSizeAES128, ' ');
   crypto::Encryptor encryptor;
   if (!encryptor.Init(encryption_key, crypto::Encryptor::CBC, iv))
     return false;
 
-  if (!encryptor.Decrypt(raw_ciphertext, plaintext))
+  if (!encryptor.Decrypt(raw_ciphertext, plaintext)) {
+    VLOG(1) << "Decryption failed";
     return false;
+  }
 
   return true;
 }
 
-void OSCrypt::UseMockKeychain(bool use_mock) {
-  use_mock_keychain = use_mock;
+bool OSCrypt::IsEncryptionAvailable() {
+  return GetEncryptionKey() != nullptr;
 }
 
+#if !defined(OS_IOS)
+void OSCrypt::RegisterLocalPrefs(PrefRegistrySimple* registry) {
+  registry->RegisterBooleanPref(os_crypt::prefs::kKeyCreated, false);
+}
+
+void OSCrypt::Init(PrefService* local_state) {
+  base::AutoLock auto_lock(g_lock.Get());
+  g_key_creation_util = new os_crypt::EncryptionKeyCreationUtilMac(
+      local_state, base::ThreadTaskRunnerHandle::Get());
+}
+#endif
+
+void OSCrypt::UseMockKeychainForTesting(bool use_mock) {
+  use_mock_keychain = use_mock;
+  if (!use_mock_keychain)
+    use_locked_mock_keychain = false;
+}
+
+void OSCrypt::UseLockedMockKeychainForTesting(bool use_locked) {
+  use_locked_mock_keychain = use_locked;
+  if (use_locked_mock_keychain)
+    use_mock_keychain = true;
+}

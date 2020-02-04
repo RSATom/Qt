@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-component("web_dialogs") {
+import("//build/config/jumbo.gni")
+
+jumbo_component("web_dialogs") {
   sources = [
     "web_dialog_delegate.cc",
     "web_dialog_delegate.h",
@@ -22,15 +24,16 @@ component("web_dialogs") {
     "//content/public/common",
     "//skia",
     "//ui/base",
+    "//ui/webui",
     "//url",
   ]
 
   if (!is_ios) {
-    deps += [ "//third_party/WebKit/public:blink_headers" ]
+    deps += [ "//third_party/blink/public:blink_headers" ]
   }
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   sources = [
     "test/test_web_contents_handler.cc",
     "test/test_web_contents_handler.h",
@@ -47,5 +50,23 @@ static_library("test_support") {
     "//skia",
     "//ui/gfx/geometry",
     "//url",
+  ]
+}
+
+source_set("web_dialogs_unittests") {
+  testonly = true
+
+  sources = [
+    "web_dialog_ui_unittest.cc",
+  ]
+
+  deps = [
+    ":web_dialogs",
+    "//base",
+    "//base/test:test_support",
+    "//content/test:test_support",
+    "//skia",
+    "//testing/gtest",
+    "//third_party/boringssl",
   ]
 }

@@ -16,7 +16,6 @@
 
 #include "snapshot/win/memory_snapshot_win.h"
 
-
 namespace crashpad {
 namespace internal {
 
@@ -61,10 +60,15 @@ bool MemorySnapshotWin::Read(Delegate* delegate) const {
   }
 
   std::unique_ptr<uint8_t[]> buffer(new uint8_t[size_]);
-  if (!process_reader_->ReadMemory(address_, size_, buffer.get())) {
+  if (!process_reader_->Memory()->Read(address_, size_, buffer.get())) {
     return false;
   }
   return delegate->MemorySnapshotDelegateRead(buffer.get(), size_);
+}
+
+const MemorySnapshot* MemorySnapshotWin::MergeWithOtherSnapshot(
+    const MemorySnapshot* other) const {
+  return MergeWithOtherSnapshotImpl(this, other);
 }
 
 }  // namespace internal

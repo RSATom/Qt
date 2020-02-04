@@ -61,8 +61,7 @@ namespace Ui {
 }
 QT_END_NAMESPACE
 
-QT_USE_NAMESPACE
-
+//! [0]
 class UriRecordEditor : public QWidget
 {
     Q_OBJECT
@@ -77,5 +76,5 @@ public:
 private:
     Ui::UriRecordEditor *ui;
 };
-
+//! [0]
 #endif // URIRECORDEDITOR_H

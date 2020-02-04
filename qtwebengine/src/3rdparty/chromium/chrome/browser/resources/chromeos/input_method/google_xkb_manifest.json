@@ -25,8 +25,7 @@
   ],
   "background": {
     "page": "background.html",
-    // TODO(yhanada): Change to false after fixing crbug.com/761714.
-    "persistent": true
+    "persistent": false
   },
   "content_scripts": [
     {
@@ -160,36 +159,6 @@
       ],
       "input_view": "inputview.html#id=us-intl&language=nl&passwordLayout=us-intl&name=keyboard_us_international_pc",
       "options_page": "hmm_options.html?code=xkb:us:intl_pc:nld"
-    },
-    {
-      "name": "__MSG_keyboard_us_international__",
-      "type": "ime",
-      "id": "xkb:us:intl:por",
-      "indicator": "INTL",
-      "description": "",
-      "language": [
-        "pt-BR"
-      ],
-      "layouts": [
-        "us(intl)"
-      ],
-      "input_view": "inputview.html#id=us-intl&language=pt-BR&passwordLayout=us-intl&name=keyboard_us_international",
-      "options_page": "hmm_options.html?code=xkb:us:intl:por"
-    },
-    {
-      "name": "__MSG_keyboard_us_international_pc__",
-      "type": "ime",
-      "id": "xkb:us:intl_pc:por",
-      "indicator": "INTL",
-      "description": "",
-      "language": [
-        "pt-BR"
-      ],
-      "layouts": [
-        "us(intl_pc)"
-      ],
-      "input_view": "inputview.html#id=us-intl&language=pt-BR&passwordLayout=us-intl&name=keyboard_us_international_pc",
-      "options_page": "hmm_options.html?code=xkb:us:intl_pc:por"
     },
     {
       "name": "__MSG_keyboard_us_extended__",
@@ -411,7 +380,9 @@
       "description": "",
       "language": [
         "de",
-        "de-DE"
+        "de-AT",
+        "de-DE",
+        "de-LI"
       ],
       "layouts": [
         "de"
@@ -427,7 +398,9 @@
       "description": "",
       "language": [
         "de",
-        "de-DE"
+        "de-AT",
+        "de-DE",
+        "de-LI"
       ],
       "layouts": [
         "de(neo)"
@@ -521,6 +494,36 @@
       ],
       "input_view": "inputview.html#id=br&language=pt-BR&passwordLayout=br&name=keyboard_brazilian",
       "options_page": "hmm_options.html?code=xkb:br::por"
+    },
+    {
+      "name": "__MSG_keyboard_us_international__",
+      "type": "ime",
+      "id": "xkb:us:intl:por",
+      "indicator": "INTL",
+      "description": "",
+      "language": [
+        "pt-BR"
+      ],
+      "layouts": [
+        "us(intl)"
+      ],
+      "input_view": "inputview.html#id=us-intl&language=pt-BR&passwordLayout=us-intl&name=keyboard_us_international",
+      "options_page": "hmm_options.html?code=xkb:us:intl:por"
+    },
+    {
+      "name": "__MSG_keyboard_us_international_pc__",
+      "type": "ime",
+      "id": "xkb:us:intl_pc:por",
+      "indicator": "INTL",
+      "description": "",
+      "language": [
+        "pt-BR"
+      ],
+      "layouts": [
+        "us(intl_pc)"
+      ],
+      "input_view": "inputview.html#id=us-intl&language=pt-BR&passwordLayout=us-intl&name=keyboard_us_international_pc",
+      "options_page": "hmm_options.html?code=xkb:us:intl_pc:por"
     },
     {
       "name": "__MSG_keyboard_bulgarian__",

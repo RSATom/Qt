@@ -122,6 +122,7 @@ private slots:
 
     void testPageMetrics_data();
     void testPageMetrics();
+    void reusePageMetrics();
 #endif
 private:
     QString testFileName(const QString &prefix, const QString &suffix);
@@ -592,10 +593,14 @@ void tst_QPrinter::printDialogCompleter()
 {
     QPrintDialog dialog;
     dialog.printer()->setOutputFileName(testPdfFileName(QLatin1String("file")));
+#if defined(Q_OS_WIN) || defined(Q_OS_DARWIN)
+    if (dialog.printer()->outputFormat() != QPrinter::NativeFormat)
+        QSKIP("Dialog cannot be used with non-native formats");
+#endif
     dialog.setEnabledOptions(QAbstractPrintDialog::PrintToFile);
     dialog.show();
 
-    QTest::qWait(100);
+    QVERIFY(QTest::qWaitForWindowActive(&dialog));
 
     QTest::keyClick(&dialog, Qt::Key_Tab);
     QTest::keyClick(&dialog, 'P');
@@ -639,7 +644,7 @@ void tst_QPrinter::taskQTBUG4497_reusePrinterOnDifferentFiles()
         QByteArray file1Line = file1.readLine();
         QByteArray file2Line = file2.readLine();
 
-        if (!file1Line.startsWith("%%CreationDate"))
+        if (!file1Line.contains("CreationDate"))
             QCOMPARE(file1Line, file2Line);
     }
 
@@ -1021,7 +1026,7 @@ void tst_QPrinter::duplex()
     pdf.setOutputFormat(QPrinter::PdfFormat);
     QCOMPARE(pdf.duplex(), QPrinter::DuplexNone);
     pdf.setDuplex(QPrinter::DuplexAuto);
-    QCOMPARE(pdf.duplex(), QPrinter::DuplexAuto);
+    QCOMPARE(pdf.duplex(), QPrinter::DuplexNone); // pdf doesn't have the concept of duplex
 
     QPrinter native;
     if (native.outputFormat() == QPrinter::NativeFormat) {
@@ -1066,7 +1071,7 @@ void tst_QPrinter::doubleSidedPrinting()
     pdf.setOutputFormat(QPrinter::PdfFormat);
     QCOMPARE(pdf.doubleSidedPrinting(), false);
     pdf.setDoubleSidedPrinting(true);
-    QCOMPARE(pdf.doubleSidedPrinting(), true);
+    QCOMPARE(pdf.doubleSidedPrinting(), false); // pdf doesn't have the concept of duplex
 
     QPrinter native;
     if (native.outputFormat() == QPrinter::NativeFormat) {
@@ -1949,6 +1954,50 @@ QString tst_QPrinter::testFileName(const QString &prefix, const QString &suffix)
     if (!suffix.isEmpty())
         result += QLatin1Char('.') + suffix;
     return result;
+}
+
+void tst_QPrinter::reusePageMetrics()
+{
+    QList<QPrinterInfo> availablePrinters = QPrinterInfo::availablePrinters();
+    if (availablePrinters.size() < 2)
+        QSKIP("Not enough printers to do this test with, need at least 2 setup");
+    QPrinter defaultP;
+    QPrinterInfo info(defaultP);
+    QString otherPrinterName;
+    for (QPrinterInfo i : qAsConst(availablePrinters)) {
+        if (i.printerName() != defaultP.printerName()) {
+            otherPrinterName = i.printerName();
+            break;
+        }
+    }
+    QPrinter otherP(QPrinterInfo::printerInfo(otherPrinterName));
+    QList<QPageSize> defaultPageSizes = info.supportedPageSizes();
+    QList<QPageSize> otherPageSizes = QPrinterInfo(otherP).supportedPageSizes();
+    QPageSize unavailableSizeToSet;
+    for (QPageSize s : qAsConst(defaultPageSizes)) {
+        bool found = false;
+        for (QPageSize os : qAsConst(otherPageSizes)) {
+            if (os.isEquivalentTo(s)) {
+                found = true;
+                break;
+            }
+        }
+        const QPageSize tmpSize(s.size(QPageSize::Point), QPageSize::Point);
+        if (!tmpSize.name().startsWith("Custom"))
+            found = true;
+        if (!found) {
+            unavailableSizeToSet = s;
+            break;
+        }
+    }
+    if (!unavailableSizeToSet.isValid())
+        QSKIP("Could not find a size that was not available on the non default printer. The test "
+              "requires this");
+    defaultP.setPageSize(unavailableSizeToSet);
+    defaultP.setPrinterName(otherP.printerName());
+    QVERIFY(defaultP.pageLayout().pageSize().isEquivalentTo(unavailableSizeToSet));
+    QVERIFY(defaultP.pageLayout().pageSize().name() != unavailableSizeToSet.name());
+    QCOMPARE(defaultP.pageLayout().pageSize().sizePoints(), unavailableSizeToSet.sizePoints());
 }
 
 #endif // QT_CONFIG(printer)

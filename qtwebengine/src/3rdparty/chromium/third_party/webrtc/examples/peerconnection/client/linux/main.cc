@@ -8,15 +8,23 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include <glib.h>
 #include <gtk/gtk.h>
+#include <stdio.h>
 
-#include "webrtc/examples/peerconnection/client/conductor.h"
-#include "webrtc/examples/peerconnection/client/flagdefs.h"
-#include "webrtc/examples/peerconnection/client/linux/main_wnd.h"
-#include "webrtc/examples/peerconnection/client/peer_connection_client.h"
-
-#include "webrtc/rtc_base/ssladapter.h"
-#include "webrtc/rtc_base/thread.h"
+#include "examples/peerconnection/client/conductor.h"
+#include "examples/peerconnection/client/flag_defs.h"
+#include "examples/peerconnection/client/linux/main_wnd.h"
+#include "examples/peerconnection/client/peer_connection_client.h"
+#include "rtc_base/flags.h"
+#include "rtc_base/message_queue.h"
+#include "rtc_base/physical_socket_server.h"
+#include "rtc_base/ref_counted_object.h"
+#include "rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/ssl_adapter.h"
+#include "rtc_base/thread.h"
+#include "system_wrappers/include/field_trial.h"
+#include "test/field_trial.h"
 
 class CustomSocketServer : public rtc::PhysicalSocketServer {
  public:
@@ -32,21 +40,21 @@ class CustomSocketServer : public rtc::PhysicalSocketServer {
   void set_conductor(Conductor* conductor) { conductor_ = conductor; }
 
   // Override so that we can also pump the GTK message loop.
-  virtual bool Wait(int cms, bool process_io) {
+  bool Wait(int cms, bool process_io) override {
     // Pump GTK events.
     // TODO(henrike): We really should move either the socket server or UI to a
     // different thread.  Alternatively we could look at merging the two loops
     // by implementing a dispatcher for the socket server and/or use
     // g_main_context_set_poll_func.
-      while (gtk_events_pending())
-        gtk_main_iteration();
+    while (gtk_events_pending())
+      gtk_main_iteration();
 
     if (!wnd_->IsWindow() && !conductor_->connection_active() &&
         client_ != NULL && !client_->is_connected()) {
       message_queue_->Quit();
     }
-    return rtc::PhysicalSocketServer::Wait(0/*cms == -1 ? 1 : cms*/,
-                                                 process_io);
+    return rtc::PhysicalSocketServer::Wait(0 /*cms == -1 ? 1 : cms*/,
+                                           process_io);
   }
 
  protected:
@@ -58,15 +66,15 @@ class CustomSocketServer : public rtc::PhysicalSocketServer {
 
 int main(int argc, char* argv[]) {
   gtk_init(&argc, &argv);
-  // g_type_init API is deprecated (and does nothing) since glib 2.35.0, see:
-  // https://mail.gnome.org/archives/commits-list/2012-November/msg07809.html
+// g_type_init API is deprecated (and does nothing) since glib 2.35.0, see:
+// https://mail.gnome.org/archives/commits-list/2012-November/msg07809.html
 #if !GLIB_CHECK_VERSION(2, 35, 0)
-    g_type_init();
+  g_type_init();
 #endif
-  // g_thread_init API is deprecated since glib 2.31.0, see release note:
-  // http://mail.gnome.org/archives/gnome-announce-list/2011-October/msg00041.html
+// g_thread_init API is deprecated since glib 2.31.0, see release note:
+// http://mail.gnome.org/archives/gnome-announce-list/2011-October/msg00041.html
 #if !GLIB_CHECK_VERSION(2, 31, 0)
-    g_thread_init(NULL);
+  g_thread_init(NULL);
 #endif
 
   rtc::FlagList::SetFlagsFromCommandLine(&argc, argv, true);
@@ -74,6 +82,11 @@ int main(int argc, char* argv[]) {
     rtc::FlagList::Print(NULL, false);
     return 0;
   }
+
+  webrtc::test::ValidateFieldTrialsStringOrDie(FLAG_force_fieldtrials);
+  // InitFieldTrialsFromString stores the char*, so the char array must outlive
+  // the application.
+  webrtc::field_trial::InitFieldTrialsFromString(FLAG_force_fieldtrials);
 
   // Abort if the user specifies a port that is outside the allowed
   // range [1, 65535].

@@ -8,14 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/rtp_rtcp/source/rtcp_packet/bye.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/bye.h"
 
+#include <string.h>
+#include <cstdint>
 #include <utility>
 
-#include "webrtc/modules/rtp_rtcp/source/byte_io.h"
-#include "webrtc/modules/rtp_rtcp/source/rtcp_packet/common_header.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
+#include "modules/rtp_rtcp/source/byte_io.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/common_header.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
 
 namespace webrtc {
 namespace rtcp {
@@ -42,7 +44,7 @@ bool Bye::Parse(const CommonHeader& packet) {
   const uint8_t src_count = packet.count();
   // Validate packet.
   if (packet.payload_size_bytes() < 4u * src_count) {
-    LOG(LS_WARNING)
+    RTC_LOG(LS_WARNING)
         << "Packet is too small to contain CSRCs it promise to have.";
     return false;
   }
@@ -52,7 +54,7 @@ bool Bye::Parse(const CommonHeader& packet) {
   if (has_reason) {
     reason_length = payload[4u * src_count];
     if (packet.payload_size_bytes() - 4u * src_count < 1u + reason_length) {
-      LOG(LS_WARNING) << "Invalid reason length: " << reason_length;
+      RTC_LOG(LS_WARNING) << "Invalid reason length: " << reason_length;
       return false;
     }
   }
@@ -80,7 +82,7 @@ bool Bye::Parse(const CommonHeader& packet) {
 bool Bye::Create(uint8_t* packet,
                  size_t* index,
                  size_t max_length,
-                 RtcpPacket::PacketReadyCallback* callback) const {
+                 PacketReadyCallback callback) const {
   while (*index + BlockLength() > max_length) {
     if (!OnBufferFull(packet, index, callback))
       return false;
@@ -97,7 +99,7 @@ bool Bye::Create(uint8_t* packet,
   }
   // Store the reason to leave.
   if (!reason_.empty()) {
-    uint8_t reason_length = reason_.size();
+    uint8_t reason_length = static_cast<uint8_t>(reason_.size());
     packet[(*index)++] = reason_length;
     memcpy(&packet[*index], reason_.data(), reason_length);
     *index += reason_length;
@@ -115,7 +117,7 @@ bool Bye::Create(uint8_t* packet,
 
 bool Bye::SetCsrcs(std::vector<uint32_t> csrcs) {
   if (csrcs.size() > kMaxNumberOfCsrcs) {
-    LOG(LS_WARNING) << "Too many CSRCs for Bye packet.";
+    RTC_LOG(LS_WARNING) << "Too many CSRCs for Bye packet.";
     return false;
   }
   csrcs_ = std::move(csrcs);

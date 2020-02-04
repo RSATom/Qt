@@ -2,10 +2,14 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-static_library("content") {
+import("//build/config/jumbo.gni")
+
+jumbo_static_library("content") {
   sources = [
     "content_utils.cc",
     "content_utils.h",
+    "ssl_status_input_event_data.cc",
+    "ssl_status_input_event_data.h",
   ]
 
   public_deps = [
@@ -18,12 +22,12 @@ static_library("content") {
     "//content/public/browser",
     "//content/public/common",
     "//net",
-    "//third_party/WebKit/public:blink_headers",
+    "//third_party/blink/public:blink_headers",
     "//ui/base",
   ]
 }
 
-source_set("unit_tests") {
+jumbo_source_set("unit_tests") {
   testonly = true
   sources = [
     "content_utils_unittest.cc",
@@ -34,6 +38,7 @@ source_set("unit_tests") {
     "//base",
     "//base/test:test_support",
     "//components/security_state/core",
+    "//components/strings",
     "//content/public/browser",
     "//content/test:test_support",
     "//net",

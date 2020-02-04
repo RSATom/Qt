@@ -130,475 +130,256 @@
 #include "internal.h"
 
 
-SSL_HANDSHAKE *ssl_handshake_new(SSL *ssl) {
-  SSL_HANDSHAKE *hs = (SSL_HANDSHAKE *)OPENSSL_malloc(sizeof(SSL_HANDSHAKE));
-  if (hs == NULL) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_MALLOC_FAILURE);
-    return NULL;
-  }
-  OPENSSL_memset(hs, 0, sizeof(SSL_HANDSHAKE));
-  hs->ssl = ssl;
-  hs->wait = ssl_hs_ok;
-  hs->state = SSL_ST_INIT;
-  if (!SSL_TRANSCRIPT_init(&hs->transcript)) {
-    ssl_handshake_free(hs);
-    return NULL;
-  }
-  return hs;
-}
+BSSL_NAMESPACE_BEGIN
 
-void ssl_handshake_free(SSL_HANDSHAKE *hs) {
-  if (hs == NULL) {
-    return;
-  }
-
-  OPENSSL_cleanse(hs->secret, sizeof(hs->secret));
-  OPENSSL_cleanse(hs->early_traffic_secret, sizeof(hs->early_traffic_secret));
-  OPENSSL_cleanse(hs->client_handshake_secret,
-                  sizeof(hs->client_handshake_secret));
-  OPENSSL_cleanse(hs->server_handshake_secret,
-                  sizeof(hs->server_handshake_secret));
-  OPENSSL_cleanse(hs->client_traffic_secret_0,
-                  sizeof(hs->client_traffic_secret_0));
-  OPENSSL_cleanse(hs->server_traffic_secret_0,
-                  sizeof(hs->server_traffic_secret_0));
-  SSL_ECDH_CTX_cleanup(&hs->ecdh_ctx);
-  SSL_TRANSCRIPT_cleanup(&hs->transcript);
-  OPENSSL_free(hs->cookie);
-  OPENSSL_free(hs->key_share_bytes);
-  OPENSSL_free(hs->ecdh_public_key);
-  SSL_SESSION_free(hs->new_session);
-  SSL_SESSION_free(hs->early_session);
-  OPENSSL_free(hs->peer_sigalgs);
-  OPENSSL_free(hs->peer_supported_group_list);
-  OPENSSL_free(hs->peer_key);
-  OPENSSL_free(hs->server_params);
-  OPENSSL_free(hs->peer_psk_identity_hint);
-  sk_CRYPTO_BUFFER_pop_free(hs->ca_names, CRYPTO_BUFFER_free);
-  hs->ssl->ctx->x509_method->hs_flush_cached_ca_names(hs);
-  OPENSSL_free(hs->certificate_types);
-
-  if (hs->key_block != NULL) {
-    OPENSSL_cleanse(hs->key_block, hs->key_block_len);
-    OPENSSL_free(hs->key_block);
-  }
-
-  OPENSSL_free(hs->hostname);
-  EVP_PKEY_free(hs->peer_pubkey);
-  EVP_PKEY_free(hs->local_pubkey);
-  OPENSSL_free(hs);
-}
-
-int ssl_check_message_type(SSL *ssl, int type) {
-  if (ssl->s3->tmp.message_type != type) {
-    ssl3_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
-    OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_MESSAGE);
-    ERR_add_error_dataf("got type %d, wanted type %d",
-                        ssl->s3->tmp.message_type, type);
-    return 0;
-  }
-
-  return 1;
-}
-
-static int add_record_to_flight(SSL *ssl, uint8_t type, const uint8_t *in,
-                                size_t in_len) {
-  /* We'll never add a flight while in the process of writing it out. */
+static bool add_record_to_flight(SSL *ssl, uint8_t type,
+                                 Span<const uint8_t> in) {
+  // The caller should have flushed |pending_hs_data| first.
+  assert(!ssl->s3->pending_hs_data);
+  // We'll never add a flight while in the process of writing it out.
   assert(ssl->s3->pending_flight_offset == 0);
 
-  if (ssl->s3->pending_flight == NULL) {
-    ssl->s3->pending_flight = BUF_MEM_new();
-    if (ssl->s3->pending_flight == NULL) {
-      return 0;
+  if (ssl->s3->pending_flight == nullptr) {
+    ssl->s3->pending_flight.reset(BUF_MEM_new());
+    if (ssl->s3->pending_flight == nullptr) {
+      return false;
     }
   }
 
-  size_t max_out = in_len + SSL_max_seal_overhead(ssl);
+  size_t max_out = in.size() + SSL_max_seal_overhead(ssl);
   size_t new_cap = ssl->s3->pending_flight->length + max_out;
-  if (max_out < in_len || new_cap < max_out) {
+  if (max_out < in.size() || new_cap < max_out) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
-    return 0;
+    return false;
   }
 
   size_t len;
-  if (!BUF_MEM_reserve(ssl->s3->pending_flight, new_cap) ||
-      !tls_seal_record(ssl, (uint8_t *)ssl->s3->pending_flight->data +
-                                ssl->s3->pending_flight->length,
-                       &len, max_out, type, in, in_len)) {
-    return 0;
+  if (!BUF_MEM_reserve(ssl->s3->pending_flight.get(), new_cap) ||
+      !tls_seal_record(ssl,
+                       (uint8_t *)ssl->s3->pending_flight->data +
+                           ssl->s3->pending_flight->length,
+                       &len, max_out, type, in.data(), in.size())) {
+    return false;
   }
 
   ssl->s3->pending_flight->length += len;
-  return 1;
+  return true;
 }
 
-int ssl3_init_message(SSL *ssl, CBB *cbb, CBB *body, uint8_t type) {
-  /* Pick a modest size hint to save most of the |realloc| calls. */
+bool ssl3_init_message(SSL *ssl, CBB *cbb, CBB *body, uint8_t type) {
+  // Pick a modest size hint to save most of the |realloc| calls.
   if (!CBB_init(cbb, 64) ||
       !CBB_add_u8(cbb, type) ||
       !CBB_add_u24_length_prefixed(cbb, body)) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
     CBB_cleanup(cbb);
-    return 0;
+    return false;
   }
 
-  return 1;
+  return true;
 }
 
-int ssl3_finish_message(SSL *ssl, CBB *cbb, uint8_t **out_msg,
-                        size_t *out_len) {
-  if (!CBB_finish(cbb, out_msg, out_len)) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    return 0;
+bool ssl3_finish_message(SSL *ssl, CBB *cbb, Array<uint8_t> *out_msg) {
+  return CBBFinishArray(cbb, out_msg);
+}
+
+bool ssl3_add_message(SSL *ssl, Array<uint8_t> msg) {
+  // Pack handshake data into the minimal number of records. This avoids
+  // unnecessary encryption overhead, notably in TLS 1.3 where we send several
+  // encrypted messages in a row. For now, we do not do this for the null
+  // cipher. The benefit is smaller and there is a risk of breaking buggy
+  // implementations. Additionally, we tie this to draft-28 as a sanity check,
+  // on the off chance middleboxes have fixated on sizes.
+  //
+  // TODO(davidben): See if we can do this uniformly.
+  Span<const uint8_t> rest = msg;
+  if (ssl->ctx->quic_method == nullptr &&
+      (ssl->s3->aead_write_ctx->is_null_cipher() ||
+       ssl->version == TLS1_3_DRAFT23_VERSION)) {
+    while (!rest.empty()) {
+      Span<const uint8_t> chunk = rest.subspan(0, ssl->max_send_fragment);
+      rest = rest.subspan(chunk.size());
+
+      if (!add_record_to_flight(ssl, SSL3_RT_HANDSHAKE, chunk)) {
+        return false;
+      }
+    }
+  } else {
+    while (!rest.empty()) {
+      // Flush if |pending_hs_data| is full.
+      if (ssl->s3->pending_hs_data &&
+          ssl->s3->pending_hs_data->length >= ssl->max_send_fragment &&
+          !tls_flush_pending_hs_data(ssl)) {
+        return false;
+      }
+
+      size_t pending_len =
+          ssl->s3->pending_hs_data ? ssl->s3->pending_hs_data->length : 0;
+      Span<const uint8_t> chunk =
+          rest.subspan(0, ssl->max_send_fragment - pending_len);
+      assert(!chunk.empty());
+      rest = rest.subspan(chunk.size());
+
+      if (!ssl->s3->pending_hs_data) {
+        ssl->s3->pending_hs_data.reset(BUF_MEM_new());
+      }
+      if (!ssl->s3->pending_hs_data ||
+          !BUF_MEM_append(ssl->s3->pending_hs_data.get(), chunk.data(),
+                          chunk.size())) {
+        return false;
+      }
+    }
   }
 
-  return 1;
-}
-
-int ssl3_add_message(SSL *ssl, uint8_t *msg, size_t len) {
-  /* Add the message to the current flight, splitting into several records if
-   * needed. */
-  int ret = 0;
-  size_t added = 0;
-  do {
-    size_t todo = len - added;
-    if (todo > ssl->max_send_fragment) {
-      todo = ssl->max_send_fragment;
-    }
-
-    uint8_t type = SSL3_RT_HANDSHAKE;
-    if (ssl->server &&
-        ssl->s3->have_version &&
-        ssl->version == TLS1_3_RECORD_TYPE_EXPERIMENT_VERSION &&
-        ssl->s3->aead_write_ctx == NULL) {
-      type = SSL3_RT_PLAINTEXT_HANDSHAKE;
-    }
-
-    if (!add_record_to_flight(ssl, type, msg + added, todo)) {
-      goto err;
-    }
-    added += todo;
-  } while (added < len);
-
-  ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_HANDSHAKE, msg, len);
-  /* TODO(svaldez): Move this up a layer to fix abstraction for SSL_TRANSCRIPT
-   * on hs. */
+  ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_HANDSHAKE, msg);
+  // TODO(svaldez): Move this up a layer to fix abstraction for SSLTranscript on
+  // hs.
   if (ssl->s3->hs != NULL &&
-      !SSL_TRANSCRIPT_update(&ssl->s3->hs->transcript, msg, len)) {
-    goto err;
+      !ssl->s3->hs->transcript.Update(msg)) {
+    return false;
   }
-  ret = 1;
-
-err:
-  OPENSSL_free(msg);
-  return ret;
+  return true;
 }
 
-int ssl3_add_change_cipher_spec(SSL *ssl) {
+bool tls_flush_pending_hs_data(SSL *ssl) {
+  if (!ssl->s3->pending_hs_data || ssl->s3->pending_hs_data->length == 0) {
+    return true;
+  }
+
+  UniquePtr<BUF_MEM> pending_hs_data = std::move(ssl->s3->pending_hs_data);
+  auto data =
+      MakeConstSpan(reinterpret_cast<const uint8_t *>(pending_hs_data->data),
+                    pending_hs_data->length);
+  if (ssl->ctx->quic_method) {
+    if (!ssl->ctx->quic_method->add_handshake_data(ssl, ssl->s3->write_level,
+                                                   data.data(), data.size())) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_QUIC_INTERNAL_ERROR);
+      return false;
+    }
+    return true;
+  }
+
+  return add_record_to_flight(ssl, SSL3_RT_HANDSHAKE, data);
+}
+
+bool ssl3_add_change_cipher_spec(SSL *ssl) {
   static const uint8_t kChangeCipherSpec[1] = {SSL3_MT_CCS};
 
-  if (!add_record_to_flight(ssl, SSL3_RT_CHANGE_CIPHER_SPEC, kChangeCipherSpec,
-                            sizeof(kChangeCipherSpec))) {
-    return 0;
+  if (!tls_flush_pending_hs_data(ssl)) {
+    return false;
+  }
+
+  if (!ssl->ctx->quic_method &&
+      !add_record_to_flight(ssl, SSL3_RT_CHANGE_CIPHER_SPEC,
+                            kChangeCipherSpec)) {
+    return false;
   }
 
   ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_CHANGE_CIPHER_SPEC,
-                      kChangeCipherSpec, sizeof(kChangeCipherSpec));
-  return 1;
-}
-
-int ssl3_add_alert(SSL *ssl, uint8_t level, uint8_t desc) {
-  uint8_t alert[2] = {level, desc};
-  if (!add_record_to_flight(ssl, SSL3_RT_ALERT, alert, sizeof(alert))) {
-    return 0;
-  }
-
-  ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_ALERT, alert, sizeof(alert));
-  ssl_do_info_callback(ssl, SSL_CB_WRITE_ALERT, ((int)level << 8) | desc);
-  return 1;
-}
-
-int ssl_add_message_cbb(SSL *ssl, CBB *cbb) {
-  uint8_t *msg;
-  size_t len;
-  if (!ssl->method->finish_message(ssl, cbb, &msg, &len) ||
-      !ssl->method->add_message(ssl, msg, len)) {
-    return 0;
-  }
-
-  return 1;
+                      kChangeCipherSpec);
+  return true;
 }
 
 int ssl3_flush_flight(SSL *ssl) {
-  if (ssl->s3->pending_flight == NULL) {
+  if (!tls_flush_pending_hs_data(ssl)) {
+    return -1;
+  }
+
+  if (ssl->ctx->quic_method) {
+    if (ssl->s3->write_shutdown != ssl_shutdown_none) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_PROTOCOL_IS_SHUTDOWN);
+      return -1;
+    }
+
+    if (!ssl->ctx->quic_method->flush_flight(ssl)) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_QUIC_INTERNAL_ERROR);
+      return -1;
+    }
+  }
+
+  if (ssl->s3->pending_flight == nullptr) {
     return 1;
   }
 
-  if (ssl->s3->pending_flight->length > 0xffffffff ||
-      ssl->s3->pending_flight->length > INT_MAX) {
+  if (ssl->s3->write_shutdown != ssl_shutdown_none) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_PROTOCOL_IS_SHUTDOWN);
+    return -1;
+  }
+
+  static_assert(INT_MAX <= 0xffffffff, "int is larger than 32 bits");
+  if (ssl->s3->pending_flight->length > INT_MAX) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
     return -1;
   }
 
-  /* If there is pending data in the write buffer, it must be flushed out before
-   * any new data in pending_flight. */
-  if (ssl_write_buffer_is_pending(ssl)) {
+  // If there is pending data in the write buffer, it must be flushed out before
+  // any new data in pending_flight.
+  if (!ssl->s3->write_buffer.empty()) {
     int ret = ssl_write_buffer_flush(ssl);
     if (ret <= 0) {
-      ssl->rwstate = SSL_WRITING;
+      ssl->s3->rwstate = SSL_WRITING;
       return ret;
     }
   }
 
-  /* Write the pending flight. */
+  // Write the pending flight.
   while (ssl->s3->pending_flight_offset < ssl->s3->pending_flight->length) {
     int ret = BIO_write(
-        ssl->wbio,
+        ssl->wbio.get(),
         ssl->s3->pending_flight->data + ssl->s3->pending_flight_offset,
         ssl->s3->pending_flight->length - ssl->s3->pending_flight_offset);
     if (ret <= 0) {
-      ssl->rwstate = SSL_WRITING;
+      ssl->s3->rwstate = SSL_WRITING;
       return ret;
     }
 
     ssl->s3->pending_flight_offset += ret;
   }
 
-  if (BIO_flush(ssl->wbio) <= 0) {
-    ssl->rwstate = SSL_WRITING;
+  if (BIO_flush(ssl->wbio.get()) <= 0) {
+    ssl->s3->rwstate = SSL_WRITING;
     return -1;
   }
 
-  BUF_MEM_free(ssl->s3->pending_flight);
-  ssl->s3->pending_flight = NULL;
+  ssl->s3->pending_flight.reset();
   ssl->s3->pending_flight_offset = 0;
   return 1;
 }
 
-int ssl3_send_finished(SSL_HANDSHAKE *hs) {
-  SSL *const ssl = hs->ssl;
-  const SSL_SESSION *session = SSL_get_session(ssl);
-
-  uint8_t finished[EVP_MAX_MD_SIZE];
-  size_t finished_len;
-  if (!SSL_TRANSCRIPT_finish_mac(&hs->transcript, finished, &finished_len,
-                                 session, ssl->server,
-                                 ssl3_protocol_version(ssl))) {
-    return 0;
-  }
-
-  /* Log the master secret, if logging is enabled. */
-  if (!ssl_log_secret(ssl, "CLIENT_RANDOM",
-                      session->master_key,
-                      session->master_key_length)) {
-    return 0;
-  }
-
-  /* Copy the Finished so we can use it for renegotiation checks. */
-  if (ssl->version != SSL3_VERSION) {
-    if (finished_len > sizeof(ssl->s3->previous_client_finished) ||
-        finished_len > sizeof(ssl->s3->previous_server_finished)) {
-      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-      return -1;
-    }
-
-    if (ssl->server) {
-      OPENSSL_memcpy(ssl->s3->previous_server_finished, finished, finished_len);
-      ssl->s3->previous_server_finished_len = finished_len;
-    } else {
-      OPENSSL_memcpy(ssl->s3->previous_client_finished, finished, finished_len);
-      ssl->s3->previous_client_finished_len = finished_len;
-    }
-  }
-
-  CBB cbb, body;
-  if (!ssl->method->init_message(ssl, &cbb, &body, SSL3_MT_FINISHED) ||
-      !CBB_add_bytes(&body, finished, finished_len) ||
-      !ssl_add_message_cbb(ssl, &cbb)) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    CBB_cleanup(&cbb);
-    return -1;
-  }
-
-  return 1;
-}
-
-int ssl3_get_finished(SSL_HANDSHAKE *hs) {
-  SSL *const ssl = hs->ssl;
-  int ret = ssl->method->ssl_get_message(ssl);
-  if (ret <= 0) {
-    return ret;
-  }
-
-  if (!ssl_check_message_type(ssl, SSL3_MT_FINISHED)) {
-    return -1;
-  }
-
-  /* Snapshot the finished hash before incorporating the new message. */
-  uint8_t finished[EVP_MAX_MD_SIZE];
-  size_t finished_len;
-  if (!SSL_TRANSCRIPT_finish_mac(&hs->transcript, finished, &finished_len,
-                                 SSL_get_session(ssl), !ssl->server,
-                                 ssl3_protocol_version(ssl)) ||
-      !ssl_hash_current_message(hs)) {
-    return -1;
-  }
-
-  int finished_ok = ssl->init_num == finished_len &&
-                    CRYPTO_memcmp(ssl->init_msg, finished, finished_len) == 0;
-#if defined(BORINGSSL_UNSAFE_FUZZER_MODE)
-  finished_ok = 1;
-#endif
-  if (!finished_ok) {
-    ssl3_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECRYPT_ERROR);
-    OPENSSL_PUT_ERROR(SSL, SSL_R_DIGEST_CHECK_FAILED);
-    return -1;
-  }
-
-  /* Copy the Finished so we can use it for renegotiation checks. */
-  if (ssl->version != SSL3_VERSION) {
-    if (finished_len > sizeof(ssl->s3->previous_client_finished) ||
-        finished_len > sizeof(ssl->s3->previous_server_finished)) {
-      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-      return -1;
-    }
-
-    if (ssl->server) {
-      OPENSSL_memcpy(ssl->s3->previous_client_finished, finished, finished_len);
-      ssl->s3->previous_client_finished_len = finished_len;
-    } else {
-      OPENSSL_memcpy(ssl->s3->previous_server_finished, finished, finished_len);
-      ssl->s3->previous_server_finished_len = finished_len;
-    }
-  }
-
-  return 1;
-}
-
-int ssl3_output_cert_chain(SSL *ssl) {
-  CBB cbb, body;
-  if (!ssl->method->init_message(ssl, &cbb, &body, SSL3_MT_CERTIFICATE) ||
-      !ssl_add_cert_chain(ssl, &body) ||
-      !ssl_add_message_cbb(ssl, &cbb)) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    CBB_cleanup(&cbb);
-    return 0;
-  }
-
-  return 1;
-}
-
-size_t ssl_max_handshake_message_len(const SSL *ssl) {
-  /* kMaxMessageLen is the default maximum message size for handshakes which do
-   * not accept peer certificate chains. */
-  static const size_t kMaxMessageLen = 16384;
-
-  if (SSL_in_init(ssl)) {
-    if ((!ssl->server || (ssl->verify_mode & SSL_VERIFY_PEER)) &&
-        kMaxMessageLen < ssl->max_cert_list) {
-      return ssl->max_cert_list;
-    }
-    return kMaxMessageLen;
-  }
-
-  if (ssl3_protocol_version(ssl) < TLS1_3_VERSION) {
-    /* In TLS 1.2 and below, the largest acceptable post-handshake message is
-     * a HelloRequest. */
-    return 0;
-  }
-
-  if (ssl->server) {
-    /* The largest acceptable post-handshake message for a server is a
-     * KeyUpdate. We will never initiate post-handshake auth. */
-    return 1;
-  }
-
-  /* Clients must accept NewSessionTicket and CertificateRequest, so allow the
-   * default size. */
-  return kMaxMessageLen;
-}
-
-static int extend_handshake_buffer(SSL *ssl, size_t length) {
-  if (!BUF_MEM_reserve(ssl->init_buf, length)) {
-    return -1;
-  }
-  while (ssl->init_buf->length < length) {
-    int ret = ssl3_read_handshake_bytes(
-        ssl, (uint8_t *)ssl->init_buf->data + ssl->init_buf->length,
-        length - ssl->init_buf->length);
-    if (ret <= 0) {
-      return ret;
-    }
-    ssl->init_buf->length += (size_t)ret;
-  }
-  return 1;
-}
-
-static int read_v2_client_hello(SSL *ssl) {
-  /* Read the first 5 bytes, the size of the TLS record header. This is
-   * sufficient to detect a V2ClientHello and ensures that we never read beyond
-   * the first record. */
-  int ret = ssl_read_buffer_extend_to(ssl, SSL3_RT_HEADER_LENGTH);
-  if (ret <= 0) {
-    return ret;
-  }
-  const uint8_t *p = ssl_read_buffer(ssl);
-
-  /* Some dedicated error codes for protocol mixups should the application wish
-   * to interpret them differently. (These do not overlap with ClientHello or
-   * V2ClientHello.) */
-  if (strncmp("GET ", (const char *)p, 4) == 0 ||
-      strncmp("POST ", (const char *)p, 5) == 0 ||
-      strncmp("HEAD ", (const char *)p, 5) == 0 ||
-      strncmp("PUT ", (const char *)p, 4) == 0) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_HTTP_REQUEST);
-    return -1;
-  }
-  if (strncmp("CONNE", (const char *)p, 5) == 0) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_HTTPS_PROXY_REQUEST);
-    return -1;
-  }
-
-  if ((p[0] & 0x80) == 0 || p[2] != SSL2_MT_CLIENT_HELLO ||
-      p[3] != SSL3_VERSION_MAJOR) {
-    /* Not a V2ClientHello. */
-    return 1;
-  }
-
-  /* Determine the length of the V2ClientHello. */
-  size_t msg_length = ((p[0] & 0x7f) << 8) | p[1];
+static ssl_open_record_t read_v2_client_hello(SSL *ssl, size_t *out_consumed,
+                                              Span<const uint8_t> in) {
+  *out_consumed = 0;
+  assert(in.size() >= SSL3_RT_HEADER_LENGTH);
+  // Determine the length of the V2ClientHello.
+  size_t msg_length = ((in[0] & 0x7f) << 8) | in[1];
   if (msg_length > (1024 * 4)) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_RECORD_TOO_LARGE);
-    return -1;
+    return ssl_open_record_error;
   }
   if (msg_length < SSL3_RT_HEADER_LENGTH - 2) {
-    /* Reject lengths that are too short early. We have already read
-     * |SSL3_RT_HEADER_LENGTH| bytes, so we should not attempt to process an
-     * (invalid) V2ClientHello which would be shorter than that. */
+    // Reject lengths that are too short early. We have already read
+    // |SSL3_RT_HEADER_LENGTH| bytes, so we should not attempt to process an
+    // (invalid) V2ClientHello which would be shorter than that.
     OPENSSL_PUT_ERROR(SSL, SSL_R_RECORD_LENGTH_MISMATCH);
-    return -1;
+    return ssl_open_record_error;
   }
 
-  /* Read the remainder of the V2ClientHello. */
-  ret = ssl_read_buffer_extend_to(ssl, 2 + msg_length);
-  if (ret <= 0) {
-    return ret;
+  // Ask for the remainder of the V2ClientHello.
+  if (in.size() < 2 + msg_length) {
+    *out_consumed = 2 + msg_length;
+    return ssl_open_record_partial;
   }
 
-  CBS v2_client_hello;
-  CBS_init(&v2_client_hello, ssl_read_buffer(ssl) + 2, msg_length);
-
-  /* The V2ClientHello without the length is incorporated into the handshake
-   * hash. This is only ever called at the start of the handshake, so hs is
-   * guaranteed to be non-NULL. */
-  if (!SSL_TRANSCRIPT_update(&ssl->s3->hs->transcript,
-                             CBS_data(&v2_client_hello),
-                             CBS_len(&v2_client_hello))) {
-    return -1;
+  CBS v2_client_hello = CBS(ssl->s3->read_buffer.span().subspan(2, msg_length));
+  // The V2ClientHello without the length is incorporated into the handshake
+  // hash. This is only ever called at the start of the handshake, so hs is
+  // guaranteed to be non-NULL.
+  if (!ssl->s3->hs->transcript.Update(v2_client_hello)) {
+    return ssl_open_record_error;
   }
 
   ssl_do_msg_callback(ssl, 0 /* read */, 0 /* V2ClientHello */,
-                      CBS_data(&v2_client_hello), CBS_len(&v2_client_hello));
+                      v2_client_hello);
 
   uint8_t msg_type;
   uint16_t version, cipher_spec_length, session_id_length, challenge_length;
@@ -613,14 +394,14 @@ static int read_v2_client_hello(SSL *ssl) {
       !CBS_get_bytes(&v2_client_hello, &challenge, challenge_length) ||
       CBS_len(&v2_client_hello) != 0) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
-    return -1;
+    return ssl_open_record_error;
   }
 
-  /* msg_type has already been checked. */
+  // msg_type has already been checked.
   assert(msg_type == SSL2_MT_CLIENT_HELLO);
 
-  /* The client_random is the V2ClientHello challenge. Truncate or
-   * left-pad with zeros as needed. */
+  // The client_random is the V2ClientHello challenge. Truncate or left-pad with
+  // zeros as needed.
   size_t rand_len = CBS_len(&challenge);
   if (rand_len > SSL3_RANDOM_SIZE) {
     rand_len = SSL3_RANDOM_SIZE;
@@ -630,234 +411,247 @@ static int read_v2_client_hello(SSL *ssl) {
   OPENSSL_memcpy(random + (SSL3_RANDOM_SIZE - rand_len), CBS_data(&challenge),
                  rand_len);
 
-  /* Write out an equivalent SSLv3 ClientHello. */
+  // Write out an equivalent TLS ClientHello directly to the handshake buffer.
   size_t max_v3_client_hello = SSL3_HM_HEADER_LENGTH + 2 /* version */ +
                                SSL3_RANDOM_SIZE + 1 /* session ID length */ +
                                2 /* cipher list length */ +
                                CBS_len(&cipher_specs) / 3 * 2 +
                                1 /* compression length */ + 1 /* compression */;
-  CBB client_hello, hello_body, cipher_suites;
-  CBB_zero(&client_hello);
-  if (!BUF_MEM_reserve(ssl->init_buf, max_v3_client_hello) ||
-      !CBB_init_fixed(&client_hello, (uint8_t *)ssl->init_buf->data,
-                      ssl->init_buf->max) ||
-      !CBB_add_u8(&client_hello, SSL3_MT_CLIENT_HELLO) ||
-      !CBB_add_u24_length_prefixed(&client_hello, &hello_body) ||
+  ScopedCBB client_hello;
+  CBB hello_body, cipher_suites;
+  if (!ssl->s3->hs_buf) {
+    ssl->s3->hs_buf.reset(BUF_MEM_new());
+  }
+  if (!ssl->s3->hs_buf ||
+      !BUF_MEM_reserve(ssl->s3->hs_buf.get(), max_v3_client_hello) ||
+      !CBB_init_fixed(client_hello.get(), (uint8_t *)ssl->s3->hs_buf->data,
+                      ssl->s3->hs_buf->max) ||
+      !CBB_add_u8(client_hello.get(), SSL3_MT_CLIENT_HELLO) ||
+      !CBB_add_u24_length_prefixed(client_hello.get(), &hello_body) ||
       !CBB_add_u16(&hello_body, version) ||
       !CBB_add_bytes(&hello_body, random, SSL3_RANDOM_SIZE) ||
-      /* No session id. */
+      // No session id.
       !CBB_add_u8(&hello_body, 0) ||
       !CBB_add_u16_length_prefixed(&hello_body, &cipher_suites)) {
-    CBB_cleanup(&client_hello);
     OPENSSL_PUT_ERROR(SSL, ERR_R_MALLOC_FAILURE);
-    return -1;
+    return ssl_open_record_error;
   }
 
-  /* Copy the cipher suites. */
+  // Copy the cipher suites.
   while (CBS_len(&cipher_specs) > 0) {
     uint32_t cipher_spec;
     if (!CBS_get_u24(&cipher_specs, &cipher_spec)) {
-      CBB_cleanup(&client_hello);
       OPENSSL_PUT_ERROR(SSL, SSL_R_DECODE_ERROR);
-      return -1;
+      return ssl_open_record_error;
     }
 
-    /* Skip SSLv2 ciphers. */
+    // Skip SSLv2 ciphers.
     if ((cipher_spec & 0xff0000) != 0) {
       continue;
     }
     if (!CBB_add_u16(&cipher_suites, cipher_spec)) {
-      CBB_cleanup(&client_hello);
       OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-      return -1;
+      return ssl_open_record_error;
     }
   }
 
-  /* Add the null compression scheme and finish. */
-  if (!CBB_add_u8(&hello_body, 1) || !CBB_add_u8(&hello_body, 0) ||
-      !CBB_finish(&client_hello, NULL, &ssl->init_buf->length)) {
-    CBB_cleanup(&client_hello);
+  // Add the null compression scheme and finish.
+  if (!CBB_add_u8(&hello_body, 1) ||
+      !CBB_add_u8(&hello_body, 0) ||
+      !CBB_finish(client_hello.get(), NULL, &ssl->s3->hs_buf->length)) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    return -1;
+    return ssl_open_record_error;
   }
 
-  /* Consume and discard the V2ClientHello. */
-  ssl_read_buffer_consume(ssl, 2 + msg_length);
-  ssl_read_buffer_discard(ssl);
-
-  ssl->s3->is_v2_hello = 1;
-  return 1;
+  *out_consumed = 2 + msg_length;
+  ssl->s3->is_v2_hello = true;
+  return ssl_open_record_success;
 }
 
-int ssl3_get_message(SSL *ssl) {
-  /* Re-create the handshake buffer if needed. */
-  if (ssl->init_buf == NULL) {
-    ssl->init_buf = BUF_MEM_new();
-    if (ssl->init_buf == NULL) {
-      return -1;
-    }
-  }
-
-  if (ssl->server && !ssl->s3->v2_hello_done) {
-    /* Bypass the record layer for the first message to handle V2ClientHello. */
-    int ret = read_v2_client_hello(ssl);
-    if (ret <= 0) {
-      return ret;
-    }
-    ssl->s3->v2_hello_done = 1;
-  }
-
-  if (ssl->s3->tmp.reuse_message) {
-    /* There must be a current message. */
-    assert(ssl->init_msg != NULL);
-    ssl->s3->tmp.reuse_message = 0;
-  } else {
-    ssl3_release_current_message(ssl, 0 /* don't free buffer */);
-  }
-
-  /* Read the message header, if we haven't yet. */
-  int ret = extend_handshake_buffer(ssl, SSL3_HM_HEADER_LENGTH);
-  if (ret <= 0) {
-    return ret;
-  }
-
-  /* Parse out the length. Cap it so the peer cannot force us to buffer up to
-   * 2^24 bytes. */
-  const uint8_t *p = (uint8_t *)ssl->init_buf->data;
-  size_t msg_len = (((uint32_t)p[1]) << 16) | (((uint32_t)p[2]) << 8) | p[3];
-  if (msg_len > ssl_max_handshake_message_len(ssl)) {
-    ssl3_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_ILLEGAL_PARAMETER);
-    OPENSSL_PUT_ERROR(SSL, SSL_R_EXCESSIVE_MESSAGE_SIZE);
-    return -1;
-  }
-
-  /* Read the message body, if we haven't yet. */
-  ret = extend_handshake_buffer(ssl, SSL3_HM_HEADER_LENGTH + msg_len);
-  if (ret <= 0) {
-    return ret;
-  }
-
-  /* We have now received a complete message. */
-  ssl_do_msg_callback(ssl, 0 /* read */, SSL3_RT_HANDSHAKE, ssl->init_buf->data,
-                      ssl->init_buf->length);
-
-  ssl->s3->tmp.message_type = ((const uint8_t *)ssl->init_buf->data)[0];
-  ssl->init_msg = (uint8_t*)ssl->init_buf->data + SSL3_HM_HEADER_LENGTH;
-  ssl->init_num = ssl->init_buf->length - SSL3_HM_HEADER_LENGTH;
-  return 1;
-}
-
-void ssl3_get_current_message(const SSL *ssl, CBS *out) {
-  CBS_init(out, (uint8_t *)ssl->init_buf->data, ssl->init_buf->length);
-}
-
-int ssl_hash_current_message(SSL_HANDSHAKE *hs) {
-  /* V2ClientHellos are hashed implicitly. */
-  if (hs->ssl->s3->is_v2_hello) {
-    return 1;
+static bool parse_message(const SSL *ssl, SSLMessage *out,
+                          size_t *out_bytes_needed) {
+  if (!ssl->s3->hs_buf) {
+    *out_bytes_needed = 4;
+    return false;
   }
 
   CBS cbs;
-  hs->ssl->method->get_current_message(hs->ssl, &cbs);
-  return SSL_TRANSCRIPT_update(&hs->transcript, CBS_data(&cbs), CBS_len(&cbs));
+  uint32_t len;
+  CBS_init(&cbs, reinterpret_cast<const uint8_t *>(ssl->s3->hs_buf->data),
+           ssl->s3->hs_buf->length);
+  if (!CBS_get_u8(&cbs, &out->type) ||
+      !CBS_get_u24(&cbs, &len)) {
+    *out_bytes_needed = 4;
+    return false;
+  }
+
+  if (!CBS_get_bytes(&cbs, &out->body, len)) {
+    *out_bytes_needed = 4 + len;
+    return false;
+  }
+
+  CBS_init(&out->raw, reinterpret_cast<const uint8_t *>(ssl->s3->hs_buf->data),
+           4 + len);
+  out->is_v2_hello = ssl->s3->is_v2_hello;
+  return true;
 }
 
-void ssl3_release_current_message(SSL *ssl, int free_buffer) {
-  if (ssl->init_msg != NULL) {
-    /* |init_buf| never contains data beyond the current message. */
-    assert(SSL3_HM_HEADER_LENGTH + ssl->init_num == ssl->init_buf->length);
-
-    /* Clear the current message. */
-    ssl->init_msg = NULL;
-    ssl->init_num = 0;
-    ssl->init_buf->length = 0;
-    ssl->s3->is_v2_hello = 0;
+bool ssl3_get_message(SSL *ssl, SSLMessage *out) {
+  size_t unused;
+  if (!parse_message(ssl, out, &unused)) {
+    return false;
   }
-
-  if (free_buffer) {
-    BUF_MEM_free(ssl->init_buf);
-    ssl->init_buf = NULL;
+  if (!ssl->s3->has_message) {
+    if (!out->is_v2_hello) {
+      ssl_do_msg_callback(ssl, 0 /* read */, SSL3_RT_HANDSHAKE, out->raw);
+    }
+    ssl->s3->has_message = true;
   }
+  return true;
 }
 
-int ssl_parse_extensions(const CBS *cbs, uint8_t *out_alert,
-                         const SSL_EXTENSION_TYPE *ext_types,
-                         size_t num_ext_types, int ignore_unknown) {
-  /* Reset everything. */
-  for (size_t i = 0; i < num_ext_types; i++) {
-    *ext_types[i].out_present = 0;
-    CBS_init(ext_types[i].out_data, NULL, 0);
+bool tls_can_accept_handshake_data(const SSL *ssl, uint8_t *out_alert) {
+  // If there is a complete message, the caller must have consumed it first.
+  SSLMessage msg;
+  size_t bytes_needed;
+  if (parse_message(ssl, &msg, &bytes_needed)) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
+    *out_alert = SSL_AD_INTERNAL_ERROR;
+    return false;
   }
 
-  CBS copy = *cbs;
-  while (CBS_len(&copy) != 0) {
-    uint16_t type;
-    CBS data;
-    if (!CBS_get_u16(&copy, &type) ||
-        !CBS_get_u16_length_prefixed(&copy, &data)) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_PARSE_TLSEXT);
-      *out_alert = SSL_AD_DECODE_ERROR;
-      return 0;
+  // Enforce the limit so the peer cannot force us to buffer 16MB.
+  if (bytes_needed > 4 + ssl_max_handshake_message_len(ssl)) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_EXCESSIVE_MESSAGE_SIZE);
+    *out_alert = SSL_AD_ILLEGAL_PARAMETER;
+    return false;
+  }
+
+  return true;
+}
+
+bool tls_has_unprocessed_handshake_data(const SSL *ssl) {
+  size_t msg_len = 0;
+  if (ssl->s3->has_message) {
+    SSLMessage msg;
+    size_t unused;
+    if (parse_message(ssl, &msg, &unused)) {
+      msg_len = CBS_len(&msg.raw);
+    }
+  }
+
+  return ssl->s3->hs_buf && ssl->s3->hs_buf->length > msg_len;
+}
+
+bool tls_append_handshake_data(SSL *ssl, Span<const uint8_t> data) {
+  // Re-create the handshake buffer if needed.
+  if (!ssl->s3->hs_buf) {
+    ssl->s3->hs_buf.reset(BUF_MEM_new());
+  }
+  return ssl->s3->hs_buf &&
+         BUF_MEM_append(ssl->s3->hs_buf.get(), data.data(), data.size());
+}
+
+ssl_open_record_t ssl3_open_handshake(SSL *ssl, size_t *out_consumed,
+                                      uint8_t *out_alert, Span<uint8_t> in) {
+  *out_consumed = 0;
+  // Bypass the record layer for the first message to handle V2ClientHello.
+  if (ssl->server && !ssl->s3->v2_hello_done) {
+    // Ask for the first 5 bytes, the size of the TLS record header. This is
+    // sufficient to detect a V2ClientHello and ensures that we never read
+    // beyond the first record.
+    if (in.size() < SSL3_RT_HEADER_LENGTH) {
+      *out_consumed = SSL3_RT_HEADER_LENGTH;
+      return ssl_open_record_partial;
     }
 
-    const SSL_EXTENSION_TYPE *ext_type = NULL;
-    for (size_t i = 0; i < num_ext_types; i++) {
-      if (type == ext_types[i].type) {
-        ext_type = &ext_types[i];
-        break;
+    // Some dedicated error codes for protocol mixups should the application
+    // wish to interpret them differently. (These do not overlap with
+    // ClientHello or V2ClientHello.)
+    const char *str = reinterpret_cast<const char*>(in.data());
+    if (strncmp("GET ", str, 4) == 0 ||
+        strncmp("POST ", str, 5) == 0 ||
+        strncmp("HEAD ", str, 5) == 0 ||
+        strncmp("PUT ", str, 4) == 0) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_HTTP_REQUEST);
+      *out_alert = 0;
+      return ssl_open_record_error;
+    }
+    if (strncmp("CONNE", str, 5) == 0) {
+      OPENSSL_PUT_ERROR(SSL, SSL_R_HTTPS_PROXY_REQUEST);
+      *out_alert = 0;
+      return ssl_open_record_error;
+    }
+
+    // Check for a V2ClientHello.
+    if ((in[0] & 0x80) != 0 && in[2] == SSL2_MT_CLIENT_HELLO &&
+        in[3] == SSL3_VERSION_MAJOR) {
+      auto ret = read_v2_client_hello(ssl, out_consumed, in);
+      if (ret == ssl_open_record_error) {
+        *out_alert = 0;
+      } else if (ret == ssl_open_record_success) {
+        ssl->s3->v2_hello_done = true;
       }
+      return ret;
     }
 
-    if (ext_type == NULL) {
-      if (ignore_unknown) {
-        continue;
-      }
-      OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_EXTENSION);
-      *out_alert = SSL_AD_UNSUPPORTED_EXTENSION;
-      return 0;
-    }
-
-    /* Duplicate ext_types are forbidden. */
-    if (*ext_type->out_present) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_DUPLICATE_EXTENSION);
-      *out_alert = SSL_AD_ILLEGAL_PARAMETER;
-      return 0;
-    }
-
-    *ext_type->out_present = 1;
-    *ext_type->out_data = data;
+    ssl->s3->v2_hello_done = true;
   }
 
-  return 1;
+  uint8_t type;
+  Span<uint8_t> body;
+  auto ret = tls_open_record(ssl, &type, &body, out_consumed, out_alert, in);
+  if (ret != ssl_open_record_success) {
+    return ret;
+  }
+
+  // WatchGuard's TLS 1.3 interference bug is very distinctive: they drop the
+  // ServerHello and send the remaining encrypted application data records
+  // as-is. This manifests as an application data record when we expect
+  // handshake. Report a dedicated error code for this case.
+  if (!ssl->server && type == SSL3_RT_APPLICATION_DATA &&
+      ssl->s3->aead_read_ctx->is_null_cipher()) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_APPLICATION_DATA_INSTEAD_OF_HANDSHAKE);
+    *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
+    return ssl_open_record_error;
+  }
+
+  if (type != SSL3_RT_HANDSHAKE) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_RECORD);
+    *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
+    return ssl_open_record_error;
+  }
+
+  // Append the entire handshake record to the buffer.
+  if (!tls_append_handshake_data(ssl, body)) {
+    *out_alert = SSL_AD_INTERNAL_ERROR;
+    return ssl_open_record_error;
+  }
+
+  return ssl_open_record_success;
 }
 
-enum ssl_verify_result_t ssl_verify_peer_cert(SSL_HANDSHAKE *hs) {
-  SSL *const ssl = hs->ssl;
-  uint8_t alert = SSL_AD_CERTIFICATE_UNKNOWN;
-  enum ssl_verify_result_t ret;
-  if (ssl->custom_verify_callback != nullptr) {
-    ret = ssl->custom_verify_callback(ssl, &alert);
-    switch (ret) {
-      case ssl_verify_ok:
-        hs->new_session->verify_result = X509_V_OK;
-        break;
-      case ssl_verify_invalid:
-        hs->new_session->verify_result = X509_V_ERR_APPLICATION_VERIFICATION;
-        break;
-      case ssl_verify_retry:
-        break;
-    }
-  } else {
-    ret = ssl->ctx->x509_method->session_verify_cert_chain(hs->new_session, ssl,
-                                                           &alert)
-              ? ssl_verify_ok
-              : ssl_verify_invalid;
+void ssl3_next_message(SSL *ssl) {
+  SSLMessage msg;
+  if (!ssl3_get_message(ssl, &msg) ||
+      !ssl->s3->hs_buf ||
+      ssl->s3->hs_buf->length < CBS_len(&msg.raw)) {
+    assert(0);
+    return;
   }
 
-  if (ret == ssl_verify_invalid) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_CERTIFICATE_VERIFY_FAILED);
-    ssl3_send_alert(ssl, SSL3_AL_FATAL, alert);
-  }
+  OPENSSL_memmove(ssl->s3->hs_buf->data,
+                  ssl->s3->hs_buf->data + CBS_len(&msg.raw),
+                  ssl->s3->hs_buf->length - CBS_len(&msg.raw));
+  ssl->s3->hs_buf->length -= CBS_len(&msg.raw);
+  ssl->s3->is_v2_hello = false;
+  ssl->s3->has_message = false;
 
-  return ret;
+  // Post-handshake messages are rare, so release the buffer after every
+  // message. During the handshake, |on_handshake_complete| will release it.
+  if (!SSL_in_init(ssl) && ssl->s3->hs_buf->length == 0) {
+    ssl->s3->hs_buf.reset();
+  }
 }
+
+BSSL_NAMESPACE_END

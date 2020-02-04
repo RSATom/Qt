@@ -7,141 +7,123 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/macros.h"
-#include "content/browser/media/media_devices_permission_checker.h"
+#include "content/browser/media/media_devices_util.h"
 #include "content/browser/renderer_host/media/media_devices_manager.h"
 #include "content/common/content_export.h"
-#include "content/common/media/media_devices.mojom.h"
 #include "media/capture/video/video_capture_device_descriptor.h"
+#include "third_party/blink/public/mojom/mediastream/media_devices.mojom.h"
 #include "url/origin.h"
-
-using ::mojom::MediaDeviceType;
 
 namespace content {
 
 class MediaStreamManager;
 
 class CONTENT_EXPORT MediaDevicesDispatcherHost
-    : public ::mojom::MediaDevicesDispatcherHost,
-      public MediaDeviceChangeSubscriber {
+    : public blink::mojom::MediaDevicesDispatcherHost {
  public:
   MediaDevicesDispatcherHost(int render_process_id,
                              int render_frame_id,
-                             const std::string& device_id_salt,
                              MediaStreamManager* media_stream_manager);
   ~MediaDevicesDispatcherHost() override;
 
   static void Create(int render_process_id,
                      int render_frame_id,
-                     const std::string& device_id_salt,
                      MediaStreamManager* media_stream_manager,
-                     ::mojom::MediaDevicesDispatcherHostRequest request);
+                     blink::mojom::MediaDevicesDispatcherHostRequest request);
 
-  // ::mojom::MediaDevicesDispatcherHost implementation.
+  // blink::mojom::MediaDevicesDispatcherHost implementation.
   void EnumerateDevices(bool request_audio_input,
                         bool request_video_input,
                         bool request_audio_output,
+                        bool request_video_input_capabilities,
                         EnumerateDevicesCallback client_callback) override;
   void GetVideoInputCapabilities(
       GetVideoInputCapabilitiesCallback client_callback) override;
+  void GetAllVideoInputDeviceFormats(
+      const std::string& device_id,
+      GetAllVideoInputDeviceFormatsCallback client_callback) override;
+  void GetAvailableVideoInputDeviceFormats(
+      const std::string& device_id,
+      GetAvailableVideoInputDeviceFormatsCallback client_callback) override;
   void GetAudioInputCapabilities(
       GetAudioInputCapabilitiesCallback client_callback) override;
-  void SubscribeDeviceChangeNotifications(MediaDeviceType type,
-                                          uint32_t subscription_id) override;
-  void UnsubscribeDeviceChangeNotifications(MediaDeviceType type,
-                                            uint32_t subscription_id) override;
-
-  // MediaDeviceChangeSubscriber implementation.
-  void OnDevicesChanged(MediaDeviceType type,
-                        const MediaDeviceInfoArray& device_infos) override;
-
-  void SetPermissionChecker(
-      std::unique_ptr<MediaDevicesPermissionChecker> permission_checker);
-
-  void SetDeviceChangeListenerForTesting(
-      ::mojom::MediaDevicesListenerPtr listener);
-
-  void SetSecurityOriginForTesting(const url::Origin& origin);
+  void AddMediaDevicesListener(
+      bool subscribe_audio_input,
+      bool subscribe_video_input,
+      bool subscribe_audio_output,
+      blink::mojom::MediaDevicesListenerPtr listener) override;
 
  private:
-  void CheckPermissionsForEnumerateDevices(
-      const MediaDevicesManager::BoolDeviceTypes& requested_types,
-      EnumerateDevicesCallback client_callback,
-      const url::Origin& security_origin);
-
-  void DoEnumerateDevices(
-      const MediaDevicesManager::BoolDeviceTypes& requested_types,
-      EnumerateDevicesCallback client_callback,
-      const url::Origin& security_origin,
-      const MediaDevicesManager::BoolDeviceTypes& has_permissions);
-
-  void DevicesEnumerated(
-      const MediaDevicesManager::BoolDeviceTypes& requested_types,
-      EnumerateDevicesCallback client_callback,
-      const url::Origin& security_origin,
-      const MediaDevicesManager::BoolDeviceTypes& has_permissions,
-      const MediaDeviceEnumeration& enumeration);
+  using GetVideoInputDeviceFormatsCallback =
+      GetAllVideoInputDeviceFormatsCallback;
 
   void GetDefaultVideoInputDeviceID(
       GetVideoInputCapabilitiesCallback client_callback,
-      const url::Origin& security_origin);
+      MediaDeviceSaltAndOrigin salt_and_origin);
 
   void GotDefaultVideoInputDeviceID(
       GetVideoInputCapabilitiesCallback client_callback,
-      const url::Origin& security_origin,
+      MediaDeviceSaltAndOrigin salt_and_origin,
       const std::string& default_device_id);
 
   void FinalizeGetVideoInputCapabilities(
       GetVideoInputCapabilitiesCallback client_callback,
-      const url::Origin& security_origin,
+      const MediaDeviceSaltAndOrigin& salt_and_origin,
       const std::string& default_device_id,
-      const media::VideoCaptureDeviceDescriptors& device_descriptors);
+      const MediaDeviceEnumeration& enumeration);
 
   void GetDefaultAudioInputDeviceID(
       GetAudioInputCapabilitiesCallback client_callback,
-      const url::Origin& security_origin);
+      const MediaDeviceSaltAndOrigin& salt_and_origin);
 
   void GotDefaultAudioInputDeviceID(const std::string& default_device_id);
 
   void GotAudioInputEnumeration(const std::string& default_device_id,
                                 const MediaDeviceEnumeration& enumeration);
 
-  void GotAudioInputParameters(size_t index,
-                               const media::AudioParameters& parameters);
+  void GotAudioInputParameters(
+      size_t index,
+      const base::Optional<media::AudioParameters>& parameters);
 
   void FinalizeGetAudioInputCapabilities();
 
-  // Returns the currently supported video formats for the given |device_id|.
-  media::VideoCaptureFormats GetVideoInputFormats(const std::string& device_id);
-
-  void NotifyDeviceChangeOnUIThread(const std::vector<uint32_t>& subscriptions,
-                                    MediaDeviceType type,
-                                    const MediaDeviceInfoArray& device_infos);
+  void GetVideoInputDeviceFormats(
+      const std::string& device_id,
+      bool try_in_use_first,
+      GetVideoInputDeviceFormatsCallback client_callback);
+  void EnumerateVideoDevicesForFormats(
+      GetVideoInputDeviceFormatsCallback client_callback,
+      const std::string& device_id,
+      bool try_in_use_first,
+      const MediaDeviceSaltAndOrigin& salt_and_origin);
+  void FinalizeGetVideoInputDeviceFormats(
+      GetVideoInputDeviceFormatsCallback client_callback,
+      const std::string& device_id,
+      bool try_in_use_first,
+      const std::string& device_id_salt,
+      const url::Origin& security_origin,
+      const media::VideoCaptureDeviceDescriptors& device_descriptors);
 
   // The following const fields can be accessed on any thread.
   const int render_process_id_;
   const int render_frame_id_;
-  const std::string device_id_salt_;
-  const std::string group_id_salt_;
 
   // The following fields can only be accessed on the IO thread.
   MediaStreamManager* media_stream_manager_;
-  std::unique_ptr<MediaDevicesPermissionChecker> permission_checker_;
-  std::vector<uint32_t> device_change_subscriptions_[NUM_MEDIA_DEVICE_TYPES];
-
-  // This field can only be accessed on the UI thread.
-  ::mojom::MediaDevicesListenerPtr device_change_listener_;
-  url::Origin security_origin_for_testing_;
 
   struct AudioInputCapabilitiesRequest;
   // Queued requests for audio-input capabilities.
   std::vector<AudioInputCapabilitiesRequest>
       pending_audio_input_capabilities_requests_;
   size_t num_pending_audio_input_parameters_;
-  std::vector<::mojom::AudioInputDeviceCapabilities>
+  std::vector<blink::mojom::AudioInputDeviceCapabilities>
       current_audio_input_capabilities_;
+
+  std::vector<uint32_t> subscription_ids_;
 
   base::WeakPtrFactory<MediaDevicesDispatcherHost> weak_factory_;
 

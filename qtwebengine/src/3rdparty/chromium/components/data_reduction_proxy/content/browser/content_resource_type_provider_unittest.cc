@@ -6,10 +6,10 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_delegate.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
@@ -84,9 +84,11 @@ class ContentResourceProviderTest : public testing::Test {
 
     context_.set_client_socket_factory(&mock_socket_factory_);
     context_.set_network_delegate(data_reduction_proxy_network_delegate_.get());
-    context_.set_proxy_delegate(test_context_->io_data()->proxy_delegate());
     context_.Init();
+    context_.proxy_resolution_service()->SetProxyDelegate(
+        test_context_->io_data()->proxy_delegate());
 
+    test_context_->DisableWarmupURLFetch();
     test_context_->EnableDataReductionProxyWithSecureProxyCheckSuccess();
 
     std::unique_ptr<data_reduction_proxy::ContentResourceTypeProvider>
@@ -100,12 +102,12 @@ class ContentResourceProviderTest : public testing::Test {
   void AllocateRequestInfoForTesting(net::URLRequest* request,
                                      content::ResourceType resource_type) {
     content::ResourceRequestInfo::AllocateForTesting(
-        request, resource_type, NULL, -1, -1, -1,
+        request, resource_type, nullptr, -1, -1, -1,
         resource_type == content::RESOURCE_TYPE_MAIN_FRAME,
-        false,  // parent_is_main_frame
         false,  // allow_download
         false,  // is_async
-        content::PREVIEWS_OFF);
+        content::PREVIEWS_OFF,
+        nullptr);  // navigation_ui_data
   }
 
   std::unique_ptr<net::URLRequest> CreateRequestByType(
@@ -126,7 +128,8 @@ class ContentResourceProviderTest : public testing::Test {
   }
 
  protected:
-  base::MessageLoopForIO message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::IO};
   net::TestURLRequestContext context_;
   net::MockClientSocketFactory mock_socket_factory_;
   net::TestDelegate delegate_;
@@ -159,7 +162,7 @@ TEST_F(ContentResourceProviderTest, VerifyCorrectProxyUsed) {
   } tests[] = {
       {GURL("http://www.google.com/main-frame"),
        content::RESOURCE_TYPE_MAIN_FRAME,
-       ResourceTypeProvider::CONTENT_TYPE_UNKNOWN},
+       ResourceTypeProvider::CONTENT_TYPE_MAIN_FRAME},
       {GURL("http://www.google.com/sub-frame"),
        content::RESOURCE_TYPE_SUB_FRAME,
        ResourceTypeProvider::CONTENT_TYPE_UNKNOWN},
@@ -192,7 +195,7 @@ TEST_F(ContentResourceProviderTest, VerifyCorrectProxyUsed) {
         net::MockRead(kBody.c_str()), net::MockRead(net::SYNCHRONOUS, net::OK),
     };
     net::StaticSocketDataProvider socket_data_provider(
-        mock_reads, arraysize(mock_reads), nullptr, 0);
+        mock_reads, base::span<net::MockWrite>());
     mock_socket_factory()->AddSocketDataProvider(&socket_data_provider);
 
     base::HistogramTester histogram_tester;
@@ -200,10 +203,6 @@ TEST_F(ContentResourceProviderTest, VerifyCorrectProxyUsed) {
         CreateRequestByType(test.gurl, test.resource_type);
     request->Start();
     base::RunLoop().RunUntilIdle();
-
-    histogram_tester.ExpectUniqueSample(
-        "DataReductionProxy.ResourceContentType", test.expected_content_type,
-        1);
 
     EXPECT_EQ(test.expected_content_type,
               content_resource_type_provider()->GetContentType(request->url()));
@@ -240,7 +239,7 @@ TEST_F(ContentResourceProviderTest, SetAndGetContentResourceTypeContent) {
   } tests[] = {
       {GURL("http://www.google.com/main-frame"),
        content::RESOURCE_TYPE_MAIN_FRAME,
-       ResourceTypeProvider::CONTENT_TYPE_UNKNOWN},
+       ResourceTypeProvider::CONTENT_TYPE_MAIN_FRAME},
       {GURL("http://www.google.com/sub-frame"),
        content::RESOURCE_TYPE_SUB_FRAME,
        ResourceTypeProvider::CONTENT_TYPE_UNKNOWN},
@@ -273,7 +272,7 @@ TEST_F(ContentResourceProviderTest, SetAndGetContentResourceTypeContent) {
         net::MockRead(kBody.c_str()), net::MockRead(net::SYNCHRONOUS, net::OK),
     };
     net::StaticSocketDataProvider socket_data_provider(
-        mock_reads, arraysize(mock_reads), nullptr, 0);
+        mock_reads, base::span<net::MockWrite>());
     mock_socket_factory()->AddSocketDataProvider(&socket_data_provider);
 
     base::HistogramTester histogram_tester;
@@ -281,10 +280,6 @@ TEST_F(ContentResourceProviderTest, SetAndGetContentResourceTypeContent) {
         CreateRequestByType(test.gurl, test.resource_type);
     request->Start();
     base::RunLoop().RunUntilIdle();
-
-    histogram_tester.ExpectUniqueSample(
-        "DataReductionProxy.ResourceContentType", test.expected_content_type,
-        1);
 
     EXPECT_EQ(test.expected_content_type,
               content_resource_type_provider()->GetContentType(request->url()));
@@ -326,7 +321,7 @@ TEST_F(ContentResourceProviderTest, FetchDirect) {
   } tests[] = {
       {GURL("http://www.google.com/main-frame"),
        content::RESOURCE_TYPE_MAIN_FRAME,
-       ResourceTypeProvider::CONTENT_TYPE_UNKNOWN},
+       ResourceTypeProvider::CONTENT_TYPE_MAIN_FRAME},
       {GURL("http://www.google.com/sub-frame"),
        content::RESOURCE_TYPE_SUB_FRAME,
        ResourceTypeProvider::CONTENT_TYPE_UNKNOWN},
@@ -359,7 +354,7 @@ TEST_F(ContentResourceProviderTest, FetchDirect) {
         net::MockRead(kBody.c_str()), net::MockRead(net::SYNCHRONOUS, net::OK),
     };
     net::StaticSocketDataProvider socket_data_provider(
-        mock_reads, arraysize(mock_reads), nullptr, 0);
+        mock_reads, base::span<net::MockWrite>());
     mock_socket_factory()->AddSocketDataProvider(&socket_data_provider);
 
     base::HistogramTester histogram_tester;
@@ -367,10 +362,6 @@ TEST_F(ContentResourceProviderTest, FetchDirect) {
         CreateRequestByType(test.gurl, test.resource_type);
     request->Start();
     base::RunLoop().RunUntilIdle();
-
-    histogram_tester.ExpectUniqueSample(
-        "DataReductionProxy.ResourceContentType", test.expected_content_type,
-        1);
 
     EXPECT_EQ(test.expected_content_type,
               content_resource_type_provider()->GetContentType(request->url()));

@@ -6,19 +6,17 @@
 #define UI_OZONE_PLATFORM_DRM_GPU_DRM_OVERLAY_VALIDATOR_H_
 
 #include "base/containers/mru_cache.h"
-#include "ui/ozone/platform/drm/gpu/overlay_plane.h"
+#include "ui/ozone/platform/drm/gpu/drm_overlay_plane.h"
 
 namespace ui {
 
 class DrmWindow;
-class ScanoutBufferGenerator;
 struct OverlayCheck_Params;
 struct OverlayCheckReturn_Params;
 
 class DrmOverlayValidator {
  public:
-  DrmOverlayValidator(DrmWindow* window,
-                      ScanoutBufferGenerator* buffer_generator);
+  DrmOverlayValidator(DrmWindow* window);
   ~DrmOverlayValidator();
 
   // Tests if configurations |params| are compatible with |window_| and finds
@@ -26,11 +24,10 @@ class DrmOverlayValidator {
   // without failing the page flip. It expects |params| to be sorted by z_order.
   std::vector<OverlayCheckReturn_Params> TestPageFlip(
       const std::vector<OverlayCheck_Params>& params,
-      const OverlayPlaneList& last_used_planes);
+      const DrmOverlayPlaneList& last_used_planes);
 
  private:
-  DrmWindow* window_;  // Not owned.
-  ScanoutBufferGenerator* buffer_generator_;  // Not owned.
+  DrmWindow* const window_;  // Not owned.
 
   DISALLOW_COPY_AND_ASSIGN(DrmOverlayValidator);
 };

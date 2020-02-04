@@ -8,12 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/neteq/delay_peak_detector.h"
+#include "modules/audio_coding/neteq/delay_peak_detector.h"
 
-#include <algorithm>  // max
+#include <algorithm>
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/safe_conversions.h"
+#include "rtc_base/checks.h"
+#include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
 
@@ -26,10 +26,14 @@ namespace webrtc {
 
 DelayPeakDetector::~DelayPeakDetector() = default;
 
-DelayPeakDetector::DelayPeakDetector(const TickTimer* tick_timer)
+DelayPeakDetector::DelayPeakDetector(const TickTimer* tick_timer,
+                                     bool ignore_reordered_packets)
     : peak_found_(false),
       peak_detection_threshold_(0),
-      tick_timer_(tick_timer) {
+      tick_timer_(tick_timer),
+      ignore_reordered_packets_(ignore_reordered_packets),
+      frame_length_change_experiment_(
+          field_trial::IsEnabled("WebRTC-Audio-NetEqFramelengthExperiment")) {
   RTC_DCHECK(!peak_period_stopwatch_);
 }
 
@@ -42,7 +46,14 @@ void DelayPeakDetector::Reset() {
 // Calculates the threshold in number of packets.
 void DelayPeakDetector::SetPacketAudioLength(int length_ms) {
   if (length_ms > 0) {
-    peak_detection_threshold_ = kPeakHeightMs / length_ms;
+    if (frame_length_change_experiment_) {
+      peak_detection_threshold_ = std::max(2, kPeakHeightMs / length_ms);
+    } else {
+      peak_detection_threshold_ = kPeakHeightMs / length_ms;
+    }
+  }
+  if (frame_length_change_experiment_) {
+    peak_history_.clear();
   }
 }
 
@@ -70,7 +81,12 @@ uint64_t DelayPeakDetector::MaxPeakPeriod() const {
   return max_period_element->period_ms;
 }
 
-bool DelayPeakDetector::Update(int inter_arrival_time, int target_level) {
+bool DelayPeakDetector::Update(int inter_arrival_time,
+                               bool reordered,
+                               int target_level) {
+  if (ignore_reordered_packets_ && reordered) {
+    return CheckPeakConditions();
+  }
   if (inter_arrival_time > target_level + peak_detection_threshold_ ||
       inter_arrival_time > 2 * target_level) {
     // A delay peak is observed.

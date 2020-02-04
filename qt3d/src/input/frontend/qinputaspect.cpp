@@ -58,9 +58,6 @@
 #include <Qt3DInput/qmousehandler.h>
 #include <QtCore/QDir>
 
-#if QT_CONFIG(library)
-#include <QtCore/QLibrary>
-#endif
 #include <QtCore/QLibraryInfo>
 #include <QtCore/QPluginLoader>
 
@@ -175,7 +172,7 @@ QInputAspect::~QInputAspect()
 {
 }
 
-/*!
+/*
    Create each of the detected input device integrations through the Integration Factory
  */
 void QInputAspectPrivate::loadInputDevicePlugins()
@@ -196,10 +193,10 @@ void QInputAspectPrivate::loadInputDevicePlugins()
 
 /*!
     Create a physical device identified by \a name using the input device integrations present
-    returns a Q_NULLPTR if it is not found.
-    \note caller is responsible for ownership
+    returns a \c nullptr if it is not found.
+
+    \note Caller is responsible for ownership.
 */
-// Note: caller is responsible for ownership
 QAbstractPhysicalDevice *QInputAspect::createPhysicalDevice(const QString &name)
 {
     Q_D(QInputAspect);
@@ -207,7 +204,7 @@ QAbstractPhysicalDevice *QInputAspect::createPhysicalDevice(const QString &name)
 }
 
 /*!
-    \return a list of all available physical devices.
+    Returns a list of all available physical devices.
  */
 QStringList QInputAspect::availablePhysicalDevices() const
 {
@@ -226,7 +223,7 @@ QVector<QAspectJobPtr> QInputAspect::jobsToExecute(qint64 time)
 {
     Q_D(QInputAspect);
     const qint64 deltaTime = time - d->m_time;
-    const float dt = static_cast<const float>(deltaTime) / 1.0e9;
+    const float dt = static_cast<float>(deltaTime) / 1.0e9;
     d->m_time = time;
 
     QVector<QAspectJobPtr> jobs;

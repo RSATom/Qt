@@ -12,54 +12,30 @@
 #ifndef LIBANGLE_REFCOUNTOBJECT_H_
 #define LIBANGLE_REFCOUNTOBJECT_H_
 
-#include "common/debug.h"
-
 #include "angle_gl.h"
+#include "common/debug.h"
+#include "libANGLE/Error.h"
+#include "libANGLE/Observer.h"
 
 #include <cstddef>
 
-namespace gl
+namespace angle
 {
-class Context;
 
-class RefCountObjectNoID : angle::NonCopyable
+template <typename ContextT, typename ErrorT>
+class RefCountObject : angle::NonCopyable
 {
   public:
-    RefCountObjectNoID() : mRefCount(0) {}
-    virtual void onDestroy(const gl::Context *context) {}
+    using ContextType = ContextT;
+    using ErrorType   = ErrorT;
+
+    RefCountObject() : mRefCount(0) {}
+
+    virtual void onDestroy(const ContextType *context) {}
 
     void addRef() const { ++mRefCount; }
 
-    void release() const
-    {
-        ASSERT(mRefCount > 0);
-
-        if (--mRefCount == 0)
-        {
-            delete this;
-        }
-    }
-
-    size_t getRefCount() const { return mRefCount; }
-
-  protected:
-    virtual ~RefCountObjectNoID() { ASSERT(mRefCount == 0); }
-
-    mutable std::size_t mRefCount;
-};
-
-template <class ObjectType>
-class BindingPointer;
-
-class RefCountObject : RefCountObjectNoID
-{
-  public:
-    explicit RefCountObject(GLuint id) : mId(id) {}
-
-    GLuint id() const { return mId; }
-
-    // A specialized release method for objects which need a destroy context.
-    void release(const gl::Context *context)
+    ANGLE_INLINE void release(const ContextType *context)
     {
         ASSERT(mRefCount > 0);
         if (--mRefCount == 0)
@@ -69,35 +45,40 @@ class RefCountObject : RefCountObjectNoID
         }
     }
 
-    using RefCountObjectNoID::addRef;
-    using RefCountObjectNoID::getRefCount;
+    size_t getRefCount() const { return mRefCount; }
 
   protected:
-    ~RefCountObject() override {}
+    virtual ~RefCountObject() { ASSERT(mRefCount == 0); }
 
-  private:
-    template <class ObjectType>
-    friend class BindingPointer;
-    GLuint mId;
+    mutable size_t mRefCount;
 };
 
-template <class ObjectType>
+template <class ObjectType, typename ContextT, typename ErrorT = angle::Result>
 class BindingPointer
 {
   public:
-    BindingPointer()
-        : mObject(nullptr)
+    using ContextType = ContextT;
+    using ErrorType   = ErrorT;
+
+    BindingPointer() : mObject(nullptr) {}
+
+    BindingPointer(ObjectType *object) : mObject(object)
     {
+        if (mObject)
+        {
+            mObject->addRef();
+        }
     }
 
-    BindingPointer(ObjectType *object) : mObject(object) { mObject->addRef(); }
-
-    BindingPointer(const BindingPointer<ObjectType> &other) : mObject(other.mObject)
+    BindingPointer(const BindingPointer &other) : mObject(other.mObject)
     {
-        mObject->addRef();
+        if (mObject)
+        {
+            mObject->addRef();
+        }
     }
 
-    BindingPointer &operator=(BindingPointer<ObjectType> &&other)
+    BindingPointer &operator=(BindingPointer &&other)
     {
         std::swap(mObject, other.mObject);
         return *this;
@@ -105,53 +86,101 @@ class BindingPointer
 
     virtual ~BindingPointer()
     {
-        // Objects have to be released before the resource manager is destroyed, so they must be explicitly cleaned up.
+        // Objects have to be released before the resource manager is destroyed, so they must be
+        // explicitly cleaned up.
         ASSERT(mObject == nullptr);
     }
 
-    virtual void set(const Context *context, ObjectType *newObject)
+    void set(const ContextType *context, ObjectType *newObject)
     {
         // addRef first in case newObject == mObject and this is the last reference to it.
-        if (newObject != nullptr) reinterpret_cast<const RefCountObject*>(newObject)->addRef();
-        if (mObject != nullptr)
-            reinterpret_cast<RefCountObject *>(mObject)->release(context);
-        mObject = newObject;
+        if (newObject != nullptr)
+        {
+            reinterpret_cast<RefCountObject<ContextType, ErrorType> *>(newObject)->addRef();
+        }
+
+        // Store the old pointer in a temporary so we can set the pointer before calling release.
+        // Otherwise the object could still be referenced when its destructor is called.
+        ObjectType *oldObject = mObject;
+        mObject               = newObject;
+        if (oldObject != nullptr)
+        {
+            reinterpret_cast<RefCountObject<ContextType, ErrorType> *>(oldObject)->release(context);
+        }
     }
+
+    void assign(ObjectType *object) { mObject = object; }
 
     ObjectType *get() const { return mObject; }
     ObjectType *operator->() const { return mObject; }
 
-    GLuint id() const { return (mObject != nullptr) ? mObject->id() : 0; }
+    bool operator==(const BindingPointer &other) const { return mObject == other.mObject; }
 
-    bool operator==(const BindingPointer<ObjectType> &other) const
-    {
-        return mObject == other.mObject;
-    }
+    bool operator!=(const BindingPointer &other) const { return !(*this == other); }
 
-    bool operator!=(const BindingPointer<ObjectType> &other) const { return !(*this == other); }
+  protected:
+    ANGLE_INLINE void setImpl(ObjectType *obj) { mObject = obj; }
 
   private:
     ObjectType *mObject;
+};
+}  // namespace angle
+
+namespace gl
+{
+class Context;
+
+template <class ObjectType>
+class BindingPointer;
+
+using RefCountObjectNoID = angle::RefCountObject<Context, angle::Result>;
+
+class RefCountObject : public gl::RefCountObjectNoID
+{
+  public:
+    explicit RefCountObject(GLuint id) : mId(id) {}
+
+    GLuint id() const { return mId; }
+
+  protected:
+    ~RefCountObject() override {}
+
+  private:
+    GLuint mId;
+};
+
+template <class ObjectType>
+class BindingPointer : public angle::BindingPointer<ObjectType, Context>
+{
+  public:
+    using ContextType = typename angle::BindingPointer<ObjectType, Context>::ContextType;
+    using ErrorType   = typename angle::BindingPointer<ObjectType, Context>::ErrorType;
+
+    BindingPointer() {}
+
+    BindingPointer(ObjectType *object) : angle::BindingPointer<ObjectType, Context>(object) {}
+
+    GLuint id() const
+    {
+        ObjectType *obj = this->get();
+        return obj ? obj->id() : 0;
+    }
 };
 
 template <class ObjectType>
 class OffsetBindingPointer : public BindingPointer<ObjectType>
 {
   public:
-    OffsetBindingPointer() : mOffset(0), mSize(0) { }
+    using ContextType = typename BindingPointer<ObjectType>::ContextType;
+    using ErrorType   = typename BindingPointer<ObjectType>::ErrorType;
 
-    void set(const Context *context, ObjectType *newObject) override
-    {
-        BindingPointer<ObjectType>::set(context, newObject);
-        mOffset = 0;
-        mSize = 0;
-    }
+    OffsetBindingPointer() : mOffset(0), mSize(0) {}
 
-    void set(const Context *context, ObjectType *newObject, GLintptr offset, GLsizeiptr size)
+    void set(const ContextType *context, ObjectType *newObject, GLintptr offset, GLsizeiptr size)
     {
-        BindingPointer<ObjectType>::set(context, newObject);
+        set(context, newObject);
         mOffset = offset;
-        mSize = size;
+        mSize   = size;
     }
 
     GLintptr getOffset() const { return mOffset; }
@@ -167,10 +196,67 @@ class OffsetBindingPointer : public BindingPointer<ObjectType>
         return !(*this == other);
     }
 
+    void assign(ObjectType *object, GLintptr offset, GLsizeiptr size)
+    {
+        assign(object);
+        mOffset = offset;
+        mSize   = size;
+    }
+
   private:
+    // Delete the unparameterized functions. This forces an explicit offset and size.
+    using BindingPointer<ObjectType>::set;
+    using BindingPointer<ObjectType>::assign;
+
     GLintptr mOffset;
     GLsizeiptr mSize;
 };
+
+template <typename SubjectT>
+class SubjectBindingPointer : protected BindingPointer<SubjectT>, public angle::ObserverBindingBase
+{
+  public:
+    SubjectBindingPointer(angle::ObserverInterface *observer, angle::SubjectIndex index)
+        : ObserverBindingBase(observer, index)
+    {}
+    ~SubjectBindingPointer() {}
+    SubjectBindingPointer(const SubjectBindingPointer &other) = default;
+    SubjectBindingPointer &operator=(const SubjectBindingPointer &other) = default;
+
+    void bind(const Context *context, SubjectT *subject)
+    {
+        // AddRef first in case subject == get()
+        if (subject)
+        {
+            subject->addObserver(this);
+            subject->addRef();
+        }
+
+        if (get())
+        {
+            get()->removeObserver(this);
+            get()->release(context);
+        }
+
+        this->setImpl(subject);
+    }
+
+    using BindingPointer<SubjectT>::get;
+    using BindingPointer<SubjectT>::operator->;
+
+    friend class State;
+};
 }  // namespace gl
 
-#endif   // LIBANGLE_REFCOUNTOBJECT_H_
+namespace egl
+{
+class Display;
+
+using RefCountObject = angle::RefCountObject<Display, Error>;
+
+template <class ObjectType>
+using BindingPointer = angle::BindingPointer<ObjectType, Display, Error>;
+
+}  // namespace egl
+
+#endif  // LIBANGLE_REFCOUNTOBJECT_H_

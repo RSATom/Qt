@@ -2,8 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/ui.gni")
+import("//build/compiled_action.gni")
 import("//build/config/nacl/config.gni")
+import("//build/config/ui.gni")
 
 if (is_android) {
   import("//build/config/android/rules.gni")
@@ -25,12 +26,29 @@ static_library("test_config") {
 static_library("test_support") {
   testonly = true
   sources = [
+    "../memory/fake_memory_pressure_monitor.cc",
+    "../memory/fake_memory_pressure_monitor.h",
+    "../task/sequence_manager/test/fake_task.cc",
+    "../task/sequence_manager/test/fake_task.h",
+    "../task/sequence_manager/test/lazy_thread_controller_for_test.cc",
+    "../task/sequence_manager/test/lazy_thread_controller_for_test.h",
+    "../task/sequence_manager/test/mock_time_domain.cc",
+    "../task/sequence_manager/test/mock_time_domain.h",
+    "../task/sequence_manager/test/sequence_manager_for_test.cc",
+    "../task/sequence_manager/test/sequence_manager_for_test.h",
+    "../task/sequence_manager/test/test_task_queue.cc",
+    "../task/sequence_manager/test/test_task_queue.h",
+    "../task/sequence_manager/test/test_task_time_observer.h",
+    "../timer/mock_timer.cc",
+    "../timer/mock_timer.h",
     "../trace_event/trace_config_memory_test_util.h",
-    "android/java_handler_thread_for_testing.cc",
-    "android/java_handler_thread_for_testing.h",
-    "android/test_system_message_handler_link_android.cc",
-    "android/test_system_message_handler_link_android.h",
-    "fuzzed_data_provider.cc",
+    "android/java_handler_thread_helpers.cc",
+    "android/java_handler_thread_helpers.h",
+    "android/url_utils.cc",
+    "android/url_utils.h",
+    "bind_test_util.cc",
+    "bind_test_util.h",
+    "copy_only_int.h",
     "fuzzed_data_provider.h",
     "gtest_util.cc",
     "gtest_util.h",
@@ -38,8 +56,6 @@ static_library("test_support") {
     "gtest_xml_unittest_result_printer.h",
     "gtest_xml_util.cc",
     "gtest_xml_util.h",
-    "histogram_tester.cc",
-    "histogram_tester.h",
     "icu_test_util.cc",
     "icu_test_util.h",
     "ios/wait_util.h",
@@ -48,6 +64,12 @@ static_library("test_support") {
     "launcher/test_result.h",
     "launcher/test_results_tracker.h",
     "launcher/unit_test_launcher.h",
+    "metrics/histogram_enum_reader.cc",
+    "metrics/histogram_enum_reader.h",
+    "metrics/histogram_tester.cc",
+    "metrics/histogram_tester.h",
+    "metrics/user_action_tester.cc",
+    "metrics/user_action_tester.h",
     "mock_callback.h",
     "mock_chrome_application_mac.h",
     "mock_chrome_application_mac.mm",
@@ -57,13 +79,11 @@ static_library("test_support") {
     "mock_entropy_provider.h",
     "mock_log.cc",
     "mock_log.h",
-    "multiprocess_test.cc",
+    "move_only_int.h",
     "multiprocess_test.h",
     "multiprocess_test_android.cc",
     "null_task_runner.cc",
     "null_task_runner.h",
-    "opaque_ref_counted.cc",
-    "opaque_ref_counted.h",
     "perf_log.cc",
     "perf_log.h",
     "perf_test_suite.cc",
@@ -72,32 +92,31 @@ static_library("test_support") {
     "perf_time_logger.h",
     "power_monitor_test_base.cc",
     "power_monitor_test_base.h",
-    "scoped_async_task_scheduler.cc",
-    "scoped_async_task_scheduler.h",
     "scoped_command_line.cc",
     "scoped_command_line.h",
+    "scoped_environment_variable_override.cc",
+    "scoped_environment_variable_override.h",
     "scoped_feature_list.cc",
     "scoped_feature_list.h",
-    "scoped_locale.cc",
-    "scoped_locale.h",
+    "scoped_mock_clock_override.cc",
+    "scoped_mock_clock_override.h",
     "scoped_mock_time_message_loop_task_runner.cc",
     "scoped_mock_time_message_loop_task_runner.h",
+    "scoped_os_info_override_win.cc",
+    "scoped_os_info_override_win.h",
     "scoped_path_override.cc",
     "scoped_path_override.h",
     "scoped_task_environment.cc",
     "scoped_task_environment.h",
-    "scoped_task_scheduler.cc",
-    "scoped_task_scheduler.h",
     "sequenced_task_runner_test_template.cc",
     "sequenced_task_runner_test_template.h",
-    "sequenced_worker_pool_owner.cc",
-    "sequenced_worker_pool_owner.h",
     "simple_test_clock.cc",
     "simple_test_clock.h",
     "simple_test_tick_clock.cc",
     "simple_test_tick_clock.h",
     "task_runner_test_template.cc",
     "task_runner_test_template.h",
+    "task_scheduler_test_helpers_android.cc",
     "test_discardable_memory_allocator.cc",
     "test_discardable_memory_allocator.h",
     "test_file_util.cc",
@@ -105,7 +124,6 @@ static_library("test_support") {
     "test_file_util_android.cc",
     "test_file_util_linux.cc",
     "test_file_util_mac.cc",
-    "test_file_util_posix.cc",
     "test_file_util_win.cc",
     "test_io_thread.cc",
     "test_io_thread.h",
@@ -119,6 +137,8 @@ static_library("test_support") {
     "test_pending_task.h",
     "test_reg_util_win.cc",
     "test_reg_util_win.h",
+    "test_shared_memory_util.cc",
+    "test_shared_memory_util.h",
     "test_shortcut_win.cc",
     "test_shortcut_win.h",
     "test_simple_task_runner.cc",
@@ -129,16 +149,12 @@ static_library("test_support") {
     "test_support_android.h",
     "test_support_ios.h",
     "test_support_ios.mm",
-    "test_ui_thread_android.cc",
-    "test_ui_thread_android.h",
     "thread_test_helper.cc",
     "thread_test_helper.h",
     "trace_event_analyzer.cc",
     "trace_event_analyzer.h",
     "trace_to_file.cc",
     "trace_to_file.h",
-    "user_action_tester.cc",
-    "user_action_tester.h",
     "values_test_util.cc",
     "values_test_util.h",
   ]
@@ -153,6 +169,7 @@ static_library("test_support") {
       "launcher/test_launcher_tracer.h",
       "launcher/test_results_tracker.cc",
       "launcher/unit_test_launcher.cc",
+      "multiprocess_test.cc",
     ]
   }
 
@@ -178,11 +195,26 @@ static_library("test_support") {
     "//third_party/libxml",
   ]
 
-  if (!is_posix) {
-    sources -= [
+  if (is_posix || is_fuchsia) {
+    sources += [
       "scoped_locale.cc",
       "scoped_locale.h",
+      "test_file_util_posix.cc",
     ]
+  }
+
+  if (is_fuchsia) {
+    deps += [ "//third_party/fuchsia-sdk/sdk:zx" ]
+  }
+
+  if (is_linux) {
+    public_deps += [ ":fontconfig_util_linux" ]
+    data_deps = [
+      "//third_party/test_fonts",
+    ]
+    if (current_toolchain == host_toolchain) {
+      data_deps += [ ":do_generate_fontconfig_caches" ]
+    }
   }
 
   if (is_ios) {
@@ -218,6 +250,8 @@ static_library("test_support") {
       "gtest_xml_util.h",
       "icu_test_util.cc",
       "icu_test_util.h",
+      "metrics/histogram_enum_reader.cc",
+      "metrics/histogram_enum_reader.h",
       "perf_test_suite.cc",
       "perf_test_suite.h",
       "scoped_path_override.cc",
@@ -238,6 +272,24 @@ static_library("test_support") {
       "//third_party/libxml",
     ]
   }
+}
+
+component("test_support_component") {
+  testonly = true
+  sources = [
+    "type_id_test_support_a.cc",
+    "type_id_test_support_a.h",
+    "type_id_test_support_b.cc",
+    "type_id_test_support_b.h",
+  ]
+  deps = [
+    "//base",
+  ]
+  configs += [ ":base_test_implementation" ]
+}
+
+config("base_test_implementation") {
+  defines = [ "IS_BASE_TEST_IMPL" ]
 }
 
 config("perf_test_config") {
@@ -318,6 +370,46 @@ static_library("run_all_base_unittests") {
 }
 
 if (is_linux) {
+  source_set("fontconfig_util_linux") {
+    sources = [
+      "fontconfig_util_linux.cc",
+      "fontconfig_util_linux.h",
+    ]
+    deps = [
+      "//base",
+      "//third_party/fontconfig",
+    ]
+  }
+
+  if (current_toolchain == host_toolchain) {
+    executable("generate_fontconfig_caches") {
+      testonly = true
+      sources = [
+        "generate_fontconfig_caches.cc",
+      ]
+      deps = [
+        ":fontconfig_util_linux",
+        "//base",
+      ]
+    }
+
+    compiled_action("do_generate_fontconfig_caches") {
+      testonly = true
+      tool = ":generate_fontconfig_caches"
+
+      # The copied test fonts are inputs to generate_fontconfig_caches, so must
+      # be listed in deps, not data_deps (https://crbug.com/919422).
+      deps = [
+        "//third_party/test_fonts",
+      ]
+      args = []
+      outputs = [
+        "$root_out_dir/fontconfig_caches/df1acc8c-39d5-4a8b-8507-b1a7396ac3ac-le64.cache-7",
+        "$root_out_dir/test_fonts/.uuid",
+      ]
+    }
+  }
+
   shared_library("malloc_wrapper") {
     testonly = true
     sources = [
@@ -325,7 +417,6 @@ if (is_linux) {
     ]
     deps = [
       "//base",
-      "//build/config:exe_and_shlib_deps",
     ]
   }
 }
@@ -334,9 +425,7 @@ if (is_android) {
   generate_jni("base_unittests_jni_headers") {
     sources = [
       "android/java/src/org/chromium/base/ContentUriTestUtils.java",
-      "android/java/src/org/chromium/base/JavaHandlerThreadTest.java",
-      "android/java/src/org/chromium/base/TestSystemMessageHandler.java",
-      "android/java/src/org/chromium/base/TestUiThread.java",
+      "android/java/src/org/chromium/base/JavaHandlerThreadHelpers.java",
     ]
     jni_package = "base"
   }
@@ -345,6 +434,8 @@ if (is_android) {
     sources = [
       "android/java/src/org/chromium/base/MainReturnCodeResult.java",
       "android/java/src/org/chromium/base/MultiprocessTestClientLauncher.java",
+      "android/javatests/src/org/chromium/base/test/task/TaskSchedulerTestHelpers.java",
+      "android/javatests/src/org/chromium/base/test/util/UrlUtils.java",
     ]
     jni_package = "base"
   }
@@ -353,8 +444,9 @@ if (is_android) {
     testonly = true
     deps = [
       "//base:base_java",
+      "//base:base_java_test_support",
       "//testing/android/native_test:native_main_runner_java",
-      "//third_party/android_tools:android_support_annotations_java",
+      "//third_party/android_deps:android_support_annotations_java",
       "//third_party/jsr-305:jsr_305_javalib",
     ]
     srcjar_deps = [ ":test_support_java_aidl" ]
@@ -367,6 +459,11 @@ if (is_android) {
       "android/java/src/org/chromium/base/MultiprocessTestClientService2.java",
       "android/java/src/org/chromium/base/MultiprocessTestClientService3.java",
       "android/java/src/org/chromium/base/MultiprocessTestClientService4.java",
+      "android/java/src/org/chromium/base/MultiprocessTestClientService5.java",
+      "android/java/src/org/chromium/base/MultiprocessTestClientService6.java",
+      "android/java/src/org/chromium/base/MultiprocessTestClientService7.java",
+      "android/java/src/org/chromium/base/MultiprocessTestClientService8.java",
+      "android/java/src/org/chromium/base/MultiprocessTestClientService9.java",
       "android/java/src/org/chromium/base/MultiprocessTestClientServiceDelegate.java",
     ]
   }
@@ -382,4 +479,13 @@ if (is_android) {
       "android/java/src/org/chromium/base/ITestController.aidl",
     ]
   }
+}
+
+# Trivial executable which outputs space-delimited argv to stdout,
+# used for testing.
+executable("test_child_process") {
+  testonly = true
+  sources = [
+    "test_child_process.cc",
+  ]
 }

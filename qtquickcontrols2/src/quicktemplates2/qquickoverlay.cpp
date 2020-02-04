@@ -60,26 +60,9 @@ QT_BEGIN_NAMESPACE
     \l {Popup::dim}{dimmed} popup is visible.
 
     The overlay is an ordinary Item that covers the entire window. It can be used
-    as a visual parent to position a popup in scene coordinates. The following
-    example uses the attached \c overlay property to position a popup to the center
-    of the window, despite the position of the button that opens the popup.
+    as a visual parent to position a popup in scene coordinates.
 
-    \code
-    Button {
-        onClicked: popup.open()
-
-        Popup {
-            id: popup
-
-            parent: Overlay.overlay
-
-            x: (parent.width - width) / 2
-            y: (parent.height - height) / 2
-            width: 100
-            height: 100
-        }
-    }
-    \endcode
+    \include qquickoverlay-popup-parent.qdocinc
 
     \sa ApplicationWindow
 */
@@ -114,12 +97,6 @@ void QQuickOverlayPrivate::itemGeometryChanged(QQuickItem *, QQuickGeometryChang
     updateGeometry();
 }
 
-QQuickOverlayPrivate::QQuickOverlayPrivate()
-    : modal(nullptr),
-      modeless(nullptr)
-{
-}
-
 bool QQuickOverlayPrivate::startDrag(QEvent *event, const QPointF &pos)
 {
     Q_Q(QQuickOverlay);
@@ -149,11 +126,6 @@ bool QQuickOverlayPrivate::startDrag(QEvent *event, const QPointF &pos)
     return false;
 }
 
-static bool isTouchEvent(QEvent *event)
-{
-    return event->type() == QEvent::TouchBegin || event->type() == QEvent::TouchUpdate || event->type() == QEvent::TouchEnd;
-}
-
 bool QQuickOverlayPrivate::handlePress(QQuickItem *source, QEvent *event, QQuickPopup *target)
 {
     if (target) {
@@ -162,7 +134,18 @@ bool QQuickOverlayPrivate::handlePress(QQuickItem *source, QEvent *event, QQuick
             return true;
         }
         return false;
-    } else if (!mouseGrabberPopup || isTouchEvent(event)) {
+    }
+
+    switch (event->type()) {
+    default: {
+        if (mouseGrabberPopup)
+            break;
+#if QT_CONFIG(quicktemplates2_multitouch)
+        Q_FALLTHROUGH();
+    case QEvent::TouchBegin:
+    case QEvent::TouchUpdate:
+    case QEvent::TouchEnd:
+#endif
         // allow non-modal popups to close themselves,
         // and non-dimming modal popups to block the event
         const auto popups = stackingOrderPopups();
@@ -172,6 +155,8 @@ bool QQuickOverlayPrivate::handlePress(QQuickItem *source, QEvent *event, QQuick
                 return true;
             }
         }
+        break;
+    }
     }
 
     event->ignore();
@@ -393,7 +378,7 @@ QQuickOverlay *QQuickOverlay::overlay(QQuickWindow *window)
         QQuickItem *content = window->contentItem();
         // Do not re-create the overlay if the window is being destroyed
         // and thus, its content item no longer has a window associated.
-        if (content->window()) {
+        if (content && content->window()) {
             overlay = new QQuickOverlay(window->contentItem());
             window->setProperty(name, QVariant::fromValue(overlay));
         }
@@ -580,18 +565,11 @@ class QQuickOverlayAttachedPrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQuickOverlayAttached)
 
 public:
-    QQuickOverlayAttachedPrivate()
-        : window(nullptr),
-          modal(nullptr),
-          modeless(nullptr)
-    {
-    }
-
     void setWindow(QQuickWindow *newWindow);
 
-    QQuickWindow *window;
-    QQmlComponent *modal;
-    QQmlComponent *modeless;
+    QQuickWindow *window = nullptr;
+    QQmlComponent *modal = nullptr;
+    QQmlComponent *modeless = nullptr;
 };
 
 void QQuickOverlayAttachedPrivate::setWindow(QQuickWindow *newWindow)
@@ -673,6 +651,11 @@ QQuickOverlay *QQuickOverlayAttached::overlay() const
 
     The property can be attached to any popup.
 
+    For example, to change the color of the background dimming for a modal
+    popup, the following code can be used:
+
+    \snippet qtquickcontrols2-overlay-modal.qml 1
+
     \sa Popup::modal
 */
 QQmlComponent *QQuickOverlayAttached::modal() const
@@ -700,6 +683,11 @@ void QQuickOverlayAttached::setModal(QQmlComponent *modal)
     dimming popups.
 
     The property can be attached to any popup.
+
+    For example, to change the color of the background dimming for a modeless
+    popup, the following code can be used:
+
+    \snippet qtquickcontrols2-overlay-modeless.qml 1
 
     \sa Popup::dim
 */

@@ -64,7 +64,7 @@ QJointPrivate::QJointPrivate()
     \inherits Node
     \instantiates Qt3DCore::QJoint
     \since 5.10
-    \brief Used to transforms parts of skinned meshes
+    \brief Used to transforms parts of skinned meshes.
 
     The Joint node is used to build skeletons as part of the skinned mesh
     support in Qt 3D. A joint can be transformed by way of its scale, rotation
@@ -109,7 +109,7 @@ QJointPrivate::QJointPrivate()
 */
 
 /*!
-    \qmlproperty matrix4x4 inverseBindMatrix
+    \qmlproperty matrix4x4 Joint::inverseBindMatrix
 
     Holds the inverse bind matrix of the joint. This is used to transform
     vertices from model space into the space of this joint so they can
@@ -122,7 +122,7 @@ QJointPrivate::QJointPrivate()
     \inmodule Qt3DCore
     \inherits Qt3DCore::QNode
     \since 5.10
-    \brief Used to transforms parts of skinned meshes
+    \brief Used to transforms parts of skinned meshes.
 
     The QJoint node is used to build skeletons as part of the skinned mesh
     support in Qt 3D. A joint can be transformed by way of its scale, rotation
@@ -325,6 +325,9 @@ void QJoint::setName(const QString &name)
     emit nameChanged(name);
 }
 
+/*!
+    Sets the transform matrix for this joint to the identity matrix.
+*/
 void QJoint::setToIdentity()
 {
     setScale(QVector3D(1.0f, 1.0f, 1.0f));
@@ -388,6 +391,9 @@ QVector<QJoint *> QJoint::childJoints() const
     return d->m_childJoints;
 }
 
+/*!
+    Returns the name of the joint.
+*/
 QString QJoint::name() const
 {
     Q_D(const QJoint);

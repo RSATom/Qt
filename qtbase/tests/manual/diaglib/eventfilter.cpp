@@ -154,7 +154,7 @@ static inline bool matchesType(const QObject *o, EventFilter::ObjectTypes types)
     return types & EventFilter::OtherType;
 }
 
-static void formatObject(const QObject *o, QDebug debug)
+void EventFilter::formatObject(const QObject *o, QDebug debug)
 {
     if (o) {
         debug << o->metaObject()->className();
@@ -166,34 +166,45 @@ static void formatObject(const QObject *o, QDebug debug)
     }
 }
 
+QDebug operator<<(QDebug d, const formatQObject &fo)
+{
+    EventFilter::formatObject(fo.m_object, d);
+    return d;
+}
+
 static void formatApplicationState(QDebug debug)
 {
 #if defined(HAVE_APPLICATION)
-    if (const QWidget *mw = QApplication::activeModalWidget()) {
-        debug << "\n  QApplication::activeModalWidget = ";
-        formatObject(mw, debug);
-    }
-    if (const QWidget *pw = QApplication::activePopupWidget()) {
-        debug << "\n  QApplication::activePopupWidget = ";
-        formatObject(pw, debug);
-    }
-    debug << "\n  QApplication::activeWindow      = ";
-    formatObject(QApplication::activeWindow(), debug);
+    if (const QWidget *mw = QApplication::activeModalWidget())
+        debug << "\n  QApplication::activeModalWidget = " << formatQObject(mw);
+    if (const QWidget *pw = QApplication::activePopupWidget())
+        debug << "\n  QApplication::activePopupWidget = " << formatQObject(pw);
+    debug << "\n  QApplication::activeWindow      = " << formatQObject(QApplication::activeWindow());
 #endif // HAVE_APPLICATION
 #if defined(HAVE_GUI_APPLICATION)
     if (const QWindow *mw = QGuiApplication::modalWindow()) {
-        debug << "\n  QGuiApplication::modalWindow    = ";
-        formatObject(mw, debug);
+        debug << "\n  QGuiApplication::modalWindow    = " << formatQObject(mw);
     }
     const QObject *focusObject = QGuiApplication::focusObject();
     const QObject *focusWindow = QGuiApplication::focusWindow();
-    debug << "\n  QGuiApplication::focusObject    = ";
-    formatObject(focusObject, debug);
+    debug << "\n  QGuiApplication::focusObject    = " << formatQObject(focusObject);
     if (focusWindow && focusWindow != focusObject)
-        debug << "\n  QGuiApplication::focusWindow    = ";
-    formatObject(focusWindow, debug);
+        debug << "\n  QGuiApplication::focusWindow    = " << formatQObject(focusWindow);
 #endif // HAVE_GUI_APPLICATION
 }
+
+#ifdef HAVE_APPLICATION
+static void formatMouseState(QObject *o, QDebug debug)
+{
+    if (o->isWidgetType()) {
+        auto w = static_cast<const QWidget *>(o);
+        if (QWidget::mouseGrabber() == w)
+            debug << " [grabbed]";
+        if (w->hasMouseTracking())
+            debug << " [tracking]";
+    }
+}
+#endif // HAVE_APPLICATION
 
 bool EventFilter::eventFilter(QObject *o, QEvent *e)
 {
@@ -210,6 +221,22 @@ bool EventFilter::eventFilter(QObject *o, QEvent *e)
         case QEvent::FocusIn:
             formatApplicationState(debug);
             break;
+#ifdef HAVE_APPLICATION
+        case QEvent::MouseButtonDblClick:
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonRelease:
+        case QEvent::MouseMove:
+        case QEvent::NonClientAreaMouseButtonDblClick:
+        case QEvent::NonClientAreaMouseButtonPress:
+        case QEvent::NonClientAreaMouseButtonRelease:
+        case QEvent::NonClientAreaMouseMove:
+#  if QT_VERSION >= 0x050000
+        case QEvent::Enter:
+#  endif
+        case QEvent::Leave:
+            formatMouseState(o, debug);
+            break;
+#endif // HAVE_APPLICATION
         default:
             break;
         }

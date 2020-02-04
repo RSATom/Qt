@@ -14,7 +14,9 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/google/google_brand.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/prefs/chrome_pref_service_factory.h"
 #include "chrome/browser/profile_resetter/brandcode_config_fetcher.h"
 #include "chrome/browser/profile_resetter/brandcoded_default_settings.h"
@@ -26,6 +28,7 @@
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
@@ -70,7 +73,7 @@ ResetRequestOriginFromString(const std::string& request_origin) {
 const char ResetSettingsHandler::kCctResetSettingsHash[] = "cct";
 
 ResetSettingsHandler::ResetSettingsHandler(Profile* profile)
-    : profile_(profile), weak_ptr_factory_(this) {
+    : profile_(profile), callback_weak_ptr_factory_(this) {
   google_brand::GetBrand(&brandcode_);
 }
 
@@ -79,12 +82,15 @@ ResetSettingsHandler::~ResetSettingsHandler() {}
 ResetSettingsHandler* ResetSettingsHandler::Create(
     content::WebUIDataSource* html_source, Profile* profile) {
 #if defined(OS_CHROMEOS)
+  // TODO(crbug.com/891905): Centralize powerwash restriction checks.
   bool allow_powerwash = false;
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  allow_powerwash = !connector->IsEnterpriseManaged() &&
+  allow_powerwash =
+      !connector->IsEnterpriseManaged() &&
       !user_manager::UserManager::Get()->IsLoggedInAsGuest() &&
-      !user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser();
+      !user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser() &&
+      !user_manager::UserManager::Get()->IsLoggedInAsChildUser();
   html_source->AddBoolean("allowPowerwash", allow_powerwash);
 #endif  // defined(OS_CHROMEOS)
 
@@ -100,31 +106,41 @@ ResetSettingsHandler* ResetSettingsHandler::Create(
   return new ResetSettingsHandler(profile);
 }
 
+void ResetSettingsHandler::OnJavascriptDisallowed() {
+  callback_weak_ptr_factory_.InvalidateWeakPtrs();
+}
+
 void ResetSettingsHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("performResetProfileSettings",
-      base::Bind(&ResetSettingsHandler::HandleResetProfileSettings,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("onShowResetProfileDialog",
-      base::Bind(&ResetSettingsHandler::OnShowResetProfileDialog,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("getReportedSettings",
-      base::Bind(&ResetSettingsHandler::HandleGetReportedSettings,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("onHideResetProfileDialog",
-      base::Bind(&ResetSettingsHandler::OnHideResetProfileDialog,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("onHideResetProfileBanner",
-      base::Bind(&ResetSettingsHandler::OnHideResetProfileBanner,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "performResetProfileSettings",
+      base::BindRepeating(&ResetSettingsHandler::HandleResetProfileSettings,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "onShowResetProfileDialog",
+      base::BindRepeating(&ResetSettingsHandler::OnShowResetProfileDialog,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getReportedSettings",
+      base::BindRepeating(&ResetSettingsHandler::HandleGetReportedSettings,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "onHideResetProfileDialog",
+      base::BindRepeating(&ResetSettingsHandler::OnHideResetProfileDialog,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "onHideResetProfileBanner",
+      base::BindRepeating(&ResetSettingsHandler::OnHideResetProfileBanner,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "getTriggeredResetToolName",
-      base::Bind(&ResetSettingsHandler::HandleGetTriggeredResetToolName,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &ResetSettingsHandler::HandleGetTriggeredResetToolName,
+          base::Unretained(this)));
 #if defined(OS_CHROMEOS)
   web_ui()->RegisterMessageCallback(
-       "onPowerwashDialogShow",
-       base::Bind(&ResetSettingsHandler::OnShowPowerwashDialog,
-                  base::Unretained(this)));
+      "onPowerwashDialogShow",
+      base::BindRepeating(&ResetSettingsHandler::OnShowPowerwashDialog,
+                          base::Unretained(this)));
 #endif  // defined(OS_CHROMEOS)
 }
 
@@ -182,10 +198,9 @@ void ResetSettingsHandler::HandleGetReportedSettings(
   std::string callback_id;
   CHECK(args->GetString(0, &callback_id));
 
-  setting_snapshot_->RequestShortcuts(base::Bind(
-      &ResetSettingsHandler::OnGetReportedSettingsDone,
-      weak_ptr_factory_.GetWeakPtr(),
-      callback_id));
+  setting_snapshot_->RequestShortcuts(
+      base::Bind(&ResetSettingsHandler::OnGetReportedSettingsDone,
+                 callback_weak_ptr_factory_.GetWeakPtr(), callback_id));
 }
 
 void ResetSettingsHandler::OnGetReportedSettingsDone(std::string callback_id) {
@@ -203,10 +218,11 @@ void ResetSettingsHandler::OnShowResetProfileDialog(
   if (brandcode_.empty())
     return;
   config_fetcher_.reset(new BrandcodeConfigFetcher(
+      g_browser_process->system_network_context_manager()
+          ->GetURLLoaderFactory(),
       base::Bind(&ResetSettingsHandler::OnSettingsFetched,
                  base::Unretained(this)),
-      GURL("https://tools.google.com/service/update2"),
-      brandcode_));
+      GURL("https://tools.google.com/service/update2"), brandcode_));
 }
 
 void ResetSettingsHandler::OnHideResetProfileDialog(
@@ -249,8 +265,8 @@ void ResetSettingsHandler::ResetProfile(
   GetResetter()->Reset(
       ProfileResetter::ALL, std::move(default_settings),
       base::Bind(&ResetSettingsHandler::OnResetProfileSettingsDone,
-                 weak_ptr_factory_.GetWeakPtr(), callback_id, send_settings,
-                 request_origin));
+                 callback_weak_ptr_factory_.GetWeakPtr(), callback_id,
+                 send_settings, request_origin));
   base::RecordAction(base::UserMetricsAction("ResetProfile"));
   UMA_HISTOGRAM_BOOLEAN("ProfileReset.SendFeedback", send_settings);
   UMA_HISTOGRAM_ENUMERATION(

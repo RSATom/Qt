@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/weak_ptr.h"
+#include "rtc_base/weak_ptr.h"
 
 // The implementation is borrowed from chromium except that it does not
 // implement SupportsWeakPtr.
@@ -51,17 +51,13 @@ bool WeakReference::is_valid() const {
   return flag_.get() && flag_->IsValid();
 }
 
-WeakReferenceOwner::WeakReferenceOwner() {
-  checker_.Detach();
-}
+WeakReferenceOwner::WeakReferenceOwner() {}
 
 WeakReferenceOwner::~WeakReferenceOwner() {
-  RTC_DCHECK(checker_.CalledSequentially());
   Invalidate();
 }
 
 WeakReference WeakReferenceOwner::GetRef() const {
-  RTC_DCHECK(checker_.CalledSequentially());
   // If we hold the last reference to the Flag then create a new one.
   if (!HasRefs())
     flag_ = new RefCountedObject<WeakReference::Flag>();
@@ -70,7 +66,6 @@ WeakReference WeakReferenceOwner::GetRef() const {
 }
 
 void WeakReferenceOwner::Invalidate() {
-  RTC_DCHECK(checker_.CalledSequentially());
   if (flag_.get()) {
     flag_->Invalidate();
     flag_ = nullptr;

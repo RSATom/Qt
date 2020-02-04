@@ -7,9 +7,12 @@
 
 #include <vector>
 
+#include "base/optional.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/payments/payments_customer_data.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/signin/core/browser/account_info.h"
 
 namespace autofill {
 
@@ -19,31 +22,58 @@ class TestPersonalDataManager : public PersonalDataManager {
   TestPersonalDataManager();
   ~TestPersonalDataManager() override;
 
-  // Sets which PrefService to use and observe. |pref_service| is not owned by
-  // this class and must outlive |this|.
-  void SetTestingPrefService(PrefService* pref_service);
+  using PersonalDataManager::SetPrefService;
 
-  // Adds |profile| to |profiles_|. This does not take ownership of |profile|.
-  void AddTestingProfile(AutofillProfile* profile);
-
-  // Adds |credit_card| to |credit_cards_|. This does not take ownership of
-  // |credit_card|.
-  void AddTestingCreditCard(CreditCard* credit_card);
-
-  // Adds |credit_card| to |server_credit_cards_| by copying.
-  void AddTestingServerCreditCard(const CreditCard& credit_card);
-
-  const std::vector<AutofillProfile*>& GetProfiles() const override;
-  std::vector<AutofillProfile*> web_profiles() const override;
-  const std::vector<CreditCard*>& GetCreditCards() const override;
-
+  // PersonalDataManager overrides.  These functions are overridden as needed
+  // for various tests, whether to skip calls to uncreated databases/services,
+  // or to make things easier in general to toggle.
+  void OnSyncServiceInitialized(syncer::SyncService* sync_service) override;
+  void RecordUseOf(const AutofillDataModel& data_model) override;
   std::string SaveImportedProfile(
       const AutofillProfile& imported_profile) override;
   std::string SaveImportedCreditCard(
       const CreditCard& imported_credit_card) override;
-
-  std::string CountryCodeForCurrentTimezone() const override;
+  void AddProfile(const AutofillProfile& profile) override;
+  void UpdateProfile(const AutofillProfile& profile) override;
+  void RemoveByGUID(const std::string& guid) override;
+  void AddCreditCard(const CreditCard& credit_card) override;
+  void DeleteLocalCreditCards(const std::vector<CreditCard>& cards) override;
+  void UpdateCreditCard(const CreditCard& credit_card) override;
+  void AddFullServerCreditCard(const CreditCard& credit_card) override;
+  std::vector<AutofillProfile*> GetProfiles() const override;
   const std::string& GetDefaultCountryCodeForNewAddress() const override;
+  void SetProfiles(std::vector<AutofillProfile>* profiles) override;
+  void LoadProfiles() override;
+  void LoadCreditCards() override;
+  bool IsAutofillEnabled() const override;
+  bool IsAutofillProfileEnabled() const override;
+  bool IsAutofillCreditCardEnabled() const override;
+  bool IsAutofillWalletImportEnabled() const override;
+  bool ShouldSuggestServerCards() const override;
+  std::string CountryCodeForCurrentTimezone() const override;
+  void ClearAllLocalData() override;
+  CreditCard* GetCreditCardByNumber(const std::string& number) override;
+  bool IsDataLoaded() const override;
+  bool IsSyncFeatureEnabled() const override;
+  AccountInfo GetAccountInfoForPaymentsServer() const override;
+
+  // Unique to TestPersonalDataManager:
+
+  // Clears |web_profiles_|.
+  void ClearProfiles();
+
+  // Clears |local_credit_cards_| and |server_credit_cards_|.
+  void ClearCreditCards();
+
+  // Gets a profile based on the provided |guid|.
+  AutofillProfile* GetProfileWithGUID(const char* guid);
+
+  // Gets a credit card based on the provided |guid| (local or server).
+  CreditCard* GetCreditCardWithGUID(const char* guid);
+
+  // Adds a card to |server_credit_cards_|.  Functionally identical to
+  // AddFullServerCreditCard().
+  void AddServerCreditCard(const CreditCard& credit_card);
 
   void set_timezone_country_code(const std::string& timezone_country_code) {
     timezone_country_code_ = timezone_country_code;
@@ -52,19 +82,57 @@ class TestPersonalDataManager : public PersonalDataManager {
     default_country_code_ = default_country_code;
   }
 
-  const AutofillProfile& imported_profile() { return imported_profile_; }
-  const CreditCard& imported_credit_card() { return imported_credit_card_; }
+  int num_times_save_imported_profile_called() const {
+    return num_times_save_imported_profile_called_;
+  }
+
+  int num_times_save_imported_credit_card_called() const {
+    return num_times_save_imported_credit_card_called_;
+  }
+
+  bool sync_service_initialized() const { return sync_service_initialized_; }
+
+  void SetAutofillEnabled(bool autofill_enabled) {
+    autofill_enabled_ = autofill_enabled;
+  }
+
+  void SetAutofillCreditCardEnabled(bool autofill_credit_card_enabled) {
+    autofill_credit_card_enabled_ = autofill_credit_card_enabled;
+  }
+
+  void SetAutofillProfileEnabled(bool autofill_profile_enabled) {
+    autofill_profile_enabled_ = autofill_profile_enabled;
+  }
+
+  void SetAutofillWalletImportEnabled(bool autofill_wallet_import_enabled) {
+    autofill_wallet_import_enabled_ = autofill_wallet_import_enabled;
+  }
+
+  void SetPaymentsCustomerData(
+      std::unique_ptr<PaymentsCustomerData> customer_data) {
+    payments_customer_data_ = std::move(customer_data);
+  }
+
+  void SetSyncFeatureEnabled(bool enabled) { sync_feature_enabled_ = enabled; }
+
+  void SetAccountInfoForPayments(const AccountInfo& account_info) {
+    account_info_ = account_info;
+  }
 
  private:
-  const std::vector<AutofillProfile*>& GetProfiles(
-      bool record_metrics) const override;
-
-  std::vector<AutofillProfile*> profiles_;
-  std::vector<CreditCard*> credit_cards_;
-  AutofillProfile imported_profile_;
-  CreditCard imported_credit_card_;
   std::string timezone_country_code_;
   std::string default_country_code_;
+  int num_times_save_imported_profile_called_ = 0;
+  int num_times_save_imported_credit_card_called_ = 0;
+  base::Optional<bool> autofill_enabled_;
+  base::Optional<bool> autofill_profile_enabled_;
+  base::Optional<bool> autofill_credit_card_enabled_;
+  base::Optional<bool> autofill_wallet_import_enabled_;
+  bool sync_feature_enabled_ = false;
+  bool sync_service_initialized_ = false;
+  AccountInfo account_info_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestPersonalDataManager);
 };
 
 }  // namespace autofill

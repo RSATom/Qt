@@ -6,59 +6,37 @@
 
 #include <sstream>
 
-#include "base/base64.h"
-#include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "build/build_config.h"
-#include "content/public/browser/browser_context.h"
 #include "url/gurl.h"
 
 namespace content {
 namespace {
 
-const char kPersistentNotificationPrefix[] = "p:";
-const char kNonPersistentNotificationPrefix[] = "n:";
-
-const char kSeparator = '#';
-
-// Computes a hash based on the path in which the |browser_context| is stored.
-// Since we only store the hash, SHA-1 is used to make the probability of
-// collisions negligible.
-std::string ComputeBrowserContextHash(BrowserContext* browser_context) {
-  const base::FilePath path = browser_context->GetPath();
-
-#if defined(OS_WIN)
-  std::string path_hash = base::SHA1HashString(base::WideToUTF8(path.value()));
-#else
-  std::string path_hash = base::SHA1HashString(path.value());
-#endif
-
-  return base::HexEncode(path_hash.c_str(), path_hash.length());
-}
+const char kNotificationTagSeparator = '#';
+const char kPersistentNotificationPrefix = 'p';
+const char kNonPersistentNotificationPrefix = 'n';
 
 }  // namespace
-
-NotificationIdGenerator::NotificationIdGenerator(
-    BrowserContext* browser_context)
-    : browser_context_(browser_context) {}
-
-NotificationIdGenerator::~NotificationIdGenerator() {}
 
 // static
 bool NotificationIdGenerator::IsPersistentNotification(
     const base::StringPiece& notification_id) {
-  return notification_id.starts_with(kPersistentNotificationPrefix);
+  return notification_id.length() > 0 &&
+         notification_id.front() == kPersistentNotificationPrefix;
 }
 
 // static
 bool NotificationIdGenerator::IsNonPersistentNotification(
     const base::StringPiece& notification_id) {
-  return notification_id.starts_with(kNonPersistentNotificationPrefix);
+  return notification_id.length() > 0 &&
+         notification_id.front() == kNonPersistentNotificationPrefix;
 }
 
+// Notification Id is of the following format:
+// p#<origin>#[1|0][<developer_tag>|persistent_notification_id]
 std::string NotificationIdGenerator::GenerateForPersistentNotification(
     const GURL& origin,
     const std::string& tag,
@@ -68,10 +46,9 @@ std::string NotificationIdGenerator::GenerateForPersistentNotification(
 
   std::stringstream stream;
 
-  stream << kPersistentNotificationPrefix;
-  stream << ComputeBrowserContextHash(browser_context_);
-  stream << base::IntToString(browser_context_->IsOffTheRecord());
+  stream << kPersistentNotificationPrefix << kNotificationTagSeparator;
   stream << origin;
+  stream << kNotificationTagSeparator;
 
   stream << base::IntToString(!tag.empty());
   if (tag.size())
@@ -82,32 +59,16 @@ std::string NotificationIdGenerator::GenerateForPersistentNotification(
   return stream.str();
 }
 
+// Notification Id is of the following format:
+// p#<origin>#<token>
 std::string NotificationIdGenerator::GenerateForNonPersistentNotification(
-    const GURL& origin,
-    const std::string& tag,
-    int non_persistent_notification_id,
-    int render_process_id) const {
-  DCHECK(origin.is_valid());
-  DCHECK_EQ(origin, origin.GetOrigin());
-
-  std::stringstream stream;
-
-  stream << kNonPersistentNotificationPrefix;
-  stream << ComputeBrowserContextHash(browser_context_);
-  stream << base::IntToString(browser_context_->IsOffTheRecord());
-  stream << origin;
-
-  stream << base::IntToString(!tag.empty());
-  if (tag.empty()) {
-    stream << base::IntToString(render_process_id);
-    stream << kSeparator;
-
-    stream << base::IntToString(non_persistent_notification_id);
-  } else {
-    stream << tag;
-  }
-
-  return stream.str();
+    const url::Origin& origin,
+    const std::string& token) const {
+  DCHECK(!origin.opaque());
+  DCHECK(!token.empty());
+  return base::StringPrintf(
+      "%c%c%s%c%s", kNonPersistentNotificationPrefix, kNotificationTagSeparator,
+      origin.Serialize().c_str(), kNotificationTagSeparator, token.c_str());
 }
 
 }  // namespace content

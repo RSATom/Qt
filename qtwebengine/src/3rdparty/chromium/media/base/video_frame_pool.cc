@@ -4,12 +4,12 @@
 
 #include "media/base/video_frame_pool.h"
 
-#include <deque>
-
 #include "base/bind.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "base/time/default_tick_clock.h"
 
 namespace media {
@@ -32,9 +32,12 @@ class VideoFramePool::PoolImpl
   // |frames_|.
   void Shutdown();
 
-  size_t get_pool_size_for_testing() const { return frames_.size(); }
+  size_t get_pool_size_for_testing() {
+    base::AutoLock auto_lock(lock_);
+    return frames_.size();
+  }
 
-  void set_tick_clock_for_testing(base::TickClock* tick_clock) {
+  void set_tick_clock_for_testing(const base::TickClock* tick_clock) {
     tick_clock_ = tick_clock;
   }
 
@@ -50,23 +53,23 @@ class VideoFramePool::PoolImpl
   void FrameReleased(scoped_refptr<VideoFrame> frame);
 
   base::Lock lock_;
-  bool is_shutdown_ = false;
+  bool is_shutdown_ GUARDED_BY(lock_) = false;
 
   struct FrameEntry {
     base::TimeTicks last_use_time;
     scoped_refptr<VideoFrame> frame;
   };
 
-  std::deque<FrameEntry> frames_;
+  base::circular_deque<FrameEntry> frames_ GUARDED_BY(lock_);
 
-  // |tick_clock_| is always &|default_tick_clock_| outside of testing.
-  base::DefaultTickClock default_tick_clock_;
-  base::TickClock* tick_clock_;
+  // |tick_clock_| is always a DefaultTickClock outside of testing.
+  const base::TickClock* tick_clock_;
 
   DISALLOW_COPY_AND_ASSIGN(PoolImpl);
 };
 
-VideoFramePool::PoolImpl::PoolImpl() : tick_clock_(&default_tick_clock_) {}
+VideoFramePool::PoolImpl::PoolImpl()
+    : tick_clock_(base::DefaultTickClock::GetInstance()) {}
 
 VideoFramePool::PoolImpl::~PoolImpl() {
   DCHECK(is_shutdown_);
@@ -161,7 +164,7 @@ size_t VideoFramePool::GetPoolSizeForTesting() const {
   return pool_->get_pool_size_for_testing();
 }
 
-void VideoFramePool::SetTickClockForTesting(base::TickClock* tick_clock) {
+void VideoFramePool::SetTickClockForTesting(const base::TickClock* tick_clock) {
   pool_->set_tick_clock_for_testing(tick_clock);
 }
 

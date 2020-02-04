@@ -73,7 +73,7 @@ QT_BEGIN_NAMESPACE
     \ingroup qtquick-visual
     \ingroup qtquick-input
     \inherits Item
-    \brief Displays multiple lines of editable formatted text
+    \brief Displays multiple lines of editable formatted text.
 
     The TextEdit item displays a block of editable, formatted text.
 
@@ -139,7 +139,7 @@ namespace {
     class RootNode : public QSGTransformNode
     {
     public:
-        RootNode() : cursorNode(0), frameDecorationsNode(0)
+        RootNode() : cursorNode(nullptr), frameDecorationsNode(nullptr)
         { }
 
         void resetFrameDecorations(QQuickTextNode* newNode)
@@ -358,9 +358,9 @@ QString QQuickTextEdit::text() const
     \qmlproperty bool QtQuick::TextEdit::font.kerning
     \since 5.10
 
-    Enables or disables the kerning OpenType feature when shaping the text. This may improve performance
-    when creating or changing the text, at the expense of some cosmetic features. The default value
-    is true.
+    Enables or disables the kerning OpenType feature when shaping the text. Disabling this may
+    improve performance when creating or changing the text, at the expense of some cosmetic
+    features. The default value is true.
 
     \qml
     TextEdit { text: "OATS FLAVOUR WAY"; kerning: font.false }
@@ -1065,7 +1065,7 @@ int QQuickTextEdit::positionAt(qreal x, qreal y) const
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::moveCursorSelection(int position, SelectionMode mode = TextEdit.SelectCharacters)
+    \qmlmethod QtQuick::TextEdit::moveCursorSelection(int position, SelectionMode mode)
 
     Moves the cursor to \a position and updates the selection according to the optional \a mode
     parameter. (To only move the cursor, set the \l cursorPosition property.)
@@ -1076,7 +1076,7 @@ int QQuickTextEdit::positionAt(qreal x, qreal y) const
     text range.
 
     The selection mode specifies whether the selection is updated on a per character or a per word
-    basis.  If not specified the selection mode will default to TextEdit.SelectCharacters.
+    basis. If not specified the selection mode will default to \c {TextEdit.SelectCharacters}.
 
     \list
     \li TextEdit.SelectCharacters - Sets either the selectionStart or selectionEnd (whichever was at
@@ -1641,7 +1641,8 @@ bool QQuickTextEdit::event(QEvent *event)
     Q_D(QQuickTextEdit);
     if (event->type() == QEvent::ShortcutOverride) {
         d->control->processEvent(event, QPointF(-d->xoff, -d->yoff));
-        return event->isAccepted();
+        if (event->isAccepted())
+            return true;
     }
     return QQuickImplicitSizeItem::event(event);
 }
@@ -1968,12 +1969,11 @@ void QQuickTextEdit::triggerPreprocess()
 }
 
 typedef QQuickTextEditPrivate::Node TextNode;
-typedef QList<TextNode*>::iterator TextNodeIterator;
+using TextNodeIterator = QQuickTextEditPrivate::TextNodeIterator;
 
-
-static bool comesBefore(TextNode* n1, TextNode* n2)
+static inline bool operator<(const TextNode &n1, const TextNode &n2)
 {
-    return n1->startPos() < n2->startPos();
+    return n1.startPos() < n2.startPos();
 }
 
 static inline void updateNodeTransform(QQuickTextNode* node, const QPointF &topLeft)
@@ -1992,12 +1992,12 @@ static inline void updateNodeTransform(QQuickTextNode* node, const QPointF &topL
 void QQuickTextEdit::invalidateFontCaches()
 {
     Q_D(QQuickTextEdit);
-    if (d->document == 0)
+    if (d->document == nullptr)
         return;
 
     QTextBlock block;
     for (block = d->document->firstBlock(); block.isValid(); block = block.next()) {
-        if (block.layout() != 0 && block.layout()->engine() != 0)
+        if (block.layout() != nullptr && block.layout()->engine() != nullptr)
             block.layout()->engine()->resetFontEngineCache();
     }
 }
@@ -2015,7 +2015,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
     Q_UNUSED(updatePaintNodeData);
     Q_D(QQuickTextEdit);
 
-    if (d->updateType != QQuickTextEditPrivate::UpdatePaintNode && oldNode != 0) {
+    if (d->updateType != QQuickTextEditPrivate::UpdatePaintNode && oldNode != nullptr) {
         // Update done in preprocess() in the nodes
         d->updateType = QQuickTextEditPrivate::UpdateNone;
         return oldNode;
@@ -2026,13 +2026,12 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
     if (!oldNode) {
         // If we had any QQuickTextNode node references, they were deleted along with the root node
         // But here we must delete the Node structures in textNodeMap
-        qDeleteAll(d->textNodeMap);
         d->textNodeMap.clear();
     }
 
     RootNode *rootNode = static_cast<RootNode *>(oldNode);
     TextNodeIterator nodeIterator = d->textNodeMap.begin();
-    while (nodeIterator != d->textNodeMap.end() && !(*nodeIterator)->dirty())
+    while (nodeIterator != d->textNodeMap.end() && !nodeIterator->dirty())
         ++nodeIterator;
 
     QQuickTextNodeEngine engine;
@@ -2045,20 +2044,30 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
 
         int firstDirtyPos = 0;
         if (nodeIterator != d->textNodeMap.end()) {
-            firstDirtyPos = (*nodeIterator)->startPos();
+            firstDirtyPos = nodeIterator->startPos();
+            // ### this could be optimized if the first and last dirty nodes are not connected
+            // as the intermediate text nodes would usually only need to be transformed differently.
+            int lastDirtyPos = firstDirtyPos;
+            auto it = d->textNodeMap.constEnd();
+            while (it != nodeIterator) {
+                --it;
+                if (it->dirty()) {
+                    lastDirtyPos = it->startPos();
+                    break;
+                }
+            }
             do {
-                rootNode->removeChildNode((*nodeIterator)->textNode());
-                delete (*nodeIterator)->textNode();
-                delete *nodeIterator;
+                rootNode->removeChildNode(nodeIterator->textNode());
+                delete nodeIterator->textNode();
                 nodeIterator = d->textNodeMap.erase(nodeIterator);
-            } while (nodeIterator != d->textNodeMap.end() && (*nodeIterator)->dirty());
+            } while (nodeIterator != d->textNodeMap.constEnd() && nodeIterator->startPos() <= lastDirtyPos);
         }
 
         // FIXME: the text decorations could probably be handled separately (only updated for affected textFrames)
         rootNode->resetFrameDecorations(d->createTextNode());
         resetEngine(&frameDecorationsEngine, d->color, d->selectedTextColor, d->selectionColor);
 
-        QQuickTextNode *node = 0;
+        QQuickTextNode *node = nullptr;
 
         int currentNodeSize = 0;
         int nodeStart = firstDirtyPos;
@@ -2068,7 +2077,8 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
         rootNode->setMatrix(basePositionMatrix);
 
         QPointF nodeOffset;
-        TextNode *firstCleanNode = (nodeIterator != d->textNodeMap.end()) ? *nodeIterator : 0;
+        const TextNode firstCleanNode = (nodeIterator != d->textNodeMap.end()) ? *nodeIterator
+                                                                               : TextNode();
 
         QList<QTextFrame *> frames;
         frames.append(d->document->rootFrame());
@@ -2078,7 +2088,8 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
             frames.append(textFrame->childFrames());
             frameDecorationsEngine.addFrameDecorations(d->document, textFrame);
 
-            if (textFrame->lastPosition() < firstDirtyPos || (firstCleanNode && textFrame->firstPosition() >= firstCleanNode->startPos()))
+            if (textFrame->lastPosition() < firstDirtyPos
+                    || textFrame->firstPosition() >= firstCleanNode.startPos())
                 continue;
             node = d->createTextNode();
             resetEngine(&engine, d->color, d->selectedTextColor, d->selectionColor);
@@ -2091,7 +2102,7 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                 QTextCharFormat format = a->formatAccessor(pos);
                 QTextBlock block = textFrame->firstCursorPosition().block();
                 engine.setCurrentLine(block.layout()->lineForTextPosition(pos - block.position()));
-                engine.addTextObject(QPointF(0, 0), format, QQuickTextNodeEngine::Unselected, d->document,
+                engine.addTextObject(block, QPointF(0, 0), format, QQuickTextNodeEngine::Unselected, d->document,
                                               pos, textFrame->frameFormat().position());
                 nodeStart = pos;
             } else {
@@ -2118,8 +2129,8 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
                     engine.addTextBlock(d->document, block, -nodeOffset, d->color, QColor(), selectionStart(), selectionEnd() - 1);
                     currentNodeSize += block.length();
 
-                    if ((it.atEnd()) || (firstCleanNode && block.next().position() >= firstCleanNode->startPos())) // last node that needed replacing or last block of the frame
-                        break;
+                    if ((it.atEnd()) || block.next().position() >= firstCleanNode.startPos())
+                        break; // last node that needed replacing or last block of the frame
 
                     QList<int>::const_iterator lowerBound = std::lower_bound(frameBoundaries.constBegin(), frameBoundaries.constEnd(), block.next().position());
                     if (currentNodeSize > nodeBreakingSize || lowerBound == frameBoundaries.constEnd() || *lowerBound > nodeStart) {
@@ -2137,16 +2148,19 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
         // Now prepend the frame decorations since we want them rendered first, with the text nodes and cursor in front.
         rootNode->prependChildNode(rootNode->frameDecorationsNode);
 
-        Q_ASSERT(nodeIterator == d->textNodeMap.end() || (*nodeIterator) == firstCleanNode);
+        Q_ASSERT(nodeIterator == d->textNodeMap.end()
+                 || (nodeIterator->textNode() == firstCleanNode.textNode()
+                     && nodeIterator->startPos() == firstCleanNode.startPos()));
         // Update the position of the subsequent text blocks.
-        if (firstCleanNode) {
-            QPointF oldOffset = firstCleanNode->textNode()->matrix().map(QPointF(0,0));
-            QPointF currentOffset = d->document->documentLayout()->blockBoundingRect(d->document->findBlock(firstCleanNode->startPos())).topLeft();
+        if (firstCleanNode.textNode() != nullptr) {
+            QPointF oldOffset = firstCleanNode.textNode()->matrix().map(QPointF(0,0));
+            QPointF currentOffset = d->document->documentLayout()->blockBoundingRect(
+                        d->document->findBlock(firstCleanNode.startPos())).topLeft();
             QPointF delta = currentOffset - oldOffset;
             while (nodeIterator != d->textNodeMap.end()) {
-                QMatrix4x4 transformMatrix = (*nodeIterator)->textNode()->matrix();
+                QMatrix4x4 transformMatrix = nodeIterator->textNode()->matrix();
                 transformMatrix.translate(delta.x(), delta.y());
-                (*nodeIterator)->textNode()->setMatrix(transformMatrix);
+                nodeIterator->textNode()->setMatrix(transformMatrix);
                 ++nodeIterator;
             }
 
@@ -2154,11 +2168,11 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
 
         // Since we iterate over blocks from different text frames that are potentially not sorted
         // we need to ensure that our list of nodes is sorted again:
-        std::sort(d->textNodeMap.begin(), d->textNodeMap.end(), &comesBefore);
+        std::sort(d->textNodeMap.begin(), d->textNodeMap.end());
     }
 
-    if (d->cursorComponent == 0) {
-        QSGInternalRectangleNode* cursor = 0;
+    if (d->cursorComponent == nullptr) {
+        QSGInternalRectangleNode* cursor = nullptr;
         if (!isReadOnly() && d->cursorVisible && d->control->cursorOn())
             cursor = d->sceneGraphContext()->createInternalRectangleNode(d->control->cursorRect(), d->color);
         rootNode->resetCursorNode(cursor);
@@ -2284,7 +2298,6 @@ void QQuickTextEditPrivate::init()
     qmlobject_connect(control, QQuickTextControl, SIGNAL(cursorPositionChanged()), q, QQuickTextEdit, SIGNAL(cursorPositionChanged()));
     qmlobject_connect(control, QQuickTextControl, SIGNAL(cursorRectangleChanged()), q, QQuickTextEdit, SLOT(moveCursorDelegate()));
     qmlobject_connect(control, QQuickTextControl, SIGNAL(linkActivated(QString)), q, QQuickTextEdit, SIGNAL(linkActivated(QString)));
-    qmlobject_connect(control, QQuickTextControl, SIGNAL(linkHovered(QString)), q, QQuickTextEdit, SIGNAL(linkHovered(QString)));
     qmlobject_connect(control, QQuickTextControl, SIGNAL(overwriteModeChanged(bool)), q, QQuickTextEdit, SIGNAL(overwriteModeChanged(bool)));
     qmlobject_connect(control, QQuickTextControl, SIGNAL(textChanged()), q, QQuickTextEdit, SLOT(q_textChanged()));
     qmlobject_connect(control, QQuickTextControl, SIGNAL(preeditTextChanged()), q, QQuickTextEdit, SIGNAL(preeditTextChanged()));
@@ -2296,6 +2309,7 @@ void QQuickTextEditPrivate::init()
     qmlobject_connect(document, QQuickTextDocumentWithImageResources, SIGNAL(imagesLoaded()), q, QQuickTextEdit, SLOT(updateSize()));
     QObject::connect(document, &QQuickTextDocumentWithImageResources::contentsChange, q, &QQuickTextEdit::q_contentsChange);
     QObject::connect(document->documentLayout(), &QAbstractTextDocumentLayout::updateBlock, q, &QQuickTextEdit::invalidateBlock);
+    QObject::connect(control, &QQuickTextControl::linkHovered, q, &QQuickTextEdit::q_linkHovered);
 
     document->setDefaultFont(font);
     document->setDocumentMargin(textMargin);
@@ -2303,6 +2317,9 @@ void QQuickTextEditPrivate::init()
     document->setUndoRedoEnabled(true);
     updateDefaultTextOption();
     q->updateSize();
+#if QT_CONFIG(cursor)
+    q->setCursor(Qt::IBeamCursor);
+#endif
 }
 
 void QQuickTextEditPrivate::resetInputMethod()
@@ -2333,22 +2350,26 @@ void QQuickTextEdit::markDirtyNodesForRange(int start, int end, int charDelta)
     if (start == end)
         return;
 
-    TextNode dummyNode(start, 0);
-    TextNodeIterator it = std::lower_bound(d->textNodeMap.begin(), d->textNodeMap.end(), &dummyNode, &comesBefore);
+    TextNode dummyNode(start);
+
+    const TextNodeIterator textNodeMapBegin = d->textNodeMap.begin();
+    const TextNodeIterator textNodeMapEnd = d->textNodeMap.end();
+
+    TextNodeIterator it = std::lower_bound(textNodeMapBegin, textNodeMapEnd, dummyNode);
     // qLowerBound gives us the first node past the start of the affected portion, rewind to the first node
     // that starts at the last position before the edit position. (there might be several because of images)
-    if (it != d->textNodeMap.begin()) {
+    if (it != textNodeMapBegin) {
         --it;
-        TextNode otherDummy((*it)->startPos(), 0);
-        it = std::lower_bound(d->textNodeMap.begin(), d->textNodeMap.end(), &otherDummy, &comesBefore);
+        TextNode otherDummy(it->startPos());
+        it = std::lower_bound(textNodeMapBegin, textNodeMapEnd, otherDummy);
     }
 
     // mark the affected nodes as dirty
-    while (it != d->textNodeMap.end()) {
-        if ((*it)->startPos() <= end)
-            (*it)->setDirty();
+    while (it != textNodeMapEnd) {
+        if (it->startPos() <= end)
+            it->setDirty();
         else if (charDelta)
-            (*it)->moveStartPos(charDelta);
+            it->moveStartPos(charDelta);
         else
             return;
         ++it;
@@ -2533,8 +2554,8 @@ void QQuickTextEdit::updateWholeDocument()
 {
     Q_D(QQuickTextEdit);
     if (!d->textNodeMap.isEmpty()) {
-        for (TextNode* node : qAsConst(d->textNodeMap))
-            node->setDirty();
+        for (TextNode &node : d->textNodeMap)
+            node.setDirty();
     }
 
     polish();
@@ -2564,6 +2585,20 @@ void QQuickTextEdit::updateCursor()
         d->updateType = QQuickTextEditPrivate::UpdatePaintNode;
         update();
     }
+}
+
+void QQuickTextEdit::q_linkHovered(const QString &link)
+{
+    Q_D(QQuickTextEdit);
+    emit linkHovered(link);
+#if QT_CONFIG(cursor)
+    if (link.isEmpty()) {
+        setCursor(d->cursorToRestoreAfterHover);
+    } else if (cursor().shape() != Qt::PointingHandCursor) {
+        d->cursorToRestoreAfterHover = cursor().shape();
+        setCursor(Qt::PointingHandCursor);
+    }
+#endif
 }
 
 void QQuickTextEdit::q_updateAlignment()
@@ -2671,6 +2706,12 @@ void QQuickTextEditPrivate::handleFocusEvent(QFocusEvent *event)
         q->disconnect(QGuiApplication::inputMethod(), SIGNAL(inputDirectionChanged(Qt::LayoutDirection)),
                    q, SLOT(q_updateAlignment()));
 #endif
+        if (event->reason() != Qt::ActiveWindowFocusReason
+                && event->reason() != Qt::PopupFocusReason
+                && control->textCursor().hasSelection()
+                && !persistentSelection)
+            q->deselect();
+
         emit q->editingFinished();
     }
 }
@@ -2678,7 +2719,7 @@ void QQuickTextEditPrivate::handleFocusEvent(QFocusEvent *event)
 void QQuickTextEditPrivate::addCurrentTextNodeToRoot(QQuickTextNodeEngine *engine, QSGTransformNode *root, QQuickTextNode *node, TextNodeIterator &it, int startPos)
 {
     engine->addToSceneGraph(node, QQuickText::Normal, QColor());
-    it = textNodeMap.insert(it, new TextNode(startPos, node));
+    it = textNodeMap.insert(it, TextNode(startPos, node));
     ++it;
     root->appendChildNode(node);
 }
@@ -2760,7 +2801,7 @@ QString QQuickTextEdit::getFormattedText(int start, int end) const
 /*!
     \qmlmethod QtQuick::TextEdit::insert(int position, string text)
 
-    Inserts \a text into the TextEdit at position.
+    Inserts \a text into the TextEdit at \a position.
 */
 void QQuickTextEdit::insert(int position, const QString &text)
 {

@@ -2,12 +2,15 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file. */
 
-:root {
+:host > * {
   --dialog-padding-end: 26px;
   --dialog-padding-start: 16px;
   --dialog-width: 340px;
   --navigation-icon-button-size: 36px;
   --non-navigation-icon-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  font-family: 'Roboto', 'Noto', sans-serif;
 }
 
 .button {
@@ -18,4 +21,11 @@
 
 [hidden] {
   display: none !important;
+}
+
+.ellipsis {
+  overflow: hidden;
+  padding: 0 1%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

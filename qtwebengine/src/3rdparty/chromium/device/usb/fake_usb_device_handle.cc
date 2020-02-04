@@ -6,8 +6,8 @@
 
 #include "base/callback.h"
 #include "base/logging.h"
+#include "base/memory/ref_counted_memory.h"
 #include "device/usb/usb_device.h"
-#include "net/base/io_buffer.h"
 
 namespace device {
 
@@ -24,33 +24,32 @@ void FakeUsbDeviceHandle::Close() {
 }
 
 void FakeUsbDeviceHandle::SetConfiguration(int configuration_value,
-                                           const ResultCallback& callback) {
+                                           ResultCallback callback) {
   NOTIMPLEMENTED();
 }
 
 void FakeUsbDeviceHandle::ClaimInterface(int interface_number,
-                                         const ResultCallback& callback) {
+                                         ResultCallback callback) {
   NOTIMPLEMENTED();
 }
 
 void FakeUsbDeviceHandle::ReleaseInterface(int interface_number,
-                                           const ResultCallback& callback) {
+                                           ResultCallback callback) {
   NOTIMPLEMENTED();
 }
 
 void FakeUsbDeviceHandle::SetInterfaceAlternateSetting(
     int interface_number,
     int alternate_setting,
-    const ResultCallback& callback) {
+    ResultCallback callback) {
   NOTIMPLEMENTED();
 }
 
-void FakeUsbDeviceHandle::ResetDevice(const ResultCallback& callback) {
+void FakeUsbDeviceHandle::ResetDevice(ResultCallback callback) {
   NOTIMPLEMENTED();
 }
 
-void FakeUsbDeviceHandle::ClearHalt(uint8_t endpoint,
-                                    const ResultCallback& callback) {
+void FakeUsbDeviceHandle::ClearHalt(uint8_t endpoint, ResultCallback callback) {
   NOTIMPLEMENTED();
 }
 
@@ -61,12 +60,11 @@ void FakeUsbDeviceHandle::ControlTransfer(
     uint8_t request,
     uint16_t value,
     uint16_t index,
-    scoped_refptr<net::IOBuffer> buffer,
-    size_t length,
+    scoped_refptr<base::RefCountedBytes> buffer,
     unsigned int timeout,
-    const UsbDeviceHandle::TransferCallback& callback) {
+    UsbDeviceHandle::TransferCallback callback) {
   if (position_ == size_) {
-    callback.Run(UsbTransferStatus::DISCONNECT, buffer, 0);
+    std::move(callback).Run(UsbTransferStatus::DISCONNECT, buffer, 0);
     return;
   }
 
@@ -75,18 +73,19 @@ void FakeUsbDeviceHandle::ControlTransfer(
     if (position_ + 2 <= size_) {
       bytes_transferred = data_[position_] | data_[position_ + 1] << 8;
       position_ += 2;
-      bytes_transferred = std::min(bytes_transferred, length);
+      bytes_transferred = std::min(bytes_transferred, buffer->size());
       bytes_transferred = std::min(bytes_transferred, size_ - position_);
     }
 
     if (direction == UsbTransferDirection::INBOUND) {
-      memcpy(buffer->data(), &data_[position_], bytes_transferred);
+      memcpy(buffer->front(), &data_[position_], bytes_transferred);
       position_ += bytes_transferred;
     }
 
-    callback.Run(UsbTransferStatus::COMPLETED, buffer, bytes_transferred);
+    std::move(callback).Run(UsbTransferStatus::COMPLETED, buffer,
+                            bytes_transferred);
   } else {
-    callback.Run(UsbTransferStatus::TRANSFER_ERROR, buffer, 0);
+    std::move(callback).Run(UsbTransferStatus::TRANSFER_ERROR, buffer, 0);
   }
 }
 
@@ -94,25 +93,25 @@ void FakeUsbDeviceHandle::IsochronousTransferIn(
     uint8_t endpoint_number,
     const std::vector<uint32_t>& packet_lengths,
     unsigned int timeout,
-    const IsochronousTransferCallback& callback) {
+    IsochronousTransferCallback callback) {
   NOTIMPLEMENTED();
 }
 
 void FakeUsbDeviceHandle::IsochronousTransferOut(
     uint8_t endpoint_number,
-    scoped_refptr<net::IOBuffer> buffer,
+    scoped_refptr<base::RefCountedBytes> buffer,
     const std::vector<uint32_t>& packet_lengths,
     unsigned int timeout,
-    const IsochronousTransferCallback& callback) {
+    IsochronousTransferCallback callback) {
   NOTIMPLEMENTED();
 }
 
-void FakeUsbDeviceHandle::GenericTransfer(UsbTransferDirection direction,
-                                          uint8_t endpoint_number,
-                                          scoped_refptr<net::IOBuffer> buffer,
-                                          size_t length,
-                                          unsigned int timeout,
-                                          const TransferCallback& callback) {
+void FakeUsbDeviceHandle::GenericTransfer(
+    UsbTransferDirection direction,
+    uint8_t endpoint_number,
+    scoped_refptr<base::RefCountedBytes> buffer,
+    unsigned int timeout,
+    TransferCallback callback) {
   NOTIMPLEMENTED();
 }
 
@@ -122,6 +121,6 @@ const UsbInterfaceDescriptor* FakeUsbDeviceHandle::FindInterfaceByEndpoint(
   return nullptr;
 }
 
-FakeUsbDeviceHandle::~FakeUsbDeviceHandle() {}
+FakeUsbDeviceHandle::~FakeUsbDeviceHandle() = default;
 
 }  // namespace device

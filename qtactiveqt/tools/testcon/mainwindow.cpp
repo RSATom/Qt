@@ -45,9 +45,10 @@
 #include <QtCore/QLibraryInfo>
 #include <QtCore/qt_windows.h>
 #include <ActiveQt/QAxScriptManager>
-#include <ActiveQt/QAxSelect>
 #include <ActiveQt/QAxWidget>
 #include <ActiveQt/qaxtypes.h>
+#include <memory>
+#include <sddl.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,24 +66,23 @@ static const ScriptLanguage scriptLanguages[] = {
     {"Python", ".py"}
 };
 
-MainWindow *MainWindow::m_instance = Q_NULLPTR;
+MainWindow *MainWindow::m_instance = nullptr;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , m_dlgInvoke(Q_NULLPTR)
-    , m_dlgProperties(Q_NULLPTR)
-    , m_dlgAmbient(Q_NULLPTR)
-    , m_scripts(Q_NULLPTR)
+    , m_dlgInvoke(nullptr)
+    , m_dlgProperties(nullptr)
+    , m_dlgAmbient(nullptr)
+    , m_scripts(nullptr)
 {
     setupUi(this);
     MainWindow::m_instance = this; // Logging handler needs the UI
 
     setObjectName(QLatin1String("MainWindow"));
 
-    const int scriptCount = int(sizeof(scriptLanguages) / sizeof(scriptLanguages[0]));
-    for (int s = 0; s < scriptCount; ++s) {
-        const QString name = QLatin1String(scriptLanguages[s].name);
-        const QString suffix = QLatin1String(scriptLanguages[s].suffix);
+    for (auto scriptLanguage : scriptLanguages) {
+        const QString name = QLatin1String(scriptLanguage.name);
+        const QString suffix = QLatin1String(scriptLanguage.suffix);
         if (!QAxScriptManager::registerEngine(name, suffix))
             qWarning().noquote().nospace() << "Failed to register \"" << name
                 << "\" (*" << suffix << ") with QAxScriptManager.";
@@ -99,7 +99,7 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    MainWindow::m_instance = Q_NULLPTR;
+    MainWindow::m_instance = nullptr;
 }
 
 QAxWidget *MainWindow::activeAxWidget() const
@@ -119,10 +119,75 @@ QList<QAxWidget *> MainWindow::axWidgets() const
     return result;
 }
 
-bool MainWindow::addControlFromClsid(const QString &clsid)
+
+/** RAII class for temporarily impersonating low-integrity level for the current thread.
+    Intended to be used together with CLSCTX_ENABLE_CLOAKING when creating COM objects.
+    Based on "Designing Applications to Run at a Low Integrity Level" https://msdn.microsoft.com/en-us/library/bb625960.aspx */
+struct LowIntegrity {
+    LowIntegrity()
+    {
+        HANDLE cur_token = nullptr;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY, &cur_token))
+            abort();
+
+        if (!DuplicateTokenEx(cur_token, 0, NULL, SecurityImpersonation, TokenPrimary, &m_token))
+            abort();
+
+        CloseHandle(cur_token);
+
+        PSID li_sid = nullptr;
+        if (!ConvertStringSidToSid(L"S-1-16-4096", &li_sid)) // low integrity SID
+            abort();
+
+        // reduce process integrity level
+        TOKEN_MANDATORY_LABEL TIL = {};
+        TIL.Label.Attributes = SE_GROUP_INTEGRITY;
+        TIL.Label.Sid = li_sid;
+        if (!SetTokenInformation(m_token, TokenIntegrityLevel, &TIL, sizeof(TOKEN_MANDATORY_LABEL) + GetLengthSid(li_sid)))
+            abort();
+
+        if (!ImpersonateLoggedOnUser(m_token)) // change current thread integrity
+            abort();
+
+        LocalFree(li_sid);
+        li_sid = nullptr;
+    }
+
+    ~LowIntegrity()
+    {
+        if (!RevertToSelf())
+            abort();
+
+        CloseHandle(m_token);
+        m_token = nullptr;
+    }
+
+private:
+    HANDLE m_token = nullptr;
+};
+
+bool MainWindow::addControlFromClsid(const QString &clsid, QAxSelect::SandboxingLevel sandboxing)
 {
     QAxWidget *container = new QAxWidget;
-    const bool result = container->setControl(clsid);
+
+    bool result = false;
+    {
+        std::unique_ptr<LowIntegrity> low_integrity;
+
+        if (sandboxing == QAxSelect::SandboxingProcess) {
+            // require out-of-process
+            container->setClassContext(CLSCTX_LOCAL_SERVER);
+        } else if (sandboxing == QAxSelect::SandboxingLowIntegrity) {
+            // impersonate "low integrity"
+            low_integrity.reset(new LowIntegrity);
+            // require out-of-process and
+            // propagate integrity level when calling setControl
+            container->setClassContext(CLSCTX_LOCAL_SERVER | CLSCTX_ENABLE_CLOAKING);
+        }
+
+        result = container->setControl(clsid);
+    }
+
     if (result) {
         container->setObjectName(container->windowTitle());
         m_mdiArea->addSubWindow(container);
@@ -155,7 +220,8 @@ void MainWindow::appendLogText(const QString &message)
 void MainWindow::on_actionFileNew_triggered()
 {
     QAxSelect select(this);
-    while (select.exec() && !addControlFromClsid(select.clsid())) { }
+    while (select.exec() && !addControlFromClsid(select.clsid(), select.sandboxingLevel())) {
+    }
 }
 
 void MainWindow::on_actionFileLoad_triggered()
@@ -328,7 +394,7 @@ void MainWindow::on_actionControlPixmap_triggered()
         return;
 
     QLabel *label = new QLabel;
-    label->setPixmap(QPixmap::grabWidget(container));
+    label->setPixmap(container->grab());
     QMdiSubWindow *subWindow = m_mdiArea->addSubWindow(label);
     subWindow->setWindowTitle(tr("%1 - Pixmap").arg(container->windowTitle()));
     label->show();

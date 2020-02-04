@@ -104,6 +104,7 @@ static QSet<QByteArray> keywords()
 #endif
 #ifdef Q_OS_OSX
             << "osx"
+            << "macos"
 #endif
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
             << "windows"
@@ -149,8 +150,10 @@ static QSet<QByteArray> keywords()
             << "msvc-2013"
 #  elif _MSC_VER <= 1900
             << "msvc-2015"
-#  else
+#  elif _MSC_VER <= 1916
             << "msvc-2017"
+#  else
+            << "msvc-2019"
 #  endif
 #endif
 
@@ -220,22 +223,6 @@ static bool checkCondition(const QByteArray &condition)
 
 static bool ignoreAll = false;
 static std::set<QByteArray> *ignoredTests = 0;
-static std::set<QByteArray> *gpuFeatures = 0;
-
-Q_TESTLIB_EXPORT std::set<QByteArray> *(*qgpu_features_ptr)(const QString &) = 0;
-
-static bool isGPUTestBlacklisted(const char *slot, const char *data = 0)
-{
-    const QByteArray disableKey = QByteArrayLiteral("disable_") + QByteArray(slot);
-    if (gpuFeatures->find(disableKey) != gpuFeatures->end()) {
-        QByteArray msg = QByteArrayLiteral("Skipped due to GPU blacklist: ") + disableKey;
-        if (data)
-            msg += ':' + QByteArray(data);
-        QTest::qSkip(msg.constData(), __FILE__, __LINE__);
-        return true;
-    }
-    return false;
-}
 
 namespace QTestPrivate {
 
@@ -275,17 +262,6 @@ void parseBlackList()
     }
 }
 
-void parseGpuBlackList()
-{
-    if (!qgpu_features_ptr)
-        return;
-    QString filename = QTest::qFindTestData(QStringLiteral("GPU_BLACKLIST"));
-    if (filename.isEmpty())
-        return;
-    if (!gpuFeatures)
-        gpuFeatures = qgpu_features_ptr(filename);
-}
-
 void checkBlackLists(const char *slot, const char *data)
 {
     bool ignore = ignoreAll;
@@ -301,21 +277,8 @@ void checkBlackLists(const char *slot, const char *data)
     }
 
     QTestResult::setBlacklistCurrentTest(ignore);
-
-    // Tests blacklisted in GPU_BLACKLIST are to be skipped. Just ignoring the result is
-    // not sufficient since these are expected to crash or behave in undefined ways.
-    if (!ignore && gpuFeatures) {
-        QByteArray s_gpu = slot;
-        ignore = isGPUTestBlacklisted(s_gpu, data);
-        if (!ignore && data) {
-            s_gpu += ':';
-            s_gpu += data;
-            isGPUTestBlacklisted(s_gpu);
-        }
-    }
 }
 
-}
-
+} // QTestPrivate
 
 QT_END_NAMESPACE

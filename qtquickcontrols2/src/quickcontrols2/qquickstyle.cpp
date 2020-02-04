@@ -43,13 +43,17 @@
 #include <QtCore/qsettings.h>
 #include <QtCore/qfileselector.h>
 #include <QtCore/qlibraryinfo.h>
+#include <QtCore/qmetaobject.h>
 #include <QtGui/qcolor.h>
+#include <QtGui/qfont.h>
 #include <QtGui/qpalette.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/qpa/qplatformtheme.h>
 #include <QtQml/private/qqmlmetatype_p.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlfile.h>
+
+#include <functional>
 
 QT_BEGIN_NAMESPACE
 
@@ -60,7 +64,7 @@ QT_BEGIN_NAMESPACE
     \since 5.7
 
     QQuickStyle provides API for querying and configuring the application
-    \l {Styling Qt Quick Controls 2}{styles} of Qt Quick Controls 2.
+    \l {Styling Qt Quick Controls}{styles} of Qt Quick Controls.
 
     \code
     #include <QGuiApplication>
@@ -82,7 +86,7 @@ QT_BEGIN_NAMESPACE
     \endcode
 
     \note The style must be configured \b before loading QML that imports
-    Qt Quick Controls 2. It is not possible to change the style after the QML
+    Qt Quick Controls. It is not possible to change the style after the QML
     types have been registered.
 
     The style can also be specified as a path to a custom style, such as
@@ -98,22 +102,28 @@ QT_BEGIN_NAMESPACE
     QQuickStyle::setFallbackStyle("Material");
     \endcode
 
-    \sa {Styling Qt Quick Controls 2}
+    \sa {Styling Qt Quick Controls}
 */
 
-// TODO: QQmlImportDatabase::defaultImportPathList()
+static QStringList envPathList(const QByteArray &var)
+{
+    QStringList paths;
+    if (Q_UNLIKELY(!qEnvironmentVariableIsEmpty(var))) {
+        const QByteArray value = qgetenv(var);
+        paths += QString::fromLocal8Bit(value).split(QDir::listSeparator(), QString::SkipEmptyParts);
+    }
+    return paths;
+}
+
 static QStringList defaultImportPathList()
 {
     QStringList importPaths;
     importPaths.reserve(3);
+#ifndef QT_STATIC
     importPaths += QLibraryInfo::location(QLibraryInfo::Qml2ImportsPath);
-
-    if (Q_UNLIKELY(!qEnvironmentVariableIsEmpty("QML2_IMPORT_PATH"))) {
-        const QByteArray envImportPath = qgetenv("QML2_IMPORT_PATH");
-        importPaths += QString::fromLatin1(envImportPath).split(QDir::listSeparator(), QString::SkipEmptyParts);
-    }
-
-    importPaths += QStringLiteral("qrc:/qt-project.org/imports");
+#endif
+    importPaths += envPathList("QML2_IMPORT_PATH");
+    importPaths += QStringLiteral(":/qt-project.org/imports");
     importPaths += QCoreApplication::applicationDirPath();
     return importPaths;
 }
@@ -175,9 +185,9 @@ struct QQuickStyleSpec
         if (style.isEmpty())
             style = QGuiApplicationPrivate::styleOverride;
         if (style.isEmpty())
-            style = QString::fromLatin1(qgetenv("QT_QUICK_CONTROLS_STYLE"));
+            style = QString::fromLocal8Bit(qgetenv("QT_QUICK_CONTROLS_STYLE"));
         if (fallbackStyle.isEmpty())
-            setFallbackStyle(QString::fromLatin1(qgetenv("QT_QUICK_CONTROLS_FALLBACK_STYLE")), "QT_QUICK_CONTROLS_FALLBACK_STYLE");
+            setFallbackStyle(QString::fromLocal8Bit(qgetenv("QT_QUICK_CONTROLS_FALLBACK_STYLE")), "QT_QUICK_CONTROLS_FALLBACK_STYLE");
 #if QT_CONFIG(settings)
         if (style.isEmpty() || fallbackStyle.isEmpty()) {
             QSharedPointer<QSettings> settings = QQuickStylePrivate::settings(QStringLiteral("Controls"));
@@ -233,6 +243,7 @@ struct QQuickStyleSpec
         style.clear();
         fallbackStyle.clear();
         fallbackMethod.clear();
+        configFilePath.clear();
     }
 
     QString resolveConfigFilePath()
@@ -255,18 +266,89 @@ struct QQuickStyleSpec
     QString fallbackStyle;
     QByteArray fallbackMethod;
     QString configFilePath;
+    QStringList customStylePaths;
 };
 
 Q_GLOBAL_STATIC(QQuickStyleSpec, styleSpec)
 
-QStringList QQuickStylePrivate::stylePaths()
+static QStringList parseStylePathsWithColon(const QString &var)
 {
-    // system/custom style paths
     QStringList paths;
-    if (Q_UNLIKELY(!qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE_PATH"))) {
-        const QByteArray value = qgetenv("QT_QUICK_CONTROLS_STYLE_PATH");
-        paths += QString::fromLatin1(value).split(QDir::listSeparator(), QString::SkipEmptyParts);
+    const QChar colon = QLatin1Char(':');
+    int currentIndex = 0;
+
+    do {
+        int nextColonIndex = -1;
+        QString path;
+
+        if (var.at(currentIndex) == colon) {
+            // This is either a list separator, or a qrc path.
+            if (var.at(currentIndex + 1) == colon) {
+                // It's a double colon (list separator followed by qrc path);
+                // find the end of the path.
+                nextColonIndex = var.indexOf(colon, currentIndex + 2);
+                path = var.mid(currentIndex + 1,
+                    nextColonIndex == -1 ? -1 : nextColonIndex - currentIndex - 1);
+            } else {
+                // It's a single colon.
+                nextColonIndex = var.indexOf(colon, currentIndex + 1);
+                if (currentIndex == 0) {
+                    // If we're at the start of the string, then it's a qrc path.
+                    path = var.mid(currentIndex,
+                        nextColonIndex == -1 ? -1 : nextColonIndex - currentIndex);
+                } else {
+                    // Otherwise, it's a separator.
+                    path = var.mid(currentIndex + 1,
+                        nextColonIndex == -1 ? -1 : nextColonIndex - currentIndex - 1);
+                }
+            }
+        } else {
+            // It's a file path.
+            nextColonIndex = var.indexOf(colon, currentIndex);
+            path = var.mid(currentIndex,
+                nextColonIndex == -1 ? -1 : nextColonIndex - currentIndex);
+        }
+
+        paths += path;
+        currentIndex = nextColonIndex;
+
+        // Keep going until we can't find any more colons,
+        // or we're at the last character.
+    } while (currentIndex != -1 && currentIndex < var.size() - 1);
+
+    return paths;
+}
+
+QStringList QQuickStylePrivate::stylePaths(bool resolve)
+{
+    // user-requested style path
+    QStringList paths;
+    if (resolve) {
+        QString path = styleSpec()->path();
+        if (path.endsWith(QLatin1Char('/')))
+            path.chop(1);
+        if (!path.isEmpty())
+            paths += path;
     }
+
+    if (Q_UNLIKELY(!qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE_PATH"))) {
+        const QString value = QString::fromLocal8Bit(qgetenv("QT_QUICK_CONTROLS_STYLE_PATH"));
+        const QChar listSeparator = QDir::listSeparator();
+        if (listSeparator == QLatin1Char(':')) {
+            // Split manually to avoid breaking paths on systems where : is the list separator,
+            // since it's also used for qrc paths.
+            paths += parseStylePathsWithColon(value);
+        } else {
+            // Fast/simpler path for systems where something other than : is used as
+            // the list separator (such as ';').
+            const QStringList customPaths = value.split(listSeparator, QString::SkipEmptyParts);
+            paths += customPaths;
+        }
+    }
+
+    // system/custom style paths
+    paths += styleSpec()->customStylePaths;
+    paths += envPathList("QT_QUICK_CONTROLS_STYLE_PATH");
 
     // built-in import paths
     const QString targetPath = QStringLiteral("QtQuick/Controls.2");
@@ -277,6 +359,7 @@ QStringList QQuickStylePrivate::stylePaths()
             paths += dir.absolutePath();
     }
 
+    paths.removeDuplicates();
     return paths;
 }
 
@@ -309,7 +392,8 @@ void QQuickStylePrivate::init(const QUrl &baseUrl)
 
 void QQuickStylePrivate::reset()
 {
-    styleSpec()->reset();
+    if (styleSpec())
+        styleSpec()->reset();
 }
 
 QString QQuickStylePrivate::configFilePath()
@@ -331,6 +415,81 @@ QSharedPointer<QSettings> QQuickStylePrivate::settings(const QString &group)
 #endif // QT_NO_SETTINGS
     return QSharedPointer<QSettings>();
 }
+
+#if QT_CONFIG(settings)
+static void readValue(const QSharedPointer<QSettings> &settings, const QString &name, std::function<void(const QVariant &)> setValue)
+{
+    const QVariant var = settings->value(name);
+    if (var.isValid())
+        setValue(var);
+}
+
+template <typename Enum>
+static Enum toEnumValue(const QVariant &var)
+{
+    // ### TODO: expose QFont enums to the meta object system using Q_ENUM
+    //QMetaEnum enumeration = QMetaEnum::fromType<Enum>();
+    //bool ok = false;
+    //int value = enumeration.keyToValue(var.toByteArray(), &ok);
+    //if (!ok)
+    //    value = var.toInt();
+    //return static_cast<Enum>(value);
+
+    return static_cast<Enum>(var.toInt());
+}
+
+const QFont *QQuickStylePrivate::readFont(const QSharedPointer<QSettings> &settings)
+{
+    const QVariant var = settings->value(QStringLiteral("Font"));
+    if (var.isValid())
+        return new QFont(var.value<QFont>());
+
+    QFont f;
+    settings->beginGroup(QStringLiteral("Font"));
+    readValue(settings, QStringLiteral("Family"), [&f](const QVariant &var) { f.setFamily(var.toString()); });
+    readValue(settings, QStringLiteral("PointSize"), [&f](const QVariant &var) { f.setPointSizeF(var.toReal()); });
+    readValue(settings, QStringLiteral("PixelSize"), [&f](const QVariant &var) { f.setPixelSize(var.toInt()); });
+    readValue(settings, QStringLiteral("StyleHint"), [&f](const QVariant &var) { f.setStyleHint(toEnumValue<QFont::StyleHint>(var.toInt())); });
+    readValue(settings, QStringLiteral("Weight"), [&f](const QVariant &var) { f.setWeight(toEnumValue<QFont::Weight>(var)); });
+    readValue(settings, QStringLiteral("Style"), [&f](const QVariant &var) { f.setStyle(toEnumValue<QFont::Style>(var.toInt())); });
+    settings->endGroup();
+    return new QFont(f);
+}
+
+static void readColorGroup(const QSharedPointer<QSettings> &settings, QPalette::ColorGroup group, QPalette *palette)
+{
+    const QStringList keys = settings->childKeys();
+    if (keys.isEmpty())
+        return;
+
+    static const int index = QPalette::staticMetaObject.indexOfEnumerator("ColorRole");
+    Q_ASSERT(index != -1);
+    QMetaEnum metaEnum = QPalette::staticMetaObject.enumerator(index);
+
+    for (const QString &key : keys) {
+        bool ok = false;
+        int role = metaEnum.keyToValue(key.toUtf8(), &ok);
+        if (ok)
+            palette->setColor(group, static_cast<QPalette::ColorRole>(role), settings->value(key).value<QColor>());
+    }
+}
+
+const QPalette *QQuickStylePrivate::readPalette(const QSharedPointer<QSettings> &settings)
+{
+    QPalette p;
+    settings->beginGroup(QStringLiteral("Palette"));
+    readColorGroup(settings, QPalette::All, &p);
+
+    settings->beginGroup(QStringLiteral("Normal"));
+    readColorGroup(settings, QPalette::Normal, &p);
+    settings->endGroup();
+
+    settings->beginGroup(QStringLiteral("Disabled"));
+    readColorGroup(settings, QPalette::Disabled, &p);
+    settings->endGroup();
+    return new QPalette(p);
+}
+#endif // QT_CONFIG(settings)
 
 static bool qt_is_dark_system_theme()
 {
@@ -377,10 +536,10 @@ QString QQuickStyle::path()
 /*!
     Sets the application style to \a style.
 
-    \note The style must be configured \b before loading QML that imports Qt Quick Controls 2.
+    \note The style must be configured \b before loading QML that imports Qt Quick Controls.
           It is not possible to change the style after the QML types have been registered.
 
-    \sa setFallbackStyle(), {Using Styles in Qt Quick Controls 2}
+    \sa setFallbackStyle(), {Using Styles in Qt Quick Controls}
 */
 void QQuickStyle::setStyle(const QString &style)
 {
@@ -396,15 +555,15 @@ void QQuickStyle::setStyle(const QString &style)
     \since 5.8
     Sets the application fallback style to \a style.
 
-    \note The fallback style must be the name of one of the built-in Qt Quick Controls 2 styles, e.g. "Material".
+    \note The fallback style must be the name of one of the built-in Qt Quick Controls styles, e.g. "Material".
 
-    \note The style must be configured \b before loading QML that imports Qt Quick Controls 2.
+    \note The style must be configured \b before loading QML that imports Qt Quick Controls.
           It is not possible to change the style after the QML types have been registered.
 
     The fallback style can be also specified by setting the \c QT_QUICK_CONTROLS_FALLBACK_STYLE
-    \l {Supported Environment Variables in Qt Quick Controls 2}{environment variable}.
+    \l {Supported Environment Variables in Qt Quick Controls}{environment variable}.
 
-    \sa setStyle(), {Using Styles in Qt Quick Controls 2}
+    \sa setStyle(), {Using Styles in Qt Quick Controls}
 */
 void QQuickStyle::setFallbackStyle(const QString &style)
 {
@@ -418,9 +577,11 @@ void QQuickStyle::setFallbackStyle(const QString &style)
 
 /*!
     \since 5.9
-    Returns the names of the available built-in styles.
+    Returns the names of the available styles.
 
     \note The method must be called \b after creating an instance of QGuiApplication.
+
+    \sa stylePathList(), addStylePath()
 */
 QStringList QQuickStyle::availableStyles()
 {
@@ -442,6 +603,60 @@ QStringList QQuickStyle::availableStyles()
     styles.prepend(QStringLiteral("Default"));
     styles.removeDuplicates();
     return styles;
+}
+
+/*!
+    \since 5.12
+
+    Returns the list of directories where Qt Quick Controls 2 searches for available styles.
+
+    By default, the list contains paths specified in the \c QT_QUICK_CONTROLS_STYLE_PATH
+    environment variable, and any existing \c QtQuick/Controls.2 sub-directories in
+    \l QQmlEngine::importPathList().
+
+    \sa addStylePath(), availableStyles()
+*/
+QStringList QQuickStyle::stylePathList()
+{
+    return QQuickStylePrivate::stylePaths();
+}
+
+/*!
+    \since 5.12
+
+    Adds \a path as a directory where Qt Quick Controls 2 searches for available styles.
+
+    The \a path may be any local filesystem directory or \l {The Qt Resource System}{Qt Resource} directory.
+    For example, the following paths are all valid:
+
+    \list
+        \li \c {/path/to/styles/}
+        \li \c {file:///path/to/styles/}
+        \li \c {:/path/to/styles/}
+        \li \c {qrc:/path/to/styles/})
+    \endlist
+
+    The \a path will be converted into \l {QDir::canonicalPath}{canonical form} before it is added to
+    the style path list.
+
+    The newly added \a path will be first in the stylePathList().
+
+    \sa stylePathList(), availableStyles()
+*/
+void QQuickStyle::addStylePath(const QString &path)
+{
+    if (path.isEmpty())
+        return;
+
+    const QUrl url = QUrl(path);
+    if (url.isRelative() || url.scheme() == QLatin1String("file")
+            || (url.scheme().length() == 1 && QFile::exists(path)) ) {  // windows path
+        styleSpec()->customStylePaths.prepend(QDir(path).canonicalPath());
+    } else if (url.scheme() == QLatin1String("qrc")) {
+        styleSpec()->customStylePaths.prepend(QLatin1Char(':') + url.path());
+    } else {
+        styleSpec()->customStylePaths.prepend(path);
+    }
 }
 
 QT_END_NAMESPACE

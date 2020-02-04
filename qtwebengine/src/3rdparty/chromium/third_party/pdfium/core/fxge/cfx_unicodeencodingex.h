@@ -7,16 +7,12 @@
 #ifndef CORE_FXGE_CFX_UNICODEENCODINGEX_H_
 #define CORE_FXGE_CFX_UNICODEENCODINGEX_H_
 
-#include <map>
 #include <memory>
-#include <vector>
 
 #include "core/fxcrt/fx_system.h"
 #include "core/fxge/cfx_unicodeencoding.h"
-#include "core/fxge/fx_dib.h"
-#include "core/fxge/fx_freetype.h"
 
-class CFX_UnicodeEncodingEx : public CFX_UnicodeEncoding {
+class CFX_UnicodeEncodingEx final : public CFX_UnicodeEncoding {
  public:
   CFX_UnicodeEncodingEx(CFX_Font* pFont, uint32_t EncodingID);
   ~CFX_UnicodeEncodingEx() override;
@@ -30,8 +26,6 @@ class CFX_UnicodeEncodingEx : public CFX_UnicodeEncoding {
   uint32_t m_nEncodingID;
 };
 
-std::unique_ptr<CFX_UnicodeEncodingEx> FX_CreateFontEncodingEx(
-    CFX_Font* pFont,
-    uint32_t nEncodingID);
+std::unique_ptr<CFX_UnicodeEncodingEx> FX_CreateFontEncodingEx(CFX_Font* pFont);
 
 #endif  // CORE_FXGE_CFX_UNICODEENCODINGEX_H_

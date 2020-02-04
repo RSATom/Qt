@@ -12,8 +12,8 @@
 #include "services/device/battery/battery_status_manager.h"
 #include "services/device/battery/battery_status_service.h"
 #include "services/device/device_service_test_base.h"
-#include "services/device/public/interfaces/battery_monitor.mojom.h"
-#include "services/device/public/interfaces/constants.mojom.h"
+#include "services/device/public/mojom/battery_monitor.mojom.h"
+#include "services/device/public/mojom/constants.mojom.h"
 
 // These tests run against the implementation of the BatteryMonitor interface
 // inside Device Service, with a dummy BatteryManager set as a source of the
@@ -38,12 +38,12 @@ void ExpectBatteryStatus(bool* out_called,
   quit_closure.Run();
 }
 
-class FakeBatteryManager : public BatteryStatusManager {
+class FakeBatteryStatusManager : public BatteryStatusManager {
  public:
-  explicit FakeBatteryManager(
+  explicit FakeBatteryStatusManager(
       const BatteryStatusService::BatteryUpdateCallback& callback)
       : callback_(callback), battery_status_available_(true), started_(false) {}
-  ~FakeBatteryManager() override {}
+  ~FakeBatteryStatusManager() override {}
 
   // Methods from BatteryStatusManager.
   bool StartListeningBatteryChange() override {
@@ -77,7 +77,7 @@ class FakeBatteryManager : public BatteryStatusManager {
   bool started_;
   mojom::BatteryStatus status_;
 
-  DISALLOW_COPY_AND_ASSIGN(FakeBatteryManager);
+  DISALLOW_COPY_AND_ASSIGN(FakeBatteryStatusManager);
 };
 
 class BatteryMonitorImplTest : public DeviceServiceTestBase {
@@ -90,8 +90,8 @@ class BatteryMonitorImplTest : public DeviceServiceTestBase {
     DeviceServiceTestBase::SetUp();
 
     BatteryStatusService* battery_service = BatteryStatusService::GetInstance();
-    std::unique_ptr<FakeBatteryManager> battery_manager(
-        new FakeBatteryManager(battery_service->GetUpdateCallbackForTesting()));
+    auto battery_manager = std::make_unique<FakeBatteryStatusManager>(
+        battery_service->GetUpdateCallbackForTesting());
     battery_manager_ = battery_manager.get();
     battery_service->SetBatteryManagerForTesting(std::move(battery_manager));
 
@@ -107,12 +107,12 @@ class BatteryMonitorImplTest : public DeviceServiceTestBase {
     base::RunLoop().RunUntilIdle();
   }
 
-  FakeBatteryManager* battery_manager() { return battery_manager_; }
+  FakeBatteryStatusManager* battery_manager() { return battery_manager_; }
 
   mojom::BatteryMonitorPtr battery_monitor_;
 
  private:
-  FakeBatteryManager* battery_manager_;
+  FakeBatteryStatusManager* battery_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(BatteryMonitorImplTest);
 };

@@ -9,27 +9,30 @@
 
 #include <vector>
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/fx_dib.h"
 
-class IFX_ScanlineComposer;
+class CFX_DIBBase;
+class PauseIndicatorIface;
+class ScanlineComposerIface;
 
 class CStretchEngine {
  public:
-  CStretchEngine(IFX_ScanlineComposer* pDestBitmap,
+  CStretchEngine(ScanlineComposerIface* pDestBitmap,
                  FXDIB_Format dest_format,
                  int dest_width,
                  int dest_height,
                  const FX_RECT& clip_rect,
-                 const CFX_RetainPtr<CFX_DIBSource>& pSrcBitmap,
-                 int flags);
+                 const RetainPtr<CFX_DIBBase>& pSrcBitmap,
+                 const FXDIB_ResampleOptions& options);
   ~CStretchEngine();
 
-  bool Continue(IFX_Pause* pPause);
+  bool Continue(PauseIndicatorIface* pPause);
 
   bool StartStretchHorz();
-  bool ContinueStretchHorz(IFX_Pause* pPause);
+  bool ContinueStretchHorz(PauseIndicatorIface* pPause);
   void StretchVert();
 
   class CWeightTable {
@@ -43,8 +46,14 @@ class CStretchEngine {
               int src_len,
               int src_min,
               int src_max,
-              int flags);
-    PixelWeight* GetPixelWeight(int pixel) const;
+              const FXDIB_ResampleOptions& options);
+
+    const PixelWeight* GetPixelWeight(int pixel) const;
+    PixelWeight* GetPixelWeight(int pixel) {
+      return const_cast<PixelWeight*>(
+          static_cast<const CWeightTable*>(this)->GetPixelWeight(pixel));
+    }
+
     int* GetValueFromPixelWeight(PixelWeight* pWeight, int index) const;
     size_t GetPixelWeightSize() const;
 
@@ -55,31 +64,43 @@ class CStretchEngine {
     size_t m_dwWeightTablesSize;
   };
 
-  FXDIB_Format m_DestFormat;
-  int m_DestBpp;
-  int m_SrcBpp;
-  int m_bHasAlpha;
-  CFX_UnownedPtr<IFX_ScanlineComposer> m_pDestBitmap;
-  int m_DestWidth;
-  int m_DestHeight;
-  FX_RECT m_DestClip;
+  enum class State : uint8_t { kInitial, kHorizontal, kVertical };
+
+  enum class TransformMethod : uint8_t {
+    k1BppTo8Bpp,
+    k1BppToManyBpp,
+    k8BppTo8Bpp,
+    k8BppTo8BppWithAlpha,
+    k8BppToManyBpp,
+    k8BppToManyBppWithAlpha,
+    kManyBpptoManyBpp,
+    kManyBpptoManyBppWithAlpha
+  };
+
+  const FXDIB_Format m_DestFormat;
+  const int m_DestBpp;
+  const int m_SrcBpp;
+  const int m_bHasAlpha;
+  RetainPtr<CFX_DIBBase> const m_pSource;
+  const uint32_t* m_pSrcPalette;
+  const int m_SrcWidth;
+  const int m_SrcHeight;
+  UnownedPtr<ScanlineComposerIface> const m_pDestBitmap;
+  const int m_DestWidth;
+  const int m_DestHeight;
+  const FX_RECT m_DestClip;
   std::vector<uint8_t> m_DestScanline;
   std::vector<uint8_t> m_DestMaskScanline;
-  FX_RECT m_SrcClip;
-  CFX_RetainPtr<CFX_DIBSource> m_pSource;
-  uint32_t* m_pSrcPalette;
-  int m_SrcWidth;
-  int m_SrcHeight;
-  int m_SrcPitch;
-  int m_InterPitch;
-  int m_ExtraMaskPitch;
   std::vector<uint8_t> m_InterBuf;
   std::vector<uint8_t> m_ExtraAlphaBuf;
-  int m_TransMethod;
-  int m_Flags;
-  CWeightTable m_WeightTable;
+  FX_RECT m_SrcClip;
+  int m_InterPitch;
+  int m_ExtraMaskPitch;
+  FXDIB_ResampleOptions m_ResampleOptions;
+  TransformMethod m_TransMethod;
+  State m_State = State::kInitial;
   int m_CurRow;
-  int m_State;
+  CWeightTable m_WeightTable;
 };
 
 #endif  // CORE_FXGE_DIB_CSTRETCHENGINE_H_

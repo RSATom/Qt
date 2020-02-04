@@ -11,6 +11,7 @@
 #include "components/prefs/pref_service.h"
 
 #if defined(OS_WIN)
+#include <windows.h>
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
@@ -22,6 +23,8 @@ CleanExitBeacon::CleanExitBeacon(const base::string16& backup_registry_key,
                                  PrefService* local_state)
     : local_state_(local_state),
       initial_value_(local_state->GetBoolean(prefs::kStabilityExitedCleanly)),
+      initial_browser_last_live_timestamp_(
+          local_state->GetTime(prefs::kStabilityBrowserLastLiveTimeStamp)),
       backup_registry_key_(backup_registry_key) {
   DCHECK_NE(PrefService::INITIALIZATION_STATUS_WAITING,
             local_state_->GetInitializationStatus());
@@ -66,9 +69,13 @@ CleanExitBeacon::~CleanExitBeacon() {
 // static
 void CleanExitBeacon::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kStabilityExitedCleanly, true);
+
+  registry->RegisterTimePref(prefs::kStabilityBrowserLastLiveTimeStamp,
+                             base::Time(), PrefRegistry::LOSSY_PREF);
 }
 
 void CleanExitBeacon::WriteBeaconValue(bool value) {
+  UpdateLastLiveTimestamp();
   local_state_->SetBoolean(prefs::kStabilityExitedCleanly, value);
 
 #if defined(OS_WIN)
@@ -81,6 +88,11 @@ void CleanExitBeacon::WriteBeaconValue(bool value) {
         value ? 1u : 0u);
   }
 #endif
+}
+
+void CleanExitBeacon::UpdateLastLiveTimestamp() {
+  local_state_->SetTime(prefs::kStabilityBrowserLastLiveTimeStamp,
+                        base::Time::Now());
 }
 
 }  // namespace metrics

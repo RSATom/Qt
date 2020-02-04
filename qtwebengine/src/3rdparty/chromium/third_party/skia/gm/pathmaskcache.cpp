@@ -7,8 +7,6 @@
 
 #include "gm.h"
 
-#if SK_SUPPORT_GPU
-
 #include "GrContext.h"
 #include "GrContextOptions.h"
 #include "SkPath.h"
@@ -104,7 +102,7 @@ protected:
     }
 
     void modifyGrContextOptions(GrContextOptions* options) override {
-        options->fGpuPathRenderers = GrContextOptions::GpuPathRenderers::kNone;
+        options->fGpuPathRenderers = GpuPathRenderers::kNone;
         options->fAllowPathMaskCaching = true;
     }
 
@@ -113,5 +111,3 @@ private:
 };
 
 DEF_GM( return new PathMaskCache(); )
-
-#endif

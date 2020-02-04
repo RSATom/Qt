@@ -7,14 +7,12 @@
 #include "chrome/browser/extensions/api/identity/identity_api.h"
 #include "chrome/browser/extensions/api/identity/identity_constants.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/account_tracker_service_factory.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/common/extensions/api/identity.h"
-#include "components/signin/core/browser/account_tracker_service.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
-#include "components/signin/core/browser/signin_manager.h"
-#include "components/signin/core/common/profile_management_switches.h"
+#include "content/public/browser/browser_context.h"
+#include "content/public/common/service_manager_connection.h"
+#include "services/identity/public/mojom/account.mojom.h"
+#include "services/identity/public/mojom/constants.mojom.h"
+#include "services/service_manager/public/cpp/connector.h"
 
 namespace extensions {
 
@@ -25,52 +23,54 @@ IdentityGetAccountsFunction::~IdentityGetAccountsFunction() {
 }
 
 ExtensionFunction::ResponseAction IdentityGetAccountsFunction::Run() {
-  if (GetProfile()->IsOffTheRecord()) {
+  if (browser_context()->IsOffTheRecord()) {
     return RespondNow(Error(identity_constants::kOffTheRecord));
   }
 
-  ProfileOAuth2TokenService* token_service =
-      ProfileOAuth2TokenServiceFactory::GetForProfile(GetProfile());
-  AccountTrackerService* account_tracker =
-      AccountTrackerServiceFactory::GetForProfile(GetProfile());
+  content::BrowserContext::GetConnectorFor(browser_context())
+      ->BindInterface(identity::mojom::kServiceName,
+                      mojo::MakeRequest(&identity_manager_));
 
+  identity_manager_->GetAccounts(
+      base::BindOnce(&IdentityGetAccountsFunction::OnGotAccounts, this));
+
+  return RespondLater();
+}
+
+void IdentityGetAccountsFunction::OnGotAccounts(
+    std::vector<identity::mojom::AccountPtr> accounts) {
   std::unique_ptr<base::ListValue> infos(new base::ListValue());
-  std::string primary_account =
-      SigninManagerFactory::GetForProfile(GetProfile())
-          ->GetAuthenticatedAccountId();
 
-  // If there is no primary account, short-circuit out.
-  if (primary_account.empty() ||
-      !token_service->RefreshTokenIsAvailable(primary_account))
-    return RespondNow(OneArgument(std::move(infos)));
-
-  // Set the primary account as the first entry.
-  std::string primary_gaia_id =
-      account_tracker->GetAccountInfo(primary_account).gaia;
-  api::identity::AccountInfo primary_account_info;
-  primary_account_info.id = primary_gaia_id;
-  infos->Append(primary_account_info.ToValue());
-
-  // If extensions are not multi-account, ignore any other accounts.
-  if (!switches::IsExtensionsMultiAccount())
-    return RespondNow(OneArgument(std::move(infos)));
-
-  // Otherwise, add the other accounts.
-  std::vector<std::string> accounts = token_service->GetAccounts();
-  for (std::vector<std::string>::const_iterator it = accounts.begin();
-       it != accounts.end(); ++it) {
-    std::string gaia_id = account_tracker->GetAccountInfo(*it).gaia;
-    if (gaia_id.empty())
-      continue;
-    if (gaia_id == primary_gaia_id)
-      continue;
-
-    api::identity::AccountInfo account_info;
-    account_info.id = gaia_id;
-    infos->Append(account_info.ToValue());
+  if (accounts.empty()) {
+    Respond(OneArgument(std::move(infos)));
+    return;
   }
 
-  return RespondNow(OneArgument(std::move(infos)));
+  Profile* profile = Profile::FromBrowserContext(browser_context());
+  bool primary_account_only = IdentityAPI::GetFactoryInstance()
+                                  ->Get(profile)
+                                  ->AreExtensionsRestrictedToPrimaryAccount();
+
+  // If extensions are restricted to the primary account and there is no valid
+  // primary account, short-circuit out.
+  if (primary_account_only && (!accounts[0]->state.is_primary_account ||
+                               !accounts[0]->state.has_refresh_token)) {
+    Respond(OneArgument(std::move(infos)));
+    return;
+  }
+
+  for (const auto& account : accounts) {
+    api::identity::AccountInfo account_info;
+    account_info.id = account->info.gaia;
+    infos->Append(account_info.ToValue());
+
+    // Stop after the primary account if extensions are restricted to the
+    // primary account.
+    if (primary_account_only)
+      break;
+  }
+
+  Respond(OneArgument(std::move(infos)));
 }
 
 }  // namespace extensions

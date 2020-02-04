@@ -45,6 +45,16 @@ QT_BEGIN_NAMESPACE
 static const int maxValidZoom = 30;
 static const QDateTime defaultTs = QDateTime::fromString(QStringLiteral("2016-06-01T00:00:00"), Qt::ISODate);
 
+static void setSSL(QGeoMapType &mapType, bool isHTTPS)
+{
+    QVariantMap metadata = mapType.metadata();
+    metadata["isHTTPS"] = isHTTPS;
+
+    mapType = QGeoMapType(mapType.style(), mapType.name(), mapType.description(), mapType.mobile(),
+                          mapType.night(), mapType.mapId(), mapType.pluginName(), mapType.cameraCapabilities(),
+                          metadata);
+}
+
 QGeoTileProviderOsm::QGeoTileProviderOsm(QNetworkAccessManager *nm,
                                          const QGeoMapType &mapType,
                                          const QVector<TileProvider *> &providers,
@@ -60,6 +70,9 @@ QGeoTileProviderOsm::QGeoTileProviderOsm(QNetworkAccessManager *nm,
 
     if (!m_provider || m_provider->isValid())
         m_status = Resolved;
+
+    if (m_provider && m_provider->isValid())
+        setSSL(m_mapType, m_provider->isHTTPS());
 
     connect(this, &QGeoTileProviderOsm::resolutionFinished, this, &QGeoTileProviderOsm::updateCameraCapabilities);
 }
@@ -183,7 +196,7 @@ void QGeoTileProviderOsm::disableRedirection()
 
 void QGeoTileProviderOsm::onResolutionFinished(TileProvider *provider)
 {
-    Q_UNUSED(provider)
+    Q_UNUSED(provider);
     // provider and m_provider are the same, at this point. m_status is Resolving.
     m_status = Resolved;
     emit resolutionFinished(this);
@@ -191,7 +204,7 @@ void QGeoTileProviderOsm::onResolutionFinished(TileProvider *provider)
 
 void QGeoTileProviderOsm::onResolutionError(TileProvider *provider)
 {
-    Q_UNUSED(provider)
+    Q_UNUSED(provider);
     // provider and m_provider are the same at this point. m_status is Resolving.
     if (!m_provider || m_provider->isInvalid()) {
         m_provider = nullptr;
@@ -237,7 +250,11 @@ void QGeoTileProviderOsm::updateCameraCapabilities()
     m_cameraCapabilities.setMaximumZoomLevel(maximumZoomLevel());
 
     m_mapType = QGeoMapType(m_mapType.style(), m_mapType.name(), m_mapType.description(), m_mapType.mobile(),
-                            m_mapType.night(), m_mapType.mapId(), m_mapType.pluginName(), m_cameraCapabilities);
+                            m_mapType.night(), m_mapType.mapId(), m_mapType.pluginName(), m_cameraCapabilities,
+                            m_mapType.metadata());
+
+    if (m_provider && m_provider->isValid())
+        setSSL(m_mapType, m_provider->isHTTPS());
 }
 
 void QGeoTileProviderOsm::addProvider(TileProvider *provider)
@@ -319,6 +336,7 @@ void TileProvider::resolveProvider()
     request.setHeader(QNetworkRequest::UserAgentHeader, QByteArrayLiteral("QGeoTileFetcherOsm"));
     request.setUrl(m_urlRedirector);
     request.setAttribute(QNetworkRequest::BackgroundRequestAttribute, true);
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferNetwork);
     QNetworkReply *reply = m_nm->get(request);
     connect(reply, SIGNAL(finished()), this, SLOT(onNetworkReplyFinished()) );
     connect(reply, SIGNAL(error(QNetworkReply::NetworkError)), this, SLOT(onNetworkReplyError(QNetworkReply::NetworkError)));
@@ -602,6 +620,11 @@ const QDateTime &TileProvider::timestamp() const
 bool TileProvider::isHighDpi() const
 {
     return m_highDpi;
+}
+
+bool TileProvider::isHTTPS() const
+{
+    return m_urlTemplate.startsWith(QStringLiteral("https"));
 }
 
 void TileProvider::setStyleCopyRight(const QString &copyright)

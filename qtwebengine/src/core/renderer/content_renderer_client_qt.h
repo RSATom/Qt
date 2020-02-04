@@ -39,10 +39,24 @@
 #ifndef CONTENT_RENDERER_CLIENT_QT_H
 #define CONTENT_RENDERER_CLIENT_QT_H
 
+#include "qtwebenginecoreglobal_p.h"
 #include "content/public/renderer/content_renderer_client.h"
-#include "components/spellcheck/spellcheck_build_features.h"
+#include "components/spellcheck/spellcheck_buildflags.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/local_interface_provider.h"
+#include "services/service_manager/public/cpp/service.h"
+#include "services/service_manager/public/cpp/service_binding.h"
 
 #include <QScopedPointer>
+
+namespace error_page {
+class Error;
+}
+
+namespace network_hints {
+class PrescientNetworkingDispatcher;
+}
 
 namespace visitedlink {
 class VisitedLinkSlave;
@@ -52,37 +66,93 @@ namespace web_cache {
 class WebCacheImpl;
 }
 
-#if BUILDFLAG(ENABLE_SPELLCHECK)
+#if QT_CONFIG(webengine_spellchecker)
 class SpellCheck;
 #endif
 
 namespace QtWebEngineCore {
 
-class ContentRendererClientQt : public content::ContentRendererClient {
+class RenderThreadObserverQt;
+
+class ContentRendererClientQt : public content::ContentRendererClient
+                              , public service_manager::Service
+                              , public service_manager::LocalInterfaceProvider
+{
 public:
     ContentRendererClientQt();
     ~ContentRendererClientQt();
+
+    // content::ContentRendererClient:
     void RenderThreadStarted() override;
     void RenderViewCreated(content::RenderView *render_view) override;
     void RenderFrameCreated(content::RenderFrame* render_frame) override;
     bool ShouldSuppressErrorPage(content::RenderFrame *, const GURL &) override;
-    bool HasErrorPage(int httpStatusCode, std::string *errorDomain) override;
-    void GetNavigationErrorStrings(content::RenderFrame* renderFrame, const blink::WebURLRequest& failedRequest,
-                                   const blink::WebURLError& error, std::string* errorHtml, base::string16* errorDescription) override;
+    bool HasErrorPage(int http_status_code) override;
+
+    void PrepareErrorPage(content::RenderFrame *render_frame,
+                          const blink::WebURLError &error,
+                          const std::string &http_method,
+                          bool ignoring_cache,
+                          std::string *error_html) override;
+    void PrepareErrorPageForHttpStatusError(content::RenderFrame *render_frame,
+                                            const GURL &unreachable_url,
+                                            const std::string &http_method,
+                                            bool ignoring_cache,
+                                            int http_status,
+                                            std::string *error_html) override;
 
     unsigned long long VisitedLinkHash(const char *canonicalUrl, size_t length) override;
     bool IsLinkVisited(unsigned long long linkHash) override;
+    blink::WebPrescientNetworking* GetPrescientNetworking() override;
     void AddSupportedKeySystems(std::vector<std::unique_ptr<media::KeySystemProperties>>* key_systems) override;
 
-    void RunScriptsAtDocumentStart(content::RenderFrame* render_frame) override;
-    void RunScriptsAtDocumentEnd(content::RenderFrame* render_frame) override;
+    void RunScriptsAtDocumentStart(content::RenderFrame *render_frame) override;
+    void RunScriptsAtDocumentEnd(content::RenderFrame *render_frame) override;
+    void RunScriptsAtDocumentIdle(content::RenderFrame *render_frame) override;
+    bool OverrideCreatePlugin(content::RenderFrame* render_frame,
+        const blink::WebPluginParams& params, blink::WebPlugin** plugin) override;
+    content::BrowserPluginDelegate* CreateBrowserPluginDelegate(content::RenderFrame* render_frame,
+        const content::WebPluginInfo& info, const std::string& mime_type, const GURL& original_url) override;
+
+    void WillSendRequest(blink::WebLocalFrame *frame,
+                         ui::PageTransition transition_type,
+                         const blink::WebURL &url,
+                         const url::Origin *initiator_origin,
+                         GURL *new_url,
+                         bool *attach_same_site_cookies) override;
+
+    void CreateRendererService(service_manager::mojom::ServiceRequest service_request) override;
 
 private:
+#if BUILDFLAG(ENABLE_SPELLCHECK)
+    void InitSpellCheck();
+#endif
+    service_manager::Connector *GetConnector();
+
+    // service_manager::Service:
+    void OnBindInterface(const service_manager::BindSourceInfo &remote_info,
+                         const std::string &name,
+                         mojo::ScopedMessagePipeHandle handle) override;
+
+    // service_manager::LocalInterfaceProvider:
+    void GetInterface(const std::string& name, mojo::ScopedMessagePipeHandle request_handle) override;
+
+    void GetNavigationErrorStringsInternal(content::RenderFrame* renderFrame, const std::string &httpMethod,
+                                           const error_page::Error& error, std::string* errorHtml);
+
+    QScopedPointer<RenderThreadObserverQt> m_renderThreadObserver;
     QScopedPointer<visitedlink::VisitedLinkSlave> m_visitedLinkSlave;
     QScopedPointer<web_cache::WebCacheImpl> m_webCacheImpl;
-#if BUILDFLAG(ENABLE_SPELLCHECK)
+#if QT_CONFIG(webengine_spellchecker)
     QScopedPointer<SpellCheck> m_spellCheck;
 #endif
+
+    service_manager::mojom::ConnectorRequest m_connectorRequest;
+    service_manager::ServiceBinding m_serviceBinding;
+    service_manager::BinderRegistry m_registry;
+    std::unique_ptr<network_hints::PrescientNetworkingDispatcher> m_prescientNetworkingDispatcher;
+
+    DISALLOW_COPY_AND_ASSIGN(ContentRendererClientQt);
 };
 
 } // namespace

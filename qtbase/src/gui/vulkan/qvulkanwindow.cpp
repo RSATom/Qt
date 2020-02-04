@@ -74,60 +74,7 @@ Q_LOGGING_CATEGORY(lcGuiVk, "qt.vulkan")
 
   A typical application using QVulkanWindow may look like the following:
 
-  \code
-  class VulkanRenderer : public QVulkanWindowRenderer
-  {
-  public:
-      VulkanRenderer(QVulkanWindow *w) : m_window(w) { }
-
-      void initResources() override
-      {
-          m_devFuncs = m_window->vulkanInstance()->deviceFunctions(m_window->device());
-          ...
-      }
-      void initSwapChainResources() override { ... }
-      void releaseSwapChainResources() override { ... }
-      void releaseResources() override { ... }
-
-      void startNextFrame() override
-      {
-          VkCommandBuffer cmdBuf = m_window->currentCommandBuffer();
-          ...
-          m_devFuncs->vkCmdBeginRenderPass(...);
-          ...
-          m_window->frameReady();
-      }
-
-  private:
-      QVulkanWindow *m_window;
-      QVulkanDeviceFunctions *m_devFuncs;
-  };
-
-  class VulkanWindow : public QVulkanWindow
-  {
-  public:
-      QVulkanWindowRenderer *createRenderer() override {
-          return new VulkanRenderer(this);
-      }
-  };
-
-  int main(int argc, char *argv[])
-  {
-      QGuiApplication app(argc, argv);
-
-      QVulkanInstance inst;
-      // enable the standard validation layers, when available
-      inst.setLayers(QByteArrayList() << "VK_LAYER_LUNARG_standard_validation");
-      if (!inst.create())
-          qFatal("Failed to create Vulkan instance: %d", inst.errorCode());
-
-      VulkanWindow w;
-      w.setVulkanInstance(&inst);
-      w.showMaximized();
-
-      return app.exec();
-  }
-  \endcode
+  \snippet code/src_gui_vulkan_qvulkanwindow.cpp 0
 
   As it can be seen in the example, the main patterns in QVulkanWindow usage are:
 
@@ -989,7 +936,7 @@ bool QVulkanWindowPrivate::createDefaultRenderPass()
     attDesc[1].samples = sampleCount;
     attDesc[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attDesc[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attDesc[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attDesc[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attDesc[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attDesc[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     attDesc[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -999,7 +946,7 @@ bool QVulkanWindowPrivate::createDefaultRenderPass()
         attDesc[2].format = colorFormat;
         attDesc[2].samples = sampleCount;
         attDesc[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        attDesc[2].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attDesc[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         attDesc[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attDesc[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         attDesc[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -2164,8 +2111,8 @@ void QVulkanWindowPrivate::addReadback()
     barrier.image = frameGrabImage;
 
     devFuncs->vkCmdPipelineBarrier(image.cmdBuf,
-                                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                   VK_PIPELINE_STAGE_HOST_BIT,
                                    0, 0, nullptr, 0, nullptr,
                                    1, &barrier);
 }
@@ -2298,6 +2245,11 @@ uint32_t QVulkanWindow::hostVisibleMemoryIndex() const
     \note Calling this function is only valid from the invocation of
     QVulkanWindowRenderer::initResources() up until
     QVulkanWindowRenderer::releaseResources().
+
+    \note It is not guaranteed that this memory type is always suitable. The
+    correct, cross-implementation solution - especially for device local images
+    - is to manually pick a memory type after checking the mask returned from
+    \c{vkGetImageMemoryRequirements}.
  */
 uint32_t QVulkanWindow::deviceLocalMemoryIndex() const
 {
@@ -2434,18 +2386,7 @@ VkFramebuffer QVulkanWindow::currentFramebuffer() const
     concurrentFrameCount(). Such arrays can then be indexed by the value
     returned from this function.
 
-    \code
-        class Renderer {
-            ...
-            VkDescriptorBufferInfo m_uniformBufInfo[QVulkanWindow::MAX_CONCURRENT_FRAME_COUNT];
-        };
-
-        void Renderer::startNextFrame()
-        {
-            VkDescriptorBufferInfo &uniformBufInfo(m_uniformBufInfo[m_window->currentFrame()]);
-            ...
-        }
-    \endcode
+    \snippet code/src_gui_vulkan_qvulkanwindow.cpp 1
 
     \note This function must only be called from within startNextFrame() and, in
     case of asynchronous command generation, up until the call to frameReady().
@@ -2472,20 +2413,7 @@ int QVulkanWindow::currentFrame() const
 
     \note The value is constant for the entire lifetime of the QVulkanWindow.
 
-    \code
-        class Renderer {
-            ...
-            VkDescriptorBufferInfo m_uniformBufInfo[QVulkanWindow::MAX_CONCURRENT_FRAME_COUNT];
-        };
-
-        void Renderer::startNextFrame()
-        {
-            const int count = m_window->concurrentFrameCount();
-            for (int i = 0; i < count; ++i)
-                m_uniformBufInfo[i] = ...
-            ...
-        }
-    \endcode
+    \snippet code/src_gui_vulkan_qvulkanwindow.cpp 2
 
     \sa currentFrame()
  */
@@ -2694,15 +2622,11 @@ QImage QVulkanWindow::grab()
    system differences between OpenGL and Vulkan.
 
    By pre-multiplying the projection matrix with this matrix, applications can
-   continue to assume OpenGL-style Y coordinates in clip space (i.e. Y pointing
-   upwards), and can set minDepth and maxDepth to 0 and 1, respectively,
-   without any further corrections to the vertex Z positions, while using the
-   projection matrices retrieved from the QMatrix4x4 functions, such as
-   QMatrix4x4::perspective(), as-is.
-
-   \note With vertex data following the default OpenGL rules (that is, the
-   front face being CCW), the correct winding order in the rasterization state
-   after applying this matrix is clockwise (\c{VK_FRONT_FACE_CLOCKWISE}).
+   continue to assume that Y is pointing upwards, and can set minDepth and
+   maxDepth in the viewport to 0 and 1, respectively, without having to do any
+   further corrections to the vertex Z positions. Geometry from OpenGL
+   applications can then be used as-is, assuming a rasterization state matching
+   the OpenGL culling and front face settings.
  */
 QMatrix4x4 QVulkanWindow::clipCorrectionMatrix()
 {

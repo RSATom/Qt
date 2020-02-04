@@ -14,7 +14,7 @@
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -65,6 +65,8 @@ WebCacheManager::WebCacheManager()
       weak_factory_(this) {
   registrar_.Add(this, content::NOTIFICATION_RENDERER_PROCESS_CREATED,
                  content::NotificationService::AllBrowserContextsAndSources());
+  registrar_.Add(this, content::NOTIFICATION_RENDERER_PROCESS_CLOSED,
+                 content::NotificationService::AllBrowserContextsAndSources());
   registrar_.Add(this, content::NOTIFICATION_RENDERER_PROCESS_TERMINATED,
                  content::NotificationService::AllBrowserContextsAndSources());
 }
@@ -74,16 +76,7 @@ WebCacheManager::~WebCacheManager() {
 
 void WebCacheManager::Add(int renderer_id) {
   DCHECK(inactive_renderers_.count(renderer_id) == 0);
-
-  // It is tempting to make the following DCHECK here, but it fails when a new
-  // tab is created as we observe activity from that tab because the
-  // RenderProcessHost is recreated and adds itself.
-  //
-  //   DCHECK(active_renderers_.count(renderer_id) == 0);
-  //
-  // However, there doesn't seem to be much harm in receiving the calls in this
-  // order.
-
+  DCHECK(active_renderers_.count(renderer_id) == 0);
   active_renderers_.insert(renderer_id);
 
   RendererInfo* stats = &(stats_[renderer_id]);
@@ -115,17 +108,25 @@ void WebCacheManager::Remove(int renderer_id) {
 }
 
 void WebCacheManager::ObserveActivity(int renderer_id) {
-  StatsMap::iterator item = stats_.find(renderer_id);
+  auto item = stats_.find(renderer_id);
   if (item == stats_.end())
     return;  // We might see stats for a renderer that has been destroyed.
 
-  // Record activity.
-  active_renderers_.insert(renderer_id);
-  item->second.access = Time::Now();
+  auto active_elmt = active_renderers_.find(renderer_id);
+  auto inactive_elmt = inactive_renderers_.find(renderer_id);
 
-  std::set<int>::iterator elmt = inactive_renderers_.find(renderer_id);
-  if (elmt != inactive_renderers_.end()) {
-    inactive_renderers_.erase(elmt);
+  // Record activity, but only if we already received the notification that the
+  // render process host exist. We might have stats from a destroyed renderer
+  // that is about to be recreated for a new tab from which we're already
+  // receiving activity.
+  if (active_elmt != active_renderers_.end() ||
+      inactive_elmt != inactive_renderers_.end()) {
+    active_renderers_.insert(renderer_id);
+    item->second.access = Time::Now();
+  }
+
+  if (inactive_elmt != inactive_renderers_.end()) {
+    inactive_renderers_.erase(inactive_elmt);
 
     // A renderer that was inactive, just became active.  We should make sure
     // it is given a fair cache allocation, but we defer this for a bit in
@@ -137,7 +138,7 @@ void WebCacheManager::ObserveActivity(int renderer_id) {
 void WebCacheManager::ObserveStats(int renderer_id,
                                    uint64_t capacity,
                                    uint64_t size) {
-  StatsMap::iterator entry = stats_.find(renderer_id);
+  auto entry = stats_.find(renderer_id);
   if (entry == stats_.end())
     return;  // We might see stats for a renderer that has been destroyed.
 
@@ -174,6 +175,7 @@ void WebCacheManager::Observe(int type,
       Add(process->GetID());
       break;
     }
+    case content::NOTIFICATION_RENDERER_PROCESS_CLOSED:
     case content::NOTIFICATION_RENDERER_PROCESS_TERMINATED: {
       content::RenderProcessHost* process =
           content::Source<content::RenderProcessHost>(source).ptr();
@@ -196,9 +198,9 @@ void WebCacheManager::GatherStats(const std::set<int>& renderers,
                                   uint64_t* size) {
   *capacity = *size = 0;
 
-  std::set<int>::const_iterator iter = renderers.begin();
+  auto iter = renderers.begin();
   while (iter != renderers.end()) {
-    StatsMap::iterator elmt = stats_.find(*iter);
+    auto elmt = stats_.find(*iter);
     if (elmt != stats_.end()) {
       *capacity += elmt->second.capacity;
       *size += elmt->second.size;
@@ -279,12 +281,12 @@ void WebCacheManager::AddToStrategy(const std::set<int>& renderers,
   // Divide the extra memory evenly among the renderers.
   uint64_t extra_each = extra_bytes_to_allocate / renderers.size();
 
-  std::set<int>::const_iterator iter = renderers.begin();
+  auto iter = renderers.begin();
   while (iter != renderers.end()) {
     uint64_t cache_size = extra_each;
 
     // Add in the space required to implement |tactic|.
-    StatsMap::iterator elmt = stats_.find(*iter);
+    auto elmt = stats_.find(*iter);
     if (elmt != stats_.end()) {
       cache_size += GetSize(tactic, elmt->second.size);
     }
@@ -297,7 +299,7 @@ void WebCacheManager::AddToStrategy(const std::set<int>& renderers,
 
 void WebCacheManager::EnactStrategy(const AllocationStrategy& strategy) {
   // Inform each render process of its cache allocation.
-  AllocationStrategy::const_iterator allocation = strategy.begin();
+  auto allocation = strategy.begin();
   while (allocation != strategy.end()) {
     content::RenderProcessHost* host =
         content::RenderProcessHost::FromID(allocation->first);
@@ -325,7 +327,7 @@ void WebCacheManager::ClearCacheForProcess(int render_process_id) {
 void WebCacheManager::ClearRendererCache(
     const std::set<int>& renderers,
     WebCacheManager::ClearCacheOccasion occasion) {
-  std::set<int>::const_iterator iter = renderers.begin();
+  auto iter = renderers.begin();
   for (; iter != renderers.end(); ++iter) {
     content::RenderProcessHost* host =
         content::RenderProcessHost::FromID(*iter);
@@ -405,15 +407,16 @@ void WebCacheManager::ReviseAllocationStrategyLater() {
   // Ask to be called back in a few milliseconds to actually recompute our
   // allocation.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::Bind(&WebCacheManager::ReviseAllocationStrategy,
-                            weak_factory_.GetWeakPtr()),
+      FROM_HERE,
+      base::BindOnce(&WebCacheManager::ReviseAllocationStrategy,
+                     weak_factory_.GetWeakPtr()),
       base::TimeDelta::FromMilliseconds(kReviseAllocationDelayMS));
 }
 
 void WebCacheManager::FindInactiveRenderers() {
-  std::set<int>::const_iterator iter = active_renderers_.begin();
+  auto iter = active_renderers_.begin();
   while (iter != active_renderers_.end()) {
-    StatsMap::iterator elmt = stats_.find(*iter);
+    auto elmt = stats_.find(*iter);
     DCHECK(elmt != stats_.end());
     TimeDelta idle = Time::Now() - elmt->second.access;
     if (idle >= TimeDelta::FromMinutes(kRendererInactiveThresholdMinutes)) {

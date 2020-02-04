@@ -4,10 +4,11 @@
 
 #include "content/browser/renderer_host/input/mouse_wheel_event_queue.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
+#include "build/build_config.h"
 #include "content/common/input/input_event_dispatch_type.h"
+#include "content/common/input/web_mouse_wheel_event_traits.h"
 #include "content/public/common/content_features.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/blink/web_input_event_traits.h"
@@ -36,14 +37,8 @@ class QueuedWebMouseWheelEvent : public MouseWheelEventWithLatencyInfo {
   DISALLOW_COPY_AND_ASSIGN(QueuedWebMouseWheelEvent);
 };
 
-MouseWheelEventQueue::MouseWheelEventQueue(MouseWheelEventQueueClient* client,
-                                           bool enable_scroll_latching)
+MouseWheelEventQueue::MouseWheelEventQueue(MouseWheelEventQueueClient* client)
     : client_(client),
-      needs_scroll_begin_(true),
-      needs_scroll_end_(false),
-      enable_scroll_latching_(enable_scroll_latching),
-      enable_async_wheel_events_(
-          base::FeatureList::IsEnabled(features::kAsyncWheelEvents)),
       send_wheel_events_async_(false),
       scrolling_device_(blink::kWebGestureDeviceUninitialized) {
   DCHECK(client);
@@ -59,7 +54,14 @@ void MouseWheelEventQueue::QueueEvent(
   if (event_sent_for_gesture_ack_ && !wheel_queue_.empty()) {
     QueuedWebMouseWheelEvent* last_event = wheel_queue_.back().get();
     if (last_event->CanCoalesceWith(event)) {
+      // Terminate the LatencyInfo of the event before it gets coalesced away.
+      event.latency.Terminate();
+
       last_event->CoalesceWith(event);
+      // The deltas for the coalesced event change; the corresponding action
+      // might be different now.
+      last_event->event.event_action =
+          WebMouseWheelEventTraits::GetEventAction(last_event->event);
       TRACE_EVENT_INSTANT2("input", "MouseWheelEventQueue::CoalescedWheelEvent",
                            TRACE_EVENT_SCOPE_THREAD, "total_dx",
                            last_event->event.delta_x, "total_dy",
@@ -68,12 +70,51 @@ void MouseWheelEventQueue::QueueEvent(
     }
   }
 
-  wheel_queue_.push_back(base::MakeUnique<QueuedWebMouseWheelEvent>(event));
+  MouseWheelEventWithLatencyInfo event_with_action(event.event, event.latency);
+  event_with_action.event.event_action =
+      WebMouseWheelEventTraits::GetEventAction(event.event);
+  // Update the expected event action before queuing the event. From this point
+  // on, the action should not change.
+  wheel_queue_.push_back(
+      std::make_unique<QueuedWebMouseWheelEvent>(event_with_action));
   TryForwardNextEventToRenderer();
   LOCAL_HISTOGRAM_COUNTS_100("Renderer.WheelQueueSize", wheel_queue_.size());
 }
 
+bool MouseWheelEventQueue::CanGenerateGestureScroll(
+    InputEventAckState ack_result) const {
+  if (ack_result == INPUT_EVENT_ACK_STATE_CONSUMED) {
+    TRACE_EVENT_INSTANT0("input", "Wheel Event Consumed",
+                         TRACE_EVENT_SCOPE_THREAD);
+    return false;
+  }
+
+  if (event_sent_for_gesture_ack_->event.event_action ==
+      blink::WebMouseWheelEvent::EventAction::kPageZoom) {
+    TRACE_EVENT_INSTANT0("input", "Wheel Event Cannot Cause Scroll",
+                         TRACE_EVENT_SCOPE_THREAD);
+    return false;
+  }
+
+  if (event_sent_for_gesture_ack_->event.resending_plugin_id != -1) {
+    TRACE_EVENT_INSTANT0("input", "Wheel Event Resending Plugin Id Is Not -1",
+                         TRACE_EVENT_SCOPE_THREAD);
+    return false;
+  }
+
+  if (scrolling_device_ != blink::kWebGestureDeviceUninitialized &&
+      scrolling_device_ != blink::kWebGestureDeviceTouchpad) {
+    TRACE_EVENT_INSTANT0("input",
+                         "Autoscroll or Touchscreen Scroll In Progress",
+                         TRACE_EVENT_SCOPE_THREAD);
+    return false;
+  }
+
+  return true;
+}
+
 void MouseWheelEventQueue::ProcessMouseWheelAck(
+    InputEventAckSource ack_source,
     InputEventAckState ack_result,
     const LatencyInfo& latency_info) {
   TRACE_EVENT0("input", "MouseWheelEventQueue::ProcessMouseWheelAck");
@@ -81,44 +122,40 @@ void MouseWheelEventQueue::ProcessMouseWheelAck(
     return;
 
   event_sent_for_gesture_ack_->latency.AddNewLatencyFrom(latency_info);
-  client_->OnMouseWheelEventAck(*event_sent_for_gesture_ack_, ack_result);
+  client_->OnMouseWheelEventAck(*event_sent_for_gesture_ack_, ack_source,
+                                ack_result);
 
   // If event wasn't consumed then generate a gesture scroll for it.
-  if (ack_result != INPUT_EVENT_ACK_STATE_CONSUMED &&
-      ui::WebInputEventTraits::CanCauseScroll(
-          event_sent_for_gesture_ack_->event) &&
-      event_sent_for_gesture_ack_->event.resending_plugin_id == -1 &&
-      (scrolling_device_ == blink::kWebGestureDeviceUninitialized ||
-       scrolling_device_ == blink::kWebGestureDeviceTouchpad)) {
+  if (CanGenerateGestureScroll(ack_result)) {
     WebGestureEvent scroll_update(
         WebInputEvent::kGestureScrollUpdate, WebInputEvent::kNoModifiers,
-        event_sent_for_gesture_ack_->event.TimeStampSeconds());
+        event_sent_for_gesture_ack_->event.TimeStamp(),
+        blink::kWebGestureDeviceTouchpad);
 
-    scroll_update.x = event_sent_for_gesture_ack_->event.PositionInWidget().x;
-    scroll_update.y = event_sent_for_gesture_ack_->event.PositionInWidget().y;
-    scroll_update.global_x =
-        event_sent_for_gesture_ack_->event.PositionInScreen().x;
-    scroll_update.global_y =
-        event_sent_for_gesture_ack_->event.PositionInScreen().y;
-    scroll_update.source_device = blink::kWebGestureDeviceTouchpad;
+    scroll_update.SetPositionInWidget(
+        event_sent_for_gesture_ack_->event.PositionInWidget());
+    scroll_update.SetPositionInScreen(
+        event_sent_for_gesture_ack_->event.PositionInScreen());
     scroll_update.resending_plugin_id = -1;
 
+#if !defined(OS_MACOSX)
     // Swap X & Y if Shift is down and when there is no horizontal movement.
-    if ((event_sent_for_gesture_ack_->event.GetModifiers() &
-         WebInputEvent::kShiftKey) != 0 &&
+    if (event_sent_for_gesture_ack_->event.event_action ==
+            blink::WebMouseWheelEvent::EventAction::kScrollHorizontal &&
         event_sent_for_gesture_ack_->event.delta_x == 0) {
       scroll_update.data.scroll_update.delta_x =
           event_sent_for_gesture_ack_->event.delta_y;
       scroll_update.data.scroll_update.delta_y =
           event_sent_for_gesture_ack_->event.delta_x;
-    } else {
+    } else
+#endif  // OS_MACOSX
+    {
       scroll_update.data.scroll_update.delta_x =
           event_sent_for_gesture_ack_->event.delta_x;
       scroll_update.data.scroll_update.delta_y =
           event_sent_for_gesture_ack_->event.delta_y;
     }
-    // Only OSX populates the phase and momentumPhase; so
-    // |inertialPhase| will be UnknownMomentumPhase on all other platforms.
+
     if (event_sent_for_gesture_ack_->event.momentum_phase !=
         blink::WebMouseWheelEvent::kPhaseNone) {
       scroll_update.data.scroll_update.inertial_phase =
@@ -178,67 +215,33 @@ void MouseWheelEventQueue::ProcessMouseWheelAck(
     bool needs_update = scroll_update.data.scroll_update.delta_x != 0 ||
                         scroll_update.data.scroll_update.delta_y != 0;
 
-    if (enable_scroll_latching_) {
-      if (event_sent_for_gesture_ack_->event.phase ==
-          blink::WebMouseWheelEvent::kPhaseBegan) {
-        send_wheel_events_async_ = true;
-        SendScrollBegin(scroll_update, false);
-      }
+    // For every GSU event record whether it is latched or not.
+    if (needs_update)
+      RecordLatchingUmaMetric(client_->IsWheelScrollInProgress());
 
-      if (needs_update) {
-        ui::LatencyInfo latency = ui::LatencyInfo(ui::SourceEventType::WHEEL);
-        latency.AddLatencyNumber(
-            ui::INPUT_EVENT_LATENCY_GENERATE_SCROLL_UPDATE_FROM_MOUSE_WHEEL, 0,
-            0);
-        client_->ForwardGestureEventWithLatencyInfo(scroll_update, latency);
-      }
+    bool synthetic = event_sent_for_gesture_ack_->event.has_synthetic_phase;
+    if (event_sent_for_gesture_ack_->event.phase ==
+        blink::WebMouseWheelEvent::kPhaseBegan) {
+      // Wheel event with phaseBegan must have non-zero deltas.
+      DCHECK(needs_update);
+      send_wheel_events_async_ = true;
 
-      if (current_phase_ended) {
-        // Send GSE with if scroll latching is enabled and no fling is going
-        // to happen next.
-        SendScrollEnd(scroll_update, false);
-      }
-    } else {  // !enable_scroll_latching_
+      if (!client_->IsWheelScrollInProgress())
+        SendScrollBegin(scroll_update, synthetic);
+    }
 
-      // If there is no update to send and the current phase is ended yet a GSB
-      // needs to be sent, this event sequence doesn't need to be generated
-      // because the events generated will be a GSB (non-synthetic) and GSE
-      // (non-synthetic). This situation arises when OSX generates double
-      // phase end information.
-      bool empty_sequence =
-          !needs_update && needs_scroll_begin_ && current_phase_ended;
-      if (needs_update || !empty_sequence) {
-        if (needs_scroll_begin_) {
-          // If no GSB has been sent, it will be a non-synthetic GSB.
-          SendScrollBegin(scroll_update, false);
-        } else if (has_phase_info) {
-          // If a GSB has been sent, generate a synthetic GSB if we have phase
-          // information. This should be removed once crbug.com/526463 is
-          // fully implemented.
-          SendScrollBegin(scroll_update, true);
-        }
+    if (needs_update) {
+      // It is possible that the wheel event with phaseBegan is consumed and
+      // no GSB is sent.
+      if (!client_->IsWheelScrollInProgress())
+        SendScrollBegin(scroll_update, synthetic);
+      client_->ForwardGestureEventWithLatencyInfo(
+          scroll_update, ui::LatencyInfo(ui::SourceEventType::WHEEL));
+    }
 
-        if (needs_update) {
-          ui::LatencyInfo latency = ui::LatencyInfo(ui::SourceEventType::WHEEL);
-          latency.AddLatencyNumber(
-              ui::INPUT_EVENT_LATENCY_GENERATE_SCROLL_UPDATE_FROM_MOUSE_WHEEL,
-              0, 0);
-          client_->ForwardGestureEventWithLatencyInfo(scroll_update, latency);
-        }
-
-        if (current_phase_ended) {
-          // Non-synthetic GSEs are sent when the current phase is canceled or
-          // ended.
-          SendScrollEnd(scroll_update, false);
-        } else if (has_phase_info) {
-          // Generate a synthetic GSE for every update to force hit testing so
-          // that the non-latching behavior is preserved. Remove once
-          // crbug.com/526463 is fully implemented.
-          SendScrollEnd(scroll_update, true);
-        } else if (!has_phase_info) {
-          SendScrollEnd(scroll_update, false);
-        }
-      }
+    if (current_phase_ended && client_->IsWheelScrollInProgress()) {
+      // Send GSE when GSB is sent and no fling is going to happen next.
+      SendScrollEnd(scroll_update, synthetic);
     }
   }
 
@@ -250,17 +253,15 @@ void MouseWheelEventQueue::OnGestureScrollEvent(
     const GestureEventWithLatencyInfo& gesture_event) {
   if (gesture_event.event.GetType() ==
       blink::WebInputEvent::kGestureScrollBegin) {
-    scrolling_device_ = gesture_event.event.source_device;
-  } else if (scrolling_device_ == gesture_event.event.source_device &&
-             (gesture_event.event.GetType() ==
-                  blink::WebInputEvent::kGestureScrollEnd ||
-              gesture_event.event.GetType() ==
-                  blink::WebInputEvent::kGestureFlingStart)) {
+    scrolling_device_ = gesture_event.event.SourceDevice();
+  } else if (scrolling_device_ == gesture_event.event.SourceDevice() &&
+             gesture_event.event.GetType() ==
+                 blink::WebInputEvent::kGestureScrollEnd) {
     scrolling_device_ = blink::kWebGestureDeviceUninitialized;
-    if (enable_scroll_latching_) {
-      needs_scroll_begin_ = true;
-      needs_scroll_end_ = false;
-    }
+  } else if (gesture_event.event.GetType() ==
+             blink::WebInputEvent::kGestureFlingStart) {
+    // With browser side fling we shouldn't reset scrolling_device_ on GFS since
+    // the fling_controller processes the GFS to generate and send GSU events.
   }
 }
 
@@ -273,18 +274,16 @@ void MouseWheelEventQueue::TryForwardNextEventToRenderer() {
   event_sent_for_gesture_ack_ = std::move(wheel_queue_.front());
   wheel_queue_.pop_front();
 
-  if (enable_async_wheel_events_) {
-    DCHECK(event_sent_for_gesture_ack_->event.phase !=
-               blink::WebMouseWheelEvent::kPhaseNone ||
-           event_sent_for_gesture_ack_->event.momentum_phase !=
-               blink::WebMouseWheelEvent::kPhaseNone);
-    if (event_sent_for_gesture_ack_->event.phase ==
-        blink::WebMouseWheelEvent::kPhaseBegan) {
-      send_wheel_events_async_ = false;
-    } else if (send_wheel_events_async_) {
-      event_sent_for_gesture_ack_->event.dispatch_type =
-          WebInputEvent::kEventNonBlocking;
-    }
+  DCHECK(event_sent_for_gesture_ack_->event.phase !=
+             blink::WebMouseWheelEvent::kPhaseNone ||
+         event_sent_for_gesture_ack_->event.momentum_phase !=
+             blink::WebMouseWheelEvent::kPhaseNone);
+  if (event_sent_for_gesture_ack_->event.phase ==
+      blink::WebMouseWheelEvent::kPhaseBegan) {
+    send_wheel_events_async_ = false;
+  } else if (send_wheel_events_async_) {
+    event_sent_for_gesture_ack_->event.dispatch_type =
+        WebInputEvent::kEventNonBlocking;
   }
 
   client_->SendMouseWheelEventImmediately(*event_sent_for_gesture_ack_);
@@ -292,11 +291,10 @@ void MouseWheelEventQueue::TryForwardNextEventToRenderer() {
 
 void MouseWheelEventQueue::SendScrollEnd(WebGestureEvent update_event,
                                          bool synthetic) {
-  DCHECK((synthetic && !needs_scroll_end_) || needs_scroll_end_);
+  DCHECK(client_->IsWheelScrollInProgress());
 
   WebGestureEvent scroll_end(update_event);
-  scroll_end.SetTimeStampSeconds(
-      ui::EventTimeStampToSeconds(ui::EventTimeForNow()));
+  scroll_end.SetTimeStamp(ui::EventTimeForNow());
   scroll_end.SetType(WebInputEvent::kGestureScrollEnd);
   scroll_end.resending_plugin_id = -1;
   scroll_end.data.scroll_end.synthetic = synthetic;
@@ -304,11 +302,16 @@ void MouseWheelEventQueue::SendScrollEnd(WebGestureEvent update_event,
       update_event.data.scroll_update.inertial_phase;
   scroll_end.data.scroll_end.delta_units =
       update_event.data.scroll_update.delta_units;
-
-  if (!synthetic) {
-    needs_scroll_begin_ = true;
-    needs_scroll_end_ = false;
+#if defined(OS_CHROMEOS)
+  // On ChromeOS wheel events with synthetic momentum_phase ==
+  // blink::WebMouseWheelEvent::kPhaseEnded are generated by the fling
+  // controller to terminate touchpad flings.
+  if (scroll_end.data.scroll_end.inertial_phase ==
+          WebGestureEvent::kMomentumPhase &&
+      synthetic) {
+    scroll_end.data.scroll_end.generated_by_fling_controller = true;
   }
+#endif  // OS_CHROMEOS
   client_->ForwardGestureEventWithLatencyInfo(
       scroll_end, ui::LatencyInfo(ui::SourceEventType::WHEEL));
 }
@@ -316,7 +319,7 @@ void MouseWheelEventQueue::SendScrollEnd(WebGestureEvent update_event,
 void MouseWheelEventQueue::SendScrollBegin(
     const WebGestureEvent& gesture_update,
     bool synthetic) {
-  DCHECK((synthetic && !needs_scroll_begin_) || needs_scroll_begin_);
+  DCHECK(!client_->IsWheelScrollInProgress());
 
   WebGestureEvent scroll_begin(gesture_update);
   scroll_begin.SetType(WebInputEvent::kGestureScrollBegin);
@@ -331,10 +334,12 @@ void MouseWheelEventQueue::SendScrollBegin(
   scroll_begin.data.scroll_begin.delta_hint_units =
       gesture_update.data.scroll_update.delta_units;
 
-  needs_scroll_begin_ = false;
-  needs_scroll_end_ = true;
   client_->ForwardGestureEventWithLatencyInfo(
       scroll_begin, ui::LatencyInfo(ui::SourceEventType::WHEEL));
+}
+
+void MouseWheelEventQueue::RecordLatchingUmaMetric(bool latched) {
+  UMA_HISTOGRAM_BOOLEAN("WheelScrolling.WasLatched", latched);
 }
 
 }  // namespace content

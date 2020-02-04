@@ -30,6 +30,12 @@ GLuint GLStubApiBase::glCreateShaderFn(GLenum type) {
   return 0;
 }
 
+GLuint GLStubApiBase::glCreateShaderProgramvFn(GLenum type,
+                                               GLsizei count,
+                                               const char* const* strings) {
+  return 0;
+}
+
 GLsync GLStubApiBase::glFenceSyncFn(GLenum condition, GLbitfield flags) {
   return 0;
 }
@@ -38,7 +44,22 @@ GLuint GLStubApiBase::glGenPathsNVFn(GLsizei range) {
   return 0;
 }
 
+GLuint GLStubApiBase::glGenProgramPipelinesFn(GLsizei n, GLuint* pipelines) {
+  return 0;
+}
+
 GLint GLStubApiBase::glGetAttribLocationFn(GLuint program, const char* name) {
+  return 0;
+}
+
+GLuint GLStubApiBase::glGetDebugMessageLogFn(GLuint count,
+                                             GLsizei bufSize,
+                                             GLenum* sources,
+                                             GLenum* types,
+                                             GLuint* ids,
+                                             GLenum* severities,
+                                             GLsizei* lengths,
+                                             char* messageLog) {
   return 0;
 }
 
@@ -55,6 +76,12 @@ GLint GLStubApiBase::glGetFragDataLocationFn(GLuint program, const char* name) {
 }
 
 GLenum GLStubApiBase::glGetGraphicsResetStatusARBFn() {
+  return 0;
+}
+
+GLuint GLStubApiBase::glGetProgramResourceIndexFn(GLuint program,
+                                                  GLenum programInterface,
+                                                  const GLchar* name) {
   return 0;
 }
 
@@ -106,6 +133,10 @@ GLboolean GLStubApiBase::glIsPathNVFn(GLuint path) {
 }
 
 GLboolean GLStubApiBase::glIsProgramFn(GLuint program) {
+  return 0;
+}
+
+GLboolean GLStubApiBase::glIsProgramPipelineFn(GLuint pipeline) {
   return 0;
 }
 
@@ -161,12 +192,6 @@ GLboolean GLStubApiBase::glTestFenceNVFn(GLuint fence) {
 }
 
 GLboolean GLStubApiBase::glUnmapBufferFn(GLenum target) {
-  return 0;
-}
-
-GLenum GLStubApiBase::glWaitSyncFn(GLsync sync,
-                                   GLbitfield flags,
-                                   GLuint64 timeout) {
   return 0;
 }
 

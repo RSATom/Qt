@@ -41,21 +41,12 @@ static SkBitmap make_tetra_normalmap(int texSize) {
 
 namespace skiagm {
 
-// This GM exercises lighting shaders.
+// This GM exercises lighting shaders by drawing rotated and non-rotated normal mapped rects with
+// a directional light off to the viewers right.
 class LightingShaderGM : public GM {
 public:
     LightingShaderGM() {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFCCCCCC));
-
-        SkLights::Builder builder;
-
-        builder.add(SkLights::Light::MakeDirectional(SkColor3f::Make(1.0f, 1.0f, 1.0f),
-                                                     SkVector3::Make(SK_ScalarRoot2Over2,
-                                                                     0.0f,
-                                                                     SK_ScalarRoot2Over2)));
-        builder.setAmbientLightColor(SkColor3f::Make(0.2f, 0.2f, 0.2f));
-
-        fLights = builder.finish();
+        this->setBGColor(0xFFCCCCCC);
     }
 
 protected:
@@ -69,18 +60,27 @@ protected:
 
     static constexpr int kNormalMapCount = kLast_NormalMap+1;
 
-    SkString onShortName() override {
-        return SkString("lightingshader");
-    }
+    SkString onShortName() override { return SkString("lightingshader"); }
 
-    SkISize onISize() override {
-        return SkISize::Make(kGMSize, kGMSize);
-    }
+    SkISize onISize() override { return SkISize::Make(kGMSize, kGMSize); }
 
     void onOnceBeforeDraw() override {
+        {
+            SkLights::Builder builder;
+
+            // The direction vector is towards the light w/ +Z coming out of the screen
+            builder.add(SkLights::Light::MakeDirectional(SkColor3f::Make(1.0f, 1.0f, 1.0f),
+                                                         SkVector3::Make(SK_ScalarRoot2Over2,
+                                                                         0.0f,
+                                                                         SK_ScalarRoot2Over2)));
+            builder.setAmbientLightColor(SkColor3f::Make(0.2f, 0.2f, 0.2f));
+
+            fLights = builder.finish();
+        }
+
         fDiffuse = sk_tool_utils::create_checkerboard_bitmap(
                                                         kTexSize, kTexSize,
-                                                        sk_tool_utils::color_to_565(0x0),
+                                                        0x00000000,
                                                         sk_tool_utils::color_to_565(0xFF804020),
                                                         8);
 
@@ -111,62 +111,40 @@ protected:
         canvas->drawRect(r, paint);
     }
 
-    void onDraw(SkCanvas* canvas) override {
+    // Draw an axis-aligned and rotated version of the normal mapped rect
+    void drawPair(SkCanvas* canvas, const SkRect& r, NormalMap mapType, const SkVector& v) {
         SkMatrix m;
+        m.setRotate(45.0f, r.centerX(), r.centerY());
+        m.postTranslate(kScale * v.fX, kScale * v.fY);
+
+        this->drawRect(canvas, r, mapType);
+
+        canvas->save();
+            canvas->setMatrix(m);
+            this->drawRect(canvas, r, mapType);
+        canvas->restore();
+    }
+
+    void onDraw(SkCanvas* canvas) override {
         SkRect r;
 
-        {
-            r = SkRect::MakeWH(SkIntToScalar(kTexSize), SkIntToScalar(kTexSize));
-            this->drawRect(canvas, r, kHemi_NormalMap);
+        r = SkRect::MakeWH(SkIntToScalar(kTexSize), SkIntToScalar(kTexSize));
+        this->drawPair(canvas, r, kHemi_NormalMap, SkVector::Make(1.0f, 0.0f));
 
-            canvas->save();
-            m.setRotate(45.0f, r.centerX(), r.centerY());
-            m.postTranslate(kGMSize/2.0f - kTexSize/2.0f, 0.0f);
-            canvas->setMatrix(m);
-            this->drawRect(canvas, r, kHemi_NormalMap);
-            canvas->restore();
-        }
+        r.offset(kGMSize - kTexSize, 0);
+        this->drawPair(canvas, r, kFrustum_NormalMap, SkVector::Make(0.0f, 1.0f));
 
-        {
-            r.offset(kGMSize - kTexSize, 0);
-            this->drawRect(canvas, r, kFrustum_NormalMap);
+        r.offset(0, kGMSize - kTexSize);
+        this->drawPair(canvas, r, kTetra_NormalMap, SkVector::Make(-1.0, 0.0f));
 
-            canvas->save();
-            m.setRotate(45.0f, r.centerX(), r.centerY());
-            m.postTranslate(0.0f, kGMSize/2.0f - kTexSize/2.0f);
-            canvas->setMatrix(m);
-            this->drawRect(canvas, r, kFrustum_NormalMap);
-            canvas->restore();
-        }
-
-        {
-            r.offset(0, kGMSize - kTexSize);
-            this->drawRect(canvas, r, kTetra_NormalMap);
-
-            canvas->save();
-            m.setRotate(45.0f, r.centerX(), r.centerY());
-            m.postTranslate(-kGMSize/2.0f + kTexSize/2.0f, 0.0f);
-            canvas->setMatrix(m);
-            this->drawRect(canvas, r, kTetra_NormalMap);
-            canvas->restore();
-        }
-
-        {
-            r.offset(kTexSize - kGMSize, 0);
-            this->drawRect(canvas, r, kHemi_NormalMap);
-
-            canvas->save();
-            m.setRotate(45.0f, r.centerX(), r.centerY());
-            m.postTranslate(0.0f, -kGMSize/2.0f + kTexSize/2.0f);
-            canvas->setMatrix(m);
-            this->drawRect(canvas, r, kHemi_NormalMap);
-            canvas->restore();
-        }
+        r.offset(kTexSize - kGMSize, 0);
+        this->drawPair(canvas, r, kHemi_NormalMap, SkVector::Make(0.0f, -1));
     }
 
 private:
     static constexpr int kTexSize = 128;
     static constexpr int kGMSize  = 512;
+    static constexpr SkScalar kScale = kGMSize/2.0f - kTexSize/2.0f;
 
     SkBitmap        fDiffuse;
     SkBitmap        fNormalMaps[kNormalMapCount];

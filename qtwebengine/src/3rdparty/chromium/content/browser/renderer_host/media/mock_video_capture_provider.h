@@ -6,6 +6,7 @@
 #define CONTENT_BROWSER_RENDERER_HOST_MEDIA_MOCK_VIDEO_CAPTURE_PROVIDER_H_
 
 #include "content/browser/renderer_host/media/video_capture_provider.h"
+#include "content/public/browser/video_capture_device_launcher.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace content {
@@ -34,7 +35,7 @@ class MockVideoCaptureDeviceLauncher : public VideoCaptureDeviceLauncher {
 
   MOCK_METHOD7(DoLaunchDeviceAsync,
                void(const std::string& device_id,
-                    MediaStreamType stream_type,
+                    blink::MediaStreamType stream_type,
                     const media::VideoCaptureParams& params,
                     base::WeakPtr<media::VideoFrameReceiver>* receiver,
                     base::OnceClosure* connection_lost_cb,
@@ -44,7 +45,7 @@ class MockVideoCaptureDeviceLauncher : public VideoCaptureDeviceLauncher {
   MOCK_METHOD0(AbortLaunch, void());
 
   void LaunchDeviceAsync(const std::string& device_id,
-                         MediaStreamType stream_type,
+                         blink::MediaStreamType stream_type,
                          const media::VideoCaptureParams& params,
                          base::WeakPtr<media::VideoFrameReceiver> receiver,
                          base::OnceClosure connection_lost_cb,
@@ -84,7 +85,7 @@ class MockLaunchedVideoCaptureDevice : public LaunchedVideoCaptureDevice {
 
   void SetPhotoOptions(
       media::mojom::PhotoSettingsPtr settings,
-      media::VideoCaptureDevice::SetPhotoOptionsCallback callback) {
+      media::VideoCaptureDevice::SetPhotoOptionsCallback callback) override {
     DoSetPhotoOptions(&settings, &callback);
   }
 

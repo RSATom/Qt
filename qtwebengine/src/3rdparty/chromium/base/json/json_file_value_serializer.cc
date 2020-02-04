@@ -21,8 +21,7 @@ JSONFileValueSerializer::JSONFileValueSerializer(
     : json_file_path_(json_file_path) {
 }
 
-JSONFileValueSerializer::~JSONFileValueSerializer() {
-}
+JSONFileValueSerializer::~JSONFileValueSerializer() = default;
 
 bool JSONFileValueSerializer::Serialize(const base::Value& root) {
   return SerializeInternal(root, false);
@@ -57,8 +56,7 @@ JSONFileValueDeserializer::JSONFileValueDeserializer(
     int options)
     : json_file_path_(json_file_path), options_(options), last_read_size_(0U) {}
 
-JSONFileValueDeserializer::~JSONFileValueDeserializer() {
-}
+JSONFileValueDeserializer::~JSONFileValueDeserializer() = default;
 
 int JSONFileValueDeserializer::ReadFileToString(std::string* json_string) {
   DCHECK(json_string);
@@ -71,10 +69,8 @@ int JSONFileValueDeserializer::ReadFileToString(std::string* json_string) {
       return JSON_ACCESS_DENIED;
     }
 #endif
-    if (!base::PathExists(json_file_path_))
-      return JSON_NO_SUCH_FILE;
-    else
-      return JSON_CANNOT_READ_FILE;
+    return base::PathExists(json_file_path_) ? JSON_CANNOT_READ_FILE
+                                             : JSON_NO_SUCH_FILE;
   }
 
   last_read_size_ = json_string->size();
@@ -109,7 +105,7 @@ std::unique_ptr<base::Value> JSONFileValueDeserializer::Deserialize(
       *error_code = error;
     if (error_str)
       *error_str = GetErrorMessageForCode(error);
-    return NULL;
+    return nullptr;
   }
 
   JSONStringValueDeserializer deserializer(json_string, options_);

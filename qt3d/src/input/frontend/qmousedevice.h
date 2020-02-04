@@ -53,7 +53,7 @@ class QMouseHandler;
 class QMouseInput;
 
 
-class QT3DINPUTSHARED_EXPORT QMouseDevice : public Qt3DInput::QAbstractPhysicalDevice
+class Q_3DINPUTSHARED_EXPORT QMouseDevice : public Qt3DInput::QAbstractPhysicalDevice
 {
     Q_OBJECT
     Q_PROPERTY(float sensitivity READ sensitivity WRITE setSensitivity NOTIFY sensitivityChanged)
@@ -69,12 +69,12 @@ public:
     };
     Q_ENUM(Axis) // LCOV_EXCL_LINE
 
-    int axisCount() const Q_DECL_FINAL;
-    int buttonCount() const Q_DECL_FINAL;
-    QStringList axisNames() const Q_DECL_FINAL;
-    QStringList buttonNames() const Q_DECL_FINAL;
-    int axisIdentifier(const QString &name) const Q_DECL_FINAL;
-    int buttonIdentifier(const QString &name) const Q_DECL_FINAL;
+    int axisCount() const final;
+    int buttonCount() const final;
+    QStringList axisNames() const final;
+    QStringList buttonNames() const final;
+    int axisIdentifier(const QString &name) const final;
+    int buttonIdentifier(const QString &name) const final;
 
     float sensitivity() const;
 
@@ -85,11 +85,11 @@ Q_SIGNALS:
     void sensitivityChanged(float value);
 
 protected:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QMouseDevice)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DInput

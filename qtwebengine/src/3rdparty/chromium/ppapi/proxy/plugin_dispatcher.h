@@ -11,7 +11,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -45,7 +44,7 @@ class ResourceCreationAPI;
 namespace proxy {
 
 // Used to keep track of per-instance data.
-struct InstanceData {
+struct PPAPI_PROXY_EXPORT InstanceData {
   InstanceData();
   ~InstanceData();
 
@@ -55,7 +54,7 @@ struct InstanceData {
   scoped_refptr<TrackedCallback> mouse_lock_callback;
 
   // A map of singleton resources which are lazily created.
-  typedef std::map<SingletonResourceID, scoped_refptr<Resource> >
+  typedef std::map<SingletonResourceID, scoped_refptr<Resource>>
       SingletonResourceMap;
   SingletonResourceMap singleton_resources;
 
@@ -71,18 +70,29 @@ struct InstanceData {
   std::unique_ptr<MessageHandler> message_handler;
 
   // Flush info for PpapiCommandBufferProxy::OrderingBarrier().
-  struct FlushInfo {
+  struct PPAPI_PROXY_EXPORT FlushInfo {
     FlushInfo();
     ~FlushInfo();
     bool flush_pending;
     HostResource resource;
     int32_t put_offset;
   };
-  FlushInfo flush_info_;
+  FlushInfo flush_info;
+};
+
+class PPAPI_PROXY_EXPORT LockedSender {
+ public:
+  // Unlike |Send()|, this function continues to hold the Pepper proxy lock
+  // until we are finished sending |msg|, even if it is a synchronous message.
+  virtual bool SendAndStayLocked(IPC::Message* msg) = 0;
+
+ protected:
+  virtual ~LockedSender() {}
 };
 
 class PPAPI_PROXY_EXPORT PluginDispatcher
     : public Dispatcher,
+      public LockedSender,
       public base::SupportsWeakPtr<PluginDispatcher> {
  public:
   class PPAPI_PROXY_EXPORT PluginDelegate : public ProxyChannel::Delegate {
@@ -98,6 +108,25 @@ class PPAPI_PROXY_EXPORT PluginDispatcher
     // Each call to Register() has to be matched with a call to Unregister().
     virtual uint32_t Register(PluginDispatcher* plugin_dispatcher) = 0;
     virtual void Unregister(uint32_t plugin_dispatcher_id) = 0;
+  };
+
+  class Sender : public IPC::Sender,
+                 public base::RefCountedThreadSafe<PluginDispatcher::Sender> {
+   public:
+    Sender(base::WeakPtr<PluginDispatcher> plugin_dispatcher,
+           scoped_refptr<IPC::SyncMessageFilter> sync_filter);
+    ~Sender() override;
+
+    bool SendMessage(IPC::Message* msg);
+
+    // IPC::Sender
+    bool Send(IPC::Message* msg) override;
+
+   private:
+    base::WeakPtr<PluginDispatcher> plugin_dispatcher_;
+    scoped_refptr<IPC::SyncMessageFilter> sync_filter_;
+
+    DISALLOW_COPY_AND_ASSIGN(Sender);
   };
 
   // Constructor for the plugin side. The init and shutdown functions will be
@@ -160,7 +189,7 @@ class PPAPI_PROXY_EXPORT PluginDispatcher
 
   // Unlike |Send()|, this function continues to hold the Pepper proxy lock
   // until we are finished sending |msg|, even if it is a synchronous message.
-  bool SendAndStayLocked(IPC::Message* msg);
+  bool SendAndStayLocked(IPC::Message* msg) override;
 
   // IPC::Listener implementation.
   bool OnMessageReceived(const IPC::Message& msg) override;
@@ -186,6 +215,8 @@ class PPAPI_PROXY_EXPORT PluginDispatcher
   uint32_t plugin_dispatcher_id() const { return plugin_dispatcher_id_; }
   bool incognito() const { return incognito_; }
 
+  scoped_refptr<Sender> sender() { return sender_; }
+
  private:
   friend class PluginDispatcherTest;
 
@@ -197,15 +228,13 @@ class PPAPI_PROXY_EXPORT PluginDispatcher
   void OnMsgSupportsInterface(const std::string& interface_name, bool* result);
   void OnMsgSetPreferences(const Preferences& prefs);
 
-  virtual bool SendMessage(IPC::Message* msg);
-
   PluginDelegate* plugin_delegate_;
 
   // Contains all the plugin interfaces we've queried. The mapped value will
   // be the pointer to the interface pointer supplied by the plugin if it's
   // supported, or NULL if it's not supported. This allows us to cache failures
   // and not req-query if a plugin doesn't support the interface.
-  typedef base::hash_map<std::string, const void*> InterfaceMap;
+  typedef std::unordered_map<std::string, const void*> InterfaceMap;
   InterfaceMap plugin_interfaces_;
 
   typedef std::unordered_map<PP_Instance, std::unique_ptr<InstanceData>>
@@ -223,8 +252,7 @@ class PPAPI_PROXY_EXPORT PluginDispatcher
   // incognito mode.
   bool incognito_;
 
-  // A filter for sending messages from threads other than the main thread.
-  scoped_refptr<IPC::SyncMessageFilter> sync_filter_;
+  scoped_refptr<Sender> sender_;
 
   DISALLOW_COPY_AND_ASSIGN(PluginDispatcher);
 };

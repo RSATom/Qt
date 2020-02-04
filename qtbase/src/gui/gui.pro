@@ -45,9 +45,10 @@ include(painting/painting.pri)
 include(util/util.pri)
 include(math3d/math3d.pri)
 include(opengl/opengl.pri)
-include(animation/animation.pri)
+qtConfig(animation): include(animation/animation.pri)
 include(itemmodels/itemmodels.pri)
 include(vulkan/vulkan.pri)
+include(platform/platform.pri)
 
 QMAKE_LIBS += $$QMAKE_LIBS_GUI
 
@@ -95,3 +96,6 @@ qtConfig(angle) {
 qtConfig(egl): CMAKE_EGL_INCDIRS = $$cmakePortablePaths($$QMAKE_INCDIR_EGL)
 
 QMAKE_DYNAMIC_LIST_FILE = $$PWD/QtGui.dynlist
+
+TRACEPOINT_PROVIDER = $$PWD/qtgui.tracepoints
+CONFIG += qt_tracepoints

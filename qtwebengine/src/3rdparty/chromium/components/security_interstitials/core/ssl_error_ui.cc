@@ -15,7 +15,7 @@
 namespace security_interstitials {
 namespace {
 
-// Path to the relevant help center page.
+// Path to the relevant help center page. Used if |support_url_| is invalid.
 const char kHelpPath[] = "answer/6098869";
 
 bool IsMasked(int options, SSLErrorUI::SSLErrorOptionsMask mask) {
@@ -29,11 +29,13 @@ SSLErrorUI::SSLErrorUI(const GURL& request_url,
                        const net::SSLInfo& ssl_info,
                        int display_options,
                        const base::Time& time_triggered,
+                       const GURL& support_url,
                        ControllerClient* controller)
     : request_url_(request_url),
       cert_error_(cert_error),
       ssl_info_(ssl_info),
       time_triggered_(time_triggered),
+      support_url_(support_url),
       requested_strict_enforcement_(
           IsMasked(display_options, STRICT_ENFORCEMENT)),
       soft_override_enabled_(IsMasked(display_options, SOFT_OVERRIDE_ENABLED)),
@@ -45,8 +47,7 @@ SSLErrorUI::SSLErrorUI(const GURL& request_url,
   controller_->metrics_helper()->RecordUserInteraction(
       MetricsHelper::TOTAL_VISITS);
   ssl_errors::RecordUMAStatistics(soft_override_enabled_, time_triggered_,
-                                  request_url, cert_error_,
-                                  *ssl_info_.cert.get());
+                                  request_url, cert_error_, *ssl_info_.cert);
 }
 
 SSLErrorUI::~SSLErrorUI() {
@@ -79,6 +80,11 @@ void SSLErrorUI::PopulateStringsForHTML(base::DictionaryValue* load_time_data) {
       l10n_util::GetStringFUTF16(
           IDS_SSL_V2_PRIMARY_PARAGRAPH,
           common_string_util::GetFormattedHostName(request_url_)));
+  load_time_data->SetString(
+      "recurrentErrorParagraph",
+      l10n_util::GetStringUTF16(IDS_SSL_V2_RECURRENT_ERROR_PARAGRAPH));
+  load_time_data->SetBoolean("show_recurrent_error_paragraph",
+                             controller_->HasSeenRecurrentError());
 
   if (soft_override_enabled_)
     PopulateOverridableStrings(load_time_data);
@@ -161,15 +167,16 @@ void SSLErrorUI::PopulateNonOverridableStrings(
                             l10n_util::GetStringFUTF16(help_string, url));
 }
 
-void SSLErrorUI::HandleCommand(SecurityInterstitialCommands command) {
+void SSLErrorUI::HandleCommand(SecurityInterstitialCommand command) {
   switch (command) {
-    case CMD_DONT_PROCEED:
+    case CMD_DONT_PROCEED: {
       controller_->metrics_helper()->RecordUserDecision(
           MetricsHelper::DONT_PROCEED);
       user_made_decision_ = true;
       controller_->GoBack();
       break;
-    case CMD_PROCEED:
+    }
+    case CMD_PROCEED: {
       if (hard_override_enabled_) {
         controller_->metrics_helper()->RecordUserDecision(
             MetricsHelper::PROCEED);
@@ -177,44 +184,67 @@ void SSLErrorUI::HandleCommand(SecurityInterstitialCommands command) {
         user_made_decision_ = true;
       }
       break;
-    case CMD_DO_REPORT:
+    }
+    case CMD_DO_REPORT: {
       controller_->SetReportingPreference(true);
       break;
-    case CMD_DONT_REPORT:
+    }
+    case CMD_DONT_REPORT: {
       controller_->SetReportingPreference(false);
       break;
-    case CMD_SHOW_MORE_SECTION:
+    }
+    case CMD_SHOW_MORE_SECTION: {
       controller_->metrics_helper()->RecordUserInteraction(
           security_interstitials::MetricsHelper::SHOW_ADVANCED);
       break;
-    case CMD_OPEN_HELP_CENTER:
+    }
+    case CMD_OPEN_HELP_CENTER: {
       controller_->metrics_helper()->RecordUserInteraction(
           security_interstitials::MetricsHelper::SHOW_LEARN_MORE);
+
+      // Add cert error code as a ref to support URL, this is used to expand the
+      // right section if the user is redirected to chrome://connection-help.
+      GURL::Replacements replacements;
+      // This has to be stored in a separate variable, otherwise asan throws a
+      // use-after-scope error
+      std::string cert_error_string = std::to_string(cert_error_);
+      replacements.SetRefStr(cert_error_string);
+      // If |support_url_| is invalid, use the default help center url.
       controller_->OpenUrlInNewForegroundTab(
-          controller_->GetBaseHelpCenterUrl().Resolve(kHelpPath));
+          (support_url_.is_valid()
+               ? support_url_
+               : controller_->GetBaseHelpCenterUrl().Resolve(kHelpPath))
+              .ReplaceComponents(replacements));
       break;
-    case CMD_RELOAD:
+    }
+    case CMD_RELOAD: {
       controller_->metrics_helper()->RecordUserInteraction(
           security_interstitials::MetricsHelper::RELOAD);
       controller_->Reload();
       break;
-    case CMD_OPEN_REPORTING_PRIVACY:
+    }
+    case CMD_OPEN_REPORTING_PRIVACY: {
       controller_->OpenExtendedReportingPrivacyPolicy(true);
       break;
-    case CMD_OPEN_WHITEPAPER:
+    }
+    case CMD_OPEN_WHITEPAPER: {
       controller_->OpenExtendedReportingWhitepaper(true);
       break;
+    }
     case CMD_OPEN_DATE_SETTINGS:
     case CMD_OPEN_DIAGNOSTIC:
     case CMD_OPEN_LOGIN:
-    case CMD_REPORT_PHISHING_ERROR:
+    case CMD_REPORT_PHISHING_ERROR: {
       // Not supported by the SSL error page.
       NOTREACHED() << "Unsupported command: " << command;
+      break;
+    }
     case CMD_ERROR:
     case CMD_TEXT_FOUND:
-    case CMD_TEXT_NOT_FOUND:
+    case CMD_TEXT_NOT_FOUND: {
       // Commands are for testing.
       break;
+    }
   }
 }
 

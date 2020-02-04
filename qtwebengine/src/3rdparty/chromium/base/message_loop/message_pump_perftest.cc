@@ -6,8 +6,11 @@
 #include <stdint.h>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/format_macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_impl.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/condition_variable.h"
@@ -24,6 +27,13 @@
 #endif
 
 namespace base {
+
+class ThreadForTest : public Thread {
+ public:
+  ThreadForTest() : Thread("test") {}
+
+  using Thread::message_loop;
+};
 
 class ScheduleWorkTest : public testing::Test {
  public:
@@ -47,7 +57,10 @@ class ScheduleWorkTest : public testing::Test {
     uint64_t schedule_calls = 0u;
     do {
       for (size_t i = 0; i < kBatchSize; ++i) {
-        target_message_loop()->ScheduleWork();
+        target_message_loop()
+            ->GetMessageLoopBase()
+            ->GetMessagePump()
+            ->ScheduleWork();
         schedule_calls++;
       }
       now = base::TimeTicks::Now();
@@ -76,7 +89,7 @@ class ScheduleWorkTest : public testing::Test {
     } else
 #endif
     {
-      target_.reset(new Thread("target"));
+      target_.reset(new ThreadForTest());
       target_->StartWithOptions(Thread::Options(target_type, 0u));
 
       // Without this, it's possible for the scheduling threads to start and run
@@ -94,7 +107,7 @@ class ScheduleWorkTest : public testing::Test {
     max_batch_times_.reset(new base::TimeDelta[num_scheduling_threads]);
 
     for (int i = 0; i < num_scheduling_threads; ++i) {
-      scheduling_threads.push_back(MakeUnique<Thread>("posting thread"));
+      scheduling_threads.push_back(std::make_unique<Thread>("posting thread"));
       scheduling_threads[i]->Start();
     }
 
@@ -174,7 +187,7 @@ class ScheduleWorkTest : public testing::Test {
   }
 
  private:
-  std::unique_ptr<Thread> target_;
+  std::unique_ptr<ThreadForTest> target_;
 #if defined(OS_ANDROID)
   std::unique_ptr<android::JavaHandlerThread> java_thread_;
 #endif
@@ -237,67 +250,5 @@ TEST_F(ScheduleWorkTest, ThreadTimeToJavaFromFourThreads) {
   ScheduleWork(MessageLoop::TYPE_JAVA, 4);
 }
 #endif
-
-class FakeMessagePump : public MessagePump {
- public:
-  FakeMessagePump() {}
-  ~FakeMessagePump() override {}
-
-  void Run(Delegate* delegate) override {}
-
-  void Quit() override {}
-  void ScheduleWork() override {}
-  void ScheduleDelayedWork(const TimeTicks& delayed_work_time) override {}
-};
-
-class PostTaskTest : public testing::Test {
- public:
-  void Run(int batch_size, int tasks_per_reload) {
-    base::TimeTicks start = base::TimeTicks::Now();
-    base::TimeTicks now;
-    MessageLoop loop(std::unique_ptr<MessagePump>(new FakeMessagePump));
-    scoped_refptr<internal::IncomingTaskQueue> queue(
-        new internal::IncomingTaskQueue(&loop));
-    uint32_t num_posted = 0;
-    do {
-      for (int i = 0; i < batch_size; ++i) {
-        for (int j = 0; j < tasks_per_reload; ++j) {
-          queue->AddToIncomingQueue(FROM_HERE, base::BindOnce(&DoNothing),
-                                    base::TimeDelta(), false);
-          num_posted++;
-        }
-        TaskQueue loop_local_queue;
-        queue->ReloadWorkQueue(&loop_local_queue);
-        while (!loop_local_queue.empty()) {
-          PendingTask t = std::move(loop_local_queue.front());
-          loop_local_queue.pop();
-          loop.RunTask(&t);
-        }
-      }
-
-      now = base::TimeTicks::Now();
-    } while (now - start < base::TimeDelta::FromSeconds(5));
-    std::string trace = StringPrintf("%d_tasks_per_reload", tasks_per_reload);
-    perf_test::PrintResult(
-        "task",
-        "",
-        trace,
-        (now - start).InMicroseconds() / static_cast<double>(num_posted),
-        "us/task",
-        true);
-  }
-};
-
-TEST_F(PostTaskTest, OneTaskPerReload) {
-  Run(10000, 1);
-}
-
-TEST_F(PostTaskTest, TenTasksPerReload) {
-  Run(10000, 10);
-}
-
-TEST_F(PostTaskTest, OneHundredTasksPerReload) {
-  Run(1000, 100);
-}
 
 }  // namespace base

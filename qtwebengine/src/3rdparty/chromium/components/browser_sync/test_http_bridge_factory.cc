@@ -6,7 +6,8 @@
 
 namespace browser_sync {
 
-bool TestHttpBridge::MakeSynchronousPost(int* error_code, int* response_code) {
+bool TestHttpBridge::MakeSynchronousPost(int* net_error_code,
+                                         int* http_status_code) {
   return false;
 }
 
@@ -15,7 +16,7 @@ int TestHttpBridge::GetResponseContentLength() const {
 }
 
 const char* TestHttpBridge::GetResponseContent() const {
-  return 0;
+  return nullptr;
 }
 
 const std::string TestHttpBridge::GetResponseHeaderValue(

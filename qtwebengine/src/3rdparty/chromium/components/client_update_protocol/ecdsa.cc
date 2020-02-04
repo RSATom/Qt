@@ -5,8 +5,8 @@
 #include "components/client_update_protocol/ecdsa.h"
 
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -49,7 +49,7 @@ bool ParseETagHeader(const base::StringPiece& etag_header_value_in,
   // Remove the weak prefix, then remove the begin and the end quotes.
   const char kWeakETagPrefix[] = "W/";
   if (etag_header_value.starts_with(kWeakETagPrefix))
-    etag_header_value.remove_prefix(arraysize(kWeakETagPrefix) - 1);
+    etag_header_value.remove_prefix(base::size(kWeakETagPrefix) - 1);
   if (etag_header_value.size() >= 2 && etag_header_value.starts_with("\"") &&
       etag_header_value.ends_with("\"")) {
     etag_header_value.remove_prefix(1);
@@ -68,13 +68,13 @@ bool ParseETagHeader(const base::StringPiece& etag_header_value_in,
   // the SignatureValidator class will handle the actual DER decoding and
   // ASN.1 parsing. Check for an expected size range only -- valid ECDSA
   // signatures are between 8 and 72 bytes.
-  if (!base::HexStringToBytes(sig_hex.as_string(), ecdsa_signature_out))
+  if (!base::HexStringToBytes(sig_hex, ecdsa_signature_out))
     return false;
   if (ecdsa_signature_out->size() < 8 || ecdsa_signature_out->size() > 72)
     return false;
 
   // Decode the SHA-256 hash; it should be exactly 32 bytes, no more or less.
-  if (!base::HexStringToBytes(hash_hex.as_string(), request_hash_out))
+  if (!base::HexStringToBytes(hash_hex, request_hash_out))
     return false;
   if (request_hash_out->size() != crypto::kSHA256Length)
     return false;
@@ -170,9 +170,8 @@ bool Ecdsa::ValidateResponse(const base::StringPiece& response_body,
 
   // Initialize the signature verifier.
   crypto::SignatureVerifier verifier;
-  if (!verifier.VerifyInit(crypto::SignatureVerifier::ECDSA_SHA256,
-                           &signature.front(), signature.size(),
-                           &public_key_.front(), public_key_.size())) {
+  if (!verifier.VerifyInit(crypto::SignatureVerifier::ECDSA_SHA256, signature,
+                           public_key_)) {
     DVLOG(1) << "Couldn't init SignatureVerifier.";
     return false;
   }
@@ -182,8 +181,7 @@ bool Ecdsa::ValidateResponse(const base::StringPiece& response_body,
   // * The buffer that the server signed does not match the buffer that the
   //   client assembled -- implying that either request body or response body
   //   was modified, or a different nonce value was used.
-  verifier.VerifyUpdate(&signed_message_hash.front(),
-                        signed_message_hash.size());
+  verifier.VerifyUpdate(signed_message_hash);
   return verifier.VerifyFinal();
 }
 

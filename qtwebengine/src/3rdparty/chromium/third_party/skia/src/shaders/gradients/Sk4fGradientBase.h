@@ -11,9 +11,8 @@
 #include "Sk4fGradientPriv.h"
 #include "SkColor.h"
 #include "SkGradientShaderPriv.h"
-#include "SkMatrix.h"
+#include "SkMatrixPriv.h"
 #include "SkNx.h"
-#include "SkPM4f.h"
 #include "SkShaderBase.h"
 #include "SkTArray.h"
 
@@ -31,8 +30,8 @@ struct Sk4fGradientInterval {
     // Color bias and color gradient, such that for a t in this interval
     //
     //   C = fCb + t * fCg;
-    SkPM4f   fCb, fCg;
-    SkScalar fT0, fT1;
+    SkPMColor4f fCb, fCg;
+    SkScalar    fT0, fT1;
 };
 
 class Sk4fGradientIntervalBuffer {
@@ -60,16 +59,15 @@ public:
 
     uint32_t getFlags() const override { return fFlags; }
 
-    void shadeSpan(int x, int y, SkPMColor dst[], int count) final;
-
     bool isValid() const;
 
 protected:
     Sk4fGradientIntervalBuffer fIntervals;
     SkMatrix                   fDstToPos;
-    SkMatrix::MapXYProc        fDstToPosProc;
+    SkMatrixPriv::MapXYProc    fDstToPosProc;
     uint8_t                    fFlags;
     bool                       fColorsArePremul;
+    bool                       fDither;
 
 private:
     using INHERITED = Context;

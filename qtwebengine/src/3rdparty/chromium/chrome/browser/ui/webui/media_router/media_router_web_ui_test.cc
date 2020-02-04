@@ -4,9 +4,11 @@
 
 #include "chrome/browser/ui/webui/media_router/media_router_web_ui_test.h"
 
-#include "base/memory/ptr_util.h"
-#include "chrome/browser/media/router/media_router_ui_service.h"
-#include "chrome/browser/media/router/media_router_ui_service_factory.h"
+#include "base/bind.h"
+#include "chrome/browser/media/router/media_router_factory.h"
+#include "chrome/browser/media/router/test/mock_media_router.h"
+#include "chrome/browser/ui/media_router/media_router_ui_service.h"
+#include "chrome/browser/ui/media_router/media_router_ui_service_factory.h"
 #include "chrome/browser/ui/toolbar/mock_media_router_action_controller.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model_factory.h"
@@ -29,13 +31,13 @@ class MockMediaRouterUIService : public media_router::MediaRouterUIService {
 
 std::unique_ptr<KeyedService> BuildMockMediaRouterUIService(
     content::BrowserContext* context) {
-  return base::MakeUnique<MockMediaRouterUIService>(
+  return std::make_unique<MockMediaRouterUIService>(
       static_cast<Profile*>(context));
 }
 
 std::unique_ptr<KeyedService> BuildToolbarActionsModel(
     content::BrowserContext* context) {
-  return base::MakeUnique<ToolbarActionsModel>(static_cast<Profile*>(context),
+  return std::make_unique<ToolbarActionsModel>(static_cast<Profile*>(context),
                                                nullptr);
 }
 
@@ -45,16 +47,19 @@ MediaRouterWebUITest::MediaRouterWebUITest(bool require_mock_ui_service)
 
 MediaRouterWebUITest::~MediaRouterWebUITest() {}
 
-TestingProfile* MediaRouterWebUITest::CreateProfile() {
-  TestingProfile::Builder builder;
+TestingProfile::TestingFactories MediaRouterWebUITest::GetTestingFactories() {
+  TestingProfile::TestingFactories factories = {
+      {media_router::MediaRouterFactory::GetInstance(),
+       base::BindRepeating(&media_router::MockMediaRouter::Create)}};
   if (require_mock_ui_service_) {
-    builder.AddTestingFactory(
+    factories.emplace_back(
         media_router::MediaRouterUIServiceFactory::GetInstance(),
-        BuildMockMediaRouterUIService);
-    builder.AddTestingFactory(ToolbarActionsModelFactory::GetInstance(),
-                              BuildToolbarActionsModel);
+        base::BindRepeating(&BuildMockMediaRouterUIService));
+    factories.emplace_back(ToolbarActionsModelFactory::GetInstance(),
+                           base::BindRepeating(&BuildToolbarActionsModel));
   }
-  return builder.Build().release();
+
+  return factories;
 }
 
 BrowserWindow* MediaRouterWebUITest::CreateBrowserWindow() {

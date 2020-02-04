@@ -19,9 +19,9 @@
 class CoverageSetOpXP : public GrXferProcessor {
 public:
     CoverageSetOpXP(SkRegion::Op regionOp, bool invertCoverage)
-            : fRegionOp(regionOp), fInvertCoverage(invertCoverage) {
-        this->initClassID<CoverageSetOpXP>();
-    }
+            : INHERITED(kCoverageSetOpXP_ClassID)
+            , fRegionOp(regionOp)
+            , fInvertCoverage(invertCoverage) {}
 
     const char* name() const override { return "Coverage Set Op"; }
 
@@ -117,7 +117,7 @@ void CoverageSetOpXP::onGetBlendInfo(GrXferProcessor::BlendInfo* blendInfo) cons
             blendInfo->fDstBlend = kZero_GrBlendCoeff;
             break;
     }
-    blendInfo->fBlendConstant = 0;
+    blendInfo->fBlendConstant = SK_PMColor4fTRANSPARENT;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -203,7 +203,7 @@ const GrXPFactory* GrCoverageSetOpXPFactory::Get(SkRegion::Op regionOp, bool inv
         }
     }
 #undef _CONSTEXPR_
-    SkFAIL("Unknown region op.");
+    SK_ABORT("Unknown region op.");
     return nullptr;
 }
 

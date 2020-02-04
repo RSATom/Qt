@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "media/base/bit_reader.h"
 
 namespace media {
@@ -35,9 +36,9 @@ const int kCountToShiftTo128[256] = {
 };
 }  // namespace
 
-Vp9BoolDecoder::Vp9BoolDecoder() {}
+Vp9BoolDecoder::Vp9BoolDecoder() = default;
 
-Vp9BoolDecoder::~Vp9BoolDecoder() {}
+Vp9BoolDecoder::~Vp9BoolDecoder() = default;
 
 // 9.2.1 Initialization process for Boolean decoder
 bool Vp9BoolDecoder::Initialize(const uint8_t* data, size_t size) {
@@ -111,7 +112,7 @@ bool Vp9BoolDecoder::ReadBool(int prob) {
 
   // Need to fill |count| bits next time in order to make |bool_range_| >=
   // 128.
-  DCHECK_LT(bool_range_, arraysize(kCountToShiftTo128));
+  DCHECK_LT(bool_range_, base::size(kCountToShiftTo128));
   DCHECK_GT(bool_range_, 0u);
   int count = kCountToShiftTo128[bool_range_];
   bool_range_ <<= count;

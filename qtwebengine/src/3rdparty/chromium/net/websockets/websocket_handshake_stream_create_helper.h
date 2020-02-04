@@ -16,8 +16,10 @@
 
 namespace net {
 
-class WebSocketStreamRequest;
+class WebSocketStreamRequestAPI;
+class SpdySession;
 class WebSocketBasicHandshakeStream;
+class WebSocketEndpointLockManager;
 
 // Implementation of WebSocketHandshakeStreamBase::CreateHelper. This class is
 // used in the implementation of WebSocketStream::CreateAndConnectStream() and
@@ -28,39 +30,30 @@ class WebSocketBasicHandshakeStream;
 class NET_EXPORT_PRIVATE WebSocketHandshakeStreamCreateHelper
     : public WebSocketHandshakeStreamBase::CreateHelper {
  public:
-  // |connect_delegate| must out-live this object.
-  explicit WebSocketHandshakeStreamCreateHelper(
+  // |*connect_delegate| and |*request| must out-live this object.
+  WebSocketHandshakeStreamCreateHelper(
       WebSocketStream::ConnectDelegate* connect_delegate,
-      const std::vector<std::string>& requested_subprotocols);
+      const std::vector<std::string>& requested_subprotocols,
+      WebSocketStreamRequestAPI* request);
 
   ~WebSocketHandshakeStreamCreateHelper() override;
 
   // WebSocketHandshakeStreamBase::CreateHelper methods
 
-  // Creates a WebSocketBasicHandshakeStream.
+  // Creates a WebSocketBasicHandshakeStream over a TCP/IP or TLS socket.
   std::unique_ptr<WebSocketHandshakeStreamBase> CreateBasicStream(
       std::unique_ptr<ClientSocketHandle> connection,
-      bool using_proxy) override;
+      bool using_proxy,
+      WebSocketEndpointLockManager* websocket_endpoint_lock_manager) override;
 
-  // WebSocketHandshakeStreamCreateHelper methods
-
-  // This method must be called before CreateBasicStream().
-  // The |request| pointer must remain valid as long as this object exists.
-  void set_stream_request(WebSocketStreamRequest* request) {
-    request_ = request;
-  }
-
- protected:
-  // This is used by DeterministicKeyWebSocketHandshakeStreamCreateHelper.
-  // The default implementation does nothing.
-  virtual void OnBasicStreamCreated(WebSocketBasicHandshakeStream* stream);
+  // Creates a WebSocketHttp2HandshakeStream over an HTTP/2 connection.
+  std::unique_ptr<WebSocketHandshakeStreamBase> CreateHttp2Stream(
+      base::WeakPtr<SpdySession> session) override;
 
  private:
+  WebSocketStream::ConnectDelegate* const connect_delegate_;
   const std::vector<std::string> requested_subprotocols_;
-
-  WebSocketStream::ConnectDelegate* connect_delegate_;
-
-  WebSocketStreamRequest* request_;
+  WebSocketStreamRequestAPI* const request_;
 
   DISALLOW_COPY_AND_ASSIGN(WebSocketHandshakeStreamCreateHelper);
 };

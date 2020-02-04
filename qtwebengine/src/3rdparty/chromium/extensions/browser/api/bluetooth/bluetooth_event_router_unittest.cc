@@ -8,11 +8,9 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "content/public/test/test_browser_context.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "device/bluetooth/bluetooth_common.h"
 #include "device/bluetooth/bluetooth_uuid.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
@@ -42,13 +40,12 @@ namespace bluetooth = api::bluetooth;
 class BluetoothEventRouterTest : public ExtensionsTest {
  public:
   BluetoothEventRouterTest()
-      : ExtensionsTest(base::MakeUnique<content::TestBrowserThreadBundle>()),
-        mock_adapter_(new testing::StrictMock<device::MockBluetoothAdapter>()) {
+      : mock_adapter_(new testing::StrictMock<device::MockBluetoothAdapter>()) {
   }
 
   void SetUp() override {
     ExtensionsTest::SetUp();
-    router_ = base::MakeUnique<BluetoothEventRouter>(browser_context());
+    router_ = std::make_unique<BluetoothEventRouter>(browser_context());
     router_->SetAdapterForTest(mock_adapter_);
   }
 
@@ -113,16 +110,15 @@ TEST_F(BluetoothEventRouterTest, SetDiscoveryFilter) {
   df.CopyFrom(*discovery_filter);
 
   router_->SetDiscoveryFilter(std::move(discovery_filter), mock_adapter_,
-                              kTestExtensionId, base::Bind(&base::DoNothing),
-                              base::Bind(&base::DoNothing));
+                              kTestExtensionId, base::DoNothing(),
+                              base::DoNothing());
 
   EXPECT_CALL(*mock_adapter_, StartDiscoverySessionWithFilterRaw(
                                   testing::Pointee(IsFilterEqual(&df)),
                                   testing::_, testing::_)).Times(1);
 
   router_->StartDiscoverySession(mock_adapter_, kTestExtensionId,
-                                 base::Bind(&base::DoNothing),
-                                 base::Bind(&base::DoNothing));
+                                 base::DoNothing(), base::DoNothing());
 
   EXPECT_CALL(*mock_adapter_, RemoveObserver(testing::_)).Times(1);
 }

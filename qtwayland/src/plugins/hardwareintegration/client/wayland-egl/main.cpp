@@ -52,10 +52,8 @@ public:
     QWaylandClientBufferIntegration *create(const QString&, const QStringList&) override;
 };
 
-QWaylandClientBufferIntegration *QWaylandEglClientBufferPlugin::create(const QString& system, const QStringList& paramList)
+QWaylandClientBufferIntegration *QWaylandEglClientBufferPlugin::create(const QString&, const QStringList&)
 {
-    Q_UNUSED(paramList);
-    Q_UNUSED(system);
     return new QWaylandEglClientBufferIntegration();
 }
 

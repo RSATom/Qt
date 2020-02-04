@@ -87,15 +87,7 @@ Scatter3DRenderer::Scatter3DRenderer(Scatter3DController *controller)
 
 Scatter3DRenderer::~Scatter3DRenderer()
 {
-    fixContextBeforeDelete();
-
-    if (QOpenGLContext::currentContext()) {
-        m_textureHelper->glDeleteFramebuffers(1, &m_selectionFrameBuffer);
-        m_textureHelper->glDeleteRenderbuffers(1, &m_selectionDepthBuffer);
-        m_textureHelper->deleteTexture(&m_selectionTexture);
-        m_textureHelper->glDeleteFramebuffers(1, &m_depthFrameBuffer);
-        m_textureHelper->deleteTexture(&m_bgrTexture);
-    }
+    contextCleanup();
     delete m_dotShader;
     delete m_staticSelectedItemGradientShader;
     delete m_staticSelectedItemShader;
@@ -104,6 +96,17 @@ Scatter3DRenderer::~Scatter3DRenderer()
     delete m_selectionShader;
     delete m_backgroundShader;
     delete m_staticGradientPointShader;
+}
+
+void Scatter3DRenderer::contextCleanup()
+{
+    if (QOpenGLContext::currentContext()) {
+        m_textureHelper->glDeleteFramebuffers(1, &m_selectionFrameBuffer);
+        m_textureHelper->glDeleteRenderbuffers(1, &m_selectionDepthBuffer);
+        m_textureHelper->deleteTexture(&m_selectionTexture);
+        m_textureHelper->glDeleteFramebuffers(1, &m_depthFrameBuffer);
+        m_textureHelper->deleteTexture(&m_bgrTexture);
+    }
 }
 
 void Scatter3DRenderer::initializeOpenGL()
@@ -1839,7 +1842,7 @@ void Scatter3DRenderer::drawLabels(bool drawSelection, const Q3DCamera *activeCa
         else
             labelZTrans = m_scaleZWithBackground + labelMargin;
 
-        Qt::AlignmentFlag alignment = (m_xFlipped != m_zFlipped) ? Qt::AlignLeft : Qt::AlignRight;
+        Qt::Alignment alignment = (m_xFlipped != m_zFlipped) ? Qt::AlignLeft : Qt::AlignRight;
         QVector3D labelRotation;
         if (m_zFlipped)
             labelZTrans = -labelZTrans;
@@ -1963,7 +1966,7 @@ void Scatter3DRenderer::drawLabels(bool drawSelection, const Q3DCamera *activeCa
                     hAlignment = m_zFlipped ? Qt::AlignLeft : Qt::AlignRight;
                 if (m_yFlippedForGrid && vAlignment != Qt::AlignCenter)
                     vAlignment = (vAlignment == Qt::AlignTop) ? Qt::AlignBottom : Qt::AlignTop;
-                alignment = Qt::AlignmentFlag(vAlignment | hAlignment);
+                alignment = vAlignment | hAlignment;
             } else {
                 labelTrans.setX(m_axisCacheX.labelPosition(label));
             }

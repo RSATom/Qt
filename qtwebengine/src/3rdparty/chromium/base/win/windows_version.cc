@@ -11,11 +11,17 @@
 #include "base/file_version_info_win.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
 
-#if !defined(__clang__) && _MSC_FULL_VER < 190024213
-#error VS 2015 Update 3 with Cumulative Servicing Release or higher is required
+#if !defined(__clang__) && _MSC_FULL_VER < 191125507
+#error VS 2017 Update 3.2 or higher is required
+#endif
+
+#if !defined(NTDDI_WIN10_RS2)
+// Windows 10 April 2018 SDK is required to build Chrome.
+#error April 2018 SDK (10.0.17134.0) or higher required.
 #endif
 
 namespace {
@@ -26,66 +32,6 @@ namespace base {
 namespace win {
 
 namespace {
-
-// Helper to map a major.minor.x.build version (e.g. 6.1) to a Windows release.
-Version MajorMinorBuildToVersion(int major, int minor, int build) {
-  if ((major == 5) && (minor > 0)) {
-    // Treat XP Pro x64, Home Server, and Server 2003 R2 as Server 2003.
-    return (minor == 1) ? VERSION_XP : VERSION_SERVER_2003;
-  } else if (major == 6) {
-    switch (minor) {
-      case 0:
-        // Treat Windows Server 2008 the same as Windows Vista.
-        return VERSION_VISTA;
-      case 1:
-        // Treat Windows Server 2008 R2 the same as Windows 7.
-        return VERSION_WIN7;
-      case 2:
-        // Treat Windows Server 2012 the same as Windows 8.
-        return VERSION_WIN8;
-      default:
-        DCHECK_EQ(minor, 3);
-        return VERSION_WIN8_1;
-    }
-  } else if (major == 10) {
-    if (build < 10586) {
-      return VERSION_WIN10;
-    } else if (build < 14393) {
-      return VERSION_WIN10_TH2;
-    } else if (build < 15063) {
-      return VERSION_WIN10_RS1;
-    } else {
-      return VERSION_WIN10_RS2;
-    }
-  } else if (major > 6) {
-    NOTREACHED();
-    return VERSION_WIN_LAST;
-  }
-
-  return VERSION_PRE_XP;
-}
-
-// Retrieve a version from kernel32. This is useful because when running in
-// compatibility mode for a down-level version of the OS, the file version of
-// kernel32 will still be the "real" version.
-Version GetVersionFromKernel32() {
-  std::unique_ptr<FileVersionInfoWin> file_version_info(
-      static_cast<FileVersionInfoWin*>(
-          FileVersionInfoWin::CreateFileVersionInfo(
-              base::FilePath(FILE_PATH_LITERAL("kernel32.dll")))));
-  if (file_version_info) {
-    const int major =
-        HIWORD(file_version_info->fixed_file_info()->dwFileVersionMS);
-    const int minor =
-        LOWORD(file_version_info->fixed_file_info()->dwFileVersionMS);
-    const int build =
-        HIWORD(file_version_info->fixed_file_info()->dwFileVersionLS);
-    return MajorMinorBuildToVersion(major, minor, build);
-  }
-
-  NOTREACHED();
-  return VERSION_WIN_LAST;
-}
 
 // Returns the the "UBR" value from the registry. Introduced in Windows 10,
 // this undocumented value appears to be similar to a patch number.
@@ -111,29 +57,43 @@ int GetUBR() {
 }  // namespace
 
 // static
-OSInfo* OSInfo::GetInstance() {
+OSInfo** OSInfo::GetInstanceStorage() {
   // Note: we don't use the Singleton class because it depends on AtExitManager,
-  // and it's convenient for other modules to use this classs without it. This
-  // pattern is copied from gurl.cc.
-  static OSInfo* info;
-  if (!info) {
-    OSInfo* new_info = new OSInfo();
-    if (InterlockedCompareExchangePointer(
-        reinterpret_cast<PVOID*>(&info), new_info, NULL)) {
-      delete new_info;
+  // and it's convenient for other modules to use this class without it.
+  static OSInfo* info = []() {
+    _OSVERSIONINFOEXW version_info = {sizeof(version_info)};
+    ::GetVersionEx(reinterpret_cast<_OSVERSIONINFOW*>(&version_info));
+
+    _SYSTEM_INFO system_info = {};
+    ::GetNativeSystemInfo(&system_info);
+
+    DWORD os_type = 0;
+    if (version_info.dwMajorVersion == 6 || version_info.dwMajorVersion == 10) {
+      // Only present on Vista+.
+      GetProductInfoPtr get_product_info =
+          reinterpret_cast<GetProductInfoPtr>(::GetProcAddress(
+              ::GetModuleHandle(L"kernel32.dll"), "GetProductInfo"));
+      get_product_info(version_info.dwMajorVersion, version_info.dwMinorVersion,
+                       0, 0, &os_type);
     }
-  }
-  return info;
+
+    return new OSInfo(version_info, system_info, os_type);
+  }();
+
+  return &info;
 }
 
-OSInfo::OSInfo()
+// static
+OSInfo* OSInfo::GetInstance() {
+  return *GetInstanceStorage();
+}
+
+OSInfo::OSInfo(const _OSVERSIONINFOEXW& version_info,
+               const _SYSTEM_INFO& system_info,
+               int os_type)
     : version_(VERSION_PRE_XP),
-      kernel32_version_(VERSION_PRE_XP),
-      got_kernel32_version_(false),
       architecture_(OTHER_ARCHITECTURE),
       wow64_status_(GetWOW64StatusForProcess(GetCurrentProcess())) {
-  OSVERSIONINFOEX version_info = { sizeof version_info };
-  ::GetVersionEx(reinterpret_cast<OSVERSIONINFO*>(&version_info));
   version_number_.major = version_info.dwMajorVersion;
   version_number_.minor = version_info.dwMinorVersion;
   version_number_.build = version_info.dwBuildNumber;
@@ -144,8 +104,6 @@ OSInfo::OSInfo()
   service_pack_.minor = version_info.wServicePackMinor;
   service_pack_str_ = base::WideToUTF8(version_info.szCSDVersion);
 
-  SYSTEM_INFO system_info = {};
-  ::GetNativeSystemInfo(&system_info);
   switch (system_info.wProcessorArchitecture) {
     case PROCESSOR_ARCHITECTURE_INTEL: architecture_ = X86_ARCHITECTURE; break;
     case PROCESSOR_ARCHITECTURE_AMD64: architecture_ = X64_ARCHITECTURE; break;
@@ -154,16 +112,8 @@ OSInfo::OSInfo()
   processors_ = system_info.dwNumberOfProcessors;
   allocation_granularity_ = system_info.dwAllocationGranularity;
 
-  GetProductInfoPtr get_product_info;
-  DWORD os_type;
-
   if (version_info.dwMajorVersion == 6 || version_info.dwMajorVersion == 10) {
     // Only present on Vista+.
-    get_product_info = reinterpret_cast<GetProductInfoPtr>(
-        ::GetProcAddress(::GetModuleHandle(L"kernel32.dll"), "GetProductInfo"));
-
-    get_product_info(version_info.dwMajorVersion, version_info.dwMinorVersion,
-                     0, 0, &os_type);
     switch (os_type) {
       case PRODUCT_CLUSTER_SERVER:
       case PRODUCT_DATACENTER_SERVER:
@@ -180,9 +130,24 @@ OSInfo::OSInfo()
         break;
       case PRODUCT_PROFESSIONAL:
       case PRODUCT_ULTIMATE:
-      case PRODUCT_ENTERPRISE:
-      case PRODUCT_BUSINESS:
         version_type_ = SUITE_PROFESSIONAL;
+        break;
+      case PRODUCT_ENTERPRISE:
+      case PRODUCT_ENTERPRISE_E:
+      case PRODUCT_ENTERPRISE_EVALUATION:
+      case PRODUCT_ENTERPRISE_N:
+      case PRODUCT_ENTERPRISE_N_EVALUATION:
+      case PRODUCT_ENTERPRISE_S:
+      case PRODUCT_ENTERPRISE_S_EVALUATION:
+      case PRODUCT_ENTERPRISE_S_N:
+      case PRODUCT_ENTERPRISE_S_N_EVALUATION:
+      case PRODUCT_BUSINESS:
+      case PRODUCT_BUSINESS_N:
+        version_type_ = SUITE_ENTERPRISE;
+        break;
+      case PRODUCT_EDUCATION:
+      case PRODUCT_EDUCATION_N:
+        version_type_ = SUITE_EDUCATION;
         break;
       case PRODUCT_HOME_BASIC:
       case PRODUCT_HOME_PREMIUM:
@@ -217,11 +182,43 @@ OSInfo::~OSInfo() {
 }
 
 Version OSInfo::Kernel32Version() const {
-  if (!got_kernel32_version_) {
-    kernel32_version_ = GetVersionFromKernel32();
-    got_kernel32_version_ = true;
-  }
-  return kernel32_version_;
+  static const Version kernel32_version =
+      MajorMinorBuildToVersion(Kernel32BaseVersion().components()[0],
+                               Kernel32BaseVersion().components()[1],
+                               Kernel32BaseVersion().components()[2]);
+  return kernel32_version;
+}
+
+// Retrieve a version from kernel32. This is useful because when running in
+// compatibility mode for a down-level version of the OS, the file version of
+// kernel32 will still be the "real" version.
+base::Version OSInfo::Kernel32BaseVersion() const {
+  static const base::NoDestructor<base::Version> version([] {
+    std::unique_ptr<FileVersionInfoWin> file_version_info(
+        static_cast<FileVersionInfoWin*>(
+            FileVersionInfoWin::CreateFileVersionInfo(
+                base::FilePath(FILE_PATH_LITERAL("kernel32.dll")))));
+    if (!file_version_info) {
+      // crbug.com/912061: on some systems it seems kernel32.dll might be
+      // corrupted or not in a state to get version info. In this case try
+      // kernelbase.dll as a fallback.
+      file_version_info.reset(static_cast<FileVersionInfoWin*>(
+          FileVersionInfoWin::CreateFileVersionInfo(
+              base::FilePath(FILE_PATH_LITERAL("kernelbase.dll")))));
+    }
+    CHECK(file_version_info);
+    const int major =
+        HIWORD(file_version_info->fixed_file_info()->dwFileVersionMS);
+    const int minor =
+        LOWORD(file_version_info->fixed_file_info()->dwFileVersionMS);
+    const int build =
+        HIWORD(file_version_info->fixed_file_info()->dwFileVersionLS);
+    const int patch =
+        LOWORD(file_version_info->fixed_file_info()->dwFileVersionLS);
+    return base::Version(std::vector<uint32_t>{uint32_t(major), uint32_t(minor),
+                                               uint32_t(build), uint32_t(patch)});
+  }());
+  return *version;
 }
 
 std::string OSInfo::processor_model_name() {
@@ -247,6 +244,55 @@ OSInfo::WOW64Status OSInfo::GetWOW64StatusForProcess(HANDLE process_handle) {
   if (!(*is_wow64_process)(process_handle, &is_wow64))
     return WOW64_UNKNOWN;
   return is_wow64 ? WOW64_ENABLED : WOW64_DISABLED;
+}
+
+// With the exception of Server 2003, server variants are treated the same as
+// the corresponding workstation release.
+// static
+Version OSInfo::MajorMinorBuildToVersion(int major, int minor, int build) {
+  if (major == 10) {
+    if (build >= 17763)
+      return VERSION_WIN10_RS5;
+    if (build >= 17134)
+      return VERSION_WIN10_RS4;
+    if (build >= 16299)
+      return VERSION_WIN10_RS3;
+    if (build >= 15063)
+      return VERSION_WIN10_RS2;
+    if (build >= 14393)
+      return VERSION_WIN10_RS1;
+    if (build >= 10586)
+      return VERSION_WIN10_TH2;
+    return VERSION_WIN10;
+  }
+
+  if (major > 6) {
+    // Hitting this likely means that it's time for a >10 block above.
+    NOTREACHED() << major << "." << minor << "." << build;
+    return VERSION_WIN_LAST;
+  }
+
+  if (major == 6) {
+    switch (minor) {
+      case 0:
+        return VERSION_VISTA;
+      case 1:
+        return VERSION_WIN7;
+      case 2:
+        return VERSION_WIN8;
+      default:
+        DCHECK_EQ(minor, 3);
+        return VERSION_WIN8_1;
+    }
+  }
+
+  if (major == 5 && minor != 0) {
+    // Treat XP Pro x64, Home Server, and Server 2003 R2 as Server 2003.
+    return minor == 1 ? VERSION_XP : VERSION_SERVER_2003;
+  }
+
+  // Win 2000 or older.
+  return VERSION_PRE_XP;
 }
 
 Version GetVersion() {

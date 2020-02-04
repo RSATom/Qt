@@ -8,18 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_PROCESSING_TEST_DEBUG_DUMP_REPLAYER_H_
-#define WEBRTC_MODULES_AUDIO_PROCESSING_TEST_DEBUG_DUMP_REPLAYER_H_
+#ifndef MODULES_AUDIO_PROCESSING_TEST_DEBUG_DUMP_REPLAYER_H_
+#define MODULES_AUDIO_PROCESSING_TEST_DEBUG_DUMP_REPLAYER_H_
 
 #include <memory>
 #include <string>
 
-#include "webrtc/common_audio/channel_buffer.h"
-#include "webrtc/modules/audio_processing/include/audio_processing.h"
-#include "webrtc/rtc_base/ignore_wundef.h"
+#include "common_audio/channel_buffer.h"
+#include "modules/audio_processing/include/audio_processing.h"
+#include "rtc_base/ignore_wundef.h"
 
 RTC_PUSH_IGNORING_WUNDEF()
-#include "webrtc/modules/audio_processing/debug.pb.h"
+#include "modules/audio_processing/debug.pb.h"
 RTC_POP_IGNORING_WUNDEF()
 
 namespace webrtc {
@@ -34,7 +34,7 @@ class DebugDumpReplayer {
   bool SetDumpFile(const std::string& filename);
 
   // Return next event.
-  rtc::Optional<audioproc::Event> GetNextEvent() const;
+  absl::optional<audioproc::Event> GetNextEvent() const;
 
   // Run the next event. Returns true if succeeded.
   bool RunNextEvent();
@@ -48,6 +48,7 @@ class DebugDumpReplayer {
   void OnStreamEvent(const audioproc::Stream& msg);
   void OnReverseStreamEvent(const audioproc::ReverseStream& msg);
   void OnConfigEvent(const audioproc::Config& msg);
+  void OnRuntimeSettingEvent(const audioproc::RuntimeSetting& msg);
 
   void MaybeRecreateApm(const audioproc::Config& msg);
   void ConfigureApm(const audioproc::Config& msg);
@@ -74,4 +75,4 @@ class DebugDumpReplayer {
 }  // namespace test
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_PROCESSING_TEST_DEBUG_DUMP_REPLAYER_H_
+#endif  // MODULES_AUDIO_PROCESSING_TEST_DEBUG_DUMP_REPLAYER_H_

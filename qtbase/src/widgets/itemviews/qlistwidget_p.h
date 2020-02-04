@@ -95,16 +95,20 @@ public:
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
-    QModelIndex index(QListWidgetItem *item) const;
+    QModelIndex index(const QListWidgetItem *item) const;
     QModelIndex index(int row, int column = 0, const QModelIndex &parent = QModelIndex()) const override;
 
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role) override;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool clearItemData(const QModelIndex &index) override;
+#endif
 
     QMap<int, QVariant> itemData(const QModelIndex &index) const override;
 
     bool insertRows(int row, int count = 1, const QModelIndex &parent = QModelIndex()) override;
     bool removeRows(int row, int count = 1, const QModelIndex &parent = QModelIndex()) override;
+    bool moveRows(const QModelIndex &sourceParent, int sourceRow, int count, const QModelIndex &destinationParent, int destinationChild) override;
 
     Qt::ItemFlags flags(const QModelIndex &index) const override;
 
@@ -119,12 +123,12 @@ public:
         const QList<QListWidgetItem*>::iterator &end,
         Qt::SortOrder order, QListWidgetItem *item);
 
-    void itemChanged(QListWidgetItem *item);
+    void itemChanged(QListWidgetItem *item, const QVector<int> &roles = QVector<int>());
 
     // dnd
     QStringList mimeTypes() const override;
     QMimeData *mimeData(const QModelIndexList &indexes) const override;
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     bool dropMimeData(const QMimeData *data, Qt::DropAction action,
                       int row, int column, const QModelIndex &parent) override;
     Qt::DropActions supportedDropActions() const override;

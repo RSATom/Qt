@@ -12,7 +12,6 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/tick_clock.h"
 #include "media/cast/logging/logging_defines.h"
@@ -34,7 +33,7 @@ class StatsEventSubscriberTest;
 class StatsEventSubscriber : public RawEventSubscriber {
  public:
   StatsEventSubscriber(EventMediaType event_media_type,
-                       base::TickClock* clock,
+                       const base::TickClock* clock,
                        ReceiverTimeOffsetEstimator* offset_estimator);
 
   ~StatsEventSubscriber() final;
@@ -186,7 +185,7 @@ class StatsEventSubscriber : public RawEventSubscriber {
   };
 
   typedef std::map<CastStat, double> StatsMap;
-  typedef std::map<CastStat, linked_ptr<SimpleHistogram> > HistogramMap;
+  typedef std::map<CastStat, std::unique_ptr<SimpleHistogram>> HistogramMap;
   typedef std::map<RtpTimeTicks, FrameInfo> FrameInfoMap;
   typedef std::map<std::pair<RtpTimeTicks, uint16_t>,
                    std::pair<base::TimeTicks, CastLoggingEvent>>
@@ -238,7 +237,7 @@ class StatsEventSubscriber : public RawEventSubscriber {
   const EventMediaType event_media_type_;
 
   // Not owned by this class.
-  base::TickClock* const clock_;
+  const base::TickClock* const clock_;
 
   // Not owned by this class.
   ReceiverTimeOffsetEstimator* const offset_estimator_;

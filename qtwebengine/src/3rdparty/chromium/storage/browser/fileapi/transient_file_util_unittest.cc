@@ -8,7 +8,6 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "storage/browser/blob/scoped_file.h"
@@ -25,19 +24,19 @@ namespace content {
 
 class TransientFileUtilTest : public testing::Test {
  public:
-  TransientFileUtilTest() {}
-  ~TransientFileUtilTest() override {}
+  TransientFileUtilTest() = default;
+  ~TransientFileUtilTest() override = default;
 
   void SetUp() override {
     file_system_context_ = CreateFileSystemContextForTesting(
-        NULL, base::FilePath(FILE_PATH_LITERAL("dummy")));
+        nullptr, base::FilePath(FILE_PATH_LITERAL("dummy")));
     transient_file_util_.reset(new storage::TransientFileUtil);
 
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
   }
 
   void TearDown() override {
-    file_system_context_ = NULL;
+    file_system_context_ = nullptr;
     base::RunLoop().RunUntilIdle();
   }
 
@@ -61,7 +60,7 @@ class TransientFileUtilTest : public testing::Test {
   }
 
   std::unique_ptr<storage::FileSystemOperationContext> NewOperationContext() {
-    return base::MakeUnique<storage::FileSystemOperationContext>(
+    return std::make_unique<storage::FileSystemOperationContext>(
         file_system_context_.get());
   }
 

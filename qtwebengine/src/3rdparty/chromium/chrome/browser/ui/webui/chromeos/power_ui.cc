@@ -7,16 +7,19 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
-#include "base/memory/ptr_util.h"
+#include "base/containers/circular_deque.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/power/power_data_collector.h"
+#include "chrome/browser/chromeos/power/process_data_collector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
@@ -43,6 +46,8 @@ const char kRequestCpuFreqDataCallback[] = "requestCpuFreqData";
 const char kOnRequestCpuFreqDataFunction[] =
     "powerUI.showCpuFreqData";
 
+const char kRequestProcessUsageDataCallback[] = "requestProcessUsageData";
+
 class PowerMessageHandler : public content::WebUIMessageHandler {
  public:
   PowerMessageHandler();
@@ -55,6 +60,7 @@ class PowerMessageHandler : public content::WebUIMessageHandler {
   void OnGetBatteryChargeData(const base::ListValue* value);
   void OnGetCpuIdleData(const base::ListValue* value);
   void OnGetCpuFreqData(const base::ListValue* value);
+  void OnGetProcessUsageData(const base::ListValue* value);
   void GetJsStateOccupancyData(
       const std::vector<CpuDataCollector::StateOccupancySampleDeque>& data,
       const std::vector<std::string>& state_names,
@@ -71,21 +77,25 @@ PowerMessageHandler::~PowerMessageHandler() {
 void PowerMessageHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       kRequestBatteryChargeDataCallback,
-      base::Bind(&PowerMessageHandler::OnGetBatteryChargeData,
-                 base::Unretained(this)));
+      base::BindRepeating(&PowerMessageHandler::OnGetBatteryChargeData,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       kRequestCpuIdleDataCallback,
-      base::Bind(&PowerMessageHandler::OnGetCpuIdleData,
-                 base::Unretained(this)));
+      base::BindRepeating(&PowerMessageHandler::OnGetCpuIdleData,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       kRequestCpuFreqDataCallback,
-      base::Bind(&PowerMessageHandler::OnGetCpuFreqData,
-                 base::Unretained(this)));
+      base::BindRepeating(&PowerMessageHandler::OnGetCpuFreqData,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      kRequestProcessUsageDataCallback,
+      base::BindRepeating(&PowerMessageHandler::OnGetProcessUsageData,
+                          base::Unretained(this)));
 }
 
 void PowerMessageHandler::OnGetBatteryChargeData(const base::ListValue* value) {
-  const std::deque<PowerDataCollector::PowerSupplySample>& power_supply =
-      PowerDataCollector::Get()->power_supply_data();
+  const base::circular_deque<PowerDataCollector::PowerSupplySample>&
+      power_supply = PowerDataCollector::Get()->power_supply_data();
   base::ListValue js_power_supply_data;
   for (size_t i = 0; i < power_supply.size(); ++i) {
     const PowerDataCollector::PowerSupplySample& sample = power_supply[i];
@@ -142,11 +152,37 @@ void PowerMessageHandler::OnGetCpuFreqData(const base::ListValue* value) {
                                          js_freq_data, js_system_resumed_data);
 }
 
+void PowerMessageHandler::OnGetProcessUsageData(const base::ListValue* args) {
+  AllowJavascript();
+  CHECK_EQ(1U, args->GetSize());
+
+  const base::Value* callback_id;
+  CHECK(args->Get(0, &callback_id));
+
+  const std::vector<ProcessDataCollector::ProcessUsageData>& process_list =
+      ProcessDataCollector::Get()->GetProcessUsages();
+
+  base::ListValue js_process_usages;
+  for (const auto& process_info : process_list) {
+    std::unique_ptr<base::DictionaryValue> element =
+        std::make_unique<base::DictionaryValue>();
+    element->SetInteger("pid", process_info.process_data.pid);
+    element->SetString("name", process_info.process_data.name);
+    element->SetString("cmdline", process_info.process_data.cmdline);
+    element->SetInteger("type",
+                        static_cast<int>(process_info.process_data.type));
+    element->SetDouble("powerUsageFraction", process_info.power_usage_fraction);
+    js_process_usages.Append(std::move(element));
+  }
+
+  ResolveJavascriptCallback(*callback_id, js_process_usages);
+}
+
 void PowerMessageHandler::GetJsSystemResumedData(base::ListValue *data) {
   DCHECK(data);
 
-  const std::deque<PowerDataCollector::SystemResumedSample>& system_resumed =
-      PowerDataCollector::Get()->system_resumed_data();
+  const base::circular_deque<PowerDataCollector::SystemResumedSample>&
+      system_resumed = PowerDataCollector::Get()->system_resumed_data();
   for (size_t i = 0; i < system_resumed.size(); ++i) {
     const PowerDataCollector::SystemResumedSample& sample = system_resumed[i];
     std::unique_ptr<base::DictionaryValue> element(new base::DictionaryValue);
@@ -189,7 +225,7 @@ void PowerMessageHandler::GetJsStateOccupancyData(
 }  // namespace
 
 PowerUI::PowerUI(content::WebUI* web_ui) : content::WebUIController(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<PowerMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<PowerMessageHandler>());
 
   content::WebUIDataSource* html =
       content::WebUIDataSource::Create(chrome::kChromeUIPowerHost);

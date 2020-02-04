@@ -95,20 +95,26 @@ class BindingSetBase {
 
   // Adds a new binding to the set which binds |request| to |impl| with no
   // additional context.
-  BindingId AddBinding(ImplPointerType impl, RequestType request) {
+  BindingId AddBinding(
+      ImplPointerType impl,
+      RequestType request,
+      scoped_refptr<base::SequencedTaskRunner> task_runner = nullptr) {
     static_assert(!ContextTraits::SupportsContext(),
                   "Context value required for non-void context type.");
-    return AddBindingImpl(std::move(impl), std::move(request), false);
+    return AddBindingImpl(std::move(impl), std::move(request), false,
+                          std::move(task_runner));
   }
 
   // Adds a new binding associated with |context|.
-  BindingId AddBinding(ImplPointerType impl,
-                       RequestType request,
-                       Context context) {
+  BindingId AddBinding(
+      ImplPointerType impl,
+      RequestType request,
+      Context context,
+      scoped_refptr<base::SequencedTaskRunner> task_runner = nullptr) {
     static_assert(ContextTraits::SupportsContext(),
                   "Context value unsupported for void context type.");
     return AddBindingImpl(std::move(impl), std::move(request),
-                          std::move(context));
+                          std::move(context), std::move(task_runner));
   }
 
   // Removes a binding from the set. Note that this is safe to call even if the
@@ -121,6 +127,18 @@ class BindingSetBase {
       return false;
     bindings_.erase(it);
     return true;
+  }
+
+  // Swaps the interface implementation with a different one, to allow tests
+  // to modify behavior.
+  //
+  // Returns the existing interface implementation to the caller.
+  ImplPointerType SwapImplForTesting(BindingId id, ImplPointerType new_impl) {
+    auto it = bindings_.find(id);
+    if (it == bindings_.end())
+      return nullptr;
+
+    return it->second->SwapImplForTesting(new_impl);
   }
 
   void CloseAllBindings() { bindings_.clear(); }
@@ -167,11 +185,11 @@ class BindingSetBase {
   // The returned callback must be called on the BindingSet's own sequence.
   ReportBadMessageCallback GetBadMessageCallback() {
     DCHECK(dispatch_context_);
-    return base::Bind(
-        [](const ReportBadMessageCallback& error_callback,
+    return base::BindOnce(
+        [](ReportBadMessageCallback error_callback,
            base::WeakPtr<BindingSetBase> binding_set, BindingId binding_id,
            const std::string& error) {
-          error_callback.Run(error);
+          std::move(error_callback).Run(error);
           if (binding_set)
             binding_set->RemoveBinding(binding_id);
         },
@@ -204,17 +222,22 @@ class BindingSetBase {
           RequestType request,
           BindingSetBase* binding_set,
           BindingId binding_id,
-          Context context)
-        : binding_(std::move(impl), std::move(request)),
+          Context context,
+          scoped_refptr<base::SequencedTaskRunner> task_runner)
+        : binding_(std::move(impl), std::move(request), std::move(task_runner)),
           binding_set_(binding_set),
           binding_id_(binding_id),
           context_(std::move(context)) {
-      binding_.AddFilter(base::MakeUnique<DispatchFilter>(this));
+      binding_.AddFilter(std::make_unique<DispatchFilter>(this));
       binding_.set_connection_error_with_reason_handler(
           base::BindOnce(&Entry::OnConnectionError, base::Unretained(this)));
     }
 
     void FlushForTesting() { binding_.FlushForTesting(); }
+
+    ImplPointerType SwapImplForTesting(ImplPointerType new_impl) {
+      return binding_.SwapImplForTesting(new_impl);
+    }
 
    private:
     class DispatchFilter : public MessageReceiver {
@@ -259,13 +282,16 @@ class BindingSetBase {
       pre_dispatch_handler_.Run(*context);
   }
 
-  BindingId AddBindingImpl(ImplPointerType impl,
-                           RequestType request,
-                           Context context) {
+  BindingId AddBindingImpl(
+      ImplPointerType impl,
+      RequestType request,
+      Context context,
+      scoped_refptr<base::SequencedTaskRunner> task_runner) {
     BindingId id = next_binding_id_++;
     DCHECK_GE(next_binding_id_, 0u);
-    auto entry = base::MakeUnique<Entry>(std::move(impl), std::move(request),
-                                         this, id, std::move(context));
+    auto entry =
+        std::make_unique<Entry>(std::move(impl), std::move(request), this, id,
+                                std::move(context), std::move(task_runner));
     bindings_.insert(std::make_pair(id, std::move(entry)));
     return id;
   }

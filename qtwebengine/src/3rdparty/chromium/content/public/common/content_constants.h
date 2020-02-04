@@ -32,10 +32,8 @@ CONTENT_EXPORT extern const char kFlashPluginSplMimeType[];
 CONTENT_EXPORT extern const char kFlashPluginSplExtension[];
 CONTENT_EXPORT extern const char kFlashPluginSplDescription[];
 
-CONTENT_EXPORT extern const size_t kMaxRendererProcessCount;
-
 // The maximum number of session history entries per tab.
-extern const int kMaxSessionHistoryEntries;
+constexpr int kMaxSessionHistoryEntries = 50;
 
 // The maximum number of characters of the document's title that we're willing
 // to accept in the browser process.
@@ -60,6 +58,9 @@ extern const int kStatsMaxCounters;
 // this reserved constant avoids any chance of confusion with a response having
 // a browser-supplied sequence number.
 CONTENT_EXPORT extern const int kHistogramSynchronizerReservedSequenceNumber;
+
+// How long to keep a detachable resource load alive before aborting it.
+CONTENT_EXPORT extern const int kDefaultDetachableCancelDelayMs;
 
 }  // namespace content
 

@@ -144,9 +144,9 @@ Atomic64 Release_Load(volatile const Atomic64* ptr);
 }  // namespace subtle
 }  // namespace base
 
-#if defined(OS_WIN)
-// TODO(jfb): The MSVC header includes windows.h, which other files end up
-//            relying on. Fix this as part of crbug.com/559247.
+#if defined(OS_WIN) && defined(ARCH_CPU_X86_FAMILY)
+// TODO(jfb): Try to use base/atomicops_internals_portable.h everywhere.
+// https://crbug.com/559247.
 #  include "base/atomicops_internals_x86_msvc.h"
 #else
 #  include "base/atomicops_internals_portable.h"

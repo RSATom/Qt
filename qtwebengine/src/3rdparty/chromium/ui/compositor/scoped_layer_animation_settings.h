@@ -30,6 +30,7 @@ class COMPOSITOR_EXPORT ScopedLayerAnimationSettings {
   void AddObserver(ImplicitAnimationObserver* observer);
 
   void SetAnimationMetricsReporter(AnimationMetricsReporter* reporter);
+
   void SetTransitionDuration(base::TimeDelta duration);
   base::TimeDelta GetTransitionDuration() const;
 
@@ -44,6 +45,20 @@ class COMPOSITOR_EXPORT ScopedLayerAnimationSettings {
 
   void SetPreemptionStrategy(LayerAnimator::PreemptionStrategy strategy);
   LayerAnimator::PreemptionStrategy GetPreemptionStrategy() const;
+
+  // This will request render surface caching on the animating layer. The cache
+  // request will be removed at the end of the animation.
+  void CacheRenderSurface();
+
+  // This will defer painting on the animating layer. The deferred paint
+  // request will be removed at the end of the animation.
+  void DeferPaint();
+
+  // This will request trilinear filtering on the animating layer. The filtering
+  // request will be removed at the end of the animation.
+  void TrilinearFiltering();
+
+  LayerAnimator* GetAnimator() { return animator_.get(); }
 
  private:
   scoped_refptr<LayerAnimator> animator_;

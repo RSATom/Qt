@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "base/strings/string_number_conversions.h"
-#include "net/dns/dns_protocol.h"
+#include "net/dns/public/dns_protocol.h"
 #include "net/dns/record_parsed.h"
 #include "net/dns/record_rdata.h"
 
@@ -27,22 +27,12 @@ MDnsCache::Key::Key(unsigned type, const std::string& name,
     : type_(type), name_(name), optional_(optional) {
 }
 
-MDnsCache::Key::Key(
-    const MDnsCache::Key& other)
-    : type_(other.type_), name_(other.name_), optional_(other.optional_) {
-}
+MDnsCache::Key::Key(const MDnsCache::Key& other) = default;
 
+MDnsCache::Key& MDnsCache::Key::operator=(const MDnsCache::Key& other) =
+    default;
 
-MDnsCache::Key& MDnsCache::Key::operator=(
-    const MDnsCache::Key& other) {
-  type_ = other.type_;
-  name_ = other.name_;
-  optional_ = other.optional_;
-  return *this;
-}
-
-MDnsCache::Key::~Key() {
-}
+MDnsCache::Key::~Key() = default;
 
 bool MDnsCache::Key::operator<(const MDnsCache::Key& other) const {
   return std::tie(name_, type_, optional_) <
@@ -60,15 +50,12 @@ MDnsCache::Key MDnsCache::Key::CreateFor(const RecordParsed* record) {
              GetOptionalFieldForRecord(record));
 }
 
+MDnsCache::MDnsCache() = default;
 
-MDnsCache::MDnsCache() {
-}
-
-MDnsCache::~MDnsCache() {
-}
+MDnsCache::~MDnsCache() = default;
 
 const RecordParsed* MDnsCache::LookupKey(const Key& key) {
-  RecordMap::iterator found = mdns_cache_.find(key);
+  auto found = mdns_cache_.find(key);
   if (found != mdns_cache_.end()) {
     return found->second.get();
   }
@@ -114,8 +101,7 @@ void MDnsCache::CleanupRecords(
   // impunity.
   if (now < next_expiration_) return;
 
-  for (RecordMap::iterator i = mdns_cache_.begin();
-       i != mdns_cache_.end(); ) {
+  for (auto i = mdns_cache_.begin(); i != mdns_cache_.end();) {
     base::Time expiration = GetEffectiveExpiration(i->second.get());
     if (now >= expiration) {
       record_removed_callback.Run(i->second.get());
@@ -138,7 +124,7 @@ void MDnsCache::FindDnsRecords(unsigned type,
   DCHECK(results);
   results->clear();
 
-  RecordMap::const_iterator i = mdns_cache_.lower_bound(Key(type, name, ""));
+  auto i = mdns_cache_.lower_bound(Key(type, name, ""));
   for (; i != mdns_cache_.end(); ++i) {
     if (i->first.name() != name ||
         (type != 0 && i->first.type() != type)) {
@@ -157,7 +143,7 @@ void MDnsCache::FindDnsRecords(unsigned type,
 std::unique_ptr<const RecordParsed> MDnsCache::RemoveRecord(
     const RecordParsed* record) {
   Key key = Key::CreateFor(record);
-  RecordMap::iterator found = mdns_cache_.find(key);
+  auto found = mdns_cache_.find(key);
 
   if (found != mdns_cache_.end() && found->second.get() == record) {
     std::unique_ptr<const RecordParsed> result = std::move(found->second);

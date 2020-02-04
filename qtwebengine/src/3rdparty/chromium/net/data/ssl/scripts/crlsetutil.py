@@ -14,6 +14,13 @@ The input is taken on stdin and is a dict with the following keys:
       a filename containing a PEM format certificate, and the ints are the
       serial numbers. The listed serial numbers will be blocked when issued by
       the given certificate.
+  - LimitedSubjects: A dict of string to an array of strings, where the key is
+      a filename containing a PEM format certificate, and the strings are the
+      filenames of PEM format certificates. Certificates that share a Subject
+      with the key will be restricted to the set of SPKIs extracted from the
+      files in the values.
+  - Sequence: An optional integer sequence number to use for the CRLSet. If
+      not present, defaults to 0.
 
 For example:
 
@@ -21,7 +28,14 @@ For example:
   "BlockedBySPKI": ["/tmp/blocked-certificate"],
   "BlockedByHash": {
     "/tmp/intermediate-certificate": [1, 2, 3]
-  }
+  },
+  "LimitedSubjects": {
+    "/tmp/limited-certificate": [
+        "/tmp/limited-certificate",
+        "/tmp/limited-certificate2"
+    ]
+  },
+  "Sequence": 23
 }
 """
 
@@ -162,6 +176,39 @@ def pem_cert_file_to_spki_hash(pem_filename):
   return der_cert_to_spki_hash(_pem_cert_to_binary(pem_filename))
 
 
+def der_cert_to_subject_hash(der_bytes):
+  """Returns SHA256(subject) of a DER-encoded certificate
+
+  Args:
+    der_bytes: A DER-encoded certificate (RFC 5280)
+
+  Returns:
+    The SHA-256 hash of the certificate's subject.
+  """
+  iterator = ASN1Iterator(der_bytes)
+  iterator.step_into()  # enter certificate structure
+  iterator.step_into()  # enter TBSCertificate
+  iterator.step_over()  # over version
+  iterator.step_over()  # over serial
+  iterator.step_over()  # over signature algorithm
+  iterator.step_over()  # over issuer name
+  iterator.step_over()  # over validity
+  return hashlib.sha256(iterator.contents()).digest()
+
+
+def pem_cert_file_to_subject_hash(pem_filename):
+  """Gets the SHA-256 hash of the subject of a cert in a file
+
+  Args:
+    pem_filename: A file containing a PEM-encoded certificate.
+
+  Returns:
+    The SHA-256 hash of the subject of the first certificate in the file, as a
+    byte sequence
+  """
+  return der_cert_to_subject_hash(_pem_cert_to_binary(pem_filename))
+
+
 def main():
   parser = optparse.OptionParser(description=sys.modules[__name__].__doc__)
   parser.add_option('-o', '--output',
@@ -179,13 +226,21 @@ def main():
     pem_cert_file_to_spki_hash(pem_file): serials
     for pem_file, serials in config.get('BlockedByHash', {}).iteritems()
   }
+  limited_subjects = {
+    pem_cert_file_to_subject_hash(pem_file).encode('base64').strip(): [
+      pem_cert_file_to_spki_hash(filename).encode('base64').strip()
+      for filename in allowed_pems
+    ]
+    for pem_file, allowed_pems in config.get('LimitedSubjects', {}).iteritems()
+  }
   header_json = {
       'Version': 0,
       'ContentType': 'CRLSet',
-      'Sequence': 0,
+      'Sequence': int(config.get("Sequence", 0)),
       'DeltaFrom': 0,
       'NumParents': len(parents),
       'BlockedSPKIs': blocked_spkis,
+      'LimitedSubjects': limited_subjects,
   }
   header = json.dumps(header_json)
   outfile.write(struct.pack('<H', len(header)))

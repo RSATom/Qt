@@ -4,588 +4,611 @@
 
 #include "ui/message_center/views/message_popup_collection.h"
 
-#include <set>
-
-#include "base/bind.h"
-#include "base/i18n/rtl.h"
-#include "base/logging.h"
-#include "base/memory/weak_ptr.h"
-#include "base/run_loop.h"
-#include "base/time/time.h"
-#include "base/timer/timer.h"
-#include "ui/accessibility/ax_enums.h"
-#include "ui/gfx/animation/animation_delegate.h"
-#include "ui/gfx/animation/slide_animation.h"
+#include "base/stl_util.h"
+#include "ui/gfx/animation/linear_animation.h"
+#include "ui/gfx/animation/tween.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/message_center_style.h"
-#include "ui/message_center/message_center_tray.h"
-#include "ui/message_center/notification.h"
-#include "ui/message_center/notification_list.h"
-#include "ui/message_center/views/message_view.h"
-#include "ui/message_center/views/message_view_context_menu_controller.h"
-#include "ui/message_center/views/message_view_factory.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/views/message_popup_view.h"
 #include "ui/message_center/views/popup_alignment_delegate.h"
-#include "ui/message_center/views/toast_contents_view.h"
-#include "ui/views/background.h"
-#include "ui/views/layout/fill_layout.h"
-#include "ui/views/view.h"
-#include "ui/views/views_delegate.h"
-#include "ui/views/widget/widget.h"
-#include "ui/views/widget/widget_delegate.h"
 
 namespace message_center {
+
 namespace {
 
-// Timeout between the last user-initiated close of the toast and the moment
-// when normal layout/update of the toast stack continues. If the last toast was
-// just closed, the timeout is shorter.
-const int kMouseExitedDeferTimeoutMs = 200;
+// Animation duration for FADE_IN and FADE_OUT.
+constexpr base::TimeDelta kFadeInFadeOutDuration =
+    base::TimeDelta::FromMilliseconds(200);
 
-// The margin between messages (and between the anchor unless
-// first_item_has_no_margin was specified).
-const int kToastMarginY = kMarginBetweenItems;
+// Animation duration for MOVE_DOWN.
+constexpr base::TimeDelta kMoveDownDuration =
+    base::TimeDelta::FromMilliseconds(120);
 
-}  // namespace.
+}  // namespace
 
 MessagePopupCollection::MessagePopupCollection(
-    MessageCenter* message_center,
-    MessageCenterTray* tray,
     PopupAlignmentDelegate* alignment_delegate)
-    : message_center_(message_center),
-      tray_(tray),
-      alignment_delegate_(alignment_delegate),
-      defer_counter_(0),
-      latest_toast_entered_(NULL),
-      user_is_closing_toasts_by_clicking_(false),
-      target_top_edge_(0),
-      context_menu_controller_(new MessageViewContextMenuController(this)),
-      weak_factory_(this) {
-  DCHECK(message_center_);
-  defer_timer_.reset(new base::OneShotTimer);
-  message_center_->AddObserver(this);
+    : animation_(std::make_unique<gfx::LinearAnimation>(this)),
+      alignment_delegate_(alignment_delegate) {
+  MessageCenter::Get()->AddObserver(this);
   alignment_delegate_->set_collection(this);
 }
 
 MessagePopupCollection::~MessagePopupCollection() {
-  weak_factory_.InvalidateWeakPtrs();
-
-  message_center_->RemoveObserver(this);
-
-  CloseAllWidgets();
+  for (const auto& item : popup_items_)
+    item.popup->Close();
+  MessageCenter::Get()->RemoveObserver(this);
 }
 
-void MessagePopupCollection::ClickOnNotification(
-    const std::string& notification_id) {
-  message_center_->ClickOnNotification(notification_id);
-}
+void MessagePopupCollection::Update() {
+  if (is_updating_)
+    return;
+  base::AutoReset<bool> reset(&is_updating_, true);
 
-void MessagePopupCollection::RemoveNotification(
-    const std::string& notification_id,
-    bool by_user) {
-  NotificationList::PopupNotifications notifications =
-      message_center_->GetPopupNotifications();
-  for (NotificationList::PopupNotifications::iterator iter =
-           notifications.begin();
-       iter != notifications.end(); ++iter) {
-    Notification* notification = *iter;
-    DCHECK(notification);
+  RemoveClosedPopupItems();
 
-    if (notification->id() != notification_id)
-      continue;
-
-    // Don't remove the notification only when it's not pinned.
-    if (!notification->pinned())
-      message_center_->RemoveNotification(notification_id, by_user);
-    else
-      message_center_->MarkSinglePopupAsShown(notification_id, true /* read */);
-
-    break;
-  }
-}
-
-std::unique_ptr<ui::MenuModel> MessagePopupCollection::CreateMenuModel(
-    const NotifierId& notifier_id,
-    const base::string16& display_source) {
-  return tray_->CreateNotificationMenuModel(notifier_id, display_source);
-}
-
-bool MessagePopupCollection::HasClickedListener(
-    const std::string& notification_id) {
-  return message_center_->HasClickedListener(notification_id);
-}
-
-void MessagePopupCollection::ClickOnNotificationButton(
-    const std::string& notification_id,
-    int button_index) {
-  message_center_->ClickOnNotificationButton(notification_id, button_index);
-}
-
-void MessagePopupCollection::ClickOnSettingsButton(
-    const std::string& notification_id) {
-  message_center_->ClickOnSettingsButton(notification_id);
-}
-
-void MessagePopupCollection::UpdateNotificationSize(
-    const std::string& notification_id) {
-  OnNotificationUpdated(notification_id);
-}
-
-void MessagePopupCollection::MarkAllPopupsShown() {
-  std::set<std::string> closed_ids = CloseAllWidgets();
-  for (std::set<std::string>::iterator iter = closed_ids.begin();
-       iter != closed_ids.end(); iter++) {
-    message_center_->MarkSinglePopupAsShown(*iter, false);
-  }
-}
-
-void MessagePopupCollection::PausePopupTimers() {
-  DCHECK(timer_pause_counter_ >= 0);
-  if (timer_pause_counter_ <= 0) {
-    message_center_->PausePopupTimers();
-    timer_pause_counter_ = 1;
-  } else {
-    timer_pause_counter_++;
-  }
-}
-
-void MessagePopupCollection::RestartPopupTimers() {
-  DCHECK(timer_pause_counter_ >= 1);
-  if (timer_pause_counter_ <= 1) {
-    message_center_->RestartPopupTimers();
-    timer_pause_counter_ = 0;
-  } else {
-    timer_pause_counter_--;
-  }
-}
-
-void MessagePopupCollection::UpdateWidgets() {
-  if (message_center_->IsMessageCenterVisible()) {
-    DCHECK_EQ(0u, message_center_->GetPopupNotifications().size());
+  if (MessageCenter::Get()->IsMessageCenterVisible()) {
+    CloseAllPopupsNow();
     return;
   }
 
-  NotificationList::PopupNotifications popups =
-      message_center_->GetPopupNotifications();
-  if (popups.empty()) {
-    CloseAllWidgets();
+  if (animation_->is_animating()) {
+    UpdateByAnimation();
     return;
   }
 
-  bool top_down = alignment_delegate_->IsTopDown();
-  int base = GetBaseLine(toasts_.empty() ? NULL : toasts_.back());
-#if defined(OS_CHROMEOS)
-  bool is_primary_display =
-      alignment_delegate_->IsPrimaryDisplayForNotification();
-#endif
+  if (state_ != State::IDLE)
+    TransitionFromAnimation();
 
-  // Iterate in the reverse order to keep the oldest toasts on screen. Newer
-  // items may be ignored if there are no room to place them.
-  for (NotificationList::PopupNotifications::const_reverse_iterator iter =
-           popups.rbegin(); iter != popups.rend(); ++iter) {
-    if (FindToast((*iter)->id()))
-      continue;
+  if (state_ == State::IDLE)
+    TransitionToAnimation();
 
-#if defined(OS_CHROMEOS)
-    // Disables popup of custom notification on non-primary displays, since
-    // currently custom notification supports only on one display at the same
-    // time.
-    // TODO(yoshiki): Support custom popup notification on multiple display
-    // (crbug.com/715370).
-    if (!is_primary_display && (*iter)->type() == NOTIFICATION_TYPE_CUSTOM)
-      continue;
-#endif
+  UpdatePopupTimers();
 
-    MessageView* view;
-    // Create top-level notification.
-#if defined(OS_CHROMEOS)
-    if ((*iter)->pinned()) {
-      Notification notification = *(*iter);
-      // Override pinned status, since toasts should be closable even when it's
-      // pinned.
-      notification.set_pinned(false);
-      view = MessageViewFactory::Create(NULL, notification, true);
-    } else
-#endif  // defined(OS_CHROMEOS)
-    {
-      view = MessageViewFactory::Create(NULL, *(*iter), true);
+  if (state_ != State::IDLE) {
+    // If not in IDLE state, start animation.
+    animation_->SetDuration(state_ == State::MOVE_DOWN ||
+                                    state_ == State::MOVE_UP_FOR_INVERSE
+                                ? kMoveDownDuration
+                                : kFadeInFadeOutDuration);
+    animation_->Start();
+    UpdateByAnimation();
+  }
+
+  DCHECK(state_ == State::IDLE || animation_->is_animating());
+}
+
+void MessagePopupCollection::ResetBounds() {
+  if (is_updating_)
+    return;
+  {
+    base::AutoReset<bool> reset(&is_updating_, true);
+
+    RemoveClosedPopupItems();
+    ResetHotMode();
+    state_ = State::IDLE;
+    animation_->End();
+
+    CalculateBounds();
+
+    // Remove popups that are no longer in work area.
+    ClosePopupsOutsideWorkArea();
+
+    // Reset bounds and opacity of popups.
+    for (auto& item : popup_items_) {
+      item.popup->SetPopupBounds(item.bounds);
+      item.popup->SetOpacity(1.0);
     }
-
-    // TODO(yoshiki): Temporary disable context menu on custom notifications.
-    // See crbug.com/750307 for detail.
-    if ((*iter)->type() != NOTIFICATION_TYPE_CUSTOM)
-      view->set_context_menu_controller(context_menu_controller_.get());
-
-    int view_height = ToastContentsView::GetToastSizeForView(view).height();
-    int height_available =
-        top_down ? alignment_delegate_->GetWorkArea().bottom() - base
-                 : base - alignment_delegate_->GetWorkArea().y();
-
-    if (height_available - view_height - kToastMarginY < 0) {
-      delete view;
-      break;
-    }
-
-    ToastContentsView* toast = new ToastContentsView(
-        (*iter)->id(), alignment_delegate_, weak_factory_.GetWeakPtr());
-    // There will be no contents already since this is a new ToastContentsView.
-    toast->SetContents(view, /*a11y_feedback_for_updates=*/false);
-    toasts_.push_back(toast);
-    view->set_controller(toast);
-
-    gfx::Size preferred_size = toast->GetPreferredSize();
-    gfx::Point origin(
-        alignment_delegate_->GetToastOriginX(gfx::Rect(preferred_size)), base);
-    // The toast slides in from the edge of the screen horizontally.
-    if (alignment_delegate_->IsFromLeft())
-      origin.set_x(origin.x() - preferred_size.width());
-    else
-      origin.set_x(origin.x() + preferred_size.width());
-    if (top_down)
-      origin.set_y(origin.y() + view_height);
-
-    toast->RevealWithAnimation(origin);
-
-    // Shift the base line to be a few pixels above the last added toast or (few
-    // pixels below last added toast if top-aligned).
-    if (top_down)
-      base += view_height + kToastMarginY;
-    else
-      base -= view_height + kToastMarginY;
-
-    if (views::ViewsDelegate::GetInstance()) {
-      views::ViewsDelegate::GetInstance()->NotifyAccessibilityEvent(
-          toast, ui::AX_EVENT_ALERT);
-    }
-
-    message_center_->DisplayedNotification(
-        (*iter)->id(), message_center::DISPLAY_SOURCE_POPUP);
-  }
-}
-
-void MessagePopupCollection::OnMouseEntered(ToastContentsView* toast_entered) {
-  // Sometimes we can get two MouseEntered/MouseExited in a row when animating
-  // toasts.  So we need to keep track of which one is the currently active one.
-  latest_toast_entered_ = toast_entered;
-
-  PausePopupTimers();
-
-  if (user_is_closing_toasts_by_clicking_)
-    defer_timer_->Stop();
-}
-
-void MessagePopupCollection::OnMouseExited(ToastContentsView* toast_exited) {
-  // If we're exiting a toast after entering a different toast, then ignore
-  // this mouse event.
-  if (toast_exited != latest_toast_entered_)
-    return;
-  latest_toast_entered_ = NULL;
-
-  if (user_is_closing_toasts_by_clicking_) {
-    defer_timer_->Start(
-        FROM_HERE,
-        base::TimeDelta::FromMilliseconds(kMouseExitedDeferTimeoutMs),
-        this,
-        &MessagePopupCollection::OnDeferTimerExpired);
-  } else {
-    RestartPopupTimers();
-  }
-}
-
-std::set<std::string> MessagePopupCollection::CloseAllWidgets() {
-  std::set<std::string> closed_toast_ids;
-
-  while (!toasts_.empty()) {
-    ToastContentsView* toast = toasts_.front();
-    toasts_.pop_front();
-    closed_toast_ids.insert(toast->id());
-
-    OnMouseExited(toast);
-
-    // CloseWithAnimation will cause the toast to forget about |this| so it is
-    // required when we forget a toast.
-    toast->CloseWithAnimation();
   }
 
-  return closed_toast_ids;
+  // Restart animation for FADE_OUT.
+  Update();
 }
 
-void MessagePopupCollection::ForgetToast(ToastContentsView* toast) {
-  toasts_.remove(toast);
-  OnMouseExited(toast);
+void MessagePopupCollection::NotifyPopupResized() {
+  resize_requested_ = true;
+  Update();
 }
 
-void MessagePopupCollection::RemoveToast(ToastContentsView* toast,
-                                         bool mark_as_shown) {
-  ForgetToast(toast);
-
-  toast->CloseWithAnimation();
-
-  if (mark_as_shown)
-    message_center_->MarkSinglePopupAsShown(toast->id(), false);
-}
-
-void MessagePopupCollection::RepositionWidgets() {
-  bool top_down = alignment_delegate_->IsTopDown();
-  int base = GetBaseLine(NULL);  // We don't want to position relative to last
-                                 // toast - we want re-position.
-
-  for (Toasts::const_iterator iter = toasts_.begin(); iter != toasts_.end();) {
-    Toasts::const_iterator curr = iter++;
-    gfx::Rect bounds((*curr)->bounds());
-    bounds.set_x(alignment_delegate_->GetToastOriginX(bounds));
-    bounds.set_y(top_down ? base : base - bounds.height());
-
-    // The notification may scrolls the boundary of the screen due to image
-    // load and such notifications should disappear. Do not call
-    // CloseWithAnimation, we don't want to show the closing animation, and we
-    // don't want to mark such notifications as shown. See crbug.com/233424
-    if ((top_down
-             ? alignment_delegate_->GetWorkArea().bottom() - bounds.bottom()
-             : bounds.y() - alignment_delegate_->GetWorkArea().y()) >= 0)
-      (*curr)->SetBoundsWithAnimation(bounds);
-    else
-      RemoveToast(*curr, /*mark_as_shown=*/false);
-
-    // Shift the base line to be a few pixels above the last added toast or (few
-    // pixels below last added toast if top-aligned).
-    if (top_down)
-      base += bounds.height() + kToastMarginY;
-    else
-      base -= bounds.height() + kToastMarginY;
-  }
-}
-
-void MessagePopupCollection::RepositionWidgetsWithTarget() {
-  if (toasts_.empty())
-    return;
-
-  bool top_down = alignment_delegate_->IsTopDown();
-
-  // Nothing to do if there are no widgets above target if bottom-aligned or no
-  // widgets below target if top-aligned.
-  if (top_down ? toasts_.back()->origin().y() < target_top_edge_
-               : toasts_.back()->origin().y() > target_top_edge_)
-    return;
-
-  Toasts::reverse_iterator iter = toasts_.rbegin();
-  for (; iter != toasts_.rend(); ++iter) {
-    // We only reposition widgets above target if bottom-aligned or widgets
-    // below target if top-aligned.
-    if (top_down ? (*iter)->origin().y() < target_top_edge_
-                 : (*iter)->origin().y() > target_top_edge_)
-      break;
-  }
-  --iter;
-
-  // Slide length is the number of pixels the widgets should move so that their
-  // bottom edge (top-edge if top-aligned) touches the target.
-  int slide_length = std::abs(target_top_edge_ - (*iter)->origin().y());
-  for (;; --iter) {
-    gfx::Rect bounds((*iter)->bounds());
-
-    // If top-aligned, shift widgets upwards by slide_length. If bottom-aligned,
-    // shift them downwards by slide_length.
-    if (top_down)
-      bounds.set_y(bounds.y() - slide_length);
-    else
-      bounds.set_y(bounds.y() + slide_length);
-    (*iter)->SetBoundsWithAnimation(bounds);
-
-    if (iter == toasts_.rbegin())
-      break;
-  }
-}
-
-int MessagePopupCollection::GetBaseLine(ToastContentsView* last_toast) const {
-  if (!last_toast) {
-    return alignment_delegate_->GetBaseLine();
-  } else if (alignment_delegate_->IsTopDown()) {
-    return toasts_.back()->bounds().bottom() + kToastMarginY;
-  } else {
-    return toasts_.back()->origin().y() - kToastMarginY;
+void MessagePopupCollection::NotifyPopupClosed(MessagePopupView* popup) {
+  for (auto& item : popup_items_) {
+    if (item.popup == popup)
+      item.popup = nullptr;
   }
 }
 
 void MessagePopupCollection::OnNotificationAdded(
     const std::string& notification_id) {
-  DoUpdateIfPossible();
+  Update();
 }
 
 void MessagePopupCollection::OnNotificationRemoved(
     const std::string& notification_id,
     bool by_user) {
-  // Find a toast.
-  Toasts::const_iterator iter = toasts_.begin();
-  for (; iter != toasts_.end(); ++iter) {
-    if ((*iter)->id() == notification_id)
-      break;
-  }
-  if (iter == toasts_.end())
-    return;
-
-  target_top_edge_ = (*iter)->bounds().y();
-  if (by_user && !user_is_closing_toasts_by_clicking_) {
-    // [Re] start a timeout after which the toasts re-position to their
-    // normal locations after tracking the mouse pointer for easy deletion.
-    // This provides a period of time when toasts are easy to remove because
-    // they re-position themselves to have Close button right under the mouse
-    // pointer. If the user continue to remove the toasts, the delay is reset.
-    // Once user stopped removing the toasts, the toasts re-populate/rearrange
-    // after the specified delay.
-    user_is_closing_toasts_by_clicking_ = true;
-    IncrementDeferCounter();
-  }
-
-  // CloseWithAnimation ultimately causes a call to RemoveToast, which calls
-  // OnMouseExited.  This means that |user_is_closing_toasts_by_clicking_| must
-  // have been set before this call, otherwise it will remain true even after
-  // the toast is closed, since the defer timer won't be started.
-  RemoveToast(*iter, /*mark_as_shown=*/true);
-
-  if (by_user)
-    RepositionWidgetsWithTarget();
-}
-
-void MessagePopupCollection::OnDeferTimerExpired() {
-  user_is_closing_toasts_by_clicking_ = false;
-  DecrementDeferCounter();
-
-  RestartPopupTimers();
+  Update();
 }
 
 void MessagePopupCollection::OnNotificationUpdated(
     const std::string& notification_id) {
-  // Find a toast.
-  Toasts::const_iterator toast_iter = toasts_.begin();
-  for (; toast_iter != toasts_.end(); ++toast_iter) {
-    if ((*toast_iter)->id() == notification_id)
-      break;
-  }
-  if (toast_iter == toasts_.end())
+  if (is_updating_)
     return;
 
-  NotificationList::PopupNotifications notifications =
-      message_center_->GetPopupNotifications();
-  bool updated = false;
+  // Find Notification object with |notification_id|.
+  const auto& notifications = MessageCenter::Get()->GetPopupNotifications();
+  auto it = notifications.begin();
+  while (it != notifications.end()) {
+    if ((*it)->id() == notification_id)
+      break;
+    ++it;
+  }
 
-  for (NotificationList::PopupNotifications::iterator iter =
-           notifications.begin(); iter != notifications.end(); ++iter) {
-    Notification* notification = *iter;
-    DCHECK(notification);
-    ToastContentsView* toast_contents_view = *toast_iter;
-    DCHECK(toast_contents_view);
+  if (it == notifications.end()) {
+    // If not found, probably |notification_id| is removed from popups by
+    // timeout.
+    Update();
+    return;
+  }
 
-    if (notification->id() != notification_id)
+  {
+    base::AutoReset<bool> reset(&is_updating_, true);
+
+    RemoveClosedPopupItems();
+
+    // Update contents of the notification.
+    for (const auto& item : popup_items_) {
+      if (item.id == notification_id) {
+        item.popup->UpdateContents(**it);
+        break;
+      }
+    }
+  }
+
+  Update();
+}
+
+void MessagePopupCollection::OnCenterVisibilityChanged(Visibility visibility) {
+  Update();
+}
+
+void MessagePopupCollection::OnBlockingStateChanged(
+    NotificationBlocker* blocker) {
+  Update();
+}
+
+void MessagePopupCollection::AnimationEnded(const gfx::Animation* animation) {
+  Update();
+}
+
+void MessagePopupCollection::AnimationProgressed(
+    const gfx::Animation* animation) {
+  Update();
+}
+
+void MessagePopupCollection::AnimationCanceled(
+    const gfx::Animation* animation) {
+  Update();
+}
+
+MessagePopupView* MessagePopupCollection::CreatePopup(
+    const Notification& notification) {
+  return new MessagePopupView(notification, alignment_delegate_, this);
+}
+
+void MessagePopupCollection::RestartPopupTimers() {
+  MessageCenter::Get()->RestartPopupTimers();
+}
+
+void MessagePopupCollection::PausePopupTimers() {
+  MessageCenter::Get()->PausePopupTimers();
+}
+
+bool MessagePopupCollection::IsPrimaryDisplayForNotification() const {
+  return alignment_delegate_->IsPrimaryDisplayForNotification();
+}
+
+void MessagePopupCollection::TransitionFromAnimation() {
+  DCHECK_NE(state_, State::IDLE);
+  DCHECK(!animation_->is_animating());
+
+  // The animation of type |state_| is now finished.
+  UpdateByAnimation();
+
+  // If FADE_OUT animation is finished, remove the animated popup.
+  if (state_ == State::FADE_OUT)
+    CloseAnimatingPopups();
+
+  if (state_ == State::FADE_IN || state_ == State::MOVE_DOWN ||
+      (state_ == State::FADE_OUT && popup_items_.empty())) {
+    // If the animation is finished, transition to IDLE.
+    state_ = State::IDLE;
+  } else if (state_ == State::FADE_OUT && !popup_items_.empty()) {
+    if ((HasAddedPopup() && CollapseAllPopups()) || !inverse_) {
+      // If FADE_OUT animation is finished and we still have remaining popups,
+      // we have to MOVE_DOWN them.
+      // If we're going to add a new popup after this MOVE_DOWN, do the collapse
+      // animation at the same time. Otherwise it will take another MOVE_DOWN.
+      state_ = State::MOVE_DOWN;
+      MoveDownPopups();
+    } else {
+      // If there's no collapsable popups and |inverse_| is on, there's nothing
+      // to do after FADE_OUT.
+      state_ = State::IDLE;
+    }
+  } else if (state_ == State::MOVE_UP_FOR_INVERSE) {
+    for (auto& item : popup_items_)
+      item.is_animating = item.will_fade_in;
+    state_ = State::FADE_IN;
+  }
+}
+
+void MessagePopupCollection::TransitionToAnimation() {
+  DCHECK_EQ(state_, State::IDLE);
+  DCHECK(!animation_->is_animating());
+
+  if (HasRemovedPopup()) {
+    MarkRemovedPopup();
+
+    // Start hot mode to allow a user to continually close many notifications.
+    StartHotMode();
+
+    if (CloseTransparentPopups()) {
+      // If the popup is already transparent, skip FADE_OUT.
+      state_ = State::MOVE_DOWN;
+      MoveDownPopups();
+    } else {
+      state_ = State::FADE_OUT;
+    }
+    return;
+  }
+
+  if (HasAddedPopup()) {
+    if (CollapseAllPopups()) {
+      // If we had existing popups that weren't collapsed, first show collapsing
+      // animation.
+      state_ = State::MOVE_DOWN;
+      MoveDownPopups();
+      return;
+    } else if (AddPopup()) {
+      // A popup is actually added.
+      if (inverse_ && popup_items_.size() > 1) {
+        // If |inverse_| is on and there are existing notifications that have to
+        // be moved up (existing ones + new one, so > 1), transition to
+        // MOVE_UP_FOR_INVERSE.
+        state_ = State::MOVE_UP_FOR_INVERSE;
+      } else {
+        // Show FADE_IN animation.
+        state_ = State::FADE_IN;
+      }
+      return;
+    }
+  }
+
+  if (resize_requested_) {
+    // Resize is requested e.g. a user manually expanded notification.
+    resize_requested_ = false;
+    state_ = State::MOVE_DOWN;
+    MoveDownPopups();
+    ClosePopupsOutsideWorkArea();
+    return;
+  }
+
+  if (!IsAnyPopupHovered() && is_hot_) {
+    // Reset hot mode and animate to the normal positions.
+    state_ = State::MOVE_DOWN;
+    ResetHotMode();
+    MoveDownPopups();
+  }
+}
+
+void MessagePopupCollection::UpdatePopupTimers() {
+  if (state_ == State::IDLE) {
+    if (IsAnyPopupHovered() || IsAnyPopupActive()) {
+      // If any popup is hovered or activated, pause popup timer.
+      PausePopupTimers();
+    } else {
+      // If in IDLE state, restart popup timer.
+      RestartPopupTimers();
+    }
+  } else {
+    // If not in IDLE state, pause popup timer.
+    PausePopupTimers();
+  }
+}
+
+void MessagePopupCollection::CalculateBounds() {
+  int base = alignment_delegate_->GetBaseline();
+  for (size_t i = 0; i < popup_items_.size(); ++i) {
+    gfx::Size preferred_size(
+        kNotificationWidth,
+        GetPopupItem(i)->popup->GetHeightForWidth(kNotificationWidth));
+
+    // Align the top of i-th popup to |hot_top_|.
+    if (is_hot_ && hot_index_ == i) {
+      base = hot_top_;
+      if (!alignment_delegate_->IsTopDown())
+        base += preferred_size.height();
+    }
+
+    int origin_x =
+        alignment_delegate_->GetToastOriginX(gfx::Rect(preferred_size));
+
+    int origin_y = base;
+    if (!alignment_delegate_->IsTopDown())
+      origin_y -= preferred_size.height();
+
+    GetPopupItem(i)->start_bounds = GetPopupItem(i)->bounds;
+    GetPopupItem(i)->bounds =
+        gfx::Rect(gfx::Point(origin_x, origin_y), preferred_size);
+
+    const int delta = preferred_size.height() + kMarginBetweenPopups;
+    if (alignment_delegate_->IsTopDown())
+      base += delta;
+    else
+      base -= delta;
+  }
+}
+
+void MessagePopupCollection::UpdateByAnimation() {
+  DCHECK_NE(state_, State::IDLE);
+
+  for (auto& item : popup_items_) {
+    if (!item.is_animating)
       continue;
 
-    const RichNotificationData& optional_fields =
-        notification->rich_notification_data();
-    bool a11y_feedback_for_updates =
-        optional_fields.should_make_spoken_feedback_for_popup_updates;
+    double value = gfx::Tween::CalculateValue(
+        state_ == State::FADE_OUT ? gfx::Tween::EASE_IN : gfx::Tween::EASE_OUT,
+        animation_->GetCurrentValue());
 
-    toast_contents_view->UpdateContents(*notification,
-                                        a11y_feedback_for_updates);
+    if (state_ == State::FADE_IN)
+      item.popup->SetOpacity(gfx::Tween::FloatValueBetween(value, 0.0f, 1.0f));
+    else if (state_ == State::FADE_OUT)
+      item.popup->SetOpacity(gfx::Tween::FloatValueBetween(value, 1.0f, 0.0f));
 
-    updated = true;
+    if (state_ == State::FADE_IN || state_ == State::MOVE_DOWN ||
+        state_ == State::MOVE_UP_FOR_INVERSE) {
+      item.popup->SetPopupBounds(
+          gfx::Tween::RectValueBetween(value, item.start_bounds, item.bounds));
+    }
   }
-
-  // OnNotificationUpdated() can be called when a notification is excluded from
-  // the popup notification list but still remains in the full notification
-  // list. In that case the widget for the notification has to be closed here.
-  if (!updated)
-    RemoveToast(*toast_iter, /*mark_as_shown=*/true);
-
-  if (user_is_closing_toasts_by_clicking_)
-    RepositionWidgetsWithTarget();
-  else
-    DoUpdateIfPossible();
 }
 
-ToastContentsView* MessagePopupCollection::FindToast(
-    const std::string& notification_id) const {
-  for (Toasts::const_iterator iter = toasts_.begin(); iter != toasts_.end();
-       ++iter) {
-    if ((*iter)->id() == notification_id)
-      return *iter;
-  }
-  return NULL;
-}
+bool MessagePopupCollection::AddPopup() {
+  std::set<std::string> existing_ids;
+  for (const auto& item : popup_items_)
+    existing_ids.insert(item.id);
 
-void MessagePopupCollection::IncrementDeferCounter() {
-  defer_counter_++;
-}
+  auto notifications = MessageCenter::Get()->GetPopupNotifications();
+  Notification* new_notification = nullptr;
+  // Reverse iterating because notifications are in reverse chronological order.
+  for (auto it = notifications.rbegin(); it != notifications.rend(); ++it) {
+    // Disables popup of custom notification on non-primary displays, since
+    // currently custom notification supports only on one display at the same
+    // time.
+    // TODO(yoshiki): Support custom popup notification on multiple display
+    // (https://crbug.com/715370).
+    if (!IsPrimaryDisplayForNotification() &&
+        (*it)->type() == NOTIFICATION_TYPE_CUSTOM) {
+      continue;
+    }
 
-void MessagePopupCollection::DecrementDeferCounter() {
-  defer_counter_--;
-  DCHECK(defer_counter_ >= 0);
-  DoUpdateIfPossible();
-}
-
-// This is the main sequencer of tasks. It does a step, then waits for
-// all started transitions to play out before doing the next step.
-// First, remove all expired toasts.
-// Then, reposition widgets (the reposition on close happens before all
-// deferred tasks are even able to run)
-// Then, see if there is vacant space for new toasts.
-void MessagePopupCollection::DoUpdateIfPossible() {
-  if (defer_counter_ > 0)
-    return;
-
-  RepositionWidgets();
-
-  if (defer_counter_ > 0)
-    return;
-
-  // Reposition could create extra space which allows additional widgets.
-  UpdateWidgets();
-
-  if (defer_counter_ > 0)
-    return;
-
-  // Test support. Quit the test run loop when no more updates are deferred,
-  // meaining th echeck for updates did not cause anything to change so no new
-  // transition animations were started.
-  if (run_loop_for_test_.get())
-    run_loop_for_test_->Quit();
-}
-
-void MessagePopupCollection::OnDisplayMetricsChanged(
-    const display::Display& display) {
-  alignment_delegate_->RecomputeAlignment(display);
-}
-
-views::Widget* MessagePopupCollection::GetWidgetForTest(const std::string& id)
-    const {
-  for (Toasts::const_iterator iter = toasts_.begin(); iter != toasts_.end();
-       ++iter) {
-    if ((*iter)->id() == id)
-      return (*iter)->GetWidget();
-  }
-  return NULL;
-}
-
-void MessagePopupCollection::CreateRunLoopForTest() {
-  run_loop_for_test_.reset(new base::RunLoop());
-}
-
-void MessagePopupCollection::WaitForTest() {
-  run_loop_for_test_->Run();
-  run_loop_for_test_.reset();
-}
-
-gfx::Rect MessagePopupCollection::GetToastRectAt(size_t index) const {
-  DCHECK(defer_counter_ == 0) << "Fetching the bounds with animations active.";
-  size_t i = 0;
-  for (Toasts::const_iterator iter = toasts_.begin(); iter != toasts_.end();
-       ++iter) {
-    if (i++ == index) {
-      views::Widget* widget = (*iter)->GetWidget();
-      if (widget)
-        return widget->GetWindowBoundsInScreen();
+    if (!existing_ids.count((*it)->id())) {
+      new_notification = *it;
       break;
     }
   }
-  return gfx::Rect();
+
+  if (!new_notification)
+    return false;
+
+  // Reset animation flags of existing popups.
+  for (auto& item : popup_items_) {
+    item.is_animating = false;
+    item.will_fade_in = false;
+  }
+
+  {
+    PopupItem item;
+    item.id = new_notification->id();
+    item.is_animating = true;
+    item.popup = CreatePopup(*new_notification);
+
+    if (IsNextEdgeOutsideWorkArea(item)) {
+      item.popup->Close();
+      return false;
+    }
+
+    item.popup->Show();
+    popup_items_.push_back(item);
+  }
+
+  // There are existing notifications that have to be moved up (existing ones +
+  // new one, so > 1).
+  if (inverse_ && popup_items_.size() > 1) {
+    for (auto& item : popup_items_) {
+      item.will_fade_in = item.is_animating;
+      item.is_animating = !item.is_animating;
+    }
+  }
+
+  MessageCenter::Get()->DisplayedNotification(new_notification->id(),
+                                              DISPLAY_SOURCE_POPUP);
+
+  CalculateBounds();
+
+  auto& item = popup_items_.back();
+  item.start_bounds = item.bounds;
+  item.start_bounds += gfx::Vector2d(
+      (alignment_delegate_->IsFromLeft() ? -1 : 1) * item.bounds.width(), 0);
+  return true;
+}
+
+void MessagePopupCollection::MarkRemovedPopup() {
+  std::set<std::string> existing_ids;
+  for (Notification* notification :
+       MessageCenter::Get()->GetPopupNotifications()) {
+    existing_ids.insert(notification->id());
+  }
+
+  for (auto& item : popup_items_)
+    item.is_animating = !existing_ids.count(item.id);
+}
+
+void MessagePopupCollection::MoveDownPopups() {
+  CalculateBounds();
+  for (auto& item : popup_items_)
+    item.is_animating = true;
+}
+
+int MessagePopupCollection::GetNextEdge(const PopupItem& item) const {
+  const int delta =
+      item.popup->GetHeightForWidth(kNotificationWidth) + kMarginBetweenPopups;
+
+  int base = 0;
+  if (popup_items_.empty()) {
+    base = alignment_delegate_->GetBaseline();
+  } else {
+    base = alignment_delegate_->IsTopDown()
+               ? popup_items_.back().bounds.bottom()
+               : popup_items_.back().bounds.y();
+  }
+
+  return alignment_delegate_->IsTopDown() ? base + delta : base - delta;
+}
+
+bool MessagePopupCollection::IsNextEdgeOutsideWorkArea(
+    const PopupItem& item) const {
+  const int next_edge = GetNextEdge(item);
+  const gfx::Rect work_area = alignment_delegate_->GetWorkArea();
+  return alignment_delegate_->IsTopDown() ? next_edge > work_area.bottom()
+                                          : next_edge < work_area.y();
+}
+
+void MessagePopupCollection::StartHotMode() {
+  for (size_t i = 0; i < popup_items_.size(); ++i) {
+    if (GetPopupItem(i)->is_animating && GetPopupItem(i)->popup->is_hovered()) {
+      is_hot_ = true;
+      hot_index_ = i;
+      hot_top_ = GetPopupItem(i)->bounds.y();
+      break;
+    }
+  }
+}
+
+void MessagePopupCollection::ResetHotMode() {
+  is_hot_ = false;
+  hot_index_ = 0;
+  hot_top_ = 0;
+}
+
+void MessagePopupCollection::CloseAnimatingPopups() {
+  for (auto& item : popup_items_) {
+    if (!item.is_animating)
+      continue;
+    item.popup->Close();
+  }
+  RemoveClosedPopupItems();
+}
+
+bool MessagePopupCollection::CloseTransparentPopups() {
+  bool removed = false;
+  for (auto& item : popup_items_) {
+    if (item.popup->GetOpacity() > 0.0)
+      continue;
+    item.popup->Close();
+    removed = true;
+  }
+  RemoveClosedPopupItems();
+  return removed;
+}
+
+void MessagePopupCollection::ClosePopupsOutsideWorkArea() {
+  const gfx::Rect work_area = alignment_delegate_->GetWorkArea();
+  for (auto& item : popup_items_) {
+    if (work_area.Contains(item.bounds))
+      continue;
+    item.popup->Close();
+  }
+  RemoveClosedPopupItems();
+}
+
+void MessagePopupCollection::RemoveClosedPopupItems() {
+  base::EraseIf(popup_items_, [](const auto& item) { return !item.popup; });
+}
+
+void MessagePopupCollection::CloseAllPopupsNow() {
+  for (auto& item : popup_items_)
+    item.is_animating = true;
+  CloseAnimatingPopups();
+
+  ResetHotMode();
+  state_ = State::IDLE;
+  animation_->End();
+}
+
+bool MessagePopupCollection::CollapseAllPopups() {
+  bool changed = false;
+  for (auto& item : popup_items_) {
+    int old_height = item.popup->GetHeightForWidth(kNotificationWidth);
+
+    item.popup->AutoCollapse();
+
+    int new_height = item.popup->GetHeightForWidth(kNotificationWidth);
+    if (old_height != new_height)
+      changed = true;
+  }
+
+  resize_requested_ = false;
+  return changed;
+}
+
+bool MessagePopupCollection::HasAddedPopup() const {
+  std::set<std::string> existing_ids;
+  for (const auto& item : popup_items_)
+    existing_ids.insert(item.id);
+
+  for (Notification* notification :
+       MessageCenter::Get()->GetPopupNotifications()) {
+    if (!existing_ids.count(notification->id()))
+      return true;
+  }
+  return false;
+}
+
+bool MessagePopupCollection::HasRemovedPopup() const {
+  std::set<std::string> existing_ids;
+  for (Notification* notification :
+       MessageCenter::Get()->GetPopupNotifications()) {
+    existing_ids.insert(notification->id());
+  }
+
+  for (const auto& item : popup_items_) {
+    if (!existing_ids.count(item.id))
+      return true;
+  }
+  return false;
+}
+
+bool MessagePopupCollection::IsAnyPopupHovered() const {
+  for (const auto& item : popup_items_) {
+    if (item.popup->is_hovered())
+      return true;
+  }
+  return false;
+}
+
+bool MessagePopupCollection::IsAnyPopupActive() const {
+  for (const auto& item : popup_items_) {
+    if (item.popup->is_active())
+      return true;
+  }
+  return false;
+}
+
+MessagePopupCollection::PopupItem* MessagePopupCollection::GetPopupItem(
+    size_t index_from_top) {
+  DCHECK_LT(index_from_top, popup_items_.size());
+  return &popup_items_[inverse_ ? popup_items_.size() - index_from_top - 1
+                                : index_from_top];
 }
 
 }  // namespace message_center

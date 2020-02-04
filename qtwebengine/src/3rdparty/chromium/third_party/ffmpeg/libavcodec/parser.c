@@ -25,40 +25,23 @@
 #include <string.h>
 
 #include "libavutil/avassert.h"
-#include "libavutil/atomic.h"
 #include "libavutil/internal.h"
 #include "libavutil/mem.h"
 
 #include "internal.h"
 #include "parser.h"
 
-static AVCodecParser *av_first_parser = NULL;
-
-AVCodecParser *av_parser_next(const AVCodecParser *p)
-{
-    if (p)
-        return p->next;
-    else
-        return av_first_parser;
-}
-
-void av_register_codec_parser(AVCodecParser *parser)
-{
-    do {
-        parser->next = av_first_parser;
-    } while (parser->next != avpriv_atomic_ptr_cas((void * volatile *)&av_first_parser, parser->next, parser));
-}
-
 AVCodecParserContext *av_parser_init(int codec_id)
 {
     AVCodecParserContext *s = NULL;
-    AVCodecParser *parser;
+    const AVCodecParser *parser;
+    void *i = 0;
     int ret;
 
     if (codec_id == AV_CODEC_ID_NONE)
         return NULL;
 
-    for (parser = av_first_parser; parser; parser = parser->next) {
+    while ((parser = av_parser_iterate(&i))) {
         if (parser->codec_ids[0] == codec_id ||
             parser->codec_ids[1] == codec_id ||
             parser->codec_ids[2] == codec_id ||
@@ -72,7 +55,7 @@ found:
     s = av_mallocz(sizeof(AVCodecParserContext));
     if (!s)
         goto err_out;
-    s->parser = parser;
+    s->parser = (AVCodecParser*)parser;
     s->priv_data = av_mallocz(parser->priv_data_size);
     if (!s->priv_data)
         goto err_out;
@@ -284,6 +267,8 @@ int ff_combine_frame(ParseContext *pc, int next,
         pc->index += *buf_size;
         return -1;
     }
+
+    av_assert0(next >= 0 || pc->buffer);
 
     *buf_size          =
     pc->overread_index = pc->index + next;

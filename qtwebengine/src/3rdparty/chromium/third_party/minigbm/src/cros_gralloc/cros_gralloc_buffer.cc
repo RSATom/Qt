@@ -9,9 +9,9 @@
 #include <assert.h>
 #include <sys/mman.h>
 
-cros_gralloc_buffer::cros_gralloc_buffer(uint32_t id, struct bo *acquirebo_,
+cros_gralloc_buffer::cros_gralloc_buffer(uint32_t id, struct bo *acquire_bo,
 					 struct cros_gralloc_handle *acquire_handle)
-    : id_(id), bo_(acquirebo_), hnd_(acquire_handle), refcount_(1), lockcount_(0)
+    : id_(id), bo_(acquire_bo), hnd_(acquire_handle), refcount_(1), lockcount_(0)
 {
 	assert(bo_);
 	num_planes_ = drv_bo_get_num_planes(bo_);
@@ -44,54 +44,56 @@ int32_t cros_gralloc_buffer::decrease_refcount()
 	return --refcount_;
 }
 
-int32_t cros_gralloc_buffer::lock(uint64_t flags, uint8_t *addr[DRV_MAX_PLANES])
+int32_t cros_gralloc_buffer::lock(const struct rectangle *rect, uint32_t map_flags,
+				  uint8_t *addr[DRV_MAX_PLANES])
 {
+	void *vaddr = nullptr;
+
+	memset(addr, 0, DRV_MAX_PLANES * sizeof(*addr));
+
 	/*
 	 * Gralloc consumers don't support more than one kernel buffer per buffer object yet, so
 	 * just use the first kernel buffer.
 	 */
 	if (drv_num_buffers_per_bo(bo_) != 1) {
-		cros_gralloc_error("Can only support one buffer per bo.");
-		return CROS_GRALLOC_ERROR_NO_RESOURCES;
+		drv_log("Can only support one buffer per bo.\n");
+		return -EINVAL;
 	}
 
-	if (flags) {
-		void *vaddr;
+	if (map_flags) {
 		if (lock_data_[0]) {
-			vaddr = lock_data_[0]->addr;
+			drv_bo_invalidate(bo_, lock_data_[0]);
+			vaddr = lock_data_[0]->vma->addr;
 		} else {
-			vaddr = drv_bo_map(bo_, 0, 0, drv_bo_get_width(bo_), drv_bo_get_height(bo_),
-					   0, &lock_data_[0], 0);
+			vaddr = drv_bo_map(bo_, rect, map_flags, &lock_data_[0], 0);
 		}
 
 		if (vaddr == MAP_FAILED) {
-			cros_gralloc_error("Mapping failed.");
-			return CROS_GRALLOC_ERROR_UNSUPPORTED;
+			drv_log("Mapping failed.\n");
+			return -EFAULT;
 		}
-
-		addr[0] = static_cast<uint8_t *>(vaddr);
 	}
 
 	for (uint32_t plane = 0; plane < num_planes_; plane++)
-		addr[plane] = addr[0] + drv_bo_get_plane_offset(bo_, plane);
+		addr[plane] = static_cast<uint8_t *>(vaddr) + drv_bo_get_plane_offset(bo_, plane);
 
 	lockcount_++;
-	return CROS_GRALLOC_ERROR_NONE;
+	return 0;
 }
 
 int32_t cros_gralloc_buffer::unlock()
 {
 	if (lockcount_ <= 0) {
-		cros_gralloc_error("Buffer was not locked.");
-		return CROS_GRALLOC_ERROR_UNSUPPORTED;
+		drv_log("Buffer was not locked.\n");
+		return -EINVAL;
 	}
 
 	if (!--lockcount_) {
 		if (lock_data_[0]) {
-			drv_bo_unmap(bo_, lock_data_[0]);
+			drv_bo_flush_or_unmap(bo_, lock_data_[0]);
 			lock_data_[0] = nullptr;
 		}
 	}
 
-	return CROS_GRALLOC_ERROR_NONE;
+	return 0;
 }

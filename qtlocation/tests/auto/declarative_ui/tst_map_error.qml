@@ -147,9 +147,9 @@ Item {
         function test_map_toCoordinate()
         {
             map_no_plugin.center = coordinate
-            compare(map_no_plugin.toCoordinate(50,50).isValid,false)
+            compare(map_no_plugin.toCoordinate(Qt.point(50,50)).isValid,false)
             map_error_plugin.center = coordinate
-            compare(map_error_plugin.toCoordinate(50,50).isValid,false)
+            compare(map_error_plugin.toCoordinate(Qt.point(50,50)).isValid,false)
         }
 
         function test_map_fromCoordinate()

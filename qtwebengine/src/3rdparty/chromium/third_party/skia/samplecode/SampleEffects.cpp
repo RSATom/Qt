@@ -4,15 +4,14 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkBlurMask.h"
-#include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
 #include "SkColorMatrixFilter.h"
 #include "SkDiscretePathEffect.h"
+#include "SkEmbossMaskFilter.h"
 #include "SkGradientShader.h"
 #include "SkPaint.h"
-#include "SkView.h"
 
 
 //#define COLOR 0xFFFF8844
@@ -22,17 +21,15 @@ static void paint_proc0(SkPaint*) {
 }
 
 static void paint_proc1(SkPaint* paint) {
-    paint->setMaskFilter(SkBlurMaskFilter::Make(
+    paint->setMaskFilter(SkMaskFilter::MakeBlur(
                                 kNormal_SkBlurStyle,
                                 SkBlurMask::ConvertRadiusToSigma(2)));
 }
 
 static void paint_proc2(SkPaint* paint) {
-#ifdef SK_SUPPORT_LEGACY_EMBOSSMASKFILTER
-    SkScalar dir[3] = { 1, 1, 1};
-    paint->setMaskFilter(
-            SkBlurMaskFilter::MakeEmboss(SkBlurMask::ConvertRadiusToSigma(1), dir, 0.1f, 0.05f));
-#endif
+    paint->setMaskFilter(SkEmbossMaskFilter::Make(
+            SkBlurMask::ConvertRadiusToSigma(SkIntToScalar(1)),
+            { { SK_Scalar1, SK_Scalar1, SK_Scalar1 }, 0, 64, 16 }));
 }
 
 static void paint_proc3(SkPaint* paint) {
@@ -58,7 +55,7 @@ const PaintProc gPaintProcs[] = {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-class EffectsView : public SampleView {
+class EffectsView : public Sample {
 public:
     SkPath fPath;
     SkPaint fPaint[SK_ARRAY_COUNT(gPaintProcs)];
@@ -93,10 +90,9 @@ public:
     }
 
 protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt) {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Effects");
+    virtual bool onQuery(Sample::Event* evt) {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Effects");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -112,10 +108,9 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new EffectsView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new EffectsView(); )

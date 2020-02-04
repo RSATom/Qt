@@ -78,7 +78,7 @@ public:
     void setNavtitle(const QString& t) { navtitle_ = t; }
     void setHref(const QString& t) { href_ = t; }
     virtual bool isMapRef() const = 0;
-    virtual const DitaRefList* subrefs() const { return 0; }
+    virtual const DitaRefList* subrefs() const { return nullptr; }
     virtual void appendSubref(DitaRef* ) { }
 
 private:
@@ -92,9 +92,9 @@ public:
     TopicRef() { }
     ~TopicRef();
 
-    virtual bool isMapRef() const Q_DECL_OVERRIDE { return false; }
-    virtual const DitaRefList* subrefs() const Q_DECL_OVERRIDE { return &subrefs_; }
-    virtual void appendSubref(DitaRef* t) Q_DECL_OVERRIDE { subrefs_.append(t); }
+    bool isMapRef() const override { return false; }
+    const DitaRefList* subrefs() const override { return &subrefs_; }
+    void appendSubref(DitaRef* t) override { subrefs_.append(t); }
 
 private:
     DitaRefList subrefs_;
@@ -106,7 +106,7 @@ public:
     MapRef() { }
     ~MapRef() { }
 
-    virtual bool isMapRef() const Q_DECL_OVERRIDE { return true; }
+    bool isMapRef() const override { return true; }
 };
 
 class Doc
@@ -125,7 +125,7 @@ public:
         Section4 = 4
     };
 
-    Doc() : priv(0) {}
+    Doc() : priv(nullptr) {}
     Doc(const Location& start_loc,
         const Location& end_loc,
         const QString& source,
@@ -135,9 +135,6 @@ public:
     ~Doc();
 
     Doc& operator=( const Doc& doc );
-
-    void renameParameters(const QStringList &oldNames,
-                          const QStringList &newNames);
     void simplifyEnumDoc();
     void setBody(const Text &body);
     const DitaRefList& ditamap() const;
@@ -162,6 +159,8 @@ public:
     bool hasTableOfContents() const;
     bool hasKeywords() const;
     bool hasTargets() const;
+    bool isInternal() const;
+    bool isMarkedReimp() const;
     const QList<Atom *> &tableOfContents() const;
     const QVector<int> &tableOfContentsLevels() const;
     const QList<Atom *> &keywords() const;
@@ -172,6 +171,8 @@ public:
     static void terminate();
     static QString alias( const QString &english );
     static void trimCStyleComment( Location& location, QString& str );
+    static QString resolveFile(const Location &location,const QString &fileName,
+                               QString *userFriendlyFilePath = nullptr);
     static CodeMarker *quoteFromFile(const Location &location,
                                      Quoter &quoter,
                                      const QString &fileName);

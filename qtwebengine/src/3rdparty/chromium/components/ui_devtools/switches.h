@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,11 @@
 #include "components/ui_devtools/devtools_export.h"
 
 namespace ui_devtools {
+namespace switches {
 
-extern UI_DEVTOOLS_EXPORT const char kEnableUiDevTools[];
+UI_DEVTOOLS_EXPORT extern const char kEnableUiDevTools[];
 
+}  // namespace switches
 }  // namespace ui_devtools
 
 #endif  // COMPONENTS_UI_DEVTOOLS_SWITCHES_H_

@@ -2,14 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/**
- * @fileoverview 'user-manager-tutorial' is the element that controls the
- * tutorial steps for the user manager page.
- */
-(function() {
-
 /** @enum {string} */
-var TutorialSteps = {
+const TutorialSteps = {
   YOUR_CHROME: 'yourChrome',
   FRIENDS: 'friends',
   GUESTS: 'guests',
@@ -17,6 +11,11 @@ var TutorialSteps = {
   NOT_YOU: 'notYou'
 };
 
+/**
+ * @fileoverview 'user-manager-tutorial' is the element that controls the
+ * tutorial steps for the user manager page.
+ */
+(function() {
 Polymer({
   is: 'user-manager-tutorial',
 
@@ -57,7 +56,7 @@ Polymer({
    * @private
    */
   onNextTap_: function(event) {
-    var element = Polymer.dom(event).rootTarget;
+    const element = Polymer.dom(event).rootTarget;
     this.currentStep_ = element.dataset.next;
   },
 
@@ -83,7 +82,7 @@ Polymer({
     // If there's only one pod, show the steps to the side of the pod.
     // Otherwise, center the steps and disable interacting with the pods
     // while the tutorial is showing.
-    var podRow = /** @type {{focusPod: !function(), pods: !Array}} */
+    const podRow = /** @type {{focusPod: !function(), pods: !Array}} */
         ($('pod-row'));
 
     this.classList.toggle('single-pod', podRow.pods.length == 1);

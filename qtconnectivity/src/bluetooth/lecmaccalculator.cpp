@@ -123,7 +123,7 @@ quint64 LeCmacCalculator::calculateMac(const QByteArray &message, const quint128
     private:
         int m_socket;
     };
-    SocketWrapper cryptoSocket(accept(m_baseSocket, nullptr, 0));
+    SocketWrapper cryptoSocket(accept(m_baseSocket, nullptr, nullptr));
     if (cryptoSocket.value() == -1) {
         qCWarning(QT_BT_BLUEZ) << "accept() failed for crypto socket:" << strerror(errno);
         return 0;

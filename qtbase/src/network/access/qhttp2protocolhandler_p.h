@@ -55,8 +55,6 @@
 #include <private/qabstractprotocolhandler_p.h>
 #include <private/qhttpnetworkrequest_p.h>
 
-#if !defined(QT_NO_HTTP)
-
 #include <private/http2protocol_p.h>
 #include <private/http2streams_p.h>
 #include <private/http2frames_p.h>
@@ -75,6 +73,8 @@
 #include <deque>
 #include <set>
 
+QT_REQUIRE_CONFIG(http);
+
 QT_BEGIN_NAMESPACE
 
 class QHttp2ProtocolHandler : public QObject, public QAbstractProtocolHandler
@@ -89,6 +89,8 @@ public:
 
     QHttp2ProtocolHandler &operator = (const QHttp2ProtocolHandler &rhs) = delete;
     QHttp2ProtocolHandler &operator = (QHttp2ProtocolHandler &&rhs) = delete;
+
+    Q_INVOKABLE void handleConnectionClosure();
 
 private slots:
     void _q_uploadDataReadyRead();
@@ -227,7 +229,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-#endif // !defined(QT_NO_HTTP)
 
 #endif

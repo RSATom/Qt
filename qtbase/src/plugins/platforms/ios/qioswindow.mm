@@ -96,7 +96,7 @@ QIOSWindow::~QIOSWindow()
     [m_view touchesCancelled:[NSSet set] withEvent:0];
 
     clearAccessibleCache();
-    m_view->m_qioswindow = 0;
+    m_view.platformWindow = 0;
     [m_view removeFromSuperview];
     [m_view release];
 }
@@ -139,7 +139,7 @@ void QIOSWindow::setVisible(bool visible)
     } else if (!visible && [m_view isActiveWindow]) {
         // Our window was active/focus window but now hidden, so relinquish
         // focus to the next possible window in the stack.
-        NSArray *subviews = m_view.viewController.view.subviews;
+        NSArray<UIView *> *subviews = m_view.viewController.view.subviews;
         for (int i = int(subviews.count) - 1; i >= 0; --i) {
             UIView *view = [subviews objectAtIndex:i];
             if (view.hidden)
@@ -301,7 +301,7 @@ void QIOSWindow::raiseOrLower(bool raise)
     if (!isQtApplication())
         return;
 
-    NSArray *subviews = m_view.superview.subviews;
+    NSArray<UIView *> *subviews = m_view.superview.subviews;
     if (subviews.count == 1)
         return;
 
@@ -380,6 +380,19 @@ CAEAGLLayer *QIOSWindow::eaglLayer() const
     Q_ASSERT([m_view.layer isKindOfClass:[CAEAGLLayer class]]);
     return static_cast<CAEAGLLayer *>(m_view.layer);
 }
+
+#ifndef QT_NO_DEBUG_STREAM
+QDebug operator<<(QDebug debug, const QIOSWindow *window)
+{
+    QDebugStateSaver saver(debug);
+    debug.nospace();
+    debug << "QIOSWindow(" << (const void *)window;
+    if (window)
+        debug << ", window=" << window->window();
+    debug << ')';
+    return debug;
+}
+#endif // !QT_NO_DEBUG_STREAM
 
 #include "moc_qioswindow.cpp"
 

@@ -8,13 +8,8 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
 #include "base/macros.h"
-
-namespace base {
-class DictionaryValue;
-class ListValue;
-}
+#include "base/values.h"
 
 namespace cloud_devices {
 
@@ -26,14 +21,11 @@ class CloudDeviceDescription {
   CloudDeviceDescription();
   ~CloudDeviceDescription();
 
-  void Reset();
-
-  bool InitFromDictionary(std::unique_ptr<base::DictionaryValue> root);
   bool InitFromString(const std::string& json);
 
   std::string ToString() const;
 
-  const base::DictionaryValue& root() const { return *root_; }
+  base::Value ToValue() &&;
 
   // Returns dictionary with capability/option.
   // Returns NULL if missing.

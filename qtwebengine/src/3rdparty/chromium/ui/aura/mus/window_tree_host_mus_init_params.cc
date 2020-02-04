@@ -4,16 +4,39 @@
 
 #include "ui/aura/mus/window_tree_host_mus_init_params.h"
 
+#include "services/ws/public/cpp/property_type_converters.h"
+#include "services/ws/public/mojom/window_manager.mojom.h"
 #include "ui/aura/mus/window_port_mus.h"
 #include "ui/aura/mus/window_tree_client.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 
 namespace aura {
+namespace {
 
-DisplayInitParams::DisplayInitParams() = default;
+bool GetInitialDisplayId(
+    const std::map<std::string, std::vector<uint8_t>>& properties,
+    int64_t* display_id) {
+  auto it = properties.find(ws::mojom::WindowManager::kDisplayId_InitProperty);
+  if (it == properties.end())
+    return false;
 
-DisplayInitParams::~DisplayInitParams() = default;
+  *display_id = mojo::ConvertTo<int64_t>(it->second);
+  return true;
+}
+
+bool GetInitialBounds(
+    const std::map<std::string, std::vector<uint8_t>>& properties,
+    gfx::Rect* bounds) {
+  auto it = properties.find(ws::mojom::WindowManager::kBounds_InitProperty);
+  if (it == properties.end())
+    return false;
+
+  *bounds = mojo::ConvertTo<gfx::Rect>(it->second);
+  return true;
+}
+
+}  // namespace
 
 WindowTreeHostMusInitParams::WindowTreeHostMusInitParams() = default;
 
@@ -27,7 +50,21 @@ WindowTreeHostMusInitParams CreateInitParamsForTopLevel(
     std::map<std::string, std::vector<uint8_t>> properties) {
   WindowTreeHostMusInitParams params;
   params.window_tree_client = window_tree_client;
-  params.display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+
+  int64_t display_id = display::kInvalidDisplayId;
+  gfx::Rect bounds_in_screen;
+  if (GetInitialDisplayId(properties, &display_id)) {
+    params.display_id = display_id;
+  } else if (GetInitialBounds(properties, &bounds_in_screen)) {
+    // Bounds must be in screen coordinates because a top-level can't have an
+    // aura::Window parent.
+    params.display_id =
+        display::Screen::GetScreen()->GetDisplayMatching(bounds_in_screen).id();
+  } else {
+    params.display_id =
+        display::Screen::GetScreen()->GetDisplayForNewWindows().id();
+  }
+
   // Pass |properties| to CreateWindowPortForTopLevel() so that |properties|
   // are passed to the server *and* pass |properties| to the WindowTreeHostMus
   // constructor (above) which applies the properties to the Window. Some of the

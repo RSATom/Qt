@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/mac/objc_release_properties.h"
+#include "base/stl_util.h"
 
 #import "base/mac/scoped_nsautorelease_pool.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -43,7 +44,7 @@ struct NumberHolder {
   return [[[CountVonCount alloc] init] autorelease];
 }
 
-- (id)init {
+- (instancetype)init {
   ++ah_ah_ah;
   return [super init];
 }
@@ -216,8 +217,7 @@ struct NumberHolder {
     @selector(baseCvcDynamic), @selector(derivedCvcDynamic),
         @selector(protoCvcDynamic),
   };
-  if (std::find(dynamicMethods.begin(), dynamicMethods.end(), sel) ==
-      dynamicMethods.end()) {
+  if (!base::ContainsValue(dynamicMethods, sel)) {
     return NO;
   }
   id (*imp)() = []() -> id { return nil; };

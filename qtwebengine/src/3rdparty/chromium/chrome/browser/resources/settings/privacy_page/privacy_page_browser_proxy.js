@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/** @fileoverview Handles interprocess communcation for the privacy page. */
+/** @fileoverview Handles interprocess communication for the privacy page. */
 
 /** @typedef {{enabled: boolean, managed: boolean}} */
-var MetricsReporting;
+let MetricsReporting;
 
 cr.define('settings', function() {
   /** @interface */
@@ -25,11 +25,8 @@ cr.define('settings', function() {
 
     // </if>
 
-    /** @return {!Promise<boolean>} */
-    getSafeBrowsingExtendedReporting() {}
-
     /** @param {boolean} enabled */
-    setSafeBrowsingExtendedReportingEnabled(enabled) {}
+    setBlockAutoplayEnabled(enabled) {}
   }
 
   /**
@@ -50,13 +47,8 @@ cr.define('settings', function() {
     // </if>
 
     /** @override */
-    getSafeBrowsingExtendedReporting() {
-      return cr.sendWithPromise('getSafeBrowsingExtendedReporting');
-    }
-
-    /** @override */
-    setSafeBrowsingExtendedReportingEnabled(enabled) {
-      chrome.send('setSafeBrowsingExtendedReportingEnabled', [enabled]);
+    setBlockAutoplayEnabled(enabled) {
+      chrome.send('setBlockAutoplayEnabled', [enabled]);
     }
 
     // <if expr="is_win or is_macosx">

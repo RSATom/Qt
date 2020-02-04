@@ -9,9 +9,9 @@
 #include <stddef.h>
 
 #include "base/atomicops.h"
+#include "base/cfi_buildflags.h"
 #include "base/debug/asan_invalid_access.h"
 #include "base/debug/profiler.h"
-#include "base/message_loop/message_loop.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
@@ -25,29 +25,23 @@ const base::subtle::Atomic32 kMagicValue = 42;
 
 // Helper for memory accesses that can potentially corrupt memory or cause a
 // crash during a native run.
-#if defined(ADDRESS_SANITIZER) || defined(SYZYASAN)
+#if defined(ADDRESS_SANITIZER)
 #if defined(OS_IOS)
 // EXPECT_DEATH is not supported on IOS.
 #define HARMFUL_ACCESS(action,error_regexp) do { action; } while (0)
-#elif defined(SYZYASAN)
-// We won't get a meaningful error message because we're not running under the
-// SyzyASan logger, but we can at least make sure that the error has been
-// generated in the SyzyASan runtime.
-#define HARMFUL_ACCESS(action,unused) \
-if (debug::IsBinaryInstrumented()) { EXPECT_DEATH(action, \
-                                                  "AsanRuntime::OnError"); }
 #else
 #define HARMFUL_ACCESS(action,error_regexp) EXPECT_DEATH(action,error_regexp)
-#endif  // !OS_IOS && !SYZYASAN
+#endif  // !OS_IOS
 #else
-#define HARMFUL_ACCESS(action,error_regexp) \
-do { if (RunningOnValgrind()) { action; } } while (0)
+#define HARMFUL_ACCESS(action, error_regexp)
+#define HARMFUL_ACCESS_IS_NOOP
 #endif
 
 void DoReadUninitializedValue(char *ptr) {
   // Comparison with 64 is to prevent clang from optimizing away the
   // jump -- valgrind only catches jumps and conditional moves, but clang uses
-  // the borrow flag if the condition is just `*ptr == '\0'`.
+  // the borrow flag if the condition is just `*ptr == '\0'`.  We no longer
+  // support valgrind, but this constant should be fine to keep as-is.
   if (*ptr == 64) {
     VLOG(1) << "Uninit condition is true";
   } else {
@@ -64,6 +58,7 @@ void ReadUninitializedValue(char *ptr) {
 #endif
 }
 
+#ifndef HARMFUL_ACCESS_IS_NOOP
 void ReadValueOutOfArrayBoundsLeft(char *ptr) {
   char c = ptr[-2];
   VLOG(1) << "Reading a byte out of bounds: " << c;
@@ -74,15 +69,14 @@ void ReadValueOutOfArrayBoundsRight(char *ptr, size_t size) {
   VLOG(1) << "Reading a byte out of bounds: " << c;
 }
 
-// This is harmless if you run it under Valgrind thanks to redzones.
 void WriteValueOutOfArrayBoundsLeft(char *ptr) {
   ptr[-1] = kMagicValue;
 }
 
-// This is harmless if you run it under Valgrind thanks to redzones.
 void WriteValueOutOfArrayBoundsRight(char *ptr, size_t size) {
   ptr[size] = kMagicValue;
 }
+#endif  // HARMFUL_ACCESS_IS_NOOP
 
 void MakeSomeErrors(char *ptr, size_t size) {
   ReadUninitializedValue(ptr);
@@ -106,16 +100,15 @@ TEST(ToolsSanityTest, MemoryLeak) {
   leak[4] = 1;  // Make sure the allocated memory is used.
 }
 
-#if (defined(ADDRESS_SANITIZER) && defined(OS_IOS)) || defined(SYZYASAN)
+#if (defined(ADDRESS_SANITIZER) && defined(OS_IOS))
 // Because iOS doesn't support death tests, each of the following tests will
-// crash the whole program under Asan. On Windows Asan is based on SyzyAsan; the
-// error report mechanism is different than with Asan so these tests will fail.
+// crash the whole program under Asan.
 #define MAYBE_AccessesToNewMemory DISABLED_AccessesToNewMemory
 #define MAYBE_AccessesToMallocMemory DISABLED_AccessesToMallocMemory
 #else
 #define MAYBE_AccessesToNewMemory AccessesToNewMemory
 #define MAYBE_AccessesToMallocMemory AccessesToMallocMemory
-#endif // (defined(ADDRESS_SANITIZER) && defined(OS_IOS)) || defined(SYZYASAN)
+#endif  // (defined(ADDRESS_SANITIZER) && defined(OS_IOS))
 
 // The following tests pass with Clang r170392, but not r172454, which
 // makes AddressSanitizer detect errors in them. We disable these tests under
@@ -123,14 +116,14 @@ TEST(ToolsSanityTest, MemoryLeak) {
 // tests should be put back under the (defined(OS_IOS) || defined(OS_WIN))
 // clause above.
 // See also http://crbug.com/172614.
-#if defined(ADDRESS_SANITIZER) || defined(SYZYASAN)
+#if defined(ADDRESS_SANITIZER)
 #define MAYBE_SingleElementDeletedWithBraces \
     DISABLED_SingleElementDeletedWithBraces
 #define MAYBE_ArrayDeletedWithoutBraces DISABLED_ArrayDeletedWithoutBraces
 #else
 #define MAYBE_ArrayDeletedWithoutBraces ArrayDeletedWithoutBraces
 #define MAYBE_SingleElementDeletedWithBraces SingleElementDeletedWithBraces
-#endif  // defined(ADDRESS_SANITIZER) || defined(SYZYASAN)
+#endif  // defined(ADDRESS_SANITIZER)
 
 TEST(ToolsSanityTest, MAYBE_AccessesToNewMemory) {
   char *foo = new char[10];
@@ -148,46 +141,39 @@ TEST(ToolsSanityTest, MAYBE_AccessesToMallocMemory) {
   HARMFUL_ACCESS(foo[5] = 0, "heap-use-after-free");
 }
 
+#if defined(ADDRESS_SANITIZER)
+
 static int* allocateArray() {
   // Clang warns about the mismatched new[]/delete if they occur in the same
   // function.
   return new int[10];
 }
 
+// This test may corrupt memory if not compiled with AddressSanitizer.
 TEST(ToolsSanityTest, MAYBE_ArrayDeletedWithoutBraces) {
-#if !defined(ADDRESS_SANITIZER) && !defined(SYZYASAN)
-  // This test may corrupt memory if not run under Valgrind or compiled with
-  // AddressSanitizer.
-  if (!RunningOnValgrind())
-    return;
-#endif
-
   // Without the |volatile|, clang optimizes away the next two lines.
   int* volatile foo = allocateArray();
   delete foo;
 }
+#endif
 
+#if defined(ADDRESS_SANITIZER)
 static int* allocateScalar() {
   // Clang warns about the mismatched new/delete[] if they occur in the same
   // function.
   return new int;
 }
 
+// This test may corrupt memory if not compiled with AddressSanitizer.
 TEST(ToolsSanityTest, MAYBE_SingleElementDeletedWithBraces) {
-#if !defined(ADDRESS_SANITIZER)
-  // This test may corrupt memory if not run under Valgrind or compiled with
-  // AddressSanitizer.
-  if (!RunningOnValgrind())
-    return;
-#endif
-
   // Without the |volatile|, clang optimizes away the next two lines.
   int* volatile foo = allocateScalar();
   (void) foo;
   delete [] foo;
 }
+#endif
 
-#if defined(ADDRESS_SANITIZER) || defined(SYZYASAN)
+#if defined(ADDRESS_SANITIZER)
 
 TEST(ToolsSanityTest, DISABLED_AddressSanitizerNullDerefCrashTest) {
   // Intentionally crash to make sure AddressSanitizer is running.
@@ -220,6 +206,7 @@ TEST(ToolsSanityTest, DISABLED_AddressSanitizerGlobalOOBCrashTest) {
   *access = 43;
 }
 
+#ifndef HARMFUL_ACCESS_IS_NOOP
 TEST(ToolsSanityTest, AsanHeapOverflow) {
   HARMFUL_ACCESS(debug::AsanHeapOverflow() ,"to the right");
 }
@@ -232,19 +219,22 @@ TEST(ToolsSanityTest, AsanHeapUseAfterFree) {
   HARMFUL_ACCESS(debug::AsanHeapUseAfterFree(), "heap-use-after-free");
 }
 
-#if defined(SYZYASAN)
-TEST(ToolsSanityTest, AsanCorruptHeapBlock) {
+#if defined(OS_WIN)
+// The ASAN runtime doesn't detect heap corruption, this needs fixing before
+// ASAN builds can ship to the wild. See https://crbug.com/818747.
+TEST(ToolsSanityTest, DISABLED_AsanCorruptHeapBlock) {
   HARMFUL_ACCESS(debug::AsanCorruptHeapBlock(), "");
 }
 
-TEST(ToolsSanityTest, AsanCorruptHeap) {
+TEST(ToolsSanityTest, DISABLED_AsanCorruptHeap) {
   // This test will kill the process by raising an exception, there's no
   // particular string to look for in the stack trace.
   EXPECT_DEATH(debug::AsanCorruptHeap(), "");
 }
-#endif  // SYZYASAN
+#endif  // OS_WIN
+#endif  // !HARMFUL_ACCESS_IS_NOOP
 
-#endif  // ADDRESS_SANITIZER || SYZYASAN
+#endif  // ADDRESS_SANITIZER
 
 namespace {
 
@@ -253,7 +243,7 @@ namespace {
 class TOOLS_SANITY_TEST_CONCURRENT_THREAD : public PlatformThread::Delegate {
  public:
   explicit TOOLS_SANITY_TEST_CONCURRENT_THREAD(bool *value) : value_(value) {}
-  ~TOOLS_SANITY_TEST_CONCURRENT_THREAD() override {}
+  ~TOOLS_SANITY_TEST_CONCURRENT_THREAD() override = default;
   void ThreadMain() override {
     *value_ = true;
 
@@ -269,7 +259,7 @@ class TOOLS_SANITY_TEST_CONCURRENT_THREAD : public PlatformThread::Delegate {
 class ReleaseStoreThread : public PlatformThread::Delegate {
  public:
   explicit ReleaseStoreThread(base::subtle::Atomic32 *value) : value_(value) {}
-  ~ReleaseStoreThread() override {}
+  ~ReleaseStoreThread() override = default;
   void ThreadMain() override {
     base::subtle::Release_Store(value_, kMagicValue);
 
@@ -285,7 +275,7 @@ class ReleaseStoreThread : public PlatformThread::Delegate {
 class AcquireLoadThread : public PlatformThread::Delegate {
  public:
   explicit AcquireLoadThread(base::subtle::Atomic32 *value) : value_(value) {}
-  ~AcquireLoadThread() override {}
+  ~AcquireLoadThread() override = default;
   void ThreadMain() override {
     // Wait for the other thread to make Release_Store
     PlatformThread::Sleep(TimeDelta::FromMilliseconds(100));
@@ -342,23 +332,21 @@ TEST(ToolsSanityTest, AtomicsAreIgnored) {
   EXPECT_EQ(kMagicValue, shared);
 }
 
-#if defined(CFI_ENFORCEMENT)
-// TODO(krasin): remove CFI_CAST_CHECK, see https://crbug.com/626794.
-#if defined(CFI_CAST_CHECK)
-TEST(ToolsSanityTest, BadCast) {
-  class A {
-    virtual void f() {}
-  };
+#if BUILDFLAG(CFI_ENFORCEMENT_TRAP)
+#if defined(OS_WIN)
+#define CFI_ERROR_MSG "EXCEPTION_ILLEGAL_INSTRUCTION"
+#elif defined(OS_ANDROID)
+// TODO(pcc): Produce proper stack dumps on Android and test for the correct
+// si_code here.
+#define CFI_ERROR_MSG "^$"
+#else
+#define CFI_ERROR_MSG "ILL_ILLOPN"
+#endif
+#elif BUILDFLAG(CFI_ENFORCEMENT_DIAGNOSTIC)
+#define CFI_ERROR_MSG "runtime error: control flow integrity check"
+#endif  // BUILDFLAG(CFI_ENFORCEMENT_TRAP || CFI_ENFORCEMENT_DIAGNOSTIC)
 
-  class B {
-    virtual void f() {}
-  };
-
-  A a;
-  EXPECT_DEATH((void)(B*)&a, "ILL_ILLOPN");
-}
-#endif // CFI_CAST_CHECK
-
+#if defined(CFI_ERROR_MSG)
 class A {
  public:
   A(): n_(0) {}
@@ -372,17 +360,64 @@ class B: public A {
   void f() override { n_--; }
 };
 
+class C: public B {
+ public:
+  void f() override { n_ += 2; }
+};
+
 NOINLINE void KillVptrAndCall(A *obj) {
   *reinterpret_cast<void **>(obj) = 0;
   obj->f();
 }
 
-TEST(ToolsSanityTest, BadVirtualCall) {
+TEST(ToolsSanityTest, BadVirtualCallNull) {
   A a;
   B b;
-  EXPECT_DEATH({ KillVptrAndCall(&a); KillVptrAndCall(&b); }, "ILL_ILLOPN");
+  EXPECT_DEATH({ KillVptrAndCall(&a); KillVptrAndCall(&b); }, CFI_ERROR_MSG);
 }
 
-#endif // CFI_ENFORCEMENT
+NOINLINE void OverwriteVptrAndCall(B *obj, A *vptr) {
+  *reinterpret_cast<void **>(obj) = *reinterpret_cast<void **>(vptr);
+  obj->f();
+}
+
+TEST(ToolsSanityTest, BadVirtualCallWrongType) {
+  A a;
+  B b;
+  C c;
+  EXPECT_DEATH({ OverwriteVptrAndCall(&b, &a); OverwriteVptrAndCall(&b, &c); },
+               CFI_ERROR_MSG);
+}
+
+// TODO(pcc): remove CFI_CAST_CHECK, see https://crbug.com/626794.
+#if BUILDFLAG(CFI_CAST_CHECK)
+TEST(ToolsSanityTest, BadDerivedCast) {
+  A a;
+  EXPECT_DEATH((void)(B*)&a, CFI_ERROR_MSG);
+}
+
+TEST(ToolsSanityTest, BadUnrelatedCast) {
+  class A {
+    virtual void f() {}
+  };
+
+  class B {
+    virtual void f() {}
+  };
+
+  A a;
+  EXPECT_DEATH((void)(B*)&a, CFI_ERROR_MSG);
+}
+#endif  // BUILDFLAG(CFI_CAST_CHECK)
+
+#endif  // CFI_ERROR_MSG
+
+#undef CFI_ERROR_MSG
+#undef MAYBE_AccessesToNewMemory
+#undef MAYBE_AccessesToMallocMemory
+#undef MAYBE_ArrayDeletedWithoutBraces
+#undef MAYBE_SingleElementDeletedWithBraces
+#undef HARMFUL_ACCESS
+#undef HARMFUL_ACCESS_IS_NOOP
 
 }  // namespace base

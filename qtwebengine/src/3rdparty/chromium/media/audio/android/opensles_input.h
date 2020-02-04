@@ -48,6 +48,7 @@ class OpenSLESInputStream : public AudioInputStream {
   bool SetAutomaticGainControl(bool enabled) override;
   bool GetAutomaticGainControl() override;
   bool IsMuted() override;
+  void SetOutputDeviceForAec(const std::string& output_device_id) override;
 
  private:
   bool CreateRecorder();
@@ -100,7 +101,12 @@ class OpenSLESInputStream : public AudioInputStream {
 
   bool started_;
 
+  base::TimeDelta hardware_delay_;
+
   std::unique_ptr<media::AudioBus> audio_bus_;
+
+  // Set to true at construction if user wants to disable all audio effects.
+  const bool no_effects_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(OpenSLESInputStream);
 };

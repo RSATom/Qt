@@ -163,7 +163,7 @@ class QOpenGLWindowPaintDevice : public QOpenGLPaintDevice
 {
 public:
     QOpenGLWindowPaintDevice(QOpenGLWindow *window) : m_window(window) { }
-    void ensureActiveTarget() Q_DECL_OVERRIDE;
+    void ensureActiveTarget() override;
 
     QOpenGLWindow *m_window;
 };
@@ -188,9 +188,9 @@ public:
     void bindFBO();
     void initialize();
 
-    void beginPaint(const QRegion &region) Q_DECL_OVERRIDE;
-    void endPaint() Q_DECL_OVERRIDE;
-    void flush(const QRegion &region) Q_DECL_OVERRIDE;
+    void beginPaint(const QRegion &region) override;
+    void endPaint() override;
+    void flush(const QRegion &region) override;
 
     QOpenGLWindow::UpdateBehavior updateBehavior;
     bool hasFboBlit;
@@ -221,6 +221,9 @@ void QOpenGLWindowPrivate::initialize()
 
     if (context)
         return;
+
+    if (!q->handle())
+        qWarning("Attempted to initialize QOpenGLWindow without a platform window");
 
     context.reset(new QOpenGLContext);
     context->setShareContext(shareContext);
@@ -344,7 +347,7 @@ void QOpenGLWindowPaintDevice::ensureActiveTarget()
   \sa QOpenGLWindow::UpdateBehavior
  */
 QOpenGLWindow::QOpenGLWindow(QOpenGLWindow::UpdateBehavior updateBehavior, QWindow *parent)
-    : QPaintDeviceWindow(*(new QOpenGLWindowPrivate(Q_NULLPTR, updateBehavior)), parent)
+    : QPaintDeviceWindow(*(new QOpenGLWindowPrivate(nullptr, updateBehavior)), parent)
 {
     setSurfaceType(QSurface::OpenGLSurface);
 }
@@ -437,7 +440,7 @@ void QOpenGLWindow::makeCurrent()
         d->context->makeCurrent(this);
     } else {
         if (!d->offscreenSurface) {
-            d->offscreenSurface.reset(new QOffscreenSurface);
+            d->offscreenSurface.reset(new QOffscreenSurface(screen()));
             d->offscreenSurface->setFormat(d->context->format());
             d->offscreenSurface->create();
         }
@@ -508,7 +511,7 @@ GLuint QOpenGLWindow::defaultFramebufferObject() const
 extern Q_GUI_EXPORT QImage qt_gl_read_framebuffer(const QSize &size, bool alpha_format, bool include_alpha);
 
 /*!
-  Returns a 32-bit RGB image of the framebuffer.
+  Returns a copy of the framebuffer.
 
   \note This is a potentially expensive operation because it relies on
   glReadPixels() to read back the pixels. This may be slow and can stall the
@@ -528,7 +531,9 @@ QImage QOpenGLWindow::grabFramebuffer()
         return QImage();
 
     makeCurrent();
-    QImage img = qt_gl_read_framebuffer(size() * devicePixelRatio(), false, false);
+
+    const bool hasAlpha = format().hasAlpha();
+    QImage img = qt_gl_read_framebuffer(size() * devicePixelRatio(), hasAlpha, hasAlpha);
     img.setDevicePixelRatio(devicePixelRatio());
     return img;
 }

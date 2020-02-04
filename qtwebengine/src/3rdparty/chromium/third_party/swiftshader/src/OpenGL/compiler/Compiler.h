@@ -58,6 +58,7 @@ struct ShBuiltInResources
 	int OES_fragment_precision_high;
 	int OES_EGL_image_external;
 	int EXT_draw_buffers;
+	int ARB_texture_rectangle;
 
 	unsigned int MaxCallStackDepth;
 };

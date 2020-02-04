@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/python.gni")
 import("//build/config/ui.gni")
+import("//build/util/lastchange.gni")
 import("//testing/test.gni")
 
 action("embed_js_in_cpp") {
@@ -10,6 +12,7 @@ action("embed_js_in_cpp") {
 
   js_files = [
     "js/call_function.js",
+    "js/dispatch_touch_event.js",
     "js/execute_async_script.js",
     "js/focus.js",
     "js/get_element_region.js",
@@ -78,6 +81,8 @@ source_set("automation_client_lib") {
     "chrome/adb_impl.h",
     "chrome/automation_extension.cc",
     "chrome/automation_extension.h",
+    "chrome/cast_tracker.cc",
+    "chrome/cast_tracker.h",
     "chrome/chrome.h",
     "chrome/chrome_android_impl.cc",
     "chrome/chrome_android_impl.h",
@@ -147,12 +152,18 @@ source_set("automation_client_lib") {
     "chrome/web_view.h",
     "chrome/web_view_impl.cc",
     "chrome/web_view_impl.h",
+    "log_replay/chrome_replay_impl.cc",
+    "log_replay/chrome_replay_impl.h",
+    "log_replay/devtools_log_reader.cc",
+    "log_replay/devtools_log_reader.h",
+    "log_replay/log_replay_socket.cc",
+    "log_replay/log_replay_socket.h",
+    "log_replay/replay_http_client.cc",
+    "log_replay/replay_http_client.h",
     "net/adb_client_socket.cc",
     "net/adb_client_socket.h",
     "net/net_util.cc",
     "net/net_util.h",
-    "net/port_server.cc",
-    "net/port_server.h",
     "net/sync_websocket.h",
     "net/sync_websocket_factory.cc",
     "net/sync_websocket_factory.h",
@@ -181,10 +192,12 @@ source_set("automation_client_lib") {
     "//base",
     "//base/third_party/dynamic_annotations",
     "//net",
-    "//third_party/WebKit/public:features",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
+    "//third_party/blink/public:buildflags",
     "//third_party/zlib:minizip",
     "//third_party/zlib/google:zip",
-    "//ui/accessibility:ax_gen",
+    "//ui/accessibility:ax_enums_mojo",
     "//ui/base",
     "//ui/gfx",
     "//ui/gfx/geometry",
@@ -197,6 +210,12 @@ action("embed_version_in_cpp") {
   inputs = [
     "cpp_source.py",
     "VERSION",
+    "//chrome/VERSION",
+
+    # We don't actually use LASTCHANGE as an input file. It is updated
+    # whenever a different Git revision is checked out, at which point
+    # version.cc needs to be updated with the new revision info.
+    lastchange_file,
   ]
   outputs = [
     "$target_gen_dir/version.cc",
@@ -204,8 +223,10 @@ action("embed_version_in_cpp") {
   ]
 
   args = [
-    "--version-file",
+    "--chromedriver-version-file",
     rebase_path("VERSION", root_build_dir),
+    "--chrome-version-file",
+    rebase_path("//chrome/VERSION", root_build_dir),
     "--directory",
     rebase_path(target_gen_dir, root_build_dir),
   ]
@@ -243,9 +264,7 @@ source_set("lib") {
     "key_converter.h",
     "keycode_text_conversion.h",
     "keycode_text_conversion_mac.mm",
-    "keycode_text_conversion_ozone.cc",
     "keycode_text_conversion_win.cc",
-    "keycode_text_conversion_x.cc",
     "logging.cc",
     "logging.h",
     "performance_logger.cc",
@@ -269,12 +288,13 @@ source_set("lib") {
   # Also compile the generated version files.
   sources += get_target_outputs(":embed_version_in_cpp")
 
-  # These aren't automatically filtered out.
-  if (!use_x11) {
-    sources -= [ "keycode_text_conversion_x.cc" ]
+  if (use_x11) {
+    sources += [ "keycode_text_conversion_x.cc" ]
   }
-  if (!use_ozone && !use_x11) {
-    sources -= [ "keycode_text_conversion_ozone.cc" ]
+
+  # The X11 implementation uses part of Ozone implementation.
+  if (use_ozone || use_x11) {
+    sources += [ "keycode_text_conversion_ozone.cc" ]
   }
 
   deps = [
@@ -286,7 +306,10 @@ source_set("lib") {
     "//chrome/common:version_header",
     "//crypto",
     "//net",
-    "//net:http_server",
+    "//net/server:http_server",
+    "//services/network:network_service",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
     "//third_party/zlib",
     "//ui/base",
     "//ui/events:dom_keycode_converter",
@@ -316,15 +339,54 @@ executable("chromedriver") {
 
   deps = [
     ":lib",
-    "//build/config:exe_and_shlib_deps",
     "//build/win:default_exe_manifest",
+    "//mojo/core/embedder",
+    "//services/network/public/mojom",
   ]
+}
+
+python_library("chromedriver_py_tests") {
+  testonly = true
+  deps = [
+    ":chromedriver",
+    "//chrome:chrome",
+  ]
+
+  pydeps_file = "test/run_py_tests.pydeps"
+  data = [
+    "//chrome/test/data/chromedriver/",
+    "//testing/scripts/run_chromedriver_tests.py",
+    "//testing/scripts/common.py",
+    "//testing/xvfb.py",
+  ]
+
+  data_deps = [
+    "//chrome/test/chromedriver",
+  ]
+  if (is_component_build && is_mac) {
+    data_deps += [ "//chrome:chrome_framework" ]
+  }
+
+  if (is_win) {
+    # On Windows, the following target produces the final chrome.exe
+    data_deps += [ "//chrome:reorder_imports" ]
+  }
+}
+
+python_library("chromedriver_replay_unittests") {
+  testonly = true
+  deps = [
+    ":chromedriver",
+  ]
+
+  pydeps_file = "log_replay/client_replay_unittest.pydeps"
 }
 
 test("chromedriver_unittests") {
   sources = [
     "capabilities_unittest.cc",
     "chrome/browser_info_unittest.cc",
+    "chrome/cast_tracker_unittest.cc",
     "chrome/chrome_finder_unittest.cc",
     "chrome/console_logger_unittest.cc",
     "chrome/device_manager_unittest.cc",
@@ -351,13 +413,16 @@ test("chromedriver_unittests") {
     "chrome_launcher_unittest.cc",
     "command_listener_proxy_unittest.cc",
     "commands_unittest.cc",
+    "log_replay/devtools_log_reader_unittest.cc",
     "logging_unittest.cc",
+    "net/adb_client_socket_unittest.cc",
     "net/timeout_unittest.cc",
     "performance_logger_unittest.cc",
     "server/http_handler_unittest.cc",
     "session_commands_unittest.cc",
     "session_unittest.cc",
     "util_unittest.cc",
+    "window_commands_unittest.cc",
   ]
 
   # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
@@ -365,6 +430,7 @@ test("chromedriver_unittests") {
 
   data = [
     "//chrome/test/data/chromedriver/",
+    "//chrome/test/chromedriver/log_replay/test_data",
   ]
 
   deps = [
@@ -372,7 +438,10 @@ test("chromedriver_unittests") {
     "//base",
     "//base/test:run_all_unittests",
     "//net",
-    "//net:http_server",
+    "//net:test_support",
+    "//net/server:http_server",
+    "//services/network/public/mojom",
+    "//testing/gmock",
     "//testing/gtest",
     "//ui/base",
     "//ui/gfx",
@@ -387,7 +456,6 @@ test("chromedriver_tests") {
     "key_converter_unittest.cc",
     "keycode_text_conversion_unittest.cc",
     "net/net_util_unittest.cc",
-    "net/port_server_unittest.cc",
     "net/sync_websocket_impl_unittest.cc",
     "net/test_http_server.cc",
     "net/test_http_server.h",
@@ -401,9 +469,12 @@ test("chromedriver_tests") {
     ":lib",
     "//base",
     "//base/test:run_all_unittests",
+    "//mojo/core/embedder",
     "//net",
-    "//net:http_server",
     "//net:test_support",
+    "//net/server:http_server",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
     "//testing/gtest",
     "//ui/events:test_support",
     "//url",

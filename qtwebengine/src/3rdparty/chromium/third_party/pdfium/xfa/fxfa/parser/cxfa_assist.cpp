@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,33 @@
 
 #include "xfa/fxfa/parser/cxfa_assist.h"
 
-#include "xfa/fxfa/parser/cxfa_node.h"
+#include "fxjs/xfa/cjx_assist.h"
+#include "third_party/base/ptr_util.h"
 
-CXFA_Assist::CXFA_Assist(CXFA_Node* pNode) : CXFA_Data(pNode) {}
+namespace {
 
-CXFA_ToolTip CXFA_Assist::GetToolTip() {
-  return CXFA_ToolTip(m_pNode->GetChild(0, XFA_Element::ToolTip));
-}
+const CXFA_Node::PropertyData kAssistPropertyData[] = {
+    {XFA_Element::ToolTip, 1, 0},
+    {XFA_Element::Speak, 1, 0},
+    {XFA_Element::Unknown, 0, 0}};
+
+const CXFA_Node::AttributeData kAssistAttributeData[] = {
+    {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Role, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+
+}  // namespace
+
+CXFA_Assist::CXFA_Assist(CXFA_Document* doc, XFA_PacketType packet)
+    : CXFA_Node(doc,
+                packet,
+                (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
+                XFA_ObjectType::Node,
+                XFA_Element::Assist,
+                kAssistPropertyData,
+                kAssistAttributeData,
+                pdfium::MakeUnique<CJX_Assist>(this)) {}
+
+CXFA_Assist::~CXFA_Assist() = default;

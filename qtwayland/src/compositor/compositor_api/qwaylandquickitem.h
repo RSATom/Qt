@@ -61,7 +61,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandQuickItem : public QQuickItem
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QWaylandQuickItem)
-    Q_PROPERTY(QWaylandCompositor *compositor READ compositor)
+    Q_PROPERTY(QWaylandCompositor *compositor READ compositor NOTIFY compositorChanged)
     Q_PROPERTY(QWaylandSurface *surface READ surface WRITE setSurface NOTIFY surfaceChanged)
     Q_PROPERTY(bool paintEnabled READ paintEnabled WRITE setPaintEnabled)
     Q_PROPERTY(bool touchEventsEnabled READ touchEventsEnabled WRITE setTouchEventsEnabled NOTIFY touchEventsEnabledChanged)
@@ -75,7 +75,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandQuickItem : public QQuickItem
     Q_PROPERTY(bool allowDiscardFrontBuffer READ allowDiscardFrontBuffer WRITE setAllowDiscardFrontBuffer NOTIFY allowDiscardFrontBufferChanged)
 public:
     QWaylandQuickItem(QQuickItem *parent = nullptr);
-    ~QWaylandQuickItem();
+    ~QWaylandQuickItem() override;
 
     QWaylandCompositor *compositor() const;
     QWaylandView *view() const;
@@ -99,8 +99,10 @@ public:
     bool focusOnClick() const;
     void setFocusOnClick(bool focus);
 
+    bool inputRegionContains(const QPointF &localPosition) const;
     bool inputRegionContains(const QPointF &localPosition);
     Q_INVOKABLE QPointF mapToSurface(const QPointF &point) const;
+    Q_REVISION(13) Q_INVOKABLE QPointF mapFromSurface(const QPointF &point) const;
 
     bool sizeFollowsSurface() const;
     void setSizeFollowsSurface(bool sizeFollowsSurface);
@@ -151,6 +153,7 @@ public Q_SLOTS:
     void setPaintEnabled(bool paintEnabled);
     void raise();
     void lower();
+    void sendMouseMoveEvent(const QPointF &position, QWaylandSeat *seat = nullptr);
 
 private Q_SLOTS:
     void surfaceMappedChanged();
@@ -159,9 +162,12 @@ private Q_SLOTS:
     void updateSize();
     void updateBuffer(bool hasBuffer);
     void updateWindow();
+    void updateOutput();
     void beforeSync();
     void handleSubsurfaceAdded(QWaylandSurface *childSurface);
     void handleSubsurfacePosition(const QPoint &pos);
+    void handlePlaceAbove(QWaylandSurface *referenceSurface);
+    void handlePlaceBelow(QWaylandSurface *referenceSurface);
 #if QT_CONFIG(draganddrop)
     void handleDragStarted(QWaylandDrag *drag);
 #endif
@@ -171,6 +177,7 @@ private Q_SLOTS:
 
 Q_SIGNALS:
     void surfaceChanged();
+    void compositorChanged();
     void touchEventsEnabledChanged();
     void originChanged();
     void surfaceDestroyed();
@@ -184,7 +191,7 @@ Q_SIGNALS:
     void bufferLockedChanged();
     void allowDiscardFrontBufferChanged();
 protected:
-    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
+    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override;
 
     QWaylandQuickItem(QWaylandQuickItemPrivate &dd, QQuickItem *parent = nullptr);
 };

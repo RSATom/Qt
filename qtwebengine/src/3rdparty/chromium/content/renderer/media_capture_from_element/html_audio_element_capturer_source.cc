@@ -9,7 +9,7 @@
 #include "media/base/audio_renderer_sink.h"
 #include "media/blink/webaudiosourceprovider_impl.h"
 #include "media/blink/webmediaplayer_impl.h"
-#include "third_party/WebKit/public/platform/WebMediaPlayer.h"
+#include "third_party/blink/public/platform/web_media_player.h"
 
 namespace content {
 
@@ -30,7 +30,8 @@ HtmlAudioElementCapturerSource::HtmlAudioElementCapturerSource(
       is_started_(false),
       last_sample_rate_(0),
       last_num_channels_(0),
-      last_bus_frames_(0) {
+      last_bus_frames_(0),
+      weak_factory_(this) {
   DCHECK(audio_source_);
 }
 
@@ -42,13 +43,23 @@ HtmlAudioElementCapturerSource::~HtmlAudioElementCapturerSource() {
 bool HtmlAudioElementCapturerSource::EnsureSourceIsStarted() {
   DCHECK(thread_checker_.CalledOnValidThread());
   if (audio_source_ && !is_started_) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&HtmlAudioElementCapturerSource::SetAudioCallback,
+                       weak_factory_.GetWeakPtr()));
+    is_started_ = true;
+  }
+  return is_started_;
+}
+
+void HtmlAudioElementCapturerSource::SetAudioCallback() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  if (audio_source_ && is_started_) {
     // base:Unretained() is safe here since EnsureSourceIsStopped() guarantees
     // no more calls to OnAudioBus().
     audio_source_->SetCopyAudioCallback(base::Bind(
         &HtmlAudioElementCapturerSource::OnAudioBus, base::Unretained(this)));
-    is_started_ = true;
   }
-  return is_started_;
 }
 
 void HtmlAudioElementCapturerSource::EnsureSourceIsStopped() {
@@ -78,7 +89,7 @@ void HtmlAudioElementCapturerSource::OnAudioBus(
     MediaStreamAudioSource::SetFormat(
         media::AudioParameters(media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
                                media::GuessChannelLayout(audio_bus->channels()),
-                               sample_rate, 16, audio_bus->frames()));
+                               sample_rate, audio_bus->frames()));
     last_sample_rate_ = sample_rate;
     last_num_channels_ = audio_bus->channels();
     last_bus_frames_ = audio_bus->frames();

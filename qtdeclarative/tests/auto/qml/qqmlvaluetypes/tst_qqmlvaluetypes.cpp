@@ -33,6 +33,8 @@
 #include <QJSValueIterator>
 #include <private/qquickvaluetypes_p.h>
 #include <private/qqmlglobal_p.h>
+#include <private/qv4engine_p.h>
+#include <private/qv4variantobject_p.h>
 #include "../../shared/util.h"
 #include "testtypes.h"
 
@@ -89,9 +91,12 @@ private slots:
     void customValueType();
     void customValueTypeInQml();
     void gadgetInheritance();
+    void gadgetTemplateInheritance();
+    void sequences();
     void toStringConversion();
     void enumerableProperties();
     void enumProperties();
+    void scarceTypes();
 
 private:
     QQmlEngine engine;
@@ -108,7 +113,7 @@ void tst_qqmlvaluetypes::point()
     {
         QQmlComponent component(&engine, testFileUrl("point_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->property("p_x").toInt(), 10);
         QCOMPARE(object->property("p_y").toInt(), 4);
@@ -120,7 +125,7 @@ void tst_qqmlvaluetypes::point()
     {
         QQmlComponent component(&engine, testFileUrl("point_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->point(), QPoint(11, 12));
 
@@ -130,7 +135,7 @@ void tst_qqmlvaluetypes::point()
     {
         QQmlComponent component(&engine, testFileUrl("point_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QPoint(10, 4)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -153,7 +158,7 @@ void tst_qqmlvaluetypes::pointf()
     {
         QQmlComponent component(&engine, testFileUrl("pointf_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(float(object->property("p_x").toDouble()), float(11.3));
         QCOMPARE(float(object->property("p_y").toDouble()), float(-10.9));
@@ -165,7 +170,7 @@ void tst_qqmlvaluetypes::pointf()
     {
         QQmlComponent component(&engine, testFileUrl("pointf_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->pointf(), QPointF(6.8, 9.3));
 
@@ -175,7 +180,7 @@ void tst_qqmlvaluetypes::pointf()
     {
         QQmlComponent component(&engine, testFileUrl("pointf_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QPointF(11.3, -10.9)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -198,7 +203,7 @@ void tst_qqmlvaluetypes::size()
     {
         QQmlComponent component(&engine, testFileUrl("size_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->property("s_width").toInt(), 1912);
         QCOMPARE(object->property("s_height").toInt(), 1913);
@@ -210,7 +215,7 @@ void tst_qqmlvaluetypes::size()
     {
         QQmlComponent component(&engine, testFileUrl("size_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->size(), QSize(13, 88));
 
@@ -220,7 +225,7 @@ void tst_qqmlvaluetypes::size()
     {
         QQmlComponent component(&engine, testFileUrl("size_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QSize(1912, 1913)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -243,7 +248,7 @@ void tst_qqmlvaluetypes::sizef()
     {
         QQmlComponent component(&engine, testFileUrl("sizef_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(float(object->property("s_width").toDouble()), float(0.1));
         QCOMPARE(float(object->property("s_height").toDouble()), float(100923.2));
@@ -255,7 +260,7 @@ void tst_qqmlvaluetypes::sizef()
     {
         QQmlComponent component(&engine, testFileUrl("sizef_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->sizef(), QSizeF(44.3, 92.8));
 
@@ -265,7 +270,7 @@ void tst_qqmlvaluetypes::sizef()
     {
         QQmlComponent component(&engine, testFileUrl("sizef_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QSizeF(0.1, 100923)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -288,7 +293,7 @@ void tst_qqmlvaluetypes::variant()
     {
     QQmlComponent component(&engine, testFileUrl("variant_read.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(float(object->property("s_width").toDouble()), float(0.1));
     QCOMPARE(float(object->property("s_height").toDouble()), float(100923.2));
@@ -300,7 +305,7 @@ void tst_qqmlvaluetypes::variant()
     {
     QQmlComponent component(&engine, testFileUrl("variant_write.1.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QVERIFY(object->property("complete").toBool());
     QVERIFY(object->property("success").toBool());
     delete object;
@@ -309,7 +314,7 @@ void tst_qqmlvaluetypes::variant()
     {
     QQmlComponent component(&engine, testFileUrl("variant_write.2.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QVERIFY(object->property("complete").toBool());
     QVERIFY(object->property("success").toBool());
     delete object;
@@ -359,7 +364,7 @@ void tst_qqmlvaluetypes::sizereadonly()
     {
         QQmlComponent component(&engine, testFileUrl("sizereadonly_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->property("s_width").toInt(), 1912);
         QCOMPARE(object->property("s_height").toInt(), 1913);
@@ -403,7 +408,7 @@ void tst_qqmlvaluetypes::rect()
     {
         QQmlComponent component(&engine, testFileUrl("rect_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->property("r_x").toInt(), 2);
         QCOMPARE(object->property("r_y").toInt(), 3);
@@ -421,7 +426,7 @@ void tst_qqmlvaluetypes::rect()
     {
         QQmlComponent component(&engine, testFileUrl("rect_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->rect(), QRect(1234, 7, 56, 63));
 
@@ -431,7 +436,7 @@ void tst_qqmlvaluetypes::rect()
     {
         QQmlComponent component(&engine, testFileUrl("rect_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QRect(2, 3, 109, 102)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -454,7 +459,7 @@ void tst_qqmlvaluetypes::rectf()
     {
         QQmlComponent component(&engine, testFileUrl("rectf_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(float(object->property("r_x").toDouble()), float(103.8));
         QCOMPARE(float(object->property("r_y").toDouble()), float(99.2));
@@ -472,7 +477,7 @@ void tst_qqmlvaluetypes::rectf()
     {
         QQmlComponent component(&engine, testFileUrl("rectf_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->rectf(), QRectF(70.1, -113.2, 80924.8, 99.2));
 
@@ -482,7 +487,7 @@ void tst_qqmlvaluetypes::rectf()
     {
         QQmlComponent component(&engine, testFileUrl("rectf_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QRectF(103.8, 99.2, 88.1, 77.6)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -505,7 +510,7 @@ void tst_qqmlvaluetypes::vector2d()
     {
         QQmlComponent component(&engine, testFileUrl("vector2d_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE((float)object->property("v_x").toDouble(), (float)32.88);
         QCOMPARE((float)object->property("v_y").toDouble(), (float)1.3);
@@ -517,7 +522,7 @@ void tst_qqmlvaluetypes::vector2d()
     {
         QQmlComponent component(&engine, testFileUrl("vector2d_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->vector2(), QVector2D(-0.3f, -12.9f));
 
@@ -527,7 +532,7 @@ void tst_qqmlvaluetypes::vector2d()
     {
         QQmlComponent component(&engine, testFileUrl("vector2d_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QVector2D(32.88, 1.3)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -545,7 +550,7 @@ void tst_qqmlvaluetypes::vector2d()
     {
         QQmlComponent component(&engine, testFileUrl("vector2d_invokables.qml"));
         QObject *object = component.create();
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
         QVERIFY(object->property("success").toBool());
         delete object;
     }
@@ -556,7 +561,7 @@ void tst_qqmlvaluetypes::vector3d()
     {
         QQmlComponent component(&engine, testFileUrl("vector3d_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE((float)object->property("v_x").toDouble(), (float)23.88);
         QCOMPARE((float)object->property("v_y").toDouble(), (float)3.1);
@@ -569,7 +574,7 @@ void tst_qqmlvaluetypes::vector3d()
     {
         QQmlComponent component(&engine, testFileUrl("vector3d_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->vector(), QVector3D(-0.3f, -12.9f, 907.4f));
 
@@ -579,7 +584,7 @@ void tst_qqmlvaluetypes::vector3d()
     {
         QQmlComponent component(&engine, testFileUrl("vector3d_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QVector3D(23.88, 3.1, 4.3)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -598,7 +603,7 @@ void tst_qqmlvaluetypes::vector3d()
     {
         QQmlComponent component(&engine, testFileUrl("vector3d_invokables.qml"));
         QObject *object = component.create();
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
         QVERIFY(object->property("success").toBool());
         delete object;
     }
@@ -609,7 +614,7 @@ void tst_qqmlvaluetypes::vector4d()
     {
         QQmlComponent component(&engine, testFileUrl("vector4d_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE((float)object->property("v_x").toDouble(), (float)54.2);
         QCOMPARE((float)object->property("v_y").toDouble(), (float)23.88);
@@ -623,7 +628,7 @@ void tst_qqmlvaluetypes::vector4d()
     {
         QQmlComponent component(&engine, testFileUrl("vector4d_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->vector4(), QVector4D(-0.3f, -12.9f, 907.4f, 88.5f));
 
@@ -633,7 +638,7 @@ void tst_qqmlvaluetypes::vector4d()
     {
         QQmlComponent component(&engine, testFileUrl("vector4d_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QVector4D(54.2, 23.88, 3.1, 4.3)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -651,7 +656,7 @@ void tst_qqmlvaluetypes::vector4d()
     {
         QQmlComponent component(&engine, testFileUrl("vector4d_invokables.qml"));
         QObject *object = component.create();
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
         QVERIFY(object->property("success").toBool());
         delete object;
     }
@@ -662,7 +667,7 @@ void tst_qqmlvaluetypes::quaternion()
     {
         QQmlComponent component(&engine, testFileUrl("quaternion_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE((float)object->property("v_scalar").toDouble(), (float)4.3);
         QCOMPARE((float)object->property("v_x").toDouble(), (float)54.2);
@@ -676,7 +681,7 @@ void tst_qqmlvaluetypes::quaternion()
     {
         QQmlComponent component(&engine, testFileUrl("quaternion_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->quaternion(), QQuaternion(88.5f, -0.3f, -12.9f, 907.4f));
 
@@ -686,7 +691,7 @@ void tst_qqmlvaluetypes::quaternion()
     {
         QQmlComponent component(&engine, testFileUrl("quaternion_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QQuaternion(4.3, 54.2, 23.88, 3.1)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -707,7 +712,7 @@ void tst_qqmlvaluetypes::matrix4x4()
     {
         QQmlComponent component(&engine, testFileUrl("matrix4x4_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE((float)object->property("v_m11").toDouble(), (float)1);
         QCOMPARE((float)object->property("v_m12").toDouble(), (float)2);
@@ -737,7 +742,7 @@ void tst_qqmlvaluetypes::matrix4x4()
     {
         QQmlComponent component(&engine, testFileUrl("matrix4x4_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->matrix(), QMatrix4x4(11, 12, 13, 14,
                                               21, 22, 23, 24,
@@ -750,7 +755,7 @@ void tst_qqmlvaluetypes::matrix4x4()
     {
         QQmlComponent component(&engine, testFileUrl("matrix4x4_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QMatrix4x4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)");
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -768,7 +773,7 @@ void tst_qqmlvaluetypes::matrix4x4()
     {
         QQmlComponent component(&engine, testFileUrl("matrix4x4_invokables.qml"));
         QObject *object = component.create();
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
         QCOMPARE(object->property("success").toBool(), true);
         delete object;
     }
@@ -779,7 +784,7 @@ void tst_qqmlvaluetypes::font()
     {
         QQmlComponent component(&engine, testFileUrl("font_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->property("f_family").toString(), object->font().family());
         QCOMPARE(object->property("f_bold").toBool(), object->font().bold());
@@ -802,7 +807,7 @@ void tst_qqmlvaluetypes::font()
     {
         QQmlComponent component(&engine, testFileUrl("font_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QFont font;
         font.setFamily("Helvetica");
@@ -835,7 +840,7 @@ void tst_qqmlvaluetypes::font()
     {
         QQmlComponent component(&engine, testFileUrl("font_write.2.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->font().pixelSize(), 10);
 
@@ -847,7 +852,7 @@ void tst_qqmlvaluetypes::font()
         QQmlComponent component(&engine, testFileUrl("font_write.3.qml"));
         QTest::ignoreMessage(QtWarningMsg, "Both point size and pixel size set. Using pixel size.");
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->font().pixelSize(), 10);
 
@@ -857,7 +862,7 @@ void tst_qqmlvaluetypes::font()
         QQmlComponent component(&engine, testFileUrl("font_write.4.qml"));
         QTest::ignoreMessage(QtWarningMsg, "Both point size and pixel size set. Using pixel size.");
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->font().pixelSize(), 10);
 
@@ -866,11 +871,11 @@ void tst_qqmlvaluetypes::font()
     {
         QQmlComponent component(&engine, testFileUrl("font_write.5.qml"));
         QObject *object = qobject_cast<QObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
         MyTypeObject *object1 = object->findChild<MyTypeObject *>("object1");
-        QVERIFY(object1 != 0);
+        QVERIFY(object1 != nullptr);
         MyTypeObject *object2 = object->findChild<MyTypeObject *>("object2");
-        QVERIFY(object2 != 0);
+        QVERIFY(object2 != nullptr);
 
         QCOMPARE(object1->font().pixelSize(), 19);
         QCOMPARE(object2->font().pointSize(), 14);
@@ -881,7 +886,7 @@ void tst_qqmlvaluetypes::font()
     {
         QQmlComponent component(&engine, testFileUrl("font_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QString tostring = QLatin1String("QFont(") + object->font().toString() + QLatin1Char(')');
         QCOMPARE(object->property("tostring").toString(), tostring);
@@ -902,7 +907,7 @@ void tst_qqmlvaluetypes::color()
     {
         QQmlComponent component(&engine, testFileUrl("color_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE((float)object->property("v_r").toDouble(), (float)0.2);
         QCOMPARE((float)object->property("v_g").toDouble(), (float)0.88);
@@ -930,7 +935,7 @@ void tst_qqmlvaluetypes::color()
     {
         QQmlComponent component(&engine, testFileUrl("color_write.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QColor newColor;
         newColor.setRedF(0.5);
@@ -945,7 +950,7 @@ void tst_qqmlvaluetypes::color()
     {
         QQmlComponent component(&engine, testFileUrl("color_write_HSV.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QColor newColor;
         newColor.setHsvF(0.43, 0.77, 0.88, 0.7);
@@ -957,7 +962,7 @@ void tst_qqmlvaluetypes::color()
     {
         QQmlComponent component(&engine, testFileUrl("color_write_HSL.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QColor newColor;
         newColor.setHslF(0.43, 0.74, 0.54, 0.7);
@@ -969,7 +974,7 @@ void tst_qqmlvaluetypes::color()
     {
         QQmlComponent component(&engine, testFileUrl("color_compare.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
         QString colorString("#5733e199");
         QCOMPARE(object->property("colorToString").toString(), colorString);
         QCOMPARE(object->property("colorEqualsIdenticalRgba").toBool(), true);
@@ -1004,7 +1009,7 @@ void tst_qqmlvaluetypes::bindingAssignment()
     {
     QQmlComponent component(&engine, testFileUrl("bindingAssignment.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->rect().x(), 10);
     QCOMPARE(object->rect().y(), 15);
@@ -1019,13 +1024,13 @@ void tst_qqmlvaluetypes::bindingAssignment()
 
     // function assignment should fail without crashing
     {
-    QString warning1 = testFileUrl("bindingAssignment.2.qml").toString() + QLatin1String(":6:13: Invalid use of Qt.binding() in a binding declaration.");
+    QString warning1 = testFileUrl("bindingAssignment.2.qml").toString() + QLatin1String(":6:5: Invalid use of Qt.binding() in a binding declaration.");
     QString warning2 = testFileUrl("bindingAssignment.2.qml").toString() + QLatin1String(":10: Cannot assign JavaScript function to value-type property");
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning1));
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning2));
     QQmlComponent component(&engine, testFileUrl("bindingAssignment.2.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->rect().x(), 5);
     object->setProperty("value", QVariant(92));
     QCOMPARE(object->rect().x(), 5);
@@ -1038,7 +1043,7 @@ void tst_qqmlvaluetypes::bindingRead()
 {
     QQmlComponent component(&engine, testFileUrl("bindingRead.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("value").toInt(), 2);
 
@@ -1054,7 +1059,7 @@ void tst_qqmlvaluetypes::staticAssignment()
 {
     QQmlComponent component(&engine, testFileUrl("staticAssignment.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->rect().x(), 9);
 
@@ -1066,7 +1071,7 @@ void tst_qqmlvaluetypes::scriptAccess()
 {
     QQmlComponent component(&engine, testFileUrl("scriptAccess.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("valuePre").toInt(), 2);
     QCOMPARE(object->rect().x(), 19);
@@ -1081,7 +1086,7 @@ void tst_qqmlvaluetypes::autoBindingRemoval()
     {
         QQmlComponent component(&engine, testFileUrl("autoBindingRemoval.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->rect().x(), 10);
 
@@ -1103,7 +1108,7 @@ void tst_qqmlvaluetypes::autoBindingRemoval()
     {
         QQmlComponent component(&engine, testFileUrl("autoBindingRemoval.2.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         QCOMPARE(object->rect().x(), 10);
 
@@ -1124,10 +1129,10 @@ void tst_qqmlvaluetypes::autoBindingRemoval()
 
     {
         QQmlComponent component(&engine, testFileUrl("autoBindingRemoval.3.qml"));
-        QString warning = component.url().toString() + ":6:11: Unable to assign [undefined] to QRect";
+        QString warning = component.url().toString() + ":6:5: Unable to assign [undefined] to QRect";
         QTest::ignoreMessage(QtWarningMsg, qPrintable(warning));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
 
         object->setProperty("value", QVariant(QRect(9, 22, 33, 44)));
 
@@ -1150,7 +1155,7 @@ void tst_qqmlvaluetypes::valueSources()
 {
     QQmlComponent component(&engine, testFileUrl("valueSources.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->rect().x(), 3345);
 
@@ -1174,7 +1179,7 @@ void tst_qqmlvaluetypes::valueInterceptors()
     QQmlComponent component(&engine, testFileUrl("valueInterceptors.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
     checkNoErrors(component);
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->rect().x(), 13);
 
@@ -1208,10 +1213,10 @@ void tst_qqmlvaluetypes::deletedObject()
     QQmlComponent component(&engine, testFileUrl("deletedObject.qml"));
     QTest::ignoreMessage(QtDebugMsg, "Test: 2");
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QObject *dObject = qvariant_cast<QObject *>(object->property("object"));
-    QVERIFY(dObject != 0);
+    QVERIFY(dObject != nullptr);
     delete dObject;
 
     QTest::ignoreMessage(QtDebugMsg, "Test: undefined");
@@ -1225,7 +1230,7 @@ void tst_qqmlvaluetypes::bindingVariantCopy()
 {
     QQmlComponent component(&engine, testFileUrl("bindingVariantCopy.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->rect(), QRect(19, 33, 5, 99));
 
@@ -1237,7 +1242,7 @@ void tst_qqmlvaluetypes::scriptVariantCopy()
 {
     QQmlComponent component(&engine, testFileUrl("scriptVariantCopy.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->rect(), QRect(2, 3, 109, 102));
 
@@ -1253,7 +1258,7 @@ void tst_qqmlvaluetypes::enums()
     {
     QQmlComponent component(&engine, testFileUrl("enums.1.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->font().capitalization(), QFont::AllUppercase);
     delete object;
     }
@@ -1261,7 +1266,7 @@ void tst_qqmlvaluetypes::enums()
     {
     QQmlComponent component(&engine, testFileUrl("enums.2.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->font().capitalization(), QFont::AllUppercase);
     delete object;
     }
@@ -1269,7 +1274,7 @@ void tst_qqmlvaluetypes::enums()
     {
     QQmlComponent component(&engine, testFileUrl("enums.3.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->font().capitalization(), QFont::AllUppercase);
     delete object;
     }
@@ -1277,7 +1282,7 @@ void tst_qqmlvaluetypes::enums()
     {
     QQmlComponent component(&engine, testFileUrl("enums.4.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->font().capitalization(), QFont::AllUppercase);
     delete object;
     }
@@ -1285,7 +1290,7 @@ void tst_qqmlvaluetypes::enums()
     {
     QQmlComponent component(&engine, testFileUrl("enums.5.qml"));
     MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->font().capitalization(), QFont::AllUppercase);
     delete object;
     }
@@ -1298,7 +1303,7 @@ void tst_qqmlvaluetypes::conflictingBindings()
     {
     QQmlComponent component(&engine, testFileUrl("conflicting.1.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(qvariant_cast<QFont>(object->property("font")).pixelSize(), 12);
 
@@ -1316,7 +1321,7 @@ void tst_qqmlvaluetypes::conflictingBindings()
     {
     QQmlComponent component(&engine, testFileUrl("conflicting.2.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(qvariant_cast<QFont>(object->property("font")).pixelSize(), 6);
 
@@ -1334,7 +1339,7 @@ void tst_qqmlvaluetypes::conflictingBindings()
     {
     QQmlComponent component(&engine, testFileUrl("conflicting.3.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(qvariant_cast<QFont>(object->property("font")).pixelSize(), 12);
 
@@ -1354,7 +1359,7 @@ void tst_qqmlvaluetypes::returnValues()
 {
     QQmlComponent component(&engine, testFileUrl("returnValues.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test1").toBool(), true);
     QCOMPARE(object->property("test2").toBool(), true);
@@ -1367,7 +1372,7 @@ void tst_qqmlvaluetypes::varAssignment()
 {
     QQmlComponent component(&engine, testFileUrl("varAssignment.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("x").toInt(), 1);
     QCOMPARE(object->property("y").toInt(), 2);
@@ -1382,7 +1387,7 @@ void tst_qqmlvaluetypes::bindingsSpliceCorrectly()
     {
     QQmlComponent component(&engine, testFileUrl("bindingsSpliceCorrectly.1.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test").toBool(), true);
 
@@ -1392,7 +1397,7 @@ void tst_qqmlvaluetypes::bindingsSpliceCorrectly()
     {
     QQmlComponent component(&engine, testFileUrl("bindingsSpliceCorrectly.2.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test").toBool(), true);
 
@@ -1403,7 +1408,7 @@ void tst_qqmlvaluetypes::bindingsSpliceCorrectly()
     {
     QQmlComponent component(&engine, testFileUrl("bindingsSpliceCorrectly.3.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test").toBool(), true);
 
@@ -1413,7 +1418,7 @@ void tst_qqmlvaluetypes::bindingsSpliceCorrectly()
     {
     QQmlComponent component(&engine, testFileUrl("bindingsSpliceCorrectly.4.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test").toBool(), true);
 
@@ -1423,7 +1428,7 @@ void tst_qqmlvaluetypes::bindingsSpliceCorrectly()
     {
     QQmlComponent component(&engine, testFileUrl("bindingsSpliceCorrectly.5.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test").toBool(), true);
 
@@ -1435,7 +1440,7 @@ void tst_qqmlvaluetypes::nonValueTypeComparison()
 {
     QQmlComponent component(&engine, testFileUrl("nonValueTypeComparison.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test1").toBool(), true);
     QCOMPARE(object->property("test2").toBool(), true);
@@ -1447,7 +1452,7 @@ void tst_qqmlvaluetypes::initializeByWrite()
 {
     QQmlComponent component(&engine, testFileUrl("initializeByWrite.qml"));
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QCOMPARE(object->property("test").toBool(), true);
 
@@ -1589,6 +1594,7 @@ struct BaseGadget
     Q_PROPERTY(int baseProperty READ baseProperty WRITE setBaseProperty)
 public:
     BaseGadget() : m_baseProperty(0) {}
+    BaseGadget(int initValue) : m_baseProperty(initValue) {}
 
     int baseProperty() const { return m_baseProperty; }
     void setBaseProperty(int value) { m_baseProperty = value; }
@@ -1612,6 +1618,19 @@ public:
 
     Q_INVOKABLE void functionInDerivedGadget(int value) { m_derivedProperty = value; }
 };
+
+// QTBUG-66744: we want a Q_GADGET giving us generic type safety in C++ and property access in Qml
+template <typename T>
+struct DerivedTypedGadget : public BaseGadget
+{
+    // cannot use Q_GADGET here
+public:
+    DerivedTypedGadget() {}
+};
+
+class DerivedTypedGadgetDummyType {};
+
+Q_DECLARE_METATYPE(DerivedTypedGadget<DerivedTypedGadgetDummyType>)
 
 class TypeWithCustomValueType : public QObject
 {
@@ -1657,6 +1676,62 @@ void tst_qqmlvaluetypes::gadgetInheritance()
     QCOMPARE(value.property("baseProperty").toInt(), 42);
 }
 
+void tst_qqmlvaluetypes::gadgetTemplateInheritance()
+{
+    QJSEngine engine;
+
+    QJSValue value = engine.toScriptValue(DerivedTypedGadget<DerivedTypedGadgetDummyType>());
+
+    QCOMPARE(value.property("baseProperty").toInt(), 0);
+    value.setProperty("baseProperty", 10);
+    QCOMPARE(value.property("baseProperty").toInt(), 10);
+
+    QJSValue method = value.property("functionInBaseGadget");
+    method.call(QJSValueList() << QJSValue(42));
+    QCOMPARE(value.property("baseProperty").toInt(), 42);
+}
+
+void tst_qqmlvaluetypes::sequences()
+{
+    QJSEngine engine;
+    {
+        QList<BaseGadget> gadgetList{1, 4, 7, 8, 15};
+        QJSValue value = engine.toScriptValue(gadgetList);
+        QCOMPARE(value.property("length").toInt(), gadgetList.length());
+        for (int i = 0; i < gadgetList.length(); ++i)
+            QCOMPARE(value.property(i).property("baseProperty").toInt(), gadgetList.at(i).baseProperty());
+    }
+    {
+        std::vector<BaseGadget> container{1, 4, 7, 8, 15};
+        QJSValue value = engine.toScriptValue(container);
+        QCOMPARE(value.property("length").toInt(), int(container.size()));
+        for (size_t i = 0; i < container.size(); ++i)
+            QCOMPARE(value.property(i).property("baseProperty").toInt(), container.at(i).baseProperty());
+    }
+    {
+        QVector<QChar> qcharVector{1, 4, 42, 8, 15};
+        QJSValue value = engine.toScriptValue(qcharVector);
+        QCOMPARE(value.property("length").toInt(), qcharVector.length());
+        for (int i = 0; i < qcharVector.length(); ++i)
+            QCOMPARE(value.property(i).toInt(), qcharVector.at(i));
+    }
+    {
+        MyTypeObject a, b, c;
+        QSet<QObject*> objSet{&a, &b, &c};
+        QJSValue value = engine.toScriptValue(objSet);
+        QCOMPARE(value.property("length").toInt(), objSet.size());
+        for (int i = 0; i < objSet.size(); ++i)
+            QCOMPARE(value.property(i).property("point").property("x").toInt(), a.point().x());
+    }
+    {
+        MyTypeObject a, b, c;
+        QSet<MyTypeObject*> container{&a, &b, &c};
+        QJSValue value = engine.toScriptValue(container);
+        QCOMPARE(value.property("length").toInt(), container.size());
+        for (int i = 0; i < container.size(); ++i)
+            QCOMPARE(value.property(i).property("point").property("x").toInt(), a.point().x());
+    }
+}
 struct StringLessGadget {
     Q_GADGET
 };
@@ -1735,6 +1810,26 @@ void tst_qqmlvaluetypes::enumProperties()
     QJSValue enumValue = value.property("enumProperty");
     QVERIFY(enumValue.isNumber());
     QCOMPARE(enumValue.toInt(), int(g.enumProperty()));
+}
+
+void tst_qqmlvaluetypes::scarceTypes()
+{
+    // These should not be treated as value types because we want the scarce resource
+    // mechanism to clear them when going out of scope. The scarce resource mechanism
+    // only works on QV4::VariantObject as that has an additional level of redirection.
+    QVERIFY(!QQmlValueTypeFactory::isValueType(qMetaTypeId<QImage>()));
+    QVERIFY(!QQmlValueTypeFactory::isValueType(qMetaTypeId<QPixmap>()));
+
+    QV4::ExecutionEngine engine;
+    QV4::Scope scope(&engine);
+
+    QImage img(20, 20, QImage::Format_ARGB32);
+    QV4::ScopedObject imgValue(scope, engine.fromVariant(QVariant::fromValue(img)));
+    QCOMPARE(QByteArray(imgValue->vtable()->className), QByteArray("VariantObject"));
+
+    QPixmap pixmap;
+    QV4::ScopedObject pixmapValue(scope, engine.fromVariant(QVariant::fromValue(img)));
+    QCOMPARE(QByteArray(pixmapValue->vtable()->className), QByteArray("VariantObject"));
 }
 
 

@@ -201,8 +201,10 @@ public:
     inline void insertProperty(qint32 key, const QVariant &value)
     {
         hashDirty = true;
-        if (key >= QTextFormat::FirstFontProperty && key <= QTextFormat::LastFontProperty)
+        if ((key >= QTextFormat::FirstFontProperty && key <= QTextFormat::LastFontProperty)
+                || key == QTextFormat::FontLetterSpacingType) {
             fontDirty = true;
+        }
         for (int i = 0; i < props.count(); ++i)
             if (props.at(i).key == key) {
                 props[i].value = value;
@@ -216,8 +218,10 @@ public:
         for (int i = 0; i < props.count(); ++i)
             if (props.at(i).key == key) {
                 hashDirty = true;
-                if (key >= QTextFormat::FirstFontProperty && key <= QTextFormat::LastFontProperty)
+                if ((key >= QTextFormat::FirstFontProperty && key <= QTextFormat::LastFontProperty)
+                        || key == QTextFormat::FontLetterSpacingType) {
                     fontDirty = true;
+                }
                 props.remove(i);
                 return;
             }
@@ -356,6 +360,12 @@ void QTextFormatPrivate::recalcFont() const
         switch (props.at(i).key) {
             case QTextFormat::FontFamily:
                 f.setFamily(props.at(i).value.toString());
+                break;
+            case QTextFormat::FontFamilies:
+                f.setFamilies(props.at(i).value.toStringList());
+                break;
+            case QTextFormat::FontStyleName:
+                f.setStyleName(props.at(i).value.toString());
                 break;
             case QTextFormat::FontPointSize:
                 f.setPointSizeF(props.at(i).value.toReal());
@@ -510,7 +520,7 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
     \value BlockFormat The object formats a text block
     \value CharFormat The object formats a single character
     \value ListFormat The object formats a list
-    \omitvalue TableFormat Unused Value, a table's FormatType is FrameFormat.
+    \omitvalue TableFormat \omit Unused Value, a table's FormatType is FrameFormat. \endomit
     \value FrameFormat The object formats a frame
 
     \value UserFormat
@@ -552,10 +562,14 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
     \value LineHeightType
     \value BlockNonBreakableLines
     \value BlockTrailingHorizontalRulerWidth The width of a horizontal ruler element.
+    \value HeadingLevel     The level of a heading, for example 1 corresponds to an HTML H1 tag; otherwise 0.
+                            This enum value has been added in Qt 5.12.
 
     Character properties
 
     \value FontFamily
+    \value FontFamilies
+    \value FontStyleName
     \value FontPointSize
     \value FontPixelSize
     \value FontSizeAdjustment       Specifies the change in size given to the fontsize already set using
@@ -639,6 +653,7 @@ Q_GUI_EXPORT QDataStream &operator>>(QDataStream &stream, QTextFormat &fmt)
     \value ImageName
     \value ImageWidth
     \value ImageHeight
+    \value ImageQuality
 
     Selection properties
 
@@ -1384,6 +1399,41 @@ QTextCharFormat::QTextCharFormat(const QTextFormat &fmt)
     \sa font()
 */
 
+/*!
+    \fn void QTextCharFormat::setFontFamilies(const QStringList &families)
+    \since 5.13
+
+    Sets the text format's font \a families.
+
+    \sa setFont()
+*/
+
+/*!
+    \fn QStringList QTextCharFormat::fontFamilies() const
+    \since 5.13
+
+    Returns the text format's font families.
+
+    \sa font()
+*/
+
+/*!
+    \fn void QTextCharFormat::setFontStyleName(const QString &styleName)
+    \since 5.13
+
+    Sets the text format's font \a styleName.
+
+    \sa setFont(), QFont::setStyleName()
+*/
+
+/*!
+    \fn QStringList QTextCharFormat::fontStyleName() const
+    \since 5.13
+
+    Returns the text format's font style name.
+
+    \sa font(), QFont::styleName()
+*/
 
 /*!
     \fn void QTextCharFormat::setFontPointSize(qreal size)
@@ -1737,6 +1787,7 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
 */
 
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn void QTextCharFormat::setAnchorName(const QString &name)
     \obsolete
@@ -1747,6 +1798,7 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
     hyperlink, the destination must be set with setAnchorHref() and
     the anchor must be enabled with setAnchor().
 */
+#endif
 
 /*!
     \fn void QTextCharFormat::setAnchorNames(const QStringList &names)
@@ -1757,6 +1809,7 @@ void QTextCharFormat::setUnderlineStyle(UnderlineStyle style)
     the anchor must be enabled with setAnchor().
 */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QString QTextCharFormat::anchorName() const
     \obsolete
@@ -1776,6 +1829,7 @@ QString QTextCharFormat::anchorName() const
         return QString();
     return prop.toString();
 }
+#endif
 
 /*!
     \fn QStringList QTextCharFormat::anchorNames() const
@@ -1913,6 +1967,11 @@ void QTextCharFormat::setFont(const QFont &font, FontPropertiesInheritanceBehavi
 
     if (mask & QFont::FamilyResolved)
         setFontFamily(font.family());
+    if (mask & QFont::FamiliesResolved)
+        setFontFamilies(font.families());
+    if (mask & QFont::StyleNameResolved)
+        setFontStyleName(font.styleName());
+
     if (mask & QFont::SizeResolved) {
         const qreal pointSize = font.pointSizeF();
         if (pointSize > 0) {
@@ -2238,6 +2297,34 @@ QList<QTextOption::Tab> QTextBlockFormat::tabPositions() const
     Returns the paragraph's indent.
 
     \sa setIndent()
+*/
+
+
+/*!
+    \fn void QTextBlockFormat::setHeadingLevel(int level)
+    \since 5.12
+
+    Sets the paragraph's heading \a level, where 1 is the highest-level heading
+    type (usually with the largest possible heading font size), and increasing
+    values are progressively deeper into the document (and usually with smaller
+    font sizes). For example when reading an HTML H1 tag, the heading level is
+    set to 1. Setting the heading level does not automatically change the font
+    size; however QTextDocumentFragment::fromHtml() sets both the heading level
+    and the font size simultaneously.
+
+    If the paragraph is not a heading, the level should be set to 0 (the default).
+
+    \sa headingLevel()
+*/
+
+
+/*!
+    \fn int QTextBlockFormat::headingLevel() const
+    \since 5.12
+
+    Returns the paragraph's heading level if it is a heading, or 0 if not.
+
+    \sa setHeadingLevel()
 */
 
 
@@ -2584,13 +2671,13 @@ QTextFrameFormat::QTextFrameFormat(const QTextFormat &fmt)
 }
 
 /*!
-    \fn QTextFrameFormat::isValid() const
+    \fn bool QTextFrameFormat::isValid() const
 
     Returns \c true if the format description is valid; otherwise returns \c false.
 */
 
 /*!
-    \fn QTextFrameFormat::setPosition(Position policy)
+    \fn void QTextFrameFormat::setPosition(Position policy)
 
     Sets the \a policy for positioning frames with this frame format.
 
@@ -2603,7 +2690,7 @@ QTextFrameFormat::QTextFrameFormat(const QTextFormat &fmt)
 */
 
 /*!
-    \fn QTextFrameFormat::setBorder(qreal width)
+    \fn void QTextFrameFormat::setBorder(qreal width)
 
     Sets the \a width (in pixels) of the frame's border.
 */
@@ -2615,7 +2702,7 @@ QTextFrameFormat::QTextFrameFormat(const QTextFormat &fmt)
 */
 
 /*!
-    \fn QTextFrameFormat::setBorderBrush(const QBrush &brush)
+    \fn void QTextFrameFormat::setBorderBrush(const QBrush &brush)
     \since 4.3
 
     Sets the \a brush used for the frame's border.
@@ -2629,7 +2716,7 @@ QTextFrameFormat::QTextFrameFormat(const QTextFormat &fmt)
 */
 
 /*!
-    \fn QTextFrameFormat::setBorderStyle(BorderStyle style)
+    \fn void QTextFrameFormat::setBorderStyle(BorderStyle style)
     \since 4.3
 
     Sets the \a style of the frame's border.
@@ -2643,7 +2730,7 @@ QTextFrameFormat::QTextFrameFormat(const QTextFormat &fmt)
 */
 
 /*!
-    \fn QTextFrameFormat::setMargin(qreal margin)
+    \fn void QTextFrameFormat::setMargin(qreal margin)
 
     Sets the frame's \a margin in pixels.
     This method also sets the left, right, top and bottom margins
@@ -2667,7 +2754,7 @@ void QTextFrameFormat::setMargin(qreal amargin)
 */
 
 /*!
-    \fn QTextFrameFormat::setTopMargin(qreal margin)
+    \fn void QTextFrameFormat::setTopMargin(qreal margin)
     \since 4.3
 
     Sets the frame's top \a margin in pixels.
@@ -2687,7 +2774,7 @@ qreal QTextFrameFormat::topMargin() const
 }
 
 /*!
-    \fn QTextFrameFormat::setBottomMargin(qreal margin)
+    \fn void QTextFrameFormat::setBottomMargin(qreal margin)
     \since 4.3
 
     Sets the frame's bottom \a margin in pixels.
@@ -2707,7 +2794,7 @@ qreal QTextFrameFormat::bottomMargin() const
 }
 
 /*!
-    \fn QTextFrameFormat::setLeftMargin(qreal margin)
+    \fn void QTextFrameFormat::setLeftMargin(qreal margin)
     \since 4.3
 
     Sets the frame's left \a margin in pixels.
@@ -2727,7 +2814,7 @@ qreal QTextFrameFormat::leftMargin() const
 }
 
 /*!
-    \fn QTextFrameFormat::setRightMargin(qreal margin)
+    \fn void QTextFrameFormat::setRightMargin(qreal margin)
     \since 4.3
 
     Sets the frame's right \a margin in pixels.
@@ -2747,7 +2834,7 @@ qreal QTextFrameFormat::rightMargin() const
 }
 
 /*!
-    \fn QTextFrameFormat::setPadding(qreal width)
+    \fn void QTextFrameFormat::setPadding(qreal width)
 
     Sets the \a width of the frame's internal padding in pixels.
 */
@@ -2759,7 +2846,7 @@ qreal QTextFrameFormat::rightMargin() const
 */
 
 /*!
-    \fn QTextFrameFormat::setWidth(const QTextLength &width)
+    \fn void QTextFrameFormat::setWidth(const QTextLength &width)
 
     Sets the frame's border rectangle's \a width.
 
@@ -2767,7 +2854,7 @@ qreal QTextFrameFormat::rightMargin() const
 */
 
 /*!
-    \fn QTextFrameFormat::setWidth(qreal width)
+    \fn void QTextFrameFormat::setWidth(qreal width)
     \overload
 
     Convenience method that sets the width of the frame's border
@@ -3043,7 +3130,8 @@ QTextTableFormat::QTextTableFormat(const QTextFormat &fmt)
     REPLACEMENT CHARACTER) which has an associated QTextImageFormat. The
     image format specifies a name with setName() that is used to
     locate the image. The size of the rectangle that the image will
-    occupy is specified using setWidth() and setHeight().
+    occupy is specified in pixels using setWidth() and setHeight().
+    The desired image quality may be set with setQuality().
 
     Images can be supplied in any format for which Qt has an image
     reader, so SVG drawings can be included alongside PNG, TIFF and
@@ -3130,6 +3218,28 @@ QTextImageFormat::QTextImageFormat(const QTextFormat &fmt)
     Returns the height of the rectangle occupied by the image.
 
     \sa width(), setHeight()
+*/
+
+/*!
+    \fn void QTextImageFormat::setQuality(int quality = 100)
+    \since 5.12
+
+    Sets the quality that should be used by exporters when exporting the image. QTextDocumentWriter
+    will export jpg images with the \a quality set here when exporting to ODF files if \a quality is
+    set to a value between 0 and 100. Or it will export png images if \a quality is set to 100
+    (default) or greater.
+
+    \sa quality()
+*/
+
+
+/*!
+    \fn qreal QTextImageFormat::quality() const
+    \since 5.12
+
+    Returns the value set by setQuality().
+
+    \sa setQuality()
 */
 
 /*!

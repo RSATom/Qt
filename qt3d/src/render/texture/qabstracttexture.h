@@ -55,7 +55,7 @@ class QTextureGenerator;
 
 typedef QSharedPointer<QTextureGenerator> QTextureGeneratorPtr;
 
-class QT3DRENDERSHARED_EXPORT QAbstractTexture : public Qt3DCore::QNode
+class Q_3DRENDERSHARED_EXPORT QAbstractTexture : public Qt3DCore::QNode
 {
     Q_OBJECT
     Q_PROPERTY(Target target READ target CONSTANT)
@@ -73,6 +73,8 @@ class QT3DRENDERSHARED_EXPORT QAbstractTexture : public Qt3DCore::QNode
     Q_PROPERTY(ComparisonMode comparisonMode READ comparisonMode WRITE setComparisonMode NOTIFY comparisonModeChanged)
     Q_PROPERTY(int layers READ layers WRITE setLayers NOTIFY layersChanged)
     Q_PROPERTY(int samples READ samples WRITE setSamples NOTIFY samplesChanged)
+    Q_PROPERTY(HandleType handleType READ handleType NOTIFY handleTypeChanged REVISION 13)
+    Q_PROPERTY(QVariant handle READ handle NOTIFY handleChanged REVISION 13)
 
 public:
 
@@ -268,6 +270,12 @@ public:
     };
     Q_ENUM(ComparisonMode) // LCOV_EXCL_LINE
 
+    enum HandleType {
+        NoHandle,
+        OpenGLTextureId
+    };
+    Q_ENUM(HandleType) // LCOV_EXCL_LINE
+
     ~QAbstractTexture();
 
     Target target() const;
@@ -298,6 +306,8 @@ public:
     int layers() const;
     int samples() const;
     QTextureGeneratorPtr dataGenerator() const;
+    HandleType handleType() const;
+    QVariant handle() const;
 
 public Q_SLOTS:
     void setFormat(TextureFormat format);
@@ -327,18 +337,22 @@ Q_SIGNALS:
     void comparisonModeChanged(ComparisonMode comparisonMode);
     void layersChanged(int layers);
     void samplesChanged(int samples);
+    Q_REVISION(13) void handleTypeChanged(HandleType handleType);
+    Q_REVISION(13) void handleChanged(QVariant handle);
 
 protected:
     explicit QAbstractTexture(Qt3DCore::QNode *parent = nullptr);
     explicit QAbstractTexture(Target target, Qt3DCore::QNode *parent = nullptr);
     explicit QAbstractTexture(QAbstractTexturePrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
     void setStatus(Status status);
+    void setHandle(const QVariant &handle);
+    void setHandleType(HandleType type);
 
 private:
     Q_DECLARE_PRIVATE(QAbstractTexture)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

@@ -4,16 +4,6 @@
 
 import("//mojo/public/tools/bindings/mojom.gni")
 
-mojom("dial_utility_interfaces") {
-  sources = [
-    "dial_device_description_parser.mojom",
-  ]
-
-  public_deps = [
-    "//mojo/common:common_custom_types",
-  ]
-}
-
 mojom("media_controller") {
   sources = [
     "media_controller.mojom",
@@ -21,11 +11,8 @@ mojom("media_controller") {
   ]
 
   public_deps = [
-    "//mojo/common:common_custom_types",
+    "//mojo/public/mojom/base",
   ]
-
-  # TODO(crbug.com/699569): Convert to use the new JS bindings.
-  use_new_js_bindings = false
 }
 
 mojom("media_router") {
@@ -35,15 +22,21 @@ mojom("media_router") {
 
   public_deps = [
     ":media_controller",
+    "//components/mirroring/mojom:host",
     "//media/mojo/interfaces:mirror_service_remoting",
-    "//mojo/common:common_custom_types",
-    "//net/interfaces:interfaces",
-    "//url/mojo:url_mojom_gurl",
-    "//url/mojo:url_mojom_origin",
+    "//mojo/public/mojom/base",
+    "//services/network/public/mojom:mojom_ip_address",
+    "//third_party/blink/public/mojom:mojom_platform",
+    "//url/mojom:url_mojom_gurl",
+    "//url/mojom:url_mojom_origin",
   ]
 
-  # TODO(crbug.com/699569): Convert to use the new JS bindings.
-  use_new_js_bindings = false
+  if (is_component_build) {
+    overridden_deps = [ "//third_party/blink/public/mojom:mojom_platform" ]
+    component_deps = [ "//third_party/blink/public/common" ]
+  }
+
+  disable_variants = true
 }
 
 mojom("media_router_test_interfaces") {
@@ -54,4 +47,6 @@ mojom("media_router_test_interfaces") {
   public_deps = [
     ":media_router",
   ]
+
+  disable_variants = true
 }

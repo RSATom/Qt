@@ -10,8 +10,8 @@
 
 // Borrowed from Chromium's src/base/template_util.h.
 
-#ifndef WEBRTC_RTC_BASE_TEMPLATE_UTIL_H_
-#define WEBRTC_RTC_BASE_TEMPLATE_UTIL_H_
+#ifndef RTC_BASE_TEMPLATE_UTIL_H_
+#define RTC_BASE_TEMPLATE_UTIL_H_
 
 #include <stddef.h>  // For size_t.
 
@@ -19,34 +19,47 @@ namespace rtc {
 
 // Template definitions from tr1.
 
-template<class T, T v>
+template <class T, T v>
 struct integral_constant {
   static const T value = v;
   typedef T value_type;
   typedef integral_constant<T, v> type;
 };
 
-template <class T, T v> const T integral_constant<T, v>::value;
+template <class T, T v>
+const T integral_constant<T, v>::value;
 
 typedef integral_constant<bool, true> true_type;
 typedef integral_constant<bool, false> false_type;
 
-template <class T> struct is_pointer : false_type {};
-template <class T> struct is_pointer<T*> : true_type {};
+template <class T>
+struct is_pointer : false_type {};
+template <class T>
+struct is_pointer<T*> : true_type {};
 
-template <class T, class U> struct is_same : public false_type {};
-template <class T> struct is_same<T, T> : true_type {};
+template <class T, class U>
+struct is_same : public false_type {};
+template <class T>
+struct is_same<T, T> : true_type {};
 
-template<class> struct is_array : public false_type {};
-template<class T, size_t n> struct is_array<T[n]> : public true_type {};
-template<class T> struct is_array<T[]> : public true_type {};
+template <class>
+struct is_array : public false_type {};
+template <class T, size_t n>
+struct is_array<T[n]> : public true_type {};
+template <class T>
+struct is_array<T[]> : public true_type {};
 
-template <class T> struct is_non_const_reference : false_type {};
-template <class T> struct is_non_const_reference<T&> : true_type {};
-template <class T> struct is_non_const_reference<const T&> : false_type {};
+template <class T>
+struct is_non_const_reference : false_type {};
+template <class T>
+struct is_non_const_reference<T&> : true_type {};
+template <class T>
+struct is_non_const_reference<const T&> : false_type {};
 
-template <class T> struct is_void : false_type {};
-template <> struct is_void<void> : true_type {};
+template <class T>
+struct is_void : false_type {};
+template <>
+struct is_void<void> : true_type {};
 
 // Helper useful for converting a tuple to variadic template function
 // arguments.
@@ -95,7 +108,7 @@ struct ConvertHelper {
 // is_class type_trait implementation.
 struct IsClassHelper {
   template <typename C>
-  static YesType Test(void(C::*)(void));
+  static YesType Test(void (C::*)(void));
 
   template <typename C>
   static NoType Test(...);
@@ -111,17 +124,15 @@ template <typename From, typename To>
 struct is_convertible
     : integral_constant<bool,
                         sizeof(internal::ConvertHelper::Test<To>(
-                                   internal::ConvertHelper::Create<From>())) ==
-                        sizeof(internal::YesType)> {
-};
+                            internal::ConvertHelper::Create<From>())) ==
+                            sizeof(internal::YesType)> {};
 
 template <typename T>
 struct is_class
     : integral_constant<bool,
                         sizeof(internal::IsClassHelper::Test<T>(0)) ==
-                            sizeof(internal::YesType)> {
-};
+                            sizeof(internal::YesType)> {};
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_TEMPLATE_UTIL_H_
+#endif  // RTC_BASE_TEMPLATE_UTIL_H_

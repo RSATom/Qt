@@ -45,6 +45,8 @@
 #include <QtCore/qhash.h>
 #include <QtCore/qvector.h>
 
+QT_REQUIRE_CONFIG(itemmodel);
+
 QT_BEGIN_NAMESPACE
 
 
@@ -55,7 +57,7 @@ class Q_CORE_EXPORT QModelIndex
 {
     friend class QAbstractItemModel;
 public:
-    Q_DECL_CONSTEXPR inline QModelIndex() Q_DECL_NOTHROW : r(-1), c(-1), i(0), m(Q_NULLPTR) {}
+    Q_DECL_CONSTEXPR inline QModelIndex() Q_DECL_NOTHROW : r(-1), c(-1), i(0), m(nullptr) {}
     // compiler-generated copy/move ctors/assignment operators are fine!
     Q_DECL_CONSTEXPR inline int row() const Q_DECL_NOTHROW { return r; }
     Q_DECL_CONSTEXPR inline int column() const Q_DECL_NOTHROW { return c; }
@@ -63,13 +65,15 @@ public:
     inline void *internalPointer() const Q_DECL_NOTHROW { return reinterpret_cast<void*>(i); }
     inline QModelIndex parent() const;
     inline QModelIndex sibling(int row, int column) const;
+    inline QModelIndex siblingAtColumn(int column) const;
+    inline QModelIndex siblingAtRow(int row) const;
 #if QT_DEPRECATED_SINCE(5, 8)
     QT_DEPRECATED_X("Use QAbstractItemModel::index") inline QModelIndex child(int row, int column) const;
 #endif
     inline QVariant data(int role = Qt::DisplayRole) const;
     inline Qt::ItemFlags flags() const;
     Q_DECL_CONSTEXPR inline const QAbstractItemModel *model() const Q_DECL_NOTHROW { return m; }
-    Q_DECL_CONSTEXPR inline bool isValid() const Q_DECL_NOTHROW { return (r >= 0) && (c >= 0) && (m != Q_NULLPTR); }
+    Q_DECL_CONSTEXPR inline bool isValid() const Q_DECL_NOTHROW { return (r >= 0) && (c >= 0) && (m != nullptr); }
     Q_DECL_CONSTEXPR inline bool operator==(const QModelIndex &other) const Q_DECL_NOTHROW
         { return (other.r == r) && (other.i == i) && (other.c == c) && (other.m == m); }
     Q_DECL_CONSTEXPR inline bool operator!=(const QModelIndex &other) const Q_DECL_NOTHROW
@@ -115,7 +119,7 @@ public:
     QPersistentModelIndex &operator=(const QPersistentModelIndex &other);
 #ifdef Q_COMPILER_RVALUE_REFS
     inline QPersistentModelIndex(QPersistentModelIndex &&other) Q_DECL_NOTHROW
-        : d(other.d) { other.d = Q_NULLPTR; }
+        : d(other.d) { other.d = nullptr; }
     inline QPersistentModelIndex &operator=(QPersistentModelIndex &&other) Q_DECL_NOTHROW
     { qSwap(d, other.d); return *this; }
 #endif
@@ -159,6 +163,7 @@ typedef QList<QModelIndex> QModelIndexList;
 
 class QMimeData;
 class QAbstractItemModelPrivate;
+class QTransposeProxyModelPrivate;
 template <class Key, class T> class QMap;
 
 
@@ -169,9 +174,10 @@ class Q_CORE_EXPORT QAbstractItemModel : public QObject
     friend class QPersistentModelIndexData;
     friend class QAbstractItemViewPrivate;
     friend class QIdentityProxyModel;
+    friend class QTransposeProxyModelPrivate;
 public:
 
-    explicit QAbstractItemModel(QObject *parent = Q_NULLPTR);
+    explicit QAbstractItemModel(QObject *parent = nullptr);
     virtual ~QAbstractItemModel();
 
     Q_INVOKABLE bool hasIndex(int row, int column, const QModelIndex &parent = QModelIndex()) const;
@@ -194,6 +200,9 @@ public:
 
     virtual QMap<int, QVariant> itemData(const QModelIndex &index) const;
     virtual bool setItemData(const QModelIndex &index, const QMap<int, QVariant> &roles);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    virtual bool clearItemData(const QModelIndex &index);
+#endif
 
     virtual QStringList mimeTypes() const;
     virtual QMimeData *mimeData(const QModelIndexList &indexes) const;
@@ -250,6 +259,17 @@ public:
     };
     Q_ENUM(LayoutChangeHint)
 
+    enum class CheckIndexOption {
+        NoOption         = 0x0000,
+        IndexIsValid     = 0x0001,
+        DoNotUseParent   = 0x0002,
+        ParentIsInvalid  = 0x0004,
+    };
+    Q_ENUM(CheckIndexOption)
+    Q_DECLARE_FLAGS(CheckIndexOptions, CheckIndexOption)
+
+    Q_REQUIRED_RESULT bool checkIndex(const QModelIndex &index, CheckIndexOptions options = CheckIndexOption::NoOption) const;
+
 Q_SIGNALS:
     void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles = QVector<int>());
     void headerDataChanged(Qt::Orientation orientation, int first, int last);
@@ -282,13 +302,15 @@ public Q_SLOTS:
     virtual void revert();
 
 protected Q_SLOTS:
-    // Qt 6: Make virtual
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    virtual
+#endif
     void resetInternalData();
 
 protected:
-    QAbstractItemModel(QAbstractItemModelPrivate &dd, QObject *parent = Q_NULLPTR);
+    QAbstractItemModel(QAbstractItemModelPrivate &dd, QObject *parent = nullptr);
 
-    inline QModelIndex createIndex(int row, int column, void *data = Q_NULLPTR) const;
+    inline QModelIndex createIndex(int row, int column, void *data = nullptr) const;
     inline QModelIndex createIndex(int row, int column, quintptr id) const;
 
     void encodeData(const QModelIndexList &indexes, QDataStream &stream) const;
@@ -343,6 +365,8 @@ private:
     Q_DISABLE_COPY(QAbstractItemModel)
 };
 
+Q_DECLARE_OPERATORS_FOR_FLAGS(QAbstractItemModel::CheckIndexOptions)
+
 inline bool QAbstractItemModel::insertRow(int arow, const QModelIndex &aparent)
 { return insertRows(arow, 1, aparent); }
 inline bool QAbstractItemModel::insertColumn(int acolumn, const QModelIndex &aparent)
@@ -367,15 +391,15 @@ class Q_CORE_EXPORT QAbstractTableModel : public QAbstractItemModel
     Q_OBJECT
 
 public:
-    explicit QAbstractTableModel(QObject *parent = Q_NULLPTR);
+    explicit QAbstractTableModel(QObject *parent = nullptr);
     ~QAbstractTableModel();
 
-    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    QModelIndex sibling(int row, int column, const QModelIndex &idx) const Q_DECL_OVERRIDE;
+    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
+    QModelIndex sibling(int row, int column, const QModelIndex &idx) const override;
     bool dropMimeData(const QMimeData *data, Qt::DropAction action,
-                      int row, int column, const QModelIndex &parent) Q_DECL_OVERRIDE;
+                      int row, int column, const QModelIndex &parent) override;
 
-    Qt::ItemFlags flags(const QModelIndex &index) const Q_DECL_OVERRIDE;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
 
     using QObject::parent;
 
@@ -384,8 +408,8 @@ protected:
 
 private:
     Q_DISABLE_COPY(QAbstractTableModel)
-    QModelIndex parent(const QModelIndex &child) const Q_DECL_OVERRIDE;
-    bool hasChildren(const QModelIndex &parent) const Q_DECL_OVERRIDE;
+    QModelIndex parent(const QModelIndex &child) const override;
+    bool hasChildren(const QModelIndex &parent) const override;
 };
 
 class Q_CORE_EXPORT QAbstractListModel : public QAbstractItemModel
@@ -393,15 +417,15 @@ class Q_CORE_EXPORT QAbstractListModel : public QAbstractItemModel
     Q_OBJECT
 
 public:
-    explicit QAbstractListModel(QObject *parent = Q_NULLPTR);
+    explicit QAbstractListModel(QObject *parent = nullptr);
     ~QAbstractListModel();
 
-    QModelIndex index(int row, int column = 0, const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    QModelIndex sibling(int row, int column, const QModelIndex &idx) const Q_DECL_OVERRIDE;
+    QModelIndex index(int row, int column = 0, const QModelIndex &parent = QModelIndex()) const override;
+    QModelIndex sibling(int row, int column, const QModelIndex &idx) const override;
     bool dropMimeData(const QMimeData *data, Qt::DropAction action,
-                      int row, int column, const QModelIndex &parent) Q_DECL_OVERRIDE;
+                      int row, int column, const QModelIndex &parent) override;
 
-    Qt::ItemFlags flags(const QModelIndex &index) const Q_DECL_OVERRIDE;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
 
     using QObject::parent;
 
@@ -410,9 +434,9 @@ protected:
 
 private:
     Q_DISABLE_COPY(QAbstractListModel)
-    QModelIndex parent(const QModelIndex &child) const Q_DECL_OVERRIDE;
-    int columnCount(const QModelIndex &parent) const Q_DECL_OVERRIDE;
-    bool hasChildren(const QModelIndex &parent) const Q_DECL_OVERRIDE;
+    QModelIndex parent(const QModelIndex &child) const override;
+    int columnCount(const QModelIndex &parent) const override;
+    bool hasChildren(const QModelIndex &parent) const override;
 };
 
 // inline implementations
@@ -422,6 +446,12 @@ inline QModelIndex QModelIndex::parent() const
 
 inline QModelIndex QModelIndex::sibling(int arow, int acolumn) const
 { return m ? (r == arow && c == acolumn) ? *this : m->sibling(arow, acolumn, *this) : QModelIndex(); }
+
+inline QModelIndex QModelIndex::siblingAtColumn(int acolumn) const
+{ return m ? (c == acolumn) ? *this : m->sibling(r, acolumn, *this) : QModelIndex(); }
+
+inline QModelIndex QModelIndex::siblingAtRow(int arow) const
+{ return m ? (r == arow) ? *this : m->sibling(arow, c, *this) : QModelIndex(); }
 
 #if QT_DEPRECATED_SINCE(5, 8)
 inline QModelIndex QModelIndex::child(int arow, int acolumn) const

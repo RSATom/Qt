@@ -9,27 +9,21 @@
 
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
+#include "third_party/base/span.h"
 
 class CPDF_SimpleParser {
  public:
-  CPDF_SimpleParser(const uint8_t* pData, uint32_t dwSize);
-  explicit CPDF_SimpleParser(const CFX_ByteStringC& str);
+  explicit CPDF_SimpleParser(pdfium::span<const uint8_t> input);
+  ~CPDF_SimpleParser();
 
-  CFX_ByteStringC GetWord();
+  ByteStringView GetWord();
 
-  // Find the token and its |nParams| parameters from the start of data,
-  // and move the current position to the start of those parameters.
-  bool FindTagParamFromStart(const CFX_ByteStringC& token, int nParams);
-
-  // For testing only.
-  uint32_t GetCurPos() const { return m_dwCurPos; }
+  void SetCurPos(uint32_t pos) { cur_pos_ = pos; }
+  uint32_t GetCurPos() const { return cur_pos_; }
 
  private:
-  void ParseWord(const uint8_t*& pStart, uint32_t& dwSize);
-
-  const uint8_t* m_pData;
-  uint32_t m_dwSize;
-  uint32_t m_dwCurPos;
+  const pdfium::span<const uint8_t> data_;
+  uint32_t cur_pos_ = 0;
 };
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_SIMPLE_PARSER_H_

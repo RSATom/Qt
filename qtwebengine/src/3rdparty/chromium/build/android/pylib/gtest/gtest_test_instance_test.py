@@ -98,7 +98,7 @@ class GtestTestInstanceTests(unittest.TestCase):
       '[ RUN      ] FooTest.Bar',
       '[       OK ] FooTest.Bar (1 ms)',
     ]
-    actual = gtest_test_instance.ParseGTestOutput(raw_output)
+    actual = gtest_test_instance.ParseGTestOutput(raw_output, None, None)
     self.assertEquals(1, len(actual))
     self.assertEquals('FooTest.Bar', actual[0].GetName())
     self.assertEquals(1, actual[0].GetDuration())
@@ -109,7 +109,7 @@ class GtestTestInstanceTests(unittest.TestCase):
       '[ RUN      ] FooTest.Bar',
       '[   FAILED ] FooTest.Bar (1 ms)',
     ]
-    actual = gtest_test_instance.ParseGTestOutput(raw_output)
+    actual = gtest_test_instance.ParseGTestOutput(raw_output, None, None)
     self.assertEquals(1, len(actual))
     self.assertEquals('FooTest.Bar', actual[0].GetName())
     self.assertEquals(1, actual[0].GetDuration())
@@ -120,7 +120,7 @@ class GtestTestInstanceTests(unittest.TestCase):
       '[ RUN      ] FooTest.Bar',
       '[  CRASHED ] FooTest.Bar (1 ms)',
     ]
-    actual = gtest_test_instance.ParseGTestOutput(raw_output)
+    actual = gtest_test_instance.ParseGTestOutput(raw_output, None, None)
     self.assertEquals(1, len(actual))
     self.assertEquals('FooTest.Bar', actual[0].GetName())
     self.assertEquals(1, actual[0].GetDuration())
@@ -131,7 +131,7 @@ class GtestTestInstanceTests(unittest.TestCase):
       '[ RUN      ] FooTest.Bar',
       '[ERROR:blah] Currently running: FooTest.Bar',
     ]
-    actual = gtest_test_instance.ParseGTestOutput(raw_output)
+    actual = gtest_test_instance.ParseGTestOutput(raw_output, None, None)
     self.assertEquals(1, len(actual))
     self.assertEquals('FooTest.Bar', actual[0].GetName())
     self.assertEquals(0, actual[0].GetDuration())
@@ -141,7 +141,7 @@ class GtestTestInstanceTests(unittest.TestCase):
     raw_output = [
       '[ RUN      ] FooTest.Bar',
     ]
-    actual = gtest_test_instance.ParseGTestOutput(raw_output)
+    actual = gtest_test_instance.ParseGTestOutput(raw_output, None, None)
     self.assertEquals(1, len(actual))
     self.assertEquals('FooTest.Bar', actual[0].GetName())
     self.assertEquals(0, actual[0].GetDuration())
@@ -153,7 +153,7 @@ class GtestTestInstanceTests(unittest.TestCase):
       '[ RUN      ] FooTest.Baz',
       '[       OK ] FooTest.Baz (1 ms)',
     ]
-    actual = gtest_test_instance.ParseGTestOutput(raw_output)
+    actual = gtest_test_instance.ParseGTestOutput(raw_output, None, None)
     self.assertEquals(2, len(actual))
 
     self.assertEquals('FooTest.Bar', actual[0].GetName())
@@ -170,57 +170,16 @@ class GtestTestInstanceTests(unittest.TestCase):
       '[ CRASHED      ]',
       '[       OK ] FooTest.Bar (1 ms)',
     ]
-    actual = gtest_test_instance.ParseGTestOutput(raw_output)
+    actual = gtest_test_instance.ParseGTestOutput(raw_output, None, None)
     self.assertEquals(1, len(actual))
 
     self.assertEquals('FooTest.Bar', actual[0].GetName())
     self.assertEquals(1, actual[0].GetDuration())
     self.assertEquals(base_test_result.ResultType.PASS, actual[0].GetType())
 
-  def testConvertTestFilterFile_commentsAndBlankLines(self):
-    input_lines = [
-      'positive1',
-      '# comment',
-      'positive2',
-      ''
-      'positive3'
-    ]
-    actual = gtest_test_instance \
-        .ConvertTestFilterFileIntoGTestFilterArgument(input_lines)
-    expected = 'positive1:positive2:positive3'
-    self.assertEquals(expected, actual)
-
-  def testConvertTestFilterFile_onlyPositive(self):
-    input_lines = [
-      'positive1',
-      'positive2'
-    ]
-    actual = gtest_test_instance \
-        .ConvertTestFilterFileIntoGTestFilterArgument(input_lines)
-    expected = 'positive1:positive2'
-    self.assertEquals(expected, actual)
-
-  def testConvertTestFilterFile_onlyNegative(self):
-    input_lines = [
-      '-negative1',
-      '-negative2'
-    ]
-    actual = gtest_test_instance \
-        .ConvertTestFilterFileIntoGTestFilterArgument(input_lines)
-    expected = '-negative1:negative2'
-    self.assertEquals(expected, actual)
-
-  def testConvertTestFilterFile_positiveAndNegative(self):
-    input_lines = [
-      'positive1',
-      'positive2',
-      '-negative1',
-      '-negative2'
-    ]
-    actual = gtest_test_instance \
-        .ConvertTestFilterFileIntoGTestFilterArgument(input_lines)
-    expected = 'positive1:positive2-negative1:negative2'
-    self.assertEquals(expected, actual)
+  def testParseGTestXML_none(self):
+    actual = gtest_test_instance.ParseGTestXML(None)
+    self.assertEquals([], actual)
 
   def testTestNameWithoutDisabledPrefix_disabled(self):
     test_name_list = [
@@ -256,4 +215,3 @@ class GtestTestInstanceTests(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main(verbosity=2)
-

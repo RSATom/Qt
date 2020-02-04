@@ -16,21 +16,18 @@
 
 #include <libaddressinput/address_data.h>
 #include <libaddressinput/address_field.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <functional>
-#include <map>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include "language.h"
 #include "region_data_constants.h"
 #include "rule.h"
 #include "util/cctype_tolower_equal.h"
+#include "util/size.h"
 
 namespace i18n {
 namespace addressinput {
@@ -56,40 +53,37 @@ bool ShouldSetLanguageForKey(const std::string& language_tag,
           RegionDataConstants::GetRegionData(region_code))) {
     return false;
   }
-  const std::vector<std::string>& languages = rule.GetLanguages();
+  const auto& languages = rule.GetLanguages();
   // Do not add the default language (we want "data/US", not "data/US--en").
   // (empty should not happen here because we have some sub-region data).
   if (languages.empty() || languages[0] == language_tag) {
     return false;
   }
   // Finally, only return true if the language is one of the remaining ones.
+  using std::placeholders::_1;
   return std::find_if(languages.begin() + 1, languages.end(),
-                      std::bind2nd(EqualToTolowerString(), language_tag)) !=
+                      std::bind(&EqualToTolowerString, _1, language_tag)) !=
          languages.end();
 }
 
 }  // namespace
 
 const AddressField LookupKey::kHierarchy[] = {
-  COUNTRY,
-  ADMIN_AREA,
-  LOCALITY,
-  DEPENDENT_LOCALITY
+    COUNTRY,
+    ADMIN_AREA,
+    LOCALITY,
+    DEPENDENT_LOCALITY,
 };
 
-LookupKey::LookupKey() {
-}
-
-LookupKey::~LookupKey() {
-}
+LookupKey::LookupKey() = default;
+LookupKey::~LookupKey() = default;
 
 void LookupKey::FromAddress(const AddressData& address) {
   nodes_.clear();
   if (address.region_code.empty()) {
-    nodes_.insert(std::make_pair(COUNTRY, kUnknown));
+    nodes_.emplace(COUNTRY, kUnknown);
   } else {
-    for (size_t i = 0; i < arraysize(kHierarchy); ++i) {
-      AddressField field = kHierarchy[i];
+    for (AddressField field : kHierarchy) {
       if (address.IsFieldEmpty(field)) {
         // It would be impossible to find any data for an empty field value.
         break;
@@ -101,7 +95,7 @@ void LookupKey::FromAddress(const AddressData& address) {
         // lookup key format.
         break;
       }
-      nodes_.insert(std::make_pair(field, value));
+      nodes_.emplace(field, value);
     }
   }
   Language address_language(address.language_code);
@@ -115,22 +109,22 @@ void LookupKey::FromAddress(const AddressData& address) {
 
 void LookupKey::FromLookupKey(const LookupKey& parent,
                               const std::string& child_node) {
-  assert(parent.nodes_.size() < arraysize(kHierarchy));
+  assert(parent.nodes_.size() < size(kHierarchy));
   assert(!child_node.empty());
 
   // Copy its nodes if this isn't the parent object.
   if (this != &parent) nodes_ = parent.nodes_;
   AddressField child_field = kHierarchy[nodes_.size()];
-  nodes_.insert(std::make_pair(child_field, child_node));
+  nodes_.emplace(child_field, child_node);
 }
 
 std::string LookupKey::ToKeyString(size_t max_depth) const {
-  assert(max_depth < arraysize(kHierarchy));
+  assert(max_depth < size(kHierarchy));
   std::string key_string(kData);
 
   for (size_t i = 0; i <= max_depth; ++i) {
     AddressField field = kHierarchy[i];
-    std::map<AddressField, std::string>::const_iterator it = nodes_.find(field);
+    auto it = nodes_.find(field);
     if (it == nodes_.end()) {
       break;
     }
@@ -145,14 +139,14 @@ std::string LookupKey::ToKeyString(size_t max_depth) const {
 }
 
 const std::string& LookupKey::GetRegionCode() const {
-  std::map<AddressField, std::string>::const_iterator it = nodes_.find(COUNTRY);
+  auto it = nodes_.find(COUNTRY);
   assert(it != nodes_.end());
   return it->second;
 }
 
 size_t LookupKey::GetDepth() const {
   size_t depth = nodes_.size() - 1;
-  assert(depth < arraysize(kHierarchy));
+  assert(depth < size(kHierarchy));
   return depth;
 }
 

@@ -12,10 +12,6 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 
-#if !defined(__STDC_CONSTANT_MACROS)
-#define __STDC_CONSTANT_MACROS
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,27 +119,27 @@ TEST(CBSTest, GetASN1) {
   uint64_t value;
 
   CBS_init(&data, kData1, sizeof(kData1));
-  EXPECT_FALSE(CBS_peek_asn1_tag(&data, 0x1));
-  EXPECT_TRUE(CBS_peek_asn1_tag(&data, 0x30));
+  EXPECT_FALSE(CBS_peek_asn1_tag(&data, CBS_ASN1_BOOLEAN));
+  EXPECT_TRUE(CBS_peek_asn1_tag(&data, CBS_ASN1_SEQUENCE));
 
-  ASSERT_TRUE(CBS_get_asn1(&data, &contents, 0x30));
+  ASSERT_TRUE(CBS_get_asn1(&data, &contents, CBS_ASN1_SEQUENCE));
   EXPECT_EQ(Bytes("\x01\x02"), Bytes(CBS_data(&contents), CBS_len(&contents)));
 
   CBS_init(&data, kData2, sizeof(kData2));
   // data is truncated
-  EXPECT_FALSE(CBS_get_asn1(&data, &contents, 0x30));
+  EXPECT_FALSE(CBS_get_asn1(&data, &contents, CBS_ASN1_SEQUENCE));
 
   CBS_init(&data, kData3, sizeof(kData3));
   // zero byte length of length
-  EXPECT_FALSE(CBS_get_asn1(&data, &contents, 0x30));
+  EXPECT_FALSE(CBS_get_asn1(&data, &contents, CBS_ASN1_SEQUENCE));
 
   CBS_init(&data, kData4, sizeof(kData4));
   // long form mistakenly used.
-  EXPECT_FALSE(CBS_get_asn1(&data, &contents, 0x30));
+  EXPECT_FALSE(CBS_get_asn1(&data, &contents, CBS_ASN1_SEQUENCE));
 
   CBS_init(&data, kData5, sizeof(kData5));
   // length takes too many bytes.
-  EXPECT_FALSE(CBS_get_asn1(&data, &contents, 0x30));
+  EXPECT_FALSE(CBS_get_asn1(&data, &contents, CBS_ASN1_SEQUENCE));
 
   CBS_init(&data, kData1, sizeof(kData1));
   // wrong tag.
@@ -151,56 +147,72 @@ TEST(CBSTest, GetASN1) {
 
   CBS_init(&data, NULL, 0);
   // peek at empty data.
-  EXPECT_FALSE(CBS_peek_asn1_tag(&data, 0x30));
+  EXPECT_FALSE(CBS_peek_asn1_tag(&data, CBS_ASN1_SEQUENCE));
 
   CBS_init(&data, NULL, 0);
   // optional elements at empty data.
-  ASSERT_TRUE(CBS_get_optional_asn1(&data, &contents, &present, 0xa0));
+  ASSERT_TRUE(CBS_get_optional_asn1(
+      &data, &contents, &present,
+      CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0));
   EXPECT_FALSE(present);
-  ASSERT_TRUE(
-      CBS_get_optional_asn1_octet_string(&data, &contents, &present, 0xa0));
+  ASSERT_TRUE(CBS_get_optional_asn1_octet_string(
+      &data, &contents, &present,
+      CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0));
   EXPECT_FALSE(present);
   EXPECT_EQ(0u, CBS_len(&contents));
-  ASSERT_TRUE(CBS_get_optional_asn1_octet_string(&data, &contents, NULL, 0xa0));
+  ASSERT_TRUE(CBS_get_optional_asn1_octet_string(
+      &data, &contents, NULL,
+      CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0));
   EXPECT_EQ(0u, CBS_len(&contents));
-  ASSERT_TRUE(CBS_get_optional_asn1_uint64(&data, &value, 0xa0, 42));
+  ASSERT_TRUE(CBS_get_optional_asn1_uint64(
+      &data, &value, CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0, 42));
   EXPECT_EQ(42u, value);
 
   CBS_init(&data, kData6, sizeof(kData6));
   // optional element.
-  ASSERT_TRUE(CBS_get_optional_asn1(&data, &contents, &present, 0xa0));
+  ASSERT_TRUE(CBS_get_optional_asn1(
+      &data, &contents, &present,
+      CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0));
   EXPECT_FALSE(present);
-  ASSERT_TRUE(CBS_get_optional_asn1(&data, &contents, &present, 0xa1));
+  ASSERT_TRUE(CBS_get_optional_asn1(
+      &data, &contents, &present,
+      CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 1));
   EXPECT_TRUE(present);
   EXPECT_EQ(Bytes("\x04\x01\x01"),
             Bytes(CBS_data(&contents), CBS_len(&contents)));
 
   CBS_init(&data, kData6, sizeof(kData6));
   // optional octet string.
-  ASSERT_TRUE(
-      CBS_get_optional_asn1_octet_string(&data, &contents, &present, 0xa0));
+  ASSERT_TRUE(CBS_get_optional_asn1_octet_string(
+      &data, &contents, &present,
+      CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0));
   EXPECT_FALSE(present);
   EXPECT_EQ(0u, CBS_len(&contents));
-  ASSERT_TRUE(
-      CBS_get_optional_asn1_octet_string(&data, &contents, &present, 0xa1));
+  ASSERT_TRUE(CBS_get_optional_asn1_octet_string(
+      &data, &contents, &present,
+      CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 1));
   EXPECT_TRUE(present);
   EXPECT_EQ(Bytes("\x01"), Bytes(CBS_data(&contents), CBS_len(&contents)));
 
   CBS_init(&data, kData7, sizeof(kData7));
   // invalid optional octet string.
-  EXPECT_FALSE(
-      CBS_get_optional_asn1_octet_string(&data, &contents, &present, 0xa1));
+  EXPECT_FALSE(CBS_get_optional_asn1_octet_string(
+      &data, &contents, &present,
+      CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 1));
 
   CBS_init(&data, kData8, sizeof(kData8));
   // optional integer.
-  ASSERT_TRUE(CBS_get_optional_asn1_uint64(&data, &value, 0xa0, 42));
+  ASSERT_TRUE(CBS_get_optional_asn1_uint64(
+      &data, &value, CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0, 42));
   EXPECT_EQ(42u, value);
-  ASSERT_TRUE(CBS_get_optional_asn1_uint64(&data, &value, 0xa1, 42));
+  ASSERT_TRUE(CBS_get_optional_asn1_uint64(
+      &data, &value, CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 1, 42));
   EXPECT_EQ(1u, value);
 
   CBS_init(&data, kData9, sizeof(kData9));
   // invalid optional integer.
-  EXPECT_FALSE(CBS_get_optional_asn1_uint64(&data, &value, 0xa1, 42));
+  EXPECT_FALSE(CBS_get_optional_asn1_uint64(
+      &data, &value, CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 1, 42));
 
   unsigned tag;
   CBS_init(&data, kData1, sizeof(kData1));
@@ -215,6 +227,54 @@ TEST(CBSTest, GetASN1) {
   EXPECT_EQ(2u, header_len);
   EXPECT_EQ(Bytes("\x30\x02\x01\x02"),
             Bytes(CBS_data(&contents), CBS_len(&contents)));
+}
+
+TEST(CBSTest, ParseASN1Tag) {
+  const struct {
+    bool ok;
+    unsigned tag;
+    std::vector<uint8_t> in;
+  } kTests[] = {
+      {true, CBS_ASN1_SEQUENCE, {0x30, 0}},
+      {true, CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 4, {0xa4, 0}},
+      {true, CBS_ASN1_APPLICATION | 30, {0x5e, 0}},
+      {true, CBS_ASN1_APPLICATION | 31, {0x5f, 0x1f, 0}},
+      {true, CBS_ASN1_APPLICATION | 32, {0x5f, 0x20, 0}},
+      {true,
+       CBS_ASN1_PRIVATE | CBS_ASN1_CONSTRUCTED | 0x1fffffff,
+       {0xff, 0x81, 0xff, 0xff, 0xff, 0x7f, 0}},
+      // Tag number fits in unsigned but not |CBS_ASN1_TAG_NUMBER_MASK|.
+      {false, 0, {0xff, 0x82, 0xff, 0xff, 0xff, 0x7f, 0}},
+      // Tag number does not fit in unsigned.
+      {false, 0, {0xff, 0x90, 0x80, 0x80, 0x80, 0, 0}},
+      // Tag number is not minimally-encoded
+      {false, 0, {0x5f, 0x80, 0x1f, 0}},
+      // Tag number should have used short form.
+      {false, 0, {0x5f, 0x80, 0x1e, 0}},
+  };
+  for (const auto &t : kTests) {
+    SCOPED_TRACE(Bytes(t.in));
+    unsigned tag;
+    CBS cbs, child;
+    CBS_init(&cbs, t.in.data(), t.in.size());
+    ASSERT_EQ(t.ok, !!CBS_get_any_asn1(&cbs, &child, &tag));
+    if (t.ok) {
+      EXPECT_EQ(t.tag, tag);
+      EXPECT_EQ(0u, CBS_len(&child));
+      EXPECT_EQ(0u, CBS_len(&cbs));
+
+      CBS_init(&cbs, t.in.data(), t.in.size());
+      EXPECT_TRUE(CBS_peek_asn1_tag(&cbs, t.tag));
+      EXPECT_FALSE(CBS_peek_asn1_tag(&cbs, t.tag + 1));
+
+      EXPECT_TRUE(CBS_get_asn1(&cbs, &child, t.tag));
+      EXPECT_EQ(0u, CBS_len(&child));
+      EXPECT_EQ(0u, CBS_len(&cbs));
+
+      CBS_init(&cbs, t.in.data(), t.in.size());
+      EXPECT_FALSE(CBS_get_asn1(&cbs, &child, t.tag + 1));
+    }
+  }
 }
 
 TEST(CBSTest, GetOptionalASN1Bool) {
@@ -416,15 +476,42 @@ TEST(CBBTest, Misuse) {
 }
 
 TEST(CBBTest, ASN1) {
-  static const uint8_t kExpected[] = {0x30, 3, 1, 2, 3};
+  static const uint8_t kExpected[] = {
+      // SEQUENCE { 1 2 3 }
+      0x30, 3, 1, 2, 3,
+      // [4 CONSTRUCTED] { 4 5 6 }
+      0xa4, 3, 4, 5, 6,
+      // [APPLICATION 30 PRIMITIVE] { 7 8 9 }
+      0x5e, 3, 7, 8, 9,
+      // [APPLICATION 31 PRIMITIVE] { 10 11 12 }
+      0x5f, 0x1f, 3, 10, 11, 12,
+      // [PRIVATE 2^29-1 CONSTRUCTED] { 13 14 15 }
+      0xff, 0x81, 0xff, 0xff, 0xff, 0x7f, 3, 13, 14, 15,
+  };
   uint8_t *buf;
   size_t buf_len;
   bssl::ScopedCBB cbb;
   CBB contents, inner_contents;
 
   ASSERT_TRUE(CBB_init(cbb.get(), 0));
-  ASSERT_TRUE(CBB_add_asn1(cbb.get(), &contents, 0x30));
+  ASSERT_TRUE(CBB_add_asn1(cbb.get(), &contents, CBS_ASN1_SEQUENCE));
   ASSERT_TRUE(CBB_add_bytes(&contents, (const uint8_t *)"\x01\x02\x03", 3));
+  ASSERT_TRUE(
+      CBB_add_asn1(cbb.get(), &contents,
+                   CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 4));
+  ASSERT_TRUE(CBB_add_bytes(&contents, (const uint8_t *)"\x04\x05\x06", 3));
+  ASSERT_TRUE(
+      CBB_add_asn1(cbb.get(), &contents,
+                   CBS_ASN1_APPLICATION | 30));
+  ASSERT_TRUE(CBB_add_bytes(&contents, (const uint8_t *)"\x07\x08\x09", 3));
+  ASSERT_TRUE(
+      CBB_add_asn1(cbb.get(), &contents,
+                   CBS_ASN1_APPLICATION | 31));
+  ASSERT_TRUE(CBB_add_bytes(&contents, (const uint8_t *)"\x0a\x0b\x0c", 3));
+  ASSERT_TRUE(
+      CBB_add_asn1(cbb.get(), &contents,
+                   CBS_ASN1_PRIVATE | CBS_ASN1_CONSTRUCTED | 0x1fffffff));
+  ASSERT_TRUE(CBB_add_bytes(&contents, (const uint8_t *)"\x0d\x0e\x0f", 3));
   ASSERT_TRUE(CBB_finish(cbb.get(), &buf, &buf_len));
   bssl::UniquePtr<uint8_t> scoper(buf);
 
@@ -432,7 +519,7 @@ TEST(CBBTest, ASN1) {
 
   std::vector<uint8_t> test_data(100000, 0x42);
   ASSERT_TRUE(CBB_init(cbb.get(), 0));
-  ASSERT_TRUE(CBB_add_asn1(cbb.get(), &contents, 0x30));
+  ASSERT_TRUE(CBB_add_asn1(cbb.get(), &contents, CBS_ASN1_SEQUENCE));
   ASSERT_TRUE(CBB_add_bytes(&contents, test_data.data(), 130));
   ASSERT_TRUE(CBB_finish(cbb.get(), &buf, &buf_len));
   scoper.reset(buf);
@@ -442,7 +529,7 @@ TEST(CBBTest, ASN1) {
   EXPECT_EQ(Bytes(test_data.data(), 130), Bytes(buf + 3, 130));
 
   ASSERT_TRUE(CBB_init(cbb.get(), 0));
-  ASSERT_TRUE(CBB_add_asn1(cbb.get(), &contents, 0x30));
+  ASSERT_TRUE(CBB_add_asn1(cbb.get(), &contents, CBS_ASN1_SEQUENCE));
   ASSERT_TRUE(CBB_add_bytes(&contents, test_data.data(), 1000));
   ASSERT_TRUE(CBB_finish(cbb.get(), &buf, &buf_len));
   scoper.reset(buf);
@@ -452,8 +539,8 @@ TEST(CBBTest, ASN1) {
   EXPECT_EQ(Bytes(test_data.data(), 1000), Bytes(buf + 4, 1000));
 
   ASSERT_TRUE(CBB_init(cbb.get(), 0));
-  ASSERT_TRUE(CBB_add_asn1(cbb.get(), &contents, 0x30));
-  ASSERT_TRUE(CBB_add_asn1(&contents, &inner_contents, 0x30));
+  ASSERT_TRUE(CBB_add_asn1(cbb.get(), &contents, CBS_ASN1_SEQUENCE));
+  ASSERT_TRUE(CBB_add_asn1(&contents, &inner_contents, CBS_ASN1_SEQUENCE));
   ASSERT_TRUE(CBB_add_bytes(&inner_contents, test_data.data(), 100000));
   ASSERT_TRUE(CBB_finish(cbb.get(), &buf, &buf_len));
   scoper.reset(buf);
@@ -467,19 +554,18 @@ static void ExpectBerConvert(const char *name, const uint8_t *der_expected,
                              size_t der_len, const uint8_t *ber,
                              size_t ber_len) {
   SCOPED_TRACE(name);
-  CBS in;
-  uint8_t *out;
-  size_t out_len;
+  CBS in, out;
+  uint8_t *storage;
 
   CBS_init(&in, ber, ber_len);
-  ASSERT_TRUE(CBS_asn1_ber_to_der(&in, &out, &out_len));
-  bssl::UniquePtr<uint8_t> scoper(out);
+  ASSERT_TRUE(CBS_asn1_ber_to_der(&in, &out, &storage));
+  bssl::UniquePtr<uint8_t> scoper(storage);
 
-  if (out == NULL) {
-    EXPECT_EQ(Bytes(der_expected, der_len), Bytes(ber, ber_len));
-  } else {
+  EXPECT_EQ(Bytes(der_expected, der_len), Bytes(CBS_data(&out), CBS_len(&out)));
+  if (storage != nullptr) {
     EXPECT_NE(Bytes(der_expected, der_len), Bytes(ber, ber_len));
-    EXPECT_EQ(Bytes(der_expected, der_len), Bytes(out, out_len));
+  } else {
+    EXPECT_EQ(Bytes(der_expected, der_len), Bytes(ber, ber_len));
   }
 }
 
@@ -489,6 +575,12 @@ TEST(CBSTest, BerConvert) {
   // kIndefBER contains a SEQUENCE with an indefinite length.
   static const uint8_t kIndefBER[] = {0x30, 0x80, 0x01, 0x01, 0x02, 0x00, 0x00};
   static const uint8_t kIndefDER[] = {0x30, 0x03, 0x01, 0x01, 0x02};
+
+  // kIndefBER2 contains a constructed [APPLICATION 31] with an indefinite
+  // length.
+  static const uint8_t kIndefBER2[] = {0x7f, 0x1f, 0x80, 0x01,
+                                       0x01, 0x02, 0x00, 0x00};
+  static const uint8_t kIndefDER2[] = {0x7f, 0x1f, 0x03, 0x01, 0x01, 0x02};
 
   // kOctetStringBER contains an indefinite length OCTET STRING with two parts.
   // These parts need to be concatenated in DER form.
@@ -534,6 +626,8 @@ TEST(CBSTest, BerConvert) {
                    sizeof(kSimpleBER));
   ExpectBerConvert("kIndefBER", kIndefDER, sizeof(kIndefDER), kIndefBER,
                    sizeof(kIndefBER));
+  ExpectBerConvert("kIndefBER2", kIndefDER2, sizeof(kIndefDER2), kIndefBER2,
+                   sizeof(kIndefBER2));
   ExpectBerConvert("kOctetStringBER", kOctetStringDER, sizeof(kOctetStringDER),
                    kOctetStringBER, sizeof(kOctetStringBER));
   ExpectBerConvert("kNSSBER", kNSSDER, sizeof(kNSSDER), kNSSBER,
@@ -786,4 +880,387 @@ TEST(CBSTest, BitString) {
     EXPECT_EQ(static_cast<int>(test.bit_set),
               CBS_asn1_bitstring_has_bit(&cbs, test.bit));
   }
+}
+
+TEST(CBBTest, AddOIDFromText) {
+  const struct {
+    const char *text;
+    std::vector<uint8_t> der;
+  } kValidOIDs[] = {
+      // Some valid values.
+      {"0.0", {0x00}},
+      {"0.2.3.4", {0x2, 0x3, 0x4}},
+      {"1.2.3.4", {0x2a, 0x3, 0x4}},
+      {"2.2.3.4", {0x52, 0x3, 0x4}},
+      {"1.2.840.113554.4.1.72585",
+       {0x2a, 0x86, 0x48, 0x86, 0xf7, 0x12, 0x04, 0x01, 0x84, 0xb7, 0x09}},
+      // Test edge cases around the first component.
+      {"0.39", {0x27}},
+      {"1.0", {0x28}},
+      {"1.39", {0x4f}},
+      {"2.0", {0x50}},
+      {"2.1", {0x51}},
+      {"2.40", {0x78}},
+      // Edge cases near an overflow.
+      {"1.2.18446744073709551615",
+       {0x2a, 0x81, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}},
+      {"2.18446744073709551535",
+       {0x81, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}},
+  };
+
+  const char *kInvalidTexts[] = {
+      // Invalid second component.
+      "0.40",
+      "1.40",
+      // Invalid first component.
+      "3.1",
+      // The empty string is not an OID.
+      "",
+      // No empty components.
+      ".1.2.3.4.5",
+      "1..2.3.4.5",
+      "1.2.3.4.5.",
+      // There must be at least two components.
+      "1",
+      // No extra leading zeros.
+      "00.1.2.3.4",
+      "01.1.2.3.4",
+      // Overflow for both components or 40*A + B.
+      "1.2.18446744073709551616",
+      "2.18446744073709551536",
+  };
+
+  const std::vector<uint8_t> kInvalidDER[] = {
+      // The empty string is not an OID.
+      {},
+      // Non-minimal representation.
+      {0x80, 0x01},
+      // Overflow. This is the DER representation of
+      // 1.2.840.113554.4.1.72585.18446744073709551616. (The final value is
+      // 2^64.)
+      {0x2a, 0x86, 0x48, 0x86, 0xf7, 0x12, 0x04, 0x01, 0x84, 0xb7, 0x09,
+       0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00},
+  };
+
+  for (const auto &t : kValidOIDs) {
+    SCOPED_TRACE(t.text);
+
+    bssl::ScopedCBB cbb;
+    ASSERT_TRUE(CBB_init(cbb.get(), 0));
+    ASSERT_TRUE(CBB_add_asn1_oid_from_text(cbb.get(), t.text, strlen(t.text)));
+    uint8_t *out;
+    size_t len;
+    ASSERT_TRUE(CBB_finish(cbb.get(), &out, &len));
+    bssl::UniquePtr<uint8_t> free_out(out);
+    EXPECT_EQ(Bytes(t.der), Bytes(out, len));
+
+    CBS cbs;
+    CBS_init(&cbs, t.der.data(), t.der.size());
+    bssl::UniquePtr<char> text(CBS_asn1_oid_to_text(&cbs));
+    ASSERT_TRUE(text.get());
+    EXPECT_STREQ(t.text, text.get());
+  }
+
+  for (const char *t : kInvalidTexts) {
+    SCOPED_TRACE(t);
+    bssl::ScopedCBB cbb;
+    ASSERT_TRUE(CBB_init(cbb.get(), 0));
+    EXPECT_FALSE(CBB_add_asn1_oid_from_text(cbb.get(), t, strlen(t)));
+  }
+
+  for (const auto &t : kInvalidDER) {
+    SCOPED_TRACE(Bytes(t));
+    CBS cbs;
+    CBS_init(&cbs, t.data(), t.size());
+    bssl::UniquePtr<char> text(CBS_asn1_oid_to_text(&cbs));
+    EXPECT_FALSE(text);
+  }
+}
+
+TEST(CBBTest, FlushASN1SetOf) {
+  const struct {
+    std::vector<uint8_t> in, out;
+  } kValidInputs[] = {
+    // No elements.
+    {{}, {}},
+    // One element.
+    {{0x30, 0x00}, {0x30, 0x00}},
+    // Two identical elements.
+    {{0x30, 0x00, 0x30, 0x00}, {0x30, 0x00, 0x30, 0x00}},
+    // clang-format off
+    {{0x30, 0x02, 0x00, 0x00,
+      0x30, 0x00,
+      0x01, 0x00,
+      0x30, 0x02, 0x00, 0x00,
+      0x30, 0x03, 0x00, 0x00, 0x00,
+      0x30, 0x00,
+      0x30, 0x03, 0x00, 0x00, 0x01,
+      0x30, 0x01, 0x00,
+      0x01, 0x01, 0x00},
+     {0x01, 0x00,
+      0x01, 0x01, 0x00,
+      0x30, 0x00,
+      0x30, 0x00,
+      0x30, 0x01, 0x00,
+      0x30, 0x02, 0x00, 0x00,
+      0x30, 0x02, 0x00, 0x00,
+      0x30, 0x03, 0x00, 0x00, 0x00,
+      0x30, 0x03, 0x00, 0x00, 0x01}},
+    // clang-format on
+  };
+
+  for (const auto &t : kValidInputs) {
+    SCOPED_TRACE(Bytes(t.in));
+
+    bssl::ScopedCBB cbb;
+    CBB child;
+    ASSERT_TRUE(CBB_init(cbb.get(), 0));
+    ASSERT_TRUE(CBB_add_asn1(cbb.get(), &child, CBS_ASN1_SET));
+    ASSERT_TRUE(CBB_add_bytes(&child, t.in.data(), t.in.size()));
+    ASSERT_TRUE(CBB_flush_asn1_set_of(&child));
+    EXPECT_EQ(Bytes(t.out), Bytes(CBB_data(&child), CBB_len(&child)));
+
+    // Running it again should be idempotent.
+    ASSERT_TRUE(CBB_flush_asn1_set_of(&child));
+    EXPECT_EQ(Bytes(t.out), Bytes(CBB_data(&child), CBB_len(&child)));
+
+    // The ASN.1 header remain intact.
+    ASSERT_TRUE(CBB_flush(cbb.get()));
+    EXPECT_EQ(0x31, CBB_data(cbb.get())[0]);
+  }
+
+  const std::vector<uint8_t> kInvalidInputs[] = {
+    {0x30},
+    {0x30, 0x01},
+    {0x30, 0x00, 0x30, 0x00, 0x30, 0x01},
+  };
+
+  for (const auto &t : kInvalidInputs) {
+    SCOPED_TRACE(Bytes(t));
+
+    bssl::ScopedCBB cbb;
+    CBB child;
+    ASSERT_TRUE(CBB_init(cbb.get(), 0));
+    ASSERT_TRUE(CBB_add_asn1(cbb.get(), &child, CBS_ASN1_SET));
+    ASSERT_TRUE(CBB_add_bytes(&child, t.data(), t.size()));
+    EXPECT_FALSE(CBB_flush_asn1_set_of(&child));
+  }
+}
+
+template <class T>
+static std::vector<uint8_t> LiteralToBytes(const T *str) {
+  std::vector<uint8_t> ret;
+  for (; *str != 0; str++) {
+    for (size_t i = 0; i < sizeof(T); i++) {
+      ret.push_back(static_cast<uint8_t>(*str >> (8 * (sizeof(T) - 1 - i))));
+    }
+  }
+  return ret;
+}
+
+static std::vector<uint32_t> LiteralToCodePoints(const char32_t *str) {
+  std::vector<uint32_t> ret;
+  for (; *str != 0; str++) {
+    ret.push_back(static_cast<uint32_t>(*str));
+  }
+  return ret;
+}
+
+TEST(CBBTest, Unicode) {
+  struct {
+    int (*decode)(CBS *, uint32_t *);
+    int (*encode)(CBB *, uint32_t);
+    std::vector<uint8_t> in;
+    std::vector<uint32_t> out;
+    bool ok;
+  } kTests[] = {
+      {cbs_get_utf8, cbb_add_utf8,
+       // This test string captures all four cases in UTF-8.
+       LiteralToBytes(u8"Hello, 世界! ¡Hola, 🌎!"),
+       LiteralToCodePoints(U"Hello, 世界! ¡Hola, 🌎!"), true},
+
+      // Some invalid inputs adapted from
+      // http://www.cl.cam.ac.uk/~mgk25/ucs/examples/UTF-8-test.txt
+      // 2.1  First possible sequence of a certain length. (5- and 6-bit
+      // sequences no longer exist.)
+      {cbs_get_utf8, cbb_add_utf8, {0xf8, 0x88, 0x80, 0x80, 0x80}, {}, false},
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xfc, 0x84, 0x80, 0x80, 0x80, 0x80},
+       {},
+       false},
+      // 3.1  Unexpected continuation bytes.
+      {cbs_get_utf8, cbb_add_utf8, {0x80}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xbf}, {}, false},
+      // 3.2  Lonely start characters.
+      {cbs_get_utf8, cbb_add_utf8, {0xc0, ' '}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xe0, ' '}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xf0, ' '}, {}, false},
+      // 3.3  Sequences with last continuation byte missing
+      {cbs_get_utf8, cbb_add_utf8, {0xc0}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xe0, 0x80}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xf0, 0x80, 0x80}, {}, false},
+      // Variation of the above with unexpected spaces.
+      {cbs_get_utf8, cbb_add_utf8, {0xe0, 0x80, ' '}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xf0, 0x80, 0x80, ' '}, {}, false},
+      // 4.1  Examples of an overlong ASCII character
+      {cbs_get_utf8, cbb_add_utf8, {0xc0, 0xaf}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xe0, 0x80, 0xaf}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xf0, 0x80, 0x80, 0xaf}, {}, false},
+      // 4.2  Maximum overlong sequences
+      {cbs_get_utf8, cbb_add_utf8, {0xc1, 0xbf}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xe0, 0x9f, 0xbf}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xf0, 0x8f, 0xbf, 0xbf}, {}, false},
+      // 4.3  Overlong representation of the NUL character
+      {cbs_get_utf8, cbb_add_utf8, {0xc0, 0x80}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xe0, 0x80, 0x80}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xf0, 0x80, 0x80, 0x80}, {}, false},
+      // 5.1  Single UTF-16 surrogates
+      {cbs_get_utf8, cbb_add_utf8, {0xed, 0xa0, 0x80}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xed, 0xad, 0xbf}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xed, 0xae, 0x80}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xed, 0xb0, 0x80}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xed, 0xbe, 0x80}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xed, 0xbf, 0xbf}, {}, false},
+      // 5.2  Paired UTF-16 surrogates
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xed, 0xa0, 0x80, 0xed, 0xb0, 0x80},
+       {},
+       false},
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xed, 0xa0, 0x80, 0xed, 0xbf, 0xbf},
+       {},
+       false},
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xed, 0xad, 0xbf, 0xed, 0xb0, 0x80},
+       {},
+       false},
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xed, 0xad, 0xbf, 0xed, 0xbf, 0xbf},
+       {},
+       false},
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xed, 0xae, 0x80, 0xed, 0xb0, 0x80},
+       {},
+       false},
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xed, 0xae, 0x80, 0xed, 0xbf, 0xbf},
+       {},
+       false},
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xed, 0xaf, 0xbf, 0xed, 0xb0, 0x80},
+       {},
+       false},
+      {cbs_get_utf8,
+       cbb_add_utf8,
+       {0xed, 0xaf, 0xbf, 0xed, 0xbf, 0xbf},
+       {},
+       false},
+      // 5.3  Noncharacter code positions
+      {cbs_get_utf8, cbb_add_utf8, {0xef, 0xbf, 0xbe}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xef, 0xbf, 0xbf}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xef, 0xb7, 0x90}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xef, 0xb7, 0xaf}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xf0, 0x9f, 0xbf, 0xbe}, {}, false},
+      {cbs_get_utf8, cbb_add_utf8, {0xf0, 0x9f, 0xbf, 0xbf}, {}, false},
+
+      {cbs_get_latin1, cbb_add_latin1, LiteralToBytes("\xa1Hola!"),
+       LiteralToCodePoints(U"¡Hola!"), true},
+
+      // UCS-2 matches UTF-16 on the BMP.
+      {cbs_get_ucs2_be, cbb_add_ucs2_be, LiteralToBytes(u"Hello, 世界!"),
+       LiteralToCodePoints(U"Hello, 世界!"), true},
+      // It does not support characters beyond the BMP.
+      {cbs_get_ucs2_be, cbb_add_ucs2_be,
+       LiteralToBytes(u"Hello, 世界! ¡Hola, 🌎!"),
+       LiteralToCodePoints(U"Hello, 世界! ¡Hola, "), false},
+      // Unpaired surrogates and non-characters are also rejected.
+      {cbs_get_ucs2_be, cbb_add_ucs2_be, {0xd8, 0x00}, {}, false},
+      {cbs_get_ucs2_be, cbb_add_ucs2_be, {0xff, 0xfe}, {}, false},
+
+      {cbs_get_utf32_be, cbb_add_utf32_be,
+       LiteralToBytes(U"Hello, 世界! ¡Hola, 🌎!"),
+       LiteralToCodePoints(U"Hello, 世界! ¡Hola, 🌎!"), true},
+      // Unpaired surrogates and non-characters are rejected.
+      {cbs_get_utf32_be, cbb_add_utf32_be, {0x00, 0x00, 0xd8, 0x00}, {}, false},
+      {cbs_get_utf32_be, cbb_add_utf32_be, {0x00, 0x00, 0xff, 0xfe}, {}, false},
+
+      // Test that the NUL character can be encoded.
+      {cbs_get_latin1, cbb_add_latin1, {0}, {0}, true},
+      {cbs_get_utf8, cbb_add_utf8, {0}, {0}, true},
+      {cbs_get_ucs2_be, cbb_add_ucs2_be, {0, 0}, {0}, true},
+      {cbs_get_utf32_be, cbb_add_utf32_be, {0, 0, 0, 0}, {0}, true},
+  };
+  for (const auto &t : kTests) {
+    SCOPED_TRACE(Bytes(t.in));
+
+    // Test decoding.
+    CBS cbs;
+    CBS_init(&cbs, t.in.data(), t.in.size());
+    std::vector<uint32_t> out;
+    bool ok = true;
+    while (CBS_len(&cbs) != 0) {
+      uint32_t u;
+      if (!t.decode(&cbs, &u)) {
+        ok = false;
+        break;
+      }
+      out.push_back(u);
+    }
+    EXPECT_EQ(t.ok, ok);
+    EXPECT_EQ(t.out, out);
+
+    // Test encoding.
+    if (t.ok) {
+      bssl::ScopedCBB cbb;
+      ASSERT_TRUE(CBB_init(cbb.get(), 0));
+      for (uint32_t u : t.out) {
+        ASSERT_TRUE(t.encode(cbb.get(), u));
+      }
+      EXPECT_EQ(Bytes(t.in), Bytes(CBB_data(cbb.get()), CBB_len(cbb.get())));
+    }
+  }
+
+  static const uint32_t kBadCodePoints[] = {
+    // Surrogate pairs.
+    0xd800,
+    0xdfff,
+    // Non-characters.
+    0xfffe,
+    0xffff,
+    0xfdd0,
+    0x1fffe,
+    0x1ffff,
+    // Too big.
+    0x110000,
+  };
+  bssl::ScopedCBB cbb;
+  ASSERT_TRUE(CBB_init(cbb.get(), 0));
+  for (uint32_t v : kBadCodePoints) {
+    SCOPED_TRACE(v);
+    EXPECT_FALSE(cbb_add_utf8(cbb.get(), v));
+    EXPECT_FALSE(cbb_add_latin1(cbb.get(), v));
+    EXPECT_FALSE(cbb_add_ucs2_be(cbb.get(), v));
+    EXPECT_FALSE(cbb_add_utf32_be(cbb.get(), v));
+  }
+
+  // Additional values that are out of range.
+  EXPECT_FALSE(cbb_add_latin1(cbb.get(), 0x100));
+  EXPECT_FALSE(cbb_add_ucs2_be(cbb.get(), 0x10000));
+
+  EXPECT_EQ(1u, cbb_get_utf8_len(0));
+  EXPECT_EQ(1u, cbb_get_utf8_len(0x7f));
+  EXPECT_EQ(2u, cbb_get_utf8_len(0x80));
+  EXPECT_EQ(2u, cbb_get_utf8_len(0x7ff));
+  EXPECT_EQ(3u, cbb_get_utf8_len(0x800));
+  EXPECT_EQ(3u, cbb_get_utf8_len(0xffff));
+  EXPECT_EQ(4u, cbb_get_utf8_len(0x10000));
+  EXPECT_EQ(4u, cbb_get_utf8_len(0x10ffff));
 }

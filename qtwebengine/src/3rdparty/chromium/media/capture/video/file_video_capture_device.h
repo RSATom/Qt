@@ -39,7 +39,7 @@ class CAPTURE_EXPORT FileVideoCaptureDevice : public VideoCaptureDevice {
   // or false.
   // Restrictions: Only trivial Y4M per-frame headers and MJPEG are supported.
   static bool GetVideoCaptureFormat(const base::FilePath& file_path,
-                                    media::VideoCaptureFormat* video_format);
+                                    VideoCaptureFormat* video_format);
 
   // Constructor of the class, with a fully qualified file path as input, which
   // represents the Y4M or MJPEG file to stream repeatedly.
@@ -51,6 +51,10 @@ class CAPTURE_EXPORT FileVideoCaptureDevice : public VideoCaptureDevice {
       const VideoCaptureParams& params,
       std::unique_ptr<VideoCaptureDevice::Client> client) override;
   void StopAndDeAllocate() override;
+  void GetPhotoState(GetPhotoStateCallback callback) override;
+  void SetPhotoOptions(mojom::PhotoSettingsPtr settings,
+                       SetPhotoOptionsCallback callback) override;
+  void TakePhoto(TakePhotoCallback callback) override;
 
  private:
   // Opens a given file |file_path| for reading, and stores collected format
@@ -58,7 +62,7 @@ class CAPTURE_EXPORT FileVideoCaptureDevice : public VideoCaptureDevice {
   // caller, who is responsible for closing it.
   static std::unique_ptr<VideoFileParser> GetVideoFileParser(
       const base::FilePath& file_path,
-      media::VideoCaptureFormat* video_format);
+      VideoCaptureFormat* video_format);
 
   // Called on the |capture_thread_|.
   void OnAllocateAndStart(const VideoCaptureParams& params,
@@ -83,6 +87,11 @@ class CAPTURE_EXPORT FileVideoCaptureDevice : public VideoCaptureDevice {
   base::TimeTicks next_frame_time_;
   // The system time when we receive the first frame.
   base::TimeTicks first_ref_time_;
+
+  // Guards the below variables from concurrent access between methods running
+  // on the main thread and |capture_thread_|.
+  base::Lock lock_;
+  base::queue<TakePhotoCallback> take_photo_callbacks_;
 
   DISALLOW_COPY_AND_ASSIGN(FileVideoCaptureDevice);
 };

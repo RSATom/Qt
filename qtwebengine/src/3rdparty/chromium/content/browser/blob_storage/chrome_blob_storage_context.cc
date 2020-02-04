@@ -4,6 +4,7 @@
 
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -12,21 +13,24 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/guid.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/supports_user_data.h"
+#include "base/task/post_task.h"
 #include "base/task_runner.h"
-#include "base/task_scheduler/post_task.h"
 #include "content/browser/resource_context_impl.h"
 #include "content/public/browser/blob_handle.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_features.h"
-#include "content/public/common/resource_request_body.h"
+#include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/cpp/wrapper_shared_url_loader_factory.h"
 #include "storage/browser/blob/blob_data_builder.h"
+#include "storage/browser/blob/blob_impl.h"
 #include "storage/browser/blob/blob_memory_controller.h"
 #include "storage/browser/blob/blob_storage_context.h"
+#include "storage/browser/blob/blob_url_loader_factory.h"
 
 using base::FilePath;
 using base::UserDataAdapter;
@@ -35,8 +39,6 @@ using storage::BlobStorageContext;
 namespace content {
 
 namespace {
-const FilePath::CharType kBlobStorageContextKeyName[] =
-    FILE_PATH_LITERAL("content_blob_storage_context");
 const FilePath::CharType kBlobStorageParentDirectory[] =
     FILE_PATH_LITERAL("blob_storage");
 
@@ -70,6 +72,14 @@ class BlobHandleImpl : public BlobHandle {
 
   std::string GetUUID() override { return handle_->uuid(); }
 
+  blink::mojom::BlobPtr PassBlob() override {
+    blink::mojom::BlobPtr result;
+    storage::BlobImpl::Create(
+        std::make_unique<storage::BlobDataHandle>(*handle_),
+        MakeRequest(&result));
+    return result;
+  }
+
  private:
   std::unique_ptr<storage::BlobDataHandle> handle_;
 };
@@ -87,11 +97,12 @@ ChromeBlobStorageContext* ChromeBlobStorageContext::GetFor(
         new ChromeBlobStorageContext();
     context->SetUserData(
         kBlobStorageContextKeyName,
-        base::MakeUnique<UserDataAdapter<ChromeBlobStorageContext>>(
+        std::make_unique<UserDataAdapter<ChromeBlobStorageContext>>(
             blob.get()));
 
     // Check first to avoid memory leak in unittests.
-    bool io_thread_valid = BrowserThread::IsMessageLoopValid(BrowserThread::IO);
+    bool io_thread_valid =
+        BrowserThread::IsThreadInitialized(BrowserThread::IO);
 
     // Resolve our storage directories.
     FilePath blob_storage_parent =
@@ -107,21 +118,21 @@ ChromeBlobStorageContext* ChromeBlobStorageContext::GetFor(
     // disk on the storage context.
     if (!context->IsOffTheRecord() && io_thread_valid) {
       file_task_runner = base::CreateTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND,
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
       // Removes our old blob directories if they exist.
       BrowserThread::PostAfterStartupTask(
           FROM_HERE, file_task_runner,
-          base::Bind(&RemoveOldBlobStorageDirectories,
-                     base::Passed(&blob_storage_parent), blob_storage_dir));
+          base::BindOnce(&RemoveOldBlobStorageDirectories,
+                         std::move(blob_storage_parent), blob_storage_dir));
     }
 
     if (io_thread_valid) {
-      BrowserThread::PostTask(
-          BrowserThread::IO, FROM_HERE,
-          base::Bind(&ChromeBlobStorageContext::InitializeOnIOThread, blob,
-                     base::Passed(&blob_storage_dir),
-                     base::Passed(&file_task_runner)));
+      base::PostTaskWithTraits(
+          FROM_HERE, {BrowserThread::IO},
+          base::BindOnce(&ChromeBlobStorageContext::InitializeOnIOThread, blob,
+                         std::move(blob_storage_dir),
+                         std::move(file_task_runner)));
     }
   }
 
@@ -138,22 +149,25 @@ void ChromeBlobStorageContext::InitializeOnIOThread(
   // Signal the BlobMemoryController when it's appropriate to calculate its
   // storage limits.
   BrowserThread::PostAfterStartupTask(
-      FROM_HERE, BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
-      base::Bind(&storage::BlobMemoryController::CalculateBlobStorageLimits,
-                 context_->mutable_memory_controller()->GetWeakPtr()));
+      FROM_HERE,
+      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}),
+      base::BindOnce(&storage::BlobMemoryController::CalculateBlobStorageLimits,
+                     context_->mutable_memory_controller()->GetWeakPtr()));
 }
 
 std::unique_ptr<BlobHandle> ChromeBlobStorageContext::CreateMemoryBackedBlob(
     const char* data,
-    size_t length) {
+    size_t length,
+    const std::string& content_type) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   std::string uuid(base::GenerateGUID());
-  storage::BlobDataBuilder blob_data_builder(uuid);
-  blob_data_builder.AppendData(data, length);
+  auto blob_data_builder = std::make_unique<storage::BlobDataBuilder>(uuid);
+  blob_data_builder->set_content_type(content_type);
+  blob_data_builder->AppendData(data, length);
 
   std::unique_ptr<storage::BlobDataHandle> blob_data_handle =
-      context_->AddFinishedBlob(&blob_data_builder);
+      context_->AddFinishedBlob(std::move(blob_data_builder));
   if (!blob_data_handle)
     return std::unique_ptr<BlobHandle>();
 
@@ -162,31 +176,76 @@ std::unique_ptr<BlobHandle> ChromeBlobStorageContext::CreateMemoryBackedBlob(
   return blob_handle;
 }
 
-std::unique_ptr<BlobHandle> ChromeBlobStorageContext::CreateFileBackedBlob(
-    const FilePath& path,
-    int64_t offset,
-    int64_t size,
-    const base::Time& expected_modification_time) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+// static
+scoped_refptr<network::SharedURLLoaderFactory>
+ChromeBlobStorageContext::URLLoaderFactoryForToken(
+    BrowserContext* browser_context,
+    blink::mojom::BlobURLTokenPtr token) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  network::mojom::URLLoaderFactoryPtr blob_url_loader_factory_ptr;
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(
+          [](scoped_refptr<ChromeBlobStorageContext> context,
+             network::mojom::URLLoaderFactoryRequest request,
+             blink::mojom::BlobURLTokenPtrInfo token) {
+            storage::BlobURLLoaderFactory::Create(
+                blink::mojom::BlobURLTokenPtr(std::move(token)),
+                context->context()->AsWeakPtr(), std::move(request));
+          },
+          base::WrapRefCounted(GetFor(browser_context)),
+          MakeRequest(&blob_url_loader_factory_ptr), token.PassInterface()));
+  return base::MakeRefCounted<network::WrapperSharedURLLoaderFactory>(
+      std::move(blob_url_loader_factory_ptr));
+}
 
-  std::string uuid(base::GenerateGUID());
-  storage::BlobDataBuilder blob_data_builder(uuid);
-  blob_data_builder.AppendFile(path, offset, size, expected_modification_time);
+// static
+scoped_refptr<network::SharedURLLoaderFactory>
+ChromeBlobStorageContext::URLLoaderFactoryForUrl(
+    BrowserContext* browser_context,
+    const GURL& url) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  network::mojom::URLLoaderFactoryPtr blob_url_loader_factory_ptr;
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(
+          [](scoped_refptr<ChromeBlobStorageContext> context,
+             network::mojom::URLLoaderFactoryRequest request, const GURL& url) {
+            auto blob_handle =
+                context->context()->GetBlobDataFromPublicURL(url);
+            storage::BlobURLLoaderFactory::Create(std::move(blob_handle), url,
+                                                  std::move(request));
+          },
+          base::WrapRefCounted(GetFor(browser_context)),
+          MakeRequest(&blob_url_loader_factory_ptr), url));
+  return base::MakeRefCounted<network::WrapperSharedURLLoaderFactory>(
+      std::move(blob_url_loader_factory_ptr));
+}
 
-  std::unique_ptr<storage::BlobDataHandle> blob_data_handle =
-      context_->AddFinishedBlob(&blob_data_builder);
-  if (!blob_data_handle)
-    return std::unique_ptr<BlobHandle>();
-
-  std::unique_ptr<BlobHandle> blob_handle(
-      new BlobHandleImpl(std::move(blob_data_handle)));
-  return blob_handle;
+// static
+blink::mojom::BlobPtr ChromeBlobStorageContext::GetBlobPtr(
+    BrowserContext* browser_context,
+    const std::string& uuid) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  blink::mojom::BlobPtr blob_ptr;
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(
+          [](scoped_refptr<ChromeBlobStorageContext> context,
+             blink::mojom::BlobRequest request, const std::string& uuid) {
+            auto handle = context->context()->GetBlobDataFromUUID(uuid);
+            if (handle)
+              storage::BlobImpl::Create(std::move(handle), std::move(request));
+          },
+          base::WrapRefCounted(GetFor(browser_context)), MakeRequest(&blob_ptr),
+          uuid));
+  return blob_ptr;
 }
 
 ChromeBlobStorageContext::~ChromeBlobStorageContext() {}
 
 void ChromeBlobStorageContext::DeleteOnCorrectThread() const {
-  if (BrowserThread::IsMessageLoopValid(BrowserThread::IO) &&
+  if (BrowserThread::IsThreadInitialized(BrowserThread::IO) &&
       !BrowserThread::CurrentlyOn(BrowserThread::IO)) {
     BrowserThread::DeleteSoon(BrowserThread::IO, FROM_HERE, this);
     return;
@@ -197,11 +256,11 @@ void ChromeBlobStorageContext::DeleteOnCorrectThread() const {
 storage::BlobStorageContext* GetBlobStorageContext(
     ChromeBlobStorageContext* blob_storage_context) {
   if (!blob_storage_context)
-    return NULL;
+    return nullptr;
   return blob_storage_context->context();
 }
 
-bool GetBodyBlobDataHandles(ResourceRequestBody* body,
+bool GetBodyBlobDataHandles(network::ResourceRequestBody* body,
                             ResourceContext* resource_context,
                             BlobHandles* blob_handles) {
   blob_handles->clear();
@@ -211,8 +270,8 @@ bool GetBodyBlobDataHandles(ResourceRequestBody* body,
 
   DCHECK(blob_context);
   for (size_t i = 0; i < body->elements()->size(); ++i) {
-    const ResourceRequestBody::Element& element = (*body->elements())[i];
-    if (element.type() != ResourceRequestBody::Element::TYPE_BLOB)
+    const network::DataElement& element = (*body->elements())[i];
+    if (element.type() != network::mojom::DataElementType::kBlob)
       continue;
     std::unique_ptr<storage::BlobDataHandle> handle =
         blob_context->GetBlobDataFromUUID(element.blob_uuid());
@@ -222,5 +281,7 @@ bool GetBodyBlobDataHandles(ResourceRequestBody* body,
   }
   return true;
 }
+
+const char kBlobStorageContextKeyName[] = "content_blob_storage_context";
 
 }  // namespace content

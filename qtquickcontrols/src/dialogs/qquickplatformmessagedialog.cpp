@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype MessageDialog
-    \instantiates QQuickPlatformMessageDialog
+    \instantiates QQuickPlatformMessageDialog1
     \inqmlmodule QtQuick.Dialogs
     \ingroup qtquickdialogs
     \brief Dialog component for displaying popup messages.
@@ -184,11 +184,11 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \class QQuickPlatformMessageDialog
+    \class QQuickPlatformMessageDialog1
     \inmodule QtQuick.Dialogs
     \internal
 
-    \brief The QQuickPlatformMessageDialog class provides a message dialog
+    \brief The QQuickPlatformMessageDialog1 class provides a message dialog
 
     The dialog is implemented via the QPlatformMessageDialogHelper when possible;
     otherwise it falls back to a QMessageBox or a QML implementation.
@@ -199,7 +199,7 @@ QT_BEGIN_NAMESPACE
 /*!
     Constructs a file dialog with parent window \a parent.
 */
-QQuickPlatformMessageDialog::QQuickPlatformMessageDialog(QObject *parent) :
+QQuickPlatformMessageDialog1::QQuickPlatformMessageDialog1(QObject *parent) :
     QQuickAbstractMessageDialog(parent)
 {
 }
@@ -207,14 +207,14 @@ QQuickPlatformMessageDialog::QQuickPlatformMessageDialog(QObject *parent) :
 /*!
     Destroys the file dialog.
 */
-QQuickPlatformMessageDialog::~QQuickPlatformMessageDialog()
+QQuickPlatformMessageDialog1::~QQuickPlatformMessageDialog1()
 {
     if (m_dlgHelper)
         m_dlgHelper->hide();
     delete m_dlgHelper;
 }
 
-QPlatformMessageDialogHelper *QQuickPlatformMessageDialog::helper()
+QPlatformMessageDialogHelper *QQuickPlatformMessageDialog1::helper()
 {
     QQuickItem *parentItem = qobject_cast<QQuickItem *>(parent());
     if (parentItem)

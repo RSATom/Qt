@@ -26,39 +26,42 @@ PipelineController::PipelineController(
       error_cb_(error_cb),
       weak_factory_(this) {
   DCHECK(pipeline_);
-  DCHECK(!renderer_factory_cb_.is_null());
-  DCHECK(!seeked_cb_.is_null());
-  DCHECK(!suspended_cb_.is_null());
-  DCHECK(!before_resume_cb_.is_null());
-  DCHECK(!resumed_cb_.is_null());
-  DCHECK(!error_cb_.is_null());
+  DCHECK(renderer_factory_cb_);
+  DCHECK(seeked_cb_);
+  DCHECK(suspended_cb_);
+  DCHECK(before_resume_cb_);
+  DCHECK(resumed_cb_);
+  DCHECK(error_cb_);
 }
 
 PipelineController::~PipelineController() {
   DCHECK(thread_checker_.CalledOnValidThread());
 }
 
-// TODO(sandersd): If there is a pending suspend, don't call pipeline_->Start()
-// until Resume().
-void PipelineController::Start(Demuxer* demuxer,
+void PipelineController::Start(Pipeline::StartType start_type,
+                               Demuxer* demuxer,
                                Pipeline::Client* client,
                                bool is_streaming,
                                bool is_static) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(state_ == State::CREATED);
+  DCHECK_EQ(state_, State::STOPPED);
   DCHECK(demuxer);
 
   // Once the pipeline is started, we want to call the seeked callback but
   // without a time update.
+  pending_startup_ = true;
   pending_seeked_cb_ = true;
   state_ = State::STARTING;
 
   demuxer_ = demuxer;
   is_streaming_ = is_streaming;
   is_static_ = is_static;
-  pipeline_->Start(demuxer, renderer_factory_cb_.Run(), client,
+  pipeline_->Start(start_type, demuxer, renderer_factory_cb_.Run(), client,
                    base::Bind(&PipelineController::OnPipelineStatus,
-                              weak_factory_.GetWeakPtr(), State::PLAYING));
+                              weak_factory_.GetWeakPtr(),
+                              start_type == Pipeline::StartType::kNormal
+                                  ? State::PLAYING
+                                  : State::PLAYING_OR_SUSPENDED));
 }
 
 void PipelineController::Seek(base::TimeDelta time, bool time_updated) {
@@ -69,6 +72,7 @@ void PipelineController::Seek(base::TimeDelta time, bool time_updated) {
   if (time_updated)
     pending_time_updated_ = true;
   pending_seeked_cb_ = true;
+  pending_seek_except_start_ = true;
 
   // If we are already seeking to |time|, and the media is static, elide the
   // seek.
@@ -103,9 +107,46 @@ void PipelineController::Resume() {
   }
 }
 
+void PipelineController::OnDecoderStateLost() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  // Note: |time_updated| and |pending_seeked_cb_| are both false.
+  pending_seek_except_start_ = true;
+
+  // If we are already seeking or resuming, or if there's already a seek
+  // pending,elide the seek. This is okay for decoder state lost since it just
+  // needs one seek to recover (the decoder is reset and the next decode starts
+  // from a key frame).
+  //
+  // Note on potential race condition: When the seek is elided, it's possible
+  // that the decoder state loss happens before or after the previous seek
+  // (decoder Reset()):
+  // 1. Decoder state loss happens before Decoder::Reset() during the previous
+  // seek. In this case we are fine since we just need a Reset().
+  // 2. Decoder state loss happens after Decoder::Reset() during a previous
+  // seek:
+  // 2.1 If state loss happens before any Decode() we are still fine, since the
+  // decoder is in a clean state.
+  // 2.2 If state loss happens after a Decode(), then here we should not be in
+  // the SEEKING state.
+  if (state_ == State::SEEKING || state_ == State::RESUMING || pending_seek_)
+    return;
+
+  // Force a seek to the current time.
+  pending_seek_time_ = pipeline_->GetMediaTime();
+  pending_seek_ = true;
+
+  Dispatch();
+}
+
 bool PipelineController::IsStable() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return state_ == State::PLAYING;
+}
+
+bool PipelineController::IsPendingSeek() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  return pending_seek_except_start_;
 }
 
 bool PipelineController::IsSuspended() {
@@ -120,7 +161,7 @@ bool PipelineController::IsPipelineSuspended() {
   return state_ == State::SUSPENDED;
 }
 
-void PipelineController::OnPipelineStatus(State state,
+void PipelineController::OnPipelineStatus(State expected_state,
                                           PipelineStatus pipeline_status) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
@@ -130,18 +171,30 @@ void PipelineController::OnPipelineStatus(State state,
   }
 
   State old_state = state_;
-  state_ = state;
+  state_ = expected_state;
 
-  if (state == State::PLAYING) {
+  // Resolve ambiguity of the current state if we may have suspended in startup.
+  if (state_ == State::PLAYING_OR_SUSPENDED) {
+    waiting_for_seek_ = false;
+    state_ = pipeline_->IsSuspended() ? State::SUSPENDED : State::PLAYING;
+  }
+
+  if (state_ == State::PLAYING) {
     // Start(), Seek(), or Resume() completed; we can be sure that
     // |demuxer_| got the seek it was waiting for.
     waiting_for_seek_ = false;
 
     // TODO(avayvod): Remove resumed callback after https://crbug.com/678374 is
     // properly fixed.
-    if (old_state == State::RESUMING)
+    if (old_state == State::RESUMING) {
+      DCHECK(!pipeline_->IsSuspended());
       resumed_cb_.Run();
-  } else if (state == State::SUSPENDED) {
+    }
+  }
+
+  if (state_ == State::SUSPENDED) {
+    DCHECK(pipeline_->IsSuspended());
+
     // Warning: possibly reentrant. The state may change inside this callback.
     // It must be safe to call Dispatch() twice in a row here.
     suspended_cb_.Run();
@@ -200,7 +253,9 @@ void PipelineController::Dispatch() {
   }
 
   // If we have pending operations, and a seek is ongoing, abort it.
-  if ((pending_seek_ || pending_suspend_) && waiting_for_seek_) {
+  if ((pending_seek_ || pending_suspend_ || pending_audio_track_change_ ||
+       pending_video_track_change_) &&
+      waiting_for_seek_) {
     // If there is no pending seek, return the current seek to pending status.
     if (!pending_seek_) {
       pending_seek_time_ = seek_time_;
@@ -212,6 +267,34 @@ void PipelineController::Dispatch() {
     waiting_for_seek_ = false;
     demuxer_->CancelPendingSeek(pending_seek_time_);
     return;
+  }
+
+  // We can only switch tracks if we are not in a transitioning state already.
+  if ((pending_audio_track_change_ || pending_video_track_change_) &&
+      (state_ == State::PLAYING || state_ == State::SUSPENDED)) {
+    State old_state = state_;
+    state_ = State::SWITCHING_TRACKS;
+
+    // Attempt to do a track change _before_ attempting a seek operation,
+    // otherwise the seek will apply to the old tracks instead of the new
+    // one(s). Also attempt audio before video.
+    if (pending_audio_track_change_) {
+      pending_audio_track_change_ = false;
+      pipeline_->OnEnabledAudioTracksChanged(
+          pending_audio_track_change_ids_,
+          base::BindOnce(&PipelineController::OnTrackChangeComplete,
+                         weak_factory_.GetWeakPtr(), old_state));
+      return;
+    }
+
+    if (pending_video_track_change_) {
+      pending_video_track_change_ = false;
+      pipeline_->OnSelectedVideoTrackChanged(
+          pending_video_track_change_id_,
+          base::BindOnce(&PipelineController::OnTrackChangeComplete,
+                         weak_factory_.GetWeakPtr(), old_state));
+      return;
+    }
   }
 
   // Ordinary seeking.
@@ -233,26 +316,39 @@ void PipelineController::Dispatch() {
 
   // If |state_| is PLAYING and we didn't trigger an operation above then we
   // are in a stable state. If there is a seeked callback pending, emit it.
-  if (state_ == State::PLAYING) {
-    if (pending_seeked_cb_) {
-      // |seeked_cb_| may be reentrant, so update state first and return
-      // immediately.
-      pending_seeked_cb_ = false;
-      bool was_pending_time_updated = pending_time_updated_;
-      pending_time_updated_ = false;
-      seeked_cb_.Run(was_pending_time_updated);
-      return;
-    }
+  //
+  // We also need to emit it if we completed suspended startup.
+  if (pending_seeked_cb_ &&
+      (state_ == State::PLAYING ||
+       (state_ == State::SUSPENDED && pending_startup_))) {
+    // |seeked_cb_| may be reentrant, so update state first and return
+    // immediately.
+    pending_startup_ = false;
+    pending_seeked_cb_ = false;
+    pending_seek_except_start_ = false;
+    bool was_pending_time_updated = pending_time_updated_;
+    pending_time_updated_ = false;
+    seeked_cb_.Run(was_pending_time_updated);
+    return;
   }
 }
 
 void PipelineController::Stop() {
-  // For the moment, Stop() is only called on WMPI destruction, and updating the
-  // state of |this| is not relevant. Eventually, Start()/Stop() will be called
-  // in order to swap between demuxer types, and this will need to be adressed.
-  //
-  // TODO(tguilbert): Clarify the appropriate state changes when Stop() is
-  // called. See crbug.com/695734.
+  if (state_ == State::STOPPED)
+    return;
+
+  demuxer_ = nullptr;
+  waiting_for_seek_ = false;
+  pending_seeked_cb_ = false;
+  pending_seek_except_start_ = false;
+  pending_time_updated_ = false;
+  pending_seek_ = false;
+  pending_suspend_ = false;
+  pending_resume_ = false;
+  pending_audio_track_change_ = false;
+  pending_video_track_change_ = false;
+  state_ = State::STOPPED;
+
   pipeline_->Stop();
 }
 
@@ -302,13 +398,37 @@ void PipelineController::SetCdm(CdmContext* cdm_context,
 }
 
 void PipelineController::OnEnabledAudioTracksChanged(
-    const std::vector<MediaTrack::Id>& enabledTrackIds) {
-  pipeline_->OnEnabledAudioTracksChanged(enabledTrackIds);
+    const std::vector<MediaTrack::Id>& enabled_track_ids) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  pending_audio_track_change_ = true;
+  pending_audio_track_change_ids_ = enabled_track_ids;
+
+  Dispatch();
 }
 
 void PipelineController::OnSelectedVideoTrackChanged(
     base::Optional<MediaTrack::Id> selected_track_id) {
-  pipeline_->OnSelectedVideoTrackChanged(selected_track_id);
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  pending_video_track_change_ = true;
+  pending_video_track_change_id_ = selected_track_id;
+
+  Dispatch();
+}
+
+void PipelineController::FireOnTrackChangeCompleteForTesting(State set_to) {
+  OnTrackChangeComplete(set_to);
+}
+
+void PipelineController::OnTrackChangeComplete(State previous_state) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  if (state_ == State::SWITCHING_TRACKS)
+    state_ = previous_state;
+
+  // Other track changed or seek/suspend/resume, etc may be waiting.
+  Dispatch();
 }
 
 }  // namespace media

@@ -11,6 +11,10 @@
 #include "net/base/io_buffer.h"
 #include "net/url_request/url_request.h"
 
+namespace storage {
+class BlobDataHandle;
+}
+
 namespace content {
 
 // Reads a blob response for ServiceWorkerURLRequestJob.
@@ -45,7 +49,7 @@ class ServiceWorkerBlobReader : public net::URLRequest::Delegate {
   void OnSSLCertificateError(net::URLRequest* request,
                              const net::SSLInfo& ssl_info,
                              bool fatal) override;
-  void OnResponseStarted(net::URLRequest* request) override;
+  void OnResponseStarted(net::URLRequest* request, int net_error) override;
   void OnReadCompleted(net::URLRequest* request, int bytes_read) override;
 
  private:

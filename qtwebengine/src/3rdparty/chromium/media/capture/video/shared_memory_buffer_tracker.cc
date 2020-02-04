@@ -4,48 +4,71 @@
 
 #include "media/capture/video/shared_memory_buffer_tracker.h"
 
-#include "base/memory/ptr_util.h"
-#include "media/capture/video/shared_memory_buffer_handle.h"
-#include "mojo/public/cpp/system/platform_handle.h"
+#include "base/logging.h"
+#include "ui/gfx/geometry/size.h"
+
+namespace {
+
+size_t CalculateRequiredBufferSize(
+    const gfx::Size& dimensions,
+    media::VideoPixelFormat format,
+    const media::mojom::PlaneStridesPtr& strides) {
+  if (strides) {
+    size_t result = 0u;
+    for (size_t plane_index = 0;
+         plane_index < media::VideoFrame::NumPlanes(format); plane_index++) {
+      result +=
+          strides->stride_by_plane[plane_index] *
+          media::VideoFrame::Rows(plane_index, format, dimensions.height());
+    }
+    return result;
+  } else {
+    return media::VideoCaptureFormat(dimensions, 0.0f, format)
+        .ImageAllocationSize();
+  }
+}
+
+}  // namespace
 
 namespace media {
 
-SharedMemoryBufferTracker::SharedMemoryBufferTracker()
-    : VideoCaptureBufferTracker() {}
+SharedMemoryBufferTracker::SharedMemoryBufferTracker() = default;
+
+SharedMemoryBufferTracker::~SharedMemoryBufferTracker() = default;
 
 bool SharedMemoryBufferTracker::Init(const gfx::Size& dimensions,
                                      VideoPixelFormat format,
-                                     VideoPixelStorage storage_type,
-                                     base::Lock* lock) {
-  DVLOG(2) << __func__ << "allocating ShMem of " << dimensions.ToString();
-  set_dimensions(dimensions);
-  // |dimensions| can be 0x0 for trackers that do not require memory backing.
-  set_max_pixel_count(dimensions.GetArea());
-  set_pixel_format(format);
-  set_storage_type(storage_type);
-  mapped_size_ = VideoCaptureFormat(dimensions, 0.0f, format, storage_type)
-                     .ImageAllocationSize();
-  if (!mapped_size_)
-    return true;
-  return shared_memory_.CreateAndMapAnonymous(mapped_size_);
+                                     const mojom::PlaneStridesPtr& strides) {
+  const size_t buffer_size =
+      CalculateRequiredBufferSize(dimensions, format, strides);
+  return provider_.InitForSize(buffer_size);
+}
+
+bool SharedMemoryBufferTracker::IsReusableForFormat(
+    const gfx::Size& dimensions,
+    VideoPixelFormat format,
+    const mojom::PlaneStridesPtr& strides) {
+  return GetMemorySizeInBytes() >=
+         CalculateRequiredBufferSize(dimensions, format, strides);
 }
 
 std::unique_ptr<VideoCaptureBufferHandle>
 SharedMemoryBufferTracker::GetMemoryMappedAccess() {
-  return base::MakeUnique<SharedMemoryBufferHandle>(&shared_memory_,
-                                                    mapped_size_);
+  return provider_.GetHandleForInProcessAccess();
 }
 
-mojo::ScopedSharedBufferHandle
-SharedMemoryBufferTracker::GetHandleForTransit() {
-  return mojo::WrapSharedMemoryHandle(
-      base::SharedMemory::DuplicateHandle(shared_memory_.handle()),
-      mapped_size_, false /* read_only */);
+mojo::ScopedSharedBufferHandle SharedMemoryBufferTracker::GetHandleForTransit(
+    bool read_only) {
+  return provider_.GetHandleForInterProcessTransit(read_only);
 }
 
 base::SharedMemoryHandle
 SharedMemoryBufferTracker::GetNonOwnedSharedMemoryHandleForLegacyIPC() {
-  return shared_memory_.handle();
+  return provider_.GetNonOwnedSharedMemoryHandleForLegacyIPC();
+}
+
+uint32_t SharedMemoryBufferTracker::GetMemorySizeInBytes() {
+  return provider_.GetMemorySizeInBytes();
 }
 
 }  // namespace media

@@ -7,7 +7,7 @@
 
 #include "base/observer_list.h"
 #include "ui/message_center/message_center_export.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/notification.h"
 
 namespace message_center {
 class MessageCenter;
@@ -48,7 +48,7 @@ class MESSAGE_CENTER_EXPORT NotificationBlocker {
   void NotifyBlockingStateChanged();
 
  private:
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
   MessageCenter* message_center_;  // weak
 };
 

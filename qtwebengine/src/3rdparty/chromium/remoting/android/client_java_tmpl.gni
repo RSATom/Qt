@@ -71,6 +71,7 @@ template("remoting_android_client_java_tmpl") {
       "jni/ConnectionListener.java",
       "jni/GlDisplay.java",
       "jni/JniInterface.java",
+      "jni/JniOAuthTokenGetter.java",
       "jni/TouchEventData.java",
     ]
 
@@ -79,14 +80,30 @@ template("remoting_android_client_java_tmpl") {
     deps = [
       "//base:base_java",
       "//remoting/android:remoting_android_client_java_resources",
-      "//third_party/android_tools:android_support_annotations_java",
-      "//third_party/android_tools:android_support_compat_java",
-      "//third_party/android_tools:android_support_core_ui_java",
-      "//third_party/android_tools:android_support_v7_appcompat_java",
-      "//third_party/android_tools:android_support_v7_mediarouter_java",
+      "//remoting/android:remoting_apk_manifest",
+      "//third_party/android_deps:android_arch_lifecycle_common_java",
+      "//third_party/android_deps:android_support_annotations_java",
+      "//third_party/android_deps:android_support_v7_appcompat_java",
+      "//third_party/android_deps:android_support_v7_mediarouter_java",
       "//ui/android:ui_utils_java",
     ]
 
-    deps += [ invoker.remoting_google_play_services_library ]
+    srcjar_deps = [ "//remoting/client/jni:jni_enums" ]
+
+    if (defined(invoker.play_services_package)) {
+      deps += [
+        "${invoker.play_services_package}:google_play_services_auth_base_java",
+        "${invoker.play_services_package}:google_play_services_base_java",
+        "${invoker.play_services_package}:google_play_services_basement_java",
+      ]
+    }
+
+    # TODO(agrieve): Convert downstream to use play_services_package.
+    if (defined(invoker.remoting_google_play_services_library)) {
+      deps += [ invoker.remoting_google_play_services_library ]
+    }
+
+    android_manifest_for_lint =
+        "$root_gen_dir/remoting/android/AndroidManifest.xml"
   }
 }

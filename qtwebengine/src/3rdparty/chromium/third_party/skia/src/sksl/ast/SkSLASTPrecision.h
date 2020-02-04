@@ -18,8 +18,8 @@ namespace SkSL {
  */
 struct ASTPrecision : public ASTDeclaration {
     // FIXME handle the type
-    ASTPrecision(Position position, Modifiers::Flag precision)
-    : INHERITED(position, kPrecision_Kind)
+    ASTPrecision(int offset, Modifiers::Flag precision)
+    : INHERITED(offset, kPrecision_Kind)
     , fPrecision(precision) {}
 
     String description() const {
@@ -28,10 +28,10 @@ struct ASTPrecision : public ASTDeclaration {
             case Modifiers::kMediump_Flag: return String("precision mediump float;");
             case Modifiers::kHighp_Flag: return String("precision highp float;");
             default:
-                ASSERT(false);
+                SkASSERT(false);
                 return String("<error>");
         }
-        ASSERT(false);
+        SkASSERT(false);
         return String("<error>");
     }
 

@@ -61,12 +61,12 @@ class GrueSensorPlugin : public QObject, public QSensorPluginInterface, public Q
     Q_PLUGIN_METADATA(IID "com.qt-project.Qt.QSensorPluginInterface/1.0" FILE "plugin.json")
     Q_INTERFACES(QSensorPluginInterface QSensorChangesInterface)
 public:
-    void registerSensors()
+    void registerSensors() override
     {
         qDebug() << "loaded the grue plugin";
     }
 
-    void sensorsChanged()
+    void sensorsChanged() override
     {
         if (!QSensor::defaultSensorForType(QAmbientLightSensor::type).isEmpty()) {
             // There is a light sensor available. Register the backend
@@ -78,7 +78,7 @@ public:
         }
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == gruesensorimpl::id)
             return new gruesensorimpl(sensor);

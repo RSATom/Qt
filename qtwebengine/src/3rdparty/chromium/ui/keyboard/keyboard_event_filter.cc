@@ -5,6 +5,8 @@
 #include "ui/keyboard/keyboard_event_filter.h"
 
 #include "ui/events/event.h"
+#include "ui/gfx/geometry/vector2d.h"
+#include "ui/keyboard/keyboard_controller.h"
 
 namespace keyboard {
 
@@ -18,6 +20,20 @@ void KeyboardEventFilter::OnGestureEvent(ui::GestureEvent* event) {
     default:
       break;
   }
+}
+
+void KeyboardEventFilter::OnMouseEvent(ui::MouseEvent* event) {
+  ProcessPointerEvent(event);
+}
+
+void KeyboardEventFilter::OnTouchEvent(ui::TouchEvent* event) {
+  ProcessPointerEvent(event);
+}
+
+void KeyboardEventFilter::ProcessPointerEvent(ui::LocatedEvent* event) {
+  auto* controller = KeyboardController::Get();
+  if (controller->IsEnabled() && controller->HandlePointerEvent(*event))
+    event->SetHandled();
 }
 
 }  // nemespace keyboard

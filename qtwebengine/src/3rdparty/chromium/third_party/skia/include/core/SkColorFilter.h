@@ -14,12 +14,14 @@
 #include "SkRefCnt.h"
 
 class GrContext;
+class GrColorSpaceInfo;
 class GrFragmentProcessor;
 class SkArenaAlloc;
 class SkBitmap;
 class SkColorSpace;
 class SkColorSpaceXformer;
 class SkRasterPipeline;
+class SkString;
 
 /**
  *  ColorFilters are optional objects in the drawing pipeline. When present in
@@ -75,17 +77,8 @@ public:
     */
     virtual uint32_t getFlags() const { return 0; }
 
-    /**
-     *  If this subclass can optimally createa composition with the inner filter, return it as
-     *  a new filter (which the caller must unref() when it is done). If no such optimization
-     *  is known, return NULL.
-     *
-     *  e.g. result(color) == this_filter(inner(color))
-     */
-    virtual sk_sp<SkColorFilter> makeComposed(sk_sp<SkColorFilter>) const { return nullptr; }
-
     SkColor filterColor(SkColor) const;
-    SkColor4f filterColor4f(const SkColor4f&) const;
+    SkColor4f filterColor4f(const SkColor4f&, SkColorSpace*) const;
 
     /** Create a colorfilter that uses the specified color and mode.
         If the Mode is DST, this function will return NULL (since that
@@ -99,14 +92,20 @@ public:
     static sk_sp<SkColorFilter> MakeModeFilter(SkColor c, SkBlendMode mode);
 
     /** Construct a colorfilter whose effect is to first apply the inner filter and then apply
-     *  the outer filter to the result of the inner's.
-     *  The reference counts for outer and inner are incremented.
+     *  this filter, applied to the output of the inner filter.
+     *
+     *  result = this(inner(...))
      *
      *  Due to internal limits, it is possible that this will return NULL, so the caller must
      *  always check.
      */
+    sk_sp<SkColorFilter> makeComposed(sk_sp<SkColorFilter> inner) const;
+
+    // DEPRECATED, call makeComposed instead
     static sk_sp<SkColorFilter> MakeComposeFilter(sk_sp<SkColorFilter> outer,
-                                                  sk_sp<SkColorFilter> inner);
+                                                  sk_sp<SkColorFilter> inner) {
+        return outer ? outer->makeComposed(inner) : inner;
+    }
 
     /** Construct a color filter that transforms a color by a 4x5 matrix. The matrix is in row-
      *  major order and the translation column is specified in unnormalized, 0...255, space.
@@ -131,18 +130,30 @@ public:
      *
      *  A null return indicates that the color filter isn't implemented for the GPU backend.
      */
-    virtual sk_sp<GrFragmentProcessor> asFragmentProcessor(GrContext*,
-                                                           SkColorSpace* dstColorSpace) const;
+    virtual std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(
+            GrContext*, const GrColorSpaceInfo& dstColorSpaceInfo) const;
 #endif
 
     bool affectsTransparentBlack() const {
-        return this->filterColor(0) != 0;
+        return this->filterColor(SK_ColorTRANSPARENT) != SK_ColorTRANSPARENT;
     }
 
-    SK_TO_STRING_PUREVIRT()
+    static void RegisterFlattenables();
 
-    SK_DECLARE_FLATTENABLE_REGISTRAR_GROUP()
-    SK_DEFINE_FLATTENABLE_TYPE(SkColorFilter)
+    static SkFlattenable::Type GetFlattenableType() {
+        return kSkColorFilter_Type;
+    }
+
+    SkFlattenable::Type getFlattenableType() const override {
+        return kSkColorFilter_Type;
+    }
+
+    static sk_sp<SkColorFilter> Deserialize(const void* data, size_t size,
+                                          const SkDeserialProcs* procs = nullptr) {
+        return sk_sp<SkColorFilter>(static_cast<SkColorFilter*>(
+                                  SkFlattenable::Deserialize(
+                                  kSkColorFilter_Type, data, size, procs).release()));
+    }
 
 protected:
     SkColorFilter() {}
@@ -153,6 +164,15 @@ protected:
     virtual sk_sp<SkColorFilter> onMakeColorSpace(SkColorSpaceXformer*) const {
         return sk_ref_sp(const_cast<SkColorFilter*>(this));
     }
+
+    /**
+     *  If this subclass can optimally createa composition with the inner filter, return it as
+     *  a new filter (which the caller must unref() when it is done). If no such optimization
+     *  is known, return NULL.
+     *
+     *  e.g. result(color) == this_filter(inner(color))
+     */
+    virtual sk_sp<SkColorFilter> onMakeComposed(sk_sp<SkColorFilter>) const { return nullptr; }
 
 private:
     /*

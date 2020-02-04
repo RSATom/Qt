@@ -42,10 +42,10 @@
 
 #include "qtwindowsglobal.h"
 
-#include <QtCore/QList>
-#include <QtCore/QVector>
-#include <QtCore/QPair>
-#include <QtCore/QScopedPointer>
+#include <QtCore/qlist.h>
+#include <QtCore/qvector.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qscopedpointer.h>
 #include <qpa/qplatformscreen.h>
 
 QT_BEGIN_NAMESPACE
@@ -113,6 +113,8 @@ public:
 
     const QWindowsScreenData &data() const  { return m_data; }
 
+    static QRect virtualGeometry(const QPlatformScreen *screen);
+
 private:
     QWindowsScreenData m_data;
 #ifndef QT_NO_CURSOR
@@ -135,6 +137,8 @@ public:
 
     const QWindowsScreen *screenAtDp(const QPoint &p) const;
     const QWindowsScreen *screenForHwnd(HWND hwnd) const;
+
+    static bool isSingleScreen();
 
 private:
     void removeScreen(int index);

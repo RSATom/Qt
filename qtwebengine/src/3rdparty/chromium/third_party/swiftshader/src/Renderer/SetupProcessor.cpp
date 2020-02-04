@@ -14,13 +14,13 @@
 
 #include "SetupProcessor.hpp"
 
-#include "SetupRoutine.hpp"
 #include "Primitive.hpp"
 #include "Polygon.hpp"
 #include "Context.hpp"
 #include "Renderer.hpp"
-#include "Constants.hpp"
-#include "Debug.hpp"
+#include "Shader/SetupRoutine.hpp"
+#include "Shader/Constants.hpp"
+#include "Common/Debug.hpp"
 
 namespace sw
 {
@@ -85,7 +85,7 @@ namespace sw
 		state.pointSprite = context->pointSpriteActive();
 		state.cullMode = context->cullMode;
 		state.twoSidedStencil = context->stencilActive() && context->twoSidedStencil;
-		state.slopeDepthBias = slopeDepthBias != 0.0f;
+		state.slopeDepthBias = context->slopeDepthBias != 0.0f;
 		state.vFace = context->pixelShader && context->pixelShader->isVFaceDeclared();
 
 		state.positionRegister = Pos;
@@ -183,7 +183,7 @@ namespace sw
 				}
 			}
 		}
-		else if(context->pixelShaderVersion() < 0x0300)
+		else if(context->pixelShaderModel() < 0x0300)
 		{
 			for(int coordinate = 0; coordinate < 8; coordinate++)
 			{

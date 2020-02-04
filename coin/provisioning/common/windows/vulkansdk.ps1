@@ -36,13 +36,13 @@
 # This script will install Vulkan SDK
 
 $version = "1.0.51.0"
-$url_cache = "\\ci-files01-hki.ci.local\provisioning\windows\VulkanSDK-" +$version+ "-Installer.exe"
+$url_cache = "\\ci-files01-hki.intra.qt.io\provisioning\windows\VulkanSDK-" +$version+ "-Installer.exe"
 $vulkanPackage = "C:\Windows\Temp\vulkan-installer-$version.exe"
 
 Copy-Item $url_cache $vulkanPackage
-cmd /c "$vulkanPackage /S"
+Run-Executable $vulkanPackage "/S"
 
-echo "Cleaning $vulkanPackage.."
-Remove-Item -Recurse -Force "$vulkanPackage"
+Write-Host "Cleaning $vulkanPackage.."
+Remove-Item -Recurse -Force -Path "$vulkanPackage"
 
-echo "Vulkan SDK = $version" >> ~\versions.txt
+Write-Output "Vulkan SDK = $version" >> ~\versions.txt

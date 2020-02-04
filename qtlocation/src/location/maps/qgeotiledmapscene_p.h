@@ -72,6 +72,7 @@ public:
     void setScreenSize(const QSize &size);
     void setTileSize(int tileSize);
     void setCameraData(const QGeoCameraData &cameraData);
+    void setVisibleArea(const QRectF &visibleArea);
 
     void setVisibleTiles(const QSet<QGeoTileSpec> &tiles);
     const QSet<QGeoTileSpec> &visibleTiles() const;

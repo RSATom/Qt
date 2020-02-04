@@ -10,11 +10,11 @@
 #include <string>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "storage/browser/fileapi/mount_points.h"
-#include "storage/browser/storage_browser_export.h"
 #include "storage/common/fileapi/file_system_mount_option.h"
 #include "storage/common/fileapi/file_system_types.h"
 
@@ -32,7 +32,7 @@ class FileSystemURL;
 //
 //   filesystem:<origin>/external/<mount_name>/relative/path
 //
-class STORAGE_EXPORT ExternalMountPoints
+class COMPONENT_EXPORT(STORAGE_BROWSER) ExternalMountPoints
     : public base::RefCountedThreadSafe<ExternalMountPoints>,
       public MountPoints {
  public:
@@ -120,10 +120,7 @@ class STORAGE_EXPORT ExternalMountPoints
   // Represents each file system instance (defined in the .cc).
   class Instance;
 
-  typedef std::map<std::string, std::unique_ptr<Instance>> NameToInstance;
-
-  // Reverse map from registered path to its corresponding mount name.
-  typedef std::map<base::FilePath, std::string> PathToName;
+  using NameToInstance = std::map<std::string, std::unique_ptr<Instance>>;
 
   // Use |GetSystemInstance| of |CreateRefCounted| to get an instance.
   ExternalMountPoints();
@@ -149,7 +146,9 @@ class STORAGE_EXPORT ExternalMountPoints
   mutable base::Lock lock_;
 
   NameToInstance instance_map_;
-  PathToName path_to_name_map_;
+
+  // Reverse map from registered path to its corresponding mount name.
+  std::map<base::FilePath, std::string> path_to_name_map_;
 
   DISALLOW_COPY_AND_ASSIGN(ExternalMountPoints);
 };

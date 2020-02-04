@@ -57,28 +57,22 @@
 
 #include "qremoteobjectpacket_p.h"
 
-#include <QPointer>
-#include <QVector>
-#include <QDataStream>
-#include <qcompilerdetection.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qvector.h>
+#include <QtCore/qdatastream.h>
+#include <QtCore/qcompilerdetection.h>
+#include <QtCore/qtimer.h>
 
 QT_BEGIN_NAMESPACE
 
 class QRemoteObjectReplica;
 class QRemoteObjectSource;
-class ClientIoDevice;
+class IoDeviceBase;
 
-namespace QRemoteObjectPackets {
-class QInitDynamicPacket;
-class QInvokePacket;
-class QInvokeReplyPacket;
-class QRemoteObjectPacket;
-}
-
-class QReplicaPrivateInterface
+class QReplicaImplementationInterface
 {
 public:
-    virtual ~QReplicaPrivateInterface() {}
+    virtual ~QReplicaImplementationInterface() {}
     virtual const QVariant getProperty(int i) const = 0;
     virtual void setProperties(const QVariantList &) = 0;
     virtual void setProperty(int i, const QVariant &) = 0;
@@ -91,11 +85,11 @@ public:
     virtual QRemoteObjectPendingCall _q_sendWithReply(QMetaObject::Call call, int index, const QVariantList &args) = 0;
 };
 
-class QStubReplicaPrivate : public QReplicaPrivateInterface
+class QStubReplicaImplementation final : public QReplicaImplementationInterface
 {
 public:
-    explicit QStubReplicaPrivate();
-    virtual ~QStubReplicaPrivate();
+    explicit QStubReplicaImplementation();
+    ~QStubReplicaImplementation() override;
 
     const QVariant getProperty(int i) const override;
     void setProperties(const QVariantList &) override;
@@ -110,33 +104,34 @@ public:
     QVariantList m_propertyStorage;
 };
 
-class QRemoteObjectReplicaPrivate : public QObject, public QReplicaPrivateInterface
+class QRemoteObjectReplicaImplementation : public QObject, public QReplicaImplementationInterface
 {
 public:
-    explicit QRemoteObjectReplicaPrivate(const QString &name, const QMetaObject *, QRemoteObjectNode *);
-    virtual ~QRemoteObjectReplicaPrivate();
+    explicit QRemoteObjectReplicaImplementation(const QString &name, const QMetaObject *, QRemoteObjectNode *);
+    ~QRemoteObjectReplicaImplementation() override;
 
     bool needsDynamicInitialization() const;
 
-    virtual const QVariant getProperty(int i) const override = 0;
-    virtual void setProperties(const QVariantList &) override = 0;
-    virtual void setProperty(int i, const QVariant &) override = 0;
+    const QVariant getProperty(int i) const override = 0;
+    void setProperties(const QVariantList &) override = 0;
+    void setProperty(int i, const QVariant &) override = 0;
     virtual bool isShortCircuit() const = 0;
-    virtual bool isInitialized() const override { return true; }
+    bool isInitialized() const override { return true; }
     QRemoteObjectReplica::State state() const override { return QRemoteObjectReplica::State(m_state.load()); }
     void setState(QRemoteObjectReplica::State state);
-    virtual bool waitForSource(int) override { return true; }
+    bool waitForSource(int) override { return true; }
     virtual bool waitForFinished(const QRemoteObjectPendingCall &, int) { return true; }
     virtual void notifyAboutReply(int, const QVariant &) {}
     virtual void configurePrivate(QRemoteObjectReplica *);
     void emitInitialized();
     QRemoteObjectNode *node() const override { return m_node; }
 
-    virtual void _q_send(QMetaObject::Call call, int index, const QVariantList &args) override = 0;
-    virtual QRemoteObjectPendingCall _q_sendWithReply(QMetaObject::Call call, int index, const QVariantList &args) override = 0;
+    void _q_send(QMetaObject::Call call, int index, const QVariantList &args) override = 0;
+    QRemoteObjectPendingCall _q_sendWithReply(QMetaObject::Call call, int index, const QVariantList &args) override = 0;
 
     //Dynamic replica functions
-    virtual void initializeMetaObject(const QMetaObjectBuilder &builder, const QVariantList &values);
+    virtual void setDynamicMetaObject(const QMetaObject *meta);
+    virtual void setDynamicProperties(const QVariantList &values);
 
     QString m_objectName;
     const QMetaObject *m_metaObject;
@@ -151,56 +146,60 @@ public:
     QAtomicInt m_state;
 };
 
-class QConnectedReplicaPrivate : public QRemoteObjectReplicaPrivate
+class QConnectedReplicaImplementation final : public QRemoteObjectReplicaImplementation
 {
 public:
-    explicit QConnectedReplicaPrivate(const QString &name, const QMetaObject *, QRemoteObjectNode *);
-    virtual ~QConnectedReplicaPrivate();
+    explicit QConnectedReplicaImplementation(const QString &name, const QMetaObject *, QRemoteObjectNode *);
+    ~QConnectedReplicaImplementation() override;
     const QVariant getProperty(int i) const override;
     void setProperties(const QVariantList &) override;
     void setProperty(int i, const QVariant &) override;
-    bool isShortCircuit() const override { return false; }
+    bool isShortCircuit() const final { return false; }
     bool isInitialized() const override;
     bool waitForSource(int timeout) override;
-    void initialize(const QVariantList &values);
+    QVector<int> childIndices() const;
+    void initialize(QVariantList &values);
     void configurePrivate(QRemoteObjectReplica *) override;
     void requestRemoteObjectSource();
     bool sendCommand();
     QRemoteObjectPendingCall sendCommandWithReply(int serialId);
     bool waitForFinished(const QRemoteObjectPendingCall &call, int timeout) override;
     void notifyAboutReply(int ackedSerialId, const QVariant &value) override;
-    void setConnection(ClientIoDevice *conn);
+    void setConnection(IoDeviceBase *conn);
     void setDisconnected();
 
     void _q_send(QMetaObject::Call call, int index, const QVariantList &args) override;
     QRemoteObjectPendingCall _q_sendWithReply(QMetaObject::Call call, int index, const QVariantList& args) override;
 
-    void initializeMetaObject(const QMetaObjectBuilder&, const QVariantList&) override;
+    void setDynamicMetaObject(const QMetaObject *meta) override;
+    void setDynamicProperties(const QVariantList&) override;
     QVector<QRemoteObjectReplica *> m_parentsNeedingConnect;
     QVariantList m_propertyStorage;
-    QPointer<ClientIoDevice> connectionToSource;
+    QVector<int> m_childIndices;
+    QPointer<IoDeviceBase> connectionToSource;
 
     // pending call data
-    int m_curSerialId;
+    int m_curSerialId = 1; // 0 is reserved for heartbeat signals
     QHash<int, QRemoteObjectPendingCall> m_pendingCalls;
     QRemoteObjectPackets::DataStreamPacket m_packet;
+    QTimer m_heartbeatTimer;
 };
 
-class QInProcessReplicaPrivate : public QRemoteObjectReplicaPrivate
+class QInProcessReplicaImplementation final : public QRemoteObjectReplicaImplementation
 {
 public:
-    explicit QInProcessReplicaPrivate(const QString &name, const QMetaObject *, QRemoteObjectNode *);
-    virtual ~QInProcessReplicaPrivate();
+    explicit QInProcessReplicaImplementation(const QString &name, const QMetaObject *, QRemoteObjectNode *);
+    ~QInProcessReplicaImplementation() override;
 
     const QVariant getProperty(int i) const override;
     void setProperties(const QVariantList &) override;
     void setProperty(int i, const QVariant &) override;
-    bool isShortCircuit() const override { return true; }
+    bool isShortCircuit() const final { return true; }
 
     void _q_send(QMetaObject::Call call, int index, const QVariantList &args) override;
     QRemoteObjectPendingCall _q_sendWithReply(QMetaObject::Call call, int index, const QVariantList& args) override;
 
-    QPointer<QRemoteObjectSource> connectionToSource;
+    QPointer<QRemoteObjectSourceBase> connectionToSource;
 };
 
 QT_END_NAMESPACE

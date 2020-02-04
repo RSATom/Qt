@@ -81,6 +81,7 @@ public Q_SLOTS:
 
 private:
     void setState(QTextToSpeech::State state);
+    QVoice javaVoiceObjectToQVoice(QJNIObjectPrivate &obj) const;
 
     QJNIObjectPrivate m_speech;
     QTextToSpeech::State m_state;

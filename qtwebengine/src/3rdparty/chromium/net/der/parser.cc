@@ -62,13 +62,23 @@ bool Parser::ReadTagAndValue(Tag* tag, Input* out) {
 }
 
 bool Parser::ReadOptionalTag(Tag tag, Input* out, bool* present) {
-  CBS tmp_out;
-  int out_present;
-  if (!CBS_get_optional_asn1(&cbs_, &tmp_out, &out_present, tag))
+  if (!HasMore()) {
+    *present = false;
+    return true;
+  }
+  Tag actual_tag;
+  Input value;
+  if (!PeekTagAndValue(&actual_tag, &value)) {
     return false;
-  *present = (out_present != 0);
-  if (*present)
-    *out = Input(CBS_data(&tmp_out), CBS_len(&tmp_out));
+  }
+  if (actual_tag == tag) {
+    CHECK(Advance());
+    *present = true;
+    *out = value;
+  } else {
+    advance_len_ = 0;
+    *present = false;
+  }
   return true;
 }
 
@@ -78,10 +88,13 @@ bool Parser::SkipOptionalTag(Tag tag, bool* present) {
 }
 
 bool Parser::ReadTag(Tag tag, Input* out) {
-  CBS tmp_out;
-  if (!CBS_get_asn1(&cbs_, &tmp_out, tag))
+  Tag actual_tag;
+  Input value;
+  if (!PeekTagAndValue(&actual_tag, &value) || actual_tag != tag) {
     return false;
-  *out = Input(CBS_data(&tmp_out), CBS_len(&tmp_out));
+  }
+  CHECK(Advance());
+  *out = value;
   return true;
 }
 

@@ -33,8 +33,8 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#ifndef QXINPUTGAMEPADCONTROLLER_H
-#define QXINPUTGAMEPADCONTROLLER_H
+#ifndef QXINPUTGAMEPADBACKEND_P_H
+#define QXINPUTGAMEPADBACKEND_P_H
 
 #include <QtGamepad/QGamepadManager>
 #include <QtGamepad/private/qgamepadbackend_p.h>
@@ -60,4 +60,4 @@ private:
 
 QT_END_NAMESPACE
 
-#endif // QXINPUTGAMEPADCONTROLLER_H
+#endif // QXINPUTGAMEPADBACKEND_P_H

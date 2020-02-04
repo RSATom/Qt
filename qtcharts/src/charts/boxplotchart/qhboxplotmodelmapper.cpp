@@ -34,7 +34,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QHBoxPlotModelMapper
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QHBoxPlotModelMapper class is a horizontal model mapper for box
     plot series.
 
@@ -298,7 +298,6 @@ void QHBoxPlotModelMapper::setColumnCount(int columnCount)
     }
 }
 
-#include "moc_qhboxplotmodelmapper.cpp"
-
 QT_CHARTS_END_NAMESPACE
 
+#include "moc_qhboxplotmodelmapper.cpp"

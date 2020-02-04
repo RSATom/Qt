@@ -18,11 +18,12 @@ namespace protocol {
 class DOMHandler : public DevToolsDomainHandler,
                    public DOM::Backend {
  public:
-  DOMHandler();
+  explicit DOMHandler(bool allow_file_access);
   ~DOMHandler() override;
 
   void Wire(UberDispatcher* dispatcher) override;
-  void SetRenderFrameHost(RenderFrameHostImpl* host) override;
+  void SetRenderer(int process_host_id,
+                   RenderFrameHostImpl* frame_host) override;
   Response Disable() override;
 
   Response SetFileInputFiles(
@@ -33,6 +34,7 @@ class DOMHandler : public DevToolsDomainHandler,
 
  private:
   RenderFrameHostImpl* host_;
+  bool allow_file_access_;
   DISALLOW_COPY_AND_ASSIGN(DOMHandler);
 };
 

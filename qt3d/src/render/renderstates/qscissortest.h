@@ -49,7 +49,7 @@ namespace Qt3DRender {
 
 class QScissorTestPrivate;
 
-class QT3DRENDERSHARED_EXPORT QScissorTest  : public QRenderState
+class Q_3DRENDERSHARED_EXPORT QScissorTest  : public QRenderState
 {
     Q_OBJECT
     Q_PROPERTY(int left READ left WRITE setLeft NOTIFY leftChanged)
@@ -80,7 +80,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QScissorTest)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

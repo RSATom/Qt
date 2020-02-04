@@ -65,7 +65,7 @@ public:
     Q_INVOKABLE virtual void purchase() = 0;
 
 protected:
-    explicit QInAppProduct(const QString &price, const QString &title, const QString &description, ProductType productType, const QString &identifier, QObject *parent = Q_NULLPTR);
+    explicit QInAppProduct(const QString &price, const QString &title, const QString &description, ProductType productType, const QString &identifier, QObject *parent = nullptr);
 
 private:
     friend class QInAppStore;

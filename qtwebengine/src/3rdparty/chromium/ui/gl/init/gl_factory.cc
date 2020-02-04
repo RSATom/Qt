@@ -4,6 +4,7 @@
 
 #include "ui/gl/init/gl_factory.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -17,15 +18,31 @@
 namespace gl {
 namespace init {
 
-bool InitializeGLOneOff() {
-  TRACE_EVENT0("gpu,startup", "gl::init::InitializeOneOff");
-
+namespace {
+bool InitializeGLOneOffHelper(bool init_extensions) {
   DCHECK_EQ(kGLImplementationNone, GetGLImplementation());
 
-  std::vector<GLImplementation> allowed_impls = GetAllowedGLImplementations();
-  DCHECK(!allowed_impls.empty());
+  const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
+  std::string requested_implementation_name =
+      cmd->GetSwitchValueASCII(switches::kUseGL);
+  if (requested_implementation_name == kGLImplementationDisabledName) {
+    gl::SetGLImplementation(gl::kGLImplementationDisabled);
+    return true;
+  }
 
-  base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
+  std::vector<GLImplementation> allowed_impls = GetAllowedGLImplementations();
+
+  if (cmd->HasSwitch(switches::kDisableES3GLContext)) {
+    auto iter = std::find(allowed_impls.begin(), allowed_impls.end(),
+                          kGLImplementationDesktopGLCoreProfile);
+    if (iter != allowed_impls.end())
+      allowed_impls.erase(iter);
+  }
+
+  if (allowed_impls.empty()) {
+    LOG(ERROR) << "List of allowed GL implementations is empty.";
+    return false;
+  }
 
   // The default implementation is always the first one in list.
   GLImplementation impl = allowed_impls[0];
@@ -33,8 +50,6 @@ bool InitializeGLOneOff() {
   if (cmd->HasSwitch(switches::kOverrideUseSoftwareGLForTests)) {
     impl = GetSoftwareGLImplementation();
   } else if (cmd->HasSwitch(switches::kUseGL)) {
-    std::string requested_implementation_name =
-        cmd->GetSwitchValueASCII(switches::kUseGL);
     if (requested_implementation_name == "any") {
       fallback_to_software_gl = true;
     } else if ((requested_implementation_name ==
@@ -56,23 +71,41 @@ bool InitializeGLOneOff() {
   bool gpu_service_logging = cmd->HasSwitch(switches::kEnableGPUServiceLogging);
   bool disable_gl_drawing = cmd->HasSwitch(switches::kDisableGLDrawingForTests);
 
-  return InitializeGLOneOffImplementation(
-      impl, fallback_to_software_gl, gpu_service_logging, disable_gl_drawing);
+  return InitializeGLOneOffImplementation(impl, fallback_to_software_gl,
+                                          gpu_service_logging,
+                                          disable_gl_drawing, init_extensions);
+}
+
+}  // namespace
+
+bool InitializeGLOneOff() {
+  TRACE_EVENT0("gpu,startup", "gl::init::InitializeOneOff");
+  return InitializeGLOneOffHelper(true);
+}
+
+bool InitializeGLNoExtensionsOneOff() {
+  TRACE_EVENT0("gpu,startup", "gl::init::InitializeNoExtensionsOneOff");
+  return InitializeGLOneOffHelper(false);
 }
 
 bool InitializeGLOneOffImplementation(GLImplementation impl,
                                       bool fallback_to_software_gl,
                                       bool gpu_service_logging,
-                                      bool disable_gl_drawing) {
+                                      bool disable_gl_drawing,
+                                      bool init_extensions) {
   bool initialized =
       InitializeStaticGLBindings(impl) && InitializeGLOneOffPlatform();
   if (!initialized && fallback_to_software_gl) {
-    ShutdownGL();
+    ShutdownGL(true);
     initialized = InitializeStaticGLBindings(GetSoftwareGLImplementation()) &&
                   InitializeGLOneOffPlatform();
   }
+  if (initialized && init_extensions) {
+    initialized = InitializeExtensionSettingsOneOffPlatform();
+  }
+
   if (!initialized)
-    ShutdownGL();
+    ShutdownGL(false);
 
   if (initialized) {
     DVLOG(1) << "Using " << GetGLImplementationName(GetGLImplementation())
@@ -85,11 +118,11 @@ bool InitializeGLOneOffImplementation(GLImplementation impl,
   return initialized;
 }
 
-void ShutdownGL() {
+void ShutdownGL(bool due_to_fallback) {
   ShutdownGLPlatform();
 
+  UnloadGLNativeLibraries(due_to_fallback);
   SetGLImplementation(kGLImplementationNone);
-  UnloadGLNativeLibraries();
 }
 
 scoped_refptr<GLSurface> CreateOffscreenGLSurface(const gfx::Size& size) {

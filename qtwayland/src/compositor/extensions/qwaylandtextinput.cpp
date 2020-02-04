@@ -45,22 +45,18 @@
 
 #include "qwaylandsurface.h"
 #include "qwaylandview.h"
-#include "qwaylandxkb_p.h"
 #include "qwaylandinputmethodeventbuilder_p.h"
 
 #include <QGuiApplication>
 #include <QInputMethodEvent>
 
+#if QT_CONFIG(xkbcommon)
+#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 QWaylandTextInputClientState::QWaylandTextInputClientState()
-    : hints(0)
-    , cursorRectangle()
-    , surroundingText()
-    , cursorPosition(0)
-    , anchorPosition(0)
-    , preferredLanguage()
-    , changedState()
 {
 }
 
@@ -121,17 +117,9 @@ Qt::InputMethodQueries QWaylandTextInputClientState::mergeChanged(const QWayland
 }
 
 QWaylandTextInputPrivate::QWaylandTextInputPrivate(QWaylandCompositor *compositor)
-    : QWaylandCompositorExtensionPrivate()
-    , QtWaylandServer::zwp_text_input_v2()
-    , compositor(compositor)
-    , focus(nullptr)
-    , focusResource(nullptr)
-    , focusDestroyListener()
-    , inputPanelVisible(false)
+    : compositor(compositor)
     , currentState(new QWaylandTextInputClientState)
     , pendingState(new QWaylandTextInputClientState)
-    , serial(0)
-    , enabledSurfaces()
 {
 }
 
@@ -205,7 +193,7 @@ void QWaylandTextInputPrivate::sendInputMethodEvent(QInputMethodEvent *event)
     currentState->anchorPosition = afterCommit.anchorPosition;
 
     if (queries) {
-        qCDebug(qLcCompositorInputMethods) << "QInputMethod::update() after QInputMethodEvent" << queries;
+        qCDebug(qLcWaylandCompositorInputMethods) << "QInputMethod::update() after QInputMethodEvent" << queries;
 
         emit q->updateInputMethod(queries);
     }
@@ -218,11 +206,15 @@ void QWaylandTextInputPrivate::sendKeyEvent(QKeyEvent *event)
 
     // TODO add support for modifiers
 
-    foreach (xkb_keysym_t keysym, QWaylandXkb::toKeysym(event)) {
+#if QT_CONFIG(xkbcommon)
+    for (xkb_keysym_t keysym : QXkbCommon::toKeysym(event)) {
         send_keysym(focusResource->handle, event->timestamp(), keysym,
                     event->type() == QEvent::KeyPress ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED,
                     0);
     }
+#else
+    Q_UNUSED(event);
+#endif
 }
 
 void QWaylandTextInputPrivate::sendInputPanelState()
@@ -339,7 +331,7 @@ void QWaylandTextInputPrivate::zwp_text_input_v2_bind_resource(Resource *resourc
 void QWaylandTextInputPrivate::zwp_text_input_v2_destroy_resource(Resource *resource)
 {
     if (focusResource == resource)
-        focusResource = 0;
+        focusResource = nullptr;
 }
 
 void QWaylandTextInputPrivate::zwp_text_input_v2_destroy(Resource *resource)
@@ -392,13 +384,13 @@ void QWaylandTextInputPrivate::zwp_text_input_v2_update_state(Resource *resource
 {
     Q_Q(QWaylandTextInput);
 
-    qCDebug(qLcCompositorInputMethods) << "update_state" << serial << flags;
+    qCDebug(qLcWaylandCompositorInputMethods) << "update_state" << serial << flags;
 
     if (resource != focusResource)
         return;
 
     if (flags == update_state_reset || flags == update_state_enter) {
-        qCDebug(qLcCompositorInputMethods) << "QInputMethod::reset()";
+        qCDebug(qLcWaylandCompositorInputMethods) << "QInputMethod::reset()";
         qApp->inputMethod()->reset();
     }
 
@@ -415,7 +407,7 @@ void QWaylandTextInputPrivate::zwp_text_input_v2_update_state(Resource *resource
     pendingState.reset(new QWaylandTextInputClientState);
 
     if (queries) {
-        qCDebug(qLcCompositorInputMethods) << "QInputMethod::update()" << queries;
+        qCDebug(qLcWaylandCompositorInputMethods) << "QInputMethod::update()" << queries;
 
         emit q->updateInputMethod(queries);
     }
@@ -426,7 +418,7 @@ void QWaylandTextInputPrivate::zwp_text_input_v2_set_content_type(Resource *reso
     if (resource != focusResource)
         return;
 
-    pendingState->hints = 0;
+    pendingState->hints = Qt::ImhNone;
 
     if ((hint & content_hint_auto_completion) == 0
         && (hint & content_hint_auto_correction) == 0)

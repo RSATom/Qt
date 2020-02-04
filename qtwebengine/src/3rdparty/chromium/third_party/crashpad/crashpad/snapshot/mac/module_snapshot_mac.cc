@@ -41,8 +41,8 @@ ModuleSnapshotMac::~ModuleSnapshotMac() {
 }
 
 bool ModuleSnapshotMac::Initialize(
-    ProcessReader* process_reader,
-    const ProcessReader::Module& process_reader_module) {
+    ProcessReaderMac* process_reader,
+    const ProcessReaderMac::Module& process_reader_module) {
   INITIALIZATION_STATE_SET_INITIALIZING(initialized_);
 
   process_reader_ = process_reader;
@@ -183,6 +183,13 @@ std::map<std::string, std::string> ModuleSnapshotMac::AnnotationsSimpleMap()
   MachOImageAnnotationsReader annotations_reader(
       process_reader_, mach_o_image_reader_, name_);
   return annotations_reader.SimpleMap();
+}
+
+std::vector<AnnotationSnapshot> ModuleSnapshotMac::AnnotationObjects() const {
+  INITIALIZATION_STATE_DCHECK_VALID(initialized_);
+  MachOImageAnnotationsReader annotations_reader(
+      process_reader_, mach_o_image_reader_, name_);
+  return annotations_reader.AnnotationsList();
 }
 
 std::set<CheckedRange<uint64_t>> ModuleSnapshotMac::ExtraMemoryRanges() const {

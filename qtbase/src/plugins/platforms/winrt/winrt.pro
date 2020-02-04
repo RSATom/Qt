@@ -8,14 +8,15 @@ QT += \
 
 DEFINES *= QT_NO_CAST_FROM_ASCII __WRL_NO_DEFAULT_LIB__
 
-LIBS += -lws2_32 -ld3d11
+LIBS += -lws2_32
+QMAKE_USE_PRIVATE += d3d11
 
 SOURCES = \
     main.cpp  \
     qwinrtbackingstore.cpp \
+    qwinrtcanvas.cpp \
     qwinrtclipboard.cpp \
     qwinrtcursor.cpp \
-    qwinrtdrag.cpp \
     qwinrteglcontext.cpp \
     qwinrteventdispatcher.cpp \
     qwinrtfiledialoghelper.cpp \
@@ -31,9 +32,9 @@ SOURCES = \
 
 HEADERS = \
     qwinrtbackingstore.h \
+    qwinrtcanvas.h \
     qwinrtclipboard.h \
     qwinrtcursor.h \
-    qwinrtdrag.h \
     qwinrteglcontext.h \
     qwinrteventdispatcher.h \
     qwinrtfiledialoghelper.h \
@@ -53,10 +54,12 @@ WINRT_SDK_VERSION = $$member($$list($$split(WINRT_SDK_VERSION_STRING, .)), 2)
 lessThan(WINRT_SDK_VERSION, 14322): DEFINES += QT_WINRT_LIMITED_DRAGANDDROP
 greaterThan(WINRT_SDK_VERSION, 14393): DEFINES += QT_WINRT_DISABLE_PHONE_COLORS
 
-contains(DEFINES, QT_NO_DRAGANDDROP) {
-    SOURCES -= qwinrtdrag.cpp
-    HEADERS -= qwinrtdrag.h
+qtConfig(draganddrop) {
+    SOURCES += qwinrtdrag.cpp
+    HEADERS += qwinrtdrag.h
 }
+
+qtConfig(accessibility): include($$PWD/uiautomation/uiautomation.pri)
 
 PLUGIN_TYPE = platforms
 PLUGIN_CLASS_NAME = QWinRTIntegrationPlugin

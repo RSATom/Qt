@@ -5,14 +5,15 @@
 #include "content/browser/compositor/vulkan_browser_compositor_output_surface.h"
 
 #include "base/threading/thread_task_runner_handle.h"
-#include "cc/output/output_surface_client.h"
+#include "components/viz/service/display/output_surface_client.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
+#include "gpu/vulkan/vulkan_implementation.h"
 #include "gpu/vulkan/vulkan_surface.h"
 
 namespace content {
 
 VulkanBrowserCompositorOutputSurface::VulkanBrowserCompositorOutputSurface(
-    scoped_refptr<cc::VulkanContextProvider> context,
+    scoped_refptr<viz::VulkanContextProvider> context,
     const UpdateVSyncParametersCallback& update_vsync_parameters_callback)
     : BrowserCompositorOutputSurface(std::move(context),
                                      update_vsync_parameters_callback),
@@ -25,8 +26,9 @@ VulkanBrowserCompositorOutputSurface::~VulkanBrowserCompositorOutputSurface() {
 bool VulkanBrowserCompositorOutputSurface::Initialize(
     gfx::AcceleratedWidget widget) {
   DCHECK(!surface_);
-  std::unique_ptr<gpu::VulkanSurface> surface(
-      gpu::VulkanSurface::CreateViewSurface(widget));
+  std::unique_ptr<gpu::VulkanSurface> surface =
+      vulkan_context_provider()->GetVulkanImplementation()->CreateViewSurface(
+          widget);
   if (!surface->Initialize(vulkan_context_provider()->GetDeviceQueue(),
                            gpu::VulkanSurface::DEFAULT_SURFACE_FORMAT)) {
     return false;
@@ -44,7 +46,7 @@ void VulkanBrowserCompositorOutputSurface::Destroy() {
 }
 
 void VulkanBrowserCompositorOutputSurface::BindToClient(
-    cc::OutputSurfaceClient* client) {
+    viz::OutputSurfaceClient* client) {
   DCHECK(client);
   DCHECK(!client_);
   client_ = client;
@@ -63,7 +65,6 @@ void VulkanBrowserCompositorOutputSurface::BindFramebuffer() {
 }
 
 bool VulkanBrowserCompositorOutputSurface::IsDisplayedAsOverlayPlane() const {
-  NOTIMPLEMENTED();
   return false;
 }
 
@@ -78,17 +79,22 @@ gfx::BufferFormat VulkanBrowserCompositorOutputSurface::GetOverlayBufferFormat()
   return gfx::BufferFormat::RGBX_8888;
 }
 
-bool VulkanBrowserCompositorOutputSurface::SurfaceIsSuspendForRecycle() const {
-  NOTIMPLEMENTED();
-  return false;
-}
-
 void VulkanBrowserCompositorOutputSurface::Reshape(
     const gfx::Size& size,
     float device_scale_factor,
     const gfx::ColorSpace& color_space,
-    bool has_alpha) {
-  NOTIMPLEMENTED();
+    bool has_alpha,
+    bool use_stencil) {
+  surface_->SetSize(size);
+}
+
+void VulkanBrowserCompositorOutputSurface::SetDrawRectangle(
+    const gfx::Rect& rect) {
+  NOTREACHED();
+}
+
+unsigned VulkanBrowserCompositorOutputSurface::UpdateGpuFence() {
+  return 0;
 }
 
 uint32_t
@@ -98,18 +104,21 @@ VulkanBrowserCompositorOutputSurface::GetFramebufferCopyTextureFormat() {
 }
 
 void VulkanBrowserCompositorOutputSurface::SwapBuffers(
-    cc::OutputSurfaceFrame frame) {
+    viz::OutputSurfaceFrame frame) {
   surface_->SwapBuffers();
-
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&VulkanBrowserCompositorOutputSurface::SwapBuffersAck,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&VulkanBrowserCompositorOutputSurface::SwapBuffersAck,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void VulkanBrowserCompositorOutputSurface::SwapBuffersAck() {
   DCHECK(client_);
   client_->DidReceiveSwapBuffersAck();
+}
+
+gpu::VulkanSurface* VulkanBrowserCompositorOutputSurface::GetVulkanSurface() {
+  return surface_.get();
 }
 
 }  // namespace content

@@ -7,17 +7,18 @@
 #include <stddef.h>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "net/base/escape.h"
 
 namespace {
 const char kLeader[] = "$i18n";
-const size_t kLeaderSize = arraysize(kLeader) - 1;
+const size_t kLeaderSize = base::size(kLeader) - 1;
 const char kKeyOpen = '{';
 const char kKeyClose = '}';
 
-// Escape quotes and backslashes ('"\) with backslashes.
-std::string BackslashEscape(const std::string& in_string) {
+// Escape quotes and backslashes ('"\).
+std::string PolymerParameterEscape(const std::string& in_string) {
   std::string out;
   out.reserve(in_string.size() * 2);
   for (const char c : in_string) {
@@ -29,7 +30,7 @@ std::string BackslashEscape(const std::string& in_string) {
         out.append("\\'");
         break;
       case '"':
-        out.append("\\\"");
+        out.append("&quot;");
         break;
       case ',':
         out.append("\\,");
@@ -50,7 +51,7 @@ void TemplateReplacementsFromDictionaryValue(
     TemplateReplacements* replacements) {
   for (base::DictionaryValue::Iterator it(dictionary); !it.IsAtEnd();
        it.Advance()) {
-    if (it.value().IsType(base::Value::Type::STRING)) {
+    if (it.value().is_string()) {
       std::string str_value;
       if (it.value().GetAsString(&str_value))
         (*replacements)[it.key()] = str_value;
@@ -93,7 +94,7 @@ std::string ReplaceTemplateExpressions(
         source.substr(current_pos, key_end - current_pos).as_string();
     CHECK(!key.empty());
 
-    TemplateReplacements::const_iterator value = replacements.find(key);
+    auto value = replacements.find(key);
     CHECK(value != replacements.end()) << "$i18n replacement key \"" << key
                                        << "\" not found";
 
@@ -105,7 +106,7 @@ std::string ReplaceTemplateExpressions(
       // Pass the replacement through unchanged.
     } else if (context == "Polymer") {
       // Escape quotes and backslash for '$i18nPolymer{}' use (i.e. quoted).
-      replacement = BackslashEscape(replacement);
+      replacement = PolymerParameterEscape(replacement);
     } else {
       CHECK(false) << "Unknown context " << context;
     }

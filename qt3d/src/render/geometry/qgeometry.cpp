@@ -72,7 +72,7 @@ QGeometryPrivate::~QGeometryPrivate()
     \inqmlmodule Qt3D.Render
     \inherits Node
     \since 5.7
-    \brief Encapsulates geometry
+    \brief Encapsulates geometry.
 
     A Geometry type is used to group a list of Attribute objects together
     to form a geometric shape Qt3D is able to render using GeometryRenderer.
@@ -83,7 +83,7 @@ QGeometryPrivate::~QGeometryPrivate()
     \class Qt3DRender::QGeometry
     \inmodule Qt3DRender
     \since 5.7
-    \brief Encapsulates geometry
+    \brief Encapsulates geometry.
 
     A Qt3DRender::QGeometry class is used to group a list of Qt3DRender::QAttribute
     objects together to form a geometric shape Qt3D is able to render using
@@ -128,12 +128,12 @@ QGeometry::QGeometry(QNode *parent)
     : QGeometry(*new QGeometryPrivate(), parent) {}
 
 /*!
-    \fn QGeometryFactory::operator()()
+    \fn Qt3DRender::QGeometryFactory::operator()()
 
      Returns the generated geometry.
 */
 /*!
-    \fn bool QGeometryFactory::operator==(const QGeometryFactory &other) const = 0
+    \fn bool Qt3DRender::QGeometryFactory::operator==(const QGeometryFactory &other) const = 0
 
     Compares the factory with the factory specified in \a other.
     Returns true if they are equal.
@@ -151,6 +151,28 @@ QGeometry::~QGeometry()
 QGeometry::QGeometry(QGeometryPrivate &dd, QNode *parent)
     : QNode(dd, parent)
 {
+}
+
+void QGeometry::sceneChangeEvent(const QSceneChangePtr &change)
+{
+    Q_D(QGeometry);
+    QPropertyUpdatedChangePtr e = qSharedPointerCast<QPropertyUpdatedChange>(change);
+    if (e->type() == PropertyUpdated) {
+        const bool blocked = blockNotifications(true);
+        if (e->propertyName() == QByteArrayLiteral("extent")) {
+            const QPair<QVector3D, QVector3D> extent = e->value().value<QPair<QVector3D, QVector3D>>();
+
+            if (extent.first != d->m_minExtent) {
+                d->m_minExtent = extent.first;
+                emit minExtentChanged(extent.first);
+            }
+            if (extent.second != d->m_maxExtent) {
+                d->m_maxExtent = extent.second;
+                emit maxExtentChanged(d->m_maxExtent);
+            }
+        }
+        blockNotifications(blocked);
+    }
 }
 
 /*!
@@ -183,11 +205,6 @@ void QGeometry::addAttribute(QAttribute *attribute)
 }
 
 /*!
-    \fn Qt3DRender::QGeometry(QGeometryPrivate &dd, Qt3DCore::QNode *parent)
-
-    \internal
-*/
-/*!
     \fn void Qt3DRender::QGeometry::removeAttribute(Qt3DRender::QAttribute *attribute)
     Removes the given \a attribute from this geometry.
  */
@@ -218,6 +235,40 @@ QAttribute *QGeometry::boundingVolumePositionAttribute() const
 {
     Q_D(const QGeometry);
     return d->m_boundingVolumePositionAttribute;
+}
+
+/*!
+    \qmlproperty vector3d Geometry::minExtent
+
+    Holds the vertex with the lowest x, y, z position values.
+ */
+
+/*!
+    \property QGeometry::minExtent
+
+    Holds the vertex with the lowest x, y, z position values.
+ */
+QVector3D QGeometry::minExtent() const
+{
+    Q_D(const QGeometry);
+    return d->m_minExtent;
+}
+
+/*!
+    \qmlproperty vector3d Geometry::maxExtent
+
+    Holds the vertex with the highest x, y, z position values.
+ */
+
+/*!
+    \property QGeometry::maxExtent
+
+    Holds the vertex with the highest x, y, z position values.
+ */
+QVector3D QGeometry::maxExtent() const
+{
+    Q_D(const QGeometry);
+    return d->m_maxExtent;
 }
 
 /*!

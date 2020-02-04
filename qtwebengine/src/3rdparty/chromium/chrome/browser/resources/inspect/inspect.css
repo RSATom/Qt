@@ -12,6 +12,8 @@ html {
 
 body {
   color: rgb(48, 57, 66);
+  display: flex;
+  flex-direction: column;
   font-size: 13px;
   height: 100%;
   margin: 0;
@@ -38,18 +40,13 @@ img {
 
 #infobar {
   background: rgb(255, 212, 0);
-  height: 20px;
-  left: 0;
-  line-height: 20px;
-  position: fixed;
-  right: 0;
+  display: none;
+  padding: 4px 0;
   text-align: center;
-  visibility: hidden;
-  z-index: 1;
 }
 
 #infobar.show {
-  visibility: visible;
+  display: block;
 }
 
 #navigation {
@@ -74,12 +71,12 @@ img {
 }
 
 .tab-header {
-  -webkit-border-start: 6px solid transparent;
+  border-inline-start: 6px solid transparent;
   padding-left: 15px;
 }
 
 .tab-header.selected {
-  -webkit-border-start-color: rgb(78, 87, 100);
+  border-inline-start-color: rgb(78, 87, 100);
 }
 
 .tab-header > button {
@@ -181,9 +178,16 @@ img {
   margin-left: 6px;
 }
 
+.browser-fallback-note {
+  display: flex;
+  flex-flow: row wrap;
+  margin-left: 4px;
+  margin-top: 5px;
+  min-height: 15px;
+}
+
 .used-for-port-forwarding {
-  background-image: -webkit-image-set(url(chrome://theme/IDR_INFO) 1x,
-                                      url(chrome://theme/IDR_INFO@2x) 2x);
+  background-image: url(../../../../ui/webui/resources/images/info.svg);
   height: 15px;
   margin-left: 20px;
   width: 15px;

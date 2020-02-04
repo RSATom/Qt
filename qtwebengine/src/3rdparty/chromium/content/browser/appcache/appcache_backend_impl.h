@@ -7,9 +7,9 @@
 
 #include <stdint.h>
 
-#include "base/containers/hash_tables.h"
 #include "content/browser/appcache/appcache_host.h"
 #include "content/common/content_export.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
 
 namespace content {
 
@@ -37,19 +37,22 @@ class CONTENT_EXPORT AppCacheBackendImpl {
                    const int64_t cache_document_was_loaded_from,
                    const GURL& manifest_url);
   void GetResourceList(
-      int host_id, std::vector<AppCacheResourceInfo>* resource_infos);
-  bool SelectCacheForWorker(int host_id, int parent_process_id,
-                            int parent_host_id);
+      int host_id,
+      std::vector<blink::mojom::AppCacheResourceInfo>* resource_infos);
   bool SelectCacheForSharedWorker(int host_id, int64_t appcache_id);
   bool MarkAsForeignEntry(int host_id,
                           const GURL& document_url,
                           int64_t cache_document_was_loaded_from);
-  bool GetStatusWithCallback(int host_id, const GetStatusCallback& callback,
-                             void* callback_param);
-  bool StartUpdateWithCallback(int host_id, const StartUpdateCallback& callback,
-                               void* callback_param);
-  bool SwapCacheWithCallback(int host_id, const SwapCacheCallback& callback,
-                             void* callback_param);
+
+  // The xxxWithCallback functions take ownership of the callback iff the host
+  // is found (and the return value is true). If the result is false, the
+  // callback might still be available to the caller of these methods.
+  // TODO(mek): Just pass callbacks unconditionally. That is possible if the
+  // caller is changed to call BindingSet::ReportBadMessage rather than calling
+  // the global mojo::ReportBadMessage.
+  bool GetStatusWithCallback(int host_id, GetStatusCallback* callback);
+  bool StartUpdateWithCallback(int host_id, StartUpdateCallback* callback);
+  bool SwapCacheWithCallback(int host_id, SwapCacheCallback* callback);
 
   // Returns a pointer to a registered host. The backend retains ownership.
   AppCacheHost* GetHost(int host_id) {
@@ -57,16 +60,9 @@ class CONTENT_EXPORT AppCacheBackendImpl {
     return (it != hosts_.end()) ? (it->second.get()) : nullptr;
   }
 
-  typedef base::hash_map<int, std::unique_ptr<AppCacheHost>> HostMap;
+  using HostMap = std::unordered_map<int, std::unique_ptr<AppCacheHost>>;
   const HostMap& hosts() { return hosts_; }
 
-  // Methods to support cross site navigations. Hosts are transferred
-  // from process to process accordingly, deparented from the old
-  // processes backend and reparented to the new.
-  std::unique_ptr<AppCacheHost> TransferHostOut(int host_id);
-  void TransferHostIn(int new_host_id, std::unique_ptr<AppCacheHost> host);
-
-  // PlzNavigate
   // The AppCacheHost is precreated by the AppCacheNavigationHandleCore class
   // when a navigation is initiated. We register the host with the backend in
   // this function and ignore registrations for this host id from the renderer.

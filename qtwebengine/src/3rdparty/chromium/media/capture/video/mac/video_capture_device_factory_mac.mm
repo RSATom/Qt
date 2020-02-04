@@ -11,33 +11,48 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/task_runner_util.h"
 #import "media/capture/video/mac/video_capture_device_avfoundation_mac.h"
 #import "media/capture/video/mac/video_capture_device_decklink_mac.h"
 #include "media/capture/video/mac/video_capture_device_mac.h"
 
-namespace media {
+namespace {
+
+void EnsureRunsOnCFRunLoopEnabledThread() {
+  static bool has_checked_cfrunloop_for_video_capture = false;
+  if (!has_checked_cfrunloop_for_video_capture) {
+    base::ScopedCFTypeRef<CFRunLoopMode> mode(
+        CFRunLoopCopyCurrentMode(CFRunLoopGetCurrent()));
+    CHECK(mode != NULL)
+        << "The MacOS video capture code must be run on a CFRunLoop-enabled "
+           "thread";
+    has_checked_cfrunloop_for_video_capture = true;
+  }
+}
 
 // Blacklisted devices are identified by a characteristic trailing substring of
 // uniqueId. At the moment these are just Blackmagic devices.
 const char* kBlacklistedCamerasIdSignature[] = {"-01FDA82C8A9C"};
 
+}  // anonymous namespace
+
+namespace media {
+
 static bool IsDeviceBlacklisted(
     const VideoCaptureDeviceDescriptor& descriptor) {
   bool is_device_blacklisted = false;
   for (size_t i = 0;
-       !is_device_blacklisted && i < arraysize(kBlacklistedCamerasIdSignature);
+       !is_device_blacklisted && i < base::size(kBlacklistedCamerasIdSignature);
        ++i) {
     is_device_blacklisted =
         base::EndsWith(descriptor.device_id, kBlacklistedCamerasIdSignature[i],
                        base::CompareCase::INSENSITIVE_ASCII);
   }
   DVLOG_IF(2, is_device_blacklisted)
-      << "Blacklisted camera: " << descriptor.display_name
+      << "Blacklisted camera: " << descriptor.display_name()
       << ", id: " << descriptor.device_id;
   return is_device_blacklisted;
 }
@@ -53,6 +68,7 @@ std::unique_ptr<VideoCaptureDevice> VideoCaptureDeviceFactoryMac::CreateDevice(
     const VideoCaptureDeviceDescriptor& descriptor) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_NE(descriptor.capture_api, VideoCaptureApi::UNKNOWN);
+  EnsureRunsOnCFRunLoopEnabledThread();
 
   std::unique_ptr<VideoCaptureDevice> capture_device;
   if (descriptor.capture_api == VideoCaptureApi::MACOSX_DECKLINK) {
@@ -70,12 +86,9 @@ std::unique_ptr<VideoCaptureDevice> VideoCaptureDeviceFactoryMac::CreateDevice(
 
 void VideoCaptureDeviceFactoryMac::GetDeviceDescriptors(
     VideoCaptureDeviceDescriptors* device_descriptors) {
-  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/458397 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "458397 VideoCaptureDeviceFactoryMac::GetDeviceDescriptors"));
   DCHECK(thread_checker_.CalledOnValidThread());
+  EnsureRunsOnCFRunLoopEnabledThread();
+
   // Loop through all available devices and add to |device_descriptors|.
   NSDictionary* capture_devices;
   DVLOG(1) << "Enumerating video capture devices using AVFoundation";
@@ -117,20 +130,13 @@ void VideoCaptureDeviceFactoryMac::GetSupportedFormats(
       break;
     case VideoCaptureApi::MACOSX_DECKLINK:
       DVLOG(1) << "Enumerating video capture capabilities "
-               << device.display_name;
+               << device.display_name();
       VideoCaptureDeviceDeckLinkMac::EnumerateDeviceCapabilities(
           device, supported_formats);
       break;
     default:
       NOTREACHED();
   }
-}
-
-// static
-VideoCaptureDeviceFactory*
-VideoCaptureDeviceFactory::CreateVideoCaptureDeviceFactory(
-    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner) {
-  return new VideoCaptureDeviceFactoryMac();
 }
 
 }  // namespace media

@@ -40,6 +40,7 @@
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlextensionplugin.h>
 #include <QtQml/qqmlcomponent.h>
+#include <QtQml/qqmlengine.h>
 #include "qquickmessagedialog_p.h"
 #include "qquickabstractmessagedialog_p.h"
 #include "qquickdialogassets_p.h"
@@ -61,13 +62,6 @@
 //#define PURE_QML_ONLY
 
 Q_LOGGING_CATEGORY(lcRegistration, "qt.quick.dialogs.registration")
-
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtQuick_Dialogs);
-#endif
-}
 
 QT_BEGIN_NAMESPACE
 
@@ -92,13 +86,7 @@ class QtQuick2DialogsPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QtQuick2DialogsPlugin() : QQmlExtensionPlugin(), m_useResources(true) { initResources(); }
-
-    virtual void initializeEngine(QQmlEngine *engine, const char * uri) {
-        qCDebug(lcRegistration) << uri << m_decorationComponentUrl;
-        QQuickAbstractDialog::m_decorationComponent =
-            new QQmlComponent(engine, m_decorationComponentUrl, QQmlComponent::Asynchronous);
-    }
+    QtQuick2DialogsPlugin() : QQmlExtensionPlugin(), m_useResources(true) { }
 
     virtual void registerTypes(const char *uri) {
         Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQuick.Dialogs"));
@@ -121,7 +109,7 @@ public:
             m_useResources = false;
 #endif
 #endif
-        m_decorationComponentUrl = m_useResources ?
+        QQuickAbstractDialog::m_decorationComponentUrl = m_useResources ?
             QUrl("qrc:/QtQuick/Dialogs/qml/DefaultWindowDecoration.qml") :
 #ifndef QT_STATIC
             QUrl::fromLocalFile(qmlDir.filePath(QString("qml/DefaultWindowDecoration.qml")));
@@ -140,7 +128,7 @@ public:
             QLatin1String("Do not create objects of type StandardIcon"));
 #ifndef PURE_QML_ONLY
         if (QGuiApplicationPrivate::platformTheme()->usePlatformNativeDialog(QPlatformTheme::MessageDialog))
-            qmlRegisterType<QQuickPlatformMessageDialog>(uri, 1, 0, "MessageDialog");
+            qmlRegisterType<QQuickPlatformMessageDialog1>(uri, 1, 0, "MessageDialog");
         else
 #endif
             registerWidgetOrQmlImplementation<QQuickMessageDialog>(widgetsDir, qmlDir, "MessageDialog", uri, hasTopLevelWindows, 1, 1);
@@ -151,7 +139,7 @@ public:
         // QQuickAbstractDialog::setVisible() will check if a native dialog can be shown, and
         // only fall back to use the QML version if showing fails.
         if (QGuiApplicationPrivate::platformTheme()->usePlatformNativeDialog(QPlatformTheme::FileDialog))
-            registerQmlImplementation<QQuickPlatformFileDialog>(qmlDir, "FileDialog", uri, 1, 0);
+            registerQmlImplementation<QQuickPlatformFileDialog1>(qmlDir, "FileDialog", uri, 1, 0);
         else
 #endif
             registerWidgetOrQmlImplementation<QQuickFileDialog>(widgetsDir, qmlDir, "FileDialog", uri, hasTopLevelWindows, 1, 0);
@@ -159,7 +147,7 @@ public:
         // ColorDialog
 #ifndef PURE_QML_ONLY
         if (QGuiApplicationPrivate::platformTheme()->usePlatformNativeDialog(QPlatformTheme::ColorDialog))
-            qmlRegisterType<QQuickPlatformColorDialog>(uri, 1, 0, "ColorDialog");
+            qmlRegisterType<QQuickPlatformColorDialog1>(uri, 1, 0, "ColorDialog");
         else
 #endif
             registerWidgetOrQmlImplementation<QQuickColorDialog>(widgetsDir, qmlDir, "ColorDialog", uri, hasTopLevelWindows, 1, 0);
@@ -167,7 +155,7 @@ public:
         // FontDialog
 #ifndef PURE_QML_ONLY
         if (QGuiApplicationPrivate::platformTheme()->usePlatformNativeDialog(QPlatformTheme::FontDialog))
-            qmlRegisterType<QQuickPlatformFontDialog>(uri, 1, 1, "FontDialog");
+            qmlRegisterType<QQuickPlatformFontDialog1>(uri, 1, 1, "FontDialog");
         else
 #endif
             registerWidgetOrQmlImplementation<QQuickFontDialog>(widgetsDir, qmlDir, "FontDialog", uri, hasTopLevelWindows, 1, 1);
@@ -214,7 +202,7 @@ protected:
         bool mobileTouchPlatform = false;
 #if defined(Q_OS_IOS)
         mobileTouchPlatform = true;
-#elif defined(Q_OS_ANDROID) || defined(Q_OS_BLACKBERRY) || defined(Q_OS_QNX) || defined(Q_OS_WINRT)
+#elif defined(Q_OS_ANDROID) || defined(Q_OS_BLACKBERRY) || defined(Q_OS_QNX)
         const auto devices = QTouchDevice::devices();
         for (const QTouchDevice *dev : devices)
             if (dev->type() == QTouchDevice::TouchScreen)
@@ -263,7 +251,6 @@ protected:
         qmlRegisterType(dialogQmlPath, uri, versionMajor, versionMinor, qmlName);
     }
 
-    QUrl m_decorationComponentUrl;
     bool m_useResources;
 };
 

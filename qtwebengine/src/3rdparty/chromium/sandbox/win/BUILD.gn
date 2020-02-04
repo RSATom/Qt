@@ -6,12 +6,15 @@ import("//testing/test.gni")
 
 # This needs to be a static library rather than a sources set because small
 # portions of this are used in some contexts (like chrome_elf), and it
-# doesnn't seem to dead-code strip very well. This saves 12K on chrome_elf.dll,
+# doesn't seem to dead-code strip very well. This saves 12K on chrome_elf.dll,
 # over a source set, for example.
 static_library("sandbox") {
   sources = [
     "src/acl.cc",
     "src/acl.h",
+    "src/app_container_profile.h",
+    "src/app_container_profile_base.cc",
+    "src/app_container_profile_base.h",
     "src/broker_services.cc",
     "src/broker_services.h",
     "src/crosscall_client.h",
@@ -39,6 +42,8 @@ static_library("sandbox") {
     "src/interception_internal.h",
     "src/interceptors.h",
     "src/internal_types.h",
+    "src/ipc_args.cc",
+    "src/ipc_args.h",
     "src/ipc_tags.h",
     "src/job.cc",
     "src/job.h",
@@ -102,6 +107,8 @@ static_library("sandbox") {
     "src/sandbox_types.h",
     "src/sandbox_utils.cc",
     "src/sandbox_utils.h",
+    "src/security_capabilities.cc",
+    "src/security_capabilities.h",
     "src/security_level.h",
     "src/service_resolver.cc",
     "src/service_resolver.h",
@@ -133,7 +140,7 @@ static_library("sandbox") {
     "src/window.h",
   ]
 
-  if (current_cpu == "x64") {
+  if (current_cpu == "x64" || current_cpu == "arm64") {
     sources += [
       "src/interceptors_64.cc",
       "src/interceptors_64.h",
@@ -167,6 +174,7 @@ static_library("sandbox") {
   deps = [
     "//base",
     "//base:base_static",
+    "//sandbox:common",
   ]
 }
 
@@ -178,6 +186,7 @@ test("sbox_integration_tests") {
     "src/handle_closer_test.cc",
     "src/handle_inheritance_test.cc",
     "src/integrity_level_test.cc",
+    "src/ipc_leak_test.cc",
     "src/ipc_ping_test.cc",
     "src/lpc_policy_test.cc",
     "src/named_pipe_policy_test.cc",
@@ -226,7 +235,6 @@ executable("cfi_unittest_exe") {
   ]
   deps = [
     "//base",
-    "//build/config:exe_and_shlib_deps",
     "//build/win:default_exe_manifest",
   ]
 }
@@ -235,14 +243,14 @@ shared_library("sbox_integration_test_hijack_dll") {
   sources = [
     "tests/integration_tests/hijack_dll.cc",
     "tests/integration_tests/hijack_dll.def",
-    "tests/integration_tests/hijack_dlls.h",
   ]
 }
 
 loadable_module("sbox_integration_test_hijack_shim_dll") {
   sources = [
-    "tests/integration_tests/hijack_dlls.h",
     "tests/integration_tests/hijack_shim_dll.cc",
+    "tests/integration_tests/hijack_shim_dll.def",
+    "tests/integration_tests/hijack_shim_dll.h",
   ]
 
   # Implicitly linking hijack_dll as loader import resolution required.
@@ -290,6 +298,7 @@ test("sbox_validation_tests") {
 
 test("sbox_unittests") {
   sources = [
+    "src/app_container_unittest.cc",
     "src/interception_unittest.cc",
     "src/ipc_unittest.cc",
     "src/job_unittest.cc",
@@ -352,8 +361,4 @@ shared_library("pocdll") {
   ]
 
   defines = [ "POCDLL_EXPORTS" ]
-
-  deps = [
-    "//build/config:exe_and_shlib_deps",
-  ]
 }

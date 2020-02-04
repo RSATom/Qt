@@ -31,6 +31,7 @@ gd{
         151{"An Roinn-Eòrpa an Ear"}
         154{"An Roinn-Eòrpa a Tuath"}
         155{"An Roinn-Eòrpa an Iar"}
+        202{"Afraga Deas air an t-Sathara"}
         419{"Aimeireaga Laidinneach"}
         AC{"Eilean na Deasgabhalach"}
         AD{"Andorra"}
@@ -49,7 +50,7 @@ gd{
         AW{"Arùba"}
         AX{"Na h-Eileanan Åland"}
         AZ{"Asarbaideàn"}
-        BA{"Bosna agus Hearsagobhana"}
+        BA{"Bosna is Hearsagobhana"}
         BB{"Barbados"}
         BD{"Bangladais"}
         BE{"A’ Bheilg"}
@@ -106,6 +107,7 @@ gd{
         ES{"An Spàinnt"}
         ET{"An Itiop"}
         EU{"An t-Aonadh Eòrpach"}
+        EZ{"Raon an Eòro"}
         FI{"An Fhionnlann"}
         FJ{"Fìdi"}
         FK{"Na h-Eileanan Fàclannach (Islas Malvinas)"}
@@ -218,7 +220,7 @@ gd{
         PK{"Pagastàn"}
         PL{"A’ Phòlainn"}
         PM{"Saint Pierre agus Miquelon"}
-        PN{"Eileanan Peit a’ Chàirn"}
+        PN{"Eileanan Pheit a’ Chàirn"}
         PR{"Porto Rìceo"}
         PS{"Palastain"}
         PT{"A’ Phortagail"}
@@ -272,6 +274,7 @@ gd{
         UA{"An Ucràin"}
         UG{"Uganda"}
         UM{"Meanbh-Eileanan Iomallach nan SA"}
+        UN{"Na Dùthchannan Aonaichte"}
         US{"Na Stàitean Aonaichte"}
         UY{"Uruguaidh"}
         UZ{"Usbagastàn"}
@@ -303,5 +306,5 @@ gd{
         CZ{"Poblachd na Seice"}
         TL{"Tìomor an Ear"}
     }
-    Version{"2.1.31.86"}
+    Version{"2.1.44.91"}
 }

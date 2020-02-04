@@ -8,8 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/task_runner.h"
-#include "cc/output/copy_output_request.h"
+#include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/android/view_android.h"
 #include "ui/android/window_android.h"
@@ -38,10 +37,16 @@ bool GrabWindowSnapshot(gfx::NativeWindow window,
 static void MakeAsyncCopyRequest(
     gfx::NativeWindow window,
     const gfx::Rect& source_rect,
-    cc::CopyOutputRequest::CopyOutputRequestCallback callback) {
-  std::unique_ptr<cc::CopyOutputRequest> request =
-      cc::CopyOutputRequest::CreateBitmapRequest(std::move(callback));
-
+    viz::CopyOutputRequest::CopyOutputRequestCallback callback) {
+  if (!window->GetCompositor()) {
+    std::move(callback).Run(std::make_unique<viz::CopyOutputResult>(
+        viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP, gfx::Rect()));
+    return;
+  }
+  std::unique_ptr<viz::CopyOutputRequest> request =
+      std::make_unique<viz::CopyOutputRequest>(
+          viz::CopyOutputRequest::ResultFormat::RGBA_BITMAP,
+          std::move(callback));
   float scale = ui::GetScaleFactorForNativeView(window);
   request->set_area(gfx::ScaleToEnclosingRect(source_rect, scale));
   window->GetCompositor()->RequestCopyOfOutputOnRootLayer(std::move(request));
@@ -51,12 +56,10 @@ void GrabWindowSnapshotAndScaleAsync(
     gfx::NativeWindow window,
     const gfx::Rect& source_rect,
     const gfx::Size& target_size,
-    scoped_refptr<base::TaskRunner> background_task_runner,
     const GrabWindowSnapshotAsyncCallback& callback) {
-  MakeAsyncCopyRequest(
-      window, source_rect,
-      base::BindOnce(&SnapshotAsync::ScaleCopyOutputResult, callback,
-                     target_size, background_task_runner));
+  MakeAsyncCopyRequest(window, source_rect,
+                       base::BindOnce(&SnapshotAsync::ScaleCopyOutputResult,
+                                      callback, target_size));
 }
 
 void GrabWindowSnapshotAsync(gfx::NativeWindow window,

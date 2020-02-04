@@ -4,24 +4,16 @@
 
 #include "cc/layers/painted_scrollbar_layer.h"
 
-#include <algorithm>
-
 #include "base/auto_reset.h"
-#include "cc/base/math_util.h"
-#include "cc/input/main_thread_scrolling_reason.h"
 #include "cc/layers/painted_scrollbar_layer_impl.h"
-#include "cc/paint/paint_flags.h"
 #include "cc/paint/skia_paint_canvas.h"
-#include "cc/resources/ui_resource_bitmap.h"
 #include "cc/trees/draw_property_utils.h"
 #include "cc/trees/layer_tree_host.h"
-#include "cc/trees/layer_tree_impl.h"
-#include "skia/ext/platform_canvas.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/core/SkSize.h"
-#include "ui/gfx/geometry/size_conversions.h"
-#include "ui/gfx/skia_util.h"
+
+namespace {
+static constexpr int kMaxScrollbarDimension = 8192;
+};
 
 namespace cc {
 
@@ -35,7 +27,7 @@ std::unique_ptr<LayerImpl> PaintedScrollbarLayer::CreateLayerImpl(
 scoped_refptr<PaintedScrollbarLayer> PaintedScrollbarLayer::Create(
     std::unique_ptr<Scrollbar> scrollbar,
     ElementId scroll_element_id) {
-  return make_scoped_refptr(
+  return base::WrapRefCounted(
       new PaintedScrollbarLayer(std::move(scrollbar), scroll_element_id));
 }
 
@@ -50,19 +42,17 @@ PaintedScrollbarLayer::PaintedScrollbarLayer(
       is_overlay_(scrollbar_->IsOverlay()),
       has_thumb_(scrollbar_->HasThumb()),
       thumb_opacity_(scrollbar_->ThumbOpacity()) {
-  if (!scrollbar_->IsOverlay())
-    AddMainThreadScrollingReasons(
-        MainThreadScrollingReason::kScrollbarScrolling);
+  SetIsScrollbar(true);
 }
 
-PaintedScrollbarLayer::~PaintedScrollbarLayer() {}
+PaintedScrollbarLayer::~PaintedScrollbarLayer() = default;
 
 void PaintedScrollbarLayer::SetScrollElementId(ElementId element_id) {
   if (element_id == scroll_element_id_)
     return;
 
   scroll_element_id_ = element_id;
-  SetNeedsFullTreeSync();
+  SetNeedsCommit();
 }
 
 bool PaintedScrollbarLayer::OpacityCanAnimateOnImplThread() const {
@@ -103,10 +93,6 @@ void PaintedScrollbarLayer::PushPropertiesTo(LayerImpl* layer) {
   scrollbar_layer->set_thumb_opacity(thumb_opacity_);
 
   scrollbar_layer->set_is_overlay_scrollbar(is_overlay_);
-}
-
-ScrollbarLayerInterface* PaintedScrollbarLayer::ToScrollbarLayer() {
-  return this;
 }
 
 void PaintedScrollbarLayer::SetLayerTreeHost(LayerTreeHost* host) {
@@ -246,30 +232,36 @@ bool PaintedScrollbarLayer::Update() {
 
 UIResourceBitmap PaintedScrollbarLayer::RasterizeScrollbarPart(
     const gfx::Rect& layer_rect,
-    const gfx::Rect& content_rect,
+    const gfx::Rect& requested_content_rect,
     ScrollbarPart part) {
-  DCHECK(!content_rect.size().IsEmpty());
+  DCHECK(!requested_content_rect.size().IsEmpty());
   DCHECK(!layer_rect.size().IsEmpty());
 
+  gfx::Rect content_rect = requested_content_rect;
+
+  // Pages can end up requesting arbitrarily large scrollbars.  Prevent this
+  // from crashing due to OOM and try something smaller.
   SkBitmap skbitmap;
-  skbitmap.allocN32Pixels(content_rect.width(), content_rect.height());
+  if (!skbitmap.tryAllocN32Pixels(content_rect.width(),
+                                  content_rect.height())) {
+    content_rect.Intersect(
+        gfx::Rect(requested_content_rect.x(), requested_content_rect.y(),
+                  kMaxScrollbarDimension, kMaxScrollbarDimension));
+    skbitmap.allocN32Pixels(content_rect.width(), content_rect.height());
+  }
   SkiaPaintCanvas canvas(skbitmap);
+  canvas.clear(SK_ColorTRANSPARENT);
 
   float scale_x =
       content_rect.width() / static_cast<float>(layer_rect.width());
   float scale_y =
       content_rect.height() / static_cast<float>(layer_rect.height());
-
   canvas.scale(SkFloatToScalar(scale_x), SkFloatToScalar(scale_y));
-  canvas.translate(SkFloatToScalar(-layer_rect.x()),
-                   SkFloatToScalar(-layer_rect.y()));
-
-  SkRect layer_skrect = RectToSkRect(layer_rect);
-  PaintFlags paint;
-  paint.setAntiAlias(false);
-  paint.setBlendMode(SkBlendMode::kClear);
-  canvas.drawRect(layer_skrect, paint);
-  canvas.clipRect(layer_skrect);
+  // TODO(pdr): Scrollbars are painted with an offset (see Scrollbar::PaintPart)
+  // and the canvas is translated so that scrollbars are drawn at the origin.
+  // Refactor this code to not use an offset at all so Scrollbar::PaintPart
+  // paints at the origin and no translation is needed below.
+  canvas.translate(-layer_rect.x(), -layer_rect.y());
 
   scrollbar_->PaintPart(&canvas, part, layer_rect);
   // Make sure that the pixels are no longer mutable to unavoid unnecessary

@@ -11,10 +11,10 @@ namespace offline_pages {
 RemoveRequestsTask::RemoveRequestsTask(
     RequestQueueStore* store,
     const std::vector<int64_t>& request_ids,
-    const RequestQueueStore::UpdateCallback& callback)
+    RequestQueueStore::UpdateCallback callback)
     : store_(store),
       request_ids_(request_ids),
-      callback_(callback),
+      callback_(std::move(callback)),
       weak_ptr_factory_(this) {}
 
 RemoveRequestsTask::~RemoveRequestsTask() {}
@@ -30,21 +30,19 @@ void RemoveRequestsTask::RemoveRequests() {
   }
 
   store_->RemoveRequests(request_ids_,
-                         base::Bind(&RemoveRequestsTask::CompleteWithResult,
-                                    weak_ptr_factory_.GetWeakPtr()));
+                         base::BindOnce(&RemoveRequestsTask::CompleteWithResult,
+                                        weak_ptr_factory_.GetWeakPtr()));
 }
 
 void RemoveRequestsTask::CompleteEarly(ItemActionStatus status) {
-  std::unique_ptr<UpdateRequestsResult> result(
-      new UpdateRequestsResult(store_->state()));
+  UpdateRequestsResult result(store_->state());
   for (int64_t request_id : request_ids_)
-    result->item_statuses.push_back(std::make_pair(request_id, status));
+    result.item_statuses.emplace_back(request_id, status);
   CompleteWithResult(std::move(result));
 }
 
-void RemoveRequestsTask::CompleteWithResult(
-    std::unique_ptr<UpdateRequestsResult> result) {
-  callback_.Run(std::move(result));
+void RemoveRequestsTask::CompleteWithResult(UpdateRequestsResult result) {
+  std::move(callback_).Run(std::move(result));
   TaskComplete();
 }
 

@@ -34,31 +34,30 @@
 #include "widgetfactory_p.h"
 #include "qdesigner_widgetitem_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/abstractmetadatabase.h>
 
 #include <QtCore/qdebug.h>
-#include <QtCore/QVector>
+#include <QtCore/qvector.h>
 
-#include <QtGui/QKeyEvent>
-#include <QtWidgets/QGridLayout>
-#include <QtGui/QPainter>
-#include <QtGui/QBitmap>
-#include <QtWidgets/QSplitter>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QScrollArea>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QWizardPage>
-#include <QtWidgets/QWizard>
-#include <QtCore/QDebug>
-#include <QtCore/QSet>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qgridlayout.h>
+#include <QtGui/qpainter.h>
+#include <QtGui/qbitmap.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qscrollarea.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qwizard.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qset.h>
 
 #include <algorithm>
 
@@ -121,9 +120,7 @@ Layout::Layout(const QWidgetList &wl, QWidget *p, QDesignerFormWindowInterface *
         m_oldGeometry = m_layoutBase->geometry();
 }
 
-Layout::~Layout()
-{
-}
+Layout::~Layout() = default;
 
 /*!  The widget list we got in the constructor might contain too much
   widgets (like widgets with different parents, already laid out
@@ -270,13 +267,16 @@ void Layout::finishLayout(bool needMove, QLayout *layout)
             if (!m_formWindow->isManaged(widget)) {
                 widget = widget->parentWidget();
                 continue;
-            } else if (LayoutInfo::isWidgetLaidout(m_formWindow->core(), widget)) {
+            }
+            if (LayoutInfo::isWidgetLaidout(m_formWindow->core(), widget)) {
                 widget = widget->parentWidget();
                 continue;
-            } else if (isPageOfContainerWidget(m_formWindow, widget)) {
+            }
+            if (isPageOfContainerWidget(m_formWindow, widget)) {
                 widget = widget->parentWidget();
                 continue;
-            } else if (widget->parentWidget()) {
+            }
+            if (widget->parentWidget()) {
                 QScrollArea *area = qobject_cast<QScrollArea*>(widget->parentWidget()->parentWidget());
                 if (area && area->widget() == widget) {
                     widget = area;
@@ -481,8 +481,8 @@ public:
     BoxLayout(const QWidgetList &wl, QWidget *p, QDesignerFormWindowInterface *fw, QWidget *lb,
               Qt::Orientation orientation);
 
-    virtual void doLayout();
-    virtual void sort();
+    void doLayout() override;
+    void sort() override;
 
 private:
     const Qt::Orientation m_orientation;
@@ -534,8 +534,8 @@ public:
     SplitterLayout(const QWidgetList &wl, QWidget *p, QDesignerFormWindowInterface *fw, QWidget *lb,
                    Qt::Orientation orientation);
 
-    virtual void doLayout();
-    virtual void sort();
+    void doLayout() override;
+    void sort() override;
 
 private:
     const Qt::Orientation m_orientation;
@@ -582,6 +582,7 @@ void SplitterLayout::doLayout()
 
 class Grid
 {
+    Q_DISABLE_COPY(Grid);
 public:
     enum Mode {
         GridLayout, // Arbitrary size/supports span
@@ -1065,8 +1066,8 @@ class GridLayout : public Layout
 public:
     GridLayout(const QWidgetList &wl, QWidget *p, QDesignerFormWindowInterface *fw, QWidget *lb);
 
-    virtual void doLayout();
-    virtual void sort()                  { setWidgets(buildGrid(widgets())); }
+    void doLayout() override;
+    void sort() override { setWidgets(buildGrid(widgets())); }
 
 protected:
     QWidgetList buildGrid(const QWidgetList &);

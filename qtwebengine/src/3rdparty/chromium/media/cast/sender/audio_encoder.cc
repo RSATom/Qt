@@ -183,7 +183,7 @@ class AudioEncoder::ImplBase
 
  protected:
   friend class base::RefCountedThreadSafe<ImplBase>;
-  virtual ~ImplBase() {}
+  virtual ~ImplBase() = default;
 
   virtual void TransferSamplesIntoBuffer(const AudioBus* audio_bus,
                                          int source_offset,
@@ -276,7 +276,7 @@ class AudioEncoder::OpusImpl : public AudioEncoder::ImplBase {
   }
 
  private:
-  ~OpusImpl() final {}
+  ~OpusImpl() final = default;
 
   void TransferSamplesIntoBuffer(const AudioBus* audio_bus,
                                  int source_offset,
@@ -292,8 +292,7 @@ class AudioEncoder::OpusImpl : public AudioEncoder::ImplBase {
     out->resize(kOpusMaxPayloadSize);
     const opus_int32 result = opus_encode_float(
         opus_encoder_, buffer_.get(), samples_per_frame_,
-        reinterpret_cast<uint8_t*>(base::string_as_array(out)),
-        kOpusMaxPayloadSize);
+        reinterpret_cast<uint8_t*>(base::data(*out)), kOpusMaxPayloadSize);
     if (result > 1) {
       out->resize(result);
       return true;
@@ -727,7 +726,7 @@ class AudioEncoder::Pcm16Impl : public AudioEncoder::ImplBase {
   }
 
  private:
-  ~Pcm16Impl() final {}
+  ~Pcm16Impl() final = default;
 
   void TransferSamplesIntoBuffer(const AudioBus* audio_bus,
                                  int source_offset,
@@ -797,7 +796,7 @@ AudioEncoder::AudioEncoder(
   }
 }
 
-AudioEncoder::~AudioEncoder() {}
+AudioEncoder::~AudioEncoder() = default;
 
 OperationalStatus AudioEncoder::InitializationResult() const {
   DCHECK(insert_thread_checker_.CalledOnValidThread());

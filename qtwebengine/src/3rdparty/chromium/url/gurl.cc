@@ -8,61 +8,20 @@
 
 #include <algorithm>
 #include <ostream>
+#include <utility>
 
+#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "url/url_canon_stdstring.h"
 #include "url/url_util.h"
-
-#ifdef WIN32
-#include <windows.h>
-#else
-#include <pthread.h>
-#endif
+#include "url/url_util_qt.h"
 
 namespace {
 
-static std::string* empty_string = NULL;
-static GURL* empty_gurl = NULL;
-
-#ifdef WIN32
-
-// Returns a static reference to an empty string for returning a reference
-// when there is no underlying string.
-const std::string& EmptyStringForGURL() {
-  // Avoid static object construction/destruction on startup/shutdown.
-  if (!empty_string) {
-    // Create the string. Be careful that we don't break in the case that this
-    // is being called from multiple threads. Statics are not threadsafe.
-    std::string* new_empty_string = new std::string;
-    if (InterlockedCompareExchangePointer(
-        reinterpret_cast<PVOID*>(&empty_string), new_empty_string, NULL)) {
-      // The old value was non-NULL, so no replacement was done. Another
-      // thread did the initialization out from under us.
-      delete new_empty_string;
-    }
-  }
-  return *empty_string;
-}
-
-#else
-
-static pthread_once_t empty_string_once = PTHREAD_ONCE_INIT;
-static pthread_once_t empty_gurl_once = PTHREAD_ONCE_INIT;
-
-void EmptyStringForGURLOnce(void) {
-  empty_string = new std::string;
-}
-
-const std::string& EmptyStringForGURL() {
-  // Avoid static object construction/destruction on startup/shutdown.
-  pthread_once(&empty_string_once, EmptyStringForGURLOnce);
-  return *empty_string;
-}
-
-#endif  // WIN32
+static base::LazyInstance<GURL>::Leaky empty_gurl = LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
 
@@ -174,8 +133,7 @@ void GURL::InitializeFromCanonicalSpec() {
 #endif
 }
 
-GURL::~GURL() {
-}
+GURL::~GURL() = default;
 
 GURL& GURL::operator=(const GURL& other) {
   spec_ = other.spec_;
@@ -192,7 +150,7 @@ GURL& GURL::operator=(const GURL& other) {
   return *this;
 }
 
-GURL& GURL::operator=(GURL&& other) {
+GURL& GURL::operator=(GURL&& other) noexcept {
   spec_ = std::move(other.spec_);
   is_valid_ = other.is_valid_;
   parsed_ = other.parsed_;
@@ -208,7 +166,7 @@ const std::string& GURL::spec() const {
     return spec_;
 
   DCHECK(false) << "Trying to get the spec of an invalid URL!";
-  return EmptyStringForGURL();
+  return base::EmptyString();
 }
 
 bool GURL::operator<(const GURL& other) const {
@@ -220,7 +178,7 @@ bool GURL::operator>(const GURL& other) const {
 }
 
 // Note: code duplicated below (it's inconvenient to use a template here).
-GURL GURL::Resolve(const std::string& relative) const {
+GURL GURL::Resolve(base::StringPiece relative) const {
   // Not allowed for invalid URLs.
   if (!is_valid_)
     return GURL();
@@ -246,7 +204,7 @@ GURL GURL::Resolve(const std::string& relative) const {
 }
 
 // Note: code duplicated above (it's inconvenient to use a template here).
-GURL GURL::Resolve(const base::string16& relative) const {
+GURL GURL::Resolve(base::StringPiece16 relative) const {
   // Not allowed for invalid URLs.
   if (!is_valid_)
     return GURL();
@@ -320,7 +278,7 @@ GURL GURL::ReplaceComponents(
 GURL GURL::GetOrigin() const {
   // This doesn't make sense for invalid or nonstandard URLs, so return
   // the empty URL.
-  if (!is_valid_ || !IsStandard())
+  if (!is_valid_ || (!IsStandard() && !IsCustom()))
     return GURL();
 
   if (SchemeIsFileSystem())
@@ -353,7 +311,7 @@ GURL GURL::GetAsReferrer() const {
 GURL GURL::GetWithEmptyPath() const {
   // This doesn't make sense for invalid or nonstandard URLs, so return
   // the empty URL.
-  if (!is_valid_ || !IsStandard())
+  if (!is_valid_ || (!IsStandard() && !IsCustom()))
     return GURL();
 
   // We could optimize this since we know that the URL is canonical, and we are
@@ -374,21 +332,24 @@ GURL GURL::GetWithEmptyPath() const {
   return other;
 }
 
+GURL GURL::GetWithoutFilename() const {
+  return Resolve(".");
+}
+
 bool GURL::IsStandard() const {
   return url::IsStandard(spec_.data(), parsed_.scheme);
 }
 
+bool GURL::IsCustom() const {
+  return url::CustomScheme::FindScheme(scheme_piece());
+}
+
 bool GURL::IsAboutBlank() const {
-  if (!SchemeIs(url::kAboutScheme))
-    return false;
+  return IsAboutUrl(url::kAboutBlankPath);
+}
 
-  if (has_host() || has_username() || has_password() || has_port())
-    return false;
-
-  if (path() != url::kAboutBlankPath && path() != url::kAboutBlankWithHashPath)
-    return false;
-
-  return true;
+bool GURL::IsAboutSrcdoc() const {
+  return IsAboutUrl(url::kAboutSrcdocPath);
 }
 
 bool GURL::SchemeIs(base::StringPiece lower_ascii_scheme) const {
@@ -466,53 +427,30 @@ base::StringPiece GURL::HostNoBracketsPiece() const {
 }
 
 std::string GURL::GetContent() const {
-  return is_valid_ ? ComponentString(parsed_.GetContent()) : std::string();
+  if (!is_valid_)
+    return std::string();
+  std::string content = ComponentString(parsed_.GetContent());
+  if (!SchemeIs(url::kJavaScriptScheme) && parsed_.ref.len >= 0)
+    content.erase(content.size() - parsed_.ref.len - 1);
+  return content;
 }
 
 bool GURL::HostIsIPAddress() const {
   return is_valid_ && url::HostIsIPAddress(host_piece());
 }
 
-#ifdef WIN32
-
 const GURL& GURL::EmptyGURL() {
-  // Avoid static object construction/destruction on startup/shutdown.
-  if (!empty_gurl) {
-    // Create the string. Be careful that we don't break in the case that this
-    // is being called from multiple threads.
-    GURL* new_empty_gurl = new GURL;
-    if (InterlockedCompareExchangePointer(
-        reinterpret_cast<PVOID*>(&empty_gurl), new_empty_gurl, NULL)) {
-      // The old value was non-NULL, so no replacement was done. Another
-      // thread did the initialization out from under us.
-      delete new_empty_gurl;
-    }
-  }
-  return *empty_gurl;
+  return empty_gurl.Get();
 }
 
-#else
-
-void EmptyGURLOnce(void) {
-  empty_gurl = new GURL;
-}
-
-const GURL& GURL::EmptyGURL() {
-  // Avoid static object construction/destruction on startup/shutdown.
-  pthread_once(&empty_gurl_once, EmptyGURLOnce);
-  return *empty_gurl;
-}
-
-#endif  // WIN32
-
-bool GURL::DomainIs(base::StringPiece lower_ascii_domain) const {
+bool GURL::DomainIs(base::StringPiece canonical_domain) const {
   if (!is_valid_)
     return false;
 
   // FileSystem URLs have empty host_piece, so check this first.
-  if (SchemeIsFileSystem() && inner_url_)
-    return inner_url_->DomainIs(lower_ascii_domain);
-  return url::DomainIs(host_piece(), lower_ascii_domain);
+  if (inner_url_ && SchemeIsFileSystem())
+    return inner_url_->DomainIs(canonical_domain);
+  return url::DomainIs(host_piece(), canonical_domain);
 }
 
 bool GURL::EqualsIgnoringRef(const GURL& other) const {
@@ -536,6 +474,30 @@ size_t GURL::EstimateMemoryUsage() const {
          (parsed_.inner_parsed() ? sizeof(url::Parsed) : 0);
 }
 
+bool GURL::IsAboutUrl(base::StringPiece allowed_path) const {
+  if (!SchemeIs(url::kAboutScheme))
+    return false;
+
+  if (has_host() || has_username() || has_password() || has_port())
+    return false;
+
+  if (!path_piece().starts_with(allowed_path))
+    return false;
+
+  if (path_piece().size() == allowed_path.size()) {
+    DCHECK_EQ(path_piece(), allowed_path);
+    return true;
+  }
+
+  if ((path_piece().size() == allowed_path.size() + 1) &&
+      path_piece().back() == '/') {
+    DCHECK_EQ(path_piece(), allowed_path.as_string() + '/');
+    return true;
+  }
+
+  return false;
+}
+
 std::ostream& operator<<(std::ostream& out, const GURL& url) {
   return out << url.possibly_invalid_spec();
 }
@@ -553,6 +515,14 @@ bool operator==(const GURL& x, const base::StringPiece& spec) {
   return x.possibly_invalid_spec() == spec;
 }
 
+bool operator==(const base::StringPiece& spec, const GURL& x) {
+  return x == spec;
+}
+
 bool operator!=(const GURL& x, const base::StringPiece& spec) {
+  return !(x == spec);
+}
+
+bool operator!=(const base::StringPiece& spec, const GURL& x) {
   return !(x == spec);
 }

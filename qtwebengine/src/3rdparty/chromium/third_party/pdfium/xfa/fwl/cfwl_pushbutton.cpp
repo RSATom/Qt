@@ -22,9 +22,7 @@
 
 CFWL_PushButton::CFWL_PushButton(const CFWL_App* app)
     : CFWL_Widget(app, pdfium::MakeUnique<CFWL_WidgetProperties>(), nullptr),
-      m_bBtnDown(false),
-      m_dwTTOStyles(FDE_TTOSTYLE_SingleLine),
-      m_iTTOAlign(FDE_TTOALIGNMENT_Center) {}
+      m_bBtnDown(false) {}
 
 CFWL_PushButton::~CFWL_PushButton() {}
 
@@ -46,23 +44,22 @@ void CFWL_PushButton::Update() {
   if (!m_pProperties->m_pThemeProvider)
     m_pProperties->m_pThemeProvider = GetAvailableTheme();
 
-  UpdateTextOutStyles();
   m_rtClient = GetClientRect();
   m_rtCaption = m_rtClient;
 }
 
 void CFWL_PushButton::DrawWidget(CXFA_Graphics* pGraphics,
-                                 const CFX_Matrix* pMatrix) {
+                                 const CFX_Matrix& matrix) {
   if (!pGraphics)
     return;
-  if (!m_pProperties->m_pThemeProvider)
+
+  IFWL_ThemeProvider* pTheme = m_pProperties->m_pThemeProvider.Get();
+  if (!pTheme)
     return;
 
-  if (HasBorder()) {
-    DrawBorder(pGraphics, CFWL_Part::Border, m_pProperties->m_pThemeProvider,
-               pMatrix);
-  }
-  DrawBkground(pGraphics, m_pProperties->m_pThemeProvider, pMatrix);
+  if (HasBorder())
+    DrawBorder(pGraphics, CFWL_Part::Border, pTheme, matrix);
+  DrawBkground(pGraphics, pTheme, &matrix);
 }
 
 void CFWL_PushButton::DrawBkground(CXFA_Graphics* pGraphics,
@@ -77,8 +74,8 @@ void CFWL_PushButton::DrawBkground(CXFA_Graphics* pGraphics,
     param.m_matrix.Concat(*pMatrix);
   param.m_rtPart = m_rtClient;
   if (m_pProperties->m_dwStates & FWL_WGTSTATE_Focused)
-    param.m_pData = &m_rtCaption;
-  pTheme->DrawBackground(&param);
+    param.m_pRtData = &m_rtCaption;
+  pTheme->DrawBackground(param);
 }
 
 uint32_t CFWL_PushButton::GetPartStates() {
@@ -92,11 +89,6 @@ uint32_t CFWL_PushButton::GetPartStates() {
   else if (m_pProperties->m_dwStates & FWL_STATE_PSB_Hovered)
     dwStates |= CFWL_PartState_Hovered;
   return dwStates;
-}
-
-void CFWL_PushButton::UpdateTextOutStyles() {
-  m_iTTOAlign = FDE_TTOALIGNMENT_TopLeft;
-  m_dwTTOStyles = FDE_TTOSTYLE_SingleLine;
 }
 
 void CFWL_PushButton::OnProcessMessage(CFWL_Message* pMessage) {
@@ -145,8 +137,8 @@ void CFWL_PushButton::OnProcessMessage(CFWL_Message* pMessage) {
 }
 
 void CFWL_PushButton::OnDrawWidget(CXFA_Graphics* pGraphics,
-                                   const CFX_Matrix* pMatrix) {
-  DrawWidget(pGraphics, pMatrix);
+                                   const CFX_Matrix& matrix) {
+  DrawWidget(pGraphics, matrix);
 }
 
 void CFWL_PushButton::OnFocusChanged(CFWL_Message* pMsg, bool bSet) {
@@ -159,9 +151,6 @@ void CFWL_PushButton::OnFocusChanged(CFWL_Message* pMsg, bool bSet) {
 }
 
 void CFWL_PushButton::OnLButtonDown(CFWL_MessageMouse* pMsg) {
-  if ((m_pProperties->m_dwStates & FWL_WGTSTATE_Focused) == 0)
-    SetFocus(true);
-
   m_bBtnDown = true;
   m_pProperties->m_dwStates |= FWL_STATE_PSB_Hovered;
   m_pProperties->m_dwStates |= FWL_STATE_PSB_Pressed;

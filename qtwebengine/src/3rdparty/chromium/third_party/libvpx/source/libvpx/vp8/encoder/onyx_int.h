@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef VP8_ENCODER_ONYX_INT_H_
-#define VP8_ENCODER_ONYX_INT_H_
+#ifndef VPX_VP8_ENCODER_ONYX_INT_H_
+#define VPX_VP8_ENCODER_ONYX_INT_H_
 
 #include <stdio.h>
 #include "vpx_config.h"
@@ -248,6 +248,10 @@ typedef struct {
   int64_t total_byte_count;
 
   int filter_level;
+
+  int frames_since_last_drop_overshoot;
+
+  int force_maxqp;
 
   int last_frame_percent_intra;
 
@@ -505,6 +509,7 @@ typedef struct VP8_COMP {
   int mse_source_denoised;
 
   int force_maxqp;
+  int frames_since_last_drop_overshoot;
 
   // GF update for 1 pass cbr.
   int gf_update_onepass_cbr;
@@ -513,11 +518,9 @@ typedef struct VP8_COMP {
 
 #if CONFIG_MULTITHREAD
   /* multithread data */
-  pthread_mutex_t *pmutex;
-  pthread_mutex_t mt_mutex; /* mutex for b_multi_threaded */
-  int *mt_current_mb_col;
+  vpx_atomic_int *mt_current_mb_col;
   int mt_sync_range;
-  int b_multi_threaded;
+  vpx_atomic_int b_multi_threaded;
   int encoding_thread_count;
   int b_lpf_running;
 
@@ -689,6 +692,9 @@ typedef struct VP8_COMP {
     int token_costs[BLOCK_TYPES][COEF_BANDS][PREV_COEF_CONTEXTS]
                    [MAX_ENTROPY_TOKENS];
   } rd_costs;
+
+  // Use the static threshold from ROI settings.
+  int use_roi_static_threshold;
 } VP8_COMP;
 
 void vp8_initialize_enc(void);
@@ -727,4 +733,4 @@ void vp8_set_speed_features(VP8_COMP *cpi);
 }  // extern "C"
 #endif
 
-#endif  // VP8_ENCODER_ONYX_INT_H_
+#endif  // VPX_VP8_ENCODER_ONYX_INT_H_

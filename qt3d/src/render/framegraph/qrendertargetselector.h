@@ -52,7 +52,7 @@ namespace Qt3DRender {
 class QRenderTargetSelectorPrivate;
 class QRenderTarget;
 
-class QT3DRENDERSHARED_EXPORT QRenderTargetSelector : public QFrameGraphNode
+class Q_3DRENDERSHARED_EXPORT QRenderTargetSelector : public QFrameGraphNode
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DRender::QRenderTarget *target READ target WRITE setTarget NOTIFY targetChanged)
@@ -76,7 +76,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QRenderTargetSelector)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

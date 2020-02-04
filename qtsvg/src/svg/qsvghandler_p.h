@@ -99,6 +99,7 @@ public:
     QSvgHandler(QXmlStreamReader *const data);
     ~QSvgHandler();
 
+    QIODevice *device() const;
     QSvgTinyDocument *document() const;
 
     inline bool ok() const {
@@ -178,6 +179,7 @@ private:
 #endif
     void parse();
     void resolveGradients(QSvgNode *node);
+    void resolveNodes();
 
     QPen m_defaultPen;
     /**

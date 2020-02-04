@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "ash/display/window_tree_host_manager.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/unguessable_token.h"
@@ -14,6 +15,7 @@
 #include "components/exo/surface_tree_host.h"
 #include "components/exo/wm_helper.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/aura/client/cursor_client_observer.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/event_handler.h"
@@ -21,17 +23,18 @@
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/native_widget_types.h"
 
-namespace cc {
+namespace viz {
 class CopyOutputResult;
 }
 
 namespace ui {
-class Event;
+class LocatedEvent;
 class MouseEvent;
 }
 
 namespace exo {
 class PointerDelegate;
+class PointerGesturePinchDelegate;
 class Surface;
 class SurfaceTreeHost;
 
@@ -40,11 +43,13 @@ class SurfaceTreeHost;
 class Pointer : public SurfaceTreeHost,
                 public SurfaceObserver,
                 public ui::EventHandler,
-                public WMHelper::CursorObserver,
-                public WMHelper::DisplayConfigurationObserver {
+                public aura::client::CursorClientObserver,
+                public ash::WindowTreeHostManager::Observer {
  public:
   explicit Pointer(PointerDelegate* delegate);
   ~Pointer() override;
+
+  PointerDelegate* delegate() const { return delegate_; }
 
   // Set the pointer surface, i.e., the surface that contains the pointer image
   // (cursor). The |hotspot| argument defines the position of the pointer
@@ -53,8 +58,12 @@ class Pointer : public SurfaceTreeHost,
   // pointer location, in surface local coordinates.
   void SetCursor(Surface* surface, const gfx::Point& hotspot);
 
-  // Returns the current cursor for the pointer.
-  gfx::NativeCursor GetCursor();
+  // Set the pointer cursor type. This is similar to SetCursor, but this method
+  // accepts ui::CursorType instead of the surface for the pointer image.
+  void SetCursorType(ui::CursorType cursor_type);
+
+  // Set delegate for pinch events.
+  void SetGesturePinchDelegate(PointerGesturePinchDelegate* delegate);
 
   // Overridden from SurfaceDelegate:
   void OnSurfaceCommit() override;
@@ -65,17 +74,23 @@ class Pointer : public SurfaceTreeHost,
   // Overridden from ui::EventHandler:
   void OnMouseEvent(ui::MouseEvent* event) override;
   void OnScrollEvent(ui::ScrollEvent* event) override;
+  void OnGestureEvent(ui::GestureEvent* event) override;
 
-  // Overridden from WMHelper::CursorObserver:
+  // Overridden from ui::client::CursorClientObserver:
   void OnCursorSizeChanged(ui::CursorSize cursor_size) override;
   void OnCursorDisplayChanged(const display::Display& display) override;
 
-  // Overridden from WMHelper::DisplayConfigurationObserver:
+  // Overridden from ash::WindowTreeHostManager::Observer:
   void OnDisplayConfigurationChanged() override;
 
  private:
   // Returns the effective target for |event|.
-  Surface* GetEffectiveTargetForEvent(ui::Event* event) const;
+  Surface* GetEffectiveTargetForEvent(ui::LocatedEvent* event) const;
+
+  // Change pointer focus to |surface|.
+  void SetFocus(Surface* surface,
+                const gfx::PointF& location,
+                int button_flags);
 
   // Updates the root_surface in |SurfaceTreeHost| from which the cursor
   // is captured.
@@ -87,13 +102,16 @@ class Pointer : public SurfaceTreeHost,
 
   // Called when cursor snapshot has been captured.
   void OnCursorCaptured(const gfx::Point& hotspot,
-                        std::unique_ptr<cc::CopyOutputResult> result);
+                        std::unique_ptr<viz::CopyOutputResult> result);
 
   // Update |cursor_| to |cursor_bitmap_| transformed for the current display.
   void UpdateCursor();
 
   // The delegate instance that all events are dispatched to.
   PointerDelegate* const delegate_;
+
+  // The delegate instance that all pinch related events are dispatched to.
+  PointerGesturePinchDelegate* pinch_delegate_ = nullptr;
 
   // The current focus surface for the pointer.
   Surface* focus_surface_ = nullptr;

@@ -66,7 +66,7 @@ template <> struct QListSpecialMethods<QString>
 {
 #ifndef Q_QDOC
 protected:
-    ~QListSpecialMethods() {}
+    ~QListSpecialMethods() = default;
 #endif
 public:
     inline void sort(Qt::CaseSensitivity cs = Qt::CaseSensitive);
@@ -84,12 +84,10 @@ public:
     inline QStringList &replaceInStrings(const QRegExp &rx, const QString &after);
 #endif
 
-#ifndef QT_BOOTSTRAPPED
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
     inline QStringList filter(const QRegularExpression &re) const;
     inline QStringList &replaceInStrings(const QRegularExpression &re, const QString &after);
-#endif // QT_NO_REGULAREXPRESSION
-#endif // QT_BOOTSTRAPPED
+#endif // QT_CONFIG(regularexpression)
 
 #ifndef Q_QDOC
 private:
@@ -119,8 +117,11 @@ public:
     { QList<QString>::operator=(std::move(other)); return *this; }
 #endif
 
+#if QT_STRINGVIEW_LEVEL < 2
     inline bool contains(const QString &str, Qt::CaseSensitivity cs = Qt::CaseSensitive) const;
+#endif
     inline bool contains(QLatin1String str, Qt::CaseSensitivity cs = Qt::CaseSensitive) const;
+    inline bool contains(QStringView str, Qt::CaseSensitivity cs = Qt::CaseSensitive) const;
 
     inline QStringList operator+(const QStringList &other) const
     { QStringList n = *this; n += other; return n; }
@@ -131,6 +132,12 @@ public:
     inline QStringList &operator<<(const QList<QString> &l)
     { *this += l; return *this; }
 
+    inline int indexOf(QStringView str, int from = 0) const;
+    inline int indexOf(QLatin1String str, int from = 0) const;
+
+    inline int lastIndexOf(QStringView str, int from = -1) const;
+    inline int lastIndexOf(QLatin1String str, int from = -1) const;
+
 #ifndef QT_NO_REGEXP
     inline int indexOf(const QRegExp &rx, int from = 0) const;
     inline int lastIndexOf(const QRegExp &rx, int from = -1) const;
@@ -138,12 +145,10 @@ public:
     inline int lastIndexOf(QRegExp &rx, int from = -1) const;
 #endif
 
-#ifndef QT_BOOTSTRAPPED
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
     inline int indexOf(const QRegularExpression &re, int from = 0) const;
     inline int lastIndexOf(const QRegularExpression &re, int from = -1) const;
-#endif // QT_NO_REGULAREXPRESSION
-#endif // QT_BOOTSTRAPPED
+#endif // QT_CONFIG(regularexpression)
 
     using QList<QString>::indexOf;
     using QList<QString>::lastIndexOf;
@@ -165,7 +170,10 @@ namespace QtPrivate {
     QStringList Q_CORE_EXPORT QStringList_filter(const QStringList *that, const QString &str,
                                                Qt::CaseSensitivity cs);
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     bool Q_CORE_EXPORT QStringList_contains(const QStringList *that, const QString &str, Qt::CaseSensitivity cs);
+#endif
+    bool Q_CORE_EXPORT QStringList_contains(const QStringList *that, QStringView str, Qt::CaseSensitivity cs);
     bool Q_CORE_EXPORT QStringList_contains(const QStringList *that, QLatin1String str, Qt::CaseSensitivity cs);
     void Q_CORE_EXPORT QStringList_replaceInStrings(QStringList *that, const QString &before, const QString &after,
                                       Qt::CaseSensitivity cs);
@@ -179,14 +187,12 @@ namespace QtPrivate {
     int Q_CORE_EXPORT QStringList_lastIndexOf(const QStringList *that, QRegExp &rx, int from);
 #endif
 
-#ifndef QT_BOOTSTRAPPED
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
     void Q_CORE_EXPORT QStringList_replaceInStrings(QStringList *that, const QRegularExpression &rx, const QString &after);
     QStringList Q_CORE_EXPORT QStringList_filter(const QStringList *that, const QRegularExpression &re);
     int Q_CORE_EXPORT QStringList_indexOf(const QStringList *that, const QRegularExpression &re, int from);
     int Q_CORE_EXPORT QStringList_lastIndexOf(const QStringList *that, const QRegularExpression &re, int from);
-#endif // QT_NO_REGULAREXPRESSION
-#endif // QT_BOOTSTRAPPED
+#endif // QT_CONFIG(regularexpression)
 }
 
 inline void QListSpecialMethods<QString>::sort(Qt::CaseSensitivity cs)
@@ -219,12 +225,19 @@ inline QStringList QListSpecialMethods<QString>::filter(const QString &str, Qt::
     return QtPrivate::QStringList_filter(self(), str, cs);
 }
 
+#if QT_STRINGVIEW_LEVEL < 2
 inline bool QStringList::contains(const QString &str, Qt::CaseSensitivity cs) const
 {
     return QtPrivate::QStringList_contains(this, str, cs);
 }
+#endif
 
 inline bool QStringList::contains(QLatin1String str, Qt::CaseSensitivity cs) const
+{
+    return QtPrivate::QStringList_contains(this, str, cs);
+}
+
+inline bool QStringList::contains(QStringView str, Qt::CaseSensitivity cs) const
 {
     return QtPrivate::QStringList_contains(this, str, cs);
 }
@@ -240,6 +253,26 @@ inline QStringList operator+(const QList<QString> &one, const QStringList &other
     QStringList n = one;
     n += other;
     return n;
+}
+
+inline int QStringList::indexOf(QStringView string, int from) const
+{
+    return QtPrivate::indexOf<QString, QStringView>(*this, string, from);
+}
+
+inline int QStringList::indexOf(QLatin1String string, int from) const
+{
+    return QtPrivate::indexOf<QString, QLatin1String>(*this, string, from);
+}
+
+inline int QStringList::lastIndexOf(QStringView string, int from) const
+{
+    return QtPrivate::lastIndexOf<QString, QStringView>(*this, string, from);
+}
+
+inline int QStringList::lastIndexOf(QLatin1String string, int from) const
+{
+    return QtPrivate::lastIndexOf<QString, QLatin1String>(*this, string, from);
 }
 
 #ifndef QT_NO_REGEXP
@@ -275,8 +308,7 @@ inline int QStringList::lastIndexOf(QRegExp &rx, int from) const
 }
 #endif
 
-#ifndef QT_BOOTSTRAPPED
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
 inline QStringList &QListSpecialMethods<QString>::replaceInStrings(const QRegularExpression &rx, const QString &after)
 {
     QtPrivate::QStringList_replaceInStrings(self(), rx, after);
@@ -297,8 +329,7 @@ inline int QStringList::lastIndexOf(const QRegularExpression &rx, int from) cons
 {
     return QtPrivate::QStringList_lastIndexOf(this, rx, from);
 }
-#endif // QT_NO_REGULAREXPRESSION
-#endif // QT_BOOTSTRAPPED
+#endif // QT_CONFIG(regularexpression)
 #endif // Q_QDOC
 
 QT_END_NAMESPACE

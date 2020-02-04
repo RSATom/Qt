@@ -60,6 +60,11 @@ QT_USE_NAMESPACE
 
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTDeviceInquiry)
+{
+    IOBluetoothDeviceInquiry *m_inquiry;
+    bool m_active;
+    QT_PREPEND_NAMESPACE(OSXBluetooth::DeviceInquiryDelegate) *m_delegate;//C++ "delegate"
+}
 
 - (id)initWithDelegate:(OSXBluetooth::DeviceInquiryDelegate *)delegate
 {

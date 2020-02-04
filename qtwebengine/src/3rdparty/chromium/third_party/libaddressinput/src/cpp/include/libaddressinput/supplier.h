@@ -28,10 +28,10 @@ class Rule;
 class Supplier {
  public:
   struct RuleHierarchy;
-  typedef i18n::addressinput::Callback<const LookupKey&,
-                                       const RuleHierarchy&> Callback;
+  using Callback =
+      i18n::addressinput::Callback<const LookupKey&, const RuleHierarchy&>;
 
-  virtual ~Supplier() {}
+  virtual ~Supplier() = default;
 
   // Aggregates the metadata needed for |lookup_key| into a RuleHierarchy
   // object, then calls |supplied|. Implementations of this interface may
@@ -39,6 +39,13 @@ class Supplier {
   // hasn't already been loaded.
   virtual void Supply(const LookupKey& lookup_key,
                       const Callback& supplied) = 0;
+
+  // Aggregates the metadata (in all available languages) needed for
+  // |lookup_key| into a RuleHierarchy object, then calls |supplied|.
+  // Implementations of this interface may either load the necessary data on
+  // demand, or fail if the necessary data hasn't already been loaded.
+  virtual void SupplyGlobally(const LookupKey& lookup_key,
+                              const Callback& supplied) = 0;
 
   // A RuleHierarchy object encapsulates the hierarchical list of Rule objects
   // that corresponds to a particular LookupKey.

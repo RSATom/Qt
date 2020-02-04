@@ -6,10 +6,10 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
-
-namespace chrome {
 
 MonitorFinder::MonitorFinder(int process_id, int render_frame_id)
     : process_id_(process_id),
@@ -29,9 +29,8 @@ int64_t MonitorFinder::GetMonitor() {
     request_sent_ = true;
   }
 
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI,
-      FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::UI},
       base::Bind(&MonitorFinder::FetchMonitorFromWidget, this));
   return display_id_;
 }
@@ -49,7 +48,7 @@ void MonitorFinder::FetchMonitorFromWidget() {
     return;
 
   gfx::NativeView native_view = rfh->GetNativeView();
-  NSWindow* window = [native_view window];
+  NSWindow* window = [native_view.GetNativeNSView() window];
   NSScreen* screen = [window screen];
   CGDirectDisplayID display_id =
       [[[screen deviceDescription] objectForKey:@"NSScreenNumber"] intValue];
@@ -58,5 +57,3 @@ void MonitorFinder::FetchMonitorFromWidget() {
   request_sent_ = false;
   display_id_ = display_id;
 }
-
-}  // namespace chrome

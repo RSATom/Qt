@@ -10,10 +10,11 @@
 
 #include "GrCaps.h"
 #include "GrVkStencilAttachment.h"
-#include "vk/GrVkDefines.h"
+#include "vk/GrVkTypes.h"
 
-struct GrVkInterface;
 class GrShaderCaps;
+class GrVkExtensions;
+struct GrVkInterface;
 
 /**
  * Stores some capabilities of a Vk backend.
@@ -27,19 +28,21 @@ public:
      * be called to fill out the caps.
      */
     GrVkCaps(const GrContextOptions& contextOptions, const GrVkInterface* vkInterface,
-             VkPhysicalDevice device, uint32_t featureFlags, uint32_t extensionFlags);
-
-    int getSampleCount(int requestedCount, GrPixelConfig config) const override;
+             VkPhysicalDevice device, const VkPhysicalDeviceFeatures2& features,
+             uint32_t instanceVersion, const GrVkExtensions& extensions);
 
     bool isConfigTexturable(GrPixelConfig config) const override {
         return SkToBool(ConfigInfo::kTextureable_Flag & fConfigTable[config].fOptimalFlags);
     }
 
-    bool isConfigRenderable(GrPixelConfig config, bool withMSAA) const override {
-        return SkToBool(ConfigInfo::kRenderable_Flag & fConfigTable[config].fOptimalFlags);
+    bool isConfigCopyable(GrPixelConfig config) const override {
+        return true;
     }
 
-    bool canConfigBeImageStorage(GrPixelConfig) const override { return false; }
+    int getRenderTargetSampleCount(int requestedCount, GrPixelConfig config) const override;
+    int maxRenderTargetSampleCount(GrPixelConfig config) const override;
+
+    bool surfaceSupportsReadPixels(const GrSurface*) const override { return true; }
 
     bool isConfigTexturableLinearly(GrPixelConfig config) const {
         return SkToBool(ConfigInfo::kTextureable_Flag & fConfigTable[config].fLinearFlags);
@@ -62,27 +65,10 @@ public:
         return SkToBool(ConfigInfo::kBlitSrc_Flag & flags);
     }
 
-    // Tells of if we can pass in straight GLSL string into vkCreateShaderModule
-    bool canUseGLSLForShaderModule() const {
-        return fCanUseGLSLForShaderModule;
-    }
-
     // On Adreno vulkan, they do not respect the imageOffset parameter at least in
     // copyImageToBuffer. This flag says that we must do the copy starting from the origin always.
     bool mustDoCopiesFromOrigin() const {
         return fMustDoCopiesFromOrigin;
-    }
-
-    // Check whether we support using draws for copies.
-    bool supportsCopiesAsDraws() const {
-        return fSupportsCopiesAsDraws;
-    }
-
-    // On Nvidia there is a current bug where we must the current command buffer before copy
-    // operations or else the copy will not happen. This includes copies, blits, resolves, and copy
-    // as draws.
-    bool mustSubmitCommandsBeforeCopyOp() const {
-        return fMustSubmitCommandsBeforeCopyOp;
     }
 
     // Sometimes calls to QueueWaitIdle return before actually signalling the fences
@@ -99,35 +85,105 @@ public:
         return fNewCBOnPipelineChange;
     }
 
-    /**
-     * Returns both a supported and most prefered stencil format to use in draws.
-     */
-    const StencilFormat& preferedStencilFormat() const {
-        return fPreferedStencilFormat;
+    // Returns true if we should always make dedicated allocations for VkImages.
+    bool shouldAlwaysUseDedicatedImageMemory() const {
+        return fShouldAlwaysUseDedicatedImageMemory;
     }
 
-    bool initDescForDstCopy(const GrRenderTargetProxy* src, GrSurfaceDesc* desc,
+    /**
+     * Returns both a supported and most preferred stencil format to use in draws.
+     */
+    const StencilFormat& preferredStencilFormat() const {
+        return fPreferredStencilFormat;
+    }
+
+    // Returns whether the device supports the ability to extend VkPhysicalDeviceProperties struct.
+    bool supportsPhysicalDeviceProperties2() const { return fSupportsPhysicalDeviceProperties2; }
+    // Returns whether the device supports the ability to extend VkMemoryRequirements struct.
+    bool supportsMemoryRequirements2() const { return fSupportsMemoryRequirements2; }
+
+    // Returns whether the device supports the ability to extend the vkBindMemory call.
+    bool supportsBindMemory2() const { return fSupportsBindMemory2; }
+
+    // Returns whether or not the device suports the various API maintenance fixes to Vulkan 1.0. In
+    // Vulkan 1.1 all these maintenance are part of the core spec.
+    bool supportsMaintenance1() const { return fSupportsMaintenance1; }
+    bool supportsMaintenance2() const { return fSupportsMaintenance2; }
+    bool supportsMaintenance3() const { return fSupportsMaintenance3; }
+
+    // Returns true if the device supports passing in a flag to say we are using dedicated GPU when
+    // allocating memory. For some devices this allows them to return more optimized memory knowning
+    // they will never need to suballocate amonst multiple objects.
+    bool supportsDedicatedAllocation() const { return fSupportsDedicatedAllocation; }
+
+    // Returns true if the device supports importing of external memory into Vulkan memory.
+    bool supportsExternalMemory() const { return fSupportsExternalMemory; }
+    // Returns true if the device supports importing Android hardware buffers into Vulkan memory.
+    bool supportsAndroidHWBExternalMemory() const { return fSupportsAndroidHWBExternalMemory; }
+
+    // Returns true if it supports ycbcr conversion for samplers
+    bool supportsYcbcrConversion() const { return fSupportsYcbcrConversion; }
+
+    /**
+     * Helpers used by canCopySurface. In all cases if the SampleCnt parameter is zero that means
+     * the surface is not a render target, otherwise it is the number of samples in the render
+     * target.
+     */
+    bool canCopyImage(GrPixelConfig dstConfig, int dstSampleCnt, GrSurfaceOrigin dstOrigin,
+                      GrPixelConfig srcConfig, int srcSamplecnt, GrSurfaceOrigin srcOrigin) const;
+
+    bool canCopyAsBlit(GrPixelConfig dstConfig, int dstSampleCnt, bool dstIsLinear,
+                       GrPixelConfig srcConfig, int srcSampleCnt, bool srcIsLinear) const;
+
+    bool canCopyAsResolve(GrPixelConfig dstConfig, int dstSampleCnt, GrSurfaceOrigin dstOrigin,
+                          GrPixelConfig srcConfig, int srcSamplecnt,
+                          GrSurfaceOrigin srcOrigin) const;
+
+    bool canCopyAsDraw(GrPixelConfig dstConfig, bool dstIsRenderable,
+                       GrPixelConfig srcConfig, bool srcIsTextureable) const;
+
+    bool initDescForDstCopy(const GrRenderTargetProxy* src, GrSurfaceDesc* desc, GrSurfaceOrigin*,
                             bool* rectsMustMatch, bool* disallowSubrect) const override;
+
+    GrPixelConfig validateBackendRenderTarget(const GrBackendRenderTarget&,
+                                              SkColorType) const override;
+
+    GrPixelConfig getConfigFromBackendFormat(const GrBackendFormat&, SkColorType) const override;
+    GrPixelConfig getYUVAConfigFromBackendFormat(const GrBackendFormat&) const override;
+
+    GrBackendFormat getBackendFormatFromGrColorType(GrColorType ct,
+                                                    GrSRGBEncoded srgbEncoded) const override;
 
 private:
     enum VkVendor {
         kAMD_VkVendor = 4098,
+        kARM_VkVendor = 5045,
         kImagination_VkVendor = 4112,
+        kIntel_VkVendor = 32902,
         kNvidia_VkVendor = 4318,
         kQualcomm_VkVendor = 20803,
     };
 
     void init(const GrContextOptions& contextOptions, const GrVkInterface* vkInterface,
-              VkPhysicalDevice device, uint32_t featureFlags, uint32_t extensionFlags);
-    void initGrCaps(const VkPhysicalDeviceProperties&,
+              VkPhysicalDevice device, const VkPhysicalDeviceFeatures2&, const GrVkExtensions&);
+    void initGrCaps(const GrVkInterface* vkInterface,
+                    VkPhysicalDevice physDev,
+                    const VkPhysicalDeviceProperties&,
                     const VkPhysicalDeviceMemoryProperties&,
-                    uint32_t featureFlags);
-    void initShaderCaps(const VkPhysicalDeviceProperties&, uint32_t featureFlags);
-    void initSampleCount(const VkPhysicalDeviceProperties& properties);
-
+                    const VkPhysicalDeviceFeatures2&,
+                    const GrVkExtensions&);
+    void initShaderCaps(const VkPhysicalDeviceProperties&, const VkPhysicalDeviceFeatures2&);
 
     void initConfigTable(const GrVkInterface*, VkPhysicalDevice, const VkPhysicalDeviceProperties&);
     void initStencilFormat(const GrVkInterface* iface, VkPhysicalDevice physDev);
+
+    uint8_t getYcbcrKeyFromYcbcrInfo(const GrVkYcbcrConversionInfo& info);
+
+    void applyDriverCorrectnessWorkarounds(const VkPhysicalDeviceProperties&);
+
+    bool onSurfaceSupportsWritePixels(const GrSurface*) const override;
+    bool onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
+                          const SkIRect& srcRect, const SkIPoint& dstPoint) const override;
 
     struct ConfigInfo {
         ConfigInfo() : fOptimalFlags(0), fLinearFlags(0) {}
@@ -152,19 +208,27 @@ private:
     };
     ConfigInfo fConfigTable[kGrPixelConfigCnt];
 
-    StencilFormat fPreferedStencilFormat;
+    StencilFormat fPreferredStencilFormat;
 
-    bool fCanUseGLSLForShaderModule;
+    SkSTArray<1, GrVkYcbcrConversionInfo> fYcbcrInfos;
 
-    bool fMustDoCopiesFromOrigin;
+    bool fMustDoCopiesFromOrigin = false;
+    bool fMustSleepOnTearDown = false;
+    bool fNewCBOnPipelineChange = false;
+    bool fShouldAlwaysUseDedicatedImageMemory = false;
 
-    bool fSupportsCopiesAsDraws;
+    bool fSupportsPhysicalDeviceProperties2 = false;
+    bool fSupportsMemoryRequirements2 = false;
+    bool fSupportsBindMemory2 = false;
+    bool fSupportsMaintenance1 = false;
+    bool fSupportsMaintenance2 = false;
+    bool fSupportsMaintenance3 = false;
 
-    bool fMustSubmitCommandsBeforeCopyOp;
+    bool fSupportsDedicatedAllocation = false;
+    bool fSupportsExternalMemory = false;
+    bool fSupportsAndroidHWBExternalMemory = false;
 
-    bool fMustSleepOnTearDown;
-
-    bool fNewCBOnPipelineChange;
+    bool fSupportsYcbcrConversion = false;
 
     typedef GrCaps INHERITED;
 };

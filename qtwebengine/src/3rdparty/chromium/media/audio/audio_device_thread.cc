@@ -7,45 +7,25 @@
 #include <limits>
 
 #include "base/logging.h"
-#include "base/sys_info.h"
-
-namespace {
-
-base::ThreadPriority GetAudioThreadPriority() {
-#if defined(OS_CHROMEOS)
-  // On Chrome OS, there are priority inversion issues with having realtime
-  // threads on systems with only two cores, see crbug.com/710245.
-  return base::SysInfo::NumberOfProcessors() > 2
-             ? base::ThreadPriority::REALTIME_AUDIO
-             : base::ThreadPriority::NORMAL;
-#else
-  return base::ThreadPriority::REALTIME_AUDIO;
-#endif
-}
-
-}  // namespace
+#include "base/system/sys_info.h"
 
 namespace media {
 
 // AudioDeviceThread::Callback implementation
 
 AudioDeviceThread::Callback::Callback(const AudioParameters& audio_parameters,
-                                      base::SharedMemoryHandle memory,
-                                      int memory_length,
-                                      int total_segments)
+                                      uint32_t segment_length,
+                                      uint32_t total_segments)
     : audio_parameters_(audio_parameters),
-      shared_memory_(memory, false),
-      memory_length_(memory_length),
+      memory_length_(
+          base::CheckMul(segment_length, total_segments).ValueOrDie()),
       total_segments_(total_segments),
-      // Avoid division by zero during construction.
-      segment_length_(memory_length_ /
-                      (total_segments_ ? total_segments_ : 1)) {
-  CHECK_GT(total_segments_, 0);
-  CHECK_EQ(memory_length_ % total_segments_, 0);
+      segment_length_(segment_length) {
+  CHECK_GT(total_segments_, 0u);
   thread_checker_.DetachFromThread();
 }
 
-AudioDeviceThread::Callback::~Callback() {}
+AudioDeviceThread::Callback::~Callback() = default;
 
 void AudioDeviceThread::Callback::InitializeOnAudioThread() {
   // Normally this function is called before the thread checker is used
@@ -53,19 +33,19 @@ void AudioDeviceThread::Callback::InitializeOnAudioThread() {
   // another thread before we get here.
   DCHECK(thread_checker_.CalledOnValidThread())
       << "Thread checker was attached on the wrong thread";
-  DCHECK(!shared_memory_.memory());
   MapSharedMemory();
-  CHECK(shared_memory_.memory());
 }
 
 // AudioDeviceThread implementation
 
 AudioDeviceThread::AudioDeviceThread(Callback* callback,
                                      base::SyncSocket::Handle socket,
-                                     const char* thread_name)
+                                     const char* thread_name,
+                                     base::ThreadPriority thread_priority)
     : callback_(callback), thread_name_(thread_name), socket_(socket) {
   CHECK(base::PlatformThread::CreateWithPriority(0, this, &thread_handle_,
-                                                 GetAudioThreadPriority()));
+                                                 thread_priority));
+
   DCHECK(!thread_handle_.is_null());
 }
 

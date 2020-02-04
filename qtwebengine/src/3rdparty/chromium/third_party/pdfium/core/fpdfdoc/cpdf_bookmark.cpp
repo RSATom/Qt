@@ -10,62 +10,49 @@
 #include <vector>
 
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfdoc/cpdf_nametree.h"
 #include "core/fxge/fx_dib.h"
 
-CPDF_Bookmark::CPDF_Bookmark() {}
+CPDF_Bookmark::CPDF_Bookmark() = default;
 
 CPDF_Bookmark::CPDF_Bookmark(const CPDF_Bookmark& that) = default;
 
-CPDF_Bookmark::CPDF_Bookmark(CPDF_Dictionary* pDict) : m_pDict(pDict) {}
+CPDF_Bookmark::CPDF_Bookmark(const CPDF_Dictionary* pDict) : m_pDict(pDict) {}
 
-CPDF_Bookmark::~CPDF_Bookmark() {}
-
-uint32_t CPDF_Bookmark::GetColorRef() const {
-  if (!m_pDict)
-    return FXSYS_RGB(0, 0, 0);
-
-  CPDF_Array* pColor = m_pDict->GetArrayFor("C");
-  if (!pColor)
-    return FXSYS_RGB(0, 0, 0);
-
-  int r = FXSYS_round(pColor->GetNumberAt(0) * 255);
-  int g = FXSYS_round(pColor->GetNumberAt(1) * 255);
-  int b = FXSYS_round(pColor->GetNumberAt(2) * 255);
-  return FXSYS_RGB(r, g, b);
-}
+CPDF_Bookmark::~CPDF_Bookmark() = default;
 
 uint32_t CPDF_Bookmark::GetFontStyle() const {
   return m_pDict ? m_pDict->GetIntegerFor("F") : 0;
 }
 
-CFX_WideString CPDF_Bookmark::GetTitle() const {
+WideString CPDF_Bookmark::GetTitle() const {
   if (!m_pDict)
-    return CFX_WideString();
+    return WideString();
 
-  CPDF_String* pString = ToString(m_pDict->GetDirectObjectFor("Title"));
+  const CPDF_String* pString = ToString(m_pDict->GetDirectObjectFor("Title"));
   if (!pString)
-    return CFX_WideString();
+    return WideString();
 
-  CFX_WideString title = pString->GetUnicodeText();
+  WideString title = pString->GetUnicodeText();
   int len = title.GetLength();
   if (!len)
-    return CFX_WideString();
+    return WideString();
 
   std::vector<wchar_t> buf(len);
   for (int i = 0; i < len; i++) {
     wchar_t w = title[i];
     buf[i] = w > 0x20 ? w : 0x20;
   }
-  return CFX_WideString(buf.data(), len);
+  return WideString(buf.data(), len);
 }
 
 CPDF_Dest CPDF_Bookmark::GetDest(CPDF_Document* pDocument) const {
   if (!m_pDict)
     return CPDF_Dest();
 
-  CPDF_Object* pDest = m_pDict->GetDirectObjectFor("Dest");
+  const CPDF_Object* pDest = m_pDict->GetDirectObjectFor("Dest");
   if (!pDest)
     return CPDF_Dest();
   if (pDest->IsString() || pDest->IsName()) {
@@ -73,11 +60,11 @@ CPDF_Dest CPDF_Bookmark::GetDest(CPDF_Document* pDocument) const {
     return CPDF_Dest(
         name_tree.LookupNamedDest(pDocument, pDest->GetUnicodeText()));
   }
-  if (CPDF_Array* pArray = pDest->AsArray())
+  if (const CPDF_Array* pArray = pDest->AsArray())
     return CPDF_Dest(pArray);
   return CPDF_Dest();
 }
 
 CPDF_Action CPDF_Bookmark::GetAction() const {
-  return m_pDict ? CPDF_Action(m_pDict->GetDictFor("A")) : CPDF_Action();
+  return CPDF_Action(m_pDict ? m_pDict->GetDictFor("A") : nullptr);
 }

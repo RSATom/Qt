@@ -19,12 +19,9 @@
 #include "media/capture/video/video_capture_device.h"
 
 namespace base {
-class SingleThreadTaskRunner;
-}
-
-namespace tracked_objects {
 class Location;
-}  // namespace tracked_objects
+class SingleThreadTaskRunner;
+}  // namespace base
 
 namespace media {
 
@@ -47,13 +44,35 @@ class CAPTURE_EXPORT VideoCaptureDeviceAndroid : public VideoCaptureDevice {
     ANDROID_IMAGE_FORMAT_UNKNOWN = 0,
   };
 
+  // A Java counterpart will be generated for this enum.
+  // The values of these are matched with the ones in media::VideoCaptureError
+  // to allow direct static_casting.
+  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.media
+  enum class AndroidVideoCaptureError {
+    ANDROID_API_1_CAMERA_ERROR_CALLBACK_RECEIVED = 68,
+    ANDROID_API_2_CAMERA_DEVICE_ERROR_RECEIVED = 69,
+    ANDROID_API_2_CAPTURE_SESSION_CONFIGURE_FAILED = 70,
+    ANDROID_API_2_IMAGE_READER_UNEXPECTED_IMAGE_FORMAT = 71,
+    ANDROID_API_2_IMAGE_READER_SIZE_DID_NOT_MATCH_IMAGE_SIZE = 72,
+    ANDROID_API_2_ERROR_RESTARTING_PREVIEW = 73,
+    ANDROID_API_2_ERROR_CONFIGURING_CAMERA = 114,
+  };
+
+  // A Java counterpart will be generated for this enum.
+  // The values of these are matched with the ones in
+  // media::VideoCaptureFrameDropReason to allow direct static_casting.
+  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.media
+  enum class AndroidVideoCaptureFrameDropReason {
+    ANDROID_API_1_UNEXPECTED_DATA_LENGTH = 8,
+    ANDROID_API_2_ACQUIRED_IMAGE_IS_NULL = 9,
+  };
+
   explicit VideoCaptureDeviceAndroid(
       const VideoCaptureDeviceDescriptor& device_descriptor);
   ~VideoCaptureDeviceAndroid() override;
 
   static VideoCaptureDevice* Create(
       const VideoCaptureDeviceDescriptor& device_descriptor);
-  static bool RegisterVideoCaptureDevice(JNIEnv* env);
 
   // Registers the Java VideoCaptureDevice pointer, used by the rest of the
   // methods of the class to operate the Java capture code. This method must be
@@ -93,7 +112,19 @@ class CAPTURE_EXPORT VideoCaptureDeviceAndroid : public VideoCaptureDevice {
   // Implement org.chromium.media.VideoCapture.nativeOnError.
   void OnError(JNIEnv* env,
                const base::android::JavaParamRef<jobject>& obj,
+               int android_video_capture_error,
                const base::android::JavaParamRef<jstring>& message);
+
+  // Implement org.chromium.media.VideoCapture.nativeOnFrameDropped.
+  void OnFrameDropped(JNIEnv* env,
+                      const base::android::JavaParamRef<jobject>& obj,
+                      int android_video_capture_frame_drop_reason);
+
+  void OnGetPhotoCapabilitiesReply(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jlong callback_id,
+      jobject photo_capabilities);
 
   // Implement org.chromium.media.VideoCapture.nativeOnPhotoTaken.
   void OnPhotoTaken(JNIEnv* env,
@@ -104,7 +135,31 @@ class CAPTURE_EXPORT VideoCaptureDeviceAndroid : public VideoCaptureDevice {
   // Implement org.chromium.media.VideoCapture.nativeOnStarted.
   void OnStarted(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
 
+  // Implement
+  // org.chromium.media.VideoCapture.nativeDCheckCurrentlyOnIncomingTaskRunner.
+  void DCheckCurrentlyOnIncomingTaskRunner(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj);
+
   void ConfigureForTesting();
+
+ protected:
+  // Helper code executed when the frame is available; if it is the first frame,
+  // setup time fluctuation control and process any pending photo requests.
+  void ProcessFirstFrameAvailable(base::TimeTicks current_time);
+
+  // Checks if there is a client and if the |state_| is kConfigured.
+  bool IsClientConfigured();
+
+  // Checks if the incoming frame arrived too early so that is needs to be
+  // dropped. If not, advance the next frame expectation time and return false;
+  bool ThrottleFrame(base::TimeTicks current_time);
+
+  void SendIncomingDataToClient(const uint8_t* data,
+                                int length,
+                                int rotation,
+                                base::TimeTicks reference_time,
+                                base::TimeDelta timestamp);
 
  private:
   enum InternalState {
@@ -114,7 +169,8 @@ class CAPTURE_EXPORT VideoCaptureDeviceAndroid : public VideoCaptureDevice {
   };
 
   VideoPixelFormat GetColorspace();
-  void SetErrorState(const tracked_objects::Location& from_here,
+  void SetErrorState(media::VideoCaptureError error,
+                     const base::Location& from_here,
                      const std::string& reason);
 
   void DoGetPhotoState(GetPhotoStateCallback callback);
@@ -128,19 +184,20 @@ class CAPTURE_EXPORT VideoCaptureDeviceAndroid : public VideoCaptureDevice {
   // |lock_| protects |state_|, |client_|, |got_first_frame_| and
   // |photo_requests_queue_| from concurrent access.
   base::Lock lock_;
-  InternalState state_;
+  InternalState state_ = kIdle;
   std::unique_ptr<VideoCaptureDevice::Client> client_;
-  bool got_first_frame_;
+  bool got_first_frame_ = false;
   // Photo-related requests waiting for |got_first_frame_| to be served. Android
-  // APIs need the device capturing or nearly-capturing to be fully oeprational.
+  // APIs need the device capturing or nearly-capturing to be fully operational.
   std::list<base::Closure> photo_requests_queue_;
 
   base::TimeTicks expected_next_frame_time_;
   base::TimeDelta frame_interval_;
 
-  // List of |photo_callbacks_| in flight, being served in Java side.
+  // List of callbacks for photo API in flight, being served in Java side.
   base::Lock photo_callbacks_lock_;
-  std::list<std::unique_ptr<TakePhotoCallback>> photo_callbacks_;
+  std::list<std::unique_ptr<GetPhotoStateCallback>> get_photo_state_callbacks_;
+  std::list<std::unique_ptr<TakePhotoCallback>> take_photo_callbacks_;
 
   const VideoCaptureDeviceDescriptor device_descriptor_;
   VideoCaptureFormat capture_format_;

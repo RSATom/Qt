@@ -57,6 +57,7 @@
 
 #include <QtCore/qglobal.h>
 #include <QtCore/qlist.h>
+#include <QtCore/qvector.h>
 
 #include <Foundation/Foundation.h>
 
@@ -81,18 +82,13 @@ public:
 
 void extract_service_record(IOBluetoothSDPServiceRecord *record, QBluetoothServiceInfo &serviceInfo);
 QVariant extract_attribute_value(IOBluetoothSDPDataElement *dataElement);
-QList<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device);
+QVector<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device);
 
 }
 
 QT_END_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(OSXBTSDPInquiry) : NSObject
-{
-    QT_PREPEND_NAMESPACE(OSXBluetooth::SDPInquiryDelegate) *delegate;
-    IOBluetoothDevice *device;
-    bool isActive;
-}
 
 - (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth::SDPInquiryDelegate) *)aDelegate;
 - (void)dealloc;

@@ -1,283 +1,385 @@
-TARGET  = qtvirtualkeyboardplugin
-DATAPATH = $$[QT_INSTALL_DATA]/qtvirtualkeyboard
+TARGET  = QtVirtualKeyboard
+MODULE = virtualkeyboard
+MODULE_PLUGIN_TYPES = virtualkeyboard
 
 QMAKE_DOCS = $$PWD/doc/qtvirtualkeyboard.qdocconf
 include(doc/doc.pri)
 
 QT += qml quick gui gui-private core-private
+CONFIG += qtquickcompiler
 
-win32 {
-    CONFIG += no-pkg-config
-    QMAKE_TARGET_PRODUCT = "Qt Virtual Keyboard (Qt $$QT_VERSION)"
-    QMAKE_TARGET_DESCRIPTION = "Virtual Keyboard for Qt."
-}
-
-!no-pkg-config: CONFIG += link_pkgconfig
+DEFINES += QVIRTUALKEYBOARD_LIBRARY
 
 include(../config.pri)
 
-SOURCES += platforminputcontext.cpp \
-    inputcontext.cpp \
-    abstractinputmethod.cpp \
+SOURCES += \
+    platforminputcontext.cpp \
+    qvirtualkeyboardinputcontext.cpp \
+    qvirtualkeyboardinputcontext_p.cpp \
+    qvirtualkeyboardabstractinputmethod.cpp \
     plaininputmethod.cpp \
-    inputengine.cpp \
+    qvirtualkeyboardinputengine.cpp \
     shifthandler.cpp \
-    plugin.cpp \
     inputmethod.cpp \
     inputselectionhandle.cpp \
-    selectionlistmodel.cpp \
-    defaultinputmethod.cpp \
+    qvirtualkeyboardselectionlistmodel.cpp \
+    fallbackinputmethod.cpp \
     abstractinputpanel.cpp \
+    appinputpanel.cpp \
     enterkeyaction.cpp \
     enterkeyactionattachedtype.cpp \
     settings.cpp \
     virtualkeyboardsettings.cpp \
-    trace.cpp \
+    qvirtualkeyboardtrace.cpp \
     desktopinputselectioncontrol.cpp \
     shadowinputcontext.cpp \
     gesturerecognizer.cpp \
-    handwritinggesturerecognizer.cpp
+    handwritinggesturerecognizer.cpp \
+    qvirtualkeyboardextensionplugin.cpp
 
-HEADERS += platforminputcontext.h \
-    inputcontext.h \
-    abstractinputmethod.h \
-    plaininputmethod.h \
-    inputengine.h \
-    shifthandler.h \
-    inputmethod.h \
-    inputselectionhandle.h \
-    selectionlistmodel.h \
-    defaultinputmethod.h \
-    abstractinputpanel.h \
-    virtualkeyboarddebug.h \
-    enterkeyaction.h \
-    enterkeyactionattachedtype.h \
-    settings.h \
-    virtualkeyboardsettings.h \
-    plugin.h \
-    trace.h \
-    desktopinputselectioncontrol.h \
-    shadowinputcontext.h \
-    gesturerecognizer.h \
-    handwritinggesturerecognizer.h
+HEADERS += \
+    platforminputcontext_p.h \
+    qvirtualkeyboardinputcontext.h \
+    qvirtualkeyboardinputcontext_p.h \
+    qvirtualkeyboardabstractinputmethod.h \
+    plaininputmethod_p.h \
+    qvirtualkeyboardinputengine.h \
+    shifthandler_p.h \
+    inputmethod_p.h \
+    inputselectionhandle_p.h \
+    qvirtualkeyboardselectionlistmodel.h \
+    fallbackinputmethod_p.h \
+    abstractinputpanel_p.h \
+    appinputpanel_p.h \
+    appinputpanel_p_p.h \
+    virtualkeyboarddebug_p.h \
+    enterkeyaction_p.h \
+    enterkeyactionattachedtype_p.h \
+    settings_p.h \
+    virtualkeyboardsettings_p.h \
+    qvirtualkeyboardtrace.h \
+    desktopinputselectioncontrol_p.h \
+    shadowinputcontext_p.h \
+    gesturerecognizer_p.h \
+    handwritinggesturerecognizer_p.h \
+    qvirtualkeyboard_global.h \
+    qvirtualkeyboardextensionplugin.h \
+    qvirtualkeyboard_staticplugin_p.h
+
+!no-builtin-style: RESOURCES += \
+    content/styles/default/virtualkeyboard_default_style.qrc \
+    content/styles/retro/virtualkeyboard_retro_style.qrc
 
 RESOURCES += \
-    content/styles/default/default_style.qrc \
-    content/styles/retro/retro_style.qrc \
-    content/content.qrc
+    content/virtualkeyboard_content.qrc
 
 # Fallback for languages which don't have these special layouts
 LAYOUT_FILES += \
-    content/layouts/en_GB/dialpad.qml \
-    content/layouts/en_GB/digits.qml \
-    content/layouts/en_GB/numbers.qml
-contains(CONFIG, lang-en.*) {
+    content/layouts/fallback/dialpad.qml \
+    content/layouts/fallback/digits.qml \
+    content/layouts/fallback/numbers.qml \
+    content/layouts/fallback/main.qml \
+    content/layouts/fallback/symbols.qml
+contains(CONFIG, lang-en(_GB)?) {
     LAYOUT_FILES += \
-        content/layouts/en_GB/main.qml \
-        content/layouts/en_GB/symbols.qml
-t9write-alphabetic|lipi-toolkit: LAYOUT_FILES += \
-        content/layouts/en_GB/handwriting.qml
+        content/layouts/en_GB/dialpad.fallback \
+        content/layouts/en_GB/digits.fallback \
+        content/layouts/en_GB/main.fallback \
+        content/layouts/en_GB/numbers.fallback \
+        content/layouts/en_GB/symbols.fallback
+}
+contains(CONFIG, lang-en(_US)?) {
+    LAYOUT_FILES += \
+        content/layouts/en_US/dialpad.fallback \
+        content/layouts/en_US/digits.fallback \
+        content/layouts/en_US/main.fallback \
+        content/layouts/en_US/numbers.fallback \
+        content/layouts/en_US/symbols.fallback
 }
 contains(CONFIG, lang-ar.*) {
     LAYOUT_FILES += \
+        content/layouts/ar_AR/dialpad.fallback \
         content/layouts/ar_AR/digits.qml \
         content/layouts/ar_AR/main.qml \
         content/layouts/ar_AR/numbers.qml \
         content/layouts/ar_AR/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/ar_AR/handwriting.qml
 }
 contains(CONFIG, lang-bg.*) {
     LAYOUT_FILES += \
+        content/layouts/bg_BG/dialpad.fallback \
+        content/layouts/bg_BG/digits.fallback \
         content/layouts/bg_BG/main.qml \
-        content/layouts/bg_BG/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/bg_BG/handwriting.qml
+        content/layouts/bg_BG/numbers.fallback \
+        content/layouts/bg_BG/symbols.fallback
 }
 contains(CONFIG, lang-cs.*) {
     LAYOUT_FILES += \
+        content/layouts/cs_CZ/dialpad.fallback \
+        content/layouts/cs_CZ/digits.fallback \
         content/layouts/cs_CZ/main.qml \
-        content/layouts/cs_CZ/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/cs_CZ/handwriting.qml
+        content/layouts/cs_CZ/numbers.fallback \
+        content/layouts/cs_CZ/symbols.fallback
 }
 contains(CONFIG, lang-da.*) {
     LAYOUT_FILES += \
+        content/layouts/da_DK/dialpad.fallback \
+        content/layouts/da_DK/digits.fallback \
         content/layouts/da_DK/main.qml \
-        content/layouts/da_DK/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/da_DK/handwriting.qml
+        content/layouts/da_DK/numbers.fallback \
+        content/layouts/da_DK/symbols.fallback
 }
 contains(CONFIG, lang-de.*) {
     LAYOUT_FILES += \
+        content/layouts/de_DE/dialpad.fallback \
+        content/layouts/de_DE/digits.fallback \
         content/layouts/de_DE/main.qml \
-        content/layouts/de_DE/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/de_DE/handwriting.qml
+        content/layouts/de_DE/numbers.fallback \
+        content/layouts/de_DE/symbols.fallback
 }
 contains(CONFIG, lang-el.*) {
     LAYOUT_FILES += \
+        content/layouts/el_GR/dialpad.fallback \
+        content/layouts/el_GR/digits.fallback \
         content/layouts/el_GR/main.qml \
-        content/layouts/el_GR/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/el_GR/handwriting.qml
+        content/layouts/el_GR/numbers.fallback \
+        content/layouts/el_GR/symbols.fallback
 }
-contains(CONFIG, lang-es.*) {
+contains(CONFIG, lang-es(_ES)?) {
     LAYOUT_FILES += \
+        content/layouts/es_ES/dialpad.fallback \
+        content/layouts/es_ES/digits.fallback \
         content/layouts/es_ES/main.qml \
+        content/layouts/es_ES/numbers.fallback \
         content/layouts/es_ES/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/es_ES/handwriting.qml
+}
+contains(CONFIG, lang-es(_MX)?) {
+    LAYOUT_FILES += \
+        content/layouts/es_MX/dialpad.fallback \
+        content/layouts/es_MX/digits.fallback \
+        content/layouts/es_MX/main.qml \
+        content/layouts/es_MX/numbers.fallback \
+        content/layouts/es_MX/symbols.qml
 }
 contains(CONFIG, lang-et.*) {
     LAYOUT_FILES += \
+        content/layouts/et_EE/dialpad.fallback \
+        content/layouts/et_EE/digits.fallback \
         content/layouts/et_EE/main.qml \
-        content/layouts/et_EE/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/et_EE/handwriting.qml
+        content/layouts/et_EE/numbers.fallback \
+        content/layouts/et_EE/symbols.fallback
 }
 contains(CONFIG, lang-fa.*) {
     LAYOUT_FILES += \
+        content/layouts/fa_FA/dialpad.fallback \
         content/layouts/fa_FA/digits.qml \
         content/layouts/fa_FA/main.qml \
         content/layouts/fa_FA/numbers.qml \
         content/layouts/fa_FA/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/fa_FA/handwriting.qml
 }
 contains(CONFIG, lang-fi.*) {
     LAYOUT_FILES += \
+        content/layouts/fi_FI/dialpad.fallback \
+        content/layouts/fi_FI/digits.fallback \
         content/layouts/fi_FI/main.qml \
-        content/layouts/fi_FI/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/fi_FI/handwriting.qml
+        content/layouts/fi_FI/numbers.fallback \
+        content/layouts/fi_FI/symbols.fallback
 }
-contains(CONFIG, lang-fr.*) {
+contains(CONFIG, lang-fr(_CA)?) {
     LAYOUT_FILES += \
+        content/layouts/fr_CA/dialpad.fallback \
+        content/layouts/fr_CA/digits.fallback \
+        content/layouts/fr_CA/main.qml \
+        content/layouts/fr_CA/numbers.fallback \
+        content/layouts/fr_CA/symbols.fallback
+}
+contains(CONFIG, lang-fr(_FR)?) {
+    LAYOUT_FILES += \
+        content/layouts/fr_FR/dialpad.fallback \
+        content/layouts/fr_FR/digits.fallback \
         content/layouts/fr_FR/main.qml \
-        content/layouts/fr_FR/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/fr_FR/handwriting.qml
+        content/layouts/fr_FR/numbers.fallback \
+        content/layouts/fr_FR/symbols.fallback
 }
 contains(CONFIG, lang-he.*) {
     LAYOUT_FILES += \
+        content/layouts/he_IL/dialpad.fallback \
+        content/layouts/he_IL/digits.fallback \
         content/layouts/he_IL/main.qml \
+        content/layouts/he_IL/numbers.fallback \
         content/layouts/he_IL/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/he_IL/handwriting.qml
 }
 contains(CONFIG, lang-hi.*) {
     LAYOUT_FILES += \
+        content/layouts/hi_IN/dialpad.fallback \
+        content/layouts/hi_IN/digits.fallback \
         content/layouts/hi_IN/main.qml \
+        content/layouts/hi_IN/numbers.fallback \
         content/layouts/hi_IN/symbols.qml
 }
 contains(CONFIG, lang-hr.*) {
     LAYOUT_FILES += \
+        content/layouts/hr_HR/dialpad.fallback \
+        content/layouts/hr_HR/digits.fallback \
         content/layouts/hr_HR/main.qml \
-        content/layouts/hr_HR/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/hr_HR/handwriting.qml
+        content/layouts/hr_HR/numbers.fallback \
+        content/layouts/hr_HR/symbols.fallback
 }
 contains(CONFIG, lang-hu.*) {
     LAYOUT_FILES += \
+        content/layouts/hu_HU/dialpad.fallback \
+        content/layouts/hu_HU/digits.fallback \
         content/layouts/hu_HU/main.qml \
-        content/layouts/hu_HU/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/hu_HU/handwriting.qml
+        content/layouts/hu_HU/numbers.fallback \
+        content/layouts/hu_HU/symbols.fallback
+}
+contains(CONFIG, lang-id.*) {
+    LAYOUT_FILES += \
+        content/layouts/id_ID/dialpad.fallback \
+        content/layouts/id_ID/digits.fallback \
+        content/layouts/id_ID/main.fallback \
+        content/layouts/id_ID/numbers.fallback \
+        content/layouts/id_ID/symbols.fallback
 }
 contains(CONFIG, lang-it.*) {
     LAYOUT_FILES += \
+        content/layouts/it_IT/dialpad.fallback \
+        content/layouts/it_IT/digits.fallback \
         content/layouts/it_IT/main.qml \
-        content/layouts/it_IT/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/it_IT/handwriting.qml
-}
-contains(CONFIG, lang-ja.*) {
-    LAYOUT_FILES += \
-        content/layouts/ja_JP/main.qml \
-        content/layouts/ja_JP/symbols.qml
-t9write-cjk: LAYOUT_FILES += \
-        content/layouts/ja_JP/handwriting.qml
-}
-contains(CONFIG, lang-ko.*) {
-    LAYOUT_FILES += \
-        content/layouts/ko_KR/main.qml \
-        content/layouts/ko_KR/symbols.qml
-t9write-cjk: LAYOUT_FILES += \
-        content/layouts/ko_KR/handwriting.qml
+        content/layouts/it_IT/numbers.fallback \
+        content/layouts/it_IT/symbols.fallback
 }
 contains(CONFIG, lang-nb.*) {
     LAYOUT_FILES += \
+        content/layouts/nb_NO/dialpad.fallback \
+        content/layouts/nb_NO/digits.fallback \
         content/layouts/nb_NO/main.qml \
-        content/layouts/nb_NO/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/nb_NO/handwriting.qml
+        content/layouts/nb_NO/numbers.fallback \
+        content/layouts/nb_NO/symbols.fallback
+}
+contains(CONFIG, lang-ms.*) {
+    LAYOUT_FILES += \
+        content/layouts/ms_MY/dialpad.fallback \
+        content/layouts/ms_MY/digits.fallback \
+        content/layouts/ms_MY/main.fallback \
+        content/layouts/ms_MY/numbers.fallback \
+        content/layouts/ms_MY/symbols.fallback
 }
 contains(CONFIG, lang-nl.*) {
     LAYOUT_FILES += \
-        content/layouts/nl_NL/main.qml \
-        content/layouts/nl_NL/symbols.qml
-t9write-alphabetic|lipi-toolkit: LAYOUT_FILES += \
-        content/layouts/nl_NL/handwriting.qml
+        content/layouts/nl_NL/dialpad.fallback \
+        content/layouts/nl_NL/digits.fallback \
+        content/layouts/nl_NL/main.fallback \
+        content/layouts/nl_NL/numbers.fallback \
+        content/layouts/nl_NL/symbols.fallback
 }
 contains(CONFIG, lang-pl.*) {
     LAYOUT_FILES += \
+        content/layouts/pl_PL/dialpad.fallback \
+        content/layouts/pl_PL/digits.fallback \
         content/layouts/pl_PL/main.qml \
-        content/layouts/pl_PL/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/pl_PL/handwriting.qml
+        content/layouts/pl_PL/numbers.fallback \
+        content/layouts/pl_PL/symbols.fallback
 }
-contains(CONFIG, lang-pt.*) {
+contains(CONFIG, lang-pt(_BR)?) {
     LAYOUT_FILES += \
+        content/layouts/pt_BR/dialpad.fallback \
+        content/layouts/pt_BR/digits.fallback \
+        content/layouts/pt_BR/main.qml \
+        content/layouts/pt_BR/numbers.fallback \
+        content/layouts/pt_BR/symbols.fallback
+}
+contains(CONFIG, lang-pt(_PT)?) {
+    LAYOUT_FILES += \
+        content/layouts/pt_PT/dialpad.fallback \
+        content/layouts/pt_PT/digits.fallback \
         content/layouts/pt_PT/main.qml \
-        content/layouts/pt_PT/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/pt_PT/handwriting.qml
+        content/layouts/pt_PT/numbers.fallback \
+        content/layouts/pt_PT/symbols.fallback
 }
 contains(CONFIG, lang-ro.*) {
     LAYOUT_FILES += \
+        content/layouts/ro_RO/dialpad.fallback \
+        content/layouts/ro_RO/digits.fallback \
         content/layouts/ro_RO/main.qml \
-        content/layouts/ro_RO/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/ro_RO/handwriting.qml
+        content/layouts/ro_RO/numbers.fallback \
+        content/layouts/ro_RO/symbols.fallback
 }
 contains(CONFIG, lang-ru.*) {
     LAYOUT_FILES += \
+        content/layouts/ru_RU/dialpad.fallback \
+        content/layouts/ru_RU/digits.fallback \
         content/layouts/ru_RU/main.qml \
-        content/layouts/ru_RU/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/ru_RU/handwriting.qml
+        content/layouts/ru_RU/numbers.fallback \
+        content/layouts/ru_RU/symbols.fallback
+}
+contains(CONFIG, lang-sk.*) {
+    LAYOUT_FILES += \
+        content/layouts/sk_SK/dialpad.fallback \
+        content/layouts/sk_SK/digits.fallback \
+        content/layouts/sk_SK/main.qml \
+        content/layouts/sk_SK/numbers.fallback \
+        content/layouts/sk_SK/symbols.fallback
+}
+contains(CONFIG, lang-sl.*) {
+    LAYOUT_FILES += \
+        content/layouts/sl_SI/dialpad.fallback \
+        content/layouts/sl_SI/digits.fallback \
+        content/layouts/sl_SI/main.qml \
+        content/layouts/sl_SI/numbers.fallback \
+        content/layouts/sl_SI/symbols.fallback
+}
+contains(CONFIG, lang-sq.*) {
+    LAYOUT_FILES += \
+        content/layouts/sq_AL/dialpad.fallback \
+        content/layouts/sq_AL/digits.fallback \
+        content/layouts/sq_AL/main.qml \
+        content/layouts/sq_AL/numbers.fallback \
+        content/layouts/sq_AL/symbols.fallback
 }
 contains(CONFIG, lang-sr.*) {
     LAYOUT_FILES += \
+        content/layouts/sr_SP/dialpad.fallback \
+        content/layouts/sr_SP/digits.fallback \
         content/layouts/sr_SP/main.qml \
-        content/layouts/sr_SP/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/sr_SP/handwriting.qml
+        content/layouts/sr_SP/numbers.fallback \
+        content/layouts/sr_SP/symbols.fallback
 }
 contains(CONFIG, lang-sv.*) {
     LAYOUT_FILES += \
+        content/layouts/sv_SE/dialpad.fallback \
+        content/layouts/sv_SE/digits.fallback \
         content/layouts/sv_SE/main.qml \
-        content/layouts/sv_SE/symbols.qml
-t9write-alphabetic: LAYOUT_FILES += \
-        content/layouts/sv_SE/handwriting.qml
+        content/layouts/sv_SE/numbers.fallback \
+        content/layouts/sv_SE/symbols.fallback
 }
-contains(CONFIG, lang-zh(_CN)?) {
+contains(CONFIG, lang-tr.*) {
     LAYOUT_FILES += \
-        content/layouts/zh_CN/main.qml \
-        content/layouts/zh_CN/symbols.qml
-t9write-cjk: LAYOUT_FILES += \
-        content/layouts/zh_CN/handwriting.qml
+        content/layouts/tr_TR/dialpad.fallback \
+        content/layouts/tr_TR/digits.fallback \
+        content/layouts/tr_TR/main.qml \
+        content/layouts/tr_TR/numbers.fallback \
+        content/layouts/tr_TR/symbols.fallback
 }
-contains(CONFIG, lang-zh(_TW)?) {
+contains(CONFIG, lang-uk.*) {
     LAYOUT_FILES += \
-        content/layouts/zh_TW/main.qml \
-        content/layouts/zh_TW/symbols.qml
-t9write-cjk: LAYOUT_FILES += \
-        content/layouts/zh_TW/handwriting.qml
+        content/layouts/uk_UA/dialpad.fallback \
+        content/layouts/uk_UA/digits.fallback \
+        content/layouts/uk_UA/main.qml \
+        content/layouts/uk_UA/numbers.fallback \
+        content/layouts/uk_UA/symbols.fallback
+}
+contains(CONFIG, lang-vi.*) {
+    LAYOUT_FILES += \
+        content/layouts/vi_VN/dialpad.fallback \
+        content/layouts/vi_VN/digits.fallback \
+        content/layouts/vi_VN/main.qml \
+        content/layouts/vi_VN/numbers.fallback \
+        content/layouts/vi_VN/symbols.qml
 }
 
-retro-style {
+no-builtin-style {
+    DEFINES += QT_VIRTUALKEYBOARD_DEFAULT_STYLE=\\\"\\\"
+} else:retro-style {
     DEFINES += QT_VIRTUALKEYBOARD_DEFAULT_STYLE=\\\"retro\\\"
 } else {
     DEFINES += QT_VIRTUALKEYBOARD_DEFAULT_STYLE=\\\"default\\\"
@@ -285,190 +387,43 @@ retro-style {
 
 DEFINES += QT_VIRTUALKEYBOARD_DEFAULT_LAYOUTS_DIR=\\\"qrc:/QtQuick/VirtualKeyboard/content/layouts\\\"
 
+DEFINES += \
+    QT_NO_CAST_TO_ASCII \
+    QT_ASCII_CAST_WARNINGS \
+    QT_NO_CAST_FROM_ASCII \
+    QT_NO_CAST_FROM_BYTEARRAY
+
 OTHER_FILES += \
     content/styles/default/*.qml \
     content/styles/retro/*.qml \
     content/*.qml \
     content/components/*.qml \
-    qtvirtualkeyboard.json
+    qtvirtualkeyboard.json \
+    $$LAYOUT_FILES
 
 !disable-desktop:isEmpty(CROSS_COMPILE):!android-embedded:!qnx {
     SOURCES += desktopinputpanel.cpp inputview.cpp
-    HEADERS += desktopinputpanel.h inputview.h
+    HEADERS += desktopinputpanel_p.h inputview_p.h
     DEFINES += QT_VIRTUALKEYBOARD_DESKTOP
     !no-pkg-config:packagesExist(xcb) {
         PKGCONFIG += xcb xcb-xfixes
         DEFINES += QT_VIRTUALKEYBOARD_HAVE_XCB
     }
 }
-SOURCES += appinputpanel.cpp
-HEADERS += appinputpanel.h
-
-qtquickcompiler: DEFINES += COMPILING_QML
-
-!disable-hunspell {
-    exists(3rdparty/hunspell/src/hunspell/hunspell.h) {
-        SOURCES += hunspellinputmethod.cpp hunspellinputmethod_p.cpp hunspellworker.cpp
-        HEADERS += hunspellinputmethod.h hunspellinputmethod_p.h hunspellworker.h
-        DEFINES += HAVE_HUNSPELL
-        QMAKE_USE += hunspell
-        exists(3rdparty/hunspell/data) {
-            hunspell_data.files = 3rdparty/hunspell/data/*.dic 3rdparty/hunspell/data/*.aff
-            hunspell_data.path = $$DATAPATH/hunspell
-            INSTALLS += hunspell_data
-            !prefix_build: COPIES += hunspell_data
-        } else {
-            error("Hunspell dictionaries are missing! Please copy .dic and .aff" \
-                  "files to src/virtualkeyboard/3rdparty/hunspell/data directory.")
-        }
-    } else:!no-pkg-config:packagesExist(hunspell) {
-        SOURCES += hunspellinputmethod.cpp hunspellinputmethod_p.cpp hunspellworker.cpp
-        HEADERS += hunspellinputmethod.h hunspellinputmethod_p.h hunspellworker.h
-        DEFINES += HAVE_HUNSPELL
-        PKGCONFIG += hunspell
-    } else {
-        message("Hunspell not found! Spell correction will not be available.")
-    }
-}
-
-pinyin {
-    SOURCES += \
-        pinyininputmethod.cpp \
-        pinyindecoderservice.cpp
-    HEADERS += \
-        pinyininputmethod.h \
-        pinyindecoderservice.h
-    DEFINES += HAVE_PINYIN
-    QMAKE_USE += pinyin
-    pinyin_data.files = $$PWD/3rdparty/pinyin/data/dict_pinyin.dat
-    pinyin_data.path = $$DATAPATH/pinyin
-    INSTALLS += pinyin_data
-    !prefix_build: COPIES += pinyin_data
-}
-
-tcime {
-    SOURCES += \
-        tcinputmethod.cpp
-    HEADERS += \
-        tcinputmethod.h
-    DEFINES += HAVE_TCIME
-    cangjie: DEFINES += HAVE_TCIME_CANGJIE
-    zhuyin: DEFINES += HAVE_TCIME_ZHUYIN
-    QMAKE_USE += tcime
-    tcime_data.files = \
-        $$PWD/3rdparty/tcime/data/qt/dict_phrases.dat
-    cangjie: tcime_data.files += \
-        $$PWD/3rdparty/tcime/data/qt/dict_cangjie.dat
-    zhuyin: tcime_data.files += \
-        $$PWD/3rdparty/tcime/data/qt/dict_zhuyin.dat
-    tcime_data.path = $$DATAPATH/tcime
-    INSTALLS += tcime_data
-    !prefix_build: COPIES += tcime_data
-}
-
-hangul {
-    SOURCES += \
-        hangulinputmethod.cpp \
-        hangul.cpp
-    HEADERS += \
-        hangulinputmethod.h \
-        hangul.h
-    DEFINES += HAVE_HANGUL
-}
-
-openwnn {
-    SOURCES += openwnninputmethod.cpp
-    HEADERS += openwnninputmethod.h
-    DEFINES += HAVE_OPENWNN
-    QMAKE_USE += openwnn
-}
-
-lipi-toolkit:t9write: \
-    error("Conflicting configuration flags: lipi-toolkit and t9write." \
-          "Please use either one, but not both at the same time.")
-
-lipi-toolkit {
-    CONFIG += exceptions
-    SOURCES += \
-        lipiinputmethod.cpp \
-        lipisharedrecognizer.cpp \
-        lipiworker.cpp
-    HEADERS += \
-        lipiinputmethod.h \
-        lipisharedrecognizer.h \
-        lipiworker.h
-    DEFINES += HAVE_LIPI_TOOLKIT
-    INCLUDEPATH += \
-        3rdparty/lipi-toolkit/src/include \
-        3rdparty/lipi-toolkit/src/util/lib
-    LIBS += -L$$OUT_PWD/../../lib \
-        -lshaperecommon$$qtPlatformTargetSuffix() \
-        -lltkcommon$$qtPlatformTargetSuffix() \
-        -lltkutil$$qtPlatformTargetSuffix()
-    win32: LIBS += Advapi32.lib
-    else: QMAKE_USE += libdl
-    ltk_projects.files = $$PWD/3rdparty/lipi-toolkit/projects
-    ltk_projects.path = $$[QT_INSTALL_DATA]/qtvirtualkeyboard/lipi_toolkit
-    INSTALLS += ltk_projects
-    !prefix_build: COPIES += ltk_projects
-}
-
-t9write {
-    include(3rdparty/t9write/t9write-build.pri)
-    equals(T9WRITE_FOUND, 0): \
-        error("T9Write SDK could not be found. For more information, see" \
-              "the documentation in Building Qt Virtual Keyboard")
-    SOURCES += \
-        t9writeinputmethod.cpp \
-        t9writeworker.cpp \
-        t9writedictionary.cpp
-    HEADERS += \
-        t9writeinputmethod.h \
-        t9writeworker.h \
-        t9writedictionary.h \
-        t9write.h
-    DEFINES += HAVE_T9WRITE
-    QMAKE_USE += t9write_db
-    INCLUDEPATH += $$T9WRITE_INCLUDE_DIRS
-    t9write-alphabetic {
-        LIBS += $$T9WRITE_ALPHABETIC_LIBS
-        DEFINES += HAVE_T9WRITE_ALPHABETIC
-        !isEmpty(T9WRITE_ALPHABETIC_BINS) {
-            t9write_alphabetic_bins.files = $$T9WRITE_ALPHABETIC_BINS
-            t9write_alphabetic_bins.path = $$[QT_INSTALL_BINS]
-            INSTALLS += t9write_alphabetic_bins
-            !prefix_build: COPIES += t9write_alphabetic_bins
-        }
-    }
-    t9write-cjk {
-        LIBS += $$T9WRITE_CJK_LIBS
-        DEFINES += HAVE_T9WRITE_CJK
-        !isEmpty(T9WRITE_CJK_BINS) {
-            t9write_cjk_bins.files = $$T9WRITE_CJK_BINS
-            t9write_cjk_bins.path = $$[QT_INSTALL_BINS]
-            INSTALLS += t9write_cjk_bins
-            !prefix_build: COPIES += t9write_cjk_bins
-        }
-    }
-    DEFINES += QT_VIRTUALKEYBOARD_DEBUG
-}
 
 record-trace-input {
     SOURCES += unipentrace.cpp
-    HEADERS += unipentrace.h
-    DEFINES += QT_VIRTUALKEYBOARD_RECORD_TRACE_INPUT
+    HEADERS += unipentrace_p.h
+    MODULE_DEFINES += QT_VIRTUALKEYBOARD_RECORD_TRACE_INPUT
 }
 
 arrow-key-navigation: DEFINES += QT_VIRTUALKEYBOARD_ARROW_KEY_NAVIGATION
 
-include(generateresource.pri)
-
 !disable-layouts {
-    RESOURCES += $$generate_resource(layouts.qrc, $$LAYOUT_FILES, /QtQuick/VirtualKeyboard)
+    virtualkeyboard_layouts.files = $$LAYOUT_FILES
+    virtualkeyboard_layouts.prefix = $$LAYOUTS_PREFIX
+    RESOURCES += virtualkeyboard_layouts
     DEFINES += HAVE_LAYOUTS
 }
 
-PLUGIN_TYPE = platforminputcontexts
-PLUGIN_EXTENDS = -
-PLUGIN_CLASS_NAME = QVirtualKeyboardPlugin
-load(qt_plugin)
+load(qt_module)

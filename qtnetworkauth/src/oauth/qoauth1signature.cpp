@@ -47,7 +47,7 @@ Q_LOGGING_CATEGORY(loggingCategory, "qt.networkauth.oauth1.signature")
     \class QOAuth1Signature
     \inmodule QtNetworkAuth
     \ingroup oauth
-    \brief Implements OAuth 1 signature methods
+    \brief Implements OAuth 1 signature methods.
     \since 5.8
 
     OAuth-authenticated requests can have two sets of credentials:
@@ -125,6 +125,14 @@ QByteArray QOAuth1SignaturePrivate::signatureBaseString() const
         break;
     case QOAuth1Signature::HttpRequestMethod::Delete:
         base.append("DELETE");
+        break;
+    case QOAuth1Signature::HttpRequestMethod::Custom:
+        if (!customVerb.isEmpty()) {
+            base.append(customVerb);
+        } else {
+            qCCritical(loggingCategory, "QOAuth1Signature: HttpRequestMethod::Custom requires "
+                                        "the verb to be set via setCustomMethodString");
+        }
         break;
     default:
         qCCritical(loggingCategory, "QOAuth1Signature: HttpRequestMethod not supported");
@@ -216,9 +224,8 @@ QOAuth1Signature::QOAuth1Signature(const QOAuth1Signature &other) : d(other.d)
     Move-constructs a QOAuth1Signature instance, taking over the
     private data \a other was using.
 */
-QOAuth1Signature::QOAuth1Signature(QOAuth1Signature &&other) : d(other.d)
+QOAuth1Signature::QOAuth1Signature(QOAuth1Signature &&other) : d(std::move(other.d))
 {
-    other.d = &QOAuth1SignaturePrivate::shared_null;
 }
 
 /*!
@@ -241,6 +248,37 @@ QOAuth1Signature::HttpRequestMethod QOAuth1Signature::httpRequestMethod() const
 void QOAuth1Signature::setHttpRequestMethod(QOAuth1Signature::HttpRequestMethod method)
 {
     d->method = method;
+}
+
+/*!
+    \since 5.13
+
+    Returns the custom method string.
+
+    \sa httpRequestMethod()
+*/
+QByteArray QOAuth1Signature::customMethodString() const
+{
+    return d->customVerb;
+}
+
+/*!
+    \since 5.13
+
+    Sets a custom request method. Will set the httpRequestMethod
+    to QOAuth1Signature::HttpRequestMethod::Custom and store the
+    \a verb to use it for the generation of the signature.
+
+    \note Using this method is required when working with custom verbs.
+    Setting only the request method will fail, as the signure needs to
+    know the actual verb.
+
+    \sa setHttpRequestMethod(), HttpRequestMethod
+*/
+void QOAuth1Signature::setCustomMethodString(const QByteArray &verb)
+{
+    d->method = QOAuth1Signature::HttpRequestMethod::Custom;
+    d->customVerb = verb;
 }
 
 /*!
@@ -408,9 +446,6 @@ void QOAuth1Signature::swap(QOAuth1Signature &other)
     qSwap(d, other.d);
 }
 
-/*!
-    Copy-assignment operator.
-*/
 QOAuth1Signature &QOAuth1Signature::operator=(const QOAuth1Signature &other)
 {
     if (d != other.d) {

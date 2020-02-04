@@ -4,19 +4,15 @@
 
 #include "cc/tiles/frame_viewer_instrumentation.h"
 
-#include "cc/debug/traced_value.h"
+#include "components/viz/common/traced_value.h"
 
 namespace cc {
 namespace frame_viewer_instrumentation {
 
-const char kCategoryLayerTree[] =
-    TRACE_DISABLED_BY_DEFAULT("cc.debug") ","
-    TRACE_DISABLED_BY_DEFAULT("cc.debug.quads") ","
-    TRACE_DISABLED_BY_DEFAULT("devtools.timeline.layers");
-
 namespace {
 
-const char kCategory[] = "cc," TRACE_DISABLED_BY_DEFAULT("devtools.timeline");
+constexpr const char kCategory[] =
+    "cc," TRACE_DISABLED_BY_DEFAULT("devtools.timeline");
 const char kTileData[] = "tileData";
 const char kLayerId[] = "layerId";
 const char kTileId[] = "tileId";
@@ -33,7 +29,7 @@ std::unique_ptr<base::trace_event::ConvertableToTraceFormat> TileDataAsValue(
     int layer_id) {
   std::unique_ptr<base::trace_event::TracedValue> res(
       new base::trace_event::TracedValue());
-  TracedValue::SetIDRef(tile_id, res.get(), kTileId);
+  viz::TracedValue::SetIDRef(tile_id, res.get(), kTileId);
   res->SetString(kTileResolution, TileResolutionToString(tile_resolution));
   res->SetInteger(kSourceFrameNumber, source_frame_number);
   res->SetInteger(kLayerId, layer_id);
@@ -70,7 +66,7 @@ ScopedRasterTask::~ScopedRasterTask() {
 
 bool IsTracingLayerTreeSnapshots() {
   bool category_enabled;
-  TRACE_EVENT_CATEGORY_GROUP_ENABLED(kCategoryLayerTree, &category_enabled);
+  TRACE_EVENT_CATEGORY_GROUP_ENABLED(CategoryLayerTree(), &category_enabled);
   return category_enabled;
 }
 

@@ -33,16 +33,28 @@ class EVENTS_EXPORT EventSource {
   void AddEventRewriter(EventRewriter* rewriter);
   void RemoveEventRewriter(EventRewriter* rewriter);
 
- protected:
+  // Sends the event through all rewriters and onto the source's EventSink.
   EventDispatchDetails SendEventToSink(Event* event);
 
- private:
-  friend class EventSourceTestApi;
+  // Send the event to the sink after rewriting; subclass overrides may queue
+  // events before delivery, i.e. for the WindowService.
+  virtual EventDispatchDetails DeliverEventToSink(Event* event);
 
-  EventDispatchDetails DeliverEventToSink(Event* event);
+ protected:
+  // Sends the event through the rewriters and onto the source's EventSink.
+  // If |rewriter| is valid, |event| is only sent to the subsequent rewriters.
+  // This is used for asynchronous reposting of events processed by |rewriter|.
+  EventDispatchDetails SendEventToSinkFromRewriter(
+      Event* event,
+      const EventRewriter* rewriter);
+
+ private:
+  friend class EventRewriter;
+  friend class EventSourceTestApi;
 
   typedef std::vector<EventRewriter*> EventRewriterList;
   EventRewriterList rewriter_list_;
+
   DISALLOW_COPY_AND_ASSIGN(EventSource);
 };
 

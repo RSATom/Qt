@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -51,7 +51,7 @@ class QComposePlatformInputContextPlugin : public QPlatformInputContextPlugin
     Q_PLUGIN_METADATA(IID QPlatformInputContextFactoryInterface_iid FILE "compose.json")
 
 public:
-    QComposeInputContext *create(const QString &, const QStringList &) Q_DECL_OVERRIDE;
+    QComposeInputContext *create(const QString &, const QStringList &) override;
 };
 
 QComposeInputContext *QComposePlatformInputContextPlugin::create(const QString &system, const QStringList &paramList)
@@ -61,7 +61,7 @@ QComposeInputContext *QComposePlatformInputContextPlugin::create(const QString &
     if (system.compare(system, QLatin1String("compose"), Qt::CaseInsensitive) == 0
             || system.compare(system, QLatin1String("xim"), Qt::CaseInsensitive) == 0)
         return new QComposeInputContext;
-    return 0;
+    return nullptr;
 }
 
 QT_END_NAMESPACE

@@ -7,22 +7,22 @@
 #ifndef XFA_FXFA_PARSER_CXFA_TRAVERSESTRATEGY_XFANODE_H_
 #define XFA_FXFA_PARSER_CXFA_TRAVERSESTRATEGY_XFANODE_H_
 
-#include "xfa/fxfa/parser/xfa_utils.h"
+#include "xfa/fxfa/parser/cxfa_nodeiteratortemplate.h"
 
 class CXFA_TraverseStrategy_XFANode {
  public:
   static inline CXFA_Node* GetFirstChild(CXFA_Node* pTemplateNode) {
-    return pTemplateNode->GetNodeItem(XFA_NODEITEM_FirstChild);
+    return pTemplateNode->GetFirstChild();
   }
   static inline CXFA_Node* GetNextSibling(CXFA_Node* pTemplateNode) {
-    return pTemplateNode->GetNodeItem(XFA_NODEITEM_NextSibling);
+    return pTemplateNode->GetNextSibling();
   }
   static inline CXFA_Node* GetParent(CXFA_Node* pTemplateNode) {
-    return pTemplateNode->GetNodeItem(XFA_NODEITEM_Parent);
+    return pTemplateNode->GetParent();
   }
 };
 
-typedef CXFA_NodeIteratorTemplate<CXFA_Node, CXFA_TraverseStrategy_XFANode>
-    CXFA_NodeIterator;
+using CXFA_NodeIterator =
+    CXFA_NodeIteratorTemplate<CXFA_Node, CXFA_TraverseStrategy_XFANode>;
 
 #endif  // XFA_FXFA_PARSER_CXFA_TRAVERSESTRATEGY_XFANODE_H_

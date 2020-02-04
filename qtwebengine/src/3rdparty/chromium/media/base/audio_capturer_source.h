@@ -14,6 +14,8 @@
 
 namespace media {
 
+class AudioProcessorControls;
+
 // AudioCapturerSource is an interface representing the source for
 // captured audio.  An implementation will periodically call Capture() on a
 // callback object.
@@ -31,8 +33,8 @@ class AudioCapturerSource
     virtual void OnCaptureStarted() {}
 
     // Callback to deliver the captured data from the OS.
-    // TODO(chcunningham): Update delay argument to use frames instead of
-    // milliseconds to prevent loss of precision. See http://crbug.com/587291.
+    // TODO(chcunningham): Update delay argument to use base::TimeDelta instead
+    // of milliseconds to prevent precision loss. See http://crbug.com/587291.
     virtual void Capture(const AudioBus* audio_source,
                          int audio_delay_milliseconds,
                          double volume,
@@ -45,19 +47,18 @@ class AudioCapturerSource
     // OnCaptureStarted.
     virtual void OnCaptureMuted(bool is_muted) = 0;
 
+    // For streams created with audio processing, signals that a controllable
+    // audio processor has been created.
+    virtual void OnCaptureProcessorCreated(AudioProcessorControls* controls) {}
+
    protected:
     virtual ~CaptureCallback() {}
   };
 
-  // Sets information about the audio stream format and the device
-  // to be used. It must be called before any of the other methods.
-  // The |session_id| is used by the browser to identify which input device to
-  // be used. For clients who do not care about device permission and device
-  // selection, pass |session_id| using
-  // AudioInputDeviceManager::kFakeOpenSessionId.
+  // Sets information about the audio stream format and the device to be used.
+  // It must be called exactly once before any of the other methods.
   virtual void Initialize(const AudioParameters& params,
-                          CaptureCallback* callback,
-                          int session_id) = 0;
+                          CaptureCallback* callback) = 0;
 
   // Starts the audio recording.
   virtual void Start() = 0;
@@ -71,6 +72,11 @@ class AudioCapturerSource
 
   // Enables or disables the WebRtc AGC control.
   virtual void SetAutomaticGainControl(bool enable) = 0;
+
+  // Sets the output device the source should cancel echo from, if
+  // supported. Must be called on the main thread. Device ids are gotten from
+  // device enumerations.
+  virtual void SetOutputDeviceForAec(const std::string& output_device_id) = 0;
 
  protected:
   friend class base::RefCountedThreadSafe<AudioCapturerSource>;

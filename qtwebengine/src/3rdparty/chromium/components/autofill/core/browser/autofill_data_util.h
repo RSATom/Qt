@@ -9,9 +9,12 @@
 
 #include "base/strings/string16.h"
 #include "base/strings/string_piece_forward.h"
-#include "components/autofill/core/browser/autofill_profile.h"
+#include "components/autofill/core/browser/field_types.h"
 
 namespace autofill {
+
+class AutofillProfile;
+
 namespace data_util {
 
 struct NameParts {
@@ -19,6 +22,12 @@ struct NameParts {
   base::string16 middle;
   base::string16 family;
 };
+
+// Truncates a string to the nearest UTF-8 character that will leave
+// the string less than or equal to the specified byte size.
+std::string TruncateUTF8(const std::string& data);
+
+bool IsCreditCardExpirationType(ServerFieldType type);
 
 // Used to map Chrome card issuer networks to Payment Request API basic card
 // payment spec issuer networks and icons.
@@ -65,6 +74,12 @@ const char* GetIssuerNetworkForBasicCardIssuerNetwork(
 // Returns whether the specified |country_code| is a valid country code.
 bool IsValidCountryCode(const std::string& country_code);
 bool IsValidCountryCode(const base::string16& country_code);
+
+// Returns a country code to be used when validating this profile. If the
+// profile has a valid country code set, it is returned. If not, a country code
+// associated with |app_locale| is used as a fallback.
+std::string GetCountryCodeWithFallback(const autofill::AutofillProfile& profile,
+                                       const std::string& app_locale);
 
 }  // namespace data_util
 }  // namespace autofill

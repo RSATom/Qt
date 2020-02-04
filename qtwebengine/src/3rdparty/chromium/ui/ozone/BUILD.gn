@@ -2,10 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
-import("//ui/ozone/ozone.gni")
-import("//ui/ozone/ozone_extra.gni")
+import("//gpu/vulkan/features.gni")
 import("//testing/test.gni")
+import("//ui/ozone/ozone.gni")
 
 assert(use_ozone)
 
@@ -19,6 +20,16 @@ ozone_platform_deps = ozone_external_platform_deps
 
 # Extra dependencies to pull into ozone_unittests for built platforms.
 ozone_platform_test_deps = ozone_external_platform_test_deps
+
+if (ozone_platform_magma) {
+  ozone_platforms += [ "magma" ]
+  ozone_platform_deps += [ "platform/magma" ]
+}
+
+if (ozone_platform_windows) {
+  ozone_platforms += [ "windows" ]
+  ozone_platform_deps += [ "platform/windows" ]
+}
 
 if (ozone_platform_headless) {
   ozone_platforms += [ "headless" ]
@@ -42,13 +53,14 @@ if (ozone_platform_wayland) {
   ozone_platform_test_deps += [ "platform/wayland:wayland_unittests" ]
 }
 
-if (ozone_platform_x11) {
+if (ozone_platform_x11 && !use_qt) {
   ozone_platforms += [ "x11" ]
   ozone_platform_deps += [ "platform/x11" ]
 }
 
-if (ozone_platform_external) {
-  ozone_platforms += [ ozone_platform ]
+if (ozone_platform_scenic) {
+  ozone_platforms += [ "scenic" ]
+  ozone_platform_deps += [ "platform/scenic" ]
 }
 
 platform_list_cc_file = "$target_gen_dir/platform_list.cc"
@@ -56,7 +68,7 @@ platform_list_h_file = "$target_gen_dir/platform_list.h"
 platform_list_txt_file = "$target_gen_dir/platform_list.txt"
 constructor_list_cc_file = "$target_gen_dir/constructor_list.cc"
 
-component("ozone_base") {
+jumbo_component("ozone_base") {
   sources = [
     "ozone_base_export.h",
     "public/cursor_factory_ozone.cc",
@@ -69,23 +81,31 @@ component("ozone_base") {
     "public/overlay_candidates_ozone.cc",
     "public/overlay_candidates_ozone.h",
     "public/overlay_manager_ozone.h",
+    "public/overlay_plane.cc",
+    "public/overlay_plane.h",
+    "public/overlay_surface.cc",
+    "public/overlay_surface.h",
     "public/overlay_surface_candidate.cc",
     "public/overlay_surface_candidate.h",
     "public/ozone_switches.cc",
     "public/ozone_switches.h",
+    "public/platform_clipboard.h",
+    "public/platform_screen.h",
+    "public/platform_window_surface.h",
     "public/surface_factory_ozone.cc",
     "public/surface_factory_ozone.h",
     "public/surface_ozone_canvas.h",
     "public/swap_completion_callback.h",
-    "public/system_input_injector.h",
   ]
 
   defines = [ "OZONE_BASE_IMPLEMENTATION" ]
 
   public_deps = [
     "//base",
+    "//gpu/vulkan:buildflags",
     "//ipc",
     "//skia",
+    "//ui/display",
     "//ui/display/types",
     "//ui/display/util",
     "//ui/events",
@@ -93,10 +113,15 @@ component("ozone_base") {
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/gfx/ipc",
+    "//ui/gfx/ipc/buffer_types",
     "//ui/gfx/ipc/geometry",
     "//ui/gfx/ipc/skia",
     "//ui/gl",
   ]
+
+  if (enable_vulkan) {
+    public_deps += [ "//gpu/vulkan" ]
+  }
 
   visibility += [
     # Everyone should depend on //ui/ozone instead except a handful of
@@ -107,6 +132,9 @@ component("ozone_base") {
     "//ui/ozone/public/interfaces",
     "//ui/ozone/platform/*",
   ]
+
+  # Out of tree platforms can depend on this.
+  visibility += ozone_external_platform_visibility
 }
 
 source_set("platform") {
@@ -161,14 +189,50 @@ source_set("platform") {
 
   # This is used for platform tests.
   visibility += [ "//ui/ozone/platform/*" ]
+
+  # This can be used for out of tree platforms tests.
+  visibility += ozone_external_platform_visibility
 }
 
-component("ozone") {
+jumbo_component("ozone") {
   visibility = []
   visibility = [ "*" ]
   public_deps = [
     ":platform",
     "//ui/ozone/public/interfaces",
+  ]
+}
+
+jumbo_source_set("test_support_internal") {
+  testonly = true
+
+  sources = [
+    "test/mock_platform_window_delegate.cc",
+    "test/mock_platform_window_delegate.h",
+  ]
+
+  configs += [ "//build/config:precompiled_headers" ]
+
+  deps = [
+    "//mojo/core/test:run_all_unittests",
+    "//mojo/public/cpp/bindings",
+    "//testing/gmock",
+    "//testing/gtest",
+    "//ui/gfx:test_support",
+    "//ui/gfx/geometry",
+    "//ui/ozone/public/interfaces:struct_trait_unit_test",
+    "//ui/platform_window:platform_window",
+  ]
+
+  public_deps = [
+    "//base/test:test_support",
+  ]
+}
+
+jumbo_static_library("test_support") {
+  testonly = true
+  public_deps = [
+    ":test_support_internal",
   ]
 }
 
@@ -219,13 +283,7 @@ action("generate_constructor_list") {
 
 test("ozone_unittests") {
   deps = [
-    "//base/test:test_support",
-    "//mojo/edk/test:run_all_unittests",
-    "//mojo/public/cpp/bindings",
-    "//testing/gtest",
-    "//ui/gfx:test_support",
-    "//ui/gfx/geometry",
-    "//ui/ozone/public/interfaces:struct_trait_unit_test",
+    ":test_support",
   ]
 
   # Add tests of platform internals.
@@ -234,4 +292,20 @@ test("ozone_unittests") {
   # Platform tests link ozone statically. Make sure we're not getting a
   # 2nd copy of any code via the component.
   assert_no_deps = [ "//ui/ozone" ]
+}
+
+# X11 backend has its own test suite only built when we are using the x11
+# backend.
+if (ozone_platform_x11) {
+  test("ozone_x11_unittests") {
+    deps = [
+      ":test_support",
+    ]
+
+    deps += [ "platform/x11:x11_unittests" ]
+
+    # Platform tests link ozone statically. Make sure we're not getting a
+    # 2nd copy of any code via the component.
+    assert_no_deps = [ "//ui/ozone" ]
+  }
 }

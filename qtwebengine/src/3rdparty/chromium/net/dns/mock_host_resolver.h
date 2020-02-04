@@ -9,19 +9,31 @@
 
 #include <list>
 #include <map>
+#include <memory>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_checker.h"
+#include "net/base/completion_once_callback.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/host_resolver_proc.h"
+#include "net/dns/host_resolver_source.h"
+#include "net/dns/public/dns_query_type.h"
+
+namespace base {
+class TickClock;
+}  // namespace base
 
 namespace net {
 
 class HostCache;
+class HostPortPair;
+class IPEndPoint;
 class RuleBasedHostResolverProc;
 
 // Fills |*addrlist| with a socket address for |host_list| which should be a
@@ -54,6 +66,14 @@ int ParseAddressList(const std::string& host_list,
 //
 // By default, MockHostResolvers include a single rule that maps all hosts to
 // 127.0.0.1.
+//
+// Separate rules are used for separate HostResolverSource (eg
+// HostResolverSource::SYSTEM for requests that should only be resolved using
+// the system resolver).  Use rules_map() to access the separate rules if tests
+// involve requests specifying sources:
+//
+//    host_resolver->rules_map()[HostResolverSource::DNS]->AddRule("foo.com",
+//                                                                 "1.2.3.4");
 
 // Base class shared by MockHostResolver and MockCachingHostResolver.
 class MockHostResolverBase
@@ -61,12 +81,22 @@ class MockHostResolverBase
       public base::SupportsWeakPtr<MockHostResolverBase> {
  private:
   class RequestImpl;
+  class LegacyRequestImpl;
+  class MdnsListenerImpl;
 
  public:
   ~MockHostResolverBase() override;
 
-  RuleBasedHostResolverProc* rules() { return rules_.get(); }
-  void set_rules(RuleBasedHostResolverProc* rules) { rules_ = rules; }
+  RuleBasedHostResolverProc* rules() {
+    return rules_map_[HostResolverSource::ANY].get();
+  }
+  void set_rules(RuleBasedHostResolverProc* rules) {
+    rules_map_[HostResolverSource::ANY] = rules;
+  }
+  std::map<HostResolverSource, scoped_refptr<RuleBasedHostResolverProc>>
+  rules_map() {
+    return rules_map_;
+  }
 
   // Controls whether resolutions complete synchronously or asynchronously.
   void set_synchronous_mode(bool is_synchronous) {
@@ -82,28 +112,57 @@ class MockHostResolverBase
   }
 
   // HostResolver methods:
+  std::unique_ptr<ResolveHostRequest> CreateRequest(
+      const HostPortPair& host,
+      const NetLogWithSource& net_log,
+      const base::Optional<ResolveHostParameters>& optional_parameters)
+      override;
   int Resolve(const RequestInfo& info,
               RequestPriority priority,
               AddressList* addresses,
-              const CompletionCallback& callback,
+              CompletionOnceCallback callback,
               std::unique_ptr<Request>* request,
               const NetLogWithSource& net_log) override;
   int ResolveFromCache(const RequestInfo& info,
                        AddressList* addresses,
                        const NetLogWithSource& net_log) override;
+  int ResolveStaleFromCache(const RequestInfo& info,
+                            AddressList* addresses,
+                            HostCache::EntryStaleness* stale_info,
+                            const NetLogWithSource& source_net_log) override;
+  std::unique_ptr<MdnsListener> CreateMdnsListener(
+      const HostPortPair& host,
+      DnsQueryType query_type) override;
   HostCache* GetHostCache() override;
+  bool HasCached(base::StringPiece hostname,
+                 HostCache::Entry::Source* source_out,
+                 HostCache::EntryStaleness* stale_out) const override;
+  void SetDnsConfigOverrides(const DnsConfigOverrides& overrides) override {}
 
-  // Detach cancelled request.
-  void DetachRequest(size_t id);
+  // Returns true if there are pending requests that can be resolved by invoking
+  // ResolveAllPending().
+  bool has_pending_requests() const { return !requests_.empty(); }
 
   // Resolves all pending requests. It is only valid to invoke this if
   // set_ondemand_mode was set before. The requests are resolved asynchronously,
   // after this call returns.
   void ResolveAllPending();
 
-  // Returns true if there are pending requests that can be resolved by invoking
-  // ResolveAllPending().
-  bool has_pending_requests() const { return !requests_.empty(); }
+  // Each request is assigned an ID when started and stored with the resolver
+  // for async resolution, starting with 1. IDs are not reused. Once a request
+  // completes, it is destroyed, and can no longer be accessed.
+
+  // Resolve request stored in |requests_|. Pass rv to callback.
+  void ResolveNow(size_t id);
+
+  // Detach cancelled request.
+  void DetachRequest(size_t id);
+
+  // Returns the request with the given id.
+  RequestImpl* request(size_t id);
+
+  // Returns the priority of the request with the given id.
+  RequestPriority request_priority(size_t id);
 
   // The number of times that Resolve() has been called.
   size_t num_resolve() const {
@@ -121,31 +180,75 @@ class MockHostResolverBase
     return last_request_priority_;
   }
 
+  void TriggerMdnsListeners(const HostPortPair& host,
+                            DnsQueryType query_type,
+                            MdnsListener::Delegate::UpdateType update_type,
+                            const IPEndPoint& address_result);
+  void TriggerMdnsListeners(const HostPortPair& host,
+                            DnsQueryType query_type,
+                            MdnsListener::Delegate::UpdateType update_type,
+                            const std::vector<std::string>& text_result);
+  void TriggerMdnsListeners(const HostPortPair& host,
+                            DnsQueryType query_type,
+                            MdnsListener::Delegate::UpdateType update_type,
+                            const HostPortPair& host_result);
+  void TriggerMdnsListeners(const HostPortPair& host,
+                            DnsQueryType query_type,
+                            MdnsListener::Delegate::UpdateType update_type);
+
+  void set_tick_clock(const base::TickClock* tick_clock) {
+    tick_clock_ = tick_clock;
+  }
+
  protected:
   explicit MockHostResolverBase(bool use_caching);
 
  private:
   typedef std::map<size_t, RequestImpl*> RequestMap;
 
+  // Handle resolution for |request|. Expected to be called only the RequestImpl
+  // object itself.
+  int Resolve(RequestImpl* request);
+
   // Resolve as IP or from |cache_| return cached error or
   // DNS_CACHE_MISS if failed.
-  int ResolveFromIPLiteralOrCache(const RequestInfo& info,
-                                  AddressList* addresses);
+  int ResolveFromIPLiteralOrCache(
+      const HostPortPair& host,
+      DnsQueryType dns_query_type,
+      HostResolverFlags flags,
+      HostResolverSource source,
+      bool allow_cache,
+      AddressList* addresses,
+      HostCache::EntryStaleness* stale_info = nullptr);
   // Resolve via |proc_|.
-  int ResolveProc(const RequestInfo& info, AddressList* addresses);
-  // Resolve request stored in |requests_|. Pass rv to callback.
-  void ResolveNow(size_t id);
+  int ResolveProc(const HostPortPair& host,
+                  AddressFamily requested_address_family,
+                  HostResolverFlags flags,
+                  HostResolverSource source,
+                  AddressList* addresses);
+
+  void AddListener(MdnsListenerImpl* listener);
+  void RemoveCancelledListener(MdnsListenerImpl* listener);
 
   RequestPriority last_request_priority_;
   bool synchronous_mode_;
   bool ondemand_mode_;
-  scoped_refptr<RuleBasedHostResolverProc> rules_;
+  std::map<HostResolverSource, scoped_refptr<RuleBasedHostResolverProc>>
+      rules_map_;
   std::unique_ptr<HostCache> cache_;
+
+  // Maintain non-owning pointers to outstanding requests and listeners to allow
+  // completing/notifying them. The objects are owned by callers, and should be
+  // removed from |this| on destruction by calling DetachRequest() or
+  // RemoveCancelledListener().
   RequestMap requests_;
   size_t next_request_id_;
+  std::set<MdnsListenerImpl*> listeners_;
 
   size_t num_resolve_;
   size_t num_resolve_from_cache_;
+
+  const base::TickClock* tick_clock_;
 
   THREAD_CHECKER(thread_checker_);
 
@@ -181,14 +284,18 @@ class RuleBasedHostResolverProc : public HostResolverProc {
   explicit RuleBasedHostResolverProc(HostResolverProc* previous);
 
   // Any hostname matching the given pattern will be replaced with the given
-  // replacement value.  Usually, replacement should be an IP address literal.
-  void AddRule(const std::string& host_pattern,
-               const std::string& replacement);
+  // |ip_literal|.
+  void AddRule(const std::string& host_pattern, const std::string& ip_literal);
 
   // Same as AddRule(), but further restricts to |address_family|.
   void AddRuleForAddressFamily(const std::string& host_pattern,
                                AddressFamily address_family,
-                               const std::string& replacement);
+                               const std::string& ip_literal);
+
+  void AddRuleWithFlags(const std::string& host_pattern,
+                        const std::string& ip_literal,
+                        HostResolverFlags flags,
+                        const std::string& canonical_name = "");
 
   // Same as AddRule(), but the replacement is expected to be an IPv4 or IPv6
   // literal. This can be used in place of AddRule() to bypass the system's
@@ -230,6 +337,8 @@ class RuleBasedHostResolverProc : public HostResolverProc {
   struct Rule {
     enum ResolverType {
       kResolverTypeFail,
+      // TODO(mmenke): Is it really reasonable for a "mock" host resolver to
+      // fall back to the system resolver?
       kResolverTypeSystem,
       kResolverTypeIPLiteral,
     };
@@ -276,15 +385,39 @@ RuleBasedHostResolverProc* CreateCatchAllHostResolverProc();
 // HangingHostResolver never completes its |Resolve| request.
 class HangingHostResolver : public HostResolver {
  public:
+  HangingHostResolver();
+  ~HangingHostResolver() override;
+  std::unique_ptr<ResolveHostRequest> CreateRequest(
+      const HostPortPair& host,
+      const NetLogWithSource& net_log,
+      const base::Optional<ResolveHostParameters>& optional_parameters)
+      override;
   int Resolve(const RequestInfo& info,
               RequestPriority priority,
               AddressList* addresses,
-              const CompletionCallback& callback,
+              CompletionOnceCallback callback,
               std::unique_ptr<Request>* out_req,
               const NetLogWithSource& net_log) override;
   int ResolveFromCache(const RequestInfo& info,
                        AddressList* addresses,
                        const NetLogWithSource& net_log) override;
+  int ResolveStaleFromCache(const RequestInfo& info,
+                            AddressList* addresses,
+                            HostCache::EntryStaleness* stale_info,
+                            const NetLogWithSource& source_net_log) override;
+  bool HasCached(base::StringPiece hostname,
+                 HostCache::Entry::Source* source_out,
+                 HostCache::EntryStaleness* stale_out) const override;
+
+  // Use to detect cancellations since there's otherwise no externally-visible
+  // differentiation between a cancelled and a hung task.
+  int num_cancellations() const { return num_cancellations_; }
+
+ private:
+  class RequestImpl;
+
+  int num_cancellations_ = 0;
+  base::WeakPtrFactory<HangingHostResolver> weak_ptr_factory_{this};
 };
 
 // This class sets the default HostResolverProc for a particular scope.  The

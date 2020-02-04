@@ -22,6 +22,12 @@ struct EVENTS_OZONE_EVDEV_EXPORT InProgressTouchEvdev {
   InProgressTouchEvdev(const InProgressTouchEvdev& other);
   ~InProgressTouchEvdev();
 
+  // Current touch major of this slot.
+  int major = 0;
+
+  // Current tool type of this slot.
+  int tool_type = 0;
+
   // Whether there is new information for the touch.
   bool altered = false;
 
@@ -52,12 +58,7 @@ struct EVENTS_OZONE_EVDEV_EXPORT InProgressTouchEvdev {
   float tilt_y = 0;
   ui::EventPointerType reported_tool_type =
       ui::EventPointerType::POINTER_TYPE_TOUCH;
-
-  struct ButtonState {
-    bool down = false;
-    bool changed = false;
-  };
-  ButtonState btn_stylus;
+  bool stylus_button = false;
 };
 
 }  // namespace ui

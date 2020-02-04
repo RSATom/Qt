@@ -13,9 +13,19 @@ namespace bluez {
 FakeBluetoothAgentManagerClient::FakeBluetoothAgentManagerClient()
     : service_provider_(NULL) {}
 
-FakeBluetoothAgentManagerClient::~FakeBluetoothAgentManagerClient() {}
+FakeBluetoothAgentManagerClient::~FakeBluetoothAgentManagerClient() = default;
 
-void FakeBluetoothAgentManagerClient::Init(dbus::Bus* bus) {}
+void FakeBluetoothAgentManagerClient::Init(
+    dbus::Bus* bus,
+    const std::string& bluetooth_service_name) {}
+
+void FakeBluetoothAgentManagerClient::AddObserver(Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void FakeBluetoothAgentManagerClient::RemoveObserver(Observer* observer) {
+  observers_.RemoveObserver(observer);
+}
 
 void FakeBluetoothAgentManagerClient::RegisterAgent(
     const dbus::ObjectPath& agent_path,

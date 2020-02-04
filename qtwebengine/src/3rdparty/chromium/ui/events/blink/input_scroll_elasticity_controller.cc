@@ -93,8 +93,8 @@ InputScrollElasticityController::InputScrollElasticityController(
     : helper_(helper),
       state_(kStateInactive),
       momentum_animation_reset_at_next_frame_(false),
-      weak_factory_(this) {
-}
+      received_overscroll_update_(false),
+      weak_factory_(this) {}
 
 InputScrollElasticityController::~InputScrollElasticityController() {
 }
@@ -106,68 +106,87 @@ InputScrollElasticityController::GetWeakPtr() {
   return base::WeakPtr<InputScrollElasticityController>();
 }
 
+void InputScrollElasticityController::ObserveRealScrollBegin(
+    bool enter_momentum,
+    bool leave_momentum) {
+  if (enter_momentum) {
+    if (state_ == kStateInactive)
+      state_ = kStateMomentumScroll;
+  } else if (leave_momentum) {
+    scroll_velocity = gfx::Vector2dF();
+    last_scroll_event_timestamp_ = base::TimeTicks();
+    state_ = kStateActiveScroll;
+    pending_overscroll_delta_ = gfx::Vector2dF();
+  }
+}
+
+void InputScrollElasticityController::ObserveScrollUpdate(
+    const gfx::Vector2dF& event_delta,
+    const gfx::Vector2dF& unused_scroll_delta,
+    const base::TimeTicks event_timestamp,
+    const cc::OverscrollBehavior overscroll_behavior,
+    bool has_momentum) {
+  if (state_ == kStateMomentumAnimated || state_ == kStateInactive)
+    return;
+
+  if (!received_overscroll_update_ && !unused_scroll_delta.IsZero()) {
+    overscroll_behavior_ = overscroll_behavior;
+    received_overscroll_update_ = true;
+  }
+
+  UpdateVelocity(event_delta, event_timestamp);
+  Overscroll(event_delta, unused_scroll_delta);
+  if (has_momentum && !helper_->StretchAmount().IsZero())
+    EnterStateMomentumAnimated(event_timestamp);
+}
+
+void InputScrollElasticityController::ObserveRealScrollEnd(
+    const base::TimeTicks event_timestamp) {
+  if (state_ == kStateMomentumAnimated || state_ == kStateInactive)
+    return;
+
+  if (helper_->StretchAmount().IsZero()) {
+    EnterStateInactive();
+  } else {
+    EnterStateMomentumAnimated(event_timestamp);
+  }
+}
+
 void InputScrollElasticityController::ObserveGestureEventAndResult(
     const blink::WebGestureEvent& gesture_event,
     const cc::InputHandlerScrollResult& scroll_result) {
-  base::TimeTicks event_timestamp =
-      base::TimeTicks() +
-      base::TimeDelta::FromSecondsD(gesture_event.TimeStampSeconds());
+  base::TimeTicks event_timestamp = gesture_event.TimeStamp();
 
   switch (gesture_event.GetType()) {
     case blink::WebInputEvent::kGestureScrollBegin: {
+      received_overscroll_update_ = false;
+      overscroll_behavior_ = cc::OverscrollBehavior();
       if (gesture_event.data.scroll_begin.synthetic)
         return;
-      if (gesture_event.data.scroll_begin.inertial_phase ==
-          blink::WebGestureEvent::kMomentumPhase) {
-        if (state_ == kStateInactive)
-          state_ = kStateMomentumScroll;
-      } else if (gesture_event.data.scroll_begin.inertial_phase ==
-                     blink::WebGestureEvent::kNonMomentumPhase &&
-                 gesture_event.data.scroll_begin.delta_hint_units ==
-                     blink::WebGestureEvent::kPrecisePixels) {
-        scroll_velocity = gfx::Vector2dF();
-        last_scroll_event_timestamp_ = base::TimeTicks();
-        state_ = kStateActiveScroll;
-        pending_overscroll_delta_ = gfx::Vector2dF();
-      }
+
+      bool enter_momentum = gesture_event.data.scroll_begin.inertial_phase ==
+                            blink::WebGestureEvent::kMomentumPhase;
+      bool leave_momentum = gesture_event.data.scroll_begin.inertial_phase ==
+                                blink::WebGestureEvent::kNonMomentumPhase &&
+                            gesture_event.data.scroll_begin.delta_hint_units ==
+                                blink::WebGestureEvent::kPrecisePixels;
+      ObserveRealScrollBegin(enter_momentum, leave_momentum);
       break;
     }
     case blink::WebInputEvent::kGestureScrollUpdate: {
       gfx::Vector2dF event_delta(-gesture_event.data.scroll_update.delta_x,
                                  -gesture_event.data.scroll_update.delta_y);
-      switch (state_) {
-        case kStateMomentumAnimated:
-        case kStateInactive:
-          break;
-        case kStateActiveScroll:
-        case kStateMomentumScroll:
-          UpdateVelocity(event_delta, event_timestamp);
-          Overscroll(event_delta, scroll_result.unused_scroll_delta);
-          if (gesture_event.data.scroll_update.inertial_phase ==
-                  blink::WebGestureEvent::kMomentumPhase &&
-              !helper_->StretchAmount().IsZero()) {
-            EnterStateMomentumAnimated(event_timestamp);
-          }
-          break;
-      }
+      bool has_momentum = gesture_event.data.scroll_update.inertial_phase ==
+                          blink::WebGestureEvent::kMomentumPhase;
+      ObserveScrollUpdate(event_delta, scroll_result.unused_scroll_delta,
+                          event_timestamp, scroll_result.overscroll_behavior,
+                          has_momentum);
       break;
     }
     case blink::WebInputEvent::kGestureScrollEnd: {
       if (gesture_event.data.scroll_end.synthetic)
         return;
-      switch (state_) {
-        case kStateMomentumAnimated:
-        case kStateInactive:
-          break;
-        case kStateActiveScroll:
-        case kStateMomentumScroll:
-          if (helper_->StretchAmount().IsZero()) {
-            EnterStateInactive();
-          } else {
-            EnterStateMomentumAnimated(event_timestamp);
-          }
-          break;
-      }
+      ObserveRealScrollEnd(event_timestamp);
       break;
     }
     default:
@@ -212,9 +231,17 @@ void InputScrollElasticityController::Overscroll(
   // Don't allow overscrolling in a direction where scrolling is possible.
   if (!PinnedHorizontally(adjusted_overscroll_delta.x()))
     adjusted_overscroll_delta.set_x(0);
-  if (!PinnedVertically(adjusted_overscroll_delta.y())) {
+  if (!PinnedVertically(adjusted_overscroll_delta.y()))
     adjusted_overscroll_delta.set_y(0);
-  }
+
+  // Don't allow overscrolling in a direction that has
+  // OverscrollBehaviorTypeNone.
+  if (overscroll_behavior_.x ==
+      cc::OverscrollBehavior::kOverscrollBehaviorTypeNone)
+    adjusted_overscroll_delta.set_x(0);
+  if (overscroll_behavior_.y ==
+      cc::OverscrollBehavior::kOverscrollBehaviorTypeNone)
+    adjusted_overscroll_delta.set_y(0);
 
   // Require a minimum of 10 units of overscroll before starting the rubber-band
   // stretch effect, so that small stray motions don't trigger it. If that

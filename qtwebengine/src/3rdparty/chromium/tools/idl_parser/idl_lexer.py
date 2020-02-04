@@ -72,6 +72,7 @@ class IDLLexer(object):
     'FrozenArray' : 'FROZENARRAY',
     'getter': 'GETTER',
     'implements' : 'IMPLEMENTS',
+    'includes' : 'INCLUDES',
     'Infinity' : 'INFINITY',
     'inherit' : 'INHERIT',
     'interface' : 'INTERFACE',
@@ -79,6 +80,8 @@ class IDLLexer(object):
     'legacycaller' : 'LEGACYCALLER',
     'long' : 'LONG',
     'maplike': 'MAPLIKE',
+    'mixin': 'MIXIN',
+    'namespace' : 'NAMESPACE',
     'Nan' : 'NAN',
     'null' : 'NULL',
     'object' : 'OBJECT',
@@ -92,7 +95,6 @@ class IDLLexer(object):
     'record' : 'RECORD',
     'required' : 'REQUIRED',
     'sequence' : 'SEQUENCE',
-    'serializer' : 'SERIALIZER',
     'setlike' : 'SETLIKE',
     'setter': 'SETTER',
     'short' : 'SHORT',
@@ -159,7 +161,7 @@ class IDLLexer(object):
 
   # A symbol or keyword.
   def t_KEYWORD_OR_SYMBOL(self, t):
-    r'_?[A-Za-z][A-Za-z_0-9]*'
+    r'_?[A-Za-z][A-Za-z_0-9-]*'
 
     # All non-keywords are assumed to be symbols
     t.type = self.keywords.get(t.value, 'identifier')

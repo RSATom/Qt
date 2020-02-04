@@ -53,7 +53,13 @@ QAbstractClipAnimatorPrivate::QAbstractClipAnimatorPrivate()
     , m_clock(nullptr)
     , m_running(false)
     , m_loops(1)
+    , m_normalizedTime(0.0f)
 {
+}
+
+bool QAbstractClipAnimatorPrivate::canPlay() const
+{
+    return true;
 }
 
 /*!
@@ -132,6 +138,11 @@ void QAbstractClipAnimator::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &ch
 QAbstractClipAnimator::~QAbstractClipAnimator()
 {
 }
+/*!
+    \qmlproperty bool Qt3DAnimation::AbstractClipAnimator::running
+
+    This property holds a boolean indicating whether the animation is currently running.
+*/
 
 /*!
     \property Qt3DAnimation::QAbstractClipAnimator::running
@@ -147,6 +158,13 @@ bool QAbstractClipAnimator::isRunning() const
     Q_D(const QAbstractClipAnimator);
     return d->m_running;
 }
+
+/*!
+    \qmlproperty ChannelMapper Qt3DAnimation::AbstractClipAnimator::channelMapper
+
+    This property holds the ChannelMapper that controls how the channels in
+    the animation clip map onto the properties of the target objects.
+*/
 
 /*!
     \property Qt3DAnimation::QAbstractClipAnimator::channelMapper
@@ -206,6 +224,12 @@ int QAbstractClipAnimator::loopCount() const
     return d->m_loops;
 }
 /*!
+    \qmlproperty Clock Qt3DAnimation::AbstractClipAnimator::clock
+
+    The clock controls the speed with which an animation is played.
+*/
+
+/*!
     \property Qt3DAnimation::QAbstractClipAnimator::clock
 
     The clock controls the speed with which an animation is played.
@@ -215,11 +239,29 @@ QClock *QAbstractClipAnimator::clock() const
     Q_D(const QAbstractClipAnimator);
     return d->m_clock;
 }
+/*!
+    \qmlproperty real Qt3DAnimation::AbstractClipAnimator::normalizedTime
+
+    This property holds the clips normalized time.
+*/
+/*!
+    \property Qt3DAnimation::QAbstractClipAnimator::normalizedTime
+
+    This property holds the clips normalized time.
+*/
+float QAbstractClipAnimator::normalizedTime() const
+{
+    Q_D(const QAbstractClipAnimator);
+    return d->m_normalizedTime;
+}
 
 void QAbstractClipAnimator::setRunning(bool running)
 {
     Q_D(QAbstractClipAnimator);
     if (d->m_running == running)
+        return;
+
+    if (running && !d->canPlay())
         return;
 
     d->m_running = running;
@@ -271,6 +313,22 @@ void QAbstractClipAnimator::setClock(QClock *clock)
     if (d->m_clock)
         d->registerDestructionHelper(d->m_clock, &QAbstractClipAnimator::setClock, d->m_clock);
     emit clockChanged(clock);
+}
+
+void QAbstractClipAnimator::setNormalizedTime(float timeFraction)
+{
+    Q_D(QAbstractClipAnimator);
+    const bool validTime = !(timeFraction < 0.0f) && !(timeFraction > 1.0f);
+    if (!validTime) {
+        qWarning("Time value %f is not valid, needs to be in the range 0.0 to 1.0", timeFraction);
+        return;
+    }
+
+    if (qFuzzyCompare(d->m_normalizedTime, timeFraction))
+        return;
+
+    d->m_normalizedTime = timeFraction;
+    emit normalizedTimeChanged(timeFraction);
 }
 
 /*!

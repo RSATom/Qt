@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CONTENT_BROWSER_RENDER_WIDGET_COMPOSITOR_FRAME_SINK_PROVIDER_H_
-#define CONTENT_BROWSER_RENDER_WIDGET_COMPOSITOR_FRAME_SINK_PROVIDER_H_
+#ifndef CONTENT_BROWSER_RENDERER_HOST_FRAME_SINK_PROVIDER_IMPL_H_
+#define CONTENT_BROWSER_RENDERER_HOST_FRAME_SINK_PROVIDER_IMPL_H_
 
 #include "content/common/frame_sink_provider.mojom.h"
+#include "content/common/render_frame_metadata.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
 namespace content {
@@ -21,9 +22,16 @@ class FrameSinkProviderImpl : public mojom::FrameSinkProvider {
   void Unbind();
 
   // mojom::FrameSinkProvider implementation.
-  void CreateForWidget(int32_t widget_id,
-                       cc::mojom::CompositorFrameSinkRequest request,
-                       cc::mojom::CompositorFrameSinkClientPtr client) override;
+  void CreateForWidget(
+      int32_t widget_id,
+      viz::mojom::CompositorFrameSinkRequest compositor_frame_sink_request,
+      viz::mojom::CompositorFrameSinkClientPtr compositor_frame_sink_client)
+      override;
+  void RegisterRenderFrameMetadataObserver(
+      int32_t widget_id,
+      mojom::RenderFrameMetadataObserverClientRequest
+          render_frame_metadata_observer_client_request,
+      mojom::RenderFrameMetadataObserverPtr observer) override;
 
  private:
   const int32_t process_id_;
@@ -34,4 +42,4 @@ class FrameSinkProviderImpl : public mojom::FrameSinkProvider {
 
 }  // namespace content
 
-#endif  //  CONTENT_BROWSER_RENDER_WIDGET_COMPOSITOR_FRAME_SINK_PROVIDER_H_
+#endif  //  CONTENT_BROWSER_RENDERER_HOST_FRAME_SINK_PROVIDER_IMPL_H_

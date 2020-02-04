@@ -68,12 +68,12 @@ Q_SIGNALS:
     void activeChanged(bool active);
 
 protected:
-    QAbstractState(QState *parent = Q_NULLPTR);
+    QAbstractState(QState *parent = nullptr);
 
     virtual void onEntry(QEvent *event) = 0;
     virtual void onExit(QEvent *event) = 0;
 
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
 
 protected:
     QAbstractState(QAbstractStatePrivate &dd, QState *parent);

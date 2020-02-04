@@ -1,72 +1,92 @@
-<link rel="import" href="chrome://resources/html/cr.html">
 <link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-item/paper-item.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-menu/paper-menu.html">
+
+<link rel="import" href="chrome://resources/cr_elements/cr_icons_css.html">
+<link rel="import" href="chrome://resources/html/cr.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/iron-selector/iron-selector.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-ripple/paper-ripple.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-styles/color.html">
+<link rel="import" href="navigation_helper.html">
 
 <dom-module id="extensions-sidebar">
   <template>
-    <style>
+    <style include="cr-icons">
       :host {
+        --sidebar-inactive-color: #5a5a5a;
+        color: var(--sidebar-inactive-color);
         display: flex;
         flex-direction: column;
         height: 100%;
-        white-space: nowrap;
-      }
-
-      #section-menu {
-        --paper-menu-background-color: transparent;
-        --paper-menu-selected-item: {
-          background-color: transparent;
-          color: var(--google-blue-700);
-          font-weight: normal;
-        }
-
-        padding: 0;
-      }
-
-      #more-extensions {
-        -webkit-padding-end: 16px;
-        align-items: center;
-        display: flex;
         justify-content: space-between;
-        text-decoration: none;
+        overflow-x: hidden;
+        overflow-y: auto;
+        width: 256px;
+      }
+
+      :host-context([dark]) {
+        --sidebar-inactive-color: var(--cr-primary-text-color);
+      }
+
+      iron-selector .iron-selected {
+        color: var(--cr-link-color);
+      }
+
+      #sectionMenu {
+        padding-top: 8px;
+        user-select: none;
       }
 
       .section-item {
-        -webkit-padding-start: 24px;
-        color: #5A5A5A;
-        cursor: pointer;
-        height: 48px;
+        align-items: center;
+        color: inherit;
+        display: flex;
+        font-weight: 500;
+        /* Ensure the focus outline appears correctly (crbug.com/655503). */
+        margin-inline-end: 4px;
+        min-height: 40px;
+        padding-inline-start: 24px;
+        position: relative;
+        text-decoration: none;
       }
 
-      button[is='paper-icon-button-light'].open-in-new {
-        background-image: url(chrome://resources/images/open_in_new.svg);
-        background-size: contain;
-        height: 15px;
-        width: 15px;
+      .separator {
+        border-top: var(--cr-separator-line);
+        margin: 8px 0;
+      }
+
+      #more-extensions {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+
+      .cr-icon {
+        margin-inline-end: calc(
+            var(--cr-section-padding) - var(--cr-icon-ripple-padding));
       }
     </style>
-    <paper-menu id="section-menu" selected="0">
-      <paper-item class="section-item" id="sections-extensions"
-          on-tap="onExtensionsTap_">
-        <span>$i18n{sidebarExtensions}</span>
-      </paper-item>
-      <paper-item class="section-item" id="sections-apps"
-          on-tap="onAppsTap_">
-        <span>$i18n{sidebarApps}</span>
-      </paper-item>
-      <paper-item class="section-item" id="sections-shortcuts"
-          on-tap="onKeyboardShortcutsTap_">
-        <span>$i18n{keyboardShortcuts}</span>
-      </paper-item>
-    </paper-menu>
-    <a class="section-item" id="more-extensions" target="_blank"
-        href="$i18n{getMoreExtensionsUrl}">
-      <span>$i18n{getMoreExtensions}</span>
-      <button class="open-in-new" is="paper-icon-button-light"></button>
-    </a>
+    <iron-selector id="sectionMenu">
+      <!-- Values for "data-path" attribute must match the "Page" enum. -->
+      <a class="section-item" id="sections-extensions" href="/"
+          on-click="onLinkTap_" data-path="items-list">
+        $i18n{sidebarExtensions}
+        <paper-ripple></paper-ripple>
+      </a>
+      <a class="section-item" id="sections-shortcuts" href="/shortcuts"
+          on-click="onLinkTap_" data-path="keyboard-shortcuts">
+        $i18n{keyboardShortcuts}
+        <paper-ripple></paper-ripple>
+      </a>
+    </iron-selector>
+    <div hidden="[[isSupervised]]">
+      <div class="separator"></div>
+      <a class="section-item" id="more-extensions" target="_blank"
+          href="$i18n{getMoreExtensionsUrl}" on-click="onMoreExtensionsTap_">
+        <span>$i18n{openChromeWebStore}</span>
+        <div class="cr-icon icon-external"></div>
+        <paper-ripple></paper-ripple>
+      </a>
+    </div>
   </template>
-  <script src="chrome://extensions/sidebar.js"></script>
+  <script src="sidebar.js"></script>
 </dom-module>

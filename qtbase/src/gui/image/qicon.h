@@ -50,6 +50,7 @@ QT_BEGIN_NAMESPACE
 
 class QIconPrivate;
 class QIconEngine;
+class QPainter;
 
 class Q_GUI_EXPORT QIcon
 {
@@ -63,7 +64,7 @@ public:
 #ifdef Q_COMPILER_RVALUE_REFS
     QIcon(QIcon &&other) Q_DECL_NOEXCEPT
         : d(other.d)
-    { other.d = Q_NULLPTR; }
+    { other.d = nullptr; }
 #endif
     explicit QIcon(const QString &fileName); // file or resource name
     explicit QIcon(QIconEngine *engine);
@@ -118,8 +119,14 @@ public:
     static QStringList themeSearchPaths();
     static void setThemeSearchPaths(const QStringList &searchpath);
 
+    static QStringList fallbackSearchPaths();
+    static void setFallbackSearchPaths(const QStringList &paths);
+
     static QString themeName();
     static void setThemeName(const QString &path);
+
+    static QString fallbackThemeName();
+    static void setFallbackThemeName(const QString &name);
 
     Q_DUMMY_COMPARISON_OPERATOR(QIcon)
 
@@ -147,7 +154,7 @@ Q_GUI_EXPORT QDebug operator<<(QDebug dbg, const QIcon &);
 #endif
 
 Q_GUI_EXPORT QString qt_findAtNxFile(const QString &baseFileName, qreal targetDevicePixelRatio,
-                                     qreal *sourceDevicePixelRatio = Q_NULLPTR);
+                                     qreal *sourceDevicePixelRatio = nullptr);
 
 QT_END_NAMESPACE
 

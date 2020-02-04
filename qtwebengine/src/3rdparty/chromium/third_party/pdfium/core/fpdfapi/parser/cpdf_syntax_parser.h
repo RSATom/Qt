@@ -7,95 +7,116 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_SYNTAX_PARSER_H_
 #define CORE_FPDFAPI_PARSER_CPDF_SYNTAX_PARSER_H_
 
-#include <algorithm>
 #include <memory>
+#include <vector>
 
-#include "core/fxcrt/cfx_string_pool_template.h"
-#include "core/fxcrt/cfx_weak_ptr.h"
-#include "core/fxcrt/fx_basic.h"
+#include "core/fpdfapi/cpdf_modulemgr.h"
+#include "core/fxcrt/string_pool_template.h"
+#include "core/fxcrt/weak_ptr.h"
 
 class CPDF_CryptoHandler;
 class CPDF_Dictionary;
 class CPDF_IndirectObjectHolder;
 class CPDF_Object;
+class CPDF_ReadValidator;
 class CPDF_Stream;
 class IFX_SeekableReadStream;
 
 class CPDF_SyntaxParser {
  public:
-  CPDF_SyntaxParser();
-  explicit CPDF_SyntaxParser(const CFX_WeakPtr<CFX_ByteStringPool>& pPool);
+  enum class ParseType { kStrict, kLoose };
+
+  static std::unique_ptr<CPDF_SyntaxParser> CreateForTesting(
+      const RetainPtr<IFX_SeekableReadStream>& pFileAccess,
+      FX_FILESIZE HeaderOffset);
+
+  explicit CPDF_SyntaxParser(
+      const RetainPtr<IFX_SeekableReadStream>& pFileAccess);
+  CPDF_SyntaxParser(const RetainPtr<CPDF_ReadValidator>& pValidator,
+                    FX_FILESIZE HeaderOffset);
   ~CPDF_SyntaxParser();
 
-  void InitParser(const CFX_RetainPtr<IFX_SeekableReadStream>& pFileAccess,
-                  uint32_t HeaderOffset);
+  void SetReadBufferSize(uint32_t read_buffer_size) {
+    m_ReadBufferSize = read_buffer_size;
+  }
 
   FX_FILESIZE GetPos() const { return m_Pos; }
-  void SetPos(FX_FILESIZE pos) { m_Pos = std::min(pos, m_FileLen); }
+  void SetPos(FX_FILESIZE pos);
 
-  std::unique_ptr<CPDF_Object> GetObject(CPDF_IndirectObjectHolder* pObjList,
-                                         uint32_t objnum,
-                                         uint32_t gennum,
-                                         bool bDecrypt);
+  std::unique_ptr<CPDF_Object> GetObjectBody(
+      CPDF_IndirectObjectHolder* pObjList);
 
-  std::unique_ptr<CPDF_Object> GetObjectForStrict(
+  std::unique_ptr<CPDF_Object> GetIndirectObject(
       CPDF_IndirectObjectHolder* pObjList,
-      uint32_t objnum,
-      uint32_t gennum);
+      ParseType parse_type);
 
-  CFX_ByteString GetKeyword();
+  ByteString GetKeyword();
   void ToNextLine();
   void ToNextWord();
-  bool BackwardsSearchToWord(const CFX_ByteStringC& word, FX_FILESIZE limit);
-  FX_FILESIZE FindTag(const CFX_ByteStringC& tag, FX_FILESIZE limit);
-  void SetEncrypt(const CFX_RetainPtr<CPDF_CryptoHandler>& pCryptoHandler);
+  bool BackwardsSearchToWord(ByteStringView word, FX_FILESIZE limit);
+  FX_FILESIZE FindTag(ByteStringView tag);
   bool ReadBlock(uint8_t* pBuf, uint32_t size);
   bool GetCharAt(FX_FILESIZE pos, uint8_t& ch);
-  CFX_ByteString GetNextWord(bool* bIsNumber);
+  ByteString GetNextWord(bool* bIsNumber);
+  ByteString PeekNextWord(bool* bIsNumber);
+
+  const RetainPtr<CPDF_ReadValidator>& GetValidator() const {
+    return m_pFileAccess;
+  }
+  uint32_t GetDirectNum();
+  bool GetNextChar(uint8_t& ch);
+
+  // The document size may be smaller than the file size.
+  // The syntax parser use position relative to document
+  // offset (|m_HeaderOffset|).
+  // The document size will be FileSize - "Header offset".
+  // All offsets was readed from document, should not be great than document
+  // size. Use it for checks instead of real file size.
+  FX_FILESIZE GetDocumentSize() const;
+
+  ByteString ReadString();
+  ByteString ReadHexString();
 
  private:
-  friend class CPDF_Parser;
   friend class CPDF_DataAvail;
   friend class cpdf_syntax_parser_ReadHexString_Test;
 
   static const int kParserMaxRecursionDepth = 64;
   static int s_CurrentRecursionDepth;
 
-  uint32_t GetDirectNum();
-  bool ReadChar(FX_FILESIZE read_pos, uint32_t read_size);
-  bool GetNextChar(uint8_t& ch);
+  bool ReadBlockAt(FX_FILESIZE read_pos);
   bool GetCharAtBackward(FX_FILESIZE pos, uint8_t* ch);
   void GetNextWordInternal(bool* bIsNumber);
   bool IsWholeWord(FX_FILESIZE startpos,
                    FX_FILESIZE limit,
-                   const CFX_ByteStringC& tag,
+                   ByteStringView tag,
                    bool checkKeyword);
 
-  CFX_ByteString ReadString();
-  CFX_ByteString ReadHexString();
   unsigned int ReadEOLMarkers(FX_FILESIZE pos);
+  FX_FILESIZE FindWordPos(ByteStringView word);
+  FX_FILESIZE FindStreamEndPos();
   std::unique_ptr<CPDF_Stream> ReadStream(
-      std::unique_ptr<CPDF_Dictionary> pDict,
-      uint32_t objnum,
-      uint32_t gennum);
+      std::unique_ptr<CPDF_Dictionary> pDict);
 
-  inline bool CheckPosition(FX_FILESIZE pos) {
-    return m_BufOffset >= pos ||
-           static_cast<FX_FILESIZE>(m_BufOffset + m_BufSize) <= pos;
-  }
+  bool IsPositionRead(FX_FILESIZE pos) const;
 
-  FX_FILESIZE m_Pos;
-  uint32_t m_MetadataObjnum;
-  CFX_RetainPtr<IFX_SeekableReadStream> m_pFileAccess;
-  FX_FILESIZE m_HeaderOffset;
-  FX_FILESIZE m_FileLen;
-  uint8_t* m_pFileBuf;
-  uint32_t m_BufSize;
-  FX_FILESIZE m_BufOffset;
-  CFX_RetainPtr<CPDF_CryptoHandler> m_pCryptoHandler;
+  std::unique_ptr<CPDF_Object> GetObjectBodyInternal(
+      CPDF_IndirectObjectHolder* pObjList,
+      ParseType parse_type);
+
+  RetainPtr<CPDF_ReadValidator> m_pFileAccess;
+  // The syntax parser use position relative to header offset.
+  // The header contains at file start, and can follow after some stuff. We
+  // ignore this stuff.
+  const FX_FILESIZE m_HeaderOffset;
+  const FX_FILESIZE m_FileLen;
+  FX_FILESIZE m_Pos = 0;
+  WeakPtr<ByteStringPool> m_pPool;
+  std::vector<uint8_t> m_pFileBuf;
+  FX_FILESIZE m_BufOffset = 0;
+  uint32_t m_WordSize = 0;
   uint8_t m_WordBuffer[257];
-  uint32_t m_WordSize;
-  CFX_WeakPtr<CFX_ByteStringPool> m_pPool;
+  uint32_t m_ReadBufferSize = CPDF_ModuleMgr::kFileBufSize;
 };
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_SYNTAX_PARSER_H_

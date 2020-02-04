@@ -53,7 +53,7 @@ public:
     {
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         QPalette palette;
-        palette.setColor(QPalette::Background, Qt::black);
+        palette.setColor(QPalette::Window, Qt::black);
         setPalette(palette);
     }
 
@@ -80,7 +80,7 @@ public:
     void paint_helper()
     {
         QPainter painter(this);
-        painter.fillRect(rect(), palette().background());
+        painter.fillRect(rect(), palette().window());
     }
 
 protected:
@@ -95,10 +95,6 @@ protected:
 QGstreamerVideoWidgetControl::QGstreamerVideoWidgetControl(QObject *parent, const QByteArray &elementName)
     : QVideoWidgetControl(parent)
     , m_videoOverlay(this, !elementName.isEmpty() ? elementName : qgetenv("QT_GSTREAMER_WIDGET_VIDEOSINK"))
-    , m_widget(0)
-    , m_stopped(false)
-    , m_windowId(0)
-    , m_fullScreen(false)
 {
     connect(&m_videoOverlay, &QGstreamerVideoOverlay::activeChanged,
             this, &QGstreamerVideoWidgetControl::onOverlayActiveChanged);
@@ -133,6 +129,11 @@ void QGstreamerVideoWidgetControl::createVideoWidget()
 GstElement *QGstreamerVideoWidgetControl::videoSink()
 {
     return m_videoOverlay.videoSink();
+}
+
+void QGstreamerVideoWidgetControl::setVideoSink(GstElement *sink)
+{
+    m_videoOverlay.setVideoSink(sink);
 }
 
 void QGstreamerVideoWidgetControl::onOverlayActiveChanged()

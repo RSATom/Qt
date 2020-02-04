@@ -98,7 +98,8 @@ void tst_QBluetoothTransferRequest::tst_construction()
 
     QBluetoothTransferRequest transferRequest(address);
 
-    foreach (int key, parameters.keys()) {
+    const QList<int> keys = parameters.keys();
+    for (const int key : keys) {
         transferRequest.setAttribute((QBluetoothTransferRequest::Attribute)key, parameters[key]);
         QCOMPARE(parameters[key], transferRequest.attribute((QBluetoothTransferRequest::Attribute)key));
     }
@@ -123,7 +124,8 @@ void tst_QBluetoothTransferRequest::tst_assignment()
 
     QBluetoothTransferRequest transferRequest(address);
 
-    foreach (int key, parameters.keys()) {
+    const QList<int> keys = parameters.keys();
+    for (const int key : keys) {
         transferRequest.setAttribute((QBluetoothTransferRequest::Attribute)key, parameters[key]);
     }
 

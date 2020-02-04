@@ -9,8 +9,6 @@ include(jni/jni.pri)
 include(android/android.pri)
 
 ANDROID_BUNDLED_JAR_DEPENDENCIES = \
-    jar/QtAndroidExtras-bundled.jar
-ANDROID_JAR_DEPENDENCIES = \
     jar/QtAndroidExtras.jar
 
 load(qt_module)

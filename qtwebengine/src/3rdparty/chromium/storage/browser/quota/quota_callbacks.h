@@ -14,63 +14,65 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/containers/flat_map.h"
+#include "base/optional.h"
+#include "base/stl_util.h"
 #include "storage/browser/quota/quota_client.h"
-#include "storage/common/quota/quota_status_code.h"
-#include "storage/common/quota/quota_types.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 
-class GURL;
+namespace url {
+class Origin;
+}
 
 namespace storage {
 
 struct UsageInfo;
-typedef std::vector<UsageInfo> UsageInfoEntries;
+using UsageInfoEntries = std::vector<UsageInfo>;
 
 // Common callback types that are used throughout in the quota module.
-typedef base::Callback<void(int64_t usage, int64_t unlimited_usage)>
-    GlobalUsageCallback;
-typedef base::Callback<void(QuotaStatusCode status, int64_t quota)>
-    QuotaCallback;
-typedef base::Callback<void(int64_t usage)> UsageCallback;
-typedef base::Callback<void(int64_t usage,
-                            base::flat_map<QuotaClient::ID, int64_t>)>
-    UsageWithBreakdownCallback;
-typedef base::Callback<void(QuotaStatusCode, int64_t)> AvailableSpaceCallback;
-typedef base::Callback<void(QuotaStatusCode)> StatusCallback;
-typedef base::Callback<void(const std::set<GURL>& origins,
-                            StorageType type)> GetOriginsCallback;
-typedef base::Callback<void(const UsageInfoEntries&)> GetUsageInfoCallback;
-typedef base::Callback<void(const GURL&)> GetOriginCallback;
+using GlobalUsageCallback =
+    base::OnceCallback<void(int64_t usage, int64_t unlimited_usage)>;
+using QuotaCallback =
+    base::OnceCallback<void(blink::mojom::QuotaStatusCode status,
+                            int64_t quota)>;
+using UsageCallback = base::OnceCallback<void(int64_t usage)>;
+using UsageWithBreakdownCallback =
+    base::OnceCallback<void(int64_t usage,
+                            blink::mojom::UsageBreakdownPtr usage_breakdown)>;
+using AvailableSpaceCallback =
+    base::OnceCallback<void(blink::mojom::QuotaStatusCode, int64_t)>;
+using StatusCallback = base::OnceCallback<void(blink::mojom::QuotaStatusCode)>;
+using GetOriginsCallback =
+    base::OnceCallback<void(const std::set<url::Origin>& origins,
+                            blink::mojom::StorageType type)>;
+using GetUsageInfoCallback = base::OnceCallback<void(UsageInfoEntries)>;
+using GetOriginCallback =
+    base::OnceCallback<void(const base::Optional<url::Origin>&)>;
 
 // Simple template wrapper for a callback queue.
 template <typename CallbackType, typename... Args>
 class CallbackQueue {
  public:
   // Returns true if the given |callback| is the first one added to the queue.
-  bool Add(const CallbackType& callback) {
-    callbacks_.push_back(callback);
+  bool Add(CallbackType callback) {
+    callbacks_.push_back(std::move(callback));
     return (callbacks_.size() == 1);
   }
 
-  bool HasCallbacks() const {
-    return !callbacks_.empty();
-  }
+  bool HasCallbacks() const { return !callbacks_.empty(); }
 
   // Runs the callbacks added to the queue and clears the queue.
   void Run(Args... args) {
     std::vector<CallbackType> callbacks;
     callbacks.swap(callbacks_);
-    for (const auto& callback : callbacks)
-      callback.Run(args...);
+    for (auto& callback : callbacks)
+      std::move(callback).Run(args...);
   }
 
   void Swap(CallbackQueue<CallbackType, Args...>* other) {
     callbacks_.swap(other->callbacks_);
   }
 
-  size_t size() const {
-    return callbacks_.size();
-  }
+  size_t size() const { return callbacks_.size(); }
 
  private:
   std::vector<CallbackType> callbacks_;
@@ -79,21 +81,19 @@ class CallbackQueue {
 template <typename CallbackType, typename Key, typename... Args>
 class CallbackQueueMap {
  public:
-  typedef CallbackQueue<CallbackType, Args...> CallbackQueueType;
-  typedef std::map<Key, CallbackQueueType> CallbackMap;
-  typedef typename CallbackMap::iterator iterator;
+  using CallbackQueueType = CallbackQueue<CallbackType, Args...>;
+  using CallbackMap = std::map<Key, CallbackQueueType>;
+  using iterator = typename CallbackMap::iterator;
 
-  bool Add(const Key& key, const CallbackType& callback) {
-    return callback_map_[key].Add(callback);
+  bool Add(const Key& key, CallbackType callback) {
+    return callback_map_[key].Add(std::move(callback));
   }
 
   bool HasCallbacks(const Key& key) const {
-    return (callback_map_.find(key) != callback_map_.end());
+    return base::ContainsKey(callback_map_, key);
   }
 
-  bool HasAnyCallbacks() const {
-    return !callback_map_.empty();
-  }
+  bool HasAnyCallbacks() const { return !callback_map_.empty(); }
 
   iterator Begin() { return callback_map_.begin(); }
   iterator End() { return callback_map_.end(); }

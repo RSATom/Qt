@@ -8,41 +8,38 @@
 #include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "content/public/browser/browser_thread.h"
+#include "extensions/browser/extension_file_task_runner.h"
 
-using content::BrowserThread;
-
-FileReader::FileReader(
-    const extensions::ExtensionResource& resource,
-    const OptionalFileThreadTaskCallback& optional_file_thread_task_callback,
-    const DoneCallback& done_callback)
+FileReader::FileReader(const extensions::ExtensionResource& resource,
+                       OptionalFileSequenceTask optional_file_sequence_task,
+                       DoneCallback done_callback)
     : resource_(resource),
-      optional_file_thread_task_callback_(optional_file_thread_task_callback),
-      done_callback_(done_callback),
+      optional_file_sequence_task_(std::move(optional_file_sequence_task)),
+      done_callback_(std::move(done_callback)),
       origin_task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
 
 void FileReader::Start() {
-  BrowserThread::PostTask(
-      BrowserThread::FILE, FROM_HERE,
-      base::Bind(&FileReader::ReadFileOnBackgroundThread, this));
+  extensions::GetExtensionFileTaskRunner()->PostTask(
+      FROM_HERE, base::Bind(&FileReader::ReadFileOnFileSequence, this));
 }
 
 FileReader::~FileReader() {}
 
-void FileReader::ReadFileOnBackgroundThread() {
+void FileReader::ReadFileOnFileSequence() {
+  DCHECK(
+      extensions::GetExtensionFileTaskRunner()->RunsTasksInCurrentSequence());
+
   std::unique_ptr<std::string> data(new std::string());
   bool success = base::ReadFileToString(resource_.GetFilePath(), data.get());
 
-  if (!optional_file_thread_task_callback_.is_null()) {
-    if (success) {
-      base::ResetAndReturn(&optional_file_thread_task_callback_)
-          .Run(data.get());
-    } else {
-      optional_file_thread_task_callback_.Reset();
-    }
+  if (optional_file_sequence_task_) {
+    if (success)
+      std::move(optional_file_sequence_task_).Run(data.get());
+    else
+      optional_file_sequence_task_.Reset();
   }
 
   origin_task_runner_->PostTask(
-      FROM_HERE, base::Bind(base::ResetAndReturn(&done_callback_), success,
-                            base::Passed(std::move(data))));
+      FROM_HERE,
+      base::BindOnce(std::move(done_callback_), success, std::move(data)));
 }

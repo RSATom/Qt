@@ -7,20 +7,23 @@
 
 #include <OpenGL/CGLTypes.h>
 
+#include <map>
 #include <memory>
 
 #include "base/macros.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_export.h"
 
 namespace gl {
 
+class GLFence;
 class GLSurface;
 
 // Encapsulates a CGL OpenGL context.
 class GL_EXPORT GLContextCGL : public GLContextReal {
  public:
-  explicit GLContextCGL(GLShareGroup* share_group);
+  explicit GLContextCGL(GLShareGroup* share_group, int core_profile_number = 0);
 
   // Implement GLContext.
   bool Initialize(GLSurface* compatible_surface,
@@ -29,10 +32,13 @@ class GL_EXPORT GLContextCGL : public GLContextReal {
   void ReleaseCurrent(GLSurface* surface) override;
   bool IsCurrent(GLSurface* surface) override;
   void* GetHandle() override;
-  void OnSetSwapInterval(int interval) override;
   void SetSafeToForceGpuSwitch() override;
   bool ForceGpuSwitchIfNeeded() override;
-  YUVToRGBConverter* GetYUVToRGBConverter() override;
+  YUVToRGBConverter* GetYUVToRGBConverter(
+      const gfx::ColorSpace& color_space) override;
+  uint64_t BackpressureFenceCreate() override;
+  void BackpressureFenceWait(uint64_t fence) override;
+  void FlushForDriverCrashWorkaround() override;
 
  protected:
   ~GLContextCGL() override;
@@ -41,15 +47,24 @@ class GL_EXPORT GLContextCGL : public GLContextReal {
   void Destroy();
   GpuPreference GetGpuPreference();
 
-  void* context_;
-  GpuPreference gpu_preference_;
-  std::unique_ptr<YUVToRGBConverter> yuv_to_rgb_converter_;
+  void* context_ = nullptr;
+  GpuPreference gpu_preference_ = PreferIntegratedGpu;
+  std::map<gfx::ColorSpace, std::unique_ptr<YUVToRGBConverter>>
+      yuv_to_rgb_converters_;
 
-  CGLPixelFormatObj discrete_pixelformat_;
+  std::map<uint64_t, std::unique_ptr<GLFence>> backpressure_fences_;
+  uint64_t next_backpressure_fence_ = 0;
 
-  int screen_;
-  int renderer_id_;
-  bool safe_to_force_gpu_switch_;
+  CGLPixelFormatObj discrete_pixelformat_ = nullptr;
+
+  int screen_ = -1;
+  int renderer_id_ = -1;
+  bool safe_to_force_gpu_switch_ = true;
+
+  // Debugging for https://crbug.com/863817
+  bool has_switched_gpus_ = false;
+
+  int core_profile_number_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(GLContextCGL);
 };

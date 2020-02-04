@@ -9,7 +9,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "gpu/command_buffer/service/gl_utils.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 namespace gles2 {
@@ -19,30 +19,35 @@ class Buffer;
 // This is a base class for indexed buffer bindings tracking.
 // TransformFeedback and Program should inherit from this base class,
 // for tracking indexed TRANSFORM_FEEDBACK_BUFFER / UNIFORM_BUFFER bindings.
-class GPU_EXPORT IndexedBufferBindingHost :
-    public base::RefCounted<IndexedBufferBindingHost> {
+class GPU_GLES2_EXPORT IndexedBufferBindingHost
+    : public base::RefCounted<IndexedBufferBindingHost> {
  public:
   // In theory |needs_emulation| needs to be true on Desktop GL 4.1 or lower.
   // However, we set it to true everywhere, not to trust drivers to handle
   // out-of-bounds buffer accesses.
-  IndexedBufferBindingHost(uint32_t max_bindings, bool needs_emulation);
+  IndexedBufferBindingHost(uint32_t max_bindings,
+                           GLenum target,
+                           bool needs_emulation);
 
   // The following two functions do state update and call the underlying GL
   // function.  All validations have been done already and the GL function is
   // guaranteed to succeed.
-  void DoBindBufferBase(GLenum target, GLuint index, Buffer* buffer);
-  void DoBindBufferRange(
-      GLenum target, GLuint index, Buffer* buffer, GLintptr offset,
-      GLsizeiptr size);
+  void DoBindBufferBase(GLuint index, Buffer* buffer);
+  void DoBindBufferRange(GLuint index,
+                         Buffer* buffer,
+                         GLintptr offset,
+                         GLsizeiptr size);
 
   // This is called on the active host when glBufferData is called and buffer
   // size might change.
-  void OnBufferData(GLenum target, Buffer* buffer);
+  void OnBufferData(Buffer* buffer);
 
-  // This is called when the host become active.
-  void OnBindHost(GLenum target);
+  void RemoveBoundBuffer(GLenum target,
+                         Buffer* buffer,
+                         Buffer* target_generic_bound_buffer,
+                         bool have_context);
 
-  void RemoveBoundBuffer(Buffer* buffer);
+  void SetIsBound(bool bound);
 
   Buffer* GetBufferBinding(GLuint index) const;
   // Returns |size| set by glBindBufferRange; 0 if set by glBindBufferBase.
@@ -65,6 +70,14 @@ class GPU_EXPORT IndexedBufferBindingHost :
   friend class base::RefCounted<IndexedBufferBindingHost>;
 
   virtual ~IndexedBufferBindingHost();
+
+  // Whether this object is currently bound into the context.
+  bool is_bound_;
+
+  // Whether or not to call Buffer::OnBind/OnUnbind whenever bindings change.
+  // This is only necessary for WebGL contexts to implement
+  // https://crbug.com/696345
+  bool do_buffer_refcounting_;
 
  private:
   enum IndexedBufferBindingType {
@@ -109,6 +122,10 @@ class GPU_EXPORT IndexedBufferBindingHost :
 
   // This is used for optimization purpose in context switching.
   size_t max_non_null_binding_index_plus_one_;
+
+  // The GL binding point that this host manages
+  // (e.g. GL_TRANSFORM_FEEDBACK_BUFFER).
+  GLenum target_;
 };
 
 }  // namespace gles2

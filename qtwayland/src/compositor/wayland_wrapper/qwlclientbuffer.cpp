@@ -47,7 +47,7 @@
 
 #include <QtCore/QDebug>
 
-#include <wayland-server-protocol.h>
+#include <QtWaylandCompositor/private/wayland-wayland-server-protocol.h>
 #include "qwaylandsharedmemoryformathelper_p.h"
 
 #include <QtWaylandCompositor/private/qwaylandcompositor_p.h>
@@ -58,9 +58,6 @@ namespace QtWayland {
 
 ClientBuffer::ClientBuffer(struct ::wl_resource *buffer)
     : m_buffer(buffer)
-    , m_textureDirty(false)
-    , m_committed(false)
-    , m_destroyed(false)
 {
 }
 
@@ -117,9 +114,6 @@ QWaylandBufferRef::BufferFormatEgl ClientBuffer::bufferFormatEgl() const
 
 SharedMemoryBuffer::SharedMemoryBuffer(wl_resource *bufferResource)
     : ClientBuffer(bufferResource)
-#if QT_CONFIG(opengl)
-    , m_shmTexture(nullptr)
-#endif
 {
 
 }

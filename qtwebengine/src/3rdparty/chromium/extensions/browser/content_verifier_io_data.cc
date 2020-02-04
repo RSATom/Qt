@@ -12,10 +12,11 @@ namespace extensions {
 
 ContentVerifierIOData::ExtensionData::ExtensionData(
     std::unique_ptr<std::set<base::FilePath>> browser_image_paths,
-    const base::Version& version) {
-  this->browser_image_paths = std::move(browser_image_paths);
-  this->version = version;
-}
+    std::unique_ptr<std::set<base::FilePath>> background_or_content_paths,
+    const base::Version& version)
+    : browser_image_paths(std::move(browser_image_paths)),
+      background_or_content_paths(std::move(background_or_content_paths)),
+      version(version) {}
 
 ContentVerifierIOData::ContentVerifierIOData() {
 }
@@ -46,8 +47,7 @@ void ContentVerifierIOData::Clear() {
 const ContentVerifierIOData::ExtensionData* ContentVerifierIOData::GetData(
     const std::string& extension_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  std::map<std::string, std::unique_ptr<ExtensionData>>::iterator found =
-      data_map_.find(extension_id);
+  auto found = data_map_.find(extension_id);
   if (found != data_map_.end())
     return found->second.get();
   else

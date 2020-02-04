@@ -48,7 +48,9 @@
 #include "qscreen.h"
 #include "qpainter.h"
 #include "qtimer.h"
+#if QT_CONFIG(action)
 #include "qaction.h"
+#endif // QT_CONFIG(action)
 #include "qcursor.h"
 #include "qbitmap.h"
 #include "qtextdocument.h"
@@ -145,12 +147,12 @@ public:
     static QWhatsThat *instance;
 
 protected:
-    void showEvent(QShowEvent *e) Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent*) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent*) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent*) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent*) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent*) Q_DECL_OVERRIDE;
+    void showEvent(QShowEvent *e) override;
+    void mousePressEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void keyPressEvent(QKeyEvent*) override;
+    void paintEvent(QPaintEvent*) override;
 
 private:
     QPointer<QWidget>widget;
@@ -365,8 +367,10 @@ class QWhatsThisPrivate : public QObject
     QWhatsThisPrivate();
     ~QWhatsThisPrivate();
     static QWhatsThisPrivate *instance;
-    bool eventFilter(QObject *, QEvent *) Q_DECL_OVERRIDE;
+    bool eventFilter(QObject *, QEvent *) override;
+#if QT_CONFIG(action)
     QPointer<QAction> action;
+#endif // QT_CONFIG(action)
     static void say(QWidget *, const QString &, int x = 0, int y = 0);
     static void notifyToplevels(QEvent *e);
     bool leaveOnMouseRelease;
@@ -394,10 +398,10 @@ QWhatsThisPrivate::QWhatsThisPrivate()
 #ifdef QT_NO_CURSOR
         Q_UNUSED(sentEvent);
 #else
-        QApplication::setOverrideCursor((!sentEvent || !e.isAccepted())?
+        QGuiApplication::setOverrideCursor((!sentEvent || !e.isAccepted())?
                                         Qt::ForbiddenCursor:Qt::WhatsThisCursor);
     } else {
-        QApplication::setOverrideCursor(Qt::WhatsThisCursor);
+        QGuiApplication::setOverrideCursor(Qt::WhatsThisCursor);
 #endif
     }
 #ifndef QT_NO_ACCESSIBILITY
@@ -408,10 +412,12 @@ QWhatsThisPrivate::QWhatsThisPrivate()
 
 QWhatsThisPrivate::~QWhatsThisPrivate()
 {
+#if QT_CONFIG(action)
     if (action)
         action->setChecked(false);
+#endif // QT_CONFIG(action)
 #ifndef QT_NO_CURSOR
-    QApplication::restoreOverrideCursor();
+    QGuiApplication::restoreOverrideCursor();
 #endif
 #ifndef QT_NO_ACCESSIBILITY
     QAccessibleEvent event(this, QAccessible::ContextHelpEnd);
@@ -485,6 +491,7 @@ bool QWhatsThisPrivate::eventFilter(QObject *o, QEvent *e)
     return true;
 }
 
+#if QT_CONFIG(action)
 class QWhatsThisAction: public QAction
 {
     Q_OBJECT
@@ -516,6 +523,7 @@ void QWhatsThisAction::actionTriggered()
         QWhatsThisPrivate::instance->action = this;
     }
 }
+#endif // QT_CONFIG(action)
 
 /*!
     This function switches the user interface into "What's This?"
@@ -672,10 +680,12 @@ void QWhatsThis::hideText()
     The returned QAction provides a convenient way to let users enter
     "What's This?" mode.
 */
+#if QT_CONFIG(action)
 QAction *QWhatsThis::createAction(QObject *parent)
 {
     return new QWhatsThisAction(parent);
 }
+#endif // QT_CONFIG(action)
 
 QT_END_NAMESPACE
 

@@ -42,14 +42,12 @@ struct LabeledMatrix {
     const char* fLabel;
 };
 
-constexpr char kText[] = "B";
-constexpr int kTextLen = SK_ARRAY_COUNT(kText) - 1;
 constexpr int kPointSize = 300;
 
 class ShaderText3GM : public GM {
 public:
     ShaderText3GM() {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        this->setBGColor(0xFFDDDDDD);
     }
 
 protected:
@@ -72,10 +70,8 @@ protected:
         bmpPaint.setAlpha(0x80);
         canvas->drawBitmap(fBmp, 5.f, 5.f, &bmpPaint);
 
+        SkFont font(sk_tool_utils::create_portable_typeface(), SkIntToScalar(kPointSize));
         SkPaint outlinePaint;
-        outlinePaint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&outlinePaint);
-        outlinePaint.setTextSize(SkIntToScalar(kPointSize));
         outlinePaint.setStyle(SkPaint::kStroke_Style);
         outlinePaint.setStrokeWidth(0.f);
 
@@ -103,15 +99,14 @@ protected:
 
                 SkPaint fillPaint;
                 fillPaint.setAntiAlias(true);
-                sk_tool_utils::set_portable_typeface(&fillPaint);
-                fillPaint.setTextSize(SkIntToScalar(kPointSize));
                 fillPaint.setFilterQuality(kLow_SkFilterQuality);
                 fillPaint.setShader(SkShader::MakeBitmapShader(fBmp, kTileModes[tm0],
                                                                kTileModes[tm1], &localM));
 
-                canvas->drawText(kText, kTextLen, 0, 0, fillPaint);
-                canvas->drawText(kText, kTextLen, 0, 0, outlinePaint);
-                SkScalar w = fillPaint.measureText(kText, kTextLen);
+                constexpr char kText[] = "B";
+                canvas->drawString(kText, 0, 0, font, fillPaint);
+                canvas->drawString(kText, 0, 0, font, outlinePaint);
+                SkScalar w = font.measureText(kText, strlen(kText), kUTF8_SkTextEncoding);
                 canvas->translate(w + 10.f, 0.f);
                 ++i;
                 if (!(i % 2)) {

@@ -70,6 +70,9 @@ void DefaultActivationClient::ActivateWindowImpl(
   if (last_active == window)
     return;
 
+  for (auto& observer : observers_)
+    observer.OnWindowActivating(reason, window, last_active);
+
   last_active_ = last_active;
   RemoveActiveWindow(window);
   active_windows_.push_back(window);
@@ -107,15 +110,17 @@ const aura::Window* DefaultActivationClient::GetActiveWindow() const {
 }
 
 aura::Window* DefaultActivationClient::GetActivatableWindow(
-    aura::Window* window) {
+    aura::Window* window) const {
   return nullptr;
 }
 
-aura::Window* DefaultActivationClient::GetToplevelWindow(aura::Window* window) {
+const aura::Window* DefaultActivationClient::GetToplevelWindow(
+    const aura::Window* window) const {
   return nullptr;
 }
 
-bool DefaultActivationClient::CanActivateWindow(aura::Window* window) const {
+bool DefaultActivationClient::CanActivateWindow(
+    const aura::Window* window) const {
   return true;
 }
 

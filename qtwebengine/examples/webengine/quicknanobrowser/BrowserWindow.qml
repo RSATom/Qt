@@ -57,7 +57,7 @@ import QtQuick.Controls.Styles 1.0
 import QtQuick.Dialogs 1.2
 import QtQuick.Layouts 1.0
 import QtQuick.Window 2.1
-import QtWebEngine 1.3
+import QtWebEngine 1.9
 
 ApplicationWindow {
     id: browserWindow
@@ -87,6 +87,9 @@ ApplicationWindow {
         property alias fullScreenSupportEnabled: fullScreenSupportEnabled.checked
         property alias autoLoadIconsForPage: autoLoadIconsForPage.checked
         property alias touchIconsEnabled: touchIconsEnabled.checked
+        property alias webRTCPublicInterfacesOnly : webRTCPublicInterfacesOnly.checked
+        property alias devToolsEnabled: devToolsEnabled.checked
+        property alias pdfViewerEnabled: pdfViewerEnabled.checked
     }
 
     Action {
@@ -113,7 +116,7 @@ ApplicationWindow {
     Action {
         shortcut: StandardKey.AddTab
         onTriggered: {
-            tabs.createEmptyTab(currentWebView.profile);
+            tabs.createEmptyTab(tabs.count != 0 ? currentWebView.profile : defaultProfile);
             tabs.currentIndex = tabs.count - 1;
             addressBar.forceActiveFocus();
             addressBar.selectAll();
@@ -204,8 +207,12 @@ ApplicationWindow {
                                 enabled: model.offset
                             }
 
-                            onObjectAdded: historyMenu.insertItem(index, object)
-                            onObjectRemoved: historyMenu.removeItem(object)
+                            onObjectAdded: function(index, object) {
+                                historyMenu.insertItem(index, object)
+                            }
+                            onObjectRemoved: function(index, object) {
+                                historyMenu.removeItem(object)
+                            }
                         }
                     }
                 }
@@ -288,15 +295,23 @@ ApplicationWindow {
                             id: offTheRecordEnabled
                             text: "Off The Record"
                             checkable: true
-                            checked: currentWebView.profile.offTheRecord
-                            onToggled: currentWebView.profile = checked ? otrProfile : defaultProfile;
+                            checked: currentWebView && currentWebView.profile === otrProfile
+                            onToggled: function(checked) {
+                                if (currentWebView) {
+                                    currentWebView.profile = checked ? otrProfile : defaultProfile;
+                                }
+                            }
                         }
                         MenuItem {
                             id: httpDiskCacheEnabled
                             text: "HTTP Disk Cache"
-                            checkable: !currentWebView.profile.offTheRecord
-                            checked: (currentWebView.profile.httpCacheType === WebEngineProfile.DiskHttpCache)
-                            onToggled: currentWebView.profile.httpCacheType = checked ? WebEngineProfile.DiskHttpCache : WebEngineProfile.MemoryHttpCache
+                            checkable: currentWebView && !currentWebView.profile.offTheRecord
+                            checked: currentWebView && (currentWebView.profile.httpCacheType === WebEngineProfile.DiskHttpCache)
+                            onToggled: function(checked) {
+                                if (currentWebView) {
+                                    currentWebView.profile.httpCacheType = checked ? WebEngineProfile.DiskHttpCache : WebEngineProfile.MemoryHttpCache;
+                                }
+                            }
                         }
                         MenuItem {
                             id: autoLoadIconsForPage
@@ -310,6 +325,24 @@ ApplicationWindow {
                             checkable: true
                             checked: WebEngine.settings.touchIconsEnabled
                             enabled: autoLoadIconsForPage.checked
+                        }
+                        MenuItem {
+                            id: webRTCPublicInterfacesOnly
+                            text: "WebRTC Public Interfaces Only"
+                            checkable: true
+                            checked: WebEngine.settings.webRTCPublicInterfacesOnly
+                        }
+                        MenuItem {
+                            id: devToolsEnabled
+                            text: "Open DevTools"
+                            checkable: true
+                            checked: false
+                        }
+                        MenuItem {
+                            id: pdfViewerEnabled
+                            text: "PDF viewer enabled"
+                            checkable: true
+                            checked: WebEngine.settings.pdfViewerEnabled
                         }
                     }
                 }
@@ -345,8 +378,57 @@ ApplicationWindow {
             return tab;
         }
 
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.bottom: devToolsView.top
+        anchors.left: parent.left
+        anchors.right: parent.right
         Component.onCompleted: createEmptyTab(defaultProfile)
+
+        // Add custom tab view style so we can customize the tabs to include a close button
+        style: TabViewStyle {
+            property color frameColor: "#999"
+            property color fillColor: "#eee"
+            property color nonSelectedColor: "#ddd"
+            frameOverlap: 1
+            frame: Rectangle {
+                color: "#eee"
+                border.color: frameColor
+            }
+            tab: Rectangle {
+                id: tabRectangle
+                color: styleData.selected ? fillColor : nonSelectedColor
+                border.width: 1
+                border.color: frameColor
+                implicitWidth: Math.max(text.width + 30, 80)
+                implicitHeight: Math.max(text.height + 10, 20)
+                Rectangle { height: 1 ; width: parent.width ; color: frameColor}
+                Rectangle { height: parent.height ; width: 1; color: frameColor}
+                Rectangle { x: parent.width - 2; height: parent.height ; width: 1; color: frameColor}
+                Text {
+                    id: text
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: 6
+                    text: styleData.title
+                    elide: Text.ElideRight
+                    color: styleData.selected ? "black" : frameColor
+                }
+                Button {
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.rightMargin: 4
+                    height: 12
+                    style: ButtonStyle {
+                        background: Rectangle {
+                            implicitWidth: 12
+                            implicitHeight: 12
+                            color: control.hovered ? "#ccc" : tabRectangle.color
+                            Text {text: "x" ; anchors.centerIn: parent ; color: "gray"}
+                        }}
+                    onClicked: tabs.removeTab(styleData.index);
+                }
+            }
+        }
 
         Component {
             id: tabComponent
@@ -354,12 +436,13 @@ ApplicationWindow {
                 id: webEngineView
                 focus: true
 
-                onLinkHovered: {
+                onLinkHovered: function(hoveredUrl) {
                     if (hoveredUrl == "")
-                        resetStatusText.start();
+                        hideStatusText.start();
                     else {
-                        resetStatusText.stop();
                         statusText.text = hoveredUrl;
+                        statusBubble.visible = true;
+                        hideStatusText.stop();
                     }
                 }
 
@@ -384,23 +467,25 @@ ApplicationWindow {
                 settings.fullScreenSupportEnabled: appSettings.fullScreenSupportEnabled
                 settings.autoLoadIconsForPage: appSettings.autoLoadIconsForPage
                 settings.touchIconsEnabled: appSettings.touchIconsEnabled
+                settings.webRTCPublicInterfacesOnly: appSettings.webRTCPublicInterfacesOnly
+                settings.pdfViewerEnabled: appSettings.pdfViewerEnabled
 
-                onCertificateError: {
+                onCertificateError: function(error) {
                     error.defer();
                     sslDialog.enqueue(error);
                 }
 
-                onNewViewRequested: {
+                onNewViewRequested: function(request) {
                     if (!request.userInitiated)
                         print("Warning: Blocked a popup window.");
-                    else if (request.destination == WebEngineView.NewViewInTab) {
+                    else if (request.destination === WebEngineView.NewViewInTab) {
                         var tab = tabs.createEmptyTab(currentWebView.profile);
                         tabs.currentIndex = tabs.count - 1;
                         request.openIn(tab.item);
-                    } else if (request.destination == WebEngineView.NewViewInBackgroundTab) {
+                    } else if (request.destination === WebEngineView.NewViewInBackgroundTab) {
                         var backgroundTab = tabs.createEmptyTab(currentWebView.profile);
                         request.openIn(backgroundTab.item);
-                    } else if (request.destination == WebEngineView.NewViewInDialog) {
+                    } else if (request.destination === WebEngineView.NewViewInDialog) {
                         var dialog = applicationRoot.createDialog(currentWebView.profile);
                         request.openIn(dialog.currentWebView);
                     } else {
@@ -409,7 +494,7 @@ ApplicationWindow {
                     }
                 }
 
-                onFullScreenRequested: {
+                onFullScreenRequested: function(request) {
                     if (request.toggleOn) {
                         webEngineView.state = "FullScreen";
                         browserWindow.previousVisibility = browserWindow.visibility;
@@ -423,7 +508,20 @@ ApplicationWindow {
                     request.accept();
                 }
 
-                onRenderProcessTerminated: {
+                onQuotaRequested: function(request) {
+                    if (request.requestedSize <= 5 * 1024 * 1024)
+                        request.accept();
+                    else
+                        request.reject();
+                }
+
+                onRegisterProtocolHandlerRequested: function(request) {
+                    console.log("accepting registerProtocolHandler request for "
+                                + request.scheme + " from " + request.origin);
+                    request.accept();
+                }
+
+                onRenderProcessTerminated: function(terminationStatus, exitCode) {
                     var status = "";
                     switch (terminationStatus) {
                     case WebEngineView.NormalTerminationStatus:
@@ -451,6 +549,10 @@ ApplicationWindow {
                         tabs.removeTab(tabs.currentIndex);
                 }
 
+                onSelectClientCertificate: function(selection) {
+                    selection.certificates[0].select();
+                }
+
                 Timer {
                     id: reloadTimer
                     interval: 0
@@ -459,6 +561,20 @@ ApplicationWindow {
                     onTriggered: currentWebView.reload()
                 }
             }
+        }
+    }
+    WebEngineView {
+        id: devToolsView
+        visible: devToolsEnabled.checked
+        height: visible ? 400 : 0
+        inspectedView: visible && tabs.currentIndex < tabs.count ? tabs.getTab(tabs.currentIndex).item : null
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        onNewViewRequested: function(request) {
+            var tab = tabs.createEmptyTab(currentWebView.profile);
+            tabs.currentIndex = tabs.count - 1;
+            request.openIn(tab.item);
         }
     }
     MessageDialog {
@@ -513,6 +629,7 @@ ApplicationWindow {
         id: statusBubble
         color: "oldlace"
         property int padding: 8
+        visible: false
 
         anchors.left: parent.left
         anchors.bottom: parent.bottom
@@ -525,9 +642,12 @@ ApplicationWindow {
             elide: Qt.ElideMiddle
 
             Timer {
-                id: resetStatusText
+                id: hideStatusText
                 interval: 750
-                onTriggered: statusText.text = ""
+                onTriggered: {
+                    statusText.text = "";
+                    statusBubble.visible = false;
+                }
             }
         }
     }

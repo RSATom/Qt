@@ -5,7 +5,7 @@
 #ifndef V8_REGEXP_REGEXP_MACRO_ASSEMBLER_H_
 #define V8_REGEXP_REGEXP_MACRO_ASSEMBLER_H_
 
-#include "src/assembler.h"
+#include "src/label.h"
 #include "src/regexp/regexp-ast.h"
 
 namespace v8 {
@@ -88,8 +88,8 @@ class RegExpMacroAssembler {
                                                Label* on_no_match) = 0;
   // Check the current character for a match with a literal character.  If we
   // fail to match then goto the on_failure label.  End of input always
-  // matches.  If the label is NULL then we should pop a backtrack address off
-  // the stack and go to that.
+  // matches.  If the label is nullptr then we should pop a backtrack address
+  // off the stack and go to that.
   virtual void CheckNotCharacter(unsigned c, Label* on_not_equal) = 0;
   virtual void CheckNotCharacterAfterAnd(unsigned c,
                                          unsigned and_with,
@@ -123,10 +123,10 @@ class RegExpMacroAssembler {
   virtual Handle<HeapObject> GetCode(Handle<String> source) = 0;
   virtual void GoTo(Label* label) = 0;
   // Check whether a register is >= a given constant and go to a label if it
-  // is.  Backtracks instead if the label is NULL.
+  // is.  Backtracks instead if the label is nullptr.
   virtual void IfRegisterGE(int reg, int comparand, Label* if_ge) = 0;
   // Check whether a register is < a given constant and go to a label if it is.
-  // Backtracks instead if the label is NULL.
+  // Backtracks instead if the label is nullptr.
   virtual void IfRegisterLT(int reg, int comparand, Label* if_lt) = 0;
   // Check whether a register is == to the current position and go to a
   // label if it is.
@@ -212,8 +212,8 @@ class NativeRegExpMacroAssembler: public RegExpMacroAssembler {
   enum Result { RETRY = -2, EXCEPTION = -1, FAILURE = 0, SUCCESS = 1 };
 
   NativeRegExpMacroAssembler(Isolate* isolate, Zone* zone);
-  virtual ~NativeRegExpMacroAssembler();
-  virtual bool CanReadUnaligned();
+  ~NativeRegExpMacroAssembler() override;
+  bool CanReadUnaligned() override;
 
   static Result Match(Handle<Code> regexp,
                       Handle<String> subject,
@@ -230,11 +230,12 @@ class NativeRegExpMacroAssembler: public RegExpMacroAssembler {
   static Address GrowStack(Address stack_pointer, Address* stack_top,
                            Isolate* isolate);
 
-  static const byte* StringCharacterPosition(String* subject, int start_index);
+  static const byte* StringCharacterPosition(
+      String subject, int start_index, const DisallowHeapAllocation& no_gc);
 
   static int CheckStackGuardState(Isolate* isolate, int start_index,
                                   bool is_direct_call, Address* return_address,
-                                  Code* re_code, String** subject,
+                                  Code re_code, Address* subject,
                                   const byte** input_start,
                                   const byte** input_end);
 
@@ -244,17 +245,12 @@ class NativeRegExpMacroAssembler: public RegExpMacroAssembler {
   static const byte word_character_map[256];
 
   static Address word_character_map_address() {
-    return const_cast<Address>(&word_character_map[0]);
+    return reinterpret_cast<Address>(&word_character_map[0]);
   }
 
-  static Result Execute(Code* code,
-                        String* input,
-                        int start_offset,
-                        const byte* input_start,
-                        const byte* input_end,
-                        int* output,
-                        int output_size,
-                        Isolate* isolate);
+  static Result Execute(Code code, String input, int start_offset,
+                        const byte* input_start, const byte* input_end,
+                        int* output, int output_size, Isolate* isolate);
 };
 
 #endif  // V8_INTERPRETED_REGEXP

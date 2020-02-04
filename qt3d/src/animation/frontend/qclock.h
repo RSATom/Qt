@@ -46,7 +46,7 @@ namespace Qt3DAnimation {
 
 class QClockPrivate;
 
-class QT3DANIMATIONSHARED_EXPORT QClock : public Qt3DCore::QNode
+class Q_3DANIMATIONSHARED_EXPORT QClock : public Qt3DCore::QNode
 {
     Q_OBJECT
     Q_PROPERTY(double playbackRate READ playbackRate WRITE setPlaybackRate NOTIFY playbackRateChanged)
@@ -66,7 +66,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QClock)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DAnimation

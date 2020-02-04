@@ -42,6 +42,7 @@ import version_resolver as resolver
 
 chromium_src = os.environ.get('CHROMIUM_SRC_DIR')
 ninja_src = os.path.join(qtwebengine_root, 'src/3rdparty_upstream/ninja')
+gn_src = os.path.join(qtwebengine_root, 'src/3rdparty_upstream/gn')
 use_external_chromium = False
 
 parser = argparse.ArgumentParser(description='Initialize QtWebEngine repository.')
@@ -63,6 +64,7 @@ if not chromium_src or not os.path.isdir(chromium_src):
     if args.snapshot or not chromium_src:
         chromium_src = os.path.join(qtwebengine_root, 'src/3rdparty/chromium')
         ninja_src = os.path.join(qtwebengine_root, 'src/3rdparty/ninja')
+        gn_src = os.path.join(qtwebengine_root, 'src/3rdparty/gn')
         args.snapshot = True
     print 'CHROMIUM_SRC_DIR not set, using Chromium in' + chromium_src
 
@@ -79,11 +81,12 @@ def updateLastChange():
     os.chdir(chromium_src)
     print 'updating LASTCHANGE files'
     subprocess.call(['python', 'build/util/lastchange.py', '-o', 'build/util/LASTCHANGE'])
-    subprocess.call(['python', 'build/util/lastchange.py', '-s', 'third_party/WebKit', '-o', 'build/util/LASTCHANGE.blink'])
     subprocess.call(['python', 'build/util/lastchange.py', '-m', 'SKIA_COMMIT_HASH', '-s', 'third_party/skia', '--header', 'skia/ext/skia_commit_hash.h'])
+    subprocess.call(['python', 'build/util/lastchange.py', '-m', 'GPU_LISTS_VERSION', '--revision-id-only', '--header', 'gpu/config/gpu_lists_version.h'])
     os.chdir(currentDir)
 
 def initUpstreamSubmodules():
+    gn_url = 'https://gn.googlesource.com/gn'
     ninja_url = 'https://github.com/martine/ninja.git'
     chromium_url = 'https://chromium.googlesource.com/chromium/src.git'
     ninja_shasum = 'refs/tags/' + resolver.currentNinjaVersion()
@@ -91,6 +94,8 @@ def initUpstreamSubmodules():
     os.chdir(qtwebengine_root)
 
     current_submodules = subprocess.check_output(['git', 'submodule'])
+    if not 'src/3rdparty_upstream/gn' in current_submodules:
+        subprocess.call(['git', 'submodule', 'add', gn_url, 'src/3rdparty_upstream/gn'])
     if not 'src/3rdparty_upstream/ninja' in current_submodules:
         subprocess.call(['git', 'submodule', 'add', ninja_url, 'src/3rdparty_upstream/ninja'])
     if not use_external_chromium and not 'src/3rdparty_upstream/chromium' in current_submodules:
@@ -103,6 +108,13 @@ def initUpstreamSubmodules():
     ninjaSubmodule.os = 'all'
     ninjaSubmodule.initialize()
 
+    gnSubmodule = GitSubmodule.Submodule()
+    gnSubmodule.path = 'src/3rdparty_upstream/gn'
+    gnSubmodule.ref = 'master'
+    gnSubmodule.url = gn_url
+    gnSubmodule.os = 'all'
+    gnSubmodule.initialize()
+
     if not use_external_chromium:
         chromiumSubmodule = GitSubmodule.Submodule()
         chromiumSubmodule.path = 'src/3rdparty_upstream/chromium'
@@ -113,6 +125,7 @@ def initUpstreamSubmodules():
         chromiumSubmodule.initSubmodules()
 
     # Unstage repositories so we do not accidentally commit them.
+    subprocess.call(['git', 'reset', '-q', 'HEAD', 'src/3rdparty_upstream/gn'])
     subprocess.call(['git', 'reset', '-q', 'HEAD', 'src/3rdparty_upstream/ninja'])
     subprocess.call(['git', 'reset', '-q', 'HEAD', 'src/3rdparty_upstream/chromium'])
 

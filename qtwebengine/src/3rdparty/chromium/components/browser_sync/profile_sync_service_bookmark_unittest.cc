@@ -11,17 +11,17 @@
 
 #include <map>
 #include <memory>
-#include <queue>
-#include <stack>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/containers/queue.h"
+#include "base/containers/stack.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -296,7 +296,7 @@ class FakeServerChange {
     // (a) the implementation isn't sensitive to the order and
     // (b) the original meta info isn't blindly overwritten by
     //     BookmarkChangeProcessor unless there is a real change.
-    BookmarkNode::MetaInfoMap::const_iterator it = meta_info_map.end();
+    auto it = meta_info_map.end();
     while (it != meta_info_map.begin()) {
       --it;
       sync_pb::MetaInfo* meta_info = specifics->add_meta_info();
@@ -359,7 +359,7 @@ class ProfileSyncServiceBookmarkTest : public testing::Test {
             base::Bind(ReturnEmptyString))),
         local_merge_result_(syncer::BOOKMARKS),
         syncer_merge_result_(syncer::BOOKMARKS) {
-    CHECK(data_dir_.CreateUniqueTempDir());
+    EXPECT_TRUE(data_dir_.CreateUniqueTempDir());
     ProfileSyncServiceBundle::SyncClientBuilder builder(
         &profile_sync_service_bundle_);
     builder.SetBookmarkModelCallback(base::Bind(
@@ -441,7 +441,7 @@ class ProfileSyncServiceBookmarkTest : public testing::Test {
   // will be deleted before starting up the BookmarkModel.
   std::unique_ptr<BookmarkModel> CreateBookmarkModel(bool delete_bookmarks) {
     const base::FilePath& data_path = data_dir_.GetPath();
-    auto model = base::MakeUnique<BookmarkModel>(
+    auto model = std::make_unique<BookmarkModel>(
         base::WrapUnique(new bookmarks::TestBookmarkClient()));
     managed_bookmark_service_->BookmarkModelCreated(model.get());
     int64_t next_id = 0;
@@ -544,12 +544,12 @@ class ProfileSyncServiceBookmarkTest : public testing::Test {
   }
 
   bool AssociateModels() {
-    DCHECK(!model_associator_);
+    EXPECT_TRUE(!model_associator_);
 
     // Set up model associator.
-    model_associator_ = base::MakeUnique<BookmarkModelAssociator>(
+    model_associator_ = std::make_unique<BookmarkModelAssociator>(
         model_.get(), sync_client_.get(), test_user_share_.user_share(),
-        base::MakeUnique<syncer::DataTypeErrorHandlerMock>(),
+        std::make_unique<syncer::DataTypeErrorHandlerMock>(),
         kExpectMobileBookmarks);
 
     local_merge_result_ = syncer::SyncMergeResult(syncer::BOOKMARKS);
@@ -643,8 +643,7 @@ class ProfileSyncServiceBookmarkTest : public testing::Test {
       EXPECT_EQ(meta_info_map->size(),
                 static_cast<size_t>(specifics.meta_info_size()));
       for (int i = 0; i < specifics.meta_info_size(); i++) {
-        BookmarkNode::MetaInfoMap::const_iterator it =
-            meta_info_map->find(specifics.meta_info(i).key());
+        auto it = meta_info_map->find(specifics.meta_info(i).key());
         EXPECT_TRUE(it != meta_info_map->end());
         EXPECT_EQ(it->second, specifics.meta_info(i).value());
       }
@@ -744,7 +743,7 @@ class ProfileSyncServiceBookmarkTest : public testing::Test {
     EXPECT_EQ(root->GetIndexOf(model_->other_node()), 1);
     EXPECT_EQ(root->GetIndexOf(model_->mobile_node()), 2);
 
-    std::stack<int64_t> stack;
+    base::stack<int64_t> stack;
     stack.push(bookmark_bar_id());
     while (!stack.empty()) {
       int64_t id = stack.top();
@@ -793,9 +792,9 @@ class ProfileSyncServiceBookmarkTest : public testing::Test {
 
   void ResetChangeProcessor() {
     std::unique_ptr<syncer::DataTypeErrorHandlerMock> error_handler =
-        base::MakeUnique<syncer::DataTypeErrorHandlerMock>();
+        std::make_unique<syncer::DataTypeErrorHandlerMock>();
     mock_error_handler_ = error_handler.get();
-    change_processor_ = base::MakeUnique<BookmarkChangeProcessor>(
+    change_processor_ = std::make_unique<BookmarkChangeProcessor>(
         sync_client_.get(), model_associator_.get(), std::move(error_handler));
   }
 
@@ -1402,7 +1401,7 @@ TEST_F(ProfileSyncServiceBookmarkTest, CornerCaseNames) {
       "890123456789"};
   // Create both folders and bookmarks using each name.
   GURL url("http://www.doublemint.com");
-  for (size_t i = 0; i < arraysize(names); ++i) {
+  for (size_t i = 0; i < base::size(names); ++i) {
     model()->AddFolder(model()->other_node(), 0, base::ASCIIToUTF16(names[i]));
     model()->AddURL(model()->other_node(), 0, base::ASCIIToUTF16(names[i]),
                     url);
@@ -1410,7 +1409,7 @@ TEST_F(ProfileSyncServiceBookmarkTest, CornerCaseNames) {
 
   // Verify that the browser model matches the sync model.
   EXPECT_EQ(static_cast<size_t>(model()->other_node()->child_count()),
-            2 * arraysize(names));
+            2 * base::size(names));
   ExpectModelMatch();
 
   // Restart and re-associate. Verify things still match.
@@ -1418,7 +1417,7 @@ TEST_F(ProfileSyncServiceBookmarkTest, CornerCaseNames) {
   LoadBookmarkModel(LOAD_FROM_STORAGE, SAVE_TO_STORAGE);
   StartSync();
   EXPECT_EQ(static_cast<size_t>(model()->other_node()->child_count()),
-            2 * arraysize(names));
+            2 * base::size(names));
   ExpectModelMatch();
 }
 
@@ -1762,9 +1761,9 @@ void ProfileSyncServiceBookmarkTestWithData::PopulateFromTestData(
     const TestData* data,
     int size,
     int* running_count) {
-  DCHECK(node);
-  DCHECK(data);
-  DCHECK(node->is_folder());
+  ASSERT_TRUE(node);
+  ASSERT_TRUE(data);
+  ASSERT_TRUE(node->is_folder());
   for (int i = 0; i < size; ++i) {
     const TestData& item = data[i];
     if (item.url) {
@@ -1785,9 +1784,9 @@ void ProfileSyncServiceBookmarkTestWithData::CompareWithTestData(
     const TestData* data,
     int size,
     int* running_count) {
-  DCHECK(node);
-  DCHECK(data);
-  DCHECK(node->is_folder());
+  ASSERT_TRUE(node);
+  ASSERT_TRUE(data);
+  ASSERT_TRUE(node->is_folder());
   ASSERT_EQ(size, node->child_count());
   for (int i = 0; i < size; ++i) {
     const BookmarkNode* child_node = node->GetChild(i);
@@ -1818,39 +1817,39 @@ void ProfileSyncServiceBookmarkTestWithData::WriteTestDataToBookmarkModel() {
   const BookmarkNode* bookmarks_bar_node = model()->bookmark_bar_node();
   int count = 0;
   PopulateFromTestData(bookmarks_bar_node, kBookmarkBarChildren,
-                       arraysize(kBookmarkBarChildren), &count);
+                       base::size(kBookmarkBarChildren), &count);
 
   ASSERT_GE(bookmarks_bar_node->child_count(), 4);
   const BookmarkNode* f1_node = bookmarks_bar_node->GetChild(1);
-  PopulateFromTestData(f1_node, kF1Children, arraysize(kF1Children), &count);
+  PopulateFromTestData(f1_node, kF1Children, base::size(kF1Children), &count);
   const BookmarkNode* f2_node = bookmarks_bar_node->GetChild(3);
-  PopulateFromTestData(f2_node, kF2Children, arraysize(kF2Children), &count);
+  PopulateFromTestData(f2_node, kF2Children, base::size(kF2Children), &count);
 
   const BookmarkNode* other_bookmarks_node = model()->other_node();
   PopulateFromTestData(other_bookmarks_node, kOtherBookmarkChildren,
-                       arraysize(kOtherBookmarkChildren), &count);
+                       base::size(kOtherBookmarkChildren), &count);
 
   ASSERT_GE(other_bookmarks_node->child_count(), 6);
   const BookmarkNode* f3_node = other_bookmarks_node->GetChild(0);
-  PopulateFromTestData(f3_node, kF3Children, arraysize(kF3Children), &count);
+  PopulateFromTestData(f3_node, kF3Children, base::size(kF3Children), &count);
   const BookmarkNode* f4_node = other_bookmarks_node->GetChild(3);
-  PopulateFromTestData(f4_node, kF4Children, arraysize(kF4Children), &count);
+  PopulateFromTestData(f4_node, kF4Children, base::size(kF4Children), &count);
   const BookmarkNode* dup_node = other_bookmarks_node->GetChild(4);
-  PopulateFromTestData(dup_node, kDup1Children, arraysize(kDup1Children),
+  PopulateFromTestData(dup_node, kDup1Children, base::size(kDup1Children),
                        &count);
   dup_node = other_bookmarks_node->GetChild(5);
-  PopulateFromTestData(dup_node, kDup2Children, arraysize(kDup2Children),
+  PopulateFromTestData(dup_node, kDup2Children, base::size(kDup2Children),
                        &count);
 
   const BookmarkNode* mobile_bookmarks_node = model()->mobile_node();
   PopulateFromTestData(mobile_bookmarks_node, kMobileBookmarkChildren,
-                       arraysize(kMobileBookmarkChildren), &count);
+                       base::size(kMobileBookmarkChildren), &count);
 
   ASSERT_GE(mobile_bookmarks_node->child_count(), 3);
   const BookmarkNode* f5_node = mobile_bookmarks_node->GetChild(0);
-  PopulateFromTestData(f5_node, kF5Children, arraysize(kF5Children), &count);
+  PopulateFromTestData(f5_node, kF5Children, base::size(kF5Children), &count);
   const BookmarkNode* f6_node = mobile_bookmarks_node->GetChild(1);
-  PopulateFromTestData(f6_node, kF6Children, arraysize(kF6Children), &count);
+  PopulateFromTestData(f6_node, kF6Children, base::size(kF6Children), &count);
 
   ExpectBookmarkModelMatchesTestData();
 }
@@ -1860,39 +1859,39 @@ void ProfileSyncServiceBookmarkTestWithData::
   const BookmarkNode* bookmark_bar_node = model()->bookmark_bar_node();
   int count = 0;
   CompareWithTestData(bookmark_bar_node, kBookmarkBarChildren,
-                      arraysize(kBookmarkBarChildren), &count);
+                      base::size(kBookmarkBarChildren), &count);
 
   ASSERT_GE(bookmark_bar_node->child_count(), 4);
   const BookmarkNode* f1_node = bookmark_bar_node->GetChild(1);
-  CompareWithTestData(f1_node, kF1Children, arraysize(kF1Children), &count);
+  CompareWithTestData(f1_node, kF1Children, base::size(kF1Children), &count);
   const BookmarkNode* f2_node = bookmark_bar_node->GetChild(3);
-  CompareWithTestData(f2_node, kF2Children, arraysize(kF2Children), &count);
+  CompareWithTestData(f2_node, kF2Children, base::size(kF2Children), &count);
 
   const BookmarkNode* other_bookmarks_node = model()->other_node();
   CompareWithTestData(other_bookmarks_node, kOtherBookmarkChildren,
-                      arraysize(kOtherBookmarkChildren), &count);
+                      base::size(kOtherBookmarkChildren), &count);
 
   ASSERT_GE(other_bookmarks_node->child_count(), 6);
   const BookmarkNode* f3_node = other_bookmarks_node->GetChild(0);
-  CompareWithTestData(f3_node, kF3Children, arraysize(kF3Children), &count);
+  CompareWithTestData(f3_node, kF3Children, base::size(kF3Children), &count);
   const BookmarkNode* f4_node = other_bookmarks_node->GetChild(3);
-  CompareWithTestData(f4_node, kF4Children, arraysize(kF4Children), &count);
+  CompareWithTestData(f4_node, kF4Children, base::size(kF4Children), &count);
   const BookmarkNode* dup_node = other_bookmarks_node->GetChild(4);
-  CompareWithTestData(dup_node, kDup1Children, arraysize(kDup1Children),
+  CompareWithTestData(dup_node, kDup1Children, base::size(kDup1Children),
                       &count);
   dup_node = other_bookmarks_node->GetChild(5);
-  CompareWithTestData(dup_node, kDup2Children, arraysize(kDup2Children),
+  CompareWithTestData(dup_node, kDup2Children, base::size(kDup2Children),
                       &count);
 
   const BookmarkNode* mobile_bookmarks_node = model()->mobile_node();
   CompareWithTestData(mobile_bookmarks_node, kMobileBookmarkChildren,
-                      arraysize(kMobileBookmarkChildren), &count);
+                      base::size(kMobileBookmarkChildren), &count);
 
   ASSERT_GE(mobile_bookmarks_node->child_count(), 3);
   const BookmarkNode* f5_node = mobile_bookmarks_node->GetChild(0);
-  CompareWithTestData(f5_node, kF5Children, arraysize(kF5Children), &count);
+  CompareWithTestData(f5_node, kF5Children, base::size(kF5Children), &count);
   const BookmarkNode* f6_node = mobile_bookmarks_node->GetChild(1);
-  CompareWithTestData(f6_node, kF6Children, arraysize(kF6Children), &count);
+  CompareWithTestData(f6_node, kF6Children, base::size(kF6Children), &count);
 }
 
 // Tests persistence of the profile sync service by unloading the
@@ -2410,7 +2409,7 @@ void ProfileSyncServiceBookmarkTestWithData::GetTransactionVersions(
     const BookmarkNode* root,
     BookmarkNodeVersionMap* node_versions) {
   node_versions->clear();
-  std::queue<const BookmarkNode*> nodes;
+  base::queue<const BookmarkNode*> nodes;
   nodes.push(root);
   while (!nodes.empty()) {
     const BookmarkNode* n = nodes.front();
@@ -2441,8 +2440,7 @@ void ProfileSyncServiceBookmarkTestWithData::ExpectTransactionVersionMatch(
     ASSERT_TRUE(
         model_associator()->InitSyncNodeFromChromeId(it->first, &sync_node));
     EXPECT_EQ(sync_node.GetTransactionVersion(), it->second);
-    BookmarkNodeVersionMap::const_iterator expected_ver_it =
-        version_expected.find(it->first);
+    auto expected_ver_it = version_expected.find(it->first);
     if (expected_ver_it != version_expected.end())
       EXPECT_EQ(expected_ver_it->second, it->second);
   }

@@ -14,7 +14,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/platform_thread_internal_posix.h"
 #include "base/threading/thread_id_name_manager.h"
-#include "base/tracked_objects.h"
 #include "build/build_config.h"
 
 #if !defined(OS_NACL) && !defined(OS_AIX)
@@ -98,6 +97,20 @@ const ThreadPriorityToNiceValuePair kThreadPriorityToNiceValueMap[4] = {
     {ThreadPriority::REALTIME_AUDIO, -10},
 };
 
+Optional<bool> CanIncreaseCurrentThreadPriorityForPlatform(
+    ThreadPriority priority) {
+#if !defined(OS_NACL)
+  // A non-zero soft-limit on RLIMIT_RTPRIO is required to be allowed to invoke
+  // pthread_setschedparam in SetCurrentThreadPriorityForPlatform().
+  struct rlimit rlim;
+  if (priority == ThreadPriority::REALTIME_AUDIO &&
+      getrlimit(RLIMIT_RTPRIO, &rlim) != 0 && rlim.rlim_cur != 0) {
+    return base::make_optional(true);
+  }
+#endif
+  return base::nullopt;
+}
+
 bool SetCurrentThreadPriorityForPlatform(ThreadPriority priority) {
 #if !defined(OS_NACL)
   SetThreadCgroupsForThreadPriority(PlatformThread::CurrentId(), priority);
@@ -108,7 +121,7 @@ bool SetCurrentThreadPriorityForPlatform(ThreadPriority priority) {
 #endif
 }
 
-bool GetCurrentThreadPriorityForPlatform(ThreadPriority* priority) {
+Optional<ThreadPriority> GetCurrentThreadPriorityForPlatform() {
 #if !defined(OS_NACL)
   int maybe_sched_rr = 0;
   struct sched_param maybe_realtime_prio = {0};
@@ -116,19 +129,17 @@ bool GetCurrentThreadPriorityForPlatform(ThreadPriority* priority) {
                             &maybe_realtime_prio) == 0 &&
       maybe_sched_rr == SCHED_RR &&
       maybe_realtime_prio.sched_priority == kRealTimePrio.sched_priority) {
-    *priority = ThreadPriority::REALTIME_AUDIO;
-    return true;
+    return base::make_optional(ThreadPriority::REALTIME_AUDIO);
   }
 #endif
-  return false;
+  return base::nullopt;
 }
 
 }  // namespace internal
 
 // static
 void PlatformThread::SetName(const std::string& name) {
-  ThreadIdNameManager::GetInstance()->SetName(CurrentId(), name);
-  tracked_objects::ThreadData::InitializeThreadContext(name);
+  ThreadIdNameManager::GetInstance()->SetName(name);
 
 #if !defined(OS_NACL) && !defined(OS_AIX)
   // On linux we can get the thread names to show up in the debugger by setting

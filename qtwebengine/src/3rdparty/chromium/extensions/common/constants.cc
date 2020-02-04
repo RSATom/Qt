@@ -4,6 +4,8 @@
 
 #include "extensions/common/constants.h"
 
+#include "base/stl_util.h"
+
 namespace extensions {
 
 const char kExtensionScheme[] = "chrome-extension";
@@ -22,12 +24,12 @@ const base::FilePath::CharType kVerifiedContentsFilename[] =
     FILE_PATH_LITERAL("verified_contents.json");
 const base::FilePath::CharType kComputedHashesFilename[] =
     FILE_PATH_LITERAL("computed_hashes.json");
+const base::FilePath::CharType kIndexedRulesetFilename[] =
+    FILE_PATH_LITERAL("generated_indexed_ruleset");
 
 const char kInstallDirectoryName[] = "Extensions";
 
 const char kTempExtensionName[] = "CRX_INSTALL";
-
-const char kDecodedImagesFilename[] = "DECODED_IMAGES";
 
 const char kDecodedMessageCatalogsFilename[] = "DECODED_MESSAGE_CATALOGS";
 
@@ -81,19 +83,25 @@ const uint8_t kWebstoreSignaturesPublicKey[] = {
     0xcd, 0x02, 0x03, 0x01, 0x00, 0x01};
 
 const size_t kWebstoreSignaturesPublicKeySize =
-    arraysize(kWebstoreSignaturesPublicKey);
+    base::size(kWebstoreSignaturesPublicKey);
 
-const int kNonWorkerThreadId = 0;
+const int kMainThreadId = 0;
 
 const char kMimeTypeJpeg[] = "image/jpeg";
 const char kMimeTypePng[] = "image/png";
-
-const int64_t kInvalidServiceWorkerVersionId = -1;
 
 }  // namespace extensions
 
 namespace extension_misc {
 
+#if defined(OS_CHROMEOS) || defined(IS_CHROMECAST)
+// The extension id for the built-in component extension.
+const char kChromeVoxExtensionId[] = "mndnfokpggljbaajbnioimlmbfngpief";
+#else
+// The extension id for the web store extension.
+const char kChromeVoxExtensionId[] = "kgejglhpjiefppelpmljglcjbhoiplfn";
+#endif
+const char kFeedbackExtensionId[] = "gfdkimpbcpahaombhbimeihdjnejgicl";
 const char kPdfExtensionId[] = "mhjfbmdgcfjbbpaeojofohoefgiehjai";
 const char kQuickOfficeComponentExtensionId[] =
     "bpmcpldpdmajfigpchkicefoigmkfalc";
@@ -102,6 +110,21 @@ const char kQuickOfficeInternalExtensionId[] =
 const char kQuickOfficeExtensionId[] = "gbkeegbaiigmenfmjfclcdgdpimamgkj";
 const char kMimeHandlerPrivateTestExtensionId[] =
     "oickdpebdnfbgkcaoklfcdhjniefkcji";
+const char kCameraAppId[] = "hfhhnacclhffhdffklopdkcgdhifgngh";
+const char kChromeAppId[] = "mgndgikekgjfcpckkfioiadnlibdjbkf";
+const char kFilesManagerAppId[] = "hhaomjibdihmijegdhdafkllkbggdgoj";
+const char kGoogleKeepAppId[] = "hmjkmjkepdijhoojdojkdfohbdgmmhki";
+const char kYoutubeAppId[] = "blpcfgokakmgnkcojhhkbfbldkacnbeo";
+const char kGeniusAppId[] = "ljoammodoonkhnehlncldjelhidljdpi";
+
+#if defined(OS_CHROMEOS)
+const char kHighlightsAppId[] = "lpmakjfjcconjeehbidjclhdlpjmfjjj";
+const char kHighlightsAlt1AppId[] = "iggildboghmjpbjcpmobahnkmoefkike";
+const char kHighlightsAlt2AppId[] = "elhbopodaklenjkeihkdhhfaghalllba";
+const char kScreensaverAppId[] = "mnoijifedipmbjaoekhadjcijipaijjc";
+const char kScreensaverAlt1AppId[] = "gdobaoeekhiklaljmhladjfdfkigampc";
+const char kScreensaverAlt2AppId[] = "lminefdanffajachfahfpmphfkhahcnj";
+#endif
 
 const char kProdHangoutsExtensionId[] = "nckgahadagoaajjgafhacjanaoiihapd";
 const char* const kHangoutsExtensionIds[6] = {
@@ -117,5 +140,9 @@ const char* const kHangoutsExtensionIds[6] = {
 // Error returned when scripting of a page is denied due to enterprise policy.
 const char kPolicyBlockedScripting[] =
     "This page cannot be scripted due to an ExtensionsSettings policy.";
+
+const int kContentVerificationDefaultBlockSize = 4096;
+
+const logging::LogSeverity kMinimumSeverityToReportError = logging::LOG_WARNING;
 
 }  // namespace extension_misc

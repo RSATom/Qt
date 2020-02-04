@@ -23,6 +23,7 @@ class BaseSafeBrowsingErrorUI {
     SB_REASON_MALWARE,
     SB_REASON_HARMFUL,
     SB_REASON_PHISHING,
+    SB_REASON_BILLING,
   };
 
   struct SBErrorDisplayOptions {
@@ -30,9 +31,10 @@ class BaseSafeBrowsingErrorUI {
                           bool is_extended_reporting_opt_in_allowed,
                           bool is_off_the_record,
                           bool is_extended_reporting_enabled,
-                          bool is_scout_reporting_enabled,
+                          bool is_extended_reporting_policy_managed,
                           bool is_proceed_anyway_disabled,
                           bool should_open_links_in_new_tab,
+                          bool always_show_back_to_safety,
                           const std::string& help_center_article_link);
 
     SBErrorDisplayOptions(const SBErrorDisplayOptions& other);
@@ -49,14 +51,21 @@ class BaseSafeBrowsingErrorUI {
     // Indicates if user opted in for SB extended reporting.
     bool is_extended_reporting_enabled;
 
-    // Indicates if user opted in for Scout extended reporting.
-    bool is_scout_reporting_enabled;
+    // Whether the SBER pref is being managed by enterprise policy, meaning the
+    // user is unable to change the pref.
+    bool is_extended_reporting_policy_managed;
 
     // Indicates if kSafeBrowsingProceedAnywayDisabled preference is set.
     bool is_proceed_anyway_disabled;
 
     // Indicates if links should use a new foreground tab or the current tab.
     bool should_open_links_in_new_tab;
+
+    // Indicates if the 'Back to safety' primary action button should always be
+    // shown. If the option is false, this button is shown only when there is
+    // a proper page to navigate back to. Chrome and Chromium builds should
+    // always set this option to true,
+    bool always_show_back_to_safety;
 
     // The p= query parameter used when visiting the Help Center. If this is
     // nullptr, then a default value will be used for the SafeBrowsing article.
@@ -91,8 +100,8 @@ class BaseSafeBrowsingErrorUI {
     display_options_.is_extended_reporting_enabled = pref;
   }
 
-  bool is_scout_reporting_enabled() const {
-    return display_options_.is_scout_reporting_enabled;
+  bool is_extended_reporting_policy_managed() const {
+    return display_options_.is_extended_reporting_policy_managed;
   }
 
   bool is_proceed_anyway_disabled() const {
@@ -103,6 +112,10 @@ class BaseSafeBrowsingErrorUI {
     return display_options_.should_open_links_in_new_tab;
   }
 
+  bool always_show_back_to_safety() const {
+    return display_options_.always_show_back_to_safety;
+  }
+
   const std::string& get_help_center_article_link() const {
     return display_options_.help_center_article_link;
   }
@@ -111,11 +124,14 @@ class BaseSafeBrowsingErrorUI {
     return display_options_;
   }
 
-  // Checks if we should even show the extended reporting option. We don't show
-  // it in incognito mode or if kSafeBrowsingExtendedReportingOptInAllowed
-  // preference is disabled.
+  // Checks if we should even show the extended reporting option.
+  // We don't show it:
+  // - in incognito mode
+  // - if kSafeBrowsingExtendedReportingOptInAllowed preference is disabled.
+  // - if kSafeBrowsingExtendedReporting is managed by enterprise policy.
   bool CanShowExtendedReportingOption() {
-    return !is_off_the_record() && is_extended_reporting_opt_in_allowed();
+    return !is_off_the_record() && is_extended_reporting_opt_in_allowed() &&
+           !is_extended_reporting_policy_managed();
   }
 
   SBInterstitialReason interstitial_reason() const {
@@ -131,7 +147,7 @@ class BaseSafeBrowsingErrorUI {
 
   virtual void PopulateStringsForHtml(
       base::DictionaryValue* load_time_data) = 0;
-  virtual void HandleCommand(SecurityInterstitialCommands command) = 0;
+  virtual void HandleCommand(SecurityInterstitialCommand command) = 0;
 
   virtual int GetHTMLTemplateId() const = 0;
 

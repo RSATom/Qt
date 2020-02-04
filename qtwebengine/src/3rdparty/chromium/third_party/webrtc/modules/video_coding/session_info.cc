@@ -8,10 +8,21 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/video_coding/session_info.h"
+#include "modules/video_coding/session_info.h"
 
-#include "webrtc/modules/video_coding/packet.h"
-#include "webrtc/rtc_base/logging.h"
+#include <assert.h>
+#include <string.h>
+#include <vector>
+
+#include "absl/types/variant.h"
+#include "modules/include/module_common_types.h"
+#include "modules/include/module_common_types_public.h"
+#include "modules/rtp_rtcp/source/rtp_video_header.h"
+#include "modules/video_coding/codecs/interface/common_constants.h"
+#include "modules/video_coding/codecs/vp8/include/vp8_globals.h"
+#include "modules/video_coding/jitter_buffer_common.h"
+#include "modules/video_coding/packet.h"
+#include "rtc_base/logging.h"
 
 namespace webrtc {
 
@@ -24,15 +35,15 @@ uint16_t BufferToUWord16(const uint8_t* dataBuffer) {
 }  // namespace
 
 VCMSessionInfo::VCMSessionInfo()
-    : session_nack_(false),
-      complete_(false),
-      decodable_(false),
+    : complete_(false),
       frame_type_(kVideoFrameDelta),
       packets_(),
       empty_seq_num_low_(-1),
       empty_seq_num_high_(-1),
       first_packet_seq_num_(-1),
       last_packet_seq_num_(-1) {}
+
+VCMSessionInfo::~VCMSessionInfo() {}
 
 void VCMSessionInfo::UpdateDataPointers(const uint8_t* old_base_ptr,
                                         const uint8_t* new_base_ptr) {
@@ -60,10 +71,14 @@ int VCMSessionInfo::HighSequenceNumber() const {
 int VCMSessionInfo::PictureId() const {
   if (packets_.empty())
     return kNoPictureId;
-  if (packets_.front().video_header.codec == kRtpVideoVp8) {
-    return packets_.front().video_header.codecHeader.VP8.pictureId;
-  } else if (packets_.front().video_header.codec == kRtpVideoVp9) {
-    return packets_.front().video_header.codecHeader.VP9.picture_id;
+  if (packets_.front().video_header.codec == kVideoCodecVP8) {
+    return absl::get<RTPVideoHeaderVP8>(
+               packets_.front().video_header.video_type_header)
+        .pictureId;
+  } else if (packets_.front().video_header.codec == kVideoCodecVP9) {
+    return absl::get<RTPVideoHeaderVP9>(
+               packets_.front().video_header.video_type_header)
+        .picture_id;
   } else {
     return kNoPictureId;
   }
@@ -72,10 +87,14 @@ int VCMSessionInfo::PictureId() const {
 int VCMSessionInfo::TemporalId() const {
   if (packets_.empty())
     return kNoTemporalIdx;
-  if (packets_.front().video_header.codec == kRtpVideoVp8) {
-    return packets_.front().video_header.codecHeader.VP8.temporalIdx;
-  } else if (packets_.front().video_header.codec == kRtpVideoVp9) {
-    return packets_.front().video_header.codecHeader.VP9.temporal_idx;
+  if (packets_.front().video_header.codec == kVideoCodecVP8) {
+    return absl::get<RTPVideoHeaderVP8>(
+               packets_.front().video_header.video_type_header)
+        .temporalIdx;
+  } else if (packets_.front().video_header.codec == kVideoCodecVP9) {
+    return absl::get<RTPVideoHeaderVP9>(
+               packets_.front().video_header.video_type_header)
+        .temporal_idx;
   } else {
     return kNoTemporalIdx;
   }
@@ -84,10 +103,14 @@ int VCMSessionInfo::TemporalId() const {
 bool VCMSessionInfo::LayerSync() const {
   if (packets_.empty())
     return false;
-  if (packets_.front().video_header.codec == kRtpVideoVp8) {
-    return packets_.front().video_header.codecHeader.VP8.layerSync;
-  } else if (packets_.front().video_header.codec == kRtpVideoVp9) {
-    return packets_.front().video_header.codecHeader.VP9.temporal_up_switch;
+  if (packets_.front().video_header.codec == kVideoCodecVP8) {
+    return absl::get<RTPVideoHeaderVP8>(
+               packets_.front().video_header.video_type_header)
+        .layerSync;
+  } else if (packets_.front().video_header.codec == kVideoCodecVP9) {
+    return absl::get<RTPVideoHeaderVP9>(
+               packets_.front().video_header.video_type_header)
+        .temporal_up_switch;
   } else {
     return false;
   }
@@ -96,55 +119,53 @@ bool VCMSessionInfo::LayerSync() const {
 int VCMSessionInfo::Tl0PicId() const {
   if (packets_.empty())
     return kNoTl0PicIdx;
-  if (packets_.front().video_header.codec == kRtpVideoVp8) {
-    return packets_.front().video_header.codecHeader.VP8.tl0PicIdx;
-  } else if (packets_.front().video_header.codec == kRtpVideoVp9) {
-    return packets_.front().video_header.codecHeader.VP9.tl0_pic_idx;
+  if (packets_.front().video_header.codec == kVideoCodecVP8) {
+    return absl::get<RTPVideoHeaderVP8>(
+               packets_.front().video_header.video_type_header)
+        .tl0PicIdx;
+  } else if (packets_.front().video_header.codec == kVideoCodecVP9) {
+    return absl::get<RTPVideoHeaderVP9>(
+               packets_.front().video_header.video_type_header)
+        .tl0_pic_idx;
   } else {
     return kNoTl0PicIdx;
   }
 }
 
-bool VCMSessionInfo::NonReference() const {
-  if (packets_.empty() || packets_.front().video_header.codec != kRtpVideoVp8)
-    return false;
-  return packets_.front().video_header.codecHeader.VP8.nonReference;
-}
-
 std::vector<NaluInfo> VCMSessionInfo::GetNaluInfos() const {
-  if (packets_.empty() || packets_.front().video_header.codec != kRtpVideoH264)
+  if (packets_.empty() ||
+      packets_.front().video_header.codec != kVideoCodecH264)
     return std::vector<NaluInfo>();
   std::vector<NaluInfo> nalu_infos;
   for (const VCMPacket& packet : packets_) {
-    for (size_t i = 0; i < packet.video_header.codecHeader.H264.nalus_length;
-         ++i) {
-      nalu_infos.push_back(packet.video_header.codecHeader.H264.nalus[i]);
+    const auto& h264 =
+        absl::get<RTPVideoHeaderH264>(packet.video_header.video_type_header);
+    for (size_t i = 0; i < h264.nalus_length; ++i) {
+      nalu_infos.push_back(h264.nalus[i]);
     }
   }
   return nalu_infos;
 }
 
 void VCMSessionInfo::SetGofInfo(const GofInfoVP9& gof_info, size_t idx) {
-  if (packets_.empty() || packets_.front().video_header.codec != kRtpVideoVp9 ||
-      packets_.front().video_header.codecHeader.VP9.flexible_mode) {
+  if (packets_.empty())
     return;
-  }
-  packets_.front().video_header.codecHeader.VP9.temporal_idx =
-      gof_info.temporal_idx[idx];
-  packets_.front().video_header.codecHeader.VP9.temporal_up_switch =
-      gof_info.temporal_up_switch[idx];
-  packets_.front().video_header.codecHeader.VP9.num_ref_pics =
-      gof_info.num_ref_pics[idx];
+
+  auto* vp9_header = absl::get_if<RTPVideoHeaderVP9>(
+      &packets_.front().video_header.video_type_header);
+  if (!vp9_header || vp9_header->flexible_mode)
+    return;
+
+  vp9_header->temporal_idx = gof_info.temporal_idx[idx];
+  vp9_header->temporal_up_switch = gof_info.temporal_up_switch[idx];
+  vp9_header->num_ref_pics = gof_info.num_ref_pics[idx];
   for (uint8_t i = 0; i < gof_info.num_ref_pics[idx]; ++i) {
-    packets_.front().video_header.codecHeader.VP9.pid_diff[i] =
-        gof_info.pid_diff[idx][i];
+    vp9_header->pid_diff[i] = gof_info.pid_diff[idx][i];
   }
 }
 
 void VCMSessionInfo::Reset() {
-  session_nack_ = false;
   complete_ = false;
-  decodable_ = false;
   frame_type_ = kVideoFrameDelta;
   packets_.clear();
   empty_seq_num_low_ = -1;
@@ -185,8 +206,9 @@ size_t VCMSessionInfo::InsertBuffer(uint8_t* frame_buffer,
   // header supplied by the H264 depacketizer.
   const size_t kH264NALHeaderLengthInBytes = 1;
   const size_t kLengthFieldLength = 2;
-  if (packet.video_header.codec == kRtpVideoH264 &&
-      packet.video_header.codecHeader.H264.packetization_type == kH264StapA) {
+  const auto* h264 =
+      absl::get_if<RTPVideoHeaderH264>(&packet.video_header.video_type_header);
+  if (h264 && h264->packetization_type == kH264StapA) {
     size_t required_length = 0;
     const uint8_t* nalu_ptr = packet_buffer + kH264NALHeaderLengthInBytes;
     while (nalu_ptr < packet_buffer + packet.sizeBytes) {
@@ -267,35 +289,8 @@ void VCMSessionInfo::UpdateCompleteSession() {
   }
 }
 
-void VCMSessionInfo::UpdateDecodableSession(const FrameData& frame_data) {
-  // Irrelevant if session is already complete or decodable
-  if (complete_ || decodable_)
-    return;
-  // TODO(agalusza): Account for bursty loss.
-  // TODO(agalusza): Refine these values to better approximate optimal ones.
-  // Do not decode frames if the RTT is lower than this.
-  const int64_t kRttThreshold = 100;
-  // Do not decode frames if the number of packets is between these two
-  // thresholds.
-  const float kLowPacketPercentageThreshold = 0.2f;
-  const float kHighPacketPercentageThreshold = 0.8f;
-  if (frame_data.rtt_ms < kRttThreshold || frame_type_ == kVideoFrameKey ||
-      !HaveFirstPacket() ||
-      (NumPackets() <= kHighPacketPercentageThreshold *
-                           frame_data.rolling_average_packets_per_frame &&
-       NumPackets() > kLowPacketPercentageThreshold *
-                          frame_data.rolling_average_packets_per_frame))
-    return;
-
-  decodable_ = true;
-}
-
 bool VCMSessionInfo::complete() const {
   return complete_;
-}
-
-bool VCMSessionInfo::decodable() const {
-  return decodable_;
 }
 
 // Find the end of the NAL unit which the packet pointed to by |packet_it|
@@ -342,7 +337,8 @@ size_t VCMSessionInfo::DeletePacketData(PacketIterator start,
 VCMSessionInfo::PacketIterator VCMSessionInfo::FindNextPartitionBeginning(
     PacketIterator it) const {
   while (it != packets_.end()) {
-    if ((*it).video_header.codecHeader.VP8.beginningOfPartition) {
+    if (absl::get<RTPVideoHeaderVP8>((*it).video_header.video_type_header)
+            .beginningOfPartition) {
       return it;
     }
     ++it;
@@ -354,10 +350,16 @@ VCMSessionInfo::PacketIterator VCMSessionInfo::FindPartitionEnd(
     PacketIterator it) const {
   assert((*it).codec == kVideoCodecVP8);
   PacketIterator prev_it = it;
-  const int partition_id = (*it).video_header.codecHeader.VP8.partitionId;
+  const int partition_id =
+      absl::get<RTPVideoHeaderVP8>((*it).video_header.video_type_header)
+          .partitionId;
   while (it != packets_.end()) {
-    bool beginning = (*it).video_header.codecHeader.VP8.beginningOfPartition;
-    int current_partition_id = (*it).video_header.codecHeader.VP8.partitionId;
+    bool beginning =
+        absl::get<RTPVideoHeaderVP8>((*it).video_header.video_type_header)
+            .beginningOfPartition;
+    int current_partition_id =
+        absl::get<RTPVideoHeaderVP8>((*it).video_header.video_type_header)
+            .partitionId;
     bool packet_loss_found = (!beginning && !InSequence(it, prev_it));
     if (packet_loss_found ||
         (beginning && current_partition_id != partition_id)) {
@@ -407,12 +409,6 @@ size_t VCMSessionInfo::MakeDecodable() {
   return return_length;
 }
 
-void VCMSessionInfo::SetNotDecodableIfIncomplete() {
-  // We don't need to check for completeness first because the two are
-  // orthogonal. If complete_ is true, decodable_ is irrelevant.
-  decodable_ = false;
-}
-
 bool VCMSessionInfo::HaveFirstPacket() const {
   return !packets_.empty() && (first_packet_seq_num_ != -1);
 }
@@ -421,13 +417,8 @@ bool VCMSessionInfo::HaveLastPacket() const {
   return !packets_.empty() && (last_packet_seq_num_ != -1);
 }
 
-bool VCMSessionInfo::session_nack() const {
-  return session_nack_;
-}
-
 int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
                                  uint8_t* frame_buffer,
-                                 VCMDecodeErrorMode decode_error_mode,
                                  const FrameData& frame_data) {
   if (packet.frameType == kEmptyFrame) {
     // Update sequence number of an empty packet.
@@ -437,7 +428,7 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
   }
 
   if (packets_.size() == kMaxPacketsInSession) {
-    LOG(LS_ERROR) << "Max number of packets per frame has been reached.";
+    RTC_LOG(LS_ERROR) << "Max number of packets per frame has been reached.";
     return -1;
   }
 
@@ -478,8 +469,9 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
       first_packet_seq_num_ = static_cast<int>(packet.seqNum);
     } else if (first_packet_seq_num_ != -1 &&
                IsNewerSequenceNumber(first_packet_seq_num_, packet.seqNum)) {
-      LOG(LS_WARNING) << "Received packet with a sequence number which is out "
-                         "of frame boundaries";
+      RTC_LOG(LS_WARNING)
+          << "Received packet with a sequence number which is out "
+             "of frame boundaries";
       return -3;
     } else if (frame_type_ == kEmptyFrame && packet.frameType != kEmptyFrame) {
       // Update the frame type with the type of the first media packet.
@@ -492,8 +484,9 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
       last_packet_seq_num_ = static_cast<int>(packet.seqNum);
     } else if (last_packet_seq_num_ != -1 &&
                IsNewerSequenceNumber(packet.seqNum, last_packet_seq_num_)) {
-      LOG(LS_WARNING) << "Received packet with a sequence number which is out "
-                         "of frame boundaries";
+      RTC_LOG(LS_WARNING)
+          << "Received packet with a sequence number which is out "
+             "of frame boundaries";
       return -3;
     }
   }
@@ -503,10 +496,7 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
 
   size_t returnLength = InsertBuffer(frame_buffer, packet_list_it);
   UpdateCompleteSession();
-  if (decode_error_mode == kWithErrors)
-    decodable_ = true;
-  else if (decode_error_mode == kSelectiveErrors)
-    UpdateDecodableSession(frame_data);
+
   return static_cast<int>(returnLength);
 }
 

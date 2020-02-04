@@ -46,7 +46,8 @@ types for creating models.
 display the data in a list or a grid.
 \li \b Delegate - dictates how the data should appear in the view.
 The delegate takes each data in the model and encapsulates it. The data is
-accessible through the delegate.
+accessible through the delegate. The delegate can also write data
+back into editable models (e.g. in a TextField's onAccepted Handler).
 \endlist
 
 To visualize data, bind the view's \c model property to a model and the
@@ -225,7 +226,7 @@ To visualize data, bind the view's \c model property to a model and the
     \section2 XML Model
 
     XmlListModel allows construction of a model from an XML data source. The roles
-    are specified via the \l XmlRole type. The type needs to be imported.
+    are specified via the \l [QML]{XmlRole} type. The type needs to be imported.
 
     \code
     import QtQuick.XmlListModel 2.0
@@ -278,11 +279,6 @@ To visualize data, bind the view's \c model property to a model and the
     }
     \endcode
 
-    \note VisualItemModel can also be used, but it is only provided for compatibility
-    reasons.  VisualItemModel allows a QML item to be provided as a model. This model
-    contains both the data and delegate; the child items of a VisualItemModel
-    provide the contents of the delegate. The model does not provide any roles.
-
     \section2 Integers as Models
 
     An integer can be used as a model that contains a certain number
@@ -307,6 +303,7 @@ To visualize data, bind the view's \c model property to a model and the
     }
     \endqml
 
+    \note The limit on the number of items in an integer model is 100,000,000.
 
     \section2 Object Instances as Models
 
@@ -393,6 +390,35 @@ If the model is a string list, the delegate is also exposed to a read-only
 
 It is also possible to use a delegate as the template for the items created
 by a Repeater. This is specified using the \l{Repeater::}{delegate} property.
+
+\section1 Changing Model Data
+
+To change model data, you can assign updated values to the \c model properties.
+The QML ListModel is editable by default whereas C++ models must implement
+setData() to become editable. Integer and JavaScript array models are read-only.
+
+Supposed a \l{QAbstractItemModel} based C++ model that implements the
+\l{QAbstractItemModel::}{setData} method is registered as a QML type named
+\c EditableModel. Data could then be written to the model like this:
+
+\qml
+ListView {
+    anchors.fill: parent
+    model: EditableModel {}
+    delegate: TextEdit {
+        width: ListView.view.width
+        height: 30
+        text: model.edit
+        Keys.onReturnPressed: model.edit = text
+    }
+}
+\endqml
+
+\note The \c edit role is equal to \l Qt::EditRole. See \l{QAbstractItemModel::}{roleNames}()
+for the built-in role names. However, real life models would usually register custom roles.
+
+For more information, visit the \l{qtquick-modelviewsdata-cppmodels.html#changing-model-data}{Using C++ Models with Qt Quick Views}
+article.
 
 \section1 Using Transitions
 

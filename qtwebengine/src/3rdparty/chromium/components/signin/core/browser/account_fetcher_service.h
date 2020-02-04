@@ -13,22 +13,33 @@
 #include "base/macros.h"
 #include "base/sequence_checker.h"
 #include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "google_apis/gaia/oauth2_token_service.h"
+#include "ui/gfx/image/image.h"
 
 class AccountInfoFetcher;
 class AccountTrackerService;
-class ChildAccountInfoFetcher;
 class OAuth2TokenService;
-class RefreshTokenAnnotationRequest;
+class PrefRegistrySimple;
 class SigninClient;
+
+#if defined(OS_ANDROID)
+class ChildAccountInfoFetcherAndroid;
+#endif
+
+namespace base {
+class DictionaryValue;
+}
+
+namespace image_fetcher {
+struct RequestMetadata;
+class ImageDecoder;
+class ImageFetcherImpl;
+}  // namespace image_fetcher
 
 namespace invalidation {
 class InvalidationService;
-}
-
-namespace user_prefs {
-class PrefRegistrySyncable;
 }
 
 class AccountFetcherService : public KeyedService,
@@ -38,15 +49,19 @@ class AccountFetcherService : public KeyedService,
   // time the AccountTrackerService was updated.
   static const char kLastUpdatePref[];
 
+  // Size used for downloading account pictures. Exposed for tests.
+  static const int kAccountImageDownloadSize;
+
   AccountFetcherService();
   ~AccountFetcherService() override;
 
   // Registers the preferences used by AccountFetcherService.
-  static void RegisterPrefs(user_prefs::PrefRegistrySyncable* user_prefs);
+  static void RegisterPrefs(PrefRegistrySimple* user_prefs);
 
   void Initialize(SigninClient* signin_client,
                   OAuth2TokenService* token_service,
-                  AccountTrackerService* account_tracker_service);
+                  AccountTrackerService* account_tracker_service,
+                  std::unique_ptr<image_fetcher::ImageDecoder> image_decoder);
 
   // KeyedService implementation
   void Shutdown() override;
@@ -69,8 +84,10 @@ class AccountFetcherService : public KeyedService,
 
   void EnableNetworkFetchesForTest();
 
-  // Called by ChildAccountInfoFetcher.
+#if defined(OS_ANDROID)
+  // Called by ChildAccountInfoFetcherAndroid.
   void SetIsChildAccount(const std::string& account_id, bool is_child_account);
+#endif
 
   // OAuth2TokenService::Observer implementation.
   void OnRefreshTokenAvailable(const std::string& account_id) override;
@@ -79,15 +96,16 @@ class AccountFetcherService : public KeyedService,
 
  private:
   friend class AccountInfoFetcher;
-  friend class ChildAccountInfoFetcherImpl;
 
   void RefreshAllAccountInfo(bool only_fetch_if_invalid);
   void RefreshAllAccountsAndScheduleNext();
   void ScheduleNextRefresh();
 
+#if defined(OS_ANDROID)
   // Called on all account state changes. Decides whether to fetch new child
   // status information or reset old values that aren't valid now.
   void UpdateChildInfo();
+#endif
 
   void MaybeEnableNetworkFetches();
 
@@ -95,28 +113,35 @@ class AccountFetcherService : public KeyedService,
   // Further the two fetches are managed by a different refresh logic and
   // thus, can not be combined.
   virtual void StartFetchingUserInfo(const std::string& account_id);
+#if defined(OS_ANDROID)
   virtual void StartFetchingChildInfo(const std::string& account_id);
 
   // If there is more than one account in a profile, we forcibly reset the
   // child status for an account to be false.
   void ResetChildInfo();
+#endif
 
   // Refreshes the AccountInfo associated with |account_id|.
   void RefreshAccountInfo(const std::string& account_id,
                           bool only_fetch_if_invalid);
-
-  // Virtual so that tests can override the network fetching behaviour.
-  virtual void SendRefreshTokenAnnotationRequest(const std::string& account_id);
-  void RefreshTokenAnnotationRequestDone(const std::string& account_id);
 
   // Called by AccountInfoFetcher.
   void OnUserInfoFetchSuccess(const std::string& account_id,
                               std::unique_ptr<base::DictionaryValue> user_info);
   void OnUserInfoFetchFailure(const std::string& account_id);
 
-  AccountTrackerService* account_tracker_service_;  // Not owned.
-  OAuth2TokenService* token_service_;  // Not owned.
-  SigninClient* signin_client_;  // Not owned.
+  image_fetcher::ImageFetcherImpl* GetOrCreateImageFetcher();
+
+  // Called in |OnUserInfoFetchSuccess| after the account info has been fetched.
+  void FetchAccountImage(const std::string& account_id);
+
+  void OnImageFetched(const std::string& id,
+                      const gfx::Image& image,
+                      const image_fetcher::RequestMetadata& image_metadata);
+
+  AccountTrackerService* account_tracker_service_;           // Not owned.
+  OAuth2TokenService* token_service_;                        // Not owned.
+  SigninClient* signin_client_;                              // Not owned.
   invalidation::InvalidationService* invalidation_service_;  // Not owned.
   bool network_fetches_enabled_;
   bool profile_loaded_;
@@ -124,19 +149,22 @@ class AccountFetcherService : public KeyedService,
   base::Time last_updated_;
   base::OneShotTimer timer_;
   bool shutdown_called_;
+
+#if defined(OS_ANDROID)
+  std::string child_request_account_id_;
+  std::unique_ptr<ChildAccountInfoFetcherAndroid> child_info_request_;
+#endif
+
   // Only disabled in tests.
   bool scheduled_refresh_enabled_;
-
-  std::string child_request_account_id_;
-  std::unique_ptr<ChildAccountInfoFetcher> child_info_request_;
 
   // Holds references to account info fetchers keyed by account_id.
   std::unordered_map<std::string, std::unique_ptr<AccountInfoFetcher>>
       user_info_requests_;
-  // Holds references to refresh token annotation requests keyed by account_id.
-  std::unordered_map<std::string,
-                     std::unique_ptr<RefreshTokenAnnotationRequest>>
-      refresh_token_annotation_requests_;
+
+  // Used for fetching the account images.
+  std::unique_ptr<image_fetcher::ImageFetcherImpl> image_fetcher_;
+  std::unique_ptr<image_fetcher::ImageDecoder> image_decoder_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

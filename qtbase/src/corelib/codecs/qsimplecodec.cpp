@@ -40,8 +40,6 @@
 #include "qsimplecodec_p.h"
 #include "qlist.h"
 
-#ifndef QT_NO_TEXTCODEC
-
 QT_BEGIN_NAMESPACE
 
 #define LAST_MIB 2004
@@ -612,7 +610,7 @@ QSimpleTextCodec::QSimpleTextCodec(int i) : forwardIndex(i), reverseMap(0)
 
 QSimpleTextCodec::~QSimpleTextCodec()
 {
-    delete reverseMap.load();
+    delete reverseMap.loadAcquire();
 }
 
 static QByteArray *buildReverseMap(int forwardIndex)
@@ -664,12 +662,12 @@ QByteArray QSimpleTextCodec::convertFromUnicode(const QChar *in, int length, Con
     const char replacement = (state && state->flags & ConvertInvalidToNull) ? 0 : '?';
     int invalid = 0;
 
-    QByteArray *rmap = reverseMap.load();
+    QByteArray *rmap = reverseMap.loadAcquire();
     if (!rmap){
         rmap = buildReverseMap(this->forwardIndex);
         if (!reverseMap.testAndSetRelease(0, rmap)) {
             delete rmap;
-            rmap = reverseMap.load();
+            rmap = reverseMap.loadAcquire();
         }
     }
 
@@ -724,5 +722,3 @@ int QSimpleTextCodec::mibEnum() const
 }
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_TEXTCODEC

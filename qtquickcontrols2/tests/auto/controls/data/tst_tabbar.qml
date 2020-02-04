@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
@@ -268,6 +268,29 @@ TestCase {
         compare(control.count, 0)
         compare(control.currentIndex, -1)
         compare(contentChildrenSpy.count, 12)
+    }
+
+    function test_removeCurrent() {
+        var control = createTemporaryObject(tabBar, testCase)
+
+        control.addItem(tabButton.createObject(control, {text: "1"}))
+        control.addItem(tabButton.createObject(control, {text: "2"}))
+        control.addItem(tabButton.createObject(control, {text: "3"}))
+        control.currentIndex = 1
+        compare(control.count, 3)
+        compare(control.currentIndex, 1)
+
+        control.removeItem(1)
+        compare(control.count, 2)
+        compare(control.currentIndex, 0)
+
+        control.removeItem(0)
+        compare(control.count, 1)
+        compare(control.currentIndex, 0)
+
+        control.removeItem(0)
+        compare(control.count, 0)
+        compare(control.currentIndex, -1)
     }
 
     Component {
@@ -514,8 +537,10 @@ TestCase {
         control.addItem(tab1)
         tryCompare(tab1, "width", control.width)
         compare(tab1.height, control.height)
-        compare(control.contentWidth, tab1.implicitWidth)
-        compare(control.contentHeight, tab1.implicitHeight)
+        compare(control.implicitContentWidth, tab1.implicitWidth)
+        compare(control.implicitContentHeight, tab1.implicitHeight)
+        compare(control.contentWidth, control.implicitContentWidth)
+        compare(control.contentHeight, control.implicitContentHeight)
         compare(control.implicitWidth, control.contentWidth + control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, control.contentHeight + control.topPadding + control.bottomPadding)
 
@@ -525,8 +550,10 @@ TestCase {
         compare(tab1.height, control.height)
         compare(tab2.width, (control.width - data.spacing) / 2)
         compare(tab2.height, control.height)
-        compare(control.contentWidth, tab1.implicitWidth + tab2.implicitWidth + data.spacing)
-        compare(control.contentHeight, tab2.implicitHeight)
+        compare(control.implicitContentWidth, tab1.implicitWidth + tab2.implicitWidth + data.spacing)
+        compare(control.implicitContentHeight, tab2.implicitHeight)
+        compare(control.contentWidth, control.implicitContentWidth)
+        compare(control.contentHeight, control.implicitContentHeight)
         compare(control.implicitWidth, control.contentWidth + control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, control.contentHeight + control.topPadding + control.bottomPadding)
 
@@ -542,8 +569,10 @@ TestCase {
         compare(tab3.y, (control.height - tab3.height) / 2)
         compare(tab3.width, 50)
         compare(tab3.height, tab1.implicitHeight - 10)
-        compare(control.contentWidth, tab1.implicitWidth + tab2.implicitWidth + tab3.width + 2 * data.spacing)
-        compare(control.contentHeight, tab2.implicitHeight)
+        compare(control.implicitContentWidth, tab1.implicitWidth + tab2.implicitWidth + tab3.width + 2 * data.spacing)
+        compare(control.implicitContentHeight, tab2.implicitHeight)
+        compare(control.contentWidth, control.implicitContentWidth)
+        compare(control.contentHeight, control.implicitContentHeight)
         compare(control.implicitWidth, control.contentWidth + control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, control.contentHeight + control.topPadding + control.bottomPadding)
 
@@ -556,8 +585,10 @@ TestCase {
         compare(tab2.height, control.height)
         compare(tab3.width, expectedWidth)
         compare(tab3.height, tab3.implicitHeight)
-        compare(control.contentWidth, tab1.implicitWidth + tab2.implicitWidth + tab3.implicitWidth + 2 * data.spacing)
-        compare(control.contentHeight, tab2.implicitHeight)
+        compare(control.implicitContentWidth, tab1.implicitWidth + tab2.implicitWidth + tab3.implicitWidth + 2 * data.spacing)
+        compare(control.implicitContentHeight, tab2.implicitHeight)
+        compare(control.contentWidth, control.implicitContentWidth)
+        compare(control.contentHeight, control.implicitContentHeight)
         compare(control.implicitWidth, control.contentWidth + control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, control.contentHeight + control.topPadding + control.bottomPadding)
 

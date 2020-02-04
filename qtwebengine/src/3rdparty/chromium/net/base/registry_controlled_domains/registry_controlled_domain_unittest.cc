@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/strings/utf_string_conversions.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+
+#include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/buildflags.h"
 #include "url/gurl.h"
 #include "url/origin.h"
-#include "url/url_features.h"
 
 namespace {
 
@@ -99,8 +100,8 @@ class RegistryControlledDomainTest : public testing::Test {
     SCOPED_TRACE(url1 + " " + url2);
     GURL g1 = GURL(url1);
     GURL g2 = GURL(url2);
-    url::Origin o1 = url::Origin(g1);
-    url::Origin o2 = url::Origin(g2);
+    url::Origin o1 = url::Origin::Create(g1);
+    url::Origin o2 = url::Origin::Create(g2);
     EXPECT_EQ(SameDomainOrHost(o1, o2, EXCLUDE_PRIVATE_REGISTRIES),
               SameDomainOrHost(g1, g2, EXCLUDE_PRIVATE_REGISTRIES));
     return SameDomainOrHost(g1, g2, EXCLUDE_PRIVATE_REGISTRIES);

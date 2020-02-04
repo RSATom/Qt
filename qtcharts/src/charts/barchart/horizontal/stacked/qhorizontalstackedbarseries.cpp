@@ -36,7 +36,7 @@
 QT_CHARTS_BEGIN_NAMESPACE
 /*!
     \class QHorizontalStackedBarSeries
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QHorizontalStackedBarSeries class presents a series of data as horizontally
     stacked bars, with one bar per category.
 
@@ -123,6 +123,6 @@ void QHorizontalStackedBarSeriesPrivate::initializeGraphics(QGraphicsItem *paren
     QAbstractSeriesPrivate::initializeGraphics(parent);
 }
 
-#include "moc_qhorizontalstackedbarseries.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_qhorizontalstackedbarseries.cpp"

@@ -18,6 +18,10 @@
 #include "content/public/browser/web_ui.h"
 #include "ui/base/l10n/l10n_util.h"
 
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/file_manager/path_util.h"
+#endif
+
 using base::UserMetricsAction;
 
 namespace settings {
@@ -34,15 +38,22 @@ DownloadsHandler::~DownloadsHandler() {
 void DownloadsHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "initializeDownloads",
-      base::Bind(&DownloadsHandler::HandleInitialize, base::Unretained(this)));
+      base::BindRepeating(&DownloadsHandler::HandleInitialize,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "resetAutoOpenFileTypes",
-      base::Bind(&DownloadsHandler::HandleResetAutoOpenFileTypes,
-                 base::Unretained(this)));
+      base::BindRepeating(&DownloadsHandler::HandleResetAutoOpenFileTypes,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "selectDownloadLocation",
-      base::Bind(&DownloadsHandler::HandleSelectDownloadLocation,
-                 base::Unretained(this)));
+      base::BindRepeating(&DownloadsHandler::HandleSelectDownloadLocation,
+                          base::Unretained(this)));
+#if defined(OS_CHROMEOS)
+  web_ui()->RegisterMessageCallback(
+      "getDownloadLocationText",
+      base::BindRepeating(&DownloadsHandler::HandleGetDownloadLocationText,
+                          base::Unretained(this)));
+#endif
 }
 
 void DownloadsHandler::OnJavascriptAllowed() {
@@ -83,7 +94,8 @@ void DownloadsHandler::HandleSelectDownloadLocation(
     const base::ListValue* args) {
   PrefService* pref_service = profile_->GetPrefs();
   select_folder_dialog_ = ui::SelectFileDialog::Create(
-      this, new ChromeSelectFilePolicy(web_ui()->GetWebContents()));
+      this,
+      std::make_unique<ChromeSelectFilePolicy>(web_ui()->GetWebContents()));
   ui::SelectFileDialog::FileTypeInfo info;
   info.allowed_paths = ui::SelectFileDialog::FileTypeInfo::NATIVE_OR_DRIVE_PATH;
   select_folder_dialog_->SelectFile(
@@ -102,5 +114,22 @@ void DownloadsHandler::FileSelected(const base::FilePath& path,
   pref_service->SetFilePath(prefs::kDownloadDefaultDirectory, path);
   pref_service->SetFilePath(prefs::kSaveFileDefaultDirectory, path);
 }
+
+#if defined(OS_CHROMEOS)
+void DownloadsHandler::HandleGetDownloadLocationText(
+    const base::ListValue* args) {
+  AllowJavascript();
+  CHECK_EQ(2U, args->GetSize());
+  std::string callback_id;
+  std::string path;
+  CHECK(args->GetString(0, &callback_id));
+  CHECK(args->GetString(1, &path));
+
+  ResolveJavascriptCallback(
+      base::Value(callback_id),
+      base::Value(
+          file_manager::util::GetPathDisplayTextForSettings(profile_, path)));
+}
+#endif
 
 }  // namespace settings

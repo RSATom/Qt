@@ -104,7 +104,7 @@ namespace QPatternist
             Q_ASSERT(m_modelStorage);
         }
 
-        virtual void addNodeModel(const QAbstractXmlNodeModel::Ptr &nodeModel)
+        void addNodeModel(const QAbstractXmlNodeModel::Ptr &nodeModel) override
         {
             m_modelStorage->addNodeModel(nodeModel);
         }

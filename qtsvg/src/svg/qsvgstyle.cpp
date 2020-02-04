@@ -694,8 +694,8 @@ void QSvgAnimateTransform::resolveMatrix(const QSvgNode *node)
     }
 
     qreal currentPosition = percentOfAnimation * (m_count - 1);
-    int startElem = qFloor(currentPosition);
     int endElem   = qCeil(currentPosition);
+    int startElem = qMax(endElem - 1, 0);
 
     switch(m_type)
     {
@@ -942,13 +942,20 @@ void QSvgGradientStyle::setStopLink(const QString &link, QSvgTinyDocument *doc)
 
 void QSvgGradientStyle::resolveStops()
 {
+    QStringList visited;
+    resolveStops_helper(&visited);
+}
+
+void QSvgGradientStyle::resolveStops_helper(QStringList *visited)
+{
     if (!m_link.isEmpty() && m_doc) {
         QSvgStyleProperty *prop = m_doc->styleProperty(m_link);
-        if (prop && prop != this) {
+        if (prop && !visited->contains(m_link)) {
+            visited->append(m_link);
             if (prop->type() == QSvgStyleProperty::GRADIENT) {
                 QSvgGradientStyle *st =
                     static_cast<QSvgGradientStyle*>(prop);
-                st->resolveStops();
+                st->resolveStops_helper(visited);
                 m_gradient->setStops(st->qgradient()->stops());
                 m_gradientStopsSet = st->gradientStopsSet();
             }

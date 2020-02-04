@@ -12,23 +12,12 @@
 #include <string>
 #include <vector>
 
+#include "base/containers/span.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
 #include "net/base/net_export.h"
 
 namespace net {
-
-struct NET_EXPORT SHA1HashValue {
-  unsigned char data[20];
-};
-
-inline bool operator==(const SHA1HashValue& lhs, const SHA1HashValue& rhs) {
-  return memcmp(lhs.data, rhs.data, sizeof(lhs.data)) == 0;
-}
-
-inline bool operator!=(const SHA1HashValue& lhs, const SHA1HashValue& rhs) {
-  return !(lhs == rhs);
-}
 
 struct NET_EXPORT SHA256HashValue {
   unsigned char data[32];
@@ -39,7 +28,23 @@ inline bool operator==(const SHA256HashValue& lhs, const SHA256HashValue& rhs) {
 }
 
 inline bool operator!=(const SHA256HashValue& lhs, const SHA256HashValue& rhs) {
-  return !(lhs == rhs);
+  return memcmp(lhs.data, rhs.data, sizeof(lhs.data)) != 0;
+}
+
+inline bool operator<(const SHA256HashValue& lhs, const SHA256HashValue& rhs) {
+  return memcmp(lhs.data, rhs.data, sizeof(lhs.data)) < 0;
+}
+
+inline bool operator>(const SHA256HashValue& lhs, const SHA256HashValue& rhs) {
+  return memcmp(lhs.data, rhs.data, sizeof(lhs.data)) > 0;
+}
+
+inline bool operator<=(const SHA256HashValue& lhs, const SHA256HashValue& rhs) {
+  return memcmp(lhs.data, rhs.data, sizeof(lhs.data)) <= 0;
+}
+
+inline bool operator>=(const SHA256HashValue& lhs, const SHA256HashValue& rhs) {
+  return memcmp(lhs.data, rhs.data, sizeof(lhs.data)) >= 0;
 }
 
 enum HashValueTag {
@@ -49,12 +54,12 @@ enum HashValueTag {
 class NET_EXPORT HashValue {
  public:
   explicit HashValue(const SHA256HashValue& hash);
-  explicit HashValue(HashValueTag tag) : tag(tag) {}
-  HashValue() : tag(HASH_VALUE_SHA256) {}
+  explicit HashValue(HashValueTag tag) : tag_(tag) {}
+  HashValue() : tag_(HASH_VALUE_SHA256) {}
 
   // Serializes/Deserializes hashes in the form of
   // <hash-name>"/"<base64-hash-value>
-  // (eg: "sha1/...")
+  // (eg: "sha256/...")
   // This format may be persisted to permanent storage, so
   // care should be taken before changing the serialization.
   //
@@ -75,49 +80,35 @@ class NET_EXPORT HashValue {
   unsigned char* data();
   const unsigned char* data() const;
 
-  HashValueTag tag;
+  HashValueTag tag() const { return tag_; }
+
+  NET_EXPORT friend bool operator==(const HashValue& lhs, const HashValue& rhs);
+  NET_EXPORT friend bool operator!=(const HashValue& lhs, const HashValue& rhs);
+  NET_EXPORT friend bool operator<(const HashValue& lhs, const HashValue& rhs);
+  NET_EXPORT friend bool operator>(const HashValue& lhs, const HashValue& rhs);
+  NET_EXPORT friend bool operator<=(const HashValue& lhs, const HashValue& rhs);
+  NET_EXPORT friend bool operator>=(const HashValue& lhs, const HashValue& rhs);
 
  private:
+  HashValueTag tag_;
+
   union {
-    SHA1HashValue sha1;
     SHA256HashValue sha256;
   } fingerprint;
 };
 
-inline bool operator==(const HashValue& lhs, const HashValue& rhs) {
-  return lhs.tag == rhs.tag && memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
-}
-
-inline bool operator!=(const HashValue& lhs, const HashValue& rhs) {
-  return !(lhs == rhs);
-}
-
 typedef std::vector<HashValue> HashValueVector;
 
 
-class SHA1HashValueLessThan {
- public:
-  SHA1HashValueLessThan() { }
-  bool operator()(const SHA1HashValue& lhs,
-                  const SHA1HashValue& rhs) const {
-    return memcmp(lhs.data, rhs.data, sizeof(lhs.data)) < 0;
-  }
-};
-
-class SHA256HashValueLessThan {
- public:
-  SHA256HashValueLessThan() { }
-  bool operator()(const SHA256HashValue& lhs,
-                  const SHA256HashValue& rhs) const {
-    return memcmp(lhs.data, rhs.data, sizeof(lhs.data)) < 0;
-  }
-};
-
 // IsSHA256HashInSortedArray returns true iff |hash| is in |array|, a sorted
 // array of SHA256 hashes.
-bool IsSHA256HashInSortedArray(const SHA256HashValue& hash,
-                               const uint8_t* array,
-                               size_t array_byte_len);
+bool IsSHA256HashInSortedArray(const HashValue& hash,
+                               base::span<const SHA256HashValue> array);
+
+// IsAnySHA256HashInSortedArray returns true iff any value in |hashes| is in
+// |array|, a sorted array of SHA256 hashes.
+bool IsAnySHA256HashInSortedArray(base::span<const HashValue> hashes,
+                                  base::span<const SHA256HashValue> array);
 
 }  // namespace net
 

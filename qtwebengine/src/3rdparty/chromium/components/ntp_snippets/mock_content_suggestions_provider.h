@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "components/ntp_snippets/content_suggestions_provider.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -19,10 +20,12 @@ namespace ntp_snippets {
 // TODO(treib): This is a weird combination of a mock and a fake. Fix this.
 class MockContentSuggestionsProvider : public ContentSuggestionsProvider {
  public:
+  using DestructorCallback = base::OnceCallback<void()>;
+
   MockContentSuggestionsProvider(
       Observer* observer,
       const std::vector<Category>& provided_categories);
-  ~MockContentSuggestionsProvider();
+  ~MockContentSuggestionsProvider() override;
 
   void SetProvidedCategories(const std::vector<Category>& provided_categories);
 
@@ -43,28 +46,50 @@ class MockContentSuggestionsProvider : public ContentSuggestionsProvider {
   void FireCategoryStatusChangedWithCurrentStatus(Category category);
   void FireSuggestionInvalidated(const ContentSuggestion::ID& suggestion_id);
 
+  // Set a callback to be called in the destructor. Used to "mock" destruction.
+  void SetDestructorCallback(DestructorCallback callback);
+
   MOCK_METHOD3(ClearHistory,
                void(base::Time begin,
                     base::Time end,
                     const base::Callback<bool(const GURL& url)>& filter));
-  MOCK_METHOD3(Fetch,
+  // Gmock cannot mock methods that have movable-only type callbacks as
+  // parameters such as FetchDoneCallback, DismissedSuggestionsCallback,
+  // ImageFetchedCallback. As a work-around, Fetch calls the mock method
+  // FetchMock, which may then be checked with EXPECT_CALL.
+  void Fetch(const Category&,
+             const std::set<std::string>&,
+             FetchDoneCallback) override;
+  MOCK_METHOD3(FetchMock,
                void(const Category&,
                     const std::set<std::string>&,
-                    const FetchDoneCallback&));
-  MOCK_METHOD1(ClearCachedSuggestions, void(Category category));
-  MOCK_METHOD2(GetDismissedSuggestionsForDebugging,
+                    FetchDoneCallback*));
+  MOCK_METHOD0(ClearCachedSuggestions, void());
+  void GetDismissedSuggestionsForDebugging(
+      Category category,
+      DismissedSuggestionsCallback callback) override;
+  MOCK_METHOD2(GetDismissedSuggestionsForDebuggingMock,
                void(Category category,
                     const DismissedSuggestionsCallback& callback));
   MOCK_METHOD1(ClearDismissedSuggestionsForDebugging, void(Category category));
   MOCK_METHOD1(DismissSuggestion,
                void(const ContentSuggestion::ID& suggestion_id));
-  MOCK_METHOD2(FetchSuggestionImage,
-               void(const ContentSuggestion::ID& suggestion_id,
-                    const ImageFetchedCallback& callback));
+  void FetchSuggestionImage(const ContentSuggestion::ID& id,
+                            ImageFetchedCallback callback) override;
+  void FetchSuggestionImageData(const ContentSuggestion::ID& id,
+                                ImageDataFetchedCallback callback) override;
+  MOCK_METHOD2(FetchSuggestionImageMock,
+               void(const ContentSuggestion::ID&, const ImageFetchedCallback&));
+  MOCK_METHOD2(FetchSuggestionImageDataMock,
+               void(const ContentSuggestion::ID&, ImageDataFetchedCallback*));
 
  private:
   std::vector<Category> provided_categories_;
   std::map<int, CategoryStatus> statuses_;
+
+  DestructorCallback destructor_callback_;
+
+  DISALLOW_COPY_AND_ASSIGN(MockContentSuggestionsProvider);
 };
 
 }  // namespace ntp_snippets

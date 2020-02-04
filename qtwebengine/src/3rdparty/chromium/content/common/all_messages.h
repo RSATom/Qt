@@ -8,9 +8,13 @@
 // ipc/ipc_message_start.h to ensure the corresponding message file is
 // included here.
 //
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 
 #include "content/common/content_message_generator.h"
 #if BUILDFLAG(ENABLE_PLUGINS)
+#undef PPAPI_PROXY_PPAPI_MESSAGES_H_
 #include "ppapi/proxy/ppapi_messages.h"  // nogncheck
+#ifndef PPAPI_PROXY_PPAPI_MESSAGES_H_
+#error "Failed to include ppapi/proxy/ppapi_messages.h"
+#endif
 #endif

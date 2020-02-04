@@ -294,6 +294,8 @@ void AVFMediaRecorderControl::setState(QMediaRecorder::State state)
             m_recordingFinished = false;
 
             Q_EMIT actualLocationChanged(actualLocation);
+            updateStatus();
+            Q_EMIT stateChanged(m_state);
         } else {
             Q_EMIT error(QMediaRecorder::FormatError, tr("Recorder not configured"));
         }
@@ -312,10 +314,6 @@ void AVFMediaRecorderControl::setState(QMediaRecorder::State state)
         unapplySettings();
     }
     }
-
-    updateStatus();
-    if (state != m_state)
-        Q_EMIT stateChanged(m_state);
 }
 
 void AVFMediaRecorderControl::setMuted(bool muted)
@@ -364,6 +362,9 @@ void AVFMediaRecorderControl::handleRecordingFailed(const QString &message)
 
 void AVFMediaRecorderControl::setupSessionForCapture()
 {
+    if (!m_session->videoCaptureDevice())
+        return;
+
     //adding movie output causes high CPU usage even when while recording is not active,
     //connect it only while video capture mode is enabled.
     // Similarly, connect the Audio input only in that mode, since it's only necessary
@@ -391,7 +392,7 @@ void AVFMediaRecorderControl::setupSessionForCapture()
                 qWarning() << "Failed to create audio device input";
             } else if (![captureSession canAddInput:m_audioInput]) {
                 qWarning() << "Could not connect the audio input";
-                m_audioInput = 0;
+                m_audioInput = nullptr;
             } else {
                 [m_audioInput retain];
                 [captureSession addInput:m_audioInput];

@@ -19,7 +19,8 @@ namespace extensions {
 
 namespace {
 
-const char kInvalidTypeOfParameter[] = "Attribute '%s' has an invalid type";
+const char kIsBookmarkedInvalidTypeOfParameter[] =
+    "Attribute '%s' has an invalid type";
 const char kIsBookmarkedRequiresBookmarkPermission[] =
     "Property 'isBookmarked' requires 'bookmarks' permission";
 
@@ -59,7 +60,7 @@ DeclarativeContentIsBookmarkedPredicate::Create(
           evaluator, extension, is_bookmarked));
     }
   } else {
-    *error = base::StringPrintf(kInvalidTypeOfParameter,
+    *error = base::StringPrintf(kIsBookmarkedInvalidTypeOfParameter,
                                 declarative_content_constants::kIsBookmarked);
     return std::unique_ptr<DeclarativeContentIsBookmarkedPredicate>();
   }
@@ -189,13 +190,12 @@ void DeclarativeContentIsBookmarkedConditionTracker::StopTrackingPredicates(
 
 void DeclarativeContentIsBookmarkedConditionTracker::TrackForWebContents(
     content::WebContents* contents) {
-  per_web_contents_tracker_[contents] =
-      make_linked_ptr(new PerWebContentsTracker(
-          contents,
-          base::Bind(&Delegate::RequestEvaluation, base::Unretained(delegate_)),
-          base::Bind(&DeclarativeContentIsBookmarkedConditionTracker::
+  per_web_contents_tracker_[contents] = std::make_unique<PerWebContentsTracker>(
+      contents,
+      base::Bind(&Delegate::RequestEvaluation, base::Unretained(delegate_)),
+      base::Bind(&DeclarativeContentIsBookmarkedConditionTracker::
                      DeletePerWebContentsTracker,
-                     base::Unretained(this))));
+                 base::Unretained(this)));
 }
 
 void DeclarativeContentIsBookmarkedConditionTracker::OnWebContentsNavigation(

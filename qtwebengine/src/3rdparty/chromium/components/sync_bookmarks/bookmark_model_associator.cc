@@ -149,10 +149,8 @@ const BookmarkNode* BookmarkNodeFinder::FindBookmarkNode(
   std::string adjusted_title;
   ConvertTitleToSyncInternalFormat(title, &adjusted_title);
   BookmarkNodeRange range = child_nodes_.equal_range(adjusted_title);
-  BookmarkNodeMap::iterator match_iter = range.second;
-  for (BookmarkNodeMap::iterator iter = range.first;
-       iter != range.second;
-       ++iter) {
+  auto match_iter = range.second;
+  for (auto iter = range.first; iter != range.second; ++iter) {
     // Then within the range match the node by the folder bit
     // and the url.
     const BookmarkNode* node = iter->second;
@@ -276,13 +274,7 @@ void BookmarkModelAssociator::Context::IncrementSyncItemsDeleted(int count) {
 void BookmarkModelAssociator::Context::UpdateDuplicateCount(
     const base::string16& title,
     const GURL& url) {
-  // base::Hash is defined for 8-byte strings only so have to
-  // cast the title data to char* and double the length in order to
-  // compute its hash.
-  size_t bookmark_hash = base::Hash(reinterpret_cast<const char*>(title.data()),
-                                    title.length() * 2) ^
-                         base::Hash(url.spec());
-
+  size_t bookmark_hash = base::Hash(title) ^ base::Hash(url.spec());
   if (!hashes_.insert(bookmark_hash).second) {
     // This hash code already exists in the set.
     ++duplicate_count_;
@@ -381,7 +373,7 @@ void BookmarkModelAssociator::Associate(const BookmarkNode* node,
 
 void BookmarkModelAssociator::Disassociate(int64_t sync_id) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  SyncIdToBookmarkNodeMap::iterator iter = id_map_inverse_.find(sync_id);
+  auto iter = id_map_inverse_.find(sync_id);
   if (iter == id_map_inverse_.end())
     return;
   id_map_.erase(iter->second->id());
@@ -644,10 +636,10 @@ syncer::SyncError BookmarkModelAssociator::BuildAssociations(Context* context) {
   BookmarkChangeProcessor::UpdateTransactionVersion(
       new_version, bookmark_model_, context->bookmarks_for_version_update());
 
-  UMA_HISTOGRAM_COUNTS("Sync.BookmarksDuplicationsAtAssociation",
-                       context->duplicate_count());
-  UMA_HISTOGRAM_COUNTS("Sync.BookmarksNewDuplicationsAtAssociation",
-                       context->duplicate_count() - initial_duplicate_count);
+  UMA_HISTOGRAM_COUNTS_1M("Sync.BookmarksDuplicationsAtAssociation",
+                          context->duplicate_count());
+  UMA_HISTOGRAM_COUNTS_1M("Sync.BookmarksNewDuplicationsAtAssociation",
+                          context->duplicate_count() - initial_duplicate_count);
 
   if (context->duplicate_count() > initial_duplicate_count) {
     UMA_HISTOGRAM_ENUMERATION("Sync.BookmarksModelSyncStateAtNewDuplication",
@@ -666,8 +658,7 @@ syncer::SyncError BookmarkModelAssociator::BuildAssociations(
   BookmarkNodeFinder node_finder(parent_node);
 
   int index = 0;
-  for (std::vector<int64_t>::const_iterator it = sync_ids.begin();
-       it != sync_ids.end(); ++it) {
+  for (auto it = sync_ids.begin(); it != sync_ids.end(); ++it) {
     int64_t sync_child_id = *it;
     syncer::ReadNode sync_child_node(trans);
     if (sync_child_node.InitByIdLookup(sync_child_id) !=
@@ -806,7 +797,7 @@ void BookmarkModelAssociator::ApplyDeletesFromSyncJournal(
 
   // Check bookmark model from top to bottom.
   BookmarkStack dfs_stack;
-  for (BookmarkList::const_iterator it = context->bookmark_roots().begin();
+  for (auto it = context->bookmark_roots().begin();
        it != context->bookmark_roots().end(); ++it) {
     dfs_stack.push(*it);
   }
@@ -871,8 +862,7 @@ void BookmarkModelAssociator::ApplyDeletesFromSyncJournal(
   std::set<int64_t> journals_to_purge;
 
   // Remove empty folders from bottom to top.
-  for (FolderInfoList::reverse_iterator it = folders_matched.rbegin();
-      it != folders_matched.rend(); ++it) {
+  for (auto it = folders_matched.rbegin(); it != folders_matched.rend(); ++it) {
     if (it->folder->child_count() == 0) {
       bookmark_model_->Remove(it->folder);
       context->IncrementLocalItemsDeleted();
@@ -894,8 +884,8 @@ void BookmarkModelAssociator::PostPersistAssociationsTask() {
   if (weak_factory_.HasWeakPtrs())
     return;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&BookmarkModelAssociator::PersistAssociations,
-                            weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&BookmarkModelAssociator::PersistAssociations,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void BookmarkModelAssociator::PersistAssociations() {
@@ -963,9 +953,10 @@ syncer::SyncError BookmarkModelAssociator::CheckModelSyncState(
     if (native_version == sync_version) {
       context->set_native_model_sync_state(IN_SYNC);
     } else {
+      // TODO(wychen): enum uma should be strongly typed. crbug.com/661401
       UMA_HISTOGRAM_ENUMERATION("Sync.LocalModelOutOfSync",
                                 ModelTypeToHistogramInt(syncer::BOOKMARKS),
-                                syncer::MODEL_TYPE_COUNT);
+                                static_cast<int>(syncer::MODEL_TYPE_COUNT));
 
       // Clear version on bookmark model so that we only report error once.
       bookmark_model_->SetNodeSyncTransactionVersion(

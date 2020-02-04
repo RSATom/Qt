@@ -66,7 +66,7 @@ void FakeAudioInputStream::Stop() {
 
 void FakeAudioInputStream::Close() {
   DCHECK(audio_manager_->GetTaskRunner()->BelongsToCurrentThread());
-  DCHECK(!callback_);
+  Stop();
   audio_manager_->ReleaseInputStream(this);
 }
 
@@ -97,6 +97,11 @@ bool FakeAudioInputStream::GetAutomaticGainControl() {
   return false;
 }
 
+void FakeAudioInputStream::SetOutputDeviceForAec(
+    const std::string& output_device_id) {
+  // Not supported. Do nothing.
+}
+
 void FakeAudioInputStream::ReadAudioFromSource() {
   DCHECK(audio_manager_->GetWorkerTaskRunner()->BelongsToCurrentThread());
   DCHECK(callback_);
@@ -106,7 +111,7 @@ void FakeAudioInputStream::ReadAudioFromSource() {
 
   audio_source_->OnMoreData(base::TimeDelta(), base::TimeTicks::Now(), 0,
                             audio_bus_.get());
-  callback_->OnData(this, audio_bus_.get(), 0, 1.0);
+  callback_->OnData(audio_bus_.get(), base::TimeTicks::Now(), 1.0);
 }
 
 using AudioSourceCallback = AudioOutputStream::AudioSourceCallback;
@@ -132,9 +137,9 @@ std::unique_ptr<AudioSourceCallback> FakeAudioInputStream::ChooseSource() {
           << switches::kUseFileForFakeAudioCapture << ".";
       looping = false;
     }
-    return base::MakeUnique<FileSource>(params_, path_to_wav_file, looping);
+    return std::make_unique<FileSource>(params_, path_to_wav_file, looping);
   }
-  return base::MakeUnique<BeepingSource>(params_);
+  return std::make_unique<BeepingSource>(params_);
 }
 
 void FakeAudioInputStream::BeepOnce() {

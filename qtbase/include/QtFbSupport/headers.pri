@@ -1,8 +1,6 @@
-SYNCQT.HEADER_FILES = ../../../include/QtFbSupport/qtfbsupportversion.h ../../../include/QtFbSupport/QtFbSupport 
-SYNCQT.INJECTED_HEADER_FILES = 
-SYNCQT.HEADER_CLASSES = ../../../include/QtFbSupport/QtFbSupportVersion 
+SYNCQT.HEADER_FILES = 
+SYNCQT.GENERATED_HEADER_FILES = qtfbsupportversion.h QtFbSupportVersion QtFbSupport 
 SYNCQT.PRIVATE_HEADER_FILES = qfbbackingstore_p.h qfbcursor_p.h qfbscreen_p.h qfbvthandler_p.h qfbwindow_p.h 
-SYNCQT.INJECTED_PRIVATE_HEADER_FILES = 
 SYNCQT.QPA_HEADER_FILES = 
 SYNCQT.CLEAN_HEADER_FILES = 
 SYNCQT.INJECTIONS = 

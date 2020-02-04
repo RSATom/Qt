@@ -8,21 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/test/TestAllCodecs.h"
+#include "modules/audio_coding/test/TestAllCodecs.h"
 
 #include <cstdio>
 #include <limits>
 #include <string>
 
-#include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/codecs/audio_format_conversion.h"
-#include "webrtc/modules/audio_coding/include/audio_coding_module.h"
-#include "webrtc/modules/audio_coding/include/audio_coding_module_typedefs.h"
-#include "webrtc/modules/audio_coding/test/utility.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/testsupport/fileutils.h"
-#include "webrtc/typedefs.h"
+#include "absl/strings/match.h"
+#include "api/audio_codecs/builtin_audio_decoder_factory.h"
+#include "api/audio_codecs/builtin_audio_encoder_factory.h"
+#include "modules/audio_coding/include/audio_coding_module_typedefs.h"
+#include "modules/include/module_common_types.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/string_encode.h"
+#include "rtc_base/strings/string_builder.h"
+#include "test/gtest.h"
+#include "test/testsupport/file_utils.h"
 
 // Description of the test:
 // In this test we set up a one-way communication channel from a participant
@@ -31,6 +32,11 @@
 //
 // The test loops through all available mono codecs, encode at "a" sends over
 // the channel, and decodes at "b".
+
+#define CHECK_ERROR(f)                      \
+  do {                                      \
+    EXPECT_GE(f, 0) << "Error Calling API"; \
+  } while (0)
 
 namespace {
 const size_t kVariableSize = std::numeric_limits<size_t>::max();
@@ -45,19 +51,19 @@ TestPack::TestPack()
       timestamp_diff_(0),
       last_in_timestamp_(0),
       total_bytes_(0),
-      payload_size_(0) {
-}
+      payload_size_(0) {}
 
-TestPack::~TestPack() {
-}
+TestPack::~TestPack() {}
 
 void TestPack::RegisterReceiverACM(AudioCodingModule* acm) {
   receiver_acm_ = acm;
   return;
 }
 
-int32_t TestPack::SendData(FrameType frame_type, uint8_t payload_type,
-                           uint32_t timestamp, const uint8_t* payload_data,
+int32_t TestPack::SendData(FrameType frame_type,
+                           uint8_t payload_type,
+                           uint32_t timestamp,
+                           const uint8_t* payload_data,
                            size_t payload_size,
                            const RTPFragmentationHeader* fragmentation) {
   WebRtcRTPHeader rtp_info;
@@ -68,18 +74,13 @@ int32_t TestPack::SendData(FrameType frame_type, uint8_t payload_type,
   rtp_info.header.sequenceNumber = sequence_number_++;
   rtp_info.header.payloadType = payload_type;
   rtp_info.header.timestamp = timestamp;
-  if (frame_type == kAudioFrameCN) {
-    rtp_info.type.Audio.isCNG = true;
-  } else {
-    rtp_info.type.Audio.isCNG = false;
-  }
+
   if (frame_type == kEmptyFrame) {
     // Skip this frame.
     return 0;
   }
 
   // Only run mono for all test cases.
-  rtp_info.type.Audio.channel = 1;
   memcpy(payload_data_, payload_data, payload_size);
 
   status = receiver_acm_->IncomingPacket(payload_data_, payload_size, rtp_info);
@@ -103,15 +104,15 @@ void TestPack::reset_payload_size() {
   payload_size_ = 0;
 }
 
-TestAllCodecs::TestAllCodecs(int test_mode)
-    : acm_a_(AudioCodingModule::Create(0)),
-      acm_b_(AudioCodingModule::Create(1)),
+TestAllCodecs::TestAllCodecs()
+    : acm_a_(AudioCodingModule::Create(
+          AudioCodingModule::Config(CreateBuiltinAudioDecoderFactory()))),
+      acm_b_(AudioCodingModule::Create(
+          AudioCodingModule::Config(CreateBuiltinAudioDecoderFactory()))),
       channel_a_to_b_(NULL),
       test_count_(0),
       packet_size_samples_(0),
       packet_size_bytes_(0) {
-  // test_mode = 0 for silent test (auto test)
-  test_mode_ = test_mode;
 }
 
 TestAllCodecs::~TestAllCodecs() {
@@ -122,27 +123,32 @@ TestAllCodecs::~TestAllCodecs() {
 }
 
 void TestAllCodecs::Perform() {
-  const std::string file_name = webrtc::test::ResourcePath(
-      "audio_coding/testfile32kHz", "pcm");
+  const std::string file_name =
+      webrtc::test::ResourcePath("audio_coding/testfile32kHz", "pcm");
   infile_a_.Open(file_name, 32000, "rb");
-
-  if (test_mode_ == 0) {
-    LOG(LS_INFO) << "---------- TestAllCodecs ----------";
-  }
 
   acm_a_->InitializeReceiver();
   acm_b_->InitializeReceiver();
 
-  uint8_t num_encoders = acm_a_->NumberOfCodecs();
-  CodecInst my_codec_param;
-  for (uint8_t n = 0; n < num_encoders; n++) {
-    acm_b_->Codec(n, &my_codec_param);
-    if (!strcmp(my_codec_param.plname, "opus")) {
-      my_codec_param.channels = 1;
-    }
-    acm_b_->RegisterReceiveCodec(my_codec_param.pltype,
-                                 CodecInstToSdp(my_codec_param));
-  }
+  acm_b_->SetReceiveCodecs({{103, {"ISAC", 16000, 1}},
+                            {104, {"ISAC", 32000, 1}},
+                            {107, {"L16", 8000, 1}},
+                            {108, {"L16", 16000, 1}},
+                            {109, {"L16", 32000, 1}},
+                            {111, {"L16", 8000, 2}},
+                            {112, {"L16", 16000, 2}},
+                            {113, {"L16", 32000, 2}},
+                            {0, {"PCMU", 8000, 1}},
+                            {110, {"PCMU", 8000, 2}},
+                            {8, {"PCMA", 8000, 1}},
+                            {118, {"PCMA", 8000, 2}},
+                            {102, {"ILBC", 8000, 1}},
+                            {9, {"G722", 8000, 1}},
+                            {119, {"G722", 8000, 2}},
+                            {120, {"OPUS", 48000, 2, {{"stereo", "1"}}}},
+                            {13, {"CN", 8000, 1}},
+                            {98, {"CN", 16000, 1}},
+                            {99, {"CN", 32000, 1}}});
 
   // Create and connect the channel
   channel_a_to_b_ = new TestPack;
@@ -151,10 +157,6 @@ void TestAllCodecs::Perform() {
 
   // All codecs are tested for all allowed sampling frequencies, rates and
   // packet sizes.
-#ifdef WEBRTC_CODEC_G722
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
   test_count_++;
   OpenOutFile(test_count_);
   char codec_g722[] = "G722";
@@ -171,11 +173,7 @@ void TestAllCodecs::Perform() {
   RegisterSendCodec('A', codec_g722, 16000, 64000, 960, 0);
   Run(channel_a_to_b_);
   outfile_b_.Close();
-#endif
 #ifdef WEBRTC_CODEC_ILBC
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
   test_count_++;
   OpenOutFile(test_count_);
   char codec_ilbc[] = "ILBC";
@@ -190,9 +188,6 @@ void TestAllCodecs::Perform() {
   outfile_b_.Close();
 #endif
 #if (defined(WEBRTC_CODEC_ISAC) || defined(WEBRTC_CODEC_ISACFX))
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
   test_count_++;
   OpenOutFile(test_count_);
   char codec_isac[] = "ISAC";
@@ -207,9 +202,6 @@ void TestAllCodecs::Perform() {
   outfile_b_.Close();
 #endif
 #ifdef WEBRTC_CODEC_ISAC
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
   test_count_++;
   OpenOutFile(test_count_);
   RegisterSendCodec('A', codec_isac, 32000, -1, 960, kVariableSize);
@@ -222,9 +214,6 @@ void TestAllCodecs::Perform() {
   Run(channel_a_to_b_);
   outfile_b_.Close();
 #endif
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
   test_count_++;
   OpenOutFile(test_count_);
   char codec_l16[] = "L16";
@@ -237,9 +226,7 @@ void TestAllCodecs::Perform() {
   RegisterSendCodec('A', codec_l16, 8000, 128000, 320, 0);
   Run(channel_a_to_b_);
   outfile_b_.Close();
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
+
   test_count_++;
   OpenOutFile(test_count_);
   RegisterSendCodec('A', codec_l16, 16000, 256000, 160, 0);
@@ -251,9 +238,7 @@ void TestAllCodecs::Perform() {
   RegisterSendCodec('A', codec_l16, 16000, 256000, 640, 0);
   Run(channel_a_to_b_);
   outfile_b_.Close();
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
+
   test_count_++;
   OpenOutFile(test_count_);
   RegisterSendCodec('A', codec_l16, 32000, 512000, 320, 0);
@@ -261,9 +246,7 @@ void TestAllCodecs::Perform() {
   RegisterSendCodec('A', codec_l16, 32000, 512000, 640, 0);
   Run(channel_a_to_b_);
   outfile_b_.Close();
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
+
   test_count_++;
   OpenOutFile(test_count_);
   char codec_pcma[] = "PCMA";
@@ -279,9 +262,7 @@ void TestAllCodecs::Perform() {
   Run(channel_a_to_b_);
   RegisterSendCodec('A', codec_pcma, 8000, 64000, 480, 0);
   Run(channel_a_to_b_);
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
+
   char codec_pcmu[] = "PCMU";
   RegisterSendCodec('A', codec_pcmu, 8000, 64000, 80, 0);
   Run(channel_a_to_b_);
@@ -297,49 +278,25 @@ void TestAllCodecs::Perform() {
   Run(channel_a_to_b_);
   outfile_b_.Close();
 #ifdef WEBRTC_CODEC_OPUS
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-  }
   test_count_++;
   OpenOutFile(test_count_);
   char codec_opus[] = "OPUS";
   RegisterSendCodec('A', codec_opus, 48000, 6000, 480, kVariableSize);
   Run(channel_a_to_b_);
-  RegisterSendCodec('A', codec_opus, 48000, 20000, 480*2, kVariableSize);
+  RegisterSendCodec('A', codec_opus, 48000, 20000, 480 * 2, kVariableSize);
   Run(channel_a_to_b_);
-  RegisterSendCodec('A', codec_opus, 48000, 32000, 480*4, kVariableSize);
+  RegisterSendCodec('A', codec_opus, 48000, 32000, 480 * 4, kVariableSize);
   Run(channel_a_to_b_);
   RegisterSendCodec('A', codec_opus, 48000, 48000, 480, kVariableSize);
   Run(channel_a_to_b_);
-  RegisterSendCodec('A', codec_opus, 48000, 64000, 480*4, kVariableSize);
+  RegisterSendCodec('A', codec_opus, 48000, 64000, 480 * 4, kVariableSize);
   Run(channel_a_to_b_);
-  RegisterSendCodec('A', codec_opus, 48000, 96000, 480*6, kVariableSize);
+  RegisterSendCodec('A', codec_opus, 48000, 96000, 480 * 6, kVariableSize);
   Run(channel_a_to_b_);
-  RegisterSendCodec('A', codec_opus, 48000, 500000, 480*2, kVariableSize);
+  RegisterSendCodec('A', codec_opus, 48000, 500000, 480 * 2, kVariableSize);
   Run(channel_a_to_b_);
   outfile_b_.Close();
 #endif
-  if (test_mode_ != 0) {
-    printf("===============================================================\n");
-
-    /* Print out all codecs that were not tested in the run */
-    printf("The following codecs was not included in the test:\n");
-#ifndef WEBRTC_CODEC_G722
-    printf("   G.722\n");
-#endif
-#ifndef WEBRTC_CODEC_ILBC
-    printf("   iLBC\n");
-#endif
-#ifndef WEBRTC_CODEC_ISAC
-    printf("   ISAC float\n");
-#endif
-#ifndef WEBRTC_CODEC_ISACFX
-    printf("   ISAC fix\n");
-#endif
-
-    printf("\nTo complete the test, listen to the %d number of output files.\n",
-           test_count_);
-  }
 }
 
 // Register Codec to use in the test
@@ -353,24 +310,27 @@ void TestAllCodecs::Perform() {
 //                            used when registering, can be an internal header
 //                            set to kVariableSize if the codec is a variable
 //                            rate codec
-void TestAllCodecs::RegisterSendCodec(char side, char* codec_name,
-                                      int32_t sampling_freq_hz, int rate,
-                                      int packet_size, size_t extra_byte) {
-  if (test_mode_ != 0) {
-    // Print out codec and settings.
-    printf("codec: %s Freq: %d Rate: %d PackSize: %d\n", codec_name,
-           sampling_freq_hz, rate, packet_size);
-  }
-
+void TestAllCodecs::RegisterSendCodec(char side,
+                                      char* codec_name,
+                                      int32_t sampling_freq_hz,
+                                      int rate,
+                                      int packet_size,
+                                      size_t extra_byte) {
   // Store packet-size in samples, used to validate the received packet.
   // If G.722, store half the size to compensate for the timestamp bug in the
   // RFC for G.722.
   // If iSAC runs in adaptive mode, packet size in samples can change on the
   // fly, so we exclude this test by setting |packet_size_samples_| to -1.
-  if (!strcmp(codec_name, "G722")) {
+  int clockrate_hz = sampling_freq_hz;
+  size_t num_channels = 1;
+  if (absl::EqualsIgnoreCase(codec_name, "G722")) {
     packet_size_samples_ = packet_size / 2;
-  } else if (!strcmp(codec_name, "ISAC") && (rate == -1)) {
+    clockrate_hz = sampling_freq_hz / 2;
+  } else if (absl::EqualsIgnoreCase(codec_name, "ISAC") && (rate == -1)) {
     packet_size_samples_ = -1;
+  } else if (absl::EqualsIgnoreCase(codec_name, "OPUS")) {
+    packet_size_samples_ = packet_size;
+    num_channels = 2;
   } else {
     packet_size_samples_ = packet_size;
   }
@@ -379,9 +339,11 @@ void TestAllCodecs::RegisterSendCodec(char side, char* codec_name,
   // packet. If variable rate codec (extra_byte == -1), set to -1.
   if (extra_byte != kVariableSize) {
     // Add 0.875 to always round up to a whole byte
-    packet_size_bytes_ = static_cast<size_t>(
-        static_cast<float>(packet_size * rate) /
-        static_cast<float>(sampling_freq_hz * 8) + 0.875) + extra_byte;
+    packet_size_bytes_ =
+        static_cast<size_t>(static_cast<float>(packet_size * rate) /
+                                static_cast<float>(sampling_freq_hz * 8) +
+                            0.875) +
+        extra_byte;
   } else {
     // Packets will have a variable size.
     packet_size_bytes_ = kVariableSize;
@@ -398,19 +360,17 @@ void TestAllCodecs::RegisterSendCodec(char side, char* codec_name,
       my_acm = acm_b_.get();
       break;
     }
-    default: {
-      break;
-    }
+    default: { break; }
   }
   ASSERT_TRUE(my_acm != NULL);
 
-  // Get all codec parameters before registering
-  CodecInst my_codec_param;
-  CHECK_ERROR(AudioCodingModule::Codec(codec_name, &my_codec_param,
-                                       sampling_freq_hz, 1));
-  my_codec_param.rate = rate;
-  my_codec_param.pacsize = packet_size;
-  CHECK_ERROR(my_acm->RegisterSendCodec(my_codec_param));
+  auto factory = CreateBuiltinAudioEncoderFactory();
+  constexpr int payload_type = 17;
+  SdpAudioFormat format = { codec_name, clockrate_hz, num_channels };
+  format.parameters["ptime"] = rtc::ToString(rtc::CheckedDivExact(
+      packet_size, rtc::CheckedDivExact(sampling_freq_hz, 1000)));
+  my_acm->SetEncoder(
+      factory->MakeAudioEncoder(payload_type, format, absl::nullopt));
 }
 
 void TestAllCodecs::Run(TestPack* channel) {
@@ -472,19 +432,12 @@ void TestAllCodecs::Run(TestPack* channel) {
 
 void TestAllCodecs::OpenOutFile(int test_number) {
   std::string filename = webrtc::test::OutputPath();
-  std::ostringstream test_number_str;
+  rtc::StringBuilder test_number_str;
   test_number_str << test_number;
   filename += "testallcodecs_out_";
   filename += test_number_str.str();
   filename += ".pcm";
   outfile_b_.Open(filename, 32000, "wb");
-}
-
-void TestAllCodecs::DisplaySendReceiveCodec() {
-  CodecInst my_codec_param;
-  printf("%s -> ", acm_a_->SendCodec()->plname);
-  acm_b_->ReceiveCodec(&my_codec_param);
-  printf("%s\n", my_codec_param.plname);
 }
 
 }  // namespace webrtc

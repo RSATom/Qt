@@ -33,11 +33,28 @@ namespace glslc {
 shaderc_shader_kind MapStageNameToForcedKind(const string_piece& stage_name) {
   const StageMapping string_to_kind[] = {
       {"vertex", shaderc_glsl_vertex_shader},
+      {"vert", shaderc_glsl_vertex_shader},
       {"fragment", shaderc_glsl_fragment_shader},
+      {"frag", shaderc_glsl_fragment_shader},
       {"tesscontrol", shaderc_glsl_tess_control_shader},
+      {"tesc", shaderc_glsl_tess_control_shader},
       {"tesseval", shaderc_glsl_tess_evaluation_shader},
+      {"tese", shaderc_glsl_tess_evaluation_shader},
       {"geometry", shaderc_glsl_geometry_shader},
-      {"compute", shaderc_glsl_compute_shader}};
+      {"geom", shaderc_glsl_geometry_shader},
+      {"compute", shaderc_glsl_compute_shader},
+      {"comp", shaderc_glsl_compute_shader},
+#ifdef NV_EXTENSIONS
+      {"rgen", shaderc_glsl_raygen_shader },
+      {"rahit", shaderc_glsl_anyhit_shader },
+      {"rchit", shaderc_glsl_closesthit_shader },
+      {"rmiss", shaderc_glsl_miss_shader },
+      {"rint", shaderc_glsl_intersection_shader },
+      {"rcall", shaderc_glsl_callable_shader },
+      {"task", shaderc_glsl_task_shader },
+      {"mesh", shaderc_glsl_mesh_shader },
+#endif
+  };
   for (const auto& entry : string_to_kind) {
     if (stage_name == entry.id) return entry.stage;
   }
@@ -62,6 +79,16 @@ shaderc_shader_kind DeduceDefaultShaderKindFromFileName(
       {"geom", shaderc_glsl_default_geometry_shader},
       {"comp", shaderc_glsl_default_compute_shader},
       {"spvasm", shaderc_spirv_assembly},
+#ifdef NV_EXTENSIONS
+      {"rgen", shaderc_glsl_default_raygen_shader },
+      {"rahit", shaderc_glsl_default_anyhit_shader },
+      {"rchit", shaderc_glsl_default_closesthit_shader },
+      {"rmiss", shaderc_glsl_default_miss_shader },
+      {"rint", shaderc_glsl_default_intersection_shader },
+      {"rcall", shaderc_glsl_default_callable_shader },
+      {"task", shaderc_glsl_default_task_shader },
+      {"mesh", shaderc_glsl_default_mesh_shader },
+#endif
   };
 
   const string_piece extension = glslc::GetFileExtension(file_name);

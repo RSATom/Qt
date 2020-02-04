@@ -1,4 +1,16 @@
+# This file is generated from a similarly-named Perl script in the BoringSSL
+# source tree. Do not edit by hand.
+
+#if defined(__has_feature)
+#if __has_feature(memory_sanitizer) && !defined(OPENSSL_NO_ASM)
+#define OPENSSL_NO_ASM
+#endif
+#endif
+
 #if defined(__x86_64__) && !defined(OPENSSL_NO_ASM)
+#if defined(BORINGSSL_PREFIX)
+#include <boringssl_prefix_symbols_asm.h>
+#endif
 .text	
 
 
@@ -9,6 +21,7 @@
 
 .p2align	4
 _CRYPTO_rdrand:
+
 	xorq	%rax,%rax
 
 
@@ -22,11 +35,13 @@ _CRYPTO_rdrand:
 
 
 
+
 .globl	_CRYPTO_rdrand_multiple8_buf
 .private_extern _CRYPTO_rdrand_multiple8_buf
 
 .p2align	4
 _CRYPTO_rdrand_multiple8_buf:
+
 	testq	%rsi,%rsi
 	jz	L$out
 	movq	$8,%rdx
@@ -45,4 +60,5 @@ L$out:
 L$err:
 	xorq	%rax,%rax
 	.byte	0xf3,0xc3
+
 #endif

@@ -46,12 +46,12 @@ QT_BEGIN_NAMESPACE
 namespace QtWaylandClient {
 
 QWaylandQtKeyExtension::QWaylandQtKeyExtension(QWaylandDisplay *display, uint32_t id)
-    : QtWayland::qt_key_extension(display->wl_registry(), id, 2)
+    : QtWayland::zqt_key_v1(display->wl_registry(), id, 1)
     , m_display(display)
 {
 }
 
-void QWaylandQtKeyExtension::key_extension_qtkey(struct wl_surface *surface,
+void QWaylandQtKeyExtension::zqt_key_v1_key(struct wl_surface *surface,
                                                  uint32_t time,
                                                  uint32_t type,
                                                  uint32_t key,
@@ -70,7 +70,11 @@ void QWaylandQtKeyExtension::key_extension_qtkey(struct wl_surface *surface,
     }
 
     QWaylandInputDevice *dev = inputDevices.first();
-    QWaylandWindow *win = surface ? QWaylandWindow::fromWlSurface(surface) : dev->keyboardFocus();
+
+    auto *win = surface ? QWaylandWindow::fromWlSurface(surface) : nullptr;
+
+    if (!win)
+        win = dev->keyboardFocus();
 
     if (!win || !win->window()) {
         qWarning("qt_key_extension: handle_qtkey: No keyboard focus");

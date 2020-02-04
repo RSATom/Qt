@@ -137,6 +137,8 @@ private slots:
     void nbspWithFormat();
     void noModificationOfInputString();
     void superscriptCrash_qtbug53911();
+    void showLineAndParagraphSeparatorsCrash();
+    void tooManyDirectionalCharctersCrash_qtbug77819();
 
 private:
     QFont testFont;
@@ -203,7 +205,7 @@ void tst_QTextLayout::init()
     testFont.setPixelSize(TESTFONT_SIZE);
     testFont.setWeight(QFont::Normal);
 #ifdef QT_BUILD_INTERNAL
-    QCOMPARE(QFontMetrics(testFont).width('a'), testFont.pixelSize());
+    QCOMPARE(QFontMetrics(testFont).horizontalAdvance('a'), testFont.pixelSize());
 #endif
 }
 
@@ -2199,6 +2201,23 @@ void tst_QTextLayout::noModificationOfInputString()
     }
 }
 
+void tst_QTextLayout::showLineAndParagraphSeparatorsCrash()
+{
+    QString s = QString(100000, QChar('a')) + QChar(QChar::LineSeparator);
+    {
+        QTextLayout layout;
+        layout.setText(s);
+
+        QTextOption option;
+        option.setFlags(QTextOption::ShowLineAndParagraphSeparators);
+        layout.setTextOption(option);
+
+        layout.beginLayout();
+        layout.createLine();
+        layout.endLayout();
+    }
+}
+
 void tst_QTextLayout::superscriptCrash_qtbug53911()
 {
     static int fontSizes = 64;
@@ -2289,6 +2308,22 @@ void tst_QTextLayout::nbspWithFormat()
     QCOMPARE(layout.lineAt(0).textLength(), s1.length());
     QCOMPARE(layout.lineAt(1).textStart(), s1.length());
     QCOMPARE(layout.lineAt(1).textLength(), s2.length() + 1 + s3.length());
+}
+
+void tst_QTextLayout::tooManyDirectionalCharctersCrash_qtbug77819()
+{
+    QString data;
+    data += QString::fromUtf8("\xe2\x81\xa8"); // U+2068 FSI character
+    data += QString::fromUtf8("\xe2\x81\xa7"); // U+2067 RLI character
+
+    // duplicating the text
+    for (int i = 0; i < 10; i++)
+        data += data;
+
+    // Nothing to test. It must not crash in beginLayout().
+    QTextLayout tl(data);
+    tl.beginLayout();
+    tl.endLayout();
 }
 
 QTEST_MAIN(tst_QTextLayout)

@@ -71,7 +71,8 @@ class MEDIA_EXPORT FFmpegGlue {
 
   // Opens an AVFormatContext specially prepared to process reads and seeks
   // through the FFmpegURLProtocol provided during construction.
-  bool OpenContext();
+  // |is_local_file| is an optional parameter used for metrics reporting.
+  bool OpenContext(bool is_local_file = false);
   AVFormatContext* format_context() { return format_context_; }
   // Returns the container name.
   // Note that it is only available after calling OpenContext.
@@ -80,8 +81,12 @@ class MEDIA_EXPORT FFmpegGlue {
     return container_;
   }
 
+  // Used on Android to switch to using the native MediaPlayer to play HLS.
+  bool detected_hls() { return detected_hls_; }
+
  private:
   bool open_called_ = false;
+  bool detected_hls_ = false;
   AVFormatContext* format_context_ = nullptr;
   std::unique_ptr<AVIOContext, ScopedPtrAVFree> avio_context_;
   container_names::MediaContainerName container_ =

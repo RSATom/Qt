@@ -25,17 +25,18 @@ cr.define('descriptor_list', function() {
    * A fieldset is created within the element for the primitive
    * properties, 'id' and 'uuid' within the DescriptorInfo object.
    * @constructor
-   * @param {!interfaces.BluetoothDevice.DescriptorInfo} descriptorInfo
+   * @param {!bluetooth.mojom.DescriptorInfo} descriptorInfo
    * @param {string} deviceAddress
    * @param {string} serviceId
    * @param {string} characteristicId
+   * @extends {expandable_list.ExpandableListItem}
    */
   function DescriptorListItem(
       descriptorInfo, deviceAddress, serviceId, characteristicId) {
     var listItem = new ExpandableListItem();
     listItem.__proto__ = DescriptorListItem.prototype;
 
-    /** @type {!interfaces.BluetoothDevice.DescriptorInfo} */
+    /** @type {!bluetooth.mojom.DescriptorInfo} */
     listItem.info = descriptorInfo;
     /** @private {string} */
     listItem.deviceAddress_ = deviceAddress;
@@ -60,7 +61,7 @@ cr.define('descriptor_list', function() {
       this.classList.add('descriptor-list-item');
 
       /** @private {!object_fieldset.ObjectFieldSet} */
-      this.descriptorFieldSet_ = object_fieldset.ObjectFieldSet();
+      this.descriptorFieldSet_ = new object_fieldset.ObjectFieldSet();
       this.descriptorFieldSet_.setPropertyDisplayNames(INFO_PROPERTY_NAMES);
       this.descriptorFieldSet_.setObject({
         id: this.info.id,
@@ -113,6 +114,7 @@ cr.define('descriptor_list', function() {
   /**
    * A list that displays DescriptorListItems.
    * @constructor
+   * @extends {expandable_list.ExpandableList}
    */
   var DescriptorList = cr.ui.define('list');
 
@@ -136,10 +138,10 @@ cr.define('descriptor_list', function() {
       this.setEmptyMessage('No Descriptors Found');
     },
 
-    /** @override */
     createItem: function(data) {
       return new DescriptorListItem(
-          data, this.deviceAddress_, this.serviceId_, this.characteristicId_);
+          data, assert(this.deviceAddress_), assert(this.serviceId_),
+          assert(this.characteristicId_));
     },
 
     /**
@@ -152,8 +154,9 @@ cr.define('descriptor_list', function() {
      * @param {string} characteristicId
      */
     load: function(deviceAddress, serviceId, characteristicId) {
-      if (this.descriptorsRequested_ || !this.isSpinnerShowing())
+      if (this.descriptorsRequested_ || !this.isSpinnerShowing()) {
         return;
+      }
 
       this.deviceAddress_ = deviceAddress;
       this.serviceId_ = serviceId;

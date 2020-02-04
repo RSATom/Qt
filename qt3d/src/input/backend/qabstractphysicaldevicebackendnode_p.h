@@ -66,12 +66,12 @@ namespace Qt3DInput {
 class QInputAspect;
 class QAbstractPhysicalDeviceBackendNodePrivate;
 
-class QT3DINPUTSHARED_PRIVATE_EXPORT QAbstractPhysicalDeviceBackendNode : public Qt3DCore::QBackendNode
+class Q_3DINPUTSHARED_PRIVATE_EXPORT QAbstractPhysicalDeviceBackendNode : public Qt3DCore::QBackendNode
 {
 public:
     explicit QAbstractPhysicalDeviceBackendNode(QBackendNode::Mode mode);
     virtual void cleanup();
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     void setInputAspect(QInputAspect *aspect);
     QInputAspect *inputAspect() const;
@@ -83,7 +83,7 @@ public:
 protected:
     QAbstractPhysicalDeviceBackendNode(QAbstractPhysicalDeviceBackendNodePrivate &dd);
 
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_OVERRIDE;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) override;
 
     Q_DECLARE_PRIVATE(QAbstractPhysicalDeviceBackendNode)
 };

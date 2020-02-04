@@ -38,6 +38,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/base_export.h"
@@ -45,17 +46,15 @@
 #include "base/callback.h"
 #include "base/containers/small_map.h"
 #include "base/macros.h"
-#include "base/memory/weak_ptr.h"
+#include "base/memory/ref_counted.h"
 #include "base/post_task_and_reply_with_result_internal.h"
 #include "base/sequence_checker.h"
-
-namespace tracked_objects {
-class Location;
-}  // namespace tracked_objects
+#include "base/synchronization/atomic_flag.h"
 
 namespace base {
 
-class CancellationFlag;
+class Location;
+class ScopedClosureRunner;
 class TaskRunner;
 
 class BASE_EXPORT CancelableTaskTracker {
@@ -72,20 +71,20 @@ class BASE_EXPORT CancelableTaskTracker {
   ~CancelableTaskTracker();
 
   TaskId PostTask(TaskRunner* task_runner,
-                  const tracked_objects::Location& from_here,
+                  const Location& from_here,
                   OnceClosure task);
 
   TaskId PostTaskAndReply(TaskRunner* task_runner,
-                          const tracked_objects::Location& from_here,
+                          const Location& from_here,
                           OnceClosure task,
                           OnceClosure reply);
 
   template <typename TaskReturnType, typename ReplyArgType>
   TaskId PostTaskAndReplyWithResult(TaskRunner* task_runner,
-                                    const tracked_objects::Location& from_here,
+                                    const Location& from_here,
                                     OnceCallback<TaskReturnType()> task,
                                     OnceCallback<void(ReplyArgType)> reply) {
-    TaskReturnType* result = new TaskReturnType();
+    auto* result = new std::unique_ptr<TaskReturnType>();
     return PostTaskAndReply(
         task_runner, from_here,
         BindOnce(&internal::ReturnAsParamAdapter<TaskReturnType>,
@@ -101,7 +100,7 @@ class BASE_EXPORT CancelableTaskTracker {
   // TODO(tzik): Update all callers of the Callback version to use OnceCallback.
   template <typename TaskReturnType, typename ReplyArgType>
   TaskId PostTaskAndReplyWithResult(TaskRunner* task_runner,
-                                    const tracked_objects::Location& from_here,
+                                    const Location& from_here,
                                     Callback<TaskReturnType()> task,
                                     Callback<void(ReplyArgType)> reply) {
     return PostTaskAndReplyWithResult(
@@ -139,19 +138,32 @@ class BASE_EXPORT CancelableTaskTracker {
   bool HasTrackedTasks() const;
 
  private:
-  void Track(TaskId id, CancellationFlag* flag);
+  // Cancellation flags are ref-counted to ensure they remain valid even if the
+  // tracker and its calling thread are torn down while there are still
+  // cancelable tasks queued to the target TaskRunner.
+  // See https://crbug.com/918948.
+  using TaskCancellationFlag = RefCountedData<AtomicFlag>;
+
+  static void RunIfNotCanceled(const TaskCancellationFlag* flag,
+                               OnceClosure task);
+  static void RunThenUntrackIfNotCanceled(const TaskCancellationFlag* flag,
+                                          OnceClosure task,
+                                          OnceClosure untrack);
+  static bool IsCanceled(const TaskCancellationFlag* flag,
+                         const ScopedClosureRunner& cleanup_runner);
+
+  void Track(TaskId id, scoped_refptr<TaskCancellationFlag> flag);
   void Untrack(TaskId id);
 
   // Typically the number of tasks are 0-2 and occationally 3-4. But since
   // this is a general API that could be used in unexpected ways, use a
   // small_map instead of a flat_map to avoid falling over if there are many
   // tasks.
-  small_map<std::map<TaskId, CancellationFlag*>, 4> task_flags_;
+  small_map<std::map<TaskId, scoped_refptr<TaskCancellationFlag>>, 4>
+      task_flags_;
 
-  TaskId next_id_;
+  TaskId next_id_ = 1;
   SequenceChecker sequence_checker_;
-
-  WeakPtrFactory<CancelableTaskTracker> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(CancelableTaskTracker);
 };

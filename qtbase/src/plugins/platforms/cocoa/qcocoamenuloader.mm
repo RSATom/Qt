@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -41,6 +41,7 @@
 
 #include "messages.h"
 #include "qcocoahelpers.h"
+#include "qcocoansmenu.h"
 #include "qcocoamenubar.h"
 #include "qcocoamenuitem.h"
 #include "qcocoaintegration.h"
@@ -50,15 +51,30 @@
 #include <QtCore/qcoreapplication.h>
 #include <QtGui/private/qguiapplication_p.h>
 
-@implementation QCocoaMenuLoader
+@implementation QCocoaMenuLoader {
+    NSMenu *theMenu;
+    NSMenu *appMenu;
+    NSMenuItem *quitItem;
+    NSMenuItem *preferencesItem;
+    NSMenuItem *aboutItem;
+    NSMenuItem *aboutQtItem;
+    NSMenuItem *hideItem;
+    NSMenuItem *servicesItem;
+    NSMenuItem *hideAllOthersItem;
+    NSMenuItem *showAllItem;
+}
 
 + (instancetype)sharedMenuLoader
 {
     static QCocoaMenuLoader *shared = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-                      shared = [[self alloc] init];
-                  });
+        shared = [[self alloc] init];
+        atexit_b(^{
+            [shared release];
+            shared = nil;
+        });
+    });
     return shared;
 }
 
@@ -79,17 +95,19 @@
         appItem.submenu = appMenu;
 
         // About Application
-        aboutItem = [[NSMenuItem alloc] initWithTitle:[@"About " stringByAppendingString:appName]
-                                               action:@selector(orderFrontStandardAboutPanel:)
-                                        keyEquivalent:@""];
+        aboutItem = [[QCocoaNSMenuItem alloc] init];
+        aboutItem.title = [@"About " stringByAppendingString:appName];
+        // FIXME This seems useless since barely adding a QAction
+        // with AboutRole role will reset the target/action
         aboutItem.target = self;
+        aboutItem.action = @selector(orderFrontStandardAboutPanel:);
         // Disable until a QAction is associated
         aboutItem.enabled = NO;
         aboutItem.hidden = YES;
         [appMenu addItem:aboutItem];
 
         // About Qt (shameless self-promotion)
-        aboutQtItem = [[NSMenuItem alloc] init];
+        aboutQtItem = [[QCocoaNSMenuItem alloc] init];
         aboutQtItem.title = @"About Qt";
         // Disable until a QAction is associated
         aboutQtItem.enabled = NO;
@@ -99,10 +117,12 @@
         [appMenu addItem:[NSMenuItem separatorItem]];
 
         // Preferences
-        preferencesItem = [[NSMenuItem alloc] initWithTitle:@"Preferences…"
-                                                     action:@selector(qtDispatcherToQPAMenuItem:)
-                                              keyEquivalent:@","];
-        preferencesItem.target = self;
+        // We'll be adding app specific items after this. The macOS HIG state that,
+        // "In general, a Preferences menu item should be the first app-specific menu item."
+        // https://developer.apple.com/macos/human-interface-guidelines/menus/menu-bar-menus/
+        preferencesItem = [[QCocoaNSMenuItem alloc] init];
+        preferencesItem.title = @"Preferences…";
+        preferencesItem.keyEquivalent = @",";
         // Disable until a QAction is associated
         preferencesItem.enabled = NO;
         preferencesItem.hidden = YES;
@@ -132,7 +152,7 @@
                                                        action:@selector(hideOtherApplications:)
                                                 keyEquivalent:@"h"];
         hideAllOthersItem.target = self;
-        hideAllOthersItem.keyEquivalentModifierMask = NSCommandKeyMask | NSAlternateKeyMask;
+        hideAllOthersItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagOption;
         [appMenu addItem:hideAllOthersItem];
 
         // Show All
@@ -145,10 +165,13 @@
         [appMenu addItem:[NSMenuItem separatorItem]];
 
         // Quit Application
-        quitItem = [[NSMenuItem alloc] initWithTitle:[@"Quit " stringByAppendingString:appName]
-                                              action:@selector(terminate:)
-                                       keyEquivalent:@"q"];
-        quitItem.target = self;
+        quitItem = [[QCocoaNSMenuItem alloc] init];
+        quitItem.title = [@"Quit " stringByAppendingString:appName];
+        quitItem.keyEquivalent = @"q";
+        // This will remain true until synced with a QCocoaMenuItem.
+        // This way, we will always have a functional Quit menu item
+        // even if no QAction is added.
+        quitItem.action = @selector(terminate:);
         [appMenu addItem:quitItem];
     }
 
@@ -168,8 +191,6 @@
     [showAllItem release];
     [quitItem release];
 
-    [lastAppSpecificItem release];
-
     [super dealloc];
 }
 
@@ -180,39 +201,30 @@
     // windows with different menu bars), we never recreate this menu, but
     // instead pull it out the current menu bar and place into the new one:
     NSMenu *mainMenu = [NSApp mainMenu];
-    if ([NSApp mainMenu] == menu)
+    if (mainMenu == menu)
         return; // nothing to do (menu is the current menu bar)!
 
 #ifndef QT_NAMESPACE
     Q_ASSERT(mainMenu);
 #endif
     // Grab the app menu out of the current menu.
-    int numItems = [mainMenu numberOfItems];
-    NSMenuItem *oldAppMenuItem = 0;
-    for (int i = 0; i < numItems; ++i) {
-        NSMenuItem *item = [mainMenu itemAtIndex:i];
-        if ([item submenu] == appMenu) {
-            oldAppMenuItem = item;
-            [oldAppMenuItem retain];
-            [mainMenu removeItemAtIndex:i];
-            break;
+    auto unparentAppMenu = ^bool (NSMenu *supermenu) {
+        auto index = [supermenu indexOfItemWithSubmenu:appMenu];
+        if (index != -1) {
+            [supermenu removeItemAtIndex:index];
+            return true;
         }
-    }
+        return false;
+    };
 
-    if (oldAppMenuItem) {
-        [oldAppMenuItem setSubmenu:nil];
-        [oldAppMenuItem release];
-        NSMenuItem *appMenuItem = [[NSMenuItem alloc] initWithTitle:@"Apple"
-            action:nil keyEquivalent:@""];
-        [appMenuItem setSubmenu:appMenu];
-        [menu insertItem:appMenuItem atIndex:0];
-    }
-}
+    if (!mainMenu || !unparentAppMenu(mainMenu))
+        if (appMenu.supermenu)
+            unparentAppMenu(appMenu.supermenu);
 
-- (void)removeActionsFromAppMenu
-{
-    for (NSMenuItem *item in [appMenu itemArray])
-        [item setTag:0];
+    NSMenuItem *appMenuItem = [[NSMenuItem alloc] initWithTitle:@"Apple"
+                               action:nil keyEquivalent:@""];
+    appMenuItem.submenu = appMenu;
+    [menu insertItem:appMenuItem atIndex:0];
 }
 
 - (NSMenu *)menu
@@ -250,39 +262,25 @@
     return [[hideItem retain] autorelease];
 }
 
-- (NSMenuItem *)appSpecificMenuItem:(NSInteger)tag
+- (NSMenuItem *)appSpecificMenuItem:(QCocoaMenuItem *)platformItem
 {
-    NSMenuItem *item = [appMenu itemWithTag:tag];
-
-    // No reason to create the item if it already exists. See QTBUG-27202.
-    if (item)
-        return [[item retain] autorelease];
+    // No reason to create the item if it already exists.
+    for (NSMenuItem *item in appMenu.itemArray)
+        if (qt_objc_cast<QCocoaNSMenuItem *>(item).platformMenuItem == platformItem)
+            return item;
 
     // Create an App-Specific menu item, insert it into the menu and return
     // it as an autorelease item.
-    item = [[NSMenuItem alloc] init];
+    QCocoaNSMenuItem *item;
+    if (platformItem->isSeparator())
+        item = [QCocoaNSMenuItem separatorItemWithPlatformMenuItem:platformItem];
+    else
+        item = [[[QCocoaNSMenuItem alloc] initWithPlatformMenuItem:platformItem] autorelease];
 
-    NSInteger location;
-    if (lastAppSpecificItem == nil) {
-        location = [appMenu indexOfItem:aboutQtItem];
-    } else {
-        location = [appMenu indexOfItem:lastAppSpecificItem];
-        [lastAppSpecificItem release];
-    }
-    lastAppSpecificItem = item;  // Keep track of this for later (i.e., don't release it)
-    [appMenu insertItem:item atIndex:location + 1];
+    const auto location = [self indexOfLastAppSpecificMenuItem];
+    [appMenu insertItem:item atIndex:NSInteger(location) + 1];
 
-    return [[item retain] autorelease];
-}
-
-- (BOOL) acceptsFirstResponder
-{
-    return YES;
-}
-
-- (void)terminate:(id)sender
-{
-    [NSApp terminate:sender];
+    return item;
 }
 
 - (void)orderFrontStandardAboutPanel:(id)sender
@@ -307,62 +305,53 @@
 
 - (void)qtTranslateApplicationMenu
 {
-
 #ifndef QT_NO_TRANSLATION
-    [servicesItem setTitle:qt_mac_applicationmenu_string(ServicesAppMenuItem).toNSString()];
-    [hideItem setTitle:qt_mac_applicationmenu_string(HideAppMenuItem).arg(qt_mac_applicationName()).toNSString()];
-    [hideAllOthersItem setTitle:qt_mac_applicationmenu_string(HideOthersAppMenuItem).toNSString()];
-    [showAllItem setTitle:qt_mac_applicationmenu_string(ShowAllAppMenuItem).toNSString()];
-    [preferencesItem setTitle:qt_mac_applicationmenu_string(PreferencesAppMenuItem).toNSString()];
-    [quitItem setTitle:qt_mac_applicationmenu_string(QuitAppMenuItem).arg(qt_mac_applicationName()).toNSString()];
-    [aboutItem setTitle:qt_mac_applicationmenu_string(AboutAppMenuItem).arg(qt_mac_applicationName()).toNSString()];
+    aboutItem.title = qt_mac_applicationmenu_string(AboutAppMenuItem).arg(qt_mac_applicationName()).toNSString();
+    preferencesItem.title = qt_mac_applicationmenu_string(PreferencesAppMenuItem).toNSString();
+    servicesItem.title = qt_mac_applicationmenu_string(ServicesAppMenuItem).toNSString();
+    hideItem.title = qt_mac_applicationmenu_string(HideAppMenuItem).arg(qt_mac_applicationName()).toNSString();
+    hideAllOthersItem.title = qt_mac_applicationmenu_string(HideOthersAppMenuItem).toNSString();
+    showAllItem.title = qt_mac_applicationmenu_string(ShowAllAppMenuItem).toNSString();
+    quitItem.title = qt_mac_applicationmenu_string(QuitAppMenuItem).arg(qt_mac_applicationName()).toNSString();
 #endif
-}
-
-- (IBAction)qtDispatcherToQPAMenuItem:(id)sender
-{
-    NSMenuItem *item = static_cast<NSMenuItem *>(sender);
-    if (item == quitItem) {
-        // We got here because someone was once the quitItem, but it has been
-        // abandoned (e.g., the menubar was deleted). In the meantime, just do
-        // normal QApplication::quit().
-        qApp->quit();
-        return;
-    }
-
-    if ([item tag]) {
-        QCocoaMenuItem *cocoaItem = reinterpret_cast<QCocoaMenuItem *>([item tag]);
-        QScopedScopeLevelCounter scopeLevelCounter(QGuiApplicationPrivate::instance()->threadData);
-        cocoaItem->activated();
-    }
-}
-
-- (void)orderFrontCharacterPalette:(id)sender
-{
-    [NSApp orderFrontCharacterPalette:sender];
 }
 
 - (BOOL)validateMenuItem:(NSMenuItem*)menuItem
 {
-    if ([menuItem action] == @selector(hideOtherApplications:)
-        || [menuItem action] == @selector(unhideAllApplications:)) {
+    if (menuItem.action == @selector(hideOtherApplications:)
+        || menuItem.action == @selector(unhideAllApplications:))
         return [NSApp validateMenuItem:menuItem];
-    } else if ([menuItem action] == @selector(hide:)) {
+
+    if (menuItem.action == @selector(hide:)) {
         if (QCocoaIntegration::instance()->activePopupWindow())
             return NO;
         return [NSApp validateMenuItem:menuItem];
-    } else if ([menuItem tag]) {
-        QCocoaMenuItem *cocoaItem = reinterpret_cast<QCocoaMenuItem *>([menuItem tag]);
-        return cocoaItem->isEnabled();
-    } else {
-        return [menuItem isEnabled];
     }
+
+    return menuItem.enabled;
 }
 
-- (NSArray*) mergeable
+- (NSArray<NSMenuItem *> *)mergeable
 {
-    // don't include the quitItem here, since we want it always visible and enabled regardless
-    return [NSArray arrayWithObjects:preferencesItem, aboutItem, aboutQtItem, lastAppSpecificItem, nil];
+    // Don't include the quitItem here, since we want it always visible and enabled regardless
+    auto items = [NSArray arrayWithObjects:preferencesItem, aboutItem,  aboutQtItem,
+                  appMenu.itemArray[[self indexOfLastAppSpecificMenuItem]], nil];
+    return items;
 }
+
+- (NSUInteger)indexOfLastAppSpecificMenuItem
+{
+    // Either the 'Preferences', which is the first app specific menu item, or something
+    // else we appended later (thus the reverse order):
+    const auto location = [appMenu.itemArray indexOfObjectWithOptions:NSEnumerationReverse
+                           passingTest:^BOOL(NSMenuItem *item, NSUInteger, BOOL *) {
+                               if (auto qtItem = qt_objc_cast<QCocoaNSMenuItem*>(item))
+                                   return qtItem != quitItem;
+                              return NO;
+                           }];
+    Q_ASSERT(location != NSNotFound);
+    return location;
+}
+
 
 @end

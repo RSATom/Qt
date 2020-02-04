@@ -4,4 +4,6 @@ include_rules = [
   '+../enc',
   '+../utils',
   '+../webp',
+  '+src',
+  '+fuzzing',
 ]

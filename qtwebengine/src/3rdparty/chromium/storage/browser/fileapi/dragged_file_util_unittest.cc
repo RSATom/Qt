@@ -6,20 +6,21 @@
 
 #include <map>
 #include <memory>
-#include <queue>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "base/containers/queue.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
+#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/services/filesystem/public/interfaces/types.mojom.h"
 #include "storage/browser/fileapi/dragged_file_util.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_operation_context.h"
@@ -29,6 +30,7 @@
 #include "storage/browser/test/async_file_test_helper.h"
 #include "storage/browser/test/fileapi_test_file_set.h"
 #include "storage/browser/test/test_file_system_context.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using content::AsyncFileTestHelper;
@@ -41,16 +43,14 @@ namespace content {
 
 namespace {
 
-typedef AsyncFileTestHelper::FileEntryList FileEntryList;
+using FileEntryList = AsyncFileTestHelper::FileEntryList;
 
 // Used in DraggedFileUtilTest::SimulateDropFiles().
 // Random root paths in which we create each file/directory of the
 // RegularTestCases (so that we can simulate a drop with files/directories
 // from multiple directories).
-static const base::FilePath::CharType* kRootPaths[] = {
-  FILE_PATH_LITERAL("a"),
-  FILE_PATH_LITERAL("b/c"),
-  FILE_PATH_LITERAL("etc"),
+constexpr const base::FilePath::CharType* kRootPaths[] = {
+    FILE_PATH_LITERAL("a"), FILE_PATH_LITERAL("b/c"), FILE_PATH_LITERAL("etc"),
 };
 
 base::FilePath GetTopLevelPath(const base::FilePath& path) {
@@ -100,7 +100,7 @@ FileSystemURL GetOtherURL(FileSystemContext* file_system_context,
 
 class DraggedFileUtilTest : public testing::Test {
  public:
-  DraggedFileUtilTest() {}
+  DraggedFileUtilTest() = default;
 
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
@@ -112,7 +112,7 @@ class DraggedFileUtilTest : public testing::Test {
     SimulateDropFiles();
 
     file_system_context_ = CreateFileSystemContextForTesting(
-        NULL /* quota_manager */, partition_dir_.GetPath());
+        nullptr /* quota_manager */, partition_dir_.GetPath());
 
     isolated_context()->AddReference(filesystem_id_);
   }
@@ -201,7 +201,7 @@ class DraggedFileUtilTest : public testing::Test {
     base::FilePath root_path2 = root2.path();
 
     FileEntryList entries;
-    std::queue<FileSystemURL> directories;
+    base::queue<FileSystemURL> directories;
 
     directories.push(root1);
     std::set<base::FilePath> file_set1;
@@ -213,9 +213,9 @@ class DraggedFileUtilTest : public testing::Test {
                 AsyncFileTestHelper::ReadDirectory(
                     file_system_context(), dir, &entries));
       for (size_t i = 0; i < entries.size(); ++i) {
-        FileSystemURL url = GetEntryURL(file_system_context(),
-                                        dir, entries[i].name);
-        if (entries[i].is_directory) {
+        FileSystemURL url =
+            GetEntryURL(file_system_context(), dir, entries[i].name.value());
+        if (entries[i].type == filesystem::mojom::FsFileType::DIRECTORY) {
           directories.push(url);
           continue;
         }
@@ -232,11 +232,11 @@ class DraggedFileUtilTest : public testing::Test {
                 AsyncFileTestHelper::ReadDirectory(
                     file_system_context(), dir, &entries));
       for (size_t i = 0; i < entries.size(); ++i) {
-        FileSystemURL url2 = GetEntryURL(file_system_context(),
-                                         dir, entries[i].name);
+        FileSystemURL url2 =
+            GetEntryURL(file_system_context(), dir, entries[i].name.value());
         FileSystemURL url1 = GetOtherURL(file_system_context(),
                                          root2, root1, url2);
-        if (entries[i].is_directory) {
+        if (entries[i].type == filesystem::mojom::FsFileType::DIRECTORY) {
           directories.push(url2);
           EXPECT_EQ(IsDirectoryEmpty(file_system_context(), url1),
                     IsDirectoryEmpty(file_system_context(), url2));
@@ -250,7 +250,7 @@ class DraggedFileUtilTest : public testing::Test {
   }
 
   std::unique_ptr<storage::FileSystemOperationContext> GetOperationContext() {
-    return base::MakeUnique<storage::FileSystemOperationContext>(
+    return std::make_unique<storage::FileSystemOperationContext>(
         file_system_context());
   }
 
@@ -270,9 +270,9 @@ class DraggedFileUtilTest : public testing::Test {
       // to simulate a drop with multiple directories.
       if (toplevel_root_map_.find(toplevel) == toplevel_root_map_.end()) {
         base::FilePath root = root_path().Append(
-            kRootPaths[(root_path_index++) % arraysize(kRootPaths)]);
+            kRootPaths[(root_path_index++) % base::size(kRootPaths)]);
         toplevel_root_map_[toplevel] = root;
-        toplevels.AddPath(root.Append(path), NULL);
+        toplevels.AddPath(root.Append(path), nullptr);
       }
 
       SetUpOneFileSystemTestCase(toplevel_root_map_[toplevel], test_case);
@@ -327,7 +327,7 @@ TEST_F(DraggedFileUtilTest, UnregisteredPathsTest) {
     {false, FILE_PATH_LITERAL("bar"), 20},
   };
 
-  for (size_t i = 0; i < arraysize(kUnregisteredCases); ++i) {
+  for (size_t i = 0; i < base::size(kUnregisteredCases); ++i) {
     SCOPED_TRACE(testing::Message() << "Creating kUnregisteredCases " << i);
     const FileSystemTestCaseRecord& test_case = kUnregisteredCases[i];
 
@@ -342,7 +342,7 @@ TEST_F(DraggedFileUtilTest, UnregisteredPathsTest) {
     ASSERT_EQ(test_case.is_directory, info.is_directory);
   }
 
-  for (size_t i = 0; i < arraysize(kUnregisteredCases); ++i) {
+  for (size_t i = 0; i < base::size(kUnregisteredCases); ++i) {
     SCOPED_TRACE(testing::Message() << "Creating kUnregisteredCases " << i);
     const FileSystemTestCaseRecord& test_case = kUnregisteredCases[i];
     FileSystemURL url = GetFileSystemURL(base::FilePath(test_case.path));
@@ -363,8 +363,8 @@ TEST_F(DraggedFileUtilTest, ReadDirectoryTest) {
                  << ": " << test_case.path);
 
     // Read entries in the directory to construct the expected results map.
-    typedef std::map<base::FilePath::StringType, storage::DirectoryEntry>
-        EntryMap;
+    using EntryMap =
+        std::map<base::FilePath::StringType, filesystem::mojom::DirectoryEntry>;
     EntryMap expected_entry_map;
 
     base::FilePath dir_path = GetTestCasePlatformPath(test_case.path);
@@ -374,10 +374,13 @@ TEST_F(DraggedFileUtilTest, ReadDirectoryTest) {
     base::FilePath current;
     while (!(current = file_enum.Next()).empty()) {
       base::FileEnumerator::FileInfo file_info = file_enum.GetInfo();
-      storage::DirectoryEntry entry;
-      entry.is_directory = file_info.IsDirectory();
-      entry.name = current.BaseName().value();
-      expected_entry_map[entry.name] = entry;
+      filesystem::mojom::DirectoryEntry entry;
+      entry.type = file_info.IsDirectory()
+                       ? filesystem::mojom::FsFileType::DIRECTORY
+                       : filesystem::mojom::FsFileType::REGULAR_FILE;
+
+      entry.name = current.BaseName();
+      expected_entry_map[entry.name.value()] = entry;
 
 #if defined(OS_POSIX)
       // Creates a symlink for each file/directory.
@@ -399,11 +402,11 @@ TEST_F(DraggedFileUtilTest, ReadDirectoryTest) {
 
     EXPECT_EQ(expected_entry_map.size(), entries.size());
     for (size_t i = 0; i < entries.size(); ++i) {
-      const storage::DirectoryEntry& entry = entries[i];
-      EntryMap::iterator found = expected_entry_map.find(entry.name);
+      const filesystem::mojom::DirectoryEntry& entry = entries[i];
+      auto found = expected_entry_map.find(entry.name.value());
       EXPECT_TRUE(found != expected_entry_map.end());
       EXPECT_EQ(found->second.name, entry.name);
-      EXPECT_EQ(found->second.is_directory, entry.is_directory);
+      EXPECT_EQ(found->second.type, entry.type);
     }
   }
 }
@@ -429,7 +432,7 @@ TEST_F(DraggedFileUtilTest, CopyOutFileTest) {
   FileSystemURL dest_root = GetOtherFileSystemURL(base::FilePath());
 
   FileEntryList entries;
-  std::queue<FileSystemURL> directories;
+  base::queue<FileSystemURL> directories;
   directories.push(src_root);
 
   ASSERT_EQ(base::File::FILE_OK,
@@ -443,12 +446,12 @@ TEST_F(DraggedFileUtilTest, CopyOutFileTest) {
               AsyncFileTestHelper::ReadDirectory(file_system_context(),
                                                  dir, &entries));
     for (size_t i = 0; i < entries.size(); ++i) {
-      FileSystemURL src_url = GetEntryURL(file_system_context(),
-                                          dir, entries[i].name);
+      FileSystemURL src_url =
+          GetEntryURL(file_system_context(), dir, entries[i].name.value());
       FileSystemURL dest_url = GetOtherURL(file_system_context(),
                                            src_root, dest_root, src_url);
 
-      if (entries[i].is_directory) {
+      if (entries[i].type == filesystem::mojom::FsFileType::DIRECTORY) {
         ASSERT_EQ(base::File::FILE_OK,
                   AsyncFileTestHelper::CreateDirectory(file_system_context(),
                                                        dest_url));
@@ -478,10 +481,10 @@ TEST_F(DraggedFileUtilTest, CopyOutDirectoryTest) {
             AsyncFileTestHelper::ReadDirectory(file_system_context(),
                                                src_root, &entries));
   for (size_t i = 0; i < entries.size(); ++i) {
-    if (!entries[i].is_directory)
+    if (entries[i].type != filesystem::mojom::FsFileType::DIRECTORY)
       continue;
-    FileSystemURL src_url = GetEntryURL(file_system_context(),
-                                        src_root, entries[i].name);
+    FileSystemURL src_url =
+        GetEntryURL(file_system_context(), src_root, entries[i].name.value());
     FileSystemURL dest_url = GetOtherURL(file_system_context(),
                                          src_root, dest_root, src_url);
     SCOPED_TRACE(testing::Message() << "Testing file copy "
@@ -549,6 +552,70 @@ TEST_F(DraggedFileUtilTest, TruncateTest) {
                                        &info, &platform_path));
     EXPECT_EQ(999, info.size);
   }
+}
+
+TEST_F(DraggedFileUtilTest, EnumerateTest) {
+  FileSystemURL url =
+      GetFileSystemURL(base::FilePath(FILE_PATH_LITERAL("dir a")));
+  auto enumerator = file_util()->CreateFileEnumerator(
+      GetOperationContext().get(), url, false);
+  std::vector<base::FilePath> contents;
+  for (base::FilePath path = enumerator->Next(); !path.empty();
+       path = enumerator->Next()) {
+    base::FilePath relative;
+    root_path()
+        .Append(base::FilePath(FILE_PATH_LITERAL("a")))
+        .AppendRelativePath(path, &relative);
+    contents.push_back(relative);
+  }
+  EXPECT_THAT(contents, testing::UnorderedElementsAre(
+                            base::FilePath(FILE_PATH_LITERAL("dir a/dir A"))
+                                .NormalizePathSeparators(),
+                            base::FilePath(FILE_PATH_LITERAL("dir a/dir d"))
+                                .NormalizePathSeparators(),
+                            base::FilePath(FILE_PATH_LITERAL("dir a/file 0"))
+                                .NormalizePathSeparators()));
+}
+
+TEST_F(DraggedFileUtilTest, EnumerateRecursivelyTest) {
+  FileSystemURL url =
+      GetFileSystemURL(base::FilePath(FILE_PATH_LITERAL("dir a")));
+  auto enumerator =
+      file_util()->CreateFileEnumerator(GetOperationContext().get(), url, true);
+  std::vector<base::FilePath> contents;
+  for (base::FilePath path = enumerator->Next(); !path.empty();
+       path = enumerator->Next()) {
+    base::FilePath relative;
+    root_path()
+        .Append(base::FilePath(FILE_PATH_LITERAL("a")))
+        .AppendRelativePath(path, &relative);
+    contents.push_back(relative);
+  }
+  EXPECT_THAT(
+      contents,
+      testing::UnorderedElementsAre(
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir A"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/file 0"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d/dir e"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d/dir e/dir f"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d/dir e/dir g"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d/dir e/dir g/file 0"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d/dir e/dir g/file 1"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d/dir e/dir g/file 2"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d/dir e/dir g/file 3"))
+              .NormalizePathSeparators(),
+          base::FilePath(FILE_PATH_LITERAL("dir a/dir d/dir e/dir h"))
+              .NormalizePathSeparators()));
 }
 
 }  // namespace content

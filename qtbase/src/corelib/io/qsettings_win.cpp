@@ -39,8 +39,6 @@
 
 #include "qsettings.h"
 
-#ifndef QT_NO_SETTINGS
-
 #include "qsettings_p.h"
 #include "qvector.h"
 #include "qmap.h"
@@ -377,23 +375,24 @@ typedef QVector<RegistryKey> RegistryKeyList;
 
 class QWinSettingsPrivate : public QSettingsPrivate
 {
+    Q_DISABLE_COPY(QWinSettingsPrivate)
 public:
     QWinSettingsPrivate(QSettings::Scope scope, const QString &organization,
                         const QString &application, REGSAM access = 0);
     QWinSettingsPrivate(QString rKey, REGSAM access = 0);
-    ~QWinSettingsPrivate();
+    ~QWinSettingsPrivate() override;
 
-    void remove(const QString &uKey);
-    void set(const QString &uKey, const QVariant &value);
-    bool get(const QString &uKey, QVariant *value) const;
-    QStringList children(const QString &uKey, ChildSpec spec) const;
-    void clear();
-    void sync();
-    void flush();
-    bool isWritable() const;
+    void remove(const QString &uKey) override;
+    void set(const QString &uKey, const QVariant &value) override;
+    bool get(const QString &uKey, QVariant *value) const override;
+    QStringList children(const QString &uKey, ChildSpec spec) const override;
+    void clear() override;
+    void sync() override;
+    void flush() override;
+    bool isWritable() const override;
     HKEY writeHandle() const;
     bool readKey(HKEY parentHandle, const QString &rSubKey, QVariant *value) const;
-    QString fileName() const;
+    QString fileName() const override;
 
 private:
     RegistryKeyList regList; // list of registry locations to search for keys
@@ -515,7 +514,7 @@ bool QWinSettingsPrivate::readKey(HKEY parentHandle, const QString &rSubKey, QVa
         case REG_SZ: {
             QString s;
             if (dataSize) {
-                s = QString::fromWCharArray(((const wchar_t *)data.constData()));
+                s = QString::fromWCharArray(reinterpret_cast<const wchar_t *>(data.constData()));
             }
             if (value != 0)
                 *value = stringToVariant(s);
@@ -527,7 +526,7 @@ bool QWinSettingsPrivate::readKey(HKEY parentHandle, const QString &rSubKey, QVa
             if (dataSize) {
                 int i = 0;
                 for (;;) {
-                    QString s = QString::fromWCharArray((const wchar_t *)data.constData() + i);
+                    QString s = QString::fromWCharArray(reinterpret_cast<const wchar_t *>(data.constData()) + i);
                     i += s.length() + 1;
 
                     if (s.isEmpty())
@@ -544,7 +543,7 @@ bool QWinSettingsPrivate::readKey(HKEY parentHandle, const QString &rSubKey, QVa
         case REG_BINARY: {
             QString s;
             if (dataSize) {
-                s = QString::fromWCharArray((const wchar_t *)data.constData(), data.size() / 2);
+                s = QString::fromWCharArray(reinterpret_cast<const wchar_t *>(data.constData()), data.size() / 2);
             }
             if (value != 0)
                 *value = stringToVariant(s);
@@ -555,7 +554,7 @@ bool QWinSettingsPrivate::readKey(HKEY parentHandle, const QString &rSubKey, QVa
         case REG_DWORD: {
             Q_ASSERT(data.size() == sizeof(int));
             int i;
-            memcpy((char*)&i, data.constData(), sizeof(int));
+            memcpy(reinterpret_cast<char*>(&i), data.constData(), sizeof(int));
             if (value != 0)
                 *value = i;
             break;
@@ -564,7 +563,7 @@ bool QWinSettingsPrivate::readKey(HKEY parentHandle, const QString &rSubKey, QVa
         case REG_QWORD: {
             Q_ASSERT(data.size() == sizeof(qint64));
             qint64 i;
-            memcpy((char*)&i, data.constData(), sizeof(qint64));
+            memcpy(reinterpret_cast<char*>(&i), data.constData(), sizeof(qint64));
             if (value != 0)
                 *value = i;
             break;
@@ -629,11 +628,9 @@ void QWinSettingsPrivate::remove(const QString &uKey)
         deleteChildGroups(handle, access);
 
         if (rKey.isEmpty()) {
-            QStringList childKeys = childKeysOrGroups(handle, QSettingsPrivate::ChildKeys);
+            const QStringList childKeys = childKeysOrGroups(handle, QSettingsPrivate::ChildKeys);
 
-            for (int i = 0; i < childKeys.size(); ++i) {
-                QString group = childKeys.at(i);
-
+            for (const QString &group : childKeys) {
                 LONG res = RegDeleteValue(handle, reinterpret_cast<const wchar_t *>(group.utf16()));
                 if (res != ERROR_SUCCESS) {
                     qWarning("QSettings: RegDeleteValue failed on subkey \"%s\": %s",
@@ -688,12 +685,12 @@ void QWinSettingsPrivate::set(const QString &uKey, const QVariant &value)
 
             if (type == REG_BINARY) {
                 QString s = variantToString(value);
-                regValueBuff = QByteArray((const char*)s.utf16(), s.length() * 2);
+                regValueBuff = QByteArray(reinterpret_cast<const char*>(s.utf16()), s.length() * 2);
             } else {
                 QStringList::const_iterator it = l.constBegin();
                 for (; it != l.constEnd(); ++it) {
                     const QString &s = *it;
-                    regValueBuff += QByteArray((const char*)s.utf16(), (s.length() + 1) * 2);
+                    regValueBuff += QByteArray(reinterpret_cast<const char*>(s.utf16()), (s.length() + 1) * 2);
                 }
                 regValueBuff.append((char)0);
                 regValueBuff.append((char)0);
@@ -705,7 +702,7 @@ void QWinSettingsPrivate::set(const QString &uKey, const QVariant &value)
         case QVariant::UInt: {
             type = REG_DWORD;
             qint32 i = value.toInt();
-            regValueBuff = QByteArray((const char*)&i, sizeof(qint32));
+            regValueBuff = QByteArray(reinterpret_cast<const char*>(&i), sizeof(qint32));
             break;
         }
 
@@ -713,7 +710,7 @@ void QWinSettingsPrivate::set(const QString &uKey, const QVariant &value)
         case QVariant::ULongLong: {
             type = REG_QWORD;
             qint64 i = value.toLongLong();
-            regValueBuff = QByteArray((const char*)&i, sizeof(qint64));
+            regValueBuff = QByteArray(reinterpret_cast<const char*>(&i), sizeof(qint64));
             break;
         }
 
@@ -725,11 +722,11 @@ void QWinSettingsPrivate::set(const QString &uKey, const QVariant &value)
             // string type. Otherwise we use REG_BINARY.
             QString s = variantToString(value);
             type = s.contains(QChar::Null) ? REG_BINARY : REG_SZ;
-            if (type == REG_BINARY) {
-                regValueBuff = QByteArray((const char*)s.utf16(), s.length() * 2);
-            } else {
-                regValueBuff = QByteArray((const char*)s.utf16(), (s.length() + 1) * 2);
-            }
+            int length = s.length();
+            if (type == REG_SZ)
+                ++length;
+            regValueBuff = QByteArray(reinterpret_cast<const char *>(s.utf16()),
+                                      int(sizeof(wchar_t)) * length);
             break;
         }
     }
@@ -754,8 +751,8 @@ bool QWinSettingsPrivate::get(const QString &uKey, QVariant *value) const
 {
     QString rKey = escapedKey(uKey);
 
-    for (int i = 0; i < regList.size(); ++i) {
-        HKEY handle = regList.at(i).handle();
+    for (const RegistryKey &r : regList) {
+        HKEY handle = r.handle();
         if (handle != 0 && readKey(handle, rKey, value))
             return true;
 
@@ -771,8 +768,8 @@ QStringList QWinSettingsPrivate::children(const QString &uKey, ChildSpec spec) c
     NameSet result;
     QString rKey = escapedKey(uKey);
 
-    for (int i = 0; i < regList.size(); ++i) {
-        HKEY parent_handle = regList.at(i).handle();
+    for (const RegistryKey &r : regList) {
+        HKEY parent_handle = r.handle();
         if (parent_handle == 0)
             continue;
         HKEY handle = openKey(parent_handle, KEY_READ, rKey, access);
@@ -836,27 +833,32 @@ bool QWinSettingsPrivate::isWritable() const
 QSettingsPrivate *QSettingsPrivate::create(QSettings::Format format, QSettings::Scope scope,
                                            const QString &organization, const QString &application)
 {
-    if (format == QSettings::NativeFormat)
+    switch (format) {
+    case QSettings::NativeFormat:
         return new QWinSettingsPrivate(scope, organization, application);
-    else if (format == QSettings::Registry32Format)
+    case QSettings::Registry32Format:
         return new QWinSettingsPrivate(scope, organization, application, KEY_WOW64_32KEY);
-    else if (format == QSettings::Registry64Format)
+    case QSettings::Registry64Format:
         return new QWinSettingsPrivate(scope, organization, application, KEY_WOW64_64KEY);
-    else
-        return new QConfFileSettingsPrivate(format, scope, organization, application);
+    default:
+        break;
+    }
+    return new QConfFileSettingsPrivate(format, scope, organization, application);
 }
 
 QSettingsPrivate *QSettingsPrivate::create(const QString &fileName, QSettings::Format format)
 {
-    if (format == QSettings::NativeFormat)
+    switch (format) {
+    case QSettings::NativeFormat:
         return new QWinSettingsPrivate(fileName);
-    else if (format == QSettings::Registry32Format)
+    case QSettings::Registry32Format:
         return new QWinSettingsPrivate(fileName, KEY_WOW64_32KEY);
-    else if (format == QSettings::Registry64Format)
+    case QSettings::Registry64Format:
         return new QWinSettingsPrivate(fileName, KEY_WOW64_64KEY);
-    else
-        return new QConfFileSettingsPrivate(fileName, format);
+    default:
+        break;
+    }
+    return new QConfFileSettingsPrivate(fileName, format);
 }
 
 QT_END_NAMESPACE
-#endif // QT_NO_SETTINGS

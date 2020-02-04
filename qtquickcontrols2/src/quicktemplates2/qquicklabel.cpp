@@ -80,7 +80,6 @@ QT_BEGIN_NAMESPACE
 */
 
 QQuickLabelPrivate::QQuickLabelPrivate()
-    : background(nullptr)
 {
 #if QT_CONFIG(accessibility)
     QAccessible::installActivationObserver(this);
@@ -92,6 +91,76 @@ QQuickLabelPrivate::~QQuickLabelPrivate()
 #if QT_CONFIG(accessibility)
     QAccessible::removeActivationObserver(this);
 #endif
+}
+
+void QQuickLabelPrivate::setTopInset(qreal value, bool reset)
+{
+    Q_Q(QQuickLabel);
+    const QMarginsF oldInset = getInset();
+    extra.value().topInset = value;
+    extra.value().hasTopInset = !reset;
+    if (!qFuzzyCompare(oldInset.top(), value)) {
+        emit q->topInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickLabelPrivate::setLeftInset(qreal value, bool reset)
+{
+    Q_Q(QQuickLabel);
+    const QMarginsF oldInset = getInset();
+    extra.value().leftInset = value;
+    extra.value().hasLeftInset = !reset;
+    if (!qFuzzyCompare(oldInset.left(), value)) {
+        emit q->leftInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickLabelPrivate::setRightInset(qreal value, bool reset)
+{
+    Q_Q(QQuickLabel);
+    const QMarginsF oldInset = getInset();
+    extra.value().rightInset = value;
+    extra.value().hasRightInset = !reset;
+    if (!qFuzzyCompare(oldInset.right(), value)) {
+        emit q->rightInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickLabelPrivate::setBottomInset(qreal value, bool reset)
+{
+    Q_Q(QQuickLabel);
+    const QMarginsF oldInset = getInset();
+    extra.value().bottomInset = value;
+    extra.value().hasBottomInset = !reset;
+    if (!qFuzzyCompare(oldInset.bottom(), value)) {
+        emit q->bottomInsetChanged();
+        q->insetChange(getInset(), oldInset);
+    }
+}
+
+void QQuickLabelPrivate::resizeBackground()
+{
+    if (!background)
+        return;
+
+    resizingBackground = true;
+
+    QQuickItemPrivate *p = QQuickItemPrivate::get(background);
+    if (((!p->widthValid || !extra.isAllocated() || !extra->hasBackgroundWidth) && qFuzzyIsNull(background->x()))
+            || (extra.isAllocated() && (extra->hasLeftInset || extra->hasRightInset))) {
+        background->setX(getLeftInset());
+        background->setWidth(width - getLeftInset() - getRightInset());
+    }
+    if (((!p->heightValid || !extra.isAllocated() || !extra->hasBackgroundHeight) && qFuzzyIsNull(background->y()))
+            || (extra.isAllocated() && (extra->hasTopInset || extra->hasBottomInset))) {
+        background->setY(getTopInset());
+        background->setHeight(height - getTopInset() - getBottomInset());
+    }
+
+    resizingBackground = false;
 }
 
 /*!
@@ -113,7 +182,7 @@ void QQuickLabelPrivate::inheritFont(const QFont &font)
     QFont parentFont = extra.isAllocated() ? extra->requestedFont.resolve(font) : font;
     parentFont.resolve(extra.isAllocated() ? extra->requestedFont.resolve() | font.resolve() : font.resolve());
 
-    const QFont defaultFont = QQuickControlPrivate::themeFont(QPlatformTheme::LabelFont);
+    const QFont defaultFont = QQuickTheme::font(QQuickTheme::Label);
     const QFont resolvedFont = parentFont.resolve(defaultFont);
 
     setFont_helper(resolvedFont);
@@ -155,7 +224,7 @@ void QQuickLabelPrivate::inheritPalette(const QPalette &palette)
     QPalette parentPalette = extra.isAllocated() ? extra->requestedPalette.resolve(palette) : palette;
     parentPalette.resolve(extra.isAllocated() ? extra->requestedPalette.resolve() | palette.resolve() : palette.resolve());
 
-    const QPalette defaultPalette = QQuickControlPrivate::themePalette(QPlatformTheme::LabelPalette);
+    const QPalette defaultPalette = QQuickTheme::palette(QQuickTheme::Label);
     const QPalette resolvedPalette = parentPalette.resolve(defaultPalette);
 
     setPalette_helper(resolvedPalette);
@@ -223,11 +292,53 @@ void QQuickLabelPrivate::executeBackground(bool complete)
         quickCompleteDeferred(q, backgroundName(), background);
 }
 
+void QQuickLabelPrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff)
+{
+    Q_UNUSED(diff);
+    if (resizingBackground || item != background || !change.sizeChange())
+        return;
+
+    QQuickItemPrivate *p = QQuickItemPrivate::get(item);
+    extra.value().hasBackgroundWidth = p->widthValid;
+    extra.value().hasBackgroundHeight = p->heightValid;
+    resizeBackground();
+}
+
+void QQuickLabelPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    Q_Q(QQuickLabel);
+    if (item == background)
+        emit q->implicitBackgroundWidthChanged();
+}
+
+void QQuickLabelPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    Q_Q(QQuickLabel);
+    if (item == background)
+        emit q->implicitBackgroundHeightChanged();
+}
+
+void QQuickLabelPrivate::itemDestroyed(QQuickItem *item)
+{
+    Q_Q(QQuickLabel);
+    if (item == background) {
+        background = nullptr;
+        emit q->implicitBackgroundWidthChanged();
+        emit q->implicitBackgroundHeightChanged();
+    }
+}
+
 QQuickLabel::QQuickLabel(QQuickItem *parent)
     : QQuickText(*(new QQuickLabelPrivate), parent)
 {
     Q_D(QQuickLabel);
     QObjectPrivate::connect(this, &QQuickText::textChanged, d, &QQuickLabelPrivate::textChanged);
+}
+
+QQuickLabel::~QQuickLabel()
+{
+    Q_D(QQuickLabel);
+    QQuickControlPrivate::removeImplicitSizeListener(d->background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
 }
 
 QFont QQuickLabel::font() const
@@ -273,13 +384,36 @@ void QQuickLabel::setBackground(QQuickItem *background)
     if (!d->background.isExecuting())
         d->cancelBackground();
 
+    const qreal oldImplicitBackgroundWidth = implicitBackgroundWidth();
+    const qreal oldImplicitBackgroundHeight = implicitBackgroundHeight();
+
+    if (d->extra.isAllocated()) {
+        d->extra.value().hasBackgroundWidth = false;
+        d->extra.value().hasBackgroundHeight = false;
+    }
+
+    QQuickControlPrivate::removeImplicitSizeListener(d->background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
     delete d->background;
     d->background = background;
+
     if (background) {
         background->setParentItem(this);
         if (qFuzzyIsNull(background->z()))
             background->setZ(-1);
+        QQuickItemPrivate *p = QQuickItemPrivate::get(background);
+        if (p->widthValid || p->heightValid) {
+            d->extra.value().hasBackgroundWidth = p->widthValid;
+            d->extra.value().hasBackgroundHeight = p->heightValid;
+        }
+        if (isComponentComplete())
+            d->resizeBackground();
+        QQuickControlPrivate::addImplicitSizeListener(background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
     }
+
+    if (!qFuzzyCompare(oldImplicitBackgroundWidth, implicitBackgroundWidth()))
+        emit implicitBackgroundWidthChanged();
+    if (!qFuzzyCompare(oldImplicitBackgroundHeight, implicitBackgroundHeight()))
+        emit implicitBackgroundHeightChanged();
     if (!d->background.isExecuting())
         emit backgroundChanged();
 }
@@ -316,6 +450,148 @@ void QQuickLabel::resetPalette()
     setPalette(QPalette());
 }
 
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Label::implicitBackgroundWidth
+    \readonly
+
+    This property holds the implicit background width.
+
+    The value is equal to \c {background ? background.implicitWidth : 0}.
+
+    \sa implicitBackgroundHeight
+*/
+qreal QQuickLabel::implicitBackgroundWidth() const
+{
+    Q_D(const QQuickLabel);
+    if (!d->background)
+        return 0;
+    return d->background->implicitWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Label::implicitBackgroundHeight
+    \readonly
+
+    This property holds the implicit background height.
+
+    The value is equal to \c {background ? background.implicitHeight : 0}.
+
+    \sa implicitBackgroundWidth
+*/
+qreal QQuickLabel::implicitBackgroundHeight() const
+{
+    Q_D(const QQuickLabel);
+    if (!d->background)
+        return 0;
+    return d->background->implicitHeight();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Label::topInset
+
+    This property holds the top inset for the background.
+
+    \sa {Control Layout}, bottomInset
+*/
+qreal QQuickLabel::topInset() const
+{
+    Q_D(const QQuickLabel);
+    return d->getTopInset();
+}
+
+void QQuickLabel::setTopInset(qreal inset)
+{
+    Q_D(QQuickLabel);
+    d->setTopInset(inset);
+}
+
+void QQuickLabel::resetTopInset()
+{
+    Q_D(QQuickLabel);
+    d->setTopInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Label::leftInset
+
+    This property holds the left inset for the background.
+
+    \sa {Control Layout}, rightInset
+*/
+qreal QQuickLabel::leftInset() const
+{
+    Q_D(const QQuickLabel);
+    return d->getLeftInset();
+}
+
+void QQuickLabel::setLeftInset(qreal inset)
+{
+    Q_D(QQuickLabel);
+    d->setLeftInset(inset);
+}
+
+void QQuickLabel::resetLeftInset()
+{
+    Q_D(QQuickLabel);
+    d->setLeftInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Label::rightInset
+
+    This property holds the right inset for the background.
+
+    \sa {Control Layout}, leftInset
+*/
+qreal QQuickLabel::rightInset() const
+{
+    Q_D(const QQuickLabel);
+    return d->getRightInset();
+}
+
+void QQuickLabel::setRightInset(qreal inset)
+{
+    Q_D(QQuickLabel);
+    d->setRightInset(inset);
+}
+
+void QQuickLabel::resetRightInset()
+{
+    Q_D(QQuickLabel);
+    d->setRightInset(0, true);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Label::bottomInset
+
+    This property holds the bottom inset for the background.
+
+    \sa {Control Layout}, topInset
+*/
+qreal QQuickLabel::bottomInset() const
+{
+    Q_D(const QQuickLabel);
+    return d->getBottomInset();
+}
+
+void QQuickLabel::setBottomInset(qreal inset)
+{
+    Q_D(QQuickLabel);
+    d->setBottomInset(inset);
+}
+
+void QQuickLabel::resetBottomInset()
+{
+    Q_D(QQuickLabel);
+    d->setBottomInset(0, true);
+}
+
 void QQuickLabel::classBegin()
 {
     Q_D(QQuickLabel);
@@ -329,6 +605,7 @@ void QQuickLabel::componentComplete()
     Q_D(QQuickLabel);
     d->executeBackground(true);
     QQuickText::componentComplete();
+    d->resizeBackground();
 #if QT_CONFIG(accessibility)
     if (QAccessible::isActive())
         d->accessibilityActiveChanged(true);
@@ -359,17 +636,15 @@ void QQuickLabel::geometryChanged(const QRectF &newGeometry, const QRectF &oldGe
 {
     Q_D(QQuickLabel);
     QQuickText::geometryChanged(newGeometry, oldGeometry);
-    if (d->background) {
-        QQuickItemPrivate *p = QQuickItemPrivate::get(d->background);
-        if (!p->widthValid) {
-            d->background->setWidth(newGeometry.width());
-            p->widthValid = false;
-        }
-        if (!p->heightValid) {
-            d->background->setHeight(newGeometry.height());
-            p->heightValid = false;
-        }
-    }
+    d->resizeBackground();
+}
+
+void QQuickLabel::insetChange(const QMarginsF &newInset, const QMarginsF &oldInset)
+{
+    Q_D(QQuickLabel);
+    Q_UNUSED(newInset);
+    Q_UNUSED(oldInset);
+    d->resizeBackground();
 }
 
 QT_END_NAMESPACE

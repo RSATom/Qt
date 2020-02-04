@@ -16,7 +16,7 @@
 #include "base/macros.h"
 #include "base/supports_user_data.h"
 #include "content/common/content_export.h"
-#include "services/service_manager/public/interfaces/interface_provider.mojom.h"
+#include "services/service_manager/public/mojom/interface_provider.mojom.h"
 
 namespace content {
 
@@ -27,8 +27,6 @@ class RenderFrameHostImpl;
 // native counterpart.
 class RenderFrameHostAndroid : public base::SupportsUserData::Data {
  public:
-  static bool Register(JNIEnv* env);
-
   RenderFrameHostAndroid(
       RenderFrameHostImpl* render_frame_host,
       service_manager::mojom::InterfaceProviderPtr interface_provider_ptr);
@@ -41,10 +39,20 @@ class RenderFrameHostAndroid : public base::SupportsUserData::Data {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>&) const;
 
+  void GetCanonicalUrlForSharing(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>&,
+      const base::android::JavaParamRef<jobject>& jcallback) const;
+
   // Returns UnguessableToken.
   base::android::ScopedJavaLocalRef<jobject> GetAndroidOverlayRoutingToken(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>&) const;
+
+  void NotifyUserActivation(JNIEnv* env,
+                            const base::android::JavaParamRef<jobject>&);
+
+  RenderFrameHostImpl* render_frame_host() const { return render_frame_host_; }
 
  private:
   RenderFrameHostImpl* const render_frame_host_;

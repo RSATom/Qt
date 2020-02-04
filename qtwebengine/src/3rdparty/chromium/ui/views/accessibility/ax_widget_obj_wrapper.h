@@ -8,11 +8,13 @@
 #include <stdint.h>
 
 #include "base/macros.h"
+#include "ui/accessibility/platform/ax_unique_id.h"
 #include "ui/views/accessibility/ax_aura_obj_wrapper.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/widget/widget_removals_observer.h"
 
 namespace views {
+class AXAuraObjCache;
 class Widget;
 
 // Describes a |Widget| for use with other AX classes.
@@ -20,14 +22,16 @@ class AXWidgetObjWrapper : public AXAuraObjWrapper,
                            public WidgetObserver,
                            public WidgetRemovalsObserver {
  public:
-  explicit AXWidgetObjWrapper(Widget* widget);
+  // |aura_obj_cache| must outlive this object.
+  AXWidgetObjWrapper(AXAuraObjCache* aura_obj_cache, Widget* widget);
   ~AXWidgetObjWrapper() override;
 
   // AXAuraObjWrapper overrides.
+  bool IsIgnored() override;
   AXAuraObjWrapper* GetParent() override;
   void GetChildren(std::vector<AXAuraObjWrapper*>* out_children) override;
   void Serialize(ui::AXNodeData* out_node_data) override;
-  int32_t GetID() override;
+  int32_t GetUniqueId() const final;
 
   // WidgetObserver overrides.
   void OnWidgetDestroying(Widget* widget) override;
@@ -38,7 +42,11 @@ class AXWidgetObjWrapper : public AXAuraObjWrapper,
   void OnWillRemoveView(Widget* widget, View* view) override;
 
  private:
+  AXAuraObjCache* const aura_obj_cache_;
+
   Widget* widget_;
+
+  const ui::AXUniqueId unique_id_;
 
   DISALLOW_COPY_AND_ASSIGN(AXWidgetObjWrapper);
 };

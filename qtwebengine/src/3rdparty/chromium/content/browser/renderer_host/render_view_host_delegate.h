@@ -16,7 +16,6 @@
 #include "content/common/content_export.h"
 #include "content/common/render_message_filter.mojom.h"
 #include "net/base/load_states.h"
-#include "third_party/WebKit/public/web/WebPopupType.h"
 
 class GURL;
 
@@ -33,6 +32,7 @@ namespace content {
 
 class BrowserContext;
 class FrameTree;
+class RenderFrameHost;
 class RenderViewHost;
 class RenderViewHostImpl;
 class RenderViewHostDelegateView;
@@ -93,10 +93,7 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   virtual void Close(RenderViewHost* render_view_host) {}
 
   // The page is trying to move the RenderView's representation in the client.
-  virtual void RequestMove(const gfx::Rect& new_bounds) {}
-
-  // The pending page load was canceled.
-  virtual void DidCancelLoading() {}
+  virtual void RequestSetBounds(const gfx::Rect& new_bounds) {}
 
   // The RenderView's main frame document element is ready. This happens when
   // the document has finished parsing.
@@ -127,26 +124,24 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // widget should be created associated with the given |route_id| in the
   // process |render_process_id|, but it should not be shown yet. That should
   // happen in response to ShowCreatedWidget.
-  // |popup_type| indicates if the widget is a popup and what kind of popup it
-  // is (select, autofill...).
   virtual void CreateNewWidget(int32_t render_process_id,
-                               int32_t route_id,
-                               mojom::WidgetPtr widget,
-                               blink::WebPopupType popup_type) {}
+                               int32_t widget_route_id,
+                               mojom::WidgetPtr widget) {}
 
   // Creates a full screen RenderWidget. Similar to above.
   virtual void CreateNewFullscreenWidget(int32_t render_process_id,
-                                         int32_t route_id,
+                                         int32_t widget_route_id,
                                          mojom::WidgetPtr widget) {}
 
   // Show the newly created widget with the specified bounds.
   // The widget is identified by the route_id passed to CreateNewWidget.
   virtual void ShowCreatedWidget(int process_id,
-                                 int route_id,
+                                 int widget_route_id,
                                  const gfx::Rect& initial_rect) {}
 
   // Show the newly created full screen widget. Similar to above.
-  virtual void ShowCreatedFullscreenWidget(int process_id, int route_id) {}
+  virtual void ShowCreatedFullscreenWidget(int process_id,
+                                           int widget_route_id) {}
 
   // Returns the SessionStorageNamespace the render view should use. Might
   // create the SessionStorageNamespace on the fly.
@@ -157,11 +152,6 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // to this view.
   virtual SessionStorageNamespaceMap GetSessionStorageNamespaceMap();
 
-  // Returns the zoom level for the pending navigation for the page. If there
-  // is no pending navigation, this returns the zoom level for the current
-  // page.
-  virtual double GetPendingPageZoomLevel();
-
   // Returns true if the RenderViewHost will never be visible.
   virtual bool IsNeverVisible();
 
@@ -171,13 +161,6 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // TODO(ajwong): Remove once the main frame RenderFrameHost is no longer
   // created by the RenderViewHost.
   virtual FrameTree* GetFrameTree();
-
-  // Optional state storage for if the Virtual Keyboard has been requested by
-  // this page or not. If it has, this can be used to suppress things like the
-  // link disambiguation dialog, which doesn't interact well with the virtual
-  // keyboard.
-  virtual void SetIsVirtualKeyboardRequested(bool requested) {}
-  virtual bool IsVirtualKeyboardRequested();
 
   // Whether the user agent is overridden using the Chrome for Android "Request
   // Desktop Site" feature.
@@ -194,6 +177,17 @@ class CONTENT_EXPORT RenderViewHostDelegate {
 
   // Whether the WebContents as a persistent video.
   virtual bool HasPersistentVideo() const;
+
+  // Returns the RenderFrameHost for a pending or speculative main frame
+  // navigation for the page.  Returns nullptr if there is no such navigation.
+  virtual RenderFrameHost* GetPendingMainFrame();
+
+  // The RenderView finished the first visually non-empty paint.
+  virtual void DidFirstVisuallyNonEmptyPaint(RenderViewHostImpl* source) {}
+
+  // The RenderView has issued a draw command, signaling the it
+  // has been visually updated.
+  virtual void DidCommitAndDrawCompositorFrame(RenderViewHostImpl* source) {}
 
  protected:
   virtual ~RenderViewHostDelegate() {}

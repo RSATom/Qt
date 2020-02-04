@@ -61,6 +61,8 @@ private slots:
     void drawToPoint();
     void drawToRect_data();
     void drawToRect();
+    void compareToDrawText_data();
+    void compareToDrawText();
     void setFont();
     void setTextWidth();
     void prepareToCorrectData();
@@ -97,6 +99,8 @@ private slots:
 #endif
 
     void multiLine();
+
+    void size_qtbug65836();
 
 private:
     bool supportsTransformations() const;
@@ -208,6 +212,66 @@ void tst_QStaticText::drawToRect()
 
     QVERIFY(imageDrawText.toImage() != m_whiteSquare);
     QCOMPARE(imageDrawStaticText, imageDrawText);
+}
+
+void tst_QStaticText::compareToDrawText_data()
+{
+    QTest::addColumn<QFont>("font");
+
+    QTest::newRow("default") << QFont();
+    QFont sansserif; sansserif.setStyleHint(QFont::SansSerif);
+    QFont serif; serif.setStyleHint(QFont::Serif);
+    QFont monospace; monospace.setStyleHint(QFont::Monospace);
+    QTest::newRow("sans-serif") << QFont(sansserif.defaultFamily());
+    QTest::newRow("serif") << QFont(serif.defaultFamily());
+    QTest::newRow("monospace") << QFont(monospace.defaultFamily());
+}
+
+void tst_QStaticText::compareToDrawText()
+{
+    QFETCH(QFont, font);
+
+    QPixmap imageDrawText(1000, 1000);
+    imageDrawText.fill(Qt::white);
+    {
+        QPainter p(&imageDrawText);
+        p.setFont(font);
+        p.drawText(QRectF(11, 12, 30, 500), "Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
+    }
+
+    QPixmap imageDrawStaticPlainText(1000, 1000);
+    imageDrawStaticPlainText.fill(Qt::white);
+    {
+        QPainter p(&imageDrawStaticPlainText);
+        p.setFont(font);
+        QStaticText text("Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
+        text.setTextWidth(10),
+        p.setClipRect(QRectF(11, 12, 30, 500));
+        text.setTextFormat(Qt::PlainText);
+        p.drawStaticText(QPointF(11, 12), text);
+    }
+
+    QPixmap imageDrawStaticRichText(1000, 1000);
+    imageDrawStaticRichText.fill(Qt::white);
+    {
+        QPainter p(&imageDrawStaticRichText);
+        p.setFont(font);
+        QStaticText text("Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
+        text.setTextWidth(10),
+        p.setClipRect(QRectF(11, 12, 30, 500));
+        text.setTextFormat(Qt::RichText);
+        p.drawStaticText(QPointF(11, 12), text);
+    }
+
+#if defined(DEBUG_SAVE_IMAGE)
+    imageDrawText.save("compareToDrawText_imageDrawText.png");
+    imageDrawStaticText.save("compareToDrawText_imageDrawStaticPlainText.png");
+    imageDrawStaticText.save("compareToDrawText_imageDrawStaticRichText.png");
+#endif
+
+    QVERIFY(imageDrawText.toImage() != m_whiteSquare);
+    QCOMPARE(imageDrawStaticPlainText, imageDrawText);
+    QCOMPARE(imageDrawStaticRichText, imageDrawText);
 }
 
 void tst_QStaticText::prepareToCorrectData()
@@ -401,6 +465,9 @@ void tst_QStaticText::rotatedPainter()
 
     QVERIFY(imageDrawText.toImage() != m_whiteSquare);
 
+#ifdef Q_OS_ANDROID
+    QEXPECT_FAIL("", "QTBUG-69218", Continue);
+#endif
     if (!supportsTransformations())
       QEXPECT_FAIL("", "Graphics system does not support transformed text on this platform", Abort);
     QCOMPARE(imageDrawStaticText, imageDrawText);
@@ -558,6 +625,9 @@ void tst_QStaticText::transformationChanged()
 
     QVERIFY(imageDrawText.toImage() != m_whiteSquare);
 
+#ifdef Q_OS_ANDROID
+    QEXPECT_FAIL("", "QTBUG-69220", Continue);
+#endif
     if (!supportsTransformations())
       QEXPECT_FAIL("", "Graphics system does not support transformed text on this platform", Abort);
     QCOMPARE(imageDrawStaticText, imageDrawText);
@@ -639,7 +709,7 @@ void tst_QStaticText::setPenPlainText()
     font.setStyleStrategy(QFont::NoAntialias);
 
     QFontMetricsF fm(font);
-    QImage image(qCeil(fm.width("XXXXX")), qCeil(fm.height()), format);
+    QImage image(qCeil(fm.horizontalAdvance("XXXXX")), qCeil(fm.height()), format);
     image.fill(Qt::white);
     {
         QPainter p(&image);
@@ -662,7 +732,7 @@ void tst_QStaticText::setPenRichText()
     font.setStyleStrategy(QFont::NoAntialias);
 
     QFontMetricsF fm(font);
-    QPixmap image(qCeil(fm.width("XXXXX")), qCeil(fm.height()));
+    QPixmap image(qCeil(fm.horizontalAdvance("XXXXX")), qCeil(fm.height()));
     image.fill(Qt::white);
     {
         QPainter p(&image);
@@ -686,7 +756,7 @@ void tst_QStaticText::richTextOverridesPen()
     font.setStyleStrategy(QFont::NoAntialias);
 
     QFontMetricsF fm(font);
-    QPixmap image(qCeil(fm.width("XXXXX")), qCeil(fm.height()));
+    QPixmap image(qCeil(fm.horizontalAdvance("XXXXX")), qCeil(fm.height()));
     image.fill(Qt::white);
     {
         QPainter p(&image);
@@ -862,19 +932,19 @@ void tst_QStaticText::textDocumentColor()
 class TestPaintEngine: public QPaintEngine
 {
 public:
-    void drawTextItem(const QPointF &p, const QTextItem &) Q_DECL_OVERRIDE
+    void drawTextItem(const QPointF &p, const QTextItem &) override
     {
         differentVerticalPositions.insert(qRound(p.y()));
     }
 
-    void updateState(const QPaintEngineState &) Q_DECL_OVERRIDE {}
+    void updateState(const QPaintEngineState &) override {}
 
-    void drawPolygon(const QPointF *, int , PolygonDrawMode ) Q_DECL_OVERRIDE {}
+    void drawPolygon(const QPointF *, int , PolygonDrawMode ) override {}
 
-    bool begin(QPaintDevice *) Q_DECL_OVERRIDE  { return true; }
-    bool end() Q_DECL_OVERRIDE { return true; }
-    void drawPixmap(const QRectF &, const QPixmap &, const QRectF &) Q_DECL_OVERRIDE {}
-    Type type() const Q_DECL_OVERRIDE
+    bool begin(QPaintDevice *) override  { return true; }
+    bool end() override { return true; }
+    void drawPixmap(const QRectF &, const QPixmap &, const QRectF &) override {}
+    Type type() const override
     {
         return User;
     }
@@ -910,6 +980,43 @@ void tst_QStaticText::multiLine()
     }
 
     QCOMPARE(paintEngine->differentVerticalPositions.size(), 2);
+}
+
+void tst_QStaticText::size_qtbug65836()
+{
+    const QString text = QLatin1String("Lorem ipsum dolor sit amet, "
+                                        "consectetur adipiscing elit.");
+    QFont font("Courier");
+    font.setPixelSize(15);
+
+    {
+        QStaticText st1(text);
+        st1.setTextFormat(Qt::PlainText);
+        st1.prepare(QTransform(), font);
+
+        QStaticText st2(text);
+        st2.setTextFormat(Qt::RichText);
+        QTextOption opt;
+        opt.setWrapMode(QTextOption::NoWrap);
+        st2.setTextOption(opt);
+        st2.prepare(QTransform(), font);
+
+        QCOMPARE(st1.size(), st2.size());
+    }
+
+    {
+        QStaticText st1(text);
+        st1.setTextFormat(Qt::PlainText);
+        st1.setTextWidth(10.0);
+        st1.prepare(QTransform(), font);
+
+        QStaticText st2(text);
+        st2.setTextFormat(Qt::RichText);
+        st2.setTextWidth(10.0);
+        st2.prepare(QTransform(), font);
+
+        QCOMPARE(st1.size(), st2.size());
+    }
 }
 
 QTEST_MAIN(tst_QStaticText)

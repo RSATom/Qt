@@ -1,5 +1,5 @@
 /*
- *  Copyright 2004 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,40 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_NATTYPES_H_
-#define WEBRTC_RTC_BASE_NATTYPES_H_
+#ifndef RTC_BASE_NATTYPES_H_
+#define RTC_BASE_NATTYPES_H_
 
-namespace rtc {
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-/* Identifies each type of NAT that can be simulated. */
-enum NATType {
-  NAT_OPEN_CONE,
-  NAT_ADDR_RESTRICTED,
-  NAT_PORT_RESTRICTED,
-  NAT_SYMMETRIC
-};
+#include "rtc_base/nat_types.h"
 
-// Implements the rules for each specific type of NAT.
-class NAT {
-public:
-  virtual ~NAT() { }
-
-  // Determines whether this NAT uses both source and destination address when
-  // checking whether a mapping already exists.
-  virtual bool IsSymmetric() = 0;
-
-  // Determines whether this NAT drops packets received from a different IP
-  // the one last sent to.
-  virtual bool FiltersIP() = 0;
-
-  // Determines whether this NAT drops packets received from a different port
-  // the one last sent to.
-  virtual bool FiltersPort() = 0;
-
-  // Returns an implementation of the given type of NAT.
-  static NAT* Create(NATType type);
-};
-
-} // namespace rtc
-
-#endif // WEBRTC_RTC_BASE_NATTYPES_H_
+#endif  // RTC_BASE_NATTYPES_H_

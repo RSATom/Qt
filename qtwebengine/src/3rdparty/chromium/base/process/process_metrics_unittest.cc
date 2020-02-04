@@ -9,6 +9,7 @@
 
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -16,8 +17,10 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
+#include "base/memory/shared_memory.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/sys_info.h"
+#include "base/strings/stringprintf.h"
+#include "base/system/sys_info.h"
 #include "base/test/multiprocess_test.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
@@ -31,7 +34,7 @@
 namespace base {
 namespace debug {
 
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_WIN)
 namespace {
 
 void BusyWork(std::vector<std::string>* vec) {
@@ -49,49 +52,11 @@ void BusyWork(std::vector<std::string>* vec) {
 // Exists as a class so it can be a friend of SystemMetrics.
 class SystemMetricsTest : public testing::Test {
  public:
-  SystemMetricsTest() {}
+  SystemMetricsTest() = default;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SystemMetricsTest);
 };
-
-/////////////////////////////////////////////////////////////////////////////
-
-#if defined(OS_MACOSX) && !defined(OS_IOS) && !defined(ADDRESS_SANITIZER)
-TEST_F(SystemMetricsTest, LockedBytes) {
-  ProcessHandle handle = GetCurrentProcessHandle();
-  std::unique_ptr<ProcessMetrics> metrics(
-      ProcessMetrics::CreateProcessMetrics(handle, nullptr));
-
-  size_t initial_locked_bytes;
-  bool result =
-      metrics->GetMemoryBytes(nullptr, nullptr, nullptr, &initial_locked_bytes);
-  ASSERT_TRUE(result);
-
-  size_t size = 8 * 1024 * 1024;
-  std::unique_ptr<char[]> memory(new char[size]);
-  int r = mlock(memory.get(), size);
-  ASSERT_EQ(0, r);
-
-  size_t new_locked_bytes;
-  result =
-      metrics->GetMemoryBytes(nullptr, nullptr, nullptr, &new_locked_bytes);
-  ASSERT_TRUE(result);
-
-  // There should be around |size| more locked bytes, but multi-threading might
-  // cause noise.
-  EXPECT_LT(initial_locked_bytes + size / 2, new_locked_bytes);
-  EXPECT_GT(initial_locked_bytes + size * 1.5, new_locked_bytes);
-
-  r = munlock(memory.get(), size);
-  ASSERT_EQ(0, r);
-
-  result =
-      metrics->GetMemoryBytes(nullptr, nullptr, nullptr, &new_locked_bytes);
-  ASSERT_TRUE(result);
-  EXPECT_EQ(initial_locked_bytes, new_locked_bytes);
-}
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS) && !defined(ADDRESS_SANITIZER)
 
 #if defined(OS_LINUX) || defined(OS_ANDROID)
 TEST_F(SystemMetricsTest, IsValidDiskName) {
@@ -249,7 +214,7 @@ TEST_F(SystemMetricsTest, ParseMeminfo) {
 }
 
 TEST_F(SystemMetricsTest, ParseVmstat) {
-  SystemMemoryInfoKB meminfo;
+  VmStatInfo vmstat;
   // part of vmstat from a 3.2 kernel with numa enabled
   const char valid_input1[] =
       "nr_free_pages 905104\n"
@@ -339,35 +304,35 @@ TEST_F(SystemMetricsTest, ParseVmstat) {
       "pgrefill_normal 0\n"
       "pgrefill_high 0\n"
       "pgrefill_movable 0\n";
-  EXPECT_TRUE(ParseProcVmstat(valid_input1, &meminfo));
-  EXPECT_EQ(179LU, meminfo.pswpin);
-  EXPECT_EQ(406LU, meminfo.pswpout);
-  EXPECT_EQ(487192LU, meminfo.pgmajfault);
-  EXPECT_TRUE(ParseProcVmstat(valid_input2, &meminfo));
-  EXPECT_EQ(12LU, meminfo.pswpin);
-  EXPECT_EQ(901LU, meminfo.pswpout);
-  EXPECT_EQ(2023LU, meminfo.pgmajfault);
+  EXPECT_TRUE(ParseProcVmstat(valid_input1, &vmstat));
+  EXPECT_EQ(179LU, vmstat.pswpin);
+  EXPECT_EQ(406LU, vmstat.pswpout);
+  EXPECT_EQ(487192LU, vmstat.pgmajfault);
+  EXPECT_TRUE(ParseProcVmstat(valid_input2, &vmstat));
+  EXPECT_EQ(12LU, vmstat.pswpin);
+  EXPECT_EQ(901LU, vmstat.pswpout);
+  EXPECT_EQ(2023LU, vmstat.pgmajfault);
 
   const char missing_pgmajfault_input[] =
       "pswpin 12\n"
       "pswpout 901\n";
-  EXPECT_FALSE(ParseProcVmstat(missing_pgmajfault_input, &meminfo));
+  EXPECT_FALSE(ParseProcVmstat(missing_pgmajfault_input, &vmstat));
   const char empty_input[] = "";
-  EXPECT_FALSE(ParseProcVmstat(empty_input, &meminfo));
+  EXPECT_FALSE(ParseProcVmstat(empty_input, &vmstat));
 }
 #endif  // defined(OS_LINUX) || defined(OS_ANDROID)
 
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_WIN)
 
-// Test that ProcessMetrics::GetCPUUsage() doesn't return negative values when
-// the number of threads running on the process decreases between two successive
-// calls to it.
+// Test that ProcessMetrics::GetPlatformIndependentCPUUsage() doesn't return
+// negative values when the number of threads running on the process decreases
+// between two successive calls to it.
 TEST_F(SystemMetricsTest, TestNoNegativeCpuUsage) {
   ProcessHandle handle = GetCurrentProcessHandle();
   std::unique_ptr<ProcessMetrics> metrics(
       ProcessMetrics::CreateProcessMetrics(handle));
 
-  EXPECT_GE(metrics->GetCPUUsage(), 0.0);
+  EXPECT_GE(metrics->GetPlatformIndependentCPUUsage(), 0.0);
   Thread thread1("thread1");
   Thread thread2("thread2");
   Thread thread3("thread3");
@@ -388,19 +353,66 @@ TEST_F(SystemMetricsTest, TestNoNegativeCpuUsage) {
   thread2.task_runner()->PostTask(FROM_HERE, BindOnce(&BusyWork, &vec2));
   thread3.task_runner()->PostTask(FROM_HERE, BindOnce(&BusyWork, &vec3));
 
-  EXPECT_GE(metrics->GetCPUUsage(), 0.0);
+  TimeDelta prev_cpu_usage = metrics->GetCumulativeCPUUsage();
+  EXPECT_GE(prev_cpu_usage, TimeDelta());
+  EXPECT_GE(metrics->GetPlatformIndependentCPUUsage(), 0.0);
 
   thread1.Stop();
-  EXPECT_GE(metrics->GetCPUUsage(), 0.0);
+  TimeDelta current_cpu_usage = metrics->GetCumulativeCPUUsage();
+  EXPECT_GE(current_cpu_usage, prev_cpu_usage);
+  prev_cpu_usage = current_cpu_usage;
+  EXPECT_GE(metrics->GetPlatformIndependentCPUUsage(), 0.0);
 
   thread2.Stop();
-  EXPECT_GE(metrics->GetCPUUsage(), 0.0);
+  current_cpu_usage = metrics->GetCumulativeCPUUsage();
+  EXPECT_GE(current_cpu_usage, prev_cpu_usage);
+  prev_cpu_usage = current_cpu_usage;
+  EXPECT_GE(metrics->GetPlatformIndependentCPUUsage(), 0.0);
 
   thread3.Stop();
-  EXPECT_GE(metrics->GetCPUUsage(), 0.0);
+  current_cpu_usage = metrics->GetCumulativeCPUUsage();
+  EXPECT_GE(current_cpu_usage, prev_cpu_usage);
+  EXPECT_GE(metrics->GetPlatformIndependentCPUUsage(), 0.0);
 }
 
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
+
+#if defined(OS_CHROMEOS)
+TEST_F(SystemMetricsTest, ParseZramMmStat) {
+  SwapInfo swapinfo;
+
+  const char invalid_input1[] = "aaa";
+  const char invalid_input2[] = "1 2 3 4 5 6";
+  const char invalid_input3[] = "a 2 3 4 5 6 7";
+  EXPECT_FALSE(ParseZramMmStat(invalid_input1, &swapinfo));
+  EXPECT_FALSE(ParseZramMmStat(invalid_input2, &swapinfo));
+  EXPECT_FALSE(ParseZramMmStat(invalid_input3, &swapinfo));
+
+  const char valid_input1[] =
+      "17715200 5008166 566062  0 1225715712  127 183842";
+  EXPECT_TRUE(ParseZramMmStat(valid_input1, &swapinfo));
+  EXPECT_EQ(17715200ULL, swapinfo.orig_data_size);
+  EXPECT_EQ(5008166ULL, swapinfo.compr_data_size);
+  EXPECT_EQ(566062ULL, swapinfo.mem_used_total);
+}
+
+TEST_F(SystemMetricsTest, ParseZramStat) {
+  SwapInfo swapinfo;
+
+  const char invalid_input1[] = "aaa";
+  const char invalid_input2[] = "1 2 3 4 5 6 7 8 9 10";
+  const char invalid_input3[] = "a 2 3 4 5 6 7 8 9 10 11";
+  EXPECT_FALSE(ParseZramStat(invalid_input1, &swapinfo));
+  EXPECT_FALSE(ParseZramStat(invalid_input2, &swapinfo));
+  EXPECT_FALSE(ParseZramStat(invalid_input3, &swapinfo));
+
+  const char valid_input1[] =
+      "299    0    2392    0    1    0    8    0    0    0    0";
+  EXPECT_TRUE(ParseZramStat(valid_input1, &swapinfo));
+  EXPECT_EQ(299ULL, swapinfo.num_reads);
+  EXPECT_EQ(1ULL, swapinfo.num_writes);
+}
+#endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX) || \
     defined(OS_ANDROID)
@@ -508,16 +520,24 @@ TEST(ProcessMetricsTest, DISABLED_GetNumberOfThreads) {
 }
 #endif  // defined(OS_LINUX)
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || (defined(OS_MACOSX) && !defined(OS_IOS))
 namespace {
 
-// Keep these in sync so the GetOpenFdCount test can refer to correct test main.
+// Keep these in sync so the GetChildOpenFdCount test can refer to correct test
+// main.
 #define ChildMain ChildFdCount
 #define ChildMainString "ChildFdCount"
 
 // Command line flag name and file name used for synchronization.
 const char kTempDirFlag[] = "temp-dir";
+
+const char kSignalReady[] = "ready";
+const char kSignalReadyAck[] = "ready-ack";
+const char kSignalOpened[] = "opened";
+const char kSignalOpenedAck[] = "opened-ack";
 const char kSignalClosed[] = "closed";
+
+const int kChildNumFilesToOpen = 100;
 
 bool SignalEvent(const FilePath& signal_dir, const char* signal_file) {
   File file(signal_dir.AppendASCII(signal_file),
@@ -544,9 +564,20 @@ MULTIPROCESS_TEST_MAIN(ChildMain) {
   const FilePath temp_path = command_line->GetSwitchValuePath(kTempDirFlag);
   CHECK(DirectoryExists(temp_path));
 
-  // Try to close all the file descriptors, so the open count goes to 0.
-  for (size_t i = 0; i < 1000; ++i)
-    close(i);
+  CHECK(SignalEvent(temp_path, kSignalReady));
+  WaitForEvent(temp_path, kSignalReadyAck);
+
+  std::vector<File> files;
+  for (int i = 0; i < kChildNumFilesToOpen; ++i) {
+    files.emplace_back(temp_path.AppendASCII(StringPrintf("file.%d", i)),
+                       File::FLAG_CREATE | File::FLAG_WRITE);
+  }
+
+  CHECK(SignalEvent(temp_path, kSignalOpened));
+  WaitForEvent(temp_path, kSignalOpenedAck);
+
+  files.clear();
+
   CHECK(SignalEvent(temp_path, kSignalClosed));
 
   // Wait to be terminated.
@@ -557,23 +588,114 @@ MULTIPROCESS_TEST_MAIN(ChildMain) {
 
 }  // namespace
 
-TEST(ProcessMetricsTest, GetOpenFdCount) {
+TEST(ProcessMetricsTest, GetChildOpenFdCount) {
   ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
   const FilePath temp_path = temp_dir.GetPath();
   CommandLine child_command_line(GetMultiProcessTestChildBaseCommandLine());
   child_command_line.AppendSwitchPath(kTempDirFlag, temp_path);
-  SpawnChildResult spawn_child = SpawnMultiProcessTestChild(
+  Process child = SpawnMultiProcessTestChild(
       ChildMainString, child_command_line, LaunchOptions());
-  ASSERT_TRUE(spawn_child.process.IsValid());
+  ASSERT_TRUE(child.IsValid());
+
+  WaitForEvent(temp_path, kSignalReady);
+
+  std::unique_ptr<ProcessMetrics> metrics =
+#if defined(OS_MACOSX)
+      ProcessMetrics::CreateProcessMetrics(child.Handle(), nullptr);
+#else
+      ProcessMetrics::CreateProcessMetrics(child.Handle());
+#endif  // defined(OS_MACOSX)
+
+  const int fd_count = metrics->GetOpenFdCount();
+  EXPECT_GE(fd_count, 0);
+
+  ASSERT_TRUE(SignalEvent(temp_path, kSignalReadyAck));
+  WaitForEvent(temp_path, kSignalOpened);
+
+  EXPECT_EQ(fd_count + kChildNumFilesToOpen, metrics->GetOpenFdCount());
+  ASSERT_TRUE(SignalEvent(temp_path, kSignalOpenedAck));
+
   WaitForEvent(temp_path, kSignalClosed);
 
-  std::unique_ptr<ProcessMetrics> metrics(
-      ProcessMetrics::CreateProcessMetrics(spawn_child.process.Handle()));
-  EXPECT_EQ(0, metrics->GetOpenFdCount());
-  ASSERT_TRUE(spawn_child.process.Terminate(0, true));
+  EXPECT_EQ(fd_count, metrics->GetOpenFdCount());
+
+  ASSERT_TRUE(child.Terminate(0, true));
 }
-#endif  // defined(OS_LINUX)
+
+TEST(ProcessMetricsTest, GetOpenFdCount) {
+  base::ProcessHandle process = base::GetCurrentProcessHandle();
+  std::unique_ptr<base::ProcessMetrics> metrics =
+#if defined(OS_MACOSX)
+      ProcessMetrics::CreateProcessMetrics(process, nullptr);
+#else
+      ProcessMetrics::CreateProcessMetrics(process);
+#endif  // defined(OS_MACOSX)
+
+  ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  int fd_count = metrics->GetOpenFdCount();
+  EXPECT_GT(fd_count, 0);
+  File file(temp_dir.GetPath().AppendASCII("file"),
+            File::FLAG_CREATE | File::FLAG_WRITE);
+  int new_fd_count = metrics->GetOpenFdCount();
+  EXPECT_GT(new_fd_count, 0);
+  EXPECT_EQ(new_fd_count, fd_count + 1);
+}
+
+#endif  // defined(OS_LINUX) || (defined(OS_MACOSX) && !defined(OS_IOS))
+
+#if defined(OS_ANDROID) || defined(OS_LINUX)
+TEST(ProcessMetricsTestLinux, GetPageFaultCounts) {
+  std::unique_ptr<base::ProcessMetrics> process_metrics(
+      base::ProcessMetrics::CreateProcessMetrics(
+          base::GetCurrentProcessHandle()));
+
+  PageFaultCounts counts;
+  ASSERT_TRUE(process_metrics->GetPageFaultCounts(&counts));
+  ASSERT_GT(counts.minor, 0);
+  ASSERT_GE(counts.major, 0);
+
+  {
+    // Allocate and touch memory. Touching it is required to make sure that the
+    // page fault count goes up, as memory is typically mapped lazily.
+    const size_t kMappedSize = 4 * (1 << 20);
+    SharedMemory memory;
+    ASSERT_TRUE(memory.CreateAndMapAnonymous(kMappedSize));
+    memset(memory.memory(), 42, kMappedSize);
+    memory.Unmap();
+  }
+
+  PageFaultCounts counts_after;
+  ASSERT_TRUE(process_metrics->GetPageFaultCounts(&counts_after));
+  ASSERT_GT(counts_after.minor, counts.minor);
+  ASSERT_GE(counts_after.major, counts.major);
+}
+#endif  // defined(OS_ANDROID) || defined(OS_LINUX)
+
+#if defined(OS_WIN)
+TEST(ProcessMetricsTest, GetDiskUsageBytesPerSecond) {
+  ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  const FilePath temp_path = temp_dir.GetPath().AppendASCII("dummy");
+
+  ProcessHandle handle = GetCurrentProcessHandle();
+  std::unique_ptr<ProcessMetrics> metrics(
+      ProcessMetrics::CreateProcessMetrics(handle));
+
+  // First access is returning zero bytes.
+  EXPECT_EQ(metrics->GetDiskUsageBytesPerSecond(), 0U);
+
+  // Write a megabyte on disk.
+  const int kMegabyte = 1024 * 1014;
+  std::string data(kMegabyte, 'x');
+  ASSERT_EQ(kMegabyte, base::WriteFile(temp_path, data.c_str(), data.size()));
+
+  // Validate that the counters move up.
+  EXPECT_GT(metrics->GetDiskUsageBytesPerSecond(), 0U);
+}
+#endif  // defined(OS_WIN)
 
 }  // namespace debug
 }  // namespace base

@@ -85,9 +85,9 @@ public:
     Q_DECLARE_FLAGS(DiscoveryMethods, DiscoveryMethod)
     Q_FLAG(DiscoveryMethods)
 
-    explicit QBluetoothDeviceDiscoveryAgent(QObject *parent = Q_NULLPTR);
+    explicit QBluetoothDeviceDiscoveryAgent(QObject *parent = nullptr);
     explicit QBluetoothDeviceDiscoveryAgent(const QBluetoothAddress &deviceAdapter,
-                                            QObject *parent = Q_NULLPTR);
+                                            QObject *parent = nullptr);
     ~QBluetoothDeviceDiscoveryAgent();
 
     // TODO Remove inquiry type in Qt 6 -> not really used anywhere
@@ -112,6 +112,7 @@ public Q_SLOTS:
 
 Q_SIGNALS:
     void deviceDiscovered(const QBluetoothDeviceInfo &info);
+    void deviceUpdated(const QBluetoothDeviceInfo &info, QBluetoothDeviceInfo::Fields updatedFields);
     void finished();
     void error(QBluetoothDeviceDiscoveryAgent::Error error);
     void canceled();
@@ -119,16 +120,6 @@ Q_SIGNALS:
 private:
     Q_DECLARE_PRIVATE(QBluetoothDeviceDiscoveryAgent)
     QBluetoothDeviceDiscoveryAgentPrivate *d_ptr;
-
-#if QT_CONFIG(bluez)
-    Q_PRIVATE_SLOT(d_func(), void _q_deviceFound(const QString &address, const QVariantMap &dict))
-    Q_PRIVATE_SLOT(d_func(), void _q_propertyChanged(const QString &name, const QDBusVariant &value))
-    Q_PRIVATE_SLOT(d_func(), void _q_InterfacesAdded(const QDBusObjectPath &path, InterfaceList interfaceList))
-    Q_PRIVATE_SLOT(d_func(), void _q_discoveryFinished())
-    Q_PRIVATE_SLOT(d_func(), void _q_discoveryInterrupted(const QString &path))
-    Q_PRIVATE_SLOT(d_func(), void _q_PropertiesChanged(const QString &interface, const QVariantMap &changed_properties, const QStringList &invalidated_properties))
-    Q_PRIVATE_SLOT(d_func(), void _q_extendedDeviceDiscoveryTimeout())
-#endif
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QBluetoothDeviceDiscoveryAgent::DiscoveryMethods)

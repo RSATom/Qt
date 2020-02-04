@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/memory/aligned_memory.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "gpu/command_buffer/client/cmd_buffer_helper.h"
@@ -38,7 +37,7 @@ class BaseFencedAllocatorTest : public testing::Test {
   static const int kAllocAlignment = 16;
 
   void SetUp() override {
-    transfer_buffer_manager_ = base::MakeUnique<TransferBufferManager>(nullptr);
+    transfer_buffer_manager_ = std::make_unique<TransferBufferManager>(nullptr);
     command_buffer_.reset(
         new CommandBufferDirect(transfer_buffer_manager_.get()));
     api_mock_.reset(new AsyncAPIMock(true, command_buffer_->service()));
@@ -96,17 +95,17 @@ class FencedAllocatorTest : public BaseFencedAllocatorTest {
 // Checks basic alloc and free.
 TEST_F(FencedAllocatorTest, TestBasic) {
   allocator_->CheckConsistency();
-  EXPECT_FALSE(allocator_->InUse());
+  EXPECT_FALSE(allocator_->InUseOrFreePending());
 
   const unsigned int kSize = 16;
   FencedAllocator::Offset offset = allocator_->Alloc(kSize);
-  EXPECT_TRUE(allocator_->InUse());
+  EXPECT_TRUE(allocator_->InUseOrFreePending());
   EXPECT_NE(FencedAllocator::kInvalidOffset, offset);
   EXPECT_GE(kBufferSize, offset+kSize);
   EXPECT_TRUE(allocator_->CheckConsistency());
 
   allocator_->Free(offset);
-  EXPECT_FALSE(allocator_->InUse());
+  EXPECT_FALSE(allocator_->InUseOrFreePending());
   EXPECT_TRUE(allocator_->CheckConsistency());
 }
 
@@ -114,7 +113,7 @@ TEST_F(FencedAllocatorTest, TestBasic) {
 TEST_F(FencedAllocatorTest, TestAllocZero) {
   FencedAllocator::Offset offset = allocator_->Alloc(0);
   EXPECT_EQ(FencedAllocator::kInvalidOffset, offset);
-  EXPECT_FALSE(allocator_->InUse());
+  EXPECT_FALSE(allocator_->InUseOrFreePending());
   EXPECT_TRUE(allocator_->CheckConsistency());
 }
 
@@ -224,7 +223,7 @@ TEST_F(FencedAllocatorTest, FreeUnused) {
     EXPECT_GE(kBufferSize, offsets[i]+kSize);
     EXPECT_TRUE(allocator_->CheckConsistency());
   }
-  EXPECT_TRUE(allocator_->InUse());
+  EXPECT_TRUE(allocator_->InUseOrFreePending());
 
   // No memory should be available.
   EXPECT_EQ(0u, allocator_->GetLargestFreeSize());
@@ -261,14 +260,14 @@ TEST_F(FencedAllocatorTest, FreeUnused) {
 
   // Check that the new largest free size takes into account the unused blocks.
   EXPECT_EQ(kSize * 3, allocator_->GetLargestFreeSize());
-  EXPECT_TRUE(allocator_->InUse());
+  EXPECT_TRUE(allocator_->InUseOrFreePending());
 
   // Free up everything.
   for (unsigned int i = 3; i < kAllocCount; ++i) {
     allocator_->Free(offsets[i]);
     EXPECT_TRUE(allocator_->CheckConsistency());
   }
-  EXPECT_FALSE(allocator_->InUse());
+  EXPECT_FALSE(allocator_->InUseOrFreePending());
 }
 
 // Tests GetLargestFreeSize

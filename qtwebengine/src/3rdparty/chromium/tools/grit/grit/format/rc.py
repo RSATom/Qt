@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -12,7 +11,6 @@ import re
 from functools import partial
 
 from grit import util
-from grit.format import rc_header
 from grit.node import misc
 
 
@@ -414,8 +412,8 @@ def FormatInclude(item, lang, output_dir, type=None, process_html=False):
     relative_path = item.attrs['relativepath'] == 'true'
   else:
     assert (isinstance(item, structure.StructureNode) and item.attrs['type'] in
-        ['admin_template', 'chrome_html', 'chrome_scaled_image', 'igoogle',
-         'muppet', 'tr_html', 'txt'])
+        ['admin_template', 'chrome_html', 'chrome_scaled_image',
+         'tr_html', 'txt'])
     filename_only = False
     relative_path = False
 
@@ -442,7 +440,7 @@ def FormatInclude(item, lang, output_dir, type=None, process_html=False):
     return ''
 
   name = item.attrs['name']
-  item_id = rc_header.GetIds(item.GetRoot())[name]
+  item_id = item.GetRoot().GetIdMap()[name]
   return '// ID: %d\n%-18s %-18s "%s"\n' % (item_id, name, type, filename)
 
 
@@ -462,8 +460,6 @@ _STRUCTURE_FORMATTERS = {
   'chrome_html'         : partial(FormatInclude, type='BINDATA',
                                                  process_html=True),
   'chrome_scaled_image' : partial(FormatInclude, type='BINDATA'),
-  'igoogle'             : partial(FormatInclude, type='XML'),
-  'muppet'              : partial(FormatInclude, type='XML'),
   'tr_html'             : partial(FormatInclude, type='HTML'),
   'txt'                 : partial(FormatInclude, type='TXT'),
   'policy_template_metafile': _DoNotFormat,

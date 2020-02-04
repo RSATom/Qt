@@ -227,6 +227,13 @@ struct QOpenGLFunctionsPrivate;
 
 #undef glTexLevelParameteriv
 
+#if defined(Q_CLANG_QDOC)
+#undef GLbitfield
+typedef unsigned int GLbitfield;
+#undef GLchar
+typedef char GLchar;
+#endif
+
 class Q_GUI_EXPORT QOpenGLFunctions
 {
 public:
@@ -252,7 +259,8 @@ public:
         NPOTTextureRepeat     = 0x2000,
         FixedFunctionPipeline = 0x4000,
         TextureRGFormats      = 0x8000,
-        MultipleRenderTargets = 0x10000
+        MultipleRenderTargets = 0x10000,
+        BlendEquationAdvanced = 0x20000,
     };
     Q_DECLARE_FLAGS(OpenGLFeatures, OpenGLFeature)
 
@@ -413,7 +421,7 @@ public:
 
 protected:
     QOpenGLFunctionsPrivate *d_ptr;
-    static bool isInitialized(const QOpenGLFunctionsPrivate *d) { return d != Q_NULLPTR; }
+    static bool isInitialized(const QOpenGLFunctionsPrivate *d) { return d != nullptr; }
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QOpenGLFunctions::OpenGLFeatures)

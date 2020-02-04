@@ -3,13 +3,19 @@
 // found in the LICENSE file.
 
 #include "base/strings/utf_string_conversions.h"
-#include "content/common/resize_params.h"
+#include "components/viz/common/surfaces/local_surface_id.h"
+#include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
+#include "content/common/visual_properties.h"
+#include "content/public/renderer/render_frame_visitor.h"
 #include "content/public/test/render_view_test.h"
+#include "content/renderer/render_frame_proxy.h"
+#include "content/renderer/render_thread_impl.h"
 #include "content/renderer/render_view_impl.h"
 #include "content/renderer/render_widget.h"
-#include "third_party/WebKit/public/web/WebFrameWidget.h"
-#include "third_party/WebKit/public/web/WebInputMethodController.h"
-#include "third_party/WebKit/public/web/WebRange.h"
+#include "third_party/blink/public/web/web_frame_widget.h"
+#include "third_party/blink/public/web/web_input_method_controller.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_range.h"
 #include "ui/base/ime/text_input_type.h"
 
 namespace content {
@@ -20,16 +26,12 @@ class RenderWidgetTest : public RenderViewTest {
     return static_cast<RenderViewImpl*>(view_)->GetWidget();
   }
 
-  void OnResize(const ResizeParams& params) {
-    widget()->OnResize(params);
+  void OnSynchronizeVisualProperties(const VisualProperties& params) {
+    widget()->OnSynchronizeVisualProperties(params);
   }
 
   void GetCompositionRange(gfx::Range* range) {
     widget()->GetCompositionRange(range);
-  }
-
-  bool next_paint_is_resize_ack() {
-    return widget()->next_paint_is_resize_ack();
   }
 
   blink::WebInputMethodController* GetInputMethodController() {
@@ -37,10 +39,9 @@ class RenderWidgetTest : public RenderViewTest {
   }
 
   void CommitText(std::string text) {
-    widget()->OnImeCommitText(
-        base::UTF8ToUTF16(text),
-        std::vector<blink::WebCompositionUnderline>(),
-        gfx::Range::InvalidRange(), 0);
+    widget()->OnImeCommitText(base::UTF8ToUTF16(text),
+                              std::vector<blink::WebImeTextSpan>(),
+                              gfx::Range::InvalidRange(), 0);
   }
 
   ui::TextInputType GetTextInputType() { return widget()->GetTextInputType(); }
@@ -48,90 +49,106 @@ class RenderWidgetTest : public RenderViewTest {
   void SetFocus(bool focused) { widget()->OnSetFocus(focused); }
 };
 
-TEST_F(RenderWidgetTest, OnResize) {
+TEST_F(RenderWidgetTest, OnSynchronizeVisualProperties) {
+  widget()->DidNavigate();
   // The initial bounds is empty, so setting it to the same thing should do
   // nothing.
-  ResizeParams resize_params;
-  resize_params.screen_info = ScreenInfo();
-  resize_params.new_size = gfx::Size();
-  resize_params.physical_backing_size = gfx::Size();
-  resize_params.top_controls_height = 0.f;
-  resize_params.browser_controls_shrink_blink_size = false;
-  resize_params.is_fullscreen_granted = false;
-  resize_params.needs_resize_ack = false;
-  OnResize(resize_params);
-  EXPECT_EQ(resize_params.needs_resize_ack, next_paint_is_resize_ack());
+  VisualProperties visual_properties;
+  visual_properties.screen_info = ScreenInfo();
+  visual_properties.new_size = gfx::Size();
+  visual_properties.compositor_viewport_pixel_size = gfx::Size();
+  visual_properties.top_controls_height = 0.f;
+  visual_properties.browser_controls_shrink_blink_size = false;
+  visual_properties.is_fullscreen_granted = false;
+  OnSynchronizeVisualProperties(visual_properties);
 
   // Setting empty physical backing size should not send the ack.
-  resize_params.new_size = gfx::Size(10, 10);
-  OnResize(resize_params);
-  EXPECT_EQ(resize_params.needs_resize_ack, next_paint_is_resize_ack());
+  visual_properties.new_size = gfx::Size(10, 10);
+  OnSynchronizeVisualProperties(visual_properties);
 
   // Setting the bounds to a "real" rect should send the ack.
   render_thread_->sink().ClearMessages();
+  viz::ParentLocalSurfaceIdAllocator local_surface_id_allocator;
+  local_surface_id_allocator.GenerateId();
   gfx::Size size(100, 100);
-  resize_params.new_size = size;
-  resize_params.physical_backing_size = size;
-  resize_params.needs_resize_ack = true;
-  OnResize(resize_params);
-  EXPECT_EQ(resize_params.needs_resize_ack, next_paint_is_resize_ack());
+  visual_properties.local_surface_id_allocation =
+      local_surface_id_allocator.GetCurrentLocalSurfaceIdAllocation();
+  visual_properties.new_size = size;
+  visual_properties.compositor_viewport_pixel_size = size;
+  OnSynchronizeVisualProperties(visual_properties);
 
   // Clear the flag.
-  widget()->DidReceiveCompositorFrameAck();
+  widget()->DidCommitCompositorFrame();
+  widget()->DidCommitAndDrawCompositorFrame();
 
   // Setting the same size again should not send the ack.
-  resize_params.needs_resize_ack = false;
-  OnResize(resize_params);
-  EXPECT_EQ(resize_params.needs_resize_ack, next_paint_is_resize_ack());
+  OnSynchronizeVisualProperties(visual_properties);
 
   // Resetting the rect to empty should not send the ack.
-  resize_params.new_size = gfx::Size();
-  resize_params.physical_backing_size = gfx::Size();
-  OnResize(resize_params);
-  EXPECT_EQ(resize_params.needs_resize_ack, next_paint_is_resize_ack());
+  visual_properties.new_size = gfx::Size();
+  visual_properties.compositor_viewport_pixel_size = gfx::Size();
+  visual_properties.local_surface_id_allocation = base::nullopt;
+  OnSynchronizeVisualProperties(visual_properties);
 
   // Changing the screen info should not send the ack.
-  resize_params.screen_info.orientation_angle = 90;
-  OnResize(resize_params);
-  EXPECT_EQ(resize_params.needs_resize_ack, next_paint_is_resize_ack());
+  visual_properties.screen_info.orientation_angle = 90;
+  OnSynchronizeVisualProperties(visual_properties);
 
-  resize_params.screen_info.orientation_type =
+  visual_properties.screen_info.orientation_type =
       SCREEN_ORIENTATION_VALUES_PORTRAIT_PRIMARY;
-  OnResize(resize_params);
-  EXPECT_EQ(resize_params.needs_resize_ack, next_paint_is_resize_ack());
+  OnSynchronizeVisualProperties(visual_properties);
 }
 
 class RenderWidgetInitialSizeTest : public RenderWidgetTest {
- public:
-  RenderWidgetInitialSizeTest()
-      : RenderWidgetTest(), initial_size_(200, 100) {}
-
  protected:
-  std::unique_ptr<ResizeParams> InitialSizeParams() override {
-    std::unique_ptr<ResizeParams> initial_size_params(new ResizeParams());
-    initial_size_params->new_size = initial_size_;
-    initial_size_params->physical_backing_size = initial_size_;
-    initial_size_params->needs_resize_ack = true;
-    return initial_size_params;
+  std::unique_ptr<VisualProperties> InitialVisualProperties() override {
+    std::unique_ptr<VisualProperties> initial_visual_properties(
+        new VisualProperties());
+    initial_visual_properties->new_size = initial_size_;
+    initial_visual_properties->compositor_viewport_pixel_size = initial_size_;
+    initial_visual_properties->local_surface_id_allocation =
+        local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation();
+    return initial_visual_properties;
   }
 
-  gfx::Size initial_size_;
+  gfx::Size initial_size_ = gfx::Size(200, 100);
+  viz::ParentLocalSurfaceIdAllocator local_surface_id_allocator_;
 };
 
-TEST_F(RenderWidgetInitialSizeTest, InitialSize) {
-  EXPECT_EQ(initial_size_, widget()->size());
-  EXPECT_EQ(initial_size_, gfx::Size(widget()->GetWebWidget()->Size()));
-  EXPECT_TRUE(next_paint_is_resize_ack());
+TEST_F(RenderWidgetTest, HitTestAPI) {
+  LoadHTML(
+      "<body style='padding: 0px; margin: 0px'>"
+      "<div style='background: green; padding: 100px; margin: 0px;'>"
+      "<iframe style='width: 200px; height: 100px;'"
+      "srcdoc='<body style=\"margin: 0px; height: 100px; width: 200px;\">"
+      "</body>'></iframe><div></body>");
+  gfx::PointF point;
+  viz::FrameSinkId main_frame_sink_id =
+      widget()->GetFrameSinkIdAtPoint(gfx::PointF(10, 10), &point);
+  EXPECT_EQ(static_cast<uint32_t>(widget()->routing_id()),
+            main_frame_sink_id.sink_id());
+  EXPECT_EQ(static_cast<uint32_t>(RenderThreadImpl::Get()->GetClientId()),
+            main_frame_sink_id.client_id());
+  EXPECT_EQ(gfx::PointF(10, 10), point);
+
+  // Targeting a child frame should also return the FrameSinkId for the main
+  // widget.
+  viz::FrameSinkId frame_sink_id =
+      widget()->GetFrameSinkIdAtPoint(gfx::PointF(150, 150), &point);
+  EXPECT_EQ(static_cast<uint32_t>(widget()->routing_id()),
+            frame_sink_id.sink_id());
+  EXPECT_EQ(main_frame_sink_id.client_id(), frame_sink_id.client_id());
+  EXPECT_EQ(gfx::PointF(150, 150), point);
 }
 
 TEST_F(RenderWidgetTest, GetCompositionRangeValidComposition) {
   LoadHTML(
       "<div contenteditable>EDITABLE</div>"
       "<script> document.querySelector('div').focus(); </script>");
-  blink::WebVector<blink::WebCompositionUnderline> emptyUnderlines;
+  blink::WebVector<blink::WebImeTextSpan> empty_ime_text_spans;
   DCHECK(widget()->GetInputMethodController());
-  widget()->GetInputMethodController()->SetComposition("hello", emptyUnderlines,
-                                                       blink::WebRange(), 3, 3);
+  widget()->GetInputMethodController()->SetComposition(
+      "hello", empty_ime_text_spans, blink::WebRange(), 3, 3);
   gfx::Range range;
   GetCompositionRange(&range);
   EXPECT_TRUE(range.IsValid());

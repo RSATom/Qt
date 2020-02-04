@@ -20,8 +20,8 @@ class SequencedTaskRunner;
 namespace net {
 class ChannelIDService;
 class CookieCryptoDelegate;
-class CookieMonsterDelegate;
 class CookieStore;
+class NetLog;
 }
 
 namespace storage {
@@ -31,25 +31,6 @@ class SpecialStoragePolicy;
 namespace content {
 
 struct CONTENT_EXPORT CookieStoreConfig {
-  // Specifies how session cookies are persisted in the backing data store.
-  //
-  // EPHEMERAL_SESSION_COOKIES specifies session cookies will not be written
-  // out in a manner that allows for restoration.
-  //
-  // PERSISTANT_SESSION_COOKIES specifies that session cookies are not restored
-  // when the cookie store is opened, however they will be written in a manner
-  // that allows for them to be restored if the cookie store is opened again
-  // using RESTORED_SESSION_COOKIES.
-  //
-  // RESTORED_SESSION_COOKIES is the: same as PERSISTANT_SESSION_COOKIES
-  // except when the cookie store is opened, the previously written session
-  // cookies are loaded first.
-  enum SessionCookieMode {
-    EPHEMERAL_SESSION_COOKIES,
-    PERSISTANT_SESSION_COOKIES,
-    RESTORED_SESSION_COOKIES
-  };
-
   // Convenience constructor for an in-memory cookie store with no delegate.
   CookieStoreConfig();
 
@@ -60,15 +41,15 @@ struct CONTENT_EXPORT CookieStoreConfig {
   // Note: If |crypto_delegate| is non-nullptr, it must outlive any CookieStores
   // created using this config.
   CookieStoreConfig(const base::FilePath& path,
-                    SessionCookieMode session_cookie_mode,
-                    storage::SpecialStoragePolicy* storage_policy,
-                    net::CookieMonsterDelegate* cookie_delegate);
+                    bool restore_old_session_cookies,
+                    bool persist_session_cookies,
+                    storage::SpecialStoragePolicy* storage_policy);
   ~CookieStoreConfig();
 
   const base::FilePath path;
-  const SessionCookieMode session_cookie_mode;
+  const bool restore_old_session_cookies;
+  const bool persist_session_cookies;
   const scoped_refptr<storage::SpecialStoragePolicy> storage_policy;
-  const scoped_refptr<net::CookieMonsterDelegate> cookie_delegate;
 
   // The following are infrequently used cookie store parameters.
   // Rather than clutter the constructor API, these are assigned a default
@@ -103,7 +84,8 @@ struct CONTENT_EXPORT CookieStoreConfig {
 };
 
 CONTENT_EXPORT std::unique_ptr<net::CookieStore> CreateCookieStore(
-    const CookieStoreConfig& config);
+    const CookieStoreConfig& config,
+    net::NetLog* net_log);
 
 }  // namespace content
 

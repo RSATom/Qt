@@ -6,9 +6,8 @@
 
 #include <stdint.h>
 
-#include "base/memory/ptr_util.h"
 #include "content/common/input/web_touch_event_traits.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/event.h"
@@ -65,8 +64,7 @@ bool MakeUITouchEventsFromWebTouchEvents(
   }
 
   int flags = ui::WebEventModifiersToEventFlags(touch.GetModifiers());
-  base::TimeTicks timestamp =
-      ui::EventTimeStampFromSeconds(touch.TimeStampSeconds());
+  base::TimeTicks timestamp = touch.TimeStamp();
   for (unsigned i = 0; i < touch.touches_length; ++i) {
     const blink::WebTouchPoint& point = touch.touches[i];
     if (WebTouchPointStateToEventType(point.state) != type)
@@ -77,11 +75,12 @@ bool MakeUITouchEventsFromWebTouchEvents(
       location = point.PositionInWidget();
     else
       location = point.PositionInScreen();
-    auto uievent = base::MakeUnique<ui::TouchEvent>(
+    auto uievent = std::make_unique<ui::TouchEvent>(
         type, gfx::Point(), timestamp,
         ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, point.id,
-                           point.radius_x, point.radius_y, point.force),
-        flags, point.rotation_angle);
+                           point.radius_x, point.radius_y, point.force,
+                           point.rotation_angle),
+        flags);
     uievent->set_location_f(location);
     uievent->set_root_location_f(location);
     uievent->set_latency(touch_with_latency.latency);

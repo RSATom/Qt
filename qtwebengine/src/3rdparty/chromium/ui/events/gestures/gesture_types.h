@@ -12,11 +12,30 @@ namespace ui {
 class GestureEvent;
 class TouchEvent;
 
+// TransferTouchesBehavior customizes the behavior of
+// GestureRecognizer::TransferEventsTo.
+enum class TransferTouchesBehavior {
+  // Dispatches the cancel events to the current consumer on transfer to ensure
+  // its touch stream remains valid.
+  kCancel,
+
+  // Do not dispatch cancel events.
+  kDontCancel
+};
+
 // An abstract type for consumers of gesture-events created by the
 // gesture-recognizer.
 class EVENTS_EXPORT GestureConsumer {
  public:
   virtual ~GestureConsumer() {}
+
+  // Supporting double tap events requires adding some extra delay before
+  // sending single-tap events in order to determine whether its a potential
+  // double tap or not. This delay may be undesirable in many UI components and
+  // should be avoided if not needed.
+  // Returns true if the consumer wants to receive double tap gesture events.
+  // Defaults to false.
+  virtual bool RequiresDoubleTapGestureEvents() const;
 };
 
 // GestureEventHelper creates implementation-specific gesture events and

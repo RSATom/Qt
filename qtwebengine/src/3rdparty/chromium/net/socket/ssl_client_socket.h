@@ -18,16 +18,6 @@
 #include "net/base/net_export.h"
 #include "net/socket/ssl_socket.h"
 #include "net/socket/stream_socket.h"
-#include "net/ssl/token_binding.h"
-
-namespace base {
-class FilePath;
-class SequencedTaskRunner;
-}
-
-namespace crypto {
-class ECPrivateKey;
-}
 
 namespace net {
 
@@ -35,7 +25,7 @@ class CTPolicyEnforcer;
 class CertVerifier;
 class ChannelIDService;
 class CTVerifier;
-class SSLCertRequestInfo;
+class SSLKeyLogger;
 class TransportSecurityState;
 
 // This struct groups together several fields which are used by various
@@ -63,33 +53,7 @@ struct SSLClientSocketContext {
   // ssl_session_cache_shard is an opaque string that identifies a shard of the
   // SSL session cache. SSL sockets with the same ssl_session_cache_shard may
   // resume each other's SSL sessions but we'll never sessions between shards.
-  const std::string ssl_session_cache_shard;
-};
-
-// Details on a failed operation. This enum is used to diagnose causes of TLS
-// version interference by buggy middleboxes. The values are histogramed so they
-// must not be changed.
-enum class SSLErrorDetails {
-  kOther = 0,
-  // The failure was due to ERR_CONNECTION_CLOSED. BlueCoat has a bug with this
-  // failure mode. https://crbug.com/694593.
-  kConnectionClosed = 1,
-  // The failure was due to ERR_CONNECTION_RESET.
-  kConnectionReset = 2,
-  // The failure was due to receiving an access_denied alert. Fortinet has a
-  // bug with this failure mode. https://crbug.com/676969.
-  kAccessDeniedAlert = 3,
-  // The failure was due to receiving a bad_record_mac alert.
-  kBadRecordMACAlert = 4,
-  // The failure was due to receiving an unencrypted application_data record
-  // during the handshake. Watchguard has a bug with this failure
-  // mode. https://crbug.com/733223.
-  kApplicationDataInsteadOfHandshake = 5,
-  // The failure was due to failing to negotiate a version or cipher suite.
-  kVersionOrCipherMismatch = 6,
-  // The failure was due to some other protocol error.
-  kProtocolError = 7,
-  kLastValue = kProtocolError,
+  std::string ssl_session_cache_shard;
 };
 
 // A client socket that uses SSL as the transport layer.
@@ -102,49 +66,16 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
  public:
   SSLClientSocket();
 
-  // Gets the SSL CertificateRequest info of the socket after Connect failed
-  // with ERR_SSL_CLIENT_AUTH_CERT_NEEDED.
-  virtual void GetSSLCertRequestInfo(
-      SSLCertRequestInfo* cert_request_info) = 0;
-
-  // Log SSL key material to |path| on |task_runner|. Must be called before any
+  // Log SSL key material to |logger|. Must be called before any
   // SSLClientSockets are created.
   //
   // TODO(davidben): Switch this to a parameter on the SSLClientSocketContext
-  // once https://crbug.com/458365 is resolved. This will require splitting
-  // SSLKeyLogger into an interface, built with OS_NACL and a non-NaCl
-  // SSLKeyLoggerImpl.
-  static void SetSSLKeyLogFile(
-      const base::FilePath& path,
-      const scoped_refptr<base::SequencedTaskRunner>& task_runner);
-
-  // Returns true if |error| is OK or |load_flags| ignores certificate errors
-  // and |error| is a certificate error.
-  static bool IgnoreCertError(int error, int load_flags);
+  // once https://crbug.com/458365 is resolved.
+  static void SetSSLKeyLogger(std::unique_ptr<SSLKeyLogger> logger);
 
   // ClearSessionCache clears the SSL session cache, used to resume SSL
   // sessions.
   static void ClearSessionCache();
-
-  // Returns the ChannelIDService used by this socket, or NULL if
-  // channel ids are not supported.
-  virtual ChannelIDService* GetChannelIDService() const = 0;
-
-  // Generates the signature used in Token Binding using key |*key| and for a
-  // Token Binding of type |tb_type|, putting the signature in |*out|. Returns a
-  // net error code.
-  virtual Error GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                         TokenBindingType tb_type,
-                                         std::vector<uint8_t>* out) = 0;
-
-  // This method is only for debugging crbug.com/548423 and will be removed when
-  // that bug is closed. This returns the channel ID key that was used when
-  // establishing the connection (or NULL if no channel ID was used).
-  virtual crypto::ECPrivateKey* GetChannelIDKey() const = 0;
-
-  // Returns details for a failed Connect() operation. This method is used to
-  // track causes of TLS version interference by buggy middleboxes.
-  virtual SSLErrorDetails GetConnectErrorDetails() const;
 
  protected:
   void set_signed_cert_timestamps_received(
@@ -165,9 +96,9 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   FRIEND_TEST_ALL_PREFIXES(SSLClientSocket, SerializeNextProtos);
   // For signed_cert_timestamps_received_ and stapled_ocsp_response_received_.
   FRIEND_TEST_ALL_PREFIXES(SSLClientSocketTest,
-                           ConnectSignedCertTimestampsEnabledTLSExtension);
+                           ConnectSignedCertTimestampsTLSExtension);
   FRIEND_TEST_ALL_PREFIXES(SSLClientSocketTest,
-                           ConnectSignedCertTimestampsEnabledOCSP);
+                           ConnectSignedCertTimestampsEnablesOCSP);
   FRIEND_TEST_ALL_PREFIXES(SSLClientSocketTest,
                            ConnectSignedCertTimestampsDisabled);
   FRIEND_TEST_ALL_PREFIXES(SSLClientSocketTest,

@@ -13,9 +13,9 @@
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
-#include "sql/connection.h"
+#include "base/stl_util.h"
+#include "sql/database.h"
 #include "sql/meta_table.h"
 #include "sql/statement.h"
 #include "sql/test/scoped_error_expecter.h"
@@ -25,25 +25,26 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
-using storage::kStorageTypePersistent;
-using storage::kStorageTypeTemporary;
 using storage::QuotaDatabase;
 
 namespace content {
 namespace {
 
-const base::Time kZeroTime;
-
 const char kDBFileName[] = "quota_manager.db";
 
 }  // namespace
 
+// Declared to shorten the line lengths.
+static const blink::mojom::StorageType kTemporary =
+    blink::mojom::StorageType::kTemporary;
+static const blink::mojom::StorageType kPersistent =
+    blink::mojom::StorageType::kPersistent;
+
 class QuotaDatabaseTest : public testing::Test {
  protected:
-  typedef QuotaDatabase::QuotaTableEntry QuotaTableEntry;
-  typedef QuotaDatabase::QuotaTableCallback QuotaTableCallback;
-  typedef QuotaDatabase::OriginInfoTableCallback
-      OriginInfoTableCallback;
+  using QuotaTableEntry = QuotaDatabase::QuotaTableEntry;
+  using QuotaTableCallback = QuotaDatabase::QuotaTableCallback;
+  using OriginInfoTableCallback = QuotaDatabase::OriginInfoTableCallback;
 
   void LazyOpen(const base::FilePath& kDbFile) {
     QuotaDatabase db(kDbFile);
@@ -62,21 +63,21 @@ class QuotaDatabaseTest : public testing::Test {
 
   void UpgradeSchemaV2toV5(const base::FilePath& kDbFile) {
     const QuotaTableEntry entries[] = {
-      QuotaTableEntry("a", kStorageTypeTemporary,  1),
-      QuotaTableEntry("b", kStorageTypeTemporary,  2),
-      QuotaTableEntry("c", kStorageTypePersistent, 3),
+        QuotaTableEntry("a", kTemporary, 1),
+        QuotaTableEntry("b", kTemporary, 2),
+        QuotaTableEntry("c", kPersistent, 3),
     };
 
-    CreateV2Database(kDbFile, entries, arraysize(entries));
+    CreateV2Database(kDbFile, entries, base::size(entries));
 
     QuotaDatabase db(kDbFile);
     EXPECT_TRUE(db.LazyOpen(true));
     EXPECT_TRUE(db.db_.get());
 
-    typedef EntryVerifier<QuotaTableEntry> Verifier;
-    Verifier verifier(entries, entries + arraysize(entries));
+    using Verifier = EntryVerifier<QuotaTableEntry>;
+    Verifier verifier(entries, entries + base::size(entries));
     EXPECT_TRUE(db.DumpQuotaTable(
-        base::Bind(&Verifier::Run, base::Unretained(&verifier))));
+        base::BindRepeating(&Verifier::Run, base::Unretained(&verifier))));
     EXPECT_TRUE(verifier.table.empty());
 
     EXPECT_TRUE(db.db_->DoesTableExist("EvictionInfoTable"));
@@ -92,25 +93,29 @@ class QuotaDatabaseTest : public testing::Test {
     const int kQuota2 = kQuota1 + 1024;
 
     int64_t quota = -1;
-    EXPECT_FALSE(db.GetHostQuota(kHost, kStorageTypeTemporary, &quota));
-    EXPECT_FALSE(db.GetHostQuota(kHost, kStorageTypePersistent, &quota));
+    EXPECT_FALSE(db.GetHostQuota(kHost, kTemporary, &quota));
+    EXPECT_FALSE(db.GetHostQuota(kHost, kPersistent, &quota));
 
     // Insert quota for temporary.
-    EXPECT_TRUE(db.SetHostQuota(kHost, kStorageTypeTemporary, kQuota1));
-    EXPECT_TRUE(db.GetHostQuota(kHost, kStorageTypeTemporary, &quota));
+    EXPECT_TRUE(db.SetHostQuota(kHost, kTemporary, kQuota1));
+    EXPECT_TRUE(db.GetHostQuota(kHost, kTemporary, &quota));
     EXPECT_EQ(kQuota1, quota);
 
     // Update quota for temporary.
-    EXPECT_TRUE(db.SetHostQuota(kHost, kStorageTypeTemporary, kQuota2));
-    EXPECT_TRUE(db.GetHostQuota(kHost, kStorageTypeTemporary, &quota));
+    EXPECT_TRUE(db.SetHostQuota(kHost, kTemporary, kQuota2));
+    EXPECT_TRUE(db.GetHostQuota(kHost, kTemporary, &quota));
     EXPECT_EQ(kQuota2, quota);
 
     // Quota for persistent must not be updated.
-    EXPECT_FALSE(db.GetHostQuota(kHost, kStorageTypePersistent, &quota));
+    EXPECT_FALSE(db.GetHostQuota(kHost, kPersistent, &quota));
 
     // Delete temporary storage quota.
-    EXPECT_TRUE(db.DeleteHostQuota(kHost, kStorageTypeTemporary));
-    EXPECT_FALSE(db.GetHostQuota(kHost, kStorageTypeTemporary, &quota));
+    EXPECT_TRUE(db.DeleteHostQuota(kHost, kTemporary));
+    EXPECT_FALSE(db.GetHostQuota(kHost, kTemporary, &quota));
+
+    // Delete persistent quota by setting it to zero.
+    EXPECT_TRUE(db.SetHostQuota(kHost, kPersistent, 0));
+    EXPECT_FALSE(db.GetHostQuota(kHost, kPersistent, &quota));
   }
 
   void GlobalQuota(const base::FilePath& kDbFile) {
@@ -147,136 +152,126 @@ class QuotaDatabaseTest : public testing::Test {
     QuotaDatabase db(kDbFile);
     ASSERT_TRUE(db.LazyOpen(true));
 
-    std::set<GURL> exceptions;
-    GURL origin;
-    EXPECT_TRUE(db.GetLRUOrigin(kStorageTypeTemporary, exceptions,
-                                NULL, &origin));
-    EXPECT_TRUE(origin.is_empty());
+    std::set<url::Origin> exceptions;
+    base::Optional<url::Origin> origin;
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, nullptr, &origin));
+    EXPECT_FALSE(origin.has_value());
 
-    const GURL kOrigin1("http://a/");
-    const GURL kOrigin2("http://b/");
-    const GURL kOrigin3("http://c/");
-    const GURL kOrigin4("http://p/");
+    // TODO(crbug.com/889590): Use helper for url::Origin creation from string.
+    const url::Origin kOrigin1 = url::Origin::Create(GURL("http://a/"));
+    const url::Origin kOrigin2 = url::Origin::Create(GURL("http://b/"));
+    const url::Origin kOrigin3 = url::Origin::Create(GURL("http://c/"));
+    const url::Origin kOrigin4 = url::Origin::Create(GURL("http://p/"));
 
     // Adding three temporary storages, and
     EXPECT_TRUE(db.SetOriginLastAccessTime(
-        kOrigin1, kStorageTypeTemporary, base::Time::FromInternalValue(10)));
+        kOrigin1, kTemporary, QuotaDatabase::TimeFromSqlValue(10)));
     EXPECT_TRUE(db.SetOriginLastAccessTime(
-        kOrigin2, kStorageTypeTemporary, base::Time::FromInternalValue(20)));
+        kOrigin2, kTemporary, QuotaDatabase::TimeFromSqlValue(20)));
     EXPECT_TRUE(db.SetOriginLastAccessTime(
-        kOrigin3, kStorageTypeTemporary, base::Time::FromInternalValue(30)));
+        kOrigin3, kTemporary, QuotaDatabase::TimeFromSqlValue(30)));
 
     // one persistent.
     EXPECT_TRUE(db.SetOriginLastAccessTime(
-        kOrigin4, kStorageTypePersistent, base::Time::FromInternalValue(40)));
+        kOrigin4, kPersistent, QuotaDatabase::TimeFromSqlValue(40)));
 
-    EXPECT_TRUE(db.GetLRUOrigin(kStorageTypeTemporary, exceptions,
-                                NULL, &origin));
-    EXPECT_EQ(kOrigin1.spec(), origin.spec());
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, nullptr, &origin));
+    EXPECT_EQ(kOrigin1, origin);
 
     // Test that unlimited origins are exluded from eviction, but
     // protected origins are not excluded.
     scoped_refptr<MockSpecialStoragePolicy> policy(
         new MockSpecialStoragePolicy);
-    policy->AddUnlimited(kOrigin1);
-    policy->AddProtected(kOrigin2);
-    EXPECT_TRUE(db.GetLRUOrigin(
-        kStorageTypeTemporary, exceptions, policy.get(), &origin));
-    EXPECT_EQ(kOrigin2.spec(), origin.spec());
+    policy->AddUnlimited(kOrigin1.GetURL());
+    policy->AddProtected(kOrigin2.GetURL());
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, policy.get(), &origin));
+    EXPECT_EQ(kOrigin2, origin);
 
     // Test that durable origins are excluded from eviction.
-    policy->AddDurable(kOrigin2);
-    EXPECT_TRUE(db.GetLRUOrigin(
-        kStorageTypeTemporary, exceptions, policy.get(), &origin));
-    EXPECT_EQ(kOrigin3.spec(), origin.spec());
+    policy->AddDurable(kOrigin2.GetURL());
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, policy.get(), &origin));
+    EXPECT_EQ(kOrigin3, origin);
 
     exceptions.insert(kOrigin1);
-    EXPECT_TRUE(db.GetLRUOrigin(kStorageTypeTemporary, exceptions,
-                                NULL, &origin));
-    EXPECT_EQ(kOrigin2.spec(), origin.spec());
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, nullptr, &origin));
+    EXPECT_EQ(kOrigin2, origin);
 
     exceptions.insert(kOrigin2);
-    EXPECT_TRUE(db.GetLRUOrigin(kStorageTypeTemporary, exceptions,
-                                NULL, &origin));
-    EXPECT_EQ(kOrigin3.spec(), origin.spec());
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, nullptr, &origin));
+    EXPECT_EQ(kOrigin3, origin);
 
     exceptions.insert(kOrigin3);
-    EXPECT_TRUE(db.GetLRUOrigin(kStorageTypeTemporary, exceptions,
-                                NULL, &origin));
-    EXPECT_TRUE(origin.is_empty());
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, nullptr, &origin));
+    EXPECT_FALSE(origin.has_value());
 
-    EXPECT_TRUE(db.SetOriginLastAccessTime(
-        kOrigin1, kStorageTypeTemporary, base::Time::Now()));
+    EXPECT_TRUE(
+        db.SetOriginLastAccessTime(kOrigin1, kTemporary, base::Time::Now()));
 
     // Delete origin/type last access time information.
-    EXPECT_TRUE(db.DeleteOriginInfo(kOrigin3, kStorageTypeTemporary));
+    EXPECT_TRUE(db.DeleteOriginInfo(kOrigin3, kTemporary));
 
     // Querying again to see if the deletion has worked.
     exceptions.clear();
-    EXPECT_TRUE(db.GetLRUOrigin(kStorageTypeTemporary, exceptions,
-                                NULL, &origin));
-    EXPECT_EQ(kOrigin2.spec(), origin.spec());
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, nullptr, &origin));
+    EXPECT_EQ(kOrigin2, origin);
 
     exceptions.insert(kOrigin1);
     exceptions.insert(kOrigin2);
-    EXPECT_TRUE(db.GetLRUOrigin(kStorageTypeTemporary, exceptions,
-                                NULL, &origin));
-    EXPECT_TRUE(origin.is_empty());
+    EXPECT_TRUE(db.GetLRUOrigin(kTemporary, exceptions, nullptr, &origin));
+    EXPECT_FALSE(origin.has_value());
   }
 
   void OriginLastModifiedSince(const base::FilePath& kDbFile) {
     QuotaDatabase db(kDbFile);
     ASSERT_TRUE(db.LazyOpen(true));
 
-    std::set<GURL> origins;
-    EXPECT_TRUE(db.GetOriginsModifiedSince(
-        kStorageTypeTemporary, &origins, base::Time()));
+    std::set<url::Origin> origins;
+    EXPECT_TRUE(db.GetOriginsModifiedSince(kTemporary, &origins, base::Time()));
     EXPECT_TRUE(origins.empty());
 
-    const GURL kOrigin1("http://a/");
-    const GURL kOrigin2("http://b/");
-    const GURL kOrigin3("http://c/");
+    const url::Origin kOrigin1 = url::Origin::Create(GURL("http://a/"));
+    const url::Origin kOrigin2 = url::Origin::Create(GURL("http://b/"));
+    const url::Origin kOrigin3 = url::Origin::Create(GURL("http://c/"));
 
     // Report last mod time for the test origins.
     EXPECT_TRUE(db.SetOriginLastModifiedTime(
-        kOrigin1, kStorageTypeTemporary, base::Time::FromInternalValue(0)));
+        kOrigin1, kTemporary, QuotaDatabase::TimeFromSqlValue(0)));
     EXPECT_TRUE(db.SetOriginLastModifiedTime(
-        kOrigin2, kStorageTypeTemporary, base::Time::FromInternalValue(10)));
+        kOrigin2, kTemporary, QuotaDatabase::TimeFromSqlValue(10)));
     EXPECT_TRUE(db.SetOriginLastModifiedTime(
-        kOrigin3, kStorageTypeTemporary, base::Time::FromInternalValue(20)));
+        kOrigin3, kTemporary, QuotaDatabase::TimeFromSqlValue(20)));
 
-    EXPECT_TRUE(db.GetOriginsModifiedSince(
-        kStorageTypeTemporary, &origins, base::Time()));
+    EXPECT_TRUE(db.GetOriginsModifiedSince(kTemporary, &origins, base::Time()));
     EXPECT_EQ(3U, origins.size());
     EXPECT_EQ(1U, origins.count(kOrigin1));
     EXPECT_EQ(1U, origins.count(kOrigin2));
     EXPECT_EQ(1U, origins.count(kOrigin3));
 
-    EXPECT_TRUE(db.GetOriginsModifiedSince(
-        kStorageTypeTemporary, &origins, base::Time::FromInternalValue(5)));
+    EXPECT_TRUE(db.GetOriginsModifiedSince(kTemporary, &origins,
+                                           QuotaDatabase::TimeFromSqlValue(5)));
     EXPECT_EQ(2U, origins.size());
     EXPECT_EQ(0U, origins.count(kOrigin1));
     EXPECT_EQ(1U, origins.count(kOrigin2));
     EXPECT_EQ(1U, origins.count(kOrigin3));
 
     EXPECT_TRUE(db.GetOriginsModifiedSince(
-        kStorageTypeTemporary, &origins, base::Time::FromInternalValue(15)));
+        kTemporary, &origins, QuotaDatabase::TimeFromSqlValue(15)));
     EXPECT_EQ(1U, origins.size());
     EXPECT_EQ(0U, origins.count(kOrigin1));
     EXPECT_EQ(0U, origins.count(kOrigin2));
     EXPECT_EQ(1U, origins.count(kOrigin3));
 
     EXPECT_TRUE(db.GetOriginsModifiedSince(
-        kStorageTypeTemporary, &origins, base::Time::FromInternalValue(25)));
+        kTemporary, &origins, QuotaDatabase::TimeFromSqlValue(25)));
     EXPECT_TRUE(origins.empty());
 
     // Update origin1's mod time but for persistent storage.
     EXPECT_TRUE(db.SetOriginLastModifiedTime(
-        kOrigin1, kStorageTypePersistent, base::Time::FromInternalValue(30)));
+        kOrigin1, kPersistent, QuotaDatabase::TimeFromSqlValue(30)));
 
     // Must have no effects on temporary origins info.
-    EXPECT_TRUE(db.GetOriginsModifiedSince(
-        kStorageTypeTemporary, &origins, base::Time::FromInternalValue(5)));
+    EXPECT_TRUE(db.GetOriginsModifiedSince(kTemporary, &origins,
+                                           QuotaDatabase::TimeFromSqlValue(5)));
     EXPECT_EQ(2U, origins.size());
     EXPECT_EQ(0U, origins.count(kOrigin1));
     EXPECT_EQ(1U, origins.count(kOrigin2));
@@ -284,17 +279,17 @@ class QuotaDatabaseTest : public testing::Test {
 
     // One more update for persistent origin2.
     EXPECT_TRUE(db.SetOriginLastModifiedTime(
-        kOrigin2, kStorageTypePersistent, base::Time::FromInternalValue(40)));
+        kOrigin2, kPersistent, QuotaDatabase::TimeFromSqlValue(40)));
 
     EXPECT_TRUE(db.GetOriginsModifiedSince(
-        kStorageTypePersistent, &origins, base::Time::FromInternalValue(25)));
+        kPersistent, &origins, QuotaDatabase::TimeFromSqlValue(25)));
     EXPECT_EQ(2U, origins.size());
     EXPECT_EQ(1U, origins.count(kOrigin1));
     EXPECT_EQ(1U, origins.count(kOrigin2));
     EXPECT_EQ(0U, origins.count(kOrigin3));
 
     EXPECT_TRUE(db.GetOriginsModifiedSince(
-        kStorageTypePersistent, &origins, base::Time::FromInternalValue(35)));
+        kPersistent, &origins, QuotaDatabase::TimeFromSqlValue(35)));
     EXPECT_EQ(1U, origins.size());
     EXPECT_EQ(0U, origins.count(kOrigin1));
     EXPECT_EQ(1U, origins.count(kOrigin2));
@@ -305,87 +300,83 @@ class QuotaDatabaseTest : public testing::Test {
     QuotaDatabase db(kDbFile);
     ASSERT_TRUE(db.LazyOpen(true));
 
-    const GURL kOrigin1("http://a/");
-    const GURL kOrigin2("http://b/");
-    const GURL kOrigin3("http://c/");
+    const url::Origin kOrigin1 = url::Origin::Create(GURL("http://a/"));
+    const url::Origin kOrigin2 = url::Origin::Create(GURL("http://b/"));
+    const url::Origin kOrigin3 = url::Origin::Create(GURL("http://c/"));
 
     base::Time last_eviction_time;
-    EXPECT_FALSE(db.GetOriginLastEvictionTime(kOrigin1, kStorageTypeTemporary,
+    EXPECT_FALSE(db.GetOriginLastEvictionTime(kOrigin1, kTemporary,
                                               &last_eviction_time));
     EXPECT_EQ(base::Time(), last_eviction_time);
 
     // Report last eviction time for the test origins.
     EXPECT_TRUE(db.SetOriginLastEvictionTime(
-        kOrigin1, kStorageTypeTemporary, base::Time::FromInternalValue(10)));
+        kOrigin1, kTemporary, QuotaDatabase::TimeFromSqlValue(10)));
     EXPECT_TRUE(db.SetOriginLastEvictionTime(
-        kOrigin2, kStorageTypeTemporary, base::Time::FromInternalValue(20)));
+        kOrigin2, kTemporary, QuotaDatabase::TimeFromSqlValue(20)));
     EXPECT_TRUE(db.SetOriginLastEvictionTime(
-        kOrigin3, kStorageTypeTemporary, base::Time::FromInternalValue(30)));
+        kOrigin3, kTemporary, QuotaDatabase::TimeFromSqlValue(30)));
 
-    EXPECT_TRUE(db.GetOriginLastEvictionTime(kOrigin1, kStorageTypeTemporary,
+    EXPECT_TRUE(db.GetOriginLastEvictionTime(kOrigin1, kTemporary,
                                              &last_eviction_time));
-    EXPECT_EQ(base::Time::FromInternalValue(10), last_eviction_time);
-    EXPECT_TRUE(db.GetOriginLastEvictionTime(kOrigin2, kStorageTypeTemporary,
+    EXPECT_EQ(QuotaDatabase::TimeFromSqlValue(10), last_eviction_time);
+    EXPECT_TRUE(db.GetOriginLastEvictionTime(kOrigin2, kTemporary,
                                              &last_eviction_time));
-    EXPECT_EQ(base::Time::FromInternalValue(20), last_eviction_time);
-    EXPECT_TRUE(db.GetOriginLastEvictionTime(kOrigin3, kStorageTypeTemporary,
+    EXPECT_EQ(QuotaDatabase::TimeFromSqlValue(20), last_eviction_time);
+    EXPECT_TRUE(db.GetOriginLastEvictionTime(kOrigin3, kTemporary,
                                              &last_eviction_time));
-    EXPECT_EQ(base::Time::FromInternalValue(30), last_eviction_time);
+    EXPECT_EQ(QuotaDatabase::TimeFromSqlValue(30), last_eviction_time);
 
     // Delete last eviction times for the test origins.
-    EXPECT_TRUE(
-        db.DeleteOriginLastEvictionTime(kOrigin1, kStorageTypeTemporary));
-    EXPECT_TRUE(
-        db.DeleteOriginLastEvictionTime(kOrigin2, kStorageTypeTemporary));
-    EXPECT_TRUE(
-        db.DeleteOriginLastEvictionTime(kOrigin3, kStorageTypeTemporary));
+    EXPECT_TRUE(db.DeleteOriginLastEvictionTime(kOrigin1, kTemporary));
+    EXPECT_TRUE(db.DeleteOriginLastEvictionTime(kOrigin2, kTemporary));
+    EXPECT_TRUE(db.DeleteOriginLastEvictionTime(kOrigin3, kTemporary));
 
     last_eviction_time = base::Time();
-    EXPECT_FALSE(db.GetOriginLastEvictionTime(kOrigin1, kStorageTypeTemporary,
+    EXPECT_FALSE(db.GetOriginLastEvictionTime(kOrigin1, kTemporary,
                                               &last_eviction_time));
     EXPECT_EQ(base::Time(), last_eviction_time);
-    EXPECT_FALSE(db.GetOriginLastEvictionTime(kOrigin2, kStorageTypeTemporary,
+    EXPECT_FALSE(db.GetOriginLastEvictionTime(kOrigin2, kTemporary,
                                               &last_eviction_time));
     EXPECT_EQ(base::Time(), last_eviction_time);
-    EXPECT_FALSE(db.GetOriginLastEvictionTime(kOrigin3, kStorageTypeTemporary,
+    EXPECT_FALSE(db.GetOriginLastEvictionTime(kOrigin3, kTemporary,
                                               &last_eviction_time));
     EXPECT_EQ(base::Time(), last_eviction_time);
 
     // Deleting an origin that is not present should not fail.
-    EXPECT_TRUE(db.DeleteOriginLastEvictionTime(GURL("http://notpresent.com"),
-                                                kStorageTypeTemporary));
+    EXPECT_TRUE(db.DeleteOriginLastEvictionTime(
+        url::Origin::Create(GURL("http://notpresent.com")), kTemporary));
   }
 
   void RegisterInitialOriginInfo(const base::FilePath& kDbFile) {
     QuotaDatabase db(kDbFile);
 
-    const GURL kOrigins[] = {
-      GURL("http://a/"),
-      GURL("http://b/"),
-      GURL("http://c/") };
-    std::set<GURL> origins(kOrigins, kOrigins + arraysize(kOrigins));
+    const url::Origin kOrigins[] = {url::Origin::Create(GURL("http://a/")),
+                                    url::Origin::Create(GURL("http://b/")),
+                                    url::Origin::Create(GURL("http://c/"))};
+    std::set<url::Origin> origins(kOrigins, kOrigins + base::size(kOrigins));
 
-    EXPECT_TRUE(db.RegisterInitialOriginInfo(origins, kStorageTypeTemporary));
+    EXPECT_TRUE(db.RegisterInitialOriginInfo(origins, kTemporary));
 
     QuotaDatabase::OriginInfoTableEntry info;
     info.used_count = -1;
-    EXPECT_TRUE(db.GetOriginInfo(
-        GURL("http://a/"), kStorageTypeTemporary, &info));
+    EXPECT_TRUE(db.GetOriginInfo(url::Origin::Create(GURL("http://a/")),
+                                 kTemporary, &info));
     EXPECT_EQ(0, info.used_count);
 
-    EXPECT_TRUE(db.SetOriginLastAccessTime(
-        GURL("http://a/"), kStorageTypeTemporary,
-        base::Time::FromDoubleT(1.0)));
+    EXPECT_TRUE(
+        db.SetOriginLastAccessTime(url::Origin::Create(GURL("http://a/")),
+                                   kTemporary, base::Time::FromDoubleT(1.0)));
     info.used_count = -1;
-    EXPECT_TRUE(db.GetOriginInfo(
-        GURL("http://a/"), kStorageTypeTemporary, &info));
+    EXPECT_TRUE(db.GetOriginInfo(url::Origin::Create(GURL("http://a/")),
+                                 kTemporary, &info));
     EXPECT_EQ(1, info.used_count);
 
-    EXPECT_TRUE(db.RegisterInitialOriginInfo(origins, kStorageTypeTemporary));
+    EXPECT_TRUE(db.RegisterInitialOriginInfo(origins, kTemporary));
 
     info.used_count = -1;
-    EXPECT_TRUE(db.GetOriginInfo(
-        GURL("http://a/"), kStorageTypeTemporary, &info));
+    EXPECT_TRUE(db.GetOriginInfo(url::Origin::Create(GURL("http://a/")),
+                                 kTemporary, &info));
     EXPECT_EQ(1, info.used_count);
   }
 
@@ -405,55 +396,56 @@ class QuotaDatabaseTest : public testing::Test {
 
   void DumpQuotaTable(const base::FilePath& kDbFile) {
     QuotaTableEntry kTableEntries[] = {
-      QuotaTableEntry("http://go/", kStorageTypeTemporary, 1),
-      QuotaTableEntry("http://oo/", kStorageTypeTemporary, 2),
-      QuotaTableEntry("http://gle/", kStorageTypePersistent, 3)
-    };
+        QuotaTableEntry("http://go/", kTemporary, 1),
+        QuotaTableEntry("http://oo/", kTemporary, 2),
+        QuotaTableEntry("http://gle/", kPersistent, 3)};
     QuotaTableEntry* begin = kTableEntries;
-    QuotaTableEntry* end = kTableEntries + arraysize(kTableEntries);
+    QuotaTableEntry* end = kTableEntries + base::size(kTableEntries);
 
     QuotaDatabase db(kDbFile);
     EXPECT_TRUE(db.LazyOpen(true));
     AssignQuotaTable(db.db_.get(), begin, end);
     db.Commit();
 
-    typedef EntryVerifier<QuotaTableEntry> Verifier;
+    using Verifier = EntryVerifier<QuotaTableEntry>;
     Verifier verifier(begin, end);
     EXPECT_TRUE(db.DumpQuotaTable(
-        base::Bind(&Verifier::Run, base::Unretained(&verifier))));
+        base::BindRepeating(&Verifier::Run, base::Unretained(&verifier))));
     EXPECT_TRUE(verifier.table.empty());
   }
 
   void DumpOriginInfoTable(const base::FilePath& kDbFile) {
     base::Time now(base::Time::Now());
-    typedef QuotaDatabase::OriginInfoTableEntry Entry;
+    using Entry = QuotaDatabase::OriginInfoTableEntry;
     Entry kTableEntries[] = {
-      Entry(GURL("http://go/"), kStorageTypeTemporary, 2147483647, now, now),
-      Entry(GURL("http://oo/"), kStorageTypeTemporary, 0, now, now),
-      Entry(GURL("http://gle/"), kStorageTypeTemporary, 1, now, now),
+        Entry(url::Origin::Create(GURL("http://go/")), kTemporary, 2147483647,
+              now, now),
+        Entry(url::Origin::Create(GURL("http://oo/")), kTemporary, 0, now, now),
+        Entry(url::Origin::Create(GURL("http://gle/")), kTemporary, 1, now,
+              now),
     };
     Entry* begin = kTableEntries;
-    Entry* end = kTableEntries + arraysize(kTableEntries);
+    Entry* end = kTableEntries + base::size(kTableEntries);
 
     QuotaDatabase db(kDbFile);
     EXPECT_TRUE(db.LazyOpen(true));
     AssignOriginInfoTable(db.db_.get(), begin, end);
     db.Commit();
 
-    typedef EntryVerifier<Entry> Verifier;
+    using Verifier = EntryVerifier<Entry>;
     Verifier verifier(begin, end);
     EXPECT_TRUE(db.DumpOriginInfoTable(
-        base::Bind(&Verifier::Run, base::Unretained(&verifier))));
+        base::BindRepeating(&Verifier::Run, base::Unretained(&verifier))));
     EXPECT_TRUE(verifier.table.empty());
   }
 
   void GetOriginInfo(const base::FilePath& kDbFile) {
-    const GURL kOrigin = GURL("http://go/");
-    typedef QuotaDatabase::OriginInfoTableEntry Entry;
+    const url::Origin kOrigin = url::Origin::Create(GURL("http://go/"));
+    using Entry = QuotaDatabase::OriginInfoTableEntry;
     Entry kTableEntries[] = {
-        Entry(kOrigin, kStorageTypeTemporary, 100, base::Time(), base::Time())};
+        Entry(kOrigin, kTemporary, 100, base::Time(), base::Time())};
     Entry* begin = kTableEntries;
-    Entry* end = kTableEntries + arraysize(kTableEntries);
+    Entry* end = kTableEntries + base::size(kTableEntries);
 
     QuotaDatabase db(kDbFile);
     EXPECT_TRUE(db.LazyOpen(true));
@@ -462,7 +454,7 @@ class QuotaDatabaseTest : public testing::Test {
 
     {
       Entry entry;
-      EXPECT_TRUE(db.GetOriginInfo(kOrigin, kStorageTypeTemporary, &entry));
+      EXPECT_TRUE(db.GetOriginInfo(kOrigin, kTemporary, &entry));
       EXPECT_EQ(kTableEntries[0].type, entry.type);
       EXPECT_EQ(kTableEntries[0].origin, entry.origin);
       EXPECT_EQ(kTableEntries[0].used_count, entry.used_count);
@@ -472,15 +464,16 @@ class QuotaDatabaseTest : public testing::Test {
 
     {
       Entry entry;
-      EXPECT_FALSE(db.GetOriginInfo(GURL("http://notpresent.org/"),
-                                    kStorageTypeTemporary, &entry));
+      EXPECT_FALSE(
+          db.GetOriginInfo(url::Origin::Create(GURL("http://notpresent.org/")),
+                           kTemporary, &entry));
     }
   }
 
  private:
   template <typename Iterator>
-  void AssignQuotaTable(sql::Connection* db, Iterator itr, Iterator end) {
-    ASSERT_NE(db, (sql::Connection*)NULL);
+  void AssignQuotaTable(sql::Database* db, Iterator itr, Iterator end) {
+    ASSERT_NE(db, (sql::Database*)nullptr);
     for (; itr != end; ++itr) {
       const char* kSql =
           "INSERT INTO HostQuotaTable"
@@ -498,8 +491,8 @@ class QuotaDatabaseTest : public testing::Test {
   }
 
   template <typename Iterator>
-  void AssignOriginInfoTable(sql::Connection* db, Iterator itr, Iterator end) {
-    ASSERT_NE(db, (sql::Connection*)NULL);
+  void AssignOriginInfoTable(sql::Database* db, Iterator itr, Iterator end) {
+    ASSERT_NE(db, (sql::Database*)nullptr);
     for (; itr != end; ++itr) {
       const char* kSql =
           "INSERT INTO OriginInfoTable"
@@ -509,16 +502,18 @@ class QuotaDatabaseTest : public testing::Test {
       statement.Assign(db->GetCachedStatement(SQL_FROM_HERE, kSql));
       ASSERT_TRUE(statement.is_valid());
 
-      statement.BindString(0, itr->origin.spec());
+      statement.BindString(0, itr->origin.GetURL().spec());
       statement.BindInt(1, static_cast<int>(itr->type));
       statement.BindInt(2, itr->used_count);
-      statement.BindInt64(3, itr->last_access_time.ToInternalValue());
-      statement.BindInt64(4, itr->last_modified_time.ToInternalValue());
+      statement.BindInt64(3,
+                          QuotaDatabase::TimeToSqlValue(itr->last_access_time));
+      statement.BindInt64(
+          4, QuotaDatabase::TimeToSqlValue(itr->last_modified_time));
       EXPECT_TRUE(statement.Run());
     }
   }
 
-  bool OpenDatabase(sql::Connection* db, const base::FilePath& kDbFile) {
+  bool OpenDatabase(sql::Database* db, const base::FilePath& kDbFile) {
     if (kDbFile.empty()) {
       return db->OpenInMemory();
     }
@@ -535,7 +530,7 @@ class QuotaDatabaseTest : public testing::Test {
       const base::FilePath& kDbFile,
       const QuotaTableEntry* entries,
       size_t entries_size) {
-    std::unique_ptr<sql::Connection> db(new sql::Connection);
+    std::unique_ptr<sql::Database> db(new sql::Database);
     std::unique_ptr<sql::MetaTable> meta_table(new sql::MetaTable);
 
     // V2 schema definitions.
@@ -569,10 +564,8 @@ class QuotaDatabaseTest : public testing::Test {
 
     ASSERT_TRUE(OpenDatabase(db.get(), kDbFile));
     EXPECT_TRUE(QuotaDatabase::CreateSchema(
-            db.get(), meta_table.get(),
-            kCurrentVersion, kCompatibleVersion,
-            kTables, arraysize(kTables),
-            kIndexes, arraysize(kIndexes)));
+        db.get(), meta_table.get(), kCurrentVersion, kCompatibleVersion,
+        kTables, base::size(kTables), kIndexes, base::size(kIndexes)));
 
     // V2 and V3 QuotaTable are compatible, so we can simply use
     // AssignQuotaTable to poplulate v2 database here.

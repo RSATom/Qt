@@ -46,7 +46,7 @@ QT_BEGIN_NAMESPACE
     \instantiates QDeclarativeGeoRouteSegment
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-routing
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The RouteSegment type represents a segment of a Route.
 
@@ -153,7 +153,7 @@ QJSValue QDeclarativeGeoRouteSegment::path() const
         const QGeoCoordinate &c = segment_.path().at(i);
 
         QV4::ScopedValue cv(scope, v4->fromVariant(QVariant::fromValue(c)));
-        pathArray->putIndexed(i, cv);
+        pathArray->put(i, cv);
     }
 
     return QJSValue(v4, pathArray.asReturnedValue());

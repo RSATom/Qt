@@ -47,26 +47,29 @@ QT_BEGIN_NAMESPACE
     \qmltype PointHandler
     \instantiates QQuickPointHandler
     \inherits SinglePointHandler
-    \inqmlmodule Qt.labs.handlers
-    \ingroup qtquick-handlers
+    \inqmlmodule QtQuick
+    \ingroup qtquick-input-handlers
     \brief Handler for reacting to a single touchpoint.
 
     PointHandler can be used to show feedback about a touchpoint or the mouse
     position, or to otherwise react to pointer events.
 
-    When a press event occurs, each instance of PointHandler chooses a single
-    point which is not yet "taken" at that moment: if the press occurs within
-    the bounds of the \l parent, and no sibling PointHandler within the same
-    \l parent has yet acquired a passive grab on that point, and if the other
-    constraints such as \l acceptedMouseButtons, \l acceptedDevices etc. are
-    satisfied, it's eligible, and the PointHandler then acquires a passive
-    grab. In this way, the \l parent acts like an exclusive group: there can be
-    multiple instances of PointHandler, and the set of pressed touchpoints will
-    be distributed among them. Each PointHandler which has chosen a point to
-    track has its \l active property \c true. It then continues to track its
-    chosen point until release: the properties of the \l point will be kept
-    up-to-date. Any Item can bind to these properties, and thereby follow the
-    point's movements.
+    When a press event occurs, each instance of PointHandler chooses a
+    single point which is not yet "taken" at that moment: if the press
+    occurs within the bounds of the \l {PointerHandler::parent}, and
+    no sibling PointHandler within the same \l {PointerHandler::parent}
+    has yet acquired a passive grab on that point, and if the other
+    constraints such as \l {PointerDeviceHandler::acceptedButtons}{acceptedButtons}, \l {PointerDeviceHandler::acceptedDevices}{acceptedDevices} etc.
+    are satisfied, it's
+    eligible, and the PointHandler then acquires a passive grab. In
+    this way, the \l {PointerHandler::parent} acts like an exclusive
+    group: there can be multiple instances of PointHandler, and the
+    set of pressed touchpoints will be distributed among them. Each
+    PointHandler which has chosen a point to track has its \l active
+    property \c true. It then continues to track its chosen point
+    until release: the properties of the \l point will be kept
+    up-to-date. Any Item can bind to these properties, and thereby
+    follow the point's movements.
 
     By being only a passive grabber, it has the ability to keep independent
     oversight of all movements. The passive grab cannot be stolen or overridden
@@ -81,11 +84,11 @@ QT_BEGIN_NAMESPACE
     types, and thus sets itself up as a potential event delivery bottleneck.
 
     One possible use case is to add this handler to a transparent Item which is
-    on top of the rest of the scene (by having a high \l z value), so that when
-    a point is freshly pressed, it will be delivered to that Item and its
-    handlers first, providing the opportunity to take the passive grab as early
-    as possible. Such an item (like a pane of glass over the whole UI) can be a
-    convenient parent for other Items which visualize the kind of reactive
+    on top of the rest of the scene (by having a high \l{Item::z} {z} value),
+    so that when a point is freshly pressed, it will be delivered to that Item
+    and its handlers first, providing the opportunity to take the passive grab
+    as early as possible. Such an item (like a pane of glass over the whole UI)
+    can be a convenient parent for other Items which visualize the kind of reactive
     feedback which must always be on top; and likewise it can be the parent for
     popups, popovers, dialogs and so on. If it will be used in that way, it can
     be helpful for your main.cpp to use QQmlContext::setContextProperty() to
@@ -94,7 +97,7 @@ QT_BEGIN_NAMESPACE
 
     \snippet pointerHandlers/pointHandler.qml 0
 
-    Like all pointer handlers, a PointHandler has a \l target property, which
+    Like all input handlers, a PointHandler has a \l target property, which
     may be used as a convenient place to put a point-tracking Item; but
     PointHandler will not automatically manipulate the \c target item in any way.
     You need to use bindings to make it react to the \l point.
@@ -111,14 +114,10 @@ QT_BEGIN_NAMESPACE
     \sa MultiPointTouchArea
 */
 
-QQuickPointHandler::QQuickPointHandler(QObject *parent)
+QQuickPointHandler::QQuickPointHandler(QQuickItem *parent)
     : QQuickSinglePointHandler(parent)
 {
     setIgnoreAdditionalPoints();
-}
-
-QQuickPointHandler::~QQuickPointHandler()
-{
 }
 
 bool QQuickPointHandler::wantsEventPoint(QQuickEventPoint *pt)
@@ -140,11 +139,16 @@ void QQuickPointHandler::handleEventPoint(QQuickEventPoint *point)
 {
     switch (point->state()) {
     case QQuickEventPoint::Pressed:
-        setPassiveGrab(point);
-        setActive(true);
+        if (point->pointerEvent()->asPointerTouchEvent() ||
+                (point->pointerEvent()->buttons() & acceptedButtons()) != Qt::NoButton) {
+            setPassiveGrab(point);
+            setActive(true);
+        }
         break;
     case QQuickEventPoint::Released:
-        setActive(false);
+        if (point->pointerEvent()->asPointerTouchEvent() ||
+                (point->pointerEvent()->buttons() & acceptedButtons()) == Qt::NoButton)
+            setActive(false);
         break;
     default:
         break;

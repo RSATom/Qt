@@ -135,271 +135,130 @@
 
 #include <openssl/ssl.h>
 
-#include <assert.h>
-#include <string.h>
-
 #include <openssl/buf.h>
 #include <openssl/digest.h>
-#include <openssl/err.h>
-#include <openssl/mem.h>
-#include <openssl/md5.h>
-#include <openssl/nid.h>
-#include <openssl/sha.h>
 
-#include "../crypto/internal.h"
 #include "internal.h"
 
 
-int SSL_TRANSCRIPT_init(SSL_TRANSCRIPT *transcript) {
-  SSL_TRANSCRIPT_cleanup(transcript);
-  transcript->buffer = BUF_MEM_new();
-  return transcript->buffer != NULL;
+BSSL_NAMESPACE_BEGIN
+
+SSLTranscript::SSLTranscript() {}
+
+SSLTranscript::~SSLTranscript() {}
+
+bool SSLTranscript::Init() {
+  buffer_.reset(BUF_MEM_new());
+  if (!buffer_) {
+    return false;
+  }
+
+  hash_.Reset();
+  return true;
 }
 
-/* init_digest_with_data calls |EVP_DigestInit_ex| on |ctx| with |md| and then
- * writes the data in |buf| to it. */
-static int init_digest_with_data(EVP_MD_CTX *ctx, const EVP_MD *md,
-                                 const BUF_MEM *buf) {
+// InitDigestWithData calls |EVP_DigestInit_ex| on |ctx| with |md| and then
+// writes the data in |buf| to it.
+static bool InitDigestWithData(EVP_MD_CTX *ctx, const EVP_MD *md,
+                               const BUF_MEM *buf) {
   if (!EVP_DigestInit_ex(ctx, md, NULL)) {
-    return 0;
+    return false;
   }
   EVP_DigestUpdate(ctx, buf->data, buf->length);
-  return 1;
+  return true;
 }
 
-int SSL_TRANSCRIPT_init_hash(SSL_TRANSCRIPT *transcript, uint16_t version,
-                             int algorithm_prf) {
-  const EVP_MD *md = ssl_get_handshake_digest(algorithm_prf, version);
-
-  /* To support SSL 3.0's Finished and CertificateVerify constructions,
-   * EVP_md5_sha1() is split into MD5 and SHA-1 halves. When SSL 3.0 is removed,
-   * we can simplify this. */
-  if (md == EVP_md5_sha1()) {
-    if (!init_digest_with_data(&transcript->md5, EVP_md5(),
-                               transcript->buffer)) {
-      return 0;
-    }
-    md = EVP_sha1();
-  }
-
-  if (!init_digest_with_data(&transcript->hash, md, transcript->buffer)) {
-    return 0;
-  }
-
-  return 1;
+bool SSLTranscript::InitHash(uint16_t version, const SSL_CIPHER *cipher) {
+  const EVP_MD *md = ssl_get_handshake_digest(version, cipher);
+  return InitDigestWithData(hash_.get(), md, buffer_.get());
 }
 
-void SSL_TRANSCRIPT_cleanup(SSL_TRANSCRIPT *transcript) {
-  SSL_TRANSCRIPT_free_buffer(transcript);
-  EVP_MD_CTX_cleanup(&transcript->hash);
-  EVP_MD_CTX_cleanup(&transcript->md5);
+void SSLTranscript::FreeBuffer() {
+  buffer_.reset();
 }
 
-void SSL_TRANSCRIPT_free_buffer(SSL_TRANSCRIPT *transcript) {
-  BUF_MEM_free(transcript->buffer);
-  transcript->buffer = NULL;
+size_t SSLTranscript::DigestLen() const {
+  return EVP_MD_size(Digest());
 }
 
-size_t SSL_TRANSCRIPT_digest_len(const SSL_TRANSCRIPT *transcript) {
-  return EVP_MD_size(SSL_TRANSCRIPT_md(transcript));
+const EVP_MD *SSLTranscript::Digest() const {
+  return EVP_MD_CTX_md(hash_.get());
 }
 
-const EVP_MD *SSL_TRANSCRIPT_md(const SSL_TRANSCRIPT *transcript) {
-  if (EVP_MD_CTX_md(&transcript->md5) != NULL) {
-    return EVP_md5_sha1();
+bool SSLTranscript::UpdateForHelloRetryRequest() {
+  if (buffer_) {
+    buffer_->length = 0;
   }
-  return EVP_MD_CTX_md(&transcript->hash);
+
+  uint8_t old_hash[EVP_MAX_MD_SIZE];
+  size_t hash_len;
+  if (!GetHash(old_hash, &hash_len)) {
+    return false;
+  }
+  const uint8_t header[4] = {SSL3_MT_MESSAGE_HASH, 0, 0,
+                             static_cast<uint8_t>(hash_len)};
+  if (!EVP_DigestInit_ex(hash_.get(), Digest(), nullptr) ||
+      !Update(header) ||
+      !Update(MakeConstSpan(old_hash, hash_len))) {
+    return false;
+  }
+  return true;
 }
 
-int SSL_TRANSCRIPT_update(SSL_TRANSCRIPT *transcript, const uint8_t *in,
-                          size_t in_len) {
-  /* Depending on the state of the handshake, either the handshake buffer may be
-   * active, the rolling hash, or both. */
-  if (transcript->buffer != NULL) {
-    size_t new_len = transcript->buffer->length + in_len;
-    if (new_len < in_len) {
-      OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
-      return 0;
-    }
-    if (!BUF_MEM_grow(transcript->buffer, new_len)) {
-      return 0;
-    }
-    OPENSSL_memcpy(transcript->buffer->data + new_len - in_len, in, in_len);
-  }
-
-  if (EVP_MD_CTX_md(&transcript->hash) != NULL) {
-    EVP_DigestUpdate(&transcript->hash, in, in_len);
-  }
-  if (EVP_MD_CTX_md(&transcript->md5) != NULL) {
-    EVP_DigestUpdate(&transcript->md5, in, in_len);
-  }
-
-  return 1;
+bool SSLTranscript::CopyHashContext(EVP_MD_CTX *ctx) {
+  return EVP_MD_CTX_copy_ex(ctx, hash_.get());
 }
 
-int SSL_TRANSCRIPT_get_hash(const SSL_TRANSCRIPT *transcript, uint8_t *out,
-                            size_t *out_len) {
-  int ret = 0;
-  EVP_MD_CTX ctx;
-  EVP_MD_CTX_init(&ctx);
-  unsigned md5_len = 0;
-  if (EVP_MD_CTX_md(&transcript->md5) != NULL) {
-    if (!EVP_MD_CTX_copy_ex(&ctx, &transcript->md5) ||
-        !EVP_DigestFinal_ex(&ctx, out, &md5_len)) {
-      goto err;
-    }
+bool SSLTranscript::Update(Span<const uint8_t> in) {
+  // Depending on the state of the handshake, either the handshake buffer may be
+  // active, the rolling hash, or both.
+  if (buffer_ &&
+      !BUF_MEM_append(buffer_.get(), in.data(), in.size())) {
+    return false;
   }
 
+  if (EVP_MD_CTX_md(hash_.get()) != NULL) {
+    EVP_DigestUpdate(hash_.get(), in.data(), in.size());
+  }
+
+  return true;
+}
+
+bool SSLTranscript::GetHash(uint8_t *out, size_t *out_len) {
+  ScopedEVP_MD_CTX ctx;
   unsigned len;
-  if (!EVP_MD_CTX_copy_ex(&ctx, &transcript->hash) ||
-      !EVP_DigestFinal_ex(&ctx, out + md5_len, &len)) {
-    goto err;
+  if (!EVP_MD_CTX_copy_ex(ctx.get(), hash_.get()) ||
+      !EVP_DigestFinal_ex(ctx.get(), out, &len)) {
+    return false;
   }
-
-  *out_len = md5_len + len;
-  ret = 1;
-
-err:
-  EVP_MD_CTX_cleanup(&ctx);
-  return ret;
-}
-
-static int ssl3_handshake_mac(SSL_TRANSCRIPT *transcript,
-                              const SSL_SESSION *session,
-                              const EVP_MD_CTX *ctx_template,
-                              const char *sender, size_t sender_len,
-                              uint8_t *p, size_t *out_len) {
-  unsigned int len;
-  size_t npad, n;
-  unsigned int i;
-  uint8_t md_buf[EVP_MAX_MD_SIZE];
-  EVP_MD_CTX ctx;
-
-  EVP_MD_CTX_init(&ctx);
-  if (!EVP_MD_CTX_copy_ex(&ctx, ctx_template)) {
-    EVP_MD_CTX_cleanup(&ctx);
-    OPENSSL_PUT_ERROR(SSL, ERR_LIB_EVP);
-    return 0;
-  }
-
-  static const uint8_t kPad1[48] = {
-      0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36,
-      0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36,
-      0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36,
-      0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36, 0x36,
-  };
-
-  static const uint8_t kPad2[48] = {
-      0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c,
-      0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c,
-      0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c,
-      0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c,
-  };
-
-  n = EVP_MD_CTX_size(&ctx);
-
-  npad = (48 / n) * n;
-  if (sender != NULL) {
-    EVP_DigestUpdate(&ctx, sender, sender_len);
-  }
-  EVP_DigestUpdate(&ctx, session->master_key, session->master_key_length);
-  EVP_DigestUpdate(&ctx, kPad1, npad);
-  EVP_DigestFinal_ex(&ctx, md_buf, &i);
-
-  if (!EVP_DigestInit_ex(&ctx, EVP_MD_CTX_md(&ctx), NULL)) {
-    EVP_MD_CTX_cleanup(&ctx);
-    OPENSSL_PUT_ERROR(SSL, ERR_LIB_EVP);
-    return 0;
-  }
-  EVP_DigestUpdate(&ctx, session->master_key, session->master_key_length);
-  EVP_DigestUpdate(&ctx, kPad2, npad);
-  EVP_DigestUpdate(&ctx, md_buf, i);
-  EVP_DigestFinal_ex(&ctx, p, &len);
-
-  EVP_MD_CTX_cleanup(&ctx);
-
   *out_len = len;
-  return 1;
+  return true;
 }
 
-int SSL_TRANSCRIPT_ssl3_cert_verify_hash(SSL_TRANSCRIPT *transcript,
-                                         uint8_t *out, size_t *out_len,
-                                         const SSL_SESSION *session,
-                                         int signature_algorithm) {
-  if (SSL_TRANSCRIPT_md(transcript) != EVP_md5_sha1()) {
-    OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-    return 0;
-  }
+bool SSLTranscript::GetFinishedMAC(uint8_t *out, size_t *out_len,
+                                   const SSL_SESSION *session,
+                                   bool from_server) {
+  static const char kClientLabel[] = "client finished";
+  static const char kServerLabel[] = "server finished";
+  auto label = from_server
+                   ? MakeConstSpan(kServerLabel, sizeof(kServerLabel) - 1)
+                   : MakeConstSpan(kClientLabel, sizeof(kClientLabel) - 1);
 
-  if (signature_algorithm == SSL_SIGN_RSA_PKCS1_MD5_SHA1) {
-    size_t md5_len, len;
-    if (!ssl3_handshake_mac(transcript, session, &transcript->md5, NULL, 0, out,
-                            &md5_len) ||
-        !ssl3_handshake_mac(transcript, session, &transcript->hash, NULL, 0,
-                            out + md5_len, &len)) {
-      return 0;
-    }
-    *out_len = md5_len + len;
-    return 1;
-  }
-
-  if (signature_algorithm == SSL_SIGN_ECDSA_SHA1) {
-    return ssl3_handshake_mac(transcript, session, &transcript->hash, NULL, 0,
-                              out, out_len);
-  }
-
-  OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-  return 0;
-}
-
-int SSL_TRANSCRIPT_finish_mac(SSL_TRANSCRIPT *transcript, uint8_t *out,
-                              size_t *out_len, const SSL_SESSION *session,
-                              int from_server, uint16_t version) {
-  if (version == SSL3_VERSION) {
-    if (SSL_TRANSCRIPT_md(transcript) != EVP_md5_sha1()) {
-      OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-      return 0;
-    }
-
-    const char *sender = from_server ? SSL3_MD_SERVER_FINISHED_CONST
-                                     : SSL3_MD_CLIENT_FINISHED_CONST;
-    const size_t sender_len = 4;
-    size_t md5_len, len;
-    if (!ssl3_handshake_mac(transcript, session, &transcript->md5, sender,
-                            sender_len, out, &md5_len) ||
-        !ssl3_handshake_mac(transcript, session, &transcript->hash, sender,
-                            sender_len, out + md5_len, &len)) {
-      return 0;
-    }
-
-    *out_len = md5_len + len;
-    return 1;
-  }
-
-  /* At this point, the handshake should have released the handshake buffer on
-   * its own. */
-  assert(transcript->buffer == NULL);
-
-  const char *label = TLS_MD_CLIENT_FINISH_CONST;
-  size_t label_len = TLS_MD_SERVER_FINISH_CONST_SIZE;
-  if (from_server) {
-    label = TLS_MD_SERVER_FINISH_CONST;
-    label_len = TLS_MD_SERVER_FINISH_CONST_SIZE;
-  }
-
-  uint8_t digests[EVP_MAX_MD_SIZE];
-  size_t digests_len;
-  if (!SSL_TRANSCRIPT_get_hash(transcript, digests, &digests_len)) {
-    return 0;
+  uint8_t digest[EVP_MAX_MD_SIZE];
+  size_t digest_len;
+  if (!GetHash(digest, &digest_len)) {
+    return false;
   }
 
   static const size_t kFinishedLen = 12;
-  if (!tls1_prf(SSL_TRANSCRIPT_md(transcript), out, kFinishedLen,
-                session->master_key, session->master_key_length, label,
-                label_len, digests, digests_len, NULL, 0)) {
-    return 0;
+  if (!tls1_prf(Digest(), MakeSpan(out, kFinishedLen),
+                MakeConstSpan(session->master_key, session->master_key_length),
+                label, MakeConstSpan(digest, digest_len), {})) {
+    return false;
   }
 
   *out_len = kFinishedLen;
-  return 1;
+  return true;
 }
+
+BSSL_NAMESPACE_END

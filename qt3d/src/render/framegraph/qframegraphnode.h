@@ -50,7 +50,7 @@ namespace Qt3DRender {
 
 class QFrameGraphNodePrivate;
 
-class QT3DRENDERSHARED_EXPORT QFrameGraphNode : public Qt3DCore::QNode
+class Q_3DRENDERSHARED_EXPORT QFrameGraphNode : public Qt3DCore::QNode
 {
     Q_OBJECT
 public:
@@ -61,7 +61,10 @@ public:
 
 protected:
     explicit QFrameGraphNode(QFrameGraphNodePrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
+
+private Q_SLOTS:
+    void onParentChanged(QObject *);
 
 private:
     Q_DECLARE_PRIVATE(QFrameGraphNode)

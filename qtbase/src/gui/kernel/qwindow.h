@@ -88,7 +88,7 @@ class QWindowContainer;
 #ifndef QT_NO_DEBUG_STREAM
 class QDebug;
 #endif
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan) || defined(Q_CLANG_QDOC)
 class QVulkanInstance;
 #endif
 
@@ -123,6 +123,7 @@ class Q_GUI_EXPORT QWindow : public QObject, public QSurface
     Q_PROPERTY(Visibility visibility READ visibility WRITE setVisibility NOTIFY visibilityChanged REVISION 1)
     Q_PROPERTY(Qt::ScreenOrientation contentOrientation READ contentOrientation WRITE reportContentOrientationChange NOTIFY contentOrientationChanged)
     Q_PROPERTY(qreal opacity READ opacity WRITE setOpacity NOTIFY opacityChanged REVISION 1)
+    Q_PRIVATE_PROPERTY(QWindow::d_func(), QWindow* transientParent MEMBER transientParent WRITE setTransientParent NOTIFY transientParentChanged REVISION 13)
 
 public:
     enum Visibility {
@@ -141,12 +142,12 @@ public:
     };
     Q_ENUM(AncestorMode)
 
-    explicit QWindow(QScreen *screen = Q_NULLPTR);
+    explicit QWindow(QScreen *screen = nullptr);
     explicit QWindow(QWindow *parent);
-    virtual ~QWindow();
+    ~QWindow();
 
     void setSurfaceType(SurfaceType surfaceType);
-    SurfaceType surfaceType() const Q_DECL_OVERRIDE;
+    SurfaceType surfaceType() const override;
 
     bool isVisible() const;
 
@@ -168,7 +169,7 @@ public:
     void setModality(Qt::WindowModality modality);
 
     void setFormat(const QSurfaceFormat &format);
-    QSurfaceFormat format() const Q_DECL_OVERRIDE;
+    QSurfaceFormat format() const override;
     QSurfaceFormat requestedFormat() const;
 
     void setFlags(Qt::WindowFlags flags);
@@ -231,7 +232,7 @@ public:
     inline int x() const { return geometry().x(); }
     inline int y() const { return geometry().y(); }
 
-    QSize size() const Q_DECL_OVERRIDE { return geometry().size(); }
+    QSize size() const override { return geometry().size(); }
     inline QPoint position() const { return geometry().topLeft(); }
 
     void setPosition(const QPoint &pt);
@@ -270,7 +271,7 @@ public:
 
     static QWindow *fromWinId(WId id);
 
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan) || defined(Q_CLANG_QDOC)
     void setVulkanInstance(QVulkanInstance *instance);
     QVulkanInstance *vulkanInstance() const;
 #endif
@@ -336,6 +337,8 @@ Q_SIGNALS:
 
     Q_REVISION(1) void opacityChanged(qreal opacity);
 
+    Q_REVISION(13) void transientParentChanged(QWindow *transientParent);
+
 protected:
     virtual void exposeEvent(QExposeEvent *);
     virtual void resizeEvent(QResizeEvent *);
@@ -347,7 +350,7 @@ protected:
     virtual void hideEvent(QHideEvent *);
     // TODO Qt 6 - add closeEvent virtual handler
 
-    virtual bool event(QEvent *) Q_DECL_OVERRIDE;
+    virtual bool event(QEvent *) override;
     virtual void keyPressEvent(QKeyEvent *);
     virtual void keyReleaseEvent(QKeyEvent *);
     virtual void mousePressEvent(QMouseEvent *);
@@ -367,7 +370,7 @@ protected:
 
 private:
     Q_PRIVATE_SLOT(d_func(), void _q_clearAlert())
-    QPlatformSurface *surfaceHandle() const Q_DECL_OVERRIDE;
+    QPlatformSurface *surfaceHandle() const override;
 
     Q_DISABLE_COPY(QWindow)
 
@@ -378,14 +381,15 @@ private:
 };
 
 #ifndef Q_QDOC
+// should these be seen by clang-qdoc?
 template <> inline QWindow *qobject_cast<QWindow*>(QObject *o)
 {
-    if (!o || !o->isWindowType()) return Q_NULLPTR;
+    if (!o || !o->isWindowType()) return nullptr;
     return static_cast<QWindow*>(o);
 }
 template <> inline const QWindow *qobject_cast<const QWindow*>(const QObject *o)
 {
-    if (!o || !o->isWindowType()) return Q_NULLPTR;
+    if (!o || !o->isWindowType()) return nullptr;
     return static_cast<const QWindow*>(o);
 }
 #endif // !Q_QDOC

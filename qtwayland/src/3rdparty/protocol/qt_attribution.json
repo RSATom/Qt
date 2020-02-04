@@ -1,5 +1,24 @@
 [
     {
+        "Id": "wayland-fullscreen-protocol",
+        "Name": "Wayland Fullscreen Shell Protocol",
+        "QDocModule": "qtwaylandcompositor",
+        "QtUsage": "Used in the Qt Wayland platform plugin.",
+        "Files": "fullscreen-shell-unstable-v1.xml",
+
+        "Description": "A Wayland shell for displaying a single surface per output",
+        "Homepage": "https://wayland.freedesktop.org",
+        "Version": "unstable v1",
+        "DownloadLocation": "https://cgit.freedesktop.org/wayland/wayland-protocols",
+        "LicenseId": "MIT",
+        "License": "MIT License",
+        "LicenseFile": "MIT_LICENSE.txt",
+        "Copyright": "Copyright © 2016 Yong Bakos
+Copyright © 2015 Jason Ekstrand
+Copyright © 2015 Jonas Ådahl"
+    },
+
+    {
         "Id": "wayland-protocol",
         "Name": "Wayland Protocol",
         "QDocModule": "qtwaylandcompositor",
@@ -8,14 +27,14 @@
 
         "Description": "Wayland is a protocol for a compositor to talk to its clients.",
         "Homepage": "https://wayland.freedesktop.org",
-        "Version": "1.6.1",
-        "DownloadLocation": "https://cgit.freedesktop.org/wayland/wayland/tag/?id=1.6.1",
-        "LicenseId": "HPND",
-        "License": "HPND License",
-        "LicenseFile": "HPND_LICENSE.txt",
+        "Version": "1.16.0",
+        "DownloadLocation": "https://gitlab.freedesktop.org/wayland/wayland/raw/1.16.0/protocol/wayland.xml",
+        "LicenseId": "MIT",
+        "License": "MIT License",
+        "LicenseFile": "MIT_LICENSE.txt",
         "Copyright": "Copyright © 2008-2011 Kristian Høgsberg
-    Copyright © 2010-2011 Intel Corporation
-    Copyright © 2012-2013 Collabora, Ltd."
+Copyright © 2010-2011 Intel Corporation
+Copyright © 2012-2013 Collabora, Ltd."
     },
 
     {
@@ -37,11 +56,78 @@ Copyright (c) 2013 BMW Car IT GmbH"
     },
 
     {
+        "Id": "wayland-scaler-protocol",
+        "Name": "Wayland Scaler Protocol",
+        "QDocModule": "qtwaylandcompositor",
+        "QtUsage": "Used in the Qt Wayland Compositor API",
+        "Files": "scaler.xml",
+
+        "Description": "The Wayland scaler extension allows a client to scale or crop a surface without modifying the buffer",
+        "Homepage": "https://wayland.freedesktop.org",
+        "Version": "2",
+        "DownloadLocation": "https://cgit.freedesktop.org/wayland/weston/plain/protocol/scaler.xml?h=1.11.1",
+        "LicenseId": "MIT",
+        "License": "MIT License",
+        "LicenseFile": "MIT_LICENSE.txt",
+        "Copyright": "Copyright © 2013-2014 Collabora, Ltd."
+    },
+
+    {
+        "Id": "wayland-viewporter-protocol",
+        "Name": "Wayland Viewporter Protocol",
+        "QDocModule": "qtwaylandcompositor",
+        "QtUsage": "Used in the Qt Wayland Compositor API",
+        "Files": "viewporter.xml",
+
+        "Description": "The Wayland viewporter extension allows a client to scale or crop a surface without modifying the buffer",
+        "Homepage": "https://wayland.freedesktop.org",
+        "Version": "1",
+        "DownloadLocation": "https://cgit.freedesktop.org/wayland/wayland-protocols/plain/stable/viewporter/viewporter.xml",
+        "LicenseId": "MIT",
+        "License": "MIT License",
+        "LicenseFile": "MIT_LICENSE.txt",
+        "Copyright": "Copyright © 2013-2016 Collabora, Ltd."
+    },
+
+    {
+        "Id": "wayland-xdg-decoration-protocol",
+        "Name": "Wayland xdg-decoration Protocol",
+        "QDocModule": "qtwaylandcompositor",
+        "QtUsage": "Used in the Qt Wayland Compositor API, and the Qt Wayland platform plugin.",
+        "Files": "xdg-decoration-unstable-v1.xml",
+
+        "Description": "The xdg-decoration protocol allows a compositor to announce support for server-side decorations.",
+        "Homepage": "https://wayland.freedesktop.org",
+        "Version": "unstable v1, version 1",
+        "DownloadLocation": "https://cgit.freedesktop.org/wayland/wayland-protocols/plain/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml?h=1.16",
+        "LicenseId": "MIT",
+        "License": "MIT License",
+        "LicenseFile": "MIT_LICENSE.txt",
+        "Copyright": "Copyright © 2018 Simon Ser"
+    },
+
+    {
+        "Id": "wayland-xdg-output-protocol",
+        "Name": "Wayland XDG Output Protocol",
+        "QDocModule": "qtwaylandcompositor",
+        "QtUsage": "Used in the Qt Wayland platform plugin.",
+        "Files": "xdg-output-unstable-v1.xml",
+        "Description": "The XDG Output protocol is an extended way to describe output regions under Wayland",
+        "Homepage": "https://wayland.freedesktop.org",
+        "Version": "unstable v1, version 2",
+        "DownloadLocation": "https://cgit.freedesktop.org/wayland/wayland-protocols/plain/unstable/xdg-output/xdg-output-unstable-v1.xml?h=1.16",
+        "LicenseId": "MIT",
+        "License": "MIT License",
+        "LicenseFile": "MIT_LICENSE.txt",
+        "Copyright": "Copyright © 2017 Red Hat Inc."
+    },
+
+    {
         "Id": "wayland-xdg-shell-protocol",
         "Name": "Wayland XDG Shell Protocol",
         "QDocModule": "qtwaylandcompositor",
         "QtUsage": "Used in the Qt Wayland Compositor, and the Qt Wayland platform plugin.",
-        "Files": "xdg-shell.xml",
+        "Files": " xdg-shell-unstable-v5.xml xdg-shell-unstable-v6.xml xdg-shell.xml ../../compositor/extensions/pregenerated/3rdparty/qwayland-server-xdg-shell-unstable-v5.cpp ../../compositor/extensions/pregenerated/3rdparty/qwayland-server-xdg-shell-unstable-v5_p.h ../../compositor/extensions/pregenerated/3rdparty/wayland-xdg-shell-unstable-v5-protocol.c ../../compositor/extensions/pregenerated/3rdparty/wayland-xdg-shell-unstable-v5-server-protocol_p.h ../../plugins/shellintegration/xdg-shell-v5/pregenerated/3rdparty/qwayland-xdg-shell-unstable-v5.cpp ../../plugins/shellintegration/xdg-shell-v5/pregenerated/3rdparty/qwayland-xdg-shell-unstable-v5_p.h ../../plugins/shellintegration/xdg-shell-v5/pregenerated/3rdparty/wayland-xdg-shell-unstable-v5-client-protocol_p.h ../../plugins/shellintegration/xdg-shell-v5/pregenerated/3rdparty/wayland-xdg-shell-unstable-v5-protocol.c",
 
         "Description": "The XDG-Shell protocol is an extended way to manage surfaces under Wayland compositors.",
         "Homepage": "https://wayland.freedesktop.org",
@@ -70,5 +156,35 @@ Copyright © 2010-2013 Intel Corporation"
         "LicenseFile": "HPND_LICENSE.txt",
         "Copyright": "Copyright © 2012, 2013 Intel Corporation
 Copyright © 2015, 2016 Jan Arne Petersen"
-    }
+    },
+
+    {
+        "Id": "wayland-linux-dmabuf-unstable-v1",
+        "Name": "Wayland Linux Dmabuf Unstable V1 Protocol",
+        "QDocModule": "qtwaylandcompositor",
+        "QtUsage": "Used in the Qt Wayland Compositor",
+        "Files": "linux-dmabuf-unstable-v1.xml",
+
+        "Description": "The linux dmabuf protocol is a way to create dmabuf-based wl_buffers",
+        "Homepage": "https://wayland.freedesktop.org",
+        "LicenseId": "MIT",
+        "License": "MIT License",
+        "LicenseFile": "MIT_LICENSE.txt",
+        "Copyright": "Copyright © 2014, 2015 Collabora, Ltd."
+    },
+
+    {
+        "Id": "wayland-eglstream-controller",
+        "Name": "Wayland EGLStream Controller Protocol",
+        "QDocModule": "qtwaylandcompositor",
+        "QtUsage": "Used in the Qt Wayland Compositor",
+        "Files": "wl-eglstream-controller.xml",
+
+        "Description": "Allows clients to request that the compositor creates its EGLStream.",
+        "Homepage": "https://github.com/NVIDIA/egl-wayland",
+        "LicenseId": "MIT",
+        "License": "MIT License",
+        "LicenseFile": "MIT_LICENSE.txt",
+        "Copyright": "Copyright (c) 2017, NVIDIA CORPORATION. All rights reserved."
+     }
 ]

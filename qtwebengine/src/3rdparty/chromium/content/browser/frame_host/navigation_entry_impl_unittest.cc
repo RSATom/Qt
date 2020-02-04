@@ -2,33 +2,68 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/browser/frame_host/navigation_entry_impl.h"
+
+#include <utility>
+
+#include "base/path_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/test_file_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "content/browser/frame_host/navigation_entry_impl.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/public/browser/ssl_status.h"
+#include "content/public/test/test_browser_context.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::ASCIIToUTF16;
 
 namespace content {
 
+namespace {
+
+// A test class for testing SSLStatus user data.
+class TestSSLStatusData : public SSLStatus::UserData {
+ public:
+  TestSSLStatusData() {}
+  ~TestSSLStatusData() override {}
+
+  void set_user_data_flag(bool user_data_flag) {
+    user_data_flag_ = user_data_flag;
+  }
+  bool user_data_flag() { return user_data_flag_; }
+
+  // SSLStatus implementation:
+  std::unique_ptr<SSLStatus::UserData> Clone() override {
+    std::unique_ptr<TestSSLStatusData> cloned =
+        std::make_unique<TestSSLStatusData>();
+    cloned->set_user_data_flag(user_data_flag_);
+    return std::move(cloned);
+  }
+
+ private:
+  bool user_data_flag_ = false;
+  DISALLOW_COPY_AND_ASSIGN(TestSSLStatusData);
+};
+
+}  // namespace
+
 class NavigationEntryTest : public testing::Test {
  public:
-  NavigationEntryTest() : instance_(NULL) {
-  }
+  NavigationEntryTest() : instance_(nullptr) {}
 
   void SetUp() override {
     entry1_.reset(new NavigationEntryImpl);
 
-    instance_ = SiteInstanceImpl::Create(NULL);
+    instance_ = SiteInstanceImpl::Create(&browser_context_);
     entry2_.reset(new NavigationEntryImpl(
         instance_, GURL("test:url"),
-        Referrer(GURL("from"), blink::kWebReferrerPolicyDefault),
-        ASCIIToUTF16("title"), ui::PAGE_TRANSITION_TYPED, false));
+        Referrer(GURL("from"), network::mojom::ReferrerPolicy::kDefault),
+        ASCIIToUTF16("title"), ui::PAGE_TRANSITION_TYPED, false,
+        nullptr /* blob_url_loader_factory */));
   }
 
   void TearDown() override {}
@@ -38,6 +73,10 @@ class NavigationEntryTest : public testing::Test {
   std::unique_ptr<NavigationEntryImpl> entry2_;
   // SiteInstances are deleted when their NavigationEntries are gone.
   scoped_refptr<SiteInstanceImpl> instance_;
+
+ private:
+  TestBrowserThreadBundle thread_bundle_;
+  TestBrowserContext browser_context_;
 };
 
 // Test unique ID accessors
@@ -138,16 +177,34 @@ TEST_F(NavigationEntryTest, NavigationEntrySSLStatus) {
   EXPECT_FALSE(entry2_->GetSSL().initialized);
   EXPECT_FALSE(!!entry1_->GetSSL().certificate);
   EXPECT_EQ(0U, entry1_->GetSSL().cert_status);
-  EXPECT_EQ(-1, entry1_->GetSSL().security_bits);
   int content_status = entry1_->GetSSL().content_status;
   EXPECT_FALSE(!!(content_status & SSLStatus::DISPLAYED_INSECURE_CONTENT));
   EXPECT_FALSE(!!(content_status & SSLStatus::RAN_INSECURE_CONTENT));
 }
 
+// Tests that SSLStatus user data can be added, retrieved, and copied.
+TEST_F(NavigationEntryTest, SSLStatusUserData) {
+  // Set up an SSLStatus with some user data on it.
+  SSLStatus ssl;
+  ssl.user_data = std::make_unique<TestSSLStatusData>();
+  TestSSLStatusData* ssl_data =
+      static_cast<TestSSLStatusData*>(ssl.user_data.get());
+  ASSERT_TRUE(ssl_data);
+  ssl_data->set_user_data_flag(true);
+
+  // Clone the SSLStatus and test that the user data has been cloned.
+  SSLStatus cloned(ssl);
+  TestSSLStatusData* cloned_ssl_data =
+      static_cast<TestSSLStatusData*>(cloned.user_data.get());
+  ASSERT_TRUE(cloned_ssl_data);
+  EXPECT_TRUE(cloned_ssl_data->user_data_flag());
+  EXPECT_NE(cloned_ssl_data, ssl_data);
+}
+
 // Test other basic accessors
 TEST_F(NavigationEntryTest, NavigationEntryAccessors) {
   // SiteInstance
-  EXPECT_TRUE(entry1_->site_instance() == NULL);
+  EXPECT_TRUE(entry1_->site_instance() == nullptr);
   EXPECT_EQ(instance_, entry2_->site_instance());
   entry1_->set_site_instance(instance_);
   EXPECT_EQ(instance_, entry1_->site_instance());
@@ -162,7 +219,7 @@ TEST_F(NavigationEntryTest, NavigationEntryAccessors) {
   EXPECT_EQ(GURL(), entry1_->GetReferrer().url);
   EXPECT_EQ(GURL("from"), entry2_->GetReferrer().url);
   entry2_->SetReferrer(
-      Referrer(GURL("from2"), blink::kWebReferrerPolicyDefault));
+      Referrer(GURL("from2"), network::mojom::ReferrerPolicy::kDefault));
   EXPECT_EQ(GURL("from2"), entry2_->GetReferrer().url);
 
   // Title
@@ -224,8 +281,8 @@ TEST_F(NavigationEntryTest, NavigationEntryAccessors) {
   EXPECT_FALSE(entry2_->GetPostData());
   const int length = 11;
   const char* raw_data = "post\n\n\0data";
-  scoped_refptr<ResourceRequestBody> post_data =
-      ResourceRequestBody::CreateFromBytes(raw_data, length);
+  scoped_refptr<network::ResourceRequestBody> post_data =
+      network::ResourceRequestBody::CreateFromBytes(raw_data, length);
   entry2_->SetPostData(post_data);
   EXPECT_EQ(post_data, entry2_->GetPostData());
 }
@@ -280,5 +337,23 @@ TEST_F(NavigationEntryTest, NavigationEntryExtraData) {
   EXPECT_FALSE(entry1_->GetExtraData("search_terms", &output2));
   EXPECT_EQ(ASCIIToUTF16(""), output2);
 }
+
+#if defined(OS_ANDROID)
+// Test that content URIs correctly show the file display name as the title.
+TEST_F(NavigationEntryTest, NavigationEntryContentUri) {
+  base::FilePath image_path;
+  EXPECT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &image_path));
+  image_path = image_path.Append(FILE_PATH_LITERAL("content"));
+  image_path = image_path.Append(FILE_PATH_LITERAL("test"));
+  image_path = image_path.Append(FILE_PATH_LITERAL("data"));
+  image_path = image_path.Append(FILE_PATH_LITERAL("blank.jpg"));
+  EXPECT_TRUE(base::PathExists(image_path));
+
+  base::FilePath content_uri = base::InsertImageIntoMediaStore(image_path);
+
+  entry1_->SetURL(GURL(content_uri.value()));
+  EXPECT_EQ(ASCIIToUTF16("blank.jpg"), entry1_->GetTitleForDisplay());
+}
+#endif
 
 }  // namespace content

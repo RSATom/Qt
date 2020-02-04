@@ -58,6 +58,8 @@ public:
     QIODevice *customRequestDevice(const QString &name);
     void setCustomRequestDevice(const QString &name, QIODevice *device);
 
+    QString errorString() const;
+
 private slots:
     void clientConnected();
     void clientDisconnected();

@@ -1,10 +1,10 @@
 {
   "name": "gpu driver bug list",
-  "version": "10.29",
   "entries": [
     {
       "id": 1,
       "description": "Imagination driver doesn't like uploading lots of buffer data constantly",
+      "cr_bugs": [178093],
       "os": {
         "type": "android"
       },
@@ -16,6 +16,7 @@
     {
       "id": 2,
       "description": "ARM driver doesn't like uploading lots of buffer data constantly",
+      "cr_bugs": [178093],
       "os": {
         "type": "android"
       },
@@ -78,8 +79,13 @@
     {
       "id": 20,
       "description": "Disable EXT_draw_buffers on GeForce GT 650M on Mac OS X due to driver bugs",
+      "cr_bugs": [180397, 779991],
       "os": {
-        "type": "macosx"
+        "type": "macosx",
+        "version": {
+          "op": "<",
+          "value": "10.12"
+        }
       },
       "vendor_id": "0x10de",
       "device_id": ["0x0fd5"],
@@ -153,31 +159,6 @@
       ]
     },
     {
-      "id": 27,
-      "cr_bugs": [265115],
-      "description": "Async Readpixels with GL_BGRA format is broken on Haswell chipset on Macs",
-      "os": {
-        "type": "macosx"
-      },
-      "vendor_id": "0x8086",
-      "device_id": ["0x0402", "0x0406", "0x040a", "0x0412", "0x0416", "0x041a",
-                    "0x0a04", "0x0a16", "0x0a22", "0x0a26", "0x0a2a"],
-      "features": [
-        "swizzle_rgba_for_async_readpixels"
-      ]
-    },
-    {
-      "id": 30,
-      "cr_bugs": [237931],
-      "description": "Multisampling is buggy on OSX when multiple monitors are connected",
-      "os": {
-        "type": "macosx"
-      },
-      "features": [
-        "disable_multimonitor_multisampling"
-      ]
-    },
-    {
       "id": 31,
       "cr_bugs": [154715, 10068, 269829, 294779, 285292],
       "description": "The Mali-Txxx driver does not guarantee flush ordering",
@@ -236,22 +217,6 @@
       ]
     },
     {
-      "id": 36,
-      "cr_bugs": [163464, 233612],
-      "description": "Share-group related crashes on Qualcomm drivers",
-      "os": {
-        "type": "android",
-        "version": {
-          "op": "<",
-          "value": "4.3"
-        }
-      },
-      "gl_vendor": "Qualcomm.*",
-      "features": [
-        "use_virtualized_gl_contexts"
-      ]
-    },
-    {
       "id": 37,
       "cr_bugs": [286468],
       "description": "Program link fails in NVIDIA Linux if gl_Position is not set",
@@ -266,7 +231,7 @@
     },
     {
       "id": 38,
-      "cr_bugs": [289461],
+      "cr_bugs": [163464, 233612, 289461],
       "description": "Non-virtual contexts on Qualcomm sometimes cause out-of-order frames",
       "os": {
         "type": "android"
@@ -339,6 +304,8 @@
       "os": {
         "type": "chromeos"
       },
+      "gl_vendor": "ARM.*",
+      "gl_renderer": "Mali.*",
       "features": [
         "disable_discard_framebuffer"
       ]
@@ -384,17 +351,6 @@
       "gl_vendor": "Qualcomm.*",
       "features": [
         "wake_up_gpu_before_drawing"
-      ]
-    },
-    {
-      "id": 51,
-      "description": "TexSubImage is faster for full uploads on ANGLE",
-      "os": {
-        "type": "win"
-      },
-      "gl_renderer": "ANGLE.*",
-      "features": [
-        "texsubimage_faster_than_teximage"
       ]
     },
     {
@@ -488,17 +444,6 @@
       ]
     },
     {
-      "id": 69,
-      "description": "Some shaders in Skia need more than the min available vertex and fragment shader uniform vectors in case of OSMesa",
-      "cr_bugs": [174845],
-      "driver_vendor": "osmesa",
-      "features": [
-       "max_fragment_uniform_vectors_32",
-       "max_varying_vectors_16",
-       "max_vertex_uniform_vectors_256"
-      ]
-    },
-    {
       "id": 70,
       "description": "Disable D3D11 on older nVidia drivers",
       "cr_bugs": [349929],
@@ -508,7 +453,7 @@
       "vendor_id": "0x10de",
       "driver_version": {
         "op": "<=",
-        "value": "8.17.12.6973"
+        "value": "269.73"
       },
       "features": [
         "disable_d3d11"
@@ -797,7 +742,7 @@
       "os": {
         "type": "android"
       },
-      "gl_vendor": "Intel",
+      "gl_vendor": "Intel.*",
       "gl_renderer": "Intel.*BayTrail",
       "features": [
         "disable_chromium_framebuffer_multisample"
@@ -835,9 +780,17 @@
     {
       "id": 100,
       "description": "Disable Direct3D11 on systems with AMD switchable graphics",
-      "cr_bugs": [451420],
+      "cr_bugs": [451420, 721121, 755722],
       "os": {
-        "type": "win"
+        "type": "win",
+        "version": {
+          "op": "<",
+          "value": "10"
+        }
+      },
+      "driver_date": {
+        "op": "<",
+        "value": "2016.6"
       },
       "multi_gpu_style": "amd_switchable",
       "features": [
@@ -1019,6 +972,10 @@
       "gl_renderer": "Adreno \\(TM\\) 3.*",
       "features": [
         "disable_timestamp_queries"
+      ],
+      "disabled_extensions": [
+        "GL_EXT_disjoint_timer_query",
+        "GL_EXT_disjoint_timer_query_webgl2"
       ]
     },
     {
@@ -1030,7 +987,8 @@
       },
       "gl_renderer": "Adreno \\(TM\\) 4.*",
       "disabled_extensions": [
-        "GL_EXT_disjoint_timer_query"
+        "GL_EXT_disjoint_timer_query",
+        "GL_EXT_disjoint_timer_query_webgl2"
       ]
     },
     {
@@ -1053,7 +1011,8 @@
     {
       "id": 116,
       "description": "Adreno 420 support for EXT_multisampled_render_to_texture is buggy on Android < 5.1",
-      "cr_bugs": [490379],
+      "comment": "Corresponds to software rendering list #149",
+      "cr_bugs": [490379, 767913],
       "os": {
         "type": "android",
         "version": {
@@ -1064,6 +1023,9 @@
       "gl_renderer": "Adreno \\(TM\\) 4.*",
       "disabled_extensions": [
         "GL_EXT_multisampled_render_to_texture"
+      ],
+      "features": [
+        "disable_chromium_framebuffer_multisample"
       ]
     },
     {
@@ -1376,20 +1338,6 @@
       ]
     },
     {
-      "id": 143,
-      "description": "Timer queries crash on Intel GPUs on Linux",
-      "cr_bugs": [540543, 576991],
-      "os": {
-        "type": "linux"
-      },
-      "vendor_id": "0x8086",
-      "driver_vendor": "Mesa",
-      "disabled_extensions": [
-        "GL_ARB_timer_query",
-        "GL_EXT_timer_query"
-      ]
-    },
-    {
       "id": 144,
       "cr_bugs": [563714],
       "description": "Pack parameters work incorrectly with pack buffer bound",
@@ -1421,21 +1369,6 @@
       },
       "features": [
         "max_texture_size_limit_4096"
-      ]
-    },
-    {
-      "id": 148,
-      "description": "Mali-4xx GPU on JB doesn't support DetachGLContext",
-      "os": {
-        "type": "android",
-        "version": {
-          "op": "<=",
-          "value": "4.4.4"
-        }
-      },
-      "gl_renderer": ".*Mali-4.*",
-      "features": [
-        "surface_texture_cant_detach"
       ]
     },
     {
@@ -1499,24 +1432,6 @@
       "gl_renderer": "Vivante GC1000",
       "disabled_extensions": [
         "GL_EXT_multisampled_render_to_texture"
-      ]
-    },
-    {
-      "id": 156,
-      "cr_bugs": [598474],
-      "description": "glEGLImageTargetTexture2DOES crashes",
-      "os": {
-        "type": "android",
-        "version": {
-          "op": "between",
-          "value": "4.4",
-          "value2": "4.4.4"
-        }
-      },
-      "gl_vendor": "Imagination.*",
-      "gl_renderer": "PowerVR SGX 544MP",
-      "features": [
-        "avda_dont_copy_pictures"
       ]
     },
     {
@@ -1657,19 +1572,6 @@
       ]
     },
     {
-      "id": 167,
-      "cr_bugs": [610516],
-      "description": "glEGLImageTargetTexture2DOES crashes on Mali-400",
-      "os": {
-        "type": "android"
-      },
-      "gl_vendor": "ARM.*",
-      "gl_renderer": ".*Mali-4.*",
-      "features": [
-        "avda_dont_copy_pictures"
-      ]
-    },
-    {
       "id": 168,
       "description": "VirtualBox driver doesn't correctly support partial swaps.",
       "cr_bugs": [613722],
@@ -1679,21 +1581,6 @@
       "vendor_id": "0x80ee",
       "features": [
         "disable_post_sub_buffers_for_onscreen_surfaces"
-      ]
-    },
-    {
-      "id": 169,
-      "description": "Mac Drivers store texture level parameters on int16_t that overflow",
-      "cr_bugs": [610153],
-      "os": {
-        "type": "macosx",
-        "version": {
-          "op": "<",
-          "value": "10.12.2"
-        }
-      },
-      "features": [
-        "use_shadowed_tex_level_params"
       ]
     },
     {
@@ -1713,7 +1600,7 @@
     },
     {
       "id": 172,
-      "description": "Limited enabling of Chromium GL_INTEL_framebuffer_CMAA",
+      "description": "Use GL_INTEL_framebuffer_CMAA on ChromeOS",
       "cr_bugs": [535198],
       "exceptions" : [
         {
@@ -1723,7 +1610,6 @@
           "vendor_id": "0x8086",
           "driver_vendor": "Mesa",
           "gl_vendor": "Intel.*",
-          "gl_renderer": ".*Intel.*(Braswell|Broadwell|Skylake).*",
           "gl_type": "gles",
           "gl_version": {
             "op": ">=",
@@ -1776,7 +1662,7 @@
       "os": {
         "type": "android"
       },
-      "gl_vendor": "Intel",
+      "gl_vendor": "Intel.*",
       "gl_renderer": ".*Atom.*x5/x7.*",
       "features": [
         "gl_clear_broken"
@@ -1897,6 +1783,10 @@
       "os": {
         "type": "win"
       },
+      "driver_version": {
+        "op": "<",
+        "value": "375.76"
+      },
       "vendor_id": "0x10de",
       "features": [
         "disable_dxgi_zero_copy_video"
@@ -1978,14 +1868,14 @@
       "description": "Emulate GLSL function isnan() on Intel Mac",
       "cr_bugs": [650547],
       "os": {
-        "type": "macosx"
+        "type": "macosx",
+        "version": {
+          "op": "<",
+          "value": "10.13.2"
+        }
       },
-      "vendor_id": "0x8086",
-      "device_id" : [
-        "0x1902", "0x1906", "0x190A", "0x190B", "0x190E", "0x1912", "0x1913", "0x1915",
-        "0x1916", "0x1917", "0x191A", "0x191B", "0x191D", "0x191E", "0x1921", "0x1923",
-        "0x1926", "0x1927", "0x192A", "0x192B", "0x192D", "0x1932", "0x193A", "0x193B",
-        "0x193D"
+      "gpu_series" : [
+        "intel_skylake"
       ],
       "features" : [
         "emulate_isnan_on_float"
@@ -2281,8 +2171,7 @@
       "id": 215,
       "description": "Fake no-op GPU driver bug workaround for testing",
       "cr_bugs": [682912],
-      "vendor_id": "0xbad9",
-      "device_id": ["0xbad9"],
+      "test_group": 1,
       "features": [
         "use_gpu_driver_workaround_for_testing"
       ]
@@ -2413,17 +2302,11 @@
       "os": {
         "type": "win"
       },
-      "vendor_id": "0x8086",
-      "device_id": ["0x1602", "0x1606", "0x160a", "0x160b", "0x160d",
-                    "0x160e", "0x1612", "0x1616", "0x161a", "0x161b",
-                    "0x161d", "0x161e", "0x1622", "0x1626", "0x162a",
-                    "0x162b", "0x162d", "0x162e", "0x22b0", "0x22b1",
-                    "0x22b2", "0x22b3", "0x1902", "0x1906", "0x190a",
-                    "0x190b", "0x190e", "0x1912", "0x1913", "0x1915",
-                    "0x1916", "0x1917", "0x191a", "0x191b", "0x191d",
-                    "0x191e", "0x1921", "0x1923", "0x1926", "0x1927",
-                    "0x192a", "0x192b", "0x192d", "0x1932", "0x193a",
-                    "0x193b", "0x193d"],
+      "gpu_series": [
+        "intel_broadwell",
+        "intel_skylake",
+        "intel_cherryview"
+      ],
       "features": [
         "disable_accelerated_vpx_decode"
       ]
@@ -2520,25 +2403,13 @@
     {
       "id": 233,
       "description": "Delayed copy NV12 displays incorrect colors on NVIDIA drivers.",
-      "cr_bugs": [728670],
+      "cr_bugs": [727216],
       "os": {
         "type": "win"
       },
       "vendor_id": "0x10de",
       "features": [
         "disable_delayed_copy_nv12"
-      ]
-    },
-    {
-      "id": 234,
-      "description": "Avoid using EGL_IMAGE_EXTERNAL_FLUSH_EXT with eglCreateImageKHR on NVIDIA",
-      "cr_bugs": [727462],
-      "os": {
-        "type": "chromeos"
-      },
-      "gl_vendor": "NVIDIA.*",
-      "features": [
-        "avoid_using_image_flush_external_with_egl_create_image"
       ]
     },
     {
@@ -2571,16 +2442,51 @@
       ]
     },
     {
-      "id": 238,
-      "description": "On Intel GPUs MSAA performance is not acceptable for GPU rasterization",
-      "cr_bugs": [527565, 751919],
+      "id": 237,
+      "description": "eglSwapBuffers intermittently fails on Android when app goes to background",
+      "cr_bugs": [744678],
       "os": {
-        "type": "macosx"
+        "type": "android",
+        "version": {
+          "op": "<",
+          "value": "9.0"
+        }
+      },
+      "features": [
+        "dont_disable_webgl_when_compositor_context_lost"
+      ]
+    },
+    {
+      "id": 239,
+      "description": "Reset TexImage2D base level to 0 on Intel Mac 10.12.4",
+      "cr_bugs": [705865],
+      "os": {
+        "type": "macosx",
+        "version": {
+          "op": ">=",
+          "value": "10.12.4"
+        }
       },
       "vendor_id": "0x8086",
-      "multi_gpu_category": "any",
       "features": [
-        "msaa_is_slow"
+        "reset_teximage2d_base_level"
+      ]
+    },
+    {
+      "id": 240,
+      "cr_bugs": [750306, 764526],
+      "description": "glGetQueryObject(GL_QUERY_RESULT_AVAILABLE) blocks unexpectedly on Adreno",
+      "os": {
+        "type": "android",
+        "version": {
+          "op": "<",
+          "value": "8.1"
+        }
+      },
+      "gl_renderer": "Adreno \\(TM\\) [345].*",
+      "disabled_extensions": [
+        "GL_EXT_disjoint_timer_query",
+        "GL_EXT_disjoint_timer_query_webgl2"
       ]
     },
     {
@@ -2594,9 +2500,608 @@
       "features": [
         "msaa_is_slow"
       ]
+    },
+    {
+      "id": 242,
+      "description": "Code produced by local variable initialization often triggers crashes in Marshmallow Adreno driver",
+      "cr_bugs": [728271],
+      "os": {
+        "type": "android",
+        "version": {
+          "op": "<",
+          "value": "7.0"
+        }
+      },
+      "gl_renderer": "Adreno \\(TM\\) 4.*",
+      "features": [
+        "dont_initialize_uninitialized_locals"
+      ]
+    },
+    {
+      "id": 243,
+      "description": "Program binaries don't contain transform feedback varyings on Mali GPUs",
+      "cr_bugs": [778871],
+      "os": {
+        "type": "chromeos"
+      },
+      "gl_vendor": "ARM.*",
+      "gl_renderer": "Mali.*",
+      "features": [
+        "disable_program_caching_for_transform_feedback"
+      ]
+    },
+    {
+      "id": 245,
+      "description": "Switching framebuffers without a flush can lead to crashes on Intel 9th Generation GPU Macs.",
+      "cr_bugs": [783979],
+      "os": {
+        "type": "macosx"
+      },
+      "gpu_series": [
+        "intel_skylake",
+        "intel_kabylake",
+        "intel_coffeelake"
+      ],
+      "multi_gpu_category": "any",
+      "features": [
+        "flush_on_framebuffer_change"
+      ]
+    },
+    {
+      "id": 246,
+      "description": "Code produced by initializing variables using loops can trigger crashes on some Adreno drivers.",
+      "cr_bugs": [784817],
+      "os": {
+        "type": "android"
+      },
+      "gl_renderer": "Adreno \\(TM\\) *",
+      "features": [
+        "dont_use_loops_to_initialize_variables"
+      ]
+    },
+    {
+      "id": 247,
+      "description": "EXT_disjoint_timer_query is broken on Samsung Galaxy S6",
+      "cr_bugs": [702980],
+      "os": {
+        "type": "android"
+      },
+      "machine_model_name": ["SM-G930F"],
+      "gl_vendor": "ARM.*",
+      "gl_renderer": "Mali-T880",
+      "disabled_extensions": [
+        "GL_EXT_disjoint_timer_query"
+      ]
+    },
+    {
+      "id": 248,
+      "description": "Direct composition causes slow presents on Intel Sandybridge",
+      "cr_bugs": [775898, 785648],
+      "os": {
+        "type": "win"
+      },
+      "vendor_id": "0x8086",
+      "device_id": ["0x0116"],
+      "features": [
+        "disable_direct_composition"
+      ]
+    },
+    {
+      "id": 249,
+      "description": "Direct composition causes slow presents on old Nvidia GPUs",
+      "cr_bugs": [775898],
+      "os": {
+        "type": "win"
+      },
+      "vendor_id": "0x10de",
+      "device_id": ["0x10d8"],
+      "features": [
+        "disable_direct_composition"
+      ]
+    },
+    {
+      "id": 250,
+      "description": "Depth/stencil renderbuffers can't be resized on NVIDIA on early macOS 10.13",
+      "cr_bugs": [775202],
+      "os": {
+        "type": "macosx",
+        "version": {
+          "op": "between",
+          "value": "10.13.0",
+          "value2": "10.13.3",
+          "comment": "Fixed in 10.13.4."
+        }
+      },
+      "vendor_id": "0x10de",
+      "multi_gpu_category": "any",
+      "features": [
+        "depth_stencil_renderbuffer_resize_emulation"
+      ]
+    },
+    {
+      "id": 251,
+      "description": "Vivante GPUs shader cache breaks rendering",
+      "cr_bugs": [780498],
+      "os": {
+        "type": "android"
+      },
+      "gl_extensions": ".*GL_VIV_shader_binary.*",
+      "features": [
+        "disable_program_cache"
+      ]
+    },
+    {
+      "id": 252,
+      "description": "Core profile doesn't work on NVidia GeForce GT 120",
+      "cr_bugs": [657817],
+      "os": {
+        "type": "macosx"
+      },
+      "vendor_id": "0x10de",
+      "device_id": ["0x0640"],
+      "features": [
+        "disable_es3_gl_context"
+      ]
+    },
+    {
+      "id": 254,
+      "description": "Limit MSAA samples to 4x on AMD Stoney",
+      "cr_bugs": [798936],
+      "os": {
+        "type" : "chromeos"
+      },
+      "vendor_id": "0x1002",
+      "device_id": ["0x98e4"],
+      "features": [
+        "max_msaa_sample_count_4"
+      ]
+    },
+    {
+      "id": 255,
+      "description": "Fullscreen video crashes macOS 10.11 WindowServer.",
+      "cr_bugs": [806506],
+      "os": {
+        "type": "macosx",
+        "version": {
+          "op": "<",
+          "value": "10.12"
+        }
+      },
+      "features": [
+        "disable_av_sample_buffer_display_layer"
+      ]
+    },
+    {
+      "id": 256,
+      "description": "Don't expose disjoint_timer_query extensions to WebGL unless site isolation is enabled",
+      "cr_bugs": [808744],
+      "os": {
+        "type": "android"
+      },
+      "disabled_webgl_extensions": [
+        "EXT_disjoint_timer_query",
+        "EXT_disjoint_timer_query_webgl2"
+      ]
+    },
+    {
+      "id": 257,
+      "description": "Fake entry for testing disabling of WebGL extensions",
+      "cr_bugs": [808744],
+      "test_group": 2,
+      "disabled_webgl_extensions": [
+        "WEBGL_lose_context"
+      ]
+    },
+    {
+      "id": 258,
+      "description": "Shader variable initialization in a loop caused perf regression on Mac Intel.",
+      "cr_bugs": [809422],
+      "os": {
+        "type": "macosx"
+      },
+      "vendor_id": "0x8086",
+      "multi_gpu_category": "any",
+      "features": [
+        "dont_use_loops_to_initialize_variables"
+      ]
+    },
+    {
+      "id": 259,
+      "description": "8x MSAA is slow for alpha:false WebGL contexts on Mac Intel",
+      "cr_bugs": [812071],
+      "os": {
+        "type": "macosx"
+      },
+      "vendor_id": "0x8086",
+      "multi_gpu_category": "primary",
+      "features": [
+        "max_msaa_sample_count_4"
+      ]
+    },
+    {
+      "id": 260,
+      "cr_bugs": [760389],
+      "description": "eglClientWaitSyncKHR with nonzero timeout waits too long",
+      "comment": [
+        "This bug is specific to Samsung S8/S8+ on Android N, but there ",
+        "isn't currently a way to restrict the filter to those devices. The ",
+        "functionality is currently only used for WebVR on Daydream ready ",
+        "devices, and the non-Samsung Daydream devices generally use ",
+        "Android O, so an overbroad match seems acceptable."
+      ],
+      "os": {
+        "type": "android",
+        "version": {
+          "op": "<",
+          "value": "8.0"
+        }
+      },
+      "gl_renderer": "Adreno \\(TM\\) 540",
+      "features": [
+        "dont_use_eglclientwaitsync_with_timeout"
+      ]
+    },
+    {
+      "id": 261,
+      "cr_bugs": [817286],
+      "description": "Fallback to D3D9 if basic info collection fails on Win7",
+      "os": {
+        "type": "win",
+        "version": {
+          "op": "=",
+          "value": "6.1"
+        }
+      },
+      "vendor_id": "0xffff",
+      "device_id": ["0xfffe"],
+      "features": [
+        "disable_d3d11"
+      ]
+    },
+    {
+      "id": 262,
+      "description": "Program fails in PowerVR*GX6250 drivers if gl_Position is not set",
+      "cr_bugs": [286468, 416670],
+      "os": {
+        "type": "android"
+      },
+      "gl_vendor": "Imagination.*",
+      "gl_renderer": "PowerVR.*GX6250",
+      "features": [
+        "init_gl_position_in_vertex_shader"
+      ]
+    },
+    {
+      "id": 263,
+      "description": "Program fails in PowerVR SGX54x drivers if gl_Position is not set",
+      "cr_bugs": [286468, 416670],
+      "os": {
+        "type": "android"
+      },
+      "gl_vendor": "Imagination.*",
+      "gl_renderer": "PowerVR SGX 54.*",
+      "features": [
+        "init_gl_position_in_vertex_shader"
+      ]
+    },
+    {
+      "id": 264,
+      "description": "Program fails in PowerVR G6200 drivers if gl_Position is not set",
+      "cr_bugs": [286468, 416670],
+      "os": {
+        "type": "android"
+      },
+      "gl_vendor": "Imagination.*",
+      "gl_renderer": "PowerVR.*G6200.*",
+      "features": [
+        "init_gl_position_in_vertex_shader"
+      ]
+    },
+    {
+      "id": 265,
+      "cr_bugs": [811661],
+      "description": "Crash in glQueryCounter() and glBeginQuery() with VMware driver ",
+      "os": {
+        "type": "linux"
+      },
+      "gl_vendor": "VMware.*",
+      "features": [
+        "disable_timestamp_queries"
+      ],
+      "disabled_extensions": [
+        "GL_ARB_timer_query",
+        "GL_EXT_timer_query",
+        "GL_EXT_disjoint_timer_query",
+        "GL_EXT_disjoint_timer_query_webgl2"
+      ]
+    },
+    {
+      "id": 266,
+      "cr_bugs": [828721],
+      "description": "Crash in gl::GLApiBase::glGetQueryObjectui64vFn with NetEase devices ",
+      "os": {
+        "type": "android"
+      },
+      "gl_vendor": "NetEase",
+      "gl_renderer": "MuMu GL.*",
+      "features": [
+        "disable_timestamp_queries"
+      ],
+      "disabled_extensions": [
+        "GL_EXT_disjoint_timer_query",
+        "GL_EXT_disjoint_timer_query_webgl2"
+      ]
+    },
+    {
+      "id": 268,
+      "cr_bugs": [797243],
+      "description": "Limit MSAA to 4x on Android devices",
+      "os": {
+        "type": "android"
+      },
+      "features": [
+        "max_msaa_sample_count_4"
+      ]
+    },
+    {
+      "id": 269,
+      "cr_bugs": [841755],
+      "description": "glFlush error on Mac",
+      "os": {
+        "type": "macosx"
+      },
+      "features": [
+        "disable_2d_canvas_auto_flush"
+      ]
+    },
+    {
+      "id": 270,
+      "cr_bugs": [859998],
+      "description": "AMD Linux driver crashes when copyTexImage2D is called with PIXEL_UNPACK_BUFFER set to an uninitialized buffer",
+      "os": {
+        "type": "linux"
+      },
+      "vendor_id": "0x1002",
+      "features": [
+        "clear_pixel_unpack_buffer_before_copyteximage"
+      ]
+    },
+    {
+      "id": 271,
+      "cr_bugs": [860418],
+      "description": "Frequent crashes in glClear on Mali-T7xx on N with driver 12.1.01alp0",
+      "os": {
+        "type": "android",
+        "version": {
+          "op": "<",
+          "value": "8.0"
+        }
+      },
+      "driver_version": {
+        "op": "=",
+        "value": "12.1.01alp0"
+      },
+      "gl_renderer": ".*Mali-T7.*",
+      "features": [
+        "gl_clear_broken"
+      ]
+    },
+    {
+      "id": 272,
+      "cr_bugs": [858879],
+      "description": "A deleted query id for GL_TIMESTAMP cannot be reused for other query targets",
+      "os": {
+        "type": "android"
+      },
+      "gl_vendor": "Qualcomm.*",
+      "features": [
+        "disable_timestamp_queries"
+      ]
+    },
+    {
+      "id":273,
+      "cr_bugs": [866613, 860021],
+      "description": "Frequent crashes on Adreno (TM) on L and below",
+      "os": {
+        "type": "android"
+      },
+      "features": [
+        "use_es2_for_oopr"
+      ]
+    },
+    {
+      "id": 274,
+      "description": "glTexStorage* are buggy when base mipmap level is not 0",
+      "cr_bugs": [877874],
+      "os": {
+        "type": "linux"
+      },
+      "vendor_id": "0x10de",
+      "gl_vendor": "NVIDIA.*",
+      "features": [
+        "reset_base_mipmap_level_before_texstorage"
+      ]
+    },
+    {
+      "id":275,
+      "cr_bugs": [838725],
+      "description": "Disable AImageReader on ARM GPUs as its buggy.",
+      "os": {
+        "type": "android"
+      },
+      "gl_vendor": "ARM.*",
+      "features": [
+        "disable_aimagereader"
+      ]
+    },
+    {
+      "id": 277,
+      "description": "Direct composition path is buggy on certain AMD devices/drivers",
+      "cr_bugs": [800950],
+      "os": {
+        "type": "win"
+      },
+      "vendor_id": "0x1002",
+      "driver_version": {
+        "op": "=",
+        "value": "8.970.100.9001"
+      },
+      "features": [
+        "disable_direct_composition"
+      ]
+    },
+    {
+      "id": 278,
+      "description": "Direct composition path is buggy on certain AMD devices/drivers",
+      "cr_bugs": [800950],
+      "os": {
+        "type": "win"
+      },
+      "vendor_id": "0x1002",
+      "device_id": ["0x6900"],
+      "features": [
+        "disable_direct_composition"
+      ]
+    },
+    {
+      "id": 279,
+      "description": "WindowServer crashes on VMWare bots using CA renderer",
+      "cr_bugs": [828031],
+      "os": {
+        "type": "macosx"
+      },
+      "vendor_id": "0x15ad",
+      "multi_gpu_category": "any",
+      "features": [
+        "disable_overlay_ca_layers"
+      ]
+    },
+    {
+      "id": 280,
+      "description": "ReadPixels is broken with EXT_multisampled_render_to_texture on recent Adreno drivers.",
+      "cr_bugs": [890002],
+      "os": {
+        "type": "android"
+      },
+      "driver_version": {
+        "op": ">",
+        "value": "237.0"
+      },
+      "gl_renderer": "Adreno \\(TM\\) .*",
+      "features": [
+        "use_copyteximage2d_instead_of_readpixels_on_multisampled_textures"
+      ]
+    },
+    {
+      "id":281,
+      "cr_bugs": [838725],
+      "description": "Disable AImageReader on Imagination Technologies GPU as its buggy.",
+      "os": {
+        "type": "android"
+      },
+      "gl_vendor": "Imagination Technologies.*",
+      "features": [
+        "disable_aimagereader"
+      ]
+    },
+    {
+      "id":282,
+      "cr_bugs": [838725],
+      "description": "Disable AImageReader on NVIDIA GPU for as its buggy.",
+      "os": {
+        "type": "android"
+      },
+      "gl_vendor": "NVIDIA.*",
+      "features": [
+        "disable_aimagereader"
+      ]
+    },
+    {
+      "id": 283,
+      "cr_bugs": [893177],
+      "description": "Some drivers can't recover after OUT_OF_MEM and context lost",
+      "os": {
+        "type": "linux"
+      },
+      "features": [
+        "exit_on_context_lost"
+      ]
+    },
+    {
+      "id": 284,
+      "cr_bugs": [913301],
+      "description": "Clamp texture's BASE_LEVEL/MAX_LEVEL for GenerateMipmap",
+      "os": {
+        "type": "macosx"
+      },
+      "features": [
+        "clamp_texture_base_level_and_max_level"
+      ]
+    },
+    {
+      "id": 285,
+      "cr_bugs": [914976],
+      "description": "Context flush ordering doesn't seem to work on AMD",
+      "vendor_id": "0x1002",
+      "os": {
+        "type": "linux"
+      },
+      "features": [
+        "use_virtualized_gl_contexts"
+      ]
+    },
+    {
+      "id": 286,
+      "cr_bugs": [908069],
+      "description": "Video corruption on Intel HD 530 without hardware overlay support",
+      "vendor_id": "0x8086",
+      "device_id": ["0x1912"],
+      "os": {
+        "type": "win"
+      },
+      "driver_version": {
+        "op": ">=",
+        "value": "24"
+      },
+      "hardware_overlay": "unsupported",
+      "features": [
+        "disable_direct_composition"
+      ]
+    },
+    {
+      "id": 293,
+      "cr_bugs": [931527],
+      "description": "Frequent crashes in glClear on Android N with driver 12.0.04rel0",
+      "os": {
+        "type": "android",
+        "version": {
+          "op": "<",
+          "value": "8.0"
+        }
+      },
+      "driver_version": {
+        "op": "=",
+        "value": "12.0.04rel0"
+      },
+      "features": [
+        "gl_clear_broken"
+      ]
+    },
+    {
+      "id": 294,
+      "cr_bugs": [932879],
+      "description": "Hardware overlays result in black videos on non-Intel GPUs",
+      "os": {
+        "type": "win"
+      },
+      "exceptions": [
+        {
+          "vendor_id": "0x8086"
+        }
+      ],
+      "features": [
+        "disable_direct_composition_layers"
+      ]
     }
-  ],
-  "comment": [
-    "Please update the version number on top whenever you change this file"
   ]
 }

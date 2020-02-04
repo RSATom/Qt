@@ -15,6 +15,7 @@
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/label_button.h"
+#include "ui/views/layout/layout_provider.h"
 #include "ui/views/native_theme_delegate.h"
 #include "ui/views/resources/grit/views_resources.h"
 
@@ -113,7 +114,8 @@ gfx::Insets LabelButtonAssetBorder::GetDefaultInsetsForStyle(
   if (style == Button::STYLE_BUTTON) {
     insets = gfx::Insets(8, 13);
   } else if (style == Button::STYLE_TEXTBUTTON) {
-    insets = gfx::Insets(5, 6);
+    insets = LayoutProvider::Get()->GetInsetsMetric(
+        InsetsMetric::INSETS_LABEL_BUTTON);
   } else {
     NOTREACHED();
   }
@@ -147,7 +149,7 @@ void LabelButtonAssetBorder::Paint(const View& view, gfx::Canvas* canvas) {
     {
       // First, modulate the background by 1 - alpha.
       cc::PaintCanvasAutoRestore auto_restore(canvas->sk_canvas(), false);
-      canvas->sk_canvas()->saveLayerAlpha(&sk_rect, 255 - fg_alpha, false);
+      canvas->sk_canvas()->saveLayerAlpha(&sk_rect, 255 - fg_alpha);
       state = native_theme_delegate->GetBackgroundThemeState(&extra);
       PaintHelper(this, canvas, state, rect, extra);
     }

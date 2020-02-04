@@ -29,6 +29,7 @@
 #include "libavutil/common.h"
 #include "libavutil/hwcontext.h"
 #include "libavutil/hwcontext_cuda_internal.h"
+#include "libavutil/cuda_check.h"
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
@@ -38,6 +39,8 @@
 #include "internal.h"
 #include "scale.h"
 #include "video.h"
+
+#define CHECK_CU(x) FF_CUDA_CHECK_DL(ctx, device_hwctx->internal->cuda_dl, x)
 
 static const enum AVPixelFormat supported_formats[] = {
     AV_PIX_FMT_YUV420P,
@@ -319,9 +322,11 @@ static int init_processing_chain(AVFilterContext *ctx, int in_width, int in_heig
         last_stage = i;
     }
 
-    if (last_stage < 0)
-        return 0;
-    ctx->outputs[0]->hw_frames_ctx = av_buffer_ref(s->stages[last_stage].frames_ctx);
+    if (last_stage >= 0)
+        ctx->outputs[0]->hw_frames_ctx = av_buffer_ref(s->stages[last_stage].frames_ctx);
+    else
+        ctx->outputs[0]->hw_frames_ctx = av_buffer_ref(ctx->inputs[0]->hw_frames_ctx);
+
     if (!ctx->outputs[0]->hw_frames_ctx)
         return AVERROR(ENOMEM);
 
@@ -400,7 +405,7 @@ static int nppscale_resize(AVFilterContext *ctx, NPPScaleStageContext *stage,
     NppStatus err;
     int i;
 
-    for (i = 0; i < FF_ARRAY_ELEMS(in->data) && in->data[i]; i++) {
+    for (i = 0; i < FF_ARRAY_ELEMS(stage->planes_in) && i < FF_ARRAY_ELEMS(in->data) && in->data[i]; i++) {
         int iw = stage->planes_in[i].width;
         int ih = stage->planes_in[i].height;
         int ow = stage->planes_out[i].width;
@@ -496,7 +501,6 @@ static int nppscale_filter_frame(AVFilterLink *link, AVFrame *in)
     AVCUDADeviceContext *device_hwctx = frames_ctx->device_ctx->hwctx;
 
     AVFrame *out = NULL;
-    CUresult err;
     CUcontext dummy;
     int ret = 0;
 
@@ -509,15 +513,13 @@ static int nppscale_filter_frame(AVFilterLink *link, AVFrame *in)
         goto fail;
     }
 
-    err = device_hwctx->internal->cuda_dl->cuCtxPushCurrent(device_hwctx->cuda_ctx);
-    if (err != CUDA_SUCCESS) {
-        ret = AVERROR_UNKNOWN;
+    ret = CHECK_CU(device_hwctx->internal->cuda_dl->cuCtxPushCurrent(device_hwctx->cuda_ctx));
+    if (ret < 0)
         goto fail;
-    }
 
     ret = nppscale_scale(ctx, out, in);
 
-    device_hwctx->internal->cuda_dl->cuCtxPopCurrent(&dummy);
+    CHECK_CU(device_hwctx->internal->cuda_dl->cuCtxPopCurrent(&dummy));
     if (ret < 0)
         goto fail;
 

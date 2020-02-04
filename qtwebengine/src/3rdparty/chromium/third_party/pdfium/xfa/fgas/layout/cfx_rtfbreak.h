@@ -10,15 +10,14 @@
 #include <deque>
 #include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxcrt/fx_ucd.h"
-#include "core/fxge/cfx_renderdevice.h"
+#include "core/fxcrt/fx_unicode.h"
+#include "core/fxcrt/retain_ptr.h"
 #include "xfa/fgas/layout/cfx_break.h"
-#include "xfa/fxfa/app/cxfa_textuserdata.h"
+#include "xfa/fxfa/cxfa_textuserdata.h"
 
 class CFGAS_GEFont;
+class FXTEXT_CHARPOS;
 
 enum class CFX_RTFLineAlignment {
   Left = 0,
@@ -32,9 +31,9 @@ struct FX_RTFTEXTOBJ {
   FX_RTFTEXTOBJ();
   ~FX_RTFTEXTOBJ();
 
-  CFX_WideString pStr;
+  WideString pStr;
   std::vector<int32_t> pWidths;
-  CFX_RetainPtr<CFGAS_GEFont> pFont;
+  RetainPtr<CFGAS_GEFont> pFont;
   const CFX_RectF* pRect;
   wchar_t wLineBreakChar;
   float fFontSize;
@@ -44,7 +43,7 @@ struct FX_RTFTEXTOBJ {
   int32_t iVerticalScale;
 };
 
-class CFX_RTFBreak : public CFX_Break {
+class CFX_RTFBreak final : public CFX_Break {
  public:
   explicit CFX_RTFBreak(uint32_t dwLayoutStyles);
   ~CFX_RTFBreak() override;
@@ -52,7 +51,7 @@ class CFX_RTFBreak : public CFX_Break {
   void SetLineStartPos(float fLinePos);
 
   void SetAlignment(CFX_RTFLineAlignment align) { m_iAlignment = align; }
-  void SetUserData(const CFX_RetainPtr<CXFA_TextUserData>& pUserData);
+  void SetUserData(const RetainPtr<CXFA_TextUserData>& pUserData);
 
   void AddPositionedTab(float fTabPos);
 
@@ -64,8 +63,6 @@ class CFX_RTFBreak : public CFX_Break {
 
   CFX_BreakType AppendChar(wchar_t wch);
 
-  CFX_BreakLine* GetCurrentLineForTesting() const { return m_pCurLine; }
-
  private:
   void AppendChar_Combination(CFX_Char* pCurChar);
   void AppendChar_Tab(CFX_Char* pCurChar);
@@ -76,9 +73,9 @@ class CFX_RTFBreak : public CFX_Break {
   bool GetPositionedTab(int32_t* iTabPos) const;
 
   int32_t GetBreakPos(std::vector<CFX_Char>& tca,
-                      int32_t& iEndPos,
                       bool bAllChars,
-                      bool bOnlyBrk);
+                      bool bOnlyBrk,
+                      int32_t* pEndPos);
   void SplitTextLine(CFX_BreakLine* pCurLine,
                      CFX_BreakLine* pNextLine,
                      bool bAllChars);
@@ -93,7 +90,7 @@ class CFX_RTFBreak : public CFX_Break {
   bool m_bPagination;
   std::vector<int32_t> m_PositionedTabs;
   CFX_RTFLineAlignment m_iAlignment;
-  CFX_RetainPtr<CXFA_TextUserData> m_pUserData;
+  RetainPtr<CXFA_TextUserData> m_pUserData;
 };
 
 #endif  // XFA_FGAS_LAYOUT_CFX_RTFBREAK_H_

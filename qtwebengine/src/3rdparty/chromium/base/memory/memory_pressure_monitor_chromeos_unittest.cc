@@ -6,8 +6,9 @@
 
 #include "base/macros.h"
 #include "base/memory/memory_pressure_listener.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/system/sys_info.h"
+#include "base/test/scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -52,7 +53,7 @@ class TestMemoryPressureMonitor : public MemoryPressureMonitor {
     // function.
     StopObserving();
   }
-  ~TestMemoryPressureMonitor() override {}
+  ~TestMemoryPressureMonitor() override = default;
 
   void SetMemoryInPercentOverride(int percent) {
     memory_in_percent_override_ = percent;
@@ -74,7 +75,12 @@ class TestMemoryPressureMonitor : public MemoryPressureMonitor {
 // This test tests the various transition states from memory pressure, looking
 // for the correct behavior on event reposting as well as state updates.
 TEST(ChromeOSMemoryPressureMonitorTest, CheckMemoryPressure) {
-  base::MessageLoopForUI message_loop;
+  // crbug.com/844102:
+  if (base::SysInfo::IsRunningOnChromeOS())
+    return;
+
+  test::ScopedTaskEnvironment scoped_task_environment(
+      test::ScopedTaskEnvironment::MainThreadType::UI);
   std::unique_ptr<TestMemoryPressureMonitor> monitor(
       new TestMemoryPressureMonitor);
   std::unique_ptr<MemoryPressureListener> listener(

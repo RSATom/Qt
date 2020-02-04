@@ -45,6 +45,8 @@ HEADERS += \
     glstatestore_p.h \
     enumtostringmap_p.h
 
+IMPORT_VERSION = 1.$$QT_MINOR_VERSION
+QMAKE_QMLPLUGINDUMP_FLAGS += -defaultplatform
 load(qml_plugin)
 
 win32 {

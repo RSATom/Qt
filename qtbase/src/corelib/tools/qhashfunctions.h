@@ -90,7 +90,7 @@ Q_DECL_CONST_FUNCTION Q_DECL_CONSTEXPR inline uint qHash(quint64 key, uint seed 
 Q_DECL_CONST_FUNCTION Q_DECL_CONSTEXPR inline uint qHash(qint64 key, uint seed = 0) Q_DECL_NOTHROW { return qHash(quint64(key), seed); }
 Q_CORE_EXPORT Q_DECL_CONST_FUNCTION uint qHash(float key, uint seed = 0) Q_DECL_NOTHROW;
 Q_CORE_EXPORT Q_DECL_CONST_FUNCTION uint qHash(double key, uint seed = 0) Q_DECL_NOTHROW;
-#ifndef Q_OS_DARWIN
+#if !defined(Q_OS_DARWIN) || defined(Q_CLANG_QDOC)
 Q_CORE_EXPORT Q_DECL_CONST_FUNCTION uint qHash(long double key, uint seed = 0) Q_DECL_NOTHROW;
 #endif
 Q_DECL_CONST_FUNCTION Q_DECL_CONSTEXPR inline uint qHash(const QChar key, uint seed = 0) Q_DECL_NOTHROW { return qHash(key.unicode(), seed); }
@@ -103,6 +103,11 @@ Q_CORE_EXPORT Q_DECL_PURE_FUNCTION uint qHash(QStringView key, uint seed = 0) Q_
 Q_CORE_EXPORT Q_DECL_PURE_FUNCTION uint qHash(const QBitArray &key, uint seed = 0) Q_DECL_NOTHROW;
 Q_CORE_EXPORT Q_DECL_PURE_FUNCTION uint qHash(QLatin1String key, uint seed = 0) Q_DECL_NOTHROW;
 Q_CORE_EXPORT Q_DECL_PURE_FUNCTION uint qt_hash(QStringView key, uint chained = 0) Q_DECL_NOTHROW;
+
+Q_DECL_CONST_FUNCTION inline uint qHash(std::nullptr_t, uint seed = 0) Q_DECL_NOTHROW
+{
+    return qHash(reinterpret_cast<quintptr>(nullptr), seed);
+}
 
 template <class T> inline uint qHash(const T *key, uint seed = 0) Q_DECL_NOTHROW
 {

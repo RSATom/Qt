@@ -115,8 +115,8 @@ Rectangle {
             MouseArea {
                 anchors.fill: parent
                 onClicked: {
-                    device.connectToService(modelData.serviceUuid);
                     pageLoader.source = "Characteristics.qml";
+                    device.connectToService(modelData.serviceUuid);
                 }
             }
 

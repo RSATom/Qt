@@ -7,10 +7,12 @@
 #include "gpu/command_buffer/client/client_test_helper.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_mock.h"
 #include "gpu/command_buffer/service/gpu_service_test.h"
+#include "gpu/command_buffer/service/gpu_tracer.h"
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager_impl.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/mocks.h"
+#include "gpu/command_buffer/service/shared_image_manager.h"
 #include "gpu/command_buffer/service/test_helper.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -31,10 +33,12 @@ namespace {
 void CreateLockedHandlesForTesting(
     std::unique_ptr<ServiceDiscardableHandle>* service_handle,
     std::unique_ptr<ClientDiscardableHandle>* client_handle) {
-  std::unique_ptr<base::SharedMemory> shared_mem(new base::SharedMemory);
-  shared_mem->CreateAndMapAnonymous(sizeof(uint32_t));
-  scoped_refptr<gpu::Buffer> buffer =
-      MakeBufferFromSharedMemory(std::move(shared_mem), sizeof(uint32_t));
+  const size_t kShmemSize = sizeof(uint32_t);
+  base::UnsafeSharedMemoryRegion shared_mem =
+      base::UnsafeSharedMemoryRegion::Create(kShmemSize);
+  base::WritableSharedMemoryMapping shared_mem_mapping = shared_mem.Map();
+  scoped_refptr<gpu::Buffer> buffer = MakeBufferFromSharedMemory(
+      std::move(shared_mem), std::move(shared_mem_mapping));
 
   client_handle->reset(new ClientDiscardableHandle(buffer, 0, 0));
   service_handle->reset(new ServiceDiscardableHandle(buffer, 0, 0));
@@ -61,18 +65,19 @@ static const size_t kSmallTextureSize = 4 * kSmallTextureDim * kSmallTextureDim;
 
 class ServiceDiscardableManagerTest : public GpuServiceTest {
  public:
-  ServiceDiscardableManagerTest() {}
-  ~ServiceDiscardableManagerTest() override {}
+  ServiceDiscardableManagerTest() = default;
+  ~ServiceDiscardableManagerTest() override = default;
 
  protected:
   void SetUp() override {
     GpuServiceTest::SetUp();
-    decoder_.reset(new MockGLES2Decoder(&command_buffer_service_));
+    decoder_.reset(new MockGLES2Decoder(&command_buffer_service_, &outputter_));
     feature_info_ = new FeatureInfo();
     context_group_ = scoped_refptr<ContextGroup>(new ContextGroup(
-        gpu_preferences_, &mailbox_manager_, nullptr, nullptr, nullptr,
+        gpu_preferences_, false, &mailbox_manager_, nullptr, nullptr, nullptr,
         feature_info_, false, &image_manager_, nullptr, nullptr,
-        GpuFeatureInfo(), &discardable_manager_));
+        GpuFeatureInfo(), &discardable_manager_, nullptr,
+        &shared_image_manager_));
     TestHelper::SetupContextGroupInitExpectations(
         gl_.get(), DisallowedFeatures(), "", "", CONTEXT_TYPE_OPENGLES2, false);
     context_group_->Initialize(decoder_.get(), CONTEXT_TYPE_OPENGLES2,
@@ -114,8 +119,10 @@ class ServiceDiscardableManagerTest : public GpuServiceTest {
   }
 
   MailboxManagerImpl mailbox_manager_;
+  TraceOutputter outputter_;
   ImageManager image_manager_;
   ServiceDiscardableManager discardable_manager_;
+  SharedImageManager shared_image_manager_;
   GpuPreferences gpu_preferences_;
   scoped_refptr<FeatureInfo> feature_info_;
   MockDestructionObserver destruction_observer_;
@@ -200,8 +207,11 @@ TEST_F(ServiceDiscardableManagerTest, UnlockInvalid) {
 
 TEST_F(ServiceDiscardableManagerTest, Limits) {
   // Size textures so that four fit in the discardable manager.
-  const size_t texture_size = ServiceDiscardableManager::kMaxSize / 4;
+  const size_t cache_size_limit = 4 * 1024 * 1024;
+  const size_t texture_size = cache_size_limit / 4;
   const size_t large_texture_size = 3 * texture_size;
+
+  discardable_manager_.SetCacheSizeLimitForTesting(cache_size_limit);
 
   // Create 4 textures, this should fill up the discardable cache.
   for (int i = 1; i < 5; ++i) {
@@ -455,6 +465,65 @@ TEST_F(ServiceDiscardableManagerTest, BindGeneratedTextureSizeChange) {
 
   ExpectUnlockedTextureDeletion(kClientId);
   ExpectTextureDeletion(kClientId);
+}
+
+TEST_F(ServiceDiscardableManagerTest, MemoryPressure) {
+  // Size textures so that four fit in the discardable manager.
+  const size_t cache_size_limit = 4 * 1024 * 1024;
+  const size_t texture_size = cache_size_limit / 4;
+
+  discardable_manager_.SetCacheSizeLimitForTesting(cache_size_limit);
+
+  // Create 4 textures, this should fill up the discardable cache.
+  for (int i = 1; i < 5; ++i) {
+    texture_manager_->CreateTexture(i, i);
+    auto handle = CreateLockedServiceHandleForTesting();
+    discardable_manager_.InsertLockedTexture(i, texture_size, texture_manager_,
+                                             handle);
+  }
+
+  // A memory pressure call should have no impact, as all textures are locked.
+  discardable_manager_.HandleMemoryPressure(
+      base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL);
+
+  // Unlock one texture.
+  gles2::TextureRef* texture_to_unbind;
+  EXPECT_TRUE(discardable_manager_.UnlockTexture(3, texture_manager_,
+                                                 &texture_to_unbind));
+  EXPECT_NE(nullptr, texture_to_unbind);
+
+  // Send memory pressure critical again - this should delete the unlocked
+  // texture, but not the others.
+  ExpectUnlockedTextureDeletion(3);
+  discardable_manager_.HandleMemoryPressure(
+      base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL);
+
+  // Unlock the remaining textures
+  EXPECT_TRUE(discardable_manager_.UnlockTexture(1, texture_manager_,
+                                                 &texture_to_unbind));
+  EXPECT_NE(nullptr, texture_to_unbind);
+  EXPECT_TRUE(discardable_manager_.UnlockTexture(2, texture_manager_,
+                                                 &texture_to_unbind));
+  EXPECT_NE(nullptr, texture_to_unbind);
+  EXPECT_TRUE(discardable_manager_.UnlockTexture(4, texture_manager_,
+                                                 &texture_to_unbind));
+  EXPECT_NE(nullptr, texture_to_unbind);
+
+  // Send memory pressure moderate - this should delete all but one texture
+  // (cache is capped at 1/4 size).
+  {
+    InSequence s;
+    ExpectUnlockedTextureDeletion(1);
+    ExpectUnlockedTextureDeletion(2);
+  }
+  discardable_manager_.HandleMemoryPressure(
+      base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE);
+
+  // Send memory pressure critical again - this should delete the remaining
+  // textures.
+  ExpectUnlockedTextureDeletion(4);
+  discardable_manager_.HandleMemoryPressure(
+      base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL);
 }
 
 }  // namespace gles2

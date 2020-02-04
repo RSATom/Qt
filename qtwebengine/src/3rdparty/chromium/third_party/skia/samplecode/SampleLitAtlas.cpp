@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkAnimTimer.h"
 #include "SkBitmapProcShader.h"
 #include "SkCanvas.h"
@@ -15,16 +15,16 @@
 #include "SkNormalSource.h"
 #include "SkRandom.h"
 #include "SkRSXform.h"
-#include "SkView.h"
 
 #include "sk_tool_utils.h"
 
+// A crude normal mapped asteroids-like sample
 class DrawLitAtlasDrawable : public SkDrawable {
 public:
     DrawLitAtlasDrawable(const SkRect& r)
-        : fBounds(r)
-        , fUseColors(false)
-        , fLightDir(SkVector3::Make(1.0f, 0.0f, 0.0f)) {
+            : fBounds(r)
+            , fUseColors(false)
+            , fLightDir(SkVector3::Make(1.0f, 0.0f, 0.0f)) {
         fAtlas = MakeAtlas();
 
         SkRandom rand;
@@ -72,7 +72,8 @@ public:
         newVel.fX += s;
         newVel.fY += -c;
 
-        if (newVel.lengthSqd() > kMaxShipSpeed*kMaxShipSpeed) {
+        SkScalar len = newVel.length();
+        if (len > kMaxShipSpeed) {
             newVel.setLength(SkIntToScalar(kMaxShipSpeed));
         }
 
@@ -161,7 +162,7 @@ protected:
         }
 #endif
     }
-    
+
     SkRect onGetBounds() override {
         return fBounds;
     }
@@ -179,7 +180,7 @@ private:
 
     static const int kObjTypeCount = kLast_ObjType + 1;
 
-    void updateLights() {        
+    void updateLights() {
         SkLights::Builder builder;
 
         builder.add(SkLights::Light::MakeDirectional(
@@ -211,12 +212,12 @@ private:
 #endif
 
     // Create the mixed diffuse & normal atlas
-    // 
+    //
     //    big color circle  |  big normal hemi
     //    ------------------------------------
     //    med color circle  |  med normal pyra
     //    ------------------------------------
-    //    sm color circle   |   sm normal hemi 
+    //    sm color circle   |   sm normal hemi
     //    ------------------------------------
     //    big ship          | big tetra normal
     static SkBitmap MakeAtlas() {
@@ -227,10 +228,10 @@ private:
         for (int y = 0; y < kAtlasHeight; ++y) {
             int x = 0;
             for ( ; x < kBigSize+kPad; ++x) {
-                *atlas.getAddr32(x, y) = SK_ColorTRANSPARENT;                
+                *atlas.getAddr32(x, y) = SK_ColorTRANSPARENT;
             }
             for ( ; x < kAtlasWidth; ++x) {
-                *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0x88, 0x88, 0xFF);                
+                *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0x88, 0x88, 0xFF);
             }
         }
 
@@ -243,9 +244,9 @@ private:
                     SkScalar distSq = (x - bigCenter.fX) * (x - bigCenter.fX) +
                                       (y - bigCenter.fY) * (y - bigCenter.fY);
                     if (distSq > kBigSize*kBigSize/4.0f) {
-                        *atlas.getAddr32(x, y) = SkPreMultiplyARGB(0, 0, 0, 0);                
+                        *atlas.getAddr32(x, y) = SkPreMultiplyARGB(0, 0, 0, 0);
                     } else {
-                        *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0xFF, 0, 0);                
+                        *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0xFF, 0, 0);
                     }
                 }
             }
@@ -259,7 +260,7 @@ private:
         {
             for (int y = kMedYOff; y < kMedYOff+kMedSize; ++y) {
                 for (int x = kDiffXOff; x < kDiffXOff+kMedSize; ++x) {
-                    *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0, 0xFF, 0);                
+                    *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0, 0xFF, 0);
                 }
             }
 
@@ -277,9 +278,9 @@ private:
                     SkScalar distSq = (x - smCenter.fX) * (x - smCenter.fX) +
                                       (y - smCenter.fY) * (y - smCenter.fY);
                     if (distSq > kSmSize*kSmSize/4.0f) {
-                        *atlas.getAddr32(x, y) = SkPreMultiplyARGB(0, 0, 0, 0);                
+                        *atlas.getAddr32(x, y) = SkPreMultiplyARGB(0, 0, 0, 0);
                     } else {
-                        *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0, 0, 0xFF);                
+                        *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0, 0, 0xFF);
                     }
                 }
             }
@@ -306,9 +307,9 @@ private:
                     }
 
                     if (scaledX < scaledY) {
-                        *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0, 0xFF, 0xFF);                
+                        *atlas.getAddr32(x, y) = SkPackARGB32(0xFF, 0, 0xFF, 0xFF);
                     } else {
-                        *atlas.getAddr32(x, y) = SkPackARGB32(0, 0, 0, 0);                
+                        *atlas.getAddr32(x, y) = SkPackARGB32(0, 0, 0, 0);
                     }
                 }
             }
@@ -339,7 +340,7 @@ private:
             SkASSERT(SkScalarNearlyEqual(fVelocity.length(), 1.0f));
             fVelocity *= gMaxSpeeds[fObjType];
             fRot = 0;
-            fDeltaRot = rand->nextSScalar1() / 32;    
+            fDeltaRot = rand->nextSScalar1() / 32;
 
             diffTex->setXYWH(SkIntToScalar(kDiffXOff), gYOffs[fObjType],
                              gSizes[fObjType], gSizes[fObjType]);
@@ -356,7 +357,7 @@ private:
 
             diffTex->setXYWH(SkIntToScalar(kDiffXOff), SkIntToScalar(kShipYOff),
                              SkIntToScalar(kMedSize), SkIntToScalar(kMedSize));
-            normTex->setXYWH(SkIntToScalar(kNormXOff), SkIntToScalar(kShipYOff), 
+            normTex->setXYWH(SkIntToScalar(kNormXOff), SkIntToScalar(kShipYOff),
                              SkIntToScalar(kMedSize), SkIntToScalar(kMedSize));
         }
 
@@ -382,7 +383,7 @@ private:
             fRot += fDeltaRot;
             fRot = SkScalarMod(fRot, 2 * SK_ScalarPI);
         }
-        
+
         const SkPoint& pos() const { return fPosition; }
 
         SkScalar rot() const { return fRot; }
@@ -393,10 +394,10 @@ private:
 
         SkRSXform asRSXform() const {
             static const SkScalar gHalfSizes[kObjTypeCount] = {
-                SkScalarHalf(kBigSize), 
-                SkScalarHalf(kMedSize), 
+                SkScalarHalf(kBigSize),
+                SkScalarHalf(kMedSize),
                 SkScalarHalf(kSmSize),
-                SkScalarHalf(kMedSize), 
+                SkScalarHalf(kMedSize),
             };
 
             return SkRSXform::MakeFromRadians(1.0f, fRot, fPosition.x(), fPosition.y(),
@@ -411,9 +412,6 @@ private:
         SkScalar    fRot;        // In radians.
         SkScalar    fDeltaRot;   // In radiands. Not used by ship.
     };
-
-
-
 
 private:
     static const int kNumLights = 2;
@@ -449,40 +447,33 @@ private:
     typedef SkDrawable INHERITED;
 };
 
-class DrawLitAtlasView : public SampleView {
+class DrawLitAtlasView : public Sample {
 public:
-    DrawLitAtlasView()
-        : fDrawable(new DrawLitAtlasDrawable(SkRect::MakeWH(640, 480))) {
-    }
+    DrawLitAtlasView() : fDrawable(new DrawLitAtlasDrawable(SkRect::MakeWH(640, 480))) {}
 
 protected:
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "DrawLitAtlas");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "DrawLitAtlas");
             return true;
         }
         SkUnichar uni;
-        if (SampleCode::CharQ(*evt, &uni)) {
+        if (Sample::CharQ(*evt, &uni)) {
             switch (uni) {
-                case 'C': 
+                case 'C':
                     fDrawable->toggleUseColors();
-                    this->inval(NULL);
                     return true;
                 case 'j':
                     fDrawable->left();
-                    this->inval(NULL);
                     return true;
-                case 'k': 
+                case 'k':
                     fDrawable->thrust();
-                    this->inval(NULL); 
                     return true;
                 case 'l':
                     fDrawable->right();
-                    this->inval(NULL); 
                     return true;
                 case 'o':
                     fDrawable->rotateLight();
-                    this->inval(NULL); 
                     return true;
                 default:
                     break;
@@ -493,25 +484,18 @@ protected:
 
     void onDrawContent(SkCanvas* canvas) override {
         canvas->drawDrawable(fDrawable.get());
-        this->inval(NULL);
     }
 
-#if 0
-    // TODO: switch over to use this for our animation
     bool onAnimate(const SkAnimTimer& timer) override {
-        SkScalar angle = SkDoubleToScalar(fmod(timer.secs() * 360 / 24, 360));
-        fAnimatingDrawable->setSweep(angle);
         return true;
     }
-#endif
 
 private:
     sk_sp<DrawLitAtlasDrawable> fDrawable;
 
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new DrawLitAtlasView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new DrawLitAtlasView(); )

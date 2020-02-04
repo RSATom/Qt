@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//testing/libfuzzer/fuzzer_test.gni")
+
 static_library("cast_channel") {
   sources = [
     "cast_auth_util.cc",
@@ -10,6 +12,8 @@ static_library("cast_channel") {
     "cast_channel_enum.h",
     "cast_framer.cc",
     "cast_framer.h",
+    "cast_message_handler.cc",
+    "cast_message_handler.h",
     "cast_message_util.cc",
     "cast_message_util.h",
     "cast_socket.cc",
@@ -22,6 +26,8 @@ static_library("cast_channel") {
     "keep_alive_delegate.h",
     "logger.cc",
     "logger.h",
+    "mojo_data_pump.cc",
+    "mojo_data_pump.h",
   ]
   deps = [
     "//base",
@@ -29,9 +35,16 @@ static_library("cast_channel") {
     "//components/cast_channel/proto:cast_channel_proto",
     "//components/keyed_service/content",
     "//components/keyed_service/core",
+    "//components/prefs",
+    "//components/version_info",
     "//content/public/browser",
+    "//content/public/common",
     "//crypto",
     "//net",
+    "//services/data_decoder/public/cpp",
+  ]
+  public_deps = [
+    "//services/network/public/mojom",
   ]
 }
 
@@ -46,6 +59,8 @@ static_library("test_support") {
     "//base",
     "//components/cast_channel/proto:cast_channel_proto",
     "//net",
+    "//net:test_support",
+    "//services/service_manager/public/cpp",
     "//testing/gmock",
     "//testing/gtest",
   ]
@@ -56,6 +71,8 @@ source_set("unit_tests") {
   sources = [
     "cast_auth_util_unittest.cc",
     "cast_framer_unittest.cc",
+    "cast_message_handler_unittest.cc",
+    "cast_message_util_unittest.cc",
     "cast_socket_service_unittest.cc",
     "cast_socket_unittest.cc",
     "cast_transport_unittest.cc",
@@ -70,9 +87,29 @@ source_set("unit_tests") {
     "//components/cast_certificate:test_support",
     "//components/cast_certificate/proto:unittest_proto",
     "//components/cast_channel/proto:cast_channel_proto",
+    "//components/prefs",
+    "//components/prefs:test_support",
     "//content/test:test_support",
     "//net:test_support",
+    "//services/data_decoder/public/cpp:test_support",
     "//testing/gmock",
     "//testing/gtest",
   ]
+}
+
+fuzzer_test("cast_message_fuzzer") {
+  sources = [
+    "cast_message_fuzzer.cc",
+  ]
+  deps = [
+    ":test_support",
+    "//base",
+    "//components/cast_channel",
+    "//components/cast_channel/proto:cast_channel_proto",
+    "//net",
+  ]
+  seed_corpus = "fuzz_corpus"
+
+  # See MessageFramer::MessageHeader::max_message_size()
+  libfuzzer_options = [ "max_len=65535" ]
 }

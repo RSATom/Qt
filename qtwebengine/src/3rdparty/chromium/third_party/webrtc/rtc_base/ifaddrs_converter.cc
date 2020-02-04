@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/ifaddrs_converter.h"
+#include "rtc_base/ifaddrs_converter.h"
 
 namespace rtc {
 
@@ -22,8 +22,8 @@ bool IfAddrsConverter::ConvertIfAddrsToIPAddress(
     IPAddress* mask) {
   switch (interface->ifa_addr->sa_family) {
     case AF_INET: {
-      *ip = IPAddress(
-          reinterpret_cast<sockaddr_in*>(interface->ifa_addr)->sin_addr);
+      *ip = InterfaceAddress(IPAddress(
+          reinterpret_cast<sockaddr_in*>(interface->ifa_addr)->sin_addr));
       *mask = IPAddress(
           reinterpret_cast<sockaddr_in*>(interface->ifa_netmask)->sin_addr);
       return true;

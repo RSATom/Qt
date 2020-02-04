@@ -59,28 +59,28 @@ DEFINE_GUID(CLSID_VideoSurfaceFilter,
 
 class VideoSurfaceInputPin : public DirectShowInputPin
 {
-    DIRECTSHOW_OBJECT
-
+    COM_REF_MIXIN
 public:
     VideoSurfaceInputPin(VideoSurfaceFilter *filter);
 
-    // DirectShowPin
+    STDMETHODIMP QueryInterface(REFIID riid, void **ppv) override;
+
     bool isMediaTypeSupported(const AM_MEDIA_TYPE *type) override;
     bool setMediaType(const AM_MEDIA_TYPE *type) override;
 
-    HRESULT completeConnection(IPin *pin);
-    HRESULT connectionEnded();
+    HRESULT completeConnection(IPin *pin) override;
+    HRESULT connectionEnded() override;
 
     // IPin
-    STDMETHODIMP ReceiveConnection(IPin *pConnector, const AM_MEDIA_TYPE *pmt);
-    STDMETHODIMP Disconnect();
-    STDMETHODIMP EndOfStream();
-    STDMETHODIMP BeginFlush();
-    STDMETHODIMP EndFlush();
+    STDMETHODIMP ReceiveConnection(IPin *pConnector, const AM_MEDIA_TYPE *pmt) override;
+    STDMETHODIMP Disconnect() override;
+    STDMETHODIMP EndOfStream() override;
+    STDMETHODIMP BeginFlush() override;
+    STDMETHODIMP EndFlush() override;
 
     // IMemInputPin
-    STDMETHODIMP GetAllocatorRequirements(ALLOCATOR_PROPERTIES *pProps);
-    STDMETHODIMP Receive(IMediaSample *pMediaSample);
+    STDMETHODIMP GetAllocatorRequirements(ALLOCATOR_PROPERTIES *pProps) override;
+    STDMETHODIMP Receive(IMediaSample *pMediaSample) override;
 
 private:
     VideoSurfaceFilter *m_videoSurfaceFilter;
@@ -90,6 +90,22 @@ VideoSurfaceInputPin::VideoSurfaceInputPin(VideoSurfaceFilter *filter)
     : DirectShowInputPin(filter, QStringLiteral("Input"))
     , m_videoSurfaceFilter(filter)
 {
+}
+
+HRESULT VideoSurfaceInputPin::QueryInterface(REFIID riid, void **ppv)
+{
+    if (ppv == nullptr)
+        return E_POINTER;
+    if (riid == IID_IUnknown)
+        *ppv = static_cast<IUnknown *>(static_cast<DirectShowPin *>(this));
+    else if (riid == IID_IPin)
+        *ppv = static_cast<IPin *>(this);
+    else if (riid == IID_IMemInputPin)
+        *ppv =static_cast<IMemInputPin*>(this);
+    else
+        return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
 }
 
 bool VideoSurfaceInputPin::isMediaTypeSupported(const AM_MEDIA_TYPE *type)
@@ -206,16 +222,16 @@ HRESULT VideoSurfaceInputPin::Receive(IMediaSample *pMediaSample)
 VideoSurfaceFilter::VideoSurfaceFilter(QAbstractVideoSurface *surface, DirectShowEventLoop *loop, QObject *parent)
     : QObject(parent)
     , m_loop(loop)
-    , m_pin(NULL)
+    , m_pin(nullptr)
     , m_surface(surface)
     , m_bytesPerLine(0)
     , m_surfaceStarted(false)
     , m_renderMutex(QMutex::Recursive)
     , m_running(false)
-    , m_pendingSample(NULL)
+    , m_pendingSample(nullptr)
     , m_pendingSampleEndTime(0)
-    , m_renderEvent(CreateEvent(NULL, FALSE, FALSE, NULL))
-    , m_flushEvent(CreateEvent(NULL, TRUE, FALSE, NULL))
+    , m_renderEvent(CreateEvent(nullptr, FALSE, FALSE, nullptr))
+    , m_flushEvent(CreateEvent(nullptr, TRUE, FALSE, nullptr))
     , m_adviseCookie(0)
     , m_EOS(false)
     , m_EOSDelivered(false)
@@ -237,12 +253,20 @@ VideoSurfaceFilter::~VideoSurfaceFilter()
     CloseHandle(m_renderEvent);
 }
 
-HRESULT VideoSurfaceFilter::getInterface(const IID &riid, void **ppvObject)
+HRESULT VideoSurfaceFilter::QueryInterface(REFIID riid, void **ppv)
 {
-    if (riid == IID_IAMFilterMiscFlags)
-        return GetInterface(static_cast<IAMFilterMiscFlags*>(this), ppvObject);
+    if (ppv == nullptr)
+        return E_POINTER;
+    if (riid == IID_IUnknown)
+        *ppv = static_cast<IUnknown *>(static_cast<DirectShowBaseFilter *>(this));
+    else if (riid == IID_IPersist || riid == IID_IMediaFilter || riid == IID_IBaseFilter)
+        *ppv = static_cast<IBaseFilter *>(this);
+    else if (riid == IID_IAMFilterMiscFlags)
+        *ppv = static_cast<IAMFilterMiscFlags *>(this);
     else
-        return DirectShowBaseFilter::getInterface(riid, ppvObject);
+        return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
 }
 
 QList<DirectShowPin *> VideoSurfaceFilter::pins()
@@ -306,12 +330,11 @@ bool VideoSurfaceFilter::setMediaType(const AM_MEDIA_TYPE *type)
         m_surfaceFormat = QVideoSurfaceFormat();
         m_bytesPerLine = 0;
         return true;
-    } else {
-        m_surfaceFormat = DirectShowMediaType::videoFormatFromType(type);
-        m_bytesPerLine = DirectShowMediaType::bytesPerLine(m_surfaceFormat);
-        qCDebug(qLcRenderFilter) << "setMediaType -->" << m_surfaceFormat;
-        return m_surfaceFormat.isValid();
     }
+    m_surfaceFormat = DirectShowMediaType::videoFormatFromType(type);
+    m_bytesPerLine = DirectShowMediaType::bytesPerLine(m_surfaceFormat);
+    qCDebug(qLcRenderFilter) << "setMediaType -->" << m_surfaceFormat;
+    return m_surfaceFormat.isValid();
 }
 
 HRESULT VideoSurfaceFilter::completeConnection(IPin *pin)
@@ -320,10 +343,7 @@ HRESULT VideoSurfaceFilter::completeConnection(IPin *pin)
 
     qCDebug(qLcRenderFilter, "completeConnection");
 
-    if (!startSurface())
-        return VFW_E_TYPE_NOT_ACCEPTED;
-    else
-        return S_OK;
+    return startSurface() ? S_OK : VFW_E_TYPE_NOT_ACCEPTED;
 }
 
 HRESULT VideoSurfaceFilter::connectionEnded()
@@ -442,6 +462,7 @@ HRESULT VideoSurfaceFilter::EndOfStream()
     if (!m_pendingSample && m_running)
         checkEOS();
 
+    stopSurface();
     return S_OK;
 }
 
@@ -595,7 +616,7 @@ void VideoSurfaceFilter::clearPendingSample()
     if (m_pendingSample) {
         qCDebug(qLcRenderFilter, "clearPendingSample");
         m_pendingSample->Release();
-        m_pendingSample = NULL;
+        m_pendingSample = nullptr;
     }
 }
 
@@ -759,31 +780,39 @@ void VideoSurfaceFilter::renderPendingSample()
 
 bool VideoSurfaceFilter::event(QEvent *e)
 {
-    if (e->type() == QEvent::Type(StartSurface)) {
+    switch (e->type()) {
+    case StartSurface: {
         QMutexLocker locker(&m_mutex);
         startSurface();
         m_waitSurface.wakeAll();
         return true;
-    } else if (e->type() == QEvent::Type(StopSurface)) {
+    }
+    case StopSurface: {
         QMutexLocker locker(&m_mutex);
         stopSurface();
         m_waitSurface.wakeAll();
         return true;
-    } else if (e->type() == QEvent::Type(RestartSurface)) {
+    }
+    case RestartSurface: {
         QMutexLocker locker(&m_mutex);
         restartSurface();
         m_waitSurface.wakeAll();
         return true;
-    } else if (e->type() == QEvent::Type(FlushSurface)) {
+    }
+    case FlushSurface: {
         QMutexLocker locker(&m_mutex);
         flushSurface();
         m_waitSurface.wakeAll();
         return true;
-    } else if (e->type() == QEvent::Type(RenderSample)) {
+    }
+    case RenderSample: {
         QMutexLocker locker(&m_mutex);
         renderPendingSample();
         m_waitSurface.wakeAll();
         return true;
+    }
+    default:
+        break;
     }
 
     return QObject::event(e);

@@ -29,7 +29,7 @@
 #ifndef NEWFORM_H
 #define NEWFORM_H
 
-#include <QtWidgets/QDialog>
+#include <QtWidgets/qdialog.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,7 +59,7 @@ public:
             // Use that file name instead of a temporary one
             const QString &fileName = QString());
 
-    virtual ~NewForm();
+    ~NewForm() override;
 
     // Convenience for implementing file dialogs with preview
     static QImage grabForm(QDesignerFormEditorInterface *core,

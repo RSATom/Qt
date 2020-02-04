@@ -18,7 +18,7 @@
 #include "net/base/net_export.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/rand_callback.h"
-#include "net/dns/dns_config_service.h"
+#include "net/dns/dns_config.h"
 #include "net/dns/dns_socket_pool.h"
 
 namespace base {
@@ -36,7 +36,7 @@ class StreamSocket;
 // Ref-counted so that DnsClient::Request can keep working in absence of
 // DnsClient. A DnsSession must be recreated when DnsConfig changes.
 class NET_EXPORT_PRIVATE DnsSession
-    : NON_EXPORTED_BASE(public base::RefCounted<DnsSession>),
+    : public base::RefCounted<DnsSession>,
       public NetworkChangeNotifier::ConnectionTypeObserver {
  public:
   typedef base::Callback<int()> RandCallback;
@@ -74,11 +74,16 @@ class NET_EXPORT_PRIVATE DnsSession
   // Return the index of the first configured server to use on first attempt.
   unsigned NextFirstServerIndex();
 
-  // Start with |server_index| and find the index of the next known good server
-  // to use on this attempt. Returns |server_index| if this server has no
-  // recorded failures, or if there are no other servers that have not failed
-  // or have failed longer time ago.
+  // Start with |server_index| and find the index of the next known
+  // good non-dns-over-https server to use on this attempt. Returns
+  // |server_index| if this server has no recorded failures, or if
+  // there are no other servers that have not failed or have failed
+  // longer time ago.
   unsigned NextGoodServerIndex(unsigned server_index);
+
+  // Same as above, but for DNS over HTTPS servers and ignoring
+  // non-dns-over-https servers
+  unsigned NextGoodDnsOverHttpsServerIndex(unsigned server_index);
 
   // Record that server failed to respond (due to SRV_FAIL or timeout).
   void RecordServerFailure(unsigned server_index);
@@ -88,12 +93,6 @@ class NET_EXPORT_PRIVATE DnsSession
 
   // Record how long it took to receive a response from the server.
   void RecordRTT(unsigned server_index, base::TimeDelta rtt);
-
-  // Record suspected loss of a packet for a specific server.
-  void RecordLostPacket(unsigned server_index, int attempt);
-
-  // Record server stats before it is destroyed.
-  void RecordServerStats();
 
   // Return the timeout for the next query. |attempt| counts from 0 and is used
   // for exponential backoff.
@@ -109,9 +108,6 @@ class NET_EXPORT_PRIVATE DnsSession
   std::unique_ptr<StreamSocket> CreateTCPSocket(unsigned server_index,
                                                 const NetLogSource& source);
 
-  void ApplyPersistentData(const base::Value& data);
-  std::unique_ptr<const base::Value> GetPersistentData() const;
-
  private:
   friend class base::RefCounted<DnsSession>;
   ~DnsSession() override;
@@ -122,12 +118,6 @@ class NET_EXPORT_PRIVATE DnsSession
   // Release a socket.
   void FreeSocket(unsigned server_index,
                   std::unique_ptr<DatagramClientSocket> socket);
-
-  // Return the timeout using the TCP timeout method.
-  base::TimeDelta NextTimeoutFromJacobson(unsigned server_index, int attempt);
-
-  // Compute the timeout using the histogram method.
-  base::TimeDelta NextTimeoutFromHistogram(unsigned server_index, int attempt);
 
   // NetworkChangeNotifier::ConnectionTypeObserver:
   void OnConnectionTypeChanged(
@@ -146,7 +136,10 @@ class NET_EXPORT_PRIVATE DnsSession
 
   struct ServerStats;
 
-  // Track runtime statistics of each DNS server.
+  // Track runtime statistics of each DNS server. This combines both
+  // dns-over-https servers and non-dns-over-https servers.
+  // non-dns-over-https servers come first and dns-over-https servers
+  // started at the index of nameservers.size().
   std::vector<std::unique_ptr<ServerStats>> server_stats_;
 
   // Buckets shared for all |ServerStats::rtt_histogram|.

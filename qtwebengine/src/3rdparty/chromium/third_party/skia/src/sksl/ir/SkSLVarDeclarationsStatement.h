@@ -18,7 +18,7 @@ namespace SkSL {
  */
 struct VarDeclarationsStatement : public Statement {
     VarDeclarationsStatement(std::unique_ptr<VarDeclarations> decl)
-    : INHERITED(decl->fPosition, kVarDeclarations_Kind)
+    : INHERITED(decl->fOffset, kVarDeclarations_Kind)
     , fDeclaration(std::move(decl)) {}
 
     bool isEmpty() const override {
@@ -30,11 +30,16 @@ struct VarDeclarationsStatement : public Statement {
         return true;
     }
 
+    std::unique_ptr<Statement> clone() const override {
+        std::unique_ptr<VarDeclarations> cloned((VarDeclarations*) fDeclaration->clone().release());
+        return std::unique_ptr<Statement>(new VarDeclarationsStatement(std::move(cloned)));
+    }
+
     String description() const override {
         return fDeclaration->description() + ";";
     }
 
-    std::shared_ptr<VarDeclarations> fDeclaration;
+    std::unique_ptr<VarDeclarations> fDeclaration;
 
     typedef Statement INHERITED;
 };

@@ -63,7 +63,7 @@ class QMediaPlaylistNavigatorPrivate
     Q_DECLARE_NON_CONST_PUBLIC(QMediaPlaylistNavigator)
 public:
     QMediaPlaylistNavigatorPrivate()
-        :playlist(0),
+        :playlist(nullptr),
         currentPos(-1),
         lastValidPos(-1),
         playbackMode(QMediaPlaylist::Sequential),
@@ -539,6 +539,6 @@ void QMediaPlaylistNavigatorPrivate::_q_mediaChanged(int start, int end)
     Signals that media immediately surrounding the current position has changed.
 */
 
-#include "moc_qmediaplaylistnavigator_p.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qmediaplaylistnavigator_p.cpp"

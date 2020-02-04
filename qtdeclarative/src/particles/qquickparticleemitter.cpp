@@ -48,7 +48,7 @@ QT_BEGIN_NAMESPACE
     \qmltype Emitter
     \instantiates QQuickParticleEmitter
     \inqmlmodule QtQuick.Particles
-    \brief Emits logical particles
+    \brief Emits logical particles.
     \ingroup qtquick-particles
 
     This element emits logical particles into the ParticleSystem, with the
@@ -190,10 +190,10 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlsignal QtQuick.Particles::Emitter::emitParticles(Array particles)
 
-    This signal is emitted when particles are emitted. particles is a JavaScript
+    This signal is emitted when particles are emitted. \a particles is a JavaScript
     array of Particle objects. You can modify particle attributes directly within the handler.
 
-    Note that JavaScript is slower to execute, so it is not recommended to use this in
+    \note JavaScript is slower to execute, so it is not recommended to use this in
     high-volume particle systems.
 
     The corresponding handler is \c onEmitParticles.
@@ -201,19 +201,20 @@ QT_BEGIN_NAMESPACE
 
 /*! \qmlmethod QtQuick.Particles::Emitter::burst(int count)
 
-    Emits count particles from this emitter immediately.
+    Emits a number of particles, specified by \a count, from this emitter immediately.
 */
 
 /*! \qmlmethod QtQuick.Particles::Emitter::burst(int count, int x, int y)
 
-    Emits count particles from this emitter immediately. The particles are emitted
-    as if the Emitter was positioned at x,y but all other properties are the same.
+    Emits a number of particles, specified by \a count, from this emitter immediately.
+    The particles are emitted as if the Emitter was positioned at (\a {x}, \a {y}) but
+    all other properties are the same.
 */
 
 /*! \qmlmethod QtQuick.Particles::Emitter::pulse(int duration)
 
-    If the emitter is not enabled, enables it for duration milliseconds and then switches
-    it back off.
+    If the emitter is not enabled, enables it for a specified \a duration
+    (in milliseconds) and then switches it back off.
 */
 
 QQuickParticleEmitter::QQuickParticleEmitter(QQuickItem *parent) :
@@ -222,9 +223,9 @@ QQuickParticleEmitter::QQuickParticleEmitter(QQuickItem *parent) :
   , m_particleDuration(1000)
   , m_particleDurationVariation(0)
   , m_enabled(true)
-  , m_system(0)
-  , m_extruder(0)
-  , m_defaultExtruder(0)
+  , m_system(nullptr)
+  , m_extruder(nullptr)
+  , m_defaultExtruder(nullptr)
   , m_velocity(&m_nullVector)
   , m_acceleration(&m_nullVector)
   , m_particleSize(16)
@@ -349,7 +350,7 @@ void QQuickParticleEmitter::reset()
 
 void QQuickParticleEmitter::emitWindow(int timeStamp)
 {
-    if (m_system == 0)
+    if (m_system == nullptr)
         return;
     if ((!m_enabled || m_particlesPerSecond <= 0)&& !m_pulseLeft && m_burstQueue.isEmpty()){
         m_reset_last = true;
@@ -486,7 +487,7 @@ void QQuickParticleEmitter::emitWindow(int timeStamp)
 
     if (isEmitConnected()) {
         QQmlEngine *qmlEngine = ::qmlEngine(this);
-        QV4::ExecutionEngine *v4 = QV8Engine::getV4(qmlEngine->handle());
+        QV4::ExecutionEngine *v4 = qmlEngine->handle();
         QV4::Scope scope(v4);
 
         //Done after emitParticle so that the Painter::load is done first, this allows you to customize its static variables
@@ -494,7 +495,7 @@ void QQuickParticleEmitter::emitWindow(int timeStamp)
         QV4::ScopedArrayObject array(scope, v4->newArrayObject(toEmit.size()));
         QV4::ScopedValue v(scope);
         for (int i=0; i<toEmit.size(); i++)
-            array->putIndexed(i, (v = toEmit[i]->v4Value(m_system)));
+            array->put(i, (v = toEmit[i]->v4Value(m_system)));
 
         emitParticles(QQmlV4Handle(array));//A chance for arbitrary JS changes
     }

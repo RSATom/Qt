@@ -54,15 +54,16 @@ public:
     QIOSMessageDialog();
     ~QIOSMessageDialog();
 
-    void exec() Q_DECL_OVERRIDE;
-    bool show(Qt::WindowFlags windowFlags, Qt::WindowModality windowModality, QWindow *parent) Q_DECL_OVERRIDE;
-    void hide() Q_DECL_OVERRIDE;
+    void exec() override;
+    bool show(Qt::WindowFlags windowFlags, Qt::WindowModality windowModality, QWindow *parent) override;
+    void hide() override;
 
 private:
     QEventLoop m_eventLoop;
     UIAlertController *m_alertController;
     QString messageTextPlain();
     UIAlertAction *createAction(StandardButton button);
+    UIAlertAction *createAction(const QMessageDialogOptions::CustomButton &customButton);
 };
 
 QT_END_NAMESPACE

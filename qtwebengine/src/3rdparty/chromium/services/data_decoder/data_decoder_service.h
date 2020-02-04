@@ -7,36 +7,41 @@
 
 #include <memory>
 
-#include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/weak_ptr.h"
+#include "services/data_decoder/public/mojom/image_decoder.mojom.h"
+#include "services/data_decoder/public/mojom/json_parser.mojom.h"
+#include "services/data_decoder/public/mojom/xml_parser.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/service.h"
-#include "services/service_manager/public/cpp/service_context_ref.h"
+#include "services/service_manager/public/cpp/service_binding.h"
+#include "services/service_manager/public/cpp/service_keepalive.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
 
 namespace data_decoder {
 
 class DataDecoderService : public service_manager::Service {
  public:
   DataDecoderService();
+  explicit DataDecoderService(service_manager::mojom::ServiceRequest request);
   ~DataDecoderService() override;
 
-  // Factory function for use as an embedded service.
-  static std::unique_ptr<service_manager::Service> Create();
+  // May be used to establish a latent Service binding for this instance. May
+  // only be called once, and only if this instance was default-constructed.
+  void BindRequest(service_manager::mojom::ServiceRequest request);
 
   // service_manager::Service:
-  void OnStart() override;
   void OnBindInterface(const service_manager::BindSourceInfo& source_info,
                        const std::string& interface_name,
                        mojo::ScopedMessagePipeHandle interface_pipe) override;
 
  private:
-  void MaybeRequestQuitDelayed();
-  void MaybeRequestQuit();
+  void BindImageDecoder(mojom::ImageDecoderRequest request);
+  void BindJsonParser(mojom::JsonParserRequest request);
+  void BindXmlParser(mojom::XmlParserRequest request);
 
-  std::unique_ptr<service_manager::ServiceContextRefFactory> ref_factory_;
+  service_manager::ServiceBinding binding_{this};
+  service_manager::ServiceKeepalive keepalive_;
   service_manager::BinderRegistry registry_;
-  base::WeakPtrFactory<DataDecoderService> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DataDecoderService);
 };

@@ -23,17 +23,6 @@
 namespace base {
 namespace i18n {
 
-namespace {
-
-// A test utility function to set the application default text direction.
-void SetRTL(bool rtl) {
-  // Override the current locale/direction.
-  SetICUDefaultLocale(rtl ? "he" : "en");
-  EXPECT_EQ(rtl, IsRTL());
-}
-
-}  // namespace
-
 class RTLTest : public PlatformTest {
 };
 
@@ -102,9 +91,9 @@ TEST_F(RTLTest, GetFirstStrongCharacterDirection) {
       LEFT_TO_RIGHT },
    };
 
-  for (size_t i = 0; i < arraysize(cases); ++i)
-    EXPECT_EQ(cases[i].direction,
-              GetFirstStrongCharacterDirection(WideToUTF16(cases[i].text)));
+  for (auto& i : cases)
+    EXPECT_EQ(i.direction,
+              GetFirstStrongCharacterDirection(WideToUTF16(i.text)));
 }
 
 
@@ -164,9 +153,9 @@ TEST_F(RTLTest, GetLastStrongCharacterDirection) {
       LEFT_TO_RIGHT },
    };
 
-  for (size_t i = 0; i < arraysize(cases); ++i)
-    EXPECT_EQ(cases[i].direction,
-              GetLastStrongCharacterDirection(WideToUTF16(cases[i].text)));
+  for (auto& i : cases)
+    EXPECT_EQ(i.direction,
+              GetLastStrongCharacterDirection(WideToUTF16(i.text)));
 }
 
 TEST_F(RTLTest, GetStringDirection) {
@@ -242,9 +231,8 @@ TEST_F(RTLTest, GetStringDirection) {
       LEFT_TO_RIGHT },
    };
 
-  for (size_t i = 0; i < arraysize(cases); ++i)
-    EXPECT_EQ(cases[i].direction,
-              GetStringDirection(WideToUTF16(cases[i].text)));
+  for (auto& i : cases)
+    EXPECT_EQ(i.direction, GetStringDirection(WideToUTF16(i.text)));
 }
 
 TEST_F(RTLTest, WrapPathWithLTRFormatting) {
@@ -277,18 +265,17 @@ TEST_F(RTLTest, WrapPathWithLTRFormatting) {
     L""
   };
 
-  for (size_t i = 0; i < arraysize(cases); ++i) {
+  for (auto*& i : cases) {
     FilePath path;
 #if defined(OS_WIN)
-    std::wstring win_path(cases[i]);
+    std::wstring win_path(i);
     std::replace(win_path.begin(), win_path.end(), '/', '\\');
     path = FilePath(win_path);
     std::wstring wrapped_expected =
         std::wstring(L"\x202a") + win_path + L"\x202c";
 #else
-    path = FilePath(base::SysWideToNativeMB(cases[i]));
-    std::wstring wrapped_expected =
-        std::wstring(L"\x202a") + cases[i] + L"\x202c";
+    path = FilePath(base::SysWideToNativeMB(i));
+    std::wstring wrapped_expected = std::wstring(L"\x202a") + i + L"\x202c";
 #endif
     string16 localized_file_path_string;
     WrapPathWithLTRFormatting(path, &localized_file_path_string);
@@ -314,7 +301,7 @@ TEST_F(RTLTest, WrapString) {
   test::ScopedRestoreICUDefaultLocale restore_locale;
   for (size_t i = 0; i < 2; ++i) {
     // Toggle the application default text direction (to try each direction).
-    SetRTL(!IsRTL());
+    SetRTLForTesting(!IsRTL());
 
     string16 empty;
     WrapStringWithLTRFormatting(&empty);
@@ -322,8 +309,8 @@ TEST_F(RTLTest, WrapString) {
     WrapStringWithRTLFormatting(&empty);
     EXPECT_TRUE(empty.empty());
 
-    for (size_t i = 0; i < arraysize(cases); ++i) {
-      string16 input = WideToUTF16(cases[i]);
+    for (auto*& i : cases) {
+      string16 input = WideToUTF16(i);
       string16 ltr_wrap = input;
       WrapStringWithLTRFormatting(&ltr_wrap);
       EXPECT_EQ(ltr_wrap[0], kLeftToRightEmbeddingMark);
@@ -362,12 +349,12 @@ TEST_F(RTLTest, GetDisplayStringInLTRDirectionality) {
   test::ScopedRestoreICUDefaultLocale restore_locale;
   for (size_t i = 0; i < 2; ++i) {
     // Toggle the application default text direction (to try each direction).
-    SetRTL(!IsRTL());
-    for (size_t i = 0; i < arraysize(cases); ++i) {
-      string16 input = WideToUTF16(cases[i].path);
+    SetRTLForTesting(!IsRTL());
+    for (auto& i : cases) {
+      string16 input = WideToUTF16(i.path);
       string16 output = GetDisplayStringInLTRDirectionality(input);
       // Test the expected wrapping behavior for the current UI directionality.
-      if (IsRTL() ? cases[i].wrap_rtl : cases[i].wrap_ltr)
+      if (IsRTL() ? i.wrap_rtl : i.wrap_ltr)
         EXPECT_NE(output, input);
       else
         EXPECT_EQ(output, input);
@@ -449,10 +436,10 @@ TEST_F(RTLTest, UnadjustStringForLocaleDirection) {
   test::ScopedRestoreICUDefaultLocale restore_locale;
   for (size_t i = 0; i < 2; ++i) {
     // Toggle the application default text direction (to try each direction).
-    SetRTL(!IsRTL());
+    SetRTLForTesting(!IsRTL());
 
-    for (size_t i = 0; i < arraysize(cases); ++i) {
-      string16 test_case = WideToUTF16(cases[i]);
+    for (auto*& i : cases) {
+      string16 test_case = WideToUTF16(i);
       string16 adjusted_string = test_case;
 
       if (!AdjustStringForLocaleDirection(&adjusted_string))
@@ -466,6 +453,86 @@ TEST_F(RTLTest, UnadjustStringForLocaleDirection) {
   }
 
   EXPECT_EQ(was_rtl, IsRTL());
+}
+
+TEST_F(RTLTest, EnsureTerminatedDirectionalFormatting) {
+  struct {
+    const wchar_t* unformated_text;
+    const wchar_t* formatted_text;
+  } cases[] = {
+      // Tests string without any dir-formatting characters.
+      {L"google.com", L"google.com"},
+      // Tests string with properly terminated dir-formatting character.
+      {L"\x202egoogle.com\x202c", L"\x202egoogle.com\x202c"},
+      // Tests string with over-terminated dir-formatting characters.
+      {L"\x202egoogle\x202c.com\x202c", L"\x202egoogle\x202c.com\x202c"},
+      // Tests string beginning with a dir-formatting character.
+      {L"\x202emoc.elgoog", L"\x202emoc.elgoog\x202c"},
+      // Tests string that over-terminates then re-opens.
+      {L"\x202egoogle\x202c\x202c.\x202eom",
+       L"\x202egoogle\x202c\x202c.\x202eom\x202c"},
+      // Tests string containing a dir-formatting character in the middle.
+      {L"google\x202e.com", L"google\x202e.com\x202c"},
+      // Tests string with multiple dir-formatting characters.
+      {L"\x202egoogle\x202e.com/\x202eguest",
+       L"\x202egoogle\x202e.com/\x202eguest\x202c\x202c\x202c"},
+      // Test the other dir-formatting characters (U+202A, U+202B, and U+202D).
+      {L"\x202agoogle.com", L"\x202agoogle.com\x202c"},
+      {L"\x202bgoogle.com", L"\x202bgoogle.com\x202c"},
+      {L"\x202dgoogle.com", L"\x202dgoogle.com\x202c"},
+  };
+
+  const bool was_rtl = IsRTL();
+
+  test::ScopedRestoreICUDefaultLocale restore_locale;
+  for (size_t i = 0; i < 2; ++i) {
+    // Toggle the application default text direction (to try each direction).
+    SetRTLForTesting(!IsRTL());
+    for (auto& i : cases) {
+      string16 unsanitized_text = WideToUTF16(i.unformated_text);
+      string16 sanitized_text = WideToUTF16(i.formatted_text);
+      EnsureTerminatedDirectionalFormatting(&unsanitized_text);
+      EXPECT_EQ(sanitized_text, unsanitized_text);
+    }
+  }
+  EXPECT_EQ(was_rtl, IsRTL());
+}
+
+TEST_F(RTLTest, SanitizeUserSuppliedString) {
+  struct {
+    const wchar_t* unformatted_text;
+    const wchar_t* formatted_text;
+  } cases[] = {
+      // Tests RTL string with properly terminated dir-formatting character.
+      {L"\x202eكبير Google التطبيق\x202c", L"\x202eكبير Google التطبيق\x202c"},
+      // Tests RTL string with over-terminated dir-formatting characters.
+      {L"\x202eكبير Google\x202cالتطبيق\x202c",
+       L"\x202eكبير Google\x202cالتطبيق\x202c"},
+      // Tests RTL string that over-terminates then re-opens.
+      {L"\x202eكبير Google\x202c\x202cالتطبيق\x202e",
+       L"\x202eكبير Google\x202c\x202cالتطبيق\x202e\x202c"},
+      // Tests RTL string with multiple dir-formatting characters.
+      {L"\x202eك\x202eبير Google الت\x202eطبيق",
+       L"\x202eك\x202eبير Google الت\x202eطبيق\x202c\x202c\x202c"},
+      // Test the other dir-formatting characters (U+202A, U+202B, and U+202D).
+      {L"\x202aكبير Google التطبيق", L"\x202aكبير Google التطبيق\x202c"},
+      {L"\x202bكبير Google التطبيق", L"\x202bكبير Google التطبيق\x202c"},
+      {L"\x202dكبير Google التطبيق", L"\x202dكبير Google التطبيق\x202c"},
+
+  };
+
+  for (auto& i : cases) {
+    // On Windows for an LTR locale, no changes to the string are made.
+    string16 prefix, suffix = WideToUTF16(L"");
+#if !defined(OS_WIN)
+    prefix = WideToUTF16(L"\x200e\x202b");
+    suffix = WideToUTF16(L"\x202c\x200e");
+#endif  // !OS_WIN
+    string16 unsanitized_text = WideToUTF16(i.unformatted_text);
+    string16 sanitized_text = prefix + WideToUTF16(i.formatted_text) + suffix;
+    SanitizeUserSuppliedString(&unsanitized_text);
+    EXPECT_EQ(sanitized_text, unsanitized_text);
+  }
 }
 
 class SetICULocaleTest : public PlatformTest {};

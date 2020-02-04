@@ -7,13 +7,13 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "content/child/browser_font_resource_trusted.h"
 #include "content/renderer/pepper/pepper_in_process_router.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
 #include "content/renderer/pepper/ppapi_preferences_builder.h"
 #include "content/renderer/pepper/renderer_ppapi_host_impl.h"
 #include "content/renderer/render_view_impl.h"
+#include "gpu/config/gpu_feature_info.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
 #include "ppapi/host/ppapi_host.h"
@@ -53,8 +53,13 @@ PP_Resource PepperInProcessResourceCreation::CreateBrowserFont(
     const PP_BrowserFont_Trusted_Description* description) {
   if (!BrowserFontResource_Trusted::IsPPFontDescriptionValid(*description))
     return 0;
+  // BrowserFontResource_Trusted and in turn PPFontDescToWebFontDesc do not
+  // care about preferences of GPU features, so no need to query them from
+  // GPU process whether these features are blacklisted or not.
+  gpu::GpuFeatureInfo gpu_feature_info;
   ppapi::Preferences prefs(PpapiPreferencesBuilder::Build(
-      host_impl_->GetRenderViewForInstance(instance)->GetWebkitPreferences()));
+      host_impl_->GetRenderViewForInstance(instance)->GetWebkitPreferences(),
+      gpu_feature_info));
   return (new BrowserFontResource_Trusted(
               host_impl_->in_process_router()->GetPluginConnection(instance),
               instance,

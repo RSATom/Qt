@@ -53,8 +53,6 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
   float value() const { return value_; }
   void SetValue(float value);
 
-  void SetAccessibleName(const base::string16& name);
-
   void set_enable_accessibility_events(bool enabled) {
     accessibility_events_enabled_ = enabled;
   }
@@ -87,8 +85,6 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
   // Moves the button to the specified point and updates the value accordingly.
   void MoveButtonTo(const gfx::Point& point);
 
-  void OnPaintFocus(gfx::Canvas* canvas);
-
   // Notify the listener_, if not NULL, that dragging started.
   void OnSliderDragStarted();
 
@@ -106,6 +102,8 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
   void OnPaint(gfx::Canvas* canvas) override;
   void OnFocus() override;
   void OnBlur() override;
+  void VisibilityChanged(View* starting_from, bool is_visible) override;
+  void AddedToWidget() override;
 
   // ui::EventHandler:
   void OnGestureEvent(ui::GestureEvent* event) override;
@@ -113,6 +111,8 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
   void set_listener(SliderListener* listener) {
     listener_ = listener;
   }
+
+  void NotifyPendingAccessibilityValueChanged();
 
   SliderListener* listener_;
 
@@ -122,7 +122,6 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
   float keyboard_increment_ = 0.1f;
   float initial_animating_value_ = 0.f;
   bool value_is_valid_ = false;
-  base::string16 accessible_name_;
   bool accessibility_events_enabled_ = true;
 
   // Relative position of the mouse cursor (or the touch point) on the slider's
@@ -136,6 +135,8 @@ class VIEWS_EXPORT Slider : public View, public gfx::AnimationDelegate {
   float thumb_highlight_radius_ = 0.f;
 
   gfx::SlideAnimation highlight_animation_;
+
+  bool pending_accessibility_value_change_;
 
   DISALLOW_COPY_AND_ASSIGN(Slider);
 };

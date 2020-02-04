@@ -29,12 +29,10 @@ found in the LICENSE file.
     <h2>UX</h2>
     <p id="prefs-too-often-denied">Refrain from showing the translation prompt</p>
   </section>
-<if expr="not is_ios">
   <section id="prefs-cld-version">
     <h2>CLD Version</h2>
-    <p i18n-content="cld-version"></p>
+    <p>$i18n{cld-version}</p>
   </section>
-</if>
 </div>
 <div>
   <section id="prefs-dump">
@@ -44,5 +42,11 @@ found in the LICENSE file.
   <section>
     <h2 id="override-variations-country">Override Variations Country</h2>
     <p id="country-override"></p>
+  </section>
+  <section>
+    <h2 id="override-recent-target">
+      Override <code>translate_recent_target</code>
+    </h2>
+    <p id="recent-override"></p>
   </section>
 </div>

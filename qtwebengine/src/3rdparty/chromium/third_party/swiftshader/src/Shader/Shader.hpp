@@ -118,7 +118,6 @@ namespace sw
 			OPCODE_CMP,   // D3DSIO_SETP
 			OPCODE_TEXLDL,
 			OPCODE_BREAKP,
-			OPCODE_TEXSIZE,
 
 			OPCODE_PHASE = 0xFFFD,
 			OPCODE_COMMENT = 0xFFFE,
@@ -207,11 +206,15 @@ namespace sw
 			OPCODE_ISNAN,
 			OPCODE_ISINF,
 			OPCODE_TEXOFFSET,
-			OPCODE_TEXLDLOFFSET,
+			OPCODE_TEXLODOFFSET,
 			OPCODE_TEXELFETCH,
 			OPCODE_TEXELFETCHOFFSET,
 			OPCODE_TEXGRAD,
 			OPCODE_TEXGRADOFFSET,
+			OPCODE_TEXBIAS,
+			OPCODE_TEXLOD,
+			OPCODE_TEXOFFSETBIAS,
+			OPCODE_TEXSIZE,
 			OPCODE_FLOATBITSTOINT,
 			OPCODE_FLOATBITSTOUINT,
 			OPCODE_INTBITSTOFLOAT,
@@ -241,9 +244,10 @@ namespace sw
 			OPCODE_INSERT,
 			OPCODE_DISCARD,
 			OPCODE_FWIDTH,
-			OPCODE_LEAVE,   // Return before the end of the function
+			OPCODE_LEAVE,    // Return before the end of the function
 			OPCODE_CONTINUE,
-			OPCODE_TEST,   // Marks the end of the code that can be skipped by 'continue'
+			OPCODE_TEST,     // Marks the end of the code that can be skipped by 'continue'
+			OPCODE_SCALAR,   // Marks the start of code not subject to SIMD lane masking. Ends at WHILE and ENDWHILE.
 			OPCODE_SWITCH,
 			OPCODE_ENDSWITCH,
 
@@ -358,6 +362,14 @@ namespace sw
 			PARAMETER_VOID
 		};
 
+		enum MiscParameterIndex
+		{
+			VPosIndex = 0,
+			VFaceIndex = 1,
+			InstanceIDIndex = 2,
+			VertexIDIndex = 3,
+		};
+
 		enum Modifier
 		{
 			MODIFIER_NONE,
@@ -385,6 +397,15 @@ namespace sw
 			ANALYSIS_LEAVE    = 0x00000008,
 		};
 
+		struct Relative
+		{
+			ParameterType type : 8;
+			unsigned int index;
+			unsigned int swizzle : 8;
+			unsigned int scale;
+			bool dynamic;   // Varies between concurrent shader instances
+		};
+
 		struct Parameter
 		{
 			union
@@ -393,14 +414,7 @@ namespace sw
 				{
 					unsigned int index;   // For registers types
 
-					struct
-					{
-						ParameterType type : 8;
-						unsigned int index;
-						unsigned int swizzle : 8;
-						unsigned int scale;
-						bool deterministic;   // Equal accross shader instances run in lockstep (e.g. unrollable loop couters)
-					} rel;
+					Relative rel;
 				};
 
 				float value[4];       // For float constants
@@ -420,7 +434,7 @@ namespace sw
 				rel.index = 0;
 				rel.swizzle = 0;
 				rel.scale = 1;
-				rel.deterministic = false;
+				rel.dynamic = true;
 			}
 
 			std::string string(ShaderType shaderType, unsigned short version) const;
@@ -445,7 +459,7 @@ namespace sw
 				};
 			};
 
-			DestinationParameter() : mask(0xF), integer(false), saturate(false), partialPrecision(false), centroid(false), shift(0)
+			DestinationParameter() : mask(0xF), saturate(false), partialPrecision(false), centroid(false), shift(0)
 			{
 			}
 
@@ -453,7 +467,6 @@ namespace sw
 			std::string shiftString() const;
 			std::string maskString() const;
 
-			bool integer          : 1;
 			bool saturate         : 1;
 			bool partialPrecision : 1;
 			bool centroid         : 1;
@@ -466,6 +479,7 @@ namespace sw
 			{
 			}
 
+			std::string string(ShaderType shaderType, unsigned short version) const;
 			std::string swizzleString() const;
 			std::string preModifierString() const;
 			std::string postModifierString() const;
@@ -547,14 +561,14 @@ namespace sw
 		int getSerialID() const;
 		size_t getLength() const;
 		ShaderType getShaderType() const;
-		unsigned short getVersion() const;
+		unsigned short getShaderModel() const;
 
 		void append(Instruction *instruction);
 		void declareSampler(int i);
 
 		const Instruction *getInstruction(size_t i) const;
 		int size(unsigned long opcode) const;
-		static int size(unsigned long opcode, unsigned short version);
+		static int size(unsigned long opcode, unsigned short shaderModel);
 
 		void print(const char *fileName, ...) const;
 		void printInstruction(int index, const char *fileName) const;
@@ -599,9 +613,9 @@ namespace sw
 		unsigned int dirtyConstantsI;
 		unsigned int dirtyConstantsB;
 
-		bool dynamicallyIndexedTemporaries;
-		bool dynamicallyIndexedInput;
-		bool dynamicallyIndexedOutput;
+		bool indirectAddressableTemporaries;
+		bool indirectAddressableInput;
+		bool indirectAddressableOutput;
 
 	protected:
 		void parse(const unsigned long *token);
@@ -614,14 +628,14 @@ namespace sw
 		void analyzeDynamicBranching();
 		void analyzeSamplers();
 		void analyzeCallSites();
-		void analyzeDynamicIndexing();
+		void analyzeIndirectAddressing();
 		void markFunctionAnalysis(unsigned int functionLabel, Analysis flag);
 
 		ShaderType shaderType;
 
 		union
 		{
-			unsigned short version;
+			unsigned short shaderModel;
 
 			struct
 			{

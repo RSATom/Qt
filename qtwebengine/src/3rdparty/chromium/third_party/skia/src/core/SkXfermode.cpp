@@ -6,11 +6,10 @@
  */
 
 #include "SkBlendModePriv.h"
-#include "SkColorPriv.h"
+#include "SkColorData.h"
 #include "SkMathPriv.h"
 #include "SkOnce.h"
 #include "SkOpts.h"
-#include "SkPM4f.h"
 #include "SkRasterPipeline.h"
 #include "SkReadBuffer.h"
 #include "SkString.h"
@@ -36,26 +35,27 @@ public:
 
         SkRasterPipeline_<256> p;
 
-        if (kN32_SkColorType == kBGRA_8888_SkColorType) {
-            p.append(SkRasterPipeline::load_bgra_dst, &dst);
-            p.append(SkRasterPipeline::load_bgra    , &src);
+        SkRasterPipeline_MemoryCtx dst_ctx = { (void*)dst, 0 },
+                                   src_ctx = { (void*)src, 0 },
+                                    aa_ctx = { (void*)aa,  0 };
+
+        p.append_load    (kN32_SkColorType, &src_ctx);
+        p.append_load_dst(kN32_SkColorType, &dst_ctx);
+
+        if (SkBlendMode_ShouldPreScaleCoverage(fMode, /*rgb_coverage=*/false)) {
+            if (aa) {
+                p.append(SkRasterPipeline::scale_u8, &aa_ctx);
+            }
+            SkBlendMode_AppendStages(fMode, &p);
         } else {
-            p.append(SkRasterPipeline::load_8888_dst, &dst);
-            p.append(SkRasterPipeline::load_8888,     &src);
+            SkBlendMode_AppendStages(fMode, &p);
+            if (aa) {
+                p.append(SkRasterPipeline::lerp_u8, &aa_ctx);
+            }
         }
 
-        SkBlendMode_AppendStagesNoClamp(fMode, &p);
-        if (aa) {
-            p.append(SkRasterPipeline::lerp_u8, &aa);
-        }
-        SkBlendMode_AppendClampIfNeeded(fMode, &p);
-
-        if (kN32_SkColorType == kBGRA_8888_SkColorType) {
-            p.append(SkRasterPipeline::store_bgra, &dst);
-        } else {
-            p.append(SkRasterPipeline::store_8888, &dst);
-        }
-        p.run(0, 0, count);
+        p.append_store(kN32_SkColorType, &dst_ctx);
+        p.run(0, 0, count,1);
     }
 
 private:

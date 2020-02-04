@@ -8,9 +8,9 @@
 
 namespace extensions {
 
-TestAppWindowContents::TestAppWindowContents(content::WebContents* web_contents)
-    : web_contents_(web_contents) {
-}
+TestAppWindowContents::TestAppWindowContents(
+    std::unique_ptr<content::WebContents> web_contents)
+    : web_contents_(std::move(web_contents)) {}
 
 TestAppWindowContents::~TestAppWindowContents() {
 }
@@ -25,10 +25,7 @@ void TestAppWindowContents::NativeWindowChanged(
     NativeAppWindow* native_app_window) {
 }
 
-void TestAppWindowContents::NativeWindowClosed() {
-}
-
-void TestAppWindowContents::OnWindowReady() {}
+void TestAppWindowContents::NativeWindowClosed(bool send_onclosed) {}
 
 content::WebContents* TestAppWindowContents::GetWebContents() const {
   return web_contents_.get();

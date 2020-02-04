@@ -7,12 +7,12 @@
 #include <string>
 
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
-#include "core/fxcrt/fx_basic.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/test_support.h"
+#include "third_party/base/span.h"
 
 TEST(SimpleParserTest, GetWord) {
-  pdfium::StrFuncTestData test_data[] = {
+  static const pdfium::StrFuncTestData test_data[] = {
       // Empty src string.
       STR_IN_OUT_CASE("", ""),
       // Content with whitespaces only.
@@ -50,47 +50,13 @@ TEST(SimpleParserTest, GetWord) {
   };
   for (size_t i = 0; i < FX_ArraySize(test_data); ++i) {
     const pdfium::StrFuncTestData& data = test_data[i];
-    CPDF_SimpleParser parser(data.input, data.input_size);
-    CFX_ByteStringC word = parser.GetWord();
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(data.expected),
-                          data.expected_size),
-              std::string(word.unterminated_c_str(), word.GetLength()))
+    CPDF_SimpleParser parser(pdfium::make_span(data.input, data.input_size));
+    ByteStringView word = parser.GetWord();
+    EXPECT_EQ(data.expected_size, word.GetLength()) << " for case " << i;
+    if (data.expected_size != word.GetLength())
+      continue;
+    EXPECT_EQ(
+        0, memcmp(data.expected, word.unterminated_c_str(), data.expected_size))
         << " for case " << i;
-  }
-}
-
-TEST(SimpleParserTest, FindTagParamFromStart) {
-  struct FindTagTestStruct {
-    const unsigned char* input;
-    unsigned int input_size;
-    const char* token;
-    int num_params;
-    bool result;
-    unsigned int result_pos;
-  } test_data[] = {
-      // Empty strings.
-      STR_IN_TEST_CASE("", "Tj", 1, false, 0),
-      STR_IN_TEST_CASE("", "", 1, false, 0),
-      // Empty token.
-      STR_IN_TEST_CASE("  T j", "", 1, false, 5),
-      // No parameter.
-      STR_IN_TEST_CASE("Tj", "Tj", 1, false, 2),
-      STR_IN_TEST_CASE("(Tj", "Tj", 1, false, 3),
-      // Partial token match.
-      STR_IN_TEST_CASE("\r12\t34  56 78Tj", "Tj", 1, false, 15),
-      // Regular cases with various parameters.
-      STR_IN_TEST_CASE("\r\0abd Tj", "Tj", 1, true, 0),
-      STR_IN_TEST_CASE("12 4 Tj 3 46 Tj", "Tj", 1, true, 2),
-      STR_IN_TEST_CASE("er^ 2 (34) (5667) Tj", "Tj", 2, true, 5),
-      STR_IN_TEST_CASE("<344> (232)\t343.4\n12 45 Tj", "Tj", 3, true, 11),
-      STR_IN_TEST_CASE("1 2 3 4 5 6 7 8 cm", "cm", 6, true, 3),
-  };
-  for (size_t i = 0; i < FX_ArraySize(test_data); ++i) {
-    const FindTagTestStruct& data = test_data[i];
-    CPDF_SimpleParser parser(data.input, data.input_size);
-    EXPECT_EQ(data.result,
-              parser.FindTagParamFromStart(data.token, data.num_params))
-        << " for case " << i;
-    EXPECT_EQ(data.result_pos, parser.GetCurPos()) << " for case " << i;
   }
 }

@@ -26,7 +26,8 @@ typedef enum {
 #endif                          //
   WEB_APP_IMAGES,               // WDResult<WDAppImagesResult>
   TOKEN_RESULT,                 // WDResult<TokenResult>
-  AUTOFILL_VALUE_RESULT,        // WDResult<std::vector<base::string16>>
+  AUTOFILL_VALUE_RESULT,        // WDResult<std::vector<AutofillEntry>>
+  AUTOFILL_CLEANUP_RESULT,      // WDResult<size_t>
   AUTOFILL_CHANGES,             // WDResult<std::vector<AutofillChange>>
   AUTOFILL_PROFILE_RESULT,      // WDResult<AutofillProfile>
   AUTOFILL_PROFILES_RESULT,     // WDResult<std::vector<
@@ -34,10 +35,12 @@ typedef enum {
   AUTOFILL_CREDITCARD_RESULT,   // WDResult<CreditCard>
   AUTOFILL_CREDITCARDS_RESULT,  // WDResult<std::vector<
                                 //     std::unique_ptr<CreditCard>>>
-#if defined(OS_ANDROID)
-  PAYMENT_WEB_APP_MANIFEST,     // WDResult<std::vector<
-                                //     mojom::WebAppManifestSectionPtr>>
-  PAYMENT_METHOD_MANIFEST,      // WDResult<std::vector<std::string>>
+  AUTOFILL_CUSTOMERDATA_RESULT,  // WDResult<std::unique_ptr<
+                                 //     PaymentsCustomerData>>
+#if !defined(OS_IOS)
+  PAYMENT_WEB_APP_MANIFEST,  // WDResult<std::vector<
+                             //     mojom::WebAppManifestSectionPtr>>
+  PAYMENT_METHOD_MANIFEST,   // WDResult<std::vector<std::string>>
 #endif
 } WDResultType;
 
@@ -46,18 +49,13 @@ typedef enum {
 //
 class WEBDATA_EXPORT WDTypedResult {
  public:
-  virtual ~WDTypedResult() {
-  }
+  virtual ~WDTypedResult() {}
 
   // Return the result type.
-  WDResultType GetType() const {
-    return type_;
-  }
+  WDResultType GetType() const { return type_; }
 
  protected:
-  explicit WDTypedResult(WDResultType type)
-    : type_(type) {
-  }
+  explicit WDTypedResult(WDResultType type) : type_(type) {}
 
  private:
   WDResultType type_;
@@ -65,7 +63,8 @@ class WEBDATA_EXPORT WDTypedResult {
 };
 
 // A result containing one specific pointer or literal value.
-template <class T> class WDResult : public WDTypedResult {
+template <class T>
+class WDResult : public WDTypedResult {
  public:
   WDResult(WDResultType type, const T& v) : WDTypedResult(type), value_(v) {}
   WDResult(WDResultType type, T&& v)

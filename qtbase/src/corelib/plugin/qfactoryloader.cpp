@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -46,15 +47,107 @@
 #include <qdebug.h>
 #include "qmutex.h"
 #include "qplugin.h"
+#include "qplugin_p.h"
 #include "qpluginloader.h"
 #include "private/qobject_p.h"
 #include "private/qcoreapplication_p.h"
+#include "qcbormap.h"
+#include "qcborvalue.h"
 #include "qjsondocument.h"
 #include "qjsonvalue.h"
 #include "qjsonobject.h"
 #include "qjsonarray.h"
 
+#include <qtcore_tracepoints_p.h>
+
 QT_BEGIN_NAMESPACE
+
+static inline int metaDataSignatureLength()
+{
+    return sizeof("QTMETADATA  ") - 1;
+}
+
+static QJsonDocument jsonFromCborMetaData(const char *raw, qsizetype size, QString *errMsg)
+{
+    // extract the keys not stored in CBOR
+    int qt_metadataVersion = quint8(raw[0]);
+    int qt_version = qFromBigEndian<quint16>(raw + 1);
+    int qt_archRequirements = quint8(raw[3]);
+    if (Q_UNLIKELY(raw[-1] != '!' || qt_metadataVersion != 0)) {
+        *errMsg = QStringLiteral("Invalid metadata version");
+        return QJsonDocument();
+    }
+
+    raw += 4;
+    size -= 4;
+    QByteArray ba = QByteArray::fromRawData(raw, int(size));
+    QCborParserError err;
+    QCborValue metadata = QCborValue::fromCbor(ba, &err);
+
+    if (err.error != QCborError::NoError) {
+        *errMsg = QLatin1String("Metadata parsing error: ") + err.error.toString();
+        return QJsonDocument();
+    }
+
+    if (!metadata.isMap()) {
+        *errMsg = QStringLiteral("Unexpected metadata contents");
+        return QJsonDocument();
+    }
+
+    QJsonObject o;
+    o.insert(QLatin1String("version"), qt_version << 8);
+    o.insert(QLatin1String("debug"), bool(qt_archRequirements & 1));
+    o.insert(QLatin1String("archreq"), qt_archRequirements);
+
+    // convert the top-level map integer keys
+    for (auto it : metadata.toMap()) {
+        QString key;
+        if (it.first.isInteger()) {
+            switch (it.first.toInteger()) {
+#define CONVERT_TO_STRING(IntKey, StringKey, Description) \
+            case int(IntKey): key = QStringLiteral(StringKey); break;
+                QT_PLUGIN_FOREACH_METADATA(CONVERT_TO_STRING)
+#undef CONVERT_TO_STRING
+
+            case int(QtPluginMetaDataKeys::Requirements):
+                // special case: recreate the debug key
+                o.insert(QLatin1String("debug"), bool(it.second.toInteger() & 1));
+                key = QStringLiteral("archreq");
+                break;
+            }
+        } else {
+            key = it.first.toString();
+        }
+
+        if (!key.isEmpty())
+            o.insert(key, it.second.toJsonValue());
+    }
+    return QJsonDocument(o);
+}
+
+QJsonDocument qJsonFromRawLibraryMetaData(const char *raw, qsizetype sectionSize, QString *errMsg)
+{
+    raw += metaDataSignatureLength();
+    sectionSize -= metaDataSignatureLength();
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    if (Q_UNLIKELY(raw[-1] == ' ')) {
+        // the size of the embedded JSON object can be found 8 bytes into the data (see qjson_p.h)
+        uint size = qFromLittleEndian<uint>(raw + 8);
+        // but the maximum size of binary JSON is 128 MB
+        size = qMin(size, 128U * 1024 * 1024);
+        // and it doesn't include the size of the header (8 bytes)
+        size += 8;
+        // finally, it can't be bigger than the file or section size
+        size = qMin(sectionSize, qsizetype(size));
+
+        QByteArray json(raw, size);
+        return QJsonDocument::fromBinaryData(json);
+    }
+#endif
+
+    return jsonFromCborMetaData(raw, sectionSize, errMsg);
+}
 
 class QFactoryLoaderPrivate : public QObjectPrivate
 {
@@ -115,33 +208,34 @@ void QFactoryLoader::update()
                     QDir::Files);
         QLibraryPrivate *library = 0;
 
-#ifdef Q_OS_MAC
-        // Loading both the debug and release version of the cocoa plugins causes the objective-c runtime
-        // to print "duplicate class definitions" warnings. Detect if QFactoryLoader is about to load both,
-        // skip one of them (below).
-        //
-        // ### FIXME find a proper solution
-        //
-        const bool isLoadingDebugAndReleaseCocoa = plugins.contains(QLatin1String("libqcocoa_debug.dylib"))
-                && plugins.contains(QLatin1String("libqcocoa.dylib"));
-#endif
         for (int j = 0; j < plugins.count(); ++j) {
             QString fileName = QDir::cleanPath(path + QLatin1Char('/') + plugins.at(j));
 
 #ifdef Q_OS_MAC
-            if (isLoadingDebugAndReleaseCocoa) {
-#ifdef QT_DEBUG
-               if (fileName.contains(QLatin1String("libqcocoa.dylib")))
-                   continue;    // Skip release plugin in debug mode
-#else
-               if (fileName.contains(QLatin1String("libqcocoa_debug.dylib")))
-                   continue;    // Skip debug plugin in release mode
-#endif
+            const bool isDebugPlugin = fileName.endsWith(QLatin1String("_debug.dylib"));
+            const bool isDebugLibrary =
+                #ifdef QT_DEBUG
+                    true;
+                #else
+                    false;
+                #endif
+
+            // Skip mismatching plugins so that we don't end up loading both debug and release
+            // versions of the same Qt libraries (due to the plugin's dependencies).
+            if (isDebugPlugin != isDebugLibrary)
+                continue;
+#elif defined(Q_PROCESSOR_X86)
+            if (fileName.endsWith(QLatin1String(".avx2")) || fileName.endsWith(QLatin1String(".avx512"))) {
+                // ignore AVX2-optimized file, we'll do a bait-and-switch to it later
+                continue;
             }
 #endif
             if (qt_debug_component()) {
                 qDebug() << "QFactoryLoader::QFactoryLoader() looking at" << fileName;
             }
+
+            Q_TRACE(QFactoryLoader_update, fileName);
+
             library = QLibraryPrivate::findOrCreate(QFileInfo(fileName).canonicalFilePath());
             if (!library->isPlugin()) {
                 if (qt_debug_component()) {

@@ -10,7 +10,7 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -119,7 +119,7 @@ const PhoneField::Parser PhoneField::kPhoneFieldGrammars[] = {
     {REGEX_SEPARATOR, FIELD_NONE, 0},
     // Phone: <cc>:3 - <phone>:10 (Ext: <ext>)?
     {REGEX_PHONE, FIELD_COUNTRY_CODE, 3},
-    {REGEX_PHONE, FIELD_PHONE, 10},
+    {REGEX_PHONE, FIELD_PHONE, 14},
     {REGEX_SEPARATOR, FIELD_NONE, 0},
     // Ext: <ext>
     {REGEX_EXTENSION, FIELD_EXTENSION, 0},
@@ -139,27 +139,26 @@ std::unique_ptr<FormField> PhoneField::Parse(AutofillScanner* scanner) {
   // The form owns the following variables, so they should not be deleted.
   AutofillField* parsed_fields[FIELD_MAX];
 
-  for (size_t i = 0; i < arraysize(kPhoneFieldGrammars); ++i) {
+  for (size_t i = 0; i < base::size(kPhoneFieldGrammars); ++i) {
     memset(parsed_fields, 0, sizeof(parsed_fields));
     size_t saved_cursor = scanner->SaveCursor();
 
     // Attempt to parse according to the next grammar.
-    for (; i < arraysize(kPhoneFieldGrammars) &&
-         kPhoneFieldGrammars[i].regex != REGEX_SEPARATOR; ++i) {
-      if (!ParsePhoneField(
-              scanner,
-              GetRegExp(kPhoneFieldGrammars[i].regex),
-              &parsed_fields[kPhoneFieldGrammars[i].phone_part]))
+    for (; i < base::size(kPhoneFieldGrammars) &&
+           kPhoneFieldGrammars[i].regex != REGEX_SEPARATOR;
+         ++i) {
+      if (!ParsePhoneField(scanner, GetRegExp(kPhoneFieldGrammars[i].regex),
+                           &parsed_fields[kPhoneFieldGrammars[i].phone_part]))
         break;
       if (kPhoneFieldGrammars[i].max_size &&
           (!parsed_fields[kPhoneFieldGrammars[i].phone_part]->max_length ||
-            kPhoneFieldGrammars[i].max_size <
-            parsed_fields[kPhoneFieldGrammars[i].phone_part]->max_length)) {
+           kPhoneFieldGrammars[i].max_size <
+               parsed_fields[kPhoneFieldGrammars[i].phone_part]->max_length)) {
         break;
       }
     }
 
-    if (i >= arraysize(kPhoneFieldGrammars)) {
+    if (i >= base::size(kPhoneFieldGrammars)) {
       scanner->RewindTo(saved_cursor);
       return nullptr;  // Parsing failed.
     }
@@ -169,11 +168,11 @@ std::unique_ptr<FormField> PhoneField::Parse(AutofillScanner* scanner) {
     // Proceed to the next grammar.
     do {
       ++i;
-    } while (i < arraysize(kPhoneFieldGrammars) &&
+    } while (i < base::size(kPhoneFieldGrammars) &&
              kPhoneFieldGrammars[i].regex != REGEX_SEPARATOR);
 
     scanner->RewindTo(saved_cursor);
-    if (i + 1 == arraysize(kPhoneFieldGrammars)) {
+    if (i + 1 == base::size(kPhoneFieldGrammars)) {
       return nullptr;  // Tried through all the possibilities - did not match.
     }
   }
@@ -201,8 +200,7 @@ std::unique_ptr<FormField> PhoneField::Parse(AutofillScanner* scanner) {
   // Now look for an extension.
   // The extension is not actually used, so this just eats the field so other
   // parsers do not mistaken it for something else.
-  ParsePhoneField(scanner,
-                  kPhoneExtensionRe,
+  ParsePhoneField(scanner, kPhoneExtensionRe,
                   &phone_field->parsed_phone_fields_[FIELD_EXTENSION]);
 
   return std::move(phone_field);
@@ -290,8 +288,7 @@ std::string PhoneField::GetRegExp(RegexType regex_id) {
 bool PhoneField::ParsePhoneField(AutofillScanner* scanner,
                                  const std::string& regex,
                                  AutofillField** field) {
-  return ParseFieldSpecifics(scanner,
-                             base::UTF8ToUTF16(regex),
+  return ParseFieldSpecifics(scanner, base::UTF8ToUTF16(regex),
                              MATCH_DEFAULT | MATCH_TELEPHONE | MATCH_NUMBER,
                              field);
 }

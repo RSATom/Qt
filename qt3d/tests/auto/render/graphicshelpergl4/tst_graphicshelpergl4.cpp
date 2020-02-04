@@ -185,7 +185,7 @@ const QByteArray computeShader = QByteArrayLiteral(
             "    vec4 direction;\n" \
             "    vec4 color;\n" \
             "};\n" \
-            "layout (std140, binding = 0) coherent buffer Particles\n" \
+            "layout (std140, binding = 6) coherent buffer Particles\n" \
             "{\n" \
             "    ParticleData particles[];\n" \
             "} data;\n" \
@@ -508,11 +508,29 @@ private Q_SLOTS:
         GLint index = m_func->glGetProgramResourceIndex(shaderProgram.programId(),
                                                         GL_SHADER_STORAGE_BLOCK,
                                                         "Particles");
+        // THEN
+        GLint binding = -1;
+        GLenum prop = GL_BUFFER_BINDING;
+        m_func->glGetProgramResourceiv(shaderProgram.programId(),
+                                       GL_SHADER_STORAGE_BLOCK,
+                                       index,
+                                       1, &prop,
+                                       4, NULL, &binding);
+        QCOMPARE(binding, 6);
+
+        // WHEN
         m_glHelper.bindShaderStorageBlock(shaderProgram.programId(), index, 1);
 
         // THEN
         const GLint error = m_func->glGetError();
         QVERIFY(error == 0);
+
+        m_func->glGetProgramResourceiv(shaderProgram.programId(),
+                                       GL_SHADER_STORAGE_BLOCK,
+                                       index,
+                                       1, &prop,
+                                       4, NULL, &binding);
+        QCOMPARE(binding, 1);
     }
 
     void bindUniformBlock()
@@ -1286,6 +1304,7 @@ private Q_SLOTS:
         QCOMPARE(block.m_name, QStringLiteral("Particles"));
         QCOMPARE(block.m_activeVariablesCount, 3);
         QCOMPARE(block.m_index, 0);
+        QCOMPARE(block.m_binding, 6);
         QCOMPARE(block.m_size, (4 + 4 + 4) * 4);
     }
 
@@ -1411,7 +1430,7 @@ private Q_SLOTS:
 
     void supportsFeature()
     {
-        for (int i = 0; i <= GraphicsHelperInterface::BlitFramebuffer; ++i)
+        for (int i = 0; i <= GraphicsHelperInterface::Fences; ++i)
             QVERIFY(m_glHelper.supportsFeature(static_cast<GraphicsHelperInterface::Feature>(i)));
     }
 
@@ -2330,6 +2349,105 @@ private Q_SLOTS:
         QCOMPARE(p, GL_FRONT);
     }
 
+    void fenceSync()
+    {
+        if (!m_initializationSuccessful)
+            QSKIP("Initialization failed, OpenGL 4.3 Core functions not supported");
+
+        m_func->glGetError();
+
+        // WHEN
+        GLsync sync = reinterpret_cast<GLsync>(m_glHelper.fenceSync());
+
+        // THEN
+        QVERIFY(sync != nullptr);
+        QCOMPARE(m_func->glIsSync(sync), GL_TRUE);
+        const GLint error = m_func->glGetError();
+        QVERIFY(error == 0);
+    }
+
+    void clientWaitSync()
+    {
+        if (!m_initializationSuccessful)
+            QSKIP("Initialization failed, OpenGL 4.3 Core functions not supported");
+
+        m_func->glGetError();
+
+        // WHEN
+        QElapsedTimer t;
+        t.start();
+
+        GLsync sync = reinterpret_cast<GLsync>(m_glHelper.fenceSync());
+
+        m_glHelper.clientWaitSync(sync, 1000000);
+
+        // THEN
+        const GLint error = m_func->glGetError();
+        QVERIFY(error == 0);
+        qDebug() << t.nsecsElapsed();
+    }
+
+    void waitSync()
+    {
+        if (!m_initializationSuccessful)
+            QSKIP("Initialization failed, OpenGL 4.3 Core functions not supported");
+
+        m_func->glGetError();
+
+        // WHEN
+        GLsync sync = reinterpret_cast<GLsync>(m_glHelper.fenceSync());
+        m_func->glFlush();
+        m_glHelper.waitSync(sync);
+
+        // THEN
+        const GLint error = m_func->glGetError();
+        QVERIFY(error == 0);
+    }
+
+    void wasSyncSignaled()
+    {
+        if (!m_initializationSuccessful)
+            QSKIP("Initialization failed, OpenGL 4.3 Core functions not supported");
+
+        m_func->glGetError();
+
+        // WHEN
+        GLsync sync = reinterpret_cast<GLsync>(m_glHelper.fenceSync());
+        m_func->glFlush();
+        m_glHelper.waitSync(sync);
+
+        // THEN
+        const GLint error = m_func->glGetError();
+        QVERIFY(error == 0);
+
+        // Shouldn't loop forever
+        while (!m_glHelper.wasSyncSignaled(sync))
+            ;
+    }
+
+    void deleteSync()
+    {
+        if (!m_initializationSuccessful)
+            QSKIP("Initialization failed, OpenGL 4.3 Core functions not supported");
+
+        m_func->glGetError();
+
+        // WHEN
+        GLsync sync = reinterpret_cast<GLsync>(m_glHelper.fenceSync());
+        m_glHelper.clientWaitSync(sync, GLuint64(-1));
+
+        // THEN
+        const GLint error = m_func->glGetError();
+        QVERIFY(error == 0);
+        QVERIFY(m_glHelper.wasSyncSignaled(sync) == true);
+
+        // WHEN
+        m_glHelper.deleteSync(sync);
+
+        // THEN
+        QCOMPARE(m_func->glIsSync(sync), GL_FALSE);
+    }
+
 private:
     QScopedPointer<QWindow> m_window;
     QOpenGLContext m_glContext;
@@ -2340,16 +2458,11 @@ private:
 
 #endif
 
-QT_BEGIN_NAMESPACE
-QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS
-QT_END_NAMESPACE
-
 int main(int argc, char *argv[])
 {
 #ifdef TEST_SHOULD_BE_PERFORMED
     QGuiApplication app(argc, argv);
     app.setAttribute(Qt::AA_Use96Dpi, true);
-    QTEST_ADD_GPU_BLACKLIST_SUPPORT
     tst_GraphicsHelperGL4 tc;
     QTEST_SET_MAIN_SOURCE_PATH
     return QTest::qExec(&tc, argc, argv);

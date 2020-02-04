@@ -4,8 +4,9 @@
 
 #include "ui/views/widget/widget_delegate.h"
 
+#include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/view.h"
 #include "ui/views/views_delegate.h"
@@ -17,9 +18,9 @@ namespace views {
 ////////////////////////////////////////////////////////////////////////////////
 // WidgetDelegate:
 
-WidgetDelegate::WidgetDelegate()
-    : default_contents_view_(NULL),
-      can_activate_(true) {
+WidgetDelegate::WidgetDelegate() = default;
+WidgetDelegate::~WidgetDelegate() {
+  CHECK(can_delete_this_) << "A WidgetDelegate must outlive its Widget";
 }
 
 void WidgetDelegate::OnWidgetMove() {
@@ -29,6 +30,10 @@ void WidgetDelegate::OnDisplayChanged() {
 }
 
 void WidgetDelegate::OnWorkAreaChanged() {
+}
+
+bool WidgetDelegate::OnCloseRequested(Widget::ClosedReason close_reason) {
+  return true;
 }
 
 View* WidgetDelegate::GetInitiallyFocusedView() {
@@ -56,13 +61,13 @@ bool WidgetDelegate::CanMinimize() const {
 }
 
 int32_t WidgetDelegate::GetResizeBehavior() const {
-  int32_t behavior = ui::mojom::kResizeBehaviorNone;
+  int32_t behavior = ws::mojom::kResizeBehaviorNone;
   if (CanResize())
-    behavior |= ui::mojom::kResizeBehaviorCanResize;
+    behavior |= ws::mojom::kResizeBehaviorCanResize;
   if (CanMaximize())
-    behavior |= ui::mojom::kResizeBehaviorCanMaximize;
+    behavior |= ws::mojom::kResizeBehaviorCanMaximize;
   if (CanMinimize())
-    behavior |= ui::mojom::kResizeBehaviorCanMinimize;
+    behavior |= ws::mojom::kResizeBehaviorCanMinimize;
   return behavior;
 }
 
@@ -74,8 +79,8 @@ ui::ModalType WidgetDelegate::GetModalType() const {
   return ui::MODAL_TYPE_NONE;
 }
 
-ui::AXRole WidgetDelegate::GetAccessibleWindowRole() const {
-  return ui::AX_ROLE_WINDOW;
+ax::mojom::Role WidgetDelegate::GetAccessibleWindowRole() const {
+  return ax::mojom::Role::kWindow;
 }
 
 base::string16 WidgetDelegate::GetAccessibleWindowTitle() const {
@@ -92,14 +97,6 @@ bool WidgetDelegate::ShouldShowWindowTitle() const {
 
 bool WidgetDelegate::ShouldShowCloseButton() const {
   return true;
-}
-
-bool WidgetDelegate::ShouldHandleSystemCommands() const {
-  const Widget* widget = GetWidget();
-  if (!widget)
-    return false;
-
-  return widget->non_client_view() != NULL;
 }
 
 gfx::ImageSkia WidgetDelegate::GetWindowAppIcon() {
@@ -176,7 +173,7 @@ bool WidgetDelegate::WidgetHasHitTestMask() const {
   return false;
 }
 
-void WidgetDelegate::GetWidgetHitTestMask(gfx::Path* mask) const {
+void WidgetDelegate::GetWidgetHitTestMask(SkPath* mask) const {
   DCHECK(mask);
 }
 

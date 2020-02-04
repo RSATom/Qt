@@ -12,17 +12,20 @@
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/fx_system.h"
 
-class CPSOutput : public IFX_WriteStream {
+class CPSOutput final : public IFX_RetainableWriteStream {
  public:
-  explicit CPSOutput(HDC hDC);
+  enum class OutputMode { kExtEscape, kGdiComment };
+
+  CPSOutput(HDC hDC, OutputMode mode);
   ~CPSOutput() override;
 
   // IFX_Writestream
   bool WriteBlock(const void* str, size_t len) override;
-  bool WriteString(const CFX_ByteStringC& str) override;
+  bool WriteString(ByteStringView str) override;
 
  private:
   HDC m_hDC;
+  const OutputMode m_mode;
 };
 
 #endif  // CORE_FXGE_WIN32_CPSOUTPUT_H_

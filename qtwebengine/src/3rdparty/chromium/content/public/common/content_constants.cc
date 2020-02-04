@@ -21,9 +21,6 @@ const char kFlashPluginSplMimeType[] = "application/futuresplash";
 const char kFlashPluginSplExtension[] = "spl";
 const char kFlashPluginSplDescription[] = "FutureSplash Player";
 
-// This number used to be limited to 32 in the past (see b/535234).
-const size_t kMaxRendererProcessCount = 82;
-const int kMaxSessionHistoryEntries = 50;
 const size_t kMaxTitleChars = 4 * 1024;
 const size_t kMaxURLDisplayChars = 32 * 1024;
 
@@ -37,5 +34,12 @@ const int kStatsMaxThreads = 32;
 const int kStatsMaxCounters = 3000;
 
 const int kHistogramSynchronizerReservedSequenceNumber = 0;
+
+// TODO(jkarlin): The value is high to reduce the chance of the detachable
+// request timing out, forcing a blocked second request to open a new connection
+// and start over. Reduce this value once we have a better idea of what it
+// should be and once we stop blocking multiple simultaneous requests for the
+// same resource (see bugs 46104 and 31014).
+const int kDefaultDetachableCancelDelayMs = 30000;
 
 }  // namespace content

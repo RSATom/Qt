@@ -17,9 +17,12 @@
 #include <stddef.h>
 #include <string.h>
 
+#include <algorithm>
 #include <memory>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
+#include "base/strings/stringprintf.h"
 #include "client/crashpad_info.h"
 #include "snapshot/win/pe_image_resource_reader.h"
 #include "util/misc/from_pointer_cast.h"
@@ -69,6 +72,18 @@ bool PEImageReader::Initialize(ProcessReaderWin* process_reader,
   return true;
 }
 
+bool PEImageReader::GetCrashpadInfoSection(WinVMAddress* address,
+                                           WinVMSize* size) const {
+  INITIALIZATION_STATE_DCHECK_VALID(initialized_);
+  if (module_subrange_reader_.Is64Bit()) {
+    return GetCrashpadInfoSectionInternal<process_types::internal::Traits64>(
+        address, size);
+  } else {
+    return GetCrashpadInfoSectionInternal<process_types::internal::Traits32>(
+        address, size);
+  }
+}
+
 template <class Traits>
 bool PEImageReader::GetCrashpadInfo(
     process_types::CrashpadInfo<Traits>* crashpad_info) const {
@@ -80,37 +95,56 @@ bool PEImageReader::GetCrashpadInfo(
     return false;
   }
 
-  if (section.Misc.VirtualSize < sizeof(process_types::CrashpadInfo<Traits>)) {
+  if (section.Misc.VirtualSize <
+      offsetof(process_types::CrashpadInfo<Traits>, size) +
+          sizeof(crashpad_info->size)) {
     LOG(WARNING) << "small crashpad info section size "
                  << section.Misc.VirtualSize << ", "
                  << module_subrange_reader_.name();
     return false;
   }
 
-  ProcessSubrangeReader crashpad_info_subrange_reader;
   const WinVMAddress crashpad_info_address = Address() + section.VirtualAddress;
-  if (!crashpad_info_subrange_reader.InitializeSubrange(
-          module_subrange_reader_,
-          crashpad_info_address,
-          section.Misc.VirtualSize,
-          "crashpad_info")) {
-    return false;
-  }
-
-  if (!crashpad_info_subrange_reader.ReadMemory(
-          crashpad_info_address,
-          sizeof(process_types::CrashpadInfo<Traits>),
-          crashpad_info)) {
+  const WinVMSize crashpad_info_size =
+      std::min(static_cast<WinVMSize>(sizeof(*crashpad_info)),
+               static_cast<WinVMSize>(section.Misc.VirtualSize));
+  if (!module_subrange_reader_.ReadMemory(
+          crashpad_info_address, crashpad_info_size, crashpad_info)) {
     LOG(WARNING) << "could not read crashpad info from "
                  << module_subrange_reader_.name();
     return false;
   }
 
+  if (crashpad_info->size < sizeof(*crashpad_info)) {
+    // Zero out anything beyond the structure’s declared size.
+    memset(reinterpret_cast<char*>(crashpad_info) + crashpad_info->size,
+           0,
+           sizeof(*crashpad_info) - crashpad_info->size);
+  }
+
   if (crashpad_info->signature != CrashpadInfo::kSignature ||
-      crashpad_info->version < 1) {
-    LOG(WARNING) << "unexpected crashpad info data in "
-                 << module_subrange_reader_.name();
+      crashpad_info->version != 1) {
+    LOG(WARNING) << base::StringPrintf(
+        "unexpected crashpad info signature 0x%x, version %u in %s",
+        crashpad_info->signature,
+        crashpad_info->version,
+        module_subrange_reader_.name().c_str());
     return false;
+  }
+
+  // Don’t require strict equality, to leave wiggle room for sloppy linkers.
+  if (crashpad_info->size > section.Misc.VirtualSize) {
+    LOG(WARNING) << "crashpad info struct size " << crashpad_info->size
+                 << " large for section size " << section.Misc.VirtualSize
+                 << " in " << module_subrange_reader_.name();
+    return false;
+  }
+
+  if (crashpad_info->size > sizeof(*crashpad_info)) {
+    // This isn’t strictly a problem, because unknown fields will simply be
+    // ignored, but it may be of diagnostic interest.
+    LOG(INFO) << "large crashpad info size " << crashpad_info->size << ", "
+              << module_subrange_reader_.name();
   }
 
   return true;
@@ -214,7 +248,7 @@ bool PEImageReader::VSFixedFileInfo(
   }
 
   // This structure is not declared anywhere in the SDK, but is documented at
-  // https://msdn.microsoft.com/en-us/library/windows/desktop/ms647001.aspx.
+  // https://msdn.microsoft.com/library/ms647001.aspx.
   struct VS_VERSIONINFO {
     WORD wLength;
     WORD wValueLength;
@@ -254,7 +288,7 @@ bool PEImageReader::VSFixedFileInfo(
       version_info.wType != 0 ||
       wcsncmp(version_info.szKey,
               L"VS_VERSION_INFO",
-              arraysize(version_info.szKey)) != 0) {
+              base::size(version_info.szKey)) != 0) {
     LOG(WARNING) << "unexpected VS_VERSIONINFO in "
                  << module_subrange_reader_.name();
     return false;
@@ -269,6 +303,31 @@ bool PEImageReader::VSFixedFileInfo(
 
   *vs_fixed_file_info = version_info.Value;
   vs_fixed_file_info->dwFileFlags &= vs_fixed_file_info->dwFileFlagsMask;
+  return true;
+}
+
+template <class Traits>
+bool PEImageReader::GetCrashpadInfoSectionInternal(WinVMAddress* address,
+                                                   WinVMSize* size) const {
+  IMAGE_SECTION_HEADER section;
+  if (!GetSectionByName<typename NtHeadersForTraits<Traits>::type>("CPADinfo",
+                                                                   &section)) {
+    return false;
+  }
+
+  process_types::CrashpadInfo<Traits> crashpad_info;
+  if (section.Misc.VirtualSize <
+      offsetof(process_types::CrashpadInfo<Traits>, size) +
+          sizeof(crashpad_info.size)) {
+    LOG(WARNING) << "small crashpad info section size "
+                 << section.Misc.VirtualSize << ", "
+                 << module_subrange_reader_.name();
+    return false;
+  }
+
+  *address = Address() + section.VirtualAddress;
+  *size = std::min<WinVMSize>(sizeof(crashpad_info), section.Misc.VirtualSize);
+
   return true;
 }
 

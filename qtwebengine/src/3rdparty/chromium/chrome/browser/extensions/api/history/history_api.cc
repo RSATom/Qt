@@ -5,6 +5,7 @@
 #include "chrome/browser/extensions/api/history/history_api.h"
 
 #include <memory>
+#include <set>
 #include <utility>
 
 #include "base/bind.h"
@@ -149,16 +150,14 @@ void HistoryEventRouter::OnURLVisited(history::HistoryService* history_service,
                 api::history::OnVisited::kEventName, std::move(args));
 }
 
-void HistoryEventRouter::OnURLsDeleted(history::HistoryService* history_service,
-                                       bool all_history,
-                                       bool expired,
-                                       const history::URLRows& deleted_rows,
-                                       const std::set<GURL>& favicon_urls) {
+void HistoryEventRouter::OnURLsDeleted(
+    history::HistoryService* history_service,
+    const history::DeletionInfo& deletion_info) {
   OnVisitRemoved::Removed removed;
-  removed.all_history = all_history;
+  removed.all_history = deletion_info.IsAllHistory();
 
   std::vector<std::string>* urls = new std::vector<std::string>();
-  for (const auto& row : deleted_rows)
+  for (const auto& row : deletion_info.deleted_rows())
     urls->push_back(row.url().spec());
   removed.urls.reset(urls);
 
@@ -173,7 +172,7 @@ void HistoryEventRouter::DispatchEvent(
     const std::string& event_name,
     std::unique_ptr<base::ListValue> event_args) {
   if (profile && EventRouter::Get(profile)) {
-    auto event = base::MakeUnique<Event>(histogram_value, event_name,
+    auto event = std::make_unique<Event>(histogram_value, event_name,
                                          std::move(event_args), profile);
     EventRouter::Get(profile)->BroadcastEvent(std::move(event));
   }
@@ -195,13 +194,12 @@ void HistoryAPI::Shutdown() {
   EventRouter::Get(browser_context_)->UnregisterObserver(this);
 }
 
-static base::LazyInstance<
-    BrowserContextKeyedAPIFactory<HistoryAPI>>::DestructorAtExit g_factory =
-    LAZY_INSTANCE_INITIALIZER;
+static base::LazyInstance<BrowserContextKeyedAPIFactory<HistoryAPI>>::
+    DestructorAtExit g_history_api_factory = LAZY_INSTANCE_INITIALIZER;
 
 // static
 BrowserContextKeyedAPIFactory<HistoryAPI>* HistoryAPI::GetFactoryInstance() {
-  return g_factory.Pointer();
+  return g_history_api_factory.Pointer();
 }
 
 template <>
@@ -271,8 +269,8 @@ ExtensionFunction::ResponseAction HistoryGetVisitsFunction::Run() {
       GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
   hs->QueryURL(url,
                true,  // Retrieve full history of a URL.
-               base::Bind(&HistoryGetVisitsFunction::QueryComplete,
-                          base::Unretained(this)),
+               base::BindOnce(&HistoryGetVisitsFunction::QueryComplete,
+                              base::Unretained(this)),
                &task_tracker_);
   AddRef();               // Balanced in QueryComplete().
   return RespondLater();  // QueryComplete() will be called asynchronously.
@@ -367,7 +365,7 @@ ExtensionFunction::ResponseAction HistoryDeleteUrlFunction::Run() {
   // set then don't clean so testers can see what potentially malicious
   // extensions have been trying to clean from their logs.
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableExtensionActivityLogTesting)) {
+          ::switches::kEnableExtensionActivityLogTesting)) {
     ActivityLog* activity_log = ActivityLog::GetInstance(GetProfile());
     DCHECK(activity_log);
     activity_log->RemoveURL(url);
@@ -392,16 +390,15 @@ ExtensionFunction::ResponseAction HistoryDeleteRangeFunction::Run() {
   history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
       GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
   hs->ExpireHistoryBetween(
-      restrict_urls,
-      start_time,
-      end_time,
-      base::Bind(&HistoryDeleteRangeFunction::DeleteComplete,
-                 base::Unretained(this)),
+      restrict_urls, start_time, end_time,
+      /*user_initiated*/ true,
+      base::BindOnce(&HistoryDeleteRangeFunction::DeleteComplete,
+                     base::Unretained(this)),
       &task_tracker_);
 
   // Also clean from the activity log unless in testing mode.
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableExtensionActivityLogTesting)) {
+          ::switches::kEnableExtensionActivityLogTesting)) {
     ActivityLog* activity_log = ActivityLog::GetInstance(GetProfile());
     DCHECK(activity_log);
     activity_log->RemoveURLs(restrict_urls);
@@ -424,17 +421,19 @@ ExtensionFunction::ResponseAction HistoryDeleteAllFunction::Run() {
   std::set<GURL> restrict_urls;
   history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
       GetProfile(), ServiceAccessType::EXPLICIT_ACCESS);
+  // Uninitialized base::Time() means unbounded.
   hs->ExpireHistoryBetween(
       restrict_urls,
-      base::Time(),      // Unbounded beginning...
-      base::Time(),      // ...and the end.
-      base::Bind(&HistoryDeleteAllFunction::DeleteComplete,
-                 base::Unretained(this)),
+      /*begin_time*/ base::Time(),
+      /*end_time*/ base::Time(),
+      /*user_initiated*/ true,
+      base::BindOnce(&HistoryDeleteAllFunction::DeleteComplete,
+                     base::Unretained(this)),
       &task_tracker_);
 
   // Also clean from the activity log unless in testing mode.
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableExtensionActivityLogTesting)) {
+          ::switches::kEnableExtensionActivityLogTesting)) {
     ActivityLog* activity_log = ActivityLog::GetInstance(GetProfile());
     DCHECK(activity_log);
     activity_log->RemoveURLs(restrict_urls);

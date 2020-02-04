@@ -15,6 +15,7 @@
 #include <string>
 
 #include "base/macros.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/http/http_basic_state.h"
 #include "net/http/http_stream.h"
@@ -40,19 +41,20 @@ class NET_EXPORT_PRIVATE HttpBasicStream : public HttpStream {
 
   // HttpStream methods:
   int InitializeStream(const HttpRequestInfo* request_info,
+                       bool can_send_early,
                        RequestPriority priority,
                        const NetLogWithSource& net_log,
-                       const CompletionCallback& callback) override;
+                       CompletionOnceCallback callback) override;
 
   int SendRequest(const HttpRequestHeaders& headers,
                   HttpResponseInfo* response,
-                  const CompletionCallback& callback) override;
+                  CompletionOnceCallback callback) override;
 
-  int ReadResponseHeaders(const CompletionCallback& callback) override;
+  int ReadResponseHeaders(CompletionOnceCallback callback) override;
 
   int ReadResponseBody(IOBuffer* buf,
                        int buf_len,
-                       const CompletionCallback& callback) override;
+                       CompletionOnceCallback callback) override;
 
   void Close(bool not_reusable) override;
 
@@ -81,20 +83,19 @@ class NET_EXPORT_PRIVATE HttpBasicStream : public HttpStream {
 
   bool GetRemoteEndpoint(IPEndPoint* endpoint) override;
 
-  Error GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                 TokenBindingType tb_type,
-                                 std::vector<uint8_t>* out) override;
-
   void Drain(HttpNetworkSession* session) override;
 
   void PopulateNetErrorDetails(NetErrorDetails* details) override;
 
   void SetPriority(RequestPriority priority) override;
 
+  void SetRequestHeadersCallback(RequestHeadersCallback callback) override;
+
  private:
   HttpStreamParser* parser() const { return state_.parser(); }
 
   HttpBasicState state_;
+  RequestHeadersCallback request_headers_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpBasicStream);
 };

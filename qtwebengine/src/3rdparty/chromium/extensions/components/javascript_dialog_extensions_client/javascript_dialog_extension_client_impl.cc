@@ -48,7 +48,9 @@ class JavaScriptDialogExtensionsClientImpl
     DCHECK(web_contents);
     extensions::ProcessManager* pm = GetProcessManager(web_contents);
     if (pm)
-      pm->IncrementLazyKeepaliveCount(extension);
+      pm->IncrementLazyKeepaliveCount(
+          extension, extensions::Activity::MODAL_DIALOG,
+          web_contents->GetLastCommittedURL().spec());
   }
   void OnDialogClosed(content::WebContents* web_contents) override {
     const Extension* extension = GetExtensionForWebContents(web_contents);
@@ -58,14 +60,17 @@ class JavaScriptDialogExtensionsClientImpl
     DCHECK(web_contents);
     extensions::ProcessManager* pm = GetProcessManager(web_contents);
     if (pm)
-      pm->DecrementLazyKeepaliveCount(extension);
+      pm->DecrementLazyKeepaliveCount(
+          extension, extensions::Activity::MODAL_DIALOG,
+          web_contents->GetLastCommittedURL().spec());
   }
   bool GetExtensionName(content::WebContents* web_contents,
-                        const GURL& origin_url,
+                        const GURL& alerting_frame_url,
                         std::string* name_out) override {
     const Extension* extension = GetExtensionForWebContents(web_contents);
-    if (extension && url::IsSameOriginWith(
-                         origin_url, web_contents->GetLastCommittedURL())) {
+    if (extension &&
+        url::IsSameOriginWith(alerting_frame_url,
+                              web_contents->GetLastCommittedURL())) {
       *name_out = extension->name();
       return true;
     }

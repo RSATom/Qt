@@ -5,7 +5,7 @@
 #ifndef MEDIA_BASE_AUDIO_LATENCY_H_
 #define MEDIA_BASE_AUDIO_LATENCY_H_
 
-#include "media/base/media_export.h"
+#include "media/base/media_shmem_export.h"
 
 namespace base {
 class TimeDelta;
@@ -13,7 +13,7 @@ class TimeDelta;
 
 namespace media {
 
-class MEDIA_EXPORT AudioLatency {
+class MEDIA_SHMEM_EXPORT AudioLatency {
  public:
   // Categories of expected latencies for input/output audio. Do not change
   // existing values, they are used for UMA histogram reporting.
@@ -31,6 +31,9 @@ class MEDIA_EXPORT AudioLatency {
     LATENCY_COUNT = LATENCY_LAST + 1
   };
 
+  // Indicates if the OS does not require resampling for playback.
+  static bool IsResamplingPassthroughSupported(LatencyType type);
+
   // |preferred_buffer_size| should be set to 0 if a client has no preference.
   static int GetHighLatencyBufferSize(int sample_rate,
                                       int preferred_buffer_size);
@@ -40,9 +43,20 @@ class MEDIA_EXPORT AudioLatency {
 
   static int GetInteractiveBufferSize(int hardware_buffer_size);
 
+  // Return the closest buffer size for this platform that will result in a
+  // latency not less than |duration| for the given |sample_rate|. The returned
+  // buffer size must be >= |min_hardware_buffer_size| and must be <=
+  // |kMaxWebAudioBufferSize|. |max_hardware_buffer_size| is used to help
+  // determine a buffer size that won't cause web audio and the hardware to run
+  // at unsynchronized buffer sizes (e.g. hardware running at 4096 and web audio
+  // running at 4224). |hardware_buffer_size| is the platform's preferred buffer
+  // size. It is valid for both the min and max to be zero in which case only
+  // |hardware_buffer_size| and multiples of it will be used.
   static int GetExactBufferSize(base::TimeDelta duration,
                                 int sample_rate,
-                                int hardware_buffer_size);
+                                int hardware_buffer_size,
+                                int min_hardware_buffer_size,
+                                int max_hardware_buffer_size);
 };
 
 }  // namespace media

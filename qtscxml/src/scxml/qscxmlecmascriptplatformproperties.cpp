@@ -47,7 +47,7 @@ class QScxmlPlatformProperties::Data
 {
 public:
     Data()
-        : m_stateMachine(Q_NULLPTR)
+        : m_stateMachine(nullptr)
     {}
 
     QScxmlStateMachine *m_stateMachine;

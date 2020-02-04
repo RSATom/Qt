@@ -4,7 +4,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtWidgets module of the Qt Toolkit.
+** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -65,7 +65,7 @@ public:
     QOpenGLFunctions_4_5_Compatibility();
     ~QOpenGLFunctions_4_5_Compatibility();
 
-    bool initializeOpenGLFunctions() Q_DECL_OVERRIDE;
+    bool initializeOpenGLFunctions() override;
 
     // OpenGL 1.0 core functions
     void glViewport(GLint x, GLint y, GLsizei width, GLsizei height);

@@ -23,6 +23,7 @@ class ListValue;
 struct TemplateURLData {
   TemplateURLData();
   TemplateURLData(const TemplateURLData& other);
+
   // Creates a TemplateURLData suitable for prepopulated engines.
   // Note that unlike in the default constructor, |safe_for_autoreplace| will
   // be set to true. date_created and last_modified will be set to null time
@@ -33,19 +34,17 @@ struct TemplateURLData {
                   const base::string16& keyword,
                   base::StringPiece search_url,
                   base::StringPiece suggest_url,
-                  base::StringPiece instant_url,
                   base::StringPiece image_url,
                   base::StringPiece new_tab_url,
                   base::StringPiece contextual_search_url,
                   base::StringPiece logo_url,
+                  base::StringPiece doodle_url,
                   base::StringPiece search_url_post_params,
                   base::StringPiece suggest_url_post_params,
-                  base::StringPiece instant_url_post_params,
                   base::StringPiece image_url_post_params,
                   base::StringPiece favicon_url,
                   base::StringPiece encoding,
                   const base::ListValue& alternate_urls_list,
-                  base::StringPiece search_terms_replacement_key,
                   int prepopulate_id);
 
   ~TemplateURLData();
@@ -65,9 +64,12 @@ struct TemplateURLData {
   void SetURL(const std::string& url);
   const std::string& url() const { return url_; }
 
+  // Estimates dynamic memory usage.
+  // See base/trace_event/memory_usage_estimator.h for more info.
+  size_t EstimateMemoryUsage() const;
+
   // Optional additional raw URLs.
   std::string suggestions_url;
-  std::string instant_url;
   std::string image_url;
   std::string new_tab_url;
   std::string contextual_search_url;
@@ -75,11 +77,13 @@ struct TemplateURLData {
   // Optional URL for the logo.
   GURL logo_url;
 
+  // Optional URL for the Doodle.
+  GURL doodle_url;
+
   // The following post_params are comma-separated lists used to specify the
   // post parameters for the corresponding URL.
   std::string search_url_post_params;
   std::string suggestions_url_post_params;
-  std::string instant_url_post_params;
   std::string image_url_post_params;
 
   // Favicon for the TemplateURL.
@@ -140,10 +144,6 @@ struct TemplateURLData {
   // A list of URL patterns that can be used, in addition to |url_|, to extract
   // search terms from a URL.
   std::vector<std::string> alternate_urls;
-
-  // A parameter that, if present in the query or ref parameters of a search_url
-  // or instant_url, causes Chrome to replace the URL with the search term.
-  std::string search_terms_replacement_key;
 
  private:
   // Private so we can enforce using the setters and thus enforce that these

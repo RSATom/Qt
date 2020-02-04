@@ -15,7 +15,7 @@
 #include "net/base/address_list.h"
 #include "net/base/load_states.h"
 #include "net/socket/websocket_endpoint_lock_manager.h"
-#include "net/socket/websocket_transport_client_socket_pool.h"
+#include "net/socket/websocket_transport_connect_job.h"
 
 namespace net {
 
@@ -23,6 +23,7 @@ class ClientSocketFactory;
 class IPEndPoint;
 class NetLogWithSource;
 class StreamSocket;
+class WebSocketEndpointLockManager;
 
 // Attempts to connect to a subset of the addresses required by a
 // WebSocketTransportConnectJob, specifically either the IPv4 or IPv6
@@ -33,9 +34,11 @@ class WebSocketTransportConnectSubJob
  public:
   typedef WebSocketTransportConnectJob::SubJobType SubJobType;
 
-  WebSocketTransportConnectSubJob(const AddressList& addresses,
-                                  WebSocketTransportConnectJob* parent_job,
-                                  SubJobType type);
+  WebSocketTransportConnectSubJob(
+      const AddressList& addresses,
+      WebSocketTransportConnectJob* parent_job,
+      SubJobType type,
+      WebSocketEndpointLockManager* websocket_endpoint_lock_manager);
 
   ~WebSocketTransportConnectSubJob() override;
 
@@ -85,6 +88,7 @@ class WebSocketTransportConnectSubJob
 
   State next_state_;
   const SubJobType type_;
+  WebSocketEndpointLockManager* const websocket_endpoint_lock_manager_;
 
   std::unique_ptr<StreamSocket> transport_socket_;
 

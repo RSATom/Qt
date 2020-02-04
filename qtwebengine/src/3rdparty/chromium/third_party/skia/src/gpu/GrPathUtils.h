@@ -59,34 +59,29 @@ namespace GrPathUtils {
         void set(const SkPoint controlPts[3]);
 
         /**
-         * Applies the matrix to vertex positions to compute UV coords. This
-         * has been templated so that the compiler can easliy unroll the loop
-         * and reorder to avoid stalling for loads. The assumption is that a
-         * path renderer will have a small fixed number of vertices that it
-         * uploads for each quad.
+         * Applies the matrix to vertex positions to compute UV coords.
          *
-         * N is the number of vertices.
-         * STRIDE is the size of each vertex.
-         * UV_OFFSET is the offset of the UV values within each vertex.
          * vertices is a pointer to the first vertex.
+         * vertexCount is the number of vertices.
+         * stride is the size of each vertex.
+         * uvOffset is the offset of the UV values within each vertex.
          */
-        template <int N, size_t STRIDE, size_t UV_OFFSET>
-        void apply(const void* vertices) const {
+        void apply(void* vertices, int vertexCount, size_t stride, size_t uvOffset) const {
             intptr_t xyPtr = reinterpret_cast<intptr_t>(vertices);
-            intptr_t uvPtr = reinterpret_cast<intptr_t>(vertices) + UV_OFFSET;
+            intptr_t uvPtr = reinterpret_cast<intptr_t>(vertices) + uvOffset;
             float sx = fM[0];
             float kx = fM[1];
             float tx = fM[2];
             float ky = fM[3];
             float sy = fM[4];
             float ty = fM[5];
-            for (int i = 0; i < N; ++i) {
+            for (int i = 0; i < vertexCount; ++i) {
                 const SkPoint* xy = reinterpret_cast<const SkPoint*>(xyPtr);
                 SkPoint* uv = reinterpret_cast<SkPoint*>(uvPtr);
                 uv->fX = sx * xy->fX + kx * xy->fY + tx;
                 uv->fY = ky * xy->fX + sy * xy->fY + ty;
-                xyPtr += STRIDE;
-                uvPtr += STRIDE;
+                xyPtr += stride;
+                uvPtr += stride;
             }
         }
     private:
@@ -107,7 +102,8 @@ namespace GrPathUtils {
 
     // Converts a cubic into a sequence of quads. If working in device space
     // use tolScale = 1, otherwise set based on stretchiness of the matrix. The
-    // result is sets of 3 points in quads.
+    // result is sets of 3 points in quads. This will preserve the starting and
+    // ending tangent vectors (modulo FP precision).
     void convertCubicToQuads(const SkPoint p[4],
                              SkScalar tolScale,
                              SkTArray<SkPoint, true>* quads);
@@ -123,6 +119,42 @@ namespace GrPathUtils {
                                                 SkScalar tolScale,
                                                 SkPathPriv::FirstDirection dir,
                                                 SkTArray<SkPoint, true>* quads);
+
+    enum class ExcludedTerm {
+        kNonInvertible,
+        kQuadraticTerm,
+        kLinearTerm
+    };
+
+    // Computes the inverse-transpose of the cubic's power basis matrix, after removing a specific
+    // row of coefficients.
+    //
+    // E.g. if the cubic is defined in power basis form as follows:
+    //
+    //                                         | x3   y3   0 |
+    //     C(t,s) = [t^3  t^2*s  t*s^2  s^3] * | x2   y2   0 |
+    //                                         | x1   y1   0 |
+    //                                         | x0   y0   1 |
+    //
+    // And the excluded term is "kQuadraticTerm", then the resulting inverse-transpose will be:
+    //
+    //     | x3   y3   0 | -1 T
+    //     | x1   y1   0 |
+    //     | x0   y0   1 |
+    //
+    // (The term to exclude is chosen based on maximizing the resulting matrix determinant.)
+    //
+    // This can be used to find the KLM linear functionals:
+    //
+    //     | ..K.. |   | ..kcoeffs.. |
+    //     | ..L.. | = | ..lcoeffs.. | * inverse_transpose_power_basis_matrix
+    //     | ..M.. |   | ..mcoeffs.. |
+    //
+    // NOTE: the same term that was excluded here must also be removed from the corresponding column
+    // of the klmcoeffs matrix.
+    //
+    // Returns which row of coefficients was removed, or kNonInvertible if the cubic was degenerate.
+    ExcludedTerm calcCubicInverseTransposePowerBasisMatrix(const SkPoint p[4], SkMatrix* out);
 
     // Computes the KLM linear functionals for the cubic implicit form. The "right" side of the
     // curve (when facing in the direction of increasing parameter values) will be the area that

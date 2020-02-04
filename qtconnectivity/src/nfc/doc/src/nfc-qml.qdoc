@@ -28,7 +28,7 @@
 
 /*!
 
-\qmlmodule QtNfc 5.2
+\qmlmodule QtNfc \QtVer
 \title Qt NFC QML Types
 \ingroup qmlmodules
 \brief Provides QML types for accessing NFC Forum Tags.
@@ -36,7 +36,8 @@
 To use the classes of the module in your application, you need the following
 import statement in your \c .qml file:
 
-\snippet doc_src_qtnfc.qml import
-
+\qml \QtVer
+import QtNfc \1
+\endqml
 */
 

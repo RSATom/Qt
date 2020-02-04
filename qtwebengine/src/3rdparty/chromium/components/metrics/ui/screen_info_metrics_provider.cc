@@ -5,15 +5,17 @@
 #include "components/metrics/ui/screen_info_metrics_provider.h"
 
 #include "build/build_config.h"
-#include "components/metrics/proto/system_profile.pb.h"
+#include "third_party/metrics_proto/system_profile.pb.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
+
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
 
 namespace metrics {
 
 #if defined(OS_WIN)
-
-#include <windows.h>
 
 namespace {
 
@@ -40,11 +42,11 @@ BOOL CALLBACK GetMonitorDPICallback(HMONITOR, HDC hdc, LPRECT, LPARAM dwData) {
 }
 
 void WriteScreenDPIInformationProto(SystemProfileProto::Hardware* hardware) {
-  HDC desktop_dc = GetDC(NULL);
+  HDC desktop_dc = GetDC(nullptr);
   if (desktop_dc) {
     ScreenDPIInformation si = {0, 0};
-    if (EnumDisplayMonitors(desktop_dc, NULL, GetMonitorDPICallback,
-            reinterpret_cast<LPARAM>(&si))) {
+    if (EnumDisplayMonitors(desktop_dc, nullptr, GetMonitorDPICallback,
+                            reinterpret_cast<LPARAM>(&si))) {
       hardware->set_max_dpi_x(si.max_dpi_x);
       hardware->set_max_dpi_y(si.max_dpi_y);
     }

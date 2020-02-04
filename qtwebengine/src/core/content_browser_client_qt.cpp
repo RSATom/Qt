@@ -40,84 +40,113 @@
 #include "content_browser_client_qt.h"
 
 #include "base/memory/ptr_util.h"
+#include "base/optional.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/message_loop/message_loop.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
-#include "components/spellcheck/spellcheck_build_features.h"
-#if BUILDFLAG(ENABLE_SPELLCHECK)
-#include "chrome/browser/spellchecker/spell_check_host_impl.h"
-#if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
-#include "components/spellcheck/browser/spellcheck_message_filter_platform.h"
+#if QT_CONFIG(webengine_spellchecker)
+#include "chrome/browser/spellchecker/spell_check_host_chrome_impl.h"
 #endif
-#endif
+#include "components/guest_view/browser/guest_view_base.h"
+#include "components/network_hints/browser/network_hints_message_filter.h"
 #include "content/browser/renderer_host/render_view_host_delegate.h"
-#include "content/public/browser/browser_main_parts.h"
+#include "content/common/url_schemes.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/media_observer.h"
-#include "content/public/browser/quota_permission_context.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
+#include "content/public/browser/resource_dispatcher_host_delegate.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
+#include "content/public/common/service_manager_connection.h"
+#include "content/public/common/service_names.mojom.h"
 #include "content/public/common/url_constants.h"
-#include "device/geolocation/geolocation_delegate.h"
-#include "device/geolocation/geolocation_provider.h"
+#include "content/public/common/user_agent.h"
+#include "media/media_buildflags.h"
+#include "extensions/buildflags/buildflags.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
+#include "printing/buildflags/buildflags.h"
+#include "qtwebengine/browser/qtwebengine_content_browser_overlay_manifest.h"
+#include "qtwebengine/browser/qtwebengine_content_renderer_overlay_manifest.h"
+#include "qtwebengine/browser/qtwebengine_packaged_service_manifest.h"
+#include "qtwebengine/browser/qtwebengine_renderer_manifest.h"
 #include "net/ssl/client_cert_identity.h"
-#include "services/service_manager/public/cpp/bind_source_info.h"
-#include "services/service_manager/public/cpp/binder_registry.h"
-#include "third_party/WebKit/public/platform/modules/sensitive_input_visibility/sensitive_input_visibility_service.mojom.h"
+#include "net/ssl/client_cert_store.h"
+#include "services/proxy_resolver/proxy_resolver_service.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/service.h"
+#include "services/service_manager/sandbox/switches.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
+#include "third_party/blink/public/platform/modules/insecure_input/insecure_input_service.mojom.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_switches.h"
-#include "ui/display/screen.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_share_group.h"
 #include "ui/gl/gpu_timing.h"
+#include "url/url_util_qt.h"
 
-#include "access_token_store_qt.h"
-#include "browser_context_adapter.h"
-#include "browser_context_qt.h"
+#include "qtwebengine/common/renderer_configuration.mojom.h"
+#include "qtwebengine/grit/qt_webengine_resources.h"
+
+#include "profile_adapter.h"
+#include "browser_main_parts_qt.h"
 #include "browser_message_filter_qt.h"
 #include "certificate_error_controller.h"
 #include "certificate_error_controller_p.h"
-#include "desktop_screen_qt.h"
-#include "dev_tools_http_handler_delegate_qt.h"
-#ifdef QT_USE_POSITIONING
-#include "location_provider_qt.h"
-#else
-#include "device/geolocation/location_provider.h"
-#endif
+#include "client_cert_select_controller.h"
+#include "devtools_manager_delegate_qt.h"
+#include "login_delegate_qt.h"
 #include "media_capture_devices_dispatcher.h"
-#include "printing/features/features.h"
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
-#include "printing_message_filter_qt.h"
-#endif // BUILDFLAG(ENABLE_BASIC_PRINTING)
-#include "qrc_protocol_handler_qt.h"
-#include "renderer_host/resource_dispatcher_host_delegate_qt.h"
+#include "net/network_delegate_qt.h"
+#include "net/url_request_context_getter_qt.h"
+#include "platform_notification_service_qt.h"
+#if QT_CONFIG(webengine_printing_and_pdf)
+#include "printing/printing_message_filter_qt.h"
+#endif
+#include "profile_qt.h"
+#include "profile_io_data_qt.h"
+#include "quota_permission_context_qt.h"
 #include "renderer_host/user_resource_controller_host.h"
+#include "service/service_qt.h"
+#include "type_conversion.h"
 #include "web_contents_delegate_qt.h"
 #include "web_engine_context.h"
 #include "web_engine_library_info.h"
-
-#if defined(Q_OS_WIN)
-#include "ui/display/win/screen_win.h"
-#endif
 
 #if defined(Q_OS_LINUX)
 #include "global_descriptors_qt.h"
 #include "ui/base/resource/resource_bundle.h"
 #endif
 
-#if BUILDFLAG(ENABLE_PLUGINS)
+#if QT_CONFIG(webengine_pepper_plugins)
 #include "content/public/browser/browser_ppapi_host.h"
 #include "ppapi/host/ppapi_host.h"
 #include "renderer_host/pepper/pepper_host_factory_qt.h"
+#endif
+
+#if QT_CONFIG(webengine_geolocation)
+#include "location_provider_qt.h"
+#endif
+
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "extensions/extensions_browser_client_qt.h"
+#include "extensions/browser/extension_message_filter.h"
+#include "extensions/browser/guest_view/extensions_guest_view_message_filter.h"
+#include "extensions/browser/io_thread_extension_message_filter.h"
+#include "extensions/common/constants.h"
+#include "common/extensions/extensions_client_qt.h"
+#include "renderer_host/resource_dispatcher_host_delegate_qt.h"
 #endif
 
 #include <QGuiApplication>
@@ -133,184 +162,6 @@ QT_END_NAMESPACE
 
 namespace QtWebEngineCore {
 
-namespace {
-
-ContentBrowserClientQt* gBrowserClient = 0; // Owned by ContentMainDelegateQt.
-
-// Return a timeout suitable for the glib loop, -1 to block forever,
-// 0 to return right away, or a timeout in milliseconds from now.
-int GetTimeIntervalMilliseconds(const base::TimeTicks& from) {
-  if (from.is_null())
-    return -1;
-
-  // Be careful here.  TimeDelta has a precision of microseconds, but we want a
-  // value in milliseconds.  If there are 5.5ms left, should the delay be 5 or
-  // 6?  It should be 6 to avoid executing delayed work too early.
-  int delay = static_cast<int>(
-      ceil((from - base::TimeTicks::Now()).InMillisecondsF()));
-
-  // If this value is negative, then we need to run delayed work soon.
-  return delay < 0 ? 0 : delay;
-}
-
-class MessagePumpForUIQt : public QObject,
-                           public base::MessagePump
-{
-public:
-    MessagePumpForUIQt()
-        // Usually this gets passed through Run, but since we have
-        // our own event loop, attach it explicitly ourselves.
-        : m_delegate(base::MessageLoopForUI::current())
-        , m_explicitLoop(0)
-        , m_timerId(0)
-    {
-    }
-
-    void Run(Delegate *delegate) override
-    {
-        Q_ASSERT(delegate == m_delegate);
-        // This is used only when MessagePumpForUIQt is used outside of the GUI thread.
-        QEventLoop loop;
-        m_explicitLoop = &loop;
-        loop.exec();
-        m_explicitLoop = 0;
-    }
-
-    void Quit() override
-    {
-        Q_ASSERT(m_explicitLoop);
-        m_explicitLoop->quit();
-    }
-
-    void ScheduleWork() override
-    {
-        QCoreApplication::postEvent(this, new QEvent(QEvent::User));
-    }
-
-    void ScheduleDelayedWork(const base::TimeTicks &delayed_work_time) override
-    {
-        if (delayed_work_time.is_null()) {
-            killTimer(m_timerId);
-            m_timerId = 0;
-            m_timerScheduledTime = base::TimeTicks();
-        } else if (!m_timerId || delayed_work_time < m_timerScheduledTime) {
-            killTimer(m_timerId);
-            m_timerId = startTimer(GetTimeIntervalMilliseconds(delayed_work_time));
-            m_timerScheduledTime = delayed_work_time;
-        }
-    }
-
-protected:
-    void customEvent(QEvent *ev) override
-    {
-        if (handleScheduledWork())
-            QCoreApplication::postEvent(this, new QEvent(QEvent::User));
-    }
-
-    void timerEvent(QTimerEvent *ev) override
-    {
-        Q_ASSERT(m_timerId == ev->timerId());
-        killTimer(m_timerId);
-        m_timerId = 0;
-        m_timerScheduledTime = base::TimeTicks();
-
-        base::TimeTicks next_delayed_work_time;
-        m_delegate->DoDelayedWork(&next_delayed_work_time);
-        ScheduleDelayedWork(next_delayed_work_time);
-    }
-
-private:
-    bool handleScheduledWork() {
-        bool more_work_is_plausible = m_delegate->DoWork();
-
-        base::TimeTicks delayed_work_time;
-        more_work_is_plausible |= m_delegate->DoDelayedWork(&delayed_work_time);
-
-        if (more_work_is_plausible)
-            return true;
-
-        more_work_is_plausible |= m_delegate->DoIdleWork();
-        if (!more_work_is_plausible)
-            ScheduleDelayedWork(delayed_work_time);
-
-        return more_work_is_plausible;
-    }
-
-    Delegate *m_delegate;
-    QEventLoop *m_explicitLoop;
-    int m_timerId;
-    base::TimeTicks m_timerScheduledTime;
-};
-
-std::unique_ptr<base::MessagePump> messagePumpFactory()
-{
-    return base::WrapUnique(new MessagePumpForUIQt);
-}
-
-// A provider of services needed by Geolocation.
-class GeolocationDelegateQt : public device::GeolocationDelegate {
-public:
-    GeolocationDelegateQt() {}
-    scoped_refptr<device::AccessTokenStore> CreateAccessTokenStore() final
-    {
-        return scoped_refptr<device::AccessTokenStore>(new AccessTokenStoreQt);
-    }
-
-    std::unique_ptr<device::LocationProvider> OverrideSystemLocationProvider() final
-    {
-#ifdef QT_USE_POSITIONING
-        return base::WrapUnique(new LocationProviderQt);
-#else
-        return nullptr;
-#endif
-    }
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(GeolocationDelegateQt);
-};
-
-}  // anonymous namespace
-
-class BrowserMainPartsQt : public content::BrowserMainParts
-{
-public:
-    BrowserMainPartsQt()
-        : content::BrowserMainParts()
-    { }
-
-    void PreMainMessageLoopStart() override
-    {
-        base::MessageLoop::InitMessagePumpForUIFactory(messagePumpFactory);
-    }
-
-    void PreMainMessageLoopRun() override
-    {
-        device::GeolocationProvider::SetGeolocationDelegate(new GeolocationDelegateQt());
-    }
-
-    void PostMainMessageLoopRun() override
-    {
-        // The BrowserContext's destructor uses the MessageLoop so it should be deleted
-        // right before the RenderProcessHostImpl's destructor destroys it.
-        WebEngineContext::current()->destroyBrowserContext();
-    }
-
-    int PreCreateThreads() override
-    {
-        base::ThreadRestrictions::SetIOAllowed(true);
-        // Like ChromeBrowserMainExtraPartsViews::PreCreateThreads does.
-#if defined(Q_OS_WIN)
-        display::Screen::SetScreenInstance(new display::win::ScreenWin);
-#else
-        display::Screen::SetScreenInstance(new DesktopScreenQt);
-#endif
-        return 0;
-    }
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(BrowserMainPartsQt);
-};
-
 class QtShareGLContext : public gl::GLContext {
 public:
     QtShareGLContext(QOpenGLContext *qtContext)
@@ -319,7 +170,7 @@ public:
     {
         QString platform = qApp->platformName().toLower();
         QPlatformNativeInterface *pni = QGuiApplication::platformNativeInterface();
-        if (platform == QLatin1String("xcb")) {
+        if (platform == QLatin1String("xcb") || platform == QLatin1String("offscreen")) {
             if (gl::GetGLImplementation() == gl::kGLImplementationEGLGLES2)
                 m_handle = pni->nativeResourceForContext(QByteArrayLiteral("eglcontext"), qtContext);
             else
@@ -345,17 +196,24 @@ public:
 
     void* GetHandle() override { return m_handle; }
     // Qt currently never creates contexts using robustness attributes.
-    bool WasAllocatedUsingRobustnessExtension() override { return false; }
+    unsigned int CheckStickyGraphicsResetStatus() override { return 0 /*GL_NO_ERROR*/; }
 
     // We don't care about the rest, this context shouldn't be used except for its handle.
     bool Initialize(gl::GLSurface *, const gl::GLContextAttribs &) override { Q_UNREACHABLE(); return false; }
     bool MakeCurrent(gl::GLSurface *) override { Q_UNREACHABLE(); return false; }
     void ReleaseCurrent(gl::GLSurface *) override { Q_UNREACHABLE(); }
     bool IsCurrent(gl::GLSurface *) override { Q_UNREACHABLE(); return false; }
-    void OnSetSwapInterval(int) override { Q_UNREACHABLE(); }
     scoped_refptr<gl::GPUTimingClient> CreateGPUTimingClient() override
     {
         return nullptr;
+    }
+    const gfx::ExtensionSet& GetExtensions() override
+    {
+        static const gfx::ExtensionSet s_emptySet;
+        return s_emptySet;
+    }
+    void ResetExtensions() override
+    {
     }
 
 private:
@@ -377,37 +235,19 @@ void ShareGroupQtQuick::AboutToAddFirstContext()
     // This currently has to be setup by ::main in all applications using QQuickWebEngineView with delegated rendering.
     QOpenGLContext *shareContext = qt_gl_global_share_context();
     if (!shareContext) {
-        qFatal("QWebEngine: OpenGL resource sharing is not set up in QtQuick. Please make sure to call QtWebEngine::initialize() in your main() function.");
+        qFatal("QWebEngine: OpenGL resource sharing is not set up in QtQuick. Please make sure to call QtWebEngine::initialize() in your main() function before QCoreApplication is created.");
     }
-    m_shareContextQtQuick = make_scoped_refptr(new QtShareGLContext(shareContext));
+    m_shareContextQtQuick = new QtShareGLContext(shareContext);
 #endif
 }
-
-class QuotaPermissionContextQt : public content::QuotaPermissionContext {
-public:
-    void RequestQuotaPermission(const content::StorageQuotaParams &params, int render_process_id, const PermissionCallback &callback) override
-    {
-        Q_UNUSED(params);
-        Q_UNUSED(render_process_id);
-        callback.Run(QUOTA_PERMISSION_RESPONSE_DISALLOW);
-    }
-};
 
 ContentBrowserClientQt::ContentBrowserClientQt()
     : m_browserMainParts(0)
 {
-    Q_ASSERT(!gBrowserClient);
-    gBrowserClient = this;
 }
 
 ContentBrowserClientQt::~ContentBrowserClientQt()
 {
-    gBrowserClient = 0;
-}
-
-ContentBrowserClientQt *ContentBrowserClientQt::Get()
-{
-    return gBrowserClient;
 }
 
 content::BrowserMainParts *ContentBrowserClientQt::CreateBrowserMainParts(const content::MainFunctionParams&)
@@ -416,26 +256,53 @@ content::BrowserMainParts *ContentBrowserClientQt::CreateBrowserMainParts(const 
     return m_browserMainParts;
 }
 
-void ContentBrowserClientQt::RenderProcessWillLaunch(content::RenderProcessHost* host)
+void ContentBrowserClientQt::RenderProcessWillLaunch(content::RenderProcessHost* host,
+                                                     service_manager::mojom::ServiceRequest *service_request)
 {
-    // FIXME: Add a settings variable to enable/disable the file scheme.
     const int id = host->GetID();
-    content::ChildProcessSecurityPolicy::GetInstance()->GrantScheme(id, url::kFileScheme);
-    static_cast<BrowserContextQt*>(host->GetBrowserContext())->m_adapter->userResourceController()->renderProcessStartedWithHost(host);
-#if BUILDFLAG(ENABLE_PEPPER_CDMS)
-    host->AddFilter(new BrowserMessageFilterQt(id));
-#endif
-#if defined(Q_OS_MACOS) && BUILDFLAG(ENABLE_SPELLCHECK) && BUILDFLAG(USE_BROWSER_SPELLCHECKER)
-  host->AddFilter(new SpellCheckMessageFilterPlatform(id));
-#endif
-#if BUILDFLAG(ENABLE_BASIC_PRINTING)
+    Profile *profile = Profile::FromBrowserContext(host->GetBrowserContext());
+    base::PostTaskWithTraitsAndReplyWithResult(
+            FROM_HERE, {content::BrowserThread::IO},
+            base::BindOnce(&net::URLRequestContextGetter::GetURLRequestContext, base::Unretained(profile->GetRequestContext())),
+            base::BindOnce(&ContentBrowserClientQt::AddNetworkHintsMessageFilter, base::Unretained(this), id));
+
+    // FIXME: Add a settings variable to enable/disable the file scheme.
+    content::ChildProcessSecurityPolicy::GetInstance()->GrantRequestScheme(id, url::kFileScheme);
+    static_cast<ProfileQt*>(host->GetBrowserContext())->m_profileAdapter->userResourceController()->renderProcessStartedWithHost(host);
+    host->AddFilter(new BrowserMessageFilterQt(id, profile));
+#if QT_CONFIG(webengine_printing_and_pdf)
     host->AddFilter(new PrintingMessageFilterQt(host->GetID()));
-#endif // BUILDFLAG(ENABLE_BASIC_PRINTING)
+#endif
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+    host->AddFilter(new extensions::ExtensionMessageFilter(host->GetID(), host->GetBrowserContext()));
+    host->AddFilter(new extensions::IOThreadExtensionMessageFilter(host->GetID(), host->GetBrowserContext()));
+    host->AddFilter(new extensions::ExtensionsGuestViewMessageFilter(host->GetID(), host->GetBrowserContext()));
+#endif //ENABLE_EXTENSIONS
+
+    bool is_incognito_process = profile->IsOffTheRecord();
+    qtwebengine::mojom::RendererConfigurationAssociatedPtr renderer_configuration;
+    host->GetChannel()->GetRemoteAssociatedInterface(&renderer_configuration);
+    renderer_configuration->SetInitialConfiguration(is_incognito_process);
+
+    service_manager::mojom::ServicePtr service;
+    *service_request = mojo::MakeRequest(&service);
+    service_manager::mojom::PIDReceiverPtr pid_receiver;
+    service_manager::Identity renderer_identity = host->GetChildIdentity();
+    ServiceQt::GetInstance()->connector()->RegisterServiceInstance(
+                service_manager::Identity("qtwebengine_renderer",
+                                          renderer_identity.instance_group(),
+                                          renderer_identity.instance_id(),
+                                          base::Token::CreateRandom()),
+                std::move(service), mojo::MakeRequest(&pid_receiver));
 }
 
 void ContentBrowserClientQt::ResourceDispatcherHostCreated()
 {
+#if BUILDFLAG(ENABLE_EXTENSIONS)
     m_resourceDispatcherHostDelegate.reset(new ResourceDispatcherHostDelegateQt);
+#else
+    m_resourceDispatcherHostDelegate.reset(new content::ResourceDispatcherHostDelegate);
+#endif
     content::ResourceDispatcherHost::Get()->SetDelegate(m_resourceDispatcherHostDelegate.get());
 }
 
@@ -454,6 +321,10 @@ content::MediaObserver *ContentBrowserClientQt::GetMediaObserver()
 void ContentBrowserClientQt::OverrideWebkitPrefs(content::RenderViewHost *rvh, content::WebPreferences *web_prefs)
 {
     if (content::WebContents *webContents = rvh->GetDelegate()->GetAsWebContents()) {
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+        if (guest_view::GuestViewBase::IsGuest(webContents))
+            return;
+#endif // BUILDFLAG(ENABLE_EXTENSIONS)
         WebContentsDelegateQt* delegate = static_cast<WebContentsDelegateQt*>(webContents->GetDelegate());
         if (delegate)
             delegate->overrideWebPreferences(webContents, web_prefs);
@@ -472,28 +343,79 @@ void ContentBrowserClientQt::GetQuotaSettings(content::BrowserContext* context,
     storage::GetNominalDynamicSettings(partition->GetPath(), context->IsOffTheRecord(), std::move(callback));
 }
 
+// Copied from chrome/browser/ssl/ssl_error_handler.cc:
+static int IsCertErrorFatal(int cert_error)
+{
+    switch (cert_error) {
+    case net::ERR_CERT_COMMON_NAME_INVALID:
+    case net::ERR_CERT_DATE_INVALID:
+    case net::ERR_CERT_AUTHORITY_INVALID:
+    case net::ERR_CERT_WEAK_SIGNATURE_ALGORITHM:
+    case net::ERR_CERT_WEAK_KEY:
+    case net::ERR_CERT_NAME_CONSTRAINT_VIOLATION:
+    case net::ERR_CERT_VALIDITY_TOO_LONG:
+    case net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED:
+    case net::ERR_CERT_SYMANTEC_LEGACY:
+        return false;
+    case net::ERR_CERT_CONTAINS_ERRORS:
+    case net::ERR_CERT_REVOKED:
+    case net::ERR_CERT_INVALID:
+    case net::ERR_SSL_WEAK_SERVER_EPHEMERAL_DH_KEY:
+    case net::ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN:
+        return true;
+    default:
+        NOTREACHED();
+    }
+    return true;
+}
+
 void ContentBrowserClientQt::AllowCertificateError(content::WebContents *webContents,
-                                   int cert_error,
-                                   const net::SSLInfo& ssl_info,
-                                   const GURL& request_url,
-                                   content::ResourceType resource_type,
-                                   bool overridable,
-                                   bool strict_enforcement,
-                                   bool expired_previous_decision,
-                                   const base::Callback<void(content::CertificateRequestResultType)>& callback)
+                                                   int cert_error,
+                                                   const net::SSLInfo &ssl_info,
+                                                   const GURL &request_url,
+                                                   content::ResourceType resource_type,
+                                                   bool strict_enforcement,
+                                                   bool expired_previous_decision,
+                                                   const base::Callback<void(content::CertificateRequestResultType)> &callback)
 {
     WebContentsDelegateQt* contentsDelegate = static_cast<WebContentsDelegateQt*>(webContents->GetDelegate());
 
-    QSharedPointer<CertificateErrorController> errorController(new CertificateErrorController(new CertificateErrorControllerPrivate(cert_error, ssl_info, request_url, resource_type, overridable, strict_enforcement, callback)));
+    QSharedPointer<CertificateErrorController> errorController(
+            new CertificateErrorController(
+                    new CertificateErrorControllerPrivate(
+                            cert_error,
+                            ssl_info,
+                            request_url,
+                            resource_type,
+                            IsCertErrorFatal(cert_error),
+                            strict_enforcement,
+                            callback)));
     contentsDelegate->allowCertificateError(errorController);
 }
 
-void ContentBrowserClientQt::SelectClientCertificate(content::WebContents * /*webContents*/,
-                                                     net::SSLCertRequestInfo * /*certRequestInfo*/,
-                                                     net::ClientCertIdentityList /*client_certs*/,
+void ContentBrowserClientQt::SelectClientCertificate(content::WebContents *webContents,
+                                                     net::SSLCertRequestInfo *certRequestInfo,
+                                                     net::ClientCertIdentityList clientCerts,
                                                      std::unique_ptr<content::ClientCertificateDelegate> delegate)
 {
-    delegate->ContinueWithCertificate(nullptr, nullptr);
+    if (!clientCerts.empty()) {
+        WebContentsDelegateQt* contentsDelegate = static_cast<WebContentsDelegateQt*>(webContents->GetDelegate());
+
+        QSharedPointer<ClientCertSelectController> certSelectController(
+                new ClientCertSelectController(certRequestInfo, std::move(clientCerts), std::move(delegate)));
+
+        contentsDelegate->selectClientCert(certSelectController);
+    } else {
+        delegate->ContinueWithCertificate(nullptr, nullptr);
+    }
+}
+
+std::unique_ptr<net::ClientCertStore> ContentBrowserClientQt::CreateClientCertStore(content::ResourceContext *resource_context)
+{
+    if (!resource_context)
+        return nullptr;
+
+    return ProfileIODataQt::FromResourceContext(resource_context)->CreateClientCertStore();
 }
 
 std::string ContentBrowserClientQt::GetApplicationLocale()
@@ -503,25 +425,32 @@ std::string ContentBrowserClientQt::GetApplicationLocale()
 
 std::string ContentBrowserClientQt::GetAcceptLangs(content::BrowserContext *context)
 {
-    return static_cast<BrowserContextQt*>(context)->adapter()->httpAcceptLanguage().toStdString();
+    return static_cast<ProfileQt*>(context)->profileAdapter()->httpAcceptLanguage().toStdString();
 }
 
 void ContentBrowserClientQt::AppendExtraCommandLineSwitches(base::CommandLine* command_line, int child_process_id)
 {
     Q_UNUSED(child_process_id);
 
+    url::CustomScheme::SaveSchemes(command_line);
+
     std::string processType = command_line->GetSwitchValueASCII(switches::kProcessType);
-    if (processType == switches::kZygoteProcess)
+    if (processType == service_manager::switches::kZygoteProcess)
         command_line->AppendSwitchASCII(switches::kLang, GetApplicationLocale());
 }
 
 void ContentBrowserClientQt::GetAdditionalWebUISchemes(std::vector<std::string>* additional_schemes)
 {
-    additional_schemes->push_back(kQrcSchemeQt);
+    additional_schemes->push_back(content::kChromeDevToolsScheme);
+}
+
+void ContentBrowserClientQt::GetAdditionalViewSourceSchemes(std::vector<std::string>* additional_schemes)
+{
+   additional_schemes->push_back(content::kChromeDevToolsScheme);
 }
 
 #if defined(Q_OS_LINUX)
-void ContentBrowserClientQt::GetAdditionalMappedFilesForChildProcess(const base::CommandLine& command_line, int child_process_id, content::FileDescriptorInfo* mappings)
+void ContentBrowserClientQt::GetAdditionalMappedFilesForChildProcess(const base::CommandLine& command_line, int child_process_id, content::PosixFileDescriptorInfo* mappings)
 {
     const std::string &locale = GetApplicationLocale();
     const base::FilePath &locale_file_path = ui::ResourceBundle::GetSharedInstance().GetLocaleFilePath(locale, true);
@@ -536,11 +465,11 @@ void ContentBrowserClientQt::GetAdditionalMappedFilesForChildProcess(const base:
 }
 #endif
 
-#if BUILDFLAG(ENABLE_PLUGINS)
+#if QT_CONFIG(webengine_pepper_plugins)
 void ContentBrowserClientQt::DidCreatePpapiPlugin(content::BrowserPpapiHost* browser_host)
 {
     browser_host->GetPpapiHost()->AddHostFactoryFilter(
-                base::WrapUnique(new QtWebEngineCore::PepperHostFactoryQt(browser_host)));
+                std::make_unique<QtWebEngineCore::PepperHostFactoryQt>(browser_host));
 }
 #endif
 
@@ -549,9 +478,16 @@ content::DevToolsManagerDelegate* ContentBrowserClientQt::GetDevToolsManagerDele
     return new DevToolsManagerDelegateQt;
 }
 
+content::PlatformNotificationService *ContentBrowserClientQt::GetPlatformNotificationService()
+{
+    if (!m_platformNotificationService)
+        m_platformNotificationService = std::make_unique<PlatformNotificationServiceQt>();
+    return m_platformNotificationService.get();
+}
+
 // This is a really complicated way of doing absolutely nothing, but Mojo demands it:
 class ServiceDriver
-        : public blink::mojom::SensitiveInputVisibilityService
+        : public blink::mojom::InsecureInputService
         , public content::WebContentsUserData<ServiceDriver>
 {
 public:
@@ -570,38 +506,37 @@ public:
             return nullptr;
         return FromWebContents(web_contents);
     }
-    static void BindSensitiveInputVisibilityService(blink::mojom::SensitiveInputVisibilityServiceRequest request,
-                                                    content::RenderFrameHost* render_frame_host)
+    static void BindInsecureInputService(blink::mojom::InsecureInputServiceRequest request, content::RenderFrameHost *render_frame_host)
     {
         CreateForRenderFrameHost(render_frame_host);
         ServiceDriver *driver = FromRenderFrameHost(render_frame_host);
 
         if (driver)
-            driver->BindSensitiveInputVisibilityServiceRequest(std::move(request));
+            driver->BindInsecureInputServiceRequest(std::move(request));
     }
-    void BindSensitiveInputVisibilityServiceRequest(blink::mojom::SensitiveInputVisibilityServiceRequest request)
+    void BindInsecureInputServiceRequest(blink::mojom::InsecureInputServiceRequest request)
     {
-        m_sensitiveInputVisibilityBindings.AddBinding(this, std::move(request));
+        m_insecureInputServiceBindings.AddBinding(this, std::move(request));
     }
 
-    // blink::mojom::SensitiveInputVisibility:
-    void PasswordFieldVisibleInInsecureContext() override
-    { }
-    void AllPasswordFieldsInInsecureContextInvisible() override
+    // blink::mojom::InsecureInputService:
+    void DidEditFieldInInsecureContext() override
     { }
 
 private:
+    WEB_CONTENTS_USER_DATA_KEY_DECL()
     explicit ServiceDriver(content::WebContents* /*web_contents*/) { }
     friend class content::WebContentsUserData<ServiceDriver>;
-    mojo::BindingSet<blink::mojom::SensitiveInputVisibilityService> m_sensitiveInputVisibilityBindings;
-
+    mojo::BindingSet<blink::mojom::InsecureInputService> m_insecureInputServiceBindings;
 };
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(ServiceDriver)
 
 void ContentBrowserClientQt::InitFrameInterfaces()
 {
-    m_frameInterfaces = base::MakeUnique<service_manager::BinderRegistry>();
-    m_frameInterfacesParameterized = base::MakeUnique<service_manager::BinderRegistryWithArgs<content::RenderFrameHost*>>();
-    m_frameInterfacesParameterized->AddInterface(base::Bind(&ServiceDriver::BindSensitiveInputVisibilityService));
+    m_frameInterfaces = std::make_unique<service_manager::BinderRegistry>();
+    m_frameInterfacesParameterized = std::make_unique<service_manager::BinderRegistryWithArgs<content::RenderFrameHost*>>();
+    m_frameInterfacesParameterized->AddInterface(base::Bind(&ServiceDriver::BindInsecureInputService));
 }
 
 void ContentBrowserClientQt::BindInterfaceRequestFromFrame(content::RenderFrameHost* render_frame_host,
@@ -615,34 +550,54 @@ void ContentBrowserClientQt::BindInterfaceRequestFromFrame(content::RenderFrameH
         m_frameInterfaces->TryBindInterface(interface_name, &interface_pipe);
 }
 
-void ContentBrowserClientQt::ExposeInterfacesToRenderer(service_manager::BinderRegistry *registry,
-                                                        content::AssociatedInterfaceRegistry */*associated_registry*/,
-                                                        content::RenderProcessHost *render_process_host)
+void ContentBrowserClientQt::RegisterIOThreadServiceHandlers(content::ServiceManagerConnection *connection)
 {
-#if BUILDFLAG(ENABLE_SPELLCHECK)
-    registry->AddInterface(base::Bind(&SpellCheckHostImpl::Create, render_process_host->GetID()),
-                           content::BrowserThread::GetTaskRunnerForThread(content::BrowserThread::UI));
-#else
-    Q_UNUSED(registry);
-    Q_UNUSED(render_process_host);
-#endif
+    connection->AddServiceRequestHandler(
+            "qtwebengine",
+            ServiceQt::GetInstance()->CreateServiceQtRequestHandler());
+}
+
+void ContentBrowserClientQt::RegisterOutOfProcessServices(content::ContentBrowserClient::OutOfProcessServiceMap *services)
+{
+    (*services)[proxy_resolver::mojom::kProxyResolverServiceName] =
+            base::BindRepeating(&base::ASCIIToUTF16, "V8 Proxy Resolver");
+}
+
+base::Optional<service_manager::Manifest> ContentBrowserClientQt::GetServiceManifestOverlay(base::StringPiece name)
+{
+    if (name == content::mojom::kBrowserServiceName) {
+        return GetQtWebEngineContentBrowserOverlayManifest();
+    } else if (name == content::mojom::kPackagedServicesServiceName) {
+        service_manager::Manifest overlay;
+        overlay.packaged_services = GetQtWebEnginePackagedServiceManifests();
+        return overlay;
+    } else if (name == content::mojom::kRendererServiceName) {
+        return GetQtWebEngineContentRendererOverlayManifest();
+    }
+
+    return base::nullopt;
+}
+
+std::vector<service_manager::Manifest> ContentBrowserClientQt::GetExtraServiceManifests()
+{
+    return std::vector<service_manager::Manifest>{GetQtWebEngineRendererManifest()};
 }
 
 bool ContentBrowserClientQt::CanCreateWindow(
-    content::RenderFrameHost* opener,
-    const GURL& opener_url,
-    const GURL& opener_top_level_frame_url,
-    const GURL& source_origin,
-    content::mojom::WindowContainerType container_type,
-    const GURL& target_url,
-    const content::Referrer& referrer,
-    const std::string& frame_name,
-    WindowOpenDisposition disposition,
-    const blink::mojom::WindowFeatures& features,
-    bool user_gesture,
-    bool opener_suppressed,
-    bool* no_javascript_access) {
-
+        content::RenderFrameHost* opener,
+        const GURL& opener_url,
+        const GURL& opener_top_level_frame_url,
+        const url::Origin& source_origin,
+        content::mojom::WindowContainerType container_type,
+        const GURL& target_url,
+        const content::Referrer& referrer,
+        const std::string& frame_name,
+        WindowOpenDisposition disposition,
+        const blink::mojom::WindowFeatures& features,
+        bool user_gesture,
+        bool opener_suppressed,
+        bool* no_javascript_access)
+{
     Q_UNUSED(opener_url);
     Q_UNUSED(opener_top_level_frame_url);
     Q_UNUSED(source_origin);
@@ -670,6 +625,180 @@ bool ContentBrowserClientQt::CanCreateWindow(
     return (settings && settings->getJavaScriptCanOpenWindowsAutomatically()) || user_gesture;
 }
 
-} // namespace QtWebEngineCore
+#if QT_CONFIG(webengine_geolocation)
+std::unique_ptr<device::LocationProvider> ContentBrowserClientQt::OverrideSystemLocationProvider()
+{
+    return base::WrapUnique(new LocationProviderQt());
+}
+#endif
 
-DEFINE_WEB_CONTENTS_USER_DATA_KEY(QtWebEngineCore::ServiceDriver);
+scoped_refptr<net::URLRequestContextGetter> GetSystemRequestContextOnUIThread()
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    return scoped_refptr<net::URLRequestContextGetter>(
+                ProfileAdapter::createDefaultProfileAdapter()->profile()->GetRequestContext());
+}
+
+void ContentBrowserClientQt::AddNetworkHintsMessageFilter(int render_process_id, net::URLRequestContext *context)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+    content::RenderProcessHost* host = content::RenderProcessHost::FromID(render_process_id);
+    if (!host)
+        return;
+
+    content::BrowserMessageFilter *network_hints_message_filter =
+            new network_hints::NetworkHintsMessageFilter(render_process_id);
+    host->AddFilter(network_hints_message_filter);
+}
+
+bool ContentBrowserClientQt::ShouldEnableStrictSiteIsolation()
+{
+    // mirroring AwContentBrowserClient, CastContentBrowserClient and
+    // HeadlessContentBrowserClient
+    return false;
+}
+
+bool ContentBrowserClientQt::AllowGetCookie(const GURL &url,
+                                            const GURL &first_party,
+                                            const net::CookieList & /*cookie_list*/,
+                                            content::ResourceContext *context,
+                                            int /*render_process_id*/,
+                                            int /*render_frame_id*/)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+    return ProfileIODataQt::FromResourceContext(context)->canGetCookies(toQt(first_party), toQt(url));
+}
+
+bool ContentBrowserClientQt::AllowSetCookie(const GURL &url,
+                                            const GURL &first_party,
+                                            const net::CanonicalCookie& /*cookie*/,
+                                            content::ResourceContext *context,
+                                            int /*render_process_id*/,
+                                            int /*render_frame_id*/)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+    return ProfileIODataQt::FromResourceContext(context)->canSetCookie(toQt(first_party), QByteArray(), toQt(url));
+}
+
+bool ContentBrowserClientQt::AllowAppCache(const GURL &manifest_url,
+                                           const GURL &first_party,
+                                           content::ResourceContext *context)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+    return ProfileIODataQt::FromResourceContext(context)->canGetCookies(toQt(first_party), toQt(manifest_url));
+}
+
+bool ContentBrowserClientQt::AllowServiceWorker(const GURL &scope,
+                                                const GURL &first_party,
+                                                content::ResourceContext *context,
+                                                base::RepeatingCallback<content::WebContents*()> wc_getter)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+    // FIXME: Chrome also checks if javascript is enabled here to check if has been disabled since the service worker
+    // was started.
+    return ProfileIODataQt::FromResourceContext(context)->canGetCookies(toQt(first_party), toQt(scope));
+}
+
+// We control worker access to FS and indexed-db using cookie permissions, this is mirroring Chromium's logic.
+void ContentBrowserClientQt::AllowWorkerFileSystem(const GURL &url,
+                                                   content::ResourceContext *context,
+                                                   const std::vector<content::GlobalFrameRoutingId> &/*render_frames*/,
+                                                   base::Callback<void(bool)> callback)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+    callback.Run(ProfileIODataQt::FromResourceContext(context)->canSetCookie(toQt(url), QByteArray(), toQt(url)));
+}
+
+
+bool ContentBrowserClientQt::AllowWorkerIndexedDB(const GURL &url,
+                                                  content::ResourceContext *context,
+                                                  const std::vector<content::GlobalFrameRoutingId> &/*render_frames*/)
+{
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+    return ProfileIODataQt::FromResourceContext(context)->canSetCookie(toQt(url), QByteArray(), toQt(url));
+}
+
+static void LaunchURL(const GURL& url,
+                      const content::ResourceRequestInfo::WebContentsGetter& web_contents_getter,
+                      ui::PageTransition page_transition, bool is_main_frame, bool has_user_gesture)
+{
+    Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+    content::WebContents* webContents = web_contents_getter.Run();
+    if (!webContents)
+        return;
+    WebContentsDelegateQt *contentsDelegate = static_cast<WebContentsDelegateQt*>(webContents->GetDelegate());
+    contentsDelegate->launchExternalURL(toQt(url), page_transition, is_main_frame, has_user_gesture);
+}
+
+
+bool ContentBrowserClientQt::HandleExternalProtocol(
+        const GURL &url,
+        content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+        int child_id,
+        content::NavigationUIData *navigation_data,
+        bool is_main_frame,
+        ui::PageTransition page_transition,
+        bool has_user_gesture,
+        const std::string &method,
+        const net::HttpRequestHeaders &headers)
+{
+    Q_ASSERT(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
+    Q_UNUSED(child_id);
+    Q_UNUSED(navigation_data);
+    Q_UNUSED(method);
+    Q_UNUSED(headers);
+
+    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
+                             base::BindOnce(&LaunchURL,
+                                            url,
+                                            web_contents_getter,
+                                            page_transition,
+                                            is_main_frame,
+                                            has_user_gesture));
+    return true;
+}
+
+scoped_refptr<content::LoginDelegate> ContentBrowserClientQt::CreateLoginDelegate(
+        net::AuthChallengeInfo *authInfo,
+        content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+        const content::GlobalRequestID &request_id,
+        bool /*is_main_frame*/,
+        const GURL &url,
+        scoped_refptr<net::HttpResponseHeaders> response_headers,
+        bool first_auth_attempt,
+        LoginAuthRequiredCallback auth_required_callback)
+{
+    auto loginDelegate = base::MakeRefCounted<LoginDelegateQt>(authInfo, web_contents_getter, url, first_auth_attempt, std::move(auth_required_callback));
+    loginDelegate->triggerDialog();
+    return loginDelegate;
+}
+
+bool ContentBrowserClientQt::ShouldIsolateErrorPage(bool in_main_frame)
+{
+    Q_UNUSED(in_main_frame);
+    return false;
+}
+
+bool ContentBrowserClientQt::ShouldUseProcessPerSite(content::BrowserContext* browser_context, const GURL& effective_url)
+{
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+     if (effective_url.SchemeIs(extensions::kExtensionScheme))
+        return true;
+#endif
+    return ContentBrowserClient::ShouldUseProcessPerSite(browser_context, effective_url);
+}
+
+std::string ContentBrowserClientQt::getUserAgent()
+{
+    // Mention the Chromium version we're based on to get passed stupid UA-string-based feature detection (several WebRTC demos need this)
+    return content::BuildUserAgentFromProduct("QtWebEngine/" QTWEBENGINECORE_VERSION_STR " Chrome/" CHROMIUM_VERSION);
+}
+
+std::string ContentBrowserClientQt::GetProduct() const
+{
+    QString productName(qApp->applicationName() % '/' % qApp->applicationVersion());
+    return productName.toStdString();
+}
+
+} // namespace QtWebEngineCore

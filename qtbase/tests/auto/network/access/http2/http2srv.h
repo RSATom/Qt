@@ -40,6 +40,7 @@
 #include <QtCore/qscopedpointer.h>
 #include <QtNetwork/qtcpserver.h>
 #include <QtCore/qbytearray.h>
+#include <QtCore/qatomic.h>
 #include <QtCore/qglobal.h>
 
 #include <vector>
@@ -61,19 +62,31 @@ public:
     Q_DECLARE_PRIVATE(Http11Reply)
 };
 
+enum class H2Type {
+    h2Alpn, // Secure connection, ALPN to negotiate h2.
+    h2c, // Clear text with protocol upgrade.
+    h2Direct, // Secure connection, ALPN not supported.
+    h2cDirect, // Clear text direct
+};
+
 class Http2Server : public QTcpServer
 {
     Q_OBJECT
 public:
-    Http2Server(bool clearText, const Http2::RawSettings &serverSettings,
+
+    Http2Server(H2Type type, const Http2::RawSettings &serverSettings,
                 const Http2::RawSettings &clientSettings);
 
     ~Http2Server();
+
 
     // To be called before server started:
     void enablePushPromise(bool enabled, const QByteArray &path = QByteArray());
     void setResponseBody(const QByteArray &body);
     void emulateGOAWAY(int timeout);
+    void redirectOpenStream(quint16 targetPort);
+
+    bool isClearText() const;
 
     // Invokables, since we can call them from the main thread,
     // but server (can) work on its own thread.
@@ -94,6 +107,8 @@ public:
     Q_INVOKABLE void handleWINDOW_UPDATE();
 
     Q_INVOKABLE void sendResponse(quint32 streamID, bool emptyBody);
+
+    void stopSendingDATAFrames();
 
 private:
     void processRequest();
@@ -116,7 +131,7 @@ private slots:
     void readReady();
 
 private:
-    void incomingConnection(qintptr socketDescriptor) Q_DECL_OVERRIDE;
+    void incomingConnection(qintptr socketDescriptor) override;
 
     quint32 clientSetting(Http2::Settings identifier, quint32 defaultValue);
     bool readMethodLine();
@@ -125,6 +140,7 @@ private:
 
     QScopedPointer<QAbstractSocket> socket;
 
+    H2Type connectionType = H2Type::h2Alpn;
     // Connection preface:
     bool waitingClientPreface = false;
     bool waitingClientSettings = false;
@@ -166,7 +182,6 @@ private:
     quint32 streamRecvWindowSize = Http2::defaultSessionWindowSize;
 
     QByteArray responseBody;
-    bool clearTextHTTP2 = false;
     bool pushPromiseEnabled = false;
     quint32 lastPromisedStream = 0;
     QByteArray pushPath;
@@ -186,6 +201,12 @@ private:
     // We need it for PUSH_PROMISE, with the correct port number appended,
     // when replying to essentially 1.1 request.
     QByteArray authority;
+    // Redirect, with status code 308, as soon as we've seen headers, while client
+    // may still be sending DATA frames.  See tst_Http2::earlyResponse().
+    bool redirectWhileReading = false;
+    bool redirectSent = false;
+    quint16 targetPort = 0;
+    QAtomicInt interrupted;
 protected slots:
     void ignoreErrorSlot();
 };

@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/supports_user_data.h"
+#include "net/base/network_change_notifier.h"
 #include "net/nqe/effective_connection_type.h"
 #include "url/gurl.h"
 
@@ -29,6 +30,9 @@ class DataReductionProxyData : public base::SupportsUserData::Data {
   DataReductionProxyData();
   ~DataReductionProxyData() override;
 
+  // Allow copying.
+  DataReductionProxyData(const DataReductionProxyData& other);
+
   // Whether the DataReductionProxy was used for this request or navigation.
   // Also true if the user is the holdback experiment, and the request would
   // otherwise be eligible to use the proxy.
@@ -37,21 +41,21 @@ class DataReductionProxyData : public base::SupportsUserData::Data {
     used_data_reduction_proxy_ = used_data_reduction_proxy;
   }
 
-  // Whether Lo-Fi was requested for this request or navigation. True if the
-  // session is in Lo-Fi control or enabled group, and the network quality is
-  // slow.
-  bool lofi_requested() const { return lofi_requested_; }
-  void set_lofi_requested(bool lofi_requested) {
-    lofi_requested_ = lofi_requested;
-  }
-
   // Whether a lite page response was seen for the request or navigation.
   bool lite_page_received() const { return lite_page_received_; }
   void set_lite_page_received(bool lite_page_received) {
     lite_page_received_ = lite_page_received;
   }
 
-  // Whether a lite page response was seen for the request or navigation.
+  // Whether a Lo-Fi (or empty-image) page policy directive was received for
+  // the navigation.
+  bool lofi_policy_received() const { return lofi_policy_received_; }
+  void set_lofi_policy_received(bool lofi_policy_received) {
+    lofi_policy_received_ = lofi_policy_received;
+  }
+
+  // Whether a server Lo-Fi page response was seen for the request or
+  // navigation.
   bool lofi_received() const { return lofi_received_; }
   void set_lofi_received(bool lofi_received) { lofi_received_ = lofi_received; }
 
@@ -61,6 +65,16 @@ class DataReductionProxyData : public base::SupportsUserData::Data {
   bool client_lofi_requested() const { return client_lofi_requested_; }
   void set_client_lofi_requested(bool client_lofi_requested) {
     client_lofi_requested_ = client_lofi_requested;
+  }
+
+  // This response was fetched from cache, but the original request used DRP.
+  bool was_cached_data_reduction_proxy_response() const {
+    return was_cached_data_reduction_proxy_response_;
+  }
+  void set_was_cached_data_reduction_proxy_response(
+      bool was_cached_data_reduction_proxy_response) {
+    was_cached_data_reduction_proxy_response_ =
+        was_cached_data_reduction_proxy_response;
   }
 
   // The session key used for this request. Only set for main frame requests.
@@ -84,10 +98,24 @@ class DataReductionProxyData : public base::SupportsUserData::Data {
     effective_connection_type_ = effective_connection_type;
   }
 
+  // The connection type (Wifi, 2G, 3G, 4G, None, etc) as reported by the
+  // NetworkChangeNotifier. Only set for main frame requests.
+  net::NetworkChangeNotifier::ConnectionType connection_type() const {
+    return connection_type_;
+  }
+  void set_connection_type(
+      const net::NetworkChangeNotifier::ConnectionType connection_type) {
+    connection_type_ = connection_type;
+  }
+
   // An identifier that is guaranteed to be unique to each page load during a
   // data saver session. Only present on main frame requests.
   const base::Optional<uint64_t>& page_id() const { return page_id_; }
   void set_page_id(uint64_t page_id) { page_id_ = page_id; }
+
+  // Whether the blacklist prevented a preview.
+  bool black_listed() const { return black_listed_; }
+  void set_black_listed(bool black_listed) { black_listed_ = black_listed; }
 
   // Removes |this| from |request|.
   static void ClearData(net::URLRequest* request);
@@ -109,23 +137,30 @@ class DataReductionProxyData : public base::SupportsUserData::Data {
   // Whether the DataReductionProxy was used for this request or navigation.
   // Also true if the user is the holdback experiment, and the request would
   // otherwise be eligible to use the proxy.
+  // Cached responses are not considered to have used DRP.
   bool used_data_reduction_proxy_;
-
-  // Whether server Lo-Fi was requested for this request or navigation. True if
-  // the session is in Lo-Fi control or enabled group, and the network quality
-  // is slow.
-  bool lofi_requested_;
 
   // Whether client Lo-Fi was requested for this request. This is only set on
   // image requests that have added a range header to attempt to get a smaller
   // file size image.
   bool client_lofi_requested_;
 
-  // Whether a lite page response was seen for the request or navigation.
+  // Whether a proxy-served lite page response was seen for the HTTP request or
+  // navigation.
   bool lite_page_received_;
+
+  // Whether server Lo-Fi directive was received for this navigation. True if
+  // the proxy returns the empty-image page-policy for the main frame response.
+  bool lofi_policy_received_;
 
   // Whether a lite page response was seen for the request or navigation.
   bool lofi_received_;
+
+  // Whether the blacklist prevented a preview.
+  bool black_listed_;
+
+  // This response was fetched from cache, but the original request used DRP.
+  bool was_cached_data_reduction_proxy_response_;
 
   // The session key used for this request or navigation.
   std::string session_key_;
@@ -138,11 +173,15 @@ class DataReductionProxyData : public base::SupportsUserData::Data {
   // set for main frame requests only.
   net::EffectiveConnectionType effective_connection_type_;
 
+  // The connection type (Wifi, 2G, 3G, 4G, None, etc) as reported by the
+  // NetworkChangeNotifier. Only set for main frame requests.
+  net::NetworkChangeNotifier::ConnectionType connection_type_;
+
   // An identifier that is guaranteed to be unique to each page load during a
   // data saver session. Only present on main frame requests.
   base::Optional<uint64_t> page_id_;
 
-  DISALLOW_COPY_AND_ASSIGN(DataReductionProxyData);
+  DISALLOW_ASSIGN(DataReductionProxyData);
 };
 
 }  // namespace data_reduction_proxy

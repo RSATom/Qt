@@ -1,3 +1,4 @@
+// -*- Mode: C++; c-basic-offset: 2; indent-tabs-mode: nil -*-
 /* Copyright (c) 2006, Google Inc.
  * All rights reserved.
  * 
@@ -300,7 +301,7 @@ class MemoryRegionMap {
   // To be accessed *only* when Lock() is held.
   // Hence we protect the non-recursive lock used inside of arena_
   // with our recursive Lock(). This lets a user prevent deadlocks
-  // when threads are stopped by ListAllProcessThreads at random spots
+  // when threads are stopped by TCMalloc_ListAllProcessThreads at random spots
   // simply by acquiring our recursive Lock() before that.
   static RegionSet* regions_;
 

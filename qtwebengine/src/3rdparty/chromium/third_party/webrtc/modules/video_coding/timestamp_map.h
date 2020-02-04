@@ -8,12 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_VIDEO_CODING_TIMESTAMP_MAP_H_
-#define WEBRTC_MODULES_VIDEO_CODING_TIMESTAMP_MAP_H_
+#ifndef MODULES_VIDEO_CODING_TIMESTAMP_MAP_H_
+#define MODULES_VIDEO_CODING_TIMESTAMP_MAP_H_
 
 #include <memory>
-
-#include "webrtc/typedefs.h"
 
 namespace webrtc {
 
@@ -23,9 +21,6 @@ class VCMTimestampMap {
  public:
   explicit VCMTimestampMap(size_t capacity);
   ~VCMTimestampMap();
-
-  // Empty the map.
-  void Reset();
 
   void Add(uint32_t timestamp, VCMFrameInformation* data);
   VCMFrameInformation* Pop(uint32_t timestamp);
@@ -45,4 +40,4 @@ class VCMTimestampMap {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_VIDEO_CODING_TIMESTAMP_MAP_H_
+#endif  // MODULES_VIDEO_CODING_TIMESTAMP_MAP_H_

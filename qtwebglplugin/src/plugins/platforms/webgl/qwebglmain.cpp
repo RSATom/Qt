@@ -47,27 +47,39 @@ QPlatformIntegration* QWebGLIntegrationPlugin::create(const QString& system,
                                                       const QStringList& paramList)
 {
     quint16 port = 8080;
+    quint16 wssport = 0;
+
     if (!paramList.isEmpty()) {
         for (const QString &parameter : qAsConst(paramList)) {
             const QStringList parts = parameter.split('=');
-            if (parts.first() == QStringLiteral("port") && parts.size() == 2) {
+            if (parts.first() == QStringLiteral("port")) {
                 if (parts.size() != 2) {
-                    qCCritical(lcWebGL, "QWebGLIntegrationPlugin::create: No port specified");
+                    qCCritical(lcWebGL, "Port parameter specified with no value");
                     return nullptr;
                 }
                 bool ok;
-                port = parts.last().toUInt(&ok);
+                port = parts.last().toUShort(&ok);
                 if (!ok) {
-                    qCCritical(lcWebGL, "QWebGLIntegrationPlugin::create: Invalid port number");
+                    qCCritical(lcWebGL, "Invalid port number");
                     return nullptr;
                 }
-            }
-            if (parts.first() == QStringLiteral("noloadingscreen"))
+            } else if (parts.first() == QStringLiteral("wsserverport")) {
+                if (parts.size() != 2) {
+                    qCCritical(lcWebGL, "Websocket server port specified with no value");
+                    return nullptr;
+                }
+                bool ok;
+                wssport = parts.last().toUShort(&ok);
+                if (!ok) {
+                    qCCritical(lcWebGL, "Invalid websocket port number");
+                    return nullptr;
+                }
+            } else if (parts.first() == QStringLiteral("noloadingscreen"))
                 qputenv("QT_WEBGL_LOADINGSCREEN", "0");
         }
     }
     if (!system.compare(QLatin1String("webgl"), Qt::CaseInsensitive))
-        return new QWebGLIntegration(port);
+        return new QWebGLIntegration(port, wssport);
 
     return nullptr;
 }

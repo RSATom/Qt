@@ -5,7 +5,10 @@
 #ifndef GPU_IPC_HOST_GPU_MEMORY_BUFFER_SUPPORT_H_
 #define GPU_IPC_HOST_GPU_MEMORY_BUFFER_SUPPORT_H_
 
-#include "base/containers/hash_tables.h"
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
 #include "base/hash.h"
 #include "ui/gfx/buffer_types.h"
 
@@ -14,11 +17,11 @@ namespace gpu {
 using GpuMemoryBufferConfigurationKey =
     std::pair<gfx::BufferFormat, gfx::BufferUsage>;
 using GpuMemoryBufferConfigurationSet =
-    base::hash_set<GpuMemoryBufferConfigurationKey>;
+    std::unordered_set<GpuMemoryBufferConfigurationKey>;
 
 }  // namespace gpu
 
-namespace BASE_HASH_NAMESPACE {
+namespace std {
 
 template <>
 struct hash<gpu::GpuMemoryBufferConfigurationKey> {
@@ -28,18 +31,27 @@ struct hash<gpu::GpuMemoryBufferConfigurationKey> {
   }
 };
 
-}  // namespace BASE_HASH_NAMESPACE
+}  // namespace std
 
 namespace gpu {
+
+class GpuMemoryBufferSupport;
 
 bool AreNativeGpuMemoryBuffersEnabled();
 
 // Returns the set of supported configurations.
-GpuMemoryBufferConfigurationSet GetNativeGpuMemoryBufferConfigurations();
+GpuMemoryBufferConfigurationSet GetNativeGpuMemoryBufferConfigurations(
+    GpuMemoryBufferSupport* support);
 
-// Returns the OpenGL target to use for image textures.
-uint32_t GetImageTextureTarget(gfx::BufferFormat format,
-                               gfx::BufferUsage usage);
+// Returns true of the OpenGL target to use for the combination of format/usage
+// is not GL_TEXTURE_2D but a platform specific texture target.
+bool GetImageNeedsPlatformSpecificTextureTarget(gfx::BufferFormat format,
+                                                gfx::BufferUsage usage);
+
+// Populate a list of buffer usage/format for which a per platform specific
+// texture target must be used instead of GL_TEXTURE_2D.
+std::vector<gfx::BufferUsageAndFormat>
+CreateBufferUsageAndFormatExceptionList();
 
 }  // namespace gpu
 

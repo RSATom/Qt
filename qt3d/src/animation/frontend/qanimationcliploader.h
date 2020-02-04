@@ -47,7 +47,7 @@ namespace Qt3DAnimation {
 
 class QAnimationClipLoaderPrivate;
 
-class QT3DANIMATIONSHARED_EXPORT QAnimationClipLoader : public QAbstractAnimationClip
+class Q_3DANIMATIONSHARED_EXPORT QAnimationClipLoader : public QAbstractAnimationClip
 {
     Q_OBJECT
     Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
@@ -78,11 +78,11 @@ Q_SIGNALS:
 
 protected:
     explicit QAnimationClipLoader(QAnimationClipLoaderPrivate &dd, Qt3DCore::QNode *parent = nullptr);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QAnimationClipLoader)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DAnimation

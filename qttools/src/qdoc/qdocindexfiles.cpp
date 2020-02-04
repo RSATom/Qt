@@ -40,7 +40,18 @@
 
 QT_BEGIN_NAMESPACE
 
-static Node* top = 0;
+enum QDocAttr {
+    QDocAttrNone,
+    QDocAttrAttribution,
+    QDocAttrExample,
+    QDocAttrFile,
+    QDocAttrImage,
+    QDocAttrDocument,
+    QDocAttrExternalPage
+};
+
+static Node *root_ = nullptr;
+static IndexSectionWriter *post_ = nullptr;
 
 /*!
   \class QDocIndexFiles
@@ -48,13 +59,13 @@ static Node* top = 0;
   This class handles qdoc index files.
  */
 
-QDocIndexFiles* QDocIndexFiles::qdocIndexFiles_ = NULL;
+QDocIndexFiles* QDocIndexFiles::qdocIndexFiles_ = nullptr;
 
 /*!
   Constructs the singleton QDocIndexFiles.
  */
 QDocIndexFiles::QDocIndexFiles()
-    : gen_( 0 )
+    : gen_(nullptr)
 {
     qdb_ = QDocDatabase::qdocDB();
 }
@@ -64,8 +75,8 @@ QDocIndexFiles::QDocIndexFiles()
  */
 QDocIndexFiles::~QDocIndexFiles()
 {
-    qdb_ = 0;
-    gen_ = 0;
+    qdb_ = nullptr;
+    gen_ = nullptr;
 }
 
 /*!
@@ -74,7 +85,7 @@ QDocIndexFiles::~QDocIndexFiles()
  */
 QDocIndexFiles* QDocIndexFiles::qdocIndexFiles()
 {
-   if (!qdocIndexFiles_)
+   if (qdocIndexFiles_ == nullptr)
       qdocIndexFiles_ = new QDocIndexFiles;
    return qdocIndexFiles_;
 }
@@ -84,9 +95,9 @@ QDocIndexFiles* QDocIndexFiles::qdocIndexFiles()
  */
 void QDocIndexFiles::destroyQDocIndexFiles()
 {
-    if (qdocIndexFiles_) {
+    if (qdocIndexFiles_ != nullptr) {
         delete qdocIndexFiles_;
-        qdocIndexFiles_ = 0;
+        qdocIndexFiles_ = nullptr;
     }
 }
 
@@ -95,11 +106,9 @@ void QDocIndexFiles::destroyQDocIndexFiles()
  */
 void QDocIndexFiles::readIndexes(const QStringList& indexFiles)
 {
-    relatedList_.clear();
     foreach (const QString& indexFile, indexFiles) {
         QString msg = "Loading index file: " + indexFile;
         Location::logToStdErr(msg);
-        //qDebug() << msg;
         readIndexFile(indexFile);
     }
 }
@@ -175,7 +184,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
     QString href = attributes.value(QLatin1String("href")).toString();
     Node* node;
     Location location;
-    Aggregate* parent = 0;
+    Aggregate* parent = nullptr;
 
     bool hasReadChildren = false;
 
@@ -189,16 +198,22 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         lineNo = attributes.value("lineno").toInt();
     }
     if (elementName == QLatin1String("namespace")) {
-        node = new NamespaceNode(parent, name);
-
+        NamespaceNode* ns = new NamespaceNode(parent, name);
+        node = ns;
         if (!indexUrl.isEmpty())
             location = Location(indexUrl + QLatin1Char('/') + name.toLower() + ".html");
         else if (!indexUrl.isNull())
             location = Location(name.toLower() + ".html");
-
-    }
-    else if (elementName == QLatin1String("class")) {
-        node = new ClassNode(parent, name);
+    } else if (elementName == QLatin1String("class") || elementName == QLatin1String("struct") ||
+               elementName == QLatin1String("union")) {
+        Node::NodeType type = Node::Class;
+        if (elementName == QLatin1String("class"))
+            type = Node::Class;
+        else if (elementName == QLatin1String("struct"))
+            type = Node::Struct;
+        else if (elementName == QLatin1String("union"))
+            type = Node::Union;
+        node = new ClassNode(type, parent, name);
         if (attributes.hasAttribute(QLatin1String("bases"))) {
             QString bases = attributes.value(QLatin1String("bases")).toString();
             if (!bases.isEmpty())
@@ -212,8 +227,17 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         if (attributes.value(QLatin1String("abstract")) == QLatin1String("true"))
             abstract = true;
         node->setAbstract(abstract);
-    }
-    else if (elementName == QLatin1String("qmlclass")) {
+    } else if (elementName == QLatin1String("header")) {
+        node = new HeaderNode(parent, name);
+
+        if (attributes.hasAttribute(QLatin1String("location")))
+            name = attributes.value(QLatin1String("location")).toString();
+
+        if (!indexUrl.isEmpty())
+            location = Location(indexUrl + QLatin1Char('/') + name);
+        else if (!indexUrl.isNull())
+            location = Location(name);
+    } else if (elementName == QLatin1String("qmlclass")) {
         QmlTypeNode* qcn = new QmlTypeNode(parent, name);
         qcn->setTitle(attributes.value(QLatin1String("title")).toString());
         QString logicalModuleName = attributes.value(QLatin1String("qml-module-name")).toString();
@@ -234,8 +258,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         else if (!indexUrl.isNull())
             location = Location(name);
         node = qcn;
-    }
-    else if (elementName == QLatin1String("jstype")) {
+    } else if (elementName == QLatin1String("jstype")) {
         QmlTypeNode* qcn = new QmlTypeNode(parent, name);
         qcn->setGenus(Node::JS);
         qcn->setTitle(attributes.value(QLatin1String("title")).toString());
@@ -257,8 +280,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         else if (!indexUrl.isNull())
             location = Location(name);
         node = qcn;
-    }
-    else if (elementName == QLatin1String("qmlbasictype")) {
+    } else if (elementName == QLatin1String("qmlbasictype")) {
         QmlBasicTypeNode* qbtn = new QmlBasicTypeNode(parent, name);
         qbtn->setTitle(attributes.value(QLatin1String("title")).toString());
         if (attributes.hasAttribute(QLatin1String("location")))
@@ -268,8 +290,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         else if (!indexUrl.isNull())
             location = Location(name);
         node = qbtn;
-    }
-    else if (elementName == QLatin1String("jsbasictype")) {
+    } else if (elementName == QLatin1String("jsbasictype")) {
         QmlBasicTypeNode* qbtn = new QmlBasicTypeNode(parent, name);
         qbtn->setGenus(Node::JS);
         qbtn->setTitle(attributes.value(QLatin1String("title")).toString());
@@ -280,31 +301,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         else if (!indexUrl.isNull())
             location = Location(name);
         node = qbtn;
-    }
-    else if (elementName == QLatin1String("qmlpropertygroup")) {
-        QmlTypeNode* qcn = static_cast<QmlTypeNode*>(parent);
-        QmlPropertyGroupNode* qpgn = new QmlPropertyGroupNode(qcn, name);
-        if (attributes.hasAttribute(QLatin1String("location")))
-            name = attributes.value("location").toString();
-        if (!indexUrl.isEmpty())
-            location = Location(indexUrl + QLatin1Char('/') + name);
-        else if (!indexUrl.isNull())
-            location = Location(name);
-        node = qpgn;
-    }
-    else if (elementName == QLatin1String("jspropertygroup")) {
-        QmlTypeNode* qcn = static_cast<QmlTypeNode*>(parent);
-        QmlPropertyGroupNode* qpgn = new QmlPropertyGroupNode(qcn, name);
-        qpgn->setGenus(Node::JS);
-        if (attributes.hasAttribute(QLatin1String("location")))
-            name = attributes.value("location").toString();
-        if (!indexUrl.isEmpty())
-            location = Location(indexUrl + QLatin1Char('/') + name);
-        else if (!indexUrl.isNull())
-            location = Location(name);
-        node = qpgn;
-    }
-    else if (elementName == QLatin1String("qmlproperty")) {
+    } else if (elementName == QLatin1String("qmlproperty")) {
         QString type = attributes.value(QLatin1String("type")).toString();
         bool attached = false;
         if (attributes.value(QLatin1String("attached")) == QLatin1String("true"))
@@ -313,10 +310,9 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         if (attributes.value(QLatin1String("writable")) == QLatin1String("false"))
             readonly = true;
         QmlPropertyNode* qpn = new QmlPropertyNode(parent, name, type, attached);
-        qpn->setReadOnly(readonly);
+        qpn->markReadOnly(readonly);
         node = qpn;
-    }
-    else if (elementName == QLatin1String("jsproperty")) {
+    } else if (elementName == QLatin1String("jsproperty")) {
         QString type = attributes.value(QLatin1String("type")).toString();
         bool attached = false;
         if (attributes.value(QLatin1String("attached")) == QLatin1String("true"))
@@ -326,107 +322,88 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
             readonly = true;
         QmlPropertyNode* qpn = new QmlPropertyNode(parent, name, type, attached);
         qpn->setGenus(Node::JS);
-        qpn->setReadOnly(readonly);
+        qpn->markReadOnly(readonly);
         node = qpn;
-    }
-    else if ((elementName == QLatin1String("qmlmethod")) ||
-             (elementName == QLatin1String("qmlsignal")) ||
-             (elementName == QLatin1String("qmlsignalhandler"))) {
-        Node::NodeType t = Node::QmlMethod;
-        if (elementName == QLatin1String("qmlsignal"))
-            t = Node::QmlSignal;
-        else if (elementName == QLatin1String("qmlsignalhandler"))
-            t = Node::QmlSignalHandler;
-        bool attached = false;
-        FunctionNode* fn = new FunctionNode(t, parent, name, attached);
-        node = fn;
-    }
-    else if ((elementName == QLatin1String("jsmethod")) ||
-             (elementName == QLatin1String("jssignal")) ||
-             (elementName == QLatin1String("jssignalhandler"))) {
-        Node::NodeType t = Node::QmlMethod;
-        if (elementName == QLatin1String("jssignal"))
-            t = Node::QmlSignal;
-        else if (elementName == QLatin1String("jssignalhandler"))
-            t = Node::QmlSignalHandler;
-        bool attached = false;
-        FunctionNode* fn = new FunctionNode(t, parent, name, attached);
-        fn->setGenus(Node::JS);
-        node = fn;
-    }
-    else if (elementName == QLatin1String("group")) {
+    } else if (elementName == QLatin1String("group")) {
         CollectionNode* cn = qdb_->addGroup(name);
         cn->setTitle(attributes.value(QLatin1String("title")).toString());
-        cn->setSubTitle(attributes.value(QLatin1String("subtitle")).toString());
+        cn->setSubtitle(attributes.value(QLatin1String("subtitle")).toString());
         if (attributes.value(QLatin1String("seen")) == QLatin1String("true"))
             cn->markSeen();
         node = cn;
-    }
-    else if (elementName == QLatin1String("module")) {
+    } else if (elementName == QLatin1String("module")) {
         CollectionNode* cn = qdb_->addModule(name);
         cn->setTitle(attributes.value(QLatin1String("title")).toString());
-        cn->setSubTitle(attributes.value(QLatin1String("subtitle")).toString());
+        cn->setSubtitle(attributes.value(QLatin1String("subtitle")).toString());
         if (attributes.value(QLatin1String("seen")) == QLatin1String("true"))
             cn->markSeen();
         node = cn;
-    }
-    else if (elementName == QLatin1String("qmlmodule")) {
+    } else if (elementName == QLatin1String("qmlmodule")) {
         QString t = attributes.value(QLatin1String("qml-module-name")).toString();
         CollectionNode* cn = qdb_->addQmlModule(t);
         QStringList info;
         info << t << attributes.value(QLatin1String("qml-module-version")).toString();
         cn->setLogicalModuleInfo(info);
         cn->setTitle(attributes.value(QLatin1String("title")).toString());
-        cn->setSubTitle(attributes.value(QLatin1String("subtitle")).toString());
+        cn->setSubtitle(attributes.value(QLatin1String("subtitle")).toString());
         if (attributes.value(QLatin1String("seen")) == QLatin1String("true"))
             cn->markSeen();
         node = cn;
-    }
-    else if (elementName == QLatin1String("jsmodule")) {
+    } else if (elementName == QLatin1String("jsmodule")) {
         QString t = attributes.value(QLatin1String("js-module-name")).toString();
         CollectionNode* cn = qdb_->addJsModule(t);
         QStringList info;
         info << t << attributes.value(QLatin1String("js-module-version")).toString();
         cn->setLogicalModuleInfo(info);
         cn->setTitle(attributes.value(QLatin1String("title")).toString());
-        cn->setSubTitle(attributes.value(QLatin1String("subtitle")).toString());
+        cn->setSubtitle(attributes.value(QLatin1String("subtitle")).toString());
         if (attributes.value(QLatin1String("seen")) == QLatin1String("true"))
             cn->markSeen();
         node = cn;
-    }
-    else if (elementName == QLatin1String("page")) {
-        Node::DocSubtype subtype;
+    } else if (elementName == QLatin1String("page")) {
+        QDocAttr subtype = QDocAttrNone;
         Node::PageType ptype = Node::NoPageType;
         QString attr = attributes.value(QLatin1String("subtype")).toString();
         if (attr == QLatin1String("attribution")) {
-            subtype = Node::Page;
+            subtype = QDocAttrDocument;
             ptype = Node::AttributionPage;
-        }
-        else if (attr == QLatin1String("example")) {
-            subtype = Node::Example;
+        } else if (attr == QLatin1String("example")) {
+            subtype = QDocAttrExample;
             ptype = Node::ExamplePage;
-        }
-        else if (attr == QLatin1String("header")) {
-            subtype = Node::HeaderFile;
-            ptype = Node::ApiPage;
-        }
-        else if (attr == QLatin1String("file")) {
-            subtype = Node::File;
+        } else if (attr == QLatin1String("file")) {
+            subtype = QDocAttrFile;
             ptype = Node::NoPageType;
-        }
-        else if (attr == QLatin1String("page")) {
-            subtype = Node::Page;
+        } else if (attr == QLatin1String("image")) {
+            subtype = QDocAttrImage;
+            ptype = Node::NoPageType;
+        } else if (attr == QLatin1String("page")) {
+            subtype = QDocAttrDocument;
             ptype = Node::ArticlePage;
-        }
-        else if (attr == QLatin1String("externalpage")) {
-            subtype = Node::ExternalPage;
+        } else if (attr == QLatin1String("externalpage")) {
+            subtype = QDocAttrExternalPage;
             ptype = Node::ArticlePage;
-        }
-        else
+        } else
             goto done;
 
-        DocumentNode* docNode = new DocumentNode(parent, name, subtype, ptype);
-        docNode->setTitle(attributes.value(QLatin1String("title")).toString());
+        if (current && current->isExample()) {
+            ExampleNode* en = static_cast<ExampleNode *>(current);
+            if (subtype == QDocAttrFile) {
+                en->appendFile(name);
+                goto done;
+            }
+            else if (subtype == QDocAttrImage) {
+                en->appendImage(name);
+                goto done;
+            }
+        }
+        PageNode* pn = nullptr;
+        if (subtype == QDocAttrExample)
+            pn = new ExampleNode(parent, name);
+        else if (subtype == QDocAttrExternalPage)
+            pn = new ExternalPageNode(parent, name);
+        else
+            pn = new PageNode(parent, name, ptype);
+        pn->setTitle(attributes.value(QLatin1String("title")).toString());
 
         if (attributes.hasAttribute(QLatin1String("location")))
             name = attributes.value(QLatin1String("location")).toString();
@@ -436,10 +413,9 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         else if (!indexUrl.isNull())
             location = Location(name);
 
-        node = docNode;
+        node = pn;
 
-    }
-    else if (elementName == QLatin1String("enum")) {
+    } else if (elementName == QLatin1String("enum")) {
         EnumNode* enumNode = new EnumNode(parent, name);
 
         if (!indexUrl.isEmpty())
@@ -464,8 +440,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         node = enumNode;
 
         hasReadChildren = true;
-    }
-    else if (elementName == QLatin1String("typedef")) {
+    } else if (elementName == QLatin1String("typedef")) {
         node = new TypedefNode(parent, name);
 
         if (!indexUrl.isEmpty())
@@ -473,8 +448,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         else if (!indexUrl.isNull())
             location = Location(parent->name().toLower() + ".html");
 
-    }
-    else if (elementName == QLatin1String("property")) {
+    } else if (elementName == QLatin1String("property")) {
         node = new PropertyNode(parent, name);
 
         if (!indexUrl.isEmpty())
@@ -482,84 +456,92 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         else if (!indexUrl.isNull())
             location = Location(parent->name().toLower() + ".html");
 
-    }
-    else if (elementName == QLatin1String("function")) {
-        FunctionNode* functionNode = new FunctionNode(parent, name);
-        functionNode->setReturnType(attributes.value(QLatin1String("return")).toString());
-        functionNode->setVirtualness(attributes.value(QLatin1String("virtual")).toString());
-        functionNode->setMetaness(attributes.value(QLatin1String("meta")).toString());
-        functionNode->setConst(attributes.value(QLatin1String("const")) == QLatin1String("true"));
-        functionNode->setStatic(attributes.value(QLatin1String("static")) == QLatin1String("true"));
-        functionNode->setIsDeleted(attributes.value(QLatin1String("delete")) == QLatin1String("true"));
-        functionNode->setIsDefaulted(attributes.value(QLatin1String("default")) == QLatin1String("true"));
-        functionNode->setFinal(attributes.value(QLatin1String("final")) == QLatin1String("true"));
-        functionNode->setOverride(attributes.value(QLatin1String("override")) == QLatin1String("true"));
-        if (attributes.value(QLatin1String("overload")) == QLatin1String("true")) {
-            functionNode->setOverloadFlag(true);
-            functionNode->setOverloadNumber(attributes.value(QLatin1String("overload-number")).toUInt());
-        }
-        else {
-            functionNode->setOverloadFlag(false);
-            functionNode->setOverloadNumber(0);
-        }
-        if (attributes.hasAttribute(QLatin1String("relates"))
-                && attributes.value(QLatin1String("relates")) != parent->name()) {
-            relatedList_.append(
-                        QPair<FunctionNode*,QString>(functionNode,
-                                                     attributes.value(QLatin1String("relates")).toString()));
-        }
-        /*
-          Note: The "signature" attribute was written to the
-          index file, but it is not read back in. Is that ok?
-         */
-
-        while (reader.readNextStartElement()) {
-            QXmlStreamAttributes childAttributes = reader.attributes();
-            if (reader.name() == QLatin1String("parameter")) {
-                // Do not use the default value for the parameter; it is not
-                // required, and has been known to cause problems.
-                Parameter parameter(childAttributes.value(QLatin1String("left")).toString(),
-                                    childAttributes.value(QLatin1String("right")).toString(),
-                                    childAttributes.value(QLatin1String("name")).toString(),
-                                    QString()); // childAttributes.value(QLatin1String("default"))
-                functionNode->addParameter(parameter);
-            } else if (reader.name() == QLatin1String("keyword")) {
-                insertTarget(TargetRec::Keyword, childAttributes, functionNode);
-            } else if (reader.name() == QLatin1String("target")) {
-                insertTarget(TargetRec::Target, childAttributes, functionNode);
+    } else if (elementName == QLatin1String("function")) {
+        QString t = attributes.value(QLatin1String("meta")).toString();
+        bool attached = false;
+        FunctionNode::Metaness metaness = FunctionNode::Plain;
+        if (!t.isEmpty())
+            metaness = FunctionNode::getMetaness(t);
+        if (attributes.value(QLatin1String("attached")) == QLatin1String("true"))
+            attached = true;
+        FunctionNode* fn = new FunctionNode(metaness, parent, name, attached);
+        if (fn->isCppNode()) {
+            fn->setReturnType(attributes.value(QLatin1String("type")).toString());
+            fn->setVirtualness(attributes.value(QLatin1String("virtual")).toString());
+            fn->setConst(attributes.value(QLatin1String("const")) == QLatin1String("true"));
+            fn->setStatic(attributes.value(QLatin1String("static")) == QLatin1String("true"));
+            fn->setFinal(attributes.value(QLatin1String("final")) == QLatin1String("true"));
+            fn->setOverride(attributes.value(QLatin1String("override")) == QLatin1String("true"));
+            int refness = attributes.value(QLatin1String("refness")).toUInt();
+            if (refness == 1)
+                fn->setRef(true);
+            else if (refness == 2)
+                fn->setRefRef(true);
+            /*
+              Theoretically, this should ensure that each function
+              node receives the same overload number and overload
+              flag it was written with, and it should be unnecessary
+              to call normalizeOverloads() for index nodes.
+             */
+            if (attributes.value(QLatin1String("overload")) == QLatin1String("true"))
+                fn->setOverloadNumber(attributes.value(QLatin1String("overload-number")).toUInt());
+            else
+                fn->setOverloadNumber(0);
+            /*
+              Note: The "signature" attribute was written to the
+              index file, but it is not read back in. That is ok
+              because we reconstruct the parameter list and the
+              return type, from which the signature was built in
+              the first place and from which it can be rebuilt.
+            */
+            while (reader.readNextStartElement()) {
+                QXmlStreamAttributes childAttributes = reader.attributes();
+                if (reader.name() == QLatin1String("parameter")) {
+                    // Do not use the default value for the parameter; it is not
+                    // required, and has been known to cause problems.
+                    QString type = childAttributes.value(QLatin1String("type")).toString();
+                    QString name = childAttributes.value(QLatin1String("name")).toString();
+                    fn->parameters().append(type, name);
+                } else if (reader.name() == QLatin1String("keyword")) {
+                    insertTarget(TargetRec::Keyword, childAttributes, fn);
+                } else if (reader.name() == QLatin1String("target")) {
+                    insertTarget(TargetRec::Target, childAttributes, fn);
+                }
+                reader.skipCurrentElement();
             }
-            reader.skipCurrentElement();
         }
 
-        node = functionNode;
+        node = fn;
         if (!indexUrl.isEmpty())
             location =  Location(indexUrl + QLatin1Char('/') + parent->name().toLower() + ".html");
         else if (!indexUrl.isNull())
             location = Location(parent->name().toLower() + ".html");
 
         hasReadChildren = true;
-    }
-    else if (elementName == QLatin1String("variable")) {
+    } else if (elementName == QLatin1String("variable")) {
         node = new VariableNode(parent, name);
         if (!indexUrl.isEmpty())
             location = Location(indexUrl + QLatin1Char('/') + parent->name().toLower() + ".html");
         else if (!indexUrl.isNull())
             location = Location(parent->name().toLower() + ".html");
-    }
-    else if (elementName == QLatin1String("keyword")) {
+    } else if (elementName == QLatin1String("keyword")) {
         insertTarget(TargetRec::Keyword, attributes, current);
         goto done;
-    }
-    else if (elementName == QLatin1String("target")) {
+    } else if (elementName == QLatin1String("target")) {
         insertTarget(TargetRec::Target, attributes, current);
         goto done;
-    }
-    else if (elementName == QLatin1String("contents")) {
+    } else if (elementName == QLatin1String("contents")) {
         insertTarget(TargetRec::Contents, attributes, current);
         goto done;
-    }
-    else
+    } else if (elementName == QLatin1String("proxy")) {
+        node = new ProxyNode(parent, name);
+        if (!indexUrl.isEmpty())
+            location = Location(indexUrl + QLatin1Char('/') + name.toLower() + ".html");
+        else if (!indexUrl.isNull())
+            location = Location(name.toLower() + ".html");
+    } else {
         goto done;
+    }
 
     {
         QString access = attributes.value(QLatin1String("access")).toString();
@@ -571,12 +553,10 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
             node->setAccess(Node::Private);
         else
             node->setAccess(Node::Public);
+        if (attributes.hasAttribute(QLatin1String("related")))
+            node->setRelatedNonmember(attributes.value(QLatin1String("related")) == QLatin1String("true"));
 
-        if ((elementName != QLatin1String("page")) &&
-                (elementName != QLatin1String("qmlclass")) &&
-                (elementName != QLatin1String("qmlbasictype")) &&
-                (elementName != QLatin1String("jstype")) &&
-                (elementName != QLatin1String("jsbasictype"))) {
+        if (attributes.hasAttribute(QLatin1String("threadsafety"))) {
             QString threadSafety = attributes.value(QLatin1String("threadsafety")).toString();
             if (threadSafety == QLatin1String("non-reentrant"))
                 node->setThreadSafeness(Node::NonReentrant);
@@ -591,9 +571,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
             node->setThreadSafeness(Node::UnspecifiedSafeness);
 
         QString status = attributes.value(QLatin1String("status")).toString();
-        if (status == QLatin1String("compat"))
-            node->setStatus(Node::Compat);
-        else if (status == QLatin1String("obsolete"))
+        if (status == QLatin1String("obsolete"))
             node->setStatus(Node::Obsolete);
         else if (status == QLatin1String("deprecated"))
             node->setStatus(Node::Obsolete);
@@ -621,6 +599,11 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
             node->setSince(since);
         }
 
+        if (attributes.hasAttribute(QLatin1String("documented"))) {
+            if (attributes.value(QLatin1String("documented")) == QLatin1String("true"))
+                node->setHadDoc();
+        }
+
         QString groupsAttr = attributes.value(QLatin1String("groups")).toString();
         if (!groupsAttr.isEmpty()) {
             QStringList groupNames = groupsAttr.split(QLatin1Char(','));
@@ -637,9 +620,9 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
             node->setLocation(t);
             location = t;
         }
-        Doc doc(location, location, " ", emptySet, emptySet); // placeholder
+        Doc doc(location, location, QString(), emptySet, emptySet); // placeholder
         node->setDoc(doc);
-        node->setIndexNodeFlag();
+        node->setIndexNodeFlag(); // Important: This node came from an index file.
         node->setOutputSubdirectory(project_.toLower());
         QString briefAttr = attributes.value(QLatin1String("brief")).toString();
         if (!briefAttr.isEmpty()) {
@@ -707,7 +690,8 @@ void QDocIndexFiles::resolveIndex()
 {
     QPair<ClassNode*,QString> pair;
     foreach (pair, basesList_) {
-        foreach (const QString& base, pair.second.split(QLatin1Char(','))) {
+        QStringList bases = pair.second.split(QLatin1Char(','));
+        foreach (const QString& base, bases) {
             QStringList basePath = base.split(QString("::"));
             Node* n = qdb_->findClassNode(basePath);
             if (n)
@@ -720,81 +704,128 @@ void QDocIndexFiles::resolveIndex()
     basesList_.clear();
 }
 
-/*
-    Goes though the list of nodes that are related to other aggregates
-    that were read from all index files, and tries to find the aggregate
-    nodes from the database. Calls the node's setRelates() for each
-    aggregate that is found in the local module (primary tree).
-
-    This function is meant to be called before starting the doc generation,
-    after all the index files are read.
- */
-void QDocIndexFiles::resolveRelates()
+static const QString getAccessString(Node::Access t)
 {
-    if (relatedList_.isEmpty())
-        return;
 
-    // Restrict searching only to the local (primary) tree
-    QVector<Tree*> searchOrder = qdb_->searchOrder();
-    qdb_->setLocalSearch();
-
-    QPair<FunctionNode*,QString> relatedPair;
-    foreach (relatedPair, relatedList_) {
-        QStringList path = relatedPair.second.split("::");
-        Node* n = qdb_->findRelatesNode(path);
-        if (n)
-            relatedPair.first->setRelates(static_cast<Aggregate*>(n));
+    switch (t) {
+    case Node::Public:
+        return QLatin1String("public");
+    case Node::Protected:
+        return QLatin1String("protected");
+    case Node::Private:
+        return QLatin1String("private");
+    default:
+        break;
     }
-    // Restore original search order
-    qdb_->setSearchOrder(searchOrder);
-    relatedList_.clear();
+    return QLatin1String("public");
+}
+
+static const QString getStatusString(Node::Status t)
+{
+    switch (t) {
+    case Node::Obsolete:
+    case Node::Deprecated:
+        return QLatin1String("obsolete");
+    case Node::Preliminary:
+        return QLatin1String("preliminary");
+    case Node::Active:
+        return QLatin1String("active");
+    case Node::Internal:
+        return QLatin1String("internal");
+    default:
+        break;
+    }
+    return QLatin1String("active");
+}
+
+static const QString getThreadSafenessString(Node::ThreadSafeness t)
+{
+    switch (t) {
+    case Node::NonReentrant:
+        return QLatin1String("non-reentrant");
+    case Node::Reentrant:
+        return QLatin1String("reentrant");
+    case Node::ThreadSafe:
+        return QLatin1String("thread safe");
+    case Node::UnspecifiedSafeness:
+    default:
+        break;
+    }
+    return QLatin1String("unspecified");
 }
 
 /*!
   Generate the index section with the given \a writer for the \a node
-  specified, returning true if an element was written; otherwise returns
-  false.
+  specified, returning true if an element was written, and returning
+  false if an element is not written.
+
+  \note Function nodes are processed in generateFunctionSection()
  */
-bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
-                                          Node* node,
-                                          bool generateInternalNodes)
+bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter &writer, Node *node, IndexSectionWriter *post)
 {
+    if (gen_ == nullptr)
+        gen_ = Generator::currentGenerator();
+
+    Q_ASSERT(gen_);
+
+    post_ = nullptr;
     /*
-      Don't include index nodes in a new index file. Or DITA map nodes.
+      Don't include index nodes in a new index file.
      */
-    if (node->isIndexNode() || node->docSubtype() == Node::DitaMap)
+    if (node->isIndexNode())
         return false;
 
     QString nodeName;
     QString logicalModuleName;
     QString logicalModuleVersion;
     QString qmlFullBaseName;
-    switch (node->type()) {
+    QString baseNameAttr;
+    QString moduleNameAttr;
+    QString moduleVerAttr;
+
+    switch (node->nodeType()) {
     case Node::Namespace:
         nodeName = "namespace";
         break;
     case Node::Class:
         nodeName = "class";
         break;
+    case Node::Struct:
+        nodeName = "struct";
+        break;
+    case Node::Union:
+        nodeName = "union";
+        break;
+    case Node::HeaderFile:
+        nodeName = "header";
+        break;
     case Node::QmlType:
-        {
-            if (node->isQmlNode())
-                nodeName = "qmlclass";
-            else
-                nodeName = "jstype";
-            CollectionNode* cn = node->logicalModule();
-            if (cn)
-                logicalModuleName = cn->logicalModuleName();
-            qmlFullBaseName = node->qmlFullBaseName();
-        }
+        nodeName = "qmlclass";
+        if (node->logicalModule() != nullptr)
+            logicalModuleName = node->logicalModule()->logicalModuleName();
+        baseNameAttr = "qml-base-type";
+        moduleNameAttr = "qml-module-name";
+        moduleVerAttr = "qml-module-version";
+        qmlFullBaseName = node->qmlFullBaseName();
+        break;
+    case Node::JsType:
+        nodeName = "jstype";
+        baseNameAttr = "js-base-type";
+        moduleNameAttr = "js-module-name";
+        moduleVerAttr = "js-module-version";
+        if (node->logicalModule() != nullptr)
+            logicalModuleName = node->logicalModule()->logicalModuleName();
+        qmlFullBaseName = node->qmlFullBaseName();
         break;
     case Node::QmlBasicType:
-        if (node->isQmlNode())
-            nodeName = "qmlbasictype";
-        else
-            nodeName = "jsbasictype";
+        nodeName = "qmlbasictype";
         break;
-    case Node::Document:
+    case Node::JsBasicType:
+        nodeName = "jsbasictype";
+        break;
+    case Node::Page:
+    case Node::Example:
+    case Node::ExternalPage:
         nodeName = "page";
         break;
     case Node::Group:
@@ -804,10 +835,18 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
         nodeName = "module";
         break;
     case Node::QmlModule:
-        if (node->isQmlNode())
-            nodeName = "qmlmodule";
-        else
-            nodeName = "jsmodule";
+        nodeName = "qmlmodule";
+        moduleNameAttr = "qml-module-name";
+        moduleVerAttr = "qml-module-version";
+        logicalModuleName = node->logicalModuleName();
+        logicalModuleVersion = node->logicalModuleVersion();
+        break;
+    case Node::JsModule:
+        nodeName = "jsmodule";
+        moduleNameAttr = "js-module-name";
+        moduleVerAttr = "js-module-version";
+        logicalModuleName = node->logicalModuleName();
+        logicalModuleVersion = node->logicalModuleVersion();
         break;
     case Node::Enum:
         nodeName = "enum";
@@ -818,62 +857,19 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
     case Node::Property:
         nodeName = "property";
         break;
-    case Node::Function:
-        nodeName = "function";
-        break;
     case Node::Variable:
         nodeName = "variable";
         break;
     case Node::QmlProperty:
-        if (node->isQmlNode())
-            nodeName = "qmlproperty";
-        else
-            nodeName = "jsProperty";
+        nodeName = "qmlproperty";
         break;
-    case Node::QmlPropertyGroup:
-        if (node->isQmlNode())
-            nodeName = "qmlpropertygroup";
-        else
-            nodeName = "jspropertygroup";
+    case Node::JsProperty:
+        nodeName = "jsProperty";
         break;
-    case Node::QmlSignal:
-        if (node->isQmlNode())
-            nodeName = "qmlsignal";
-        else
-            nodeName = "jssignal";
+    case Node::Proxy:
+        nodeName = "proxy";
         break;
-    case Node::QmlSignalHandler:
-        if (node->isQmlNode())
-            nodeName = "qmlsignalhandler";
-        else
-            nodeName = "jssignalhandler";
-        break;
-    case Node::QmlMethod:
-        if (node->isQmlNode())
-            nodeName = "qmlmethod";
-        else
-            nodeName = "jsmethod";
-        break;
-    default:
-        return false;
-    }
-
-    QString access;
-    switch (node->access()) {
-    case Node::Public:
-        access = "public";
-        break;
-    case Node::Protected:
-        access = "protected";
-        break;
-    case Node::Private:
-        {
-            access = "private";
-            bool b = generateInternalNodes;
-            if (b)
-                b = false;
-        }
-        break;
+    case Node::Function: // Now processed in generateFunctionSection()
     default:
         return false;
     }
@@ -885,110 +881,45 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
 
     writer.writeStartElement(nodeName);
 
-    QXmlStreamAttributes attributes;
-
-    if (!node->isDocumentNode() && !node->isCollectionNode()) {
-        QString threadSafety;
-        switch (node->threadSafeness()) {
-        case Node::NonReentrant:
-            threadSafety = "non-reentrant";
-            break;
-        case Node::Reentrant:
-            threadSafety = "reentrant";
-            break;
-        case Node::ThreadSafe:
-            threadSafety = "thread safe";
-            break;
-        case Node::UnspecifiedSafeness:
-        default:
-            threadSafety = "unspecified";
-            break;
-        }
-        writer.writeAttribute("threadsafety", threadSafety);
-    }
-
-    QString status;
-    switch (node->status()) {
-    case Node::Compat:
-        status = "compat";
-        break;
-    case Node::Obsolete:
-        status = "obsolete";
-        break;
-    case Node::Deprecated:
-        status = "obsolete";
-        break;
-    case Node::Preliminary:
-        status = "preliminary";
-        break;
-    case Node::Active:
-        status = "active";
-        break;
-    case Node::Internal:
-        status = "internal";
-        break;
-    default:
-        status = "main";
-        break;
+    if (!node->isTextPageNode() && !node->isCollectionNode() && !node->isHeader()) {
+        if (node->threadSafeness() != Node::UnspecifiedSafeness)
+            writer.writeAttribute("threadsafety", getThreadSafenessString(node->threadSafeness()));
     }
 
     writer.writeAttribute("name", objName);
 
     // Write module and base type info for QML/JS types
-    if (node->type() == Node::QmlType || node->type() == Node::QmlModule) {
-        QString baseNameAttr("qml-base-type");
-        QString moduleNameAttr("qml-module-name");
-        QString moduleVerAttr("qml-module-version");
-        if (node->isJsNode()) {
-            baseNameAttr = "js-base-type";
-            moduleNameAttr = "js-module-name";
-            moduleVerAttr = "js-module-version";
-        }
-        if (node->type() == Node::QmlModule) {
-            logicalModuleName = node->logicalModuleName();
-            logicalModuleVersion = node->logicalModuleVersion();
-        }
+    if (!moduleNameAttr.isEmpty()) {
         if (!logicalModuleName.isEmpty())
             writer.writeAttribute(moduleNameAttr, logicalModuleName);
         else
             writer.writeAttribute(moduleNameAttr, node->name());
         if (!logicalModuleVersion.isEmpty())
             writer.writeAttribute(moduleVerAttr, logicalModuleVersion);
-        if (!qmlFullBaseName.isEmpty())
-            writer.writeAttribute(baseNameAttr, qmlFullBaseName);
     }
+    if (!baseNameAttr.isEmpty() && !qmlFullBaseName.isEmpty())
+        writer.writeAttribute(baseNameAttr, qmlFullBaseName);
 
     QString href;
     if (!node->isExternalPage()) {
         QString fullName = node->fullDocumentName();
         if (fullName != objName)
             writer.writeAttribute("fullname", fullName);
-#if 0
-        if (Generator::useOutputSubdirs())
-            href = node->outputSubdirectory();
-        if (!href.isEmpty())
-            href.append(QLatin1Char('/'));
-        href.append(gen_->fullDocumentLocation(node));
-#endif
         href = gen_->fullDocumentLocation(node);
     }
     else
         href = node->name();
     if (node->isQmlNode() || node->isJsNode()) {
         Aggregate* p = node->parent();
-        if (p) {
-            if (p->isQmlPropertyGroup() || p->isJsPropertyGroup())
-                p = p->parent();
-            if (p && (p->isQmlType() || p->isJsType()) && p->isAbstract())
-                href.clear();
-        }
+        if (p && (p->isQmlType() || p->isJsType()) && p->isAbstract())
+            href.clear();
     }
     if (!href.isEmpty())
         writer.writeAttribute("href", href);
 
-    writer.writeAttribute("status", status);
-    if (!node->isDocumentNode() && !node->isCollectionNode()) {
-        writer.writeAttribute("access", access);
+    writer.writeAttribute("status", getStatusString(node->status()));
+    if (!node->isTextPageNode() && !node->isCollectionNode() && !node->isHeader()) {
+        writer.writeAttribute("access", getAccessString(node->access()));
         if (node->isAbstract())
             writer.writeAttribute("abstract", "true");
     }
@@ -1000,13 +931,20 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
         writer.writeAttribute("lineno", QString("%1").arg(declLocation.lineNo()));
     }
 
-    if (!node->since().isEmpty()) {
+    if (node->isRelatedNonmember())
+        writer.writeAttribute("related", "true");
+
+    if (!node->since().isEmpty())
         writer.writeAttribute("since", node->since());
-    }
+
+    if (node->hasDoc())
+        writer.writeAttribute("documented", "true");
 
     QString brief = node->doc().trimmedBriefText(node->name()).toString();
-    switch (node->type()) {
+    switch (node->nodeType()) {
     case Node::Class:
+    case Node::Struct:
+    case Node::Union:
         {
             // Classes contain information about their base classes.
             const ClassNode* classNode = static_cast<const ClassNode*>(node);
@@ -1016,6 +954,8 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
                 ClassNode* n = related.node_;
                 if (n)
                     baseStrings.insert(n->fullName());
+                else if (!related.path_.isEmpty())
+                    baseStrings.insert(related.path_.join(QLatin1String("::")));
             }
             if (!baseStrings.isEmpty())
             {
@@ -1031,71 +971,79 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
                 writer.writeAttribute("brief", brief);
         }
         break;
+    case Node::HeaderFile:
+        {
+            const HeaderNode* hn = static_cast<const HeaderNode*>(node);
+            if (!hn->physicalModuleName().isEmpty())
+                writer.writeAttribute("module", hn->physicalModuleName());
+            if (!hn->groupNames().isEmpty())
+                writer.writeAttribute("groups", hn->groupNames().join(QLatin1Char(',')));
+            if (!brief.isEmpty())
+                writer.writeAttribute("brief", brief);
+            writer.writeAttribute("title", hn->title());
+            writer.writeAttribute("fulltitle", hn->fullTitle());
+            writer.writeAttribute("subtitle", hn->subtitle());
+        }
+        break;
     case Node::Namespace:
         {
-            const NamespaceNode* namespaceNode = static_cast<const NamespaceNode*>(node);
-            if (!namespaceNode->physicalModuleName().isEmpty())
-                writer.writeAttribute("module", namespaceNode->physicalModuleName());
-            if (!namespaceNode->groupNames().isEmpty())
-                writer.writeAttribute("groups", namespaceNode->groupNames().join(QLatin1Char(',')));
+            const NamespaceNode* ns = static_cast<const NamespaceNode*>(node);
+            if (!ns->physicalModuleName().isEmpty())
+                writer.writeAttribute("module", ns->physicalModuleName());
+            if (!ns->groupNames().isEmpty())
+                writer.writeAttribute("groups", ns->groupNames().join(QLatin1Char(',')));
             if (!brief.isEmpty())
                 writer.writeAttribute("brief", brief);
         }
         break;
+    case Node::JsType:
     case Node::QmlType:
         {
             const QmlTypeNode* qcn = static_cast<const QmlTypeNode*>(node);
             writer.writeAttribute("title", qcn->title());
             writer.writeAttribute("fulltitle", qcn->fullTitle());
-            writer.writeAttribute("subtitle", qcn->subTitle());
+            writer.writeAttribute("subtitle", qcn->subtitle());
             if (!qcn->groupNames().isEmpty())
                 writer.writeAttribute("groups", qcn->groupNames().join(QLatin1Char(',')));
             if (!brief.isEmpty())
                 writer.writeAttribute("brief", brief);
         }
         break;
-    case Node::Document:
+    case Node::Page:
+    case Node::Example:
+    case Node::ExternalPage:
         {
             /*
-              Document nodes (such as manual pages) have a subtype,
-              a title, and other attributes.
+              Page nodes (anything that generates a doc page)
+              no longer have a subtype. Some of the subtypes
+              (Example, External, and Header) have been promoted
+              to be node types. They have become subclasses of
+              PageNode or, in the case of Header, a subclass of
+              Aggregate. The processing for other subtypes that
+              have not (yet) been promoted to be node types is
+              determined by the PageType enum.
             */
             bool writeModuleName = false;
-            const DocumentNode* docNode = static_cast<const DocumentNode*>(node);
-            switch (docNode->docSubtype()) {
-            case Node::Example:
+            if (node->isExample()) {
                 writer.writeAttribute("subtype", "example");
                 writeModuleName = true;
-                break;
-            case Node::HeaderFile:
-                writer.writeAttribute("subtype", "header");
-                writeModuleName = true;
-                break;
-            case Node::File:
-                writer.writeAttribute("subtype", "file");
-                break;
-            case Node::Page:
-                if (docNode->pageType() == Node::AttributionPage)
+            } else if (node->isExternalPage()) {
+                writer.writeAttribute("subtype", "externalpage");
+            } else {
+                if (node->pageType() == Node::AttributionPage)
                     writer.writeAttribute("subtype", "attribution");
                 else
                     writer.writeAttribute("subtype", "page");
-
                 writeModuleName = true;
-                break;
-            case Node::ExternalPage:
-                writer.writeAttribute("subtype", "externalpage");
-                break;
-            default:
-                break;
             }
-            writer.writeAttribute("title", docNode->title());
-            writer.writeAttribute("fulltitle", docNode->fullTitle());
-            writer.writeAttribute("subtitle", docNode->subTitle());
-            if (!node->physicalModuleName().isEmpty() && writeModuleName) {
+            const PageNode* pn = static_cast<const PageNode*>(node);
+            writer.writeAttribute("title", pn->title());
+            writer.writeAttribute("fulltitle", pn->fullTitle());
+            writer.writeAttribute("subtitle", pn->subtitle());
+            if (!node->physicalModuleName().isEmpty() && writeModuleName)
                 writer.writeAttribute("module", node->physicalModuleName());
-            }
-            if (!docNode->groupNames().isEmpty())
-                writer.writeAttribute("groups", docNode->groupNames().join(QLatin1Char(',')));
+            if (!pn->groupNames().isEmpty())
+                writer.writeAttribute("groups", pn->groupNames().join(QLatin1Char(',')));
             if (!brief.isEmpty())
                 writer.writeAttribute("brief", brief);
         }
@@ -1105,8 +1053,8 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
             const CollectionNode* cn = static_cast<const CollectionNode*>(node);
             writer.writeAttribute("seen", cn->wasSeen() ? "true" : "false");
             writer.writeAttribute("title", cn->title());
-            if (!cn->subTitle().isEmpty())
-                writer.writeAttribute("subtitle", cn->subTitle());
+            if (!cn->subtitle().isEmpty())
+                writer.writeAttribute("subtitle", cn->subtitle());
             if (!cn->physicalModuleName().isEmpty())
                 writer.writeAttribute("module", cn->physicalModuleName());
             if (!cn->groupNames().isEmpty())
@@ -1130,8 +1078,8 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
             const CollectionNode* cn = static_cast<const CollectionNode*>(node);
             writer.writeAttribute("seen", cn->wasSeen() ? "true" : "false");
             writer.writeAttribute("title", cn->title());
-            if (!cn->subTitle().isEmpty())
-                writer.writeAttribute("subtitle", cn->subTitle());
+            if (!cn->subtitle().isEmpty())
+                writer.writeAttribute("subtitle", cn->subtitle());
             if (!cn->physicalModuleName().isEmpty())
                 writer.writeAttribute("module", cn->physicalModuleName());
             if (!cn->groupNames().isEmpty())
@@ -1150,13 +1098,14 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
                 writer.writeAttribute("brief", brief);
         }
         break;
+    case Node::JsModule:
     case Node::QmlModule:
         {
             const CollectionNode* cn = static_cast<const CollectionNode*>(node);
             writer.writeAttribute("seen", cn->wasSeen() ? "true" : "false");
             writer.writeAttribute("title", cn->title());
-            if (!cn->subTitle().isEmpty())
-                writer.writeAttribute("subtitle", cn->subTitle());
+            if (!cn->subtitle().isEmpty())
+                writer.writeAttribute("subtitle", cn->subtitle());
             if (!cn->physicalModuleName().isEmpty())
                 writer.writeAttribute("module", cn->physicalModuleName());
             if (!cn->groupNames().isEmpty())
@@ -1175,81 +1124,13 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
                 writer.writeAttribute("brief", brief);
         }
         break;
-    case Node::Function:
-        {
-            /*
-              Function nodes contain information about the type of
-              function being described.
-            */
-            const FunctionNode* functionNode = static_cast<const FunctionNode*>(node);
-            writer.writeAttribute("virtual", functionNode->virtualness());
-            writer.writeAttribute("meta", functionNode->metaness());
-            writer.writeAttribute("const", functionNode->isConst()?"true":"false");
-            writer.writeAttribute("static", functionNode->isStatic()?"true":"false");
-            writer.writeAttribute("overload", functionNode->isOverload()?"true":"false");
-            writer.writeAttribute("delete", functionNode->isDeleted() ? "true" : "false");
-            writer.writeAttribute("default", functionNode->isDefaulted() ? "true" : "false");
-            writer.writeAttribute("final", functionNode->isFinal() ? "true" : "false");
-            writer.writeAttribute("override", functionNode->isOverride() ? "true" : "false");
-            if (functionNode->isOverload())
-                writer.writeAttribute("overload-number", QString::number(functionNode->overloadNumber()));
-            if (functionNode->relates()) {
-                writer.writeAttribute("relates", functionNode->relates()->name());
-            }
-            if (functionNode->hasAssociatedProperties()) {
-                QStringList associatedProperties;
-                foreach (PropertyNode* pn, functionNode->associatedProperties()) {
-                    associatedProperties << pn->name();
-                }
-                associatedProperties.sort();
-                writer.writeAttribute("associated-property", associatedProperties.join(QLatin1Char(',')));
-            }
-            writer.writeAttribute("type", functionNode->returnType());
-            if (!brief.isEmpty())
-                writer.writeAttribute("brief", brief);
-
-            /*
-              Note: The "signature" attribute is written to the
-              index file, but it is not read back in. Is that ok?
-            */
-            QString signature = functionNode->signature(false);
-            if (functionNode->isConst())
-                signature += " const";
-            if (functionNode->isFinal())
-                signature += " final";
-            if (functionNode->isOverride())
-                signature += " override";
-            if (functionNode->isPureVirtual())
-                signature += " = 0";
-            else if (functionNode->isDeleted())
-                signature += " = delete";
-            else if (functionNode->isDefaulted())
-                signature += " = default";
-            writer.writeAttribute("signature", signature);
-
-            for (int i = 0; i < functionNode->parameters().size(); ++i) {
-                Parameter parameter = functionNode->parameters()[i];
-                writer.writeStartElement("parameter");
-                writer.writeAttribute("left", parameter.dataType());
-                writer.writeAttribute("right", parameter.rightType());
-                writer.writeAttribute("name", parameter.name());
-                writer.writeAttribute("default", parameter.defaultValue());
-                writer.writeEndElement(); // parameter
-            }
-        }
-        break;
+    case Node::JsProperty:
     case Node::QmlProperty:
         {
             QmlPropertyNode* qpn = static_cast<QmlPropertyNode*>(node);
             writer.writeAttribute("type", qpn->dataType());
             writer.writeAttribute("attached", qpn->isAttached() ? "true" : "false");
             writer.writeAttribute("writable", qpn->isWritable() ? "true" : "false");
-            if (!brief.isEmpty())
-                writer.writeAttribute("brief", brief);
-        }
-        break;
-    case Node::QmlPropertyGroup:
-        {
             if (!brief.isEmpty())
                 writer.writeAttribute("brief", brief);
         }
@@ -1306,9 +1187,8 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
     case Node::Enum:
         {
             const EnumNode* enumNode = static_cast<const EnumNode*>(node);
-            if (enumNode->flagsType()) {
+            if (enumNode->flagsType())
                 writer.writeAttribute("typedef",enumNode->flagsType()->fullDocumentName());
-            }
             foreach (const EnumItem& item, enumNode->items()) {
                 writer.writeStartElement("value");
                 writer.writeAttribute("name", item.name());
@@ -1320,11 +1200,11 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
     case Node::Typedef:
         {
             const TypedefNode* typedefNode = static_cast<const TypedefNode*>(node);
-            if (typedefNode->associatedEnum()) {
+            if (typedefNode->associatedEnum())
                 writer.writeAttribute("enum",typedefNode->associatedEnum()->fullDocumentName());
-            }
         }
         break;
+    case Node::Function: // Now processed in generateFunctionSection()
     default:
         break;
     }
@@ -1343,11 +1223,8 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
 
     if (node->doc().hasTargets()) {
         bool external = false;
-        if (node->type() == Node::Document) {
-            const DocumentNode* docNode = static_cast<const DocumentNode*>(node);
-            if (docNode->docSubtype() == Node::ExternalPage)
-                external = true;
-        }
+        if (node->isExternalPage())
+            external = true;
         foreach (const Atom* target, node->doc().targets()) {
             QString title = target->string();
             QString name =  Doc::canonicalTitle(title);
@@ -1373,18 +1250,18 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
         }
     }
 
-    // Inner nodes and function nodes contain child nodes of some sort, either
-    // actual child nodes or function parameters. For these, we close the
-    // opening tag, create child elements, then add a closing tag for the
-    // element. Elements for all other nodes are closed in the opening tag.
-
-    if (node->isAggregate()) {
-        const Aggregate* inner = static_cast<const Aggregate*>(node);
-
-        if (inner->doc().hasTableOfContents()) {
-            for (int i = 0; i < inner->doc().tableOfContents().size(); ++i) {
-                Atom* item = inner->doc().tableOfContents()[i];
-                int level = inner->doc().tableOfContentsLevels()[i];
+    /*
+      Some nodes have a table of contents. For these, we close
+      the opening tag, create sub-elements for the items in the
+      table of contents, and then add a closing tag for the
+      element. Elements for all other nodes are closed in the
+      opening tag.
+    */
+    if (node->isPageNode() || node->isCollectionNode()) {
+        if (node->doc().hasTableOfContents()) {
+            for (int i = 0; i < node->doc().tableOfContents().size(); ++i) {
+                Atom* item = node->doc().tableOfContents()[i];
+                int level = node->doc().tableOfContentsLevels()[i];
                 QString title = Text::sectionHeading(item).toString();
                 writer.writeStartElement("contents");
                 writer.writeAttribute("name", Doc::canonicalTitle(title));
@@ -1394,39 +1271,202 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
             }
         }
     }
+    // WebXMLGenerator - skip the nested <page> elements for example
+    // files/images, as the generator produces them separately
+    if (node->isExample() && gen_->format() != QLatin1String("WebXML")) {
+        const ExampleNode *en = static_cast<const ExampleNode *>(node);
+        foreach (const QString &file, en->files()) {
+            writer.writeStartElement("page");
+            writer.writeAttribute("name", file);
+            QString href = gen_->linkForExampleFile(file, en);
+            writer.writeAttribute("href", href);
+            writer.writeAttribute("status", "active");
+            writer.writeAttribute("subtype", "file");
+            writer.writeAttribute("title", "");
+            writer.writeAttribute("fulltitle", Generator::exampleFileTitle(en, file));
+            writer.writeAttribute("subtitle", file);
+            writer.writeEndElement(); // page
+        }
+        foreach (const QString &file, en->images()) {
+            writer.writeStartElement("page");
+            writer.writeAttribute("name", file);
+            QString href = gen_->linkForExampleFile(file, en);
+            writer.writeAttribute("href", href);
+            writer.writeAttribute("status", "active");
+            writer.writeAttribute("subtype", "image");
+            writer.writeAttribute("title", "");
+            writer.writeAttribute("fulltitle", Generator::exampleFileTitle(en, file));
+            writer.writeAttribute("subtitle", file);
+            writer.writeEndElement(); // page
+        }
+    }
+    // Append to the section if the callback object was set
+    if (post)
+        post->append(writer, node);
+
+    post_ = post;
     return true;
 }
 
 /*!
+  This function writes a <function> element for \a fn to the
+  index file using \a writer.
+ */
+void QDocIndexFiles::generateFunctionSection(QXmlStreamWriter &writer, FunctionNode *fn)
+{
+    QString objName = fn->name();
+    writer.writeStartElement("function");
+    writer.writeAttribute("name", objName);
+
+    QString fullName = fn->fullDocumentName();
+    if (fullName != objName)
+        writer.writeAttribute("fullname", fullName);
+    QString href = gen_->fullDocumentLocation(fn);
+    if (!href.isEmpty())
+        writer.writeAttribute("href", href);
+    if (fn->threadSafeness() != Node::UnspecifiedSafeness)
+            writer.writeAttribute("threadsafety", getThreadSafenessString(fn->threadSafeness()));
+    writer.writeAttribute("status", getStatusString(fn->status()));
+    writer.writeAttribute("access", getAccessString(fn->access()));
+
+    const Location &declLocation = fn->declLocation();
+    if (!declLocation.fileName().isEmpty())
+        writer.writeAttribute("location", declLocation.fileName());
+    if (!declLocation.filePath().isEmpty()) {
+        writer.writeAttribute("filepath", declLocation.filePath());
+        writer.writeAttribute("lineno", QString("%1").arg(declLocation.lineNo()));
+    }
+
+    if (fn->hasDoc())
+        writer.writeAttribute("documented", "true");
+    if (fn->isRelatedNonmember())
+        writer.writeAttribute("related", "true");
+    if (!fn->since().isEmpty())
+        writer.writeAttribute("since", fn->since());
+
+    QString brief = fn->doc().trimmedBriefText(fn->name()).toString();
+    writer.writeAttribute("meta", fn->metanessString());
+    if (fn->isCppNode()) {
+        writer.writeAttribute("virtual",  fn->virtualness());
+        writer.writeAttribute("const",    fn->isConst()     ? "true" : "false");
+        writer.writeAttribute("static",   fn->isStatic()    ? "true" : "false");
+        writer.writeAttribute("final",    fn->isFinal()     ? "true" : "false");
+        writer.writeAttribute("override", fn->isOverride()  ? "true" : "false");
+        /*
+          This ensures that for functions that have overloads,
+          the first function written is the one that is not an
+          overload, and the overloads follow it immediately in
+          the index file numbered from 1 to n.
+         */
+        if (fn->isOverload() && (fn->overloadNumber() > 0)) {
+            writer.writeAttribute("overload", "true");
+            writer.writeAttribute("overload-number", QString::number(fn->overloadNumber()));
+        }
+        if (fn->isRef())
+            writer.writeAttribute("refness", QString::number(1));
+        else if (fn->isRefRef())
+            writer.writeAttribute("refness", QString::number(2));
+        if (fn->hasAssociatedProperties()) {
+            QStringList associatedProperties;
+            foreach (Node *n, fn->associatedProperties()) {
+                associatedProperties << n->name();
+            }
+            associatedProperties.sort();
+            writer.writeAttribute("associated-property", associatedProperties.join(QLatin1Char(',')));
+        }
+        writer.writeAttribute("type", fn->returnType());
+        if (!brief.isEmpty())
+            writer.writeAttribute("brief", brief);
+        /*
+          Note: The "signature" attribute is written to the
+          index file, but it is not read back in by qdoc. However,
+          we need it for the webxml generator.
+        */
+        QString signature = fn->signature(false, false);
+        // 'const' is already part of FunctionNode::signature()
+        if (fn->isFinal())
+            signature += " final";
+        if (fn->isOverride())
+            signature += " override";
+        if (fn->isPureVirtual())
+            signature += " = 0";
+        writer.writeAttribute("signature", signature);
+
+        for (int i = 0; i < fn->parameters().count(); ++i) {
+            const Parameter &parameter = fn->parameters().at(i);
+            writer.writeStartElement("parameter");
+            writer.writeAttribute("type", parameter.type());
+            writer.writeAttribute("name", parameter.name());
+            writer.writeAttribute("default", parameter.defaultValue());
+            writer.writeEndElement(); // parameter
+        }
+    }
+
+    // Append to the section if the callback object was set
+    if (post_)
+        post_->append(writer, fn);
+
+    writer.writeEndElement(); // function
+}
+
+/*!
+  This function outputs a <function> element to the index file
+  for each FunctionNode in \a aggregate using the \a writer.
+  The \a aggregate has a function map that contains all the
+  function nodes indexed by function name. But the map is not
+  used as a multimap, so if the \a aggregate contains multiple
+  functions with the same name, only one of those functions is
+  in the function map index. The others are linked to that
+  function using the next overload pointer.
+
+  So this function generates a <function> element for a function
+  followed by a function element for each of its overloads. If a
+  <function> element represents an overload, it has an \c overload
+  attribute set to \c true and an \c {overload-number} attribute
+  set to the function's overload number. If the <function>
+  element does not represent an overload, the <function> element
+  has neither of these attributes.
+ */
+void QDocIndexFiles::generateFunctionSections(QXmlStreamWriter &writer, Aggregate *aggregate)
+{
+    FunctionMap &functionMap = aggregate->functionMap();
+    if (!functionMap.isEmpty()) {
+        FunctionMap::iterator i = functionMap.begin();
+        while (i != functionMap.end()) {
+            FunctionNode *fn = i.value();
+            while (fn != nullptr) {
+                generateFunctionSection(writer, fn);
+                fn = fn->nextOverload();
+            }
+            i++;
+        }
+    }
+}
+
+/*!
   Generate index sections for the child nodes of the given \a node
-  using the \a writer specified. If \a generateInternalNodes is true,
-  nodes marked as internal will be included in the index; otherwise,
-  they will be omitted.
+  using the \a writer specified.
 */
-void QDocIndexFiles::generateIndexSections(QXmlStreamWriter& writer,
-                                           Node* node,
-                                           bool generateInternalNodes)
+void QDocIndexFiles::generateIndexSections(QXmlStreamWriter &writer, Node *node, IndexSectionWriter *post)
 {
     /*
       Note that groups, modules, and QML modules are written
       after all the other nodes.
      */
-    if (node->isGroup() || node->isModule() || node->isQmlModule() || node->isJsModule())
+    if (node->isCollectionNode() ||
+        node->isGroup() || node->isModule() || node->isQmlModule() || node->isJsModule())
         return;
 
-    if (generateIndexSection(writer, node, generateInternalNodes)) {
+    if (generateIndexSection(writer, node, post)) {
         if (node->isAggregate()) {
-            const Aggregate* inner = static_cast<const Aggregate*>(node);
-
-            NodeList cnodes = inner->childNodes();
-            std::sort(cnodes.begin(), cnodes.end(), Node::nodeNameLessThan);
-
-            foreach (Node* child, cnodes) {
-                generateIndexSections(writer, child, generateInternalNodes);
-            }
+            Aggregate *aggregate = static_cast<Aggregate *>(node);
+            // First write the function children, then write the nonfunction children.
+            generateFunctionSections(writer, aggregate);
+            foreach (Node *n, aggregate->nonfunctionList())
+                generateIndexSections(writer, n, post);
         }
 
-        if (node == top) {
+        if (node == root_) {
             /*
               We wait until the end of the index file to output the group, module,
               and QML module elements. By outputting them at the end, when we read
@@ -1439,7 +1479,7 @@ void QDocIndexFiles::generateIndexSections(QXmlStreamWriter& writer,
             if (!groups.isEmpty()) {
                 CNMap::ConstIterator g = groups.constBegin();
                 while (g != groups.constEnd()) {
-                    if (generateIndexSection(writer, g.value(), generateInternalNodes))
+                    if (generateIndexSection(writer, g.value(), post))
                         writer.writeEndElement();
                     ++g;
                 }
@@ -1449,7 +1489,7 @@ void QDocIndexFiles::generateIndexSections(QXmlStreamWriter& writer,
             if (!modules.isEmpty()) {
                 CNMap::ConstIterator g = modules.constBegin();
                 while (g != modules.constEnd()) {
-                    if (generateIndexSection(writer, g.value(), generateInternalNodes))
+                    if (generateIndexSection(writer, g.value(), post))
                         writer.writeEndElement();
                     ++g;
                 }
@@ -1459,7 +1499,7 @@ void QDocIndexFiles::generateIndexSections(QXmlStreamWriter& writer,
             if (!qmlModules.isEmpty()) {
                 CNMap::ConstIterator g = qmlModules.constBegin();
                 while (g != qmlModules.constEnd()) {
-                    if (generateIndexSection(writer, g.value(), generateInternalNodes))
+                    if (generateIndexSection(writer, g.value(), post))
                         writer.writeEndElement();
                     ++g;
                 }
@@ -1469,7 +1509,7 @@ void QDocIndexFiles::generateIndexSections(QXmlStreamWriter& writer,
             if (!jsModules.isEmpty()) {
                 CNMap::ConstIterator g = jsModules.constBegin();
                 while (g != jsModules.constEnd()) {
-                    if (generateIndexSection(writer, g.value(), generateInternalNodes))
+                    if (generateIndexSection(writer, g.value(), post))
                         writer.writeEndElement();
                     ++g;
                 }
@@ -1481,13 +1521,16 @@ void QDocIndexFiles::generateIndexSections(QXmlStreamWriter& writer,
 }
 
 /*!
-  Outputs an index file.
+  Writes aqdoc module index in XML to a file named \afilerName.
+  \a url becaomes the \c url attribute of the <INDEX> element.
+  \a title becomes the \c title attribute of the <INDEX> element.
+  \a g is used to get the Config object that contains the variables
+  from the module's .qdocconf file.
  */
 void QDocIndexFiles::generateIndex(const QString& fileName,
                                    const QString& url,
                                    const QString& title,
-                                   Generator* g,
-                                   bool generateInternalNodes)
+                                   Generator *g)
 {
     QFile file(fileName);
     if (!file.open(QFile::WriteOnly | QFile::Text))
@@ -1508,11 +1551,11 @@ void QDocIndexFiles::generateIndex(const QString& fileName,
     writer.writeAttribute("version", qdb_->version());
     writer.writeAttribute("project", g->config()->getString(CONFIG_PROJECT));
 
-    top = qdb_->primaryTreeRoot();
-    if (!top->tree()->indexTitle().isEmpty())
-        writer.writeAttribute("indexTitle", top->tree()->indexTitle());
+    root_ = qdb_->primaryTreeRoot();
+    if (!root_->tree()->indexTitle().isEmpty())
+        writer.writeAttribute("indexTitle", root_->tree()->indexTitle());
 
-    generateIndexSections(writer, top, generateInternalNodes);
+    generateIndexSections(writer, root_, nullptr);
 
     writer.writeEndElement(); // INDEX
     writer.writeEndElement(); // QDOCINDEX

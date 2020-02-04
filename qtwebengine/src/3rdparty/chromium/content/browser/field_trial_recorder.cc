@@ -4,7 +4,6 @@
 
 #include "content/browser/field_trial_recorder.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
@@ -17,7 +16,7 @@ FieldTrialRecorder::~FieldTrialRecorder() = default;
 // static
 void FieldTrialRecorder::Create(
     mojom::FieldTrialRecorderRequest request) {
-  mojo::MakeStrongBinding(base::MakeUnique<FieldTrialRecorder>(),
+  mojo::MakeStrongBinding(std::make_unique<FieldTrialRecorder>(),
                           std::move(request));
 }
 

@@ -6,11 +6,10 @@
 #define DEVICE_BLUETOOTH_BLUETOOTH_SOCKET_NET_H_
 
 #include <memory>
-#include <queue>
 #include <string>
 
+#include "base/containers/queue.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
 #include "device/bluetooth/bluetooth_socket.h"
@@ -112,7 +111,7 @@ class BluetoothSocketNet : public BluetoothSocket {
 
   std::unique_ptr<net::TCPSocket> tcp_socket_;
   scoped_refptr<net::IOBufferWithSize> read_buffer_;
-  std::queue<linked_ptr<WriteRequest> > write_queue_;
+  base::queue<std::unique_ptr<WriteRequest>> write_queue_;
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothSocketNet);
 };

@@ -78,7 +78,7 @@ public:
 };
 
 QQuickDropAreaPrivate::QQuickDropAreaPrivate()
-    : drag(0)
+    : drag(nullptr)
     , containsDrag(false)
 {
 }
@@ -93,7 +93,7 @@ QQuickDropAreaPrivate::~QQuickDropAreaPrivate()
     \instantiates QQuickDropArea
     \inqmlmodule QtQuick
     \ingroup qtquick-input
-    \brief For specifying drag and drop handling in an area
+    \brief For specifying drag and drop handling in an area.
 
     A DropArea is an invisible item which receives events when other items are
     dragged over it.
@@ -209,7 +209,7 @@ qreal QQuickDropAreaDrag::y() const
 /*!
     \qmlsignal QtQuick::DropArea::positionChanged(DragEvent drag)
 
-    This signal is emitted when the position of a drag has changed.
+    This signal is emitted when the position of a \a drag has changed.
 
     The corresponding handler is \c onPositionChanged.
 */
@@ -303,7 +303,7 @@ void QQuickDropArea::dragLeaveEvent(QDragLeaveEvent *)
     emit exited();
 
     d->containsDrag = false;
-    d->source = 0;
+    d->source = nullptr;
     emit containsDragChanged();
     if (d->drag)
         emit d->drag->sourceChanged();
@@ -312,7 +312,7 @@ void QQuickDropArea::dragLeaveEvent(QDragLeaveEvent *)
 /*!
     \qmlsignal QtQuick::DropArea::dropped(DragEvent drop)
 
-    This signal is emitted when a drop event occurs within the bounds of
+    This signal is emitted when a \a drop event occurs within the bounds of
     a DropArea.
 
     The corresponding handler is \c onDropped.
@@ -328,7 +328,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
     emit dropped(&dragTargetEvent);
 
     d->containsDrag = false;
-    d->source = 0;
+    d->source = nullptr;
     emit containsDragChanged();
     if (d->drag)
         emit d->drag->sourceChanged();
@@ -339,7 +339,7 @@ void QQuickDropArea::dropEvent(QDropEvent *event)
     \instantiates QQuickDropEvent
     \inqmlmodule QtQuick
     \ingroup qtquick-input-events
-    \brief Provides information about a drag event
+    \brief Provides information about a drag event.
 
     The position of the drag event can be obtained from the \l x and \l y
     properties, and the \l keys property identifies the drag keys of the event

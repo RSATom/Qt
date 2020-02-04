@@ -1,2 +1,4 @@
-[quitOnLastWindowClosed]
-osx-10.10
+[touchEventPropagation]
+# QTBUG-66745
+opensuse
+opensuse-leap

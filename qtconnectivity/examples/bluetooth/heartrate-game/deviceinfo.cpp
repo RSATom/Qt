@@ -54,7 +54,7 @@
 #include <QBluetoothUuid>
 
 DeviceInfo::DeviceInfo(const QBluetoothDeviceInfo &info):
-    QObject(), m_device(info)
+    m_device(info)
 {
 }
 

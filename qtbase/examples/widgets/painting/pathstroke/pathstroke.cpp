@@ -87,10 +87,12 @@ void PathStrokeControls::createCommonControls(QWidget* parent)
     m_joinGroup->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     QRadioButton *bevelJoin = new QRadioButton(m_joinGroup);
     QRadioButton *miterJoin = new QRadioButton(m_joinGroup);
+    QRadioButton *svgMiterJoin = new QRadioButton(m_joinGroup);
     QRadioButton *roundJoin = new QRadioButton(m_joinGroup);
     m_joinGroup->setTitle(tr("Join Style"));
     bevelJoin->setText(tr("Bevel"));
     miterJoin->setText(tr("Miter"));
+    svgMiterJoin->setText(tr("SvgMiter"));
     roundJoin->setText(tr("Round"));
 
     m_styleGroup = new QGroupBox(parent);
@@ -145,6 +147,7 @@ void PathStrokeControls::createCommonControls(QWidget* parent)
     QVBoxLayout *joinGroupLayout = new QVBoxLayout(m_joinGroup);
     joinGroupLayout->addWidget(bevelJoin);
     joinGroupLayout->addWidget(miterJoin);
+    joinGroupLayout->addWidget(svgMiterJoin);
     joinGroupLayout->addWidget(roundJoin);
 
     QVBoxLayout *styleGroupLayout = new QVBoxLayout(m_styleGroup);
@@ -161,23 +164,24 @@ void PathStrokeControls::createCommonControls(QWidget* parent)
 
 
     // Connections
-    connect(flatCap, SIGNAL(clicked()), m_renderer, SLOT(setFlatCap()));
-    connect(squareCap, SIGNAL(clicked()), m_renderer, SLOT(setSquareCap()));
-    connect(roundCap, SIGNAL(clicked()), m_renderer, SLOT(setRoundCap()));
+    connect(flatCap, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setFlatCap);
+    connect(squareCap, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setSquareCap);
+    connect(roundCap, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setRoundCap);
 
-    connect(bevelJoin, SIGNAL(clicked()), m_renderer, SLOT(setBevelJoin()));
-    connect(miterJoin, SIGNAL(clicked()), m_renderer, SLOT(setMiterJoin()));
-    connect(roundJoin, SIGNAL(clicked()), m_renderer, SLOT(setRoundJoin()));
+    connect(bevelJoin, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setBevelJoin);
+    connect(miterJoin, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setMiterJoin);
+    connect(svgMiterJoin, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setSvgMiterJoin);
+    connect(roundJoin, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setRoundJoin);
 
-    connect(curveMode, SIGNAL(clicked()), m_renderer, SLOT(setCurveMode()));
-    connect(lineMode, SIGNAL(clicked()), m_renderer, SLOT(setLineMode()));
+    connect(curveMode, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setCurveMode);
+    connect(lineMode, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setLineMode);
 
-    connect(solidLine, SIGNAL(clicked()), m_renderer, SLOT(setSolidLine()));
-    connect(dashLine, SIGNAL(clicked()), m_renderer, SLOT(setDashLine()));
-    connect(dotLine, SIGNAL(clicked()), m_renderer, SLOT(setDotLine()));
-    connect(dashDotLine, SIGNAL(clicked()), m_renderer, SLOT(setDashDotLine()));
-    connect(dashDotDotLine, SIGNAL(clicked()), m_renderer, SLOT(setDashDotDotLine()));
-    connect(customDashLine, SIGNAL(clicked()), m_renderer, SLOT(setCustomDashLine()));
+    connect(solidLine, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setSolidLine);
+    connect(dashLine, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setDashLine);
+    connect(dotLine, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setDotLine);
+    connect(dashDotLine, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setDashDotLine);
+    connect(dashDotDotLine, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setDashDotDotLine);
+    connect(customDashLine, &QAbstractButton::clicked, m_renderer, &PathStrokeRenderer::setCustomDashLine);
 
     // Set the defaults:
     flatCap->setChecked(true);
@@ -207,13 +211,11 @@ void PathStrokeControls::layoutForDesktop()
 
     QPushButton *showSourceButton = new QPushButton(mainGroup);
     showSourceButton->setText(tr("Show Source"));
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     QPushButton *enableOpenGLButton = new QPushButton(mainGroup);
     enableOpenGLButton->setText(tr("Use OpenGL"));
     enableOpenGLButton->setCheckable(true);
     enableOpenGLButton->setChecked(m_renderer->usesOpenGL());
-    if (!QGLFormat::hasOpenGL())
-        enableOpenGLButton->hide();
 #endif
     QPushButton *whatsThisButton = new QPushButton(mainGroup);
     whatsThisButton->setText(tr("What's This?"));
@@ -225,11 +227,11 @@ void PathStrokeControls::layoutForDesktop()
     penWidthLayout->addWidget(penWidth);
 
     QVBoxLayout * mainLayout = new QVBoxLayout(this);
-    mainLayout->setMargin(0);
+    mainLayout->setContentsMargins(QMargins());
     mainLayout->addWidget(mainGroup);
 
     QVBoxLayout *mainGroupLayout = new QVBoxLayout(mainGroup);
-    mainGroupLayout->setMargin(3);
+    mainGroupLayout->setContentsMargins(3, 3, 3, 3);
     mainGroupLayout->addWidget(m_capGroup);
     mainGroupLayout->addWidget(m_joinGroup);
     mainGroupLayout->addWidget(m_styleGroup);
@@ -238,24 +240,24 @@ void PathStrokeControls::layoutForDesktop()
     mainGroupLayout->addWidget(animated);
     mainGroupLayout->addStretch(1);
     mainGroupLayout->addWidget(showSourceButton);
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     mainGroupLayout->addWidget(enableOpenGLButton);
 #endif
     mainGroupLayout->addWidget(whatsThisButton);
 
 
     // Set up connections
-    connect(animated, SIGNAL(toggled(bool)), m_renderer, SLOT(setAnimation(bool)));
+    connect(animated, &QAbstractButton::toggled, m_renderer, &PathStrokeRenderer::setAnimation);
 
-    connect(penWidth, SIGNAL(valueChanged(int)), m_renderer, SLOT(setPenWidth(int)));
+    connect(penWidth, &QAbstractSlider::valueChanged, m_renderer, &PathStrokeRenderer::setPenWidth);
 
-    connect(showSourceButton, SIGNAL(clicked()), m_renderer, SLOT(showSource()));
-#ifdef QT_OPENGL_SUPPORT
-    connect(enableOpenGLButton, SIGNAL(clicked(bool)), m_renderer, SLOT(enableOpenGL(bool)));
+    connect(showSourceButton, &QAbstractButton::clicked, m_renderer, &ArthurFrame::showSource);
+#if QT_CONFIG(opengl)
+    connect(enableOpenGLButton, &QAbstractButton::clicked, m_renderer, &ArthurFrame::enableOpenGL);
 #endif
-    connect(whatsThisButton, SIGNAL(clicked(bool)), m_renderer, SLOT(setDescriptionEnabled(bool)));
-    connect(m_renderer, SIGNAL(descriptionEnabledChanged(bool)),
-            whatsThisButton, SLOT(setChecked(bool)));
+    connect(whatsThisButton, &QAbstractButton::clicked, m_renderer, &ArthurFrame::setDescriptionEnabled);
+    connect(m_renderer, &ArthurFrame::descriptionEnabledChanged,
+            whatsThisButton, &QAbstractButton::setChecked);
 
 
     // Set the defaults
@@ -268,10 +270,10 @@ void PathStrokeControls::layoutForSmallScreens()
 {
     createCommonControls(this);
 
-    m_capGroup->layout()->setMargin(0);
-    m_joinGroup->layout()->setMargin(0);
-    m_styleGroup->layout()->setMargin(0);
-    m_pathModeGroup->layout()->setMargin(0);
+    m_capGroup->layout()->setContentsMargins(QMargins());
+    m_joinGroup->layout()->setContentsMargins(QMargins());
+    m_styleGroup->layout()->setContentsMargins(QMargins());
+    m_pathModeGroup->layout()->setContentsMargins(QMargins());
 
     QPushButton* okBtn = new QPushButton(tr("OK"), this);
     okBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -286,13 +288,11 @@ void PathStrokeControls::layoutForSmallScreens()
     penWidth->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     penWidth->setRange(0, 500);
 
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     QPushButton *enableOpenGLButton = new QPushButton(this);
     enableOpenGLButton->setText(tr("Use OpenGL"));
     enableOpenGLButton->setCheckable(true);
     enableOpenGLButton->setChecked(m_renderer->usesOpenGL());
-    if (!QGLFormat::hasOpenGL())
-        enableOpenGLButton->hide();
 #endif
 
     // Layouts:
@@ -303,7 +303,7 @@ void PathStrokeControls::layoutForSmallScreens()
     QVBoxLayout *leftLayout = new QVBoxLayout(0);
     leftLayout->addWidget(m_capGroup);
     leftLayout->addWidget(m_joinGroup);
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     leftLayout->addWidget(enableOpenGLButton);
 #endif
     leftLayout->addLayout(penWidthLayout);
@@ -313,7 +313,7 @@ void PathStrokeControls::layoutForSmallScreens()
     rightLayout->addWidget(m_pathModeGroup);
 
     QGridLayout *mainLayout = new QGridLayout(this);
-    mainLayout->setMargin(0);
+    mainLayout->setContentsMargins(QMargins());
 
     // Add spacers around the form items so we don't look stupid at higher resolutions
     mainLayout->addItem(new QSpacerItem(0,0), 0, 0, 1, 4);
@@ -326,13 +326,13 @@ void PathStrokeControls::layoutForSmallScreens()
     mainLayout->addWidget(quitBtn, 2, 1, Qt::AlignHCenter | Qt::AlignTop);
     mainLayout->addWidget(okBtn, 2, 2, Qt::AlignHCenter | Qt::AlignTop);
 
-#ifdef QT_OPENGL_SUPPORT
-    connect(enableOpenGLButton, SIGNAL(clicked(bool)), m_renderer, SLOT(enableOpenGL(bool)));
+#if QT_CONFIG(opengl)
+    connect(enableOpenGLButton, &QAbstractButton::clicked, m_renderer, &ArthurFrame::enableOpenGL);
 #endif
 
-    connect(penWidth, SIGNAL(valueChanged(int)), m_renderer, SLOT(setPenWidth(int)));
-    connect(quitBtn, SIGNAL(clicked()), this, SLOT(emitQuitSignal()));
-    connect(okBtn, SIGNAL(clicked()), this, SLOT(emitOkSignal()));
+    connect(penWidth, &QAbstractSlider::valueChanged, m_renderer, &PathStrokeRenderer::setPenWidth);
+    connect(quitBtn, &QAbstractButton::clicked, this, &PathStrokeControls::emitQuitSignal);
+    connect(okBtn, &QAbstractButton::clicked, this, &PathStrokeControls::emitOkSignal);
 
     m_renderer->setAnimation(true);
     penWidth->setValue(50);
@@ -368,8 +368,8 @@ PathStrokeWidget::PathStrokeWidget(bool smallScreen)
     m_renderer->loadSourceFile(":res/pathstroke/pathstroke.cpp");
     m_renderer->loadDescription(":res/pathstroke/pathstroke.html");
 
-    connect(m_renderer, SIGNAL(clicked()), this, SLOT(showControls()));
-    connect(m_controls, SIGNAL(okPressed()), this, SLOT(hideControls()));
+    connect(m_renderer, &PathStrokeRenderer::clicked, this, &PathStrokeWidget::showControls);
+    connect(m_controls, &PathStrokeControls::okPressed, this, &PathStrokeWidget::hideControls);
     connect(m_controls, SIGNAL(quitPressed()), QApplication::instance(), SLOT(quit()));
 }
 
@@ -390,8 +390,8 @@ void PathStrokeWidget::setStyle( QStyle * style )
     {
         m_controls->setStyle(style);
 
-        QList<QWidget *> widgets = m_controls->findChildren<QWidget *>();
-        foreach (QWidget *w, widgets)
+        const QList<QWidget *> widgets = m_controls->findChildren<QWidget *>();
+        for (QWidget *w : widgets)
             w->setStyle(style);
     }
 }
@@ -605,7 +605,7 @@ bool PathStrokeRenderer::event(QEvent *e)
     {
         const QTouchEvent *const event = static_cast<const QTouchEvent*>(e);
         const QList<QTouchEvent::TouchPoint> points = event->touchPoints();
-        foreach (const QTouchEvent::TouchPoint &touchPoint, points) {
+        for (const QTouchEvent::TouchPoint &touchPoint : points) {
             const int id = touchPoint.id();
             switch (touchPoint.state()) {
             case Qt::TouchPointPressed:

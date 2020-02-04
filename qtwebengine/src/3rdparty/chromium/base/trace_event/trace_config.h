@@ -26,6 +26,8 @@ namespace trace_event {
 class ConvertableToTraceFormat;
 
 // Options determines how the trace buffer stores data.
+// A Java counterpart will be generated for this enum.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.base
 enum TraceRecordMode {
   // Record until the trace buffer is full.
   RECORD_UNTIL_FULL,
@@ -86,6 +88,32 @@ class BASE_EXPORT TraceConfig {
     HeapProfiler heap_profiler_options;
   };
 
+  class BASE_EXPORT ProcessFilterConfig {
+   public:
+    ProcessFilterConfig();
+    explicit ProcessFilterConfig(
+        const std::unordered_set<base::ProcessId>& included_process_ids);
+    ProcessFilterConfig(const ProcessFilterConfig&);
+    ~ProcessFilterConfig();
+
+    bool empty() const { return included_process_ids_.empty(); }
+
+    void Clear();
+    void Merge(const ProcessFilterConfig&);
+
+    void InitializeFromConfigDict(const base::DictionaryValue&);
+    void ToDict(DictionaryValue*) const;
+
+    bool IsEnabled(base::ProcessId) const;
+
+    bool operator==(const ProcessFilterConfig& other) const {
+      return included_process_ids_ == other.included_process_ids_;
+    }
+
+   private:
+    std::unordered_set<base::ProcessId> included_process_ids_;
+  };
+
   class BASE_EXPORT EventFilterConfig {
    public:
     EventFilterConfig(const std::string& predicate_name);
@@ -117,6 +145,8 @@ class BASE_EXPORT TraceConfig {
     std::unique_ptr<base::DictionaryValue> args_;
   };
   typedef std::vector<EventFilterConfig> EventFilters;
+
+  static std::string TraceRecordModeToStr(TraceRecordMode record_mode);
 
   TraceConfig();
 
@@ -196,10 +226,16 @@ class BASE_EXPORT TraceConfig {
   TraceConfig& operator=(const TraceConfig& rhs);
 
   TraceRecordMode GetTraceRecordMode() const { return record_mode_; }
+  size_t GetTraceBufferSizeInEvents() const {
+    return trace_buffer_size_in_events_;
+  }
   bool IsSystraceEnabled() const { return enable_systrace_; }
   bool IsArgumentFilterEnabled() const { return enable_argument_filter_; }
 
   void SetTraceRecordMode(TraceRecordMode mode) { record_mode_ = mode; }
+  void SetTraceBufferSizeInEvents(size_t size) {
+    trace_buffer_size_in_events_ = size;
+  }
   void EnableSystrace() { enable_systrace_ = true; }
   void EnableArgumentFilter() { enable_argument_filter_ = true; }
 
@@ -233,6 +269,11 @@ class BASE_EXPORT TraceConfig {
   const MemoryDumpConfig& memory_dump_config() const {
     return memory_dump_config_;
   }
+
+  const ProcessFilterConfig& process_filter_config() const {
+    return process_filter_config_;
+  }
+  void SetProcessFilterConfig(const ProcessFilterConfig&);
 
   const EventFilters& event_filters() const { return event_filters_; }
   void SetEventFilters(const EventFilters& filter_configs) {
@@ -269,12 +310,14 @@ class BASE_EXPORT TraceConfig {
   std::string ToTraceOptionsString() const;
 
   TraceRecordMode record_mode_;
+  size_t trace_buffer_size_in_events_ = 0;  // 0 specifies default size
   bool enable_systrace_ : 1;
   bool enable_argument_filter_ : 1;
 
   TraceConfigCategoryFilter category_filter_;
 
   MemoryDumpConfig memory_dump_config_;
+  ProcessFilterConfig process_filter_config_;
 
   EventFilters event_filters_;
 };

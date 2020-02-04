@@ -7,26 +7,29 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "webrtc/test/run_loop.h"
+#include "test/run_loop.h"
 
 #include <assert.h>
 
+#include <Windows.h>
 #include <conio.h>
 #include <stdio.h>
-#include <Windows.h>
 
 namespace webrtc {
 namespace test {
 
-void PressEnterToContinue() {
+void PressEnterToContinue(SingleThreadedTaskQueueForTesting &task_queue) {
   puts(">> Press ENTER to continue...");
 
-  MSG msg;
-  BOOL ret;
-  while ((ret = GetMessage(&msg, NULL, 0, 0)) != 0) {
-    assert(ret != -1);
-    TranslateMessage(&msg);
-    DispatchMessage(&msg);
+  while (!_kbhit() || _getch() != '\r') {
+    // Drive the message loop for the thread running the task_queue
+    task_queue.SendTask([&]() {
+      MSG msg;
+      if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+      }
+    });
   }
 }
 }  // namespace test

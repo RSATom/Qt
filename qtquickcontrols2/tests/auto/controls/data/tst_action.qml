@@ -48,10 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.3
-import QtQuick.Templates 2.3 as T
+import QtQuick.Controls 2.12
+import QtQuick.Templates 2.12 as T
 
 TestCase {
     id: testCase
@@ -164,5 +164,34 @@ TestCase {
 
         keyClick(Qt.Key_A, Qt.ControlModifier)
         compare(spy.count, 1)
+    }
+
+    Component {
+        id: shortcutBinding
+        Item {
+            Action {
+                id: action
+                shortcut: StandardKey.Copy
+            }
+
+            Shortcut {
+                id: indirectShortcut
+                sequence: action.shortcut
+            }
+
+            Shortcut {
+                id: directShortcut
+                sequence: StandardKey.Copy
+            }
+
+            property alias indirect: indirectShortcut;
+            property alias direct: directShortcut
+        }
+    }
+
+    function test_shortcutBinding() {
+        var container = createTemporaryObject(shortcutBinding, testCase);
+        verify(container)
+        compare(container.indirect.nativeText, container.direct.nativeText);
     }
 }

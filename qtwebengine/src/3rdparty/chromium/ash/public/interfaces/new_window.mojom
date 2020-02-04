@@ -4,6 +4,9 @@
 
 module ash.mojom;
 
+// For GURL.
+import "url/mojom/url.mojom";
+
 // An exported object in ash which lets an ash consumer set a client interface.
 interface NewWindowController {
   SetClient(associated NewWindowClient client);
@@ -14,6 +17,11 @@ interface NewWindowController {
 interface NewWindowClient {
   // Invoked when the user uses Ctrl+T to open a new tab.
   NewTab();
+
+  // Opens a new tab with the specified URL. If the |from_user_interaction|
+  // is true then the page will load with a user activation. This means the
+  // page will be able to autoplay media without restriction.
+  NewTabWithUrl(url.mojom.Url url, bool from_user_interaction);
 
   // Invoked when the user uses Ctrl-N or Ctrl-Shift-N to open a new window.
   NewWindow(bool incognito);
@@ -30,12 +38,13 @@ interface NewWindowClient {
   // Invoked when the user uses Shift+Ctrl+T to restore the closed tab.
   RestoreTab();
 
-  // Shows the keyboard shortcut overlay.
-  ShowKeyboardOverlay();
+  // Show the keyboard shortcut viewer.
+  ShowKeyboardShortcutViewer();
 
   // Shows the task manager window.
   ShowTaskManager();
 
-  // Opens the feedback page for "Report Issue".
-  OpenFeedbackPage();
+  // Opens the feedback page for "Report Issue". If |from_assistant| is
+  // true then the page is triggered from Assistant.
+  OpenFeedbackPage(bool from_assistant);
 };

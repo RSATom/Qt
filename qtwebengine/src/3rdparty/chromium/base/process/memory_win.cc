@@ -3,11 +3,19 @@
 // found in the LICENSE file.
 
 #include "base/process/memory.h"
+#include "base/stl_util.h"
+
+#include <windows.h>  // Must be in front of other Windows header files.
 
 #include <new.h>
 #include <psapi.h>
 #include <stddef.h>
-#include <windows.h>
+
+#if defined(__clang__)
+// This global constructor is trivial and non-racy (per being const).
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wglobal-constructors"
+#endif
 
 // malloc_unchecked is required to implement UncheckedMalloc properly.
 // It's provided by allocator_shim_win.cc but since that's not always present,
@@ -16,9 +24,13 @@ typedef void* (*MallocFn)(size_t);
 extern "C" void* (*const malloc_unchecked)(size_t);
 extern "C" void* (*const malloc_default)(size_t) = &malloc;
 
+#if defined(__clang__)
+#pragma clang diagnostic pop  // -Wglobal-constructors
+#endif
+
 #if defined(_M_IX86)
 #pragma comment(linker, "/alternatename:_malloc_unchecked=_malloc_default")
-#elif defined(_M_X64) || defined(_M_ARM)
+#elif defined(_M_X64) || defined(_M_ARM) || defined(_M_ARM64)
 #pragma comment(linker, "/alternatename:malloc_unchecked=malloc_default")
 #else
 #error Unsupported platform
@@ -38,7 +50,7 @@ NOINLINE int OnNoMemory(size_t size) {
   // Pass the size of the failed request in an exception argument.
   ULONG_PTR exception_args[] = {size};
   ::RaiseException(win::kOomExceptionCode, EXCEPTION_NONCONTINUABLE,
-                   arraysize(exception_args), exception_args);
+                   base::size(exception_args), exception_args);
 
   // Safety check, make sure process exits here.
   _exit(win::kOomExceptionCode);

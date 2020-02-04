@@ -30,16 +30,19 @@ class UI_ANDROID_EXPORT OverscrollRefresh {
   enum { kMinPullsToActivate = 3 };
 
   explicit OverscrollRefresh(OverscrollRefreshHandler* handler);
-  ~OverscrollRefresh();
+
+  virtual ~OverscrollRefresh();
 
   // Scroll event stream listening methods.
   void OnScrollBegin();
   // Returns whether the refresh was activated.
   void OnScrollEnd(const gfx::Vector2dF& velocity);
 
-  // Scroll ack listener. The effect will only be activated if the initial
-  // updates go unconsumed.
-  void OnScrollUpdateAck(bool was_consumed);
+  // Scroll ack listener. The effect will only be activated if |can_navigate|
+  // is true which happens when the scroll update is not consumed and the
+  // overscroll_behavior on y axis is 'auto'.
+  // This method is made virtual for mocking.
+  virtual void OnOverscrolled();
 
   // Returns true if the effect has consumed the |scroll_delta|.
   bool WillHandleScrollUpdate(const gfx::Vector2dF& scroll_delta);
@@ -55,18 +58,28 @@ class UI_ANDROID_EXPORT OverscrollRefresh {
 
   // Reset the effect to its inactive state, immediately detaching and
   // disabling any active effects.
-  void Reset();
+  // This method is made virtual for mocking.
+  virtual void Reset();
 
   // Returns true if the refresh effect is either being manipulated or animated.
-  bool IsActive() const;
+  // This method is made virtual for mocking.
+  virtual bool IsActive() const;
 
   // Returns true if the effect is waiting for an unconsumed scroll to start.
-  bool IsAwaitingScrollUpdateAck() const;
+  // This method is made virtual for mocking.
+  virtual bool IsAwaitingScrollUpdateAck() const;
+
+ protected:
+  // This constructor is for mocking only.
+  OverscrollRefresh();
 
  private:
   void Release(bool allow_refresh);
 
   bool scrolled_to_top_;
+  // True if the content y offset was zero before scroll began. Overscroll
+  // should not be triggered for the scroll that started from non-zero offset.
+  bool top_at_scroll_start_;
   bool overflow_y_hidden_;
 
   enum ScrollConsumptionState {
@@ -75,6 +88,7 @@ class UI_ANDROID_EXPORT OverscrollRefresh {
     ENABLED,
   } scroll_consumption_state_;
 
+  gfx::Vector2dF cumulative_scroll_;
   OverscrollRefreshHandler* const handler_;
 
   DISALLOW_COPY_AND_ASSIGN(OverscrollRefresh);

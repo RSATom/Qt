@@ -4,26 +4,26 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
+
 #include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
+#include "SkColorFilter.h"
+#include "SkColorPriv.h"
 #include "SkColorShader.h"
 #include "SkGradientShader.h"
 #include "SkGraphics.h"
+#include "SkOSFile.h"
 #include "SkPath.h"
 #include "SkRandom.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
-#include "SkColorPriv.h"
-#include "SkColorFilter.h"
+#include "SkShaper.h"
+#include "SkStream.h"
+#include "SkTextBlob.h"
 #include "SkTime.h"
 #include "SkTypeface.h"
-#include "SkTextBox.h"
-#include "SkOSFile.h"
-#include "SkStream.h"
-#include "SkKey.h"
+#include "SkUTF.h"
 
 extern void skia_set_text_gamma(float blackGamma, float whiteGamma);
 
@@ -39,7 +39,7 @@ static const char gText[] =
     "a decent respect to the opinions of mankind requires that they should "
     "declare the causes which impel them to the separation.";
 
-class TextBoxView : public SampleView {
+class TextBoxView : public Sample {
 public:
     TextBoxView() {
 #if defined(SK_BUILD_FOR_WIN) && defined(SK_FONTHOST_WIN_GDI)
@@ -57,10 +57,9 @@ public:
     }
 
 protected:
-    // overrides from SkEventSink
-    virtual bool onQuery(SkEvent* evt)  {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "TextBox");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "TextBox");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -71,27 +70,28 @@ protected:
 
         canvas->clipRect(SkRect::MakeWH(w, h));
         canvas->drawColor(bg);
+
+        SkShaper shaper(nullptr);
+
         SkScalar margin = 20;
-        SkTextBox tbox;
-        tbox.setMode(SkTextBox::kLineBreak_Mode);
-        tbox.setBox(margin, margin,
-                    w - margin, h - margin);
-        tbox.setSpacing(SkIntToScalar(3)/3, 0);
 
         SkPaint paint;
-        paint.setAntiAlias(true);
-        paint.setLCDRenderText(true);
         paint.setColor(fg);
-        tbox.setText(gText, strlen(gText), paint);
 
         for (int i = 9; i < 24; i += 2) {
-            paint.setTextSize(SkIntToScalar(i));
-            tbox.draw(canvas);
-            canvas->translate(0, tbox.getTextHeight() + paint.getFontSpacing());
+            SkTextBlobBuilderRunHandler builder;
+            SkFont font(nullptr, SkIntToScalar(i));
+            font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
+
+            SkPoint end = shaper.shape(&builder, font, gText, strlen(gText), true,
+                                       { margin, margin }, w - margin);
+            canvas->drawTextBlob(builder.makeBlob(), 0, 0, paint);
+
+            canvas->translate(0, end.y());
         }
     }
 
-    virtual void onDrawContent(SkCanvas* canvas) {
+    void onDrawContent(SkCanvas* canvas) override {
         SkScalar width = this->width() / 3;
         drawTest(canvas, width, this->height(), SK_ColorBLACK, SK_ColorWHITE);
         canvas->translate(width, 0);
@@ -103,10 +103,9 @@ protected:
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new TextBoxView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new TextBoxView(); )

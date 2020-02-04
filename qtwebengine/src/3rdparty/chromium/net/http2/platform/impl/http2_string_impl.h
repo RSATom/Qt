@@ -7,10 +7,10 @@
 
 #include <string>
 
-namespace net {
+namespace http2 {
 
 using Http2StringImpl = std::string;
 
-}  // namespace net
+}  // namespace http2
 
 #endif  // NET_HTTP2_PLATFORM_IMPL_HTTP2_STRING_IMPL_H_

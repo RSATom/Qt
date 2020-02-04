@@ -37,10 +37,8 @@ class tst_QBarCategoriesAxis: public tst_QAbstractAxis
 Q_OBJECT
 
 public slots:
-    void initTestCase();
-    void cleanupTestCase();
     void init();
-    void cleanup();
+    void cleanup() override;
 
 private slots:
     void qbarcategoryaxis_data();
@@ -90,15 +88,6 @@ private:
     QBarSeries* m_series;
 };
 
-void tst_QBarCategoriesAxis::initTestCase()
-{
-}
-
-void tst_QBarCategoriesAxis::cleanupTestCase()
-{
-    QTest::qWait(1); // Allow final deleteLaters to run
-}
-
 void tst_QBarCategoriesAxis::init()
 {
     m_baraxis = new QBarCategoryAxis();
@@ -128,7 +117,7 @@ void tst_QBarCategoriesAxis::init()
     foreach(QString category, categories)
         m_baraxis->append(category);
 
-    tst_QAbstractAxis::init(m_baraxis, m_series);
+    tst_QAbstractAxis::initAxes(m_baraxis, m_series);
     m_chart->addSeries(m_series);
     m_chart->createDefaultAxes();
 }
@@ -194,9 +183,10 @@ void tst_QBarCategoriesAxis::append()
     QCOMPARE(spy2.count(), 1);
     QCOMPARE(spy3.count(), 1);
 
-    m_chart->setAxisX(&axis, m_series);
+    m_chart->addAxis(&axis, Qt::AlignBottom);
+    m_series->attachAxis(&axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(axis.categories(), categories);
 
     QCOMPARE(spy0.count(), 1);
@@ -233,9 +223,10 @@ void tst_QBarCategoriesAxis::append2()
     QCOMPARE(spy2.count(), 1);
     QCOMPARE(spy3.count(), categories.count());
 
-    m_chart->setAxisX(&axis, m_series);
+    m_chart->addAxis(&axis, Qt::AlignBottom);
+    m_series->attachAxis(&axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(axis.categories(), categories);
 
     QCOMPARE(spy0.count(), categories.count());
@@ -277,9 +268,10 @@ void tst_QBarCategoriesAxis::at()
     QCOMPARE(spy2.count(), 0);
     QCOMPARE(spy3.count(), 0);
 
-    m_chart->setAxisX(&axis, m_series);
+    m_chart->addAxis(&axis, Qt::AlignBottom);
+    m_series->attachAxis(&axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(axis.at(index), string);
 
     QCOMPARE(spy0.count(), 0);
@@ -315,9 +307,10 @@ void tst_QBarCategoriesAxis::categories()
     QCOMPARE(spy2.count(), 1);
     QCOMPARE(spy3.count(), 1);
 
-    m_chart->setAxisX(&axis, m_series);
+    m_chart->addAxis(&axis, Qt::AlignBottom);
+    m_series->attachAxis(&axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(axis.categories(), categories);
 
     QCOMPARE(spy0.count(), 1);
@@ -356,9 +349,10 @@ void tst_QBarCategoriesAxis::clear()
     QCOMPARE(spy2.count(), 1);
     QCOMPARE(spy3.count(), 1);
 
-    m_chart->setAxisX(&axis, m_series);
+    m_chart->addAxis(&axis, Qt::AlignBottom);
+    m_series->attachAxis(&axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
     QCOMPARE(spy0.count(), 2);
     QCOMPARE(spy1.count(), 2);
@@ -404,9 +398,10 @@ void tst_QBarCategoriesAxis::count()
     QCOMPARE(spy3.count(), 0);
     QCOMPARE(spy4.count(), 0);
 
-    m_chart->setAxisX(&axis, m_series);
+    m_chart->addAxis(&axis, Qt::AlignBottom);
+    m_series->attachAxis(&axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(axis.count(), count);
 }
 
@@ -443,9 +438,10 @@ void tst_QBarCategoriesAxis::insert()
     QCOMPARE(spy3.count(), 0);
     QCOMPARE(spy4.count(), 1);
 
-    m_chart->setAxisX(&axis, m_series);
+    m_chart->addAxis(&axis, Qt::AlignBottom);
+    m_series->attachAxis(&axis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 }
 
 void tst_QBarCategoriesAxis::remove_data()
@@ -522,9 +518,10 @@ void tst_QBarCategoriesAxis::max_data()
 
 void tst_QBarCategoriesAxis::max()
 {
-    m_chart->setAxisX(m_baraxis, m_series);
+    m_chart->addAxis(m_baraxis, Qt::AlignBottom);
+    m_series->attachAxis(m_baraxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     max_raw();
 }
 
@@ -576,9 +573,10 @@ void tst_QBarCategoriesAxis::min_data()
 void tst_QBarCategoriesAxis::min()
 {
     min_raw();
-    m_chart->setAxisX(m_baraxis, m_series);
+    m_chart->addAxis(m_baraxis, Qt::AlignBottom);
+    m_series->attachAxis(m_baraxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
 }
 
@@ -634,9 +632,10 @@ void tst_QBarCategoriesAxis::range_data()
 void tst_QBarCategoriesAxis::range()
 {
     range_raw();
-    m_chart->setAxisX(m_baraxis, m_series);
+    m_chart->addAxis(m_baraxis, Qt::AlignBottom);
+    m_series->attachAxis(m_baraxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
 }
 
@@ -678,9 +677,10 @@ void tst_QBarCategoriesAxis::noautoscale()
     QCOMPARE(spy1.count(), 1);
     QCOMPARE(spy2.count(), 1);
 
-    m_chart->setAxisX(m_baraxis, m_series);
+    m_chart->addAxis(m_baraxis, Qt::AlignBottom);
+    m_series->attachAxis(m_baraxis);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_baraxis->min(),min);
     QCOMPARE(m_baraxis->max(),max);
 }
@@ -701,14 +701,15 @@ void tst_QBarCategoriesAxis::autoscale()
 
     QCOMPARE(m_baraxis->min(),QString());
     QCOMPARE(m_baraxis->max(),QString());
-    m_chart->setAxisX(m_baraxis, m_series);
+    m_chart->addAxis(m_baraxis, Qt::AlignBottom);
+    m_series->attachAxis(m_baraxis);
 
     QCOMPARE(spy0.count(), 1);
     QCOMPARE(spy1.count(), 1);
     QCOMPARE(spy2.count(), 1);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_baraxis->min(),QString("1"));
     QCOMPARE(m_baraxis->max(),QString("6"));
 }

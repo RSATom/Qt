@@ -69,12 +69,13 @@ class QHelpSearchIndexReader : public QThread
     Q_OBJECT
 
 public:
-    ~QHelpSearchIndexReader();
+    ~QHelpSearchIndexReader() override;
 
     void cancelSearching();
     void search(const QString &collectionFile,
                 const QString &indexFilesFolder,
-                const QString &searchInput);
+                const QString &searchInput,
+                bool usesFilterEngine = false);
     int searchResultCount() const;
     QVector<QHelpSearchResult> searchResults(int start, int end) const;
 
@@ -89,6 +90,7 @@ protected:
     QString m_collectionFile;
     QString m_searchInput;
     QString m_indexFilesFolder;
+    bool m_usesFilterEngine = false;
 
 private:
     void run() override = 0;

@@ -7,6 +7,8 @@
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -36,9 +38,8 @@ namespace {
 
 bool FileHandlerCanHandleFileWithExtension(const FileHandlerInfo& handler,
                                            const base::FilePath& path) {
-  for (std::set<std::string>::const_iterator extension =
-           handler.extensions.begin();
-       extension != handler.extensions.end(); ++extension) {
+  for (auto extension = handler.extensions.cbegin();
+       extension != handler.extensions.cend(); ++extension) {
     if (*extension == "*")
       return true;
 
@@ -66,8 +67,8 @@ bool FileHandlerCanHandleFileWithExtension(const FileHandlerInfo& handler,
 
 bool FileHandlerCanHandleFileWithMimeType(const FileHandlerInfo& handler,
                                           const std::string& mime_type) {
-  for (std::set<std::string>::const_iterator type = handler.types.begin();
-       type != handler.types.end(); ++type) {
+  for (auto type = handler.types.cbegin(); type != handler.types.cend();
+       ++type) {
     if (net::MatchesMimeType(*type, mime_type))
       return true;
   }
@@ -76,8 +77,6 @@ bool FileHandlerCanHandleFileWithMimeType(const FileHandlerInfo& handler,
 
 bool PrepareNativeLocalFileForWritableApp(const base::FilePath& path,
                                           bool is_directory) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
-
   // Don't allow links.
   if (base::PathExists(path) && base::IsLink(path))
     return false;
@@ -169,8 +168,8 @@ void WritableFileChecker::Check() {
       continue;
     }
 #endif
-    content::BrowserThread::PostTaskAndReplyWithResult(
-        content::BrowserThread::FILE, FROM_HERE,
+    base::PostTaskWithTraitsAndReplyWithResult(
+        FROM_HERE, {base::TaskPriority::USER_BLOCKING, base::MayBlock()},
         base::Bind(&PrepareNativeLocalFileForWritableApp, path, is_directory),
         base::Bind(&WritableFileChecker::OnPrepareFileDone, this, path));
   }
@@ -212,8 +211,7 @@ const FileHandlerInfo* FileHandlerForId(const Extension& app,
   if (!file_handlers)
     return NULL;
 
-  for (FileHandlersInfo::const_iterator i = file_handlers->begin();
-       i != file_handlers->end(); i++) {
+  for (auto i = file_handlers->cbegin(); i != file_handlers->cend(); i++) {
     if (i->id == handler_id)
       return &*i;
   }
@@ -232,11 +230,10 @@ std::vector<const FileHandlerInfo*> FindFileHandlersForEntries(
   if (!file_handlers)
     return handlers;
 
-  for (FileHandlersInfo::const_iterator data = file_handlers->begin();
-       data != file_handlers->end(); ++data) {
+  for (auto data = file_handlers->cbegin(); data != file_handlers->cend();
+       ++data) {
     bool handles_all_types = true;
-    for (std::vector<EntryInfo>::const_iterator it = entries.begin();
-         it != entries.end(); ++it) {
+    for (auto it = entries.cbegin(); it != entries.cend(); ++it) {
       if (!FileHandlerCanHandleEntry(*data, *it)) {
         handles_all_types = false;
         break;

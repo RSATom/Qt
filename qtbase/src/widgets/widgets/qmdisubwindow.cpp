@@ -373,18 +373,18 @@ class ControlLabel : public QWidget
 public:
     ControlLabel(QMdiSubWindow *subWindow, QWidget *parent = 0);
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
 
 signals:
     void _q_clicked();
     void _q_doubleClicked();
 
 protected:
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *paintEvent) Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent *mouseEvent) Q_DECL_OVERRIDE;
-    void mouseDoubleClickEvent(QMouseEvent *mouseEvent) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent *mouseEvent) Q_DECL_OVERRIDE;
+    bool event(QEvent *event) override;
+    void paintEvent(QPaintEvent *paintEvent) override;
+    void mousePressEvent(QMouseEvent *mouseEvent) override;
+    void mouseDoubleClickEvent(QMouseEvent *mouseEvent) override;
+    void mouseReleaseEvent(QMouseEvent *mouseEvent) override;
 
 private:
     QPixmap label;
@@ -504,7 +504,7 @@ class ControllerWidget : public QWidget
     Q_OBJECT
 public:
     ControllerWidget(QMdiSubWindow *subWindow, QWidget *parent = 0);
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
     void setControlVisible(QMdiSubWindowPrivate::WindowStateAction action, bool visible);
     inline bool hasVisibleControls() const
     {
@@ -519,12 +519,12 @@ signals:
     void _q_close();
 
 protected:
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
-    void leaveEvent(QEvent *event) Q_DECL_OVERRIDE;
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    bool event(QEvent *event) override;
 
 private:
     QStyle::SubControl activeControl;
@@ -1986,6 +1986,13 @@ void QMdiSubWindowPrivate::updateActions()
     for (int i = 0; i < NumWindowStateActions; ++i)
         setVisible(WindowStateAction(i), false);
 
+#ifdef Q_OS_MACOS
+    if (q_func()->style()->inherits("QMacStyle"))
+        for (int i = 0; i < NumWindowStateActions; ++i)
+            if (QAction *action = actions[i])
+                action->setIconVisibleInMenu(false);
+#endif
+
     if (windowFlags & Qt::FramelessWindowHint)
         return;
 
@@ -2261,7 +2268,7 @@ QMdiSubWindow::QMdiSubWindow(QWidget *parent, Qt::WindowFlags flags)
     setMouseTracking(true);
     setLayout(new QVBoxLayout);
     setFocusPolicy(Qt::StrongFocus);
-    layout()->setMargin(0);
+    layout()->setContentsMargins(QMargins());
     d->updateGeometryConstraints();
     setAttribute(Qt::WA_Resized, false);
     d->titleBarPalette = d->desktopPalette();
@@ -2569,7 +2576,8 @@ void QMdiSubWindow::showSystemMenu()
 /*!
     \since 4.4
 
-    Returns the area containing this sub-window, or 0 if there is none.
+    Returns the area containing this sub-window, or \nullptr if there
+    is none.
 
     \sa QMdiArea::addSubWindow()
 */
@@ -2583,7 +2591,7 @@ QMdiArea *QMdiSubWindow::mdiArea() const
         }
         parent = parent->parentWidget();
     }
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -3133,8 +3141,6 @@ void QMdiSubWindow::paintEvent(QPaintEvent *paintEvent)
     }
 
     Q_D(QMdiSubWindow);
-    if (isMaximized() && !d->drawTitleBarWhenMaximized())
-        return;
 
     if (d->resizeTimerId != -1) {
         // Only update the style option rect and the window title.
@@ -3154,6 +3160,17 @@ void QMdiSubWindow::paintEvent(QPaintEvent *paintEvent)
     }
 
     QStylePainter painter(this);
+    QStyleOptionFrame frameOptions;
+    frameOptions.initFrom(this);
+    frameOptions.state.setFlag(QStyle::State_Active, d->isActive);
+    if (isMaximized() && !d->drawTitleBarWhenMaximized()) {
+        if (!autoFillBackground() && (!widget() || !qt_widget_private(widget())->isOpaque)) {
+            // make sure we paint all pixels of a maximized QMdiSubWindow if no-one else does
+            painter.drawPrimitive(QStyle::PE_FrameWindow, frameOptions);
+        }
+        return;
+    }
+
     if (!d->windowTitle.isEmpty())
         painter.setFont(d->font);
     painter.drawComplexControl(QStyle::CC_TitleBar, d->cachedStyleOptions);
@@ -3161,10 +3178,7 @@ void QMdiSubWindow::paintEvent(QPaintEvent *paintEvent)
     if (isMinimized() && !d->hasBorder(d->cachedStyleOptions))
         return;
 
-    QStyleOptionFrame frameOptions;
-    frameOptions.initFrom(this);
     frameOptions.lineWidth = style()->pixelMetric(QStyle::PM_MdiSubWindowFrameWidth, 0, this);
-    frameOptions.state.setFlag(QStyle::State_Active, d->isActive);
 
     // ### Ensure that we do not require setting the cliprect for 4.4
     if (!isMinimized() && !d->hasBorder(d->cachedStyleOptions))
@@ -3334,8 +3348,11 @@ void QMdiSubWindow::mouseMoveEvent(QMouseEvent *mouseEvent)
     }
 
     if ((mouseEvent->buttons() & Qt::LeftButton) || d->isInInteractiveMode) {
-        if ((d->isResizeOperation() && d->resizeEnabled) || (d->isMoveOperation() && d->moveEnabled))
-            d->setNewGeometry(mapToParent(mouseEvent->pos()));
+        if ((d->isResizeOperation() && d->resizeEnabled) || (d->isMoveOperation() && d->moveEnabled)) {
+            // As setNewGeometry moves the window, it invalidates the pos() value of any mouse move events that are
+            // currently queued in the event loop. Map to parent using globalPos() instead.
+            d->setNewGeometry(parentWidget()->mapFromGlobal(mouseEvent->globalPos()));
+        }
         return;
     }
 

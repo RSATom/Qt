@@ -14,6 +14,8 @@ uint8_t FX_DaysInMonth(int32_t iYear, uint8_t iMonth);
 
 class CFX_DateTime {
  public:
+  static CFX_DateTime Now();
+
   CFX_DateTime()
       : year_(0),
         month_(0),
@@ -36,8 +38,6 @@ class CFX_DateTime {
         minute_(minute),
         second_(second),
         millisecond_(millisecond) {}
-
-  void Now();
 
   void Reset() {
     year_ = 0;
@@ -91,14 +91,14 @@ class CFX_DateTime {
   uint16_t millisecond_;
 };
 
-#if _FX_OS_ != _FX_ANDROID_
+#if _FX_OS_ != _FX_OS_ANDROID_
 #pragma pack(push, 1)
 #endif
 struct FX_TIMEZONE {
   int8_t tzHour;
   uint8_t tzMinute;
 };
-#if _FX_OS_ != _FX_ANDROID_
+#if _FX_OS_ != _FX_OS_ANDROID_
 #pragma pack(pop)
 #endif
 

@@ -12,9 +12,9 @@
 #include "content/common/content_export.h"
 #include "content/public/browser/web_contents_binding_set.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "device/screen_orientation/public/interfaces/screen_orientation.mojom.h"
-#include "device/screen_orientation/public/interfaces/screen_orientation_lock_types.mojom.h"
-#include "third_party/WebKit/public/platform/modules/screen_orientation/WebScreenOrientationLockType.h"
+#include "services/device/public/mojom/screen_orientation.mojom.h"
+#include "services/device/public/mojom/screen_orientation_lock_types.mojom.h"
+#include "third_party/blink/public/common/screen_orientation/web_screen_orientation_lock_type.h"
 
 namespace content {
 
@@ -24,7 +24,7 @@ class WebContents;
 // Handles screen orientation lock/unlock. Platforms which wish to provide
 // custom implementations can provide a factory for ScreenOrientationDelegate.
 class CONTENT_EXPORT ScreenOrientationProvider
-    : NON_EXPORTED_BASE(public device::mojom::ScreenOrientation),
+    : public device::mojom::ScreenOrientation,
       public WebContentsObserver {
  public:
   ScreenOrientationProvider(WebContents* web_contents);
@@ -42,7 +42,8 @@ class CONTENT_EXPORT ScreenOrientationProvider
 
   // Provide a delegate which creates delegates for platform implementations.
   // The delegate is not owned by ScreenOrientationProvider.
-  static void SetDelegate(ScreenOrientationDelegate* delegate_);
+  static void SetDelegate(ScreenOrientationDelegate* delegate);
+  static ScreenOrientationDelegate* GetDelegateForTesting();
 
   // WebContentsObserver
   void DidToggleFullscreenModeForTab(bool entered_fullscreen,

@@ -8,8 +8,8 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkTypeface.h"
-#include "third_party/skia/include/ports/SkFontMgr.h"
 #include "ui/gfx/font_list_impl.h"
 
 namespace {
@@ -25,9 +25,7 @@ bool g_default_impl_initialized = false;
 
 bool IsFontFamilyAvailable(const std::string& family, SkFontMgr* fontManager) {
 #if defined(OS_LINUX)
-  sk_sp<SkTypeface> typeface(
-      fontManager->legacyCreateTypeface(family.c_str(), SkFontStyle()));
-  return typeface;
+  return !!fontManager->legacyMakeTypeface(family.c_str(), SkFontStyle());
 #else
   sk_sp<SkFontStyleSet> set(fontManager->matchFamily(family.c_str()));
   return set && set->count();
@@ -222,7 +220,7 @@ FontList::FontList(FontListImpl* impl) : impl_(impl) {}
 const scoped_refptr<FontListImpl>& FontList::GetDefaultImpl() {
   // SetDefaultFontDescription() must be called and the default font description
   // must be set earlier than any call of this function.
-  DCHECK(!(g_default_font_description == NULL))  // != is not overloaded.
+  DCHECK(g_default_font_description.IsCreated())
       << "SetDefaultFontDescription has not been called.";
 
   if (!g_default_impl_initialized) {

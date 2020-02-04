@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fwl/cfwl_eventscroll.h"
 #include "xfa/fwl/cfwl_timer.h"
 #include "xfa/fwl/cfwl_widget.h"
@@ -20,7 +21,7 @@ class CFWL_Widget;
 #define FWL_STYLEEXT_SCB_Horz (0L << 0)
 #define FWL_STYLEEXT_SCB_Vert (1L << 0)
 
-class CFWL_ScrollBar : public CFWL_Widget {
+class CFWL_ScrollBar final : public CFWL_Widget {
  public:
   CFWL_ScrollBar(const CFWL_App* app,
                  std::unique_ptr<CFWL_WidgetProperties> properties,
@@ -30,10 +31,10 @@ class CFWL_ScrollBar : public CFWL_Widget {
   // CFWL_Widget
   FWL_Type GetClassID() const override;
   void Update() override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
   void OnDrawWidget(CXFA_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+                    const CFX_Matrix& matrix) override;
 
   void GetRange(float* fMin, float* fMax) const {
     ASSERT(fMin);
@@ -54,7 +55,7 @@ class CFWL_ScrollBar : public CFWL_Widget {
   void SetTrackPos(float fTrackPos);
 
  private:
-  class Timer : public CFWL_Timer {
+  class Timer final : public CFWL_Timer {
    public:
     explicit Timer(CFWL_ScrollBar* pToolTip);
     ~Timer() override {}
@@ -109,24 +110,24 @@ class CFWL_ScrollBar : public CFWL_Widget {
   void DoMouseLeave(int32_t iItem, const CFX_RectF& rtItem, int32_t& iState);
   void DoMouseHover(int32_t iItem, const CFX_RectF& rtItem, int32_t& iState);
 
-  CFWL_TimerInfo* m_pTimerInfo;
-  float m_fRangeMin;
-  float m_fRangeMax;
-  float m_fPageSize;
-  float m_fStepSize;
-  float m_fPos;
-  float m_fTrackPos;
-  int32_t m_iMinButtonState;
-  int32_t m_iMaxButtonState;
-  int32_t m_iThumbButtonState;
-  int32_t m_iMinTrackState;
-  int32_t m_iMaxTrackState;
-  float m_fLastTrackPos;
+  UnownedPtr<CFWL_TimerInfo> m_pTimerInfo;
+  float m_fRangeMin = 0.0f;
+  float m_fRangeMax = -1.0f;
+  float m_fPageSize = 0.0f;
+  float m_fStepSize = 0.0f;
+  float m_fPos = 0.0f;
+  float m_fTrackPos = 0.0f;
+  int32_t m_iMinButtonState = CFWL_PartState_Normal;
+  int32_t m_iMaxButtonState = CFWL_PartState_Normal;
+  int32_t m_iThumbButtonState = CFWL_PartState_Normal;
+  int32_t m_iMinTrackState = CFWL_PartState_Normal;
+  int32_t m_iMaxTrackState = CFWL_PartState_Normal;
+  float m_fLastTrackPos = 0.0f;
   CFX_PointF m_cpTrackPoint;
-  int32_t m_iMouseWheel;
-  bool m_bMouseDown;
-  float m_fButtonLen;
-  bool m_bMinSize;
+  int32_t m_iMouseWheel = 0;
+  float m_fButtonLen = 0.0f;
+  bool m_bMouseDown = false;
+  bool m_bMinSize = false;
   CFX_RectF m_rtClient;
   CFX_RectF m_rtThumb;
   CFX_RectF m_rtMinBtn;

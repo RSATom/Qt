@@ -144,6 +144,7 @@
 #include "qcompleter_p.h"
 
 #include "QtWidgets/qscrollbar.h"
+#include "QtCore/qdir.h"
 #include "QtCore/qstringlistmodel.h"
 #if QT_CONFIG(dirmodel)
 #include "QtWidgets/qdirmodel.h"
@@ -162,6 +163,7 @@
 #if QT_CONFIG(lineedit)
 #include "QtWidgets/qlineedit.h"
 #endif
+#include "QtCore/qdir.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -180,10 +182,10 @@ int QCompletionModel::columnCount(const QModelIndex &) const
 
 void QCompletionModel::setSourceModel(QAbstractItemModel *source)
 {
-    bool hadModel = (sourceModel() != 0);
+    bool hadModel = (sourceModel() != nullptr);
 
     if (hadModel)
-        QObject::disconnect(sourceModel(), 0, this, 0);
+        QObject::disconnect(sourceModel(), nullptr, this, nullptr);
 
     QAbstractProxyModel::setSourceModel(source);
 
@@ -400,7 +402,7 @@ QVariant QCompletionModel::data(const QModelIndex& index, int role) const
 
 void QCompletionModel::modelDestroyed()
 {
-    QAbstractProxyModel::setSourceModel(0); // switch to static empty model
+    QAbstractProxyModel::setSourceModel(nullptr); // switch to static empty model
     invalidate();
 }
 
@@ -469,13 +471,13 @@ QMatchData QCompletionEngine::filterHistory()
         return QMatchData();
 
 #if QT_CONFIG(dirmodel)
-    const bool isDirModel = (qobject_cast<QDirModel *>(source) != 0);
+    const bool isDirModel = (qobject_cast<QDirModel *>(source) != nullptr);
 #else
     const bool isDirModel = false;
 #endif
     Q_UNUSED(isDirModel)
 #if QT_CONFIG(filesystemmodel)
-    const bool isFsModel = (qobject_cast<QFileSystemModel *>(source) != 0);
+    const bool isFsModel = (qobject_cast<QFileSystemModel *>(source) != nullptr);
 #else
     const bool isFsModel = false;
 #endif
@@ -826,9 +828,18 @@ QMatchData QUnsortedModelEngine::filter(const QString& part, const QModelIndex& 
 
 ///////////////////////////////////////////////////////////////////////////////
 QCompleterPrivate::QCompleterPrivate()
-: widget(0), proxy(0), popup(0), filterMode(Qt::MatchStartsWith), cs(Qt::CaseSensitive),
-  role(Qt::EditRole), column(0), maxVisibleItems(7), sorting(QCompleter::UnsortedModel),
-  wrap(true), eatFocusOut(true), hiddenBecauseNoMatch(false)
+    : widget(nullptr),
+      proxy(nullptr),
+      popup(nullptr),
+      filterMode(Qt::MatchStartsWith),
+      cs(Qt::CaseSensitive),
+      role(Qt::EditRole),
+      column(0),
+      maxVisibleItems(7),
+      sorting(QCompleter::UnsortedModel),
+      wrap(true),
+      eatFocusOut(true),
+      hiddenBecauseNoMatch(false)
 {
 }
 
@@ -965,18 +976,48 @@ void QCompleterPrivate::showPopup(const QRect& rect)
         popup->show();
 }
 
+#if QT_CONFIG(filesystemmodel)
+static bool isRoot(const QFileSystemModel *model, const QString &path)
+{
+    const auto index = model->index(path);
+    return index.isValid() && model->fileInfo(index).isRoot();
+}
+
+static bool completeOnLoaded(const QFileSystemModel *model,
+                             const QString &nativePrefix,
+                             const QString &path,
+                             Qt::CaseSensitivity caseSensitivity)
+{
+    const auto pathSize = path.size();
+    const auto prefixSize = nativePrefix.size();
+    if (prefixSize < pathSize)
+        return false;
+    const QString prefix = QDir::fromNativeSeparators(nativePrefix);
+    if (prefixSize == pathSize)
+        return path.compare(prefix, caseSensitivity) == 0 && isRoot(model, path);
+    // The user is typing something within that directory and is not in a subdirectory yet.
+    const auto separator = QLatin1Char('/');
+    return prefix.startsWith(path, caseSensitivity) && prefix.at(pathSize) == separator
+        && !prefix.rightRef(prefixSize - pathSize - 1).contains(separator);
+}
+
 void QCompleterPrivate::_q_fileSystemModelDirectoryLoaded(const QString &path)
 {
     Q_Q(QCompleter);
     // Slot called when QFileSystemModel has finished loading.
     // If we hide the popup because there was no match because the model was not loaded yet,
-    // we re-start the completion when we get the results
-    if (hiddenBecauseNoMatch
-        && prefix.startsWith(path) && prefix != (path + QLatin1Char('/'))
-        && widget) {
-        q->complete();
+    // we re-start the completion when we get the results (unless triggered by
+    // something else, see QTBUG-14292).
+    if (hiddenBecauseNoMatch && widget) {
+        if (auto model = qobject_cast<const QFileSystemModel *>(proxy->sourceModel())) {
+            if (completeOnLoaded(model, prefix, path, cs))
+                q->complete();
+        }
     }
 }
+#else // QT_CONFIG(filesystemmodel)
+void QCompleterPrivate::_q_fileSystemModelDirectoryLoaded(const QString &) {}
+#endif
 
 /*!
     Constructs a completer object with the given \a parent.
@@ -999,7 +1040,7 @@ QCompleter::QCompleter(QAbstractItemModel *model, QObject *parent)
     d->init(model);
 }
 
-#ifndef QT_NO_STRINGLISTMODEL
+#if QT_CONFIG(stringlistmodel)
 /*!
     Constructs a QCompleter object with the given \a parent that uses the specified
     \a list as a source of possible completions.
@@ -1010,7 +1051,7 @@ QCompleter::QCompleter(const QStringList& list, QObject *parent)
     Q_D(QCompleter);
     d->init(new QStringListModel(list, this));
 }
-#endif // QT_NO_STRINGLISTMODEL
+#endif // QT_CONFIG(stringlistmodel)
 
 /*!
     Destroys the completer object.
@@ -1144,7 +1185,7 @@ void QCompleter::setCompletionMode(QCompleter::CompletionMode mode)
             d->widget->removeEventFilter(this);
         if (d->popup) {
             d->popup->deleteLater();
-            d->popup = 0;
+            d->popup = nullptr;
         }
     } else {
         if (d->widget)
@@ -1220,8 +1261,8 @@ void QCompleter::setPopup(QAbstractItemView *popup)
     Q_D(QCompleter);
     Q_ASSERT(popup != 0);
     if (d->popup) {
-        QObject::disconnect(d->popup->selectionModel(), 0, this, 0);
-        QObject::disconnect(d->popup, 0, this, 0);
+        QObject::disconnect(d->popup->selectionModel(), nullptr, this, nullptr);
+        QObject::disconnect(d->popup, nullptr, this, nullptr);
     }
     if (d->popup != popup)
         delete d->popup;
@@ -1232,7 +1273,14 @@ void QCompleter::setPopup(QAbstractItemView *popup)
     Qt::FocusPolicy origPolicy = Qt::NoFocus;
     if (d->widget)
         origPolicy = d->widget->focusPolicy();
-    popup->setParent(0, Qt::Popup);
+
+    // Mark the widget window as a popup, so that if the last non-popup window is closed by the
+    // user, the application should not be prevented from exiting. It needs to be set explicitly via
+    // setWindowFlag(), because passing the flag via setParent(parent, windowFlags) does not call
+    // QWidgetPrivate::adjustQuitOnCloseAttribute(), and causes an application not to exit if the
+    // popup ends up being the last window.
+    popup->setParent(nullptr);
+    popup->setWindowFlag(Qt::Popup);
     popup->setFocusPolicy(Qt::NoFocus);
     if (d->widget)
         d->widget->setFocusPolicy(origPolicy);
@@ -1486,7 +1534,7 @@ void QCompleter::complete(const QRect& rect)
         return;
     }
 
-    Q_ASSERT(d->widget != 0);
+    Q_ASSERT(d->widget);
     if ((d->mode == QCompleter::PopupCompletion && !idx.isValid())
         || (d->mode == QCompleter::UnfilteredPopupCompletion && d->proxy->rowCount() == 0)) {
         if (d->popup)
@@ -1796,10 +1844,10 @@ QString QCompleter::pathFromIndex(const QModelIndex& index) const
     bool isDirModel = false;
     bool isFsModel = false;
 #if QT_CONFIG(dirmodel)
-    isDirModel = qobject_cast<QDirModel *>(d->proxy->sourceModel()) != 0;
+    isDirModel = qobject_cast<QDirModel *>(d->proxy->sourceModel()) != nullptr;
 #endif
 #if QT_CONFIG(filesystemmodel)
-    isFsModel = qobject_cast<QFileSystemModel *>(d->proxy->sourceModel()) != 0;
+    isFsModel = qobject_cast<QFileSystemModel *>(d->proxy->sourceModel()) != nullptr;
 #endif
     if (!isDirModel && !isFsModel)
         return sourceModel->data(index, d->role).toString();
@@ -1846,13 +1894,13 @@ QStringList QCompleter::splitPath(const QString& path) const
     bool isFsModel = false;
 #if QT_CONFIG(dirmodel)
     Q_D(const QCompleter);
-    isDirModel = qobject_cast<QDirModel *>(d->proxy->sourceModel()) != 0;
+    isDirModel = qobject_cast<QDirModel *>(d->proxy->sourceModel()) != nullptr;
 #endif
 #if QT_CONFIG(filesystemmodel)
 #if !QT_CONFIG(dirmodel)
     Q_D(const QCompleter);
 #endif
-    isFsModel = qobject_cast<QFileSystemModel *>(d->proxy->sourceModel()) != 0;
+    isFsModel = qobject_cast<QFileSystemModel *>(d->proxy->sourceModel()) != nullptr;
 #endif
 
     if ((!isDirModel && !isFsModel) || path.isEmpty())

@@ -9,14 +9,14 @@
 #include <vector>
 
 #include "base/lazy_instance.h"
-#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
-#include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_offset_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_local_storage.h"
+#include "build/build_config.h"
 #include "components/url_formatter/idn_spoof_checker.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "third_party/icu/source/common/unicode/uidna.h"
@@ -28,13 +28,24 @@ namespace url_formatter {
 
 namespace {
 
-base::string16 IDNToUnicodeWithAdjustments(
+enum IDNConversionStatus {
+  // The input has no IDN component.
+  NO_IDN,
+  // The input has an IDN component but it's unsafe to display
+  // so was not converted.
+  UNSAFE_IDN,
+  // The input was successfully converted to IDN.
+  IDN_CONVERTED,
+};
+
+IDNConversionResult IDNToUnicodeWithAdjustments(
     base::StringPiece host,
     base::OffsetAdjuster::Adjustments* adjustments);
-bool IDNToUnicodeOneComponent(const base::char16* comp,
-                              size_t comp_len,
-                              bool is_tld_ascii,
-                              base::string16* out);
+
+IDNConversionStatus IDNToUnicodeOneComponent(const base::char16* comp,
+                                             size_t comp_len,
+                                             bool is_tld_ascii,
+                                             base::string16* out);
 
 class AppendComponentTransform {
  public:
@@ -52,7 +63,7 @@ class AppendComponentTransform {
 
 class HostComponentTransform : public AppendComponentTransform {
  public:
-  HostComponentTransform(bool trim_trivial_subdomains)
+  explicit HostComponentTransform(bool trim_trivial_subdomains)
       : trim_trivial_subdomains_(trim_trivial_subdomains) {}
 
  private:
@@ -60,7 +71,7 @@ class HostComponentTransform : public AppendComponentTransform {
       const std::string& component_text,
       base::OffsetAdjuster::Adjustments* adjustments) const override {
     if (!trim_trivial_subdomains_)
-      return IDNToUnicodeWithAdjustments(component_text, adjustments);
+      return IDNToUnicodeWithAdjustments(component_text, adjustments).result;
 
     // Exclude the registry and domain from trivial subdomain stripping.
     // To get the adjustment offset calculations correct, we need to transform
@@ -70,36 +81,24 @@ class HostComponentTransform : public AppendComponentTransform {
             component_text,
             net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
 
+    // If there is no domain and registry, we may be looking at an intranet
+    // or otherwise non-standard host. Leave those alone.
+    if (domain_and_registry.empty())
+      return IDNToUnicodeWithAdjustments(component_text, adjustments).result;
+
     base::OffsetAdjuster::Adjustments trivial_subdomains_adjustments;
-    base::StringTokenizer tokenizer(
-        component_text.begin(),
-        component_text.end() - domain_and_registry.length(), ".");
-    tokenizer.set_options(base::StringTokenizer::RETURN_DELIMS);
-
-    std::string transformed_subdomain;
-    while (tokenizer.GetNext()) {
-      // Append delimiters and non-trivial subdomains to the new subdomain part.
-      if (tokenizer.token_is_delim() ||
-          (tokenizer.token() != "m" && tokenizer.token() != "www")) {
-        transformed_subdomain += tokenizer.token();
-        continue;
-      }
-
-      // We found a trivial subdomain, so we add an adjustment accounting for
-      // the subdomain and the following consumed delimiter.
-      size_t trivial_subdomain_begin =
-          tokenizer.token_begin() - component_text.begin();
-      trivial_subdomains_adjustments.push_back(base::OffsetAdjuster::Adjustment(
-          trivial_subdomain_begin, tokenizer.token().length() + 1, 0));
-
-      // Consume the next token, which must be a delimiter.
-      bool next_delimiter_found = tokenizer.GetNext();
-      DCHECK(next_delimiter_found);
-      DCHECK(tokenizer.token_is_delim());
+    std::string transformed_host = component_text;
+    constexpr char kWww[] = "www.";
+    constexpr size_t kWwwLength = 4;
+    if (component_text.size() - domain_and_registry.length() >= kWwwLength &&
+        StartsWith(component_text, kWww, base::CompareCase::SENSITIVE)) {
+      transformed_host.erase(0, kWwwLength);
+      trivial_subdomains_adjustments.push_back(
+          base::OffsetAdjuster::Adjustment(0, kWwwLength, 0));
     }
 
-    base::string16 unicode_result = IDNToUnicodeWithAdjustments(
-        transformed_subdomain + domain_and_registry, adjustments);
+    base::string16 unicode_result =
+        IDNToUnicodeWithAdjustments(transformed_host, adjustments).result;
     base::OffsetAdjuster::MergeSequentialAdjustments(
         trivial_subdomains_adjustments, adjustments);
     return unicode_result;
@@ -153,8 +152,7 @@ void AppendFormattedComponent(const std::string& spec,
 
     // Shift all the adjustments made for this component so the offsets are
     // valid for the original string and add them to |adjustments|.
-    for (base::OffsetAdjuster::Adjustments::iterator comp_iter =
-             component_transform_adjustments.begin();
+    for (auto comp_iter = component_transform_adjustments.begin();
          comp_iter != component_transform_adjustments.end(); ++comp_iter)
       comp_iter->original_offset += original_component_begin;
     if (adjustments) {
@@ -204,7 +202,7 @@ base::string16 FormatViewSourceUrl(
     base::OffsetAdjuster::Adjustments* adjustments) {
   DCHECK(new_parsed);
   const char kViewSource[] = "view-source:";
-  const size_t kViewSourceLength = arraysize(kViewSource) - 1;
+  const size_t kViewSourceLength = base::size(kViewSource) - 1;
 
   // Format the underlying URL and record adjustments.
   const std::string& url_str(url.possibly_invalid_spec());
@@ -216,8 +214,7 @@ base::string16 FormatViewSourceUrl(
                                prefix_end, adjustments));
   // Revise |adjustments| by shifting to the offsets to prefix that the above
   // call to FormatUrl didn't get to see.
-  for (base::OffsetAdjuster::Adjustments::iterator it = adjustments->begin();
-       it != adjustments->end(); ++it)
+  for (auto it = adjustments->begin(); it != adjustments->end(); ++it)
     it->original_offset += kViewSourceLength;
 
   // Adjust positions of the parsed components.
@@ -241,8 +238,9 @@ base::LazyInstance<IDNSpoofChecker>::Leaky g_idn_spoof_checker =
 
 // TODO(brettw): We may want to skip this step in the case of file URLs to
 // allow unicode UNC hostnames regardless of encodings.
-base::string16 IDNToUnicodeWithAdjustments(
-    base::StringPiece host, base::OffsetAdjuster::Adjustments* adjustments) {
+IDNConversionResult IDNToUnicodeWithAdjustments(
+    base::StringPiece host,
+    base::OffsetAdjuster::Adjustments* adjustments) {
   if (adjustments)
     adjustments->clear();
   // Convert the ASCII input to a base::string16 for ICU.
@@ -257,10 +255,10 @@ base::string16 IDNToUnicodeWithAdjustments(
     is_tld_ascii = false;
   }
 
+  IDNConversionResult result;
   // Do each component of the host separately, since we enforce script matching
   // on a per-component basis.
   base::string16 out16;
-  bool has_idn_component = false;
   for (size_t component_start = 0, component_end;
        component_start < input16.length();
        component_start = component_end + 1) {
@@ -273,10 +271,12 @@ base::string16 IDNToUnicodeWithAdjustments(
     bool converted_idn = false;
     if (component_end > component_start) {
       // Add the substring that we just found.
-      converted_idn =
+      IDNConversionStatus status =
           IDNToUnicodeOneComponent(input16.data() + component_start,
                                    component_length, is_tld_ascii, &out16);
-      has_idn_component |= converted_idn;
+      converted_idn = (status == IDN_CONVERTED);
+      result.has_idn_component |=
+          (status == IDN_CONVERTED || status == UNSAFE_IDN);
     }
     size_t new_component_length = out16.length() - new_component_start;
 
@@ -290,15 +290,20 @@ base::string16 IDNToUnicodeWithAdjustments(
       out16.push_back('.');
   }
 
+  result.result = out16;
+
   // Leave as punycode any inputs that spoof top domains.
-  if (has_idn_component &&
-      g_idn_spoof_checker.Get().SimilarToTopDomains(out16)) {
-    if (adjustments)
-      adjustments->clear();
-    return input16;
+  if (result.has_idn_component) {
+    result.matching_top_domain =
+        g_idn_spoof_checker.Get().GetSimilarTopDomain(out16);
+    if (!result.matching_top_domain.empty()) {
+      if (adjustments)
+        adjustments->clear();
+      result.result = input16;
+    }
   }
 
-  return out16;
+  return result;
 }
 
 // Returns true if the given Unicode host component is safe to display to the
@@ -336,7 +341,7 @@ struct UIDNAWrapper {
     // registrars, search engines) converge toward a consensus.
     value = uidna_openUTS46(UIDNA_CHECK_BIDI, &err);
     if (U_FAILURE(err))
-      value = NULL;
+      value = nullptr;
   }
 
   UIDNA* value;
@@ -349,20 +354,21 @@ base::LazyInstance<UIDNAWrapper>::Leaky g_uidna = LAZY_INSTANCE_INITIALIZER;
 // same as the input if it is not IDN in ACE/punycode or the IDN is unsafe to
 // display.
 // Returns whether any conversion was performed.
-bool IDNToUnicodeOneComponent(const base::char16* comp,
-                              size_t comp_len,
-                              bool is_tld_ascii,
-                              base::string16* out) {
+IDNConversionStatus IDNToUnicodeOneComponent(const base::char16* comp,
+                                             size_t comp_len,
+                                             bool is_tld_ascii,
+                                             base::string16* out) {
   DCHECK(out);
   if (comp_len == 0)
-    return false;
+    return NO_IDN;
 
+  IDNConversionStatus idn_status = NO_IDN;
   // Only transform if the input can be an IDN component.
   static const base::char16 kIdnPrefix[] = {'x', 'n', '-', '-'};
-  if ((comp_len > arraysize(kIdnPrefix)) &&
+  if ((comp_len > base::size(kIdnPrefix)) &&
       !memcmp(comp, kIdnPrefix, sizeof(kIdnPrefix))) {
     UIDNA* uidna = g_uidna.Get().value;
-    DCHECK(uidna != NULL);
+    DCHECK(uidna != nullptr);
     size_t original_length = out->length();
     int32_t output_length = 64;
     UIDNAInfo info = UIDNA_INFO_INITIALIZER;
@@ -374,7 +380,7 @@ bool IDNToUnicodeOneComponent(const base::char16* comp,
       // code units, |status| will be U_BUFFER_OVERFLOW_ERROR and we'll try
       // the conversion again, but with a sufficiently large buffer.
       output_length = uidna_labelToUnicode(
-          uidna, comp, static_cast<int32_t>(comp_len), &(*out)[original_length],
+          uidna, (const UChar*)comp, static_cast<int32_t>(comp_len), (UChar*)&(*out)[original_length],
           output_length, &info, &status);
     } while ((status == U_BUFFER_OVERFLOW_ERROR && info.errors == 0));
 
@@ -385,8 +391,10 @@ bool IDNToUnicodeOneComponent(const base::char16* comp,
       if (IsIDNComponentSafe(
               base::StringPiece16(out->data() + original_length,
                                   base::checked_cast<size_t>(output_length)),
-              is_tld_ascii))
-        return true;
+              is_tld_ascii)) {
+        return IDN_CONVERTED;
+      }
+      idn_status = UNSAFE_IDN;
     }
 
     // Something went wrong. Revert to original string.
@@ -396,7 +404,7 @@ bool IDNToUnicodeOneComponent(const base::char16* comp,
   // We get here with no IDN or on error, in which case we just append the
   // literal input.
   out->append(comp, comp_len);
-  return false;
+  return idn_status;
 }
 
 }  // namespace
@@ -405,12 +413,15 @@ const FormatUrlType kFormatUrlOmitNothing = 0;
 const FormatUrlType kFormatUrlOmitUsernamePassword = 1 << 0;
 const FormatUrlType kFormatUrlOmitHTTP = 1 << 1;
 const FormatUrlType kFormatUrlOmitTrailingSlashOnBareHostname = 1 << 2;
-const FormatUrlType kFormatUrlOmitAll =
+const FormatUrlType kFormatUrlOmitHTTPS = 1 << 3;
+const FormatUrlType kFormatUrlOmitTrivialSubdomains = 1 << 5;
+const FormatUrlType kFormatUrlTrimAfterHost = 1 << 6;
+const FormatUrlType kFormatUrlOmitFileScheme = 1 << 7;
+const FormatUrlType kFormatUrlOmitMailToScheme = 1 << 8;
+
+const FormatUrlType kFormatUrlOmitDefaults =
     kFormatUrlOmitUsernamePassword | kFormatUrlOmitHTTP |
     kFormatUrlOmitTrailingSlashOnBareHostname;
-const FormatUrlType kFormatUrlExperimentalElideAfterHost = 1 << 3;
-const FormatUrlType kFormatUrlExperimentalOmitHTTPS = 1 << 4;
-const FormatUrlType kFormatUrlExperimentalOmitTrivialSubdomains = 1 << 5;
 
 base::string16 FormatUrl(const GURL& url,
                          FormatUrlTypes format_types,
@@ -476,14 +487,15 @@ base::string16 FormatUrlWithAdjustments(
   const url::Parsed& parsed = url.parsed_for_possibly_invalid_spec();
 
   // Scheme & separators.  These are ASCII.
-  const size_t scheme_size = static_cast<size_t>(parsed.CountCharactersBefore(
+  size_t scheme_size = static_cast<size_t>(parsed.CountCharactersBefore(
       url::Parsed::USERNAME, true /* include_delimiter */));
   base::string16 url_string;
   url_string.insert(url_string.end(), spec.begin(), spec.begin() + scheme_size);
   new_parsed->scheme = parsed.scheme;
 
   // Username & password.
-  if ((format_types & kFormatUrlOmitUsernamePassword) != 0) {
+  if (((format_types & kFormatUrlOmitUsernamePassword) != 0) ||
+      ((format_types & kFormatUrlTrimAfterHost) != 0)) {
     // Remove the username and password fields. We don't want to display those
     // to the user since they can be used for attacks,
     // e.g. "http://google.com:search@evil.ru/"
@@ -525,7 +537,7 @@ base::string16 FormatUrlWithAdjustments(
 
   // Host.
   bool trim_trivial_subdomains =
-      (format_types & kFormatUrlExperimentalOmitTrivialSubdomains) != 0;
+      (format_types & kFormatUrlOmitTrivialSubdomains) != 0;
   AppendFormattedComponent(spec, parsed.host,
                            HostComponentTransform(trim_trivial_subdomains),
                            &url_string, &new_parsed->host, adjustments);
@@ -542,37 +554,27 @@ base::string16 FormatUrlWithAdjustments(
   }
 
   // Path & query.  Both get the same general unescape & convert treatment.
-  if ((format_types & kFormatUrlOmitTrailingSlashOnBareHostname) &&
-      CanStripTrailingSlash(url)) {
+  if ((format_types & kFormatUrlTrimAfterHost) && url.IsStandard() &&
+      !url.SchemeIsFile() && !url.SchemeIsFileSystem()) {
+    size_t trimmed_length = parsed.path.len;
+    // Remove query and the '?' delimeter.
+    if (parsed.query.is_valid())
+      trimmed_length += parsed.query.len + 1;
+
+    // Remove ref and the '#" delimiter.
+    if (parsed.ref.is_valid())
+      trimmed_length += parsed.ref.len + 1;
+
+    adjustments->push_back(
+        base::OffsetAdjuster::Adjustment(parsed.path.begin, trimmed_length, 0));
+
+  } else if ((format_types & kFormatUrlOmitTrailingSlashOnBareHostname) &&
+             CanStripTrailingSlash(url)) {
     // Omit the path, which is a single trailing slash. There's no query or ref.
     if (parsed.path.len > 0) {
       adjustments->push_back(base::OffsetAdjuster::Adjustment(
           parsed.path.begin, parsed.path.len, 0));
     }
-  } else if ((format_types & kFormatUrlExperimentalElideAfterHost) &&
-             url.IsStandard() && !url.SchemeIsFile() &&
-             !url.SchemeIsFileSystem()) {
-    // Replace everything after the host with a forward slash and ellipsis.
-    url_string.push_back('/');
-    constexpr base::char16 kEllipsisUTF16[] = {0x2026, 0};
-    url_string.append(kEllipsisUTF16);
-
-    // Compute the length of everything we're replacing. For the path, we are
-    // removing everything but the first slash.
-    size_t old_length = parsed.path.len - 1;
-
-    // We're also removing any query, plus the delimiting '?'.
-    if (parsed.query.is_valid())
-      old_length += parsed.query.len + 1;
-
-    // We're also removing any ref, plus the delimiting '#'.
-    if (parsed.ref.is_valid())
-      old_length += parsed.ref.len + 1;
-
-    // We're replacing all of these with a single character (an ellipsis). The
-    // adjustment begins after the forward slash at the beginning of the path.
-    adjustments->push_back(
-        base::OffsetAdjuster::Adjustment(parsed.path.begin + 1, old_length, 1));
   } else {
     // Append the formatted path, query, and ref.
     AppendFormattedComponent(spec, parsed.path,
@@ -585,11 +587,10 @@ base::string16 FormatUrlWithAdjustments(
                              NonHostComponentTransform(unescape_rules),
                              &url_string, &new_parsed->query, adjustments);
 
-    // Ref.  This is valid, unescaped UTF-8, so we can just convert.
     if (parsed.ref.is_valid())
       url_string.push_back('#');
     AppendFormattedComponent(spec, parsed.ref,
-                             NonHostComponentTransform(net::UnescapeRule::NONE),
+                             NonHostComponentTransform(unescape_rules),
                              &url_string, &new_parsed->ref, adjustments);
   }
 
@@ -604,11 +605,33 @@ base::string16 FormatUrlWithAdjustments(
       !base::StartsWith(url.host(), kFTP, base::CompareCase::SENSITIVE) &&
       (((format_types & kFormatUrlOmitHTTP) &&
         url.SchemeIs(url::kHttpScheme)) ||
-       ((format_types & kFormatUrlExperimentalOmitHTTPS) &&
-        url.SchemeIs(url::kHttpsScheme)));
+       ((format_types & kFormatUrlOmitHTTPS) &&
+        url.SchemeIs(url::kHttpsScheme)) ||
+       ((format_types & kFormatUrlOmitFileScheme) &&
+        url.SchemeIs(url::kFileScheme)) ||
+       ((format_types & kFormatUrlOmitMailToScheme) &&
+        url.SchemeIs(url::kMailToScheme)));
 
   // If we need to strip out schemes do it after the fact.
   if (strip_scheme) {
+    DCHECK(new_parsed->scheme.is_valid());
+    size_t scheme_and_separator_len =
+        url.SchemeIs(url::kMailToScheme)
+            ? new_parsed->scheme.len + 1   // +1 for :.
+            : new_parsed->scheme.len + 3;  // +3 for ://.
+#if defined(OS_WIN)
+    // Because there's an additional leading slash after the scheme for local
+    // files on Windows, we should remove it for URL display when eliding
+    // the scheme by offsetting by an additional character.
+    if (url.SchemeIs(url::kFileScheme) &&
+        base::StartsWith(url_string, base::ASCIIToUTF16("file:///"),
+                         base::CompareCase::INSENSITIVE_ASCII)) {
+      ++new_parsed->path.begin;
+      ++scheme_size;
+      ++scheme_and_separator_len;
+    }
+#endif
+
     url_string.erase(0, scheme_size);
     // Because offsets in the |adjustments| are already calculated with respect
     // to the string with the http:// prefix in it, those offsets remain correct
@@ -621,10 +644,8 @@ base::string16 FormatUrlWithAdjustments(
       *prefix_end -= scheme_size;
 
     // Adjust new_parsed.
-    DCHECK(new_parsed->scheme.is_valid());
-    int delta = -(new_parsed->scheme.len + 3);  // +3 for ://.
     new_parsed->scheme.reset();
-    AdjustAllComponentsButScheme(delta, new_parsed);
+    AdjustAllComponentsButScheme(-scheme_and_separator_len, new_parsed);
   }
 
   return url_string;
@@ -643,8 +664,12 @@ void AppendFormattedHost(const GURL& url, base::string16* output) {
       HostComponentTransform(false), output, nullptr, nullptr);
 }
 
-base::string16 IDNToUnicode(base::StringPiece host) {
+IDNConversionResult IDNToUnicodeWithDetails(base::StringPiece host) {
   return IDNToUnicodeWithAdjustments(host, nullptr);
+}
+
+base::string16 IDNToUnicode(base::StringPiece host) {
+  return IDNToUnicodeWithAdjustments(host, nullptr).result;
 }
 
 base::string16 StripWWW(const base::string16& text) {
@@ -656,6 +681,14 @@ base::string16 StripWWW(const base::string16& text) {
 base::string16 StripWWWFromHost(const GURL& url) {
   DCHECK(url.is_valid());
   return StripWWW(base::ASCIIToUTF16(url.host_piece()));
+}
+
+Skeletons GetSkeletons(const base::string16& host) {
+  return g_idn_spoof_checker.Get().GetSkeletons(host);
+}
+
+std::string LookupSkeletonInTopDomains(const std::string& skeleton) {
+  return g_idn_spoof_checker.Get().LookupSkeletonInTopDomains(skeleton);
 }
 
 }  // namespace url_formatter

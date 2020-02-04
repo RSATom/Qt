@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/i18n/rtl.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -24,6 +23,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -55,11 +55,11 @@ NewTabUI::NewTabUI(content::WebUI* web_ui) : content::WebUIController(web_ui) {
   Profile* profile = GetProfile();
 
   if (!profile->IsGuestSession())
-    web_ui->AddMessageHandler(base::MakeUnique<ThemeHandler>());
+    web_ui->AddMessageHandler(std::make_unique<ThemeHandler>());
 
   // content::URLDataSource assumes the ownership of the html source.
-  content::URLDataSource::Add(
-      profile, new NewTabHTMLSource(profile->GetOriginalProfile()));
+  content::URLDataSource::Add(profile, std::make_unique<NewTabHTMLSource>(
+                                           profile->GetOriginalProfile()));
 
   pref_change_registrar_.Init(profile->GetPrefs());
   pref_change_registrar_.Add(bookmarks::prefs::kShowBookmarkBar,
@@ -169,7 +169,7 @@ void NewTabUI::NewTabHTMLSource::StartDataRequest(
 
   content::WebContents* web_contents = wc_getter.Run();
   content::RenderProcessHost* render_host =
-      web_contents ? web_contents->GetRenderProcessHost() : nullptr;
+      web_contents ? web_contents->GetMainFrame()->GetProcess() : nullptr;
   NTPResourceCache::WindowType win_type = NTPResourceCache::GetWindowType(
       profile_, render_host);
   scoped_refptr<base::RefCountedMemory> html_bytes(

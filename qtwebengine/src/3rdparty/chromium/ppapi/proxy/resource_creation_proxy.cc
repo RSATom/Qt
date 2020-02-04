@@ -11,7 +11,6 @@
 #include "ppapi/proxy/audio_input_resource.h"
 #include "ppapi/proxy/audio_output_resource.h"
 #include "ppapi/proxy/camera_device_resource.h"
-#include "ppapi/proxy/compositor_resource.h"
 #include "ppapi/proxy/connection.h"
 #include "ppapi/proxy/file_chooser_resource.h"
 #include "ppapi/proxy/file_io_resource.h"
@@ -26,8 +25,6 @@
 #include "ppapi/proxy/media_stream_video_track_resource.h"
 #include "ppapi/proxy/net_address_resource.h"
 #include "ppapi/proxy/network_monitor_resource.h"
-#include "ppapi/proxy/output_protection_resource.h"
-#include "ppapi/proxy/platform_verification_private_resource.h"
 #include "ppapi/proxy/plugin_dispatcher.h"
 #include "ppapi/proxy/plugin_globals.h"
 #include "ppapi/proxy/plugin_resource_tracker.h"
@@ -52,9 +49,7 @@
 #include "ppapi/proxy/url_response_info_resource.h"
 #include "ppapi/proxy/video_capture_resource.h"
 #include "ppapi/proxy/video_decoder_resource.h"
-#include "ppapi/proxy/video_destination_resource.h"
 #include "ppapi/proxy/video_encoder_resource.h"
-#include "ppapi/proxy/video_source_resource.h"
 #include "ppapi/proxy/vpn_provider_resource.h"
 #include "ppapi/proxy/websocket_resource.h"
 #include "ppapi/shared_impl/api_id.h"
@@ -234,10 +229,6 @@ PP_Resource ResourceCreationProxy::CreateCameraDevicePrivate(
   return (new CameraDeviceResource(GetConnection(), instance))->GetReference();
 }
 
-PP_Resource ResourceCreationProxy::CreateCompositor(PP_Instance instance) {
-  return (new CompositorResource(GetConnection(), instance))->GetReference();
-}
-
 PP_Resource ResourceCreationProxy::CreateFileChooser(
     PP_Instance instance,
     PP_FileChooserMode_Dev mode,
@@ -266,9 +257,9 @@ PP_Resource ResourceCreationProxy::CreateGraphics3D(
 PP_Resource ResourceCreationProxy::CreateGraphics3DRaw(
     PP_Instance instance,
     PP_Resource share_context,
-    const gpu::gles2::ContextCreationAttribHelper& attrib_helper,
+    const gpu::ContextCreationAttribs& attrib_helper,
     gpu::Capabilities* capabilities,
-    base::SharedMemoryHandle* shared_state,
+    const base::UnsafeSharedMemoryRegion** shared_state,
     gpu::CommandBufferId* command_buffer_id) {
   // Not proxied. The raw creation function is used only in the implementation
   // of the proxy on the host side.
@@ -347,12 +338,6 @@ PP_Resource ResourceCreationProxy::CreateNetworkMonitor(
       GetReference();
 }
 
-PP_Resource ResourceCreationProxy::CreateOutputProtectionPrivate(
-    PP_Instance instance) {
-  return (new OutputProtectionResource(GetConnection(), instance))->
-      GetReference();
-}
-
 PP_Resource ResourceCreationProxy::CreatePrinting(PP_Instance instance) {
   return (new PrintingResource(GetConnection(), instance))->GetReference();
 }
@@ -396,19 +381,8 @@ PP_Resource ResourceCreationProxy::CreateVideoDecoder(PP_Instance instance) {
   return (new VideoDecoderResource(GetConnection(), instance))->GetReference();
 }
 
-PP_Resource ResourceCreationProxy::CreateVideoDestination(
-    PP_Instance instance) {
-  return (new VideoDestinationResource(GetConnection(),
-                                       instance))->GetReference();
-}
-
 PP_Resource ResourceCreationProxy::CreateVideoEncoder(PP_Instance instance) {
   return (new VideoEncoderResource(GetConnection(), instance))->GetReference();
-}
-
-PP_Resource ResourceCreationProxy::CreateVideoSource(
-    PP_Instance instance) {
-  return (new VideoSourceResource(GetConnection(), instance))->GetReference();
 }
 
 PP_Resource ResourceCreationProxy::CreateVpnProvider(PP_Instance instance) {
@@ -480,12 +454,6 @@ PP_Resource ResourceCreationProxy::CreateFlashMessageLoop(
   return PPB_Flash_MessageLoop_Proxy::CreateProxyResource(instance);
 }
 
-PP_Resource ResourceCreationProxy::CreatePlatformVerificationPrivate(
-    PP_Instance instance) {
-  return (new PlatformVerificationPrivateResource(GetConnection(), instance))->
-      GetReference();
-}
-
 PP_Resource ResourceCreationProxy::CreateVideoCapture(PP_Instance instance) {
   PluginDispatcher* dispatcher = PluginDispatcher::GetForInstance(instance);
   if (!dispatcher)
@@ -513,7 +481,8 @@ bool ResourceCreationProxy::OnMessageReceived(const IPC::Message& msg) {
 }
 
 Connection ResourceCreationProxy::GetConnection() {
-  return Connection(PluginGlobals::Get()->GetBrowserSender(), dispatcher());
+  return Connection(PluginGlobals::Get()->GetBrowserSender(),
+                    static_cast<PluginDispatcher*>(dispatcher())->sender());
 }
 
 }  // namespace proxy

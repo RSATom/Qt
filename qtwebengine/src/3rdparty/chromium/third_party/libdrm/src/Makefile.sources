@@ -13,6 +13,7 @@ LIBDRM_FILES := \
 	util_math.h
 
 LIBDRM_H_FILES := \
+	libsync.h \
 	xf86drm.h \
 	xf86drmMode.h
 
@@ -24,11 +25,13 @@ LIBDRM_INCLUDE_H_FILES := \
 	include/drm/evdi_drm.h \
 	include/drm/i915_drm.h \
 	include/drm/mach64_drm.h \
+	include/drm/mediatek_drm.h \
 	include/drm/mga_drm.h \
 	include/drm/nouveau_drm.h \
 	include/drm/qxl_drm.h \
 	include/drm/r128_drm.h \
 	include/drm/radeon_drm.h \
+	include/drm/rockchip_drm.h \
 	include/drm/amdgpu_drm.h \
 	include/drm/savage_drm.h \
 	include/drm/sis_drm.h \

@@ -13,11 +13,10 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "gpu/command_buffer/client/cmd_buffer_helper.h"
-#include "gpu/command_buffer/service/command_buffer_direct.h"
+#include "gpu/command_buffer/client/command_buffer_direct_locked.h"
 #include "gpu/command_buffer/service/mocks.h"
 #include "gpu/command_buffer/service/transfer_buffer_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -37,67 +36,13 @@ const int32_t kCommandBufferSizeBytes =
     kTotalNumCommandEntries * sizeof(CommandBufferEntry);
 const int32_t kUnusedCommandId = 5;  // we use 0 and 2 currently.
 
-// Override CommandBufferDirect::Flush() to lock flushing and simulate
-// the buffer becoming full in asynchronous mode.
-class CommandBufferDirectLocked : public CommandBufferDirect {
- public:
-  explicit CommandBufferDirectLocked(
-      TransferBufferManager* transfer_buffer_manager)
-      : CommandBufferDirect(transfer_buffer_manager),
-        flush_locked_(false),
-        last_flush_(-1),
-        previous_put_offset_(0),
-        flush_count_(0) {}
-  ~CommandBufferDirectLocked() override {}
-
-  // Overridden from CommandBufferDirect
-  void Flush(int32_t put_offset) override {
-    flush_count_++;
-    if (!flush_locked_) {
-      last_flush_ = -1;
-      previous_put_offset_ = put_offset;
-      CommandBufferDirect::Flush(put_offset);
-    } else {
-      last_flush_ = put_offset;
-    }
-  }
-
-  void LockFlush() { flush_locked_ = true; }
-
-  void UnlockFlush() { flush_locked_ = false; }
-
-  int FlushCount() { return flush_count_; }
-
-  State WaitForGetOffsetInRange(uint32_t set_get_buffer_count,
-                                int32_t start,
-                                int32_t end) override {
-    // Flush only if it's required to unblock this Wait.
-    if (last_flush_ != -1 && !InRange(start, end, previous_put_offset_)) {
-      previous_put_offset_ = last_flush_;
-      CommandBufferDirect::Flush(last_flush_);
-      last_flush_ = -1;
-    }
-    return CommandBufferDirect::WaitForGetOffsetInRange(set_get_buffer_count,
-                                                        start, end);
-  }
-
-  int GetServicePutOffset() { return previous_put_offset_; }
-
- private:
-  bool flush_locked_;
-  int last_flush_;
-  int previous_put_offset_;
-  int flush_count_;
-  DISALLOW_COPY_AND_ASSIGN(CommandBufferDirectLocked);
-};
-
 // Test fixture for CommandBufferHelper test - Creates a CommandBufferHelper,
 // using a CommandBufferServiceLocked with a mock AsyncAPIInterface for its
 // interface (calling it directly, not through the RPC mechanism).
 class CommandBufferHelperTest : public testing::Test {
  protected:
-  virtual void SetUp() {
-    transfer_buffer_manager_ = base::MakeUnique<TransferBufferManager>(nullptr);
+  void SetUp() override {
+    transfer_buffer_manager_ = std::make_unique<TransferBufferManager>(nullptr);
     command_buffer_.reset(
         new CommandBufferDirectLocked(transfer_buffer_manager_.get()));
     api_mock_.reset(new AsyncAPIMock(true, command_buffer_->service()));
@@ -114,7 +59,7 @@ class CommandBufferHelperTest : public testing::Test {
     test_command_next_id_ = kUnusedCommandId;
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     // If the CommandExecutor posts any tasks, this forces them to run.
     base::RunLoop().RunUntilIdle();
     test_command_args_.clear();
@@ -154,7 +99,7 @@ class CommandBufferHelperTest : public testing::Test {
 
     // Allocate array for args.
     auto args_ptr =
-        base::MakeUnique<CommandBufferEntry[]>(arg_count ? arg_count : 1);
+        std::make_unique<CommandBufferEntry[]>(arg_count ? arg_count : 1);
 
     for (int32_t ii = 0; ii < arg_count; ++ii) {
       args_ptr[ii].value_uint32 = 0xF00DF00D + ii;
@@ -250,6 +195,10 @@ class CommandBufferHelperTest : public testing::Test {
 
   CommandBufferOffset get_helper_put() { return helper_->put_; }
 
+  void WaitForGetOffsetInRange(int32_t start, int32_t end) {
+    helper_->WaitForGetOffsetInRange(start, end);
+  }
+
   std::unique_ptr<TransferBufferManager> transfer_buffer_manager_;
   std::unique_ptr<CommandBufferDirectLocked> command_buffer_;
   std::unique_ptr<AsyncAPIMock> api_mock_;
@@ -260,21 +209,16 @@ class CommandBufferHelperTest : public testing::Test {
   base::MessageLoop message_loop_;
 };
 
-// Checks immediate_entry_count_ changes based on 'usable' state.
-TEST_F(CommandBufferHelperTest, TestCalcImmediateEntriesNotUsable) {
-  // Auto flushing mode is tested separately.
-  helper_->SetAutomaticFlushes(false);
-  EXPECT_EQ(helper_->usable(), true);
-  EXPECT_EQ(ImmediateEntryCount(), kTotalNumCommandEntries - 1);
-  helper_->ClearUsable();
-  EXPECT_EQ(ImmediateEntryCount(), 0);
-}
-
 // Checks immediate_entry_count_ changes based on RingBuffer state.
 TEST_F(CommandBufferHelperTest, TestCalcImmediateEntriesNoRingBuffer) {
   helper_->SetAutomaticFlushes(false);
   EXPECT_EQ(ImmediateEntryCount(), kTotalNumCommandEntries - 1);
   helper_->FreeRingBuffer();
+  EXPECT_TRUE(helper_->usable());
+  EXPECT_EQ(ImmediateEntryCount(), 0);
+  command_buffer_->set_fail_create_transfer_buffer(true);
+  helper_->WaitForAvailableEntries(1);
+  EXPECT_FALSE(helper_->usable());
   EXPECT_EQ(ImmediateEntryCount(), 0);
 }
 
@@ -390,6 +334,34 @@ TEST_F(CommandBufferHelperTest, TestCalcImmediateEntriesAutoFlushing) {
   EXPECT_EQ(error::kNoError, GetError());
 }
 
+// Checks that automatic flushing treats ordering barriers as flushes.
+TEST_F(CommandBufferHelperTest,
+       TestCalcImmediateEntriesAutoFlushingOrderingBarrier) {
+  // Check that auto flush happens without an ordering barrier.
+  AddUniqueCommandWithExpect(error::kNoError, kAutoFlushSmall - 1);
+  EXPECT_EQ(0, command_buffer_->FlushCount());
+  AddUniqueCommandWithExpect(error::kNoError, 1);
+  // Auto flush should be triggered by going past the threshold.
+  EXPECT_EQ(1, command_buffer_->FlushCount());
+  helper_->Finish();
+  EXPECT_EQ(2, command_buffer_->FlushCount());
+
+  // Check that an ordering barrier prevents auto flush.
+  AddUniqueCommandWithExpect(error::kNoError, kAutoFlushSmall - 1);
+  EXPECT_EQ(2, command_buffer_->FlushCount());
+  helper_->OrderingBarrier();
+  EXPECT_EQ(3, command_buffer_->FlushCount());
+  AddUniqueCommandWithExpect(error::kNoError, 1);
+  // Adding a command should not have caused a flush because there was an
+  // ordering barrier.
+  EXPECT_EQ(3, command_buffer_->FlushCount());
+
+  // Check that the commands did happen.
+  helper_->Finish();
+  Mock::VerifyAndClearExpectations(api_mock_.get());
+  EXPECT_EQ(error::kNoError, GetError());
+}
+
 // Checks immediate_entry_count_ calc when automatic flushing is enabled, and
 // we allocate commands over the immediate_entry_count_ size.
 TEST_F(CommandBufferHelperTest, TestCalcImmediateEntriesOverFlushLimit) {
@@ -431,7 +403,7 @@ TEST_F(CommandBufferHelperTest, TestCommandProcessing) {
   EXPECT_EQ(0, GetGetOffset());
 
   // Add 3 commands through the helper
-  AddCommandWithExpect(error::kNoError, kUnusedCommandId, 0, NULL);
+  AddCommandWithExpect(error::kNoError, kUnusedCommandId, 0, nullptr);
 
   CommandBufferEntry args1[2];
   args1[0].value_uint32 = 3;
@@ -528,8 +500,8 @@ TEST_F(CommandBufferHelperTest, TestAvailableEntries) {
   args[1].value_float = 4.f;
 
   // Add 2 commands through the helper - 8 entries
-  AddCommandWithExpect(error::kNoError, kUnusedCommandId + 1, 0, NULL);
-  AddCommandWithExpect(error::kNoError, kUnusedCommandId + 2, 0, NULL);
+  AddCommandWithExpect(error::kNoError, kUnusedCommandId + 1, 0, nullptr);
+  AddCommandWithExpect(error::kNoError, kUnusedCommandId + 2, 0, nullptr);
   AddCommandWithExpect(error::kNoError, kUnusedCommandId + 3, 2, args);
   AddCommandWithExpect(error::kNoError, kUnusedCommandId + 4, 2, args);
 
@@ -639,7 +611,7 @@ TEST_F(CommandBufferHelperTest, FreeRingBuffer) {
   EXPECT_FALSE(helper_->HaveRingBuffer());
 
   // Test that WaitForAvailableEntries allocates a new one
-  AddCommandWithExpect(error::kNoError, kUnusedCommandId, 0, NULL);
+  AddCommandWithExpect(error::kNoError, kUnusedCommandId, 0, nullptr);
   EXPECT_TRUE(helper_->HaveRingBuffer());
   helper_->Finish();
   helper_->FreeRingBuffer();
@@ -647,6 +619,28 @@ TEST_F(CommandBufferHelperTest, FreeRingBuffer) {
 
   // Check that the commands did happen.
   Mock::VerifyAndClearExpectations(api_mock_.get());
+
+  // Test that FreeRingBuffer doesn't force a finish
+  AddCommandWithExpect(error::kNoError, kUnusedCommandId, 0, nullptr);
+  EXPECT_TRUE(helper_->HaveRingBuffer());
+  int32_t old_get_offset = command_buffer_->GetLastState().get_offset;
+  EXPECT_NE(helper_->GetPutOffsetForTest(), old_get_offset);
+  int old_flush_count = command_buffer_->FlushCount();
+
+  helper_->FreeRingBuffer();
+  EXPECT_FALSE(helper_->HaveRingBuffer());
+  // FreeRingBuffer should have caused an ordering barrier and a flush.
+  EXPECT_EQ(command_buffer_->FlushCount(), old_flush_count + 2);
+  // However it shouldn't force a finish.
+  EXPECT_EQ(command_buffer_->GetLastState().get_offset, old_get_offset);
+
+  // Finish should not cause extra flushes, or recreate the ring buffer, but it
+  // should work.
+  helper_->Finish();
+  EXPECT_FALSE(helper_->HaveRingBuffer());
+  EXPECT_EQ(command_buffer_->FlushCount(), old_flush_count + 2);
+  EXPECT_EQ(command_buffer_->GetLastState().get_offset,
+            helper_->GetPutOffsetForTest());
 }
 
 TEST_F(CommandBufferHelperTest, Noop) {
@@ -756,6 +750,46 @@ TEST_F(CommandBufferHelperTest, TestOrderingBarrierToCommandBuffer) {
 
   EXPECT_EQ(flush_count2, flush_count1 + 1);
   EXPECT_EQ(flush_count3, flush_count2 + 1);
+}
+
+TEST_F(CommandBufferHelperTest, TestWrapAroundAfterOrderingBarrier) {
+  // Explicit flushing only.
+  helper_->SetAutomaticFlushes(false);
+
+  // Flush with put = 3. We will wrap around to flush this exact offset again.
+  AddUniqueCommandWithExpect(error::kNoError, 3);
+  helper_->Flush();
+
+  // Add an ordering barrier that's never explicitly flushed by us.
+  AddUniqueCommandWithExpect(error::kNoError, 2);
+  helper_->OrderingBarrier();
+
+  WaitForGetOffsetInRange(5, 5);
+
+  // Add enough commands to wrap around to put = 2. Add commands of size 2 so
+  // that last command inserts nop at the end and avoids an automatic flush.
+  ASSERT_EQ(kTotalNumCommandEntries % 2, 0);
+  for (int i = 0; i < kTotalNumCommandEntries / 2 - 2; ++i)
+    AddUniqueCommandWithExpect(error::kNoError, 2);
+
+  // We have 2 entries available. Asking for 1 entry will update put offset to
+  // 3 which is equal to the put offset of the last explicit flush.
+  AddUniqueCommandWithExpect(error::kNoError, 1);
+  EXPECT_EQ(GetHelperPutOffset(), 3);
+  EXPECT_EQ(GetHelperGetOffset(), 5);
+  EXPECT_EQ(ImmediateEntryCount(), 1);
+
+  // We have 1 entry available. Asking for 2 entries will automatically call
+  // Flush and WaitForGetOffsetInRange.
+  AddUniqueCommandWithExpect(error::kNoError, 2);
+  EXPECT_EQ(GetHelperPutOffset(), 5);
+  EXPECT_EQ(GetHelperGetOffset(), 3);
+  EXPECT_EQ(ImmediateEntryCount(), kTotalNumCommandEntries - 5);
+
+  // Flush the last command explicitly.
+  helper_->Flush();
+
+  Mock::VerifyAndClearExpectations(api_mock_.get());
 }
 
 }  // namespace gpu

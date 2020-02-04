@@ -395,14 +395,25 @@ static void dump_submit(struct msm_ringbuffer *msm_ring)
 	}
 }
 
-static int msm_ringbuffer_flush(struct fd_ringbuffer *ring, uint32_t *last_start)
+static int msm_ringbuffer_flush(struct fd_ringbuffer *ring, uint32_t *last_start,
+		int in_fence_fd, int *out_fence_fd)
 {
 	struct msm_ringbuffer *msm_ring = to_msm_ringbuffer(ring);
 	struct drm_msm_gem_submit req = {
-			.pipe = to_msm_pipe(ring->pipe)->pipe,
+			.flags = to_msm_pipe(ring->pipe)->pipe,
+			.queueid = to_msm_pipe(ring->pipe)->queue_id,
 	};
 	uint32_t i;
 	int ret;
+
+	if (in_fence_fd != -1) {
+		req.flags |= MSM_SUBMIT_FENCE_FD_IN | MSM_SUBMIT_NO_IMPLICIT;
+		req.fence_fd = in_fence_fd;
+	}
+
+	if (out_fence_fd) {
+		req.flags |= MSM_SUBMIT_FENCE_FD_OUT;
+	}
 
 	finalize_current_cmd(ring, last_start);
 
@@ -434,6 +445,10 @@ static int msm_ringbuffer_flush(struct fd_ringbuffer *ring, uint32_t *last_start
 		for (i = 0; i < msm_ring->submit.nr_cmds; i++) {
 			struct msm_cmd *msm_cmd = msm_ring->cmds[i];
 			msm_cmd->ring->last_timestamp = req.fence;
+		}
+
+		if (out_fence_fd) {
+			*out_fence_fd = req.fence_fd;
 		}
 	}
 
@@ -473,11 +488,37 @@ static void msm_ringbuffer_emit_reloc(struct fd_ringbuffer *ring,
 	reloc->submit_offset = offset_bytes(ring->cur, ring->start);
 
 	addr = msm_bo->presumed;
-	if (r->shift < 0)
-		addr >>= -r->shift;
+	if (reloc->shift < 0)
+		addr >>= -reloc->shift;
 	else
-		addr <<= r->shift;
+		addr <<= reloc->shift;
 	(*ring->cur++) = addr | r->or;
+
+	if (ring->pipe->gpu_id >= 500) {
+		struct drm_msm_gem_submit_reloc *reloc_hi;
+
+		/* NOTE: grab reloc_idx *before* APPEND() since that could
+		 * realloc() meaning that 'reloc' ptr is no longer valid:
+		 */
+		uint32_t reloc_idx = reloc->reloc_idx;
+
+		idx = APPEND(cmd, relocs);
+
+		reloc_hi = &cmd->relocs[idx];
+
+		reloc_hi->reloc_idx = reloc_idx;
+		reloc_hi->reloc_offset = r->offset;
+		reloc_hi->or = r->orhi;
+		reloc_hi->shift = r->shift - 32;
+		reloc_hi->submit_offset = offset_bytes(ring->cur, ring->start);
+
+		addr = msm_bo->presumed >> 32;
+		if (reloc_hi->shift < 0)
+			addr >>= -reloc_hi->shift;
+		else
+			addr <<= reloc_hi->shift;
+		(*ring->cur++) = addr | r->orhi;
+	}
 }
 
 static uint32_t msm_ringbuffer_emit_reloc_ring(struct fd_ringbuffer *ring,
@@ -549,12 +590,12 @@ drm_private struct fd_ringbuffer * msm_ringbuffer_new(struct fd_pipe *pipe,
 		uint32_t size)
 {
 	struct msm_ringbuffer *msm_ring;
-	struct fd_ringbuffer *ring = NULL;
+	struct fd_ringbuffer *ring;
 
 	msm_ring = calloc(1, sizeof(*msm_ring));
 	if (!msm_ring) {
 		ERROR_MSG("allocation failed");
-		goto fail;
+		return NULL;
 	}
 
 	if (size == 0) {
@@ -574,8 +615,4 @@ drm_private struct fd_ringbuffer * msm_ringbuffer_new(struct fd_pipe *pipe,
 	ring_cmd_new(ring, size);
 
 	return ring;
-fail:
-	if (ring)
-		fd_ringbuffer_del(ring);
-	return NULL;
 }

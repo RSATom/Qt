@@ -8,6 +8,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/material_design/material_design_controller.h"
@@ -21,11 +22,14 @@
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/test/ink_drop_host_view_test_api.h"
 #include "ui/views/animation/test/test_ink_drop.h"
+#include "ui/views/layout/layout_provider.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/test/widget_test.h"
+#include "ui/views/widget/widget_utils.h"
 
 using base::ASCIIToUTF16;
 
@@ -64,7 +68,7 @@ class LabelButtonTest : public test::WidgetTest {
   TestLabelButton* AddStyledButton(const char* label, bool is_default) {
     TestLabelButton* button = new TestLabelButton;
     button->SetText(ASCIIToUTF16(label));
-    button->SetStyleDeprecated(CustomButton::STYLE_BUTTON);
+    button->SetStyleDeprecated(Button::STYLE_BUTTON);
     if (is_default)
       button->SetIsDefault(true);
     button_->GetWidget()->GetContentsView()->AddChildView(button);
@@ -97,8 +101,6 @@ class LabelButtonTest : public test::WidgetTest {
     styled_highlight_text_color_ = styled_normal_text_color_ =
         button_->GetNativeTheme()->GetSystemColor(
             ui::NativeTheme::kColorId_ButtonEnabledColor);
-#elif defined(OS_MACOSX)
-    styled_highlight_text_color_ = SK_ColorWHITE;
 #else
     styled_highlight_text_color_ = styled_normal_text_color_;
 #endif
@@ -135,8 +137,9 @@ TEST_F(LabelButtonTest, Init) {
 
   ui::AXNodeData accessible_node_data;
   button.GetAccessibleNodeData(&accessible_node_data);
-  EXPECT_EQ(ui::AX_ROLE_BUTTON, accessible_node_data.role);
-  EXPECT_EQ(text, accessible_node_data.GetString16Attribute(ui::AX_ATTR_NAME));
+  EXPECT_EQ(ax::mojom::Role::kButton, accessible_node_data.role);
+  EXPECT_EQ(text, accessible_node_data.GetString16Attribute(
+                      ax::mojom::StringAttribute::kName));
 
   EXPECT_FALSE(button.is_default());
   EXPECT_EQ(button.style(), Button::STYLE_TEXTBUTTON);
@@ -155,7 +158,6 @@ TEST_F(LabelButtonTest, Label) {
   const int short_text_width = gfx::GetStringWidth(short_text, font_list);
   const int long_text_width = gfx::GetStringWidth(long_text, font_list);
 
-  // The width increases monotonically with string size (it does not shrink).
   EXPECT_LT(button_->GetPreferredSize().width(), short_text_width);
   button_->SetText(short_text);
   EXPECT_GT(button_->GetPreferredSize().height(), font_list.GetHeight());
@@ -164,16 +166,20 @@ TEST_F(LabelButtonTest, Label) {
   button_->SetText(long_text);
   EXPECT_GT(button_->GetPreferredSize().width(), long_text_width);
   button_->SetText(short_text);
-  EXPECT_GT(button_->GetPreferredSize().width(), long_text_width);
-
-  // Clamp the size to a maximum value.
-  button_->SetMaxSize(gfx::Size(long_text_width, 1));
-  EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(long_text_width, 1));
-
-  // Clear the monotonically increasing minimum size.
-  button_->SetMinSize(gfx::Size());
   EXPECT_GT(button_->GetPreferredSize().width(), short_text_width);
   EXPECT_LT(button_->GetPreferredSize().width(), long_text_width);
+
+  // Clamp the size to a maximum value.
+  button_->SetText(long_text);
+  button_->SetMaxSize(gfx::Size(short_text_width, 1));
+  EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(short_text_width, 1));
+
+  // Clamp the size to a minimum value.
+  button_->SetText(short_text);
+  button_->SetMaxSize(gfx::Size());
+  button_->SetMinSize(gfx::Size(long_text_width, font_list.GetHeight() * 2));
+  EXPECT_EQ(button_->GetPreferredSize(),
+            gfx::Size(long_text_width, font_list.GetHeight() * 2));
 }
 
 // Test behavior of View::GetAccessibleNodeData() for buttons when setting a
@@ -182,25 +188,25 @@ TEST_F(LabelButtonTest, AccessibleState) {
   ui::AXNodeData accessible_node_data;
 
   button_->GetAccessibleNodeData(&accessible_node_data);
-  EXPECT_EQ(ui::AX_ROLE_BUTTON, accessible_node_data.role);
-  EXPECT_EQ(base::string16(),
-            accessible_node_data.GetString16Attribute(ui::AX_ATTR_NAME));
+  EXPECT_EQ(ax::mojom::Role::kButton, accessible_node_data.role);
+  EXPECT_EQ(base::string16(), accessible_node_data.GetString16Attribute(
+                                  ax::mojom::StringAttribute::kName));
 
   // Without a label (e.g. image-only), the accessible name should automatically
   // be set from the tooltip.
   const base::string16 tooltip_text = ASCIIToUTF16("abc");
   button_->SetTooltipText(tooltip_text);
   button_->GetAccessibleNodeData(&accessible_node_data);
-  EXPECT_EQ(tooltip_text,
-            accessible_node_data.GetString16Attribute(ui::AX_ATTR_NAME));
+  EXPECT_EQ(tooltip_text, accessible_node_data.GetString16Attribute(
+                              ax::mojom::StringAttribute::kName));
   EXPECT_EQ(base::string16(), button_->GetText());
 
   // Setting a label overrides the tooltip text.
   const base::string16 label_text = ASCIIToUTF16("def");
   button_->SetText(label_text);
   button_->GetAccessibleNodeData(&accessible_node_data);
-  EXPECT_EQ(label_text,
-            accessible_node_data.GetString16Attribute(ui::AX_ATTR_NAME));
+  EXPECT_EQ(label_text, accessible_node_data.GetString16Attribute(
+                            ax::mojom::StringAttribute::kName));
   EXPECT_EQ(label_text, button_->GetText());
 
   base::string16 tooltip;
@@ -208,12 +214,35 @@ TEST_F(LabelButtonTest, AccessibleState) {
   EXPECT_EQ(tooltip_text, tooltip);
 }
 
+// Test View::GetAccessibleNodeData() for default buttons.
+TEST_F(LabelButtonTest, AccessibleDefaultState) {
+  {
+    // If SetIsDefault() is not called, the ax default state should not be set.
+    ui::AXNodeData ax_data;
+    button_->GetViewAccessibility().GetAccessibleNodeData(&ax_data);
+    EXPECT_FALSE(ax_data.HasState(ax::mojom::State::kDefault));
+  }
+
+  {
+    button_->SetIsDefault(true);
+    ui::AXNodeData ax_data;
+    button_->GetViewAccessibility().GetAccessibleNodeData(&ax_data);
+    EXPECT_TRUE(ax_data.HasState(ax::mojom::State::kDefault));
+  }
+
+  {
+    button_->SetIsDefault(false);
+    ui::AXNodeData ax_data;
+    button_->GetViewAccessibility().GetAccessibleNodeData(&ax_data);
+    EXPECT_FALSE(ax_data.HasState(ax::mojom::State::kDefault));
+  }
+}
+
 TEST_F(LabelButtonTest, Image) {
   const int small_size = 50, large_size = 100;
   const gfx::ImageSkia small_image = CreateTestImage(small_size, small_size);
   const gfx::ImageSkia large_image = CreateTestImage(large_size, large_size);
 
-  // The width increases monotonically with image size (it does not shrink).
   EXPECT_LT(button_->GetPreferredSize().width(), small_size);
   EXPECT_LT(button_->GetPreferredSize().height(), small_size);
   button_->SetImage(Button::STATE_NORMAL, small_image);
@@ -225,17 +254,21 @@ TEST_F(LabelButtonTest, Image) {
   EXPECT_GT(button_->GetPreferredSize().width(), large_size);
   EXPECT_GT(button_->GetPreferredSize().height(), large_size);
   button_->SetImage(Button::STATE_NORMAL, small_image);
-  EXPECT_GT(button_->GetPreferredSize().width(), large_size);
-  EXPECT_GT(button_->GetPreferredSize().height(), large_size);
+  EXPECT_GT(button_->GetPreferredSize().width(), small_size);
+  EXPECT_GT(button_->GetPreferredSize().height(), small_size);
+  EXPECT_LT(button_->GetPreferredSize().width(), large_size);
+  EXPECT_LT(button_->GetPreferredSize().height(), large_size);
 
   // Clamp the size to a maximum value.
+  button_->SetImage(Button::STATE_NORMAL, large_image);
   button_->SetMaxSize(gfx::Size(large_size, 1));
   EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(large_size, 1));
 
-  // Clear the monotonically increasing minimum size.
-  button_->SetMinSize(gfx::Size());
-  EXPECT_GT(button_->GetPreferredSize().width(), small_size);
-  EXPECT_LT(button_->GetPreferredSize().width(), large_size);
+  // Clamp the size to a minimum value.
+  button_->SetImage(Button::STATE_NORMAL, small_image);
+  button_->SetMaxSize(gfx::Size());
+  button_->SetMinSize(gfx::Size(large_size, large_size));
+  EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(large_size, large_size));
 }
 
 TEST_F(LabelButtonTest, LabelAndImage) {
@@ -247,7 +280,6 @@ TEST_F(LabelButtonTest, LabelAndImage) {
   const gfx::ImageSkia image = CreateTestImage(image_size, image_size);
   ASSERT_LT(font_list.GetHeight(), image_size);
 
-  // The width increases monotonically with content size (it does not shrink).
   EXPECT_LT(button_->GetPreferredSize().width(), text_width);
   EXPECT_LT(button_->GetPreferredSize().width(), image_size);
   EXPECT_LT(button_->GetPreferredSize().height(), image_size);
@@ -280,21 +312,96 @@ TEST_F(LabelButtonTest, LabelAndImage) {
   EXPECT_LT(button_->label()->bounds().right(), button_->image()->bounds().x());
 
   button_->SetText(base::string16());
-  EXPECT_GT(button_->GetPreferredSize().width(), text_width + image_size);
+  EXPECT_LT(button_->GetPreferredSize().width(), text_width + image_size);
+  EXPECT_GT(button_->GetPreferredSize().width(), image_size);
   EXPECT_GT(button_->GetPreferredSize().height(), image_size);
   button_->SetImage(Button::STATE_NORMAL, gfx::ImageSkia());
-  EXPECT_GT(button_->GetPreferredSize().width(), text_width + image_size);
-  EXPECT_GT(button_->GetPreferredSize().height(), image_size);
-
-  // Clamp the size to a maximum value.
-  button_->SetMaxSize(gfx::Size(image_size, 1));
-  EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(image_size, 1));
-
-  // Clear the monotonically increasing minimum size.
-  button_->SetMinSize(gfx::Size());
-  EXPECT_LT(button_->GetPreferredSize().width(), text_width);
   EXPECT_LT(button_->GetPreferredSize().width(), image_size);
   EXPECT_LT(button_->GetPreferredSize().height(), image_size);
+
+  // Clamp the size to a minimum value.
+  button_->SetText(text);
+  button_->SetImage(Button::STATE_NORMAL, image);
+  button_->SetMinSize(gfx::Size((text_width + image_size) * 2, image_size * 2));
+  EXPECT_EQ(button_->GetPreferredSize().width(), (text_width + image_size) * 2);
+  EXPECT_EQ(button_->GetPreferredSize().height(), image_size * 2);
+
+  // Clamp the size to a maximum value.
+  button_->SetMinSize(gfx::Size());
+  button_->SetMaxSize(gfx::Size(1, 1));
+  EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(1, 1));
+}
+
+TEST_F(LabelButtonTest, LabelWrapAndImageAlignment) {
+  LayoutProvider* provider = LayoutProvider::Get();
+  const gfx::FontList font_list = button_->label()->font_list();
+  const base::string16 text(ASCIIToUTF16("abcdefghijklm abcdefghijklm"));
+  const int text_wrap_width = gfx::GetStringWidth(text, font_list) / 2;
+  const int image_spacing =
+      provider->GetDistanceMetric(DISTANCE_RELATED_LABEL_HORIZONTAL);
+
+  button_->SetText(text);
+  button_->label()->SetMultiLine(true);
+
+  const int image_size = font_list.GetHeight();
+  const gfx::ImageSkia image = CreateTestImage(image_size, image_size);
+  ASSERT_EQ(font_list.GetHeight(), image.width());
+
+  button_->SetImage(Button::STATE_NORMAL, image);
+  button_->SetMaxSize(
+      gfx::Size(image.width() + image_spacing + text_wrap_width, 0));
+
+  gfx::Insets button_insets = button_->GetInsets();
+  gfx::Size preferred_size = button_->GetPreferredSize();
+  preferred_size.set_height(button_->GetHeightForWidth(preferred_size.width()));
+  button_->SetSize(preferred_size);
+  button_->Layout();
+
+  EXPECT_EQ(preferred_size.width(),
+            image.width() + image_spacing + text_wrap_width);
+  EXPECT_EQ(preferred_size.height(),
+            font_list.GetHeight() * 2 + button_insets.height());
+
+  // The image should be centered on the first line of the multi-line label.
+  EXPECT_EQ(button_->image()->y(),
+            (font_list.GetHeight() - button_->image()->height()) / 2 +
+                button_insets.top());
+}
+
+// This test was added because GetHeightForWidth and GetPreferredSize were
+// inconsistent. GetPreferredSize would account for image size + insets whereas
+// GetHeightForWidth wouldn't. As of writing they share a large chunk of
+// logic, but this remains in place so they don't diverge as easily.
+TEST_F(LabelButtonTest, GetHeightForWidthConsistentWithGetPreferredSize) {
+  const base::string16 text(ASCIIToUTF16("abcdefghijklm"));
+  constexpr int kTinyImageSize = 2;
+  constexpr int kLargeImageSize = 50;
+  const int font_height = button_->label()->font_list().GetHeight();
+  // Parts of this test (accounting for label height) doesn't make sense if the
+  // font is smaller than the tiny test image and insets.
+  ASSERT_GT(font_height, button_->GetInsets().height() + kTinyImageSize);
+  // Parts of this test (accounting for image insets) doesn't make sense if the
+  // font is larger than the large test image.
+  ASSERT_LT(font_height, kLargeImageSize);
+  button_->SetText(text);
+
+  for (int image_size : {kTinyImageSize, kLargeImageSize}) {
+    SCOPED_TRACE(testing::Message() << "Image Size: " << image_size);
+    // Set image and reset monotonic min size for every test iteration.
+    const gfx::ImageSkia image = CreateTestImage(image_size, image_size);
+    button_->SetImage(Button::STATE_NORMAL, image);
+
+    const gfx::Size preferred_button_size = button_->GetPreferredSize();
+
+    // The preferred button height should be the larger of image / label
+    // heights + inset height.
+    EXPECT_EQ(std::max(image_size, font_height) + button_->GetInsets().height(),
+              preferred_button_size.height());
+
+    // Make sure this preferred height is consistent with GetHeightForWidth().
+    EXPECT_EQ(preferred_button_size.height(),
+              button_->GetHeightForWidth(preferred_button_size.width()));
+  }
 }
 
 // Ensure that the text used for button labels correctly adjusts in response
@@ -360,7 +467,6 @@ TEST_F(LabelButtonTest, ChangeTextSize) {
 
   // The button and the label view return to its original size when the original
   // text is restored.
-  button_->SetMinSize(gfx::Size());
   button_->SetText(text);
   EXPECT_EQ(original_label_width, button_->label()->bounds().width());
   EXPECT_EQ(original_width, button_->GetPreferredSize().width());
@@ -379,14 +485,20 @@ TEST_F(LabelButtonTest, ChangeLabelImageSpacing) {
   EXPECT_GT(button_->GetPreferredSize().width(), original_width);
 
   // The button shrinks if the original spacing is restored.
-  button_->SetMinSize(gfx::Size());
   button_->SetImageLabelSpacing(kOriginalSpacing);
   EXPECT_EQ(original_width, button_->GetPreferredSize().width());
 }
 
 // Ensure the label gets the correct style for default buttons (e.g. bolding)
 // and button size updates correctly. Regression test for crbug.com/578722.
-TEST_F(LabelButtonTest, ButtonStyleIsDefaultStyle) {
+// Disabled on Mac. The system bold font on 10.10 doesn't get wide enough to
+// change the size, but we don't use styled buttons on Mac, just MdTextButton.
+#if defined(OS_MACOSX)
+#define MAYBE_ButtonStyleIsDefaultStyle DISABLED_ButtonStyleIsDefaultStyle
+#else
+#define MAYBE_ButtonStyleIsDefaultStyle ButtonStyleIsDefaultStyle
+#endif
+TEST_F(LabelButtonTest, MAYBE_ButtonStyleIsDefaultStyle) {
   TestLabelButton* button = AddStyledButton("Save", false);
   gfx::Size non_default_size = button->label()->size();
   EXPECT_EQ(button->label()->GetPreferredSize().width(),
@@ -398,26 +510,13 @@ TEST_F(LabelButtonTest, ButtonStyleIsDefaultStyle) {
   button->SizeToPreferredSize();
   button->Layout();
   EXPECT_EQ(styled_highlight_text_color_, button->label()->enabled_color());
-  if (PlatformStyle::kDefaultLabelButtonHasBoldFont) {
-    EXPECT_NE(non_default_size, button->label()->size());
-    EXPECT_EQ(button->label()->font_list().GetFontWeight(),
-              gfx::Font::Weight::BOLD);
-  } else {
-    EXPECT_EQ(non_default_size, button->label()->size());
-    EXPECT_EQ(button->label()->font_list().GetFontWeight(),
-              gfx::Font::Weight::NORMAL);
-  }
+  EXPECT_NE(non_default_size, button->label()->size());
+  EXPECT_EQ(button->label()->font_list().GetFontWeight(),
+            gfx::Font::Weight::BOLD);
 }
 
 // Ensure the label gets the correct style when pressed or becoming default.
 TEST_F(LabelButtonTest, HighlightedButtonStyle) {
-#if defined(OS_MACOSX)
-  // On Mac, ensure the normal and highlight colors are different, to ensure the
-  // tests are actually testing something. This might be the case on other
-  // platforms.
-  EXPECT_NE(styled_normal_text_color_, styled_highlight_text_color_);
-#endif
-
   // For STYLE_TEXTBUTTON, the NativeTheme might not provide SK_ColorBLACK, but
   // it should be the same for normal and pressed states.
   EXPECT_EQ(themed_normal_text_color_, button_->label()->enabled_color());
@@ -470,11 +569,9 @@ class InkDropLabelButtonTest : public ViewsTestBase {
 
   // ViewsTestBase:
   void SetUp() override {
-    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-        switches::kTopChromeMD, switches::kTopChromeMDMaterial);
     ViewsTestBase::SetUp();
 
-    // Create a widget so that the CustomButton can query the hover state
+    // Create a widget so that the Button can query the hover state
     // correctly.
     widget_.reset(new Widget);
     Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
@@ -495,7 +592,6 @@ class InkDropLabelButtonTest : public ViewsTestBase {
   void TearDown() override {
     widget_.reset();
     ViewsTestBase::TearDown();
-    ui::test::MaterialDesignControllerTestAPI::Uninitialize();
   }
 
  protected:
@@ -513,7 +609,7 @@ class InkDropLabelButtonTest : public ViewsTestBase {
 };
 
 TEST_F(InkDropLabelButtonTest, HoverStateAfterMouseEnterAndExitEvents) {
-  ui::test::EventGenerator event_generator(widget_->GetNativeWindow());
+  ui::test::EventGenerator event_generator(GetRootWindow(widget_.get()));
   const gfx::Point out_of_bounds_point(button_->bounds().bottom_right() +
                                        gfx::Vector2d(1, 1));
   const gfx::Point in_bounds_point(button_->bounds().CenterPoint());

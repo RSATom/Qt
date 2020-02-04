@@ -139,17 +139,17 @@ def CreateUserTypeDefinition(domain, type):
   namespace = CamelCaseToHackerStyle(domain['domain'])
   return {
       'js_type': '!chromium.DevTools.%s.%s' % (domain['domain'], type['id']),
-      'return_type': 'std::unique_ptr<headless::%s::%s>' % (
+      'return_type': 'std::unique_ptr<::headless::%s::%s>' % (
           namespace, type['id']),
-      'pass_type': 'std::unique_ptr<headless::%s::%s>' % (
+      'pass_type': 'std::unique_ptr<::headless::%s::%s>' % (
           namespace, type['id']),
       'to_raw_type': '*%s',
       'to_raw_return_type': '%s.get()',
       'to_pass_type': 'std::move(%s)',
-      'type': 'std::unique_ptr<headless::%s::%s>' % (namespace, type['id']),
-      'raw_type': 'headless::%s::%s' % (namespace, type['id']),
-      'raw_pass_type': 'headless::%s::%s*' % (namespace, type['id']),
-      'raw_return_type': 'const headless::%s::%s*' % (namespace, type['id']),
+      'type': 'std::unique_ptr<::headless::%s::%s>' % (namespace, type['id']),
+      'raw_type': '::headless::%s::%s' % (namespace, type['id']),
+      'raw_pass_type': '::headless::%s::%s*' % (namespace, type['id']),
+      'raw_return_type': 'const ::headless::%s::%s*' % (namespace, type['id']),
   }
 
 
@@ -157,15 +157,15 @@ def CreateEnumTypeDefinition(domain_name, type):
   namespace = CamelCaseToHackerStyle(domain_name)
   return {
       'js_type': '!chromium.DevTools.%s.%s' % (domain_name, type['id']),
-      'return_type': 'headless::%s::%s' % (namespace, type['id']),
-      'pass_type': 'headless::%s::%s' % (namespace, type['id']),
+      'return_type': '::headless::%s::%s' % (namespace, type['id']),
+      'pass_type': '::headless::%s::%s' % (namespace, type['id']),
       'to_raw_type': '%s',
       'to_raw_return_type': '%s',
       'to_pass_type': '%s',
-      'type': 'headless::%s::%s' % (namespace, type['id']),
-      'raw_type': 'headless::%s::%s' % (namespace, type['id']),
-      'raw_pass_type': 'headless::%s::%s' % (namespace, type['id']),
-      'raw_return_type': 'headless::%s::%s' % (namespace, type['id']),
+      'type': '::headless::%s::%s' % (namespace, type['id']),
+      'raw_type': '::headless::%s::%s' % (namespace, type['id']),
+      'raw_pass_type': '::headless::%s::%s' % (namespace, type['id']),
+      'raw_return_type': '::headless::%s::%s' % (namespace, type['id']),
   }
 
 
@@ -230,6 +230,21 @@ def CreateStringTypeDefinition():
   }
 
 
+def CreateBinaryTypeDefinition():
+  return {
+      'js_type': 'string',
+      'return_type': 'protocol::Binary',
+      'pass_type': 'const protocol::Binary&',
+      'to_pass_type': '%s',
+      'to_raw_type': '%s',
+      'to_raw_return_type': '%s',
+      'type': 'protocol::Binary',
+      'raw_type': 'protocol::Binary',
+      'raw_pass_type': 'const protocol::Binary&',
+      'raw_return_type': 'protocol::Binary',
+  }
+
+
 def CreatePrimitiveTypeDefinition(type):
   typedefs = {
       'number': 'double',
@@ -260,6 +275,7 @@ type_definitions['number'] = CreatePrimitiveTypeDefinition('number')
 type_definitions['integer'] = CreatePrimitiveTypeDefinition('integer')
 type_definitions['boolean'] = CreatePrimitiveTypeDefinition('boolean')
 type_definitions['string'] = CreateStringTypeDefinition()
+type_definitions['binary'] = CreateBinaryTypeDefinition()
 type_definitions['object'] = CreateObjectTypeDefinition()
 type_definitions['any'] = CreateAnyTypeDefinition()
 
@@ -292,9 +308,8 @@ def CreateTypeDefinitions(json_api):
           type_definitions[domain['domain'] + '.' + type['id']] = (
               CreateObjectTypeDefinition())
       elif type['type'] == 'array':
-        items_type = type['items']['type']
         type_definitions[domain['domain'] + '.' + type['id']] = (
-            WrapArrayDefinition(type_definitions[items_type]))
+            ResolveType(type))
       elif 'enum' in type:
         type_definitions[domain['domain'] + '.' + type['id']] = (
             CreateEnumTypeDefinition(domain['domain'], type))
@@ -305,6 +320,9 @@ def CreateTypeDefinitions(json_api):
       elif type['type'] == 'string':
         type_definitions[domain['domain'] + '.' + type['id']] = (
             CreateStringTypeDefinition())
+      elif type['type'] == 'binary':
+        type_definitions[domain['domain'] + '.' + type['id']] = (
+            CreateBinaryTypeDefinition())
       else:
         type_definitions[domain['domain'] + '.' + type['id']] = (
             CreatePrimitiveTypeDefinition(type['type']))
@@ -354,8 +372,11 @@ def SynthesizeCommandTypes(json_api):
             SynthesizeEnumType(domain, type['id'], property)
 
     for command in domain.get('commands', []):
+      parameters_required = False
       if 'parameters' in command:
         for parameter in command['parameters']:
+          if not 'optional' in parameter:
+            parameters_required = True
           if 'enum' in parameter and not '$ref' in parameter:
             SynthesizeEnumType(domain, command['name'], parameter)
         parameters_type = {
@@ -378,6 +399,7 @@ def SynthesizeCommandTypes(json_api):
             'properties': command['returns']
         }
         domain['types'].append(result_type)
+      command['parameters_required'] = parameters_required
 
 
 def SynthesizeEventTypes(json_api):

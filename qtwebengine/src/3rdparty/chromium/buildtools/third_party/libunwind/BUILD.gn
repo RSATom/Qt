@@ -2,14 +2,28 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/c++/c++.gni")
+
 config("libunwind_config") {
-  # ValueAsBitPattern in Unwind-EHABI.cpp is only used on Debug builds.
-  cflags = [ "-Wno-unused-function" ]
+  cflags = [
+    "-fstrict-aliasing",
+    "-fPIC",
+
+    # ValueAsBitPattern in Unwind-EHABI.cpp is only used on Debug builds.
+    "-Wno-unused-function",
+  ]
 }
 
 source_set("libunwind") {
-  visibility = [ "//buildtools/third_party/libc++abi" ]
-  defines = [ "_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS" ]
+  visibility = [
+    "//buildtools/third_party/libc++abi",
+    "//components/tracing",
+  ]
+
+  if (!is_component_build) {
+    defines = [ "_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS" ]
+  }
+  include_dirs = [ "//buildtools/third_party/libunwind/trunk/include" ]
   sources = [
     # C++ sources
     "trunk/src/Unwind-EHABI.cpp",
@@ -26,13 +40,14 @@ source_set("libunwind") {
   ]
   configs -= [
     "//build/config/compiler:chromium_code",
+    "//build/config/compiler:no_exceptions",
     "//build/config/compiler:no_rtti",
-    "//build/config/gcc:no_exceptions",
+    "//build/config/coverage:default_coverage",
   ]
   configs += [
     "//build/config/compiler:no_chromium_code",
+    "//build/config/compiler:exceptions",
     "//build/config/compiler:rtti",
-    "//buildtools/third_party/libc++:config",
 
     # Must be after no_chromium_code
     ":libunwind_config",

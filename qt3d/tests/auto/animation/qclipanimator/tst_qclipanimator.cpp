@@ -63,6 +63,7 @@ private Q_SLOTS:
         QCOMPARE(animator.channelMapper(), static_cast<Qt3DAnimation::QChannelMapper *>(nullptr));
         QCOMPARE(animator.clock(), static_cast<Qt3DAnimation::QClock*>(nullptr));
         QCOMPARE(animator.loopCount(), 1);
+        QCOMPARE(animator.normalizedTime(), 0.0f);
     }
 
     void checkPropertyChanges()
@@ -151,6 +152,33 @@ private Q_SLOTS:
             // THEN
             QCOMPARE(animator.loopCount(), newValue);
             QCOMPARE(spy.count(), 0);
+        }
+    }
+
+    void checkRunning()
+    {
+        // GIVEN
+        Qt3DAnimation::QClipAnimator animator;
+        animator.stop();
+
+        {
+            // WHEN
+            animator.setRunning(true);
+
+            // THEN
+            QCOMPARE(animator.isRunning(), false);
+        }
+
+        {
+            // WHEN
+            Qt3DAnimation::QChannelMapper *mapper = new Qt3DAnimation::QChannelMapper;
+            Qt3DAnimation::QAnimationClip *clip = new Qt3DAnimation::QAnimationClip;
+            animator.setClip(clip);
+            animator.setChannelMapper(mapper);
+            animator.setRunning(true);
+
+            // THEN
+            QCOMPARE(animator.isRunning(), true);
         }
     }
 

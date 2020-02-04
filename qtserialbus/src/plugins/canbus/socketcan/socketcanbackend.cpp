@@ -40,10 +40,12 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qdiriterator.h>
 #include <QtCore/qfile.h>
+#include <QtCore/qloggingcategory.h>
 #include <QtCore/qsocketnotifier.h>
 
 #include <linux/can/error.h>
 #include <linux/can/raw.h>
+#include <linux/sockios.h>
 #include <errno.h>
 #include <unistd.h>
 #include <net/if.h>
@@ -83,7 +85,11 @@ struct canfd_frame {
 
 QT_BEGIN_NAMESPACE
 
+Q_DECLARE_LOGGING_CATEGORY(QT_CANBUS_PLUGINS_SOCKETCAN)
+
 const char sysClassNetC[] = "/sys/class/net/";
+const char interfaceC[]   = "/device/interface";
+const char devIdC[]       = "/dev_id";
 const char flagsC[]       = "/flags";
 const char mtuC[]         = "/mtu";
 const char typeC[]        = "/type";
@@ -124,6 +130,23 @@ static quint32 flags(const QString &canDevice)
     return result;
 }
 
+static QString deviceDescription(const QString &canDevice)
+{
+    const QString path = QLatin1String(sysClassNetC) + canDevice + QLatin1String(interfaceC);
+    const QByteArray content = fileContent(path);
+    if (content.isEmpty() && isVirtual(canDevice))
+        return QStringLiteral("Virtual CAN");
+
+    return QString::fromUtf8(content);
+}
+
+static int deviceChannel(const QString &canDevice)
+{
+    const QString path = QLatin1String(sysClassNetC) + canDevice + QLatin1String(devIdC);
+    const QByteArray content = fileContent(path);
+    return content.toInt(nullptr, 0);
+}
+
 QList<QCanBusDeviceInfo> SocketCanBackend::interfaces()
 {
     QList<QCanBusDeviceInfo> result;
@@ -140,9 +163,12 @@ QList<QCanBusDeviceInfo> SocketCanBackend::interfaces()
         if (!(flags(deviceName) & DeviceIsActive))
             continue;
 
-        auto info = createDeviceInfo(deviceName, isVirtual(deviceName),
-                                     isFlexibleDataRateCapable(deviceName));
-        result.append(info);
+        const QString serial;
+        const QString description = deviceDescription(deviceName);
+        const int channel = deviceChannel(deviceName);
+        result.append(std::move(createDeviceInfo(deviceName, serial, description,
+                                                 channel, isVirtual(deviceName),
+                                                 isFlexibleDataRateCapable(deviceName))));
     }
 
     std::sort(result.begin(), result.end(),
@@ -249,7 +275,7 @@ bool SocketCanBackend::applyConfigurationParameter(int key, const QVariant &valu
             socklen_t s = sizeof(can_filter);
             if (Q_UNLIKELY(setsockopt(canSocket, SOL_CAN_RAW, CAN_RAW_FILTER,
                            &filters, s) != 0)) {
-                qWarning("Cannot unset socket filters");
+                qCWarning(QT_CANBUS_PLUGINS_SOCKETCAN, "Cannot unset socket filters.");
                 setError(qt_error_string(errno),
                          QCanBusDevice::CanBusError::ConfigurationError);
                 break;
@@ -373,8 +399,8 @@ bool SocketCanBackend::connectSocket()
         const QVariant param = configurationParameter(key);
         bool success = applyConfigurationParameter(key, param);
         if (Q_UNLIKELY(!success)) {
-            qWarning("Cannot apply parameter: %d with value: %ls",
-                     key, qUtf16Printable(param.toString()));
+            qCWarning(QT_CANBUS_PLUGINS_SOCKETCAN, "Cannot apply parameter: %d with value: %ls.",
+                      key, qUtf16Printable(param.toString()));
         }
     }
 
@@ -443,7 +469,7 @@ bool SocketCanBackend::writeFrame(const QCanBusFrame &newData)
 
     if (Q_UNLIKELY(!canFdOptionEnabled && newData.hasFlexibleDataRateFormat())) {
         const QString error = tr("Cannot write CAN FD frame because CAN FD option is not enabled.");
-        qDebug("%ls", qUtf16Printable(error));
+        qCWarning(QT_CANBUS_PLUGINS_SOCKETCAN, "%ls", qUtf16Printable(error));
         setError(error, QCanBusDevice::WriteError);
         return false;
     }

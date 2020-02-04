@@ -15,10 +15,8 @@
         <translation>Achtung</translation>
     </message>
     <message>
-        <source>Unable to launch external application.
-</source>
-        <translation>Fehler beim Starten der externen Anwendung.
-</translation>
+        <source>Unable to launch external application.</source>
+        <translation>Fehler beim Starten der externen Anwendung.</translation>
     </message>
     <message>
         <source>OK</source>
@@ -418,12 +416,12 @@ Grund:
 <context>
     <name>FilterNameDialogClass</name>
     <message>
-        <source>Add Filter Name</source>
-        <translation>Filternamen hinzufügen</translation>
-    </message>
-    <message>
         <source>Filter Name:</source>
         <translation>Filtername:</translation>
+    </message>
+    <message>
+        <source>Add Filter</source>
+        <translation>Filter hinzufügen</translation>
     </message>
 </context>
 <context>
@@ -512,13 +510,6 @@ Grund:
     </message>
 </context>
 <context>
-    <name>HelpEngineWrapper</name>
-    <message>
-        <source>Unfiltered</source>
-        <translation>Ungefiltert</translation>
-    </message>
-</context>
-<context>
     <name>HelpViewer</name>
     <message>
         <source>&lt;title&gt;about:blank&lt;/title&gt;</source>
@@ -553,8 +544,8 @@ Grund:
         <translation>Fehler 404...</translation>
     </message>
     <message>
-        <source>The page could not be found!</source>
-        <translation>Die Seite konnte nicht gefunden werden!</translation>
+        <source>The page could not be found</source>
+        <translation>Die Seite konnte nicht gefunden werden</translation>
     </message>
     <message>
         <source>Please make sure that you have all documentation sets installed.</source>
@@ -691,6 +682,10 @@ Grund:
         <translation>&lt;center&gt;&lt;h3&gt;%1&lt;/h3&gt;&lt;p&gt;Version %2&lt;/p&gt;&lt;p&gt;Browser: %3&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Copyright (C) %4 The Qt Company Ltd.&lt;/p&gt;</translation>
     </message>
     <message>
+        <source>Unfiltered</source>
+        <translation>Ungefiltert</translation>
+    </message>
+    <message>
         <source>Could not register file &apos;%1&apos;: %2</source>
         <translation>Die Datei &apos;%1&apos; konnte nicht registriert werden: %2</translation>
     </message>
@@ -811,7 +806,62 @@ Grund:
     </message>
 </context>
 <context>
+    <name>OptionsWidget</name>
+    <message>
+        <source>No Option</source>
+        <translation>Keine Option</translation>
+    </message>
+    <message>
+        <source>Invalid Option</source>
+        <translation>Ungültige Option</translation>
+    </message>
+</context>
+<context>
     <name>PreferencesDialog</name>
+    <message>
+        <source>No Component</source>
+        <translation>Keine Komponente</translation>
+    </message>
+    <message>
+        <source>Invalid Component</source>
+        <translation>Ungültige Komponente</translation>
+    </message>
+    <message>
+        <source>No Version</source>
+        <translation>Keine Version</translation>
+    </message>
+    <message>
+        <source>Invalid Version</source>
+        <translation>Ungültige Version</translation>
+    </message>
+    <message>
+        <source>Filter Exists</source>
+        <translation>Filter existiert bereits</translation>
+    </message>
+    <message>
+        <source>The filter &quot;%1&quot; already exists.</source>
+        <translation>Der Filter &quot;%1&quot; existiert bereits.</translation>
+    </message>
+    <message>
+        <source>Add Filter</source>
+        <translation>Filter hinzufügen</translation>
+    </message>
+    <message>
+        <source>New Filter</source>
+        <translation>Neuer Filter</translation>
+    </message>
+    <message>
+        <source>Rename Filter</source>
+        <translation>Filter umbenennen</translation>
+    </message>
+    <message>
+        <source>Remove Filter</source>
+        <translation>Filter löschen</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to remove the &quot;%1&quot; filter?</source>
+        <translation>Möchten Sie den Filter &quot;%1&quot; wirklich löschen?</translation>
+    </message>
     <message>
         <source>Add Documentation</source>
         <translation>Dokumentation hinzufügen</translation>
@@ -819,30 +869,6 @@ Grund:
     <message>
         <source>Qt Compressed Help Files (*.qch)</source>
         <translation>Komprimierte Hilfedateien (*.qch)</translation>
-    </message>
-    <message>
-        <source>The specified file is not a valid Qt Help File!</source>
-        <translation>Die angegebene Datei ist keine Qt-Hilfedatei.</translation>
-    </message>
-    <message>
-        <source>The namespace %1 is already registered!</source>
-        <translation>Der Namespace %1 ist bereits registriert.</translation>
-    </message>
-    <message>
-        <source>Remove Documentation</source>
-        <translation>Dokumentation entfernen</translation>
-    </message>
-    <message>
-        <source>Some documents currently opened in Assistant reference the documentation you are attempting to remove. Removing the documentation will close those documents.</source>
-        <translation>Einige der derzeit geöffneten Dokumente stammen aus der Dokumentation, die Sie gerade zu löschen versuchen. Sie werden beim Löschen geschlossen.</translation>
-    </message>
-    <message>
-        <source>Cancel</source>
-        <translation>Abbrechen</translation>
-    </message>
-    <message>
-        <source>OK</source>
-        <translation>OK</translation>
     </message>
     <message>
         <source>Use custom settings</source>
@@ -878,18 +904,6 @@ Grund:
     <message>
         <source>Filter:</source>
         <translation>Filter:</translation>
-    </message>
-    <message>
-        <source>Attributes:</source>
-        <translation>Attribute:</translation>
-    </message>
-    <message>
-        <source>1</source>
-        <translation>1</translation>
-    </message>
-    <message>
-        <source>Add</source>
-        <translation>Hinzufügen</translation>
     </message>
     <message>
         <source>Remove</source>
@@ -954,6 +968,18 @@ Grund:
     <message>
         <source>&lt;Filter&gt;</source>
         <translation>&lt;Filter&gt;</translation>
+    </message>
+    <message>
+        <source>Components:</source>
+        <translation>Komponenten:</translation>
+    </message>
+    <message>
+        <source>Rename...</source>
+        <translation>Umbenennen...</translation>
+    </message>
+    <message>
+        <source>Versions:</source>
+        <translation>Versionen:</translation>
     </message>
 </context>
 <context>

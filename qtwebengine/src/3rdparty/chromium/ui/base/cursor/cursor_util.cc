@@ -5,7 +5,6 @@
 #include "ui/base/cursor/cursor_util.h"
 
 #include "base/logging.h"
-#include "skia/ext/image_operations.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
@@ -27,17 +26,19 @@ bool ConvertSkBitmapAlphaType(SkBitmap* bitmap, SkAlphaType alpha_type) {
   // Copy the bitmap into a temporary buffer. This will convert alpha type.
   SkImageInfo image_info =
       SkImageInfo::MakeN32(bitmap->width(), bitmap->height(), alpha_type);
-  std::vector<char> buffer(bitmap->getSize());
-  bitmap->readPixels(image_info, &buffer[0], image_info.minRowBytes(), 0, 0);
+  size_t info_row_bytes = image_info.minRowBytes();
+  std::vector<char> buffer(image_info.computeByteSize(info_row_bytes));
+  bitmap->readPixels(image_info, &buffer[0], info_row_bytes, 0, 0);
   // Read the temporary buffer back into the original bitmap.
   bitmap->reset();
   bitmap->allocPixels(image_info);
+  // this memcpy call assumes bitmap->rowBytes() == info_row_bytes
   memcpy(bitmap->getPixels(), &buffer[0], buffer.size());
 
   return true;
 }
 
-} // namespace
+}  // namespace
 
 void ScaleAndRotateCursorBitmapAndHotpoint(float scale,
                                            display::Display::Rotation rotation,
@@ -88,11 +89,17 @@ void ScaleAndRotateCursorBitmapAndHotpoint(float scale,
   gfx::Size scaled_size = gfx::ScaleToFlooredSize(
       gfx::Size(bitmap->width(), bitmap->height()), scale);
 
-  *bitmap = skia::ImageOperations::Resize(
-      *bitmap,
-      skia::ImageOperations::RESIZE_BETTER,
-      scaled_size.width(),
-      scaled_size.height());
+  // TODO(crbug.com/919866): skia::ImageOperations::Resize() doesn't support
+  // unpremultiplied alpha bitmaps.
+  SkBitmap scaled_bitmap;
+  scaled_bitmap.setInfo(
+      bitmap->info().makeWH(scaled_size.width(), scaled_size.height()));
+  if (scaled_bitmap.tryAllocPixels()) {
+    bitmap->pixmap().scalePixels(scaled_bitmap.pixmap(),
+                                 kMedium_SkFilterQuality);
+  }
+
+  *bitmap = scaled_bitmap;
   *hotpoint = gfx::ScaleToFlooredPoint(*hotpoint, scale);
 }
 
@@ -106,7 +113,7 @@ void GetImageCursorBitmap(int resource_id,
   const gfx::ImageSkiaRep& image_rep = image->GetRepresentation(scale);
   // TODO(oshima): The cursor should use resource scale factor when
   // fractional scale factor is enabled. crbug.com/372212
-  (*bitmap) = image_rep.sk_bitmap();
+  (*bitmap) = image_rep.GetBitmap();
   ScaleAndRotateCursorBitmapAndHotpoint(
       scale / image_rep.scale(), rotation, bitmap, hotspot);
   // |image_rep| is owned by the resource bundle. So we do not need to free it.
@@ -121,7 +128,7 @@ void GetAnimatedCursorBitmaps(int resource_id,
   const gfx::ImageSkia* image =
       ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id);
   const gfx::ImageSkiaRep& image_rep = image->GetRepresentation(scale);
-  SkBitmap bitmap = image_rep.sk_bitmap();
+  SkBitmap bitmap = image_rep.GetBitmap();
   int frame_width = bitmap.height();
   int frame_height = frame_width;
   int total_width = bitmap.width();

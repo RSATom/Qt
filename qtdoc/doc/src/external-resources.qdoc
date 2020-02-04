@@ -61,8 +61,8 @@
 */
 
 /*!
-    \externalpage http://opensource.org/licenses/bsd-license.php
-    \title New and Modified BSD Licenses
+    \externalpage https://spdx.org/licenses/BSD-3-Clause.html
+    \title BSD 3-Clause "New" or "Revised" License
 */
 
 /*!
@@ -210,7 +210,7 @@
     \title Building and Running Example
 */
 /*!
-    \externalpage http://doc.qt.io/qtcreator/qtcreator-accelbubble-example.html
+    \externalpage http://doc.qt.io/qtcreator/qt-creator-accelbubble-example.html
     \title Creating a Mobile Application
 */
 /*!
@@ -296,12 +296,16 @@
     \title Enginio Manual
 */
 /*!
-    \externalpage http://doc.qt.io/QtForDeviceCreation/qtee-about-b2qt.html
+    \externalpage http://doc.qt.io/QtForDeviceCreation/qtb2-index.html
     \title Boot2Qt
 */
 /*!
     \externalpage https://doc.qt.io/QtForDeviceCreation/qt-configuration-tool.html
     \title Qt Configuration Tool
+*/
+/*!
+    \externalpage https://doc.qt.io/QtForDeviceCreation/qtdc-supported-platforms.html
+    \title Qt for Device Creation: Supported Target Devices and Development Hosts
 */
 
 /*!
@@ -325,4 +329,49 @@
 /*!
     \externalpage https://wiki.openssl.org/images/7/70/Setenv-android.sh
     \title OpenSSL: Build Setup Script
+*/
+
+/*!
+    \externalpage http://doc.qt.io/QtForAutomation/index.html
+    \title Qt for Automation
+*/
+
+/*!
+    \externalpage https://doc.qt.io/QtAutomotiveSuite/index.html
+    \title Qt Automotive Suite
+*/
+
+/*!
+    \externalpage https://doc.qt.io/QtQuickEnterpriseControls/
+    \title Qt Quick Enterprise Controls
+*/
+
+/*!
+    \externalpage https://wiki.qt.io/Qt_for_WebAssembly
+    \title Qt for WebAssembly wiki
+*/
+
+/*!
+    \externalpage http://blog.qt.io/blog/2018/04/23/beta-qt-webassembly-technology-preview/
+    \title Qt for WebAssembly Technology Preview
+*/
+
+/*!
+    \externalpage http://blog.qt.io/blog/2018/05/22/qt-for-webassembly/
+    \title Qt and WebAssembly
+*/
+
+/*!
+    \externalpage http://blog.qt.io/blog/2018/11/19/getting-started-qt-webassembly/
+    \title Getting Started with Qt for WebAssembly
+*/
+
+/*!
+    \externalpage http://blog.qt.io/blog/2018/06/12/remote-uis-webgl-webassembly/
+    \title Remote UIs with WebGL and WebAssembly
+*/
+
+/*!
+    \externalpage https://webassembly.org
+    \title WebAssembly Resource site
 */

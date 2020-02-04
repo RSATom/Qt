@@ -7,9 +7,10 @@
 #include <memory>
 
 #include "base/metrics/metrics_hashes.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/ukm/test_ukm_recorder.h"
-#include "components/ukm/ukm_source.h"
-#include "services/metrics/public/cpp/ukm_recorder.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
+#include "services/metrics/public/cpp/ukm_source.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -21,55 +22,66 @@ namespace password_manager {
 namespace {
 
 constexpr char kTestUrl[] = "https://www.example.com/";
+constexpr ukm::SourceId kTestSourceId = 0x1234;
+
+using UkmEntry = ukm::builders::PageWithPassword;
 
 // Creates a PasswordManagerMetricsRecorder that reports metrics for kTestUrl.
-PasswordManagerMetricsRecorder CreateMetricsRecorder(
-    ukm::UkmRecorder* ukm_recorder) {
-  return PasswordManagerMetricsRecorder(
-      ukm_recorder, ukm_recorder->GetNewSourceID(), GURL(kTestUrl));
+PasswordManagerMetricsRecorder CreateMetricsRecorder() {
+  return PasswordManagerMetricsRecorder(kTestSourceId, GURL(kTestUrl));
 }
 
 }  // namespace
 
 TEST(PasswordManagerMetricsRecorder, UserModifiedPasswordField) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   ukm::TestAutoSetUkmRecorder test_ukm_recorder;
   {
-    PasswordManagerMetricsRecorder recorder(
-        CreateMetricsRecorder(&test_ukm_recorder));
+    PasswordManagerMetricsRecorder recorder(CreateMetricsRecorder());
     recorder.RecordUserModifiedPasswordField();
   }
-  const ukm::UkmSource* source = test_ukm_recorder.GetSourceForUrl(kTestUrl);
-  ASSERT_TRUE(source);
-  test_ukm_recorder.ExpectMetric(*source, "PageWithPassword",
-                                 kUkmUserModifiedPasswordField, 1);
+
+  const auto& entries =
+      test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+  for (const auto* entry : entries) {
+    EXPECT_EQ(kTestSourceId, entry->source_id);
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kUserModifiedPasswordFieldName, 1);
+  }
 }
 
 TEST(PasswordManagerMetricsRecorder, UserModifiedPasswordFieldMultipleTimes) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   ukm::TestAutoSetUkmRecorder test_ukm_recorder;
   {
-    PasswordManagerMetricsRecorder recorder(
-        CreateMetricsRecorder(&test_ukm_recorder));
+    PasswordManagerMetricsRecorder recorder(CreateMetricsRecorder());
     // Multiple calls should not create more than one entry.
     recorder.RecordUserModifiedPasswordField();
     recorder.RecordUserModifiedPasswordField();
   }
-  const ukm::UkmSource* source = test_ukm_recorder.GetSourceForUrl(kTestUrl);
-  ASSERT_TRUE(source);
-  test_ukm_recorder.ExpectMetric(*source, "PageWithPassword",
-                                 kUkmUserModifiedPasswordField, 1);
+  const auto& entries =
+      test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+  for (const auto* entry : entries) {
+    EXPECT_EQ(kTestSourceId, entry->source_id);
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kUserModifiedPasswordFieldName, 1);
+  }
 }
 
 TEST(PasswordManagerMetricsRecorder, UserModifiedPasswordFieldNotCalled) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   ukm::TestAutoSetUkmRecorder test_ukm_recorder;
-  {
-    PasswordManagerMetricsRecorder recorder(
-        CreateMetricsRecorder(&test_ukm_recorder));
+  { PasswordManagerMetricsRecorder recorder(CreateMetricsRecorder()); }
+  const auto& entries =
+      test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+  for (const auto* entry : entries) {
+    EXPECT_EQ(kTestSourceId, entry->source_id);
+    EXPECT_FALSE(test_ukm_recorder.EntryHasMetric(
+        entry, UkmEntry::kUserModifiedPasswordFieldName));
   }
-  const ukm::UkmSource* source = test_ukm_recorder.GetSourceForUrl(kTestUrl);
-  ASSERT_TRUE(source);
-  EXPECT_THAT(test_ukm_recorder.GetMetrics(*source, "PageWithPassword",
-                                           kUkmUserModifiedPasswordField),
-              Not(Contains(1)));
 }
 
 }  // namespace password_manager

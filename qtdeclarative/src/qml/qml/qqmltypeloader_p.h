@@ -110,7 +110,7 @@ public:
     };
 
     QQmlDataBlob(const QUrl &, Type, QQmlTypeLoader* manager);
-    virtual ~QQmlDataBlob();
+    ~QQmlDataBlob() override;
 
     void startLoading();
 
@@ -140,11 +140,13 @@ public:
         QString readAll(QString *error) const;
         QDateTime sourceTimeStamp() const;
         bool exists() const;
+        bool isEmpty() const;
     private:
         friend class QQmlDataBlob;
         friend class QQmlTypeLoader;
         QString inlineSourceCode;
         QFileInfo fileInfo;
+        bool hasInlineSourceCode = false;
     };
 
 protected:
@@ -158,7 +160,7 @@ protected:
 
     // Callbacks made in load thread
     virtual void dataReceived(const SourceCodeData &) = 0;
-    virtual void initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit*) = 0;
+    virtual void initializeFromCachedUnit(const QV4::CompiledData::Unit*) = 0;
     virtual void done();
 #if QT_CONFIG(qml_network)
     virtual void networkError(QNetworkReply::NetworkError);
@@ -215,7 +217,7 @@ private:
     QList<QQmlDataBlob *> m_waitingOnMe;
 
     // List of QQmlDataBlob's that I am waiting for to complete.
-    QList<QQmlDataBlob *> m_waitingFor;
+    QVector<QQmlRefPointer<QQmlDataBlob>> m_waitingFor;
 
     int m_redirectCount:30;
     bool m_inCallback:1;
@@ -228,12 +230,16 @@ class QQmlTypeLoaderQmldirContent
 {
 private:
     friend class QQmlTypeLoader;
-    QQmlTypeLoaderQmldirContent();
 
     void setContent(const QString &location, const QString &content);
     void setError(const QQmlError &);
 
 public:
+    QQmlTypeLoaderQmldirContent();
+    QQmlTypeLoaderQmldirContent(const QQmlTypeLoaderQmldirContent &) = default;
+    QQmlTypeLoaderQmldirContent &operator=(const QQmlTypeLoaderQmldirContent &) = default;
+
+    bool hasContent() const { return m_hasContent; }
     bool hasError() const;
     QList<QQmlError> errors(const QString &uri) const;
 
@@ -250,6 +256,7 @@ public:
 private:
     QQmlDirParser m_parser;
     QString m_location;
+    bool m_hasContent = false;
 };
 
 class Q_QML_PRIVATE_EXPORT QQmlTypeLoader
@@ -262,22 +269,23 @@ public:
     {
     public:
         Blob(const QUrl &url, QQmlDataBlob::Type type, QQmlTypeLoader *loader);
-        ~Blob();
+        ~Blob() override;
 
         const QQmlImports &imports() const { return m_importCache; }
+
+        void setCachedUnitStatus(QQmlMetaType::CachedUnitLookupError status) { m_cachedUnitStatus = status; }
 
     protected:
         bool addImport(const QV4::CompiledData::Import *import, QList<QQmlError> *errors);
 
         bool fetchQmldir(const QUrl &url, const QV4::CompiledData::Import *import, int priority, QList<QQmlError> *errors);
-        bool updateQmldir(QQmlQmldirData *data, const QV4::CompiledData::Import *import, QList<QQmlError> *errors);
+        bool updateQmldir(const QQmlRefPointer<QQmlQmldirData> &data, const QV4::CompiledData::Import *import, QList<QQmlError> *errors);
 
     private:
-        virtual bool qmldirDataAvailable(QQmlQmldirData *, QList<QQmlError> *);
+        virtual bool qmldirDataAvailable(const QQmlRefPointer<QQmlQmldirData> &, QList<QQmlError> *);
 
-        virtual void scriptImported(QQmlScriptBlob *, const QV4::CompiledData::Location &, const QString &, const QString &) {}
+        virtual void scriptImported(const QQmlRefPointer<QQmlScriptBlob> &, const QV4::CompiledData::Location &, const QString &, const QString &) {}
 
-        void dependencyError(QQmlDataBlob *) override;
         void dependencyComplete(QQmlDataBlob *) override;
 
     protected:
@@ -287,7 +295,8 @@ public:
 
         QQmlImports m_importCache;
         QHash<const QV4::CompiledData::Import*, int> m_unresolvedImports;
-        QList<QQmlQmldirData *> m_qmldirs;
+        QVector<QQmlRefPointer<QQmlQmldirData>> m_qmldirs;
+        QQmlMetaType::CachedUnitLookupError m_cachedUnitStatus = QQmlMetaType::CachedUnitLookupError::NoError;
     };
 
     QQmlTypeLoader(QQmlEngine *);
@@ -295,16 +304,19 @@ public:
 
     QQmlImportDatabase *importDatabase() const;
 
-    QQmlTypeData *getType(const QUrl &url, Mode mode = PreferSynchronous);
-    QQmlTypeData *getType(const QByteArray &, const QUrl &url, Mode mode = PreferSynchronous);
+    static QUrl normalize(const QUrl &unNormalizedUrl);
 
-    QQmlScriptBlob *getScript(const QUrl &);
-    QQmlQmldirData *getQmldir(const QUrl &);
+    QQmlRefPointer<QQmlTypeData> getType(const QUrl &unNormalizedUrl, Mode mode = PreferSynchronous);
+    QQmlRefPointer<QQmlTypeData> getType(const QByteArray &, const QUrl &url, Mode mode = PreferSynchronous);
+
+    QQmlRefPointer<QQmlScriptBlob> getScript(const QUrl &unNormalizedUrl);
+    QQmlRefPointer<QQmlQmldirData> getQmldir(const QUrl &);
 
     QString absoluteFilePath(const QString &path);
+    bool fileExists(const QString &path, const QString &file);
     bool directoryExists(const QString &path);
 
-    const QQmlTypeLoaderQmldirContent *qmldirContent(const QString &filePath);
+    const QQmlTypeLoaderQmldirContent qmldirContent(const QString &filePath);
     void setQmldirContent(const QString &filePath, const QString &content);
 
     void clearCache();
@@ -313,24 +325,24 @@ public:
     bool isTypeLoaded(const QUrl &url) const;
     bool isScriptLoaded(const QUrl &url) const;
 
-    void lock();
-    void unlock();
+    void lock() { m_mutex.lock(); }
+    void unlock() { m_mutex.unlock(); }
 
     void load(QQmlDataBlob *, Mode = PreferSynchronous);
     void loadWithStaticData(QQmlDataBlob *, const QByteArray &, Mode = PreferSynchronous);
-    void loadWithCachedUnit(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit, Mode mode = PreferSynchronous);
+    void loadWithCachedUnit(QQmlDataBlob *blob, const QV4::CompiledData::Unit *unit, Mode mode = PreferSynchronous);
 
     QQmlEngine *engine() const;
     void initializeEngine(QQmlExtensionInterface *, const char *);
     void invalidate();
 
-#ifdef QT_NO_QML_DEBUGGER
+#if !QT_CONFIG(qml_debug)
     quintptr profiler() const { return 0; }
     void setProfiler(quintptr) {}
 #else
     QQmlProfiler *profiler() const { return m_profiler.data(); }
     void setProfiler(QQmlProfiler *profiler);
-#endif // QT_NO_QML_DEBUGGER
+#endif // QT_CONFIG(qml_debug)
 
 
 private:
@@ -344,7 +356,7 @@ private:
 
     void loadThread(QQmlDataBlob *);
     void loadWithStaticDataThread(QQmlDataBlob *, const QByteArray &);
-    void loadWithCachedUnitThread(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit);
+    void loadWithCachedUnitThread(QQmlDataBlob *blob, const QV4::CompiledData::Unit *unit);
 #if QT_CONFIG(qml_network)
     void networkReplyFinished(QNetworkReply *);
     void networkReplyProgress(QNetworkReply *, qint64, qint64);
@@ -355,7 +367,7 @@ private:
     void setData(QQmlDataBlob *, const QByteArray &);
     void setData(QQmlDataBlob *, const QString &fileName);
     void setData(QQmlDataBlob *, const QQmlDataBlob::SourceCodeData &);
-    void setCachedUnit(QQmlDataBlob *blob, const QQmlPrivate::CachedQmlUnit *unit);
+    void setCachedUnit(QQmlDataBlob *blob, const QV4::CompiledData::Unit *unit);
 
     template<typename T>
     struct TypedCallback
@@ -381,8 +393,9 @@ private:
 
     QQmlEngine *m_engine;
     QQmlTypeLoaderThread *m_thread;
+    QMutex &m_mutex;
 
-#ifndef QT_NO_QML_DEBUGGER
+#if QT_CONFIG(qml_debug)
     QScopedPointer<QQmlProfiler> m_profiler;
 #endif
 
@@ -411,13 +424,13 @@ class Q_AUTOTEST_EXPORT QQmlTypeData : public QQmlTypeLoader::Blob
 public:
     struct TypeReference
     {
-        TypeReference() : majorVersion(0), minorVersion(0), typeData(0), needsCreation(true) {}
+        TypeReference() : majorVersion(0), minorVersion(0), needsCreation(true) {}
 
         QV4::CompiledData::Location location;
         QQmlType type;
         int majorVersion;
         int minorVersion;
-        QQmlTypeData *typeData;
+        QQmlRefPointer<QQmlTypeData> typeData;
         QString prefix; // used by CompositeSingleton types
         QString qualifiedName() const;
         bool needsCreation;
@@ -425,11 +438,9 @@ public:
 
     struct ScriptReference
     {
-        ScriptReference() : script(0) {}
-
         QV4::CompiledData::Location location;
         QString qualifier;
-        QQmlScriptBlob *script;
+        QQmlRefPointer<QQmlScriptBlob> script;
     };
 
 private:
@@ -438,7 +449,7 @@ private:
     QQmlTypeData(const QUrl &, QQmlTypeLoader *);
 
 public:
-    ~QQmlTypeData();
+    ~QQmlTypeData() override;
 
     const QList<ScriptReference> &resolvedScripts() const;
 
@@ -457,7 +468,7 @@ protected:
     void done() override;
     void completed() override;
     void dataReceived(const SourceCodeData &) override;
-    void initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *unit) override;
+    void initializeFromCachedUnit(const QV4::CompiledData::Unit *unit) override;
     void allDependenciesDone() override;
     void downloadProgressChanged(qreal) override;
 
@@ -474,7 +485,8 @@ private:
             QV4::CompiledData::ResolvedTypeReferenceMap *resolvedTypeCache
             ) const;
     void compile(const QQmlRefPointer<QQmlTypeNameCache> &typeNameCache,
-                 const QV4::CompiledData::ResolvedTypeReferenceMap &resolvedTypeCache, const QV4::CompiledData::DependentTypesHasher &dependencyHasher);
+                 QV4::CompiledData::ResolvedTypeReferenceMap *resolvedTypeCache,
+                 const QV4::CompiledData::DependentTypesHasher &dependencyHasher);
     void createTypeAndPropertyCaches(const QQmlRefPointer<QQmlTypeNameCache> &typeNameCache,
                                       const QV4::CompiledData::ResolvedTypeReferenceMap &resolvedTypeCache);
     bool resolveType(const QString &typeName, int &majorVersion, int &minorVersion,
@@ -482,7 +494,7 @@ private:
                      bool reportErrors = true,
                      QQmlType::RegistrationType registrationType = QQmlType::AnyRegistrationType);
 
-    void scriptImported(QQmlScriptBlob *blob, const QV4::CompiledData::Location &location, const QString &qualifier, const QString &nameSpace) override;
+    void scriptImported(const QQmlRefPointer<QQmlScriptBlob> &blob, const QV4::CompiledData::Location &location, const QString &qualifier, const QString &nameSpace) override;
 
 
     SourceCodeData m_backupSourceCode; // used when cache verification fails.
@@ -523,14 +535,14 @@ private:
     QQmlScriptData();
 
 public:
-    ~QQmlScriptData();
-
     QUrl url;
     QString urlString;
     QQmlTypeNameCache *typeNameCache;
-    QList<QQmlScriptBlob *> scripts;
+    QVector<QQmlRefPointer<QQmlScriptBlob>> scripts;
 
     QV4::ReturnedValue scriptValueForContext(QQmlContextData *parentCtxt);
+
+    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit() const { return m_precompiledScript; }
 
 protected:
     void clear() override; // From QQmlCleanup
@@ -539,10 +551,10 @@ private:
     friend class QQmlScriptBlob;
 
     void initialize(QQmlEngine *);
+    QQmlContextData *qmlContextDataForContext(QQmlContextData *parentQmlContextData);
 
     bool m_loaded;
     QQmlRefPointer<QV4::CompiledData::CompilationUnit> m_precompiledScript;
-    QV4::Script *m_program;
     QV4::PersistentValue m_value;
 };
 
@@ -554,33 +566,32 @@ private:
     QQmlScriptBlob(const QUrl &, QQmlTypeLoader *);
 
 public:
-    ~QQmlScriptBlob();
+    ~QQmlScriptBlob() override;
 
     struct ScriptReference
     {
-        ScriptReference() : script(0) {}
-
         QV4::CompiledData::Location location;
         QString qualifier;
         QString nameSpace;
-        QQmlScriptBlob *script;
+        QQmlRefPointer<QQmlScriptBlob> script;
     };
 
-    QQmlScriptData *scriptData() const;
+    QQmlRefPointer<QQmlScriptData> scriptData() const;
 
 protected:
     void dataReceived(const SourceCodeData &) override;
-    void initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit *unit) override;
+    void initializeFromCachedUnit(const QV4::CompiledData::Unit *unit) override;
     void done() override;
 
     QString stringAt(int index) const override;
 
 private:
-    void scriptImported(QQmlScriptBlob *blob, const QV4::CompiledData::Location &location, const QString &qualifier, const QString &nameSpace) override;
-    void initializeFromCompilationUnit(QV4::CompiledData::CompilationUnit *unit);
+    void scriptImported(const QQmlRefPointer<QQmlScriptBlob> &blob, const QV4::CompiledData::Location &location, const QString &qualifier, const QString &nameSpace) override;
+    void initializeFromCompilationUnit(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &unit);
 
     QList<ScriptReference> m_scripts;
-    QQmlScriptData *m_scriptData;
+    QQmlRefPointer<QQmlScriptData> m_scriptData;
+    const bool m_isModule;
 };
 
 class Q_AUTOTEST_EXPORT QQmlQmldirData : public QQmlTypeLoader::Blob
@@ -601,7 +612,7 @@ public:
 
 protected:
     void dataReceived(const SourceCodeData &) override;
-    void initializeFromCachedUnit(const QQmlPrivate::CachedQmlUnit*) override;
+    void initializeFromCachedUnit(const QV4::CompiledData::Unit *) override;
 
 private:
     QString m_content;

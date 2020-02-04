@@ -5,11 +5,12 @@
 #include "components/tracing/child/child_trace_message_filter.h"
 
 #include <memory>
+#include "base/run_loop.h"
 
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "components/tracing/common/tracing_messages.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_sender.h"
@@ -35,8 +36,8 @@ class FakeSender : public IPC::Sender {
 class ChildTraceMessageFilterTest : public testing::Test {
  public:
   ChildTraceMessageFilterTest() {
-    message_filter_ =
-        new tracing::ChildTraceMessageFilter(message_loop_.task_runner().get());
+    message_filter_ = new tracing::ChildTraceMessageFilter(
+        base::ThreadTaskRunnerHandle::Get().get());
     message_filter_->SetSenderForTesting(&fake_sender_);
   }
 
@@ -48,7 +49,7 @@ class ChildTraceMessageFilterTest : public testing::Test {
     message_filter_->OnSetUMACallback(histogram, low, high, repeat);
   }
 
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
   FakeSender fake_sender_;
   scoped_refptr<tracing::ChildTraceMessageFilter> message_filter_;
 };
@@ -72,7 +73,7 @@ TEST_F(ChildTraceMessageFilterTest, TestHistogramTriggers) {
 
   EXPECT_TRUE(fake_sender_.last_message_);
   EXPECT_EQ(fake_sender_.last_message_->type(),
-            TracingHostMsg_TriggerBackgroundTrace::ID);
+            static_cast<uint32_t>(TracingHostMsg_TriggerBackgroundTrace::ID));
 }
 
 TEST_F(ChildTraceMessageFilterTest, TestHistogramAborts) {
@@ -84,7 +85,7 @@ TEST_F(ChildTraceMessageFilterTest, TestHistogramAborts) {
 
   EXPECT_TRUE(fake_sender_.last_message_);
   EXPECT_EQ(fake_sender_.last_message_->type(),
-            TracingHostMsg_AbortBackgroundTrace::ID);
+            static_cast<uint32_t>(TracingHostMsg_AbortBackgroundTrace::ID));
 }
 
 }  // namespace tracing

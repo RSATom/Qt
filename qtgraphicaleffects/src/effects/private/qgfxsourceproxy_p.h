@@ -84,7 +84,7 @@ public:
     Interpolation interpolation() const { return m_interpolation; }
 
 protected:
-    void updatePolish() Q_DECL_OVERRIDE;
+    void updatePolish() override;
 
 signals:
     void inputChanged();

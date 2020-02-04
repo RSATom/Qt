@@ -8,15 +8,17 @@
 #include <set>
 
 #include "base/bind.h"
-#include "base/test/test_simple_task_runner.h"
+#include "base/test/test_mock_time_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/offline_pages/core/background/offliner_policy.h"
 #include "components/offline_pages/core/background/request_coordinator.h"
 #include "components/offline_pages/core/background/request_coordinator_event_logger.h"
 #include "components/offline_pages/core/background/request_notifier.h"
-#include "components/offline_pages/core/background/request_queue_in_memory_store.h"
 #include "components/offline_pages/core/background/request_queue_store.h"
+#include "components/offline_pages/core/background/request_queue_task_test_base.h"
 #include "components/offline_pages/core/background/save_page_request.h"
+#include "components/offline_pages/core/background/test_request_queue_store.h"
+#include "components/offline_pages/core/offline_clock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace offline_pages {
@@ -38,7 +40,6 @@ const SavePageRequest kEmptyRequest(0UL,
                                     ClientId("", ""),
                                     base::Time(),
                                     true);
-}  // namespace
 
 // TODO: Refactor this stub class into its own file, use in Pick Request Task
 // Test too.
@@ -78,15 +79,12 @@ class RequestNotifierStub : public RequestNotifier {
   int32_t total_expired_requests_;
 };
 
-class CleanupTaskTest : public testing::Test {
+class CleanupTaskTest : public RequestQueueTaskTestBase {
  public:
-  CleanupTaskTest();
-
-  ~CleanupTaskTest() override;
+  CleanupTaskTest() {}
+  ~CleanupTaskTest() override {}
 
   void SetUp() override;
-
-  void PumpLoop();
 
   void AddRequestDone(ItemActionStatus status);
 
@@ -103,16 +101,14 @@ class CleanupTaskTest : public testing::Test {
   RequestNotifierStub* GetNotifier() { return notifier_.get(); }
 
   CleanupTask* task() { return task_.get(); }
-  RequestQueueStore* store() { return store_.get(); }
+  RequestQueueStore* store() { return &store_; }
   OfflinerPolicy* policy() { return policy_.get(); }
   std::vector<std::unique_ptr<SavePageRequest>>& found_requests() {
     return found_requests_;
   }
 
  protected:
-  void InitializeStoreDone(bool success);
 
-  std::unique_ptr<RequestQueueStore> store_;
   std::unique_ptr<RequestNotifierStub> notifier_;
   std::unique_ptr<SavePageRequest> last_picked_;
   std::unique_ptr<OfflinerPolicy> policy_;
@@ -120,32 +116,15 @@ class CleanupTaskTest : public testing::Test {
   std::unique_ptr<CleanupTaskFactory> factory_;
   std::unique_ptr<CleanupTask> task_;
   std::vector<std::unique_ptr<SavePageRequest>> found_requests_;
-
- private:
-  scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle task_runner_handle_;
 };
-
-CleanupTaskTest::CleanupTaskTest()
-    : task_runner_(new base::TestSimpleTaskRunner),
-      task_runner_handle_(task_runner_) {}
-
-CleanupTaskTest::~CleanupTaskTest() {}
 
 void CleanupTaskTest::SetUp() {
   DeviceConditions conditions;
-  store_.reset(new RequestQueueInMemoryStore());
   policy_.reset(new OfflinerPolicy());
   notifier_.reset(new RequestNotifierStub());
   MakeFactoryAndTask();
 
-  store_->Initialize(base::Bind(&CleanupTaskTest::InitializeStoreDone,
-                                base::Unretained(this)));
-  PumpLoop();
-}
-
-void CleanupTaskTest::PumpLoop() {
-  task_runner_->RunUntilIdle();
+  InitializeStore();
 }
 
 void CleanupTaskTest::AddRequestDone(ItemActionStatus status) {
@@ -164,10 +143,10 @@ void CleanupTaskTest::QueueRequests(const SavePageRequest& request1,
   DeviceConditions conditions;
   std::set<int64_t> disabled_requests;
   // Add test requests on the Queue.
-  store_->AddRequest(request1, base::Bind(&CleanupTaskTest::AddRequestDone,
-                                          base::Unretained(this)));
-  store_->AddRequest(request2, base::Bind(&CleanupTaskTest::AddRequestDone,
-                                          base::Unretained(this)));
+  store_.AddRequest(request1, base::BindOnce(&CleanupTaskTest::AddRequestDone,
+                                             base::Unretained(this)));
+  store_.AddRequest(request2, base::BindOnce(&CleanupTaskTest::AddRequestDone,
+                                             base::Unretained(this)));
 
   // Pump the loop to give the async queue the opportunity to do the adds.
   PumpLoop();
@@ -177,15 +156,11 @@ void CleanupTaskTest::MakeFactoryAndTask() {
   factory_.reset(
       new CleanupTaskFactory(policy_.get(), notifier_.get(), &event_logger_));
   DeviceConditions conditions;
-  task_ = factory_->CreateCleanupTask(store_.get());
-}
-
-void CleanupTaskTest::InitializeStoreDone(bool success) {
-  ASSERT_TRUE(success);
+  task_ = factory_->CreateCleanupTask(&store_);
 }
 
 TEST_F(CleanupTaskTest, CleanupExpiredRequest) {
-  base::Time creation_time = base::Time::Now();
+  base::Time creation_time = OfflineTimeNow();
   base::Time expired_time =
       creation_time - base::TimeDelta::FromSeconds(
                           policy()->GetRequestExpirationTimeInSeconds() + 10);
@@ -201,15 +176,15 @@ TEST_F(CleanupTaskTest, CleanupExpiredRequest) {
   PumpLoop();
 
   // See what is left in the queue, should be just the other request.
-  store()->GetRequests(base::Bind(&CleanupTaskTest::GetRequestsCallback,
-                                  base::Unretained(this)));
+  store()->GetRequests(base::BindOnce(&CleanupTaskTest::GetRequestsCallback,
+                                      base::Unretained(this)));
   PumpLoop();
   EXPECT_EQ(1UL, found_requests().size());
   EXPECT_EQ(kRequestId1, found_requests().at(0)->request_id());
 }
 
 TEST_F(CleanupTaskTest, CleanupStartCountExceededRequest) {
-  base::Time creation_time = base::Time::Now();
+  base::Time creation_time = OfflineTimeNow();
   // Request2 will have an exceeded start count.
   SavePageRequest request1(kRequestId1, kUrl1, kClientId1, creation_time,
                            kUserRequested);
@@ -223,15 +198,15 @@ TEST_F(CleanupTaskTest, CleanupStartCountExceededRequest) {
   PumpLoop();
 
   // See what is left in the queue, should be just the other request.
-  store()->GetRequests(base::Bind(&CleanupTaskTest::GetRequestsCallback,
-                                  base::Unretained(this)));
+  store()->GetRequests(base::BindOnce(&CleanupTaskTest::GetRequestsCallback,
+                                      base::Unretained(this)));
   PumpLoop();
   EXPECT_EQ(1UL, found_requests().size());
   EXPECT_EQ(kRequestId1, found_requests().at(0)->request_id());
 }
 
 TEST_F(CleanupTaskTest, CleanupCompletionCountExceededRequest) {
-  base::Time creation_time = base::Time::Now();
+  base::Time creation_time = OfflineTimeNow();
   // Request2 will have an exceeded completion count.
   SavePageRequest request1(kRequestId1, kUrl1, kClientId1, creation_time,
                            kUserRequested);
@@ -245,15 +220,15 @@ TEST_F(CleanupTaskTest, CleanupCompletionCountExceededRequest) {
   PumpLoop();
 
   // See what is left in the queue, should be just the other request.
-  store()->GetRequests(base::Bind(&CleanupTaskTest::GetRequestsCallback,
-                                  base::Unretained(this)));
+  store()->GetRequests(base::BindOnce(&CleanupTaskTest::GetRequestsCallback,
+                                      base::Unretained(this)));
   PumpLoop();
   EXPECT_EQ(1UL, found_requests().size());
   EXPECT_EQ(kRequestId1, found_requests().at(0)->request_id());
 }
 
 TEST_F(CleanupTaskTest, IgnoreRequestInProgress) {
-  base::Time creation_time = base::Time::Now();
+  base::Time creation_time = OfflineTimeNow();
   // Both requests will have an exceeded completion count.
   // The first request will be marked as started.
   SavePageRequest request1(kRequestId1, kUrl1, kClientId1, creation_time,
@@ -272,11 +247,12 @@ TEST_F(CleanupTaskTest, IgnoreRequestInProgress) {
   // See what is left in the queue, request1 should be left in the queue even
   // though it is expired because it was listed as in-progress while cleaning.
   // Request2 should have been cleaned out of the queue.
-  store()->GetRequests(base::Bind(&CleanupTaskTest::GetRequestsCallback,
-                                  base::Unretained(this)));
+  store()->GetRequests(base::BindOnce(&CleanupTaskTest::GetRequestsCallback,
+                                      base::Unretained(this)));
   PumpLoop();
   EXPECT_EQ(1UL, found_requests().size());
   EXPECT_EQ(kRequestId1, found_requests().at(0)->request_id());
 }
 
+}  // namespace
 }  // namespace offline_pages

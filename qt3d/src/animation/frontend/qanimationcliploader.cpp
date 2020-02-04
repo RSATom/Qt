@@ -61,7 +61,7 @@ void QAnimationClipLoaderPrivate::setStatus(QAnimationClipLoader::Status status)
 }
 
 /*!
-    \enum QAnimationClipLoader::Status
+    \enum Qt3DAnimation::QAnimationClipLoader::Status
 
     This enum identifies the status of animation clip.
 
@@ -70,10 +70,30 @@ void QAnimationClipLoaderPrivate::setStatus(QAnimationClipLoader::Status status)
     \value Error                 An error occurred while loading the clip
 */
 /*!
-    \class QAnimationClipLoader
+    \property Qt3DAnimation::QAnimationClipLoader::status
+
+    This property contains the status of the animation clip.
+*/
+/*!
+    \property Qt3DAnimation::QAnimationClipLoader::source
+
+    Holds the source URL from which to load the animation clip. Currently
+    glTF2 and the native Qt 3D json animation file formats are supported.
+
+    In the case where a file contains multiple animations, it is possible
+    to select which animation should be loaded by way of query parameters
+    on the source url. The accepted query parameters are animationIndex and
+    animationName. If both are specified, animationName is ignored.
+
+    If a file contains only a single animation, there is no need to specify
+    the animationIndex or animationName. We simply use the one available
+    animation.
+*/
+/*!
+    \class Qt3DAnimation::QAnimationClipLoader
     \inherits QAbstractAnimationClip
     \inmodule Qt3DAnimation
-    \brief Enables loading key frame animation data from a file
+    \brief Enables loading key frame animation data from a file.
 */
 
 QAnimationClipLoader::QAnimationClipLoader(Qt3DCore::QNode *parent)
@@ -103,6 +123,9 @@ QUrl QAnimationClipLoader::source() const
     return d->m_source;
 }
 
+/*!
+    Returns the status of the animation clip.
+*/
 QAnimationClipLoader::Status QAnimationClipLoader::status() const
 {
     Q_D(const QAnimationClipLoader);
@@ -119,6 +142,9 @@ void QAnimationClipLoader::setSource(const QUrl &source)
     emit sourceChanged(source);
 }
 
+/*!
+    \internal
+*/
 void QAnimationClipLoader::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
 {
     Q_D(QAnimationClipLoader);

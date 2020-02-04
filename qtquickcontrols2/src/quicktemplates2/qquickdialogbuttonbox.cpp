@@ -97,9 +97,33 @@ QT_BEGIN_NAMESPACE
     You can also mix and match normal buttons and standard buttons.
 
     When a button is clicked in the button box, the \l clicked() signal is
-    emitted for the actual button that is pressed. For convenience, if the
-    button has an \c AcceptRole, \c RejectRole, or \c HelpRole, the \l accepted(),
-    \l rejected(), or \l helpRequested() signals are emitted respectively.
+    emitted for the actual button that is pressed. In addition, the
+    following signals are automatically emitted when a button with the
+    respective role(s) is pressed:
+
+    \table
+    \header
+        \li Role
+        \li Signal
+    \row
+        \li \c AcceptRole, \c YesRole
+        \li \l accepted()
+    \row
+        \li \c ApplyRole
+        \li \l applied()
+    \row
+        \li \c DiscardRole
+        \li \l discarded()
+    \row
+        \li \c HelpRole
+        \li \l helpRequested()
+    \row
+        \li \c RejectRole, \c NoRole
+        \li \l rejected()
+    \row
+        \li \c ResetRole
+        \li \l reset()
+    \endtable
 
     \sa Dialog
 */
@@ -168,24 +192,27 @@ QT_BEGIN_NAMESPACE
     \sa accepted(), rejected(), helpRequested()
 */
 
-QQuickDialogButtonBoxPrivate::QQuickDialogButtonBoxPrivate()
-    : alignment(0),
-      position(QQuickDialogButtonBox::Footer),
-      standardButtons(QPlatformDialogHelper::NoButton),
-      delegate(nullptr)
+static QPlatformDialogHelper::ButtonLayout platformButtonLayout()
 {
+    return QGuiApplicationPrivate::platformTheme()->themeHint(QPlatformTheme::DialogButtonBoxLayout).value<QPlatformDialogHelper::ButtonLayout>();
 }
 
 void QQuickDialogButtonBoxPrivate::itemImplicitWidthChanged(QQuickItem *item)
 {
-    Q_UNUSED(item);
-    resizeContent();
+    QQuickContainerPrivate::itemImplicitWidthChanged(item);
+    if (item == contentItem)
+        resizeContent();
+    else
+        updateImplicitContentWidth();
 }
 
 void QQuickDialogButtonBoxPrivate::itemImplicitHeightChanged(QQuickItem *item)
 {
-    Q_UNUSED(item);
-    resizeContent();
+    QQuickContainerPrivate::itemImplicitHeightChanged(item);
+    if (item == contentItem)
+        resizeContent();
+    else
+        updateImplicitContentHeight();
 }
 
 // adapted from QStyle::alignedRect()
@@ -196,7 +223,7 @@ static QRectF alignedRect(Qt::LayoutDirection direction, Qt::Alignment alignment
     qreal y = rectangle.y();
     qreal w = size.width();
     qreal h = size.height();
-    if ((alignment & Qt::AlignVCenter) == Qt::AlignVCenter)
+    if ((alignment & Qt::AlignVCenter) == Qt::AlignVCenter || (alignment & Qt::AlignVertical_Mask) == 0)
         y += (rectangle.size().height() - h) / 2;
     else if ((alignment & Qt::AlignBottom) == Qt::AlignBottom)
         y += rectangle.size().height() - h;
@@ -214,11 +241,8 @@ void QQuickDialogButtonBoxPrivate::resizeContent()
         return;
 
     QRectF geometry = q->boundingRect().adjusted(q->leftPadding(), q->topPadding(), -q->rightPadding(), -q->bottomPadding());
-    if (alignment != 0) {
-        qreal cw = (alignment & Qt::AlignHorizontal_Mask) == 0 ? q->availableWidth() : contentItem->implicitWidth();
-        qreal ch = (alignment & Qt::AlignVertical_Mask) == 0 ? q->availableHeight() : contentItem->implicitHeight();
-        geometry = alignedRect(q->isMirrored() ? Qt::RightToLeft : Qt::LeftToRight, alignment, QSizeF(cw, ch), geometry);
-    }
+    if (alignment != 0)
+        geometry = alignedRect(q->isMirrored() ? Qt::RightToLeft : Qt::LeftToRight, alignment, QSizeF(contentWidth, contentHeight), geometry);
 
     contentItem->setPosition(geometry.topLeft());
     contentItem->setSize(geometry.size());
@@ -235,8 +259,8 @@ void QQuickDialogButtonBoxPrivate::updateLayout()
     const int valign = alignment & Qt::AlignVertical_Mask;
 
     QVector<QQuickAbstractButton *> buttons;
-    const qreal maxItemWidth = ((contentItem ? contentItem->width() : q->availableWidth()) - qMax(0, count - 1) * spacing) / count;
-    const qreal maxItemHeight = contentItem ? contentItem->height() : q->availableHeight();
+    const qreal cw = (alignment & Qt::AlignHorizontal_Mask) == 0 ? q->availableWidth() : contentWidth;
+    const qreal itemWidth = (cw - qMax(0, count - 1) * spacing) / count;
 
     for (int i = 0; i < count; ++i) {
         QQuickItem *item = q->itemAt(i);
@@ -244,11 +268,11 @@ void QQuickDialogButtonBoxPrivate::updateLayout()
             QQuickItemPrivate *p = QQuickItemPrivate::get(item);
             if (!p->widthValid) {
                 if (!halign)
-                    item->setWidth(maxItemWidth);
+                    item->setWidth(itemWidth);
                 else
                     item->resetWidth();
                 if (!valign)
-                    item->setHeight(maxItemHeight);
+                    item->setHeight(contentHeight);
                 else
                     item->resetHeight();
                 p->widthValid = false;
@@ -258,6 +282,11 @@ void QQuickDialogButtonBoxPrivate::updateLayout()
     }
 
     struct ButtonLayout {
+        ButtonLayout(QPlatformDialogHelper::ButtonLayout layout)
+            : m_layout(QPlatformDialogHelper::buttonLayout(Qt::Horizontal, layout))
+        {
+        }
+
         bool operator()(QQuickAbstractButton *first, QQuickAbstractButton *second)
         {
             const QPlatformDialogHelper::ButtonRole firstRole = QQuickDialogPrivate::buttonRole(first);
@@ -266,6 +295,7 @@ void QQuickDialogButtonBoxPrivate::updateLayout()
             if (firstRole != secondRole && firstRole != QPlatformDialogHelper::InvalidRole && secondRole != QPlatformDialogHelper::InvalidRole) {
                 const int *l = m_layout;
                 while (*l != QPlatformDialogHelper::EOL) {
+                    // Unset the Reverse flag.
                     const int role = (*l & ~QPlatformDialogHelper::Reverse);
                     if (role == firstRole)
                         return true;
@@ -276,22 +306,49 @@ void QQuickDialogButtonBoxPrivate::updateLayout()
             }
 
             if (firstRole == secondRole)
-                return first < second;
+                return false;
 
             return firstRole != QPlatformDialogHelper::InvalidRole;
         }
-        static const int *themeButtonLayout()
-        {
-            const int hint = QGuiApplicationPrivate::platformTheme()->themeHint(QPlatformTheme::DialogButtonBoxLayout).toInt();
-            return QPlatformDialogHelper::buttonLayout(Qt::Horizontal, static_cast<QPlatformDialogHelper::ButtonLayout>(hint));
-        }
-        const int *m_layout = themeButtonLayout();
+        const int *m_layout;
     };
 
-    std::sort(buttons.begin(), buttons.end(), ButtonLayout());
+    std::stable_sort(buttons.begin(), buttons.end(), ButtonLayout(static_cast<QPlatformDialogHelper::ButtonLayout>(buttonLayout)));
 
     for (int i = 0; i < buttons.count() - 1; ++i)
         q->insertItem(i, buttons.at(i));
+}
+
+qreal QQuickDialogButtonBoxPrivate::getContentWidth() const
+{
+    Q_Q(const QQuickDialogButtonBox);
+    const int count = contentModel->count();
+    const qreal totalSpacing = qMax(0, count - 1) * spacing;
+    qreal totalWidth = totalSpacing;
+    qreal maxWidth = 0;
+    for (int i = 0; i < count; ++i) {
+        QQuickItem *item = q->itemAt(i);
+        if (item) {
+            totalWidth += item->implicitWidth();
+            maxWidth = qMax(maxWidth, item->implicitWidth());
+        }
+    }
+    if ((alignment & Qt::AlignHorizontal_Mask) == 0)
+        totalWidth = qMax(totalWidth, count * maxWidth + totalSpacing);
+    return totalWidth;
+}
+
+qreal QQuickDialogButtonBoxPrivate::getContentHeight() const
+{
+    Q_Q(const QQuickDialogButtonBox);
+    const int count = contentModel->count();
+    qreal maxHeight = 0;
+    for (int i = 0; i < count; ++i) {
+        QQuickItem *item = q->itemAt(i);
+        if (item)
+            maxHeight = qMax(maxHeight, item->implicitHeight());
+    }
+    return maxHeight;
 }
 
 void QQuickDialogButtonBoxPrivate::handleClick()
@@ -373,7 +430,8 @@ void QQuickDialogButtonBoxPrivate::removeStandardButtons()
     while (i >= 0) {
         QQuickAbstractButton *button = qobject_cast<QQuickAbstractButton *>(q->itemAt(i));
         if (button) {
-            QQuickDialogButtonBoxAttached *attached = qobject_cast<QQuickDialogButtonBoxAttached *>(qmlAttachedPropertiesObject<QQuickDialogButtonBox>(button, false));
+            QQuickDialogButtonBoxAttached *attached = qobject_cast<QQuickDialogButtonBoxAttached *>(
+                qmlAttachedPropertiesObject<QQuickDialogButtonBox>(button, false));
             if (attached) {
                 QQuickDialogButtonBoxAttachedPrivate *p = QQuickDialogButtonBoxAttachedPrivate::get(attached);
                 if (p->standardButton != QPlatformDialogHelper::NoButton) {
@@ -386,9 +444,30 @@ void QQuickDialogButtonBoxPrivate::removeStandardButtons()
     }
 }
 
+void QQuickDialogButtonBoxPrivate::updateLanguage()
+{
+    Q_Q(QQuickDialogButtonBox);
+    int i = q->count() - 1;
+    while (i >= 0) {
+        QQuickAbstractButton *button = qobject_cast<QQuickAbstractButton *>(itemAt(i));
+        if (button) {
+            QQuickDialogButtonBoxAttached *attached = qobject_cast<QQuickDialogButtonBoxAttached *>(
+                qmlAttachedPropertiesObject<QQuickDialogButtonBox>(button, true));
+            const auto boxAttachedPrivate = QQuickDialogButtonBoxAttachedPrivate::get(attached);
+            const QPlatformDialogHelper::StandardButton standardButton = boxAttachedPrivate->standardButton;
+            const QString buttonText = QGuiApplicationPrivate::platformTheme()->standardButtonText(standardButton);
+            button->setText(QPlatformTheme::removeMnemonics(buttonText));
+        }
+        --i;
+    }
+}
+
 QQuickDialogButtonBox::QQuickDialogButtonBox(QQuickItem *parent)
     : QQuickContainer(*(new QQuickDialogButtonBoxPrivate), parent)
 {
+    Q_D(QQuickDialogButtonBox);
+    d->changeTypes |= QQuickItemPrivate::ImplicitWidth | QQuickItemPrivate::ImplicitHeight;
+    d->buttonLayout = platformButtonLayout();
 }
 
 QQuickDialogButtonBox::~QQuickDialogButtonBox()
@@ -580,6 +659,43 @@ QQuickDialogButtonBoxAttached *QQuickDialogButtonBox::qmlAttachedProperties(QObj
     return new QQuickDialogButtonBoxAttached(object);
 }
 
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty enumeration QtQuick.Controls::DialogButtonBox::buttonLayout
+
+    This property holds the button layout policy to be used when arranging the buttons contained in the button box.
+    The default value is platform-specific.
+
+    Available values:
+    \value DialogButtonBox.WinLayout Use a policy appropriate for applications on Windows.
+    \value DialogButtonBox.MacLayout Use a policy appropriate for applications on macOS.
+    \value DialogButtonBox.KdeLayout Use a policy appropriate for applications on KDE.
+    \value DialogButtonBox.GnomeLayout Use a policy appropriate for applications on GNOME.
+    \value DialogButtonBox.AndroidLayout Use a policy appropriate for applications on Android.
+*/
+QPlatformDialogHelper::ButtonLayout QQuickDialogButtonBox::buttonLayout() const
+{
+    Q_D(const QQuickDialogButtonBox);
+    return d->buttonLayout;
+}
+
+void QQuickDialogButtonBox::setButtonLayout(QPlatformDialogHelper::ButtonLayout layout)
+{
+    Q_D(QQuickDialogButtonBox);
+    if (d->buttonLayout == layout)
+        return;
+
+    d->buttonLayout = layout;
+    if (isComponentComplete())
+        d->updateLayout();
+    emit buttonLayoutChanged();
+}
+
+void QQuickDialogButtonBox::resetButtonLayout()
+{
+    setButtonLayout(platformButtonLayout());
+}
+
 void QQuickDialogButtonBox::updatePolish()
 {
     Q_D(QQuickDialogButtonBox);
@@ -587,11 +703,34 @@ void QQuickDialogButtonBox::updatePolish()
     d->updateLayout();
 }
 
+class LanguageEventFilter : public QObject
+{
+public:
+    LanguageEventFilter(QQuickDialogButtonBoxPrivate *box)
+        : QObject(box->q_ptr)
+        , boxPrivate(box)
+    {
+    }
+
+protected:
+    bool eventFilter(QObject *, QEvent *event)
+    {
+        if (event->type() == QEvent::LanguageChange)
+            boxPrivate->updateLanguage();
+        return false;
+    }
+
+private:
+    QQuickDialogButtonBoxPrivate *boxPrivate;
+};
+
 void QQuickDialogButtonBox::componentComplete()
 {
     Q_D(QQuickDialogButtonBox);
     QQuickContainer::componentComplete();
     d->updateLayout();
+    // TODO: use the solution in QTBUG-78141 instead, when it's implemented.
+    qApp->installEventFilter(new LanguageEventFilter(d));
 }
 
 void QQuickDialogButtonBox::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
@@ -624,6 +763,7 @@ void QQuickDialogButtonBox::itemAdded(int index, QQuickItem *item)
         QObjectPrivate::connect(button, &QQuickAbstractButton::clicked, d, &QQuickDialogButtonBoxPrivate::handleClick);
     if (QQuickDialogButtonBoxAttached *attached = qobject_cast<QQuickDialogButtonBoxAttached *>(qmlAttachedPropertiesObject<QQuickDialogButtonBox>(item, false)))
         QQuickDialogButtonBoxAttachedPrivate::get(attached)->setButtonBox(this);
+    d->updateImplicitContentSize();
     if (isComponentComplete())
         polish();
 }
@@ -636,6 +776,7 @@ void QQuickDialogButtonBox::itemRemoved(int index, QQuickItem *item)
         QObjectPrivate::disconnect(button, &QQuickAbstractButton::clicked, d, &QQuickDialogButtonBoxPrivate::handleClick);
     if (QQuickDialogButtonBoxAttached *attached = qobject_cast<QQuickDialogButtonBoxAttached *>(qmlAttachedPropertiesObject<QQuickDialogButtonBox>(item, false)))
         QQuickDialogButtonBoxAttachedPrivate::get(attached)->setButtonBox(nullptr);
+    d->updateImplicitContentSize();
     if (isComponentComplete())
         polish();
 }

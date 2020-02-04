@@ -58,7 +58,7 @@ namespace {
 void TestGetExceptionPorts(const ExceptionPorts& exception_ports,
                            mach_port_t expect_port,
                            exception_behavior_t expect_behavior) {
-  const exception_mask_t kExceptionMask = EXC_MASK_CRASH;
+  constexpr exception_mask_t kExceptionMask = EXC_MASK_CRASH;
 
   thread_state_flavor_t expect_flavor = (expect_behavior == EXCEPTION_DEFAULT)
                                             ? THREAD_STATE_NONE
@@ -132,7 +132,12 @@ class TestExceptionPorts : public MachMultiprocess,
         set_on_(set_on),
         set_type_(set_type),
         who_crashes_(who_crashes),
-        handled_(false) {}
+        handled_(false) {
+    if (who_crashes_ != kNobodyCrashes) {
+      // This is how the __builtin_trap() in Child::Crash() appears.
+      SetExpectedChildTermination(kTerminationSignal, SIGILL);
+    }
+  }
 
   SetOn set_on() const { return set_on_; }
   SetType set_type() const { return set_type_; }
@@ -190,8 +195,6 @@ class TestExceptionPorts : public MachMultiprocess,
 
       // The child crashed with __builtin_trap(), which shows up as SIGILL.
       EXPECT_EQ(signal, SIGILL);
-
-      SetExpectedChildTermination(kTerminationSignal, signal);
     }
 
     EXPECT_EQ(AuditPIDFromMachMessageTrailer(trailer), 0);
@@ -440,7 +443,7 @@ class TestExceptionPorts : public MachMultiprocess,
     if (who_crashes_ != kNobodyCrashes) {
       UniversalMachExcServer universal_mach_exc_server(this);
 
-      const mach_msg_timeout_t kTimeoutMs = 50;
+      constexpr mach_msg_timeout_t kTimeoutMs = 50;
       kern_return_t kr =
           MachMessageServer::Run(&universal_mach_exc_server,
                                  local_port,

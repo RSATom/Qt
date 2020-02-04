@@ -76,6 +76,10 @@ void URLFetcherImpl::SetLoadFlags(int load_flags) {
   core_->SetLoadFlags(load_flags);
 }
 
+void URLFetcherImpl::SetAllowCredentials(bool allow_credentials) {
+  core_->SetAllowCredentials(allow_credentials);
+}
+
 int URLFetcherImpl::GetLoadFlags() const {
   return core_->GetLoadFlags();
 }
@@ -152,6 +156,10 @@ HttpResponseHeaders* URLFetcherImpl::GetResponseHeaders() const {
 
 HostPortPair URLFetcherImpl::GetSocketAddress() const {
   return core_->GetSocketAddress();
+}
+
+const ProxyServer& URLFetcherImpl::ProxyServerUsed() const {
+  return core_->ProxyServerUsed();
 }
 
 bool URLFetcherImpl::WasFetchedViaProxy() const {

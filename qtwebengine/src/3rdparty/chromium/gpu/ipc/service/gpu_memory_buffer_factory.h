@@ -10,8 +10,8 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "gpu/gpu_export.h"
 #include "gpu/ipc/common/surface_handle.h"
+#include "gpu/ipc/service/gpu_ipc_service_export.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 
@@ -19,9 +19,9 @@ namespace gpu {
 
 class ImageFactory;
 
-class GPU_EXPORT GpuMemoryBufferFactory {
+class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactory {
  public:
-  virtual ~GpuMemoryBufferFactory() {}
+  virtual ~GpuMemoryBufferFactory() = default;
 
   // Creates a new factory instance for native GPU memory buffers. Returns null
   // if native buffers are not supported.
@@ -37,8 +37,8 @@ class GPU_EXPORT GpuMemoryBufferFactory {
       int client_id,
       SurfaceHandle surface_handle) = 0;
 
-  // Destroys GPU memory buffer identified by |id|.
-  // It can be called on any thread.
+  // Destroys GPU memory buffer identified by |id|. It can be called on any
+  // thread.
   virtual void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
                                       int client_id) = 0;
 
@@ -46,7 +46,7 @@ class GPU_EXPORT GpuMemoryBufferFactory {
   virtual ImageFactory* AsImageFactory() = 0;
 
  protected:
-  GpuMemoryBufferFactory() {}
+  GpuMemoryBufferFactory() = default;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(GpuMemoryBufferFactory);

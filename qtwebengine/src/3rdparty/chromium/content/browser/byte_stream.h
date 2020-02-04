@@ -11,7 +11,9 @@
 
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
+#include "base/task/post_task.h"
 #include "content/common/content_export.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "net/base/io_buffer.h"
 
 namespace base {
@@ -66,8 +68,8 @@ namespace content {
 //      std::unique_ptr<ByteStreamWriter> writer;
 //      std::unique_ptr<ByteStreamReader> reader;
 //      CreateByteStream(
-//          BrowserThread::GetTaskRunnerForThread(BrowserThread::IO),
-//          BrowserThread::GetTaskRunnerForThread(BrowserThread::FILE),
+//          base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}),
+//          base::CreateSequencedTaskRunnerWithTraits({base::MayBlock, ...}),
 //          kStreamBufferSize /* e.g. 10240.  */,
 //          &writer,
 //          &reader);         // Presumed passed to FILE thread for reading.
@@ -155,7 +157,8 @@ class CONTENT_EXPORT ByteStreamWriter {
   // available (i.e. in the case of that race either of the before
   // or after callbacks may be called).
   // The callback will not be called after ByteStreamWriter destruction.
-  virtual void RegisterCallback(const base::Closure& source_callback) = 0;
+  virtual void RegisterCallback(
+      const base::RepeatingClosure& source_callback) = 0;
 
   // Returns the number of bytes sent to the reader but not yet reported by
   // the reader as read.
@@ -191,7 +194,8 @@ class CONTENT_EXPORT ByteStreamReader {
   // with data becoming available (i.e. in the case of that race
   // either of the before or after callbacks may be called).
   // The callback will not be called after ByteStreamReader destruction.
-  virtual void RegisterCallback(const base::Closure& sink_callback) = 0;
+  virtual void RegisterCallback(
+      const base::RepeatingClosure& sink_callback) = 0;
 };
 
 CONTENT_EXPORT void CreateByteStream(

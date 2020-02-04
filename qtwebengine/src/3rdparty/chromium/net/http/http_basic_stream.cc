@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "net/http/http_raw_request_headers.h"
 #include "net/http/http_request_info.h"
 #include "net/http/http_response_body_drainer.h"
 #include "net/http/http_stream_parser.h"
@@ -20,38 +21,48 @@ HttpBasicStream::HttpBasicStream(std::unique_ptr<ClientSocketHandle> connection,
              using_proxy,
              http_09_on_non_default_ports_enabled) {}
 
-HttpBasicStream::~HttpBasicStream() {}
+HttpBasicStream::~HttpBasicStream() = default;
 
 int HttpBasicStream::InitializeStream(const HttpRequestInfo* request_info,
+                                      bool can_send_early,
                                       RequestPriority priority,
                                       const NetLogWithSource& net_log,
-                                      const CompletionCallback& callback) {
-  state_.Initialize(request_info, priority, net_log, callback);
+                                      CompletionOnceCallback callback) {
+  DCHECK(request_info->traffic_annotation.is_valid());
+  state_.Initialize(request_info, can_send_early, priority, net_log);
   return OK;
 }
 
 int HttpBasicStream::SendRequest(const HttpRequestHeaders& headers,
                                  HttpResponseInfo* response,
-                                 const CompletionCallback& callback) {
+                                 CompletionOnceCallback callback) {
   DCHECK(parser());
+  if (request_headers_callback_) {
+    HttpRawRequestHeaders raw_headers;
+    raw_headers.set_request_line(state_.GenerateRequestLine());
+    for (net::HttpRequestHeaders::Iterator it(headers); it.GetNext();)
+      raw_headers.Add(it.name(), it.value());
+    request_headers_callback_.Run(std::move(raw_headers));
+  }
   return parser()->SendRequest(
-      state_.GenerateRequestLine(), headers, response, callback);
+      state_.GenerateRequestLine(), headers,
+      NetworkTrafficAnnotationTag(state_.traffic_annotation()), response,
+      std::move(callback));
 }
 
-int HttpBasicStream::ReadResponseHeaders(const CompletionCallback& callback) {
-  return parser()->ReadResponseHeaders(callback);
+int HttpBasicStream::ReadResponseHeaders(CompletionOnceCallback callback) {
+  return parser()->ReadResponseHeaders(std::move(callback));
 }
 
 int HttpBasicStream::ReadResponseBody(IOBuffer* buf,
                                       int buf_len,
-                                      const CompletionCallback& callback) {
-  return parser()->ReadResponseBody(buf, buf_len, callback);
+                                      CompletionOnceCallback callback) {
+  return parser()->ReadResponseBody(buf, buf_len, std::move(callback));
 }
 
 void HttpBasicStream::Close(bool not_reusable) {
-  // parser() is null if |this| is created by an orphaned
-  // HttpStreamFactoryImpl::Job in which case InitializeStream() will not have
-  // been called.
+  // parser() is null if |this| is created by an orphaned HttpStreamFactory::Job
+  // in which case InitializeStream() will not have been called.
   if (parser())
     parser()->Close(not_reusable);
 }
@@ -95,8 +106,14 @@ int64_t HttpBasicStream::GetTotalSentBytes() const {
 
 bool HttpBasicStream::GetLoadTimingInfo(
     LoadTimingInfo* load_timing_info) const {
-  return state_.connection()->GetLoadTimingInfo(IsConnectionReused(),
-                                                load_timing_info);
+  if (!state_.connection()->GetLoadTimingInfo(IsConnectionReused(),
+                                              load_timing_info) ||
+      !parser()) {
+    return false;
+  }
+
+  load_timing_info->receive_headers_start = parser()->response_start_time();
+  return true;
 }
 
 bool HttpBasicStream::GetAlternativeService(
@@ -120,12 +137,6 @@ bool HttpBasicStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
   return state_.connection()->socket()->GetPeerAddress(endpoint) == OK;
 }
 
-Error HttpBasicStream::GetTokenBindingSignature(crypto::ECPrivateKey* key,
-                                                TokenBindingType tb_type,
-                                                std::vector<uint8_t>* out) {
-  return parser()->GetTokenBindingSignature(key, tb_type, out);
-}
-
 void HttpBasicStream::Drain(HttpNetworkSession* session) {
   HttpResponseBodyDrainer* drainer = new HttpResponseBodyDrainer(this);
   drainer->Start(session);
@@ -141,6 +152,11 @@ void HttpBasicStream::PopulateNetErrorDetails(NetErrorDetails* details) {
 
 void HttpBasicStream::SetPriority(RequestPriority priority) {
   // TODO(akalin): Plumb this through to |connection_|.
+}
+
+void HttpBasicStream::SetRequestHeadersCallback(
+    RequestHeadersCallback callback) {
+  request_headers_callback_ = std::move(callback);
 }
 
 }  // namespace net

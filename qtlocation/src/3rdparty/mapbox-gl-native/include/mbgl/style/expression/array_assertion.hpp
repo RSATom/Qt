@@ -14,7 +14,7 @@ namespace expression {
 class ArrayAssertion : public Expression  {
 public:
     ArrayAssertion(type::Array type_, std::unique_ptr<Expression> input_) :
-        Expression(type_),
+        Expression(Kind::ArrayAssertion, type_),
         input(std::move(input_))
     {}
 
@@ -24,11 +24,19 @@ public:
     void eachChild(const std::function<void(const Expression&)>& visit) const override;
 
     bool operator==(const Expression& e) const override {
-        if (auto rhs = dynamic_cast<const ArrayAssertion*>(&e)) {
+        if (e.getKind() == Kind::ArrayAssertion) {
+            auto rhs = static_cast<const ArrayAssertion*>(&e);
             return getType() == rhs->getType() && *input == *(rhs->input);
         }
         return false;
     }
+
+    std::vector<optional<Value>> possibleOutputs() const override {
+        return input->possibleOutputs();
+    }
+    
+    mbgl::Value serialize() const override;
+    std::string getOperator() const override { return "array"; }
 
 private:
     std::unique_ptr<Expression> input;

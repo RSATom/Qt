@@ -2,21 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// MSVC++ requires this to be set before any other includes to get M_PI.
-#define _USE_MATH_DEFINES
-
 #include "media/base/audio_renderer_mixer.h"
 
 #include <stddef.h>
 
-#include <cmath>
+#include <algorithm>
+#include <limits>
 #include <memory>
+#include <tuple>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/platform_thread.h"
 #include "media/base/audio_renderer_mixer_input.h"
 #include "media/base/audio_renderer_mixer_pool.h"
@@ -37,7 +37,6 @@ const int kOddMixerInputs = 7;
 const int kMixerCycles = 3;
 
 // Parameters used for testing.
-const int kBitsPerChannel = 32;
 const ChannelLayout kChannelLayout = CHANNEL_LAYOUT_STEREO;
 const int kHighLatencyBufferSize = 8192;
 const int kLowLatencyBufferSize = 256;
@@ -53,26 +52,26 @@ const int kTestInput3Rates[] = {22050, 44100, 48000};
 // Tuple of <input sampling rates, number of input sample rates,
 // output sampling rate, epsilon>.
 using AudioRendererMixerTestData =
-    std::tr1::tuple<const int* const, size_t, int, double>;
+    std::tuple<const int* const, size_t, int, double>;
 
 class AudioRendererMixerTest
     : public testing::TestWithParam<AudioRendererMixerTestData>,
-      AudioRendererMixerPool {
+      public AudioRendererMixerPool {
  public:
   AudioRendererMixerTest()
-      : epsilon_(std::tr1::get<3>(GetParam())), half_fill_(false) {
+      : epsilon_(std::get<3>(GetParam())), half_fill_(false) {
     // Create input parameters based on test parameters.
-    const int* const sample_rates = std::tr1::get<0>(GetParam());
-    size_t sample_rates_count = std::tr1::get<1>(GetParam());
+    const int* const sample_rates = std::get<0>(GetParam());
+    size_t sample_rates_count = std::get<1>(GetParam());
     for (size_t i = 0; i < sample_rates_count; ++i)
-      input_parameters_.push_back(AudioParameters(
-          AudioParameters::AUDIO_PCM_LINEAR, kChannelLayout, sample_rates[i],
-          kBitsPerChannel, kHighLatencyBufferSize));
+      input_parameters_.push_back(
+          AudioParameters(AudioParameters::AUDIO_PCM_LINEAR, kChannelLayout,
+                          sample_rates[i], kHighLatencyBufferSize));
 
     // Create output parameters based on test parameters.
-    output_parameters_ = AudioParameters(
-        AudioParameters::AUDIO_PCM_LOW_LATENCY, kChannelLayout,
-        std::tr1::get<2>(GetParam()), 16, kLowLatencyBufferSize);
+    output_parameters_ =
+        AudioParameters(AudioParameters::AUDIO_PCM_LOW_LATENCY, kChannelLayout,
+                        std::get<2>(GetParam()), kLowLatencyBufferSize);
 
     sink_ = new MockAudioRendererSink();
     EXPECT_CALL(*sink_.get(), Start());
@@ -95,17 +94,20 @@ class AudioRendererMixerTest
   AudioRendererMixer* GetMixer(int owner_id,
                                const AudioParameters& params,
                                AudioLatency::LatencyType latency,
-                               const std::string& device_id,
-                               const url::Origin& security_origin,
-                               OutputDeviceStatus* device_status) final {
+                               const OutputDeviceInfo& sink_info,
+                               scoped_refptr<AudioRendererSink> sink) final {
     return mixer_.get();
   };
 
-  MOCK_METHOD1(ReturnMixer, void(AudioRendererMixer*));
+  void ReturnMixer(AudioRendererMixer* mixer) override {
+    EXPECT_EQ(mixer_.get(), mixer);
+  }
 
-  MOCK_METHOD4(
-      GetOutputDeviceInfo,
-      OutputDeviceInfo(int, int, const std::string&, const url::Origin&));
+  scoped_refptr<AudioRendererSink> GetSink(
+      int owner_id,
+      const std::string& device_id) override {
+    return sink_;
+  }
 
   void InitializeInputs(int inputs_per_sample_rate) {
     mixer_inputs_.reserve(inputs_per_sample_rate * input_parameters_.size());
@@ -122,7 +124,7 @@ class AudioRendererMixerTest
            static_cast<double>(output_parameters_.frames_per_buffer()));
 
       for (int j = 0; j < inputs_per_sample_rate; ++j, ++input) {
-        fake_callbacks_.push_back(base::MakeUnique<FakeAudioRenderCallback>(
+        fake_callbacks_.push_back(std::make_unique<FakeAudioRenderCallback>(
             step, output_parameters_.sample_rate()));
         mixer_inputs_.push_back(CreateMixerInput());
         mixer_inputs_[input]->Initialize(input_parameters_[i],
@@ -336,15 +338,20 @@ class AudioRendererMixerTest
   }
 
   scoped_refptr<AudioRendererMixerInput> CreateMixerInput() {
-    return new AudioRendererMixerInput(
+    auto input = base::MakeRefCounted<AudioRendererMixerInput>(
         this,
-        // Zero frame id, default device ID and security origin.
-        0, std::string(), url::Origin(), AudioLatency::LATENCY_PLAYBACK);
+        // Zero frame id, default device ID.
+        0, std::string(), AudioLatency::LATENCY_PLAYBACK);
+    input->GetOutputDeviceInfoAsync(
+        base::DoNothing());  // Primes input, needed for tests.
+    task_env_.RunUntilIdle();
+    return input;
   }
 
  protected:
-  virtual ~AudioRendererMixerTest() {}
+  virtual ~AudioRendererMixerTest() = default;
 
+  base::test::ScopedTaskEnvironment task_env_;
   scoped_refptr<MockAudioRendererSink> sink_;
   std::unique_ptr<AudioRendererMixer> mixer_;
   AudioRendererSink::RenderCallback* mixer_callback_;
@@ -352,7 +359,7 @@ class AudioRendererMixerTest
   AudioParameters output_parameters_;
   std::unique_ptr<AudioBus> audio_bus_;
   std::unique_ptr<AudioBus> expected_audio_bus_;
-  std::vector< scoped_refptr<AudioRendererMixerInput> > mixer_inputs_;
+  std::vector<scoped_refptr<AudioRendererMixerInput>> mixer_inputs_;
   std::vector<std::unique_ptr<FakeAudioRenderCallback>> fake_callbacks_;
   std::unique_ptr<FakeAudioRenderCallback> expected_callback_;
   double epsilon_;
@@ -480,7 +487,7 @@ TEST_P(AudioRendererMixerBehavioralTest, MixerPausesStream) {
   const base::TimeDelta kPauseTime = base::TimeDelta::FromMilliseconds(500);
   // This value can't be too low or valgrind, tsan will timeout on the bots.
   const base::TimeDelta kTestTimeout = 10 * kPauseTime;
-  mixer_->set_pause_delay_for_testing(kPauseTime);
+  mixer_->SetPauseDelayForTesting(kPauseTime);
 
   base::WaitableEvent pause_event(
       base::WaitableEvent::ResetPolicy::MANUAL,
@@ -519,35 +526,35 @@ TEST_P(AudioRendererMixerBehavioralTest, MixerPausesStream) {
 }
 
 INSTANTIATE_TEST_CASE_P(
-    AudioRendererMixerTest,
+    /* no prefix */,
     AudioRendererMixerTest,
     testing::Values(
         // No resampling, 1 input sample rate.
-        std::tr1::make_tuple(&kTestInputLower, 1, kTestInputLower, 0.00000048),
+        std::make_tuple(&kTestInputLower, 1, kTestInputLower, 0.00000048),
 
         // Upsampling, 1 input sample rate.
-        std::tr1::make_tuple(&kTestInputLower, 1, kTestInputHigher, 0.01),
+        std::make_tuple(&kTestInputLower, 1, kTestInputHigher, 0.01),
 
         // Downsampling, 1 input sample rate.
-        std::tr1::make_tuple(&kTestInputHigher, 1, kTestInputLower, 0.01),
+        std::make_tuple(&kTestInputHigher, 1, kTestInputLower, 0.01),
 
         // Downsampling, multuple input sample rates.
-        std::tr1::make_tuple(static_cast<const int* const>(kTestInput3Rates),
-                             arraysize(kTestInput3Rates),
-                             kTestInput3Rates[0],
-                             0.01),
+        std::make_tuple(static_cast<const int* const>(kTestInput3Rates),
+                        base::size(kTestInput3Rates),
+                        kTestInput3Rates[0],
+                        0.01),
 
         // Upsampling, multiple sinput sample rates.
-        std::tr1::make_tuple(static_cast<const int* const>(kTestInput3Rates),
-                             arraysize(kTestInput3Rates),
-                             kTestInput3Rates[2],
-                             0.01),
+        std::make_tuple(static_cast<const int* const>(kTestInput3Rates),
+                        base::size(kTestInput3Rates),
+                        kTestInput3Rates[2],
+                        0.01),
 
         // Both downsampling and upsampling, multiple input sample rates
-        std::tr1::make_tuple(static_cast<const int* const>(kTestInput3Rates),
-                             arraysize(kTestInput3Rates),
-                             kTestInput3Rates[1],
-                             0.01)));
+        std::make_tuple(static_cast<const int* const>(kTestInput3Rates),
+                        base::size(kTestInput3Rates),
+                        kTestInput3Rates[1],
+                        0.01)));
 
 // Test cases for behavior which is independent of parameters.  Values() doesn't
 // support single item lists and we don't want these test cases to run for every
@@ -557,8 +564,5 @@ INSTANTIATE_TEST_CASE_P(
     AudioRendererMixerBehavioralTest,
     testing::ValuesIn(std::vector<AudioRendererMixerTestData>(
         1,
-        std::tr1::make_tuple(&kTestInputLower,
-                             1,
-                             kTestInputLower,
-                             0.00000048))));
+        std::make_tuple(&kTestInputLower, 1, kTestInputLower, 0.00000048))));
 }  // namespace media

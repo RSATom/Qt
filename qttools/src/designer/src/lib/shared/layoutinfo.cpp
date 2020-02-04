@@ -28,17 +28,17 @@
 
 #include "layoutinfo_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QFormLayout>
-#include <QtWidgets/QSplitter>
-#include <QtCore/QDebug>
-#include <QtCore/QHash>
-#include <QtCore/QRect>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qformlayout.h>
+#include <QtWidgets/qsplitter.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qrect.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -48,16 +48,16 @@ namespace qdesigner_internal {
 */
 LayoutInfo::Type LayoutInfo::layoutType(const QDesignerFormEditorInterface *core, const QLayout *layout)
 {
-    Q_UNUSED(core)
+    Q_UNUSED(core);
     if (!layout)
         return NoLayout;
-    else if (qobject_cast<const QHBoxLayout*>(layout))
+    if (qobject_cast<const QHBoxLayout*>(layout))
         return HBox;
-    else if (qobject_cast<const QVBoxLayout*>(layout))
+    if (qobject_cast<const QVBoxLayout*>(layout))
         return VBox;
-    else if (qobject_cast<const QGridLayout*>(layout))
+    if (qobject_cast<const QGridLayout*>(layout))
         return Grid;
-    else if (qobject_cast<const QFormLayout*>(layout))
+    if (qobject_cast<const QFormLayout*>(layout))
        return Form;
     return UnknownLayout;
 }
@@ -112,7 +112,7 @@ LayoutInfo::Type LayoutInfo::managedLayoutType(const QDesignerFormEditorInterfac
 
 QWidget *LayoutInfo::layoutParent(const QDesignerFormEditorInterface *core, QLayout *layout)
 {
-    Q_UNUSED(core)
+    Q_UNUSED(core);
 
     QObject *o = layout;
     while (o) {

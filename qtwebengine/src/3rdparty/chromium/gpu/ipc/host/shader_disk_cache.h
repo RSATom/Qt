@@ -8,15 +8,15 @@
 #include <stdint.h>
 
 #include <map>
-#include <queue>
 #include <string>
 #include <unordered_map>
 
+#include "base/containers/queue.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "net/base/completion_callback.h"
 #include "net/disk_cache/disk_cache.h"
 
 namespace gpu {
@@ -31,7 +31,7 @@ class ShaderClearHelper;
 class ShaderDiskCache : public base::RefCounted<ShaderDiskCache> {
  public:
   using ShaderLoadedCallback =
-      base::Callback<void(const std::string&, const std::string&)>;
+      base::RepeatingCallback<void(const std::string&, const std::string&)>;
 
   void set_shader_loaded_callback(const ShaderLoadedCallback& callback) {
     shader_loaded_callback_ = callback;
@@ -65,6 +65,9 @@ class ShaderDiskCache : public base::RefCounted<ShaderDiskCache> {
   // been written to the cache.
   int SetCacheCompleteCallback(const net::CompletionCallback& callback);
 
+  // Returns the size which should be used for the shader disk cache.
+  static size_t CacheSizeBytes();
+
  private:
   friend class base::RefCounted<ShaderDiskCache>;
   friend class ShaderDiskCacheEntry;
@@ -75,7 +78,7 @@ class ShaderDiskCache : public base::RefCounted<ShaderDiskCache> {
                   const base::FilePath& cache_path);
   ~ShaderDiskCache();
 
-  void Init(scoped_refptr<base::SingleThreadTaskRunner> cache_task_runner);
+  void Init();
   void CacheCreatedCallback(int rv);
 
   disk_cache::Backend* backend() { return backend_.get(); }
@@ -103,10 +106,9 @@ class ShaderDiskCache : public base::RefCounted<ShaderDiskCache> {
 
 // ShaderCacheFactory maintains a cache of ShaderDiskCache objects
 // so we only create one per profile directory.
-class ShaderCacheFactory : NON_EXPORTED_BASE(public base::ThreadChecker) {
+class ShaderCacheFactory : public base::ThreadChecker {
  public:
-  explicit ShaderCacheFactory(
-      scoped_refptr<base::SingleThreadTaskRunner> cache_task_runner);
+  ShaderCacheFactory();
   ~ShaderCacheFactory();
 
   // Clear the shader disk cache for the given |path|. This supports unbounded
@@ -116,14 +118,14 @@ class ShaderCacheFactory : NON_EXPORTED_BASE(public base::ThreadChecker) {
   void ClearByPath(const base::FilePath& path,
                    const base::Time& begin_time,
                    const base::Time& end_time,
-                   const base::Closure& callback);
+                   base::OnceClosure callback);
 
   // Same as ClearByPath, but looks up the cache by |client_id|. The |callback|
   // will be executed when the clear is complete.
   void ClearByClientId(int32_t client_id,
                        const base::Time& begin_time,
                        const base::Time& end_time,
-                       const base::Closure& callback);
+                       base::OnceClosure callback);
 
   // Retrieve the shader disk cache for the provided |client_id|.
   scoped_refptr<ShaderDiskCache> Get(int32_t client_id);
@@ -143,8 +145,6 @@ class ShaderCacheFactory : NON_EXPORTED_BASE(public base::ThreadChecker) {
  private:
   friend class ShaderClearHelper;
 
-  scoped_refptr<base::SingleThreadTaskRunner> cache_task_runner_;
-
   scoped_refptr<ShaderDiskCache> GetByPath(const base::FilePath& path);
   void CacheCleared(const base::FilePath& path);
 
@@ -154,7 +154,7 @@ class ShaderCacheFactory : NON_EXPORTED_BASE(public base::ThreadChecker) {
   using ClientIdToPathMap = std::map<int32_t, base::FilePath>;
   ClientIdToPathMap client_id_to_path_map_;
 
-  using ShaderClearQueue = std::queue<std::unique_ptr<ShaderClearHelper>>;
+  using ShaderClearQueue = base::queue<std::unique_ptr<ShaderClearHelper>>;
   using ShaderClearMap = std::map<base::FilePath, ShaderClearQueue>;
   ShaderClearMap shader_clear_map_;
 

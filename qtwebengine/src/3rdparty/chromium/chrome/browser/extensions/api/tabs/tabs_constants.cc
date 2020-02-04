@@ -61,12 +61,12 @@ const char kShowStateValueNormal[] = "normal";
 const char kShowStateValueMinimized[] = "minimized";
 const char kShowStateValueMaximized[] = "maximized";
 const char kShowStateValueFullscreen[] = "fullscreen";
+const char kShowStateValueLockedFullscreen[] = "locked-fullscreen";
 const char kStatusValueComplete[] = "complete";
 const char kStatusValueLoading[] = "loading";
 
 const char kWindowTypeValueNormal[] = "normal";
 const char kWindowTypeValuePopup[] = "popup";
-const char kWindowTypeValuePanel[] = "panel";
 const char kWindowTypeValueApp[] = "app";
 const char kWindowTypeValueDevTools[] = "devtools";
 
@@ -86,6 +86,7 @@ const char kPerOriginOnlyInAutomaticError[] = "Can only set scope to "
     "\"per-origin\" in \"automatic\" mode.";
 const char kWindowNotFoundError[] = "No window with id: *.";
 const char kTabIndexNotFoundError[] = "No tab at index: *.";
+const char kNotFoundNextPageError[] = "Cannot find a next page in history.";
 const char kTabNotFoundError[] = "No tab with id: *.";
 const char kCannotDiscardTab[] = "Cannot discard tab with id: *.";
 const char kCannotFindTabToDiscard[] = "Cannot find a tab to discard.";
@@ -104,13 +105,17 @@ const char kSupportedInWindowsOnlyError[] = "Supported in Windows only";
 const char kInvalidWindowTypeError[] = "Invalid value for type";
 const char kInvalidWindowStateError[] = "Invalid value for state";
 const char kScreenshotsDisabled[] = "Taking screenshots has been disabled";
-const char kCannotUpdateMuteDisabled[] =
-    "Failed to update mute state for tab *, --* must be enabled";
 const char kCannotUpdateMuteCaptured[] =
     "Cannot update mute state for tab *, tab has audio or video currently "
     "being captured";
 const char kCannotDetermineLanguageOfUnloadedTab[] =
     "Cannot determine language: tab not loaded";
+const char kMissingLockWindowFullscreenPrivatePermission[] =
+    "Cannot lock window to fullscreen or close a locked fullscreen window "
+    "without lockWindowFullscreenPrivate manifest permission";
+const char kJavaScriptUrlsNotAllowedInTabsUpdate[] =
+    "JavaScript URLs are not allowed in chrome.tabs.update. Use "
+    "chrome.tabs.executeScript instead.";
 
 }  // namespace tabs_constants
 }  // namespace extensions

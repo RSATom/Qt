@@ -6,10 +6,11 @@
 #define MEDIA_CAST_NET_RTCP_SENDER_RTCP_SESSION_H_
 
 #include <map>
-#include <queue>
+#include <unordered_set>
 #include <utility>
 
-#include "base/containers/hash_tables.h"
+#include "base/containers/queue.h"
+#include "base/hash.h"
 #include "base/time/time.h"
 #include "media/cast/net/cast_transport.h"
 #include "media/cast/net/pacing/paced_sender.h"
@@ -22,7 +23,7 @@ namespace cast {
 
 using RtcpSendTimePair = std::pair<uint32_t, base::TimeTicks>;
 using RtcpSendTimeMap = std::map<uint32_t, base::TimeTicks>;
-using RtcpSendTimeQueue = std::queue<RtcpSendTimePair>;
+using RtcpSendTimeQueue = base::queue<RtcpSendTimePair>;
 
 // This class represents a RTCP session on a RTP sender. It provides an
 // interface to send RTCP sender report (SR). RTCP SR packets allow
@@ -41,7 +42,7 @@ using RtcpSendTimeQueue = std::queue<RtcpSendTimePair>;
 //   applications.
 class SenderRtcpSession : public RtcpSession {
  public:
-  SenderRtcpSession(base::TickClock* clock,            // Not owned.
+  SenderRtcpSession(const base::TickClock* clock,      // Not owned.
                     PacedPacketSender* packet_sender,  // Not owned.
                     RtcpObserver* observer,            // Not owned.
                     uint32_t local_ssrc,
@@ -98,8 +99,8 @@ class SenderRtcpSession : public RtcpSession {
                            uint32_t last_ntp_seconds,
                            uint32_t last_ntp_fraction);
 
-  base::TickClock* const clock_;      // Not owned.
-  PacedPacketSender* packet_sender_;  // Not owned.
+  const base::TickClock* const clock_;  // Not owned.
+  PacedPacketSender* packet_sender_;    // Not owned.
   const uint32_t local_ssrc_;
   const uint32_t remote_ssrc_;
   RtcpObserver* const rtcp_observer_;  // Owned by |CastTransportImpl|.
@@ -113,9 +114,10 @@ class SenderRtcpSession : public RtcpSession {
   RtcpParser parser_;
 
   // Maintains a history of receiver events.
-  typedef std::pair<uint64_t, uint64_t> ReceiverEventKey;
-  base::hash_set<ReceiverEventKey> receiver_event_key_set_;
-  std::queue<ReceiverEventKey> receiver_event_key_queue_;
+  using ReceiverEventKey = std::pair<uint64_t, uint64_t>;
+  std::unordered_set<ReceiverEventKey, base::IntPairHash<ReceiverEventKey>>
+      receiver_event_key_set_;
+  base::queue<ReceiverEventKey> receiver_event_key_queue_;
 
   // The last measured network round trip time.  This is updated with each
   // sender report --> receiver report round trip.  If this is zero, then the

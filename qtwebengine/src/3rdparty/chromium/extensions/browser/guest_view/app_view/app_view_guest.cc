@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
+#include "base/lazy_instance.h"
 #include "components/guest_view/browser/guest_view_manager.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/renderer_preferences.h"
@@ -19,7 +19,8 @@
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/guest_view/app_view/app_view_constants.h"
-#include "extensions/browser/lazy_background_task_queue.h"
+#include "extensions/browser/lazy_context_id.h"
+#include "extensions/browser/lazy_context_task_queue.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/view_type_utils.h"
 #include "extensions/common/api/app_runtime.h"
@@ -45,10 +46,10 @@ struct ResponseInfo {
 
   ResponseInfo(const Extension* guest_extension,
                const base::WeakPtr<AppViewGuest>& app_view_guest,
-               const GuestViewBase::WebContentsCreatedCallback& callback)
+               GuestViewBase::WebContentsCreatedCallback callback)
       : guest_extension(guest_extension),
         app_view_guest(app_view_guest),
-        callback(callback) {}
+        callback(std::move(callback)) {}
 
   ~ResponseInfo() {}
 };
@@ -70,7 +71,7 @@ bool AppViewGuest::CompletePendingRequest(
     const std::string& guest_extension_id,
     content::RenderProcessHost* guest_render_process_host) {
   PendingResponseMap* response_map = pending_response_map.Pointer();
-  PendingResponseMap::iterator it = response_map->find(guest_instance_id);
+  auto it = response_map->find(guest_instance_id);
   // Kill the requesting process if it is not the real guest.
   if (it == response_map->end()) {
     // The requester used an invalid |guest_instance_id|.
@@ -92,7 +93,8 @@ bool AppViewGuest::CompletePendingRequest(
   }
 
   response_info->app_view_guest->CompleteCreateWebContents(
-      url, response_info->guest_extension.get(), response_info->callback);
+      url, response_info->guest_extension.get(),
+      std::move(response_info->callback));
 
   response_map->erase(guest_instance_id);
   return true;
@@ -125,10 +127,10 @@ bool AppViewGuest::HandleContextMenu(const content::ContextMenuParams& params) {
 void AppViewGuest::RequestMediaAccessPermission(
     WebContents* web_contents,
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback) {
+    content::MediaResponseCallback callback) {
   if (!app_delegate_) {
     WebContentsDelegate::RequestMediaAccessPermission(web_contents, request,
-                                                      callback);
+                                                      std::move(callback));
     return;
   }
   const ExtensionSet& enabled_extensions =
@@ -136,16 +138,17 @@ void AppViewGuest::RequestMediaAccessPermission(
   const Extension* guest_extension =
       enabled_extensions.GetByID(guest_extension_id_);
 
-  app_delegate_->RequestMediaAccessPermission(web_contents, request, callback,
-                                              guest_extension);
+  app_delegate_->RequestMediaAccessPermission(
+      web_contents, request, std::move(callback), guest_extension);
 }
 
-bool AppViewGuest::CheckMediaAccessPermission(WebContents* web_contents,
-                                              const GURL& security_origin,
-                                              content::MediaStreamType type) {
+bool AppViewGuest::CheckMediaAccessPermission(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& security_origin,
+    blink::MediaStreamType type) {
   if (!app_delegate_) {
     return WebContentsDelegate::CheckMediaAccessPermission(
-        web_contents, security_origin, type);
+        render_frame_host, security_origin, type);
   }
   const ExtensionSet& enabled_extensions =
       ExtensionRegistry::Get(browser_context())->enabled_extensions();
@@ -153,25 +156,24 @@ bool AppViewGuest::CheckMediaAccessPermission(WebContents* web_contents,
       enabled_extensions.GetByID(guest_extension_id_);
 
   return app_delegate_->CheckMediaAccessPermission(
-      web_contents, security_origin, type, guest_extension);
+      render_frame_host, security_origin, type, guest_extension);
 }
 
-void AppViewGuest::CreateWebContents(
-    const base::DictionaryValue& create_params,
-    const WebContentsCreatedCallback& callback) {
+void AppViewGuest::CreateWebContents(const base::DictionaryValue& create_params,
+                                     WebContentsCreatedCallback callback) {
   std::string app_id;
   if (!create_params.GetString(appview::kAppID, &app_id)) {
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
   // Verifying that the appId is not the same as the host application.
   if (owner_host() == app_id) {
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
   const base::DictionaryValue* data = nullptr;
   if (!create_params.GetDictionary(appview::kData, &data)) {
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
 
@@ -182,24 +184,24 @@ void AppViewGuest::CreateWebContents(
       enabled_extensions.GetByID(GetOwnerSiteURL().host());
 
   if (!guest_extension || !guest_extension->is_platform_app() ||
-      !embedder_extension | !embedder_extension->is_platform_app()) {
-    callback.Run(nullptr);
+      !embedder_extension || !embedder_extension->is_platform_app()) {
+    std::move(callback).Run(nullptr);
     return;
   }
 
   pending_response_map.Get().insert(std::make_pair(
-      guest_instance_id(),
-      base::MakeUnique<ResponseInfo>(
-          guest_extension, weak_ptr_factory_.GetWeakPtr(), callback)));
+      guest_instance_id(), std::make_unique<ResponseInfo>(
+                               guest_extension, weak_ptr_factory_.GetWeakPtr(),
+                               std::move(callback))));
 
-  LazyBackgroundTaskQueue* queue =
-      LazyBackgroundTaskQueue::Get(browser_context());
+  const LazyContextId context_id(browser_context(), guest_extension->id());
+  LazyContextTaskQueue* queue = context_id.GetTaskQueue();
   if (queue->ShouldEnqueueTask(browser_context(), guest_extension)) {
     queue->AddPendingTask(
-        browser_context(), guest_extension->id(),
-        base::Bind(&AppViewGuest::LaunchAppAndFireEvent,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   base::Passed(base::WrapUnique(data->DeepCopy())), callback));
+        context_id,
+        base::BindOnce(&AppViewGuest::LaunchAppAndFireEvent,
+                       weak_ptr_factory_.GetWeakPtr(), data->CreateDeepCopy(),
+                       std::move(callback)));
     return;
   }
 
@@ -207,7 +209,9 @@ void AppViewGuest::CreateWebContents(
   ExtensionHost* host =
       process_manager->GetBackgroundHostForExtension(guest_extension->id());
   DCHECK(host);
-  LaunchAppAndFireEvent(base::WrapUnique(data->DeepCopy()), callback, host);
+  LaunchAppAndFireEvent(
+      data->CreateDeepCopy(), std::move(callback),
+      std::make_unique<LazyContextTaskQueue::ContextInfo>(host));
 }
 
 void AppViewGuest::DidInitialize(const base::DictionaryValue& create_params) {
@@ -231,9 +235,9 @@ int AppViewGuest::GetTaskPrefix() const {
 void AppViewGuest::CompleteCreateWebContents(
     const GURL& url,
     const Extension* guest_extension,
-    const WebContentsCreatedCallback& callback) {
+    WebContentsCreatedCallback callback) {
   if (!url.is_valid()) {
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
   url_ = url;
@@ -244,19 +248,21 @@ void AppViewGuest::CompleteCreateWebContents(
       content::SiteInstance::CreateForURL(browser_context(),
                                           guest_extension->url()));
   params.guest_delegate = this;
-  callback.Run(WebContents::Create(params));
+  // TODO(erikchen): Fix ownership semantics for guest views.
+  // https://crbug.com/832879.
+  std::move(callback).Run(WebContents::Create(params).release());
 }
 
 void AppViewGuest::LaunchAppAndFireEvent(
     std::unique_ptr<base::DictionaryValue> data,
-    const WebContentsCreatedCallback& callback,
-    ExtensionHost* extension_host) {
+    WebContentsCreatedCallback callback,
+    std::unique_ptr<LazyContextTaskQueue::ContextInfo> context_info) {
   bool has_event_listener = EventRouter::Get(browser_context())
                                 ->ExtensionHasEventListener(
-                                    extension_host->extension()->id(),
+                                    context_info->extension_id,
                                     app_runtime::OnEmbedRequested::kEventName);
   if (!has_event_listener) {
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
 
@@ -265,8 +271,12 @@ void AppViewGuest::LaunchAppAndFireEvent(
   embed_request->SetInteger(appview::kGuestInstanceID, guest_instance_id());
   embed_request->SetString(appview::kEmbedderID, owner_host());
   embed_request->Set(appview::kData, std::move(data));
+  const Extension* const extension =
+      extensions::ExtensionRegistry::Get(context_info->browser_context)
+          ->enabled_extensions()
+          .GetByID(context_info->extension_id);
   AppRuntimeEventRouter::DispatchOnEmbedRequestedEvent(
-      browser_context(), std::move(embed_request), extension_host->extension());
+      browser_context(), std::move(embed_request), extension);
 }
 
 void AppViewGuest::SetAppDelegateForTest(AppDelegate* delegate) {

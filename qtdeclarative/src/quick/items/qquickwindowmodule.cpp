@@ -114,7 +114,7 @@ void QQuickWindowQmlImpl::classBegin()
     {
         // The content item has CppOwnership policy (set in QQuickWindow). Ensure the presence of a JS
         // wrapper so that the garbage collector can see the policy.
-        QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(e);
+        QV4::ExecutionEngine *v4 = e->handle();
         QV4::QObjectWrapper::wrap(v4, d->contentItem);
     }
 }
@@ -124,7 +124,8 @@ void QQuickWindowQmlImpl::componentComplete()
     Q_D(QQuickWindowQmlImpl);
     d->complete = true;
     QQuickItem *itemParent = qmlobject_cast<QQuickItem *>(QObject::parent());
-    if (itemParent && !itemParent->window()) {
+    const bool transientParentAlreadySet = QQuickWindowPrivate::get(this)->transientParentPropertySet;
+    if (!transientParentAlreadySet && itemParent && !itemParent->window()) {
         qCDebug(lcTransient) << "window" << title() << "has invisible Item parent" << itemParent << "transientParent"
                              << transientParent() << "declared visibility" << d->visibility << "; delaying show";
         connect(itemParent, &QQuickItem::windowChanged, this,
@@ -210,6 +211,9 @@ void QQuickWindowModule::defineModule()
     qmlRegisterUncreatableType<QQuickScreen,1>(uri, 2, 3, "Screen", QStringLiteral("Screen can only be used via the attached property."));
     qmlRegisterUncreatableType<QQuickScreenInfo,2>(uri, 2, 3, "ScreenInfo", QStringLiteral("ScreenInfo can only be used via the attached property."));
     qmlRegisterUncreatableType<QQuickScreenInfo,10>(uri, 2, 10, "ScreenInfo", QStringLiteral("ScreenInfo can only be used via the attached property."));
+    qmlRegisterRevision<QWindow,13>(uri, 2, 13);
+    qmlRegisterRevision<QQuickWindow,13>(uri, 2, 13);
+    qmlRegisterType<QQuickWindowQmlImpl,13>(uri, 2, 13, "Window");
 }
 
 QT_END_NAMESPACE

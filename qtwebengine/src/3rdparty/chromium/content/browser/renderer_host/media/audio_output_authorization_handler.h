@@ -11,7 +11,7 @@
 
 #include "base/callback_forward.h"
 #include "base/memory/weak_ptr.h"
-#include "content/browser/media/media_devices_permission_checker.h"
+#include "base/time/time.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
 #include "media/audio/audio_device_description.h"
 #include "media/base/audio_parameters.h"
@@ -45,8 +45,7 @@ class CONTENT_EXPORT AudioOutputAuthorizationHandler {
 
   AudioOutputAuthorizationHandler(media::AudioSystem* audio_system,
                                   MediaStreamManager* media_stream_manager,
-                                  int render_process_id_,
-                                  const std::string& salt);
+                                  int render_process_id_);
 
   ~AudioOutputAuthorizationHandler();
 
@@ -63,34 +62,45 @@ class CONTENT_EXPORT AudioOutputAuthorizationHandler {
   // always return |override_value|.
   void OverridePermissionsForTesting(bool override_value);
 
- private:
-  void HashDeviceId(AuthorizationCompletedCallback cb,
-                    const std::string& raw_device_id,
-                    const media::AudioParameters& params,
-                    const url::Origin& origin) const;
+  static void UMALogDeviceAuthorizationTime(base::TimeTicks auth_start_time);
 
-  void AccessChecked(AuthorizationCompletedCallback cb,
+ private:
+  // Helper class for recording traces.
+  class TraceScope;
+
+  void HashDeviceId(std::unique_ptr<TraceScope> trace_scope,
+                    AuthorizationCompletedCallback cb,
+                    const std::string& raw_device_id,
+                    const MediaDeviceSaltAndOrigin& salt_and_origin) const;
+
+  void AccessChecked(std::unique_ptr<TraceScope> trace_scope,
+                     AuthorizationCompletedCallback cb,
                      const std::string& device_id,
-                     const url::Origin& security_origin,
+                     std::string salt,
+                     url::Origin security_origin,
                      bool has_access) const;
 
-  void TranslateDeviceID(AuthorizationCompletedCallback cb,
+  void TranslateDeviceID(std::unique_ptr<TraceScope> trace_scope,
+                         AuthorizationCompletedCallback cb,
                          const std::string& device_id,
+                         const std::string& salt,
                          const url::Origin& security_origin,
                          const MediaDeviceEnumeration& enumeration) const;
 
-  void GetDeviceParameters(AuthorizationCompletedCallback cb,
+  void GetDeviceParameters(std::unique_ptr<TraceScope> trace_scope,
+                           AuthorizationCompletedCallback cb,
                            const std::string& raw_device_id) const;
 
-  void DeviceParametersReceived(AuthorizationCompletedCallback cb,
-                                const std::string& device_id_for_renderer,
-                                const std::string& raw_device_id,
-                                const media::AudioParameters& params) const;
+  void DeviceParametersReceived(
+      std::unique_ptr<TraceScope> trace_scope,
+      AuthorizationCompletedCallback cb,
+      const std::string& device_id_for_renderer,
+      const std::string& raw_device_id,
+      const base::Optional<media::AudioParameters>& params) const;
 
   media::AudioSystem* const audio_system_;
   MediaStreamManager* const media_stream_manager_;
   const int render_process_id_;
-  const std::string salt_;
   bool override_permissions_ = false;
   bool permissions_override_value_ = false;
 

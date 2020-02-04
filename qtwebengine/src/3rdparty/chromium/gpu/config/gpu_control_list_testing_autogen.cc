@@ -15,31 +15,33 @@
 
 namespace gpu {
 
-const char kGpuControlListTestingVersion[] = "1.0";
-
 const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         1,  // id
         "GpuControlListEntryTest.DetailedEntry",
-        arraysize(kFeatureListForEntry1),         // features size
-        kFeatureListForEntry1,                    // features
-        arraysize(kDisabledExtensionsForEntry1),  // DisabledExtensions size
-        kDisabledExtensionsForEntry1,             // DisabledExtensions
-        arraysize(kCrBugsForEntry1),              // CrBugs size
-        kCrBugsForEntry1,                         // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry1),  // features size
+        kFeatureListForGpuControlTestingEntry1,              // features
+        base::size(kDisabledExtensionsForEntry1),  // DisabledExtensions size
+        kDisabledExtensionsForEntry1,              // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        base::size(kCrBugsForGpuControlTestingEntry1),  // CrBugs size
+        kCrBugsForGpuControlTestingEntry1,              // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kEQ, GpuControlList::kVersionStyleNumerical,
-             "10.6.4", nullptr},                    // os_version
-            0x10de,                                 // vendor_id
-            arraysize(kDeviceIDsForEntry1),         // DeviceIDs size
-            kDeviceIDsForEntry1,                    // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            &kDriverInfoForEntry1,                  // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             "10.6.4", nullptr},                               // os_version
+            0x10de,                                            // vendor_id
+            base::size(kDeviceIDsForGpuControlTestingEntry1),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry1,              // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,   // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,      // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry1,  // driver info
+            nullptr,                                 // GL strings
+            nullptr,                                 // machine model info
+            0,                                       // gpu_series size
+            nullptr,                                 // gpu_series
+            nullptr,                                 // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -47,12 +49,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         2,  // id
         "GpuControlListEntryTest.VendorOnAllOsEntry",
-        arraysize(kFeatureListForEntry2),  // features size
-        kFeatureListForEntry2,             // features
-        0,                                 // DisabledExtensions size
-        nullptr,                           // DisabledExtensions
-        0,                                 // CrBugs size
-        nullptr,                           // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry2),  // features size
+        kFeatureListForGpuControlTestingEntry2,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -65,6 +69,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -73,12 +79,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         3,  // id
         "GpuControlListEntryTest.VendorOnLinuxEntry",
-        arraysize(kFeatureListForEntry3),  // features size
-        kFeatureListForEntry3,             // features
-        0,                                 // DisabledExtensions size
-        nullptr,                           // DisabledExtensions
-        0,                                 // CrBugs size
-        nullptr,                           // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry3),  // features size
+        kFeatureListForGpuControlTestingEntry3,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -91,6 +99,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -99,12 +109,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         4,  // id
         "GpuControlListEntryTest.AllExceptNVidiaOnLinuxEntry",
-        arraysize(kFeatureListForEntry4),  // features size
-        kFeatureListForEntry4,             // features
-        0,                                 // DisabledExtensions size
-        nullptr,                           // DisabledExtensions
-        0,                                 // CrBugs size
-        nullptr,                           // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry4),  // features size
+        kFeatureListForGpuControlTestingEntry4,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -117,20 +129,24 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
-        arraysize(kExceptionsForEntry4),  // exceptions count
-        kExceptionsForEntry4,             // exceptions
+        base::size(kExceptionsForEntry4),  // exceptions count
+        kExceptionsForEntry4,              // exceptions
     },
     {
         5,  // id
         "GpuControlListEntryTest.AllExceptIntelOnLinuxEntry",
-        arraysize(kFeatureListForEntry5),  // features size
-        kFeatureListForEntry5,             // features
-        0,                                 // DisabledExtensions size
-        nullptr,                           // DisabledExtensions
-        0,                                 // CrBugs size
-        nullptr,                           // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry5),  // features size
+        kFeatureListForGpuControlTestingEntry5,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -143,33 +159,39 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
-        arraysize(kExceptionsForEntry5),  // exceptions count
-        kExceptionsForEntry5,             // exceptions
+        base::size(kExceptionsForEntry5),  // exceptions count
+        kExceptionsForEntry5,              // exceptions
     },
     {
         6,  // id
         "GpuControlListEntryTest.DateOnWindowsEntry",
-        arraysize(kFeatureListForEntry6),  // features size
-        kFeatureListForEntry6,             // features
-        0,                                 // DisabledExtensions size
-        nullptr,                           // DisabledExtensions
-        0,                                 // CrBugs size
-        nullptr,                           // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry6),  // features size
+        kFeatureListForGpuControlTestingEntry6,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsWin,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x00,                                   // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            &kDriverInfoForEntry6,                  // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                      // os_version
+            0x00,                                    // vendor_id
+            0,                                       // DeviceIDs size
+            nullptr,                                 // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,   // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,      // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry6,  // driver info
+            nullptr,                                 // GL strings
+            nullptr,                                 // machine model info
+            0,                                       // gpu_series size
+            nullptr,                                 // gpu_series
+            nullptr,                                 // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -177,24 +199,28 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         7,  // id
         "GpuControlListEntryTest.MultipleDevicesEntry",
-        arraysize(kFeatureListForEntry7),  // features size
-        kFeatureListForEntry7,             // features
-        0,                                 // DisabledExtensions size
-        nullptr,                           // DisabledExtensions
-        0,                                 // CrBugs size
-        nullptr,                           // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry7),  // features size
+        kFeatureListForGpuControlTestingEntry7,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x10de,                                 // vendor_id
-            arraysize(kDeviceIDsForEntry7),         // DeviceIDs size
-            kDeviceIDsForEntry7,                    // DeviceIDs
+             nullptr, nullptr},                                // os_version
+            0x10de,                                            // vendor_id
+            base::size(kDeviceIDsForGpuControlTestingEntry7),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry7,              // DeviceIDs
             GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
             GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -203,12 +229,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         8,  // id
         "GpuControlListEntryTest.ChromeOSEntry",
-        arraysize(kFeatureListForEntry8),  // features size
-        kFeatureListForEntry8,             // features
-        0,                                 // DisabledExtensions size
-        nullptr,                           // DisabledExtensions
-        0,                                 // CrBugs size
-        nullptr,                           // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry8),  // features size
+        kFeatureListForGpuControlTestingEntry8,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsChromeOS,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -221,6 +249,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -229,12 +259,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         9,  // id
         "GpuControlListEntryTest.GlVersionGLESEntry",
-        arraysize(kFeatureListForEntry9),  // features size
-        kFeatureListForEntry9,             // features
-        0,                                 // DisabledExtensions size
-        nullptr,                           // DisabledExtensions
-        0,                                 // CrBugs size
-        nullptr,                           // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry9),  // features size
+        kFeatureListForGpuControlTestingEntry9,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -247,6 +279,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             &kMoreForEntry9,                        // more data
         },
         0,        // exceptions count
@@ -255,12 +289,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         10,  // id
         "GpuControlListEntryTest.GlVersionANGLEEntry",
-        arraysize(kFeatureListForEntry10),  // features size
-        kFeatureListForEntry10,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry10),  // features size
+        kFeatureListForGpuControlTestingEntry10,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -273,6 +309,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             &kMoreForEntry10,                       // more data
         },
         0,        // exceptions count
@@ -281,12 +319,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         11,  // id
         "GpuControlListEntryTest.GlVersionGLEntry",
-        arraysize(kFeatureListForEntry11),  // features size
-        kFeatureListForEntry11,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry11),  // features size
+        kFeatureListForGpuControlTestingEntry11,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -299,6 +339,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             &kMoreForEntry11,                       // more data
         },
         0,        // exceptions count
@@ -307,25 +349,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         12,  // id
         "GpuControlListEntryTest.GlVendorEqual",
-        arraysize(kFeatureListForEntry12),  // features size
-        kFeatureListForEntry12,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry12),  // features size
+        kFeatureListForGpuControlTestingEntry12,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x00,                                   // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            nullptr,                                // driver info
-            &kGLStringsForEntry12,                  // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                      // os_version
+            0x00,                                    // vendor_id
+            0,                                       // DeviceIDs size
+            nullptr,                                 // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,   // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,      // multi_gpu_style
+            nullptr,                                 // driver info
+            &kGLStringsForGpuControlTestingEntry12,  // GL strings
+            nullptr,                                 // machine model info
+            0,                                       // gpu_series size
+            nullptr,                                 // gpu_series
+            nullptr,                                 // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -333,25 +379,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         13,  // id
         "GpuControlListEntryTest.GlVendorWithDot",
-        arraysize(kFeatureListForEntry13),  // features size
-        kFeatureListForEntry13,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry13),  // features size
+        kFeatureListForGpuControlTestingEntry13,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x00,                                   // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            nullptr,                                // driver info
-            &kGLStringsForEntry13,                  // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                      // os_version
+            0x00,                                    // vendor_id
+            0,                                       // DeviceIDs size
+            nullptr,                                 // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,   // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,      // multi_gpu_style
+            nullptr,                                 // driver info
+            &kGLStringsForGpuControlTestingEntry13,  // GL strings
+            nullptr,                                 // machine model info
+            0,                                       // gpu_series size
+            nullptr,                                 // gpu_series
+            nullptr,                                 // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -359,25 +409,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         14,  // id
         "GpuControlListEntryTest.GlRendererContains",
-        arraysize(kFeatureListForEntry14),  // features size
-        kFeatureListForEntry14,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry14),  // features size
+        kFeatureListForGpuControlTestingEntry14,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x00,                                   // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            nullptr,                                // driver info
-            &kGLStringsForEntry14,                  // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                      // os_version
+            0x00,                                    // vendor_id
+            0,                                       // DeviceIDs size
+            nullptr,                                 // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,   // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,      // multi_gpu_style
+            nullptr,                                 // driver info
+            &kGLStringsForGpuControlTestingEntry14,  // GL strings
+            nullptr,                                 // machine model info
+            0,                                       // gpu_series size
+            nullptr,                                 // gpu_series
+            nullptr,                                 // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -385,25 +439,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         15,  // id
         "GpuControlListEntryTest.GlRendererCaseInsensitive",
-        arraysize(kFeatureListForEntry15),  // features size
-        kFeatureListForEntry15,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry15),  // features size
+        kFeatureListForGpuControlTestingEntry15,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x00,                                   // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            nullptr,                                // driver info
-            &kGLStringsForEntry15,                  // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                      // os_version
+            0x00,                                    // vendor_id
+            0,                                       // DeviceIDs size
+            nullptr,                                 // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,   // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,      // multi_gpu_style
+            nullptr,                                 // driver info
+            &kGLStringsForGpuControlTestingEntry15,  // GL strings
+            nullptr,                                 // machine model info
+            0,                                       // gpu_series size
+            nullptr,                                 // gpu_series
+            nullptr,                                 // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -411,25 +469,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         16,  // id
         "GpuControlListEntryTest.GlExtensionsEndWith",
-        arraysize(kFeatureListForEntry16),  // features size
-        kFeatureListForEntry16,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry16),  // features size
+        kFeatureListForGpuControlTestingEntry16,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x00,                                   // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            nullptr,                                // driver info
-            &kGLStringsForEntry16,                  // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                      // os_version
+            0x00,                                    // vendor_id
+            0,                                       // DeviceIDs size
+            nullptr,                                 // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,   // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,      // multi_gpu_style
+            nullptr,                                 // driver info
+            &kGLStringsForGpuControlTestingEntry16,  // GL strings
+            nullptr,                                 // machine model info
+            0,                                       // gpu_series size
+            nullptr,                                 // gpu_series
+            nullptr,                                 // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -437,12 +499,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         17,  // id
         "GpuControlListEntryTest.OptimusEntry",
-        arraysize(kFeatureListForEntry17),  // features size
-        kFeatureListForEntry17,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry17),  // features size
+        kFeatureListForGpuControlTestingEntry17,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -455,6 +519,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -463,12 +529,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         18,  // id
         "GpuControlListEntryTest.AMDSwitchableEntry",
-        arraysize(kFeatureListForEntry18),  // features size
-        kFeatureListForEntry18,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry18),  // features size
+        kFeatureListForGpuControlTestingEntry18,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -481,6 +549,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                      // driver info
             nullptr,                                      // GL strings
             nullptr,                                      // machine model info
+            0,                                            // gpu_series size
+            nullptr,                                      // gpu_series
             nullptr,                                      // more conditions
         },
         0,        // exceptions count
@@ -489,25 +559,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         19,  // id
         "GpuControlListEntryTest.DriverVendorBeginWith",
-        arraysize(kFeatureListForEntry19),  // features size
-        kFeatureListForEntry19,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry19),  // features size
+        kFeatureListForGpuControlTestingEntry19,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x00,                                   // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            &kDriverInfoForEntry19,                 // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                       // os_version
+            0x00,                                     // vendor_id
+            0,                                        // DeviceIDs size
+            nullptr,                                  // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,    // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry19,  // driver info
+            nullptr,                                  // GL strings
+            nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
+            nullptr,                                  // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -515,25 +589,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         20,  // id
         "GpuControlListEntryTest.LexicalDriverVersionEntry",
-        arraysize(kFeatureListForEntry20),  // features size
-        kFeatureListForEntry20,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry20),  // features size
+        kFeatureListForGpuControlTestingEntry20,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x1002,                                 // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            &kDriverInfoForEntry20,                 // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                       // os_version
+            0x1002,                                   // vendor_id
+            0,                                        // DeviceIDs size
+            nullptr,                                  // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,    // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry20,  // driver info
+            nullptr,                                  // GL strings
+            nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
+            nullptr,                                  // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -541,25 +619,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         21,  // id
         "GpuControlListEntryTest.NeedsMoreInfoEntry",
-        arraysize(kFeatureListForEntry21),  // features size
-        kFeatureListForEntry21,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry21),  // features size
+        kFeatureListForGpuControlTestingEntry21,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x8086,                                 // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            &kDriverInfoForEntry21,                 // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                       // os_version
+            0x8086,                                   // vendor_id
+            0,                                        // DeviceIDs size
+            nullptr,                                  // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,    // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry21,  // driver info
+            nullptr,                                  // GL strings
+            nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
+            nullptr,                                  // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -567,12 +649,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         22,  // id
         "GpuControlListEntryTest.NeedsMoreInfoForExceptionsEntry",
-        arraysize(kFeatureListForEntry22),  // features size
-        kFeatureListForEntry22,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry22),  // features size
+        kFeatureListForGpuControlTestingEntry22,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -585,20 +669,24 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
-        arraysize(kExceptionsForEntry22),  // exceptions count
-        kExceptionsForEntry22,             // exceptions
+        base::size(kExceptionsForEntry22),  // exceptions count
+        kExceptionsForEntry22,              // exceptions
     },
     {
         23,  // id
         "GpuControlListEntryTest.NeedsMoreInfoForGlVersionEntry",
-        arraysize(kFeatureListForEntry23),  // features size
-        kFeatureListForEntry23,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry23),  // features size
+        kFeatureListForGpuControlTestingEntry23,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -611,6 +699,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             &kMoreForEntry23,                       // more data
         },
         0,        // exceptions count
@@ -619,12 +709,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         24,  // id
         "GpuControlListEntryTest.FeatureTypeAllEntry",
-        arraysize(kFeatureListForEntry24),  // features size
-        kFeatureListForEntry24,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry24),  // features size
+        kFeatureListForGpuControlTestingEntry24,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -637,6 +729,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -645,12 +739,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         25,  // id
         "GpuControlListEntryTest.FeatureTypeAllEntryWithExceptions",
-        arraysize(kFeatureListForEntry25),  // features size
-        kFeatureListForEntry25,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry25),  // features size
+        kFeatureListForGpuControlTestingEntry25,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -663,6 +759,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -671,25 +769,30 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         26,  // id
         "GpuControlListEntryTest.SingleActiveGPU",
-        arraysize(kFeatureListForEntry26),  // features size
-        kFeatureListForEntry26,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry26),  // features size
+        kFeatureListForGpuControlTestingEntry26,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                       // os_version
-            0x10de,                                   // vendor_id
-            arraysize(kDeviceIDsForEntry26),          // DeviceIDs size
-            kDeviceIDsForEntry26,                     // DeviceIDs
-            GpuControlList::kMultiGpuCategoryActive,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
-            nullptr,                                  // driver info
-            nullptr,                                  // GL strings
-            nullptr,                                  // machine model info
-            nullptr,                                  // more conditions
+             nullptr, nullptr},  // os_version
+            0x10de,              // vendor_id
+            base::size(
+                kDeviceIDsForGpuControlTestingEntry26),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry26,       // DeviceIDs
+            GpuControlList::kMultiGpuCategoryActive,     // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
+            nullptr,                                     // driver info
+            nullptr,                                     // GL strings
+            nullptr,                                     // machine model info
+            0,                                           // gpu_series size
+            nullptr,                                     // gpu_series
+            nullptr,                                     // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -697,12 +800,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         27,  // id
         "GpuControlListEntryTest.MachineModelName",
-        arraysize(kFeatureListForEntry27),  // features size
-        kFeatureListForEntry27,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry27),  // features size
+        kFeatureListForGpuControlTestingEntry27,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAndroid,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -715,6 +820,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             &kMachineModelInfoForEntry27,           // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -723,12 +830,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         28,  // id
         "GpuControlListEntryTest.MachineModelNameException",
-        arraysize(kFeatureListForEntry28),  // features size
-        kFeatureListForEntry28,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry28),  // features size
+        kFeatureListForGpuControlTestingEntry28,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -741,20 +850,24 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
-        arraysize(kExceptionsForEntry28),  // exceptions count
-        kExceptionsForEntry28,             // exceptions
+        base::size(kExceptionsForEntry28),  // exceptions count
+        kExceptionsForEntry28,              // exceptions
     },
     {
         29,  // id
         "GpuControlListEntryTest.MachineModelVersion",
-        arraysize(kFeatureListForEntry29),  // features size
-        kFeatureListForEntry29,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry29),  // features size
+        kFeatureListForGpuControlTestingEntry29,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -767,6 +880,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             &kMachineModelInfoForEntry29,           // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -775,12 +890,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         30,  // id
         "GpuControlListEntryTest.MachineModelVersionException",
-        arraysize(kFeatureListForEntry30),  // features size
-        kFeatureListForEntry30,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry30),  // features size
+        kFeatureListForGpuControlTestingEntry30,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -793,33 +910,40 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             &kMachineModelInfoForEntry30,           // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
-        arraysize(kExceptionsForEntry30),  // exceptions count
-        kExceptionsForEntry30,             // exceptions
+        base::size(kExceptionsForEntry30),  // exceptions count
+        kExceptionsForEntry30,              // exceptions
     },
     {
         31,  // id
         "GpuControlListEntryDualGPUTest.CategoryAny.Intel",
-        arraysize(kFeatureListForEntry31),  // features size
-        kFeatureListForEntry31,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry31),  // features size
+        kFeatureListForGpuControlTestingEntry31,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                    // os_version
-            0x8086,                                // vendor_id
-            arraysize(kDeviceIDsForEntry31),       // DeviceIDs size
-            kDeviceIDsForEntry31,                  // DeviceIDs
-            GpuControlList::kMultiGpuCategoryAny,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,    // multi_gpu_style
-            nullptr,                               // driver info
-            nullptr,                               // GL strings
-            nullptr,                               // machine model info
-            nullptr,                               // more conditions
+             nullptr, nullptr},  // os_version
+            0x8086,              // vendor_id
+            base::size(
+                kDeviceIDsForGpuControlTestingEntry31),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry31,       // DeviceIDs
+            GpuControlList::kMultiGpuCategoryAny,        // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
+            nullptr,                                     // driver info
+            nullptr,                                     // GL strings
+            nullptr,                                     // machine model info
+            0,                                           // gpu_series size
+            nullptr,                                     // gpu_series
+            nullptr,                                     // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -827,25 +951,30 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         32,  // id
         "GpuControlListEntryDualGPUTest.CategoryAny.NVidia",
-        arraysize(kFeatureListForEntry32),  // features size
-        kFeatureListForEntry32,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry32),  // features size
+        kFeatureListForGpuControlTestingEntry32,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                    // os_version
-            0x10de,                                // vendor_id
-            arraysize(kDeviceIDsForEntry32),       // DeviceIDs size
-            kDeviceIDsForEntry32,                  // DeviceIDs
-            GpuControlList::kMultiGpuCategoryAny,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,    // multi_gpu_style
-            nullptr,                               // driver info
-            nullptr,                               // GL strings
-            nullptr,                               // machine model info
-            nullptr,                               // more conditions
+             nullptr, nullptr},  // os_version
+            0x10de,              // vendor_id
+            base::size(
+                kDeviceIDsForGpuControlTestingEntry32),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry32,       // DeviceIDs
+            GpuControlList::kMultiGpuCategoryAny,        // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
+            nullptr,                                     // driver info
+            nullptr,                                     // GL strings
+            nullptr,                                     // machine model info
+            0,                                           // gpu_series size
+            nullptr,                                     // gpu_series
+            nullptr,                                     // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -853,24 +982,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         33,  // id
         "GpuControlListEntryDualGPUTest.CategorySecondary",
-        arraysize(kFeatureListForEntry33),  // features size
-        kFeatureListForEntry33,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry33),  // features size
+        kFeatureListForGpuControlTestingEntry33,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                          // os_version
-            0x8086,                                      // vendor_id
-            arraysize(kDeviceIDsForEntry33),             // DeviceIDs size
-            kDeviceIDsForEntry33,                        // DeviceIDs
+             nullptr, nullptr},  // os_version
+            0x8086,              // vendor_id
+            base::size(
+                kDeviceIDsForGpuControlTestingEntry33),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry33,       // DeviceIDs
             GpuControlList::kMultiGpuCategorySecondary,  // multi_gpu_category
             GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
             nullptr,                                     // driver info
             nullptr,                                     // GL strings
             nullptr,                                     // machine model info
+            0,                                           // gpu_series size
+            nullptr,                                     // gpu_series
             nullptr,                                     // more conditions
         },
         0,        // exceptions count
@@ -879,25 +1013,30 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         34,  // id
         "GpuControlListEntryDualGPUTest.CategoryPrimary",
-        arraysize(kFeatureListForEntry34),  // features size
-        kFeatureListForEntry34,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry34),  // features size
+        kFeatureListForGpuControlTestingEntry34,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                        // os_version
-            0x8086,                                    // vendor_id
-            arraysize(kDeviceIDsForEntry34),           // DeviceIDs size
-            kDeviceIDsForEntry34,                      // DeviceIDs
-            GpuControlList::kMultiGpuCategoryPrimary,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,        // multi_gpu_style
-            nullptr,                                   // driver info
-            nullptr,                                   // GL strings
-            nullptr,                                   // machine model info
-            nullptr,                                   // more conditions
+             nullptr, nullptr},  // os_version
+            0x8086,              // vendor_id
+            base::size(
+                kDeviceIDsForGpuControlTestingEntry34),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry34,       // DeviceIDs
+            GpuControlList::kMultiGpuCategoryPrimary,    // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
+            nullptr,                                     // driver info
+            nullptr,                                     // GL strings
+            nullptr,                                     // machine model info
+            0,                                           // gpu_series size
+            nullptr,                                     // gpu_series
+            nullptr,                                     // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -905,25 +1044,30 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         35,  // id
         "GpuControlListEntryDualGPUTest.CategoryDefault",
-        arraysize(kFeatureListForEntry35),  // features size
-        kFeatureListForEntry35,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry35),  // features size
+        kFeatureListForGpuControlTestingEntry35,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x8086,                                 // vendor_id
-            arraysize(kDeviceIDsForEntry35),        // DeviceIDs size
-            kDeviceIDsForEntry35,                   // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            nullptr,                                // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},  // os_version
+            0x8086,              // vendor_id
+            base::size(
+                kDeviceIDsForGpuControlTestingEntry35),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry35,       // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,       // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
+            nullptr,                                     // driver info
+            nullptr,                                     // GL strings
+            nullptr,                                     // machine model info
+            0,                                           // gpu_series size
+            nullptr,                                     // gpu_series
+            nullptr,                                     // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -931,25 +1075,30 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         36,  // id
         "GpuControlListEntryDualGPUTest.ActiveSecondaryGPU",
-        arraysize(kFeatureListForEntry36),  // features size
-        kFeatureListForEntry36,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry36),  // features size
+        kFeatureListForGpuControlTestingEntry36,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                       // os_version
-            0x8086,                                   // vendor_id
-            arraysize(kDeviceIDsForEntry36),          // DeviceIDs size
-            kDeviceIDsForEntry36,                     // DeviceIDs
-            GpuControlList::kMultiGpuCategoryActive,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
-            nullptr,                                  // driver info
-            nullptr,                                  // GL strings
-            nullptr,                                  // machine model info
-            nullptr,                                  // more conditions
+             nullptr, nullptr},  // os_version
+            0x8086,              // vendor_id
+            base::size(
+                kDeviceIDsForGpuControlTestingEntry36),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry36,       // DeviceIDs
+            GpuControlList::kMultiGpuCategoryActive,     // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
+            nullptr,                                     // driver info
+            nullptr,                                     // GL strings
+            nullptr,                                     // machine model info
+            0,                                           // gpu_series size
+            nullptr,                                     // gpu_series
+            nullptr,                                     // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -957,12 +1106,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         37,  // id
         "GpuControlListEntryDualGPUTest.VendorOnlyActiveSecondaryGPU",
-        arraysize(kFeatureListForEntry37),  // features size
-        kFeatureListForEntry37,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry37),  // features size
+        kFeatureListForGpuControlTestingEntry37,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -975,6 +1126,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                  // driver info
             nullptr,                                  // GL strings
             nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
             nullptr,                                  // more conditions
         },
         0,        // exceptions count
@@ -983,25 +1136,30 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         38,  // id
         "GpuControlListEntryDualGPUTest.ActivePrimaryGPU",
-        arraysize(kFeatureListForEntry38),  // features size
-        kFeatureListForEntry38,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry38),  // features size
+        kFeatureListForGpuControlTestingEntry38,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                       // os_version
-            0x10de,                                   // vendor_id
-            arraysize(kDeviceIDsForEntry38),          // DeviceIDs size
-            kDeviceIDsForEntry38,                     // DeviceIDs
-            GpuControlList::kMultiGpuCategoryActive,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
-            nullptr,                                  // driver info
-            nullptr,                                  // GL strings
-            nullptr,                                  // machine model info
-            nullptr,                                  // more conditions
+             nullptr, nullptr},  // os_version
+            0x10de,              // vendor_id
+            base::size(
+                kDeviceIDsForGpuControlTestingEntry38),  // DeviceIDs size
+            kDeviceIDsForGpuControlTestingEntry38,       // DeviceIDs
+            GpuControlList::kMultiGpuCategoryActive,     // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
+            nullptr,                                     // driver info
+            nullptr,                                     // GL strings
+            nullptr,                                     // machine model info
+            0,                                           // gpu_series size
+            nullptr,                                     // gpu_series
+            nullptr,                                     // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -1009,12 +1167,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         39,  // id
         "GpuControlListEntryDualGPUTest.VendorOnlyActivePrimaryGPU",
-        arraysize(kFeatureListForEntry39),  // features size
-        kFeatureListForEntry39,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry39),  // features size
+        kFeatureListForGpuControlTestingEntry39,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsMacosx,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1027,6 +1187,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                  // driver info
             nullptr,                                  // GL strings
             nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
             nullptr,                                  // more conditions
         },
         0,        // exceptions count
@@ -1035,12 +1197,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         40,  // id
         "GpuControlListEntryTest.PixelShaderVersion",
-        arraysize(kFeatureListForEntry40),  // features size
-        kFeatureListForEntry40,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry40),  // features size
+        kFeatureListForGpuControlTestingEntry40,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1053,6 +1217,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             &kMoreForEntry40,                       // more data
         },
         0,        // exceptions count
@@ -1061,12 +1227,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         41,  // id
         "GpuControlListEntryTest.OsVersionZeroLT",
-        arraysize(kFeatureListForEntry41),  // features size
-        kFeatureListForEntry41,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry41),  // features size
+        kFeatureListForGpuControlTestingEntry41,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAndroid,  // os_type
             {GpuControlList::kLT, GpuControlList::kVersionStyleNumerical, "4.2",
@@ -1079,6 +1247,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -1087,12 +1257,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         42,  // id
         "GpuControlListEntryTest.OsVersionZeroAny",
-        arraysize(kFeatureListForEntry42),  // features size
-        kFeatureListForEntry42,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry42),  // features size
+        kFeatureListForGpuControlTestingEntry42,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAndroid,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1105,6 +1277,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -1113,12 +1287,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         43,  // id
         "GpuControlListEntryTest.OsComparisonAny",
-        arraysize(kFeatureListForEntry43),  // features size
-        kFeatureListForEntry43,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry43),  // features size
+        kFeatureListForGpuControlTestingEntry43,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1131,6 +1307,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -1139,12 +1317,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         44,  // id
         "GpuControlListEntryTest.OsComparisonGE",
-        arraysize(kFeatureListForEntry44),  // features size
-        kFeatureListForEntry44,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry44),  // features size
+        kFeatureListForGpuControlTestingEntry44,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsWin,  // os_type
             {GpuControlList::kGE, GpuControlList::kVersionStyleNumerical, "6",
@@ -1157,6 +1337,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -1165,12 +1347,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         45,  // id
         "GpuControlListEntryTest.ExceptionWithoutVendorId",
-        arraysize(kFeatureListForEntry45),  // features size
-        kFeatureListForEntry45,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry45),  // features size
+        kFeatureListForGpuControlTestingEntry45,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1183,20 +1367,24 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
-        arraysize(kExceptionsForEntry45),  // exceptions count
-        kExceptionsForEntry45,             // exceptions
+        base::size(kExceptionsForEntry45),  // exceptions count
+        kExceptionsForEntry45,              // exceptions
     },
     {
         46,  // id
         "GpuControlListEntryTest.MultiGpuStyleAMDSwitchableDiscrete",
-        arraysize(kFeatureListForEntry46),  // features size
-        kFeatureListForEntry46,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry46),  // features size
+        kFeatureListForGpuControlTestingEntry46,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1210,6 +1398,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                  // driver info
             nullptr,                                  // GL strings
             nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
             nullptr,                                  // more conditions
         },
         0,        // exceptions count
@@ -1218,12 +1408,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         47,  // id
         "GpuControlListEntryTest.MultiGpuStyleAMDSwitchableIntegrated",
-        arraysize(kFeatureListForEntry47),  // features size
-        kFeatureListForEntry47,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry47),  // features size
+        kFeatureListForGpuControlTestingEntry47,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsAny,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1237,6 +1429,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                    // driver info
             nullptr,                                    // GL strings
             nullptr,                                    // machine model info
+            0,                                          // gpu_series size
+            nullptr,                                    // gpu_series
             nullptr,                                    // more conditions
         },
         0,        // exceptions count
@@ -1245,12 +1439,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         48,  // id
         "GpuControlListEntryTest.InProcessGPU",
-        arraysize(kFeatureListForEntry48),  // features size
-        kFeatureListForEntry48,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry48),  // features size
+        kFeatureListForGpuControlTestingEntry48,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsWin,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1263,6 +1459,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             &kMoreForEntry48,                       // more data
         },
         0,        // exceptions count
@@ -1271,12 +1469,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         49,  // id
         "GpuControlListEntryTest.SameGPUTwiceTest",
-        arraysize(kFeatureListForEntry49),  // features size
-        kFeatureListForEntry49,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry49),  // features size
+        kFeatureListForGpuControlTestingEntry49,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsWin,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1289,6 +1489,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -1297,25 +1499,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         50,  // id
         "GpuControlListEntryTest.NVidiaNumberingScheme",
-        arraysize(kFeatureListForEntry50),  // features size
-        kFeatureListForEntry50,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry50),  // features size
+        kFeatureListForGpuControlTestingEntry50,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsWin,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x10de,                                 // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            &kDriverInfoForEntry50,                 // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                       // os_version
+            0x10de,                                   // vendor_id
+            0,                                        // DeviceIDs size
+            nullptr,                                  // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,    // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry50,  // driver info
+            nullptr,                                  // GL strings
+            nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
+            nullptr,                                  // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -1323,25 +1529,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         51,  // id
         "GpuControlListTest.NeedsMoreInfo",
-        arraysize(kFeatureListForEntry51),  // features size
-        kFeatureListForEntry51,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry51),  // features size
+        kFeatureListForGpuControlTestingEntry51,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsWin,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x10de,                                 // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            &kDriverInfoForEntry51,                 // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                       // os_version
+            0x10de,                                   // vendor_id
+            0,                                        // DeviceIDs size
+            nullptr,                                  // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,    // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry51,  // driver info
+            nullptr,                                  // GL strings
+            nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
+            nullptr,                                  // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -1349,12 +1559,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         52,  // id
         "GpuControlListTest.NeedsMoreInfoForExceptions",
-        arraysize(kFeatureListForEntry52),  // features size
-        kFeatureListForEntry52,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry52),  // features size
+        kFeatureListForGpuControlTestingEntry52,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1367,20 +1579,24 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
-        arraysize(kExceptionsForEntry52),  // exceptions count
-        kExceptionsForEntry52,             // exceptions
+        base::size(kExceptionsForEntry52),  // exceptions count
+        kExceptionsForEntry52,              // exceptions
     },
     {
         53,  // id
         "GpuControlListTest.IgnorableEntries.0",
-        arraysize(kFeatureListForEntry53),  // features size
-        kFeatureListForEntry53,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry53),  // features size
+        kFeatureListForGpuControlTestingEntry53,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1393,6 +1609,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -1401,25 +1619,29 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         54,  // id
         "GpuControlListTest.IgnorableEntries.1",
-        arraysize(kFeatureListForEntry54),  // features size
-        kFeatureListForEntry54,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry54),  // features size
+        kFeatureListForGpuControlTestingEntry54,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
-             nullptr, nullptr},                     // os_version
-            0x8086,                                 // vendor_id
-            0,                                      // DeviceIDs size
-            nullptr,                                // DeviceIDs
-            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
-            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
-            &kDriverInfoForEntry54,                 // driver info
-            nullptr,                                // GL strings
-            nullptr,                                // machine model info
-            nullptr,                                // more conditions
+             nullptr, nullptr},                       // os_version
+            0x8086,                                   // vendor_id
+            0,                                        // DeviceIDs size
+            nullptr,                                  // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,    // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry54,  // driver info
+            nullptr,                                  // GL strings
+            nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
+            nullptr,                                  // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
@@ -1427,12 +1649,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         55,  // id
         "GpuControlListTest.DisabledExtensionTest.0",
-        0,                                         // feature size
-        nullptr,                                   // features
-        arraysize(kDisabledExtensionsForEntry55),  // DisabledExtensions size
-        kDisabledExtensionsForEntry55,             // DisabledExtensions
-        0,                                         // CrBugs size
-        nullptr,                                   // CrBugs
+        0,                                          // feature size
+        nullptr,                                    // features
+        base::size(kDisabledExtensionsForEntry55),  // DisabledExtensions size
+        kDisabledExtensionsForEntry55,              // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsWin,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1445,6 +1669,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -1453,12 +1679,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         56,  // id
         "GpuControlListTest.DisabledExtensionTest.1",
-        0,                                         // feature size
-        nullptr,                                   // features
-        arraysize(kDisabledExtensionsForEntry56),  // DisabledExtensions size
-        kDisabledExtensionsForEntry56,             // DisabledExtensions
-        0,                                         // CrBugs size
-        nullptr,                                   // CrBugs
+        0,                                          // feature size
+        nullptr,                                    // features
+        base::size(kDisabledExtensionsForEntry56),  // DisabledExtensions size
+        kDisabledExtensionsForEntry56,              // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsWin,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1471,6 +1699,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
@@ -1479,12 +1709,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         57,  // id
         "GpuControlListEntryTest.DirectRendering",
-        arraysize(kFeatureListForEntry57),  // features size
-        kFeatureListForEntry57,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry57),  // features size
+        kFeatureListForGpuControlTestingEntry57,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
@@ -1497,6 +1729,8 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             &kMoreForEntry57,                       // more data
         },
         0,        // exceptions count
@@ -1505,12 +1739,14 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
     {
         58,  // id
         "GpuControlListTest.LinuxKernelVersion",
-        arraysize(kFeatureListForEntry58),  // features size
-        kFeatureListForEntry58,             // features
-        0,                                  // DisabledExtensions size
-        nullptr,                            // DisabledExtensions
-        0,                                  // CrBugs size
-        nullptr,                            // CrBugs
+        base::size(kFeatureListForGpuControlTestingEntry58),  // features size
+        kFeatureListForGpuControlTestingEntry58,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
         {
             GpuControlList::kOsLinux,  // os_type
             {GpuControlList::kLT, GpuControlList::kVersionStyleNumerical,
@@ -1523,11 +1759,313 @@ const GpuControlList::Entry kGpuControlListTestingEntries[] = {
             nullptr,                                // driver info
             nullptr,                                // GL strings
             nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
             nullptr,                                // more conditions
         },
         0,        // exceptions count
         nullptr,  // exceptions
     },
+    {
+        59,  // id
+        "GpuControlListTest.TestGroup.0",
+        base::size(kFeatureListForGpuControlTestingEntry59),  // features size
+        kFeatureListForGpuControlTestingEntry59,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                     // os_version
+            0x00,                                   // vendor_id
+            0,                                      // DeviceIDs size
+            nullptr,                                // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
+            nullptr,                                // driver info
+            nullptr,                                // GL strings
+            nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
+            &kMoreForEntry59,                       // more data
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
+    {
+        60,  // id
+        "GpuControlListTest.TestGroup.1",
+        base::size(kFeatureListForGpuControlTestingEntry60),  // features size
+        kFeatureListForGpuControlTestingEntry60,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                     // os_version
+            0x00,                                   // vendor_id
+            0,                                      // DeviceIDs size
+            nullptr,                                // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
+            nullptr,                                // driver info
+            nullptr,                                // GL strings
+            nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
+            &kMoreForEntry60,                       // more data
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
+    {
+        61,  // id
+        "GpuControlListEntryTest.GpuSeries",
+        base::size(kFeatureListForGpuControlTestingEntry61),  // features size
+        kFeatureListForGpuControlTestingEntry61,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                     // os_version
+            0x00,                                   // vendor_id
+            0,                                      // DeviceIDs size
+            nullptr,                                // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
+            nullptr,                                // driver info
+            nullptr,                                // GL strings
+            nullptr,                                // machine model info
+            base::size(kGpuSeriesForEntry61),       // gpu_series size
+            kGpuSeriesForEntry61,                   // gpu_series
+            nullptr,                                // more conditions
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
+    {
+        62,  // id
+        "GpuControlListEntryTest.GpuSeriesActive",
+        base::size(kFeatureListForGpuControlTestingEntry62),  // features size
+        kFeatureListForGpuControlTestingEntry62,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                       // os_version
+            0x00,                                     // vendor_id
+            0,                                        // DeviceIDs size
+            nullptr,                                  // DeviceIDs
+            GpuControlList::kMultiGpuCategoryActive,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
+            nullptr,                                  // driver info
+            nullptr,                                  // GL strings
+            nullptr,                                  // machine model info
+            base::size(kGpuSeriesForEntry62),         // gpu_series size
+            kGpuSeriesForEntry62,                     // gpu_series
+            nullptr,                                  // more conditions
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
+    {
+        63,  // id
+        "GpuControlListEntryTest.GpuSeriesAny",
+        base::size(kFeatureListForGpuControlTestingEntry63),  // features size
+        kFeatureListForGpuControlTestingEntry63,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                    // os_version
+            0x00,                                  // vendor_id
+            0,                                     // DeviceIDs size
+            nullptr,                               // DeviceIDs
+            GpuControlList::kMultiGpuCategoryAny,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,    // multi_gpu_style
+            nullptr,                               // driver info
+            nullptr,                               // GL strings
+            nullptr,                               // machine model info
+            base::size(kGpuSeriesForEntry63),      // gpu_series size
+            kGpuSeriesForEntry63,                  // gpu_series
+            nullptr,                               // more conditions
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
+    {
+        64,  // id
+        "GpuControlListEntryTest.GpuSeriesPrimary",
+        base::size(kFeatureListForGpuControlTestingEntry64),  // features size
+        kFeatureListForGpuControlTestingEntry64,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                        // os_version
+            0x00,                                      // vendor_id
+            0,                                         // DeviceIDs size
+            nullptr,                                   // DeviceIDs
+            GpuControlList::kMultiGpuCategoryPrimary,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,        // multi_gpu_style
+            nullptr,                                   // driver info
+            nullptr,                                   // GL strings
+            nullptr,                                   // machine model info
+            base::size(kGpuSeriesForEntry64),          // gpu_series size
+            kGpuSeriesForEntry64,                      // gpu_series
+            nullptr,                                   // more conditions
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
+    {
+        65,  // id
+        "GpuControlListEntryTest.GpuSeriesSecondary",
+        base::size(kFeatureListForGpuControlTestingEntry65),  // features size
+        kFeatureListForGpuControlTestingEntry65,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                          // os_version
+            0x00,                                        // vendor_id
+            0,                                           // DeviceIDs size
+            nullptr,                                     // DeviceIDs
+            GpuControlList::kMultiGpuCategorySecondary,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,          // multi_gpu_style
+            nullptr,                                     // driver info
+            nullptr,                                     // GL strings
+            nullptr,                                     // machine model info
+            base::size(kGpuSeriesForEntry65),            // gpu_series size
+            kGpuSeriesForEntry65,                        // gpu_series
+            nullptr,                                     // more conditions
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
+    {
+        66,  // id
+        "GpuControlListEntryTest.GpuSeriesInException",
+        base::size(kFeatureListForGpuControlTestingEntry66),  // features size
+        kFeatureListForGpuControlTestingEntry66,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                     // os_version
+            0x00,                                   // vendor_id
+            0,                                      // DeviceIDs size
+            nullptr,                                // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
+            nullptr,                                // driver info
+            nullptr,                                // GL strings
+            nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
+            nullptr,                                // more conditions
+        },
+        base::size(kExceptionsForEntry66),  // exceptions count
+        kExceptionsForEntry66,              // exceptions
+    },
+    {
+        67,  // id
+        "GpuControlListEntryTest.MultipleDrivers",
+        base::size(kFeatureListForGpuControlTestingEntry67),  // features size
+        kFeatureListForGpuControlTestingEntry67,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                       // os_version
+            0x8086,                                   // vendor_id
+            0,                                        // DeviceIDs size
+            nullptr,                                  // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,    // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,       // multi_gpu_style
+            &kDriverInfoForGpuControlTestingEntry67,  // driver info
+            nullptr,                                  // GL strings
+            nullptr,                                  // machine model info
+            0,                                        // gpu_series size
+            nullptr,                                  // gpu_series
+            nullptr,                                  // more conditions
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
+    {
+        68,  // id
+        "GpuControlListEntryTest.HardwareOverlay",
+        base::size(kFeatureListForGpuControlTestingEntry68),  // features size
+        kFeatureListForGpuControlTestingEntry68,              // features
+        0,        // DisabledExtensions size
+        nullptr,  // DisabledExtensions
+        0,        // DisabledWebGLExtensions size
+        nullptr,  // DisabledWebGLExtensions
+        0,        // CrBugs size
+        nullptr,  // CrBugs
+        {
+            GpuControlList::kOsAny,  // os_type
+            {GpuControlList::kUnknown, GpuControlList::kVersionStyleNumerical,
+             nullptr, nullptr},                     // os_version
+            0x8086,                                 // vendor_id
+            0,                                      // DeviceIDs size
+            nullptr,                                // DeviceIDs
+            GpuControlList::kMultiGpuCategoryNone,  // multi_gpu_category
+            GpuControlList::kMultiGpuStyleNone,     // multi_gpu_style
+            nullptr,                                // driver info
+            nullptr,                                // GL strings
+            nullptr,                                // machine model info
+            0,                                      // gpu_series size
+            nullptr,                                // gpu_series
+            &kMoreForEntry68,                       // more data
+        },
+        0,        // exceptions count
+        nullptr,  // exceptions
+    },
 };
-const size_t kGpuControlListTestingEntryCount = 58;
+const size_t kGpuControlListTestingEntryCount = 68;
 }  // namespace gpu

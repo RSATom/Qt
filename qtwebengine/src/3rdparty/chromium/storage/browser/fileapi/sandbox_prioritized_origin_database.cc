@@ -13,13 +13,13 @@
 
 namespace storage {
 
-const base::FilePath::CharType*
-SandboxPrioritizedOriginDatabase::kPrimaryDirectory =
-    FILE_PATH_LITERAL("primary");
+const base::FilePath::CharType* const
+    SandboxPrioritizedOriginDatabase::kPrimaryDirectory =
+        FILE_PATH_LITERAL("primary");
 
-const base::FilePath::CharType*
-SandboxPrioritizedOriginDatabase::kPrimaryOriginFile =
-    FILE_PATH_LITERAL("primary.origin");
+const base::FilePath::CharType* const
+    SandboxPrioritizedOriginDatabase::kPrimaryOriginFile =
+        FILE_PATH_LITERAL("primary.origin");
 
 namespace {
 
@@ -58,8 +58,7 @@ SandboxPrioritizedOriginDatabase::SandboxPrioritizedOriginDatabase(
           file_system_directory_.Append(kPrimaryOriginFile)) {
 }
 
-SandboxPrioritizedOriginDatabase::~SandboxPrioritizedOriginDatabase() {
-}
+SandboxPrioritizedOriginDatabase::~SandboxPrioritizedOriginDatabase() = default;
 
 bool SandboxPrioritizedOriginDatabase::InitializePrimaryOrigin(
     const std::string& origin) {
@@ -139,6 +138,13 @@ bool SandboxPrioritizedOriginDatabase::ListAllOrigins(
 void SandboxPrioritizedOriginDatabase::DropDatabase() {
   primary_origin_database_.reset();
   origin_database_.reset();
+}
+
+void SandboxPrioritizedOriginDatabase::RewriteDatabase() {
+  if (primary_origin_database_)
+    primary_origin_database_->RewriteDatabase();
+  if (origin_database_)
+    origin_database_->RewriteDatabase();
 }
 
 bool SandboxPrioritizedOriginDatabase::MaybeLoadPrimaryOrigin() {

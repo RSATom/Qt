@@ -54,6 +54,7 @@
 #include <QtQuick/QQuickWindow>
 #include <QtQuick/QSGImageNode>
 #include <QtQuick/private/qsgtexture_p.h>
+#include <QtQuick/private/qsgcontext_p.h> // for debugging the context name
 
 #include <QMapboxGL>
 
@@ -101,17 +102,22 @@ QSGNode *QGeoMapMapboxGLPrivate::updateSceneGraph(QSGNode *node, QQuickWindow *w
         QOpenGLContext *currentCtx = QOpenGLContext::currentContext();
         if (!currentCtx) {
             qWarning("QOpenGLContext is NULL!");
+            qWarning() << "You are running on QSG backend " << QSGContext::backend();
+            qWarning("The MapboxGL plugin works with both Desktop and ES 2.0+ OpenGL versions.");
+            qWarning("Verify that your Qt is built with OpenGL, and what kind of OpenGL.");
+            qWarning("To force using a specific OpenGL version, check QSurfaceFormat::setRenderableType and QSurfaceFormat::setDefaultFormat");
+
             return node;
         }
         if (m_useFBO) {
             QSGMapboxGLTextureNode *mbglNode = new QSGMapboxGLTextureNode(m_settings, m_viewportSize, window->devicePixelRatio(), q);
             QObject::connect(mbglNode->map(), &QMapboxGL::mapChanged, q, &QGeoMapMapboxGL::onMapChanged);
-            m_syncState = MapTypeSync | CameraDataSync | ViewportSync;
+            m_syncState = MapTypeSync | CameraDataSync | ViewportSync | VisibleAreaSync;
             node = mbglNode;
         } else {
             QSGMapboxGLRenderNode *mbglNode = new QSGMapboxGLRenderNode(m_settings, m_viewportSize, window->devicePixelRatio(), q);
             QObject::connect(mbglNode->map(), &QMapboxGL::mapChanged, q, &QGeoMapMapboxGL::onMapChanged);
-            m_syncState = MapTypeSync | CameraDataSync | ViewportSync;
+            m_syncState = MapTypeSync | CameraDataSync | ViewportSync | VisibleAreaSync;
             node = mbglNode;
         }
     }
@@ -125,7 +131,19 @@ QSGNode *QGeoMapMapboxGLPrivate::updateSceneGraph(QSGNode *node, QQuickWindow *w
         map->setStyleUrl(m_activeMapType.name());
     }
 
-    if (m_syncState & CameraDataSync) {
+    if (m_syncState & VisibleAreaSync) {
+        if (m_visibleArea.isEmpty()) {
+            map->setMargins(QMargins());
+        } else {
+            QMargins margins(m_visibleArea.x(),                                                     // left
+                             m_visibleArea.y(),                                                     // top
+                             m_viewportSize.width() - m_visibleArea.width() - m_visibleArea.x(),    // right
+                             m_viewportSize.height() - m_visibleArea.height() - m_visibleArea.y()); // bottom
+            map->setMargins(margins);
+        }
+    }
+
+    if (m_syncState & CameraDataSync || m_syncState & VisibleAreaSync) {
         map->setZoom(zoomLevelFrom256(m_cameraData.zoomLevel() , MBGL_TILE_SIZE));
         map->setBearing(m_cameraData.bearing());
         map->setPitch(m_cameraData.tilt());
@@ -138,7 +156,7 @@ QSGNode *QGeoMapMapboxGLPrivate::updateSceneGraph(QSGNode *node, QQuickWindow *w
         if (m_useFBO) {
             static_cast<QSGMapboxGLTextureNode *>(node)->resize(m_viewportSize, window->devicePixelRatio());
         } else {
-            map->resize(m_viewportSize, m_viewportSize * window->devicePixelRatio());
+            map->resize(m_viewportSize);
         }
     }
 
@@ -291,6 +309,25 @@ void QGeoMapMapboxGLPrivate::changeActiveMapType(const QGeoMapType)
     emit q->sgNodeChanged();
 }
 
+void QGeoMapMapboxGLPrivate::setVisibleArea(const QRectF &visibleArea)
+{
+    Q_Q(QGeoMapMapboxGL);
+    const QRectF va = clampVisibleArea(visibleArea);
+    if (va == m_visibleArea)
+        return;
+
+    m_visibleArea = va;
+    m_geoProjection->setVisibleArea(va);
+
+    m_syncState = m_syncState | VisibleAreaSync;
+    emit q->sgNodeChanged();
+}
+
+QRectF QGeoMapMapboxGLPrivate::visibleArea() const
+{
+    return m_visibleArea;
+}
+
 void QGeoMapMapboxGLPrivate::syncStyleChanges(QMapboxGL *map)
 {
     for (const auto& change : m_styleChanges) {
@@ -347,7 +384,7 @@ QString QGeoMapMapboxGL::copyrightsStyleSheet() const
     return QStringLiteral("* { vertical-align: middle; font-weight: normal }");
 }
 
-void QGeoMapMapboxGL::setMapboxGLSettings(const QMapboxGLSettings& settings)
+void QGeoMapMapboxGL::setMapboxGLSettings(const QMapboxGLSettings& settings, bool useChinaEndpoint)
 {
     Q_D(QGeoMapMapboxGL);
 
@@ -355,8 +392,13 @@ void QGeoMapMapboxGL::setMapboxGLSettings(const QMapboxGLSettings& settings)
 
     // If the access token is not set, use the development access token.
     // This will only affect mapbox:// styles.
+    // Mapbox China requires a China-specific access token.
     if (d->m_settings.accessToken().isEmpty()) {
-        d->m_settings.setAccessToken(developmentToken);
+        if (useChinaEndpoint) {
+            qWarning("Mapbox China requires an access token: https://www.mapbox.com/contact/sales");
+        } else {
+            d->m_settings.setAccessToken(developmentToken);
+        }
     }
 }
 
@@ -370,6 +412,14 @@ void QGeoMapMapboxGL::setMapItemsBefore(const QString &before)
 {
     Q_D(QGeoMapMapboxGL);
     d->m_mapItemsBefore = before;
+}
+
+QGeoMap::Capabilities QGeoMapMapboxGL::capabilities() const
+{
+    return Capabilities(SupportsVisibleRegion
+                        | SupportsSetBearing
+                        | SupportsAnchoringCoordinate
+                        | SupportsVisibleArea );
 }
 
 QSGNode *QGeoMapMapboxGL::updateSceneGraph(QSGNode *oldNode, QQuickWindow *window)

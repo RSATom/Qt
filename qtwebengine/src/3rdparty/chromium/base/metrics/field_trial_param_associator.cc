@@ -8,8 +8,8 @@
 
 namespace base {
 
-FieldTrialParamAssociator::FieldTrialParamAssociator() {}
-FieldTrialParamAssociator::~FieldTrialParamAssociator() {}
+FieldTrialParamAssociator::FieldTrialParamAssociator() = default;
+FieldTrialParamAssociator::~FieldTrialParamAssociator() = default;
 
 // static
 FieldTrialParamAssociator* FieldTrialParamAssociator::GetInstance() {
@@ -70,6 +70,14 @@ void FieldTrialParamAssociator::ClearAllParamsForTesting() {
     field_trial_params_.clear();
   }
   FieldTrialList::ClearParamsFromSharedMemoryForTesting();
+}
+
+void FieldTrialParamAssociator::ClearParamsForTesting(
+    const std::string& trial_name,
+    const std::string& group_name) {
+  AutoLock scoped_lock(lock_);
+  const FieldTrialKey key(trial_name, group_name);
+  field_trial_params_.erase(key);
 }
 
 void FieldTrialParamAssociator::ClearAllCachedParamsForTesting() {

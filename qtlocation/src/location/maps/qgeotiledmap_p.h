@@ -84,8 +84,9 @@ public:
     void updateTile(const QGeoTileSpec &spec);
     void setPrefetchStyle(PrefetchStyle style);
 
-    void prefetchData() Q_DECL_OVERRIDE;
-    void clearData() Q_DECL_OVERRIDE;
+    void prefetchData() override;
+    void clearData() override;
+    Capabilities capabilities() const override;
 
     void setCopyrightVisible(bool visible) override;
 
@@ -93,7 +94,7 @@ public Q_SLOTS:
     virtual void clearScene(int mapId);
 
 protected:
-    QSGNode *updateSceneGraph(QSGNode *, QQuickWindow *window) Q_DECL_OVERRIDE;
+    QSGNode *updateSceneGraph(QSGNode *, QQuickWindow *window) override;
     virtual void evaluateCopyrights(const QSet<QGeoTileSpec> &visibleTiles);
 
     QGeoTiledMap(QGeoTiledMapPrivate &dd, QGeoTiledMappingManagerEngine *engine, QObject *parent);

@@ -9,7 +9,6 @@
 #include <memory>
 #include <utility>
 
-#include "third_party/base/ptr_util.h"
 #include "xfa/fwl/cfwl_datetimepicker.h"
 #include "xfa/fwl/cfwl_messagemouse.h"
 #include "xfa/fwl/cfwl_widgetmgr.h"
@@ -21,22 +20,7 @@ CFWL_DateTimeEdit::CFWL_DateTimeEdit(
     : CFWL_Edit(app, std::move(properties), pOuter) {}
 
 void CFWL_DateTimeEdit::OnProcessMessage(CFWL_Message* pMessage) {
-  if (m_pWidgetMgr->IsFormDisabled()) {
-    DisForm_OnProcessMessage(pMessage);
-    return;
-  }
-
-  CFWL_Message::Type type = pMessage->GetType();
-  if (type == CFWL_Message::Type::SetFocus ||
-      type == CFWL_Message::Type::KillFocus) {
-    CFWL_Widget* pOuter = GetOuter();
-    pOuter->GetDelegate()->OnProcessMessage(pMessage);
-  }
-}
-
-void CFWL_DateTimeEdit::DisForm_OnProcessMessage(CFWL_Message* pMessage) {
-  if (!m_pWidgetMgr->IsFormDisabled() ||
-      pMessage->GetType() != CFWL_Message::Type::Mouse) {
+  if (pMessage->GetType() != CFWL_Message::Type::Mouse) {
     CFWL_Edit::OnProcessMessage(pMessage);
     return;
   }

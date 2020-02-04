@@ -71,23 +71,26 @@ TYPED_TEST_P(VerifyCertificateChainSingleRootTest, UnknownExtension) {
   this->RunTest("target-unknown-critical-extension/main.test");
 }
 
-TYPED_TEST_P(VerifyCertificateChainSingleRootTest, Md5) {
+TYPED_TEST_P(VerifyCertificateChainSingleRootTest, WeakSignature) {
   this->RunTest("target-signed-with-md5/main.test");
   this->RunTest("intermediate-signed-with-md5/main.test");
 }
 
 TYPED_TEST_P(VerifyCertificateChainSingleRootTest, WrongSignature) {
   this->RunTest("target-wrong-signature/main.test");
+  this->RunTest("intermediate-and-target-wrong-signature/main.test");
   this->RunTest("incorrect-trust-anchor/main.test");
 }
 
 TYPED_TEST_P(VerifyCertificateChainSingleRootTest, LastCertificateNotTrusted) {
   this->RunTest("target-and-intermediate/distrusted-root.test");
+  this->RunTest("target-and-intermediate/distrusted-root-expired.test");
   this->RunTest("target-and-intermediate/unspecified-trust-root.test");
 }
 
-TYPED_TEST_P(VerifyCertificateChainSingleRootTest, TargetSignedBy512bitRsa) {
+TYPED_TEST_P(VerifyCertificateChainSingleRootTest, WeakPublicKey) {
   this->RunTest("target-signed-by-512bit-rsa/main.test");
+  this->RunTest("target-has-512bit-rsa-key/main.test");
 }
 
 TYPED_TEST_P(VerifyCertificateChainSingleRootTest, TargetSignedUsingEcdsa) {
@@ -139,6 +142,16 @@ TYPED_TEST_P(VerifyCertificateChainSingleRootTest, ExtendedKeyUsage) {
   this->RunTest("target-eku-none/clientauth.test");
   this->RunTest("root-eku-clientauth/serverauth.test");
   this->RunTest("root-eku-clientauth/serverauth-ta-with-constraints.test");
+  this->RunTest("intermediate-eku-server-gated-crypto/sha1-eku-any.test");
+  this->RunTest(
+      "intermediate-eku-server-gated-crypto/sha1-eku-clientAuth.test");
+  this->RunTest(
+      "intermediate-eku-server-gated-crypto/sha1-eku-serverAuth.test");
+  this->RunTest("intermediate-eku-server-gated-crypto/sha256-eku-any.test");
+  this->RunTest(
+      "intermediate-eku-server-gated-crypto/sha256-eku-clientAuth.test");
+  this->RunTest(
+      "intermediate-eku-server-gated-crypto/sha256-eku-serverAuth.test");
 }
 
 TYPED_TEST_P(VerifyCertificateChainSingleRootTest,
@@ -166,6 +179,20 @@ TYPED_TEST_P(VerifyCertificateChainSingleRootTest, Policies) {
   this->RunTest("unknown-non-critical-policy-qualifier/main.test");
 }
 
+TYPED_TEST_P(VerifyCertificateChainSingleRootTest, ManyNames) {
+  this->RunTest("many-names/ok-all-types.test");
+  this->RunTest("many-names/ok-different-types-dns.test");
+  this->RunTest("many-names/ok-different-types-ips.test");
+  this->RunTest("many-names/ok-different-types-dirnames.test");
+  this->RunTest("many-names/toomany-all-types.test");
+  this->RunTest("many-names/toomany-dns-excluded.test");
+  this->RunTest("many-names/toomany-dns-permitted.test");
+  this->RunTest("many-names/toomany-ips-excluded.test");
+  this->RunTest("many-names/toomany-ips-permitted.test");
+  this->RunTest("many-names/toomany-dirnames-excluded.test");
+  this->RunTest("many-names/toomany-dirnames-permitted.test");
+}
+
 // TODO(eroman): Add test that invalid validity dates where the day or month
 // ordinal not in range, like "March 39, 2016" are rejected.
 
@@ -174,10 +201,10 @@ REGISTER_TYPED_TEST_CASE_P(VerifyCertificateChainSingleRootTest,
                            BasicConstraintsCa,
                            BasicConstraintsPathlen,
                            UnknownExtension,
-                           Md5,
+                           WeakSignature,
                            WrongSignature,
                            LastCertificateNotTrusted,
-                           TargetSignedBy512bitRsa,
+                           WeakPublicKey,
                            TargetSignedUsingEcdsa,
                            Expired,
                            TargetNotEndEntity,
@@ -186,7 +213,8 @@ REGISTER_TYPED_TEST_CASE_P(VerifyCertificateChainSingleRootTest,
                            IssuerAndSubjectNotByteForByteEqual,
                            TrustAnchorNotSelfSigned,
                            KeyRollover,
-                           Policies);
+                           Policies,
+                           ManyNames);
 
 }  // namespace net
 

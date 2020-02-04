@@ -11,7 +11,7 @@
 
 #include <string>
 
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_network_session.h"
@@ -35,6 +35,7 @@ class HttpProxyClientSocketPool;
 class HttpRequestHeaders;
 class NetLogWithSource;
 class ProxyInfo;
+class ProxyServer;
 class TransportClientSocketPool;
 class SOCKSClientSocketPool;
 class SSLClientSocketPool;
@@ -81,11 +82,13 @@ class NET_EXPORT_PRIVATE ClientSocketPoolManager {
   virtual TransportClientSocketPool* GetTransportSocketPool() = 0;
   virtual SSLClientSocketPool* GetSSLSocketPool() = 0;
   virtual SOCKSClientSocketPool* GetSocketPoolForSOCKSProxy(
-      const HostPortPair& socks_proxy) = 0;
-  virtual HttpProxyClientSocketPool* GetSocketPoolForHTTPProxy(
-      const HostPortPair& http_proxy) = 0;
+      const ProxyServer& socks_proxy) = 0;
+  // Returns the HttpProxyClientSocketPool for a ProxyServer that uses an
+  // "HTTP-like" scheme, as defined by ProxyServer::is_http_like().
+  virtual HttpProxyClientSocketPool* GetSocketPoolForHTTPLikeProxy(
+      const ProxyServer& http_proxy) = 0;
   virtual SSLClientSocketPool* GetSocketPoolForSSLWithProxy(
-      const HostPortPair& proxy_server) = 0;
+      const ProxyServer& proxy_server) = 0;
   // Creates a Value summary of the state of the socket pools.
   virtual std::unique_ptr<base::Value> SocketPoolInfoToValue() const = 0;
 
@@ -103,8 +106,6 @@ class NET_EXPORT_PRIVATE ClientSocketPoolManager {
 // |resolution_callback| will be invoked after the the hostname is
 // resolved.  If |resolution_callback| does not return OK, then the
 // connection will be aborted with that value.
-// If |expect_spdy| is true, then after the SSL handshake is complete,
-// SPDY must have been negotiated or else it will be considered an error.
 int InitSocketHandleForHttpRequest(
     ClientSocketPoolManager::SocketGroupType group_type,
     const HostPortPair& endpoint,
@@ -113,14 +114,15 @@ int InitSocketHandleForHttpRequest(
     RequestPriority request_priority,
     HttpNetworkSession* session,
     const ProxyInfo& proxy_info,
-    bool expect_spdy,
+    quic::QuicTransportVersion quic_version,
     const SSLConfig& ssl_config_for_origin,
     const SSLConfig& ssl_config_for_proxy,
     PrivacyMode privacy_mode,
+    const SocketTag& socket_tag,
     const NetLogWithSource& net_log,
     ClientSocketHandle* socket_handle,
     const OnHostResolutionCallback& resolution_callback,
-    const CompletionCallback& callback);
+    CompletionOnceCallback callback);
 
 // A helper method that uses the passed in proxy information to initialize a
 // ClientSocketHandle with the relevant socket pool. Use this method for
@@ -139,15 +141,15 @@ int InitSocketHandleForWebSocketRequest(
     RequestPriority request_priority,
     HttpNetworkSession* session,
     const ProxyInfo& proxy_info,
-    bool expect_spdy,
     const SSLConfig& ssl_config_for_origin,
     const SSLConfig& ssl_config_for_proxy,
     PrivacyMode privacy_mode,
     const NetLogWithSource& net_log,
     ClientSocketHandle* socket_handle,
     const OnHostResolutionCallback& resolution_callback,
-    const CompletionCallback& callback);
+    CompletionOnceCallback callback);
 
+// Deprecated: Please do not use this outside of //net and //services/network.
 // A helper method that uses the passed in proxy information to initialize a
 // ClientSocketHandle with the relevant socket pool. Use this method for
 // a raw socket connection to a host-port pair (that needs to tunnel through
@@ -155,14 +157,17 @@ int InitSocketHandleForWebSocketRequest(
 NET_EXPORT int InitSocketHandleForRawConnect(
     const HostPortPair& host_port_pair,
     HttpNetworkSession* session,
+    int request_load_flags,
+    RequestPriority request_priority,
     const ProxyInfo& proxy_info,
     const SSLConfig& ssl_config_for_origin,
     const SSLConfig& ssl_config_for_proxy,
     PrivacyMode privacy_mode,
     const NetLogWithSource& net_log,
     ClientSocketHandle* socket_handle,
-    const CompletionCallback& callback);
+    CompletionOnceCallback callback);
 
+// Deprecated: Please do not use this outside of //net and //services/network.
 // A helper method that uses the passed in proxy information to initialize a
 // ClientSocketHandle with the relevant socket pool. Use this method for
 // a raw socket connection with TLS negotiation to a host-port pair (that needs
@@ -170,13 +175,15 @@ NET_EXPORT int InitSocketHandleForRawConnect(
 NET_EXPORT int InitSocketHandleForTlsConnect(
     const HostPortPair& host_port_pair,
     HttpNetworkSession* session,
+    int request_load_flags,
+    RequestPriority request_priority,
     const ProxyInfo& proxy_info,
     const SSLConfig& ssl_config_for_origin,
     const SSLConfig& ssl_config_for_proxy,
     PrivacyMode privacy_mode,
     const NetLogWithSource& net_log,
     ClientSocketHandle* socket_handle,
-    const CompletionCallback& callback);
+    CompletionOnceCallback callback);
 
 // Similar to InitSocketHandleForHttpRequest except that it initiates the
 // desired number of preconnect streams from the relevant socket pool.
@@ -188,7 +195,6 @@ int PreconnectSocketsForHttpRequest(
     RequestPriority request_priority,
     HttpNetworkSession* session,
     const ProxyInfo& proxy_info,
-    bool expect_spdy,
     const SSLConfig& ssl_config_for_origin,
     const SSLConfig& ssl_config_for_proxy,
     PrivacyMode privacy_mode,

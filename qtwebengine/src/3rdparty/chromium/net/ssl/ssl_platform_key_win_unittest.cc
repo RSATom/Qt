@@ -9,12 +9,14 @@
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "crypto/scoped_capi_types.h"
 #include "net/cert/x509_certificate.h"
 #include "net/ssl/ssl_private_key.h"
 #include "net/ssl/ssl_private_key_test_util.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/boringssl/src/include/openssl/bn.h"
 #include "third_party/boringssl/src/include/openssl/bytestring.h"
@@ -23,6 +25,7 @@
 #include "third_party/boringssl/src/include/openssl/evp.h"
 #include "third_party/boringssl/src/include/openssl/mem.h"
 #include "third_party/boringssl/src/include/openssl/rsa.h"
+#include "third_party/boringssl/src/include/openssl/ssl.h"
 
 namespace net {
 
@@ -32,13 +35,14 @@ struct TestKey {
   const char* name;
   const char* cert_file;
   const char* key_file;
+  int type;
 };
 
 const TestKey kTestKeys[] = {
-    {"RSA", "client_1.pem", "client_1.pk8"},
-    {"ECDSA_P256", "client_4.pem", "client_4.pk8"},
-    {"ECDSA_P384", "client_5.pem", "client_5.pk8"},
-    {"ECDSA_P521", "client_6.pem", "client_6.pk8"},
+    {"RSA", "client_1.pem", "client_1.pk8", EVP_PKEY_RSA},
+    {"ECDSA_P256", "client_4.pem", "client_4.pk8", EVP_PKEY_EC},
+    {"ECDSA_P384", "client_5.pem", "client_5.pk8", EVP_PKEY_EC},
+    {"ECDSA_P521", "client_6.pem", "client_6.pk8", EVP_PKEY_EC},
 };
 
 std::string TestKeyToString(const testing::TestParamInfo<TestKey>& params) {
@@ -218,7 +222,8 @@ bool PKCS8ToBLOBForCNG(const std::string& pkcs8,
 
 }  // namespace
 
-class SSLPlatformKeyCNGTest : public testing::TestWithParam<TestKey> {};
+class SSLPlatformKeyCNGTest : public testing::TestWithParam<TestKey>,
+                              public WithScopedTaskEnvironment {};
 
 TEST_P(SSLPlatformKeyCNGTest, KeyMatches) {
   const TestKey& test_key = GetParam();
@@ -256,11 +261,9 @@ TEST_P(SSLPlatformKeyCNGTest, KeyMatches) {
   scoped_refptr<SSLPrivateKey> key = WrapCNGPrivateKey(cert.get(), ncrypt_key);
   ASSERT_TRUE(key);
 
-  std::vector<SSLPrivateKey::Hash> expected_hashes = {
-      SSLPrivateKey::Hash::SHA512, SSLPrivateKey::Hash::SHA384,
-      SSLPrivateKey::Hash::SHA256, SSLPrivateKey::Hash::SHA1,
-  };
-  EXPECT_EQ(expected_hashes, key->GetDigestPreferences());
+  EXPECT_EQ(SSLPrivateKey::DefaultAlgorithmPreferences(test_key.type,
+                                                       true /* supports PSS */),
+            key->GetAlgorithmPreferences());
 
   TestSSLPrivateKeyMatches(key.get(), pkcs8);
 }
@@ -271,6 +274,8 @@ INSTANTIATE_TEST_CASE_P(,
                         TestKeyToString);
 
 TEST(SSLPlatformKeyCAPITest, KeyMatches) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
+
   // Load test data.
   scoped_refptr<X509Certificate> cert =
       ImportCertFromFile(GetTestCertsDirectory(), "client_1.pem");
@@ -303,11 +308,11 @@ TEST(SSLPlatformKeyCAPITest, KeyMatches) {
       WrapCAPIPrivateKey(cert.get(), prov.release(), AT_SIGNATURE);
   ASSERT_TRUE(key);
 
-  std::vector<SSLPrivateKey::Hash> expected_hashes = {
-      SSLPrivateKey::Hash::SHA1, SSLPrivateKey::Hash::SHA512,
-      SSLPrivateKey::Hash::SHA384, SSLPrivateKey::Hash::SHA256,
+  std::vector<uint16_t> expected = {
+      SSL_SIGN_RSA_PKCS1_SHA1, SSL_SIGN_RSA_PKCS1_SHA256,
+      SSL_SIGN_RSA_PKCS1_SHA384, SSL_SIGN_RSA_PKCS1_SHA512,
   };
-  EXPECT_EQ(expected_hashes, key->GetDigestPreferences());
+  EXPECT_EQ(expected, key->GetAlgorithmPreferences());
 
   TestSSLPrivateKeyMatches(key.get(), pkcs8);
 }

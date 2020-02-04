@@ -8,18 +8,23 @@
 #include <algorithm>
 
 #if defined(OS_WIN)
+#include <windows.h>
 #include "winbase.h"
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include <sys/mman.h>
 #endif
 
+#include "base/debug/alias.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/logging.h"
 #include "base/memory/shared_memory.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/optional.h"
+#include "base/system/sys_info.h"
+#include "base/threading/scoped_blocking_call.h"
+#include "build/build_config.h"
 
 namespace {
 
@@ -317,6 +322,11 @@ PersistentMemoryAllocator::PersistentMemoryAllocator(Memory memory,
       mem_type_(memory.type),
       mem_size_(static_cast<uint32_t>(size)),
       mem_page_(static_cast<uint32_t>((page_size ? page_size : size))),
+#if defined(OS_NACL)
+      vm_page_size_(4096U),  // SysInfo is not built for NACL.
+#else
+      vm_page_size_(SysInfo::VMAllocationGranularity()),
+#endif
       readonly_(readonly),
       corrupt_(0),
       allocs_histogram_(nullptr),
@@ -344,9 +354,9 @@ PersistentMemoryAllocator::PersistentMemoryAllocator(Memory memory,
   // casts are to make sure it can be evaluated at compile time to a constant.
 #ifndef TOOLKIT_QT
   // These can not be inlined by clang-libstdc++ and some embedded GCC versions
-  CHECK(((SharedMetadata*)0)->freeptr.is_lock_free());
-  CHECK(((SharedMetadata*)0)->flags.is_lock_free());
-  CHECK(((BlockHeader*)0)->next.is_lock_free());
+  CHECK(((SharedMetadata*)nullptr)->freeptr.is_lock_free());
+  CHECK(((SharedMetadata*)nullptr)->flags.is_lock_free());
+  CHECK(((BlockHeader*)nullptr)->next.is_lock_free());
   CHECK(corrupt_.is_lock_free());
 #endif
 
@@ -727,6 +737,28 @@ PersistentMemoryAllocator::Reference PersistentMemoryAllocator::AllocateImpl(
       return kReferenceNull;
     }
 
+    // Make sure the memory exists by writing to the first byte of every memory
+    // page it touches beyond the one containing the block header itself.
+    // As the underlying storage is often memory mapped from disk or shared
+    // space, sometimes things go wrong and those address don't actually exist
+    // leading to a SIGBUS (or Windows equivalent) at some arbitrary location
+    // in the code. This should concentrate all those failures into this
+    // location for easy tracking and, eventually, proper handling.
+    volatile char* mem_end = reinterpret_cast<volatile char*>(block) + size;
+    volatile char* mem_begin = reinterpret_cast<volatile char*>(
+        (reinterpret_cast<uintptr_t>(block) + sizeof(BlockHeader) +
+         (vm_page_size_ - 1)) &
+        ~static_cast<uintptr_t>(vm_page_size_ - 1));
+    for (volatile char* memory = mem_begin; memory < mem_end;
+         memory += vm_page_size_) {
+      // It's required that a memory segment start as all zeros and thus the
+      // newly allocated block is all zeros at this point. Thus, writing a
+      // zero to it allows testing that the memory exists without actually
+      // changing its contents. The compiler doesn't know about the requirement
+      // and so cannot optimize-away these writes.
+      *memory = 0;
+    }
+
     // Load information into the block header. There is no "release" of the
     // data here because this memory can, currently, be seen only by the thread
     // performing the allocation. When it comes time to share this, the thread
@@ -790,17 +822,15 @@ void PersistentMemoryAllocator::MakeIterable(Reference ref) {
                                                      std::memory_order_release,
                                                      std::memory_order_relaxed);
       return;
-    } else {
-      // In the unlikely case that a thread crashed or was killed between the
-      // update of "next" and the update of "tailptr", it is necessary to
-      // perform the operation that would have been done. There's no explicit
-      // check for crash/kill which means that this operation may also happen
-      // even when the other thread is in perfect working order which is what
-      // necessitates the CompareAndSwap above.
-      shared_meta()->tailptr.compare_exchange_strong(tail, next,
-                                                     std::memory_order_acq_rel,
-                                                     std::memory_order_acquire);
     }
+    // In the unlikely case that a thread crashed or was killed between the
+    // update of "next" and the update of "tailptr", it is necessary to
+    // perform the operation that would have been done. There's no explicit
+    // check for crash/kill which means that this operation may also happen
+    // even when the other thread is in perfect working order which is what
+    // necessitates the CompareAndSwap above.
+    shared_meta()->tailptr.compare_exchange_strong(
+        tail, next, std::memory_order_acq_rel, std::memory_order_acquire);
   }
 }
 
@@ -940,17 +970,17 @@ LocalPersistentMemoryAllocator::AllocateLocalMemory(size_t size) {
       ::VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
   if (address)
     return Memory(address, MEM_VIRTUAL);
-  UMA_HISTOGRAM_SPARSE_SLOWLY("UMA.LocalPersistentMemoryAllocator.Failures.Win",
-                              ::GetLastError());
-#elif defined(OS_POSIX)
+  UmaHistogramSparse("UMA.LocalPersistentMemoryAllocator.Failures.Win",
+                     ::GetLastError());
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   // MAP_ANON is deprecated on Linux but MAP_ANONYMOUS is not universal on Mac.
   // MAP_SHARED is not available on Linux <2.4 but required on Mac.
   address = ::mmap(nullptr, size, PROT_READ | PROT_WRITE,
                    MAP_ANON | MAP_SHARED, -1, 0);
   if (address != MAP_FAILED)
     return Memory(address, MEM_VIRTUAL);
-  UMA_HISTOGRAM_SPARSE_SLOWLY(
-      "UMA.LocalPersistentMemoryAllocator.Failures.Posix", errno);
+  UmaHistogramSparse("UMA.LocalPersistentMemoryAllocator.Failures.Posix",
+                     errno);
 #else
 #error This architecture is not (yet) supported.
 #endif
@@ -978,7 +1008,7 @@ void LocalPersistentMemoryAllocator::DeallocateLocalMemory(void* memory,
 #if defined(OS_WIN)
   BOOL success = ::VirtualFree(memory, 0, MEM_DECOMMIT);
   DCHECK(success);
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   int result = ::munmap(memory, size);
   DCHECK_EQ(0, result);
 #else
@@ -1003,7 +1033,7 @@ SharedPersistentMemoryAllocator::SharedPersistentMemoryAllocator(
           read_only),
       shared_memory_(std::move(memory)) {}
 
-SharedPersistentMemoryAllocator::~SharedPersistentMemoryAllocator() {}
+SharedPersistentMemoryAllocator::~SharedPersistentMemoryAllocator() = default;
 
 // static
 bool SharedPersistentMemoryAllocator::IsSharedMemoryAcceptable(
@@ -1028,14 +1058,9 @@ FilePersistentMemoryAllocator::FilePersistentMemoryAllocator(
           id,
           name,
           read_only),
-      mapped_file_(std::move(file)) {
-  // Ensure the disk-copy of the data reflects the fully-initialized memory as
-  // there is no guarantee as to what order the pages might be auto-flushed by
-  // the OS in the future.
-  Flush(true);
-}
+      mapped_file_(std::move(file)) {}
 
-FilePersistentMemoryAllocator::~FilePersistentMemoryAllocator() {}
+FilePersistentMemoryAllocator::~FilePersistentMemoryAllocator() = default;
 
 // static
 bool FilePersistentMemoryAllocator::IsFileAcceptable(
@@ -1044,14 +1069,43 @@ bool FilePersistentMemoryAllocator::IsFileAcceptable(
   return IsMemoryAcceptable(file.data(), file.length(), 0, read_only);
 }
 
+void FilePersistentMemoryAllocator::Cache() {
+  // Since this method is expected to load data from permanent storage
+  // into memory, blocking I/O may occur.
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+
+  // Calculate begin/end addresses so that the first byte of every page
+  // in that range can be read. Keep within the used space. The |volatile|
+  // keyword makes it so the compiler can't make assumptions about what is
+  // in a given memory location and thus possibly avoid the read.
+  const volatile char* mem_end = mem_base_ + used();
+  const volatile char* mem_begin = mem_base_;
+
+  // Iterate over the memory a page at a time, reading the first byte of
+  // every page. The values are added to a |total| so that the compiler
+  // can't omit the read.
+  int total = 0;
+  for (const volatile char* memory = mem_begin; memory < mem_end;
+       memory += vm_page_size_) {
+    total += *memory;
+  }
+
+  // Tell the compiler that |total| is used so that it can't optimize away
+  // the memory accesses above.
+  debug::Alias(&total);
+}
+
 void FilePersistentMemoryAllocator::FlushPartial(size_t length, bool sync) {
-  if (sync)
-    ThreadRestrictions::AssertIOAllowed();
   if (IsReadonly())
     return;
 
+  base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
+  if (sync)
+    scoped_blocking_call.emplace(base::BlockingType::MAY_BLOCK);
+
 #if defined(OS_WIN)
-  // Windows doesn't support a synchronous flush.
+  // Windows doesn't support asynchronous flush.
+  scoped_blocking_call.emplace(base::BlockingType::MAY_BLOCK);
   BOOL success = ::FlushViewOfFile(data(), length);
   DPCHECK(success);
 #elif defined(OS_MACOSX)
@@ -1060,7 +1114,7 @@ void FilePersistentMemoryAllocator::FlushPartial(size_t length, bool sync) {
   int result =
       ::msync(const_cast<void*>(data()), length, sync ? MS_SYNC : MS_ASYNC);
   DCHECK_NE(EINVAL, result);
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   // On POSIX, "invalidate" forces _other_ processes to recognize what has
   // been written to disk and so is applicable to "flush".
   int result = ::msync(const_cast<void*>(data()), length,
@@ -1137,7 +1191,7 @@ DelayedPersistentAllocation::DelayedPersistentAllocation(
   DCHECK(reference_);
 }
 
-DelayedPersistentAllocation::~DelayedPersistentAllocation() {}
+DelayedPersistentAllocation::~DelayedPersistentAllocation() = default;
 
 void* DelayedPersistentAllocation::Get() const {
   // Relaxed operations are acceptable here because it's not protecting the

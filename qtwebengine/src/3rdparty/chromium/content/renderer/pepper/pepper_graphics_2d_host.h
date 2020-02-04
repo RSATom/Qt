@@ -12,17 +12,19 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "cc/paint/paint_canvas.h"
+#include "cc/resources/shared_bitmap_id_registrar.h"
 #include "content/common/content_export.h"
+#include "gpu/command_buffer/common/mailbox.h"
 #include "ppapi/c/ppb_graphics_2d.h"
 #include "ppapi/host/host_message_context.h"
 #include "ppapi/host/resource_host.h"
-#include "third_party/WebKit/public/platform/WebCanvas.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace cc {
-class SingleReleaseCallback;
+class CrossThreadSharedBitmap;
 }
 
 namespace gfx {
@@ -34,8 +36,9 @@ struct SyncToken;
 }
 
 namespace viz {
-class SharedBitmap;
-class TextureMailbox;
+class ContextProvider;
+class SingleReleaseCallback;
+struct TransferableResource;
 }
 
 namespace content {
@@ -71,13 +74,14 @@ class CONTENT_EXPORT PepperGraphics2DHost
   // is already bound to a different instance, and nothing will happen.
   bool BindToInstance(PepperPluginInstanceImpl* new_instance);
   // Paints the current backing store to the web page.
-  void Paint(blink::WebCanvas* canvas,
+  void Paint(cc::PaintCanvas* canvas,
              const gfx::Rect& plugin_rect,
              const gfx::Rect& paint_rect);
 
-  bool PrepareTextureMailbox(
-      viz::TextureMailbox* mailbox,
-      std::unique_ptr<cc::SingleReleaseCallback>* release_callback);
+  bool PrepareTransferableResource(
+      cc::SharedBitmapIdRegistrar* bitmap_registrar,
+      viz::TransferableResource* transferable_resource,
+      std::unique_ptr<viz::SingleReleaseCallback>* release_callback);
   void AttachedToNewLayer();
 
   // Notifications about the view's progress painting.  See PluginInstance.
@@ -87,7 +91,6 @@ class CONTENT_EXPORT PepperGraphics2DHost
   float GetScale() const;
   void SetLayerTransform(float scale, const PP_Point& transform);
   bool IsAlwaysOpaque() const;
-  PPB_ImageData_Impl* ImageData();
   gfx::Size Size() const;
 
   void ClearCache();
@@ -174,10 +177,21 @@ class CONTENT_EXPORT PepperGraphics2DHost
                                      gfx::Rect* op_rect,
                                      gfx::Point* delta);
 
-  void ReleaseCallback(std::unique_ptr<viz::SharedBitmap> bitmap,
-                       const gfx::Size& bitmap_size,
-                       const gpu::SyncToken& sync_token,
-                       bool lost_resource);
+  // Callback when compositor is done with a software resource given to it.
+  void ReleaseSoftwareCallback(
+      scoped_refptr<cc::CrossThreadSharedBitmap> bitmap,
+      cc::SharedBitmapIdRegistration registration,
+      const gpu::SyncToken& sync_token,
+      bool lost_resource);
+  // Callback when compositor is done with a gpu resource given to it. Static
+  // for speed. Just kidding, it's so this can clean up the texture if the host
+  // has been destroyed.
+  static void ReleaseTextureCallback(
+      base::WeakPtr<PepperGraphics2DHost> host,
+      scoped_refptr<viz::ContextProvider> context,
+      uint32_t id,
+      const gpu::SyncToken& sync_token,
+      bool lost);
 
   RendererPpapiHost* renderer_ppapi_host_;
 
@@ -215,12 +229,34 @@ class CONTENT_EXPORT PepperGraphics2DHost
 
   bool is_running_in_process_;
 
-  bool texture_mailbox_modified_;
+  bool composited_output_modified_ = true;
+
+  // Local cache of the compositing mode. This is sticky, once true it stays
+  // that way.
+  bool is_gpu_compositing_disabled_ = false;
+  // The shared main thread context provider, used to upload 2d pepper frames
+  // if the compositor is expecting gpu content.
+  scoped_refptr<viz::ContextProvider> main_thread_context_;
+  struct TextureInfo {
+    uint32_t id;
+    gpu::Mailbox mailbox;
+    gfx::Size size;
+  };
+  // The ids of textures holding the copied contents of software frames to
+  // give to the compositor via GL. Textures in this list are in use by the
+  // compositor and are treated as owned by the compositor until the
+  // ReleaseTextureCallback() informs otherwise.
+  std::vector<TextureInfo> texture_copies_;
+  // Texture ids move from |texture_copies_| to here once they are available for
+  // reuse.
+  std::vector<TextureInfo> recycled_texture_copies_;
 
   // This is a bitmap that was recently released by the compositor and may be
-  // used to transfer bytes to the compositor again.
-  std::unique_ptr<viz::SharedBitmap> cached_bitmap_;
-  gfx::Size cached_bitmap_size_;
+  // used to transfer bytes to the compositor again, along with the registration
+  // of the SharedBitmapId that is kept alive as long as the bitmap is, in order
+  // to give the bitmap to the compositor.
+  scoped_refptr<cc::CrossThreadSharedBitmap> cached_bitmap_;
+  cc::SharedBitmapIdRegistration cached_bitmap_registration_;
 
   friend class PepperGraphics2DHostTest;
   DISALLOW_COPY_AND_ASSIGN(PepperGraphics2DHost);

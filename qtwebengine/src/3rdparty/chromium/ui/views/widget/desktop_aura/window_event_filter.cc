@@ -4,8 +4,9 @@
 
 #include "ui/views/widget/desktop_aura/window_event_filter.h"
 
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "ui/aura/client/aura_constants.h"
+#include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_tree_host.h"
@@ -14,12 +15,35 @@
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
+#include "ui/platform_window/platform_window_handler/wm_move_resize_handler.h"
 #include "ui/views/linux_ui/linux_ui.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host.h"
 #include "ui/views/widget/native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
+
+namespace {
+
+bool CanPerformDragOrResize(int hittest) {
+  switch (hittest) {
+    case HTBOTTOM:
+    case HTBOTTOMLEFT:
+    case HTBOTTOMRIGHT:
+    case HTCAPTION:
+    case HTLEFT:
+    case HTRIGHT:
+    case HTTOP:
+    case HTTOPLEFT:
+    case HTTOPRIGHT:
+      return true;
+    default:
+      return false;
+  }
+  return true;
+}
+
+}  // namespace
 
 WindowEventFilter::WindowEventFilter(DesktopWindowTreeHost* window_tree_host)
     : window_tree_host_(window_tree_host), click_component_(HTNOWHERE) {}
@@ -47,58 +71,79 @@ void WindowEventFilter::OnMouseEvent(ui::MouseEvent* event) {
     OnClickedMaximizeButton(event);
   } else {
     if (target->GetProperty(aura::client::kResizeBehaviorKey) &
-        ui::mojom::kResizeBehaviorCanResize) {
+        ws::mojom::kResizeBehaviorCanResize) {
       MaybeDispatchHostWindowDragMovement(component, event);
     }
   }
 }
 
+void WindowEventFilter::SetWmMoveResizeHandler(
+    ui::WmMoveResizeHandler* handler) {
+  DCHECK(!handler_);
+  handler_ = handler;
+}
+
 void WindowEventFilter::OnClickedCaption(ui::MouseEvent* event,
                                          int previous_click_component) {
   aura::Window* target = static_cast<aura::Window*>(event->target());
+  LinuxUI* linux_ui = LinuxUI::instance();
 
-  if (event->IsMiddleMouseButton()) {
-    LinuxUI::NonClientMiddleClickAction action =
-        LinuxUI::MIDDLE_CLICK_ACTION_LOWER;
-    LinuxUI* linux_ui = LinuxUI::instance();
-    if (linux_ui)
-      action = linux_ui->GetNonClientMiddleClickAction();
+  views::LinuxUI::NonClientWindowFrameActionSourceType action_type;
+  views::LinuxUI::NonClientWindowFrameAction default_action;
 
-    switch (action) {
-      case LinuxUI::MIDDLE_CLICK_ACTION_NONE:
-        break;
-      case LinuxUI::MIDDLE_CLICK_ACTION_LOWER:
-        LowerWindow();
-        break;
-      case LinuxUI::MIDDLE_CLICK_ACTION_MINIMIZE:
-        window_tree_host_->Minimize();
-        break;
-      case LinuxUI::MIDDLE_CLICK_ACTION_TOGGLE_MAXIMIZE:
-        if (target->GetProperty(aura::client::kResizeBehaviorKey) &
-            ui::mojom::kResizeBehaviorCanMaximize)
-          ToggleMaximizedState();
-        break;
+  if (event->IsRightMouseButton()) {
+    action_type = LinuxUI::WINDOW_FRAME_ACTION_SOURCE_RIGHT_CLICK;
+    default_action = LinuxUI::WINDOW_FRAME_ACTION_MENU;
+  } else if (event->IsMiddleMouseButton()) {
+    action_type = LinuxUI::WINDOW_FRAME_ACTION_SOURCE_MIDDLE_CLICK;
+    default_action = LinuxUI::WINDOW_FRAME_ACTION_NONE;
+  } else if (event->IsLeftMouseButton() &&
+             event->flags() & ui::EF_IS_DOUBLE_CLICK) {
+    click_component_ = HTNOWHERE;
+    if (previous_click_component == HTCAPTION) {
+      action_type = LinuxUI::WINDOW_FRAME_ACTION_SOURCE_DOUBLE_CLICK;
+      default_action = LinuxUI::WINDOW_FRAME_ACTION_TOGGLE_MAXIMIZE;
+    } else {
+      return;
     }
-
-    event->SetHandled();
+  } else {
+    MaybeDispatchHostWindowDragMovement(HTCAPTION, event);
     return;
   }
 
-  if (event->IsLeftMouseButton() && event->flags() & ui::EF_IS_DOUBLE_CLICK) {
-    click_component_ = HTNOWHERE;
-    if ((target->GetProperty(aura::client::kResizeBehaviorKey) &
-         ui::mojom::kResizeBehaviorCanMaximize) &&
-        previous_click_component == HTCAPTION) {
-      // Our event is a double click in the caption area in a window that can be
-      // maximized. We are responsible for dispatching this as a minimize/
-      // maximize on X11 (Windows converts this to min/max events for us).
-      ToggleMaximizedState();
+  LinuxUI::NonClientWindowFrameAction action =
+      linux_ui ? linux_ui->GetNonClientWindowFrameAction(action_type)
+               : default_action;
+  switch (action) {
+    case LinuxUI::WINDOW_FRAME_ACTION_NONE:
+      break;
+    case LinuxUI::WINDOW_FRAME_ACTION_LOWER:
+      LowerWindow();
       event->SetHandled();
-      return;
-    }
+      break;
+    case LinuxUI::WINDOW_FRAME_ACTION_MINIMIZE:
+      window_tree_host_->Minimize();
+      event->SetHandled();
+      break;
+    case LinuxUI::WINDOW_FRAME_ACTION_TOGGLE_MAXIMIZE:
+      if (target->GetProperty(aura::client::kResizeBehaviorKey) &
+          ws::mojom::kResizeBehaviorCanMaximize)
+        ToggleMaximizedState();
+      event->SetHandled();
+      break;
+    case LinuxUI::WINDOW_FRAME_ACTION_MENU:
+      views::Widget* widget = views::Widget::GetWidgetForNativeView(target);
+      if (!widget)
+        break;
+      views::View* view = widget->GetContentsView();
+      if (!view || !view->context_menu_controller())
+        break;
+      gfx::Point location(event->location());
+      views::View::ConvertPointToScreen(view, &location);
+      view->ShowContextMenu(location, ui::MENU_SOURCE_MOUSE);
+      event->SetHandled();
+      break;
   }
-
-  MaybeDispatchHostWindowDragMovement(HTCAPTION, event);
 }
 
 void WindowEventFilter::OnClickedMaximizeButton(ui::MouseEvent* event) {
@@ -134,6 +179,18 @@ void WindowEventFilter::LowerWindow() {}
 
 void WindowEventFilter::MaybeDispatchHostWindowDragMovement(
     int hittest,
-    ui::MouseEvent* event) {}
+    ui::MouseEvent* event) {
+  if (handler_ && event->IsLeftMouseButton() &&
+      CanPerformDragOrResize(hittest)) {
+    // Some platforms (eg X11) may require last pointer location not in the
+    // local surface coordinates, but rather in the screen coordinates for
+    // interactive move/resize.
+    const gfx::Point last_pointer_location =
+        aura::Env::GetInstance()->last_mouse_location();
+    handler_->DispatchHostWindowDragMovement(hittest, last_pointer_location);
+    event->StopPropagation();
+    return;
+  }
+}
 
 }  // namespace views

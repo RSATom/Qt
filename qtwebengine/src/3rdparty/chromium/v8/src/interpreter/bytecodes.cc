@@ -38,34 +38,59 @@ const AccumulatorUse Bytecodes::kAccumulatorUse[] = {
 #undef ENTRY
 };
 
-const int Bytecodes::kBytecodeSizes[][3] = {
-#define ENTRY(Name, ...)                            \
-  { BytecodeTraits<__VA_ARGS__>::kSingleScaleSize,  \
-    BytecodeTraits<__VA_ARGS__>::kDoubleScaleSize,  \
-    BytecodeTraits<__VA_ARGS__>::kQuadrupleScaleSize },
+const int Bytecodes::kBytecodeSizes[3][kBytecodeCount] = {
+  {
+#define ENTRY(Name, ...) BytecodeTraits<__VA_ARGS__>::kSingleScaleSize,
   BYTECODE_LIST(ENTRY)
 #undef ENTRY
-};
-
-const OperandSize* const Bytecodes::kOperandSizes[][3] = {
-#define ENTRY(Name, ...)                                    \
-  { BytecodeTraits<__VA_ARGS__>::kSingleScaleOperandSizes,  \
-    BytecodeTraits<__VA_ARGS__>::kDoubleScaleOperandSizes,  \
-    BytecodeTraits<__VA_ARGS__>::kQuadrupleScaleOperandSizes },
+  }, {
+#define ENTRY(Name, ...) BytecodeTraits<__VA_ARGS__>::kDoubleScaleSize,
   BYTECODE_LIST(ENTRY)
 #undef ENTRY
+  }, {
+#define ENTRY(Name, ...) BytecodeTraits<__VA_ARGS__>::kQuadrupleScaleSize,
+  BYTECODE_LIST(ENTRY)
+#undef ENTRY
+  }
 };
 
-const OperandSize Bytecodes::kOperandKindSizes[][3] = {
-#define ENTRY(Name, ...)                                \
-  { OperandScaler<OperandType::k##Name,                 \
-                 OperandScale::kSingle>::kOperandSize,  \
-    OperandScaler<OperandType::k##Name,                 \
-                 OperandScale::kDouble>::kOperandSize,  \
-    OperandScaler<OperandType::k##Name,                 \
-                 OperandScale::kQuadruple>::kOperandSize },
-    OPERAND_TYPE_LIST(ENTRY)
+const OperandSize* const Bytecodes::kOperandSizes[3][kBytecodeCount] = {
+  {
+#define ENTRY(Name, ...)  \
+    BytecodeTraits<__VA_ARGS__>::kSingleScaleOperandSizes,
+  BYTECODE_LIST(ENTRY)
 #undef ENTRY
+  }, {
+#define ENTRY(Name, ...)  \
+    BytecodeTraits<__VA_ARGS__>::kDoubleScaleOperandSizes,
+  BYTECODE_LIST(ENTRY)
+#undef ENTRY
+  }, {
+#define ENTRY(Name, ...)  \
+    BytecodeTraits<__VA_ARGS__>::kQuadrupleScaleOperandSizes,
+  BYTECODE_LIST(ENTRY)
+#undef ENTRY
+  }
+};
+
+const OperandSize
+Bytecodes::kOperandKindSizes[3][BytecodeOperands::kOperandTypeCount] = {
+  {
+#define ENTRY(Name, ...)  \
+    OperandScaler<OperandType::k##Name, OperandScale::kSingle>::kOperandSize,
+  OPERAND_TYPE_LIST(ENTRY)
+#undef ENTRY
+  }, {
+#define ENTRY(Name, ...)  \
+    OperandScaler<OperandType::k##Name, OperandScale::kDouble>::kOperandSize,
+  OPERAND_TYPE_LIST(ENTRY)
+#undef ENTRY
+  }, {
+#define ENTRY(Name, ...)  \
+    OperandScaler<OperandType::k##Name, OperandScale::kQuadruple>::kOperandSize,
+  OPERAND_TYPE_LIST(ENTRY)
+#undef ENTRY
+  }
 };
 // clang-format on
 
@@ -82,14 +107,13 @@ const char* Bytecodes::ToString(Bytecode bytecode) {
 }
 
 // static
-std::string Bytecodes::ToString(Bytecode bytecode, OperandScale operand_scale) {
-  static const char kSeparator = '.';
-
+std::string Bytecodes::ToString(Bytecode bytecode, OperandScale operand_scale,
+                                const char* separator) {
   std::string value(ToString(bytecode));
   if (operand_scale > OperandScale::kSingle) {
     Bytecode prefix_bytecode = OperandScaleToPrefixBytecode(operand_scale);
     std::string suffix = ToString(prefix_bytecode);
-    return value.append(1, kSeparator).append(suffix);
+    return value.append(separator).append(suffix);
   } else {
     return value;
   }
@@ -175,6 +199,17 @@ bool Bytecodes::IsRegisterOperandType(OperandType operand_type) {
   return false;
 }
 
+// static
+bool Bytecodes::IsRegisterListOperandType(OperandType operand_type) {
+  switch (operand_type) {
+    case OperandType::kRegList:
+    case OperandType::kRegOutList:
+      return true;
+    default:
+      return false;
+  }
+}
+
 bool Bytecodes::MakesCallAlongCriticalPath(Bytecode bytecode) {
   if (IsCallOrConstruct(bytecode) || IsCallRuntime(bytecode)) return true;
   switch (bytecode) {
@@ -248,6 +283,7 @@ bool Bytecodes::IsStarLookahead(Bytecode bytecode, OperandScale operand_scale) {
       case Bytecode::kDec:
       case Bytecode::kTypeOf:
       case Bytecode::kCallAnyReceiver:
+      case Bytecode::kCallNoFeedback:
       case Bytecode::kCallProperty:
       case Bytecode::kCallProperty0:
       case Bytecode::kCallProperty1:

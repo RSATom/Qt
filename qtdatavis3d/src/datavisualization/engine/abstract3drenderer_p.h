@@ -191,6 +191,7 @@ Q_SIGNALS:
 protected:
     Abstract3DRenderer(Abstract3DController *controller);
 
+    virtual void contextCleanup();
     virtual void initializeOpenGL();
 
     void reInitShaders();
@@ -241,9 +242,6 @@ protected:
                               const QMatrix4x4 &projectionViewMatrix);
     void queriedGraphPosition(const QMatrix4x4 &projectionViewMatrix, const QVector3D &scaling,
                               GLuint defaultFboHandle);
-
-    void fixContextBeforeDelete();
-    void restoreContextAfterDelete();
 
     bool m_hasNegativeValues;
     Q3DTheme *m_cachedTheme;
@@ -339,7 +337,6 @@ protected:
     QOpenGLFunctions_2_1 *m_funcs_2_1;  // Not owned
 #endif
     QPointer<QOpenGLContext> m_context; // Not owned
-    QOffscreenSurface *m_dummySurfaceAtDelete;
     bool m_isOpenGLES;
 
 private:

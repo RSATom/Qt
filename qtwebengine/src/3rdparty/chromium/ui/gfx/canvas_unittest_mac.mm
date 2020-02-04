@@ -24,9 +24,7 @@ float GetStringNativeWidth(const base::string16& text,
                            const FontList& font_list) {
   NSFont* native_font = font_list.GetPrimaryFont().GetNativeFont();
   NSString* ns_string = base::SysUTF16ToNSString(text);
-  NSDictionary* attributes =
-      [NSDictionary dictionaryWithObject:native_font
-                                  forKey:NSFontAttributeName];
+  NSDictionary* attributes = @{NSFontAttributeName : native_font};
   return [ns_string sizeWithAttributes:attributes].width;
 }
 
@@ -49,8 +47,8 @@ class CanvasTestMac : public testing::Test {
 
     float canvas_width = kReallyLargeNumber;
     float canvas_height = kReallyLargeNumber;
-    Canvas::SizeStringFloat(
-        text16, font_list, &canvas_width, &canvas_height, 0, 0);
+    Canvas::SizeStringFloat(text16, font_list, &canvas_width, &canvas_height, 0,
+                            0, Typesetter::NATIVE);
 
     EXPECT_NE(kReallyLargeNumber, mac_width) << "no width for " << text;
     EXPECT_NE(kReallyLargeNumber, mac_height) << "no height for " << text;
@@ -64,9 +62,9 @@ class CanvasTestMac : public testing::Test {
   Font font_;
 };
 
- // Tests that Canvas' SizeStringFloat yields result consistent with a native
- // implementation.
- TEST_F(CanvasTestMac, StringSizeIdenticalForSkia) {
+// Tests that Canvas' SizeStringFloat yields result consistent with a native
+// implementation when using Typesetter::NATIVE.
+TEST_F(CanvasTestMac, StringSizeIdenticalForSkia) {
   CompareSizes("");
   CompareSizes("Foo");
   CompareSizes("Longword");
@@ -79,8 +77,8 @@ TEST_F(CanvasTestMac, FractionalWidth) {
   float height = kReallyLargeNumber;
 
   FontList font_list;
-  Canvas::SizeStringFloat(
-      base::UTF8ToUTF16("Test"), font_list, &width, &height, 0, 0);
+  Canvas::SizeStringFloat(base::UTF8ToUTF16("Test"), font_list, &width, &height,
+                          0, 0, Typesetter::NATIVE);
 
   EXPECT_GT(width, static_cast<int>(width));
 }

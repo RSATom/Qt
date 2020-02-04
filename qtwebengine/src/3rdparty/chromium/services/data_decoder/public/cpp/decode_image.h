@@ -9,7 +9,7 @@
 
 #include <vector>
 
-#include "services/data_decoder/public/interfaces/image_decoder.mojom.h"
+#include "services/data_decoder/public/mojom/image_decoder.mojom.h"
 
 namespace gfx {
 class Size;
@@ -39,6 +39,15 @@ void DecodeImage(service_manager::Connector* connector,
                  uint64_t max_size_in_bytes,
                  const gfx::Size& desired_image_frame_size,
                  mojom::ImageDecoder::DecodeImageCallback callback);
+
+// Helper function to decode an animation via the data_decoder service. Any
+// image with multiple frames is considered an animation, so long as the frames
+// are all the same size.
+void DecodeAnimation(service_manager::Connector* connector,
+                     const std::vector<uint8_t>& encoded_bytes,
+                     bool shrink_to_fit,
+                     uint64_t max_size_in_bytes,
+                     mojom::ImageDecoder::DecodeAnimationCallback callback);
 
 }  // namespace data_decoder
 

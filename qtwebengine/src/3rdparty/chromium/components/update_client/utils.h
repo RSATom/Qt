@@ -11,19 +11,21 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/flat_map.h"
+#include "base/memory/ref_counted.h"
 #include "components/update_client/update_client.h"
 
 class GURL;
 
 namespace base {
+class DictionaryValue;
 class FilePath;
 }
 
-namespace net {
-class URLFetcher;
-class URLFetcherDelegate;
-class URLRequestContextGetter;
-}
+namespace network {
+class SharedURLLoaderFactory;
+class SimpleURLLoader;
+}  // namespace network
 
 namespace update_client {
 
@@ -35,23 +37,19 @@ struct CrxComponent;
 // in an update check request.
 using InstallerAttribute = std::pair<std::string, std::string>;
 
+using LoadCompleteCallback =
+    base::OnceCallback<void(std::unique_ptr<std::string> response_body)>;
+
 // Sends a protocol request to the the service endpoint specified by |url|.
 // The body of the request is provided by |protocol_request| and it is
 // expected to contain XML data. The caller owns the returned object.
-std::unique_ptr<net::URLFetcher> SendProtocolRequest(
+std::unique_ptr<network::SimpleURLLoader> SendProtocolRequest(
     const GURL& url,
+    const base::flat_map<std::string, std::string>&
+        protocol_request_extra_headers,
     const std::string& protocol_request,
-    net::URLFetcherDelegate* url_fetcher_delegate,
-    net::URLRequestContextGetter* url_request_context_getter);
-
-// Returns true if the url request of |fetcher| was succesful.
-bool FetchSuccess(const net::URLFetcher& fetcher);
-
-// Returns the error code which occured during the fetch. The function returns 0
-// if the fetch was successful. If errors happen, the function could return a
-// network error, an http response code, or the status of the fetch, if the
-// fetch is pending or canceled.
-int GetFetchError(const net::URLFetcher& fetcher);
+    LoadCompleteCallback callback,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
 
 // Returns true if the |component| contains a valid differential update url.
 bool HasDiffUpdate(const Component& component);
@@ -86,7 +84,24 @@ void RemoveUnsecureUrls(std::vector<GURL>* urls);
 
 // Adapter function for the old definitions of CrxInstaller::Install until the
 // component installer code is migrated to use a Result instead of bool.
-CrxInstaller::Result InstallFunctionWrapper(base::Callback<bool()> callback);
+CrxInstaller::Result InstallFunctionWrapper(
+    base::OnceCallback<bool()> callback);
+
+// Deserializes the CRX manifest. The top level must be a dictionary.
+std::unique_ptr<base::DictionaryValue> ReadManifest(
+    const base::FilePath& unpack_path);
+
+// Converts a custom, specific installer error (and optionally extended error)
+// to an installer result.
+template <typename T>
+CrxInstaller::Result ToInstallerResult(const T& error, int extended_error = 0) {
+  static_assert(std::is_enum<T>::value,
+                "Use an enum class to define custom installer errors");
+  return CrxInstaller::Result(
+      static_cast<int>(update_client::InstallError::CUSTOM_ERROR_BASE) +
+          static_cast<int>(error),
+      extended_error);
+}
 
 }  // namespace update_client
 

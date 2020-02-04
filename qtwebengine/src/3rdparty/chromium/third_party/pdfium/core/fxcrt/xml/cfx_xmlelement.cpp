@@ -6,97 +6,154 @@
 
 #include "core/fxcrt/xml/cfx_xmlelement.h"
 
+#include <utility>
+
+#include "core/fxcrt/cfx_widetextbuf.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/xml/cfx_xmlchardata.h"
+#include "core/fxcrt/xml/cfx_xmldocument.h"
 #include "core/fxcrt/xml/cfx_xmltext.h"
-#include "third_party/base/ptr_util.h"
-#include "third_party/base/stl_util.h"
 
-CFX_XMLElement::CFX_XMLElement(const CFX_WideString& wsTag)
-    : CFX_XMLAttributeNode(wsTag) {}
+CFX_XMLElement::CFX_XMLElement(const WideString& wsTag) : name_(wsTag) {
+  ASSERT(!name_.IsEmpty());
+}
 
-CFX_XMLElement::~CFX_XMLElement() {}
+CFX_XMLElement::~CFX_XMLElement() = default;
 
 FX_XMLNODETYPE CFX_XMLElement::GetType() const {
   return FX_XMLNODE_Element;
 }
 
-std::unique_ptr<CFX_XMLNode> CFX_XMLElement::Clone() {
-  auto pClone = pdfium::MakeUnique<CFX_XMLElement>(GetName());
-  pClone->SetAttributes(GetAttributes());
+CFX_XMLNode* CFX_XMLElement::Clone(CFX_XMLDocument* doc) {
+  auto* node = doc->CreateNode<CFX_XMLElement>(name_);
+  node->attrs_ = attrs_;
 
-  CFX_WideString wsText;
-  CFX_XMLNode* pChild = m_pChild;
-  while (pChild) {
-    switch (pChild->GetType()) {
-      case FX_XMLNODE_Text:
-        wsText += static_cast<CFX_XMLText*>(pChild)->GetText();
-        break;
-      default:
-        break;
-    }
-    pChild = pChild->m_pNext;
+  // TODO(dsinclair): This clone is wrong. It doesn't clone all child nodes just
+  // text nodes?
+  for (CFX_XMLNode* pChild = GetFirstChild(); pChild;
+       pChild = pChild->GetNextSibling()) {
+    if (pChild->GetType() == FX_XMLNODE_Text)
+      node->AppendChild(pChild->Clone(doc));
   }
-  pClone->SetTextData(wsText);
-  return pClone;
+  return node;
 }
 
-CFX_WideString CFX_XMLElement::GetLocalTagName() const {
-  FX_STRSIZE iFind = GetName().Find(L':', 0);
-  if (iFind < 0)
-    return GetName();
-  return GetName().Right(GetName().GetLength() - iFind - 1);
+WideString CFX_XMLElement::GetLocalTagName() const {
+  auto pos = name_.Find(L':');
+  return pos.has_value() ? name_.Right(name_.GetLength() - pos.value() - 1)
+                         : name_;
 }
 
-CFX_WideString CFX_XMLElement::GetNamespacePrefix() const {
-  FX_STRSIZE iFind = GetName().Find(L':', 0);
-  if (iFind < 0)
-    return CFX_WideString();
-  return GetName().Left(iFind);
+WideString CFX_XMLElement::GetNamespacePrefix() const {
+  auto pos = name_.Find(L':');
+  return pos.has_value() ? name_.Left(pos.value()) : WideString();
 }
 
-CFX_WideString CFX_XMLElement::GetNamespaceURI() const {
-  CFX_WideString wsAttri(L"xmlns");
-  CFX_WideString wsPrefix = GetNamespacePrefix();
-  if (wsPrefix.GetLength() > 0) {
-    wsAttri += L":";
-    wsAttri += wsPrefix;
+WideString CFX_XMLElement::GetNamespaceURI() const {
+  WideString attr(L"xmlns");
+  WideString wsPrefix = GetNamespacePrefix();
+  if (!wsPrefix.IsEmpty()) {
+    attr += L":";
+    attr += wsPrefix;
   }
-
-  auto* pNode = static_cast<const CFX_XMLNode*>(this);
+  const CFX_XMLNode* pNode = this;
   while (pNode) {
     if (pNode->GetType() != FX_XMLNODE_Element)
       break;
 
     auto* pElement = static_cast<const CFX_XMLElement*>(pNode);
-    if (!pElement->HasAttribute(wsAttri)) {
-      pNode = pNode->GetNodeItem(CFX_XMLNode::Parent);
+    if (!pElement->HasAttribute(attr)) {
+      pNode = pNode->GetParent();
       continue;
     }
-    return pElement->GetString(wsAttri);
+    return pElement->GetAttribute(attr);
   }
-  return CFX_WideString();
+  return WideString();
 }
 
-CFX_WideString CFX_XMLElement::GetTextData() const {
+WideString CFX_XMLElement::GetTextData() const {
   CFX_WideTextBuf buffer;
-  CFX_XMLNode* pChild = m_pChild;
-  while (pChild) {
-    switch (pChild->GetType()) {
-      case FX_XMLNODE_Text:
-      case FX_XMLNODE_CharData:
-        buffer << static_cast<CFX_XMLText*>(pChild)->GetText();
-        break;
-      default:
-        break;
-    }
-    pChild = pChild->m_pNext;
+  for (CFX_XMLNode* pChild = GetFirstChild(); pChild;
+       pChild = pChild->GetNextSibling()) {
+    CFX_XMLText* pText = ToXMLText(pChild);
+    if (pText)
+      buffer << pText->GetText();
   }
   return buffer.MakeString();
 }
 
-void CFX_XMLElement::SetTextData(const CFX_WideString& wsText) {
-  if (wsText.GetLength() < 1)
+void CFX_XMLElement::Save(
+    const RetainPtr<IFX_SeekableWriteStream>& pXMLStream) {
+  ByteString bsNameEncoded = name_.ToUTF8();
+
+  pXMLStream->WriteString("<");
+  pXMLStream->WriteString(bsNameEncoded.AsStringView());
+
+  for (auto it : attrs_) {
+    // Note, the space between attributes is added by AttributeToString which
+    // writes a blank as the first character.
+    pXMLStream->WriteString(
+        AttributeToString(it.first, it.second).ToUTF8().AsStringView());
+  }
+
+  if (!GetFirstChild()) {
+    pXMLStream->WriteString(" />\n");
     return;
-  InsertChildNode(new CFX_XMLText(wsText));
+  }
+
+  pXMLStream->WriteString(">\n");
+
+  for (CFX_XMLNode* pChild = GetFirstChild(); pChild;
+       pChild = pChild->GetNextSibling()) {
+    pChild->Save(pXMLStream);
+  }
+  pXMLStream->WriteString("</");
+  pXMLStream->WriteString(bsNameEncoded.AsStringView());
+  pXMLStream->WriteString(">\n");
+}
+
+CFX_XMLElement* CFX_XMLElement::GetFirstChildNamed(WideStringView name) const {
+  return GetNthChildNamed(name, 0);
+}
+
+CFX_XMLElement* CFX_XMLElement::GetNthChildNamed(WideStringView name,
+                                                 size_t idx) const {
+  for (auto* child = GetFirstChild(); child; child = child->GetNextSibling()) {
+    CFX_XMLElement* elem = ToXMLElement(child);
+    if (!elem || elem->name_ != name)
+      continue;
+    if (idx == 0)
+      return elem;
+
+    --idx;
+  }
+  return nullptr;
+}
+
+bool CFX_XMLElement::HasAttribute(const WideString& name) const {
+  return attrs_.find(name) != attrs_.end();
+}
+
+WideString CFX_XMLElement::GetAttribute(const WideString& name) const {
+  auto it = attrs_.find(name);
+  return it != attrs_.end() ? it->second : WideString();
+}
+
+void CFX_XMLElement::SetAttribute(const WideString& name,
+                                  const WideString& value) {
+  attrs_[name] = value;
+}
+
+void CFX_XMLElement::RemoveAttribute(const WideString& name) {
+  attrs_.erase(name);
+}
+
+WideString CFX_XMLElement::AttributeToString(const WideString& name,
+                                             const WideString& value) {
+  WideString ret = L" ";
+  ret += name;
+  ret += L"=\"";
+  ret += EncodeEntities(value);
+  ret += L"\"";
+  return ret;
 }

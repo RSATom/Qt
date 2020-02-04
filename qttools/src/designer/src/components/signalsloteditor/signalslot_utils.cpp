@@ -32,13 +32,13 @@
 #include <widgetdatabase_p.h>
 #include <metadatabase_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerLanguageExtension>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractlanguage.h>
 
-#include <QtCore/QPair>
+#include <QtCore/qpair.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -167,7 +167,7 @@ namespace {
 
         ReverseClassesMemberIterator &operator*()     { return *this; }
         ReverseClassesMemberIterator &operator++()    { return *this; }
-        void operator=(const ClassNameSignaturePair &classNameSignature);
+        ReverseClassesMemberIterator &operator=(const ClassNameSignaturePair &classNameSignature);
 
     private:
         qdesigner_internal::ClassesMemberFunctions *m_result;
@@ -181,7 +181,7 @@ namespace {
     {
     }
 
-    void ReverseClassesMemberIterator::operator=(const ClassNameSignaturePair &classNameSignature)
+    ReverseClassesMemberIterator &ReverseClassesMemberIterator::operator=(const ClassNameSignaturePair &classNameSignature)
     {
         // prepend a new entry if class changes
         if (!m_memberList || classNameSignature.first != m_lastClassName) {
@@ -190,6 +190,7 @@ namespace {
             m_memberList = &(m_result->front().m_memberList);
         }
         m_memberList->push_back(classNameSignature.second);
+        return *this;
     }
 
     // Output iterator for a pair of pair of <classname,  signature>
@@ -200,8 +201,10 @@ namespace {
 
         SignatureIterator &operator*()     { return *this; }
         SignatureIterator &operator++()    { return *this; }
-        void operator=(const ClassNameSignaturePair &classNameSignature) {
+        SignatureIterator &operator=(const ClassNameSignaturePair &classNameSignature)
+        {
             m_result->insert(classNameSignature.second, classNameSignature.first);
+            return *this;
         }
 
     private:
@@ -270,7 +273,7 @@ namespace qdesigner_internal {
     QString realObjectName(QDesignerFormEditorInterface *core, QObject *object)
     {
         if (!object)
-        return QString();
+            return QString();
 
         const QDesignerMetaDataBaseInterface *mdb = core->metaDataBase();
         if (const QDesignerMetaDataBaseItemInterface *item = mdb->item(object))

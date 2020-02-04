@@ -8,6 +8,61 @@
 
 
 /**
+ * Enum for key codes.
+ * @enum {int}
+ * @const
+ */
+const KEYCODES = {
+  BACKSPACE: 8,
+  DELETE: 46,
+  DOWN: 40,
+  ENTER: 13,
+  ESC: 27,
+  LEFT: 37,
+  RIGHT: 39,
+  SPACE: 32,
+  TAB: 9,
+  UP: 38,
+};
+
+/**
+ * Enum for ids.
+ * @enum {string}
+ * @const
+ */
+const IDS = {
+  MOST_VISITED: 'most-visited',  // Container for all tilesets.
+  MV_TILES: 'mv-tiles',          // Most Visited tiles container.
+};
+
+
+/**
+ * Enum for classnames.
+ * @enum {string}
+ * @const
+ */
+const CLASSES = {
+  FAILED_FAVICON: 'failed-favicon',  // Applied when the favicon fails to load.
+  REORDER: 'reorder',  // Applied to the tile being moved while reordering.
+  REORDERING: 'reordering',  // Applied while we are reordering.
+  // Material Design classes.
+  MD_EMPTY_TILE: 'md-empty-tile',
+  MD_ICON_BACKGROUND: 'md-icon-background',
+  MD_FALLBACK_LETTER: 'md-fallback-letter',
+  MD_FAVICON: 'md-favicon',
+  MD_ICON: 'md-icon',
+  MD_ADD_ICON: 'md-add-icon',
+  MD_MENU: 'md-menu',
+  MD_EDIT_MENU: 'md-edit-menu',
+  MD_TILE: 'md-tile',
+  MD_TILE_CONTAINER: 'md-tile-container',
+  MD_TILE_INNER: 'md-tile-inner',
+  MD_TITLE: 'md-title',
+  MD_TITLE_CONTAINER: 'md-title-container',
+};
+
+
+/**
  * The different types of events that are logged from the NTP.  This enum is
  * used to transfer information from the NTP JavaScript to the renderer and is
  * not used as a UMA enum histogram's logged value.
@@ -23,20 +78,13 @@ var LOG_TYPE = {
   // before the actual DOM elements have loaded (in particular the thumbnail
   // images).
   NTP_ALL_TILES_RECEIVED: 12,
-};
 
-
-/**
- * The different sources that an NTP tile can have.
- * Note: Keep in sync with components/ntp_tiles/tile_source.h
- * @enum {number}
- * @const
- */
-var TileSource = {
-  TOP_SITES: 0,
-  SUGGESTIONS_SERVICE: 1,
-  POPULAR: 3,
-  WHITELIST: 4,
+  // Shortcuts have been customized.
+  NTP_SHORTCUT_CUSTOMIZED: 39,
+  // The 'Add shortcut' link was clicked.
+  NTP_CUSTOMIZE_ADD_SHORTCUT_CLICKED: 44,
+  // The 'Edit shortcut' link was clicked.
+  NTP_CUSTOMIZE_EDIT_SHORTCUT_CLICKED: 45,
 };
 
 
@@ -57,18 +105,49 @@ var TileVisualType = {
 
 
 /**
- * Total number of tiles to show at any time. If the host page doesn't send
- * enough tiles, we fill them blank.
+ * Timeout delay for the window.onresize event throttle. Set to 15 frame per
+ * second.
  * @const {number}
  */
-var NUMBER_OF_TILES = 8;
+const RESIZE_TIMEOUT_DELAY = 66;
 
 
 /**
- * Number of lines to display in titles.
- * @type {number}
+ * Timeout delay in ms before starting the reorder flow.
+ * @const {number}
  */
-var NUM_TITLE_LINES = 1;
+const REORDER_TIMEOUT_DELAY = 1000;
+
+
+/**
+ * Maximum number of tiles if custom links is enabled.
+ * @const {number}
+ */
+const MD_MAX_NUM_CUSTOM_LINK_TILES = 10;
+
+
+/**
+ * Maximum number of tiles per row for Material Design.
+ * @const {number}
+ */
+const MD_MAX_TILES_PER_ROW = 5;
+
+
+/**
+ * Width of a tile for Material Design. Keep in sync with
+ * most_visited_single.css.
+ * @const {number}
+ */
+const MD_TILE_WIDTH = 112;
+
+
+/**
+ * Number of tiles that will always be visible for Material Design. Calculated
+ * by dividing minimum |--content-width| (see local_ntp.css) by |MD_TILE_WIDTH|
+ * and multiplying by 2 rows.
+ * @const {number}
+ */
+const MD_NUM_TILES_ALWAYS_VISIBLE = 6;
 
 
 /**
@@ -96,10 +175,42 @@ var tiles = null;
 
 
 /**
+ * Maximum number of MostVisited tiles to show at any time. If the host page
+ * doesn't send enough tiles and custom links is not enabled, we fill them blank
+ * tiles. This can be changed depending on what feature is enabled. Set by the
+ * host page, while 8 is default.
+ * @type {number}
+ */
+let maxNumTiles = 8;
+
+
+/**
  * List of parameters passed by query args.
  * @type {Object}
  */
 var queryArgs = {};
+
+
+/**
+ * True if we are currently reordering the tiles.
+ * @type {boolean}
+ */
+let reordering = false;
+
+
+/**
+ * The tile that is being moved during the reorder flow. Null if we are
+ * currently not reordering.
+ * @type {?Element}
+ */
+let elementToReorder = null;
+
+
+/**
+ * True if custom links is enabled.
+ * @type {boolean}
+ */
+let isCustomLinksEnabled = false;
 
 
 /**
@@ -112,24 +223,36 @@ var logEvent = function(eventType) {
 
 /**
  * Log impression of an NTP tile.
- * @param {number} tileIndex Position of the tile, >= 0 and < NUMBER_OF_TILES.
- * @param {number} tileSource The source from TileSource.
- * @param {number} tileType The type from TileVisualType.
+ * @param {number} tileIndex Position of the tile, >= 0 and < |maxNumTiles|.
+ * @param {number} tileTitleSource The source of the tile's title as received
+ *                 from getMostVisitedItemData.
+ * @param {number} tileSource The tile's source as received from
+ *                 getMostVisitedItemData.
+ * @param {number} tileType The tile's visual type from TileVisualType.
+ * @param {Date} dataGenerationTime Timestamp representing when the tile was
+ *               produced by a ranking algorithm.
  */
-function logMostVisitedImpression(tileIndex, tileSource, tileType) {
+function logMostVisitedImpression(
+    tileIndex, tileTitleSource, tileSource, tileType, dataGenerationTime) {
   chrome.embeddedSearch.newTabPage.logMostVisitedImpression(
-      tileIndex, tileSource, tileType);
+      tileIndex, tileTitleSource, tileSource, tileType, dataGenerationTime);
 }
 
 /**
  * Log click on an NTP tile.
- * @param {number} tileIndex Position of the tile, >= 0 and < NUMBER_OF_TILES.
- * @param {number} tileSource The source from TileSource.
- * @param {number} tileType The type from TileVisualType.
+ * @param {number} tileIndex Position of the tile, >= 0 and < |maxNumTiles|.
+ * @param {number} tileTitleSource The source of the tile's title as received
+ *                 from getMostVisitedItemData.
+ * @param {number} tileSource The tile's source as received from
+ *                 getMostVisitedItemData.
+ * @param {number} tileType The tile's visual type from TileVisualType.
+ * @param {Date} dataGenerationTime Timestamp representing when the tile was
+ *               produced by a ranking algorithm.
  */
-function logMostVisitedNavigation(tileIndex, tileSource, tileType) {
+function logMostVisitedNavigation(
+    tileIndex, tileTitleSource, tileSource, tileType, dataGenerationTime) {
   chrome.embeddedSearch.newTabPage.logMostVisitedNavigation(
-      tileIndex, tileSource, tileType);
+      tileIndex, tileTitleSource, tileSource, tileType, dataGenerationTime);
 }
 
 /**
@@ -142,8 +265,22 @@ var countLoad = function() {
   if (loadedCounter <= 0) {
     swapInNewTiles();
     logEvent(LOG_TYPE.NTP_ALL_TILES_LOADED);
-    window.parent.postMessage({cmd: 'loaded'}, DOMAIN_ORIGIN);
-    // TODO(treib): Why do we reset to 1 here?
+    let tilesAreCustomLinks =
+        isCustomLinksEnabled && chrome.embeddedSearch.newTabPage.isCustomLinks;
+    // Note that it's easiest to capture this when all custom links are loaded,
+    // rather than when the impression for each link is logged.
+    if (tilesAreCustomLinks) {
+      chrome.embeddedSearch.newTabPage.logEvent(
+          LOG_TYPE.NTP_SHORTCUT_CUSTOMIZED);
+    }
+    // Tell the parent page whether to show the restore default shortcuts option
+    // in the menu.
+    window.parent.postMessage(
+        {cmd: 'loaded', showRestoreDefault: tilesAreCustomLinks},
+        DOMAIN_ORIGIN);
+    tilesAreCustomLinks = false;
+    // Reset to 1, so that any further 'show' message will cause us to swap in
+    // fresh tiles.
     loadedCounter = 1;
   }
 };
@@ -175,11 +312,13 @@ var handleCommand = function(data) {
   if (cmd == 'tile') {
     addTile(data);
   } else if (cmd == 'show') {
+    // TODO(treib): If this happens before we have finished loading the previous
+    // tiles, we probably get into a bad state.
     showTiles(data);
   } else if (cmd == 'updateTheme') {
     updateTheme(data);
-  } else if (cmd == 'tilesVisible') {
-    hideOverflowTiles(data);
+  } else if (cmd === 'focusMenu') {
+    focusTileMenu(data);
   } else {
     console.error('Unknown command: ' + JSON.stringify(data));
   }
@@ -193,7 +332,6 @@ var handleCommand = function(data) {
 var showTiles = function(info) {
   logEvent(LOG_TYPE.NTP_ALL_TILES_RECEIVED);
   countLoad();
-  hideOverflowTiles(info);
 };
 
 
@@ -202,62 +340,40 @@ var showTiles = function(info) {
  * @param {object} info Data received in the message.
  */
 var updateTheme = function(info) {
-  var themeStyle = [];
+  document.body.style.setProperty('--tile-title-color', info.tileTitleColor);
+  document.body.classList.toggle('dark-theme', info.isThemeDark);
+  document.body.classList.toggle('using-theme', info.isUsingTheme);
+  document.documentElement.setAttribute('darkmode', info.isDarkMode);
 
-  if (info.isThemeDark) {
-    themeStyle.push(
-        '.mv-tile, .mv-empty-tile { ' +
-        'background: rgb(51,51,51); }');
-    themeStyle.push(
-        '.mv-thumb.failed-img { ' +
-        'background-color: #555; }');
-    themeStyle.push(
-        '.mv-thumb.failed-img::after { ' +
-        'border-color: #333; }');
-    themeStyle.push(
-        '.mv-x { ' +
-        'background: linear-gradient(to left, ' +
-        'rgb(51,51,51) 60%, transparent); }');
-    themeStyle.push(
-        'html[dir=rtl] .mv-x { ' +
-        'background: linear-gradient(to right, ' +
-        'rgb(51,51,51) 60%, transparent); }');
-    themeStyle.push(
-        '.mv-x::after { ' +
-        'background-color: rgba(255,255,255,0.7); }');
-    themeStyle.push(
-        '.mv-x:hover::after { ' +
-        'background-color: #fff; }');
-    themeStyle.push(
-        '.mv-x:active::after { ' +
-        'background-color: rgba(255,255,255,0.5); }');
-  }
-  if (info.tileTitleColor) {
-    themeStyle.push('body { color: ' + info.tileTitleColor + '; }');
-  }
-
-  document.querySelector('#custom-theme').textContent = themeStyle.join('\n');
+  // Reduce font weight on the default(white) background for Mac and CrOS.
+  document.body.classList.toggle('mac-chromeos',
+      !info.isThemeDark && !info.isUsingTheme &&
+      (navigator.userAgent.indexOf('Mac') > -1 ||
+      navigator.userAgent.indexOf('CrOS') > -1));
 };
 
 
 /**
- * Hides extra tiles that don't fit on screen. Called in response to the 'show'
- * and 'tilesVisible' messages from the host page.
+ * Handler for 'focusMenu' message from the host page. Focuses the edited tile's
+ * menu or the add shortcut tile after closing the custom link edit dialog
+ * without saving.
+ * @param {object} info Data received in the message.
  */
-var hideOverflowTiles = function(data) {
-  var tileAndEmptyTileList =
-      document.querySelectorAll('#mv-tiles .mv-tile,#mv-tiles .mv-empty-tile');
-  for (var i = 0; i < tileAndEmptyTileList.length; ++i) {
-    tileAndEmptyTileList[i].classList.toggle('hidden', i >= data.maxVisible);
+var focusTileMenu = function(info) {
+  let tile = document.querySelector(`a.md-tile[data-tid="${info.tid}"]`);
+  if (info.tid === -1 /* Add shortcut tile */) {
+    tile.focus();
+  } else {
+    tile.parentNode.childNodes[1].focus();
   }
 };
 
 
 /**
- * Removes all old instances of #mv-tiles that are pending for deletion.
+ * Removes all old instances of |IDS.MV_TILES| that are pending for deletion.
  */
 var removeAllOldTiles = function() {
-  var parent = document.querySelector('#most-visited');
+  var parent = document.querySelector('#' + IDS.MOST_VISITED);
   var oldList = parent.querySelectorAll('.mv-tiles-old');
   for (var i = 0; i < oldList.length; ++i) {
     parent.removeChild(oldList[i]);
@@ -274,16 +390,23 @@ var swapInNewTiles = function() {
   // Store the tiles on the current closure.
   var cur = tiles;
 
-  // Create empty tiles until we have NUMBER_OF_TILES.
-  while (cur.childNodes.length < NUMBER_OF_TILES) {
-    addTile({});
+  // Add an "add new custom link" button if we haven't reached the maximum
+  // number of tiles.
+  if (isCustomLinksEnabled && cur.childNodes.length < maxNumTiles) {
+    let data = {
+      'tid': -1,
+      'title': queryArgs['addLink'],
+      'url': '',
+      'isAddButton': true,
+    };
+    tiles.appendChild(renderMaterialDesignTile(data));
   }
 
-  var parent = document.querySelector('#most-visited');
+  var parent = document.querySelector('#' + IDS.MOST_VISITED);
 
   // Only fade in the new tiles if there were tiles before.
   var fadeIn = false;
-  var old = parent.querySelector('#mv-tiles');
+  var old = parent.querySelector('#' + IDS.MV_TILES);
   if (old) {
     fadeIn = true;
     // Mark old tile DIV for removal after the transition animation is done.
@@ -298,8 +421,19 @@ var swapInNewTiles = function() {
   }
 
   // Add new tileset.
-  cur.id = 'mv-tiles';
+  cur.id = IDS.MV_TILES;
   parent.appendChild(cur);
+
+  // Re-balance the tiles if there are more than |MD_MAX_TILES_PER_ROW| in order
+  // to make even rows.
+  if (cur.childNodes.length > MD_MAX_TILES_PER_ROW) {
+    cur.style.maxWidth = 'calc(var(--md-tile-width) * ' +
+        Math.ceil(cur.childNodes.length / 2) + ')';
+  }
+
+  // Prevent keyboard navigation to tiles that are not visible.
+  updateTileVisibility();
+
   // getComputedStyle causes the initial style (opacity 0) to be applied, so
   // that when we then set it to 1, that triggers the CSS transition.
   if (fadeIn) {
@@ -314,35 +448,51 @@ var swapInNewTiles = function() {
 
 
 /**
+ * Explicitly hide tiles that are not visible in order to prevent keyboard
+ * navigation.
+ */
+function updateTileVisibility() {
+  const allTiles = document.querySelectorAll(
+      '#' + IDS.MV_TILES + ' .' + CLASSES.MD_TILE_CONTAINER);
+  if (allTiles.length === 0) {
+    return;
+  }
+
+  // Get the current number of tiles per row. Hide any tile after the first two
+  // rows.
+  const tilesPerRow = Math.trunc(document.body.offsetWidth / MD_TILE_WIDTH);
+  for (let i = MD_NUM_TILES_ALWAYS_VISIBLE; i < allTiles.length; i++) {
+    allTiles[i].style.display = (i < tilesPerRow * 2) ? 'block' : 'none';
+  }
+}
+
+
+/**
  * Handler for the 'show' message from the host page, called when it wants to
  * add a suggestion tile.
- * It's also used to fill up our tiles to NUMBER_OF_TILES if necessary.
+ * It's also used to fill up our tiles to |maxNumTiles| if necessary.
  * @param {object} args Data for the tile to be rendered.
  */
 var addTile = function(args) {
   if (isFinite(args.rid)) {
-    // If a valid number passed in |args.rid|: a local Chrome suggestion. Grab
-    // the data from the embeddedSearch API.
+    // An actual suggestion. Grab the data from the embeddedSearch API.
     var data =
         chrome.embeddedSearch.newTabPage.getMostVisitedItemData(args.rid);
-    if (!data)
+    if (!data) {
       return;
+    }
 
     data.tid = data.rid;
+    // Use a dark icon if dark mode is enabled. Keep value in sync with
+    // NtpIconSource.
+    data.dark = args.darkMode ? 'dark/' : '';
     if (!data.faviconUrl) {
       data.faviconUrl = 'chrome-search://favicon/size/16@' +
           window.devicePixelRatio + 'x/' + data.renderViewId + '/' + data.tid;
     }
     tiles.appendChild(renderTile(data));
-  } else if (args.url) {
-    // If a URL is passed: a server-side suggestion.
-    args.tileSource = TileSource.SUGGESTIONS_SERVICE;
-    // check sanity of the arguments
-    if (/^javascript:/i.test(args.url) ||
-        /^javascript:/i.test(args.thumbnailUrl))
-      return;
-    tiles.appendChild(renderTile(args));
-  } else {  // an empty tile
+  } else {
+    // An empty tile
     tiles.appendChild(renderTile(null));
   }
 };
@@ -354,167 +504,340 @@ var addTile = function(args) {
  * @param {Element} tile DOM node of the tile we want to remove.
  */
 var blacklistTile = function(tile) {
-  tile.classList.add('blacklisted');
-  tile.addEventListener('transitionend', function(ev) {
-    if (ev.propertyName != 'width')
-      return;
+  let tid = Number(tile.firstChild.getAttribute('data-tid'));
 
-    window.parent.postMessage(
-        {cmd: 'tileBlacklisted', tid: Number(tile.getAttribute('data-tid'))},
-        DOMAIN_ORIGIN);
-  });
+  if (isCustomLinksEnabled) {
+    chrome.embeddedSearch.newTabPage.deleteMostVisitedItem(tid);
+  } else {
+    tile.classList.add('blacklisted');
+    tile.addEventListener('transitionend', function(ev) {
+      if (ev.propertyName != 'width') {
+        return;
+      }
+      window.parent.postMessage(
+          {cmd: 'tileBlacklisted', tid: Number(tid)}, DOMAIN_ORIGIN);
+    });
+  }
 };
 
 
 /**
- * Returns whether the given URL has a known, safe scheme.
- * @param {string} url URL to check.
+ * Starts edit custom link flow. Tells host page to show the edit custom link
+ * dialog and pre-populate it with data obtained using the link's id.
+ * @param {?number} tid Restricted id of the tile we want to edit.
  */
-var isSchemeAllowed = function(url) {
-  return url.startsWith('http://') || url.startsWith('https://') ||
-      url.startsWith('ftp://') || url.startsWith('chrome-extension://');
-};
+function editCustomLink(tid) {
+  window.parent.postMessage({cmd: 'startEditLink', tid: tid}, DOMAIN_ORIGIN);
+}
+
+
+/**
+ * Starts the reorder flow. Updates the visual style of the held tile to
+ * indicate that it is being moved.
+ * @param {!Element} tile Tile that is being moved.
+ */
+function startReorder(tile) {
+  reordering = true;
+  elementToReorder = tile;
+
+  tile.classList.add(CLASSES.REORDER);
+  // Disable other hover/active styling for all tiles.
+  document.body.classList.add(CLASSES.REORDERING);
+
+  document.addEventListener('dragend', () => {
+    stopReorder(tile);
+  }, {once: true});
+}
+
+
+/**
+ * Stops the reorder flow. Resets the held tile's visual style and tells the
+ * EmbeddedSearchAPI that a tile has been moved.
+ * @param {!Element} tile Tile that has been moved.
+ */
+function stopReorder(tile) {
+  reordering = false;
+  elementToReorder = null;
+
+  tile.classList.remove(CLASSES.REORDER);
+  document.body.classList.remove(CLASSES.REORDERING);
+
+  // Update |data-pos| for all tiles and notify EmbeddedSearchAPI that the tile
+  // has been moved.
+  const allTiles = document.querySelectorAll('#mv-tiles .' + CLASSES.MD_TILE);
+  for (let i = 0; i < allTiles.length; i++) {
+    allTiles[i].setAttribute('data-pos', i);
+  }
+  chrome.embeddedSearch.newTabPage.reorderCustomLink(
+      Number(tile.firstChild.getAttribute('data-tid')),
+      Number(tile.firstChild.getAttribute('data-pos')));
+}
+
+
+/**
+ * Sets up event listeners necessary for tile reordering.
+ * @param {!Element} tile Tile on which to set the event listeners.
+ */
+function setupReorder(tile) {
+  // Starts the reorder flow after the user has held the mouse button down for
+  // |REORDER_TIMEOUT_DELAY|.
+  tile.addEventListener('mousedown', (event) => {
+    // Do not reorder if the edit menu was clicked or if ctrl/shift/alt/meta is
+    // also held down.
+    if (event.button == 0 /* LEFT CLICK */ && !event.ctrlKey &&
+        !event.shiftKey && !event.altKey && !event.metaKey &&
+        !event.target.classList.contains(CLASSES.MD_MENU)) {
+      let timeout = -1;
+
+      // Cancel the timeout if the user drags the mouse off the tile and
+      // releases or if the mouse if released.
+      let dragend = document.addEventListener('dragend', () => {
+        window.clearTimeout(timeout);
+      }, {once: true});
+      let mouseup = document.addEventListener('mouseup', () => {
+        if (event.button == 0 /* LEFT CLICK */) {
+          window.clearTimeout(timeout);
+        }
+      }, {once: true});
+
+      // Wait for |REORDER_TIMEOUT_DELAY| before starting the reorder flow.
+      timeout = window.setTimeout(() => {
+        if (!reordering) {
+          startReorder(tile);
+        }
+        document.removeEventListener('dragend', dragend);
+        document.removeEventListener('mouseup', mouseup);
+      }, REORDER_TIMEOUT_DELAY);
+    }
+  });
+
+  tile.addEventListener('dragover', (event) => {
+    // Only executed when the reorder flow is ongoing. Inserts the tile that is
+    // being moved before/after this |tile| according to order in the list.
+    if (reordering && elementToReorder && elementToReorder != tile) {
+      // Determine which side to insert the element on:
+      // - If the held tile comes after the current tile, insert behind the
+      //   current tile.
+      // - If the held tile comes before the current tile, insert in front of
+      //   the current tile.
+      let insertBefore;  // Element to insert the held tile behind.
+      if (tile.compareDocumentPosition(elementToReorder) &
+          Node.DOCUMENT_POSITION_FOLLOWING) {
+        insertBefore = tile;
+      } else {
+        insertBefore = tile.nextSibling;
+      }
+      $('mv-tiles').insertBefore(elementToReorder, insertBefore);
+    }
+  });
+}
 
 
 /**
  * Renders a MostVisited tile to the DOM.
- * @param {object} data Object containing rid, url, title, favicon, thumbnail.
- *     data is null if you want to construct an empty tile.
+ * @param {object} data Object containing rid, url, title, favicon, thumbnail,
+ *     and optionally isAddButton. isAddButton is true if you want to construct
+ *     an add custom link button. data is null if you want to construct an
+ *     empty tile. isAddButton can only be set if custom links is enabled.
  */
 var renderTile = function(data) {
-  var tile = document.createElement('a');
+  return renderMaterialDesignTile(data);
+};
+
+
+/**
+ * Renders a MostVisited tile with Material Design styles.
+ * @param {object} data Object containing rid, url, title, favicon, and
+ *     optionally isAddButton. isAddButton is if you want to construct an add
+ *     custom link button. data is null if you want to construct an empty tile.
+ * @return {Element}
+ */
+function renderMaterialDesignTile(data) {
+  let mdTileContainer = document.createElement('div');
+  mdTileContainer.role = 'none';
 
   if (data == null) {
-    tile.className = 'mv-empty-tile';
-    return tile;
+    mdTileContainer.className = CLASSES.MD_EMPTY_TILE;
+    return mdTileContainer;
   }
+  mdTileContainer.className = CLASSES.MD_TILE_CONTAINER;
 
   // The tile will be appended to tiles.
-  var position = tiles.children.length;
+  const position = tiles.children.length;
+  // This is set in the load/error event for the favicon image.
+  let tileType = TileVisualType.NONE;
 
-  // This is set in the load/error event for the thumbnail image.
-  var tileType = TileVisualType.NONE;
-
-  tile.className = 'mv-tile';
-  tile.setAttribute('data-tid', data.tid);
-  var html = [];
-  html.push('<div class="mv-favicon"></div>');
-  html.push('<div class="mv-title"></div><div class="mv-thumb"></div>');
-  html.push('<div class="mv-x" role="button"></div>');
-  tile.innerHTML = html.join('');
-  tile.lastElementChild.title = queryArgs['removeTooltip'] || '';
-
-  if (isSchemeAllowed(data.url)) {
-    tile.href = data.url;
+  let mdTile = document.createElement('a');
+  mdTile.className = CLASSES.MD_TILE;
+  mdTile.tabIndex = 0;
+  mdTile.setAttribute('data-tid', data.tid);
+  mdTile.setAttribute('data-pos', position);
+  if (utils.isSchemeAllowed(data.url)) {
+    mdTile.href = data.url;
   }
-  tile.setAttribute('aria-label', data.title);
-  tile.title = data.title;
+  mdTile.setAttribute('aria-label', data.title);
+  mdTile.title = data.title;
 
-  tile.addEventListener('click', function(ev) {
-    logMostVisitedNavigation(position, data.tileSource, tileType);
-  });
-
-  tile.addEventListener('keydown', function(event) {
-    if (event.keyCode == 46 /* DELETE */ ||
-        event.keyCode == 8 /* BACKSPACE */) {
-      event.preventDefault();
-      event.stopPropagation();
-      blacklistTile(this);
-    } else if (
-        event.keyCode == 13 /* ENTER */ || event.keyCode == 32 /* SPACE */) {
-      event.preventDefault();
-      this.click();
-    } else if (event.keyCode >= 37 && event.keyCode <= 40 /* ARROWS */) {
-      // specify the direction of movement
-      var inArrowDirection = function(origin, target) {
-        return (event.keyCode == 37 /* LEFT */ &&
-                origin.offsetTop == target.offsetTop &&
-                origin.offsetLeft > target.offsetLeft) ||
-            (event.keyCode == 38 /* UP */ &&
-             origin.offsetTop > target.offsetTop &&
-             origin.offsetLeft == target.offsetLeft) ||
-            (event.keyCode == 39 /* RIGHT */ &&
-             origin.offsetTop == target.offsetTop &&
-             origin.offsetLeft < target.offsetLeft) ||
-            (event.keyCode == 40 /* DOWN */ &&
-             origin.offsetTop < target.offsetTop &&
-             origin.offsetLeft == target.offsetLeft);
-      };
-
-      var nonEmptyTiles = document.querySelectorAll('#mv-tiles .mv-tile');
-      var nextTile = null;
-      // Find the closest tile in the appropriate direction.
-      for (var i = 0; i < nonEmptyTiles.length; i++) {
-        if (inArrowDirection(this, nonEmptyTiles[i]) &&
-            (!nextTile || inArrowDirection(nonEmptyTiles[i], nextTile))) {
-          nextTile = nonEmptyTiles[i];
-        }
-      }
-      if (nextTile) {
-        nextTile.focus();
-      }
+  mdTile.addEventListener('click', function(ev) {
+    if (data.isAddButton) {
+      editCustomLink();
+      logEvent(LOG_TYPE.NTP_CUSTOMIZE_ADD_SHORTCUT_CLICKED);
+    } else {
+      logMostVisitedNavigation(
+          position, data.tileTitleSource, data.tileSource, tileType,
+          data.dataGenerationTime);
     }
   });
-
-  var title = tile.querySelector('.mv-title');
-  title.innerText = data.title;
-  title.style.direction = data.direction || 'ltr';
-  if (NUM_TITLE_LINES > 1) {
-    title.classList.add('multiline');
-  }
-
-  var thumb = tile.querySelector('.mv-thumb');
-  var img = document.createElement('img');
-  img.title = data.title;
-  img.src = data.thumbnailUrl;
-  loadedCounter += 1;
-  img.addEventListener('load', function(ev) {
-    // Store the type for a potential later navigation.
-    tileType = TileVisualType.THUMBNAIL;
-    logMostVisitedImpression(position, data.tileSource, tileType);
-    // Note: It's important to call countLoad last, because that might emit the
-    // NTP_ALL_TILES_LOADED event, which must happen after the impression log.
-    countLoad();
+  mdTile.addEventListener('keydown', function(event) {
+    if ((event.keyCode === KEYCODES.DELETE ||
+         event.keyCode === KEYCODES.BACKSPACE) &&
+        !data.isAddButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      blacklistTile(mdTileContainer);
+    } else if (
+        event.keyCode === KEYCODES.ENTER || event.keyCode === KEYCODES.SPACE) {
+      event.preventDefault();
+      this.click();
+    } else if (event.keyCode === KEYCODES.LEFT) {
+      const tiles = document.querySelectorAll(
+          '#' + IDS.MV_TILES + ' .' + CLASSES.MD_TILE);
+      tiles[Math.max(Number(this.getAttribute('data-pos')) - 1, 0)].focus();
+    } else if (event.keyCode === KEYCODES.RIGHT) {
+      const tiles = document.querySelectorAll(
+          '#' + IDS.MV_TILES + ' .' + CLASSES.MD_TILE);
+      tiles[Math.min(
+                Number(this.getAttribute('data-pos')) + 1, tiles.length - 1)]
+          .focus();
+    }
   });
-  img.addEventListener('error', function(ev) {
-    thumb.classList.add('failed-img');
-    thumb.removeChild(img);
-    // Store the type for a potential later navigation.
-    tileType = TileVisualType.THUMBNAIL_FAILED;
-    logMostVisitedImpression(position, data.tileSource, tileType);
-    // Note: It's important to call countLoad last, because that might emit the
-    // NTP_ALL_TILES_LOADED event, which must happen after the impression log.
-    countLoad();
-  });
-  thumb.appendChild(img);
+  utils.disableOutlineOnMouseClick(mdTile);
 
-  var favicon = tile.querySelector('.mv-favicon');
-  if (data.faviconUrl) {
-    var fi = document.createElement('img');
-    fi.src = data.faviconUrl;
-    // Set the title to empty so screen readers won't say the image name.
-    fi.title = '';
-    loadedCounter += 1;
-    fi.addEventListener('load', countLoad);
-    fi.addEventListener('error', countLoad);
-    fi.addEventListener('error', function(ev) {
-      favicon.classList.add('failed-favicon');
-    });
-    favicon.appendChild(fi);
+  let mdTileInner = document.createElement('div');
+  mdTileInner.className = CLASSES.MD_TILE_INNER;
+
+  let mdIcon = document.createElement('div');
+  mdIcon.className = CLASSES.MD_ICON;
+
+  if (data.isAddButton) {
+    let mdAdd = document.createElement('div');
+    mdAdd.className = CLASSES.MD_ADD_ICON;
+    let addBackground = document.createElement('div');
+    addBackground.className = CLASSES.MD_ICON_BACKGROUND;
+
+    addBackground.appendChild(mdAdd);
+    mdIcon.appendChild(addBackground);
   } else {
-    favicon.classList.add('failed-favicon');
+    let fi = document.createElement('img');
+    // Set title and alt to empty so screen readers won't say the image name.
+    fi.title = '';
+    fi.alt = '';
+    fi.src = 'chrome-search://ntpicon/size/24@' + window.devicePixelRatio +
+        'x/' + data.dark + data.url;
+    loadedCounter += 1;
+    fi.addEventListener('load', function(ev) {
+      // Store the type for a potential later navigation.
+      tileType = TileVisualType.ICON_REAL;
+      logMostVisitedImpression(
+          position, data.tileTitleSource, data.tileSource, tileType,
+          data.dataGenerationTime);
+      // Note: It's important to call countLoad last, because that might emit
+      // the NTP_ALL_TILES_LOADED event, which must happen after the impression
+      // log.
+      countLoad();
+    });
+    fi.addEventListener('error', function(ev) {
+      let fallbackBackground = document.createElement('div');
+      fallbackBackground.className = CLASSES.MD_ICON_BACKGROUND;
+      let fallbackLetter = document.createElement('div');
+      fallbackLetter.className = CLASSES.MD_FALLBACK_LETTER;
+      fallbackLetter.textContent = data.title.charAt(0).toUpperCase();
+      if (navigator.userAgent.indexOf('Windows') > -1) {
+        fallbackLetter.style.fontWeight = 600;
+      }
+      mdIcon.classList.add(CLASSES.FAILED_FAVICON);
+
+      fallbackBackground.appendChild(fallbackLetter);
+      mdIcon.removeChild(fi);
+      mdIcon.appendChild(fallbackBackground);
+
+      // Store the type for a potential later navigation.
+      tileType = TileVisualType.ICON_DEFAULT;
+      logMostVisitedImpression(
+          position, data.tileTitleSource, data.tileSource, tileType,
+          data.dataGenerationTime);
+      // Note: It's important to call countLoad last, because that might emit
+      // the NTP_ALL_TILES_LOADED event, which must happen after the impression
+      // log.
+      countLoad();
+    });
+
+    mdIcon.appendChild(fi);
   }
 
-  var mvx = tile.querySelector('.mv-x');
-  mvx.addEventListener('click', function(ev) {
-    removeAllOldTiles();
-    blacklistTile(tile);
-    ev.preventDefault();
-    ev.stopPropagation();
-  });
+  mdTileInner.appendChild(mdIcon);
 
-  return tile;
-};
+  let mdTitleContainer = document.createElement('div');
+  mdTitleContainer.className = CLASSES.MD_TITLE_CONTAINER;
+  let mdTitle = document.createElement('div');
+  mdTitle.className = CLASSES.MD_TITLE;
+  let mdTitleTextwrap = document.createElement('span');
+  mdTitleTextwrap.innerText = data.title;
+  mdTitle.style.direction = data.direction || 'ltr';
+  // Windows font family fallback to Segoe
+  if (navigator.userAgent.indexOf('Windows') > -1) {
+    mdTitle.style.fontFamily = 'Segoe UI';
+  }
+  mdTitleContainer.appendChild(mdTitle);
+  mdTileInner.appendChild(mdTitleContainer);
+  mdTile.appendChild(mdTileInner);
+  mdTileContainer.appendChild(mdTile);
+  mdTitle.appendChild(mdTitleTextwrap);
+
+  if (!data.isAddButton) {
+    let mdMenu = document.createElement('button');
+    mdMenu.className = CLASSES.MD_MENU;
+    if (isCustomLinksEnabled) {
+      mdMenu.classList.add(CLASSES.MD_EDIT_MENU);
+      mdMenu.title = queryArgs['editLinkTooltip'] || '';
+      mdMenu.setAttribute(
+          'aria-label',
+          (queryArgs['editLinkTooltip'] || '') + ' ' + data.title);
+      mdMenu.addEventListener('click', function(ev) {
+        editCustomLink(data.tid);
+        ev.preventDefault();
+        ev.stopPropagation();
+        logEvent(LOG_TYPE.NTP_CUSTOMIZE_EDIT_SHORTCUT_CLICKED);
+      });
+    } else {
+      mdMenu.title = queryArgs['removeTooltip'] || '';
+      mdMenu.setAttribute(
+          'aria-label', (queryArgs['removeTooltip'] || '') + ' ' + data.title);
+      mdMenu.addEventListener('click', function(ev) {
+        removeAllOldTiles();
+        blacklistTile(mdTileContainer);
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+    }
+    // Don't allow the event to bubble out to the containing tile, as that would
+    // trigger navigation to the tile URL.
+    mdMenu.addEventListener('keydown', function(ev) {
+      event.stopPropagation();
+    });
+    utils.disableOutlineOnMouseClick(mdMenu);
+
+    mdTileContainer.appendChild(mdMenu);
+  }
+
+  // Enable reordering.
+  if (isCustomLinksEnabled && !data.isAddButton) {
+    mdTileContainer.draggable = 'true';
+    setupReorder(mdTileContainer);
+  }
+
+  return mdTileContainer;
+}
 
 
 /**
@@ -532,22 +855,46 @@ var init = function() {
   queryArgs = {};
   for (var i = 0; i < query.length; ++i) {
     var val = query[i].split('=');
-    if (val[0] == '')
+    if (val[0] == '') {
       continue;
+    }
     queryArgs[decodeURIComponent(val[0])] = decodeURIComponent(val[1]);
   }
 
-  if ('ntl' in queryArgs) {
-    var ntl = parseInt(queryArgs['ntl'], 10);
-    if (isFinite(ntl))
-      NUM_TITLE_LINES = ntl;
-  }
+  document.title = queryArgs['title'];
 
   // Enable RTL.
   if (queryArgs['rtl'] == '1') {
     var html = document.querySelector('html');
     html.dir = 'rtl';
   }
+
+  // Enable dark mode.
+  if (queryArgs['enableDarkMode'] == '1') {
+    document.documentElement.setAttribute('darkmode', true);
+  }
+
+  // Enable custom links.
+  if (queryArgs['enableCustomLinks'] == '1') {
+    isCustomLinksEnabled = true;
+  }
+
+  // Set the maximum number of tiles to show.
+  if (isCustomLinksEnabled) {
+    maxNumTiles = MD_MAX_NUM_CUSTOM_LINK_TILES;
+  }
+
+  // Throttle the resize event.
+  let resizeTimeout;
+  window.onresize = () => {
+    if (resizeTimeout) {
+      return;
+    }
+    resizeTimeout = window.setTimeout(() => {
+      resizeTimeout = null;
+      updateTileVisibility();
+    }, RESIZE_TIMEOUT_DELAY);
+  };
 
   window.addEventListener('message', handlePostMessage);
 };

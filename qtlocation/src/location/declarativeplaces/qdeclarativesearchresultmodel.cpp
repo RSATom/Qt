@@ -47,6 +47,7 @@
 #include <QtLocation/QPlaceMatchReply>
 #include <QtLocation/QPlaceResult>
 #include <QtLocation/QPlaceProposedSearchResult>
+#include <QtLocation/private/qplacesearchrequest_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -56,7 +57,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-places
     \ingroup qml-QtLocation5-places-models
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief Provides access to place search results.
 
@@ -258,6 +259,18 @@ QT_BEGIN_NAMESPACE
             \li An error occurred when executing the previous search query.
     \endtable
 */
+
+/*!
+    \qmlproperty bool PlaceSearchModel::incremental
+
+    This property controls how paging will affect the PlaceSearchModel.
+    If true, calling \l previousPage or \l nextPage will not reset the model,
+    but new results will instead be appended to the model.
+    Default is false.
+
+    \since QtLocation 5.12
+*/
+
 
 /*!
     \qmlmethod void PlaceSearchModel::update()
@@ -733,11 +746,15 @@ void QDeclarativeSearchResultModel::queryFinished()
         return;
     QPlaceReply *reply = m_reply;
     m_reply = 0;
+    reply->deleteLater();
+
+    if (!m_incremental)
+        m_pages.clear();
+
     if (reply->error() != QPlaceReply::NoError) {
         m_resultsBuffer.clear();
         updateLayout();
         setStatus(Error, reply->errorString());
-        reply->deleteLater();
         return;
     }
 
@@ -745,12 +762,18 @@ void QDeclarativeSearchResultModel::queryFinished()
         QPlaceSearchReply *searchReply = qobject_cast<QPlaceSearchReply *>(reply);
         Q_ASSERT(searchReply);
 
+        const QPlaceSearchRequestPrivate *rpimpl = QPlaceSearchRequestPrivate::get(searchReply->request());
+        if (!rpimpl->related || !m_incremental)
+            m_pages.clear();
         m_resultsBuffer = searchReply->results();
+        bool alreadyLoaded = false;
+        if (m_pages.contains(rpimpl->page) && m_resultsBuffer == m_pages.value(rpimpl->page))
+            alreadyLoaded = true;
+        m_pages.insert(rpimpl->page, m_resultsBuffer);
         setPreviousPageRequest(searchReply->previousPageRequest());
         setNextPageRequest(searchReply->nextPageRequest());
 
-        reply->deleteLater();
-
+        // Performing favorite matching only upon finished()
         if (!m_favoritesPlugin) {
             updateLayout();
             setStatus(Ready);
@@ -772,7 +795,6 @@ void QDeclarativeSearchResultModel::queryFinished()
             QPlaceMatchRequest request;
             if (m_matchParameters.isEmpty()) {
                 if (!m_plugin) {
-                    reply->deleteLater();
                     setStatus(Error, QStringLiteral("Plugin not assigned"));
                     return;
                 }
@@ -785,23 +807,60 @@ void QDeclarativeSearchResultModel::queryFinished()
             }
 
             request.setResults(m_resultsBuffer);
+            if (alreadyLoaded)
+                m_resultsBuffer.clear();
             m_reply = favoritesManager->matchingPlaces(request);
             connect(m_reply, SIGNAL(finished()), this, SLOT(queryFinished()));
+            connect(m_reply, SIGNAL(contentUpdated()), this, SLOT(onContentUpdated()));
         }
     } else if (reply->type() == QPlaceReply::MatchReply) {
         QPlaceMatchReply *matchReply = qobject_cast<QPlaceMatchReply *>(reply);
         Q_ASSERT(matchReply);
         updateLayout(matchReply->places());
         setStatus(Ready);
-        reply->deleteLater();
     } else {
         setStatus(Error, QStringLiteral("Unknown reply type"));
-        reply->deleteLater();
+    }
+}
+
+void QDeclarativeSearchResultModel::onContentUpdated()
+{
+    if (!m_reply)
+        return;
+
+    QPlaceReply *reply = m_reply; // not finished, don't delete.
+
+    if (!m_incremental)
+        m_pages.clear();
+
+    if (reply->error() != QPlaceReply::NoError) {
+        m_resultsBuffer.clear();
+        updateLayout();
+        setStatus(Error, reply->errorString());
+        return;
+    }
+
+    if (reply->type() == QPlaceReply::SearchReply) {
+        QPlaceSearchReply *searchReply = qobject_cast<QPlaceSearchReply *>(reply);
+        Q_ASSERT(searchReply);
+
+        const QPlaceSearchRequestPrivate *rpimpl = QPlaceSearchRequestPrivate::get(searchReply->request());
+        if (!rpimpl->related || !m_incremental)
+            m_pages.clear();
+        m_resultsBuffer = searchReply->results();
+        if (!(m_pages.contains(rpimpl->page) && m_resultsBuffer == m_pages.value(rpimpl->page))) {
+            m_pages.insert(rpimpl->page, m_resultsBuffer);
+            updateLayout();
+        }
+    } else if (reply->type() == QPlaceReply::MatchReply) {
+        // ToDo: handle incremental match replies
+    } else {
+        setStatus(Error, QStringLiteral("Unknown reply type"));
     }
 }
 
 /*!
-    \qmlmethod void PlaceSearchModel::data(int index, string role)
+    \qmlmethod Variant PlaceSearchModel::data(int index, string role)
 
     Returns the data for a given \a role at the specified row \a index.
 */
@@ -823,14 +882,24 @@ void QDeclarativeSearchResultModel::queryFinished()
 */
 void QDeclarativeSearchResultModel::updateLayout(const QList<QPlace> &favoritePlaces)
 {
-    int oldRowCount = rowCount();
+    const int oldRowCount = rowCount();
+    int start = 0;
 
-    beginResetModel();
-    clearData(true);
-    m_results = m_resultsBuffer;
+    if (m_incremental) {
+        if (!m_resultsBuffer.size())
+            return;
+
+        beginInsertRows(QModelIndex(), oldRowCount , oldRowCount + m_resultsBuffer.size() - 1);
+        m_results = resultsFromPages();
+        start = oldRowCount;
+    } else {
+        beginResetModel();
+        clearData(true);
+        m_results = m_resultsBuffer;
+    }
+
     m_resultsBuffer.clear();
-
-    for (int i = 0; i < m_results.count(); ++i) {
+    for (int i = start; i < m_results.count(); ++i) {
         const QPlaceSearchResult &result = m_results.at(i);
 
         if (result.type() == QPlaceSearchResult::PlaceResult) {
@@ -851,7 +920,10 @@ void QDeclarativeSearchResultModel::updateLayout(const QList<QPlace> &favoritePl
         m_icons.append(icon);
     }
 
-    endResetModel();
+    if (m_incremental)
+        endInsertRows();
+    else
+        endResetModel();
     if (m_results.count() != oldRowCount)
         emit rowCountChanged();
 }
@@ -882,9 +954,37 @@ void QDeclarativeSearchResultModel::placeRemoved(const QString &placeId)
     delete m_places.at(row);
     m_places.removeAt(row);
     m_results.removeAt(row);
+    removePageRow(row);
     endRemoveRows();
 
     emit rowCountChanged();
+}
+
+QList<QPlaceSearchResult> QDeclarativeSearchResultModel::resultsFromPages() const
+{
+    QList<QPlaceSearchResult> res;
+    QMapIterator<int, QList<QPlaceSearchResult>> i(m_pages);
+    while (i.hasNext()) {
+        i.next();
+        res.append(i.value());
+    }
+    return res;
+}
+
+void QDeclarativeSearchResultModel::removePageRow(int row)
+{
+    QMapIterator<int, QList<QPlaceSearchResult>> i(m_pages);
+    int scanned = 0;
+    while (i.hasNext()) {
+        i.next();
+        QList<QPlaceSearchResult> page = i.value();
+        scanned += page.size();
+        if (row >= scanned)
+            continue;
+        page.removeAt(row - scanned + page.size());
+        m_pages.insert(i.key(), page);
+        return;
+    }
 }
 
 /*!

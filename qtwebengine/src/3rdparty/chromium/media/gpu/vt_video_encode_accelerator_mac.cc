@@ -8,7 +8,6 @@
 
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/mac/video_frame_mac.h"
-#include "third_party/webrtc/system_wrappers/include/clock.h"
 
 namespace media {
 
@@ -16,7 +15,7 @@ namespace {
 
 // TODO(emircan): Check if we can find the actual system capabilities via
 // creating VTCompressionSessions with varying requirements.
-// See crbug.com/584784.
+// See https://crbug.com/584784.
 const size_t kBitsPerByte = 8;
 const size_t kDefaultResolutionWidth = 640;
 const size_t kDefaultResolutionHeight = 480;
@@ -25,6 +24,23 @@ const size_t kMaxFrameRateDenominator = 1;
 const size_t kMaxResolutionWidth = 4096;
 const size_t kMaxResolutionHeight = 2160;
 const size_t kNumInputBuffers = 3;
+
+const VideoCodecProfile kSupportedProfiles[] = {
+    H264PROFILE_BASELINE, H264PROFILE_MAIN, H264PROFILE_HIGH};
+
+static CFStringRef VideoCodecProfileToVTProfile(VideoCodecProfile profile) {
+  switch (profile) {
+    case H264PROFILE_BASELINE:
+      return kVTProfileLevel_H264_Baseline_AutoLevel;
+    case H264PROFILE_MAIN:
+      return kVTProfileLevel_H264_Main_AutoLevel;
+    case H264PROFILE_HIGH:
+      return kVTProfileLevel_H264_High_AutoLevel;
+    default:
+      NOTREACHED();
+  }
+  return kVTProfileLevel_H264_Baseline_AutoLevel;
+}
 
 }  // namespace
 
@@ -75,7 +91,8 @@ struct VTVideoEncodeAccelerator::BitstreamBufferRef {
 // of time.
 VTVideoEncodeAccelerator::VTVideoEncodeAccelerator()
     : target_bitrate_(0),
-      bitrate_adjuster_(webrtc::Clock::GetRealTimeClock(), .5, .95),
+      h264_profile_(H264PROFILE_BASELINE),
+      bitrate_adjuster_(.5, .95),
       client_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       encoder_thread_("VTEncoderThread"),
       encoder_task_weak_factory_(this) {
@@ -106,43 +123,41 @@ VTVideoEncodeAccelerator::GetSupportedProfiles() {
   }
 
   SupportedProfile profile;
-  profile.profile = H264PROFILE_BASELINE;
   profile.max_framerate_numerator = kMaxFrameRateNumerator;
   profile.max_framerate_denominator = kMaxFrameRateDenominator;
   profile.max_resolution = gfx::Size(kMaxResolutionWidth, kMaxResolutionHeight);
-  profiles.push_back(profile);
+  for (const auto& supported_profile : kSupportedProfiles) {
+    profile.profile = supported_profile;
+    profiles.push_back(profile);
+  }
   return profiles;
 }
 
-bool VTVideoEncodeAccelerator::Initialize(VideoPixelFormat format,
-                                          const gfx::Size& input_visible_size,
-                                          VideoCodecProfile output_profile,
-                                          uint32_t initial_bitrate,
+bool VTVideoEncodeAccelerator::Initialize(const Config& config,
                                           Client* client) {
-  DVLOG(3) << __func__ << ": input_format=" << VideoPixelFormatToString(format)
-           << ", input_visible_size=" << input_visible_size.ToString()
-           << ", output_profile=" << GetProfileName(output_profile)
-           << ", initial_bitrate=" << initial_bitrate;
+  DVLOG(3) << __func__ << ": " << config.AsHumanReadableString();
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(client);
 
-  if (PIXEL_FORMAT_I420 != format) {
+  if (PIXEL_FORMAT_I420 != config.input_format) {
     DLOG(ERROR) << "Input format not supported= "
-                << VideoPixelFormatToString(format);
+                << VideoPixelFormatToString(config.input_format);
     return false;
   }
-  if (H264PROFILE_BASELINE != output_profile) {
+  if (std::find(std::begin(kSupportedProfiles), std::end(kSupportedProfiles),
+                config.output_profile) == std::end(kSupportedProfiles)) {
     DLOG(ERROR) << "Output profile not supported= "
-                << GetProfileName(output_profile);
+                << GetProfileName(config.output_profile);
     return false;
   }
+  h264_profile_ = config.output_profile;
 
   client_ptr_factory_.reset(new base::WeakPtrFactory<Client>(client));
   client_ = client_ptr_factory_->GetWeakPtr();
-  input_visible_size_ = input_visible_size;
+  input_visible_size_ = config.input_visible_size;
   frame_rate_ = kMaxFrameRateNumerator / kMaxFrameRateDenominator;
-  initial_bitrate_ = initial_bitrate;
-  bitstream_buffer_size_ = input_visible_size.GetArea();
+  initial_bitrate_ = config.initial_bitrate;
+  bitstream_buffer_size_ = config.input_visible_size.GetArea();
 
   if (!encoder_thread_.Start()) {
     DLOG(ERROR) << "Failed spawning encoder thread.";
@@ -168,8 +183,8 @@ void VTVideoEncodeAccelerator::Encode(const scoped_refptr<VideoFrame>& frame,
   DCHECK(thread_checker_.CalledOnValidThread());
 
   encoder_thread_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&VTVideoEncodeAccelerator::EncodeTask,
-                            base::Unretained(this), frame, force_keyframe));
+      FROM_HERE, base::BindOnce(&VTVideoEncodeAccelerator::EncodeTask,
+                                base::Unretained(this), frame, force_keyframe));
 }
 
 void VTVideoEncodeAccelerator::UseOutputBitstreamBuffer(
@@ -223,8 +238,8 @@ void VTVideoEncodeAccelerator::Destroy() {
 
   if (encoder_thread_.IsRunning()) {
     encoder_thread_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&VTVideoEncodeAccelerator::DestroyTask,
-                              base::Unretained(this)));
+        FROM_HERE, base::BindOnce(&VTVideoEncodeAccelerator::DestroyTask,
+                                  base::Unretained(this)));
     encoder_thread_.Stop();
   } else {
     DestroyTask();
@@ -352,7 +367,7 @@ void VTVideoEncodeAccelerator::NotifyError(
     VideoEncodeAccelerator::Error error) {
   DCHECK(encoder_thread_task_runner_->BelongsToCurrentThread());
   client_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&Client::NotifyError, client_, error));
+      FROM_HERE, base::BindOnce(&Client::NotifyError, client_, error));
 }
 
 // static
@@ -380,9 +395,10 @@ void VTVideoEncodeAccelerator::CompressionCallback(void* encoder_opaque,
   // This method is NOT called on |encoder_thread_|, so we still need to
   // post a task back to it to do work.
   encoder->encoder_thread_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&VTVideoEncodeAccelerator::CompressionCallbackTask,
-                            encoder->encoder_weak_ptr_, status,
-                            base::Passed(&encode_output)));
+      FROM_HERE,
+      base::BindOnce(&VTVideoEncodeAccelerator::CompressionCallbackTask,
+                     encoder->encoder_weak_ptr_, status,
+                     base::Passed(&encode_output)));
 }
 
 void VTVideoEncodeAccelerator::CompressionCallbackTask(
@@ -419,8 +435,9 @@ void VTVideoEncodeAccelerator::ReturnBitstreamBuffer(
     DVLOG(2) << " frame dropped";
     client_task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(&Client::BitstreamBufferReady, client_, buffer_ref->id, 0,
-                   false, encode_output->capture_timestamp));
+        base::Bind(&Client::BitstreamBufferReady, client_, buffer_ref->id,
+                   BitstreamBufferMetadata(0, false,
+                                           encode_output->capture_timestamp)));
     return;
   }
 
@@ -434,7 +451,7 @@ void VTVideoEncodeAccelerator::ReturnBitstreamBuffer(
   size_t used_buffer_size = 0;
   const bool copy_rv = video_toolbox::CopySampleBufferToAnnexBBuffer(
       encode_output->sample_buffer.get(), keyframe, buffer_ref->size,
-      reinterpret_cast<char*>(buffer_ref->shm->memory()), &used_buffer_size);
+      static_cast<char*>(buffer_ref->shm->memory()), &used_buffer_size);
   if (!copy_rv) {
     DLOG(ERROR) << "Cannot copy output from SampleBuffer to AnnexBBuffer.";
     used_buffer_size = 0;
@@ -444,7 +461,8 @@ void VTVideoEncodeAccelerator::ReturnBitstreamBuffer(
   client_task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&Client::BitstreamBufferReady, client_, buffer_ref->id,
-                 used_buffer_size, keyframe, encode_output->capture_timestamp));
+                 BitstreamBufferMetadata(used_buffer_size, keyframe,
+                                         encode_output->capture_timestamp)));
 }
 
 bool VTVideoEncodeAccelerator::ResetCompressionSession() {
@@ -507,12 +525,13 @@ bool VTVideoEncodeAccelerator::ConfigureCompressionSession() {
   video_toolbox::SessionPropertySetter session_property_setter(
       compression_session_);
   bool rv = true;
-  rv &= session_property_setter.Set(kVTCompressionPropertyKey_ProfileLevel,
-                                    kVTProfileLevel_H264_Baseline_AutoLevel);
+  rv &=
+      session_property_setter.Set(kVTCompressionPropertyKey_ProfileLevel,
+                                  VideoCodecProfileToVTProfile(h264_profile_));
   rv &= session_property_setter.Set(kVTCompressionPropertyKey_RealTime, true);
   rv &= session_property_setter.Set(
       kVTCompressionPropertyKey_AllowFrameReordering, false);
-  // Limit keyframe output to 4 minutes, see crbug.com/658429.
+  // Limit keyframe output to 4 minutes, see https://crbug.com/658429.
   rv &= session_property_setter.Set(
       kVTCompressionPropertyKey_MaxKeyFrameInterval, 7200);
   rv &= session_property_setter.Set(

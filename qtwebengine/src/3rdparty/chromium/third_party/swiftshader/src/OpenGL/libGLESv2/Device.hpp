@@ -58,24 +58,25 @@ namespace es2
 		void clearColor(float red, float green, float blue, float alpha, unsigned int rgbaMask);
 		void clearDepth(float z);
 		void clearStencil(unsigned int stencil, unsigned int mask);
-		egl::Image *createDepthStencilSurface(unsigned int width, unsigned int height, sw::Format format, int multiSampleDepth, bool discard);
-		egl::Image *createRenderTarget(unsigned int width, unsigned int height, sw::Format format, int multiSampleDepth, bool lockable);
 		void drawIndexedPrimitive(sw::DrawType type, unsigned int indexOffset, unsigned int primitiveCount);
 		void drawPrimitive(sw::DrawType type, unsigned int primiveCount);
-		void setPixelShader(sw::PixelShader *shader);
+		void setPixelShader(const sw::PixelShader *shader);
 		void setPixelShaderConstantF(unsigned int startRegister, const float *constantData, unsigned int count);
 		void setScissorEnable(bool enable);
-		void setRenderTarget(int index, egl::Image *renderTarget);
-		void setDepthBuffer(egl::Image *depthBuffer);
-		void setStencilBuffer(egl::Image *stencilBuffer);
+		void setRenderTarget(int index, egl::Image *renderTarget, unsigned int layer);
+		void setDepthBuffer(egl::Image *depthBuffer, unsigned int layer);
+		void setStencilBuffer(egl::Image *stencilBuffer, unsigned int layer);
 		void setScissorRect(const sw::Rect &rect);
-		void setVertexShader(sw::VertexShader *shader);
+		void setVertexShader(const sw::VertexShader *shader);
 		void setVertexShaderConstantF(unsigned int startRegister, const float *constantData, unsigned int count);
 		void setViewport(const Viewport &viewport);
 
-		bool stretchRect(sw::Surface *sourceSurface, const sw::SliceRect *sourceRect, sw::Surface *destSurface, const sw::SliceRect *destRect, unsigned char flags);
+		bool stretchRect(sw::Surface *sourceSurface, const sw::SliceRectF *sourceRect, sw::Surface *destSurface, const sw::SliceRect *destRect, unsigned char flags);
 		bool stretchCube(sw::Surface *sourceSurface, sw::Surface *destSurface);
 		void finish();
+
+		static void ClipDstRect(sw::RectF &srcRect, sw::Rect &dstRect, sw::Rect &clipRect, bool flipX = false, bool flipY = false);
+		static void ClipSrcRect(sw::RectF &srcRect, sw::Rect &dstRect, sw::Rect &clipRect, bool flipX = false, bool flipY = false);
 
 	private:
 		sw::Context *const context;
@@ -85,6 +86,7 @@ namespace es2
 		bool bindViewport();   // Also adjusts for scissoring
 
 		bool validRectangle(const sw::Rect *rect, sw::Surface *surface);
+		bool validRectangle(const sw::RectF *rect, sw::Surface *surface);
 
 		void copyBuffer(sw::byte *sourceBuffer, sw::byte *destBuffer, unsigned int width, unsigned int height, unsigned int sourcePitch, unsigned int destPitch, unsigned int bytes, bool flipX, bool flipY);
 
@@ -92,8 +94,8 @@ namespace es2
 		sw::Rect scissorRect;
 		bool scissorEnable;
 
-		sw::PixelShader *pixelShader;
-		sw::VertexShader *vertexShader;
+		const sw::PixelShader *pixelShader;
+		const sw::VertexShader *vertexShader;
 
 		bool pixelShaderDirty;
 		unsigned int pixelShaderConstantsFDirty;

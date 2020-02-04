@@ -15,14 +15,16 @@
 #include "base/values.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/message_center/fake_message_center.h"
-#include "ui/message_center/message_center_style.h"
 #include "ui/message_center/notification_blocker.h"
-#include "ui/message_center/notification_types.h"
-#include "ui/message_center/notifier_settings.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/notification_types.h"
+#include "ui/message_center/public/cpp/notifier_id.h"
 
 using base::UTF8ToUTF16;
 
 namespace message_center {
+
+using NotificationState = NotificationList::NotificationState;
 
 class NotificationListTest : public testing::Test {
  public:
@@ -39,8 +41,7 @@ class NotificationListTest : public testing::Test {
   // Currently NotificationListTest doesn't care about some fields like title or
   // message, so put a simple template on it. Returns the id of the new
   // notification.
-  std::string AddNotification(
-      const message_center::RichNotificationData& optional_fields) {
+  std::string AddNotification(const RichNotificationData& optional_fields) {
     std::string new_id;
     std::unique_ptr<Notification> notification(
         MakeNotification(optional_fields, &new_id));
@@ -50,37 +51,37 @@ class NotificationListTest : public testing::Test {
   }
 
   std::string AddNotification() {
-    return AddNotification(message_center::RichNotificationData());
+    return AddNotification(RichNotificationData());
   }
 
   // Construct a new notification for testing, but don't add it to the list yet.
   std::unique_ptr<Notification> MakeNotification(
-      const message_center::RichNotificationData& optional_fields,
+      const RichNotificationData& optional_fields,
       std::string* id_out) {
     *id_out = base::StringPrintf(kIdFormat, counter_);
     std::unique_ptr<Notification> notification(new Notification(
-        message_center::NOTIFICATION_TYPE_SIMPLE, *id_out,
+        NOTIFICATION_TYPE_SIMPLE, *id_out,
         UTF8ToUTF16(base::StringPrintf(kTitleFormat, counter_)),
         UTF8ToUTF16(base::StringPrintf(kMessageFormat, counter_)), gfx::Image(),
         UTF8ToUTF16(kDisplaySource), GURL(),
-        NotifierId(NotifierId::APPLICATION, kExtensionId), optional_fields,
+        NotifierId(NotifierType::APPLICATION, kExtensionId), optional_fields,
         NULL));
     return notification;
   }
 
   std::unique_ptr<Notification> MakeNotification(std::string* id_out) {
-    return MakeNotification(message_center::RichNotificationData(), id_out);
+    return MakeNotification(RichNotificationData(), id_out);
   }
 
   // Utility methods of AddNotification.
   std::string AddPriorityNotification(NotificationPriority priority) {
-    message_center::RichNotificationData optional;
+    RichNotificationData optional;
     optional.priority = priority;
     return AddNotification(optional);
   }
 
   NotificationList::PopupNotifications GetPopups() {
-    return notification_list()->GetPopupNotifications(blockers_, NULL);
+    return notification_list_->GetPopupNotifications(blockers_, NULL);
   }
 
   size_t GetPopupCounts() {
@@ -88,14 +89,17 @@ class NotificationListTest : public testing::Test {
   }
 
   Notification* GetNotification(const std::string& id) {
-    auto iter = notification_list()->GetNotification(id);
-    if (iter == notification_list()->notifications_.end())
+    auto iter = notification_list_->GetNotification(id);
+    if (iter == notification_list_->notifications_.end())
       return NULL;
-    return iter->get();
+    return iter->first.get();
   }
 
-  NotificationList* notification_list() { return notification_list_.get(); }
-  const NotificationBlockers& blockers() const { return blockers_; }
+  NotificationState GetNotificationState(const std::string& id) {
+    auto iter = notification_list_->GetNotification(id);
+    EXPECT_FALSE(iter == notification_list_->notifications_.end());
+    return iter->second;
+  }
 
   static const char kIdFormat[];
   static const char kTitleFormat[];
@@ -103,19 +107,18 @@ class NotificationListTest : public testing::Test {
   static const char kDisplaySource[];
   static const char kExtensionId[];
 
- private:
   std::unique_ptr<FakeMessageCenter> message_center_;
   std::unique_ptr<NotificationList> notification_list_;
   NotificationBlockers blockers_;
   size_t counter_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(NotificationListTest);
 };
 
 bool IsInNotifications(const NotificationList::Notifications& notifications,
                        const std::string& id) {
-  for (NotificationList::Notifications::const_iterator iter =
-           notifications.begin(); iter != notifications.end(); ++iter) {
+  for (auto iter = notifications.begin(); iter != notifications.end(); ++iter) {
     if ((*iter)->id() == id)
       return true;
   }
@@ -129,117 +132,136 @@ const char NotificationListTest::kDisplaySource[] = "source";
 const char NotificationListTest::kExtensionId[] = "ext";
 
 TEST_F(NotificationListTest, Basic) {
-  ASSERT_EQ(0u, notification_list()->NotificationCount(blockers()));
-  ASSERT_EQ(0u, notification_list()->UnreadCount(blockers()));
+  ASSERT_EQ(0u, notification_list_->NotificationCount(blockers_));
 
   std::string id0 = AddNotification();
-  EXPECT_EQ(1u, notification_list()->NotificationCount(blockers()));
+  EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
   std::string id1 = AddNotification();
-  EXPECT_EQ(2u, notification_list()->NotificationCount(blockers()));
-  EXPECT_EQ(2u, notification_list()->UnreadCount(blockers()));
+  EXPECT_EQ(2u, notification_list_->NotificationCount(blockers_));
 
-  EXPECT_TRUE(notification_list()->HasPopupNotifications(blockers()));
-  EXPECT_TRUE(notification_list()->GetNotificationById(id0));
-  EXPECT_TRUE(notification_list()->GetNotificationById(id1));
-  EXPECT_FALSE(notification_list()->GetNotificationById(id1 + "foo"));
+  EXPECT_TRUE(notification_list_->HasPopupNotifications(blockers_));
+  EXPECT_TRUE(notification_list_->GetNotificationById(id0));
+  EXPECT_TRUE(notification_list_->GetNotificationById(id1));
+  EXPECT_FALSE(notification_list_->GetNotificationById(id1 + "foo"));
 
   EXPECT_EQ(2u, GetPopupCounts());
 
-  notification_list()->MarkSinglePopupAsShown(id0, true);
-  notification_list()->MarkSinglePopupAsShown(id1, true);
-  EXPECT_EQ(2u, notification_list()->NotificationCount(blockers()));
+  notification_list_->MarkSinglePopupAsShown(id0, true);
+  notification_list_->MarkSinglePopupAsShown(id1, true);
+  EXPECT_EQ(2u, notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(0u, GetPopupCounts());
 
-  notification_list()->RemoveNotification(id0);
-  EXPECT_EQ(1u, notification_list()->NotificationCount(blockers()));
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
+  notification_list_->RemoveNotification(id0);
+  EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
 
   AddNotification();
-  EXPECT_EQ(2u, notification_list()->NotificationCount(blockers()));
+  EXPECT_EQ(2u, notification_list_->NotificationCount(blockers_));
 }
 
 TEST_F(NotificationListTest, MessageCenterVisible) {
   AddNotification();
-  EXPECT_EQ(1u, notification_list()->NotificationCount(blockers()));
-  ASSERT_EQ(1u, notification_list()->UnreadCount(blockers()));
+  EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
   ASSERT_EQ(1u, GetPopupCounts());
 
   // Resets the unread count and popup counts.
-  notification_list()->SetNotificationsShown(blockers(), NULL);
-  ASSERT_EQ(0u, notification_list()->UnreadCount(blockers()));
+  notification_list_->SetNotificationsShown(blockers_, NULL);
   ASSERT_EQ(0u, GetPopupCounts());
-}
-
-TEST_F(NotificationListTest, UnreadCount) {
-  std::string id0 = AddNotification();
-  std::string id1 = AddNotification();
-  ASSERT_EQ(2u, notification_list()->UnreadCount(blockers()));
-
-  notification_list()->MarkSinglePopupAsDisplayed(id0);
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
-  notification_list()->MarkSinglePopupAsDisplayed(id0);
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
-  notification_list()->MarkSinglePopupAsDisplayed(id1);
-  EXPECT_EQ(0u, notification_list()->UnreadCount(blockers()));
 }
 
 TEST_F(NotificationListTest, UpdateNotification) {
   std::string id0 = AddNotification();
   std::string replaced = id0 + "_replaced";
-  EXPECT_EQ(1u, notification_list()->NotificationCount(blockers()));
-  std::unique_ptr<Notification> notification(
-      new Notification(message_center::NOTIFICATION_TYPE_SIMPLE, replaced,
-                       UTF8ToUTF16("newtitle"), UTF8ToUTF16("newbody"),
-                       gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
-                       NotifierId(NotifierId::APPLICATION, kExtensionId),
-                       message_center::RichNotificationData(), NULL));
-  notification_list()->UpdateNotificationMessage(id0, std::move(notification));
-  EXPECT_EQ(1u, notification_list()->NotificationCount(blockers()));
+  EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
+  std::unique_ptr<Notification> notification(new Notification(
+      NOTIFICATION_TYPE_SIMPLE, replaced, UTF8ToUTF16("newtitle"),
+      UTF8ToUTF16("newbody"), gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
+      NotifierId(NotifierType::APPLICATION, kExtensionId),
+      RichNotificationData(), NULL));
+  notification_list_->UpdateNotificationMessage(id0, std::move(notification));
+  EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
   const NotificationList::Notifications notifications =
-      notification_list()->GetVisibleNotifications(blockers());
+      notification_list_->GetVisibleNotifications(blockers_);
   EXPECT_EQ(replaced, (*notifications.begin())->id());
   EXPECT_EQ(UTF8ToUTF16("newtitle"), (*notifications.begin())->title());
   EXPECT_EQ(UTF8ToUTF16("newbody"), (*notifications.begin())->message());
 }
 
+TEST_F(NotificationListTest, UpdateNotificationWithRenotifyAndQuietMode) {
+  for (size_t quiet_mode = 0u; quiet_mode < 2u; ++quiet_mode) {
+    // Set Do Not Disturb mode.
+    notification_list_->SetQuietMode(static_cast<bool>(quiet_mode));
+
+    // Create notification.
+    std::string old_id;
+    auto old_notification = MakeNotification(&old_id);
+    notification_list_->AddNotification(std::move(old_notification));
+    notification_list_->MarkSinglePopupAsShown(old_id, true);
+    EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
+
+    std::string new_id;
+    auto new_notification = MakeNotification(&new_id);
+    // Set the renotify flag and update.
+    new_notification->set_renotify(true);
+    notification_list_->UpdateNotificationMessage(old_id,
+                                                  std::move(new_notification));
+    const NotificationList::Notifications notifications =
+        notification_list_->GetVisibleNotifications(blockers_);
+    EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
+    EXPECT_EQ(new_id, (*notifications.begin())->id());
+
+    // Normally, |shown_as_popup| should be reset in order to show the popup
+    // again.
+    // In quiet mode, |shown_as_popup| should not be reset, as popup should not
+    // be shown even though renotify was set.
+    const NotificationList::PopupNotifications popup_notifications =
+        notification_list_->GetPopupNotifications(blockers_, nullptr);
+    if (quiet_mode) {
+      ASSERT_EQ(0U, popup_notifications.size());
+    } else {
+      ASSERT_EQ(1U, popup_notifications.size());
+      EXPECT_EQ(new_id, (*popup_notifications.begin())->id());
+    }
+  }
+}
+
 TEST_F(NotificationListTest, GetNotificationsByNotifierId) {
-  NotifierId id0(NotifierId::APPLICATION, "ext0");
-  NotifierId id1(NotifierId::APPLICATION, "ext1");
+  NotifierId id0(NotifierType::APPLICATION, "ext0");
+  NotifierId id1(NotifierType::APPLICATION, "ext1");
   NotifierId id2(GURL("http://example.com"));
-  NotifierId id3(NotifierId::SYSTEM_COMPONENT, "system-notifier");
+  NotifierId id3(NotifierType::SYSTEM_COMPONENT, "system-notifier");
   std::unique_ptr<Notification> notification(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, "id0", UTF8ToUTF16("title0"),
+      NOTIFICATION_TYPE_SIMPLE, "id0", UTF8ToUTF16("title0"),
       UTF8ToUTF16("message0"), gfx::Image(), UTF8ToUTF16("source0"), GURL(),
-      id0, message_center::RichNotificationData(), NULL));
-  notification_list()->AddNotification(std::move(notification));
+      id0, RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
   notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, "id1", UTF8ToUTF16("title1"),
+      NOTIFICATION_TYPE_SIMPLE, "id1", UTF8ToUTF16("title1"),
       UTF8ToUTF16("message1"), gfx::Image(), UTF8ToUTF16("source0"), GURL(),
-      id0, message_center::RichNotificationData(), NULL));
-  notification_list()->AddNotification(std::move(notification));
+      id0, RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
   notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, "id2", UTF8ToUTF16("title1"),
+      NOTIFICATION_TYPE_SIMPLE, "id2", UTF8ToUTF16("title1"),
       UTF8ToUTF16("message1"), gfx::Image(), UTF8ToUTF16("source1"), GURL(),
-      id0, message_center::RichNotificationData(), NULL));
-  notification_list()->AddNotification(std::move(notification));
+      id0, RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
   notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, "id3", UTF8ToUTF16("title1"),
+      NOTIFICATION_TYPE_SIMPLE, "id3", UTF8ToUTF16("title1"),
       UTF8ToUTF16("message1"), gfx::Image(), UTF8ToUTF16("source2"), GURL(),
-      id1, message_center::RichNotificationData(), NULL));
-  notification_list()->AddNotification(std::move(notification));
+      id1, RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
   notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, "id4", UTF8ToUTF16("title1"),
+      NOTIFICATION_TYPE_SIMPLE, "id4", UTF8ToUTF16("title1"),
       UTF8ToUTF16("message1"), gfx::Image(), UTF8ToUTF16("source2"), GURL(),
-      id2, message_center::RichNotificationData(), NULL));
-  notification_list()->AddNotification(std::move(notification));
+      id2, RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
   notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, "id5", UTF8ToUTF16("title1"),
+      NOTIFICATION_TYPE_SIMPLE, "id5", UTF8ToUTF16("title1"),
       UTF8ToUTF16("message1"), gfx::Image(), UTF8ToUTF16("source2"), GURL(),
-      id3, message_center::RichNotificationData(), NULL));
-  notification_list()->AddNotification(std::move(notification));
+      id3, RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
 
   NotificationList::Notifications by_notifier_id =
-      notification_list()->GetNotificationsByNotifierId(id0);
+      notification_list_->GetNotificationsByNotifierId(id0);
   EXPECT_TRUE(IsInNotifications(by_notifier_id, "id0"));
   EXPECT_TRUE(IsInNotifications(by_notifier_id, "id1"));
   EXPECT_TRUE(IsInNotifications(by_notifier_id, "id2"));
@@ -247,7 +269,7 @@ TEST_F(NotificationListTest, GetNotificationsByNotifierId) {
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id4"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id5"));
 
-  by_notifier_id = notification_list()->GetNotificationsByNotifierId(id1);
+  by_notifier_id = notification_list_->GetNotificationsByNotifierId(id1);
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id0"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id1"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id2"));
@@ -255,7 +277,7 @@ TEST_F(NotificationListTest, GetNotificationsByNotifierId) {
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id4"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id5"));
 
-  by_notifier_id = notification_list()->GetNotificationsByNotifierId(id2);
+  by_notifier_id = notification_list_->GetNotificationsByNotifierId(id2);
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id0"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id1"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id2"));
@@ -263,7 +285,7 @@ TEST_F(NotificationListTest, GetNotificationsByNotifierId) {
   EXPECT_TRUE(IsInNotifications(by_notifier_id, "id4"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id5"));
 
-  by_notifier_id = notification_list()->GetNotificationsByNotifierId(id3);
+  by_notifier_id = notification_list_->GetNotificationsByNotifierId(id3);
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id0"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id1"));
   EXPECT_FALSE(IsInNotifications(by_notifier_id, "id2"));
@@ -282,15 +304,13 @@ TEST_F(NotificationListTest, OldPopupShouldNotBeHidden) {
   // one should come earlier in the popup list. It means, the last element
   // of |popups| should be the firstly added one, and so on.
   EXPECT_EQ(kMaxVisiblePopupNotifications, popups.size());
-  NotificationList::PopupNotifications::const_reverse_iterator iter =
-      popups.rbegin();
+  auto iter = popups.rbegin();
   for (size_t i = 0; i < kMaxVisiblePopupNotifications; ++i, ++iter) {
     EXPECT_EQ(ids[i], (*iter)->id()) << i;
   }
 
-  for (NotificationList::PopupNotifications::const_iterator iter =
-           popups.begin(); iter != popups.end(); ++iter) {
-    notification_list()->MarkSinglePopupAsShown((*iter)->id(), false);
+  for (auto iter = popups.begin(); iter != popups.end(); ++iter) {
+    notification_list_->MarkSinglePopupAsShown((*iter)->id(), false);
   }
   popups.clear();
   popups = GetPopups();
@@ -299,37 +319,32 @@ TEST_F(NotificationListTest, OldPopupShouldNotBeHidden) {
 }
 
 TEST_F(NotificationListTest, Priority) {
-  ASSERT_EQ(0u, notification_list()->NotificationCount(blockers()));
-  ASSERT_EQ(0u, notification_list()->UnreadCount(blockers()));
+  ASSERT_EQ(0u, notification_list_->NotificationCount(blockers_));
 
   // Default priority has the limit on the number of the popups.
   for (size_t i = 0; i <= kMaxVisiblePopupNotifications; ++i)
     AddNotification();
   EXPECT_EQ(kMaxVisiblePopupNotifications + 1,
-            notification_list()->NotificationCount(blockers()));
+            notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(kMaxVisiblePopupNotifications, GetPopupCounts());
 
   // Low priority: not visible to popups.
-  notification_list()->SetNotificationsShown(blockers(), NULL);
-  EXPECT_EQ(0u, notification_list()->UnreadCount(blockers()));
+  notification_list_->SetNotificationsShown(blockers_, NULL);
   AddPriorityNotification(LOW_PRIORITY);
   EXPECT_EQ(kMaxVisiblePopupNotifications + 2,
-            notification_list()->NotificationCount(blockers()));
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
+            notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(0u, GetPopupCounts());
 
   // Minimum priority: doesn't update the unread count.
   AddPriorityNotification(MIN_PRIORITY);
   EXPECT_EQ(kMaxVisiblePopupNotifications + 3,
-            notification_list()->NotificationCount(blockers()));
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
+            notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(0u, GetPopupCounts());
 
   NotificationList::Notifications notifications =
-      notification_list()->GetVisibleNotifications(blockers());
-  for (NotificationList::Notifications::const_iterator iter =
-           notifications.begin(); iter != notifications.end(); ++iter) {
-    notification_list()->RemoveNotification((*iter)->id());
+      notification_list_->GetVisibleNotifications(blockers_);
+  for (auto iter = notifications.begin(); iter != notifications.end(); ++iter) {
+    notification_list_->RemoveNotification((*iter)->id());
   }
 
   // Higher priority: no limits to the number of popups.
@@ -338,13 +353,74 @@ TEST_F(NotificationListTest, Priority) {
   for (size_t i = 0; i < kMaxVisiblePopupNotifications * 2; ++i)
     AddPriorityNotification(MAX_PRIORITY);
   EXPECT_EQ(kMaxVisiblePopupNotifications * 4,
-            notification_list()->NotificationCount(blockers()));
+            notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(kMaxVisiblePopupNotifications * 4, GetPopupCounts());
 }
 
+// Tests that GetNotificationsByAppId returns notifications regardless of their
+// visibility.
+TEST_F(NotificationListTest, GetNotificationsByAppId) {
+  // Add a notification for |app_id1|.
+  const std::string app_id1("app_id1");
+  const std::string id1("id1");
+  std::unique_ptr<Notification> notification(
+      new Notification(NOTIFICATION_TYPE_PROGRESS, id1, UTF8ToUTF16("updated"),
+                       UTF8ToUTF16("updated"), gfx::Image(), base::string16(),
+                       GURL(), NotifierId(NotifierType::APPLICATION, app_id1),
+                       RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
+  EXPECT_EQ(1u, notification_list_->GetNotificationsByAppId(app_id1).size());
+
+  // Mark the popup as shown but not read.
+  notification_list_->MarkSinglePopupAsShown(id1, false);
+  EXPECT_EQ(1u, notification_list_->GetNotificationsByAppId(app_id1).size());
+
+  // Mark the popup as shown and read.
+  notification_list_->MarkSinglePopupAsShown(id1, true);
+  EXPECT_EQ(1u, notification_list_->GetNotificationsByAppId(app_id1).size());
+
+  // Remove the notification.
+  notification_list_->RemoveNotification(id1);
+  EXPECT_EQ(0u, notification_list_->GetNotificationsByAppId(app_id1).size());
+
+  // Add two notifications for |app_id1| and one for |app_id2|.
+  notification.reset(
+      new Notification(NOTIFICATION_TYPE_PROGRESS, id1, UTF8ToUTF16("updated"),
+                       UTF8ToUTF16("updated"), gfx::Image(), base::string16(),
+                       GURL(), NotifierId(NotifierType::APPLICATION, app_id1),
+                       RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
+
+  const std::string id2("id2");
+  notification.reset(
+      new Notification(NOTIFICATION_TYPE_PROGRESS, id2, UTF8ToUTF16("updated"),
+                       UTF8ToUTF16("updated"), gfx::Image(), base::string16(),
+                       GURL(), NotifierId(NotifierType::APPLICATION, app_id1),
+                       RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
+  EXPECT_EQ(2u, notification_list_->GetNotificationsByAppId(app_id1).size());
+
+  const std::string id3("id3");
+  const std::string app_id2("app_id2");
+  notification.reset(
+      new Notification(NOTIFICATION_TYPE_PROGRESS, id3, UTF8ToUTF16("updated"),
+                       UTF8ToUTF16("updated"), gfx::Image(), base::string16(),
+                       GURL(), NotifierId(NotifierType::APPLICATION, app_id2),
+                       RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(notification));
+  EXPECT_EQ(2u, notification_list_->GetNotificationsByAppId(app_id1).size());
+  EXPECT_EQ(1u, notification_list_->GetNotificationsByAppId(app_id2).size());
+
+  for (std::string app_id : {app_id1, app_id2}) {
+    for (auto* notification :
+         notification_list_->GetNotificationsByAppId(app_id)) {
+      EXPECT_EQ(app_id, notification->notifier_id().id);
+    }
+  }
+}
+
 TEST_F(NotificationListTest, HasPopupsWithPriority) {
-  ASSERT_EQ(0u, notification_list()->NotificationCount(blockers()));
-  ASSERT_EQ(0u, notification_list()->UnreadCount(blockers()));
+  ASSERT_EQ(0u, notification_list_->NotificationCount(blockers_));
 
   AddPriorityNotification(MIN_PRIORITY);
   AddPriorityNotification(MAX_PRIORITY);
@@ -353,8 +429,7 @@ TEST_F(NotificationListTest, HasPopupsWithPriority) {
 }
 
 TEST_F(NotificationListTest, HasPopupsWithSystemPriority) {
-  ASSERT_EQ(0u, notification_list()->NotificationCount(blockers()));
-  ASSERT_EQ(0u, notification_list()->UnreadCount(blockers()));
+  ASSERT_EQ(0u, notification_list_->NotificationCount(blockers_));
 
   std::string normal_id = AddPriorityNotification(DEFAULT_PRIORITY);
   std::string system_id = AddNotification();
@@ -362,139 +437,129 @@ TEST_F(NotificationListTest, HasPopupsWithSystemPriority) {
 
   EXPECT_EQ(2u, GetPopupCounts());
 
-  notification_list()->MarkSinglePopupAsDisplayed(normal_id);
-  notification_list()->MarkSinglePopupAsDisplayed(system_id);
+  notification_list_->MarkSinglePopupAsDisplayed(normal_id);
+  notification_list_->MarkSinglePopupAsDisplayed(system_id);
 
-  notification_list()->MarkSinglePopupAsShown(normal_id, false);
-  notification_list()->MarkSinglePopupAsShown(system_id, false);
+  notification_list_->MarkSinglePopupAsShown(normal_id, false);
+  notification_list_->MarkSinglePopupAsShown(system_id, false);
 
-  notification_list()->SetNotificationsShown(blockers(), NULL);
+  notification_list_->SetNotificationsShown(blockers_, NULL);
   EXPECT_EQ(1u, GetPopupCounts());
 
   // Mark as read -- emulation of mouse click.
-  notification_list()->MarkSinglePopupAsShown(system_id, true);
+  notification_list_->MarkSinglePopupAsShown(system_id, true);
   EXPECT_EQ(0u, GetPopupCounts());
 }
 
-TEST_F(NotificationListTest, PriorityPromotion) {
-  std::string id0 = AddPriorityNotification(LOW_PRIORITY);
+// Verifies that notification updates will re-show the toast when there is no
+// message center view (i.e. the bubble anchored to the status bar).
+TEST_F(NotificationListTest, UpdateWithoutMessageCenterView) {
+  auto run_test = [this](bool has_message_center_view) {
+    message_center_->SetHasMessageCenterView(has_message_center_view);
+    std::string id0 = AddNotification();
+    std::string replaced = id0 + "_replaced";
+    notification_list_->MarkSinglePopupAsShown(id0, false);
+    EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
+    EXPECT_EQ(0u, GetPopupCounts());
+
+    RichNotificationData optional;
+    std::unique_ptr<Notification> notification(new Notification(
+        NOTIFICATION_TYPE_SIMPLE, replaced, UTF8ToUTF16("newtitle"),
+        UTF8ToUTF16("newbody"), gfx::Image(), UTF8ToUTF16(kDisplaySource),
+        GURL(), NotifierId(NotifierType::APPLICATION, kExtensionId), optional,
+        NULL));
+    notification_list_->UpdateNotificationMessage(id0, std::move(notification));
+    EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
+    EXPECT_EQ(has_message_center_view ? 0U : 1U, GetPopupCounts());
+    const NotificationList::Notifications notifications =
+        notification_list_->GetVisibleNotifications(blockers_);
+    EXPECT_EQ(replaced, (*notifications.begin())->id());
+    EXPECT_EQ(UTF8ToUTF16("newtitle"), (*notifications.begin())->title());
+    EXPECT_EQ(UTF8ToUTF16("newbody"), (*notifications.begin())->message());
+
+    notification_list_->RemoveNotification(replaced);
+    EXPECT_EQ(0U,
+              notification_list_->GetVisibleNotifications(blockers_).size());
+  };
+
+  run_test(false);
+  run_test(true);
+}
+
+TEST_F(NotificationListTest, Renotify) {
+  std::string id0 = AddNotification();
   std::string replaced = id0 + "_replaced";
-  EXPECT_EQ(1u, notification_list()->NotificationCount(blockers()));
+  notification_list_->MarkSinglePopupAsShown(id0, false);
+  EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(0u, GetPopupCounts());
-  message_center::RichNotificationData optional;
-  optional.priority = 1;
+  RichNotificationData optional;
+  optional.renotify = true;
   std::unique_ptr<Notification> notification(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, replaced,
-      UTF8ToUTF16("newtitle"), UTF8ToUTF16("newbody"), gfx::Image(),
-      UTF8ToUTF16(kDisplaySource), GURL(),
-      NotifierId(NotifierId::APPLICATION, kExtensionId), optional, NULL));
-  notification_list()->UpdateNotificationMessage(id0, std::move(notification));
-  EXPECT_EQ(1u, notification_list()->NotificationCount(blockers()));
+      NOTIFICATION_TYPE_SIMPLE, replaced, UTF8ToUTF16("newtitle"),
+      UTF8ToUTF16("newbody"), gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
+      NotifierId(NotifierType::APPLICATION, kExtensionId), optional, NULL));
+  notification_list_->UpdateNotificationMessage(id0, std::move(notification));
+  EXPECT_EQ(1u, notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(1u, GetPopupCounts());
   const NotificationList::Notifications notifications =
-      notification_list()->GetVisibleNotifications(blockers());
+      notification_list_->GetVisibleNotifications(blockers_);
   EXPECT_EQ(replaced, (*notifications.begin())->id());
   EXPECT_EQ(UTF8ToUTF16("newtitle"), (*notifications.begin())->title());
   EXPECT_EQ(UTF8ToUTF16("newbody"), (*notifications.begin())->message());
-  EXPECT_EQ(1, (*notifications.begin())->priority());
 }
 
-TEST_F(NotificationListTest, PriorityPromotionWithPopups) {
+TEST_F(NotificationListTest, PriorityAndRenotify) {
   std::string id0 = AddPriorityNotification(LOW_PRIORITY);
   std::string id1 = AddPriorityNotification(DEFAULT_PRIORITY);
   EXPECT_EQ(1u, GetPopupCounts());
-  notification_list()->MarkSinglePopupAsShown(id1, true);
+  notification_list_->MarkSinglePopupAsShown(id1, true);
   EXPECT_EQ(0u, GetPopupCounts());
 
   // id0 promoted to LOW->DEFAULT, it'll appear as toast (popup).
-  message_center::RichNotificationData priority;
+  RichNotificationData priority;
   priority.priority = DEFAULT_PRIORITY;
   std::unique_ptr<Notification> notification(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, id0, UTF8ToUTF16("newtitle"),
+      NOTIFICATION_TYPE_SIMPLE, id0, UTF8ToUTF16("newtitle"),
       UTF8ToUTF16("newbody"), gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
-      NotifierId(NotifierId::APPLICATION, kExtensionId), priority, NULL));
-  notification_list()->UpdateNotificationMessage(id0, std::move(notification));
+      NotifierId(NotifierType::APPLICATION, kExtensionId), priority, NULL));
+  notification_list_->UpdateNotificationMessage(id0, std::move(notification));
   EXPECT_EQ(1u, GetPopupCounts());
-  notification_list()->MarkSinglePopupAsShown(id0, true);
+  notification_list_->MarkSinglePopupAsShown(id0, true);
   EXPECT_EQ(0u, GetPopupCounts());
 
   // update with no promotion change for id0, it won't appear as a toast.
   notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, id0, UTF8ToUTF16("newtitle2"),
+      NOTIFICATION_TYPE_SIMPLE, id0, UTF8ToUTF16("newtitle2"),
       UTF8ToUTF16("newbody2"), gfx::Image(), UTF8ToUTF16(kDisplaySource),
-      GURL(), NotifierId(NotifierId::APPLICATION, kExtensionId), priority,
+      GURL(), NotifierId(NotifierType::APPLICATION, kExtensionId), priority,
       NULL));
-  notification_list()->UpdateNotificationMessage(id0, std::move(notification));
+  notification_list_->UpdateNotificationMessage(id0, std::move(notification));
   EXPECT_EQ(0u, GetPopupCounts());
 
-  // id1 promoted to DEFAULT->HIGH, it'll appear as toast (popup).
+  // id1 promoted to DEFAULT->HIGH, it won't reappear as a toast (popup).
   priority.priority = HIGH_PRIORITY;
   notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, id1, UTF8ToUTF16("newtitle"),
+      NOTIFICATION_TYPE_SIMPLE, id1, UTF8ToUTF16("newtitle"),
       UTF8ToUTF16("newbody"), gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
-      NotifierId(NotifierId::APPLICATION, kExtensionId), priority, NULL));
-  notification_list()->UpdateNotificationMessage(id1, std::move(notification));
-  EXPECT_EQ(1u, GetPopupCounts());
-  notification_list()->MarkSinglePopupAsShown(id1, true);
+      NotifierId(NotifierType::APPLICATION, kExtensionId), priority, NULL));
+  notification_list_->UpdateNotificationMessage(id1, std::move(notification));
   EXPECT_EQ(0u, GetPopupCounts());
 
-  // id1 promoted to HIGH->MAX, it'll appear as toast again.
-  priority.priority = MAX_PRIORITY;
+  // |renotify| will make it reappear as a toast (popup).
+  priority.renotify = true;
   notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, id1, UTF8ToUTF16("newtitle2"),
-      UTF8ToUTF16("newbody2"), gfx::Image(), UTF8ToUTF16(kDisplaySource),
-      GURL(), NotifierId(NotifierId::APPLICATION, kExtensionId), priority,
-      NULL));
-  notification_list()->UpdateNotificationMessage(id1, std::move(notification));
+      NOTIFICATION_TYPE_SIMPLE, id1, UTF8ToUTF16("newtitle"),
+      UTF8ToUTF16("newbody"), gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
+      NotifierId(NotifierType::APPLICATION, kExtensionId), priority, NULL));
+  notification_list_->UpdateNotificationMessage(id1, std::move(notification));
   EXPECT_EQ(1u, GetPopupCounts());
-  notification_list()->MarkSinglePopupAsShown(id1, true);
+  notification_list_->MarkSinglePopupAsShown(id1, true);
   EXPECT_EQ(0u, GetPopupCounts());
-
-  // id1 demoted to MAX->DEFAULT, no appearing as toast.
-  priority.priority = DEFAULT_PRIORITY;
-  notification.reset(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, id1, UTF8ToUTF16("newtitle3"),
-      UTF8ToUTF16("newbody3"), gfx::Image(), UTF8ToUTF16(kDisplaySource),
-      GURL(), NotifierId(NotifierId::APPLICATION, kExtensionId), priority,
-      NULL));
-  notification_list()->UpdateNotificationMessage(id1, std::move(notification));
-  EXPECT_EQ(0u, GetPopupCounts());
-}
-
-TEST_F(NotificationListTest, WebNotificationUpdatePromotion) {
-  std::string notification_id = "replaced-web-notification";
-  std::unique_ptr<Notification> original_notification(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
-      UTF8ToUTF16("Web Notification"), UTF8ToUTF16("Notification contents"),
-      gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
-      NotifierId(GURL("https://example.com/")),
-      message_center::RichNotificationData(), NULL));
-
-  EXPECT_EQ(0u, GetPopupCounts());
-  notification_list()->AddNotification(std::move(original_notification));
-  EXPECT_EQ(1u, GetPopupCounts());
-
-  notification_list()->MarkSinglePopupAsShown(notification_id, true);
-  EXPECT_EQ(0u, GetPopupCounts());
-
-  std::unique_ptr<Notification> replaced_notification(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
-      UTF8ToUTF16("Web Notification Replacement"),
-      UTF8ToUTF16("New notification contents"), gfx::Image(),
-      UTF8ToUTF16(kDisplaySource), GURL(),
-      NotifierId(GURL("https://example.com/")),
-      message_center::RichNotificationData(), NULL));
-
-  // Web Notifications will be re-shown as popups even if their priority didn't
-  // change, to match the behavior of the Web Notification API.
-  notification_list()->UpdateNotificationMessage(
-      notification_id, std::move(replaced_notification));
-  EXPECT_EQ(1u, GetPopupCounts());
 }
 
 TEST_F(NotificationListTest, NotificationOrderAndPriority) {
   base::Time now = base::Time::Now();
-  message_center::RichNotificationData optional;
+  RichNotificationData optional;
   optional.timestamp = now;
   optional.priority = 2;
   std::string max_id = AddNotification(optional);
@@ -513,7 +578,7 @@ TEST_F(NotificationListTest, NotificationOrderAndPriority) {
     // Popups: latest comes first.
     NotificationList::PopupNotifications popups = GetPopups();
     EXPECT_EQ(3u, popups.size());
-    NotificationList::PopupNotifications::const_iterator iter = popups.begin();
+    auto iter = popups.begin();
     EXPECT_EQ(default_id, (*iter)->id());
     iter++;
     EXPECT_EQ(high_id, (*iter)->id());
@@ -521,12 +586,11 @@ TEST_F(NotificationListTest, NotificationOrderAndPriority) {
     EXPECT_EQ(max_id, (*iter)->id());
   }
   {
-    // Notifications: high priority comes ealier.
+    // Notifications: high priority comes earlier.
     const NotificationList::Notifications notifications =
-        notification_list()->GetVisibleNotifications(blockers());
+        notification_list_->GetVisibleNotifications(blockers_);
     EXPECT_EQ(3u, notifications.size());
-    NotificationList::Notifications::const_iterator iter =
-        notifications.begin();
+    auto iter = notifications.begin();
     EXPECT_EQ(max_id, (*iter)->id());
     iter++;
     EXPECT_EQ(high_id, (*iter)->id());
@@ -539,25 +603,24 @@ TEST_F(NotificationListTest, MarkSinglePopupAsShown) {
   std::string id1 = AddNotification();
   std::string id2 = AddNotification();
   std::string id3 = AddNotification();
-  ASSERT_EQ(3u, notification_list()->NotificationCount(blockers()));
+  ASSERT_EQ(3u, notification_list_->NotificationCount(blockers_));
   ASSERT_EQ(std::min(static_cast<size_t>(3u), kMaxVisiblePopupNotifications),
             GetPopupCounts());
-  notification_list()->MarkSinglePopupAsDisplayed(id1);
-  notification_list()->MarkSinglePopupAsDisplayed(id2);
-  notification_list()->MarkSinglePopupAsDisplayed(id3);
+  notification_list_->MarkSinglePopupAsDisplayed(id1);
+  notification_list_->MarkSinglePopupAsDisplayed(id2);
+  notification_list_->MarkSinglePopupAsDisplayed(id3);
 
-  notification_list()->MarkSinglePopupAsShown(id2, true);
-  notification_list()->MarkSinglePopupAsShown(id3, false);
-  EXPECT_EQ(3u, notification_list()->NotificationCount(blockers()));
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
+  notification_list_->MarkSinglePopupAsShown(id2, true);
+  notification_list_->MarkSinglePopupAsShown(id3, false);
+  EXPECT_EQ(3u, notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(1u, GetPopupCounts());
   NotificationList::PopupNotifications popups = GetPopups();
   EXPECT_EQ(id1, (*popups.begin())->id());
 
   // The notifications in the NotificationCenter are unaffected by popups shown.
   NotificationList::Notifications notifications =
-      notification_list()->GetVisibleNotifications(blockers());
-  NotificationList::Notifications::const_iterator iter = notifications.begin();
+      notification_list_->GetVisibleNotifications(blockers_);
+  auto iter = notifications.begin();
   EXPECT_EQ(id3, (*iter)->id());
   iter++;
   EXPECT_EQ(id2, (*iter)->id());
@@ -568,103 +631,69 @@ TEST_F(NotificationListTest, MarkSinglePopupAsShown) {
 TEST_F(NotificationListTest, UpdateAfterMarkedAsShown) {
   std::string id1 = AddNotification();
   std::string id2 = AddNotification();
-  notification_list()->MarkSinglePopupAsDisplayed(id1);
-  notification_list()->MarkSinglePopupAsDisplayed(id2);
+  notification_list_->MarkSinglePopupAsDisplayed(id1);
+  notification_list_->MarkSinglePopupAsDisplayed(id2);
 
   EXPECT_EQ(2u, GetPopupCounts());
 
-  const Notification* n1 = GetNotification(id1);
-  EXPECT_FALSE(n1->shown_as_popup());
-  EXPECT_TRUE(n1->IsRead());
+  NotificationState n1_state = GetNotificationState(id1);
+  EXPECT_FALSE(n1_state.shown_as_popup);
+  EXPECT_TRUE(n1_state.is_read);
 
-  notification_list()->MarkSinglePopupAsShown(id1, true);
+  notification_list_->MarkSinglePopupAsShown(id1, true);
 
-  n1 = GetNotification(id1);
-  EXPECT_TRUE(n1->shown_as_popup());
-  EXPECT_TRUE(n1->IsRead());
+  n1_state = GetNotificationState(id1);
+  EXPECT_TRUE(n1_state.shown_as_popup);
+  EXPECT_TRUE(n1_state.is_read);
 
   const std::string replaced("test-replaced-id");
-  std::unique_ptr<Notification> notification(
-      new Notification(message_center::NOTIFICATION_TYPE_SIMPLE, replaced,
-                       UTF8ToUTF16("newtitle"), UTF8ToUTF16("newbody"),
-                       gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
-                       NotifierId(NotifierId::APPLICATION, kExtensionId),
-                       message_center::RichNotificationData(), NULL));
-  notification_list()->UpdateNotificationMessage(id1, std::move(notification));
-  n1 = GetNotification(id1);
+  std::unique_ptr<Notification> notification(new Notification(
+      NOTIFICATION_TYPE_SIMPLE, replaced, UTF8ToUTF16("newtitle"),
+      UTF8ToUTF16("newbody"), gfx::Image(), UTF8ToUTF16(kDisplaySource), GURL(),
+      NotifierId(NotifierType::APPLICATION, kExtensionId),
+      RichNotificationData(), NULL));
+  notification_list_->UpdateNotificationMessage(id1, std::move(notification));
+  Notification* n1 = GetNotification(id1);
   EXPECT_TRUE(n1 == NULL);
-  const Notification* nr = GetNotification(replaced);
-  EXPECT_TRUE(nr->shown_as_popup());
-  EXPECT_TRUE(nr->IsRead());
+  const NotificationState nr_state = GetNotificationState(replaced);
+  EXPECT_TRUE(nr_state.shown_as_popup);
+  EXPECT_TRUE(nr_state.is_read);
 }
 
 TEST_F(NotificationListTest, QuietMode) {
-  notification_list()->SetQuietMode(true);
+  notification_list_->SetQuietMode(true);
   AddNotification();
   AddPriorityNotification(HIGH_PRIORITY);
   AddPriorityNotification(MAX_PRIORITY);
-  EXPECT_EQ(3u, notification_list()->NotificationCount(blockers()));
+  EXPECT_EQ(3u, notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(0u, GetPopupCounts());
 
-  notification_list()->SetQuietMode(false);
+  notification_list_->SetQuietMode(false);
   AddNotification();
-  EXPECT_EQ(4u, notification_list()->NotificationCount(blockers()));
+  EXPECT_EQ(4u, notification_list_->NotificationCount(blockers_));
   EXPECT_EQ(1u, GetPopupCounts());
 
   // TODO(mukai): Add test of quiet mode with expiration.
 }
 
-// Verifies that unread_count doesn't become negative.
-TEST_F(NotificationListTest, UnreadCountNoNegative) {
-  std::string id = AddNotification();
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
-
-  notification_list()->MarkSinglePopupAsDisplayed(id);
-  EXPECT_EQ(0u, notification_list()->UnreadCount(blockers()));
-  notification_list()->MarkSinglePopupAsShown(
-      id, false /* mark_notification_as_read */);
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
-
-  // Updates the notification  and verifies unread_count doesn't change.
-  std::unique_ptr<Notification> updated_notification(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, id, UTF8ToUTF16("updated"),
-      UTF8ToUTF16("updated"), gfx::Image(), base::string16(), GURL(),
-      NotifierId(), RichNotificationData(), NULL));
-  notification_list()->AddNotification(std::move(updated_notification));
-  EXPECT_EQ(1u, notification_list()->UnreadCount(blockers()));
-}
-
-TEST_F(NotificationListTest, TestPushingShownNotification) {
-  // Create a notification and mark it as shown.
-  std::string id1;
-  std::unique_ptr<Notification> notification(MakeNotification(&id1));
-  notification->set_shown_as_popup(true);
-
-  // Call PushNotification on this notification.
-  notification_list()->PushNotification(std::move(notification));
-
-  // Ensure it is still marked as shown.
-  EXPECT_TRUE(GetNotification(id1)->shown_as_popup());
-}
-
 TEST_F(NotificationListTest, TestHasNotificationOfType) {
   std::string id = AddNotification();
 
-  EXPECT_TRUE(notification_list()->HasNotificationOfType(
-      id, message_center::NOTIFICATION_TYPE_SIMPLE));
-  EXPECT_FALSE(notification_list()->HasNotificationOfType(
-      id, message_center::NOTIFICATION_TYPE_PROGRESS));
+  EXPECT_TRUE(
+      notification_list_->HasNotificationOfType(id, NOTIFICATION_TYPE_SIMPLE));
+  EXPECT_FALSE(notification_list_->HasNotificationOfType(
+      id, NOTIFICATION_TYPE_PROGRESS));
 
-  std::unique_ptr<Notification> updated_notification(new Notification(
-      message_center::NOTIFICATION_TYPE_PROGRESS, id, UTF8ToUTF16("updated"),
-      UTF8ToUTF16("updated"), gfx::Image(), base::string16(), GURL(),
-      NotifierId(), RichNotificationData(), NULL));
-  notification_list()->AddNotification(std::move(updated_notification));
+  std::unique_ptr<Notification> updated_notification(
+      new Notification(NOTIFICATION_TYPE_PROGRESS, id, UTF8ToUTF16("updated"),
+                       UTF8ToUTF16("updated"), gfx::Image(), base::string16(),
+                       GURL(), NotifierId(), RichNotificationData(), NULL));
+  notification_list_->AddNotification(std::move(updated_notification));
 
-  EXPECT_FALSE(notification_list()->HasNotificationOfType(
-      id, message_center::NOTIFICATION_TYPE_SIMPLE));
-  EXPECT_TRUE(notification_list()->HasNotificationOfType(
-      id, message_center::NOTIFICATION_TYPE_PROGRESS));
+  EXPECT_FALSE(
+      notification_list_->HasNotificationOfType(id, NOTIFICATION_TYPE_SIMPLE));
+  EXPECT_TRUE(notification_list_->HasNotificationOfType(
+      id, NOTIFICATION_TYPE_PROGRESS));
 }
 
 }  // namespace message_center

@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2019 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -132,12 +132,12 @@ QT_BEGIN_NAMESPACE
  * We overallocate the byte array by 1 byte. The first user bit is at
  * d.data()[1]. On the extra first byte, we store the difference between the
  * number of bits in the byte array (including this byte) and the number of
- * bits in the bit array. Therefore, it's always a number between 8 and 15.
+ * bits in the bit array. Therefore, for a non-empty QBitArray, it's always a
+ * number between 8 and 15. For the empty one, d is the an empty QByteArray and
+ * *d.constData() is the QByteArray's terminating NUL (0) byte.
  *
  * This allows for fast calculation of the bit array size:
  *    inline int size() const { return (d.size() << 3) - *d.constData(); }
- *
- * Note: for an array of zero size, *d.constData() is the QByteArray implicit NUL.
  */
 
 /*!
@@ -154,8 +154,8 @@ QBitArray::QBitArray(int size, bool value)
     uchar* c = reinterpret_cast<uchar*>(d.data());
     memset(c + 1, value ? 0xff : 0, d.size() - 1);
     *c = d.size()*8 - size;
-    if (value && size && size % 8)
-        *(c+1+size/8) &= (1 << (size%8)) - 1;
+    if (value && size && size & 7)
+        *(c+1+size/8) &= (1 << (size & 7)) - 1;
 }
 
 /*! \fn int QBitArray::size() const
@@ -227,8 +227,8 @@ void QBitArray::resize(int size)
         uchar* c = reinterpret_cast<uchar*>(d.data());
         if (size > (s << 3))
             memset(c + s, 0, d.size() - s);
-        else if ( size % 8)
-            *(c+1+size/8) &= (1 << (size%8)) - 1;
+        else if (size & 7)
+            *(c+1+size/8) &= (1 << (size & 7)) - 1;
         *c = d.size()*8 - size;
     }
 }
@@ -298,6 +298,48 @@ void QBitArray::fill(bool value, int begin, int end)
     begin += s;
     while (begin < end)
         setBit(begin++, value);
+}
+
+/*!
+    \fn const char *QBitArray::bits() const
+    \since 5.11
+
+    Returns a pointer to a dense bit array for this QBitArray. Bits are counted
+    upwards from the least significant bit in each byte. The the number of bits
+    relevant in the last byte is given by \c{size() % 8}.
+
+    \sa fromBits(), size()
+ */
+
+/*!
+    \since 5.11
+
+    Creates a QBitArray with the dense bit array located at \a data, with \a
+    size bits. The byte array at \a data must be at least \a size / 8 (rounded up)
+    bytes long.
+
+    If \a size is not a multiple of 8, this function will include the lowest
+    \a size % 8 bits from the last byte in \a data.
+
+    \sa bits()
+ */
+QBitArray QBitArray::fromBits(const char *data, qsizetype size)
+{
+    QBitArray result;
+    if (size == 0)
+        return result;
+    qsizetype nbytes = (size + 7) / 8;
+
+    result.d = QByteArray(nbytes + 1, Qt::Uninitialized);
+    char *bits = result.d.data();
+    memcpy(bits + 1, data, nbytes);
+
+    // clear any unused bits from the last byte
+    if (size & 7)
+        bits[nbytes] &= 0xffU >> (8 - (size & 7));
+
+    *bits = result.d.size() * 8 - size;
+    return result;
 }
 
 /*! \fn bool QBitArray::isDetached() const

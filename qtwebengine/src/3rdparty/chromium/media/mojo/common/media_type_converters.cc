@@ -6,33 +6,19 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <memory>
 
-#include "base/memory/ptr_util.h"
+#include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "media/base/audio_buffer.h"
-#include "media/base/audio_decoder_config.h"
-#include "media/base/cdm_config.h"
-#include "media/base/cdm_key_information.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/decrypt_config.h"
-#include "media/base/encryption_scheme.h"
 #include "media/base/subsample_entry.h"
 #include "mojo/public/cpp/system/buffer.h"
 
 namespace mojo {
 
-template <>
-struct TypeConverter<media::mojom::PatternPtr,
-                     media::EncryptionScheme::Pattern> {
-  static media::mojom::PatternPtr Convert(
-      const media::EncryptionScheme::Pattern& input);
-};
-template <>
-struct TypeConverter<media::EncryptionScheme::Pattern,
-                     media::mojom::PatternPtr> {
-  static media::EncryptionScheme::Pattern Convert(
-      const media::mojom::PatternPtr& input);
-};
+// TODO(crbug.com/611224): Stop using TypeConverters.
 
 // static
 media::mojom::DecryptConfigPtr
@@ -43,6 +29,8 @@ TypeConverter<media::mojom::DecryptConfigPtr, media::DecryptConfig>::Convert(
   mojo_decrypt_config->key_id = input.key_id();
   mojo_decrypt_config->iv = input.iv();
   mojo_decrypt_config->subsamples = input.subsamples();
+  mojo_decrypt_config->encryption_mode = input.encryption_mode();
+  mojo_decrypt_config->encryption_pattern = input.encryption_pattern();
 
   return mojo_decrypt_config;
 }
@@ -52,42 +40,40 @@ std::unique_ptr<media::DecryptConfig>
 TypeConverter<std::unique_ptr<media::DecryptConfig>,
               media::mojom::DecryptConfigPtr>::
     Convert(const media::mojom::DecryptConfigPtr& input) {
-  return base::MakeUnique<media::DecryptConfig>(input->key_id, input->iv,
-                                                input->subsamples);
+  return std::make_unique<media::DecryptConfig>(
+      input->encryption_mode, input->key_id, input->iv, input->subsamples,
+      input->encryption_pattern);
 }
 
 // static
 media::mojom::DecoderBufferPtr
-TypeConverter<media::mojom::DecoderBufferPtr,
-              scoped_refptr<media::DecoderBuffer>>::
-    Convert(const scoped_refptr<media::DecoderBuffer>& input) {
-  DCHECK(input);
-
+TypeConverter<media::mojom::DecoderBufferPtr, media::DecoderBuffer>::Convert(
+    const media::DecoderBuffer& input) {
   media::mojom::DecoderBufferPtr mojo_buffer(
       media::mojom::DecoderBuffer::New());
-  if (input->end_of_stream()) {
+  if (input.end_of_stream()) {
     mojo_buffer->is_end_of_stream = true;
     return mojo_buffer;
   }
 
   mojo_buffer->is_end_of_stream = false;
-  mojo_buffer->timestamp = input->timestamp();
-  mojo_buffer->duration = input->duration();
-  mojo_buffer->is_key_frame = input->is_key_frame();
-  mojo_buffer->data_size = base::checked_cast<uint32_t>(input->data_size());
-  mojo_buffer->front_discard = input->discard_padding().first;
-  mojo_buffer->back_discard = input->discard_padding().second;
+  mojo_buffer->timestamp = input.timestamp();
+  mojo_buffer->duration = input.duration();
+  mojo_buffer->is_key_frame = input.is_key_frame();
+  mojo_buffer->data_size = base::checked_cast<uint32_t>(input.data_size());
+  mojo_buffer->front_discard = input.discard_padding().first;
+  mojo_buffer->back_discard = input.discard_padding().second;
 
   // Note: The side data is always small, so this copy is okay.
-  if (input->side_data()) {
-    DCHECK_GT(input->side_data_size(), 0u);
-    mojo_buffer->side_data.assign(input->side_data(),
-                                  input->side_data() + input->side_data_size());
+  if (input.side_data()) {
+    DCHECK_GT(input.side_data_size(), 0u);
+    mojo_buffer->side_data.assign(input.side_data(),
+                                  input.side_data() + input.side_data_size());
   }
 
-  if (input->decrypt_config()) {
+  if (input.decrypt_config()) {
     mojo_buffer->decrypt_config =
-        media::mojom::DecryptConfig::From(*input->decrypt_config());
+        media::mojom::DecryptConfig::From(*input.decrypt_config());
   }
 
   // TODO(dalecurtis): We intentionally do not serialize the data section of
@@ -129,78 +115,6 @@ TypeConverter<scoped_refptr<media::DecoderBuffer>,
   // own DataPipe.  See http://crbug.com/432960
 
   return buffer;
-}
-
-// static
-media::mojom::AudioDecoderConfigPtr
-TypeConverter<media::mojom::AudioDecoderConfigPtr, media::AudioDecoderConfig>::
-    Convert(const media::AudioDecoderConfig& input) {
-  media::mojom::AudioDecoderConfigPtr config(
-      media::mojom::AudioDecoderConfig::New());
-  config->codec = input.codec();
-  config->sample_format = input.sample_format();
-  config->channel_layout = input.channel_layout();
-  config->samples_per_second = input.samples_per_second();
-  config->extra_data = input.extra_data();
-  config->seek_preroll = input.seek_preroll();
-  config->codec_delay = input.codec_delay();
-  config->encryption_scheme = input.encryption_scheme();
-  return config;
-}
-
-// static
-media::AudioDecoderConfig
-TypeConverter<media::AudioDecoderConfig, media::mojom::AudioDecoderConfigPtr>::
-    Convert(const media::mojom::AudioDecoderConfigPtr& input) {
-  media::AudioDecoderConfig config;
-  config.Initialize(input->codec, input->sample_format, input->channel_layout,
-                    input->samples_per_second, input->extra_data,
-                    input->encryption_scheme, input->seek_preroll,
-                    input->codec_delay);
-  return config;
-}
-
-// static
-media::mojom::CdmKeyInformationPtr TypeConverter<
-    media::mojom::CdmKeyInformationPtr,
-    media::CdmKeyInformation>::Convert(const media::CdmKeyInformation& input) {
-  media::mojom::CdmKeyInformationPtr info(
-      media::mojom::CdmKeyInformation::New());
-  info->key_id = input.key_id;
-  info->status = input.status;
-  info->system_code = input.system_code;
-  return info;
-}
-
-// static
-std::unique_ptr<media::CdmKeyInformation>
-TypeConverter<std::unique_ptr<media::CdmKeyInformation>,
-              media::mojom::CdmKeyInformationPtr>::
-    Convert(const media::mojom::CdmKeyInformationPtr& input) {
-  return base::MakeUnique<media::CdmKeyInformation>(
-      input->key_id, input->status, input->system_code);
-}
-
-// static
-media::mojom::CdmConfigPtr
-TypeConverter<media::mojom::CdmConfigPtr, media::CdmConfig>::Convert(
-    const media::CdmConfig& input) {
-  media::mojom::CdmConfigPtr config(media::mojom::CdmConfig::New());
-  config->allow_distinctive_identifier = input.allow_distinctive_identifier;
-  config->allow_persistent_state = input.allow_persistent_state;
-  config->use_hw_secure_codecs = input.use_hw_secure_codecs;
-  return config;
-}
-
-// static
-media::CdmConfig
-TypeConverter<media::CdmConfig, media::mojom::CdmConfigPtr>::Convert(
-    const media::mojom::CdmConfigPtr& input) {
-  media::CdmConfig config;
-  config.allow_distinctive_identifier = input->allow_distinctive_identifier;
-  config.allow_persistent_state = input->allow_persistent_state;
-  config.use_hw_secure_codecs = input->use_hw_secure_codecs;
-  return config;
 }
 
 // static

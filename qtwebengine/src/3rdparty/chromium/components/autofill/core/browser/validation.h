@@ -40,9 +40,19 @@ bool IsValidCreditCardExpirationDate(int year,
                                      int month,
                                      const base::Time& now);
 
+// Returns true if |year| describes a year later than or equal to |now|'s year.
+// |year| must have 4 digits.
+bool IsValidCreditCardExpirationYear(int year, const base::Time& now);
+
 // Returns true if |text| looks like a valid credit card number.
 // Uses the Luhn formula to validate the number.
 bool IsValidCreditCardNumber(const base::string16& text);
+
+// Returns true if |number| has correct length according to card network.
+bool HasCorrectLength(const base::string16& number);
+
+// Returns true if |number| passes the validation by Luhn formula.
+bool PassesLuhnCheck(base::string16& number);
 
 // Returns true if |code| looks like a valid credit card security code
 // for the given credit card type.
@@ -69,6 +79,11 @@ CreditCardCompletionStatus GetCompletionStatusForCard(
 // missing, the message will be a generic "more information required".
 base::string16 GetCompletionMessageForCard(CreditCardCompletionStatus status);
 
+// Returns the title string for a card edit dialog. The title string will
+// mention what needs to be added/fixed to make the card valid if it is not
+// valid. Otherwise, it will be "Edit card".
+base::string16 GetEditDialogTitleForCard(CreditCardCompletionStatus status);
+
 // Returns true if |text| looks like a valid e-mail address.
 bool IsValidEmailAddress(const base::string16& text);
 
@@ -76,11 +91,11 @@ bool IsValidEmailAddress(const base::string16& text);
 // insensitive.  Valid for US states only.
 bool IsValidState(const base::string16& text);
 
-// Returns whether the number contained in |text| is valid, either in
-// international format, or in the national format associated with
+// Returns whether the number contained in |text| is possible phone number,
+// either in international format, or in the national format associated with
 // |country_code|. Callers should cache the result as the parsing is expensive.
-bool IsValidPhoneNumber(const base::string16& text,
-                        const std::string& country_code);
+bool IsPossiblePhoneNumber(const base::string16& text,
+                           const std::string& country_code);
 
 // Returns true if |text| looks like a valid zip code.
 // Valid for US zip codes only.

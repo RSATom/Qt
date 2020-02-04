@@ -124,7 +124,8 @@ QVariant CameraBinV4LImageProcessing::parameter(
     QMap<ProcessingParameter, SourceParameterValueInfo>::const_iterator sourceValueInfo =
             m_parametersInfo.constFind(parameter);
     if (sourceValueInfo == m_parametersInfo.constEnd()) {
-        qWarning() << "Unable to get the parameter value: the parameter is not supported.";
+        if (!m_parametersInfo.empty())
+            qWarning() << "Unable to get the unsupported parameter:" << parameter;
         return QVariant();
     }
 
@@ -145,7 +146,7 @@ QVariant CameraBinV4LImageProcessing::parameter(
     qt_safe_close(fd);
 
     if (!ret) {
-        qWarning() << "Unable to get the parameter value:" << qt_error_string(errno);
+        qWarning() << "Unable to get the parameter value:" << parameter << ":" << qt_error_string(errno);
         return QVariant();
     }
 
@@ -178,7 +179,8 @@ void CameraBinV4LImageProcessing::setParameter(
     QMap<ProcessingParameter, SourceParameterValueInfo>::const_iterator sourceValueInfo =
             m_parametersInfo.constFind(parameter);
     if (sourceValueInfo == m_parametersInfo.constEnd()) {
-        qWarning() << "Unable to set the parameter value: the parameter is not supported.";
+        if (!m_parametersInfo.empty())
+            qWarning() << "Unable to set the unsupported parameter:" << parameter;
         return;
     }
 
@@ -227,7 +229,7 @@ void CameraBinV4LImageProcessing::setParameter(
     }
 
     if (::ioctl(fd, VIDIOC_S_CTRL, &control) != 0)
-        qWarning() << "Unable to set the parameter value:" << qt_error_string(errno);
+        qWarning() << "Unable to set the parameter value:" << parameter << ":" << qt_error_string(errno);
 
     qt_safe_close(fd);
 }
@@ -264,7 +266,8 @@ void CameraBinV4LImageProcessing::updateParametersInfo(
             queryControl.id = supportedParametersEntries[i].cid;
 
             if (::ioctl(fd, VIDIOC_QUERYCTRL, &queryControl) != 0) {
-                qWarning() << "Unable to query the parameter info:" << qt_error_string(errno);
+                qWarning() << "Unable to query the parameter info:" << supportedParametersEntries[i].parameter
+                    << ":" << qt_error_string(errno);
                 continue;
             }
 

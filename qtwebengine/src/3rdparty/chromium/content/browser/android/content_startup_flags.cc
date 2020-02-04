@@ -8,7 +8,7 @@
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "cc/base/switches.h"
 #include "content/public/browser/android/compositor.h"
 #include "content/public/common/content_switches.h"
@@ -17,8 +17,7 @@
 
 namespace content {
 
-void SetContentCommandLineFlags(bool single_process,
-                                const std::string& plugin_descriptor) {
+void SetContentCommandLineFlags(bool single_process) {
   // May be called multiple times, to cover all possible program entry points.
   static bool already_initialized = false;
   if (already_initialized)
@@ -46,9 +45,6 @@ void SetContentCommandLineFlags(bool single_process,
         switches::kTouchTextSelectionStrategy, "direction");
   }
 
-  // There is no software fallback on Android, so don't limit GPU crashes.
-  parsed_command_line->AppendSwitch(switches::kDisableGpuProcessCrashLimit);
-
   // On legacy low-memory devices the behavior has not been studied with regard
   // to having an extra process with similar priority as the foreground renderer
   // and given that the system will often be looking for a process to be killed
@@ -62,19 +58,6 @@ void SetContentCommandLineFlags(bool single_process,
   // Disable anti-aliasing.
   parsed_command_line->AppendSwitch(
       cc::switches::kDisableCompositedAntialiasing);
-
-  parsed_command_line->AppendSwitch(switches::kUIPrioritizeInGpuProcess);
-
-  if (!plugin_descriptor.empty()) {
-    parsed_command_line->AppendSwitchNative(
-      switches::kRegisterPepperPlugins, plugin_descriptor);
-  }
-
-  // Disable profiler timing by default.
-  if (!parsed_command_line->HasSwitch(switches::kProfilerTiming)) {
-    parsed_command_line->AppendSwitchASCII(
-        switches::kProfilerTiming, switches::kProfilerTimingDisabledValue);
-  }
 }
 
 }  // namespace content

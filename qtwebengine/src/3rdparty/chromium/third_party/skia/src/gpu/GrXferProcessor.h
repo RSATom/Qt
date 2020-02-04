@@ -9,7 +9,6 @@
 #define GrXferProcessor_DEFINED
 
 #include "GrBlend.h"
-#include "GrColor.h"
 #include "GrNonAtomicRef.h"
 #include "GrProcessor.h"
 #include "GrProcessorAnalysis.h"
@@ -132,7 +131,7 @@ public:
             fEquation = kAdd_GrBlendEquation;
             fSrcBlend = kOne_GrBlendCoeff;
             fDstBlend = kZero_GrBlendCoeff;
-            fBlendConstant = 0;
+            fBlendConstant = SK_PMColor4fTRANSPARENT;
             fWriteColor = true;
         }
 
@@ -141,7 +140,7 @@ public:
         GrBlendEquation fEquation;
         GrBlendCoeff    fSrcBlend;
         GrBlendCoeff    fDstBlend;
-        GrColor         fBlendConstant;
+        SkPMColor4f     fBlendConstant;
         bool            fWriteColor;
     };
 
@@ -189,8 +188,9 @@ public:
     }
 
 protected:
-    GrXferProcessor();
-    GrXferProcessor(bool willReadDstColor, bool hasMixedSamples, GrProcessorAnalysisCoverage);
+    GrXferProcessor(ClassID classID);
+    GrXferProcessor(ClassID classID, bool willReadDstColor, bool hasMixedSamples,
+                    GrProcessorAnalysisCoverage);
 
 private:
     /**
@@ -219,7 +219,7 @@ private:
     bool fDstReadUsesMixedSamples;
     bool fIsLCD;
 
-    typedef GrFragmentProcessor INHERITED;
+    typedef GrProcessor INHERITED;
 };
 
 /**
@@ -243,9 +243,13 @@ private:
 // since these objects have no need for destructors. However, GCC and clang throw a warning when a
 // class has virtual functions and a non-virtual destructor. We suppress that warning here and
 // for the subclasses.
-#if defined(__GNUC__) || defined(__clang)
+#if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
+#endif
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 #endif
 class GrXPFactory {
 public:
@@ -266,22 +270,21 @@ public:
          */
         kIgnoresInputColor = 0x4,
         /**
-         * If set overlapping stencil and cover operations can be replaced by a combined stencil
-         * followed by a combined cover.
-         */
-        kCanCombineOverlappedStencilAndCover = 0x8,
-        /**
          * The destination color will be provided to the fragment processor using a texture. This is
          * additional information about the implementation of kReadsDstInShader.
          */
         kRequiresDstTexture = 0x10,
         /**
-         * If set overlapping draws may not be combined because a barrier must be inserted between
-         * them.
+         * If set, each pixel can only be touched once during a draw (e.g., because we have a dst
+         * texture or because we need an xfer barrier).
          */
-        kRequiresBarrierBetweenOverlappingDraws = 0x20,
+        kRequiresNonOverlappingDraws = 0x20,
     };
     GR_DECL_BITFIELD_CLASS_OPS_FRIENDS(AnalysisProperties);
+
+    static SkString GetDescription(const GrXPFactory* xpf) {
+        return (!xpf) ? SkString("none (src-over)") : xpf->description();
+    }
 
     static sk_sp<const GrXferProcessor> MakeXferProcessor(const GrXPFactory*,
                                                           const GrProcessorAnalysisColor&,
@@ -298,6 +301,11 @@ protected:
     constexpr GrXPFactory() {}
 
 private:
+    /**
+     * Human-meaningful string to identify this factory.
+     */
+    virtual SkString description() const = 0;
+
     virtual sk_sp<const GrXferProcessor> makeXferProcessor(const GrProcessorAnalysisColor&,
                                                            GrProcessorAnalysisCoverage,
                                                            bool hasMixedSamples,
@@ -311,8 +319,11 @@ private:
                                                   const GrProcessorAnalysisCoverage&,
                                                   const GrCaps&) const = 0;
 };
-#if defined(__GNUC__) || defined(__clang)
+#if defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
+#if defined(__clang__)
+#pragma clang diagnostic pop
 #endif
 
 GR_MAKE_BITFIELD_CLASS_OPS(GrXPFactory::AnalysisProperties);

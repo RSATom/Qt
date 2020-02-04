@@ -82,6 +82,11 @@ public:
         return false;
     }
 
+    virtual bool isSupported() const
+    {
+        return false;
+    }
+
     virtual bool startTargetDetection()
     {
         return false;
@@ -124,6 +129,7 @@ public:
     }
 
 signals:
+    void adapterStateChanged(QNearFieldManager::AdapterState state);
     void targetDetected(QNearFieldTarget *target);
     void targetLost(QNearFieldTarget *target);
 

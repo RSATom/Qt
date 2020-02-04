@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <!--
 Copyright 2014 The Chromium Authors. All rights reserved.
 Use of this source code is governed by a BSD-style license that can be
@@ -7,7 +7,7 @@ found in the LICENSE file.
 <html>
 <head>
 <meta charset="utf-8">
-<title>C++11 use in Chromium</title>
+<title>C++11 and C++14 use in Chromium</title>
 <link rel="stylesheet" href="c++11.css">
 <style>
 table tbody tr td:first-child {
@@ -18,18 +18,19 @@ table tbody tr td:first-child {
 </head>
 <body>
 <div id="content">
-<h1>C++11 use in Chromium</h1>
+<h1>C++11 and C++14 use in Chromium</h1>
 
 <p><i>This document lives at src/styleguide/c++/c++11.html in a Chromium
 checkout and is part of the more general
 <a href="https://chromium.googlesource.com/chromium/src/+/master/styleguide/c++/c++.md">
 Chromium C++ style guide</a>.</i></p>
 
-<p>This summarizes the new and updated features in C++11 (for both the language
-itself and the Standard Library) from the perspective of what's allowed in
-Chromium.  When applicable, it contains pointers to more detailed information.
-This Guide applies to Chromium and its subprojects, though subprojects can
-choose to be more restrictive if necessary for toolchain support.</p>
+<p>This summarizes the new and updated features in C++11 and C++14 (for both
+the language itself and the Standard Library) from the perspective of what's
+allowed in Chromium.  When applicable, it contains pointers to more detailed
+information.  This Guide applies to Chromium and its subprojects, though
+subprojects can choose to be more restrictive if necessary for toolchain
+support.</p>
 
 <p>You can propose changing the status of a feature by sending an email to
 <a href="https://groups.google.com/a/chromium.org/forum/#!forum/cxx">
@@ -41,16 +42,34 @@ change this file accordingly, linking to your discussion thread.</p>
 <h2>Table of Contents</h2>
 <ol class="toc">
 <li>Allowed Features<ol>
-    <li><a href="#core-whitelist">Language</a></li>
-    <li><a href="#library-whitelist">Library</a></li>
+    <li>Language
+      <a href="#core-whitelist">C++11</a>
+      <a href="#core-whitelist-14">C++14</a>
+    </li>
+    <li>Library
+      <a href="#library-whitelist">C++11</a>
+      <a href="#library-whitelist-14">C++14</a>
+    </li>
 </ol></li>
 <li>Banned Features<ol>
-    <li><a href="#core-blacklist">Language</a></li>
-    <li><a href="#library-blacklist">Library</a></li>
+    <li>Language
+      <a href="#core-blacklist">C++11</a>
+      <a href="#core-blacklist-14">C++14</a>
+    </li>
+    <li>Library
+      <a href="#library-blacklist">C++11</a>
+      <a href="#library-blacklist-14">C++14</a>
+    </li>
 </ol></li>
 <li>To Be Discussed<ol>
-    <li><a href="#core-review">Language</a></li>
-    <li><a href="#library-review">Library</a></li>
+    <li>Language
+      <a href="#core-review">C++11</a>
+      <a href="#core-review-14">C++14</a>
+    </li>
+    <li>Library
+      <a href="#library-review">C++11</a>
+      <a href="#library-review-14">C++14</a>
+    </li>
 </ol></li>
 </ol>
 
@@ -158,7 +177,7 @@ enum class <i>classname</i> : <i>base-type</i><br />
 enum <i>enumname</i> : <i>base-type</i></code></td>
 <td>Provide enums as full classes, with no implicit conversion to booleans or integers. Provide an explicit underlying type for enum classes and regular enums.</td>
 <td><a href="http://en.cppreference.com/w/cpp/language/enum">enumeration declaration</a></td>
-<td>Enum classes are still enums and follow enum naming rules (which means SHOUTY_CASE in the <a href="http://www.chromium.org/developers/coding-style#Naming">Chromium Style Guide</a>). <a href="https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/Q5WmkAImanc">Discussion thread</a></td>
+<td>Enum classes are still enums and follow enum naming rules. <a href="https://google.github.io/styleguide/cppguide.html#Enumerator_Names">Google Style Guide</a>. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/Q5WmkAImanc">Discussion thread</a></td>
 </tr>
 
 <tr>
@@ -259,6 +278,14 @@ enum <i>enumname</i> : <i>base-type</i></code></td>
 </tr>
 
 <tr>
+<td>Raw String Literals</td>
+<td><code>string <i>var</i>=R&quot;(<i>raw_string</i>)&quot;;</code></td>
+<td>Allows a string to be encoded without any escape sequences, easing parsing in regex expressions, for example</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/string_literal">string literal</a></td>
+<td>Beware of passing these as macro arguments, which can trigger a <a href="https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57824">lexer bug</a> on older GCC versions. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/2kWQHbbuMHI">Discussion thread</a></td>
+</tr>
+
+<tr>
 <td>Rvalue References</td>
 <td><code>T(T&amp;&amp; t)</code> and <code>T&amp; operator=(T&amp;&amp; t)<br/><br/>
 template &lt;typename T&gt;<br/>void Function(T&amp;&amp; t) { ... }</code></td>
@@ -329,6 +356,72 @@ template &lt;typename T&gt;<br/>void Function(T&amp;&amp; t) { ... }</code></td>
 <td>Allows templates that accept a variable number of arguments</td>
 <td><a href="http://en.cppreference.com/w/cpp/language/parameter_pack">Parameter pack</a></td>
 <td>Usage should be rare. Use instead of .pump files. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/6ItymeMXpMc">Discussion thread</a></td>
+</tr>
+
+</tbody>
+</table>
+
+<h2 id="whitelist"><a name="core-whitelist-14"></a>C++14 Allowed Features</h2>
+
+<p>The following features are currently allowed.</p>
+
+<table id="whitelist_lang_list_14" class="unlined striped">
+<tbody>
+
+<tr>
+<th style='width:220px;'>Feature</th>
+<th style='width:260px;'>Snippet</th>
+<th style='width:240px;'>Description</th>
+<th style='width:240px;'>Documentation Link</th>
+<th style='width:240px;'>Notes and Discussion Thread</th>
+</tr>
+
+<tr>
+<td>Aggregate member initialization</td>
+<td><code>struct Point { int x, y, z = 0; };<br>Point p = {2, 3};</code></td>
+<td>Allows classes with default member initializers to be initialized with aggregate initialization, optionally omitting data members with such initializers.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/aggregate_initialization">aggregate initialization</a></td>
+<td><a href="https://groups.google.com/a/chromium.org/d/topic/cxx/WMBs3K9OQ_E/discussion">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td>Binary literals</td>
+<td><code>int i = 0b1001;</code></td>
+<td>Allows defining literals in base two.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/integer_literal">Integer literals</a></td>
+<td><a href="https://groups.google.com/a/chromium.org/d/topic/cxx/zsGhgaKLmIk/discussion">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td>Function return type deduction</td>
+<td><code>auto f() { return 42; }<br>decltype(auto) g() { return 42; }</code></td>
+<td>Allows the return type of a function to be automatically deduced from its return statements, according to either template or <code>decltype</code> rules.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/function#Return_type_deduction">Return type deduction</a></td>
+<td>Usage should be rare, primarily for abstract template code. If you're not sure of the difference, prefer decltype(auto) for templated forwarding/wrapper functions and auto for other cases; see Effective Modern C++ item 3 for more detail. <a href="https://groups.google.com/a/chromium.org/d/topic/cxx/-Ox7YgRS_no/discussion">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td>Generic lambdas</td>
+<td><code>[](const auto&amp; x) { <i>...</i> }</code></td>
+<td>Allows lambda argument types to be deduced using <code>auto</code> (according to the rules that apply to templates).</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/lambda">lambda expressions</a></td>
+<td><a href="https://groups.google.com/a/chromium.org/d/topic/cxx/LasGKwE3SFM/discussion">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td>Number literal separators</td>
+<td><code>float f = 1'000'000.000'1;</code></td>
+<td><code>'</code>s anywhere in int or float literals are ignored</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/integer_literal">Integer literals</a>, <a href="http://en.cppreference.com/w/cpp/language/floating_literal">Floating point literals</a></td>
+<td><a href="https://groups.google.com/a/chromium.org/d/topic/cxx/exS1aGs1wes/discussion">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td>Relaxed constant expressions</td>
+<td><code>constexpr int Factorial(int n) {<br>&nbsp;&nbsp;int result = 1;<br>&nbsp;&nbsp;while (n > 0)<br>&nbsp;&nbsp;&nbsp;&nbsp;result *= n--;<br>&nbsp;&nbsp;return result;<br>}</code></td>
+<td>Allows use of more declarations, conditional statements and loops inside <code>constexpr</code> functions.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/constexpr">constexpr specifier</a></td>
+<td>Prefer to <code>const</code> for variables where possible. Use cautiously on functions. Don't go out of the way to convert existing code. <a href="https://google.github.io/styleguide/cppguide.html#Use_of_constexpr">Google Style Guide</a>. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/cxx/Psuq_EKJBAo">Discussion thread</a></td>
 </tr>
 
 </tbody>
@@ -405,6 +498,14 @@ template &lt;typename T&gt;<br/>void Function(T&amp;&amp; t) { ... }</code></td>
 <td>Allows more widespread use of <code>const_iterator</code></td>
 <td><a href="http://en.cppreference.com/w/cpp/container/vector/begin">std::vector::cbegin</a>, <a href="http://en.cppreference.com/w/cpp/container/vector/end">std::vector::cend<a></td>
 <td>Applies to all containers, not just <code>vector</code>. Consider using <code>const_iterator</code> over <code>iterator</code> where possible for the same reason as using <code>const</code> variables and functions where possible; see Effective Modern C++ item 13. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/cxx/cS83F_buqLM">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td>Container Compaction Functions</td>
+<td><code>std::vector::shrink_to_fit()</code>, <code>std::deque::shrink_to_fit()</code>, <code>std::string::shrink_to_fit()</code></td>
+<td>Requests the removal of unused space in the container</td>
+<td><a href="http://en.cppreference.com/w/cpp/container/vector/shrink_to_fit">std::vector::shrink_to_fit</a>, <a href="http://en.cppreference.com/w/cpp/container/deque/shrink_to_fit">std::deque::shrink_to_fit</a>, <a href="http://en.cppreference.com/w/cpp/string/basic_string/shrink_to_fit">std::basic_string::shrink_to_fit</a></td>
+<td></td>
 </tr>
 
 <tr>
@@ -485,19 +586,15 @@ template &lt;typename T&gt;<br/>void Function(T&amp;&amp; t) { ... }</code></td>
 </tr>
 
 <tr>
-<td>Random Number Generators</td>
-<td><code>&lt;random&gt;</code></td>
-<td>Random number generation algorithms and utilities</td>
+<td>Random Number Distributions</td>
+<td>The random number distributions defined in <code>&lt;random&gt;</code> (see separate item for random number engines), e.g.:<br/>
+<code>uniform_int_distribution</code>, <code>uniform_real_distribution</code><br/>
+<code>poisson_distribution</code>, <code>gamma_distribution</code><br/>
+<code>normal_distribution</code>, <code>chi_squared_distribution</code><br/>
+</td>
+<td>Utilities for producing random distributions given a random bit generator.</td>
 <td><a href="http://en.cppreference.com/w/cpp/numeric/random">Pseudo-random number generation</a></td>
 <td>Because the standard does not define precisely how the <code><i>xxx</i>_distribution</code> objects generate output, the same object may produce different output for the same seed across platforms, or even across different versions of the STL. Do not use these objects in any scenario where behavioral consistency is required. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/cxx/MLgK9vCE4BA">Discussion thread</a></td>
-</tr>
-
-<tr>
-<td>Raw String Literals</td>
-<td><code>string <i>var</i>=R&quot;(<i>raw_string</i>)&quot;;</code></td>
-<td>Allows a string to be encoded without any escape sequences, easing parsing in regex expressions, for example</td>
-<td><a href="http://en.cppreference.com/w/cpp/language/string_literal">string literal</a></td>
-<td>Beware of passing these as macro arguments, which can trigger a <a href="https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57824">lexer bug</a> on older GCC versions. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/2kWQHbbuMHI">Discussion thread</a></td>
 </tr>
 
 <tr>
@@ -518,7 +615,7 @@ template &lt;typename T&gt;<br/>void Function(T&amp;&amp; t) { ... }</code></td>
 <code>enable_if</code>, <code>conditional</code>, <code>result_of</code><br/></td>
 <td>Allows compile-time inspection of the properties of types</td>
 <td><a href="http://en.cppreference.com/w/cpp/header/type_traits">Standard library header &lt;type_traits&gt;</a></td>
-<td>Note that not all type traits are available on all platforms (e.g. <code>std::underlying_type</code> doesn't work in libstdc++ 4.6). Use judiciously. <a href='https://groups.google.com/a/chromium.org/forum/#!topic/cxx/vCxo4tZNd_M'>Discussion thread</a></td>
+<td><a href='https://groups.google.com/a/chromium.org/forum/#!topic/cxx/vCxo4tZNd_M'>Discussion thread</a></td>
 </tr>
 
 <tr>
@@ -548,15 +645,87 @@ template &lt;typename T&gt;<br/>void Function(T&amp;&amp; t) { ... }</code></td>
 </tbody>
 </table>
 
-<h2 id="blacklist">C++11 Blacklist (Disallowed and Banned Features)</h2>
+<h2 id="whitelist"><a name="library-whitelist-14"></a>C++14 Allowed Library Features</h2>
+
+<p>The following library features are currently allowed.</p>
+
+<table id="whitelist_lib_list" class="unlined striped">
+<tbody>
+
+<tr>
+<th style='width:240px;'>Feature or Library</th>
+<th style='width:240px;'>Snippet</th>
+<th style='width:240px;'>Description</th>
+<th style='width:240px;'>Documentation Link</th>
+<th style='width:240px;'>Notes and Discussion Thread</th>
+</tr>
+
+<tr>
+<td>Constant begin/end non-member functions</td>
+<td><code>std::cbegin(<i>container</i>)<br>std::cend(<i>container</i>)<br>std::crbegin(<i>container</i>)<br>std::crend(<i>container</i>)</br></code></td>
+<td>Constant counterparts to <code>std::begin</code> etc.</td>
+<td><a href="http://en.cppreference.com/w/cpp/iterator/begin">std::cbegin</a></td>
+<td></td>
+</tr>
+
+<tr>
+<td>Heterogeneous lookup in associative containers</td>
+<td><code><i>// Does not construct an std::string to use as the lookup key.</i><br>std::map&lt;std::string, int, std::less&lt;&gt;&gt; map;<br>auto it = map.find("answer");</code></td>
+<td>Allows searching associative containers without converting the key to exactly match the stored key type, assuming a suitable comparator exists.</td>
+<td><a href="http://en.cppreference.com/w/cpp/utility/functional/less">std::less</a></td>
+<td><a href="https://groups.google.com/a/chromium.org/d/msg/cxx/ow7hmdDm4yw/EDEvBRi_BQAJ">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td><code>std::integer_sequence</code></td>
+<td><code>template &lt;size_t... I&gt;<br>void CallFooImpl(std::index_sequence&lt;I...&gt;) {<br>&nbsp;&nbsp;Foo(I...);<br>}<br><br>template &lt;size_t N&gt;<br>void CallFoo() {<br>&nbsp;&nbsp;CallFooImpl(std::make_index_sequence&lt;N&gt;());<br>}</code></td>
+<td>Template metaprogramming utility for representing a sequence of integers as a type.</td>
+<td><a href="http://en.cppreference.com/w/cpp/utility/integer_sequence">std::integer_sequence</a></td>
+<td>This also includes the alias, <code>std::index_sequence</code>, which is the specialization for <code>size_t</code>. <a href="https://groups.google.com/a/chromium.org/d/msg/cxx/ow7hmdDm4yw/EDEvBRi_BQAJ">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td><code>std::make_unique</code></td>
+<td><code>auto widget = std::make_unique&lt;Widget&gt;();</code></td>
+<td>Allocates objects on the heap and immediately constructs an <code>std::unique_ptr</code> to assume ownership.</td>
+<td><a href="http://en.cppreference.com/w/cpp/memory/unique_ptr/make_unique">std::make_unique</a></td>
+<td>Should replace <code>base::MakeUnique</code> and <code>WTF::MakeUnique</code>. <a href="https://groups.google.com/a/chromium.org/d/msg/cxx/ow7hmdDm4yw/EDEvBRi_BQAJ">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td>Transparent function objects</td>
+<td>Arithmetic operations:<br><code>std::plus&lt;&gt;, std::minus&lt;&gt;</code> ...<br>Comparisons:<br><code>std::less&lt;&gt;, std::equal_to&lt;&gt;</code>...<br>Logical operations:<br><code>std::logical_and&lt;&gt;, std::logical_or&lt;&gt;</code>...<br>Bitwise operations:<br><code>std::bit_and&lt;&gt;, std::bit_or&lt;&gt;</code>...<br></td>
+<td>Function objects that deduce argument types.</td>
+<td><a href="http://en.cppreference.com/w/cpp/utility/functional/less_void">std::less&lt;&gt;</a></td>
+<td>Should replace <code>base::less</code> and usage of these functors with explicit types where appropriate. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/cxx/cPoULd2NY9k">Discussion thread</a></td>
+</tr>
+
+<tr>
+<td>Tuple addressing by type</td>
+<td><code>std::tuple&lt;int, char&gt; enterprise(1701, 'D');<br>int n = std::get&lt;int&gt;(enterprise);</code></td>
+<td>Allows entries in a tuple to be accessed by type rather than entry, if it is not ambiguous.</td>
+<td><a href="http://en.cppreference.com/w/cpp/utility/tuple/get">std::get(std::tuple)</a></td>
+<td></td>
+</tr>
+
+<tr>
+<td>Reverse Iterator Adaptor</td>
+<td><code>std::make_reverse_iterator()</code></td>
+<td>For a given iterator, deduces the type of a corresponding reverse iterator and constructs it.</td>
+<td><a href="http://en.cppreference.com/w/cpp/iterator/make_reverse_iterator">std::make_reverse_iterator</a></td>
+<td>Useful to reduce boilerplate when constructing reverse iterators. The alternative is using <code>std::reverse_iterator<T>(i)</code> where <code>T</code> is the, usually long, type of the iterator <code>i</code>. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/cxx/qOE1XA0b6Dk">Discussion thread</a></td>
+</tr>
+
+</tbody>
+</table>
+
+<h2 id="blacklist">C++11 and C++14 Blacklist (Disallowed and Banned Features)</h2>
 
 <p>This section lists features that are not allowed to be used yet.
 
 <h3 id="blacklist_banned"><a name="core-blacklist"></a>C++11 Banned Features</h3>
 
-<p>This section lists C++11 features that are not allowed in the Chromium
-codebase.
-</p>
+<p>This section lists C++11 features that are not allowed in the Chromium codebase.</p>
 
 <table id="banned_list" class="unlined striped">
 <tbody>
@@ -607,6 +776,33 @@ std::move(t).f();&nbsp;&nbsp;// second</code></td>
 <td>Banned in the <a href="https://google.github.io/styleguide/cppguide.html#Operator_Overloading">Google Style Guide</a>.</td>
 </tr>
 
+<tr>
+<td>thread_local storage class</td>
+<td><code>thread_local int foo = 1;</code></td>
+<td>Puts variables into thread local storage.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/storage_duration">Storage duration</a></td>
+<td>Some surprising effects on Mac (<a href="https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/2msN8k3Xzgs">discussion</a>, <a href="https://groups.google.com/a/chromium.org/forum/#!topic/cxx/h7O5BdtWCZw">fork</a>). Use <a href="https://cs.chromium.org/chromium/src/base/threading/sequence_local_storage_slot.h">SequenceLocalStorageSlot</a> for sequence support, and <a href="https://cs.chromium.org/chromium/src/base/threading/thread_local.h">ThreadLocal</a>/<a href="https://cs.chromium.org/chromium/src/base/threading/thread_local_storage.h">ThreadLocalStorage</a> otherwise.</td>
+</tr>
+
+</tbody>
+</table>
+
+<h3 id="blacklist_banned"><a name="core-blacklist-14"></a>C++14 Banned Features</h3>
+
+<p>This section lists C++14 features that are not allowed in the Chromium codebase.</p>
+
+<table id="banned_list" class="unlined striped">
+<tbody>
+
+<tr>
+<th style='width:240px;'>Feature</th>
+<th style='width:240px;'>Snippet</th>
+<th style='width:240px;'>Description</th>
+<th style='width:240px;'>Documentation Link</th>
+<th style='width:240px;'>Notes and Discussion Thread</th>
+</tr>
+
+<tr>
 </tbody>
 </table>
 
@@ -673,6 +869,18 @@ std::move(t).f();&nbsp;&nbsp;// second</code></td>
 </tr>
 
 <tr>
+<td>Random Number Engines</td>
+<td>The random number engines defined in <code>&lt;random&gt;</code> (see separate item for random number distributions), e.g.:<br/>
+<code>linear_congruential_engine</code>, <code>mersenne_twister_engine</code><br/>
+<code>minstd_rand0</code>, <code>mt19937</code>, <code>ranlinux48</code><br/>
+<code>random_device</code>
+</td>
+<td>Random number generation algorithms and utilities.</td>
+<td><a href="http://en.cppreference.com/w/cpp/numeric/random">Pseudo-random number generation</a></td>
+<td>Do not use any random number engines from <code>&lt;random</code>. Instead, use <code>base::RandomBitGenerator</code>. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/cxx/16Xmw05C-Y0">Discussion thread</a></td>
+</tr>
+
+<tr>
 <td>Ratio Template Class</td>
 <td><code>std::ratio&lt;<i>numerator</i>, <i>denominator</i>&gt;</code></td>
 <td>Provides compile-time rational numbers</td>
@@ -708,6 +916,31 @@ std::move(t).f();&nbsp;&nbsp;// second</code></td>
 </tbody>
 </table>
 
+<h3 id="blacklist_stdlib"><a name="library-blacklist-14"></a>C++14 Banned Library Features</h3>
+
+<p>This section lists C++14 library features that are not allowed in the Chromium codebase.</p>
+
+<table id="blacklist_lib_list" class="unlined striped">
+<tbody>
+
+<tr>
+<th style='width:240px;'>Feature</th>
+<th style='width:240px;'>Snippet</th>
+<th style='width:240px;'>Description</th>
+<th style='width:240px;'>Documentation Link</th>
+<th style='width:240px;'>Notes and Discussion Thread</th>
+</tr>
+
+<tr>
+<td><code>std::chrono</code> literals</td>
+<td><code>using namespace std::chrono_literals;<br>auto timeout = 30s;</code></td>
+<td>Allows <code>std::chrono</code> types to be more easily constructed.</td>
+<td><a href="http://en.cppreference.com/w/cpp/chrono/operator%22%22s">std::literals::chrono_literals::operator""s</a></td>
+<td>Banned because <code>&lt;chrono&gt;</code> is banned.</td>
+</tr>
+
+</tbody>
+</table>
 
 <h3 id="blacklist_review"><a name="core-review"></a>C++11 Features To Be Discussed</h3>
 
@@ -746,6 +979,58 @@ std::move(t).f();&nbsp;&nbsp;// second</code></td>
 <td>Provides character types for handling 16-bit and 32-bit code units (useful for encoding UTF-16 and UTF-32 string data)</td>
 <td><a href="http://en.cppreference.com/w/cpp/language/types">Fundamental types</a></td>
 <td>Reevaluate now that MSVS2015 is available. Non-UTF-8 text is banned by the <a href="https://google.github.io/styleguide/cppguide.html#Non-ASCII_Characters">Google Style Guide</a>. However, may be useful for consuming non-ASCII data. <a href="https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/ME2kL7_Kvyk">Discussion thread</a></td>
+</tr>
+
+</tbody>
+</table>
+
+<h3 id="blacklist_review"><a name="core-review-14"></a>C++14 Features To Be Discussed</h3>
+
+<p>The following C++14 language features are currently disallowed. See the top of this page on how to propose moving a feature from this list into the allowed or banned sections.</p>
+
+<table id="blacklist_review_list" class="unlined striped">
+<tbody>
+
+<tr>
+<th style='width:240px;'>Feature</th>
+<th style='width:240px;'>Snippet</th>
+<th style='width:240px;'>Description</th>
+<th style='width:240px;'>Documentation Link</th>
+<th style='width:240px;'>Notes and Discussion Thread</th>
+</tr>
+
+<tr>
+<td><code>[[deprecated]]</code> attribute</td>
+<td><code>[[deprecated]] void f();<br>
+[[deprecated("use h() instead")]] void g();</code></td>
+<td>Marks a function as deprecated.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/attributes">Standard attributes</a></td>
+<td>We don't use deprecation warnings in Chromium; if you want to deprecate
+something, remove all callers and remove the function instead.</td>
+</tr>
+
+<tr>
+<td><code>decltype(auto)</code> variable declarations</td>
+<td><code>decltype(auto) x = 42;</code></td>
+<td>Allows deducing the type of a variable using <code>decltype</code> rules.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/auto">auto specifier</a></td>
+<td>Often more surprising than <code>auto</code>. For instance, the <code>decltype</code> deduction rules do not remove references.</td>
+</tr>
+
+<tr>
+<td>Lambda capture expressions</td>
+<td><code>auto widget = std::make_unique&lt;Widget&gt;();<br>auto lambda = [widget = std::move(widget)]() {<br>&nbsp;&nbsp;SetWidget(std::move(widget));<br>}</code></td>
+<td>Allows lambda captures to be explicitly initialized with expressions.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/lambda#Lambda_capture">Lambda capture</a></td>
+<td>Particularly useful to capture move-only types in a lambda when a reference would go out of scope. Less useful without allowing lambdas to outlive the scope.</td>
+</tr>
+
+<tr>
+<td>Variable templates</td>
+<td><code>template &lt;typename T&gt;<br>constexpr T tau = T(6.283185307179586476925286766559);</code></td>
+<td>Allows templates that declare variables, rather than functions or classes.</td>
+<td><a href="http://en.cppreference.com/w/cpp/language/variable_template">Variable template</a></td>
+<td></td>
 </tr>
 
 </tbody>
@@ -799,14 +1084,6 @@ std::move(t).f();&nbsp;&nbsp;// second</code></td>
 </tr>
 
 <tr>
-<td>Container Compaction Functions</td>
-<td><code>std::vector::shrink_to_fit()</code>, <code>std::deque::shrink_to_fit()</code>, <code>std::string::shrink_to_fit()</code></td>
-<td>Requests the removal of unused space in the container</td>
-<td><a href="http://en.cppreference.com/w/cpp/container/vector/shrink_to_fit">std::vector::shrink_to_fit</a>, <a href="http://en.cppreference.com/w/cpp/container/deque/shrink_to_fit">std::deque::shrink_to_fit</a>, <a href="http://en.cppreference.com/w/cpp/string/basic_string/shrink_to_fit">std::basic_string::shrink_to_fit</a></td>
-<td></td>
-</tr>
-
-<tr>
 <td>Date/Time String Formatting Specifiers</td>
 <td><code>std::strftime()</code></td>
 <td>Converts date and time information into a formatted string using new specifiers</td>
@@ -815,7 +1092,7 @@ std::move(t).f();&nbsp;&nbsp;// second</code></td>
 </tr>
 
 <tr>
-<td>Function Return Type Deduction</td>
+<td>Function Return Type Extraction</td>
 <td><code>std::result_of&lt;<i>Functor(ArgTypes...)</i>&gt;</code></td>
 <td>Extracts the return type from the type signature of a function call invocation at compile-time.</td>
 <td><a href="http://en.cppreference.com/w/cpp/types/result_of">std::result_of</a></td>
@@ -925,6 +1202,42 @@ std::move(t).f();&nbsp;&nbsp;// second</code></td>
 <td>Converts between string encodings</td>
 <td><a href="http://en.cppreference.com/w/cpp/locale/wstring_convert">std::wstring_convert</a>, <a href="http://en.cppreference.com/w/cpp/locale/wbuffer_convert">std::wbuffer_convert</a>, <a href="http://en.cppreference.com/w/cpp/locale/codecvt_utf8">std::codecvt_utf8</a>, <a href="http://en.cppreference.com/w/cpp/locale/codecvt_utf16">std::codecvt_utf16</a>, <a href="http://en.cppreference.com/w/cpp/locale/codecvt_utf8_utf16">std::codecvt_utf8_utf16</a></td>
 <td>Non-UTF-8 text is banned by the <a href="https://google.github.io/styleguide/cppguide.html#Non-ASCII_Characters">Google Style Guide</a>. However, may be useful for consuming non-ASCII data.</td>
+</tr>
+
+</tbody>
+</table>
+
+<h3 id="blacklist_stdlib_review"><a name="library-review-14"></a>C++14 Standard Library Features To Be Discussed</h3>
+
+<p>The following C++14 library features are currently disallowed. See the top of this page on how to propose moving a feature from this list into the allowed or banned sections.</p>
+
+<table id="banned_stdlib" class="unlined striped">
+
+<tbody>
+<tr>
+<th style='width:240px;'>Feature</th>
+<th style='width:240px;'>Snippet</th>
+<th style='width:240px;'>Description</th>
+<th style='width:240px;'>Documentation Link</th>
+<th style='width:240px;'>Notes</th>
+</tr>
+
+<tr>
+<td><code>std::complex</code> literals</td>
+<td><code>using namespace std::complex_literals;<br>std::complex&lt;double&gt; c = 2.0 + 0.5i;</code></td>
+<td>Allows <code>std::complex</code> objects to be more easily constructed.</td>
+<td><a href="http://en.cppreference.com/w/cpp/numeric/complex/operator%22%22i">std::literals::complex_literals</a></td>
+<td></td>
+</tr>
+
+<td><code>std::string</code> literals</td>
+<td><code>
+#include &lt;string&gt;<br>
+using std::literals::string_literals::operator"" s;<br>
+auto s = "asdf"s;  // deduces to std::string</code></td>
+<td>Allows literals of type <code>std::string</code></td>
+<td><a href="http://en.cppreference.com/w/cpp/string/basic_string/operator%22%22s">std::literals::string_literals::operator""s</a></td>
+<td></td>
 </tr>
 
 </tbody>

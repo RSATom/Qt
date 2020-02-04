@@ -9,28 +9,28 @@
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/unguessable_token.h"
-#include "content/browser/android/content_view_core.h"
-#include "content/browser/android/content_view_core_observer.h"
+#include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "ui/android/view_android_observer.h"
+#include "ui/android/window_android.h"
+#include "ui/android/window_android_observer.h"
 
 namespace content {
 
 // Native counterpart to DialogOverlayImpl java class.  This is created by the
-// java side.  When the ContentViewCore for the provided token is attached or
+// java side.  When the WebContents for the provided token is attached or
 // detached from a WindowAndroid, we get the Android window token and notify the
 // java side.
-class DialogOverlayImpl : public ContentViewCoreObserver,
+class DialogOverlayImpl : public ui::ViewAndroidObserver,
+                          public ui::WindowAndroidObserver,
                           public WebContentsObserver {
  public:
-  // Registers the JNI methods for DialogOverlayImpl.
-  static bool RegisterDialogOverlayImpl(JNIEnv* env);
-
   // This may not call back into |obj| directly, but must post.  This is because
   // |obj| is still being initialized.
   DialogOverlayImpl(const base::android::JavaParamRef<jobject>& obj,
                     RenderFrameHostImpl* rfhi,
                     WebContents* web_contents,
-                    ContentViewCore* cvc);
+                    bool power_efficient);
   ~DialogOverlayImpl() override;
 
   // Called when the java side is ready for token / dismissed callbacks.  May
@@ -48,25 +48,35 @@ class DialogOverlayImpl : public ContentViewCoreObserver,
                            const base::android::JavaParamRef<jobject>& obj,
                            const base::android::JavaParamRef<jobject>& rect);
 
-  // ContentViewCoreObserver
-  void OnContentViewCoreDestroyed() override;
+  // ui::ViewAndroidObserver
   void OnAttachedToWindow() override;
   void OnDetachedFromWindow() override;
 
   // WebContentsObserver
-  void WasHidden() override;
+  void OnVisibilityChanged(content::Visibility visibility) override;
   void WebContentsDestroyed() override;
+  void DidToggleFullscreenModeForTab(bool entered_fullscreen,
+                                     bool will_cause_resize) override;
   void FrameDeleted(RenderFrameHost* render_frame_host) override;
   void RenderFrameDeleted(RenderFrameHost* render_frame_host) override;
   void RenderFrameHostChanged(RenderFrameHost* old_host,
                               RenderFrameHost* new_host) override;
 
-  // Unregister for tokens if we're registered, and clear |cvc_|.
-  void UnregisterForTokensIfNeeded();
+  // Unregister callbacks if previously registered.
+  void UnregisterCallbacksIfNeeded();
+
+  // WindowAndroidObserver
+  void OnRootWindowVisibilityChanged(bool visible) override;
+  void OnCompositingDidCommit() override {}
+  void OnAttachCompositor() override {}
+  void OnDetachCompositor() override {}
+  void OnActivityStopped() override {}
+  void OnActivityStarted() override {}
 
  private:
   // Signals the overlay should be cleaned up and no longer used.
   void Stop();
+  void RegisterWindowObserverIfNeeded(ui::WindowAndroid* window);
 
   // Java object that owns us.
   JavaObjectWeakGlobalRef obj_;
@@ -74,8 +84,11 @@ class DialogOverlayImpl : public ContentViewCoreObserver,
   // RenderFrameHostImpl* associated with the given overlay routing token.
   RenderFrameHostImpl* rfhi_;
 
-  // ContentViewCore instance that we're registered with as an observer.
-  ContentViewCore* cvc_;
+  // Do we care about power efficiency?
+  bool power_efficient_;
+
+  // Whether we added ourselves as an observer through WindowAndroid.
+  bool observed_window_android_;
 };
 
 }  // namespace content

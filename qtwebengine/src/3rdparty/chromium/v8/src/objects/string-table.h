@@ -6,6 +6,7 @@
 #define V8_OBJECTS_STRING_TABLE_H_
 
 #include "src/objects/hash-table.h"
+#include "src/roots.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -32,15 +33,17 @@ class StringTableKey : public HashTableKey {
 
 class StringTableShape : public BaseShape<StringTableKey*> {
  public:
-  static inline bool IsMatch(Key key, Object* value) {
+  static inline bool IsMatch(Key key, Object value) {
     return key->IsMatch(value);
   }
 
   static inline uint32_t Hash(Isolate* isolate, Key key) { return key->Hash(); }
 
-  static inline uint32_t HashForObject(Isolate* isolate, Object* object);
+  static inline uint32_t HashForObject(Isolate* isolate, Object object);
 
   static inline Handle<Object> AsHandle(Isolate* isolate, Key key);
+
+  static inline RootIndex GetMapRootIndex();
 
   static const int kPrefixSize = 0;
   static const int kEntrySize = 1;
@@ -59,30 +62,45 @@ class StringTable : public HashTable<StringTable, StringTableShape> {
   V8_EXPORT_PRIVATE static Handle<String> LookupString(Isolate* isolate,
                                                        Handle<String> key);
   static Handle<String> LookupKey(Isolate* isolate, StringTableKey* key);
-  static String* LookupKeyIfExists(Isolate* isolate, StringTableKey* key);
+  static Handle<String> AddKeyNoResize(Isolate* isolate, StringTableKey* key);
+  static String ForwardStringIfExists(Isolate* isolate, StringTableKey* key,
+                                      String string);
+
+  // Shink the StringTable if it's very empty (kMaxEmptyFactor) to avoid the
+  // performance overhead of re-allocating the StringTable over and over again.
+  static Handle<StringTable> CautiousShrink(Isolate* isolate,
+                                            Handle<StringTable> table);
 
   // Looks up a string that is equal to the given string and returns
   // string handle if it is found, or an empty handle otherwise.
-  MUST_USE_RESULT static MaybeHandle<String> LookupTwoCharsStringIfExists(
+  V8_WARN_UNUSED_RESULT static MaybeHandle<String> LookupTwoCharsStringIfExists(
       Isolate* isolate, uint16_t c1, uint16_t c2);
-  static Object* LookupStringIfExists_NoAllocate(String* string);
+  // {raw_string} must be a tagged String pointer.
+  // Returns a tagged pointer: either an internalized string, or a Smi
+  // sentinel.
+  static Address LookupStringIfExists_NoAllocate(Isolate* isolate,
+                                                 Address raw_string);
 
   static void EnsureCapacityForDeserialization(Isolate* isolate, int expected);
 
   DECL_CAST(StringTable)
 
+  static const int kMaxEmptyFactor = 4;
+  static const int kMinCapacity = 2048;
+  static const int kMinShrinkCapacity = kMinCapacity;
+
  private:
   template <bool seq_one_byte>
   friend class JsonParser;
 
-  DISALLOW_IMPLICIT_CONSTRUCTORS(StringTable);
+  OBJECT_CONSTRUCTORS(StringTable, HashTable<StringTable, StringTableShape>)
 };
 
-class StringSetShape : public BaseShape<String*> {
+class StringSetShape : public BaseShape<String> {
  public:
-  static inline bool IsMatch(String* key, Object* value);
-  static inline uint32_t Hash(Isolate* isolate, String* key);
-  static inline uint32_t HashForObject(Isolate* isolate, Object* object);
+  static inline bool IsMatch(String key, Object value);
+  static inline uint32_t Hash(Isolate* isolate, String key);
+  static inline uint32_t HashForObject(Isolate* isolate, Object object);
 
   static const int kPrefixSize = 0;
   static const int kEntrySize = 1;
@@ -91,11 +109,12 @@ class StringSetShape : public BaseShape<String*> {
 class StringSet : public HashTable<StringSet, StringSetShape> {
  public:
   static Handle<StringSet> New(Isolate* isolate);
-  static Handle<StringSet> Add(Handle<StringSet> blacklist,
+  static Handle<StringSet> Add(Isolate* isolate, Handle<StringSet> blacklist,
                                Handle<String> name);
-  bool Has(Handle<String> name);
+  bool Has(Isolate* isolate, Handle<String> name);
 
   DECL_CAST(StringSet)
+  OBJECT_CONSTRUCTORS(StringSet, HashTable<StringSet, StringSetShape>)
 };
 
 }  // namespace internal

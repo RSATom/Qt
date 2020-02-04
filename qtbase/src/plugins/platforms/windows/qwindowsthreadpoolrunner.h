@@ -40,10 +40,10 @@
 #ifndef QWINDOWSTHREADPOOLRUNNER_H
 #define QWINDOWSTHREADPOOLRUNNER_H
 
-#include <QtCore/QMutex>
-#include <QtCore/QRunnable>
-#include <QtCore/QThreadPool>
-#include <QtCore/QWaitCondition>
+#include <QtCore/qmutex.h>
+#include <QtCore/qrunnable.h>
+#include <QtCore/qthreadpool.h>
+#include <QtCore/qwaitcondition.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -61,7 +61,7 @@ class QWindowsThreadPoolRunner
 {
     Q_DISABLE_COPY(QWindowsThreadPoolRunner)
 
-#ifndef QT_NO_THREAD
+#if QT_CONFIG(thread)
     template <class RunnableFunction> // nested class implementing QRunnable to execute a function.
     class Runnable : public QRunnable
     {
@@ -104,7 +104,7 @@ public:
 private:
     QMutex m_mutex;
     QWaitCondition m_condition;
-#else // !QT_NO_THREAD
+#else // QT_CONFIG(thread)
 public:
     QWindowsThreadPoolRunner() {}
 
@@ -114,7 +114,7 @@ public:
         f();
         return true;
     }
-#endif // QT_NO_THREAD
+#endif // QT_CONFIG(thread)
 };
 
 QT_END_NAMESPACE

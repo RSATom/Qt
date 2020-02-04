@@ -55,22 +55,22 @@
 
 QT_BEGIN_NAMESPACE
 
-class QQuickPlatformColorDialog : public QQuickAbstractColorDialog
+class QQuickPlatformColorDialog1 : public QQuickAbstractColorDialog
 {
     Q_OBJECT
 
 public:
-    QQuickPlatformColorDialog(QObject *parent = 0);
-    virtual ~QQuickPlatformColorDialog();
+    QQuickPlatformColorDialog1(QObject *parent = 0);
+    virtual ~QQuickPlatformColorDialog1();
 
 protected:
     QPlatformColorDialogHelper *helper();
 
-    Q_DISABLE_COPY(QQuickPlatformColorDialog)
+    Q_DISABLE_COPY(QQuickPlatformColorDialog1)
 };
 
 QT_END_NAMESPACE
 
-QML_DECLARE_TYPE(QQuickPlatformColorDialog *)
+QML_DECLARE_TYPE(QQuickPlatformColorDialog1 *)
 
 #endif // QQUICKPLATFORMCOLORDIALOG_P_H

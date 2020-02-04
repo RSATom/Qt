@@ -39,17 +39,19 @@
 
 #include <QtQml/qqmlextensionplugin.h>
 #include <QtQml/qqml.h>
+#include <QtWidgets/qtwidgetsglobal.h>
+#if QT_CONFIG(messagebox)
 #include "qquickqmessagebox_p.h"
+#endif // QT_CONFIG(messagebox)
+#if QT_CONFIG(filedialog)
 #include "qquickqfiledialog_p.h"
+#endif // QT_CONFIG(filedialog)
+#if QT_CONFIG(colordialog)
 #include "qquickqcolordialog_p.h"
+#endif // QT_CONFIG(colordialog)
+#if QT_CONFIG(fontdialog)
 #include "qquickqfontdialog_p.h"
-
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtQuick_PrivateWidgets);
-#endif
-}
+#endif // QT_CONFIG(fontdialog)
 
 QT_BEGIN_NAMESPACE
 
@@ -78,7 +80,7 @@ class QtQuick2PrivateWidgetsPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QtQuick2PrivateWidgetsPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QtQuick2PrivateWidgetsPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     virtual void registerTypes(const char *uri)
     {
         Q_ASSERT(QLatin1String(uri) == QLatin1String("QtQuick.PrivateWidgets"));

@@ -30,23 +30,22 @@ class ShellContentRendererClient : public content::ContentRendererClient {
   // content::ContentRendererClient implementation:
   void RenderThreadStarted() override;
   void RenderFrameCreated(content::RenderFrame* render_frame) override;
-  void RenderViewCreated(content::RenderView* render_view) override;
   bool OverrideCreatePlugin(content::RenderFrame* render_frame,
                             const blink::WebPluginParams& params,
                             blink::WebPlugin** plugin) override;
   blink::WebPlugin* CreatePluginReplacement(
       content::RenderFrame* render_frame,
       const base::FilePath& plugin_path) override;
-  bool WillSendRequest(
-      blink::WebLocalFrame* frame,
-      ui::PageTransition transition_type,
-      const blink::WebURL& url,
-      std::vector<std::unique_ptr<content::URLLoaderThrottle>>* throttles,
-      GURL* new_url) override;
+  void WillSendRequest(blink::WebLocalFrame* frame,
+                       ui::PageTransition transition_type,
+                       const blink::WebURL& url,
+                       const url::Origin* initiator_origin,
+                       GURL* new_url,
+                       bool* attach_same_site_cookies) override;
   bool IsExternalPepperPlugin(const std::string& module_name) override;
-  bool ShouldGatherSiteIsolationStats() const override;
   content::BrowserPluginDelegate* CreateBrowserPluginDelegate(
       content::RenderFrame* render_frame,
+      const content::WebPluginInfo& info,
       const std::string& mime_type,
       const GURL& original_url) override;
   void RunScriptsAtDocumentStart(content::RenderFrame* render_frame) override;

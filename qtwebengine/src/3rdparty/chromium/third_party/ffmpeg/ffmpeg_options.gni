@@ -40,8 +40,6 @@ declare_args() {
   # https://groups.google.com/a/chromium.org/forum/#!msg/chromium-packagers/R5rcZXWxBEQ/B6k0zzmJbvcJ
   is_component_ffmpeg = is_component_build
 
-  use_system_ffmpeg = false
-
   # Set to true to force the use of ffmpeg's stdatomic fallback code.
   #
   # Windows and GCC prior to 4.9 lack stdatomic.h.
@@ -51,6 +49,8 @@ declare_args() {
   # directives as used in chromium's clang stdatomic.h.
   # Some background: https://bugs.llvm.org/show_bug.cgi?id=26828
   ffmpeg_use_atomics_fallback = !is_clang
+
+  use_system_ffmpeg = false
 }
 
 assert(ffmpeg_branding == "Chromium" ||
@@ -70,4 +70,6 @@ if ((is_linux || is_chromeos) && is_msan) {
   os_config = "linux-noasm"
 } else if (is_chromeos || is_fuchsia) {
   os_config = "linux"
+} else if (is_win && !is_clang) {
+  os_config = "win-msvc"
 }

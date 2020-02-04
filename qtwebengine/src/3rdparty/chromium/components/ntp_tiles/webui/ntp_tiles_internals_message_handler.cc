@@ -5,6 +5,9 @@
 #include "components/ntp_tiles/webui/ntp_tiles_internals_message_handler.h"
 
 #include <array>
+#include <memory>
+#include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/callback.h"
@@ -12,7 +15,6 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/task_runner_util.h"
 #include "base/values.h"
 #include "components/favicon/core/favicon_service.h"
@@ -36,10 +38,10 @@ struct IconTypeAndName {
 };
 
 constexpr std::array<IconTypeAndName, 4> kIconTypesAndNames{{
-    {favicon_base::FAVICON, "FAVICON"},
-    {favicon_base::TOUCH_ICON, "TOUCH_ICON"},
-    {favicon_base::TOUCH_PRECOMPOSED_ICON, "TOUCH_PRECOMPOSED_ICON"},
-    {favicon_base::WEB_MANIFEST_ICON, "WEB_MANIFEST_ICON"},
+    {favicon_base::IconType::kFavicon, "kFavicon"},
+    {favicon_base::IconType::kTouchIcon, "kTouchIcon"},
+    {favicon_base::IconType::kTouchPrecomposedIcon, "kTouchPrecomposedIcon"},
+    {favicon_base::IconType::kWebManifestIcon, "kWebManifestIcon"},
 }};
 
 std::string FormatJson(const base::Value& value) {
@@ -56,7 +58,9 @@ NTPTilesInternalsMessageHandler::NTPTilesInternalsMessageHandler(
     favicon::FaviconService* favicon_service)
     : favicon_service_(favicon_service),
       client_(nullptr),
-      site_count_(8),
+      // 9 tiles are required for the custom links feature in order to balance
+      // the Most Visited rows (this is due to an additional "Add" button).
+      site_count_(9),
       weak_ptr_factory_(this) {}
 
 NTPTilesInternalsMessageHandler::~NTPTilesInternalsMessageHandler() = default;
@@ -67,22 +71,26 @@ void NTPTilesInternalsMessageHandler::RegisterMessages(
 
   client_->RegisterMessageCallback(
       "registerForEvents",
-      base::Bind(&NTPTilesInternalsMessageHandler::HandleRegisterForEvents,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &NTPTilesInternalsMessageHandler::HandleRegisterForEvents,
+          base::Unretained(this)));
 
   client_->RegisterMessageCallback(
-      "update", base::Bind(&NTPTilesInternalsMessageHandler::HandleUpdate,
-                           base::Unretained(this)));
+      "update",
+      base::BindRepeating(&NTPTilesInternalsMessageHandler::HandleUpdate,
+                          base::Unretained(this)));
 
   client_->RegisterMessageCallback(
       "fetchSuggestions",
-      base::Bind(&NTPTilesInternalsMessageHandler::HandleFetchSuggestions,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &NTPTilesInternalsMessageHandler::HandleFetchSuggestions,
+          base::Unretained(this)));
 
   client_->RegisterMessageCallback(
       "viewPopularSitesJson",
-      base::Bind(&NTPTilesInternalsMessageHandler::HandleViewPopularSitesJson,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &NTPTilesInternalsMessageHandler::HandleViewPopularSitesJson,
+          base::Unretained(this)));
 }
 
 void NTPTilesInternalsMessageHandler::HandleRegisterForEvents(
@@ -241,25 +249,26 @@ void NTPTilesInternalsMessageHandler::SendSourceInfo() {
 void NTPTilesInternalsMessageHandler::SendTiles(
     const NTPTilesVector& tiles,
     const FaviconResultMap& result_map) {
-  auto sites_list = base::MakeUnique<base::ListValue>();
+  auto sites_list = std::make_unique<base::ListValue>();
   for (const NTPTile& tile : tiles) {
-    auto entry = base::MakeUnique<base::DictionaryValue>();
+    auto entry = std::make_unique<base::DictionaryValue>();
     entry->SetString("title", tile.title);
     entry->SetString("url", tile.url.spec());
     entry->SetInteger("source", static_cast<int>(tile.source));
     entry->SetString("whitelistIconPath",
                      tile.whitelist_icon_path.LossyDisplayName());
 
-    auto icon_list = base::MakeUnique<base::ListValue>();
+    auto icon_list = std::make_unique<base::ListValue>();
     for (const auto& entry : kIconTypesAndNames) {
-      FaviconResultMap::const_iterator it = result_map.find(
+      auto it = result_map.find(
           FaviconResultMap::key_type(tile.url, entry.type_enum));
 
       if (it != result_map.end()) {
         const favicon_base::FaviconRawBitmapResult& result = it->second;
-        auto icon = base::MakeUnique<base::DictionaryValue>();
+        auto icon = std::make_unique<base::DictionaryValue>();
         icon->SetString("url", result.icon_url.spec());
         icon->SetString("type", entry.type_name);
+        icon->SetBoolean("onDemand", !result.fetched_because_of_page_visit);
         icon->SetInteger("width", result.pixel_size.width());
         icon->SetInteger("height", result.pixel_size.height());
         icon_list->Append(std::move(icon));
@@ -276,10 +285,12 @@ void NTPTilesInternalsMessageHandler::SendTiles(
                                   result);
 }
 
-void NTPTilesInternalsMessageHandler::OnMostVisitedURLsAvailable(
-    const NTPTilesVector& tiles) {
+void NTPTilesInternalsMessageHandler::OnURLsAvailable(
+    const std::map<SectionType, NTPTilesVector>& sections) {
   cancelable_task_tracker_.TryCancelAll();
 
+  // TODO(fhorschig): Handle non-personalized tiles - https://crbug.com/753852.
+  const NTPTilesVector& tiles = sections.at(SectionType::PERSONALIZED);
   if (tiles.empty()) {
     SendTiles(tiles, FaviconResultMap());
     return;
@@ -294,7 +305,7 @@ void NTPTilesInternalsMessageHandler::OnMostVisitedURLsAvailable(
   for (const NTPTile& tile : tiles) {
     for (const auto& entry : kIconTypesAndNames) {
       favicon_service_->GetLargestRawFaviconForPageURL(
-          tile.url, std::vector<int>(1U, entry.type_enum),
+          tile.url, std::vector<favicon_base::IconTypeSet>({{entry.type_enum}}),
           /*minimum_size_in_pixels=*/0, base::Bind(on_lookup_done, tile.url),
           &cancelable_task_tracker_);
     }

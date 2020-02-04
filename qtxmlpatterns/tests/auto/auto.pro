@@ -53,4 +53,15 @@ xmlpatternsxqts.depends = xmlpatternssdk
            xmlpatternsxqts \
            xmlpatternsxslts \
 
+qtHaveModule(quick):SUBDIRS += qquickxmllistmodel
+
 !cross_compile:                             SUBDIRS += host.pro
+
+# these tests depend on auxiliary files to be deployed so they
+# fail on Android. Given the state of the module, we simply
+# disable them - the code is already tested on regular Linux.
+android: SUBDIRS-= checkxmlfiles \
+                   patternistexamples \
+                   qabstractxmlnodemodel \
+                   qxmlquery
+

@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,38 +7,36 @@
 #ifndef XFA_FXFA_PARSER_CXFA_VALIDATE_H_
 #define XFA_FXFA_PARSER_CXFA_VALIDATE_H_
 
-#include "core/fxcrt/fx_string.h"
-#include "core/fxcrt/fx_system.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
-#include "xfa/fxfa/parser/cxfa_script.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-class CXFA_Node;
+class CXFA_Script;
 
-class CXFA_Validate : public CXFA_Data {
+class CXFA_Validate final : public CXFA_Node {
  public:
-  explicit CXFA_Validate(CXFA_Node* pNode);
+  CXFA_Validate(CXFA_Document* doc, XFA_PacketType packet);
+  ~CXFA_Validate() override;
 
-  int32_t GetFormatTest();
-  int32_t GetNullTest();
-  bool SetNullTest(CFX_WideString wsValue);
-  int32_t GetScriptTest();
-  void GetFormatMessageText(CFX_WideString& wsMessage);
-  void SetFormatMessageText(CFX_WideString wsMessage);
-  void GetNullMessageText(CFX_WideString& wsMessage);
-  void SetNullMessageText(CFX_WideString wsMessage);
-  void GetScriptMessageText(CFX_WideString& wsMessage);
-  void SetScriptMessageText(CFX_WideString wsMessage);
-  void GetPicture(CFX_WideString& wsPicture);
-  CXFA_Script GetScript();
+  XFA_AttributeValue GetFormatTest();
+  WideString GetFormatMessageText();
+  void SetFormatMessageText(const WideString& wsMessage);
+
+  XFA_AttributeValue GetNullTest();
+  void SetNullTest(const WideString& wsValue);
+
+  WideString GetNullMessageText();
+  void SetNullMessageText(const WideString& wsMessage);
+
+  XFA_AttributeValue GetScriptTest();
+  WideString GetScriptMessageText();
+  void SetScriptMessageText(const WideString& wsMessage);
+
+  WideString GetPicture();
+  CXFA_Script* GetScriptIfExists();
 
  private:
-  void GetMessageText(CFX_WideString& wsMessage,
-                      const CFX_WideString& wsMessageType);
-  void SetMessageText(CFX_WideString& wsMessage,
-                      const CFX_WideString& wsMessageType);
-  bool SetTestValue(int32_t iType,
-                    CFX_WideString& wsValue,
-                    XFA_ATTRIBUTEENUM eName);
+  WideString GetMessageText(const WideString& wsMessageType);
+  void SetMessageText(const WideString& wsMessageType,
+                      const WideString& wsMessage);
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_VALIDATE_H_

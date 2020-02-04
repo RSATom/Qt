@@ -8,22 +8,64 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/neteq/delay_manager.h"
+#include "modules/audio_coding/neteq/delay_manager.h"
 
 #include <assert.h>
-#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <algorithm>
+#include <numeric>
+#include <string>
 
-#include <algorithm>  // max, min
+#include "modules/audio_coding/neteq/delay_peak_detector.h"
+#include "modules/include/module_common_types_public.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/numerics/safe_conversions.h"
+#include "system_wrappers/include/field_trial.h"
 
-#include "webrtc/common_audio/signal_processing/include/signal_processing_library.h"
-#include "webrtc/modules/audio_coding/neteq/delay_peak_detector.h"
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/safe_conversions.h"
+namespace {
+
+constexpr int kLimitProbability = 53687091;         // 1/20 in Q30.
+constexpr int kLimitProbabilityStreaming = 536871;  // 1/2000 in Q30.
+constexpr int kMaxStreamingPeakPeriodMs = 600000;   // 10 minutes in ms.
+constexpr int kCumulativeSumDrift = 2;  // Drift term for cumulative sum
+                                        // |iat_cumulative_sum_|.
+// Steady-state forgetting factor for |iat_vector_|, 0.9993 in Q15.
+constexpr int kIatFactor_ = 32745;
+constexpr int kMaxIat = 64;  // Max inter-arrival time to register.
+constexpr int kMaxReorderedPackets =
+    10;  // Max number of consecutive reordered packets.
+
+absl::optional<int> GetForcedLimitProbability() {
+  constexpr char kForceTargetDelayPercentileFieldTrial[] =
+      "WebRTC-Audio-NetEqForceTargetDelayPercentile";
+  const bool use_forced_target_delay_percentile =
+      webrtc::field_trial::IsEnabled(kForceTargetDelayPercentileFieldTrial);
+  if (use_forced_target_delay_percentile) {
+    const std::string field_trial_string = webrtc::field_trial::FindFullName(
+        kForceTargetDelayPercentileFieldTrial);
+    double percentile = -1.0;
+    if (sscanf(field_trial_string.c_str(), "Enabled-%lf", &percentile) == 1 &&
+        percentile >= 0.0 && percentile <= 100.0) {
+      return absl::make_optional<int>(static_cast<int>(
+          (1 << 30) * (100.0 - percentile) / 100.0 + 0.5));  // in Q30.
+    } else {
+      RTC_LOG(LS_WARNING) << "Invalid parameter for "
+                          << kForceTargetDelayPercentileFieldTrial
+                          << ", ignored.";
+    }
+  }
+  return absl::nullopt;
+}
+
+}  // namespace
 
 namespace webrtc {
 
 DelayManager::DelayManager(size_t max_packets_in_buffer,
+                           int base_min_target_delay_ms,
+                           bool enable_rtx_handling,
                            DelayPeakDetector* peak_detector,
                            const TickTimer* tick_timer)
     : first_packet_received_(false),
@@ -31,20 +73,27 @@ DelayManager::DelayManager(size_t max_packets_in_buffer,
       iat_vector_(kMaxIat + 1, 0),
       iat_factor_(0),
       tick_timer_(tick_timer),
-      base_target_level_(4),  // In Q0 domain.
+      base_min_target_delay_ms_(base_min_target_delay_ms),
+      base_target_level_(4),                   // In Q0 domain.
       target_level_(base_target_level_ << 8),  // In Q8 domain.
       packet_len_ms_(0),
       streaming_mode_(false),
       last_seq_no_(0),
       last_timestamp_(0),
-      minimum_delay_ms_(0),
-      least_required_delay_ms_(target_level_),
+      minimum_delay_ms_(base_min_target_delay_ms_),
       maximum_delay_ms_(target_level_),
       iat_cumulative_sum_(0),
       max_iat_cumulative_sum_(0),
       peak_detector_(*peak_detector),
-      last_pack_cng_or_dtmf_(1) {
+      last_pack_cng_or_dtmf_(1),
+      frame_length_change_experiment_(
+          field_trial::IsEnabled("WebRTC-Audio-NetEqFramelengthExperiment")),
+      forced_limit_probability_(GetForcedLimitProbability()),
+      enable_rtx_handling_(enable_rtx_handling) {
   assert(peak_detector);  // Should never be NULL.
+  RTC_DCHECK_GE(base_min_target_delay_ms_, 0);
+  RTC_DCHECK_LE(minimum_delay_ms_, maximum_delay_ms_);
+
   Reset();
 }
 
@@ -101,6 +150,7 @@ int DelayManager::Update(uint16_t sequence_number,
         rtc::saturated_cast<int>(1000 * packet_len_samp / sample_rate_hz);
   }
 
+  bool reordered = false;
   if (packet_len_ms > 0) {
     // Cannot update statistics unless |packet_len_ms| is valid.
     // Calculate inter-arrival time (IAT) in integer "packet times"
@@ -121,6 +171,7 @@ int DelayManager::Update(uint16_t sequence_number,
       iat_packets = std::max(iat_packets, 0);
     } else if (!IsNewerSequenceNumber(sequence_number, last_seq_no_)) {
       iat_packets += static_cast<uint16_t>(last_seq_no_ + 1 - sequence_number);
+      reordered = true;
     }
 
     // Saturate IAT at maximum value.
@@ -128,7 +179,7 @@ int DelayManager::Update(uint16_t sequence_number,
     iat_packets = std::min(iat_packets, max_iat);
     UpdateHistogram(iat_packets);
     // Calculate new |target_level_| based on updated statistics.
-    target_level_ = CalculateTargetLevel(iat_packets);
+    target_level_ = CalculateTargetLevel(iat_packets, reordered);
     if (streaming_mode_) {
       target_level_ = std::max(target_level_, max_iat_cumulative_sum_);
     }
@@ -136,6 +187,12 @@ int DelayManager::Update(uint16_t sequence_number,
     LimitTargetLevel();
   }  // End if (packet_len_ms > 0).
 
+  if (enable_rtx_handling_ && reordered &&
+      num_reordered_packets_ < kMaxReorderedPackets) {
+    ++num_reordered_packets_;
+    return 0;
+  }
+  num_reordered_packets_ = 0;
   // Prepare for next packet arrival.
   packet_iat_stopwatch_ = tick_timer_->GetNewStopwatch();
   last_seq_no_ = sequence_number;
@@ -151,8 +208,9 @@ void DelayManager::UpdateCumulativeSums(int packet_len_ms,
       (packet_iat_stopwatch_->ElapsedMs() << 8) / packet_len_ms;
   // Calculate cumulative sum IAT with sequence number compensation. The sum
   // is zero if there is no clock-drift.
-  iat_cumulative_sum_ += (iat_packets_q8 -
-      (static_cast<int>(sequence_number - last_seq_no_) << 8));
+  iat_cumulative_sum_ +=
+      (iat_packets_q8 -
+       (static_cast<int>(sequence_number - last_seq_no_) << 8));
   // Subtract drift term.
   iat_cumulative_sum_ -= kCumulativeSumDrift;
   // Ensure not negative.
@@ -185,8 +243,8 @@ void DelayManager::UpdateHistogram(size_t iat_packets) {
   assert(iat_packets < iat_vector_.size());
   int vector_sum = 0;  // Sum up the vector elements as they are processed.
   // Multiply each element in |iat_vector_| with |iat_factor_|.
-  for (IATVector::iterator it = iat_vector_.begin();
-      it != iat_vector_.end(); ++it) {
+  for (IATVector::iterator it = iat_vector_.begin(); it != iat_vector_.end();
+       ++it) {
     *it = (static_cast<int64_t>(*it) * iat_factor_) >> 15;
     vector_sum += *it;
   }
@@ -229,10 +287,8 @@ void DelayManager::UpdateHistogram(size_t iat_packets) {
 // |least_required_level_| while the above limits are applied.
 // TODO(hlundin): Move this check to the buffer logistics class.
 void DelayManager::LimitTargetLevel() {
-  least_required_delay_ms_ = (target_level_ * packet_len_ms_) >> 8;
-
   if (packet_len_ms_ > 0 && minimum_delay_ms_ > 0) {
-    int minimum_delay_packet_q8 =  (minimum_delay_ms_ << 8) / packet_len_ms_;
+    int minimum_delay_packet_q8 = (minimum_delay_ms_ << 8) / packet_len_ms_;
     target_level_ = std::max(target_level_, minimum_delay_packet_q8);
   }
 
@@ -250,8 +306,8 @@ void DelayManager::LimitTargetLevel() {
   target_level_ = std::max(target_level_, 1 << 8);
 }
 
-int DelayManager::CalculateTargetLevel(int iat_packets) {
-  int limit_probability = kLimitProbability;
+int DelayManager::CalculateTargetLevel(int iat_packets, bool reordered) {
+  int limit_probability = forced_limit_probability_.value_or(kLimitProbability);
   if (streaming_mode_) {
     limit_probability = kLimitProbabilityStreaming;
   }
@@ -265,8 +321,8 @@ int DelayManager::CalculateTargetLevel(int iat_packets) {
   // (in Q30) by definition, and since the solution is often a low value for
   // |iat_index|, it is more efficient to start with |sum| = 1 and subtract
   // elements from the start of the histogram.
-  size_t index = 0;  // Start from the beginning of |iat_vector_|.
-  int sum = 1 << 30;  // Assign to 1 in Q30.
+  size_t index = 0;           // Start from the beginning of |iat_vector_|.
+  int sum = 1 << 30;          // Assign to 1 in Q30.
   sum -= iat_vector_[index];  // Ensure that target level is >= 1.
 
   do {
@@ -281,7 +337,8 @@ int DelayManager::CalculateTargetLevel(int iat_packets) {
   base_target_level_ = static_cast<int>(index);
 
   // Update detector for delay peaks.
-  bool delay_peak_found = peak_detector_.Update(iat_packets, target_level);
+  bool delay_peak_found =
+      peak_detector_.Update(iat_packets, reordered, target_level);
   if (delay_peak_found) {
     target_level = std::max(target_level, peak_detector_.MaxPeakHeight());
   }
@@ -295,9 +352,13 @@ int DelayManager::CalculateTargetLevel(int iat_packets) {
 
 int DelayManager::SetPacketAudioLength(int length_ms) {
   if (length_ms <= 0) {
-    LOG_F(LS_ERROR) << "length_ms = " << length_ms;
+    RTC_LOG_F(LS_ERROR) << "length_ms = " << length_ms;
     return -1;
   }
+  if (frame_length_change_experiment_ && packet_len_ms_ != length_ms) {
+    iat_vector_ = ScaleHistogram(iat_vector_, packet_len_ms_, length_ms);
+  }
+
   packet_len_ms_ = length_ms;
   peak_detector_.SetPacketAudioLength(packet_len_ms_);
   packet_iat_stopwatch_ = tick_timer_->GetNewStopwatch();
@@ -305,13 +366,12 @@ int DelayManager::SetPacketAudioLength(int length_ms) {
   return 0;
 }
 
-
 void DelayManager::Reset() {
   packet_len_ms_ = 0;  // Packet size unknown.
   streaming_mode_ = false;
   peak_detector_.Reset();
   ResetHistogram();  // Resets target levels too.
-  iat_factor_ = 0;  // Adapt the histogram faster for the first few packets.
+  iat_factor_ = 0;   // Adapt the histogram faster for the first few packets.
   packet_iat_stopwatch_ = tick_timer_->GetNewStopwatch();
   max_iat_stopwatch_ = tick_timer_->GetNewStopwatch();
   iat_cumulative_sum_ = 0;
@@ -345,7 +405,7 @@ void DelayManager::ResetPacketIatCount() {
 // class. They are computed from |target_level_| and used for decision making.
 void DelayManager::BufferLimits(int* lower_limit, int* higher_limit) const {
   if (!lower_limit || !higher_limit) {
-    LOG_F(LS_ERROR) << "NULL pointers supplied as input";
+    RTC_LOG_F(LS_ERROR) << "NULL pointers supplied as input";
     assert(false);
     return;
   }
@@ -378,6 +438,60 @@ void DelayManager::RegisterEmptyPacket() {
   ++last_seq_no_;
 }
 
+DelayManager::IATVector DelayManager::ScaleHistogram(const IATVector& histogram,
+                                                     int old_packet_length,
+                                                     int new_packet_length) {
+  if (old_packet_length == 0) {
+    // If we don't know the previous frame length, don't make any changes to the
+    // histogram.
+    return histogram;
+  }
+  RTC_DCHECK_GT(new_packet_length, 0);
+  RTC_DCHECK_EQ(old_packet_length % 10, 0);
+  RTC_DCHECK_EQ(new_packet_length % 10, 0);
+  IATVector new_histogram(histogram.size(), 0);
+  int64_t acc = 0;
+  int time_counter = 0;
+  size_t new_histogram_idx = 0;
+  for (size_t i = 0; i < histogram.size(); i++) {
+    acc += histogram[i];
+    time_counter += old_packet_length;
+    // The bins should be scaled, to ensure the histogram still sums to one.
+    const int64_t scaled_acc = acc * new_packet_length / time_counter;
+    int64_t actually_used_acc = 0;
+    while (time_counter >= new_packet_length) {
+      const int64_t old_histogram_val = new_histogram[new_histogram_idx];
+      new_histogram[new_histogram_idx] =
+          rtc::saturated_cast<int>(old_histogram_val + scaled_acc);
+      actually_used_acc += new_histogram[new_histogram_idx] - old_histogram_val;
+      new_histogram_idx =
+          std::min(new_histogram_idx + 1, new_histogram.size() - 1);
+      time_counter -= new_packet_length;
+    }
+    // Only subtract the part that was succesfully written to the new histogram.
+    acc -= actually_used_acc;
+  }
+  // If there is anything left in acc (due to rounding errors), add it to the
+  // last bin. If we cannot add everything to the last bin we need to add as
+  // much as possible to the bins after the last bin (this is only possible
+  // when compressing a histogram).
+  while (acc > 0 && new_histogram_idx < new_histogram.size()) {
+    const int64_t old_histogram_val = new_histogram[new_histogram_idx];
+    new_histogram[new_histogram_idx] =
+        rtc::saturated_cast<int>(old_histogram_val + acc);
+    acc -= new_histogram[new_histogram_idx] - old_histogram_val;
+    new_histogram_idx++;
+  }
+  RTC_DCHECK_EQ(histogram.size(), new_histogram.size());
+  if (acc == 0) {
+    // If acc is non-zero, we were not able to add everything to the new
+    // histogram, so this check will not hold.
+    RTC_DCHECK_EQ(accumulate(histogram.begin(), histogram.end(), 0ll),
+                  accumulate(new_histogram.begin(), new_histogram.end(), 0ll));
+  }
+  return new_histogram;
+}
+
 bool DelayManager::SetMinimumDelay(int delay_ms) {
   // Minimum delay shouldn't be more than maximum delay, if any maximum is set.
   // Also, if possible check |delay| to less than 75% of
@@ -388,7 +502,7 @@ bool DelayManager::SetMinimumDelay(int delay_ms) {
            static_cast<int>(3 * max_packets_in_buffer_ * packet_len_ms_ / 4))) {
     return false;
   }
-  minimum_delay_ms_ = delay_ms;
+  minimum_delay_ms_ = std::max(delay_ms, base_min_target_delay_ms_);
   return true;
 }
 
@@ -405,12 +519,12 @@ bool DelayManager::SetMaximumDelay(int delay_ms) {
   return true;
 }
 
-int DelayManager::least_required_delay_ms() const {
-  return least_required_delay_ms_;
+int DelayManager::base_target_level() const {
+  return base_target_level_;
 }
-
-int DelayManager::base_target_level() const { return base_target_level_; }
-void DelayManager::set_streaming_mode(bool value) { streaming_mode_ = value; }
+void DelayManager::set_streaming_mode(bool value) {
+  streaming_mode_ = value;
+}
 int DelayManager::last_pack_cng_or_dtmf() const {
   return last_pack_cng_or_dtmf_;
 }

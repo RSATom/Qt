@@ -38,6 +38,8 @@
 #include <QtPositioning/private/qwebmercator_p.h>
 #include <QtPositioning/private/qlocationutils_p.h>
 #include <QtPositioning/private/qclipperutils_p.h>
+#include <QtPositioning/QGeoPolygon>
+#include <QtPositioning/QGeoRectangle>
 #include <QSize>
 #include <QtGui/QMatrix4x4>
 #include <cmath>
@@ -61,6 +63,30 @@ static QMatrix4x4 toMatrix4x4(const QDoubleMatrix4x4 &m)
                       m(3,0), m(3,1), m(3,2), m(3,3));
 }
 
+static QPointF centerOffset(const QSizeF &screenSize, const QRectF &visibleArea)
+{
+    QRectF va = visibleArea;
+    if (va.isNull())
+        va = QRectF(0, 0, screenSize.width(), screenSize.height());
+
+    QRectF screen = QRectF(QPointF(0,0),screenSize);
+    QPointF vaCenter = va.center();
+
+    QPointF screenCenter = screen.center();
+    QPointF diff = screenCenter - vaCenter;
+
+    return diff;
+}
+
+static QPointF marginsOffset(const QSizeF &screenSize, const QRectF &visibleArea)
+{
+    QPointF diff = centerOffset(screenSize, visibleArea);
+    qreal xdiffpct = diff.x() / qMax<double>(screenSize.width() - 1, 1);
+    qreal ydiffpct = diff.y() / qMax<double>(screenSize.height() - 1, 1);
+
+    return QPointF(-xdiffpct, -ydiffpct);
+}
+
 QT_BEGIN_NAMESPACE
 
 QGeoProjection::QGeoProjection()
@@ -75,6 +101,30 @@ QGeoProjection::~QGeoProjection()
 
 QGeoCoordinate QGeoProjection::anchorCoordinateToPoint(const QGeoCoordinate &coordinate, const QPointF &anchorPoint) const
 {
+    Q_UNUSED(coordinate);
+    Q_UNUSED(anchorPoint);
+    return QGeoCoordinate();
+}
+
+QGeoShape QGeoProjection::visibleRegion() const
+{
+    return QGeoShape();
+}
+
+bool QGeoProjection::setBearing(qreal bearing, const QGeoCoordinate &coordinate)
+{
+    Q_UNUSED(bearing);
+    Q_UNUSED(coordinate);
+    return false;
+}
+
+
+/*
+ * QGeoProjectionWebMercator implementation
+*/
+
+QGeoCoordinate QGeoProjectionWebMercator::anchorCoordinateToPoint(const QGeoCoordinate &coordinate, const QPointF &anchorPoint) const
+{
     // Approach: find the displacement in (wrapped) mercator space, and apply that to the center
     QDoubleVector2D centerProj = geoToWrappedMapProjection(cameraData().center());
     QDoubleVector2D coordProj  = geoToWrappedMapProjection(coordinate);
@@ -84,9 +134,25 @@ QGeoCoordinate QGeoProjection::anchorCoordinateToPoint(const QGeoCoordinate &coo
     return wrappedMapProjectionToGeo(centerProj + coordProj - anchorProj);
 }
 
-/*
- * QGeoProjectionWebMercator implementation
-*/
+bool QGeoProjectionWebMercator::setBearing(qreal bearing, const QGeoCoordinate &coordinate)
+{
+    const QDoubleVector2D coordWrapped = geoToWrappedMapProjection(coordinate);
+    if (!isProjectable(coordWrapped))
+        return false;
+    const QPointF rotationPoint = wrappedMapProjectionToItemPosition(coordWrapped).toPointF();
+
+    QGeoCameraData camera = cameraData();
+    // first set bearing
+    camera.setBearing(bearing);
+    setCameraData(camera);
+    camera = cameraData();
+
+    // then reanchor
+    const QGeoCoordinate center = anchorCoordinateToPoint(coordinate, rotationPoint);
+    camera.setCenter(center);
+    setCameraData(camera);
+    return true;
+}
 
 QGeoProjectionWebMercator::QGeoProjectionWebMercator()
     : QGeoProjection(),
@@ -98,7 +164,7 @@ QGeoProjectionWebMercator::QGeoProjectionWebMercator()
       m_viewportHeight(1),
       m_1_viewportWidth(0),
       m_1_viewportHeight(0),
-      m_sideLength(256),
+      m_sideLengthPixels(256),
       m_aperture(0.0),
       m_nearPlane(0.0),
       m_farPlane(0.0),
@@ -134,12 +200,34 @@ double QGeoProjectionWebMercator::maximumCenterLatitudeAtZoom(const QGeoCameraDa
 
     // At init time weird things happen
     int clampedWindowHeight = (m_viewportHeight > mapEdgeSize) ? mapEdgeSize : m_viewportHeight;
+    QPointF offsetPct = centerOffset(QSizeF(m_viewportWidth, m_viewportHeight), m_visibleArea);
+    double hpct = offsetPct.y() / qMax<double>(m_viewportHeight - 1, 1);
 
     // Use the window height divided by 2 as the topmost allowed center, with respect to the map size in pixels
-    double mercatorTopmost = (clampedWindowHeight * 0.5) /  mapEdgeSize ;
+    double mercatorTopmost = (clampedWindowHeight * (0.5 - hpct)) /  mapEdgeSize ;
     QGeoCoordinate topMost = QWebMercator::mercatorToCoord(QDoubleVector2D(0.0, mercatorTopmost));
-
     return topMost.latitude();
+}
+
+double QGeoProjectionWebMercator::minimumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const
+{
+    double mapEdgeSize = std::pow(2.0, cameraData.zoomLevel()) * defaultTileSize;
+
+    // At init time weird things happen
+    int clampedWindowHeight = (m_viewportHeight > mapEdgeSize) ? mapEdgeSize : m_viewportHeight;
+    QPointF offsetPct = centerOffset(QSizeF(m_viewportWidth, m_viewportHeight), m_visibleArea);
+    double hpct = offsetPct.y() / qMax<double>(m_viewportHeight - 1, 1);
+
+    // Use the window height divided by 2 as the topmost allowed center, with respect to the map size in pixels
+    double mercatorTopmost = (clampedWindowHeight * (0.5 + hpct)) /  mapEdgeSize ;
+    QGeoCoordinate topMost = QWebMercator::mercatorToCoord(QDoubleVector2D(0.0, mercatorTopmost));
+    return -topMost.latitude();
+}
+
+void QGeoProjectionWebMercator::setVisibleArea(const QRectF &visibleArea)
+{
+    m_visibleArea = visibleArea;
+    setupCamera();
 }
 
 double QGeoProjectionWebMercator::mapWidth() const
@@ -154,6 +242,9 @@ double QGeoProjectionWebMercator::mapHeight() const
 
 void QGeoProjectionWebMercator::setViewportSize(const QSize &size)
 {
+    if (int(m_viewportWidth) ==  size.width() && int(m_viewportHeight) == size.height())
+        return;
+
     m_viewportWidth = size.width();
     m_viewportHeight = size.height();
     m_1_viewportWidth = 1.0 / m_viewportWidth;
@@ -162,8 +253,11 @@ void QGeoProjectionWebMercator::setViewportSize(const QSize &size)
     setupCamera();
 }
 
-void QGeoProjectionWebMercator::setCameraData(const QGeoCameraData &cameraData)
+void QGeoProjectionWebMercator::setCameraData(const QGeoCameraData &cameraData, bool force)
 {
+    if (m_cameraData == cameraData && !force)
+        return;
+
     m_cameraData = cameraData;
     m_mapEdgeSize = std::pow(2.0, cameraData.zoomLevel()) * defaultTileSize;
     setupCamera();
@@ -211,7 +305,8 @@ QDoubleVector2D QGeoProjectionWebMercator::wrappedMapProjectionToItemPosition(co
 
 QDoubleVector2D QGeoProjectionWebMercator::itemPositionToWrappedMapProjection(const QDoubleVector2D &itemPosition) const
 {
-    QDoubleVector2D pos = itemPosition;
+    const QPointF centerOff = centerOffset(QSizeF(m_viewportWidth, m_viewportHeight), m_visibleArea);
+    QDoubleVector2D pos = itemPosition + QDoubleVector2D(centerOff);
     pos *= QDoubleVector2D(m_1_viewportWidth, m_1_viewportHeight);
     pos *= 2.0;
     pos -= QDoubleVector2D(1.0,1.0);
@@ -294,7 +389,7 @@ QMatrix4x4 QGeoProjectionWebMercator::quickItemTransformation(const QGeoCoordina
     const QDoubleVector2D anchorMercator = anchorScaled / mapWidth();
 
     const QDoubleVector2D coordAnchored = coordWrapped - anchorMercator;
-    const QDoubleVector2D coordAnchoredScaled = coordAnchored * m_sideLength;
+    const QDoubleVector2D coordAnchoredScaled = coordAnchored * m_sideLengthPixels;
     QDoubleMatrix4x4 matTranslateScale;
     matTranslateScale.translate(coordAnchoredScaled.x(), coordAnchoredScaled.y(), 0.0);
 
@@ -321,7 +416,7 @@ bool QGeoProjectionWebMercator::isProjectable(const QDoubleVector2D &wrappedProj
     if (m_cameraData.tilt() == 0.0)
         return true;
 
-    QDoubleVector3D pos = wrappedProjection * m_sideLength;
+    QDoubleVector3D pos = wrappedProjection * m_sideLengthPixels;
     // use m_centerNearPlane in order to add an offset to m_eye.
     QDoubleVector3D p = m_centerNearPlane - pos;
     double dot = QDoubleVector3D::dotProduct(p , m_viewNormalized);
@@ -331,18 +426,46 @@ bool QGeoProjectionWebMercator::isProjectable(const QDoubleVector2D &wrappedProj
     return true;
 }
 
-QList<QDoubleVector2D> QGeoProjectionWebMercator::visibleRegion() const
+QList<QDoubleVector2D> QGeoProjectionWebMercator::visibleGeometry() const
 {
     if (m_visibleRegionDirty)
         const_cast<QGeoProjectionWebMercator *>(this)->updateVisibleRegion();
     return m_visibleRegion;
 }
 
-QList<QDoubleVector2D> QGeoProjectionWebMercator::projectableRegion() const
+QList<QDoubleVector2D> QGeoProjectionWebMercator::visibleGeometryExpanded() const
+{
+    if (m_visibleRegionDirty)
+        const_cast<QGeoProjectionWebMercator *>(this)->updateVisibleRegion();
+    return m_visibleRegionExpanded;
+}
+
+QList<QDoubleVector2D> QGeoProjectionWebMercator::projectableGeometry() const
 {
     if (m_visibleRegionDirty)
         const_cast<QGeoProjectionWebMercator *>(this)->updateVisibleRegion();
     return m_projectableRegion;
+}
+
+QGeoShape QGeoProjectionWebMercator::visibleRegion() const
+{
+    const QList<QDoubleVector2D> &visibleRegion = visibleGeometry();
+    QGeoPolygon poly;
+    for (int i = 0; i < visibleRegion.size(); ++i) {
+         const QDoubleVector2D &c = visibleRegion.at(i);
+        // If a segment spans more than half of the map longitudinally, split in 2.
+        if (i && qAbs(visibleRegion.at(i-1).x() - c.x()) >= 0.5) { // This assumes a segment is never >= 1.0 (whole map span)
+            QDoubleVector2D extraPoint = (visibleRegion.at(i-1) + c) * 0.5;
+            poly.addCoordinate(wrappedMapProjectionToGeo(extraPoint));
+        }
+        poly.addCoordinate(wrappedMapProjectionToGeo(c));
+    }
+    if (visibleRegion.size() >= 2 && qAbs(visibleRegion.last().x() - visibleRegion.first().x()) >= 0.5) {
+        QDoubleVector2D extraPoint = (visibleRegion.last() + visibleRegion.first()) * 0.5;
+        poly.addCoordinate(wrappedMapProjectionToGeo(extraPoint));
+    }
+
+    return poly;
 }
 
 QDoubleVector2D QGeoProjectionWebMercator::viewportToWrappedMapProjection(const QDoubleVector2D &itemPosition) const
@@ -359,14 +482,67 @@ QDoubleVector2D QGeoProjectionWebMercator::viewportToWrappedMapProjection(const 
     QDoubleVector2D pos = itemPosition;
     pos *= QDoubleVector2D(m_halfWidth, m_halfHeight);
 
+    // determine itemPosition on the near plane
     QDoubleVector3D p = m_centerNearPlane;
     p += m_up * pos.y();
     p += m_side * pos.x();
 
+    // compute the ray using the eye position
     QDoubleVector3D ray = m_eye - p;
     ray.normalize();
 
-    return (xyPlane.lineIntersection(m_eye, ray, s) / m_sideLength).toVector2D();
+    return (xyPlane.lineIntersection(m_eye, ray, s) / m_sideLengthPixels).toVector2D();
+}
+
+/*
+    Returns a pair of <newCenter, newZoom>
+*/
+QPair<QGeoCoordinate, qreal> QGeoProjectionWebMercator::fitViewportToGeoRectangle(const QGeoRectangle &rectangle,
+                                                                                  const QMargins &m) const
+{
+    QPair<QGeoCoordinate, qreal> res;
+    res.second = qQNaN();
+    if (m_viewportWidth <= m.left() + m.right() || m_viewportHeight <= m.top() + m.bottom())
+        return res;
+
+    QDoubleVector2D topLeftPoint = geoToMapProjection(rectangle.topLeft());
+    QDoubleVector2D bottomRightPoint = geoToMapProjection(rectangle.bottomRight());
+    if (bottomRightPoint.x() < topLeftPoint.x()) // crossing the dateline
+        bottomRightPoint.setX(bottomRightPoint.x() + 1.0);
+
+    // find center of the bounding box
+    QDoubleVector2D center = (topLeftPoint + bottomRightPoint) * 0.5;
+    center.setX(center.x() > 1.0 ? center.x() - 1.0 : center.x());
+    res.first = mapProjectionToGeo(center);
+
+    // if the shape is empty we just change center position, not zoom
+    double bboxWidth  = (bottomRightPoint.x() - topLeftPoint.x()) * mapWidth();
+    double bboxHeight = (bottomRightPoint.y() - topLeftPoint.y()) * mapHeight();
+
+    if (bboxHeight == 0.0 && bboxWidth == 0.0)
+        return res;
+
+    double zoomRatio = qMax(bboxWidth / (m_viewportWidth - m.left() - m.right()),
+                            bboxHeight / (m_viewportHeight - m.top() - m.bottom()));
+    zoomRatio = std::log(zoomRatio) / std::log(2.0);
+    res.second = m_cameraData.zoomLevel() - zoomRatio;
+
+    return  res;
+}
+
+QGeoProjection::ProjectionGroup QGeoProjectionWebMercator::projectionGroup() const
+{
+    return QGeoProjection::ProjectionCylindrical;
+}
+
+QGeoProjection::Datum QGeoProjectionWebMercator::datum() const
+{
+    return QGeoProjection::DatumWGS84;
+}
+
+QGeoProjection::ProjectionType QGeoProjectionWebMercator::projectionType() const
+{
+    return QGeoProjection::ProjectionWebMercator;
 }
 
 void QGeoProjectionWebMercator::setupCamera()
@@ -376,8 +552,8 @@ void QGeoProjectionWebMercator::setupCamera()
     m_cameraCenterYMercator = m_centerMercator.y();
 
     int intZoomLevel = static_cast<int>(std::floor(m_cameraData.zoomLevel()));
-    m_sideLength = (1 << intZoomLevel) * defaultTileSize;
-    m_center = m_centerMercator * m_sideLength;
+    m_sideLengthPixels = (1 << intZoomLevel) * defaultTileSize;
+    m_center = m_centerMercator * m_sideLengthPixels;
     //aperture(90 / 2) = 1
     m_aperture = tan(QLocationUtils::radians(m_cameraData.fieldOfView()) * 0.5);
 
@@ -448,7 +624,8 @@ void QGeoProjectionWebMercator::setupCamera()
 
     m_viewMercator = m_eyeMercator - m_centerMercator;
     m_upMercator = QDoubleVector3D::normal(m_viewMercator, m_sideMercator);
-    m_nearPlaneMercator = 1.0 / m_sideLength;
+    m_nearPlaneMercator = 0.000002; // this value works until ZL 18. Above that, a better progressive formula is needed, or
+                                    // else, this clips too much.
 
     double aspectRatio = 1.0 * m_viewportWidth / m_viewportHeight;
 
@@ -473,14 +650,15 @@ void QGeoProjectionWebMercator::setupCamera()
      * matScreen = scale(m_viewportWidth, m_viewportHeight, 1.0)
      */
 
+    QPointF offsetPct = marginsOffset(QSizeF(m_viewportWidth, m_viewportHeight), m_visibleArea);
     QDoubleMatrix4x4 matScreenTransformation;
     matScreenTransformation.scale(0.5 * m_viewportWidth, 0.5 * m_viewportHeight, 1.0);
-    matScreenTransformation(0,3) = 0.5 * m_viewportWidth;
-    matScreenTransformation(1,3) = 0.5 * m_viewportHeight;
+    matScreenTransformation(0,3) = (0.5 + offsetPct.x()) * m_viewportWidth;
+    matScreenTransformation(1,3) = (0.5 + offsetPct.y()) * m_viewportHeight;
 
     m_transformation = matScreenTransformation *  projectionMatrix * cameraMatrix;
     m_quickItemTransformation = m_transformation;
-    m_transformation.scale(m_sideLength, m_sideLength, 1.0);
+    m_transformation.scale(m_sideLengthPixels, m_sideLengthPixels, 1.0);
 
     m_centerNearPlane = m_eye - m_viewNormalized;
     m_centerNearPlaneMercator = m_eyeMercator - m_viewNormalized * m_nearPlaneMercator;
@@ -507,10 +685,18 @@ void QGeoProjectionWebMercator::updateVisibleRegion()
 {
     m_visibleRegionDirty = false;
 
-    QDoubleVector2D tl = viewportToWrappedMapProjection(QDoubleVector2D(-1, -1 + m_verticalEstateToSkip ));
-    QDoubleVector2D tr = viewportToWrappedMapProjection(QDoubleVector2D( 1, -1 + m_verticalEstateToSkip ));
-    QDoubleVector2D bl = viewportToWrappedMapProjection(QDoubleVector2D(-1,  1 ));
-    QDoubleVector2D br = viewportToWrappedMapProjection(QDoubleVector2D( 1,  1 ));
+    double viewportHalfWidth  = (!m_visibleArea.isEmpty()) ? m_visibleArea.width() / m_viewportWidth : 1.0;
+    double viewportHalfHeight = (!m_visibleArea.isEmpty()) ? m_visibleArea.height() / m_viewportHeight : 1.0;
+
+    double top = qMax<double>(-viewportHalfHeight, -1 + m_verticalEstateToSkip);
+    double bottom = viewportHalfHeight;
+    double left = -viewportHalfWidth;
+    double right = viewportHalfWidth;
+
+    QDoubleVector2D tl = viewportToWrappedMapProjection(QDoubleVector2D(left, top ));
+    QDoubleVector2D tr = viewportToWrappedMapProjection(QDoubleVector2D(right, top ));
+    QDoubleVector2D bl = viewportToWrappedMapProjection(QDoubleVector2D(left,  bottom ));
+    QDoubleVector2D br = viewportToWrappedMapProjection(QDoubleVector2D(right, bottom ));
 
     // To make sure that what is returned can be safely converted back to lat/lon without risking overlaps
     double mapLeftLongitude = QLocationUtils::mapLeftLongitude(m_cameraData.center().longitude());
@@ -585,6 +771,28 @@ void QGeoProjectionWebMercator::updateVisibleRegion()
         else
             m_projectableRegion = viewportRect;
     }
+
+    // Compute m_visibleRegionExpanded as a clipped expanded version of m_visibleRegion
+    QDoubleVector2D centroid;
+    for (const QDoubleVector2D &v: qAsConst(m_visibleRegion))
+        centroid += v;
+    centroid /= m_visibleRegion.size();
+
+    m_visibleRegionExpanded.clear();
+    for (const QDoubleVector2D &v: qAsConst(m_visibleRegion)) {
+        const QDoubleVector2D vc = v - centroid;
+        m_visibleRegionExpanded.push_back(centroid + vc * 1.2); // fixing expansion factor to 1.2
+    }
+
+    c2t::clip2tri clipperExpanded;
+    clipperExpanded.clearClipper();
+    clipperExpanded.addSubjectPath(QClipperUtils::qListToPath(m_visibleRegionExpanded), true);
+    clipperExpanded.addClipPolygon(QClipperUtils::qListToPath(m_projectableRegion));
+    Paths resVisibleExpanded = clipperExpanded.execute(c2t::clip2tri::Intersection);
+    if (resVisibleExpanded.size())
+        m_visibleRegionExpanded = QClipperUtils::pathToQList(resVisibleExpanded[0]); // Intersection between two convex quadrilaterals should always be a single polygon
+    else
+        m_visibleRegionExpanded = m_visibleRegion;
 }
 
 QGeoCameraData QGeoProjectionWebMercator::cameraData() const

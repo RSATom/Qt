@@ -6,9 +6,9 @@
 
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -17,7 +17,7 @@ using storage::ShareableFileReference;
 namespace content {
 
 TEST(ShareableFileReferenceTest, TestReferences) {
-  base::MessageLoop message_loop;
+  base::test::ScopedTaskEnvironment task_environment;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       base::ThreadTaskRunnerHandle::Get();
   base::ScopedTempDir temp_dir;
@@ -46,13 +46,13 @@ TEST(ShareableFileReferenceTest, TestReferences) {
   EXPECT_EQ(reference1.get(), reference2.get());
 
   // Drop the first reference, the file and reference should still be there.
-  reference1 = NULL;
+  reference1 = nullptr;
   EXPECT_TRUE(ShareableFileReference::Get(file).get());
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(base::PathExists(file));
 
   // Drop the second reference, the file and reference should get deleted.
-  reference2 = NULL;
+  reference2 = nullptr;
   EXPECT_FALSE(ShareableFileReference::Get(file).get());
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(base::PathExists(file));

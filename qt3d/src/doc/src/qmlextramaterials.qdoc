@@ -3,9 +3,9 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the Qt3D module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,25 +14,13 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -40,6 +28,8 @@
 /*!
     \qmltype DiffuseMapMaterial
     \inqmlmodule Qt3D.Extras
+    \obsolete
+
     \brief The DiffuseMapMaterial provides a default implementation of the phong lighting effect
     where the diffuse light component is read from a texture map.
     \since 5.7
@@ -79,6 +69,10 @@
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with WrapMode.Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 /*!
     \qmlproperty TextureImage DiffuseMapMaterial::diffuse
@@ -98,6 +92,8 @@
 /*!
     \qmltype DiffuseSpecularMapMaterial
     \inqmlmodule Qt3D.Extras
+    \obsolete
+
     \brief The DiffuseSpecularMapMaterial provides a default implementation of the phong lighting
     effect where the diffuse and specular light components are read from texture maps.
     \since 5.7
@@ -160,6 +156,10 @@
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with WrapMode.Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 
 /*!
@@ -201,14 +201,14 @@
     Holds the current specular color.
 */
 /*!
-    \qmlproperty color GoochMaterial::coolColor
+    \qmlproperty color GoochMaterial::cool
 
-    Holds the current coolColor color.
+    Holds the current cool color.
 */
 /*!
-    \qmlproperty color GoochMaterial::warmColor
+    \qmlproperty color GoochMaterial::warm
 
-    Holds the current warmColor color.
+    Holds the current warm color.
 */
 /*!
     \qmlproperty real GoochMaterial::alpha
@@ -232,6 +232,8 @@
 /*!
     \qmltype NormalDiffuseMapAlphaMaterial
     \inqmlmodule Qt3D.Extras
+    \obsolete
+
     \brief The NormalDiffuseMapAlphaMaterial provides a specialization of NormalDiffuseMapMaterial
     with alpha coverage and a depth test performed in the rendering pass.
     \since 5.7
@@ -298,11 +300,17 @@
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with WrapMode.Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 
 /*!
     \qmltype NormalDiffuseMapMaterial
     \inqmlmodule Qt3D.Extras
+    \obsolete
+
     \brief The NormalDiffuseMapMaterial provides a default implementation of the phong lighting
     and bump effect where the diffuse light component is read from a texture map and the normals of
     the mesh being rendered from a normal texture map.
@@ -370,11 +378,17 @@
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with WrapMode.Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 
 /*!
     \qmltype NormalDiffuseSpecularMapMaterial
     \inqmlmodule Qt3D.Extras
+    \obsolete
+
     \brief The NormalDiffuseSpecularMapMaterial provides a default implementation of the phong
     lighting and bump effect where the diffuse and specular light components are read from texture
     maps and the normals of the mesh being rendered from a normal texture map.
@@ -451,6 +465,10 @@
 
     Holds the current texture scale. It is applied as a multiplier to texture
     coordinates at render time. Defaults to 1.0.
+
+    When used in conjunction with WrapMode.Repeat, textureScale provides a simple
+    way to tile a texture across a surface. For example, a texture scale of \c 4.0
+    would result in 16 (4x4) tiles.
 */
 
 /*!
@@ -477,6 +495,8 @@
 /*!
     \qmltype PhongAlphaMaterial
     \inqmlmodule Qt3D.Extras
+    \obsolete
+
     \brief The PhongAlphaMaterial class provides a default implementation of
     the phong lighting effect with alpha.
     \since 5.7
@@ -528,6 +548,8 @@
 /*!
     \qmltype PhongMaterial
     \inqmlmodule Qt3D.Extras
+    \obsolete
+
     \brief The PhongMaterial class provides a default implementation of the phong lighting effect.
     \since 5.7
     \inherits Qt3D.Render::Material

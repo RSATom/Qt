@@ -14,13 +14,13 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
+#include "base/unguessable_token.h"
 #include "extensions/common/features/feature.h"
 #include "extensions/common/permissions/api_permission_set.h"
 #include "extensions/renderer/module_system.h"
 #include "extensions/renderer/request_sender.h"
 #include "extensions/renderer/safe_builtins.h"
 #include "extensions/renderer/script_injection_callback.h"
-#include "gin/runner.h"
 #include "url/gurl.h"
 #include "v8/include/v8.h"
 
@@ -61,13 +61,16 @@ class ScriptContext : public RequestSender::Source {
   // See comment in HasAccessOrThrowError.
   static bool IsSandboxedPage(const GURL& url);
 
+  // Initializes |module_system| and associates it with this context.
+  void SetModuleSystem(std::unique_ptr<ModuleSystem> module_system);
+
   // Clears the WebLocalFrame for this contexts and invalidates the associated
   // ModuleSystem.
   void Invalidate();
 
   // Registers |observer| to be run when this context is invalidated. Closures
   // are run immediately when Invalidate() is called, not in a message loop.
-  void AddInvalidationObserver(const base::Closure& observer);
+  void AddInvalidationObserver(base::OnceClosure observer);
 
   // Returns true if this context is still valid, false if it isn't.
   // A context becomes invalid via Invalidate().
@@ -91,9 +94,7 @@ class ScriptContext : public RequestSender::Source {
     return effective_context_type_;
   }
 
-  void set_module_system(std::unique_ptr<ModuleSystem> module_system) {
-    module_system_ = std::move(module_system);
-  }
+  const base::UnguessableToken& context_id() const { return context_id_; }
 
   ModuleSystem* module_system() { return module_system_.get(); }
 
@@ -151,6 +152,10 @@ class ScriptContext : public RequestSender::Source {
 
   const GURL& service_worker_scope() const;
 
+  int64_t service_worker_version_id() const {
+    return service_worker_version_id_;
+  }
+
   // Sets the URL of this ScriptContext. Usually this will automatically be set
   // on construction, unless this isn't constructed with enough information to
   // determine the URL (e.g. frame was null).
@@ -158,6 +163,9 @@ class ScriptContext : public RequestSender::Source {
   void set_url(const GURL& url) { url_ = url; }
   void set_service_worker_scope(const GURL& scope) {
     service_worker_scope_ = scope;
+  }
+  void set_service_worker_version_id(int64_t service_worker_version_id) {
+    service_worker_version_id_ = service_worker_version_id;
   }
 
   // Returns whether the API |api| or any part of the API could be available in
@@ -170,13 +178,13 @@ class ScriptContext : public RequestSender::Source {
   // Utility to get the URL we will match against for a frame. If the frame has
   // committed, this is the commited URL. Otherwise it is the provisional URL.
   // The returned URL may be invalid.
-  static GURL GetDataSourceURLForFrame(const blink::WebLocalFrame* frame);
+  static GURL GetDocumentLoaderURLForFrame(const blink::WebLocalFrame* frame);
 
-  // Similar to GetDataSourceURLForFrame, but only returns the data source URL
-  // if the frame's document url is empty and the frame has a security origin
-  // that allows access to the data source url.
+  // Similar to GetDocumentLoaderURLForFrame, but only returns the data source
+  // URL if the frame's document url is empty and the frame has a security
+  // origin that allows access to the data source url.
   // TODO(asargent/devlin) - there may be places that should switch to using
-  // this instead of GetDataSourceURLForFrame.
+  // this instead of GetDocumentLoaderURLForFrame.
   static GURL GetAccessCheckedFrameURL(const blink::WebLocalFrame* frame);
 
   // Returns the first non-about:-URL in the document hierarchy above and
@@ -195,8 +203,8 @@ class ScriptContext : public RequestSender::Source {
                           const std::string& error) override;
 
   // Grants a set of content capabilities to this context.
-  void set_content_capabilities(const APIPermissionSet& capabilities) {
-    content_capabilities_ = capabilities;
+  void set_content_capabilities(APIPermissionSet capabilities) {
+    content_capabilities_ = std::move(capabilities);
   }
 
   // Indicates if this context has an effective API permission either by being
@@ -222,15 +230,15 @@ class ScriptContext : public RequestSender::Source {
   v8::Local<v8::Value> RunScript(
       v8::Local<v8::String> name,
       v8::Local<v8::String> code,
-      const RunScriptExceptionHandler& exception_handler);
+      const RunScriptExceptionHandler& exception_handler,
+      v8::ScriptCompiler::NoCacheReason no_cache_reason =
+          v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
 
  private:
   // DEPRECATED.
   v8::Local<v8::Value> CallFunction(const v8::Local<v8::Function>& function,
                                     int argc,
                                     v8::Local<v8::Value> argv[]) const;
-
-  class Runner;
 
   // Whether this context is valid.
   bool is_valid_;
@@ -257,6 +265,9 @@ class ScriptContext : public RequestSender::Source {
   // The type of context.
   Feature::Context effective_context_type_;
 
+  // A globally-unique ID for the script context.
+  base::UnguessableToken context_id_;
+
   // Owns and structures the JS that is injected to set up extension bindings.
   std::unique_ptr<ModuleSystem> module_system_;
 
@@ -266,9 +277,9 @@ class ScriptContext : public RequestSender::Source {
   // The set of capabilities granted to this context by extensions.
   APIPermissionSet content_capabilities_;
 
-  // A list of base::Closure instances as an observer interface for
+  // A list of base::OnceClosure instances as an observer interface for
   // invalidation.
-  std::vector<base::Closure> invalidate_observers_;
+  std::vector<base::OnceClosure> invalidate_observers_;
 
   v8::Isolate* isolate_;
 
@@ -276,7 +287,7 @@ class ScriptContext : public RequestSender::Source {
 
   GURL service_worker_scope_;
 
-  std::unique_ptr<Runner> runner_;
+  int64_t service_worker_version_id_;
 
   base::ThreadChecker thread_checker_;
 

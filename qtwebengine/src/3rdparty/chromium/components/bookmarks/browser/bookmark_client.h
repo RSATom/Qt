@@ -45,12 +45,12 @@ class BookmarkClient {
 
   // Requests a favicon from the history cache for the web page at |page_url|.
   // |callback| is run when the favicon has been fetched. If |type| is:
-  // - favicon_base::FAVICON, the returned gfx::Image is a multi-resolution
-  //   image of gfx::kFaviconSize DIP width and height. The data from the
-  //   history cache is resized if need be.
-  // - not favicon_base::FAVICON, the returned gfx::Image is a single-resolution
-  //   image with the largest bitmap in the history cache for |page_url| and
-  //   |type|.
+  // - favicon_base::IconType::kFavicon, the returned gfx::Image is a
+  //   multi-resolution image of gfx::kFaviconSize DIP width and height. The
+  //   data from the history cache is resized if need be.
+  // - not favicon_base::IconType::kFavicon, the returned gfx::Image is a
+  //   single-resolution image with the largest bitmap in the history cache for
+  //   |page_url| and |type|.
   virtual base::CancelableTaskTracker::TaskId GetFaviconImageForPageURL(
       const GURL& page_url,
       favicon_base::IconType type,
@@ -89,6 +89,19 @@ class BookmarkClient {
   // should give the client a means to temporarily disable those checks.
   // http://crbug.com/49598
   virtual bool CanBeEditedByUser(const BookmarkNode* node) = 0;
+
+  // Encodes the bookmark sync data into a string blob. It's used by the
+  // bookmark model to persist the sync metadata together with the bookmark
+  // model.
+  virtual std::string EncodeBookmarkSyncMetadata() = 0;
+
+  // Decodes a string represeting the sync metadata stored in |metadata_str|.
+  // The model calls this method after it has loaded the model data.
+  // |schedule_save_closure| is a repeating call back to trigger a model and
+  // metadata persistence process.
+  virtual void DecodeBookmarkSyncMetadata(
+      const std::string& metadata_str,
+      const base::RepeatingClosure& schedule_save_closure) = 0;
 };
 
 }  // namespace bookmarks

@@ -65,7 +65,6 @@ private:
     bool checkSignals(QPlaceReply *reply, QPlaceReply::Error expectedError);
     QGeoServiceProvider *provider;
     QPlaceManager *placeManager;
-    QCoreApplication *coreApp;
 };
 
 tst_QPlaceManagerNokia::tst_QPlaceManagerNokia()

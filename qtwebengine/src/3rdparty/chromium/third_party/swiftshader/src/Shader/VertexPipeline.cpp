@@ -14,9 +14,9 @@
 
 #include "VertexPipeline.hpp"
 
-#include "Vertex.hpp"
-#include "Renderer.hpp"
-#include "Debug.hpp"
+#include "Renderer/Vertex.hpp"
+#include "Renderer/Renderer.hpp"
+#include "Common/Debug.hpp"
 
 #include <string.h>
 #include <stdlib.h>
@@ -158,7 +158,7 @@ namespace sw
 		return dst;
 	}
 
-	void VertexPipeline::pipeline()
+	void VertexPipeline::pipeline(UInt &index)
 	{
 		Vector4f position;
 		Vector4f normal;

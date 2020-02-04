@@ -48,14 +48,13 @@
 // We mean it.
 //
 
-#include <QtQuickTemplates2/private/qquickcontrol_p.h>
+#include <QtQuickTemplates2/private/qquickpage_p.h>
 
 QT_BEGIN_NAMESPACE
 
 class QQuickPopup;
 class QQuickPopupItemPrivate;
-
-class QQuickPopupItem : public QQuickControl
+class QQuickPopupItem : public QQuickPage
 {
     Q_OBJECT
 
@@ -88,6 +87,7 @@ protected:
 #endif
 
     void contentItemChange(QQuickItem *newItem, QQuickItem *oldItem) override;
+    void contentSizeChange(const QSizeF &newSize, const QSizeF &oldSize) override;
     void fontChange(const QFont &newFont, const QFont &oldFont) override;
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
     void localeChange(const QLocale &newLocale, const QLocale &oldLocale) override;
@@ -95,6 +95,7 @@ protected:
     void itemChange(ItemChange change, const ItemChangeData &data) override;
     void paddingChange(const QMarginsF &newPadding, const QMarginsF &oldPadding) override;
     void paletteChange(const QPalette &newPalette, const QPalette &oldPalette) override;
+    void enabledChange() override;
 
     QFont defaultFont() const override;
     QPalette defaultPalette() const override;

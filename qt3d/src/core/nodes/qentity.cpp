@@ -52,6 +52,8 @@
 #include <Qt3DCore/private/qcomponent_p.h>
 #include <Qt3DCore/private/qscene_p.h>
 
+#include <QQueue>
+
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
@@ -75,6 +77,13 @@ namespace Qt3DCore {
     \sa Qt3DCore::QComponent, Qt3DCore::QTransform
  */
 
+/*!
+    \fn template<typename T> QVector<T *> QEntity::componentsOfType() const
+
+    Returns all the components added to this entity that can be cast to
+    type T or an empty vector if there are no such components.
+*/
+
 /*! \internal */
 QEntityPrivate::QEntityPrivate()
     : QNodePrivate()
@@ -84,6 +93,26 @@ QEntityPrivate::QEntityPrivate()
 /*! \internal */
 QEntityPrivate::~QEntityPrivate()
 {
+}
+
+/*! \internal */
+void QEntityPrivate::removeDestroyedComponent(QComponent *comp)
+{
+    // comp is actually no longer a QComponent, just a QObject
+
+    Q_CHECK_PTR(comp);
+    qCDebug(Nodes) << Q_FUNC_INFO << comp;
+    Q_Q(QEntity);
+
+    if (m_changeArbiter) {
+        const auto componentRemovedChange = QComponentRemovedChangePtr::create(q, comp);
+        notifyObservers(componentRemovedChange);
+    }
+
+    m_components.removeOne(comp);
+
+    // Remove bookkeeping connection
+    unregisterDestructionHelper(comp);
 }
 
 /*!
@@ -150,10 +179,12 @@ void QEntity::addComponent(QComponent *comp)
     if (!comp->parent())
         comp->setParent(this);
 
+    QNodePrivate::get(comp)->_q_ensureBackendNodeCreated();
+
     d->m_components.append(comp);
 
     // Ensures proper bookkeeping
-    d->registerDestructionHelper(comp, &QEntity::removeComponent, d->m_components);
+    d->registerPrivateDestructionHelper(comp, &QEntityPrivate::removeDestroyedComponent);
 
     if (d->m_changeArbiter) {
         const auto componentAddedChange = QComponentAddedChangePtr::create(this, comp);
@@ -210,7 +241,9 @@ QEntity *QEntity::parentEntity() const
     return parentEntity;
 }
 
-/*!
+/*
+    \internal
+
     Returns the Qt3DCore::QNodeId id of the parent Qt3DCore::QEntity instance of the
     current Qt3DCore::QEntity object. The QNodeId isNull method will return true if
     there is no Qt3DCore::QEntity parent of the current Qt3DCore::QEntity in the scene
@@ -226,11 +259,29 @@ QNodeId QEntityPrivate::parentEntityId() const
 
 QNodeCreatedChangeBasePtr QEntity::createNodeCreationChange() const
 {
+    // connect to the parentChanged signal here rather than constructor because
+    // until now there's no backend node to notify when parent changes
+    connect(this, &QNode::parentChanged, this, &QEntity::onParentChanged);
+
     auto creationChange = QNodeCreatedChangePtr<QEntityData>::create(this);
     auto &data = creationChange->data;
 
     Q_D(const QEntity);
     data.parentEntityId = parentEntity() ? parentEntity()->id() : Qt3DCore::QNodeId();
+
+    // Find all child entities
+    QQueue<QNode *> queue;
+    queue.append(childNodes().toList());
+    data.childEntityIds.reserve(queue.size());
+    while (!queue.isEmpty()) {
+        auto *child = queue.dequeue();
+        auto *childEntity = qobject_cast<QEntity *>(child);
+        if (childEntity != nullptr)
+            data.childEntityIds.push_back(childEntity->id());
+        else
+            queue.append(child->childNodes().toList());
+    }
+
     data.componentIdsAndTypes.reserve(d->m_components.size());
     const QComponentVector &components = d->m_components;
     for (QComponent *c : components) {
@@ -239,6 +290,17 @@ QNodeCreatedChangeBasePtr QEntity::createNodeCreationChange() const
     }
 
     return creationChange;
+}
+
+void QEntity::onParentChanged(QObject *)
+{
+    const auto parentID = parentEntity() ? parentEntity()->id() : Qt3DCore::QNodeId();
+    auto parentChange = Qt3DCore::QPropertyUpdatedChangePtr::create(id());
+    parentChange->setPropertyName("parentEntityUpdated");
+    parentChange->setValue(QVariant::fromValue(parentID));
+    const bool blocked = blockNotifications(false);
+    notifyObservers(parentChange);
+    blockNotifications(blocked);
 }
 
 } // namespace Qt3DCore

@@ -24,10 +24,8 @@ const char kDisableMainFrameBeforeActivation[] =
 const char kEnableMainFrameBeforeActivation[] =
     "enable-main-frame-before-activation";
 
-// Enables defering image decodes to the image decode service.
-const char kEnableCheckerImaging[] = "enable-checker-imaging";
-
-// Disabled defering image decodes to the image decode service.
+// Disabled defering all image decodes to the image decode service, ignoring
+// DecodingMode preferences specified on PaintImage.
 const char kDisableCheckerImaging[] = "disable-checker-imaging";
 
 // Percentage of the browser controls need to be hidden before they will auto
@@ -43,16 +41,12 @@ const char kBrowserControlsShowThreshold[] = "top-controls-show-threshold";
 // complete, such as --slow-down-raster-scale-factor=25.
 const char kSlowDownRasterScaleFactor[] = "slow-down-raster-scale-factor";
 
-// Compress tile textures for GPUs supporting it.
-const char kEnableTileCompression[] = "enable-tile-compression";
+// Checks damage early and aborts the frame if no damage, so that clients like
+// Android WebView don't invalidate unnecessarily.
+const char kCheckDamageEarly[] = "check-damage-early";
 
 // Enables the GPU benchmarking extension
 const char kEnableGpuBenchmarking[] = "enable-gpu-benchmarking";
-
-// Enables multi-client Surface synchronization. In practice, this indicates
-// that LayerTreeHost expects to be given a valid viz::LocalSurfaceId provided
-// by the parent compositor.
-const char kEnableSurfaceSynchronization[] = "enable-surface-synchronization";
 
 // Renders a border around compositor layers to help debug and study
 // layer compositing.
@@ -61,13 +55,6 @@ const char kUIShowCompositedLayerBorders[] = "ui-show-composited-layer-borders";
 const char kCompositedRenderPassBorders[] = "renderpass";
 const char kCompositedSurfaceBorders[] = "surface";
 const char kCompositedLayerBorders[] = "layer";
-
-// TODO(dcastagna): Draw debug quad borders only when it is actually
-// an overlay candidate.
-// Renders a border around GL composited overlay candidate quads to
-// help debug and study overlay support.
-const char kGlCompositedOverlayCandidateQuadBorder[] =
-    "gl-composited-overlay-candidate-quad-border";
 
 // Draws a heads-up-display showing Frames Per Second as well as GPU memory
 // usage. If you also use --enable-logging=stderr --vmodule="head*=1" then FPS
@@ -93,21 +80,8 @@ const char kUIShowSurfaceDamageRects[] = "ui-show-surface-damage-rects";
 const char kShowScreenSpaceRects[] = "show-screenspace-rects";
 const char kUIShowScreenSpaceRects[] = "ui-show-screenspace-rects";
 
-// Switches cc machinery to use layer lists instead of layer trees
-const char kEnableLayerLists[] = "enable-layer-lists";
+// Switches the ui compositor to use layer lists instead of layer trees.
 const char kUIEnableLayerLists[] = "ui-enable-layer-lists";
-
-// Visualize overdraw by color-coding elements based on if they have other
-// elements drawn underneath. This is good for showing where the UI might be
-// doing more rendering work than necessary. The colors are hinting at the
-// amount of overdraw on your screen for each pixel, as follows:
-//
-// True color: No overdraw.
-// Blue: Overdrawn once.
-// Green: Overdrawn twice.
-// Pink: Overdrawn three times.
-// Red: Overdrawn four or more times.
-const char kShowOverdrawFeedback[] = "show-overdraw-feedback";
 
 // Prevents the layer tree unit tests from timing out.
 const char kCCLayerTreeTestNoTimeout[] = "cc-layer-tree-test-no-timeout";
@@ -117,11 +91,6 @@ const char kCCLayerTreeTestLongTimeout[] = "cc-layer-tree-test-long-timeout";
 
 // Makes pixel tests write their output instead of read it.
 const char kCCRebaselinePixeltests[] = "cc-rebaseline-pixeltests";
-
-// Disable re-use of non-exact resources to fulfill ResourcePool requests.
-// Intended only for use in layout or pixel tests to reduce noise.
-const char kDisallowNonExactResourceReuse[] =
-    "disallow-non-exact-resource-reuse";
 
 }  // namespace switches
 }  // namespace cc

@@ -7,39 +7,45 @@
 #ifndef CORE_FPDFAPI_RENDER_CPDF_IMAGELOADER_H_
 #define CORE_FPDFAPI_RENDER_CPDF_IMAGELOADER_H_
 
-#include <memory>
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
-#include "core/fxcrt/fx_basic.h"
-#include "core/fxge/fx_dib.h"
-
+class CFX_DIBBase;
 class CPDF_ImageObject;
 class CPDF_PageRenderCache;
 class CPDF_RenderStatus;
+class CPDF_TransferFunc;
+class PauseIndicatorIface;
 
 class CPDF_ImageLoader {
  public:
   CPDF_ImageLoader();
   ~CPDF_ImageLoader();
 
-  bool Start(const CPDF_ImageObject* pImage,
+  bool Start(CPDF_ImageObject* pImage,
              CPDF_PageRenderCache* pCache,
              bool bStdCS,
              uint32_t GroupFamily,
              bool bLoadMask,
              CPDF_RenderStatus* pRenderStatus);
-  bool Continue(IFX_Pause* pPause, CPDF_RenderStatus* pRenderStatus);
+  bool Continue(PauseIndicatorIface* pPause, CPDF_RenderStatus* pRenderStatus);
 
-  CFX_RetainPtr<CFX_DIBSource> m_pBitmap;
-  CFX_RetainPtr<CFX_DIBSource> m_pMask;
-  uint32_t m_MatteColor;
-  bool m_bCached;
+  RetainPtr<CFX_DIBBase> TranslateImage(
+      const RetainPtr<CPDF_TransferFunc>& pTransferFunc);
+
+  const RetainPtr<CFX_DIBBase>& GetBitmap() const { return m_pBitmap; }
+  const RetainPtr<CFX_DIBBase>& GetMask() const { return m_pMask; }
+  uint32_t MatteColor() const { return m_MatteColor; }
 
  private:
   void HandleFailure();
 
-  CFX_UnownedPtr<CPDF_PageRenderCache> m_pCache;
-  CFX_UnownedPtr<CPDF_ImageObject> m_pImageObject;
+  uint32_t m_MatteColor = 0;
+  bool m_bCached = false;
+  RetainPtr<CFX_DIBBase> m_pBitmap;
+  RetainPtr<CFX_DIBBase> m_pMask;
+  UnownedPtr<CPDF_PageRenderCache> m_pCache;
+  UnownedPtr<CPDF_ImageObject> m_pImageObject;
 };
 
 #endif  // CORE_FPDFAPI_RENDER_CPDF_IMAGELOADER_H_

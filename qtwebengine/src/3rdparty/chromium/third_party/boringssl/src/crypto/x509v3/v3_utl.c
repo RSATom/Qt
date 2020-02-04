@@ -72,6 +72,7 @@
 
 #include "../conf/internal.h"
 #include "../internal.h"
+#include "internal.h"
 
 
 static char *strip_spaces(char *name);
@@ -155,6 +156,45 @@ int X509V3_add_value_bool_nf(char *name, int asn1_bool,
     return 1;
 }
 
+static char *bignum_to_string(const BIGNUM *bn)
+{
+    char *tmp, *ret;
+    size_t len;
+
+    /*
+     * Display large numbers in hex and small numbers in decimal. Converting to
+     * decimal takes quadratic time and is no more useful than hex for large
+     * numbers.
+     */
+    if (BN_num_bits(bn) < 32) {
+        return BN_bn2dec(bn);
+    }
+
+    tmp = BN_bn2hex(bn);
+    if (tmp == NULL) {
+        return NULL;
+    }
+
+    len = strlen(tmp) + 3;
+    ret = OPENSSL_malloc(len);
+    if (ret == NULL) {
+        OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
+        OPENSSL_free(tmp);
+        return NULL;
+    }
+
+    /* Prepend "0x", but place it after the "-" if negative. */
+    if (tmp[0] == '-') {
+        BUF_strlcpy(ret, "-0x", len);
+        BUF_strlcat(ret, tmp + 1, len);
+    } else {
+        BUF_strlcpy(ret, "0x", len);
+        BUF_strlcat(ret, tmp, len);
+    }
+    OPENSSL_free(tmp);
+    return ret;
+}
+
 char *i2s_ASN1_ENUMERATED(X509V3_EXT_METHOD *method, ASN1_ENUMERATED *a)
 {
     BIGNUM *bntmp = NULL;
@@ -162,7 +202,7 @@ char *i2s_ASN1_ENUMERATED(X509V3_EXT_METHOD *method, ASN1_ENUMERATED *a)
     if (!a)
         return NULL;
     if (!(bntmp = ASN1_ENUMERATED_to_BN(a, NULL)) ||
-        !(strtmp = BN_bn2dec(bntmp)))
+        !(strtmp = bignum_to_string(bntmp)))
         OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
     BN_free(bntmp);
     return strtmp;
@@ -175,7 +215,7 @@ char *i2s_ASN1_INTEGER(X509V3_EXT_METHOD *method, ASN1_INTEGER *a)
     if (!a)
         return NULL;
     if (!(bntmp = ASN1_INTEGER_to_BN(a, NULL)) ||
-        !(strtmp = BN_bn2dec(bntmp)))
+        !(strtmp = bignum_to_string(bntmp)))
         OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
     BN_free(bntmp);
     return strtmp;
@@ -407,7 +447,7 @@ static char *strip_spaces(char *name)
  * on EBCDIC machines)
  */
 
-char *hex_to_string(const unsigned char *buffer, long len)
+char *x509v3_bytes_to_hex(const unsigned char *buffer, long len)
 {
     char *tmp, *q;
     const unsigned char *p;
@@ -430,11 +470,7 @@ char *hex_to_string(const unsigned char *buffer, long len)
     return tmp;
 }
 
-/*
- * Give a string of hex digits convert to a buffer
- */
-
-unsigned char *string_to_hex(const char *str, long *len)
+unsigned char *x509v3_hex_to_bytes(const char *str, long *len)
 {
     unsigned char *hexbuf, *q;
     unsigned char ch, cl, *p;
@@ -454,15 +490,13 @@ unsigned char *string_to_hex(const char *str, long *len)
             OPENSSL_free(hexbuf);
             return NULL;
         }
-        if (isupper(ch))
-            ch = tolower(ch);
-        if (isupper(cl))
-            cl = tolower(cl);
 
         if ((ch >= '0') && (ch <= '9'))
             ch -= '0';
         else if ((ch >= 'a') && (ch <= 'f'))
             ch -= 'a' - 10;
+        else if ((ch >= 'A') && (ch <= 'F'))
+            ch -= 'A' - 10;
         else
             goto badhex;
 
@@ -470,6 +504,8 @@ unsigned char *string_to_hex(const char *str, long *len)
             cl -= '0';
         else if ((cl >= 'a') && (cl <= 'f'))
             cl -= 'a' - 10;
+        else if ((cl >= 'A') && (cl <= 'F'))
+            cl -= 'A' - 10;
         else
             goto badhex;
 
@@ -494,11 +530,7 @@ unsigned char *string_to_hex(const char *str, long *len)
 
 }
 
-/*
- * V2I name comparison function: returns zero if 'name' matches cmp or cmp.*
- */
-
-int name_cmp(const char *name, const char *cmp)
+int x509v3_name_cmp(const char *name, const char *cmp)
 {
     int len, ret;
     char c;
@@ -611,6 +643,7 @@ static int append_ia5(STACK_OF(OPENSSL_STRING) **sk, ASN1_IA5STRING *email)
     if (!*sk)
         return 0;
     /* Don't add duplicates */
+    sk_OPENSSL_STRING_sort(*sk);
     if (sk_OPENSSL_STRING_find(*sk, NULL, (char *)email->data))
         return 1;
     emtmp = BUF_strdup((char *)email->data);

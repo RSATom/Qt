@@ -71,24 +71,27 @@ class QNearFieldManagerPrivateImpl : public QNearFieldManagerPrivate
 
 public:
     QNearFieldManagerPrivateImpl();
-    ~QNearFieldManagerPrivateImpl();
+    ~QNearFieldManagerPrivateImpl() override;
 
-    bool isAvailable() const;
+    bool isAvailable() const override;
 
-    bool startTargetDetection();
+    bool isSupported() const override;
 
-    void stopTargetDetection();
+    bool startTargetDetection() override;
+
+    void stopTargetDetection() override;
 
     // not implemented
-    int registerNdefMessageHandler(QObject *object, const QMetaMethod &method);
+    int registerNdefMessageHandler(QObject *object, const QMetaMethod &method) override;
 
-    int registerNdefMessageHandler(const QNdefFilter &filter, QObject *object, const QMetaMethod &method);
+    int registerNdefMessageHandler(const QNdefFilter &filter, QObject *object,
+                                   const QMetaMethod &method) override;
 
-    bool unregisterNdefMessageHandler(int handlerId);
+    bool unregisterNdefMessageHandler(int handlerId) override;
 
-    void requestAccess(QNearFieldManager::TargetAccessModes accessModes);
+    void requestAccess(QNearFieldManager::TargetAccessModes accessModes) override;
 
-    void releaseAccess(QNearFieldManager::TargetAccessModes accessModes);
+    void releaseAccess(QNearFieldManager::TargetAccessModes accessModes) override;
 
 private Q_SLOTS:
     void handleTagFound(const QDBusObjectPath&);

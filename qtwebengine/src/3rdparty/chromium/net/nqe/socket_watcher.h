@@ -10,9 +10,11 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/thread_checker.h"
+#include "base/optional.h"
+#include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "net/base/net_export.h"
+#include "net/nqe/network_quality_estimator_util.h"
 #include "net/socket/socket_performance_watcher.h"
 #include "net/socket/socket_performance_watcher_factory.h"
 
@@ -24,11 +26,18 @@ class TimeDelta;
 
 namespace net {
 
+class AddressList;
+
 namespace {
+
 typedef base::Callback<void(SocketPerformanceWatcherFactory::Protocol protocol,
-                            const base::TimeDelta& rtt)>
+                            const base::TimeDelta& rtt,
+                            const base::Optional<nqe::internal::IPHash>& host)>
     OnUpdatedRTTAvailableCallback;
-}
+
+typedef base::Callback<bool(base::TimeTicks)> ShouldNotifyRTTCallback;
+
+}  // namespace
 
 namespace nqe {
 
@@ -40,14 +49,23 @@ class NET_EXPORT_PRIVATE SocketWatcher : public SocketPerformanceWatcher {
   // Creates a SocketWatcher which can be used to watch a socket that uses
   // |protocol| as the transport layer protocol. The socket watcher will call
   // |updated_rtt_observation_callback| on |task_runner| every time a new RTT
-  // observation is available. |min_notification_interval| is the minimum
+  // observation is available. |address_list| is the list of addresses that
+  // the socket may connect to. |min_notification_interval| is the minimum
   // interval betweeen consecutive notifications to this socket watcher.
-  // |tick_clock| is guaranteed to be non-null.
+  // |allow_rtt_private_address| is true if |updated_rtt_observation_callback|
+  // should be called when RTT observation from a socket connected to private
+  // address is received. |tick_clock| is guaranteed to be non-null.
+  // |should_notify_rtt_callback| callback should be called back on
+  // |task_runner| by the created socket watchers to check if RTT observation
+  // should be taken and notified.
   SocketWatcher(SocketPerformanceWatcherFactory::Protocol protocol,
+                const AddressList& address_list,
                 base::TimeDelta min_notification_interval,
+                bool allow_rtt_private_address,
                 scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                 OnUpdatedRTTAvailableCallback updated_rtt_observation_callback,
-                base::TickClock* tick_clock);
+                ShouldNotifyRTTCallback should_notify_rtt_callback,
+                const base::TickClock* tick_clock);
 
   ~SocketWatcher() override;
 
@@ -65,15 +83,30 @@ class NET_EXPORT_PRIVATE SocketWatcher : public SocketPerformanceWatcher {
   // Called every time a new RTT observation is available.
   OnUpdatedRTTAvailableCallback updated_rtt_observation_callback_;
 
+  // Called to determine if the RTT notification should be notified using
+  // |updated_rtt_observation_callback_|.
+  ShouldNotifyRTTCallback should_notify_rtt_callback_;
+
   // Minimum interval betweeen consecutive incoming notifications.
   const base::TimeDelta rtt_notifications_minimum_interval_;
+
+  // True if the RTT observations from this socket can be notified using
+  // |updated_rtt_observation_callback_|.
+  const bool run_rtt_callback_;
 
   // Time when this was last notified of updated RTT.
   base::TimeTicks last_rtt_notification_;
 
-  base::TickClock* tick_clock_;
+  const base::TickClock* tick_clock_;
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
+
+  // True if the first RTT notification from the QUIC connection has been
+  // received.
+  bool first_quic_rtt_notification_received_;
+
+  // A unique identifier for the remote host that this socket connects to.
+  const base::Optional<IPHash> host_;
 
   DISALLOW_COPY_AND_ASSIGN(SocketWatcher);
 };

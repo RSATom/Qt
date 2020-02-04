@@ -45,6 +45,8 @@
 #include "qandroidvideooutput.h"
 #include "qandroidmediavideoprobecontrol.h"
 #include "qandroidmultimediautils.h"
+#include "qandroidcameravideorenderercontrol.h"
+#include <qabstractvideosurface.h>
 #include <QtConcurrent/qtconcurrentrun.h>
 #include <qfile.h>
 #include <qguiapplication.h>
@@ -64,7 +66,7 @@ QAndroidCameraSession::QAndroidCameraSession(QObject *parent)
     , m_camera(0)
     , m_nativeOrientation(0)
     , m_videoOutput(0)
-    , m_captureMode(QCamera::CaptureViewfinder)
+    , m_captureMode(QCamera::CaptureStillImage)
     , m_state(QCamera::UnloadedState)
     , m_savedState(-1)
     , m_status(QCamera::UnloadedStatus)
@@ -114,16 +116,22 @@ bool QAndroidCameraSession::isCaptureModeSupported(QCamera::CaptureModes mode) c
 
 void QAndroidCameraSession::setState(QCamera::State state)
 {
-    // If the application is inactive, the camera shouldn't be started. Save the desired state
-    // instead and it will be set when the application becomes active.
-    if (qApp->applicationState() != Qt::ApplicationActive) {
-        m_savedState = state;
-        return;
-    }
-
     if (m_state == state)
         return;
 
+    m_state = state;
+    emit stateChanged(m_state);
+
+    // If the application is inactive, the camera shouldn't be started. Save the desired state
+    // instead and it will be set when the application becomes active.
+    if (qApp->applicationState() == Qt::ApplicationActive)
+        setStateHelper(state);
+    else
+        m_savedState = state;
+}
+
+void QAndroidCameraSession::setStateHelper(QCamera::State state)
+{
     switch (state) {
     case QCamera::UnloadedState:
         close();
@@ -131,20 +139,19 @@ void QAndroidCameraSession::setState(QCamera::State state)
     case QCamera::LoadedState:
     case QCamera::ActiveState:
         if (!m_camera && !open()) {
+            m_state = QCamera::UnloadedState;
+            emit stateChanged(m_state);
             emit error(QCamera::CameraError, QStringLiteral("Failed to open camera"));
+            m_status = QCamera::UnloadedStatus;
+            emit statusChanged(m_status);
             return;
         }
-        if (state == QCamera::ActiveState) {
-            if (!startPreview())
-                return;
-        } else if (state == QCamera::LoadedState) {
+        if (state == QCamera::ActiveState)
+            startPreview();
+        else if (state == QCamera::LoadedState)
             stopPreview();
-        }
         break;
     }
-
-     m_state = state;
-     emit stateChanged(m_state);
 }
 
 void QAndroidCameraSession::updateAvailableCameras()
@@ -202,11 +209,8 @@ bool QAndroidCameraSession::open()
         m_camera->notifyNewFrames(m_videoProbes.count() || m_previewCallback);
 
         emit opened();
-    } else {
-        m_status = QCamera::UnavailableStatus;
+        emit statusChanged(m_status);
     }
-
-    emit statusChanged(m_status);
 
     return m_camera != 0;
 }
@@ -413,27 +417,46 @@ QList<AndroidCamera::FpsRange> QAndroidCameraSession::getSupportedPreviewFpsRang
     return m_camera ? m_camera->getSupportedPreviewFpsRange() : QList<AndroidCamera::FpsRange>();
 }
 
+struct NullSurface : QAbstractVideoSurface
+{
+    NullSurface(QObject *parent = nullptr) : QAbstractVideoSurface(parent) { }
+    QList<QVideoFrame::PixelFormat> supportedPixelFormats(
+        QAbstractVideoBuffer::HandleType type = QAbstractVideoBuffer::NoHandle) const override
+    {
+        QList<QVideoFrame::PixelFormat> result;
+        if (type == QAbstractVideoBuffer::NoHandle)
+            result << QVideoFrame::Format_NV21;
+
+        return result;
+    }
+
+    bool present(const QVideoFrame &)  { return false; }
+};
+
 bool QAndroidCameraSession::startPreview()
 {
     if (!m_camera)
         return false;
 
-    if (!m_videoOutput) {
-        Q_EMIT error(QCamera::InvalidRequestError, tr("Camera cannot be started without a viewfinder."));
-        return false;
-    }
-
     if (m_previewStarted)
         return true;
 
-    if (!m_videoOutput->isReady())
-        return true; // delay starting until the video output is ready
+    if (m_videoOutput) {
+        if (!m_videoOutput->isReady())
+            return true; // delay starting until the video output is ready
 
-    Q_ASSERT(m_videoOutput->surfaceTexture() || m_videoOutput->surfaceHolder());
+        Q_ASSERT(m_videoOutput->surfaceTexture() || m_videoOutput->surfaceHolder());
 
-    if ((m_videoOutput->surfaceTexture() && !m_camera->setPreviewTexture(m_videoOutput->surfaceTexture()))
-            || (m_videoOutput->surfaceHolder() && !m_camera->setPreviewDisplay(m_videoOutput->surfaceHolder())))
-        return false;
+        if ((m_videoOutput->surfaceTexture() && !m_camera->setPreviewTexture(m_videoOutput->surfaceTexture()))
+                || (m_videoOutput->surfaceHolder() && !m_camera->setPreviewDisplay(m_videoOutput->surfaceHolder())))
+            return false;
+    } else {
+        auto control = new QAndroidCameraVideoRendererControl(this, this);
+        control->setSurface(new NullSurface(this));
+        qWarning() << "Starting camera without viewfinder available";
+
+        return true;
+    }
 
     m_status = QCamera::StartingStatus;
     emit statusChanged(m_status);
@@ -899,7 +922,7 @@ void QAndroidCameraSession::onApplicationStateChanged(Qt::ApplicationState state
         break;
     case Qt::ApplicationActive:
         if (m_savedState != -1) {
-            setState(QCamera::State(m_savedState));
+            setStateHelper(QCamera::State(m_savedState));
             m_savedState = -1;
         }
         break;

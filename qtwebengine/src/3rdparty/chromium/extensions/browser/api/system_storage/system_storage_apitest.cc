@@ -6,9 +6,8 @@
 
 #include <vector>
 
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "components/storage_monitor/test_storage_monitor.h"
@@ -42,7 +41,7 @@ class TestStorageInfoProvider : public extensions::StorageInfoProvider {
   ~TestStorageInfoProvider() override;
 
   // StorageInfoProvider implementations.
-  double GetStorageFreeSpaceFromTransientIdOnFileThread(
+  double GetStorageFreeSpaceFromTransientIdAsync(
       const std::string& transient_id) override;
 
   std::vector<struct TestStorageUnitInfo> testing_data_;
@@ -57,7 +56,7 @@ TestStorageInfoProvider::TestStorageInfoProvider(
 TestStorageInfoProvider::~TestStorageInfoProvider() {
 }
 
-double TestStorageInfoProvider::GetStorageFreeSpaceFromTransientIdOnFileThread(
+double TestStorageInfoProvider::GetStorageFreeSpaceFromTransientIdAsync(
     const std::string& transient_id) {
   std::string device_id =
       StorageMonitor::GetInstance()->GetDeviceIdForTransientId(transient_id);
@@ -79,13 +78,8 @@ class SystemStorageApiTest : public extensions::ShellApiTest {
     TestStorageMonitor::CreateForBrowserTests();
   }
 
-  void SetUpInProcessBrowserTestFixture() override {
-    ShellApiTest::SetUpInProcessBrowserTestFixture();
-    message_loop_.reset(new base::MessageLoopForUI);
-  }
-
   void SetUpAllMockStorageDevices() {
-    for (size_t i = 0; i < arraysize(kTestingData); ++i) {
+    for (size_t i = 0; i < base::size(kTestingData); ++i) {
       AttachRemovableStorage(kTestingData[i]);
     }
   }
@@ -100,21 +94,18 @@ class SystemStorageApiTest : public extensions::ShellApiTest {
   void DetachRemovableStorage(const std::string& id) {
     StorageMonitor::GetInstance()->receiver()->ProcessDetach(id);
   }
-
- private:
-  std::unique_ptr<base::MessageLoop> message_loop_;
 };
 
 IN_PROC_BROWSER_TEST_F(SystemStorageApiTest, Storage) {
   SetUpAllMockStorageDevices();
   TestStorageInfoProvider* provider =
-      new TestStorageInfoProvider(kTestingData, arraysize(kTestingData));
+      new TestStorageInfoProvider(kTestingData, base::size(kTestingData));
   extensions::StorageInfoProvider::InitializeForTesting(provider);
   std::vector<std::unique_ptr<ExtensionTestMessageListener>>
       device_ids_listeners;
-  for (size_t i = 0; i < arraysize(kTestingData); ++i) {
+  for (size_t i = 0; i < base::size(kTestingData); ++i) {
     device_ids_listeners.push_back(
-        base::MakeUnique<ExtensionTestMessageListener>(
+        std::make_unique<ExtensionTestMessageListener>(
             StorageMonitor::GetInstance()->GetTransientIdForDeviceId(
                 kTestingData[i].device_id),
             false));

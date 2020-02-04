@@ -39,15 +39,18 @@
 #include <qdebug.h>
 
 @interface QT_MANGLE_NAMESPACE(StateDelegate) : NSObject <NSSpeechSynthesizerDelegate>
-{
-    QT_PREPEND_NAMESPACE(QTextToSpeechEngineOsx) *speechPrivate;
-}
 @end
 
 @implementation QT_MANGLE_NAMESPACE(StateDelegate)
-- (id)initWithSpeechPrivate:(QTextToSpeechEngineOsx *) priv {
-    self = [super init];
-    speechPrivate = priv;
+{
+    QT_PREPEND_NAMESPACE(QTextToSpeechEngineOsx) *speechPrivate;
+}
+
+- (instancetype)initWithSpeechPrivate:(QTextToSpeechEngineOsx *) priv
+{
+    if ((self = [self init])) {
+        speechPrivate = priv;
+    }
     return self;
 }
 - (void)speechSynthesizer:(NSSpeechSynthesizer *)sender didFinishSpeaking:(BOOL)success {

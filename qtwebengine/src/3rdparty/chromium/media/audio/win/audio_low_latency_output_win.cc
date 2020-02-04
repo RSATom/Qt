@@ -11,8 +11,8 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/metrics/histogram.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
@@ -25,7 +25,6 @@
 #include "media/base/limits.h"
 #include "media/base/media_switches.h"
 
-using base::win::ScopedComPtr;
 using base::win::ScopedCOMInitializer;
 using base::win::ScopedCoMem;
 
@@ -49,6 +48,7 @@ WASAPIAudioOutputStream::WASAPIAudioOutputStream(AudioManagerWin* manager,
       opened_(false),
       volume_(1.0),
       packet_size_frames_(0),
+      requested_iaudioclient3_buffer_size_(0),
       packet_size_bytes_(0),
       endpoint_buffer_size_frames_(0),
       device_id_(device_id),
@@ -72,14 +72,7 @@ WASAPIAudioOutputStream::WASAPIAudioOutputStream(AudioManagerWin* manager,
   bool avrt_init = avrt::Initialize();
   DCHECK(avrt_init) << "Failed to load the avrt.dll";
 
-  // New set that appropriate for float output.
-  AudioParameters float_params(
-      params.format(), params.channel_layout(), params.sample_rate(),
-      // Ignore the given bits per sample because we're outputting
-      // floats.
-      sizeof(float) * CHAR_BIT, params.frames_per_buffer());
-
-  audio_bus_ = AudioBus::Create(float_params);
+  audio_bus_ = AudioBus::Create(params);
 
   // Set up the desired render format specified by the client. We use the
   // WAVE_FORMAT_EXTENSIBLE structure to ensure that multiple channel ordering
@@ -88,27 +81,39 @@ WASAPIAudioOutputStream::WASAPIAudioOutputStream(AudioManagerWin* manager,
   // Begin with the WAVEFORMATEX structure that specifies the basic format.
   WAVEFORMATEX* format = &format_.Format;
   format->wFormatTag = WAVE_FORMAT_EXTENSIBLE;
-  format->nChannels = float_params.channels();
-  format->nSamplesPerSec = float_params.sample_rate();
-  format->wBitsPerSample = float_params.bits_per_sample();
+  format->nChannels = params.channels();
+  format->nSamplesPerSec = params.sample_rate();
+  format->wBitsPerSample = sizeof(float) * 8;
   format->nBlockAlign = (format->wBitsPerSample / 8) * format->nChannels;
   format->nAvgBytesPerSec = format->nSamplesPerSec * format->nBlockAlign;
   format->cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
 
   // Add the parts which are unique to WAVE_FORMAT_EXTENSIBLE.
-  format_.Samples.wValidBitsPerSample = float_params.bits_per_sample();
+  format_.Samples.wValidBitsPerSample = format->wBitsPerSample;
   format_.dwChannelMask = CoreAudioUtil::GetChannelConfig(device_id, eRender);
   format_.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
 
   // Store size (in different units) of audio packets which we expect to
   // get from the audio endpoint device in each render event.
-  packet_size_frames_ = float_params.frames_per_buffer();
-  packet_size_bytes_ = float_params.GetBytesPerBuffer();
+  packet_size_frames_ = params.frames_per_buffer();
+  packet_size_bytes_ = params.GetBytesPerBuffer(kSampleFormatF32);
   DVLOG(1) << "Number of bytes per audio frame  : " << format->nBlockAlign;
   DVLOG(1) << "Number of audio frames per packet: " << packet_size_frames_;
   DVLOG(1) << "Number of bytes per packet       : " << packet_size_bytes_;
   DVLOG(1) << "Number of milliseconds per packet: "
-           << float_params.GetBufferDuration().InMillisecondsF();
+           << params.GetBufferDuration().InMillisecondsF();
+
+  AudioParameters::HardwareCapabilities hardware_capabilities =
+      params.hardware_capabilities().value_or(
+          AudioParameters::HardwareCapabilities());
+
+  // Only request an explicit buffer size if we are requesting the minimum
+  // supported by the hardware, everything else uses the older IAudioClient API.
+  if (params.frames_per_buffer() ==
+      hardware_capabilities.min_frames_per_buffer) {
+    requested_iaudioclient3_buffer_size_ =
+        hardware_capabilities.min_frames_per_buffer;
+  }
 
   // All events are auto-reset events and non-signaled initially.
 
@@ -135,21 +140,11 @@ bool WASAPIAudioOutputStream::Open() {
   DCHECK(!audio_client_.Get());
   DCHECK(!audio_render_client_.Get());
 
-  // Will be set to true if we ended up opening the default communications
-  // device.
-  bool communications_device = false;
+  const bool communications_device =
+      device_id_.empty() ? (device_role_ == eCommunications) : false;
 
-  // Create an IAudioClient interface for the default rendering IMMDevice.
-  ScopedComPtr<IAudioClient> audio_client;
-  if (device_id_.empty()) {
-    audio_client = CoreAudioUtil::CreateDefaultClient(eRender, device_role_);
-    communications_device = (device_role_ == eCommunications);
-  } else {
-    ScopedComPtr<IMMDevice> device(CoreAudioUtil::CreateDevice(device_id_));
-    DLOG_IF(ERROR, !device.Get()) << "Failed to open device: " << device_id_;
-    if (device.Get())
-      audio_client = CoreAudioUtil::CreateClient(device.Get());
-  }
+  Microsoft::WRL::ComPtr<IAudioClient> audio_client(
+      CoreAudioUtil::CreateClient(device_id_, eRender, device_role_));
 
   if (!audio_client.Get())
     return false;
@@ -167,7 +162,7 @@ bool WASAPIAudioOutputStream::Open() {
     // mode and using event-driven buffer handling.
     hr = CoreAudioUtil::SharedModeInitialize(
         audio_client.Get(), &format_, audio_samples_render_event_.Get(),
-        &endpoint_buffer_size_frames_,
+        requested_iaudioclient3_buffer_size_, &endpoint_buffer_size_frames_,
         communications_device ? &kCommunicationsSessionId : NULL);
     if (FAILED(hr))
       return false;
@@ -180,7 +175,7 @@ bool WASAPIAudioOutputStream::Open() {
 
     const int preferred_frames_per_buffer = static_cast<int>(
         format_.Format.nSamplesPerSec *
-            CoreAudioUtil::RefererenceTimeToTimeDelta(device_period)
+            CoreAudioUtil::ReferenceTimeToTimeDelta(device_period)
                 .InSecondsF() +
         0.5);
 
@@ -232,7 +227,7 @@ bool WASAPIAudioOutputStream::Open() {
   // Create an IAudioRenderClient client for an initialized IAudioClient.
   // The IAudioRenderClient interface enables us to write output data to
   // a rendering endpoint buffer.
-  ScopedComPtr<IAudioRenderClient> audio_render_client =
+  Microsoft::WRL::ComPtr<IAudioRenderClient> audio_render_client =
       CoreAudioUtil::CreateRenderClient(audio_client.Get());
   if (!audio_render_client.Get())
     return false;
@@ -262,17 +257,34 @@ void WASAPIAudioOutputStream::Start(AudioSourceCallback* callback) {
     return;
   }
 
-  source_ = callback;
-
-  // Ensure that the endpoint buffer is prepared with silence.
+  // Ensure that the endpoint buffer is prepared with silence. Also serves as
+  // a sanity check for the IAudioClient and IAudioRenderClient which may have
+  // been invalidated by Windows since the last Stop() call.
+  //
+  // While technically we only need to retry when WASAPI tells us the device has
+  // been invalidated (AUDCLNT_E_DEVICE_INVALIDATED), we retry for all errors
+  // for simplicity and due to large sites like YouTube reporting high success
+  // rates with a simple retry upon detection of an audio output error.
   if (share_mode_ == AUDCLNT_SHAREMODE_SHARED) {
     if (!CoreAudioUtil::FillRenderEndpointBufferWithSilence(
             audio_client_.Get(), audio_render_client_.Get())) {
-      LOG(ERROR) << "Failed to prepare endpoint buffers with silence.";
-      callback->OnError();
-      return;
+      DLOG(WARNING) << "Failed to prepare endpoint buffers with silence. "
+                       "Attempting recovery with a new IAudioClient and "
+                       "IAudioRenderClient.";
+
+      opened_ = false;
+      audio_client_.Reset();
+      audio_render_client_.Reset();
+      if (!Open() || !CoreAudioUtil::FillRenderEndpointBufferWithSilence(
+                         audio_client_.Get(), audio_render_client_.Get())) {
+        DLOG(ERROR) << "Failed recovery of audio clients; Start() failed.";
+        callback->OnError();
+        return;
+      }
     }
   }
+
+  source_ = callback;
   num_written_frames_ = endpoint_buffer_size_frames_;
 
   // Create and start the thread that will drive the rendering by waiting for
@@ -395,10 +407,8 @@ void WASAPIAudioOutputStream::Run() {
   // is signaled. An error event can also break the main thread loop.
   while (playing && !error) {
     // Wait for a close-down event, stream-switch event or a new render event.
-    DWORD wait_result = WaitForMultipleObjects(arraysize(wait_array),
-                                               wait_array,
-                                               FALSE,
-                                               INFINITE);
+    DWORD wait_result = WaitForMultipleObjects(base::size(wait_array),
+                                               wait_array, FALSE, INFINITE);
 
     switch (wait_result) {
       case WAIT_OBJECT_0 + 0:
@@ -525,8 +535,10 @@ bool WASAPIAudioOutputStream::RenderAudioFromSource(UINT64 device_frequency) {
       delay = base::TimeDelta::FromMicroseconds(
           delay_frames * base::Time::kMicrosecondsPerSecond /
           format_.Format.nSamplesPerSec);
-
-      delay_timestamp = base::TimeTicks::FromQPCValue(qpc_position);
+      // Note: the obtained |qpc_position| value is in 100ns intervals and from
+      // the same time origin as QPC. We can simply convert it into us dividing
+      // by 10.0 since 10x100ns = 1us.
+      delay_timestamp += base::TimeDelta::FromMicroseconds(qpc_position * 0.1);
     } else {
       // Use a delay of zero.
       delay_timestamp = base::TimeTicks::Now();

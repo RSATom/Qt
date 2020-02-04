@@ -1,4 +1,3 @@
-brucedawson@chromium.org
 dsinclair@chromium.org
 jam@chromium.org
 npm@chromium.org
@@ -11,3 +10,5 @@ jochen@chromium.org
 
 # For Skia related changes
 caryclark@google.com
+
+# COMPONENT: Internals>Plugins>PDF

@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/ozone/common/gpu/ozone_gpu_message_params.h"
+#include "ui/ozone/platform/drm/common/display_types.h"
 
 namespace display {
 class DisplayMode;
@@ -33,12 +34,7 @@ class DrmGpuDisplayManager {
 
   // Returns a list of the connected displays. When this is called the list of
   // displays is refreshed.
-  std::vector<DisplaySnapshot_Params> GetDisplays();
-
-  // Returns all scanout formats for |widget| representing a particular display
-  // controller or default display controller for kNullAcceleratedWidget.
-  void GetScanoutFormats(gfx::AcceleratedWidget widget,
-                         std::vector<gfx::BufferFormat>* scanout_formats);
+  MovableDisplaySnapshots GetDisplays();
 
   // Takes/releases the control of the DRM devices.
   bool TakeDisplayControl();
@@ -50,11 +46,14 @@ class DrmGpuDisplayManager {
   bool DisableDisplay(int64_t id);
   bool GetHDCPState(int64_t display_id, display::HDCPState* state);
   bool SetHDCPState(int64_t display_id, display::HDCPState state);
-  void SetColorCorrection(
-      int64_t id,
+  void SetColorMatrix(int64_t display_id,
+                      const std::vector<float>& color_matrix);
+  void SetBackgroundColor(int64_t display_id,
+                          const uint64_t background_color);
+  void SetGammaCorrection(
+      int64_t display_id,
       const std::vector<display::GammaRampRGBEntry>& degamma_lut,
-      const std::vector<display::GammaRampRGBEntry>& gamma_lut,
-      const std::vector<float>& correction_matrix);
+      const std::vector<display::GammaRampRGBEntry>& gamma_lut);
 
  private:
   DrmDisplay* FindDisplay(int64_t display_id);
@@ -65,8 +64,8 @@ class DrmGpuDisplayManager {
       const std::vector<std::unique_ptr<DrmDisplay>>& new_displays,
       const std::vector<std::unique_ptr<DrmDisplay>>& old_displays) const;
 
-  ScreenManager* screen_manager_;  // Not owned.
-  DrmDeviceManager* drm_device_manager_;  // Not owned.
+  ScreenManager* const screen_manager_;         // Not owned.
+  DrmDeviceManager* const drm_device_manager_;  // Not owned.
 
   std::vector<std::unique_ptr<DrmDisplay>> displays_;
 

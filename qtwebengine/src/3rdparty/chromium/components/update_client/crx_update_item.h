@@ -11,10 +11,12 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/version.h"
 #include "components/update_client/crx_downloader.h"
 #include "components/update_client/update_client.h"
+#include "components/update_client/update_client_errors.h"
 
 namespace update_client {
 
@@ -26,13 +28,22 @@ struct CrxUpdateItem {
   ComponentState state;
 
   std::string id;
-  CrxComponent component;
+
+  // The value of this data member is provided to the |UpdateClient| by the
+  // caller by responding to the |CrxDataCallback|. If the caller can't
+  // provide this value, for instance, in cases where the CRX was uninstalled,
+  // then the |component| member will not be present.
+  base::Optional<CrxComponent> component;
 
   // Time when an update check for this CRX has happened.
   base::TimeTicks last_check;
 
   base::Version next_version;
   std::string next_fp;
+
+  ErrorCategory error_category = ErrorCategory::kNone;
+  int error_code = 0;
+  int extra_code1 = 0;
 };
 
 }  // namespace update_client

@@ -8,14 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/cpu_time.h"
-#include <algorithm>
-#include <memory>
-#include "webrtc/rtc_base/platform_thread.h"
-#include "webrtc/rtc_base/timeutils.h"
-#include "webrtc/system_wrappers/include/cpu_info.h"
-#include "webrtc/system_wrappers/include/sleep.h"
-#include "webrtc/test/gtest.h"
+#include "rtc_base/cpu_time.h"
+
+#include "rtc_base/platform_thread.h"
+#include "rtc_base/time_utils.h"
+#include "system_wrappers/include/sleep.h"
+#include "test/gtest.h"
 
 // Only run these tests on non-instrumented builds, because timing on
 // instrumented builds is unreliable, causing the test to be flaky.
@@ -86,10 +84,10 @@ TEST(CpuTimeTest, MAYBE_TEST(TwoThreads)) {
             kAllowedErrorMillisecs * kNumNanosecsPerMillisec);
   // Total process time is at least twice working threads' CPU time.
   // Therefore process and thread times are correctly related.
-  EXPECT_GE(
-      process_duration_nanos,
-      kWorkingThreads * (kProcessingTimeMillisecs - kAllowedErrorMillisecs)
-      * kNumNanosecsPerMillisec);
+  EXPECT_GE(process_duration_nanos,
+            kWorkingThreads *
+                (kProcessingTimeMillisecs - kAllowedErrorMillisecs) *
+                kNumNanosecsPerMillisec);
 }
 
 TEST(CpuTimeTest, MAYBE_TEST(Sleeping)) {

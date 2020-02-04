@@ -9,7 +9,7 @@
 
 #include <memory>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "media/formats/webm/cluster_builder.h"
 #include "media/formats/webm/webm_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -27,7 +27,7 @@ enum { kBlockCount = 5 };
 
 class MockWebMParserClient : public WebMParserClient {
  public:
-  virtual ~MockWebMParserClient() {}
+  ~MockWebMParserClient() override = default;
 
   // WebMParserClient methods.
   MOCK_METHOD1(OnListStart, WebMParserClient*(int));
@@ -346,7 +346,7 @@ TEST_F(WebMParserTest, ReservedIds) {
   const uint8_t* kBuffers[] = {k1ByteReservedId, k2ByteReservedId,
                                k3ByteReservedId, k4ByteReservedId};
 
-  for (size_t i = 0; i < arraysize(kBuffers); i++) {
+  for (size_t i = 0; i < base::size(kBuffers); i++) {
     int id;
     int64_t element_size;
     int buffer_size = 2 + i;
@@ -374,7 +374,7 @@ TEST_F(WebMParserTest, ReservedSizes) {
                                k5ByteReservedSize, k6ByteReservedSize,
                                k7ByteReservedSize, k8ByteReservedSize};
 
-  for (size_t i = 0; i < arraysize(kBuffers); i++) {
+  for (size_t i = 0; i < base::size(kBuffers); i++) {
     int id;
     int64_t element_size;
     int buffer_size = 2 + i;

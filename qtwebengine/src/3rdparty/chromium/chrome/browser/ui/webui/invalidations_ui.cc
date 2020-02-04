@@ -4,7 +4,8 @@
 
 #include "chrome/browser/ui/webui/invalidations_ui.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/invalidations_message_handler.h"
 #include "chrome/common/url_constants.h"
@@ -18,9 +19,11 @@ content::WebUIDataSource* CreateInvalidationsHTMLSource() {
   // This method does not fire when refreshing the page
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIInvalidationsHost);
+  source->OverrideContentSecurityPolicyScriptSrc(
+      "script-src chrome://resources 'self' 'unsafe-eval';");
   source->AddResourcePath("about_invalidations.js", IDR_ABOUT_INVALIDATIONS_JS);
   source->SetDefaultResource(IDR_ABOUT_INVALIDATIONS_HTML);
-  source->UseGzip(std::unordered_set<std::string>());
+  source->UseGzip();
   return source;
 }
 
@@ -29,9 +32,8 @@ InvalidationsUI::InvalidationsUI(content::WebUI* web_ui)
   Profile* profile = Profile::FromWebUI(web_ui);
   if (profile) {
     content::WebUIDataSource::Add(profile, CreateInvalidationsHTMLSource());
-    web_ui->AddMessageHandler(base::MakeUnique<InvalidationsMessageHandler>());
+    web_ui->AddMessageHandler(std::make_unique<InvalidationsMessageHandler>());
   }
 }
 
 InvalidationsUI::~InvalidationsUI() { }
-

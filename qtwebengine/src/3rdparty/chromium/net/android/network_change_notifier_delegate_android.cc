@@ -10,6 +10,7 @@
 #include "net/android/network_change_notifier_android.h"
 
 using base::android::JavaParamRef;
+using base::android::JavaRef;
 using base::android::ScopedJavaLocalRef;
 
 namespace net {
@@ -51,7 +52,7 @@ NetworkChangeNotifier::ConnectionSubtype ConvertConnectionSubtype(
 // static
 void NetworkChangeNotifierDelegateAndroid::JavaLongArrayToNetworkMap(
     JNIEnv* env,
-    jlongArray long_array,
+    const JavaRef<jlongArray>& long_array,
     NetworkMap* network_map) {
   std::vector<int64_t> int64_list;
   base::android::JavaLongArrayToInt64Vector(env, long_array, &int64_list);
@@ -64,16 +65,21 @@ void NetworkChangeNotifierDelegateAndroid::JavaLongArrayToNetworkMap(
 }
 
 NetworkChangeNotifierDelegateAndroid::NetworkChangeNotifierDelegateAndroid()
-    : observers_(new base::ObserverListThreadSafe<Observer>()) {
+    : observers_(new base::ObserverListThreadSafe<Observer>()),
+      java_network_change_notifier_(Java_NetworkChangeNotifier_init(
+          base::android::AttachCurrentThread())),
+      register_network_callback_failed_(
+          Java_NetworkChangeNotifier_registerNetworkCallbackFailed(
+              base::android::AttachCurrentThread(),
+              java_network_change_notifier_)) {
   JNIEnv* env = base::android::AttachCurrentThread();
-  java_network_change_notifier_.Reset(Java_NetworkChangeNotifier_init(env));
   Java_NetworkChangeNotifier_addNativeObserver(
       env, java_network_change_notifier_, reinterpret_cast<intptr_t>(this));
   SetCurrentConnectionType(
       ConvertConnectionType(Java_NetworkChangeNotifier_getCurrentConnectionType(
           env, java_network_change_notifier_)));
   SetCurrentMaxBandwidth(
-      NetworkChangeNotifierAndroid::GetMaxBandwidthForConnectionSubtype(
+      NetworkChangeNotifierAndroid::GetMaxBandwidthMbpsForConnectionSubtype(
           GetCurrentConnectionSubtype()));
   SetCurrentDefaultNetwork(Java_NetworkChangeNotifier_getCurrentDefaultNetId(
       env, java_network_change_notifier_));
@@ -81,7 +87,7 @@ NetworkChangeNotifierDelegateAndroid::NetworkChangeNotifierDelegateAndroid()
   ScopedJavaLocalRef<jlongArray> networks_and_types =
       Java_NetworkChangeNotifier_getCurrentNetworksAndTypes(
           env, java_network_change_notifier_);
-  JavaLongArrayToNetworkMap(env, networks_and_types.obj(), &network_map);
+  JavaLongArrayToNetworkMap(env, networks_and_types, &network_map);
   SetCurrentNetworksAndTypes(network_map);
 }
 
@@ -185,7 +191,7 @@ void NetworkChangeNotifierDelegateAndroid::NotifyMaxBandwidthChanged(
     jint subtype) {
   DCHECK(thread_checker_.CalledOnValidThread());
   double new_max_bandwidth =
-      NetworkChangeNotifierAndroid::GetMaxBandwidthForConnectionSubtype(
+      NetworkChangeNotifierAndroid::GetMaxBandwidthMbpsForConnectionSubtype(
           ConvertConnectionSubtype(subtype));
   SetCurrentMaxBandwidth(new_max_bandwidth);
   observers_->Notify(FROM_HERE, &Observer::OnMaxBandwidthChanged,
@@ -284,11 +290,6 @@ void NetworkChangeNotifierDelegateAndroid::RemoveObserver(
   observers_->RemoveObserver(observer);
 }
 
-// static
-bool NetworkChangeNotifierDelegateAndroid::Register(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
 void NetworkChangeNotifierDelegateAndroid::SetCurrentConnectionType(
     ConnectionType new_connection_type) {
   base::AutoLock auto_lock(connection_lock_);
@@ -360,6 +361,11 @@ void NetworkChangeNotifierDelegateAndroid::FakeConnectionSubtypeChanged(
     ConnectionSubtype subtype) {
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_NetworkChangeNotifier_fakeConnectionSubtypeChanged(env, subtype);
+}
+
+bool NetworkChangeNotifierDelegateAndroid::IsProcessBoundToNetwork() {
+  return Java_NetworkChangeNotifier_isProcessBoundToNetwork(
+      base::android::AttachCurrentThread());
 }
 
 }  // namespace net

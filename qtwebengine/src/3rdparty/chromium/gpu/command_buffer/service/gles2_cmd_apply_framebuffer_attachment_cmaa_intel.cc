@@ -205,6 +205,9 @@ void ApplyFramebufferAttachmentCMAAINTELResourceManager::
   glDisable(GL_STENCIL_TEST);
   glDisable(GL_CULL_FACE);
   glDisable(GL_BLEND);
+  if (decoder->GetFeatureInfo()->feature_flags().ext_window_rectangles) {
+    glWindowRectanglesEXT(GL_EXCLUSIVE_EXT, 0, nullptr);
+  }
 
   // Process each color attachment of the current draw framebuffer.
   uint32_t max_draw_buffers = decoder->GetContextGroup()->max_draw_buffers();
@@ -241,7 +244,7 @@ void ApplyFramebufferAttachmentCMAAINTELResourceManager::
         ApplyCMAAEffectTexture(source_texture, rgba8_texture_, do_copy);
 
         // Source format for DoCopySubTexture is always GL_RGBA8.
-        CopyTextureMethod method = DIRECT_COPY;
+        CopyTextureMethod method = CopyTextureMethod::DIRECT_COPY;
         bool copy_tex_image_format_valid =
             !GLES2Util::IsIntegerFormat(internal_format) &&
             GLES2Util::GetColorEncodingFromInternalFormat(internal_format) !=
@@ -257,7 +260,7 @@ void ApplyFramebufferAttachmentCMAAINTELResourceManager::
           }
         }
         if (!copy_tex_image_format_valid)
-          method = DIRECT_DRAW;
+          method = CopyTextureMethod::DIRECT_DRAW;
         bool color_renderable =
             Texture::ColorRenderable(decoder->GetFeatureInfo(), internal_format,
                                      texture->texture()->IsImmutable());
@@ -267,10 +270,10 @@ void ApplyFramebufferAttachmentCMAAINTELResourceManager::
         // TODO(dshwang): After Mesa fixes this issue, remove this hack.
         // https://bugs.freedesktop.org/show_bug.cgi?id=98478, crbug.com/535198.
         if (color_renderable)
-          method = DIRECT_DRAW;
+          method = CopyTextureMethod::DIRECT_DRAW;
 #endif
-        if (method == DIRECT_DRAW && !color_renderable)
-          method = DRAW_AND_COPY;
+        if (method == CopyTextureMethod::DIRECT_DRAW && !color_renderable)
+          method = CopyTextureMethod::DRAW_AND_COPY;
 
         // LUMINANCE, LUMINANCE_ALPHA and ALPHA textures aren't
         // renderable, so we don't need to pass in the luma emulation
@@ -279,7 +282,7 @@ void ApplyFramebufferAttachmentCMAAINTELResourceManager::
                                  GL_RGBA8, GL_TEXTURE_2D, source_texture, 0,
                                  internal_format, 0, 0, 0, 0, width_, height_,
                                  width_, height_, width_, height_, false, false,
-                                 false, method, nullptr);
+                                 false, false, method, nullptr);
       } else {
         ApplyCMAAEffectTexture(source_texture, source_texture, do_copy);
       }
@@ -597,7 +600,7 @@ GLuint ApplyFramebufferAttachmentCMAAINTELResourceManager::CreateProgram(
     GLint info_log_length;
     glGetProgramiv(program, GL_INFO_LOG_LENGTH, &info_log_length);
     std::vector<GLchar> info_log(info_log_length);
-    glGetProgramInfoLog(program, static_cast<GLsizei>(info_log.size()), NULL,
+    glGetProgramInfoLog(program, static_cast<GLsizei>(info_log.size()), nullptr,
                         &info_log[0]);
     DLOG(ERROR) << "ApplyFramebufferAttachmentCMAAINTEL: "
                 << "program link failed: " << &info_log[0];
@@ -636,7 +639,7 @@ GLuint ApplyFramebufferAttachmentCMAAINTELResourceManager::CreateShader(
 
   std::string header_str = header.str();
   const char* source_array[4] = {header_str.c_str(), defines, "\n", source};
-  glShaderSource(shader, 4, source_array, NULL);
+  glShaderSource(shader, 4, source_array, nullptr);
 
   glCompileShader(shader);
 
@@ -647,7 +650,7 @@ GLuint ApplyFramebufferAttachmentCMAAINTELResourceManager::CreateShader(
     GLint info_log_length;
     glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &info_log_length);
     std::vector<GLchar> info_log(info_log_length);
-    glGetShaderInfoLog(shader, static_cast<GLsizei>(info_log.size()), NULL,
+    glGetShaderInfoLog(shader, static_cast<GLsizei>(info_log.size()), nullptr,
                        &info_log[0]);
     DLOG(ERROR) << "ApplyFramebufferAttachmentCMAAINTEL: "
                 << "shader compilation failed: "
@@ -1844,3 +1847,5 @@ const char ApplyFramebufferAttachmentCMAAINTELResourceManager::cmaa_frag_s2_[] =
 
 }  // namespace gles2
 }  // namespace gpu
+
+#undef SHADER

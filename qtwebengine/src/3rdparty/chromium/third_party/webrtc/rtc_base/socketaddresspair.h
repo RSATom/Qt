@@ -1,5 +1,5 @@
 /*
- *  Copyright 2004 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,34 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SOCKETADDRESSPAIR_H_
-#define WEBRTC_RTC_BASE_SOCKETADDRESSPAIR_H_
+#ifndef RTC_BASE_SOCKETADDRESSPAIR_H_
+#define RTC_BASE_SOCKETADDRESSPAIR_H_
 
-#include "webrtc/rtc_base/socketaddress.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
+#include "rtc_base/socket_address_pair.h"
 
-// Records a pair (source,destination) of socket addresses.  The two addresses
-// identify a connection between two machines.  (For UDP, this "connection" is
-// not maintained explicitly in a socket.)
-class SocketAddressPair {
-public:
-  SocketAddressPair() {}
-  SocketAddressPair(const SocketAddress& srs, const SocketAddress& dest);
-
-  const SocketAddress& source() const { return src_; }
-  const SocketAddress& destination() const { return dest_; }
-
-  bool operator ==(const SocketAddressPair& r) const;
-  bool operator <(const SocketAddressPair& r) const;
-
-  size_t Hash() const;
-
-private:
-  SocketAddress src_;
-  SocketAddress dest_;
-};
-
-} // namespace rtc
-
-#endif // WEBRTC_RTC_BASE_SOCKETADDRESSPAIR_H_
+#endif  // RTC_BASE_SOCKETADDRESSPAIR_H_

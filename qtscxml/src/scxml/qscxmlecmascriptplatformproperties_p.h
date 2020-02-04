@@ -58,6 +58,8 @@
 QT_FORWARD_DECLARE_CLASS(QJSEngine)
 QT_FORWARD_DECLARE_CLASS(QJSValue)
 
+QT_REQUIRE_CONFIG(scxml_ecmascriptdatamodel);
+
 QT_BEGIN_NAMESPACE
 
 class QScxmlStateMachine;

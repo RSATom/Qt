@@ -14,13 +14,15 @@ void PrintUsage() {
       "  where <app_path> is the path to the .app directory and <xctest_path> "
       "is the path to an optional xctest bundle.\n"
       "Options:\n"
+      "  -u  Specifies the device udid to use. Will use -d, -s values to get "
+      "devices if not specified.\n"
       "  -d  Specifies the device (must be one of the values from the iOS "
       "Simulator's Hardware -> Device menu. Defaults to 'iPhone 6s'.\n"
       "  -w  Wipe the device's contents and settings before running the "
       "test.\n"
       "  -e  Specifies an environment key=value pair that will be"
       " set in the simulated application's environment.\n"
-      "  -t  Specifies a test or test suite that should be included in the"
+      "  -t  Specifies a test or test suite that should be included in the "
       "test run. All other tests will be excluded from this run.\n"
       "  -c  Specifies command line flags to pass to application.\n"
       "  -p  Print the device's home directory, does not run a test.\n"
@@ -55,6 +57,7 @@ void LogError(NSString* format, ...) {
 - (void)run;
 - (void)setStandardOutput:(id)output;
 - (void)setStandardError:(id)error;
+- (int)getTerminationStatus;
 @end
 
 @implementation XCRunTask
@@ -83,6 +86,10 @@ void LogError(NSString* format, ...) {
 
 - (void)setStandardError:(id)error {
   [_task setStandardError:error];
+}
+
+- (int)getTerminationStatus {
+  return [_task terminationStatus];
 }
 
 - (void)run {
@@ -191,6 +198,19 @@ NSString* GetDeviceBySDKAndName(NSDictionary* simctl_list,
   return nil;
 }
 
+bool FindDeviceByUDID(NSDictionary* simctl_list, NSString* udid) {
+  NSDictionary* devices_table = simctl_list[@"devices"];
+  for (id runtimes in devices_table) {
+    NSArray* devices = devices_table[runtimes];
+    for (NSDictionary* device in devices) {
+      if ([device[@"udid"] isEqualToString:udid]) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Prints the HOME environment variable for a device.  Used by the bots to
 // package up all the test data.
 void PrintDeviceHome(NSString* udid) {
@@ -220,12 +240,12 @@ void KillSimulator() {
   [task run];
 }
 
-void RunApplication(NSString* app_path,
-                    NSString* xctest_path,
-                    NSString* udid,
-                    NSMutableDictionary* app_env,
-                    NSString* cmd_args,
-                    NSMutableArray* tests_filter) {
+int RunApplication(NSString* app_path,
+                   NSString* xctest_path,
+                   NSString* udid,
+                   NSMutableDictionary* app_env,
+                   NSMutableArray* cmd_args,
+                   NSMutableArray* tests_filter) {
   NSString* tempFilePath = [NSTemporaryDirectory()
       stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
   [[NSFileManager defaultManager] createFileAtPath:tempFilePath
@@ -240,22 +260,31 @@ void RunApplication(NSString* app_path,
   [testingEnvironmentVariables setValue:[app_path lastPathComponent]
                                  forKey:@"IDEiPhoneInternalTestBundleName"];
 
-  NSString* frameworkPath =
-      @"__PLATFORMS__/iPhoneSimulator.platform/Developer/Library/Frameworks";
-  [testingEnvironmentVariables setValue:frameworkPath
-                                 forKey:@"DYLD_FRAMEWORK_PATH"];
-  NSString* libraryPath =
-      @"__PLATFORMS__/iPhoneSimulator.platform/Developer/Library";
-  [testingEnvironmentVariables setValue:libraryPath
-                                 forKey:@"DYLD_LIBRARY_PATH"];
+  [testingEnvironmentVariables
+      setValue:
+          @"__TESTROOT__/Debug-iphonesimulator:__PLATFORMS__/"
+          @"iPhoneSimulator.platform/Developer/Library/Frameworks"
+        forKey:@"DYLD_FRAMEWORK_PATH"];
+  [testingEnvironmentVariables
+      setValue:
+          @"__TESTROOT__/Debug-iphonesimulator:__PLATFORMS__/"
+          @"iPhoneSimulator.platform/Developer/Library"
+        forKey:@"DYLD_LIBRARY_PATH"];
 
   if (xctest_path) {
     [testTargetName setValue:xctest_path forKey:@"TestBundlePath"];
     NSString* inject =
         @"__PLATFORMS__/iPhoneSimulator.platform/Developer/Library/"
-         "PrivateFrameworks/IDEBundleInjection.framework/IDEBundleInjection";
+        @"PrivateFrameworks/IDEBundleInjection.framework/"
+        @"IDEBundleInjection:__PLATFORMS__/iPhoneSimulator.platform/Developer/"
+        @"usr/lib/libXCTestBundleInject.dylib";
     [testingEnvironmentVariables setValue:inject
                                    forKey:@"DYLD_INSERT_LIBRARIES"];
+    [testingEnvironmentVariables
+        setValue:[NSString stringWithFormat:@"__TESTHOST__/%@",
+                                            [[app_path lastPathComponent]
+                                                stringByDeletingPathExtension]]
+          forKey:@"XCInjectBundleInto"];
   } else {
     [testTargetName setValue:app_path forKey:@"TestBundlePath"];
   }
@@ -265,8 +294,8 @@ void RunApplication(NSString* app_path,
     [testTargetName setObject:app_env forKey:@"EnvironmentVariables"];
   }
 
-  if (cmd_args) {
-    [testTargetName setObject:@[ cmd_args ] forKey:@"CommandLineArguments"];
+  if ([cmd_args count] > 0) {
+    [testTargetName setObject:cmd_args forKey:@"CommandLineArguments"];
   }
 
   if ([tests_filter count] > 0) {
@@ -277,11 +306,11 @@ void RunApplication(NSString* app_path,
                      forKey:@"TestingEnvironmentVariables"];
   [xctestrun setObject:testTargetName forKey:@"TestTargetName"];
 
-  NSString* error;
   NSData* data = [NSPropertyListSerialization
-      dataFromPropertyList:xctestrun
+      dataWithPropertyList:xctestrun
                     format:NSPropertyListXMLFormat_v1_0
-          errorDescription:&error];
+                   options:0
+                     error:nil];
   [data writeToFile:tempFilePath atomically:YES];
   XCRunTask* task = [[[XCRunTask alloc] initWithArguments:@[
     @"xcodebuild", @"-xctestrun", tempFilePath, @"-destination",
@@ -311,6 +340,7 @@ void RunApplication(NSString* app_path,
     [task setStandardError:stderr_pipe];
   }
   [task run];
+  return [task getTerminationStatus];
 }
 
 int main(int argc, char* const argv[]) {
@@ -326,7 +356,7 @@ int main(int argc, char* const argv[]) {
 
   NSString* app_path = nil;
   NSString* xctest_path = nil;
-  NSString* cmd_args = nil;
+  NSString* udid = nil;
   NSString* device_name = @"iPhone 6s";
   bool wants_wipe = false;
   bool wants_print_home = false;
@@ -337,6 +367,7 @@ int main(int argc, char* const argv[]) {
   }
   NSString* sdk_version = [NSString stringWithFormat:@"%0.1f", sdk];
   NSMutableDictionary* app_env = [NSMutableDictionary dictionary];
+  NSMutableArray* cmd_args = [NSMutableArray array];
   NSMutableArray* tests_filter = [NSMutableArray array];
 
   int c;
@@ -348,12 +379,16 @@ int main(int argc, char* const argv[]) {
       case 'd':
         device_name = [NSString stringWithUTF8String:optarg];
         break;
+      case 'u':
+        udid = [NSString stringWithUTF8String:optarg];
+        break;
       case 'w':
         wants_wipe = true;
         break;
-      case 'c':
-        cmd_args = [NSString stringWithUTF8String:optarg];
-        break;
+      case 'c': {
+        NSString* cmd_arg = [NSString stringWithUTF8String:optarg];
+        [cmd_args addObject:cmd_arg];
+      } break;
       case 't': {
         NSString* test = [NSString stringWithUTF8String:optarg];
         [tests_filter addObject:test];
@@ -387,12 +422,22 @@ int main(int argc, char* const argv[]) {
     }
   }
 
-  NSString* udid = GetDeviceBySDKAndName(simctl_list, device_name, sdk_version);
   if (udid == nil) {
-    LogError(@"Unable to find a device %@ with SDK %@.", device_name,
-             sdk_version);
-    PrintSupportedDevices(simctl_list);
-    exit(kExitInvalidArguments);
+    udid = GetDeviceBySDKAndName(simctl_list, device_name, sdk_version);
+    if (udid == nil) {
+      LogError(@"Unable to find a device %@ with SDK %@.", device_name,
+               sdk_version);
+      PrintSupportedDevices(simctl_list);
+      exit(kExitInvalidArguments);
+    }
+  } else {
+    if (!FindDeviceByUDID(simctl_list, udid)) {
+      LogError(
+          @"Unable to find a device with udid %@. Use 'xcrun simctl list' to "
+          @"see valid device udids.",
+          udid);
+      exit(kExitInvalidArguments);
+    }
   }
 
   if (wants_print_home) {
@@ -435,7 +480,8 @@ int main(int argc, char* const argv[]) {
     exit(kExitInvalidArguments);
   }
 
-  RunApplication(app_path, xctest_path, udid, app_env, cmd_args, tests_filter);
+  int return_code = RunApplication(app_path, xctest_path, udid, app_env,
+                                   cmd_args, tests_filter);
   KillSimulator();
-  return kExitSuccess;
+  return return_code;
 }

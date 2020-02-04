@@ -47,7 +47,7 @@ void GCIdleTimeHeapState::Print() {
 
 size_t GCIdleTimeHandler::EstimateMarkingStepSize(
     double idle_time_in_ms, double marking_speed_in_bytes_per_ms) {
-  DCHECK(idle_time_in_ms > 0);
+  DCHECK_LT(0, idle_time_in_ms);
 
   if (marking_speed_in_bytes_per_ms == 0) {
     marking_speed_in_bytes_per_ms = kInitialConservativeMarkingSpeed;
@@ -115,7 +115,7 @@ GCIdleTimeAction GCIdleTimeHandler::NothingOrDone(double idle_time_in_ms) {
 // a full GC.
 // (2) If the context disposal rate is high and we cannot perform a full GC,
 // we do nothing until the context disposal rate becomes lower.
-// (3) If the new space is almost full and we can affort a scavenge or if the
+// (3) If the new space is almost full and we can afford a scavenge or if the
 // next scavenge will very likely take long, then a scavenge is performed.
 // (4) If sweeping is in progress and we received a large enough idle time
 // request, we finalize sweeping here.

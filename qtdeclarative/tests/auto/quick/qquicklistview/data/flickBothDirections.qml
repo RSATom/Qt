@@ -63,6 +63,7 @@ Rectangle {
         contentWidth: initialContentWidth
         contentHeight: initialContentHeight
         flickableDirection: initialFlickableDirection
+        pixelAligned: true
         delegate: Rectangle {
             width: list.orientation == ListView.Vertical ? 120 : 10
             height: list.orientation == ListView.Vertical ? 20 : 110

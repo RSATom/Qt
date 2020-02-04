@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -145,7 +146,7 @@ static void SetAudioChannelLayout(int channels,
 
   OSStatus result = AudioUnitSetProperty(
       audio_unit, kAudioUnitProperty_AudioChannelLayout, kAudioUnitScope_Input,
-      0, coreaudio_layout, layout_size);
+      AUElement::OUTPUT, coreaudio_layout, layout_size);
   if (result != noErr) {
     OSSTATUS_DLOG(ERROR, result)
         << "Failed to set audio channel layout. Using default layout.";
@@ -175,7 +176,6 @@ AUHALStream::AUHALStream(AudioManagerMac* manager,
   DCHECK(manager_);
   DCHECK(params_.IsValid());
   DCHECK_NE(device, kAudioObjectUnknown);
-  CHECK(!log_callback_.Equals(AudioManager::LogCallback()));
 }
 
 AUHALStream::~AUHALStream() {
@@ -198,7 +198,9 @@ bool AUHALStream::Open() {
   if (configured) {
     DCHECK(audio_unit_);
     DCHECK(audio_unit_->is_valid());
-    hardware_latency_ = GetHardwareLatency();
+    hardware_latency_ = AudioManagerMac::GetHardwareLatency(
+        audio_unit_->audio_unit(), device_, kAudioDevicePropertyScopeOutput,
+        params_.sample_rate());
   }
 
   return configured;
@@ -354,41 +356,6 @@ OSStatus AUHALStream::InputProc(void* user_data,
                               number_of_frames, io_data);
 }
 
-base::TimeDelta AUHALStream::GetHardwareLatency() {
-  DCHECK(audio_unit_);
-
-  // Get audio unit latency.
-  Float64 audio_unit_latency_sec;
-  UInt32 size = sizeof(audio_unit_latency_sec);
-  OSStatus result = AudioUnitGetProperty(
-      audio_unit_->audio_unit(), kAudioUnitProperty_Latency,
-      kAudioUnitScope_Global, 0, &audio_unit_latency_sec, &size);
-  if (result != noErr) {
-    OSSTATUS_DLOG(WARNING, result) << "Could not get AudioUnit latency";
-    return base::TimeDelta();
-  }
-
-  // Get output audio device latency.
-  static const AudioObjectPropertyAddress property_address = {
-      kAudioDevicePropertyLatency, kAudioDevicePropertyScopeOutput,
-      kAudioObjectPropertyElementMaster};
-
-  UInt32 device_latency_frames = 0;
-  size = sizeof(device_latency_frames);
-  result = AudioObjectGetPropertyData(device_, &property_address, 0, NULL,
-                                      &size, &device_latency_frames);
-  if (result != noErr) {
-    OSSTATUS_DLOG(WARNING, result) << "Could not get audio device latency";
-    return base::TimeDelta();
-  }
-
-  int latency_frames = audio_unit_latency_sec * output_format_.mSampleRate +
-                       device_latency_frames;
-
-  return AudioTimestampHelper::FramesToTime(latency_frames,
-                                            params_.sample_rate());
-}
-
 base::TimeTicks AUHALStream::GetPlayoutTime(
     const AudioTimeStamp* output_time_stamp) {
   // A platform bug has been observed where the platform sometimes reports that
@@ -434,25 +401,29 @@ void AUHALStream::ReportAndResetStats() {
     return;  // No stats gathered to report.
 
   // A value of 0 indicates that we got the buffer size we asked for.
-  UMA_HISTOGRAM_COUNTS("Media.Audio.Render.FramesRequested",
-                       number_of_frames_requested_);
+  UMA_HISTOGRAM_COUNTS_1M("Media.Audio.Render.FramesRequested",
+                          number_of_frames_requested_);
   // Even if there aren't any glitches, we want to record it to get a feel for
   // how often we get no glitches vs the alternative.
   UMA_HISTOGRAM_CUSTOM_COUNTS("Media.Audio.Render.Glitches", glitches_detected_,
                               1, 999999, 100);
 
   auto lost_frames_ms = (total_lost_frames_ * 1000) / params_.sample_rate();
+
   std::string log_message = base::StringPrintf(
       "AU out: Total glitches=%d. Total frames lost=%d (%d ms).",
       glitches_detected_, total_lost_frames_, lost_frames_ms);
-  log_callback_.Run(log_message);
+
+  if (!log_callback_.is_null())
+    log_callback_.Run(log_message);
 
   if (glitches_detected_ != 0) {
-    UMA_HISTOGRAM_COUNTS("Media.Audio.Render.LostFramesInMs", lost_frames_ms);
+    UMA_HISTOGRAM_COUNTS_1M("Media.Audio.Render.LostFramesInMs",
+                            lost_frames_ms);
     auto largest_glitch_ms =
         (largest_glitch_frames_ * 1000) / params_.sample_rate();
-    UMA_HISTOGRAM_COUNTS("Media.Audio.Render.LargestGlitchMs",
-                         largest_glitch_ms);
+    UMA_HISTOGRAM_COUNTS_1M("Media.Audio.Render.LargestGlitchMs",
+                            largest_glitch_ms);
     DLOG(WARNING) << log_message;
   }
 
@@ -472,14 +443,6 @@ bool AUHALStream::ConfigureAUHAL() {
   if (!local_audio_unit->is_valid())
     return false;
 
-  // Enable output as appropriate.
-  UInt32 enable_io = 1;
-  OSStatus result = AudioUnitSetProperty(
-      local_audio_unit->audio_unit(), kAudioOutputUnitProperty_EnableIO,
-      kAudioUnitScope_Output, AUElement::OUTPUT, &enable_io, sizeof(enable_io));
-  if (result != noErr)
-    return false;
-
   if (!SetStreamFormat(params_.channels(), params_.sample_rate(),
                        local_audio_unit->audio_unit(), &output_format_)) {
     return false;
@@ -497,7 +460,7 @@ bool AUHALStream::ConfigureAUHAL() {
   AURenderCallbackStruct callback;
   callback.inputProc = InputProc;
   callback.inputProcRefCon = this;
-  result = AudioUnitSetProperty(
+  OSStatus result = AudioUnitSetProperty(
       local_audio_unit->audio_unit(), kAudioUnitProperty_SetRenderCallback,
       kAudioUnitScope_Input, AUElement::OUTPUT, &callback, sizeof(callback));
   if (result != noErr)

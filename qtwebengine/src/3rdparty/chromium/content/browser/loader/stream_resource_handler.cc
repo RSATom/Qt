@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "content/browser/loader/resource_controller.h"
+#include "net/url_request/url_request.h"
 #include "net/url_request/url_request_status.h"
 
 namespace content {
@@ -28,14 +29,15 @@ StreamResourceHandler::~StreamResourceHandler() {
 
 void StreamResourceHandler::OnRequestRedirected(
     const net::RedirectInfo& redirect_info,
-    ResourceResponse* resp,
+    network::ResourceResponse* resp,
     std::unique_ptr<ResourceController> controller) {
   controller->Resume();
 }
 
 void StreamResourceHandler::OnResponseStarted(
-    ResourceResponse* resp,
+    network::ResourceResponse* resp,
     std::unique_ptr<ResourceController> controller) {
+  writer_.OnResponseStarted(request()->response_info());
   controller->Resume();
 }
 
@@ -56,6 +58,9 @@ void StreamResourceHandler::OnWillRead(
 void StreamResourceHandler::OnReadCompleted(
     int bytes_read,
     std::unique_ptr<ResourceController> controller) {
+  int64_t total_bytes_read = request()->GetTotalReceivedBytes();
+  int64_t raw_body_bytes = request()->GetRawBodyBytes();
+  writer_.UpdateNetworkStats(raw_body_bytes, total_bytes_read);
   writer_.OnReadCompleted(bytes_read,
                           base::Bind(&ResourceController::Resume,
                                      base::Passed(std::move(controller))));
@@ -66,10 +71,6 @@ void StreamResourceHandler::OnResponseCompleted(
     std::unique_ptr<ResourceController> controller) {
   writer_.Finalize(status.error());
   controller->Resume();
-}
-
-void StreamResourceHandler::OnDataDownloaded(int bytes_downloaded) {
-  NOTREACHED();
 }
 
 }  // namespace content

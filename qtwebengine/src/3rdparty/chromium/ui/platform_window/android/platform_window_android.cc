@@ -10,6 +10,7 @@
 #include "base/android/jni_android.h"
 #include "jni/PlatformWindowAndroid_jni.h"
 #include "ui/events/event.h"
+#include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/keyboard_code_conversion_android.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/platform_window/platform_window_delegate.h"
@@ -49,17 +50,8 @@ ui::EventType MotionEventActionToEventType(jint action) {
 ////////////////////////////////////////////////////////////////////////////////
 // PlatformWindowAndroid, public:
 
-// static
-bool PlatformWindowAndroid::Register(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
 PlatformWindowAndroid::PlatformWindowAndroid(PlatformWindowDelegate* delegate)
-    : delegate_(delegate),
-      window_(NULL),
-      id_generator_(0),
-      weak_factory_(this) {
-}
+    : StubWindow(delegate, false), window_(nullptr) {}
 
 PlatformWindowAndroid::~PlatformWindowAndroid() {
   if (window_)
@@ -74,7 +66,7 @@ PlatformWindowAndroid::~PlatformWindowAndroid() {
 
 void PlatformWindowAndroid::Destroy(JNIEnv* env,
                                     const JavaParamRef<jobject>& obj) {
-  delegate_->OnClosed();
+  delegate()->OnClosed();
 }
 
 void PlatformWindowAndroid::SurfaceCreated(
@@ -89,13 +81,13 @@ void PlatformWindowAndroid::SurfaceCreated(
     base::android::ScopedJavaLocalFrame scoped_local_reference_frame(env);
     window_ = ANativeWindow_fromSurface(env, jsurface);
   }
-  delegate_->OnAcceleratedWidgetAvailable(window_, device_pixel_ratio);
+  delegate()->OnAcceleratedWidgetAvailable(window_);
 }
 
 void PlatformWindowAndroid::SurfaceDestroyed(JNIEnv* env,
                                              const JavaParamRef<jobject>& obj) {
   DCHECK(window_);
-  delegate_->OnAcceleratedWidgetDestroyed();
+  delegate()->OnAcceleratedWidgetDestroyed();
   ReleaseWindow();
 }
 
@@ -105,7 +97,7 @@ void PlatformWindowAndroid::SurfaceSetSize(JNIEnv* env,
                                            jint height,
                                            jfloat density) {
   size_ = gfx::Size(static_cast<int>(width), static_cast<int>(height));
-  delegate_->OnBoundsChanged(gfx::Rect(size_));
+  delegate()->OnBoundsChanged(gfx::Rect(size_));
 }
 
 bool PlatformWindowAndroid::TouchEvent(JNIEnv* env,
@@ -128,11 +120,11 @@ bool PlatformWindowAndroid::TouchEvent(JNIEnv* env,
       event_type, gfx::Point(),
       base::TimeTicks() + base::TimeDelta::FromMilliseconds(time_ms),
       ui::PointerDetails(ui::EventPointerType::POINTER_TYPE_TOUCH, pointer_id,
-                         touch_major, touch_minor, pressure),
-      ui::EF_NONE, orientation);
+                         touch_major, touch_minor, pressure, orientation),
+      ui::EF_NONE);
   touch.set_location_f(gfx::PointF(x, y));
   touch.set_root_location_f(gfx::PointF(x, y));
-  delegate_->DispatchEvent(&touch);
+  delegate()->DispatchEvent(&touch);
   return true;
 }
 
@@ -143,11 +135,12 @@ bool PlatformWindowAndroid::KeyEvent(JNIEnv* env,
                                      jint unicode_character) {
   ui::KeyEvent key_event(pressed ? ui::ET_KEY_PRESSED : ui::ET_KEY_RELEASED,
                          ui::KeyboardCodeFromAndroidKeyCode(key_code), 0);
-  delegate_->DispatchEvent(&key_event);
+  delegate()->DispatchEvent(&key_event);
   if (pressed && unicode_character) {
     ui::KeyEvent char_event(unicode_character,
-                            ui::KeyboardCodeFromAndroidKeyCode(key_code), 0);
-    delegate_->DispatchEvent(&char_event);
+                            ui::KeyboardCodeFromAndroidKeyCode(key_code),
+                            ui::DomCode::NONE, 0);
+    delegate()->DispatchEvent(&char_event);
   }
   return true;
 }
@@ -175,58 +168,12 @@ void PlatformWindowAndroid::Hide() {
   // Nothing to do. View is always visible.
 }
 
-void PlatformWindowAndroid::Close() {
-  delegate_->OnCloseRequest();
-}
-
-void PlatformWindowAndroid::PrepareForShutdown() {}
-
 void PlatformWindowAndroid::SetBounds(const gfx::Rect& bounds) {
   NOTIMPLEMENTED();
 }
 
 gfx::Rect PlatformWindowAndroid::GetBounds() {
   return gfx::Rect(size_);
-}
-
-void PlatformWindowAndroid::SetTitle(const base::string16& title) {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::SetCapture() {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::ReleaseCapture() {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::ToggleFullscreen() {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::Maximize() {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::Minimize() {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::Restore() {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::SetCursor(PlatformCursor cursor) {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::MoveCursorTo(const gfx::Point& location) {
-  NOTIMPLEMENTED();
-}
-
-void PlatformWindowAndroid::ConfineCursorToBounds(const gfx::Rect& bounds) {
-  NOTIMPLEMENTED();
 }
 
 PlatformImeController* PlatformWindowAndroid::GetPlatformImeController() {

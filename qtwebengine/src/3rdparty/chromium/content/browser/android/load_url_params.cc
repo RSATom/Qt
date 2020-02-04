@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "content/browser/android/load_url_params.h"
-
 #include <jni.h>
 
 #include "base/android/jni_string.h"
@@ -16,13 +14,8 @@ using base::android::JavaParamRef;
 
 namespace content {
 
-bool RegisterLoadUrlParams(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
-jboolean IsDataScheme(JNIEnv* env,
-                      const JavaParamRef<jclass>& clazz,
-                      const JavaParamRef<jstring>& jurl) {
+jboolean JNI_LoadUrlParams_IsDataScheme(JNIEnv* env,
+                                        const JavaParamRef<jstring>& jurl) {
   GURL url(base::android::ConvertJavaStringToUTF8(env, jurl));
   return url.SchemeIs(url::kDataScheme);
 }

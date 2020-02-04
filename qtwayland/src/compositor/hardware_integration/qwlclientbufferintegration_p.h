@@ -55,7 +55,7 @@
 #include <QtWaylandCompositor/qwaylandsurface.h>
 #include <QtWaylandCompositor/qwaylandbufferref.h>
 #include <QtCore/QSize>
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -79,7 +79,7 @@ public:
     virtual ClientBuffer *createBufferFor(struct ::wl_resource *buffer) = 0;
 
 protected:
-    QWaylandCompositor *m_compositor;
+    QWaylandCompositor *m_compositor = nullptr;
 };
 
 }

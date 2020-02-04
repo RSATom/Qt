@@ -5,14 +5,18 @@
 // Custom binding for the fileManagerPrivate API.
 
 // Bindings
-var binding = require('binding').Binding.create('fileManagerPrivate');
-var eventBindings = require('event_bindings');
+var binding =
+    apiBridge || require('binding').Binding.create('fileManagerPrivate');
+var registerArgumentMassager = bindingUtil ?
+    $Function.bind(bindingUtil.registerEventArgumentMassager, bindingUtil) :
+    require('event_bindings').registerArgumentMassager;
 
 // Natives
 var fileManagerPrivateNatives = requireNative('file_manager_private');
 
 // Internals
-var fileManagerPrivateInternal =
+var fileManagerPrivateInternal = getInternalApi ?
+    getInternalApi('fileManagerPrivateInternal') :
     require('binding').Binding.create('fileManagerPrivateInternal').generate();
 
 // Shorthands
@@ -20,6 +24,16 @@ var GetFileSystem = fileManagerPrivateNatives.GetFileSystem;
 var GetExternalFileEntry = fileManagerPrivateNatives.GetExternalFileEntry;
 
 binding.registerCustomHook(function(bindingsAPI) {
+  // For FilesAppEntry types that wraps a native entry, returns the native entry
+  // to be able to send to fileManagerPrivate API.
+  function getEntryURL(entry) {
+    const nativeEntry = entry.getNativeEntry && entry.getNativeEntry();
+    if (nativeEntry)
+      entry = nativeEntry;
+
+    return fileManagerPrivateNatives.GetEntryURL(entry);
+  }
+
   var apiFunctions = bindingsAPI.apiFunctions;
 
   apiFunctions.setCustomCallback('searchDrive',
@@ -58,7 +72,7 @@ binding.registerCustomHook(function(bindingsAPI) {
   apiFunctions.setHandleRequest('resolveIsolatedEntries',
                                 function(entries, callback) {
     var urls = entries.map(function(entry) {
-      return fileManagerPrivateNatives.GetEntryURL(entry);
+      return getEntryURL(entry);
     });
     fileManagerPrivateInternal.resolveIsolatedEntries(urls, function(
         entryDescriptions) {
@@ -71,25 +85,25 @@ binding.registerCustomHook(function(bindingsAPI) {
   apiFunctions.setHandleRequest('getEntryProperties',
                                 function(entries, names, callback) {
     var urls = entries.map(function(entry) {
-      return fileManagerPrivateNatives.GetEntryURL(entry);
+      return getEntryURL(entry);
     });
     fileManagerPrivateInternal.getEntryProperties(urls, names, callback);
   });
 
   apiFunctions.setHandleRequest('addFileWatch', function(entry, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.addFileWatch(url, callback);
   });
 
   apiFunctions.setHandleRequest('removeFileWatch', function(entry, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.removeFileWatch(url, callback);
   });
 
   apiFunctions.setHandleRequest('getCustomActions', function(
         entries, callback) {
     var urls = entries.map(function(entry) {
-      return fileManagerPrivateNatives.GetEntryURL(entry);
+      return getEntryURL(entry);
     });
     fileManagerPrivateInternal.getCustomActions(urls, callback);
   });
@@ -97,30 +111,36 @@ binding.registerCustomHook(function(bindingsAPI) {
   apiFunctions.setHandleRequest('executeCustomAction', function(
         entries, actionId, callback) {
     var urls = entries.map(function(entry) {
-      return fileManagerPrivateNatives.GetEntryURL(entry);
+      return getEntryURL(entry);
     });
     fileManagerPrivateInternal.executeCustomAction(urls, actionId, callback);
   });
 
   apiFunctions.setHandleRequest('computeChecksum', function(entry, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.computeChecksum(url, callback);
   });
 
   apiFunctions.setHandleRequest('getMimeType', function(entry, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.getMimeType(url, callback);
   });
 
   apiFunctions.setHandleRequest('pinDriveFile', function(entry, pin, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.pinDriveFile(url, pin, callback);
   });
+
+  apiFunctions.setHandleRequest(
+      'ensureFileDownloaded', function(entry, callback) {
+        var url = getEntryURL(entry);
+        fileManagerPrivateInternal.ensureFileDownloaded(url, callback);
+      });
 
   apiFunctions.setHandleRequest('executeTask',
       function(taskId, entries, callback) {
         var urls = entries.map(function(entry) {
-          return fileManagerPrivateNatives.GetEntryURL(entry);
+          return getEntryURL(entry);
         });
         fileManagerPrivateInternal.executeTask(taskId, urls, callback);
       });
@@ -128,7 +148,7 @@ binding.registerCustomHook(function(bindingsAPI) {
   apiFunctions.setHandleRequest('setDefaultTask',
       function(taskId, entries, mimeTypes, callback) {
         var urls = entries.map(function(entry) {
-          return fileManagerPrivateNatives.GetEntryURL(entry);
+          return getEntryURL(entry);
         });
         fileManagerPrivateInternal.setDefaultTask(
             taskId, urls, mimeTypes, callback);
@@ -136,30 +156,25 @@ binding.registerCustomHook(function(bindingsAPI) {
 
   apiFunctions.setHandleRequest('getFileTasks', function(entries, callback) {
     var urls = entries.map(function(entry) {
-      return fileManagerPrivateNatives.GetEntryURL(entry);
+      return getEntryURL(entry);
     });
     fileManagerPrivateInternal.getFileTasks(urls, callback);
   });
 
-  apiFunctions.setHandleRequest('getShareUrl', function(entry, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
-    fileManagerPrivateInternal.getShareUrl(url, callback);
-  });
-
   apiFunctions.setHandleRequest('getDownloadUrl', function(entry, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.getDownloadUrl(url, callback);
   });
 
   apiFunctions.setHandleRequest('requestDriveShare', function(
         entry, shareType, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.requestDriveShare(url, shareType, callback);
   });
 
   apiFunctions.setHandleRequest('setEntryTag', function(
         entry, visibility, key, value, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.setEntryTag(
         url, visibility, key, value, callback);
   });
@@ -167,24 +182,24 @@ binding.registerCustomHook(function(bindingsAPI) {
   apiFunctions.setHandleRequest('cancelFileTransfers', function(
         entries, callback) {
     var urls = entries.map(function(entry) {
-      return fileManagerPrivateNatives.GetEntryURL(entry);
+      return getEntryURL(entry);
     });
     fileManagerPrivateInternal.cancelFileTransfers(urls, callback);
   });
 
   apiFunctions.setHandleRequest('startCopy', function(
         entry, parentEntry, newName, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
-    var parentUrl = fileManagerPrivateNatives.GetEntryURL(parentEntry);
+    var url = getEntryURL(entry);
+    var parentUrl = getEntryURL(parentEntry);
     fileManagerPrivateInternal.startCopy(
         url, parentUrl, newName, callback);
   });
 
   apiFunctions.setHandleRequest('zipSelection', function(
         parentEntry, entries, destName, callback) {
-    var parentUrl = fileManagerPrivateNatives.GetEntryURL(parentEntry);
+    var parentUrl = getEntryURL(parentEntry);
     var urls = entries.map(function(entry) {
-      return fileManagerPrivateNatives.GetEntryURL(entry);
+      return getEntryURL(entry);
     });
     fileManagerPrivateInternal.zipSelection(
         parentUrl, urls, destName, callback);
@@ -192,13 +207,14 @@ binding.registerCustomHook(function(bindingsAPI) {
 
   apiFunctions.setHandleRequest('validatePathNameLength', function(
         entry, name, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.validatePathNameLength(url, name, callback);
   });
 
   apiFunctions.setHandleRequest('getDirectorySize', function(
         entry, callback) {
-    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    var url = getEntryURL(entry);
     fileManagerPrivateInternal.getDirectorySize(url, callback);
   });
 
@@ -211,13 +227,67 @@ binding.registerCustomHook(function(bindingsAPI) {
       }));
     });
   });
+
+  apiFunctions.setHandleRequest(
+      'sharePathsWithCrostini', function(entries, persist, callback) {
+        const urls = entries.map((entry) => {
+          return getEntryURL(entry);
+        });
+        fileManagerPrivateInternal.sharePathsWithCrostini(
+            urls, persist, callback);
+      });
+
+  apiFunctions.setHandleRequest(
+      'unsharePathWithCrostini', function(entry, callback) {
+        fileManagerPrivateInternal.unsharePathWithCrostini(
+            getEntryURL(entry), callback);
+      });
+
+  apiFunctions.setHandleRequest(
+      'getCrostiniSharedPaths', function(callback) {
+        fileManagerPrivateInternal.getCrostiniSharedPaths(
+            function(entryDescriptions, firstForSession) {
+              callback(entryDescriptions.map(function(description) {
+                return GetExternalFileEntry(description);
+              }), firstForSession);
+            });
+      });
+
+  apiFunctions.setHandleRequest(
+      'getLinuxPackageInfo', function(entry, callback) {
+        var url = getEntryURL(entry);
+        fileManagerPrivateInternal.getLinuxPackageInfo(url, callback);
+      });
+
+  apiFunctions.setHandleRequest('installLinuxPackage', function(
+        entry, callback) {
+    var url = getEntryURL(entry);
+    fileManagerPrivateInternal.installLinuxPackage(url, callback);
+  });
+
+  apiFunctions.setHandleRequest('getThumbnail', function(
+        entry, cropToSquare, callback) {
+    var url = getEntryURL(entry);
+    fileManagerPrivateInternal.getThumbnail(url, cropToSquare, callback);
+  });
 });
 
-eventBindings.registerArgumentMassager(
-    'fileManagerPrivate.onDirectoryChanged', function(args, dispatch) {
+registerArgumentMassager('fileManagerPrivate.onDirectoryChanged',
+                         function(args, dispatch) {
   // Convert the entry arguments into a real Entry object.
   args[0].entry = GetExternalFileEntry(args[0].entry);
   dispatch(args);
 });
 
-exports.$set('binding', binding.generate());
+registerArgumentMassager('fileManagerPrivate.onCrostiniSharedPathsChanged',
+                         function(args, dispatch) {
+  // Convert entries arguments into real Entry objects.
+  const entries = args[0].entries;
+  for (let i = 0; i < entries.length; i++) {
+    entries[i] = GetExternalFileEntry(entries[i]);
+  }
+  dispatch(args);
+});
+
+if (!apiBridge)
+  exports.$set('binding', binding.generate());

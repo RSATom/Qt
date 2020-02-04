@@ -4,103 +4,7 @@
 
 ## Debugging
 
-[Linux Debugging](linux_debugging.md) has some emacs-specific debugging tips.
-
-
-## Blink Style (WebKit)
-
-Chrome and Blink/WebKit style differ. You can use
-[directory-local variables](http://www.gnu.org/software/emacs/manual/html_node/emacs/Directory-Variables.html)
-to make the tab key do the right thing. E.g., in `third_party/WebKit`, add a
-`.dir-locals.el` that contains
-
-```el
-((nil . ((indent-tabs-mode . nil)
-         (c-basic-offset . 4)
-         (fill-column . 120))))
-```
-
-This turns off tabs, sets your indent to four spaces, and makes `M-q` wrap at
-120 columns (WebKit doesn't define a wrap column, but there's a soft limit
-somewhere in that area for comments. Some reviewers do enforce the no wrap
-limit, which Emacs can deal with gracefully; see below.)
-
-Be sure to `echo .dir-locals.el >> .git/info/exclude` so `git clean` doesn't
-delete your file.
-
-It can be useful to set up a WebKit specific indent style. It's not too much
-different so it's easy to base off of the core Google style. Somewhere after
-you've loaded google.el (most likely in your .emacs file), add:
-
-```el
-(c-add-style "WebKit" '("Google"
-                        (c-basic-offset . 4)
-                        (c-offsets-alist . ((innamespace . 0)
-                                            (access-label . -)
-                                            (case-label . 0)
-                                            (member-init-intro . +)
-                                            (topmost-intro . 0)
-                                            (arglist-cont-nonempty . +)))))
-```
-
-then you can add
-
-```el
-(c-mode . ((c-file-style . "WebKit")))
-(c++-mode . ((c-file-style . "WebKit"))))
-```
-
-to the end of the .dir-locals.el file you created above. Note that this style
-may not yet be complete, but it covers the most common differences.
-
-Now that you have a WebKit specific style being applied, and assuming you have
-font locking and it's default jit locking turned on, you can also get Emacs 23
-to wrap long lines more intelligently by adding the following to your .emacs
-file:
-
-```el
-;; For dealing with WebKit long lines and word wrapping.
-(defun c-mode-adaptive-indent (beg end)
-  "Set the wrap-prefix for the region between BEG and END with adaptive filling."
-  (goto-char beg)
-  (while
-      (let ((lbp (line-beginning-position))
-            (lep (line-end-position)))
-        (put-text-property lbp lep 'wrap-prefix (concat (fill-context-prefix lbp lep) (make-string c-basic-offset ? )))
-        (search-forward "\n" end t))))
-
-(define-minor-mode c-adaptive-wrap-mode
-  "Wrap the buffer text with adaptive filling for c-mode."
-  :lighter ""
-  (save-excursion
-    (save-restriction
-      (widen)
-      (let ((buffer-undo-list t)
-            (inhibit-read-only t)
-            (mod (buffer-modified-p)))
-        (if c-adaptive-wrap-mode
-            (jit-lock-register 'c-mode-adaptive-indent)
-          (jit-lock-unregister 'c-mode-adaptive-indent)
-          (remove-text-properties (point-min) (point-max) '(wrap-prefix pref)))
-        (restore-buffer-modified-p mod)))))
-
-(defun c-adaptive-wrap-mode-for-webkit ()
-  "Turn on visual line mode and adaptive wrapping for WebKit source files."
-  (if (or (string-equal "webkit" c-indentation-style)
-          (string-equal "WebKit" c-indentation-style))
-      (progn
-        (visual-line-mode t)
-        (c-adaptive-wrap-mode t))))
-
-(add-hook 'c-mode-common-hook 'c-adaptive-wrap-mode-for-webkit)
-(add-hook 'hack-local-variables-hook 'c-adaptive-wrap-mode-for-webkit)
-```
-
-This turns on visual wrap mode for files using the WebKit c style, and sets up a
-hook to dynamically set the indent on the wrapped lines. It's not quite as
-intelligent as it could be (e.g., what would the wrap be if there really were a
-newline there?), but it's very fast. It makes dealing with long code lines
-anywhere much more tolerable (not just in WebKit).
+[Linux Debugging](linux_debugging.md) has some Emacs-specific debugging tips.
 
 ## Syntax-error Highlighting
 
@@ -109,7 +13,6 @@ anywhere much more tolerable (not just in WebKit).
 
 
     (load-file "src/tools/emacs/flymake-chromium.el")
-
 
 ## [ycmd](https://github.com/Valloric/ycmd) (YouCompleteMe) + flycheck
 
@@ -259,6 +162,13 @@ Now, you can use the
 
 key to format the current line (even a long line) or region.
 
+## BUILD.gn and .gni files
+
+BUILD.gn and gni files are supported by the official gn-mode which can
+be enabled with:
+
+    (load-file "src/tools/emacs/gn.el")
+
 ## Highlight long lines
 
 One nice way to highlight long lines and other style issues:
@@ -277,21 +187,7 @@ One nice way to highlight long lines and other style issues:
 Note: You might need to grab the latest version of
 [whitespace.el](http://www.emacswiki.org/emacs-en/download/whitespace.el).
 
-## gyp
-
-### `gyp` style
-There is a gyp mode that provides basic indentation and font-lock (syntax
-highlighting) support. The mode derives from python.el (bundled with newer
-emacsen).
-
-You can find it in /src/tools/gyp/tools/emacs
-
-See the README file there for installation instructions.
-
-**Important**: the mode is only tested with `python.el` (bundled with newer
-emacsen), not with `python-mode.el` (outdated and less maintained these days).
-
-### deep nesting
+## deep nesting
 
 A couple of helpers that show a summary of where you are; the first by tracing
 the indentation hierarchy upwards, the second by only showing `#if`s and

@@ -7,9 +7,9 @@
 // This file contains code to parse WebM file elements. It was created
 // from information in the Matroska spec.
 // http://www.matroska.org/technical/specs/index.html
-// This file contains code for encrypted WebM. Current WebM
-// encrypted request for comments specification is here
-// http://wiki.webmproject.org/encryption/webm-encryption-rfc
+//
+// WebM Container Guidelines is at https://www.webmproject.org/docs/container/
+// WebM Encryption spec is at: https://www.webmproject.org/docs/webm-encryption/
 
 #include <stddef.h>
 
@@ -17,8 +17,8 @@
 #include <limits>
 
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "media/formats/webm/webm_constants.h"
 
 namespace media {
@@ -50,6 +50,11 @@ struct ListElementInfo {
 // appear in the list, a parsing error is signalled. Some elements are
 // marked as SKIP because they are valid, but we don't care about them
 // right now.
+//
+// TODO(xhwang): There are many Matroska elements listed here which are not
+// supported by WebM. Since this is a WebM parser, maybe we should not list them
+// here so that the parsing clients doesn't need to handle them.
+
 static const ElementIdInfo kEBMLHeaderIds[] = {
   {UINT, kWebMIdEBMLVersion},
   {UINT, kWebMIdEBMLReadVersion},
@@ -388,7 +393,7 @@ static const ElementIdInfo kSimpleTagIds[] = {
 };
 
 #define LIST_ELEMENT_INFO(id, level, id_info) \
-    { (id), (level), (id_info), arraysize(id_info) }
+  { (id), (level), (id_info), base::size(id_info) }
 
 static const ListElementInfo kListElementInfo[] = {
     LIST_ELEMENT_INFO(kWebMIdCluster, 1, kClusterIds),
@@ -562,7 +567,7 @@ static ElementType FindIdType(int id,
 
 // Finds ListElementInfo for a specific ID.
 static const ListElementInfo* FindListInfo(int id) {
-  for (size_t i = 0; i < arraysize(kListElementInfo); ++i) {
+  for (size_t i = 0; i < base::size(kListElementInfo); ++i) {
     if (id == kListElementInfo[i].id_)
       return &kListElementInfo[i];
   }
@@ -697,8 +702,8 @@ static int ParseNonListElement(ElementType type,
   return result;
 }
 
-WebMParserClient::WebMParserClient() {}
-WebMParserClient::~WebMParserClient() {}
+WebMParserClient::WebMParserClient() = default;
+WebMParserClient::~WebMParserClient() = default;
 
 WebMParserClient* WebMParserClient::OnListStart(int id) {
   DVLOG(1) << "Unexpected list element start with ID " << std::hex << id;
@@ -739,7 +744,7 @@ WebMListParser::WebMListParser(int id, WebMParserClient* client)
   DCHECK(client);
 }
 
-WebMListParser::~WebMListParser() {}
+WebMListParser::~WebMListParser() = default;
 
 void WebMListParser::Reset() {
   ChangeState(NEED_LIST_HEADER);
@@ -985,17 +990,17 @@ bool WebMListParser::OnListEnd() {
 }
 
 bool WebMListParser::IsSiblingOrAncestor(int id_a, int id_b) const {
-  DCHECK((id_a == kWebMIdSegment) || (id_a == kWebMIdCluster));
-
   if (id_a == kWebMIdCluster) {
     // kWebMIdCluster siblings.
-    for (size_t i = 0; i < arraysize(kSegmentIds); i++) {
+    for (size_t i = 0; i < base::size(kSegmentIds); i++) {
       if (kSegmentIds[i].id_ == id_b)
         return true;
     }
+  } else if (id_a != kWebMIdSegment) {
+    return false;
   }
 
-  // kWebMIdSegment siblings.
+  // kWebMIdSegment sibling or ancestor, respectively; kWebMIdCluster ancestors.
   return ((id_b == kWebMIdSegment) || (id_b == kWebMIdEBMLHeader));
 }
 

@@ -159,10 +159,10 @@ class SQLiteChannelIDStore::Backend
   void KillDatabase();
 
   const base::FilePath path_;
-  std::unique_ptr<sql::Connection> db_;
+  std::unique_ptr<sql::Database> db_;
   sql::MetaTable meta_table_;
 
-  typedef std::list<PendingOperation*> PendingOperationsList;
+  typedef std::list<std::unique_ptr<PendingOperation>> PendingOperationsList;
   PendingOperationsList pending_;
   PendingOperationsList::size_type num_pending_;
   // True if the persistent store should skip clear on exit rules.
@@ -203,8 +203,6 @@ void SQLiteChannelIDStore::Backend::LoadInBackground(
   // This method should be called only once per instance.
   DCHECK(!db_.get());
 
-  base::TimeTicks start = base::TimeTicks::Now();
-
   // Ensure the parent directory for storing certs is created before reading
   // from it.
   const base::FilePath dir = path_.DirName();
@@ -213,7 +211,7 @@ void SQLiteChannelIDStore::Backend::LoadInBackground(
     return;
   }
 
-  db_.reset(new sql::Connection);
+  db_.reset(new sql::Database);
   db_->set_histogram_tag("DomainBoundCerts");
 
   // Unretained to avoid a ref loop with db_.
@@ -275,17 +273,6 @@ void SQLiteChannelIDStore::Backend::LoadInBackground(
     channel_ids->push_back(std::move(channel_id));
   }
 
-  UMA_HISTOGRAM_COUNTS_10000(
-      "DomainBoundCerts.DBLoadedCount",
-      static_cast<base::HistogramBase::Sample>(channel_ids->size()));
-  base::TimeDelta load_time = base::TimeTicks::Now() - start;
-  UMA_HISTOGRAM_CUSTOM_TIMES("DomainBoundCerts.DBLoadTime",
-                             load_time,
-                             base::TimeDelta::FromMilliseconds(1),
-                             base::TimeDelta::FromMinutes(1),
-                             50);
-  DVLOG(1) << "loaded " << channel_ids->size() << " in "
-           << load_time.InMilliseconds() << " ms";
   RecordDbLoadStatus(load_result);
 }
 
@@ -321,98 +308,22 @@ bool SQLiteChannelIDStore::Backend::EnsureDatabaseVersion() {
     }
   }
 
-  // Migrate from previous versions to new version if possible
-  if (cur_version >= 2 && cur_version <= 4) {
-    sql::Statement statement(db_->GetUniqueStatement(
-        "SELECT origin, cert, private_key, cert_type FROM origin_bound_certs"));
-    sql::Statement insert_statement(db_->GetUniqueStatement(
-        "INSERT INTO channel_id (host, private_key, public_key, creation_time) "
-        "VALUES (?, ?, \"\", ?)"));
-    if (!statement.is_valid() || !insert_statement.is_valid()) {
-      LOG(WARNING) << "Unable to update server bound cert database to "
-                   << "version 6.";
-      return false;
-    }
-
-    while (statement.Step()) {
-      if (statement.ColumnInt64(3) != CLIENT_CERT_ECDSA_SIGN)
-        continue;
-      std::string origin = statement.ColumnString(0);
-      std::string cert_from_db;
-      statement.ColumnBlobAsString(1, &cert_from_db);
-      std::vector<uint8_t> encrypted_private_key, private_key;
-      statement.ColumnBlobAsVector(2, &encrypted_private_key);
-      std::unique_ptr<crypto::ECPrivateKey> key(
-          crypto::ECPrivateKey::CreateFromEncryptedPrivateKeyInfo(
-              encrypted_private_key, std::vector<uint8_t>()));
-      if (!key || !key->ExportPrivateKey(&private_key)) {
-        LOG(WARNING) << "Unable to parse encrypted private key when migrating "
-                        "Channel ID database to version 6.";
-        continue;
-      }
-      // Parse the cert and extract the real value and then update the DB.
-      scoped_refptr<X509Certificate> cert(X509Certificate::CreateFromBytes(
-          cert_from_db.data(), static_cast<int>(cert_from_db.size())));
-      if (cert.get()) {
-        insert_statement.Reset(true);
-        insert_statement.BindString(0, origin);
-        insert_statement.BindBlob(1, private_key.data(),
-                                  static_cast<int>(private_key.size()));
-        insert_statement.BindInt64(2, cert->valid_start().ToInternalValue());
-        if (!insert_statement.Run()) {
-          LOG(WARNING) << "Unable to update channel id database to "
-                       << "version 6.";
-          return false;
-        }
-      } else {
-        // If there's a cert we can't parse, just leave it.  It'll get replaced
-        // with a new one if we ever try to use it.
-        LOG(WARNING) << "Error parsing cert for database upgrade for origin "
-                     << statement.ColumnString(0);
-      }
-    }
-  } else if (cur_version == 5) {
-    sql::Statement select(
-        db_->GetUniqueStatement("SELECT host, private_key FROM channel_id"));
-    sql::Statement update(
-        db_->GetUniqueStatement("UPDATE channel_id SET private_key = ?, "
-                                "public_key = \"\" WHERE host = ?"));
-    if (!select.is_valid() || !update.is_valid()) {
-      LOG(WARNING) << "Invalid SQL statements to update Channel ID database to "
-                      "version 6.";
-      return false;
-    }
-
-    while (select.Step()) {
-      std::string host = select.ColumnString(0);
-      std::vector<uint8_t> encrypted_private_key, private_key;
-      select.ColumnBlobAsVector(1, &encrypted_private_key);
-      std::unique_ptr<crypto::ECPrivateKey> key(
-          crypto::ECPrivateKey::CreateFromEncryptedPrivateKeyInfo(
-              encrypted_private_key, std::vector<uint8_t>()));
-      if (!key || !key->ExportPrivateKey(&private_key)) {
-        LOG(WARNING) << "Unable to parse encrypted private key when migrating "
-                        "Channel ID database to version 6.";
-        continue;
-      }
-      update.Reset(true);
-      update.BindBlob(0, private_key.data(),
-                      static_cast<int>(private_key.size()));
-      update.BindString(1, host);
-      if (!update.Run()) {
-        LOG(WARNING) << "UPDATE statement failed when updating Channel ID "
-                        "database to version 6.";
-        return false;
-      }
-    }
-  }
-
   if (cur_version < kCurrentVersionNumber) {
     if (cur_version <= 4) {
       sql::Statement statement(
           db_->GetUniqueStatement("DROP TABLE origin_bound_certs"));
       if (!statement.Run()) {
         LOG(WARNING) << "Error dropping old origin_bound_certs table";
+        return false;
+      }
+    }
+    if (cur_version < 6) {
+      // The old format had the private_key column in a format we no longer
+      // read. Just delete any entries in that format.
+      sql::Statement statement(
+          db_->GetUniqueStatement("DELETE FROM channel_id"));
+      if (!statement.Run()) {
+        LOG(WARNING) << "Error clearing channel_id table";
         return false;
       }
     }
@@ -503,7 +414,7 @@ void SQLiteChannelIDStore::Backend::BatchOperation(
   PendingOperationsList::size_type num_pending;
   {
     base::AutoLock locked(lock_);
-    pending_.push_back(po.release());
+    pending_.push_back(std::move(po));
     num_pending = ++num_pending_;
   }
 
@@ -525,11 +436,10 @@ void SQLiteChannelIDStore::Backend::PrunePendingOperationsForDeletes(
   DCHECK(background_task_runner_->RunsTasksInCurrentSequence());
   base::AutoLock locked(lock_);
 
-  for (PendingOperationsList::iterator it = pending_.begin();
-       it != pending_.end();) {
+  for (auto it = pending_.begin(); it != pending_.end();) {
     if (base::ContainsValue(server_identifiers,
                             (*it)->channel_id().server_identifier())) {
-      std::unique_ptr<PendingOperation> po(*it);
+      std::unique_ptr<PendingOperation> po(std::move(*it));
       it = pending_.erase(it);
       --num_pending_;
     } else {
@@ -539,8 +449,12 @@ void SQLiteChannelIDStore::Backend::PrunePendingOperationsForDeletes(
 }
 
 void SQLiteChannelIDStore::Backend::Flush() {
-  background_task_runner_->PostTask(FROM_HERE,
-                                    base::Bind(&Backend::Commit, this));
+  if (background_task_runner_->RunsTasksInCurrentSequence()) {
+    Commit();
+  } else {
+    background_task_runner_->PostTask(FROM_HERE,
+                                      base::Bind(&Backend::Commit, this));
+  }
 }
 
 void SQLiteChannelIDStore::Backend::Commit() {
@@ -573,10 +487,9 @@ void SQLiteChannelIDStore::Backend::Commit() {
   if (!transaction.Begin())
     return;
 
-  for (PendingOperationsList::iterator it = ops.begin(); it != ops.end();
-       ++it) {
+  for (auto it = ops.begin(); it != ops.end(); ++it) {
     // Free the certs as we commit them to the database.
-    std::unique_ptr<PendingOperation> po(*it);
+    std::unique_ptr<PendingOperation> po(std::move(*it));
     switch (po->op()) {
       case PendingOperation::CHANNEL_ID_ADD: {
         add_statement.Reset(true);
@@ -645,8 +558,7 @@ void SQLiteChannelIDStore::Backend::BackgroundDeleteAllInList(
     return;
   }
 
-  for (std::list<std::string>::const_iterator it = server_identifiers.begin();
-       it != server_identifiers.end();
+  for (auto it = server_identifiers.begin(); it != server_identifiers.end();
        ++it) {
     del_smt.Reset(true);
     del_smt.BindString(0, *it);

@@ -20,9 +20,9 @@ class ImageVk : public ImageImpl
   public:
     ImageVk(const egl::ImageState &state);
     ~ImageVk() override;
-    egl::Error initialize() override;
+    egl::Error initialize(const egl::Display *display) override;
 
-    gl::Error orphan(const gl::Context *context, egl::ImageSibling *sibling) override;
+    angle::Result orphan(const gl::Context *context, egl::ImageSibling *sibling) override;
 };
 
 }  // namespace rx

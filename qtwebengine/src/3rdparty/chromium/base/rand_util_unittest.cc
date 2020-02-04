@@ -52,14 +52,19 @@ TEST(RandUtilTest, RandBytes) {
   EXPECT_GT(std::unique(buffer, buffer + buffer_size) - buffer, 25);
 }
 
+// Verify that calling base::RandBytes with an empty buffer doesn't fail.
+TEST(RandUtilTest, RandBytes0) {
+  base::RandBytes(nullptr, 0);
+}
+
 TEST(RandUtilTest, RandBytesAsString) {
   std::string random_string = base::RandBytesAsString(1);
   EXPECT_EQ(1U, random_string.size());
   random_string = base::RandBytesAsString(145);
   EXPECT_EQ(145U, random_string.size());
   char accumulator = 0;
-  for (size_t i = 0; i < random_string.size(); ++i)
-    accumulator |= random_string[i];
+  for (auto i : random_string)
+    accumulator |= i;
   // In theory this test can fail, but it won't before the universe dies of
   // heat death.
   EXPECT_NE(0, accumulator);

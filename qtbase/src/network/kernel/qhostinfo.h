@@ -90,14 +90,11 @@ public:
     static QString localHostName();
     static QString localDomainName();
 
-#ifdef Q_QDOC
-    template<typename PointerToMemberFunction>
-    static int QHostInfo::lookupHost(const QString &name, const QObject *receiver,
-                              PointerToMemberFunction function);
+#ifdef Q_CLANG_QDOC
     template<typename Functor>
-    static int QHostInfo::lookupHost(const QString &name, Functor functor);
+    static int lookupHost(const QString &name, Functor functor);
     template<typename Functor>
-    static int QHostInfo::lookupHost(const QString &name, const QObject *context, Functor functor);
+    static int lookupHost(const QString &name, const QObject *context, Functor functor);
 #else
     // lookupHost to a QObject slot
     template <typename Func>

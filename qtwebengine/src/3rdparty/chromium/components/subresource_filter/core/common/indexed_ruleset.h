@@ -30,6 +30,19 @@ namespace subresource_filter {
 
 class FirstPartyOrigin;
 
+// Detailed result of IndexedRulesetMatcher::Verify.
+// Note: Logged to UMA, keep in sync with SubresourceFilterVerifyStatus in
+// enums.xml.  Add new entries to the end and do not renumber.
+enum class VerifyStatus {
+  kPassValidChecksum = 0,
+  kChecksumFailVerifierPass = 1,
+  kChecksumFailVerifierFail = 2,
+  kVerifierFailChecksumPass = 3,
+  kVerifierFailChecksumZero = 4,
+  kPassChecksumZero = 5,
+  kMaxValue = kPassChecksumZero
+};
+
 // The class used to construct flat data structures representing the set of URL
 // filtering rules, as well as the index of those. Internally owns a
 // FlatBufferBuilder storing the structures.
@@ -55,6 +68,9 @@ class RulesetIndexer {
   // Finalizes construction of the data structures.
   void Finish();
 
+  // Returns the checksum for the data buffer.
+  int GetChecksum() const;
+
   // Returns a pointer to the buffer containing the serialized flat data
   // structures. Should only be called after Finish().
   const uint8_t* data() const { return builder_.GetBufferPointer(); }
@@ -69,6 +85,10 @@ class RulesetIndexer {
   url_pattern_index::UrlPatternIndexBuilder whitelist_;
   url_pattern_index::UrlPatternIndexBuilder deactivation_;
 
+  // Maintains a map of domain vectors to their existing offsets, to avoid
+  // storing a particular vector more than once.
+  url_pattern_index::FlatDomainMap domain_map_;
+
   DISALLOW_COPY_AND_ASSIGN(RulesetIndexer);
 };
 
@@ -77,7 +97,7 @@ class IndexedRulesetMatcher {
  public:
   // Returns whether the |buffer| of the given |size| contains a valid
   // flat::IndexedRuleset FlatBuffer.
-  static bool Verify(const uint8_t* buffer, size_t size);
+  static bool Verify(const uint8_t* buffer, size_t size, int expected_checksum);
 
   // Creates an instance that matches URLs against the flat::IndexedRuleset
   // provided as the root object of serialized data in the |buffer| of the given
@@ -99,6 +119,15 @@ class IndexedRulesetMatcher {
   // |document_origin| is not allowed to proceed. Always returns false if the
   // |url| is not valid or |element_type| == ELEMENT_TYPE_UNSPECIFIED.
   bool ShouldDisallowResourceLoad(
+      const GURL& url,
+      const FirstPartyOrigin& first_party,
+      url_pattern_index::proto::ElementType element_type,
+      bool disable_generic_rules) const;
+
+  // Like ShouldDisallowResourceLoad, but returns the matching rule that
+  // determines whether the request should be allowed or not. Whitelist rules
+  // override blacklist rules. If no rule matches, returns nullptr.
+  const url_pattern_index::flat::UrlRule* MatchedUrlRule(
       const GURL& url,
       const FirstPartyOrigin& first_party,
       url_pattern_index::proto::ElementType element_type,

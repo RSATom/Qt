@@ -15,10 +15,12 @@
 #include "cc/paint/paint_shader.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/strings/grit/ui_strings.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/color_chooser/color_chooser_listener.h"
@@ -364,12 +366,12 @@ ColorChooserView::ColorChooserView(ColorChooserListener* listener,
   DCHECK(listener_);
 
   SetBackground(CreateSolidBackground(SK_ColorLTGRAY));
-  SetLayoutManager(new BoxLayout(BoxLayout::kVertical,
-                                 gfx::Insets(kMarginWidth), kMarginWidth));
+  SetLayoutManager(std::make_unique<BoxLayout>(
+      BoxLayout::kVertical, gfx::Insets(kMarginWidth), kMarginWidth));
 
   View* container = new View();
-  container->SetLayoutManager(
-      new BoxLayout(BoxLayout::kHorizontal, gfx::Insets(), kMarginWidth));
+  container->SetLayoutManager(std::make_unique<BoxLayout>(
+      BoxLayout::kHorizontal, gfx::Insets(), kMarginWidth));
   saturation_value_ = new SaturationValueView(this);
   container->AddChildView(saturation_value_);
   hue_ = new HueView(this);
@@ -377,8 +379,8 @@ ColorChooserView::ColorChooserView(ColorChooserListener* listener,
   AddChildView(container);
 
   View* container2 = new View();
-  GridLayout* layout = new GridLayout(container2);
-  container2->SetLayoutManager(layout);
+  GridLayout* layout = container2->SetLayoutManager(
+      std::make_unique<views::GridLayout>(container2));
   ColumnSet* columns = layout->AddColumnSet(0);
   columns->AddColumn(
       GridLayout::LEADING, GridLayout::FILL, 0, GridLayout::USE_PREF, 0, 0);
@@ -388,7 +390,9 @@ ColorChooserView::ColorChooserView(ColorChooserListener* listener,
   layout->StartRow(0, 0);
   textfield_ = new Textfield();
   textfield_->set_controller(this);
-  textfield_->set_default_width_in_chars(kTextfieldLengthInChars);
+  textfield_->SetDefaultWidthInChars(kTextfieldLengthInChars);
+  textfield_->SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_APP_ACCNAME_COLOR_CHOOSER_HEX_INPUT));
   layout->AddView(textfield_);
   selected_color_patch_ = new SelectedColorPatchView();
   layout->AddView(selected_color_patch_);

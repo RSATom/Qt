@@ -38,7 +38,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QBoxPlotModelMapper
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QBoxPlotModelMapper class is the base class for box plot model
     mapper classes.
     \internal
@@ -503,8 +503,7 @@ void QBoxPlotModelMapperPrivate::initializeBoxFromModel()
     blockSeriesSignals(false);
 }
 
-#include "moc_qboxplotmodelmapper.cpp"
-#include "moc_qboxplotmodelmapper_p.cpp"
-
 QT_CHARTS_END_NAMESPACE
 
+#include "moc_qboxplotmodelmapper.cpp"
+#include "moc_qboxplotmodelmapper_p.cpp"

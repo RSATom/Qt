@@ -61,7 +61,7 @@ class Q_WINEXTRAS_EXPORT QWinThumbnailToolButton : public QObject
     Q_PROPERTY(bool flat READ isFlat WRITE setFlat)
 
 public:
-    explicit QWinThumbnailToolButton(QObject *parent = Q_NULLPTR);
+    explicit QWinThumbnailToolButton(QObject *parent = nullptr);
     ~QWinThumbnailToolButton();
 
     void setToolTip(const QString &toolTip);

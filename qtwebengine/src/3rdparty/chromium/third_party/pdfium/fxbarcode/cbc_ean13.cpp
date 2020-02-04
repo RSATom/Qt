@@ -27,58 +27,18 @@
 #include "third_party/base/ptr_util.h"
 
 CBC_EAN13::CBC_EAN13()
-    : CBC_OneCode(pdfium::MakeUnique<CBC_OnedEAN13Writer>()) {}
+    : CBC_EANCode(pdfium::MakeUnique<CBC_OnedEAN13Writer>()) {}
 
-CBC_EAN13::~CBC_EAN13() {}
-
-CFX_WideString CBC_EAN13::Preprocess(const CFX_WideStringC& contents) {
-  auto* pWriter = GetOnedEAN13Writer();
-  CFX_WideString encodeContents = pWriter->FilterContents(contents);
-  int32_t length = encodeContents.GetLength();
-  if (length <= 12) {
-    for (int32_t i = 0; i < 12 - length; i++)
-      encodeContents = wchar_t('0') + encodeContents;
-
-    CFX_ByteString byteString = encodeContents.UTF8Encode();
-    int32_t checksum = pWriter->CalcChecksum(byteString);
-    byteString += checksum - 0 + '0';
-    encodeContents = byteString.UTF8Decode();
-  }
-  if (length > 13)
-    encodeContents = encodeContents.Mid(0, 13);
-
-  return encodeContents;
-}
-
-bool CBC_EAN13::Encode(const CFX_WideStringC& contents, bool isDevice) {
-  if (contents.IsEmpty())
-    return false;
-
-  BCFORMAT format = BCFORMAT_EAN_13;
-  int32_t outWidth = 0;
-  int32_t outHeight = 0;
-  CFX_WideString encodeContents = Preprocess(contents);
-  CFX_ByteString byteString = encodeContents.UTF8Encode();
-  m_renderContents = encodeContents;
-  auto* pWriter = GetOnedEAN13Writer();
-  std::unique_ptr<uint8_t, FxFreeDeleter> data(
-      pWriter->Encode(byteString, format, outWidth, outHeight));
-  if (!data)
-    return false;
-  return pWriter->RenderResult(encodeContents.AsStringC(), data.get(), outWidth,
-                               isDevice);
-}
-
-bool CBC_EAN13::RenderDevice(CFX_RenderDevice* device,
-                             const CFX_Matrix* matrix) {
-  return GetOnedEAN13Writer()->RenderDeviceResult(device, matrix,
-                                                  m_renderContents.AsStringC());
-}
+CBC_EAN13::~CBC_EAN13() = default;
 
 BC_TYPE CBC_EAN13::GetType() {
   return BC_EAN13;
 }
 
-CBC_OnedEAN13Writer* CBC_EAN13::GetOnedEAN13Writer() {
-  return static_cast<CBC_OnedEAN13Writer*>(m_pBCWriter.get());
+BCFORMAT CBC_EAN13::GetFormat() const {
+  return BCFORMAT_EAN_13;
+}
+
+size_t CBC_EAN13::GetMaxLength() const {
+  return 12;
 }

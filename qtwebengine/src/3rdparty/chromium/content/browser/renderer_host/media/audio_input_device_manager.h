@@ -3,12 +3,12 @@
 // found in the LICENSE file.
 //
 // AudioInputDeviceManager manages the audio input devices. In particular it
-// communicates with MediaStreamManager and AudioInputRendererHost on the
-// browser IO thread, handles queries like
-// enumerate/open/close/GetOpenedDeviceInfoById from MediaStreamManager and
-// GetOpenedDeviceInfoById from AudioInputRendererHost.
+// communicates with MediaStreamManager and RenderFrameAudioInputStreamFactory
+// on the browser IO thread, handles queries like
+// enumerate/open/close/GetOpenedDeviceById from MediaStreamManager and
+// GetOpenedDeviceById from RenderFrameAudioInputStreamFactory.
 // The work for enumerate/open/close is handled asynchronously on Media Stream
-// device thread, while GetOpenedDeviceInfoById is synchronous on the IO thread.
+// device thread, while GetOpenedDeviceById is synchronous on the IO thread.
 
 #ifndef CONTENT_BROWSER_RENDERER_HOST_MEDIA_AUDIO_INPUT_DEVICE_MANAGER_H_
 #define CONTENT_BROWSER_RENDERER_HOST_MEDIA_AUDIO_INPUT_DEVICE_MANAGER_H_
@@ -23,8 +23,7 @@
 #include "build/build_config.h"
 #include "content/browser/renderer_host/media/media_stream_provider.h"
 #include "content/common/content_export.h"
-#include "content/common/media/media_stream_options.h"
-#include "content/public/common/media_stream_request.h"
+#include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
 namespace media {
 class AudioSystem;
@@ -43,55 +42,78 @@ class CONTENT_EXPORT AudioInputDeviceManager : public MediaStreamProvider {
 
   explicit AudioInputDeviceManager(media::AudioSystem* audio_system);
 
-  // Gets the opened device info by |session_id|. Returns NULL if the device
+  // Gets the opened device by |session_id|. Returns NULL if the device
   // is not opened, otherwise the opened device. Called on IO thread.
-  const StreamDeviceInfo* GetOpenedDeviceInfoById(int session_id);
+  const blink::MediaStreamDevice* GetOpenedDeviceById(int session_id);
 
   // MediaStreamProvider implementation.
   void RegisterListener(MediaStreamProviderListener* listener) override;
   void UnregisterListener(MediaStreamProviderListener* listener) override;
-  int Open(const MediaStreamDevice& device) override;
+  int Open(const blink::MediaStreamDevice& device) override;
   void Close(int session_id) override;
 
+  // Owns a keyboard mic stream registration. Dummy implementation on platforms
+  // other than Chrome OS.
+  class KeyboardMicRegistration {
+   public:
 #if defined(OS_CHROMEOS)
-  // Registers and unregisters that a stream using keyboard mic has been opened
-  // or closed. Keeps count of how many such streams are open and activates and
+    // No registration.
+    KeyboardMicRegistration() = default;
+
+    KeyboardMicRegistration(KeyboardMicRegistration&& other);
+
+    ~KeyboardMicRegistration();
+
+   private:
+    friend class AudioInputDeviceManager;
+
+    explicit KeyboardMicRegistration(int* shared_registration_count);
+
+    void DeregisterIfNeeded();
+
+    // Null to indicate that there is no stream registration. This points to
+    // a member of the AudioInputDeviceManager, which lives as long as the IO
+    // thread, so the pointer will be valid for the lifetime of the
+    // registration.
+    int* shared_registration_count_ = nullptr;
+#endif
+  };
+
+#if defined(OS_CHROMEOS)
+  // Registers that a stream using keyboard mic has been opened or closed.
+  // Keeps count of how many such streams are open and activates and
   // inactivates the keyboard mic accordingly. The (in)activation is done on the
-  // UI thread and for the register case a callback must therefor be provided
-  // which is called when activated.
-  void RegisterKeyboardMicStream(base::OnceClosure callback);
-  void UnregisterKeyboardMicStream();
+  // UI thread and for the register case a callback must therefore be provided
+  // which is called when activated. Deregistration is done when the
+  // registration object is destructed or assigned to, which should only be
+  // done on the IO thread.
+  void RegisterKeyboardMicStream(
+      base::OnceCallback<void(KeyboardMicRegistration)> callback);
 #endif
 
  private:
-  typedef std::vector<StreamDeviceInfo> StreamDeviceList;
   ~AudioInputDeviceManager() override;
 
   // Callback called on IO thread when device is opened.
-  void OpenedOnIOThread(int session_id,
-                        const MediaStreamDevice& device,
-                        base::TimeTicks start_time,
-                        const media::AudioParameters& input_params,
-                        const media::AudioParameters& matched_output_params,
-                        const std::string& matched_output_device_id);
+  void OpenedOnIOThread(
+      int session_id,
+      const blink::MediaStreamDevice& device,
+      base::TimeTicks start_time,
+      const base::Optional<media::AudioParameters>& input_params,
+      const base::Optional<std::string>& matched_output_device_id);
 
   // Callback called on IO thread with the session_id referencing the closed
   // device.
-  void ClosedOnIOThread(MediaStreamType type, int session_id);
+  void ClosedOnIOThread(blink::MediaStreamType type, int session_id);
 
   // Helper to return iterator to the device referenced by |session_id|. If no
   // device is found, it will return devices_.end().
-  StreamDeviceList::iterator GetDevice(int session_id);
-
-#if defined(OS_CHROMEOS)
-  // Calls Cras audio handler and sets keyboard mic active status.
-  void SetKeyboardMicStreamActiveOnUIThread(bool active);
-#endif
+  blink::MediaStreamDevices::iterator GetDevice(int session_id);
 
   // Only accessed on Browser::IO thread.
-  base::ObserverList<MediaStreamProviderListener> listeners_;
+  base::ObserverList<MediaStreamProviderListener>::Unchecked listeners_;
   int next_capture_session_id_;
-  StreamDeviceList devices_;
+  blink::MediaStreamDevices devices_;
 
 #if defined(OS_CHROMEOS)
   // Keeps count of how many streams are using keyboard mic.

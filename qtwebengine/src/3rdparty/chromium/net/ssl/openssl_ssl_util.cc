@@ -8,12 +8,15 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "crypto/openssl_util.h"
 #include "net/base/net_errors.h"
+#include "net/cert/x509_util.h"
 #include "net/ssl/ssl_connection_status_flags.h"
 #include "third_party/boringssl/src/include/openssl/err.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
@@ -102,6 +105,10 @@ int MapOpenSSLErrorSSL(uint32_t error_code) {
       return ERR_SSL_WEAK_SERVER_EPHEMERAL_DH_KEY;
     case SSL_R_SERVER_CERT_CHANGED:
       return ERR_SSL_SERVER_CERT_CHANGED;
+    case SSL_R_WRONG_VERSION_ON_EARLY_DATA:
+      return ERR_WRONG_VERSION_ON_EARLY_DATA;
+    case SSL_R_TLS13_DOWNGRADE:
+      return ERR_TLS13_DOWNGRADE_DETECTED;
     // SSL_R_SSLV3_ALERT_HANDSHAKE_FAILURE may be returned from the server after
     // receiving ClientHello if there's no common supported cipher. Map that
     // specific case to ERR_SSL_VERSION_OR_CIPHER_MISMATCH to match the NSS
@@ -140,7 +147,7 @@ std::unique_ptr<base::Value> NetLogOpenSSLErrorCallback(
 
 }  // namespace
 
-void OpenSSLPutNetError(const tracked_objects::Location& location, int err) {
+void OpenSSLPutNetError(const base::Location& location, int err) {
   // Net error codes are negative. Encode them as positive numbers.
   err = -err;
   if (err < 0 || err > 0xfff) {
@@ -166,10 +173,12 @@ int MapOpenSSLErrorWithDetails(int err,
     case SSL_ERROR_WANT_READ:
     case SSL_ERROR_WANT_WRITE:
       return ERR_IO_PENDING;
+    case SSL_ERROR_EARLY_DATA_REJECTED:
+      return ERR_EARLY_DATA_REJECTED;
     case SSL_ERROR_SYSCALL:
-      LOG(ERROR) << "OpenSSL SYSCALL error, earliest error code in "
-                    "error queue: " << ERR_peek_error() << ", errno: "
-                 << errno;
+      PLOG(ERROR) << "OpenSSL SYSCALL error, earliest error code in "
+                     "error queue: "
+                  << ERR_peek_error();
       return ERR_FAILED;
     case SSL_ERROR_SSL:
       // Walk down the error stack to find an SSL or net error.
@@ -222,6 +231,25 @@ int GetNetSSLVersion(SSL* ssl) {
       NOTREACHED();
       return SSL_CONNECTION_VERSION_UNKNOWN;
   }
+}
+
+bool SetSSLChainAndKey(SSL* ssl,
+                       X509Certificate* cert,
+                       EVP_PKEY* pkey,
+                       const SSL_PRIVATE_KEY_METHOD* custom_key) {
+  std::vector<CRYPTO_BUFFER*> chain_raw;
+  chain_raw.reserve(1 + cert->intermediate_buffers().size());
+  chain_raw.push_back(cert->cert_buffer());
+  for (const auto& handle : cert->intermediate_buffers())
+    chain_raw.push_back(handle.get());
+
+  if (!SSL_set_chain_and_key(ssl, chain_raw.data(), chain_raw.size(), pkey,
+                             custom_key)) {
+    LOG(WARNING) << "Failed to set client certificate";
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace net

@@ -5,18 +5,25 @@
 #include "google_apis/gcm/engine/connection_factory_impl.h"
 
 #include <cmath>
+#include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
+#include "base/optional.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "google_apis/gcm/base/mcs_util.h"
 #include "google_apis/gcm/engine/fake_connection_handler.h"
 #include "google_apis/gcm/monitoring/fake_gcm_stats_recorder.h"
 #include "net/base/backoff_entry.h"
-#include "net/http/http_network_session.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
+#include "net/url_request/url_request_test_util.h"
+#include "services/network/network_context.h"
+#include "services/network/network_service.h"
+#include "services/network/public/mojom/proxy_resolving_socket.mojom.h"
+#include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 class Policy;
@@ -85,14 +92,17 @@ void WriteContinuation() {
 // backoff policy.
 class TestConnectionFactoryImpl : public ConnectionFactoryImpl {
  public:
-  TestConnectionFactoryImpl(const base::Closure& finished_callback);
+  TestConnectionFactoryImpl(
+      GetProxyResolvingFactoryCallback get_socket_factory_callback,
+      const base::Closure& finished_callback);
   ~TestConnectionFactoryImpl() override;
 
   void InitializeFactory();
 
   // Overridden stubs.
   void StartConnection() override;
-  void InitHandler() override;
+  void InitHandler(mojo::ScopedDataPipeConsumerHandle receive_stream,
+                   mojo::ScopedDataPipeProducerHandle send_stream) override;
   std::unique_ptr<net::BackoffEntry> CreateBackoffEntry(
       const net::BackoffEntry::Policy* const policy) override;
   std::unique_ptr<ConnectionHandler> CreateConnectionHandler(
@@ -137,24 +147,28 @@ class TestConnectionFactoryImpl : public ConnectionFactoryImpl {
   FakeConnectionHandler* fake_handler_;
   // Dummy GCM Stats recorder.
   FakeGCMStatsRecorder dummy_recorder_;
+  // Dummy mojo pipes.
+  mojo::DataPipe receive_pipe_;
+  mojo::DataPipe send_pipe_;
 };
 
 TestConnectionFactoryImpl::TestConnectionFactoryImpl(
+    GetProxyResolvingFactoryCallback get_socket_factory_callback,
     const base::Closure& finished_callback)
-    : ConnectionFactoryImpl(BuildEndpoints(),
-                            net::BackoffEntry::Policy(),
-                            NULL,
-                            NULL,
-                            NULL,
-                            &dummy_recorder_),
+    : ConnectionFactoryImpl(
+          BuildEndpoints(),
+          net::BackoffEntry::Policy(),
+          get_socket_factory_callback,
+          &dummy_recorder_,
+          network::TestNetworkConnectionTracker::GetInstance()),
       connect_result_(net::ERR_UNEXPECTED),
       num_expected_attempts_(0),
       connections_fulfilled_(true),
       delay_login_(false),
       finished_callback_(finished_callback),
-      scoped_handler_(
-          new FakeConnectionHandler(base::Bind(&ReadContinuation),
-                                    base::Bind(&WriteContinuation))),
+      scoped_handler_(std::make_unique<FakeConnectionHandler>(
+          base::Bind(&ReadContinuation),
+          base::Bind(&WriteContinuation))),
       fake_handler_(scoped_handler_.get()) {
   // Set a non-null time.
   tick_clock_.Advance(base::TimeDelta::FromMilliseconds(1));
@@ -168,8 +182,12 @@ void TestConnectionFactoryImpl::StartConnection() {
   ASSERT_GT(num_expected_attempts_, 0);
   ASSERT_FALSE(GetConnectionHandler()->CanSendMessage());
   std::unique_ptr<mcs_proto::LoginRequest> request(BuildLoginRequest(0, 0, ""));
-  GetConnectionHandler()->Init(*request, NULL);
-  OnConnectDone(connect_result_);
+  GetConnectionHandler()->Init(*request,
+                               std::move(receive_pipe_.consumer_handle),
+                               std::move(send_pipe_.producer_handle));
+  OnConnectDone(connect_result_, net::IPEndPoint(), net::IPEndPoint(),
+                mojo::ScopedDataPipeConsumerHandle(),
+                mojo::ScopedDataPipeProducerHandle());
   if (!NextRetryAttempt().is_null()) {
     // Advance the time to the next retry time.
     base::TimeDelta time_till_retry =
@@ -184,7 +202,9 @@ void TestConnectionFactoryImpl::StartConnection() {
   }
 }
 
-void TestConnectionFactoryImpl::InitHandler() {
+void TestConnectionFactoryImpl::InitHandler(
+    mojo::ScopedDataPipeConsumerHandle receive_stream,
+    mojo::ScopedDataPipeProducerHandle send_stream) {
   EXPECT_NE(connect_result_, net::ERR_UNEXPECTED);
   if (!delay_login_)
     ConnectionHandlerCallback(net::OK);
@@ -193,7 +213,7 @@ void TestConnectionFactoryImpl::InitHandler() {
 std::unique_ptr<net::BackoffEntry>
 TestConnectionFactoryImpl::CreateBackoffEntry(
     const net::BackoffEntry::Policy* const policy) {
-  return base::MakeUnique<net::BackoffEntry>(&kTestBackoffPolicy, &tick_clock_);
+  return std::make_unique<net::BackoffEntry>(&kTestBackoffPolicy, &tick_clock_);
 }
 
 std::unique_ptr<ConnectionHandler>
@@ -271,24 +291,50 @@ class ConnectionFactoryImplTest
   }
 
  private:
+  void GetProxyResolvingSocketFactory(
+      network::mojom::ProxyResolvingSocketFactoryRequest request) {
+    network_context_->CreateProxyResolvingSocketFactory(std::move(request));
+  }
   void ConnectionsComplete();
 
+  std::unique_ptr<network::TestNetworkConnectionTracker>
+      network_connection_tracker_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   TestConnectionFactoryImpl factory_;
-  base::MessageLoop message_loop_;
   std::unique_ptr<base::RunLoop> run_loop_;
 
   GURL connected_server_;
+  std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
+  std::unique_ptr<network::NetworkService> network_service_;
+  network::mojom::NetworkContextPtr network_context_ptr_;
+  std::unique_ptr<network::NetworkContext> network_context_;
 };
 
 ConnectionFactoryImplTest::ConnectionFactoryImplTest()
-    : factory_(base::Bind(&ConnectionFactoryImplTest::ConnectionsComplete,
-                         base::Unretained(this))),
-      run_loop_(new base::RunLoop()) {
+    : network_connection_tracker_(
+          network::TestNetworkConnectionTracker::CreateInstance()),
+      scoped_task_environment_(
+          base::test::ScopedTaskEnvironment::MainThreadType::IO),
+      factory_(base::BindRepeating(
+                   &ConnectionFactoryImplTest::GetProxyResolvingSocketFactory,
+                   base::Unretained(this)),
+               base::Bind(&ConnectionFactoryImplTest::ConnectionsComplete,
+                          base::Unretained(this))),
+      run_loop_(new base::RunLoop()),
+      network_change_notifier_(net::NetworkChangeNotifier::CreateMock()),
+      network_service_(network::NetworkService::CreateForTesting()) {
+  network::mojom::NetworkContextParamsPtr params =
+      network::mojom::NetworkContextParams::New();
+  // Use a fixed proxy config, to avoid dependencies on local network
+  // configuration.
+  params->initial_proxy_config = net::ProxyConfigWithAnnotation::CreateDirect();
+  network_context_ = std::make_unique<network::NetworkContext>(
+      network_service_.get(), mojo::MakeRequest(&network_context_ptr_),
+      std::move(params));
   factory()->SetConnectionListener(this);
-  factory()->Initialize(
-      ConnectionFactory::BuildLoginRequestCallback(),
-      ConnectionHandler::ProtoReceivedCallback(),
-      ConnectionHandler::ProtoSentCallback());
+  factory()->Initialize(ConnectionFactory::BuildLoginRequestCallback(),
+                        ConnectionHandler::ProtoReceivedCallback(),
+                        ConnectionHandler::ProtoSentCallback());
 }
 ConnectionFactoryImplTest::~ConnectionFactoryImplTest() {}
 
@@ -406,7 +452,8 @@ TEST_F(ConnectionFactoryImplTest, FailThenNetworkChangeEvent) {
   EXPECT_FALSE(initial_backoff.is_null());
 
   factory()->SetConnectResult(net::ERR_FAILED);
-  factory()->OnNetworkChanged(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  factory()->OnConnectionChanged(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   WaitForConnections();
 
   // Backoff should increase.
@@ -425,7 +472,8 @@ TEST_F(ConnectionFactoryImplTest, CanarySucceedsThenDisconnects) {
   EXPECT_FALSE(initial_backoff.is_null());
 
   factory()->SetConnectResult(net::OK);
-  factory()->OnNetworkChanged(net::NetworkChangeNotifier::CONNECTION_ETHERNET);
+  factory()->OnConnectionChanged(
+      network::mojom::ConnectionType::CONNECTION_ETHERNET);
   WaitForConnections();
   EXPECT_TRUE(factory()->IsEndpointReachable());
   EXPECT_TRUE(connected_server().is_valid());
@@ -450,13 +498,14 @@ TEST_F(ConnectionFactoryImplTest, CanarySucceedsRetryDuringLogin) {
 
   factory()->SetDelayLogin(true);
   factory()->SetConnectResult(net::OK);
-  factory()->OnNetworkChanged(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  factory()->OnConnectionChanged(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
   WaitForConnections();
   EXPECT_FALSE(factory()->IsEndpointReachable());
 
   // Pump the loop, to ensure the pending backoff retry has no effect.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
+      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated(),
       base::TimeDelta::FromMilliseconds(1));
   WaitForConnections();
 }
@@ -546,13 +595,14 @@ TEST_F(ConnectionFactoryImplTest, DISABLED_SuppressConnectWhenNoNetwork) {
   factory()->tick_clock()->Advance(base::TimeDelta::FromSeconds(11));
 
   // Will trigger reset, but will not attempt a new connection.
-  factory()->OnNetworkChanged(net::NetworkChangeNotifier::CONNECTION_NONE);
+  factory()->OnConnectionChanged(
+      network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_FALSE(factory()->IsEndpointReachable());
   EXPECT_TRUE(factory()->NextRetryAttempt().is_null());
 
   // When the network returns, attempt to connect.
   factory()->SetConnectResult(net::OK);
-  factory()->OnNetworkChanged(net::NetworkChangeNotifier::CONNECTION_4G);
+  factory()->OnConnectionChanged(network::mojom::ConnectionType::CONNECTION_4G);
   WaitForConnections();
 
   EXPECT_TRUE(factory()->IsEndpointReachable());
@@ -562,7 +612,7 @@ TEST_F(ConnectionFactoryImplTest, DISABLED_SuppressConnectWhenNoNetwork) {
 // Receiving a network change event before the initial connection should have
 // no effect.
 TEST_F(ConnectionFactoryImplTest, NetworkChangeBeforeFirstConnection) {
-  factory()->OnNetworkChanged(net::NetworkChangeNotifier::CONNECTION_4G);
+  factory()->OnConnectionChanged(network::mojom::ConnectionType::CONNECTION_4G);
   factory()->SetConnectResult(net::OK);
   factory()->Connect();
   EXPECT_TRUE(factory()->NextRetryAttempt().is_null());

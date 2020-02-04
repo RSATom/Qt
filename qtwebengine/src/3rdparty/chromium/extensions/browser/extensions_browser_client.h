@@ -12,11 +12,18 @@
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
 #include "content/public/browser/bluetooth_chooser.h"
+#include "content/public/common/resource_type.h"
 #include "extensions/browser/extension_event_histogram_value.h"
 #include "extensions/browser/extension_prefs_observer.h"
+#include "extensions/browser/extensions_browser_api_provider.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/view_type.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
+#include "ui/base/page_transition_types.h"
 
 class ExtensionFunctionRegistry;
+class GURL;
 class PrefService;
 
 namespace base {
@@ -38,6 +45,12 @@ class URLRequest;
 class URLRequestJob;
 }
 
+namespace network {
+namespace mojom {
+class NetworkContext;
+}
+}  // namespace network
+
 namespace update_client {
 class UpdateClient;
 }
@@ -53,13 +66,15 @@ class ExtensionPrefsObserver;
 class ExtensionApiFrameIdMap;
 class ExtensionApiFrameIdMapHelper;
 class ExtensionNavigationUIData;
+class ExtensionSet;
 class ExtensionSystem;
 class ExtensionSystemProvider;
 class ExtensionWebContentsObserver;
-class InfoMap;
 class KioskDelegate;
 class ProcessManagerDelegate;
+class ProcessMap;
 class RuntimeAPIDelegate;
+class UserScriptListener;
 
 // Interface to allow the extensions module to make browser-process-specific
 // queries of the embedder. Should be Set() once in the browser process.
@@ -69,7 +84,23 @@ class RuntimeAPIDelegate;
 // they are only used in the browser process.
 class ExtensionsBrowserClient {
  public:
-  virtual ~ExtensionsBrowserClient() {}
+  ExtensionsBrowserClient();
+  virtual ~ExtensionsBrowserClient();
+
+  // Returns the single instance of |this|.
+  static ExtensionsBrowserClient* Get();
+
+  // Sets and initializes the single instance.
+  static void Set(ExtensionsBrowserClient* client);
+
+  // Registers all extension functions.
+  void RegisterExtensionFunctions(ExtensionFunctionRegistry* registry);
+
+  // Adds a new API provider to the client.
+  void AddAPIProvider(std::unique_ptr<ExtensionsBrowserAPIProvider> provider);
+
+  /////////////////////////////////////////////////////////////////////////////
+  // Virtual Methods
 
   // Returns true if the embedder has started shutting down.
   virtual bool IsShuttingDown() = 0;
@@ -134,14 +165,36 @@ class ExtensionsBrowserClient {
       const std::string& content_security_policy,
       bool send_cors_header) = 0;
 
+  // Return the resource relative path and id for the given request.
+  virtual base::FilePath GetBundleResourcePath(
+      const network::ResourceRequest& request,
+      const base::FilePath& extension_resources_path,
+      int* resource_id) const = 0;
+
+  // Creates and starts a URLLoader to load an extension resource from the
+  // embedder's resource bundle (.pak) files. Used for component extensions.
+  virtual void LoadResourceFromResourceBundle(
+      const network::ResourceRequest& request,
+      network::mojom::URLLoaderRequest loader,
+      const base::FilePath& resource_relative_path,
+      int resource_id,
+      const std::string& content_security_policy,
+      network::mojom::URLLoaderClientPtr client,
+      bool send_cors_header) = 0;
+
   // Returns true if the embedder wants to allow a chrome-extension:// resource
   // request coming from renderer A to access a resource in an extension running
   // in renderer B. For example, Chrome overrides this to provide support for
-  // webview and dev tools. Called on the IO thread.
-  virtual bool AllowCrossRendererResourceLoad(net::URLRequest* request,
-                                              bool is_incognito,
-                                              const Extension* extension,
-                                              InfoMap* extension_info_map) = 0;
+  // webview and dev tools. May be called on either the UI or IO thread.
+  virtual bool AllowCrossRendererResourceLoad(
+      const GURL& url,
+      content::ResourceType resource_type,
+      ui::PageTransition page_transition,
+      int child_id,
+      bool is_incognito,
+      const Extension* extension,
+      const ExtensionSet& extensions,
+      const ProcessMap& process_map) = 0;
 
   // Returns the PrefService associated with |context|.
   virtual PrefService* GetPrefServiceForContext(
@@ -172,8 +225,19 @@ class ExtensionsBrowserClient {
   // ExternalProtocolHandler::PermitLaunchUrl() in Chrome.
   virtual void PermitExternalProtocolHandler() = 0;
 
+  // Return true if the device is enrolled in Demo Mode.
+  virtual bool IsInDemoMode() = 0;
+
+  // Return true if |app_id| matches the screensaver and the device is enrolled
+  // in Demo Mode.
+  virtual bool IsScreensaverInDemoMode(const std::string& app_id) = 0;
+
   // Return true if the system is run in forced app mode.
   virtual bool IsRunningInForcedAppMode() = 0;
+
+  // Returns whether the system is run in forced app mode for app with the
+  // provided extension ID.
+  virtual bool IsAppModeForcedForApp(const ExtensionId& id) = 0;
 
   // Return true if the user is logged in as a public session.
   virtual bool IsLoggedInAsPublicAccount() = 0;
@@ -182,13 +246,12 @@ class ExtensionsBrowserClient {
   // ExtensionSystem::Get.
   virtual ExtensionSystemProvider* GetExtensionSystemFactory() = 0;
 
-  // Registers extension functions not belonging to the core extensions APIs.
-  virtual void RegisterExtensionFunctions(
-      ExtensionFunctionRegistry* registry) const = 0;
-
-  // Registers Mojo services for a RenderFrame.
-  virtual void RegisterMojoServices(content::RenderFrameHost* render_frame_host,
-                                    const Extension* extension) const = 0;
+  // Registers additional interfaces to expose to a RenderFrame.
+  virtual void RegisterExtensionInterfaces(
+      service_manager::BinderRegistryWithArgs<content::RenderFrameHost*>*
+          registry,
+      content::RenderFrameHost* render_frame_host,
+      const Extension* extension) const = 0;
 
   // Creates a RuntimeAPIDelegate responsible for handling extensions
   // management-related events such as update and installation on behalf of the
@@ -260,17 +323,52 @@ class ExtensionsBrowserClient {
   virtual ExtensionNavigationUIData* GetExtensionNavigationUIData(
       net::URLRequest* request);
 
+  // Retrives the embedder's notion of tab and window ID for a given
+  // WebContents. May return -1 for either or both values if the embedder does
+  // not implement any such concepts. This is used to support the WebRequest API
+  // exposing such numbers to callers.
+  virtual void GetTabAndWindowIdForWebContents(
+      content::WebContents* web_contents,
+      int* tab_id,
+      int* window_id);
+
   // Returns a delegate that provides kiosk mode functionality.
   virtual KioskDelegate* GetKioskDelegate() = 0;
 
   // Whether the browser context is associated with Chrome OS lock screen.
   virtual bool IsLockScreenContext(content::BrowserContext* context) = 0;
 
-  // Returns the single instance of |this|.
-  static ExtensionsBrowserClient* Get();
+  // Returns the locale used by the application.
+  virtual std::string GetApplicationLocale() = 0;
 
-  // Initialize the single instance.
-  static void Set(ExtensionsBrowserClient* client);
+  // Returns whether |extension_id| is currently enabled.
+  // This will only return a valid answer for installed extensions (regardless
+  // of whether it is currently loaded or not) under the provided |context|.
+  // Loaded extensions return true if they are currently loaded or terminated.
+  // Unloaded extensions will return true if they are not blocked, disabled,
+  // blacklisted or uninstalled (for external extensions). The default return
+  // value of this function is false.
+  virtual bool IsExtensionEnabled(const std::string& extension_id,
+                                  content::BrowserContext* context) const;
+
+  // http://crbug.com/829412
+  // Renderers with WebUI bindings shouldn't make http(s) requests for security
+  // reasons (e.g. to avoid malicious responses being able to run code in
+  // priviliged renderers). Fix these webui's to make requests through C++
+  // code instead.
+  virtual bool IsWebUIAllowedToMakeNetworkRequests(const url::Origin& origin);
+
+  virtual network::mojom::NetworkContext* GetSystemNetworkContext();
+
+  virtual UserScriptListener* GetUserScriptListener();
+
+  // Returns the user agent used by the content module.
+  virtual std::string GetUserAgent() const;
+
+ private:
+  std::vector<std::unique_ptr<ExtensionsBrowserAPIProvider>> providers_;
+
+  DISALLOW_COPY_AND_ASSIGN(ExtensionsBrowserClient);
 };
 
 }  // namespace extensions

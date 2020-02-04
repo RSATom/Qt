@@ -56,7 +56,7 @@ class QTextToSpeechEngineFlite : public QTextToSpeechEngine
 
 public:
     QTextToSpeechEngineFlite(const QVariantMap &parameters, QObject *parent);
-    virtual ~QTextToSpeechEngineFlite();
+    ~QTextToSpeechEngineFlite() override;
 
     // Plug-in API:
     QVector<QLocale> availableLocales() const override;

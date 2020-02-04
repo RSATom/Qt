@@ -9,18 +9,16 @@
 #include <algorithm>
 
 #include "core/fpdfdoc/cline.h"
+#include "core/fpdfdoc/cpdf_variabletext.h"
 #include "core/fpdfdoc/cpvt_wordinfo.h"
 #include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
-CSection::CSection(CPDF_VariableText* pVT) : m_pVT(pVT) {}
-
-CSection::~CSection() {}
-
-void CSection::ResetAll() {
-  m_WordArray.clear();
-  m_LineArray.clear();
+CSection::CSection(CPDF_VariableText* pVT) : m_pVT(pVT) {
+  ASSERT(m_pVT);
 }
+
+CSection::~CSection() = default;
 
 void CSection::ResetLinePlace() {
   int32_t i = 0;
@@ -45,7 +43,7 @@ CPVT_WordPlace CSection::AddLine(const CPVT_LineInfo& lineinfo) {
 }
 
 CPVT_FloatRect CSection::Rearrange() {
-  if (m_pVT->m_nCharArray > 0)
+  if (m_pVT->GetCharArray() > 0)
     return CTypeset(this).CharArray();
   return CTypeset(this).Typeset();
 }
@@ -123,7 +121,6 @@ void CSection::UpdateWordPlace(CPVT_WordPlace& place) const {
 }
 
 CPVT_WordPlace CSection::SearchWordPlace(const CFX_PointF& point) const {
-  ASSERT(m_pVT);
   CPVT_WordPlace place = GetBeginWordPlace();
   bool bUp = true;
   bool bDown = true;
@@ -133,7 +130,7 @@ CPVT_WordPlace CSection::SearchWordPlace(const CFX_PointF& point) const {
   while (nLeft <= nRight) {
     CLine* pLine = m_LineArray[nMid].get();
     float fTop = pLine->m_LineInfo.fLineY - pLine->m_LineInfo.fLineAscent -
-                 m_pVT->GetLineLeading(m_SecInfo);
+                 m_pVT->GetLineLeading();
     float fBottom = pLine->m_LineInfo.fLineY - pLine->m_LineInfo.fLineDescent;
     if (IsFloatBigger(point.y, fTop))
       bUp = false;
@@ -171,7 +168,7 @@ CPVT_WordPlace CSection::SearchWordPlace(
 
   CLine* pLine = m_LineArray[lineplace.nLineIndex].get();
   return SearchWordPlace(
-      fx - m_SecInfo.rcSection.left,
+      fx - m_Rect.left,
       CPVT_WordRange(pLine->GetNextWordPlace(pLine->GetBeginWordPlace()),
                      pLine->GetEndWordPlace()));
 }
@@ -180,9 +177,7 @@ CPVT_WordPlace CSection::SearchWordPlace(float fx,
                                          const CPVT_WordRange& range) const {
   CPVT_WordPlace wordplace = range.BeginPos;
   wordplace.nWordIndex = -1;
-  if (!m_pVT) {
-    return wordplace;
-  }
+
   int32_t nLeft = range.BeginPos.nWordIndex;
   int32_t nRight = range.EndPos.nWordIndex + 1;
   int32_t nMid = (nLeft + nRight) / 2;

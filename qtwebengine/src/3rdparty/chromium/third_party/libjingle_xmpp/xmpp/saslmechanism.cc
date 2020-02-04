@@ -11,11 +11,11 @@
 #include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
 #include "third_party/libjingle_xmpp/xmpp/constants.h"
 #include "third_party/libjingle_xmpp/xmpp/saslmechanism.h"
-#include "third_party/webrtc/rtc_base/base64.h"
+#include "third_party/webrtc/rtc_base/third_party/base64/base64.h"
 
 using rtc::Base64;
 
-namespace buzz {
+namespace jingle_xmpp {
 
 XmlElement *
 SaslMechanism::StartSaslAuth() {

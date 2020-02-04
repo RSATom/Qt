@@ -70,8 +70,7 @@ IOBufferWithSize::IOBufferWithSize(char* data, size_t size)
   AssertValidBufferSize(size);
 }
 
-IOBufferWithSize::~IOBufferWithSize() {
-}
+IOBufferWithSize::~IOBufferWithSize() = default;
 
 StringIOBuffer::StringIOBuffer(const std::string& s)
     : IOBuffer(static_cast<char*>(NULL)),
@@ -93,16 +92,13 @@ StringIOBuffer::~StringIOBuffer() {
   data_ = NULL;
 }
 
-DrainableIOBuffer::DrainableIOBuffer(IOBuffer* base, int size)
-    : IOBuffer(base->data()),
-      base_(base),
-      size_(size),
-      used_(0) {
+DrainableIOBuffer::DrainableIOBuffer(scoped_refptr<IOBuffer> base, int size)
+    : IOBuffer(base->data()), base_(std::move(base)), size_(size), used_(0) {
   AssertValidBufferSize(size);
 }
 
-DrainableIOBuffer::DrainableIOBuffer(IOBuffer* base, size_t size)
-    : IOBuffer(base->data()), base_(base), size_(size), used_(0) {
+DrainableIOBuffer::DrainableIOBuffer(scoped_refptr<IOBuffer> base, size_t size)
+    : IOBuffer(base->data()), base_(std::move(base)), size_(size), used_(0) {
   AssertValidBufferSize(size);
 }
 

@@ -59,7 +59,7 @@
   are not in scope for this module. A number of third-party gamepads may be
   supported as well, however, some of these may need custom configuration steps
   in order to map the button/trigger codes the device or driver in question
-  provides onto what QtGamepad expects. The can be done by the
+  provides onto what QtGamepad expects. This can be done by the
   \l{Qt Gamepad Configure Buttons Example}{configureButtons} example that can also
   save the generated layout persistently for use by other applications.
 

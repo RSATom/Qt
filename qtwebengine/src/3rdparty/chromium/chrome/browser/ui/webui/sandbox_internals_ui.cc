@@ -5,8 +5,8 @@
 #include "chrome/browser/ui/webui/sandbox_internals_ui.h"
 
 #include <string>
-#include <unordered_set>
 
+#include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "content/public/browser/render_frame_host.h"
@@ -14,19 +14,20 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 
+#if defined(OS_ANDROID)
+#include "chrome/common/sandbox_status_extension_android.mojom.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#endif
+
 #if defined(TOOLKIT_QT)
-#include "chrome/grit/qt_webengine_resources.h"
+#include "qtwebengine/grit/qt_webengine_resources.h"
 #else
 #include "chrome/grit/browser_resources.h"
 #endif
 
-#if defined(OS_ANDROID)
-#include "chrome/common/render_messages.h"
-#endif
-
 #if defined(OS_LINUX)
-#include "content/public/browser/zygote_host_linux.h"
-#include "content/public/common/sandbox_linux.h"
+#include "services/service_manager/sandbox/sandbox.h"
+#include "services/service_manager/zygote/zygote_host_linux.h"
 #endif
 
 namespace {
@@ -35,24 +36,32 @@ namespace {
 static void SetSandboxStatusData(content::WebUIDataSource* source) {
   // Get expected sandboxing status of renderers.
   const int status =
-      content::ZygoteHost::GetInstance()->GetRendererSandboxStatus();
+      service_manager::ZygoteHost::GetInstance()->GetRendererSandboxStatus();
 
-  source->AddBoolean("suid", status & content::kSandboxLinuxSUID);
-  source->AddBoolean("userNs", status & content::kSandboxLinuxUserNS);
-  source->AddBoolean("pidNs", status & content::kSandboxLinuxPIDNS);
-  source->AddBoolean("netNs", status & content::kSandboxLinuxNetNS);
-  source->AddBoolean("seccompBpf", status & content::kSandboxLinuxSeccompBPF);
+  source->AddBoolean("suid", status & service_manager::SandboxLinux::kSUID);
+  source->AddBoolean("userNs", status & service_manager::SandboxLinux::kUserNS);
+  source->AddBoolean("pidNs", status & service_manager::SandboxLinux::kPIDNS);
+  source->AddBoolean("netNs", status & service_manager::SandboxLinux::kNetNS);
+  source->AddBoolean("seccompBpf",
+                     status & service_manager::SandboxLinux::kSeccompBPF);
   source->AddBoolean("seccompTsync",
-                     status & content::kSandboxLinuxSeccompTSYNC);
-  source->AddBoolean("yama", status & content::kSandboxLinuxYama);
+                     status & service_manager::SandboxLinux::kSeccompTSYNC);
+  source->AddBoolean("yamaBroker",
+                     status & service_manager::SandboxLinux::kYama);
+
+  // Yama does not enforce in user namespaces.
+  bool enforcing_yama_nonbroker =
+      status & service_manager::SandboxLinux::kYama &&
+      !(status & service_manager::SandboxLinux::kUserNS);
+  source->AddBoolean("yamaNonbroker", enforcing_yama_nonbroker);
 
   // Require either the setuid or namespace sandbox for our first-layer sandbox.
-  bool good_layer1 = (status & content::kSandboxLinuxSUID ||
-                      status & content::kSandboxLinuxUserNS) &&
-                     status & content::kSandboxLinuxPIDNS &&
-                     status & content::kSandboxLinuxNetNS;
+  bool good_layer1 = (status & service_manager::SandboxLinux::kSUID ||
+                      status & service_manager::SandboxLinux::kUserNS) &&
+                     status & service_manager::SandboxLinux::kPIDNS &&
+                     status & service_manager::SandboxLinux::kNetNS;
   // A second-layer sandbox is also required to be adequately sandboxed.
-  bool good_layer2 = status & content::kSandboxLinuxSeccompBPF;
+  bool good_layer2 = status & service_manager::SandboxLinux::kSeccompBPF;
   source->AddBoolean("sandboxGood", good_layer1 && good_layer2);
 }
 #endif
@@ -62,7 +71,7 @@ content::WebUIDataSource* CreateDataSource() {
       content::WebUIDataSource::Create(chrome::kChromeUISandboxHost);
   source->SetDefaultResource(IDR_SANDBOX_INTERNALS_HTML);
   source->AddResourcePath("sandbox_internals.js", IDR_SANDBOX_INTERNALS_JS);
-  source->UseGzip(std::unordered_set<std::string>());
+  source->UseGzip();
 
 #if defined(OS_LINUX)
   SetSandboxStatusData(source);
@@ -83,8 +92,10 @@ SandboxInternalsUI::SandboxInternalsUI(content::WebUI* web_ui)
 void SandboxInternalsUI::RenderFrameCreated(
     content::RenderFrameHost* render_frame_host) {
 #if defined(OS_ANDROID)
-  render_frame_host->Send(new ChromeViewMsg_AddSandboxStatusExtension(
-      render_frame_host->GetRoutingID()));
+  chrome::mojom::SandboxStatusExtensionAssociatedPtr sandbox_status;
+  render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(
+      &sandbox_status);
+  sandbox_status->AddSandboxStatusExtension();
 #endif
 }
 

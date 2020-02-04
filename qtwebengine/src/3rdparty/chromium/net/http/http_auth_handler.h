@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/http/http_auth.h"
 #include "net/log/net_log_with_source.h"
@@ -21,6 +21,14 @@ class SSLInfo;
 // HttpAuthHandler is the interface for the authentication schemes
 // (basic, digest, NTLM, Negotiate).
 // HttpAuthHandler objects are typically created by an HttpAuthHandlerFactory.
+//
+// HttpAuthHandlers and generally created and managed by an HttpAuthController,
+// which is the interaction point between the rest of net and the HTTP auth
+// code.
+//
+// For connection-based authentication, an HttpAuthHandler handles all rounds
+// related to using a single identity. If the identity is rejected, a new
+// HttpAuthHandler must be created.
 class NET_EXPORT_PRIVATE HttpAuthHandler {
  public:
   HttpAuthHandler();
@@ -75,7 +83,7 @@ class NET_EXPORT_PRIVATE HttpAuthHandler {
   // token, and the value of |*auth_token| is unspecified.
   int GenerateAuthToken(const AuthCredentials* credentials,
                         const HttpRequestInfo* request,
-                        const CompletionCallback& callback,
+                        CompletionOnceCallback callback,
                         std::string* auth_token);
 
   // The authentication scheme as an enumerated value.
@@ -122,8 +130,16 @@ class NET_EXPORT_PRIVATE HttpAuthHandler {
     return (properties_ & IS_CONNECTION_BASED) != 0;
   }
 
-  // Returns true if the response to the current authentication challenge
-  // requires an identity.
+  // If NeedsIdentity() returns true, then a subsequent call to
+  // GenerateAuthToken() must indicate which identity to use. This can be done
+  // either by passing in a non-empty set of credentials, or an empty set to
+  // force the handler to use the default credentials. The latter is only an
+  // option if AllowsDefaultCredentials() returns true.
+  //
+  // If NeedsIdentity() returns false, then the handler is already bound to an
+  // identity and GenerateAuthToken() will ignore any credentials that are
+  // passed in.
+  //
   // TODO(wtc): Find a better way to handle a multi-round challenge-response
   // sequence used by a connection-based authentication scheme.
   virtual bool NeedsIdentity();
@@ -164,7 +180,7 @@ class NET_EXPORT_PRIVATE HttpAuthHandler {
   // which will in turn call |GenerateAuthTokenImpl()|
   virtual int GenerateAuthTokenImpl(const AuthCredentials* credentials,
                                     const HttpRequestInfo* request,
-                                    const CompletionCallback& callback,
+                                    CompletionOnceCallback callback,
                                     std::string* auth_token) = 0;
 
   // The auth-scheme as an enumerated value.
@@ -196,7 +212,7 @@ class NET_EXPORT_PRIVATE HttpAuthHandler {
   void OnGenerateAuthTokenComplete(int rv);
   void FinishGenerateAuthToken();
 
-  CompletionCallback callback_;
+  CompletionOnceCallback callback_;
 };
 
 }  // namespace net

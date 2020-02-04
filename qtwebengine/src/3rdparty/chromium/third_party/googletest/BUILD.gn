@@ -2,6 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build_overrides/build.gni")
+
+declare_args() {
+  # If true, it assumes that //third_party/abseil-cpp is an available dependency.
+  gtest_enable_absl_printers = false
+}
+
 config("gtest_config") {
   visibility = [ ":*" ]  # gmock also shares this config.
 
@@ -14,14 +21,26 @@ config("gtest_config") {
     # In order to allow regex matches in gtest to be shared between Windows
     # and other systems, we tell gtest to always use its internal engine.
     "GTEST_HAS_POSIX_RE=0",
+
+    # Enables C++11 features.
     "GTEST_LANG_CXX11=1",
+
+    # Prevents gtest from including both <tr1/tuple> and <tuple>.
+    "GTEST_HAS_TR1_TUPLE=0",
   ]
 
   # Gtest headers need to be able to find themselves.
-  include_dirs = [ "src/googletest/include" ]
+  include_dirs = [
+    "custom",
+    "src/googletest/include",
+  ]
 
   if (is_win) {
     cflags = [ "/wd4800" ]  # Unused variable warning.
+  }
+
+  if (!build_with_chromium && gtest_enable_absl_printers) {
+    defines += [ "GTEST_HAS_ABSL=1" ]
   }
 }
 
@@ -31,6 +50,12 @@ config("gmock_config") {
     "custom",
     "src/googlemock/include",
   ]
+
+  if (is_clang) {
+    # TODO(tikuta): remove this when the issue is fixed.
+    # https://github.com/google/googletest/issues/533
+    cflags = [ "-Wno-inconsistent-missing-override" ]
+  }
 }
 
 # Do NOT depend on this directly. Use //testing/gtest instead.
@@ -38,7 +63,11 @@ config("gmock_config") {
 source_set("gtest") {
   testonly = true
   sources = [
+    "custom/gtest/internal/custom/gtest.h",
+    "custom/gtest/internal/custom/stack_trace_getter.cc",
+    "custom/gtest/internal/custom/stack_trace_getter.h",
     "src/googletest/include/gtest/gtest-death-test.h",
+    "src/googletest/include/gtest/gtest-matchers.h",
     "src/googletest/include/gtest/gtest-message.h",
     "src/googletest/include/gtest/gtest-param-test.h",
     "src/googletest/include/gtest/gtest-printers.h",
@@ -47,21 +76,26 @@ source_set("gtest") {
     "src/googletest/include/gtest/gtest-typed-test.h",
     "src/googletest/include/gtest/gtest.h",
     "src/googletest/include/gtest/gtest_pred_impl.h",
+    "src/googletest/include/gtest/gtest_prod.h",
+
+    #"src/googletest/include/gtest/internal/custom/gtest.h",  # Superseded.
+    "src/googletest/include/gtest/internal/custom/gtest-port.h",
+    "src/googletest/include/gtest/internal/custom/gtest-printers.h",
     "src/googletest/include/gtest/internal/gtest-death-test-internal.h",
     "src/googletest/include/gtest/internal/gtest-filepath.h",
     "src/googletest/include/gtest/internal/gtest-internal.h",
-    "src/googletest/include/gtest/internal/gtest-linked_ptr.h",
     "src/googletest/include/gtest/internal/gtest-param-util-generated.h",
     "src/googletest/include/gtest/internal/gtest-param-util.h",
+    "src/googletest/include/gtest/internal/gtest-port-arch.h",
     "src/googletest/include/gtest/internal/gtest-port.h",
     "src/googletest/include/gtest/internal/gtest-string.h",
-    "src/googletest/include/gtest/internal/gtest-tuple.h",
     "src/googletest/include/gtest/internal/gtest-type-util.h",
 
     #"src/googletest/src/gtest-all.cc",  # Not needed by our build.
     "src/googletest/src/gtest-death-test.cc",
     "src/googletest/src/gtest-filepath.cc",
     "src/googletest/src/gtest-internal-inl.h",
+    "src/googletest/src/gtest-matchers.cc",
     "src/googletest/src/gtest-port.cc",
     "src/googletest/src/gtest-printers.cc",
     "src/googletest/src/gtest-test-part.cc",
@@ -76,6 +110,36 @@ source_set("gtest") {
 
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [ "//build/config/compiler:no_chromium_code" ]
+
+  defines = []
+  deps = []
+  public_deps = []
+  if (is_nacl || !build_with_chromium) {
+    defines += [ "GTEST_DISABLE_PRINT_STACK_TRACE" ]
+    sources -= [
+      "custom/gtest/internal/custom/stack_trace_getter.cc",
+      "custom/gtest/internal/custom/stack_trace_getter.h",
+    ]
+    if (gtest_enable_absl_printers) {
+      public_deps += [
+        "//third_party/abseil-cpp/absl/debugging:failure_signal_handler",
+        "//third_party/abseil-cpp/absl/debugging:stacktrace",
+        "//third_party/abseil-cpp/absl/debugging:symbolize",
+        "//third_party/abseil-cpp/absl/strings",
+        "//third_party/abseil-cpp/absl/types:optional",
+        "//third_party/abseil-cpp/absl/types:variant",
+      ]
+    }
+  } else {
+    deps += [ "//base" ]
+  }
+
+  if (is_fuchsia) {
+    deps += [
+      "//third_party/fuchsia-sdk/sdk:fdio",
+      "//third_party/fuchsia-sdk/sdk:zx",
+    ]
+  }
 }
 
 # Do NOT depend on this directly. Use //testing/gtest:gtest_main instead.
@@ -97,16 +161,23 @@ source_set("gmock") {
   sources = [
     "src/googlemock/include/gmock/gmock-actions.h",
     "src/googlemock/include/gmock/gmock-cardinalities.h",
+    "src/googlemock/include/gmock/gmock-function-mocker.h",
     "src/googlemock/include/gmock/gmock-generated-actions.h",
     "src/googlemock/include/gmock/gmock-generated-function-mockers.h",
     "src/googlemock/include/gmock/gmock-generated-matchers.h",
-    "src/googlemock/include/gmock/gmock-generated-nice-strict.h",
     "src/googlemock/include/gmock/gmock-matchers.h",
+    "src/googlemock/include/gmock/gmock-more-actions.h",
+    "src/googlemock/include/gmock/gmock-more-matchers.h",
+    "src/googlemock/include/gmock/gmock-nice-strict.h",
     "src/googlemock/include/gmock/gmock-spec-builders.h",
     "src/googlemock/include/gmock/gmock.h",
-    "src/googlemock/include/gmock/internal/gmock-generated-internal-utils.h",
+
+    #"src/googlemock/include/gmock/internal/custom/gmock-port.h",  # Superseded.
+    "src/googlemock/include/gmock/internal/custom/gmock-generated-actions.h",
+    "src/googlemock/include/gmock/internal/custom/gmock-matchers.h",
     "src/googlemock/include/gmock/internal/gmock-internal-utils.h",
     "src/googlemock/include/gmock/internal/gmock-port.h",
+    "src/googlemock/include/gmock/internal/gmock-pp.h",
 
     # gmock helpers.
     "custom/gmock/internal/custom/gmock-port.h",
@@ -119,10 +190,11 @@ source_set("gmock") {
     "src/googlemock/src/gmock.cc",
   ]
 
-  public_configs = [
-    ":gmock_config",
-    ":gtest_config",
+  public_deps = [
+    ":gtest",
   ]
+
+  public_configs = [ ":gmock_config" ]
 }
 
 # Do NOT depend on this directly. Use //testing/gmock:gmock_main instead.

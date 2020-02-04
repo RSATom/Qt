@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
 #include "base/files/memory_mapped_file.h"
@@ -33,7 +34,7 @@ class TestActivityTracker : public ThreadActivityTracker {
       : ThreadActivityTracker(memset(memory.get(), 0, mem_size), mem_size),
         mem_segment_(std::move(memory)) {}
 
-  ~TestActivityTracker() override {}
+  ~TestActivityTracker() override = default;
 
  private:
   std::unique_ptr<char[]> mem_segment_;
@@ -49,7 +50,7 @@ class ActivityTrackerTest : public testing::Test {
 
   using ActivityId = ThreadActivityTracker::ActivityId;
 
-  ActivityTrackerTest() {}
+  ActivityTrackerTest() = default;
 
   ~ActivityTrackerTest() override {
     GlobalActivityTracker* global_tracker = GlobalActivityTracker::Get();
@@ -61,7 +62,7 @@ class ActivityTrackerTest : public testing::Test {
 
   std::unique_ptr<ThreadActivityTracker> CreateActivityTracker() {
     std::unique_ptr<char[]> memory(new char[kStackSize]);
-    return MakeUnique<TestActivityTracker>(std::move(memory), kStackSize);
+    return std::make_unique<TestActivityTracker>(std::move(memory), kStackSize);
   }
 
   size_t GetGlobalActiveTrackerCount() {
@@ -97,8 +98,6 @@ class ActivityTrackerTest : public testing::Test {
     exit_command_ = std::move(command);
     exit_data_ = std::move(data);
   }
-
-  static void DoNothing() {}
 
   int64_t exit_id_ = 0;
   int64_t exit_stamp_;
@@ -216,7 +215,7 @@ TEST_F(ActivityTrackerTest, ScopedTaskTest) {
   ASSERT_EQ(0U, snapshot.activity_stack.size());
 
   {
-    PendingTask task1(FROM_HERE, BindOnce(&DoNothing));
+    PendingTask task1(FROM_HERE, DoNothing());
     ScopedTaskRunActivity activity1(task1);
     ActivityUserData& user_data1 = activity1.user_data();
     (void)user_data1;  // Tell compiler it's been used.
@@ -227,7 +226,7 @@ TEST_F(ActivityTrackerTest, ScopedTaskTest) {
     EXPECT_EQ(Activity::ACT_TASK, snapshot.activity_stack[0].activity_type);
 
     {
-      PendingTask task2(FROM_HERE, BindOnce(&DoNothing));
+      PendingTask task2(FROM_HERE, DoNothing());
       ScopedTaskRunActivity activity2(task2);
       ActivityUserData& user_data2 = activity2.user_data();
       (void)user_data2;  // Tell compiler it's been used.
@@ -248,6 +247,83 @@ TEST_F(ActivityTrackerTest, ScopedTaskTest) {
   ASSERT_EQ(0U, snapshot.activity_stack_depth);
   ASSERT_EQ(0U, snapshot.activity_stack.size());
   ASSERT_EQ(2U, GetGlobalUserDataMemoryCacheUsed());
+}
+
+namespace {
+
+class SimpleLockThread : public SimpleThread {
+ public:
+  SimpleLockThread(const std::string& name, Lock* lock)
+      : SimpleThread(name, Options()),
+        lock_(lock),
+        data_changed_(false),
+        is_running_(false) {}
+
+  ~SimpleLockThread() override = default;
+
+  void Run() override {
+    ThreadActivityTracker* tracker =
+        GlobalActivityTracker::Get()->GetOrCreateTrackerForCurrentThread();
+    uint32_t pre_version = tracker->GetDataVersionForTesting();
+
+    is_running_.store(true, std::memory_order_relaxed);
+    lock_->Acquire();
+    data_changed_ = tracker->GetDataVersionForTesting() != pre_version;
+    lock_->Release();
+    is_running_.store(false, std::memory_order_relaxed);
+  }
+
+  bool IsRunning() { return is_running_.load(std::memory_order_relaxed); }
+
+  bool WasDataChanged() { return data_changed_; };
+
+ private:
+  Lock* lock_;
+  bool data_changed_;
+  std::atomic<bool> is_running_;
+
+  DISALLOW_COPY_AND_ASSIGN(SimpleLockThread);
+};
+
+}  // namespace
+
+TEST_F(ActivityTrackerTest, LockTest) {
+  GlobalActivityTracker::CreateWithLocalMemory(kMemorySize, 0, "", 3, 0);
+
+  ThreadActivityTracker* tracker =
+      GlobalActivityTracker::Get()->GetOrCreateTrackerForCurrentThread();
+  ThreadActivityTracker::Snapshot snapshot;
+  ASSERT_EQ(0U, GetGlobalUserDataMemoryCacheUsed());
+
+  Lock lock;
+  uint32_t pre_version = tracker->GetDataVersionForTesting();
+
+  // Check no activity when only "trying" a lock.
+  EXPECT_TRUE(lock.Try());
+  EXPECT_EQ(pre_version, tracker->GetDataVersionForTesting());
+  lock.Release();
+  EXPECT_EQ(pre_version, tracker->GetDataVersionForTesting());
+
+  // Check no activity when acquiring a free lock.
+  SimpleLockThread t1("locker1", &lock);
+  t1.Start();
+  t1.Join();
+  EXPECT_FALSE(t1.WasDataChanged());
+
+  // Check that activity is recorded when acquring a busy lock.
+  SimpleLockThread t2("locker2", &lock);
+  lock.Acquire();
+  t2.Start();
+  while (!t2.IsRunning())
+    PlatformThread::Sleep(TimeDelta::FromMilliseconds(10));
+  // t2 can't join until the lock is released but have to give time for t2 to
+  // actually block on the lock before releasing it or the results will not
+  // be correct.
+  PlatformThread::Sleep(TimeDelta::FromMilliseconds(200));
+  lock.Release();
+  // Now the results will be valid.
+  t2.Join();
+  EXPECT_TRUE(t2.WasDataChanged());
 }
 
 TEST_F(ActivityTrackerTest, ExceptionTest) {
@@ -324,7 +400,7 @@ class SimpleActivityThread : public SimpleThread {
         exit_(false),
         exit_condition_(&lock_) {}
 
-  ~SimpleActivityThread() override {}
+  ~SimpleActivityThread() override = default;
 
   void Run() override {
     ThreadActivityTracker::ActivityId id =
@@ -417,7 +493,7 @@ TEST_F(ActivityTrackerTest, ProcessDeathTest) {
   global->RecordProcessLaunch(other_process_id, FILE_PATH_LITERAL("foo --bar"));
 
   // Do some activities.
-  PendingTask task(FROM_HERE, BindOnce(&DoNothing));
+  PendingTask task(FROM_HERE, DoNothing());
   ScopedTaskRunActivity activity(task);
   ActivityUserData& user_data = activity.user_data();
   ASSERT_NE(0U, user_data.id());

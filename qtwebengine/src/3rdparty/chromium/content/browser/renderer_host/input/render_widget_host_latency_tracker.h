@@ -12,8 +12,7 @@
 #include "base/macros.h"
 #include "content/browser/renderer_host/event_with_latency_info.h"
 #include "content/common/content_export.h"
-#include "content/common/input/input_event_ack_state.h"
-#include "services/metrics/public/cpp/ukm_recorder.h"
+#include "content/public/common/input_event_ack_state.h"
 #include "ui/latency/latency_info.h"
 #include "ui/latency/latency_tracker.h"
 
@@ -23,18 +22,12 @@ class RenderWidgetHostDelegate;
 
 // Utility class for tracking the latency of events passing through
 // a given RenderWidgetHost.
-class CONTENT_EXPORT RenderWidgetHostLatencyTracker
-    : NON_EXPORTED_BASE(public ui::LatencyTracker) {
+class CONTENT_EXPORT RenderWidgetHostLatencyTracker {
  public:
-  explicit RenderWidgetHostLatencyTracker(bool metric_sampling);
-  ~RenderWidgetHostLatencyTracker();
-
-  // Associates the latency tracker with a given route and process.
-  // Called once after the RenderWidgetHost is fully initialized.
-  void Initialize(int routing_id, int process_id);
+  explicit RenderWidgetHostLatencyTracker(RenderWidgetHostDelegate* delegate);
+  virtual ~RenderWidgetHostLatencyTracker();
 
   void ComputeInputLatencyHistograms(blink::WebInputEvent::Type type,
-                                     int64_t latency_component_id,
                                      const ui::LatencyInfo& latency,
                                      InputEventAckState ack_result);
 
@@ -52,45 +45,11 @@ class CONTENT_EXPORT RenderWidgetHostLatencyTracker
                        ui::LatencyInfo* latency,
                        InputEventAckState ack_result);
 
-  // Populates renderer-created LatencyInfo entries with the appropriate latency
-  // component id. Called when the RenderWidgetHost receives a compositor swap
-  // update from the renderer.
-  void OnSwapCompositorFrame(std::vector<ui::LatencyInfo>* latencies);
-
-  // WebInputEvent coordinates are in DPIs, while LatencyInfo expects
-  // coordinates in device pixels.
-  void set_device_scale_factor(float device_scale_factor) {
-    device_scale_factor_ = device_scale_factor;
-  }
-
-  // Returns the ID that uniquely describes this component to the latency
-  // subsystem.
-  int64_t latency_component_id() const { return latency_component_id_; }
-
-  // A delegate is used to get the url to be stored in Rappor Sample.
-  // If delegate is null no Rappor sample will be reported.
-  void SetDelegate(RenderWidgetHostDelegate*);
+  void reset_delegate() { render_widget_host_delegate_ = nullptr; }
 
  private:
-  ukm::SourceId GetUkmSourceId();
+  void OnEventStart(ui::LatencyInfo* latency);
 
-  // ui::LatencyTracker:
-  void ReportRapporScrollLatency(
-      const std::string& name,
-      const ui::LatencyInfo::LatencyComponent& start_component,
-      const ui::LatencyInfo::LatencyComponent& end_component) override;
-
-  // ui::LatencyTracker:
-  void ReportUkmScrollLatency(
-      const std::string& event_name,
-      const std::string& metric_name,
-      const ui::LatencyInfo::LatencyComponent& start_component,
-      const ui::LatencyInfo::LatencyComponent& end_component) override;
-
-  ukm::SourceId ukm_source_id_;
-  int64_t last_event_id_;
-  int64_t latency_component_id_;
-  float device_scale_factor_;
   bool has_seen_first_gesture_scroll_update_;
   // Whether the current stream of touch events includes more than one active
   // touch point. This is set in OnInputEvent, and cleared in OnInputEventAck.
@@ -98,12 +57,6 @@ class CONTENT_EXPORT RenderWidgetHostLatencyTracker
   // Whether the touch start for the current stream of touch events had its
   // default action prevented. Only valid for single finger gestures.
   bool touch_start_default_prevented_;
-
-  // Whether the sampling is needed for high volume metrics. This will be off
-  // when we are in unit tests. This is a temporary field so we can come up with
-  // a more permanent solution for crbug.com/739169.
-  bool metric_sampling_;
-  int metric_sampling_events_since_last_sample_;
 
   RenderWidgetHostDelegate* render_widget_host_delegate_;
 

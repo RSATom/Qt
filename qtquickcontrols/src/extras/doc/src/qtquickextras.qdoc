@@ -33,10 +33,10 @@
 
     The \l{Qt Quick Extras} module provides specialized controls
     for creating user interfaces. These QML types work in conjunction with
-    \l{Qt Quick} and \l{Qt Quick Controls}.
+    \l{Qt Quick} and \l{Qt Quick Controls 1}.
 
     Controls can be styled using the
-    \l{Qt Quick Controls Styles QML Types}{Styles QML Types}.
+    \l{Qt Quick Controls 1 Styles QML Types}{Styles QML Types}.
 
     The QML types can be imported into your application using the
     following import statement in your .qml file.

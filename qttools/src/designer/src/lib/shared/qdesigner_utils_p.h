@@ -42,14 +42,14 @@
 
 #include "shared_global_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtCore/QVariant>
-#include <QtCore/QSharedDataPointer>
-#include <QtCore/QMap>
-#include <QtWidgets/QMainWindow>
-#include <QtGui/QIcon>
-#include <QtGui/QPixmap>
+#include <QtCore/qvariant.h>
+#include <QtCore/qshareddata.h>
+#include <QtCore/qmap.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtGui/qicon.h>
+#include <QtGui/qpixmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -330,11 +330,14 @@ public:
     void setDisambiguation(const QString &d) { m_disambiguation = d; }
     QString comment() const                  { return m_comment; }
     void setComment(const QString &comment)  { m_comment = comment; }
+    QString id() const                       { return m_id; }
+    void setId(const QString &id)            { m_id = id; }
 
 private:
     bool m_translatable;
     QString m_disambiguation;
     QString m_comment;
+    QString m_id;
 };
 
 // -------------- StringValue: Returned by the property sheet for strings

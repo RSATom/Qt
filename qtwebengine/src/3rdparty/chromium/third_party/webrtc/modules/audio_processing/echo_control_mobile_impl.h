@@ -8,36 +8,54 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_PROCESSING_ECHO_CONTROL_MOBILE_IMPL_H_
-#define WEBRTC_MODULES_AUDIO_PROCESSING_ECHO_CONTROL_MOBILE_IMPL_H_
+#ifndef MODULES_AUDIO_PROCESSING_ECHO_CONTROL_MOBILE_IMPL_H_
+#define MODULES_AUDIO_PROCESSING_ECHO_CONTROL_MOBILE_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <memory>
 #include <vector>
 
-#include "webrtc/modules/audio_processing/include/audio_processing.h"
-#include "webrtc/modules/audio_processing/render_queue_item_verifier.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/swap_queue.h"
+#include "api/array_view.h"
 
 namespace webrtc {
 
 class AudioBuffer;
 
-class EchoControlMobileImpl : public EchoControlMobile {
+// The acoustic echo control for mobile (AECM) component is a low complexity
+// robust option intended for use on mobile devices.
+class EchoControlMobileImpl {
  public:
-  EchoControlMobileImpl(rtc::CriticalSection* crit_render,
-                        rtc::CriticalSection* crit_capture);
+  EchoControlMobileImpl();
 
-  ~EchoControlMobileImpl() override;
+  ~EchoControlMobileImpl();
+
+  int Enable(bool enable);
+  bool is_enabled() const;
+
+  // Recommended settings for particular audio routes. In general, the louder
+  // the echo is expected to be, the higher this value should be set. The
+  // preferred setting may vary from device to device.
+  enum RoutingMode {
+    kQuietEarpieceOrHeadset,
+    kEarpiece,
+    kLoudEarpiece,
+    kSpeakerphone,
+    kLoudSpeakerphone
+  };
+
+  // Sets echo control appropriate for the audio routing |mode| on the device.
+  // It can and should be updated during a call if the audio routing changes.
+  int set_routing_mode(RoutingMode mode);
+  RoutingMode routing_mode() const;
+
+  // Comfort noise replaces suppressed background noise to maintain a
+  // consistent signal level.
+  int enable_comfort_noise(bool enable);
+  bool is_comfort_noise_enabled() const;
 
   void ProcessRenderAudio(rtc::ArrayView<const int16_t> packed_render_audio);
   int ProcessCaptureAudio(AudioBuffer* audio, int stream_delay_ms);
-
-  // EchoControlMobile implementation.
-  bool is_enabled() const override;
-  RoutingMode routing_mode() const override;
-  bool is_comfort_noise_enabled() const override;
 
   void Initialize(int sample_rate_hz,
                   size_t num_reverse_channels,
@@ -55,30 +73,16 @@ class EchoControlMobileImpl : public EchoControlMobile {
   class Canceller;
   struct StreamProperties;
 
-  // EchoControlMobile implementation.
-  int Enable(bool enable) override;
-  int set_routing_mode(RoutingMode mode) override;
-  int enable_comfort_noise(bool enable) override;
-  int SetEchoPath(const void* echo_path, size_t size_bytes) override;
-  int GetEchoPath(void* echo_path, size_t size_bytes) const override;
-
   int Configure();
-
-  rtc::CriticalSection* const crit_render_ ACQUIRED_BEFORE(crit_capture_);
-  rtc::CriticalSection* const crit_capture_;
 
   bool enabled_ = false;
 
-  RoutingMode routing_mode_ GUARDED_BY(crit_capture_);
-  bool comfort_noise_enabled_ GUARDED_BY(crit_capture_);
-  unsigned char* external_echo_path_ GUARDED_BY(crit_render_)
-      GUARDED_BY(crit_capture_);
+  RoutingMode routing_mode_;
+  bool comfort_noise_enabled_;
 
   std::vector<std::unique_ptr<Canceller>> cancellers_;
   std::unique_ptr<StreamProperties> stream_properties_;
-
-  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(EchoControlMobileImpl);
 };
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_PROCESSING_ECHO_CONTROL_MOBILE_IMPL_H_
+#endif  // MODULES_AUDIO_PROCESSING_ECHO_CONTROL_MOBILE_IMPL_H_

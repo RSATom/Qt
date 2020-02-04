@@ -9,14 +9,12 @@
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_context_egl.h"
-#include "ui/gl/gl_context_osmesa.h"
 #include "ui/gl/gl_context_stub.h"
 #include "ui/gl/gl_egl_api_implementation.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_share_group.h"
 #include "ui/gl/gl_surface.h"
 #include "ui/gl/gl_surface_egl.h"
-#include "ui/gl/gl_surface_osmesa.h"
 #include "ui/gl/gl_surface_stub.h"
 
 namespace gl {
@@ -38,8 +36,6 @@ class GLNonOwnedContext : public GLContextReal {
   void ReleaseCurrent(GLSurface* surface) override {}
   bool IsCurrent(GLSurface* surface) override { return true; }
   void* GetHandle() override { return nullptr; }
-  void OnSetSwapInterval(int interval) override {}
-  std::string GetExtensions() override;
 
  protected:
   ~GLNonOwnedContext() override {}
@@ -66,20 +62,11 @@ bool GLNonOwnedContext::MakeCurrent(GLSurface* surface) {
   return true;
 }
 
-std::string GLNonOwnedContext::GetExtensions() {
-  const char* extensions = eglQueryString(display_, EGL_EXTENSIONS);
-  if (!extensions)
-    return GLContext::GetExtensions();
-
-  return GLContext::GetExtensions() + " " + extensions;
-}
-
 }  // namespace
 
 std::vector<GLImplementation> GetAllowedGLImplementations() {
   std::vector<GLImplementation> impls;
   impls.push_back(kGLImplementationEGLGLES2);
-  impls.push_back(kGLImplementationOSMesaGL);
   return impls;
 }
 
@@ -105,11 +92,12 @@ scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
       stub_context->SetUseStubApi(true);
       return stub_context;
     }
-    case kGLImplementationOSMesaGL:
-      return InitializeGLContext(new GLContextOSMesa(share_group),
-                                 compatible_surface, attribs);
+    case kGLImplementationDisabled:
+      NOTREACHED();
+      return nullptr;
     default:
-      if (compatible_surface->GetHandle()) {
+      if (compatible_surface->GetHandle() ||
+          compatible_surface->IsSurfaceless()) {
         return InitializeGLContext(new GLContextEGL(share_group),
                                    compatible_surface, attribs);
       } else {
@@ -123,8 +111,6 @@ scoped_refptr<GLSurface> CreateViewGLSurface(gfx::AcceleratedWidget window) {
   TRACE_EVENT0("gpu", "gl::init::CreateViewGLSurface");
   CHECK_NE(kGLImplementationNone, GetGLImplementation());
   switch (GetGLImplementation()) {
-    case kGLImplementationOSMesaGL:
-      return InitializeGLSurface(new GLSurfaceOSMesaHeadless());
     case kGLImplementationEGLGLES2:
       if (window != gfx::kNullAcceleratedWidget) {
         return InitializeGLSurface(new NativeViewGLSurfaceEGL(window, nullptr));
@@ -142,11 +128,6 @@ scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
   TRACE_EVENT0("gpu", "gl::init::CreateOffscreenGLSurface");
   CHECK_NE(kGLImplementationNone, GetGLImplementation());
   switch (GetGLImplementation()) {
-    case kGLImplementationOSMesaGL: {
-      format.SetDefaultPixelLayout(GLSurfaceFormat::PIXEL_LAYOUT_BGRA);
-      return InitializeGLSurfaceWithFormat(
-          new GLSurfaceOSMesa(format, size), format);
-    }
     case kGLImplementationEGLGLES2: {
       if (GLSurfaceEGL::IsEGLSurfacelessContextSupported() &&
           (size.width() == 0 && size.height() == 0)) {
@@ -163,6 +144,36 @@ scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
     default:
       NOTREACHED();
       return nullptr;
+  }
+}
+
+void SetDisabledExtensionsPlatform(const std::string& disabled_extensions) {
+  GLImplementation implementation = GetGLImplementation();
+  DCHECK_NE(kGLImplementationNone, implementation);
+  switch (implementation) {
+    case kGLImplementationEGLGLES2:
+      SetDisabledExtensionsEGL(disabled_extensions);
+      break;
+    case kGLImplementationMockGL:
+    case kGLImplementationStubGL:
+      break;
+    default:
+      NOTREACHED();
+  }
+}
+
+bool InitializeExtensionSettingsOneOffPlatform() {
+  GLImplementation implementation = GetGLImplementation();
+  DCHECK_NE(kGLImplementationNone, implementation);
+  switch (implementation) {
+    case kGLImplementationEGLGLES2:
+      return InitializeExtensionSettingsOneOffEGL();
+    case kGLImplementationMockGL:
+    case kGLImplementationStubGL:
+      return true;
+    default:
+      NOTREACHED();
+      return false;
   }
 }
 

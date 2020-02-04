@@ -6,11 +6,14 @@
 
 #include "fpdfsdk/formfiller/cffl_checkbox.h"
 
+#include <utility>
+
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_widget.h"
 #include "fpdfsdk/formfiller/cffl_formfiller.h"
-#include "fpdfsdk/pdfwindow/cpwl_special_button.h"
+#include "fpdfsdk/pwl/cpwl_special_button.h"
 #include "public/fpdf_fwlevent.h"
+#include "third_party/base/ptr_util.h"
 
 CFFL_CheckBox::CFFL_CheckBox(CPDFSDK_FormFillEnvironment* pApp,
                              CPDFSDK_Widget* pWidget)
@@ -18,11 +21,13 @@ CFFL_CheckBox::CFFL_CheckBox(CPDFSDK_FormFillEnvironment* pApp,
 
 CFFL_CheckBox::~CFFL_CheckBox() {}
 
-CPWL_Wnd* CFFL_CheckBox::NewPDFWindow(const PWL_CREATEPARAM& cp) {
-  CPWL_CheckBox* pWnd = new CPWL_CheckBox();
-  pWnd->Create(cp);
+std::unique_ptr<CPWL_Wnd> CFFL_CheckBox::NewPWLWindow(
+    const CPWL_Wnd::CreateParams& cp,
+    std::unique_ptr<CPWL_Wnd::PrivateData> pAttachedData) {
+  auto pWnd = pdfium::MakeUnique<CPWL_CheckBox>(cp, std::move(pAttachedData));
+  pWnd->Realize();
   pWnd->SetCheck(m_pWidget->IsChecked());
-  return pWnd;
+  return std::move(pWnd);
 }
 
 bool CFFL_CheckBox::OnKeyDown(CPDFSDK_Annot* pAnnot,
@@ -58,9 +63,12 @@ bool CFFL_CheckBox::OnChar(CPDFSDK_Annot* pAnnot,
       }
 
       CFFL_FormFiller::OnChar(pAnnot, nChar, nFlags);
+
       CPWL_CheckBox* pWnd = GetCheckBox(pPageView, true);
-      if (pWnd)
-        pWnd->SetCheck(!pWnd->IsChecked());
+      if (pWnd) {
+        CPDFSDK_Widget* pWidget = ToCPDFSDKWidget(pAnnot);
+        pWnd->SetCheck(!pWidget->IsChecked());
+      }
 
       return CommitData(pPageView, nFlags);
     }
@@ -80,7 +88,7 @@ bool CFFL_CheckBox::OnLButtonUp(CPDFSDK_PageView* pPageView,
 
   CPWL_CheckBox* pWnd = GetCheckBox(pPageView, true);
   if (pWnd) {
-    CPDFSDK_Widget* pWidget = static_cast<CPDFSDK_Widget*>(pAnnot);
+    CPDFSDK_Widget* pWidget = ToCPDFSDKWidget(pAnnot);
     pWnd->SetCheck(!pWidget->IsChecked());
   }
 
@@ -108,9 +116,16 @@ void CFFL_CheckBox::SaveData(CPDFSDK_PageView* pPageView) {
       }
     }
   }
+  CPDFSDK_Widget::ObservedPtr observed_widget(m_pWidget.Get());
+  CFFL_CheckBox::ObservedPtr observed_this(this);
+  m_pWidget->SetCheck(bNewChecked, NotificationOption::kDoNotNotify);
+  if (!observed_widget)
+    return;
 
-  m_pWidget->SetCheck(bNewChecked, false);
   m_pWidget->UpdateField();
+  if (!observed_widget || !observed_this)
+    return;
+
   SetChangeMark();
 }
 

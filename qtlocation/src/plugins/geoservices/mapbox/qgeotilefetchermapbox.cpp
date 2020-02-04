@@ -36,6 +36,7 @@
 
 #include "qgeotilefetchermapbox.h"
 #include "qgeomapreplymapbox.h"
+#include "qmapboxcommon.h"
 
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkRequest>
@@ -46,7 +47,7 @@ QT_BEGIN_NAMESPACE
 
 QGeoTileFetcherMapbox::QGeoTileFetcherMapbox(int scaleFactor, QGeoTiledMappingManagerEngine *parent)
 :   QGeoTileFetcher(parent), m_networkManager(new QNetworkAccessManager(this)),
-    m_userAgent("Qt Location based application"),
+    m_userAgent(mapboxDefaultUserAgent),
     m_format("png"),
     m_replyFormat("png"),
     m_accessToken("")
@@ -86,7 +87,7 @@ QGeoTiledMapReply *QGeoTileFetcherMapbox::getTileImage(const QGeoTileSpec &spec)
     QNetworkRequest request;
     request.setRawHeader("User-Agent", m_userAgent);
 
-    request.setUrl(QUrl(QStringLiteral("http://api.tiles.mapbox.com/v4/") +
+    request.setUrl(QUrl(mapboxTilesApiPath +
                         ((spec.mapId() >= m_mapIds.size()) ? QStringLiteral("mapbox.streets") : m_mapIds[spec.mapId() - 1]) + QLatin1Char('/') +
                         QString::number(spec.zoom()) + QLatin1Char('/') +
                         QString::number(spec.x()) + QLatin1Char('/') +

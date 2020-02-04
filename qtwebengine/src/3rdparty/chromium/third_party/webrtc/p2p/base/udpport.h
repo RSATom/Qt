@@ -1,5 +1,5 @@
 /*
- *  Copyright 2004 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,10 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_P2P_BASE_UDPPORT_H_
-#define WEBRTC_P2P_BASE_UDPPORT_H_
+#ifndef P2P_BASE_UDPPORT_H_
+#define P2P_BASE_UDPPORT_H_
 
-// StunPort will be handling UDPPort functionality.
-#include "webrtc/p2p/base/stunport.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#endif  // WEBRTC_P2P_BASE_UDPPORT_H_
+#include "p2p/base/udp_port.h"
+
+#endif  // P2P_BASE_UDPPORT_H_

@@ -10,14 +10,11 @@
 #include "Resources.h"
 #include "SkCanvas.h"
 #include "SkCodec.h"
-#include "SkColorSpace_Base.h"
 #include "SkData.h"
 #include "SkImage.h"
 #include "SkImageEncoderPriv.h"
 #include "SkJpegEncoder.h"
 #include "SkPngEncoder.h"
-#include "SkPM4f.h"
-#include "SkSRGB.h"
 #include "SkWebpEncoder.h"
 
 namespace skiagm {
@@ -25,41 +22,32 @@ namespace skiagm {
 static const int imageWidth = 128;
 static const int imageHeight = 128;
 
-sk_sp<SkColorSpace> fix_for_colortype(sk_sp<SkColorSpace> colorSpace, SkColorType colorType) {
-    if (kRGBA_F16_SkColorType == colorType) {
-        if (!colorSpace) {
-            return SkColorSpace::MakeSRGBLinear();
-        }
-
-        return as_CSB(colorSpace)->makeLinearGamma();
-    }
-
-    return colorSpace;
-}
-
 static void make(SkBitmap* bitmap, SkColorType colorType, SkAlphaType alphaType,
                  sk_sp<SkColorSpace> colorSpace) {
     const char* resource;
     switch (colorType) {
         case kGray_8_SkColorType:
-            resource = "grayscale.jpg";
+            resource = "images/grayscale.jpg";
             alphaType = kOpaque_SkAlphaType;
             break;
         case kRGB_565_SkColorType:
-            resource = "color_wheel.jpg";
+            resource = "images/color_wheel.jpg";
             alphaType = kOpaque_SkAlphaType;
             break;
         default:
-            resource = (kOpaque_SkAlphaType == alphaType) ? "color_wheel.jpg"
-                                                          : "color_wheel.png";
+            resource = (kOpaque_SkAlphaType == alphaType) ? "images/color_wheel.jpg"
+                                                          : "images/color_wheel.png";
             break;
     }
 
     sk_sp<SkData> data = GetResourceAsData(resource);
-    std::unique_ptr<SkCodec> codec(SkCodec::NewFromData(data));
+    if (!data) {
+        return;
+    }
+    std::unique_ptr<SkCodec> codec = SkCodec::MakeFromData(data);
     SkImageInfo dstInfo = codec->getInfo().makeColorType(colorType)
                                           .makeAlphaType(alphaType)
-                                          .makeColorSpace(fix_for_colortype(colorSpace, colorType));
+                                          .makeColorSpace(colorSpace);
     bitmap->allocPixels(dstInfo);
     codec->getPixels(dstInfo, bitmap->getPixels(), bitmap->rowBytes());
 }
@@ -71,19 +59,12 @@ static sk_sp<SkData> encode_data(const SkBitmap& bitmap, SkEncodedImageFormat fo
     }
     SkDynamicMemoryWStream buf;
 
-    SkPngEncoder::Options pngOptions;
-    SkWebpEncoder::Options webpOptions;
-    SkTransferFunctionBehavior behavior = bitmap.colorSpace()
-            ? SkTransferFunctionBehavior::kRespect : SkTransferFunctionBehavior::kIgnore;
-    pngOptions.fUnpremulBehavior = behavior;
-    webpOptions.fUnpremulBehavior = behavior;
-
     switch (format) {
         case SkEncodedImageFormat::kPNG:
-            SkAssertResult(SkPngEncoder::Encode(&buf, src, pngOptions));
+            SkAssertResult(SkPngEncoder::Encode(&buf, src, SkPngEncoder::Options()));
             break;
         case SkEncodedImageFormat::kWEBP:
-            SkAssertResult(SkWebpEncoder::Encode(&buf, src, webpOptions));
+            SkAssertResult(SkWebpEncoder::Encode(&buf, src, SkWebpEncoder::Options()));
             break;
         case SkEncodedImageFormat::kJPEG:
             SkAssertResult(SkJpegEncoder::Encode(&buf, src, SkJpegEncoder::Options()));

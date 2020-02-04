@@ -16,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/appcache/appcache.h"
+#include "content/browser/appcache/appcache_frontend.h"
 #include "content/browser/appcache/appcache_group.h"
 #include "content/browser/appcache/appcache_histograms.h"
 #include "content/browser/appcache/appcache_host.h"
@@ -28,6 +29,7 @@
 #include "net/log/net_log_with_source.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_status.h"
+#include "third_party/blink/public/mojom/appcache/appcache_info.mojom.h"
 
 namespace content {
 
@@ -43,15 +45,15 @@ void AppCacheURLRequestJob::Kill() {
     handler_source_reader_.reset();
     if (storage_) {
       storage_->CancelDelegateCallbacks(this);
-      storage_ = NULL;
+      storage_ = nullptr;
     }
-    host_ = NULL;
-    info_ = NULL;
-    cache_ = NULL;
-    group_ = NULL;
+    host_ = nullptr;
+    info_ = nullptr;
+    cache_ = nullptr;
+    group_ = nullptr;
     range_response_info_.reset();
     net::URLRequestJob::Kill();
-    AppCacheJob::weak_factory_.InvalidateWeakPtrs();
+    weak_factory_.InvalidateWeakPtrs();
   }
 }
 
@@ -65,7 +67,7 @@ void AppCacheURLRequestJob::DeliverAppCachedResponse(const GURL& manifest_url,
                                                      bool is_fallback) {
   DCHECK(!has_delivery_orders());
   DCHECK(entry.has_response_id());
-  delivery_type_ = APPCACHED_DELIVERY;
+  delivery_type_ = DeliveryType::kAppCached;
   manifest_url_ = manifest_url;
   cache_id_ = cache_id;
   entry_ = entry;
@@ -75,24 +77,29 @@ void AppCacheURLRequestJob::DeliverAppCachedResponse(const GURL& manifest_url,
 
 void AppCacheURLRequestJob::DeliverNetworkResponse() {
   DCHECK(!has_delivery_orders());
-  delivery_type_ = NETWORK_DELIVERY;
-  storage_ = NULL;  // not needed
+  delivery_type_ = DeliveryType::kNetwork;
+  storage_ = nullptr;  // not needed
   MaybeBeginDelivery();
 }
 
 void AppCacheURLRequestJob::DeliverErrorResponse() {
   DCHECK(!has_delivery_orders());
-  delivery_type_ = ERROR_DELIVERY;
-  storage_ = NULL;  // not needed
+  delivery_type_ = DeliveryType::kError;
+  storage_ = nullptr;  // not needed
   MaybeBeginDelivery();
 }
 
-const GURL& AppCacheURLRequestJob::GetURL() const {
-  return request()->url();
+AppCacheURLRequestJob* AppCacheURLRequestJob::AsURLRequestJob() {
+  return this;
 }
 
-net::URLRequestJob* AppCacheURLRequestJob::AsURLRequestJob() {
-  return this;
+base::WeakPtr<AppCacheJob> AppCacheURLRequestJob::GetWeakPtr() {
+  return weak_factory_.GetWeakPtr();
+}
+
+base::WeakPtr<AppCacheURLRequestJob>
+AppCacheURLRequestJob::GetDerivedWeakPtr() {
+  return weak_factory_.GetWeakPtr();
 }
 
 AppCacheURLRequestJob::AppCacheURLRequestJob(
@@ -101,16 +108,17 @@ AppCacheURLRequestJob::AppCacheURLRequestJob(
     AppCacheStorage* storage,
     AppCacheHost* host,
     bool is_main_resource,
-    const OnPrepareToRestartCallback& restart_callback)
+    OnPrepareToRestartCallback restart_callback)
     : net::URLRequestJob(request, network_delegate),
       host_(host),
       storage_(storage),
       has_been_started_(false),
       has_been_killed_(false),
-      cache_id_(kAppCacheNoCacheId),
+      cache_id_(blink::mojom::kAppCacheNoCacheId),
       is_fallback_(false),
       is_main_resource_(is_main_resource),
-      on_prepare_to_restart_callback_(restart_callback) {
+      on_prepare_to_restart_callback_(std::move(restart_callback)),
+      weak_factory_(this) {
   DCHECK(storage_);
 }
 
@@ -119,8 +127,8 @@ void AppCacheURLRequestJob::MaybeBeginDelivery() {
     // Start asynchronously so that all error reporting and data
     // callbacks happen as they would for network requests.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&AppCacheURLRequestJob::BeginDelivery,
-                              StaticAsWeakPtr(this)));
+        FROM_HERE, base::BindOnce(&AppCacheURLRequestJob::BeginDelivery,
+                                  GetDerivedWeakPtr()));
   }
 }
 
@@ -131,9 +139,7 @@ void AppCacheURLRequestJob::BeginDelivery() {
     return;
 
   switch (delivery_type_) {
-    case NETWORK_DELIVERY:
-      AppCacheHistograms::AddNetworkJobStartDelaySample(
-          base::TimeTicks::Now() - start_time_tick_);
+    case DeliveryType::kNetwork:
       // To fallthru to the network, we restart the request which will
       // cause a new job to be created to retrieve the resource from the
       // network. Our caller is responsible for arranging to not re-intercept
@@ -141,22 +147,14 @@ void AppCacheURLRequestJob::BeginDelivery() {
       NotifyRestartRequired();
       break;
 
-    case ERROR_DELIVERY:
-      AppCacheHistograms::AddErrorJobStartDelaySample(
-          base::TimeTicks::Now() - start_time_tick_);
+    case DeliveryType::kError:
       request()->net_log().AddEvent(
           net::NetLogEventType::APPCACHE_DELIVERING_ERROR_RESPONSE);
       NotifyStartError(net::URLRequestStatus(net::URLRequestStatus::FAILED,
                                              net::ERR_FAILED));
       break;
 
-    case APPCACHED_DELIVERY:
-      if (entry_.IsExecutable()) {
-        BeginExecutableHandlerDelivery();
-        return;
-      }
-      AppCacheHistograms::AddAppCacheJobStartDelaySample(
-          base::TimeTicks::Now() - start_time_tick_);
+    case DeliveryType::kAppCached:
       request()->net_log().AddEvent(
           is_fallback_
               ? net::NetLogEventType::APPCACHE_DELIVERING_FALLBACK_RESPONSE
@@ -170,133 +168,12 @@ void AppCacheURLRequestJob::BeginDelivery() {
   }
 }
 
-void AppCacheURLRequestJob::BeginExecutableHandlerDelivery() {
-  DCHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      kEnableExecutableHandlers));
-  if (!storage_->service()->handler_factory()) {
-    BeginErrorDelivery("missing handler factory");
-    return;
-  }
-
-  request()->net_log().AddEvent(
-      net::NetLogEventType::APPCACHE_DELIVERING_EXECUTABLE_RESPONSE);
-
-  // We defer job delivery until the executable handler is spun up and
-  // provides a response. The sequence goes like this...
-  //
-  // 1. First we load the cache.
-  // 2. Then if the handler is not spun up, we load the script resource which
-  //    is needed to spin it up.
-  // 3. Then we ask then we ask the handler to compute a response.
-  // 4. Finally we deilver that response to the caller.
-  storage_->LoadCache(cache_id_, this);
-}
-
-void AppCacheURLRequestJob::OnCacheLoaded(AppCache* cache, int64_t cache_id) {
-  DCHECK_EQ(cache_id_, cache_id);
-  DCHECK(!has_been_killed());
-
-  if (!cache) {
-    BeginErrorDelivery("cache load failed");
-    return;
-  }
-
-  // Keep references to ensure they don't go out of scope until job completion.
-  cache_ = cache;
-  group_ = cache->owning_group();
-
-  // If the handler is spun up, ask it to compute a response.
-  AppCacheExecutableHandler* handler =
-      cache->GetExecutableHandler(entry_.response_id());
-  if (handler) {
-    InvokeExecutableHandler(handler);
-    return;
-  }
-
-  // Handler is not spun up yet, load the script resource to do that.
-  // NOTE: This is not ideal since multiple jobs may be doing this,
-  // concurrently but close enough for now, the first to load the script
-  // will win.
-
-  // Read the script data, truncating if its too large.
-  // NOTE: we just issue one read and don't bother chaining if the resource
-  // is very (very) large, close enough for now.
-  const int64_t kLimit = 500 * 1000;
-  handler_source_buffer_ = new net::GrowableIOBuffer();
-  handler_source_buffer_->SetCapacity(kLimit);
-  handler_source_reader_.reset(
-      storage_->CreateResponseReader(manifest_url_, entry_.response_id()));
-  handler_source_reader_->ReadData(
-      handler_source_buffer_.get(),
-      kLimit,
-      base::Bind(&AppCacheURLRequestJob::OnExecutableSourceLoaded,
-                 base::Unretained(this)));
-}
-
-void AppCacheURLRequestJob::OnExecutableSourceLoaded(int result) {
-  DCHECK(!has_been_killed());
-  handler_source_reader_.reset();
-  if (result < 0) {
-    BeginErrorDelivery("script source load failed");
-    return;
-  }
-
-  handler_source_buffer_->SetCapacity(result);  // Free up some memory.
-
-  AppCacheExecutableHandler* handler = cache_->GetOrCreateExecutableHandler(
-      entry_.response_id(), handler_source_buffer_.get());
-  handler_source_buffer_ = NULL;  // not needed anymore
-  if (handler) {
-    InvokeExecutableHandler(handler);
-    return;
-  }
-
-  BeginErrorDelivery("factory failed to produce a handler");
-}
-
-void AppCacheURLRequestJob::InvokeExecutableHandler(
-    AppCacheExecutableHandler* handler) {
-  handler->HandleRequest(
-      request(),
-      base::Bind(&AppCacheURLRequestJob::OnExecutableResponseCallback,
-                 StaticAsWeakPtr(this)));
-}
-
-void AppCacheURLRequestJob::OnExecutableResponseCallback(
-    const AppCacheExecutableHandler::Response& response) {
-  DCHECK(!has_been_killed());
-  if (response.use_network) {
-    delivery_type_ = NETWORK_DELIVERY;
-    storage_ = NULL;
-    BeginDelivery();
-    return;
-  }
-
-  if (!response.cached_resource_url.is_empty()) {
-    AppCacheEntry* entry_ptr = cache_->GetEntry(response.cached_resource_url);
-    if (entry_ptr && !entry_ptr->IsExecutable()) {
-      entry_ = *entry_ptr;
-      BeginDelivery();
-      return;
-    }
-  }
-
-  if (!response.redirect_url.is_empty()) {
-    // TODO(michaeln): playback a redirect
-    // response_headers_(new HttpResponseHeaders(response_headers)),
-    // fallthru for now to deliver an error
-  }
-
-  // Otherwise, return an error.
-  BeginErrorDelivery("handler returned an invalid response");
-}
-
 void AppCacheURLRequestJob::BeginErrorDelivery(const char* message) {
   if (host_)
     host_->frontend()->OnLogMessage(host_->host_id(), APPCACHE_LOG_ERROR,
                                     message);
-  delivery_type_ = ERROR_DELIVERY;
-  storage_ = NULL;
+  delivery_type_ = DeliveryType::kError;
+  storage_ = nullptr;
   BeginDelivery();
 }
 
@@ -306,8 +183,8 @@ void AppCacheURLRequestJob::OnResponseInfoLoaded(
   DCHECK(IsDeliveringAppCacheResponse());
   if (response_info) {
     info_ = response_info;
-    reader_.reset(
-        storage_->CreateResponseReader(manifest_url_, entry_.response_id()));
+    reader_ =
+        storage_->CreateResponseReader(manifest_url_, entry_.response_id());
 
     if (is_range_request())
       SetupRangeResponse();
@@ -323,33 +200,39 @@ void AppCacheURLRequestJob::OnResponseInfoLoaded(
       storage_->service()->CheckAppCacheResponse(manifest_url_, cache_id_,
                                                  entry_.response_id());
       AppCacheHistograms::CountResponseRetrieval(
-          false, is_main_resource_, manifest_url_.GetOrigin());
+          false, is_main_resource_, url::Origin::Create(manifest_url_));
     }
     cache_entry_not_found_ = true;
-    NotifyRestartRequired();
+
+    // We fallback to the network unless this job was falling back to the
+    // appcache from the network which had already failed in some way.
+    if (!is_fallback_)
+      NotifyRestartRequired();
+    else
+      BeginErrorDelivery("failed to load appcache response info");
   }
 }
 
 const net::HttpResponseInfo* AppCacheURLRequestJob::http_info() const {
   if (!info_.get())
-    return NULL;
+    return nullptr;
   if (range_response_info_)
     return range_response_info_.get();
-  return info_->http_response_info();
+  return &info_->http_response_info();
 }
 
 void AppCacheURLRequestJob::OnReadComplete(int result) {
   DCHECK(IsDeliveringAppCacheResponse());
   if (result == 0) {
     AppCacheHistograms::CountResponseRetrieval(
-        true, is_main_resource_, manifest_url_.GetOrigin());
+        true, is_main_resource_, url::Origin::Create(manifest_url_));
   } else if (result < 0) {
     if (storage_->service()->storage() == storage_) {
       storage_->service()->CheckAppCacheResponse(manifest_url_, cache_id_,
                                                  entry_.response_id());
     }
     AppCacheHistograms::CountResponseRetrieval(
-        false, is_main_resource_, manifest_url_.GetOrigin());
+        false, is_main_resource_, url::Origin::Create(manifest_url_));
   }
   ReadRawDataComplete(result);
 }
@@ -368,7 +251,7 @@ net::LoadState AppCacheURLRequestJob::GetLoadState() const {
     return net::LOAD_STATE_IDLE;
   if (!has_delivery_orders())
     return net::LOAD_STATE_WAITING_FOR_APPCACHE;
-  if (delivery_type_ != APPCACHED_DELIVERY)
+  if (delivery_type_ != DeliveryType::kAppCached)
     return net::LOAD_STATE_IDLE;
   if (!info_.get())
     return net::LOAD_STATE_WAITING_FOR_APPCACHE;
@@ -400,8 +283,8 @@ int AppCacheURLRequestJob::ReadRawData(net::IOBuffer* buf, int buf_size) {
   DCHECK_NE(buf_size, 0);
   DCHECK(!reader_->IsReadPending());
   reader_->ReadData(buf, buf_size,
-                    base::Bind(&AppCacheURLRequestJob::OnReadComplete,
-                               base::Unretained(this)));
+                    base::BindOnce(&AppCacheURLRequestJob::OnReadComplete,
+                                   base::Unretained(this)));
   return net::ERR_IO_PENDING;
 }
 
@@ -417,7 +300,7 @@ void AppCacheURLRequestJob::SetExtraRequestHeaders(
 }
 
 void AppCacheURLRequestJob::NotifyRestartRequired() {
-  on_prepare_to_restart_callback_.Run();
+  std::move(on_prepare_to_restart_callback_).Run();
   URLRequestJob::NotifyRestartRequired();
 }
 

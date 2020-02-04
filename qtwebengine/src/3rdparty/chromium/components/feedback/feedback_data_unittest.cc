@@ -5,50 +5,50 @@
 #include "components/feedback/feedback_data.h"
 
 #include <memory>
-#include <set>
-#include <utility>
 
-#include "base/memory/ptr_util.h"
+#include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "components/feedback/feedback_report.h"
 #include "components/feedback/feedback_uploader.h"
 #include "components/feedback/feedback_uploader_factory.h"
-#include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/testing_pref_service.h"
-#include "components/user_prefs/user_prefs.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
-#include "testing/gmock/include/gmock/gmock.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/test/test_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace feedback {
 
 namespace {
 
-constexpr char kHistograms[] = "";
-constexpr char kImageData[] = "";
-constexpr char kFileData[] = "";
+constexpr char kImageData[] = "Image Data";
+constexpr char kFileData[] = "File Data";
 
-class MockUploader : public feedback::FeedbackUploader, public KeyedService {
+class MockUploader : public FeedbackUploader {
  public:
-  MockUploader(content::BrowserContext* context,
-               scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-      : FeedbackUploader(context ? context->GetPath() : base::FilePath(),
-                         task_runner) {}
+  MockUploader(
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      content::BrowserContext* context,
+      base::OnceClosure on_report_sent)
+      : FeedbackUploader(url_loader_factory,
+                         context,
+                         FeedbackUploaderFactory::CreateUploaderTaskRunner()),
+        on_report_sent_(std::move(on_report_sent)) {}
+  ~MockUploader() override {}
 
-  MOCK_METHOD1(DispatchReport, void(scoped_refptr<FeedbackReport>));
+  // feedback::FeedbackUploader:
+  void StartDispatchingReport() override { std::move(on_report_sent_).Run(); }
+
+ private:
+  base::OnceClosure on_report_sent_;
+
+  DISALLOW_COPY_AND_ASSIGN(MockUploader);
 };
 
-std::unique_ptr<KeyedService> CreateFeedbackUploaderService(
-    content::BrowserContext* context) {
-  auto uploader = base::MakeUnique<MockUploader>(
-      context, FeedbackUploaderFactory::CreateUploaderTaskRunner());
-  EXPECT_CALL(*uploader, DispatchReport(testing::_)).Times(1);
-  return std::move(uploader);
-}
-
 std::unique_ptr<std::string> MakeScoped(const char* str) {
-  return base::MakeUnique<std::string>(str);
+  return std::make_unique<std::string>(str);
 }
 
 }  // namespace
@@ -56,17 +56,15 @@ std::unique_ptr<std::string> MakeScoped(const char* str) {
 class FeedbackDataTest : public testing::Test {
  protected:
   FeedbackDataTest()
-      : context_(new content::TestBrowserContext()),
-        prefs_(new TestingPrefServiceSimple()),
-        data_(new FeedbackData()) {
-    user_prefs::UserPrefs::Set(context_.get(), prefs_.get());
-    data_->set_context(context_.get());
-    data_->set_send_report_callback(base::Bind(
-        &FeedbackDataTest::set_send_report_callback, base::Unretained(this)));
-
-    FeedbackUploaderFactory::GetInstance()->SetTestingFactory(
-        context_.get(), &CreateFeedbackUploaderService);
-  }
+      : test_shared_loader_factory_(
+            base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
+                &test_url_loader_factory_)),
+        uploader_(test_shared_loader_factory_,
+                  &context_,
+                  base::BindOnce(&FeedbackDataTest::set_send_report_callback,
+                                 base::Unretained(this))),
+        data_(base::MakeRefCounted<FeedbackData>(&uploader_)) {}
+  ~FeedbackDataTest() override = default;
 
   void Send() {
     bool attached_file_completed =
@@ -85,20 +83,19 @@ class FeedbackDataTest : public testing::Test {
     run_loop_->Run();
   }
 
-  void set_send_report_callback(scoped_refptr<FeedbackData> data) {
-    quit_closure_.Run();
-  }
+  void set_send_report_callback() { quit_closure_.Run(); }
 
   base::Closure quit_closure_;
   std::unique_ptr<base::RunLoop> run_loop_;
-  std::unique_ptr<content::TestBrowserContext> context_;
-  std::unique_ptr<PrefService> prefs_;
-  scoped_refptr<FeedbackData> data_;
   content::TestBrowserThreadBundle test_browser_thread_bundle_;
+  network::TestURLLoaderFactory test_url_loader_factory_;
+  scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
+  content::TestBrowserContext context_;
+  MockUploader uploader_;
+  scoped_refptr<FeedbackData> data_;
 };
 
 TEST_F(FeedbackDataTest, ReportSending) {
-  data_->SetAndCompressHistograms(MakeScoped(kHistograms));
   data_->set_image(MakeScoped(kImageData));
   data_->AttachAndCompressFileData(MakeScoped(kFileData));
   Send();

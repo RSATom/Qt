@@ -6,7 +6,7 @@
 #define COMPONENTS_GRPC_SUPPORT_INCLUDE_BIDIRECTIONAL_STREAM_C_H_
 
 #if defined(WIN32)
-#define GRPC_SUPPORT_EXPORT
+#define GRPC_SUPPORT_EXPORT __declspec(dllexport)
 #else
 #define GRPC_SUPPORT_EXPORT __attribute__((visibility("default")))
 #endif
@@ -171,8 +171,7 @@ void bidirectional_stream_delay_request_headers_until_flush(
 
 /* Starts the stream by sending request to |url| using |method| and |headers|.
  * If |end_of_stream| is true, then no data is expected to be written. The
- * |method| is HTTP verb, with PUT having a special meaning to mark idempotent
- * request, which could use QUIC 0-RTT.
+ * |method| is HTTP verb.
  */
 GRPC_SUPPORT_EXPORT
 int bidirectional_stream_start(bidirectional_stream* stream,
@@ -243,4 +242,4 @@ bool bidirectional_stream_is_done(bidirectional_stream* stream);
 }
 #endif
 
-#endif  // COMPONENTS_GRPC_SUPPORT_INCLUDE_BIDIRECTIONAL_STREAM_H_
+#endif  // COMPONENTS_GRPC_SUPPORT_INCLUDE_BIDIRECTIONAL_STREAM_C_H_

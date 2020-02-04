@@ -1,15 +1,13 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/neon-animation/animations/slide-up-animation.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/neon-animation/animations/transform-animation.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/neon-animation/neon-animation-runner-behavior.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-progress/paper-progress.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-toolbar/paper-toolbar.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="../icons.html">
 <link rel="import" href="../viewer-bookmarks-content/viewer-bookmarks-content.html">
 <link rel="import" href="../viewer-page-selector/viewer-page-selector.html">
+<if expr="chromeos">
+<link rel="import" href="../viewer-pen-options/viewer-pen-options.html">
+</if>
 <link rel="import" href="../viewer-toolbar-dropdown/viewer-toolbar-dropdown.html">
 
 <dom-module id="viewer-pdf-toolbar">
@@ -22,15 +20,15 @@
       /* We introduce a wrapper aligner element to help with laying out the main
        * toolbar content without changing the bottom-aligned progress bar. */
       #aligner {
-        @apply(--layout-horizontal);
-        @apply(--layout-center);
+        align-items: center;
+        display: flex;
         padding: 0 8px;
         width: 100%;
       }
 
       #title {
-        @apply(--layout-flex-5);
-        font-size: 107%;
+        flex: 5;
+        font-size: 0.87rem;
         font-weight: 500;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -38,7 +36,6 @@
       }
 
       #pageselector-container {
-        @apply(--layout-flex-1);
         text-align: center;
         /* The container resizes according to the width of the toolbar. On small
          * screens with large numbers of pages, overflow page numbers without
@@ -47,17 +44,17 @@
       }
 
       #buttons {
-        @apply(--layout-flex-5);
-        -webkit-user-select: none;
+        flex: 5;
         text-align: end;
+        user-select: none;
       }
 
       paper-icon-button {
-        -webkit-margin-end: 12px;
+        margin-inline-end: 12px;
       }
 
       viewer-toolbar-dropdown {
-        -webkit-margin-end: 4px;
+        margin-inline-end: 4px;
       }
 
       paper-progress {
@@ -68,11 +65,60 @@
         width: 100%;
       }
 
-      paper-toolbar {
-        --paper-toolbar-background: rgb(50, 54, 57);
-        --paper-toolbar-height: 48px;
-        @apply(--shadow-elevation-2dp);
+      #toolbar {
+        @apply --shadow-elevation-2dp;
+        background-color: rgb(50, 54, 57);
+        position: relative;
+      }
+
+      #annotations-bar {
+        align-items: center;
+        background-color: rgb(32, 33, 34);
+        justify-content: center;
+      }
+
+      #toolbar,
+      #annotations-bar {
         color: rgb(241, 241, 241);
+        display: flex;
+        height: 48px;
+        padding: 0 16px;
+      }
+
+      #progress-container {
+        bottom: 0;
+        left: 0;
+        margin: 0;
+        position: absolute;
+        right: 0;
+        top: auto;
+        width: auto;
+      }
+
+      #pen,
+      #highlighter {
+        --dropdown-width: 346px;
+      }
+
+      #eraser:not([selected]),
+      #pen:not([selected]),
+      #highlighter:not([selected]) {
+        filter: contrast(30%);
+      }
+
+      #pen,
+      #highlighter {
+        --dropdown-open-background: rgb(50, 54, 57);
+      }
+
+      #eraser[selected] {
+        background-color: rgb(50, 54, 57);
+        border-radius: 4px;
+      }
+
+      :host([annotation-mode]) #annotate {
+        background-color: rgb(25, 27, 29);
+        border-radius: 4px;
       }
 
       .invisible {
@@ -103,8 +149,8 @@
         }
       }
     </style>
-    <paper-toolbar>
-      <div id="aligner" class="middle">
+    <div id="toolbar">
+      <div id="aligner">
         <span id="title" title="{{docTitle}}">
           <span>{{docTitle}}</span>
         </span>
@@ -117,12 +163,21 @@
         </div>
 
         <div id="buttons" class="invisible">
+          <template is="dom-if" if="[[pdfAnnotationsEnabled]]">
+            <paper-icon-button id="annotate" icon="pdf:create"
+                on-click="toggleAnnotation"
+                aria-label$="{{strings.tooltipAnnotate}}"
+                title$="{{strings.tooltipAnnotate}}">
+            </paper-icon-button>
+          </template>
+
           <paper-icon-button id="rotate-right" icon="pdf:rotate-right"
               on-click="rotateRight"
               aria-label$="{{strings.tooltipRotateCW}}"
               title$="{{strings.tooltipRotateCW}}">
           </paper-icon-button>
 
+<!-- to do (mibrunin): Check if we can enable these buttons for Qt WebEngine
           <paper-icon-button id="download" icon="cr:file-download"
               on-click="download"
               aria-label$="{{strings.tooltipDownload}}"
@@ -134,8 +189,9 @@
               aria-label$="{{strings.tooltipPrint}}"
               title$="{{strings.tooltipPrint}}">
           </paper-icon-button>
-
+-->
           <viewer-toolbar-dropdown id="bookmarks"
+                                   metrics-id="bookmarks"
                                    hidden$="[[!bookmarks.length]]"
                                    open-icon="pdf:bookmark"
                                    closed-icon="pdf:bookmark-border"
@@ -145,10 +201,58 @@
           </viewer-toolbar-dropdown>
         </div>
       </div>
-      <div class="bottom fit">
-        <paper-progress id="progress" value="{{loadProgress}}"></paper-progress>
+      <div id="progress-container">
+        <paper-progress id="progress" value="[[loadProgress]]"></paper-progress>
       </div>
-    </paper-toolbar>
+    </div>
+
+    <div id="annotations-bar" class="invisible">
+      <paper-icon-button id="eraser"
+          selected$="[[equal_('eraser', annotationTool.tool)]]"
+          on-click="annotationToolClicked_"
+          icon="pdf:eraser"
+          aria-label$="{{strings.annotationEraser}}"
+          title$="{{strings.annotationEraser}}">
+      </paper-icon-button>
+
+      <viewer-toolbar-dropdown id="pen"
+          selected$="[[equal_('pen', annotationTool.tool)]]"
+          open-after-select
+          on-click="annotationToolClicked_"
+          open-icon="pdf:marker"
+          closed-icon="pdf:marker"
+          dropdown-centered
+          hide-header
+          header$="{{strings.annotationPen}}"
+          style="--pen-tip-fill: #000000">
+        <viewer-pen-options
+          selected-color="#000000"
+          selected-size="0.1429"
+          strings="[[strings]]"
+          on-selected-size-changed="annotationToolOptionChanged_"
+          on-selected-color-changed="annotationToolOptionChanged_">
+        </viewer-pen-options>
+      </viewer-toolbar-dropdown>
+
+      <viewer-toolbar-dropdown id="highlighter"
+          selected$="[[equal_('highlighter', annotationTool.tool)]]"
+          open-after-select
+          on-click="annotationToolClicked_"
+          open-icon="pdf:highlighter"
+          closed-icon="pdf:highlighter"
+          dropdown-centered
+          hide-header
+          header$="{{strings.annotationHighlighter}}"
+          style="--pen-tip-fill: #ffbc00">
+        <viewer-pen-options
+          selected-color="#ffbc00"
+          selected-size="0.7143"
+          strings="[[strings]]"
+          on-selected-size-changed="annotationToolOptionChanged_"
+          on-selected-color-changed="annotationToolOptionChanged_">
+        </viewer-pen-options>
+      </viewer-toolbar-dropdown>
+    </div>
   </template>
   <script src="viewer-pdf-toolbar.js"></script>
 </dom-module>

@@ -7,8 +7,6 @@
 #include <algorithm>
 
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/threading/thread_local.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/events/platform/platform_event_observer.h"
@@ -26,6 +24,8 @@ base::LazyInstance<base::ThreadLocalPointer<PlatformEventSource>>::Leaky
 
 }  // namespace
 
+bool PlatformEventSource::ignore_native_platform_events_ = false;
+
 PlatformEventSource::PlatformEventSource()
     : overridden_dispatcher_(NULL),
       overridden_dispatcher_restored_(false) {
@@ -41,6 +41,14 @@ PlatformEventSource::~PlatformEventSource() {
 
 PlatformEventSource* PlatformEventSource::GetInstance() {
   return lazy_tls_ptr.Pointer()->Get();
+}
+
+bool PlatformEventSource::ShouldIgnoreNativePlatformEvents() {
+  return ignore_native_platform_events_;
+}
+
+void PlatformEventSource::SetIgnoreNativePlatformEvents(bool ignore_events) {
+  ignore_native_platform_events_ = ignore_events;
 }
 
 void PlatformEventSource::AddPlatformEventDispatcher(
@@ -60,7 +68,7 @@ std::unique_ptr<ScopedEventDispatcher> PlatformEventSource::OverrideDispatcher(
     PlatformEventDispatcher* dispatcher) {
   CHECK(dispatcher);
   overridden_dispatcher_restored_ = false;
-  return base::MakeUnique<ScopedEventDispatcher>(&overridden_dispatcher_,
+  return std::make_unique<ScopedEventDispatcher>(&overridden_dispatcher_,
                                                  dispatcher);
 }
 

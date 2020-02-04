@@ -1,5 +1,5 @@
 /*
- *  Copyright 2013 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,43 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_P2P_BASE_ASYNCSTUNTCPSOCKET_H_
-#define WEBRTC_P2P_BASE_ASYNCSTUNTCPSOCKET_H_
+#ifndef P2P_BASE_ASYNCSTUNTCPSOCKET_H_
+#define P2P_BASE_ASYNCSTUNTCPSOCKET_H_
 
-#include "webrtc/rtc_base/asynctcpsocket.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/socketfactory.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace cricket {
+#include "p2p/base/async_stun_tcp_socket.h"
 
-class AsyncStunTCPSocket : public rtc::AsyncTCPSocketBase {
- public:
-  // Binds and connects |socket| and creates AsyncTCPSocket for
-  // it. Takes ownership of |socket|. Returns NULL if bind() or
-  // connect() fail (|socket| is destroyed in that case).
-  static AsyncStunTCPSocket* Create(
-      rtc::AsyncSocket* socket,
-      const rtc::SocketAddress& bind_address,
-      const rtc::SocketAddress& remote_address);
-
-  AsyncStunTCPSocket(rtc::AsyncSocket* socket, bool listen);
-  virtual ~AsyncStunTCPSocket() {}
-
-  virtual int Send(const void* pv, size_t cb,
-                   const rtc::PacketOptions& options);
-  virtual void ProcessInput(char* data, size_t* len);
-  virtual void HandleIncomingConnection(rtc::AsyncSocket* socket);
-
- private:
-  // This method returns the message hdr + length written in the header.
-  // This method also returns the number of padding bytes needed/added to the
-  // turn message. |pad_bytes| should be used only when |is_turn| is true.
-  size_t GetExpectedLength(const void* data, size_t len,
-                           int* pad_bytes);
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(AsyncStunTCPSocket);
-};
-
-}  // namespace cricket
-
-#endif  // WEBRTC_P2P_BASE_ASYNCSTUNTCPSOCKET_H_
+#endif  // P2P_BASE_ASYNCSTUNTCPSOCKET_H_

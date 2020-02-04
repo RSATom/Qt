@@ -27,7 +27,9 @@
 
 /*!
     \example sidepanel
-    \title Qt Quick Controls 2 - Side Panel
+    \keyword Qt Quick Controls - Side Panel
+    \title Qt Quick Controls - Side Panel
+    \keyword Qt Quick Controls 2 - Side Panel
     \ingroup qtquickcontrols2-examples
     \brief A persistent side panel with Drawer.
 

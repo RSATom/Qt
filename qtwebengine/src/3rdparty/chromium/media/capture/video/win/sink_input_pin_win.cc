@@ -12,7 +12,7 @@
 #include <stdint.h>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "media/base/timestamp_constants.h"
 
 namespace media {
@@ -113,7 +113,7 @@ bool SinkInputPin::IsMediaTypeValid(const AM_MEDIA_TYPE* media_type) {
 
 #ifndef NDEBUG
   WCHAR guid_str[128];
-  StringFromGUID2(sub_type, guid_str, arraysize(guid_str));
+  StringFromGUID2(sub_type, guid_str, base::size(guid_str));
   DVLOG(2) << __func__ << " unsupported media type: " << guid_str;
 #endif
   return false;
@@ -211,15 +211,21 @@ HRESULT SinkInputPin::Receive(IMediaSample* sample) {
   if (length <= 0 ||
       static_cast<size_t>(length) < resulting_format_.ImageAllocationSize()) {
     DLOG(WARNING) << "Wrong media sample length: " << length;
+    observer_->FrameDropped(
+        VideoCaptureFrameDropReason::kWinDirectShowUnexpectedSampleLength);
     return S_FALSE;
   }
 
   uint8_t* buffer = nullptr;
-  if (FAILED(sample->GetPointer(&buffer)))
+  if (FAILED(sample->GetPointer(&buffer))) {
+    observer_->FrameDropped(
+        VideoCaptureFrameDropReason::
+            kWinDirectShowFailedToGetMemoryPointerFromMediaSample);
     return S_FALSE;
+  }
 
   REFERENCE_TIME start_time, end_time;
-  base::TimeDelta timestamp = media::kNoTimestamp;
+  base::TimeDelta timestamp = kNoTimestamp;
   if (SUCCEEDED(sample->GetTime(&start_time, &end_time))) {
     DCHECK(start_time <= end_time);
     timestamp = base::TimeDelta::FromMicroseconds(start_time / 10);

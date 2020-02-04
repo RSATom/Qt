@@ -263,17 +263,16 @@ bool QDeclarativeVideoOutput::createBackend(QMediaService *service)
             backendAvailable = true;
     }
 
-    if (!backendAvailable) {
-        qWarning() << Q_FUNC_INFO << "Media service has neither renderer nor window control available.";
-        m_backend.reset();
-    } else if (!m_geometryDirty) {
-        m_backend->updateGeometry();
-    }
+    if (backendAvailable) {
+        // Since new backend has been created needs to update its geometry.
+        m_geometryDirty = true;
 
-    if (m_backend) {
         m_backend->clearFilters();
         for (int i = 0; i < m_filters.count(); ++i)
             m_backend->appendFilter(m_filters[i]);
+    } else {
+        qWarning() << Q_FUNC_INFO << "Media service has neither renderer nor window control available.";
+        m_backend.reset();
     }
 
     return backendAvailable;
@@ -412,8 +411,13 @@ void QDeclarativeVideoOutput::_q_updateGeometry()
         m_contentRect.moveCenter(rect.center());
     }
 
-    if (m_backend)
-        m_backend->updateGeometry();
+    if (m_backend) {
+        if (!m_backend->videoSurface() || m_backend->videoSurface()->isActive())
+            m_backend->updateGeometry();
+        else
+            m_geometryDirty = true;
+    }
+
 
     if (m_contentRect != oldContentRect)
         emit contentRectChanged();
@@ -512,7 +516,7 @@ void QDeclarativeVideoOutput::setOrientation(int orientation)
     By default \c autoOrientation is disabled.
 
     \sa orientation
-    \since QtMultimedia 5.2
+    \since 5.2
 */
 bool QDeclarativeVideoOutput::autoOrientation() const
 {
@@ -877,6 +881,31 @@ void QDeclarativeVideoOutput::_q_invalidateSceneGraph()
 {
     if (m_backend)
         m_backend->invalidateSceneGraph();
+}
+
+/*!
+    \qmlproperty enumeration QtMultimedia::VideoOutput::flushMode
+    \since 5.13
+
+    Set this property to define what \c VideoOutput should show
+    when playback is finished or stopped.
+
+    \list
+    \li EmptyFrame - clears video output.
+    \li FirstFrame - shows the first valid frame.
+    \li LastFrame - shows the last valid frame.
+    \endlist
+
+    The default flush mode is EmptyFrame.
+*/
+
+void QDeclarativeVideoOutput::setFlushMode(FlushMode mode)
+{
+    if (m_flushMode == mode)
+        return;
+
+    m_flushMode = mode;
+    emit flushModeChanged();
 }
 
 QT_END_NAMESPACE

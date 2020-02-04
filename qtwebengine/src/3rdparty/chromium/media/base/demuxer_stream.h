@@ -27,6 +27,9 @@ class MEDIA_EXPORT DemuxerStream {
     TYPE_MAX = TEXT,
   };
 
+  // Returns a string representation of |type|.
+  static const char* GetTypeName(Type type);
+
   enum Liveness {
     LIVENESS_UNKNOWN,
     LIVENESS_RECORDED,
@@ -51,20 +54,23 @@ class MEDIA_EXPORT DemuxerStream {
   //                  when this status is returned.
   //                  This will only be returned if SupportsConfigChanges()
   //                  returns 'true' for this DemuxerStream.
+  // kError : Unexpected fatal error happened. Playback should fail.
   enum Status {
     kOk,
     kAborted,
     kConfigChanged,
-    kStatusMax = kConfigChanged,
+    kError,
+    kStatusMax = kError,
   };
+
+  static const char* GetStatusName(Status status);
 
   // Request a buffer to returned via the provided callback.
   //
   // The first parameter indicates the status of the read.
   // The second parameter is non-NULL and contains media data
   // or the end of the stream if the first parameter is kOk. NULL otherwise.
-  typedef base::Callback<void(Status,
-                              const scoped_refptr<DecoderBuffer>&)>ReadCB;
+  typedef base::Callback<void(Status, scoped_refptr<DecoderBuffer>)> ReadCB;
   virtual void Read(const ReadCB& read_cb) = 0;
 
   // Returns the audio/video decoder configuration. It is an error to call the
@@ -91,8 +97,6 @@ class MEDIA_EXPORT DemuxerStream {
   // guaranteed to remain constant, and the client may make optimizations based
   // on this.
   virtual bool SupportsConfigChanges() = 0;
-
-  virtual VideoRotation video_rotation() = 0;
 
  protected:
   // Only allow concrete implementations to get deleted.

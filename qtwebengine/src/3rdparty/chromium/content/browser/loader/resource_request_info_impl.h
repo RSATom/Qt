@@ -13,17 +13,17 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "base/supports_user_data.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/loader/resource_requester_info.h"
-#include "content/public/browser/navigation_ui_data.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/common/previews_state.h"
 #include "content/public/common/referrer.h"
-#include "content/public/common/resource_request_body.h"
 #include "content/public/common/resource_type.h"
-#include "content/public/common/url_loader.mojom.h"
 #include "net/base/load_states.h"
+#include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
 
 namespace content {
 class DetachableResourceHandler;
@@ -36,10 +36,6 @@ struct GlobalRoutingID;
 class ResourceRequestInfoImpl : public ResourceRequestInfo,
                                 public base::SupportsUserData::Data {
  public:
-  using TransferCallback =
-      base::Callback<void(mojom::URLLoaderAssociatedRequest,
-                          mojom::URLLoaderClientPtr)>;
-
   // Returns the ResourceRequestInfoImpl associated with the given URLRequest.
   CONTENT_EXPORT static ResourceRequestInfoImpl* ForRequest(
       net::URLRequest* request);
@@ -52,14 +48,13 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
       scoped_refptr<ResourceRequesterInfo> requester_info,
       int route_id,
       int frame_tree_node_id,
-      int origin_pid,
+      int plugin_child_id,
       int request_id,
       int render_frame_id,
       bool is_main_frame,
-      bool parent_is_main_frame,
+      const base::UnguessableToken& fetch_window_id,
       ResourceType resource_type,
       ui::PageTransition transition_type,
-      bool should_replace_current_entry,
       bool is_download,
       bool is_stream,
       bool allow_download,
@@ -67,13 +62,15 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
       bool enable_load_timing,
       bool enable_upload_progress,
       bool do_not_prompt_for_login,
-      blink::WebReferrerPolicy referrer_policy,
-      blink::WebPageVisibilityState visibility_state,
+      bool keepalive,
+      network::mojom::ReferrerPolicy referrer_policy,
+      bool is_prerendering,
       ResourceContext* context,
       bool report_raw_headers,
+      bool report_security_info,
       bool is_async,
       PreviewsState previews_state,
-      const scoped_refptr<ResourceRequestBody> body,
+      const scoped_refptr<network::ResourceRequestBody> body,
       bool initiated_in_secure_context);
   ~ResourceRequestInfoImpl() override;
 
@@ -84,31 +81,40 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   int GetChildID() const override;
   int GetRouteID() const override;
   GlobalRequestID GetGlobalRequestID() const override;
-  int GetOriginPID() const override;
+  int GetPluginChildID() const override;
   int GetRenderFrameID() const override;
   int GetFrameTreeNodeId() const override;
   bool IsMainFrame() const override;
-  bool ParentIsMainFrame() const override;
   ResourceType GetResourceType() const override;
-  int GetProcessType() const override;
-  blink::WebReferrerPolicy GetReferrerPolicy() const override;
-  blink::WebPageVisibilityState GetVisibilityState() const override;
+  network::mojom::ReferrerPolicy GetReferrerPolicy() const override;
+  bool IsPrerendering() const override;
   ui::PageTransition GetPageTransition() const override;
   bool HasUserGesture() const override;
-  bool WasIgnoredByHandler() const override;
   bool GetAssociatedRenderFrame(int* render_process_id,
                                 int* render_frame_id) const override;
   bool IsAsync() const override;
   bool IsDownload() const override;
   // Returns a bitmask of potentially several Previews optimizations.
   PreviewsState GetPreviewsState() const override;
-  bool ShouldReportRawHeaders() const;
   NavigationUIData* GetNavigationUIData() const override;
+  void SetResourceRequestBlockedReason(
+      blink::ResourceRequestBlockedReason reason) override;
+  base::Optional<blink::ResourceRequestBlockedReason>
+  GetResourceRequestBlockedReason() const override;
+  base::StringPiece GetCustomCancelReason() const override;
 
   CONTENT_EXPORT void AssociateWithRequest(net::URLRequest* request);
 
   CONTENT_EXPORT int GetRequestID() const;
   GlobalRoutingID GetGlobalRoutingID() const;
+
+  // Returns true if raw response headers (including sensitive data such as
+  // cookies) should be included with the response.
+  bool ShouldReportRawHeaders() const;
+
+  // Returns true if security details (SSL/TLS connection parameters and
+  // certificate chain) should be included with the response.
+  bool ShouldReportSecurityInfo() const;
 
   // PlzNavigate
   // The id of the FrameTreeNode that initiated this request (for a navigation
@@ -119,25 +125,6 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
     return requester_info_.get();
   }
 
-  // Updates the data associated with this request after it is is transferred
-  // to a new renderer process.  Not all data will change during a transfer.
-  // We do not expect the ResourceContext to change during navigation, so that
-  // does not need to be updated.
-  void UpdateForTransfer(int route_id,
-                         int render_frame_id,
-                         int origin_pid,
-                         int request_id,
-                         ResourceRequesterInfo* requester_info,
-                         mojom::URLLoaderAssociatedRequest url_loader_request,
-                         mojom::URLLoaderClientPtr url_loader_client);
-
-  // Whether this request is part of a navigation that should replace the
-  // current session history entry. This state is shuffled up and down the stack
-  // for request transfers.
-  bool should_replace_current_entry() const {
-    return should_replace_current_entry_;
-  }
-
   // DetachableResourceHandler for this request.  May be NULL.
   DetachableResourceHandler* detachable_handler() const {
     return detachable_handler_;
@@ -145,6 +132,7 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   void set_detachable_handler(DetachableResourceHandler* h) {
     detachable_handler_ = h;
   }
+  bool keepalive() const { return keepalive_; }
 
   // Downloads are allowed only as a top level request.
   bool allow_download() const { return allow_download_; }
@@ -155,10 +143,6 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   // Whether this is a stream.
   bool is_stream() const { return is_stream_; }
   void set_is_stream(bool stream) { is_stream_ = stream; }
-
-  void set_was_ignored_by_handler(bool value) {
-    was_ignored_by_handler_ = value;
-  }
 
   // Whether this request has been counted towards the number of in flight
   // requests, which is only true for requests that require a file descriptor
@@ -184,7 +168,9 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
     do_not_prompt_for_login_ = do_not_prompt;
   }
 
-  const scoped_refptr<ResourceRequestBody>& body() const { return body_; }
+  const scoped_refptr<network::ResourceRequestBody>& body() const {
+    return body_;
+  }
   void ResetBody();
 
   bool initiated_in_secure_context() const {
@@ -199,11 +185,34 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
     navigation_ui_data_ = std::move(navigation_ui_data);
   }
 
-  void set_on_transfer(const TransferCallback& on_transfer) {
-    on_transfer_ = on_transfer;
+  void SetBlobHandles(BlobHandles blob_handles);
+
+  bool blocked_response_from_reaching_renderer() const {
+    return blocked_response_from_reaching_renderer_;
+  }
+  void set_blocked_response_from_reaching_renderer(bool value) {
+    blocked_response_from_reaching_renderer_ = value;
+  }
+  bool should_report_corb_blocking() const {
+    return should_report_corb_blocking_;
+  }
+  void set_should_report_corb_blocking(bool value) {
+    should_report_corb_blocking_ = value;
   }
 
-  void SetBlobHandles(BlobHandles blob_handles);
+  void set_custom_cancel_reason(base::StringPiece reason) {
+    custom_cancel_reason_ = reason.as_string();
+  }
+
+  bool first_auth_attempt() const { return first_auth_attempt_; }
+
+  void set_first_auth_attempt(bool first_auth_attempt) {
+    first_auth_attempt_ = first_auth_attempt;
+  }
+
+  const base::UnguessableToken& fetch_window_id() const {
+    return fetch_window_id_;
+  }
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ResourceDispatcherHostTest,
@@ -216,12 +225,11 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   scoped_refptr<ResourceRequesterInfo> requester_info_;
   int route_id_;
   const int frame_tree_node_id_;
-  int origin_pid_;
+  int plugin_child_id_;
   int request_id_;
   int render_frame_id_;
   bool is_main_frame_;
-  bool parent_is_main_frame_;
-  bool should_replace_current_entry_;
+  base::UnguessableToken fetch_window_id_;
   bool is_download_;
   bool is_stream_;
   bool allow_download_;
@@ -229,28 +237,36 @@ class ResourceRequestInfoImpl : public ResourceRequestInfo,
   bool enable_load_timing_;
   bool enable_upload_progress_;
   bool do_not_prompt_for_login_;
-  bool was_ignored_by_handler_;
+  bool keepalive_;
   bool counted_as_in_flight_request_;
   ResourceType resource_type_;
   ui::PageTransition transition_type_;
   int memory_cost_;
-  blink::WebReferrerPolicy referrer_policy_;
-  blink::WebPageVisibilityState visibility_state_;
+  network::mojom::ReferrerPolicy referrer_policy_;
+  bool is_prerendering_;
   ResourceContext* context_;
   bool report_raw_headers_;
+  bool report_security_info_;
   bool is_async_;
+  base::Optional<blink::ResourceRequestBlockedReason>
+      resource_request_blocked_reason_;
   PreviewsState previews_state_;
-  scoped_refptr<ResourceRequestBody> body_;
+  scoped_refptr<network::ResourceRequestBody> body_;
   bool initiated_in_secure_context_;
   std::unique_ptr<NavigationUIData> navigation_ui_data_;
+
+  // Whether response details (response headers, timing information, metadata)
+  // have been blocked from reaching the renderer process (e.g. by Cross-Origin
+  // Read Blocking).
+  bool blocked_response_from_reaching_renderer_;
+
+  bool should_report_corb_blocking_;
+  bool first_auth_attempt_;
 
   // Keeps upload body blobs alive for the duration of the request.
   BlobHandles blob_handles_;
 
-  // This callback is set by MojoAsyncResourceHandler to update its mojo binding
-  // and remote endpoint. This callback will be removed once PlzNavigate is
-  // shipped.
-  TransferCallback on_transfer_;
+  std::string custom_cancel_reason_;
 
   DISALLOW_COPY_AND_ASSIGN(ResourceRequestInfoImpl);
 };

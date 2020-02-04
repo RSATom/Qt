@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -57,11 +57,11 @@ public:
                                QString *errorString);
     virtual ~GeoCodingManagerEngineEsri();
 
-    QGeoCodeReply *geocode(const QGeoAddress &address, const QGeoShape &bounds) Q_DECL_OVERRIDE;
+    QGeoCodeReply *geocode(const QGeoAddress &address, const QGeoShape &bounds) override;
     QGeoCodeReply *geocode(const QString &address, int limit, int offset,
-                           const QGeoShape &bounds) Q_DECL_OVERRIDE;
+                           const QGeoShape &bounds) override;
     QGeoCodeReply *reverseGeocode(const QGeoCoordinate &coordinate,
-                                  const QGeoShape &bounds) Q_DECL_OVERRIDE;
+                                  const QGeoShape &bounds) override;
 
 private Q_SLOTS:
     void replyFinished();

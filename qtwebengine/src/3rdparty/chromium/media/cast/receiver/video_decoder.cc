@@ -17,9 +17,6 @@
 #include "media/base/video_frame_pool.h"
 #include "media/base/video_util.h"
 #include "media/cast/cast_environment.h"
-// VPX_CODEC_DISABLE_COMPAT excludes parts of the libvpx API that provide
-// backwards compatibility for legacy applications using the library.
-#define VPX_CODEC_DISABLE_COMPAT 1
 #include "third_party/libvpx/source/libvpx/vpx/vp8dx.h"
 #include "third_party/libvpx/source/libvpx/vpx/vpx_decoder.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
@@ -85,7 +82,7 @@ class VideoDecoder::ImplBase
 
  protected:
   friend class base::RefCountedThreadSafe<ImplBase>;
-  virtual ~ImplBase() {}
+  virtual ~ImplBase() = default;
 
   virtual void RecoverBecauseFramesWereDropped() {}
 
@@ -196,7 +193,7 @@ class VideoDecoder::FakeImpl : public VideoDecoder::ImplBase {
   }
 
  private:
-  ~FakeImpl() final {}
+  ~FakeImpl() final = default;
 
   scoped_refptr<VideoFrame> Decode(uint8_t* data, int len) final {
     // Make sure this is a JSON string.
@@ -250,7 +247,7 @@ VideoDecoder::VideoDecoder(
   }
 }
 
-VideoDecoder::~VideoDecoder() {}
+VideoDecoder::~VideoDecoder() = default;
 
 OperationalStatus VideoDecoder::InitializationResult() const {
   if (impl_.get())
@@ -263,7 +260,7 @@ void VideoDecoder::DecodeFrame(std::unique_ptr<EncodedFrame> encoded_frame,
   DCHECK(encoded_frame.get());
   DCHECK(!callback.is_null());
   if (!impl_.get() || impl_->InitializationResult() != STATUS_INITIALIZED) {
-    callback.Run(make_scoped_refptr<VideoFrame>(NULL), false);
+    callback.Run(base::WrapRefCounted<VideoFrame>(NULL), false);
     return;
   }
   cast_environment_->PostTask(CastEnvironment::VIDEO,

@@ -56,10 +56,6 @@ IGNORED_EXTENSIONS = (
 EXECUTABLE_PATHS = (
   'chrome/test/data/app_shim/app_shim_32_bit.app/contents/'
       'macos/app_mode_loader',
-  'chrome/test/data/extensions/uitest/plugins/plugin.plugin/contents/'
-      'macos/testnetscapeplugin',
-  'chrome/test/data/extensions/uitest/plugins_private/plugin.plugin/contents/'
-      'macos/testnetscapeplugin',
 )
 
 # These files must not have the executable bit set. This is mainly a performance
@@ -190,7 +186,6 @@ IGNORED_PATHS = (
   'third_party/lcov/contrib/galaxy/gen_makefile.sh',
   'third_party/libxml/linux/xml2-config',
   'third_party/libxml/src/ltmain.sh',
-  'third_party/mesa/',
   'third_party/protobuf/',
   'third_party/sqlite/',
   'third_party/talloc/script/mksyms.sh',
@@ -325,7 +320,8 @@ def check_file(root_path, rel_path):
 
 
 def check_files(root, files):
-  gen = (check_file(root, f) for f in files if not is_ignored(f))
+  gen = (check_file(root, f) for f in files
+         if not is_ignored(f) and not os.path.isdir(f))
   return filter(None, gen)
 
 
@@ -440,6 +436,10 @@ Examples:
       '--file', action='append', dest='files',
       help='Specifics a list of files to check the permissions of. Only these '
       'files will be checked')
+  parser.add_option(
+      '--file-list',
+      help='Specifies a file with a list of files (one per line) to check the '
+      'permissions of. Only these files will be checked')
   parser.add_option('--json', help='Path to JSON output file')
   options, args = parser.parse_args()
 
@@ -449,11 +449,18 @@ Examples:
   if len(args) > 1:
     parser.error('Too many arguments used')
 
+  if options.files and options.file_list:
+    parser.error('--file and --file-list are mutually exclusive options')
+
   if options.root:
     options.root = os.path.abspath(options.root)
 
   if options.files:
     errors = check_files(options.root, options.files)
+  elif options.file_list:
+    with open(options.file_list) as file_list:
+      files = file_list.read().splitlines()
+    errors = check_files(options.root, files)
   else:
     api = get_scm(options.root, options.bare)
     start_dir = args[0] if args else api.root_dir

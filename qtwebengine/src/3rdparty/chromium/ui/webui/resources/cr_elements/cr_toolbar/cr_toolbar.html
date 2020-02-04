@@ -1,13 +1,16 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
+<link rel="import" href="../../html/polymer.html">
+
+<link rel="import" href="../cr_icons_css.html">
+<link rel="import" href="../cr_toolbar/cr_toolbar_search_field.html">
+<link rel="import" href="../hidden_style_css.html">
+<link rel="import" href="../shared_vars_css.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-media-query/iron-media-query.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_toolbar/cr_toolbar_search_field.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
 
 <dom-module id="cr-toolbar">
   <template>
-    <style>
+    <style include="cr-icons cr-hidden-style">
       :host {
-        --cr-toolbar-field-width: 580px;
         --cr-toolbar-height: 56px;
         --paper-icon-button-ink-color: white;
         align-items: center;
@@ -16,36 +19,42 @@
         height: var(--cr-toolbar-height);
       }
 
+      :host-context([dark]) {
+        border-bottom: var(--cr-separator-line);
+        color: var(--cr-secondary-text-color);
+      }
+
       h1 {
-        -webkit-margin-start: 6px;
-        -webkit-padding-end: 12px;
         flex: 1;
         font-size: 123%;
         font-weight: 400;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        letter-spacing: .25px;
+        line-height: normal;
+        margin-inline-start: 6px;
+        padding-inline-end: 12px;
+      }
+
+      :host-context([dark]) :-webkit-any(h1, #menuButtonContainer) {
+        color: var(--cr-primary-text-color);
       }
 
       #leftContent {
         /* margin-start here must match margin-end on #rightContent. */
-        -webkit-margin-start: 12px;
+        margin-inline-start: 12px;
         position: relative;
         transition: opacity 100ms;
       }
 
       #leftSpacer {
-        -webkit-margin-start: 6px;
         align-items: center;
         display: flex;
+        margin-inline-start: 6px;
       }
 
-      #menuButton {
+      #menuButtonContainer {
         height: 32px;
-        margin-bottom: 6px;
-        margin-top: 6px;
         min-width: 32px;
-        padding: 6px;
+        padding: 6px 0;
         width: 32px;
       }
 
@@ -56,11 +65,16 @@
       }
 
       #rightContent {
-        -webkit-margin-end: 12px;
+        margin-inline-end: 12px;
       }
 
       :host([narrow]) #centeredContent {
         justify-content: flex-end;
+      }
+
+      :host([has-overlay]) {
+        transition: visibility var(--cr-toolbar-overlay-animation-duration);
+        visibility: hidden;
       }
 
       :host([narrow][showing-search_]) #leftContent {
@@ -78,8 +92,6 @@
       }
 
       #menuPromo {
-        -webkit-padding-end: 12px;
-        -webkit-padding-start: 8px;
         align-items: center;
         background: #616161;
         border-radius: 2px;
@@ -89,6 +101,8 @@
         font-weight: 500;
         opacity: 0;
         padding-bottom: 6px;
+        padding-inline-end: 12px;
+        padding-inline-start: 8px;
         padding-top: 6px;
         position: absolute;
         top: var(--cr-toolbar-height);
@@ -116,12 +130,12 @@
 
       #closePromo {
         -webkit-appearance: none;
-        -webkit-margin-start: 12px;
         background: none;
         border: none;
         color: inherit;
         font-size: 20px;  /* Shouldn't change if default font-size changes. */
         line-height: 20px;
+        margin-inline-start: 12px;
         padding: 0;
         width: 20px;
       }
@@ -130,11 +144,14 @@
       <div id="leftSpacer">
         <!-- Note: showing #menuPromo relies on this dom-if being [restamp]. -->
         <template is="dom-if" if="[[showMenu]]" restamp>
-          <paper-icon-button id="menuButton" icon="cr20:menu"
-              on-tap="onMenuTap_"
-              title="[[titleIfNotShowMenuPromo_(menuLabel, showMenuPromo)]]"
-              aria-label$="[[menuLabel]]">
-          </paper-icon-button>
+          <paper-icon-button-light id="menuButtonContainer"
+              class="icon-toolbar-menu no-overlap">
+            <button id="menuButton"
+                on-tap="onMenuTap_"
+                title="[[titleIfNotShowMenuPromo_(menuLabel, showMenuPromo)]]"
+                aria-label$="[[menuLabel]]">
+            </button>
+          </paper-icon-button-light>
           <template is="dom-if" if="[[showMenuPromo]]">
             <div id="menuPromo" role="tooltip">
               [[menuPromo]]
@@ -147,18 +164,19 @@
       </div>
     </div>
 
-    <div id="centeredContent">
+    <div id="centeredContent" hidden$="[[!showSearch]]">
       <cr-toolbar-search-field id="search" narrow="[[narrow]]"
           label="[[searchPrompt]]" clear-label="[[clearLabel]]"
           spinner-active="[[spinnerActive]]"
           showing-search="{{showingSearch_}}">
       </cr-toolbar-search-field>
-      <iron-media-query query="(max-width: 900px)" query-matches="{{narrow}}">
+      <iron-media-query query="(max-width: [[narrowThreshold]]px)"
+          query-matches="{{narrow}}">
       </iron-media-query>
     </div>
 
     <div id="rightContent">
-      <content select=".more-actions"></content>
+      <slot></slot>
     </div>
   </template>
   <script src="cr_toolbar.js"></script>

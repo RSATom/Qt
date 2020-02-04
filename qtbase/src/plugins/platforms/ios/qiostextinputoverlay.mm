@@ -46,6 +46,7 @@
 
 #include <QtGui/private/qinputmethod_p.h>
 #include <QtCore/private/qobject_p.h>
+#include <QtCore/private/qcore_mac_p.h>
 
 #include "qiosglobal.h"
 #include "qiostextinputoverlay.h"
@@ -96,7 +97,7 @@ static void executeBlockWithoutAnimation(Block block)
 
 @implementation QIOSEditMenu
 
-- (id)init
+- (instancetype)init
 {
     if (self = [super init]) {
         NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
@@ -160,7 +161,13 @@ static void executeBlockWithoutAnimation(Block block)
 
 // -------------------------------------------------------------------------
 
-@interface QIOSLoupeLayer : CALayer {
+@interface QIOSLoupeLayer : CALayer
+@property (nonatomic, retain) UIView *targetView;
+@property (nonatomic, assign) CGPoint focalPoint;
+@property (nonatomic, assign) BOOL visible;
+@end
+
+@implementation QIOSLoupeLayer {
     UIView *_snapshotView;
     BOOL _pendingSnapshotUpdate;
     UIView *_loupeImageView;
@@ -168,14 +175,8 @@ static void executeBlockWithoutAnimation(Block block)
     CGFloat _loupeOffset;
     QTimer _updateTimer;
 }
-@property (nonatomic, retain) UIView *targetView;
-@property (nonatomic, assign) CGPoint focalPoint;
-@property (nonatomic, assign) BOOL visible;
-@end
 
-@implementation QIOSLoupeLayer
-
-- (id)initWithSize:(CGSize)size cornerRadius:(CGFloat)cornerRadius bottomOffset:(CGFloat)bottomOffset
+- (instancetype)initWithSize:(CGSize)size cornerRadius:(CGFloat)cornerRadius bottomOffset:(CGFloat)bottomOffset
 {
     if (self = [super init]) {
         _loupeOffset = bottomOffset + (size.height / 2);
@@ -301,26 +302,22 @@ static void executeBlockWithoutAnimation(Block block)
 
 // -------------------------------------------------------------------------
 
-#if QT_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__IPHONE_10_0)
-@interface QIOSHandleLayer : CALayer <CAAnimationDelegate> {
-#else
-@interface QIOSHandleLayer : CALayer {
-#endif
-    CALayer *_handleCursorLayer;
-    CALayer *_handleKnobLayer;
-    Qt::Edge _selectionEdge;
-}
+@interface QIOSHandleLayer : CALayer <CAAnimationDelegate>
 @property (nonatomic, assign) CGRect cursorRectangle;
 @property (nonatomic, assign) CGFloat handleScale;
 @property (nonatomic, assign) BOOL visible;
 @property (nonatomic, copy) Block onAnimationDidStop;
 @end
 
-@implementation QIOSHandleLayer
+@implementation QIOSHandleLayer {
+    CALayer *_handleCursorLayer;
+    CALayer *_handleKnobLayer;
+    Qt::Edge _selectionEdge;
+}
 
 @dynamic handleScale;
 
-- (id)initWithKnobAtEdge:(Qt::Edge)selectionEdge
+- (instancetype)initWithKnobAtEdge:(Qt::Edge)selectionEdge
 {
     if (self = [super init]) {
         CGColorRef bgColor = [UIColor colorWithRed:0.1 green:0.4 blue:0.9 alpha:1].CGColor;
@@ -355,16 +352,8 @@ static void executeBlockWithoutAnimation(Block block)
             // The handle should "bounce" in when becoming visible
             CAKeyframeAnimation * animation = [CAKeyframeAnimation animationWithKeyPath:key];
             [animation setDuration:0.5];
-            animation.values = [NSArray arrayWithObjects:
-                [NSNumber numberWithFloat:0],
-                [NSNumber numberWithFloat:1.3],
-                [NSNumber numberWithFloat:1.3],
-                [NSNumber numberWithFloat:1], nil];
-            animation.keyTimes = [NSArray arrayWithObjects:
-                [NSNumber numberWithFloat:0],
-                [NSNumber numberWithFloat:0.3],
-                [NSNumber numberWithFloat:0.9],
-                [NSNumber numberWithFloat:1], nil];
+            animation.values = @[@(0.0f), @(1.3f), @(1.3f), @(1.0f)];
+            animation.keyTimes = @[@(0.0f), @(0.3f), @(0.9f), @(1.0f)];
             return animation;
         } else {
             CABasicAnimation *animation = [CABasicAnimation animationWithKeyPath:key];
@@ -436,8 +425,13 @@ static void executeBlockWithoutAnimation(Block block)
   below will inherit. It takes care of creating and showing a magnifier
   glass depending on the current gesture state.
   */
-@interface QIOSLoupeRecognizer : UIGestureRecognizer <UIGestureRecognizerDelegate> {
-@public
+@interface QIOSLoupeRecognizer : UIGestureRecognizer <UIGestureRecognizerDelegate>
+@property (nonatomic, assign) QPointF focalPoint;
+@property (nonatomic, assign) BOOL dragTriggersGesture;
+@property (nonatomic, readonly) UIView *focusView;
+@end
+
+@implementation QIOSLoupeRecognizer {
     QIOSLoupeLayer *_loupeLayer;
     UIView *_desktopView;
     CGPoint _firstTouchPoint;
@@ -445,14 +439,8 @@ static void executeBlockWithoutAnimation(Block block)
     QTimer _triggerStateBeganTimer;
     int _originalCursorFlashTime;
 }
-@property (nonatomic, assign) QPointF focalPoint;
-@property (nonatomic, assign) BOOL dragTriggersGesture;
-@property (nonatomic, readonly) UIView *focusView;
-@end
 
-@implementation QIOSLoupeRecognizer
-
-- (id)init
+- (instancetype)init
 {
     if (self = [super initWithTarget:self action:@selector(gestureStateChanged)]) {
         self.enabled = NO;
@@ -475,7 +463,7 @@ static void executeBlockWithoutAnimation(Block block)
 
     if (enabled) {
         _focusView = [reinterpret_cast<UIView *>(qApp->focusWindow()->winId()) retain];
-        _desktopView = [[UIApplication sharedApplication].keyWindow.rootViewController.view retain];
+        _desktopView = [qt_apple_sharedApplication().keyWindow.rootViewController.view retain];
         Q_ASSERT(_focusView && _desktopView && _desktopView.superview);
         [_desktopView addGestureRecognizer:self];
     } else {
@@ -608,7 +596,7 @@ static void executeBlockWithoutAnimation(Block block)
 - (QIOSLoupeLayer *)createLoupeLayer
 {
     Q_UNREACHABLE();
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 - (void)updateFocalPoint:(QPointF)touchPoint
@@ -657,7 +645,10 @@ static void executeBlockWithoutAnimation(Block block)
   on the sides. If the user starts dragging on a handle (or do a press and
   hold), it will show a magnifier glass that follows the handle as it moves.
   */
-@interface QIOSSelectionRecognizer : QIOSLoupeRecognizer {
+@interface QIOSSelectionRecognizer : QIOSLoupeRecognizer
+@end
+
+@implementation QIOSSelectionRecognizer {
     CALayer *_clipRectLayer;
     QIOSHandleLayer *_cursorLayer;
     QIOSHandleLayer *_anchorLayer;
@@ -669,11 +660,8 @@ static void executeBlockWithoutAnimation(Block block)
     QMetaObject::Connection _anchorConnection;
     QMetaObject::Connection _clipRectConnection;
 }
-@end
 
-@implementation QIOSSelectionRecognizer
-
-- (id)init
+- (instancetype)init
 {
     if (self = [super init]) {
         self.delaysTouchesBegan = YES;
@@ -846,9 +834,14 @@ static void executeBlockWithoutAnimation(Block block)
 - (void)updateSelection
 {
     if (!hasSelection()) {
-        _cursorLayer.visible = NO;
-        _anchorLayer.visible = NO;
-        QIOSTextInputOverlay::s_editMenu.visible = NO;
+        if (_cursorLayer.visible) {
+            _cursorLayer.visible = NO;
+            _anchorLayer.visible = NO;
+            // Only hide the edit menu if we had a selection from before, since
+            // the edit menu can also be used for other purposes by others (in
+            // which case we try our best not to interfere).
+            QIOSTextInputOverlay::s_editMenu.visible = NO;
+        }
         return;
     }
 
@@ -889,15 +882,15 @@ static void executeBlockWithoutAnimation(Block block)
   visibility of the edit menu will be toggled. Otherwise, if there's a selection, a
   first tap will close the edit menu (if any), and a second tap will remove the selection.
   */
-@interface QIOSTapRecognizer : UITapGestureRecognizer {
+@interface QIOSTapRecognizer : UITapGestureRecognizer
+@end
+
+@implementation QIOSTapRecognizer {
     int _cursorPosOnPress;
     UIView *_focusView;
 }
-@end
 
-@implementation QIOSTapRecognizer
-
-- (id)init
+- (instancetype)init
 {
     if (self = [super initWithTarget:self action:@selector(gestureStateChanged)]) {
         self.enabled = NO;
@@ -984,13 +977,18 @@ static void executeBlockWithoutAnimation(Block block)
 
 QT_BEGIN_NAMESPACE
 
-QIOSEditMenu *QIOSTextInputOverlay::s_editMenu = Q_NULLPTR;
+QIOSEditMenu *QIOSTextInputOverlay::s_editMenu = nullptr;
 
 QIOSTextInputOverlay::QIOSTextInputOverlay()
-    : m_cursorRecognizer(Q_NULLPTR)
-    , m_selectionRecognizer(Q_NULLPTR)
-    , m_openMenuOnTapRecognizer(Q_NULLPTR)
+    : m_cursorRecognizer(nullptr)
+    , m_selectionRecognizer(nullptr)
+    , m_openMenuOnTapRecognizer(nullptr)
 {
+    if (qt_apple_isApplicationExtension()) {
+        qWarning() << "text input overlays disabled in application extensions";
+        return;
+    }
+
     connect(qApp, &QGuiApplication::focusObjectChanged, this, &QIOSTextInputOverlay::updateFocusObject);
 }
 
@@ -1012,10 +1010,10 @@ void QIOSTextInputOverlay::updateFocusObject()
         [m_selectionRecognizer release];
         [m_openMenuOnTapRecognizer release];
         [s_editMenu release];
-        m_cursorRecognizer = Q_NULLPTR;
-        m_selectionRecognizer = Q_NULLPTR;
-        m_openMenuOnTapRecognizer = Q_NULLPTR;
-        s_editMenu = Q_NULLPTR;
+        m_cursorRecognizer = nullptr;
+        m_selectionRecognizer = nullptr;
+        m_openMenuOnTapRecognizer = nullptr;
+        s_editMenu = nullptr;
     }
 
     if (platformInputContext()->inputMethodAccepted()) {

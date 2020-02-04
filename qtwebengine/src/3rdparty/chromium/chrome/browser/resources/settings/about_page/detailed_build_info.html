@@ -14,7 +14,7 @@
   <template>
     <style include="settings-shared">
       cr-policy-indicator {
-        -webkit-margin-start: var(--cr-controlled-by-spacing);
+        margin-inline-start: var(--cr-controlled-by-spacing);
       }
 
       /* The command line string can contain very long substrings that
@@ -39,7 +39,7 @@
         <div class="secondary">[[currentlyOnChannelText_]]</div>
       </div>
       <div class="separator"></div>
-      <paper-button on-tap="onChangeChannelTap_"
+      <paper-button on-click="onChangeChannelTap_"
           disabled="[[!canChangeChannel_]]">
         $i18n{aboutChangeChannel}
       </paper-button>
@@ -63,10 +63,6 @@
       <div class="secondary" id="arcVersion">[[versionInfo_.arcVersion]]</div>
     </div>
     <div class="settings-box two-line single-column">
-      <div>Blink</div><!-- No need to localize. -->
-      <div class="secondary">$i18n{aboutBlinkVersion}</div>
-    </div>
-    <div class="settings-box two-line single-column">
       <div>V8</div>
       <div class="secondary">$i18n{aboutJsEngineVersion}</div>
     </div>
@@ -76,7 +72,9 @@
     </div>
     <div class="settings-box two-line single-column">
       <div>$i18n{aboutCommandLineLabel}</div>
-      <div id="command-line" class="secondary">$i18n{aboutCommandLine}</div>
+      <div id="command-line" class="secondary">
+        [[i18n('aboutCommandLine')]]
+      </div>
     </div>
     <div class="settings-box two-line single-column">
       <div>$i18n{aboutBuildDateLabel}</div>

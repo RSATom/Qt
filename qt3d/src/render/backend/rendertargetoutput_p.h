@@ -76,12 +76,12 @@ public:
     QString name() const;
     QAbstractTexture::CubeMapFace face() const;
     QRenderTargetOutput::AttachmentPoint point() const;
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
     Attachment *attachment();
     const Attachment *attachment() const;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
     Qt3DCore::QNodeId m_attachmentUuid;
     Attachment m_attachmentData;
 };

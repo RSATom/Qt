@@ -5,7 +5,7 @@
 ## Copyright (C) 2017 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
-## This file is part of the test suite of the Qt Toolkit.
+## This file is part of the provisioning scripts of the Qt Toolkit.
 ##
 ## $QT_BEGIN_LICENSE:LGPL21$
 ## Commercial License Usage
@@ -32,57 +32,32 @@
 ## $QT_END_LICENSE$
 ##
 #############################################################################
+# shellcheck source=../unix/DownloadURL.sh
 source "${BASH_SOURCE%/*}/../unix/DownloadURL.sh"
-source "${BASH_SOURCE%/*}/../unix/try_catch.sh"
 set -ex
 
 # Command line tools is need by homebrew
 
 function InstallCommandLineTools {
-
-    ExceptionMount=101
-    ExceptionInstall=102
-    ExceptionUnmount=103
-
     url=$1
     url_alt=$2
     expectedSha1=$3
     packageName=$4
     version=$5
 
-    try
-    (
-        DownloadURL $url $url_alt $expectedSha1 /tmp/$packageName
-        echo "Mounting $packageName"
-        hdiutil attach /tmp/$packageName || throw $ExceptionMount
-        cd "/Volumes/Command Line Developer Tools"
-        echo "Installing"
-        sudo installer -verbose -pkg *.pkg -target / || throw $ExceptionInstall
-        cd /
-        # Let's fait for 5 second before unmounting. Sometimes resource is busy and cant be unmounted
-        sleep 3
-        echo "Unmounting"
-        umount /Volumes/Command\ Line\ Developer\ Tools/ || throw $ExceptionUnmount
-        echo "Removing $packageName"
-        rm /tmp/$packageName
+    DownloadURL "$url" "$url_alt" "$expectedSha1" "/tmp/$packageName"
+    echo "Mounting $packageName"
+    hdiutil attach "/tmp/$packageName"
+    cd "/Volumes/Command Line Developer Tools"
+    echo "Installing"
+    sudo installer -pkg ./*.pkg -target /
+    cd /
+    # Let's fait for 5 second before unmounting. Sometimes resource is busy and cant be unmounted
+    sleep 3
+    echo "Unmounting"
+    umount /Volumes/Command\ Line\ Developer\ Tools/
+    echo "Removing $packageName"
+    rm "/tmp/$packageName"
 
-        echo "Command Line Tools = $version" >> ~/versions.txt
-    )
-    catch || {
-        case $ex_code in
-            $ExceptionMount)
-                echo "Failed to mount"
-                exit 1;
-            ;;
-            $ExceptionInstall)
-                echo "Failed to install"
-                exit 1;
-            ;;
-            $ExceptionUnmount)
-                echo "Failed to unmount"
-                exit 1;
-
-        esac
-    }
-
+    echo "Command Line Tools = $version" >> ~/versions.txt
 }

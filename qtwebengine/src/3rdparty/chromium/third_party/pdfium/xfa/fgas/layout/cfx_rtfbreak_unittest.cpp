@@ -7,29 +7,23 @@
 #include "xfa/fgas/layout/cfx_rtfbreak.h"
 
 #include <memory>
+#include <utility>
 
+#include "core/fxge/cfx_font.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/test_support.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fgas/font/cfgas_fontmgr.h"
 #include "xfa/fgas/font/cfgas_gefont.h"
+#include "xfa/fgas/layout/cfx_char.h"
 
 class CFX_RTFBreakTest : public testing::Test {
  public:
   void SetUp() override {
-    CFX_GEModule::Get()->GetFontMgr()->SetSystemFontInfo(
-        IFX_SystemFontInfo::CreateDefault(nullptr));
-
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-    font_mgr_ = CFGAS_FontMgr::Create(FX_GetDefFontEnumerator());
-#else
-    font_source_ = pdfium::MakeUnique<CFX_FontSourceEnum_File>();
-    font_mgr_ = CFGAS_FontMgr::Create(font_source_.get());
-#endif
-
-    font_ = CFGAS_GEFont::LoadFont(L"Arial Black", 0, 0, font_mgr_.get());
-    ASSERT(font_.Get() != nullptr);
+    font_ =
+        CFGAS_GEFont::LoadFont(L"Arial Black", 0, 0, GetGlobalFontManager());
+    ASSERT_TRUE(font_.Get());
   }
 
   std::unique_ptr<CFX_RTFBreak> CreateBreak(int32_t args) {
@@ -39,12 +33,7 @@ class CFX_RTFBreakTest : public testing::Test {
   }
 
  private:
-  std::unique_ptr<CFGAS_FontMgr> font_mgr_;
-  CFX_RetainPtr<CFGAS_GEFont> font_;
-
-#if _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
-  std::unique_ptr<CFX_FontSourceEnum_File> font_source_;
-#endif
+  RetainPtr<CFGAS_GEFont> font_;
 };
 
 // As soon as you get one of the control characters the break is complete
@@ -53,7 +42,7 @@ class CFX_RTFBreakTest : public testing::Test {
 TEST_F(CFX_RTFBreakTest, AddChars) {
   auto b = CreateBreak(FX_LAYOUTSTYLE_ExpandTab);
 
-  CFX_WideString str(L"Input String.");
+  WideString str(L"Input String.");
   for (const auto& c : str)
     EXPECT_EQ(CFX_BreakType::None, b->AppendChar(c));
 
@@ -85,4 +74,18 @@ TEST_F(CFX_RTFBreakTest, ControlCharacters) {
 
   ASSERT_EQ(1, b->CountBreakPieces());
   EXPECT_EQ(L"\v", b->GetBreakPieceUnstable(0)->GetString());
+}
+
+TEST_F(CFX_RTFBreakTest, BidiLine) {
+  auto rtf_break = CreateBreak(FX_LAYOUTSTYLE_ExpandTab);
+  rtf_break->SetLineBreakTolerance(1);
+  rtf_break->SetFontSize(12);
+
+  WideString input = WideString::FromUTF8(ByteStringView("\xa\x0\xa\xa", 4));
+  for (auto& ch : input)
+    rtf_break->AppendChar(ch);
+
+  auto chars = rtf_break->GetCurrentLineForTesting()->m_LineChars;
+  CFX_Char::BidiLine(&chars, chars.size());
+  EXPECT_EQ(3u, chars.size());
 }

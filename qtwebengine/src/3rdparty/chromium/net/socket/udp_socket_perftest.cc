@@ -16,7 +16,7 @@
 #include "net/socket/udp_server_socket.h"
 #include "net/socket/udp_socket.h"
 #include "net/test/gtest_util.h"
-#include "net/test/net_test_suite.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
@@ -30,7 +30,8 @@ namespace {
 class UDPSocketPerfTest : public PlatformTest {
  public:
   UDPSocketPerfTest()
-      : buffer_(new IOBufferWithSize(kPacketSize)), weak_factory_(this) {}
+      : buffer_(base::MakeRefCounted<IOBufferWithSize>(kPacketSize)),
+        weak_factory_(this) {}
 
   void DoneWritePacketsToSocket(UDPClientSocket* socket,
                                 int num_of_packets,
@@ -54,6 +55,8 @@ class UDPSocketPerfTest : public PlatformTest {
   base::WeakPtrFactory<UDPSocketPerfTest> weak_factory_;
 };
 
+const int UDPSocketPerfTest::kPacketSize;
+
 // Creates and address from an ip/port and returns it in |address|.
 void CreateUDPAddress(const std::string& ip_str,
                       uint16_t port,
@@ -67,7 +70,8 @@ void CreateUDPAddress(const std::string& ip_str,
 void UDPSocketPerfTest::WritePacketsToSocket(UDPClientSocket* socket,
                                              int num_of_packets,
                                              base::Closure done_callback) {
-  scoped_refptr<IOBufferWithSize> io_buffer(new IOBufferWithSize(kPacketSize));
+  scoped_refptr<IOBufferWithSize> io_buffer =
+      base::MakeRefCounted<IOBufferWithSize>(kPacketSize);
   memset(io_buffer->data(), 'G', kPacketSize);
 
   while (num_of_packets) {
@@ -75,7 +79,8 @@ void UDPSocketPerfTest::WritePacketsToSocket(UDPClientSocket* socket,
         socket->Write(io_buffer.get(), io_buffer->size(),
                       base::Bind(&UDPSocketPerfTest::DoneWritePacketsToSocket,
                                  weak_factory_.GetWeakPtr(), socket,
-                                 num_of_packets - 1, done_callback));
+                                 num_of_packets - 1, done_callback),
+                      TRAFFIC_ANNOTATION_FOR_TESTS);
     if (rv == ERR_IO_PENDING)
       break;
     --num_of_packets;
@@ -103,9 +108,8 @@ void UDPSocketPerfTest::WriteBenchmark(bool use_nonblocking_io) {
   // Setup the client.
   IPEndPoint server_address;
   CreateUDPAddress("127.0.0.1", kPort, &server_address);
-  std::unique_ptr<UDPClientSocket> client(
-      new UDPClientSocket(DatagramSocket::DEFAULT_BIND, RandIntCallback(),
-                          nullptr, NetLogSource()));
+  std::unique_ptr<UDPClientSocket> client(new UDPClientSocket(
+      DatagramSocket::DEFAULT_BIND, nullptr, NetLogSource()));
   if (use_nonblocking_io)
     client->UseNonBlockingIO();
   rv = client->Connect(server_address);

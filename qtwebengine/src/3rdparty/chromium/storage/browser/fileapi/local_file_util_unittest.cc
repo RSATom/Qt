@@ -46,16 +46,16 @@ const storage::FileSystemType kFileSystemType = storage::kFileSystemTypeTest;
 
 class LocalFileUtilTest : public testing::Test {
  public:
-  LocalFileUtilTest() {}
+  LocalFileUtilTest() = default;
 
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
     file_system_context_ =
-        CreateFileSystemContextForTesting(NULL, data_dir_.GetPath());
+        CreateFileSystemContextForTesting(nullptr, data_dir_.GetPath());
   }
 
   void TearDown() override {
-    file_system_context_ = NULL;
+    file_system_context_ = nullptr;
     base::RunLoop().RunUntilIdle();
   }
 
@@ -141,7 +141,7 @@ TEST_F(LocalFileUtilTest, CreateAndClose) {
   std::unique_ptr<FileSystemOperationContext> context(NewContext());
 }
 
-// base::CreateSymbolicLink is only supported on POSIX.
+// base::CreateSymbolicLink is supported on most POSIX, but not on Fuchsia.
 #if defined(OS_POSIX)
 TEST_F(LocalFileUtilTest, CreateFailForSymlink) {
   // Create symlink target file.

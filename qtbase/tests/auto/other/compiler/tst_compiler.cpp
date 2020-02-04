@@ -693,7 +693,7 @@ QT_WARNING_DISABLE_GCC("-Wunused-local-typedefs")
 [[noreturn]] void attribute_f1();
 void attribute_f2 [[noreturn]] ();
 #  if (defined(__cpp_namespace_attributes) && __cpp_namespace_attributes >= 201411) && __has_cpp_attribute(deprecated)
-namespace NS [[deprecated]] { }
+namespace [[deprecated]] NS { }
 #  endif
 #endif
 
@@ -1266,8 +1266,6 @@ void tst_Compiler::cxx11_rvalue_refs()
         QCOMPARE(s3, MoveDefinedQString("Hello"));
     }
 
-    // supported by MSVC only from November 2013 CTP, but only check for VC2015:
-# if !defined(Q_CC_MSVC) || defined(Q_CC_INTEL) || _MSC_VER >= 1900 // VS14 == VC2015
     // we require automatic generation of move special member functions:
     {
         struct M { MoveDefinedQString s1, s2; };
@@ -1288,7 +1286,6 @@ void tst_Compiler::cxx11_rvalue_refs()
         QCOMPARE(m3.s1, MoveDefinedQString("Hello"));
         QCOMPARE(m3.s2, MoveDefinedQString("World"));
     }
-# endif // MSVC < 2015
 #endif
 }
 

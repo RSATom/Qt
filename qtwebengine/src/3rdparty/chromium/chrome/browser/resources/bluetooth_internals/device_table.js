@@ -24,7 +24,7 @@ cr.define('device_table', function() {
    * @extends {HTMLTableElement}
    */
   var DeviceTable = cr.ui.define(function() {
-    /** @private {?Array<device_collection.Device>} */
+    /** @private {?Array<bluetooth.mojom.DeviceInfo>} */
     this.devices_ = null;
 
     return document.importNode(
@@ -43,7 +43,7 @@ cr.define('device_table', function() {
       this.body_ = this.tBodies[0];
       /** @private */
       this.headers_ = this.tHead.rows[0].cells;
-      /** @private {!Map<!interfaces.BluetoothDevice.DeviceInfo, boolean>} */
+      /** @private {!Map<!bluetooth.mojom.DeviceInfo, boolean>} */
       this.inspectionMap_ = new Map();
     },
 
@@ -66,7 +66,7 @@ cr.define('device_table', function() {
      * Updates the inspect status of the row matching the given |deviceInfo|.
      * If |isInspecting| is true, the forget link is enabled otherwise it's
      * disabled.
-     * @param {!interfaces.BluetoothDevice.DeviceInfo} deviceInfo
+     * @param {!bluetooth.mojom.DeviceInfo} deviceInfo
      * @param {boolean} isInspecting
      */
     setInspecting: function(deviceInfo, isInspecting) {
@@ -130,7 +130,7 @@ cr.define('device_table', function() {
 
     /**
      * Inserts a new row at |index| and updates it with info from |device|.
-     * @param {!interfaces.BluetoothDevice.DeviceInfo} device
+     * @param {!bluetooth.mojom.DeviceInfo} device
      * @param {?number} index
      * @private
      */
@@ -140,8 +140,9 @@ cr.define('device_table', function() {
 
       for (var i = 0; i < this.headers_.length; i++) {
         // Skip the LINKS column. It has no data-field attribute.
-        if (i === COLUMNS.LINKS)
+        if (i === COLUMNS.LINKS) {
           continue;
+        }
         row.insertCell();
       }
 
@@ -176,13 +177,13 @@ cr.define('device_table', function() {
       this.body_.classList.add('table-body');
 
       for (var i = 0; i < this.devices_.length; i++) {
-        this.insertRow_(this.devices_.item(i));
+        this.insertRow_(this.devices_.item(i), null);
       }
     },
 
     /**
      * Updates the row at |index| with the info from |device|.
-     * @param {!interfaces.BluetoothDevice.DeviceInfo} device
+     * @param {!bluetooth.mojom.DeviceInfo} device
      * @param {number} index
      * @private
      */
@@ -194,16 +195,18 @@ cr.define('device_table', function() {
 
       var forgetLink = row.cells[COLUMNS.LINKS].children[1];
 
-      if (this.inspectionMap_.has(device))
+      if (this.inspectionMap_.has(device)) {
         forgetLink.disabled = !this.inspectionMap_.get(device);
-      else
+      } else {
         forgetLink.disabled = true;
+      }
 
       // Update the properties based on the header field path.
       for (var i = 0; i < this.headers_.length; i++) {
         // Skip the LINKS column. It has no data-field attribute.
-        if (i === COLUMNS.LINKS)
+        if (i === COLUMNS.LINKS) {
           continue;
+        }
 
         var header = this.headers_[i];
         var propName = header.dataset.field;
@@ -215,7 +218,7 @@ cr.define('device_table', function() {
           obj = obj[part];
         }
 
-        if (propName == 'is_gatt_connected') {
+        if (propName == 'isGattConnected') {
           obj = obj ? 'Connected' : 'Not Connected';
         }
 

@@ -26,57 +26,18 @@
 #include "fxbarcode/oned/BC_OnedEAN8Writer.h"
 #include "third_party/base/ptr_util.h"
 
-CBC_EAN8::CBC_EAN8() : CBC_OneCode(pdfium::MakeUnique<CBC_OnedEAN8Writer>()) {}
+CBC_EAN8::CBC_EAN8() : CBC_EANCode(pdfium::MakeUnique<CBC_OnedEAN8Writer>()) {}
 
-CBC_EAN8::~CBC_EAN8() {}
-
-CFX_WideString CBC_EAN8::Preprocess(const CFX_WideStringC& contents) {
-  auto* pWriter = GetOnedEAN8Writer();
-  CFX_WideString encodeContents = pWriter->FilterContents(contents);
-  int32_t length = encodeContents.GetLength();
-  if (length <= 7) {
-    for (int32_t i = 0; i < 7 - length; i++)
-      encodeContents = wchar_t('0') + encodeContents;
-
-    CFX_ByteString byteString = encodeContents.UTF8Encode();
-    int32_t checksum = pWriter->CalcChecksum(byteString);
-    encodeContents += wchar_t(checksum - 0 + '0');
-  }
-  if (length > 8)
-    encodeContents = encodeContents.Mid(0, 8);
-
-  return encodeContents;
-}
-
-bool CBC_EAN8::Encode(const CFX_WideStringC& contents, bool isDevice) {
-  if (contents.IsEmpty())
-    return false;
-
-  BCFORMAT format = BCFORMAT_EAN_8;
-  int32_t outWidth = 0;
-  int32_t outHeight = 0;
-  CFX_WideString encodeContents = Preprocess(contents);
-  CFX_ByteString byteString = encodeContents.UTF8Encode();
-  m_renderContents = encodeContents;
-  auto* pWriter = GetOnedEAN8Writer();
-  std::unique_ptr<uint8_t, FxFreeDeleter> data(
-      pWriter->Encode(byteString, format, outWidth, outHeight));
-  if (!data)
-    return false;
-  return pWriter->RenderResult(encodeContents.AsStringC(), data.get(), outWidth,
-                               isDevice);
-}
-
-bool CBC_EAN8::RenderDevice(CFX_RenderDevice* device,
-                            const CFX_Matrix* matrix) {
-  return GetOnedEAN8Writer()->RenderDeviceResult(device, matrix,
-                                                 m_renderContents.AsStringC());
-}
+CBC_EAN8::~CBC_EAN8() = default;
 
 BC_TYPE CBC_EAN8::GetType() {
   return BC_EAN8;
 }
 
-CBC_OnedEAN8Writer* CBC_EAN8::GetOnedEAN8Writer() {
-  return static_cast<CBC_OnedEAN8Writer*>(m_pBCWriter.get());
+BCFORMAT CBC_EAN8::GetFormat() const {
+  return BCFORMAT_EAN_8;
+}
+
+size_t CBC_EAN8::GetMaxLength() const {
+  return 7;
 }

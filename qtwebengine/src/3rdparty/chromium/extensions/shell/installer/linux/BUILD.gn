@@ -9,46 +9,58 @@ import("//build/config/chrome_build.gni")
 import("//build/config/features.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/sysroot.gni")
+import("//build/util/lastchange.gni")
 import("//build/util/version.gni")
 import("//chrome/process_version_rc_template.gni")  # For branding_file_path.
-import("//extensions/features/features.gni")
+import("//components/nacl/features.gni")
+import("//extensions/buildflags/buildflags.gni")
 
 assert(is_desktop_linux)
 assert(current_cpu == "x64")
 assert(enable_extensions,
        "Cannot depend on extensions because enable_extensions=false.")
 
-# The packages list the exact versions of each library used. The versions used
-# on the bots are likely different than those on your workstation, so you'll
-# get a stream of errors like:
-#   < libasound2 (>= 1.0.23)
-#   ---
-#   > libasound2 (>= 1.0.16)
-#
-# To avoid these warnings for testing purposes, do:
-#
-#   export IGNORE_DEPS_CHANGES=1
-#
-# before you build.
 group("linux") {
   # See the "app_shell_lib" definition for why testonly is needed.
   testonly = true
   deps = [
     # TODO(michaelpg): Add beta/stable once we verify the unstable installer is
     # building and installing properly.
-    ":unstable",
+    ":app_shell_unstable",
   ]
 }
 
 branding_dir = "//chrome/app/theme/$branding_path_component"
 
+action("strip_app_shell_binary") {
+  testonly = true
+  prog_name = "$root_out_dir/app_shell"
+  debug_file = prog_name + ".debug"
+  stripped_file = prog_name + ".stripped"
+  deps = [
+    "//extensions/shell:app_shell",
+  ]
+  script = "//build/gn_run_binary.py"
+  sources = [
+    prog_name,
+  ]
+  outputs = [
+    debug_file,
+    stripped_file,
+  ]
+  args = [
+    rebase_path("//third_party/eu-strip/bin/eu-strip", root_build_dir),
+    "-o",
+    rebase_path(stripped_file, root_build_dir),
+    "-f",
+    rebase_path(debug_file, root_build_dir),
+    rebase_path(prog_name, root_build_dir),
+  ]
+}
+
 copy("common_packaging_files") {
   visibility = [ ":*" ]
   sources = [
-    "//chrome/installer/linux/common/apt.include",
-    "//chrome/installer/linux/common/repo.cron",
-    "//chrome/installer/linux/common/symlinks.include",
-    "//chrome/installer/linux/common/variables.include",
     "/usr/bin/eu-strip",
     "common/installer.include",
     "common/wrapper",
@@ -71,9 +83,6 @@ copy("deb_packaging_files") {
     "//chrome/installer/linux/debian/changelog.template",
     "//chrome/installer/linux/debian/control.template",
     "debian/build.sh",
-    "debian/expected_deps_x64_jessie",
-    "debian/postinst",
-    "debian/postrm",
   ]
   outputs = [
     "$root_out_dir/app_shell_installer/debian/{{source_file_part}}",
@@ -94,9 +103,9 @@ process_version("save_build_info") {
   # Just output the default version info variables (no template).
   process_only = true
   sources = [
-    "//build/util/LASTCHANGE",
     "//chrome/VERSION",
     branding_file_path,
+    lastchange_file,
   ]
   output = "$root_out_dir/app_shell_installer/version.txt"
 }
@@ -128,10 +137,6 @@ group("installer_deps") {
       "//ppapi/native_client:irt",
     ]
   }
-
-  if (!libcpp_is_static && use_custom_libcxx) {
-    public_deps += [ "//buildtools/third_party/libc++:libc++" ]
-  }
 }
 
 # Creates .deb installer package.
@@ -158,40 +163,46 @@ template("linux_package") {
     ]
   }
 
-  if (!libcpp_is_static && use_custom_libcxx) {
-    packaging_files_binaries += [ "$root_out_dir/libc++.so" ]
-  }
-
   deb_target_name = "${target_name}_deb"
   action(deb_target_name) {
     visibility = [ ":*" ]
-    script = "//chrome/installer/linux/flock_make_package.py"
+    script = "//build/gn_run_binary.py"
+
+    assert(current_cpu == "x64", "app_shell installer only supported for amd64")
     deb_arch = "amd64"
+    if (is_chrome_branded) {
+      package = "google-app-shell"
+    } else {
+      package = "chromium-app-shell"
+    }
 
     inputs = packaging_files_binaries
     outputs = [
-      "$root_out_dir/google-app-shell-${channel}_${chrome_version_full}-1_${deb_arch}.deb",
+      "$root_out_dir/${package}-${channel}_${chrome_version_full}-1_${deb_arch}.deb",
     ]
 
     args = [
-      rebase_path("$root_out_dir/linux_package.lock", root_build_dir),
       rebase_path("$root_out_dir/app_shell_installer/debian/build.sh",
                   root_build_dir),
-      "-o",
-      rebase_path(root_out_dir, root_build_dir),
-      "-b",
-      rebase_path(root_out_dir, root_build_dir),
       "-a",
       current_cpu,
+      "-b",
+      rebase_path(root_out_dir, root_build_dir),
       "-c",
       invoker.channel,
       "-d",
       branding_path_component,
+      "-o",
+      rebase_path(root_out_dir, root_build_dir),
       "-s",
-      rebase_path(sysroot),
+      rebase_path(sysroot, root_build_dir),
     ]
+    if (is_official_build) {
+      args += [ "-f" ]
+    }
     deps = [
       ":installer_deps",
+      ":strip_app_shell_binary",
     ]
   }
 
@@ -203,23 +214,7 @@ template("linux_package") {
 }
 
 # Standard packages.
-linux_package("unstable") {
+# Prefixed with "app_shell_" to not conflict with Chrome's installer targets.
+linux_package("app_shell_unstable") {
   channel = "unstable"
-}
-linux_package("stable") {
-  channel = "stable"
-}
-linux_package("beta") {
-  channel = "beta"
-}
-
-# Other packages that we support that aren't included in the default "linux"
-# target.
-linux_package("trunk") {
-  channel = "trunk"
-}
-if (is_asan) {
-  linux_package("asan") {
-    channel = "asan"
-  }
 }

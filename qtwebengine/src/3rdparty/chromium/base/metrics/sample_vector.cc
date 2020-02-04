@@ -30,7 +30,7 @@ SampleVectorBase::SampleVectorBase(uint64_t id,
   CHECK_GE(bucket_ranges_->bucket_count(), 1u);
 }
 
-SampleVectorBase::~SampleVectorBase() {}
+SampleVectorBase::~SampleVectorBase() = default;
 
 void SampleVectorBase::Accumulate(Sample value, Count count) {
   const size_t bucket_index = GetBucketIndex(value);
@@ -55,8 +55,14 @@ void SampleVectorBase::Accumulate(Sample value, Count count) {
   }
 
   // Handle the multi-sample case.
-  subtle::NoBarrier_AtomicIncrement(&counts()[bucket_index], count);
+  Count new_value =
+      subtle::NoBarrier_AtomicIncrement(&counts()[bucket_index], count);
   IncreaseSumAndCount(strict_cast<int64_t>(count) * value, count);
+
+  // TODO(bcwhite) Remove after crbug.com/682680.
+  Count old_value = new_value - count;
+  if ((new_value >= 0) != (old_value >= 0) && count > 0)
+    RecordNegativeSample(SAMPLES_ACCUMULATE_OVERFLOW, count);
 }
 
 Count SampleVectorBase::GetCount(Sample value) const {
@@ -104,19 +110,19 @@ std::unique_ptr<SampleCountIterator> SampleVectorBase::Iterator() const {
   // Handle the single-sample case.
   SingleSample sample = single_sample().Load();
   if (sample.count != 0) {
-    return MakeUnique<SingleSampleIterator>(
+    return std::make_unique<SingleSampleIterator>(
         bucket_ranges_->range(sample.bucket),
         bucket_ranges_->range(sample.bucket + 1), sample.count, sample.bucket);
   }
 
   // Handle the multi-sample case.
   if (counts() || MountExistingCountsStorage()) {
-    return MakeUnique<SampleVectorIterator>(counts(), counts_size(),
-                                            bucket_ranges_);
+    return std::make_unique<SampleVectorIterator>(counts(), counts_size(),
+                                                  bucket_ranges_);
   }
 
   // And the no-value case.
-  return MakeUnique<SampleVectorIterator>(nullptr, 0, bucket_ranges_);
+  return std::make_unique<SampleVectorIterator>(nullptr, 0, bucket_ranges_);
 }
 
 bool SampleVectorBase::AddSubtractImpl(SampleCountIterator* iter,
@@ -321,7 +327,7 @@ PersistentSampleVector::PersistentSampleVector(
   }
 }
 
-PersistentSampleVector::~PersistentSampleVector() {}
+PersistentSampleVector::~PersistentSampleVector() = default;
 
 bool PersistentSampleVector::MountExistingCountsStorage() const {
   // There is no early exit if counts is not yet mounted because, given that
@@ -362,7 +368,7 @@ SampleVectorIterator::SampleVectorIterator(
       counts_size_(counts->size()),
       bucket_ranges_(bucket_ranges),
       index_(0) {
-  CHECK_GE(bucket_ranges_->bucket_count(), counts_size_);
+  DCHECK_GE(bucket_ranges_->bucket_count(), counts_size_);
   SkipEmptyBuckets();
 }
 
@@ -374,11 +380,11 @@ SampleVectorIterator::SampleVectorIterator(
       counts_size_(counts_size),
       bucket_ranges_(bucket_ranges),
       index_(0) {
-  CHECK_GE(bucket_ranges_->bucket_count(), counts_size_);
+  DCHECK_GE(bucket_ranges_->bucket_count(), counts_size_);
   SkipEmptyBuckets();
 }
 
-SampleVectorIterator::~SampleVectorIterator() {}
+SampleVectorIterator::~SampleVectorIterator() = default;
 
 bool SampleVectorIterator::Done() const {
   return index_ >= counts_size_;
@@ -394,17 +400,17 @@ void SampleVectorIterator::Get(HistogramBase::Sample* min,
                                int64_t* max,
                                HistogramBase::Count* count) const {
   DCHECK(!Done());
-  if (min != NULL)
+  if (min != nullptr)
     *min = bucket_ranges_->range(index_);
-  if (max != NULL)
+  if (max != nullptr)
     *max = strict_cast<int64_t>(bucket_ranges_->range(index_ + 1));
-  if (count != NULL)
+  if (count != nullptr)
     *count = subtle::NoBarrier_Load(&counts_[index_]);
 }
 
 bool SampleVectorIterator::GetBucketIndex(size_t* index) const {
   DCHECK(!Done());
-  if (index != NULL)
+  if (index != nullptr)
     *index = index_;
   return true;
 }

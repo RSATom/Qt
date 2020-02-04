@@ -5,10 +5,12 @@
 #ifndef CC_TREES_SCROLL_NODE_H_
 #define CC_TREES_SCROLL_NODE_H_
 
-#include "cc/base/filter_operations.h"
 #include "cc/base/region.h"
 #include "cc/cc_export.h"
-#include "cc/input/scroll_boundary_behavior.h"
+#include "cc/input/overscroll_behavior.h"
+#include "cc/input/scroll_snap_data.h"
+#include "cc/paint/filter_operations.h"
+#include "cc/trees/element_id.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace base {
@@ -22,6 +24,7 @@ namespace cc {
 struct CC_EXPORT ScrollNode {
   ScrollNode();
   ScrollNode(const ScrollNode& other);
+  ~ScrollNode();
 
   // The node index of this node in the scroll tree node vector.
   int id;
@@ -29,8 +32,6 @@ struct CC_EXPORT ScrollNode {
   int parent_id;
 
   uint32_t main_thread_scrolling_reasons;
-
-  Region non_fast_scrollable_region;
 
   // Size of the container area that the contents scrolls in, not including
   // non-overlay scrollbars. Overlay scrollbars do not affect these bounds.
@@ -57,7 +58,9 @@ struct CC_EXPORT ScrollNode {
   ElementId element_id;
   int transform_id;
 
-  ScrollBoundaryBehavior scroll_boundary_behavior;
+  OverscrollBehavior overscroll_behavior;
+
+  base::Optional<SnapContainerData> snap_container_data;
 
   bool operator==(const ScrollNode& other) const;
   void AsValueInto(base::trace_event::TracedValue* value) const;

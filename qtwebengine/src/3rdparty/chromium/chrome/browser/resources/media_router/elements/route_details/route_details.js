@@ -9,10 +9,10 @@ Polymer({
 
   properties: {
     /**
-     * The text for the current casting activity status.
+     * Description of the current casting activity, e.g. "Casting YouTube".
      * @private {string|undefined}
      */
-    activityStatus_: {
+    routeDescription_: {
       type: String,
     },
 
@@ -28,28 +28,10 @@ Polymer({
     },
 
     /**
-     * An enum value to represent the controller to show.
-     * @private {number}
-     */
-    controllerType_: {
-      type: Number,
-      computed: 'computeControllerType_(route, isExtensionViewReady)',
-    },
-
-    /**
      * Whether a sink is currently launching in the container.
      * @type {boolean}
      */
     isAnySinkCurrentlyLaunching: {
-      type: Boolean,
-      value: false,
-    },
-
-    /**
-     * Whether the custom controller extensionview is ready to be shown.
-     * @type {boolean}
-     */
-    isExtensionViewReady: {
       type: Boolean,
       value: false,
     },
@@ -117,6 +99,10 @@ Polymer({
    *     current route or the current route's sink.
    */
   computeCastButtonHidden_: function(route, changeRouteSourceAvailable) {
+    if (route === undefined || changeRouteSourceAvailable === undefined) {
+      return false;
+    }
+
     return !((route && route.canJoin) || changeRouteSourceAvailable);
   },
 
@@ -150,22 +136,6 @@ Polymer({
   },
 
   /**
-   * @param {?media_router.Route} route
-   * @param {boolean} isExtensionViewReady
-   * @return {number} An enum value to represent the controller to show.
-   * @private
-   */
-  computeControllerType_: function(route, isExtensionViewReady) {
-    if (route && route.supportsWebUiController) {
-      return media_router.ControllerType.WEBUI;
-    }
-    if (isExtensionViewReady) {
-      return media_router.ControllerType.EXTENSION;
-    }
-    return media_router.ControllerType.NONE;
-  },
-
-  /**
    * @param {number} castMode User selected cast mode or AUTO.
    * @param {?media_router.Sink} sink Sink to which we will cast.
    * @return {number} The selected cast mode when |castMode| is selected in the
@@ -191,23 +161,10 @@ Polymer({
   },
 
   /**
-   * Updates |activityStatus_| for the default view.
-   *
-   * @private
-   */
-  updateActivityStatus_: function() {
-    this.activityStatus_ = this.route ?
-        loadTimeData.getStringF(
-            'castingActivityStatus', this.route.description) :
-        '';
-  },
-
-  /**
    * Called when the route details view is closed. Resets route-controls.
    */
   onClosed: function() {
-    if (this.controllerType_ === media_router.ControllerType.WEBUI &&
-        this.$$('route-controls')) {
+    if (this.$$('route-controls')) {
       this.$$('route-controls').reset();
     }
   },
@@ -216,64 +173,29 @@ Polymer({
    * Called when the route details view is opened.
    */
   onOpened: function() {
-    if (this.controllerType_ === media_router.ControllerType.WEBUI &&
-        this.$$('route-controls')) {
+    if (this.$$('route-controls')) {
       media_router.ui.setRouteControls(
           /** @type {RouteControlsInterface} */ (this.$$('route-controls')));
     }
   },
 
   /**
-   * Updates either the extensionview or the WebUI route controller, depending
-   * on which should be shown.
-   * @param {?media_router.Route} newRoute
+   * Updates |routeDescription_| for the default view.
+   * @param {?media_router.Route} route
    * @private
    */
-  onRouteChange_: function(newRoute) {
-    if (this.controllerType_ !== media_router.ControllerType.WEBUI) {
-      this.updateActivityStatus_();
-    } else if (this.$$('route-controls')) {
-      this.$$('route-controls').onRouteUpdated(newRoute);
-    }
+  onRouteChange_: function(route) {
+    this.routeDescription_ = route ? route.description : '';
   },
 
   /**
    * @param {?media_router.Route} route
-   * @return {boolean}
-   * @private
-   */
-  shouldAttemptLoadingExtensionView_: function(route) {
-    return !!route && !route.supportsWebUiController;
-  },
-
-  /**
-   * @param {number} controllerType
-   * @return {boolean} Whether the extensionview should be shown instead of the
-   *     default route info element or the WebUI route controller.
-   * @private
-   */
-  shouldShowExtensionView_: function(controllerType) {
-    return controllerType === media_router.ControllerType.EXTENSION;
-  },
-
-  /**
-   * @param {number} controllerType
-   * @return {boolean} Whether the route info element should be shown instead of
-   *     the extensionview or the WebUI route controller.
-   * @private
-   */
-  shouldShowRouteInfoOnly_: function(controllerType) {
-    return controllerType === media_router.ControllerType.NONE;
-  },
-
-  /**
-   * @param {number} controllerType
    * @return {boolean} Whether the WebUI route controller should be shown
-   *     instead of the default route info element or the extensionview.
+   *     instead of the default route description element.
    * @private
    */
-  shouldShowWebUiControls_: function(controllerType) {
-    return controllerType === media_router.ControllerType.WEBUI;
+  shouldShowWebUiControls_: function(route) {
+    return !!route && !!route.supportsWebUiController;
   },
 
   /**

@@ -306,7 +306,7 @@ void Drawer::drawLabel(const AbstractRenderItem &item, const LabelItem &labelIte
                        GLfloat itemHeight, QAbstract3DGraph::SelectionFlags mode,
                        ShaderHelper *shader, ObjectHelper *object,
                        const Q3DCamera *camera, bool useDepth, bool rotateAlong,
-                       LabelPosition position, Qt::AlignmentFlag alignment, bool isSlicing,
+                       LabelPosition position, Qt::Alignment alignment, bool isSlicing,
                        bool isSelecting)
 {
     // Draw label

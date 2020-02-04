@@ -70,22 +70,22 @@ public:
     explicit QEventDispatcherGlib(GMainContext *context, QObject *parent = 0);
     ~QEventDispatcherGlib();
 
-    bool processEvents(QEventLoop::ProcessEventsFlags flags) Q_DECL_OVERRIDE;
-    bool hasPendingEvents() Q_DECL_OVERRIDE;
+    bool processEvents(QEventLoop::ProcessEventsFlags flags) override;
+    bool hasPendingEvents() override;
 
-    void registerSocketNotifier(QSocketNotifier *socketNotifier) Q_DECL_FINAL;
-    void unregisterSocketNotifier(QSocketNotifier *socketNotifier) Q_DECL_FINAL;
+    void registerSocketNotifier(QSocketNotifier *socketNotifier) final;
+    void unregisterSocketNotifier(QSocketNotifier *socketNotifier) final;
 
-    void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object) Q_DECL_FINAL;
-    bool unregisterTimer(int timerId) Q_DECL_FINAL;
-    bool unregisterTimers(QObject *object) Q_DECL_FINAL;
-    QList<TimerInfo> registeredTimers(QObject *object) const Q_DECL_FINAL;
+    void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object) final;
+    bool unregisterTimer(int timerId) final;
+    bool unregisterTimers(QObject *object) final;
+    QList<TimerInfo> registeredTimers(QObject *object) const final;
 
-    int remainingTime(int timerId) Q_DECL_FINAL;
+    int remainingTime(int timerId) final;
 
-    void wakeUp() Q_DECL_FINAL;
-    void interrupt() Q_DECL_FINAL;
-    void flush() Q_DECL_FINAL;
+    void wakeUp() final;
+    void interrupt() final;
+    void flush() final;
 
     static bool versionSupported();
 
@@ -108,6 +108,7 @@ public:
     GSocketNotifierSource *socketNotifierSource;
     GTimerSource *timerSource;
     GIdleTimerSource *idleTimerSource;
+    bool wakeUpCalled = true;
 
     void runTimersOnceWithNormalPriority();
 };

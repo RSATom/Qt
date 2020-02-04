@@ -103,7 +103,7 @@ private:
     {
     }
 
-    ~QHelpSearchQueryWidgetPrivate()
+    ~QHelpSearchQueryWidgetPrivate() override
     {
         // nothing todo
     }
@@ -111,9 +111,11 @@ private:
     void retranslate()
     {
         m_searchLabel->setText(QHelpSearchQueryWidget::tr("Search for:"));
+        m_searchButton->setText(QHelpSearchQueryWidget::tr("Search"));
+#if QT_CONFIG(tooltip)
         m_prevQueryButton->setToolTip(QHelpSearchQueryWidget::tr("Previous search"));
         m_nextQueryButton->setToolTip(QHelpSearchQueryWidget::tr("Next search"));
-        m_searchButton->setText(QHelpSearchQueryWidget::tr("Search"));
+#endif
     }
 
     void saveQuery(const QString &query)
@@ -193,7 +195,6 @@ private slots:
 private:
     friend class QHelpSearchQueryWidget;
 
-    bool m_compactMode = false;
     QLabel *m_searchLabel = nullptr;
     QPushButton *m_searchButton = nullptr;
     QLineEdit *m_lineEdit = nullptr;
@@ -201,10 +202,8 @@ private:
     QToolButton *m_prevQueryButton = nullptr;
     QueryHistory m_queries;
     QCompleter m_searchCompleter;
+    bool m_compactMode = false;
 };
-
-#include "qhelpsearchquerywidget.moc"
-
 
 /*!
     \class QHelpSearchQueryWidget
@@ -232,11 +231,12 @@ QHelpSearchQueryWidget::QHelpSearchQueryWidget(QWidget *parent)
     d = new QHelpSearchQueryWidgetPrivate();
 
     QVBoxLayout *vLayout = new QVBoxLayout(this);
-    vLayout->setMargin(0);
+    vLayout->setContentsMargins(QMargins());
 
     QHBoxLayout* hBoxLayout = new QHBoxLayout();
     d->m_searchLabel = new QLabel(this);
     d->m_lineEdit = new QLineEdit(this);
+    d->m_lineEdit->setClearButtonEnabled(true);
     d->m_lineEdit->setCompleter(&d->m_searchCompleter);
     d->m_lineEdit->installEventFilter(d);
     d->m_prevQueryButton = new QToolButton(this);
@@ -387,3 +387,5 @@ void QHelpSearchQueryWidget::changeEvent(QEvent *event)
 }
 
 QT_END_NAMESPACE
+
+#include "qhelpsearchquerywidget.moc"

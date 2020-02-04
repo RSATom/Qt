@@ -5,17 +5,17 @@
 #ifndef MEDIA_FILTERS_ANDROID_MEDIA_CODEC_AUDIO_DECODER_H_
 #define MEDIA_FILTERS_ANDROID_MEDIA_CODEC_AUDIO_DECODER_H_
 
-#include <deque>
 #include <memory>
 #include <utility>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "media/base/android/media_codec_loop.h"
-#include "media/base/android/media_drm_bridge_cdm_context.h"
+#include "media/base/android/media_crypto_context.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/audio_decoder.h"
 #include "media/base/audio_decoder_config.h"
@@ -87,8 +87,9 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
   void Initialize(const AudioDecoderConfig& config,
                   CdmContext* cdm_context,
                   const InitCB& init_cb,
-                  const OutputCB& output_cb) override;
-  void Decode(const scoped_refptr<DecoderBuffer>& buffer,
+                  const OutputCB& output_cb,
+                  const WaitingCB& waiting_cb) override;
+  void Decode(scoped_refptr<DecoderBuffer> buffer,
               const DecodeCB& decode_cb) override;
   void Reset(const base::Closure& closure) override;
   bool NeedsBitstreamConversion() const override;
@@ -97,8 +98,9 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
   bool IsAnyInputPending() const override;
   MediaCodecLoop::InputData ProvideInputData() override;
   void OnInputDataQueued(bool) override;
-  void OnDecodedEos(const MediaCodecLoop::OutputBuffer& out) override;
+  bool OnDecodedEos(const MediaCodecLoop::OutputBuffer& out) override;
   bool OnDecodedFrame(const MediaCodecLoop::OutputBuffer& out) override;
+  void OnWaiting(WaitingReason reason) override;
   bool OnOutputFormatChanged() override;
   void OnCodecLoopError() override;
 
@@ -124,13 +126,12 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
 
   // A helper method to start CDM initialization.  This must be called if and
   // only if we were constructed with |is_encrypted| set to true.
-  void SetCdm(CdmContext* cdm_context, const InitCB& init_cb);
+  void SetCdm(const InitCB& init_cb);
 
   // This callback is called after CDM obtained a MediaCrypto object.
-  void OnMediaCryptoReady(
-      const InitCB& init_cb,
-      media::MediaDrmBridgeCdmContext::JavaObjectPtr media_crypto,
-      bool requires_secure_video_codec);
+  void OnMediaCryptoReady(const InitCB& init_cb,
+                          JavaObjectPtr media_crypto,
+                          bool requires_secure_video_codec);
 
   // Callback called when a new key is available.
   void OnKeyAdded();
@@ -145,6 +146,8 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
   // Helper method to set sample rate, channel count  and |timestamp_helper_|
   // from |config_|.
   void SetInitialConfiguration();
+
+  void PumpMediaCodecLoop();
 
   // TODO(timav): refactor the common part out and use it here and in AVDA
   // (http://crbug.com/583082).
@@ -162,7 +165,7 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
   // not be able to accept the input at the time of Decode(), thus all
   // DecoderBuffers first go to |input_queue_|.
   using BufferCBPair = std::pair<scoped_refptr<DecoderBuffer>, DecodeCB>;
-  using InputQueue = std::deque<BufferCBPair>;
+  using InputQueue = base::circular_deque<BufferCBPair>;
   InputQueue input_queue_;
 
   // Cached decoder config.
@@ -185,15 +188,16 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
   // Callback that delivers output frames.
   OutputCB output_cb_;
 
+  WaitingCB waiting_cb_;
+
   std::unique_ptr<MediaCodecLoop> codec_loop_;
 
   std::unique_ptr<AudioTimestampHelper> timestamp_helper_;
 
   // CDM related stuff.
 
-  // CDM context that knowns about MediaCrypto. Owned by CDM which is external
-  // to this decoder.
-  MediaDrmBridgeCdmContext* media_drm_bridge_cdm_context_;
+  // Owned by CDM which is external to this decoder.
+  MediaCryptoContext* media_crypto_context_;
 
   // MediaDrmBridge requires registration/unregistration of the player, this
   // registration id is used for this.
@@ -204,7 +208,7 @@ class MEDIA_EXPORT MediaCodecAudioDecoder : public AudioDecoder,
 
   // The MediaCrypto object is used in the MediaCodec.configure() in case of
   // an encrypted stream.
-  media::MediaDrmBridgeCdmContext::JavaObjectPtr media_crypto_;
+  JavaObjectPtr media_crypto_;
 
   base::WeakPtrFactory<MediaCodecAudioDecoder> weak_factory_;
 

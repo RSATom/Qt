@@ -6,6 +6,7 @@
  */
 
 #include "Benchmark.h"
+#include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkPaint.h"
 #include "SkRandom.h"
@@ -50,7 +51,7 @@ public:
         case kRotate_Type:
             fName.append("_rot");
             break;
-        };
+        }
 
         if (aligned) {
             fName.append("_aligned");

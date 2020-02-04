@@ -14,7 +14,7 @@
 #include "glsl/GrGLSLUniformHandler.h"
 
 class GrPrimitiveProcessor;
-class GrGLSLPPFragmentBuilder;
+class GrGLSLFPFragmentBuilder;
 class GrGLSLGeometryBuilder;
 class GrGLSLGPBuilder;
 class GrGLSLVaryingHandler;
@@ -29,8 +29,6 @@ public:
 
     using UniformHandle      = GrGLSLProgramDataManager::UniformHandle;
     using SamplerHandle      = GrGLSLUniformHandler::SamplerHandle;
-    using TexelBufferHandle  = GrGLSLUniformHandler::TexelBufferHandle;
-    using ImageStorageHandle = GrGLSLUniformHandler::ImageStorageHandle;
 
     /**
      * This class provides access to the GrCoordTransforms across all GrFragmentProcessors in a
@@ -68,7 +66,7 @@ public:
     struct EmitArgs {
         EmitArgs(GrGLSLVertexBuilder* vertBuilder,
                  GrGLSLGeometryBuilder* geomBuilder,
-                 GrGLSLPPFragmentBuilder* fragBuilder,
+                 GrGLSLFPFragmentBuilder* fragBuilder,
                  GrGLSLVaryingHandler* varyingHandler,
                  GrGLSLUniformHandler* uniformHandler,
                  const GrShaderCaps* caps,
@@ -77,8 +75,6 @@ public:
                  const char* outputCoverage,
                  const char* rtAdjustName,
                  const SamplerHandle* texSamplers,
-                 const TexelBufferHandle* texelBuffers,
-                 const ImageStorageHandle* imageStorages,
                  FPCoordTransformHandler* transformHandler)
             : fVertBuilder(vertBuilder)
             , fGeomBuilder(geomBuilder)
@@ -91,12 +87,10 @@ public:
             , fOutputCoverage(outputCoverage)
             , fRTAdjustName(rtAdjustName)
             , fTexSamplers(texSamplers)
-            , fTexelBuffers(texelBuffers)
-            , fImageStorages(imageStorages)
             , fFPCoordTransformHandler(transformHandler) {}
         GrGLSLVertexBuilder* fVertBuilder;
         GrGLSLGeometryBuilder* fGeomBuilder;
-        GrGLSLPPFragmentBuilder* fFragBuilder;
+        GrGLSLFPFragmentBuilder* fFragBuilder;
         GrGLSLVaryingHandler* fVaryingHandler;
         GrGLSLUniformHandler* fUniformHandler;
         const GrShaderCaps* fShaderCaps;
@@ -105,8 +99,6 @@ public:
         const char* fOutputCoverage;
         const char* fRTAdjustName;
         const SamplerHandle* fTexSamplers;
-        const TexelBufferHandle* fTexelBuffers;
-        const ImageStorageHandle* fImageStorages;
         FPCoordTransformHandler* fFPCoordTransformHandler;
     };
 
@@ -133,7 +125,7 @@ public:
     static SkMatrix GetTransformMatrix(const SkMatrix& localMatrix, const GrCoordTransform&);
 
 protected:
-    void setupUniformColor(GrGLSLPPFragmentBuilder* fragBuilder,
+    void setupUniformColor(GrGLSLFPFragmentBuilder* fragBuilder,
                            GrGLSLUniformHandler* uniformHandler,
                            const char* outputName,
                            UniformHandle* colorUniform);

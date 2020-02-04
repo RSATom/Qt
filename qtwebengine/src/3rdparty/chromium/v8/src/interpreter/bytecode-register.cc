@@ -11,31 +11,27 @@ namespace interpreter {
 static const int kLastParamRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
      InterpreterFrameConstants::kLastParamFromFp) /
-    kPointerSize;
+    kSystemPointerSize;
 static const int kFunctionClosureRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
      StandardFrameConstants::kFunctionOffset) /
-    kPointerSize;
+    kSystemPointerSize;
 static const int kCurrentContextRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
      StandardFrameConstants::kContextOffset) /
-    kPointerSize;
-static const int kNewTargetRegisterIndex =
-    (InterpreterFrameConstants::kRegisterFileFromFp -
-     InterpreterFrameConstants::kNewTargetFromFp) /
-    kPointerSize;
+    kSystemPointerSize;
 static const int kBytecodeArrayRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
      InterpreterFrameConstants::kBytecodeArrayFromFp) /
-    kPointerSize;
+    kSystemPointerSize;
 static const int kBytecodeOffsetRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
      InterpreterFrameConstants::kBytecodeOffsetFromFp) /
-    kPointerSize;
+    kSystemPointerSize;
 static const int kCallerPCOffsetRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
      InterpreterFrameConstants::kCallerPCOffsetFromFp) /
-    kPointerSize;
+    kSystemPointerSize;
 
 Register Register::FromParameterIndex(int index, int parameter_count) {
   DCHECK_GE(index, 0);
@@ -64,12 +60,6 @@ Register Register::current_context() {
 
 bool Register::is_current_context() const {
   return index() == kCurrentContextRegisterIndex;
-}
-
-Register Register::new_target() { return Register(kNewTargetRegisterIndex); }
-
-bool Register::is_new_target() const {
-  return index() == kNewTargetRegisterIndex;
 }
 
 Register Register::bytecode_array() {
@@ -126,8 +116,6 @@ std::string Register::ToString(int parameter_count) const {
     return std::string("<context>");
   } else if (is_function_closure()) {
     return std::string("<closure>");
-  } else if (is_new_target()) {
-    return std::string("<new.target>");
   } else if (is_parameter()) {
     int parameter_index = ToParameterIndex(parameter_count);
     if (parameter_index == 0) {

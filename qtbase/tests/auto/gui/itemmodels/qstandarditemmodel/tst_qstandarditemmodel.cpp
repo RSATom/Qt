@@ -32,7 +32,6 @@
 #include <qstandarditemmodel.h>
 #include <QTreeView>
 #include <private/qtreeview_p.h>
-#include "modeltest.h"
 
 class tst_QStandardItemModel : public QObject
 {
@@ -99,6 +98,7 @@ private slots:
     void checkChildren();
     void data();
     void clear();
+    void clearItemData();
     void sort_data();
     void sort();
     void sortRole_data();
@@ -130,12 +130,15 @@ private slots:
     void getMimeDataWithInvalidModelIndex();
     void supportedDragDropActions();
 
+    void taskQTBUG_45114_setItemData();
+
 private:
-    QAbstractItemModel *m_model;
+    QStandardItemModel *m_model;
     QPersistentModelIndex persistent;
     QVector<QModelIndex> rcParent;
     QVector<int> rcFirst;
     QVector<int> rcLast;
+    QVector<int> currentRoles;
 
     //return true if models have the same structure, and all child have the same text
     bool compareModels(QStandardItemModel *model1, QStandardItemModel *model2);
@@ -184,6 +187,12 @@ void tst_QStandardItemModel::init()
             this, SLOT(columnsAboutToBeRemoved(QModelIndex,int,int)));
     connect(m_model, SIGNAL(columnsRemoved(QModelIndex,int,int)),
             this, SLOT(columnsRemoved(QModelIndex,int,int)));
+
+    connect(m_model, &QAbstractItemModel::dataChanged,
+            this, [this](const QModelIndex &, const QModelIndex &, const QVector<int> &roles)
+    {
+        currentRoles = roles;
+    });
 
     rcFirst.fill(-1);
     rcLast.fill(-1);
@@ -284,6 +293,12 @@ void tst_QStandardItemModel::insertRows()
 
     // check header data has moved
     QCOMPARE(m_model->headerData(3, Qt::Vertical).toString(), headerLabel);
+
+    // do not assert on empty list
+    QStandardItem *si = m_model->invisibleRootItem();
+    si->insertRow(0, QList<QStandardItem*>());
+    si->insertRows(0, 0);
+    si->insertRows(0, QList<QStandardItem*>());
 }
 
 void tst_QStandardItemModel::insertRowsItems()
@@ -394,6 +409,11 @@ void tst_QStandardItemModel::insertColumns()
 
     // check header data has moved
     QCOMPARE(m_model->headerData(3, Qt::Horizontal).toString(), headerLabel);
+
+    // do not assert on empty list
+    QStandardItem *si = m_model->invisibleRootItem();
+    si->insertColumn(0, QList<QStandardItem*>());
+    si->insertColumns(0, 0);
 }
 
 void tst_QStandardItemModel::removeRows()
@@ -711,21 +731,51 @@ void tst_QStandardItemModel::checkChildren()
 
 void tst_QStandardItemModel::data()
 {
+    currentRoles.clear();
     // bad args
     m_model->setData(QModelIndex(), "bla", Qt::DisplayRole);
+    QCOMPARE(currentRoles, {});
 
     QIcon icon;
     for (int r=0; r < m_model->rowCount(); ++r) {
         for (int c=0; c < m_model->columnCount(); ++c) {
             m_model->setData(m_model->index(r,c), "initialitem", Qt::DisplayRole);
+            QCOMPARE(currentRoles, QVector<int>({Qt::DisplayRole, Qt::EditRole}));
             m_model->setData(m_model->index(r,c), "tooltip", Qt::ToolTipRole);
+            QCOMPARE(currentRoles, {Qt::ToolTipRole});
             m_model->setData(m_model->index(r,c), icon, Qt::DecorationRole);
+            QCOMPARE(currentRoles, {Qt::DecorationRole});
         }
     }
 
     QCOMPARE(m_model->data(m_model->index(0, 0), Qt::DisplayRole).toString(), QLatin1String("initialitem"));
     QCOMPARE(m_model->data(m_model->index(0, 0), Qt::ToolTipRole).toString(), QLatin1String("tooltip"));
+    const QMap<int, QVariant> itmData = m_model->itemData(m_model->index(0, 0));
+    QCOMPARE(itmData.value(Qt::DisplayRole), QLatin1String("initialitem"));
+    QCOMPARE(itmData.value(Qt::ToolTipRole), QLatin1String("tooltip"));
+    QVERIFY(!itmData.contains(Qt::UserRole - 1));
+    QVERIFY(m_model->itemData(QModelIndex()).isEmpty());
+}
 
+void tst_QStandardItemModel::clearItemData()
+{
+    currentRoles.clear();
+    QVERIFY(!m_model->clearItemData(QModelIndex()));
+    QCOMPARE(currentRoles, {});
+    const QModelIndex idx = m_model->index(0, 0);
+    const QMap<int, QVariant> oldData = m_model->itemData(idx);
+    m_model->setData(idx, QLatin1String("initialitem"), Qt::DisplayRole);
+    m_model->setData(idx, QLatin1String("tooltip"), Qt::ToolTipRole);
+    m_model->setData(idx, 5, Qt::UserRole);
+    currentRoles.clear();
+    QVERIFY(m_model->clearItemData(idx));
+    QCOMPARE(idx.data(Qt::UserRole), QVariant());
+    QCOMPARE(idx.data(Qt::ToolTipRole), QVariant());
+    QCOMPARE(idx.data(Qt::DisplayRole), QVariant());
+    QCOMPARE(idx.data(Qt::EditRole), QVariant());
+    QCOMPARE(currentRoles, {});
+    m_model->setItemData(idx, oldData);
+    currentRoles.clear();
 }
 
 void tst_QStandardItemModel::clear()
@@ -740,7 +790,7 @@ void tst_QStandardItemModel::clear()
     QSignalSpy layoutChangedSpy(&model, SIGNAL(layoutChanged()));
     QSignalSpy rowsRemovedSpy(&model, SIGNAL(rowsRemoved(QModelIndex,int,int)));
 
-    ModelTest mt(&model);
+    QAbstractItemModelTester mt(&model);
 
     model.clear();
 
@@ -1110,7 +1160,7 @@ void tst_QStandardItemModel::getSetItemData()
     QColor backgroundColor(Qt::blue);
     roles.insert(Qt::BackgroundRole, backgroundColor);
     QColor textColor(Qt::green);
-    roles.insert(Qt::TextColorRole, textColor);
+    roles.insert(Qt::ForegroundRole, textColor);
     Qt::CheckState checkState(Qt::PartiallyChecked);
     roles.insert(Qt::CheckStateRole, int(checkState));
     QLatin1String accessibleText("accessibleText");
@@ -1402,7 +1452,7 @@ void tst_QStandardItemModel::rootItemFlags()
     QCOMPARE(model.invisibleRootItem()->flags() , f);
     QCOMPARE(model.invisibleRootItem()->flags() , model.flags(QModelIndex()));
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     model.invisibleRootItem()->setDropEnabled(false);
 #endif
     QCOMPARE(model.invisibleRootItem()->flags() , Qt::ItemIsEnabled);
@@ -1536,7 +1586,7 @@ void tst_QStandardItemModel::treeDragAndDrop()
     view.setModel(&model);
     view.expandAll();
     view.show();
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     view.setDragDropMode(QAbstractItemView::InternalMove);
 #endif
     view.setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -1699,6 +1749,66 @@ void tst_QStandardItemModel::supportedDragDropActions()
     QStandardItemModel model;
     QCOMPARE(model.supportedDragActions(), Qt::CopyAction | Qt::MoveAction);
     QCOMPARE(model.supportedDropActions(), Qt::CopyAction | Qt::MoveAction);
+}
+
+void tst_QStandardItemModel::taskQTBUG_45114_setItemData()
+{
+    QStandardItemModel model;
+    QSignalSpy spy(&model, &QStandardItemModel::itemChanged);
+
+    QStandardItem *item = new QStandardItem("item");
+    item->setData(1, Qt::UserRole + 1);
+    item->setData(2, Qt::UserRole + 2);
+    model.appendRow(item);
+
+    QModelIndex index = item->index();
+    QCOMPARE(model.itemData(index).size(), 3);
+
+    QCOMPARE(spy.count(), 0);
+
+    QMap<int, QVariant> roles;
+
+    roles.insert(Qt::UserRole + 1, 1);
+    roles.insert(Qt::UserRole + 2, 2);
+    model.setItemData(index, roles);
+
+    QCOMPARE(spy.count(), 0);
+
+    roles.insert(Qt::UserRole + 1, 1);
+    roles.insert(Qt::UserRole + 2, 2);
+    roles.insert(Qt::UserRole + 3, QVariant());
+    model.setItemData(index, roles);
+
+    QCOMPARE(spy.count(), 0);
+
+    roles.clear();
+    roles.insert(Qt::UserRole + 1, 10);
+    roles.insert(Qt::UserRole + 3, 12);
+    model.setItemData(index, roles);
+
+    QCOMPARE(spy.count(), 1);
+    QMap<int, QVariant> itemRoles = model.itemData(index);
+
+    QCOMPARE(itemRoles.size(), 4);
+    QCOMPARE(itemRoles[Qt::UserRole + 1].toInt(), 10);
+    QCOMPARE(itemRoles[Qt::UserRole + 2].toInt(), 2);
+    QCOMPARE(itemRoles[Qt::UserRole + 3].toInt(), 12);
+
+    roles.clear();
+    roles.insert(Qt::UserRole + 3, 1);
+    model.setItemData(index, roles);
+
+    QCOMPARE(spy.count(), 2);
+
+    roles.clear();
+    roles.insert(Qt::UserRole + 3, QVariant());
+    model.setItemData(index, roles);
+
+    QCOMPARE(spy.count(), 3);
+
+    itemRoles = model.itemData(index);
+    QCOMPARE(itemRoles.size(), 3);
+    QVERIFY(!itemRoles.keys().contains(Qt::UserRole + 3));
 }
 
 QTEST_MAIN(tst_QStandardItemModel)

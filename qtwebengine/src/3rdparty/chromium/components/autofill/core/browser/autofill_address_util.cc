@@ -12,6 +12,7 @@
 #include "base/values.h"
 #include "components/autofill/core/browser/autofill_country.h"
 #include "components/autofill/core/browser/country_combobox_model.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/address_ui.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/address_ui_component.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/localization.h"
@@ -77,16 +78,16 @@ void GetAddressComponents(const std::string& country_code,
                           std::string* components_language_code) {
   DCHECK(address_components);
 
-  i18n::addressinput::Localization localization;
+  ::i18n::addressinput::Localization localization;
   localization.SetGetter(l10n_util::GetStringUTF8);
   std::string not_used;
   std::vector<AddressUiComponent> components =
-      i18n::addressinput::BuildComponents(
+      ::i18n::addressinput::BuildComponents(
           country_code, localization, ui_language_code,
           components_language_code ? components_language_code : &not_used);
   if (components.empty()) {
     static const char kDefaultCountryCode[] = "US";
-    components = i18n::addressinput::BuildComponents(
+    components = ::i18n::addressinput::BuildComponents(
         kDefaultCountryCode, localization, ui_language_code,
         components_language_code ? components_language_code : &not_used);
   }
@@ -94,44 +95,48 @@ void GetAddressComponents(const std::string& country_code,
 
   base::ListValue* line = nullptr;
   for (size_t i = 0; i < components.size(); ++i) {
+    if (components[i].field == ::i18n::addressinput::ORGANIZATION &&
+        !base::FeatureList::IsEnabled(features::kAutofillEnableCompanyName)) {
+      continue;
+    }
     if (i == 0 ||
         components[i - 1].length_hint == AddressUiComponent::HINT_LONG ||
         components[i].length_hint == AddressUiComponent::HINT_LONG) {
       line = new base::ListValue;
-      address_components->Append(base::WrapUnique(line));
+      address_components->Append(std::unique_ptr<base::ListValue>(line));
       // |line| is invalidated at this point, so it needs to be reset.
       address_components->GetList(address_components->GetSize() - 1, &line);
     }
 
-    std::unique_ptr<base::DictionaryValue> component(new base::DictionaryValue);
+    auto component = std::make_unique<base::DictionaryValue>();
     component->SetString(kFieldNameKey, components[i].name);
 
     switch (components[i].field) {
-      case i18n::addressinput::COUNTRY:
+      case ::i18n::addressinput::COUNTRY:
         component->SetString(kFieldTypeKey, kCountryField);
         break;
-      case i18n::addressinput::ADMIN_AREA:
+      case ::i18n::addressinput::ADMIN_AREA:
         component->SetString(kFieldTypeKey, kStateField);
         break;
-      case i18n::addressinput::LOCALITY:
+      case ::i18n::addressinput::LOCALITY:
         component->SetString(kFieldTypeKey, kCityField);
         break;
-      case i18n::addressinput::DEPENDENT_LOCALITY:
+      case ::i18n::addressinput::DEPENDENT_LOCALITY:
         component->SetString(kFieldTypeKey, kDependentLocalityField);
         break;
-      case i18n::addressinput::SORTING_CODE:
+      case ::i18n::addressinput::SORTING_CODE:
         component->SetString(kFieldTypeKey, kSortingCodeField);
         break;
-      case i18n::addressinput::POSTAL_CODE:
+      case ::i18n::addressinput::POSTAL_CODE:
         component->SetString(kFieldTypeKey, kPostalCodeField);
         break;
-      case i18n::addressinput::STREET_ADDRESS:
+      case ::i18n::addressinput::STREET_ADDRESS:
         component->SetString(kFieldTypeKey, kAddressLineField);
         break;
-      case i18n::addressinput::ORGANIZATION:
+      case ::i18n::addressinput::ORGANIZATION:
         component->SetString(kFieldTypeKey, kCompanyNameField);
         break;
-      case i18n::addressinput::RECIPIENT:
+      case ::i18n::addressinput::RECIPIENT:
         component->SetString(kFieldTypeKey, kFullNameField);
         break;
     }
@@ -162,10 +167,9 @@ void SetCountryData(const PersonalDataManager& manager,
                                countries.front()->country_code());
 
   // An ordered list of options to show in the <select>.
-  std::unique_ptr<base::ListValue> country_list(new base::ListValue());
+  auto country_list = std::make_unique<base::ListValue>();
   for (size_t i = 0; i < countries.size(); ++i) {
-    std::unique_ptr<base::DictionaryValue> option_details(
-        new base::DictionaryValue());
+    auto option_details = std::make_unique<base::DictionaryValue>();
     option_details->SetString("name", model.GetItemAt(i));
     option_details->SetString(
         "value", countries[i] ? countries[i]->country_code() : "separator");
@@ -173,8 +177,7 @@ void SetCountryData(const PersonalDataManager& manager,
   }
   localized_strings->Set("autofillCountrySelectList", std::move(country_list));
 
-  std::unique_ptr<base::ListValue> default_country_components(
-      new base::ListValue);
+  auto default_country_components = std::make_unique<base::ListValue>();
   std::string default_country_language_code;
   GetAddressComponents(countries.front()->country_code(), ui_language_code,
                        default_country_components.get(),

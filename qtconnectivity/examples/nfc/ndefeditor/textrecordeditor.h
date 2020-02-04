@@ -61,8 +61,7 @@ namespace Ui {
 }
 QT_END_NAMESPACE
 
-QT_USE_NAMESPACE
-
+//! [0]
 class TextRecordEditor : public QWidget
 {
     Q_OBJECT
@@ -77,5 +76,6 @@ public:
 private:
     Ui::TextRecordEditor *ui;
 };
+//! [0]
 
 #endif // TEXTRECORDEDITOR_H

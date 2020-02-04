@@ -643,7 +643,7 @@ Tryk på ESC for at annullere</translation>
     <name>QDnsLookupRunnable</name>
     <message>
         <source>IPv6 addresses for nameservers are currently not supported</source>
-        <translation>IPv6-adresser for navneservere understøttes ikke aktuelt</translation>
+        <translation>IPv6-adresser for navneservere understøttes ikke på nuværende tidspunkt</translation>
     </message>
     <message>
         <source>Invalid domain name</source>
@@ -805,10 +805,6 @@ Tryk på ESC for at annullere</translation>
         <translation>Destinationsfilen findes</translation>
     </message>
     <message>
-        <source>Error while renaming.</source>
-        <translation>Fejl under omdøbning.</translation>
-    </message>
-    <message>
         <source>Error while renaming: %1</source>
         <translation>Fejl under omdøbning: %1</translation>
     </message>
@@ -823,6 +819,10 @@ Tryk på ESC for at annullere</translation>
     <message>
         <source>Cannot remove source file</source>
         <translation>Kan ikke fjerne kildefilen</translation>
+    </message>
+    <message>
+        <source>Cannot open destination file: %1</source>
+        <translation>Kan ikke åbne destinationsfilen: %1</translation>
     </message>
     <message>
         <source>Cannot open %1 for input</source>
@@ -1095,31 +1095,11 @@ Vil du slette den alligevel?</translation>
 <context>
     <name>QFileSystemModel</name>
     <message>
-        <source>%1 TB</source>
-        <translation>%1 TB</translation>
-    </message>
-    <message>
-        <source>%1 GB</source>
-        <translation>%1 GB</translation>
-    </message>
-    <message>
-        <source>%1 MB</source>
-        <translation>%1 MB</translation>
-    </message>
-    <message>
-        <source>%1 KB</source>
-        <translation>%1 KB</translation>
-    </message>
-    <message>
-        <source>%1 bytes</source>
-        <translation>%1 byte</translation>
-    </message>
-    <message>
         <source>Invalid filename</source>
         <translation>Ugyldigt filnavn</translation>
     </message>
     <message>
-        <source>&lt;b&gt;The name &quot;%1&quot; can not be used.&lt;/b&gt;&lt;p&gt;Try using another name, with fewer characters or no punctuations marks.</source>
+        <source>&lt;b&gt;The name &quot;%1&quot; cannot be used.&lt;/b&gt;&lt;p&gt;Try using another name, with fewer characters or no punctuation marks.</source>
         <translation>&lt;b&gt;Navnet &quot;%1&quot; kan ikke bruges.&lt;/b&gt;&lt;p&gt;Prøv et andet navn, med færre tegn eller ingen tegnsætningstegn.</translation>
     </message>
     <message>
@@ -1151,10 +1131,6 @@ Vil du slette den alligevel?</translation>
     <message>
         <source>Computer</source>
         <translation>Computer</translation>
-    </message>
-    <message>
-        <source>%1 byte(s)</source>
-        <translation>%1 byte</translation>
     </message>
 </context>
 <context>
@@ -1376,7 +1352,7 @@ Vil du slette den alligevel?</translation>
     </message>
     <message>
         <source>Stri&amp;keout</source>
-        <translation>&amp;Overstreget</translation>
+        <translation>&amp;Gennemstreget</translation>
     </message>
     <message>
         <source>&amp;Underline</source>
@@ -1541,10 +1517,6 @@ Vil du slette den alligevel?</translation>
         <translation>Værten blev ikke fundet</translation>
     </message>
     <message>
-        <source>Unknown error</source>
-        <translation>Ukendt fejl</translation>
-    </message>
-    <message>
         <source>Unknown error (%1)</source>
         <translation>Ukendt fejl (%1)</translation>
     </message>
@@ -1577,7 +1549,7 @@ Vil du slette den alligevel?</translation>
     </message>
     <message>
         <source>Unknown protocol specified</source>
-        <translation>Ukendt protokol specificeret</translation>
+        <translation>Ukendt protokol angivet</translation>
     </message>
     <message>
         <source>SSL handshake failed</source>
@@ -1940,6 +1912,10 @@ Vil du slette den alligevel?</translation>
     <message>
         <source>missing section data. This is not a library.</source>
         <translation>manglende sektionsdata. Dette er ikke et bibliotek.</translation>
+    </message>
+    <message>
+        <source>Out of memory while loading plugin &apos;%1&apos;.</source>
+        <translation>Løb tør for hukommelse under indlæsning af pluginet &apos;%1&apos;.</translation>
     </message>
     <message>
         <source>Failed to extract plugin meta data from &apos;%1&apos;</source>
@@ -2567,7 +2543,7 @@ Vil du slette den alligevel?</translation>
     </message>
     <message>
         <source>The specified configuration cannot be used.</source>
-        <translation>Den specificerede konfiguration kan ikke bruges.</translation>
+        <translation>Den angivne konfiguration kan ikke bruges.</translation>
     </message>
     <message>
         <source>Roaming was aborted or is not possible.</source>
@@ -2700,6 +2676,17 @@ Vil du slette den alligevel?</translation>
     </message>
 </context>
 <context>
+    <name>QPPDOptionsModel</name>
+    <message>
+        <source>Name</source>
+        <translation>Navn</translation>
+    </message>
+    <message>
+        <source>Value</source>
+        <translation>Værdi</translation>
+    </message>
+</context>
+<context>
     <name>QPSQLDriver</name>
     <message>
         <source>Unable to connect</source>
@@ -2729,8 +2716,20 @@ Vil du slette den alligevel?</translation>
 <context>
     <name>QPSQLResult</name>
     <message>
+        <source>Query results lost - probably discarded on executing another SQL query.</source>
+        <translation>Forespørgselsresultater tabt - formodentligt forkastet ved eksekvering af en anden SQL-forespørgsel.</translation>
+    </message>
+    <message>
         <source>Unable to create query</source>
         <translation>Kunne ikke oprette forespørgsel</translation>
+    </message>
+    <message>
+        <source>Unable to get result</source>
+        <translation>Kunne ikke hente resultat</translation>
+    </message>
+    <message>
+        <source>Unable to send query</source>
+        <translation>Kunne ikke sende forespørgsel</translation>
     </message>
     <message>
         <source>Unable to prepare statement</source>
@@ -3525,6 +3524,14 @@ Vil du slette den alligevel?</translation>
         <translation>&amp;Valgmuligheder &lt;&lt;</translation>
     </message>
     <message>
+        <source>Invalid Pages Definition</source>
+        <translation>Ugyldig sider-definition</translation>
+    </message>
+    <message>
+        <source>%1 does not follow the correct syntax. Please use &apos;,&apos; to separate ranges and pages, &apos;-&apos; to define ranges and make sure ranges do not intersect with each other.</source>
+        <translation>%1 følger ikke den korrekte syntaks. Brug venligst &apos;,&apos; til at separere områder og sider, &apos;-&apos; til at angive områder og sørge for at områder ikke krydser hinanden.</translation>
+    </message>
+    <message>
         <source>Print to File (PDF)</source>
         <translation>Udskriv til fil (PDF)</translation>
     </message>
@@ -3666,6 +3673,14 @@ Slå venligst en at disse valgmuligheder fra.</translation>
         <source>Job Options</source>
         <translation>Job-valgmuligheder</translation>
     </message>
+    <message>
+        <source>Advanced Option Conflicts</source>
+        <translation>Konflikter i avancerede valgmuligheder</translation>
+    </message>
+    <message>
+        <source>There are conflicts in some advanced options. Do you want to fix them?</source>
+        <translation>Der er konflikter i nogle avancerede valgmuligheder. Vil du rette dem?</translation>
+    </message>
 </context>
 <context>
     <name>QPrintPropertiesWidget</name>
@@ -3676,6 +3691,14 @@ Slå venligst en at disse valgmuligheder fra.</translation>
     <message>
         <source>Page</source>
         <translation>Side</translation>
+    </message>
+    <message>
+        <source>Advanced</source>
+        <translation>Avanceret</translation>
+    </message>
+    <message>
+        <source>There are conflicts in some options. Please fix them.</source>
+        <translation>Der er konflikter i nogle valgmuligheder. Ret dem venligst.</translation>
     </message>
 </context>
 <context>
@@ -3706,7 +3729,7 @@ Slå venligst en at disse valgmuligheder fra.</translation>
     </message>
     <message>
         <source>Current Page</source>
-        <translation>Aktuelle side</translation>
+        <translation>Nuværende side</translation>
     </message>
     <message>
         <source>Selection</source>
@@ -3763,6 +3786,14 @@ Slå venligst en at disse valgmuligheder fra.</translation>
     <message>
         <source>Short side</source>
         <translation>Kort side</translation>
+    </message>
+    <message>
+        <source>Pages</source>
+        <translation>Sider</translation>
+    </message>
+    <message>
+        <source>Specify pages or ranges separated by commas. Ranges are specified by two numbers separated by a hyphen. E.g: 3,5-7,9 prints pages 3, 5, 6, 7 and 9.</source>
+        <translation>Angiv sider eller områder separeret med kommaer. Områder angives med to tal separeret med en bindestreg. F.eks.: 3,5-7,9 udskriver siderne 3, 5, 6, 7 og 9.</translation>
     </message>
 </context>
 <context>
@@ -4608,7 +4639,7 @@ Slå venligst en at disse valgmuligheder fra.</translation>
     </message>
     <message>
         <source>QSaveFile cannot open &apos;%1&apos; without direct write fallback enabled: path contains an Alternate Data Stream specifier</source>
-        <translation>QSaveFile kan ikke åbne &apos;%1&apos; uden direkte skrive-fallback er aktiveret: stien indeholder en alternativ datastrøm angivelse</translation>
+        <translation>QSaveFile kan ikke åbne &apos;%1&apos; uden direkte skrive-fallback er aktiveret: stien indeholder en alternativ datastrøm-angiver</translation>
     </message>
     <message>
         <source>Writing canceled by application</source>
@@ -6230,6 +6261,34 @@ Role of an accessible object</extracomment>
         <translation>OpenSSL-version med deaktiveret elliptiske kurver</translation>
     </message>
     <message>
+        <source>Error when setting the OpenSSL configuration (%1)</source>
+        <translation>Fejl under indstilling af OpenSSL-konfigurationen (%1)</translation>
+    </message>
+    <message>
+        <source>Expecting QByteArray for %1</source>
+        <translation>Forventer QByteArray for %1</translation>
+    </message>
+    <message>
+        <source>An error occurred attempting to set %1 to %2</source>
+        <translation>Der opstod en fejl under forsøg på at sætte %1 til %2</translation>
+    </message>
+    <message>
+        <source>Wrong value for %1 (%2)</source>
+        <translation>Forkert værdi til %1 (%2)</translation>
+    </message>
+    <message>
+        <source>Unrecognized command %1 = %2</source>
+        <translation>Ikke-genkendt kommando %1 = %2</translation>
+    </message>
+    <message>
+        <source>SSL_CONF_finish() failed</source>
+        <translation>SSL_CONF_finish() fejlede</translation>
+    </message>
+    <message>
+        <source>SSL_CONF_CTX_new() failed</source>
+        <translation>SSL_CONF_CTX_new() fejlede</translation>
+    </message>
+    <message>
         <source>OpenSSL version too old, need at least v1.0.2</source>
         <translation>OpenSSL-version for gammel, skal mindst være v1.0.2</translation>
     </message>
@@ -6307,11 +6366,11 @@ Role of an accessible object</extracomment>
     </message>
     <message>
         <source>The current candidate issuer certificate was rejected because its subject name did not match the issuer name of the current certificate</source>
-        <translation>Det aktuelle kandidat-udstedercertifikat blev afvist fordi dets subjektnavn ikke matchede udstedernavnet på det aktuelle certifikat</translation>
+        <translation>Det nuværende kandidat-udstedercertifikat blev afvist fordi dets subjektnavn ikke matchede udstedernavnet på det nuværende certifikat</translation>
     </message>
     <message>
         <source>The current candidate issuer certificate was rejected because its issuer name and serial number was present and did not match the authority key identifier of the current certificate</source>
-        <translation>Det aktuelle kandidat-udstedercertifikat blev afvist fordi dets udstedernavn og serienummer var tilstede og ikke matchede myndighedsnøgle-identifikatoren på det aktuelle certifikat</translation>
+        <translation>Det nuværende kandidat-udstedercertifikat blev afvist fordi dets udstedernavn og serienummer var tilstede og ikke matchede myndighedsnøgle-identifikatoren på det nuværende certifikat</translation>
     </message>
     <message>
         <source>The peer did not present any certificate</source>
@@ -6728,10 +6787,10 @@ Role of an accessible object</extracomment>
     <message>
         <source>Qt cannot load the direct2d platform plugin because the Direct2D version on this system is too old. The minimum system requirement for this platform plugin is Windows 7 SP1 with Platform Update.
 
-The minimum Direct2D version required is %1.%2.%3.%4. The Direct2D version on this system is %5.%6.%7.%8.</source>
+The minimum Direct2D version required is %1. The Direct2D version on this system is %2.</source>
         <translation>Qt kan ikke indlæse direct2d-platform-pluginet fordi Direct2D-versionen på dette system er for gammel. Minimum systemkrav for dette platform-plugin er Windows 7 SP1 med platformsopdatering.
 
-Direct2D-versionen skal minimum være %1.%2.%3.%4. Direct2D-versionen på dette system er %5.%6.%7.%8.</translation>
+Direct2D-versionen skal minimum være %1. Direct2D-versionen på dette system er %2.</translation>
     </message>
     <message>
         <source>Cannot load direct2d platform plugin</source>
@@ -6985,18 +7044,6 @@ Direct2D-versionen skal minimum være %1.%2.%3.%4. Direct2D-versionen på dette 
     <message>
         <source>Unexpected &apos;%1&apos;.</source>
         <translation>Uventet &apos;%1&apos;.</translation>
-    </message>
-    <message>
-        <source>Expected </source>
-        <translation>Ventede </translation>
-    </message>
-    <message>
-        <source>, but got &apos;</source>
-        <translation>, men fik &apos;</translation>
-    </message>
-    <message>
-        <source>Unexpected &apos;</source>
-        <translation>Uventet &apos;</translation>
     </message>
     <message>
         <source>Expected character data.</source>

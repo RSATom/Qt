@@ -8,20 +8,26 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SEQUENCED_TASK_CHECKER_H_
-#define WEBRTC_RTC_BASE_SEQUENCED_TASK_CHECKER_H_
+#ifndef RTC_BASE_SEQUENCED_TASK_CHECKER_H_
+#define RTC_BASE_SEQUENCED_TASK_CHECKER_H_
 
 // Apart from debug builds, we also enable the sequence checker in
 // builds with RTC_DCHECK_IS_ON so that trybots and waterfall bots
 // with this define will get the same level of checking as debug bots.
 #define ENABLE_SEQUENCED_TASK_CHECKER RTC_DCHECK_IS_ON
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/sequenced_task_checker_impl.h"
-#include "webrtc/rtc_base/thread_annotations.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/sequenced_task_checker_impl.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace rtc {
+namespace internal {
+// Forward declaration of the internal implementation of RTC_GUARDED_BY().
+// SequencedTaskChecker grants this class access to call its IsCurrent() method.
+// See thread_checker.h for more details.
+class AnnounceOnThread;
+}  // namespace internal
 
 // Do nothing implementation, for use in release mode.
 //
@@ -30,8 +36,11 @@ namespace rtc {
 class SequencedTaskCheckerDoNothing {
  public:
   bool CalledSequentially() const { return true; }
-
   void Detach() {}
+
+ private:
+  friend class internal::AnnounceOnThread;
+  bool IsCurrent() const { return CalledSequentially(); }
 };
 
 // SequencedTaskChecker is a helper class used to help verify that some methods
@@ -54,17 +63,18 @@ class SequencedTaskCheckerDoNothing {
 //
 // In Release mode, CalledOnValidThread will always return true.
 #if ENABLE_SEQUENCED_TASK_CHECKER
-class LOCKABLE SequencedTaskChecker : public SequencedTaskCheckerImpl {};
+class RTC_LOCKABLE SequencedTaskChecker : public SequencedTaskCheckerImpl {};
 #else
-class LOCKABLE SequencedTaskChecker : public SequencedTaskCheckerDoNothing {};
+class RTC_LOCKABLE SequencedTaskChecker : public SequencedTaskCheckerDoNothing {
+};
 #endif  // ENABLE_SEQUENCED_TASK_CHECKER_H_
 
 namespace internal {
-class SCOPED_LOCKABLE SequencedTaskCheckerScope {
+class RTC_SCOPED_LOCKABLE SequencedTaskCheckerScope {
  public:
   explicit SequencedTaskCheckerScope(const SequencedTaskChecker* checker)
-      EXCLUSIVE_LOCK_FUNCTION(checker);
-  ~SequencedTaskCheckerScope() UNLOCK_FUNCTION();
+      RTC_EXCLUSIVE_LOCK_FUNCTION(checker);
+  ~SequencedTaskCheckerScope() RTC_UNLOCK_FUNCTION();
 };
 
 }  // namespace internal
@@ -75,4 +85,4 @@ class SCOPED_LOCKABLE SequencedTaskCheckerScope {
 #undef ENABLE_SEQUENCED_TASK_CHECKER
 
 }  // namespace rtc
-#endif  // WEBRTC_RTC_BASE_SEQUENCED_TASK_CHECKER_H_
+#endif  // RTC_BASE_SEQUENCED_TASK_CHECKER_H_

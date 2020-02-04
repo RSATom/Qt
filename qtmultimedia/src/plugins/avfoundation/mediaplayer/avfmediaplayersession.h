@@ -57,7 +57,7 @@ class AVFMediaPlayerSession : public QObject
 {
     Q_OBJECT
 public:
-    AVFMediaPlayerSession(AVFMediaPlayerService *service, QObject *parent = 0);
+    AVFMediaPlayerSession(AVFMediaPlayerService *service, QObject *parent = nullptr);
     virtual ~AVFMediaPlayerSession();
 
     void setVideoOutput(AVFVideoOutput *output);
@@ -106,12 +106,15 @@ public Q_SLOTS:
     void processLoadStateChange();
     void processLoadStateFailure();
 
+    void processBufferStateChange(int bufferStatus);
+
     void processDurationChange(qint64 duration);
 
 Q_SIGNALS:
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
     void stateChanged(QMediaPlayer::State newState);
+    void bufferStatusChanged(int bufferStatus);
     void mediaStatusChanged(QMediaPlayer::MediaStatus status);
     void volumeChanged(int volume);
     void mutedChanged(bool muted);
@@ -122,43 +125,6 @@ Q_SIGNALS:
     void error(int error, const QString &errorString);
 
 private:
-    class ResourceHandler {
-    public:
-        ResourceHandler():resource(0) {}
-        ~ResourceHandler() { clear(); }
-        void setResourceFile(const QString &file) {
-            if (resource) {
-                if (resource->fileName() == file)
-                    return;
-                delete resource;
-                rawData.clear();
-            }
-            resource = new QResource(file);
-        }
-        bool isValid() const { return resource && resource->isValid() && resource->data() != 0; }
-        const uchar *data() {
-            if (!isValid())
-                return 0;
-            if (resource->isCompressed()) {
-                if (rawData.size() == 0)
-                    rawData = qUncompress(resource->data(), resource->size());
-                return (const uchar *)rawData.constData();
-            }
-            return resource->data();
-        }
-        qint64 size() {
-            if (data() == 0)
-                return 0;
-            return resource->isCompressed() ? rawData.size() : resource->size();
-        }
-        void clear() {
-            delete resource;
-            rawData.clear();
-        }
-        QResource *resource;
-        QByteArray rawData;
-    };
-
     void setAudioAvailable(bool available);
     void setVideoAvailable(bool available);
     void setSeekable(bool seekable);
@@ -170,7 +136,6 @@ private:
     QMediaPlayer::MediaStatus m_mediaStatus;
     QIODevice *m_mediaStream;
     QMediaContent m_resources;
-    ResourceHandler m_resourceHandler;
 
     bool m_muted;
     bool m_tryingAsync;
@@ -179,6 +144,7 @@ private:
     qint64 m_requestedPosition;
 
     qint64 m_duration;
+    int m_bufferStatus;
     bool m_videoAvailable;
     bool m_audioAvailable;
     bool m_seekable;

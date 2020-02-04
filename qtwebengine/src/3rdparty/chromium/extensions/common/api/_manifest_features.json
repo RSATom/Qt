@@ -28,12 +28,12 @@
     "whitelist": [
       // Keep this list in sync with extensions_misc::kHangoutsExtensionIds but
       // omit the Packaged App ids.
-      "nckgahadagoaajjgafhacjanaoiihapd",  // Hangouts Production.
-      "ljclpkphhpbpinifbeabbhlfddcpfdde",  // Hangouts Debug.
-      "ppleadejekpmccmnpjdimmlfljlkdfej",  // Hangouts Alpha.
-      "eggnbpckecmjlblplehfpjjdhhidfdoj",  // Hangouts Beta.
+      "53041A2FA309EECED01FFC751E7399186E860B2C",  // Hangouts Production.
+      "312745D9BF916161191143F6490085EEA0434997",  // Hangouts Debug.
+      "E7E2461CE072DF036CF9592740196159E2D7C089",  // Hangouts Alpha.
+      "A74A4D44C7CFCD8844830E6140C8D763E12DD8F3",  // Hangouts Beta.
 
-      "lphgohfeebnhcpiohjndkgbhhkoapkjc" // Apps Debugger
+      "5107DE9024C329EEA9C9A72D94C16723790C6422" // Apps Debugger
     ]
   },
   "app.background": {
@@ -55,12 +55,10 @@
     ],
     "min_manifest_version": 2
   },
-  "background_page": {
-    "channel": "stable",
-    "extension_types": [
-      "extension", "legacy_packaged_app", "hosted_app"
-    ],
-    "max_manifest_version": 1
+  "background.service_worker_script": {
+    "channel": "trunk",
+    "extension_types": ["extension"],
+    "min_manifest_version": 2
   },
   "bluetooth": [{
     // Note: The "bluetooth" manifest permission is used by the
@@ -82,7 +80,15 @@
       "4F25792AF1AA7483936DE29C07806F203C7170A0",  // http://crbug.com/407693
       "BD8781D757D830FC2E85470A1B6E8A718B7EE0D9",  // http://crbug.com/407693
       "4AC2B6C63C6480D150DFDA13E4A5956EB1D0DDBB",  // http://crbug.com/407693
-      "81986D4F846CEDDDB962643FA501D1780DD441BB"   // http://crbug.com/407693
+      "81986D4F846CEDDDB962643FA501D1780DD441BB",  // http://crbug.com/407693
+      "A9A9FC0228ADF541F0334F22BEFB8F9C245B21D7"   // http://crbug.com/839189
+    ]
+  }, {
+    "channel": "stable",
+    "extension_types": ["extension"],
+    "platforms": ["chromeos"],
+    "whitelist": [
+      "75C7F4B720314B6CB1B5817CD86089DB95CD2461"  // http://crbug.com/899052
     ]
   }],
   "content_capabilities": [{
@@ -91,26 +97,10 @@
     "whitelist": [
       "950D13BB9B4794F4CA2A68D3597E5DFAA47C88AE",  // Drive
       "0EEB39B7A9A52CAAE6A072F83320435749B184A4",  // http://crbug.com/481210
-      "D4AF239830E1E038C9B60DA365B1EC9CB3BC5658",  // http://crbug.com/481210
+      "99717FF3BE1AFB5B343CDD024E53873C1783521B",  // http://crbug.com/838690
       "4895B1DBB92D52488F8D9FFDF9CC7B95C7258C9A",  // http://crbug.com/505532
       "A3880AA78DB0004DE841CC980959D8443F3A8E40",  // http://crbug.com/521615
       "C8B53B3C2CC39CB504B19D990165684FF0CE880C"   // http://crbug.com/521615
-    ]
-  }, {
-    "channel": "beta",
-    "extension_types": ["extension"],
-    "whitelist": [
-      "4895B1DBB92D52488F8D9FFDF9CC7B95C7258C9A",  // https://crbug.com/570337
-      "A3880AA78DB0004DE841CC980959D8443F3A8E40",  // https://crbug.com/570337
-      "C8B53B3C2CC39CB504B19D990165684FF0CE880C"   // https://crbug.com/570337
-    ]
-  }, {
-    "channel": "dev",
-    "extension_types": ["extension"],
-    "whitelist": [
-      "4895B1DBB92D52488F8D9FFDF9CC7B95C7258C9A",  // https://crbug.com/570337
-      "A3880AA78DB0004DE841CC980959D8443F3A8E40",  // https://crbug.com/570337
-      "C8B53B3C2CC39CB504B19D990165684FF0CE880C"   // https://crbug.com/570337
     ]
   }, {
     "channel": "canary",
@@ -126,6 +116,11 @@
   "current_locale": {
     "channel": "stable",
     "extension_types": "all"
+  },
+  "declarative_net_request": {
+    "channel": "beta",
+    "extension_types": ["extension"],
+    "min_manifest_version": 2
   },
   "default_locale": {
     "channel": "stable",
@@ -205,17 +200,6 @@
       "platform_app"
     ]
   },
-  "launcher_page": {
-    "channel": "stable",
-    "min_manifest_version": 2,
-    "extension_types": ["platform_app"],
-    "whitelist": [
-      "07BD6A765FFC289FF755D7CAB2893A40EC337FEC",  // http://crbug.com/404000
-      "896B85CC7E913E11C34892C1425A093C0701D386",  // http://crbug.com/404000
-      "11A01C82EF355E674E4F9728A801F5C3CB40D83F",  // http://crbug.com/404000
-      "F410C88469990EE7947450311D24B8AF2ADB2595"   // http://crbug.com/404000
-    ]
-  },
   "manifest_version": {
     "channel": "stable",
     "extension_types": "all"
@@ -224,20 +208,23 @@
     "channel": "stable",
     "extension_types": [ "extension", "legacy_packaged_app", "platform_app" ],
     "whitelist": [
-      "oickdpebdnfbgkcaoklfcdhjniefkcji",  // browser_tests
-      "gbkeegbaiigmenfmjfclcdgdpimamgkj",  // QuickOffice
-      "ionpfmkccalenbmnddpbmocokhaknphg",  // QuickOffice Dev
-      "bpmcpldpdmajfigpchkicefoigmkfalc",  // Quickoffice component extension
-      "ehibbfinohgbchlgdbfpikodjaojhccn",  // Editor
-      "mhjfbmdgcfjbbpaeojofohoefgiehjai"   // PDF
+      "787000072C6FBB934AF5A42275CDE73FC977D995",  // browser_tests
+      "2FC374607C2DF285634B67C64A2E356C607091C3",  // QuickOffice
+      "5D3851BEFF680AB6D954B76678EFCCE834465C23",  // QuickOffice Dev
+      "12E618C3C6E97495AAECF2AC12DEB082353241C6",  // Quickoffice component extension
+      "3727DD3E564B6055387425027AD74C58784ACC15",  // Editor
+      "CBCC42ABED43A4B58FE3810E62AFFA010EB0349F"   // PDF
     ]
   },
   "mime_types_handler": {
     "channel": "stable",
     "extension_types": [ "extension", "legacy_packaged_app", "platform_app" ],
     "whitelist": [
-      "oickdpebdnfbgkcaoklfcdhjniefkcji",  // browser_tests
-      "mhjfbmdgcfjbbpaeojofohoefgiehjai"   // PDF
+      "787000072C6FBB934AF5A42275CDE73FC977D995",  // browser_tests
+      "2FC374607C2DF285634B67C64A2E356C607091C3",  // QuickOffice
+      "12E618C3C6E97495AAECF2AC12DEB082353241C6",  // QuickOffice component extension
+      "3727DD3E564B6055387425027AD74C58784ACC15",  // QuickOffice Editor
+      "CBCC42ABED43A4B58FE3810E62AFFA010EB0349F"   // PDF
     ]
   },
   "nacl_modules": {
@@ -262,9 +249,9 @@
       "extension", "platform_app"
     ],
     "whitelist": [
-      "mdbihdcgjmagbcapkhhkjbbdlkflmbfo",  // unit_tests
-      "pafkbggdmjlpgkdkcbjmhmfcdpncadgh",  // Google Now
-      "nmmhkkegccagdldgiimedpiccmgmieda",  // In-app payments support app.
+      "F57FDBA2822F21B82A4C417405ABC51241CC6426",  // unit_tests
+      "C41AD9DCD670210295614257EF8C9945AD68D86E",  // Google Now
+      "64291898C201DAF15B090EC4B9EC270BEB6BE6FF",  // In-app payments support app.
       "4B1D0E19C6C43C008C44A8278C8B5BFE15ABEB3C",
       "F7FA7ABC1ECB89BA8EE6656847EFABBF43BB9BCA",
 

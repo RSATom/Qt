@@ -26,14 +26,14 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets/QAction>
+#include <QtWidgets/qaction.h>
 
 #include "buddyeditor_plugin.h"
 #include "buddyeditor_tool.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/abstractformeditor.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -44,9 +44,7 @@ BuddyEditorPlugin::BuddyEditorPlugin()
 {
 }
 
-BuddyEditorPlugin::~BuddyEditorPlugin()
-{
-}
+BuddyEditorPlugin::~BuddyEditorPlugin() = default;
 
 bool BuddyEditorPlugin::isInitialized() const
 {

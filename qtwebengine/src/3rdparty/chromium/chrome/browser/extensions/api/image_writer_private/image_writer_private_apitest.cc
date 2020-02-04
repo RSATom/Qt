@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/message_loop/message_loop.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation.h"
 #include "chrome/browser/extensions/api/image_writer_private/removable_storage_provider.h"
@@ -67,29 +66,8 @@ class ImageWriterPrivateApiTest : public ExtensionApiTest {
     FileSystemChooseEntryFunction::StopSkippingPickerForTest();
   }
 
-#if !defined(OS_CHROMEOS)
-  void ImageWriterUtilityClientCall() {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::FILE, FROM_HERE,
-        base::BindOnce(&FakeImageWriterClient::Progress,
-                       test_utils_.GetUtilityClient(), 0));
-    content::BrowserThread::PostTask(
-        content::BrowserThread::FILE, FROM_HERE,
-        base::BindOnce(&FakeImageWriterClient::Progress,
-                       test_utils_.GetUtilityClient(), 50));
-    content::BrowserThread::PostTask(
-        content::BrowserThread::FILE, FROM_HERE,
-        base::BindOnce(&FakeImageWriterClient::Progress,
-                       test_utils_.GetUtilityClient(), 100));
-    content::BrowserThread::PostTask(
-        content::BrowserThread::FILE, FROM_HERE,
-        base::BindOnce(&FakeImageWriterClient::Success,
-                       test_utils_.GetUtilityClient()));
-  }
-#endif
 
  protected:
-  base::MessageLoopForUI message_loop_;
   image_writer::ImageWriterTestUtils test_utils_;
 };
 
@@ -107,12 +85,16 @@ IN_PROC_BROWSER_TEST_F(ImageWriterPrivateApiTest, TestWriteFromFile) {
       &selected_image);
 
 #if !defined(OS_CHROMEOS)
-  test_utils_.GetUtilityClient()->SetWriteCallback(base::Bind(
-      &ImageWriterPrivateApiTest::ImageWriterUtilityClientCall,
-      base::Unretained(this)));
-  test_utils_.GetUtilityClient()->SetVerifyCallback(base::Bind(
-      &ImageWriterPrivateApiTest::ImageWriterUtilityClientCall,
-      base::Unretained(this)));
+  auto set_up_utility_client_callbacks = [](FakeImageWriterClient* client) {
+    std::vector<int> progress_list{0, 50, 100};
+    client->SimulateProgressOnWrite(progress_list, true);
+    client->SimulateProgressOnVerifyWrite(progress_list, true);
+  };
+
+  // Sets up client for simulating Operation::Progress() on Operation::Write and
+  // Operation::VerifyWrite.
+  test_utils_.RunOnUtilityClientCreation(
+      base::BindOnce(set_up_utility_client_callbacks));
 #endif
 
   ASSERT_TRUE(RunPlatformAppTest("image_writer_private/write_from_file"))

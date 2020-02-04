@@ -57,7 +57,7 @@ class V8_BASE_EXPORT ConditionVariable final {
   // spuriously. When unblocked, regardless of the reason, the lock on the mutex
   // is reacquired and |WaitFor()| exits. Returns true if the condition variable
   // was notified prior to the timeout.
-  bool WaitFor(Mutex* mutex, const TimeDelta& rel_time) WARN_UNUSED_RESULT;
+  bool WaitFor(Mutex* mutex, const TimeDelta& rel_time) V8_WARN_UNUSED_RESULT;
 
   // The implementation-defined native handle type.
 #if V8_OS_POSIX
@@ -79,7 +79,6 @@ class V8_BASE_EXPORT ConditionVariable final {
   DISALLOW_COPY_AND_ASSIGN(ConditionVariable);
 };
 
-
 // POD ConditionVariable initialized lazily (i.e. the first time Pointer() is
 // called).
 // Usage:
@@ -87,7 +86,7 @@ class V8_BASE_EXPORT ConditionVariable final {
 //       LAZY_CONDITION_VARIABLE_INITIALIZER;
 //
 //   void my_function() {
-//     LockGuard<Mutex> lock_guard(&my_mutex);
+//     MutexGuard lock_guard(&my_mutex);
 //     my_condvar.Pointer()->Wait(&my_mutex);
 //   }
 typedef LazyStaticInstance<

@@ -566,7 +566,7 @@ void QNdefNfcSmartPosterRecord::addIcon(const QByteArray &type, const QByteArray
     rec.setType(type);
     rec.setData(data);
 
-    return addIcon(rec);
+    addIcon(rec);
 }
 
 /*!

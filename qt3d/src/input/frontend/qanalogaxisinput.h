@@ -49,7 +49,7 @@ namespace Qt3DInput {
 
 class QAnalogAxisInputPrivate;
 
-class QT3DINPUTSHARED_EXPORT QAnalogAxisInput : public QAbstractAxisInput
+class Q_3DINPUTSHARED_EXPORT QAnalogAxisInput : public QAbstractAxisInput
 {
     Q_OBJECT
     Q_PROPERTY(int axis READ axis WRITE setAxis NOTIFY axisChanged)
@@ -68,7 +68,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QAnalogAxisInput)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

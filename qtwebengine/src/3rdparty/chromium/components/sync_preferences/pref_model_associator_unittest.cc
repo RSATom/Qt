@@ -11,6 +11,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/prefs/testing_pref_store.h"
 #include "components/sync_preferences/pref_model_associator_client.h"
 #include "components/sync_preferences/pref_service_mock_factory.h"
 #include "components/sync_preferences/pref_service_syncable.h"
@@ -23,6 +24,7 @@ namespace {
 const char kStringPrefName[] = "pref.string";
 const char kListPrefName[] = "pref.list";
 const char kDictionaryPrefName[] = "pref.dictionary";
+const char kCustomMergePrefName[] = "pref.custom";
 
 class TestPrefModelAssociatorClient : public PrefModelAssociatorClient {
  public:
@@ -39,15 +41,27 @@ class TestPrefModelAssociatorClient : public PrefModelAssociatorClient {
     return pref_name == kDictionaryPrefName;
   }
 
+  std::unique_ptr<base::Value> MaybeMergePreferenceValues(
+      const std::string& pref_name,
+      const base::Value& local_value,
+      const base::Value& server_value) const override {
+    if (pref_name == kCustomMergePrefName) {
+      return base::WrapUnique(local_value.DeepCopy());
+    }
+    return nullptr;
+  }
+
  private:
   DISALLOW_COPY_AND_ASSIGN(TestPrefModelAssociatorClient);
 };
 
 class AbstractPreferenceMergeTest : public testing::Test {
  protected:
-  AbstractPreferenceMergeTest() {
+  AbstractPreferenceMergeTest()
+      : user_prefs_(base::MakeRefCounted<TestingPrefStore>()) {
     PrefServiceMockFactory factory;
     factory.SetPrefModelAssociatorClient(&client_);
+    factory.set_user_prefs(user_prefs_);
     scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry(
         new user_prefs::PrefRegistrySyncable);
     pref_registry->RegisterStringPref(
@@ -58,20 +72,23 @@ class AbstractPreferenceMergeTest : public testing::Test {
     pref_registry->RegisterDictionaryPref(
         kDictionaryPrefName, user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
     pref_service_ = factory.CreateSyncable(pref_registry.get());
+    pref_registry->RegisterStringPref(
+        kCustomMergePrefName, std::string(),
+        user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
     pref_sync_service_ = static_cast<PrefModelAssociator*>(
         pref_service_->GetSyncableService(syncer::PREFERENCES));
   }
 
-  void SetContentPattern(base::DictionaryValue* patterns_dict,
+  void SetContentPattern(base::Value* patterns_dict,
                          const std::string& expression,
                          int setting) {
-    base::DictionaryValue* expression_dict = nullptr;
-    if (!patterns_dict->GetDictionaryWithoutPathExpansion(expression,
-                                                          &expression_dict)) {
-      expression_dict = patterns_dict->SetDictionaryWithoutPathExpansion(
-          expression, base::MakeUnique<base::DictionaryValue>());
+    base::Value* expression_dict =
+        patterns_dict->FindKeyOfType(expression, base::Value::Type::DICTIONARY);
+    if (!expression_dict) {
+      expression_dict = patterns_dict->SetKey(
+          expression, base::Value(base::Value::Type::DICTIONARY));
     }
-    expression_dict->SetIntegerWithoutPathExpansion("setting", setting);
+    expression_dict->SetKey("setting", base::Value(setting));
   }
 
   void SetPrefToEmpty(const std::string& pref_name) {
@@ -90,9 +107,26 @@ class AbstractPreferenceMergeTest : public testing::Test {
   }
 
   TestPrefModelAssociatorClient client_;
+  scoped_refptr<TestingPrefStore> user_prefs_;
   std::unique_ptr<PrefServiceSyncable> pref_service_;
   PrefModelAssociator* pref_sync_service_;
 };
+
+using CustomPreferenceMergeTest = AbstractPreferenceMergeTest;
+
+TEST_F(CustomPreferenceMergeTest, ClientMergesCustomPreference) {
+  pref_service_->SetString(kCustomMergePrefName, "local");
+  const PrefService::Preference* pref =
+      pref_service_->FindPreference(kCustomMergePrefName);
+  std::unique_ptr<base::Value> local_value =
+      base::WrapUnique(pref->GetValue()->DeepCopy());
+  std::unique_ptr<base::Value> server_value(new base::Value("server"));
+  std::unique_ptr<base::Value> merged_value(pref_sync_service_->MergePreference(
+      pref->name(), *pref->GetValue(), *server_value));
+  // TestPrefModelAssociatorClient should have chosen local value instead of the
+  // default server value.
+  EXPECT_TRUE(merged_value->Equals(local_value.get()));
+}
 
 class ListPreferenceMergeTest : public AbstractPreferenceMergeTest {
  protected:
@@ -132,7 +166,7 @@ TEST_F(ListPreferenceMergeTest, LocalEmpty) {
 }
 
 TEST_F(ListPreferenceMergeTest, ServerNull) {
-  auto null_value = base::MakeUnique<base::Value>();
+  auto null_value = std::make_unique<base::Value>();
   {
     ListPrefUpdate update(pref_service_.get(), kListPrefName);
     base::ListValue* local_list_value = update.Get();
@@ -254,7 +288,7 @@ TEST_F(DictionaryPreferenceMergeTest, LocalEmpty) {
 }
 
 TEST_F(DictionaryPreferenceMergeTest, ServerNull) {
-  auto null_value = base::MakeUnique<base::Value>();
+  auto null_value = std::make_unique<base::Value>();
   {
     DictionaryPrefUpdate update(pref_service_.get(), kDictionaryPrefName);
     base::DictionaryValue* local_dict_value = update.Get();

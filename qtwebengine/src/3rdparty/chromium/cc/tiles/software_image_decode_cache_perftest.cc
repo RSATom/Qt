@@ -6,6 +6,7 @@
 
 #include "cc/base/lap_timer.h"
 #include "cc/paint/draw_image.h"
+#include "cc/paint/paint_image_builder.h"
 #include "cc/raster/tile_task.h"
 #include "cc/tiles/software_image_decode_cache.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -56,19 +57,23 @@ class SoftwareImageDecodeCachePerfTest : public testing::Test {
         auto& subrect = rect_subrect.second;
         for (auto& scale : scales) {
           images.emplace_back(
-              PaintImage(PaintImage::GetNextId(),
-                         CreateImage(rect.width(), rect.height())),
+              PaintImageBuilder::WithDefault()
+                  .set_id(PaintImage::GetNextId())
+                  .set_image(CreateImage(rect.width(), rect.height()),
+                             PaintImage::GetNextContentId())
+                  .TakePaintImage(),
               subrect, quality,
-              CreateMatrix(SkSize::Make(scale.first, scale.second)),
-              gfx::ColorSpace());
+              CreateMatrix(SkSize::Make(scale.first, scale.second)), 0u);
         }
       }
     }
 
     timer_.Reset();
     do {
-      for (auto& image : images)
-        ImageDecodeCacheKey::FromDrawImage(image, viz::RGBA_8888);
+      for (auto& image : images) {
+        SoftwareImageDecodeCache::CacheKey::FromDrawImage(image,
+                                                          kN32_SkColorType);
+      }
       timer_.NextLap();
     } while (!timer_.HasTimeLimitExpired());
 

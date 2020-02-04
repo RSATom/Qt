@@ -7,8 +7,7 @@
 #include <stddef.h>
 #include <sys/select.h>
 #include <unistd.h>
-#define XK_MISCELLANY
-#include <X11/keysymdef.h>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/callback.h"
@@ -17,20 +16,14 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "media/base/keyboard_event_counter.h"
 #include "third_party/skia/include/core/SkPoint.h"
 #include "ui/events/keycodes/keyboard_code_conversion_x.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_types.h"
-
-// These includes need to be later than dictated by the style guide due to
-// Xlib header pollution, specifically the min, max, and Status macros.
-#include <X11/XKBlib.h>
-#include <X11/Xlibint.h>
-#include <X11/extensions/record.h>
 
 namespace media {
 namespace {
@@ -39,7 +32,7 @@ namespace {
 // UserInputMonitorLinux since it needs to be deleted on the IO thread.
 class UserInputMonitorLinuxCore
     : public base::SupportsWeakPtr<UserInputMonitorLinuxCore>,
-      public base::MessageLoop::DestructionObserver {
+      public base::MessageLoopCurrent::DestructionObserver {
  public:
   explicit UserInputMonitorLinuxCore(
       const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner);
@@ -48,8 +41,9 @@ class UserInputMonitorLinuxCore
   // DestructionObserver overrides.
   void WillDestroyCurrentMessageLoop() override;
 
-  size_t GetKeyPressCount() const;
+  uint32_t GetKeyPressCount() const;
   void StartMonitor();
+  void StartMonitorWithMapping(base::WritableSharedMemoryMapping mapping);
   void StopMonitor();
 
  private:
@@ -60,6 +54,9 @@ class UserInputMonitorLinuxCore
   static void ProcessReply(XPointer self, XRecordInterceptData* data);
 
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
+
+  // Used for sharing key press count value.
+  std::unique_ptr<base::WritableSharedMemoryMapping> key_press_count_mapping_;
 
   //
   // The following members should only be accessed on the IO thread.
@@ -74,18 +71,20 @@ class UserInputMonitorLinuxCore
   DISALLOW_COPY_AND_ASSIGN(UserInputMonitorLinuxCore);
 };
 
-class UserInputMonitorLinux : public UserInputMonitor {
+class UserInputMonitorLinux : public UserInputMonitorBase {
  public:
   explicit UserInputMonitorLinux(
       const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner);
   ~UserInputMonitorLinux() override;
 
   // Public UserInputMonitor overrides.
-  size_t GetKeyPressCount() const override;
+  uint32_t GetKeyPressCount() const override;
 
  private:
   // Private UserInputMonitor overrides.
   void StartKeyboardMonitoring() override;
+  void StartKeyboardMonitoring(
+      base::WritableSharedMemoryMapping mapping) override;
   void StopKeyboardMonitoring() override;
 
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
@@ -112,10 +111,9 @@ UserInputMonitorLinuxCore::~UserInputMonitorLinuxCore() {
 void UserInputMonitorLinuxCore::WillDestroyCurrentMessageLoop() {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
   StopMonitor();
-  StopMonitor();
 }
 
-size_t UserInputMonitorLinuxCore::GetKeyPressCount() const {
+uint32_t UserInputMonitorLinuxCore::GetKeyPressCount() const {
   return counter_.GetKeyPressCount();
 }
 
@@ -194,10 +192,17 @@ void UserInputMonitorLinuxCore::StartMonitor() {
 
   // Start observing message loop destruction if we start monitoring the first
   // event.
-  base::MessageLoop::current()->AddDestructionObserver(this);
+  base::MessageLoopCurrent::Get()->AddDestructionObserver(this);
 
   // Fetch pending events if any.
   OnXEvent();
+}
+
+void UserInputMonitorLinuxCore::StartMonitorWithMapping(
+    base::WritableSharedMemoryMapping mapping) {
+  StartMonitor();
+  key_press_count_mapping_ =
+      std::make_unique<base::WritableSharedMemoryMapping>(std::move(mapping));
 }
 
 void UserInputMonitorLinuxCore::StopMonitor() {
@@ -207,8 +212,6 @@ void UserInputMonitorLinuxCore::StopMonitor() {
     XFree(x_record_range_);
     x_record_range_ = NULL;
   }
-  if (x_record_range_)
-    return;
 
   // Context must be disabled via the control channel because we can't send
   // any X protocol traffic over the data channel while it's recording.
@@ -228,8 +231,11 @@ void UserInputMonitorLinuxCore::StopMonitor() {
     XCloseDisplay(x_control_display_);
     x_control_display_ = NULL;
   }
+
+  key_press_count_mapping_.reset();
+
   // Stop observing message loop destruction if no event is being monitored.
-  base::MessageLoop::current()->RemoveDestructionObserver(this);
+  base::MessageLoopCurrent::Get()->RemoveDestructionObserver(this);
 }
 
 void UserInputMonitorLinuxCore::OnXEvent() {
@@ -252,6 +258,10 @@ void UserInputMonitorLinuxCore::ProcessXEvent(xEvent* event) {
       XkbKeycodeToKeysym(x_control_display_, event->u.u.detail, 0, 0);
   ui::KeyboardCode key_code = ui::KeyboardCodeFromXKeysym(key_sym);
   counter_.OnKeyboardEvent(type, key_code);
+
+  // Update count value in shared memory.
+  if (key_press_count_mapping_)
+    WriteKeyPressMonitorCount(*key_press_count_mapping_, GetKeyPressCount());
 }
 
 // static
@@ -278,28 +288,36 @@ UserInputMonitorLinux::~UserInputMonitorLinux() {
     delete core_;
 }
 
-size_t UserInputMonitorLinux::GetKeyPressCount() const {
+uint32_t UserInputMonitorLinux::GetKeyPressCount() const {
   return core_->GetKeyPressCount();
 }
 
 void UserInputMonitorLinux::StartKeyboardMonitoring() {
   io_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&UserInputMonitorLinuxCore::StartMonitor,
+                                core_->AsWeakPtr()));
+}
+
+void UserInputMonitorLinux::StartKeyboardMonitoring(
+    base::WritableSharedMemoryMapping mapping) {
+  io_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&UserInputMonitorLinuxCore::StartMonitor, core_->AsWeakPtr()));
+      base::BindOnce(&UserInputMonitorLinuxCore::StartMonitorWithMapping,
+                     core_->AsWeakPtr(), std::move(mapping)));
 }
 
 void UserInputMonitorLinux::StopKeyboardMonitoring() {
   io_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&UserInputMonitorLinuxCore::StopMonitor, core_->AsWeakPtr()));
+      FROM_HERE, base::BindOnce(&UserInputMonitorLinuxCore::StopMonitor,
+                                core_->AsWeakPtr()));
 }
 
 }  // namespace
 
 std::unique_ptr<UserInputMonitor> UserInputMonitor::Create(
-    const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
-    const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner) {
-  return base::MakeUnique<UserInputMonitorLinux>(io_task_runner);
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner) {
+  return std::make_unique<UserInputMonitorLinux>(io_task_runner);
 }
 
 }  // namespace media

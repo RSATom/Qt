@@ -8,16 +8,31 @@
 namespace v8 {
 namespace internal {
 
-CallOptimization::CallOptimization(Handle<Object> function) {
+CallOptimization::CallOptimization(Isolate* isolate, Handle<Object> function) {
   constant_function_ = Handle<JSFunction>::null();
   is_simple_api_call_ = false;
   expected_receiver_type_ = Handle<FunctionTemplateInfo>::null();
   api_call_info_ = Handle<CallHandlerInfo>::null();
   if (function->IsJSFunction()) {
-    Initialize(Handle<JSFunction>::cast(function));
+    Initialize(isolate, Handle<JSFunction>::cast(function));
   } else if (function->IsFunctionTemplateInfo()) {
-    Initialize(Handle<FunctionTemplateInfo>::cast(function));
+    Initialize(isolate, Handle<FunctionTemplateInfo>::cast(function));
   }
+}
+
+Context CallOptimization::GetAccessorContext(Map holder_map) const {
+  if (is_constant_call()) {
+    return constant_function_->context()->native_context();
+  }
+  JSFunction constructor = JSFunction::cast(holder_map->GetConstructor());
+  return constructor->context()->native_context();
+}
+
+bool CallOptimization::IsCrossContextLazyAccessorPair(Context native_context,
+                                                      Map holder_map) const {
+  DCHECK(native_context->IsNativeContext());
+  if (is_constant_call()) return false;
+  return native_context != GetAccessorContext(holder_map);
 }
 
 Handle<JSObject> CallOptimization::LookupHolderOfExpectedType(
@@ -33,8 +48,9 @@ Handle<JSObject> CallOptimization::LookupHolderOfExpectedType(
     return Handle<JSObject>::null();
   }
   if (object_map->has_hidden_prototype()) {
-    Handle<JSObject> prototype(JSObject::cast(object_map->prototype()));
-    object_map = handle(prototype->map());
+    JSObject raw_prototype = JSObject::cast(object_map->prototype());
+    Handle<JSObject> prototype(raw_prototype, raw_prototype->GetIsolate());
+    object_map = handle(prototype->map(), prototype->GetIsolate());
     if (expected_receiver_type_->IsTemplateFor(*object_map)) {
       *holder_lookup = kHolderFound;
       return prototype;
@@ -49,7 +65,7 @@ bool CallOptimization::IsCompatibleReceiver(Handle<Object> receiver,
                                             Handle<JSObject> holder) const {
   DCHECK(is_simple_api_call());
   if (!receiver->IsHeapObject()) return false;
-  Handle<Map> map(HeapObject::cast(*receiver)->map());
+  Handle<Map> map(HeapObject::cast(*receiver)->map(), holder->GetIsolate());
   return IsCompatibleReceiverMap(map, holder);
 }
 
@@ -67,9 +83,9 @@ bool CallOptimization::IsCompatibleReceiverMap(Handle<Map> map,
       if (api_holder.is_identical_to(holder)) return true;
       // Check if holder is in prototype chain of api_holder.
       {
-        JSObject* object = *api_holder;
+        JSObject object = *api_holder;
         while (true) {
-          Object* prototype = object->map()->prototype();
+          Object prototype = object->map()->prototype();
           if (!prototype->IsJSObject()) return false;
           if (prototype == *holder) return true;
           object = JSObject::cast(prototype);
@@ -81,30 +97,30 @@ bool CallOptimization::IsCompatibleReceiverMap(Handle<Map> map,
 }
 
 void CallOptimization::Initialize(
-    Handle<FunctionTemplateInfo> function_template_info) {
-  Isolate* isolate = function_template_info->GetIsolate();
+    Isolate* isolate, Handle<FunctionTemplateInfo> function_template_info) {
   if (function_template_info->call_code()->IsUndefined(isolate)) return;
-  api_call_info_ =
-      handle(CallHandlerInfo::cast(function_template_info->call_code()));
+  api_call_info_ = handle(
+      CallHandlerInfo::cast(function_template_info->call_code()), isolate);
 
   if (!function_template_info->signature()->IsUndefined(isolate)) {
     expected_receiver_type_ =
-        handle(FunctionTemplateInfo::cast(function_template_info->signature()));
+        handle(FunctionTemplateInfo::cast(function_template_info->signature()),
+               isolate);
   }
   is_simple_api_call_ = true;
 }
 
-void CallOptimization::Initialize(Handle<JSFunction> function) {
+void CallOptimization::Initialize(Isolate* isolate,
+                                  Handle<JSFunction> function) {
   if (function.is_null() || !function->is_compiled()) return;
 
   constant_function_ = function;
-  AnalyzePossibleApiFunction(function);
+  AnalyzePossibleApiFunction(isolate, function);
 }
 
-
-void CallOptimization::AnalyzePossibleApiFunction(Handle<JSFunction> function) {
+void CallOptimization::AnalyzePossibleApiFunction(Isolate* isolate,
+                                                  Handle<JSFunction> function) {
   if (!function->shared()->IsApiFunction()) return;
-  Isolate* isolate = function->GetIsolate();
   Handle<FunctionTemplateInfo> info(function->shared()->get_api_func_data(),
                                     isolate);
 

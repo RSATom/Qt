@@ -33,27 +33,27 @@
 #include "widgetdatabase_p.h"
 #include "shared_settings_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QFile>
-#include <QtCore/QFileInfo>
-#include <QtCore/QDebug>
-#include <QtCore/QByteArray>
-#include <QtCore/QBuffer>
-#include <QtCore/QDir>
-#include <QtCore/QTextStream>
+#include <QtCore/qdir.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qbytearray.h>
+#include <QtCore/qbuffer.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qtextstream.h>
 
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QTreeWidgetItem>
-#include <QtGui/QPainter>
-#include <QtWidgets/QPushButton>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qdesktopwidget.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qtreewidget.h>
+#include <QtGui/qpainter.h>
+#include <QtWidgets/qpushbutton.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -175,7 +175,7 @@ NewFormWidget::NewFormWidget(QDesignerFormEditorInterface *core, QWidget *parent
     // Open parent, select and make visible
     if (selectedItem) {
         m_ui->treeWidget->setCurrentItem(selectedItem);
-        m_ui->treeWidget->setItemSelected(selectedItem, true);
+        selectedItem->setSelected(true);
         m_ui->treeWidget->scrollToItem(selectedItem->parent());
     }
     // Fill profile combo
@@ -194,11 +194,8 @@ NewFormWidget::NewFormWidget(QDesignerFormEditorInterface *core, QWidget *parent
             m_ui->profileComboBox->setCurrentIndex(ci + profileComboIndexOffset);
     }
     // Fill size combo
-    const int sizeCount =  sizeof(templateSizes)/ sizeof(TemplateSize);
-    for (int i = 0; i < sizeCount; i++) {
-        const QSize size = QSize(templateSizes[i].width, templateSizes[i].height);
-        m_ui->sizeComboBox->addItem(tr(templateSizes[i].name), size);
-    }
+    for (const TemplateSize &t : templateSizes)
+        m_ui->sizeComboBox->addItem(tr(t.name), QSize(t.width, t.height));
 
     setTemplateSize(settings.newFormSize());
 
@@ -468,7 +465,7 @@ void NewFormWidget::loadFrom(const QString &title, const QStringList &nameList,
 void NewFormWidget::on_treeWidget_itemPressed(QTreeWidgetItem *item)
 {
     if (item && !item->parent())
-        m_ui->treeWidget->setItemExpanded(item, !m_ui->treeWidget->isItemExpanded(item));
+        item->setExpanded(!item->isExpanded());
 }
 
 QSize NewFormWidget::templateSize() const

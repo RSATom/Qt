@@ -17,6 +17,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/values.h"
 #include "components/version_info/version_info.h"
 #include "extensions/common/extension.h"
@@ -24,29 +25,25 @@
 #include "extensions/common/features/feature_session_type.h"
 #include "extensions/common/manifest.h"
 
-namespace base {
-class CommandLine;
-}
-
 namespace extensions {
 
 class FeatureProviderTest;
 class ExtensionAPITest;
-class ManifestUnitTest;
-class SimpleFeatureTest;
 
 class SimpleFeature : public Feature {
  public:
   // Used by tests to override the cached --whitelisted-extension-id.
-  class ScopedWhitelistForTest {
+  // NOTE: Not thread-safe! This is because it sets extension id on global
+  // singleton during its construction and destruction.
+  class ScopedThreadUnsafeAllowlistForTest {
    public:
-    explicit ScopedWhitelistForTest(const std::string& id);
-    ~ScopedWhitelistForTest();
+    explicit ScopedThreadUnsafeAllowlistForTest(const std::string& id);
+    ~ScopedThreadUnsafeAllowlistForTest();
 
    private:
-    std::string* previous_id_;
+    std::string previous_id_;
 
-    DISALLOW_COPY_AND_ASSIGN(ScopedWhitelistForTest);
+    DISALLOW_COPY_AND_ASSIGN(ScopedThreadUnsafeAllowlistForTest);
   };
 
   SimpleFeature();
@@ -68,7 +65,7 @@ class SimpleFeature : public Feature {
   }
 
   // extension::Feature:
-  Availability IsAvailableToManifest(const std::string& extension_id,
+  Availability IsAvailableToManifest(const HashedExtensionId& hashed_id,
                                      Manifest::Type type,
                                      Manifest::Location location,
                                      int manifest_version,
@@ -77,9 +74,10 @@ class SimpleFeature : public Feature {
                                     Context context,
                                     const GURL& url,
                                     Platform platform) const override;
+  Availability IsAvailableToEnvironment() const override;
   bool IsInternal() const override;
-  bool IsIdInBlacklist(const std::string& extension_id) const override;
-  bool IsIdInWhitelist(const std::string& extension_id) const override;
+  bool IsIdInBlocklist(const HashedExtensionId& hashed_id) const override;
+  bool IsIdInAllowlist(const HashedExtensionId& hashed_id) const override;
 
   static bool IsIdInArray(const std::string& extension_id,
                           const char* const array[],
@@ -89,7 +87,6 @@ class SimpleFeature : public Feature {
   // supported in feature files. These should only be used in this class and in
   // generated files.
   enum Location {
-    UNSPECIFIED_LOCATION,
     COMPONENT_LOCATION,
     EXTERNAL_COMPONENT_LOCATION,
     POLICY_LOCATION,
@@ -100,10 +97,8 @@ class SimpleFeature : public Feature {
   // than std::string and std::vector for binary size reasons. Using STL types
   // directly in the header means that code that doesn't already have that exact
   // type ends up triggering many implicit conversions which are all inlined.
-  void set_blacklist(std::initializer_list<const char* const> blacklist);
-  void set_channel(version_info::Channel channel) {
-    channel_.reset(new version_info::Channel(channel));
-  }
+  void set_blocklist(std::initializer_list<const char* const> blocklist);
+  void set_channel(version_info::Channel channel) { channel_ = channel; }
   void set_command_line_switch(base::StringPiece command_line_switch);
   void set_component_extensions_auto_granted(bool granted) {
     component_extensions_auto_granted_ = granted;
@@ -126,24 +121,29 @@ class SimpleFeature : public Feature {
   }
   void set_noparent(bool no_parent) { no_parent_ = no_parent; }
   void set_platforms(std::initializer_list<Platform> platforms);
-  void set_whitelist(std::initializer_list<const char* const> whitelist);
+  void set_allowlist(std::initializer_list<const char* const> allowlist);
 
  protected:
   // Accessors used by subclasses in feature verification.
-  const std::vector<std::string>& blacklist() const { return blacklist_; }
-  const std::vector<std::string>& whitelist() const { return whitelist_; }
+  const std::vector<std::string>& blocklist() const { return blocklist_; }
+  const std::vector<std::string>& allowlist() const { return allowlist_; }
   const std::vector<Manifest::Type>& extension_types() const {
     return extension_types_;
   }
   const std::vector<Platform>& platforms() const { return platforms_; }
   const std::vector<Context>& contexts() const { return contexts_; }
   const std::vector<std::string>& dependencies() const { return dependencies_; }
-  bool has_channel() const { return channel_.get() != nullptr; }
-  version_info::Channel channel() const { return *channel_; }
-  Location location() const { return location_; }
-  int min_manifest_version() const { return min_manifest_version_; }
-  int max_manifest_version() const { return max_manifest_version_; }
-  const std::string& command_line_switch() const {
+  const base::Optional<version_info::Channel> channel() const {
+    return channel_;
+  }
+  const base::Optional<Location> location() const { return location_; }
+  const base::Optional<int> min_manifest_version() const {
+    return min_manifest_version_;
+  }
+  const base::Optional<int> max_manifest_version() const {
+    return max_manifest_version_;
+  }
+  const base::Optional<std::string>& command_line_switch() const {
     return command_line_switch_;
   }
   bool component_extensions_auto_granted() const {
@@ -173,39 +173,15 @@ class SimpleFeature : public Feature {
 
  private:
   friend struct FeatureComparator;
-  friend class SimpleFeatureTest;
   FRIEND_TEST_ALL_PREFIXES(FeatureProviderTest, ManifestFeatureTypes);
   FRIEND_TEST_ALL_PREFIXES(FeatureProviderTest, PermissionFeatureTypes);
   FRIEND_TEST_ALL_PREFIXES(ExtensionAPITest, DefaultConfigurationFeatures);
   FRIEND_TEST_ALL_PREFIXES(FeaturesGenerationTest, FeaturesTest);
-  FRIEND_TEST_ALL_PREFIXES(ManifestUnitTest, Extension);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, Blacklist);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, CommandLineSwitch);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ComplexFeatureAvailability);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, Context);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, SessionType);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, FeatureValidation);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, HashedIdBlacklist);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, HashedIdWhitelist);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, Inheritance);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, Location);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ManifestVersion);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, PackageType);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ParseContexts);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ParseLocation);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ParseManifestVersion);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ParseNull);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ParsePackageTypes);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ParsePlatforms);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, ParseWhitelist);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, Platform);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, SimpleFeatureAvailability);
-  FRIEND_TEST_ALL_PREFIXES(SimpleFeatureTest, Whitelist);
 
   // Holds String to Enum value mappings.
   struct Mappings;
 
-  static bool IsIdInList(const std::string& extension_id,
+  static bool IsIdInList(const HashedExtensionId& hashed_id,
                          const std::vector<std::string>& list);
 
   bool MatchesManifestLocation(Manifest::Location manifest_location) const;
@@ -218,18 +194,18 @@ class SimpleFeature : public Feature {
       const base::Callback<Availability(const Feature*)>& checker) const;
 
   static bool IsValidExtensionId(const std::string& extension_id);
+  static bool IsValidHashedExtensionId(const HashedExtensionId& hashed_id);
 
   // Returns the availability of the feature with respect to the basic
   // environment Chrome is running in.
   Availability GetEnvironmentAvailability(
       Platform platform,
       version_info::Channel channel,
-      FeatureSessionType session_type,
-      base::CommandLine* command_line) const;
+      FeatureSessionType session_type) const;
 
   // Returns the availability of the feature with respect to a given extension's
   // properties.
-  Availability GetManifestAvailability(const std::string& extension_id,
+  Availability GetManifestAvailability(const HashedExtensionId& hashed_id,
                                        Manifest::Type type,
                                        Manifest::Location location,
                                        int manifest_version) const;
@@ -241,21 +217,27 @@ class SimpleFeature : public Feature {
   // members the same way: it matches everything. It is up to the higher level
   // code that reads Features out of static data to validate that data and set
   // sensible defaults.
-  std::vector<std::string> blacklist_;
-  std::vector<std::string> whitelist_;
+  std::vector<std::string> blocklist_;
+  std::vector<std::string> allowlist_;
   std::vector<std::string> dependencies_;
   std::vector<Manifest::Type> extension_types_;
   std::vector<FeatureSessionType> session_types_;
   std::vector<Context> contexts_;
   std::vector<Platform> platforms_;
   URLPatternSet matches_;
-  Location location_;
-  int min_manifest_version_;
-  int max_manifest_version_;
+
+  base::Optional<Location> location_;
+  base::Optional<int> min_manifest_version_;
+  base::Optional<int> max_manifest_version_;
+  base::Optional<std::string> command_line_switch_;
+  base::Optional<version_info::Channel> channel_;
+  // Whether to ignore channel-based restrictions (such as because the user has
+  // enabled experimental extension APIs). Note: this is lazily calculated, and
+  // then cached.
+  mutable base::Optional<bool> ignore_channel_;
+
   bool component_extensions_auto_granted_;
   bool is_internal_;
-  std::string command_line_switch_;
-  std::unique_ptr<version_info::Channel> channel_;
 
   DISALLOW_COPY_AND_ASSIGN(SimpleFeature);
 };

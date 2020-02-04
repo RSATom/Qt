@@ -25,7 +25,7 @@ namespace sw {
 		: FrameBuffer(width, height, false, false), width(width), height(height),
 		  layer(layer), buffer(nullptr), provider(nullptr), currentImage(nullptr)
 	{
-		destFormat = sw::FORMAT_X8B8G8R8;
+		format = sw::FORMAT_X8B8G8R8;
 		int bufferSize = width * height * 4 * sizeof(uint8_t);
 		buffer = new uint8_t[bufferSize];
 		provider = CGDataProviderCreateWithData(nullptr, buffer, bufferSize, nullptr);
@@ -45,14 +45,14 @@ namespace sw {
 		delete[] buffer;
 	}
 
-	void FrameBufferOSX::flip(void *source, Format sourceFormat, size_t sourceStride)
+	void FrameBufferOSX::flip(sw::Surface *source)
 	{
-		blit(source, nullptr, nullptr, sourceFormat, sourceStride);
+		blit(source, nullptr, nullptr);
 	}
 
-	void FrameBufferOSX::blit(void *source, const Rect *sourceRect, const Rect *destRect, Format sourceFormat, size_t sourceStride)
+	void FrameBufferOSX::blit(sw::Surface *source, const Rect *sourceRect, const Rect *destRect)
 	{
-		copy(source, sourceFormat, sourceStride);
+		copy(source);
 
 		int bytesPerRow = width * 4 * sizeof(uint8_t);
 		CGImageRef image = CGImageCreate(width, height, 8, 32, bytesPerRow, colorspace, kCGBitmapByteOrder32Big, provider, nullptr, false, kCGRenderingIntentDefault);
@@ -72,13 +72,13 @@ namespace sw {
 	void *FrameBufferOSX::lock()
 	{
 		stride = width * 4 * sizeof(uint8_t);
-		locked = buffer;
-		return locked;
+		framebuffer = buffer;
+		return framebuffer;
 	};
 
 	void FrameBufferOSX::unlock()
 	{
-		locked = nullptr;
+		framebuffer = nullptr;
 	};
 }
 

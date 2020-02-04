@@ -13,8 +13,8 @@
 #include "SkStream.h"
 #include "SkTypeface.h"
 
-static void setTypeface(SkPaint* paint, const char name[], SkFontStyle style) {
-    sk_tool_utils::set_portable_typeface(paint, name, style);
+static void setTypeface(SkFont* font, const char name[], SkFontStyle style) {
+    font->setTypeface(sk_tool_utils::create_portable_typeface(name, style));
 }
 
 static SkSize computeSize(const SkBitmap& bm, const SkMatrix& mat) {
@@ -66,7 +66,7 @@ public:
 
     FilterBitmapGM()
     {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        this->setBGColor(0xFFDDDDDD);
     }
 
 protected:
@@ -120,18 +120,18 @@ class FilterBitmapTextGM: public FilterBitmapGM {
           canvas.drawColor(SK_ColorWHITE);
 
           SkPaint paint;
-          paint.setAntiAlias(true);
-          paint.setSubpixelText(true);
-          paint.setTextSize(fTextSize);
+          SkFont font;
+          font.setSize(fTextSize);
+          font.setSubpixel(true);
 
-          setTypeface(&paint, "serif", SkFontStyle());
-          canvas.drawString("Hamburgefons", fTextSize/2, 1.2f*fTextSize, paint);
-          setTypeface(&paint, "serif", SkFontStyle::FromOldStyle(SkTypeface::kBold));
-          canvas.drawString("Hamburgefons", fTextSize/2, 2.4f*fTextSize, paint);
-          setTypeface(&paint, "serif", SkFontStyle::FromOldStyle(SkTypeface::kItalic));
-          canvas.drawString("Hamburgefons", fTextSize/2, 3.6f*fTextSize, paint);
-          setTypeface(&paint, "serif", SkFontStyle::FromOldStyle(SkTypeface::kBoldItalic));
-          canvas.drawString("Hamburgefons", fTextSize/2, 4.8f*fTextSize, paint);
+          setTypeface(&font, "serif", SkFontStyle::Normal());
+          canvas.drawString("Hamburgefons", fTextSize/2, 1.2f*fTextSize, font, paint);
+          setTypeface(&font, "serif", SkFontStyle::Bold());
+          canvas.drawString("Hamburgefons", fTextSize/2, 2.4f*fTextSize, font, paint);
+          setTypeface(&font, "serif", SkFontStyle::Italic());
+          canvas.drawString("Hamburgefons", fTextSize/2, 3.6f*fTextSize, font, paint);
+          setTypeface(&font, "serif", SkFontStyle::BoldItalic());
+          canvas.drawString("Hamburgefons", fTextSize/2, 4.8f*fTextSize, font, paint);
       }
   private:
       typedef FilterBitmapGM INHERITED;
@@ -196,7 +196,8 @@ protected:
       }
 
       void makeBitmap() override {
-        if (!GetResourceAsBitmap(fFilename.c_str(), &fBM)) {
+        SkString resource = SkStringPrintf("images/%s", fFilename.c_str());
+        if (!GetResourceAsBitmap(resource.c_str(), &fBM)) {
             fBM.allocN32Pixels(1, 1);
             fBM.eraseARGB(255, 255, 0 , 0); // red == bad
         }

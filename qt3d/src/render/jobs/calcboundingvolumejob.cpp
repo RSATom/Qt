@@ -51,9 +51,12 @@
 #include <Qt3DRender/private/buffer_p.h>
 #include <Qt3DRender/private/sphere_p.h>
 #include <Qt3DRender/private/buffervisitor_p.h>
+#include <Qt3DRender/private/entityaccumulator_p.h>
 
 #include <QtCore/qmath.h>
+#if QT_CONFIG(concurrent)
 #include <QtConcurrent/QtConcurrent>
+#endif
 #include <Qt3DRender/private/job_common_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -63,53 +66,66 @@ namespace Render {
 
 namespace {
 
-void calculateLocalBoundingVolume(NodeManagers *manager, Entity *node);
-
-struct UpdateBoundFunctor {
-    NodeManagers *manager;
-
-    void operator ()(Qt3DRender::Render::Entity *node)
-    {
-        calculateLocalBoundingVolume(manager, node);
-    }
-};
-
 class BoundingVolumeCalculator
 {
 public:
     BoundingVolumeCalculator(NodeManagers *manager) : m_manager(manager) { }
 
     const Sphere& result() { return m_volume; }
+    const QVector3D min() const { return m_min; }
+    const QVector3D max() const { return m_max; }
 
-    bool apply(Qt3DRender::Render::Attribute *positionAttribute)
+    bool apply(Qt3DRender::Render::Attribute *positionAttribute,
+               Qt3DRender::Render::Attribute *indexAttribute,
+               int drawVertexCount,
+               bool primitiveRestartEnabled,
+               int primitiveRestartIndex)
     {
         FindExtremePoints findExtremePoints(m_manager);
-        if (!findExtremePoints.apply(positionAttribute))
+        if (!findExtremePoints.apply(positionAttribute, indexAttribute, drawVertexCount,
+                                     primitiveRestartEnabled, primitiveRestartIndex)) {
+            return false;
+        }
+
+        m_min = QVector3D(findExtremePoints.xMin, findExtremePoints.yMin, findExtremePoints.zMin);
+        m_max = QVector3D(findExtremePoints.xMax, findExtremePoints.yMax, findExtremePoints.zMax);
+
+        FindMaxDistantPoint maxDistantPointY(m_manager);
+        maxDistantPointY.setReferencePoint = true;
+        if (!maxDistantPointY.apply(positionAttribute, indexAttribute, drawVertexCount,
+                                     primitiveRestartEnabled, primitiveRestartIndex)) {
+            return false;
+        }
+        if (maxDistantPointY.hasNoPoints)
             return false;
 
-        // Calculate squared distance for the pairs of points
-        const float xDist2 = (findExtremePoints.xMaxPt - findExtremePoints.xMinPt).lengthSquared();
-        const float yDist2 = (findExtremePoints.yMaxPt - findExtremePoints.yMinPt).lengthSquared();
-        const float zDist2 = (findExtremePoints.zMaxPt - findExtremePoints.zMinPt).lengthSquared();
+        //const Vector3D x = maxDistantPointY.referencePt;
+        const Vector3D y = maxDistantPointY.maxDistPt;
 
-        // Select most distant pair
-        QVector3D p = findExtremePoints.xMinPt;
-        QVector3D q = findExtremePoints.xMaxPt;
-        if (yDist2 > xDist2 && yDist2 > zDist2) {
-            p = findExtremePoints.yMinPt;
-            q = findExtremePoints.yMaxPt;
+        FindMaxDistantPoint maxDistantPointZ(m_manager);
+        maxDistantPointZ.setReferencePoint = false;
+        maxDistantPointZ.referencePt = y;
+        if (!maxDistantPointZ.apply(positionAttribute, indexAttribute, drawVertexCount,
+                                     primitiveRestartEnabled, primitiveRestartIndex)) {
+            return false;
         }
-        if (zDist2 > xDist2 && zDist2 > yDist2) {
-            p = findExtremePoints.zMinPt;
-            q = findExtremePoints.zMaxPt;
+        const Vector3D z = maxDistantPointZ.maxDistPt;
+
+        const Vector3D center = (y + z) * 0.5f;
+
+        FindMaxDistantPoint maxDistantPointCenter(m_manager);
+        maxDistantPointCenter.setReferencePoint = false;
+        maxDistantPointCenter.referencePt = center;
+        if (!maxDistantPointCenter.apply(positionAttribute, indexAttribute, drawVertexCount,
+                                     primitiveRestartEnabled, primitiveRestartIndex)) {
+            return false;
         }
 
-        const QVector3D c = 0.5f * (p + q);
-        m_volume.setCenter(c);
-        m_volume.setRadius((q - c).length());
+        const float radius = (center - maxDistantPointCenter.maxDistPt).length();
 
-        ExpandSphere expandSphere(m_manager, m_volume);
-        if (!expandSphere.apply(positionAttribute))
+        m_volume = Qt3DRender::Render::Sphere(center, radius);
+
+        if (m_volume.isNull())
             return false;
 
         return true;
@@ -118,6 +134,8 @@ public:
 private:
     Sphere m_volume;
     NodeManagers *m_manager;
+    QVector3D m_min;
+    QVector3D m_max;
 
     class FindExtremePoints : public Buffer3fVisitor
     {
@@ -128,73 +146,94 @@ private:
         { }
 
         float xMin, xMax, yMin, yMax, zMin, zMax;
-        QVector3D xMinPt, xMaxPt, yMinPt, yMaxPt, zMinPt, zMaxPt;
+        Vector3D xMinPt, xMaxPt, yMinPt, yMaxPt, zMinPt, zMaxPt;
 
         void visit(uint ndx, float x, float y, float z) override
         {
             if (ndx) {
                 if (x < xMin) {
                     xMin = x;
-                    xMinPt = QVector3D(x, y, z);
+                    xMinPt = Vector3D(x, y, z);
                 }
                 if (x > xMax) {
                     xMax = x;
-                    xMaxPt = QVector3D(x, y, z);
+                    xMaxPt = Vector3D(x, y, z);
                 }
                 if (y < yMin) {
                     yMin = y;
-                    yMinPt = QVector3D(x, y, z);
+                    yMinPt = Vector3D(x, y, z);
                 }
                 if (y > yMax) {
                     yMax = y;
-                    yMaxPt = QVector3D(x, y, z);
+                    yMaxPt = Vector3D(x, y, z);
                 }
                 if (z < zMin) {
                     zMin = z;
-                    zMinPt = QVector3D(x, y, z);
+                    zMinPt = Vector3D(x, y, z);
                 }
                 if (z > zMax) {
                     zMax = z;
-                    zMaxPt = QVector3D(x, y, z);
+                    zMaxPt = Vector3D(x, y, z);
                 }
             } else {
                 xMin = xMax = x;
                 yMin = yMax = y;
                 zMin = zMax = z;
-                xMinPt = xMaxPt = yMinPt = yMaxPt = zMinPt = zMaxPt = QVector3D(x, y, z);
+                xMinPt = xMaxPt = yMinPt = yMaxPt = zMinPt = zMaxPt = Vector3D(x, y, z);
             }
         }
     };
 
-    class ExpandSphere : public Buffer3fVisitor
+    class FindMaxDistantPoint : public Buffer3fVisitor
     {
     public:
-        ExpandSphere(NodeManagers *manager, Sphere& volume)
-            : Buffer3fVisitor(manager), m_volume(volume)
+        FindMaxDistantPoint(NodeManagers *manager)
+            : Buffer3fVisitor(manager)
         { }
 
-        Sphere& m_volume;
+        float maxLengthSquared = 0.0f;
+        Vector3D maxDistPt;
+        Vector3D referencePt;
+        bool setReferencePoint = false;
+        bool hasNoPoints = true;
+
         void visit(uint ndx, float x, float y, float z) override
         {
             Q_UNUSED(ndx);
-            m_volume.expandToContain(QVector3D(x, y, z));
+            const Vector3D p = Vector3D(x, y, z);
+
+            if (hasNoPoints && setReferencePoint) {
+                maxLengthSquared = 0.0f;
+                referencePt = p;
+            }
+            const float lengthSquared = (p - referencePt).lengthSquared();
+            if ( lengthSquared >= maxLengthSquared ) {
+                maxDistPt = p;
+                maxLengthSquared = lengthSquared;
+            }
+            hasNoPoints = false;
         }
     };
 };
 
-void calculateLocalBoundingVolume(NodeManagers *manager, Entity *node)
+QVector<Geometry *> calculateLocalBoundingVolume(NodeManagers *manager, Entity *node)
 {
     // The Bounding volume will only be computed if the position Buffer
     // isDirty
 
+    QVector<Geometry *> updatedGeometries;
+
     if (!node->isTreeEnabled())
-        return;
+        return updatedGeometries;
 
     GeometryRenderer *gRenderer = node->renderComponent<GeometryRenderer>();
-    if (gRenderer) {
-        Geometry *geom = manager->lookupResource<Geometry, GeometryManager>(gRenderer->geometryId());
+    GeometryManager *geometryManager = manager->geometryManager();
+    if (gRenderer && gRenderer->primitiveType() != QGeometryRenderer::Patches) {
+        Geometry *geom = geometryManager->lookupResource(gRenderer->geometryId());
 
         if (geom) {
+            int drawVertexCount = gRenderer->vertexCount(); // may be 0, gets changed below if so
+
             Qt3DRender::Render::Attribute *positionAttribute = manager->lookupResource<Attribute, AttributeManager>(geom->boundingPositionAttribute());
 
             // Use the default position attribute if attribute is null
@@ -212,48 +251,102 @@ void calculateLocalBoundingVolume(NodeManagers *manager, Entity *node)
                     || positionAttribute->attributeType() != QAttribute::VertexAttribute
                     || positionAttribute->vertexBaseType() != QAttribute::Float
                     || positionAttribute->vertexSize() < 3) {
-                qWarning() << "QGeometry::boundingVolumePositionAttribute position Attribute not suited for bounding volume computation";
-                return;
+                qWarning("calculateLocalBoundingVolume: Position attribute not suited for bounding volume computation");
+                return updatedGeometries;
             }
 
             Buffer *buf = manager->lookupResource<Buffer, BufferManager>(positionAttribute->bufferId());
             // No point in continuing if the positionAttribute doesn't have a suitable buffer
             if (!buf) {
-                qWarning() << "ObjectPicker position Attribute not referencing a valid buffer";
-                return;
+                qWarning("calculateLocalBoundingVolume: Position attribute not referencing a valid buffer");
+                return updatedGeometries;
             }
+
+            // Check if there is an index attribute.
+            Qt3DRender::Render::Attribute *indexAttribute = nullptr;
+            Buffer *indexBuf = nullptr;
+            const QVector<Qt3DCore::QNodeId> attributes = geom->attributes();
+
+            for (Qt3DCore::QNodeId attrNodeId : attributes) {
+                Qt3DRender::Render::Attribute *attr = manager->lookupResource<Attribute, AttributeManager>(attrNodeId);
+                if (attr && attr->attributeType() == Qt3DRender::QAttribute::IndexAttribute) {
+                    indexBuf = manager->lookupResource<Buffer, BufferManager>(attr->bufferId());
+                    if (indexBuf) {
+                        indexAttribute = attr;
+
+                        if (!drawVertexCount)
+                            drawVertexCount = indexAttribute->count();
+
+                        const QAttribute::VertexBaseType validIndexTypes[] = {
+                            QAttribute::UnsignedShort,
+                            QAttribute::UnsignedInt,
+                            QAttribute::UnsignedByte
+                        };
+
+                        if (std::find(std::begin(validIndexTypes),
+                                      std::end(validIndexTypes),
+                                      indexAttribute->vertexBaseType()) == std::end(validIndexTypes)) {
+                            qWarning() << "calculateLocalBoundingVolume: Unsupported index attribute type" << indexAttribute->name() << indexAttribute->vertexBaseType();
+                            return updatedGeometries;
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            if (!indexAttribute && !drawVertexCount)
+                drawVertexCount = positionAttribute->count();
 
             // Buf will be set to not dirty once it's loaded
             // in a job executed after this one
             // We need to recompute the bounding volume
             // If anything in the GeometryRenderer has changed
-            if (buf->isDirty() ||
-                    node->isBoundingVolumeDirty() ||
-                    positionAttribute->isDirty() ||
-                    geom->isDirty() ||
-                    gRenderer->isDirty()) {
-
+            if (buf->isDirty()
+                || node->isBoundingVolumeDirty()
+                || positionAttribute->isDirty()
+                || geom->isDirty()
+                || gRenderer->isDirty()
+                || (indexAttribute && indexAttribute->isDirty())
+                || (indexBuf && indexBuf->isDirty())) {
                 BoundingVolumeCalculator reader(manager);
-                if (reader.apply(positionAttribute)) {
+                if (reader.apply(positionAttribute, indexAttribute, drawVertexCount,
+                                 gRenderer->primitiveRestartEnabled(), gRenderer->restartIndexValue())) {
                     node->localBoundingVolume()->setCenter(reader.result().center());
                     node->localBoundingVolume()->setRadius(reader.result().radius());
                     node->unsetBoundingVolumeDirty();
+
+                    // Record min/max vertex in Geometry
+                    geom->updateExtent(reader.min(), reader.max());
+                    // Mark geometry as requiring a call to update its frontend
+                    updatedGeometries.push_back(geom);
                 }
             }
         }
     }
 
-    const QVector<Qt3DRender::Render::Entity *> children = node->children();
-    if (children.size() > 1) {
-        UpdateBoundFunctor functor;
-        functor.manager = manager;
-        QtConcurrent::blockingMap(children, functor);
-    } else {
-        const auto children = node->children();
-        for (Entity *child : children)
-            calculateLocalBoundingVolume(manager, child);
-    }
+    return updatedGeometries;
 }
+
+struct UpdateBoundFunctor
+{
+    NodeManagers *manager;
+
+    // This define is required to work with QtConcurrent
+    typedef QVector<Geometry *> result_type;
+    QVector<Geometry *> operator ()(Qt3DRender::Render::Entity *node)
+    {
+        return calculateLocalBoundingVolume(manager, node);
+    }
+};
+
+struct ReduceUpdateBoundFunctor
+{
+    void operator ()(QVector<Geometry *> &result, const QVector<Geometry *> &values)
+    {
+        result += values;
+    }
+};
 
 } // anonymous
 
@@ -266,7 +359,30 @@ CalculateBoundingVolumeJob::CalculateBoundingVolumeJob()
 
 void CalculateBoundingVolumeJob::run()
 {
-    calculateLocalBoundingVolume(m_manager, m_node);
+    EntityAccumulator accumulator([](Entity *entity) {
+        return !entity->componentUuid<GeometryRenderer>().isNull();
+    }, m_manager);
+    auto entities = accumulator.apply(m_node);
+
+    QVector<Geometry *> updatedGeometries;
+    updatedGeometries.reserve(entities.size());
+
+#if QT_CONFIG(concurrent)
+    if (entities.size() > 1) {
+        UpdateBoundFunctor functor;
+        functor.manager = m_manager;
+        ReduceUpdateBoundFunctor reduceFunctor;
+        updatedGeometries += QtConcurrent::blockingMappedReduced<decltype(updatedGeometries)>(entities, functor, reduceFunctor);
+    } else
+#endif
+    {
+        for (Entity *child : entities)
+            updatedGeometries += calculateLocalBoundingVolume(m_manager, child);
+    }
+
+    // Send extent updates to frontend
+    for (Geometry *geometry : updatedGeometries)
+        geometry->notifyExtentChanged();
 }
 
 void CalculateBoundingVolumeJob::setRoot(Entity *node)

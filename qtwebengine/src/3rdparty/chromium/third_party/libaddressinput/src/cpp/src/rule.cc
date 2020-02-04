@@ -14,9 +14,9 @@
 
 #include "rule.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
-#include <map>
 #include <string>
 #include <utility>
 
@@ -29,6 +29,7 @@
 #include "region_data_constants.h"
 #include "util/json.h"
 #include "util/re2ptr.h"
+#include "util/size.h"
 #include "util/string_split.h"
 
 namespace i18n {
@@ -36,117 +37,129 @@ namespace addressinput {
 
 namespace {
 
-typedef std::map<std::string, int> NameMessageIdMap;
-
 // Used as a separator in a list of items. For example, the list of supported
 // languages can be "de~fr~it".
 const char kSeparator = '~';
 
-NameMessageIdMap InitAdminAreaMessageIds() {
-  NameMessageIdMap message_ids;
-  message_ids.insert(std::make_pair(
-      "area", IDS_LIBADDRESSINPUT_AREA));
-  message_ids.insert(std::make_pair(
-      "county", IDS_LIBADDRESSINPUT_COUNTY));
-  message_ids.insert(std::make_pair(
-      "department", IDS_LIBADDRESSINPUT_DEPARTMENT));
-  message_ids.insert(std::make_pair(
-      "district", IDS_LIBADDRESSINPUT_DISTRICT));
-  message_ids.insert(std::make_pair(
-      "do_si", IDS_LIBADDRESSINPUT_DO_SI));
-  message_ids.insert(std::make_pair(
-      "emirate", IDS_LIBADDRESSINPUT_EMIRATE));
-  message_ids.insert(std::make_pair(
-      "island", IDS_LIBADDRESSINPUT_ISLAND));
-  message_ids.insert(std::make_pair(
-      "oblast", IDS_LIBADDRESSINPUT_OBLAST));
-  message_ids.insert(std::make_pair(
-      "parish", IDS_LIBADDRESSINPUT_PARISH));
-  message_ids.insert(std::make_pair(
-      "prefecture", IDS_LIBADDRESSINPUT_PREFECTURE));
-  message_ids.insert(std::make_pair(
-      "province", IDS_LIBADDRESSINPUT_PROVINCE));
-  message_ids.insert(std::make_pair(
-      "state", IDS_LIBADDRESSINPUT_STATE));
-  return message_ids;
-}
+// NameIdMap is a convenience POD struct that implements a mapping from
+// names to message ids, with sorted arrays of NameIdInfo entries.
+struct NameIdInfo {
+  const char* name;
+  int id;
 
-const NameMessageIdMap& GetAdminAreaMessageIds() {
-  static const NameMessageIdMap kAdminAreaMessageIds(InitAdminAreaMessageIds());
-  return kAdminAreaMessageIds;
-}
+  static bool less(const NameIdInfo& a, const NameIdInfo& b) {
+    return strcmp(a.name, b.name) < 0;
+  }
+};
 
-NameMessageIdMap InitPostalCodeMessageIds() {
-  NameMessageIdMap message_ids;
-  message_ids.insert(std::make_pair(
-      "eircode", IDS_LIBADDRESSINPUT_EIR_CODE_LABEL));
-  message_ids.insert(std::make_pair(
-      "pin", IDS_LIBADDRESSINPUT_PIN_CODE_LABEL));
-  message_ids.insert(std::make_pair(
-      "postal", IDS_LIBADDRESSINPUT_POSTAL_CODE_LABEL));
-  message_ids.insert(std::make_pair(
-      "zip", IDS_LIBADDRESSINPUT_ZIP_CODE_LABEL));
-  return message_ids;
-}
+struct NameIdMap {
+  const NameIdInfo* infos;
+  size_t size;
 
-const NameMessageIdMap& GetPostalCodeMessageIds() {
-  static const NameMessageIdMap kPostalCodeMessageIds(
-      InitPostalCodeMessageIds());
-  return kPostalCodeMessageIds;
-}
+  // Return the message id corresponding to |name|, or INVALID_MESSAGE_ID
+  // if it is not found in the map.
+  int GetIdFromName(const std::string& name) const {
+    NameIdInfo key{name.c_str()};
+    const NameIdInfo* begin = infos;
+    const NameIdInfo* end = begin + size;
+    const NameIdInfo* probe =
+        std::lower_bound(begin, end, key, NameIdInfo::less);
+    return probe != end && name == probe->name ? probe->id : INVALID_MESSAGE_ID;
+  }
 
-NameMessageIdMap InitLocalityMessageIds() {
-  NameMessageIdMap message_ids;
-  message_ids.insert(std::make_pair(
-      "city", IDS_LIBADDRESSINPUT_LOCALITY_LABEL));
-  message_ids.insert(std::make_pair(
-      "district", IDS_LIBADDRESSINPUT_DISTRICT));
-  message_ids.insert(std::make_pair(
-      "post_town", IDS_LIBADDRESSINPUT_POST_TOWN));
-  message_ids.insert(std::make_pair(
-      "suburb", IDS_LIBADDRESSINPUT_SUBURB));
-  return message_ids;
-}
+  // Return true iff the map is properly sorted.
+  bool IsSorted() const {
+    for (size_t n = 1; n < size; ++n) {
+      if (!NameIdInfo::less(infos[n - 1], infos[n])) {
+        return false;
+      }
+    }
+    return true;
+  }
+};
 
-const NameMessageIdMap& GetLocalityMessageIds() {
-  static const NameMessageIdMap kLocalityMessageIds(
-      InitLocalityMessageIds());
-  return kLocalityMessageIds;
-}
+const NameIdInfo kAdminAreaInfoArray[] = {
+    {"area", IDS_LIBADDRESSINPUT_AREA},
+    {"county", IDS_LIBADDRESSINPUT_COUNTY},
+    {"department", IDS_LIBADDRESSINPUT_DEPARTMENT},
+    {"district", IDS_LIBADDRESSINPUT_DISTRICT},
+    {"do_si", IDS_LIBADDRESSINPUT_DO_SI},
+    {"emirate", IDS_LIBADDRESSINPUT_EMIRATE},
+    {"island", IDS_LIBADDRESSINPUT_ISLAND},
+    {"oblast", IDS_LIBADDRESSINPUT_OBLAST},
+    {"parish", IDS_LIBADDRESSINPUT_PARISH},
+    {"prefecture", IDS_LIBADDRESSINPUT_PREFECTURE},
+    {"province", IDS_LIBADDRESSINPUT_PROVINCE},
+    {"state", IDS_LIBADDRESSINPUT_STATE},
+};
 
-NameMessageIdMap InitSublocalityMessageIds() {
-  NameMessageIdMap message_ids;
-  message_ids.insert(std::make_pair(
-      "suburb", IDS_LIBADDRESSINPUT_SUBURB));
-  message_ids.insert(std::make_pair(
-      "district", IDS_LIBADDRESSINPUT_DISTRICT));
-  message_ids.insert(std::make_pair(
-      "neighborhood", IDS_LIBADDRESSINPUT_NEIGHBORHOOD));
-  message_ids.insert(std::make_pair(
-      "townland", IDS_LIBADDRESSINPUT_TOWNLAND));
-  message_ids.insert(std::make_pair(
-      "village_township", IDS_LIBADDRESSINPUT_VILLAGE_TOWNSHIP));
-  return message_ids;
-}
+const NameIdMap kAdminAreaMessageIds{
+    kAdminAreaInfoArray,
+    size(kAdminAreaInfoArray)
+};
 
-const NameMessageIdMap& GetSublocalityMessageIds() {
-  static const NameMessageIdMap kSublocalityMessageIds(
-      InitSublocalityMessageIds());
-  return kSublocalityMessageIds;
-}
+const NameIdInfo kPostalCodeInfoArray[] = {
+    {"eircode", IDS_LIBADDRESSINPUT_EIR_CODE_LABEL},
+    {"pin", IDS_LIBADDRESSINPUT_PIN_CODE_LABEL},
+    {"postal", IDS_LIBADDRESSINPUT_POSTAL_CODE_LABEL},
+    {"zip", IDS_LIBADDRESSINPUT_ZIP_CODE_LABEL},
+};
 
-int GetMessageIdFromName(const std::string& name,
-                         const NameMessageIdMap& message_ids) {
-  NameMessageIdMap::const_iterator it = message_ids.find(name);
-  return it != message_ids.end() ? it->second : INVALID_MESSAGE_ID;
-}
+const NameIdMap kPostalCodeMessageIds{
+    kPostalCodeInfoArray,
+    size(kPostalCodeInfoArray)
+};
+
+const NameIdInfo kLocalityInfoArray[] = {
+    {"city", IDS_LIBADDRESSINPUT_LOCALITY_LABEL},
+    {"district", IDS_LIBADDRESSINPUT_DISTRICT},
+    {"post_town", IDS_LIBADDRESSINPUT_POST_TOWN},
+    {"suburb", IDS_LIBADDRESSINPUT_SUBURB},
+};
+
+const NameIdMap kLocalityMessageIds{
+    kLocalityInfoArray,
+    size(kLocalityInfoArray)
+};
+
+const NameIdInfo kSublocalityInfoArray[] = {
+    {"district", IDS_LIBADDRESSINPUT_DISTRICT},
+    {"neighborhood", IDS_LIBADDRESSINPUT_NEIGHBORHOOD},
+    {"suburb", IDS_LIBADDRESSINPUT_SUBURB},
+    {"townland", IDS_LIBADDRESSINPUT_TOWNLAND},
+    {"village_township", IDS_LIBADDRESSINPUT_VILLAGE_TOWNSHIP},
+};
+
+const NameIdMap kSublocalityMessageIds{
+    kSublocalityInfoArray,
+    size(kSublocalityInfoArray)
+};
+
+#ifndef _NDEBUG
+// Helper type used to check that all maps are sorted at runtime.
+// Should be used as a local static variable to ensure this is checked only
+// once per process. Usage is simply:
+//
+//  ... someFunction(....) {
+//      static StaticMapChecker map_checker;
+//      ... anything else ...
+//      }
+struct StaticMapChecker {
+  StaticMapChecker() {
+    assert(kAdminAreaMessageIds.IsSorted());
+    assert(kPostalCodeMessageIds.IsSorted());
+    assert(kLocalityMessageIds.IsSorted());
+    assert(kSublocalityMessageIds.IsSorted());
+  }
+};
+#endif  // _NDEBUG
 
 // Determines whether a given string is a reg-exp or a string. We consider a
 // string to be anything that doesn't contain characters with special meanings
 // in regular expressions - (, [, \, {, ?. These special characters are all the
 // ones that appear in the postal code regular expressions.
 bool ContainsRegExSpecialCharacters(const std::string& input) {
-  return input.find_first_of("([\\{?") != std::string::npos;
+  return input.find_first_of(R"(([\{?)") != std::string::npos;
 }
 
 }  // namespace
@@ -158,7 +171,7 @@ Rule::Rule()
       required_(),
       sub_keys_(),
       languages_(),
-      postal_code_matcher_(NULL),
+      postal_code_matcher_(nullptr),
       sole_postal_code_(),
       admin_area_name_message_id_(INVALID_MESSAGE_ID),
       postal_code_name_message_id_(INVALID_MESSAGE_ID),
@@ -169,13 +182,13 @@ Rule::Rule()
       postal_code_example_(),
       post_service_url_() {}
 
-Rule::~Rule() {}
+Rule::~Rule() = default;
 
 // static
 const Rule& Rule::GetDefault() {
   // Allocated once and leaked on shutdown.
-  static Rule* default_rule = NULL;
-  if (default_rule == NULL) {
+  static Rule* default_rule = nullptr;
+  if (default_rule == nullptr) {
     default_rule = new Rule;
     default_rule->ParseSerializedRule(
         RegionDataConstants::GetDefaultRegionData());
@@ -192,8 +205,8 @@ void Rule::CopyFrom(const Rule& rule) {
   sub_keys_ = rule.sub_keys_;
   languages_ = rule.languages_;
   postal_code_matcher_.reset(
-      rule.postal_code_matcher_ == NULL
-          ? NULL
+      rule.postal_code_matcher_ == nullptr
+          ? nullptr
           : new RE2ptr(new RE2(rule.postal_code_matcher_->ptr->pattern(),
                                rule.postal_code_matcher_->ptr->options())));
   sole_postal_code_ = rule.sole_postal_code_;
@@ -217,6 +230,11 @@ bool Rule::ParseSerializedRule(const std::string& serialized_rule) {
 }
 
 void Rule::ParseJsonRule(const Json& json) {
+#ifndef _NDEBUG
+  // Don't remove, see StaticMapChecker comments above.
+  static StaticMapChecker map_checker;
+#endif  // !_NDEBUG
+
   std::string value;
   if (json.GetStringValueForKey("id", &value)) {
     id_.swap(value);
@@ -250,7 +268,7 @@ void Rule::ParseJsonRule(const Json& json) {
     // the country. At other levels, the regular expression indicates the postal
     // code prefix expected for addresses in that region.
     //
-    // In order to make the RE2 object created from the "zip" field useable for
+    // In order to make the RE2 object created from the "zip" field usable for
     // both these purposes, the pattern string is here prefixed with "^" to
     // anchor it at the beginning of the string so that it can be used with
     // RE2::PartialMatch() to perform prefix matching or else with
@@ -261,7 +279,7 @@ void Rule::ParseJsonRule(const Json& json) {
     if (matcher->ok()) {
       postal_code_matcher_.reset(new RE2ptr(matcher));
     } else {
-      postal_code_matcher_.reset(NULL);
+      postal_code_matcher_.reset(nullptr);
       delete matcher;
     }
     // If the "zip" field is not a regular expression, then it is the sole
@@ -272,23 +290,19 @@ void Rule::ParseJsonRule(const Json& json) {
   }
 
   if (json.GetStringValueForKey("state_name_type", &value)) {
-    admin_area_name_message_id_ =
-        GetMessageIdFromName(value, GetAdminAreaMessageIds());
+    admin_area_name_message_id_ = kAdminAreaMessageIds.GetIdFromName(value);
   }
 
   if (json.GetStringValueForKey("zip_name_type", &value)) {
-    postal_code_name_message_id_ =
-        GetMessageIdFromName(value, GetPostalCodeMessageIds());
+    postal_code_name_message_id_ = kPostalCodeMessageIds.GetIdFromName(value);
   }
 
   if (json.GetStringValueForKey("locality_name_type", &value)) {
-    locality_name_message_id_ =
-        GetMessageIdFromName(value, GetLocalityMessageIds());
+    locality_name_message_id_ = kLocalityMessageIds.GetIdFromName(value);
   }
 
   if (json.GetStringValueForKey("sublocality_name_type", &value)) {
-    sublocality_name_message_id_ =
-        GetMessageIdFromName(value, GetSublocalityMessageIds());
+    sublocality_name_message_id_ = kSublocalityMessageIds.GetIdFromName(value);
   }
 
   if (json.GetStringValueForKey("name", &value)) {

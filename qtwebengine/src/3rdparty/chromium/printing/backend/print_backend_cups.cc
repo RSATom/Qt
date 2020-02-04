@@ -11,10 +11,10 @@
 
 #include <string>
 
-#include "base/debug/leak_annotations.h"
 #include "base/files/file_util.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/values.h"
@@ -217,15 +217,8 @@ scoped_refptr<PrintBackend> PrintBackend::CreateInstanceImpl(
 #endif  // !defined(OS_CHROMEOS)
 
 int PrintBackendCUPS::GetDests(cups_dest_t** dests) {
-  if (print_server_url_.is_empty()) {  // Use default (local) print server.
-    // GnuTLS has a genuine small memory leak that is easier to annotate
-    // than suppress. See http://crbug.com/176888#c7
-    // In theory any CUPS function can trigger this leak, but in
-    // PrintBackendCUPS, this is the most likely spot.
-    // TODO(eugenis): remove this once the leak is fixed.
-    ANNOTATE_SCOPED_MEMORY_LEAK;
+  if (print_server_url_.is_empty())  // Use default (local) print server.
     return cupsGetDests(dests);
-  }
 
   HttpConnectionCUPS http(print_server_url_, cups_encryption_);
   http.SetBlocking(blocking_);
@@ -235,8 +228,8 @@ int PrintBackendCUPS::GetDests(cups_dest_t** dests) {
 base::FilePath PrintBackendCUPS::GetPPD(const char* name) {
   // cupsGetPPD returns a filename stored in a static buffer in CUPS.
   // Protect this code with lock.
-  CR_DEFINE_STATIC_LOCAL(base::Lock, ppd_lock, ());
-  base::AutoLock ppd_autolock(ppd_lock);
+  static base::NoDestructor<base::Lock> ppd_lock;
+  base::AutoLock ppd_autolock(*ppd_lock);
   base::FilePath ppd_path;
   const char* ppd_file_path = nullptr;
   if (print_server_url_.is_empty()) {  // Use default (local) print server.

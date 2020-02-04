@@ -17,10 +17,16 @@
     Boston, MA 02110-1301, USA.
 */
 
+#include "../util.h"
+
 #include <QtTest/QtTest>
 
+#include <qwebenginepage.h>
 #include <qwebengineprofile.h>
 #include <qwebenginesettings.h>
+
+#include <QtGui/qclipboard.h>
+#include <QtGui/qguiapplication.h>
 
 class tst_QWebEngineSettings: public QObject {
     Q_OBJECT
@@ -29,12 +35,13 @@ private Q_SLOTS:
     void resetAttributes();
     void defaultFontFamily_data();
     void defaultFontFamily();
+    void javascriptClipboard_data();
+    void javascriptClipboard();
+    void setInAcceptNavigationRequest();
 };
 
 void tst_QWebEngineSettings::resetAttributes()
 {
-    // QT_TODO_FIXME_ADAPT
-    QSKIP("The application deadlocks and hangs without exiting.");
     QWebEngineProfile profile;
     QWebEngineSettings *settings = profile.settings();
 
@@ -76,13 +83,114 @@ void tst_QWebEngineSettings::defaultFontFamily_data()
 
 void tst_QWebEngineSettings::defaultFontFamily()
 {
-    // QT_TODO_FIXME_ADAPT
-    QSKIP("The application deadlocks and hangs without exiting.");
     QWebEngineProfile profile;
     QWebEngineSettings *settings = profile.settings();
 
     QFETCH(int, fontFamily);
     QVERIFY(!settings->fontFamily(static_cast<QWebEngineSettings::FontFamily>(fontFamily)).isEmpty());
+}
+
+void tst_QWebEngineSettings::javascriptClipboard_data()
+{
+    QTest::addColumn<bool>("javascriptCanAccessClipboard");
+    QTest::addColumn<bool>("javascriptCanPaste");
+    QTest::addColumn<bool>("copyResult");
+    QTest::addColumn<bool>("pasteResult");
+
+    QTest::newRow("default") << false << false << false << false;
+    QTest::newRow("canCopy") << true << false << true << false;
+    // paste command requires both permissions
+    QTest::newRow("canPaste") << false << true << false << false;
+    QTest::newRow("canCopyAndPaste") << true << true << true << true;
+}
+
+void tst_QWebEngineSettings::javascriptClipboard()
+{
+    QFETCH(bool, javascriptCanAccessClipboard);
+    QFETCH(bool, javascriptCanPaste);
+    QFETCH(bool, copyResult);
+    QFETCH(bool, pasteResult);
+
+    QWebEnginePage page;
+
+    // check defaults
+    QCOMPARE(page.settings()->testAttribute(QWebEngineSettings::JavascriptCanAccessClipboard),
+             false);
+    QCOMPARE(page.settings()->testAttribute(QWebEngineSettings::JavascriptCanPaste), false);
+
+    // check accessors
+    page.settings()->setAttribute(QWebEngineSettings::JavascriptCanAccessClipboard,
+                                  javascriptCanAccessClipboard);
+    page.settings()->setAttribute(QWebEngineSettings::JavascriptCanPaste,
+                                  javascriptCanPaste);
+    QCOMPARE(page.settings()->testAttribute(QWebEngineSettings::JavascriptCanAccessClipboard),
+             javascriptCanAccessClipboard);
+    QCOMPARE(page.settings()->testAttribute(QWebEngineSettings::JavascriptCanPaste),
+             javascriptCanPaste);
+
+    QSignalSpy loadFinishedSpy(&page, SIGNAL(loadFinished(bool)));
+    page.setHtml("<html><body>"
+                 "<input type='text' value='OriginalText' id='myInput'/>"
+                 "</body></html>");
+    QVERIFY(loadFinishedSpy.wait());
+
+    // make sure that 'OriginalText' is selected
+    evaluateJavaScriptSync(&page, "document.getElementById('myInput').select()");
+    QCOMPARE(evaluateJavaScriptSync(&page, "window.getSelection().toString()").toString(),
+             QStringLiteral("OriginalText"));
+
+    // Check that the actual settings work by the
+    // - return value of queryCommandEnabled and
+    // - return value of execCommand
+    // - comparing the clipboard / input field
+    QGuiApplication::clipboard()->clear();
+    QCOMPARE(evaluateJavaScriptSync(&page, "document.queryCommandEnabled('copy')").toBool(),
+             copyResult);
+    QCOMPARE(evaluateJavaScriptSync(&page, "document.execCommand('copy')").toBool(), copyResult);
+    QTRY_COMPARE(QApplication::clipboard()->text(),
+                 (copyResult ? QString("OriginalText") : QString()));
+
+
+    QGuiApplication::clipboard()->setText("AnotherText");
+    QCOMPARE(evaluateJavaScriptSync(&page, "document.queryCommandEnabled('paste')").toBool(),
+             pasteResult);
+    QCOMPARE(evaluateJavaScriptSync(&page, "document.execCommand('paste')").toBool(), pasteResult);
+    QCOMPARE(evaluateJavaScriptSync(&page, "document.getElementById('myInput').value").toString(),
+                           (pasteResult ? QString("AnotherText") : QString("OriginalText")));
+}
+
+class NavigationRequestOverride : public QWebEnginePage
+{
+protected:
+    virtual bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame)
+    {
+        Q_UNUSED(type);
+
+        if (isMainFrame && url.scheme().startsWith("data"))
+            settings()->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
+
+        return true;
+    }
+};
+
+void tst_QWebEngineSettings::setInAcceptNavigationRequest()
+{
+    NavigationRequestOverride page;
+    QSignalSpy loadFinishedSpy(&page, SIGNAL(loadFinished(bool)));
+    QWebEngineSettings::globalSettings()->setAttribute(QWebEngineSettings::JavascriptEnabled, false);
+    QVERIFY(!page.settings()->testAttribute(QWebEngineSettings::JavascriptEnabled));
+
+    page.load(QUrl("about:blank"));
+    QVERIFY(loadFinishedSpy.wait());
+    QVERIFY(!page.settings()->testAttribute(QWebEngineSettings::JavascriptEnabled));
+
+    page.setHtml("<html><body>"
+                 "<script>document.write('PASS')</script>"
+                 "<noscript>FAIL</noscript>"
+                 "</body></html>");
+    QVERIFY(loadFinishedSpy.wait());
+    QVERIFY(page.settings()->testAttribute(QWebEngineSettings::JavascriptEnabled));
+    QCOMPARE(toPlainTextSync(&page), QStringLiteral("PASS"));
 }
 
 QTEST_MAIN(tst_QWebEngineSettings)

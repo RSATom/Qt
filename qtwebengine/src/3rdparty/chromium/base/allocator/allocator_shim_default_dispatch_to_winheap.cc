@@ -60,9 +60,33 @@ size_t DefaultWinHeapGetSizeEstimateImpl(const AllocatorDispatch*,
   return base::allocator::WinHeapGetSizeEstimate(address);
 }
 
+void* DefaultWinHeapAlignedMallocImpl(const AllocatorDispatch*,
+                                      size_t size,
+                                      size_t alignment,
+                                      void* context) {
+  return base::allocator::WinHeapAlignedMalloc(size, alignment);
+}
+
+void* DefaultWinHeapAlignedReallocImpl(const AllocatorDispatch*,
+                                       void* ptr,
+                                       size_t size,
+                                       size_t alignment,
+                                       void* context) {
+  return base::allocator::WinHeapAlignedRealloc(ptr, size, alignment);
+}
+
+void DefaultWinHeapAlignedFreeImpl(const AllocatorDispatch*,
+                                   void* ptr,
+                                   void* context) {
+  base::allocator::WinHeapAlignedFree(ptr);
+}
+
 }  // namespace
 
-const AllocatorDispatch AllocatorDispatch::default_dispatch = {
+// Guarantee that default_dispatch is compile-time initialized to avoid using
+// it before initialization (allocations before main in release builds with
+// optimizations disabled).
+constexpr AllocatorDispatch AllocatorDispatch::default_dispatch = {
     &DefaultWinHeapMallocImpl,
     &DefaultWinHeapCallocImpl,
     &DefaultWinHeapMemalignImpl,
@@ -72,5 +96,8 @@ const AllocatorDispatch AllocatorDispatch::default_dispatch = {
     nullptr, /* batch_malloc_function */
     nullptr, /* batch_free_function */
     nullptr, /* free_definite_size_function */
+    &DefaultWinHeapAlignedMallocImpl,
+    &DefaultWinHeapAlignedReallocImpl,
+    &DefaultWinHeapAlignedFreeImpl,
     nullptr, /* next */
 };

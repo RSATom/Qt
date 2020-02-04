@@ -5,9 +5,11 @@
 #include "content/browser/ssl/ssl_error_handler.h"
 
 #include "base/bind.h"
+#include "base/task/post_task.h"
 #include "content/browser/frame_host/navigation_controller_impl.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_request_info.h"
 #include "net/base/net_errors.h"
@@ -41,11 +43,13 @@ void CompleteContinueRequest(
 
 SSLErrorHandler::SSLErrorHandler(WebContents* web_contents,
                                  const base::WeakPtr<Delegate>& delegate,
+                                 BrowserThread::ID delegate_thread,
                                  ResourceType resource_type,
                                  const GURL& url,
                                  const net::SSLInfo& ssl_info,
                                  bool fatal)
     : delegate_(delegate),
+      delegate_thread_(delegate_thread),
       request_url_(url),
       resource_type_(resource_type),
       ssl_info_(ssl_info),
@@ -53,28 +57,45 @@ SSLErrorHandler::SSLErrorHandler(WebContents* web_contents,
       fatal_(fatal),
       web_contents_(web_contents) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  DCHECK(delegate_thread == BrowserThread::UI ||
+         delegate_thread == BrowserThread::IO);
 }
 
 SSLErrorHandler::~SSLErrorHandler() {}
 
 void SSLErrorHandler::CancelRequest() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-                          base::Bind(&CompleteCancelRequest, delegate_,
-                                     ssl_info(), net::ERR_ABORTED));
+  if (delegate_thread_ == BrowserThread::UI) {
+    if (delegate_)
+      delegate_->CancelSSLRequest(net::ERR_ABORTED, &ssl_info());
+    return;
+  }
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
+                           base::BindOnce(&CompleteCancelRequest, delegate_,
+                                          ssl_info(), net::ERR_ABORTED));
 }
 
 void SSLErrorHandler::DenyRequest() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-                          base::Bind(&CompleteCancelRequest, delegate_,
-                                     ssl_info(), net::ERR_INSECURE_RESPONSE));
+  if (delegate_thread_ == BrowserThread::UI) {
+    if (delegate_)
+      delegate_->CancelSSLRequest(cert_error_, &ssl_info());
+    return;
+  }
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
+                           base::BindOnce(&CompleteCancelRequest, delegate_,
+                                          ssl_info(), cert_error_));
 }
 
 void SSLErrorHandler::ContinueRequest() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-                          base::Bind(&CompleteContinueRequest, delegate_));
+  if (delegate_thread_ == BrowserThread::UI) {
+    if (delegate_)
+      delegate_->ContinueSSLRequest();
+    return;
+  }
+  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::IO},
+                           base::BindOnce(&CompleteContinueRequest, delegate_));
 }
 
 }  // namespace content

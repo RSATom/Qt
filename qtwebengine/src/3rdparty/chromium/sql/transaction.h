@@ -5,23 +5,23 @@
 #ifndef SQL_TRANSACTION_H_
 #define SQL_TRANSACTION_H_
 
+#include "base/component_export.h"
 #include "base/macros.h"
-#include "sql/sql_export.h"
 
 namespace sql {
 
-class Connection;
+class Database;
 
-class SQL_EXPORT Transaction {
+class COMPONENT_EXPORT(SQL) Transaction {
  public:
   // Creates the scoped transaction object. You MUST call Begin() to begin the
   // transaction. If you have begun a transaction and not committed it, the
   // constructor will roll back the transaction. If you want to commit, you
   // need to manually call Commit before this goes out of scope.
   //
-  // Nested transactions are supported. See sql::Connection::BeginTransaction
+  // Nested transactions are supported. See sql::Database::BeginTransaction
   // for details.
-  explicit Transaction(Connection* connection);
+  explicit Transaction(Database* connection);
   ~Transaction();
 
   // Returns true when there is a transaction that has been successfully begun.
@@ -46,7 +46,7 @@ class SQL_EXPORT Transaction {
   bool Commit();
 
  private:
-  Connection* connection_;
+  Database* database_;
 
   // True when the transaction is open, false when it's already been committed
   // or rolled back.

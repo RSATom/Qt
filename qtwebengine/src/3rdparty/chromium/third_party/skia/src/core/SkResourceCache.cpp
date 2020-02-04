@@ -5,18 +5,27 @@
  * found in the LICENSE file.
  */
 
+#include "SkResourceCache.h"
+
 #include "SkDiscardableMemory.h"
 #include "SkMessageBus.h"
 #include "SkMipMap.h"
 #include "SkMutex.h"
 #include "SkOpts.h"
-#include "SkResourceCache.h"
+#include "SkTo.h"
 #include "SkTraceMemoryDump.h"
 
 #include <stddef.h>
 #include <stdlib.h>
 
 DECLARE_SKMESSAGEBUS_MESSAGE(SkResourceCache::PurgeSharedIDMessage)
+
+static inline bool SkShouldPostMessageToBus(
+        const SkResourceCache::PurgeSharedIDMessage&, uint32_t) {
+    // SkResourceCache is typically used as a singleton and we don't label Inboxes so all messages
+    // go to all inboxes.
+    return true;
+}
 
 // This can be defined by the caller's build system
 //#define SK_USE_DISCARDABLE_SCALEDIMAGECACHE
@@ -195,7 +204,7 @@ void SkResourceCache::purgeAsNeeded(bool forcePurge) {
 
     if (fDiscardableFactory) {
         countLimit = SK_DISCARDABLEMEMORY_SCALEDIMAGECACHE_COUNT_LIMIT;
-        byteLimit = SK_MaxU32;  // no limit based on bytes
+        byteLimit = UINT32_MAX;  // no limit based on bytes
     } else {
         countLimit = SK_MaxS32; // no limit based on count
         byteLimit = fTotalByteLimit;

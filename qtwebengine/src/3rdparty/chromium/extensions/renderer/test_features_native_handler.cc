@@ -5,7 +5,7 @@
 #include "extensions/renderer/test_features_native_handler.h"
 
 #include "base/bind.h"
-#include "content/public/child/v8_value_converter.h"
+#include "content/public/renderer/v8_value_converter.h"
 #include "extensions/common/extensions_client.h"
 #include "extensions/common/features/json_feature_provider_source.h"
 #include "extensions/renderer/script_context.h"
@@ -13,10 +13,13 @@
 namespace extensions {
 
 TestFeaturesNativeHandler::TestFeaturesNativeHandler(ScriptContext* context)
-    : ObjectBackedNativeHandler(context) {
-  RouteFunction("GetAPIFeatures", "test",
-                base::Bind(&TestFeaturesNativeHandler::GetAPIFeatures,
-                           base::Unretained(this)));
+    : ObjectBackedNativeHandler(context) {}
+
+void TestFeaturesNativeHandler::AddRoutes() {
+  RouteHandlerFunction(
+      "GetAPIFeatures", "test",
+      base::BindRepeating(&TestFeaturesNativeHandler::GetAPIFeatures,
+                          base::Unretained(this)));
 }
 
 void TestFeaturesNativeHandler::GetAPIFeatures(

@@ -1,5 +1,7 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
+<link rel="import" href="chrome://resources/cr_elements/chromeos/fingerprint/cr_fingerprint_progress_arc.html">
+<link rel="import" href="chrome://resources/cr_elements/cr_dialog/cr_dialog.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/html/web_ui_listener_behavior.html">
@@ -9,80 +11,79 @@
 <link rel="import" href="../icons.html">
 <link rel="import" href="../settings_shared_css.html">
 <link rel="import" href="fingerprint_browser_proxy.html">
-<link rel="import" href="fingerprint_progress_arc.html">
 
 <dom-module id="settings-setup-fingerprint-dialog">
   <template>
     <style include="settings-shared">
-      #arc {
-        --canvas-height: 200px;
-        --canvas-width: 450px;
-      }
-
       #dialog {
-        min-width: 500px;
-        width: 500px;
+        --cr-dialog-native: {
+          min-width: 500px;
+          width: 500px;
+        };
       }
 
-      #image {
-        height: 80px;
-        left: 185px;
-        min-height: 80px;
-        min-width: 80px;
-        position: relative;
-        top: -140px;
-        width: 80px;
+      .fingerprint-scanner-tablet {
+        background:
+            url(chrome://theme/IDR_LOGIN_FINGERPRINT_SCANNER_TABLET_ANIMATION);
       }
 
-      #image[step='3'] {
-        --iron-icon-fill-color: var(--google-blue-700);
+      .fingerprint-scanner-laptop {
+        background:
+            url(chrome://theme/IDR_LOGIN_FINGERPRINT_SCANNER_LAPTOP_ANIMATION);
       }
 
-      /* Put the image in a seperate div with 0 height, otherwise the div will
-         take the height of the image, leaving us with a row of whitespace when
-         we position the #image to be inside #arc. */
-      #imageDiv {
-        height: 0;
+      #scannerLocation {
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 298px 205px;
+        height: 240px;
+      }
+
+      #messageDiv {
+        height: 20px;
       }
 
       /* Use this instead of hidden so that the dialog does not resize when the
-         problem appears or disappears. */
-      #problemDiv[invisible] {
+         message appears or disappears. */
+      #messageDiv[invisible] {
         visibility: hidden;
+      }
+
+      #closeButton {
+        margin-inline-start: 5px;
       }
     </style>
 
-    <dialog is="cr-dialog" id="dialog" on-close="close"
+    <cr-dialog id="dialog" on-close="close"
         close-text="$i18n{close}">
-      <div class="title" slot="title">$i18n{configureFingerprintTitle}</div>
-      <div class="body" slot="body">
-        <div class="settings-box first">
-          <span class="middle">[[getInstructionMessage_(step_)]]</span>
+      <div slot="title">$i18n{configureFingerprintTitle}</div>
+      <div slot="body">
+        <div id="messageDiv"
+            invisible$="[[!getInstructionMessage_(step_, problemMessage_)]]"
+            aria-live="polite">
+          <span>[[getInstructionMessage_(step_, problemMessage_)]]</span>
         </div>
-        <settings-fingerprint-progress-arc id="arc">
-        </settings-fingerprint-progress-arc>
-        <div id="imageDiv">
-          <iron-icon id="image" icon="settings:fingerprint" step$="[[step_]]">
-          </iron-icon>
+        <div id="scannerLocation" hidden="[[!showScannerLocation_(step_)]]"
+            class$="[[getFingerprintScannerAnimationClass_()]]"
+            aria-label="$i18n{configureFingerprintScannerStepAriaLabel}"
+            aria-live="polite" >
         </div>
-        <div id="problemDiv" class="settings-box first"
-            invisible$="[[!problemMessage_]]">
-          <iron-icon icon="settings:warning"></iron-icon>
-          <span class="middle">[[problemMessage_]]</span>
-        </div>
+        <cr-fingerprint-progress-arc id="arc" circle-radius="100"
+            hidden="[[!showArc_(step_)]]">
+        </cr-fingerprint-progress-arc>
       </div>
-      <div class="button-container" slot="button-container">
-        <paper-button id="addAnotherButton" on-tap="onAddAnotherFingerprint_"
-            hidden$="[[hideAddAnother_(step_)]]">
+      <div slot="button-container">
+        <paper-button id="addAnotherButton" on-click="onAddAnotherFingerprint_"
+            hidden$="[[hideAddAnother_(step_, allowAddAnotherFinger)]]">
           $i18n{configureFingerprintAddAnotherButton}
         </paper-button>
 
         <paper-button id="closeButton"
-            class$="[[getCloseButtonClass_(step_)]]" on-tap="onClose_">
+            class$="[[getCloseButtonClass_(step_)]]" on-click="onClose_">
           [[getCloseButtonText_(step_)]]
         </paper-button>
       </div>
-    </dialog>
+    </cr-dialog>
   </template>
 
   <script src="setup_fingerprint_dialog.js"></script>

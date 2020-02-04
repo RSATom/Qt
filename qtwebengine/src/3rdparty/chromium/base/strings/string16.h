@@ -38,11 +38,20 @@
 
 #if defined(WCHAR_T_IS_UTF16)
 
+// Define a macro for wrapping construction of char16 arrays and string16s from
+// a literal string. This indirection allows for an easier migration of
+// base::char16 to char16_t on platforms where WCHAR_T_IS_UTF16, as only a one
+// character change to the macro will be necessary.
+// This macro does not exist when WCHAR_T_IS_UTF32, as it is currently not
+// possible to create a char array form a literal in this case.
+// TODO(https://crbug.com/911896): Remove this macro once base::char16 is
+// char16_t on all platforms.
+#define STRING16_LITERAL(x) L##x
+
 namespace base {
 
 typedef wchar_t char16;
 typedef std::wstring string16;
-typedef std::char_traits<wchar_t> string16_char_traits;
 
 }  // namespace base
 
@@ -63,6 +72,11 @@ BASE_EXPORT const char16* c16memchr(const char16* s, char16 c, size_t n);
 BASE_EXPORT char16* c16memmove(char16* s1, const char16* s2, size_t n);
 BASE_EXPORT char16* c16memcpy(char16* s1, const char16* s2, size_t n);
 BASE_EXPORT char16* c16memset(char16* s, char16 c, size_t n);
+
+// This namespace contains the implementation of base::string16 along with
+// things that need to be found via argument-dependent lookup from a
+// base::string16.
+namespace string16_internals {
 
 struct string16_char_traits {
   typedef char16 char_type;
@@ -134,13 +148,21 @@ struct string16_char_traits {
   }
 };
 
-typedef std::basic_string<char16, base::string16_char_traits> string16;
+}  // namespace string16_internals
+
+typedef std::basic_string<char16,
+                          base::string16_internals::string16_char_traits>
+    string16;
+
+namespace string16_internals {
 
 BASE_EXPORT extern std::ostream& operator<<(std::ostream& out,
                                             const string16& str);
 
 // This is required by googletest to print a readable output on test failures.
 BASE_EXPORT extern void PrintTo(const string16& str, std::ostream* out);
+
+}  // namespace string16_internals
 
 }  // namespace base
 
@@ -183,8 +205,9 @@ BASE_EXPORT extern void PrintTo(const string16& str, std::ostream* out);
 //
 // TODO(mark): File this bug with Apple and update this note with a bug number.
 
-extern template
-class BASE_EXPORT std::basic_string<base::char16, base::string16_char_traits>;
+extern template class BASE_EXPORT
+    std::basic_string<base::char16,
+                      base::string16_internals::string16_char_traits>;
 
 // Specialize std::hash for base::string16. Although the style guide forbids
 // this in general, it is necessary for consistency with WCHAR_T_IS_UTF16

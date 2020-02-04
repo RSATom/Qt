@@ -8,6 +8,7 @@
 #include <string>
 
 #include "net/http/http_network_session.h"
+#include "net/url_request/url_request_context_builder.h"
 
 namespace base {
 class CommandLine;
@@ -19,7 +20,8 @@ namespace network_session_configurator {
 // trials and command line.
 
 // Parse serialized QUIC versions string.
-net::QuicVersionVector ParseQuicVersions(const std::string& quic_versions);
+quic::QuicTransportVersionVector ParseQuicVersions(
+    const std::string& quic_versions);
 
 // Configure |params| based on field trials and command line,
 // and forcing (policy or other command line) arguments.
@@ -27,6 +29,10 @@ void ParseCommandLineAndFieldTrials(const base::CommandLine& command_line,
                                     bool is_quic_force_disabled,
                                     const std::string& quic_user_agent_id,
                                     net::HttpNetworkSession::Params* params);
+
+// Returns the URLRequestContextBuilder::HttpCacheParams::Type that the disk
+// cache should use.
+net::URLRequestContextBuilder::HttpCacheParams::Type ChooseCacheType();
 
 }  // namespace network_session_configurator
 

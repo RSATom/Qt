@@ -56,7 +56,7 @@
 #include "QtCore/qmutex.h"
 #include "QtCore/qvarlengtharray.h"
 
-#ifndef QT_NO_THREAD
+QT_REQUIRE_CONFIG(thread);
 
 QT_BEGIN_NAMESPACE
 
@@ -68,7 +68,7 @@ public:
 
     inline QMutex *get(const void *address) {
         int index = uint(quintptr(address)) % mutexes.count();
-        QMutex *m = mutexes[index].load();
+        QMutex *m = mutexes[index].loadAcquire();
         if (m)
             return m;
         else
@@ -84,7 +84,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_THREAD
 
 #endif // QMUTEXPOOL_P_H

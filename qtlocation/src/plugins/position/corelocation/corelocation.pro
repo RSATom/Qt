@@ -15,6 +15,10 @@ OTHER_FILES += \
 
 LIBS += -framework Foundation -framework CoreLocation
 
+!darwin {
+    DISTFILES += $$OBJECTIVE_SOURCES
+}
+
 PLUGIN_TYPE = position
 PLUGIN_CLASS_NAME = QGeoPositionInfoSourceFactoryCL
 load(qt_plugin)

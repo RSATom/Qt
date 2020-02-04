@@ -61,14 +61,64 @@ Item {
     */
     property alias active: keyboard.active
 
+    /*!
+        \qmlproperty bool InputPanel::externalLanguageSwitchEnabled
+        \since QtQuick.VirtualKeyboard 2.4
+
+        This property enables the external language switch mechanism.
+        When this property is \c true, the virtual keyboard will not show
+        the built-in language popup, but will emit the \l externalLanguageSwitch
+        signal instead. The application can handle this signal and show a
+        custom language selection dialog instead.
+    */
+    property bool externalLanguageSwitchEnabled
+
+    /*!
+        \qmlsignal InputPanel::externalLanguageSwitch(var localeList, int currentIndex)
+        \since QtQuick.VirtualKeyboard 2.4
+
+        This signal is emitted when \l externalLanguageSwitchEnabled is \c true
+        and the \l {user-guide-language}{language switch key} is pressed by the user.
+
+        It serves as a hook to display a custom language dialog instead of
+        the built-in language popup in the virtual keyboard.
+
+        The \a localeList parameter contains a list of locale names to choose
+        from. To get more information about a particular language, use the
+        \l {QtQml::Qt::locale()}{Qt.locale()} function. The \a currentIndex
+        is the index of current locale in the \a localeList. This item should
+        be highlighted as the current item in the UI.
+
+        To select a new language, use the \l {VirtualKeyboardSettings::locale}
+        {VirtualKeyboardSettings.locale} property.
+
+        Below is an example that demonstrates a custom language dialog implementation:
+
+        \snippet qtvirtualkeyboard-custom-language-popup.qml popup
+
+        The dialog would then be declared:
+
+        \snippet qtvirtualkeyboard-custom-language-popup.qml declaring
+
+        In the application's InputPanel, add the following code:
+
+        \snippet qtvirtualkeyboard-custom-language-popup.qml using
+
+        The custom dialog will now be shown when the language switch key is pressed.
+    */
+    signal externalLanguageSwitch(var localeList, int currentIndex)
+
     /*! \internal */
     property alias keyboard: keyboard
+
+    /*! \internal */
+    readonly property bool __isRootItem: inputPanel.parent != null && inputPanel.parent.parent == null
 
     SelectionControl {
         objectName: "selectionControl"
         x: -parent.x
         y: -parent.y
-        enabled: active && !keyboard.fullScreenMode
+        enabled: active && !keyboard.fullScreenMode && !__isRootItem
     }
 
     implicitHeight: keyboard.height
@@ -82,5 +132,16 @@ Item {
         z: -1
         anchors.fill: keyboard
         enabled: active
+    }
+
+    Binding {
+        target: InputContext.priv
+        property: "keyboardRectangle"
+        value: mapToItem(null,
+                         __isRootItem ? keyboard.x : x,
+                         (__isRootItem ? keyboard.y : y) + keyboard.wordCandidateView.currentYOffset - (keyboard.shadowInputControl.visible ? keyboard.shadowInputControl.height : 0),
+                         keyboard.width,
+                         keyboard.height - keyboard.wordCandidateView.currentYOffset + (keyboard.shadowInputControl.visible ? keyboard.shadowInputControl.height : 0))
+        when: !InputContext.animating
     }
 }

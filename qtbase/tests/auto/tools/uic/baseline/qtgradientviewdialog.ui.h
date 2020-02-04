@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'qtgradientviewdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,12 +40,9 @@
 #define QTGRADIENTVIEWDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QVBoxLayout>
 #include "qtgradientview.h"
 
@@ -61,12 +58,12 @@ public:
     void setupUi(QDialog *QtGradientViewDialog)
     {
         if (QtGradientViewDialog->objectName().isEmpty())
-            QtGradientViewDialog->setObjectName(QStringLiteral("QtGradientViewDialog"));
+            QtGradientViewDialog->setObjectName(QString::fromUtf8("QtGradientViewDialog"));
         QtGradientViewDialog->resize(178, 72);
         vboxLayout = new QVBoxLayout(QtGradientViewDialog);
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         gradientView = new QtGradientView(QtGradientViewDialog);
-        gradientView->setObjectName(QStringLiteral("gradientView"));
+        gradientView->setObjectName(QString::fromUtf8("gradientView"));
         QSizePolicy sizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
         sizePolicy.setHorizontalStretch(0);
         sizePolicy.setVerticalStretch(0);
@@ -76,7 +73,7 @@ public:
         vboxLayout->addWidget(gradientView);
 
         buttonBox = new QDialogButtonBox(QtGradientViewDialog);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
 
@@ -92,7 +89,7 @@ public:
 
     void retranslateUi(QDialog *QtGradientViewDialog)
     {
-        QtGradientViewDialog->setWindowTitle(QApplication::translate("QtGradientViewDialog", "Select Gradient", nullptr));
+        QtGradientViewDialog->setWindowTitle(QCoreApplication::translate("QtGradientViewDialog", "Select Gradient", nullptr));
     } // retranslateUi
 
 };

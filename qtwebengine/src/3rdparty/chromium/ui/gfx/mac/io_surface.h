@@ -10,6 +10,7 @@
 
 #include "base/mac/scoped_cftyperef.h"
 #include "ui/gfx/buffer_types.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/generic_shared_memory_id.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gfx_export.h"
@@ -42,7 +43,12 @@ struct ScopedInUseIOSurfaceTraits {
 using IOSurfaceId = GenericSharedMemoryId;
 
 // Helper function to create an IOSurface with a specified size and format.
-GFX_EXPORT IOSurfaceRef CreateIOSurface(const Size& size, BufferFormat format);
+// The surface is zero-initialized if |should_clear| is true. This is not
+// necessary for anonymous surfaces that are not exported to renderers and used
+// as render targets only.
+GFX_EXPORT IOSurfaceRef CreateIOSurface(const Size& size,
+                                        BufferFormat format,
+                                        bool should_clear = true);
 
 // A scoper for handling Mach port names that are send rights for IOSurfaces.
 // This scoper is both copyable and assignable, which will increase the kernel
@@ -55,6 +61,11 @@ using ScopedRefCountedIOSurfaceMachPort =
 // in-use counter while the scoper exists.
 using ScopedInUseIOSurface =
     base::ScopedTypeRef<IOSurfaceRef, internal::ScopedInUseIOSurfaceTraits>;
+
+// Set color space for given IOSurface. Color space must have an associated ICC
+// color profile otherwise this function does nothing.
+GFX_EXPORT void IOSurfaceSetColorSpace(IOSurfaceRef io_surface,
+                                       const gfx::ColorSpace& color_space);
 
 }  // namespace gfx
 

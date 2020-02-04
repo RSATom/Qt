@@ -7,30 +7,36 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
+#include "modules/rtp_rtcp/include/rtp_header_parser.h"
 
-#include "webrtc/modules/rtp_rtcp/include/rtp_header_extension_map.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_utility.h"
-#include "webrtc/rtc_base/criticalsection.h"
+#include <string.h>
+
+#include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
+#include "modules/rtp_rtcp/source/rtp_utility.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
 class RtpHeaderParserImpl : public RtpHeaderParser {
  public:
   RtpHeaderParserImpl();
-  virtual ~RtpHeaderParserImpl() {}
+  ~RtpHeaderParserImpl() override = default;
 
   bool Parse(const uint8_t* packet,
              size_t length,
              RTPHeader* header) const override;
 
   bool RegisterRtpHeaderExtension(RTPExtensionType type, uint8_t id) override;
+  bool RegisterRtpHeaderExtension(RtpExtension extension) override;
 
   bool DeregisterRtpHeaderExtension(RTPExtensionType type) override;
+  bool DeregisterRtpHeaderExtension(RtpExtension extension) override;
 
  private:
   rtc::CriticalSection critical_section_;
-  RtpHeaderExtensionMap rtp_header_extension_map_ GUARDED_BY(critical_section_);
+  RtpHeaderExtensionMap rtp_header_extension_map_
+      RTC_GUARDED_BY(critical_section_);
 };
 
 RtpHeaderParser* RtpHeaderParser::Create() {
@@ -62,11 +68,21 @@ bool RtpHeaderParserImpl::Parse(const uint8_t* packet,
   }
   return true;
 }
+bool RtpHeaderParserImpl::RegisterRtpHeaderExtension(RtpExtension extension) {
+  rtc::CritScope cs(&critical_section_);
+  return rtp_header_extension_map_.RegisterByUri(extension.id, extension.uri);
+}
 
 bool RtpHeaderParserImpl::RegisterRtpHeaderExtension(RTPExtensionType type,
                                                      uint8_t id) {
   rtc::CritScope cs(&critical_section_);
   return rtp_header_extension_map_.RegisterByType(id, type);
+}
+
+bool RtpHeaderParserImpl::DeregisterRtpHeaderExtension(RtpExtension extension) {
+  rtc::CritScope cs(&critical_section_);
+  return rtp_header_extension_map_.Deregister(
+      rtp_header_extension_map_.GetType(extension.id));
 }
 
 bool RtpHeaderParserImpl::DeregisterRtpHeaderExtension(RTPExtensionType type) {

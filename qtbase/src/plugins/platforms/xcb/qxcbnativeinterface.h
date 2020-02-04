@@ -98,7 +98,7 @@ public:
 
     QFunctionPointer platformFunction(const QByteArray &function) const override;
 
-    inline const QByteArray &genericEventFilterType() const { return m_genericEventFilterType; }
+    inline const QByteArray &nativeEventType() const { return m_nativeEventType; }
 
     void *displayForWindow(QWindow *window);
     void *connectionForWindow(QWindow *window);
@@ -118,15 +118,12 @@ public:
 
     static qint32 generatePeekerId();
     static bool removePeekerId(qint32 peekerId);
-    static bool peekEventQueue(QXcbConnection::PeekerCallback peeker, void *peekerData = nullptr,
-                               QXcbConnection::PeekOptions option = QXcbConnection::PeekDefault,
+    static bool peekEventQueue(QXcbEventQueue::PeekerCallback peeker, void *peekerData = nullptr,
+                               QXcbEventQueue::PeekOptions option = QXcbEventQueue::PeekDefault,
                                qint32 peekerId = -1);
 
-    Q_INVOKABLE bool systemTrayAvailable(const QScreen *screen) const;
-    Q_INVOKABLE void setParentRelativeBackPixmap(QWindow *window);
-    Q_INVOKABLE bool systrayVisualHasAlphaChannel();
-    Q_INVOKABLE bool requestSystemTrayWindowDock(const QWindow *window);
-    Q_INVOKABLE QRect systemTrayWindowGlobalGeometry(const QWindow *window);
+    Q_INVOKABLE QString dumpConnectionNativeWindows(const QXcbConnection *connection, WId root) const;
+    Q_INVOKABLE QString dumpNativeWindows(WId root = 0) const;
 
     void addHandler(QXcbNativeInterfaceHandler *handler);
     void removeHandler(QXcbNativeInterfaceHandler *handler);
@@ -134,9 +131,7 @@ signals:
     void systemTrayWindowChanged(QScreen *screen);
 
 private:
-    xcb_window_t locateSystemTray(xcb_connection_t *conn, const QXcbScreen *screen);
-
-    const QByteArray m_genericEventFilterType;
+    const QByteArray m_nativeEventType = QByteArrayLiteral("xcb_generic_event_t");
 
     xcb_atom_t m_sysTraySelectionAtom = XCB_ATOM_NONE;
 

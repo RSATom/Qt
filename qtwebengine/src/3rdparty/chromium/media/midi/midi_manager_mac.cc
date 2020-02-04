@@ -4,20 +4,23 @@
 
 #include "media/midi/midi_manager_mac.h"
 
+#include <stddef.h>
+
 #include <algorithm>
+#include <iterator>
+#include <string>
+
+#include <CoreAudio/HostTime.h>
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
-
-#include <CoreAudio/HostTime.h>
-#include <stddef.h>
+#include "media/midi/midi_service.h"
+#include "media/midi/task_service.h"
 
 using base::IntToString;
 using base::SysCFStringRefToUTF8;
-using std::string;
 using midi::mojom::PortState;
 using midi::mojom::Result;
 
@@ -34,8 +37,13 @@ const size_t kCoreMIDIMaxPacketListSize = 65536;
 // Pessimistic estimation on available data size of MIDIPacketList.
 const size_t kEstimatedMaxPacketDataSize = kCoreMIDIMaxPacketListSize / 2;
 
-MidiPortInfo GetPortInfoFromEndpoint(MIDIEndpointRef endpoint) {
-  string manufacturer;
+enum {
+  kSessionTaskRunner = TaskService::kDefaultRunnerId,
+  kClientTaskRunner,
+};
+
+mojom::PortInfo GetPortInfoFromEndpoint(MIDIEndpointRef endpoint) {
+  std::string manufacturer;
   CFStringRef manufacturer_ref = NULL;
   OSStatus result = MIDIObjectGetStringProperty(
       endpoint, kMIDIPropertyManufacturer, &manufacturer_ref);
@@ -48,7 +56,7 @@ MidiPortInfo GetPortInfoFromEndpoint(MIDIEndpointRef endpoint) {
                   << result;
   }
 
-  string name;
+  std::string name;
   CFStringRef name_ref = NULL;
   result = MIDIObjectGetStringProperty(endpoint, kMIDIPropertyDisplayName,
                                        &name_ref);
@@ -59,7 +67,7 @@ MidiPortInfo GetPortInfoFromEndpoint(MIDIEndpointRef endpoint) {
                   << result;
   }
 
-  string version;
+  std::string version;
   SInt32 version_number = 0;
   result = MIDIObjectGetIntegerProperty(
       endpoint, kMIDIPropertyDriverVersion, &version_number);
@@ -72,7 +80,7 @@ MidiPortInfo GetPortInfoFromEndpoint(MIDIEndpointRef endpoint) {
                   << result;
   }
 
-  string id;
+  std::string id;
   SInt32 id_number = 0;
   result = MIDIObjectGetIntegerProperty(
       endpoint, kMIDIPropertyUniqueID, &id_number);
@@ -89,17 +97,16 @@ MidiPortInfo GetPortInfoFromEndpoint(MIDIEndpointRef endpoint) {
   }
 
   const PortState state = PortState::OPENED;
-  return MidiPortInfo(id, manufacturer, name, version, state);
+  return mojom::PortInfo(id, manufacturer, name, version, state);
 }
 
-double MIDITimeStampToSeconds(MIDITimeStamp timestamp) {
+base::TimeTicks MIDITimeStampToTimeTicks(MIDITimeStamp timestamp) {
   UInt64 nanoseconds = AudioConvertHostTimeToNanos(timestamp);
-  return static_cast<double>(nanoseconds) / 1.0e9;
+  return base::TimeTicks() + base::TimeDelta::FromNanoseconds(nanoseconds);
 }
 
-MIDITimeStamp SecondsToMIDITimeStamp(double seconds) {
-  UInt64 nanos = UInt64(seconds * 1.0e9);
-  return AudioConvertNanosToHostTime(nanos);
+MIDITimeStamp TimeTicksToMIDITimeStamp(base::TimeTicks ticks) {
+  return AudioConvertNanosToHostTime(ticks.since_origin().InNanoseconds());
 }
 
 }  // namespace
@@ -108,140 +115,116 @@ MidiManager* MidiManager::Create(MidiService* service) {
   return new MidiManagerMac(service);
 }
 
-MidiManagerMac::MidiManagerMac(MidiService* service)
-    : MidiManager(service),
-      midi_client_(0),
-      coremidi_input_(0),
-      coremidi_output_(0),
-      client_thread_("MidiClientThread"),
-      shutdown_(false) {}
+MidiManagerMac::MidiManagerMac(MidiService* service) : MidiManager(service) {}
 
-MidiManagerMac::~MidiManagerMac() = default;
+MidiManagerMac::~MidiManagerMac() {
+  if (!service()->task_service()->UnbindInstance())
+    return;
 
-void MidiManagerMac::StartInitialization() {
-  // MIDIClient should be created on |client_thread_| to receive CoreMIDI event
-  // notifications.
-  RunOnClientThread(
-      base::Bind(&MidiManagerMac::InitializeCoreMIDI, base::Unretained(this)));
-}
-
-void MidiManagerMac::Finalize() {
-  // Wait for the termination of |client_thread_| before disposing MIDI ports.
-  shutdown_ = true;
-  client_thread_.Stop();
-
-  if (coremidi_input_)
-    MIDIPortDispose(coremidi_input_);
-  if (coremidi_output_)
-    MIDIPortDispose(coremidi_output_);
+  // Finalization steps should be implemented after the UnbindInstance() call.
+  // Do not need to dispose |coremidi_input_| and |coremidi_output_| explicitly.
+  // CoreMIDI automatically disposes them on the client disposal.
+  base::AutoLock lock(midi_client_lock_);
   if (midi_client_)
     MIDIClientDispose(midi_client_);
+}
+
+void MidiManagerMac::StartInitialization() {
+  if (!service()->task_service()->BindInstance())
+    return CompleteInitialization(Result::INITIALIZATION_ERROR);
+
+  service()->task_service()->PostBoundTask(
+      kClientTaskRunner, base::BindOnce(&MidiManagerMac::InitializeCoreMIDI,
+                                        base::Unretained(this)));
 }
 
 void MidiManagerMac::DispatchSendMidiData(MidiManagerClient* client,
                                           uint32_t port_index,
                                           const std::vector<uint8_t>& data,
-                                          double timestamp) {
-  RunOnClientThread(
-      base::Bind(&MidiManagerMac::SendMidiData,
-                 base::Unretained(this), client, port_index, data, timestamp));
-}
-
-void MidiManagerMac::RunOnClientThread(const base::Closure& closure) {
-  if (shutdown_)
-    return;
-
-  if (!client_thread_.IsRunning())
-    client_thread_.Start();
-
-  client_thread_.task_runner()->PostTask(FROM_HERE, closure);
+                                          base::TimeTicks timestamp) {
+  service()->task_service()->PostBoundTask(
+      kClientTaskRunner,
+      base::BindOnce(&MidiManagerMac::SendMidiData, base::Unretained(this),
+                     client, port_index, data, timestamp));
 }
 
 void MidiManagerMac::InitializeCoreMIDI() {
-  DCHECK(client_thread_.task_runner()->BelongsToCurrentThread());
+  DCHECK(service()->task_service()->IsOnTaskRunner(kClientTaskRunner));
 
   // CoreMIDI registration.
-  DCHECK_EQ(0u, midi_client_);
-  OSStatus result =
-      MIDIClientCreate(CFSTR("Chrome"), ReceiveMidiNotifyDispatch, this,
-                       &midi_client_);
-  if (result != noErr || midi_client_ == 0)
-    return CompleteInitialization(Result::INITIALIZATION_ERROR);
+  MIDIClientRef client = 0u;
+  OSStatus result = MIDIClientCreate(CFSTR("Chrome"), ReceiveMidiNotifyDispatch,
+                                     this, &client);
+  if (result != noErr || client == 0u)
+    return CompleteCoreMIDIInitialization(Result::INITIALIZATION_ERROR);
 
-  // Create input and output port.
-  DCHECK_EQ(0u, coremidi_input_);
-  result = MIDIInputPortCreate(
-      midi_client_,
-      CFSTR("MIDI Input"),
-      ReadMidiDispatch,
-      this,
-      &coremidi_input_);
-  if (result != noErr || coremidi_input_ == 0)
-    return CompleteInitialization(Result::INITIALIZATION_ERROR);
+  {
+    base::AutoLock lock(midi_client_lock_);
+    midi_client_ = client;
+  }
 
-  DCHECK_EQ(0u, coremidi_output_);
-  result = MIDIOutputPortCreate(
-      midi_client_,
-      CFSTR("MIDI Output"),
-      &coremidi_output_);
-  if (result != noErr || coremidi_output_ == 0)
-    return CompleteInitialization(Result::INITIALIZATION_ERROR);
+  // Create input and output port. These MIDIPortRef references are not needed
+  // to be disposed explicitly. CoreMIDI automatically disposes them on the
+  // client disposal.
+  result = MIDIInputPortCreate(client, CFSTR("MIDI Input"), ReadMidiDispatch,
+                               this, &midi_input_);
+  if (result != noErr || midi_input_ == 0u)
+    return CompleteCoreMIDIInitialization(Result::INITIALIZATION_ERROR);
+
+  result = MIDIOutputPortCreate(client, CFSTR("MIDI Output"), &midi_output_);
+  if (result != noErr || midi_output_ == 0u)
+    return CompleteCoreMIDIInitialization(Result::INITIALIZATION_ERROR);
 
   // Following loop may miss some newly attached devices, but such device will
   // be captured by ReceiveMidiNotifyDispatch callback.
-  uint32_t destination_count = MIDIGetNumberOfDestinations();
-  destinations_.resize(destination_count);
-  for (uint32_t i = 0; i < destination_count; i++) {
+  destinations_.resize(MIDIGetNumberOfDestinations());
+  for (size_t i = 0u; i < destinations_.size(); ++i) {
     MIDIEndpointRef destination = MIDIGetDestination(i);
-    if (destination == 0) {
-      // One ore more devices may be detached.
-      destinations_.resize(i);
-      break;
-    }
+    DCHECK_NE(0u, destination);
 
     // Keep track of all destinations (known as outputs by the Web MIDI API).
-    // Cache to avoid any possible overhead in calling MIDIGetDestination().
     destinations_[i] = destination;
-
-    MidiPortInfo info = GetPortInfoFromEndpoint(destination);
-    AddOutputPort(info);
+    AddOutputPort(GetPortInfoFromEndpoint(destination));
   }
-
-  // Open connections from all sources. This loop also may miss new devices.
-  uint32_t source_count = MIDIGetNumberOfSources();
-  for (uint32_t i = 0; i < source_count; ++i) {
-    // Receive from all sources.
-    MIDIEndpointRef source = MIDIGetSource(i);
-    if (source == 0)
-      break;
-
-    // Start listening.
-    MIDIPortConnectSource(
-        coremidi_input_, source, reinterpret_cast<void*>(source));
-
-    // Keep track of all sources (known as inputs in Web MIDI API terminology).
-    source_map_[source] = i;
-
-    MidiPortInfo info = GetPortInfoFromEndpoint(source);
-    AddInputPort(info);
-  }
-
   // Allocate maximum size of buffer that CoreMIDI can handle.
   midi_buffer_.resize(kCoreMIDIMaxPacketListSize);
 
-  CompleteInitialization(Result::OK);
+  // Open connections from all sources. This loop also may miss new devices.
+  sources_.resize(MIDIGetNumberOfSources());
+  for (size_t i = 0u; i < sources_.size(); ++i) {
+    MIDIEndpointRef source = MIDIGetSource(i);
+    DCHECK_NE(0u, source);
+
+    // Keep track of all sources (known as inputs by the Web MIDI API).
+    sources_[i] = source;
+    AddInputPort(GetPortInfoFromEndpoint(source));
+  }
+  // Start listening.
+  for (size_t i = 0u; i < sources_.size(); ++i)
+    MIDIPortConnectSource(midi_input_, sources_[i], reinterpret_cast<void*>(i));
+
+  CompleteCoreMIDIInitialization(Result::OK);
+}
+
+void MidiManagerMac::CompleteCoreMIDIInitialization(mojom::Result result) {
+  service()->task_service()->PostBoundTask(
+      kSessionTaskRunner,
+      base::BindOnce(&MidiManagerMac::CompleteInitialization,
+                     base::Unretained(this), result));
 }
 
 // static
 void MidiManagerMac::ReceiveMidiNotifyDispatch(const MIDINotification* message,
                                                void* refcon) {
-  // This callback function is invoked on |client_thread_|.
+  // This callback function is invoked on |kClientTaskRunner|.
+  // |manager| should be valid because we can ensure |midi_client_| is still
+  // alive here.
   MidiManagerMac* manager = static_cast<MidiManagerMac*>(refcon);
   manager->ReceiveMidiNotify(message);
 }
 
 void MidiManagerMac::ReceiveMidiNotify(const MIDINotification* message) {
-  DCHECK(client_thread_.task_runner()->BelongsToCurrentThread());
+  DCHECK(service()->task_service()->IsOnTaskRunner(kClientTaskRunner));
 
   if (kMIDIMsgObjectAdded == message->messageID) {
     // New device is going to be attached.
@@ -251,28 +234,27 @@ void MidiManagerMac::ReceiveMidiNotify(const MIDINotification* message) {
         static_cast<MIDIEndpointRef>(notification->child);
     if (notification->childType == kMIDIObjectType_Source) {
       // Attaching device is an input device.
-      auto it = source_map_.find(endpoint);
-      if (it == source_map_.end()) {
-        MidiPortInfo info = GetPortInfoFromEndpoint(endpoint);
-        // If the device disappears before finishing queries, MidiPortInfo
+      auto it = std::find(sources_.begin(), sources_.end(), endpoint);
+      if (it == sources_.end()) {
+        mojom::PortInfo info = GetPortInfoFromEndpoint(endpoint);
+        // If the device disappears before finishing queries, mojom::PortInfo
         // becomes incomplete. Skip and do not cache such information here.
         // On kMIDIMsgObjectRemoved, the entry will be ignored because it
         // will not be found in the pool.
         if (!info.id.empty()) {
-          uint32_t index = source_map_.size();
-          source_map_[endpoint] = index;
+          sources_.push_back(endpoint);
           AddInputPort(info);
-          MIDIPortConnectSource(
-              coremidi_input_, endpoint, reinterpret_cast<void*>(endpoint));
+          MIDIPortConnectSource(midi_input_, endpoint,
+                                reinterpret_cast<void*>(sources_.size() - 1));
         }
       } else {
-        SetInputPortState(it->second, PortState::OPENED);
+        SetInputPortState(it - sources_.begin(), PortState::OPENED);
       }
     } else if (notification->childType == kMIDIObjectType_Destination) {
       // Attaching device is an output device.
       auto it = std::find(destinations_.begin(), destinations_.end(), endpoint);
       if (it == destinations_.end()) {
-        MidiPortInfo info = GetPortInfoFromEndpoint(endpoint);
+        mojom::PortInfo info = GetPortInfoFromEndpoint(endpoint);
         // Skip cases that queries are not finished correctly.
         if (!info.id.empty()) {
           destinations_.push_back(endpoint);
@@ -290,9 +272,9 @@ void MidiManagerMac::ReceiveMidiNotify(const MIDINotification* message) {
         static_cast<MIDIEndpointRef>(notification->child);
     if (notification->childType == kMIDIObjectType_Source) {
       // Detaching device is an input device.
-      auto it = source_map_.find(endpoint);
-      if (it != source_map_.end())
-        SetInputPortState(it->second, PortState::DISCONNECTED);
+      auto it = std::find(sources_.begin(), sources_.end(), endpoint);
+      if (it != sources_.end())
+        SetInputPortState(it - sources_.begin(), PortState::DISCONNECTED);
     } else if (notification->childType == kMIDIObjectType_Destination) {
       // Detaching device is an output device.
       auto it = std::find(destinations_.begin(), destinations_.end(), endpoint);
@@ -307,42 +289,20 @@ void MidiManagerMac::ReadMidiDispatch(const MIDIPacketList* packet_list,
                                       void* read_proc_refcon,
                                       void* src_conn_refcon) {
   // This method is called on a separate high-priority thread owned by CoreMIDI.
-
+  // |manager| should be valid because we can ensure |midi_client_| is still
+  // alive here.
   MidiManagerMac* manager = static_cast<MidiManagerMac*>(read_proc_refcon);
-#if __LP64__
-  MIDIEndpointRef source = reinterpret_cast<uintptr_t>(src_conn_refcon);
-#else
-  MIDIEndpointRef source = static_cast<MIDIEndpointRef>(src_conn_refcon);
-#endif
-
-  // Dispatch to class method.
-  manager->ReadMidi(source, packet_list);
-}
-
-void MidiManagerMac::ReadMidi(MIDIEndpointRef source,
-                              const MIDIPacketList* packet_list) {
-  // This method is called from ReadMidiDispatch() and runs on a separate
-  // high-priority thread owned by CoreMIDI.
-
-  // Lookup the port index based on the source.
-  auto it = source_map_.find(source);
-  if (it == source_map_.end())
-    return;
-  // This is safe since MidiManagerMac does not remove any existing
-  // MIDIEndpointRef, and the order is saved.
-  uint32_t port_index = it->second;
+  DCHECK(manager);
+  uint32_t port_index = reinterpret_cast<uintptr_t>(src_conn_refcon);
 
   // Go through each packet and process separately.
   const MIDIPacket* packet = &packet_list->packet[0];
-  for (size_t i = 0; i < packet_list->numPackets; i++) {
+  for (size_t i = 0u; i < packet_list->numPackets; i++) {
     // Each packet contains MIDI data for one or more messages (like note-on).
-    double timestamp_seconds = MIDITimeStampToSeconds(packet->timeStamp);
+    base::TimeTicks timestamp = MIDITimeStampToTimeTicks(packet->timeStamp);
 
-    ReceiveMidiData(
-        port_index,
-        packet->data,
-        packet->length,
-        timestamp_seconds);
+    manager->ReceiveMidiData(port_index, packet->data, packet->length,
+                             timestamp);
 
     packet = MIDIPacketNext(packet);
   }
@@ -351,18 +311,17 @@ void MidiManagerMac::ReadMidi(MIDIEndpointRef source,
 void MidiManagerMac::SendMidiData(MidiManagerClient* client,
                                   uint32_t port_index,
                                   const std::vector<uint8_t>& data,
-                                  double timestamp) {
-  DCHECK(client_thread_.task_runner()->BelongsToCurrentThread());
+                                  base::TimeTicks timestamp) {
+  DCHECK(service()->task_service()->IsOnTaskRunner(kClientTaskRunner));
 
   // Lookup the destination based on the port index.
   if (static_cast<size_t>(port_index) >= destinations_.size())
     return;
-
-  MIDITimeStamp coremidi_timestamp = SecondsToMIDITimeStamp(timestamp);
+  MIDITimeStamp coremidi_timestamp = TimeTicksToMIDITimeStamp(timestamp);
   MIDIEndpointRef destination = destinations_[port_index];
 
   size_t send_size;
-  for (size_t sent_size = 0; sent_size < data.size(); sent_size += send_size) {
+  for (size_t sent_size = 0u; sent_size < data.size(); sent_size += send_size) {
     MIDIPacketList* packet_list =
         reinterpret_cast<MIDIPacketList*>(midi_buffer_.data());
     MIDIPacket* midi_packet = MIDIPacketListInit(packet_list);
@@ -381,7 +340,7 @@ void MidiManagerMac::SendMidiData(MidiManagerClient* client,
         &data[sent_size]);
     DCHECK(midi_packet);
 
-    MIDISend(coremidi_output_, destination, packet_list);
+    MIDISend(midi_output_, destination, packet_list);
   }
 
   AccumulateMidiBytesSent(client, data.size());

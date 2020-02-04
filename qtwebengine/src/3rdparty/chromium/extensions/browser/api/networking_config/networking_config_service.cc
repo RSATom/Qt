@@ -13,7 +13,6 @@
 
 #include "base/bind.h"
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "chromeos/network/managed_network_configuration_handler.h"
@@ -34,6 +33,18 @@ bool IsValidNonEmptyHexString(const std::string& input) {
     if (!base::IsHexDigit<char>(c))
       return false;
   return true;
+}
+
+std::string LookUpExtensionName(content::BrowserContext* context,
+                                std::string extension_id) {
+  extensions::ExtensionRegistry* extension_registry =
+      extensions::ExtensionRegistry::Get(context);
+  DCHECK(extension_registry);
+  const extensions::Extension* extension = extension_registry->GetExtensionById(
+      extension_id, extensions::ExtensionRegistry::ENABLED);
+  if (extension == nullptr)
+    return std::string();
+  return extension->name();
 }
 
 }  // namespace
@@ -98,18 +109,35 @@ bool NetworkingConfigService::RegisterHexSsid(std::string hex_ssid,
   // Transform hex_ssid to uppercase.
   transform(hex_ssid.begin(), hex_ssid.end(), hex_ssid.begin(), toupper);
 
-  return hex_ssid_to_extension_id_.insert(make_pair(hex_ssid, extension_id))
-      .second;
+  // If |hex_ssid| is already in the map, i.e. if a hex ssid is already
+  // registered, this call should fail. TODO(stevenjb): Return an error code so
+  // that the extension API can respond with a better error.
+  if (!hex_ssid_to_extension_id_.insert(make_pair(hex_ssid, extension_id))
+           .second) {
+    LOG(ERROR) << "\'" << hex_ssid << "\' is already registered.";
+    return false;
+  }
+
+  chromeos::NetworkHandler::Get()
+      ->network_state_handler()
+      ->SetCaptivePortalProviderForHexSsid(
+          hex_ssid, extension_id,
+          LookUpExtensionName(browser_context_, extension_id));
+  return true;
 }
 
 void NetworkingConfigService::UnregisterExtension(
     const std::string& extension_id) {
   for (auto it = hex_ssid_to_extension_id_.begin();
        it != hex_ssid_to_extension_id_.end();) {
-    if (it->second == extension_id)
-      hex_ssid_to_extension_id_.erase(it++);
-    else
+    if (it->second == extension_id) {
+      chromeos::NetworkHandler::Get()
+          ->network_state_handler()
+          ->SetCaptivePortalProviderForHexSsid(it->first, "", "");
+      it = hex_ssid_to_extension_id_.erase(it);
+    } else {
       ++it;
+    }
   }
 }
 
@@ -193,9 +221,9 @@ NetworkingConfigService::CreatePortalDetectedEventAndDispatch(
   network_info.type = api::networking_config::NETWORK_TYPE_WIFI;
   const std::vector<uint8_t>& raw_ssid = network->raw_ssid();
   std::string hex_ssid = base::HexEncode(raw_ssid.data(), raw_ssid.size());
-  network_info.hex_ssid = base::MakeUnique<std::string>(hex_ssid);
-  network_info.ssid = base::MakeUnique<std::string>(network->name());
-  network_info.guid = base::MakeUnique<std::string>(network->guid());
+  network_info.hex_ssid = std::make_unique<std::string>(hex_ssid);
+  network_info.ssid = std::make_unique<std::string>(network->name());
+  network_info.guid = std::make_unique<std::string>(network->guid());
   if (bssid)
     network_info.bssid.reset(new std::string(*bssid));
   std::unique_ptr<base::ListValue> results =

@@ -27,8 +27,10 @@ class KioskDelegate;
 // this class should call ExtensionsBrowserClient::Set() with its instance.
 class TestExtensionsBrowserClient : public ExtensionsBrowserClient {
  public:
-  // |main_context| is required and must not be an incognito context.
+  // If provided, |main_context| must not be an incognito context.
   explicit TestExtensionsBrowserClient(content::BrowserContext* main_context);
+  // Alternate constructor allowing |main_context_| to be set later.
+  TestExtensionsBrowserClient();
   ~TestExtensionsBrowserClient() override;
 
   void set_process_manager_delegate(ProcessManagerDelegate* delegate) {
@@ -48,6 +50,10 @@ class TestExtensionsBrowserClient : public ExtensionsBrowserClient {
   // Sets a factory to respond to calls of the CreateUpdateClient method.
   void SetUpdateClientFactory(
       const base::Callback<update_client::UpdateClient*(void)>& factory);
+
+  // Sets the main browser context. Only call if a BrowserContext was not
+  // already provided. |main_context| must not be an incognito context.
+  void SetMainContext(content::BrowserContext* main_context);
 
   // Associates an incognito context with |main_context_|.
   void SetIncognitoContext(content::BrowserContext* incognito_context);
@@ -81,10 +87,27 @@ class TestExtensionsBrowserClient : public ExtensionsBrowserClient {
       const base::FilePath& directory_path,
       const std::string& content_security_policy,
       bool send_cors_header) override;
-  bool AllowCrossRendererResourceLoad(net::URLRequest* request,
+  base::FilePath GetBundleResourcePath(
+      const network::ResourceRequest& request,
+      const base::FilePath& extension_resources_path,
+      int* resource_id) const override;
+  void LoadResourceFromResourceBundle(
+      const network::ResourceRequest& request,
+      network::mojom::URLLoaderRequest loader,
+      const base::FilePath& resource_relative_path,
+      int resource_id,
+      const std::string& content_security_policy,
+      network::mojom::URLLoaderClientPtr client,
+      bool send_cors_header) override;
+
+  bool AllowCrossRendererResourceLoad(const GURL& url,
+                                      content::ResourceType resource_type,
+                                      ui::PageTransition page_transition,
+                                      int child_id,
                                       bool is_incognito,
                                       const Extension* extension,
-                                      InfoMap* extension_info_map) override;
+                                      const ExtensionSet& extensions,
+                                      const ProcessMap& process_map) override;
   PrefService* GetPrefServiceForContext(
       content::BrowserContext* context) override;
   void GetEarlyExtensionPrefsObservers(
@@ -94,13 +117,16 @@ class TestExtensionsBrowserClient : public ExtensionsBrowserClient {
   std::unique_ptr<ExtensionHostDelegate> CreateExtensionHostDelegate() override;
   bool DidVersionUpdate(content::BrowserContext* context) override;
   void PermitExternalProtocolHandler() override;
+  bool IsInDemoMode() override;
+  bool IsScreensaverInDemoMode(const std::string& app_id) override;
   bool IsRunningInForcedAppMode() override;
+  bool IsAppModeForcedForApp(const ExtensionId& extension_id) override;
   bool IsLoggedInAsPublicAccount() override;
   ExtensionSystemProvider* GetExtensionSystemFactory() override;
-  void RegisterExtensionFunctions(
-      ExtensionFunctionRegistry* registry) const override;
-  void RegisterMojoServices(content::RenderFrameHost* render_frame_host,
-                            const Extension* extension) const override;
+  void RegisterExtensionInterfaces(service_manager::BinderRegistryWithArgs<
+                                       content::RenderFrameHost*>* registry,
+                                   content::RenderFrameHost* render_frame_host,
+                                   const Extension* extension) const override;
   std::unique_ptr<RuntimeAPIDelegate> CreateRuntimeAPIDelegate(
       content::BrowserContext* context) const override;
   const ComponentExtensionResourceManager*
@@ -119,6 +145,7 @@ class TestExtensionsBrowserClient : public ExtensionsBrowserClient {
   scoped_refptr<update_client::UpdateClient> CreateUpdateClient(
       content::BrowserContext* context) override;
   bool IsLockScreenContext(content::BrowserContext* context) override;
+  std::string GetApplicationLocale() override;
 
   ExtensionSystemProvider* extension_system_factory() {
     return extension_system_factory_;

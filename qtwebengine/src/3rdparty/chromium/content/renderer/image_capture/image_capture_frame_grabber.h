@@ -5,14 +5,16 @@
 #ifndef CONTENT_RENDERER_IMAGE_CAPTURE_IMAGE_CAPTURE_FRAME_GRABBER_H_
 #define CONTENT_RENDERER_IMAGE_CAPTURE_IMAGE_CAPTURE_FRAME_GRABBER_H_
 
+#include <memory>
+
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "content/child/scoped_web_callbacks.h"
 #include "content/common/content_export.h"
 #include "content/public/renderer/media_stream_video_sink.h"
-#include "third_party/WebKit/public/platform/WebImageCaptureFrameGrabber.h"
+#include "third_party/blink/public/platform/scoped_web_callbacks.h"
+#include "third_party/blink/public/platform/web_image_capture_frame_grabber.h"
 
 namespace blink {
 class WebMediaStreamTrack;
@@ -26,8 +28,8 @@ namespace content {
 // thread and converts it into the appropriate SkBitmap which is sent back to
 // OnSkBitmap(). This class is single threaded throughout.
 class CONTENT_EXPORT ImageCaptureFrameGrabber final
-    : NON_EXPORTED_BASE(public blink::WebImageCaptureFrameGrabber),
-      NON_EXPORTED_BASE(public MediaStreamVideoSink) {
+    : public blink::WebImageCaptureFrameGrabber,
+      public MediaStreamVideoSink {
  public:
   using SkImageDeliverCB = base::Callback<void(sk_sp<SkImage>)>;
 
@@ -36,15 +38,16 @@ class CONTENT_EXPORT ImageCaptureFrameGrabber final
 
   // blink::WebImageCaptureFrameGrabber implementation.
   void GrabFrame(blink::WebMediaStreamTrack* track,
-                 blink::WebImageCaptureGrabFrameCallbacks* callbacks) override;
+                 std::unique_ptr<blink::WebImageCaptureGrabFrameCallbacks>
+                     callbacks) override;
 
  private:
   // Internal class to receive, convert and forward one frame.
   class SingleShotFrameHandler;
 
-  void OnSkImage(
-      ScopedWebCallbacks<blink::WebImageCaptureGrabFrameCallbacks> callbacks,
-      sk_sp<SkImage> image);
+  void OnSkImage(blink::ScopedWebCallbacks<
+                     blink::WebImageCaptureGrabFrameCallbacks> callbacks,
+                 sk_sp<SkImage> image);
 
   // Flag to indicate that there is a frame grabbing in progress.
   bool frame_grab_in_progress_;

@@ -5,11 +5,11 @@
 #ifndef IPC_HANDLE_FUCHSIA_H_
 #define IPC_HANDLE_FUCHSIA_H_
 
-#include <magenta/types.h>
+#include <zircon/types.h>
 
 #include <string>
 
-#include "ipc/ipc_export.h"
+#include "ipc/ipc_message_support_export.h"
 #include "ipc/ipc_param_traits.h"
 
 namespace base {
@@ -19,35 +19,21 @@ class PickleIterator;
 
 namespace IPC {
 
-class IPC_EXPORT HandleFuchsia {
+class IPC_MESSAGE_SUPPORT_EXPORT HandleFuchsia {
  public:
-  enum Permissions {
-    // A placeholder value to be used by the receiving IPC channel, since the
-    // permissions information is only used by the broker process.
-    INVALID,
-    // The new mx_handle_t will have the same permissions as the old
-    // mx_handle_t.
-    DUPLICATE,
-    // The new mx_handle_t will have file read and write permissions.
-    FILE_READ_WRITE,
-    MAX_PERMISSIONS = FILE_READ_WRITE
-  };
-
-  // Default constructor makes an invalid mx_handle_t.
+  // Default constructor makes an invalid zx_handle_t.
   HandleFuchsia();
-  HandleFuchsia(const mx_handle_t& handle, Permissions permissions);
+  explicit HandleFuchsia(const zx_handle_t& handle);
 
-  mx_handle_t get_handle() const { return handle_; }
-  void set_handle(mx_handle_t handle) { handle_ = handle; }
-  Permissions get_permissions() const { return permissions_; }
+  zx_handle_t get_handle() const { return handle_; }
+  void set_handle(zx_handle_t handle) { handle_ = handle; }
 
  private:
-  mx_handle_t handle_;
-  Permissions permissions_;
+  zx_handle_t handle_;
 };
 
 template <>
-struct IPC_EXPORT ParamTraits<HandleFuchsia> {
+struct IPC_MESSAGE_SUPPORT_EXPORT ParamTraits<HandleFuchsia> {
   typedef HandleFuchsia param_type;
   static void Write(base::Pickle* m, const param_type& p);
   static bool Read(const base::Pickle* m,

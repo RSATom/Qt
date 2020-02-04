@@ -15,8 +15,10 @@ EnumTraits<ui::mojom::InputDeviceType, ui::InputDeviceType>::ToMojom(
   switch (type) {
     case ui::INPUT_DEVICE_INTERNAL:
       return ui::mojom::InputDeviceType::INPUT_DEVICE_INTERNAL;
-    case ui::INPUT_DEVICE_EXTERNAL:
-      return ui::mojom::InputDeviceType::INPUT_DEVICE_EXTERNAL;
+    case ui::INPUT_DEVICE_USB:
+      return ui::mojom::InputDeviceType::INPUT_DEVICE_USB;
+    case ui::INPUT_DEVICE_BLUETOOTH:
+      return ui::mojom::InputDeviceType::INPUT_DEVICE_BLUETOOTH;
     case ui::INPUT_DEVICE_UNKNOWN:
       return ui::mojom::InputDeviceType::INPUT_DEVICE_UNKNOWN;
   }
@@ -31,8 +33,11 @@ bool EnumTraits<ui::mojom::InputDeviceType, ui::InputDeviceType>::FromMojom(
     case ui::mojom::InputDeviceType::INPUT_DEVICE_INTERNAL:
       *output = ui::INPUT_DEVICE_INTERNAL;
       break;
-    case ui::mojom::InputDeviceType::INPUT_DEVICE_EXTERNAL:
-      *output = ui::INPUT_DEVICE_EXTERNAL;
+    case ui::mojom::InputDeviceType::INPUT_DEVICE_USB:
+      *output = ui::INPUT_DEVICE_USB;
+      break;
+    case ui::mojom::InputDeviceType::INPUT_DEVICE_BLUETOOTH:
+      *output = ui::INPUT_DEVICE_BLUETOOTH;
       break;
     case ui::mojom::InputDeviceType::INPUT_DEVICE_UNKNOWN:
       *output = ui::INPUT_DEVICE_UNKNOWN;
@@ -106,6 +111,7 @@ bool StructTraits<ui::mojom::TouchscreenDeviceDataView, ui::TouchscreenDevice>::
     return false;
 
   out->touch_points = data.touch_points();
+  out->has_stylus = data.has_stylus();
 
   return true;
 }

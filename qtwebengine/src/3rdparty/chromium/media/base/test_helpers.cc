@@ -18,6 +18,7 @@
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/media_util.h"
+#include "media/base/mock_filters.h"
 #include "ui/gfx/geometry/rect.h"
 
 using ::testing::_;
@@ -41,25 +42,25 @@ class MockCallback : public base::RefCountedThreadSafe<MockCallback> {
   DISALLOW_COPY_AND_ASSIGN(MockCallback);
 };
 
-MockCallback::MockCallback() {}
-MockCallback::~MockCallback() {}
+MockCallback::MockCallback() = default;
+MockCallback::~MockCallback() = default;
 
 base::Closure NewExpectedClosure() {
   StrictMock<MockCallback>* callback = new StrictMock<MockCallback>();
   EXPECT_CALL(*callback, Run());
-  return base::Bind(&MockCallback::Run, callback);
+  return base::Bind(&MockCallback::Run, WrapRefCounted(callback));
 }
 
 base::Callback<void(bool)> NewExpectedBoolCB(bool success) {
   StrictMock<MockCallback>* callback = new StrictMock<MockCallback>();
   EXPECT_CALL(*callback, RunWithBool(success));
-  return base::Bind(&MockCallback::RunWithBool, callback);
+  return base::Bind(&MockCallback::RunWithBool, WrapRefCounted(callback));
 }
 
 PipelineStatusCB NewExpectedStatusCB(PipelineStatus status) {
   StrictMock<MockCallback>* callback = new StrictMock<MockCallback>();
   EXPECT_CALL(*callback, RunWithStatus(status));
-  return base::Bind(&MockCallback::RunWithStatus, callback);
+  return base::Bind(&MockCallback::RunWithStatus, WrapRefCounted(callback));
 }
 
 WaitableMessageLoopEvent::WaitableMessageLoopEvent()
@@ -98,7 +99,7 @@ void WaitableMessageLoopEvent::RunAndWaitForStatus(PipelineStatus expected) {
   }
 
   run_loop_.reset(new base::RunLoop());
-  base::Timer timer(false, false);
+  base::OneShotTimer timer;
   timer.Start(
       FROM_HERE, timeout_,
       base::Bind(&WaitableMessageLoopEvent::OnTimeout, base::Unretained(this)));
@@ -126,14 +127,17 @@ void WaitableMessageLoopEvent::OnTimeout() {
 }
 
 static VideoDecoderConfig GetTestConfig(VideoCodec codec,
+                                        VideoCodecProfile config,
+                                        const VideoColorSpace& color_space,
+                                        VideoRotation rotation,
                                         gfx::Size coded_size,
                                         bool is_encrypted) {
   gfx::Rect visible_rect(coded_size.width(), coded_size.height());
   gfx::Size natural_size = coded_size;
 
   return VideoDecoderConfig(
-      codec, VIDEO_CODEC_PROFILE_UNKNOWN, PIXEL_FORMAT_YV12, COLOR_SPACE_JPEG,
-      coded_size, visible_rect, natural_size, EmptyExtraData(),
+      codec, config, PIXEL_FORMAT_I420, color_space, rotation, coded_size,
+      visible_rect, natural_size, EmptyExtraData(),
       is_encrypted ? AesCtrEncryptionScheme() : Unencrypted());
 }
 
@@ -142,32 +146,65 @@ static const gfx::Size kLargeSize(640, 480);
 
 // static
 VideoDecoderConfig TestVideoConfig::Invalid() {
-  return GetTestConfig(kUnknownVideoCodec, kNormalSize, false);
+  return GetTestConfig(kUnknownVideoCodec, VIDEO_CODEC_PROFILE_UNKNOWN,
+                       VideoColorSpace::JPEG(), VIDEO_ROTATION_0, kNormalSize,
+                       false);
 }
 
 // static
 VideoDecoderConfig TestVideoConfig::Normal(VideoCodec codec) {
-  return GetTestConfig(codec, kNormalSize, false);
+  return GetTestConfig(codec, VIDEO_CODEC_PROFILE_UNKNOWN,
+                       VideoColorSpace::JPEG(), VIDEO_ROTATION_0, kNormalSize,
+                       false);
 }
 
 // static
-VideoDecoderConfig TestVideoConfig::NormalH264() {
-  return GetTestConfig(kCodecH264, kNormalSize, false);
+VideoDecoderConfig TestVideoConfig::NormalWithColorSpace(
+    VideoCodec codec,
+    const VideoColorSpace& color_space) {
+  return GetTestConfig(codec, VIDEO_CODEC_PROFILE_UNKNOWN, color_space,
+                       VIDEO_ROTATION_0, kNormalSize, false);
 }
 
 // static
-VideoDecoderConfig TestVideoConfig::NormalEncrypted() {
-  return GetTestConfig(kCodecVP8, kNormalSize, true);
+VideoDecoderConfig TestVideoConfig::NormalH264(VideoCodecProfile config) {
+  return GetTestConfig(kCodecH264, config, VideoColorSpace::JPEG(),
+                       VIDEO_ROTATION_0, kNormalSize, false);
+}
+
+// static
+VideoDecoderConfig TestVideoConfig::NormalCodecProfile(
+    VideoCodec codec,
+    VideoCodecProfile profile) {
+  return GetTestConfig(codec, profile, VideoColorSpace::JPEG(),
+                       VIDEO_ROTATION_0, kNormalSize, false);
+}
+
+// static
+VideoDecoderConfig TestVideoConfig::NormalEncrypted(VideoCodec codec,
+                                                    VideoCodecProfile profile) {
+  return GetTestConfig(codec, profile, VideoColorSpace::JPEG(),
+                       VIDEO_ROTATION_0, kNormalSize, true);
+}
+
+// static
+VideoDecoderConfig TestVideoConfig::NormalRotated(VideoRotation rotation) {
+  return GetTestConfig(kCodecVP8, VIDEO_CODEC_PROFILE_UNKNOWN,
+                       VideoColorSpace::JPEG(), rotation, kNormalSize, false);
 }
 
 // static
 VideoDecoderConfig TestVideoConfig::Large(VideoCodec codec) {
-  return GetTestConfig(codec, kLargeSize, false);
+  return GetTestConfig(codec, VIDEO_CODEC_PROFILE_UNKNOWN,
+                       VideoColorSpace::JPEG(), VIDEO_ROTATION_0, kLargeSize,
+                       false);
 }
 
 // static
-VideoDecoderConfig TestVideoConfig::LargeEncrypted() {
-  return GetTestConfig(kCodecVP8, kLargeSize, true);
+VideoDecoderConfig TestVideoConfig::LargeEncrypted(VideoCodec codec) {
+  return GetTestConfig(codec, VIDEO_CODEC_PROFILE_UNKNOWN,
+                       VideoColorSpace::JPEG(), VIDEO_ROTATION_0, kLargeSize,
+                       true);
 }
 
 // static
@@ -186,10 +223,16 @@ AudioDecoderConfig TestAudioConfig::Normal() {
                             Unencrypted());
 }
 
+AudioDecoderConfig TestAudioConfig::NormalEncrypted() {
+  return AudioDecoderConfig(kCodecVorbis, kSampleFormatPlanarF32,
+                            CHANNEL_LAYOUT_STEREO, 44100, EmptyExtraData(),
+                            AesCtrEncryptionScheme());
+}
+
 // static
 AudioParameters TestAudioParameters::Normal() {
   return AudioParameters(AudioParameters::AUDIO_PCM_LOW_LATENCY,
-                         CHANNEL_LAYOUT_STEREO, 48000, 16, 2048);
+                         CHANNEL_LAYOUT_STEREO, 48000, 2048);
 }
 
 template <class T>
@@ -233,6 +276,49 @@ scoped_refptr<AudioBuffer> MakeAudioBuffer(SampleFormat format,
   return output;
 }
 
+scoped_refptr<AudioBuffer> MakeBitstreamAudioBuffer(
+    SampleFormat format,
+    ChannelLayout channel_layout,
+    size_t channel_count,
+    int sample_rate,
+    uint8_t start,
+    uint8_t increment,
+    size_t frames,
+    size_t data_size,
+    base::TimeDelta timestamp) {
+  scoped_refptr<AudioBuffer> output = AudioBuffer::CreateBitstreamBuffer(
+      format, channel_layout, static_cast<int>(channel_count), sample_rate,
+      static_cast<int>(frames), data_size);
+  output->set_timestamp(timestamp);
+
+  // Values in channel 0 will be:
+  //   start
+  //   start + increment
+  //   start + 2 * increment, ...
+  uint8_t* buffer = reinterpret_cast<uint8_t*>(output->channel_data()[0]);
+  for (size_t i = 0; i < data_size; ++i) {
+    buffer[i] = static_cast<uint8_t>(start + i * increment);
+  }
+
+  return output;
+}
+
+void VerifyBitstreamAudioBus(AudioBus* bus,
+                             size_t data_size,
+                             uint8_t start,
+                             uint8_t increment) {
+  ASSERT_TRUE(bus->is_bitstream_format());
+
+  // Values in channel 0 will be:
+  //   start
+  //   start + increment
+  //   start + 2 * increment, ...
+  uint8_t* buffer = reinterpret_cast<uint8_t*>(bus->channel(0));
+  for (size_t i = 0; i < data_size; ++i) {
+    ASSERT_EQ(buffer[i], static_cast<uint8_t>(start + i * increment));
+  }
+}
+
 // Instantiate all the types of MakeAudioBuffer() and
 // MakeAudioBuffer() needed.
 #define DEFINE_MAKE_AUDIO_BUFFER_INSTANCE(type)              \
@@ -271,13 +357,12 @@ scoped_refptr<DecoderBuffer> CreateFakeVideoBufferForTest(
   return buffer;
 }
 
-bool VerifyFakeVideoBufferForTest(
-    const scoped_refptr<DecoderBuffer>& buffer,
-    const VideoDecoderConfig& config) {
+bool VerifyFakeVideoBufferForTest(const DecoderBuffer& buffer,
+                                  const VideoDecoderConfig& config) {
   // Check if the input |buffer| matches the |config|.
   base::PickleIterator pickle(
-      base::Pickle(reinterpret_cast<const char*>(buffer->data()),
-                   static_cast<int>(buffer->data_size())));
+      base::Pickle(reinterpret_cast<const char*>(buffer.data()),
+                   static_cast<int>(buffer.data_size())));
   std::string header;
   int width = 0;
   int height = 0;
@@ -286,6 +371,30 @@ bool VerifyFakeVideoBufferForTest(
   return (success && header == kFakeVideoBufferHeader &&
           width == config.coded_size().width() &&
           height == config.coded_size().height());
+}
+
+std::unique_ptr<StrictMock<MockDemuxerStream>> CreateMockDemuxerStream(
+    DemuxerStream::Type type,
+    bool encrypted) {
+  auto stream = std::make_unique<StrictMock<MockDemuxerStream>>(type);
+
+  switch (type) {
+    case DemuxerStream::AUDIO:
+      stream->set_audio_decoder_config(encrypted
+                                           ? TestAudioConfig::NormalEncrypted()
+                                           : TestAudioConfig::Normal());
+      break;
+    case DemuxerStream::VIDEO:
+      stream->set_video_decoder_config(encrypted
+                                           ? TestVideoConfig::NormalEncrypted()
+                                           : TestVideoConfig::Normal());
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
+
+  return stream;
 }
 
 }  // namespace media

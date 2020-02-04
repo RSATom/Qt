@@ -12,8 +12,8 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/task/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/grit/generated_resources.h"
@@ -23,9 +23,10 @@
 #include "components/version_ui/version_ui_constants.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/content_constants.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
 
@@ -35,7 +36,7 @@ namespace {
 void GetFilePaths(const base::FilePath& profile_path,
                   base::string16* exec_path_out,
                   base::string16* profile_path_out) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   base::FilePath executable_path = base::MakeAbsoluteFilePath(
       base::CommandLine::ForCurrentProcess()->GetProgram());
@@ -53,9 +54,7 @@ void GetFilePaths(const base::FilePath& profile_path,
 
 }  // namespace
 
-VersionHandler::VersionHandler()
-    : weak_ptr_factory_(this) {
-}
+VersionHandler::VersionHandler() : weak_ptr_factory_(this) {}
 
 VersionHandler::~VersionHandler() {
 }
@@ -63,11 +62,12 @@ VersionHandler::~VersionHandler() {
 void VersionHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       version_ui::kRequestVersionInfo,
-      base::Bind(&VersionHandler::HandleRequestVersionInfo,
-                 base::Unretained(this)));
+      base::BindRepeating(&VersionHandler::HandleRequestVersionInfo,
+                          base::Unretained(this)));
 }
 
 void VersionHandler::HandleRequestVersionInfo(const base::ListValue* args) {
+  AllowJavascript();
 #if BUILDFLAG(ENABLE_PLUGINS)
   // The Flash version information is needed in the response, so make sure
   // the plugins are loaded.
@@ -90,8 +90,14 @@ void VersionHandler::HandleRequestVersionInfo(const base::ListValue* args) {
           base::Owned(exec_path_buffer), base::Owned(profile_path_buffer)));
 
   // Respond with the variations info immediately.
-  web_ui()->CallJavascriptFunctionUnsafe(version_ui::kReturnVariationInfo,
-                                         *version_ui::GetVariationsList());
+  CallJavascriptFunction(version_ui::kReturnVariationInfo,
+                         *version_ui::GetVariationsList());
+  GURL current_url = web_ui()->GetWebContents()->GetVisibleURL();
+  if (current_url.query().find(version_ui::kVariationsShowCmdQuery) !=
+      std::string::npos) {
+    CallJavascriptFunction(version_ui::kReturnVariationCmd,
+                           version_ui::GetVariationsCommandLineAsValue());
+  }
 }
 
 void VersionHandler::OnGotFilePaths(base::string16* executable_path_data,
@@ -100,8 +106,7 @@ void VersionHandler::OnGotFilePaths(base::string16* executable_path_data,
 
   base::Value exec_path(*executable_path_data);
   base::Value profile_path(*profile_path_data);
-  web_ui()->CallJavascriptFunctionUnsafe(version_ui::kReturnFilePaths,
-                                         exec_path, profile_path);
+  CallJavascriptFunction(version_ui::kReturnFilePaths, exec_path, profile_path);
 }
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -128,6 +133,6 @@ void VersionHandler::OnGotPlugins(
 
   base::Value arg(flash_version_and_path);
 
-  web_ui()->CallJavascriptFunctionUnsafe(version_ui::kReturnFlashVersion, arg);
+  CallJavascriptFunction(version_ui::kReturnFlashVersion, arg);
 }
 #endif  // BUILDFLAG(ENABLE_PLUGINS)

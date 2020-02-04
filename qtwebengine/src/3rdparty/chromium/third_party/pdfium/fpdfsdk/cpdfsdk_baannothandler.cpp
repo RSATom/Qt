@@ -11,7 +11,7 @@
 
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
-#include "core/fpdfdoc/cpdf_interform.h"
+#include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "fpdfsdk/cpdfsdk_annot.h"
 #include "fpdfsdk/cpdfsdk_baannot.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
@@ -65,22 +65,22 @@ void CPDFSDK_BAAnnotHandler::ReleaseAnnot(CPDFSDK_Annot* pAnnot) {
 void CPDFSDK_BAAnnotHandler::OnDraw(CPDFSDK_PageView* pPageView,
                                     CPDFSDK_Annot* pAnnot,
                                     CFX_RenderDevice* pDevice,
-                                    CFX_Matrix* pUser2Device,
+                                    const CFX_Matrix& mtUser2Device,
                                     bool bDrawAnnots) {
 #ifdef PDF_ENABLE_XFA
   if (pAnnot->IsXFAField())
     return;
 #endif  // PDF_ENABLE_XFA
   if (bDrawAnnots && pAnnot->GetAnnotSubtype() == CPDF_Annot::Subtype::POPUP) {
-    static_cast<CPDFSDK_BAAnnot*>(pAnnot)->DrawAppearance(
-        pDevice, pUser2Device, CPDF_Annot::Normal, nullptr);
+    pAnnot->AsBAAnnot()->DrawAppearance(pDevice, mtUser2Device,
+                                        CPDF_Annot::Normal, nullptr);
   }
 }
 
 void CPDFSDK_BAAnnotHandler::OnMouseEnter(CPDFSDK_PageView* pPageView,
                                           CPDFSDK_Annot::ObservedPtr* pAnnot,
                                           uint32_t nFlag) {
-  CPDFSDK_BAAnnot* pBAAnnot = static_cast<CPDFSDK_BAAnnot*>(pAnnot->Get());
+  CPDFSDK_BAAnnot* pBAAnnot = (*pAnnot)->AsBAAnnot();
   pBAAnnot->SetOpenState(true);
   UpdateAnnotRects(pPageView, pBAAnnot);
 }
@@ -88,7 +88,7 @@ void CPDFSDK_BAAnnotHandler::OnMouseEnter(CPDFSDK_PageView* pPageView,
 void CPDFSDK_BAAnnotHandler::OnMouseExit(CPDFSDK_PageView* pPageView,
                                          CPDFSDK_Annot::ObservedPtr* pAnnot,
                                          uint32_t nFlag) {
-  CPDFSDK_BAAnnot* pBAAnnot = static_cast<CPDFSDK_BAAnnot*>(pAnnot->Get());
+  CPDFSDK_BAAnnot* pBAAnnot = (*pAnnot)->AsBAAnnot();
   pBAAnnot->SetOpenState(false);
   UpdateAnnotRects(pPageView, pBAAnnot);
 }
@@ -193,8 +193,31 @@ CFX_FloatRect CPDFSDK_BAAnnotHandler::GetViewBBox(CPDFSDK_PageView* pPageView,
   return pAnnot->GetRect();
 }
 
-CFX_WideString CPDFSDK_BAAnnotHandler::GetSelectedText(CPDFSDK_Annot* pAnnot) {
-  return CFX_WideString();
+WideString CPDFSDK_BAAnnotHandler::GetText(CPDFSDK_Annot* pAnnot) {
+  return WideString();
+}
+
+WideString CPDFSDK_BAAnnotHandler::GetSelectedText(CPDFSDK_Annot* pAnnot) {
+  return WideString();
+}
+
+void CPDFSDK_BAAnnotHandler::ReplaceSelection(CPDFSDK_Annot* pAnnot,
+                                              const WideString& text) {}
+
+bool CPDFSDK_BAAnnotHandler::CanUndo(CPDFSDK_Annot* pAnnot) {
+  return false;
+}
+
+bool CPDFSDK_BAAnnotHandler::CanRedo(CPDFSDK_Annot* pAnnot) {
+  return false;
+}
+
+bool CPDFSDK_BAAnnotHandler::Undo(CPDFSDK_Annot* pAnnot) {
+  return false;
+}
+
+bool CPDFSDK_BAAnnotHandler::Redo(CPDFSDK_Annot* pAnnot) {
+  return false;
 }
 
 bool CPDFSDK_BAAnnotHandler::HitTest(CPDFSDK_PageView* pPageView,

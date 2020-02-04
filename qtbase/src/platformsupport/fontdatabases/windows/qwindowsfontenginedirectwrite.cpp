@@ -69,15 +69,14 @@ namespace {
 
     class GeometrySink: public IDWriteGeometrySink
     {
+        Q_DISABLE_COPY_MOVE(GeometrySink)
     public:
         GeometrySink(QPainterPath *path)
             : m_refCount(0), m_path(path)
         {
             Q_ASSERT(m_path != 0);
         }
-        virtual ~GeometrySink()
-        {
-        }
+        virtual ~GeometrySink() = default;
 
         IFACEMETHOD_(void, AddBeziers)(const D2D1_BEZIER_SEGMENT *beziers, UINT bezierCount);
         IFACEMETHOD_(void, AddLines)(const D2D1_POINT_2F *points, UINT pointCount);
@@ -282,7 +281,7 @@ static UUID uuidIdWriteLocalFontFileLoader()
 
 QString QWindowsFontEngineDirectWrite::filenameFromFontFile(IDWriteFontFile *fontFile)
 {
-    IDWriteFontFileLoader *loader = Q_NULLPTR;
+    IDWriteFontFileLoader *loader = nullptr;
 
     HRESULT hr = fontFile->GetLoader(&loader);
     if (FAILED(hr)) {
@@ -290,11 +289,11 @@ QString QWindowsFontEngineDirectWrite::filenameFromFontFile(IDWriteFontFile *fon
         return QString();
     }
 
-    QIdWriteLocalFontFileLoader *localLoader = Q_NULLPTR;
+    QIdWriteLocalFontFileLoader *localLoader = nullptr;
     hr = loader->QueryInterface(uuidIdWriteLocalFontFileLoader(),
                                 reinterpret_cast<void **>(&localLoader));
 
-    const void *fontFileReferenceKey = Q_NULLPTR;
+    const void *fontFileReferenceKey = nullptr;
     UINT32 fontFileReferenceKeySize = 0;
     if (SUCCEEDED(hr)) {
         hr = fontFile->GetReferenceKey(&fontFileReferenceKey,
@@ -326,10 +325,10 @@ QString QWindowsFontEngineDirectWrite::filenameFromFontFile(IDWriteFontFile *fon
             ret = QString::fromWCharArray(filePath.data());
     }
 
-    if (localLoader != Q_NULLPTR)
+    if (localLoader != nullptr)
         localLoader->Release();
 
-    if (loader != Q_NULLPTR)
+    if (loader != nullptr)
         loader->Release();
     return ret;
 }
@@ -349,7 +348,7 @@ void QWindowsFontEngineDirectWrite::collectMetrics()
     m_lineGap = DESIGN_TO_LOGICAL(metrics.lineGap);
     m_underlinePosition = DESIGN_TO_LOGICAL(metrics.underlinePosition);
 
-    IDWriteFontFile *fontFile = Q_NULLPTR;
+    IDWriteFontFile *fontFile = nullptr;
     UINT32 numberOfFiles = 1;
     if (SUCCEEDED(m_directWriteFontFace->GetFiles(&numberOfFiles, &fontFile))) {
         m_faceId.filename = QFile::encodeName(filenameFromFontFile(fontFile));
@@ -651,7 +650,8 @@ bool QWindowsFontEngineDirectWrite::supportsSubPixelPositions() const
 QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
                                              QFixed subPixelPosition,
                                              int margin,
-                                             const QTransform &originalTransform)
+                                             const QTransform &originalTransform,
+                                             const QColor &color)
 {
     UINT16 glyphIndex = t;
     FLOAT glyphAdvance = 0;
@@ -713,7 +713,7 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
 #if defined(QT_USE_DIRECTWRITE2)
         HRESULT hr = DWRITE_E_NOCOLOR;
         IDWriteColorGlyphRunEnumerator *enumerator = 0;
-        IDWriteFactory2 *factory2 = Q_NULLPTR;
+        IDWriteFactory2 *factory2 = nullptr;
         if (glyphFormat == QFontEngine::Format_ARGB
                 && SUCCEEDED(m_fontEngineData->directWriteFactory->QueryInterface(__uuidof(IDWriteFactory2),
                                                                                   reinterpret_cast<void **>(&factory2)))) {
@@ -736,6 +736,7 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
 
 #if defined(QT_USE_DIRECTWRITE2)
         BOOL ok = true;
+
         if (SUCCEEDED(hr)) {
             while (SUCCEEDED(hr) && ok) {
                 const DWRITE_COLOR_GLYPH_RUN *colorGlyphRun = 0;
@@ -760,10 +761,18 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
                     break;
                 }
 
-                float r = qBound(0.0f, colorGlyphRun->runColor.r, 1.0f);
-                float g = qBound(0.0f, colorGlyphRun->runColor.g, 1.0f);
-                float b = qBound(0.0f, colorGlyphRun->runColor.b, 1.0f);
-                float a = qBound(0.0f, colorGlyphRun->runColor.a, 1.0f);
+                float r, g, b, a;
+                if (colorGlyphRun->paletteIndex == 0xFFFF) {
+                    r = float(color.redF());
+                    g = float(color.greenF());
+                    b = float(color.blueF());
+                    a = float(color.alphaF());
+                } else {
+                    r = qBound(0.0f, colorGlyphRun->runColor.r, 1.0f);
+                    g = qBound(0.0f, colorGlyphRun->runColor.g, 1.0f);
+                    b = qBound(0.0f, colorGlyphRun->runColor.b, 1.0f);
+                    a = qBound(0.0f, colorGlyphRun->runColor.a, 1.0f);
+                }
 
                 if (!qFuzzyIsNull(a)) {
                     renderGlyphRun(&image,
@@ -785,11 +794,21 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
         } else
 #endif
         {
+            float r, g, b, a;
+            if (glyphFormat == QFontEngine::Format_ARGB) {
+                r = float(color.redF());
+                g = float(color.greenF());
+                b = float(color.blueF());
+                a = float(color.alphaF());
+            } else {
+                r = g = b = a = 0.0;
+            }
+
             renderGlyphRun(&image,
-                           0.0,
-                           0.0,
-                           0.0,
-                           1.0,
+                           r,
+                           g,
+                           b,
+                           a,
                            glyphAnalysis,
                            boundingRect);
         }
@@ -1002,9 +1021,9 @@ glyph_metrics_t QWindowsFontEngineDirectWrite::alphaMapBoundingBox(glyph_t glyph
     }
 }
 
-QImage QWindowsFontEngineDirectWrite::bitmapForGlyph(glyph_t glyph, QFixed subPixelPosition, const QTransform &t)
+QImage QWindowsFontEngineDirectWrite::bitmapForGlyph(glyph_t glyph, QFixed subPixelPosition, const QTransform &t, const QColor &color)
 {
-    return imageForGlyph(glyph, subPixelPosition, glyphMargin(QFontEngine::Format_A32), t);
+    return imageForGlyph(glyph, subPixelPosition, glyphMargin(QFontEngine::Format_A32), t, color);
 }
 
 QT_END_NAMESPACE

@@ -4,7 +4,8 @@
 
 #include "net/ssl/client_cert_store_mac.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "net/ssl/client_cert_identity_test_util.h"
 #include "net/ssl/client_cert_store_unittest-inl.h"
 #include "net/ssl/ssl_private_key.h"
@@ -37,7 +38,7 @@ class ClientCertStoreMacTest : public ::testing::Test {
       const SSLCertRequestInfo& request,
       ClientCertIdentityList* selected_certs) {
     std::unique_ptr<ClientCertIdentity> preferred_identity(
-        base::MakeUnique<FakeClientCertIdentity>(preferred_cert, nullptr));
+        std::make_unique<FakeClientCertIdentity>(preferred_cert, nullptr));
 
     return store_.SelectClientCertsGivenPreferredForTesting(
         std::move(preferred_identity),
@@ -91,8 +92,10 @@ TEST_F(ClientCertStoreMacTest, PreferredCertGoesFirst) {
       cert_1, certs, *request.get(), &selected_certs);
   EXPECT_TRUE(rv);
   ASSERT_EQ(2u, selected_certs.size());
-  EXPECT_TRUE(selected_certs[0]->certificate()->Equals(cert_1.get()));
-  EXPECT_TRUE(selected_certs[1]->certificate()->Equals(cert_2.get()));
+  EXPECT_TRUE(
+      selected_certs[0]->certificate()->EqualsExcludingChain(cert_1.get()));
+  EXPECT_TRUE(
+      selected_certs[1]->certificate()->EqualsExcludingChain(cert_2.get()));
 }
 
 }  // namespace net

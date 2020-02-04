@@ -5,33 +5,78 @@
 #include "components/password_manager/core/browser/password_manager_util.h"
 
 #include <algorithm>
+#include <memory>
+#include <string>
+#include <utility>
 
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/stl_util.h"
+#include "base/time/time.h"
+#include "build/build_config.h"
+#include "components/autofill/core/browser/popup_item_ids.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/autofill/core/common/password_generation_util.h"
+#include "components/password_manager/core/browser/credentials_cleaner.h"
+#include "components/password_manager/core/browser/credentials_cleaner_runner.h"
+#include "components/password_manager/core/browser/http_credentials_cleaner.h"
 #include "components/password_manager/core/browser/log_manager.h"
+#include "components/password_manager/core/browser/password_generation_manager.h"
+#include "components/password_manager/core/browser/password_manager.h"
+#include "components/password_manager/core/browser/password_manager_client.h"
+#include "components/password_manager/core/browser/password_manager_driver.h"
+#include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#include "components/password_manager/core/browser/password_store_consumer.h"
+#include "components/password_manager/core/common/password_manager_features.h"
+#include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "components/sync/driver/sync_service.h"
-#include "crypto/openssl_util.h"
-#include "third_party/boringssl/src/include/openssl/evp.h"
+#include "components/sync/driver/sync_user_settings.h"
+
+using autofill::PasswordForm;
 
 namespace password_manager_util {
+namespace {
 
-password_manager::PasswordSyncState GetPasswordSyncState(
+// Return true if
+// 1.|lhs| is non-PSL match, |rhs| is PSL match or
+// 2.|lhs| and |rhs| have the same value of |is_public_suffix_match|, and |lhs|
+// is preferred while |rhs| is not preferred.
+bool IsBetterMatch(const PasswordForm* lhs, const PasswordForm* rhs) {
+  return std::make_pair(!lhs->is_public_suffix_match, lhs->preferred) >
+         std::make_pair(!rhs->is_public_suffix_match, rhs->preferred);
+}
+
+}  // namespace
+
+// Update |credential| to reflect usage.
+void UpdateMetadataForUsage(PasswordForm* credential) {
+  ++credential->times_used;
+
+  // Remove alternate usernames. At this point we assume that we have found
+  // the right username.
+  credential->other_possible_usernames.clear();
+}
+
+password_manager::SyncState GetPasswordSyncState(
     const syncer::SyncService* sync_service) {
-  if (sync_service && sync_service->IsFirstSetupComplete() &&
-      sync_service->IsSyncActive() &&
+  if (sync_service && sync_service->GetUserSettings()->IsFirstSetupComplete() &&
+      sync_service->IsSyncFeatureActive() &&
       sync_service->GetActiveDataTypes().Has(syncer::PASSWORDS)) {
-    return sync_service->IsUsingSecondaryPassphrase()
+    return sync_service->GetUserSettings()->IsUsingSecondaryPassphrase()
                ? password_manager::SYNCING_WITH_CUSTOM_PASSPHRASE
                : password_manager::SYNCING_NORMAL_ENCRYPTION;
   }
-  return password_manager::NOT_SYNCING_PASSWORDS;
+  return password_manager::NOT_SYNCING;
 }
 
-void FindDuplicates(
-    std::vector<std::unique_ptr<autofill::PasswordForm>>* forms,
-    std::vector<std::unique_ptr<autofill::PasswordForm>>* duplicates,
-    std::vector<std::vector<autofill::PasswordForm*>>* tag_groups) {
+bool IsSyncingWithNormalEncryption(const syncer::SyncService* sync_service) {
+  return GetPasswordSyncState(sync_service) ==
+         password_manager::SYNCING_NORMAL_ENCRYPTION;
+}
+
+void FindDuplicates(std::vector<std::unique_ptr<PasswordForm>>* forms,
+                    std::vector<std::unique_ptr<PasswordForm>>* duplicates,
+                    std::vector<std::vector<PasswordForm*>>* tag_groups) {
   if (forms->empty())
     return;
 
@@ -39,11 +84,11 @@ void FindDuplicates(
   // duplicates. Therefore, the caller should try to preserve it.
   std::stable_sort(forms->begin(), forms->end(), autofill::LessThanUniqueKey());
 
-  std::vector<std::unique_ptr<autofill::PasswordForm>> unique_forms;
+  std::vector<std::unique_ptr<PasswordForm>> unique_forms;
   unique_forms.push_back(std::move(forms->front()));
   if (tag_groups) {
     tag_groups->clear();
-    tag_groups->push_back(std::vector<autofill::PasswordForm*>());
+    tag_groups->push_back(std::vector<PasswordForm*>());
     tag_groups->front().push_back(unique_forms.front().get());
   }
   for (auto it = forms->begin() + 1; it != forms->end(); ++it) {
@@ -53,8 +98,7 @@ void FindDuplicates(
       duplicates->push_back(std::move(*it));
     } else {
       if (tag_groups)
-        tag_groups->push_back(
-            std::vector<autofill::PasswordForm*>(1, it->get()));
+        tag_groups->push_back(std::vector<PasswordForm*>(1, it->get()));
       unique_forms.push_back(std::move(*it));
     }
   }
@@ -62,22 +106,20 @@ void FindDuplicates(
 }
 
 void TrimUsernameOnlyCredentials(
-    std::vector<std::unique_ptr<autofill::PasswordForm>>* android_credentials) {
+    std::vector<std::unique_ptr<PasswordForm>>* android_credentials) {
   // Remove username-only credentials which are not federated.
   base::EraseIf(*android_credentials,
-                [](const std::unique_ptr<autofill::PasswordForm>& form) {
-                  return form->scheme ==
-                             autofill::PasswordForm::SCHEME_USERNAME_ONLY &&
-                         form->federation_origin.unique();
+                [](const std::unique_ptr<PasswordForm>& form) {
+                  return form->scheme == PasswordForm::SCHEME_USERNAME_ONLY &&
+                         form->federation_origin.opaque();
                 });
 
   // Set "skip_zero_click" on federated credentials.
-  std::for_each(
-      android_credentials->begin(), android_credentials->end(),
-      [](const std::unique_ptr<autofill::PasswordForm>& form) {
-        if (form->scheme == autofill::PasswordForm::SCHEME_USERNAME_ONLY)
-          form->skip_zero_click = true;
-      });
+  std::for_each(android_credentials->begin(), android_credentials->end(),
+                [](const std::unique_ptr<PasswordForm>& form) {
+                  if (form->scheme == PasswordForm::SCHEME_USERNAME_ONLY)
+                    form->skip_zero_click = true;
+                });
 }
 
 bool IsLoggingActive(const password_manager::PasswordManagerClient* client) {
@@ -85,38 +127,123 @@ bool IsLoggingActive(const password_manager::PasswordManagerClient* client) {
   return log_manager && log_manager->IsLoggingActive();
 }
 
-uint64_t CalculateSyncPasswordHash(const base::StringPiece16& text,
-                                   const std::string& salt) {
-  crypto::OpenSSLErrStackTracer err_tracer(FROM_HERE);
-  constexpr size_t kBytesFromHash = 8;
-  constexpr uint64_t kScryptCost = 32;  // It must be power of 2.
-  constexpr uint64_t kScryptBlockSize = 8;
-  constexpr uint64_t kScryptParallelization = 1;
-  constexpr size_t kScryptMaxMemory = 1024 * 1024;
+bool ManualPasswordGenerationEnabled(
+    password_manager::PasswordManagerDriver* driver) {
+  password_manager::PasswordGenerationManager* password_generation_manager =
+      driver ? driver->GetPasswordGenerationManager() : nullptr;
+  if (!password_generation_manager ||
+      !password_generation_manager->IsGenerationEnabled(false /*logging*/)) {
+    return false;
+  }
 
-  uint8_t hash[kBytesFromHash];
-  base::StringPiece text_8bits(reinterpret_cast<const char*>(text.data()),
-                               text.size() * 2);
-  const uint8_t* salt_ptr = reinterpret_cast<const uint8_t*>(salt.c_str());
+  LogPasswordGenerationEvent(
+      autofill::password_generation::PASSWORD_GENERATION_CONTEXT_MENU_SHOWN);
+  return true;
+}
 
-  int scrypt_ok = EVP_PBE_scrypt(text_8bits.data(), text_8bits.size(), salt_ptr,
-                                 salt.size(), kScryptCost, kScryptBlockSize,
-                                 kScryptParallelization, kScryptMaxMemory, hash,
-                                 kBytesFromHash);
+bool ShowAllSavedPasswordsContextMenuEnabled(
+    password_manager::PasswordManagerDriver* driver) {
+  password_manager::PasswordManager* password_manager =
+      driver ? driver->GetPasswordManager() : nullptr;
+  if (!password_manager)
+    return false;
 
-  // EVP_PBE_scrypt can only fail due to memory allocation error (which aborts
-  // Chromium) or invalid parameters. In case of a failure a hash could leak
-  // information from the stack, so using CHECK is better than DCHECK.
-  CHECK(scrypt_ok);
+  password_manager::PasswordManagerClient* client = password_manager->client();
+  if (!client ||
+      !client->IsFillingFallbackEnabled(driver->GetLastCommittedURL()))
+    return false;
 
-  // Take 37 bits of |hash|.
-  uint64_t hash37 = ((static_cast<uint64_t>(hash[0]))) |
-                    ((static_cast<uint64_t>(hash[1])) << 8) |
-                    ((static_cast<uint64_t>(hash[2])) << 16) |
-                    ((static_cast<uint64_t>(hash[3])) << 24) |
-                    (((static_cast<uint64_t>(hash[4])) & 0x1F) << 32);
+  LogContextOfShowAllSavedPasswordsShown(
+      password_manager::metrics_util::
+          SHOW_ALL_SAVED_PASSWORDS_CONTEXT_CONTEXT_MENU);
 
-  return hash37;
+  return true;
+}
+
+void UserTriggeredManualGenerationFromContextMenu(
+    password_manager::PasswordManagerClient* password_manager_client) {
+  password_manager_client->GeneratePassword();
+  LogPasswordGenerationEvent(
+      autofill::password_generation::PASSWORD_GENERATION_CONTEXT_MENU_PRESSED);
+}
+
+// TODO(http://crbug.com/890318): Add unitests to check cleaners are correctly
+// created.
+void RemoveUselessCredentials(
+    scoped_refptr<password_manager::PasswordStore> store,
+    PrefService* prefs,
+    int delay_in_seconds,
+    base::RepeatingCallback<network::mojom::NetworkContext*()>
+        network_context_getter) {
+  auto cleaning_tasks_runner =
+      std::make_unique<password_manager::CredentialsCleanerRunner>();
+
+#if !defined(OS_IOS)
+  // Can be null for some unittests.
+  if (!network_context_getter.is_null()) {
+    cleaning_tasks_runner->MaybeAddCleaningTask(
+        std::make_unique<password_manager::HttpCredentialCleaner>(
+            store, network_context_getter, prefs));
+  }
+#endif  // !defined(OS_IOS)
+
+  if (cleaning_tasks_runner->HasPendingTasks()) {
+    // The runner will delete itself once the clearing tasks are done, thus we
+    // are releasing ownership here.
+    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(
+            &password_manager::CredentialsCleanerRunner::StartCleaning,
+            base::Unretained(cleaning_tasks_runner.release())),
+        base::TimeDelta::FromSeconds(delay_in_seconds));
+  }
+}
+
+base::StringPiece GetSignonRealmWithProtocolExcluded(const PasswordForm& form) {
+  base::StringPiece signon_realm_protocol_excluded = form.signon_realm;
+
+  // Find the web origin (with protocol excluded) in the signon_realm.
+  const size_t after_protocol =
+      signon_realm_protocol_excluded.find(form.origin.host_piece());
+  DCHECK_NE(after_protocol, base::StringPiece::npos);
+
+  // Keep the string starting with position |after_protocol|.
+  signon_realm_protocol_excluded =
+      signon_realm_protocol_excluded.substr(after_protocol);
+  return signon_realm_protocol_excluded;
+}
+
+void FindBestMatches(
+    std::vector<const PasswordForm*> matches,
+    std::map<base::string16, const PasswordForm*>* best_matches,
+    std::vector<const PasswordForm*>* not_best_matches,
+    const PasswordForm** preferred_match) {
+  DCHECK(std::all_of(
+      matches.begin(), matches.end(),
+      [](const PasswordForm* match) { return !match->blacklisted_by_user; }));
+  DCHECK(best_matches);
+  DCHECK(not_best_matches);
+  DCHECK(preferred_match);
+
+  *preferred_match = nullptr;
+  best_matches->clear();
+  not_best_matches->clear();
+
+  if (matches.empty())
+    return;
+
+  // Sort matches using IsBetterMatch predicate.
+  std::sort(matches.begin(), matches.end(), IsBetterMatch);
+  for (const auto* match : matches) {
+    const base::string16& username = match->username_value;
+    // The first match for |username| in the sorted array is best match.
+    if (best_matches->find(username) == best_matches->end())
+      best_matches->insert(std::make_pair(username, match));
+    else
+      not_best_matches->push_back(match);
+  }
+
+  *preferred_match = *matches.begin();
 }
 
 }  // namespace password_manager_util

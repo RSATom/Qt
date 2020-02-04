@@ -7,45 +7,49 @@
 
 #include <stddef.h>
 
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
+#include "base/optional.h"
 #include "base/strings/string_piece.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/form_types.h"
+#include "components/autofill/core/browser/proto/api_v1.pb.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
+#include "components/autofill/core/common/password_form.h"
+#include "components/autofill/core/common/submission_source.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
-enum UploadRequired {
-  UPLOAD_NOT_REQUIRED,
-  UPLOAD_REQUIRED,
-  USE_UPLOAD_RATES
-};
+enum UploadRequired { UPLOAD_NOT_REQUIRED, UPLOAD_REQUIRED, USE_UPLOAD_RATES };
 
 namespace base {
 class TimeTicks;
 }
 
-namespace rappor {
-class RapporServiceImpl;
-}
-
-namespace ukm {
-class UkmRecorder;
-}
-
 namespace autofill {
+
+// Password attributes (whether a password has special symbols, numeric, etc.)
+enum class PasswordAttribute {
+  kHasLowercaseLetter,
+  kHasUppercaseLetter,
+  kHasNumeric,
+  kHasSpecialSymbol,
+  kPasswordAttributesCount
+};
 
 struct FormData;
 struct FormDataPredictions;
+
+class RandomizedEncoder;
 
 // FormStructure stores a single HTML form together with the values entered
 // in the fields along with additional information needed by Autofill.
@@ -55,9 +59,8 @@ class FormStructure {
   virtual ~FormStructure();
 
   // Runs several heuristics against the form fields to determine their possible
-  // types. If |ukm_recorder| is specified, logs UKM for the form structure
-  // corresponding to |source_url_|.
-  void DetermineHeuristicTypes(ukm::UkmRecorder* ukm_recorder);
+  // types.
+  void DetermineHeuristicTypes();
 
   // Encodes the proto |upload| request from this FormStructure.
   // In some cases, a |login_form_signature| is included as part of the upload.
@@ -76,12 +79,25 @@ class FormStructure {
                                  std::vector<std::string>* encoded_signatures,
                                  autofill::AutofillQueryContents* query);
 
-  // Parses the field types from the server query response. |forms| must be the
-  // same as the one passed to EncodeQueryRequest when constructing the query.
-  // |rappor_service| may be null.
+  // Parses response as AutofillQueryResponseContents proto and calls
+  // ProcessQueryResponse.
   static void ParseQueryResponse(std::string response,
                                  const std::vector<FormStructure*>& forms,
-                                 rappor::RapporServiceImpl* rappor_service);
+                                 AutofillMetrics::FormInteractionsUkmLogger*);
+
+  static void ParseApiQueryResponse(
+      base::StringPiece payload,
+      const std::vector<FormStructure*>& forms,
+      AutofillMetrics::FormInteractionsUkmLogger*);
+
+  // Parses the field types from the server query response. |forms| must be the
+  // same as the one passed to EncodeQueryRequest when constructing the query.
+  // |form_interactions_ukm_logger| is used to provide logs to UKM and can be
+  // null in tests.
+  static void ProcessQueryResponse(
+      const AutofillQueryResponseContents& response,
+      const std::vector<FormStructure*>& forms,
+      AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger);
 
   // Returns predictions using the details from the given |form_structures| and
   // their fields' predicted types.
@@ -112,18 +128,27 @@ class FormStructure {
   // Returns true if this form matches the structural requirements for Autofill.
   bool ShouldBeParsed() const;
 
-  // Returns true if we should query the crowdsourcing server to determine this
-  // form's field types.  If the form includes author-specified types, this will
+  // Returns true if heuristic autofill type detection should be attempted for
+  // this form.
+  bool ShouldRunHeuristics() const;
+
+  // Returns true if we should query the crowd-sourcing server to determine this
+  // form's field types. If the form includes author-specified types, this will
   // return false unless there are password fields in the form. If there are no
   // password fields the assumption is that the author has expressed their
   // intent and crowdsourced data should not be used to override this. Password
   // fields are different because there is no way to specify password generation
   // directly.
-  bool ShouldBeCrowdsourced() const;
+  bool ShouldBeQueried() const;
+
+  // Returns true if we should upload Autofill votes for this form to the
+  // crowd-sourcing server. It is not applied for Password Manager votes.
+  bool ShouldBeUploaded() const;
 
   // Sets the field types to be those set for |cached_form|.
-  void UpdateFromCache(const FormStructure& cached_form,
-                       const bool apply_is_autofilled);
+  void RetrieveFromCache(const FormStructure& cached_form,
+                         const bool apply_is_autofilled,
+                         const bool only_server_and_autofill_state);
 
   // Logs quality metrics for |this|, which should be a user-submitted form.
   // This method should only be called after the possible field types have been
@@ -139,7 +164,6 @@ class FormStructure {
       const base::TimeTicks& load_time,
       const base::TimeTicks& interaction_time,
       const base::TimeTicks& submission_time,
-      rappor::RapporServiceImpl* rappor_service,
       AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger,
       bool did_show_suggestions,
       bool observed_submission) const;
@@ -161,21 +185,6 @@ class FormStructure {
   // specifies a section for at least one field.
   void ParseFieldTypesFromAutocompleteAttributes();
 
-  // Determines whether |type| and |field| match.
-  typedef base::Callback<bool(ServerFieldType type,
-                              const AutofillField& field)>
-      InputFieldComparator;
-
-  // Fills in |fields_| that match |types| (via |matches|) with info from
-  // |get_info|. Uses |address_language_code| to determine line separators when
-  // collapsing street address lines into a single-line input text field.
-  bool FillFields(
-      const std::vector<ServerFieldType>& types,
-      const InputFieldComparator& matches,
-      const base::Callback<base::string16(const AutofillType&)>& get_info,
-      const std::string& address_language_code,
-      const std::string& app_locale);
-
   // Returns the values that can be filled into the form structure for the
   // given type. For example, there's no way to fill in a value of "The Moon"
   // into ADDRESS_HOME_STATE if the form only has a
@@ -188,6 +197,10 @@ class FormStructure {
   // Gets the form's current value for |type|. For example, it may return
   // the contents of a text input or the currently selected <option>.
   base::string16 GetUniqueValue(HtmlFieldType type) const;
+
+  // Rationalize phone number fields in a given section, that is only fill
+  // the fields that are considered composing a first complete phone number.
+  void RationalizePhoneNumbersInSection(std::string section);
 
   const AutofillField* field(size_t index) const;
   AutofillField* field(size_t index);
@@ -210,9 +223,15 @@ class FormStructure {
 
   const base::string16& form_name() const { return form_name_; }
 
+  const base::string16& id_attribute() const { return id_attribute_; }
+
+  const base::string16& name_attribute() const { return name_attribute_; }
+
   const GURL& source_url() const { return source_url_; }
 
   const GURL& target_url() const { return target_url_; }
+
+  const url::Origin& main_frame_origin() const { return main_frame_origin_; }
 
   bool has_author_specified_types() const {
     return has_author_specified_types_;
@@ -226,31 +245,202 @@ class FormStructure {
     return has_author_specified_upi_vpa_hint_;
   }
 
+  bool has_password_field() const { return has_password_field_; }
+
+  void set_submission_event(SubmissionIndicatorEvent submission_event) {
+    submission_event_ = submission_event;
+  }
+
   void set_upload_required(UploadRequired required) {
     upload_required_ = required;
   }
   UploadRequired upload_required() const { return upload_required_; }
 
-  bool all_fields_are_passwords() const { return all_fields_are_passwords_; }
-
-  bool is_signin_upload() const { return is_signin_upload_; }
-  void set_is_signin_upload(bool is_signin_upload) {
-    is_signin_upload_ = is_signin_upload;
+  base::TimeTicks form_parsed_timestamp() const {
+    return form_parsed_timestamp_;
   }
+
+  bool all_fields_are_passwords() const { return all_fields_are_passwords_; }
 
   FormSignature form_signature() const { return form_signature_; }
 
   // Returns a FormData containing the data this form structure knows about.
   FormData ToFormData() const;
 
+  // Returns the possible form types.
+  std::set<FormType> GetFormTypes() const;
+
+  bool passwords_were_revealed() const { return passwords_were_revealed_; }
+  void set_passwords_were_revealed(bool passwords_were_revealed) {
+    passwords_were_revealed_ = passwords_were_revealed;
+  }
+
+  void set_password_attributes_vote(
+      const std::pair<PasswordAttribute, bool>& vote) {
+    password_attributes_vote_ = vote;
+  }
+#if defined(UNIT_TEST)
+  base::Optional<std::pair<PasswordAttribute, bool>>
+  get_password_attributes_vote_for_testing() const {
+    return password_attributes_vote_;
+  }
+#endif
+
+  void set_password_length_vote(const size_t noisified_password_length) {
+    DCHECK(password_attributes_vote_.has_value())
+        << "|password_length_vote_| doesn't make sense if "
+           "|password_attributes_vote_| has no value.";
+    password_length_vote_ = noisified_password_length;
+  }
+#if defined(UNIT_TEST)
+  size_t get_password_length_vote_for_testing() const {
+    DCHECK(password_attributes_vote_.has_value())
+        << "|password_length_vote_| doesn't make sense if "
+           "|password_attributes_vote_| has no value.";
+    return password_length_vote_;
+  }
+
+  SubmissionIndicatorEvent get_submission_event_for_testing() const {
+    return submission_event_;
+  }
+#endif
+
+  SubmissionSource submission_source() const { return submission_source_; }
+  void set_submission_source(SubmissionSource submission_source) {
+    submission_source_ = submission_source;
+  }
+
   bool operator==(const FormData& form) const;
   bool operator!=(const FormData& form) const;
+
+  // Returns an identifier that is used by the refill logic. Takes the first non
+  // empty of these or returns an empty string:
+  // - Form name
+  // - Name for Autofill of first field
+  base::string16 GetIdentifierForRefill() const;
+
+  int developer_engagement_metrics() { return developer_engagement_metrics_; };
+
+  void set_randomized_encoder(std::unique_ptr<RandomizedEncoder> encoder);
+
+  void set_is_rich_query_enabled(bool v) { is_rich_query_enabled_ = v; }
+
+  const std::string& page_language() const { return page_language_; }
+
+  void set_page_language(std::string language) {
+    page_language_ = std::move(language);
+  }
 
  private:
   friend class AutofillMergeTest;
   friend class FormStructureTest;
   FRIEND_TEST_ALL_PREFIXES(AutofillDownloadTest, QueryAndUploadTest);
   FRIEND_TEST_ALL_PREFIXES(FormStructureTest, FindLongestCommonPrefix);
+  FRIEND_TEST_ALL_PREFIXES(FormStructureTest,
+                           RationalizePhoneNumber_RunsOncePerSection);
+
+  class SectionedFieldsIndexes {
+   public:
+    SectionedFieldsIndexes();
+    ~SectionedFieldsIndexes();
+
+    size_t LastFieldIndex() const {
+      if (sectioned_indexes.empty())
+        return (size_t)-1;  // Shouldn't happen.
+      return sectioned_indexes.back().back();
+    };
+
+    void AddFieldIndex(const size_t index, bool is_new_section) {
+      if (is_new_section || Empty()) {
+        sectioned_indexes.push_back(std::vector<size_t>(1, index));
+        return;
+      }
+      sectioned_indexes.back().push_back(index);
+    }
+
+    void WalkForwardToTheNextSection() { current_section_ptr++; }
+
+    bool IsFinished() const {
+      return current_section_ptr >= sectioned_indexes.size();
+    }
+
+    size_t CurrentIndex() const { return CurrentSection()[0]; }
+
+    std::vector<size_t> CurrentSection() const {
+      if (current_section_ptr < sectioned_indexes.size())
+        return sectioned_indexes[current_section_ptr];
+      return std::vector<size_t>(1, (size_t)-1);  // To handle edge cases.
+    }
+
+    void Reset() { current_section_ptr = 0; }
+
+    bool Empty() const { return sectioned_indexes.empty(); }
+
+   private:
+    // A vector of sections. Each section is a vector of some of the indexes
+    // that belong to the same section. The sections and indexes are sorted by
+    // their order of appearance on the form.
+    std::vector<std::vector<size_t>> sectioned_indexes;
+    // Points to a vector of indexes that belong to the same section.
+    size_t current_section_ptr = 0;
+  };
+
+  // A function to fine tune the credit cards related predictions. For example:
+  // lone credit card fields in an otherwise non-credit-card related form is
+  // unlikely to be correct, the function will override that prediction.
+  void RationalizeCreditCardFieldPredictions();
+
+  // The rationalization is based on the visible fields, but should be applied
+  // to the hidden select fields. This is because hidden 'select' fields are
+  // also autofilled to take care of the synthetic fields.
+  void ApplyRationalizationsToHiddenSelects(
+      size_t field_index,
+      ServerFieldType new_type,
+      AutofillMetrics::FormInteractionsUkmLogger*);
+
+  // Returns true if we can replace server predictions with the heuristics one.
+  bool HeuristicsPredictionsAreApplicable(size_t upper_index,
+                                          size_t lower_index,
+                                          ServerFieldType first_type,
+                                          ServerFieldType second_type);
+
+  // Applies upper type to upper field, and lower type to lower field, and
+  // applies the rationalization also to hidden select fields if necessary.
+  void ApplyRationalizationsToFields(
+      size_t upper_index,
+      size_t lower_index,
+      ServerFieldType upper_type,
+      ServerFieldType lower_type,
+      AutofillMetrics::FormInteractionsUkmLogger*);
+
+  // Returns true if the fields_[index] server type should be rationalized to
+  // ADDRESS_HOME_COUNTRY.
+  bool FieldShouldBeRationalizedToCountry(size_t index);
+
+  // Set fields_[|field_index|] to |new_type| and log this change.
+  void ApplyRationalizationsToFieldAndLog(
+      size_t field_index,
+      ServerFieldType new_type,
+      AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger);
+
+  // Two or three fields predicted as the whole address should be address lines
+  // 1, 2 and 3 instead.
+  void RationalizeAddressLineFields(
+      SectionedFieldsIndexes& sections_of_address_indexes,
+      AutofillMetrics::FormInteractionsUkmLogger*);
+
+  // Rationalize state and country interdependently.
+  void RationalizeAddressStateCountry(
+      SectionedFieldsIndexes& sections_of_state_indexes,
+      SectionedFieldsIndexes& sections_of_country_indexes,
+      AutofillMetrics::FormInteractionsUkmLogger*);
+
+  // Tunes the fields with identical predictions.
+  void RationalizeRepeatedFields(AutofillMetrics::FormInteractionsUkmLogger*);
+
+  // A helper function to review the predictions and do appropriate adjustments
+  // when it considers necessary.
+  void RationalizeFieldTypePredictions();
 
   // Encodes information about this form and its fields into |query_form|.
   void EncodeFormForQuery(
@@ -265,8 +455,8 @@ class FormStructure {
   // Classifies each field in |fields_| into a logical section.
   // Sections are identified by the heuristic that a logical section should not
   // include multiple fields of the same autofill type (with some exceptions, as
-  // described in the implementation).  Sections are furthermore distinguished
-  // as either credit card or non-credit card sections.
+  // described in the implementation). Credit card fields also, have a single
+  // separate section from address fields.
   // If |has_author_specified_sections| is true, only the second pass --
   // distinguishing credit card sections from non-credit card ones -- is made.
   void IdentifySections(bool has_author_specified_sections);
@@ -285,14 +475,34 @@ class FormStructure {
   static base::string16 FindLongestCommonPrefix(
       const std::vector<base::string16>& strings);
 
+  // The language detected for this form's page, prior to any translations
+  // performed by Chrome.
+  std::string page_language_;
+
+  // The id attribute of the form.
+  base::string16 id_attribute_;
+
+  // The name attribute of the form.
+  base::string16 name_attribute_;
+
   // The name of the form.
   base::string16 form_name_;
+
+  // The titles of form's buttons.
+  ButtonTitleList button_titles_;
+
+  // The type of the event that was taken as an indication that the form has
+  // been successfully submitted.
+  SubmissionIndicatorEvent submission_event_;
 
   // The source URL.
   GURL source_url_;
 
   // The target URL.
   GURL target_url_;
+
+  // The origin of the main frame of this form.
+  url::Origin main_frame_origin_;
 
   // The number of fields able to be auto-filled.
   size_t autofill_count_;
@@ -331,19 +541,51 @@ class FormStructure {
   // True if the form is a <form>.
   bool is_form_tag_;
 
-  // True if the form is made of unowned fields in a non checkout flow.
+  // True if the form is made of unowned fields (i.e., not within a <form> tag)
+  // in what appears to be a checkout flow. This attribute is only calculated
+  // and used if features::kAutofillRestrictUnownedFieldsToFormlessCheckout is
+  // enabled, to prevent heuristics from running on formless non-checkout.
   bool is_formless_checkout_;
 
   // True if all form fields are password fields.
   bool all_fields_are_passwords_;
 
-  // True if the form is submitted and has 2 fields: one text and one password
-  // field.
-  bool is_signin_upload_;
-
   // The unique signature for this form, composed of the target url domain,
   // the form name, and the form field names in a 64-bit hash.
   FormSignature form_signature_;
+
+  // The timestamp (not wallclock time) when this form was initially parsed.
+  base::TimeTicks form_parsed_timestamp_;
+
+  // If phone number rationalization has been performed for a given section.
+  std::map<std::string, bool> phone_rationalized_;
+
+  // True iff the form is a password form and the user has seen the password
+  // value before accepting the prompt to save. Used for crowdsourcing.
+  bool passwords_were_revealed_;
+
+  // The vote about password attributes (e.g. whether the password has a numeric
+  // character).
+  base::Optional<std::pair<PasswordAttribute, bool>> password_attributes_vote_;
+
+  // Noisified password length for crowdsourcing. If |password_attributes_vote_|
+  // has no value, |password_length_vote_| should be ignored.
+  size_t password_length_vote_;
+
+  // Used to record whether developer has used autocomplete markup or
+  // UPI-VPA hints, This is a bitmask of DeveloperEngagementMetric and set in
+  // DetermineHeuristicTypes().
+  int developer_engagement_metrics_;
+
+  SubmissionSource submission_source_ = SubmissionSource::NONE;
+
+  // The randomized encoder to use to encode form metadata during upload.
+  // If this is nullptr, no randomized metadata will be sent.
+  std::unique_ptr<RandomizedEncoder> randomized_encoder_;
+
+  // True iff queries encoded from this form structure should include rich
+  // form/field metadata.
+  bool is_rich_query_enabled_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(FormStructure);
 };

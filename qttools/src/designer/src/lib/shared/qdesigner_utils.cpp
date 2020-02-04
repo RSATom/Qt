@@ -31,27 +31,27 @@
 #include "abstractformbuilder.h"
 #include "formwindowbase_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerResourceBrowserInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QDesignerTaskMenuExtension>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractresourcebrowser.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/taskmenu.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QProcess>
-#include <QtCore/QLibraryInfo>
-#include <QtCore/QDebug>
-#include <QtCore/QQueue>
-#include <QtCore/QSharedData>
+#include <QtCore/qdir.h>
+#include <QtCore/qprocess.h>
+#include <QtCore/qlibraryinfo.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qqueue.h>
+#include <QtCore/qshareddata.h>
 
-#include <QtWidgets/QApplication>
-#include <QtGui/QIcon>
-#include <QtGui/QPixmap>
-#include <QtWidgets/QListWidget>
-#include <QtWidgets/QTreeWidget>
-#include <QtWidgets/QTableWidget>
-#include <QtWidgets/QComboBox>
+#include <QtWidgets/qapplication.h>
+#include <QtGui/qicon.h>
+#include <QtGui/qpixmap.h>
+#include <QtWidgets/qlistwidget.h>
+#include <QtWidgets/qtreewidget.h>
+#include <QtWidgets/qtablewidget.h>
+#include <QtWidgets/qcombobox.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -157,12 +157,16 @@ namespace qdesigner_internal
 
     QString DesignerMetaEnum::messageToStringFailed(int value) const
     {
-        return QCoreApplication::translate("DesignerMetaEnum", "%1 is not a valid enumeration value of '%2'.").arg(value).arg(name());
+        return QCoreApplication::translate("DesignerMetaEnum",
+                                           "%1 is not a valid enumeration value of '%2'.")
+                                           .arg(value).arg(name());
     }
 
     QString DesignerMetaEnum::messageParseFailed(const QString &s) const
     {
-        return QCoreApplication::translate("DesignerMetaEnum", "'%1' could not be converted to an enumeration value of type '%2'.").arg(s).arg(name());
+        return QCoreApplication::translate("DesignerMetaEnum",
+                                           "'%1' could not be converted to an enumeration value of type '%2'.")
+                                           .arg(s, name());
     }
     // -------------- DesignerMetaFlags
     DesignerMetaFlags::DesignerMetaFlags(const QString &name, const QString &scope, const QString &separator) :
@@ -237,7 +241,9 @@ namespace qdesigner_internal
 
     QString DesignerMetaFlags::messageParseFailed(const QString &s) const
     {
-        return QCoreApplication::translate("DesignerMetaFlags", "'%1' could not be converted to a flag value of type '%2'.").arg(s).arg(name());
+        return QCoreApplication::translate("DesignerMetaFlags",
+                                           "'%1' could not be converted to a flag value of type '%2'.")
+                                           .arg(s, name());
     }
 
     // ---------- PropertySheetEnumValue
@@ -311,9 +317,7 @@ namespace qdesigner_internal
     {
     }
 
-    PropertySheetIconValue::~PropertySheetIconValue()
-    {
-    }
+    PropertySheetIconValue::~PropertySheetIconValue() = default;
 
     PropertySheetIconValue::PropertySheetIconValue(const PropertySheetIconValue &rhs) :
         m_data(rhs.m_data)
@@ -345,7 +349,7 @@ namespace qdesigner_internal
             const ModeStateKey otherPair = itOther.key();
             if (thisPair < otherPair)
                 return true;
-            else if (otherPair < thisPair)
+            if (otherPair < thisPair)
                 return false;
             const int crc = itThis.value().compare(itOther.value());
             if (crc < 0)
@@ -355,9 +359,7 @@ namespace qdesigner_internal
             ++itThis;
             ++itOther;
         }
-        if (itOther != itOtherEnd)
-            return true;
-        return false;
+        return itOther != itOtherEnd;
     }
 
     bool PropertySheetIconValue::isEmpty() const
@@ -456,7 +458,8 @@ namespace qdesigner_internal
     {
         return m_translatable == rhs.m_translatable
                && m_disambiguation == rhs.m_disambiguation
-               && m_comment == rhs.m_comment;
+               && m_comment == rhs.m_comment
+               && m_id == rhs.m_id;
     }
 
     PropertySheetStringValue::PropertySheetStringValue(const QString &value,

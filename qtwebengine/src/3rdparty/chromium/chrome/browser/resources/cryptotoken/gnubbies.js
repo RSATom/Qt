@@ -83,8 +83,9 @@ Gnubbies.prototype.registerNamespace = function(namespace, impl) {
  * @return {boolean} Whether the device is a shared access device.
  */
 Gnubbies.prototype.isSharedAccess = function(id) {
-  if (!this.impl_.hasOwnProperty(id.namespace))
+  if (!this.impl_.hasOwnProperty(id.namespace)) {
     return false;
+  }
   return this.impl_[id.namespace].isSharedAccess;
 };
 
@@ -170,7 +171,7 @@ Gnubbies.prototype.enumerate = function(cb, opt_type) {
     }
 
     console.log(UTIL_fmt('Enumerated ' + devs.length + ' gnubbies'));
-    console.log(devs);
+    console.log(UTIL_fmt(JSON.stringify(devs)));
 
     var presentDevs = {};
     var deviceIds = [];
@@ -237,7 +238,7 @@ Gnubbies.INACTIVITY_TIMEOUT_MARGIN_MILLIS = 30000;
 Gnubbies.SYS_TIMER_ = new WindowTimer();
 
 /**
- * @param {number|undefined} opt_timeoutMillis Timeout in milliseconds
+ * @param {number=} opt_timeoutMillis Timeout in milliseconds
  */
 Gnubbies.prototype.resetInactivityTimer = function(opt_timeoutMillis) {
   var millis = opt_timeoutMillis ?
@@ -390,8 +391,9 @@ Gnubbies.prototype.cancelAddClient = function(which) {
   if (this.pendingOpens_[which.namespace] &&
       this.pendingOpens_[which.namespace][which.device]) {
     var cancelOpenImpl = this.impl_[which.namespace].cancelOpen;
-    if (cancelOpenImpl)
+    if (cancelOpenImpl) {
       cancelOpenImpl(this, which.device, dev);
+    }
   }
 };
 
@@ -409,8 +411,9 @@ Gnubbies.prototype.removeClient = function(whichDev, who) {
   for (var namespace in this.openDevs_) {
     for (var devId in this.openDevs_[namespace]) {
       var deviceId = Number(devId);
-      if (isNaN(deviceId))
+      if (isNaN(deviceId)) {
         deviceId = devId;
+      }
       var dev = this.openDevs_[namespace][deviceId];
       if (dev.hasClient(who)) {
         if (whichDev && dev != whichDev) {

@@ -4,23 +4,9 @@
 
 #include "gpu/command_buffer/service/gles2_cmd_srgb_converter.h"
 
+#include "gpu/command_buffer/service/shader_manager.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "ui/gl/gl_version_info.h"
-
-namespace {
-
-void CompileShader(GLuint shader, const char* shader_source) {
-  glShaderSource(shader, 1, &shader_source, 0);
-  glCompileShader(shader);
-#ifndef NDEBUG
-  GLint compile_status;
-  glGetShaderiv(shader, GL_COMPILE_STATUS, &compile_status);
-  if (GL_TRUE != compile_status)
-    DLOG(ERROR) << "CopyTexImage: shader compilation failure.";
-#endif
-}
-
-}  // anonymous namespace
 
 namespace gpu {
 namespace gles2 {
@@ -30,9 +16,7 @@ SRGBConverter::SRGBConverter(
     : feature_info_(feature_info) {
 }
 
-SRGBConverter::~SRGBConverter() {}
-
-
+SRGBConverter::~SRGBConverter() = default;
 
 void SRGBConverter::InitializeSRGBConverterProgram() {
   if (srgb_converter_program_) {
@@ -93,7 +77,7 @@ void SRGBConverter::InitializeSRGBConverterProgram() {
       "    v_texcoord = quad_positions[gl_VertexID];\n"
       "}\n";
   GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-  CompileShader(vs, vs_source.c_str());
+  CompileShaderWithLog(vs, vs_source.c_str());
   glAttachShader(srgb_converter_program_, vs);
   glDeleteShader(vs);
 
@@ -152,7 +136,7 @@ void SRGBConverter::InitializeSRGBConverterProgram() {
       "}\n";
 
   GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-  CompileShader(fs, fs_source.c_str());
+  CompileShaderWithLog(fs, fs_source.c_str());
   glAttachShader(srgb_converter_program_, fs);
   glDeleteShader(fs);
 
@@ -272,6 +256,9 @@ void SRGBConverter::Blit(
   glDepthMask(GL_FALSE);
   glDisable(GL_BLEND);
   glDisable(GL_DITHER);
+  if (decoder->GetFeatureInfo()->feature_flags().ext_window_rectangles) {
+    glWindowRectanglesEXT(GL_EXCLUSIVE_EXT, 0, nullptr);
+  }
 
   // Copy the image from read buffer to the 1st texture(srgb).
   // TODO(yunchao) If the read buffer is a fbo texture, we can sample
@@ -391,7 +378,7 @@ void SRGBConverter::Blit(
   decoder->RestoreGlobalState();
 }
 
-void SRGBConverter::GenerateMipmap(const gles2::GLES2Decoder* decoder,
+void SRGBConverter::GenerateMipmap(gles2::GLES2Decoder* decoder,
                                    Texture* tex,
                                    GLenum target) {
   // This function generateMipmap for srgb texture.
@@ -456,6 +443,9 @@ void SRGBConverter::GenerateMipmap(const gles2::GLES2Decoder* decoder,
   glDepthMask(GL_FALSE);
   glDisable(GL_BLEND);
   glDisable(GL_DITHER);
+  if (decoder->GetFeatureInfo()->feature_flags().ext_window_rectangles) {
+    glWindowRectanglesEXT(GL_EXCLUSIVE_EXT, 0, nullptr);
+  }
 
   glBindVertexArrayOES(srgb_converter_vao_);
   glActiveTexture(GL_TEXTURE0);

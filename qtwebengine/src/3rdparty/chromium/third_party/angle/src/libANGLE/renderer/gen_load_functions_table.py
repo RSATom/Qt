@@ -4,7 +4,9 @@
 # found in the LICENSE file.
 #
 # gen_load_functions_table.py:
-#  Code generation for the load function tables used for texture formats
+#  Code generation for the load function tables used for texture formats. These mappings are
+#  not renderer specific. The mappings are done from the GL internal format, to the ANGLE
+#  format ID, and then for the specific data type.
 #
 
 import json, sys
@@ -73,19 +75,18 @@ void UnreachableLoadFunction(size_t width,
 
 {load_functions_data}}}  // namespace
 
-LoadFunctionMap GetLoadFunctionsMap(GLenum {internal_format}, Format::ID {angle_format})
+LoadFunctionMap GetLoadFunctionsMap(GLenum {internal_format}, FormatID {angle_format})
 {{
     // clang-format off
     switch ({internal_format})
     {{
 {switch_data}
         default:
-        {{
-            static LoadFunctionMap emptyLoadFunctionsMap;
-            return emptyLoadFunctionsMap;
-        }}
+            break;
     }}
     // clang-format on
+    static LoadFunctionMap emptyLoadFunctionsMap;
+    return emptyLoadFunctionsMap;
 
 }}  // GetLoadFunctionsMap
 
@@ -150,7 +151,7 @@ def parse_json(json_data):
             func_name = load_functions_name(internal_format, angle_format)
 
             # Main case statements
-            table_data += s + 'case Format::ID::' + angle_format + ':\n'
+            table_data += s + 'case FormatID::' + angle_format + ':\n'
             table_data += s + '    return ' + func_name + ';\n'
 
             if angle_format_unknown in angle_to_type_map:
@@ -163,15 +164,21 @@ def parse_json(json_data):
         if do_switch:
             table_data += s + 'default:\n'
 
+        has_break_in_switch = False
         if angle_format_unknown in angle_to_type_map:
             table_data += s + '    return ' + unknown_func_name(internal_format) + ';\n'
             load_functions_data += get_unknown_load_func(angle_to_type_map, internal_format)
         else:
+            has_break_in_switch = True
             table_data += s + '    break;\n'
 
         if do_switch:
             s = s[4:]
             table_data += s + '}\n'
+            if has_break_in_switch:
+                # If the inner switch contains a break statement, add a break
+                # statement after the switch as well.
+                table_data += s + 'break;\n'
             s = s[4:]
             table_data += s + '}\n'
 

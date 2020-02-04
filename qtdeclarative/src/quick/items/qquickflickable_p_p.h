@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
@@ -87,7 +87,7 @@ public:
     {
         Velocity(QQuickFlickablePrivate *p)
             : parent(p) {}
-        void setValue(qreal v) Q_DECL_OVERRIDE {
+        void setValue(qreal v) override {
             if (v != value()) {
                 QQuickTimeLineValue::setValue(v);
                 parent->updateVelocity();
@@ -99,7 +99,7 @@ public:
     struct AxisData {
         AxisData(QQuickFlickablePrivate *fp, void (QQuickFlickablePrivate::*func)(qreal))
             : move(fp, func)
-            , transitionToBounds(0)
+            , transitionToBounds(nullptr)
             , viewSize(-1), lastPos(0), previousDragDelta(0), velocity(0), startMargin(0), endMargin(0)
             , origin(0), overshoot(0)
             , transitionTo(0)
@@ -197,7 +197,7 @@ public:
 
     qreal overShootDistance(qreal size) const;
 
-    void itemGeometryChanged(QQuickItem *, QQuickGeometryChange, const QRectF &) Q_DECL_OVERRIDE;
+    void itemGeometryChanged(QQuickItem *, QQuickGeometryChange, const QRectF &) override;
 
     void draggingStarting();
     void draggingEnding();
@@ -205,6 +205,8 @@ public:
     bool isViewMoving() const;
 
     void cancelInteraction();
+
+    void addPointerHandler(QQuickPointerHandler *h) override;
 
 public:
     QQuickItem *contentItem;
@@ -221,8 +223,8 @@ public:
     bool interactive : 1;
     bool calcVelocity : 1;
     bool pixelAligned : 1;
+    bool syncDrag : 1;
     QElapsedTimer timer;
-    QBasicTimer movementEndingTimer;
     qint64 lastPosTime;
     qint64 lastPressTime;
     QPointF lastPos;
@@ -284,7 +286,7 @@ class QQuickFlickableVisibleArea : public QObject
     Q_PROPERTY(qreal heightRatio READ heightRatio NOTIFY heightRatioChanged)
 
 public:
-    QQuickFlickableVisibleArea(QQuickFlickable *parent=0);
+    QQuickFlickableVisibleArea(QQuickFlickable *parent=nullptr);
 
     qreal xPosition() const;
     qreal widthRatio() const;

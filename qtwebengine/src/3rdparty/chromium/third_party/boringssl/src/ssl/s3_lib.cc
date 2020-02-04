@@ -162,28 +162,48 @@
 #include "internal.h"
 
 
-int ssl3_new(SSL *ssl) {
-  SSL3_STATE *s3 = (SSL3_STATE *)OPENSSL_malloc(sizeof *s3);
-  if (s3 == NULL) {
-    return 0;
-  }
-  OPENSSL_memset(s3, 0, sizeof *s3);
+BSSL_NAMESPACE_BEGIN
 
+SSL3_STATE::SSL3_STATE()
+    : skip_early_data(false),
+      have_version(false),
+      v2_hello_done(false),
+      is_v2_hello(false),
+      has_message(false),
+      initial_handshake_complete(false),
+      session_reused(false),
+      send_connection_binding(false),
+      channel_id_valid(false),
+      key_update_pending(false),
+      wpend_pending(false),
+      early_data_accepted(false),
+      tls13_downgrade(false),
+      token_binding_negotiated(false) {}
+
+SSL3_STATE::~SSL3_STATE() {}
+
+bool ssl3_new(SSL *ssl) {
+  UniquePtr<SSL3_STATE> s3 = MakeUnique<SSL3_STATE>();
+  if (!s3) {
+    return false;
+  }
+
+  s3->aead_read_ctx = SSLAEADContext::CreateNullCipher(SSL_is_dtls(ssl));
+  s3->aead_write_ctx = SSLAEADContext::CreateNullCipher(SSL_is_dtls(ssl));
   s3->hs = ssl_handshake_new(ssl);
-  if (s3->hs == NULL) {
-    OPENSSL_free(s3);
-    return 0;
+  if (!s3->aead_read_ctx || !s3->aead_write_ctx || !s3->hs) {
+    return false;
   }
 
-  ssl->s3 = s3;
+  ssl->s3 = s3.release();
 
-  /* Set the version to the highest supported version.
-   *
-   * TODO(davidben): Move this field into |s3|, have it store the normalized
-   * protocol version, and implement this pre-negotiation quirk in |SSL_version|
-   * at the API boundary rather than in internal state. */
+  // Set the version to the highest supported version.
+  //
+  // TODO(davidben): Move this field into |s3|, have it store the normalized
+  // protocol version, and implement this pre-negotiation quirk in |SSL_version|
+  // at the API boundary rather than in internal state.
   ssl->version = TLS1_2_VERSION;
-  return 1;
+  return true;
 }
 
 void ssl3_free(SSL *ssl) {
@@ -191,27 +211,8 @@ void ssl3_free(SSL *ssl) {
     return;
   }
 
-  ssl_read_buffer_clear(ssl);
-  ssl_write_buffer_clear(ssl);
-
-  SSL_SESSION_free(ssl->s3->established_session);
-  ssl_handshake_free(ssl->s3->hs);
-  OPENSSL_free(ssl->s3->next_proto_negotiated);
-  OPENSSL_free(ssl->s3->alpn_selected);
-  SSL_AEAD_CTX_free(ssl->s3->aead_read_ctx);
-  SSL_AEAD_CTX_free(ssl->s3->aead_write_ctx);
-  BUF_MEM_free(ssl->s3->pending_flight);
-
-  OPENSSL_cleanse(ssl->s3, sizeof *ssl->s3);
-  OPENSSL_free(ssl->s3);
+  Delete(ssl->s3);
   ssl->s3 = NULL;
 }
 
-const struct ssl_cipher_preference_list_st *ssl_get_cipher_preferences(
-    const SSL *ssl) {
-  if (ssl->cipher_list != NULL) {
-    return ssl->cipher_list;
-  }
-
-  return ssl->ctx->cipher_list;
-}
+BSSL_NAMESPACE_END

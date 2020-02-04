@@ -8,12 +8,12 @@
 #include <stdint.h>
 
 #include <map>
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "base/version.h"
 #include "components/update_client/update_client_errors.h"
 
@@ -55,7 +55,7 @@
 //    update_client->AddObserver(&observer);
 //    std::vector<std::string> ids;
 //    ids.push_back(...));
-//    update_client->Update(ids, base::Bind(...), base::Bind(...));
+//    update_client->Update(ids, base::BindOnce(...), base::BindOnce(...));
 //
 // UpdateClient::Update takes two callbacks as parameters. First callback
 // allows the client of this code to provide an instance of CrxComponent
@@ -133,8 +133,11 @@
 class PrefRegistrySimple;
 
 namespace base {
-class DictionaryValue;
 class FilePath;
+}
+
+namespace crx_file {
+enum class VerifierFormat;
 }
 
 namespace update_client {
@@ -160,9 +163,6 @@ enum class ComponentState {
   kLastStatus
 };
 
-// Called when a non-blocking call in this module completes.
-using Callback = base::Callback<void(Error error)>;
-
 // Defines an interface for a generic CRX installer.
 class CrxInstaller : public base::RefCountedThreadSafe<CrxInstaller> {
  public:
@@ -176,18 +176,22 @@ class CrxInstaller : public base::RefCountedThreadSafe<CrxInstaller> {
     int extended_error = 0;
   };
 
+  using Callback = base::OnceCallback<void(const Result& result)>;
+
   // Called on the main thread when there was a problem unpacking or
   // verifying the CRX. |error| is a non-zero value which is only meaningful
   // to the caller.
   virtual void OnUpdateError(int error) = 0;
 
   // Called by the update service when a CRX has been unpacked
-  // and it is ready to be installed. |manifest| contains the CRX manifest
-  // as a json dictionary.|unpack_path| contains the temporary directory
-  // with all the unpacked CRX files.
+  // and it is ready to be installed. |unpack_path| contains the
+  // temporary directory with all the unpacked CRX files. |pubkey| contains the
+  // public key of the CRX in the PEM format, without the header and the footer.
+  // The caller must invoke the |callback| when the install flow has completed.
   // This method may be called from a thread other than the main thread.
-  virtual Result Install(std::unique_ptr<base::DictionaryValue> manifest,
-                         const base::FilePath& unpack_path) = 0;
+  virtual void Install(const base::FilePath& unpack_path,
+                       const std::string& public_key,
+                       Callback callback) = 0;
 
   // Sets |installed_file| to the full path to the installed |file|. |file| is
   // the filename of the file in this CRX. Returns false if this is
@@ -211,7 +215,6 @@ class CrxInstaller : public base::RefCountedThreadSafe<CrxInstaller> {
 // may be used in the update checks requests.
 using InstallerAttributes = std::map<std::string, std::string>;
 
-// TODO(sorin): this structure will be refactored soon.
 struct CrxComponent {
   CrxComponent();
   CrxComponent(const CrxComponent& other);
@@ -245,12 +248,31 @@ struct CrxComponent {
   // which only returns secure download URLs in this case.
   bool requires_network_encryption;
 
+  // Specifies the strength of package validation required for the item.
+  crx_file::VerifierFormat crx_format_requirement;
+
   // True if the component allows enabling or disabling updates by group policy.
   // This member should be set to |false| for data, non-binary components, such
   // as CRLSet, Supervised User Whitelists, STH Set, Origin Trials, and File
   // Type Policies.
   bool supports_group_policy_enable_component_updates;
+
+  // Reasons why this component/extension is disabled.
+  std::vector<int> disabled_reasons;
+
+  // Information about where the component/extension was installed from.
+  // For extension, this information is set from the update service, which
+  // gets the install source from the update URL.
+  std::string install_source;
+
+  // Information about where the component/extension was loaded from.
+  // For extensions, this information is inferred from the extension
+  // registry.
+  std::string install_location;
 };
+
+// Called when a non-blocking call of UpdateClient completes.
+using Callback = base::OnceCallback<void(Error error)>;
 
 // All methods are safe to call only from the browser's main thread. Once an
 // instance of this class is created, the reference to it must be released
@@ -259,8 +281,8 @@ struct CrxComponent {
 class UpdateClient : public base::RefCounted<UpdateClient> {
  public:
   using CrxDataCallback =
-      base::Callback<void(const std::vector<std::string>& ids,
-                          std::vector<CrxComponent>* components)>;
+      base::OnceCallback<std::vector<base::Optional<CrxComponent>>(
+          const std::vector<std::string>& ids)>;
 
   // Defines an interface to observe the UpdateClient. It provides
   // notifications when state changes occur for the service itself or for the
@@ -288,9 +310,14 @@ class UpdateClient : public base::RefCounted<UpdateClient> {
       // Sent when a CRX has been successfully updated.
       COMPONENT_UPDATED,
 
-      // Sent when a CRX has not been updated following an update check:
-      // either there was no update available, or the update failed.
+      // Sent when a CRX has not been updated because there was no update
+      // available for this component.
       COMPONENT_NOT_UPDATED,
+
+      // Sent when an error ocurred during an update for any reason, including
+      // the update check itself failed, or the download of the update payload
+      // failed, or applying the update failed.
+      COMPONENT_UPDATE_ERROR,
 
       // Sent when CRX bytes are being downloaded.
       COMPONENT_UPDATE_DOWNLOADING,
@@ -324,8 +351,8 @@ class UpdateClient : public base::RefCounted<UpdateClient> {
   // scenarios, which are triggered by user actions. Installs are never
   // queued up.
   virtual void Install(const std::string& id,
-                       const CrxDataCallback& crx_data_callback,
-                       const Callback& callback) = 0;
+                       CrxDataCallback crx_data_callback,
+                       Callback callback) = 0;
 
   // Updates the specified CRXs. Calls back on |crx_data_callback| before the
   // update is attempted to give the caller the opportunity to provide the
@@ -333,10 +360,12 @@ class UpdateClient : public base::RefCounted<UpdateClient> {
   // is intended to be used for background updates of several CRXs. Overlapping
   // calls to this function result in a queuing behavior, and the execution
   // of each call is serialized. In addition, updates are always queued up when
-  // installs are running.
+  // installs are running. The |is_foreground| parameter must be set to true if
+  // the invocation of this function is a result of a user initiated update.
   virtual void Update(const std::vector<std::string>& ids,
-                      const CrxDataCallback& crx_data_callback,
-                      const Callback& callback) = 0;
+                      CrxDataCallback crx_data_callback,
+                      bool is_foreground,
+                      Callback callback) = 0;
 
   // Sends an uninstall ping for the CRX identified by |id| and |version|. The
   // |reason| parameter is defined by the caller. The current implementation of
@@ -346,7 +375,7 @@ class UpdateClient : public base::RefCounted<UpdateClient> {
   virtual void SendUninstallPing(const std::string& id,
                                  const base::Version& version,
                                  int reason,
-                                 const Callback& callback) = 0;
+                                 Callback callback) = 0;
 
   // Returns status details about a CRX update. The function returns true in
   // case of success and false in case of errors, such as |id| was
@@ -371,11 +400,17 @@ class UpdateClient : public base::RefCounted<UpdateClient> {
 
 // Creates an instance of the update client.
 scoped_refptr<UpdateClient> UpdateClientFactory(
-    const scoped_refptr<Configurator>& config);
+    scoped_refptr<Configurator> config);
 
 // This must be called prior to the construction of any Configurator that
 // contains a PrefService.
 void RegisterPrefs(PrefRegistrySimple* registry);
+
+// This must be called prior to the construction of any Configurator that
+// needs access to local user profiles.
+// This function is mostly used for ExtensionUpdater, which requires update
+// info from user profiles.
+void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
 }  // namespace update_client
 

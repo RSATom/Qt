@@ -441,7 +441,7 @@ typedef struct _XLacceptance {
     static fp_##symbolName symbolName;
 
 #define RESOLVE_SYMBOL(symbolName) \
-    symbolName = (fp_##symbolName)vectorcanLibrary->resolve(#symbolName); \
+    symbolName = reinterpret_cast<fp_##symbolName>(vectorcanLibrary->resolve(#symbolName)); \
     if (!symbolName) \
         return false;
 
@@ -458,7 +458,7 @@ GENERATE_SYMBOL_VARIABLE(XLstatus, xlReceive, XLportHandle, quint32 *, XLevent *
 GENERATE_SYMBOL_VARIABLE(XLstatus, xlSetNotification, XLportHandle, XLhandle *, int)
 GENERATE_SYMBOL_VARIABLE(char *, xlGetErrorString, XLstatus)
 
-inline bool resolveSymbols(QLibrary *vectorcanLibrary)
+inline bool resolveVectorCanSymbols(QLibrary *vectorcanLibrary)
 {
     if (!vectorcanLibrary->isLoaded()) {
 #ifdef Q_PROCESSOR_X86_64

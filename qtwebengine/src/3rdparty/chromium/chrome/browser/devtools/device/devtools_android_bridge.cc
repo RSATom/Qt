@@ -18,9 +18,7 @@
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -32,17 +30,14 @@
 #include "chrome/browser/devtools/device/port_forwarding_controller.h"
 #include "chrome/browser/devtools/device/tcp_device_provider.h"
 #include "chrome/browser/devtools/device/usb/usb_device_provider.h"
-#include "chrome/browser/devtools/devtools_protocol.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/devtools/remote_debugging_server.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
-#include "components/signin/core/browser/signin_manager.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/devtools_external_agent_proxy.h"
 #include "content/public/browser/devtools_external_agent_proxy_delegate.h"
@@ -74,8 +69,6 @@ bool BrowserIdFromString(const std::string& browser_id_str,
   return true;
 }
 
-static void NoOp(int, const std::string&) {}
-
 }  // namespace
 
 // static
@@ -105,10 +98,15 @@ KeyedService* DevToolsAndroidBridge::Factory::BuildServiceInstanceFor(
   return new DevToolsAndroidBridge(profile);
 }
 
+void DevToolsAndroidBridge::Shutdown() {
+  // Needed for Chrome_DevToolsADBThread to shut down gracefully in tests.
+  device_manager_.reset();
+}
+
 scoped_refptr<content::DevToolsAgentHost>
 DevToolsAndroidBridge::GetBrowserAgentHost(
     scoped_refptr<RemoteBrowser> browser) {
-  DeviceMap::iterator it = device_map_.find(browser->serial());
+  auto it = device_map_.find(browser->serial());
   if (it == device_map_.end())
     return nullptr;
 
@@ -125,7 +123,7 @@ void DevToolsAndroidBridge::SendJsonRequest(
     callback.Run(net::ERR_FAILED, std::string());
     return;
   }
-  DeviceMap::iterator it = device_map_.find(serial);
+  auto it = device_map_.find(serial);
   if (it == device_map_.end()) {
     callback.Run(net::ERR_FAILED, std::string());
     return;
@@ -148,7 +146,7 @@ void DevToolsAndroidBridge::OpenRemotePage(scoped_refptr<RemoteBrowser> browser,
   std::string query = net::EscapeQueryParamValue(url, false /* use_plus */);
   std::string request =
       base::StringPrintf(kNewPageRequestWithURL, query.c_str());
-  SendJsonRequest(browser->GetId(), request, base::Bind(&NoOp));
+  SendJsonRequest(browser->GetId(), request, base::DoNothing());
 }
 
 DevToolsAndroidBridge::DevToolsAndroidBridge(
@@ -168,11 +166,11 @@ DevToolsAndroidBridge::DevToolsAndroidBridge(
   pref_change_registrar_.Add(prefs::kDevToolsDiscoverTCPTargetsEnabled,
       base::Bind(&DevToolsAndroidBridge::CreateDeviceProviders,
                  base::Unretained(this)));
-  base::ListValue* target_discovery = new base::ListValue();
-  target_discovery->AppendString(kChromeDiscoveryURL);
-  target_discovery->AppendString(kNodeDiscoveryURL);
-  profile->GetPrefs()->SetDefaultPrefValue(
-      prefs::kDevToolsTCPDiscoveryConfig, target_discovery);
+  base::Value target_discovery(base::Value::Type::LIST);
+  target_discovery.GetList().emplace_back(kChromeDiscoveryURL);
+  target_discovery.GetList().emplace_back(kNodeDiscoveryURL);
+  profile->GetPrefs()->SetDefaultPrefValue(prefs::kDevToolsTCPDiscoveryConfig,
+                                           std::move(target_discovery));
   CreateDeviceProviders();
 }
 
@@ -188,8 +186,8 @@ void DevToolsAndroidBridge::AddDeviceListListener(
 void DevToolsAndroidBridge::RemoveDeviceListListener(
     DeviceListListener* listener) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DeviceListListeners::iterator it = std::find(
-      device_list_listeners_.begin(), device_list_listeners_.end(), listener);
+  auto it = std::find(device_list_listeners_.begin(),
+                      device_list_listeners_.end(), listener);
   DCHECK(it != device_list_listeners_.end());
   device_list_listeners_.erase(it);
   if (!NeedsDeviceListPolling())
@@ -206,8 +204,8 @@ void DevToolsAndroidBridge::AddDeviceCountListener(
 void DevToolsAndroidBridge::RemoveDeviceCountListener(
     DeviceCountListener* listener) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DeviceCountListeners::iterator it = std::find(
-      device_count_listeners_.begin(), device_count_listeners_.end(), listener);
+  auto it = std::find(device_count_listeners_.begin(),
+                      device_count_listeners_.end(), listener);
   DCHECK(it != device_count_listeners_.end());
   device_count_listeners_.erase(it);
   if (device_count_listeners_.empty())
@@ -224,10 +222,8 @@ void DevToolsAndroidBridge::AddPortForwardingListener(
 
 void DevToolsAndroidBridge::RemovePortForwardingListener(
     PortForwardingListener* listener) {
-  PortForwardingListeners::iterator it = std::find(
-      port_forwarding_listeners_.begin(),
-      port_forwarding_listeners_.end(),
-      listener);
+  auto it = std::find(port_forwarding_listeners_.begin(),
+                      port_forwarding_listeners_.end(), listener);
   DCHECK(it != port_forwarding_listeners_.end());
   port_forwarding_listeners_.erase(it);
   if (!NeedsDeviceListPolling())
@@ -271,14 +267,14 @@ void DevToolsAndroidBridge::ReceivedDeviceList(
   }
 
   DeviceListListeners copy(device_list_listeners_);
-  for (DeviceListListeners::iterator it = copy.begin(); it != copy.end(); ++it)
+  for (auto it = copy.begin(); it != copy.end(); ++it)
     (*it)->DeviceListChanged(remote_devices);
 
   ForwardingStatus status =
       port_forwarding_controller_->DeviceListChanged(complete_devices);
   PortForwardingListeners forwarding_listeners(port_forwarding_listeners_);
-  for (PortForwardingListeners::iterator it = forwarding_listeners.begin();
-       it != forwarding_listeners.end(); ++it) {
+  for (auto it = forwarding_listeners.begin(); it != forwarding_listeners.end();
+       ++it) {
     (*it)->PortStatusChanged(status);
   }
 }
@@ -297,18 +293,17 @@ void DevToolsAndroidBridge::RequestDeviceCount(
     const base::Callback<void(int)>& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (device_count_listeners_.empty() ||
-      !callback.Equals(device_count_callback_.callback()))
+  if (device_count_listeners_.empty() || callback.IsCancelled())
     return;
 
-  UsbDeviceProvider::CountDevices(callback);
+  device_manager_->CountDevices(callback);
 }
 
 void DevToolsAndroidBridge::ReceivedDeviceCount(int count) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   DeviceCountListeners copy(device_count_listeners_);
-  for (DeviceCountListeners::iterator it = copy.begin(); it != copy.end(); ++it)
+  for (auto it = copy.begin(); it != copy.end(); ++it)
     (*it)->DeviceCountChanged(count);
 
   if (device_count_listeners_.empty())
@@ -403,4 +398,9 @@ void DevToolsAndroidBridge::set_tcp_provider_callback_for_test(
     TCPProviderCallback callback) {
   tcp_provider_callback_ = callback;
   CreateDeviceProviders();
+}
+
+void DevToolsAndroidBridge::set_usb_device_manager_for_test(
+    device::mojom::UsbDeviceManagerPtrInfo fake_usb_manager) {
+  device_manager_->set_usb_device_manager_for_test(std::move(fake_usb_manager));
 }

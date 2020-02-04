@@ -11,11 +11,6 @@
 
 class GURL;
 
-namespace net {
-class URLFetcher;
-class URLRequest;
-} // namespace net
-
 namespace gaia {
 
 struct ListedAccount {
@@ -25,17 +20,19 @@ struct ListedAccount {
   std::string email;
   std::string gaia_id;
   std::string raw_email;
-  bool valid;
-  bool signed_out;
+  bool valid = true;
+  bool signed_out = false;
+  bool verified = true;
 
   ListedAccount();
   ListedAccount(const ListedAccount& other);
   ~ListedAccount();
-  bool operator==(const ListedAccount& other) const;
 };
 
 // Perform basic canonicalization of |email_address|, taking into account that
 // gmail does not consider '.' or caps inside a username to matter.
+// If |email_address| is not a valid, returns it in lower case without
+// additional canonicalization.
 std::string CanonicalizeEmail(const std::string& email_address);
 
 // Returns the canonical form of the given domain.
@@ -63,12 +60,6 @@ bool IsGaiaSignonRealm(const GURL& url);
 bool ParseListAccountsData(const std::string& data,
                            std::vector<ListedAccount>* accounts,
                            std::vector<ListedAccount>* signed_out_accounts);
-
-// Returns true if the URL request originated from GAIA.
-bool RequestOriginatedFromGaia(const net::URLRequest& request);
-
-// Marks the URL request as a Gaia request.
-void MarkURLFetcherAsGaia(net::URLFetcher* request);
 
 }  // namespace gaia
 

@@ -9,42 +9,26 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "components/cloud_devices/common/cloud_device_description_consts.h"
 
 namespace cloud_devices {
 
-CloudDeviceDescription::CloudDeviceDescription() {
-  Reset();
-}
-
-CloudDeviceDescription::~CloudDeviceDescription() {
-}
-
-void CloudDeviceDescription::Reset() {
-  root_.reset(new base::DictionaryValue);
+CloudDeviceDescription::CloudDeviceDescription()
+    : root_(std::make_unique<base::DictionaryValue>()) {
   root_->SetString(json::kVersion, json::kVersion10);
 }
 
-bool CloudDeviceDescription::InitFromDictionary(
-    std::unique_ptr<base::DictionaryValue> root) {
-  if (!root)
-    return false;
-  Reset();
-  root_ = std::move(root);
-  std::string version;
-  root_->GetString(json::kVersion, &version);
-  return version == json::kVersion10;
-}
+CloudDeviceDescription::~CloudDeviceDescription() = default;
 
 bool CloudDeviceDescription::InitFromString(const std::string& json) {
-  std::unique_ptr<base::Value> parsed = base::JSONReader::Read(json);
-  base::DictionaryValue* description = NULL;
-  if (!parsed || !parsed->GetAsDictionary(&description))
+  auto parsed = base::DictionaryValue::From(base::JSONReader::Read(json));
+  if (!parsed)
     return false;
-  ignore_result(parsed.release());
-  return InitFromDictionary(base::WrapUnique(description));
+
+  root_ = std::move(parsed);
+  const base::Value* version = root_->FindKey(json::kVersion);
+  return version && version->GetString() == json::kVersion10;
 }
 
 std::string CloudDeviceDescription::ToString() const {
@@ -54,28 +38,32 @@ std::string CloudDeviceDescription::ToString() const {
   return json;
 }
 
+base::Value CloudDeviceDescription::ToValue() && {
+  return base::Value::FromUniquePtrValue(std::move(root_));
+}
+
 const base::DictionaryValue* CloudDeviceDescription::GetItem(
     const std::string& path) const {
-  const base::DictionaryValue* value = NULL;
+  const base::DictionaryValue* value = nullptr;
   root_->GetDictionary(path, &value);
   return value;
 }
 
 base::DictionaryValue* CloudDeviceDescription::CreateItem(
     const std::string& path) {
-  return root_->SetDictionary(path, base::MakeUnique<base::DictionaryValue>());
+  return root_->SetDictionary(path, std::make_unique<base::DictionaryValue>());
 }
 
 const base::ListValue* CloudDeviceDescription::GetListItem(
     const std::string& path) const {
-  const base::ListValue* value = NULL;
+  const base::ListValue* value = nullptr;
   root_->GetList(path, &value);
   return value;
 }
 
 base::ListValue* CloudDeviceDescription::CreateListItem(
     const std::string& path) {
-  return root_->SetList(path, base::MakeUnique<base::ListValue>());
+  return root_->SetList(path, std::make_unique<base::ListValue>());
 }
 
 }  // namespace cloud_devices

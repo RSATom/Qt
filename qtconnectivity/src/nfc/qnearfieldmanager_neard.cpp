@@ -62,9 +62,11 @@ QNearFieldManagerPrivateImpl::QNearFieldManagerPrivateImpl()
     }
 
     bool found = false;
-    foreach (const QDBusObjectPath &path, reply.value().keys()) {
+    const QList<QDBusObjectPath> paths = reply.value().keys();
+    for (const QDBusObjectPath &path : paths) {
         const InterfaceList ifaceList = reply.value().value(path);
-        foreach (const QString &iface, ifaceList.keys()) {
+        const QStringList ifaces = ifaceList.keys();
+        for (const QString &iface : ifaces) {
             if (iface == QStringLiteral("org.neard.Adapter")) {
                 found = true;
                 m_adapterPath = path.path();
@@ -80,10 +82,10 @@ QNearFieldManagerPrivateImpl::QNearFieldManagerPrivateImpl()
     if (!found) {
         qCWarning(QT_NFC_NEARD) << "no adapter found, neard daemon running?";
     } else {
-        connect(m_neardHelper, SIGNAL(tagFound(QDBusObjectPath)),
-                this,          SLOT(handleTagFound(QDBusObjectPath)));
-        connect(m_neardHelper, SIGNAL(tagRemoved(QDBusObjectPath)),
-                this,          SLOT(handleTagRemoved(QDBusObjectPath)));
+        connect(m_neardHelper, &NeardHelper::tagFound,
+                this,          &QNearFieldManagerPrivateImpl::handleTagFound);
+        connect(m_neardHelper, &NeardHelper::tagRemoved,
+                this,          &QNearFieldManagerPrivateImpl::handleTagRemoved);
     }
 }
 
@@ -106,12 +108,28 @@ bool QNearFieldManagerPrivateImpl::isAvailable() const
         return false;
     }
 
-    foreach (const QDBusObjectPath &path, reply.value().keys()) {
+    const QList<QDBusObjectPath> paths = reply.value().keys();
+    for (const QDBusObjectPath &path : paths) {
         if (m_adapterPath == path.path())
             return true;
     }
 
     return false;
+}
+
+bool QNearFieldManagerPrivateImpl::isSupported() const
+{
+    if (m_adapterPath.isEmpty()) {
+        qCWarning(QT_NFC_NEARD) << "no adapter found, neard daemon running?";
+        return false;
+    }
+
+    if (!m_neardHelper->dbusObjectManager()->isValid() || m_adapterPath.isNull()) {
+        qCWarning(QT_NFC_NEARD) << "dbus object manager invalid or adapter path invalid";
+        return false;
+    }
+
+    return true;
 }
 
 bool QNearFieldManagerPrivateImpl::startTargetDetection()

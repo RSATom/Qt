@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/containers/hash_tables.h"
 #include "base/files/file_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/rand_util.h"
@@ -37,17 +37,15 @@ namespace {
 // Current version number. We write databases at the "current" version number,
 // but any previous version that can read the "compatible" one can make do with
 // our database without *too* many bad effects.
-const int kCurrentVersionNumber = 36;
+const int kCurrentVersionNumber = 41;
 const int kCompatibleVersionNumber = 16;
 const char kEarlyExpirationThresholdKey[] = "early_expiration_threshold";
-const int kMaxHostsInMemory = 10000;
 
 // Logs a migration failure to UMA and logging. The return value will be
 // what to return from ::Init (to simplify the call sites). Migration failures
 // are almost always fatal since the database can be in an inconsistent state.
 sql::InitStatus LogMigrationFailure(int from_version) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("History.MigrateFailureFromVersion",
-                              from_version);
+  base::UmaHistogramSparse("History.MigrateFailureFromVersion", from_version);
   LOG(ERROR) << "History failed to migrate from version " << from_version
              << ". History will be disabled.";
   return sql::INIT_FAILURE;
@@ -68,8 +66,8 @@ enum class InitStep {
 };
 
 sql::InitStatus LogInitFailure(InitStep what) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("History.InitializationFailureStep",
-                              static_cast<int>(what));
+  base::UmaHistogramSparse("History.InitializationFailureStep",
+                           static_cast<int>(what));
   return sql::INIT_FAILURE;
 }
 
@@ -160,13 +158,13 @@ void HistoryDatabase::ComputeDatabaseMetrics(
   sql::Statement url_count(db_.GetUniqueStatement("SELECT count(*) FROM urls"));
   if (!url_count.Step())
     return;
-  UMA_HISTOGRAM_COUNTS("History.URLTableCount", url_count.ColumnInt(0));
+  UMA_HISTOGRAM_COUNTS_1M("History.URLTableCount", url_count.ColumnInt(0));
 
   sql::Statement visit_count(db_.GetUniqueStatement(
       "SELECT count(*) FROM visits"));
   if (!visit_count.Step())
     return;
-  UMA_HISTOGRAM_COUNTS("History.VisitTableCount", visit_count.ColumnInt(0));
+  UMA_HISTOGRAM_COUNTS_1M("History.VisitTableCount", visit_count.ColumnInt(0));
 
   base::Time one_week_ago = base::Time::Now() - base::TimeDelta::FromDays(7);
   sql::Statement weekly_visit_sql(db_.GetUniqueStatement(
@@ -175,7 +173,7 @@ void HistoryDatabase::ComputeDatabaseMetrics(
   int weekly_visit_count = 0;
   if (weekly_visit_sql.Step())
     weekly_visit_count = weekly_visit_sql.ColumnInt(0);
-  UMA_HISTOGRAM_COUNTS("History.WeeklyVisitCount", weekly_visit_count);
+  UMA_HISTOGRAM_COUNTS_1M("History.WeeklyVisitCount", weekly_visit_count);
 
   base::Time one_month_ago = base::Time::Now() - base::TimeDelta::FromDays(30);
   sql::Statement monthly_visit_sql(db_.GetUniqueStatement(
@@ -185,8 +183,8 @@ void HistoryDatabase::ComputeDatabaseMetrics(
   int older_visit_count = 0;
   if (monthly_visit_sql.Step())
     older_visit_count = monthly_visit_sql.ColumnInt(0);
-  UMA_HISTOGRAM_COUNTS("History.MonthlyVisitCount",
-                       older_visit_count + weekly_visit_count);
+  UMA_HISTOGRAM_COUNTS_1M("History.MonthlyVisitCount",
+                          older_visit_count + weekly_visit_count);
 
   UMA_HISTOGRAM_TIMES("History.DatabaseBasicMetricsTime",
                       base::TimeTicks::Now() - start_time);
@@ -218,10 +216,10 @@ void HistoryDatabase::ComputeDatabaseMetrics(
         week_hosts.insert(url.host());
       }
     }
-    UMA_HISTOGRAM_COUNTS("History.WeeklyURLCount", week_url_count);
+    UMA_HISTOGRAM_COUNTS_1M("History.WeeklyURLCount", week_url_count);
     UMA_HISTOGRAM_COUNTS_10000("History.WeeklyHostCount",
                                static_cast<int>(week_hosts.size()));
-    UMA_HISTOGRAM_COUNTS("History.MonthlyURLCount", month_url_count);
+    UMA_HISTOGRAM_COUNTS_1M("History.MonthlyURLCount", month_url_count);
     UMA_HISTOGRAM_COUNTS_10000("History.MonthlyHostCount",
                                static_cast<int>(month_hosts.size()));
     UMA_HISTOGRAM_TIMES("History.DatabaseAdvancedMetricsTime",
@@ -229,58 +227,27 @@ void HistoryDatabase::ComputeDatabaseMetrics(
   }
 }
 
-TopHostsList HistoryDatabase::TopHosts(size_t num_hosts) {
-  base::Time one_month_ago =
-      std::max(base::Time::Now() - base::TimeDelta::FromDays(30), base::Time());
+int HistoryDatabase::CountUniqueHostsVisitedLastMonth() {
+  base::TimeTicks start_time = base::TimeTicks::Now();
+  // Collect all URLs visited within the last month.
+  base::Time one_month_ago = base::Time::Now() - base::TimeDelta::FromDays(30);
 
-  sql::Statement url_sql(db_.GetUniqueStatement(
-      "SELECT u.url, u.visit_count "
-      "FROM urls u JOIN visits v ON u.id = v.url "
-      "WHERE last_visit_time > ? "
-      "AND (v.transition & ?) != 0 "              // CHAIN_END
-      "AND (transition & ?) NOT IN (?, ?, ?)"));  // NO SUBFRAME or
-                                                  // KEYWORD_GENERATED
-
+  sql::Statement url_sql(
+      db_.GetUniqueStatement("SELECT url FROM urls "
+                             "WHERE last_visit_time > ? "
+                             "AND hidden = 0 "
+                             "AND visit_count > 0"));
   url_sql.BindInt64(0, one_month_ago.ToInternalValue());
-  url_sql.BindInt(1, ui::PAGE_TRANSITION_CHAIN_END);
-  url_sql.BindInt(2, ui::PAGE_TRANSITION_CORE_MASK);
-  url_sql.BindInt(3, ui::PAGE_TRANSITION_AUTO_SUBFRAME);
-  url_sql.BindInt(4, ui::PAGE_TRANSITION_MANUAL_SUBFRAME);
-  url_sql.BindInt(5, ui::PAGE_TRANSITION_KEYWORD_GENERATED);
 
-  // Collect a map from host to visit count.
-  base::hash_map<std::string, int> host_count;
+  std::set<std::string> hosts;
   while (url_sql.Step()) {
     GURL url(url_sql.ColumnString(0));
-    if (!(url.is_valid() && (url.SchemeIsHTTPOrHTTPS() || url.SchemeIs("ftp"))))
-      continue;
-
-    int64_t visit_count = url_sql.ColumnInt64(1);
-    host_count[HostForTopHosts(url)] += visit_count;
-
-    // kMaxHostsInMemory is well above typical values for
-    // History.MonthlyHostCount, but here to guard against unbounded memory
-    // growth in the event of an atypical history.
-    if (host_count.size() >= kMaxHostsInMemory)
-      break;
+    hosts.insert(url.host());
   }
 
-  // Collect the top 100 hosts by visit count, into the range
-  // [top_hosts.begin(), middle).
-  typedef std::vector<std::pair<int, std::string>> IntermediateList;
-  IntermediateList top_hosts;
-  for (const auto& it : host_count)
-    top_hosts.push_back(std::make_pair(-it.second, it.first));
-  IntermediateList::size_type middle_index =
-      std::min(num_hosts, top_hosts.size());
-  auto middle = std::min(top_hosts.end(), top_hosts.begin() + middle_index);
-  std::partial_sort(top_hosts.begin(), middle, top_hosts.end());
-
-  TopHostsList hosts;
-  for (IntermediateList::const_iterator it = top_hosts.begin(); it != middle;
-       ++it)
-    hosts.push_back(std::make_pair(it->second, -it->first));
-  return hosts;
+  UMA_HISTOGRAM_TIMES("History.DatabaseMonthlyHostCountTime",
+                      base::TimeTicks::Now() - start_time);
+  return hosts.size();
 }
 
 void HistoryDatabase::BeginExclusiveMode() {
@@ -338,8 +305,8 @@ void HistoryDatabase::Vacuum() {
   ignore_result(db_.Execute("VACUUM"));
 }
 
-void HistoryDatabase::TrimMemory(bool aggressively) {
-  db_.TrimMemory(aggressively);
+void HistoryDatabase::TrimMemory() {
+  db_.TrimMemory();
 }
 
 bool HistoryDatabase::Raze() {
@@ -366,13 +333,9 @@ SegmentID HistoryDatabase::GetSegmentID(VisitID visit_id) {
       "SELECT segment_id FROM visits WHERE id = ?"));
   s.BindInt64(0, visit_id);
 
-  if (s.Step()) {
-    if (s.ColumnType(0) == sql::COLUMN_TYPE_NULL)
-      return 0;
-    else
-      return s.ColumnInt64(0);
-  }
-  return 0;
+  if (!s.Step() || s.ColumnType(0) == sql::COLUMN_TYPE_NULL)
+    return 0;
+  return s.ColumnInt64(0);
 }
 
 base::Time HistoryDatabase::GetEarlyExpirationThreshold() {
@@ -396,7 +359,7 @@ void HistoryDatabase::UpdateEarlyExpirationThreshold(base::Time threshold) {
   cached_early_expiration_threshold_ = threshold;
 }
 
-sql::Connection& HistoryDatabase::GetDB() {
+sql::Database& HistoryDatabase::GetDB() {
   return db_;
 }
 
@@ -563,23 +526,8 @@ sql::InitStatus HistoryDatabase::EnsureCurrentVersion() {
   }
 
   if (cur_version == 34) {
-    /*
-    This code is commented out because we suspect the additional disk storage
-    requirements of duplicating the URL table to update the schema cause
-    some devices to run out of storage. Errors during initialization are
-    very disruptive to the user experience.
-
-    TODO(https://crbug.com/736136) figure out how to update users to use
-    AUTOINCREMENT.
-
-    // AUTOINCREMENT is added to urls table PRIMARY KEY(id), need to recreate a
-    // new table and copy all contents over. favicon_id is removed from urls
-    // table since we never use it. Also typed_url_sync_metadata and
-    // autofill_model_type_state tables are introduced, no migration needed for
-    // those two tables.
-    if (!RecreateURLTableWithAllContents())
-      return LogMigrationFailure(34);
-    */
+    // This originally contained an autoincrement migration which was abandoned
+    // and added back in version 36. (see https://crbug.com/736136)
     cur_version++;
     meta_table_.SetVersionNumber(cur_version);
   }
@@ -587,6 +535,53 @@ sql::InitStatus HistoryDatabase::EnsureCurrentVersion() {
   if (cur_version == 35) {
     if (!MigrateDownloadTransient())
       return LogMigrationFailure(35);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 36) {
+    // Version 34 added AUTOINCREMENT but was reverted. Since some users will
+    // have been migrated and others not, explicitly check for the AUTOINCREMENT
+    // annotation rather than the version number.
+    if (!URLTableContainsAutoincrement()) {
+      if (!RecreateURLTableWithAllContents())
+        return LogMigrationFailure(36);
+    }
+
+    DCHECK(URLTableContainsAutoincrement());
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 37) {
+    if (!MigrateVisitSegmentNames())
+      return LogMigrationFailure(37);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 38) {
+    if (!MigrateDownloadSliceFinished())
+      return LogMigrationFailure(38);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 39) {
+    if (!MigrateVisitsWithoutIncrementedOmniboxTypedScore())
+      return LogMigrationFailure(39);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 40) {
+    std::vector<URLID> visited_url_rowids_sorted;
+    if (!GetAllVisitedURLRowidsForMigrationToVersion40(
+            &visited_url_rowids_sorted) ||
+        !CleanTypedURLOrphanedMetadataForMigrationToVersion40(
+            visited_url_rowids_sorted)) {
+      return LogMigrationFailure(40);
+    }
     cur_version++;
     meta_table_.SetVersionNumber(cur_version);
   }

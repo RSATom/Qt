@@ -6,18 +6,41 @@
 
 namespace device {
 
-SensorReading::SensorReading() = default;
-SensorReading::SensorReading(const SensorReading& other) = default;
-SensorReading::~SensorReading() = default;
+SensorReadingRaw::SensorReadingRaw() = default;
+SensorReadingRaw::~SensorReadingRaw() = default;
+
+SensorReadingBase::SensorReadingBase() = default;
+SensorReadingBase::~SensorReadingBase() = default;
+
+SensorReadingSingle::SensorReadingSingle() = default;
+SensorReadingSingle::~SensorReadingSingle() = default;
+
+SensorReadingXYZ::SensorReadingXYZ() = default;
+SensorReadingXYZ::~SensorReadingXYZ() = default;
+
+SensorReadingQuat::SensorReadingQuat() = default;
+SensorReadingQuat::~SensorReadingQuat() = default;
 
 SensorReadingSharedBuffer::SensorReadingSharedBuffer() = default;
 SensorReadingSharedBuffer::~SensorReadingSharedBuffer() = default;
 
+SensorReading::SensorReading() {
+  new (&raw) SensorReadingRaw();
+}
+SensorReading::SensorReading(const SensorReading& other) {
+  raw = other.raw;
+}
+SensorReading::~SensorReading() {
+  raw.~SensorReadingRaw();
+}
+SensorReading& SensorReading::operator=(const SensorReading& other) {
+  raw = other.raw;
+  return *this;
+}
+
 // static
 uint64_t SensorReadingSharedBuffer::GetOffset(mojom::SensorType type) {
-  return (static_cast<uint64_t>(mojom::SensorType::LAST) -
-          static_cast<uint64_t>(type)) *
-         sizeof(SensorReadingSharedBuffer);
+  return static_cast<uint64_t>(type) * sizeof(SensorReadingSharedBuffer);
 }
 
 }  // namespace device

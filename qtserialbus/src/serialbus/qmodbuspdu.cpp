@@ -105,9 +105,10 @@ static int minimumDataSize(const QModbusPdu &pdu, Type type)
 
 static QDataStream &pduFromStream(QDataStream &stream, QModbusPdu &pdu, Type type)
 {
-    QModbusPdu::FunctionCode code = QModbusPdu::Invalid;
-    if (stream.readRawData((char *) (&code), sizeof(quint8)) != sizeof(quint8))
+    quint8 codeByte = 0;
+    if (stream.readRawData((char *) (&codeByte), sizeof(quint8)) != sizeof(quint8))
         return stream;
+    QModbusPdu::FunctionCode code = (QModbusPdu::FunctionCode) codeByte;
     pdu.setFunctionCode(code);
 
     auto needsAdditionalRead = [](QModbusPdu &pdu, int size) -> bool {
@@ -312,14 +313,14 @@ static QDataStream &pduFromStream(QDataStream &stream, QModbusPdu &pdu, Type typ
 
 /*!
     \internal
-    \fn QModbusPdu::QModbusPdu(FunctionCode code, Args... data)
+    \fn template <typename ... Args> QModbusPdu::QModbusPdu(FunctionCode code, Args ... data)
 
     Constructs a QModbusPdu with function code set to \a code and payload set to \a data.
     The data is converted and stored in big-endian byte order.
 
     \note Usage is limited \c quint8 and \c quint16 only. This is because
     \c QDataStream stream operators will not only append raw data, but also
-    e.g. size, count etc. for complex types.
+    e.g. size, count, etc. for complex types.
 */
 
 /*!
@@ -397,7 +398,7 @@ static QDataStream &pduFromStream(QDataStream &stream, QModbusPdu &pdu, Type typ
 */
 
 /*!
-    \fn void QModbusPdu::decodeData(Args && ... data) const
+    \fn template <typename ... Args> void QModbusPdu::decodeData(Args && ... data) const
 
     Converts the payload into host endianness and reads it into \a data. Data can be a variable
     length argument list.
@@ -411,11 +412,11 @@ static QDataStream &pduFromStream(QDataStream &stream, QModbusPdu &pdu, Type typ
 
     \note Usage is limited \c quint8 and \c quint16 only. This is because
     \c QDataStream stream operators will not only append raw data, but also
-    e.g. size, count etc. for complex types.
+    e.g. size, count, etc. for complex types.
 */
 
 /*!
-    \fn void QModbusPdu::encodeData(Args ... data)
+    \fn template <typename ... Args> void QModbusPdu::encodeData(Args ... data)
 
     Sets the payload to \a data. The data is converted and stored in big-endian byte order.
 
@@ -427,7 +428,7 @@ static QDataStream &pduFromStream(QDataStream &stream, QModbusPdu &pdu, Type typ
 
     \note Usage is limited \c quint8 and \c quint16 only. This is because
     \c QDataStream stream operators will not only append raw data, but also
-    e.g. size, count etc. for complex types.
+    e.g. size, count, etc. for complex types.
 */
 
 /*!
@@ -480,13 +481,20 @@ QDataStream &operator<<(QDataStream &stream, const QModbusPdu &pdu)
     \note When using the constructor taking the \c QByteArray, please make sure to convert the
         containing data to big-endian byte order before creating the request.
 
-    The same request can be created like this, if the values are know at compile time:
+    The same request can be created like this, if the values are known at compile time:
     \code
         quint16 startAddress = 19, numberOfCoils = 10;
         quint8 payloadInBytes = 2, outputHigh = 0xcd, outputLow = 0x01;
         QModbusRequest request(QModbusRequest::WriteMultipleCoils, startAddress, numberOfCoils,
             payloadInBytes, outputHigh, outputLow);
     \endcode
+*/
+
+/*!
+  \typedef QModbusRequest::CalcFuncPtr
+
+  Typedef for a pointer to a custom calculator function with the same signature as
+  \l QModbusRequest::calculateDataSize.
 */
 
 /*!
@@ -502,14 +510,14 @@ QDataStream &operator<<(QDataStream &stream, const QModbusPdu &pdu)
 */
 
 /*!
-    \fn QModbusRequest::QModbusRequest(FunctionCode code, Args... data)
+    \fn template <typename ... Args> QModbusRequest::QModbusRequest(FunctionCode code, Args... data)
 
     Constructs a QModbusRequest with function code set to \a code and payload set to \a data.
     The data is converted and stored in big-endian byte order.
 
     \note Usage is limited \c quint8 and \c quint16 only. This is because
     \c QDataStream stream operators will not only append raw data, but also
-    e.g. size, count etc. for complex types.
+    e.g. size, count, etc. for complex types.
 */
 
 /*!
@@ -630,11 +638,19 @@ QDataStream &operator>>(QDataStream &stream, QModbusRequest &pdu)
     \note When using the constructor taking the \c QByteArray, please make sure to convert the
         containing data to big-endian byte order before creating the request.
 
-    The same response can be created like this, if the values are know at compile time:
+    The same response can be created like this, if the values are known at compile time:
     \code
         quint8 payloadInBytes = 2, outputHigh = 0xcd, outputLow = 0x01;
         QModbusResponse response(QModbusResponse::ReadCoils, payloadInBytes, outputHigh, outputLow);
     \endcode
+*/
+
+
+/*!
+  \typedef QModbusResponse::CalcFuncPtr
+
+  Typedef for a pointer to a custom calculator function with the same signature as
+  \l QModbusResponse::calculateDataSize.
 */
 
 /*!
@@ -650,14 +666,14 @@ QDataStream &operator>>(QDataStream &stream, QModbusRequest &pdu)
 */
 
 /*!
-    \fn QModbusResponse::QModbusResponse(FunctionCode code, Args... data)
+    \fn template <typename ... Args> QModbusResponse::QModbusResponse(FunctionCode code, Args... data)
 
     Constructs a QModbusResponse with function code set to \a code and payload set to \a data.
     The data is converted and stored in big-endian byte order.
 
     \note Usage is limited \c quint8 and \c quint16 only. This is because
     \c QDataStream stream operators will not only append raw data, but also
-    e.g. size, count etc. for complex types.
+    e.g. size, count, etc. for complex types.
 */
 
 /*!
@@ -710,7 +726,7 @@ int QModbusResponse::calculateDataSize(const QModbusResponse &response)
     case QModbusResponse::ReadWriteMultipleRegisters:
     case QModbusResponse::ReportServerId:
         if (response.dataSize() >= 1)
-            size = 1 /*byte count*/ + quint8(response.data()[0]) /*actual bytes*/;
+            size = 1 /*byte count*/ + quint8(response.data().at(0)) /*actual bytes*/;
         break;
     case QModbusResponse::ReadFifoQueue: {
         if (response.dataSize() >= 2) {

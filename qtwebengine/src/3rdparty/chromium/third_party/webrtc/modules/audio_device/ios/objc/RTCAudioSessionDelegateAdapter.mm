@@ -8,11 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#import "webrtc/modules/audio_device/ios/objc/RTCAudioSessionDelegateAdapter.h"
+#import "modules/audio_device/ios/objc/RTCAudioSessionDelegateAdapter.h"
 
-#include "webrtc/modules/audio_device/ios/audio_session_observer.h"
+#include "modules/audio_device/ios/audio_session_observer.h"
 
-#import "WebRTC/RTCLogging.h"
+#import "sdk/objc/base/RTCLogging.h"
 
 @implementation RTCAudioSessionDelegateAdapter {
   webrtc::AudioSessionObserver *_observer;

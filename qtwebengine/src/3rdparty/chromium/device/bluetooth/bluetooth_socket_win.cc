@@ -16,7 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "device/bluetooth/bluetooth_device_win.h"
 #include "device/bluetooth/bluetooth_init_win.h"
 #include "device/bluetooth/bluetooth_service_record_win.h"
@@ -80,7 +80,7 @@ BluetoothSocketWin::CreateBluetoothSocket(
     scoped_refptr<device::BluetoothSocketThread> socket_thread) {
   DCHECK(ui_task_runner->RunsTasksInCurrentSequence());
 
-  return make_scoped_refptr(
+  return base::WrapRefCounted(
       new BluetoothSocketWin(ui_task_runner, socket_thread));
 }
 
@@ -181,7 +181,7 @@ void BluetoothSocketWin::DoConnect(
     const base::Closure& success_callback,
     const ErrorCompletionCallback& error_callback) {
   DCHECK(socket_thread()->task_runner()->RunsTasksInCurrentSequence());
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   if (tcp_socket()) {
     error_callback.Run(kSocketAlreadyConnected);
@@ -363,13 +363,9 @@ void BluetoothSocketWin::OnAcceptOnSocketThread(
   }
 
   ui_task_runner()->PostTask(
-    FROM_HERE,
-    base::Bind(&BluetoothSocketWin::OnAcceptOnUI,
-               this,
-               base::Passed(&accept_socket_),
-               accept_address_,
-               success_callback,
-               error_callback));
+      FROM_HERE, base::BindOnce(&BluetoothSocketWin::OnAcceptOnUI, this,
+                                std::move(accept_socket_), accept_address_,
+                                success_callback, error_callback));
 }
 
 void BluetoothSocketWin::OnAcceptOnUI(

@@ -47,8 +47,8 @@ InputPanel {
     readonly property int cursorPosition: InputContext.cursorPosition
     readonly property string preeditText: InputContext.preeditText
     readonly property string surroundingText: InputContext.surroundingText
-    readonly property bool autoCapitalizationEnabled: InputContext.shiftHandler.autoCapitalizationEnabled
-    readonly property bool toggleShiftEnabled: InputContext.shiftHandler.toggleShiftEnabled
+    readonly property bool autoCapitalizationEnabled: InputContext.priv.shiftHandler.autoCapitalizationEnabled
+    readonly property bool toggleShiftEnabled: InputContext.priv.shiftHandler.toggleShiftEnabled
     readonly property string locale: keyboard.locale
     readonly property string defaultLocale: VirtualKeyboardSettings.locale
     readonly property var availableLocales: VirtualKeyboardSettings.availableLocales
@@ -67,6 +67,7 @@ InputPanel {
                                                         naviationHighlight.widthAnimation.running ||
                                                         naviationHighlight.heightAnimation.running
     readonly property var wordCandidateView: Utils.findChildByProperty(keyboard, "objectName", "wordCandidateView", null)
+    readonly property var wordCandidateContextMenu: Utils.findChildByProperty(keyboard, "objectName", "wordCandidateContextMenu", null)
     readonly property var shadowInputControl: Utils.findChildByProperty(keyboard, "objectName", "shadowInputControl", null)
     readonly property var shadowInput: Utils.findChildByProperty(keyboard, "objectName", "shadowInput", null)
     readonly property var selectionControl: Utils.findChildByProperty(inputPanel, "objectName", "selectionControl", null)
@@ -88,11 +89,15 @@ InputPanel {
     property alias soundEffectSpy: soundEffectSpy
     property alias inputMethodResultSpy: inputMethodResultSpy
     property alias wordCandidateListChangedSpy: wordCandidateListChangedSpy
+    property alias inputMethodSelectionListChangedSpy: inputMethodSelectionListChangedSpy
     property alias wordCandidateListVisibleSpy: wordCandidateListVisibleSpy
     property alias shiftStateSpy: shiftStateSpy
     property alias shadowInputControlVisibleSpy: shadowInputControlVisibleSpy
+    property alias externalLanguageSwitchSpy: externalLanguageSwitchSpy
 
     signal inputMethodResult(var text)
+
+    LayoutMirroring.childrenInherit: true
 
     Connections {
         target: InputContext
@@ -171,21 +176,39 @@ InputPanel {
     }
 
     SignalSpy {
+        id: inputMethodSelectionListChangedSpy
+        target: InputContext.inputEngine.inputMethod
+        signalName: "selectionListChanged"
+    }
+
+    SignalSpy {
         id: wordCandidateListVisibleSpy
         target: wordCandidateView
         signalName: "onVisibleConditionChanged"
     }
 
     SignalSpy {
+        id: wordCandidateContextMenuActiveSpy
+        target: wordCandidateContextMenu
+        signalName: "onActiveChanged"
+    }
+
+    SignalSpy {
         id: shiftStateSpy
         target: InputContext
-        signalName: "onShiftChanged"
+        signalName: "onShiftActiveChanged"
     }
 
     SignalSpy {
         id: shadowInputControlVisibleSpy
         target: shadowInputControl
         signalName: "onVisibleChanged"
+    }
+
+    SignalSpy {
+        id: externalLanguageSwitchSpy
+        target: inputPanel
+        signalName: "onExternalLanguageSwitch"
     }
 
     function findChildByProperty(parent, propertyName, propertyValue, compareCb) {
@@ -244,39 +267,41 @@ InputPanel {
 
     function mapInputMode(inputModeName) {
         if (inputModeName === "Latin")
-            return InputEngine.Latin
+            return InputEngine.InputMode.Latin
         else if (inputModeName === "Numeric")
-            return InputEngine.Numeric
+            return InputEngine.InputMode.Numeric
         else if (inputModeName === "Dialable")
-            return InputEngine.Dialable
+            return InputEngine.InputMode.Dialable
         else if (inputModeName === "Pinyin")
-            return InputEngine.Pinyin
+            return InputEngine.InputMode.Pinyin
         else if (inputModeName === "Cangjie")
-            return InputEngine.Cangjie
+            return InputEngine.InputMode.Cangjie
         else if (inputModeName === "Zhuyin")
-            return InputEngine.Zhuyin
+            return InputEngine.InputMode.Zhuyin
         else if (inputModeName === "Hangul")
-            return InputEngine.Hangul
+            return InputEngine.InputMode.Hangul
         else if (inputModeName === "Hiragana")
-            return InputEngine.Hiragana
+            return InputEngine.InputMode.Hiragana
         else if (inputModeName === "Katakana")
-            return InputEngine.Katakana
+            return InputEngine.InputMode.Katakana
         else if (inputModeName === "FullwidthLatin")
-            return InputEngine.FullwidthLatin
+            return InputEngine.InputMode.FullwidthLatin
         else if (inputModeName === "Greek")
-            return InputEngine.Greek
+            return InputEngine.InputMode.Greek
         else if (inputModeName === "Cyrillic")
-            return InputEngine.Cyrillic
+            return InputEngine.InputMode.Cyrillic
         else if (inputModeName === "Arabic")
-            return InputEngine.Arabic
+            return InputEngine.InputMode.Arabic
         else if (inputModeName === "Hebrew")
-            return InputEngine.Hebrew
+            return InputEngine.InputMode.Hebrew
         else if (inputModeName === "ChineseHandwriting")
-            return InputEngine.ChineseHandwriting
+            return InputEngine.InputMode.ChineseHandwriting
         else if (inputModeName === "JapaneseHandwriting")
-            return InputEngine.JapaneseHandwriting
+            return InputEngine.InputMode.JapaneseHandwriting
         else if (inputModeName === "KoreanHandwriting")
-            return InputEngine.KoreanHandwriting
+            return InputEngine.InputMode.KoreanHandwriting
+        else if (inputModeName === "Thai")
+            return InputEngine.InputMode.Thai
         else
             return -1
     }
@@ -291,6 +316,85 @@ InputPanel {
         if (InputContext.inputEngine.inputMode !== inputMode)
             InputContext.inputEngine.inputMode = inputMode
         return true
+    }
+
+    function testPublicEnums() {
+        // Scoped
+        testcase.verify(InputEngine.TextCase.Lower !== undefined)
+        testcase.verify(InputEngine.TextCase.Upper !== undefined)
+        testcase.verify(InputEngine.InputMode.Latin !== undefined)
+        testcase.verify(InputEngine.InputMode.Numeric !== undefined)
+        testcase.verify(InputEngine.InputMode.Dialable !== undefined)
+        testcase.verify(InputEngine.InputMode.Pinyin !== undefined)
+        testcase.verify(InputEngine.InputMode.Cangjie !== undefined)
+        testcase.verify(InputEngine.InputMode.Zhuyin !== undefined)
+        testcase.verify(InputEngine.InputMode.Hangul !== undefined)
+        testcase.verify(InputEngine.InputMode.Hiragana !== undefined)
+        testcase.verify(InputEngine.InputMode.Katakana !== undefined)
+        testcase.verify(InputEngine.InputMode.FullwidthLatin !== undefined)
+        testcase.verify(InputEngine.InputMode.Greek !== undefined)
+        testcase.verify(InputEngine.InputMode.Cyrillic !== undefined)
+        testcase.verify(InputEngine.InputMode.Arabic !== undefined)
+        testcase.verify(InputEngine.InputMode.Hebrew !== undefined)
+        testcase.verify(InputEngine.InputMode.ChineseHandwriting !== undefined)
+        testcase.verify(InputEngine.InputMode.JapaneseHandwriting !== undefined)
+        testcase.verify(InputEngine.InputMode.KoreanHandwriting !== undefined)
+        testcase.verify(InputEngine.InputMode.Thai !== undefined)
+        testcase.verify(InputEngine.PatternRecognitionMode.None !== undefined)
+        testcase.verify(InputEngine.PatternRecognitionMode.PatternRecognitionDisabled !== undefined)
+        testcase.verify(InputEngine.PatternRecognitionMode.Handwriting !== undefined)
+        testcase.verify(InputEngine.PatternRecognitionMode.HandwritingRecoginition !== undefined)
+        testcase.verify(InputEngine.ReselectFlag.WordBeforeCursor !== undefined)
+        testcase.verify(InputEngine.ReselectFlag.WordAfterCursor !== undefined)
+        testcase.verify(InputEngine.ReselectFlag.WordAtCursor !== undefined)
+        testcase.verify(SelectionListModel.Type.WordCandidateList !== undefined)
+        testcase.verify(SelectionListModel.Role.Display !== undefined)
+        testcase.verify(SelectionListModel.Role.WordCompletionLength !== undefined)
+        testcase.verify(SelectionListModel.Role.Dictionary !== undefined)
+        testcase.verify(SelectionListModel.DictionaryType.Default !== undefined)
+        testcase.verify(SelectionListModel.DictionaryType.User !== undefined)
+        // Unscoped
+        testcase.verify(InputEngine.Lower !== undefined)
+        testcase.verify(InputEngine.Upper !== undefined)
+        testcase.verify(InputEngine.Latin !== undefined)
+        testcase.verify(InputEngine.Numeric !== undefined)
+        testcase.verify(InputEngine.Dialable !== undefined)
+        testcase.verify(InputEngine.Pinyin !== undefined)
+        testcase.verify(InputEngine.Cangjie !== undefined)
+        testcase.verify(InputEngine.Zhuyin !== undefined)
+        testcase.verify(InputEngine.Hangul !== undefined)
+        testcase.verify(InputEngine.Hiragana !== undefined)
+        testcase.verify(InputEngine.Katakana !== undefined)
+        testcase.verify(InputEngine.FullwidthLatin !== undefined)
+        testcase.verify(InputEngine.Greek !== undefined)
+        testcase.verify(InputEngine.Cyrillic !== undefined)
+        testcase.verify(InputEngine.Arabic !== undefined)
+        testcase.verify(InputEngine.Hebrew !== undefined)
+        testcase.verify(InputEngine.ChineseHandwriting !== undefined)
+        testcase.verify(InputEngine.JapaneseHandwriting !== undefined)
+        testcase.verify(InputEngine.KoreanHandwriting !== undefined)
+        testcase.verify(InputEngine.Thai !== undefined)
+        testcase.verify(InputEngine.None !== undefined)
+        testcase.verify(InputEngine.PatternRecognitionDisabled !== undefined)
+        testcase.verify(InputEngine.Handwriting !== undefined)
+        testcase.verify(InputEngine.HandwritingRecoginition !== undefined)
+        testcase.verify(InputEngine.WordBeforeCursor !== undefined)
+        testcase.verify(InputEngine.WordAfterCursor !== undefined)
+        testcase.verify(InputEngine.WordAtCursor !== undefined)
+        testcase.verify(SelectionListModel.WordCandidateList !== undefined)
+        testcase.verify(SelectionListModel.DisplayRole !== undefined)
+        testcase.verify(SelectionListModel.WordCompletionLengthRole !== undefined)
+        testcase.verify(SelectionListModel.DictionaryType !== undefined)
+        testcase.verify(SelectionListModel.Default !== undefined)
+        testcase.verify(SelectionListModel.User !== undefined)
+    }
+
+    function setExternalLanguageSwitchEnabled(enabled) {
+        externalLanguageSwitchEnabled = enabled
+    }
+
+    function setLayoutMirroring(enabled) {
+        LayoutMirroring.enabled = enabled
     }
 
     function findVirtualKey(key) {
@@ -333,7 +437,7 @@ InputPanel {
             testcase.wait(20)
             if (alternativeKey) {
                 alternativeKeysSpy.wait()
-                var keyIndex = keyObj.effectiveAlternativeKeys.indexOf(key)
+                var keyIndex = keyObj.effectiveAlternativeKeys.indexOf(key.toLowerCase())
                 var itemX = keyIndex * keyboard.style.alternateKeysListItemWidth + keyboard.style.alternateKeysListItemWidth / 2
                 virtualKeyPressPoint.x = inputPanel.mapFromItem(alternativeKeys.listView, itemX, 0).x
                 testcase.mouseMove(inputPanel, virtualKeyPressPoint.x, virtualKeyPressPoint.y)
@@ -365,12 +469,15 @@ InputPanel {
                     }
                 } else if (typeof key != "number" || key !== Qt.Key_Shift) {
                     // Some layouts (such as Arabic, Hindi) may have a second layout
-                    virtualKeyPress(Qt.Key_Shift)
-                    InputContext.shiftHandler.clearToggleShiftTimer()
+                    virtualKeyClick(Qt.Key_Shift)
+                    InputContext.priv.shiftHandler.clearToggleShiftTimer()
                     testcase.waitForRendering(inputPanel)
                     success = keyActionOnCurrentLayoutCb(key)
-                    virtualKeyPress(Qt.Key_Shift)
-                    InputContext.shiftHandler.clearToggleShiftTimer()
+                    if (!success) {
+                        virtualKeyClick(Qt.Key_Shift)
+                        InputContext.priv.shiftHandler.clearToggleShiftTimer()
+                        testcase.waitForRendering(inputPanel)
+                    }
                 }
                 if (success)
                     break
@@ -503,6 +610,8 @@ InputPanel {
 
     function activateNavigationKeyMode() {
         if (!inputPanel.naviationHighlight.visible) {
+            inputPanel.naviationHighlight.moveDuration = 0
+            inputPanel.naviationHighlight.resizeDuration = 0
             emulateNavigationKeyClick(Qt.Key_Right)
             if (inputPanel.naviationHighlight.visible) {
                 while (inputPanel.naviationHighlightAnimating)
@@ -513,7 +622,15 @@ InputPanel {
     }
 
     function toggleShift() {
-        InputContext.shiftHandler.toggleShift()
+        InputContext.priv.shiftHandler.toggleShift()
+    }
+
+    function setShiftActive(shiftActive) {
+        InputContext.priv.shiftHandler.shiftActive = shiftActive
+    }
+
+    function setCapsLockActive(capsLockActive) {
+        InputContext.priv.shiftHandler.capsLockActive = capsLockActive
     }
 
     function style() {
@@ -561,9 +678,62 @@ InputPanel {
         if (!inputPanel.wordCandidateView.currentItem)
             return false
         testcase.wait(200)
+        testcase.verify(inputPanel.wordCandidateView.currentItem,
+            "Expected wordCandidateView to have a currentItem, but it's null."
+            + " Its property values at the time of failure are:"
+            + " x=" + inputPanel.wordCandidateView.x
+            + " y=" + inputPanel.wordCandidateView.y
+            + " width=" + inputPanel.wordCandidateView.width
+            + " height=" + inputPanel.wordCandidateView.height
+            + " count=" + inputPanel.wordCandidateView.count
+            + " flicking=" + inputPanel.wordCandidateView.flicking
+            + " moving=" + inputPanel.wordCandidateView.moving
+            + " visible=" + inputPanel.wordCandidateView.visible)
         var itemPos = inputPanel.mapFromItem(inputPanel.wordCandidateView.currentItem,
                                              inputPanel.wordCandidateView.currentItem.width / 2,
                                              inputPanel.wordCandidateView.currentItem.height / 2)
+        testcase.mouseClick(inputPanel, itemPos.x, itemPos.y, Qt.LeftButton, 0, 20)
+        testcase.waitForRendering(inputPanel)
+        return true
+    }
+
+    function selectionListCurrentIndex() {
+        return inputPanel.wordCandidateView.currentIndex
+    }
+
+    function selectionListSuggestionIsFromUserDictionary() {
+        if (!inputPanel.wordCandidateView.currentItem)
+            return false
+        var dictionaryType = inputPanel.wordCandidateView.model.dataAt(inputPanel.wordCandidateView.currentIndex, SelectionListModel.Role.Dictionary)
+        return dictionaryType !== undefined && dictionaryType === SelectionListModel.DictionaryType.User
+    }
+
+    function openWordCandidateContextMenu() {
+        if (!inputPanel.wordCandidateView.currentItem)
+            return false
+        testcase.wait(200)
+        wordCandidateContextMenuActiveSpy.clear()
+        testcase.mousePress(inputPanel.wordCandidateView.currentItem)
+        wordCandidateContextMenuActiveSpy.wait()
+        testcase.mouseRelease(inputPanel.wordCandidateView.currentItem)
+        return wordCandidateContextMenu.active
+    }
+
+    function selectItemFromWordCandidateContextMenu(index) {
+        if (!inputPanel.wordCandidateView.currentItem)
+            return false
+        if (!wordCandidateContextMenu.active)
+            return false
+        var wordCandidateContextMenuList = Utils.findChildByProperty(keyboard, "objectName", "wordCandidateContextMenuList", null)
+        if (wordCandidateContextMenuList.currentIndex !== index) {
+            wordCandidateContextMenuList.currentIndex = index
+            testcase.waitForRendering(inputPanel)
+        }
+        if (!wordCandidateContextMenuList.currentItem)
+            return false
+        var itemPos = inputPanel.mapFromItem(wordCandidateContextMenuList.currentItem,
+                                             wordCandidateContextMenuList.currentItem.width / 2,
+                                             wordCandidateContextMenuList.currentItem.height / 2)
         testcase.mouseClick(inputPanel, itemPos.x, itemPos.y, Qt.LeftButton, 0, 20)
         testcase.waitForRendering(inputPanel)
         return true
@@ -582,13 +752,22 @@ InputPanel {
             return false
         var hwrInputArea = Utils.findChildByProperty(keyboard, "objectName", "hwrInputArea", null)
         inputMethodResultSpy.clear()
-        if (!Handwriting.emulate(testcase, hwrInputArea, ch, instant)) {
+        if (!Handwriting.emulate(testcase, hwrInputArea, ch, instant,
+                                 VirtualKeyboardSettings.locale)) {
             if (virtualKeyClick(ch))
                 return true
             console.warn("Cannot produce the symbol '%1' in handwriting mode".arg(ch))
             return false
         }
+        if (isSuperimposedHandwriting())
+            return true
         inputMethodResultSpy.wait(3000)
         return inputMethodResultSpy.count > 0
+    }
+
+    function isSuperimposedHandwriting() {
+        if (!inputPanel.keyboard.handwritingMode)
+            return false
+        return inputMethod != null && inputMethod.hasOwnProperty("superimposed") && inputMethod.superimposed
     }
 }

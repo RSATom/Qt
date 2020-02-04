@@ -49,6 +49,11 @@ QSGSoftwareSpriteNode::QSGSoftwareSpriteNode()
     setGeometry((QSGGeometry*)1);
 }
 
+QSGSoftwareSpriteNode::~QSGSoftwareSpriteNode()
+{
+    delete m_texture;
+}
+
 void QSGSoftwareSpriteNode::setTexture(QSGTexture *texture)
 {
     m_texture = qobject_cast<QSGSoftwarePixmapTexture*>(texture);
@@ -123,7 +128,7 @@ void QSGSoftwareSpriteNode::paint(QPainter *painter)
     // XXX try to do some kind of interpolation between sourceA and sourceB using time
     painter->drawPixmap(QRectF(0, 0, m_size.width(), m_size.height()),
                         pixmap,
-                        QRectF(m_sourceA, m_spriteSize));
+                        QRectF(m_sourceA * pixmap.devicePixelRatioF(), m_spriteSize * pixmap.devicePixelRatioF()));
 }
 
 bool QSGSoftwareSpriteNode::isOpaque() const

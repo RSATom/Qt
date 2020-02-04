@@ -6,7 +6,9 @@
 #define NET_REPORTING_REPORTING_DELEGATE_H_
 
 #include <memory>
+#include <set>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "net/base/net_export.h"
 
@@ -27,9 +29,11 @@ class NET_EXPORT ReportingDelegate {
   // Checks whether |origin| is allowed to queue reports for future delivery.
   virtual bool CanQueueReport(const url::Origin& origin) const = 0;
 
-  // Checks whether |origin| is allowed to receive reports, either in real time
-  // or that were queued earlier.
-  virtual bool CanSendReport(const url::Origin& origin) const = 0;
+  // Checks whether |origins| are allowed to receive reports, either in real
+  // time or that were queued earlier, removing any that aren't.
+  virtual void CanSendReports(std::set<url::Origin> origins,
+                              base::OnceCallback<void(std::set<url::Origin>)>
+                                  result_callback) const = 0;
 
   // Checks whether |origin| can set |endpoint| to be used for future report
   // deliveries.

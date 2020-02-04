@@ -12,12 +12,15 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "base/threading/thread.h"
+#include "media/capture/video/linux/v4l2_capture_device_impl.h"
 #include "media/capture/video/video_capture_device.h"
 #include "media/capture/video_capture_types.h"
 
@@ -29,9 +32,10 @@ class V4L2CaptureDelegate;
 class VideoCaptureDeviceLinux : public VideoCaptureDevice {
  public:
   static VideoPixelFormat V4l2FourCcToChromiumPixelFormat(uint32_t v4l2_fourcc);
-  static std::list<uint32_t> GetListOfUsableFourCCs(bool favour_mjpeg);
+  static std::vector<uint32_t> GetListOfUsableFourCCs(bool favour_mjpeg);
 
   explicit VideoCaptureDeviceLinux(
+      scoped_refptr<V4L2CaptureDevice> v4l2,
       const VideoCaptureDeviceDescriptor& device_descriptor);
   ~VideoCaptureDeviceLinux() override;
 
@@ -50,7 +54,7 @@ class VideoCaptureDeviceLinux : public VideoCaptureDevice {
   const VideoCaptureDeviceDescriptor device_descriptor_;
 
  private:
-  static int TranslatePowerLineFrequencyToV4L2(PowerLineFrequency frequency);
+  const scoped_refptr<V4L2CaptureDevice> v4l2_;
 
   // Internal delegate doing the actual capture setting, buffer allocation and
   // circulation with the V4L2 API. Created in the thread where
@@ -59,7 +63,7 @@ class VideoCaptureDeviceLinux : public VideoCaptureDevice {
   std::unique_ptr<V4L2CaptureDelegate> capture_impl_;
 
   // Photo-related requests waiting for |v4l2_thread_| to be active.
-  std::list<base::Closure> photo_requests_queue_;
+  std::vector<base::OnceClosure> photo_requests_queue_;
 
   base::Thread v4l2_thread_;  // Thread used for reading data from the device.
 

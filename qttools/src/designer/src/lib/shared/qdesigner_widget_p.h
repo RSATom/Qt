@@ -41,8 +41,8 @@
 #define QDESIGNER_WIDGET_H
 
 #include "shared_global_p.h"
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QLabel>
+#include <QtWidgets/qdialog.h>
+#include <QtWidgets/qlabel.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -57,17 +57,17 @@ class QDESIGNER_SHARED_EXPORT QDesignerWidget : public QWidget
     Q_OBJECT
 public:
     explicit QDesignerWidget(QDesignerFormWindowInterface* formWindow, QWidget *parent = 0);
-    virtual ~QDesignerWidget();
+    ~QDesignerWidget() override;
 
     QDesignerFormWindowInterface* formWindow() const;
 
     void updatePixmap();
 
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE
+    QSize minimumSizeHint() const override
     { return QWidget::minimumSizeHint().expandedTo(QSize(16, 16)); }
 
 protected:
-    void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *e) override;
 
 private:
     qdesigner_internal::FormWindowBase* m_formWindow;
@@ -79,11 +79,11 @@ class QDESIGNER_SHARED_EXPORT QDesignerDialog : public QDialog
 public:
     explicit QDesignerDialog(QDesignerFormWindowInterface *fw, QWidget *parent);
 
-    virtual QSize minimumSizeHint() const
+    QSize minimumSizeHint() const override
     { return QWidget::minimumSizeHint().expandedTo(QSize(16, 16)); }
 
 protected:
-    void paintEvent(QPaintEvent *e);
+    void paintEvent(QPaintEvent *e) override;
 
 private:
     qdesigner_internal::FormWindowBase* m_formWindow;

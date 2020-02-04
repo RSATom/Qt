@@ -45,8 +45,6 @@
 #include "private/qcore_unix_p.h"
 #include "kernel/qcore_mac_p.h"
 
-#ifndef QT_NO_FILESYSTEMWATCHER
-
 #include <qdebug.h>
 #include <qdir.h>
 #include <qfile.h>
@@ -336,7 +334,7 @@ QStringList QFseventsFileSystemWatcherEngine::addPaths(const QStringList &paths,
 
     QMutexLocker locker(&lock);
 
-    bool wasRunning = stream != Q_NULLPTR;
+    bool wasRunning = stream != nullptr;
     bool needsRestart = false;
 
     WatchingState oldState = watchingState;
@@ -377,7 +375,7 @@ QStringList QFseventsFileSystemWatcherEngine::addPaths(const QStringList &paths,
 
         for (PathRefCounts::const_iterator i = watchingState.watchedPaths.begin(),
                 ei = watchingState.watchedPaths.end(); i != ei; ++i) {
-            if (watchedPath.startsWith(i.key())) {
+            if (watchedPath.startsWith(i.key() % QDir::separator())) {
                 watchedPath = i.key();
                 break;
             }
@@ -499,7 +497,7 @@ bool QFseventsFileSystemWatcherEngine::startStream()
 
     DEBUG() << "Starting stream with paths" << watchingState.watchedPaths.keys();
 
-    NSMutableArray *pathsToWatch = [NSMutableArray arrayWithCapacity:watchingState.watchedPaths.size()];
+    NSMutableArray<NSString *> *pathsToWatch = [NSMutableArray<NSString *> arrayWithCapacity:watchingState.watchedPaths.size()];
     for (PathRefCounts::const_iterator i = watchingState.watchedPaths.begin(), ei = watchingState.watchedPaths.end(); i != ei; ++i)
         [pathsToWatch addObject:i.key().toNSString()];
 
@@ -584,7 +582,5 @@ bool QFseventsFileSystemWatcherEngine::derefPath(const QString &watchedPath)
 
     return false;
 }
-
-#endif //QT_NO_FILESYSTEMWATCHER
 
 QT_END_NAMESPACE

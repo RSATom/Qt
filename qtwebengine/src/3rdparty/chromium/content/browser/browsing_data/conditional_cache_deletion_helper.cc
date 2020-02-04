@@ -77,7 +77,7 @@ void ConditionalCacheDeletionHelper::IterateOverEntries(int error) {
       // (e.g. the cache was destroyed). We cannot distinguish between the two,
       // but we know that there is nothing more that we can do, so we return OK.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(completion_callback_, net::OK));
+          FROM_HERE, base::BindOnce(completion_callback_, net::OK));
       base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
       return;
     }
@@ -85,8 +85,8 @@ void ConditionalCacheDeletionHelper::IterateOverEntries(int error) {
     previous_entry_ = current_entry_;
     error = iterator_->OpenNextEntry(
         &current_entry_,
-        base::Bind(&ConditionalCacheDeletionHelper::IterateOverEntries,
-                   base::Unretained(this)));
+        base::BindOnce(&ConditionalCacheDeletionHelper::IterateOverEntries,
+                       base::Unretained(this)));
   }
 }
 

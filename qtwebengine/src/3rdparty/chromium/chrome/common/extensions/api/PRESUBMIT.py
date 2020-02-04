@@ -26,14 +26,17 @@ def _CheckExterns(input_api, output_api):
   externs_root = join(src_root, 'third_party', 'closure_compiler', 'externs')
 
   api_pair_names = {
+    'activity_log_private.json': 'activity_log_private.js',
     'autofill_private.idl': 'autofill_private.js',
     'automation.idl': 'automation.js',
     'developer_private.idl': 'developer_private.js',
     'bookmark_manager_private.json': 'bookmark_manager_private.js',
     'command_line_private.json': 'command_line_private.js',
     'file_manager_private.idl': 'file_manager_private.js',
+    'file_system_provider.idl': 'file_system_provider.js',
     'language_settings_private.idl': 'language_settings_private.js',
     'passwords_private.idl': 'passwords_private.js',
+    'safe_browsing_private.idl': 'safe_browsing_private.js',
     'system_private.json': 'system_private.js',
     'users_private.idl': 'users_private.js',
     # TODO(rdevlin.cronin): Add more!

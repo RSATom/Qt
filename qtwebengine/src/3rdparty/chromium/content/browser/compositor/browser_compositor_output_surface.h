@@ -7,8 +7,9 @@
 
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "cc/output/output_surface.h"
+#include "components/viz/service/display/output_surface.h"
 #include "content/common/content_export.h"
+#include "gpu/vulkan/buildflags.h"
 
 namespace cc {
 class SoftwareOutputDevice;
@@ -26,15 +27,15 @@ namespace content {
 class ReflectorImpl;
 
 class CONTENT_EXPORT BrowserCompositorOutputSurface
-    : public cc::OutputSurface {
+    : public viz::OutputSurface {
  public:
   using UpdateVSyncParametersCallback =
       base::Callback<void(base::TimeTicks timebase, base::TimeDelta interval)>;
 
   ~BrowserCompositorOutputSurface() override;
 
-  // cc::OutputSurface implementation.
-  cc::OverlayCandidateValidator* GetOverlayCandidateValidator() const override;
+  // viz::OutputSurface implementation.
+  viz::OverlayCandidateValidator* GetOverlayCandidateValidator() const override;
   bool HasExternalStencilTest() const override;
   void ApplyExternalStencil() override;
 
@@ -42,10 +43,6 @@ class CONTENT_EXPORT BrowserCompositorOutputSurface
 
   // Called when |reflector_| was updated.
   virtual void OnReflectorChanged();
-
-#if defined(OS_MACOSX)
-  virtual void SetSurfaceSuspendedForRecycle(bool suspended) = 0;
-#endif
 
  protected:
   // Constructor used by the accelerated implementation.
@@ -57,13 +54,15 @@ class CONTENT_EXPORT BrowserCompositorOutputSurface
 
   // Constructor used by the software implementation.
   BrowserCompositorOutputSurface(
-      std::unique_ptr<cc::SoftwareOutputDevice> software_device,
+      std::unique_ptr<viz::SoftwareOutputDevice> software_device,
       const UpdateVSyncParametersCallback& update_vsync_parameters_callback);
 
+#if BUILDFLAG(ENABLE_VULKAN)
   // Constructor used by the Vulkan implementation.
   BrowserCompositorOutputSurface(
-      const scoped_refptr<cc::VulkanContextProvider>& vulkan_context_provider,
+      const scoped_refptr<viz::VulkanContextProvider>& vulkan_context_provider,
       const UpdateVSyncParametersCallback& update_vsync_parameters_callback);
+#endif
 
   const UpdateVSyncParametersCallback update_vsync_parameters_callback_;
   ReflectorImpl* reflector_;

@@ -76,7 +76,7 @@ public:
     bool setVoice(const QVoice &voice) override;
     QTextToSpeech::State state() const override;
 
-    HRESULT STDMETHODCALLTYPE NotifyCallback(WPARAM /*wParam*/, LPARAM /*lParam*/);
+    HRESULT STDMETHODCALLTYPE NotifyCallback(WPARAM /*wParam*/, LPARAM /*lParam*/) override;
 private:
 
     void init();

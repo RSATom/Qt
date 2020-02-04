@@ -19,11 +19,11 @@
 #include "ppapi/c/dev/ppb_var_deprecated.h"
 #include "ppapi/c/ppb_var.h"
 #include "ppapi/shared_impl/ppb_var_shared.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebPluginContainer.h"
-#include "third_party/WebKit/public/web/WebPluginScriptForbiddenScope.h"
-#include "third_party/WebKit/public/web/WebScopedUserGesture.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_plugin_container.h"
+#include "third_party/blink/public/web/web_plugin_script_forbidden_scope.h"
+#include "third_party/blink/public/web/web_scoped_user_gesture.h"
 
 using ppapi::V8ObjectVar;
 using ppapi::PpapiGlobals;
@@ -44,7 +44,7 @@ class ObjectAccessor {
  public:
   ObjectAccessor(PP_Var var)
       : object_var_(V8ObjectVar::FromPPVar(var).get()),
-        instance_(object_var_ ? object_var_->instance() : NULL) {
+        instance_(object_var_ ? object_var_->instance() : nullptr) {
     if (instance_) {
       converter_.reset(new V8VarConverter(instance_->pp_instance(),
                                           V8VarConverter::kAllowObjectVars));
@@ -98,9 +98,16 @@ bool HasPropertyDeprecated(PP_Var var, PP_Var name, PP_Var* exception) {
   if (try_catch.HasException())
     return false;
 
-  bool result = accessor.GetObject()->Has(v8_name);
+  v8::Local<v8::Context> context = try_catch.GetContext();
   if (try_catch.HasException())
     return false;
+
+  bool result = false;
+  if (!accessor.GetObject()->Has(context, v8_name).To(&result)) {
+    try_catch.HasException();
+    return false;
+  }
+
   return result;
 }
 
@@ -115,11 +122,22 @@ bool HasMethodDeprecated(PP_Var var, PP_Var name, PP_Var* exception) {
   if (try_catch.HasException())
     return false;
 
-  bool result = accessor.GetObject()->Has(v8_name) &&
-      accessor.GetObject()->Get(v8_name)->IsFunction();
+  v8::Local<v8::Context> context = try_catch.GetContext();
   if (try_catch.HasException())
     return false;
-  return result;
+
+  bool has_name = false;
+  if (!accessor.GetObject()->Has(context, v8_name).To(&has_name)) {
+    try_catch.HasException();
+    return false;
+  }
+
+  if (!has_name)
+    return false;
+
+  v8::Local<v8::Value> function;
+  return accessor.GetObject()->Get(context, v8_name).ToLocal(&function) &&
+         function->IsFunction();
 }
 
 PP_Var GetProperty(PP_Var var, PP_Var name, PP_Var* exception) {
@@ -133,7 +151,9 @@ PP_Var GetProperty(PP_Var var, PP_Var name, PP_Var* exception) {
   if (try_catch.HasException())
     return PP_MakeUndefined();
 
-  ScopedPPVar result_var = try_catch.FromV8(accessor.GetObject()->Get(v8_name));
+  v8::Local<v8::Value> result;
+  ScopedPPVar result_var = try_catch.FromV8Maybe(
+      accessor.GetObject()->Get(try_catch.GetContext(), v8_name));
   if (try_catch.HasException())
     return PP_MakeUndefined();
 
@@ -151,18 +171,20 @@ void EnumerateProperties(PP_Var var,
   PepperTryCatchVar try_catch(accessor.instance(), accessor.converter(),
                               exception);
 
-  *properties = NULL;
+  *properties = nullptr;
   *property_count = 0;
 
-  v8::Local<v8::Array> identifiers = accessor.GetObject()->GetPropertyNames();
-  if (try_catch.HasException())
+  v8::Local<v8::Context> context = try_catch.GetContext();
+  v8::Local<v8::Array> identifiers;
+  if (!accessor.GetObject()->GetPropertyNames(context).ToLocal(&identifiers))
     return;
   ScopedPPVarArray identifier_vars(identifiers->Length());
   for (uint32_t i = 0; i < identifiers->Length(); ++i) {
-    ScopedPPVar var = try_catch.FromV8(identifiers->Get(i));
+    ScopedPPVar identifier =
+        try_catch.FromV8Maybe(identifiers->Get(context, i));
     if (try_catch.HasException())
       return;
-    identifier_vars.Set(i, var);
+    identifier_vars.Set(i, identifier);
   }
 
   size_t size = identifier_vars.size();
@@ -187,8 +209,11 @@ void SetPropertyDeprecated(PP_Var var,
   if (try_catch.HasException())
     return;
 
-  accessor.GetObject()->Set(v8_name, v8_value);
-  try_catch.HasException();  // Ensure an exception gets set if one occured.
+  if (accessor.GetObject()
+          ->Set(try_catch.GetContext(), v8_name, v8_value)
+          .IsNothing()) {
+    try_catch.HasException();  // Ensure an exception gets set.
+  }
 }
 
 void DeletePropertyDeprecated(PP_Var var, PP_Var name, PP_Var* exception) {
@@ -203,8 +228,16 @@ void DeletePropertyDeprecated(PP_Var var, PP_Var name, PP_Var* exception) {
   if (try_catch.HasException())
     return;
 
-  accessor.GetObject()->Delete(v8_name);
-  try_catch.HasException();  // Ensure an exception gets set if one occured.
+  v8::Local<v8::Context> context = try_catch.GetContext();
+  if (try_catch.HasException())
+    return;
+
+  if (accessor.GetObject()->Delete(context, v8_name).IsNothing()) {
+    // Ensure exception object is created if V8 has thrown.
+    try_catch.HasException();
+    return;
+  }
+  return;
 }
 
 PP_Var CallDeprecatedInternal(PP_Var var,
@@ -236,11 +269,15 @@ PP_Var CallDeprecatedInternal(PP_Var var,
   }
 
   v8::Local<v8::Object> function = accessor.GetObject();
-  v8::Local<v8::Object> recv =
-      accessor.instance()->GetMainWorldContext()->Global();
+  v8::Local<v8::Context> context = accessor.instance()->GetMainWorldContext();
+  v8::Local<v8::Object> recv = context->Global();
   if (v8_method_name.As<v8::String>()->Length() != 0) {
-    function = function->Get(v8_method_name)
-                   ->ToObject(accessor.instance()->GetIsolate());
+    v8::Local<v8::Value> value;
+    if (!function->Get(context, v8_method_name).ToLocal(&value) ||
+        !value->ToObject(context).ToLocal(&function)) {
+      try_catch.SetException(kUnableToCallMethodException);
+      return PP_MakeUndefined();
+    }
     recv = accessor.GetObject();
   }
 
@@ -261,7 +298,7 @@ PP_Var CallDeprecatedInternal(PP_Var var,
   }
 
   blink::WebPluginContainer* container = accessor.instance()->container();
-  blink::WebLocalFrame* frame = NULL;
+  blink::WebLocalFrame* frame = nullptr;
   if (container)
     frame = container->GetDocument().GetFrame();
 
@@ -270,9 +307,14 @@ PP_Var CallDeprecatedInternal(PP_Var var,
     return PP_MakeUndefined();
   }
 
-  v8::Local<v8::Value> result = frame->CallFunctionEvenIfScriptDisabled(
-      function.As<v8::Function>(), recv, argc, converted_args.get());
-  ScopedPPVar result_var = try_catch.FromV8(result);
+  ScopedPPVar result_var;
+  v8::Local<v8::Value> result;
+  if (frame
+          ->CallFunctionEvenIfScriptDisabled(function.As<v8::Function>(), recv,
+                                             argc, converted_args.get())
+          .ToLocal(&result)) {
+    result_var = try_catch.FromV8(result);
+  }
 
   if (try_catch.HasException())
     return PP_MakeUndefined();

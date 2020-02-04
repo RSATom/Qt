@@ -9,109 +9,151 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "content/child/child_message_filter.h"
-#include "content/child/scoped_child_process_reference.h"
+#include "base/unguessable_token.h"
+#include "content/public/common/renderer_preference_watcher.mojom.h"
+#include "content/public/common/renderer_preferences.h"
 #include "ipc/ipc_listener.h"
-#include "third_party/WebKit/public/platform/WebAddressSpace.h"
-#include "third_party/WebKit/public/platform/WebContentSecurityPolicy.h"
-#include "third_party/WebKit/public/platform/WebContentSettingsClient.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebSharedWorkerClient.h"
+#include "mojo/public/cpp/bindings/binding.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "services/service_manager/public/mojom/interface_provider.mojom.h"
+#include "third_party/blink/public/mojom/devtools/devtools_agent.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
+#include "third_party/blink/public/mojom/worker/shared_worker.mojom.h"
+#include "third_party/blink/public/mojom/worker/shared_worker_host.mojom.h"
+#include "third_party/blink/public/mojom/worker/shared_worker_info.mojom.h"
+#include "third_party/blink/public/mojom/worker/worker_content_settings_proxy.mojom.h"
+#include "third_party/blink/public/mojom/worker/worker_main_script_load_params.mojom.h"
+#include "third_party/blink/public/platform/web_content_security_policy.h"
+#include "third_party/blink/public/platform/web_content_settings_client.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/web/web_shared_worker_client.h"
 #include "url/gurl.h"
 
 namespace blink {
 class WebApplicationCacheHost;
 class WebApplicationCacheHostClient;
-class WebNotificationPresenter;
-class WebSecurityOrigin;
 class WebSharedWorker;
 }
 
+namespace blink {
+class MessagePortChannel;
+class URLLoaderFactoryBundleInfo;
+}
+
 namespace content {
-class MessagePort;
-class SharedWorkerDevToolsAgent;
+
+class HostChildURLLoaderFactoryBundle;
 class WebApplicationCacheHostImpl;
-class WebMessagePortChannelImpl;
+struct NavigationResponseOverrideParameters;
 
 // A stub class to receive IPC from browser process and talk to
 // blink::WebSharedWorker. Implements blink::WebSharedWorkerClient.
-// This class is self-destruct (no one explicitly owns this), and
-// deletes itself (via private Shutdown() method) when either one of
-// following methods is called by blink::WebSharedWorker:
-// - workerScriptLoadFailed() or
-// - workerContextDestroyed()
+// This class is self-destructed (no one explicitly owns this). It deletes
+// itself when either one of following methods is called by
+// blink::WebSharedWorker:
+// - WorkerScriptLoadFailed() or
+// - WorkerContextDestroyed()
 //
-// In either case the corresponding blink::WebSharedWorker also deletes
-// itself.
-class EmbeddedSharedWorkerStub : public IPC::Listener,
-                                 public blink::WebSharedWorkerClient {
+// This class owns blink::WebSharedWorker.
+class EmbeddedSharedWorkerStub : public blink::WebSharedWorkerClient,
+                                 public blink::mojom::SharedWorker {
  public:
   EmbeddedSharedWorkerStub(
-      const GURL& url,
-      const base::string16& name,
-      const base::string16& content_security_policy,
-      blink::WebContentSecurityPolicyType security_policy_type,
-      blink::WebAddressSpace creation_address_space,
+      blink::mojom::SharedWorkerInfoPtr info,
       bool pause_on_start,
-      int route_id,
-      bool data_saver_enabled);
-
-  // IPC::Listener implementation.
-  bool OnMessageReceived(const IPC::Message& message) override;
-  void OnChannelError() override;
+      const base::UnguessableToken& devtools_worker_token,
+      const RendererPreferences& renderer_preferences,
+      mojom::RendererPreferenceWatcherRequest preference_watcher_request,
+      blink::mojom::WorkerContentSettingsProxyPtr content_settings,
+      blink::mojom::ServiceWorkerProviderInfoForSharedWorkerPtr
+          service_worker_provider_info,
+      int appcache_host_id,
+      network::mojom::URLLoaderFactoryAssociatedPtrInfo
+          main_script_loader_factory,
+      blink::mojom::WorkerMainScriptLoadParamsPtr main_script_load_params,
+      std::unique_ptr<blink::URLLoaderFactoryBundleInfo>
+          subresource_loader_factories,
+      blink::mojom::ControllerServiceWorkerInfoPtr controller_info,
+      blink::mojom::SharedWorkerHostPtr host,
+      blink::mojom::SharedWorkerRequest request,
+      service_manager::mojom::InterfaceProviderPtr interface_provider);
+  ~EmbeddedSharedWorkerStub() override;
 
   // blink::WebSharedWorkerClient implementation.
-  void CountFeature(uint32_t feature) override;
+  void CountFeature(blink::mojom::WebFeature feature) override;
   void WorkerContextClosed() override;
   void WorkerContextDestroyed() override;
   void WorkerReadyForInspection() override;
   void WorkerScriptLoaded() override;
   void WorkerScriptLoadFailed() override;
   void SelectAppCacheID(long long) override;
-  blink::WebNotificationPresenter* NotificationPresenter() override;
   std::unique_ptr<blink::WebApplicationCacheHost> CreateApplicationCacheHost(
       blink::WebApplicationCacheHostClient*) override;
-  std::unique_ptr<blink::WebContentSettingsClient>
-  CreateWorkerContentSettingsClient(
-      const blink::WebSecurityOrigin& origin) override;
   std::unique_ptr<blink::WebServiceWorkerNetworkProvider>
   CreateServiceWorkerNetworkProvider() override;
-  void SendDevToolsMessage(int session_id,
-                           int call_id,
-                           const blink::WebString& message,
-                           const blink::WebString& state) override;
-  blink::WebDevToolsAgentClient::WebKitClientMessageLoop*
-  CreateDevToolsMessageLoop() override;
-  std::unique_ptr<blink::WebWorkerFetchContext> CreateWorkerFetchContext(
+  scoped_refptr<blink::WebWorkerFetchContext> CreateWorkerFetchContext(
       blink::WebServiceWorkerNetworkProvider*) override;
+  void WaitForServiceWorkerControllerInfo(
+      blink::WebServiceWorkerNetworkProvider* web_network_provider,
+      base::OnceClosure callback) override;
 
  private:
-  ~EmbeddedSharedWorkerStub() override;
-
-  void Shutdown();
-  bool Send(IPC::Message* message);
-
   // WebSharedWorker will own |channel|.
   void ConnectToChannel(int connection_request_id,
-                        std::unique_ptr<WebMessagePortChannelImpl> channel);
+                        blink::MessagePortChannel channel);
 
-  void OnConnect(int connection_request_id,
-                 const MessagePort& sent_message_port);
-  void OnTerminateWorkerContext();
+  // mojom::SharedWorker methods:
+  void Connect(int connection_request_id,
+               mojo::ScopedMessagePipeHandle port) override;
+  void Terminate() override;
+  void BindDevToolsAgent(
+      blink::mojom::DevToolsAgentHostAssociatedPtrInfo host,
+      blink::mojom::DevToolsAgentAssociatedRequest request) override;
 
-  int route_id_;
-  base::string16 name_;
+  mojo::Binding<blink::mojom::SharedWorker> binding_;
+  blink::mojom::SharedWorkerHostPtr host_;
+  const std::string name_;
   bool running_ = false;
   GURL url_;
-  blink::WebSharedWorker* impl_ = nullptr;
-  std::unique_ptr<SharedWorkerDevToolsAgent> worker_devtools_agent_;
+  RendererPreferences renderer_preferences_;
+  // Set on ctor and passed to the fetch context created when
+  // CreateWorkerFetchContext() is called.
+  mojom::RendererPreferenceWatcherRequest preference_watcher_request_;
+  std::unique_ptr<blink::WebSharedWorker> impl_;
 
-  using PendingChannel = std::pair<int /* connection_request_id */,
-                                   std::unique_ptr<WebMessagePortChannelImpl>>;
+  using PendingChannel =
+      std::pair<int /* connection_request_id */, blink::MessagePortChannel>;
   std::vector<PendingChannel> pending_channels_;
 
-  ScopedChildProcessReference process_ref_;
+  const int appcache_host_id_;
   WebApplicationCacheHostImpl* app_cache_host_ = nullptr;  // Not owned.
+
+  // S13nServiceWorker: The info needed to connect to the
+  // ServiceWorkerProviderHost on the browser.
+  blink::mojom::ServiceWorkerProviderInfoForSharedWorkerPtr
+      service_worker_provider_info_;
+
+  // NetworkService: The URLLoaderFactory used for loading the shared worker
+  // main script.
+  network::mojom::URLLoaderFactoryAssociatedPtrInfo main_script_loader_factory_;
+
+  // NetworkService:
+  blink::mojom::ControllerServiceWorkerInfoPtr controller_info_;
+
+  // S13nServiceWorker: The factory bundle used for loading subresources for
+  // this shared worker.
+  scoped_refptr<HostChildURLLoaderFactoryBundle> subresource_loader_factories_;
+
+  // NetworkService (PlzWorker): The response override parameters used for
+  // taking a resource pre-requested by the browser process.
+  std::unique_ptr<NavigationResponseOverrideParameters> response_override_;
+
+  // Out-of-process NetworkService:
+  // Detects disconnection from the default factory of the loader factory bundle
+  // used by this worker (typically the network service).
+  network::mojom::URLLoaderFactoryPtr
+      default_factory_connection_error_handler_holder_;
+
   DISALLOW_COPY_AND_ASSIGN(EmbeddedSharedWorkerStub);
 };
 

@@ -40,8 +40,6 @@
 
 #include "qmimetype.h"
 
-#ifndef QT_NO_MIMETYPE
-
 #include "qmimetype_p.h"
 #include "qmimedatabase_p.h"
 #include "qmimeprovider_p.h"
@@ -57,7 +55,7 @@
 QT_BEGIN_NAMESPACE
 
 QMimeTypePrivate::QMimeTypePrivate()
-    : loaded(false)
+    : loaded(false), fromCache(false)
 {}
 
 QMimeTypePrivate::QMimeTypePrivate(const QMimeType &other)
@@ -76,7 +74,6 @@ void QMimeTypePrivate::clear()
     genericIconName.clear();
     iconName.clear();
     globPatterns.clear();
-    loaded = false;
 }
 
 void QMimeTypePrivate::addGlobPattern(const QString &pattern)
@@ -256,11 +253,12 @@ QString QMimeType::name() const
  */
 QString QMimeType::comment() const
 {
-    QMimeDatabasePrivate::instance()->provider()->loadMimeTypePrivate(*d);
+    QMimeDatabasePrivate::instance()->loadMimeTypePrivate(*d);
 
     QStringList languageList;
     languageList << QLocale().name();
     languageList << QLocale().uiLanguages();
+    languageList << QLatin1String("default"); // use the default locale if possible.
     for (const QString &language : qAsConst(languageList)) {
         const QString lang = language == QLatin1String("C") ? QLatin1String("en_US") : language;
         const QString comm = d->localeComments.value(lang);
@@ -296,7 +294,7 @@ QString QMimeType::comment() const
  */
 QString QMimeType::genericIconName() const
 {
-    QMimeDatabasePrivate::instance()->provider()->loadGenericIcon(*d);
+    QMimeDatabasePrivate::instance()->loadGenericIcon(*d);
     if (d->genericIconName.isEmpty()) {
         // From the spec:
         // If the generic icon name is empty (not specified by the mimetype definition)
@@ -324,7 +322,7 @@ QString QMimeType::genericIconName() const
  */
 QString QMimeType::iconName() const
 {
-    QMimeDatabasePrivate::instance()->provider()->loadIcon(*d);
+    QMimeDatabasePrivate::instance()->loadIcon(*d);
     if (d->iconName.isEmpty()) {
         // Make default icon name from the mimetype name
         d->iconName = name();
@@ -344,7 +342,7 @@ QString QMimeType::iconName() const
  */
 QStringList QMimeType::globPatterns() const
 {
-    QMimeDatabasePrivate::instance()->provider()->loadMimeTypePrivate(*d);
+    QMimeDatabasePrivate::instance()->loadMimeTypePrivate(*d);
     return d->globPatterns;
 }
 
@@ -368,12 +366,12 @@ QStringList QMimeType::globPatterns() const
 */
 QStringList QMimeType::parentMimeTypes() const
 {
-    return QMimeDatabasePrivate::instance()->provider()->parents(d->name);
+    return QMimeDatabasePrivate::instance()->mimeParents(d->name);
 }
 
 static void collectParentMimeTypes(const QString &mime, QStringList &allParents)
 {
-    const QStringList parents = QMimeDatabasePrivate::instance()->provider()->parents(mime);
+    const QStringList parents = QMimeDatabasePrivate::instance()->mimeParents(mime);
     for (const QString &parent : parents) {
         // I would use QSet, but since order matters I better not
         if (!allParents.contains(parent))
@@ -425,7 +423,7 @@ QStringList QMimeType::allAncestors() const
 */
 QStringList QMimeType::aliases() const
 {
-    return QMimeDatabasePrivate::instance()->provider()->listAliases(d->name);
+    return QMimeDatabasePrivate::instance()->listAliases(d->name);
 }
 
 /*!
@@ -439,7 +437,7 @@ QStringList QMimeType::aliases() const
  */
 QStringList QMimeType::suffixes() const
 {
-    QMimeDatabasePrivate::instance()->provider()->loadMimeTypePrivate(*d);
+    QMimeDatabasePrivate::instance()->loadMimeTypePrivate(*d);
 
     QStringList result;
     for (const QString &pattern : qAsConst(d->globPatterns)) {
@@ -467,6 +465,8 @@ QStringList QMimeType::suffixes() const
  */
 QString QMimeType::preferredSuffix() const
 {
+    if (isDefault()) // workaround for unwanted *.bin suffix for octet-stream, https://bugs.freedesktop.org/show_bug.cgi?id=101667, fixed upstream in 1.10
+        return QString();
     const QStringList suffixList = suffixes();
     return suffixList.isEmpty() ? QString() : suffixList.at(0);
 }
@@ -480,7 +480,7 @@ QString QMimeType::preferredSuffix() const
 */
 QString QMimeType::filterString() const
 {
-    QMimeDatabasePrivate::instance()->provider()->loadMimeTypePrivate(*d);
+    QMimeDatabasePrivate::instance()->loadMimeTypePrivate(*d);
     QString filter;
 
     if (!d->globPatterns.empty()) {
@@ -508,7 +508,7 @@ bool QMimeType::inherits(const QString &mimeTypeName) const
 {
     if (d->name == mimeTypeName)
         return true;
-    return QMimeDatabasePrivate::instance()->inherits(d->name, mimeTypeName);
+    return QMimeDatabasePrivate::instance()->mimeInherits(d->name, mimeTypeName);
 }
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -525,5 +525,3 @@ QDebug operator<<(QDebug debug, const QMimeType &mime)
 #endif
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_MIMETYPE

@@ -804,7 +804,8 @@ void QGeoRectangle::extendRectangle(const QGeoCoordinate &coordinate)
 QGeoRectangle QGeoRectangle::united(const QGeoRectangle &rectangle) const
 {
     QGeoRectangle result(*this);
-    result |= rectangle;
+    if (rectangle.isValid())
+        result |= rectangle;
     return result;
 }
 
@@ -938,31 +939,36 @@ QGeoRectangle &QGeoRectangle::operator|=(const QGeoRectangle &rectangle)
         bool joinWrapLeft = (nonWrapRight >= wrapLeft);
         bool joinWrapRight = (nonWrapLeft <= wrapRight);
 
-        if (joinWrapLeft) {
-            if (joinWrapRight) {
-                left = -180.0;
-                right = 180.0;
-            } else {
-                left = nonWrapLeft;
-                right = wrapRight;
-            }
+        if (wrapLeft <= nonWrapLeft) { // The wrapping rectangle contains the non-wrapping one entirely
+            left = wrapLeft;
+            right = wrapRight;
         } else {
-            if (joinWrapRight) {
-                left = wrapLeft;
-                right = nonWrapRight;
-            } else {
-                double wrapRightDistance = nonWrapLeft - wrapRight;
-                double wrapLeftDistance = wrapLeft - nonWrapRight;
-
-                if (wrapLeftDistance == wrapRightDistance) {
+            if (joinWrapLeft) {
+                if (joinWrapRight) {
                     left = -180.0;
                     right = 180.0;
-                } else if (wrapLeftDistance < wrapRightDistance) {
+                } else {
                     left = nonWrapLeft;
                     right = wrapRight;
-                } else {
+                }
+            } else {
+                if (joinWrapRight) {
                     left = wrapLeft;
                     right = nonWrapRight;
+                } else {
+                    double wrapRightDistance = nonWrapLeft - wrapRight;
+                    double wrapLeftDistance = wrapLeft - nonWrapRight;
+
+                    if (wrapLeftDistance == wrapRightDistance) {
+                        left = -180.0;
+                        right = 180.0;
+                    } else if (wrapLeftDistance < wrapRightDistance) {
+                        left = nonWrapLeft;
+                        right = wrapRight;
+                    } else {
+                        left = wrapLeft;
+                        right = nonWrapRight;
+                    }
                 }
             }
         }

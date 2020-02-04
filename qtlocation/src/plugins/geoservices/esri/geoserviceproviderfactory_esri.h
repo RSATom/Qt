@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -55,16 +55,16 @@ class GeoServiceProviderFactoryEsri: public QObject, public QGeoServiceProviderF
 public:
     QGeoCodingManagerEngine *createGeocodingManagerEngine(const QVariantMap &parameters,
                                                           QGeoServiceProvider::Error *error,
-                                                          QString *errorString) const Q_DECL_OVERRIDE;
+                                                          QString *errorString) const override;
     QGeoMappingManagerEngine *createMappingManagerEngine(const QVariantMap &parameters,
                                                          QGeoServiceProvider::Error *error,
-                                                         QString *errorString) const Q_DECL_OVERRIDE;
+                                                         QString *errorString) const override;
     QGeoRoutingManagerEngine *createRoutingManagerEngine(const QVariantMap &parameters,
                                                          QGeoServiceProvider::Error *error,
-                                                         QString *errorString) const Q_DECL_OVERRIDE;
+                                                         QString *errorString) const override;
     QPlaceManagerEngine *createPlaceManagerEngine(const QVariantMap &parameters,
                                                   QGeoServiceProvider::Error *error,
-                                                  QString *errorString) const Q_DECL_OVERRIDE;
+                                                  QString *errorString) const override;
 };
 
 QT_END_NAMESPACE

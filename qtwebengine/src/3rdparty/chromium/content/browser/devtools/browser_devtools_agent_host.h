@@ -5,11 +5,16 @@
 #ifndef CONTENT_BROWSER_DEVTOOLS_BROWSER_DEVTOOLS_AGENT_HOST_H_
 #define CONTENT_BROWSER_DEVTOOLS_BROWSER_DEVTOOLS_AGENT_HOST_H_
 
+#include "base/containers/flat_map.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
 
 namespace content {
 
 class BrowserDevToolsAgentHost : public DevToolsAgentHostImpl {
+ public:
+  // TODO(caseq,dgozman): this should probably be a singleton.
+  static const std::set<BrowserDevToolsAgentHost*>& Instances();
+
  private:
   friend class DevToolsAgentHost;
   BrowserDevToolsAgentHost(
@@ -18,12 +23,9 @@ class BrowserDevToolsAgentHost : public DevToolsAgentHostImpl {
       bool only_discovery);
   ~BrowserDevToolsAgentHost() override;
 
-  // DevToolsAgentHostImpl implementation.
-  void AttachSession(DevToolsSession* session) override;
-  void DetachSession(int session_id) override;
-  bool DispatchProtocolMessage(
-      DevToolsSession* session,
-      const std::string& message) override;
+  // DevToolsAgentHostImpl overrides.
+  bool AttachSession(DevToolsSession* session) override;
+  void DetachSession(DevToolsSession* session) override;
 
   // DevToolsAgentHost implementation.
   std::string GetType() override;

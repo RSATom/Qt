@@ -14,33 +14,35 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_entropy_provider.h"
 #include "base/test/simple_test_clock.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/background_sync/background_sync_network_observer.h"
 #include "content/browser/background_sync/background_sync_status.h"
-#include "content/browser/browser_thread_impl.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
+#include "content/browser/service_worker/service_worker_registration_object_host.h"
 #include "content/browser/service_worker/service_worker_storage.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/background_sync_parameters.h"
 #include "content/public/browser/permission_type.h"
 #include "content/public/test/background_sync_test_util.h"
+#include "content/public/test/mock_permission_manager.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/test_utils.h"
 #include "content/test/mock_background_sync_controller.h"
-#include "content/test/mock_permission_manager.h"
 #include "content/test/test_background_sync_manager.h"
-#include "net/base/network_change_notifier.h"
+#include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
+#include "third_party/blink/public/platform/modules/permissions/permission_status.mojom.h"
 
 namespace content {
 
@@ -49,58 +51,35 @@ namespace {
 using ::testing::Return;
 using ::testing::_;
 
-const char kPattern1[] = "https://example.com/a";
-const char kPattern2[] = "https://example.com/b";
+const char kScope1[] = "https://example.com/a";
+const char kScope2[] = "https://example.com/b";
 const char kScript1[] = "https://example.com/a/script.js";
 const char kScript2[] = "https://example.com/b/script.js";
 
 void RegisterServiceWorkerCallback(bool* called,
                                    int64_t* store_registration_id,
-                                   ServiceWorkerStatusCode status,
+                                   blink::ServiceWorkerStatusCode status,
                                    const std::string& status_message,
                                    int64_t registration_id) {
-  EXPECT_EQ(SERVICE_WORKER_OK, status) << ServiceWorkerStatusToString(status);
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk, status)
+      << blink::ServiceWorkerStatusToString(status);
   *called = true;
   *store_registration_id = registration_id;
 }
 
 void FindServiceWorkerRegistrationCallback(
     scoped_refptr<ServiceWorkerRegistration>* out_registration,
-    ServiceWorkerStatusCode status,
+    blink::ServiceWorkerStatusCode status,
     scoped_refptr<ServiceWorkerRegistration> registration) {
-  EXPECT_EQ(SERVICE_WORKER_OK, status) << ServiceWorkerStatusToString(status);
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk, status)
+      << blink::ServiceWorkerStatusToString(status);
   *out_registration = std::move(registration);
 }
 
 void UnregisterServiceWorkerCallback(bool* called,
-                                     ServiceWorkerStatusCode code) {
-  EXPECT_EQ(SERVICE_WORKER_OK, code);
+                                     blink::ServiceWorkerStatusCode code) {
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk, code);
   *called = true;
-}
-
-void DispatchSyncSuccessfulCallback(
-    int* count,
-    const scoped_refptr<ServiceWorkerVersion>& active_version,
-    const ServiceWorkerVersion::StatusCallback& callback) {
-  *count += 1;
-  callback.Run(SERVICE_WORKER_OK);
-}
-
-void DispatchSyncFailedCallback(
-    int* count,
-    const scoped_refptr<ServiceWorkerVersion>& active_version,
-    const ServiceWorkerVersion::StatusCallback& callback) {
-  *count += 1;
-  callback.Run(SERVICE_WORKER_ERROR_FAILED);
-}
-
-void DispatchSyncDelayedCallback(
-    int* count,
-    ServiceWorkerVersion::StatusCallback* out_callback,
-    const scoped_refptr<ServiceWorkerVersion>& active_version,
-    const ServiceWorkerVersion::StatusCallback& callback) {
-  *count += 1;
-  *out_callback = callback;
 }
 
 }  // namespace
@@ -108,18 +87,14 @@ void DispatchSyncDelayedCallback(
 class BackgroundSyncManagerTest : public testing::Test {
  public:
   BackgroundSyncManagerTest()
-      : browser_thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP),
-        network_change_notifier_(net::NetworkChangeNotifier::CreateMock()) {
+      : browser_thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {
     sync_options_1_.tag = "foo";
-    sync_options_1_.network_state = NETWORK_STATE_ONLINE;
-
     sync_options_2_.tag = "bar";
-    sync_options_2_.network_state = NETWORK_STATE_ONLINE;
   }
 
   void SetUp() override {
     // Don't let the tests be confused by the real-world device connectivity
-    background_sync_test_util::SetIgnoreNetworkChangeNotifier(true);
+    background_sync_test_util::SetIgnoreNetworkChanges(true);
 
     // TODO(jkarlin): Create a new object with all of the necessary SW calls
     // so that we can inject test versions instead of bringing up all of this
@@ -131,7 +106,7 @@ class BackgroundSyncManagerTest : public testing::Test {
     ON_CALL(*mock_permission_manager,
             GetPermissionStatus(PermissionType::BACKGROUND_SYNC, _, _))
         .WillByDefault(Return(blink::mojom::PermissionStatus::GRANTED));
-    helper_->browser_context()->SetPermissionManager(
+    helper_->browser_context()->SetPermissionControllerDelegate(
         std::move(mock_permission_manager));
 
     // Create a StoragePartition with the correct BrowserContext so that the
@@ -151,25 +126,25 @@ class BackgroundSyncManagerTest : public testing::Test {
 
   void TearDown() override {
     // Restore the network observer functionality for subsequent tests
-    background_sync_test_util::SetIgnoreNetworkChangeNotifier(false);
+    background_sync_test_util::SetIgnoreNetworkChanges(false);
   }
 
   void RegisterServiceWorkers() {
     bool called_1 = false;
     bool called_2 = false;
+    blink::mojom::ServiceWorkerRegistrationOptions options1;
+    options1.scope = GURL(kScope1);
+    blink::mojom::ServiceWorkerRegistrationOptions options2;
+    options2.scope = GURL(kScope2);
     helper_->context()->RegisterServiceWorker(
-        GURL(kScript1), ServiceWorkerRegistrationOptions(GURL(kPattern1)),
-        nullptr,
-        base::AdaptCallbackForRepeating(
-            base::BindOnce(&RegisterServiceWorkerCallback, &called_1,
-                           &sw_registration_id_1_)));
+        GURL(kScript1), options1,
+        base::BindOnce(&RegisterServiceWorkerCallback, &called_1,
+                       &sw_registration_id_1_));
 
     helper_->context()->RegisterServiceWorker(
-        GURL(kScript2), ServiceWorkerRegistrationOptions(GURL(kPattern2)),
-        nullptr,
-        base::AdaptCallbackForRepeating(
-            base::BindOnce(&RegisterServiceWorkerCallback, &called_2,
-                           &sw_registration_id_2_)));
+        GURL(kScript2), options2,
+        base::BindOnce(&RegisterServiceWorkerCallback, &called_2,
+                       &sw_registration_id_2_));
     base::RunLoop().RunUntilIdle();
     EXPECT_TRUE(called_1);
     EXPECT_TRUE(called_2);
@@ -177,26 +152,26 @@ class BackgroundSyncManagerTest : public testing::Test {
     // Hang onto the registrations as they need to be "live" when
     // calling BackgroundSyncManager::Register.
     helper_->context_wrapper()->FindReadyRegistrationForId(
-        sw_registration_id_1_, GURL(kPattern1).GetOrigin(),
-        base::AdaptCallbackForRepeating(base::BindOnce(
-            FindServiceWorkerRegistrationCallback, &sw_registration_1_)));
+        sw_registration_id_1_, GURL(kScope1).GetOrigin(),
+        base::BindOnce(FindServiceWorkerRegistrationCallback,
+                       &sw_registration_1_));
 
     helper_->context_wrapper()->FindReadyRegistrationForId(
-        sw_registration_id_2_, GURL(kPattern1).GetOrigin(),
-        base::AdaptCallbackForRepeating(base::BindOnce(
-            FindServiceWorkerRegistrationCallback, &sw_registration_2_)));
+        sw_registration_id_2_, GURL(kScope1).GetOrigin(),
+        base::BindOnce(FindServiceWorkerRegistrationCallback,
+                       &sw_registration_2_));
     base::RunLoop().RunUntilIdle();
     EXPECT_TRUE(sw_registration_1_);
     EXPECT_TRUE(sw_registration_2_);
   }
 
-  void SetNetwork(net::NetworkChangeNotifier::ConnectionType connection_type) {
-    net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
+  void SetNetwork(network::mojom::ConnectionType connection_type) {
+    network::TestNetworkConnectionTracker::GetInstance()->SetConnectionType(
         connection_type);
     if (test_background_sync_manager_) {
       BackgroundSyncNetworkObserver* network_observer =
           test_background_sync_manager_->GetNetworkObserverForTesting();
-      network_observer->NotifyManagerIfNetworkChangedForTesting(
+      network_observer->NotifyManagerIfConnectionChangedForTesting(
           connection_type);
       base::RunLoop().RunUntilIdle();
     }
@@ -231,15 +206,14 @@ class BackgroundSyncManagerTest : public testing::Test {
         new TestBackgroundSyncManager(helper_->context_wrapper());
     background_sync_manager_.reset(test_background_sync_manager_);
 
-    test_clock_ = new base::SimpleTestClock();
-    background_sync_manager_->set_clock(base::WrapUnique(test_clock_));
+    background_sync_manager_->set_clock(&test_clock_);
 
     // Many tests do not expect the sync event to fire immediately after
     // register (and cleanup up the sync registrations).  Tests can control when
     // the sync event fires by manipulating the network state as needed.
     // NOTE: The setup of the network connection must happen after the
     //       BackgroundSyncManager has been created.
-    SetNetwork(net::NetworkChangeNotifier::CONNECTION_NONE);
+    SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
   }
 
   void InitBackgroundSyncManager() {
@@ -267,7 +241,6 @@ class BackgroundSyncManagerTest : public testing::Test {
   void DeleteBackgroundSyncManager() {
     background_sync_manager_.reset();
     test_background_sync_manager_ = nullptr;
-    test_clock_ = nullptr;
   }
 
   bool Register(const BackgroundSyncRegistrationOptions& sync_options) {
@@ -285,12 +258,21 @@ class BackgroundSyncManagerTest : public testing::Test {
             base::Unretained(this), &was_called));
     base::RunLoop().RunUntilIdle();
     EXPECT_TRUE(was_called);
+
+    // Mock the client receiving the response and calling
+    // DidResolveRegistration.
+    if (callback_status_ == BACKGROUND_SYNC_STATUS_OK) {
+      background_sync_manager_->DidResolveRegistration(sw_registration_id,
+                                                       options.tag);
+      base::RunLoop().RunUntilIdle();
+    }
+
     return callback_status_ == BACKGROUND_SYNC_STATUS_OK;
   }
 
-  MockPermissionManager* GetPermissionManager() {
+  MockPermissionManager* GetPermissionControllerDelegate() {
     return static_cast<MockPermissionManager*>(
-        helper_->browser_context()->GetPermissionManager());
+        helper_->browser_context()->GetPermissionControllerDelegate());
   }
 
   bool GetRegistration(
@@ -348,63 +330,79 @@ class BackgroundSyncManagerTest : public testing::Test {
         helper_->browser_context()->GetBackgroundSyncController());
   }
 
-  void StorageRegistrationCallback(ServiceWorkerStatusCode result) {
+  void StorageRegistrationCallback(blink::ServiceWorkerStatusCode result) {
     callback_sw_status_code_ = result;
   }
 
   void UnregisterServiceWorker(uint64_t sw_registration_id) {
     bool called = false;
     helper_->context()->UnregisterServiceWorker(
-        PatternForSWId(sw_registration_id),
-        base::AdaptCallbackForRepeating(
-            base::BindOnce(&UnregisterServiceWorkerCallback, &called)));
+        ScopeForSWId(sw_registration_id),
+        base::BindOnce(&UnregisterServiceWorkerCallback, &called));
     base::RunLoop().RunUntilIdle();
     EXPECT_TRUE(called);
   }
 
-  GURL PatternForSWId(int64_t sw_id) {
+  GURL ScopeForSWId(int64_t sw_id) {
     EXPECT_TRUE(sw_id == sw_registration_id_1_ ||
                 sw_id == sw_registration_id_2_);
-    return sw_id == sw_registration_id_1_ ? GURL(kPattern1) : GURL(kPattern2);
+    return sw_id == sw_registration_id_1_ ? GURL(kScope1) : GURL(kScope2);
   }
 
   void SetupForSyncEvent(
       const TestBackgroundSyncManager::DispatchSyncCallback& callback) {
     test_background_sync_manager_->set_dispatch_sync_callback(callback);
-    SetNetwork(net::NetworkChangeNotifier::CONNECTION_WIFI);
+    SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
+  }
+
+  void DispatchSyncStatusCallback(
+      blink::ServiceWorkerStatusCode status,
+      scoped_refptr<ServiceWorkerVersion> active_version,
+      ServiceWorkerVersion::StatusCallback callback) {
+    sync_events_called_++;
+    std::move(callback).Run(status);
   }
 
   void InitSyncEventTest() {
-    SetupForSyncEvent(base::BindRepeating(DispatchSyncSuccessfulCallback,
-                                          &sync_events_called_));
+    SetupForSyncEvent(base::BindRepeating(
+        &BackgroundSyncManagerTest::DispatchSyncStatusCallback,
+        base::Unretained(this), blink::ServiceWorkerStatusCode::kOk));
   }
 
   void InitFailedSyncEventTest() {
-    SetupForSyncEvent(
-        base::BindRepeating(DispatchSyncFailedCallback, &sync_events_called_));
+    SetupForSyncEvent(base::BindRepeating(
+        &BackgroundSyncManagerTest::DispatchSyncStatusCallback,
+        base::Unretained(this), blink::ServiceWorkerStatusCode::kErrorFailed));
+  }
+
+  void DispatchSyncDelayedCallback(
+      scoped_refptr<ServiceWorkerVersion> active_version,
+      ServiceWorkerVersion::StatusCallback callback) {
+    sync_events_called_++;
+    sync_fired_callback_ = std::move(callback);
   }
 
   void InitDelayedSyncEventTest() {
-    SetupForSyncEvent(base::BindRepeating(DispatchSyncDelayedCallback,
-                                          &sync_events_called_,
-                                          &sync_fired_callback_));
+    SetupForSyncEvent(base::BindRepeating(
+        &BackgroundSyncManagerTest::DispatchSyncDelayedCallback,
+        base::Unretained(this)));
   }
 
   void RegisterAndVerifySyncEventDelayed(
       const BackgroundSyncRegistrationOptions& sync_options) {
     int sync_events_called = sync_events_called_;
-    EXPECT_TRUE(sync_fired_callback_.is_null());
+    EXPECT_FALSE(sync_fired_callback_);
 
     EXPECT_TRUE(Register(sync_options));
 
     EXPECT_EQ(sync_events_called + 1, sync_events_called_);
-    EXPECT_TRUE(GetRegistration(sync_options_1_));
-    EXPECT_FALSE(sync_fired_callback_.is_null());
+    EXPECT_TRUE(GetRegistration(sync_options));
+    EXPECT_TRUE(sync_fired_callback_);
   }
 
   void DeleteServiceWorkerAndStartOver() {
     helper_->context()->ScheduleDeleteAndStartOver();
-    base::RunLoop().RunUntilIdle();
+    content::RunAllTasksUntilIdle();
   }
 
   int MaxTagLength() const { return BackgroundSyncManager::kMaxTagLength; }
@@ -419,12 +417,11 @@ class BackgroundSyncManagerTest : public testing::Test {
   }
 
   TestBrowserThreadBundle browser_thread_bundle_;
-  std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
   std::unique_ptr<EmbeddedWorkerTestHelper> helper_;
   std::unique_ptr<BackgroundSyncManager> background_sync_manager_;
   std::unique_ptr<StoragePartitionImpl> storage_partition_impl_;
   TestBackgroundSyncManager* test_background_sync_manager_ = nullptr;
-  base::SimpleTestClock* test_clock_ = nullptr;
+  base::SimpleTestClock test_clock_;
 
   int64_t sw_registration_id_1_;
   int64_t sw_registration_id_2_;
@@ -439,7 +436,8 @@ class BackgroundSyncManagerTest : public testing::Test {
   std::unique_ptr<BackgroundSyncRegistration> callback_registration_;
   std::vector<std::unique_ptr<BackgroundSyncRegistration>>
       callback_registrations_;
-  ServiceWorkerStatusCode callback_sw_status_code_ = SERVICE_WORKER_OK;
+  blink::ServiceWorkerStatusCode callback_sw_status_code_ =
+      blink::ServiceWorkerStatusCode::kOk;
   int sync_events_called_ = 0;
   ServiceWorkerVersion::StatusCallback sync_fired_callback_;
 };
@@ -448,15 +446,69 @@ TEST_F(BackgroundSyncManagerTest, Register) {
   EXPECT_TRUE(Register(sync_options_1_));
 }
 
+TEST_F(BackgroundSyncManagerTest, RegisterAndWaitToFireUntilResolved) {
+  InitSyncEventTest();
+  bool was_called = false;
+  background_sync_manager_->Register(
+      sw_registration_id_1_, sync_options_1_,
+      base::BindOnce(&BackgroundSyncManagerTest::StatusAndRegistrationCallback,
+                     base::Unretained(this), &was_called));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+
+  // Verify that the sync event hasn't fired yet, as it should wait for the
+  // client to acknowledge with DidResolveRegistration.
+  EXPECT_EQ(0, sync_events_called_);
+
+  background_sync_manager_->DidResolveRegistration(sw_registration_id_1_,
+                                                   sync_options_1_.tag);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(1, sync_events_called_);
+}
+
+TEST_F(BackgroundSyncManagerTest, ResolveInvalidRegistration) {
+  InitSyncEventTest();
+  bool was_called = false;
+  background_sync_manager_->Register(
+      sw_registration_id_1_, sync_options_1_,
+      base::BindOnce(&BackgroundSyncManagerTest::StatusAndRegistrationCallback,
+                     base::Unretained(this), &was_called));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+
+  // Verify that the sync event hasn't fired yet, as it should wait for the
+  // client to acknowledge with DidResolveRegistration.
+  EXPECT_EQ(0, sync_events_called_);
+
+  // Resolve a non-existing registration.
+  background_sync_manager_->DidResolveRegistration(sw_registration_id_1_,
+                                                   "unknown_tag");
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(0, sync_events_called_);
+}
+
 TEST_F(BackgroundSyncManagerTest, RegistrationIntact) {
   EXPECT_TRUE(Register(sync_options_1_));
   EXPECT_STREQ(sync_options_1_.tag.c_str(),
                callback_registration_->options()->tag.c_str());
-  EXPECT_TRUE(callback_registration_->IsValid());
 }
 
 TEST_F(BackgroundSyncManagerTest, RegisterWithoutLiveSWRegistration) {
+  // Get a provider host which is used to install the service worker.
+  ASSERT_TRUE(sw_registration_1_->active_version());
+  ASSERT_FALSE(sw_registration_1_->waiting_version());
+  ASSERT_FALSE(sw_registration_1_->installing_version());
+  ServiceWorkerProviderHost* provider_host =
+      sw_registration_1_->active_version()->provider_host();
+  ASSERT_TRUE(provider_host);
+
+  // Remove the registration object host.
+  provider_host->registration_object_hosts_.clear();
+
+  // Ensure |sw_registration_1_| is the last reference to the registration.
+  ASSERT_TRUE(sw_registration_1_->HasOneRef());
   sw_registration_1_ = nullptr;
+
   EXPECT_FALSE(Register(sync_options_1_));
   EXPECT_EQ(BACKGROUND_SYNC_STATUS_NO_SERVICE_WORKER, callback_status_);
 }
@@ -476,8 +528,9 @@ TEST_F(BackgroundSyncManagerTest, RegisterBadBackend) {
 }
 
 TEST_F(BackgroundSyncManagerTest, RegisterPermissionDenied) {
-  GURL expected_origin = GURL(kPattern1).GetOrigin();
-  MockPermissionManager* mock_permission_manager = GetPermissionManager();
+  GURL expected_origin = GURL(kScope1).GetOrigin();
+  MockPermissionManager* mock_permission_manager =
+      GetPermissionControllerDelegate();
 
   EXPECT_CALL(*mock_permission_manager,
               GetPermissionStatus(PermissionType::BACKGROUND_SYNC,
@@ -487,8 +540,9 @@ TEST_F(BackgroundSyncManagerTest, RegisterPermissionDenied) {
 }
 
 TEST_F(BackgroundSyncManagerTest, RegisterPermissionGranted) {
-  GURL expected_origin = GURL(kPattern1).GetOrigin();
-  MockPermissionManager* mock_permission_manager = GetPermissionManager();
+  GURL expected_origin = GURL(kScope1).GetOrigin();
+  MockPermissionManager* mock_permission_manager =
+      GetPermissionControllerDelegate();
 
   EXPECT_CALL(*mock_permission_manager,
               GetPermissionStatus(PermissionType::BACKGROUND_SYNC,
@@ -581,16 +635,6 @@ TEST_F(BackgroundSyncManagerTest, RegisterMaxTagLength) {
   EXPECT_EQ(BACKGROUND_SYNC_STATUS_NOT_ALLOWED, callback_status_);
 }
 
-TEST_F(BackgroundSyncManagerTest, RegistrationIncreasesId) {
-  EXPECT_TRUE(Register(sync_options_1_));
-  BackgroundSyncRegistration::RegistrationId cur_id =
-      callback_registration_->id();
-
-  EXPECT_TRUE(GetRegistration(sync_options_1_));
-  EXPECT_TRUE(Register(sync_options_2_));
-  EXPECT_LT(cur_id, callback_registration_->id());
-}
-
 TEST_F(BackgroundSyncManagerTest, RebootRecovery) {
   EXPECT_TRUE(Register(sync_options_1_));
 
@@ -644,14 +688,12 @@ TEST_F(BackgroundSyncManagerTest, SequentialOperations) {
   bool get_registrations_called = false;
   test_background_sync_manager_->Register(
       sw_registration_id_1_, sync_options_1_,
-      base::AdaptCallbackForRepeating(base::BindOnce(
-          &BackgroundSyncManagerTest::StatusAndRegistrationCallback,
-          base::Unretained(this), &register_called)));
+      base::BindOnce(&BackgroundSyncManagerTest::StatusAndRegistrationCallback,
+                     base::Unretained(this), &register_called));
   test_background_sync_manager_->GetRegistrations(
       sw_registration_id_1_,
-      base::AdaptCallbackForRepeating(base::BindOnce(
-          &BackgroundSyncManagerTest::StatusAndRegistrationsCallback,
-          base::Unretained(this), &get_registrations_called)));
+      base::BindOnce(&BackgroundSyncManagerTest::StatusAndRegistrationsCallback,
+                     base::Unretained(this), &get_registrations_called));
 
   base::RunLoop().RunUntilIdle();
   // Init should be blocked while loading from the backend.
@@ -686,9 +728,8 @@ TEST_F(BackgroundSyncManagerTest,
   bool callback_called = false;
   test_background_sync_manager_->Register(
       sw_registration_id_1_, sync_options_2_,
-      base::AdaptCallbackForRepeating(base::BindOnce(
-          &BackgroundSyncManagerTest::StatusAndRegistrationCallback,
-          base::Unretained(this), &callback_called)));
+      base::BindOnce(&BackgroundSyncManagerTest::StatusAndRegistrationCallback,
+                     base::Unretained(this), &callback_called));
 
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(callback_called);
@@ -743,29 +784,11 @@ TEST_F(BackgroundSyncManagerTest, DisabledManagerWorksAfterDeleteAndStartOver) {
   EXPECT_TRUE(GetRegistration(sync_options_2_));
 }
 
-TEST_F(BackgroundSyncManagerTest, RegistrationEqualsId) {
-  BackgroundSyncRegistration reg_1;
-  BackgroundSyncRegistration reg_2;
-
-  EXPECT_TRUE(reg_1.Equals(reg_2));
-  reg_2.set_id(reg_1.id() + 1);
-  EXPECT_TRUE(reg_1.Equals(reg_2));
-}
-
 TEST_F(BackgroundSyncManagerTest, RegistrationEqualsTag) {
   BackgroundSyncRegistration reg_1;
   BackgroundSyncRegistration reg_2;
   EXPECT_TRUE(reg_1.Equals(reg_2));
   reg_2.options()->tag = "bar";
-  EXPECT_FALSE(reg_1.Equals(reg_2));
-}
-
-TEST_F(BackgroundSyncManagerTest, RegistrationEqualsNetworkState) {
-  BackgroundSyncRegistration reg_1;
-  BackgroundSyncRegistration reg_2;
-  EXPECT_TRUE(reg_1.Equals(reg_2));
-  reg_1.options()->network_state = NETWORK_STATE_ANY;
-  reg_2.options()->network_state = NETWORK_STATE_ONLINE;
   EXPECT_FALSE(reg_1.Equals(reg_2));
 }
 
@@ -775,8 +798,6 @@ TEST_F(BackgroundSyncManagerTest, StoreAndRetrievePreservesValues) {
 
   // Set non-default values for each field.
   options.tag = "foo";
-  EXPECT_NE(NETWORK_STATE_AVOID_CELLULAR, options.network_state);
-  options.network_state = NETWORK_STATE_AVOID_CELLULAR;
 
   // Store the registration.
   EXPECT_TRUE(Register(options));
@@ -812,12 +833,15 @@ TEST_F(BackgroundSyncManagerTest, ReregisterMidSyncFirstAttemptFails) {
   EXPECT_TRUE(Register(sync_options_1_));
 
   // The first sync attempt fails.
-  sync_fired_callback_.Run(SERVICE_WORKER_ERROR_FAILED);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_)
+      .Run(blink::ServiceWorkerStatusCode::kErrorFailed);
   base::RunLoop().RunUntilIdle();
 
   // It should fire again since it was reregistered mid-sync.
   EXPECT_TRUE(GetRegistration(sync_options_1_));
-  sync_fired_callback_.Run(SERVICE_WORKER_OK);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_).Run(blink::ServiceWorkerStatusCode::kOk);
   EXPECT_FALSE(GetRegistration(sync_options_1_));
 }
 
@@ -829,12 +853,14 @@ TEST_F(BackgroundSyncManagerTest, ReregisterMidSyncFirstAttemptSucceeds) {
   EXPECT_TRUE(Register(sync_options_1_));
 
   // The first sync event succeeds.
-  sync_fired_callback_.Run(SERVICE_WORKER_OK);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_).Run(blink::ServiceWorkerStatusCode::kOk);
   base::RunLoop().RunUntilIdle();
 
   // It should fire again since it was reregistered mid-sync.
   EXPECT_TRUE(GetRegistration(sync_options_1_));
-  sync_fired_callback_.Run(SERVICE_WORKER_OK);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_).Run(blink::ServiceWorkerStatusCode::kOk);
   EXPECT_FALSE(GetRegistration(sync_options_1_));
 }
 
@@ -842,7 +868,7 @@ TEST_F(BackgroundSyncManagerTest, OverwritePendingRegistration) {
   InitFailedSyncEventTest();
 
   // Prevent the first sync from running so that it stays in a pending state.
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_TRUE(Register(sync_options_1_));
   EXPECT_TRUE(GetRegistration(sync_options_1_));
 
@@ -851,7 +877,7 @@ TEST_F(BackgroundSyncManagerTest, OverwritePendingRegistration) {
   EXPECT_TRUE(GetRegistration(sync_options_1_));
 
   // Verify that it only gets to run once.
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, sync_events_called_);
   EXPECT_FALSE(GetRegistration(sync_options_1_));
@@ -859,7 +885,7 @@ TEST_F(BackgroundSyncManagerTest, OverwritePendingRegistration) {
 
 TEST_F(BackgroundSyncManagerTest, DisableWhilePending) {
   InitDelayedSyncEventTest();
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_TRUE(Register(sync_options_1_));
 
   // Corrupting the backend should result in the manager disabling itself on the
@@ -868,7 +894,7 @@ TEST_F(BackgroundSyncManagerTest, DisableWhilePending) {
   EXPECT_FALSE(Register(sync_options_2_));
 
   test_background_sync_manager_->set_corrupt_backend(false);
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(0, sync_events_called_);
 }
@@ -887,19 +913,20 @@ TEST_F(BackgroundSyncManagerTest, DisableWhileFiring) {
 
   // Successfully complete the firing event. We can't verify that it actually
   // completed but at least we can test that it doesn't crash.
-  sync_fired_callback_.Run(SERVICE_WORKER_OK);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_).Run(blink::ServiceWorkerStatusCode::kOk);
   base::RunLoop().RunUntilIdle();
 }
 
 TEST_F(BackgroundSyncManagerTest, FiresOnNetworkChange) {
   InitSyncEventTest();
 
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_TRUE(Register(sync_options_1_));
   EXPECT_EQ(0, sync_events_called_);
   EXPECT_TRUE(GetRegistration(sync_options_1_));
 
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, sync_events_called_);
   EXPECT_FALSE(GetRegistration(sync_options_1_));
@@ -908,25 +935,56 @@ TEST_F(BackgroundSyncManagerTest, FiresOnNetworkChange) {
 TEST_F(BackgroundSyncManagerTest, MultipleRegistrationsFireOnNetworkChange) {
   InitSyncEventTest();
 
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_TRUE(Register(sync_options_1_));
   EXPECT_TRUE(Register(sync_options_2_));
   EXPECT_EQ(0, sync_events_called_);
   EXPECT_TRUE(GetRegistration(sync_options_1_));
   EXPECT_TRUE(GetRegistration(sync_options_2_));
 
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
 
   EXPECT_EQ(2, sync_events_called_);
   EXPECT_FALSE(GetRegistration(sync_options_1_));
   EXPECT_FALSE(GetRegistration(sync_options_2_));
 }
 
+TEST_F(BackgroundSyncManagerTest, DispatchCancelledOnNetworkFailure) {
+  InitSyncEventTest();
+  base::HistogramTester histogram_tester;
+
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
+  EXPECT_TRUE(Register(sync_options_1_));
+  EXPECT_EQ(0, sync_events_called_);
+  EXPECT_TRUE(GetRegistration(sync_options_1_));
+
+  BackgroundSyncNetworkObserver* network_observer =
+      test_background_sync_manager_->GetNetworkObserverForTesting();
+  ASSERT_TRUE(network_observer);
+
+  // Set the network, then immediately remove it.
+  network_observer->NotifyManagerIfConnectionChangedForTesting(
+      network::mojom::ConnectionType::CONNECTION_WIFI);
+  network_observer->NotifyManagerIfConnectionChangedForTesting(
+      network::mojom::ConnectionType::CONNECTION_NONE);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(0, sync_events_called_);
+  ASSERT_TRUE(GetRegistration(sync_options_1_));
+
+  // The event fires after the network is restored.
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
+  EXPECT_EQ(1, sync_events_called_);
+  EXPECT_FALSE(GetRegistration(sync_options_1_));
+  histogram_tester.ExpectBucketCount("BackgroundSync.OptionConditionsChanged",
+                                     false, 1);
+}
+
 TEST_F(BackgroundSyncManagerTest, FiresOnManagerRestart) {
   InitSyncEventTest();
 
   // Initially the event won't run because there is no network.
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_TRUE(Register(sync_options_1_));
   EXPECT_EQ(0, sync_events_called_);
   EXPECT_TRUE(GetRegistration(sync_options_1_));
@@ -935,7 +993,7 @@ TEST_F(BackgroundSyncManagerTest, FiresOnManagerRestart) {
   DeleteBackgroundSyncManager();
 
   // The next time the manager is started, the network is good.
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
   SetupBackgroundSyncManager();
   InitSyncEventTest();
 
@@ -975,7 +1033,8 @@ TEST_F(BackgroundSyncManagerTest, DelayMidSync) {
   RegisterAndVerifySyncEventDelayed(sync_options_1_);
 
   // Finish firing the event and verify that the registration is removed.
-  sync_fired_callback_.Run(SERVICE_WORKER_OK);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_).Run(blink::ServiceWorkerStatusCode::kOk);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, sync_events_called_);
   EXPECT_FALSE(GetRegistration(sync_options_1_));
@@ -987,7 +1046,8 @@ TEST_F(BackgroundSyncManagerTest, BadBackendMidSync) {
   RegisterAndVerifySyncEventDelayed(sync_options_1_);
 
   test_background_sync_manager_->set_corrupt_backend(true);
-  sync_fired_callback_.Run(SERVICE_WORKER_OK);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_).Run(blink::ServiceWorkerStatusCode::kOk);
   base::RunLoop().RunUntilIdle();
 
   // The backend should now be disabled because it couldn't unregister the
@@ -1003,7 +1063,8 @@ TEST_F(BackgroundSyncManagerTest, UnregisterServiceWorkerMidSync) {
   RegisterAndVerifySyncEventDelayed(sync_options_1_);
   UnregisterServiceWorker(sw_registration_id_1_);
 
-  sync_fired_callback_.Run(SERVICE_WORKER_OK);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_).Run(blink::ServiceWorkerStatusCode::kOk);
 
   // The backend isn't disabled, but the first service worker registration is
   // gone.
@@ -1111,7 +1172,7 @@ TEST_F(BackgroundSyncManagerTest, NotifyBackgroundSyncRegistered) {
   EXPECT_EQ(0, GetController()->registration_count());
   EXPECT_TRUE(Register(sync_options_1_));
   EXPECT_EQ(1, GetController()->registration_count());
-  EXPECT_EQ(GURL(kPattern1).GetOrigin().spec(),
+  EXPECT_EQ(GURL(kScope1).GetOrigin().spec(),
             GetController()->registration_origin().spec());
 }
 
@@ -1123,7 +1184,7 @@ TEST_F(BackgroundSyncManagerTest, WakeBrowserCalled) {
   EXPECT_LT(0, GetController()->run_in_background_count());
   EXPECT_FALSE(GetController()->run_in_background_enabled());
 
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_NONE);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
   EXPECT_FALSE(GetController()->run_in_background_enabled());
 
   // Register a one-shot but it can't fire due to lack of network, wake up is
@@ -1133,7 +1194,7 @@ TEST_F(BackgroundSyncManagerTest, WakeBrowserCalled) {
 
   // Start the event but it will pause mid-sync due to
   // InitDelayedSyncEventTest() above.
-  SetNetwork(net::NetworkChangeNotifier::CONNECTION_WIFI);
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
   EXPECT_TRUE(GetController()->run_in_background_enabled());
   EXPECT_EQ(test_background_sync_manager_->background_sync_parameters()
                 ->min_sync_recovery_time,
@@ -1141,7 +1202,8 @@ TEST_F(BackgroundSyncManagerTest, WakeBrowserCalled) {
                 GetController()->run_in_background_min_ms()));
 
   // Finish the sync.
-  sync_fired_callback_.Run(SERVICE_WORKER_OK);
+  ASSERT_TRUE(sync_fired_callback_);
+  std::move(sync_fired_callback_).Run(blink::ServiceWorkerStatusCode::kOk);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(GetController()->run_in_background_enabled());
 }
@@ -1171,7 +1233,7 @@ TEST_F(BackgroundSyncManagerTest, TwoAttempts) {
             test_background_sync_manager_->delayed_task_delta());
 
   // Fire again and this time it should permanently fail.
-  test_clock_->Advance(test_background_sync_manager_->delayed_task_delta());
+  test_clock_.Advance(test_background_sync_manager_->delayed_task_delta());
   test_background_sync_manager_->RunDelayedTask();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(GetRegistration(sync_options_1_));
@@ -1189,7 +1251,7 @@ TEST_F(BackgroundSyncManagerTest, ThreeAttempts) {
   // The second run will fail but it will setup a timer to try again.
   base::TimeDelta first_delta =
       test_background_sync_manager_->delayed_task_delta();
-  test_clock_->Advance(test_background_sync_manager_->delayed_task_delta());
+  test_clock_.Advance(test_background_sync_manager_->delayed_task_delta());
   test_background_sync_manager_->RunDelayedTask();
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(GetRegistration(sync_options_1_));
@@ -1198,7 +1260,7 @@ TEST_F(BackgroundSyncManagerTest, ThreeAttempts) {
   EXPECT_LT(first_delta, test_background_sync_manager_->delayed_task_delta());
 
   // The third run will permanently fail.
-  test_clock_->Advance(test_background_sync_manager_->delayed_task_delta());
+  test_clock_.Advance(test_background_sync_manager_->delayed_task_delta());
   test_background_sync_manager_->RunDelayedTask();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(GetRegistration(sync_options_1_));
@@ -1215,8 +1277,8 @@ TEST_F(BackgroundSyncManagerTest, WaitsFullDelayTime) {
 
   // Fire again one second before it's ready to retry. Expect it to reschedule
   // the delay timer for one more second.
-  test_clock_->Advance(test_background_sync_manager_->delayed_task_delta() -
-                       base::TimeDelta::FromSeconds(1));
+  test_clock_.Advance(test_background_sync_manager_->delayed_task_delta() -
+                      base::TimeDelta::FromSeconds(1));
   test_background_sync_manager_->RunDelayedTask();
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(GetRegistration(sync_options_1_));
@@ -1224,7 +1286,7 @@ TEST_F(BackgroundSyncManagerTest, WaitsFullDelayTime) {
             test_background_sync_manager_->delayed_task_delta());
 
   // Fire one second later and it should fail permanently.
-  test_clock_->Advance(base::TimeDelta::FromSeconds(1));
+  test_clock_.Advance(base::TimeDelta::FromSeconds(1));
   test_background_sync_manager_->RunDelayedTask();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(GetRegistration(sync_options_1_));
@@ -1242,7 +1304,7 @@ TEST_F(BackgroundSyncManagerTest, RetryOnBrowserRestart) {
   base::TimeDelta delta = test_background_sync_manager_->delayed_task_delta();
   CreateBackgroundSyncManager();
   InitFailedSyncEventTest();
-  test_clock_->Advance(delta);
+  test_clock_.Advance(delta);
   InitBackgroundSyncManager();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(GetRegistration(sync_options_1_));
@@ -1260,7 +1322,7 @@ TEST_F(BackgroundSyncManagerTest, RescheduleOnBrowserRestart) {
   base::TimeDelta delta = test_background_sync_manager_->delayed_task_delta();
   CreateBackgroundSyncManager();
   InitFailedSyncEventTest();
-  test_clock_->Advance(delta - base::TimeDelta::FromSeconds(1));
+  test_clock_.Advance(delta - base::TimeDelta::FromSeconds(1));
   InitBackgroundSyncManager();
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(GetRegistration(sync_options_1_));
@@ -1279,7 +1341,7 @@ TEST_F(BackgroundSyncManagerTest, RetryIfClosedMidSync) {
   // fire once and then fail permanently.
   CreateBackgroundSyncManager();
   InitFailedSyncEventTest();
-  test_clock_->Advance(delta);
+  test_clock_.Advance(delta);
   InitBackgroundSyncManager();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(GetRegistration(sync_options_1_));
@@ -1293,7 +1355,7 @@ TEST_F(BackgroundSyncManagerTest, AllTestsEventuallyFire) {
   EXPECT_TRUE(Register(sync_options_1_));
 
   // Run it a second time.
-  test_clock_->Advance(test_background_sync_manager_->delayed_task_delta());
+  test_clock_.Advance(test_background_sync_manager_->delayed_task_delta());
   test_background_sync_manager_->RunDelayedTask();
   base::RunLoop().RunUntilIdle();
 
@@ -1305,7 +1367,7 @@ TEST_F(BackgroundSyncManagerTest, AllTestsEventuallyFire) {
   EXPECT_GT(delay_delta, test_background_sync_manager_->delayed_task_delta());
 
   while (test_background_sync_manager_->IsDelayedTaskScheduled()) {
-    test_clock_->Advance(test_background_sync_manager_->delayed_task_delta());
+    test_clock_.Advance(test_background_sync_manager_->delayed_task_delta());
     test_background_sync_manager_->RunDelayedTask();
     EXPECT_FALSE(test_background_sync_manager_->IsDelayedTaskScheduled());
     base::RunLoop().RunUntilIdle();
@@ -1320,17 +1382,124 @@ TEST_F(BackgroundSyncManagerTest, LastChance) {
   InitFailedSyncEventTest();
 
   EXPECT_TRUE(Register(sync_options_1_));
-  EXPECT_EQ(blink::mojom::BackgroundSyncEventLastChance::IS_NOT_LAST_CHANCE,
-            test_background_sync_manager_->last_chance());
+  EXPECT_FALSE(test_background_sync_manager_->last_chance());
   EXPECT_TRUE(GetRegistration(sync_options_1_));
 
   // Run it again.
-  test_clock_->Advance(test_background_sync_manager_->delayed_task_delta());
+  test_clock_.Advance(test_background_sync_manager_->delayed_task_delta());
   test_background_sync_manager_->RunDelayedTask();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(GetRegistration(sync_options_1_));
-  EXPECT_EQ(blink::mojom::BackgroundSyncEventLastChance::IS_LAST_CHANCE,
-            test_background_sync_manager_->last_chance());
+  EXPECT_TRUE(test_background_sync_manager_->last_chance());
 }
 
+TEST_F(BackgroundSyncManagerTest, EmulateOfflineSingleClient) {
+  InitSyncEventTest();
+
+  background_sync_manager_->EmulateServiceWorkerOffline(sw_registration_id_1_,
+                                                        true);
+  EXPECT_TRUE(Register(sync_options_1_));
+  EXPECT_EQ(0, sync_events_called_);
+  EXPECT_TRUE(GetRegistration(sync_options_1_));
+
+  background_sync_manager_->EmulateServiceWorkerOffline(sw_registration_id_1_,
+                                                        false);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(1, sync_events_called_);
+  EXPECT_FALSE(GetRegistration(sync_options_1_));
+
+  EXPECT_TRUE(Register(sync_options_2_));
+  EXPECT_EQ(2, sync_events_called_);
+  EXPECT_FALSE(GetRegistration(sync_options_2_));
+}
+
+TEST_F(BackgroundSyncManagerTest, EmulateOfflineMultipleClients) {
+  InitSyncEventTest();
+
+  background_sync_manager_->EmulateServiceWorkerOffline(sw_registration_id_1_,
+                                                        true);
+  EXPECT_TRUE(Register(sync_options_1_));
+  EXPECT_EQ(0, sync_events_called_);
+  EXPECT_TRUE(GetRegistration(sync_options_1_));
+
+  background_sync_manager_->EmulateServiceWorkerOffline(sw_registration_id_1_,
+                                                        true);
+
+  EXPECT_TRUE(Register(sync_options_2_));
+  EXPECT_EQ(0, sync_events_called_);
+  EXPECT_TRUE(GetRegistration(sync_options_2_));
+
+  background_sync_manager_->EmulateServiceWorkerOffline(sw_registration_id_1_,
+                                                        false);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(0, sync_events_called_);
+  EXPECT_TRUE(GetRegistration(sync_options_1_));
+  EXPECT_TRUE(GetRegistration(sync_options_2_));
+
+  background_sync_manager_->EmulateServiceWorkerOffline(sw_registration_id_1_,
+                                                        false);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(2, sync_events_called_);
+  EXPECT_FALSE(GetRegistration(sync_options_1_));
+  EXPECT_FALSE(GetRegistration(sync_options_2_));
+}
+
+static void EmulateDispatchSyncEventCallback(
+    bool* was_called,
+    blink::ServiceWorkerStatusCode* code,
+    blink::ServiceWorkerStatusCode status_code) {
+  *was_called = true;
+  *code = status_code;
+}
+
+TEST_F(BackgroundSyncManagerTest, EmulateDispatchSyncEvent) {
+  InitSyncEventTest();
+  bool was_called = false;
+  blink::ServiceWorkerStatusCode code =
+      blink::ServiceWorkerStatusCode::kErrorFailed;
+  background_sync_manager_->EmulateDispatchSyncEvent(
+      "emulated_tag", sw_registration_1_->active_version(), false,
+      base::BindOnce(EmulateDispatchSyncEventCallback, &was_called, &code));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk, code);
+
+  EXPECT_EQ(1, sync_events_called_);
+
+  background_sync_manager_->EmulateServiceWorkerOffline(sw_registration_id_1_,
+                                                        true);
+
+  was_called = false;
+  background_sync_manager_->EmulateDispatchSyncEvent(
+      "emulated_tag", sw_registration_1_->active_version(), false,
+      base::BindOnce(EmulateDispatchSyncEventCallback, &was_called, &code));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kErrorNetwork, code);
+
+  background_sync_manager_->EmulateServiceWorkerOffline(sw_registration_id_1_,
+                                                        false);
+
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_NONE);
+  was_called = false;
+  code = blink::ServiceWorkerStatusCode::kOk;
+  background_sync_manager_->EmulateDispatchSyncEvent(
+      "emulated_tag", sw_registration_1_->active_version(), false,
+      base::BindOnce(EmulateDispatchSyncEventCallback, &was_called, &code));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kErrorNetwork, code);
+
+  SetNetwork(network::mojom::ConnectionType::CONNECTION_WIFI);
+  was_called = false;
+  background_sync_manager_->EmulateDispatchSyncEvent(
+      "emulated_tag", sw_registration_1_->active_version(), false,
+      base::BindOnce(EmulateDispatchSyncEventCallback, &was_called, &code));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kOk, code);
+
+  EXPECT_EQ(2, sync_events_called_);
+}
 }  // namespace content

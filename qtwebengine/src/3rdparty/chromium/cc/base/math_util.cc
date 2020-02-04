@@ -11,8 +11,9 @@
 #include <xmmintrin.h>
 #endif
 
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "base/values.h"
+#include "ui/gfx/geometry/angle_conversions.h"
 #include "ui/gfx/geometry/quad_f.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -22,9 +23,6 @@
 #include "ui/gfx/transform.h"
 
 namespace cc {
-
-const double MathUtil::kPiDouble = 3.14159265358979323846;
-const float MathUtil::kPiFloat = 3.14159265358979323846f;
 
 static HomogeneousCoordinate ProjectHomogeneousPoint(
     const gfx::Transform& transform,
@@ -270,6 +268,22 @@ gfx::RectF MathUtil::ProjectClippedRect(const gfx::Transform& transform,
   HomogeneousCoordinate h4 = ProjectHomogeneousPoint(transform, q.p4());
 
   return ComputeEnclosingClippedRect(h1, h2, h3, h4);
+}
+
+gfx::QuadF MathUtil::InverseMapQuadToLocalSpace(
+    const gfx::Transform& device_transform,
+    const gfx::QuadF& device_quad) {
+  gfx::Transform inverse_device_transform(gfx::Transform::kSkipInitialization);
+  DCHECK(device_transform.IsInvertible());
+  bool did_invert = device_transform.GetInverse(&inverse_device_transform);
+  DCHECK(did_invert);
+  bool clipped = false;
+  gfx::QuadF local_quad =
+      MathUtil::MapQuad(inverse_device_transform, device_quad, &clipped);
+  // We should not DCHECK(!clipped) here, because anti-aliasing inflation may
+  // cause device_quad to become clipped. To our knowledge this scenario does
+  // not need to be handled differently than the unclipped case.
+  return local_quad;
 }
 
 gfx::Rect MathUtil::MapEnclosedRectWith2dAxisAlignedTransform(
@@ -589,9 +603,9 @@ gfx::Vector2dF MathUtil::ComputeTransform2dScaleComponents(
 }
 
 float MathUtil::ComputeApproximateMaxScale(const gfx::Transform& transform) {
-  gfx::Vector3dF unit(1, 1, 0);
-  transform.TransformVector(&unit);
-  return std::max(std::abs(unit.x()), std::abs(unit.y()));
+  gfx::RectF unit(0.f, 0.f, 1.f, 1.f);
+  transform.TransformRect(&unit);
+  return std::max(unit.width(), unit.height());
 }
 
 float MathUtil::SmallestAngleBetweenVectors(const gfx::Vector2dF& v1,
@@ -599,7 +613,7 @@ float MathUtil::SmallestAngleBetweenVectors(const gfx::Vector2dF& v1,
   double dot_product = gfx::DotProduct(v1, v2) / v1.Length() / v2.Length();
   // Clamp to compensate for rounding errors.
   dot_product = std::max(-1.0, std::min(1.0, dot_product));
-  return static_cast<float>(Rad2Deg(std::acos(dot_product)));
+  return static_cast<float>(gfx::RadToDeg(std::acos(dot_product)));
 }
 
 gfx::Vector2dF MathUtil::ProjectVector(const gfx::Vector2dF& source,

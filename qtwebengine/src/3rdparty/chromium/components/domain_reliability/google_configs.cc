@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "components/domain_reliability/config.h"
 
 namespace domain_reliability {
@@ -308,6 +308,7 @@ const GoogleConfigParams kGoogleConfigs[] = {
     {"chromeexperiments.com", true, false, false},
     {"chromestatus.com", true, false, false},
     {"chromium.org", true, false, false},
+    {"clients6.google.com", true, false, false},
     {"cloudendpointsapis.com", true, false, false},
     {"dartmotif.com", true, false, false},
     {"dartsearch.net", true, false, false},
@@ -350,6 +351,7 @@ const GoogleConfigParams kGoogleConfigs[] = {
     {"googletagmanager.com", true, false, false},
     {"googletagservices.com", true, false, false},
     {"googleusercontent.com", true, false, false},
+    {"googlezip.net", true, false, false},
     {"gstatic.cn", true, false, false},
     {"gstatic.com", true, false, false},
     {"gvt3.com", true, false, false},
@@ -509,6 +511,7 @@ const GoogleConfigParams kGoogleConfigs[] = {
     // Origins without subdomains and with same-origin collectors.
     {"accounts.google.com", false, true, false},
     {"apis.google.com", false, true, false},
+    {"app.google.stackdriver.com", false, true, false},
     {"b.mail.google.com", false, true, false},
     {"chatenabled.mail.google.com", false, true, false},
     {"ddm.google.com", false, true, false},
@@ -524,19 +527,19 @@ const GoogleConfigParams kGoogleConfigs[] = {
     {"redirector.googlevideo.com", false, false, false},
 };
 
-const char* kGoogleStandardCollectors[] = {
-  "https://beacons.gcp.gvt2.com/domainreliability/upload",
-  "https://beacons.gvt2.com/domainreliability/upload",
-  "https://beacons2.gvt2.com/domainreliability/upload",
-  "https://beacons3.gvt2.com/domainreliability/upload",
-  "https://beacons4.gvt2.com/domainreliability/upload",
-  "https://beacons5.gvt2.com/domainreliability/upload",
-  "https://beacons5.gvt3.com/domainreliability/upload",
-  "https://clients2.google.com/domainreliability/upload",
+const char* const kGoogleStandardCollectors[] = {
+    "https://beacons.gcp.gvt2.com/domainreliability/upload",
+    "https://beacons.gvt2.com/domainreliability/upload",
+    "https://beacons2.gvt2.com/domainreliability/upload",
+    "https://beacons3.gvt2.com/domainreliability/upload",
+    "https://beacons4.gvt2.com/domainreliability/upload",
+    "https://beacons5.gvt2.com/domainreliability/upload",
+    "https://beacons5.gvt3.com/domainreliability/upload",
+    "https://clients2.google.com/domainreliability/upload",
 };
 
-const char* kGoogleOriginSpecificCollectorPathString =
-  "/domainreliability/upload";
+const char* const kGoogleOriginSpecificCollectorPathString =
+    "/domainreliability/upload";
 
 static std::unique_ptr<DomainReliabilityConfig> CreateGoogleConfig(
     const GoogleConfigParams& params,
@@ -556,11 +559,11 @@ static std::unique_ptr<DomainReliabilityConfig> CreateGoogleConfig(
     GURL::Replacements replacements;
     replacements.SetPathStr(kGoogleOriginSpecificCollectorPathString);
     config->collectors.push_back(
-        base::MakeUnique<GURL>(config->origin.ReplaceComponents(replacements)));
+        std::make_unique<GURL>(config->origin.ReplaceComponents(replacements)));
   }
-  for (size_t i = 0; i < arraysize(kGoogleStandardCollectors); i++)
+  for (size_t i = 0; i < base::size(kGoogleStandardCollectors); i++)
     config->collectors.push_back(
-        base::MakeUnique<GURL>(kGoogleStandardCollectors[i]));
+        std::make_unique<GURL>(kGoogleStandardCollectors[i]));
   config->success_sample_rate = 0.05;
   config->failure_sample_rate = 1.00;
   config->path_prefixes.clear();

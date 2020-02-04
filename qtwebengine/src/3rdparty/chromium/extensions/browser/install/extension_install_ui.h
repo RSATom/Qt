@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "ui/gfx/native_widget_types.h"
 
 class SkBitmap;
@@ -24,8 +25,9 @@ class ExtensionInstallUI {
   virtual ~ExtensionInstallUI();
 
   // Called when an extension was installed.
-  virtual void OnInstallSuccess(const extensions::Extension* extension,
-                                const SkBitmap* icon) = 0;
+  virtual void OnInstallSuccess(
+      scoped_refptr<const extensions::Extension> extension,
+      const SkBitmap* icon) = 0;
 
   // Called when an extension failed to install.
   virtual void OnInstallFailure(const extensions::CrxInstallError& error) = 0;
@@ -49,18 +51,14 @@ class ExtensionInstallUI {
   virtual gfx::NativeWindow GetDefaultInstallDialogParent() = 0;
 
 #if defined(UNIT_TEST)
-  static void set_disable_failure_ui_for_tests() {
-    disable_failure_ui_for_tests_ = true;
-  }
+  static void set_disable_ui_for_tests() { disable_ui_for_tests_ = true; }
 #endif
 
  protected:
-  static bool disable_failure_ui_for_tests() {
-    return disable_failure_ui_for_tests_;
-  }
+  static bool disable_ui_for_tests() { return disable_ui_for_tests_; }
 
  private:
-  static bool disable_failure_ui_for_tests_;
+  static bool disable_ui_for_tests_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionInstallUI);
 };

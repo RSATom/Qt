@@ -58,6 +58,8 @@ public:
                           QPlaceManagerEngineOsm *parent);
     ~QPlaceSearchReplyOsm();
 
+    QString requestUrl;
+
 private slots:
     void setError(QPlaceReply::Error errorCode, const QString &errorString);
     void replyFinished();

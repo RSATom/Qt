@@ -55,9 +55,10 @@
 #include "bluetoothbaseclass.h"
 
 #include <QTimer>
+#include <QVariant>
 #include <QBluetoothDeviceDiscoveryAgent>
 #include <QBluetoothDeviceInfo>
-#include <QVariant>
+
 
 class DeviceInfo;
 class DeviceHandler;
@@ -70,7 +71,7 @@ class DeviceFinder: public BluetoothBaseClass
     Q_PROPERTY(QVariant devices READ devices NOTIFY devicesChanged)
 
 public:
-    DeviceFinder(DeviceHandler *handler, QObject *parent = 0);
+    DeviceFinder(DeviceHandler *handler, QObject *parent = nullptr);
     ~DeviceFinder();
 
     bool scanning() const;

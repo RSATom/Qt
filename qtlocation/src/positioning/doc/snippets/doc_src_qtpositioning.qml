@@ -49,7 +49,7 @@
 ****************************************************************************/
 
 //! [import]
-import QtPositioning 5.2
+import QtPositioning 5.11
 //! [import]
 
 Item {

@@ -18,13 +18,18 @@
 #include "base/memory/weak_ptr.h"
 #include "content/browser/appcache/appcache_working_set.h"
 #include "content/common/content_export.h"
-#include "net/base/completion_callback.h"
+#include "url/origin.h"
 
 class GURL;
 
 namespace content {
+
+namespace appcache_storage_unittest {
+class AppCacheStorageTest;
 FORWARD_DECLARE_TEST(AppCacheStorageTest, DelegateReferences);
 FORWARD_DECLARE_TEST(AppCacheStorageTest, UsageMap);
+}  // namespace appcache_storage_unittest
+
 class AppCache;
 class AppCacheEntry;
 class AppCacheGroup;
@@ -34,13 +39,12 @@ class AppCacheResponseReader;
 class AppCacheResponseTest;
 class AppCacheResponseWriter;
 class AppCacheServiceImpl;
-class AppCacheStorageTest;
 struct AppCacheInfoCollection;
 struct HttpResponseInfoIOBuffer;
 
 class CONTENT_EXPORT AppCacheStorage {
  public:
-  typedef std::map<GURL, int64_t> UsageMap;
+  using UsageMap = std::map<url::Origin, int64_t>;
 
   class CONTENT_EXPORT Delegate {
    public:
@@ -172,17 +176,18 @@ class CONTENT_EXPORT AppCacheStorage {
   }
 
   // Creates a reader to read a response from storage.
-  virtual AppCacheResponseReader* CreateResponseReader(const GURL& manifest_url,
-                                                       int64_t response_id) = 0;
+  virtual std::unique_ptr<AppCacheResponseReader> CreateResponseReader(
+      const GURL& manifest_url,
+      int64_t response_id) = 0;
 
   // Creates a writer to write a new response to storage. This call
   // establishes a new response id.
-  virtual AppCacheResponseWriter* CreateResponseWriter(
+  virtual std::unique_ptr<AppCacheResponseWriter> CreateResponseWriter(
       const GURL& manifest_url) = 0;
 
   // Creates a metadata writer to write metadata of response to storage.
-  virtual AppCacheResponseMetadataWriter* CreateResponseMetadataWriter(
-      int64_t response_id) = 0;
+  virtual std::unique_ptr<AppCacheResponseMetadataWriter>
+  CreateResponseMetadataWriter(int64_t response_id) = 0;
 
   // Schedules the lazy deletion of responses and saves the ids
   // persistently such that the responses will be deleted upon restart
@@ -217,17 +222,16 @@ class CONTENT_EXPORT AppCacheStorage {
  protected:
   friend class content::AppCacheQuotaClientTest;
   friend class content::AppCacheResponseTest;
-  friend class content::AppCacheStorageTest;
+  friend class content::appcache_storage_unittest::AppCacheStorageTest;
 
   // Helper to call a collection of delegates.
-  #define FOR_EACH_DELEGATE(delegates, func_and_args)                \
-    do {                                                             \
-      for (DelegateReferenceVector::iterator it = delegates.begin(); \
-           it != delegates.end(); ++it) {                            \
-        if (it->get()->delegate)                                     \
-          it->get()->delegate->func_and_args;                        \
-      }                                                              \
-    } while (0)
+#define FOR_EACH_DELEGATE(delegates, func_and_args)                 \
+  do {                                                              \
+    for (const scoped_refptr<DelegateReference>& ref : delegates) { \
+      if (ref.get()->delegate)                                      \
+        ref.get()->delegate->func_and_args;                         \
+    }                                                               \
+  } while (0)
 
   // Helper used to manage multiple references to a 'delegate' and to
   // allow all pending callbacks to that delegate to be easily cancelled.
@@ -249,9 +253,8 @@ class CONTENT_EXPORT AppCacheStorage {
 
     virtual ~DelegateReference();
   };
-  typedef std::map<Delegate*, DelegateReference*> DelegateReferenceMap;
-  typedef std::vector<scoped_refptr<DelegateReference> >
-      DelegateReferenceVector;
+  using DelegateReferenceMap = std::map<Delegate*, DelegateReference*>;
+  using DelegateReferenceVector = std::vector<scoped_refptr<DelegateReference>>;
 
   // Helper used to manage an async LoadResponseInfo calls on behalf of
   // multiple callers.
@@ -310,9 +313,9 @@ class CONTENT_EXPORT AppCacheStorage {
   int64_t NewResponseId() { return ++last_response_id_; }
 
   // Helpers to query and notify the QuotaManager.
-  void UpdateUsageMapAndNotify(const GURL& origin, int64_t new_usage);
+  void UpdateUsageMapAndNotify(const url::Origin& origin, int64_t new_usage);
   void ClearUsageMapAndNotify();
-  void NotifyStorageAccessed(const GURL& origin);
+  void NotifyStorageAccessed(const url::Origin& origin);
 
   // The last storage id used for different object types.
   int64_t last_cache_id_;
@@ -330,8 +333,12 @@ class CONTENT_EXPORT AppCacheStorage {
   // The set of last ids must be retrieved from storage prior to being used.
   static const int64_t kUnitializedId;
 
-  FRIEND_TEST_ALL_PREFIXES(content::AppCacheStorageTest, DelegateReferences);
-  FRIEND_TEST_ALL_PREFIXES(content::AppCacheStorageTest, UsageMap);
+  FRIEND_TEST_ALL_PREFIXES(
+      content::appcache_storage_unittest::AppCacheStorageTest,
+      DelegateReferences);
+  FRIEND_TEST_ALL_PREFIXES(
+      content::appcache_storage_unittest::AppCacheStorageTest,
+      UsageMap);
 
   // The WeakPtrFactory below must occur last in the class definition so they
   // get destroyed last.

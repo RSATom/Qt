@@ -10,7 +10,6 @@
 
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
-#include "base/files/file_util_proxy.h"
 #include "base/memory/ptr_util.h"
 #include "storage/browser/fileapi/async_file_util_adapter.h"
 #include "storage/browser/fileapi/file_system_context.h"
@@ -31,13 +30,13 @@ class LocalFileEnumerator : public FileSystemFileUtil::AbstractFileEnumerator {
  public:
   LocalFileEnumerator(const base::FilePath& platform_root_path,
                       const base::FilePath& virtual_root_path,
+                      bool recursive,
                       int file_type)
-      : file_enum_(platform_root_path, false /* recursive */, file_type),
+      : file_enum_(platform_root_path, recursive, file_type),
         platform_root_path_(platform_root_path),
-        virtual_root_path_(virtual_root_path) {
-  }
+        virtual_root_path_(virtual_root_path) {}
 
-  ~LocalFileEnumerator() override {}
+  ~LocalFileEnumerator() override = default;
 
   base::FilePath Next() override;
   int64_t Size() override;
@@ -77,9 +76,9 @@ bool LocalFileEnumerator::IsDirectory() {
   return file_util_info_.IsDirectory();
 }
 
-LocalFileUtil::LocalFileUtil() {}
+LocalFileUtil::LocalFileUtil() = default;
 
-LocalFileUtil::~LocalFileUtil() {}
+LocalFileUtil::~LocalFileUtil() = default;
 
 base::File LocalFileUtil::CreateOrOpen(
     FileSystemOperationContext* context,
@@ -139,14 +138,15 @@ base::File::Error LocalFileUtil::GetFileInfo(
 
 std::unique_ptr<FileSystemFileUtil::AbstractFileEnumerator>
 LocalFileUtil::CreateFileEnumerator(FileSystemOperationContext* context,
-                                    const FileSystemURL& root_url) {
+                                    const FileSystemURL& root_url,
+                                    bool recursive) {
   base::FilePath file_path;
   if (GetLocalFilePath(context, root_url, &file_path) !=
       base::File::FILE_OK) {
     return base::WrapUnique(new EmptyFileEnumerator);
   }
-  return base::MakeUnique<LocalFileEnumerator>(
-      file_path, root_url.path(),
+  return std::make_unique<LocalFileEnumerator>(
+      file_path, root_url.path(), recursive,
       base::FileEnumerator::FILES | base::FileEnumerator::DIRECTORIES);
 }
 

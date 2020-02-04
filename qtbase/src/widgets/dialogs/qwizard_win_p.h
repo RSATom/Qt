@@ -71,22 +71,23 @@ class QVistaBackButton : public QAbstractButton
 public:
     QVistaBackButton(QWidget *widget);
 
-    QSize sizeHint() const;
-    inline QSize minimumSizeHint() const
+    QSize sizeHint() const override;
+    inline QSize minimumSizeHint() const override
     { return sizeHint(); }
 
-    void enterEvent(QEvent *event);
-    void leaveEvent(QEvent *event);
-    void paintEvent(QPaintEvent *event);
+    void enterEvent(QEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 };
 
 class QWizard;
 
 class QVistaHelper : public QObject
 {
+    Q_DISABLE_COPY_MOVE(QVistaHelper)
 public:
     QVistaHelper(QWizard *wizard);
-    ~QVistaHelper();
+    ~QVistaHelper() override;
     enum TitleBarChangeType { NormalTitleBar, ExtendedTitleBar };
     void updateCustomMargins(bool vistaMargins);
     bool setDWMTitleBar(TitleBarChangeType type);
@@ -104,8 +105,7 @@ public:
     static int titleBarSize() { return QVistaHelper::titleBarSizeDp() / QVistaHelper::m_devicePixelRatio; }
     static int titleBarSizeDp() { return QVistaHelper::frameSizeDp() + QVistaHelper::captionSizeDp(); }
     static int topPadding() { // padding under text
-        return int(QStyleHelper::dpiScaled(
-                QSysInfo::WindowsVersion >= QSysInfo::WV_WINDOWS7 ? 4 : 6));
+        return int(QStyleHelper::dpiScaled(4));
     }
     static int topOffset();
 
@@ -134,7 +134,7 @@ private:
     void mouseMoveEvent(QMouseEvent *event);
     void mousePressEvent(QMouseEvent *event);
     void mouseReleaseEvent(QMouseEvent *event);
-    bool eventFilter(QObject *obj, QEvent *event);
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
     static int instanceCount;
     static VistaState cachedVistaState;
@@ -150,7 +150,6 @@ private:
 
     int titleBarOffset;  // Extra spacing above the text
     int iconSpacing;    // Space between button and icon
-    int textSpacing;    // Space between icon and text
     static int m_devicePixelRatio;
 };
 

@@ -31,10 +31,13 @@ class URLRequestStatus;
 struct RedirectInfo;
 }  // namespace net
 
+namespace network {
+struct ResourceResponse;
+}
+
 namespace content {
 class ResourceMessageFilter;
 class ResourceRequestInfoImpl;
-struct ResourceResponse;
 
 // The resource dispatcher host uses this interface to process network events
 // for an URLRequest instance.  A ResourceHandler's lifetime is bound to its
@@ -64,6 +67,15 @@ class CONTENT_EXPORT ResourceHandler {
     // cancellation.
     virtual void OutOfBandCancel(int error_code, bool tell_renderer) = 0;
 
+    // Pauses/resumes reading response body if the resource is fetched from
+    // network. They could be no-ops if the resource is not fetched from
+    // network.
+    //
+    // It is allowed to call these methods before response body is available, or
+    // while the request is deferred.
+    virtual void PauseReadingBodyFromNet();
+    virtual void ResumeReadingBodyFromNet();
+
     DISALLOW_COPY_AND_ASSIGN(Delegate);
   };
 
@@ -77,7 +89,7 @@ class CONTENT_EXPORT ResourceHandler {
   // to it.
   virtual void OnRequestRedirected(
       const net::RedirectInfo& redirect_info,
-      ResourceResponse* response,
+      network::ResourceResponse* response,
       std::unique_ptr<ResourceController> controller) = 0;
 
   // Response headers and metadata are available.  The request will not continue
@@ -86,7 +98,7 @@ class CONTENT_EXPORT ResourceHandler {
   // ResourceHandler wants to continue to use it, it must maintain a reference
   // to it.
   virtual void OnResponseStarted(
-      ResourceResponse* response,
+      network::ResourceResponse* response,
       std::unique_ptr<ResourceController> controller) = 0;
 
   // Called before the net::URLRequest (whose url is |url|) is to be started.
@@ -126,12 +138,6 @@ class CONTENT_EXPORT ResourceHandler {
       const net::URLRequestStatus& status,
       std::unique_ptr<ResourceController> controller) = 0;
 
-  // This notification is synthesized by the RedirectToFileResourceHandler
-  // to indicate progress of 'download_to_file' requests. OnReadCompleted
-  // calls are consumed by the RedirectToFileResourceHandler and replaced
-  // with OnDataDownloaded calls.
-  virtual void OnDataDownloaded(int bytes_downloaded) = 0;
-
  protected:
   explicit ResourceHandler(net::URLRequest* request);
 
@@ -153,17 +159,21 @@ class CONTENT_EXPORT ResourceHandler {
   // These call the corresponding methods on the ResourceController previously
   // passed to HoldController and then destroy it.
   void Resume();
+  void ResumeForRedirect(const std::vector<std::string>& removed_headers,
+                         const net::HttpRequestHeaders& modified_headers);
   void Cancel();
-  void CancelAndIgnore();
   void CancelWithError(int error_code);
 
   // Cancels the request when the class does not currently have ownership of the
   // ResourceController.
   void OutOfBandCancel(int error_code, bool tell_renderer);
+  void PauseReadingBodyFromNet();
+  void ResumeReadingBodyFromNet();
 
   net::URLRequest* request() const { return request_; }
 
   // Convenience functions.
+  static void GetNumericArg(const std::string& name, int* result);
   ResourceRequestInfoImpl* GetRequestInfo() const;
   int GetRequestID() const;
   ResourceMessageFilter* GetFilter() const;

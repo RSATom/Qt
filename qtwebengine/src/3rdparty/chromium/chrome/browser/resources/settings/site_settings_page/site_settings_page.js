@@ -51,7 +51,40 @@ Polymer({
       }
     },
 
-    /** @type {!Map<string, string>} */
+    /** @private */
+    enableClipboardContentSetting_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enableClipboardContentSetting');
+      }
+    },
+
+    /** @private */
+    enableSoundContentSetting_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enableSoundContentSetting');
+      }
+    },
+
+    /** @private */
+    enableSensorsContentSetting_: {
+      type: Boolean,
+      readOnly: true,
+      value: function() {
+        return loadTimeData.getBoolean('enableSensorsContentSetting');
+      }
+    },
+
+    /** @private */
+    enablePaymentHandlerContentSetting_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enablePaymentHandlerContentSetting');
+      }
+    },
+
+    /** @type {!Map<string, (string|Function)>} */
     focusConfig: {
       type: Object,
       observer: 'focusConfigChanged_',
@@ -71,28 +104,41 @@ Polymer({
     // Populate the |focusConfig| map of the parent <settings-animated-pages>
     // element, with additional entries that correspond to subpage trigger
     // elements residing in this element's Shadow DOM.
-    var R = settings.routes;
-    [[R.SITE_SETTINGS_COOKIES, 'cookies'],
-     [R.SITE_SETTINGS_LOCATION, 'location'], [R.SITE_SETTINGS_CAMERA, 'camera'],
-     [R.SITE_SETTINGS_MICROPHONE, 'microphone'],
-     [R.SITE_SETTINGS_NOTIFICATIONS, 'notifications'],
-     [R.SITE_SETTINGS_JAVASCRIPT, 'javascript'],
-     [R.SITE_SETTINGS_FLASH, 'flash'], [R.SITE_SETTINGS_IMAGES, 'images'],
-     [R.SITE_SETTINGS_POPUPS, 'popups'],
-     [R.SITE_SETTINGS_BACKGROUND_SYNC, 'background-sync'],
-     [R.SITE_SETTINGS_AUTOMATIC_DOWNLOADS, 'automatic-downloads'],
-     [R.SITE_SETTINGS_UNSANDBOXED_PLUGINS, 'unsandboxed-plugins'],
-     [R.SITE_SETTINGS_HANDLERS, 'protocol-handlers'],
-     [R.SITE_SETTINGS_MIDI_DEVICES, 'midi-devices'],
-     [R.SITE_SETTINGS_ADS, 'ads'], [R.SITE_SETTINGS_ZOOM_LEVELS, 'zoom-levels'],
-     [R.SITE_SETTINGS_USB_DEVICES, 'usb-devices'],
-     [R.SITE_SETTINGS_PDF_DOCUMENTS, 'pdf-documents'],
-     [R.SITE_SETTINGS_PROTECTED_CONTENT, 'protected-content'],
-    ].forEach(function(pair) {
-      var route = pair[0];
-      var id = pair[1];
-      this.focusConfig.set(route.path, '* /deep/ #' + id + ' .subpage-arrow');
-    }.bind(this));
+    const R = settings.routes;
+    const pairs = [
+      [R.SITE_SETTINGS_COOKIES, 'cookies'],
+      [R.SITE_SETTINGS_LOCATION, 'location'],
+      [R.SITE_SETTINGS_CAMERA, 'camera'],
+      [R.SITE_SETTINGS_MICROPHONE, 'microphone'],
+      [R.SITE_SETTINGS_NOTIFICATIONS, 'notifications'],
+      [R.SITE_SETTINGS_JAVASCRIPT, 'javascript'],
+      [R.SITE_SETTINGS_SOUND, 'sound'],
+      [R.SITE_SETTINGS_FLASH, 'flash'],
+      [R.SITE_SETTINGS_IMAGES, 'images'],
+      [R.SITE_SETTINGS_POPUPS, 'popups'],
+      [R.SITE_SETTINGS_BACKGROUND_SYNC, 'background-sync'],
+      [R.SITE_SETTINGS_AUTOMATIC_DOWNLOADS, 'automatic-downloads'],
+      [R.SITE_SETTINGS_UNSANDBOXED_PLUGINS, 'unsandboxed-plugins'],
+      [R.SITE_SETTINGS_HANDLERS, 'protocol-handlers'],
+      [R.SITE_SETTINGS_MIDI_DEVICES, 'midi-devices'],
+      [R.SITE_SETTINGS_ADS, 'ads'],
+      [R.SITE_SETTINGS_ZOOM_LEVELS, 'zoom-levels'],
+      [R.SITE_SETTINGS_USB_DEVICES, 'usb-devices'],
+      [R.SITE_SETTINGS_PDF_DOCUMENTS, 'pdf-documents'],
+      [R.SITE_SETTINGS_PROTECTED_CONTENT, 'protected-content'],
+      [R.SITE_SETTINGS_CLIPBOARD, 'clipboard'],
+      [R.SITE_SETTINGS_SENSORS, 'sensors'],
+    ];
+
+    if (this.enablePaymentHandlerContentSetting_) {
+      pairs.push([R.SITE_SETTINGS_PAYMENT_HANDLER, 'paymentHandler']);
+    }
+
+    pairs.forEach(([route, id]) => {
+      this.focusConfig.set(route.path, () => this.async(() => {
+        cr.ui.focusWithoutInk(assert(this.$$(`#${id}`)));
+      }));
+    });
   },
 
   /** @override */
@@ -100,18 +146,24 @@ Polymer({
     this.ContentSettingsTypes = settings.ContentSettingsTypes;
     this.ALL_SITES = settings.ALL_SITES;
 
-    var keys = Object.keys(settings.ContentSettingsTypes);
-    for (var i = 0; i < keys.length; ++i) {
-      var key = settings.ContentSettingsTypes[keys[i]];
-      // Default labels are not applicable to USB and ZOOM.
-      if (key == settings.ContentSettingsTypes.USB_DEVICES ||
-          key == settings.ContentSettingsTypes.ZOOM_LEVELS)
+    const keys = Object.keys(settings.ContentSettingsTypes);
+    for (let i = 0; i < keys.length; ++i) {
+      const key = settings.ContentSettingsTypes[keys[i]];
+      // Default labels are not applicable to ZOOM.
+      if (key == settings.ContentSettingsTypes.ZOOM_LEVELS) {
         continue;
-      // Some values are not available (and will DCHECK) in guest mode.
+      }
+      // Protocol handlers are not available (and will DCHECK) in guest mode.
       if (this.isGuest_ &&
           key == settings.ContentSettingsTypes.PROTOCOL_HANDLERS) {
         continue;
       }
+      // Similarly, protected content is only available in CrOS.
+      // <if expr="not chromeos">
+      if (key == settings.ContentSettingsTypes.PROTECTED_CONTENT) {
+        continue;
+      }
+      // </if>
       this.updateDefaultValueLabel_(key);
     }
 
@@ -131,12 +183,15 @@ Polymer({
    * @private
    */
   defaultSettingLabel_: function(setting, enabled, disabled, other) {
-    if (setting == settings.ContentSetting.BLOCK)
+    if (setting == settings.ContentSetting.BLOCK) {
       return disabled;
-    if (setting == settings.ContentSetting.ALLOW)
+    }
+    if (setting == settings.ContentSetting.ALLOW) {
       return enabled;
-    if (other)
+    }
+    if (other) {
       return other;
+    }
     return enabled;
   },
 
@@ -146,11 +201,11 @@ Polymer({
    */
   updateDefaultValueLabel_: function(category) {
     this.browserProxy.getDefaultValueForContentType(category).then(
-        function(defaultValue) {
+        defaultValue => {
           this.set(
               'default_.' + Polymer.CaseMap.dashToCamelCase(category),
               defaultValue.setting);
-        }.bind(this));
+        });
   },
 
   /**
@@ -159,7 +214,7 @@ Polymer({
    * @private
    */
   updateHandlersEnabled_: function(enabled) {
-    var category = settings.ContentSettingsTypes.PROTOCOL_HANDLERS;
+    const category = settings.ContentSettingsTypes.PROTOCOL_HANDLERS;
     this.set(
         'default_.' + Polymer.CaseMap.dashToCamelCase(category),
         enabled ? settings.ContentSetting.ALLOW :
@@ -172,7 +227,8 @@ Polymer({
    * @private
    */
   onTapNavigate_: function(event) {
-    var dataSet = /** @type {{route: string}} */ (event.currentTarget.dataset);
+    const dataSet =
+        /** @type {{route: string}} */ (event.currentTarget.dataset);
     settings.navigateTo(settings.routes[dataSet.route]);
   },
 });

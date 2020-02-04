@@ -41,7 +41,7 @@
 QT_CHARTS_BEGIN_NAMESPACE
 /*!
     \class QDateTimeAxis
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QDateTimeAxis class adds dates and times to a chart's axis.
 
     QDateTimeAxis can be set up to show an axis line with tick marks, grid lines, and shades.
@@ -259,6 +259,8 @@ void QDateTimeAxis::setFormat(QString format)
     Q_D(QDateTimeAxis);
     if (d->m_format != format) {
         d->m_format = format;
+        if (d->axisItem())
+            static_cast<CartesianChartAxis*>(d->axisItem())->setDateTimeLabelsFormat(format);
         emit formatChanged(format);
     }
 }
@@ -339,7 +341,6 @@ void QDateTimeAxisPrivate::setRange(qreal min,qreal max)
     }
 }
 
-
 void QDateTimeAxisPrivate::setMin(const QVariant &min)
 {
     Q_Q(QDateTimeAxis);
@@ -371,6 +372,7 @@ void QDateTimeAxisPrivate::initializeGraphics(QGraphicsItem* parent)
             axis = new ChartDateTimeAxisY(q,parent);
         if (orientation() == Qt::Horizontal)
             axis = new ChartDateTimeAxisX(q,parent);
+        axis->setLabelsEditable(q->labelsEditable());
     }
 
     if (m_chart->chartType() == QChart::ChartTypePolar) {
@@ -399,7 +401,7 @@ void QDateTimeAxisPrivate::initializeDomain(AbstractDomain *domain)
     }
 }
 
+QT_CHARTS_END_NAMESPACE
+
 #include "moc_qdatetimeaxis.cpp"
 #include "moc_qdatetimeaxis_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

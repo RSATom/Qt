@@ -1,7 +1,7 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
-    <file>resources/basic_printing_page.html</file>
     <file>resources/content.html</file>
+    <file>resources/dynamicFrame.html</file>
     <file>resources/index.html</file>
     <file>resources/frame_a.html</file>
     <file>resources/frame_c.html</file>
@@ -14,6 +14,7 @@
     <file>resources/user.css</file>
     <file>resources/image.png</file>
     <file>resources/pasteimage.html</file>
+    <file>resources/reload.html</file>
     <file>resources/style.css</file>
     <file>resources/test1.html</file>
     <file>resources/test2.html</file>
@@ -22,5 +23,8 @@
     <file>resources/foo.txt</file>
     <file>resources/bar.txt</file>
     <file>resources/path with spaces.txt</file>
+</qresource>
+<qresource prefix='/shared'>
+    <file alias='notification.html'>../../shared/data/notification.html</file>
 </qresource>
 </RCC>

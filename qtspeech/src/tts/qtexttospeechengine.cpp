@@ -42,119 +42,120 @@ QT_BEGIN_NAMESPACE
 
 
 /*!
-  \class QTextToSpeechPluginEngine
+  \class QTextToSpeechEngine
   \inmodule QtSpeech
-  \brief The QTextToSpeechPluginEngine class is the base for text-to-speech engine integrations.
+  \brief The QTextToSpeechEngine class is the base for text-to-speech engine integrations.
 
-  An engine implementation should derive from QTextToSpeechPluginEngine and implement all
-  the pure virtual methods.
+  An engine implementation must derive from QTextToSpeechEngine and implement all
+  its pure virtual methods.
 */
 
-/*! \fn QVector<QLocale> QTextToSpeechPluginEngine::availableLocales() const
+/*! \fn QVector<QLocale> QTextToSpeechEngine::availableLocales() const
 
-  Implementation of \l QTextToSpeech::availableLocales()
+  Implementation of \l QTextToSpeech::availableLocales().
 */
 
-/*! \fn QVector<QVoice> QTextToSpeechPluginEngine::availableVoices() const
+/*! \fn QVector<QVoice> QTextToSpeechEngine::availableVoices() const
 
-  Implementation of \l QTextToSpeech::availableVoices()
+  Implementation of \l QTextToSpeech::availableVoices().
 */
 
-/*! \fn void QTextToSpeechPluginEngine::say(const QString &text)
+/*! \fn void QTextToSpeechEngine::say(const QString &text)
 
-  Implementation of \l QTextToSpeech::say()
+  Implementation of \l {QTextToSpeech::say()}{QTextToSpeech::say}(\a text).
 */
 
-/*! \fn void QTextToSpeechPluginEngine::stop()
+/*! \fn void QTextToSpeechEngine::stop()
 
-  Implementation of \l QTextToSpeech::stop()
+  Implementation of \l QTextToSpeech::stop().
 */
 
-/*! \fn void QTextToSpeechPluginEngine::pause()
+/*! \fn void QTextToSpeechEngine::pause()
 
-  Implementation of \l QTextToSpeech::pause()
+  Implementation of \l QTextToSpeech::pause().
 */
 
-/*! \fn void QTextToSpeechPluginEngine::resume()
+/*! \fn void QTextToSpeechEngine::resume()
 
-  Implementation of \l QTextToSpeech::resume()
+  Implementation of \l QTextToSpeech::resume().
 */
 
-/*! \fn void QTextToSpeechPluginEngine::rate() const
+/*! \fn void QTextToSpeechEngine::rate() const
 
-  Implementation of \l QTextToSpeech::rate()
+  Implementation of \l QTextToSpeech::rate().
 */
 
-/*! \fn bool QTextToSpeechPluginEngine::setRate(double rate)
+/*! \fn bool QTextToSpeechEngine::setRate(double rate)
 
-  Implementation of \l QTextToSpeech::setRate().
+  Implementation of \l {QTextToSpeech::setRate()}{QTextToSpeech::setRate}(\a rate).
 
   Return \c true if the operation was successful.
 */
 
-/*! \fn void QTextToSpeechPluginEngine::pitch() const
+/*! \fn void QTextToSpeechEngine::pitch() const
 
-  Implementation of \l QTextToSpeech::pitch()
+  Implementation of \l QTextToSpeech::pitch().
 */
 
-/*! \fn bool QTextToSpeechPluginEngine::setPitch(double pitch)
+/*! \fn bool QTextToSpeechEngine::setPitch(double pitch)
 
-  Implementation of \l QTextToSpeech::setPitch()
+  Implementation of \l {QTextToSpeech::setPitch()}{QTextToSpeech::setPitch}(\a pitch).
 
   Return \c true if the operation was successful.
 */
 
-/*! \fn QLocale QTextToSpeechPluginEngine::locale() const
+/*! \fn QLocale QTextToSpeechEngine::locale() const
 
-  Implementation of \l QTextToSpeech::locale()
+  Implementation of QTextToSpeech::locale().
 */
 
-/*! \fn bool QTextToSpeechPluginEngine::setLocale(const QLocale &locale)
+/*! \fn bool QTextToSpeechEngine::setLocale(const QLocale &locale)
 
-  Implementation of \l QTextToSpeech::setLocale()
+  Implementation \l {QTextToSpeech::setLocale()}{QTextToSpeech::setLocale}(\a locale).
 
   Return \c true if the operation was successful. In this case, the
-  current voice (returned by \l voice()) should also have been updated
-  to a valid new value.
+  current voice (as returned by voice()) should also be updated to a
+  new, valid value.
 */
 
-/*! \fn void QTextToSpeechPluginEngine::volume() const
+/*! \fn double QTextToSpeechEngine::volume() const
 
-  Implementation of \l QTextToSpeech::volume()
+  Implementation of QTextToSpeech::volume().
 */
 
-/*! \fn bool QTextToSpeechPluginEngine::setVolume(int volume)
+/*! \fn bool QTextToSpeechEngine::setVolume(double volume)
 
-  Implementation of \l QTextToSpeech::setVolume()
+  Implementation of \l {QTextToSpeech::setVolume()}{QTextToSpeech::setVolume}(\a volume).
 
   Return \c true if the operation was successful.
 */
 
-/*! \fn QVoice QTextToSpeechPluginEngine::voice() const
+/*! \fn QVoice QTextToSpeechEngine::voice() const
 
-  Implementation of \l QTextToSpeech::voice()
+  Implementation of \l QTextToSpeech::voice().
 */
 
-/*! \fn bool QTextToSpeechPluginEngine::setVoice(const QVoice &voice)
+/*! \fn bool QTextToSpeechEngine::setVoice(const QVoice &voice)
 
-  Implementation of \l QTextToSpeech::setVoice()
+  Implementation of \l {QTextToSpeech::setVoice()}{QTextToSpeech::setVoice}(\a voice).
 
   Return \c true if the operation was successful.
 */
 
-/*! \fn QTextToSpeech::State QTextToSpeechPluginEngine::state() const
+/*! \fn QTextToSpeech::State QTextToSpeechEngine::state() const
 
-  Implementation of \l QTextToSpeech::state()
+  Implementation of QTextToSpeech::state().
 */
 
-/*! \fn void QTextToSpeechPluginEngine::stateChanged(QTextToSpeech::State state)
+/*! \fn void QTextToSpeechEngine::stateChanged(QTextToSpeech::State state)
 
-  Emitted when the text-to-speech engine state has changed.
-  This signal is connected to signal QTextToSpeech::stateChanged().
+  Emitted when the text-to-speech engine \a state has changed.
+
+  This signal is connected to QTextToSpeech::stateChanged() signal.
 */
 
 /*!
-  Constructs the text-to-speech engine base class.
+  Constructs the text-to-speech engine base class with \a parent.
 */
 QTextToSpeechEngine::QTextToSpeechEngine(QObject *parent):
     QObject(parent)

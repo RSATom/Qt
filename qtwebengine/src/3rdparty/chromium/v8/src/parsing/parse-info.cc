@@ -4,11 +4,14 @@
 
 #include "src/parsing/parse-info.h"
 
-#include "src/api.h"
 #include "src/ast/ast-source-ranges.h"
 #include "src/ast/ast-value-factory.h"
 #include "src/ast/ast.h"
+#include "src/base/template-utils.h"
+#include "src/compiler-dispatcher/compiler-dispatcher.h"
+#include "src/counters.h"
 #include "src/heap/heap-inl.h"
+#include "src/log.h"
 #include "src/objects-inl.h"
 #include "src/objects/scope-info.h"
 #include "src/zone/zone.h"
@@ -17,193 +20,235 @@ namespace v8 {
 namespace internal {
 
 ParseInfo::ParseInfo(AccountingAllocator* zone_allocator)
-    : zone_(std::make_shared<Zone>(zone_allocator, ZONE_NAME)),
+    : zone_(base::make_unique<Zone>(zone_allocator, ZONE_NAME)),
       flags_(0),
-      source_stream_(nullptr),
-      source_stream_encoding_(ScriptCompiler::StreamedSource::ONE_BYTE),
-      character_stream_(nullptr),
       extension_(nullptr),
-      compile_options_(ScriptCompiler::kNoCompileOptions),
       script_scope_(nullptr),
-      asm_function_scope_(nullptr),
-      unicode_cache_(nullptr),
       stack_limit_(0),
       hash_seed_(0),
-      compiler_hints_(0),
+      function_kind_(FunctionKind::kNormalFunction),
+      script_id_(-1),
       start_position_(0),
       end_position_(0),
       parameters_end_pos_(kNoSourcePosition),
       function_literal_id_(FunctionLiteral::kIdTypeInvalid),
       max_function_literal_id_(FunctionLiteral::kIdTypeInvalid),
-      cached_data_(nullptr),
+      character_stream_(nullptr),
       ast_value_factory_(nullptr),
       ast_string_constants_(nullptr),
       function_name_(nullptr),
       runtime_call_stats_(nullptr),
       source_range_map_(nullptr),
-      literal_(nullptr),
-      deferred_handles_(nullptr) {}
+      literal_(nullptr) {}
 
-ParseInfo::ParseInfo(Handle<SharedFunctionInfo> shared)
-    : ParseInfo(shared->GetIsolate()->allocator()) {
-  Isolate* isolate = shared->GetIsolate();
-  InitFromIsolate(isolate);
-
-  set_toplevel(shared->is_toplevel());
-  set_allow_lazy_parsing(FLAG_lazy_inner_functions);
-  set_is_named_expression(shared->is_named_expression());
-  set_compiler_hints(shared->compiler_hints());
-  set_start_position(shared->start_position());
-  set_end_position(shared->end_position());
-  function_literal_id_ = shared->function_literal_id();
-  set_language_mode(shared->language_mode());
-  set_shared_info(shared);
-  set_module(shared->kind() == FunctionKind::kModule);
-
-  Handle<Script> script(Script::cast(shared->script()));
-  set_script(script);
-  set_native(script->type() == Script::TYPE_NATIVE);
-  set_eval(script->compilation_type() == Script::COMPILATION_TYPE_EVAL);
-
-  Handle<HeapObject> scope_info(shared->outer_scope_info());
-  if (!scope_info->IsTheHole(isolate) &&
-      Handle<ScopeInfo>::cast(scope_info)->length() > 0) {
-    set_outer_scope_info(Handle<ScopeInfo>::cast(scope_info));
+ParseInfo::ParseInfo(Isolate* isolate, AccountingAllocator* zone_allocator)
+    : ParseInfo(zone_allocator) {
+  set_hash_seed(isolate->heap()->HashSeed());
+  set_stack_limit(isolate->stack_guard()->real_climit());
+  set_runtime_call_stats(isolate->counters()->runtime_call_stats());
+  set_logger(isolate->logger());
+  set_ast_string_constants(isolate->ast_string_constants());
+  if (isolate->is_block_code_coverage()) set_block_coverage_enabled();
+  if (isolate->is_collecting_type_profile()) set_collect_type_profile();
+  if (isolate->compiler_dispatcher()->IsEnabled()) {
+    parallel_tasks_.reset(new ParallelTasks(isolate->compiler_dispatcher()));
   }
+  set_might_always_opt(FLAG_always_opt || FLAG_prepare_always_opt);
+  set_allow_lazy_compile(FLAG_lazy);
+  set_allow_natives_syntax(FLAG_allow_natives_syntax);
+  set_allow_harmony_public_fields(FLAG_harmony_public_fields);
+  set_allow_harmony_static_fields(FLAG_harmony_static_fields);
+  set_allow_harmony_dynamic_import(FLAG_harmony_dynamic_import);
+  set_allow_harmony_import_meta(FLAG_harmony_import_meta);
+  set_allow_harmony_numeric_separator(FLAG_harmony_numeric_separator);
+  set_allow_harmony_private_fields(FLAG_harmony_private_fields);
+  set_allow_harmony_private_methods(FLAG_harmony_private_methods);
 }
 
-ParseInfo::ParseInfo(Handle<SharedFunctionInfo> shared,
-                     std::shared_ptr<Zone> zone)
-    : ParseInfo(shared) {
-  zone_.swap(zone);
+ParseInfo::ParseInfo(Isolate* isolate)
+    : ParseInfo(isolate, isolate->allocator()) {
+  script_id_ = isolate->heap()->NextScriptId();
+  LOG(isolate, ScriptEvent(Logger::ScriptEventType::kReserveId, script_id_));
 }
 
-ParseInfo::ParseInfo(Handle<Script> script)
-    : ParseInfo(script->GetIsolate()->allocator()) {
-  InitFromIsolate(script->GetIsolate());
+template <typename T>
+void ParseInfo::SetFunctionInfo(T function) {
+  set_is_named_expression(function->is_named_expression());
+  set_language_mode(function->language_mode());
+  set_function_kind(function->kind());
+  set_declaration(function->is_declaration());
+  set_requires_instance_members_initializer(
+      function->requires_instance_members_initializer());
+  set_toplevel(function->is_toplevel());
+  set_is_oneshot_iife(function->is_oneshot_iife());
+  set_wrapped_as_function(function->is_wrapped());
+}
 
-  set_allow_lazy_parsing();
-  set_toplevel();
+ParseInfo::ParseInfo(Isolate* isolate, Handle<SharedFunctionInfo> shared)
+    : ParseInfo(isolate, isolate->allocator()) {
+  // Do not support re-parsing top-level function of a wrapped script.
+  // TODO(yangguo): consider whether we need a top-level function in a
+  //                wrapped script at all.
+  DCHECK_IMPLIES(is_toplevel(), !Script::cast(shared->script())->is_wrapped());
+
+  set_allow_lazy_parsing(true);
+  set_asm_wasm_broken(shared->is_asm_wasm_broken());
+
+  set_start_position(shared->StartPosition());
+  set_end_position(shared->EndPosition());
+  function_literal_id_ = shared->FunctionLiteralId(isolate);
+  SetFunctionInfo(shared);
+
+  Handle<Script> script(Script::cast(shared->script()), isolate);
   set_script(script);
 
-  set_native(script->type() == Script::TYPE_NATIVE);
-  set_eval(script->compilation_type() == Script::COMPILATION_TYPE_EVAL);
+  if (shared->HasOuterScopeInfo()) {
+    set_outer_scope_info(handle(shared->GetOuterScopeInfo(), isolate));
+  }
+
+  // CollectTypeProfile uses its own feedback slots. If we have existing
+  // FeedbackMetadata, we can only collect type profile if the feedback vector
+  // has the appropriate slots.
+  set_collect_type_profile(
+      isolate->is_collecting_type_profile() &&
+      (shared->HasFeedbackMetadata()
+           ? shared->feedback_metadata()->HasTypeProfileSlot()
+           : script->IsUserJavaScript()));
 }
 
-ParseInfo::~ParseInfo() {
-  if (ast_value_factory_owned()) {
-    delete ast_value_factory_;
-    set_ast_value_factory_owned(false);
-  }
-  ast_value_factory_ = nullptr;
+ParseInfo::ParseInfo(Isolate* isolate, Handle<Script> script)
+    : ParseInfo(isolate, isolate->allocator()) {
+  SetScriptForToplevelCompile(isolate, script);
+  set_collect_type_profile(isolate->is_collecting_type_profile() &&
+                           script->IsUserJavaScript());
 }
 
 // static
-ParseInfo* ParseInfo::AllocateWithoutScript(Handle<SharedFunctionInfo> shared) {
-  Isolate* isolate = shared->GetIsolate();
-  ParseInfo* p = new ParseInfo(isolate->allocator());
+std::unique_ptr<ParseInfo> ParseInfo::FromParent(
+    const ParseInfo* outer_parse_info, AccountingAllocator* zone_allocator,
+    const FunctionLiteral* literal, const AstRawString* function_name) {
+  std::unique_ptr<ParseInfo> result =
+      base::make_unique<ParseInfo>(zone_allocator);
 
-  p->InitFromIsolate(isolate);
-  p->set_toplevel(shared->is_toplevel());
-  p->set_allow_lazy_parsing(FLAG_lazy_inner_functions);
-  p->set_is_named_expression(shared->is_named_expression());
-  p->set_compiler_hints(shared->compiler_hints());
-  p->set_start_position(shared->start_position());
-  p->set_end_position(shared->end_position());
-  p->function_literal_id_ = shared->function_literal_id();
-  p->set_language_mode(shared->language_mode());
-  p->set_shared_info(shared);
-  p->set_module(shared->kind() == FunctionKind::kModule);
+  // Replicate shared state of the outer_parse_info.
+  result->flags_ = outer_parse_info->flags_;
+  result->script_id_ = outer_parse_info->script_id_;
+  result->set_logger(outer_parse_info->logger());
+  result->set_ast_string_constants(outer_parse_info->ast_string_constants());
+  result->set_hash_seed(outer_parse_info->hash_seed());
 
-  // BUG(5946): This function exists as a workaround until we can
-  // get rid of %SetCode in our native functions. The ParseInfo
-  // is explicitly set up for the case that:
-  // a) you have a native built-in,
-  // b) it's being run for the 2nd-Nth time in an isolate,
-  // c) we've already compiled bytecode and therefore don't need
-  //    to parse.
-  // We tolerate a ParseInfo without a Script in this case.
-  p->set_native(true);
-  p->set_eval(false);
+  DCHECK_EQ(outer_parse_info->parameters_end_pos(), kNoSourcePosition);
+  DCHECK_NULL(outer_parse_info->extension());
+  DCHECK(outer_parse_info->maybe_outer_scope_info().is_null());
 
-  Handle<HeapObject> scope_info(shared->outer_scope_info());
-  if (!scope_info->IsTheHole(isolate) &&
-      Handle<ScopeInfo>::cast(scope_info)->length() > 0) {
-    p->set_outer_scope_info(Handle<ScopeInfo>::cast(scope_info));
-  }
-  return p;
+  // Clone the function_name AstRawString into the ParseInfo's own
+  // AstValueFactory.
+  const AstRawString* cloned_function_name =
+      result->GetOrCreateAstValueFactory()->CloneFromOtherFactory(
+          function_name);
+
+  // Setup function specific details.
+  DCHECK(!literal->is_toplevel());
+  result->set_function_name(cloned_function_name);
+  result->set_start_position(literal->start_position());
+  result->set_end_position(literal->end_position());
+  result->set_function_literal_id(literal->function_literal_id());
+  result->SetFunctionInfo(literal);
+
+  return result;
 }
+
+ParseInfo::~ParseInfo() = default;
 
 DeclarationScope* ParseInfo::scope() const { return literal()->scope(); }
 
-bool ParseInfo::is_declaration() const {
-  return SharedFunctionInfo::IsDeclarationBit::decode(compiler_hints_);
+Handle<Script> ParseInfo::CreateScript(Isolate* isolate, Handle<String> source,
+                                       ScriptOriginOptions origin_options,
+                                       NativesFlag natives) {
+  // Create a script object describing the script to be compiled.
+  Handle<Script> script;
+  if (script_id_ == -1) {
+    script = isolate->factory()->NewScript(source);
+  } else {
+    script = isolate->factory()->NewScriptWithId(source, script_id_);
+  }
+  if (isolate->NeedsSourcePositionsForProfiling()) {
+    Script::InitLineEnds(script);
+  }
+  switch (natives) {
+    case NATIVES_CODE:
+      script->set_type(Script::TYPE_NATIVE);
+      break;
+    case EXTENSION_CODE:
+      script->set_type(Script::TYPE_EXTENSION);
+      break;
+    case INSPECTOR_CODE:
+      script->set_type(Script::TYPE_INSPECTOR);
+      break;
+    case NOT_NATIVES_CODE:
+      break;
+  }
+  script->set_origin_options(origin_options);
+
+  SetScriptForToplevelCompile(isolate, script);
+  return script;
 }
 
-FunctionKind ParseInfo::function_kind() const {
-  return SharedFunctionInfo::FunctionKindBits::decode(compiler_hints_);
+AstValueFactory* ParseInfo::GetOrCreateAstValueFactory() {
+  if (!ast_value_factory_.get()) {
+    ast_value_factory_.reset(
+        new AstValueFactory(zone(), ast_string_constants(), hash_seed()));
+  }
+  return ast_value_factory();
 }
 
-void ParseInfo::set_deferred_handles(
-    std::shared_ptr<DeferredHandles> deferred_handles) {
-  DCHECK(deferred_handles_.get() == nullptr);
-  deferred_handles_.swap(deferred_handles);
+void ParseInfo::AllocateSourceRangeMap() {
+  DCHECK(block_coverage_enabled());
+  set_source_range_map(new (zone()) SourceRangeMap(zone()));
 }
 
-void ParseInfo::set_deferred_handles(DeferredHandles* deferred_handles) {
-  DCHECK(deferred_handles_.get() == nullptr);
-  deferred_handles_.reset(deferred_handles);
+void ParseInfo::ResetCharacterStream() { character_stream_.reset(); }
+
+void ParseInfo::set_character_stream(
+    std::unique_ptr<Utf16CharacterStream> character_stream) {
+  DCHECK_NULL(character_stream_);
+  character_stream_.swap(character_stream);
 }
 
-void ParseInfo::InitFromIsolate(Isolate* isolate) {
-  DCHECK_NOT_NULL(isolate);
-  set_hash_seed(isolate->heap()->HashSeed());
-  set_stack_limit(isolate->stack_guard()->real_climit());
-  set_unicode_cache(isolate->unicode_cache());
-  set_runtime_call_stats(isolate->counters()->runtime_call_stats());
-  set_ast_string_constants(isolate->ast_string_constants());
-  if (FLAG_block_coverage && isolate->is_block_code_coverage()) {
-    set_source_range_map(new (zone()) SourceRangeMap(zone()));
+void ParseInfo::SetScriptForToplevelCompile(Isolate* isolate,
+                                            Handle<Script> script) {
+  set_script(script);
+  set_allow_lazy_parsing();
+  set_toplevel();
+  set_collect_type_profile(isolate->is_collecting_type_profile() &&
+                           script->IsUserJavaScript());
+  set_wrapped_as_function(script->is_wrapped());
+}
+
+void ParseInfo::set_script(Handle<Script> script) {
+  script_ = script;
+  DCHECK(script_id_ == -1 || script_id_ == script->id());
+  script_id_ = script->id();
+
+  set_native(script->type() == Script::TYPE_NATIVE);
+  set_eval(script->compilation_type() == Script::COMPILATION_TYPE_EVAL);
+  set_module(script->origin_options().IsModule());
+  DCHECK(!(is_eval() && is_module()));
+
+  if (block_coverage_enabled() && script->IsUserJavaScript()) {
+    AllocateSourceRangeMap();
   }
 }
 
-void ParseInfo::UpdateStatisticsAfterBackgroundParse(Isolate* isolate) {
-  // Copy over the counters from the background thread to the main counters on
-  // the isolate.
-  RuntimeCallStats* main_call_stats = isolate->counters()->runtime_call_stats();
-  if (FLAG_runtime_stats ==
-      v8::tracing::TracingCategoryObserver::ENABLED_BY_NATIVE) {
-    DCHECK_NE(main_call_stats, runtime_call_stats());
-    DCHECK_NOT_NULL(main_call_stats);
-    DCHECK_NOT_NULL(runtime_call_stats());
-    main_call_stats->Add(runtime_call_stats());
-  }
-  set_runtime_call_stats(main_call_stats);
-}
-
-void ParseInfo::ParseFinished(std::unique_ptr<ParseInfo> info) {
-  if (info->literal()) {
-    base::LockGuard<base::Mutex> access_child_infos(&child_infos_mutex_);
-    child_infos_.emplace_back(std::move(info));
+void ParseInfo::ParallelTasks::Enqueue(ParseInfo* outer_parse_info,
+                                       const AstRawString* function_name,
+                                       FunctionLiteral* literal) {
+  base::Optional<CompilerDispatcher::JobId> job_id =
+      dispatcher_->Enqueue(outer_parse_info, function_name, literal);
+  if (job_id) {
+    enqueued_jobs_.emplace_front(std::make_pair(literal, *job_id));
   }
 }
-
-std::map<int, ParseInfo*> ParseInfo::child_infos() const {
-  base::LockGuard<base::Mutex> access_child_infos(&child_infos_mutex_);
-  std::map<int, ParseInfo*> rv;
-  for (const auto& child_info : child_infos_) {
-    DCHECK_NOT_NULL(child_info->literal());
-    int start_position = child_info->literal()->start_position();
-    rv.insert(std::make_pair(start_position, child_info.get()));
-  }
-  return rv;
-}
-
-#ifdef DEBUG
-bool ParseInfo::script_is_native() const {
-  return script_->type() == Script::TYPE_NATIVE;
-}
-#endif  // DEBUG
 
 }  // namespace internal
 }  // namespace v8

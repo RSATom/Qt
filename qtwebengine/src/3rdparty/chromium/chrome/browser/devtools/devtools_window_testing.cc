@@ -6,6 +6,7 @@
 
 #include "base/lazy_instance.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -20,9 +21,8 @@ namespace {
 const char kHarnessScript[] = "Tests.js";
 
 typedef std::vector<DevToolsWindowTesting*> DevToolsWindowTestings;
-base::LazyInstance<DevToolsWindowTestings>::Leaky g_instances =
-    LAZY_INSTANCE_INITIALIZER;
-
+base::LazyInstance<DevToolsWindowTestings>::Leaky
+    g_devtools_window_testing_instances = LAZY_INSTANCE_INITIALIZER;
 }
 
 DevToolsWindowTesting::DevToolsWindowTesting(DevToolsWindow* window)
@@ -30,19 +30,23 @@ DevToolsWindowTesting::DevToolsWindowTesting(DevToolsWindow* window)
   DCHECK(window);
   window->close_callback_ =
       base::Bind(&DevToolsWindowTesting::WindowClosed, window);
-  g_instances.Get().push_back(this);
+  g_devtools_window_testing_instances.Get().push_back(this);
 }
 
 DevToolsWindowTesting::~DevToolsWindowTesting() {
-  DevToolsWindowTestings* instances = g_instances.Pointer();
-  DevToolsWindowTestings::iterator it(
-      std::find(instances->begin(), instances->end(), this));
+  DevToolsWindowTestings* instances =
+      g_devtools_window_testing_instances.Pointer();
+  auto it(std::find(instances->begin(), instances->end(), this));
   DCHECK(it != instances->end());
   instances->erase(it);
   if (!close_callback_.is_null()) {
     close_callback_.Run();
     close_callback_ = base::Closure();
   }
+
+  // Needed for Chrome_DevToolsADBThread to shut down gracefully in tests.
+  ChromeDevToolsManagerDelegate::GetInstance()
+      ->ResetAndroidDeviceManagerForTesting();
 }
 
 // static
@@ -55,12 +59,11 @@ DevToolsWindowTesting* DevToolsWindowTesting::Get(DevToolsWindow* window) {
 
 // static
 DevToolsWindowTesting* DevToolsWindowTesting::Find(DevToolsWindow* window) {
-  if (g_instances == NULL)
+  if (!g_devtools_window_testing_instances.IsCreated())
     return NULL;
-  DevToolsWindowTestings* instances = g_instances.Pointer();
-  for (DevToolsWindowTestings::iterator it(instances->begin());
-       it != instances->end();
-       ++it) {
+  DevToolsWindowTestings* instances =
+      g_devtools_window_testing_instances.Pointer();
+  for (auto it(instances->begin()); it != instances->end(); ++it) {
     if ((*it)->devtools_window_ == window)
       return *it;
   }
@@ -85,6 +88,10 @@ void DevToolsWindowTesting::SetInspectedPageBounds(const gfx::Rect& bounds) {
 
 void DevToolsWindowTesting::SetCloseCallback(const base::Closure& closure) {
   close_callback_ = closure;
+}
+
+void DevToolsWindowTesting::SetOpenNewWindowForPopups(bool value) {
+  devtools_window_->SetOpenNewWindowForPopups(value);
 }
 
 // static
@@ -132,11 +139,19 @@ DevToolsWindow* DevToolsWindowTesting::OpenDevToolsWindowSync(
 }
 
 // static
-DevToolsWindow* DevToolsWindowTesting::OpenDevToolsWindowForWorkerSync(
-    Profile* profile, content::DevToolsAgentHost* worker_agent) {
-  DevToolsWindow::OpenDevToolsWindowForWorker(
-      profile, worker_agent);
-  DevToolsWindow* window = DevToolsWindow::FindDevToolsWindow(worker_agent);
+DevToolsWindow* DevToolsWindowTesting::OpenDevToolsWindowSync(
+    Profile* profile,
+    scoped_refptr<content::DevToolsAgentHost> agent_host) {
+  DevToolsWindow::OpenDevToolsWindow(agent_host, profile);
+  DevToolsWindow* window = DevToolsWindow::FindDevToolsWindow(agent_host.get());
+  WaitForDevToolsWindowLoad(window);
+  return window;
+}
+
+// static
+DevToolsWindow* DevToolsWindowTesting::OpenDiscoveryDevToolsWindowSync(
+    Profile* profile) {
+  DevToolsWindow* window = DevToolsWindow::OpenNodeFrontendWindow(profile);
   WaitForDevToolsWindowLoad(window);
   return window;
 }

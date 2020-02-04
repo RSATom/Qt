@@ -34,8 +34,8 @@
 **
 ****************************************************************************/
 
-#ifndef QDARWINGAMEPADCONTROLLER_H
-#define QDARWINGAMEPADCONTROLLER_H
+#ifndef QDARWINGAMEPADBACKEND_P_H
+#define QDARWINGAMEPADBACKEND_P_H
 
 #include <QtCore/QTimer>
 #include <QtCore/QMap>
@@ -74,4 +74,4 @@ private:
 
 QT_END_NAMESPACE
 
-#endif // QDARWINGAMEPADCONTROLLER_H
+#endif // QDARWINGAMEPADBACKEND_P_H

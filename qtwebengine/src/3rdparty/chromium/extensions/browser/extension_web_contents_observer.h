@@ -11,10 +11,11 @@
 #include "base/macros.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "extensions/browser/extension_function_dispatcher.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
 
 namespace content {
 class BrowserContext;
-class RenderViewHost;
+class RenderFrameHost;
 class WebContents;
 }
 
@@ -54,6 +55,9 @@ class ExtensionWebContentsObserver
   static ExtensionWebContentsObserver* GetForWebContents(
       content::WebContents* web_contents);
 
+  // This must be called by clients directly after the EWCO has been created.
+  void Initialize();
+
   ExtensionFunctionDispatcher* dispatcher() { return &dispatcher_; }
 
   // Returns the extension associated with the given |render_frame_host|, or
@@ -69,10 +73,13 @@ class ExtensionWebContentsObserver
   explicit ExtensionWebContentsObserver(content::WebContents* web_contents);
   ~ExtensionWebContentsObserver() override;
 
+  bool initialized() const { return initialized_; }
+
   content::BrowserContext* browser_context() { return browser_context_; }
 
   // Initializes a new render frame. Subclasses should invoke this
-  // implementation if extending.
+  // implementation if extending. Note: this should be called for both extension
+  // and non-extension frames.
   virtual void InitializeRenderFrame(
       content::RenderFrameHost* render_frame_host);
 
@@ -80,14 +87,20 @@ class ExtensionWebContentsObserver
   content::WebContents* GetAssociatedWebContents() const override;
 
   // content::WebContentsObserver overrides.
-
-  // A subclass should invoke this method to finish extension process setup.
-  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
-
   void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
+  void RenderFrameHostChanged(content::RenderFrameHost* old_host,
+                              content::RenderFrameHost* new_host) override;
+  void ReadyToCommitNavigation(
+      content::NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
+  void MediaPictureInPictureChanged(bool is_picture_in_picture) override;
+
+  void OnInterfaceRequestFromFrame(
+      content::RenderFrameHost* render_frame_host,
+      const std::string& interface_name,
+      mojo::ScopedMessagePipeHandle* interface_pipe) override;
 
   // Subclasses should call this first before doing their own message handling.
   bool OnMessageReceived(const IPC::Message& message,
@@ -103,27 +116,19 @@ class ExtensionWebContentsObserver
   std::string GetExtensionIdFromFrame(
       content::RenderFrameHost* render_frame_host) const;
 
-  // TODO(devlin): Remove these once callers are updated to use the FromFrame
-  // equivalents.
-  // Returns the extension or app associated with a render view host. Returns
-  // NULL if the render view host is not for a valid extension.
-  const Extension* GetExtension(content::RenderViewHost* render_view_host);
-  // Returns the extension or app ID associated with a render view host. Returns
-  // the empty string if the render view host is not for a valid extension.
-  static std::string GetExtensionId(content::RenderViewHost* render_view_host);
-
  private:
   void OnRequest(content::RenderFrameHost* render_frame_host,
                  const ExtensionHostMsg_Request_Params& params);
-
-  // A helper function for initializing render frames at the creation of the
-  // observer.
-  void InitializeFrameHelper(content::RenderFrameHost* render_frame_host);
 
   // The BrowserContext associated with the WebContents being observed.
   content::BrowserContext* browser_context_;
 
   ExtensionFunctionDispatcher dispatcher_;
+
+  // Whether this object has been initialized.
+  bool initialized_;
+
+  service_manager::BinderRegistryWithArgs<content::RenderFrameHost*> registry_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionWebContentsObserver);
 };

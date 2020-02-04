@@ -64,52 +64,52 @@ public:
     explicit QResourceFileEngine(const QString &path);
     ~QResourceFileEngine();
 
-    virtual void setFileName(const QString &file) Q_DECL_OVERRIDE;
+    void setFileName(const QString &file) override;
 
-    virtual bool open(QIODevice::OpenMode flags) Q_DECL_OVERRIDE ;
-    virtual bool close() Q_DECL_OVERRIDE;
-    virtual bool flush() Q_DECL_OVERRIDE;
-    virtual qint64 size() const Q_DECL_OVERRIDE;
-    virtual qint64 pos() const Q_DECL_OVERRIDE;
+    bool open(QIODevice::OpenMode flags) override;
+    bool close() override;
+    bool flush() override;
+    qint64 size() const override;
+    qint64 pos() const override;
     virtual bool atEnd() const;
-    virtual bool seek(qint64) Q_DECL_OVERRIDE;
-    virtual qint64 read(char *data, qint64 maxlen) Q_DECL_OVERRIDE;
-    virtual qint64 write(const char *data, qint64 len) Q_DECL_OVERRIDE;
+    bool seek(qint64) override;
+    qint64 read(char *data, qint64 maxlen) override;
+    qint64 write(const char *data, qint64 len) override;
 
-    virtual bool remove() Q_DECL_OVERRIDE;
-    virtual bool copy(const QString &newName) Q_DECL_OVERRIDE;
-    virtual bool rename(const QString &newName) Q_DECL_OVERRIDE;
-    virtual bool link(const QString &newName) Q_DECL_OVERRIDE;
+    bool remove() override;
+    bool copy(const QString &newName) override;
+    bool rename(const QString &newName) override;
+    bool link(const QString &newName) override;
 
-    virtual bool isSequential() const Q_DECL_OVERRIDE;
+    bool isSequential() const override;
 
-    virtual bool isRelativePath() const Q_DECL_OVERRIDE;
+    bool isRelativePath() const override;
 
-    virtual bool mkdir(const QString &dirName, bool createParentDirectories) const Q_DECL_OVERRIDE;
-    virtual bool rmdir(const QString &dirName, bool recurseParentDirectories) const Q_DECL_OVERRIDE;
+    bool mkdir(const QString &dirName, bool createParentDirectories) const override;
+    bool rmdir(const QString &dirName, bool recurseParentDirectories) const override;
 
-    virtual bool setSize(qint64 size) Q_DECL_OVERRIDE;
+    bool setSize(qint64 size) override;
 
-    virtual QStringList entryList(QDir::Filters filters, const QStringList &filterNames) const Q_DECL_OVERRIDE;
+    QStringList entryList(QDir::Filters filters, const QStringList &filterNames) const override;
 
-    virtual bool caseSensitive() const Q_DECL_OVERRIDE;
+    bool caseSensitive() const override;
 
-    virtual FileFlags fileFlags(FileFlags type) const Q_DECL_OVERRIDE;
+    FileFlags fileFlags(FileFlags type) const override;
 
-    virtual bool setPermissions(uint perms) Q_DECL_OVERRIDE;
+    bool setPermissions(uint perms) override;
 
-    virtual QString fileName(QAbstractFileEngine::FileName file) const Q_DECL_OVERRIDE;
+    QString fileName(QAbstractFileEngine::FileName file) const override;
 
-    virtual uint ownerId(FileOwner) const Q_DECL_OVERRIDE;
-    virtual QString owner(FileOwner) const Q_DECL_OVERRIDE;
+    uint ownerId(FileOwner) const override;
+    QString owner(FileOwner) const override;
 
-    virtual QDateTime fileTime(FileTime time) const Q_DECL_OVERRIDE;
+    QDateTime fileTime(FileTime time) const override;
 
-    virtual Iterator *beginEntryList(QDir::Filters filters, const QStringList &filterNames) Q_DECL_OVERRIDE;
-    virtual Iterator *endEntryList() Q_DECL_OVERRIDE;
+    Iterator *beginEntryList(QDir::Filters filters, const QStringList &filterNames) override;
+    Iterator *endEntryList() override;
 
-    bool extension(Extension extension, const ExtensionOption *option = 0, ExtensionReturn *output = 0) Q_DECL_OVERRIDE;
-    bool supportsExtension(Extension extension) const Q_DECL_OVERRIDE;
+    bool extension(Extension extension, const ExtensionOption *option = 0, ExtensionReturn *output = 0) override;
+    bool supportsExtension(Extension extension) const override;
 };
 
 QT_END_NAMESPACE

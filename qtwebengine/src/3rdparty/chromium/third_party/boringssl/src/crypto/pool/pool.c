@@ -26,6 +26,8 @@
 #include "internal.h"
 
 
+DEFINE_LHASH_OF(CRYPTO_BUFFER)
+
 static uint32_t CRYPTO_BUFFER_hash(const CRYPTO_BUFFER *buf) {
   return OPENSSL_hash32(buf->data, buf->len);
 }
@@ -125,13 +127,32 @@ CRYPTO_BUFFER *CRYPTO_BUFFER_new(const uint8_t *data, size_t len,
   CRYPTO_MUTEX_unlock_write(&pool->lock);
 
   if (!inserted) {
-    /* We raced to insert |buf| into the pool and lost, or else there was an
-     * error inserting. */
+    // We raced to insert |buf| into the pool and lost, or else there was an
+    // error inserting.
     OPENSSL_free(buf->data);
     OPENSSL_free(buf);
     return duplicate;
   }
 
+  return buf;
+}
+
+CRYPTO_BUFFER *CRYPTO_BUFFER_alloc(uint8_t **out_data, size_t len) {
+  CRYPTO_BUFFER *const buf = OPENSSL_malloc(sizeof(CRYPTO_BUFFER));
+  if (buf == NULL) {
+    return NULL;
+  }
+  OPENSSL_memset(buf, 0, sizeof(CRYPTO_BUFFER));
+
+  buf->data = OPENSSL_malloc(len);
+  if (len != 0 && buf->data == NULL) {
+    OPENSSL_free(buf);
+    return NULL;
+  }
+  buf->len = len;
+  buf->references = 1;
+
+  *out_data = buf->data;
   return buf;
 }
 
@@ -147,9 +168,9 @@ void CRYPTO_BUFFER_free(CRYPTO_BUFFER *buf) {
   CRYPTO_BUFFER_POOL *const pool = buf->pool;
   if (pool == NULL) {
     if (CRYPTO_refcount_dec_and_test_zero(&buf->references)) {
-      /* If a reference count of zero is observed, there cannot be a reference
-       * from any pool to this buffer and thus we are able to free this
-       * buffer. */
+      // If a reference count of zero is observed, there cannot be a reference
+      // from any pool to this buffer and thus we are able to free this
+      // buffer.
       OPENSSL_free(buf->data);
       OPENSSL_free(buf);
     }
@@ -163,10 +184,10 @@ void CRYPTO_BUFFER_free(CRYPTO_BUFFER *buf) {
     return;
   }
 
-  /* We have an exclusive lock on the pool, therefore no concurrent lookups can
-   * find this buffer and increment the reference count. Thus, if the count is
-   * zero there are and can never be any more references and thus we can free
-   * this buffer. */
+  // We have an exclusive lock on the pool, therefore no concurrent lookups can
+  // find this buffer and increment the reference count. Thus, if the count is
+  // zero there are and can never be any more references and thus we can free
+  // this buffer.
   void *found = lh_CRYPTO_BUFFER_delete(pool->bufs, buf);
   assert(found != NULL);
   assert(found == buf);
@@ -177,12 +198,12 @@ void CRYPTO_BUFFER_free(CRYPTO_BUFFER *buf) {
 }
 
 int CRYPTO_BUFFER_up_ref(CRYPTO_BUFFER *buf) {
-  /* This is safe in the case that |buf->pool| is NULL because it's just
-   * standard reference counting in that case.
-   *
-   * This is also safe if |buf->pool| is non-NULL because, if it were racing
-   * with |CRYPTO_BUFFER_free| then the two callers must have independent
-   * references already and so the reference count will never hit zero. */
+  // This is safe in the case that |buf->pool| is NULL because it's just
+  // standard reference counting in that case.
+  //
+  // This is also safe if |buf->pool| is non-NULL because, if it were racing
+  // with |CRYPTO_BUFFER_free| then the two callers must have independent
+  // references already and so the reference count will never hit zero.
   CRYPTO_refcount_inc(&buf->references);
   return 1;
 }

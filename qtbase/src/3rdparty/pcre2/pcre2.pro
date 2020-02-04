@@ -27,6 +27,7 @@ SOURCES += \
     $$PWD/src/pcre2_context.c \
     $$PWD/src/pcre2_dfa_match.c \
     $$PWD/src/pcre2_error.c \
+    $$PWD/src/pcre2_extuni.c \
     $$PWD/src/pcre2_find_bracket.c \
     $$PWD/src/pcre2_jit_compile.c \
     $$PWD/src/pcre2_maketables.c \
@@ -35,6 +36,7 @@ SOURCES += \
     $$PWD/src/pcre2_newline.c \
     $$PWD/src/pcre2_ord2utf.c \
     $$PWD/src/pcre2_pattern_info.c \
+    $$PWD/src/pcre2_script_run.c \
     $$PWD/src/pcre2_serialize.c \
     $$PWD/src/pcre2_string_utils.c \
     $$PWD/src/pcre2_study.c \

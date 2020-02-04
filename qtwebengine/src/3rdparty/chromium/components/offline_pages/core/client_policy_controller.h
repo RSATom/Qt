@@ -40,10 +40,16 @@ class ClientPolicyController {
 
   // Returns whether pages for |name_space| should be removed on cache reset.
   bool IsRemovedOnCacheReset(const std::string& name_space) const;
+  const std::vector<std::string>& GetNamespacesRemovedOnCacheReset() const;
 
   // Returns whether pages for |name_space| are shown in Download UI.
   bool IsSupportedByDownload(const std::string& name_space) const;
   const std::vector<std::string>& GetNamespacesSupportedByDownload() const;
+
+  // Returns whether pages for |name_space| are explicitly offlined due to user
+  // action.
+  bool IsUserRequestedDownload(const std::string& name_space) const;
+  const std::vector<std::string>& GetNamespacesForUserRequestedDownload() const;
 
   // Returns whether pages for |name_space| are shown in recent tabs UI,
   // currently only available on NTP.
@@ -51,14 +57,25 @@ class ClientPolicyController {
   const std::vector<std::string>& GetNamespacesShownAsRecentlyVisitedSite()
       const;
 
-  // Returns whether pages for |name_space| should never be shown outside the
-  // tab they were generated in.
-  bool IsRestrictedToOriginalTab(const std::string& name_space) const;
-  const std::vector<std::string>& GetNamespacesRestrictedToOriginalTab() const;
+  // Returns whether pages for |name_space| should only be opened in a
+  // specifically assigned tab.
+  // Note: For this restriction to work offline pages saved to this namespace
+  // must have the respective tab id set to their ClientId::id field.
+  bool IsRestrictedToTabFromClientId(const std::string& name_space) const;
+  const std::vector<std::string>& GetNamespacesRestrictedToTabFromClientId()
+      const;
 
   bool IsDisabledWhenPrefetchDisabled(const std::string& name_space) const;
   const std::vector<std::string>& GetNamespacesDisabledWhenPrefetchDisabled()
       const;
+
+  // Returns whether pages for |name_space| originate from suggested URLs and
+  // are downloaded on behalf of user.
+  bool IsSuggested(const std::string& name_space) const;
+
+  // Returns whether we should allow pages for |name_space| to trigger
+  // downloads.
+  bool ShouldAllowDownloads(const std::string& name_space) const;
 
   void AddPolicyForTest(const std::string& name_space,
                         const OfflinePageClientPolicyBuilder& builder);
@@ -69,9 +86,14 @@ class ClientPolicyController {
   std::map<std::string, OfflinePageClientPolicy> policies_;
 
   // Memoizing results.
+  mutable std::unique_ptr<std::vector<std::string>>
+      cache_reset_namespace_cache_;
   mutable std::unique_ptr<std::vector<std::string>> download_namespace_cache_;
+  mutable std::unique_ptr<std::vector<std::string>>
+      user_requested_download_namespace_cache_;
   mutable std::unique_ptr<std::vector<std::string>> recent_tab_namespace_cache_;
-  mutable std::unique_ptr<std::vector<std::string>> show_in_original_tab_cache_;
+  mutable std::unique_ptr<std::vector<std::string>>
+      restricted_to_tab_from_client_id_cache_;
   mutable std::unique_ptr<std::vector<std::string>>
       disabled_when_prefetch_disabled_cache_;
 

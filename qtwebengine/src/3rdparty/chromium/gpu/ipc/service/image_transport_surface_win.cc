@@ -6,13 +6,10 @@
 
 #include <memory>
 
-#include "base/metrics/histogram_macros.h"
 #include "base/win/windows_version.h"
-#include "gpu/ipc/service/child_window_surface_win.h"
+#include "gpu/config/gpu_preferences.h"
 #include "gpu/ipc/service/direct_composition_surface_win.h"
-#include "gpu/ipc/service/gpu_vsync_provider_win.h"
 #include "gpu/ipc/service/pass_through_image_transport_surface.h"
-#include "gpu/ipc/service/switches.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_implementation.h"
@@ -23,16 +20,6 @@
 
 namespace gpu {
 
-namespace {
-bool IsGpuVSyncSignalSupported() {
-  // TODO(stanisc): http://crbug.com/467617 Limit to Windows 8.1+ for now
-  // because of locking issue caused by waiting for VSync on Win7 and Win 8.0.
-  return base::win::GetVersion() >= base::win::VERSION_WIN8_1 &&
-         base::FeatureList::IsEnabled(features::kD3DVsync);
-}
-
-}  // namespace
-
 // static
 scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
     base::WeakPtr<ImageTransportSurfaceDelegate> delegate,
@@ -41,45 +28,27 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
   DCHECK_NE(surface_handle, kNullSurfaceHandle);
 
   scoped_refptr<gl::GLSurface> surface;
-  MultiWindowSwapInterval multi_window_swap_interval =
-      kMultiWindowSwapIntervalDefault;
+  bool override_vsync_for_multi_window_swap = false;
+
   if (gl::GetGLImplementation() == gl::kGLImplementationEGLGLES2) {
-    std::unique_ptr<gfx::VSyncProvider> vsync_provider;
+    auto vsync_provider =
+        std::make_unique<gl::VSyncProviderWin>(surface_handle);
 
-    if (IsGpuVSyncSignalSupported())
-      vsync_provider.reset(new GpuVSyncProviderWin(delegate, surface_handle));
-    else
-      vsync_provider.reset(new gl::VSyncProviderWin(surface_handle));
-
-    if (gl::GLSurfaceEGL::IsDirectCompositionSupported()) {
-      bool overlays_supported =
-          DirectCompositionSurfaceWin::AreOverlaysSupported();
-      UMA_HISTOGRAM_BOOLEAN("GPU.DirectComposition.OverlaysSupported",
-                            overlays_supported);
-      if (overlays_supported) {
-        scoped_refptr<DirectCompositionSurfaceWin> egl_surface =
-            make_scoped_refptr(new DirectCompositionSurfaceWin(
-                std::move(vsync_provider), delegate, surface_handle));
-        if (!egl_surface->Initialize())
-          return nullptr;
-        surface = egl_surface;
-      } else {
-        scoped_refptr<ChildWindowSurfaceWin> egl_surface =
-            make_scoped_refptr(new ChildWindowSurfaceWin(
-                std::move(vsync_provider), delegate, surface_handle));
-        if (!egl_surface->Initialize())
-          return nullptr;
-        surface = egl_surface;
-      }
+    if (DirectCompositionSurfaceWin::IsDirectCompositionSupported()) {
+      surface = base::MakeRefCounted<DirectCompositionSurfaceWin>(
+          std::move(vsync_provider), delegate, surface_handle);
+      if (!surface->Initialize(gl::GLSurfaceFormat()))
+        return nullptr;
     } else {
-      surface = gl::init::CreateNativeViewGLSurfaceEGL(
-          surface_handle, std::move(vsync_provider));
+      surface = gl::InitializeGLSurface(
+          base::MakeRefCounted<gl::NativeViewGLSurfaceEGL>(
+              surface_handle, std::move(vsync_provider)));
+      if (!surface)
+        return nullptr;
       // This is unnecessary with DirectComposition because that doesn't block
       // swaps, but instead blocks the first draw into a surface during the next
       // frame.
-      multi_window_swap_interval = kMultiWindowSwapIntervalForceZero;
-      if (!surface)
-        return nullptr;
+      override_vsync_for_multi_window_swap = true;
     }
   } else {
     surface = gl::init::CreateViewGLSurface(surface_handle);
@@ -88,7 +57,7 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
   }
 
   return scoped_refptr<gl::GLSurface>(new PassThroughImageTransportSurface(
-      delegate, surface.get(), multi_window_swap_interval));
+      delegate, surface.get(), override_vsync_for_multi_window_swap));
 }
 
 }  // namespace gpu

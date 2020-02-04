@@ -2,8 +2,20 @@
 // License & terms of use: http://www.unicode.org/copyright.html#License
 en_AU{
     %%Parent{"en_001"}
-    Version{"2.1.32.62"}
+    Version{"2.1.44.18"}
     units{
+        concentr{
+            percent{
+                dnam{"per cent"}
+                one{"{0} per cent"}
+                other{"{0} per cent"}
+            }
+            permille{
+                dnam{"per mill"}
+                one{"{0} per mill"}
+                other{"{0} per mill"}
+            }
+        }
         energy{
             kilowatt-hour{
                 dnam{"kilowatt hours"}
@@ -12,13 +24,6 @@ en_AU{
             }
         }
         length{
-            centimeter{
-                per{"{0} centimetre"}
-            }
-            decimeter{
-                one{"decimetre"}
-                other{"{0} decimetres"}
-            }
             kilometer{
                 dnam{"kilometre"}
             }
@@ -31,6 +36,9 @@ en_AU{
                 dnam{"tonnes"}
                 one{"tonne"}
                 other{"{0} tonnes"}
+            }
+            stone{
+                one{"{0} stone"}
             }
         }
         temperature{
@@ -85,7 +93,6 @@ en_AU{
         }
         speed{
             kilometer-per-hour{
-                dnam{"km/h"}
                 one{"{0} km/h"}
                 other{"{0} km/h"}
             }
@@ -165,6 +172,12 @@ en_AU{
                 one{"{0} mmol/L"}
                 other{"{0} mmol/L"}
             }
+            percent{
+                dnam{"per cent"}
+            }
+            permille{
+                dnam{"per mill"}
+            }
         }
         consumption{
             liter-per-100kilometers{
@@ -223,6 +236,11 @@ en_AU{
             }
         }
         energy{
+            kilocalorie{
+                dnam{"Cal"}
+                one{"{0} Cal"}
+                other{"{0} Cal"}
+            }
             kilowatt-hour{
                 dnam{"kWh"}
             }
@@ -232,10 +250,6 @@ en_AU{
                 dnam{"AU"}
                 one{"{0} AU"}
                 other{"{0} AU"}
-            }
-            fathom{
-                one{"{0} fm"}
-                other{"{0} fm"}
             }
             light-year{
                 one{"{0} l.y."}
@@ -256,10 +270,6 @@ en_AU{
             }
         }
         speed{
-            kilometer-per-hour{
-                one{"{0} km/h"}
-                other{"{0} km/h"}
-            }
             meter-per-second{
                 dnam{"metres/sec."}
                 one{"{0} m/s."}
@@ -285,10 +295,25 @@ en_AU{
                 one{"{0} cL"}
                 other{"{0} cL"}
             }
+            cubic-centimeter{
+                one{"{0} cm³"}
+            }
             deciliter{
                 dnam{"dL"}
                 one{"{0} dL"}
                 other{"{0} dL"}
+            }
+            gallon{
+                dnam{"US gal."}
+                one{"{0} gal. US"}
+                other{"{0} gal. US"}
+                per{"{0}/gal. US"}
+            }
+            gallon-imperial{
+                dnam{"gal."}
+                one{"{0} gal."}
+                other{"{0} gal."}
+                per{"{0}/gal."}
             }
             hectoliter{
                 dnam{"hL"}

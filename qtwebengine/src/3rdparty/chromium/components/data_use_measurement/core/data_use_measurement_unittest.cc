@@ -8,10 +8,9 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "components/data_use_measurement/core/data_use_ascriber.h"
 #include "components/data_use_measurement/core/data_use_recorder.h"
@@ -37,15 +36,6 @@ class TestURLRequestClassifier : public base::SupportsUserData::Data,
   static const void* const kUserDataKey;
 
   TestURLRequestClassifier() : content_type_(DataUseUserData::OTHER) {}
-
-  bool IsUserRequest(const net::URLRequest& request) const override {
-    return request.GetUserData(kUserDataKey) != nullptr;
-  }
-
-  static void MarkAsUserRequest(net::URLRequest* request) {
-    request->SetUserData(kUserDataKey,
-                         base::MakeUnique<TestURLRequestClassifier>());
-  }
 
   DataUseUserData::DataUseContentType GetContentType(
       const net::URLRequest& request,
@@ -81,6 +71,11 @@ class TestDataUseAscriber : public DataUseAscriber {
     return &recorder_;
   }
 
+  std::unique_ptr<net::NetworkDelegate> CreateNetworkDelegate(
+      std::unique_ptr<net::NetworkDelegate> wrapped_network_delegate) override {
+    return nullptr;
+  }
+
   std::unique_ptr<URLRequestClassifier> CreateURLRequestClassifier()
       const override {
     return nullptr;
@@ -90,6 +85,24 @@ class TestDataUseAscriber : public DataUseAscriber {
 
  private:
   DataUseRecorder recorder_;
+};
+
+class TestDataUseMeasurement : public DataUseMeasurement {
+ public:
+  TestDataUseMeasurement(
+      std::unique_ptr<URLRequestClassifier> url_request_classifier,
+      DataUseAscriber* ascriber)
+      : DataUseMeasurement(std::move(url_request_classifier),
+                           ascriber,
+                           nullptr) {}
+
+  void UpdateDataUseToMetricsService(int64_t total_bytes,
+                                     bool is_cellular,
+                                     bool is_metrics_service_usage) override {
+    is_data_use_forwarder_called_ = true;
+  }
+
+  bool is_data_use_forwarder_called_ = false;
 };
 
 // The more usual initialization of kUserDataKey would be along the lines of
@@ -114,8 +127,6 @@ class DataUseMeasurementTest : public testing::Test {
       : url_request_classifier_(new TestURLRequestClassifier()),
         data_use_measurement_(
             std::unique_ptr<URLRequestClassifier>(url_request_classifier_),
-            base::Bind(&DataUseMeasurementTest::FakeDataUseforwarder,
-                       base::Unretained(this)),
             &ascriber_) {
     // During the test it is expected to not have cellular connection.
     DCHECK(!net::NetworkChangeNotifier::IsConnectionCellular(
@@ -131,20 +142,25 @@ class DataUseMeasurementTest : public testing::Test {
     net::MockRead reads[] = {net::MockRead("HTTP/1.1 200 OK\r\n"
                                            "Content-Length: 12\r\n\r\n"),
                              net::MockRead("Test Content")};
-    net::StaticSocketDataProvider socket_data(reads, arraysize(reads), nullptr,
-                                              0);
+    net::StaticSocketDataProvider socket_data(reads,
+                                              base::span<net::MockWrite>());
     socket_factory_->AddSocketDataProvider(&socket_data);
+
+    const auto traffic_annotation =
+        (is_user_request == kServiceRequest)
+            ? TRAFFIC_ANNOTATION_FOR_TESTS
+            : net::DefineNetworkTrafficAnnotation("blink_resource_loader",
+                                                  "blink resource loaded will "
+                                                  "be treated as "
+                                                  "user-initiated request");
 
     std::unique_ptr<net::URLRequest> request(
         context_->CreateRequest(GURL("http://foo.com"), net::DEFAULT_PRIORITY,
-                                &test_delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
-    if (is_user_request == kUserRequest) {
-      TestURLRequestClassifier::MarkAsUserRequest(request.get());
-    } else {
+                                &test_delegate, traffic_annotation));
+    if (is_user_request == kServiceRequest) {
       request->SetUserData(
           data_use_measurement::DataUseUserData::kUserDataKey,
-          base::MakeUnique<data_use_measurement::DataUseUserData>(
-              data_use_measurement::DataUseUserData::SUGGESTIONS,
+          std::make_unique<data_use_measurement::DataUseUserData>(
               data_use_measurement_.CurrentAppState()));
     }
 
@@ -196,13 +212,13 @@ class DataUseMeasurementTest : public testing::Test {
     histogram_tester.ExpectTotalCount("DataUse.TrafficSize.System.Upstream." +
                                           target_dimension + kConnectionType,
                                       1);
-    // One upload and one download message, so total count should be 2.
-    histogram_tester.ExpectTotalCount("DataUse.MessageSize.Suggestions", 2);
   }
 
   DataUseMeasurement* data_use_measurement() { return &data_use_measurement_; }
 
-  bool IsDataUseForwarderCalled() { return is_data_use_forwarder_called_; }
+  bool IsDataUseForwarderCalled() {
+    return data_use_measurement_.is_data_use_forwarder_called_;
+  }
 
  protected:
   void InitializeContext() {
@@ -212,22 +228,16 @@ class DataUseMeasurementTest : public testing::Test {
     context_->Init();
   }
 
-  void FakeDataUseforwarder(const std::string& service_name,
-                            int message_size,
-                            bool is_celllular) {
-    is_data_use_forwarder_called_ = true;
-  }
-
-  base::MessageLoopForIO loop_;
+  base::test::ScopedTaskEnvironment task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::IO};
 
   TestDataUseAscriber ascriber_;
   TestURLRequestClassifier* url_request_classifier_;
-  DataUseMeasurement data_use_measurement_;
+  TestDataUseMeasurement data_use_measurement_;
 
   std::unique_ptr<net::MockClientSocketFactory> socket_factory_;
   std::unique_ptr<net::TestURLRequestContext> context_;
   const std::string kConnectionType = "NotCellular";
-  bool is_data_use_forwarder_called_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(DataUseMeasurementTest);
 };
@@ -265,48 +275,12 @@ TEST_F(DataUseMeasurementTest, DataUseForwarderIsCalled) {
 }
 
 #if defined(OS_ANDROID)
-TEST_F(DataUseMeasurementTest, AppStateUnknown) {
-  base::HistogramTester histogram_tester;
-  std::unique_ptr<net::URLRequest> request = CreateTestRequest(kUserRequest);
-  data_use_measurement_.OnBeforeURLRequest(request.get());
-
-  {
-    base::HistogramTester histogram_tester;
-    data_use_measurement()->OnApplicationStateChangeForTesting(
-        base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES);
-    data_use_measurement_.OnNetworkBytesSent(*request, 100);
-    data_use_measurement_.OnNetworkBytesReceived(*request, 1000);
-    histogram_tester.ExpectTotalCount(
-        "DataUse.TrafficSize.User.Downstream.Foreground." + kConnectionType, 1);
-    histogram_tester.ExpectTotalCount(
-        "DataUse.TrafficSize.User.Upstream.Foreground." + kConnectionType, 1);
-  }
-
-  {
-    base::HistogramTester histogram_tester;
-    data_use_measurement()->OnApplicationStateChangeForTesting(
-        base::android::APPLICATION_STATE_HAS_STOPPED_ACTIVITIES);
-    data_use_measurement_.OnNetworkBytesReceived(*request, 1000);
-    histogram_tester.ExpectTotalCount(
-        "DataUse.TrafficSize.User.Downstream.Unknown." + kConnectionType, 1);
-  }
-
-  {
-    base::HistogramTester histogram_tester;
-    data_use_measurement()->OnApplicationStateChangeForTesting(
-        base::android::APPLICATION_STATE_HAS_STOPPED_ACTIVITIES);
-    data_use_measurement_.OnNetworkBytesReceived(*request, 1000);
-    histogram_tester.ExpectTotalCount(
-        "DataUse.TrafficSize.User.Downstream.Background." + kConnectionType, 1);
-  }
-}
-
 TEST_F(DataUseMeasurementTest, TimeOfBackgroundDownstreamBytes) {
   {
     std::unique_ptr<net::URLRequest> request = CreateTestRequest(kUserRequest);
     data_use_measurement_.OnBeforeURLRequest(request.get());
     base::HistogramTester histogram_tester;
-    data_use_measurement()->OnApplicationStateChange(
+    data_use_measurement()->OnApplicationStateChangeForTesting(
         base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES);
     data_use_measurement_.OnNetworkBytesSent(*request, 100);
     data_use_measurement_.OnNetworkBytesReceived(*request, 1000);
@@ -337,7 +311,7 @@ TEST_F(DataUseMeasurementTest, TimeOfBackgroundDownstreamBytes) {
     std::unique_ptr<net::URLRequest> request = CreateTestRequest(kUserRequest);
     data_use_measurement_.OnBeforeURLRequest(request.get());
     base::HistogramTester histogram_tester;
-    data_use_measurement()->OnApplicationStateChange(
+    data_use_measurement()->OnApplicationStateChangeForTesting(
         base::android::APPLICATION_STATE_HAS_STOPPED_ACTIVITIES);
     data_use_measurement_.OnNetworkBytesSent(*request, 100);
     data_use_measurement_.OnNetworkBytesReceived(*request, 1000);
@@ -388,7 +362,7 @@ TEST_F(DataUseMeasurementTest, TimeOfBackgroundDownstreamBytes) {
     std::unique_ptr<net::URLRequest> request = CreateTestRequest(kUserRequest);
     data_use_measurement_.OnBeforeURLRequest(request.get());
     base::HistogramTester histogram_tester;
-    data_use_measurement()->OnApplicationStateChange(
+    data_use_measurement()->OnApplicationStateChangeForTesting(
         base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES);
     data_use_measurement_.OnNetworkBytesSent(*request, 100);
     data_use_measurement_.OnNetworkBytesReceived(*request, 1000);
@@ -457,9 +431,9 @@ TEST_F(DataUseMeasurementTest, ContentType) {
     std::unique_ptr<net::URLRequest> request =
         CreateTestRequest(kServiceRequest);
     data_use_measurement_.OnBeforeURLRequest(request.get());
-    data_use_measurement_.OnNetworkBytesReceived(*request, 1000);
-    histogram_tester.ExpectUniqueSample("DataUse.ContentType.Services",
-                                        DataUseUserData::OTHER, 1000);
+    data_use_measurement_.OnNetworkBytesReceived(*request, 1024);
+    histogram_tester.ExpectUniqueSample("DataUse.ContentType.ServicesKB",
+                                        DataUseUserData::OTHER, 1);
   }
 
   // Video request in foreground.
@@ -519,16 +493,16 @@ TEST_F(DataUseMeasurementTest, ContentTypeInKB) {
   ascriber_.SetTabVisibility(false);
   data_use_measurement_.OnBeforeURLRequest(request.get());
   data_use_measurement_.OnHeadersReceived(request.get(), nullptr);
-  data_use_measurement_.OnNetworkBytesReceived(*request, 600);
+  data_use_measurement_.OnNetworkBytesReceived(*request, 1024);
 
-  // UserTrafficKB metric is not recorded for the first 600 bytes of data use.
-  histogram_tester.ExpectTotalCount("DataUse.ContentType.UserTrafficKB", 0);
+  // UserTrafficKB metric is recorded for the first 1KB of data use.
+  histogram_tester.ExpectTotalCount("DataUse.ContentType.UserTrafficKB", 1);
 
-  data_use_measurement_.OnNetworkBytesReceived(*request, 600);
+  data_use_measurement_.OnNetworkBytesReceived(*request, 3 * 1024);
 
-  // UserTrafficKB recorded for 1KB.
+  // UserTrafficKB recorded for the total 4KB.
   histogram_tester.ExpectUniqueSample("DataUse.ContentType.UserTrafficKB",
-                                      DataUseUserData::VIDEO_APPBACKGROUND, 1);
+                                      DataUseUserData::VIDEO_APPBACKGROUND, 4);
 }
 
 #endif

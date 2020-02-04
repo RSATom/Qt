@@ -20,9 +20,11 @@
 
 namespace content {
 
+class BrowserContext;
 class RenderFrameHostImpl;
 class ServiceWorkerContextWatcher;
 class ServiceWorkerContextWrapper;
+class StoragePartitionImpl;
 
 namespace protocol {
 
@@ -33,7 +35,8 @@ class ServiceWorkerHandler : public DevToolsDomainHandler,
   ~ServiceWorkerHandler() override;
 
   void Wire(UberDispatcher* dispatcher) override;
-  void SetRenderFrameHost(RenderFrameHostImpl* host) override;
+  void SetRenderer(int process_host_id,
+                   RenderFrameHostImpl* frame_host) override;
 
   Response Enable() override;
   Response Disable() override;
@@ -41,6 +44,8 @@ class ServiceWorkerHandler : public DevToolsDomainHandler,
   Response StartWorker(const std::string& scope_url) override;
   Response SkipWaiting(const std::string& scope_url) override;
   Response StopWorker(const std::string& version_id) override;
+  void StopAllWorkers(
+      std::unique_ptr<StopAllWorkersCallback> callback) override;
   Response UpdateRegistration(const std::string& scope_url) override;
   Response InspectWorker(const std::string& version_id) override;
   Response SetForceUpdateOnPageLoad(bool force_update_on_page_load) override;
@@ -68,7 +73,8 @@ class ServiceWorkerHandler : public DevToolsDomainHandler,
   std::unique_ptr<ServiceWorker::Frontend> frontend_;
   bool enabled_;
   scoped_refptr<ServiceWorkerContextWatcher> context_watcher_;
-  RenderFrameHostImpl* render_frame_host_;
+  BrowserContext* browser_context_;
+  StoragePartitionImpl* storage_partition_;
 
   base::WeakPtrFactory<ServiceWorkerHandler> weak_factory_;
 

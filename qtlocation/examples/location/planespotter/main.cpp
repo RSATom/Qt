@@ -147,7 +147,7 @@ signals:
     void fromChanged();
 
 protected:
-    void timerEvent(QTimerEvent *event) Q_DECL_OVERRIDE
+    void timerEvent(QTimerEvent *event) override
     {
         if (!event)
             return;

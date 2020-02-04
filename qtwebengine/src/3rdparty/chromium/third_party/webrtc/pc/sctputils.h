@@ -1,5 +1,5 @@
 /*
- *  Copyright 2013 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,34 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_PC_SCTPUTILS_H_
-#define WEBRTC_PC_SCTPUTILS_H_
+#ifndef PC_SCTPUTILS_H_
+#define PC_SCTPUTILS_H_
 
-#include <string>
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include "webrtc/api/datachannelinterface.h"
+#include "pc/sctp_utils.h"
 
-namespace rtc {
-class CopyOnWriteBuffer;
-}  // namespace rtc
-
-namespace webrtc {
-struct DataChannelInit;
-
-// Read the message type and return true if it's an OPEN message.
-bool IsOpenMessage(const rtc::CopyOnWriteBuffer& payload);
-
-bool ParseDataChannelOpenMessage(const rtc::CopyOnWriteBuffer& payload,
-                                 std::string* label,
-                                 DataChannelInit* config);
-
-bool ParseDataChannelOpenAckMessage(const rtc::CopyOnWriteBuffer& payload);
-
-bool WriteDataChannelOpenMessage(const std::string& label,
-                                 const DataChannelInit& config,
-                                 rtc::CopyOnWriteBuffer* payload);
-
-void WriteDataChannelOpenAckMessage(rtc::CopyOnWriteBuffer* payload);
-}  // namespace webrtc
-
-#endif  // WEBRTC_PC_SCTPUTILS_H_
+#endif  // PC_SCTPUTILS_H_

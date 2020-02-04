@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'inputpage.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,12 +10,9 @@
 #define INPUTPAGE_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QSpacerItem>
@@ -38,16 +35,16 @@ public:
     void setupUi(QWidget *InputPage)
     {
         if (InputPage->objectName().isEmpty())
-            InputPage->setObjectName(QStringLiteral("InputPage"));
+            InputPage->setObjectName(QString::fromUtf8("InputPage"));
         InputPage->resize(417, 242);
         gridLayout = new QGridLayout(InputPage);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         spacerItem = new QSpacerItem(20, 20, QSizePolicy::Minimum, QSizePolicy::Fixed);
 
         gridLayout->addItem(spacerItem, 0, 2, 1, 1);
 
         label = new QLabel(InputPage);
-        label->setObjectName(QStringLiteral("label"));
+        label->setObjectName(QString::fromUtf8("label"));
         QSizePolicy sizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
         sizePolicy.setHorizontalStretch(0);
         sizePolicy.setVerticalStretch(0);
@@ -58,14 +55,14 @@ public:
 
         hboxLayout = new QHBoxLayout();
         hboxLayout->setSpacing(0);
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         fileLineEdit = new QLineEdit(InputPage);
-        fileLineEdit->setObjectName(QStringLiteral("fileLineEdit"));
+        fileLineEdit->setObjectName(QString::fromUtf8("fileLineEdit"));
 
         hboxLayout->addWidget(fileLineEdit);
 
         browseButton = new QToolButton(InputPage);
-        browseButton->setObjectName(QStringLiteral("browseButton"));
+        browseButton->setObjectName(QString::fromUtf8("browseButton"));
 
         hboxLayout->addWidget(browseButton);
 
@@ -84,9 +81,9 @@ public:
 
     void retranslateUi(QWidget *InputPage)
     {
-        InputPage->setWindowTitle(QApplication::translate("InputPage", "Form", nullptr));
-        label->setText(QApplication::translate("InputPage", "File name:", nullptr));
-        browseButton->setText(QApplication::translate("InputPage", "...", nullptr));
+        InputPage->setWindowTitle(QCoreApplication::translate("InputPage", "Form", nullptr));
+        label->setText(QCoreApplication::translate("InputPage", "File name:", nullptr));
+        browseButton->setText(QCoreApplication::translate("InputPage", "...", nullptr));
     } // retranslateUi
 
 };

@@ -41,8 +41,9 @@
 #define BROWSER_ACCESSIBILITY_QT_H
 
 #include <QtGui/qaccessible.h>
-#ifndef QT_NO_ACCESSIBILITY
 #include "content/browser/accessibility/browser_accessibility.h"
+
+#ifndef QT_NO_ACCESSIBILITY
 
 namespace content {
 
@@ -144,7 +145,10 @@ public:
     void modelChange(QAccessibleTableModelChangeEvent *event) override;
 };
 
-}
+const BrowserAccessibilityQt *ToBrowserAccessibilityQt(const BrowserAccessibility *obj);
+QAccessibleInterface *toQAccessibleInterface(BrowserAccessibility *acc);
+
+} // namespace content
 
 #endif // QT_NO_ACCESSIBILITY
 #endif

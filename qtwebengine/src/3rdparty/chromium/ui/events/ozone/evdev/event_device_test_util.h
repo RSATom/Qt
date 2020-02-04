@@ -62,6 +62,7 @@ bool CapabilitiesToDeviceInfo(const DeviceCapabilities& capabilities,
 extern const DeviceCapabilities kXboxGamepad;
 extern const DeviceCapabilities kHJCGamepad;
 extern const DeviceCapabilities kiBuffaloGamepad;
+extern const DeviceCapabilities kEveTouchScreen;
 extern const DeviceCapabilities kLinkKeyboard;
 extern const DeviceCapabilities kLinkTouchscreen;
 extern const DeviceCapabilities kLinkWithToolTypeTouchscreen;
@@ -76,6 +77,10 @@ extern const DeviceCapabilities kLogitechTouchKeyboardK400;
 extern const DeviceCapabilities kElo_TouchSystems_2700;
 extern const DeviceCapabilities kWilsonBeachActiveStylus;
 extern const DeviceCapabilities kEveStylus;
+extern const DeviceCapabilities kHammerKeyboard;
+extern const DeviceCapabilities kHammerTouchpad;
+extern const DeviceCapabilities kIlitekTP_Mouse;
+extern const DeviceCapabilities kIlitekTP;
 
 }  // namspace ui
 

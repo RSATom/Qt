@@ -2,10 +2,16 @@ option(host_build)
 QT = core-private
 DEFINES += QT_NO_CAST_FROM_ASCII QT_NO_CAST_TO_ASCII
 
-SOURCES += main.cpp
+HEADERS += \
+    ../shared/projectdescriptionreader.h \
+    ../shared/runqttool.h
+
+SOURCES += \
+    ../shared/projectdescriptionreader.cpp \
+    ../shared/runqttool.cpp \
+    main.cpp
 
 include(../shared/formats.pri)
-include(../shared/proparser.pri)
 
 qmake.name = QMAKE
 qmake.value = $$shell_path($$QMAKE_QMAKE)

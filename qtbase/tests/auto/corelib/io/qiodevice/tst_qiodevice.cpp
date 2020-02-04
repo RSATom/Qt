@@ -104,6 +104,9 @@ void tst_QIODevice::getSetCheck()
 //----------------------------------------------------------------------------------
 void tst_QIODevice::constructing_QTcpSocket()
 {
+#if defined(Q_OS_WINRT)
+    QSKIP("Synchronous socket calls are broken on winrt. See QTBUG-40922");
+#endif
     if (!QtNetworkSettings::verifyTestNetworkSettings())
         QSKIP("No network test server available");
 
@@ -206,9 +209,6 @@ void tst_QIODevice::read_QByteArray()
 //--------------------------------------------------------------------
 void tst_QIODevice::unget()
 {
-#if defined(Q_OS_MAC)
-    QSKIP("The unget network test is unstable on Mac. See QTBUG-39983.");
-#endif
     QBuffer buffer;
     buffer.open(QBuffer::ReadWrite);
     buffer.write("ZXCV");
@@ -263,6 +263,9 @@ void tst_QIODevice::unget()
     buffer.ungetChar('Q');
     QCOMPARE(buffer.readLine(buf, 3), qint64(1));
 
+#if defined(Q_OS_WINRT)
+    QSKIP("Synchronous socket calls are broken on winrt. See QTBUG-40922");
+#endif
     for (int i = 0; i < 2; ++i) {
         QTcpSocket socket;
         QIODevice *dev;
@@ -551,18 +554,18 @@ public:
         : QIODevice(), buf(byteArray), offset(0), ownbuf(false) { }
     virtual ~SequentialReadBuffer() { if (ownbuf) delete buf; }
 
-    bool isSequential() const Q_DECL_OVERRIDE { return true; }
+    bool isSequential() const override { return true; }
     const QByteArray &buffer() const { return *buf; }
 
 protected:
-    qint64 readData(char *data, qint64 maxSize) Q_DECL_OVERRIDE
+    qint64 readData(char *data, qint64 maxSize) override
     {
         maxSize = qMin(maxSize, qint64(buf->size() - offset));
         memcpy(data, buf->constData() + offset, maxSize);
         offset += maxSize;
         return maxSize;
     }
-    qint64 writeData(const char * /* data */, qint64 /* maxSize */) Q_DECL_OVERRIDE
+    qint64 writeData(const char * /* data */, qint64 /* maxSize */) override
     {
         return -1;
     }
@@ -598,13 +601,13 @@ public:
     RandomAccessBuffer(const char *data) : QIODevice(), buf(data) { }
 
 protected:
-    qint64 readData(char *data, qint64 maxSize) Q_DECL_OVERRIDE
+    qint64 readData(char *data, qint64 maxSize) override
     {
         maxSize = qMin(maxSize, qint64(buf.size() - pos()));
         memcpy(data, buf.constData() + pos(), maxSize);
         return maxSize;
     }
-    qint64 writeData(const char *data, qint64 maxSize) Q_DECL_OVERRIDE
+    qint64 writeData(const char *data, qint64 maxSize) override
     {
         maxSize = qMin(maxSize, qint64(buf.size() - pos()));
         memcpy(buf.data() + pos(), data, maxSize);

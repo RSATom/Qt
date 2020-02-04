@@ -100,7 +100,7 @@ class FactorialLoopTransition : public QSignalTransition
 {
 public:
     FactorialLoopTransition(Factorial *fact)
-        : QSignalTransition(fact, SIGNAL(xChanged(int))), m_fact(fact)
+        : QSignalTransition(fact, &Factorial::xChanged), m_fact(fact)
     {}
 
     bool eventTest(QEvent *e) override
@@ -130,7 +130,7 @@ class FactorialDoneTransition : public QSignalTransition
 {
 public:
     FactorialDoneTransition(Factorial *fact)
-        : QSignalTransition(fact, SIGNAL(xChanged(int))), m_fact(fact)
+        : QSignalTransition(fact, &Factorial::xChanged), m_fact(fact)
     {}
 
     bool eventTest(QEvent *e) override
@@ -175,7 +175,7 @@ int main(int argc, char **argv)
 
 //! [6]
     machine.setInitialState(compute);
-    QObject::connect(&machine, SIGNAL(finished()), &app, SLOT(quit()));
+    QObject::connect(&machine, &QStateMachine::finished, &app, QCoreApplication::quit);
     machine.start();
 
     return app.exec();

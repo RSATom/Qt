@@ -8,23 +8,26 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_RTP_RTCP_SOURCE_ULPFEC_RECEIVER_IMPL_H_
-#define WEBRTC_MODULES_RTP_RTCP_SOURCE_ULPFEC_RECEIVER_IMPL_H_
+#ifndef MODULES_RTP_RTCP_SOURCE_ULPFEC_RECEIVER_IMPL_H_
+#define MODULES_RTP_RTCP_SOURCE_ULPFEC_RECEIVER_IMPL_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <memory>
+#include <vector>
 
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "webrtc/modules/rtp_rtcp/include/ulpfec_receiver.h"
-#include "webrtc/modules/rtp_rtcp/source/forward_error_correction.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/typedefs.h"
+#include "api/rtp_headers.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "modules/rtp_rtcp/include/ulpfec_receiver.h"
+#include "modules/rtp_rtcp/source/forward_error_correction.h"
+#include "rtc_base/critical_section.h"
 
 namespace webrtc {
 
 class UlpfecReceiverImpl : public UlpfecReceiver {
  public:
   explicit UlpfecReceiverImpl(uint32_t ssrc, RecoveredPacketReceiver* callback);
-  virtual ~UlpfecReceiverImpl();
+  ~UlpfecReceiverImpl() override;
 
   int32_t AddReceivedRedPacket(const RTPHeader& rtp_header,
                                const uint8_t* incoming_rtp_packet,
@@ -41,14 +44,16 @@ class UlpfecReceiverImpl : public UlpfecReceiver {
   rtc::CriticalSection crit_sect_;
   RecoveredPacketReceiver* recovered_packet_callback_;
   std::unique_ptr<ForwardErrorCorrection> fec_;
-  // TODO(holmer): In the current version |received_packets_| is never more
-  // than one packet, since we process FEC every time a new packet
-  // arrives. We should remove the list.
-  ForwardErrorCorrection::ReceivedPacketList received_packets_;
+  // TODO(nisse): The AddReceivedRedPacket method adds one or two packets to
+  // this list at a time, after which it is emptied by ProcessReceivedFec. It
+  // will make things simpler to merge AddReceivedRedPacket and
+  // ProcessReceivedFec into a single method, and we can then delete this list.
+  std::vector<std::unique_ptr<ForwardErrorCorrection::ReceivedPacket>>
+      received_packets_;
   ForwardErrorCorrection::RecoveredPacketList recovered_packets_;
   FecPacketCounter packet_counter_;
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_RTP_RTCP_SOURCE_ULPFEC_RECEIVER_IMPL_H_
+#endif  // MODULES_RTP_RTCP_SOURCE_ULPFEC_RECEIVER_IMPL_H_

@@ -25,36 +25,73 @@ struct GeneralizedTime;
 
 class CertPathIter;
 class CertIssuerSource;
-class SignaturePolicy;
 
-// CertPath describes a chain of certificates in the "forward" direction.
+// Base class for custom data that CertPathBuilderDelegate can attach to paths.
+class NET_EXPORT CertPathBuilderDelegateData {
+ public:
+  virtual ~CertPathBuilderDelegateData() {}
+};
+
+// Represents a single candidate path that was built or is being processed.
 //
-// By convention:
-//   certs[0] is the target certificate
-//   certs[i] was issued by certs[i+1]
-//   certs.back() is the root certificate.
+// This is used both to represent valid paths, as well as invalid/partial ones.
 //
-// Note that the final certificate may or may not be a trust achor -- inspect
-// |last_cert_trust| to determine it (or use GetTrustedCert())
-struct NET_EXPORT CertPath {
-  CertPath();
-  ~CertPath();
+// Consumers must use |IsValid()| to test whether the
+// CertPathBuilderResultPath is the result of a successful certificate
+// verification.
+struct NET_EXPORT CertPathBuilderResultPath {
+  CertPathBuilderResultPath();
+  ~CertPathBuilderResultPath();
 
-  // Contains information on whether certs.back() is trusted.
-  CertificateTrust last_cert_trust;
+  // Returns true if the candidate path is valid. A "valid" path is one which
+  // chains to a trusted root, and did not have any high severity errors added
+  // to it during certificate verification.
+  bool IsValid() const;
 
-  // Path in the forward direction (see class description).
+  // Returns the chain's root certificate or nullptr if the chain doesn't
+  // chain to a trust anchor.
+  const ParsedCertificate* GetTrustedCert() const;
+
+  // Path in the forward direction:
+  //
+  //   certs[0] is the target certificate
+  //   certs[i] was issued by certs[i+1]
+  //   certs.back() is the root certificate (which may or may not be trusted).
   ParsedCertificateList certs;
 
-  // Resets the path to empty path (same as if default constructed).
-  void Clear();
+  // Describes the trustedness of the final certificate in the chain,
+  // |certs.back()|
+  //
+  // For result paths where |IsValid()|, the final certificate is trusted.
+  // However for failed or partially constructed paths the final certificate may
+  // not be a trust anchor.
+  CertificateTrust last_cert_trust;
 
-  // TODO(eroman): Can we remove this? Unclear on how this relates to validity.
-  bool IsEmpty() const;
+  // The set of policies that the certificate is valid for (of the
+  // subset of policies user requested during verification).
+  std::set<der::Input> user_constrained_policy_set;
 
-  // Returns the chain's root certificate or nullptr if the chain doesn't chain
-  // to a trust anchor.
-  const ParsedCertificate* GetTrustedCert() const;
+  // Slot for per-path data that may set by CertPathBuilderDelegate. The
+  // specific type is chosen by the delegate. Can be nullptr when unused.
+  std::unique_ptr<CertPathBuilderDelegateData> delegate_data;
+
+  // The set of errors and warnings associated with this path (bucketed
+  // per-certificate). Note that consumers should always use |IsValid()| to
+  // determine validity of the CertPathBuilderResultPath, and not just inspect
+  // |errors|.
+  CertPathErrors errors;
+};
+
+// CertPathBuilderDelegate controls policies for certificate verification and
+// path building.
+class NET_EXPORT CertPathBuilderDelegate
+    : public VerifyCertificateChainDelegate {
+ public:
+  // This is called during path building on candidate paths which have already
+  // been run through RFC 5280 verification. |path| may already have errors
+  // and warnings set on it. Delegates can "reject" a candidate path from path
+  // building by adding high severity errors.
+  virtual void CheckPathAfterVerification(CertPathBuilderResultPath* path) = 0;
 };
 
 // Checks whether a certificate is trusted by building candidate paths to trust
@@ -65,28 +102,6 @@ struct NET_EXPORT CertPath {
 // before using it.
 class NET_EXPORT CertPathBuilder {
  public:
-  // Represents a single candidate path that was built.
-  struct NET_EXPORT ResultPath {
-    ResultPath();
-    ~ResultPath();
-
-    // Returns true if the candidate path is valid, false otherwise.
-    bool IsValid() const;
-
-    // The (possibly partial) certificate path. Consumers must always test
-    // |errors.IsValid()| before using |path|. When invalid,
-    // |path.trust_anchor| may be null, and the path may be incomplete.
-    CertPath path;
-
-    // The set of policies that the certificate is valid for (of the
-    // subset of policies user requested during verification).
-    std::set<der::Input> user_constrained_policy_set;
-
-    // The errors/warnings from this path. Use |IsValid()| to determine if the
-    // path is valid.
-    CertPathErrors errors;
-  };
-
   // Provides the overall result of path building. This includes the paths that
   // were attempted.
   struct NET_EXPORT Result {
@@ -96,40 +111,50 @@ class NET_EXPORT CertPathBuilder {
     // Returns true if there was a valid path.
     bool HasValidPath() const;
 
-    // Returns the ResultPath for the best valid path, or nullptr if there
-    // was none.
-    const ResultPath* GetBestValidPath() const;
+    // Returns the CertPathBuilderResultPath for the best valid path, or nullptr
+    // if there was none.
+    const CertPathBuilderResultPath* GetBestValidPath() const;
+
+    // Returns the best CertPathBuilderResultPath or nullptr if there was none.
+    const CertPathBuilderResultPath* GetBestPathPossiblyInvalid() const;
 
     // Resets to the initial value.
     void Clear();
 
     // List of paths that were attempted and the result for each.
-    std::vector<std::unique_ptr<ResultPath>> paths;
+    std::vector<std::unique_ptr<CertPathBuilderResultPath>> paths;
 
     // Index into |paths|. Before use, |paths.empty()| must be checked.
     // NOTE: currently the definition of "best" is fairly limited. Valid is
     // better than invalid, but otherwise nothing is guaranteed.
     size_t best_result_index = 0;
 
+    // True if the search stopped because it exceeded the iteration limit
+    // configured with |SetIterationLimit|.
+    bool exceeded_iteration_limit = false;
+
    private:
     DISALLOW_COPY_AND_ASSIGN(Result);
   };
 
-  // TODO(mattm): allow caller specified hook/callback to extend path
-  // verification.
-  //
   // Creates a CertPathBuilder that attempts to find a path from |cert| to a
-  // trust anchor in |trust_store|, which satisfies |signature_policy| and is
-  // valid at |time|.  Details of attempted path(s) are stored in |*result|.
+  // trust anchor in |trust_store| and is valid at |time|. Details of attempted
+  // path(s) are stored in |*result|.
   //
-  // The caller must keep |trust_store|, |signature_policy|, and |*result| valid
-  // for the lifetime of the CertPathBuilder.
+  // The caller must keep |trust_store|, |delegate| and |*result| valid for the
+  // lifetime of the CertPathBuilder.
   //
   // See VerifyCertificateChain() for a more detailed explanation of the
-  // same-named parameters.
+  // same-named parameters not defined below.
+  //
+  // * |result|: Storage for the result of path building.
+  // * |delegate|: Must be non-null. The delegate is called at various points in
+  //               path building to verify specific parts of certificates or the
+  //               final chain. See CertPathBuilderDelegate and
+  //               VerifyCertificateChainDelegate for more information.
   CertPathBuilder(scoped_refptr<ParsedCertificate> cert,
                   TrustStore* trust_store,
-                  const SignaturePolicy* signature_policy,
+                  CertPathBuilderDelegate* delegate,
                   const der::GeneralizedTime& time,
                   KeyPurpose key_purpose,
                   InitialExplicitPolicy initial_explicit_policy,
@@ -148,6 +173,10 @@ class NET_EXPORT CertPathBuilder {
   // it is a trust anchor or is directly signed by a trust anchor.)
   void AddCertIssuerSource(CertIssuerSource* cert_issuer_source);
 
+  // Sets a limit to the number of times to repeat the process of considering a
+  // new intermediate over all potential paths.
+  void SetIterationLimit(uint32_t limit);
+
   // Executes verification of the target certificate.
   //
   // Upon return results are written to the |result| object passed into the
@@ -156,34 +185,17 @@ class NET_EXPORT CertPathBuilder {
   void Run();
 
  private:
-  enum State {
-    STATE_NONE,
-    STATE_GET_NEXT_PATH,
-    STATE_GET_NEXT_PATH_COMPLETE,
-  };
-
-  void DoGetNextPath();
-  void DoGetNextPathComplete();
-
-  void AddResultPath(std::unique_ptr<ResultPath> result_path);
+  void AddResultPath(std::unique_ptr<CertPathBuilderResultPath> result_path);
 
   std::unique_ptr<CertPathIter> cert_path_iter_;
-  const SignaturePolicy* signature_policy_;
+  CertPathBuilderDelegate* delegate_;
   const der::GeneralizedTime time_;
   const KeyPurpose key_purpose_;
   const InitialExplicitPolicy initial_explicit_policy_;
   const std::set<der::Input> user_initial_policy_set_;
   const InitialPolicyMappingInhibit initial_policy_mapping_inhibit_;
   const InitialAnyPolicyInhibit initial_any_policy_inhibit_;
-
-  // Stores the next complete path to attempt verification on. This is filled in
-  // by |cert_path_iter_| during the STATE_GET_NEXT_PATH step, and thus should
-  // only be accessed during the STATE_GET_NEXT_PATH_COMPLETE step.
-  // (Will be empty if all paths have been tried, otherwise will be a candidate
-  // path starting with the target cert and ending with a
-  // certificate issued by trust anchor.)
-  CertPath next_path_;
-  State next_state_;
+  uint32_t max_iteration_count_ = 0;
 
   Result* out_result_;
 

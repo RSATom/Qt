@@ -18,15 +18,15 @@
 
 #include <stddef.h>
 
-#include "arith_routins.h"
-#include "spectrum_ar_model_tables.h"
-#include "pitch_gain_tables.h"
-#include "pitch_lag_tables.h"
-#include "entropy_coding.h"
-#include "lpc_tables.h"
-#include "settings.h"
-#include "signal_processing_library.h"
-#include "webrtc/rtc_base/sanitizer.h"
+#include "common_audio/signal_processing/include/signal_processing_library.h"
+#include "modules/audio_coding/codecs/isac/fix/source/arith_routins.h"
+#include "modules/audio_coding/codecs/isac/fix/source/entropy_coding.h"
+#include "modules/audio_coding/codecs/isac/fix/source/lpc_tables.h"
+#include "modules/audio_coding/codecs/isac/fix/source/pitch_gain_tables.h"
+#include "modules/audio_coding/codecs/isac/fix/source/pitch_lag_tables.h"
+#include "modules/audio_coding/codecs/isac/fix/source/settings.h"
+#include "modules/audio_coding/codecs/isac/fix/source/spectrum_ar_model_tables.h"
+#include "rtc_base/sanitizer.h"
 
 /*
  * Eenumerations for arguments to functions WebRtcIsacfix_MatrixProduct1()
@@ -1885,7 +1885,7 @@ const uint16_t kFrameLenCdf[4] = {
   0, 21845, 43690, 65535};
 
 /* pointer to cdf array for frame length indicator */
-const uint16_t *kFrameLenCdfPtr[1] = {kFrameLenCdf};
+const uint16_t * const kFrameLenCdfPtr[1] = {kFrameLenCdf};
 
 /* initial cdf index for decoder of frame length indicator */
 const uint16_t kFrameLenInitIndex[1] = {1};
@@ -1953,7 +1953,7 @@ const uint16_t kBwCdf[25] = {
   62804, 65535};
 
 /* pointer to cdf array for estimated bandwidth */
-const uint16_t *kBwCdfPtr[1] = {kBwCdf};
+const uint16_t * const kBwCdfPtr[1] = {kBwCdf};
 
 /* initial cdf index for decoder of estimated bandwidth*/
 const uint16_t kBwInitIndex[1] = {7};

@@ -64,11 +64,14 @@ Besøg venligst https://developers.arcgis.com/authentication/accessing-arcgis-on
     </message>
 </context>
 <context>
-    <name>QGeoMapMapboxGL</name>
+    <name>QGeoCodeReplyMapbox</name>
     <message>
-        <source>Development access token, do not use in production!</source>
-        <translation>Udviklingsadgangstoken, brug ikke i produktion!</translation>
+        <source>Response parse error</source>
+        <translation>Fejl ved parsing af svar</translation>
     </message>
+</context>
+<context>
+    <name>QGeoMapMapboxGL</name>
     <message>
         <source>Development access token, do not use in production.</source>
         <translation>Udviklingsadgangstoken, brug ikke i produktion.</translation>
@@ -130,14 +133,6 @@ Besøg venligst https://developers.arcgis.com/authentication/accessing-arcgis-on
     <message>
         <source>Navigation Guidance Night</source>
         <translation>Navigationsguidning nat</translation>
-    </message>
-    <message>
-        <source>Streets Traffic Day</source>
-        <translation>Gader-trafik dag</translation>
-    </message>
-    <message>
-        <source>Streets Traffic Night</source>
-        <translation>Gader-trafik nat</translation>
     </message>
     <message>
         <source>User provided style</source>
@@ -1350,7 +1345,21 @@ Besøg venligst https://www.mapbox.com</translation>
     </message>
 </context>
 <context>
+    <name>QPlaceSearchReplyMapbox</name>
+    <message>
+        <source>Response parse error</source>
+        <translation>Fejl ved parsing af svar</translation>
+    </message>
+</context>
+<context>
     <name>QPlaceSearchReplyOsm</name>
+    <message>
+        <source>Response parse error</source>
+        <translation>Fejl ved parsing af svar</translation>
+    </message>
+</context>
+<context>
+    <name>QPlaceSearchSuggestionReplyMapbox</name>
     <message>
         <source>Response parse error</source>
         <translation>Fejl ved parsing af svar</translation>

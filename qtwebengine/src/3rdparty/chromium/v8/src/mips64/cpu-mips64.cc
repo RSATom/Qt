@@ -13,10 +13,7 @@
 
 #if V8_TARGET_ARCH_MIPS64
 
-#include "src/assembler.h"
-#include "src/macro-assembler.h"
-
-#include "src/simulator.h"  // For cache flushing.
+#include "src/cpu-features.h"
 
 namespace v8 {
 namespace internal {
@@ -38,9 +35,7 @@ void CpuFeatures::FlushICache(void* start, size_t size) {
   long res;  // NOLINT(runtime/int)
   // See http://www.linux-mips.org/wiki/Cacheflush_Syscall.
   res = syscall(__NR_cacheflush, start, size, ICACHE);
-  if (res) {
-    V8_Fatal(__FILE__, __LINE__, "Failed to flush the instruction cache");
-  }
+  if (res) FATAL("Failed to flush the instruction cache");
 #endif  // ANDROID
 #endif  // !USE_SIMULATOR.
 }

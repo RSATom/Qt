@@ -11,15 +11,15 @@
 #include "base/strings/string_util.h"
 #include "content/public/common/url_utils.h"
 #include "content/renderer/render_frame_impl.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/WebVector.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebElement.h"
-#include "third_party/WebKit/public/web/WebElementCollection.h"
-#include "third_party/WebKit/public/web/WebInputElement.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebNode.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_vector.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_element.h"
+#include "third_party/blink/public/web/web_element_collection.h"
+#include "third_party/blink/public/web/web_input_element.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_node.h"
+#include "third_party/blink/public/web/web_view.h"
 
 using blink::WebDocument;
 using blink::WebElement;
@@ -125,7 +125,7 @@ bool GetSavableResourceLinksForFrame(WebLocalFrame* current_frame,
 }
 
 WebString GetSubResourceLinkFromElement(const WebElement& element) {
-  const char* attribute_name = NULL;
+  const char* attribute_name = nullptr;
   if (element.HasHTMLTagName("img") || element.HasHTMLTagName("frame") ||
       element.HasHTMLTagName("iframe") || element.HasHTMLTagName("script")) {
     attribute_name = "src";

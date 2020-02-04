@@ -6,10 +6,11 @@
 #define CONTENT_BROWSER_RENDERER_HOST_INPUT_WEB_INPUT_EVENT_BUILDERS_MAC_H_
 
 #include "content/common/content_export.h"
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
-#include "third_party/WebKit/public/platform/WebKeyboardEvent.h"
-#include "third_party/WebKit/public/platform/WebMouseWheelEvent.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/platform/web_keyboard_event.h"
+#include "third_party/blink/public/platform/web_mouse_wheel_event.h"
+#include "third_party/blink/public/platform/web_touch_event.h"
 
 @class NSEvent;
 @class NSView;
@@ -39,6 +40,11 @@ class CONTENT_EXPORT WebMouseWheelEventBuilder {
 class CONTENT_EXPORT WebGestureEventBuilder {
  public:
   static blink::WebGestureEvent Build(NSEvent*, NSView*);
+};
+
+class CONTENT_EXPORT WebTouchEventBuilder {
+ public:
+  static blink::WebTouchEvent Build(NSEvent* event, NSView* view);
 };
 
 }  // namespace content

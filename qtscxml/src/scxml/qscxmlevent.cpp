@@ -52,8 +52,8 @@ QAtomicInt QScxmlEventBuilder::idCounter = QAtomicInt(0);
 
 QScxmlEvent *QScxmlEventBuilder::buildEvent()
 {
-    auto dataModel = stateMachine ? stateMachine->dataModel() : Q_NULLPTR;
-    auto tableData = stateMachine ? stateMachine->tableData() : Q_NULLPTR;
+    auto dataModel = stateMachine ? stateMachine->dataModel() : nullptr;
+    auto tableData = stateMachine ? stateMachine->tableData() : nullptr;
 
     QString eventName = event;
     bool ok = true;
@@ -95,14 +95,14 @@ QScxmlEvent *QScxmlEventBuilder::buildEvent()
         sendid = generateId();
         ok = stateMachine->dataModel()->setScxmlProperty(idLocation, sendid, tableData->string(instructionLocation));
         if (!ok)
-            return Q_NULLPTR;
+            return nullptr;
     }
 
     QString origin = target;
     if (targetexpr != NoEvaluator) {
         origin = dataModel->evaluateToString(targetexpr, &ok);
         if (!ok)
-            return Q_NULLPTR;
+            return nullptr;
     }
     if (origin.isEmpty()) {
         if (eventType == QScxmlEvent::ExternalEvent) {
@@ -116,14 +116,14 @@ QScxmlEvent *QScxmlEventBuilder::buildEvent()
                     QStringLiteral("Error in %1: %2 is not a legal target")
                     .arg(tableData->string(instructionLocation), origin),
                     sendid);
-        return Q_NULLPTR;
+        return nullptr;
     } else if (!stateMachine->isDispatchableTarget(origin)) {
         // [6.2.4] and test521.
         submitError(QStringLiteral("error.communication"),
                     QStringLiteral("Error in %1: cannot dispatch to target '%2'")
                     .arg(tableData->string(instructionLocation), origin),
                     sendid);
-        return Q_NULLPTR;
+        return nullptr;
     }
 
     QString origintype = type;
@@ -134,7 +134,7 @@ QScxmlEvent *QScxmlEventBuilder::buildEvent()
     if (typeexpr != NoEvaluator) {
         origintype = dataModel->evaluateToString(typeexpr, &ok);
         if (!ok)
-            return Q_NULLPTR;
+            return nullptr;
     }
     if (!origintype.isEmpty()
             && origintype != QStringLiteral("http://www.w3.org/TR/scxml/#SCXMLEventProcessor")) {
@@ -143,7 +143,7 @@ QScxmlEvent *QScxmlEventBuilder::buildEvent()
                     QStringLiteral("Error in %1: %2 is not a valid type")
                     .arg(tableData->string(instructionLocation), origintype),
                     sendid);
-        return Q_NULLPTR;
+        return nullptr;
     }
 
     QString invokeid;

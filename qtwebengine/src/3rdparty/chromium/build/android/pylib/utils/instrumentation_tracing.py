@@ -4,11 +4,20 @@
 
 """Functions to instrument all Python function calls.
 
-Generates a JSON file readable by Chrome's about:tracing."""
+This generates a JSON file readable by Chrome's about:tracing. To use it,
+either call start_instrumenting and stop_instrumenting at the appropriate times,
+or use the Instrument context manager.
+
+A function is only traced if it is from a Python module that matches at least
+one regular expression object in to_include, and does not match any in
+to_exclude. In between the start and stop events, every function call of a
+function from such a module will be added to the trace.
+"""
 
 import contextlib
 import functools
 import inspect
+import os
 import re
 import sys
 import threading
@@ -100,7 +109,16 @@ def _generate_trace_function(to_include, to_exclude):
   included = set()
   excluded = set()
 
+  tracing_pid = os.getpid()
+
   def traceFunction(frame, event, arg):
+    del arg
+
+    # Don't try to trace in subprocesses.
+    if os.getpid() != tracing_pid:
+      sys.settrace(None)
+      return None
+
     # pylint: disable=unused-argument
     if event not in ("call", "return"):
       return None

@@ -13,13 +13,12 @@ The Service Manager performs the following functions:
 * Brokers interface requests between service instances, enforcing static
   capability policies declared by the services involved.
 * Launches and manages the lifecycle of services and processes.
-* Isolates service instances and interface requests among them according to
-  user identity.
+* Isolates service instances and interface requests among them.
 * Tracks running service instances and exposes privileged APIs for querying
   system state.
 
 The Service Manager presents a series of Mojo
-[interfaces](https://cs.chromium.org/chromium/src/services/service_manager/public/interfaces/)
+[interfaces](https://cs.chromium.org/chromium/src/services/service_manager/public/mojom/)
 to services, though in practice most interaction with the Service Manager is
 made simpler by using its corresponding
 [C++ client library](https://cs.chromium.org/chromium/src/services/service_manager/public/cpp/).
@@ -55,7 +54,7 @@ comprised of the following pieces:
   interface requests, all driven by the Service Manager.
 
 The Service Manager is responsible for starting new service instances on-demand,
-and a given service many have any number of concurrently running instances. The
+and a given service may have any number of concurrently running instances. The
 Service Manager disambiguates service instances by their unique **identity**. A
 service's identity is represented by the 3-tuple of its **service name**, **user
 ID**, and **instance qualifier**:
@@ -69,7 +68,7 @@ ID**, and **instance qualifier**:
 
 As long as a service instance is running it must maintain an implementation of
 the
-[`service_manager.mojom.Service`](https://cs.chromium.org/chromium/src/services/service_manager/public/interfaces/service.mojom)
+[`service_manager.mojom.Service`](https://cs.chromium.org/chromium/src/services/service_manager/public/mojom/service.mojom)
 interface. Typically this is done in C++ code by implementing the C++ client
 library's
 [`service_manager::Service`](https://cs.chromium.org/chromium/src/services/service_manager/public/cpp/service.h)
@@ -80,7 +79,7 @@ other services.
 Every service instance also has an outgoing link back to the Service Manager
 which it can use to make interface requests to other services in the system.
 This is the
-[`service_manager.mojom.Connector`](https://cs.chromium.org/chromium/src/services/service_manager/public/interfaces/connector.mojom)
+[`service_manager.mojom.Connector`](https://cs.chromium.org/chromium/src/services/service_manager/public/mojom/connector.mojom)
 interface, and it's commonly used via the C++ client library's
 [`service_manager::Connector`](https://cs.chromium.org/chromium/src/services/service_manager/public/cpp/connector.h)
 class.
@@ -107,7 +106,7 @@ class MyService : public service_manager::Service {
 
   // service_manager::Service:
   void OnStart() override;
-  void OnBindInterface(const service_manager::ServiceInfo& remote_info,
+  void OnBindInterface(const service_manager::BindSourceInfo& source_info,
                        const std::string& interface_name,
                        mojo::ScopedMessagePipeHandle handle) override;
  private:
@@ -181,7 +180,7 @@ Finally some build targets corresponding to the above things:
 
 **`//services/my_service/BUILD.gn`**
 ``` python
-import("//services/service_manager/public/cpp/service.gni")
+import("//services/service_manager/public/cpp/service_executable.gni")
 import("//services/service_manager/public/service_manifest.gni")
 
 source_set("lib") {
@@ -283,7 +282,7 @@ we could modify our `MyService` implementation as follows:
 namespace {
 
 void BindDatabase(my_service::mojom::DatabaseRequest request) {
-  mojo::MakeStrongBinding(base::MakeUnique<my_service::DatabaseImpl>(),
+  mojo::MakeStrongBinding(std::make_unique<my_service::DatabaseImpl>(),
                           std::move(request));
 }
 

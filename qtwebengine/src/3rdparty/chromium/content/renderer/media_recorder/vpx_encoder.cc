@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/bind.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "base/threading/thread.h"
 #include "base/trace_event/trace_event.h"
 #include "media/base/video_frame.h"
@@ -45,8 +45,11 @@ void VpxEncoder::ShutdownEncoder(std::unique_ptr<base::Thread> encoding_thread,
 VpxEncoder::VpxEncoder(
     bool use_vp9,
     const VideoTrackRecorder::OnEncodedVideoCB& on_encoded_video_callback,
-    int32_t bits_per_second)
-    : VideoTrackRecorder::Encoder(on_encoded_video_callback, bits_per_second),
+    int32_t bits_per_second,
+    scoped_refptr<base::SingleThreadTaskRunner> main_task_runner)
+    : VideoTrackRecorder::Encoder(on_encoded_video_callback,
+                                  bits_per_second,
+                                  std::move(main_task_runner)),
       use_vp9_(use_vp9) {
   codec_config_.g_timebase.den = 0;        // Not initialized.
   alpha_codec_config_.g_timebase.den = 0;  // Not initialized.
@@ -56,8 +59,8 @@ VpxEncoder::VpxEncoder(
 VpxEncoder::~VpxEncoder() {
   main_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&VpxEncoder::ShutdownEncoder, base::Passed(&encoding_thread_),
-                 base::Passed(&encoder_)));
+      base::BindOnce(&VpxEncoder::ShutdownEncoder, std::move(encoding_thread_),
+                     std::move(encoder_)));
 }
 
 bool VpxEncoder::CanEncodeAlphaChannel() {
@@ -66,7 +69,7 @@ bool VpxEncoder::CanEncodeAlphaChannel() {
 
 void VpxEncoder::EncodeOnEncodingTaskRunner(scoped_refptr<VideoFrame> frame,
                                             base::TimeTicks capture_timestamp) {
-  TRACE_EVENT0("video", "VpxEncoder::EncodeOnEncodingTaskRunner");
+  TRACE_EVENT0("media", "VpxEncoder::EncodeOnEncodingTaskRunner");
   DCHECK(encoding_task_runner_->BelongsToCurrentThread());
 
   const gfx::Size frame_size = frame->visible_rect().size();
@@ -78,7 +81,7 @@ void VpxEncoder::EncodeOnEncodingTaskRunner(scoped_refptr<VideoFrame> frame,
     ConfigureEncoderOnEncodingTaskRunner(frame_size, &codec_config_, &encoder_);
   }
 
-  const bool frame_has_alpha = frame->format() == media::PIXEL_FORMAT_YV12A;
+  const bool frame_has_alpha = frame->format() == media::PIXEL_FORMAT_I420A;
   // Split the duration between two encoder instances if alpha is encoded.
   duration = frame_has_alpha ? duration / 2 : duration;
   if (frame_has_alpha && (!IsInitialized(alpha_codec_config_) ||
@@ -130,9 +133,9 @@ void VpxEncoder::EncodeOnEncodingTaskRunner(scoped_refptr<VideoFrame> frame,
 
   origin_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(OnFrameEncodeCompleted, on_encoded_video_callback_,
-                 video_params, base::Passed(&data), base::Passed(&alpha_data),
-                 capture_timestamp, keyframe));
+      base::BindOnce(OnFrameEncodeCompleted, on_encoded_video_callback_,
+                     video_params, std::move(data), std::move(alpha_data),
+                     capture_timestamp, keyframe));
 }
 
 void VpxEncoder::DoEncode(vpx_codec_ctx_t* const encoder,
@@ -174,9 +177,9 @@ void VpxEncoder::DoEncode(vpx_codec_ctx_t* const encoder,
       << " -" << vpx_codec_error_detail(encoder);
 
   *keyframe = false;
-  vpx_codec_iter_t iter = NULL;
-  const vpx_codec_cx_pkt_t* pkt = NULL;
-  while ((pkt = vpx_codec_get_cx_data(encoder, &iter)) != NULL) {
+  vpx_codec_iter_t iter = nullptr;
+  const vpx_codec_cx_pkt_t* pkt = nullptr;
+  while ((pkt = vpx_codec_get_cx_data(encoder, &iter)) != nullptr) {
     if (pkt->kind != VPX_CODEC_CX_FRAME_PKT)
       continue;
     output_data->assign(static_cast<char*>(pkt->data.frame.buf),

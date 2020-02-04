@@ -66,8 +66,13 @@ void QWaylandDrag::startDrag()
 {
     QBasicDrag::startDrag();
     QWaylandWindow *icon = static_cast<QWaylandWindow *>(shapedPixmapWindow()->handle());
-    m_display->currentInputDevice()->dataDevice()->startDrag(drag()->mimeData(), icon);
-    icon->addAttachOffset(-drag()->hotSpot());
+    if (m_display->currentInputDevice()->dataDevice()->startDrag(drag()->mimeData(), icon)) {
+        icon->addAttachOffset(-drag()->hotSpot());
+    } else {
+        // Cancelling immediately does not work, since the event loop for QDrag::exec is started
+        // after this function returns.
+        QMetaObject::invokeMethod(this, [this](){ cancelDrag(); }, Qt::QueuedConnection);
+    }
 }
 
 void QWaylandDrag::cancel()
@@ -77,15 +82,19 @@ void QWaylandDrag::cancel()
     m_display->currentInputDevice()->dataDevice()->cancelDrag();
 }
 
-void QWaylandDrag::move(const QPoint &globalPos)
+void QWaylandDrag::move(const QPoint &globalPos, Qt::MouseButtons b, Qt::KeyboardModifiers mods)
 {
     Q_UNUSED(globalPos);
+    Q_UNUSED(b);
+    Q_UNUSED(mods);
     // Do nothing
 }
 
-void QWaylandDrag::drop(const QPoint &globalPos)
+void QWaylandDrag::drop(const QPoint &globalPos, Qt::MouseButtons b, Qt::KeyboardModifiers mods)
 {
     Q_UNUSED(globalPos);
+    Q_UNUSED(b);
+    Q_UNUSED(mods);
     // Do nothing
 }
 

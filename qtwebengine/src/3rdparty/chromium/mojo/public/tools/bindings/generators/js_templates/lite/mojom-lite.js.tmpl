@@ -1,0 +1,20 @@
+// Copyright 2018 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+'use strict';
+
+{% if generate_closure_exports -%}
+goog.require('mojo.internal');
+{%- if interfaces %}
+goog.require('mojo.internal.interfaceSupport');
+{%- endif %}
+
+{% for import in imports -%}
+goog.require('{{import.namespace}}');
+{% endfor %}
+goog.provide('{{module.namespace}}');
+{% endif %}
+
+mojo.internal.exportModule('{{module.namespace}}');
+
+{% include "lite/module_definition.tmpl" %}

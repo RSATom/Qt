@@ -1,0 +1,40 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtlottie.qdocconf)
+
+version                 = $QT_VERSION
+project                 = QtLottieAnimation
+description             = Bodymovin Player for Qt
+buildversion            = Qt Lottie Animation | Commercial or GPLv3
+
+headerdirs             += ../..
+
+sourcedirs             += ../..
+
+moduleheader            = QtBodymovin
+
+depends                += qtdoc qtqml qtquick
+
+qhp.projects            = QtLottieAnimation
+
+qhp.QtLottieAnimation.file                = qtlottieanimation.qhp
+qhp.QtLottieAnimation.namespace           = org.qt-project.qtlottieanimation.$QT_VERSION_TAG
+qhp.QtLottieAnimation.virtualFolder       = qtlottieanimation
+qhp.QtLottieAnimation.indexTitle          = Qt Lottie Animation
+qhp.QtLottieAnimation.indexRoot           =
+
+qhp.QtLottieAnimation.filterAttributes    = qtlottieanimation $QT_VERSION qtrefdoc
+qhp.QtLottieAnimation.customFilters.Qt.name = QtLottieAnimation $QT_VERSION
+qhp.QtLottieAnimation.customFilters.Qt.filterAttributes = qtlottieanimation $QT_VERSION
+qhp.QtLottieAnimation.subprojects         = qmltypes
+qhp.QtLottieAnimation.subprojects.qmltypes.title = QML Types
+qhp.QtLottieAnimation.subprojects.qmltypes.indexTitle = Qt Lottie Animation QML Types
+qhp.QtLottieAnimation.subprojects.qmltypes.selectors = qmltype
+qhp.QtLottieAnimation.subprojects.qmltypes.sortPages = true
+
+tagfile                 = qtlottieanimation.tags
+
+examplesinstallpath     = lottieanimation
+
+navigation.landingpage  = Qt Lottie Animation
+navigation.landingtitle = Qt Lottie Animation (Technology Preview)
+navigation.qmltypespage = Qt Lottie Animation QML Types

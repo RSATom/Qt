@@ -48,7 +48,7 @@ namespace Qt3DRender {
 
 class QStencilMaskPrivate;
 
-class QT3DRENDERSHARED_EXPORT QStencilMask : public QRenderState
+class Q_3DRENDERSHARED_EXPORT QStencilMask : public QRenderState
 {
     Q_OBJECT
     Q_PROPERTY(uint frontOutputMask READ frontOutputMask WRITE setFrontOutputMask NOTIFY frontOutputMaskChanged)
@@ -70,7 +70,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QStencilMask)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

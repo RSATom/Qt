@@ -154,6 +154,31 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
+    \qmlsignal Dialog::actionChosen(var action)
+
+    This signal is emitted when the user has pressed any button or a key
+    associated with some role (such as the Enter or Escape keys). The \a
+    action parameter carries information about the event:
+
+    \list
+    \li StandardButton button - The role of the button which was pressed. If a
+        key was pressed instead, this will be \c StandardButton.Ok if accepted
+        and \c StandardButton.Cancel if rejected.
+    \li Qt.Key key - The key which was pressed, or \c 0 if none
+    \li bool accepted - Set this to \c false to stop the event from triggering
+        its predefined action
+    \endlist
+
+    By handling this signal and setting the \c action.accepted field to \c
+    false, it's possible to implement some validation on the dialog contents
+    before accepting it, for example.
+
+    The corresponding handler is \c onActionChosen.
+
+    \since QtQuick.Controls 1.8
+*/
+
+/*!
     \qmlproperty bool Dialog::visible
 
     This property holds whether the dialog is visible. By default this is
@@ -297,6 +322,8 @@ void QQuickDialog1::setTitle(const QString &arg)
 {
     if (m_title != arg) {
         m_title = arg;
+        if (m_dialogWindow)
+            m_dialogWindow->setTitle(m_title);
         emit titleChanged();
     }
 }

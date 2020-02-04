@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,19 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_CALL_CALLFACTORY_H_
-#define WEBRTC_CALL_CALLFACTORY_H_
+#ifndef CALL_CALLFACTORY_H_
+#define CALL_CALLFACTORY_H_
 
-#include "webrtc/call/callfactoryinterface.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace webrtc {
+#include "call/call_factory.h"
 
-class CallFactory : public CallFactoryInterface {
-  ~CallFactory() override {}
-
-  Call* CreateCall(const Call::Config& config) override;
-};
-
-}  // namespace webrtc
-
-#endif  // WEBRTC_CALL_CALLFACTORY_H_
+#endif  // CALL_CALLFACTORY_H_

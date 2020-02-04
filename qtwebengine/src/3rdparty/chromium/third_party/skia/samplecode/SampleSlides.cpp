@@ -4,17 +4,15 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "SampleCode.h"
+#include "Sample.h"
 #include "SkBlurMask.h"
 #include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
 #include "SkReadBuffer.h"
 #include "SkWriteBuffer.h"
 #include "SkGradientShader.h"
-#include "SkLayerRasterizer.h"
 #include "SkPaint.h"
 #include "SkVertices.h"
-#include "SkView.h"
 
 #include "sk_tool_utils.h"
 
@@ -238,73 +236,6 @@ static void gradient_slide(SkCanvas* canvas) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#include "SkPathMeasure.h"
-
-static SkScalar getpathlen(const SkPath& path) {
-    SkPathMeasure   meas(path, false);
-    return meas.getLength();
-}
-
-static void textonpath_slide(SkCanvas* canvas) {
-    const char* text = "Displacement";
-    size_t len =strlen(text);
-    SkPath path;
-    path.moveTo(100, 300);
-    path.quadTo(300, 100, 500, 300);
-    path.offset(0, -100);
-
-    SkPaint paint;
-    paint.setAntiAlias(true);
-    paint.setTextSize(40);
-
-    paint.setStyle(SkPaint::kStroke_Style);
-    canvas->drawPath(path, paint);
-    paint.setStyle(SkPaint::kFill_Style);
-
-    SkScalar x = 50;
-    paint.setColor(0xFF008800);
-    canvas->drawTextOnPathHV(text, len, path,
-                             x, paint.getTextSize()*2/3, paint);
-    paint.setColor(SK_ColorRED);
-    canvas->drawTextOnPathHV(text, len, path,
-                             x + 60, 0, paint);
-    paint.setColor(SK_ColorBLUE);
-    canvas->drawTextOnPathHV(text, len, path,
-                             x + 120, -paint.getTextSize()*2/3, paint);
-
-    path.offset(0, 200);
-    paint.setTextAlign(SkPaint::kRight_Align);
-
-    text = "Matrices";
-    len = strlen(text);
-    SkScalar pathLen = getpathlen(path);
-    SkMatrix matrix;
-
-    paint.setColor(SK_ColorBLACK);
-    paint.setStyle(SkPaint::kStroke_Style);
-    canvas->drawPath(path, paint);
-    paint.setStyle(SkPaint::kFill_Style);
-
-    paint.setTextSize(50);
-    canvas->drawTextOnPath(text, len, path, nullptr, paint);
-
-    paint.setColor(SK_ColorRED);
-    matrix.setScale(-SK_Scalar1, SK_Scalar1);
-    matrix.postTranslate(pathLen, 0);
-    canvas->drawTextOnPath(text, len, path, &matrix, paint);
-
-    paint.setColor(SK_ColorBLUE);
-    matrix.setScale(SK_Scalar1, -SK_Scalar1);
-    canvas->drawTextOnPath(text, len, path, &matrix, paint);
-
-    paint.setColor(0xFF008800);
-    matrix.setScale(-SK_Scalar1, -SK_Scalar1);
-    matrix.postTranslate(pathLen, 0);
-    canvas->drawTextOnPath(text, len, path, &matrix, paint);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
 #include "DecodeFile.h"
 #include "SkOSFile.h"
 #include "SkRandom.h"
@@ -458,187 +389,7 @@ static void mesh_slide(SkCanvas* canvas) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static void r0(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    p.setMaskFilter(SkBlurMaskFilter::Make(kNormal_SkBlurStyle,
-                                           SkBlurMask::ConvertRadiusToSigma(3)));
-    rastBuilder->addLayer(p, SkIntToScalar(3), SkIntToScalar(3));
-
-    p.setMaskFilter(nullptr);
-    p.setStyle(SkPaint::kStroke_Style);
-    p.setStrokeWidth(SK_Scalar1);
-    rastBuilder->addLayer(p);
-
-    p.setAlpha(0x11);
-    p.setStyle(SkPaint::kFill_Style);
-    p.setBlendMode(SkBlendMode::kSrc);
-    rastBuilder->addLayer(p);
-}
-
-static void r1(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    rastBuilder->addLayer(p);
-
-    p.setAlpha(0x40);
-    p.setBlendMode(SkBlendMode::kSrc);
-    p.setStyle(SkPaint::kStroke_Style);
-    p.setStrokeWidth(SK_Scalar1*2);
-    rastBuilder->addLayer(p);
-}
-
-static void r2(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    p.setStyle(SkPaint::kStrokeAndFill_Style);
-    p.setStrokeWidth(SK_Scalar1*4);
-    rastBuilder->addLayer(p);
-
-    p.setStyle(SkPaint::kStroke_Style);
-    p.setStrokeWidth(SK_Scalar1*3/2);
-    p.setBlendMode(SkBlendMode::kClear);
-    rastBuilder->addLayer(p);
-}
-
-static void r3(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    p.setStyle(SkPaint::kStroke_Style);
-    p.setStrokeWidth(SK_Scalar1*3);
-    rastBuilder->addLayer(p);
-
-    p.setAlpha(0x20);
-    p.setStyle(SkPaint::kFill_Style);
-    p.setBlendMode(SkBlendMode::kSrc);
-    rastBuilder->addLayer(p);
-}
-
-static void r4(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    p.setAlpha(0x60);
-    rastBuilder->addLayer(p, SkIntToScalar(3), SkIntToScalar(3));
-
-    p.setAlpha(0xFF);
-    p.setBlendMode(SkBlendMode::kClear);
-    rastBuilder->addLayer(p, SK_Scalar1*3/2, SK_Scalar1*3/2);
-
-    p.setBlendMode(SkBlendMode::kSrcOver);
-    rastBuilder->addLayer(p);
-}
-
-#include "SkDiscretePathEffect.h"
-
-static void r5(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    rastBuilder->addLayer(p);
-
-    p.setPathEffect(SkDiscretePathEffect::Make(SK_Scalar1*4, SK_Scalar1*3));
-    p.setBlendMode(SkBlendMode::kSrcOut);
-    rastBuilder->addLayer(p);
-}
-
-static void r6(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    rastBuilder->addLayer(p);
-
-    p.setAntiAlias(false);
-    SkLayerRasterizer::Builder rastBuilder2;
-    r5(&rastBuilder2, p);
-    p.setRasterizer(rastBuilder2.detach());
-    p.setBlendMode(SkBlendMode::kClear);
-    rastBuilder->addLayer(p);
-}
-
-#include "Sk2DPathEffect.h"
-
-static sk_sp<SkPathEffect> MakeDotEffect(SkScalar radius, const SkMatrix& matrix) {
-    SkPath path;
-    path.addCircle(0, 0, radius);
-    return SkPath2DPathEffect::Make(matrix, path);
-}
-
-static void r7(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    SkMatrix    lattice;
-    lattice.setScale(SK_Scalar1*6, SK_Scalar1*6, 0, 0);
-    lattice.postSkew(SK_Scalar1/3, 0, 0, 0);
-    p.setPathEffect(MakeDotEffect(SK_Scalar1*4, lattice));
-    rastBuilder->addLayer(p);
-}
-
-static void r8(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    rastBuilder->addLayer(p);
-
-    SkMatrix    lattice;
-    lattice.setScale(SK_Scalar1*6, SK_Scalar1*6, 0, 0);
-    lattice.postSkew(SK_Scalar1/3, 0, 0, 0);
-    p.setPathEffect(MakeDotEffect(SK_Scalar1*2, lattice));
-    p.setBlendMode(SkBlendMode::kClear);
-    rastBuilder->addLayer(p);
-
-    p.setPathEffect(nullptr);
-    p.setBlendMode(SkBlendMode::kSrcOver);
-    p.setStyle(SkPaint::kStroke_Style);
-    p.setStrokeWidth(SK_Scalar1);
-    rastBuilder->addLayer(p);
-}
-
-static void r9(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p)
-{
-    rastBuilder->addLayer(p);
-
-    SkMatrix    lattice;
-    lattice.setScale(SK_Scalar1, SK_Scalar1*6, 0, 0);
-    lattice.postRotate(SkIntToScalar(30), 0, 0);
-    p.setPathEffect(SkLine2DPathEffect::Make(SK_Scalar1*2, lattice));
-    p.setBlendMode(SkBlendMode::kClear);
-    rastBuilder->addLayer(p);
-
-    p.setPathEffect(nullptr);
-    p.setBlendMode(SkBlendMode::kSrcOver);
-    p.setStyle(SkPaint::kStroke_Style);
-    p.setStrokeWidth(SK_Scalar1);
-    rastBuilder->addLayer(p);
-}
-
-typedef void (*raster_proc)(SkLayerRasterizer::Builder*, SkPaint&);
-
-static const raster_proc gRastProcs[] = {
-    r0, r1, r2, r3, r4, r5, r6, r7, r8, r9
-};
-
-static void apply_shader(SkPaint* paint, int index) {
-    raster_proc proc = gRastProcs[index];
-    SkPaint p;
-    SkLayerRasterizer::Builder rastBuilder;
-
-    p.setAntiAlias(true);
-    proc(&rastBuilder, p);
-    paint->setRasterizer(rastBuilder.detach());
-    paint->setColor(SK_ColorBLUE);
-}
-
 #include "SkTypeface.h"
-
-static void texteffect_slide(SkCanvas* canvas) {
-    const char* str = "Google";
-    size_t len = strlen(str);
-    SkScalar x = 20;
-    SkScalar y = 80;
-    SkPaint paint;
-    paint.setTypeface(SkTypeface::MakeFromName("Georgia",
-                                               SkFontStyle::FromOldStyle(SkTypeface::kItalic)));
-    paint.setTextSize(75);
-    paint.setAntiAlias(true);
-    paint.setColor(SK_ColorBLUE);
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gRastProcs); i++) {
-        apply_shader(&paint, (int)i);
-        canvas->drawText(str, len, x, y, paint);
-        y += 80;
-        if (i == 4) {
-            x += 320;
-            y = 80;
-        }
-    }
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -647,12 +398,10 @@ static void texteffect_slide(SkCanvas* canvas) {
 static const SlideProc gProc[] = {
     patheffect_slide,
     gradient_slide,
-    textonpath_slide,
     mesh_slide,
-    texteffect_slide
 };
 
-class SlideView : public SampleView {
+class SlideView : public Sample {
     int fIndex;
     bool fOnce;
 public:
@@ -686,10 +435,9 @@ public:
     }
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Slides");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Slides");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -700,18 +448,16 @@ protected:
         gProc[fIndex](canvas);
     }
 
-    SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
         this->init();
         fIndex = (fIndex + 1) % SK_ARRAY_COUNT(gProc);
-        this->inval(nullptr);
         return nullptr;
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 
 //////////////////////////////////////////////////////////////////////////////
 
-static SkView* MyFactory() { return new SlideView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new SlideView(); )

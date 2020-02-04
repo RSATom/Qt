@@ -33,7 +33,7 @@ import QtQuick.VirtualKeyboard.Styles 2.1
 
 KeyboardStyle {
     id: currentStyle
-    readonly property bool compactSelectionList: [InputEngine.Pinyin, InputEngine.Cangjie, InputEngine.Zhuyin].indexOf(InputContext.inputEngine.inputMode) !== -1
+    readonly property bool compactSelectionList: [InputEngine.InputMode.Pinyin, InputEngine.InputMode.Cangjie, InputEngine.InputMode.Zhuyin].indexOf(InputContext.inputEngine.inputMode) !== -1
     readonly property string fontFamily: "Sans"
     readonly property real keyBackgroundMargin: Math.round(13 * scaleHint)
     readonly property real keyContentMargin: Math.round(45 * scaleHint)
@@ -63,11 +63,12 @@ KeyboardStyle {
     }
 
     keyPanel: KeyPanel {
+        id: keyPanel
         Rectangle {
             id: keyBackground
             radius: 5
             color: "#383533"
-            anchors.fill: parent
+            anchors.fill: keyPanel
             anchors.margins: keyBackgroundMargin
             Text {
                 id: keySmallText
@@ -132,11 +133,12 @@ KeyboardStyle {
     }
 
     backspaceKeyPanel: KeyPanel {
+        id: backspaceKeyPanel
         Rectangle {
             id: backspaceKeyBackground
             radius: 5
             color: "#23211E"
-            anchors.fill: parent
+            anchors.fill: backspaceKeyPanel
             anchors.margins: keyBackgroundMargin
             Image {
                 id: backspaceKeyIcon
@@ -176,11 +178,12 @@ KeyboardStyle {
     }
 
     languageKeyPanel: KeyPanel {
+        id: languageKeyPanel
         Rectangle {
             id: languageKeyBackground
             radius: 5
             color: "#35322f"
-            anchors.fill: parent
+            anchors.fill: languageKeyPanel
             anchors.margins: keyBackgroundMargin
             Image {
                 id: languageKeyIcon
@@ -220,11 +223,12 @@ KeyboardStyle {
     }
 
     enterKeyPanel: KeyPanel {
+        id: enterKeyPanel
         Rectangle {
             id: enterKeyBackground
             radius: 5
             color: "#1e1b18"
-            anchors.fill: parent
+            anchors.fill: enterKeyPanel
             anchors.margins: keyBackgroundMargin
             Image {
                 id: enterKeyIcon
@@ -316,11 +320,12 @@ KeyboardStyle {
     }
 
     hideKeyPanel: KeyPanel {
+        id: hideKeyPanel
         Rectangle {
             id: hideKeyBackground
             radius: 5
             color: "#1e1b18"
-            anchors.fill: parent
+            anchors.fill: hideKeyPanel
             anchors.margins: keyBackgroundMargin
             Image {
                 id: hideKeyIcon
@@ -360,11 +365,12 @@ KeyboardStyle {
     }
 
     shiftKeyPanel: KeyPanel {
+        id: shiftKeyPanel
         Rectangle {
             id: shiftKeyBackground
             radius: 5
             color: "#1e1b18"
-            anchors.fill: parent
+            anchors.fill: shiftKeyPanel
             anchors.margins: keyBackgroundMargin
             Image {
                 id: shiftKeyIcon
@@ -376,8 +382,8 @@ KeyboardStyle {
             }
             states: [
                 State {
-                    name: "capslock"
-                    when: InputContext.capsLock
+                    name: "capsLockActive"
+                    when: InputContext.capsLockActive
                     PropertyChanges {
                         target: shiftKeyBackground
                         color: "#5a892e"
@@ -388,8 +394,8 @@ KeyboardStyle {
                     }
                 },
                 State {
-                    name: "shift"
-                    when: InputContext.shift
+                    name: "shiftActive"
+                    when: InputContext.shiftActive
                     PropertyChanges {
                         target: shiftKeyIcon
                         source: resourcePrefix + "images/shift-80c342.svg"
@@ -426,11 +432,12 @@ KeyboardStyle {
     }
 
     spaceKeyPanel: KeyPanel {
+        id: spaceKeyPanel
         Rectangle {
             id: spaceKeyBackground
             radius: 5
             color: "#35322f"
-            anchors.fill: parent
+            anchors.fill: spaceKeyPanel
             anchors.margins: keyBackgroundMargin
             Text {
                 id: spaceKeyText
@@ -466,11 +473,12 @@ KeyboardStyle {
     }
 
     symbolKeyPanel: KeyPanel {
+        id: symbolKeyPanel
         Rectangle {
             id: symbolKeyBackground
             radius: 5
             color: "#1e1b18"
-            anchors.fill: parent
+            anchors.fill: symbolKeyPanel
             anchors.margins: keyBackgroundMargin
             Text {
                 id: symbolKeyText
@@ -517,11 +525,12 @@ KeyboardStyle {
     }
 
     modeKeyPanel: KeyPanel {
+        id: modeKeyPanel
         Rectangle {
             id: modeKeyBackground
             radius: 5
             color: "#1e1b18"
-            anchors.fill: parent
+            anchors.fill: modeKeyPanel
             anchors.margins: keyBackgroundMargin
             Text {
                 id: modeKeyText
@@ -581,11 +590,12 @@ KeyboardStyle {
     }
 
     handwritingKeyPanel: KeyPanel {
+        id: handwritingKeyPanel
         Rectangle {
             id: hwrKeyBackground
             radius: 5
             color: "#35322f"
-            anchors.fill: parent
+            anchors.fill: handwritingKeyPanel
             anchors.margins: keyBackgroundMargin
             Image {
                 id: hwrKeyIcon
@@ -747,40 +757,43 @@ KeyboardStyle {
     }
 
     traceInputKeyPanelDelegate: TraceInputKeyPanel {
+        id: traceInputKeyPanel
         traceMargins: keyBackgroundMargin
         Rectangle {
             id: traceInputKeyPanelBackground
             radius: 5
             color: "#35322f"
-            anchors.fill: parent
+            anchors.fill: traceInputKeyPanel
             anchors.margins: keyBackgroundMargin
             Text {
                 id: hwrInputModeIndicator
-                visible: control.patternRecognitionMode === InputEngine.HandwritingRecoginition
+                visible: control.patternRecognitionMode === InputEngine.PatternRecognitionMode.Handwriting
                 text: {
                     switch (InputContext.inputEngine.inputMode) {
-                    case InputEngine.Numeric:
+                    case InputEngine.InputMode.Numeric:
                         if (["ar", "fa"].indexOf(InputContext.locale.substring(0, 2)) !== -1)
                             return "\u0660\u0661\u0662"
                         // Fallthrough
-                    case InputEngine.Dialable:
+                    case InputEngine.InputMode.Dialable:
                         return "123"
-                    case InputEngine.Greek:
+                    case InputEngine.InputMode.Greek:
                         return "ΑΒΓ"
-                    case InputEngine.Cyrillic:
+                    case InputEngine.InputMode.Cyrillic:
                         return "АБВ"
-                    case InputEngine.Arabic:
+                    case InputEngine.InputMode.Arabic:
                         if (InputContext.locale.substring(0, 2) === "fa")
                             return "\u0627\u200C\u0628\u200C\u067E"
                         return "\u0623\u200C\u0628\u200C\u062C"
-                    case InputEngine.Hebrew:
+                    case InputEngine.InputMode.Hebrew:
                         return "\u05D0\u05D1\u05D2"
-                    case InputEngine.ChineseHandwriting:
+                    case InputEngine.InputMode.ChineseHandwriting:
                         return "中文"
-                    case InputEngine.JapaneseHandwriting:
+                    case InputEngine.InputMode.JapaneseHandwriting:
                         return "日本語"
-                    case InputEngine.KoreanHandwriting:
+                    case InputEngine.InputMode.KoreanHandwriting:
                         return "한국어"
+                    case InputEngine.InputMode.Thai:
+                        return "กขค"
                     default:
                         return "Abc"
                     }
@@ -794,9 +807,9 @@ KeyboardStyle {
                     weight: Font.Normal
                     pixelSize: 44 * scaleHint
                     capitalization: {
-                        if (InputContext.capsLock)
+                        if (InputContext.capsLockActive)
                             return Font.AllUppercase
-                        if (InputContext.shift)
+                        if (InputContext.shiftActive)
                             return Font.MixedCase
                         return Font.AllLowercase
                     }

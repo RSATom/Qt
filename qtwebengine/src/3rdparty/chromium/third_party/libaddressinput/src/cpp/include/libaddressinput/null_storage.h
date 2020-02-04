@@ -20,7 +20,6 @@
 #define I18N_ADDRESSINPUT_NULL_STORAGE_H_
 
 #include <libaddressinput/storage.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <string>
 
@@ -29,17 +28,17 @@ namespace addressinput {
 
 class NullStorage : public Storage {
  public:
+  NullStorage(const NullStorage&) = delete;
+  NullStorage& operator=(const NullStorage&) = delete;
+
   NullStorage();
-  virtual ~NullStorage();
+  ~NullStorage() override;
 
   // No-op.
-  virtual void Put(const std::string& key, std::string* data);
+  void Put(const std::string& key, std::string* data) override;
 
-  // Always calls the |data_ready| callback function signalling failure.
-  virtual void Get(const std::string& key, const Callback& data_ready) const;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(NullStorage);
+  // Always calls the |data_ready| callback function signaling failure.
+  void Get(const std::string& key, const Callback& data_ready) const override;
 };
 
 }  // namespace addressinput

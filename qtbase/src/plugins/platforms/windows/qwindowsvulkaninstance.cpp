@@ -44,20 +44,9 @@ QT_BEGIN_NAMESPACE
 QWindowsVulkanInstance::QWindowsVulkanInstance(QVulkanInstance *instance)
     : m_instance(instance),
       m_getPhysDevPresSupport(nullptr),
-      m_createSurface(nullptr),
-      m_destroySurface(nullptr)
+      m_createSurface(nullptr)
 {
-    if (qEnvironmentVariableIsSet("QT_VULKAN_LIB"))
-        m_lib.setFileName(QString::fromUtf8(qgetenv("QT_VULKAN_LIB")));
-    else
-        m_lib.setFileName(QStringLiteral("vulkan-1"));
-
-    if (!m_lib.load()) {
-        qWarning("Failed to load %s: %s", qPrintable(m_lib.fileName()), qPrintable(m_lib.errorString()));
-        return;
-    }
-
-    init(&m_lib);
+    loadVulkanLibrary(QStringLiteral("vulkan-1"));
 }
 
 void QWindowsVulkanInstance::createOrAdoptInstance()
@@ -71,10 +60,6 @@ void QWindowsVulkanInstance::createOrAdoptInstance()
                 m_vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceWin32PresentationSupportKHR"));
     if (!m_getPhysDevPresSupport)
         qWarning("Failed to find vkGetPhysicalDeviceWin32PresentationSupportKHR");
-}
-
-QWindowsVulkanInstance::~QWindowsVulkanInstance()
-{
 }
 
 bool QWindowsVulkanInstance::supportsPresent(VkPhysicalDevice physicalDevice,
@@ -106,14 +91,6 @@ VkSurfaceKHR QWindowsVulkanInstance::createSurface(HWND win)
         qWarning("Failed to find vkCreateWin32SurfaceKHR");
         return surface;
     }
-    if (!m_destroySurface) {
-        m_destroySurface = reinterpret_cast<PFN_vkDestroySurfaceKHR>(
-                    m_vkGetInstanceProcAddr(m_vkInst, "vkDestroySurfaceKHR"));
-    }
-    if (!m_destroySurface) {
-        qWarning("Failed to find vkDestroySurfaceKHR");
-        return surface;
-    }
 
     VkWin32SurfaceCreateInfoKHR surfaceInfo;
     memset(&surfaceInfo, 0, sizeof(surfaceInfo));
@@ -125,12 +102,6 @@ VkSurfaceKHR QWindowsVulkanInstance::createSurface(HWND win)
         qWarning("Failed to create Vulkan surface: %d", err);
 
     return surface;
-}
-
-void QWindowsVulkanInstance::destroySurface(VkSurfaceKHR surface)
-{
-    if (m_destroySurface && surface)
-        m_destroySurface(m_vkInst, surface, nullptr);
 }
 
 QT_END_NAMESPACE

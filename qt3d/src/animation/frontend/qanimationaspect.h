@@ -49,7 +49,7 @@ namespace Qt3DAnimation {
 
 class QAnimationAspectPrivate;
 
-class QT3DANIMATIONSHARED_EXPORT QAnimationAspect : public Qt3DCore::QAbstractAspect
+class Q_3DANIMATIONSHARED_EXPORT QAnimationAspect : public Qt3DCore::QAbstractAspect
 {
     Q_OBJECT
 public:
@@ -57,7 +57,7 @@ public:
     ~QAnimationAspect();
 
 private:
-    QVector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) Q_DECL_OVERRIDE;
+    QVector<Qt3DCore::QAspectJobPtr> jobsToExecute(qint64 time) override;
 
     Q_DECLARE_PRIVATE(QAnimationAspect)
     explicit QAnimationAspect(QAnimationAspectPrivate &dd, QObject *parent);

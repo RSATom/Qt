@@ -7,13 +7,15 @@
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "ui/base/material_design/material_design_controller.h"
+#include "ui/base/ui_base_features.h"
+#include "ui/compositor/overscroll/scroll_input_handler.h"
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/focus_ring.h"
+#include "ui/views/controls/separator.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/widget/widget.h"
 
@@ -22,15 +24,6 @@ namespace views {
 const char ScrollView::kViewClassName[] = "ScrollView";
 
 namespace {
-
-const base::Feature kToolkitViewsScrollWithLayers {
-  "ToolkitViewsScrollWithLayers",
-#if defined(OS_MACOSX)
-      base::FEATURE_ENABLED_BY_DEFAULT
-#else
-      base::FEATURE_DISABLED_BY_DEFAULT
-#endif
-};
 
 class ScrollCornerView : public View {
  public:
@@ -179,11 +172,15 @@ ScrollView::ScrollView()
       horiz_sb_(PlatformStyle::CreateScrollBar(true).release()),
       vert_sb_(PlatformStyle::CreateScrollBar(false).release()),
       corner_view_(new ScrollCornerView()),
+      more_content_left_(std::make_unique<Separator>()),
+      more_content_top_(std::make_unique<Separator>()),
+      more_content_right_(std::make_unique<Separator>()),
+      more_content_bottom_(std::make_unique<Separator>()),
       min_height_(-1),
       max_height_(-1),
       hide_horizontal_scrollbar_(false),
-      scroll_with_layers_enabled_(
-          base::FeatureList::IsEnabled(kToolkitViewsScrollWithLayers)) {
+      scroll_with_layers_enabled_(base::FeatureList::IsEnabled(
+          features::kUiCompositorScrollWithLayers)) {
   set_notify_enter_exit_on_child(true);
 
   AddChildView(contents_viewport_);
@@ -197,9 +194,31 @@ ScrollView::ScrollView()
   vert_sb_->set_controller(this);
   corner_view_->SetVisible(false);
 
+  // Just make sure the more_content indicators aren't visible for now. They'll
+  // be added as child controls and appropriately made visible depending on
+  // |show_edges_with_hidden_content_|.
+  more_content_left_->SetVisible(false);
+  more_content_top_->SetVisible(false);
+  more_content_right_->SetVisible(false);
+  more_content_bottom_->SetVisible(false);
+
   if (scroll_with_layers_enabled_)
     EnableViewPortLayer();
+
+  // If we're scrolling with layers, paint the overflow indicators to the layer.
+  if (ScrollsWithLayers()) {
+    more_content_left_->SetPaintToLayer();
+    more_content_top_->SetPaintToLayer();
+    more_content_right_->SetPaintToLayer();
+    more_content_bottom_->SetPaintToLayer();
+  }
   UpdateBackground();
+
+  focus_ring_ = FocusRing::Install(this);
+  focus_ring_->SetHasFocusPredicate([](View* view) -> bool {
+    auto* v = static_cast<ScrollView*>(view);
+    return v->draw_focus_indicator_;
+  });
 }
 
 ScrollView::~ScrollView() {
@@ -233,13 +252,22 @@ void ScrollView::SetContents(View* a_view) {
   // Protect against clients passing a contents view that has its own Layer.
   DCHECK(!a_view->layer());
   if (ScrollsWithLayers()) {
-    if (!a_view->background() && GetBackgroundColor() != SK_ColorTRANSPARENT) {
-      a_view->SetBackground(CreateSolidBackground(GetBackgroundColor()));
+    bool fills_opaquely = true;
+    if (!a_view->background()) {
+      // Contents views may not be aware they need to fill their entire bounds -
+      // play it safe here to avoid graphical glitches
+      // (https://crbug.com/826472). If there's no solid background, mark the
+      // view as not filling its bounds opaquely.
+      if (GetBackgroundColor() != SK_ColorTRANSPARENT)
+        a_view->SetBackground(CreateSolidBackground(GetBackgroundColor()));
+      else
+        fills_opaquely = false;
     }
     a_view->SetPaintToLayer();
     a_view->layer()->SetDidScrollCallback(
         base::Bind(&ScrollView::OnLayerScrolled, base::Unretained(this)));
     a_view->layer()->SetScrollable(contents_viewport_->bounds().size());
+    a_view->layer()->SetFillsBoundsOpaquely(fills_opaquely);
   }
   SetHeaderOrContents(contents_viewport_, a_view, &contents_);
 }
@@ -304,17 +332,7 @@ void ScrollView::SetHasFocusIndicator(bool has_focus_indicator) {
     return;
   draw_focus_indicator_ = has_focus_indicator;
 
-  if (ui::MaterialDesignController::IsSecondaryUiMaterial()) {
-    DCHECK_EQ(draw_focus_indicator_, !focus_ring_);
-    if (has_focus_indicator) {
-      focus_ring_ = FocusRing::Install(this);
-    } else {
-      FocusRing::Uninstall(this);
-      focus_ring_ = nullptr;
-    }
-  } else {
-    UpdateBorder();
-  }
+    focus_ring_->SchedulePaint();
   SchedulePaint();
 }
 
@@ -363,6 +381,10 @@ void ScrollView::Layout() {
     contents_->SetSize(gfx::Size(content_width, content_height));
   }
 
+  // Place an overflow indicator on each of the four edges of the content
+  // bounds.
+  PositionOverflowIndicators();
+
   // Most views will want to auto-fit the available space. Most of them want to
   // use all available width (without overflowing) and only overflow in
   // height. Examples are HistoryView, MostVisitedView, DownloadTabView, etc.
@@ -387,11 +409,21 @@ void ScrollView::Layout() {
   viewport_bounds.set_y(viewport_bounds.y() + header_height);
   // viewport_size is the total client space available.
   gfx::Size viewport_size = viewport_bounds.size();
-  // Assumes a vertical scrollbar since most of the current views are designed
-  // for this.
+
+  // Assume both a vertical and horizontal scrollbar exist before calling
+  // contents_->Layout(). This is because some contents_ will set their own size
+  // to the contents_viewport_'s bounds. Failing to pre-allocate space for
+  // the scrollbars will [non-intuitively] cause scrollbars to appear in
+  // ComputeScrollBarsVisibility. This solution is also not perfect - if
+  // scrollbars turn out *not* to be necessary, the contents will have slightly
+  // less horizontal/vertical space than it otherwise would have had access to.
+  // Unfortunately, there's no way to determine this without introducing a
+  // circular dependency.
   const int horiz_sb_layout_height = GetScrollBarLayoutHeight();
   const int vert_sb_layout_width = GetScrollBarLayoutWidth();
   viewport_bounds.set_width(viewport_bounds.width() - vert_sb_layout_width);
+  viewport_bounds.set_height(viewport_bounds.height() - horiz_sb_layout_height);
+
   // Update the bounds right now so the inner views can fit in it.
   contents_viewport_->SetBoundsRect(viewport_bounds);
 
@@ -418,10 +450,10 @@ void ScrollView::Layout() {
   SetControlVisibility(vert_sb_, vert_sb_required);
   SetControlVisibility(corner_view_, corner_view_required);
 
-  // Non-default.
-  if (horiz_sb_required) {
-    viewport_bounds.set_height(
-        std::max(0, viewport_bounds.height() - horiz_sb_layout_height));
+  // Default.
+  if (!horiz_sb_required) {
+    viewport_bounds.set_height(viewport_bounds.height() +
+                               horiz_sb_layout_height);
     should_layout_contents = true;
   }
   // Default.
@@ -475,6 +507,30 @@ void ScrollView::Layout() {
     container_size.SetToMax(viewport_bounds.size());
     contents_->SetBoundsRect(gfx::Rect(container_size));
     contents_->layer()->SetScrollable(viewport_bounds.size());
+
+    // Flip the viewport with layer transforms under RTL. Note the net effect is
+    // to flip twice, so the text is not mirrored. This is necessary because
+    // compositor scrolling is not RTL-aware. So although a toolkit-views layout
+    // will flip, increasing a horizontal gfx::ScrollOffset will move content to
+    // the left, regardless of RTL. A gfx::ScrollOffset must be positive, so to
+    // move (unscrolled) content to the right, we need to flip the viewport
+    // layer. That would flip all the content as well, so flip (and translate)
+    // the content layer. Compensating in this way allows the scrolling/offset
+    // logic to remain the same when scrolling via layers or bounds offsets.
+    if (base::i18n::IsRTL()) {
+      gfx::Transform flip;
+      flip.Translate(viewport_bounds.width(), 0);
+      flip.Scale(-1, 1);
+      contents_viewport_->layer()->SetTransform(flip);
+
+      // Add `contents_->width() - viewport_width` to the translation step. This
+      // is to prevent the top-left of the (flipped) contents aligning to the
+      // top-left of the viewport. Instead, the top-right should align in RTL.
+      gfx::Transform shift;
+      shift.Translate(2 * contents_->width() - viewport_bounds.width(), 0);
+      shift.Scale(-1, 1);
+      contents_->layer()->SetTransform(shift);
+    }
   }
 
   header_viewport_->SetBounds(contents_x, contents_y,
@@ -488,6 +544,8 @@ void ScrollView::Layout() {
                           scroll_with_layers_enabled_);
   SchedulePaint();
   UpdateScrollBarPositions();
+  if (contents_)
+    UpdateOverflowIndicatorVisibility(CurrentOffset());
 }
 
 bool ScrollView::OnKeyPressed(const ui::KeyEvent& event) {
@@ -506,6 +564,7 @@ bool ScrollView::OnKeyPressed(const ui::KeyEvent& event) {
 bool ScrollView::OnMouseWheel(const ui::MouseWheelEvent& e) {
   bool processed = false;
 
+  // TODO(https://crbug.com/615948): Use composited scrolling.
   if (vert_sb_->visible())
     processed = vert_sb_->OnMouseWheel(e);
 
@@ -516,13 +575,18 @@ bool ScrollView::OnMouseWheel(const ui::MouseWheelEvent& e) {
 }
 
 void ScrollView::OnScrollEvent(ui::ScrollEvent* event) {
-#if defined(OS_MACOSX)
   if (!contents_)
     return;
 
-  // TODO(tapted): Send |event| to a cc::InputHandler. For now, there's nothing
-  // to do because Widget::OnScrollEvent() will automatically process an
-  // unhandled ScrollEvent as a MouseWheelEvent.
+  ui::ScrollInputHandler* compositor_scroller =
+      GetWidget()->GetCompositor()->scroll_input_handler();
+  if (compositor_scroller) {
+    DCHECK(scroll_with_layers_enabled_);
+    if (compositor_scroller->OnScrollEvent(*event, contents_->layer())) {
+      event->SetHandled();
+      event->StopPropagation();
+    }
+  }
 
   // A direction might not be known when the event stream starts, notify both
   // scrollbars that they may be about scroll, or that they may need to cancel
@@ -531,7 +595,6 @@ void ScrollView::OnScrollEvent(ui::ScrollEvent* event) {
     horiz_sb_->ObserveScrollEvent(*event);
   if (vert_sb_)
     vert_sb_->ObserveScrollEvent(*event);
-#endif
 }
 
 void ScrollView::OnGestureEvent(ui::GestureEvent* event) {
@@ -543,6 +606,7 @@ void ScrollView::OnGestureEvent(ui::GestureEvent* event) {
                       event->type() == ui::ET_GESTURE_SCROLL_END ||
                       event->type() == ui::ET_SCROLL_FLING_START;
 
+  // TODO(https://crbug.com/615948): Use composited scrolling.
   if (vert_sb_->visible()) {
     if (vert_sb_->bounds().Contains(event->location()) || scroll_event)
       vert_sb_->OnGestureEvent(event);
@@ -763,11 +827,12 @@ void ScrollView::ScrollToOffset(const gfx::ScrollOffset& offset) {
     // but will only be invoked (asynchronously) when a Compositor is present
     // and commits a frame, which isn't true in some tests.
     // See http://crbug.com/637521.
-    OnLayerScrolled(offset);
+    OnLayerScrolled(offset, contents_->layer()->element_id());
   } else {
     contents_->SetPosition(gfx::Point(-offset.x(), -offset.y()));
     ScrollHeader();
   }
+  UpdateOverflowIndicatorVisibility(offset);
 }
 
 bool ScrollView::ScrollsWithLayers() const {
@@ -784,10 +849,15 @@ void ScrollView::EnableViewPortLayer() {
 
   contents_viewport_->SetPaintToLayer();
   contents_viewport_->layer()->SetMasksToBounds(true);
+  more_content_left_->SetPaintToLayer();
+  more_content_top_->SetPaintToLayer();
+  more_content_right_->SetPaintToLayer();
+  more_content_bottom_->SetPaintToLayer();
   UpdateBackground();
 }
 
-void ScrollView::OnLayerScrolled(const gfx::ScrollOffset&) {
+void ScrollView::OnLayerScrolled(const gfx::ScrollOffset&,
+                                 const cc::ElementId&) {
   UpdateScrollBarPositions();
   ScrollHeader();
 }
@@ -841,6 +911,39 @@ SkColor ScrollView::GetBackgroundColor() const {
   return use_color_id_
              ? GetNativeTheme()->GetSystemColor(background_color_data_.color_id)
              : background_color_data_.color;
+}
+
+void ScrollView::PositionOverflowIndicators() {
+  const gfx::Rect bounds = GetContentsBounds();
+  const int x = bounds.x();
+  const int y = bounds.y();
+  const int w = bounds.width();
+  const int h = bounds.height();
+  const int t = Separator::kThickness;
+  more_content_left_->SetBounds(x, y, t, h);
+  more_content_top_->SetBounds(x, y, w, t);
+  more_content_right_->SetBounds(bounds.right() - t, y, t, h);
+  more_content_bottom_->SetBounds(x, bounds.bottom() - t, w, t);
+}
+
+void ScrollView::UpdateOverflowIndicatorVisibility(
+    const gfx::ScrollOffset& offset) {
+  SetControlVisibility(more_content_top_.get(),
+                       !draw_border_ && !header_ && vert_sb_->visible() &&
+                           offset.y() > vert_sb_->GetMinPosition() &&
+                           draw_overflow_indicator_);
+  SetControlVisibility(
+      more_content_bottom_.get(),
+      !draw_border_ && vert_sb_->visible() && !horiz_sb_->visible() &&
+          offset.y() < vert_sb_->GetMaxPosition() && draw_overflow_indicator_);
+  SetControlVisibility(more_content_left_.get(),
+                       !draw_border_ && horiz_sb_->visible() &&
+                           offset.x() > horiz_sb_->GetMinPosition() &&
+                           draw_overflow_indicator_);
+  SetControlVisibility(
+      more_content_right_.get(),
+      !draw_border_ && horiz_sb_->visible() && !vert_sb_->visible() &&
+          offset.x() < horiz_sb_->GetMaxPosition() && draw_overflow_indicator_);
 }
 
 // VariableRowHeightScrollHelper ----------------------------------------------

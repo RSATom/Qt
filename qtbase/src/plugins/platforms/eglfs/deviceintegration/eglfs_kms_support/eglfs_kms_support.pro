@@ -11,7 +11,6 @@ DEFINES += QT_EGL_NO_X11
 
 QMAKE_USE += drm
 CONFIG += egl
-QMAKE_LFLAGS += $$QMAKE_LFLAGS_NOUNDEF
 
 SOURCES += $$PWD/qeglfskmsintegration.cpp \
            $$PWD/qeglfskmsdevice.cpp \
@@ -19,4 +18,5 @@ SOURCES += $$PWD/qeglfskmsintegration.cpp \
 
 HEADERS += $$PWD/qeglfskmsintegration.h \
            $$PWD/qeglfskmsdevice.h \
-           $$PWD/qeglfskmsscreen.h
+           $$PWD/qeglfskmsscreen.h \
+           $$PWD/qeglfskmshelpers.h

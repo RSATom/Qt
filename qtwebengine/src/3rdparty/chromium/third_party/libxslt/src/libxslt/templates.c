@@ -308,12 +308,12 @@ xsltAttrTemplateValueProcessNode(xsltTransformContextPtr ctxt,
 	        xsltTransformError(ctxt, NULL, inst,
 			"xsltAttrTemplateValueProcessNode: unmatched '{'\n");
 		ret = xmlStrncat(ret, str, cur - str);
-		return(ret);
+		goto exit;
 	    }
 	    str++;
 	    expr = xmlStrndup(str, cur - str);
 	    if (expr == NULL)
-		return(ret);
+		goto exit;
 	    else if (*expr == '{') {
 		ret = xmlStrcat(ret, expr);
 		xmlFree(expr);
@@ -361,6 +361,7 @@ xsltAttrTemplateValueProcessNode(xsltTransformContextPtr ctxt,
 	ret = xmlStrncat(ret, str, cur - str);
     }
 
+exit:
     if (nsList != NULL)
 	xmlFree(nsList);
 
@@ -644,11 +645,12 @@ xmlAttrPtr
 xsltAttrListTemplateProcess(xsltTransformContextPtr ctxt,
 	                    xmlNodePtr target, xmlAttrPtr attrs)
 {
-    xmlAttrPtr attr, copy, last;
+    xmlAttrPtr attr, copy, last = NULL;
     xmlNodePtr oldInsert, text;
     xmlNsPtr origNs = NULL, copyNs = NULL;
     const xmlChar *value;
     xmlChar *valueAVT;
+    int hasAttr = 0;
 
     if ((ctxt == NULL) || (target == NULL) || (attrs == NULL) ||
         (target->type != XML_ELEMENT_NODE))
@@ -658,15 +660,34 @@ xsltAttrListTemplateProcess(xsltTransformContextPtr ctxt,
     ctxt->insert = target;
 
     /*
+    * Apply attribute-sets.
+    */
+    attr = attrs;
+    do {
+#ifdef XSLT_REFACTORED
+	if ((attr->psvi == xsltXSLTAttrMarker) &&
+	    xmlStrEqual(attr->name, (const xmlChar *)"use-attribute-sets"))
+	{
+	    xsltApplyAttributeSet(ctxt, ctxt->node, (xmlNodePtr) attr, NULL);
+	}
+#else
+	if ((attr->ns != NULL) &&
+	    xmlStrEqual(attr->name, (const xmlChar *)"use-attribute-sets") &&
+	    xmlStrEqual(attr->ns->href, XSLT_NAMESPACE))
+	{
+	    xsltApplyAttributeSet(ctxt, ctxt->node, (xmlNodePtr) attr, NULL);
+	}
+#endif
+	attr = attr->next;
+    } while (attr != NULL);
+
+    if (target->properties != NULL) {
+        hasAttr = 1;
+    }
+
+    /*
     * Instantiate LRE-attributes.
     */
-    if (target->properties) {
-	last = target->properties;
-	while (last->next != NULL)
-	    last = last->next;
-    } else {
-	last = NULL;
-    }
     attr = attrs;
     do {
 	/*
@@ -702,35 +723,7 @@ xsltAttrListTemplateProcess(xsltTransformContextPtr ctxt,
 	    value = xmlDictLookup(ctxt->dict, BAD_CAST "", 0);
 
 	/*
-	* Create a new attribute.
-	*/
-	copy = xmlNewDocProp(target->doc, attr->name, NULL);
-	if (copy == NULL) {
-	    if (attr->ns) {
-		xsltTransformError(ctxt, NULL, attr->parent,
-		    "Internal error: Failed to create attribute '{%s}%s'.\n",
-		    attr->ns->href, attr->name);
-	    } else {
-		xsltTransformError(ctxt, NULL, attr->parent,
-		    "Internal error: Failed to create attribute '%s'.\n",
-		    attr->name);
-	    }
-	    goto error;
-	}
-	/*
-	* Attach it to the target element.
-	*/
-	copy->parent = target;
-	if (last == NULL) {
-	    target->properties = copy;
-	    last = copy;
-	} else {
-	    last->next = copy;
-	    copy->prev = last;
-	    last = copy;
-	}
-	/*
-	* Set the namespace. Avoid lookups of same namespaces.
+	* Get the namespace. Avoid lookups of same namespaces.
 	*/
 	if (attr->ns != origNs) {
 	    origNs = attr->ns;
@@ -747,7 +740,47 @@ xsltAttrListTemplateProcess(xsltTransformContextPtr ctxt,
 	    } else
 		copyNs = NULL;
 	}
-	copy->ns = copyNs;
+	/*
+	* Create a new attribute.
+	*/
+        if (hasAttr) {
+	    copy = xmlSetNsProp(target, copyNs, attr->name, NULL);
+        } else {
+            /*
+            * Avoid checking for duplicate attributes if there aren't
+            * any attribute sets.
+            */
+	    copy = xmlNewDocProp(target->doc, attr->name, NULL);
+
+	    if (copy != NULL) {
+                copy->ns = copyNs;
+
+                /*
+                * Attach it to the target element.
+                */
+                copy->parent = target;
+                if (last == NULL) {
+                    target->properties = copy;
+                    last = copy;
+                } else {
+                    last->next = copy;
+                    copy->prev = last;
+                    last = copy;
+                }
+            }
+        }
+	if (copy == NULL) {
+	    if (attr->ns) {
+		xsltTransformError(ctxt, NULL, attr->parent,
+		    "Internal error: Failed to create attribute '{%s}%s'.\n",
+		    attr->ns->href, attr->name);
+	    } else {
+		xsltTransformError(ctxt, NULL, attr->parent,
+		    "Internal error: Failed to create attribute '%s'.\n",
+		    attr->name);
+	    }
+	    goto error;
+	}
 
 	/*
 	* Set the value.
@@ -799,30 +832,6 @@ xsltAttrListTemplateProcess(xsltTransformContextPtr ctxt,
 	}
 
 next_attribute:
-	attr = attr->next;
-    } while (attr != NULL);
-
-    /*
-    * Apply attribute-sets.
-    * The creation of such attributes will not overwrite any existing
-    * attribute.
-    */
-    attr = attrs;
-    do {
-#ifdef XSLT_REFACTORED
-	if ((attr->psvi == xsltXSLTAttrMarker) &&
-	    xmlStrEqual(attr->name, (const xmlChar *)"use-attribute-sets"))
-	{
-	    xsltApplyAttributeSet(ctxt, ctxt->node, (xmlNodePtr) attr, NULL);
-	}
-#else
-	if ((attr->ns != NULL) &&
-	    xmlStrEqual(attr->name, (const xmlChar *)"use-attribute-sets") &&
-	    xmlStrEqual(attr->ns->href, XSLT_NAMESPACE))
-	{
-	    xsltApplyAttributeSet(ctxt, ctxt->node, (xmlNodePtr) attr, NULL);
-	}
-#endif
 	attr = attr->next;
     } while (attr != NULL);
 

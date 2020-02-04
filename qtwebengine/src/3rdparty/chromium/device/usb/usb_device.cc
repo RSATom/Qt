@@ -10,20 +10,26 @@
 
 namespace device {
 
-UsbDevice::Observer::~Observer() {}
+UsbDevice::Observer::~Observer() = default;
 
 void UsbDevice::Observer::OnDeviceRemoved(scoped_refptr<UsbDevice> device) {}
 
-UsbDevice::UsbDevice() : guid_(base::GenerateGUID()) {}
+UsbDevice::UsbDevice(uint32_t bus_number, uint32_t port_number)
+    : bus_number_(bus_number),
+      port_number_(port_number),
+      guid_(base::GenerateGUID()) {}
 
 UsbDevice::UsbDevice(const UsbDeviceDescriptor& descriptor,
                      const base::string16& manufacturer_string,
                      const base::string16& product_string,
-                     const base::string16& serial_number)
+                     const base::string16& serial_number,
+                     uint32_t bus_number, uint32_t port_number)
     : descriptor_(descriptor),
       manufacturer_string_(manufacturer_string),
       product_string_(product_string),
       serial_number_(serial_number),
+      bus_number_(bus_number),
+      port_number_(port_number),
       guid_(base::GenerateGUID()) {}
 
 UsbDevice::UsbDevice(uint16_t usb_version,
@@ -35,10 +41,13 @@ UsbDevice::UsbDevice(uint16_t usb_version,
                      uint16_t device_version,
                      const base::string16& manufacturer_string,
                      const base::string16& product_string,
-                     const base::string16& serial_number)
+                     const base::string16& serial_number,
+                     uint32_t bus_number, uint32_t port_number)
     : manufacturer_string_(manufacturer_string),
       product_string_(product_string),
       serial_number_(serial_number),
+      bus_number_(bus_number),
+      port_number_(port_number),
       guid_(base::GenerateGUID()) {
   descriptor_.usb_version = usb_version;
   descriptor_.device_class = device_class;
@@ -49,18 +58,18 @@ UsbDevice::UsbDevice(uint16_t usb_version,
   descriptor_.device_version = device_version;
 }
 
-UsbDevice::~UsbDevice() {}
+UsbDevice::~UsbDevice() = default;
 
-void UsbDevice::CheckUsbAccess(const ResultCallback& callback) {
+void UsbDevice::CheckUsbAccess(ResultCallback callback) {
   // By default assume that access to the device is allowed. This is implemented
   // on Chrome OS by checking with permission_broker.
-  callback.Run(true);
+  std::move(callback).Run(true);
 }
 
-void UsbDevice::RequestPermission(const ResultCallback& callback) {
+void UsbDevice::RequestPermission(ResultCallback callback) {
   // By default assume that access to the device is allowed. This is implemented
   // on Android by calling android.hardware.usb.UsbManger.requestPermission.
-  callback.Run(true);
+  std::move(callback).Run(true);
 }
 
 bool UsbDevice::permission_granted() const {

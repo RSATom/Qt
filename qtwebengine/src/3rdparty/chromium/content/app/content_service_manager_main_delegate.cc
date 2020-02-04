@@ -5,10 +5,11 @@
 #include "content/app/content_service_manager_main_delegate.h"
 
 #include "base/command_line.h"
+#include "content/app/content_main_runner_impl.h"
 #include "content/public/app/content_main_delegate.h"
-#include "content/public/app/content_main_runner.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_names.mojom.h"
+#include "services/service_manager/embedder/switches.h"
 #include "services/service_manager/runner/common/client_util.h"
 
 namespace content {
@@ -16,7 +17,7 @@ namespace content {
 ContentServiceManagerMainDelegate::ContentServiceManagerMainDelegate(
     const ContentMainParams& params)
     : content_main_params_(params),
-      content_main_runner_(ContentMainRunner::Create()) {}
+      content_main_runner_(ContentMainRunnerImpl::Create()) {}
 
 ContentServiceManagerMainDelegate::~ContentServiceManagerMainDelegate() =
     default;
@@ -44,11 +45,12 @@ bool ContentServiceManagerMainDelegate::IsEmbedderSubprocess() {
          type == switches::kPpapiBrokerProcess ||
          type == switches::kPpapiPluginProcess ||
          type == switches::kRendererProcess ||
-         type == switches::kUtilityProcess || type == switches::kZygoteProcess;
+         type == switches::kUtilityProcess ||
+         type == service_manager::switches::kZygoteProcess;
 }
 
 int ContentServiceManagerMainDelegate::RunEmbedderProcess() {
-  return content_main_runner_->Run();
+  return content_main_runner_->Run(start_service_manager_only_);
 }
 
 void ContentServiceManagerMainDelegate::ShutDownEmbedderProcess() {
@@ -63,7 +65,7 @@ ContentServiceManagerMainDelegate::OverrideProcessType() {
 }
 
 void ContentServiceManagerMainDelegate::OverrideMojoConfiguration(
-    mojo::edk::Configuration* config) {
+    mojo::core::Configuration* config) {
   // If this is the browser process and there's no remote service manager, we
   // will serve as the global Mojo broker.
   if (!service_manager::ServiceManagerIsRemote() &&
@@ -72,9 +74,9 @@ void ContentServiceManagerMainDelegate::OverrideMojoConfiguration(
     config->is_broker_process = true;
 }
 
-std::unique_ptr<base::Value>
-ContentServiceManagerMainDelegate::CreateServiceCatalog() {
-  return content_main_params_.delegate->CreateServiceCatalog();
+std::vector<service_manager::Manifest>
+ContentServiceManagerMainDelegate::GetServiceManifests() {
+  return std::vector<service_manager::Manifest>();
 }
 
 bool ContentServiceManagerMainDelegate::ShouldLaunchAsServiceProcess(
@@ -85,7 +87,11 @@ bool ContentServiceManagerMainDelegate::ShouldLaunchAsServiceProcess(
 void ContentServiceManagerMainDelegate::AdjustServiceProcessCommandLine(
     const service_manager::Identity& identity,
     base::CommandLine* command_line) {
+  base::CommandLine::StringVector args_without_switches;
   if (identity.name() == mojom::kPackagedServicesServiceName) {
+    // Ensure other arguments like URL are not lost.
+    args_without_switches = command_line->GetArgs();
+
     // When launching the browser process, ensure that we don't inherit any
     // process type flag. When content embeds Service Manager, a process with no
     // type is launched as a browser process.
@@ -98,14 +104,11 @@ void ContentServiceManagerMainDelegate::AdjustServiceProcessCommandLine(
 
   content_main_params_.delegate->AdjustServiceProcessCommandLine(identity,
                                                                  command_line);
-}
 
-bool ContentServiceManagerMainDelegate::
-    ShouldTerminateServiceManagerOnInstanceQuit(
-        const service_manager::Identity& identity,
-        int* exit_code) {
-  return content_main_params_.delegate
-      ->ShouldTerminateServiceManagerOnInstanceQuit(identity, exit_code);
+  // Append other arguments back to |command_line| after the second call to
+  // delegate as long as it can still remove all the arguments without switches.
+  for (const auto& arg : args_without_switches)
+    command_line->AppendArgNative(arg);
 }
 
 void ContentServiceManagerMainDelegate::OnServiceManagerInitialized(
@@ -120,7 +123,12 @@ ContentServiceManagerMainDelegate::CreateEmbeddedService(
     const std::string& service_name) {
   // TODO
 
-  return content_main_params_.delegate->CreateEmbeddedService(service_name);
+  return nullptr;
+}
+
+void ContentServiceManagerMainDelegate::SetStartServiceManagerOnly(
+    bool start_service_manager_only) {
+  start_service_manager_only_ = start_service_manager_only;
 }
 
 }  // namespace content

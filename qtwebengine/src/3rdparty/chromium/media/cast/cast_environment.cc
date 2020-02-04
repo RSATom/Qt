@@ -16,29 +16,28 @@ namespace media {
 namespace cast {
 
 CastEnvironment::CastEnvironment(
-    std::unique_ptr<base::TickClock> clock,
+    const base::TickClock* clock,
     scoped_refptr<SingleThreadTaskRunner> main_thread_proxy,
     scoped_refptr<SingleThreadTaskRunner> audio_thread_proxy,
     scoped_refptr<SingleThreadTaskRunner> video_thread_proxy)
     : main_thread_proxy_(main_thread_proxy),
       audio_thread_proxy_(audio_thread_proxy),
       video_thread_proxy_(video_thread_proxy),
-      clock_(std::move(clock)),
+      clock_(clock),
       logger_(this) {}
 
-CastEnvironment::~CastEnvironment() {}
+CastEnvironment::~CastEnvironment() = default;
 
 bool CastEnvironment::PostTask(ThreadId identifier,
-                               const tracked_objects::Location& from_here,
+                               const base::Location& from_here,
                                const base::Closure& task) {
   return GetTaskRunner(identifier)->PostTask(from_here, task);
 }
 
-bool CastEnvironment::PostDelayedTask(
-    ThreadId identifier,
-    const tracked_objects::Location& from_here,
-    const base::Closure& task,
-    base::TimeDelta delay) {
+bool CastEnvironment::PostDelayedTask(ThreadId identifier,
+                                      const base::Location& from_here,
+                                      const base::Closure& task,
+                                      base::TimeDelta delay) {
   return GetTaskRunner(identifier)->PostDelayedTask(from_here, task, delay);
 }
 

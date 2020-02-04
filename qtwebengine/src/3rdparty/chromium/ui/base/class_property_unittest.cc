@@ -12,12 +12,11 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-DECLARE_UI_CLASS_PROPERTY_TYPE(const char*)
-DECLARE_UI_CLASS_PROPERTY_TYPE(int)
+DEFINE_UI_CLASS_PROPERTY_TYPE(const char*)
+DEFINE_UI_CLASS_PROPERTY_TYPE(int)
 
 namespace {
 
@@ -40,7 +39,7 @@ DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(TestProperty, kOwnedKey, NULL);
 
 }  // namespace
 
-DECLARE_UI_CLASS_PROPERTY_TYPE(TestProperty*);
+DEFINE_UI_CLASS_PROPERTY_TYPE(TestProperty*);
 
 namespace ui {
 namespace test {
@@ -86,29 +85,31 @@ TEST(PropertyTest, Property) {
 }
 
 TEST(PropertyTest, OwnedProperty) {
-  std::unique_ptr<PropertyHandler> h = base::MakeUnique<PropertyHandler>();
+  TestProperty* p3;
+  {
+    PropertyHandler h;
 
-  EXPECT_EQ(NULL, h->GetProperty(kOwnedKey));
-  void* last_deleted = TestProperty::last_deleted();
-  TestProperty* p1 = new TestProperty();
-  h->SetProperty(kOwnedKey, p1);
-  EXPECT_EQ(p1, h->GetProperty(kOwnedKey));
-  EXPECT_EQ(last_deleted, TestProperty::last_deleted());
+    EXPECT_EQ(NULL, h.GetProperty(kOwnedKey));
+    void* last_deleted = TestProperty::last_deleted();
+    TestProperty* p1 = new TestProperty();
+    h.SetProperty(kOwnedKey, p1);
+    EXPECT_EQ(p1, h.GetProperty(kOwnedKey));
+    EXPECT_EQ(last_deleted, TestProperty::last_deleted());
 
-  TestProperty* p2 = new TestProperty();
-  h->SetProperty(kOwnedKey, p2);
-  EXPECT_EQ(p2, h->GetProperty(kOwnedKey));
-  EXPECT_EQ(p1, TestProperty::last_deleted());
+    TestProperty* p2 = new TestProperty();
+    h.SetProperty(kOwnedKey, p2);
+    EXPECT_EQ(p2, h.GetProperty(kOwnedKey));
+    EXPECT_EQ(p1, TestProperty::last_deleted());
 
-  h->ClearProperty(kOwnedKey);
-  EXPECT_EQ(NULL, h->GetProperty(kOwnedKey));
-  EXPECT_EQ(p2, TestProperty::last_deleted());
+    h.ClearProperty(kOwnedKey);
+    EXPECT_EQ(NULL, h.GetProperty(kOwnedKey));
+    EXPECT_EQ(p2, TestProperty::last_deleted());
 
-  TestProperty* p3 = new TestProperty();
-  h->SetProperty(kOwnedKey, p3);
-  EXPECT_EQ(p3, h->GetProperty(kOwnedKey));
-  EXPECT_EQ(p2, TestProperty::last_deleted());
-  h.reset();
+    p3 = new TestProperty();
+    h.SetProperty(kOwnedKey, p3);
+    EXPECT_EQ(p3, h.GetProperty(kOwnedKey));
+    EXPECT_EQ(p2, TestProperty::last_deleted());
+  }
   EXPECT_EQ(p3, TestProperty::last_deleted());
 }
 

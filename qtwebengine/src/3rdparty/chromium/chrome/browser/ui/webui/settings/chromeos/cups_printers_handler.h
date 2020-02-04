@@ -12,6 +12,7 @@
 
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observer.h"
 #include "chrome/browser/chromeos/printing/cups_printers_manager.h"
 #include "chrome/browser/chromeos/printing/printer_configurer.h"
 #include "chrome/browser/chromeos/printing/printer_event_tracker.h"
@@ -42,8 +43,8 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
 
   // SettingsPageUIHandler overrides:
   void RegisterMessages() override;
-  void OnJavascriptAllowed() override {}
-  void OnJavascriptDisallowed() override {}
+  void OnJavascriptAllowed() override;
+  void OnJavascriptDisallowed() override;
 
  private:
   // Gets all CUPS printers and return it to WebUI.
@@ -77,13 +78,22 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
                                    const std::string& make_and_model,
                                    bool ipp_everywhere);
 
+  // Callback for PPD matching attempts;
+  void OnPpdResolved(const std::string& callback_id,
+                     base::Value info,
+                     PpdProvider::CallbackResultCode res,
+                     const Printer::PpdReference& ppd_ref);
+
   void HandleAddCupsPrinter(const base::ListValue* args);
 
   // Handles the result of adding a printer which the user specified the
   // location of (i.e. a printer that was not 'discovered' automatically).
   void OnAddedSpecifiedPrinter(const Printer& printer,
                                PrinterSetupResult result);
-  void OnAddPrinterError();
+
+  // Handles the result of failure to add a printer. |result_code| is used to
+  // determine the reason for the failure.
+  void OnAddPrinterError(PrinterSetupResult result_code);
 
   // Get a list of all manufacturers for which we have at least one model of
   // printer supported.  Takes one argument, the callback id for the result.
@@ -111,6 +121,9 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
   void HandleStartDiscovery(const base::ListValue* args);
   void HandleStopDiscovery(const base::ListValue* args);
 
+  // Logs printer set ups that are abandoned.
+  void HandleSetUpCancel(const base::ListValue* args);
+
   // Given a printer id, find the corresponding ppdManufacturer and ppdModel.
   void HandleGetPrinterPpdManufacturerAndModel(const base::ListValue* args);
   void OnGetPrinterPpdManufacturerAndModel(
@@ -118,6 +131,9 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
       PpdProvider::CallbackResultCode result_code,
       const std::string& manufacturer,
       const std::string& model);
+
+  // Emits the updated discovered printer list after new printers are received.
+  void UpdateDiscoveredPrinters();
 
   // Attempt to add a discovered printer.
   void HandleAddDiscoveredPrinter(const base::ListValue* args);
@@ -127,9 +143,9 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
                                 PrinterSetupResult result_code);
 
   // Code common between the discovered and manual add printer code paths.
-  // Returns true if the printer was added successfully, false otherwise.
-  bool OnAddedPrinterCommon(const Printer& printer,
-                            PrinterSetupResult result_code);
+  void OnAddedPrinterCommon(const Printer& printer,
+                            PrinterSetupResult result_code,
+                            bool is_automatic);
 
   // CupsPrintersManager::Observer override:
   void OnPrintersChanged(CupsPrintersManager::PrinterClass printer_class,
@@ -139,6 +155,17 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
   void FileSelected(const base::FilePath& path,
                     int index,
                     void* params) override;
+
+  // Used by FileSelected() in order to verify whether the beginning contents of
+  // the selected file contain the magic number present in all PPD files. |path|
+  // is used for display in the UI as this function calls back into javascript
+  // with |path| as the result.
+  void VerifyPpdContents(const base::FilePath& path,
+                         const std::string& contents);
+
+  // Fires the on-manually-add-discovered-printer event with the appropriate
+  // parameters.  See https://crbug.com/835476
+  void FireManuallyAddDiscoveredPrinter(const Printer& printer);
 
   Profile* profile_;
 
@@ -162,7 +189,10 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
 
   scoped_refptr<ui::SelectFileDialog> select_file_dialog_;
   std::string webui_callback_id_;
-  std::unique_ptr<CupsPrintersManager> printers_manager_;
+  CupsPrintersManager* printers_manager_;
+
+  ScopedObserver<CupsPrintersManager, CupsPrintersManager::Observer>
+      printers_manager_observer_;
 
   base::WeakPtrFactory<CupsPrintersHandler> weak_factory_;
 

@@ -6,12 +6,10 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "content/browser/android/java/gin_java_bound_object_delegate.h"
 #include "content/browser/android/java/gin_java_bridge_message_filter.h"
 #include "content/browser/android/java/java_bridge_thread.h"
-#include "content/browser/android/java/jni_helper.h"
 #include "content/common/android/gin_java_bridge_value.h"
 #include "content/common/android/hash_set.h"
 #include "content/common/gin_java_bridge_messages.h"
@@ -47,15 +45,15 @@ GinJavaBridgeDispatcherHost::~GinJavaBridgeDispatcherHost() {
 void GinJavaBridgeDispatcherHost::InstallFilterAndRegisterAllRoutingIds() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (named_objects_.empty() ||
-      !web_contents()->GetRenderProcessHost()->GetChannel()) {
+      !web_contents()->GetMainFrame()->GetProcess()->GetChannel()) {
     return;
   }
 
   auto filter = GinJavaBridgeMessageFilter::FromHost(this, true);
-  // ForEachFrame is synchronous.
+  // Unretained() is safe because ForEachFrame() is synchronous.
   web_contents()->ForEachFrame(
-      base::Bind(&GinJavaBridgeMessageFilter::AddRoutingIdForHost, filter,
-                 base::Unretained(this)));
+      base::BindRepeating(&GinJavaBridgeMessageFilter::AddRoutingIdForHost,
+                          filter, base::Unretained(this)));
 }
 
 void GinJavaBridgeDispatcherHost::RenderFrameCreated(
@@ -79,11 +77,6 @@ void GinJavaBridgeDispatcherHost::WebContentsDestroyed() {
       GinJavaBridgeMessageFilter::FromHost(this, false);
   if (filter)
     filter->RemoveHost(this);
-}
-
-void GinJavaBridgeDispatcherHost::RenderProcessGone(
-    base::TerminationStatus status) {
-  GinJavaBridgeMessageFilter::RemoveFilter(this);
 }
 
 void GinJavaBridgeDispatcherHost::RenderViewHostChanged(
@@ -159,23 +152,18 @@ JavaObjectWeakGlobalRef GinJavaBridgeDispatcherHost::GetObjectWeakRef(
 }
 
 JavaObjectWeakGlobalRef
-GinJavaBridgeDispatcherHost::RemoveHolderAndAdvanceLocked(
+GinJavaBridgeDispatcherHost::RemoveHolderLocked(
     int32_t holder,
     ObjectMap::iterator* iter_ptr) {
   objects_lock_.AssertAcquired();
   JavaObjectWeakGlobalRef result;
   scoped_refptr<GinJavaBoundObject> object((*iter_ptr)->second);
-  bool object_erased = false;
   if (!object->IsNamed()) {
     object->RemoveHolder(holder);
     if (!object->HasHolders()) {
       result = object->GetWeakRef();
-      objects_.erase((*iter_ptr)++);
-      object_erased = true;
+      objects_.erase(*iter_ptr);
     }
-  }
-  if (!object_erased) {
-    ++(*iter_ptr);
   }
   return result;
 }
@@ -330,13 +318,13 @@ void GinJavaBridgeDispatcherHost::OnInvokeMethod(
   DCHECK(routing_id != MSG_ROUTING_NONE);
   scoped_refptr<GinJavaBoundObject> object = FindObject(object_id);
   if (!object.get()) {
-    wrapped_result->Append(base::MakeUnique<base::Value>());
+    wrapped_result->Append(std::make_unique<base::Value>());
     *error_code = kGinJavaBridgeUnknownObjectId;
     return;
   }
   scoped_refptr<GinJavaMethodInvocationHelper> result =
       new GinJavaMethodInvocationHelper(
-          base::MakeUnique<GinJavaBoundObjectDelegate>(object), method_name,
+          std::make_unique<GinJavaBoundObjectDelegate>(object), method_name,
           arguments);
   result->Init(this);
   result->Invoke();
@@ -359,7 +347,7 @@ void GinJavaBridgeDispatcherHost::OnInvokeMethod(
     wrapped_result->Append(
         GinJavaBridgeValue::CreateObjectIDValue(returned_object_id));
   } else {
-    wrapped_result->Append(base::MakeUnique<base::Value>());
+    wrapped_result->Append(std::make_unique<base::Value>());
   }
 }
 
@@ -372,8 +360,7 @@ void GinJavaBridgeDispatcherHost::OnObjectWrapperDeleted(
   auto iter = objects_.find(object_id);
   if (iter == objects_.end())
     return;
-  JavaObjectWeakGlobalRef ref =
-      RemoveHolderAndAdvanceLocked(routing_id, &iter);
+  JavaObjectWeakGlobalRef ref = RemoveHolderLocked(routing_id, &iter);
   if (!ref.is_uninitialized()) {
     RemoveFromRetainedObjectSetLocked(ref);
   }

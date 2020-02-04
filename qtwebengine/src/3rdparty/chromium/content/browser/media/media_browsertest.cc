@@ -15,24 +15,11 @@
 #include "content/shell/browser/shell.h"
 #include "media/base/media_switches.h"
 #include "media/base/test_data_util.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "url/url_util.h"
 
 namespace content {
-
-// TODO(sandersd): Change the tests to use a more unique message.
-// See http://crbug.com/592067
-
-// Common test results.
-const char MediaBrowserTest::kFailed[] = "FAILED";
-
-// Upper case event name set by Utils.installTitleEventHandler().
-const char MediaBrowserTest::kEnded[] = "ENDED";
-const char MediaBrowserTest::kErrorEvent[] = "ERROR";
-
-// Lower case event name as set by Utils.failTest().
-const char MediaBrowserTest::kError[] = "error";
 
 #if defined(OS_ANDROID)
 // Title set by android cleaner page after short timeout.
@@ -40,7 +27,12 @@ const char kClean[] = "CLEAN";
 #endif
 
 void MediaBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
-  command_line->AppendSwitch(switches::kIgnoreAutoplayRestrictionsForTests);
+  command_line->AppendSwitchASCII(
+      switches::kAutoplayPolicy,
+      switches::autoplay::kNoUserGestureRequiredPolicy);
+  // Disable fallback after decode error to avoid unexpected test pass on the
+  // fallback path.
+  scoped_feature_list_.InitAndDisableFeature(media::kFallbackAfterDecodeError);
 }
 
 void MediaBrowserTest::RunMediaTestPage(const std::string& html_page,
@@ -72,6 +64,11 @@ std::string MediaBrowserTest::RunTest(const GURL& gurl,
   NavigateToURL(shell(), gurl);
   base::string16 result = title_watcher.WaitAndGetTitle();
 
+  CleanupTest();
+  return base::UTF16ToASCII(result);
+}
+
+void MediaBrowserTest::CleanupTest() {
 #if defined(OS_ANDROID)
   // We only do this cleanup on Android, as a workaround for a test-only OOM
   // bug. See http://crbug.com/727542
@@ -83,8 +80,6 @@ std::string MediaBrowserTest::RunTest(const GURL& gurl,
   base::string16 cleaner_result = clean_title_watcher.WaitAndGetTitle();
   EXPECT_EQ(cleaner_result, cleaner_title);
 #endif
-
-  return base::UTF16ToASCII(result);
 }
 
 std::string MediaBrowserTest::EncodeErrorMessage(
@@ -96,10 +91,10 @@ std::string MediaBrowserTest::EncodeErrorMessage(
 }
 
 void MediaBrowserTest::AddTitlesToAwait(content::TitleWatcher* title_watcher) {
-  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(kEnded));
-  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(kError));
-  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(kErrorEvent));
-  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(kFailed));
+  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kEnded));
+  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kError));
+  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kErrorEvent));
+  title_watcher->AlsoWaitForTitle(base::ASCIIToUTF16(media::kFailed));
 }
 
 // Tests playback and seeking of an audio or video file over file or http based
@@ -123,8 +118,8 @@ class MediaTest : public testing::WithParamInterface<bool>,
                  const std::string& media_file,
                  bool http) {
     base::StringPairs query_params;
-    query_params.push_back(std::make_pair(tag, media_file));
-    RunMediaTestPage("player.html", query_params, kEnded, http);
+    query_params.emplace_back(tag, media_file);
+    RunMediaTestPage("player.html", query_params, media::kEnded, http);
   }
 
   void RunErrorMessageTest(const std::string& tag,
@@ -132,10 +127,10 @@ class MediaTest : public testing::WithParamInterface<bool>,
                            const std::string& expected_error_substring,
                            bool http) {
     base::StringPairs query_params;
-    query_params.push_back(std::make_pair(tag, media_file));
-    query_params.push_back(std::make_pair(
-        "error_substr", EncodeErrorMessage(expected_error_substring)));
-    RunMediaTestPage("player.html", query_params, kErrorEvent, http);
+    query_params.emplace_back(tag, media_file);
+    query_params.emplace_back("error_substr",
+                              EncodeErrorMessage(expected_error_substring));
+    RunMediaTestPage("player.html", query_params, media::kErrorEvent, http);
   }
 
   void RunVideoSizeTest(const char* media_file, int width, int height) {
@@ -144,7 +139,7 @@ class MediaTest : public testing::WithParamInterface<bool>,
     expected += " ";
     expected += base::IntToString(height);
     base::StringPairs query_params;
-    query_params.push_back(std::make_pair("video", media_file));
+    query_params.emplace_back("video", media_file);
     RunMediaTestPage("player.html", query_params, expected, false);
   }
 };
@@ -164,11 +159,15 @@ IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearWebm) {
   PlayVideo("bear.webm", GetParam());
 }
 
-IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearOpusWebm) {
+IN_PROC_BROWSER_TEST_P(MediaTest, AudioBearOpusWebm) {
   PlayVideo("bear-opus.webm", GetParam());
 }
 
-IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearOpusOgg) {
+IN_PROC_BROWSER_TEST_P(MediaTest, AudioBearOpusMp4) {
+  PlayVideo("bear-opus.mp4", GetParam());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaTest, AudioBearOpusOgg) {
   PlayVideo("bear-opus.ogg", GetParam());
 }
 
@@ -187,35 +186,33 @@ IN_PROC_BROWSER_TEST_P(MediaTest, VideoBear12DepthVP9) {
 }
 #endif
 
-#if BUILDFLAG(USE_PROPRIETARY_CODECS)
-IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearMp4) {
-  PlayVideo("bear.mp4", GetParam());
-}
-
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearMp4Vp9) {
   PlayVideo("bear-320x240-v_frag-vp9.mp4", GetParam());
 }
 
-// Android devices usually only support baseline, main and high.
-#if !defined(OS_ANDROID)
-IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearHighBitDepthMp4) {
-  PlayVideo("bear-320x180-hi10p.mp4", GetParam());
-}
-#endif  // !defined(OS_ANDROID)
-
-IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearSilentMp4) {
-  PlayVideo("bear_silent.mp4", GetParam());
+IN_PROC_BROWSER_TEST_P(MediaTest, AudioBearFlacMp4) {
+  PlayAudio("bear-flac.mp4", GetParam());
 }
 
-// While we support the big endian (be) PCM codecs on Chromium, Quicktime seems
-// to be the only creator of this format and only for .mov files.
-// TODO(dalecurtis/ihf): Find or create some .wav test cases for "be" format.
+IN_PROC_BROWSER_TEST_P(MediaTest, AudioBearFlac192kHzMp4) {
+  PlayAudio("bear-flac-192kHz.mp4", GetParam());
+}
+
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearMovPcmS16be) {
   PlayVideo("bear_pcm_s16be.mov", GetParam());
 }
 
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearMovPcmS24be) {
   PlayVideo("bear_pcm_s24be.mov", GetParam());
+}
+
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearMp4) {
+  PlayVideo("bear.mp4", GetParam());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearSilentMp4) {
+  PlayVideo("bear_silent.mp4", GetParam());
 }
 
 IN_PROC_BROWSER_TEST_F(MediaTest, VideoBearRotated0) {
@@ -233,10 +230,22 @@ IN_PROC_BROWSER_TEST_F(MediaTest, VideoBearRotated180) {
 IN_PROC_BROWSER_TEST_F(MediaTest, VideoBearRotated270) {
   RunVideoSizeTest("bear_rotate_270.mp4", 720, 1280);
 }
-#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
+
+#if !defined(OS_ANDROID)
+// Android devices usually only support baseline, main and high.
+IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearHighBitDepthMp4) {
+  PlayVideo("bear-320x180-hi10p.mp4", GetParam());
+}
+
+// Android can't reliably load lots of videos on a page.
+// See http://crbug.com/749265
+IN_PROC_BROWSER_TEST_F(MediaTest, LoadManyVideos) {
+  base::StringPairs query_params;
+  RunMediaTestPage("load_many_videos.html", query_params, media::kEnded, true);
+}
+#endif  // !defined(OS_ANDROID)
 
 #if defined(OS_CHROMEOS)
-#if BUILDFLAG(USE_PROPRIETARY_CODECS)
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearAviMp3Mpeg4) {
   PlayVideo("bear_mpeg4_mp3.avi", GetParam());
 }
@@ -260,8 +269,8 @@ IN_PROC_BROWSER_TEST_P(MediaTest, VideoBear3gpAmrnbMpeg4) {
 IN_PROC_BROWSER_TEST_P(MediaTest, VideoBearWavGsmms) {
   PlayAudio("bear_gsm_ms.wav", GetParam());
 }
-#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 #endif  // defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
 IN_PROC_BROWSER_TEST_P(MediaTest, AudioBearFlac) {
   PlayAudio("bear.flac", GetParam());

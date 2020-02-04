@@ -11,14 +11,14 @@
 #include "base/trace_event/trace_event.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "content/public/renderer/render_thread.h"
-#include "content/renderer/media/media_stream_video_source.h"
-#include "content/renderer/media/webrtc_uma_histograms.h"
+#include "content/renderer/media/stream/media_stream_video_source.h"
+#include "content/renderer/media/webrtc/webrtc_uma_histograms.h"
 #include "media/base/limits.h"
 #include "media/blink/webmediaplayer_impl.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/WebKit/public/platform/WebMediaPlayer.h"
-#include "third_party/WebKit/public/platform/WebRect.h"
-#include "third_party/WebKit/public/platform/WebSize.h"
+#include "third_party/blink/public/platform/web_media_player.h"
+#include "third_party/blink/public/platform/web_rect.h"
+#include "third_party/blink/public/platform/web_size.h"
 #include "third_party/libyuv/include/libyuv.h"
 
 namespace {
@@ -31,21 +31,25 @@ namespace content {
 std::unique_ptr<HtmlVideoElementCapturerSource>
 HtmlVideoElementCapturerSource::CreateFromWebMediaPlayerImpl(
     blink::WebMediaPlayer* player,
-    const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner) {
+    const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   // Save histogram data so we can see how much HTML Video capture is used.
   // The histogram counts the number of calls to the JS API.
-  UpdateWebRTCMethodCount(WEBKIT_VIDEO_CAPTURE_STREAM);
+  UpdateWebRTCMethodCount(blink::WebRTCAPIName::kVideoCaptureStream);
 
   return base::WrapUnique(new HtmlVideoElementCapturerSource(
       static_cast<media::WebMediaPlayerImpl*>(player)->AsWeakPtr(),
-      io_task_runner));
+      io_task_runner, task_runner));
 }
 
 HtmlVideoElementCapturerSource::HtmlVideoElementCapturerSource(
     const base::WeakPtr<blink::WebMediaPlayer>& player,
-    const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner)
+    const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : web_media_player_(player),
       io_task_runner_(io_task_runner),
+      task_runner_(task_runner),
+      is_opaque_(player->IsOpaque()),
       capture_frame_rate_(0.0),
       weak_factory_(this) {
   DCHECK(web_media_player_);
@@ -84,13 +88,6 @@ void HtmlVideoElementCapturerSource::StartCapture(
     running_callback_.Run(false);
     return;
   }
-  const blink::WebSize resolution = web_media_player_->NaturalSize();
-  if (!bitmap_.tryAllocPixels(
-          SkImageInfo::MakeN32Premul(resolution.width, resolution.height))) {
-    running_callback_.Run(false);
-    return;
-  }
-  canvas_ = base::MakeUnique<cc::SkiaPaintCanvas>(bitmap_);
 
   new_frame_callback_ = new_frame_callback;
   // Force |capture_frame_rate_| to be in between k{Min,Max}FramesPerSecond.
@@ -101,8 +98,8 @@ void HtmlVideoElementCapturerSource::StartCapture(
 
   running_callback_.Run(true);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&HtmlVideoElementCapturerSource::sendNewFrame,
-                            weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&HtmlVideoElementCapturerSource::sendNewFrame,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void HtmlVideoElementCapturerSource::StopCapture() {
@@ -115,14 +112,28 @@ void HtmlVideoElementCapturerSource::StopCapture() {
 
 void HtmlVideoElementCapturerSource::sendNewFrame() {
   DVLOG(3) << __func__;
-  TRACE_EVENT0("video", "HtmlVideoElementCapturerSource::sendNewFrame");
+  TRACE_EVENT0("media", "HtmlVideoElementCapturerSource::sendNewFrame");
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (!web_media_player_ || new_frame_callback_.is_null())
     return;
 
   const base::TimeTicks current_time = base::TimeTicks::Now();
+  if (start_capture_time_.is_null())
+    start_capture_time_ = current_time;
   const blink::WebSize resolution = web_media_player_->NaturalSize();
+
+  if (!canvas_ || is_opaque_ != web_media_player_->IsOpaque()) {
+    LOG(ERROR) << " Change in opacity !!!";
+    is_opaque_ = web_media_player_->IsOpaque();
+    if (!bitmap_.tryAllocPixels(SkImageInfo::MakeN32(
+            resolution.width, resolution.height,
+            is_opaque_ ? kOpaque_SkAlphaType : kPremul_SkAlphaType))) {
+      running_callback_.Run(false);
+      return;
+    }
+    canvas_ = std::make_unique<cc::SkiaPaintCanvas>(bitmap_);
+  }
 
   cc::PaintFlags flags;
   flags.setBlendMode(SkBlendMode::kSrc);
@@ -143,28 +154,38 @@ void HtmlVideoElementCapturerSource::sendNewFrame() {
   }
 
   scoped_refptr<media::VideoFrame> frame = frame_pool_.CreateFrame(
-      media::PIXEL_FORMAT_I420, resolution, gfx::Rect(resolution), resolution,
-      base::TimeTicks::Now() - base::TimeTicks());
-  DCHECK(frame);
+      is_opaque_ ? media::PIXEL_FORMAT_I420 : media::PIXEL_FORMAT_I420A,
+      resolution, gfx::Rect(resolution), resolution,
+      current_time - start_capture_time_);
 
-  const uint32 source_pixel_format =
+  const uint32_t source_pixel_format =
       (kN32_SkColorType == kRGBA_8888_SkColorType) ? libyuv::FOURCC_ABGR
                                                    : libyuv::FOURCC_ARGB;
 
-  if (libyuv::ConvertToI420(
-          static_cast<uint8*>(bitmap_.getPixels()), bitmap_.getSize(),
-          frame->data(media::VideoFrame::kYPlane),
+  if (frame &&
+      libyuv::ConvertToI420(
+          static_cast<uint8_t*>(bitmap_.getPixels()), bitmap_.computeByteSize(),
+          frame->visible_data(media::VideoFrame::kYPlane),
           frame->stride(media::VideoFrame::kYPlane),
-          frame->data(media::VideoFrame::kUPlane),
+          frame->visible_data(media::VideoFrame::kUPlane),
           frame->stride(media::VideoFrame::kUPlane),
-          frame->data(media::VideoFrame::kVPlane),
+          frame->visible_data(media::VideoFrame::kVPlane),
           frame->stride(media::VideoFrame::kVPlane), 0 /* crop_x */,
-          0 /* crop_y */, bitmap_.info().width(), bitmap_.info().height(),
-          frame->coded_size().width(), frame->coded_size().height(),
-          libyuv::kRotate0, source_pixel_format) == 0) {
-    // Success!
+          0 /* crop_y */, frame->visible_rect().size().width(),
+          frame->visible_rect().size().height(), bitmap_.info().width(),
+          bitmap_.info().height(), libyuv::kRotate0,
+          source_pixel_format) == 0) {
+    if (!is_opaque_) {
+      // OK to use ARGB...() because alpha has the same alignment for both ABGR
+      // and ARGB.
+      libyuv::ARGBExtractAlpha(static_cast<uint8_t*>(bitmap_.getPixels()),
+                               bitmap_.rowBytes() /* stride */,
+                               frame->visible_data(media::VideoFrame::kAPlane),
+                               frame->stride(media::VideoFrame::kAPlane),
+                               bitmap_.info().width(), bitmap_.info().height());
+    }  // Success!
     io_task_runner_->PostTask(
-        FROM_HERE, base::Bind(new_frame_callback_, frame, current_time));
+        FROM_HERE, base::BindOnce(new_frame_callback_, frame, current_time));
   }
 
   // Calculate the time in the future where the next frame should be created.
@@ -180,9 +201,10 @@ void HtmlVideoElementCapturerSource::sendNewFrame() {
       next_capture_time_ = current_time;
   }
   // Schedule next capture.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::Bind(&HtmlVideoElementCapturerSource::sendNewFrame,
-                            weak_factory_.GetWeakPtr()),
+  task_runner_->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&HtmlVideoElementCapturerSource::sendNewFrame,
+                     weak_factory_.GetWeakPtr()),
       next_capture_time_ - current_time);
 }
 

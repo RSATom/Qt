@@ -8,14 +8,17 @@
 
 #include <vector>
 
+#include "base/lazy_instance.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/variations/metrics_util.h"
+#include "components/variations/hashing.h"
 #include "components/variations/synthetic_trials_active_group_id_provider.h"
 
 namespace variations {
 
 namespace {
+
+base::LazyInstance<std::string>::Leaky g_seed_version;
 
 // Populates |name_group_ids| based on |active_groups|. Field trial names are
 // suffixed with |suffix| before hashing is executed.
@@ -45,8 +48,8 @@ void AppendActiveGroupIdsAsStrings(
 ActiveGroupId MakeActiveGroupId(base::StringPiece trial_name,
                                 base::StringPiece group_name) {
   ActiveGroupId id;
-  id.name = metrics::HashName(trial_name);
-  id.group = metrics::HashName(group_name);
+  id.name = HashName(trial_name);
+  id.group = HashName(group_name);
   return id;
 }
 
@@ -75,6 +78,14 @@ void GetSyntheticTrialGroupIdsAsString(std::vector<std::string>* output) {
   SyntheticTrialsActiveGroupIdProvider::GetInstance()->GetActiveGroupIds(
       &name_group_ids);
   AppendActiveGroupIdsAsStrings(name_group_ids, output);
+}
+
+void SetSeedVersion(const std::string& seed_version) {
+  g_seed_version.Get() = seed_version;
+}
+
+const std::string& GetSeedVersion() {
+  return g_seed_version.Get();
 }
 
 namespace testing {

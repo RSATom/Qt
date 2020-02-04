@@ -13,7 +13,6 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/screen_orientation_delegate.h"
 #include "content/public/browser/web_contents.h"
-#include "third_party/WebKit/public/platform/modules/screen_orientation/WebLockOrientationError.h"
 
 namespace content {
 
@@ -119,6 +118,10 @@ void ScreenOrientationProvider::NotifyLockResult(
 void ScreenOrientationProvider::SetDelegate(
     ScreenOrientationDelegate* delegate) {
   delegate_ = delegate;
+}
+
+ScreenOrientationDelegate* ScreenOrientationProvider::GetDelegateForTesting() {
+  return delegate_;
 }
 
 void ScreenOrientationProvider::DidToggleFullscreenModeForTab(

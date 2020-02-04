@@ -12,39 +12,37 @@
 #include "fxbarcode/BC_Library.h"
 #include "fxbarcode/oned/BC_OneDimWriter.h"
 
-class CBC_OnedCodaBarWriter : public CBC_OneDimWriter {
+class CBC_OnedCodaBarWriter final : public CBC_OneDimWriter {
  public:
   CBC_OnedCodaBarWriter();
   ~CBC_OnedCodaBarWriter() override;
 
   // CBC_OneDimWriter
-  uint8_t* EncodeImpl(const CFX_ByteString& contents,
-                      int32_t& outLength) override;
-  uint8_t* EncodeWithHint(const CFX_ByteString& contents,
+  uint8_t* EncodeImpl(const ByteString& contents, int32_t& outLength) override;
+  uint8_t* EncodeWithHint(const ByteString& contents,
                           BCFORMAT format,
                           int32_t& outWidth,
                           int32_t& outHeight,
                           int32_t hints) override;
-  bool RenderResult(const CFX_WideStringC& contents,
+  bool RenderResult(WideStringView contents,
                     uint8_t* code,
-                    int32_t codeLength,
-                    bool isDevice) override;
-  bool CheckContentValidity(const CFX_WideStringC& contents) override;
-  CFX_WideString FilterContents(const CFX_WideStringC& contents) override;
+                    int32_t codeLength) override;
+  bool CheckContentValidity(WideStringView contents) override;
+  WideString FilterContents(WideStringView contents) override;
   void SetDataLength(int32_t length) override;
+  bool SetTextLocation(BC_TEXT_LOC location) override;
+  bool SetWideNarrowRatio(int8_t ratio) override;
+  bool SetStartChar(char start) override;
+  bool SetEndChar(char end) override;
 
-  virtual bool SetStartChar(char start);
-  virtual bool SetEndChar(char end);
-  virtual bool SetTextLocation(BC_TEXT_LOC location);
-  virtual bool SetWideNarrowRatio(int8_t ratio);
   virtual bool FindChar(wchar_t ch, bool isContent);
 
-  CFX_WideString encodedContents(const CFX_WideStringC& contents);
+  WideString encodedContents(WideStringView contents);
 
  private:
-  char m_chStart;
-  char m_chEnd;
-  int8_t m_iWideNarrRatio;
+  char m_chStart = 'A';
+  char m_chEnd = 'B';
+  int8_t m_iWideNarrRatio = 2;
 };
 
 #endif  // FXBARCODE_ONED_BC_ONEDCODABARWRITER_H_

@@ -15,6 +15,8 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "media/capture/mojom/image_capture_types.h"
+#include "media/capture/video/blob_utils.h"
 #include "media/capture/video_capture_types.h"
 #include "media/filters/jpeg_parser.h"
 
@@ -54,9 +56,9 @@ void ParseY4MRational(const base::StringPiece& token,
 // format, in this case it means I420.
 // This code was inspired by third_party/libvpx/.../y4minput.* .
 void ParseY4MTags(const std::string& file_header,
-                  media::VideoCaptureFormat* video_format) {
-  media::VideoCaptureFormat format;
-  format.pixel_format = media::PIXEL_FORMAT_I420;
+                  VideoCaptureFormat* video_format) {
+  VideoCaptureFormat format;
+  format.pixel_format = PIXEL_FORMAT_I420;
   size_t index = 0;
   size_t blank_position = 0;
   base::StringPiece token;
@@ -114,7 +116,7 @@ class VideoFileParser {
   virtual ~VideoFileParser();
 
   // Parses file header and collects format information in |capture_format|.
-  virtual bool Initialize(media::VideoCaptureFormat* capture_format) = 0;
+  virtual bool Initialize(VideoCaptureFormat* capture_format) = 0;
 
   // Gets the start pointer of next frame and stores current frame size in
   // |frame_size|.
@@ -133,7 +135,7 @@ class Y4mFileParser final : public VideoFileParser {
 
   // VideoFileParser implementation, class methods.
   ~Y4mFileParser() override;
-  bool Initialize(media::VideoCaptureFormat* capture_format) override;
+  bool Initialize(VideoCaptureFormat* capture_format) override;
   const uint8_t* GetNextFrame(int* frame_size) override;
 
  private:
@@ -149,7 +151,7 @@ class MjpegFileParser final : public VideoFileParser {
 
   // VideoFileParser implementation, class methods.
   ~MjpegFileParser() override;
-  bool Initialize(media::VideoCaptureFormat* capture_format) override;
+  bool Initialize(VideoCaptureFormat* capture_format) override;
   const uint8_t* GetNextFrame(int* frame_size) override;
 
  private:
@@ -164,14 +166,14 @@ VideoFileParser::VideoFileParser(const base::FilePath& file_path)
       current_byte_index_(0),
       first_frame_byte_index_(0) {}
 
-VideoFileParser::~VideoFileParser() {}
+VideoFileParser::~VideoFileParser() = default;
 
 Y4mFileParser::Y4mFileParser(const base::FilePath& file_path)
     : VideoFileParser(file_path) {}
 
-Y4mFileParser::~Y4mFileParser() {}
+Y4mFileParser::~Y4mFileParser() = default;
 
-bool Y4mFileParser::Initialize(media::VideoCaptureFormat* capture_format) {
+bool Y4mFileParser::Initialize(VideoCaptureFormat* capture_format) {
   file_.reset(new base::File(file_path_,
                              base::File::FLAG_OPEN | base::File::FLAG_READ));
   if (!file_->IsValid()) {
@@ -218,9 +220,9 @@ const uint8_t* Y4mFileParser::GetNextFrame(int* frame_size) {
 MjpegFileParser::MjpegFileParser(const base::FilePath& file_path)
     : VideoFileParser(file_path) {}
 
-MjpegFileParser::~MjpegFileParser() {}
+MjpegFileParser::~MjpegFileParser() = default;
 
-bool MjpegFileParser::Initialize(media::VideoCaptureFormat* capture_format) {
+bool MjpegFileParser::Initialize(VideoCaptureFormat* capture_format) {
   mapped_file_.reset(new base::MemoryMappedFile());
 
   if (!mapped_file_->Initialize(file_path_) || !mapped_file_->IsValid()) {
@@ -239,7 +241,7 @@ bool MjpegFileParser::Initialize(media::VideoCaptureFormat* capture_format) {
   }
 
   VideoCaptureFormat format;
-  format.pixel_format = media::PIXEL_FORMAT_MJPEG;
+  format.pixel_format = PIXEL_FORMAT_MJPEG;
   format.frame_size.set_width(result.frame_header.visible_width);
   format.frame_size.set_height(result.frame_header.visible_height);
   format.frame_rate = kMJpegFrameRate;
@@ -268,7 +270,7 @@ const uint8_t* MjpegFileParser::GetNextFrame(int* frame_size) {
 // static
 bool FileVideoCaptureDevice::GetVideoCaptureFormat(
     const base::FilePath& file_path,
-    media::VideoCaptureFormat* video_format) {
+    VideoCaptureFormat* video_format) {
   std::unique_ptr<VideoFileParser> file_parser =
       GetVideoFileParser(file_path, video_format);
   return file_parser != nullptr;
@@ -277,7 +279,7 @@ bool FileVideoCaptureDevice::GetVideoCaptureFormat(
 // static
 std::unique_ptr<VideoFileParser> FileVideoCaptureDevice::GetVideoFileParser(
     const base::FilePath& file_path,
-    media::VideoCaptureFormat* video_format) {
+    VideoCaptureFormat* video_format) {
   std::unique_ptr<VideoFileParser> file_parser;
   std::string file_name(file_path.value().begin(), file_path.value().end());
 
@@ -326,9 +328,61 @@ void FileVideoCaptureDevice::StopAndDeAllocate() {
   CHECK(capture_thread_.IsRunning());
 
   capture_thread_.task_runner()->PostTask(
-      FROM_HERE, base::Bind(&FileVideoCaptureDevice::OnStopAndDeAllocate,
-                            base::Unretained(this)));
+      FROM_HERE, base::BindOnce(&FileVideoCaptureDevice::OnStopAndDeAllocate,
+                                base::Unretained(this)));
   capture_thread_.Stop();
+}
+
+void FileVideoCaptureDevice::GetPhotoState(GetPhotoStateCallback callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  auto photo_capabilities = mojo::CreateEmptyPhotoState();
+
+  int height = capture_format_.frame_size.height();
+  photo_capabilities->height = mojom::Range::New(height, height, height, 0);
+  int width = capture_format_.frame_size.width();
+  photo_capabilities->width = mojom::Range::New(width, width, width, 0);
+
+  std::move(callback).Run(std::move(photo_capabilities));
+}
+
+void FileVideoCaptureDevice::SetPhotoOptions(mojom::PhotoSettingsPtr settings,
+                                             SetPhotoOptionsCallback callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  if (settings->has_height &&
+      settings->height != capture_format_.frame_size.height()) {
+    return;
+  }
+
+  if (settings->has_width &&
+      settings->width != capture_format_.frame_size.width()) {
+    return;
+  }
+
+  if (settings->has_torch && settings->torch)
+    return;
+
+  if (settings->has_red_eye_reduction && settings->red_eye_reduction)
+    return;
+
+  if (settings->has_exposure_compensation || settings->has_exposure_time ||
+      settings->has_color_temperature || settings->has_iso ||
+      settings->has_brightness || settings->has_contrast ||
+      settings->has_saturation || settings->has_sharpness ||
+      settings->has_focus_distance || settings->has_zoom ||
+      settings->has_fill_light_mode) {
+    return;
+  }
+
+  std::move(callback).Run(true);
+}
+
+void FileVideoCaptureDevice::TakePhoto(TakePhotoCallback callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  base::AutoLock lock(lock_);
+
+  take_photo_callbacks_.push(std::move(callback));
 }
 
 void FileVideoCaptureDevice::OnAllocateAndStart(
@@ -341,7 +395,9 @@ void FileVideoCaptureDevice::OnAllocateAndStart(
   DCHECK(!file_parser_);
   file_parser_ = GetVideoFileParser(file_path_, &capture_format_);
   if (!file_parser_) {
-    client_->OnError(FROM_HERE, "Could not open Video file");
+    client_->OnError(
+        VideoCaptureError::kFileVideoCaptureDeviceCouldNotOpenVideoFile,
+        FROM_HERE, "Could not open Video file");
     return;
   }
 
@@ -350,8 +406,8 @@ void FileVideoCaptureDevice::OnAllocateAndStart(
   client_->OnStarted();
 
   capture_thread_.task_runner()->PostTask(
-      FROM_HERE, base::Bind(&FileVideoCaptureDevice::OnCaptureTask,
-                            base::Unretained(this)));
+      FROM_HERE, base::BindOnce(&FileVideoCaptureDevice::OnCaptureTask,
+                                base::Unretained(this)));
 }
 
 void FileVideoCaptureDevice::OnStopAndDeAllocate() {
@@ -365,6 +421,7 @@ void FileVideoCaptureDevice::OnCaptureTask() {
   DCHECK(capture_thread_.task_runner()->BelongsToCurrentThread());
   if (!client_)
     return;
+  base::AutoLock lock(lock_);
 
   // Give the captured frame to the client.
   int frame_size = 0;
@@ -376,6 +433,20 @@ void FileVideoCaptureDevice::OnCaptureTask() {
     first_ref_time_ = current_time;
   client_->OnIncomingCapturedData(frame_ptr, frame_size, capture_format_, 0,
                                   current_time, current_time - first_ref_time_);
+
+  // Process waiting photo callbacks
+  while (!take_photo_callbacks_.empty()) {
+    auto cb = std::move(take_photo_callbacks_.front());
+    take_photo_callbacks_.pop();
+
+    mojom::BlobPtr blob =
+        RotateAndBlobify(frame_ptr, frame_size, capture_format_, 0);
+    if (!blob)
+      continue;
+
+    std::move(cb).Run(std::move(blob));
+  }
+
   // Reschedule next CaptureTask.
   const base::TimeDelta frame_interval =
       base::TimeDelta::FromMicroseconds(1E6 / capture_format_.frame_rate);
@@ -389,8 +460,9 @@ void FileVideoCaptureDevice::OnCaptureTask() {
       next_frame_time_ = current_time;
   }
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::Bind(&FileVideoCaptureDevice::OnCaptureTask,
-                            base::Unretained(this)),
+      FROM_HERE,
+      base::BindOnce(&FileVideoCaptureDevice::OnCaptureTask,
+                     base::Unretained(this)),
       next_frame_time_ - current_time);
 }
 

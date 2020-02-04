@@ -17,20 +17,10 @@
 #include "media/base/limits.h"
 #include "media/base/timestamp_constants.h"
 #include "media/ffmpeg/ffmpeg_common.h"
+#include "media/ffmpeg/ffmpeg_decoding_loop.h"
 #include "media/filters/ffmpeg_glue.h"
 
 namespace media {
-
-// Returns true if the decode result was end of stream.
-static inline bool IsEndOfStream(int result,
-                                 int decoded_size,
-                                 const scoped_refptr<DecoderBuffer>& input) {
-  // Three conditions to meet to declare end of stream for this decoder:
-  // 1. FFmpeg didn't read anything.
-  // 2. FFmpeg didn't output anything.
-  // 3. An end of stream buffer is received.
-  return result == 0 && decoded_size == 0 && input->end_of_stream();
-}
 
 // Return the number of channels from the data in |frame|.
 static inline int DetermineChannels(AVFrame* frame) {
@@ -77,7 +67,8 @@ std::string FFmpegAudioDecoder::GetDisplayName() const {
 void FFmpegAudioDecoder::Initialize(const AudioDecoderConfig& config,
                                     CdmContext* /* cdm_context */,
                                     const InitCB& init_cb,
-                                    const OutputCB& output_cb) {
+                                    const OutputCB& output_cb,
+                                    const WaitingCB& /* waiting_cb */) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(config.IsValidConfig());
 
@@ -103,10 +94,10 @@ void FFmpegAudioDecoder::Initialize(const AudioDecoderConfig& config,
   bound_init_cb.Run(true);
 }
 
-void FFmpegAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
+void FFmpegAudioDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
                                 const DecodeCB& decode_cb) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(!decode_cb.is_null());
+  DCHECK(decode_cb);
   CHECK_NE(state_, kUninitialized);
   DecodeCB decode_cb_bound = BindToCurrentLoop(decode_cb);
 
@@ -121,7 +112,7 @@ void FFmpegAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
     return;
   }
 
-  DecodeBuffer(buffer, decode_cb_bound);
+  DecodeBuffer(*buffer, decode_cb_bound);
 }
 
 void FFmpegAudioDecoder::Reset(const base::Closure& closure) {
@@ -133,181 +124,166 @@ void FFmpegAudioDecoder::Reset(const base::Closure& closure) {
   task_runner_->PostTask(FROM_HERE, closure);
 }
 
-void FFmpegAudioDecoder::DecodeBuffer(
-    const scoped_refptr<DecoderBuffer>& buffer,
-    const DecodeCB& decode_cb) {
+void FFmpegAudioDecoder::DecodeBuffer(const DecoderBuffer& buffer,
+                                      const DecodeCB& decode_cb) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK_NE(state_, kUninitialized);
   DCHECK_NE(state_, kDecodeFinished);
   DCHECK_NE(state_, kError);
-  DCHECK(buffer.get());
 
   // Make sure we are notified if http://crbug.com/49709 returns.  Issue also
   // occurs with some damaged files.
-  if (!buffer->end_of_stream() && buffer->timestamp() == kNoTimestamp) {
+  if (!buffer.end_of_stream() && buffer.timestamp() == kNoTimestamp) {
     DVLOG(1) << "Received a buffer without timestamps!";
     decode_cb.Run(DecodeStatus::DECODE_ERROR);
     return;
   }
 
-  bool has_produced_frame;
-  do {
-    has_produced_frame = false;
-    if (!FFmpegDecode(buffer, &has_produced_frame)) {
-      state_ = kError;
-      decode_cb.Run(DecodeStatus::DECODE_ERROR);
-      return;
-    }
-    // Repeat to flush the decoder after receiving EOS buffer.
-  } while (buffer->end_of_stream() && has_produced_frame);
+  if (!FFmpegDecode(buffer)) {
+    state_ = kError;
+    decode_cb.Run(DecodeStatus::DECODE_ERROR);
+    return;
+  }
 
-  if (buffer->end_of_stream())
+  if (buffer.end_of_stream())
     state_ = kDecodeFinished;
 
   decode_cb.Run(DecodeStatus::OK);
 }
 
-bool FFmpegAudioDecoder::FFmpegDecode(
-    const scoped_refptr<DecoderBuffer>& buffer,
-    bool* has_produced_frame) {
-  DCHECK(!*has_produced_frame);
-
+bool FFmpegAudioDecoder::FFmpegDecode(const DecoderBuffer& buffer) {
   AVPacket packet;
   av_init_packet(&packet);
-  if (buffer->end_of_stream()) {
+  if (buffer.end_of_stream()) {
     packet.data = NULL;
     packet.size = 0;
   } else {
-    packet.data = const_cast<uint8_t*>(buffer->data());
-    packet.size = buffer->data_size();
+    packet.data = const_cast<uint8_t*>(buffer.data());
+    packet.size = buffer.data_size();
 
-    // Since we're not at EOS and there is no data available in the current
-    // buffer, simply return and let the caller provide more data.
-    // crbug.com/663438 has more context on 0-byte buffers.
-    if (!packet.size)
-      return true;
+    DCHECK(packet.data);
+    DCHECK_GT(packet.size, 0);
   }
 
-  // Each audio packet may contain several frames, so we must call the decoder
-  // until we've exhausted the packet.  Regardless of the packet size we always
-  // want to hand it to the decoder at least once, otherwise we would end up
-  // skipping end of stream packets since they have a size of zero.
-  do {
-    int frame_decoded = 0;
-    const int result = avcodec_decode_audio4(
-        codec_context_.get(), av_frame_.get(), &frame_decoded, &packet);
-
-    if (result < 0) {
-      DCHECK(!buffer->end_of_stream())
+  bool decoded_frame_this_loop = false;
+  // base::Unretained and base::ConstRef are safe to use with the callback given
+  // to DecodePacket() since that callback is only used the function call.
+  switch (decoding_loop_->DecodePacket(
+      &packet, base::BindRepeating(
+                   &FFmpegAudioDecoder::OnNewFrame, base::Unretained(this),
+                   base::ConstRef(buffer), &decoded_frame_this_loop))) {
+    case FFmpegDecodingLoop::DecodeStatus::kSendPacketFailed:
+      MEDIA_LOG(ERROR, media_log_)
+          << "Failed to send audio packet for decoding: "
+          << buffer.AsHumanReadableString();
+      return false;
+    case FFmpegDecodingLoop::DecodeStatus::kFrameProcessingFailed:
+      // OnNewFrame() should have already issued a MEDIA_LOG for this.
+      return false;
+    case FFmpegDecodingLoop::DecodeStatus::kDecodeFrameFailed:
+      DCHECK(!buffer.end_of_stream())
           << "End of stream buffer produced an error! "
           << "This is quite possibly a bug in the audio decoder not handling "
           << "end of stream AVPackets correctly.";
 
       MEDIA_LOG(DEBUG, media_log_)
-          << "Dropping audio frame which failed decode with timestamp: "
-          << buffer->timestamp().InMicroseconds()
-          << " us, duration: " << buffer->duration().InMicroseconds()
-          << " us, packet size: " << buffer->data_size() << " bytes";
-
+          << GetDisplayName() << " failed to decode an audio buffer: "
+          << AVErrorToString(decoding_loop_->last_averror_code()) << ", at "
+          << buffer.AsHumanReadableString();
       break;
+    case FFmpegDecodingLoop::DecodeStatus::kOkay:
+      break;
+  }
+
+  // Even if we didn't decode a frame this loop, we should still send the packet
+  // to the discard helper for caching.
+  if (!decoded_frame_this_loop && !buffer.end_of_stream()) {
+    const bool result = discard_helper_->ProcessBuffers(buffer, nullptr);
+    DCHECK(!result);
+  }
+
+  return true;
+}
+
+bool FFmpegAudioDecoder::OnNewFrame(const DecoderBuffer& buffer,
+                                    bool* decoded_frame_this_loop,
+                                    AVFrame* frame) {
+  const int channels = DetermineChannels(frame);
+
+  // Translate unsupported into discrete layouts for discrete configurations;
+  // ffmpeg does not have a labeled discrete configuration internally.
+  ChannelLayout channel_layout = ChannelLayoutToChromeChannelLayout(
+      codec_context_->channel_layout, codec_context_->channels);
+  if (channel_layout == CHANNEL_LAYOUT_UNSUPPORTED &&
+      config_.channel_layout() == CHANNEL_LAYOUT_DISCRETE) {
+    channel_layout = CHANNEL_LAYOUT_DISCRETE;
+  }
+
+  const bool is_sample_rate_change =
+      frame->sample_rate != config_.samples_per_second();
+  const bool is_config_change = is_sample_rate_change ||
+                                channels != config_.channels() ||
+                                channel_layout != config_.channel_layout();
+  if (is_config_change) {
+    // Sample format is never expected to change.
+    if (frame->format != av_sample_format_) {
+      MEDIA_LOG(ERROR, media_log_)
+          << "Unsupported midstream configuration change!"
+          << " Sample Rate: " << frame->sample_rate << " vs "
+          << config_.samples_per_second()
+          << " ChannelLayout: " << channel_layout << " vs "
+          << config_.channel_layout() << " << Channels: " << channels << " vs "
+          << config_.channels() << ", Sample Format: " << frame->format
+          << " vs " << av_sample_format_;
+      // This is an unrecoverable error, so bail out.
+      return false;
     }
 
-    // Update packet size and data pointer in case we need to call the decoder
-    // with the remaining bytes from this packet.
-    packet.size -= result;
-    packet.data += result;
+    MEDIA_LOG(DEBUG, media_log_)
+        << " Detected midstream configuration change"
+        << " PTS:" << buffer.timestamp().InMicroseconds()
+        << " Sample Rate: " << frame->sample_rate << " vs "
+        << config_.samples_per_second() << ", ChannelLayout: " << channel_layout
+        << " vs " << config_.channel_layout() << ", Channels: " << channels
+        << " vs " << config_.channels();
+    config_.Initialize(config_.codec(), config_.sample_format(), channel_layout,
+                       frame->sample_rate, config_.extra_data(),
+                       config_.encryption_scheme(), config_.seek_preroll(),
+                       config_.codec_delay());
+    if (is_sample_rate_change)
+      ResetTimestampState(config_);
+  }
 
-    scoped_refptr<AudioBuffer> output;
+  // Get the AudioBuffer that the data was decoded into. Adjust the number
+  // of frames, in case fewer than requested were actually decoded.
+  scoped_refptr<AudioBuffer> output =
+      reinterpret_cast<AudioBuffer*>(av_buffer_get_opaque(frame->buf[0]));
 
-    bool config_changed = false;
-    if (frame_decoded) {
-      const int channels = DetermineChannels(av_frame_.get());
-      ChannelLayout channel_layout = ChannelLayoutToChromeChannelLayout(
-          codec_context_->channel_layout, codec_context_->channels);
+  DCHECK_EQ(config_.channels(), output->channel_count());
+  const int unread_frames = output->frame_count() - frame->nb_samples;
+  DCHECK_GE(unread_frames, 0);
+  if (unread_frames > 0)
+    output->TrimEnd(unread_frames);
 
-      bool is_sample_rate_change =
-          av_frame_->sample_rate != config_.samples_per_second();
-      bool is_config_stale = is_sample_rate_change ||
-                             channels != config_.channels() ||
-                             av_frame_->format != av_sample_format_;
-
-      // Only consider channel layout changes for AAC.
-      // TODO(tguilbert, dalecurtis): Due to http://crbug.com/600538 we need to
-      // allow channel layout changes for the moment. See if ffmpeg is fixable.
-      if (config_.codec() == kCodecAAC)
-        is_config_stale |= channel_layout != config_.channel_layout();
-
-      if (is_config_stale) {
-        // Only allow midstream configuration changes for AAC. Sample format is
-        // not expected to change between AAC profiles.
-        if (config_.codec() == kCodecAAC &&
-            av_frame_->format == av_sample_format_) {
-          MEDIA_LOG(DEBUG, media_log_)
-              << " Detected AAC midstream configuration change"
-              << " PTS:" << buffer->timestamp().InMicroseconds()
-              << " Sample Rate: " << av_frame_->sample_rate << " vs "
-              << config_.samples_per_second()
-              << ", ChannelLayout: " << channel_layout << " vs "
-              << config_.channel_layout() << ", Channels: " << channels
-              << " vs " << config_.channels();
-          config_.Initialize(config_.codec(), config_.sample_format(),
-                             channel_layout, av_frame_->sample_rate,
-                             config_.extra_data(), config_.encryption_scheme(),
-                             config_.seek_preroll(), config_.codec_delay());
-          config_changed = true;
-          if (is_sample_rate_change)
-            ResetTimestampState(config_);
-        } else {
-          MEDIA_LOG(ERROR, media_log_)
-              << "Unsupported midstream configuration change!"
-              << " Sample Rate: " << av_frame_->sample_rate << " vs "
-              << config_.samples_per_second() << ", Channels: " << channels
-              << " vs " << config_.channels()
-              << ", Sample Format: " << av_frame_->format << " vs "
-              << av_sample_format_;
-          // This is an unrecoverable error, so bail out.
-          av_frame_unref(av_frame_.get());
-          return false;
-        }
-      }
-
-      // Get the AudioBuffer that the data was decoded into. Adjust the number
-      // of frames, in case fewer than requested were actually decoded.
-      output = reinterpret_cast<AudioBuffer*>(
-          av_buffer_get_opaque(av_frame_->buf[0]));
-
-      DCHECK_EQ(config_.channels(), output->channel_count());
-      const int unread_frames = output->frame_count() - av_frame_->nb_samples;
-      DCHECK_GE(unread_frames, 0);
-      if (unread_frames > 0)
-        output->TrimEnd(unread_frames);
-      av_frame_unref(av_frame_.get());
+  *decoded_frame_this_loop = true;
+  if (discard_helper_->ProcessBuffers(buffer, output)) {
+    if (is_config_change &&
+        output->sample_rate() != config_.samples_per_second()) {
+      // At the boundary of the config change, FFmpeg's AAC decoder gives the
+      // previous sample rate when calling our GetAudioBuffer. Set the correct
+      // sample rate before sending the buffer along.
+      // TODO(chcunningham): Fix FFmpeg and upstream it.
+      output->AdjustSampleRate(config_.samples_per_second());
     }
-
-    // WARNING: |av_frame_| no longer has valid data at this point.
-    const int decoded_frames = frame_decoded ? output->frame_count() : 0;
-    if (IsEndOfStream(result, decoded_frames, buffer)) {
-      DCHECK_EQ(packet.size, 0);
-    } else if (discard_helper_->ProcessBuffers(buffer, output)) {
-      if (config_changed &&
-          output->sample_rate() != config_.samples_per_second()) {
-        // At the boundary of the config change, FFmpeg's AAC decoder gives the
-        // previous sample rate when calling our GetAudioBuffer. Set the correct
-        // sample rate before sending the buffer along.
-        // TODO(chcunningham): Fix FFmpeg and upstream it.
-        output->AdjustSampleRate(config_.samples_per_second());
-      }
-      *has_produced_frame = true;
-      output_cb_.Run(output);
-    }
-  } while (packet.size > 0);
+    output_cb_.Run(output);
+  }
 
   return true;
 }
 
 void FFmpegAudioDecoder::ReleaseFFmpegResources() {
+  decoding_loop_.reset();
   codec_context_.reset();
-  av_frame_.reset();
 }
 
 bool FFmpegAudioDecoder::ConfigureDecoder(const AudioDecoderConfig& config) {
@@ -323,22 +299,35 @@ bool FFmpegAudioDecoder::ConfigureDecoder(const AudioDecoderConfig& config) {
 
   codec_context_->opaque = this;
   codec_context_->get_buffer2 = GetAudioBufferImpl;
-  codec_context_->refcounted_frames = 1;
 
-  if (config.codec() == kCodecOpus)
+  if (!config.should_discard_decoder_delay())
+    codec_context_->flags2 |= AV_CODEC_FLAG2_SKIP_MANUAL;
+
+  AVDictionary* codec_options = NULL;
+  if (config.codec() == kCodecOpus) {
     codec_context_->request_sample_fmt = AV_SAMPLE_FMT_FLT;
 
+    // Disable phase inversion to avoid artifacts in mono downmix. See
+    // http://crbug.com/806219
+    if (config.target_output_channel_layout() == CHANNEL_LAYOUT_MONO) {
+      int result = av_dict_set(&codec_options, "apply_phase_inv", "0", 0);
+      DCHECK_GE(result, 0);
+    }
+  }
+
   AVCodec* codec = avcodec_find_decoder(codec_context_->codec_id);
-  if (!codec || avcodec_open2(codec_context_.get(), codec, NULL) < 0) {
+  if (!codec ||
+      avcodec_open2(codec_context_.get(), codec, &codec_options) < 0) {
     DLOG(ERROR) << "Could not initialize audio decoder: "
                 << codec_context_->codec_id;
     ReleaseFFmpegResources();
     state_ = kUninitialized;
     return false;
   }
+  // Verify avcodec_open2() used all given options.
+  DCHECK_EQ(0, av_dict_count(codec_options));
 
   // Success!
-  av_frame_.reset(av_frame_alloc());
   av_sample_format_ = codec_context_->sample_fmt;
 
   if (codec_context_->channels != config.channels()) {
@@ -351,6 +340,7 @@ bool FFmpegAudioDecoder::ConfigureDecoder(const AudioDecoderConfig& config) {
     return false;
   }
 
+  decoding_loop_.reset(new FFmpegDecodingLoop(codec_context_.get(), true));
   ResetTimestampState(config);
   return true;
 }
@@ -368,12 +358,13 @@ void FFmpegAudioDecoder::ResetTimestampState(const AudioDecoderConfig& config) {
 int FFmpegAudioDecoder::GetAudioBuffer(struct AVCodecContext* s,
                                        AVFrame* frame,
                                        int flags) {
-  DCHECK(s->codec->capabilities & CODEC_CAP_DR1);
+  DCHECK(s->codec->capabilities & AV_CODEC_CAP_DR1);
   DCHECK_EQ(s->codec_type, AVMEDIA_TYPE_AUDIO);
 
-  // Since this routine is called by FFmpeg when a buffer is required for audio
-  // data, use the values supplied by FFmpeg (ignoring the current settings).
-  // FFmpegDecode() gets to determine if the buffer is useable or not.
+  // Since this routine is called by FFmpeg when a buffer is required for
+  // audio data, use the values supplied by FFmpeg (ignoring the current
+  // settings). FFmpegDecode() gets to determine if the buffer is useable or
+  // not.
   AVSampleFormat format = static_cast<AVSampleFormat>(frame->format);
   SampleFormat sample_format =
       AVSampleFormatToSampleFormat(format, s->codec_id);
@@ -398,6 +389,13 @@ int FFmpegAudioDecoder::GetAudioBuffer(struct AVCodecContext* s,
                 << s->sample_rate << " vs " << frame->sample_rate;
     return AVERROR(EINVAL);
   }
+  if (s->sample_rate < limits::kMinSampleRate ||
+      s->sample_rate > limits::kMaxSampleRate) {
+    DLOG(ERROR) << "Requested sample rate (" << s->sample_rate
+                << ") is outside supported range (" << limits::kMinSampleRate
+                << " to " << limits::kMaxSampleRate << ").";
+    return AVERROR(EINVAL);
+  }
 
   // Determine how big the buffer should be and allocate it. FFmpeg may adjust
   // how big each channel data is in order to meet the alignment policy, so
@@ -416,7 +414,7 @@ int FFmpegAudioDecoder::GetAudioBuffer(struct AVCodecContext* s,
           ? CHANNEL_LAYOUT_DISCRETE
           : ChannelLayoutToChromeChannelLayout(s->channel_layout, s->channels);
 
-  if (config_.channel_layout() == CHANNEL_LAYOUT_UNSUPPORTED) {
+  if (channel_layout == CHANNEL_LAYOUT_UNSUPPORTED) {
     DLOG(ERROR) << "Unsupported channel layout.";
     return AVERROR(EINVAL);
   }

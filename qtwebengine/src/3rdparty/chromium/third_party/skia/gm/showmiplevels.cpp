@@ -9,6 +9,7 @@
 #include "sk_tool_utils.h"
 
 #include "Resources.h"
+#include "SkColorPriv.h"
 #include "SkGradientShader.h"
 #include "SkTypeface.h"
 #include "SkStream.h"
@@ -134,8 +135,7 @@ protected:
         SkPixmap prevPM;
         baseBM.peekPixels(&prevPM);
 
-        SkDestinationSurfaceColorMode colorMode = SkDestinationSurfaceColorMode::kLegacy;
-        sk_sp<SkMipMap> mm(SkMipMap::Build(baseBM, colorMode, nullptr));
+        sk_sp<SkMipMap> mm(SkMipMap::Build(baseBM, nullptr));
 
         int index = 0;
         SkMipMap::Level level;
@@ -243,8 +243,7 @@ protected:
         SkScalar x = 4;
         SkScalar y = 4;
 
-        SkDestinationSurfaceColorMode colorMode = SkDestinationSurfaceColorMode::kLegacy;
-        sk_sp<SkMipMap> mm(SkMipMap::Build(baseBM, colorMode, nullptr));
+        sk_sp<SkMipMap> mm(SkMipMap::Build(baseBM, nullptr));
 
         int index = 0;
         SkMipMap::Level level;

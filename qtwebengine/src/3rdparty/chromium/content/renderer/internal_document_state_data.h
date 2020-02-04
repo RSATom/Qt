@@ -10,38 +10,35 @@
 
 #include "base/macros.h"
 #include "base/supports_user_data.h"
-#include "third_party/WebKit/public/platform/WebCachePolicy.h"
+#include "content/public/common/previews_state.h"
+#include "net/nqe/effective_connection_type.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 #include "url/gurl.h"
 
 namespace blink {
-class WebDataSource;
+class WebDocumentLoader;
 }
 
 namespace content {
 
 class DocumentState;
+class NavigationState;
 
-// Stores internal state per WebDataSource.
+// Stores internal state per WebDocumentLoader.
 class InternalDocumentStateData : public base::SupportsUserData::Data {
  public:
   InternalDocumentStateData();
   ~InternalDocumentStateData() override;
 
-  static InternalDocumentStateData* FromDataSource(blink::WebDataSource* ds);
+  static InternalDocumentStateData* FromDocumentLoader(
+      blink::WebDocumentLoader* document_loader);
   static InternalDocumentStateData* FromDocumentState(DocumentState* ds);
+
+  void CopyFrom(InternalDocumentStateData* other);
 
   int http_status_code() const { return http_status_code_; }
   void set_http_status_code(int http_status_code) {
     http_status_code_ = http_status_code;
-  }
-
-  const GURL& searchable_form_url() const { return searchable_form_url_; }
-  void set_searchable_form_url(const GURL& url) { searchable_form_url_ = url; }
-  const std::string& searchable_form_encoding() const {
-    return searchable_form_encoding_;
-  }
-  void set_searchable_form_encoding(const std::string& encoding) {
-    searchable_form_encoding_ = encoding;
   }
 
   // True if the user agent was overridden for this page.
@@ -62,29 +59,47 @@ class InternalDocumentStateData : public base::SupportsUserData::Data {
   // Sets the cache policy. The cache policy is only used if explicitly set and
   // by default is not set. You can mark a NavigationState as not having a cache
   // state by way of clear_cache_policy_override.
-  void set_cache_policy_override(blink::WebCachePolicy cache_policy) {
+  void set_cache_policy_override(blink::mojom::FetchCacheMode cache_policy) {
     cache_policy_override_ = cache_policy;
     cache_policy_override_set_ = true;
   }
-  blink::WebCachePolicy cache_policy_override() const {
+  blink::mojom::FetchCacheMode cache_policy_override() const {
     return cache_policy_override_;
   }
   void clear_cache_policy_override() {
     cache_policy_override_set_ = false;
-    cache_policy_override_ = blink::WebCachePolicy::kUseProtocolCachePolicy;
+    cache_policy_override_ = blink::mojom::FetchCacheMode::kDefault;
   }
   bool is_cache_policy_override_set() const {
     return cache_policy_override_set_;
   }
 
+  net::EffectiveConnectionType effective_connection_type() const {
+    return effective_connection_type_;
+  }
+  void set_effective_connection_type(
+      net::EffectiveConnectionType effective_connection_type) {
+    effective_connection_type_ = effective_connection_type;
+  }
+
+  PreviewsState previews_state() const { return previews_state_; }
+  void set_previews_state(PreviewsState previews_state) {
+    previews_state_ = previews_state;
+  }
+
+  NavigationState* navigation_state() { return navigation_state_.get(); }
+  void set_navigation_state(std::unique_ptr<NavigationState> navigation_state);
+
  private:
   int http_status_code_;
-  GURL searchable_form_url_;
-  std::string searchable_form_encoding_;
   bool is_overriding_user_agent_;
   bool must_reset_scroll_and_scale_state_;
   bool cache_policy_override_set_;
-  blink::WebCachePolicy cache_policy_override_;
+  blink::mojom::FetchCacheMode cache_policy_override_;
+  net::EffectiveConnectionType effective_connection_type_ =
+      net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN;
+  PreviewsState previews_state_ = PREVIEWS_UNSPECIFIED;
+  std::unique_ptr<NavigationState> navigation_state_;
 
   DISALLOW_COPY_AND_ASSIGN(InternalDocumentStateData);
 };

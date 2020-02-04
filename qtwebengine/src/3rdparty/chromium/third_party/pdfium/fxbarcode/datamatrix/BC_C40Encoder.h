@@ -7,9 +7,8 @@
 #ifndef FXBARCODE_DATAMATRIX_BC_C40ENCODER_H_
 #define FXBARCODE_DATAMATRIX_BC_C40ENCODER_H_
 
+#include "core/fxcrt/widestring.h"
 #include "fxbarcode/datamatrix/BC_Encoder.h"
-
-class CFX_WideString;
 
 class CBC_C40Encoder : public CBC_Encoder {
  public:
@@ -17,16 +16,15 @@ class CBC_C40Encoder : public CBC_Encoder {
   ~CBC_C40Encoder() override;
 
   // CBC_Encoder
-  int32_t getEncodingMode() override;
-  void Encode(CBC_EncoderContext& context, int32_t& e) override;
+  CBC_HighLevelEncoder::Encoding GetEncodingMode() override;
+  bool Encode(CBC_EncoderContext* context) override;
 
-  static void writeNextTriplet(CBC_EncoderContext& context,
-                               CFX_WideString& buffer);
+  static void WriteNextTriplet(CBC_EncoderContext* context, WideString* buffer);
 
-  virtual void handleEOD(CBC_EncoderContext& context,
-                         CFX_WideString& buffer,
-                         int32_t& e);
-  virtual int32_t encodeChar(wchar_t c, CFX_WideString& sb, int32_t& e);
+  virtual bool HandleEOD(CBC_EncoderContext* context, WideString* buffer);
+
+  // Returns the number of characters appended to |sb|, or 0 on failure.
+  virtual int32_t EncodeChar(wchar_t c, WideString* sb);
 
  private:
   // Moves back by 1 position in |context| and adjusts |buffer| accordingly
@@ -34,7 +32,7 @@ class CBC_C40Encoder : public CBC_Encoder {
   // |context| after adjusting the position. If the character cannot be encoded,
   // return -1.
   int32_t BacktrackOneCharacter(CBC_EncoderContext* context,
-                                CFX_WideString* buffer,
+                                WideString* buffer,
                                 int32_t lastCharSize);
 };
 

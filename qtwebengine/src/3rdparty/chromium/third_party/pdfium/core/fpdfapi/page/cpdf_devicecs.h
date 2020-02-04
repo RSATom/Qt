@@ -7,15 +7,20 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_DEVICECS_H_
 #define CORE_FPDFAPI_PAGE_CPDF_DEVICECS_H_
 
+#include <set>
+
 #include "core/fpdfapi/page/cpdf_colorspace.h"
 
-class CPDF_DeviceCS : public CPDF_ColorSpace {
+class CPDF_DeviceCS final : public CPDF_ColorSpace {
  public:
   explicit CPDF_DeviceCS(int family);
   ~CPDF_DeviceCS() override;
 
   // CPDF_ColorSpace:
-  bool GetRGB(float* pBuf, float* R, float* G, float* B) const override;
+  uint32_t v_Load(CPDF_Document* pDoc,
+                  const CPDF_Array* pArray,
+                  std::set<const CPDF_Object*>* pVisited) override;
+  bool GetRGB(const float* pBuf, float* R, float* G, float* B) const override;
   void TranslateImageLine(uint8_t* pDestBuf,
                           const uint8_t* pSrcBuf,
                           int pixels,

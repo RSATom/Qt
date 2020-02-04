@@ -9,27 +9,12 @@
 
 #include "xfa/fxfa/parser/cxfa_object.h"
 
-class CFXJSE_Arguments;
+class CXFA_Document;
 
-class CScript_DataWindow : public CXFA_Object {
+class CScript_DataWindow final : public CXFA_Object {
  public:
   explicit CScript_DataWindow(CXFA_Document* pDocument);
   ~CScript_DataWindow() override;
-
-  void MoveCurrentRecord(CFXJSE_Arguments* pArguments);
-  void Record(CFXJSE_Arguments* pArguments);
-  void GotoRecord(CFXJSE_Arguments* pArguments);
-  void IsRecordGroup(CFXJSE_Arguments* pArguments);
-  void RecordsBefore(CFXJSE_Value* pValue,
-                     bool bSetting,
-                     XFA_ATTRIBUTE eAttribute);
-  void CurrentRecordNumber(CFXJSE_Value* pValue,
-                           bool bSetting,
-                           XFA_ATTRIBUTE eAttribute);
-  void RecordsAfter(CFXJSE_Value* pValue,
-                    bool bSetting,
-                    XFA_ATTRIBUTE eAttribute);
-  void IsDefined(CFXJSE_Value* pValue, bool bSetting, XFA_ATTRIBUTE eAttribute);
 };
 
 #endif  // XFA_FXFA_PARSER_CSCRIPT_DATAWINDOW_H_

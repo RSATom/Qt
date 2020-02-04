@@ -4,14 +4,15 @@
 
 #include "chrome/browser/ui/webui/app_launcher_page_ui.h"
 
+#include <memory>
 #include <string>
 
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/app_launcher_login_handler.h"
 #include "chrome/browser/ui/webui/metrics_handler.h"
+#include "chrome/browser/ui/webui/ntp/app_icon_webui_handler.h"
 #include "chrome/browser/ui/webui/ntp/app_launcher_handler.h"
 #include "chrome/browser/ui/webui/ntp/app_resource_cache_factory.h"
 #include "chrome/browser/ui/webui/ntp/core_app_launcher_handler.h"
@@ -21,14 +22,13 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "extensions/browser/extension_system.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-
-class ExtensionService;
 
 using content::BrowserThread;
 
@@ -40,23 +40,24 @@ AppLauncherPageUI::AppLauncherPageUI(content::WebUI* web_ui)
   web_ui->OverrideTitle(l10n_util::GetStringUTF16(IDS_APP_LAUNCHER_TAB_TITLE));
 
   if (!GetProfile()->IsOffTheRecord()) {
-    ExtensionService* service =
+    extensions::ExtensionService* service =
         extensions::ExtensionSystem::Get(GetProfile())->extension_service();
     // We should not be launched without an ExtensionService.
     DCHECK(service);
-    web_ui->AddMessageHandler(base::MakeUnique<AppLauncherHandler>(service));
-    web_ui->AddMessageHandler(base::MakeUnique<CoreAppLauncherHandler>());
-    web_ui->AddMessageHandler(base::MakeUnique<MetricsHandler>());
+    web_ui->AddMessageHandler(std::make_unique<AppLauncherHandler>(service));
+    web_ui->AddMessageHandler(std::make_unique<CoreAppLauncherHandler>());
+    web_ui->AddMessageHandler(std::make_unique<AppIconWebUIHandler>());
+    web_ui->AddMessageHandler(std::make_unique<MetricsHandler>());
   }
 
   // The theme handler can require some CPU, so do it after hooking up the most
   // visited handler. This allows the DB query for the new tab thumbs to happen
   // earlier.
-  web_ui->AddMessageHandler(base::MakeUnique<ThemeHandler>());
+  web_ui->AddMessageHandler(std::make_unique<ThemeHandler>());
 
-  std::unique_ptr<HTMLSource> html_source(
-      new HTMLSource(GetProfile()->GetOriginalProfile()));
-  content::URLDataSource::Add(GetProfile(), html_source.release());
+  content::URLDataSource::Add(
+      GetProfile(),
+      std::make_unique<HTMLSource>(GetProfile()->GetOriginalProfile()));
 }
 
 AppLauncherPageUI::~AppLauncherPageUI() {
@@ -76,7 +77,7 @@ bool AppLauncherPageUI::OverrideHandleWebUIMessage(
     const base::ListValue& args) {
   if (message == "getApps" &&
       AppLauncherLoginHandler::ShouldShow(GetProfile())) {
-    web_ui()->AddMessageHandler(base::MakeUnique<AppLauncherLoginHandler>());
+    web_ui()->AddMessageHandler(std::make_unique<AppLauncherLoginHandler>());
   }
   return false;
 }
@@ -107,7 +108,7 @@ void AppLauncherPageUI::HTMLSource::StartDataRequest(
 
   content::WebContents* web_contents = wc_getter.Run();
   content::RenderProcessHost* render_host =
-      web_contents ? web_contents->GetRenderProcessHost() : nullptr;
+      web_contents ? web_contents->GetMainFrame()->GetProcess() : nullptr;
   NTPResourceCache::WindowType win_type = NTPResourceCache::GetWindowType(
       profile_, render_host);
   scoped_refptr<base::RefCountedMemory> html_bytes(

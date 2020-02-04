@@ -4,6 +4,7 @@ xcb
 xcb
 [cursor2]
 xcb
+windows
 [rubberBandExtendSelection]
 xcb
 [rotated_rubberBand]
@@ -14,3 +15,8 @@ xcb
 xcb
 [resizeAnchor]
 xcb
+[update2]
+opensuse-42.3
+[itemsInRect_cosmeticAdjust]
+# QTBUG-66815
+ubuntu-16.04

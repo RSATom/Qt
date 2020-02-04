@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,25 +7,25 @@
 #ifndef XFA_FXFA_PARSER_CXFA_EVENT_H_
 #define XFA_FXFA_PARSER_CXFA_EVENT_H_
 
-#include <stdint.h>
+#include "xfa/fxfa/parser/cxfa_node.h"
 
-#include "core/fxcrt/fx_string.h"
-#include "xfa/fxfa/parser/cxfa_data.h"
-#include "xfa/fxfa/parser/cxfa_script.h"
-#include "xfa/fxfa/parser/cxfa_submit.h"
+class CXFA_Script;
+class CXFA_Submit;
 
-class CXFA_Node;
-
-class CXFA_Event : public CXFA_Data {
+class CXFA_Event final : public CXFA_Node {
  public:
-  explicit CXFA_Event(CXFA_Node* pNode);
+  CXFA_Event(CXFA_Document* doc, XFA_PacketType packet);
+  ~CXFA_Event() override;
 
-  int32_t GetActivity();
+  XFA_AttributeValue GetActivity();
   XFA_Element GetEventType() const;
-  CXFA_Script GetScript() const;
-  CXFA_Submit GetSubmit() const;
-  void GetRef(CFX_WideStringC& wsRef);
-  void GetSignDataTarget(CFX_WideString& wsTarget);
+  CXFA_Script* GetScriptIfExists();
+
+#ifdef PDF_XFA_ELEMENT_SUBMIT_ENABLED
+  CXFA_Submit* GetSubmitIfExists();
+#endif  // PDF_XFA_ELEMENT_SUBMIT_ENABLED
+
+  WideString GetRef();
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_EVENT_H_

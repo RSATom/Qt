@@ -7,16 +7,15 @@
 #include <stddef.h>
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <utility>
 #include <vector>
 
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/api/gcm.h"
 #include "components/gcm_driver/common/gcm_messages.h"
@@ -27,7 +26,7 @@
 
 namespace {
 
-const size_t kMaximumMessageSize = 4096;  // in bytes.
+const size_t kMaximumGcmMessageSize = 4096;  // in bytes.
 const char kCollapseKey[] = "collapse_key";
 const char kGoogDotRestrictedPrefix[] = "goog.";
 const char kGoogleRestrictedPrefix[] = "google";
@@ -73,12 +72,10 @@ const char* GcmResultToError(gcm::GCMClient::Result result) {
 bool IsMessageKeyValid(const std::string& key) {
   std::string lower = base::ToLowerASCII(key);
   return !key.empty() &&
-         key.compare(0, arraysize(kCollapseKey) - 1, kCollapseKey) != 0 &&
-         lower.compare(0,
-                       arraysize(kGoogleRestrictedPrefix) - 1,
+         key.compare(0, base::size(kCollapseKey) - 1, kCollapseKey) != 0 &&
+         lower.compare(0, base::size(kGoogleRestrictedPrefix) - 1,
                        kGoogleRestrictedPrefix) != 0 &&
-         lower.compare(0,
-                       arraysize(kGoogDotRestrictedPrefix),
+         lower.compare(0, base::size(kGoogDotRestrictedPrefix),
                        kGoogDotRestrictedPrefix) != 0;
 }
 
@@ -86,19 +83,18 @@ bool IsMessageKeyValid(const std::string& key) {
 
 namespace extensions {
 
-bool GcmApiFunction::RunAsync() {
-  if (!IsGcmApiEnabled())
-    return false;
-
-  return DoWork();
+bool GcmApiFunction::PreRunValidation(std::string* error) {
+  return IsGcmApiEnabled(error);
 }
 
-bool GcmApiFunction::IsGcmApiEnabled() const {
+bool GcmApiFunction::IsGcmApiEnabled(std::string* error) const {
   Profile* profile = Profile::FromBrowserContext(browser_context());
 
   // GCM is not supported in incognito mode.
-  if (profile->IsOffTheRecord())
+  if (profile->IsOffTheRecord()) {
+    *error = "GCM is not supported in incognito mode.";
     return false;
+  }
 
   return gcm::GCMProfileService::IsGCMEnabled(profile->GetPrefs());
 }
@@ -112,7 +108,7 @@ GcmRegisterFunction::GcmRegisterFunction() {}
 
 GcmRegisterFunction::~GcmRegisterFunction() {}
 
-bool GcmRegisterFunction::DoWork() {
+ExtensionFunction::ResponseAction GcmRegisterFunction::Run() {
   std::unique_ptr<api::gcm::Register::Params> params(
       api::gcm::Register::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
@@ -122,42 +118,50 @@ bool GcmRegisterFunction::DoWork() {
       params->sender_ids,
       base::Bind(&GcmRegisterFunction::CompleteFunctionWithResult, this));
 
-  return true;
+  // Register() might have returned synchronously.
+  return did_respond() ? AlreadyResponded() : RespondLater();
 }
 
 void GcmRegisterFunction::CompleteFunctionWithResult(
     const std::string& registration_id,
-    gcm::GCMClient::Result result) {
-  SetResult(base::MakeUnique<base::Value>(registration_id));
-  SetError(GcmResultToError(result));
-  SendResponse(gcm::GCMClient::SUCCESS == result);
+    gcm::GCMClient::Result gcm_result) {
+  auto result = std::make_unique<base::ListValue>();
+  result->AppendString(registration_id);
+
+  const bool succeeded = gcm::GCMClient::SUCCESS == gcm_result;
+  Respond(succeeded
+              ? ArgumentList(std::move(result))
+              // TODO(lazyboy): We shouldn't be using |result| in case of error.
+              : ErrorWithArguments(std::move(result),
+                                   GcmResultToError(gcm_result)));
 }
 
 GcmUnregisterFunction::GcmUnregisterFunction() {}
 
 GcmUnregisterFunction::~GcmUnregisterFunction() {}
 
-bool GcmUnregisterFunction::DoWork() {
+ExtensionFunction::ResponseAction GcmUnregisterFunction::Run() {
   UMA_HISTOGRAM_BOOLEAN("GCM.APICallUnregister", true);
 
   GetGCMDriver()->Unregister(
       extension()->id(),
       base::Bind(&GcmUnregisterFunction::CompleteFunctionWithResult, this));
 
-  return true;
+  // Unregister might have responded already (synchronously).
+  return did_respond() ? AlreadyResponded() : RespondLater();
 }
 
 void GcmUnregisterFunction::CompleteFunctionWithResult(
     gcm::GCMClient::Result result) {
-  SetError(GcmResultToError(result));
-  SendResponse(gcm::GCMClient::SUCCESS == result);
+  const bool succeeded = gcm::GCMClient::SUCCESS == result;
+  Respond(succeeded ? NoArguments() : Error(GcmResultToError(result)));
 }
 
 GcmSendFunction::GcmSendFunction() {}
 
 GcmSendFunction::~GcmSendFunction() {}
 
-bool GcmSendFunction::DoWork() {
+ExtensionFunction::ResponseAction GcmSendFunction::Run() {
   std::unique_ptr<api::gcm::Send::Params> params(
       api::gcm::Send::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
@@ -176,27 +180,33 @@ bool GcmSendFunction::DoWork() {
       outgoing_message,
       base::Bind(&GcmSendFunction::CompleteFunctionWithResult, this));
 
-  return true;
+  // Send might have already responded synchronously.
+  return did_respond() ? AlreadyResponded() : RespondLater();
 }
 
 void GcmSendFunction::CompleteFunctionWithResult(
     const std::string& message_id,
-    gcm::GCMClient::Result result) {
-  SetResult(base::MakeUnique<base::Value>(message_id));
-  SetError(GcmResultToError(result));
-  SendResponse(gcm::GCMClient::SUCCESS == result);
+    gcm::GCMClient::Result gcm_result) {
+  auto result = std::make_unique<base::ListValue>();
+  result->AppendString(message_id);
+
+  const bool succeeded = gcm::GCMClient::SUCCESS == gcm_result;
+  Respond(succeeded
+              ? ArgumentList(std::move(result))
+              // TODO(lazyboy): We shouldn't be using |result| in case of error.
+              : ErrorWithArguments(std::move(result),
+                                   GcmResultToError(gcm_result)));
 }
 
 bool GcmSendFunction::ValidateMessageData(const gcm::MessageData& data) const {
   size_t total_size = 0u;
-  for (std::map<std::string, std::string>::const_iterator iter = data.begin();
-       iter != data.end(); ++iter) {
+  for (auto iter = data.cbegin(); iter != data.cend(); ++iter) {
     total_size += iter->first.size() + iter->second.size();
 
     if (!IsMessageKeyValid(iter->first) ||
-        kMaximumMessageSize < iter->first.size() ||
-        kMaximumMessageSize < iter->second.size() ||
-        kMaximumMessageSize < total_size)
+        kMaximumGcmMessageSize < iter->first.size() ||
+        kMaximumGcmMessageSize < iter->second.size() ||
+        kMaximumGcmMessageSize < total_size)
       return false;
   }
 

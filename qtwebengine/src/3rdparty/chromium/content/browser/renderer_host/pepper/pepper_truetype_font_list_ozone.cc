@@ -5,6 +5,7 @@
 #include "base/logging.h"
 #include "content/browser/renderer_host/pepper/pepper_truetype_font_list.h"
 
+#ifndef TOOLKIT_QT
 namespace content {
 
 void GetFontFamilies_SlowBlocking(std::vector<std::string>* font_families) {
@@ -18,3 +19,4 @@ void GetFontsInFamily_SlowBlocking(
 }
 
 }  // namespace content
+#endif

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NET_BASE_COMPLETION_CALLBACK_H__
-#define NET_BASE_COMPLETION_CALLBACK_H__
+#ifndef NET_BASE_COMPLETION_CALLBACK_H_
+#define NET_BASE_COMPLETION_CALLBACK_H_
 
 #include <stdint.h>
 
@@ -21,8 +21,6 @@ typedef base::Callback<void(int)> CompletionCallback;
 // error code.
 typedef base::Callback<void(int64_t)> Int64CompletionCallback;
 
-typedef base::CancelableCallback<void(int)> CancelableCompletionCallback;
-
 }  // namespace net
 
-#endif  // NET_BASE_COMPLETION_CALLBACK_H__
+#endif  // NET_BASE_COMPLETION_CALLBACK_H_

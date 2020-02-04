@@ -198,9 +198,6 @@ static void q_OpenSSL_add_all_algorithms_safe()
 }
 
 
-/*!
-    \internal
-*/
 void QSslSocketPrivate::deinitialize()
 {
     q_CRYPTO_set_id_callback(0);
@@ -218,8 +215,6 @@ bool QSslSocketPrivate::ensureLibraryLoaded()
     QMutexLocker locker(openssl_locks()->initLock());
 
     if (!s_libraryLoaded) {
-        s_libraryLoaded = true;
-
         // Initialize OpenSSL.
         q_CRYPTO_set_id_callback(id_function);
         q_CRYPTO_set_locking_callback(locking_function);
@@ -238,6 +233,8 @@ bool QSslSocketPrivate::ensureLibraryLoaded()
             qWarning("Random number generator not seeded, disabling SSL support");
             return false;
         }
+
+        s_libraryLoaded = true;
     }
     return true;
 }
@@ -254,18 +251,7 @@ void QSslSocketPrivate::ensureCiphersAndCertsLoaded()
 
 #if QT_CONFIG(library)
     //load symbols needed to receive certificates from system store
-#if defined(Q_OS_WIN)
-    HINSTANCE hLib = LoadLibraryW(L"Crypt32");
-    if (hLib) {
-        ptrCertOpenSystemStoreW = (PtrCertOpenSystemStoreW)GetProcAddress(hLib, "CertOpenSystemStoreW");
-        ptrCertFindCertificateInStore = (PtrCertFindCertificateInStore)GetProcAddress(hLib, "CertFindCertificateInStore");
-        ptrCertCloseStore = (PtrCertCloseStore)GetProcAddress(hLib, "CertCloseStore");
-        if (!ptrCertOpenSystemStoreW || !ptrCertFindCertificateInStore || !ptrCertCloseStore)
-            qCWarning(lcSsl, "could not resolve symbols in crypt32 library"); // should never happen
-    } else {
-        qCWarning(lcSsl, "could not load crypt32 library"); // should never happen
-    }
-#elif defined(Q_OS_QNX)
+#if defined(Q_OS_QNX)
     s_loadRootCertsOnDemand = true;
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     // check whether we can enable on-demand root-cert loading (i.e. check whether the sym links are there)
@@ -290,8 +276,7 @@ void QSslSocketPrivate::ensureCiphersAndCertsLoaded()
     //its own cert bundle rather than the system one.
     //Same logic that disables the unix on demand cert loading.
     //Unlike unix, we do preload the certificates from the cert store.
-    if ((QSysInfo::windowsVersion() & QSysInfo::WV_NT_based) >= QSysInfo::WV_6_0)
-        s_loadRootCertsOnDemand = true;
+    s_loadRootCertsOnDemand = true;
 #endif
 }
 

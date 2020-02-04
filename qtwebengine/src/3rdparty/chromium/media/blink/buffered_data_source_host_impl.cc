@@ -25,13 +25,13 @@ constexpr int64_t kDownloadHistoryMinBytesPerEntry = 1000;
 
 BufferedDataSourceHostImpl::BufferedDataSourceHostImpl(
     base::RepeatingClosure progress_cb,
-    base::TickClock* tick_clock)
+    const base::TickClock* tick_clock)
     : total_bytes_(0),
       did_loading_progress_(false),
       progress_cb_(std::move(progress_cb)),
       tick_clock_(tick_clock) {}
 
-BufferedDataSourceHostImpl::~BufferedDataSourceHostImpl() { }
+BufferedDataSourceHostImpl::~BufferedDataSourceHostImpl() = default;
 
 void BufferedDataSourceHostImpl::SetTotalBytes(int64_t total_bytes) {
   total_bytes_ = total_bytes;
@@ -57,12 +57,9 @@ int64_t BufferedDataSourceHostImpl::UnloadedBytesInInterval(
 void BufferedDataSourceHostImpl::AddBufferedByteRange(int64_t start,
                                                       int64_t end) {
   int64_t new_bytes = UnloadedBytesInInterval(Interval<int64_t>(start, end));
-  if (new_bytes == 0) {
-    // No change
-    return;
-  }
+  if (new_bytes > 0)
+    did_loading_progress_ = true;
   buffered_byte_ranges_.SetInterval(start, end, 1);
-  did_loading_progress_ = true;
 
   base::TimeTicks now = tick_clock_->NowTicks();
   int64_t bytes_so_far = 0;
@@ -183,7 +180,7 @@ bool BufferedDataSourceHostImpl::CanPlayThrough(
 }
 
 void BufferedDataSourceHostImpl::SetTickClockForTest(
-    base::TickClock* tick_clock) {
+    const base::TickClock* tick_clock) {
   tick_clock_ = tick_clock;
 }
 

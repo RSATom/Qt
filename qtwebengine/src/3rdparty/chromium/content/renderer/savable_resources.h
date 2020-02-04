@@ -11,7 +11,7 @@
 #include "base/macros.h"
 #include "content/common/content_export.h"
 #include "content/common/savable_subframe.h"
-#include "third_party/WebKit/public/platform/WebReferrerPolicy.h"
+#include "services/network/public/mojom/referrer_policy.mojom.h"
 #include "url/gurl.h"
 
 namespace blink {

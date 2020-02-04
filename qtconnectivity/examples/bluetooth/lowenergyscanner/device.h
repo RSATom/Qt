@@ -122,18 +122,18 @@ Q_SIGNALS:
     void randomAddressChanged();
 
 private:
-    void setUpdate(QString message);
+    void setUpdate(const QString &message);
     QBluetoothDeviceDiscoveryAgent *discoveryAgent;
     DeviceInfo currentDevice;
-    QList<QObject*> devices;
-    QList<QObject*> m_services;
-    QList<QObject*> m_characteristics;
+    QList<QObject *> devices;
+    QList<QObject *> m_services;
+    QList<QObject *> m_characteristics;
     QString m_previousAddress;
     QString m_message;
-    bool connected;
-    QLowEnergyController *controller;
-    bool m_deviceScanState;
-    bool randomAddress;
+    bool connected = false;
+    QLowEnergyController *controller = nullptr;
+    bool m_deviceScanState = false;
+    bool randomAddress = false;
 };
 
 #endif // DEVICE_H

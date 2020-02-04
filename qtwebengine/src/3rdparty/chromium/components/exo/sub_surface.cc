@@ -6,7 +6,7 @@
 
 #include "base/logging.h"
 #include "base/trace_event/trace_event.h"
-#include "base/trace_event/trace_event_argument.h"
+#include "base/trace_event/traced_value.h"
 #include "components/exo/surface.h"
 
 namespace exo {
@@ -96,7 +96,8 @@ void SubSurface::OnSurfaceCommit() {
   if (IsSurfaceSynchronized())
     return;
 
-  surface_->CommitSurfaceHierarchy();
+  if (parent_)
+    parent_->OnSubSurfaceCommit();
 }
 
 bool SubSurface::IsSurfaceSynchronized() const {
@@ -105,7 +106,11 @@ bool SubSurface::IsSurfaceSynchronized() const {
   if (is_synchronized_)
     return true;
 
-  return parent_ ? parent_->IsSynchronized() : false;
+  return parent_ && parent_->IsSynchronized();
+}
+
+bool SubSurface::IsInputEnabled(Surface* surface) const {
+  return !parent_ || parent_->IsInputEnabled(surface);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

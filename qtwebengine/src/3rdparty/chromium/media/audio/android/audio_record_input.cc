@@ -13,6 +13,8 @@ using base::android::JavaParamRef;
 
 namespace media {
 
+constexpr SampleFormat kSampleFormat = kSampleFormatS16;
+
 AudioRecordInputStream::AudioRecordInputStream(
     AudioManagerAndroid* audio_manager,
     const AudioParameters& params)
@@ -20,18 +22,14 @@ AudioRecordInputStream::AudioRecordInputStream(
       callback_(NULL),
       direct_buffer_address_(NULL),
       audio_bus_(media::AudioBus::Create(params)),
-      bytes_per_sample_(params.bits_per_sample() / 8) {
+      bytes_per_sample_(SampleFormatToBytesPerChannel(kSampleFormat)) {
   DVLOG(2) << __PRETTY_FUNCTION__;
   DCHECK(params.IsValid());
-  j_audio_record_.Reset(
-      Java_AudioRecordInput_createAudioRecordInput(
-          base::android::AttachCurrentThread(),
-          reinterpret_cast<intptr_t>(this),
-          params.sample_rate(),
-          params.channels(),
-          params.bits_per_sample(),
-          params.GetBytesPerBuffer(),
-          params.effects() & AudioParameters::ECHO_CANCELLER));
+  j_audio_record_.Reset(Java_AudioRecordInput_createAudioRecordInput(
+      base::android::AttachCurrentThread(), reinterpret_cast<intptr_t>(this),
+      params.sample_rate(), params.channels(), bytes_per_sample_ * 8,
+      params.GetBytesPerBuffer(kSampleFormat),
+      params.effects() & AudioParameters::ECHO_CANCELLER));
 }
 
 AudioRecordInputStream::~AudioRecordInputStream() {
@@ -48,23 +46,21 @@ void AudioRecordInputStream::CacheDirectBufferAddress(
       static_cast<uint8_t*>(env->GetDirectBufferAddress(byte_buffer));
 }
 
-// static
-bool AudioRecordInputStream::RegisterAudioRecordInput(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
 void AudioRecordInputStream::OnData(JNIEnv* env,
                                     const JavaParamRef<jobject>& obj,
                                     jint size,
-                                    jint hardware_delay_bytes) {
+                                    jint hardware_delay_ms) {
   DCHECK(direct_buffer_address_);
   DCHECK_EQ(size,
             audio_bus_->frames() * audio_bus_->channels() * bytes_per_sample_);
   // Passing zero as the volume parameter indicates there is no access to a
   // hardware volume slider.
-  audio_bus_->FromInterleaved(
-      direct_buffer_address_, audio_bus_->frames(), bytes_per_sample_);
-  callback_->OnData(this, audio_bus_.get(), hardware_delay_bytes, 0.0);
+  audio_bus_->FromInterleaved(direct_buffer_address_, audio_bus_->frames(),
+                              bytes_per_sample_);
+  callback_->OnData(audio_bus_.get(),
+                    base::TimeTicks::Now() -
+                        base::TimeDelta::FromMilliseconds(hardware_delay_ms),
+                    0.0);
 }
 
 bool AudioRecordInputStream::Open() {
@@ -118,32 +114,31 @@ void AudioRecordInputStream::Close() {
 }
 
 double AudioRecordInputStream::GetMaxVolume() {
-  NOTIMPLEMENTED();
   return 0.0;
 }
 
 void AudioRecordInputStream::SetVolume(double volume) {
-  NOTIMPLEMENTED();
 }
 
 double AudioRecordInputStream::GetVolume() {
-  NOTIMPLEMENTED();
   return 0.0;
 }
 
 bool AudioRecordInputStream::SetAutomaticGainControl(bool enabled) {
-  NOTIMPLEMENTED();
   return false;
 }
 
 bool AudioRecordInputStream::GetAutomaticGainControl() {
-  NOTIMPLEMENTED();
   return false;
 }
 
 bool AudioRecordInputStream::IsMuted() {
-  NOTIMPLEMENTED();
   return false;
+}
+
+void AudioRecordInputStream::SetOutputDeviceForAec(
+    const std::string& output_device_id) {
+  // Do nothing. This is handled at a different layer on Android.
 }
 
 }  // namespace media

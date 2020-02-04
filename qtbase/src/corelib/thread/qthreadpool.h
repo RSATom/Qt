@@ -45,7 +45,7 @@
 #include <QtCore/qthread.h>
 #include <QtCore/qrunnable.h>
 
-#ifndef QT_NO_THREAD
+QT_REQUIRE_CONFIG(thread);
 
 QT_BEGIN_NAMESPACE
 
@@ -62,7 +62,7 @@ class Q_CORE_EXPORT QThreadPool : public QObject
     friend class QFutureInterfaceBase;
 
 public:
-    QThreadPool(QObject *parent = Q_NULLPTR);
+    QThreadPool(QObject *parent = nullptr);
     ~QThreadPool();
 
     static QThreadPool *globalInstance();
@@ -96,7 +96,5 @@ public:
 };
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_THREAD
 
 #endif

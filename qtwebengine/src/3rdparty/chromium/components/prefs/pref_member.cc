@@ -17,10 +17,7 @@ using base::SingleThreadTaskRunner;
 
 namespace subtle {
 
-PrefMemberBase::PrefMemberBase()
-    : prefs_(NULL),
-      setting_value_(false) {
-}
+PrefMemberBase::PrefMemberBase() : prefs_(nullptr), setting_value_(false) {}
 
 PrefMemberBase::~PrefMemberBase() {
   Destroy();
@@ -48,7 +45,7 @@ void PrefMemberBase::Init(const std::string& pref_name, PrefService* prefs) {
 void PrefMemberBase::Destroy() {
   if (prefs_ && !pref_name_.empty()) {
     prefs_->RemovePrefObserver(pref_name_, this);
-    prefs_ = NULL;
+    prefs_ = nullptr;
   }
 }
 
@@ -102,13 +99,12 @@ bool PrefMemberBase::Internal::IsOnCorrectThread() const {
   return thread_task_runner_->BelongsToCurrentThread();
 }
 
-void PrefMemberBase::Internal::UpdateValue(
-    base::Value* v,
-    bool is_managed,
-    bool is_user_modifiable,
-    const base::Closure& callback) const {
+void PrefMemberBase::Internal::UpdateValue(base::Value* v,
+                                           bool is_managed,
+                                           bool is_user_modifiable,
+                                           base::OnceClosure callback) const {
   std::unique_ptr<base::Value> value(v);
-  base::ScopedClosureRunner closure_runner(callback);
+  base::ScopedClosureRunner closure_runner(std::move(callback));
   if (IsOnCorrectThread()) {
     bool rv = UpdateValueInternal(*value);
     DCHECK(rv);
@@ -116,9 +112,10 @@ void PrefMemberBase::Internal::UpdateValue(
     is_user_modifiable_ = is_user_modifiable;
   } else {
     bool may_run = thread_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&PrefMemberBase::Internal::UpdateValue, this,
-                              value.release(), is_managed, is_user_modifiable,
-                              closure_runner.Release()));
+        FROM_HERE,
+        base::BindOnce(&PrefMemberBase::Internal::UpdateValue, this,
+                       value.release(), is_managed, is_user_modifiable,
+                       closure_runner.Release()));
     DCHECK(may_run);
   }
 }
@@ -131,13 +128,12 @@ void PrefMemberBase::Internal::MoveToThread(
 
 bool PrefMemberVectorStringUpdate(const base::Value& value,
                                   std::vector<std::string>* string_vector) {
-  if (!value.IsType(base::Value::Type::LIST))
+  if (!value.is_list())
     return false;
   const base::ListValue* list = static_cast<const base::ListValue*>(&value);
 
   std::vector<std::string> local_vector;
-  for (base::ListValue::const_iterator it = list->begin();
-       it != list->end(); ++it) {
+  for (auto it = list->begin(); it != list->end(); ++it) {
     std::string string_value;
     if (!it->GetAsString(&string_value))
       return false;

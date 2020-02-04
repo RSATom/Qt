@@ -87,7 +87,7 @@ def get_swizzle_format_id(internal_format, angle_format):
 
     # The format itself can be used for swizzles if it can be accessed as a render target and
     # sampled and the bit count for all 4 channels is the same.
-    if "rtvFormat" in angle_format and "srvFormat" in angle_format and not channels_different and len(angle_format['channels']) == 4:
+    if "rtvFormat" in angle_format and "srvFormat" in angle_format and "uavFormat" in angle_format and not channels_different and len(angle_format['channels']) == 4:
         return angle_format["glInternalFormat"] if "glInternalFormat" in angle_format else internal_format
 
     b = int(math.ceil(float(max_component_bits) / 8) * 8)
@@ -141,9 +141,10 @@ def get_blit_srv_format(angle_format):
 
 format_entry_template = """{space}{{
 {space}    static constexpr Format info({internalFormat},
-{space}                                 angle::Format::ID::{formatName},
+{space}                                 angle::FormatID::{formatName},
 {space}                                 {texFormat},
 {space}                                 {srvFormat},
+{space}                                 {uavFormat},
 {space}                                 {rtvFormat},
 {space}                                 {dsvFormat},
 {space}                                 {blitSRVFormat},
@@ -156,9 +157,10 @@ format_entry_template = """{space}{{
 split_format_entry_template = """{space}    {condition}
 {space}    {{
 {space}        static constexpr Format info({internalFormat},
-{space}                                     angle::Format::ID::{formatName},
+{space}                                     angle::FormatID::{formatName},
 {space}                                     {texFormat},
 {space}                                     {srvFormat},
+{space}                                     {uavFormat},
 {space}                                     {rtvFormat},
 {space}                                     {dsvFormat},
 {space}                                     {blitSRVFormat},
@@ -178,6 +180,7 @@ def json_to_table_data(internal_format, format_name, prefix, json):
         "formatName": format_name,
         "texFormat": "DXGI_FORMAT_UNKNOWN",
         "srvFormat": "DXGI_FORMAT_UNKNOWN",
+        "uavFormat": "DXGI_FORMAT_UNKNOWN",
         "rtvFormat": "DXGI_FORMAT_UNKNOWN",
         "dsvFormat": "DXGI_FORMAT_UNKNOWN",
         "condition": prefix,
@@ -238,6 +241,12 @@ def parse_json_into_switch_angle_format_string(json_map, json_data):
     for internal_format, format_name in sorted(json_map.iteritems()):
 
         if format_name not in json_data:
+            continue
+
+        # Typeless internal formats are dummy formats just used to fit support
+        # for typeless D3D textures into the format system. Their properties
+        # should not be queried.
+        if 'TYPELESS' in internal_format:
             continue
 
         angle_format = json_data[format_name]

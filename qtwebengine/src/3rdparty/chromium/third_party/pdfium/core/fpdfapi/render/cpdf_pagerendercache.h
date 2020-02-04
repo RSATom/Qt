@@ -8,18 +8,19 @@
 #define CORE_FPDFAPI_RENDER_CPDF_PAGERENDERCACHE_H_
 
 #include <map>
+#include <memory>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/maybe_owned.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
-class CFX_DIBitmap;
 class CPDF_Image;
 class CPDF_ImageCacheEntry;
 class CPDF_Page;
 class CPDF_RenderStatus;
 class CPDF_Stream;
-class IFX_Pause;
+class PauseIndicatorIface;
 
 class CPDF_PageRenderCache {
  public:
@@ -28,30 +29,29 @@ class CPDF_PageRenderCache {
 
   void CacheOptimization(int32_t dwLimitCacheSize);
   uint32_t GetTimeCount() const { return m_nTimeCount; }
-  void ResetBitmap(const CFX_RetainPtr<CPDF_Image>& pImage,
-                   const CFX_RetainPtr<CFX_DIBitmap>& pBitmap);
+  void ResetBitmap(const RetainPtr<CPDF_Image>& pImage);
   CPDF_Page* GetPage() const { return m_pPage.Get(); }
   CPDF_ImageCacheEntry* GetCurImageCacheEntry() const {
-    return m_pCurImageCacheEntry;
+    return m_pCurImageCacheEntry.Get();
   }
 
-  bool StartGetCachedBitmap(const CFX_RetainPtr<CPDF_Image>& pImage,
+  bool StartGetCachedBitmap(const RetainPtr<CPDF_Image>& pImage,
                             bool bStdCS,
                             uint32_t GroupFamily,
                             bool bLoadMask,
                             CPDF_RenderStatus* pRenderStatus);
 
-  bool Continue(IFX_Pause* pPause, CPDF_RenderStatus* pRenderStatus);
+  bool Continue(PauseIndicatorIface* pPause, CPDF_RenderStatus* pRenderStatus);
 
  private:
   void ClearImageCacheEntry(CPDF_Stream* pStream);
 
-  CFX_UnownedPtr<CPDF_Page> const m_pPage;
-  CPDF_ImageCacheEntry* m_pCurImageCacheEntry;
-  std::map<CPDF_Stream*, CPDF_ImageCacheEntry*> m_ImageCache;
-  uint32_t m_nTimeCount;
-  uint32_t m_nCacheSize;
-  bool m_bCurFindCache;
+  UnownedPtr<CPDF_Page> const m_pPage;
+  std::map<CPDF_Stream*, std::unique_ptr<CPDF_ImageCacheEntry>> m_ImageCache;
+  MaybeOwned<CPDF_ImageCacheEntry> m_pCurImageCacheEntry;
+  uint32_t m_nTimeCount = 0;
+  uint32_t m_nCacheSize = 0;
+  bool m_bCurFindCache = false;
 };
 
 #endif  // CORE_FPDFAPI_RENDER_CPDF_PAGERENDERCACHE_H_

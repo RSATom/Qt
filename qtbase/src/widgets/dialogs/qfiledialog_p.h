@@ -164,13 +164,9 @@ public:
 
     QDir::Filters filterForMode(QDir::Filters filters) const
     {
-        const QFileDialog::FileMode fileMode = q_func()->fileMode();
-        if (fileMode == QFileDialog::DirectoryOnly) {
-            filters |= QDir::Drives | QDir::AllDirs | QDir::Dirs;
+        filters |= QDir::Drives | QDir::AllDirs | QDir::Dirs | QDir::Files;
+        if (q_func()->testOption(QFileDialog::ShowDirsOnly))
             filters &= ~QDir::Files;
-        } else {
-            filters |= QDir::Drives | QDir::AllDirs | QDir::Files | QDir::Dirs;
-        }
         return filters;
     }
 
@@ -187,7 +183,7 @@ public:
 #endif
     }
 
-#ifndef QT_NO_SETTINGS
+#if QT_CONFIG(settings)
     void saveSettings();
     bool restoreFromSettings();
 #endif
@@ -227,7 +223,7 @@ public:
     void _q_fileRenamed(const QString &path, const QString &oldName, const QString &newName);
 
     // layout
-#ifndef QT_NO_PROXYMODEL
+#if QT_CONFIG(proxymodel)
     QAbstractProxyModel *proxyModel;
 #endif
 
@@ -254,7 +250,7 @@ public:
     // setVisible_sys returns true if it ends up showing a native
     // dialog. Returning false means that a non-native dialog must be
     // used instead.
-    bool canBeNativeDialog() const Q_DECL_OVERRIDE;
+    bool canBeNativeDialog() const override;
     inline bool usingWidgets() const;
 
     inline void setDirectory_sys(const QUrl &directory);
@@ -286,11 +282,11 @@ public:
     ~QFileDialogPrivate();
 
 private:
-    virtual void initHelper(QPlatformDialogHelper *) Q_DECL_OVERRIDE;
-    virtual void helperPrepareShow(QPlatformDialogHelper *) Q_DECL_OVERRIDE;
-    virtual void helperDone(QDialog::DialogCode, QPlatformDialogHelper *) Q_DECL_OVERRIDE;
+    virtual void initHelper(QPlatformDialogHelper *) override;
+    virtual void helperPrepareShow(QPlatformDialogHelper *) override;
+    virtual void helperDone(QDialog::DialogCode, QPlatformDialogHelper *) override;
 
-    Q_DISABLE_COPY(QFileDialogPrivate)
+    Q_DISABLE_COPY_MOVE(QFileDialogPrivate)
 };
 
 class QFileDialogLineEdit : public QLineEdit
@@ -298,7 +294,7 @@ class QFileDialogLineEdit : public QLineEdit
 public:
     QFileDialogLineEdit(QWidget *parent = 0) : QLineEdit(parent), d_ptr(0){}
     void setFileDialogPrivate(QFileDialogPrivate *d_pointer) {d_ptr = d_pointer; }
-    void keyPressEvent(QKeyEvent *e) Q_DECL_OVERRIDE;
+    void keyPressEvent(QKeyEvent *e) override;
     bool hideOnEsc;
 private:
     QFileDialogPrivate *d_ptr;
@@ -309,10 +305,10 @@ class QFileDialogComboBox : public QComboBox
 public:
     QFileDialogComboBox(QWidget *parent = 0) : QComboBox(parent), urlModel(0) {}
     void setFileDialogPrivate(QFileDialogPrivate *d_pointer);
-    void showPopup() Q_DECL_OVERRIDE;
+    void showPopup() override;
     void setHistory(const QStringList &paths);
     QStringList history() const { return m_history; }
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *) override;
 
 private:
     QUrlModel *urlModel;
@@ -325,9 +321,9 @@ class QFileDialogListView : public QListView
 public:
     QFileDialogListView(QWidget *parent = 0);
     void setFileDialogPrivate(QFileDialogPrivate *d_pointer);
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
 protected:
-    void keyPressEvent(QKeyEvent *e) Q_DECL_OVERRIDE;
+    void keyPressEvent(QKeyEvent *e) override;
 private:
     QFileDialogPrivate *d_ptr;
 };
@@ -337,26 +333,26 @@ class QFileDialogTreeView : public QTreeView
 public:
     QFileDialogTreeView(QWidget *parent);
     void setFileDialogPrivate(QFileDialogPrivate *d_pointer);
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
 
 protected:
-    void keyPressEvent(QKeyEvent *e) Q_DECL_OVERRIDE;
+    void keyPressEvent(QKeyEvent *e) override;
 private:
     QFileDialogPrivate *d_ptr;
 };
 
 QModelIndex QFileDialogPrivate::mapToSource(const QModelIndex &index) const {
-#ifdef QT_NO_PROXYMODEL
-    return index;
-#else
+#if QT_CONFIG(proxymodel)
     return proxyModel ? proxyModel->mapToSource(index) : index;
+#else
+    return index;
 #endif
 }
 QModelIndex QFileDialogPrivate::mapFromSource(const QModelIndex &index) const {
-#ifdef QT_NO_PROXYMODEL
-    return index;
-#else
+#if QT_CONFIG(proxymodel)
     return proxyModel ? proxyModel->mapFromSource(index) : index;
+#else
+    return index;
 #endif
 }
 

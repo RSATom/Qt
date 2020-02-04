@@ -48,19 +48,16 @@
 // We mean it.
 //
 
-#include <QtQuickControls2/private/qquicktheme_p.h>
+#include <QtCore/qglobal.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQuickDefaultTheme : public QQuickTheme
+class QQuickTheme;
+
+class QQuickDefaultTheme
 {
 public:
-    explicit QQuickDefaultTheme();
-
-    const QPalette *palette(Palette type) const override;
-
-private:
-    QPalette systemPalette;
+    static void initialize(QQuickTheme *theme);
 };
 
 QT_END_NAMESPACE

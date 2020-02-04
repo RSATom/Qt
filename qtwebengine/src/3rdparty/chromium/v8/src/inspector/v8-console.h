@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_INSPECTOR_V8CONSOLE_H_
-#define V8_INSPECTOR_V8CONSOLE_H_
+#ifndef V8_INSPECTOR_V8_CONSOLE_H_
+#define V8_INSPECTOR_V8_CONSOLE_H_
 
 #include "src/base/macros.h"
 
@@ -16,7 +16,7 @@ class InspectedContext;
 class V8InspectorImpl;
 
 // Console API
-// https://console.spec.whatwg.org/#console-interface
+// https://console.spec.whatwg.org/#console-namespace
 class V8Console : public v8::debug::ConsoleDelegate {
  public:
   v8::Local<v8::Object> createCommandLineAPI(v8::Local<v8::Context> context,
@@ -78,20 +78,18 @@ class V8Console : public v8::debug::ConsoleDelegate {
              const v8::debug::ConsoleContext& consoleContext) override;
   void Count(const v8::debug::ConsoleCallArguments&,
              const v8::debug::ConsoleContext& consoleContext) override;
+  void CountReset(const v8::debug::ConsoleCallArguments&,
+                  const v8::debug::ConsoleContext& consoleContext) override;
   void Assert(const v8::debug::ConsoleCallArguments&,
               const v8::debug::ConsoleContext& consoleContext) override;
-  void MarkTimeline(const v8::debug::ConsoleCallArguments&,
-                    const v8::debug::ConsoleContext& consoleContext) override;
   void Profile(const v8::debug::ConsoleCallArguments&,
                const v8::debug::ConsoleContext& consoleContext) override;
   void ProfileEnd(const v8::debug::ConsoleCallArguments&,
                   const v8::debug::ConsoleContext& consoleContext) override;
-  void Timeline(const v8::debug::ConsoleCallArguments&,
-                const v8::debug::ConsoleContext& consoleContext) override;
-  void TimelineEnd(const v8::debug::ConsoleCallArguments&,
-                   const v8::debug::ConsoleContext& consoleContext) override;
   void Time(const v8::debug::ConsoleCallArguments&,
             const v8::debug::ConsoleContext& consoleContext) override;
+  void TimeLog(const v8::debug::ConsoleCallArguments&,
+               const v8::debug::ConsoleContext& consoleContext) override;
   void TimeEnd(const v8::debug::ConsoleCallArguments&,
                const v8::debug::ConsoleContext& consoleContext) override;
   void TimeStamp(const v8::debug::ConsoleCallArguments&,
@@ -108,14 +106,14 @@ class V8Console : public v8::debug::ConsoleDelegate {
                                     int)>
   static void call(const v8::FunctionCallbackInfo<v8::Value>& info) {
     CommandLineAPIData* data = static_cast<CommandLineAPIData*>(
-        info.Data().As<v8::External>()->Value());
+        info.Data().As<v8::ArrayBuffer>()->GetContents().Data());
     (data->first->*func)(info, data->second);
   }
   template <void (V8Console::*func)(const v8::debug::ConsoleCallArguments&,
                                     const v8::debug::ConsoleContext&)>
   static void call(const v8::FunctionCallbackInfo<v8::Value>& info) {
     CommandLineAPIData* data = static_cast<CommandLineAPIData*>(
-        info.Data().As<v8::External>()->Value());
+        info.Data().As<v8::ArrayBuffer>()->GetContents().Data());
     v8::debug::ConsoleCallArguments args(info);
     (data->first->*func)(args, v8::debug::ConsoleContext());
   }
@@ -164,10 +162,12 @@ class V8Console : public v8::debug::ConsoleDelegate {
                         int sessionId) {
     inspectedObject(info, sessionId, 4);
   }
+  void queryObjectsCallback(const v8::FunctionCallbackInfo<v8::Value>& info,
+                            int sessionId);
 
   V8InspectorImpl* m_inspector;
 };
 
 }  // namespace v8_inspector
 
-#endif  // V8_INSPECTOR_V8CONSOLE_H_
+#endif  // V8_INSPECTOR_V8_CONSOLE_H_

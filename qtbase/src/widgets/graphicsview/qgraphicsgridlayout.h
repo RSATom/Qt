@@ -53,7 +53,7 @@ class QGraphicsGridLayoutPrivate;
 class Q_WIDGETS_EXPORT QGraphicsGridLayout : public QGraphicsLayout
 {
 public:
-    QGraphicsGridLayout(QGraphicsLayoutItem *parent = Q_NULLPTR);
+    QGraphicsGridLayout(QGraphicsLayoutItem *parent = nullptr);
     virtual ~QGraphicsGridLayout();
 
     void addItem(QGraphicsLayoutItem *item, int row, int column, int rowSpan, int columnSpan,
@@ -106,16 +106,16 @@ public:
     QGraphicsLayoutItem *itemAt(int row, int column) const;
 
     // inherited from QGraphicsLayout
-    int count() const Q_DECL_OVERRIDE;
-    QGraphicsLayoutItem *itemAt(int index) const Q_DECL_OVERRIDE;
-    void removeAt(int index) Q_DECL_OVERRIDE;
+    int count() const override;
+    QGraphicsLayoutItem *itemAt(int index) const override;
+    void removeAt(int index) override;
     void removeItem(QGraphicsLayoutItem *item);
 
-    void invalidate() Q_DECL_OVERRIDE;
+    void invalidate() override;
 
     // inherited from QGraphicsLayoutItem
-    void setGeometry(const QRectF &rect) Q_DECL_OVERRIDE;
-    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const Q_DECL_OVERRIDE;
+    void setGeometry(const QRectF &rect) override;
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF &constraint = QSizeF()) const override;
 
     // ####
     //QRect cellRect(int row, int column, int rowSpan = 1, int columnSpan = 1) const;

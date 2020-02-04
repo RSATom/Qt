@@ -8,19 +8,20 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_NETEQ_MOCK_MOCK_DELAY_PEAK_DETECTOR_H_
-#define WEBRTC_MODULES_AUDIO_CODING_NETEQ_MOCK_MOCK_DELAY_PEAK_DETECTOR_H_
+#ifndef MODULES_AUDIO_CODING_NETEQ_MOCK_MOCK_DELAY_PEAK_DETECTOR_H_
+#define MODULES_AUDIO_CODING_NETEQ_MOCK_MOCK_DELAY_PEAK_DETECTOR_H_
 
-#include "webrtc/modules/audio_coding/neteq/delay_peak_detector.h"
+#include "modules/audio_coding/neteq/delay_peak_detector.h"
 
-#include "webrtc/test/gmock.h"
+#include "test/gmock.h"
 
 namespace webrtc {
 
 class MockDelayPeakDetector : public DelayPeakDetector {
  public:
-  MockDelayPeakDetector(const TickTimer* tick_timer)
-      : DelayPeakDetector(tick_timer) {}
+  MockDelayPeakDetector(const TickTimer* tick_timer,
+                        bool ignore_reordered_packets)
+      : DelayPeakDetector(tick_timer, ignore_reordered_packets) {}
   virtual ~MockDelayPeakDetector() { Die(); }
   MOCK_METHOD0(Die, void());
   MOCK_METHOD0(Reset, void());
@@ -28,8 +29,9 @@ class MockDelayPeakDetector : public DelayPeakDetector {
   MOCK_METHOD0(peak_found, bool());
   MOCK_CONST_METHOD0(MaxPeakHeight, int());
   MOCK_CONST_METHOD0(MaxPeakPeriod, uint64_t());
-  MOCK_METHOD2(Update, bool(int inter_arrival_time, int target_level));
+  MOCK_METHOD3(Update,
+               bool(int inter_arrival_time, bool reordered, int target_level));
 };
 
 }  // namespace webrtc
-#endif  // WEBRTC_MODULES_AUDIO_CODING_NETEQ_MOCK_MOCK_DELAY_PEAK_DETECTOR_H_
+#endif  // MODULES_AUDIO_CODING_NETEQ_MOCK_MOCK_DELAY_PEAK_DETECTOR_H_

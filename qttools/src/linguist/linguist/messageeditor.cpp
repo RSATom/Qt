@@ -52,21 +52,6 @@
 
 QT_BEGIN_NAMESPACE
 
-#ifdef NEVER_TRUE
-// Allow translators to provide localized names for QLocale::languageToString
-// At least the own language should be translated ... This is a "hack" until
-// functionality is provided within Qt (see task 196275).
-static const char * language_strings[] =
-{
-    QT_TRANSLATE_NOOP("MessageEditor", "Russian"),
-    QT_TRANSLATE_NOOP("MessageEditor", "German"),
-    QT_TRANSLATE_NOOP("MessageEditor", "Japanese"),
-    QT_TRANSLATE_NOOP("MessageEditor", "French"),
-    QT_TRANSLATE_NOOP("MessageEditor", "Polish"),
-    QT_TRANSLATE_NOOP("MessageEditor", "Chinese")
-};
-#endif
-
 /*
    MessageEditor class impl.
 
@@ -149,14 +134,14 @@ void MessageEditor::setupEditorPage()
 
     QBoxLayout *subLayout = new QVBoxLayout;
 
-    subLayout->setMargin(5);
+    subLayout->setContentsMargins(5, 5, 5, 5);
     subLayout->addWidget(m_source);
     subLayout->addWidget(m_pluralSource);
     subLayout->addWidget(m_commentText);
 
     m_layout = new QVBoxLayout;
     m_layout->setSpacing(2);
-    m_layout->setMargin(2);
+    m_layout->setContentsMargins(2, 2, 2, 2);
     m_layout->addLayout(subLayout);
     m_layout->addStretch(1);
     editorPage->setLayout(m_layout);
@@ -214,7 +199,7 @@ void MessageEditor::messageModelAppended()
     connect(ed.transCommentText, SIGNAL(cursorPositionChanged()), SLOT(resetHoverSelection()));
     fixTabOrder();
     QBoxLayout *box = new QVBoxLayout(ed.container);
-    box->setMargin(5);
+    box->setContentsMargins(5, 5, 5, 5);
     box->addWidget(ed.transCommentText);
     box->addSpacing(ed.transCommentText->getEditor()->fontMetrics().height() / 2);
     m_layout->addWidget(ed.container);
@@ -333,7 +318,8 @@ void MessageEditor::reallyFixTabOrder()
     }
 }
 
-/*! internal
+/*
+    \internal
     Returns all translations for an item.
     The number of translations is dependent on if we have a plural form or not.
     If we don't have a plural form, then this should only contain one item.
@@ -463,7 +449,7 @@ void MessageEditor::setTargetLanguage(int model)
     const QStringList &numerusForms = m_dataModel->model(model)->numerusForms();
     const QString &langLocalized = m_dataModel->model(model)->localizedLanguage();
     for (int i = 0; i < numerusForms.count(); ++i) {
-        const QString &label = tr("%1 translation (%2)").arg(langLocalized, numerusForms[i]);
+        const QString &label = tr("Translation to %1 (%2)").arg(langLocalized, numerusForms[i]);
         if (!i)
             m_editors[model].firstForm = label;
         if (i >= m_editors[model].transTexts.count())
@@ -477,8 +463,8 @@ void MessageEditor::setTargetLanguage(int model)
     }
     for (int j = m_editors[model].transTexts.count() - numerusForms.count(); j > 0; --j)
         delete m_editors[model].transTexts.takeLast();
-    m_editors[model].invariantForm = tr("%1 translation").arg(langLocalized);
-    m_editors[model].transCommentText->setLabel(tr("%1 translator comments").arg(langLocalized));
+    m_editors[model].invariantForm = tr("Translation to %1").arg(langLocalized);
+    m_editors[model].transCommentText->setLabel(tr("Translator comments for %1").arg(langLocalized));
 }
 
 MessageEditorData *MessageEditor::modelForWidget(const QObject *o)

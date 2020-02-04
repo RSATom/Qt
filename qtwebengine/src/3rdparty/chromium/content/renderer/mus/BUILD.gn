@@ -7,6 +7,9 @@ static_library("mus") {
   visibility = [ "//content/renderer/*" ]
 
   sources = [
+    "mus_embedded_frame.cc",
+    "mus_embedded_frame.h",
+    "mus_embedded_frame_delegate.h",
     "render_widget_window_tree_client_factory.cc",
     "render_widget_window_tree_client_factory.h",
     "renderer_window_tree_client.cc",
@@ -15,19 +18,22 @@ static_library("mus") {
 
   configs += [ "//content:content_implementation" ]
 
+  public_deps = [
+    "//content/public/common:common_sources",
+  ]
+
   deps = [
     "//base",
     "//cc",
+    "//cc/mojo_embedder",
     "//components/viz/client",
     "//content/common",
     "//content/public/child:child_sources",
-    "//content/public/common:common_sources",
     "//media/mojo/interfaces:remoting",
-    "//mojo/common",
     "//services/service_manager/public/cpp",
-    "//services/ui/public/cpp",
-    "//services/ui/public/interfaces",
-    "//third_party/WebKit/public:blink",
+    "//services/ws/public/cpp",
+    "//services/ws/public/mojom",
+    "//third_party/blink/public:blink",
     "//ui/events:events",
     "//ui/events:events_base",
     "//ui/events/blink",

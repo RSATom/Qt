@@ -4,36 +4,32 @@
 
 #include "cc/trees/element_id.h"
 
+#include <inttypes.h>
 #include <limits>
 #include <ostream>
 
-#include "base/trace_event/trace_event_argument.h"
+#include "base/strings/stringprintf.h"
+#include "base/trace_event/traced_value.h"
 #include "base/values.h"
 
 namespace cc {
-
-bool ElementId::operator==(const ElementId& o) const {
-  return id_ == o.id_;
-}
-
-bool ElementId::operator!=(const ElementId& o) const {
-  return !(*this == o);
-}
-
-bool ElementId::operator<(const ElementId& o) const {
-  return id_ < o.id_;
-}
-
-ElementId::operator bool() const {
-  return !!id_;
-}
 
 ElementId LayerIdToElementIdForTesting(int layer_id) {
   return ElementId(std::numeric_limits<int>::max() - layer_id);
 }
 
 void ElementId::AddToTracedValue(base::trace_event::TracedValue* res) const {
+  res->BeginDictionary("element_id");
   res->SetInteger("id_", id_);
+  res->EndDictionary();
+}
+
+ElementIdType ElementId::GetInternalValue() const {
+  return id_;
+}
+
+std::string ElementId::ToString() const {
+  return base::StringPrintf("(%" PRIu64 ")", id_);
 }
 
 std::unique_ptr<base::Value> ElementId::AsValue() const {
@@ -47,7 +43,7 @@ size_t ElementIdHash::operator()(ElementId key) const {
 }
 
 std::ostream& operator<<(std::ostream& out, const ElementId& id) {
-  return out << "(" << id.id_ << ")";
+  return out << id.ToString();
 }
 
 }  // namespace cc

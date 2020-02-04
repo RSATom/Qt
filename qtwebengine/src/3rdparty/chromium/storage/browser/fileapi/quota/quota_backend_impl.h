@@ -7,13 +7,14 @@
 
 #include <stdint.h>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "storage/browser/fileapi/quota/quota_reservation_manager.h"
 #include "storage/browser/fileapi/sandbox_file_system_backend_delegate.h"
-#include "storage/browser/storage_browser_export.h"
-#include "storage/common/quota/quota_status_code.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
+#include "url/origin.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -24,20 +25,16 @@ class QuotaBackendImplTest;
 }
 
 namespace storage {
-class QuotaManagerProxy;
-}
-
-namespace storage {
 
 class FileSystemUsageCache;
 class ObfuscatedFileUtil;
+class QuotaManagerProxy;
 
 // An instance of this class is owned by QuotaReservationManager.
-class STORAGE_EXPORT QuotaBackendImpl
+class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaBackendImpl
     : public QuotaReservationManager::QuotaBackend {
  public:
-  typedef QuotaReservationManager::ReserveQuotaCallback
-      ReserveQuotaCallback;
+  using ReserveQuotaCallback = QuotaReservationManager::ReserveQuotaCallback;
 
   QuotaBackendImpl(base::SequencedTaskRunner* file_task_runner,
                    ObfuscatedFileUtil* obfuscated_file_util,
@@ -46,45 +43,46 @@ class STORAGE_EXPORT QuotaBackendImpl
   ~QuotaBackendImpl() override;
 
   // QuotaReservationManager::QuotaBackend overrides.
-  void ReserveQuota(const GURL& origin,
+  void ReserveQuota(const url::Origin& origin,
                     FileSystemType type,
                     int64_t delta,
-                    const ReserveQuotaCallback& callback) override;
-  void ReleaseReservedQuota(const GURL& origin,
+                    ReserveQuotaCallback callback) override;
+  void ReleaseReservedQuota(const url::Origin& origin,
                             FileSystemType type,
                             int64_t size) override;
-  void CommitQuotaUsage(const GURL& origin,
+  void CommitQuotaUsage(const url::Origin& origin,
                         FileSystemType type,
                         int64_t delta) override;
-  void IncrementDirtyCount(const GURL& origin, FileSystemType type) override;
-  void DecrementDirtyCount(const GURL& origin, FileSystemType type) override;
+  void IncrementDirtyCount(const url::Origin& origin,
+                           FileSystemType type) override;
+  void DecrementDirtyCount(const url::Origin& origin,
+                           FileSystemType type) override;
 
  private:
   friend class content::QuotaBackendImplTest;
 
   struct QuotaReservationInfo {
-    QuotaReservationInfo(const GURL& origin,
+    QuotaReservationInfo(const url::Origin& origin,
                          FileSystemType type,
                          int64_t delta);
     ~QuotaReservationInfo();
 
-    GURL origin;
+    url::Origin origin;
     FileSystemType type;
     int64_t delta;
   };
 
   void DidGetUsageAndQuotaForReserveQuota(const QuotaReservationInfo& info,
-                                          const ReserveQuotaCallback& callback,
-                                          storage::QuotaStatusCode status,
+                                          ReserveQuotaCallback callback,
+                                          blink::mojom::QuotaStatusCode status,
                                           int64_t usage,
                                           int64_t quota);
 
   void ReserveQuotaInternal(
       const QuotaReservationInfo& info);
-  base::File::Error GetUsageCachePath(
-      const GURL& origin,
-      FileSystemType type,
-      base::FilePath* usage_file_path);
+  base::File::Error GetUsageCachePath(const url::Origin& origin,
+                                      FileSystemType type,
+                                      base::FilePath* usage_file_path);
 
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
 

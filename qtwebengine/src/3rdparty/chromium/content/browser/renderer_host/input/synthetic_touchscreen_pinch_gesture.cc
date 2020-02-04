@@ -54,6 +54,13 @@ SyntheticGesture::Result SyntheticTouchscreenPinchGesture::ForwardInputEvents(
                           : SyntheticGesture::GESTURE_RUNNING;
 }
 
+void SyntheticTouchscreenPinchGesture::WaitForTargetAck(
+    base::OnceClosure callback,
+    SyntheticGestureTarget* target) const {
+  target->WaitForTargetAck(params_.GetGestureType(), gesture_source_type_,
+                           std::move(callback));
+}
+
 void SyntheticTouchscreenPinchGesture::ForwardTouchInputEvents(
     const base::TimeTicks& timestamp,
     SyntheticGestureTarget* target) {
@@ -79,8 +86,10 @@ void SyntheticTouchscreenPinchGesture::ForwardTouchInputEvents(
     } break;
     case SETUP:
       NOTREACHED() << "State SETUP invalid for synthetic pinch.";
+      break;
     case DONE:
       NOTREACHED() << "State DONE invalid for synthetic pinch.";
+      break;
   }
 }
 
@@ -120,16 +129,15 @@ void SyntheticTouchscreenPinchGesture::SetupCoordinatesAndStopTime(
   // factor. Since we're moving both pointers at the same speed, each pointer's
   // distance to the anchor is half the span.
   float initial_distance_to_anchor, final_distance_to_anchor;
+  const float single_point_slop = target->GetSpanSlopInDips() / 2.0f;
   if (params_.scale_factor > 1.0f) {  // zooming in
     initial_distance_to_anchor = target->GetMinScalingSpanInDips() / 2.0f;
     final_distance_to_anchor =
-        (initial_distance_to_anchor + target->GetTouchSlopInDips()) *
-        params_.scale_factor;
+        (initial_distance_to_anchor + single_point_slop) * params_.scale_factor;
   } else {  // zooming out
     final_distance_to_anchor = target->GetMinScalingSpanInDips() / 2.0f;
     initial_distance_to_anchor =
-        (final_distance_to_anchor / params_.scale_factor) +
-        target->GetTouchSlopInDips();
+        (final_distance_to_anchor / params_.scale_factor) + single_point_slop;
   }
 
   start_y_0_ = params_.anchor.y() - initial_distance_to_anchor;

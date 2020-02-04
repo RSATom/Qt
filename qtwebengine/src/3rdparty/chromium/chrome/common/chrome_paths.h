@@ -89,13 +89,10 @@ enum {
                                     // Pepper Flash plugin, downloadable from
                                     // Adobe website. Querying this path might
                                     // succeed no matter the file exists or not.
-  FILE_NACL_PLUGIN,             // Full path to the internal NaCl plugin file.
   DIR_PNACL_BASE,               // Full path to the base dir for PNaCl.
   DIR_PNACL_COMPONENT,          // Full path to the latest PNaCl version
                                 // (subdir of DIR_PNACL_BASE).
-  DIR_COMPONENT_WIDEVINE_CDM,   // Directory that contains component-updated
-                                // Widevine CDM files.
-  FILE_WIDEVINE_CDM_ADAPTER,    // Full path to the Widevine CDM adapter file.
+  FILE_WIDEVINE_CDM,            // Full path to the Widevine CDM.
   FILE_RESOURCES_PACK,          // Full path to the .pak file containing
                                 // binary data (e.g., html files and images
                                 // used by internal pages).
@@ -107,9 +104,6 @@ enum {
   DIR_CHROMEOS_CUSTOM_WALLPAPERS,     // Directory where custom wallpapers
                                       // reside.
 #endif
-  DIR_SUPERVISED_USERS_DEFAULT_APPS,  // Directory where installer places .crx
-                                      // files to be installed when managed user
-                                      // session starts.
   DIR_SUPERVISED_USER_INSTALLED_WHITELISTS,  // Directory where sanitized
                                              // supervised user whitelists are
                                              // installed.
@@ -135,6 +129,13 @@ enum {
 #if defined(OS_CHROMEOS)
   FILE_CHROME_OS_COMPONENT_FLASH,  // The location of component updated Flash on
                                    // Chrome OS.
+
+  // File containing the location of the updated TPM firmware binary in the file
+  // system.
+  FILE_CHROME_OS_TPM_FIRMWARE_UPDATE_LOCATION,
+
+  // Flag file indicating SRK ROCA vulnerability status.
+  FILE_CHROME_OS_TPM_FIRMWARE_UPDATE_SRK_VULNERABLE_ROCA,
 #endif  // defined(OS_CHROMEOS)
   PATH_END
 };

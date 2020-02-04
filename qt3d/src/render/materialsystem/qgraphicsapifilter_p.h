@@ -59,7 +59,7 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
-struct Q_AUTOTEST_EXPORT GraphicsApiFilterData
+struct Q_3DRENDERSHARED_PRIVATE_EXPORT GraphicsApiFilterData
 {
     GraphicsApiFilterData();
 
@@ -75,7 +75,7 @@ struct Q_AUTOTEST_EXPORT GraphicsApiFilterData
     bool operator <(const GraphicsApiFilterData &other) const;
 };
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT QGraphicsApiFilterPrivate : public QObjectPrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QGraphicsApiFilterPrivate : public QObjectPrivate
 {
 public:
     QGraphicsApiFilterPrivate()

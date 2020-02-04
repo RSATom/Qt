@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "storage/browser/fileapi/async_file_util.h"
@@ -27,8 +28,8 @@ class FileSystemFileUtil;
 //
 // This instance (as thus this->sync_file_util_) is guaranteed to be alive
 // as far as FileSystemOperationContext given to each operation is kept alive.
-class STORAGE_EXPORT AsyncFileUtilAdapter
-    : public NON_EXPORTED_BASE(AsyncFileUtil) {
+class COMPONENT_EXPORT(STORAGE_BROWSER) AsyncFileUtilAdapter
+    : public AsyncFileUtil {
  public:
   // Creates a new AsyncFileUtil for |sync_file_util|. This takes the
   // ownership of |sync_file_util|. (This doesn't take std::unique_ptr<> just
@@ -46,58 +47,58 @@ class STORAGE_EXPORT AsyncFileUtilAdapter
   void CreateOrOpen(std::unique_ptr<FileSystemOperationContext> context,
                     const FileSystemURL& url,
                     int file_flags,
-                    const CreateOrOpenCallback& callback) override;
+                    CreateOrOpenCallback callback) override;
   void EnsureFileExists(std::unique_ptr<FileSystemOperationContext> context,
                         const FileSystemURL& url,
-                        const EnsureFileExistsCallback& callback) override;
+                        EnsureFileExistsCallback callback) override;
   void CreateDirectory(std::unique_ptr<FileSystemOperationContext> context,
                        const FileSystemURL& url,
                        bool exclusive,
                        bool recursive,
-                       const StatusCallback& callback) override;
+                       StatusCallback callback) override;
   void GetFileInfo(std::unique_ptr<FileSystemOperationContext> context,
                    const FileSystemURL& url,
-                   int /* fields */,
-                   const GetFileInfoCallback& callback) override;
+                   int fields,
+                   GetFileInfoCallback callback) override;
   void ReadDirectory(std::unique_ptr<FileSystemOperationContext> context,
                      const FileSystemURL& url,
-                     const ReadDirectoryCallback& callback) override;
+                     ReadDirectoryCallback callback) override;
   void Touch(std::unique_ptr<FileSystemOperationContext> context,
              const FileSystemURL& url,
              const base::Time& last_access_time,
              const base::Time& last_modified_time,
-             const StatusCallback& callback) override;
+             StatusCallback callback) override;
   void Truncate(std::unique_ptr<FileSystemOperationContext> context,
                 const FileSystemURL& url,
                 int64_t length,
-                const StatusCallback& callback) override;
+                StatusCallback callback) override;
   void CopyFileLocal(std::unique_ptr<FileSystemOperationContext> context,
                      const FileSystemURL& src_url,
                      const FileSystemURL& dest_url,
                      CopyOrMoveOption option,
-                     const CopyFileProgressCallback& progress_callback,
-                     const StatusCallback& callback) override;
+                     CopyFileProgressCallback progress_callback,
+                     StatusCallback callback) override;
   void MoveFileLocal(std::unique_ptr<FileSystemOperationContext> context,
                      const FileSystemURL& src_url,
                      const FileSystemURL& dest_url,
                      CopyOrMoveOption option,
-                     const StatusCallback& callback) override;
+                     StatusCallback callback) override;
   void CopyInForeignFile(std::unique_ptr<FileSystemOperationContext> context,
                          const base::FilePath& src_file_path,
                          const FileSystemURL& dest_url,
-                         const StatusCallback& callback) override;
+                         StatusCallback callback) override;
   void DeleteFile(std::unique_ptr<FileSystemOperationContext> context,
                   const FileSystemURL& url,
-                  const StatusCallback& callback) override;
+                  StatusCallback callback) override;
   void DeleteDirectory(std::unique_ptr<FileSystemOperationContext> context,
                        const FileSystemURL& url,
-                       const StatusCallback& callback) override;
+                       StatusCallback callback) override;
   void DeleteRecursively(std::unique_ptr<FileSystemOperationContext> context,
                          const FileSystemURL& url,
-                         const StatusCallback& callback) override;
+                         StatusCallback callback) override;
   void CreateSnapshotFile(std::unique_ptr<FileSystemOperationContext> context,
                           const FileSystemURL& url,
-                          const CreateSnapshotFileCallback& callback) override;
+                          CreateSnapshotFileCallback callback) override;
 
  private:
   std::unique_ptr<FileSystemFileUtil> sync_file_util_;

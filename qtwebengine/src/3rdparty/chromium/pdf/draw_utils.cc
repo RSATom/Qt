@@ -49,13 +49,13 @@ inline uint8_t ProcessColor(uint8_t src_color,
 }
 
 ShadowMatrix::ShadowMatrix(uint32_t depth, double factor, uint32_t background)
-    : depth_(depth), factor_(factor), background_(background) {
-  DCHECK(depth_ > 0);
+    : depth_(depth) {
+  DCHECK_GT(depth_, 0U);
   matrix_.resize(depth_ * depth_);
 
   // pv - is a rounding power factor for smoothing corners.
   // pv = 2.0 will make corners completely round.
-  const double pv = 4.0;
+  constexpr double pv = 4.0;
   // pow_pv - cache to avoid recalculating pow(x, pv) every time.
   std::vector<double> pow_pv(depth_, 0.0);
 
@@ -102,7 +102,9 @@ ShadowMatrix::ShadowMatrix(uint32_t depth, double factor, uint32_t background)
   }
 }
 
-ShadowMatrix::~ShadowMatrix() {}
+ShadowMatrix::~ShadowMatrix() = default;
+
+namespace {
 
 void PaintShadow(pp::ImageData* image,
                  const pp::Rect& clip_rc,
@@ -135,6 +137,8 @@ void PaintShadow(pp::ImageData* image,
     }
   }
 }
+
+}  // namespace
 
 void DrawShadow(pp::ImageData* image,
                 const pp::Rect& shadow_rc,

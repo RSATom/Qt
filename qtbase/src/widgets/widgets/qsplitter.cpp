@@ -161,11 +161,10 @@ Qt::Orientation QSplitterHandle::orientation() const
 
 
 /*!
-    Returns \c true if widgets are resized dynamically (opaquely), otherwise
-    returns \c false. This value is controlled by the QSplitter.
+    Returns \c true if widgets are resized dynamically (opaquely) while interactively moving the
+    splitter. Otherwise returns \c false. This value is controlled by the QSplitter.
 
     \sa QSplitter::opaqueResize()
-
 */
 bool QSplitterHandle::opaqueResize() const
 {
@@ -826,7 +825,7 @@ QSplitterLayoutStruct *QSplitterPrivate::findWidget(QWidget *w) const
         if (list.at(i)->widget == w)
             return list.at(i);
     }
-    return 0;
+    return nullptr;
 }
 
 
@@ -855,7 +854,7 @@ void QSplitterPrivate::insertWidget_helper(int index, QWidget *widget, bool show
 QSplitterLayoutStruct *QSplitterPrivate::insertWidget(int index, QWidget *w)
 {
     Q_Q(QSplitter);
-    QSplitterLayoutStruct *sls = 0;
+    QSplitterLayoutStruct *sls = nullptr;
     int i;
     int last = list.count();
     for (i = 0; i < list.size(); ++i) {
@@ -872,12 +871,9 @@ QSplitterLayoutStruct *QSplitterPrivate::insertWidget(int index, QWidget *w)
     if (sls) {
         list.move(i,index);
     } else {
-        QSplitterHandle *newHandle = 0;
         sls = new QSplitterLayoutStruct;
-        QString tmp = QLatin1String("qt_splithandle_");
-        tmp += w->objectName();
-        newHandle = q->createHandle();
-        newHandle->setObjectName(tmp);
+        QSplitterHandle *newHandle = q->createHandle();
+        newHandle->setObjectName(QLatin1String("qt_splithandle_") + w->objectName());
         sls->handle = newHandle;
         sls->widget = w;
         w->lower();
@@ -1200,8 +1196,8 @@ QWidget *QSplitter::replaceWidget(int index, QWidget *widget)
 /*!
     \fn int QSplitter::indexOf(QWidget *widget) const
 
-    Returns the index in the splitter's layout of the specified \a widget. This
-    also works for handles.
+    Returns the index in the splitter's layout of the specified \a widget,
+    or -1 if \a widget is not found. This also works for handles.
 
     Handles are numbered from 0. There are as many handles as there
     are child widgets, but the handle at position 0 is always hidden.
@@ -1234,9 +1230,9 @@ QSplitterHandle *QSplitter::createHandle()
 }
 
 /*!
-    Returns the handle to the left (or above) for the item in the
-    splitter's layout at the given \a index. The handle at index 0 is
-    always hidden.
+    Returns the handle to the left of (or above) the item in the
+    splitter's layout at the given \a index, or \nullptr if there is no such item.
+    The handle at index 0 is always hidden.
 
     For right-to-left languages such as Arabic and Hebrew, the layout
     of horizontal splitters is reversed. The handle will be to the
@@ -1248,12 +1244,13 @@ QSplitterHandle *QSplitter::handle(int index) const
 {
     Q_D(const QSplitter);
     if (index < 0 || index >= d->list.size())
-        return 0;
+        return nullptr;
     return d->list.at(index)->handle;
 }
 
 /*!
-    Returns the widget at the given \a index in the splitter's layout.
+    Returns the widget at the given \a index in the splitter's layout,
+    or \nullptr if there is no such widget.
 
     \sa count(), handle(), indexOf(), insertWidget()
 */
@@ -1261,7 +1258,7 @@ QWidget *QSplitter::widget(int index) const
 {
     Q_D(const QSplitter);
     if (index < 0 || index >= d->list.size())
-        return 0;
+        return nullptr;
     return d->list.at(index)->widget;
 }
 
@@ -1372,7 +1369,7 @@ bool QSplitter::event(QEvent *e)
         if (!d->firstShow)
             break;
         d->firstShow = false;
-        // fall through
+        Q_FALLTHROUGH();
     case QEvent::HideToParent:
     case QEvent::ShowToParent:
     case QEvent::LayoutRequest:
@@ -1462,7 +1459,7 @@ void QSplitter::moveSplitter(int pos, int index)
 void QSplitter::getRange(int index, int *min, int *max) const
 {
     Q_D(const QSplitter);
-    d->getRange(index, min, 0, 0, max);
+    d->getRange(index, min, nullptr, nullptr, max);
 }
 
 
@@ -1485,7 +1482,8 @@ int QSplitter::closestLegalPosition(int pos, int index)
 
 /*!
     \property QSplitter::opaqueResize
-    \brief whether resizing is opaque
+    Returns \c true if widgets are resized dynamically (opaquely) while interactively moving the
+    splitter. Otherwise returns \c false.
 
     The default resize behavior is style dependent (determined by the
     SH_Splitter_OpaqueResize style hint). However, you can override it
@@ -1785,6 +1783,7 @@ void QSplitter::setStretchFactor(int index, int stretch)
 }
 
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \relates QSplitter
     \obsolete
@@ -1815,6 +1814,7 @@ QTextStream& operator>>(QTextStream& ts, QSplitter& splitter)
     splitter.restoreState(std::move(line).toLatin1());
     return ts;
 }
+#endif
 
 QT_END_NAMESPACE
 

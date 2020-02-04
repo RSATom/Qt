@@ -79,12 +79,25 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickControl : public QQuickItem
     Q_PROPERTY(bool wheelEnabled READ isWheelEnabled WRITE setWheelEnabled NOTIFY wheelEnabledChanged FINAL)
     Q_PROPERTY(QQuickItem *background READ background WRITE setBackground NOTIFY backgroundChanged FINAL)
     Q_PROPERTY(QQuickItem *contentItem READ contentItem WRITE setContentItem NOTIFY contentItemChanged FINAL)
+    Q_PROPERTY(qreal baselineOffset READ baselineOffset WRITE setBaselineOffset RESET resetBaselineOffset NOTIFY baselineOffsetChanged FINAL)
     // 2.3 (Qt 5.10)
     Q_PROPERTY(QPalette palette READ palette WRITE setPalette RESET resetPalette NOTIFY paletteChanged FINAL REVISION 3)
+    // 2.5 (Qt 5.12)
+    Q_PROPERTY(qreal horizontalPadding READ horizontalPadding WRITE setHorizontalPadding RESET resetHorizontalPadding NOTIFY horizontalPaddingChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal verticalPadding READ verticalPadding WRITE setVerticalPadding RESET resetVerticalPadding NOTIFY verticalPaddingChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal implicitContentWidth READ implicitContentWidth NOTIFY implicitContentWidthChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal implicitContentHeight READ implicitContentHeight NOTIFY implicitContentHeightChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal implicitBackgroundWidth READ implicitBackgroundWidth NOTIFY implicitBackgroundWidthChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal implicitBackgroundHeight READ implicitBackgroundHeight NOTIFY implicitBackgroundHeightChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal topInset READ topInset WRITE setTopInset RESET resetTopInset NOTIFY topInsetChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal leftInset READ leftInset WRITE setLeftInset RESET resetLeftInset NOTIFY leftInsetChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal rightInset READ rightInset WRITE setRightInset RESET resetRightInset NOTIFY rightInsetChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal bottomInset READ bottomInset WRITE setBottomInset RESET resetBottomInset NOTIFY bottomInsetChanged FINAL REVISION 5)
     Q_CLASSINFO("DeferredPropertyNames", "background,contentItem")
 
 public:
     explicit QQuickControl(QQuickItem *parent = nullptr);
+    ~QQuickControl();
 
     QFont font() const;
     void setFont(const QFont &font);
@@ -147,10 +160,45 @@ public:
     QQuickItem *contentItem() const;
     void setContentItem(QQuickItem *item);
 
+    qreal baselineOffset() const;
+    void setBaselineOffset(qreal offset);
+    void resetBaselineOffset();
+
     // 2.3 (Qt 5.10)
     QPalette palette() const;
     void setPalette(const QPalette &palette);
     void resetPalette();
+
+    // 2.5 (Qt 5.12)
+    qreal horizontalPadding() const;
+    void setHorizontalPadding(qreal padding);
+    void resetHorizontalPadding();
+
+    qreal verticalPadding() const;
+    void setVerticalPadding(qreal padding);
+    void resetVerticalPadding();
+
+    qreal implicitContentWidth() const;
+    qreal implicitContentHeight() const;
+
+    qreal implicitBackgroundWidth() const;
+    qreal implicitBackgroundHeight() const;
+
+    qreal topInset() const;
+    void setTopInset(qreal inset);
+    void resetTopInset();
+
+    qreal leftInset() const;
+    void setLeftInset(qreal inset);
+    void resetLeftInset();
+
+    qreal rightInset() const;
+    void setRightInset(qreal inset);
+    void resetRightInset();
+
+    qreal bottomInset() const;
+    void setBottomInset(qreal inset);
+    void resetBottomInset();
 
 Q_SIGNALS:
     void fontChanged();
@@ -172,8 +220,20 @@ Q_SIGNALS:
     void wheelEnabledChanged();
     void backgroundChanged();
     void contentItemChanged();
+    void baselineOffsetChanged();
     // 2.3 (Qt 5.10)
     Q_REVISION(3) void paletteChanged();
+    // 2.5 (Qt 5.12)
+    Q_REVISION(5) void horizontalPaddingChanged();
+    Q_REVISION(5) void verticalPaddingChanged();
+    Q_REVISION(5) void implicitContentWidthChanged();
+    Q_REVISION(5) void implicitContentHeightChanged();
+    Q_REVISION(5) void implicitBackgroundWidthChanged();
+    Q_REVISION(5) void implicitBackgroundHeightChanged();
+    Q_REVISION(5) void topInsetChanged();
+    Q_REVISION(5) void leftInsetChanged();
+    Q_REVISION(5) void rightInsetChanged();
+    Q_REVISION(5) void bottomInsetChanged();
 
 protected:
     virtual QFont defaultFont() const;
@@ -217,6 +277,8 @@ protected:
     virtual void contentItemChange(QQuickItem *newItem, QQuickItem *oldItem);
     virtual void localeChange(const QLocale &newLocale, const QLocale &oldLocale);
     virtual void paletteChange(const QPalette &newPalette, const QPalette &oldPalette);
+    virtual void insetChange(const QMarginsF &newInset, const QMarginsF &oldInset);
+    virtual void enabledChange();
 
 #if QT_CONFIG(accessibility)
     virtual QAccessible::Role accessibleRole() const;

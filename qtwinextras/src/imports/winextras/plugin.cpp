@@ -47,14 +47,7 @@
 #include "qquickthumbnailtoolbutton_p.h"
 #include "qquickwin_p.h"
 
-#include <QtQml/QtQml>
-
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtWinExtras);
-#endif
-}
+#include <QtQml/qqmlextensionplugin.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,10 +57,11 @@ class QWinExtrasQmlPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QWinExtrasQmlPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QWinExtrasQmlPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     void registerTypes(const char *uri) Q_DECL_OVERRIDE
     {
         Q_ASSERT(uri == QLatin1String("QtWinExtras"));
+        qmlRegisterModule(uri, 1, QT_VERSION_MINOR);
         qmlRegisterUncreatableType<QQuickWin>(uri, 1, 0, "QtWin", "Cannot create an instance of the QtWin namespace.");
         qmlRegisterType<QQuickDwmFeatures>(uri, 1, 0, "DwmFeatures");
         qmlRegisterType<QQuickTaskbarButton>(uri, 1, 0, "TaskbarButton");

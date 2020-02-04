@@ -6,6 +6,8 @@
 
 #include <string>
 
+#include "base/containers/flat_tree.h"
+#include "base/test/move_only_int.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -90,5 +92,15 @@ static_assert(!base::is_trivially_copyable<TrivialCopyButWithDestructor>::value,
               "TrivialCopyButWithDestructor should not be detected as "
               "trivially copyable");
 
+class NoCopy {
+ public:
+  NoCopy(const NoCopy&) = delete;
+};
+
+static_assert(
+    !base::is_trivially_copy_constructible<std::vector<NoCopy>>::value,
+    "is_trivially_copy_constructible<std::vector<T>> must be compiled.");
+
 }  // namespace
+
 }  // namespace base

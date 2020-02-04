@@ -65,12 +65,15 @@ class QAbstractClipAnimatorPrivate : public Qt3DCore::QComponentPrivate
 public:
     QAbstractClipAnimatorPrivate();
 
+    virtual bool canPlay() const;
+
     Q_DECLARE_PUBLIC(QAbstractClipAnimator)
 
     Qt3DAnimation::QChannelMapper *m_mapper;
     Qt3DAnimation::QClock *m_clock;
     bool m_running;
     int m_loops;
+    float m_normalizedTime;
 };
 
 struct QAbstractClipAnimatorData
@@ -78,6 +81,7 @@ struct QAbstractClipAnimatorData
     Qt3DCore::QNodeId mapperId;
     Qt3DCore::QNodeId clockId;
     bool running;
+    float normalizedTime;
     int loops;
 };
 

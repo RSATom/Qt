@@ -9,10 +9,8 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/networking_cast_private/chrome_networking_cast_private_delegate.h"
-#include "chrome/browser/extensions/api/networking_private/networking_private_credentials_getter.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
@@ -59,15 +57,6 @@ class TestNetworkingCastPrivateDelegate
     success_callback.Run(true);
   }
 
-  void VerifyAndEncryptCredentials(
-      const std::string& guid,
-      std::unique_ptr<Credentials> credentials,
-      const DataCallback& success_callback,
-      const FailureCallback& failure_callback) override {
-    AssertCredentials(*credentials);
-    success_callback.Run("encrypted_credentials");
-  }
-
   void VerifyAndEncryptData(const std::string& data,
                             std::unique_ptr<Credentials> credentials,
                             const DataCallback& success_callback,
@@ -92,7 +81,8 @@ class TestNetworkingCastPrivateDelegate
   DISALLOW_COPY_AND_ASSIGN(TestNetworkingCastPrivateDelegate);
 };
 
-class NetworkingPrivateServiceClientApiTest : public ExtensionApiTest {
+class NetworkingPrivateServiceClientApiTest
+    : public extensions::ExtensionApiTest {
  public:
   NetworkingPrivateServiceClientApiTest() {}
 
@@ -103,7 +93,7 @@ class NetworkingPrivateServiceClientApiTest : public ExtensionApiTest {
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionApiTest::SetUpCommandLine(command_line);
+    extensions::ExtensionApiTest::SetUpCommandLine(command_line);
     // Whitelist the extension ID of the test extension.
     command_line->AppendSwitchASCII(
         extensions::switches::kWhitelistedExtensionID,
@@ -125,30 +115,30 @@ class NetworkingPrivateServiceClientApiTest : public ExtensionApiTest {
                    base::Unretained(this));
     ChromeNetworkingCastPrivateDelegate::SetFactoryCallbackForTest(
         &networking_cast_delegate_factory_);
-    ExtensionApiTest::SetUp();
+    extensions::ExtensionApiTest::SetUp();
   }
 
   void SetUpOnMainThread() override {
-    ExtensionApiTest::SetUpOnMainThread();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
     content::RunAllPendingInMessageLoop();
     NetworkingPrivateDelegateFactory::GetInstance()->SetTestingFactory(
-        profile(), &CreateNetworkingPrivateServiceClient);
+        profile(), base::BindRepeating(&CreateNetworkingPrivateServiceClient));
   }
 
   void TearDownOnMainThread() override {
     content::RunAllPendingInMessageLoop();
-    ExtensionApiTest::TearDownOnMainThread();
+    extensions::ExtensionApiTest::TearDownOnMainThread();
   }
 
   void TearDown() override {
-    ExtensionApiTest::TearDown();
+    extensions::ExtensionApiTest::TearDown();
     ChromeNetworkingCastPrivateDelegate::SetFactoryCallbackForTest(nullptr);
   }
 
  private:
   std::unique_ptr<ChromeNetworkingCastPrivateDelegate>
   CreateNetworkingCastPrivateDelegate() {
-    return base::MakeUnique<TestNetworkingCastPrivateDelegate>();
+    return std::make_unique<TestNetworkingCastPrivateDelegate>();
   }
 
   ChromeNetworkingCastPrivateDelegate::FactoryCallback
@@ -253,11 +243,6 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateServiceClientApiTest,
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateServiceClientApiTest,
                        VerifyDestination) {
   EXPECT_TRUE(RunNetworkingSubtest("verifyDestination")) << message_;
-}
-
-IN_PROC_BROWSER_TEST_F(NetworkingPrivateServiceClientApiTest,
-                       VerifyAndEncryptCredentials) {
-  EXPECT_TRUE(RunNetworkingSubtest("verifyAndEncryptCredentials")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateServiceClientApiTest,

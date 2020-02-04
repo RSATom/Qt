@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #include "base/macros.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/socket/datagram_server_socket.h"
 #include "net/socket/udp_socket.h"
@@ -31,14 +31,15 @@ class NET_EXPORT UDPServerSocket : public DatagramServerSocket {
   int RecvFrom(IOBuffer* buf,
                int buf_len,
                IPEndPoint* address,
-               const CompletionCallback& callback) override;
+               CompletionOnceCallback callback) override;
   int SendTo(IOBuffer* buf,
              int buf_len,
              const IPEndPoint& address,
-             const CompletionCallback& callback) override;
+             CompletionOnceCallback callback) override;
   int SetReceiveBufferSize(int32_t size) override;
   int SetSendBufferSize(int32_t size) override;
   int SetDoNotFragment() override;
+  void SetMsgConfirm(bool confirm) override;
   void Close() override;
   int GetPeerAddress(IPEndPoint* address) const override;
   int GetLocalAddress(IPEndPoint* address) const override;
@@ -46,6 +47,7 @@ class NET_EXPORT UDPServerSocket : public DatagramServerSocket {
   const NetLogWithSource& NetLog() const override;
   void AllowAddressReuse() override;
   void AllowBroadcast() override;
+  void AllowAddressSharingForMulticast() override;
   int JoinGroup(const IPAddress& group_address) const override;
   int LeaveGroup(const IPAddress& group_address) const override;
   int SetMulticastInterface(uint32_t interface_index) override;
@@ -58,6 +60,7 @@ class NET_EXPORT UDPServerSocket : public DatagramServerSocket {
   UDPSocket socket_;
   bool allow_address_reuse_;
   bool allow_broadcast_;
+  bool allow_address_sharing_for_multicast_;
   DISALLOW_COPY_AND_ASSIGN(UDPServerSocket);
 };
 

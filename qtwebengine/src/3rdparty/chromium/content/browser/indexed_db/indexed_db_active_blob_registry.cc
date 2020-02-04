@@ -29,7 +29,7 @@ void IndexedDBActiveBlobRegistry::AddBlobRef(int64_t database_id,
   DCHECK(!base::ContainsKey(deleted_dbs_, database_id));
   bool need_ref = use_tracker_.empty();
   SingleDBMap& single_db_map = use_tracker_[database_id];
-  SingleDBMap::iterator iter = single_db_map.find(blob_key);
+  auto iter = single_db_map.find(blob_key);
   if (iter == single_db_map.end()) {
     single_db_map[blob_key] = false;
     if (need_ref) {
@@ -54,7 +54,7 @@ void IndexedDBActiveBlobRegistry::ReleaseBlobRef(int64_t database_id,
     return;
   }
   SingleDBMap& single_db = db_pair->second;
-  SingleDBMap::iterator blob_pair = single_db.find(blob_key);
+  auto blob_pair = single_db.find(blob_key);
   if (blob_pair == single_db.end()) {
     NOTREACHED();
     return;
@@ -97,7 +97,7 @@ bool IndexedDBActiveBlobRegistry::MarkDeletedCheckIfUsed(int64_t database_id,
   }
 
   SingleDBMap& single_db = db_pair->second;
-  SingleDBMap::iterator iter = single_db.find(blob_key);
+  auto iter = single_db.find(blob_key);
   if (iter == single_db.end())
     return false;
 
@@ -116,7 +116,7 @@ void IndexedDBActiveBlobRegistry::ReleaseBlobRefThreadSafe(
                                 weak_ptr, database_id, blob_key));
 }
 
-storage::ShareableFileReference::FinalReleaseCallback
+IndexedDBBlobInfo::ReleaseCallback
 IndexedDBActiveBlobRegistry::GetFinalReleaseCallback(int64_t database_id,
                                                      int64_t blob_key) {
   return base::Bind(
@@ -135,7 +135,7 @@ base::Closure IndexedDBActiveBlobRegistry::GetAddBlobRefCallback(
 void IndexedDBActiveBlobRegistry::ForceShutdown() {
   weak_factory_.InvalidateWeakPtrs();
   use_tracker_.clear();
-  backing_store_ = NULL;
+  backing_store_ = nullptr;
 }
 
 }  // namespace content

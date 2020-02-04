@@ -137,7 +137,7 @@ void DocuWindow::print()
     }
 
     QPrintDialog printDialog(&printer, this);
-    if (!printDialog.exec()) {
+    if (printDialog.exec() == QDialog::Rejected) {
         statusBar()->showMessage(tr("Printing aborted"), 2000);
         return;
     }

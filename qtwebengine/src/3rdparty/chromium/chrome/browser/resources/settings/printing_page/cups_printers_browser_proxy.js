@@ -4,7 +4,7 @@
 
 /**
  * @fileoverview A helper object used from the "CUPS printing" section to
- * interact with the browser.
+ * interact with the browser. Used only on Chrome OS.
  */
 
 /**
@@ -12,7 +12,6 @@
  *   ppdManufacturer: string,
  *   ppdModel: string,
  *   printerAddress: string,
- *   printerAutoconf: boolean,
  *   printerDescription: string,
  *   printerId: string,
  *   printerManufacturer: string,
@@ -20,19 +19,29 @@
  *   printerMakeAndModel: string,
  *   printerName: string,
  *   printerPPDPath: string,
+ *   printerPpdReference: {
+ *     userSuppliedPpdUrl: string,
+ *     effectiveMakeAndModel: string,
+ *     autoconf: boolean,
+ *   },
+ *   printerPpdReferenceResolved: boolean,
  *   printerProtocol: string,
  *   printerQueue: string,
  *   printerStatus: string,
  * }}
+ *
+ * Note: |printerPPDPath| refers to a PPD retrieved from the user at the
+ * add-printer-manufacturer-model-dialog. |printerPpdReference| refers to either
+ * information retrieved from the printer or resolved via ppd_provider.
  */
-var CupsPrinterInfo;
+let CupsPrinterInfo;
 
 /**
  * @typedef {{
  *   printerList: !Array<!CupsPrinterInfo>,
  * }}
  */
-var CupsPrintersList;
+let CupsPrintersList;
 
 /**
  * @typedef {{
@@ -40,7 +49,7 @@ var CupsPrintersList;
  *   manufacturers: Array<string>
  * }}
  */
-var ManufacturersInfo;
+let ManufacturersInfo;
 
 /**
  * @typedef {{
@@ -48,17 +57,20 @@ var ManufacturersInfo;
  *   models: Array<string>
  * }}
  */
-var ModelsInfo;
+let ModelsInfo;
 
 /**
  * @typedef {{
  *   manufacturer: string,
  *   model: string,
  *   makeAndModel: string,
- *   autoconf: boolean
+ *   autoconf: boolean,
+ *   ppdRefUserSuppliedPpdUrl: string,
+ *   ppdRefEffectiveMakeAndModel: string,
+ *   ppdReferenceResolved: boolean
  * }}
  */
-var PrinterMakeModel;
+let PrinterMakeModel;
 
 /**
  * @typedef {{
@@ -66,14 +78,34 @@ var PrinterMakeModel;
  *   ppdModel: string
  * }}
  */
-var PrinterPpdMakeModel;
+let PrinterPpdMakeModel;
+
+/**
+ *  @enum {number}
+ *  These values must be kept in sync with the PrinterSetupResult enum in
+ *  chrome/browser/chromeos/printing/printer_configurer.h.
+ */
+const PrinterSetupResult = {
+  FATAL_ERROR: 0,
+  SUCCESS: 1,
+  PRINTER_UNREACHABLE: 2,
+  DBUS_ERROR: 3,
+  NATIVE_PRINTERS_NOT_ALLOWED: 4,
+  INVALID_PRINTER_UPDATE: 5,
+  PPD_TOO_LARGE: 10,
+  INVALID_PPD: 11,
+  PPD_NOT_FOUND: 12,
+  PPD_UNRETRIEVABLE: 13,
+  DBUS_NO_REPLY: 64,
+  DBUS_TIMEOUT: 65,
+};
 
 /**
  * @typedef {{
  *   message: string
  * }}
  */
-var QueryFailure;
+let QueryFailure;
 
 cr.define('settings', function() {
   /** @interface */
@@ -135,6 +167,12 @@ cr.define('settings', function() {
      * @param{string} printerId
      */
     addDiscoveredPrinter(printerId) {}
+
+    /**
+     * Report to the handler that setup was cancelled.
+     * @param {!CupsPrinterInfo} newPrinter
+     */
+    cancelPrinterSetUp(newPrinter) {}
   }
 
   /**
@@ -199,6 +237,11 @@ cr.define('settings', function() {
     /** @override */
     addDiscoveredPrinter(printerId) {
       chrome.send('addDiscoveredPrinter', [printerId]);
+    }
+
+    /** @override */
+    cancelPrinterSetUp(newPrinter) {
+      chrome.send('cancelPrinterSetUp', [newPrinter]);
     }
   }
 

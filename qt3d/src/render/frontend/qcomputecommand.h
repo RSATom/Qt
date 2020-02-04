@@ -49,34 +49,47 @@ namespace Qt3DRender {
 
 class QComputeCommandPrivate;
 
-class QT3DRENDERSHARED_EXPORT QComputeCommand : public Qt3DCore::QComponent
+class Q_3DRENDERSHARED_EXPORT QComputeCommand : public Qt3DCore::QComponent
 {
     Q_OBJECT
     Q_PROPERTY(int workGroupX READ workGroupX WRITE setWorkGroupX NOTIFY workGroupXChanged)
     Q_PROPERTY(int workGroupY READ workGroupY WRITE setWorkGroupY NOTIFY workGroupYChanged)
     Q_PROPERTY(int workGroupZ READ workGroupZ WRITE setWorkGroupZ NOTIFY workGroupZChanged)
+    Q_PROPERTY(RunType runType READ runType WRITE setRunType NOTIFY runTypeChanged REVISION 13)
 
 public:
+    enum RunType {
+        Continuous = 0,
+        Manual
+    };
+    Q_ENUM(RunType)
+
     explicit QComputeCommand(Qt3DCore::QNode *parent = nullptr);
     ~QComputeCommand();
 
     int workGroupX() const;
     int workGroupY() const;
     int workGroupZ() const;
+    RunType runType() const;
 
 public Q_SLOTS:
     void setWorkGroupX(int workGroupX);
     void setWorkGroupY(int workGroupY);
     void setWorkGroupZ(int workGroupZ);
+    Q_REVISION(13) void setRunType(RunType runType);
+
+    Q_REVISION(13) void trigger(int frameCount = 1);
+    Q_REVISION(13) void trigger(int workGroupX, int workGroupY, int workGroupZ, int frameCount = 1);
 
 Q_SIGNALS:
     void workGroupXChanged();
     void workGroupYChanged();
     void workGroupZChanged();
+    void runTypeChanged();
 
 private:
     Q_DECLARE_PRIVATE(QComputeCommand)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DRender

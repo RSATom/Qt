@@ -8,11 +8,18 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <vector>
 
 #include "base/memory/ref_counted.h"
 #include "content/common/content_export.h"
-#include "content/public/common/appcache_info.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
+#include "url/origin.h"
+
+namespace blink {
+namespace mojom {
+class AppCacheInfo;
+}  // namespace mojom
+}  // namespace blink
 
 namespace content {
 
@@ -21,7 +28,8 @@ struct CONTENT_EXPORT AppCacheInfoCollection
     : public base::RefCountedThreadSafe<AppCacheInfoCollection> {
   AppCacheInfoCollection();
 
-  std::map<GURL, AppCacheInfoVector> infos_by_origin;
+  std::map<url::Origin, std::vector<blink::mojom::AppCacheInfo>>
+      infos_by_origin;
 
  private:
   friend class base::RefCountedThreadSafe<AppCacheInfoCollection>;
@@ -37,7 +45,7 @@ class CONTENT_EXPORT AppCacheService {
   // acquires a reference to the 'collection' until completion.
   // This method always completes asynchronously.
   virtual void GetAllAppCacheInfo(AppCacheInfoCollection* collection,
-                                  const net::CompletionCallback& callback) = 0;
+                                  net::CompletionOnceCallback callback) = 0;
 
   // Deletes the group identified by 'manifest_url', 'callback' is
   // invoked upon completion. Upon completion, the cache group and
@@ -45,7 +53,7 @@ class CONTENT_EXPORT AppCacheService {
   // subresource loads for pages associated with a deleted group
   // will fail. This method always completes asynchronously.
   virtual void DeleteAppCacheGroup(const GURL& manifest_url,
-                                   const net::CompletionCallback& callback) = 0;
+                                   net::CompletionOnceCallback callback) = 0;
 
  protected:
   virtual ~AppCacheService() {}

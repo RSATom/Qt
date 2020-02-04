@@ -4,10 +4,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include <algorithm>
 #include <fstream>
 #include <initializer_list>
+#include <memory>
 #include <set>
 #include <utility>
 #include <vector>
@@ -16,35 +18,52 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
+#include "base/command_line.h"
 #include "base/environment.h"
+#include "base/files/file.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/macros.h"
+#include "base/guid.h"
 #include "base/path_service.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/multiprocess_test.h"
+#include "base/test/scoped_environment_variable_override.h"
 #include "base/test/test_file_util.h"
+#include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
+#include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/multiprocess_func_list.h"
 #include "testing/platform_test.h"
 
 #if defined(OS_WIN)
-#include <windows.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <tchar.h>
+#include <windows.h>
 #include <winioctl.h>
+#include "base/strings/string_number_conversions.h"
 #include "base/win/scoped_handle.h"
+#include "base/win/win_util.h"
 #endif
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
+#endif
+
+#if defined(OS_LINUX)
+#include <linux/fs.h>
 #endif
 
 #if defined(OS_ANDROID)
@@ -57,6 +76,8 @@
 namespace base {
 
 namespace {
+
+const size_t kLargeFileSize = (1 << 16) + 3;
 
 // To test that NormalizeFilePath() deals with NTFS reparse points correctly,
 // we need functions to create and delete reparse points.
@@ -288,7 +309,7 @@ std::wstring ReadTextFile(const FilePath& filename) {
   std::wifstream file;
   file.open(filename.value().c_str());
   EXPECT_TRUE(file.is_open());
-  file.getline(contents, arraysize(contents));
+  file.getline(contents, base::size(contents));
   file.close();
   return std::wstring(contents);
 }
@@ -306,7 +327,7 @@ void GetIsInheritable(FILE* stream, bool* is_inheritable) {
   DWORD info = 0;
   ASSERT_EQ(TRUE, ::GetHandleInformation(handle, &info));
   *is_inheritable = ((info & HANDLE_FLAG_INHERIT) != 0);
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   int fd = fileno(stream);
   ASSERT_NE(-1, fd);
   int flags = fcntl(fd, F_GETFD, 0);
@@ -535,9 +556,9 @@ TEST_F(FileUtilTest, DevicePathToDriveLetter) {
   // real drive is if more than 10^3 disks are mounted:
   // \Device\HardDiskVolume10000 would be truncated to \Device\HardDiskVolume1
   // Check that DevicePathToDriveLetterPath fails.
-  int path_length = actual_device_path.value().length();
-  int new_length = path_length - 4;
-  ASSERT_LT(0, new_length);
+  size_t path_length = actual_device_path.value().length();
+  size_t new_length = path_length - 4;
+  ASSERT_GT(new_length, 0u);
   FilePath prefix_of_real_device_path(
       actual_device_path.value().substr(0, new_length));
   ASSERT_FALSE(DevicePathToDriveLetterPath(prefix_of_real_device_path,
@@ -619,7 +640,7 @@ TEST_F(FileUtilTest, CreateTemporaryFileInDirLongPathTest) {
 
 #endif  // defined(OS_WIN)
 
-#if !defined(OS_FUCHSIA) && defined(OS_POSIX)
+#if defined(OS_POSIX)
 
 TEST_F(FileUtilTest, CreateAndReadSymlinks) {
   FilePath link_from = temp_dir_.GetPath().Append(FPL("from_file"));
@@ -631,8 +652,7 @@ TEST_F(FileUtilTest, CreateAndReadSymlinks) {
 
   // If we created the link properly, we should be able to read the contents
   // through it.
-  std::wstring contents = ReadTextFile(link_from);
-  EXPECT_EQ(bogus_content, contents);
+  EXPECT_EQ(bogus_content, ReadTextFile(link_from));
 
   FilePath result;
   ASSERT_TRUE(ReadSymbolicLink(link_from, &result));
@@ -736,20 +756,46 @@ TEST_F(FileUtilTest, DeleteSymlinkToNonExistentFile) {
   EXPECT_FALSE(IsLink(file_link));
 }
 
+TEST_F(FileUtilTest, CopyFileFollowsSymlinks) {
+  FilePath link_from = temp_dir_.GetPath().Append(FPL("from_file"));
+  FilePath link_to = temp_dir_.GetPath().Append(FPL("to_file"));
+  CreateTextFile(link_to, bogus_content);
+
+  ASSERT_TRUE(CreateSymbolicLink(link_to, link_from));
+
+  // If we created the link properly, we should be able to read the contents
+  // through it.
+  EXPECT_EQ(bogus_content, ReadTextFile(link_from));
+
+  FilePath result;
+  ASSERT_TRUE(ReadSymbolicLink(link_from, &result));
+  EXPECT_EQ(link_to.value(), result.value());
+
+  // Create another file and copy it to |link_from|.
+  FilePath src_file = temp_dir_.GetPath().Append(FPL("src.txt"));
+  const std::wstring file_contents(L"Gooooooooooooooooooooogle");
+  CreateTextFile(src_file, file_contents);
+  ASSERT_TRUE(CopyFile(src_file, link_from));
+
+  // Make sure |link_from| is still a symlink, and |link_to| has been written to
+  // by CopyFile().
+  EXPECT_TRUE(IsLink(link_from));
+  EXPECT_EQ(file_contents, ReadTextFile(link_from));
+  EXPECT_EQ(file_contents, ReadTextFile(link_to));
+}
+
 TEST_F(FileUtilTest, ChangeFilePermissionsAndRead) {
   // Create a file path.
   FilePath file_name =
       temp_dir_.GetPath().Append(FPL("Test Readable File.txt"));
   EXPECT_FALSE(PathExists(file_name));
 
-  const std::string kData("hello");
-
-  int buffer_size = kData.length();
-  char* buffer = new char[buffer_size];
+  static constexpr char kData[] = "hello";
+  static constexpr int kDataSize = sizeof(kData) - 1;
+  char buffer[kDataSize];
 
   // Write file.
-  EXPECT_EQ(static_cast<int>(kData.length()),
-            WriteFile(file_name, kData.data(), kData.length()));
+  EXPECT_EQ(kDataSize, WriteFile(file_name, kData, kDataSize));
   EXPECT_TRUE(PathExists(file_name));
 
   // Make sure the file is readable.
@@ -762,21 +808,18 @@ TEST_F(FileUtilTest, ChangeFilePermissionsAndRead) {
   EXPECT_TRUE(GetPosixFilePermissions(file_name, &mode));
   EXPECT_FALSE(mode & FILE_PERMISSION_READ_BY_USER);
   // Make sure the file can't be read.
-  EXPECT_EQ(-1, ReadFile(file_name, buffer, buffer_size));
+  EXPECT_EQ(-1, ReadFile(file_name, buffer, kDataSize));
 
   // Give the read permission.
   EXPECT_TRUE(SetPosixFilePermissions(file_name, FILE_PERMISSION_READ_BY_USER));
   EXPECT_TRUE(GetPosixFilePermissions(file_name, &mode));
   EXPECT_TRUE(mode & FILE_PERMISSION_READ_BY_USER);
   // Make sure the file can be read.
-  EXPECT_EQ(static_cast<int>(kData.length()),
-            ReadFile(file_name, buffer, buffer_size));
+  EXPECT_EQ(kDataSize, ReadFile(file_name, buffer, kDataSize));
 
   // Delete the file.
   EXPECT_TRUE(DeleteFile(file_name, false));
   EXPECT_FALSE(PathExists(file_name));
-
-  delete[] buffer;
 }
 
 TEST_F(FileUtilTest, ChangeFilePermissionsAndWrite) {
@@ -870,7 +913,6 @@ TEST_F(FileUtilTest, ChangeDirectoryPermissionsAndEnumerate) {
 
 TEST_F(FileUtilTest, ExecutableExistsInPath) {
   // Create two directories that we will put in our PATH
-  const char kPath[] = "PATH";
   const FilePath::CharType kDir1[] = FPL("dir1");
   const FilePath::CharType kDir2[] = FPL("dir2");
 
@@ -879,9 +921,9 @@ TEST_F(FileUtilTest, ExecutableExistsInPath) {
   ASSERT_TRUE(CreateDirectory(dir1));
   ASSERT_TRUE(CreateDirectory(dir2));
 
-  std::unique_ptr<Environment> env(base::Environment::Create());
-
-  ASSERT_TRUE(env->SetVar(kPath, dir1.value() + ":" + dir2.value()));
+  test::ScopedEnvironmentVariableOverride scoped_env(
+      "PATH", dir1.value() + ":" + dir2.value());
+  ASSERT_TRUE(scoped_env.IsOverridden());
 
   const FilePath::CharType kRegularFileName[] = FPL("regular_file");
   const FilePath::CharType kExeFileName[] = FPL("exe");
@@ -902,12 +944,285 @@ TEST_F(FileUtilTest, ExecutableExistsInPath) {
   ASSERT_TRUE(SetPosixFilePermissions(dir1.Append(kExeFileName),
                                       FILE_PERMISSION_EXECUTE_BY_USER));
 
-  EXPECT_TRUE(ExecutableExistsInPath(env.get(), kExeFileName));
-  EXPECT_FALSE(ExecutableExistsInPath(env.get(), kRegularFileName));
-  EXPECT_FALSE(ExecutableExistsInPath(env.get(), kDneFileName));
+  EXPECT_TRUE(ExecutableExistsInPath(scoped_env.GetEnv(), kExeFileName));
+  EXPECT_FALSE(ExecutableExistsInPath(scoped_env.GetEnv(), kRegularFileName));
+  EXPECT_FALSE(ExecutableExistsInPath(scoped_env.GetEnv(), kDneFileName));
 }
 
-#endif  // !defined(OS_FUCHSIA) && defined(OS_POSIX)
+TEST_F(FileUtilTest, CopyDirectoryPermissions) {
+  // Create a directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  CreateDirectory(dir_name_from);
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create some regular files under the directory with various permissions.
+  FilePath file_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Reggy-1.txt"));
+  CreateTextFile(file_name_from, L"Mordecai");
+  ASSERT_TRUE(PathExists(file_name_from));
+  ASSERT_TRUE(SetPosixFilePermissions(file_name_from, 0755));
+
+  FilePath file2_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Reggy-2.txt"));
+  CreateTextFile(file2_name_from, L"Rigby");
+  ASSERT_TRUE(PathExists(file2_name_from));
+  ASSERT_TRUE(SetPosixFilePermissions(file2_name_from, 0777));
+
+  FilePath file3_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Reggy-3.txt"));
+  CreateTextFile(file3_name_from, L"Benson");
+  ASSERT_TRUE(PathExists(file3_name_from));
+  ASSERT_TRUE(SetPosixFilePermissions(file3_name_from, 0400));
+
+  // Copy the directory recursively.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  FilePath file_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Reggy-1.txt"));
+  FilePath file2_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Reggy-2.txt"));
+  FilePath file3_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Reggy-3.txt"));
+
+  ASSERT_FALSE(PathExists(dir_name_to));
+
+  EXPECT_TRUE(CopyDirectory(dir_name_from, dir_name_to, true));
+  ASSERT_TRUE(PathExists(file_name_to));
+  ASSERT_TRUE(PathExists(file2_name_to));
+  ASSERT_TRUE(PathExists(file3_name_to));
+
+  int mode = 0;
+  int expected_mode;
+  ASSERT_TRUE(GetPosixFilePermissions(file_name_to, &mode));
+#if defined(OS_MACOSX)
+  expected_mode = 0755;
+#elif defined(OS_CHROMEOS)
+  expected_mode = 0644;
+#else
+  expected_mode = 0600;
+#endif
+  EXPECT_EQ(expected_mode, mode);
+
+  ASSERT_TRUE(GetPosixFilePermissions(file2_name_to, &mode));
+#if defined(OS_MACOSX)
+  expected_mode = 0755;
+#elif defined(OS_CHROMEOS)
+  expected_mode = 0644;
+#else
+  expected_mode = 0600;
+#endif
+  EXPECT_EQ(expected_mode, mode);
+
+  ASSERT_TRUE(GetPosixFilePermissions(file3_name_to, &mode));
+#if defined(OS_MACOSX)
+  expected_mode = 0600;
+#elif defined(OS_CHROMEOS)
+  expected_mode = 0644;
+#else
+  expected_mode = 0600;
+#endif
+  EXPECT_EQ(expected_mode, mode);
+}
+
+TEST_F(FileUtilTest, CopyDirectoryPermissionsOverExistingFile) {
+  // Create a directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  CreateDirectory(dir_name_from);
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a file under the directory.
+  FilePath file_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Reggy-1.txt"));
+  CreateTextFile(file_name_from, L"Mordecai");
+  ASSERT_TRUE(PathExists(file_name_from));
+  ASSERT_TRUE(SetPosixFilePermissions(file_name_from, 0644));
+
+  // Create a directory.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  CreateDirectory(dir_name_to);
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  // Create a file under the directory with wider permissions.
+  FilePath file_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Reggy-1.txt"));
+  CreateTextFile(file_name_to, L"Rigby");
+  ASSERT_TRUE(PathExists(file_name_to));
+  ASSERT_TRUE(SetPosixFilePermissions(file_name_to, 0777));
+
+  // Ensure that when we copy the directory, the file contents are copied
+  // but the permissions on the destination are left alone.
+  EXPECT_TRUE(CopyDirectory(dir_name_from, dir_name_to, false));
+  ASSERT_TRUE(PathExists(file_name_to));
+  ASSERT_EQ(L"Mordecai", ReadTextFile(file_name_to));
+
+  int mode = 0;
+  ASSERT_TRUE(GetPosixFilePermissions(file_name_to, &mode));
+  EXPECT_EQ(0777, mode);
+}
+
+TEST_F(FileUtilTest, CopyDirectoryExclDoesNotOverwrite) {
+  // Create source directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  CreateDirectory(dir_name_from);
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a file under the directory.
+  FilePath file_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Reggy-1.txt"));
+  CreateTextFile(file_name_from, L"Mordecai");
+  ASSERT_TRUE(PathExists(file_name_from));
+
+  // Create destination directory.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  CreateDirectory(dir_name_to);
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  // Create a file under the directory with the same name.
+  FilePath file_name_to = dir_name_to.Append(FILE_PATH_LITERAL("Reggy-1.txt"));
+  CreateTextFile(file_name_to, L"Rigby");
+  ASSERT_TRUE(PathExists(file_name_to));
+
+  // Ensure that copying failed and the file was not overwritten.
+  EXPECT_FALSE(CopyDirectoryExcl(dir_name_from, dir_name_to, false));
+  ASSERT_TRUE(PathExists(file_name_to));
+  ASSERT_EQ(L"Rigby", ReadTextFile(file_name_to));
+}
+
+TEST_F(FileUtilTest, CopyDirectoryExclDirectoryOverExistingFile) {
+  // Create source directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  CreateDirectory(dir_name_from);
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a subdirectory.
+  FilePath subdir_name_from = dir_name_from.Append(FILE_PATH_LITERAL("Subsub"));
+  CreateDirectory(subdir_name_from);
+  ASSERT_TRUE(PathExists(subdir_name_from));
+
+  // Create destination directory.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  CreateDirectory(dir_name_to);
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  // Create a regular file under the directory with the same name.
+  FilePath file_name_to = dir_name_to.Append(FILE_PATH_LITERAL("Subsub"));
+  CreateTextFile(file_name_to, L"Rigby");
+  ASSERT_TRUE(PathExists(file_name_to));
+
+  // Ensure that copying failed and the file was not overwritten.
+  EXPECT_FALSE(CopyDirectoryExcl(dir_name_from, dir_name_to, false));
+  ASSERT_TRUE(PathExists(file_name_to));
+  ASSERT_EQ(L"Rigby", ReadTextFile(file_name_to));
+}
+
+TEST_F(FileUtilTest, CopyDirectoryExclDirectoryOverExistingDirectory) {
+  // Create source directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  CreateDirectory(dir_name_from);
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a subdirectory.
+  FilePath subdir_name_from = dir_name_from.Append(FILE_PATH_LITERAL("Subsub"));
+  CreateDirectory(subdir_name_from);
+  ASSERT_TRUE(PathExists(subdir_name_from));
+
+  // Create destination directory.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  CreateDirectory(dir_name_to);
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  // Create a subdirectory under the directory with the same name.
+  FilePath subdir_name_to = dir_name_to.Append(FILE_PATH_LITERAL("Subsub"));
+  CreateDirectory(subdir_name_to);
+  ASSERT_TRUE(PathExists(subdir_name_to));
+
+  // Ensure that copying failed and the file was not overwritten.
+  EXPECT_FALSE(CopyDirectoryExcl(dir_name_from, dir_name_to, false));
+}
+
+TEST_F(FileUtilTest, CopyFileExecutablePermission) {
+  FilePath src = temp_dir_.GetPath().Append(FPL("src.txt"));
+  const std::wstring file_contents(L"Gooooooooooooooooooooogle");
+  CreateTextFile(src, file_contents);
+
+  ASSERT_TRUE(SetPosixFilePermissions(src, 0755));
+  int mode = 0;
+  ASSERT_TRUE(GetPosixFilePermissions(src, &mode));
+  EXPECT_EQ(0755, mode);
+
+  FilePath dst = temp_dir_.GetPath().Append(FPL("dst.txt"));
+  ASSERT_TRUE(CopyFile(src, dst));
+  EXPECT_EQ(file_contents, ReadTextFile(dst));
+
+  ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
+  int expected_mode;
+#if defined(OS_MACOSX)
+  expected_mode = 0755;
+#elif defined(OS_CHROMEOS)
+  expected_mode = 0644;
+#else
+  expected_mode = 0600;
+#endif
+  EXPECT_EQ(expected_mode, mode);
+  ASSERT_TRUE(DeleteFile(dst, false));
+
+  ASSERT_TRUE(SetPosixFilePermissions(src, 0777));
+  ASSERT_TRUE(GetPosixFilePermissions(src, &mode));
+  EXPECT_EQ(0777, mode);
+
+  ASSERT_TRUE(CopyFile(src, dst));
+  EXPECT_EQ(file_contents, ReadTextFile(dst));
+
+  ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
+#if defined(OS_MACOSX)
+  expected_mode = 0755;
+#elif defined(OS_CHROMEOS)
+  expected_mode = 0644;
+#else
+  expected_mode = 0600;
+#endif
+  EXPECT_EQ(expected_mode, mode);
+  ASSERT_TRUE(DeleteFile(dst, false));
+
+  ASSERT_TRUE(SetPosixFilePermissions(src, 0400));
+  ASSERT_TRUE(GetPosixFilePermissions(src, &mode));
+  EXPECT_EQ(0400, mode);
+
+  ASSERT_TRUE(CopyFile(src, dst));
+  EXPECT_EQ(file_contents, ReadTextFile(dst));
+
+  ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
+#if defined(OS_MACOSX)
+  expected_mode = 0600;
+#elif defined(OS_CHROMEOS)
+  expected_mode = 0644;
+#else
+  expected_mode = 0600;
+#endif
+  EXPECT_EQ(expected_mode, mode);
+
+  // This time, do not delete |dst|. Instead set its permissions to 0777.
+  ASSERT_TRUE(SetPosixFilePermissions(dst, 0777));
+  ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
+  EXPECT_EQ(0777, mode);
+
+  // Overwrite it and check the permissions again.
+  ASSERT_TRUE(CopyFile(src, dst));
+  EXPECT_EQ(file_contents, ReadTextFile(dst));
+  ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
+  EXPECT_EQ(0777, mode);
+}
+
+#endif  // defined(OS_POSIX)
 
 #if !defined(OS_FUCHSIA)
 
@@ -1118,6 +1433,58 @@ TEST_F(FileUtilTest, DeleteDirRecursive) {
   EXPECT_FALSE(PathExists(file_name));
   EXPECT_FALSE(PathExists(subdir_path1));
   EXPECT_FALSE(PathExists(test_subdir));
+}
+
+// Tests recursive Delete() for a directory.
+TEST_F(FileUtilTest, DeleteDirRecursiveWithOpenFile) {
+  // Create a subdirectory and put a file and two directories inside.
+  FilePath test_subdir = temp_dir_.GetPath().Append(FPL("DeleteWithOpenFile"));
+  CreateDirectory(test_subdir);
+  ASSERT_TRUE(PathExists(test_subdir));
+
+  FilePath file_name1 = test_subdir.Append(FPL("Undeletebable File1.txt"));
+  File file1(file_name1,
+             File::FLAG_CREATE | File::FLAG_READ | File::FLAG_WRITE);
+  ASSERT_TRUE(PathExists(file_name1));
+
+  FilePath file_name2 = test_subdir.Append(FPL("Deleteable File2.txt"));
+  CreateTextFile(file_name2, bogus_content);
+  ASSERT_TRUE(PathExists(file_name2));
+
+  FilePath file_name3 = test_subdir.Append(FPL("Undeletebable File3.txt"));
+  File file3(file_name3,
+             File::FLAG_CREATE | File::FLAG_READ | File::FLAG_WRITE);
+  ASSERT_TRUE(PathExists(file_name3));
+
+#if defined(OS_LINUX)
+  // On Windows, holding the file open in sufficient to make it un-deletable.
+  // The POSIX code is verifiable on Linux by creating an "immutable" file but
+  // this is best-effort because it's not supported by all file systems. Both
+  // files will have the same flags so no need to get them individually.
+  int flags;
+  bool file_attrs_supported =
+      ioctl(file1.GetPlatformFile(), FS_IOC_GETFLAGS, &flags) == 0;
+  // Some filesystems (e.g. tmpfs) don't support file attributes.
+  if (file_attrs_supported) {
+    flags |= FS_IMMUTABLE_FL;
+    ioctl(file1.GetPlatformFile(), FS_IOC_SETFLAGS, &flags);
+    ioctl(file3.GetPlatformFile(), FS_IOC_SETFLAGS, &flags);
+  }
+#endif
+
+  // Delete recursively and check that at least the second file got deleted.
+  // This ensures that un-deletable files don't impact those that can be.
+  DeleteFile(test_subdir, true);
+  EXPECT_FALSE(PathExists(file_name2));
+
+#if defined(OS_LINUX)
+  // Make sure that the test can clean up after itself.
+  if (file_attrs_supported) {
+    flags &= ~FS_IMMUTABLE_FL;
+    ioctl(file1.GetPlatformFile(), FS_IOC_SETFLAGS, &flags);
+    ioctl(file3.GetPlatformFile(), FS_IOC_SETFLAGS, &flags);
+  }
+#endif
 }
 
 TEST_F(FileUtilTest, MoveFileNew) {
@@ -1513,6 +1880,24 @@ TEST_F(FileUtilTest, CopyFileWithCopyDirectoryRecursiveToExistingDirectory) {
   EXPECT_TRUE(PathExists(file_name_to));
 }
 
+TEST_F(FileUtilTest, CopyFileFailureWithCopyDirectoryExcl) {
+  // Create a file
+  FilePath file_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  CreateTextFile(file_name_from, L"Gooooooooooooooooooooogle");
+  ASSERT_TRUE(PathExists(file_name_from));
+
+  // Make a destination file.
+  FilePath file_name_to = temp_dir_.GetPath().Append(
+      FILE_PATH_LITERAL("Copy_Test_File_Destination.txt"));
+  CreateTextFile(file_name_to, L"Old file content");
+  ASSERT_TRUE(PathExists(file_name_to));
+
+  // Overwriting the destination should fail.
+  EXPECT_FALSE(CopyDirectoryExcl(file_name_from, file_name_to, true));
+  EXPECT_EQ(L"Old file content", ReadTextFile(file_name_to));
+}
+
 TEST_F(FileUtilTest, CopyDirectoryWithTrailingSeparators) {
   // Create a directory.
   FilePath dir_name_from =
@@ -1536,7 +1921,7 @@ TEST_F(FileUtilTest, CopyDirectoryWithTrailingSeparators) {
 #if defined(OS_WIN)
   FilePath from_path =
       temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir\\\\\\"));
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   FilePath from_path =
       temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir///"));
 #endif
@@ -1550,12 +1935,227 @@ TEST_F(FileUtilTest, CopyDirectoryWithTrailingSeparators) {
   EXPECT_TRUE(PathExists(file_name_to));
 }
 
+#if defined(OS_POSIX)
+TEST_F(FileUtilTest, CopyDirectoryWithNonRegularFiles) {
+  // Create a directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_from));
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a file under the directory.
+  FilePath file_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  CreateTextFile(file_name_from, L"Gooooooooooooooooooooogle");
+  ASSERT_TRUE(PathExists(file_name_from));
+
+  // Create a symbolic link under the directory pointing to that file.
+  FilePath symlink_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Symlink"));
+  ASSERT_TRUE(CreateSymbolicLink(file_name_from, symlink_name_from));
+  ASSERT_TRUE(PathExists(symlink_name_from));
+
+  // Create a fifo under the directory.
+  FilePath fifo_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Fifo"));
+  ASSERT_EQ(0, mkfifo(fifo_name_from.value().c_str(), 0644));
+  ASSERT_TRUE(PathExists(fifo_name_from));
+
+  // Copy the directory.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  FilePath file_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  FilePath symlink_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Symlink"));
+  FilePath fifo_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Fifo"));
+
+  ASSERT_FALSE(PathExists(dir_name_to));
+
+  EXPECT_TRUE(CopyDirectory(dir_name_from, dir_name_to, false));
+
+  // Check that only directories and regular files are copied.
+  EXPECT_TRUE(PathExists(dir_name_from));
+  EXPECT_TRUE(PathExists(file_name_from));
+  EXPECT_TRUE(PathExists(symlink_name_from));
+  EXPECT_TRUE(PathExists(fifo_name_from));
+  EXPECT_TRUE(PathExists(dir_name_to));
+  EXPECT_TRUE(PathExists(file_name_to));
+  EXPECT_FALSE(PathExists(symlink_name_to));
+  EXPECT_FALSE(PathExists(fifo_name_to));
+}
+
+TEST_F(FileUtilTest, CopyDirectoryExclFileOverSymlink) {
+  // Create a directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_from));
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a file under the directory.
+  FilePath file_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  CreateTextFile(file_name_from, L"Gooooooooooooooooooooogle");
+  ASSERT_TRUE(PathExists(file_name_from));
+
+  // Create a destination directory with a symlink of the same name.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_to));
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  FilePath symlink_target =
+      dir_name_to.Append(FILE_PATH_LITERAL("Symlink_Target.txt"));
+  CreateTextFile(symlink_target, L"asdf");
+  ASSERT_TRUE(PathExists(symlink_target));
+
+  FilePath symlink_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  ASSERT_TRUE(CreateSymbolicLink(symlink_target, symlink_name_to));
+  ASSERT_TRUE(PathExists(symlink_name_to));
+
+  // Check that copying fails.
+  EXPECT_FALSE(CopyDirectoryExcl(dir_name_from, dir_name_to, false));
+}
+
+TEST_F(FileUtilTest, CopyDirectoryExclDirectoryOverSymlink) {
+  // Create a directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_from));
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a subdirectory.
+  FilePath subdir_name_from = dir_name_from.Append(FILE_PATH_LITERAL("Subsub"));
+  CreateDirectory(subdir_name_from);
+  ASSERT_TRUE(PathExists(subdir_name_from));
+
+  // Create a destination directory with a symlink of the same name.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_to));
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  FilePath symlink_target = dir_name_to.Append(FILE_PATH_LITERAL("Subsub"));
+  CreateTextFile(symlink_target, L"asdf");
+  ASSERT_TRUE(PathExists(symlink_target));
+
+  FilePath symlink_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  ASSERT_TRUE(CreateSymbolicLink(symlink_target, symlink_name_to));
+  ASSERT_TRUE(PathExists(symlink_name_to));
+
+  // Check that copying fails.
+  EXPECT_FALSE(CopyDirectoryExcl(dir_name_from, dir_name_to, false));
+}
+
+TEST_F(FileUtilTest, CopyDirectoryExclFileOverDanglingSymlink) {
+  // Create a directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_from));
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a file under the directory.
+  FilePath file_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  CreateTextFile(file_name_from, L"Gooooooooooooooooooooogle");
+  ASSERT_TRUE(PathExists(file_name_from));
+
+  // Create a destination directory with a dangling symlink of the same name.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_to));
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  FilePath symlink_target =
+      dir_name_to.Append(FILE_PATH_LITERAL("Symlink_Target.txt"));
+  CreateTextFile(symlink_target, L"asdf");
+  ASSERT_TRUE(PathExists(symlink_target));
+
+  FilePath symlink_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  ASSERT_TRUE(CreateSymbolicLink(symlink_target, symlink_name_to));
+  ASSERT_TRUE(PathExists(symlink_name_to));
+  ASSERT_TRUE(DeleteFile(symlink_target, false));
+
+  // Check that copying fails and that no file was created for the symlink's
+  // referent.
+  EXPECT_FALSE(CopyDirectoryExcl(dir_name_from, dir_name_to, false));
+  EXPECT_FALSE(PathExists(symlink_target));
+}
+
+TEST_F(FileUtilTest, CopyDirectoryExclDirectoryOverDanglingSymlink) {
+  // Create a directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_from));
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a subdirectory.
+  FilePath subdir_name_from = dir_name_from.Append(FILE_PATH_LITERAL("Subsub"));
+  CreateDirectory(subdir_name_from);
+  ASSERT_TRUE(PathExists(subdir_name_from));
+
+  // Create a destination directory with a dangling symlink of the same name.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_to));
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  FilePath symlink_target =
+      dir_name_to.Append(FILE_PATH_LITERAL("Symlink_Target.txt"));
+  CreateTextFile(symlink_target, L"asdf");
+  ASSERT_TRUE(PathExists(symlink_target));
+
+  FilePath symlink_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  ASSERT_TRUE(CreateSymbolicLink(symlink_target, symlink_name_to));
+  ASSERT_TRUE(PathExists(symlink_name_to));
+  ASSERT_TRUE(DeleteFile(symlink_target, false));
+
+  // Check that copying fails and that no directory was created for the
+  // symlink's referent.
+  EXPECT_FALSE(CopyDirectoryExcl(dir_name_from, dir_name_to, false));
+  EXPECT_FALSE(PathExists(symlink_target));
+}
+
+TEST_F(FileUtilTest, CopyDirectoryExclFileOverFifo) {
+  // Create a directory.
+  FilePath dir_name_from =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_from));
+  ASSERT_TRUE(PathExists(dir_name_from));
+
+  // Create a file under the directory.
+  FilePath file_name_from =
+      dir_name_from.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  CreateTextFile(file_name_from, L"Gooooooooooooooooooooogle");
+  ASSERT_TRUE(PathExists(file_name_from));
+
+  // Create a destination directory with a fifo of the same name.
+  FilePath dir_name_to =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_To_Subdir"));
+  ASSERT_TRUE(CreateDirectory(dir_name_to));
+  ASSERT_TRUE(PathExists(dir_name_to));
+
+  FilePath fifo_name_to =
+      dir_name_to.Append(FILE_PATH_LITERAL("Copy_Test_File.txt"));
+  ASSERT_EQ(0, mkfifo(fifo_name_to.value().c_str(), 0644));
+  ASSERT_TRUE(PathExists(fifo_name_to));
+
+  // Check that copying fails.
+  EXPECT_FALSE(CopyDirectoryExcl(dir_name_from, dir_name_to, false));
+}
+#endif  // defined(OS_POSIX)
+
 TEST_F(FileUtilTest, CopyFile) {
   // Create a directory
   FilePath dir_name_from =
       temp_dir_.GetPath().Append(FILE_PATH_LITERAL("Copy_From_Subdir"));
-  CreateDirectory(dir_name_from);
-  ASSERT_TRUE(PathExists(dir_name_from));
+  ASSERT_TRUE(CreateDirectory(dir_name_from));
+  ASSERT_TRUE(DirectoryExists(dir_name_from));
 
   // Create a file under the directory
   FilePath file_name_from =
@@ -1581,10 +2181,31 @@ TEST_F(FileUtilTest, CopyFile) {
   // Check expected copy results.
   EXPECT_TRUE(PathExists(file_name_from));
   EXPECT_TRUE(PathExists(dest_file));
-  const std::wstring read_contents = ReadTextFile(dest_file);
-  EXPECT_EQ(file_contents, read_contents);
+  EXPECT_EQ(file_contents, ReadTextFile(dest_file));
   EXPECT_FALSE(PathExists(dest_file2_test));
   EXPECT_FALSE(PathExists(dest_file2));
+
+  // Change |file_name_from| contents.
+  const std::wstring new_file_contents(L"Moogle");
+  CreateTextFile(file_name_from, new_file_contents);
+  ASSERT_TRUE(PathExists(file_name_from));
+  EXPECT_EQ(new_file_contents, ReadTextFile(file_name_from));
+
+  // Overwrite |dest_file|.
+  ASSERT_TRUE(CopyFile(file_name_from, dest_file));
+  EXPECT_TRUE(PathExists(dest_file));
+  EXPECT_EQ(new_file_contents, ReadTextFile(dest_file));
+
+  // Create another directory.
+  FilePath dest_dir = temp_dir_.GetPath().Append(FPL("dest_dir"));
+  ASSERT_TRUE(CreateDirectory(dest_dir));
+  EXPECT_TRUE(DirectoryExists(dest_dir));
+  EXPECT_TRUE(IsDirectoryEmpty(dest_dir));
+
+  // Make sure CopyFile() cannot overwrite a directory.
+  ASSERT_FALSE(CopyFile(file_name_from, dest_dir));
+  EXPECT_TRUE(DirectoryExists(dest_dir));
+  EXPECT_TRUE(IsDirectoryEmpty(dest_dir));
 }
 
 // file_util winds up using autoreleased objects on the Mac, so this needs
@@ -1726,7 +2347,7 @@ TEST_F(FileUtilTest, GetTempDirTest) {
   ASSERT_EQ(0, ::_tdupenv_s(&original_tmp, &original_tmp_size, kTmpKey));
   // original_tmp may be NULL.
 
-  for (unsigned int i = 0; i < arraysize(kTmpValues); ++i) {
+  for (unsigned int i = 0; i < base::size(kTmpValues); ++i) {
     FilePath path;
     ::_tputenv_s(kTmpKey, kTmpValues[i]);
     GetTempDir(&path);
@@ -1749,7 +2370,14 @@ TEST_F(FileUtilTest, GetTempDirTest) {
 TEST_F(FileUtilTest, OpenFileNoInheritance) {
   FilePath file_path(temp_dir_.GetPath().Append(FPL("a_file")));
 
-  for (const char* mode : {"wb", "r,ccs=UTF-8"}) {
+// Character set handling is leaking according to ASAN. http://crbug.com/883698
+#if defined(ADDRESS_SANITIZER)
+  static constexpr const char* modes[] = {"wb", "r"};
+#else
+  static constexpr const char* modes[] = {"wb", "r,ccs=UTF-8"};
+#endif
+
+  for (const char* mode : modes) {
     SCOPED_TRACE(mode);
     ASSERT_NO_FATAL_FAILURE(CreateTextFile(file_path, L"Geepers"));
     FILE* file = OpenFile(file_path, mode);
@@ -1766,15 +2394,15 @@ TEST_F(FileUtilTest, OpenFileNoInheritance) {
 
 TEST_F(FileUtilTest, CreateTemporaryFileTest) {
   FilePath temp_files[3];
-  for (int i = 0; i < 3; i++) {
-    ASSERT_TRUE(CreateTemporaryFile(&(temp_files[i])));
-    EXPECT_TRUE(PathExists(temp_files[i]));
-    EXPECT_FALSE(DirectoryExists(temp_files[i]));
+  for (auto& i : temp_files) {
+    ASSERT_TRUE(CreateTemporaryFile(&i));
+    EXPECT_TRUE(PathExists(i));
+    EXPECT_FALSE(DirectoryExists(i));
   }
   for (int i = 0; i < 3; i++)
     EXPECT_FALSE(temp_files[i] == temp_files[(i+1)%3]);
-  for (int i = 0; i < 3; i++)
-    EXPECT_TRUE(DeleteFile(temp_files[i], false));
+  for (const auto& i : temp_files)
+    EXPECT_TRUE(DeleteFile(i, false));
 }
 
 TEST_F(FileUtilTest, CreateAndOpenTemporaryFileTest) {
@@ -1801,7 +2429,14 @@ TEST_F(FileUtilTest, CreateAndOpenTemporaryFileTest) {
   }
 }
 
-TEST_F(FileUtilTest, FileToFILE) {
+#if defined(OS_FUCHSIA)
+// TODO(crbug.com/851747): Re-enable when the Fuchsia-side fix for fdopen has
+// been rolled into Chromium.
+#define MAYBE_FileToFILE DISABLED_FileToFILE
+#else
+#define MAYBE_FileToFILE FileToFILE
+#endif
+TEST_F(FileUtilTest, MAYBE_FileToFILE) {
   File file;
   FILE* stream = FileToFILE(std::move(file), "w");
   EXPECT_FALSE(stream);
@@ -1833,7 +2468,7 @@ TEST_F(FileUtilTest, CreateNewTemporaryDirInDirTest) {
   EXPECT_TRUE(DeleteFile(new_dir, false));
 }
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 TEST_F(FileUtilTest, GetShmemTempDirTest) {
   FilePath dir;
   EXPECT_TRUE(GetShmemTempDir(false, &dir));
@@ -1858,7 +2493,7 @@ TEST_F(FileUtilTest, CreateDirectoryTest) {
 #if defined(OS_WIN)
   FilePath test_path =
       test_root.Append(FILE_PATH_LITERAL("dir\\tree\\likely\\doesnt\\exist\\"));
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   FilePath test_path =
       test_root.Append(FILE_PATH_LITERAL("dir/tree/likely/doesnt/exist/"));
 #endif
@@ -2158,7 +2793,8 @@ TEST_F(FileUtilTest, ReadFileToString) {
           .Append(FILE_PATH_LITERAL("ReadFileToStringTest"));
 
   // Create test file.
-  ASSERT_EQ(4, WriteFile(file_path, kTestData, 4));
+  ASSERT_EQ(static_cast<int>(strlen(kTestData)),
+            WriteFile(file_path, kTestData, strlen(kTestData)));
 
   EXPECT_TRUE(ReadFileToString(file_path, &data));
   EXPECT_EQ(kTestData, data);
@@ -2171,21 +2807,21 @@ TEST_F(FileUtilTest, ReadFileToString) {
   EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, 2));
   EXPECT_EQ("01", data);
 
-  data.clear();
+  data = "temp";
   EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, 3));
   EXPECT_EQ("012", data);
 
-  data.clear();
+  data = "temp";
   EXPECT_TRUE(ReadFileToStringWithMaxSize(file_path, &data, 4));
   EXPECT_EQ("0123", data);
 
-  data.clear();
+  data = "temp";
   EXPECT_TRUE(ReadFileToStringWithMaxSize(file_path, &data, 6));
   EXPECT_EQ("0123", data);
 
-  EXPECT_TRUE(ReadFileToStringWithMaxSize(file_path, NULL, 6));
+  EXPECT_TRUE(ReadFileToStringWithMaxSize(file_path, nullptr, 6));
 
-  EXPECT_TRUE(ReadFileToString(file_path, NULL));
+  EXPECT_TRUE(ReadFileToString(file_path, nullptr));
 
   data = "temp";
   EXPECT_FALSE(ReadFileToString(file_path_dangerous, &data));
@@ -2201,6 +2837,398 @@ TEST_F(FileUtilTest, ReadFileToString) {
   data = "temp";
   EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, 6));
   EXPECT_EQ(0u, data.length());
+}
+
+#if !defined(OS_WIN)
+TEST_F(FileUtilTest, ReadFileToStringWithUnknownFileSize) {
+  FilePath file_path("/dev/zero");
+  std::string data = "temp";
+
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, 0));
+  EXPECT_EQ(0u, data.length());
+
+  data = "temp";
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, 2));
+  EXPECT_EQ(std::string(2, '\0'), data);
+
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, nullptr, 6));
+
+  // Read more than buffer size.
+  data = "temp";
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, kLargeFileSize));
+  EXPECT_EQ(kLargeFileSize, data.length());
+  EXPECT_EQ(std::string(kLargeFileSize, '\0'), data);
+
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, nullptr, kLargeFileSize));
+}
+#endif  // !defined(OS_WIN)
+
+#if !defined(OS_WIN) && !defined(OS_NACL) && !defined(OS_FUCHSIA) && \
+    !defined(OS_IOS)
+#define ChildMain WriteToPipeChildMain
+#define ChildMainString "WriteToPipeChildMain"
+
+MULTIPROCESS_TEST_MAIN(ChildMain) {
+  const char kTestData[] = "0123";
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  const FilePath pipe_path = command_line->GetSwitchValuePath("pipe-path");
+
+  int fd = open(pipe_path.value().c_str(), O_WRONLY);
+  CHECK_NE(-1, fd);
+  size_t written = 0;
+  while (written < strlen(kTestData)) {
+    ssize_t res = write(fd, kTestData + written, strlen(kTestData) - written);
+    if (res == -1)
+      break;
+    written += res;
+  }
+  CHECK_EQ(strlen(kTestData), written);
+  CHECK_EQ(0, close(fd));
+  return 0;
+}
+
+#define MoreThanBufferSizeChildMain WriteToPipeMoreThanBufferSizeChildMain
+#define MoreThanBufferSizeChildMainString \
+  "WriteToPipeMoreThanBufferSizeChildMain"
+
+MULTIPROCESS_TEST_MAIN(MoreThanBufferSizeChildMain) {
+  std::string data(kLargeFileSize, 'c');
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  const FilePath pipe_path = command_line->GetSwitchValuePath("pipe-path");
+
+  int fd = open(pipe_path.value().c_str(), O_WRONLY);
+  CHECK_NE(-1, fd);
+
+  size_t written = 0;
+  while (written < data.size()) {
+    ssize_t res = write(fd, data.c_str() + written, data.size() - written);
+    if (res == -1) {
+      // We are unable to write because reading process has already read
+      // requested number of bytes and closed pipe.
+      break;
+    }
+    written += res;
+  }
+  CHECK_EQ(0, close(fd));
+  return 0;
+}
+
+TEST_F(FileUtilTest, ReadFileToStringWithNamedPipe) {
+  FilePath pipe_path =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("test_pipe"));
+  ASSERT_EQ(0, mkfifo(pipe_path.value().c_str(), 0600));
+
+  base::CommandLine child_command_line(
+      base::GetMultiProcessTestChildBaseCommandLine());
+  child_command_line.AppendSwitchPath("pipe-path", pipe_path);
+
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        ChildMainString, child_command_line, base::LaunchOptions());
+    ASSERT_TRUE(child_process.IsValid());
+
+    std::string data = "temp";
+    EXPECT_FALSE(ReadFileToStringWithMaxSize(pipe_path, &data, 2));
+    EXPECT_EQ("01", data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        ChildMainString, child_command_line, base::LaunchOptions());
+    ASSERT_TRUE(child_process.IsValid());
+
+    std::string data = "temp";
+    EXPECT_TRUE(ReadFileToStringWithMaxSize(pipe_path, &data, 6));
+    EXPECT_EQ("0123", data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        MoreThanBufferSizeChildMainString, child_command_line,
+        base::LaunchOptions());
+    ASSERT_TRUE(child_process.IsValid());
+
+    std::string data = "temp";
+    EXPECT_FALSE(ReadFileToStringWithMaxSize(pipe_path, &data, 6));
+    EXPECT_EQ("cccccc", data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        MoreThanBufferSizeChildMainString, child_command_line,
+        base::LaunchOptions());
+    ASSERT_TRUE(child_process.IsValid());
+
+    std::string data = "temp";
+    EXPECT_FALSE(
+        ReadFileToStringWithMaxSize(pipe_path, &data, kLargeFileSize - 1));
+    EXPECT_EQ(std::string(kLargeFileSize - 1, 'c'), data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        MoreThanBufferSizeChildMainString, child_command_line,
+        base::LaunchOptions());
+    ASSERT_TRUE(child_process.IsValid());
+
+    std::string data = "temp";
+    EXPECT_TRUE(ReadFileToStringWithMaxSize(pipe_path, &data, kLargeFileSize));
+    EXPECT_EQ(std::string(kLargeFileSize, 'c'), data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        MoreThanBufferSizeChildMainString, child_command_line,
+        base::LaunchOptions());
+    ASSERT_TRUE(child_process.IsValid());
+
+    std::string data = "temp";
+    EXPECT_TRUE(
+        ReadFileToStringWithMaxSize(pipe_path, &data, kLargeFileSize * 5));
+    EXPECT_EQ(std::string(kLargeFileSize, 'c'), data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+
+  ASSERT_EQ(0, unlink(pipe_path.value().c_str()));
+}
+#endif  // !defined(OS_WIN) && !defined(OS_NACL) && !defined(OS_FUCHSIA) &&
+        // !defined(OS_IOS)
+
+#if defined(OS_WIN)
+#define ChildMain WriteToPipeChildMain
+#define ChildMainString "WriteToPipeChildMain"
+
+MULTIPROCESS_TEST_MAIN(ChildMain) {
+  const char kTestData[] = "0123";
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  const FilePath pipe_path = command_line->GetSwitchValuePath("pipe-path");
+  std::string switch_string = command_line->GetSwitchValueASCII("sync_event");
+  EXPECT_FALSE(switch_string.empty());
+  unsigned int switch_uint = 0;
+  EXPECT_TRUE(StringToUint(switch_string, &switch_uint));
+  win::ScopedHandle sync_event(win::Uint32ToHandle(switch_uint));
+
+  HANDLE ph = CreateNamedPipe(pipe_path.value().c_str(), PIPE_ACCESS_OUTBOUND,
+                              PIPE_WAIT, 1, 0, 0, 0, NULL);
+  EXPECT_NE(ph, INVALID_HANDLE_VALUE);
+  EXPECT_TRUE(SetEvent(sync_event.Get()));
+  EXPECT_TRUE(ConnectNamedPipe(ph, NULL));
+
+  DWORD written;
+  EXPECT_TRUE(::WriteFile(ph, kTestData, strlen(kTestData), &written, NULL));
+  EXPECT_EQ(strlen(kTestData), written);
+  CloseHandle(ph);
+  return 0;
+}
+
+#define MoreThanBufferSizeChildMain WriteToPipeMoreThanBufferSizeChildMain
+#define MoreThanBufferSizeChildMainString \
+  "WriteToPipeMoreThanBufferSizeChildMain"
+
+MULTIPROCESS_TEST_MAIN(MoreThanBufferSizeChildMain) {
+  std::string data(kLargeFileSize, 'c');
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  const FilePath pipe_path = command_line->GetSwitchValuePath("pipe-path");
+  std::string switch_string = command_line->GetSwitchValueASCII("sync_event");
+  EXPECT_FALSE(switch_string.empty());
+  unsigned int switch_uint = 0;
+  EXPECT_TRUE(StringToUint(switch_string, &switch_uint));
+  win::ScopedHandle sync_event(win::Uint32ToHandle(switch_uint));
+
+  HANDLE ph = CreateNamedPipe(pipe_path.value().c_str(), PIPE_ACCESS_OUTBOUND,
+                              PIPE_WAIT, 1, data.size(), data.size(), 0, NULL);
+  EXPECT_NE(ph, INVALID_HANDLE_VALUE);
+  EXPECT_TRUE(SetEvent(sync_event.Get()));
+  EXPECT_TRUE(ConnectNamedPipe(ph, NULL));
+
+  DWORD written;
+  EXPECT_TRUE(::WriteFile(ph, data.c_str(), data.size(), &written, NULL));
+  EXPECT_EQ(data.size(), written);
+  CloseHandle(ph);
+  return 0;
+}
+
+TEST_F(FileUtilTest, ReadFileToStringWithNamedPipe) {
+  FilePath pipe_path(FILE_PATH_LITERAL("\\\\.\\pipe\\test_pipe"));
+  win::ScopedHandle sync_event(CreateEvent(0, false, false, nullptr));
+
+  base::CommandLine child_command_line(
+      base::GetMultiProcessTestChildBaseCommandLine());
+  child_command_line.AppendSwitchPath("pipe-path", pipe_path);
+  child_command_line.AppendSwitchASCII(
+      "sync_event", UintToString(win::HandleToUint32(sync_event.Get())));
+
+  base::LaunchOptions options;
+  options.handles_to_inherit.push_back(sync_event.Get());
+
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        ChildMainString, child_command_line, options);
+    ASSERT_TRUE(child_process.IsValid());
+    // Wait for pipe creation in child process.
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+
+    std::string data = "temp";
+    EXPECT_FALSE(ReadFileToStringWithMaxSize(pipe_path, &data, 2));
+    EXPECT_EQ("01", data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        ChildMainString, child_command_line, options);
+    ASSERT_TRUE(child_process.IsValid());
+    // Wait for pipe creation in child process.
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+
+    std::string data = "temp";
+    EXPECT_TRUE(ReadFileToStringWithMaxSize(pipe_path, &data, 6));
+    EXPECT_EQ("0123", data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        MoreThanBufferSizeChildMainString, child_command_line, options);
+    ASSERT_TRUE(child_process.IsValid());
+    // Wait for pipe creation in child process.
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+
+    std::string data = "temp";
+    EXPECT_FALSE(ReadFileToStringWithMaxSize(pipe_path, &data, 6));
+    EXPECT_EQ("cccccc", data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        MoreThanBufferSizeChildMainString, child_command_line, options);
+    ASSERT_TRUE(child_process.IsValid());
+    // Wait for pipe creation in child process.
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+
+    std::string data = "temp";
+    EXPECT_FALSE(
+        ReadFileToStringWithMaxSize(pipe_path, &data, kLargeFileSize - 1));
+    EXPECT_EQ(std::string(kLargeFileSize - 1, 'c'), data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        MoreThanBufferSizeChildMainString, child_command_line, options);
+    ASSERT_TRUE(child_process.IsValid());
+    // Wait for pipe creation in child process.
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+
+    std::string data = "temp";
+    EXPECT_TRUE(ReadFileToStringWithMaxSize(pipe_path, &data, kLargeFileSize));
+    EXPECT_EQ(std::string(kLargeFileSize, 'c'), data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+  {
+    base::Process child_process = base::SpawnMultiProcessTestChild(
+        MoreThanBufferSizeChildMainString, child_command_line, options);
+    ASSERT_TRUE(child_process.IsValid());
+    // Wait for pipe creation in child process.
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+
+    std::string data = "temp";
+    EXPECT_TRUE(
+        ReadFileToStringWithMaxSize(pipe_path, &data, kLargeFileSize * 5));
+    EXPECT_EQ(std::string(kLargeFileSize, 'c'), data);
+
+    int rv = -1;
+    ASSERT_TRUE(WaitForMultiprocessTestChildExit(
+        child_process, TestTimeouts::action_timeout(), &rv));
+    ASSERT_EQ(0, rv);
+  }
+}
+#endif  // defined(OS_WIN)
+
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
+TEST_F(FileUtilTest, ReadFileToStringWithProcFileSystem) {
+  FilePath file_path("/proc/cpuinfo");
+  std::string data = "temp";
+
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, 0));
+  EXPECT_EQ(0u, data.length());
+
+  data = "temp";
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, 2));
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII("pr", data));
+
+  data = "temp";
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &data, 4));
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII("proc", data));
+
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, nullptr, 4));
+}
+#endif  // defined(OS_POSIX) && !defined(OS_MACOSX)
+
+TEST_F(FileUtilTest, ReadFileToStringWithLargeFile) {
+  std::string data(kLargeFileSize, 'c');
+
+  FilePath file_path =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("ReadFileToStringTest"));
+
+  // Create test file.
+  ASSERT_EQ(static_cast<int>(kLargeFileSize),
+            WriteFile(file_path, data.c_str(), kLargeFileSize));
+
+  std::string actual_data = "temp";
+  EXPECT_TRUE(ReadFileToString(file_path, &actual_data));
+  EXPECT_EQ(data, actual_data);
+
+  actual_data = "temp";
+  EXPECT_FALSE(ReadFileToStringWithMaxSize(file_path, &actual_data, 0));
+  EXPECT_EQ(0u, actual_data.length());
+
+  // Read more than buffer size.
+  actual_data = "temp";
+  EXPECT_FALSE(
+      ReadFileToStringWithMaxSize(file_path, &actual_data, kLargeFileSize - 1));
+  EXPECT_EQ(std::string(kLargeFileSize - 1, 'c'), actual_data);
 }
 
 TEST_F(FileUtilTest, TouchFile) {
@@ -2260,11 +3288,11 @@ TEST_F(FileUtilTest, IsDirectoryEmpty) {
   EXPECT_FALSE(IsDirectoryEmpty(empty_dir));
 }
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 TEST_F(FileUtilTest, SetNonBlocking) {
-  const int kInvalidFd = 99999;
-  EXPECT_FALSE(SetNonBlocking(kInvalidFd));
+  const int kBogusFd = 99999;
+  EXPECT_FALSE(SetNonBlocking(kBogusFd));
 
   base::FilePath path;
   ASSERT_TRUE(PathService::Get(base::DIR_TEST_DATA, &path));
@@ -2275,8 +3303,8 @@ TEST_F(FileUtilTest, SetNonBlocking) {
 }
 
 TEST_F(FileUtilTest, SetCloseOnExec) {
-  const int kInvalidFd = 99999;
-  EXPECT_FALSE(SetCloseOnExec(kInvalidFd));
+  const int kBogusFd = 99999;
+  EXPECT_FALSE(SetCloseOnExec(kBogusFd));
 
   base::FilePath path;
   ASSERT_TRUE(PathService::Get(base::DIR_TEST_DATA, &path));
@@ -2288,7 +3316,7 @@ TEST_F(FileUtilTest, SetCloseOnExec) {
 
 #endif
 
-#if defined(OS_POSIX) && !defined(OS_FUCHSIA)
+#if defined(OS_POSIX)
 
 // Testing VerifyPathControlledByAdmin() is hard, because there is no
 // way a test can make a file owned by root, or change file paths
@@ -2572,7 +3600,7 @@ TEST_F(VerifyPathControlledByUserTest, WriteBitChecks) {
   EXPECT_TRUE(VerifyPathControlledByUser(sub_dir_, text_file_, uid_, ok_gids_));
 }
 
-#endif  // defined(OS_POSIX) && !defined(OS_FUCHSIA)
+#endif  // defined(OS_POSIX)
 
 #if defined(OS_ANDROID)
 TEST_F(FileUtilTest, ValidContentUriTest) {
@@ -2584,7 +3612,7 @@ TEST_F(FileUtilTest, ValidContentUriTest) {
   FilePath image_file = data_dir.Append(FILE_PATH_LITERAL("red.png"));
   int64_t image_size;
   GetFileSize(image_file, &image_size);
-  EXPECT_LT(0, image_size);
+  ASSERT_GT(image_size, 0);
 
   // Insert the image into MediaStore. MediaStore will do some conversions, and
   // return the content URI.
@@ -2598,11 +3626,10 @@ TEST_F(FileUtilTest, ValidContentUriTest) {
   EXPECT_EQ(image_size, content_uri_size);
 
   // We should be able to read the file.
-  char* buffer = new char[image_size];
   File file = OpenContentUriForRead(path);
   EXPECT_TRUE(file.IsValid());
-  EXPECT_TRUE(file.ReadAtCurrentPos(buffer, image_size));
-  delete[] buffer;
+  auto buffer = std::make_unique<char[]>(image_size);
+  EXPECT_TRUE(file.ReadAtCurrentPos(buffer.get(), image_size));
 }
 
 TEST_F(FileUtilTest, NonExistentContentUriTest) {
@@ -2619,7 +3646,71 @@ TEST_F(FileUtilTest, NonExistentContentUriTest) {
 }
 #endif
 
-#if defined(OS_POSIX)
+// Test that temp files obtained racily are all unique (no interference between
+// threads). Mimics file operations in DoLaunchChildTestProcess() to rule out
+// thread-safety issues @ https://crbug.com/826408#c17.
+#if defined(OS_FUCHSIA)
+// TODO(crbug.com/844416): Too slow to run on infra due to QEMU overloads.
+#define MAYBE_MultiThreadedTempFiles DISABLED_MultiThreadedTempFiles
+#else
+#define MAYBE_MultiThreadedTempFiles MultiThreadedTempFiles
+#endif
+TEST(FileUtilMultiThreadedTest, MAYBE_MultiThreadedTempFiles) {
+  constexpr int kNumThreads = 64;
+  constexpr int kNumWritesPerThread = 32;
+
+  std::unique_ptr<Thread> threads[kNumThreads];
+  for (auto& thread : threads) {
+    thread = std::make_unique<Thread>("test worker");
+    thread->Start();
+  }
+
+  // Wait until all threads are started for max parallelism.
+  for (auto& thread : threads)
+    thread->WaitUntilThreadStarted();
+
+  const RepeatingClosure open_write_close_read = BindRepeating([]() {
+    FilePath output_filename;
+    ScopedFILE output_file(CreateAndOpenTemporaryFile(&output_filename));
+    EXPECT_TRUE(output_file);
+
+    const std::string content = GenerateGUID();
+#if defined(OS_WIN)
+    HANDLE handle =
+        reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(output_file.get())));
+    DWORD bytes_written = 0;
+    ::WriteFile(handle, content.c_str(), content.length(), &bytes_written,
+                NULL);
+#else
+    size_t bytes_written =
+        ::write(::fileno(output_file.get()), content.c_str(), content.length());
+#endif
+    EXPECT_EQ(content.length(), bytes_written);
+    ::fflush(output_file.get());
+    output_file.reset();
+
+    std::string output_file_contents;
+    EXPECT_TRUE(ReadFileToString(output_filename, &output_file_contents))
+        << output_filename;
+
+    EXPECT_EQ(content, output_file_contents);
+
+    DeleteFile(output_filename, false);
+  });
+
+  // Post tasks to each thread in a round-robin fashion to ensure as much
+  // parallelism as possible.
+  for (int i = 0; i < kNumWritesPerThread; ++i) {
+    for (auto& thread : threads) {
+      thread->task_runner()->PostTask(FROM_HERE, open_write_close_read);
+    }
+  }
+
+  for (auto& thread : threads)
+    thread->Stop();
+}
+
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 TEST(ScopedFD, ScopedFDDoesClose) {
   int fds[2];
@@ -2658,7 +3749,7 @@ TEST(ScopedFD, ScopedFDCrashesOnCloseFailure) {
 #endif
 }
 
-#endif  // defined(OS_POSIX)
+#endif  // defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 }  // namespace
 

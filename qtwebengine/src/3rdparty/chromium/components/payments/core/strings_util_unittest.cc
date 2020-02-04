@@ -7,7 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace payments {
@@ -22,6 +24,30 @@ constexpr CardType UNKNOWN = ::autofill::CreditCard::CARD_TYPE_UNKNOWN;
 
 }  // namespace
 
+#if defined(OS_MACOSX)
+TEST(StringsUtilTest, GetAcceptedCardTypesText) {
+  static const struct {
+    std::vector<CardType> card_types;
+    const char* const expected_text;
+  } kTestCases[] = {
+      {std::vector<CardType>(), "Accepted Cards"},
+      {{UNKNOWN}, "Accepted Cards"},
+      {{CREDIT}, "Accepted Credit Cards"},
+      {{DEBIT}, "Accepted Debit Cards"},
+      {{PREPAID}, "Accepted Prepaid Cards"},
+      {{CREDIT, DEBIT}, "Accepted Credit and Debit Cards"},
+      {{CREDIT, PREPAID}, "Accepted Credit and Prepaid Cards"},
+      {{DEBIT, PREPAID}, "Accepted Debit and Prepaid Cards"},
+      {{CREDIT, DEBIT, PREPAID}, "Accepted Cards"},
+  };
+  for (size_t i = 0; i < base::size(kTestCases); ++i) {
+    EXPECT_EQ(
+        base::UTF8ToUTF16(kTestCases[i].expected_text),
+        GetAcceptedCardTypesText(std::set<CardType>(
+            kTestCases[i].card_types.begin(), kTestCases[i].card_types.end())));
+  }
+}
+#else
 TEST(StringsUtilTest, GetAcceptedCardTypesText) {
   static const struct {
     std::vector<CardType> card_types;
@@ -37,13 +63,14 @@ TEST(StringsUtilTest, GetAcceptedCardTypesText) {
       {{DEBIT, PREPAID}, "Accepted debit and prepaid cards"},
       {{CREDIT, DEBIT, PREPAID}, "Accepted cards"},
   };
-  for (size_t i = 0; i < arraysize(kTestCases); ++i) {
+  for (size_t i = 0; i < base::size(kTestCases); ++i) {
     EXPECT_EQ(
         base::UTF8ToUTF16(kTestCases[i].expected_text),
         GetAcceptedCardTypesText(std::set<CardType>(
             kTestCases[i].card_types.begin(), kTestCases[i].card_types.end())));
   }
 }
+#endif
 
 TEST(StringsUtilTest, GetCardTypesAreAcceptedText) {
   static const struct {
@@ -60,7 +87,7 @@ TEST(StringsUtilTest, GetCardTypesAreAcceptedText) {
       {{DEBIT, PREPAID}, "Debit and prepaid cards are accepted."},
       {{CREDIT, DEBIT, PREPAID}, ""},
   };
-  for (size_t i = 0; i < arraysize(kTestCases); ++i) {
+  for (size_t i = 0; i < base::size(kTestCases); ++i) {
     EXPECT_EQ(
         base::UTF8ToUTF16(kTestCases[i].expected_text),
         GetCardTypesAreAcceptedText(std::set<CardType>(

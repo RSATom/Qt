@@ -45,7 +45,6 @@
 #include <QDir>
 #include <QIcon>
 #include <QImage>
-#include <QMatrix4x4>
 #include <QNetworkCookie>
 #include <QRect>
 #include <QString>
@@ -63,6 +62,8 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "url/gurl.h"
+
+QT_FORWARD_DECLARE_CLASS(QMatrix4x4)
 
 namespace content {
 struct FaviconURL;
@@ -83,7 +84,7 @@ inline QString toQt(const base::string16 &string)
 #endif
 }
 
-inline QString toQt(const std::string &string)
+inline QString toQString(const std::string &string)
 {
     return QString::fromStdString(string);
 }
@@ -91,6 +92,12 @@ inline QString toQt(const std::string &string)
 inline QByteArray toQByteArray(const std::string &string)
 {
     return QByteArray::fromStdString(string);
+}
+
+// ### should probably be toQByteArray
+inline QString toQt(const std::string &string)
+{
+    return toQString(string);
 }
 
 inline base::string16 toString16(const QString &qString)
@@ -109,12 +116,15 @@ inline base::NullableString16 toNullableString16(const QString &qString)
 
 inline QUrl toQt(const GURL &url)
 {
-    return QUrl(QString::fromStdString(url.spec()));
+    if (url.is_valid())
+        return QUrl::fromEncoded(toQByteArray(url.spec()));
+
+    return QUrl(toQString(url.possibly_invalid_spec()));
 }
 
 inline GURL toGurl(const QUrl& url)
 {
-    return GURL(url.toString().toStdString());
+    return GURL(url.toEncoded().toStdString());
 }
 
 inline QPoint toQt(const gfx::Point &point)
@@ -130,6 +140,11 @@ inline QPointF toQt(const gfx::Vector2dF &point)
 inline gfx::Point toGfx(const QPoint& point)
 {
   return gfx::Point(point.x(), point.y());
+}
+
+inline gfx::PointF toGfx(const QPointF& point)
+{
+  return gfx::PointF(point.x(), point.y());
 }
 
 inline QRect toQt(const gfx::Rect &rect)
@@ -157,6 +172,11 @@ inline gfx::SizeF toGfx(const QSizeF& size)
   return gfx::SizeF(size.width(), size.height());
 }
 
+inline gfx::Rect toGfx(const QRect &rect)
+{
+    return gfx::Rect(rect.x(), rect.y(), rect.width(), rect.height());
+}
+
 inline QSizeF toQt(const gfx::SizeF &size)
 {
     return QSizeF(size.width(), size.height());
@@ -180,18 +200,11 @@ inline QImage toQImage(const SkBitmap &bitmap, QImage::Format format)
 
 QImage toQImage(const SkBitmap &bitmap);
 QImage toQImage(const gfx::ImageSkiaRep &imageSkiaRep);
+SkBitmap toSkBitmap(const QImage &image);
+
 QIcon toQIcon(const std::vector<SkBitmap> &bitmaps);
 
-inline QMatrix4x4 toQt(const SkMatrix44 &m)
-{
-    QMatrix4x4 qtMatrix(
-        m.get(0, 0), m.get(0, 1), m.get(0, 2), m.get(0, 3),
-        m.get(1, 0), m.get(1, 1), m.get(1, 2), m.get(1, 3),
-        m.get(2, 0), m.get(2, 1), m.get(2, 2), m.get(2, 3),
-        m.get(3, 0), m.get(3, 1), m.get(3, 2), m.get(3, 3));
-    qtMatrix.optimize();
-    return qtMatrix;
-}
+void convertToQt(const SkMatrix44 &m, QMatrix4x4 &c);
 
 inline QDateTime toQt(base::Time time)
 {
@@ -260,7 +273,7 @@ inline std::vector<T> toVector(const QStringList &fileList)
 {
     std::vector<T> selectedFiles;
     selectedFiles.reserve(fileList.size());
-    Q_FOREACH (const QString &file, fileList)
+    for (const QString &file : fileList)
         selectedFiles.push_back(fileListingHelper<T>(file));
     return selectedFiles;
 }

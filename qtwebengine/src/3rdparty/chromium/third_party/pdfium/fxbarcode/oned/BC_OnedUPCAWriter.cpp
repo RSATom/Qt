@@ -24,6 +24,7 @@
 
 #include <vector>
 
+#include "core/fxcrt/fx_extension.h"
 #include "core/fxge/cfx_defaultrenderdevice.h"
 #include "fxbarcode/BC_Writer.h"
 #include "fxbarcode/oned/BC_OneDimWriter.h"
@@ -35,55 +36,54 @@ CBC_OnedUPCAWriter::CBC_OnedUPCAWriter() {
   m_bRightPadding = true;
 }
 
-void CBC_OnedUPCAWriter::Init() {
-  m_subWriter = pdfium::MakeUnique<CBC_OnedEAN13Writer>();
-}
-
 CBC_OnedUPCAWriter::~CBC_OnedUPCAWriter() {}
 
-bool CBC_OnedUPCAWriter::CheckContentValidity(const CFX_WideStringC& contents) {
-  for (FX_STRSIZE i = 0; i < contents.GetLength(); ++i) {
-    if (contents.GetAt(i) < '0' || contents.GetAt(i) > '9')
+bool CBC_OnedUPCAWriter::CheckContentValidity(WideStringView contents) {
+  for (size_t i = 0; i < contents.GetLength(); ++i) {
+    if (contents[i] < '0' || contents[i] > '9')
       return false;
   }
   return true;
 }
 
-CFX_WideString CBC_OnedUPCAWriter::FilterContents(
-    const CFX_WideStringC& contents) {
-  CFX_WideString filtercontents;
+WideString CBC_OnedUPCAWriter::FilterContents(WideStringView contents) {
+  WideString filtercontents;
+  filtercontents.Reserve(contents.GetLength());
   wchar_t ch;
-  for (int32_t i = 0; i < contents.GetLength(); i++) {
-    ch = contents.GetAt(i);
+  for (size_t i = 0; i < contents.GetLength(); i++) {
+    ch = contents[i];
     if (ch > 175) {
       i++;
       continue;
     }
-    if (ch >= '0' && ch <= '9') {
+    if (FXSYS_IsDecimalDigit(ch))
       filtercontents += ch;
-    }
   }
   return filtercontents;
 }
 
-int32_t CBC_OnedUPCAWriter::CalcChecksum(const CFX_ByteString& contents) {
+void CBC_OnedUPCAWriter::InitEANWriter() {
+  m_subWriter = pdfium::MakeUnique<CBC_OnedEAN13Writer>();
+}
+
+int32_t CBC_OnedUPCAWriter::CalcChecksum(const ByteString& contents) {
   int32_t odd = 0;
   int32_t even = 0;
-  int32_t j = 1;
-  for (int32_t i = contents.GetLength() - 1; i >= 0; i--) {
+  size_t j = 1;
+  for (size_t i = contents.GetLength(); i > 0; i--) {
     if (j % 2) {
-      odd += FXSYS_atoi(contents.Mid(i, 1).c_str());
+      odd += FXSYS_DecimalCharToInt(contents[i - 1]);
     } else {
-      even += FXSYS_atoi(contents.Mid(i, 1).c_str());
+      even += FXSYS_DecimalCharToInt(contents[i - 1]);
     }
     j++;
   }
   int32_t checksum = (odd * 3 + even) % 10;
   checksum = (10 - checksum) % 10;
-  return (checksum);
+  return checksum;
 }
 
-uint8_t* CBC_OnedUPCAWriter::EncodeWithHint(const CFX_ByteString& contents,
+uint8_t* CBC_OnedUPCAWriter::EncodeWithHint(const ByteString& contents,
                                             BCFORMAT format,
                                             int32_t& outWidth,
                                             int32_t& outHeight,
@@ -91,18 +91,18 @@ uint8_t* CBC_OnedUPCAWriter::EncodeWithHint(const CFX_ByteString& contents,
   if (format != BCFORMAT_UPC_A)
     return nullptr;
 
-  CFX_ByteString toEAN13String = '0' + contents;
+  ByteString toEAN13String = '0' + contents;
   m_iDataLenth = 13;
   return m_subWriter->EncodeWithHint(toEAN13String, BCFORMAT_EAN_13, outWidth,
                                      outHeight, hints);
 }
 
-uint8_t* CBC_OnedUPCAWriter::EncodeImpl(const CFX_ByteString& contents,
+uint8_t* CBC_OnedUPCAWriter::EncodeImpl(const ByteString& contents,
                                         int32_t& outLength) {
   return nullptr;
 }
 
-bool CBC_OnedUPCAWriter::ShowChars(const CFX_WideStringC& contents,
+bool CBC_OnedUPCAWriter::ShowChars(WideStringView contents,
                                    CFX_RenderDevice* device,
                                    const CFX_Matrix* matrix,
                                    int32_t barWidth,
@@ -112,14 +112,14 @@ bool CBC_OnedUPCAWriter::ShowChars(const CFX_WideStringC& contents,
 
   int32_t leftPadding = 7 * multiple;
   int32_t leftPosition = 10 * multiple + leftPadding;
-  CFX_ByteString str = FX_UTF8Encode(contents);
-  int32_t iLen = str.GetLength();
-  std::vector<FXTEXT_CHARPOS> charpos(iLen);
-  CFX_ByteString tempStr = str.Mid(1, 5);
+  ByteString str = FX_UTF8Encode(contents);
+  size_t length = str.GetLength();
+  std::vector<FXTEXT_CHARPOS> charpos(length);
+  ByteString tempStr = str.Mid(1, 5);
   float strWidth = (float)35 * multiple;
   float blank = 0.0;
 
-  iLen = tempStr.GetLength();
+  length = tempStr.GetLength();
   int32_t iFontSize = (int32_t)fabs(m_fFontSize);
   int32_t iTextHeight = iFontSize + 1;
 
@@ -127,35 +127,31 @@ bool CBC_OnedUPCAWriter::ShowChars(const CFX_WideStringC& contents,
   CFX_FloatRect rect((float)leftPosition, (float)(m_Height - iTextHeight),
                      (float)(leftPosition + strWidth - 0.5), (float)m_Height);
   matr.Concat(*matrix);
-  matr.TransformRect(rect);
-  FX_RECT re = rect.GetOuterRect();
-  device->FillRect(&re, m_backgroundColor);
+  FX_RECT re = matr.TransformRect(rect).GetOuterRect();
+  device->FillRect(re, m_backgroundColor);
   CFX_Matrix matr1(m_outputHScale, 0.0, 0.0, 1.0, 0.0, 0.0);
   CFX_FloatRect rect1((float)(leftPosition + 40 * multiple),
                       (float)(m_Height - iTextHeight),
                       (float)((leftPosition + 40 * multiple) + strWidth - 0.5),
                       (float)m_Height);
   matr1.Concat(*matrix);
-  matr1.TransformRect(rect1);
-  re = rect1.GetOuterRect();
-  device->FillRect(&re, m_backgroundColor);
+  re = matr1.TransformRect(rect1).GetOuterRect();
+  device->FillRect(re, m_backgroundColor);
   float strWidth1 = (float)multiple * 7;
   CFX_Matrix matr2(m_outputHScale, 0.0, 0.0, 1.0, 0.0, 0.0);
   CFX_FloatRect rect2(0.0, (float)(m_Height - iTextHeight),
                       (float)strWidth1 - 1, (float)m_Height);
   matr2.Concat(*matrix);
-  matr2.TransformRect(rect2);
-  re = rect2.GetOuterRect();
-  device->FillRect(&re, m_backgroundColor);
+  re = matr2.TransformRect(rect2).GetOuterRect();
+  device->FillRect(re, m_backgroundColor);
   CFX_Matrix matr3(m_outputHScale, 0.0, 0.0, 1.0, 0.0, 0.0);
   CFX_FloatRect rect3((float)(leftPosition + 85 * multiple),
                       (float)(m_Height - iTextHeight),
                       (float)((leftPosition + 85 * multiple) + strWidth1 - 0.5),
                       (float)m_Height);
   matr3.Concat(*matrix);
-  matr3.TransformRect(rect3);
-  re = rect3.GetOuterRect();
-  device->FillRect(&re, m_backgroundColor);
+  re = matr3.TransformRect(rect3).GetOuterRect();
+  device->FillRect(re, m_backgroundColor);
   strWidth = strWidth * m_outputHScale;
 
   CalcTextInfo(tempStr, &charpos[1], m_pFont.Get(), strWidth, iFontSize, blank);
@@ -165,12 +161,12 @@ bool CBC_OnedUPCAWriter::ShowChars(const CFX_WideStringC& contents,
                               (float)(m_Height - iTextHeight + iFontSize));
     if (matrix)
       affine_matrix1.Concat(*matrix);
-    device->DrawNormalText(iLen, &charpos[1], m_pFont.Get(),
+    device->DrawNormalText(length, &charpos[1], m_pFont.Get(),
                            static_cast<float>(iFontSize), &affine_matrix1,
                            m_fontColor, FXTEXT_CLEARTYPE);
   }
   tempStr = str.Mid(6, 5);
-  iLen = tempStr.GetLength();
+  length = tempStr.GetLength();
   CalcTextInfo(tempStr, &charpos[6], m_pFont.Get(), strWidth, iFontSize, blank);
   {
     CFX_Matrix affine_matrix1(
@@ -179,12 +175,12 @@ bool CBC_OnedUPCAWriter::ShowChars(const CFX_WideStringC& contents,
         (float)(m_Height - iTextHeight + iFontSize));
     if (matrix)
       affine_matrix1.Concat(*matrix);
-    device->DrawNormalText(iLen, &charpos[6], m_pFont.Get(),
+    device->DrawNormalText(length, &charpos[6], m_pFont.Get(),
                            static_cast<float>(iFontSize), &affine_matrix1,
                            m_fontColor, FXTEXT_CLEARTYPE);
   }
-  tempStr = str.Mid(0, 1);
-  iLen = tempStr.GetLength();
+  tempStr = str.Left(1);
+  length = tempStr.GetLength();
   strWidth = (float)multiple * 7;
   strWidth = strWidth * m_outputHScale;
 
@@ -195,12 +191,12 @@ bool CBC_OnedUPCAWriter::ShowChars(const CFX_WideStringC& contents,
                               (float)(m_Height - iTextHeight + iFontSize));
     if (matrix)
       affine_matrix1.Concat(*matrix);
-    device->DrawNormalText(iLen, charpos.data(), m_pFont.Get(),
+    device->DrawNormalText(length, charpos.data(), m_pFont.Get(),
                            static_cast<float>(iFontSize), &affine_matrix1,
                            m_fontColor, FXTEXT_CLEARTYPE);
   }
   tempStr = str.Mid(11, 1);
-  iLen = tempStr.GetLength();
+  length = tempStr.GetLength();
   CalcTextInfo(tempStr, &charpos[11], m_pFont.Get(), strWidth, iFontSize,
                blank);
   {
@@ -210,7 +206,7 @@ bool CBC_OnedUPCAWriter::ShowChars(const CFX_WideStringC& contents,
         (float)(m_Height - iTextHeight + iFontSize));
     if (matrix)
       affine_matrix1.Concat(*matrix);
-    device->DrawNormalText(iLen, &charpos[11], m_pFont.Get(),
+    device->DrawNormalText(length, &charpos[11], m_pFont.Get(),
                            static_cast<float>(iFontSize), &affine_matrix1,
                            m_fontColor, FXTEXT_CLEARTYPE);
   }

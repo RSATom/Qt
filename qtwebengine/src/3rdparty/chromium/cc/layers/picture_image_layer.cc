@@ -15,7 +15,7 @@
 namespace cc {
 
 scoped_refptr<PictureImageLayer> PictureImageLayer::Create() {
-  return make_scoped_refptr(new PictureImageLayer());
+  return base::WrapRefCounted(new PictureImageLayer());
 }
 
 PictureImageLayer::PictureImageLayer() : PictureLayer(this) {}
@@ -32,18 +32,24 @@ std::unique_ptr<LayerImpl> PictureImageLayer::CreateLayerImpl(
 }
 
 bool PictureImageLayer::HasDrawableContent() const {
-  return image_.sk_image() && PictureLayer::HasDrawableContent();
+  return image_ && PictureLayer::HasDrawableContent();
 }
 
-void PictureImageLayer::SetImage(PaintImage image) {
+void PictureImageLayer::SetImage(PaintImage image,
+                                 const SkMatrix& matrix,
+                                 bool uses_width_as_height) {
   // SetImage() currently gets called whenever there is any
   // style change that affects the layer even if that change doesn't
   // affect the actual contents of the image (e.g. a CSS animation).
   // With this check in place we avoid unecessary texture uploads.
-  if (image_ == image)
+  if (image_ == image && matrix_ == matrix &&
+      uses_width_as_height_ == uses_width_as_height) {
     return;
+  }
 
   image_ = std::move(image);
+  matrix_ = matrix;
+  uses_width_as_height_ = uses_width_as_height;
   UpdateDrawsContent(HasDrawableContent());
   SetNeedsDisplay();
 }
@@ -54,33 +60,45 @@ gfx::Rect PictureImageLayer::PaintableRegion() {
 
 scoped_refptr<DisplayItemList> PictureImageLayer::PaintContentsToDisplayList(
     ContentLayerClient::PaintingControlSetting painting_control) {
-  DCHECK(image_.sk_image());
-  DCHECK_GT(image_.sk_image()->width(), 0);
-  DCHECK_GT(image_.sk_image()->height(), 0);
+  DCHECK(image_);
+  DCHECK_GT(image_.width(), 0);
+  DCHECK_GT(image_.height(), 0);
   DCHECK(layer_tree_host());
 
-  float content_to_layer_scale_x =
-      static_cast<float>(bounds().width()) / image_.sk_image()->width();
+  int width = uses_width_as_height_ ? image_.height() : image_.width();
+  int height = uses_width_as_height_ ? image_.width() : image_.height();
+
+  float content_to_layer_scale_x = static_cast<float>(bounds().width()) / width;
   float content_to_layer_scale_y =
-      static_cast<float>(bounds().height()) / image_.sk_image()->height();
+      static_cast<float>(bounds().height()) / height;
+
   bool has_scale = !MathUtil::IsWithinEpsilon(content_to_layer_scale_x, 1.f) ||
                    !MathUtil::IsWithinEpsilon(content_to_layer_scale_y, 1.f);
+  bool needs_save = has_scale || !matrix_.isIdentity();
 
   auto display_list = base::MakeRefCounted<DisplayItemList>();
 
-  PaintOpBuffer* buffer = display_list->StartPaint();
+  display_list->StartPaint();
+
+  if (needs_save)
+    display_list->push<SaveOp>();
+
   if (has_scale) {
-    buffer->push<SaveOp>();
-    buffer->push<ScaleOp>(content_to_layer_scale_x, content_to_layer_scale_y);
+    display_list->push<ScaleOp>(content_to_layer_scale_x,
+                                content_to_layer_scale_y);
   }
+
+  if (!matrix_.isIdentity())
+    display_list->push<ConcatOp>(matrix_);
 
   // Because Android WebView resourceless software draw mode rasters directly
   // to the root canvas, this draw must use the SkBlendMode::kSrcOver so that
   // transparent images blend correctly.
-  buffer->push<DrawImageOp>(image_, 0.f, 0.f, nullptr);
+  display_list->push<DrawImageOp>(image_, 0.f, 0.f, nullptr);
 
-  if (has_scale)
-    buffer->push<RestoreOp>();
+  if (needs_save)
+    display_list->push<RestoreOp>();
+
   display_list->EndPaintOfUnpaired(PaintableRegion());
   display_list->Finalize();
   return display_list;

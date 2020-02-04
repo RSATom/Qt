@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
-#include "base/event_types.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -14,8 +13,9 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
-#include "ui/events/event_handler.h"
+#include "ui/events/event_observer.h"
 #include "ui/events/event_utils.h"
+#include "ui/events/platform_event.h"
 #include "ui/views/event_monitor.h"
 
 namespace views {
@@ -24,17 +24,19 @@ namespace views {
 // the listener is notified.
 const int kNotifyListenerTimeMs = 300;
 
-class MouseWatcher::Observer : public ui::EventHandler {
+class MouseWatcher::Observer : public ui::EventObserver {
  public:
-  explicit Observer(MouseWatcher* mouse_watcher)
-      : mouse_watcher_(mouse_watcher),
-        event_monitor_(EventMonitor::CreateApplicationMonitor(this)),
-        notify_listener_factory_(this) {
+  Observer(MouseWatcher* mouse_watcher, gfx::NativeWindow window)
+      : mouse_watcher_(mouse_watcher), notify_listener_factory_(this) {
+    event_monitor_ = EventMonitor::CreateApplicationMonitor(
+        this, window,
+        {ui::ET_MOUSE_PRESSED, ui::ET_MOUSE_MOVED, ui::ET_MOUSE_EXITED,
+         ui::ET_MOUSE_DRAGGED});
   }
 
-  // ui::EventHandler implementation:
-  void OnMouseEvent(ui::MouseEvent* event) override {
-    switch (event->type()) {
+  // ui::EventObserver:
+  void OnEvent(const ui::Event& event) override {
+    switch (event.type()) {
       case ui::ET_MOUSE_MOVED:
       case ui::ET_MOUSE_DRAGGED:
         HandleMouseEvent(MouseWatcherHost::MOUSE_MOVE);
@@ -46,6 +48,7 @@ class MouseWatcher::Observer : public ui::EventHandler {
         HandleMouseEvent(MouseWatcherHost::MOUSE_PRESS);
         break;
       default:
+        NOTREACHED();
         break;
     }
   }
@@ -57,15 +60,16 @@ class MouseWatcher::Observer : public ui::EventHandler {
   void HandleMouseEvent(MouseWatcherHost::MouseEventType event_type) {
     // It's safe to use last_mouse_location() here as this function is invoked
     // during event dispatching.
-    if (!host()->Contains(EventMonitor::GetLastMouseLocation(), event_type)) {
+    if (!host()->Contains(event_monitor_->GetLastMouseLocation(), event_type)) {
       if (event_type == MouseWatcherHost::MOUSE_PRESS) {
         NotifyListener();
       } else if (!notify_listener_factory_.HasWeakPtrs()) {
         // Mouse moved outside the host's zone, start a timer to notify the
         // listener.
         base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-            FROM_HERE, base::Bind(&Observer::NotifyListener,
-                                  notify_listener_factory_.GetWeakPtr()),
+            FROM_HERE,
+            base::BindOnce(&Observer::NotifyListener,
+                           notify_listener_factory_.GetWeakPtr()),
             event_type == MouseWatcherHost::MOUSE_MOVE
                 ? base::TimeDelta::FromMilliseconds(kNotifyListenerTimeMs)
                 : mouse_watcher_->notify_on_exit_time_);
@@ -92,34 +96,30 @@ class MouseWatcher::Observer : public ui::EventHandler {
   DISALLOW_COPY_AND_ASSIGN(Observer);
 };
 
-MouseWatcherListener::~MouseWatcherListener() {
-}
+MouseWatcherListener::~MouseWatcherListener() = default;
 
-MouseWatcherHost::~MouseWatcherHost() {
-}
+MouseWatcherHost::~MouseWatcherHost() = default;
 
-MouseWatcher::MouseWatcher(MouseWatcherHost* host,
+MouseWatcher::MouseWatcher(std::unique_ptr<MouseWatcherHost> host,
                            MouseWatcherListener* listener)
-    : host_(host),
+    : host_(std::move(host)),
       listener_(listener),
-      notify_on_exit_time_(base::TimeDelta::FromMilliseconds(
-          kNotifyListenerTimeMs)) {
-}
+      notify_on_exit_time_(
+          base::TimeDelta::FromMilliseconds(kNotifyListenerTimeMs)) {}
 
-MouseWatcher::~MouseWatcher() {
-}
+MouseWatcher::~MouseWatcher() = default;
 
-void MouseWatcher::Start() {
+void MouseWatcher::Start(gfx::NativeWindow window) {
   if (!is_observing())
-    observer_.reset(new Observer(this));
+    observer_ = std::make_unique<Observer>(this, window);
 }
 
 void MouseWatcher::Stop() {
-  observer_.reset(NULL);
+  observer_.reset();
 }
 
 void MouseWatcher::NotifyListener() {
-  observer_.reset(NULL);
+  observer_.reset();
   listener_->MouseMovedOutOfHost();
 }
 

@@ -5,22 +5,24 @@
 #ifndef CONTENT_BROWSER_FIND_REQUEST_MANAGER_H_
 #define CONTENT_BROWSER_FIND_REQUEST_MANAGER_H_
 
-#include <queue>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "base/containers/queue.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/stop_find_action.h"
-#include "third_party/WebKit/public/web/WebFindOptions.h"
+#include "third_party/blink/public/mojom/frame/find_in_page.mojom.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 
 namespace content {
 
+class FindInPageClient;
 class RenderFrameHost;
+class RenderFrameHostImpl;
 class WebContentsImpl;
 
 // FindRequestManager manages all of the find-in-page requests/replies
@@ -38,25 +40,43 @@ class CONTENT_EXPORT FindRequestManager {
   // |options|. |request_id| uniquely identifies the find request.
   void Find(int request_id,
             const base::string16& search_text,
-            const blink::WebFindOptions& options);
+            blink::mojom::FindOptionsPtr options);
 
   // Stops the active find session and clears the general highlighting of the
   // matches. |action| determines whether the last active match (if any) will be
   // activated, cleared, or remain highlighted.
   void StopFinding(StopFindAction action);
 
-  // Called when a reply is received from a frame with the results from a
-  // find request.
-  void OnFindReply(RenderFrameHost* rfh,
-                   int request_id,
-                   int number_of_matches,
-                   const gfx::Rect& selection_rect,
-                   int active_match_ordinal,
-                   bool final_update);
+  // Handles the final update from |rfh| for the find request with id
+  // |request_id|.
+  void HandleFinalUpdateForFrame(RenderFrameHostImpl* rfh, int request_id);
+
+  // The number of matches on |rfh| has changed from |old_count| to |new_count|.
+  // This method updates the total number of matches and also updates
+  // |active_match_ordinal_| accordingly.
+  void UpdatedFrameNumberOfMatches(RenderFrameHostImpl* rfh,
+                                   unsigned int old_count,
+                                   unsigned int new_count);
+
+  bool ShouldIgnoreReply(RenderFrameHostImpl* rfh, int request_id);
+
+  void SetActiveMatchRect(const gfx::Rect& active_match_rect);
+
+  void SetActiveMatchOrdinal(RenderFrameHostImpl* rfh,
+                             int request_id,
+                             int active_match_ordinal);
+
+  // Sends the find results (as they currently are) to the WebContents.
+  // |final_update| is true if we have received all of the updates from
+  // every frame for this request.
+  void NotifyFindReply(int request_id, bool final_update);
 
   // Removes a frame from the set of frames being searched. This should be
   // called whenever a frame is discovered to no longer exist.
   void RemoveFrame(RenderFrameHost* rfh);
+
+  // Tells active frame to clear the active match highlighting.
+  void ClearActiveFindMatch();
 
 #if defined(OS_ANDROID)
   // Selects and zooms to the find result nearest to the point (x, y), defined
@@ -64,9 +84,9 @@ class CONTENT_EXPORT FindRequestManager {
   void ActivateNearestFindResult(float x, float y);
 
   // Called when a reply is received from a frame in response to the
-  // GetNearestFindResult IPC.
-  void OnGetNearestFindResultReply(RenderFrameHost* rfh,
-                                   int nearest_find_result_request_id,
+  // GetNearestFindResult mojo call.
+  void OnGetNearestFindResultReply(RenderFrameHostImpl* rfh,
+                                   int request_id,
                                    float distance);
 
   // Requests the rects of the current find matches from the renderer process.
@@ -79,6 +99,13 @@ class CONTENT_EXPORT FindRequestManager {
                              const std::vector<gfx::RectF>& rects,
                              const gfx::RectF& active_rect);
 #endif
+
+  const std::unordered_set<RenderFrameHost*>
+  render_frame_hosts_pending_initial_reply_for_testing() const {
+    return pending_initial_replies_;
+  }
+
+  gfx::Rect GetSelectionRectForTesting() { return selection_rect_; }
 
  private:
   // An invalid ID. This value is invalid for any render process ID, render
@@ -96,13 +123,16 @@ class CONTENT_EXPORT FindRequestManager {
     base::string16 search_text;
 
     // The set of find options in effect for this find request.
-    blink::WebFindOptions options;
+    blink::mojom::FindOptionsPtr options;
 
-    FindRequest() = default;
+    FindRequest();
     FindRequest(int id,
                 const base::string16& search_text,
-                const blink::WebFindOptions& options)
-        : id(id), search_text(search_text), options(options) {}
+                blink::mojom::FindOptionsPtr options);
+    FindRequest(const FindRequest& request);
+    ~FindRequest();
+
+    FindRequest& operator=(const FindRequest& request);
   };
 
   // Resets all of the per-session state for a new find-in-page session.
@@ -116,12 +146,9 @@ class CONTENT_EXPORT FindRequestManager {
   // with ID |request_id|. Advances the |find_request_queue_| if appropriate.
   void AdvanceQueue(int request_id);
 
-  // Sends a find IPC containing the find request |request| to the RenderFrame
-  // associated with |rfh|.
-  void SendFindIPC(const FindRequest& request, RenderFrameHost* rfh);
-
-  // Sends the find results (as they currently are) to the WebContents.
-  void NotifyFindReply(int request_id, bool final_update);
+  // Sends find request |request| through mojo to the RenderFrame associated
+  // with |rfh|.
+  void SendFindRequest(const FindRequest& request, RenderFrameHost* rfh);
 
   // Returns the initial frame in search order. This will be either the first
   // frame, if searching forward, or the last frame, if searching backward.
@@ -178,17 +205,13 @@ class CONTENT_EXPORT FindRequestManager {
     // its replies.
     int current_request_id = kInvalidId;
 
-    // The x value of the requested point, in find-in-page coordinates.
-    float x = 0.0f;
+    // The value of the requested point, in find-in-page coordinates.
+    gfx::PointF point = gfx::PointF(0.0f, 0.0f);
 
-    // The y value of the requested point, in find-in-page coordinates.
-    float y = 0.0f;
-
-    // The distance to the nearest result found so far.
     float nearest_distance = FLT_MAX;
 
     // The frame containing the nearest result found so far.
-    RenderFrameHost* nearest_frame = nullptr;
+    RenderFrameHostImpl* nearest_frame = nullptr;
 
     // Nearest find result replies are still pending for these frames.
     std::unordered_set<RenderFrameHost*> pending_replies;
@@ -275,10 +298,11 @@ class CONTENT_EXPORT FindRequestManager {
   // |current_request_.id| (the latest request).
   bool pending_active_match_ordinal_;
 
-  // The number of matches found in each frame. There will necessarily be
+  // The FindInPageClient associated with each frame. There will necessarily be
   // entries in this map for every frame that is being (or has been) searched in
   // the current find session, and no other frames.
-  std::unordered_map<RenderFrameHost*, int> matches_per_frame_;
+  std::unordered_map<RenderFrameHost*, std::unique_ptr<FindInPageClient>>
+      find_in_page_clients_;
 
   // The total number of matches found in the current find-in-page session. This
   // should always be equal to the sum of all the entries in
@@ -286,7 +310,7 @@ class CONTENT_EXPORT FindRequestManager {
   int number_of_matches_;
 
   // The frame containing the active match, if one exists, or nullptr otherwise.
-  RenderFrameHost* active_frame_;
+  RenderFrameHostImpl* active_frame_;
 
   // The active match ordinal relative to the matches found in its own frame.
   int relative_active_match_ordinal_;
@@ -299,7 +323,7 @@ class CONTENT_EXPORT FindRequestManager {
 
   // Find requests are queued here when previous requests need to be handled
   // before these ones can be properly routed.
-  std::queue<FindRequest> find_request_queue_;
+  base::queue<FindRequest> find_request_queue_;
 
   // Keeps track of the find request ID of the last find reply reported via
   // NotifyFindReply().

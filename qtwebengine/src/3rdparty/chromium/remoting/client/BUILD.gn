@@ -4,14 +4,8 @@
 
 static_library("client") {
   sources = [
-    "audio_player.cc",
-    "audio_player.h",
-    "audio_player_android.cc",
-    "audio_player_android.h",
     "chromoting_client.cc",
     "chromoting_client.h",
-    "chromoting_session.cc",
-    "chromoting_session.h",
     "client_context.cc",
     "client_context.h",
     "client_telemetry_logger.cc",
@@ -21,12 +15,14 @@ static_library("client") {
     "connect_to_host_info.h",
     "cursor_shape_stub_proxy.cc",
     "cursor_shape_stub_proxy.h",
-    "dual_buffer_frame_consumer.cc",
-    "dual_buffer_frame_consumer.h",
     "empty_cursor_filter.cc",
     "empty_cursor_filter.h",
+    "feedback_data.cc",
+    "feedback_data.h",
     "host_experiment_sender.cc",
     "host_experiment_sender.h",
+    "in_memory_log_handler.cc",
+    "in_memory_log_handler.h",
     "queued_task_poster.cc",
     "queued_task_poster.h",
     "software_video_renderer.cc",
@@ -41,6 +37,7 @@ static_library("client") {
 
   deps = [
     "//remoting/base",
+    "//remoting/client/audio",
     "//remoting/codec:decoder",
     "//remoting/protocol",
     "//third_party/libyuv",
@@ -56,34 +53,46 @@ static_library("client") {
     sources += [
       "chromoting_client_runtime.cc",
       "chromoting_client_runtime.h",
-      "gesture_interpreter.cc",
-      "gesture_interpreter.h",
+      "chromoting_session.cc",
+      "chromoting_session.h",
+      "dual_buffer_frame_consumer.cc",
+      "dual_buffer_frame_consumer.h",
+      "oauth_token_getter_proxy.cc",
+      "oauth_token_getter_proxy.h",
     ]
     deps += [
-      "//remoting/client/display",
+      "//mojo/core/embedder",
       "//remoting/client/input",
       "//remoting/client/ui",
+      "//services/network:network_service",
+      "//services/network/public/mojom",
     ]
+
+    if (!is_chromeos) {
+      # GestureInterpreter depends on //remoting/client/display, which currently
+      # doesn't build on CrOS. crbug.com/869578
+      sources += [
+        "gesture_interpreter.cc",
+        "gesture_interpreter.h",
+      ]
+
+      deps += [ "//remoting/client/display" ]
+    }
   }
   if (is_android) {
-    libs += [
-      "android",
-      "OpenSLES",
-    ]
+    libs += [ "android" ]
   }
 }
 
 source_set("unit_tests") {
   testonly = true
 
-  # Disabled the source filters because there are _mac files that need to
-  # be compiled on all platforms.
   sources = [
-    "audio_player_unittest.cc",
     "chromoting_client_runtime_unittest.cc",
     "client_telemetry_logger_unittest.cc",
     "dual_buffer_frame_consumer_unittest.cc",
     "empty_cursor_filter_unittest.cc",
+    "oauth_token_getter_proxy_unittest.cc",
     "queued_task_poster_unittest.cc",
     "software_video_renderer_unittest.cc",
   ]

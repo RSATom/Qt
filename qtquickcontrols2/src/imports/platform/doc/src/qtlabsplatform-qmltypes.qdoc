@@ -26,20 +26,20 @@
 ****************************************************************************/
 
 /*!
-    \qmlmodule Qt.labs.platform 1.0
+    \qmlmodule Qt.labs.platform 1.1
     \title Qt Labs Platform QML Types
     \ingroup qmlmodules
     \brief Provides QML types for native platform extensions.
 
     The experimental \l{Qt Labs Platform} module provides QML types for native
     platform extensions. These QML types work in conjunction with \l{Qt Quick}
-    and \l{Qt Quick Controls 2}.
+    and \l{Qt Quick Controls}.
 
     The QML types can be imported into your application using the
     following import statement in your .qml file:
 
     \badcode
-    import Qt.labs.platform 1.0
+    import Qt.labs.platform 1.1
     \endcode
 
     \section1 QML Types
@@ -51,7 +51,7 @@
     \section1 Related Information
 
     \list
-        \li \l {Qt Quick Controls 2 QML Types}
+        \li \l {Qt Quick Controls QML Types}
     \endlist
 
     \noautolist

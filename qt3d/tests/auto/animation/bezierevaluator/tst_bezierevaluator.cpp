@@ -97,6 +97,109 @@ private Q_SLOTS:
         roots[2] = 2.0f - std::sqrt(7.0f);
         QTest::newRow("a=1, b=-5, c=1, d=3") << a << b << c << d << rootCount << roots;
         roots.clear();
+
+        // quadratic equation
+        a = 0.0f;
+        b = 9.0f;
+        c = 11.0f;
+        d = 3.0f;
+        roots.resize(2);
+        roots[0] = -11.0f/18.0f + std::sqrt(13.0f) / 18.0f;
+        roots[1] = -11.0f/18.0f - std::sqrt(13.0f) / 18.0f;
+        QTest::newRow("a=0, b=9, c=11, d=3") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // quadratic equation with discriminant = 0
+        a = 0.0f;
+        b = 1.0f;
+        c = 2.0f;
+        d = 1.0f;
+        roots.resize(1);
+        roots[0] = -1.f;
+        QTest::newRow("a=0, b=1, c=2, d=1") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // quadratic equation with discriminant < 0
+        a = 0.0f;
+        b = 1.0f;
+        c = 4.0f;
+        d = 8.0f;
+        roots.resize(0);
+        QTest::newRow("a=0, b=1, c=4, d=8") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // linear equation
+        a = 0.0f;
+        b = 0.0f;
+        c = 2.0f;
+        d = 1.0f;
+        roots.resize(1);
+        roots[0] = -0.5f;
+        QTest::newRow("a=0, b=0, c=2, d=1") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // linear equation
+        a = 0.0f;
+        b = 0.0f;
+        c = 8.0f;
+        d = -5.0f;
+        roots.resize(1);
+        roots[0] = -d/c;
+        QTest::newRow("a=0, b=0, c=8, d=-5") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // invalid equation
+        a = 0.0f;
+        b = 0.0f;
+        c = 0.0f;
+        d = -5.0f;
+        roots.resize(0);
+        QTest::newRow("a=0, b=0, c=0, d=-5") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // Invalid equation
+        a = 0.0f;
+        b = 0.0f;
+        c = 0.0f;
+        d = 42.0f;
+        roots.resize(0);
+        QTest::newRow("a=0, b=0, c=0, d=42") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // almost linear equation
+        a = 1.90735e-06f;
+        b = -2.86102e-06f;
+        c = 5.0;
+        d = 0.0;
+        roots.resize(1);
+        roots[0] = -d/c;
+        QTest::newRow("a=~0, b=~0, c=5, d=0") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // case that produces a result just below zero, that should be evaluated as zero
+        a = -0.75f;
+        b = 0.75f;
+        c = 2.5;
+        d = 0.0;
+        roots.resize(3);
+        roots[0] = 2.39297f;
+        roots[1] = 0.f;
+        roots[2] = -1.39297f;
+        QTest::newRow("a=-0.75, b=0.75, c=2.5, d=0") << a << b << c << d << roots.size() << roots;
+        roots.clear();
+
+        // Case that produces a discriminant that is close enough to zero that it should be
+        // evaluated as zero.
+        // Expected roots = 0.0, ~1.5
+        a = -3.998f;
+        b = 5.997f;
+        c = 0.0f;
+        d = 0.0f;
+        roots.resize(2);
+        roots[0] = 1.5f;
+        roots[1] = 0.0f;
+        QTest::newRow("a=-3.998, b=5.997, c=0, d=0") << a << b << c << d << roots.size() << roots;
+        roots.clear();
     }
 
     void checkFindCubicRoots()
@@ -131,42 +234,60 @@ private Q_SLOTS:
         QTest::addColumn<QVector<float>>("times");
         QTest::addColumn<QVector<float>>("bezierParamters");
 
-        float t0 = 0.0f;
-        Keyframe kf0{0.0f, {-5.0f, 0.0f}, {5.0f, 0.0f}, QKeyFrame::BezierInterpolation};
-        float t1 = 50.0f;
-        Keyframe kf1{5.0f, {45.0f, 5.0f}, {55.0f, 5.0f}, QKeyFrame::BezierInterpolation};
-        const int count = 21;
-        QVector<float> times = (QVector<float>()
-            << 0.0f
-            << 1.00375f
-            << 2.48f
-            << 4.37625f
-            << 6.64f
-            << 9.21875f
-            << 12.06f
-            << 15.11125f
-            << 18.32f
-            << 21.63375f
-            << 25.0f
-            << 28.36625f
-            << 31.68f
-            << 34.88875f
-            << 37.94f
-            << 40.78125f
-            << 43.36f
-            << 45.62375f
-            << 47.52f
-            << 48.99625f
-            << 50.0f);
+        {
+            float t0 = 0.0f;
+            Keyframe kf0{0.0f, {-5.0f, 0.0f}, {5.0f, 0.0f}, QKeyFrame::BezierInterpolation};
+            float t1 = 50.0f;
+            Keyframe kf1{5.0f, {45.0f, 5.0f}, {55.0f, 5.0f}, QKeyFrame::BezierInterpolation};
+            const int count = 21;
+            QVector<float> times = (QVector<float>()
+                                    << 0.0f
+                                    << 1.00375f
+                                    << 2.48f
+                                    << 4.37625f
+                                    << 6.64f
+                                    << 9.21875f
+                                    << 12.06f
+                                    << 15.11125f
+                                    << 18.32f
+                                    << 21.63375f
+                                    << 25.0f
+                                    << 28.36625f
+                                    << 31.68f
+                                    << 34.88875f
+                                    << 37.94f
+                                    << 40.78125f
+                                    << 43.36f
+                                    << 45.62375f
+                                    << 47.52f
+                                    << 48.99625f
+                                    << 50.0f);
 
-        QVector<float> bezierParameters;
-        float deltaU = 1.0f / float(count - 1);
-        for (int i = 0; i < count; ++i)
-            bezierParameters.push_back(float(i) * deltaU);
+            QVector<float> bezierParameters;
+            float deltaU = 1.0f / float(count - 1);
+            for (int i = 0; i < count; ++i)
+                bezierParameters.push_back(float(i) * deltaU);
 
-        QTest::newRow("t=0 to t=50, default easing") << t0 << kf0
+            QTest::newRow("t=0 to t=50, default easing") << t0 << kf0
+                                                         << t1 << kf1
+                                                         << times << bezierParameters;
+        }
+        {
+            // This test creates a case where the coefficients for finding
+            // the cubic roots will be a = 0, b = 0, c ~= 6.28557 d ~= -6.28557
+            // Because c ~= d, the answer should be one root = 1, but
+            // because of numerical imprecision, it will be slightly larger.
+            // We have a fuzzy check in parameterForTime that takes care of this.
+            float t0 = 3.71443009f;
+            Keyframe kf0{150.0f, {0.0f, 0.0f}, {5.80961999f, 150.0f}, QKeyFrame::BezierInterpolation};
+            float t1 = 10.0f;
+            Keyframe kf1{-150.0f, {7.904809959f, 150.0f}, {0.f, 0.f}, QKeyFrame::BezierInterpolation};
+            QVector<float> times = {10.f};
+            QVector<float> results = {1.0f};
+            QTest::newRow("t=0 to t=10, regression") << t0 << kf0
                                                      << t1 << kf1
-                                                     << times << bezierParameters;
+                                                     << times << results;
+        }
     }
 
     void checkParameterForTime()

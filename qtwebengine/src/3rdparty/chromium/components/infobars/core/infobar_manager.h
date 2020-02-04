@@ -16,6 +16,7 @@
 
 class ConfirmInfoBarDelegate;
 class GURL;
+class InfoBarUiTest;
 
 namespace infobars {
 
@@ -47,13 +48,15 @@ class InfoBarManager {
 
   // Adds the specified |infobar|, which already owns a delegate.
   //
-  // If infobars are disabled for this tab or the tab already has an infobar
-  // whose delegate returns true for
-  // InfoBarDelegate::EqualsDelegate(infobar->delegate()), |infobar| is deleted
-  // immediately without being added.
+  // If infobars are disabled for this tab, |infobar| is deleted immediately.
+  // If the tab already has an infobar whose delegate returns true for
+  // InfoBarDelegate::EqualsDelegate(infobar->delegate()), depending on the
+  // value of |replace_existing|, |infobar| is either deleted immediately
+  // without being added, or is added as replacement for the matching infobar.
   //
   // Returns the infobar if it was successfully added.
-  InfoBar* AddInfoBar(std::unique_ptr<InfoBar> infobar);
+  InfoBar* AddInfoBar(std::unique_ptr<InfoBar> infobar,
+                      bool replace_existing = false);
 
   // Removes the specified |infobar|.  This in turn may close immediately or
   // animate closed; at the end the infobar will delete itself.
@@ -110,13 +113,9 @@ class InfoBarManager {
     animations_enabled_ = animations_enabled;
   }
 
-  // Notifies the observer in |observer_list_|.
-  // TODO(droger): Absorb these methods back into their callers once virtual
-  // overrides are removed (see http://crbug.com/354380).
-  virtual void NotifyInfoBarAdded(InfoBar* infobar);
-  virtual void NotifyInfoBarRemoved(InfoBar* infobar, bool animate);
-
  private:
+  friend class ::InfoBarUiTest;
+
   // InfoBars associated with this InfoBarManager.  We own these pointers.
   // However, this is not a vector of unique_ptr, because we don't delete the
   // infobars directly once they've been added to this; instead, when we're
@@ -130,7 +129,7 @@ class InfoBarManager {
   bool infobars_enabled_ = true;
   bool animations_enabled_ = true;
 
-  base::ObserverList<Observer, true> observer_list_;
+  base::ObserverList<Observer, true>::Unchecked observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(InfoBarManager);
 };

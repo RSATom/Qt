@@ -97,26 +97,28 @@ public:
 
 class QAxScriptSite : public IActiveScriptSite, public IActiveScriptSiteWindow
 {
+    Q_DISABLE_COPY(QAxScriptSite)
 public:
     QAxScriptSite(QAxScript *script);
-    virtual ~QAxScriptSite() {}
+    virtual ~QAxScriptSite() = default;
 
-    ULONG WINAPI AddRef();
-    ULONG WINAPI Release();
-    HRESULT WINAPI QueryInterface(REFIID iid, void **ppvObject);
+    ULONG WINAPI AddRef() override;
+    ULONG WINAPI Release() override;
+    HRESULT WINAPI QueryInterface(REFIID iid, void **ppvObject) override;
 
-    HRESULT WINAPI GetLCID(LCID *plcid);
-    HRESULT WINAPI GetItemInfo(LPCOLESTR pstrName, DWORD dwReturnMask, IUnknown **ppiunkItem, ITypeInfo **ppti);
-    HRESULT WINAPI GetDocVersionString(BSTR *pbstrVersion);
+    HRESULT WINAPI GetLCID(LCID *plcid) override;
+    HRESULT WINAPI GetItemInfo(LPCOLESTR pstrName, DWORD dwReturnMask,
+                               IUnknown **ppiunkItem, ITypeInfo **ppti) override;
+    HRESULT WINAPI GetDocVersionString(BSTR *pbstrVersion) override;
 
-    HRESULT WINAPI OnScriptTerminate(const VARIANT *pvarResult, const EXCEPINFO *pexcepinfo);
-    HRESULT WINAPI OnStateChange(SCRIPTSTATE ssScriptState);
-    HRESULT WINAPI OnScriptError(IActiveScriptError *pscripterror);
-    HRESULT WINAPI OnEnterScript();
-    HRESULT WINAPI OnLeaveScript();
+    HRESULT WINAPI OnScriptTerminate(const VARIANT *pvarResult, const EXCEPINFO *pexcepinfo) override;
+    HRESULT WINAPI OnStateChange(SCRIPTSTATE ssScriptState) override;
+    HRESULT WINAPI OnScriptError(IActiveScriptError *pscripterror) override;
+    HRESULT WINAPI OnEnterScript() override;
+    HRESULT WINAPI OnLeaveScript() override;
 
-    HRESULT WINAPI GetWindow(HWND *phwnd);
-    HRESULT WINAPI EnableModeless(BOOL fEnable);
+    HRESULT WINAPI GetWindow(HWND *phwnd) override;
+    HRESULT WINAPI EnableModeless(BOOL fEnable) override;
 
 protected:
     QWidget *window() const;
@@ -417,6 +419,8 @@ HRESULT WINAPI QAxScriptSite::EnableModeless(BOOL fEnable)
 */
 
 /*!
+    \fn QAxScriptEngine::QAxScriptEngine(const QString &language, QAxScript *script)
+
     Constructs a QAxScriptEngine object interpreting script code in \a language
     provided by the code in \a script. This is usually done by the QAxScript
     class when \link QAxScript::load() loading a script\endlink.
@@ -440,6 +444,7 @@ QAxScriptEngine::QAxScriptEngine(const QString &language, QAxScript *script)
 }
 
 /*!
+    \fn QAxScriptEngine::~QAxScriptEngine()
     Destroys the QAxScriptEngine object, releasing all allocated
     resources.
 */
@@ -461,6 +466,7 @@ QAxScriptEngine::~QAxScriptEngine()
 */
 
 /*!
+    \fn bool QAxScriptEngine::initialize(IUnknown **ptr)
     \reimp
 */
 bool QAxScriptEngine::initialize(IUnknown **ptr)
@@ -537,6 +543,7 @@ bool QAxScriptEngine::initialize(IUnknown **ptr)
 */
 
 /*!
+    \fn bool QAxScriptEngine::hasIntrospection() const
     Returns true if the script engine supports introspection;
     otherwise returns false.
 */
@@ -557,6 +564,7 @@ bool QAxScriptEngine::hasIntrospection() const
 }
 
 /*!
+    \fn long QAxScriptEngine::queryInterface(const QUuid &uuid, void **iface) const
     Requests the interface \a uuid from the script engine object and
     sets the value of \a iface to the provided interface, or to 0 if
     the requested interface could not be provided.
@@ -580,6 +588,7 @@ long QAxScriptEngine::queryInterface(const QUuid &uuid, void **iface) const
 }
 
 /*!
+    \fn QAxScriptEngine::State QAxScriptEngine::state() const
     Returns the state of the script engine.
 */
 QAxScriptEngine::State QAxScriptEngine::state() const
@@ -597,6 +606,7 @@ QAxScriptEngine::State QAxScriptEngine::state() const
 }
 
 /*!
+    \fn void QAxScriptEngine::setState(State st)
     Sets the state of the script engine to \a st.
     Calling this function is usually not necessary.
 */
@@ -613,6 +623,7 @@ void QAxScriptEngine::setState(State st)
 }
 
 /*!
+    \fn void QAxScriptEngine::addItem(const QString &name)
     Registers an item with the script engine. Script code can
     refer to this item using \a name.
 */
@@ -659,6 +670,8 @@ void QAxScriptEngine::addItem(const QString &name)
 */
 
 /*!
+    \fn QAxScript::QAxScript(const QString &name, QAxScriptManager *manager)
+
     Constructs a QAxScript object called \a name and registers
     it with the QAxScriptManager \a manager. This is usually done by the
     QAxScriptManager class when \link QAxScriptManager::load() loading a
@@ -686,6 +699,8 @@ script_engine(0)
 }
 
 /*!
+    \fn QAxScript::~QAxScript()
+
     Destroys the object, releasing all allocated resources.
 */
 QAxScript::~QAxScript()
@@ -699,6 +714,8 @@ QAxScript::~QAxScript()
 }
 
 /*!
+    \fn bool QAxScript::load(const QString &code, const QString &language)
+
     Loads the script source \a code written in language \a language
     into the script engine. Returns true if \a code was successfully
     entered into the script engine; otherwise returns false.
@@ -741,6 +758,8 @@ bool QAxScript::load(const QString &code, const QString &language)
 }
 
 /*!
+    \fn QStringList QAxScript::functions(FunctionFlags flags) const
+
     Returns a list of all the functions in this script if the respective
     script engine supports introspection; otherwise returns an empty list.
     The functions are either provided with full prototypes or only as
@@ -771,6 +790,8 @@ QStringList QAxScript::functions(FunctionFlags flags) const
 }
 
 /*!
+    \fn QVariant QAxScript::call(const QString &function, const QVariant &var1, const QVariant &var2, const QVariant &var3, const QVariant &var4, const QVariant &var5, const QVariant &var6, const QVariant &var7, const QVariant &var8)
+
     Calls \a function, passing the parameters \a var1, \a var1,
     \a var2, \a var3, \a var4, \a var5, \a var6, \a var7 and \a var8
     as arguments and returns the value returned by the function, or an
@@ -794,6 +815,7 @@ QVariant QAxScript::call(const QString &function, const QVariant &var1,
 }
 
 /*!
+    \fn QVariant QAxScript::call(const QString &function, QList<QVariant> &arguments)
     \overload
 
     Calls \a function passing \a arguments as parameters, and returns
@@ -918,6 +940,8 @@ QAxBase *QAxScript::findObject(const QString &name)
 */
 
 /*!
+    \fn QAxScriptManager::QAxScriptManager(QObject *parent)
+
     Creates a QAxScriptManager object. \a parent is passed on to the
     QObject constructor.
 
@@ -931,6 +955,8 @@ QAxScriptManager::QAxScriptManager(QObject *parent)
 }
 
 /*!
+    \fn QAxScriptManager::~QAxScriptManager()
+
     Destroys the objects, releasing all allocated resources.
 */
 QAxScriptManager::~QAxScriptManager()
@@ -939,6 +965,8 @@ QAxScriptManager::~QAxScriptManager()
 }
 
 /*!
+    \fn QStringList QAxScriptManager::functions(QAxScript::FunctionFlags flags) const
+
     Returns a list with all the functions that are available.
     Functions provided by script engines that don't support
     introspection are not included in the list.
@@ -955,6 +983,8 @@ QStringList QAxScriptManager::functions(QAxScript::FunctionFlags flags) const
 }
 
 /*!
+    \fn QStringList QAxScriptManager::scriptNames() const
+
     Returns a list with the names of all the scripts.
 */
 QStringList QAxScriptManager::scriptNames() const
@@ -963,6 +993,8 @@ QStringList QAxScriptManager::scriptNames() const
 }
 
 /*!
+    \fn QAxScript *QAxScriptManager::script(const QString &name) const
+
     Returns the script called \a name.
 
     You can use the returned pointer to call functions directly
@@ -975,6 +1007,8 @@ QAxScript *QAxScriptManager::script(const QString &name) const
 }
 
 /*!
+    \fn void QAxScriptManager::addObject(QAxBase *object)
+
     Adds \a object to the manager. Scripts handled by this manager
     can access the object in the code using the object's
     \l{QObject::objectName}{objectName} property.
@@ -1002,6 +1036,8 @@ void QAxScriptManager::addObject(QAxBase *object)
 */
 
 /*!
+    \fn QAxScript *QAxScriptManager::load(const QString &code, const QString &name, const QString &language)
+
     Loads the script source \a code using the script engine for \a
     language. The script can later be referred to using its \a name
     which should not be empty.
@@ -1035,6 +1071,7 @@ QAxScript *QAxScriptManager::load(const QString &code, const QString &name, cons
 }
 
 /*!
+    \fn QAxScript *QAxScriptManager::load(const QString &file, const QString &name)
     \overload
 
     Loads the source code from the \a file. The script can later be
@@ -1085,6 +1122,8 @@ QAxScript *QAxScriptManager::load(const QString &file, const QString &name)
 }
 
 /*!
+    \fn QVariant QAxScriptManager::call(const QString &function, const QVariant &var1, const QVariant &var2, const QVariant &var3, const QVariant &var4, const QVariant &var5, const QVariant &var6, const QVariant &var7, const QVariant &var8)
+
     Calls \a function, passing the parameters \a var1, \a var1,
     \a var2, \a var3, \a var4, \a var5, \a var6, \a var7 and \a var8
     as arguments and returns the value returned by the function, or an
@@ -1131,7 +1170,9 @@ QVariant QAxScriptManager::call(const QString &function, const QVariant &var1,
     return s->call(function, var1, var2, var3, var4, var5, var6, var7, var8);
 }
 
-/*! \overload
+/*!
+    \fn QVariant QAxScriptManager::call(const QString &function, QList<QVariant> &arguments)
+    \overload
 
     Calls \a function passing \a arguments as parameters, and returns
     the result. Returns when the script's execution has finished.
@@ -1152,6 +1193,7 @@ QVariant QAxScriptManager::call(const QString &function, QList<QVariant> &argume
 }
 
 /*!
+    \fn bool QAxScriptManager::registerEngine(const QString &name, const QString &extension, const QString &code)
     Registers the script engine called \a name and returns true if the
     engine was found; otherwise does nothing and returns false.
 
@@ -1179,6 +1221,8 @@ bool QAxScriptManager::registerEngine(const QString &name, const QString &extens
 }
 
 /*!
+    \fn QString QAxScriptManager::scriptFileFilter()
+
     Returns a file filter listing all the supported script languages.
     This filter string is convenient for use with QFileDialog.
 */
@@ -1215,6 +1259,7 @@ QString QAxScriptManager::scriptFileFilter()
 */
 
 /*!
+    \fn QAxScript *QAxScriptManager::scriptForFunction(const QString &function) const
     \internal
 
     Returns a pointer to the first QAxScript that knows
@@ -1246,13 +1291,9 @@ QAxScript *QAxScriptManager::scriptForFunction(const QString &function) const
 */
 void QAxScriptManager::updateScript(QAxScript *script)
 {
-    QHash<QString, QAxBase*>::ConstIterator objectIt;
-    for (objectIt = d->objectDict.constBegin(); objectIt != d->objectDict.constEnd(); ++objectIt) {
-        QString name = objectIt.key();
-
-        QAxScriptEngine *engine = script->scriptEngine();
-        if (engine)
-            engine->addItem(name);
+    if (QAxScriptEngine *engine = script->scriptEngine()) {
+        for (auto it = d->objectDict.constBegin(), end = d->objectDict.constEnd(); it != end; ++it)
+            engine->addItem(it.key());
     }
 }
 

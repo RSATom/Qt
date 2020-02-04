@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'installdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,13 +10,10 @@
 #define INSTALLDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QFrame>
 #include <QtWidgets/QGridLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QListWidget>
@@ -47,32 +44,32 @@ public:
     void setupUi(QDialog *InstallDialog)
     {
         if (InstallDialog->objectName().isEmpty())
-            InstallDialog->setObjectName(QStringLiteral("InstallDialog"));
+            InstallDialog->setObjectName(QString::fromUtf8("InstallDialog"));
         InstallDialog->resize(436, 245);
         gridLayout = new QGridLayout(InstallDialog);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         label = new QLabel(InstallDialog);
-        label->setObjectName(QStringLiteral("label"));
+        label->setObjectName(QString::fromUtf8("label"));
 
         gridLayout->addWidget(label, 0, 0, 1, 4);
 
         listWidget = new QListWidget(InstallDialog);
-        listWidget->setObjectName(QStringLiteral("listWidget"));
+        listWidget->setObjectName(QString::fromUtf8("listWidget"));
 
         gridLayout->addWidget(listWidget, 1, 0, 4, 4);
 
         installButton = new QPushButton(InstallDialog);
-        installButton->setObjectName(QStringLiteral("installButton"));
+        installButton->setObjectName(QString::fromUtf8("installButton"));
 
         gridLayout->addWidget(installButton, 1, 4, 1, 1);
 
         cancelButton = new QPushButton(InstallDialog);
-        cancelButton->setObjectName(QStringLiteral("cancelButton"));
+        cancelButton->setObjectName(QString::fromUtf8("cancelButton"));
 
         gridLayout->addWidget(cancelButton, 2, 4, 1, 1);
 
         closeButton = new QPushButton(InstallDialog);
-        closeButton->setObjectName(QStringLiteral("closeButton"));
+        closeButton->setObjectName(QString::fromUtf8("closeButton"));
 
         gridLayout->addWidget(closeButton, 3, 4, 1, 1);
 
@@ -81,34 +78,34 @@ public:
         gridLayout->addItem(spacerItem, 4, 4, 1, 1);
 
         label_4 = new QLabel(InstallDialog);
-        label_4->setObjectName(QStringLiteral("label_4"));
+        label_4->setObjectName(QString::fromUtf8("label_4"));
 
         gridLayout->addWidget(label_4, 5, 0, 1, 1);
 
         pathLineEdit = new QLineEdit(InstallDialog);
-        pathLineEdit->setObjectName(QStringLiteral("pathLineEdit"));
+        pathLineEdit->setObjectName(QString::fromUtf8("pathLineEdit"));
 
         gridLayout->addWidget(pathLineEdit, 5, 1, 1, 2);
 
         browseButton = new QToolButton(InstallDialog);
-        browseButton->setObjectName(QStringLiteral("browseButton"));
+        browseButton->setObjectName(QString::fromUtf8("browseButton"));
 
         gridLayout->addWidget(browseButton, 5, 3, 1, 1);
 
         line = new QFrame(InstallDialog);
-        line->setObjectName(QStringLiteral("line"));
+        line->setObjectName(QString::fromUtf8("line"));
         line->setFrameShape(QFrame::HLine);
         line->setFrameShadow(QFrame::Sunken);
 
         gridLayout->addWidget(line, 6, 0, 1, 5);
 
         statusLabel = new QLabel(InstallDialog);
-        statusLabel->setObjectName(QStringLiteral("statusLabel"));
+        statusLabel->setObjectName(QString::fromUtf8("statusLabel"));
 
         gridLayout->addWidget(statusLabel, 7, 0, 1, 2);
 
         progressBar = new QProgressBar(InstallDialog);
-        progressBar->setObjectName(QStringLiteral("progressBar"));
+        progressBar->setObjectName(QString::fromUtf8("progressBar"));
         progressBar->setValue(0);
         progressBar->setOrientation(Qt::Horizontal);
 
@@ -123,13 +120,13 @@ public:
 
     void retranslateUi(QDialog *InstallDialog)
     {
-        InstallDialog->setWindowTitle(QApplication::translate("InstallDialog", "Install Documentation", nullptr));
-        label->setText(QApplication::translate("InstallDialog", "Available Documentation:", nullptr));
-        installButton->setText(QApplication::translate("InstallDialog", "Install", nullptr));
-        cancelButton->setText(QApplication::translate("InstallDialog", "Cancel", nullptr));
-        closeButton->setText(QApplication::translate("InstallDialog", "Close", nullptr));
-        label_4->setText(QApplication::translate("InstallDialog", "Installation Path:", nullptr));
-        browseButton->setText(QApplication::translate("InstallDialog", "...", nullptr));
+        InstallDialog->setWindowTitle(QCoreApplication::translate("InstallDialog", "Install Documentation", nullptr));
+        label->setText(QCoreApplication::translate("InstallDialog", "Available Documentation:", nullptr));
+        installButton->setText(QCoreApplication::translate("InstallDialog", "Install", nullptr));
+        cancelButton->setText(QCoreApplication::translate("InstallDialog", "Cancel", nullptr));
+        closeButton->setText(QCoreApplication::translate("InstallDialog", "Close", nullptr));
+        label_4->setText(QCoreApplication::translate("InstallDialog", "Installation Path:", nullptr));
+        browseButton->setText(QCoreApplication::translate("InstallDialog", "...", nullptr));
     } // retranslateUi
 
 };

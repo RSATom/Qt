@@ -73,6 +73,13 @@ when run normally from a shell using only the basename (without an explicit
 stdio will be hooked up as expected to the parent console so that logging output
 will be visible.
 
+On Linux/Android, the handler may create a crash dump for its parent process
+using **--trace-parent-with-exception**. In this mode, the handler process
+creates a crash dump for its parent and exits. Alternatively, the handler may
+be launched with **--initial-client-fd** which will start the server connected
+to an initial client. The server will exit when all connected client sockets are
+closed.
+
 It is not normally appropriate to invoke this program directly. Usually, it will
 be invoked by a Crashpad client using the Crashpad client library, or started by
 another system service. On macOS, arbitrary programs may be run with a Crashpad
@@ -113,6 +120,13 @@ establish the Crashpad client environment before running a program.
    Perform the handshake with the initial client on the file descriptor at _FD_.
    Either this option or **--mach-service**, but not both, is required. This
    option is only valid on macOS.
+
+ * **--no-identify-client-via-url**
+
+   Do not add client-identifying fields to the URL. By default, `"prod"`,
+   `"ver"`, and `"guid"` annotations are added to the upload URL as name-value
+   pairs `"product"`, `"version"`, and `"guid"`, respectively. Using this
+   option disables that behavior.
 
  * **--initial-client-data**=*HANDLE_request_crash_dump*,*HANDLE_request_non_crash_dump*,*HANDLE_non_crash_dump_completed*,*HANDLE_first_pipe_instance*,*HANDLE_client_process*,*Address_crash_exception_information*,*Address_non_crash_exception_information*,*Address_debug_critical_section*
 
@@ -230,6 +244,18 @@ establish the Crashpad client environment before running a program.
    in cases where the server inherits an inappropriate crash handler from its
    parent process. This option is only valid on macOS. Use of this option is
    discouraged. It should not be used absent extraordinary circumstances.
+
+ * **--trace-parent-with-exception**=_EXCEPTION-INFORMATION-ADDRESS_
+
+   Causes the handler process to trace its parent process and exit. The parent
+   process should have an ExceptionInformation struct at
+   _EXCEPTION-INFORMATION-ADDRESS_.
+
+ * **--initial-client-fd**=_FD_
+
+   Starts the excetion handler server with an initial ExceptionHandlerClient
+   connected on the socket _FD_. The server will exit when all connected client
+   sockets have been closed.
 
  * **--url**=_URL_
 

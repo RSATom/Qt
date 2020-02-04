@@ -14,6 +14,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/numerics/safe_math.h"
 #include "base/strings/utf_string_conversions.h"
@@ -22,13 +23,16 @@
 #include "base/trace_event/trace_event.h"
 #include "base/win/iat_patch_function.h"
 #include "base/win/windows_version.h"
-#if defined(ENABLE_PLUGINS)
-#include "ppapi/shared_impl/proxy_lock.h"
-#endif
+#include "build/build_config.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "skia/ext/fontmgr_default_win.h"
+#include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
-#include "third_party/skia/include/ports/SkFontMgr.h"
 #include "third_party/skia/include/ports/SkTypeface_win.h"
+
+#if BUILDFLAG(ENABLE_PLUGINS)
+#include "ppapi/shared_impl/proxy_lock.h"
+#endif  // BUILDFLAG(ENABLE_PLUGINS)
 
 namespace content {
 
@@ -36,12 +40,6 @@ namespace {
 
 // The Skia font manager, used for the life of the process (leaked at the end).
 SkFontMgr* g_warmup_fontmgr = nullptr;
-
-base::win::IATPatchFunction g_iat_patch_open_sc_manager;
-base::win::IATPatchFunction g_iat_patch_close_service_handle;
-base::win::IATPatchFunction g_iat_patch_open_service;
-base::win::IATPatchFunction g_iat_patch_start_service;
-base::win::IATPatchFunction g_iat_patch_nt_connect_port;
 
 // These are from ntddk.h
 #if !defined(STATUS_ACCESS_DENIED)
@@ -207,9 +205,9 @@ sk_sp<SkTypeface> GetTypefaceFromLOGFONT(const LOGFONTW* log_font) {
                                        : SkFontStyle::kUpright_Slant);
 
   std::string family_name = base::WideToUTF8(log_font->lfFaceName);
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
   ppapi::ProxyAutoLock lock;  // Needed for DirectWrite font proxy.
-#endif
+#endif                        // BUILDFLAG(ENABLE_PLUGINS)
   return sk_sp<SkTypeface>(
       g_warmup_fontmgr->matchFamilyStyle(family_name.c_str(), style));
 }
@@ -352,18 +350,20 @@ class GdiFontPatchDataImpl : public content::GdiFontPatchData {
 
 GdiFontPatchDataImpl::GdiFontPatchDataImpl(const base::FilePath& path) {
   DoSingleGdiPatch(create_compatible_dc_patch_, path, "CreateCompatibleDC",
-                   CreateCompatibleDCPatch);
+                   reinterpret_cast<void*>(CreateCompatibleDCPatch));
   DoSingleGdiPatch(create_font_indirect_patch_, path, "CreateFontIndirectW",
-                   CreateFontIndirectWPatch);
-  DoSingleGdiPatch(create_delete_dc_patch_, path, "DeleteDC", DeleteDCPatch);
+                   reinterpret_cast<void*>(CreateFontIndirectWPatch));
+  DoSingleGdiPatch(create_delete_dc_patch_, path, "DeleteDC",
+                   reinterpret_cast<void*>(DeleteDCPatch));
   DoSingleGdiPatch(create_delete_object_patch_, path, "DeleteObject",
-                   DeleteObjectPatch);
+                   reinterpret_cast<void*>(DeleteObjectPatch));
   DoSingleGdiPatch(create_enum_font_families_patch_, path,
-                   "EnumFontFamiliesExW", EnumFontFamiliesExWPatch);
+                   "EnumFontFamiliesExW",
+                   reinterpret_cast<void*>(EnumFontFamiliesExWPatch));
   DoSingleGdiPatch(create_get_font_data_patch_, path, "GetFontData",
-                   GetFontDataPatch);
+                   reinterpret_cast<void*>(GetFontDataPatch));
   DoSingleGdiPatch(create_select_object_patch_, path, "SelectObject",
-                   SelectObjectPatch);
+                   reinterpret_cast<void*>(SelectObjectPatch));
 }
 
 }  // namespace
@@ -395,26 +395,35 @@ void PatchServiceManagerCalls() {
 
   is_patched = true;
 
-  DWORD patched =
-      g_iat_patch_open_sc_manager.Patch(L"dwrite.dll", service_provider_dll,
-                                        "OpenSCManagerW", OpenSCManagerWPatch);
+  static base::NoDestructor<base::win::IATPatchFunction> patch_open_sc_manager;
+  DWORD patched = patch_open_sc_manager->Patch(
+      L"dwrite.dll", service_provider_dll, "OpenSCManagerW",
+      reinterpret_cast<void*>(OpenSCManagerWPatch));
   DCHECK(patched == 0);
 
-  patched = g_iat_patch_close_service_handle.Patch(
+  static base::NoDestructor<base::win::IATPatchFunction>
+      patch_close_service_handle;
+  patched = patch_close_service_handle->Patch(
       L"dwrite.dll", service_provider_dll, "CloseServiceHandle",
-      CloseServiceHandlePatch);
+      reinterpret_cast<void*>(CloseServiceHandlePatch));
   DCHECK(patched == 0);
 
-  patched = g_iat_patch_open_service.Patch(L"dwrite.dll", service_provider_dll,
-                                           "OpenServiceW", OpenServiceWPatch);
+  static base::NoDestructor<base::win::IATPatchFunction> patch_open_service;
+  patched = patch_open_service->Patch(
+      L"dwrite.dll", service_provider_dll, "OpenServiceW",
+      reinterpret_cast<void*>(OpenServiceWPatch));
   DCHECK(patched == 0);
 
-  patched = g_iat_patch_start_service.Patch(
-      L"dwrite.dll", service_provider_dll, "StartServiceW", StartServiceWPatch);
+  static base::NoDestructor<base::win::IATPatchFunction> patch_start_service;
+  patched = patch_start_service->Patch(
+      L"dwrite.dll", service_provider_dll, "StartServiceW",
+      reinterpret_cast<void*>(StartServiceWPatch));
   DCHECK(patched == 0);
 
-  patched = g_iat_patch_nt_connect_port.Patch(
-      L"dwrite.dll", "ntdll.dll", "NtAlpcConnectPort", NtALpcConnectPortPatch);
+  static base::NoDestructor<base::win::IATPatchFunction> patch_nt_connect_port;
+  patched = patch_nt_connect_port->Patch(
+      L"dwrite.dll", "ntdll.dll", "NtAlpcConnectPort",
+      reinterpret_cast<void*>(NtALpcConnectPortPatch));
   DCHECK(patched == 0);
 }
 

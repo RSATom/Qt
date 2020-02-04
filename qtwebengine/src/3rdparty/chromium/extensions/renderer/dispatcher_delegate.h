@@ -9,11 +9,10 @@
 #include <string>
 
 namespace extensions {
-class APIBindingsSystem;
 class Dispatcher;
-class Extension;
 class ExtensionBindingsSystem;
 class ModuleSystem;
+class NativeExtensionBindingsSystem;
 class ResourceBundleSourceMap;
 class ScriptContext;
 
@@ -24,10 +23,6 @@ class DispatcherDelegate {
  public:
   virtual ~DispatcherDelegate() {}
 
-  // Initializes origin permissions for a newly created extension context.
-  virtual void InitOriginPermissions(const Extension* extension,
-                                     bool is_extension_active) {}
-
   // Includes additional native handlers in a ScriptContext's ModuleSystem.
   virtual void RegisterNativeHandlers(Dispatcher* dispatcher,
                                       ModuleSystem* module_system,
@@ -37,8 +32,9 @@ class DispatcherDelegate {
   // Includes additional source resources into the resource map.
   virtual void PopulateSourceMap(ResourceBundleSourceMap* source_map) {}
 
-  // Requires additional modules within an extension context's module system.
-  virtual void RequireAdditionalModules(ScriptContext* context) {}
+  // Requires modules for defining <webview> within an extension context's
+  // module system.
+  virtual void RequireWebViewModules(ScriptContext* context);
 
   // Allows the delegate to respond to an updated set of active extensions in
   // the Dispatcher.
@@ -48,8 +44,9 @@ class DispatcherDelegate {
   // Allows the delegate to add any additional custom bindings or types to the
   // native bindings system. This will only be called if --native-crx-bindings
   // is enabled.
-  virtual void InitializeBindingsSystem(Dispatcher* dispatcher,
-                                        APIBindingsSystem* bindings_system) {}
+  virtual void InitializeBindingsSystem(
+      Dispatcher* dispatcher,
+      NativeExtensionBindingsSystem* bindings_system) {}
 };
 
 }  // namespace extensions

@@ -15,10 +15,11 @@
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/common/webplugininfo.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 
 #if !BUILDFLAG(ENABLE_PLUGINS)
 #error "Plugins should be enabled"
@@ -41,12 +42,6 @@ class CONTENT_EXPORT PluginList {
   // Gets the one instance of the PluginList.
   static PluginList* Singleton();
 
-  // Returns true if the plugin supports |mime_type|. |mime_type| should be all
-  // lower case.
-  static bool SupportsType(const WebPluginInfo& plugin,
-                           const std::string& mime_type,
-                           bool allow_wildcard);
-
   // Cause the plugin list to refresh next time they are accessed, regardless
   // of whether they are already loaded.
   void RefreshPlugins();
@@ -65,12 +60,6 @@ class CONTENT_EXPORT PluginList {
 
   // Gets a list of all the registered internal plugins.
   void GetInternalPlugins(std::vector<WebPluginInfo>* plugins);
-
-  // Creates a WebPluginInfo structure given a plugin's path.  On success
-  // returns true, with the information being put into "info".
-  // Returns false if the library couldn't be found, or if it's not a plugin.
-  bool ReadPluginInfo(const base::FilePath& filename,
-                      WebPluginInfo* info);
 
   // Get all the plugins synchronously, loading them if necessary.
   void GetPlugins(std::vector<WebPluginInfo>* plugins);
@@ -98,11 +87,20 @@ class CONTENT_EXPORT PluginList {
                           std::vector<WebPluginInfo>* info,
                           std::vector<std::string>* actual_mime_types);
 
-  // Load a specific plugin with full path. Return true iff loading the plugin
-  // was successful.
-  bool LoadPluginIntoPluginList(const base::FilePath& filename,
-                                std::vector<WebPluginInfo>* plugins,
-                                WebPluginInfo* plugin_info);
+  void set_will_load_plugins_callback(const base::Closure& callback);
+
+ private:
+  enum LoadingState {
+    LOADING_STATE_NEEDS_REFRESH,
+    LOADING_STATE_REFRESHING,
+    LOADING_STATE_UP_TO_DATE,
+  };
+
+  friend class PluginListTest;
+  friend struct base::LazyInstanceTraitsBase<PluginList>;
+
+  PluginList();
+  ~PluginList();
 
   // The following functions are used to support probing for WebPluginInfo
   // using a different instance of this class.
@@ -120,36 +118,24 @@ class CONTENT_EXPORT PluginList {
   // Clears the internal list of Plugins and copies them from the vector.
   void SetPlugins(const std::vector<WebPluginInfo>& plugins);
 
-  void set_will_load_plugins_callback(const base::Closure& callback);
-
-  virtual ~PluginList();
-
- private:
-  enum LoadingState {
-    LOADING_STATE_NEEDS_REFRESH,
-    LOADING_STATE_REFRESHING,
-    LOADING_STATE_UP_TO_DATE,
-  };
-
-  friend class PluginListTest;
-  friend struct base::LazyInstanceTraitsBase<PluginList>;
-
-  PluginList();
-
   // Load all plugins from the default plugins directory.
   void LoadPlugins();
 
-  // Returns true if the given plugin supports a given file extension.
-  // |extension| should be all lower case. If |mime_type| is not NULL, it will
-  // be set to the MIME type if found. The MIME type which corresponds to the
-  // extension is optionally returned back.
-  bool SupportsExtension(const WebPluginInfo& plugin,
-                         const std::string& extension,
-                         std::string* actual_mime_type);
-
   // Removes |plugin_path| from the list of extra plugin paths. Should only be
   // called while holding |lock_|.
-  void RemoveExtraPluginPathLocked(const base::FilePath& plugin_path);
+  void RemoveExtraPluginPathLocked(const base::FilePath& plugin_path)
+      EXCLUSIVE_LOCKS_REQUIRED(lock_);
+
+  // Creates a WebPluginInfo structure given a plugin's path.  On success
+  // returns true, with the information being put into "info".
+  // Returns false if the library couldn't be found, or if it's not a plugin.
+  bool ReadPluginInfo(const base::FilePath& filename, WebPluginInfo* info);
+
+  // Load a specific plugin with full path. Return true iff loading the plugin
+  // was successful.
+  bool LoadPluginIntoPluginList(const base::FilePath& filename,
+                                std::vector<WebPluginInfo>* plugins,
+                                WebPluginInfo* plugin_info);
 
   //
   // Internals
@@ -158,19 +144,19 @@ class CONTENT_EXPORT PluginList {
   // States whether we will load the plugin list the next time we try to access
   // it, whether we are currently in the process of loading it, or whether we
   // consider it up to date.
-  LoadingState loading_state_;
+  LoadingState loading_state_ GUARDED_BY(lock_);
 
   // Extra plugin paths that we want to search when loading.
-  std::vector<base::FilePath> extra_plugin_paths_;
+  std::vector<base::FilePath> extra_plugin_paths_ GUARDED_BY(lock_);
 
   // Holds information about internal plugins.
-  std::vector<WebPluginInfo> internal_plugins_;
+  std::vector<WebPluginInfo> internal_plugins_ GUARDED_BY(lock_);
 
   // A list holding all plugins.
-  std::vector<WebPluginInfo> plugins_list_;
+  std::vector<WebPluginInfo> plugins_list_ GUARDED_BY(lock_);
 
   // Callback that is invoked whenever the PluginList will reload the plugins.
-  base::Closure will_load_plugins_callback_;
+  base::Closure will_load_plugins_callback_ GUARDED_BY(lock_);
 
   // Need synchronization for the above members since this object can be
   // accessed on multiple threads.

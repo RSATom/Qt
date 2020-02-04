@@ -4,17 +4,18 @@
 
 #include "components/flags_ui/flags_state.h"
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
 #include "base/callback.h"
+#include "base/containers/span.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -24,6 +25,8 @@
 #include "components/flags_ui/flags_ui_switches.h"
 #include "components/variations/variations_associated_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
 namespace flags_ui {
 
@@ -41,6 +44,25 @@ base::CommandLine::StringType GetSwitchString(const std::string& flag) {
   return cmd_line.argv()[1];
 }
 
+// Return the span between the first occurrence of |begin_sentinel_switch| and
+// the last occurrence of |end_sentinel_switch|.
+base::span<const base::CommandLine::StringType> GetSwitchesBetweenSentinels(
+    const base::CommandLine::StringVector& switches,
+    const base::CommandLine::StringType& begin_sentinel_switch,
+    const base::CommandLine::StringType& end_sentinel_switch) {
+  const auto first =
+      std::find(switches.begin(), switches.end(), begin_sentinel_switch);
+  if (first == switches.end())
+    return {};
+  // Go backwards in order to find the last occurrence (as opposed to
+  // std::find() which would return the first one).
+  for (auto last = --switches.end(); last != first; --last) {
+    if (*last == end_sentinel_switch)
+      return base::make_span(&first[1], last - first - 1);
+  }
+  return {};
+}
+
 // Scoops flags from a command line.
 // Only switches between --flag-switches-begin and --flag-switches-end are
 // compared. The embedder may use |extra_flag_sentinel_begin_flag_name| and
@@ -53,24 +75,18 @@ std::set<base::CommandLine::StringType> ExtractFlagsFromCommandLine(
             !!extra_flag_sentinel_end_flag_name);
   std::set<base::CommandLine::StringType> flags;
   // First do the ones between --flag-switches-begin and --flag-switches-end.
-  base::CommandLine::StringVector::const_iterator first =
-      std::find(cmdline.argv().begin(), cmdline.argv().end(),
-                GetSwitchString(switches::kFlagSwitchesBegin));
-  base::CommandLine::StringVector::const_iterator last =
-      std::find(cmdline.argv().begin(), cmdline.argv().end(),
-                GetSwitchString(switches::kFlagSwitchesEnd));
-  if (first != cmdline.argv().end() && last != cmdline.argv().end())
-    flags.insert(first + 1, last);
+  const auto flags_span = GetSwitchesBetweenSentinels(
+      cmdline.argv(), GetSwitchString(switches::kFlagSwitchesBegin),
+      GetSwitchString(switches::kFlagSwitchesEnd));
+  flags.insert(flags_span.begin(), flags_span.end());
 
   // Then add those between the extra sentinels.
   if (extra_flag_sentinel_begin_flag_name &&
       extra_flag_sentinel_end_flag_name) {
-    first = std::find(cmdline.argv().begin(), cmdline.argv().end(),
-                      GetSwitchString(extra_flag_sentinel_begin_flag_name));
-    last = std::find(cmdline.argv().begin(), cmdline.argv().end(),
-                     GetSwitchString(extra_flag_sentinel_end_flag_name));
-    if (first != cmdline.argv().end() && last != cmdline.argv().end())
-      flags.insert(first + 1, last);
+    const auto extra_flags_span = GetSwitchesBetweenSentinels(
+        cmdline.argv(), GetSwitchString(extra_flag_sentinel_begin_flag_name),
+        GetSwitchString(extra_flag_sentinel_end_flag_name));
+    flags.insert(extra_flags_span.begin(), extra_flags_span.end());
   }
   return flags;
 }
@@ -91,26 +107,9 @@ const struct {
 // Adds a |StringValue| to |list| for each platform where |bitmask| indicates
 // whether the entry is available on that platform.
 void AddOsStrings(unsigned bitmask, base::ListValue* list) {
-  for (size_t i = 0; i < arraysize(kBitsToOs); ++i) {
+  for (size_t i = 0; i < base::size(kBitsToOs); ++i) {
     if (bitmask & kBitsToOs[i].bit)
       list->AppendString(kBitsToOs[i].name);
-  }
-}
-
-// Adds the internal names for the specified entry to |names|.
-void AddInternalName(const FeatureEntry& e, std::set<std::string>* names) {
-  switch (e.type) {
-    case FeatureEntry::SINGLE_VALUE:
-    case FeatureEntry::SINGLE_DISABLE_VALUE:
-      names->insert(e.internal_name);
-      break;
-    case FeatureEntry::MULTI_VALUE:
-    case FeatureEntry::ENABLE_DISABLE_VALUE:
-    case FeatureEntry::FEATURE_VALUE:
-    case FeatureEntry::FEATURE_WITH_PARAMS_VALUE:
-      for (int i = 0; i < e.num_options; ++i)
-        names->insert(e.NameForOption(i));
-      break;
   }
 }
 
@@ -120,6 +119,7 @@ bool ValidateFeatureEntry(const FeatureEntry& e) {
   switch (e.type) {
     case FeatureEntry::SINGLE_VALUE:
     case FeatureEntry::SINGLE_DISABLE_VALUE:
+    case FeatureEntry::ORIGIN_LIST_VALUE:
       DCHECK_EQ(0, e.num_options);
       DCHECK(!e.choices);
       return true;
@@ -160,6 +160,7 @@ bool IsDefaultValue(const FeatureEntry& entry,
   switch (entry.type) {
     case FeatureEntry::SINGLE_VALUE:
     case FeatureEntry::SINGLE_DISABLE_VALUE:
+    case FeatureEntry::ORIGIN_LIST_VALUE:
       return enabled_entries.count(entry.internal_name) == 0;
     case FeatureEntry::MULTI_VALUE:
     case FeatureEntry::ENABLE_DISABLE_VALUE:
@@ -183,9 +184,9 @@ std::unique_ptr<base::Value> CreateOptionsData(
          entry.type == FeatureEntry::ENABLE_DISABLE_VALUE ||
          entry.type == FeatureEntry::FEATURE_VALUE ||
          entry.type == FeatureEntry::FEATURE_WITH_PARAMS_VALUE);
-  auto result = base::MakeUnique<base::ListValue>();
+  auto result = std::make_unique<base::ListValue>();
   for (int i = 0; i < entry.num_options; ++i) {
-    auto value = base::MakeUnique<base::DictionaryValue>();
+    auto value = std::make_unique<base::DictionaryValue>();
     const std::string name = entry.NameForOption(i);
     value->SetString("internal_name", name);
     value->SetString("description", entry.DescriptionForOption(i));
@@ -219,6 +220,51 @@ base::FieldTrial* RegisterFeatureVariationParameters(
                   << " with group " << internal::kTrialGroupAboutFlags;
   }
   return trial;
+}
+
+// Returns true if |value| is safe to include in a command line string in the
+// form of --flag=value.
+bool IsSafeValue(const std::string& value) {
+  // Punctuation characters at the end ("-", ".", ":", "/") are allowed because
+  // origins can contain those (e.g. http://example.test). Comma is allowed
+  // because it's used as the separator character.
+  static const char kAllowedChars[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      "abcdefghijklmnopqrstuvwxyz"
+      "0123456789"
+      "-.:/,";
+  return value.find_first_not_of(kAllowedChars) == std::string::npos;
+}
+
+// Sanitizes |value| which contains a list of origins separated by whitespace
+// and/or comma. The sanitized value is added as a command line argument, so
+// this is a security critical operation: The sanitized value must have no
+// whitespaces, each individual origin must be separated by a comma, and each
+// origin must represent a url::Origin().
+std::string SanitizeOriginListFlag(const std::string& value) {
+  const std::string input = base::CollapseWhitespaceASCII(value, false);
+  const std::string delimiters = " ,";
+  base::StringTokenizer tokenizer(input, delimiters);
+  std::vector<std::string> origin_strings;
+  while (tokenizer.GetNext()) {
+    const std::string token = tokenizer.token();
+    if (token.empty()) {
+      continue;
+    }
+    const GURL url(token);
+    if (!url.is_valid() ||
+        (!url.SchemeIsHTTPOrHTTPS() && !url.SchemeIsWSOrWSS())) {
+      continue;
+    }
+    const std::string origin = url::Origin::Create(url).Serialize();
+    if (!IsSafeValue(origin)) {
+      continue;
+    }
+    origin_strings.push_back(origin);
+  }
+  const std::string result = base::JoinString(origin_strings, ",");
+  CHECK(IsSafeValue(result));
+  return result;
 }
 
 }  // namespace
@@ -262,46 +308,30 @@ void FlagsState::ConvertFlagsToSwitches(
                            disable_features_flag_name);
 }
 
-std::set<std::string> FlagsState::GetSwitchesFromFlags(
-    FlagsStorage* flags_storage) {
+void FlagsState::GetSwitchesAndFeaturesFromFlags(
+    FlagsStorage* flags_storage,
+    std::set<std::string>* switches,
+    std::set<std::string>* features) const {
   std::set<std::string> enabled_entries;
   std::map<std::string, SwitchEntry> name_to_switch_map;
   GenerateFlagsToSwitchesMapping(flags_storage, &enabled_entries,
                                  &name_to_switch_map);
 
-  std::set<std::string> switches;
   for (const std::string& entry_name : enabled_entries) {
     const auto& entry_it = name_to_switch_map.find(entry_name);
     DCHECK(entry_it != name_to_switch_map.end());
 
     const SwitchEntry& entry = entry_it->second;
     if (!entry.switch_name.empty())
-      switches.insert("--" + entry.switch_name);
-  }
-  return switches;
-}
+      switches->insert("--" + entry.switch_name);
 
-std::set<std::string> FlagsState::GetFeaturesFromFlags(
-    FlagsStorage* flags_storage) {
-  std::set<std::string> enabled_entries;
-  std::map<std::string, SwitchEntry> name_to_switch_map;
-  GenerateFlagsToSwitchesMapping(flags_storage, &enabled_entries,
-                                 &name_to_switch_map);
-
-  std::set<std::string> features;
-  for (const std::string& entry_name : enabled_entries) {
-    const auto& entry_it = name_to_switch_map.find(entry_name);
-    DCHECK(entry_it != name_to_switch_map.end());
-
-    const SwitchEntry& entry = entry_it->second;
     if (!entry.feature_name.empty()) {
       if (entry.feature_state)
-        features.insert(entry.feature_name + ":enabled");
+        features->insert(entry.feature_name + ":enabled");
       else
-        features.insert(entry.feature_name + ":disabled");
+        features->insert(entry.feature_name + ":disabled");
     }
   }
-  return features;
 }
 
 bool FlagsState::IsRestartNeededToCommitChanges() {
@@ -333,20 +363,20 @@ void FlagsState::SetFeatureEntryEnabled(FlagsStorage* flags_storage,
   std::set<std::string> enabled_entries;
   GetSanitizedEnabledFlags(flags_storage, &enabled_entries);
 
-  const FeatureEntry* e = nullptr;
-  for (size_t i = 0; i < num_feature_entries_; ++i) {
-    if (feature_entries_[i].internal_name == internal_name) {
-      e = feature_entries_ + i;
-      break;
-    }
-  }
+  const FeatureEntry* e = FindFeatureEntryByName(internal_name);
   DCHECK(e);
 
-  if (e->type == FeatureEntry::SINGLE_VALUE) {
+  if (e->type == FeatureEntry::SINGLE_VALUE ||
+      e->type == FeatureEntry::ORIGIN_LIST_VALUE) {
     if (enable)
       needs_restart_ |= enabled_entries.insert(internal_name).second;
     else
       needs_restart_ |= (enabled_entries.erase(internal_name) > 0);
+
+    // If an origin list was enabled or disabled, update the command line flag.
+    if (e->type == FeatureEntry::ORIGIN_LIST_VALUE)
+      DidModifyOriginListFlag(*e, enable);
+
   } else if (e->type == FeatureEntry::SINGLE_DISABLE_VALUE) {
     if (!enable)
       needs_restart_ |= enabled_entries.insert(internal_name).second;
@@ -373,8 +403,23 @@ void FlagsState::SetFeatureEntryEnabled(FlagsStorage* flags_storage,
   flags_storage->SetFlags(enabled_entries);
 }
 
+void FlagsState::SetOriginListFlag(const std::string& internal_name,
+                                   const std::string& value,
+                                   FlagsStorage* flags_storage) {
+  const FeatureEntry* entry = FindFeatureEntryByName(internal_name);
+  DCHECK(entry);
+
+  std::set<std::string> enabled_entries;
+  GetSanitizedEnabledFlags(flags_storage, &enabled_entries);
+  // const bool enabled =
+  //    enabled_entries.find(entry->internal_name) != enabled_entries.end();
+  const bool enabled = base::ContainsKey(enabled_entries, entry->internal_name);
+  switch_values_[entry->command_line_switch] = value;
+  DidModifyOriginListFlag(*entry, enabled);
+}
+
 void FlagsState::RemoveFlagsSwitches(
-    std::map<std::string, base::CommandLine::StringType>* switch_list) {
+    base::CommandLine::SwitchMap* switch_list) {
   for (const auto& entry : flags_switches_)
     switch_list->erase(entry.first);
 
@@ -517,7 +562,7 @@ void FlagsState::GetFlagFeatureEntries(
     data->SetString("description",
                     base::StringPiece(entry.visible_description));
 
-    auto supported_platforms = base::MakeUnique<base::ListValue>();
+    auto supported_platforms = std::make_unique<base::ListValue>();
     AddOsStrings(entry.supported_platforms, supported_platforms.get());
     data->Set("supported_platforms", std::move(supported_platforms));
     // True if the switch is not currently passed.
@@ -532,6 +577,14 @@ void FlagsState::GetFlagFeatureEntries(
             (!is_default_value && entry.type == FeatureEntry::SINGLE_VALUE) ||
                 (is_default_value &&
                  entry.type == FeatureEntry::SINGLE_DISABLE_VALUE));
+        break;
+      case FeatureEntry::ORIGIN_LIST_VALUE:
+        data->SetBoolean("enabled", !is_default_value);
+        switch_values_[entry.internal_name] =
+            base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+                entry.command_line_switch);
+        data->SetString("origin_list_value",
+                        switch_values_[entry.internal_name]);
         break;
       case FeatureEntry::MULTI_VALUE:
       case FeatureEntry::ENABLE_DISABLE_VALUE:
@@ -611,7 +664,7 @@ void FlagsState::AddSwitchMapping(
     const std::string& key,
     const std::string& switch_name,
     const std::string& switch_value,
-    std::map<std::string, SwitchEntry>* name_to_switch_map) {
+    std::map<std::string, SwitchEntry>* name_to_switch_map) const {
   DCHECK(!base::ContainsKey(*name_to_switch_map, key));
 
   SwitchEntry* entry = &(*name_to_switch_map)[key];
@@ -623,7 +676,7 @@ void FlagsState::AddFeatureMapping(
     const std::string& key,
     const std::string& feature_name,
     bool feature_state,
-    std::map<std::string, SwitchEntry>* name_to_switch_map) {
+    std::map<std::string, SwitchEntry>* name_to_switch_map) const {
   DCHECK(!base::ContainsKey(*name_to_switch_map, key));
 
   SwitchEntry* entry = &(*name_to_switch_map)[key];
@@ -648,6 +701,14 @@ void FlagsState::AddSwitchesToCommandLine(
     const auto& entry_it = name_to_switch_map.find(entry_name);
     if (entry_it == name_to_switch_map.end()) {
       NOTREACHED();
+      continue;
+    }
+
+    const FeatureEntry* feature_entry = FindFeatureEntryByName(entry_name);
+    if (feature_entry &&
+        feature_entry->type == FeatureEntry::ORIGIN_LIST_VALUE) {
+      // This is not a feature value that can be enabled/disabled, it's a
+      // command line argument that takes a list of origins. Skip it.
       continue;
     }
 
@@ -702,60 +763,60 @@ void FlagsState::MergeFeatureCommandLineSwitch(
     command_line->AppendSwitchASCII(switch_name, switch_value);
 }
 
-void FlagsState::SanitizeList(FlagsStorage* flags_storage) {
-  std::set<std::string> known_entries;
-  for (size_t i = 0; i < num_feature_entries_; ++i) {
-    DCHECK(ValidateFeatureEntry(feature_entries_[i]));
-    AddInternalName(feature_entries_[i], &known_entries);
+std::set<std::string> FlagsState::SanitizeList(
+    const std::set<std::string>& enabled_entries,
+    int platform_mask) const {
+  std::set<std::string> new_enabled_entries;
+
+  // For each entry in |enabled_entries|, check whether it exists in the list
+  // of supported features. Remove those that don't. Note: Even though this is
+  // an O(n^2) search, this is more efficient than creating a set from
+  // |feature_entries_| first because |feature_entries_| is large and
+  // |enabled_entries| should generally be small/empty.
+  const FeatureEntry* features_end = feature_entries_ + num_feature_entries_;
+  for (const std::string& entry_name : enabled_entries) {
+    if (features_end !=
+        std::find_if(feature_entries_, features_end,
+                     [entry_name, platform_mask](const FeatureEntry& e) {
+                       DCHECK(ValidateFeatureEntry(e));
+                       return (e.supported_platforms & platform_mask) &&
+                              e.InternalNameMatches(entry_name);
+                     })) {
+      new_enabled_entries.insert(entry_name);
+    }
   }
 
-  std::set<std::string> enabled_entries = flags_storage->GetFlags();
-
-  std::set<std::string> new_enabled_entries =
-      base::STLSetIntersection<std::set<std::string>>(known_entries,
-                                                      enabled_entries);
-
-  if (new_enabled_entries != enabled_entries)
-    flags_storage->SetFlags(new_enabled_entries);
+  return new_enabled_entries;
 }
 
 void FlagsState::GetSanitizedEnabledFlags(FlagsStorage* flags_storage,
-                                          std::set<std::string>* result) {
-  SanitizeList(flags_storage);
-  *result = flags_storage->GetFlags();
+                                          std::set<std::string>* result) const {
+  std::set<std::string> enabled_entries = flags_storage->GetFlags();
+  std::set<std::string> new_enabled_entries = SanitizeList(enabled_entries, -1);
+  if (new_enabled_entries.size() != enabled_entries.size())
+    flags_storage->SetFlags(new_enabled_entries);
+  result->swap(new_enabled_entries);
 }
 
 void FlagsState::GetSanitizedEnabledFlagsForCurrentPlatform(
     FlagsStorage* flags_storage,
-    std::set<std::string>* result) {
+    std::set<std::string>* result) const {
+  // TODO(asvitkine): Consider making GetSanitizedEnabledFlags() do the platform
+  // filtering by default so that we don't need two calls to SanitizeList().
   GetSanitizedEnabledFlags(flags_storage, result);
 
-  // Filter out any entries that aren't enabled on the current platform.  We
-  // don't remove these from prefs else syncing to a platform with a different
-  // set of entries would be lossy.
-  std::set<std::string> platform_entries;
-  int current_platform = GetCurrentPlatform();
-  for (size_t i = 0; i < num_feature_entries_; ++i) {
-    const FeatureEntry& entry = feature_entries_[i];
-    if (entry.supported_platforms & current_platform)
-      AddInternalName(entry, &platform_entries);
+  int platform_mask = GetCurrentPlatform();
 #if defined(OS_CHROMEOS)
-    if (feature_entries_[i].supported_platforms & kOsCrOSOwnerOnly)
-      AddInternalName(entry, &platform_entries);
+  platform_mask |= kOsCrOSOwnerOnly;
 #endif
-  }
-
-  std::set<std::string> new_enabled_entries =
-      base::STLSetIntersection<std::set<std::string>>(platform_entries,
-                                                      *result);
-
-  result->swap(new_enabled_entries);
+  std::set<std::string> platform_entries = SanitizeList(*result, platform_mask);
+  result->swap(platform_entries);
 }
 
 void FlagsState::GenerateFlagsToSwitchesMapping(
     FlagsStorage* flags_storage,
     std::set<std::string>* enabled_entries,
-    std::map<std::string, SwitchEntry>* name_to_switch_map) {
+    std::map<std::string, SwitchEntry>* name_to_switch_map) const {
   GetSanitizedEnabledFlagsForCurrentPlatform(flags_storage, enabled_entries);
 
   for (size_t i = 0; i < num_feature_entries_; ++i) {
@@ -766,6 +827,16 @@ void FlagsState::GenerateFlagsToSwitchesMapping(
         AddSwitchMapping(e.internal_name, e.command_line_switch,
                          e.command_line_value, name_to_switch_map);
         break;
+
+      case FeatureEntry::ORIGIN_LIST_VALUE: {
+        const std::string value =
+            base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+                e.command_line_switch);
+        AddSwitchMapping(e.internal_name, e.command_line_switch, value,
+                         name_to_switch_map);
+        break;
+      }
+
       case FeatureEntry::MULTI_VALUE:
         for (int j = 0; j < e.num_options; ++j) {
           AddSwitchMapping(
@@ -773,6 +844,7 @@ void FlagsState::GenerateFlagsToSwitchesMapping(
               e.ChoiceForOption(j).command_line_value, name_to_switch_map);
         }
         break;
+
       case FeatureEntry::ENABLE_DISABLE_VALUE:
         AddSwitchMapping(e.NameForOption(0), std::string(), std::string(),
                          name_to_switch_map);
@@ -781,6 +853,7 @@ void FlagsState::GenerateFlagsToSwitchesMapping(
         AddSwitchMapping(e.NameForOption(2), e.disable_command_line_switch,
                          e.disable_command_line_value, name_to_switch_map);
         break;
+
       case FeatureEntry::FEATURE_VALUE:
       case FeatureEntry::FEATURE_WITH_PARAMS_VALUE:
         for (int j = 0; j < e.num_options; ++j) {
@@ -797,6 +870,42 @@ void FlagsState::GenerateFlagsToSwitchesMapping(
         break;
     }
   }
+}
+
+void FlagsState::DidModifyOriginListFlag(const FeatureEntry& entry,
+                                         bool enabled) {
+  // Remove the switch if it exists.
+  base::CommandLine* current_cl = base::CommandLine::ForCurrentProcess();
+  base::CommandLine new_cl(current_cl->GetProgram());
+  const base::CommandLine::SwitchMap switches = current_cl->GetSwitches();
+  for (const auto& it : switches) {
+    const auto& switch_name = it.first;
+    const auto& switch_value = it.second;
+    if (switch_name != entry.command_line_switch) {
+      if (switch_value.empty()) {
+        new_cl.AppendSwitch(switch_name);
+      } else {
+        new_cl.AppendSwitchNative(switch_name, switch_value);
+      }
+    }
+  }
+  *current_cl = new_cl;
+
+  if (enabled) {
+    current_cl->AppendSwitchASCII(
+        entry.command_line_switch,
+        SanitizeOriginListFlag(switch_values_[entry.command_line_switch]));
+  }
+}
+
+const FeatureEntry* FlagsState::FindFeatureEntryByName(
+    const std::string& internal_name) const {
+  for (size_t i = 0; i < num_feature_entries_; ++i) {
+    if (feature_entries_[i].internal_name == internal_name) {
+      return feature_entries_ + i;
+    }
+  }
+  return nullptr;
 }
 
 }  // namespace flags_ui

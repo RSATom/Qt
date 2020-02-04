@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/memory/ptr_util.h"
 #include "storage/browser/fileapi/quota/open_file_handle.h"
 #include "storage/browser/fileapi/quota/open_file_handle_context.h"
@@ -18,20 +19,20 @@ namespace storage {
 
 QuotaReservationBuffer::QuotaReservationBuffer(
     base::WeakPtr<QuotaReservationManager> reservation_manager,
-    const GURL& origin,
+    const url::Origin& origin,
     FileSystemType type)
     : reservation_manager_(reservation_manager),
       origin_(origin),
       type_(type),
       reserved_quota_(0) {
-  DCHECK(origin.is_valid());
+  DCHECK(!origin.opaque());
   DCHECK(sequence_checker_.CalledOnValidSequence());
   reservation_manager_->IncrementDirtyCount(origin, type);
 }
 
 scoped_refptr<QuotaReservation> QuotaReservationBuffer::CreateReservation() {
   DCHECK(sequence_checker_.CalledOnValidSequence());
-  return make_scoped_refptr(new QuotaReservation(this));
+  return base::WrapRefCounted(new QuotaReservation(this));
 }
 
 std::unique_ptr<OpenFileHandle> QuotaReservationBuffer::GetOpenFileHandle(
@@ -87,8 +88,8 @@ QuotaReservationBuffer::~QuotaReservationBuffer() {
   if (reserved_quota_ && reservation_manager_) {
     reservation_manager_->ReserveQuota(
         origin_, type_, -reserved_quota_,
-        base::Bind(&QuotaReservationBuffer::DecrementDirtyCount,
-                   reservation_manager_, origin_, type_));
+        base::BindOnce(&QuotaReservationBuffer::DecrementDirtyCount,
+                       reservation_manager_, origin_, type_));
   }
   reservation_manager_->ReleaseReservationBuffer(this);
 }
@@ -96,11 +97,11 @@ QuotaReservationBuffer::~QuotaReservationBuffer() {
 // static
 bool QuotaReservationBuffer::DecrementDirtyCount(
     base::WeakPtr<QuotaReservationManager> reservation_manager,
-    const GURL& origin,
+    const url::Origin& origin,
     FileSystemType type,
     base::File::Error error,
     int64_t delta_unused) {
-  DCHECK(origin.is_valid());
+  DCHECK(!origin.opaque());
   if (error == base::File::FILE_OK && reservation_manager) {
     reservation_manager->DecrementDirtyCount(origin, type);
     return true;

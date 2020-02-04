@@ -10,24 +10,24 @@
 #include <stdint.h>
 
 #include "core/fpdfdoc/ipvt_fontmap.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Document;
 class CPDF_Dictionary;
 class CPDF_Font;
 
-class CPVT_FontMap : public IPVT_FontMap {
+class CPVT_FontMap final : public IPVT_FontMap {
  public:
   CPVT_FontMap(CPDF_Document* pDoc,
                CPDF_Dictionary* pResDict,
                CPDF_Font* pDefFont,
-               const CFX_ByteString& sDefFontAlias);
+               const ByteString& sDefFontAlias);
   ~CPVT_FontMap() override;
 
   // IPVT_FontMap:
   CPDF_Font* GetPDFFont(int32_t nFontIndex) override;
-  CFX_ByteString GetPDFFontAlias(int32_t nFontIndex) override;
+  ByteString GetPDFFontAlias(int32_t nFontIndex) override;
   int32_t GetWordFontIndex(uint16_t word,
                            int32_t charset,
                            int32_t nFontIndex) override;
@@ -35,16 +35,16 @@ class CPVT_FontMap : public IPVT_FontMap {
   int32_t CharSetFromUnicode(uint16_t word, int32_t nOldCharset) override;
 
   static CPDF_Font* GetAnnotSysPDFFont(CPDF_Document* pDoc,
-                                       const CPDF_Dictionary* pResDict,
-                                       CFX_ByteString* sSysFontAlias);
+                                       CPDF_Dictionary* pResDict,
+                                       ByteString* sSysFontAlias);
 
  private:
-  CFX_UnownedPtr<CPDF_Document> const m_pDocument;
-  CFX_UnownedPtr<CPDF_Dictionary> const m_pResDict;
-  CFX_UnownedPtr<CPDF_Font> const m_pDefFont;
-  CFX_UnownedPtr<CPDF_Font> m_pSysFont;
-  const CFX_ByteString m_sDefFontAlias;
-  CFX_ByteString m_sSysFontAlias;
+  UnownedPtr<CPDF_Document> const m_pDocument;
+  UnownedPtr<CPDF_Dictionary> const m_pResDict;
+  UnownedPtr<CPDF_Font> const m_pDefFont;
+  UnownedPtr<CPDF_Font> m_pSysFont;
+  const ByteString m_sDefFontAlias;
+  ByteString m_sSysFontAlias;
 };
 
 #endif  // CORE_FPDFDOC_CPVT_FONTMAP_H_

@@ -12,10 +12,6 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 
-#if !defined(_POSIX_C_SOURCE)
-#define _POSIX_C_SOURCE 201410L
-#endif
-
 #include <algorithm>
 #include <string>
 
@@ -31,6 +27,7 @@
 
 #if !defined(OPENSSL_WINDOWS)
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <string.h>

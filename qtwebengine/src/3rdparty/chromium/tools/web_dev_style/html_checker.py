@@ -16,13 +16,20 @@ class HtmlChecker(object):
     self.file_filter = file_filter
 
   def ClassesUseDashFormCheck(self, line_number, line):
-    regex = self.input_api.re.compile("""
+    msg = "Classes should use dash-form."
+    re = self.input_api.re
+    class_regex = re.compile("""
         (?:^|\s)                    # start of line or whitespace
         (class="[^"]*[A-Z_][^"]*")  # class contains caps or '_'
         """,
-        self.input_api.re.VERBOSE)
-    return regex_check.RegexCheck(self.input_api.re, line_number, line, regex,
-        "Classes should use dash-form.")
+        re.VERBOSE)
+
+    # $i18n{...} messes with highlighting. Special path for this.
+    if "$i18n{" in line:
+      match = re.search(class_regex, re.sub("\$i18n{[^}]+}", "", line))
+      return "  line %d: %s" % (line_number, msg) if match else ""
+
+    return regex_check.RegexCheck(re, line_number, line, class_regex, msg)
 
   def DoNotCloseSingleTagsCheck(self, line_number, line):
     regex = r"(/>)"
@@ -65,6 +72,13 @@ class HtmlChecker(object):
     return regex_check.RegexCheck(self.input_api.re, line_number, line, regex,
         "For i18n-content use javaScriptCase.")
 
+  def ImportCorrectPolymerHtml(self, line_number, line):
+    bad_import_url = r"(chrome://resources/polymer/v1_0/polymer/polymer.html)"
+    regex = self.input_api.re.compile(bad_import_url)
+    return regex_check.RegexCheck(self.input_api.re, line_number, line, regex,
+        "Please import chrome://resources/html/polymer.html instead " +
+        "(to ensure your Polymer config is set up correctly)");
+
   def LabelCheck(self, line_number, line):
     regex = self.input_api.re.compile("""
         (?:^|\s)     # start of line or whitespace
@@ -103,6 +117,7 @@ class HtmlChecker(object):
             self.DoNotUseBrElementCheck(line_number, line),
             self.DoNotUseInputTypeButtonCheck(line_number, line),
             self.I18nContentJavaScriptCaseCheck(line_number, line),
+            self.ImportCorrectPolymerHtml(line_number, line),
             self.LabelCheck(line_number, line),
             self.QuotePolymerBindings(line_number, line),
         ]))

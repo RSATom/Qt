@@ -62,42 +62,32 @@ void QQuickPlatformIconLoader::setEnabled(bool enabled)
         loadIcon();
 }
 
-QIcon QQuickPlatformIconLoader::icon() const
+QIcon QQuickPlatformIconLoader::toQIcon() const
 {
     QIcon fallback = QPixmap::fromImage(image());
-    return QIcon::fromTheme(m_iconName, fallback);
+    QIcon icon = QIcon::fromTheme(m_icon.name(), fallback);
+    icon.setIsMask(m_icon.isMask());
+    return icon;
 }
 
-QUrl QQuickPlatformIconLoader::iconSource() const
+QQuickPlatformIcon QQuickPlatformIconLoader::icon() const
 {
-    return m_iconSource;
+    return m_icon;
 }
 
-void QQuickPlatformIconLoader::setIconSource(const QUrl& source)
+void QQuickPlatformIconLoader::setIcon(const QQuickPlatformIcon& icon)
 {
-    m_iconSource = source;
-    if (m_enabled)
-        loadIcon();
-}
-
-QString QQuickPlatformIconLoader::iconName() const
-{
-    return m_iconName;
-}
-
-void QQuickPlatformIconLoader::setIconName(const QString& name)
-{
-    m_iconName = name;
+    m_icon = icon;
     if (m_enabled)
         loadIcon();
 }
 
 void QQuickPlatformIconLoader::loadIcon()
 {
-    if (m_iconSource.isEmpty()) {
+    if (m_icon.source().isEmpty()) {
         clear(m_parent);
     } else {
-        load(qmlEngine(m_parent), m_iconSource);
+        load(qmlEngine(m_parent), m_icon.source());
         if (m_slot != -1 && isLoading()) {
             connectFinished(m_parent, m_slot);
             m_slot = -1;

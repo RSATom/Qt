@@ -53,6 +53,8 @@ private slots:
     void addComponentsSeveralParentsSingleAggregations();
     void addComponentsSeveralParentsSeveralAggregations();
 
+    void retrieveSingleComponent();
+
     void removeComponentSingleParentSingleAggregation();
     void removeComponentSingleParentSeveralAggregations();
     void removeComponentsSeveralParentsSingleAggreation();
@@ -71,16 +73,24 @@ class MyQComponent : public Qt3DCore::QComponent
 {
     Q_OBJECT
 public:
-    explicit MyQComponent(Qt3DCore::QNode *parent = 0)
+    explicit MyQComponent(Qt3DCore::QNode *parent = nullptr)
         : QComponent(parent)
     {}
 };
 
+class MyQ2Component : public Qt3DCore::QComponent
+{
+    Q_OBJECT
+public:
+    explicit MyQ2Component(Qt3DCore::QNode *parent = 0)
+        : QComponent(parent)
+    {}
+};
 
 class MyEntity : public Qt3DCore::QEntity
 {
 public:
-    explicit MyEntity(Qt3DCore::QNode *parent = 0)
+    explicit MyEntity(Qt3DCore::QNode *parent = nullptr)
         : QEntity(parent)
     {}
 };
@@ -504,6 +514,29 @@ void tst_Entity::removeComponentsSeveralParentsSeveralAggregations()
     QCOMPARE(comp3->entities().size(), 0);
 }
 
+void tst_Entity::retrieveSingleComponent()
+{
+    // GIVEN
+    QScopedPointer<Qt3DCore::QEntity> entity1(new QEntity());
+
+    MyQComponent *comp1 = new MyQComponent(entity1.data());
+    MyQComponent *comp2 = new MyQComponent(entity1.data());
+    QCoreApplication::processEvents();
+    entity1->addComponent(comp1);
+    entity1->addComponent(comp2);
+
+    // WHEN
+    QVector<MyQComponent*> myQComponentsInEntity = entity1->componentsOfType<MyQComponent>();
+    QVector<MyQ2Component*> myQ2ComponentsInEntity = entity1->componentsOfType<MyQ2Component>();
+
+    // THEN
+    QVERIFY(myQComponentsInEntity.size() == 2);
+    QVERIFY(myQComponentsInEntity[0] == comp1);
+    QVERIFY(myQComponentsInEntity[1] == comp2);
+
+    QVERIFY(myQ2ComponentsInEntity.size() == 0);
+}
+
 void tst_Entity::addSeveralTimesSameComponent()
 {
     // GIVEN
@@ -556,30 +589,57 @@ void tst_Entity::removeSeveralTimesSameComponent()
 void tst_Entity::checkCloning_data()
 {
     QTest::addColumn<Qt3DCore::QEntity *>("entity");
+    QTest::addColumn<QVector<QNodeId>>("childEntityIds");
+    QTest::addColumn<int>("creationChangeCount");
 
-    QTest::newRow("defaultConstructed") << new MyEntity();
+    {
+        QTest::newRow("defaultConstructed") << new MyEntity() << QVector<QNodeId>() << 1;
+    }
 
-    Qt3DCore::QEntity *entityWithComponents = new MyEntity();
-    Qt3DCore::QComponent *component1 = new MyQComponent();
-    Qt3DCore::QComponent *component2 = new MyQComponent();
-    Qt3DCore::QComponent *component3 = new MyQComponent();
-    entityWithComponents->addComponent(component1);
-    entityWithComponents->addComponent(component2);
-    entityWithComponents->addComponent(component3);
-    QTest::newRow("entityWithComponents") << entityWithComponents;
+    {
+        Qt3DCore::QEntity *entityWithComponents = new MyEntity();
+        Qt3DCore::QComponent *component1 = new MyQComponent();
+        Qt3DCore::QComponent *component2 = new MyQComponent();
+        Qt3DCore::QComponent *component3 = new MyQComponent();
+        entityWithComponents->addComponent(component1);
+        entityWithComponents->addComponent(component2);
+        entityWithComponents->addComponent(component3);
+        QTest::newRow("entityWithComponents") << entityWithComponents << QVector<QNodeId>() << 4;
+    }
+
+    {
+        Qt3DCore::QEntity *entityWithChildren = new MyEntity();
+        Qt3DCore::QEntity *child1 = new MyEntity(entityWithChildren);
+        Qt3DCore::QEntity *child2 = new MyEntity(entityWithChildren);
+        QVector<QNodeId> childIds = {child1->id(), child2->id()};
+        QTest::newRow("entityWithChildren") << entityWithChildren << childIds << 3;
+    }
+
+    {
+        Qt3DCore::QEntity *entityWithNestedChildren = new MyEntity();
+        Qt3DCore::QEntity *child = new MyEntity(entityWithNestedChildren);
+        Qt3DCore::QNode *dummy = new Qt3DCore::QNode(entityWithNestedChildren);
+        Qt3DCore::QEntity *grandChild = new MyEntity(entityWithNestedChildren);
+        QVector<QNodeId> childIds = {child->id(), grandChild->id()};
+        QTest::newRow("entityWithNestedChildren") << entityWithNestedChildren << childIds << 4;
+
+        Q_UNUSED(dummy);
+    }
 }
 
 void tst_Entity::checkCloning()
 {
     // GIVEN
     QFETCH(Qt3DCore::QEntity *, entity);
+    QFETCH(QVector<QNodeId>, childEntityIds);
+    QFETCH(int, creationChangeCount);
 
     // WHEN
     Qt3DCore::QNodeCreatedChangeGenerator creationChangeGenerator(entity);
     QVector<Qt3DCore::QNodeCreatedChangeBasePtr> creationChanges = creationChangeGenerator.creationChanges();
 
     // THEN
-    QCOMPARE(creationChanges.size(), 1 + entity->components().size());
+    QCOMPARE(creationChanges.size(), creationChangeCount);
 
     const Qt3DCore::QNodeCreatedChangePtr<Qt3DCore::QEntityData> creationChangeData =
             qSharedPointerCast<Qt3DCore::QNodeCreatedChange<Qt3DCore::QEntityData>>(creationChanges.first());
@@ -591,6 +651,7 @@ void tst_Entity::checkCloning()
     QCOMPARE(creationChangeData->metaObject(), entity->metaObject());
     QCOMPARE(creationChangeData->parentId(), entity->parentNode() ? entity->parentNode()->id() : Qt3DCore::QNodeId());
     QCOMPARE(cloneData.parentEntityId, entity->parentEntity() ? entity->parentEntity()->id() : Qt3DCore::QNodeId());
+    QCOMPARE(cloneData.childEntityIds, childEntityIds);
     QCOMPARE(cloneData.componentIdsAndTypes.size(), entity->components().size());
 
     const QVector<Qt3DCore::QComponent *> &components = entity->components();
@@ -627,10 +688,19 @@ void tst_Entity::checkComponentBookkeeping()
         QCOMPARE(rootEntity->components().size(), 1);
 
         // WHEN
-        rootEntity.reset();
+        int sigCount = 0;
+        QObject *sigSender = comp.data();
+        connect(comp.data(), &QComponent::removedFromEntity, [&sigCount, sigSender](QEntity *) {
+            QComponent *c = qobject_cast<QComponent *>(sigSender);
+            if (sigSender && c)
+                sigCount++; // test the sender is still a QComponent when signal is emitted
+        });
+
         comp.reset();
+        rootEntity.reset();
 
         // THEN (Should not crash when the comp is destroyed (tests for failed removal of destruction helper)
+        QCOMPARE(sigCount, 1);
     }
 }
 

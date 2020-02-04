@@ -3,10 +3,15 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/media_router/media_router_webui_message_handler.h"
+
+#include <memory>
+#include <set>
+#include <utility>
+
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
-#include "chrome/browser/media/router/mock_media_router.h"
-#include "chrome/browser/media/router/mojo/media_router_mojo_test.h"
+#include "chrome/browser/media/router/test/media_router_mojo_test.h"
+#include "chrome/browser/media/router/test/mock_media_router.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/media_router/media_router_ui.h"
@@ -25,8 +30,6 @@ namespace media_router {
 
 namespace {
 
-const char kProviderExtensionIdForTesting[] = "test_id";
-const char kControllerPathForTesting[] = "test_path";
 const char kUserEmailForTesting[] = "nobody@example.com";
 const char kUserDomainForTesting[] = "example.com";
 
@@ -67,7 +70,7 @@ MediaRoute CreateRoute() {
   bool is_local = true;
   bool is_for_display = true;
   MediaRoute route(route_id, MediaSource("mediaSource"), sink_id, description,
-                   is_local, kControllerPathForTesting, is_for_display);
+                   is_local, is_for_display);
 
   return route;
 }
@@ -88,13 +91,13 @@ class MockMediaRouterUI : public MediaRouterUI {
  public:
   explicit MockMediaRouterUI(content::WebUI* web_ui)
       : MediaRouterUI(web_ui) {}
-  ~MockMediaRouterUI() {}
+  ~MockMediaRouterUI() override {}
 
-  MOCK_METHOD0(UIInitialized, void());
+  MOCK_METHOD0(OnUIInitialized, void());
   MOCK_CONST_METHOD0(UserSelectedTabMirroringForCurrentOrigin, bool());
   MOCK_METHOD1(RecordCastModeSelection, void(MediaCastMode cast_mode));
-  MOCK_CONST_METHOD0(cast_modes, const std::set<MediaCastMode>&());
-  MOCK_CONST_METHOD0(GetRouteProviderExtensionId, const std::string&());
+  MOCK_CONST_METHOD0(GetPresentationRequestSourceName, std::string());
+  MOCK_CONST_METHOD0(GetCastModes, const std::set<MediaCastMode>&());
   MOCK_METHOD1(OnMediaControllerUIAvailable,
                void(const MediaRoute::Id& route_id));
   MOCK_METHOD0(OnMediaControllerUIClosed, void());
@@ -103,7 +106,7 @@ class MockMediaRouterUI : public MediaRouterUI {
   MOCK_METHOD1(SeekRoute, void(base::TimeDelta time));
   MOCK_METHOD1(SetRouteMute, void(bool mute));
   MOCK_METHOD1(SetRouteVolume, void(float volume));
-  MOCK_CONST_METHOD0(GetMediaRouteController, const MediaRouteController*());
+  MOCK_CONST_METHOD0(GetMediaRouteController, MediaRouteController*());
 };
 
 class TestMediaRouterWebUIMessageHandler
@@ -139,8 +142,7 @@ class TestMediaRouterWebUIMessageHandler
 class MediaRouterWebUIMessageHandlerTest : public MediaRouterWebUITest {
  public:
   MediaRouterWebUIMessageHandlerTest()
-      : web_ui_(base::MakeUnique<content::TestWebUI>()),
-        provider_extension_id_(kProviderExtensionIdForTesting) {}
+      : web_ui_(std::make_unique<content::TestWebUI>()) {}
   ~MediaRouterWebUIMessageHandlerTest() override {}
 
   // BrowserWithTestWindowTest:
@@ -149,8 +151,8 @@ class MediaRouterWebUIMessageHandlerTest : public MediaRouterWebUITest {
     chrome::NewTab(browser());
     web_ui_->set_web_contents(
         browser()->tab_strip_model()->GetActiveWebContents());
-    mock_media_router_ui_ = base::MakeUnique<MockMediaRouterUI>(web_ui_.get());
-    handler_ = base::MakeUnique<TestMediaRouterWebUIMessageHandler>(
+    mock_media_router_ui_ = std::make_unique<MockMediaRouterUI>(web_ui_.get());
+    handler_ = std::make_unique<TestMediaRouterWebUIMessageHandler>(
         mock_media_router_ui_.get());
     handler_->SetWebUIForTest(web_ui_.get());
   }
@@ -169,7 +171,7 @@ class MediaRouterWebUIMessageHandlerTest : public MediaRouterWebUITest {
   // Gets the call data for the function call made to |web_ui_|. There needs
   // to be one call made, and its function name must be |function_name|.
   const base::Value* GetCallData(const std::string& function_name) {
-    CHECK(1u == web_ui_->call_data().size());
+    CHECK_EQ(1u, web_ui_->call_data().size());
     const content::TestWebUI::CallData& call_data = *web_ui_->call_data()[0];
     CHECK(function_name == call_data.function_name());
     return call_data.arg1();
@@ -207,8 +209,11 @@ class MediaRouterWebUIMessageHandlerTest : public MediaRouterWebUITest {
     return dict_value;
   }
 
+  MockMediaRouter* router() { return &router_; }
+
  protected:
   std::unique_ptr<content::TestWebUI> web_ui_;
+  MockMediaRouter router_;
   std::unique_ptr<MockMediaRouterUI> mock_media_router_ui_;
   std::unique_ptr<TestMediaRouterWebUIMessageHandler> handler_;
   const std::string provider_extension_id_;
@@ -338,8 +343,6 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, UpdateRoutes) {
   current_cast_modes.insert(
       std::make_pair(route.media_route_id(), MediaCastMode::PRESENTATION));
 
-  EXPECT_CALL(*mock_media_router_ui_, GetRouteProviderExtensionId()).WillOnce(
-      ReturnRef(provider_extension_id()));
   handler_->UpdateRoutes({route}, joinable_route_ids, current_cast_modes);
   const base::DictionaryValue* route_value =
       ExtractDictFromListFromCallArg("media_router.ui.setRouteList");
@@ -351,20 +354,12 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, UpdateRoutes) {
   EXPECT_TRUE(GetBooleanFromDict(route_value, "canJoin"));
   EXPECT_EQ(MediaCastMode::PRESENTATION,
             GetIntegerFromDict(route_value, "currentCastMode"));
-  std::string expected_path = base::StringPrintf("%s://%s/%s",
-                                  extensions::kExtensionScheme,
-                                  kProviderExtensionIdForTesting,
-                                  kControllerPathForTesting);
-  EXPECT_EQ(expected_path,
-            GetStringFromDict(route_value, "customControllerPath"));
 }
 
 TEST_F(MediaRouterWebUIMessageHandlerTest, UpdateRoutesIncognito) {
   handler_->set_incognito_for_test(true);
   const MediaRoute route = CreateRoute();
 
-  EXPECT_CALL(*mock_media_router_ui_, GetRouteProviderExtensionId())
-      .WillOnce(ReturnRef(provider_extension_id()));
   handler_->UpdateRoutes({route}, std::vector<MediaRoute::Id>(),
                          std::unordered_map<MediaRoute::Id, MediaCastMode>());
   const base::DictionaryValue* route_value =
@@ -379,9 +374,6 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, UpdateRoutesIncognito) {
   int actual_current_cast_mode = -1;
   EXPECT_FALSE(
       route_value->GetInteger("currentCastMode", &actual_current_cast_mode));
-  std::string custom_controller_path;
-  EXPECT_FALSE(
-      route_value->GetString("customControllerPath", &custom_controller_path));
 }
 
 TEST_F(MediaRouterWebUIMessageHandlerTest, SetCastModesList) {
@@ -409,20 +401,21 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, SetCastModesList) {
 TEST_F(MediaRouterWebUIMessageHandlerTest, UpdateMediaRouteStatus) {
   MediaStatus status;
   status.title = "test title";
-  status.description = "test description";
   status.can_play_pause = true;
   status.can_set_volume = true;
   status.play_state = MediaStatus::PlayState::BUFFERING;
   status.duration = base::TimeDelta::FromSeconds(90);
   status.current_time = base::TimeDelta::FromSeconds(80);
   status.volume = 0.9;
+  // |status.hangouts_extra_data->local_present| defaults to |false|.
+  status.hangouts_extra_data.emplace();
+  status.mirroring_extra_data.emplace(true);
 
   handler_->UpdateMediaRouteStatus(status);
   const base::DictionaryValue* status_value =
       ExtractDictFromCallArg("media_router.ui.updateRouteStatus");
 
   EXPECT_EQ(status.title, GetStringFromDict(status_value, "title"));
-  EXPECT_EQ(status.description, GetStringFromDict(status_value, "description"));
   EXPECT_EQ(status.can_play_pause,
             GetBooleanFromDict(status_value, "canPlayPause"));
   EXPECT_EQ(status.can_mute, GetBooleanFromDict(status_value, "canMute"));
@@ -437,6 +430,22 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, UpdateMediaRouteStatus) {
   EXPECT_EQ(status.current_time.InSeconds(),
             GetIntegerFromDict(status_value, "currentTime"));
   EXPECT_EQ(status.volume, GetDoubleFromDict(status_value, "volume"));
+
+  const base::Value* hangouts_extra_data = status_value->FindKeyOfType(
+      "hangoutsExtraData", base::Value::Type::DICTIONARY);
+  ASSERT_TRUE(hangouts_extra_data);
+  const base::Value* local_present_value = hangouts_extra_data->FindKeyOfType(
+      "localPresent", base::Value::Type::BOOLEAN);
+  ASSERT_TRUE(local_present_value);
+  EXPECT_FALSE(local_present_value->GetBool());
+
+  const base::Value* mirroring_extra_data = status_value->FindKeyOfType(
+      "mirroringExtraData", base::Value::Type::DICTIONARY);
+  ASSERT_TRUE(mirroring_extra_data);
+  const base::Value* media_remoting_value = mirroring_extra_data->FindKeyOfType(
+      "mediaRemotingEnabled", base::Value::Type::BOOLEAN);
+  ASSERT_TRUE(media_remoting_value);
+  EXPECT_TRUE(media_remoting_value->GetBool());
 }
 
 TEST_F(MediaRouterWebUIMessageHandlerTest, OnCreateRouteResponseReceived) {
@@ -444,8 +453,6 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, OnCreateRouteResponseReceived) {
   bool incognito = false;
   route.set_incognito(incognito);
 
-  EXPECT_CALL(*mock_media_router_ui_, GetRouteProviderExtensionId())
-      .WillOnce(ReturnRef(provider_extension_id()));
   handler_->OnCreateRouteResponseReceived(route.media_sink_id(), &route);
 
   const content::TestWebUI::CallData& call_data = *web_ui_->call_data()[0];
@@ -461,11 +468,6 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, OnCreateRouteResponseReceived) {
   EXPECT_EQ(route.media_sink_id(), GetStringFromDict(route_value, "sinkId"));
   EXPECT_EQ(route.description(), GetStringFromDict(route_value, "description"));
   EXPECT_EQ(route.is_local(), GetBooleanFromDict(route_value, "isLocal"));
-  std::string expected_path = base::StringPrintf(
-      "%s://%s/%s", extensions::kExtensionScheme,
-      kProviderExtensionIdForTesting, kControllerPathForTesting);
-  EXPECT_EQ(expected_path,
-            GetStringFromDict(route_value, "customControllerPath"));
 
   bool route_for_display = false;
   ASSERT_TRUE(call_data.arg3()->GetAsBoolean(&route_for_display));
@@ -479,8 +481,6 @@ TEST_F(MediaRouterWebUIMessageHandlerTest,
   bool incognito = true;
   route.set_incognito(incognito);
 
-  EXPECT_CALL(*mock_media_router_ui_, GetRouteProviderExtensionId()).WillOnce(
-      ReturnRef(provider_extension_id()));
   handler_->OnCreateRouteResponseReceived(route.media_sink_id(), &route);
 
   const content::TestWebUI::CallData& call_data = *web_ui_->call_data()[0];
@@ -496,9 +496,6 @@ TEST_F(MediaRouterWebUIMessageHandlerTest,
   EXPECT_EQ(route.media_sink_id(), GetStringFromDict(route_value, "sinkId"));
   EXPECT_EQ(route.description(), GetStringFromDict(route_value, "description"));
   EXPECT_EQ(route.is_local(), GetBooleanFromDict(route_value, "isLocal"));
-
-  std::string actual_path;
-  EXPECT_FALSE(route_value->GetString("customControllerPath", &actual_path));
 
   bool route_for_display = false;
   ASSERT_TRUE(call_data.arg3()->GetAsBoolean(&route_for_display));
@@ -558,11 +555,11 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, RecordCastModeSelection) {
 TEST_F(MediaRouterWebUIMessageHandlerTest, RetrieveCastModeSelection) {
   base::ListValue args;
   std::set<MediaCastMode> cast_modes = {MediaCastMode::TAB_MIRROR};
-  EXPECT_CALL(*mock_media_router_ui_, GetRouteProviderExtensionId())
-      .WillRepeatedly(ReturnRef(provider_extension_id()));
-  EXPECT_CALL(*mock_media_router_ui_, cast_modes())
+  EXPECT_CALL(*mock_media_router_ui_, GetCastModes())
       .WillRepeatedly(ReturnRef(cast_modes));
 
+  EXPECT_CALL(*mock_media_router_ui_, GetPresentationRequestSourceName())
+      .WillRepeatedly(Return("source"));
   EXPECT_CALL(*mock_media_router_ui_,
               UserSelectedTabMirroringForCurrentOrigin())
       .WillOnce(Return(true));
@@ -587,7 +584,7 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, OnRouteDetailsOpenedAndClosed) {
   const std::string route_id = "routeId123";
   base::ListValue args_list;
   base::DictionaryValue* args;
-  args_list.Append(base::MakeUnique<base::DictionaryValue>());
+  args_list.Append(std::make_unique<base::DictionaryValue>());
   args_list.GetDictionary(0, &args);
   args->SetString("routeId", route_id);
 
@@ -600,12 +597,8 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, OnRouteDetailsOpenedAndClosed) {
 }
 
 TEST_F(MediaRouterWebUIMessageHandlerTest, OnMediaCommandsReceived) {
-  mojom::MediaControllerPtr mojo_media_controller;
-  mojo::MakeRequest(&mojo_media_controller);
-  MockMediaRouter media_router;
-  scoped_refptr<MockMediaRouteController> controller =
-      new MockMediaRouteController("routeId", std::move(mojo_media_controller),
-                                   &media_router);
+  auto controller = base::MakeRefCounted<MockMediaRouteController>(
+      "routeId", profile(), router());
   EXPECT_CALL(*mock_media_router_ui_, GetMediaRouteController())
       .WillRepeatedly(Return(controller.get()));
   MediaStatus status;
@@ -621,12 +614,12 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, OnMediaCommandsReceived) {
   handler_->OnPauseCurrentMedia(&args_list);
 
   base::DictionaryValue* args;
-  args_list.Append(base::MakeUnique<base::DictionaryValue>());
+  args_list.Append(std::make_unique<base::DictionaryValue>());
   args_list.GetDictionary(0, &args);
 
-  const int time = 50;
-  args->SetInteger("time", time);
-  EXPECT_CALL(*controller, Seek(base::TimeDelta::FromSeconds(time)));
+  const double time = 50.1;
+  args->SetDouble("time", time);
+  EXPECT_CALL(*controller, Seek(base::TimeDelta::FromSecondsD(time)));
   handler_->OnSeekCurrentMedia(&args_list);
 
   args->Clear();
@@ -641,13 +634,21 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, OnMediaCommandsReceived) {
   handler_->OnSetCurrentMediaVolume(&args_list);
 }
 
+TEST_F(MediaRouterWebUIMessageHandlerTest, OnSetMediaRemotingEnabled) {
+  auto controller = base::MakeRefCounted<MirroringMediaRouteController>(
+      "routeId", profile(), router());
+  EXPECT_CALL(*mock_media_router_ui_, GetMediaRouteController())
+      .WillRepeatedly(Return(controller.get()));
+
+  base::ListValue args_list;
+  args_list.GetList().emplace_back(false);
+  handler_->OnSetMediaRemotingEnabled(&args_list);
+  EXPECT_FALSE(controller->media_remoting_enabled());
+}
+
 TEST_F(MediaRouterWebUIMessageHandlerTest, OnInvalidMediaCommandsReceived) {
-  mojom::MediaControllerPtr mojo_media_controller;
-  mojo::MakeRequest(&mojo_media_controller);
-  MockMediaRouter media_router;
-  scoped_refptr<MockMediaRouteController> controller =
-      new MockMediaRouteController("routeId", std::move(mojo_media_controller),
-                                   &media_router);
+  auto controller = base::MakeRefCounted<MockMediaRouteController>(
+      "routeId", profile(), router());
   EXPECT_CALL(*mock_media_router_ui_, GetMediaRouteController())
       .WillRepeatedly(Return(controller.get()));
 
@@ -661,13 +662,13 @@ TEST_F(MediaRouterWebUIMessageHandlerTest, OnInvalidMediaCommandsReceived) {
   base::ListValue args_list;
 
   base::DictionaryValue* args;
-  args_list.Append(base::MakeUnique<base::DictionaryValue>());
+  args_list.Append(std::make_unique<base::DictionaryValue>());
   args_list.GetDictionary(0, &args);
 
   // Seek positions greater than the duration or negative should be ignored.
-  args->SetInteger("time", 101);
+  args->SetDouble("time", 101);
   handler_->OnSeekCurrentMedia(&args_list);
-  args->SetInteger("time", -10);
+  args->SetDouble("time", -10);
   handler_->OnSeekCurrentMedia(&args_list);
 
   args->Clear();

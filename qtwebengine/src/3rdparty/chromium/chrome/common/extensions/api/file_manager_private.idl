@@ -9,7 +9,8 @@
 namespace fileManagerPrivate {
 // Type of the mounted volume.
 enum VolumeType { drive, downloads, removable, archive, provided, mtp,
-                  media_view, testing };
+                  media_view, crostini, android_files, documents_provider,
+                  testing };
 
 // Device type. Available if this is removable volume.
 enum DeviceType { usb, sd, optical, mobile, unknown };
@@ -43,16 +44,11 @@ enum MountCompletedStatus {
   error_invalid_device_path,
   error_unknown_filesystem,
   error_unsupported_filesystem,
-  error_invalid_archive,
-  error_authentication,
-  error_path_unmounted
+  error_invalid_archive
 };
 
 // File transfer progress state.
 enum TransferState { in_progress, completed, failed };
-
-// Defines file transfer direction.
-enum TransferType { upload, download };
 
 // The type of the progress event.
 enum CopyProgressStatusType {
@@ -73,6 +69,13 @@ enum CopyProgressStatusType {
 
   // "error" is fired when an error occurs.
   error
+};
+
+// The response when starting installing a Linux package.
+enum InstallLinuxPackageResponse {
+  started,
+  failed,
+  install_already_active
 };
 
 // Specifies type of event that is raised.
@@ -112,7 +115,13 @@ enum DeviceEventType {
   // Format succeeded.
   format_success,
   // Format failed.
-  format_fail
+  format_fail,
+  // Rename started.
+  rename_start,
+  // Rename succeeded.
+  rename_success,
+  // Rename failed.
+  rename_fail
 };
 
 // Drive sync error type.
@@ -148,10 +157,11 @@ enum DriveShareType {
   can_view
 };
 
-// Names of properies for getEntryProperties().
+// Names of properties for getEntryProperties().
 enum EntryPropertyName {
   size,
   modificationTime,
+  modificationByMeTime,
   thumbnailUrl,
   croppedThumbnailUrl,
   imageWidth,
@@ -168,7 +178,17 @@ enum EntryPropertyName {
   sharedWithMe,
   shared,
   starred,
-  externalFileUrl
+  externalFileUrl,
+  alternateUrl,
+  shareUrl,
+  canCopy,
+  canDelete,
+  canRename,
+  canAddChildren,
+  canShare,
+  isMachineRoot,
+  isExternalMedia,
+  isArbitrarySyncFolder
 };
 
 // Entry property visibility for setEntryTag();
@@ -206,6 +226,8 @@ enum SourceRestriction {
   native_or_drive_source
 };
 
+enum CrostiniSharedPathsChangedEventType { share, unshare };
+
 // A file task represents an action that the file manager can perform over the
 // currently selected files. See
 // chrome/browser/chromeos/extensions/file_manager/file_tasks.h for details
@@ -241,6 +263,9 @@ dictionary EntryProperties {
 
   // Timestamp of entry update time, in milliseconds past the epoch.
   double? modificationTime;
+
+  // Timestamp of entry update time by me, in milliseconds past the epoch.
+  double? modificationByMeTime;
 
   // URL to the Drive thumbnail image for this file.
   DOMString? thumbnailUrl;
@@ -291,8 +316,41 @@ dictionary EntryProperties {
   // True if the entry is starred by the user.
   boolean? starred;
 
-  // External file URL to open the file in browser.
+  // externalfile:// URL to open the file in browser.
   DOMString? externalFileUrl;
+
+  // https:// URL to open the file or folder in the Drive website.
+  DOMString? alternateUrl;
+
+  // https:// URL to open the file or folder in the Drive website with the
+  // sharing dialog open.
+  DOMString? shareUrl;
+
+  // True if the entry can be copied by the user.
+  boolean? canCopy;
+
+  // True if the entry can be deleted by the user.
+  boolean? canDelete;
+
+  // True if the entry can be renamed by the user.
+  boolean? canRename;
+
+  // True if the entry can have children added to it by the user (directories
+  // only).
+  boolean? canAddChildren;
+
+  // True if the entry can be shared by the user.
+  boolean? canShare;
+
+  // True if the entry is a machine root for backup and sync.
+  boolean? isMachineRoot;
+
+  // True if the entry is a external media folder, that contains one time only
+  // uploads for USB devices, SD cards etc.
+  boolean? isExternalMedia;
+
+  // True if the entry is an arbitrary sync folder.
+  boolean? isArbitrarySyncFolder;
 };
 
 // Information about total and remaining size on the mount point.
@@ -318,6 +376,12 @@ dictionary ProfileInfo {
   boolean isCurrentProfile;
 };
 
+// Represents an icon in multiple dimensions. All are optional.
+dictionary IconSet {
+  DOMString? icon16x16Url;
+  DOMString? icon32x32Url;
+};
+
 // Mounted disk volume metadata.
 dictionary VolumeMetadata {
   // ID of the disk volume.
@@ -326,8 +390,8 @@ dictionary VolumeMetadata {
   // Id the provided file system (for provided file systems).
   DOMString? fileSystemId;
 
-  // Extension providing this volume (for provided file systems).
-  DOMString? extensionId;
+  // ID of the provider, if the volume is backed by FSP.
+  DOMString? providerId;
 
   // Source of the volume's data.
   Source source;
@@ -378,6 +442,16 @@ dictionary VolumeMetadata {
 
   // Context in which the volume has been mounted.
   MountContext? mountContext;
+
+  // File system type indentifier.
+  DOMString? diskFileSystemType;
+
+  // Icons for the volume.
+  IconSet iconSet;
+
+  // Drive label of the volume. Removable partitions that belong to the
+  // same physical removable device share the same drive label.
+  DOMString? driveLabel;
 };
 
 // Payload data for mount event.
@@ -404,9 +478,6 @@ dictionary FileTransferStatus {
   // File transfer progress state.
   TransferState transferState;
 
-  // Defines file transfer direction.
-  TransferType transferType;
-
   // Approximated completed portion of the transfer operation.
   double processed;
 
@@ -415,6 +486,10 @@ dictionary FileTransferStatus {
 
   // Total number of jobs.
   long num_total_jobs;
+
+  // If true, hide when a job is completed when there are zero jobs in
+  // progress. Otherwise, hide when one job is in progress.
+  boolean hideWhenZeroJobs;
 };
 
 // Error during the drive sync.
@@ -481,7 +556,6 @@ dictionary FileWatchEvent {
 dictionary Preferences {
   boolean driveEnabled;
   boolean cellularDisabled;
-  boolean hostedFilesDisabled;
   boolean searchSuggestEnabled;
   boolean use24hourClock;
   boolean allowRedeemOffers;
@@ -490,7 +564,6 @@ dictionary Preferences {
 
 dictionary PreferencesChange {
   boolean? cellularDisabled;
-  boolean? hostedFilesDisabled;
 };
 
 dictionary SearchParams {
@@ -550,12 +623,15 @@ dictionary DeviceEvent {
   DOMString devicePath;
 };
 
-// Describes an installed providing extension.
-dictionary ProvidingExtension {
-  // ID of the providing extension.
-  DOMString extensionId;
+// Describes an installed provider.
+dictionary Provider {
+  // ID of the provider.
+  DOMString providerId;
 
-  // Name of the providing extension.
+  // Set of icons for the provider.
+  IconSet iconSet;
+
+  // Name of the provider.
   DOMString name;
 
   // Whether supports configuration dialog.
@@ -569,6 +645,26 @@ dictionary ProvidingExtension {
 
   // Source of file systems' data.
   manifestTypes.FileSystemProviderSource source;
+};
+
+// Information about a Linux package in response to GetLinuxPackageInfo.
+dictionary LinuxPackageInfo {
+  DOMString name;
+  DOMString version;
+
+  // A one-line summary of the project. Almost always present.
+  DOMString? summary;
+  // A longer description of the project. Almost always present.
+  DOMString? description;
+};
+
+// Payload data for crostini shared paths changed event.
+dictionary CrostiniSharedPathsChangedEvent {
+  // Is the event raised for shared or unshared.
+  CrostiniSharedPathsChangedEventType eventType;
+
+  // Paths that have been shared or unshared.
+  [instanceOf=Entry] object[] entries;
 };
 
 // Callback that does not take arguments.
@@ -602,6 +698,8 @@ callback GetEntryPropertiesCallback =
 
 // |sourcePath| Source path of the mount.
 callback AddMountCallback = void(DOMString sourcePath);
+
+callback MarkCacheAsMountedCallback = void();
 
 // |volumeMetadataList| The list of VolumeMetadata representing mounted volumes.
 callback GetVolumeMetadataListCallback =
@@ -664,8 +762,8 @@ callback ResolveEntriesCallback =
 // |checksum| Result checksum.
 callback ComputeChecksumCallback = void(DOMString checksum);
 
-// |extensions| List of providing extensions.
-callback GetProvidingExtensionsCallback = void(ProvidingExtension[] extensions);
+// |extensions| List of providers.
+callback GetProvidersCallback = void(Provider[] extensions);
 
 // |actions| List of actions.
 callback GetCustomActionsCallback = void(fileSystemProvider.Action[] actions);
@@ -675,6 +773,27 @@ callback GetDirectorySizeCallback = void(double size);
 
 // |entries| Recently modified entries.
 callback GetRecentFilesCallback = void([instanceOf=Entry] object[] entries);
+
+// |entries| Entries shared with crostini container.
+// |firstForSession| true the first time this is called for the session.
+callback GetCrostiniSharedPathsCallback =
+    void([instanceOf = Entry] object[] entries, boolean firstForSession);
+
+// |linux_package_info| Package info for the queried package.
+callback GetLinuxPackageInfoCallback =
+    void(LinuxPackageInfo linux_package_info);
+
+// |status| Result of starting the install
+// |failure_reason| Reason for failure for a 'failed' status
+callback InstallLinuxPackageCallback = void(
+    InstallLinuxPackageResponse response, DOMString failure_reason);
+
+// |result| String representing the detected coding system.
+callback DetectCharacterEncodingCallback = void(DOMString result);
+
+// |thumbnailDataUrl| A data URL for the thumbnail as a PNG; |thumbnailDataUrl|
+// is empty if no thumbnail was available.
+callback GetThumbnailCallback = void(DOMString thumbnailDataUrl);
 
 interface Functions {
   // Logout the current user for navigating to the re-authentication screen for
@@ -791,6 +910,20 @@ interface Functions {
                            boolean pin,
                            SimpleCallback callback);
 
+  // If |entry| is a Drive file, ensures the file is downloaded to the cache.
+  // Otherwise, finishes immediately in success. For example, when the file is
+  // under Downloads, MTP, removeable media, or provided by extensions for
+  // other cloud storage services than Google Drive, this does nothing.
+  // This is a workaround to avoid intermittent and duplicated downloading of
+  // a Drive file by current implementation of Drive integration when an
+  // extension reads a file sequentially but intermittently.
+  // |entry| A regular file entry to be read.
+  // |callback| Callback called after having the file in cache.
+  //     $(ref:runtime.lastError) will be set if there was an error.
+  [nocompile]
+  static void ensureFileDownloaded([instanceof=Entry] object entry,
+                           SimpleCallback callback);
+
   // Resolves entries in the isolated file system and returns corresponding
   // entries in the external file system mounted to Chrome OS file manager
   // backend. If resolving entry fails, the entry will be just ignored and the
@@ -810,6 +943,16 @@ interface Functions {
   // |volumeId| An ID of the volume.
   static void removeMount(DOMString volumeId);
 
+  // Marks a cache file of Drive as mounted or unmounted.
+  // Does nothing if the file is not under Drive directory.
+  // |sourcePath| Mounted source file. Relative file path within external file
+  //     system.
+  // |isMounted| Mark as mounted if true. Mark as unmounted otherwise.
+  // |callback| Completion callback. $(ref:runtime.lastError) will be set if
+  //     there was an error.
+  static void markCacheAsMounted(DOMString sourcePath, boolean isMounted,
+      MarkCacheAsMountedCallback callback);
+
   // Get the list of mounted volumes.
   // |callback|
   static void getVolumeMetadataList(GetVolumeMetadataListCallback callback);
@@ -820,10 +963,6 @@ interface Functions {
   [nocompile]
   static void cancelFileTransfers([instanceof=Entry] object[] entries,
                                   SimpleCallback callback);
-
-  // Cancels all ongoing file transfers.
-  // |callback| Completion callback of the cancel.
-  static void cancelAllFileTransfers(SimpleCallback callback);
 
   // Starts to copy an entry. If the source is a directory, the copy is done
   // recursively.
@@ -850,6 +989,11 @@ interface Functions {
   // Formats a mounted volume.
   // |volumeId| ID of the volume to be formatted.
   static void formatVolume(DOMString volumeId);
+
+  // Renames a mounted volume.
+  // |volumeId| ID of the volume to be renamed.
+  // |newName| New name of the target volume.
+  static void renameVolume(DOMString volumeId, DOMString newName);
 
   // Retrieves file manager preferences.
   // |callback|
@@ -884,10 +1028,9 @@ interface Functions {
   // |destName| Name of the destination zip file. The zip file will be created
   //     under the directory specified by |parentEntry|.
   // |callback|
-  // TODO(mtomasz): Swap order of |entries| and |parentEntry|.
   [nocompile]
-  static void zipSelection([instanceof=DirectoryEntry] object parentEntry,
-                           [instanceof=Entry] object[] entries,
+  static void zipSelection([instanceof=Entry] object[] entries,
+                           [instanceof=DirectoryEntry] object parentEntry,
                            DOMString destName,
                            ZipSelectionCallback callback);
 
@@ -921,13 +1064,6 @@ interface Functions {
   static void requestWebStoreAccessToken(
       RequestWebStoreAccessTokenCallback callback);
 
-  // Requests a share dialog url for the specified file.
-  // |entry| The entry to share.
-  // |callback|
-  [nocompile]
-  static void getShareUrl([instanceof=Entry] object entry,
-                          GetUrlCallback callback);
-
   // Requests a download url to download the file contents.
   // |entry| The entry to download.
   // |callback|
@@ -950,6 +1086,10 @@ interface Functions {
   // |type| InspectionType which specifies how to open inspector.
   static void openInspector(InspectionType type);
 
+  // Opens page in Settings window.
+  // |sub_page| Name of a sub_page to show.
+  static void openSettingsSubpage(DOMString sub_page);
+
   // Computes an MD5 checksum for the given file.
   // |entry| The entry of the file to checksum.
   // |callback|
@@ -971,12 +1111,12 @@ interface Functions {
   // Returns if Piex loader is enabled.
   static void isPiexLoaderEnabled(BooleanCallback callback);
 
-  // Returns list of available providing extensions.
-  static void getProvidingExtensions(GetProvidingExtensionsCallback callback);
+  // Returns list of available providers.
+  static void getProviders(GetProvidersCallback callback);
 
   // Requests adding a new provided file system. If not possible, then an error
   // via chrome.runtime.lastError is returned.
-  static void addProvidedFileSystem(DOMString extension_id,
+  static void addProvidedFileSystem(DOMString provider_id,
                                     SimpleCallback callback);
 
   // Requests configuring an existing volume. If not possible, then returns
@@ -1009,6 +1149,60 @@ interface Functions {
   [nocompile]
   static void getRecentFiles(SourceRestriction restriction,
                              GetRecentFilesCallback callback);
+
+  // Returns true if crostini is enabled.
+  // |callback|
+  static void isCrostiniEnabled(BooleanCallback callback);
+
+  // Starts and mounts crostini container.
+  // |callback|
+  static void mountCrostini(SimpleCallback callback);
+
+  // Shares paths with crostini container.
+  // |entries| Entries of the files or directories to share.
+  // |persist| If true, shares will persist across restarts.
+  // |callback|
+  [nocompile]
+  static void sharePathsWithCrostini(
+      [instanceof=Entry] object[] entries, boolean persist, SimpleCallback callback);
+
+  // Unshares path with crostini container.
+  // |entry| Entry of the file or directory to unshare.
+  // |callback|
+  [nocompile]
+  static void unsharePathWithCrostini(
+      [instanceof=Entry] object entry, SimpleCallback callback);
+
+  // Returns list of paths shared with crostini container.
+  [nocompile]
+  static void getCrostiniSharedPaths(GetCrostiniSharedPathsCallback callback);
+
+  // Requests information about a Linux package. |entry| is a .deb file.
+  [nocompile]
+  static void getLinuxPackageInfo([instanceof=Entry] object entry,
+                                  GetLinuxPackageInfoCallback callback);
+
+  // Starts installation of a Linux package.
+  [nocompile]
+  static void installLinuxPackage([instanceof=Entry] object entry,
+                                  InstallLinuxPackageCallback callback);
+
+  // For a file in DriveFS, retrieves its thumbnail. If |cropToSquare| is true,
+  // returns a thumbnail appropriate for file list or grid views; otherwise,
+  // returns a thumbnail appropriate for quickview.
+  [nocompile]
+  static void getThumbnail([instanceOf=FileEntry] object entry,
+                           boolean cropToSquare,
+                           GetThumbnailCallback callback);
+
+  // Returns a guessed character encoding of a hex-encoded string. Every 2
+  // characters of |bytes| represent one byte by 2-digit hexadecimal number.
+  // The result is preferred MIME name of the detected character encoding
+  // system. It is slightly different from IANA name.
+  // See third_party/ced/src/util/encodings/encodings.cc
+  // Returns an empty string if failed.
+  static DOMString detectCharacterEncoding(DOMString bytes,
+    DetectCharacterEncodingCallback callback);
 };
 
 interface Events {
@@ -1029,5 +1223,8 @@ interface Events {
   static void onDriveSyncError(DriveSyncErrorEvent event);
 
   static void onAppsUpdated();
+
+  static void onCrostiniSharedPathsChanged(
+      CrostiniSharedPathsChangedEvent event);
 };
 };

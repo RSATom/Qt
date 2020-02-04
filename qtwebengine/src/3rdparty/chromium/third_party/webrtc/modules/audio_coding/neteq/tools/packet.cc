@@ -8,15 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/neteq/tools/packet.h"
+#include "modules/audio_coding/neteq/tools/packet.h"
 
 #include <string.h>
 
 #include <memory>
 
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
-#include "webrtc/rtc_base/checks.h"
+#include "modules/rtp_rtcp/include/rtp_header_parser.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 namespace test {
@@ -49,6 +48,20 @@ Packet::Packet(uint8_t* packet_memory,
       time_ms_(time_ms) {
   valid_header_ = ParseHeader(parser);
 }
+
+Packet::Packet(const RTPHeader& header,
+               size_t virtual_packet_length_bytes,
+               size_t virtual_payload_length_bytes,
+               double time_ms)
+    : header_(header),
+      payload_memory_(),
+      payload_(NULL),
+      packet_length_bytes_(0),
+      payload_length_bytes_(0),
+      virtual_packet_length_bytes_(virtual_packet_length_bytes),
+      virtual_payload_length_bytes_(virtual_payload_length_bytes),
+      time_ms_(time_ms),
+      valid_header_(true) {}
 
 Packet::Packet(uint8_t* packet_memory, size_t allocated_bytes, double time_ms)
     : payload_memory_(packet_memory),
@@ -159,11 +172,10 @@ void Packet::CopyToHeader(RTPHeader* destination) const {
   destination->paddingLength = header_.paddingLength;
   destination->headerLength = header_.headerLength;
   destination->payload_type_frequency = header_.payload_type_frequency;
-  memcpy(&destination->arrOfCSRCs,
-         &header_.arrOfCSRCs,
+  memcpy(&destination->arrOfCSRCs, &header_.arrOfCSRCs,
          sizeof(header_.arrOfCSRCs));
-  memcpy(
-      &destination->extension, &header_.extension, sizeof(header_.extension));
+  memcpy(&destination->extension, &header_.extension,
+         sizeof(header_.extension));
 }
 
 }  // namespace test

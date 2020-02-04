@@ -42,6 +42,7 @@
 #include <QtWidgets/QApplication>
 
 #include <QtHelp/QHelpEngine>
+#include <QtHelp/QHelpFilterEngine>
 #include <QtHelp/QHelpIndexWidget>
 #include <QtHelp/QHelpSearchQueryWidget>
 
@@ -56,12 +57,7 @@ QT_BEGIN_NAMESPACE
 RemoteControl::RemoteControl(MainWindow *mainWindow)
     : QObject(mainWindow)
     , m_mainWindow(mainWindow)
-    , m_debug(false)
-    , m_caching(true)
-    , m_syncContents(false)
-    , m_expandTOC(-2)
     , helpEngine(HelpEngineWrapper::instance())
-
 {
     TRACE_OBJ
     connect(m_mainWindow, &MainWindow::initDone,
@@ -82,7 +78,7 @@ void RemoteControl::handleCommandString(const QString &cmdString)
         splitInputString(command, cmd, arg);
 
         if (m_debug)
-            QMessageBox::information(0, tr("Debugging Remote Control"),
+            QMessageBox::information(nullptr, tr("Debugging Remote Control"),
                 tr("Received Command: %1 %2").arg(cmd).arg(arg));
 
         if (cmd == QLatin1String("debug"))
@@ -228,12 +224,12 @@ void RemoteControl::handleExpandTocCommand(const QString &arg)
 void RemoteControl::handleSetCurrentFilterCommand(const QString &arg)
 {
     TRACE_OBJ
-    if (helpEngine.customFilters().contains(arg)) {
+    if (helpEngine.filterEngine()->filters().contains(arg)) {
         if (m_caching) {
             clearCache();
             m_currentFilter = arg;
         } else {
-            helpEngine.setCurrentFilter(arg);
+            helpEngine.filterEngine()->setActiveFilter(arg);
         }
     }
 }
@@ -275,7 +271,7 @@ void RemoteControl::applyCache()
         if (!links.isEmpty())
             CentralWidget::instance()->setSource(links.first());
     } else if (!m_currentFilter.isEmpty()) {
-        helpEngine.setCurrentFilter(m_currentFilter);
+        helpEngine.filterEngine()->setActiveFilter(m_currentFilter);
     }
 
     if (m_syncContents)

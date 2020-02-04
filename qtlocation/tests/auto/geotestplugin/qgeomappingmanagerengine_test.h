@@ -77,8 +77,8 @@ public:
         timerId_(0),
         errorCode_(QGeoTiledMapReply::NoError)
     {
-        Q_UNUSED(error)
-        Q_UNUSED(errorString)
+        Q_UNUSED(error);
+        Q_UNUSED(errorString);
         if (parameters.contains("finishRequestImmediately"))
             finishRequestImmediately_ = qvariant_cast<bool>(parameters.value("finishRequestImmediately"));
         setLocale(QLocale (QLocale::German, QLocale::Germany));

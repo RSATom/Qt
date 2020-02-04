@@ -13,14 +13,6 @@
 #include "components/favicon/core/favicon_handler.h"
 
 class GURL;
-namespace bookmarks {
-class BookmarkModel;
-}
-
-
-namespace history {
-class HistoryService;
-}
 
 namespace favicon {
 
@@ -38,19 +30,14 @@ class FaviconDriverImpl : public FaviconDriver,
                           public FaviconHandler::Delegate {
  public:
   // FaviconDriver implementation.
-  void FetchFavicon(const GURL& url) override;
-
-  // FaviconHandler::Delegate implementation.
-  bool IsBookmarked(const GURL& url) override;
+  void FetchFavicon(const GURL& page_url, bool is_same_document) override;
 
   // Returns whether the driver is waiting for a download to complete or for
   // data from the FaviconService. Reserved for testing.
   bool HasPendingTasksForTest();
 
  protected:
-  FaviconDriverImpl(FaviconService* favicon_service,
-                    history::HistoryService* history_service,
-                    bookmarks::BookmarkModel* bookmark_model);
+  explicit FaviconDriverImpl(FaviconService* favicon_service);
   ~FaviconDriverImpl() override;
 
   // Informs FaviconService that the favicon for |url| is out of date. If
@@ -64,16 +51,12 @@ class FaviconDriverImpl : public FaviconDriver,
                           const GURL& manifest_url);
 
  protected:
-  history::HistoryService* history_service() { return history_service_; }
-
   FaviconService* favicon_service() { return favicon_service_; }
 
  private:
-  // KeyedServices used by FaviconDriverImpl. They may be null during testing,
-  // but if they are defined, they must outlive the FaviconDriverImpl.
+  // KeyedService used by FaviconDriverImpl. It may be null during testing,
+  // but if it is defined, it must outlive the FaviconDriverImpl.
   FaviconService* favicon_service_;
-  history::HistoryService* history_service_;
-  bookmarks::BookmarkModel* bookmark_model_;
 
   // FaviconHandlers used to download the different kind of favicons.
   std::vector<std::unique_ptr<FaviconHandler>> handlers_;

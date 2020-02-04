@@ -8,21 +8,22 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/desktop_capture/blank_detector_desktop_capturer_wrapper.h"
+#include "modules/desktop_capture/blank_detector_desktop_capturer_wrapper.h"
 
-#include <algorithm>
+#include <stdint.h>
 #include <utility>
 
-#include "webrtc/modules/desktop_capture/desktop_geometry.h"
-#include "webrtc/rtc_base/checks.h"
+#include "modules/desktop_capture/desktop_geometry.h"
+#include "modules/desktop_capture/desktop_region.h"
+#include "rtc_base/checks.h"
+#include "system_wrappers/include/metrics.h"
 
 namespace webrtc {
 
 BlankDetectorDesktopCapturerWrapper::BlankDetectorDesktopCapturerWrapper(
     std::unique_ptr<DesktopCapturer> capturer,
     RgbaColor blank_pixel)
-    : capturer_(std::move(capturer)),
-      blank_pixel_(blank_pixel) {
+    : capturer_(std::move(capturer)), blank_pixel_(blank_pixel) {
   RTC_DCHECK(capturer_);
 }
 
@@ -31,8 +32,8 @@ BlankDetectorDesktopCapturerWrapper::~BlankDetectorDesktopCapturerWrapper() =
 
 void BlankDetectorDesktopCapturerWrapper::Start(
     DesktopCapturer::Callback* callback) {
-  capturer_->Start(this);
   callback_ = callback;
+  capturer_->Start(this);
 }
 
 void BlankDetectorDesktopCapturerWrapper::SetSharedMemoryFactory(
@@ -78,6 +79,8 @@ void BlankDetectorDesktopCapturerWrapper::OnCaptureResult(
     last_frame_is_blank_ = IsBlankFrame(*frame);
     is_first_frame_ = false;
   }
+  RTC_HISTOGRAM_BOOLEAN("WebRTC.DesktopCapture.BlankFrameDetected",
+                        last_frame_is_blank_);
   if (!last_frame_is_blank_) {
     non_blank_frame_received_ = true;
     callback_->OnCaptureResult(Result::SUCCESS, std::move(frame));

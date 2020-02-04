@@ -6,7 +6,8 @@
 
 #include "build/build_config.h"
 #include "content/browser/frame_host/render_frame_proxy_host.h"
-#include "content/browser/frame_host/render_widget_host_view_child_frame.h"
+#include "content/browser/renderer_host/display_util.h"
+#include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents_view_delegate.h"
 #include "ui/gfx/geometry/rect.h"
@@ -55,17 +56,6 @@ gfx::NativeWindow WebContentsViewChildFrame::GetTopLevelNativeWindow() const {
   return GetOuterView()->GetTopLevelNativeWindow();
 }
 
-void WebContentsViewChildFrame::GetScreenInfo(ScreenInfo* screen_info) const {
-  // TODO(wjmaclean): falling back to the default screen info is not what used
-  // to happen in RenderWidgetHostViewChildFrame, but it seems like the right
-  // thing to do. We should keep an eye on this in case the else-clause below
-  // causes problems.
-  if (web_contents_->GetOuterWebContents())
-    GetOuterView()->GetScreenInfo(screen_info);
-  else
-    WebContentsView::GetDefaultScreenInfo(screen_info);
-}
-
 void WebContentsViewChildFrame::GetContainerBounds(gfx::Rect* out) const {
   RenderWidgetHostView* view = web_contents_->GetRenderWidgetHostView();
   if (view)
@@ -98,9 +88,9 @@ RenderWidgetHostViewBase* WebContentsViewChildFrame::CreateViewForWidget(
   return RenderWidgetHostViewChildFrame::Create(render_widget_host);
 }
 
-RenderWidgetHostViewBase* WebContentsViewChildFrame::CreateViewForPopupWidget(
+RenderWidgetHostViewBase* WebContentsViewChildFrame::CreateViewForChildWidget(
     RenderWidgetHost* render_widget_host) {
-  return GetOuterView()->CreateViewForPopupWidget(render_widget_host);
+  return GetOuterView()->CreateViewForChildWidget(render_widget_host);
 }
 
 void WebContentsViewChildFrame::SetPageTitle(const base::string16& title) {
@@ -109,7 +99,11 @@ void WebContentsViewChildFrame::SetPageTitle(const base::string16& title) {
 
 void WebContentsViewChildFrame::RenderViewCreated(RenderViewHost* host) {}
 
-void WebContentsViewChildFrame::RenderViewSwappedIn(RenderViewHost* host) {}
+void WebContentsViewChildFrame::RenderViewReady() {}
+
+void WebContentsViewChildFrame::RenderViewHostChanged(
+    RenderViewHost* old_host,
+    RenderViewHost* new_host) {}
 
 void WebContentsViewChildFrame::SetOverscrollControllerEnabled(bool enabled) {
   // This is managed by the outer view.
@@ -123,15 +117,6 @@ bool WebContentsViewChildFrame::IsEventTracking() const {
 void WebContentsViewChildFrame::CloseTabAfterEventTracking() {
   NOTREACHED();
 }
-
-void WebContentsViewChildFrame::SetAllowOtherViews(bool allow) {
-  NOTREACHED();
-}
-
-bool WebContentsViewChildFrame::GetAllowOtherViews() const {
-  NOTREACHED();
-  return false;
-}
 #endif
 
 void WebContentsViewChildFrame::RestoreFocus() {
@@ -143,6 +128,10 @@ void WebContentsViewChildFrame::Focus() {
 }
 
 void WebContentsViewChildFrame::StoreFocus() {
+  NOTREACHED();
+}
+
+void WebContentsViewChildFrame::FocusThroughTabTraversal(bool reverse) {
   NOTREACHED();
 }
 

@@ -5,17 +5,20 @@
 #ifndef MEDIA_AUDIO_MOCK_AUDIO_MANAGER_H_
 #define MEDIA_AUDIO_MOCK_AUDIO_MANAGER_H_
 
-#include "base/callback.h"
+#include <memory>
+#include <string>
+
+#include "base/callback_forward.h"
 #include "base/macros.h"
-#include "base/sequenced_task_runner_helpers.h"
-#include "base/single_thread_task_runner.h"
+#include "media/audio/audio_debug_recording_manager.h"
 #include "media/audio/audio_manager.h"
+#include "testing/gmock/include/gmock/gmock.h"
 
 namespace media {
 
 // This class is a simple mock around AudioManager, used exclusively for tests,
 // which avoids to use the actual (system and platform dependent) AudioManager.
-// Some bots does not have input devices, thus using the actual AudioManager
+// Some bots do not have input devices, thus using the actual AudioManager
 // would causing failures on classes which expect that.
 class MockAudioManager : public AudioManager {
  public:
@@ -23,6 +26,14 @@ class MockAudioManager : public AudioManager {
       base::RepeatingCallback<void(AudioDeviceDescriptions*)>;
   using GetAssociatedOutputDeviceIDCallback =
       base::RepeatingCallback<std::string(const std::string&)>;
+  using MakeOutputStreamCallback =
+      base::RepeatingCallback<media::AudioOutputStream*(
+          const media::AudioParameters& params,
+          const std::string& device_id)>;
+  using MakeInputStreamCallback =
+      base::RepeatingCallback<media::AudioInputStream*(
+          const media::AudioParameters& params,
+          const std::string& device_id)>;
 
   explicit MockAudioManager(std::unique_ptr<AudioThread> audio_thread);
   ~MockAudioManager() override;
@@ -45,16 +56,17 @@ class MockAudioManager : public AudioManager {
   void RemoveOutputDeviceChangeListener(AudioDeviceListener* listener) override;
 
   std::unique_ptr<AudioLog> CreateAudioLog(
-      AudioLogFactory::AudioComponent component) override;
+      AudioLogFactory::AudioComponent component,
+      int component_id) override;
 
-  void InitializeOutputDebugRecording() override;
-  void EnableOutputDebugRecording(
-      const base::FilePath& base_file_name) override;
-  void DisableOutputDebugRecording() override;
+  void InitializeDebugRecording() override;
+  AudioDebugRecordingManager* GetAudioDebugRecordingManager() override;
 
   const char* GetName() override;
 
   // Setters to emulate desired in-test behavior.
+  void SetMakeOutputStreamCB(MakeOutputStreamCallback cb);
+  void SetMakeInputStreamCB(MakeInputStreamCallback cb);
   void SetInputStreamParameters(const AudioParameters& params);
   void SetOutputStreamParameters(const AudioParameters& params);
   void SetDefaultOutputStreamParameters(const AudioParameters& params);
@@ -74,10 +86,6 @@ class MockAudioManager : public AudioManager {
 
   bool HasAudioInputDevices() override;
 
-  base::string16 GetAudioInputDeviceModel() override;
-
-  void ShowAudioInputSettings() override;
-
   void GetAudioInputDeviceDescriptions(
       media::AudioDeviceDescriptions* device_descriptions) override;
 
@@ -91,6 +99,10 @@ class MockAudioManager : public AudioManager {
       const std::string& device_id) override;
   std::string GetAssociatedOutputDeviceID(
       const std::string& input_device_id) override;
+  std::string GetDefaultInputDeviceID() override;
+  std::string GetDefaultOutputDeviceID() override;
+  std::string GetCommunicationsInputDeviceID() override;
+  std::string GetCommunicationsOutputDeviceID() override;
 
  private:
   AudioParameters input_params_;
@@ -98,9 +110,12 @@ class MockAudioManager : public AudioManager {
   AudioParameters default_output_params_;
   bool has_input_devices_ = true;
   bool has_output_devices_ = true;
+  MakeOutputStreamCallback make_output_stream_cb_;
+  MakeInputStreamCallback make_input_stream_cb_;
   GetDeviceDescriptionsCallback get_input_device_descriptions_cb_;
   GetDeviceDescriptionsCallback get_output_device_descriptions_cb_;
   GetAssociatedOutputDeviceIDCallback get_associated_output_device_id_cb_;
+  std::unique_ptr<AudioDebugRecordingManager> debug_recording_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(MockAudioManager);
 };

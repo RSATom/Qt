@@ -14,8 +14,13 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "media/base/android/media_drm_key_type.h"
 #include "media/base/media_export.h"
 #include "url/origin.h"
+
+namespace base {
+class UnguessableToken;
+}  // namespace base
 
 namespace media {
 
@@ -25,12 +30,15 @@ class MEDIA_EXPORT MediaDrmStorage
     : public base::SupportsWeakPtr<MediaDrmStorage> {
  public:
   struct SessionData {
-    SessionData(std::vector<uint8_t> key_set_id, std::string mime_type);
+    SessionData(std::vector<uint8_t> key_set_id,
+                std::string mime_type,
+                MediaDrmKeyType key_type);
     SessionData(const SessionData& other);
     ~SessionData();
 
     std::vector<uint8_t> key_set_id;
     std::string mime_type;
+    MediaDrmKeyType key_type;
   };
 
   MediaDrmStorage();
@@ -39,17 +47,21 @@ class MEDIA_EXPORT MediaDrmStorage
   // Callback to return whether the operation succeeded.
   using ResultCB = base::OnceCallback<void(bool)>;
 
+  // Callback for storage initialization.
+  using InitCB =
+      base::OnceCallback<void(const base::UnguessableToken& origin_id)>;
+
   // Callback to return the result of LoadPersistentSession. |key_set_id| and
   // |mime_type| must be non-empty if |success| is true, and vice versa.
   using LoadPersistentSessionCB =
       base::OnceCallback<void(std::unique_ptr<SessionData> session_data)>;
 
-  // Binds |this| to |origin|.
-  // TODO(xhwang): The host of the service should know about the last committed
-  // origin. We should solely use that origin, or check the |origin| against it.
-  // TODO(xhwang): We should NOT use the real origin for provisioning. Use a
-  // random origin ID instead.
-  virtual void Initialize(const url::Origin& origin) = 0;
+  // Initialize the storage for current origin. The implementation already know
+  // the origin for the storage.
+  // Implementation should return a random origin id in |init_cb|. The ID should
+  // be unique and persisted. Origin ID must be valid. If any corruption is
+  // detected, the old map should be removed in OnProvisioned.
+  virtual void Initialize(InitCB init_cb) = 0;
 
   // Called when MediaDrm is provisioned for the origin bound to |this|.
   // The implementation should keep track of the storing time so that the

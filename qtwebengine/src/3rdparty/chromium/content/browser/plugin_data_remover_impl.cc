@@ -9,16 +9,17 @@
 #include <limits>
 
 #include "base/bind.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/post_task.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "content/browser/plugin_service_impl.h"
 #include "content/browser/renderer_host/pepper/pepper_flash_file_message_filter.h"
 #include "content/common/child_process_host_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/common/content_constants.h"
@@ -47,10 +48,9 @@ void PluginDataRemover::GetSupportedPlugins(
   bool allow_wildcard = false;
   std::vector<WebPluginInfo> plugins;
   PluginService::GetInstance()->GetPluginInfoArray(
-      GURL(), kFlashPluginSwfMimeType, allow_wildcard, &plugins, NULL);
+      GURL(), kFlashPluginSwfMimeType, allow_wildcard, &plugins, nullptr);
   base::Version min_version(kMinFlashVersion);
-  for (std::vector<WebPluginInfo>::iterator it = plugins.begin();
-       it != plugins.end(); ++it) {
+  for (auto it = plugins.begin(); it != plugins.end(); ++it) {
     base::Version version;
     WebPluginInfo::CreateVersionFromString(it->version, &version);
     if (version.IsValid() && min_version.CompareTo(version) == -1)
@@ -75,14 +75,12 @@ class PluginDataRemoverImpl::Context
   }
 
   void Init(const std::string& mime_type) {
-    BrowserThread::PostTask(
-        BrowserThread::IO,
-        FROM_HERE,
-        base::Bind(&Context::InitOnIOThread, this, mime_type));
-    BrowserThread::PostDelayedTask(
-        BrowserThread::IO,
-        FROM_HERE,
-        base::Bind(&Context::OnTimeout, this),
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
+        base::BindOnce(&Context::InitOnIOThread, this, mime_type));
+    base::PostDelayedTaskWithTraits(
+        FROM_HERE, {BrowserThread::IO},
+        base::BindOnce(&Context::OnTimeout, this),
         base::TimeDelta::FromMilliseconds(kRemovalTimeoutMs));
   }
 
@@ -91,8 +89,8 @@ class PluginDataRemoverImpl::Context
 
     // Get the plugin file path.
     std::vector<WebPluginInfo> plugins;
-    plugin_service->GetPluginInfoArray(
-        GURL(), mime_type, false, &plugins, NULL);
+    plugin_service->GetPluginInfoArray(GURL(), mime_type, false, &plugins,
+                                       nullptr);
 
     if (plugins.empty()) {
       // May be empty for some tests and on the CrOS login OOBE screen.
@@ -102,7 +100,7 @@ class PluginDataRemoverImpl::Context
 
     base::FilePath plugin_path = plugins[0].path;
 
-    PepperPluginInfo* pepper_info =
+    const PepperPluginInfo* pepper_info =
         plugin_service->GetRegisteredPpapiPluginInfo(plugin_path);
     if (!pepper_info) {
       event_->Signal();
@@ -110,14 +108,13 @@ class PluginDataRemoverImpl::Context
     }
 
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
-    remove_start_time_ = base::Time::Now();
     is_removing_ = true;
 
     // Balanced in OnPpapiChannelOpened.
     AddRef();
     plugin_name_ = pepper_info->name;
     // Use the broker since we run this function outside the sandbox.
-    plugin_service->OpenChannelToPpapiBroker(0, plugin_path, this);
+    plugin_service->OpenChannelToPpapiBroker(0, 0, plugin_path, this);
   }
 
   // Called when a timeout happens in order not to block the client
@@ -198,7 +195,8 @@ class PluginDataRemoverImpl::Context
       return;
 
     DCHECK(!channel_.get());
-    channel_ = IPC::Channel::CreateClient(handle, this);
+    channel_ = IPC::Channel::CreateClient(handle, this,
+                                          base::ThreadTaskRunnerHandle::Get());
     if (!channel_->Connect()) {
       NOTREACHED() << "Couldn't connect to plugin";
       SignalDone();
@@ -221,8 +219,6 @@ class PluginDataRemoverImpl::Context
   void OnPpapiClearSiteDataResult(uint32_t request_id, bool success) {
     DCHECK_EQ(0u, request_id);
     LOG_IF(ERROR, !success) << "ClearSiteData returned error";
-    UMA_HISTOGRAM_TIMES("ClearPluginData.time",
-                        base::Time::Now() - remove_start_time_);
     SignalDone();
   }
 
@@ -237,8 +233,6 @@ class PluginDataRemoverImpl::Context
   }
 
   std::unique_ptr<base::WaitableEvent> event_;
-  // The point in time when we start removing data.
-  base::Time remove_start_time_;
   // The point in time from which on we remove data.
   base::Time begin_time_;
   bool is_removing_;

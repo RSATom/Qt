@@ -46,7 +46,10 @@ static constexpr GrBlendEquation hw_blend_equation(SkBlendMode mode) {
     GR_STATIC_ASSERT(kHSLSaturation_GrBlendEquation == (int)SkBlendMode::kSaturation + EQ_OFFSET);
     GR_STATIC_ASSERT(kHSLColor_GrBlendEquation == (int)SkBlendMode::kColor + EQ_OFFSET);
     GR_STATIC_ASSERT(kHSLLuminosity_GrBlendEquation == (int)SkBlendMode::kLuminosity + EQ_OFFSET);
-    GR_STATIC_ASSERT(kGrBlendEquationCnt == (int)SkBlendMode::kLastMode + 1 + EQ_OFFSET);
+
+    // There's an illegal GrBlendEquation that corresponds to no SkBlendMode, hence the extra +1.
+    GR_STATIC_ASSERT(kGrBlendEquationCnt == (int)SkBlendMode::kLastMode + 1 + 1 + EQ_OFFSET);
+
     return static_cast<GrBlendEquation>((int)mode + EQ_OFFSET);
 #undef EQ_OFFSET
 }
@@ -59,7 +62,7 @@ static bool can_use_hw_blend_equation(GrBlendEquation equation,
     if (GrProcessorAnalysisCoverage::kLCD == coverage) {
         return false; // LCD coverage must be applied after the blend equation.
     }
-    if (caps.canUseAdvancedBlendEquation(equation)) {
+    if (caps.isAdvancedBlendEquationBlacklisted(equation)) {
         return false;
     }
     return true;
@@ -72,16 +75,14 @@ static bool can_use_hw_blend_equation(GrBlendEquation equation,
 class CustomXP : public GrXferProcessor {
 public:
     CustomXP(SkBlendMode mode, GrBlendEquation hwBlendEquation)
-        : fMode(mode)
-        , fHWBlendEquation(hwBlendEquation) {
-        this->initClassID<CustomXP>();
-    }
+        : INHERITED(kCustomXP_ClassID)
+        , fMode(mode)
+        , fHWBlendEquation(hwBlendEquation) {}
 
     CustomXP(bool hasMixedSamples, SkBlendMode mode, GrProcessorAnalysisCoverage coverage)
-            : INHERITED(true, hasMixedSamples, coverage)
+            : INHERITED(kCustomXP_ClassID, true, hasMixedSamples, coverage)
             , fMode(mode)
-            , fHWBlendEquation(static_cast<GrBlendEquation>(-1)) {
-        this->initClassID<CustomXP>();
+            , fHWBlendEquation(kIllegal_GrBlendEquation) {
     }
 
     const char* name() const override { return "Custom Xfermode"; }
@@ -89,7 +90,7 @@ public:
     GrGLSLXferProcessor* createGLSLInstance() const override;
 
     SkBlendMode mode() const { return fMode; }
-    bool hasHWBlendEquation() const { return -1 != static_cast<int>(fHWBlendEquation); }
+    bool hasHWBlendEquation() const { return kIllegal_GrBlendEquation != fHWBlendEquation; }
 
     GrBlendEquation hwBlendEquation() const {
         SkASSERT(this->hasHWBlendEquation());
@@ -202,9 +203,13 @@ void CustomXP::onGetBlendInfo(BlendInfo* blendInfo) const {
 ///////////////////////////////////////////////////////////////////////////////
 
 // See the comment above GrXPFactory's definition about this warning suppression.
-#if defined(__GNUC__) || defined(__clang)
+#if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
+#endif
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 #endif
 class CustomXPFactory : public GrXPFactory {
 public:
@@ -212,6 +217,10 @@ public:
             : fMode(mode), fHWBlendEquation(hw_blend_equation(mode)) {}
 
 private:
+    SkString description() const override {
+        return SkStringPrintf("CustomXPFactory (%s)", SkBlendMode_Name(fMode));
+    }
+
     sk_sp<const GrXferProcessor> makeXferProcessor(const GrProcessorAnalysisColor&,
                                                    GrProcessorAnalysisCoverage,
                                                    bool hasMixedSamples,
@@ -228,8 +237,11 @@ private:
 
     typedef GrXPFactory INHERITED;
 };
-#if defined(__GNUC__) || defined(__clang)
+#if defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
+#if defined(__clang__)
+#pragma clang diagnostic pop
 #endif
 
 sk_sp<const GrXferProcessor> CustomXPFactory::makeXferProcessor(
@@ -347,7 +359,7 @@ GrXPFactory::AnalysisProperties CustomXPFactory::analysisProperties(
             return AnalysisProperties::kCompatibleWithAlphaAsCoverage;
         } else {
             return AnalysisProperties::kCompatibleWithAlphaAsCoverage |
-                   AnalysisProperties::kRequiresBarrierBetweenOverlappingDraws;
+                   AnalysisProperties::kRequiresNonOverlappingDraws;
         }
     }
     return AnalysisProperties::kCompatibleWithAlphaAsCoverage |

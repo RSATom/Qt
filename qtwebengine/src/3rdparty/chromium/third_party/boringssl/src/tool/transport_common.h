@@ -49,11 +49,14 @@ class Listener {
 
 bool VersionFromString(uint16_t *out_version, const std::string &version);
 
-void PrintConnectionInfo(const SSL *ssl);
+void PrintConnectionInfo(BIO *bio, const SSL *ssl);
 
 bool SocketSetNonBlocking(int sock, bool is_non_blocking);
 
-int PrintErrorCallback(const char *str, size_t len, void *ctx);
+// PrintSSLError prints information about the most recent SSL error to stderr.
+// |ssl_err| must be the output of |SSL_get_error| and the |SSL| object must be
+// connected to socket from |Connect|.
+void PrintSSLError(FILE *file, const char *msg, int ssl_err, int ret);
 
 bool TransferData(SSL *ssl, int sock);
 
@@ -65,4 +68,4 @@ bool DoSMTPStartTLS(int sock);
 // success and false otherwise.
 bool DoHTTPTunnel(int sock, const std::string &hostname_and_port);
 
-#endif  /* !OPENSSL_HEADER_TOOL_TRANSPORT_COMMON_H */
+#endif  // !OPENSSL_HEADER_TOOL_TRANSPORT_COMMON_H

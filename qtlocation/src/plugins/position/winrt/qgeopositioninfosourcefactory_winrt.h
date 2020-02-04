@@ -37,8 +37,8 @@
 #ifndef QGEOPOSITIONINFOSOURCEFACTORY_WINRT_H
 #define QGEOPOSITIONINFOSOURCEFACTORY_WINRT_H
 
-#include <QObject>
-#include <QGeoPositionInfoSourceFactory>
+#include <QtCore/qobject.h>
+#include <QtPositioning/qgeopositioninfosourcefactory.h>
 
 QT_BEGIN_NAMESPACE
 

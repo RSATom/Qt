@@ -26,17 +26,18 @@ void ContentSettingsUsagesState::OnPermissionSet(
       allowed ? CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK;
 }
 
-void ContentSettingsUsagesState::DidNavigate(const CommittedDetails& details) {
-  embedder_url_ = details.current_url;
+void ContentSettingsUsagesState::DidNavigate(const GURL& url,
+                                             const GURL& previous_url) {
+  embedder_url_ = url;
   if (state_map_.empty())
     return;
-  if (details.previous_url.GetOrigin() != details.current_url.GetOrigin()) {
+  if (previous_url.GetOrigin() != url.GetOrigin()) {
     state_map_.clear();
     return;
   }
   // We're in the same origin, check if there's any icon to be displayed.
   unsigned int tab_state_flags = 0;
-  GetDetailedInfo(NULL, &tab_state_flags);
+  GetDetailedInfo(nullptr, &tab_state_flags);
   if (!(tab_state_flags & TABSTATE_HAS_ANY_ICON))
     state_map_.clear();
 }
@@ -51,21 +52,19 @@ void ContentSettingsUsagesState::GetDetailedInfo(
   DCHECK(tab_state_flags);
   DCHECK(embedder_url_.is_valid());
   ContentSetting default_setting =
-      host_content_settings_map_->GetDefaultContentSetting(type_, NULL);
+      host_content_settings_map_->GetDefaultContentSetting(type_, nullptr);
   std::set<std::string> formatted_hosts;
   std::set<std::string> repeated_formatted_hosts;
 
   // Build a set of repeated formatted hosts
-  for (StateMap::const_iterator i(state_map_.begin());
-       i != state_map_.end(); ++i) {
+  for (auto i(state_map_.begin()); i != state_map_.end(); ++i) {
     std::string formatted_host = GURLToFormattedHost(i->first);
     if (!formatted_hosts.insert(formatted_host).second) {
       repeated_formatted_hosts.insert(formatted_host);
     }
   }
 
-  for (StateMap::const_iterator i(state_map_.begin());
-       i != state_map_.end(); ++i) {
+  for (auto i(state_map_.begin()); i != state_map_.end(); ++i) {
     if (i->second == CONTENT_SETTING_ALLOW)
       *tab_state_flags |= TABSTATE_HAS_ANY_ALLOWED;
     if (formatted_hosts_per_state) {

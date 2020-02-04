@@ -552,7 +552,7 @@ QtGroupPropertyManager::~QtGroupPropertyManager()
 */
 bool QtGroupPropertyManager::hasValue(const QtProperty *property) const
 {
-    Q_UNUSED(property)
+    Q_UNUSED(property);
     return false;
 }
 
@@ -561,7 +561,7 @@ bool QtGroupPropertyManager::hasValue(const QtProperty *property) const
 */
 void QtGroupPropertyManager::initializeProperty(QtProperty *property)
 {
-    Q_UNUSED(property)
+    Q_UNUSED(property);
 }
 
 /*!
@@ -569,7 +569,7 @@ void QtGroupPropertyManager::initializeProperty(QtProperty *property)
 */
 void QtGroupPropertyManager::uninitializeProperty(QtProperty *property)
 {
-    Q_UNUSED(property)
+    Q_UNUSED(property);
 }
 
 // QtIntPropertyManager
@@ -1542,7 +1542,7 @@ public:
     {
         QDate val{QDate::currentDate()};
         QDate minVal{QDate(1752, 9, 14)};
-        QDate maxVal{QDate(7999, 12, 31)};
+        QDate maxVal{QDate(9999, 12, 31)};
         QDate minimumValue() const { return minVal; }
         QDate maximumValue() const { return maxVal; }
         void setMinimumValue(const QDate &newMinVal) { setSimpleMinimumData(this, newMinVal); }
@@ -5177,8 +5177,8 @@ void QtFlagPropertyManager::uninitializeProperty(QtProperty *property)
     if (it != d_ptr->m_propertyToFlags.end()) {
         for (QtProperty *prop : qAsConst(it.value()))  {
             if (prop) {
-                delete prop;
                 d_ptr->m_flagToProperty.remove(prop);
+                delete prop;
             }
         }
     }

@@ -3,76 +3,18 @@
 // found in the LICENSE file.
 
 #include <atk/atk.h>
-#include <glib-2.0/gmodule.h>
+#include <map>
+#include <utility>
 
-#include "base/bind.h"
 #include "base/environment.h"
-#include "base/files/file_path.h"
-#include "base/location.h"
-#include "base/logging.h"
 #include "base/memory/singleton.h"
-#include "base/strings/string_split.h"
-#include "base/strings/string_util.h"
-#include "base/task_runner.h"
+#include "base/no_destructor.h"
 #include "ui/accessibility/platform/atk_util_auralinux.h"
 #include "ui/accessibility/platform/ax_platform_node_auralinux.h"
 
 namespace {
 
-typedef void (*gnome_accessibility_module_init)();
-
 const char kAccessibilityEnabled[] = "ACCESSIBILITY_ENABLED";
-const char kAtkBridgeModule[] = "gail:atk-bridge";
-const char kAtkBridgePath[] = "gtk-2.0/modules/libatk-bridge.so";
-const char kAtkBridgeSymbolName[] = "gnome_accessibility_module_init";
-const char kGtkModules[] = "GTK_MODULES";
-
-gnome_accessibility_module_init g_accessibility_module_init = nullptr;
-
-bool AccessibilityModuleInitOnFileThread() {
-  // Try to load libatk-bridge.so.
-  base::FilePath atk_bridge_path(ATK_LIB_DIR);
-  atk_bridge_path = atk_bridge_path.Append(kAtkBridgePath);
-  GModule* bridge = g_module_open(atk_bridge_path.value().c_str(),
-                                  static_cast<GModuleFlags>(0));
-  if (!bridge) {
-    VLOG(1) << "Unable to open module " << atk_bridge_path.value();
-    return false;
-  }
-
-  if (!g_module_symbol(bridge, kAtkBridgeSymbolName,
-                      (gpointer *)&g_accessibility_module_init)) {
-    VLOG(1) << "Unable to get symbol pointer from " << atk_bridge_path.value();
-    // Just to make sure it's null;
-    g_accessibility_module_init = nullptr;
-    return false;
-  }
-
-  return true;
-}
-
-bool PlatformShouldEnableAccessibility() {
-  std::unique_ptr<base::Environment> env(base::Environment::Create());
-  std::string gtk_modules;
-  if (!env->GetVar(kGtkModules, &gtk_modules))
-    return false;
-
-  for (const std::string& module :
-       base::SplitString(gtk_modules, base::kWhitespaceASCII,
-                         base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
-    if (module == kAtkBridgeModule)
-      return true;
-  }
-  return false;
-}
-
-bool ShouldEnableAccessibility() {
-  char* enable_accessibility = getenv(kAccessibilityEnabled);
-  if ((enable_accessibility && atoi(enable_accessibility) == 1) ||
-      PlatformShouldEnableAccessibility())
-    return true;
-  return false;
-}
 
 }  // namespace
 
@@ -136,6 +78,26 @@ static G_CONST_RETURN gchar* atk_util_auralinux_get_toolkit_version(void) {
   return "1.0";
 }
 
+using KeySnoopFuncMap = std::map<guint, std::pair<AtkKeySnoopFunc, gpointer>>;
+static KeySnoopFuncMap& GetActiveKeySnoopFunctions() {
+  static base::NoDestructor<KeySnoopFuncMap> active_key_snoop_functions;
+  return *active_key_snoop_functions;
+}
+
+static guint atk_util_add_key_event_listener(AtkKeySnoopFunc key_snoop_function,
+                                             gpointer data) {
+  static guint current_key_event_listener_id = 0;
+
+  current_key_event_listener_id++;
+  GetActiveKeySnoopFunctions()[current_key_event_listener_id] =
+      std::make_pair(key_snoop_function, data);
+  return current_key_event_listener_id;
+}
+
+static void atk_util_remove_key_event_listener(guint listener_id) {
+  GetActiveKeySnoopFunctions().erase(listener_id);
+}
+
 static void atk_util_auralinux_class_init(AtkUtilAuraLinuxClass *klass) {
   AtkUtilClass *atk_class;
   gpointer data;
@@ -146,6 +108,8 @@ static void atk_util_auralinux_class_init(AtkUtilAuraLinuxClass *klass) {
   atk_class->get_root = atk_util_auralinux_get_root;
   atk_class->get_toolkit_name = atk_util_auralinux_get_toolkit_name;
   atk_class->get_toolkit_version = atk_util_auralinux_get_toolkit_version;
+  atk_class->add_key_event_listener = atk_util_add_key_event_listener;
+  atk_class->remove_key_event_listener = atk_util_remove_key_event_listener;
 }
 
 G_END_DECLS
@@ -161,42 +125,65 @@ AtkUtilAuraLinux* AtkUtilAuraLinux::GetInstance() {
   return base::Singleton<AtkUtilAuraLinux>::get();
 }
 
-AtkUtilAuraLinux::AtkUtilAuraLinux() : is_enabled_(false) {}
+bool AtkUtilAuraLinux::ShouldEnableAccessibility() {
+  std::unique_ptr<base::Environment> env(base::Environment::Create());
+  std::string enable_accessibility;
+  env->GetVar(kAccessibilityEnabled, &enable_accessibility);
+  if (enable_accessibility == "1" || PlatformShouldEnableAccessibility())
+    return true;
+  return false;
+}
 
-void AtkUtilAuraLinux::Initialize(
-    scoped_refptr<base::TaskRunner> init_task_runner) {
+void AtkUtilAuraLinux::InitializeAsync() {
+  static bool initialized = false;
+
+  if (initialized || !ShouldEnableAccessibility())
+    return;
+
+  initialized = true;
 
   // Register our util class.
   g_type_class_unref(g_type_class_ref(ATK_UTIL_AURALINUX_TYPE));
 
-  if (!ShouldEnableAccessibility())
-    return;
-
-  init_task_runner->PostTaskAndReply(
-      FROM_HERE,
-      base::Bind(
-          &AtkUtilAuraLinux::CheckIfAccessibilityIsEnabledOnFileThread,
-          base::Unretained(this)),
-      base::Bind(
-          &AtkUtilAuraLinux::FinishAccessibilityInitOnUIThread,
-          base::Unretained(this)));
+  PlatformInitializeAsync();
 }
 
-AtkUtilAuraLinux::~AtkUtilAuraLinux() {
+void AtkUtilAuraLinux::InitializeForTesting() {
+  std::unique_ptr<base::Environment> env(base::Environment::Create());
+  env->SetVar(kAccessibilityEnabled, "1");
+
+  InitializeAsync();
 }
 
-void AtkUtilAuraLinux::CheckIfAccessibilityIsEnabledOnFileThread() {
-  is_enabled_ = AccessibilityModuleInitOnFileThread();
-}
+// static
+DiscardAtkKeyEvent AtkUtilAuraLinux::HandleAtkKeyEvent(
+    AtkKeyEventStruct* key_event) {
+  DCHECK(key_event);
 
-void AtkUtilAuraLinux::FinishAccessibilityInitOnUIThread() {
-  if (!is_enabled_) {
-    VLOG(1) << "Will not enable ATK accessibility support.";
-    return;
+  if (!GetInstance()->ShouldEnableAccessibility())
+    return DiscardAtkKeyEvent::Retain;
+
+  GetInstance()->InitializeAsync();
+
+  bool discard = false;
+  for (auto& entry : GetActiveKeySnoopFunctions()) {
+    AtkKeySnoopFunc key_snoop_function = entry.second.first;
+    gpointer data = entry.second.second;
+
+    // We want to ensure that all functions are called. We will discard this
+    // event if at least one function suggests that we do it, but we still
+    // need to call the functions that follow it in the map iterator.
+    if (key_snoop_function(key_event, data) != 0)
+      discard = true;
   }
-
-  DCHECK(g_accessibility_module_init);
-  g_accessibility_module_init();
+  return discard ? DiscardAtkKeyEvent::Discard : DiscardAtkKeyEvent::Retain;
 }
+
+#if !defined(USE_X11)
+DiscardAtkKeyEvent AtkUtilAuraLinux::HandleKeyEvent(
+    const ui::KeyEvent& ui_key_event) {
+  NOTREACHED();
+}
+#endif
 
 }  // namespace ui

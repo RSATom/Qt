@@ -13,70 +13,78 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "chrome/browser/devtools/device/devtools_device_discovery.h"
+#include "chrome/browser/devtools/protocol/forward.h"
+#include "chrome/browser/devtools/protocol/protocol.h"
 #include "content/public/browser/devtools_agent_host_observer.h"
 #include "content/public/browser/devtools_manager_delegate.h"
-#include "net/base/host_port_pair.h"
 
-class DevToolsNetworkProtocolHandler;
+class ChromeDevToolsSession;
+using RemoteLocations = std::set<net::HostPortPair>;
 
-class ChromeDevToolsManagerDelegate :
-    public content::DevToolsManagerDelegate,
-    public content::DevToolsAgentHostObserver {
+namespace extensions {
+class Extension;
+}
+
+class ChromeDevToolsManagerDelegate : public content::DevToolsManagerDelegate {
  public:
-  static char kTypeApp[];
-  static char kTypeBackgroundPage[];
+  static const char kTypeApp[];
+  static const char kTypeBackgroundPage[];
 
   ChromeDevToolsManagerDelegate();
   ~ChromeDevToolsManagerDelegate() override;
 
+  static ChromeDevToolsManagerDelegate* GetInstance();
+  void UpdateDeviceDiscovery();
+
+  // |web_contents| may be null, in which case this function just checks
+  // the settings for |profile|.
+  static bool AllowInspection(Profile* profile,
+                              content::WebContents* web_contents);
+
+  // |extension| may be null, in which case this function just checks
+  // the settings for |profile|.
+  static bool AllowInspection(Profile* profile,
+                              const extensions::Extension* extension);
+
+  // Resets |device_manager_|.
+  void ResetAndroidDeviceManagerForTesting();
+
+  std::vector<content::BrowserContext*> GetBrowserContexts() override;
+  content::BrowserContext* GetDefaultBrowserContext() override;
+
  private:
-  class HostData;
   friend class DevToolsManagerDelegateTest;
-  using RemoteLocations = std::set<net::HostPortPair>;
 
   // content::DevToolsManagerDelegate implementation.
   void Inspect(content::DevToolsAgentHost* agent_host) override;
-  base::DictionaryValue* HandleCommand(
-      content::DevToolsAgentHost* agent_host,
-      base::DictionaryValue* command_dict) override;
+  void HandleCommand(content::DevToolsAgentHost* agent_host,
+                     content::DevToolsAgentHostClient* client,
+                     std::unique_ptr<base::DictionaryValue> command_dict,
+                     const std::string& message,
+                     NotHandledCallback callback) override;
   std::string GetTargetType(content::WebContents* web_contents) override;
   std::string GetTargetTitle(content::WebContents* web_contents) override;
+
+  content::BrowserContext* CreateBrowserContext() override;
+  void DisposeBrowserContext(content::BrowserContext*,
+                             DisposeCallback callback) override;
+
+  bool AllowInspectingRenderFrameHost(content::RenderFrameHost* rfh) override;
+  void ClientAttached(content::DevToolsAgentHost* agent_host,
+                      content::DevToolsAgentHostClient* client) override;
+  void ClientDetached(content::DevToolsAgentHost* agent_host,
+                      content::DevToolsAgentHostClient* client) override;
   scoped_refptr<content::DevToolsAgentHost> CreateNewTarget(
       const GURL& url) override;
   std::string GetDiscoveryPageHTML() override;
-  std::string GetFrontendResource(const std::string& path) override;
+  bool HasBundledFrontendResources() override;
 
-  // content::DevToolsAgentHostObserver overrides.
-  void DevToolsAgentHostAttached(
-      content::DevToolsAgentHost* agent_host) override;
-  void DevToolsAgentHostDetached(
-      content::DevToolsAgentHost* agent_host) override;
-
-  void UpdateDeviceDiscovery();
   void DevicesAvailable(
       const DevToolsDeviceDiscovery::CompleteDevices& devices);
 
-  std::unique_ptr<base::DictionaryValue> SetRemoteLocations(
-      content::DevToolsAgentHost* agent_host,
-      int command_id,
-      base::DictionaryValue* params);
-
-  std::unique_ptr<base::DictionaryValue> HandleBrowserCommand(
-      int id,
-      std::string method,
-      base::DictionaryValue* params);
-  static std::unique_ptr<base::DictionaryValue> GetWindowForTarget(
-      int id,
-      base::DictionaryValue* params);
-  static std::unique_ptr<base::DictionaryValue> GetWindowBounds(
-      int id,
-      base::DictionaryValue* params);
-  static std::unique_ptr<base::DictionaryValue> SetWindowBounds(
-      int id,
-      base::DictionaryValue* params);
-
-  std::unique_ptr<DevToolsNetworkProtocolHandler> network_protocol_handler_;
-  std::map<content::DevToolsAgentHost*, std::unique_ptr<HostData>> host_data_;
+  std::map<content::DevToolsAgentHostClient*,
+           std::unique_ptr<ChromeDevToolsSession>>
+      sessions_;
 
   std::unique_ptr<AndroidDeviceManager> device_manager_;
   std::unique_ptr<DevToolsDeviceDiscovery> device_discovery_;

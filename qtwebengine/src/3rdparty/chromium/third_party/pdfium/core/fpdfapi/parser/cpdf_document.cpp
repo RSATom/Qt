@@ -22,10 +22,11 @@
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
+#include "core/fpdfapi/parser/cpdf_read_validator.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
-#include "core/fpdfapi/render/cpdf_dibsource.h"
+#include "core/fpdfapi/render/cpdf_dibbase.h"
 #include "core/fpdfapi/render/cpdf_docrenderdata.h"
 #include "core/fxcodec/JBig2_DocumentContext.h"
 #include "core/fxcrt/fx_codepage.h"
@@ -36,189 +37,35 @@
 
 namespace {
 
-const int FX_MAX_PAGE_LEVEL = 1024;
+const int kMaxPageLevel = 1024;
 
-const uint16_t g_FX_MSDOSThaiUnicodes[128] = {
-    0x20AC, 0x0000, 0x0000, 0x0000, 0x0000, 0x2026, 0x0000, 0x0000, 0x0000,
-    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x2018,
-    0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x0000, 0x0000, 0x0000,
-    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x00A0, 0x0E01, 0x0E02, 0x0E03,
-    0x0E04, 0x0E05, 0x0E06, 0x0E07, 0x0E08, 0x0E09, 0x0E0A, 0x0E0B, 0x0E0C,
-    0x0E0D, 0x0E0E, 0x0E0F, 0x0E10, 0x0E11, 0x0E12, 0x0E13, 0x0E14, 0x0E15,
-    0x0E16, 0x0E17, 0x0E18, 0x0E19, 0x0E1A, 0x0E1B, 0x0E1C, 0x0E1D, 0x0E1E,
-    0x0E1F, 0x0E20, 0x0E21, 0x0E22, 0x0E23, 0x0E24, 0x0E25, 0x0E26, 0x0E27,
-    0x0E28, 0x0E29, 0x0E2A, 0x0E2B, 0x0E2C, 0x0E2D, 0x0E2E, 0x0E2F, 0x0E30,
-    0x0E31, 0x0E32, 0x0E33, 0x0E34, 0x0E35, 0x0E36, 0x0E37, 0x0E38, 0x0E39,
-    0x0E3A, 0x0000, 0x0000, 0x0000, 0x0000, 0x0E3F, 0x0E40, 0x0E41, 0x0E42,
-    0x0E43, 0x0E44, 0x0E45, 0x0E46, 0x0E47, 0x0E48, 0x0E49, 0x0E4A, 0x0E4B,
-    0x0E4C, 0x0E4D, 0x0E4E, 0x0E4F, 0x0E50, 0x0E51, 0x0E52, 0x0E53, 0x0E54,
-    0x0E55, 0x0E56, 0x0E57, 0x0E58, 0x0E59, 0x0E5A, 0x0E5B, 0x0000, 0x0000,
-    0x0000, 0x0000,
-};
-const uint16_t g_FX_MSWinEasternEuropeanUnicodes[128] = {
-    0x20AC, 0x0000, 0x201A, 0x0000, 0x201E, 0x2026, 0x2020, 0x2021, 0x0000,
-    0x2030, 0x0160, 0x2039, 0x015A, 0x0164, 0x017D, 0x0179, 0x0000, 0x2018,
-    0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x0000, 0x2122, 0x0161,
-    0x203A, 0x015B, 0x0165, 0x017E, 0x017A, 0x00A0, 0x02C7, 0x02D8, 0x0141,
-    0x00A4, 0x0104, 0x00A6, 0x00A7, 0x00A8, 0x00A9, 0x015E, 0x00AB, 0x00AC,
-    0x00AD, 0x00AE, 0x017B, 0x00B0, 0x00B1, 0x02DB, 0x0142, 0x00B4, 0x00B5,
-    0x00B6, 0x00B7, 0x00B8, 0x0105, 0x015F, 0x00BB, 0x013D, 0x02DD, 0x013E,
-    0x017C, 0x0154, 0x00C1, 0x00C2, 0x0102, 0x00C4, 0x0139, 0x0106, 0x00C7,
-    0x010C, 0x00C9, 0x0118, 0x00CB, 0x011A, 0x00CD, 0x00CE, 0x010E, 0x0110,
-    0x0143, 0x0147, 0x00D3, 0x00D4, 0x0150, 0x00D6, 0x00D7, 0x0158, 0x016E,
-    0x00DA, 0x0170, 0x00DC, 0x00DD, 0x0162, 0x00DF, 0x0155, 0x00E1, 0x00E2,
-    0x0103, 0x00E4, 0x013A, 0x0107, 0x00E7, 0x010D, 0x00E9, 0x0119, 0x00EB,
-    0x011B, 0x00ED, 0x00EE, 0x010F, 0x0111, 0x0144, 0x0148, 0x00F3, 0x00F4,
-    0x0151, 0x00F6, 0x00F7, 0x0159, 0x016F, 0x00FA, 0x0171, 0x00FC, 0x00FD,
-    0x0163, 0x02D9,
-};
-const uint16_t g_FX_MSWinCyrillicUnicodes[128] = {
-    0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, 0x20AC,
-    0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F, 0x0452, 0x2018,
-    0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x0000, 0x2122, 0x0459,
-    0x203A, 0x045A, 0x045C, 0x045B, 0x045F, 0x00A0, 0x040E, 0x045E, 0x0408,
-    0x00A4, 0x0490, 0x00A6, 0x00A7, 0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC,
-    0x00AD, 0x00AE, 0x0407, 0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5,
-    0x00B6, 0x00B7, 0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455,
-    0x0457, 0x0410, 0x0411, 0x0412, 0x0413, 0x0414, 0x0415, 0x0416, 0x0417,
-    0x0418, 0x0419, 0x041A, 0x041B, 0x041C, 0x041D, 0x041E, 0x041F, 0x0420,
-    0x0421, 0x0422, 0x0423, 0x0424, 0x0425, 0x0426, 0x0427, 0x0428, 0x0429,
-    0x042A, 0x042B, 0x042C, 0x042D, 0x042E, 0x042F, 0x0430, 0x0431, 0x0432,
-    0x0433, 0x0434, 0x0435, 0x0436, 0x0437, 0x0438, 0x0439, 0x043A, 0x043B,
-    0x043C, 0x043D, 0x043E, 0x043F, 0x0440, 0x0441, 0x0442, 0x0443, 0x0444,
-    0x0445, 0x0446, 0x0447, 0x0448, 0x0449, 0x044A, 0x044B, 0x044C, 0x044D,
-    0x044E, 0x044F,
-};
-const uint16_t g_FX_MSWinGreekUnicodes[128] = {
-    0x20AC, 0x0000, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x0000,
-    0x2030, 0x0000, 0x2039, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x2018,
-    0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x0000, 0x2122, 0x0000,
-    0x203A, 0x0000, 0x0000, 0x0000, 0x0000, 0x00A0, 0x0385, 0x0386, 0x00A3,
-    0x00A4, 0x00A5, 0x00A6, 0x00A7, 0x00A8, 0x00A9, 0x0000, 0x00AB, 0x00AC,
-    0x00AD, 0x00AE, 0x2015, 0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x0384, 0x00B5,
-    0x00B6, 0x00B7, 0x0388, 0x0389, 0x038A, 0x00BB, 0x038C, 0x00BD, 0x038E,
-    0x038F, 0x0390, 0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397,
-    0x0398, 0x0399, 0x039A, 0x039B, 0x039C, 0x039D, 0x039E, 0x039F, 0x03A0,
-    0x03A1, 0x0000, 0x03A3, 0x03A4, 0x03A5, 0x03A6, 0x03A7, 0x03A8, 0x03A9,
-    0x03AA, 0x03AB, 0x03AC, 0x03AD, 0x03AE, 0x03AF, 0x03B0, 0x03B1, 0x03B2,
-    0x03B3, 0x03B4, 0x03B5, 0x03B6, 0x03B7, 0x03B8, 0x03B9, 0x03BA, 0x03BB,
-    0x03BC, 0x03BD, 0x03BE, 0x03BF, 0x03C0, 0x03C1, 0x03C2, 0x03C3, 0x03C4,
-    0x03C5, 0x03C6, 0x03C7, 0x03C8, 0x03C9, 0x03CA, 0x03CB, 0x03CC, 0x03CD,
-    0x03CE, 0x0000,
-};
-const uint16_t g_FX_MSWinTurkishUnicodes[128] = {
-    0x20AC, 0x0000, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6,
-    0x2030, 0x0160, 0x2039, 0x0152, 0x0000, 0x0000, 0x0000, 0x0000, 0x2018,
-    0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161,
-    0x203A, 0x0153, 0x0000, 0x0000, 0x0178, 0x00A0, 0x00A1, 0x00A2, 0x00A3,
-    0x00A4, 0x00A5, 0x00A6, 0x00A7, 0x00A8, 0x00A9, 0x00AA, 0x00AB, 0x00AC,
-    0x00AD, 0x00AE, 0x00AF, 0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x00B4, 0x00B5,
-    0x00B6, 0x00B7, 0x00B8, 0x00B9, 0x00BA, 0x00BB, 0x00BC, 0x00BD, 0x00BE,
-    0x00BF, 0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00C4, 0x00C5, 0x00C6, 0x00C7,
-    0x00C8, 0x00C9, 0x00CA, 0x00CB, 0x00CC, 0x00CD, 0x00CE, 0x00CF, 0x011E,
-    0x00D1, 0x00D2, 0x00D3, 0x00D4, 0x00D5, 0x00D6, 0x00D7, 0x00D8, 0x00D9,
-    0x00DA, 0x00DB, 0x00DC, 0x0130, 0x015E, 0x00DF, 0x00E0, 0x00E1, 0x00E2,
-    0x00E3, 0x00E4, 0x00E5, 0x00E6, 0x00E7, 0x00E8, 0x00E9, 0x00EA, 0x00EB,
-    0x00EC, 0x00ED, 0x00EE, 0x00EF, 0x011F, 0x00F1, 0x00F2, 0x00F3, 0x00F4,
-    0x00F5, 0x00F6, 0x00F7, 0x00F8, 0x00F9, 0x00FA, 0x00FB, 0x00FC, 0x0131,
-    0x015F, 0x00FF,
-};
-const uint16_t g_FX_MSWinHebrewUnicodes[128] = {
-    0x20AC, 0x0000, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6,
-    0x2030, 0x0000, 0x2039, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x2018,
-    0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0000,
-    0x203A, 0x0000, 0x0000, 0x0000, 0x0000, 0x00A0, 0x00A1, 0x00A2, 0x00A3,
-    0x20AA, 0x00A5, 0x00A6, 0x00A7, 0x00A8, 0x00A9, 0x00D7, 0x00AB, 0x00AC,
-    0x00AD, 0x00AE, 0x00AF, 0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x00B4, 0x00B5,
-    0x00B6, 0x00B7, 0x00B8, 0x00B9, 0x00F7, 0x00BB, 0x00BC, 0x00BD, 0x00BE,
-    0x00BF, 0x05B0, 0x05B1, 0x05B2, 0x05B3, 0x05B4, 0x05B5, 0x05B6, 0x05B7,
-    0x05B8, 0x05B9, 0x0000, 0x05BB, 0x05BC, 0x05BD, 0x05BE, 0x05BF, 0x05C0,
-    0x05C1, 0x05C2, 0x05C3, 0x05F0, 0x05F1, 0x05F2, 0x05F3, 0x05F4, 0x0000,
-    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x05D0, 0x05D1, 0x05D2,
-    0x05D3, 0x05D4, 0x05D5, 0x05D6, 0x05D7, 0x05D8, 0x05D9, 0x05DA, 0x05DB,
-    0x05DC, 0x05DD, 0x05DE, 0x05DF, 0x05E0, 0x05E1, 0x05E2, 0x05E3, 0x05E4,
-    0x05E5, 0x05E6, 0x05E7, 0x05E8, 0x05E9, 0x05EA, 0x0000, 0x0000, 0x200E,
-    0x200F, 0x0000,
-};
-const uint16_t g_FX_MSWinArabicUnicodes[128] = {
-    0x20AC, 0x067E, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6,
-    0x2030, 0x0679, 0x2039, 0x0152, 0x0686, 0x0698, 0x0688, 0x06AF, 0x2018,
-    0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x06A9, 0x2122, 0x0691,
-    0x203A, 0x0153, 0x200C, 0x200D, 0x06BA, 0x00A0, 0x060C, 0x00A2, 0x00A3,
-    0x00A4, 0x00A5, 0x00A6, 0x00A7, 0x00A8, 0x00A9, 0x06BE, 0x00AB, 0x00AC,
-    0x00AD, 0x00AE, 0x00AF, 0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x00B4, 0x00B5,
-    0x00B6, 0x00B7, 0x00B8, 0x00B9, 0x061B, 0x00BB, 0x00BC, 0x00BD, 0x00BE,
-    0x061F, 0x06C1, 0x0621, 0x0622, 0x0623, 0x0624, 0x0625, 0x0626, 0x0627,
-    0x0628, 0x0629, 0x062A, 0x062B, 0x062C, 0x062D, 0x062E, 0x062F, 0x0630,
-    0x0631, 0x0632, 0x0633, 0x0634, 0x0635, 0x0636, 0x00D7, 0x0637, 0x0638,
-    0x0639, 0x063A, 0x0640, 0x0641, 0x0642, 0x0643, 0x00E0, 0x0644, 0x00E2,
-    0x0645, 0x0646, 0x0647, 0x0648, 0x00E7, 0x00E8, 0x00E9, 0x00EA, 0x00EB,
-    0x0649, 0x064A, 0x00EE, 0x00EF, 0x064B, 0x064C, 0x064D, 0x064E, 0x00F4,
-    0x064F, 0x0650, 0x00F7, 0x0651, 0x00F9, 0x0652, 0x00FB, 0x00FC, 0x200E,
-    0x200F, 0x06D2,
-};
-const uint16_t g_FX_MSWinBalticUnicodes[128] = {
-    0x20AC, 0x0000, 0x201A, 0x0000, 0x201E, 0x2026, 0x2020, 0x2021, 0x0000,
-    0x2030, 0x0000, 0x2039, 0x0000, 0x00A8, 0x02C7, 0x00B8, 0x0000, 0x2018,
-    0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x0000, 0x2122, 0x0000,
-    0x203A, 0x0000, 0x00AF, 0x02DB, 0x0000, 0x00A0, 0x0000, 0x00A2, 0x00A3,
-    0x00A4, 0x0000, 0x00A6, 0x00A7, 0x00D8, 0x00A9, 0x0156, 0x00AB, 0x00AC,
-    0x00AD, 0x00AE, 0x00C6, 0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x00B4, 0x00B5,
-    0x00B6, 0x00B7, 0x00F8, 0x00B9, 0x0157, 0x00BB, 0x00BC, 0x00BD, 0x00BE,
-    0x00E6, 0x0104, 0x012E, 0x0100, 0x0106, 0x00C4, 0x00C5, 0x0118, 0x0112,
-    0x010C, 0x00C9, 0x0179, 0x0116, 0x0122, 0x0136, 0x012A, 0x013B, 0x0160,
-    0x0143, 0x0145, 0x00D3, 0x014C, 0x00D5, 0x00D6, 0x00D7, 0x0172, 0x0141,
-    0x015A, 0x016A, 0x00DC, 0x017B, 0x017D, 0x00DF, 0x0105, 0x012F, 0x0101,
-    0x0107, 0x00E4, 0x00E5, 0x0119, 0x0113, 0x010D, 0x00E9, 0x017A, 0x0117,
-    0x0123, 0x0137, 0x012B, 0x013C, 0x0161, 0x0144, 0x0146, 0x00F3, 0x014D,
-    0x00F5, 0x00F6, 0x00F7, 0x0173, 0x0142, 0x015B, 0x016B, 0x00FC, 0x017C,
-    0x017E, 0x02D9,
-};
-
-struct FX_CharsetUnicodes {
-  uint8_t m_Charset;
-  const uint16_t* m_pUnicodes;
-};
-
-const FX_CharsetUnicodes g_FX_CharsetUnicodes[] = {
-    {FX_CHARSET_Thai, g_FX_MSDOSThaiUnicodes},
-    {FX_CHARSET_MSWin_EasternEuropean, g_FX_MSWinEasternEuropeanUnicodes},
-    {FX_CHARSET_MSWin_Cyrillic, g_FX_MSWinCyrillicUnicodes},
-    {FX_CHARSET_MSWin_Greek, g_FX_MSWinGreekUnicodes},
-    {FX_CHARSET_MSWin_Turkish, g_FX_MSWinTurkishUnicodes},
-    {FX_CHARSET_MSWin_Hebrew, g_FX_MSWinHebrewUnicodes},
-    {FX_CHARSET_MSWin_Arabic, g_FX_MSWinArabicUnicodes},
-    {FX_CHARSET_MSWin_Baltic, g_FX_MSWinBalticUnicodes},
-};
-
-void InsertWidthArrayImpl(int* widths, int size, CPDF_Array* pWidthArray) {
-  int i;
-  for (i = 1; i < size; i++) {
-    if (widths[i] != *widths)
+void InsertWidthArrayImpl(std::vector<int> widths, CPDF_Array* pWidthArray) {
+  size_t i;
+  for (i = 1; i < widths.size(); i++) {
+    if (widths[i] != widths[0])
       break;
   }
-  if (i == size) {
-    int first = pWidthArray->GetIntegerAt(pWidthArray->GetCount() - 1);
-    pWidthArray->AddNew<CPDF_Number>(first + size - 1);
-    pWidthArray->AddNew<CPDF_Number>(*widths);
-  } else {
-    CPDF_Array* pWidthArray1 = pWidthArray->AddNew<CPDF_Array>();
-    for (i = 0; i < size; i++)
-      pWidthArray1->AddNew<CPDF_Number>(widths[i]);
+  if (i == widths.size()) {
+    int first = pWidthArray->GetIntegerAt(pWidthArray->size() - 1);
+    pWidthArray->AddNew<CPDF_Number>(first + static_cast<int>(widths.size()) -
+                                     1);
+    pWidthArray->AddNew<CPDF_Number>(widths[0]);
+    return;
   }
-  FX_Free(widths);
+  CPDF_Array* pWidthArray1 = pWidthArray->AddNew<CPDF_Array>();
+  for (int w : widths)
+    pWidthArray1->AddNew<CPDF_Number>(w);
 }
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 void InsertWidthArray(HDC hDC, int start, int end, CPDF_Array* pWidthArray) {
-  int size = end - start + 1;
-  int* widths = FX_Alloc(int, size);
-  GetCharWidth(hDC, start, end, widths);
-  InsertWidthArrayImpl(widths, size, pWidthArray);
+  std::vector<int> widths(end - start + 1);
+  GetCharWidth(hDC, start, end, widths.data());
+  InsertWidthArrayImpl(std::move(widths), pWidthArray);
 }
 
-CFX_ByteString FPDF_GetPSNameFromTT(HDC hDC) {
-  CFX_ByteString result;
+ByteString FPDF_GetPSNameFromTT(HDC hDC) {
+  ByteString result;
   DWORD size = ::GetFontData(hDC, 'eman', 0, nullptr, 0);
   if (size != GDI_ERROR) {
     LPBYTE buffer = FX_Alloc(BYTE, size);
@@ -228,33 +75,31 @@ CFX_ByteString FPDF_GetPSNameFromTT(HDC hDC) {
   }
   return result;
 }
-#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
 void InsertWidthArray1(CFX_Font* pFont,
                        CFX_UnicodeEncoding* pEncoding,
                        wchar_t start,
                        wchar_t end,
                        CPDF_Array* pWidthArray) {
-  int size = end - start + 1;
-  int* widths = FX_Alloc(int, size);
-  int i;
-  for (i = 0; i < size; i++) {
+  std::vector<int> widths(end - start + 1);
+  for (size_t i = 0; i < widths.size(); ++i) {
     int glyph_index = pEncoding->GlyphFromCharCode(start + i);
     widths[i] = pFont->GetGlyphWidth(glyph_index);
   }
-  InsertWidthArrayImpl(widths, size, pWidthArray);
+  InsertWidthArrayImpl(std::move(widths), pWidthArray);
 }
 
 int CountPages(CPDF_Dictionary* pPages,
                std::set<CPDF_Dictionary*>* visited_pages) {
   int count = pPages->GetIntegerFor("Count");
-  if (count > 0 && count < FPDF_PAGE_MAX_NUM)
+  if (count > 0 && count < CPDF_Document::kPageMaxNum)
     return count;
   CPDF_Array* pKidList = pPages->GetArrayFor("Kids");
   if (!pKidList)
     return 0;
   count = 0;
-  for (size_t i = 0; i < pKidList->GetCount(); i++) {
+  for (size_t i = 0; i < pKidList->size(); i++) {
     CPDF_Dictionary* pKid = pKidList->GetDictAt(i);
     if (!pKid || pdfium::ContainsKey(*visited_pages, pKid))
       continue;
@@ -299,7 +144,7 @@ int CalculateFlags(bool bold,
 void ProcessNonbCJK(CPDF_Dictionary* pBaseDict,
                     bool bold,
                     bool italic,
-                    CFX_ByteString basefont,
+                    ByteString basefont,
                     std::unique_ptr<CPDF_Array> pWidths) {
   if (bold && italic)
     basefont += ",BoldItalic";
@@ -316,15 +161,14 @@ void ProcessNonbCJK(CPDF_Dictionary* pBaseDict,
 
 std::unique_ptr<CPDF_Dictionary> CalculateFontDesc(
     CPDF_Document* pDoc,
-    CFX_ByteString basefont,
+    ByteString basefont,
     int flags,
     int italicangle,
     int ascend,
     int descend,
     std::unique_ptr<CPDF_Array> bbox,
     int32_t stemV) {
-  auto pFontDesc =
-      pdfium::MakeUnique<CPDF_Dictionary>(pDoc->GetByteStringPool());
+  auto pFontDesc = pDoc->New<CPDF_Dictionary>();
   pFontDesc->SetNewFor<CPDF_Name>("Type", "FontDescriptor");
   pFontDesc->SetNewFor<CPDF_Name>("FontName", basefont);
   pFontDesc->SetNewFor<CPDF_Number>("Flags", flags);
@@ -338,67 +182,59 @@ std::unique_ptr<CPDF_Dictionary> CalculateFontDesc(
 
 }  // namespace
 
-CPDF_Document::CPDF_Document(std::unique_ptr<CPDF_Parser> pParser)
-    : CPDF_IndirectObjectHolder(),
-      m_pParser(std::move(pParser)),
-      m_pRootDict(nullptr),
-      m_pInfoDict(nullptr),
-      m_iNextPageToTraverse(0),
-      m_bReachedMaxPageLevel(false),
-      m_bLinearized(false),
-      m_iFirstPageNo(0),
-      m_dwFirstPageObjNum(0),
-      m_pDocPage(pdfium::MakeUnique<CPDF_DocPageData>(this)),
-      m_pDocRender(pdfium::MakeUnique<CPDF_DocRenderData>(this)) {
-  if (pParser)
-    SetLastObjNum(m_pParser->GetLastObjNum());
-}
+CPDF_Document::CPDF_Document()
+    : m_pDocPage(pdfium::MakeUnique<CPDF_DocPageData>(this)),
+      m_pDocRender(pdfium::MakeUnique<CPDF_DocRenderData>(this)),
+      m_StockFontClearer(this) {}
 
-CPDF_Document::~CPDF_Document() {
-  CPDF_ModuleMgr::Get()->GetPageModule()->ClearStockFont(this);
-}
+CPDF_Document::~CPDF_Document() = default;
 
 std::unique_ptr<CPDF_Object> CPDF_Document::ParseIndirectObject(
     uint32_t objnum) {
-  return m_pParser ? m_pParser->ParseIndirectObject(this, objnum) : nullptr;
+  return m_pParser ? m_pParser->ParseIndirectObject(objnum) : nullptr;
 }
 
-void CPDF_Document::LoadDocInternal() {
+bool CPDF_Document::TryInit() {
   SetLastObjNum(m_pParser->GetLastObjNum());
 
   CPDF_Object* pRootObj = GetOrParseIndirectObject(m_pParser->GetRootObjNum());
-  if (!pRootObj)
-    return;
+  if (pRootObj)
+    m_pRootDict = pRootObj->GetDict();
 
-  m_pRootDict = pRootObj->GetDict();
-  if (!m_pRootDict)
-    return;
-
-  LoadDocumentInfo();
-}
-
-void CPDF_Document::LoadDocumentInfo() {
-  CPDF_Object* pInfoObj = GetOrParseIndirectObject(m_pParser->GetInfoObjNum());
-  if (pInfoObj)
-    m_pInfoDict = pInfoObj->GetDict();
-}
-
-void CPDF_Document::LoadDoc() {
-  LoadDocInternal();
   LoadPages();
+  return GetRoot() && GetPageCount() > 0;
 }
 
-void CPDF_Document::LoadLinearizedDoc(
-    const CPDF_LinearizedHeader* pLinearizationParams) {
-  m_bLinearized = true;
-  LoadDocInternal();
-  m_PageList.resize(pLinearizationParams->GetPageCount());
-  m_iFirstPageNo = pLinearizationParams->GetFirstPageNo();
-  m_dwFirstPageObjNum = pLinearizationParams->GetFirstPageObjNum();
+CPDF_Parser::Error CPDF_Document::LoadDoc(
+    const RetainPtr<IFX_SeekableReadStream>& pFileAccess,
+    const char* password) {
+  if (!m_pParser)
+    SetParser(pdfium::MakeUnique<CPDF_Parser>(this));
+
+  return HandleLoadResult(m_pParser->StartParse(pFileAccess, password));
+}
+
+CPDF_Parser::Error CPDF_Document::LoadLinearizedDoc(
+    const RetainPtr<CPDF_ReadValidator>& validator,
+    const char* password) {
+  if (!m_pParser)
+    SetParser(pdfium::MakeUnique<CPDF_Parser>(this));
+
+  return HandleLoadResult(m_pParser->StartLinearizedParse(validator, password));
 }
 
 void CPDF_Document::LoadPages() {
-  m_PageList.resize(RetrievePageCount());
+  const CPDF_LinearizedHeader* linearized_header =
+      m_pParser->GetLinearizedHeader();
+  if (!linearized_header) {
+    m_PageList.resize(RetrievePageCount());
+    return;
+  }
+
+  m_PageList.resize(linearized_header->GetPageCount());
+  ASSERT(linearized_header->GetFirstPageNo() < m_PageList.size());
+  m_PageList[linearized_header->GetFirstPageNo()] =
+      linearized_header->GetFirstPageObjNum();
 }
 
 CPDF_Dictionary* CPDF_Document::TraversePDFPages(int iPage,
@@ -416,16 +252,16 @@ CPDF_Dictionary* CPDF_Document::TraversePDFPages(int iPage,
     m_PageList[iPage] = pPages->GetObjNum();
     return pPages;
   }
-  if (level >= FX_MAX_PAGE_LEVEL) {
+  if (level >= kMaxPageLevel) {
     m_pTreeTraversal.pop_back();
     m_bReachedMaxPageLevel = true;
     return nullptr;
   }
   CPDF_Dictionary* page = nullptr;
-  for (size_t i = m_pTreeTraversal[level].second; i < pKidList->GetCount();
-       i++) {
+  for (size_t i = m_pTreeTraversal[level].second; i < pKidList->size(); i++) {
     if (*nPagesToGo == 0)
       break;
+    pKidList->ConvertToIndirectObjectAt(i, this);
     CPDF_Dictionary* pKid = pKidList->GetDictAt(i);
     if (!pKid) {
       (*nPagesToGo)--;
@@ -461,7 +297,7 @@ CPDF_Dictionary* CPDF_Document::TraversePDFPages(int iPage,
       }
     }
   }
-  if (m_pTreeTraversal[level].second == pKidList->GetCount())
+  if (m_pTreeTraversal[level].second == pKidList->size())
     m_pTreeTraversal.pop_back();
   return page;
 }
@@ -472,42 +308,46 @@ void CPDF_Document::ResetTraversal() {
   m_pTreeTraversal.clear();
 }
 
-CPDF_Dictionary* CPDF_Document::GetPagesDict() const {
-  CPDF_Dictionary* pRoot = GetRoot();
+void CPDF_Document::SetParser(std::unique_ptr<CPDF_Parser> pParser) {
+  ASSERT(!m_pParser);
+  m_pParser = std::move(pParser);
+}
+
+CPDF_Parser::Error CPDF_Document::HandleLoadResult(CPDF_Parser::Error error) {
+  if (error == CPDF_Parser::SUCCESS)
+    m_bHasValidCrossReferenceTable = !m_pParser->xref_table_rebuilt();
+  return error;
+}
+
+const CPDF_Dictionary* CPDF_Document::GetPagesDict() const {
+  const CPDF_Dictionary* pRoot = GetRoot();
   return pRoot ? pRoot->GetDictFor("Pages") : nullptr;
+}
+
+CPDF_Dictionary* CPDF_Document::GetPagesDict() {
+  return const_cast<CPDF_Dictionary*>(
+      static_cast<const CPDF_Document*>(this)->GetPagesDict());
 }
 
 bool CPDF_Document::IsPageLoaded(int iPage) const {
   return !!m_PageList[iPage];
 }
 
-CPDF_Dictionary* CPDF_Document::GetPage(int iPage) {
+CPDF_Dictionary* CPDF_Document::GetPageDictionary(int iPage) {
   if (!pdfium::IndexInBounds(m_PageList, iPage))
     return nullptr;
 
-  if (m_bLinearized && iPage == m_iFirstPageNo) {
-    if (CPDF_Dictionary* pDict =
-            ToDictionary(GetOrParseIndirectObject(m_dwFirstPageObjNum))) {
-      return pDict;
-    }
+  const uint32_t objnum = m_PageList[iPage];
+  if (objnum) {
+    CPDF_Dictionary* result = ToDictionary(GetOrParseIndirectObject(objnum));
+    if (result)
+      return result;
   }
-  uint32_t objnum = m_PageList[iPage];
-  if (objnum)
-    return ToDictionary(GetOrParseIndirectObject(objnum));
 
   CPDF_Dictionary* pPages = GetPagesDict();
   if (!pPages)
     return nullptr;
 
-  if (iPage - m_iNextPageToTraverse + 1 <= 0) {
-    // This can happen when the page does not have an object number. On repeated
-    // calls to this function for the same page index, this condition causes
-    // TraversePDFPages() to incorrectly return nullptr.
-    // Example "testing/corpus/fx/other/jetman_std.pdf"
-    // We should restart traversing in this case.
-    // TODO(art-snake): optimize this.
-    ResetTraversal();
-  }
   if (m_pTreeTraversal.empty()) {
     ResetTraversal();
     m_pTreeTraversal.push_back(std::make_pair(pPages, 0));
@@ -522,11 +362,11 @@ void CPDF_Document::SetPageObjNum(int iPage, uint32_t objNum) {
   m_PageList[iPage] = objNum;
 }
 
-int CPDF_Document::FindPageIndex(CPDF_Dictionary* pNode,
+int CPDF_Document::FindPageIndex(const CPDF_Dictionary* pNode,
                                  uint32_t* skip_count,
                                  uint32_t objnum,
                                  int* index,
-                                 int level) {
+                                 int level) const {
   if (!pNode->KeyExist("Kids")) {
     if (objnum == pNode->GetObjNum())
       return *index;
@@ -538,11 +378,11 @@ int CPDF_Document::FindPageIndex(CPDF_Dictionary* pNode,
     return -1;
   }
 
-  CPDF_Array* pKidList = pNode->GetArrayFor("Kids");
+  const CPDF_Array* pKidList = pNode->GetArrayFor("Kids");
   if (!pKidList)
     return -1;
 
-  if (level >= FX_MAX_PAGE_LEVEL)
+  if (level >= kMaxPageLevel)
     return -1;
 
   size_t count = pNode->GetIntegerFor("Count");
@@ -552,16 +392,16 @@ int CPDF_Document::FindPageIndex(CPDF_Dictionary* pNode,
     return -1;
   }
 
-  if (count && count == pKidList->GetCount()) {
+  if (count && count == pKidList->size()) {
     for (size_t i = 0; i < count; i++) {
-      CPDF_Reference* pKid = ToReference(pKidList->GetObjectAt(i));
+      const CPDF_Reference* pKid = ToReference(pKidList->GetObjectAt(i));
       if (pKid && pKid->GetRefObjNum() == objnum)
         return static_cast<int>(*index + i);
     }
   }
 
-  for (size_t i = 0; i < pKidList->GetCount(); i++) {
-    CPDF_Dictionary* pKid = pKidList->GetDictAt(i);
+  for (size_t i = 0; i < pKidList->size(); i++) {
+    const CPDF_Dictionary* pKid = pKidList->GetDictAt(i);
     if (!pKid || pKid == pNode)
       continue;
 
@@ -585,12 +425,12 @@ int CPDF_Document::GetPageIndex(uint32_t objnum) {
       bSkipped = true;
     }
   }
-  CPDF_Dictionary* pPages = GetPagesDict();
+  const CPDF_Dictionary* pPages = GetPagesDict();
   if (!pPages)
     return -1;
 
   int start_index = 0;
-  int found_index = FindPageIndex(pPages, &skip_count, objnum, &start_index);
+  int found_index = FindPageIndex(pPages, &skip_count, objnum, &start_index, 0);
 
   // Corrupt page tree may yield out-of-range results.
   if (!pdfium::IndexInBounds(m_PageList, found_index))
@@ -604,7 +444,7 @@ int CPDF_Document::GetPageCount() const {
   return pdfium::CollectionSize<int>(m_PageList);
 }
 
-int CPDF_Document::RetrievePageCount() const {
+int CPDF_Document::RetrievePageCount() {
   CPDF_Dictionary* pPages = GetPagesDict();
   if (!pPages)
     return 0;
@@ -618,15 +458,10 @@ int CPDF_Document::RetrievePageCount() const {
 }
 
 uint32_t CPDF_Document::GetUserPermissions() const {
-  // https://bugs.chromium.org/p/pdfium/issues/detail?id=499
-  if (!m_pParser) {
-#ifndef PDF_ENABLE_XFA
-    return 0;
-#else  // PDF_ENABLE_XFA
-    return 0xFFFFFFFF;
-#endif
-  }
-  return m_pParser->GetPermissions();
+  if (m_pParser)
+    return m_pParser->GetPermissions();
+
+  return m_pExtension ? m_pExtension->GetUserPermissions() : 0;
 }
 
 CPDF_Font* CPDF_Document::LoadFont(CPDF_Dictionary* pFontDict) {
@@ -634,13 +469,14 @@ CPDF_Font* CPDF_Document::LoadFont(CPDF_Dictionary* pFontDict) {
   return m_pDocPage->GetFont(pFontDict);
 }
 
-CFX_RetainPtr<CPDF_StreamAcc> CPDF_Document::LoadFontFile(
-    CPDF_Stream* pStream) {
+RetainPtr<CPDF_StreamAcc> CPDF_Document::LoadFontFile(
+    const CPDF_Stream* pStream) {
   return m_pDocPage->GetFontFileStreamAcc(pStream);
 }
 
-CPDF_ColorSpace* CPDF_Document::LoadColorSpace(CPDF_Object* pCSObj,
-                                               CPDF_Dictionary* pResources) {
+CPDF_ColorSpace* CPDF_Document::LoadColorSpace(
+    const CPDF_Object* pCSObj,
+    const CPDF_Dictionary* pResources) {
   return m_pDocPage->GetColorSpace(pCSObj, pResources);
 }
 
@@ -650,19 +486,20 @@ CPDF_Pattern* CPDF_Document::LoadPattern(CPDF_Object* pPatternObj,
   return m_pDocPage->GetPattern(pPatternObj, bShading, matrix);
 }
 
-CFX_RetainPtr<CPDF_IccProfile> CPDF_Document::LoadIccProfile(
-    CPDF_Stream* pStream) {
+RetainPtr<CPDF_IccProfile> CPDF_Document::LoadIccProfile(
+    const CPDF_Stream* pStream) {
   return m_pDocPage->GetIccProfile(pStream);
 }
 
-CFX_RetainPtr<CPDF_Image> CPDF_Document::LoadImageFromPageData(
+RetainPtr<CPDF_Image> CPDF_Document::LoadImageFromPageData(
     uint32_t dwStreamObjNum) {
   ASSERT(dwStreamObjNum);
   return m_pDocPage->GetImage(dwStreamObjNum);
 }
 
 void CPDF_Document::CreateNewDoc() {
-  ASSERT(!m_pRootDict && !m_pInfoDict);
+  ASSERT(!m_pRootDict);
+  ASSERT(!m_pInfoDict);
   m_pRootDict = NewIndirect<CPDF_Dictionary>();
   m_pRootDict->SetNewFor<CPDF_Name>("Type", "Catalog");
 
@@ -670,7 +507,7 @@ void CPDF_Document::CreateNewDoc() {
   pPages->SetNewFor<CPDF_Name>("Type", "Pages");
   pPages->SetNewFor<CPDF_Number>("Count", 0);
   pPages->SetNewFor<CPDF_Array>("Kids");
-  m_pRootDict->SetNewFor<CPDF_Reference>("Pages", this, pPages->GetObjNum());
+  m_pRootDict->SetFor("Pages", pPages->MakeReference(this));
   m_pInfoDict = NewIndirect<CPDF_Dictionary>();
 }
 
@@ -694,7 +531,7 @@ bool CPDF_Document::InsertDeletePDFPage(CPDF_Dictionary* pPages,
   if (!pKidList)
     return false;
 
-  for (size_t i = 0; i < pKidList->GetCount(); i++) {
+  for (size_t i = 0; i < pKidList->size(); i++) {
     CPDF_Dictionary* pKid = pKidList->GetDictAt(i);
     if (pKid->GetStringFor("Type") == "Page") {
       if (nPagesToGo != 0) {
@@ -702,9 +539,8 @@ bool CPDF_Document::InsertDeletePDFPage(CPDF_Dictionary* pPages,
         continue;
       }
       if (bInsert) {
-        pKidList->InsertNewAt<CPDF_Reference>(i, this, pPageDict->GetObjNum());
-        pPageDict->SetNewFor<CPDF_Reference>("Parent", this,
-                                             pPages->GetObjNum());
+        pKidList->InsertAt(i, pPageDict->MakeReference(this));
+        pPageDict->SetFor("Parent", pPages->MakeReference(this));
       } else {
         pKidList->RemoveAt(i);
       }
@@ -746,9 +582,9 @@ bool CPDF_Document::InsertNewPage(int iPage, CPDF_Dictionary* pPageDict) {
     CPDF_Array* pPagesList = pPages->GetArrayFor("Kids");
     if (!pPagesList)
       pPagesList = pPages->SetNewFor<CPDF_Array>("Kids");
-    pPagesList->AddNew<CPDF_Reference>(this, pPageDict->GetObjNum());
+    pPagesList->Add(pPageDict->MakeReference(this));
     pPages->SetNewFor<CPDF_Number>("Count", nPages + 1);
-    pPageDict->SetNewFor<CPDF_Reference>("Parent", this, pPages->GetObjNum());
+    pPageDict->SetFor("Parent", pPages->MakeReference(this));
     ResetTraversal();
   } else {
     std::set<CPDF_Dictionary*> stack = {pPages};
@@ -757,6 +593,18 @@ bool CPDF_Document::InsertNewPage(int iPage, CPDF_Dictionary* pPageDict) {
   }
   m_PageList.insert(m_PageList.begin() + iPage, pPageDict->GetObjNum());
   return true;
+}
+
+CPDF_Dictionary* CPDF_Document::GetInfo() {
+  if (m_pInfoDict)
+    return m_pInfoDict.Get();
+
+  if (!m_pParser || !m_pParser->GetInfoObjNum())
+    return nullptr;
+
+  CPDF_Reference ref(this, m_pParser->GetInfoObjNum());
+  m_pInfoDict = ToDictionary(ref.GetDirect());
+  return m_pInfoDict.Get();
 }
 
 void CPDF_Document::DeletePage(int iPage) {
@@ -777,7 +625,7 @@ void CPDF_Document::DeletePage(int iPage) {
 
 CPDF_Font* CPDF_Document::AddStandardFont(const char* font,
                                           CPDF_FontEncoding* pEncoding) {
-  CFX_ByteString name(font);
+  ByteString name(font);
   if (PDF_GetStandardFontName(&name) < 0)
     return nullptr;
   return GetPageData()->GetStandardFont(name, pEncoding);
@@ -801,35 +649,33 @@ size_t CPDF_Document::CalculateEncodingDict(int charset,
 
   const uint16_t* pUnicodes = g_FX_CharsetUnicodes[i].m_pUnicodes;
   for (int j = 0; j < 128; j++) {
-    CFX_ByteString name = PDF_AdobeNameFromUnicode(pUnicodes[j]);
+    ByteString name = PDF_AdobeNameFromUnicode(pUnicodes[j]);
     pArray->AddNew<CPDF_Name>(name.IsEmpty() ? ".notdef" : name);
   }
-  pBaseDict->SetNewFor<CPDF_Reference>("Encoding", this,
-                                       pEncodingDict->GetObjNum());
+  pBaseDict->SetFor("Encoding", pEncodingDict->MakeReference(this));
   return i;
 }
 
 CPDF_Dictionary* CPDF_Document::ProcessbCJK(
     CPDF_Dictionary* pBaseDict,
     int charset,
-    bool bVert,
-    CFX_ByteString basefont,
+    ByteString basefont,
     std::function<void(wchar_t, wchar_t, CPDF_Array*)> Insert) {
   CPDF_Dictionary* pFontDict = NewIndirect<CPDF_Dictionary>();
-  CFX_ByteString cmap;
-  CFX_ByteString ordering;
+  ByteString cmap;
+  ByteString ordering;
   int supplement = 0;
   CPDF_Array* pWidthArray = pFontDict->SetNewFor<CPDF_Array>("W");
   switch (charset) {
     case FX_CHARSET_ChineseTraditional:
-      cmap = bVert ? "ETenms-B5-V" : "ETenms-B5-H";
+      cmap = "ETenms-B5-H";
       ordering = "CNS1";
       supplement = 4;
       pWidthArray->AddNew<CPDF_Number>(1);
       Insert(0x20, 0x7e, pWidthArray);
       break;
     case FX_CHARSET_ChineseSimplified:
-      cmap = bVert ? "GBK-EUC-V" : "GBK-EUC-H";
+      cmap = "GBK-EUC-H";
       ordering = "GB1";
       supplement = 2;
       pWidthArray->AddNew<CPDF_Number>(7716);
@@ -838,14 +684,14 @@ CPDF_Dictionary* CPDF_Document::ProcessbCJK(
       Insert(0x21, 0x7e, pWidthArray);
       break;
     case FX_CHARSET_Hangul:
-      cmap = bVert ? "KSCms-UHC-V" : "KSCms-UHC-H";
+      cmap = "KSCms-UHC-H";
       ordering = "Korea1";
       supplement = 2;
       pWidthArray->AddNew<CPDF_Number>(1);
       Insert(0x20, 0x7e, pWidthArray);
       break;
     case FX_CHARSET_ShiftJIS:
-      cmap = bVert ? "90ms-RKSJ-V" : "90ms-RKSJ-H";
+      cmap = "90ms-RKSJ-H";
       ordering = "Japan1";
       supplement = 5;
       pWidthArray->AddNew<CPDF_Number>(231);
@@ -872,18 +718,16 @@ CPDF_Dictionary* CPDF_Document::ProcessbCJK(
   pCIDSysInfo->SetNewFor<CPDF_Number>("Supplement", supplement);
 
   CPDF_Array* pArray = pBaseDict->SetNewFor<CPDF_Array>("DescendantFonts");
-  pArray->AddNew<CPDF_Reference>(this, pFontDict->GetObjNum());
+  pArray->Add(pFontDict->MakeReference(this));
   return pFontDict;
 }
 
-CPDF_Font* CPDF_Document::AddFont(CFX_Font* pFont, int charset, bool bVert) {
+CPDF_Font* CPDF_Document::AddFont(CFX_Font* pFont, int charset) {
   if (!pFont)
     return nullptr;
 
-  bool bCJK = charset == FX_CHARSET_ChineseTraditional ||
-              charset == FX_CHARSET_ChineseSimplified ||
-              charset == FX_CHARSET_Hangul || charset == FX_CHARSET_ShiftJIS;
-  CFX_ByteString basefont = pFont->GetFamilyName();
+  const bool bCJK = FX_CharSetIsCJK(charset);
+  ByteString basefont = pFont->GetFamilyName();
   basefont.Replace(" ", "");
   int flags =
       CalculateFlags(pFont->IsBold(), pFont->IsItalic(), pFont->IsFixedWidth(),
@@ -923,7 +767,7 @@ CPDF_Font* CPDF_Document::AddFont(CFX_Font* pFont, int charset, bool bVert) {
                    std::move(pWidths));
   } else {
     pFontDict = ProcessbCJK(
-        pBaseDict, charset, bVert, basefont,
+        pBaseDict, charset, basefont,
         [pFont, &pEncoding](wchar_t start, wchar_t end, CPDF_Array* widthArr) {
           InsertWidthArray1(pFont, pEncoding.get(), start, end, widthArr);
         });
@@ -931,7 +775,7 @@ CPDF_Font* CPDF_Document::AddFont(CFX_Font* pFont, int charset, bool bVert) {
   int italicangle =
       pFont->GetSubstFont() ? pFont->GetSubstFont()->m_ItalicAngle : 0;
   FX_RECT bbox;
-  pFont->GetBBox(bbox);
+  pFont->GetBBox(&bbox);
   auto pBBox = pdfium::MakeUnique<CPDF_Array>();
   pBBox->AddNew<CPDF_Number>(bbox.left);
   pBBox->AddNew<CPDF_Number>(bbox.bottom);
@@ -955,29 +799,12 @@ CPDF_Font* CPDF_Document::AddFont(CFX_Font* pFont, int charset, bool bVert) {
   CPDF_Dictionary* pFontDesc = ToDictionary(AddIndirectObject(
       CalculateFontDesc(this, basefont, flags, italicangle, pFont->GetAscent(),
                         pFont->GetDescent(), std::move(pBBox), nStemV)));
-  pFontDict->SetNewFor<CPDF_Reference>("FontDescriptor", this,
-                                       pFontDesc->GetObjNum());
+  pFontDict->SetFor("FontDescriptor", pFontDesc->MakeReference(this));
   return LoadFont(pBaseDict);
 }
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-CPDF_Font* CPDF_Document::AddWindowsFont(LOGFONTW* pLogFont,
-                                         bool bVert,
-                                         bool bTranslateName) {
-  LOGFONTA lfa;
-  memcpy(&lfa, pLogFont, (char*)lfa.lfFaceName - (char*)&lfa);
-  CFX_ByteString face = CFX_ByteString::FromUnicode(pLogFont->lfFaceName);
-  if (face.GetLength() >= LF_FACESIZE)
-    return nullptr;
-
-  strncpy(lfa.lfFaceName, face.c_str(),
-          (face.GetLength() + 1) * sizeof(CFX_ByteString::CharType));
-  return AddWindowsFont(&lfa, bVert, bTranslateName);
-}
-
-CPDF_Font* CPDF_Document::AddWindowsFont(LOGFONTA* pLogFont,
-                                         bool bVert,
-                                         bool bTranslateName) {
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+CPDF_Font* CPDF_Document::AddWindowsFont(LOGFONTA* pLogFont) {
   pLogFont->lfHeight = -1000;
   pLogFont->lfWidth = 0;
   HGDIOBJ hFont = CreateFontIndirectA(pLogFont);
@@ -1000,12 +827,9 @@ CPDF_Font* CPDF_Document::AddWindowsFont(LOGFONTA* pLogFont,
                              (pLogFont->lfPitchAndFamily & 0xf8) == FF_SCRIPT,
                              pLogFont->lfCharSet == FX_CHARSET_Symbol);
 
-  bool bCJK = pLogFont->lfCharSet == FX_CHARSET_ChineseTraditional ||
-              pLogFont->lfCharSet == FX_CHARSET_ChineseSimplified ||
-              pLogFont->lfCharSet == FX_CHARSET_Hangul ||
-              pLogFont->lfCharSet == FX_CHARSET_ShiftJIS;
-  CFX_ByteString basefont;
-  if (bTranslateName && bCJK)
+  const bool bCJK = FX_CharSetIsCJK(pLogFont->lfCharSet);
+  ByteString basefont;
+  if (bCJK)
     basefont = FPDF_GetPSNameFromTT(hDC);
 
   if (basefont.IsEmpty())
@@ -1039,7 +863,7 @@ CPDF_Font* CPDF_Document::AddWindowsFont(LOGFONTA* pLogFont,
                    pLogFont->lfItalic != 0, basefont, std::move(pWidths));
   } else {
     pFontDict =
-        ProcessbCJK(pBaseDict, pLogFont->lfCharSet, bVert, basefont,
+        ProcessbCJK(pBaseDict, pLogFont->lfCharSet, basefont,
                     [&hDC](wchar_t start, wchar_t end, CPDF_Array* widthArr) {
                       InsertWidthArray(hDC, start, end, widthArr);
                     });
@@ -1051,12 +875,19 @@ CPDF_Font* CPDF_Document::AddWindowsFont(LOGFONTA* pLogFont,
       CalculateFontDesc(this, basefont, flags, italicangle, ascend, descend,
                         std::move(pBBox), pLogFont->lfWeight / 5);
   pFontDesc->SetNewFor<CPDF_Number>("CapHeight", capheight);
-  pFontDict->SetNewFor<CPDF_Reference>(
-      "FontDescriptor", this,
-      AddIndirectObject(std::move(pFontDesc))->GetObjNum());
+  pFontDict->SetFor(
+      "FontDescriptor",
+      AddIndirectObject(std::move(pFontDesc))->MakeReference(this));
   hFont = SelectObject(hDC, hFont);
   DeleteObject(hFont);
   DeleteDC(hDC);
   return LoadFont(pBaseDict);
 }
-#endif  //  _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#endif  //  _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+
+CPDF_Document::StockFontClearer::StockFontClearer(CPDF_Document* pDoc)
+    : m_pDoc(pDoc) {}
+
+CPDF_Document::StockFontClearer::~StockFontClearer() {
+  CPDF_ModuleMgr::Get()->GetPageModule()->ClearStockFont(m_pDoc.Get());
+}

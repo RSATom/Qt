@@ -56,6 +56,11 @@ ppapi::ScopedPPVar PepperTryCatch::FromV8(v8::Local<v8::Value> v8_value) {
   return result;
 }
 
+ppapi::ScopedPPVar PepperTryCatch::FromV8Maybe(
+    v8::MaybeLocal<v8::Value> v8_value) {
+  return FromV8(v8_value.FromMaybe(v8::Local<v8::Value>()));
+}
+
 PepperTryCatchV8::PepperTryCatchV8(PepperPluginInstanceImpl* instance,
                                    V8VarConverter* var_converter,
                                    v8::Isolate* isolate)
@@ -154,7 +159,8 @@ bool PepperTryCatchVar::HasException() {
   } else if (try_catch_.HasCaught()) {
     v8::Local<v8::Message> message(try_catch_.Message());
     if (!message.IsEmpty()) {
-      v8::String::Utf8Value utf8(try_catch_.Message()->Get());
+      v8::String::Utf8Value utf8(handle_scope_.GetIsolate(),
+                                 try_catch_.Message()->Get());
       exception_message = std::string(*utf8, utf8.length());
     } else {
       exception_message = "There was a v8 exception.";

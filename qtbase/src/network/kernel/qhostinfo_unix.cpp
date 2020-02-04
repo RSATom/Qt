@@ -66,6 +66,10 @@
 #  include <gnu/lib-names.h>
 #endif
 
+#if defined(Q_OS_FREEBSD) || QT_CONFIG(dlopen)
+#  include <dlfcn.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 // Almost always the same. If not, specify in qplatformdefs.h.
@@ -79,6 +83,11 @@ QT_BEGIN_NAMESPACE
 #  define Q_ADDRCONFIG          AI_ADDRCONFIG
 #endif
 
+enum LibResolvFeature {
+    NeedResInit,
+    NeedResNInit
+};
+
 typedef struct __res_state *res_state_ptr;
 
 typedef int (*res_init_proto)(void);
@@ -89,9 +98,41 @@ typedef void (*res_nclose_proto)(res_state_ptr);
 static res_nclose_proto local_res_nclose = 0;
 static res_state_ptr local_res = 0;
 
-static bool resolveLibraryInternal()
-{
 #if QT_CONFIG(library) && !defined(Q_OS_QNX)
+namespace {
+struct LibResolv
+{
+    enum {
+#ifdef RES_NORELOAD
+        // If RES_NORELOAD is defined, then the libc is capable of watching
+        // /etc/resolv.conf for changes and reloading as necessary. So accept
+        // whatever is configured.
+        ReinitNecessary = false
+#else
+        ReinitNecessary = true
+#endif
+    };
+
+    QLibrary lib;
+    LibResolv();
+    ~LibResolv() { lib.unload(); }
+};
+}
+
+static QFunctionPointer resolveSymbol(QLibrary &lib, const char *sym)
+{
+    if (lib.isLoaded())
+        return lib.resolve(sym);
+
+#if defined(RTLD_DEFAULT) && (defined(Q_OS_FREEBSD) || QT_CONFIG(dlopen))
+    return reinterpret_cast<QFunctionPointer>(dlsym(RTLD_DEFAULT, sym));
+#else
+    return nullptr;
+#endif
+}
+
+LibResolv::LibResolv()
+{
     QLibrary lib;
 #ifdef LIBRESOLV_SO
     lib.setFileName(QStringLiteral(LIBRESOLV_SO));
@@ -99,33 +140,45 @@ static bool resolveLibraryInternal()
 #endif
     {
         lib.setFileName(QLatin1String("resolv"));
-        if (!lib.load())
-            return false;
+        lib.load();
     }
 
-    local_res_init = res_init_proto(lib.resolve("__res_init"));
-    if (!local_res_init)
-        local_res_init = res_init_proto(lib.resolve("res_init"));
-
-    local_res_ninit = res_ninit_proto(lib.resolve("__res_ninit"));
+    // res_ninit is required for localDomainName()
+    local_res_ninit = res_ninit_proto(resolveSymbol(lib, "__res_ninit"));
     if (!local_res_ninit)
-        local_res_ninit = res_ninit_proto(lib.resolve("res_ninit"));
-
-    if (!local_res_ninit) {
-        // if we can't get a thread-safe context, we have to use the global _res state
-        local_res = res_state_ptr(lib.resolve("_res"));
-    } else {
-        local_res_nclose = res_nclose_proto(lib.resolve("res_nclose"));
+        local_res_ninit = res_ninit_proto(resolveSymbol(lib, "res_ninit"));
+    if (local_res_ninit) {
+        // we must now find res_nclose
+        local_res_nclose = res_nclose_proto(resolveSymbol(lib, "res_nclose"));
         if (!local_res_nclose)
-            local_res_nclose = res_nclose_proto(lib.resolve("__res_nclose"));
+            local_res_nclose = res_nclose_proto(resolveSymbol(lib, "__res_nclose"));
         if (!local_res_nclose)
-            local_res_ninit = 0;
+            local_res_ninit = nullptr;
     }
-#endif
 
-    return true;
+    if (ReinitNecessary || !local_res_ninit) {
+        local_res_init = res_init_proto(resolveSymbol(lib, "__res_init"));
+        if (!local_res_init)
+            local_res_init = res_init_proto(resolveSymbol(lib, "res_init"));
+
+        if (local_res_init && !local_res_ninit) {
+            // if we can't get a thread-safe context, we have to use the global _res state
+            local_res = res_state_ptr(resolveSymbol(lib, "_res"));
+        }
+    }
 }
-Q_GLOBAL_STATIC_WITH_ARGS(bool, resolveLibrary, (resolveLibraryInternal()))
+Q_GLOBAL_STATIC(LibResolv, libResolv)
+
+static void resolveLibrary(LibResolvFeature f)
+{
+    if (LibResolv::ReinitNecessary || f == NeedResNInit)
+        libResolv();
+}
+#else // QT_CONFIG(library) || Q_OS_QNX
+static void resolveLibrary(LibResolvFeature)
+{
+}
+#endif // QT_CONFIG(library) || Q_OS_QNX
 
 QHostInfo QHostInfoAgent::fromName(const QString &hostName)
 {
@@ -137,7 +190,7 @@ QHostInfo QHostInfoAgent::fromName(const QString &hostName)
 #endif
 
     // Load res_init on demand.
-    resolveLibrary();
+    resolveLibrary(NeedResInit);
 
     // If res_init is available, poll it.
     if (local_res_init)
@@ -275,7 +328,7 @@ QHostInfo QHostInfoAgent::fromName(const QString &hostName)
 QString QHostInfo::localDomainName()
 {
 #if !defined(Q_OS_VXWORKS) && !defined(Q_OS_ANDROID)
-    resolveLibrary();
+    resolveLibrary(NeedResNInit);
     if (local_res_ninit) {
         // using thread-safe version
         res_state_ptr state = res_state_ptr(malloc(sizeof(*state)));

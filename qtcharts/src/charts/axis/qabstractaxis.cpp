@@ -37,7 +37,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QAbstractAxis
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QAbstractAxis class is a base class used for specialized axis classes.
 
     Each series can be bound to one or more horizontal and vertical axes, but mixing axis types
@@ -365,6 +365,12 @@ QT_CHARTS_BEGIN_NAMESPACE
 /*!
   \fn void QAbstractAxis::labelsAngleChanged(int angle)
   This signal is emitted when the angle of the axis labels changes to \a angle.
+*/
+
+/*!
+  \fn void QAbstractAxis::labelsEditableChanged(bool editable)
+  \since 5.13
+  This signal is emitted when the labels editability changes.
 */
 
 /*!
@@ -948,6 +954,39 @@ bool QAbstractAxis::isReverse() const
     return d_ptr->m_reverse;
 }
 
+/*!
+  Sets axis labels editability to \a editable.
+
+  When the labels are editable the user will be able to change the range of the
+  axis conveniently by editing any of the labels. This feature is only supported
+  for the QValueAxis and the QDateTimeAxis.
+
+  By default, labels are not editable.
+  \since 5.13
+*/
+void QAbstractAxis::setLabelsEditable(bool editable)
+{
+    if (d_ptr->m_labelsEditable != editable) {
+        // In the case if the axis already added to a chart
+        // set the labels editability on the axisItem().
+        // Otherwise the labels editability will be set in the
+        // QValueAxisPrivate::initializeGraphics.
+        if (d_ptr->axisItem() != nullptr)
+            d_ptr->axisItem()->setLabelsEditable(editable);
+        d_ptr->m_labelsEditable = editable;
+        emit labelsEditableChanged(editable);
+    }
+}
+
+/*!
+  Returns \c true if axis labels are editable.
+  \since 5.13
+*/
+bool QAbstractAxis::labelsEditable() const
+{
+    return d_ptr->m_labelsEditable;
+}
+
 void QAbstractAxis::setReverse(bool reverse)
 {
     if (d_ptr->m_reverse != reverse && type() != QAbstractAxis::AxisTypeBarCategory) {
@@ -972,6 +1011,7 @@ QAbstractAxisPrivate::QAbstractAxisPrivate(QAbstractAxis *q)
       m_minorGridLineVisible(true),
       m_minorGridLinePen(QChartPrivate::defaultPen()),
       m_labelsVisible(true),
+      m_labelsEditable(false),
       m_labelsBrush(QChartPrivate::defaultBrush()),
       m_labelsFont(QChartPrivate::defaultFont()),
       m_labelsAngle(0),
@@ -1071,9 +1111,7 @@ void QAbstractAxisPrivate::initializeAnimations(QChart::AnimationOptions options
         axis->setAnimation(0);
 }
 
-
+QT_CHARTS_END_NAMESPACE
 
 #include "moc_qabstractaxis.cpp"
 #include "moc_qabstractaxis_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

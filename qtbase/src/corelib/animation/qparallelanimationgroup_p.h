@@ -55,7 +55,7 @@
 #include "private/qanimationgroup_p.h"
 #include <QtCore/qhash.h>
 
-#ifndef QT_NO_ANIMATION
+QT_REQUIRE_CONFIG(animation);
 
 QT_BEGIN_NAMESPACE
 
@@ -78,14 +78,12 @@ public:
     void connectUncontrolledAnimations();
     void disconnectUncontrolledAnimations();
 
-    void animationRemoved(int index, QAbstractAnimation *) Q_DECL_OVERRIDE;
+    void animationRemoved(int index, QAbstractAnimation *) override;
 
     // private slot
     void _q_uncontrolledAnimationFinished();
 };
 
 QT_END_NAMESPACE
-
-#endif //QT_NO_ANIMATION
 
 #endif //QPARALLELANIMATIONGROUP_P_H

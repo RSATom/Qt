@@ -10,13 +10,14 @@
 
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
 #include "device/udev_linux/scoped_udev.h"
@@ -32,11 +33,10 @@ class MIDI_EXPORT MidiManagerAlsa final : public MidiManager {
 
   // MidiManager implementation.
   void StartInitialization() override;
-  void Finalize() override;
   void DispatchSendMidiData(MidiManagerClient* client,
                             uint32_t port_index,
                             const std::vector<uint8_t>& data,
-                            double timestamp) override;
+                            base::TimeTicks timestamp) override;
 
  private:
   friend class MidiManagerAlsaTest;
@@ -362,8 +362,8 @@ class MIDI_EXPORT MidiManagerAlsa final : public MidiManager {
     };
   };
 
-  using SourceMap = base::hash_map<int, uint32_t>;
-  using OutPortMap = base::hash_map<uint32_t, int>;
+  using SourceMap = std::unordered_map<int, uint32_t>;
+  using OutPortMap = std::unordered_map<uint32_t, int>;
   using ScopedSndSeqPtr = std::unique_ptr<snd_seq_t, SndSeqDeleter>;
   using ScopedSndMidiEventPtr =
       std::unique_ptr<snd_midi_event_t, SndMidiEventDeleter>;
@@ -374,7 +374,7 @@ class MIDI_EXPORT MidiManagerAlsa final : public MidiManager {
                     const std::vector<uint8_t>& data);
 
   void EventLoop();
-  void ProcessSingleEvent(snd_seq_event_t* event, double timestamp);
+  void ProcessSingleEvent(snd_seq_event_t* event, base::TimeTicks timestamp);
   void ProcessClientStartEvent(int client_id);
   void ProcessPortStartEvent(const snd_seq_addr_t& addr);
   void ProcessClientExitEvent(const snd_seq_addr_t& addr);
@@ -396,14 +396,18 @@ class MIDI_EXPORT MidiManagerAlsa final : public MidiManager {
   // Returns true if successful.
   bool Subscribe(uint32_t port_index, int client_id, int port_id);
 
+  // Allocates new snd_midi_event_t instance and wraps it to return as
+  // ScopedSndMidiEventPtr.
+  ScopedSndMidiEventPtr CreateScopedSndMidiEventPtr(size_t size);
+
   // Members initialized in the constructor are below.
   // Our copies of the internal state of the ports of seq and udev.
   AlsaSeqState alsa_seq_state_;
   MidiPortState port_state_;
 
   // One input port, many output ports.
-  base::Lock out_ports_lock_;  // guards out_ports_
-  OutPortMap out_ports_;       // guarded by out_ports_lock_
+  base::Lock out_ports_lock_;
+  OutPortMap out_ports_ GUARDED_BY(out_ports_lock_);
 
   // Mapping from ALSA client:port to our index.
   SourceMap source_map_;
@@ -417,15 +421,11 @@ class MIDI_EXPORT MidiManagerAlsa final : public MidiManager {
   // wait for our information from ALSA and udev to get back in sync.
   int alsa_card_midi_count_ = 0;
 
-  // Guards members below. They are initialized before posting any tasks running
-  // on TaskRunner, and finalized after all posted tasks run.
-  base::Lock lazy_init_member_lock_;
-
   // ALSA seq handles and ids.
   ScopedSndSeqPtr in_client_;
   int in_client_id_;
-  base::Lock out_client_lock_;  // guards out_client_
-  ScopedSndSeqPtr out_client_;  // guarded by out_client_lock_
+  ScopedSndSeqPtr out_client_ GUARDED_BY(out_client_lock_);
+  base::Lock out_client_lock_;
   int out_client_id_;
   int in_port_id_;
 

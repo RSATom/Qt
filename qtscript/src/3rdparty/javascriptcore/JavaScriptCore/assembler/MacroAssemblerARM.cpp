@@ -36,7 +36,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <elf.h>
-# if OS(ANDROID) && PLATFORM(QT)
+# if OS(ANDROID) && PLATFORM(QT) && !defined(HAVE_asm_hwcap_h)
 # include <asm/procinfo.h>
 # else
 # include <asm/hwcap.h>

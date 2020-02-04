@@ -1,8 +1,12 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtmultimedia.qdocconf)
 
 project                 = QtMultimedia
 description             = Qt Multimedia Documentation
 version                 = $QT_VERSION
+
+moduleheader            = QtMultimediaDoc
+includepaths            = -I .
 
 # The following parameters are for creating a qhp file, the qhelpgenerator
 # program can convert the qhp file into a qch file which can be opened in
@@ -41,7 +45,8 @@ qhp.QtMultimedia.subprojects.examples.selectors = doc:example
 qhp.QtMultimedia.subprojects.examples.sortPages = true
 
 exampledirs += ../../../examples \
-               snippets
+               snippets \
+               ../../multimediawidgets/doc/snippets
 
 manifestmeta.highlighted.names  = "QtMultimedia/QML Video Shader Effects Example" \
                                   "QtMultimedia/Media Player Example"
@@ -52,9 +57,9 @@ imagedirs += src/images \
 
 sourcedirs += ../..
 
-#excludedirs += ../../multimediawidgets
+excludedirs += ../../gsttools
 
-depends                 += qtcore qtdoc qtgui qtquick qtqml qtwidgets
+depends                 += qtcore qtdoc qtgui qtquick qtqml qtwidgets qtnetwork
 
 navigation.landingpage = "Qt Multimedia"
 navigation.cppclassespage = "Qt Multimedia C++ Classes"

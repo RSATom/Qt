@@ -48,7 +48,7 @@ class QT_DATAVISUALIZATION_EXPORT Q3DSurface : public QAbstract3DGraph
     Q_PROPERTY(bool flipHorizontalGrid READ flipHorizontalGrid WRITE setFlipHorizontalGrid NOTIFY flipHorizontalGridChanged)
 
 public:
-    explicit Q3DSurface(const QSurfaceFormat *format = Q_NULLPTR, QWindow *parent = Q_NULLPTR);
+    explicit Q3DSurface(const QSurfaceFormat *format = nullptr, QWindow *parent = nullptr);
     virtual ~Q3DSurface();
 
     void addSeries(QSurface3DSeries *series);

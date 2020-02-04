@@ -34,22 +34,22 @@
 
 #include <newformwidget_p.h>
 
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QFileInfo>
-#include <QtCore/QDebug>
-#include <QtCore/QDir>
-#include <QtCore/QTemporaryFile>
+#include <QtCore/qdir.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qtemporaryfile.h>
 
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QCheckBox>
-#include <QtWidgets/QFrame>
-#include <QtWidgets/QMessageBox>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qcheckbox.h>
+#include <QtWidgets/qframe.h>
+#include <QtWidgets/qmessagebox.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -188,13 +188,15 @@ bool NewForm::openTemplate(QString *ptrToErrorMessage)
 
     tempFormFile.setAutoRemove(true);
     if (!tempFormFile.open()) {
-        *ptrToErrorMessage = tr("A temporary form file could not be created in %1.").arg(QDir::tempPath());
+        *ptrToErrorMessage = tr("A temporary form file could not be created in %1: %2")
+            .arg(QDir::toNativeSeparators(QDir::tempPath()), tempFormFile.errorString());
         return false;
     }
     const QString tempFormFileName = tempFormFile.fileName();
     tempFormFile.write(contents.toUtf8());
     if (!tempFormFile.flush())  {
-        *ptrToErrorMessage = tr("The temporary form file %1 could not be written.").arg(tempFormFileName);
+        *ptrToErrorMessage = tr("The temporary form file %1 could not be written: %2")
+            .arg(QDir::toNativeSeparators(tempFormFileName), tempFormFile.errorString());
         return false;
     }
     tempFormFile.close();

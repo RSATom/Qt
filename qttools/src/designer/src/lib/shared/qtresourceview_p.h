@@ -41,8 +41,8 @@
 #define QTRESOURCEVIEW_H
 
 #include "shared_global_p.h"
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QDialog>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qdialog.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -98,7 +98,7 @@ private:
     Q_PRIVATE_SLOT(d_func(), void slotResourceActivated(QListWidgetItem *))
     Q_PRIVATE_SLOT(d_func(), void slotEditResources())
     Q_PRIVATE_SLOT(d_func(), void slotReloadResources())
-#ifndef QT_NO_CLIPBOARD
+#if QT_CONFIG(clipboard)
     Q_PRIVATE_SLOT(d_func(), void slotCopyResourcePath())
 #endif
     Q_PRIVATE_SLOT(d_func(), void slotListWidgetContextMenuRequested(const QPoint &pos))
@@ -110,7 +110,7 @@ class QDESIGNER_SHARED_EXPORT  QtResourceViewDialog : public QDialog
     Q_OBJECT
 public:
     explicit QtResourceViewDialog(QDesignerFormEditorInterface *core, QWidget *parent = 0);
-    virtual ~QtResourceViewDialog();
+    ~QtResourceViewDialog() override;
 
     QString selectedResource() const;
     void selectResource(const QString &path);

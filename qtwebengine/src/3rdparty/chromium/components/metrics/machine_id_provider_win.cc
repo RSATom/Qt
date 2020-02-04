@@ -11,7 +11,7 @@
 #include "base/base_paths.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/win/scoped_handle.h"
 
 namespace metrics {
@@ -25,14 +25,14 @@ bool MachineIdProvider::HasId() {
 // is running from.
 // static
 std::string MachineIdProvider::GetMachineId() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
 
   // Use the program's path to get the drive used for the machine id. This means
   // that whenever the underlying drive changes, it's considered a new machine.
   // This is fine as we do not support migrating Chrome installs to new drives.
   base::FilePath executable_path;
 
-  if (!PathService::Get(base::FILE_EXE, &executable_path)) {
+  if (!base::PathService::Get(base::FILE_EXE, &executable_path)) {
     NOTREACHED();
     return std::string();
   }
@@ -46,13 +46,8 @@ std::string MachineIdProvider::GetMachineId() {
   base::FilePath::StringType drive_name = L"\\\\.\\" + path_components[0];
 
   base::win::ScopedHandle drive_handle(
-      CreateFile(drive_name.c_str(),
-                 0,
-                 FILE_SHARE_READ | FILE_SHARE_WRITE,
-                 NULL,
-                 OPEN_EXISTING,
-                 0,
-                 NULL));
+      CreateFile(drive_name.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                 nullptr, OPEN_EXISTING, 0, nullptr));
 
   STORAGE_PROPERTY_QUERY query = {};
   query.PropertyId = StorageDeviceProperty;
@@ -61,28 +56,20 @@ std::string MachineIdProvider::GetMachineId() {
   // Perform an initial query to get the number of bytes being returned.
   DWORD bytes_returned;
   STORAGE_DESCRIPTOR_HEADER header = {};
-  BOOL status = DeviceIoControl(drive_handle.Get(),
-                                IOCTL_STORAGE_QUERY_PROPERTY,
-                                &query,
-                                sizeof(STORAGE_PROPERTY_QUERY),
-                                &header,
-                                sizeof(STORAGE_DESCRIPTOR_HEADER),
-                                &bytes_returned,
-                                NULL);
+  BOOL status = DeviceIoControl(
+      drive_handle.Get(), IOCTL_STORAGE_QUERY_PROPERTY, &query,
+      sizeof(STORAGE_PROPERTY_QUERY), &header,
+      sizeof(STORAGE_DESCRIPTOR_HEADER), &bytes_returned, nullptr);
 
   if (!status)
     return std::string();
 
   // Query for the actual serial number.
   std::vector<int8_t> output_buf(header.Size);
-  status = DeviceIoControl(drive_handle.Get(),
-                           IOCTL_STORAGE_QUERY_PROPERTY,
-                           &query,
-                           sizeof(STORAGE_PROPERTY_QUERY),
-                           &output_buf[0],
-                           output_buf.size(),
-                           &bytes_returned,
-                           NULL);
+  status =
+      DeviceIoControl(drive_handle.Get(), IOCTL_STORAGE_QUERY_PROPERTY, &query,
+                      sizeof(STORAGE_PROPERTY_QUERY), &output_buf[0],
+                      output_buf.size(), &bytes_returned, nullptr);
 
   if (!status)
     return std::string();

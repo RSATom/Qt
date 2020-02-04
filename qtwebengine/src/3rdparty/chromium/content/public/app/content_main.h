@@ -15,10 +15,6 @@
 #include <windows.h>
 #endif
 
-#if defined(USE_AURA)
-#include "ui/aura/env.h"
-#endif
-
 namespace base {
 namespace mac {
 class ScopedNSAutoreleasePool;
@@ -30,7 +26,11 @@ struct SandboxInterfaceInfo;
 }
 
 namespace content {
+
+class BrowserMainParts;
 class ContentMainDelegate;
+
+using CreatedMainPartsClosure = base::Callback<void(BrowserMainParts*)>;
 
 struct ContentMainParams {
   explicit ContentMainParams(ContentMainDelegate* delegate)
@@ -53,9 +53,9 @@ struct ContentMainParams {
   // on the MessageLoop. It's owned by the test code.
   base::Closure* ui_task = nullptr;
 
-#if defined(USE_AURA)
-  aura::Env::Mode env_mode = aura::Env::Mode::LOCAL;
-#endif
+  // Used by InProcessBrowserTest. If non-null this is Run() after
+  // BrowserMainParts has been created and before PreEarlyInitialization().
+  CreatedMainPartsClosure* created_main_parts_closure = nullptr;
 
 #if defined(OS_MACOSX)
   // The outermost autorelease pool to pass to main entry points.

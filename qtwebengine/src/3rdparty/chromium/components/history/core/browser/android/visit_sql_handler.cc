@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "components/history/core/browser/url_database.h"
 #include "components/history/core/browser/visit_database.h"
 
@@ -25,10 +25,9 @@ const HistoryAndBookmarkRow::ColumnID kInterestingColumns[] = {
 } // namespace
 
 VisitSQLHandler::VisitSQLHandler(URLDatabase* url_db, VisitDatabase* visit_db)
-    : SQLHandler(kInterestingColumns, arraysize(kInterestingColumns)),
+    : SQLHandler(kInterestingColumns, base::size(kInterestingColumns)),
       url_db_(url_db),
-      visit_db_(visit_db) {
-}
+      visit_db_(visit_db) {}
 
 VisitSQLHandler::~VisitSQLHandler() {
 }
@@ -121,7 +120,7 @@ bool VisitSQLHandler::AddVisit(URLID url_id, const Time& visit_time) {
   // TODO : Is 'ui::PAGE_TRANSITION_AUTO_BOOKMARK' proper?
   // if not, a new ui::PageTransition type will need.
   VisitRow visit_row(url_id, visit_time, 0,
-                     ui::PAGE_TRANSITION_AUTO_BOOKMARK, 0);
+                     ui::PAGE_TRANSITION_AUTO_BOOKMARK, 0, false);
   return visit_db_->AddVisit(&visit_row, SOURCE_BROWSED);
 }
 

@@ -13,8 +13,8 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/path_service.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
@@ -23,8 +23,8 @@
 #include "components/webcrypto/generate_key_result.h"
 #include "components/webcrypto/jwk.h"
 #include "components/webcrypto/status.h"
-#include "third_party/WebKit/public/platform/WebCryptoAlgorithmParams.h"
-#include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/blink/public/platform/web_crypto_algorithm_params.h"
+#include "third_party/blink/public/platform/web_crypto_key_algorithm.h"
 #include "third_party/re2/src/re2/re2.h"
 
 namespace webcrypto {
@@ -142,7 +142,7 @@ std::vector<uint8_t> MakeJsonVector(const base::DictionaryValue& dict) {
     const char* test_file_name,
     std::unique_ptr<base::Value>* value) {
   base::FilePath test_data_dir;
-  if (!PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir))
+  if (!base::PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir))
     return ::testing::AssertionFailure() << "Couldn't retrieve test dir";
 
   base::FilePath file_path = test_data_dir.AppendASCII("components")
@@ -163,7 +163,7 @@ std::vector<uint8_t> MakeJsonVector(const base::DictionaryValue& dict) {
 
   // Parse the JSON to a dictionary.
   *value = base::JSONReader::Read(file_contents);
-  if (!value->get()) {
+  if (!*value) {
     return ::testing::AssertionFailure()
            << "Couldn't parse test file JSON: " << file_path.value();
   }
@@ -181,7 +181,7 @@ std::vector<uint8_t> MakeJsonVector(const base::DictionaryValue& dict) {
     return result;
 
   // Cast to an ListValue.
-  base::ListValue* list_value = NULL;
+  base::ListValue* list_value = nullptr;
   if (!json->GetAsList(&list_value) || !list_value)
     return ::testing::AssertionFailure() << "The JSON was not a list";
 
@@ -201,7 +201,7 @@ std::vector<uint8_t> MakeJsonVector(const base::DictionaryValue& dict) {
     return result;
 
   // Cast to an DictionaryValue.
-  base::DictionaryValue* dict_value = NULL;
+  base::DictionaryValue* dict_value = nullptr;
   if (!json->GetAsDictionary(&dict_value) || !dict_value)
     return ::testing::AssertionFailure() << "The JSON was not a dictionary";
 
@@ -240,7 +240,7 @@ blink::WebCryptoAlgorithm GetDigestAlgorithm(const base::DictionaryValue* dict,
       {"sha-512", blink::kWebCryptoAlgorithmIdSha512},
   };
 
-  for (size_t i = 0; i < arraysize(kDigestNameToId); ++i) {
+  for (size_t i = 0; i < base::size(kDigestNameToId); ++i) {
     if (kDigestNameToId[i].name == algorithm_name)
       return CreateAlgorithm(kDigestNameToId[i].id);
   }
@@ -391,7 +391,7 @@ std::unique_ptr<base::DictionaryValue> GetJwkDictionary(
                                 json.size());
   std::unique_ptr<base::Value> value = base::JSONReader::Read(json_string);
   EXPECT_TRUE(value.get());
-  EXPECT_TRUE(value->IsType(base::Value::Type::DICTIONARY));
+  EXPECT_TRUE(value->is_dict());
 
   return std::unique_ptr<base::DictionaryValue>(
       static_cast<base::DictionaryValue*>(value.release()));
@@ -453,7 +453,7 @@ std::unique_ptr<base::DictionaryValue> GetJwkDictionary(
     const std::string& k_expected_hex,
     blink::WebCryptoKeyUsageMask use_mask_expected) {
   std::unique_ptr<base::DictionaryValue> dict = GetJwkDictionary(json);
-  if (!dict.get() || dict->empty())
+  if (!dict || dict->empty())
     return ::testing::AssertionFailure() << "JSON parsing failed";
 
   // ---- k
@@ -480,7 +480,7 @@ std::unique_ptr<base::DictionaryValue> GetJwkDictionary(
     const std::string& e_expected_hex,
     blink::WebCryptoKeyUsageMask use_mask_expected) {
   std::unique_ptr<base::DictionaryValue> dict = GetJwkDictionary(json);
-  if (!dict.get() || dict->empty())
+  if (!dict || dict->empty())
     return ::testing::AssertionFailure() << "JSON parsing failed";
 
   // ---- n

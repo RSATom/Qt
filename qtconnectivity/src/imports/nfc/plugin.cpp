@@ -47,13 +47,6 @@
 #include "qdeclarativendefurirecord_p.h"
 #include "qdeclarativendefmimerecord_p.h"
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtNfc);
-#endif
-}
-
 QT_USE_NAMESPACE
 
 class QNfcQmlPlugin : public QQmlExtensionPlugin
@@ -62,7 +55,7 @@ class QNfcQmlPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QNfcQmlPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QNfcQmlPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     void registerTypes(const char *uri)
     {
         Q_ASSERT(uri == QStringLiteral("QtNfc"));

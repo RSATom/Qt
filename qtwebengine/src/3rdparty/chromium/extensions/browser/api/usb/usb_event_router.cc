@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/lazy_instance.h"
 #include "device/base/device_client.h"
 #include "device/usb/usb_device.h"
 #include "extensions/browser/api/device_permissions_manager.h"
@@ -118,7 +119,7 @@ void UsbEventRouter::DispatchEvent(const std::string& event_name,
     }
 
     event->will_dispatch_callback =
-        base::Bind(&WillDispatchDeviceEvent, device);
+        base::BindRepeating(&WillDispatchDeviceEvent, device);
     event_router->BroadcastEvent(std::move(event));
   }
 }

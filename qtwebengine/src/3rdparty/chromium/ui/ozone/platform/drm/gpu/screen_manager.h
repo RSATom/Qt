@@ -25,12 +25,11 @@ namespace ui {
 
 class DrmDevice;
 class DrmWindow;
-class ScanoutBufferGenerator;
 
 // Responsible for keeping track of active displays and configuring them.
 class ScreenManager {
  public:
-  ScreenManager(ScanoutBufferGenerator* surface_generator);
+  ScreenManager();
   virtual ~ScreenManager();
 
   // Register a display controller. This must be called before trying to
@@ -102,6 +101,12 @@ class ScreenManager {
   HardwareDisplayControllers::iterator FindActiveDisplayControllerByLocation(
       const gfx::Rect& bounds);
 
+  // Returns an iterator into |controllers_| for the controller located at
+  // |origin| with matching DRM device.
+  HardwareDisplayControllers::iterator FindActiveDisplayControllerByLocation(
+      const scoped_refptr<DrmDevice>& drm,
+      const gfx::Rect& bounds);
+
   // Tries to set the controller identified by (|crtc|, |connector|) to mirror
   // those in |mirror|. |original| is an iterator to the HDC where the
   // controller is currently present.
@@ -112,8 +117,8 @@ class ScreenManager {
                         uint32_t connector,
                         const drmModeModeInfo& mode);
 
-  OverlayPlane GetModesetBuffer(HardwareDisplayController* controller,
-                                const gfx::Rect& bounds);
+  DrmOverlayPlane GetModesetBuffer(HardwareDisplayController* controller,
+                                   const gfx::Rect& bounds);
 
   bool EnableController(HardwareDisplayController* controller);
 
@@ -125,7 +130,6 @@ class ScreenManager {
 
   DrmWindow* FindWindowAt(const gfx::Rect& bounds) const;
 
-  ScanoutBufferGenerator* buffer_generator_;  // Not owned.
   // List of display controllers (active and disabled).
   HardwareDisplayControllers controllers_;
 

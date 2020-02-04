@@ -24,17 +24,18 @@ void network_traffic_annotation_template() {
           destination: WEBSITE/GOOGLE_OWNED_SERVICE/OTHER
         }
         policy {
-          cookies_allowed: false/true
+          cookies_allowed: NO/YES
           cookies_store: "..."
           setting: "..."
           chrome_policy {
             [POLICY_NAME] {
-                policy_options {mode: MANDATORY/RECOMMENDED/UNSET}
                 [POLICY_NAME]: ...
             }
           }
           policy_exception_justification = "..."
-        })");
+        }
+        comments: "..."
+      )");
 }
 
 // An example on one level traffic annotation.
@@ -58,14 +59,13 @@ void network_traffic_annotation_sample() {
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "You can enable or disable this feature via 'Use a web service to "
             "help resolve spelling errors.' in Chrome's settings under "
             "Advanced. The feature is disabled by default."
           chrome_policy {
             SpellCheckServiceEnabled {
-                policy_options {mode: MANDATORY}
                 SpellCheckServiceEnabled: false
             }
           }
@@ -107,7 +107,6 @@ void PrefetchImage1(const GURL& url) {
             "feature is enabled by default."
           chrome_policy {
             SearchSuggestEnabled {
-                policy_options {mode: MANDATORY}
                 SearchSuggestEnabled: false
             }
           }
@@ -141,7 +140,6 @@ void PrefetchImage2(const GURL& url) {
             "'Passwords and forms'). There is no setting to disable the API."
           chrome_policy {
             PasswordManagerEnabled {
-                policy_options {mode: MANDATORY}
                 PasswordManagerEnabled: false
             }
           }
@@ -157,7 +155,7 @@ void GetBitmap(
                                             partial_traffic_annotation,
                                             R"(
               policy {
-                cookies_allowed: true
+                cookies_allowed: YES
                 cookies_store: "user"
               })");
   url_fetcher_ = net::URLFetcher::Create(url, net::URLFetcher::GET, this,
@@ -213,7 +211,8 @@ void UploadLog(const bool& uma_service_type) {
   const GURL &url,
       net::PartialNetworkTrafficAnnotationTag partial_traffic_annotation =
           net::DefinePartialNetworkTrafficAnnotation(
-              "net_metrics_report", "metrics_report_based_on_service_type", R"(
+              "net_metrics_report", "metrics_report_based_on_service_type",
+              R"(
         semantics {
           trigger:
             "Reports are automatically generated on startup and at intervals "
@@ -223,7 +222,7 @@ void UploadLog(const bool& uma_service_type) {
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "Users can enable or disable this feature by disabling "
             "'Automatically send usage statistics and crash reports to Google' "
@@ -231,7 +230,6 @@ void UploadLog(const bool& uma_service_type) {
             "feature is enabled by default."
           chrome_policy {
             MetricsReportingEnabled {
-              policy_options {mode: MANDATORY}
               MetricsReportingEnabled: false
             }
           }

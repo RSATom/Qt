@@ -13,11 +13,11 @@
 #include <vector>
 
 #include "base/barrier_closure.h"
-#include "base/memory/ptr_util.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/values.h"
 #include "device/base/device_client.h"
-#include "device/usb/public/cpp/filter_utils.h"
-#include "device/usb/public/interfaces/device_manager.mojom.h"
+#include "device/usb/public/cpp/usb_utils.h"
+#include "device/usb/public/mojom/device_manager.mojom.h"
 #include "device/usb/usb_descriptors.h"
 #include "device/usb/usb_device_handle.h"
 #include "device/usb/usb_service.h"
@@ -26,6 +26,7 @@
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/usb/usb_device_resource.h"
 #include "extensions/browser/api/usb/usb_guid_map.h"
+#include "extensions/browser/extension_function_constants.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/api/usb.h"
 #include "extensions/common/permissions/permissions_data.h"
@@ -206,29 +207,25 @@ bool GetTransferSize(const T& input, size_t* output) {
 }
 
 template <class T>
-scoped_refptr<net::IOBuffer> CreateBufferForTransfer(
+scoped_refptr<base::RefCountedBytes> CreateBufferForTransfer(
     const T& input,
     UsbTransferDirection direction,
     size_t size) {
   if (size >= kMaxTransferLength)
-    return NULL;
-
-  // Allocate a |size|-bytes buffer, or a one-byte buffer if |size| is 0. This
-  // is due to an impedance mismatch between IOBuffer and URBs. An IOBuffer
-  // cannot represent a zero-length buffer, while an URB can.
-  scoped_refptr<net::IOBuffer> buffer =
-      new net::IOBuffer(std::max(static_cast<size_t>(1), size));
+    return nullptr;
 
   if (direction == UsbTransferDirection::INBOUND) {
-    return buffer;
-  } else if (direction == UsbTransferDirection::OUTBOUND) {
-    if (input.data.get() && size <= input.data->size()) {
-      memcpy(buffer->data(), input.data->data(), size);
-      return buffer;
-    }
+    return base::MakeRefCounted<base::RefCountedBytes>(size);
   }
+
+  if (direction == UsbTransferDirection::OUTBOUND && input.data &&
+      size <= input.data->size()) {
+    return base::MakeRefCounted<base::RefCountedBytes>(
+        reinterpret_cast<const uint8_t*>(input.data->data()), size);
+  }
+
   NOTREACHED();
-  return NULL;
+  return nullptr;
 }
 
 const char* ConvertTransferStatusToApi(const UsbTransferStatus status) {
@@ -475,18 +472,18 @@ UsbTransferFunction::~UsbTransferFunction() {
 }
 
 void UsbTransferFunction::OnCompleted(UsbTransferStatus status,
-                                      scoped_refptr<net::IOBuffer> data,
+                                      scoped_refptr<base::RefCountedBytes> data,
                                       size_t length) {
   std::unique_ptr<base::DictionaryValue> transfer_info(
       new base::DictionaryValue());
   transfer_info->SetInteger(kResultCodeKey, static_cast<int>(status));
 
   if (data) {
-    transfer_info->Set(
-        kDataKey, base::Value::CreateWithCopiedBuffer(data->data(), length));
+    transfer_info->Set(kDataKey, base::Value::CreateWithCopiedBuffer(
+                                     data->front_as<char>(), length));
   } else {
     transfer_info->Set(
-        kDataKey, base::MakeUnique<base::Value>(base::Value::Type::BINARY));
+        kDataKey, std::make_unique<base::Value>(base::Value::Type::BINARY));
   }
 
   if (status == UsbTransferStatus::COMPLETED) {
@@ -657,7 +654,7 @@ ExtensionFunction::ResponseAction UsbGetUserSelectedDevicesFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(parameters.get());
 
   if (!user_gesture()) {
-    return RespondNow(OneArgument(base::MakeUnique<base::ListValue>()));
+    return RespondNow(OneArgument(std::make_unique<base::ListValue>()));
   }
 
   bool multiple = false;
@@ -672,8 +669,14 @@ ExtensionFunction::ResponseAction UsbGetUserSelectedDevicesFunction::Run() {
       filters.push_back(ConvertDeviceFilter(filter));
   }
 
-  prompt_ = ExtensionsAPIClient::Get()->CreateDevicePermissionsPrompt(
-      GetAssociatedWebContents());
+  content::WebContents* web_contents = GetSenderWebContents();
+  if (!web_contents) {
+    return RespondNow(
+        Error(function_constants::kCouldNotFindSenderWebContents));
+  }
+
+  prompt_ =
+      ExtensionsAPIClient::Get()->CreateDevicePermissionsPrompt(web_contents);
   if (!prompt_) {
     return RespondNow(Error(kErrorNotSupported));
   }
@@ -751,7 +754,7 @@ ExtensionFunction::ResponseAction UsbRequestAccessFunction::Run() {
   std::unique_ptr<extensions::api::usb::RequestAccess::Params> parameters =
       RequestAccess::Params::Create(*args_);
   EXTENSION_FUNCTION_VALIDATE(parameters.get());
-  return RespondNow(OneArgument(base::MakeUnique<base::Value>(true)));
+  return RespondNow(OneArgument(std::make_unique<base::Value>(true)));
 }
 
 UsbOpenDeviceFunction::UsbOpenDeviceFunction() {
@@ -1056,11 +1059,10 @@ ExtensionFunction::ResponseAction UsbControlTransferFunction::Run() {
     return RespondNow(Error(kErrorInvalidTransferLength));
   }
 
-  scoped_refptr<net::IOBuffer> buffer =
+  scoped_refptr<base::RefCountedBytes> buffer =
       CreateBufferForTransfer(transfer, direction, size);
-  if (!buffer.get()) {
+  if (!buffer)
     return RespondNow(Error(kErrorMalformedParameters));
-  }
 
   int timeout = transfer.timeout ? *transfer.timeout : 0;
   if (timeout < 0) {
@@ -1069,7 +1071,7 @@ ExtensionFunction::ResponseAction UsbControlTransferFunction::Run() {
 
   device_handle->ControlTransfer(
       direction, request_type, recipient, transfer.request, transfer.value,
-      transfer.index, buffer.get(), size, timeout,
+      transfer.index, buffer, timeout,
       base::Bind(&UsbControlTransferFunction::OnCompleted, this));
   return RespondLater();
 }
@@ -1103,11 +1105,10 @@ ExtensionFunction::ResponseAction UsbBulkTransferFunction::Run() {
     return RespondNow(Error(kErrorInvalidTransferLength));
   }
 
-  scoped_refptr<net::IOBuffer> buffer =
+  scoped_refptr<base::RefCountedBytes> buffer =
       CreateBufferForTransfer(transfer, direction, size);
-  if (!buffer.get()) {
+  if (!buffer)
     return RespondNow(Error(kErrorMalformedParameters));
-  }
 
   int timeout = transfer.timeout ? *transfer.timeout : 0;
   if (timeout < 0) {
@@ -1115,7 +1116,7 @@ ExtensionFunction::ResponseAction UsbBulkTransferFunction::Run() {
   }
 
   device_handle->GenericTransfer(
-      direction, transfer.endpoint, buffer.get(), size, timeout,
+      direction, transfer.endpoint, buffer, timeout,
       base::Bind(&UsbBulkTransferFunction::OnCompleted, this));
   return RespondLater();
 }
@@ -1149,11 +1150,10 @@ ExtensionFunction::ResponseAction UsbInterruptTransferFunction::Run() {
     return RespondNow(Error(kErrorInvalidTransferLength));
   }
 
-  scoped_refptr<net::IOBuffer> buffer =
+  scoped_refptr<base::RefCountedBytes> buffer =
       CreateBufferForTransfer(transfer, direction, size);
-  if (!buffer.get()) {
+  if (!buffer)
     return RespondNow(Error(kErrorMalformedParameters));
-  }
 
   int timeout = transfer.timeout ? *transfer.timeout : 0;
   if (timeout < 0) {
@@ -1161,7 +1161,7 @@ ExtensionFunction::ResponseAction UsbInterruptTransferFunction::Run() {
   }
 
   device_handle->GenericTransfer(
-      direction, transfer.endpoint, buffer.get(), size, timeout,
+      direction, transfer.endpoint, buffer, timeout,
       base::Bind(&UsbInterruptTransferFunction::OnCompleted, this));
   return RespondLater();
 }
@@ -1217,9 +1217,9 @@ ExtensionFunction::ResponseAction UsbIsochronousTransferFunction::Run() {
         generic_transfer.endpoint, packet_lengths, timeout,
         base::Bind(&UsbIsochronousTransferFunction::OnCompleted, this));
   } else {
-    scoped_refptr<net::IOBuffer> buffer = CreateBufferForTransfer(
+    scoped_refptr<base::RefCountedBytes> buffer = CreateBufferForTransfer(
         generic_transfer, direction, transfer.packets * transfer.packet_length);
-    if (!buffer.get())
+    if (!buffer)
       return RespondNow(Error(kErrorMalformedParameters));
 
     device_handle->IsochronousTransferOut(
@@ -1230,7 +1230,7 @@ ExtensionFunction::ResponseAction UsbIsochronousTransferFunction::Run() {
 }
 
 void UsbIsochronousTransferFunction::OnCompleted(
-    scoped_refptr<net::IOBuffer> data,
+    scoped_refptr<base::RefCountedBytes> data,
     const std::vector<UsbDeviceHandle::IsochronousPacket>& packets) {
   size_t length = std::accumulate(
       packets.begin(), packets.end(), 0,
@@ -1241,7 +1241,7 @@ void UsbIsochronousTransferFunction::OnCompleted(
   buffer.reserve(length);
 
   UsbTransferStatus status = UsbTransferStatus::COMPLETED;
-  const char* data_ptr = data ? data->data() : nullptr;
+  const char* data_ptr = data ? data->front_as<char>() : nullptr;
   for (const auto& packet : packets) {
     // Capture the error status of the first unsuccessful packet.
     if (status == UsbTransferStatus::COMPLETED &&
@@ -1256,16 +1256,15 @@ void UsbIsochronousTransferFunction::OnCompleted(
     }
   }
 
-  std::unique_ptr<base::DictionaryValue> transfer_info(
-      new base::DictionaryValue());
-  transfer_info->SetInteger(kResultCodeKey, static_cast<int>(status));
-  transfer_info->Set(kDataKey,
-                     base::MakeUnique<base::Value>(std::move(buffer)));
+  base::Value transfer_info(base::Value::Type::DICTIONARY);
+  transfer_info.SetKey(kResultCodeKey, base::Value(static_cast<int>(status)));
+  transfer_info.SetKey(kDataKey, base::Value(std::move(buffer)));
   if (status == UsbTransferStatus::COMPLETED) {
-    Respond(OneArgument(std::move(transfer_info)));
+    Respond(
+        OneArgument(base::Value::ToUniquePtrValue(std::move(transfer_info))));
   } else {
-    std::unique_ptr<base::ListValue> error_args(new base::ListValue());
-    error_args->Append(std::move(transfer_info));
+    auto error_args = std::make_unique<base::ListValue>();
+    error_args->GetList().push_back(std::move(transfer_info));
     // Using ErrorWithArguments is discouraged but required to provide the
     // detailed transfer info as the transfer may have partially succeeded.
     Respond(ErrorWithArguments(std::move(error_args),
@@ -1296,7 +1295,7 @@ ExtensionFunction::ResponseAction UsbResetDeviceFunction::Run() {
 
 void UsbResetDeviceFunction::OnComplete(bool success) {
   if (success) {
-    Respond(OneArgument(base::MakeUnique<base::Value>(true)));
+    Respond(OneArgument(std::make_unique<base::Value>(true)));
   } else {
     scoped_refptr<UsbDeviceHandle> device_handle =
         GetDeviceHandle(parameters_->handle);

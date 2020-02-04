@@ -22,7 +22,13 @@ MediaPlayerRendererClient::MediaPlayerRendererClient(
       compositor_task_runner_(std::move(compositor_task_runner)),
       weak_factory_(this) {}
 
-MediaPlayerRendererClient::~MediaPlayerRendererClient() {}
+MediaPlayerRendererClient::~MediaPlayerRendererClient() {
+  // Clearing the STW's callback into |this| must happen first. Otherwise, the
+  // underlying StreamTextureProxy can callback into OnFrameAvailable() on the
+  // |compositor_task_runner_|, while we are destroying |this|.
+  // See https://crbug.com/688466.
+  stream_texture_wrapper_->ClearReceivedFrameCBOnAnyThread();
+}
 
 void MediaPlayerRendererClient::Initialize(
     media::MediaResource* media_resource,
@@ -67,7 +73,11 @@ void MediaPlayerRendererClient::OnStreamTextureWrapperInitialized(
 
 void MediaPlayerRendererClient::OnScopedSurfaceRequested(
     const base::UnguessableToken& request_token) {
-  DCHECK(request_token);
+  if (request_token == base::UnguessableToken::Null()) {
+    client_->OnError(media::PIPELINE_ERROR_INITIALIZATION_FAILED);
+    return;
+  }
+
   stream_texture_wrapper_->ForwardStreamTextureForSurfaceRequest(request_token);
 }
 
@@ -76,11 +86,13 @@ void MediaPlayerRendererClient::OnRemoteRendererInitialized(
   DCHECK(media_task_runner_->BelongsToCurrentThread());
   DCHECK(!init_cb_.is_null());
 
-  // TODO(tguilbert): Measure and smooth out the initialization's ordering to
-  // have the lowest total initialization time.
-  mojo_renderer_->InitiateScopedSurfaceRequest(
-      base::Bind(&MediaPlayerRendererClient::OnScopedSurfaceRequested,
-                 weak_factory_.GetWeakPtr()));
+  if (status == media::PIPELINE_OK) {
+    // TODO(tguilbert): Measure and smooth out the initialization's ordering to
+    // have the lowest total initialization time.
+    mojo_renderer_->InitiateScopedSurfaceRequest(
+        base::Bind(&MediaPlayerRendererClient::OnScopedSurfaceRequested,
+                   weak_factory_.GetWeakPtr()));
+  }
 
   base::ResetAndReturn(&init_cb_).Run(status);
 }
@@ -134,8 +146,8 @@ void MediaPlayerRendererClient::OnBufferingStateChange(
   client_->OnBufferingStateChange(state);
 }
 
-void MediaPlayerRendererClient::OnWaitingForDecryptionKey() {
-  client_->OnWaitingForDecryptionKey();
+void MediaPlayerRendererClient::OnWaiting(media::WaitingReason reason) {
+  client_->OnWaiting(reason);
 }
 
 void MediaPlayerRendererClient::OnAudioConfigChange(
@@ -159,6 +171,12 @@ void MediaPlayerRendererClient::OnVideoOpacityChange(bool opaque) {
 
 void MediaPlayerRendererClient::OnDurationChange(base::TimeDelta duration) {
   client_->OnDurationChange(duration);
+}
+
+void MediaPlayerRendererClient::OnRemotePlayStateChange(
+    media::MediaStatus::State state) {
+  // Only used with the FlingingRenderer.
+  NOTREACHED();
 }
 
 }  // namespace content

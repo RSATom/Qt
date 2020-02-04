@@ -10,236 +10,168 @@
 #include "content/browser/appcache/appcache_navigation_handle_core.h"
 #include "content/browser/appcache/chrome_appcache_service.h"
 #include "content/browser/bad_message.h"
-#include "content/common/appcache_messages.h"
-#include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/browser/render_process_host.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
+#include "third_party/blink/public/mojom/appcache/appcache_info.mojom.h"
 
 namespace content {
 
 AppCacheDispatcherHost::AppCacheDispatcherHost(
     ChromeAppCacheService* appcache_service,
     int process_id)
-    : BrowserMessageFilter(AppCacheMsgStart),
-      appcache_service_(appcache_service),
-      frontend_proxy_(this),
-      process_id_(process_id),
+    : appcache_service_(appcache_service),
+      frontend_proxy_(process_id),
       weak_factory_(this) {
+  if (appcache_service) {
+    backend_impl_.Initialize(appcache_service, &frontend_proxy_, process_id);
+  }
 }
 
-void AppCacheDispatcherHost::OnChannelConnected(int32_t peer_pid) {
-  if (!appcache_service_.get())
-    return;
+AppCacheDispatcherHost::~AppCacheDispatcherHost() = default;
 
-  backend_impl_.Initialize(appcache_service_.get(), &frontend_proxy_,
-                           process_id_);
-  get_status_callback_ = base::Bind(&AppCacheDispatcherHost::GetStatusCallback,
-                                    weak_factory_.GetWeakPtr());
-  start_update_callback_ = base::Bind(
-      &AppCacheDispatcherHost::StartUpdateCallback, weak_factory_.GetWeakPtr());
-  swap_cache_callback_ = base::Bind(&AppCacheDispatcherHost::SwapCacheCallback,
-                                    weak_factory_.GetWeakPtr());
+// static
+void AppCacheDispatcherHost::Create(
+    ChromeAppCacheService* appcache_service,
+    int process_id,
+    blink::mojom::AppCacheBackendRequest request) {
+  // The process_id is the id of the RenderProcessHost, which can be reused for
+  // a new renderer process if the previous renderer process was shutdown.
+  // It can take some time after shutdown for the pipe error to propagate
+  // and unregister the previous backend. Since the AppCacheService assumes
+  // that there is one backend per process_id, we need to ensure that the
+  // previous backend is unregistered by eagerly unbinding the pipe.
+  appcache_service->Unbind(process_id);
+
+  appcache_service->Bind(
+      std::make_unique<AppCacheDispatcherHost>(appcache_service, process_id),
+      std::move(request), process_id);
 }
 
-bool AppCacheDispatcherHost::OnMessageReceived(const IPC::Message& message) {
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(AppCacheDispatcherHost, message)
-    IPC_MESSAGE_HANDLER(AppCacheHostMsg_RegisterHost, OnRegisterHost)
-    IPC_MESSAGE_HANDLER(AppCacheHostMsg_UnregisterHost, OnUnregisterHost)
-    IPC_MESSAGE_HANDLER(AppCacheHostMsg_SetSpawningHostId, OnSetSpawningHostId)
-    IPC_MESSAGE_HANDLER(AppCacheHostMsg_GetResourceList, OnGetResourceList)
-    IPC_MESSAGE_HANDLER(AppCacheHostMsg_SelectCache, OnSelectCache)
-    IPC_MESSAGE_HANDLER(AppCacheHostMsg_SelectCacheForWorker,
-                        OnSelectCacheForWorker)
-    IPC_MESSAGE_HANDLER(AppCacheHostMsg_SelectCacheForSharedWorker,
-                        OnSelectCacheForSharedWorker)
-    IPC_MESSAGE_HANDLER(AppCacheHostMsg_MarkAsForeignEntry,
-                        OnMarkAsForeignEntry)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheHostMsg_GetStatus, OnGetStatus)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheHostMsg_StartUpdate, OnStartUpdate)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheHostMsg_SwapCache, OnSwapCache)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-
-  return handled;
-}
-
-AppCacheDispatcherHost::~AppCacheDispatcherHost() {
-}
-
-void AppCacheDispatcherHost::OnRegisterHost(int host_id) {
-  if (appcache_service_.get()) {
-    // PlzNavigate
+void AppCacheDispatcherHost::RegisterHost(int32_t host_id) {
+  if (appcache_service_) {
     // The AppCacheHost could have been precreated in which case we want to
     // register it with the backend here.
-    if (IsBrowserSideNavigationEnabled()) {
-      std::unique_ptr<AppCacheHost> host =
-          AppCacheNavigationHandleCore::GetPrecreatedHost(host_id);
-      if (host.get()) {
-        backend_impl_.RegisterPrecreatedHost(std::move(host));
-        return;
-      }
+    std::unique_ptr<content::AppCacheHost> host =
+        AppCacheNavigationHandleCore::GetPrecreatedHost(host_id);
+    if (host.get()) {
+      backend_impl_.RegisterPrecreatedHost(std::move(host));
+      return;
     }
+
     if (!backend_impl_.RegisterHost(host_id)) {
-      bad_message::ReceivedBadMessage(this, bad_message::ACDH_REGISTER);
+      mojo::ReportBadMessage("ACDH_REGISTER");
     }
   }
 }
 
-void AppCacheDispatcherHost::OnUnregisterHost(int host_id) {
-  if (appcache_service_.get()) {
+void AppCacheDispatcherHost::UnregisterHost(int32_t host_id) {
+  if (appcache_service_) {
     if (!backend_impl_.UnregisterHost(host_id)) {
-      bad_message::ReceivedBadMessage(this, bad_message::ACDH_UNREGISTER);
+      mojo::ReportBadMessage("ACDH_UNREGISTER");
     }
   }
 }
 
-void AppCacheDispatcherHost::OnSetSpawningHostId(
-    int host_id, int spawning_host_id) {
-  if (appcache_service_.get()) {
+void AppCacheDispatcherHost::SetSpawningHostId(int32_t host_id,
+                                               int spawning_host_id) {
+  if (appcache_service_) {
     if (!backend_impl_.SetSpawningHostId(host_id, spawning_host_id))
-      bad_message::ReceivedBadMessage(this, bad_message::ACDH_SET_SPAWNING);
+      mojo::ReportBadMessage("ACDH_SET_SPAWNING");
   }
 }
 
-void AppCacheDispatcherHost::OnSelectCache(
-    int host_id,
-    const GURL& document_url,
-    int64_t cache_document_was_loaded_from,
-    const GURL& opt_manifest_url) {
-  if (appcache_service_.get()) {
+void AppCacheDispatcherHost::SelectCache(int32_t host_id,
+                                         const GURL& document_url,
+                                         int64_t cache_document_was_loaded_from,
+                                         const GURL& opt_manifest_url) {
+  if (appcache_service_) {
     if (!backend_impl_.SelectCache(host_id, document_url,
                                    cache_document_was_loaded_from,
                                    opt_manifest_url)) {
-      bad_message::ReceivedBadMessage(this, bad_message::ACDH_SELECT_CACHE);
+      mojo::ReportBadMessage("ACDH_SELECT_CACHE");
     }
   } else {
-    frontend_proxy_.OnCacheSelected(host_id, AppCacheInfo());
+    frontend_proxy_.OnCacheSelected(host_id, blink::mojom::AppCacheInfo());
   }
 }
 
-void AppCacheDispatcherHost::OnSelectCacheForWorker(
-    int host_id, int parent_process_id, int parent_host_id) {
-  if (appcache_service_.get()) {
-    if (!backend_impl_.SelectCacheForWorker(host_id, parent_process_id,
-                                            parent_host_id)) {
-      bad_message::ReceivedBadMessage(
-          this, bad_message::ACDH_SELECT_CACHE_FOR_WORKER);
-    }
-  } else {
-    frontend_proxy_.OnCacheSelected(host_id, AppCacheInfo());
-  }
-}
-
-void AppCacheDispatcherHost::OnSelectCacheForSharedWorker(int host_id,
-                                                          int64_t appcache_id) {
-  if (appcache_service_.get()) {
+void AppCacheDispatcherHost::SelectCacheForSharedWorker(int32_t host_id,
+                                                        int64_t appcache_id) {
+  if (appcache_service_) {
     if (!backend_impl_.SelectCacheForSharedWorker(host_id, appcache_id))
-      bad_message::ReceivedBadMessage(
-          this, bad_message::ACDH_SELECT_CACHE_FOR_SHARED_WORKER);
+      mojo::ReportBadMessage("ACDH_SELECT_CACHE_FOR_SHARED_WORKER");
   } else {
-    frontend_proxy_.OnCacheSelected(host_id, AppCacheInfo());
+    frontend_proxy_.OnCacheSelected(host_id, blink::mojom::AppCacheInfo());
   }
 }
 
-void AppCacheDispatcherHost::OnMarkAsForeignEntry(
-    int host_id,
+void AppCacheDispatcherHost::MarkAsForeignEntry(
+    int32_t host_id,
     const GURL& document_url,
     int64_t cache_document_was_loaded_from) {
-  if (appcache_service_.get()) {
+  if (appcache_service_) {
     if (!backend_impl_.MarkAsForeignEntry(host_id, document_url,
                                           cache_document_was_loaded_from)) {
-      bad_message::ReceivedBadMessage(this,
-                                      bad_message::ACDH_MARK_AS_FOREIGN_ENTRY);
+      mojo::ReportBadMessage("ACDH_MARK_AS_FOREIGN_ENTRY");
     }
   }
 }
 
-void AppCacheDispatcherHost::OnGetResourceList(
-    int host_id, std::vector<AppCacheResourceInfo>* params) {
-  if (appcache_service_.get())
-    backend_impl_.GetResourceList(host_id, params);
-}
+void AppCacheDispatcherHost::GetResourceList(int32_t host_id,
+                                             GetResourceListCallback callback) {
+  std::vector<blink::mojom::AppCacheResourceInfo> params;
+  std::vector<blink::mojom::AppCacheResourceInfoPtr> out;
+  if (appcache_service_) {
+    backend_impl_.GetResourceList(host_id, &params);
 
-void AppCacheDispatcherHost::OnGetStatus(int host_id, IPC::Message* reply_msg) {
-  if (pending_reply_msg_) {
-    bad_message::ReceivedBadMessage(
-        this, bad_message::ACDH_PENDING_REPLY_IN_GET_STATUS);
-    delete reply_msg;
-    return;
-  }
-
-  pending_reply_msg_.reset(reply_msg);
-  if (appcache_service_.get()) {
-    if (!backend_impl_.GetStatusWithCallback(host_id, get_status_callback_,
-                                             reply_msg)) {
-      bad_message::ReceivedBadMessage(this, bad_message::ACDH_GET_STATUS);
+    // Box up params for output.
+    out.reserve(params.size());
+    for (auto& p : params) {
+      out.emplace_back(base::in_place, std::move(p));
     }
-    return;
   }
-
-  GetStatusCallback(APPCACHE_STATUS_UNCACHED, reply_msg);
+  std::move(callback).Run(std::move(out));
 }
 
-void AppCacheDispatcherHost::OnStartUpdate(int host_id,
-                                           IPC::Message* reply_msg) {
-  if (pending_reply_msg_) {
-    bad_message::ReceivedBadMessage(
-        this, bad_message::ACDH_PENDING_REPLY_IN_START_UPDATE);
-    delete reply_msg;
-    return;
-  }
-
-  pending_reply_msg_.reset(reply_msg);
-  if (appcache_service_.get()) {
-    if (!backend_impl_.StartUpdateWithCallback(host_id, start_update_callback_,
-                                               reply_msg)) {
-      bad_message::ReceivedBadMessage(this, bad_message::ACDH_START_UPDATE);
+void AppCacheDispatcherHost::GetStatus(int32_t host_id,
+                                       GetStatusCallback callback) {
+  if (appcache_service_) {
+    if (backend_impl_.GetStatusWithCallback(host_id, &callback)) {
+      return;
+    } else {
+      mojo::ReportBadMessage("ACDH_GET_STATUS");
     }
-    return;
   }
-
-  StartUpdateCallback(false, reply_msg);
+  if (callback) {
+    std::move(callback).Run(
+        blink::mojom::AppCacheStatus::APPCACHE_STATUS_UNCACHED);
+  }
 }
 
-void AppCacheDispatcherHost::OnSwapCache(int host_id, IPC::Message* reply_msg) {
-  if (pending_reply_msg_) {
-    bad_message::ReceivedBadMessage(
-        this, bad_message::ACDH_PENDING_REPLY_IN_SWAP_CACHE);
-    delete reply_msg;
-    return;
-  }
-
-  pending_reply_msg_.reset(reply_msg);
-  if (appcache_service_.get()) {
-    if (!backend_impl_.SwapCacheWithCallback(host_id, swap_cache_callback_,
-                                             reply_msg)) {
-      bad_message::ReceivedBadMessage(this, bad_message::ACDH_SWAP_CACHE);
+void AppCacheDispatcherHost::StartUpdate(int32_t host_id,
+                                         StartUpdateCallback callback) {
+  if (appcache_service_) {
+    if (backend_impl_.StartUpdateWithCallback(host_id, &callback)) {
+      return;
+    } else {
+      mojo::ReportBadMessage("ACDH_START_UPDATE");
     }
-    return;
   }
-
-  SwapCacheCallback(false, reply_msg);
+  if (callback)
+    std::move(callback).Run(false);
 }
 
-void AppCacheDispatcherHost::GetStatusCallback(
-    AppCacheStatus status, void* param) {
-  IPC::Message* reply_msg = reinterpret_cast<IPC::Message*>(param);
-  DCHECK_EQ(pending_reply_msg_.get(), reply_msg);
-  AppCacheHostMsg_GetStatus::WriteReplyParams(reply_msg, status);
-  Send(pending_reply_msg_.release());
-}
-
-void AppCacheDispatcherHost::StartUpdateCallback(bool result, void* param) {
-  IPC::Message* reply_msg = reinterpret_cast<IPC::Message*>(param);
-  DCHECK_EQ(pending_reply_msg_.get(), reply_msg);
-  AppCacheHostMsg_StartUpdate::WriteReplyParams(reply_msg, result);
-  Send(pending_reply_msg_.release());
-}
-
-void AppCacheDispatcherHost::SwapCacheCallback(bool result, void* param) {
-  IPC::Message* reply_msg = reinterpret_cast<IPC::Message*>(param);
-  DCHECK_EQ(pending_reply_msg_.get(), reply_msg);
-  AppCacheHostMsg_SwapCache::WriteReplyParams(reply_msg, result);
-  Send(pending_reply_msg_.release());
+void AppCacheDispatcherHost::SwapCache(int32_t host_id,
+                                       SwapCacheCallback callback) {
+  if (appcache_service_) {
+    if (backend_impl_.SwapCacheWithCallback(host_id, &callback)) {
+      return;
+    } else {
+      mojo::ReportBadMessage("ACDH_SWAP_CACHE");
+    }
+  }
+  if (callback)
+    std::move(callback).Run(false);
 }
 
 }  // namespace content

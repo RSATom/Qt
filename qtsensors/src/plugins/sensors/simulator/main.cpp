@@ -61,7 +61,7 @@ public:
         connect(connection, SIGNAL(setAvailableFeatures(quint32)), this, SLOT(setAvailableFeatures(quint32)));
     }
 
-    void registerSensors()
+    void registerSensors() override
     {
         QSensorManager::registerBackend(QAccelerometer::type, SimulatorAccelerometer::id, this);
         QSensorManager::registerBackend(QAmbientLightSensor::type, SimulatorAmbientLightSensor::id, this);
@@ -72,7 +72,7 @@ public:
         QSensorManager::registerBackend(QMagnetometer::type, SimulatorMagnetometer::id, this);
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == SimulatorAccelerometer::id) {
             return new SimulatorAccelerometer(sensor);

@@ -42,13 +42,13 @@
 
 #include "shared_global_p.h"
 #include "extensionfactory_p.h"
-#include <QtDesigner/QDesignerTaskMenuExtension>
+#include <QtDesigner/taskmenu.h>
 
 #include <QtGui/qwindowdefs.h>
 
-#include <QtCore/QObject>
-#include <QtCore/QPointer>
-#include <QtCore/QList>
+#include <QtCore/qobject.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,11 +64,11 @@ class QDESIGNER_SHARED_EXPORT QDesignerTaskMenu: public QObject, public QDesigne
     Q_INTERFACES(QDesignerTaskMenuExtension)
 public:
     QDesignerTaskMenu(QWidget *widget, QObject *parent);
-    virtual ~QDesignerTaskMenu();
+    ~QDesignerTaskMenu() override;
 
     QWidget *widget() const;
 
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QList<QAction*> taskActions() const override;
 
     enum PropertyMode { CurrentWidgetMode, MultiSelectionMode };
 

@@ -26,7 +26,7 @@ namespace {
 
 class OSCryptTest : public testing::Test {
  public:
-  OSCryptTest() { OSCryptMocker::SetUpWithSingleton(); }
+  OSCryptTest() { OSCryptMocker::SetUp(); }
 
   ~OSCryptTest() override { OSCryptMocker::TearDown(); }
 
@@ -150,16 +150,7 @@ TEST_F(OSCryptTest, DecryptError) {
 
 class OSCryptConcurrencyTest : public testing::Test {
  public:
-  OSCryptConcurrencyTest() {
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-    // Mock the key storage, but not the process of getting the passwords.
-    UseMockKeyStorageForTesting(
-        []() -> KeyStorageLinux* { return OSCryptMockerLinux::GetInstance(); },
-        nullptr);
-#else
-    OSCryptMocker::SetUpWithSingleton();
-#endif
-  }
+  OSCryptConcurrencyTest() { OSCryptMocker::SetUp(); }
 
   ~OSCryptConcurrencyTest() override { OSCryptMocker::TearDown(); };
 
@@ -179,7 +170,7 @@ TEST_F(OSCryptConcurrencyTest, ConcurrentInitialization) {
   // Make calls.
   for (base::Thread* thread : threads) {
     ASSERT_TRUE(thread->task_runner()->PostTask(
-        FROM_HERE, base::Bind([]() -> void {
+        FROM_HERE, base::BindOnce([]() -> void {
           std::string plaintext = "secrets";
           std::string encrypted;
           std::string decrypted;

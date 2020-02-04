@@ -51,7 +51,9 @@
 #include <private/qguiapplication_p.h>
 #include <QScreen>
 #include <QDir>
-#include <QRegularExpression>
+#if QT_CONFIG(regularexpression)
+#  include <QRegularExpression>
+#endif
 #include <QLoggingCategory>
 
 #if defined(Q_OS_LINUX)
@@ -103,7 +105,7 @@ QStringList QEglFSDeviceIntegrationFactory::keys(const QString &pluginPath)
 
 QEglFSDeviceIntegration *QEglFSDeviceIntegrationFactory::create(const QString &key, const QString &pluginPath)
 {
-    QEglFSDeviceIntegration *integration = Q_NULLPTR;
+    QEglFSDeviceIntegration *integration = nullptr;
 #if QT_CONFIG(library)
     if (!pluginPath.isEmpty()) {
         QCoreApplication::addLibraryPath(pluginPath);
@@ -140,7 +142,7 @@ QByteArray QEglFSDeviceIntegration::fbDeviceName() const
 int QEglFSDeviceIntegration::framebufferIndex() const
 {
     int fbIndex = 0;
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
     QRegularExpression fbIndexRx(QLatin1String("fb(\\d+)"));
     QRegularExpressionMatch match = fbIndexRx.match(QString::fromLocal8Bit(fbDeviceName()));
     if (match.hasMatch())
@@ -198,10 +200,8 @@ void QEglFSDeviceIntegration::screenInit()
 void QEglFSDeviceIntegration::screenDestroy()
 {
     QGuiApplication *app = qGuiApp;
-    QEglFSIntegration *platformIntegration = static_cast<QEglFSIntegration *>(
-        QGuiApplicationPrivate::platformIntegration());
     while (!app->screens().isEmpty())
-        platformIntegration->removeScreen(app->screens().constLast()->handle());
+        QWindowSystemInterface::handleScreenRemoved(app->screens().constLast()->handle());
 }
 
 QSizeF QEglFSDeviceIntegration::physicalScreenSize() const
@@ -351,9 +351,28 @@ bool QEglFSDeviceIntegration::supportsSurfacelessContexts() const
     return true;
 }
 
+QFunctionPointer QEglFSDeviceIntegration::platformFunction(const QByteArray &function) const
+{
+    Q_UNUSED(function);
+    return nullptr;
+}
+
+void *QEglFSDeviceIntegration::nativeResourceForIntegration(const QByteArray &name)
+{
+    Q_UNUSED(name);
+    return nullptr;
+}
+
+void *QEglFSDeviceIntegration::nativeResourceForScreen(const QByteArray &resource, QScreen *screen)
+{
+    Q_UNUSED(resource);
+    Q_UNUSED(screen);
+    return nullptr;
+}
+
 void *QEglFSDeviceIntegration::wlDisplay() const
 {
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 EGLConfig QEglFSDeviceIntegration::chooseConfig(EGLDisplay display, const QSurfaceFormat &format)

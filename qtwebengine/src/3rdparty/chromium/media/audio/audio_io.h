@@ -9,6 +9,7 @@
 
 #include "base/time/time.h"
 #include "media/base/audio_bus.h"
+#include "media/base/media_export.h"
 
 // Low-level audio output support. To make sound there are 3 objects involved:
 // - AudioSource : produces audio samples on a pull model. Implements
@@ -97,7 +98,8 @@ class MEDIA_EXPORT AudioOutputStream {
   // Stops playing audio.  The operation completes synchronously meaning that
   // once Stop() has completed executing, no further callbacks will be made to
   // the callback object that was supplied to Start() and it can be safely
-  // deleted.
+  // deleted. Stop() may be called in any state, e.g. before Start() or after
+  // Stop().
   virtual void Stop() = 0;
 
   // Sets the relative volume, with range [0.0, 1.0] inclusive.
@@ -119,16 +121,20 @@ class MEDIA_EXPORT AudioInputStream {
     // Called by the audio recorder when a full packet of audio data is
     // available. This is called from a special audio thread and the
     // implementation should return as soon as possible.
-    virtual void OnData(AudioInputStream* stream,
-                        const AudioBus* source,
-                        uint32_t hardware_delay_bytes,
+    //
+    // |capture_time| is the time at which the first sample in |source| was
+    // received. The age of the audio data may be calculated by subtracting
+    // |capture_time| from base::TimeTicks::Now(). |capture_time| is always
+    // monotonically increasing.
+    virtual void OnData(const AudioBus* source,
+                        base::TimeTicks capture_time,
                         double volume) = 0;
 
     // There was an error while recording audio. The audio sink cannot be
     // destroyed yet. No direct action needed by the AudioInputStream, but it
     // is a good place to stop accumulating sound data since is is likely that
     // recording will not continue.
-    virtual void OnError(AudioInputStream* stream) = 0;
+    virtual void OnError() = 0;
 
    protected:
     virtual ~AudioInputCallback() {}
@@ -171,6 +177,11 @@ class MEDIA_EXPORT AudioInputStream {
 
   // Returns the current muting state for the microphone.
   virtual bool IsMuted() = 0;
+
+  // Sets the output device from which to cancel echo, if echo cancellation is
+  // supported by this stream. E.g. called by WebRTC when it changes playback
+  // devices.
+  virtual void SetOutputDeviceForAec(const std::string& output_device_id) = 0;
 };
 
 }  // namespace media

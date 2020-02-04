@@ -27,6 +27,8 @@
 **
 ****************************************************************************/
 
+#include <QtNetwork/qtnetwork-config.h>
+
 #ifndef QT_NO_HTTP
 
 #include "qoauth1.h"
@@ -155,7 +157,6 @@ QNetworkReply *QOAuth1Private::requestToken(QNetworkAccessManager::Operation ope
                                             const QPair<QString, QString> &token,
                                             const QVariantMap &parameters)
 {
-    Q_Q(QOAuth1);
     if (Q_UNLIKELY(!networkAccessManager())) {
         qCWarning(loggingCategory, "QNetworkAccessManager not available");
         return nullptr;
@@ -175,27 +176,35 @@ QNetworkReply *QOAuth1Private::requestToken(QNetworkAccessManager::Operation ope
 
     QAbstractOAuth::Stage stage = QAbstractOAuth::Stage::RequestingTemporaryCredentials;
     QVariantMap headers;
+    QVariantMap remainingParameters;
     appendCommonHeaders(&headers);
-    headers.insert(Key::oauthCallback, q->callback());
+    for (auto it = parameters.begin(), end = parameters.end(); it != end; ++it) {
+        const auto key = it.key();
+        const auto value = it.value();
+        if (key.startsWith(QStringLiteral("oauth_")))
+            headers.insert(key, value);
+        else
+            remainingParameters.insert(key, value);
+    }
     if (!token.first.isEmpty()) {
         headers.insert(Key::oauthToken, token.first);
         stage = QAbstractOAuth::Stage::RequestingAccessToken;
     }
-    appendSignature(stage, &headers, url, operation, parameters);
+    appendSignature(stage, &headers, url, operation, remainingParameters);
 
-    request.setRawHeader("Authorization", q->generateAuthorizationHeader(headers));
+    request.setRawHeader("Authorization", QOAuth1::generateAuthorizationHeader(headers));
 
     QNetworkReply *reply = nullptr;
     if (operation == QNetworkAccessManager::GetOperation) {
         if (parameters.size() > 0) {
             QUrl url = request.url();
-            url.setQuery(QOAuth1Private::createQuery(parameters));
+            url.setQuery(QOAuth1Private::createQuery(remainingParameters));
             request.setUrl(url);
         }
         reply = networkAccessManager()->get(request);
     }
     else if (operation == QNetworkAccessManager::PostOperation) {
-        QUrlQuery query = QOAuth1Private::createQuery(parameters);
+        QUrlQuery query = QOAuth1Private::createQuery(remainingParameters);
         const QByteArray data = query.toString(QUrl::FullyEncoded).toUtf8();
         request.setHeader(QNetworkRequest::ContentTypeHeader,
                           QStringLiteral("application/x-www-form-urlencoded"));
@@ -234,12 +243,29 @@ QByteArray QOAuth1Private::generateSignature(const QVariantMap &parameters,
                                              const QUrl &url,
                                              QNetworkAccessManager::Operation operation) const
 {
-    const QOAuth1Signature signature(url,
-                                     clientIdentifierSharedKey,
-                                     tokenSecret,
-                                     static_cast<QOAuth1Signature::HttpRequestMethod>(operation),
-                                     parameters);
+    QOAuth1Signature signature(url,
+                               clientIdentifierSharedKey,
+                               tokenSecret,
+                               static_cast<QOAuth1Signature::HttpRequestMethod>(operation),
+                               parameters);
+    return formatSignature(signature);
+}
 
+QByteArray QOAuth1Private::generateSignature(const QVariantMap &parameters,
+                                             const QUrl &url,
+                                             const QByteArray &verb) const
+{
+    QOAuth1Signature signature(url,
+                               clientIdentifierSharedKey,
+                               tokenSecret,
+                               QOAuth1Signature::HttpRequestMethod::Custom,
+                               parameters);
+    signature.setCustomMethodString(verb);
+    return formatSignature(signature);
+}
+
+QByteArray QOAuth1Private::formatSignature(const QOAuth1Signature &signature) const
+{
     switch (signatureMethod) {
     case QOAuth1::SignatureMethod::Hmac_Sha1:
         return signature.hmacSha1().toBase64();
@@ -249,6 +275,38 @@ QByteArray QOAuth1Private::generateSignature(const QVariantMap &parameters,
         qFatal("QOAuth1Private::generateSignature: Signature method not supported");
         return QByteArray();
     }
+}
+
+QVariantMap QOAuth1Private::createOAuthBaseParams() const
+{
+    QVariantMap oauthParams;
+
+    const auto currentDateTime = QDateTime::currentDateTimeUtc();
+
+    oauthParams.insert(Key::oauthConsumerKey, clientIdentifier);
+    oauthParams.insert(Key::oauthVersion, QStringLiteral("1.0"));
+    oauthParams.insert(Key::oauthToken, token);
+    oauthParams.insert(Key::oauthSignatureMethod, signatureMethodString());
+    oauthParams.insert(Key::oauthNonce, QOAuth1::nonce());
+    oauthParams.insert(Key::oauthTimestamp, QString::number(currentDateTime.toTime_t()));
+
+    return oauthParams;
+}
+
+void QOAuth1Private::prepareRequestImpl(QNetworkRequest *request,
+                                        const QByteArray &verb,
+                                        const QByteArray &body)
+{
+    Q_Q(QOAuth1);
+    QVariantMap signingParams;
+    if (verb == "POST" &&
+        request->header(QNetworkRequest::ContentTypeHeader).toByteArray()
+            == "application/x-www-form-urlencoded") {
+        QUrlQuery query(QString::fromUtf8(body));
+        for (const auto &item : query.queryItems(QUrl::FullyDecoded))
+            signingParams.insert(item.first, item.second);
+    }
+    q->setup(request, signingParams, verb);
 }
 
 void QOAuth1Private::_q_onTokenRequestError(QNetworkReply::NetworkError error)
@@ -261,6 +319,15 @@ void QOAuth1Private::_q_onTokenRequestError(QNetworkReply::NetworkError error)
 void QOAuth1Private::_q_tokensReceived(const QVariantMap &tokens)
 {
     Q_Q(QOAuth1);
+
+    if (!tokenRequested && status == QAbstractOAuth::Status::TemporaryCredentialsReceived) {
+        // We didn't request a token yet, but in the "TemporaryCredentialsReceived" state _any_
+        // new tokens received will count as a successful authentication and we move to the
+        // 'Granted' state. To avoid this, 'status' will be temporarily set to 'NotAuthenticated'.
+        status = QAbstractOAuth::Status::NotAuthenticated;
+    }
+    if (tokenRequested) // 'Reset' tokenRequested now that we've gotten new tokens
+        tokenRequested = false;
 
     QPair<QString, QString> credential(tokens.value(Key::oauthToken).toString(),
                                        tokens.value(Key::oauthTokenSecret).toString());
@@ -656,7 +723,9 @@ QNetworkReply *QOAuth1::requestTemporaryCredentials(QNetworkAccessManager::Opera
     Q_D(QOAuth1);
     d->token.clear();
     d->tokenSecret.clear();
-    return d->requestToken(operation, url, qMakePair(d->token, d->tokenSecret), parameters);
+    QVariantMap allParameters(parameters);
+    allParameters.insert(Key::oauthCallback, callback());
+    return d->requestToken(operation, url, qMakePair(d->token, d->tokenSecret), allParameters);
 }
 
 /*!
@@ -675,11 +744,14 @@ QNetworkReply *QOAuth1::requestTokenCredentials(QNetworkAccessManager::Operation
                                                 const QVariantMap &parameters)
 {
     Q_D(QOAuth1);
+    d->tokenRequested = true;
     return d->requestToken(operation, url, temporaryToken, parameters);
 }
 
 /*!
     Signs the \a request using \a signingParameters and \a operation.
+
+    \overload
 */
 void QOAuth1::setup(QNetworkRequest *request,
                     const QVariantMap &signingParameters,
@@ -687,16 +759,7 @@ void QOAuth1::setup(QNetworkRequest *request,
 {
     Q_D(const QOAuth1);
 
-    QVariantMap oauthParams;
-
-    const auto currentDateTime = QDateTime::currentDateTimeUtc();
-
-    oauthParams.insert(Key::oauthConsumerKey, d->clientIdentifier);
-    oauthParams.insert(Key::oauthVersion, QStringLiteral("1.0"));
-    oauthParams.insert(Key::oauthToken, d->token);
-    oauthParams.insert(Key::oauthSignatureMethod, d->signatureMethodString());
-    oauthParams.insert(Key::oauthNonce, QOAuth1::nonce());
-    oauthParams.insert(Key::oauthTimestamp, QString::number(currentDateTime.toTime_t()));
+    auto oauthParams = d->createOAuthBaseParams();
 
     // Add signature parameter
     {
@@ -723,6 +786,29 @@ void QOAuth1::setup(QNetworkRequest *request,
             || operation == QNetworkAccessManager::PutOperation)
         request->setHeader(QNetworkRequest::ContentTypeHeader,
                            QStringLiteral("application/x-www-form-urlencoded"));
+}
+
+/*!
+    \since 5.13
+
+    Signs the \a request using \a signingParameters and \a operationVerb.
+
+    \overload
+*/
+void QOAuth1::setup(QNetworkRequest *request, const QVariantMap &signingParameters, const QByteArray &operationVerb)
+{
+    Q_D(const QOAuth1);
+
+    auto oauthParams = d->createOAuthBaseParams();
+
+    // Add signature parameter
+    {
+        const auto parameters = QVariantMap(oauthParams).unite(signingParameters);
+        const auto signature = d->generateSignature(parameters, request->url(), operationVerb);
+        oauthParams.insert(Key::oauthSignature, signature);
+    }
+
+    request->setRawHeader("Authorization", generateAuthorizationHeader(oauthParams));
 }
 
 /*!
@@ -786,7 +872,7 @@ void QOAuth1::grant()
         qCWarning(d->loggingCategory, "authorizationGrantUrl is empty");
         return;
     }
-    if (!d->token.isEmpty()) {
+    if (!d->token.isEmpty() && status() == Status::Granted) {
         qCWarning(d->loggingCategory, "Already authenticated");
         return;
     }

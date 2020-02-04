@@ -15,6 +15,7 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_paths.h"
 #include "ui/views_content_client/views_content_browser_client.h"
+#include "ui/views_content_client/views_content_client_main_parts.h"
 
 #if defined(OS_WIN)
 #include "base/logging_win.h"
@@ -61,12 +62,12 @@ bool ViewsContentMainDelegate::BasicStartupComplete(int* exit_code) {
 
 void ViewsContentMainDelegate::PreSandboxStartup() {
   base::FilePath ui_test_pak_path;
-  CHECK(PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
+  CHECK(base::PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
   ui::ResourceBundle::InitSharedInstanceWithPakPath(ui_test_pak_path);
 
   // Load content resources to provide, e.g., sandbox configuration data on Mac.
   base::FilePath content_resources_pak_path;
-  PathService::Get(base::DIR_MODULE, &content_resources_pak_path);
+  base::PathService::Get(base::DIR_MODULE, &content_resources_pak_path);
   ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
       content_resources_pak_path.AppendASCII("content_resources.pak"),
       ui::SCALE_FACTOR_100P);
@@ -77,6 +78,11 @@ void ViewsContentMainDelegate::PreSandboxStartup() {
     ui::ResourceBundle::GetSharedInstance().AddDataPackFromPath(
         ui_test_resources_200, ui::SCALE_FACTOR_200P);
   }
+}
+
+void ViewsContentMainDelegate::PreCreateMainMessageLoop() {
+  content::ContentMainDelegate::PreCreateMainMessageLoop();
+  ViewsContentClientMainParts::PreCreateMainMessageLoop();
 }
 
 content::ContentBrowserClient*

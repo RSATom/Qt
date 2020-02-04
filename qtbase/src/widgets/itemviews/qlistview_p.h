@@ -143,7 +143,7 @@ public:
     virtual void removeHiddenRow(int row);
     virtual void setPositionForIndex(const QPoint &, const QModelIndex &) { }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     virtual void paintDragDrop(QPainter *painter);
     virtual bool filterDragMoveEvent(QDragMoveEvent *) { return false; }
     virtual bool filterDragLeaveEvent(QDragLeaveEvent *) { return false; }
@@ -228,7 +228,7 @@ public:
     void updateHorizontalScrollBar(const QSize &step) override;
     void updateVerticalScrollBar(const QSize &step) override;
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     // The next two methods are to be used on LefToRight flow only.
     // WARNING: Plenty of duplicated code from QAbstractItemView{,Private}.
     QAbstractItemView::DropIndicatorPosition position(const QPoint &pos, const QRect &rect, const QModelIndex &idx) const;
@@ -274,7 +274,7 @@ public:
     void removeHiddenRow(int row) override;
     void setPositionForIndex(const QPoint &position, const QModelIndex &index) override;
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     bool filterDragMoveEvent(QDragMoveEvent *) override;
     bool filterDragLeaveEvent(QDragLeaveEvent *) override;
     bool filterDropEvent(QDropEvent *e) override;
@@ -333,12 +333,29 @@ public:
     inline QModelIndex listViewItemToIndex(const QListViewItem &item) const
         { return model->index(commonListView->itemIndex(item), column, root); }
 
+    inline bool hasRectForIndex(const QModelIndex &index) const
+    {
+        return isIndexValid(index) && index.parent() == root && index.column() == column && !isHidden(index.row());
+    }
+
     QRect rectForIndex(const QModelIndex &index) const
     {
-        if (!isIndexValid(index) || index.parent() != root || index.column() != column || isHidden(index.row()))
+        if (!hasRectForIndex(index))
             return QRect();
         executePostedLayout();
         return viewItemRect(indexToListViewItem(index));
+    }
+
+    QRect cellRectForIndex(const QModelIndex &index)
+    {
+        if (!hasRectForIndex(index))
+            return QRect();
+        executePostedLayout();
+        auto oldItemAlignment = itemAlignment;
+        itemAlignment = Qt::Alignment();
+        const QRect rect = rectForIndex(index);
+        itemAlignment = oldItemAlignment;
+        return rect;
     }
 
     void viewUpdateGeometries() { q_func()->updateGeometries(); }
@@ -358,7 +375,7 @@ public:
     QItemSelection selection(const QRect &rect) const;
     void selectAll(QItemSelectionModel::SelectionFlags command) override;
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QAbstractItemView::DropIndicatorPosition position(const QPoint &pos, const QRect &rect, const QModelIndex &idx) const override;
     bool dropOn(QDropEvent *event, int *row, int *col, QModelIndex *index) override;
 #endif
@@ -376,6 +393,14 @@ public:
     inline bool isHidden(int row) const {
         QModelIndex idx = model->index(row, 0, root);
         return isPersistent(idx) && hiddenRows.contains(idx);
+    }
+    // helper to avoid checking for isPersistent and creating persistent indexes as above in isHidden
+    QVector<int> hiddenRowIds() const {
+        QVector<int> rowIds;
+        rowIds.reserve(hiddenRows.size());
+        for (const auto &idx : hiddenRows)
+            rowIds += idx.row();
+        return rowIds;
     }
     inline bool isHiddenOrDisabled(int row) const { return isHidden(row) || !isIndexEnabled(modelIndex(row)); }
 
@@ -431,6 +456,8 @@ public:
 
     QRect elasticBand;
     bool showElasticBand;
+
+    Qt::Alignment itemAlignment;
 };
 
 // inline implementations

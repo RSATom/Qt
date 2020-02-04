@@ -35,7 +35,7 @@ SigninStatusMetricsProvider::SigninStatusMetricsProvider(
 
 SigninStatusMetricsProvider::~SigninStatusMetricsProvider() {}
 
-void SigninStatusMetricsProvider::ProvideGeneralMetrics(
+void SigninStatusMetricsProvider::ProvideCurrentSessionData(
     metrics::ChromeUserMetricsExtension* uma_proto) {
   RecordSigninStatusHistogram(signin_status());
   // After a histogram value is recorded, a new UMA session will be started, so
@@ -76,8 +76,7 @@ void SigninStatusMetricsProvider::OnSigninManagerShutdown(
 }
 
 void SigninStatusMetricsProvider::GoogleSigninSucceeded(
-    const std::string& account_id,
-    const std::string& username) {
+    const AccountInfo& account_info) {
   SigninStatus recorded_signin_status = signin_status();
   if (recorded_signin_status == ALL_PROFILES_NOT_SIGNED_IN) {
     UpdateSigninStatus(MIXED_SIGNIN_STATUS);
@@ -88,8 +87,8 @@ void SigninStatusMetricsProvider::GoogleSigninSucceeded(
   }
 }
 
-void SigninStatusMetricsProvider::GoogleSignedOut(const std::string& account_id,
-                                                  const std::string& username) {
+void SigninStatusMetricsProvider::GoogleSignedOut(
+    const AccountInfo& account_info) {
   SigninStatus recorded_signin_status = signin_status();
   if (recorded_signin_status == ALL_PROFILES_SIGNED_IN) {
     UpdateSigninStatus(MIXED_SIGNIN_STATUS);

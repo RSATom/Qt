@@ -8,7 +8,8 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/system_monitor/system_monitor.h"
+#include "base/single_thread_task_runner.h"
+#include "base/system/system_monitor.h"
 #include "base/threading/thread_checker.h"
 #include "media/base/media_export.h"
 
@@ -18,20 +19,21 @@ class DeviceMonitorMacImpl;
 
 namespace media {
 
-// Class to track audio/video devices removal or addition via callback to
+// Class to track video devices removal or addition via callback to
 // base::SystemMonitor ProcessDevicesChanged(). A single object of this class
 // is created from the browser main process and lives as long as this one.
 class MEDIA_EXPORT DeviceMonitorMac {
  public:
-  DeviceMonitorMac();
+  // The |device_task_runner| argument represents the thread on which device
+  // enumeration will occur.
+  explicit DeviceMonitorMac(
+      scoped_refptr<base::SingleThreadTaskRunner> device_task_runner);
   ~DeviceMonitorMac();
 
-  // Registers the observers for the audio/video device removal, connection and
+  // Registers the observers for the video device removal, connection and
   // suspension. The AVFoundation library is also loaded and initialised if the
-  // OS supports it. The |device_task_runner| argument represents the thread on
-  // which device enumeration will occur.
-  void StartMonitoring(
-      const scoped_refptr<base::SingleThreadTaskRunner>& device_task_runner);
+  // OS supports it.
+  void StartMonitoring();
 
   // Method called by the internal DeviceMonitorMacImpl object
   // |device_monitor_impl_| when a device of type |type| has been added to or
@@ -39,6 +41,7 @@ class MEDIA_EXPORT DeviceMonitorMac {
   void NotifyDeviceChanged(base::SystemMonitor::DeviceType type);
 
  private:
+  scoped_refptr<base::SingleThreadTaskRunner> device_task_runner_;
   std::unique_ptr<DeviceMonitorMacImpl> device_monitor_impl_;
 
   // |thread_checker_| is used to check that constructor and StartMonitoring()
@@ -48,6 +51,6 @@ class MEDIA_EXPORT DeviceMonitorMac {
   DISALLOW_COPY_AND_ASSIGN(DeviceMonitorMac);
 };
 
-}  // namespace content
+}  // namespace media
 
 #endif  // MEDIA_DEVICE_MONITORS_DEVICE_MONITOR_MAC_H_

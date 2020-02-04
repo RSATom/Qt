@@ -51,7 +51,26 @@ class QWaylandSharedMemoryFormatHelper
 {
 public:
     static inline wl_shm_format fromQImageFormat(QImage::Format format);
-    static inline QImage::Format fromWaylandShmFormat(wl_shm_format format);
+    static inline QImage::Format fromWaylandShmFormat(wl_shm_format format)
+    {
+        switch (format) {
+        case WL_SHM_FORMAT_XRGB8888: return QImage::Format_RGB32;
+        case WL_SHM_FORMAT_ARGB8888: return QImage::Format_ARGB32_Premultiplied;
+        case WL_SHM_FORMAT_RGB565: return QImage::Format_RGB16;
+        case WL_SHM_FORMAT_XRGB1555: return QImage::Format_RGB555;
+        case WL_SHM_FORMAT_RGB888: return QImage::Format_RGB888;
+        case WL_SHM_FORMAT_XRGB4444: return QImage::Format_RGB444;
+        case WL_SHM_FORMAT_ARGB4444: return QImage::Format_ARGB4444_Premultiplied;
+        case WL_SHM_FORMAT_XBGR8888: return QImage::Format_RGBX8888;
+        case WL_SHM_FORMAT_ABGR8888: return QImage::Format_RGBA8888_Premultiplied;
+        case WL_SHM_FORMAT_XBGR2101010: return QImage::Format_BGR30;
+        case WL_SHM_FORMAT_ABGR2101010: return QImage::Format_A2BGR30_Premultiplied;
+        case WL_SHM_FORMAT_XRGB2101010: return QImage::Format_RGB30;
+        case WL_SHM_FORMAT_ARGB2101010: return QImage::Format_A2RGB30_Premultiplied;
+        case WL_SHM_FORMAT_C8: return QImage::Format_Alpha8;
+        default: return QImage::Format_Invalid;
+        }
+    }
     static inline QVector<wl_shm_format> supportedWaylandFormats();
 
 private:
@@ -63,7 +82,7 @@ private:
             , data(data)
         { }
         const size_t size;
-        const wl_shm_format *data;
+        const wl_shm_format *data = nullptr;
     };
 
     static const Array getData()
@@ -89,7 +108,7 @@ private:
             WL_SHM_FORMAT_ABGR8888,    //Format_RGBA8888,
             WL_SHM_FORMAT_ABGR8888,    //Format_RGBA8888_Premultiplied,
             WL_SHM_FORMAT_XBGR2101010, //Format_BGR30,
-            WL_SHM_FORMAT_ARGB2101010, //Format_A2BGR30_Premultiplied,
+            WL_SHM_FORMAT_ABGR2101010, //Format_A2BGR30_Premultiplied,
             WL_SHM_FORMAT_XRGB2101010, //Format_RGB30,
             WL_SHM_FORMAT_ARGB2101010, //Format_A2RGB30_Premultiplied,
             WL_SHM_FORMAT_C8,          //Format_Alpha8,
@@ -106,16 +125,6 @@ wl_shm_format QWaylandSharedMemoryFormatHelper::fromQImageFormat(QImage::Format 
     if (array.size <= size_t(format))
         return wl_shm_format(INT_MIN);
     return array.data[format];
-}
-
-QImage::Format QWaylandSharedMemoryFormatHelper::fromWaylandShmFormat(wl_shm_format format)
-{
-    Array array = getData();
-    for (size_t i = 0; i < array.size; i++) {
-        if (array.data[i] == format)
-            return QImage::Format(i);
-    }
-    return QImage::Format_Invalid;
 }
 
 QVector<wl_shm_format> QWaylandSharedMemoryFormatHelper::supportedWaylandFormats()

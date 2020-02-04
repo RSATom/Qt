@@ -144,7 +144,7 @@ void tst_SuiteTest::checkTestSuiteResult() const
         QVERIFY2(file->open(QIODevice::ReadOnly), qPrintable(QString::fromLatin1("Could not open file %1 for reading.")
                                                              .arg(i.fileName())));
 
-        ResultThreader *handler = new ResultThreader(eventLoop, file, type, worker.data());
+        ResultThreader *handler = new ResultThreader(file, type, worker.data());
 
         QObject::connect(handler, SIGNAL(finished()), worker.data(), SLOT(threadFinished()));
 

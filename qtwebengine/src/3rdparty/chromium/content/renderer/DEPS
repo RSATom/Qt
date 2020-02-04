@@ -5,19 +5,16 @@ include_rules = [
   "+components/metrics",
   "+components/metrics:single_sample_metrics",
   "+components/payments",
-  "+components/scheduler",
+  "+components/tracing",
   "+components/url_formatter",
   "+components/viz/client",
   "+components/viz/common",
-  "+cc/blink",
   "+content/public/child",
   "+content/public/renderer",
   "+content/child",
   "+device/base/synchronization",
   "+device/gamepad/public/cpp",
-  "+device/gamepad/public/interfaces",
-  "+device/screen_orientation/public/interfaces",
-  "+device/sensors/public",
+  "+device/gamepad/public/mojom",
   "+device/usb/public",
   "+gin",
   "+jingle/glue",
@@ -26,6 +23,7 @@ include_rules = [
   "-storage/browser",
   "+third_party/hyphen/hyphen.h",
   "+third_party/webrtc_overrides",
+  "+third_party/blink/public/common",
   "+v8/include",
   "+v8/src/third_party/vtune",
 ]
@@ -41,5 +39,13 @@ specific_include_rules = {
   "render_thread_impl_discardable_memory_browsertest\.cc": [
     "+components/discardable_memory/service",
     "+content/browser/browser_main_loop.h",
+  ],
+  # TODO(crbug.com/734668): Dependencies on ozone should be removed, as content
+  # embedded in mus won't be able to talk to the native ozone.
+  "renderer_main\.cc": [
+    "+ui/ozone/public/client_native_pixmap_factory_ozone.h",
+  ],
+  ".*_(unit|pixel|perf)test.*\.cc": [
+    "+components/viz/test",
   ],
 }

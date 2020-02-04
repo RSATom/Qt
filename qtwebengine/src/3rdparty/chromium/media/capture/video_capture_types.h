@@ -20,35 +20,27 @@ namespace media {
 // shared with device manager.
 typedef int VideoCaptureSessionId;
 
-// Storage type for the pixels.
-// TODO(mcasas): http://crbug.com/504160 Consider making this an enum class.
-// TODO(chfremer): Extend or remove this enum.
-enum VideoPixelStorage {
-  PIXEL_STORAGE_CPU,
-  PIXEL_STORAGE_MAX = PIXEL_STORAGE_CPU,
-};
-
 // Policies for capture devices that have source content that varies in size.
 // It is up to the implementation how the captured content will be transformed
 // (e.g., scaling and/or letterboxing) in order to produce video frames that
 // strictly adheree to one of these policies.
-enum ResolutionChangePolicy {
+enum class ResolutionChangePolicy {
   // Capture device outputs a fixed resolution all the time. The resolution of
   // the first frame is the resolution for all frames.
-  RESOLUTION_POLICY_FIXED_RESOLUTION,
+  FIXED_RESOLUTION,
 
   // Capture device is allowed to output frames of varying resolutions. The
   // width and height will not exceed the maximum dimensions specified. The
   // aspect ratio of the frames will match the aspect ratio of the maximum
   // dimensions as closely as possible.
-  RESOLUTION_POLICY_FIXED_ASPECT_RATIO,
+  FIXED_ASPECT_RATIO,
 
   // Capture device is allowed to output frames of varying resolutions not
   // exceeding the maximum dimensions specified.
-  RESOLUTION_POLICY_ANY_WITHIN_LIMIT,
+  ANY_WITHIN_LIMIT,
 
   // Must always be equal to largest entry in the enum.
-  RESOLUTION_POLICY_LAST = RESOLUTION_POLICY_ANY_WITHIN_LIMIT,
+  LAST = ANY_WITHIN_LIMIT,
 };
 
 // Potential values of the googPowerLineFrequency optional constraint passed to
@@ -60,6 +52,156 @@ enum class PowerLineFrequency {
   FREQUENCY_50HZ = 50,
   FREQUENCY_60HZ = 60,
   FREQUENCY_MAX = FREQUENCY_60HZ
+};
+
+enum class VideoCaptureBufferType {
+  kSharedMemory,
+  kSharedMemoryViaRawFileDescriptor,
+  kMailboxHolder
+};
+
+// WARNING: Do not change the values assigned to the entries. They are used for
+// UMA logging.
+enum class VideoCaptureError {
+  kNone = 0,
+  kVideoCaptureControllerInvalidOrUnsupportedVideoCaptureParametersRequested =
+      1,
+  kVideoCaptureControllerIsAlreadyInErrorState = 2,
+  kVideoCaptureManagerDeviceConnectionLost = 3,
+  kFrameSinkVideoCaptureDeviceAleradyEndedOnFatalError = 4,
+  kFrameSinkVideoCaptureDeviceEncounteredFatalError = 5,
+  kV4L2FailedToOpenV4L2DeviceDriverFile = 6,
+  kV4L2ThisIsNotAV4L2VideoCaptureDevice = 7,
+  kV4L2FailedToFindASupportedCameraFormat = 8,
+  kV4L2FailedToSetVideoCaptureFormat = 9,
+  kV4L2UnsupportedPixelFormat = 10,
+  kV4L2FailedToSetCameraFramerate = 11,
+  kV4L2ErrorRequestingMmapBuffers = 12,
+  kV4L2AllocateBufferFailed = 13,
+  kV4L2VidiocStreamonFailed = 14,
+  kV4L2VidiocStreamoffFailed = 15,
+  kV4L2FailedToVidiocReqbufsWithCount0 = 16,
+  kV4L2PollFailed = 17,
+  kV4L2MultipleContinuousTimeoutsWhileReadPolling = 18,
+  kV4L2FailedToDequeueCaptureBuffer = 19,
+  kV4L2FailedToEnqueueCaptureBuffer = 20,
+  kSingleClientVideoCaptureHostLostConnectionToDevice = 21,
+  kSingleClientVideoCaptureDeviceLaunchAborted = 22,
+  kDesktopCaptureDeviceWebrtcDesktopCapturerHasFailed = 23,
+  kFileVideoCaptureDeviceCouldNotOpenVideoFile = 24,
+  kDeviceCaptureLinuxFailedToCreateVideoCaptureDelegate = 25,
+  kErrorFakeDeviceIntentionallyEmittingErrorEvent = 26,
+  kDeviceClientTooManyFramesDroppedY16 = 28,
+  kDeviceMediaToMojoAdapterEncounteredUnsupportedBufferType = 29,
+  kVideoCaptureManagerProcessDeviceStartQueueDeviceInfoNotFound = 30,
+  kInProcessDeviceLauncherFailedToCreateDeviceInstance = 31,
+  kServiceDeviceLauncherLostConnectionToDeviceFactoryDuringDeviceStart = 32,
+  kServiceDeviceLauncherServiceRespondedWithDeviceNotFound = 33,
+  kServiceDeviceLauncherConnectionLostWhileWaitingForCallback = 34,
+  kIntentionalErrorRaisedByUnitTest = 35,
+  kCrosHalV3FailedToStartDeviceThread = 36,
+  kCrosHalV3DeviceDelegateMojoConnectionError = 37,
+  kCrosHalV3DeviceDelegateFailedToGetCameraInfo = 38,
+  kCrosHalV3DeviceDelegateMissingSensorOrientationInfo = 39,
+  kCrosHalV3DeviceDelegateFailedToOpenCameraDevice = 40,
+  kCrosHalV3DeviceDelegateFailedToInitializeCameraDevice = 41,
+  kCrosHalV3DeviceDelegateFailedToConfigureStreams = 42,
+  kCrosHalV3DeviceDelegateWrongNumberOfStreamsConfigured = 43,
+  kCrosHalV3DeviceDelegateFailedToGetDefaultRequestSettings = 44,
+  kCrosHalV3BufferManagerHalRequestedTooManyBuffers = 45,
+  kCrosHalV3BufferManagerFailedToCreateGpuMemoryBuffer = 46,
+  kCrosHalV3BufferManagerFailedToMapGpuMemoryBuffer = 47,
+  kCrosHalV3BufferManagerUnsupportedVideoPixelFormat = 48,
+  kCrosHalV3BufferManagerFailedToDupFd = 49,
+  kCrosHalV3BufferManagerFailedToWrapGpuMemoryHandle = 50,
+  kCrosHalV3BufferManagerFailedToRegisterBuffer = 51,
+  kCrosHalV3BufferManagerProcessCaptureRequestFailed = 52,
+  kCrosHalV3BufferManagerInvalidPendingResultId = 53,
+  kCrosHalV3BufferManagerReceivedDuplicatedPartialMetadata = 54,
+  kCrosHalV3BufferManagerIncorrectNumberOfOutputBuffersReceived = 55,
+  kCrosHalV3BufferManagerInvalidTypeOfOutputBuffersReceived = 56,
+  kCrosHalV3BufferManagerReceivedMultipleResultBuffersForFrame = 57,
+  kCrosHalV3BufferManagerUnknownStreamInCamera3NotifyMsg = 58,
+  kCrosHalV3BufferManagerReceivedInvalidShutterTime = 59,
+  kCrosHalV3BufferManagerFatalDeviceError = 60,
+  kCrosHalV3BufferManagerReceivedFrameIsOutOfOrder = 61,
+  kCrosHalV3BufferManagerFailedToUnwrapReleaseFenceFd = 62,
+  kCrosHalV3BufferManagerSyncWaitOnReleaseFenceTimedOut = 63,
+  kCrosHalV3BufferManagerInvalidJpegBlob = 64,
+  kAndroidFailedToAllocate = 65,
+  kAndroidFailedToStartCapture = 66,
+  kAndroidFailedToStopCapture = 67,
+  kAndroidApi1CameraErrorCallbackReceived = 68,
+  kAndroidApi2CameraDeviceErrorReceived = 69,
+  kAndroidApi2CaptureSessionConfigureFailed = 70,
+  kAndroidApi2ImageReaderUnexpectedImageFormat = 71,
+  kAndroidApi2ImageReaderSizeDidNotMatchImageSize = 72,
+  kAndroidApi2ErrorRestartingPreview = 73,
+  kAndroidScreenCaptureUnsupportedFormat = 74,
+  kAndroidScreenCaptureFailedToStartCaptureMachine = 75,
+  kAndroidScreenCaptureTheUserDeniedScreenCapture = 76,
+  kAndroidScreenCaptureFailedToStartScreenCapture = 77,
+  kWinDirectShowCantGetCaptureFormatSettings = 78,
+  kWinDirectShowFailedToGetNumberOfCapabilities = 79,
+  kWinDirectShowFailedToGetCaptureDeviceCapabilities = 80,
+  kWinDirectShowFailedToSetCaptureDeviceOutputFormat = 81,
+  kWinDirectShowFailedToConnectTheCaptureGraph = 82,
+  kWinDirectShowFailedToPauseTheCaptureDevice = 83,
+  kWinDirectShowFailedToStartTheCaptureDevice = 84,
+  kWinDirectShowFailedToStopTheCaptureGraph = 85,
+  kWinMediaFoundationEngineIsNull = 86,
+  kWinMediaFoundationEngineGetSourceFailed = 87,
+  kWinMediaFoundationFillPhotoCapabilitiesFailed = 88,
+  kWinMediaFoundationFillVideoCapabilitiesFailed = 89,
+  kWinMediaFoundationNoVideoCapabilityFound = 90,
+  kWinMediaFoundationGetAvailableDeviceMediaTypeFailed = 91,
+  kWinMediaFoundationSetCurrentDeviceMediaTypeFailed = 92,
+  kWinMediaFoundationEngineGetSinkFailed = 93,
+  kWinMediaFoundationSinkQueryCapturePreviewInterfaceFailed = 94,
+  kWinMediaFoundationSinkRemoveAllStreamsFailed = 95,
+  kWinMediaFoundationCreateSinkVideoMediaTypeFailed = 96,
+  kWinMediaFoundationConvertToVideoSinkMediaTypeFailed = 97,
+  kWinMediaFoundationSinkAddStreamFailed = 98,
+  kWinMediaFoundationSinkSetSampleCallbackFailed = 99,
+  kWinMediaFoundationEngineStartPreviewFailed = 100,
+  kWinMediaFoundationGetMediaEventStatusFailed = 101,
+  kMacSetCaptureDeviceFailed = 102,
+  kMacCouldNotStartCaptureDevice = 103,
+  kMacReceivedFrameWithUnexpectedResolution = 104,
+  kMacUpdateCaptureResolutionFailed = 105,
+  kMacDeckLinkDeviceIdNotFoundInTheSystem = 106,
+  kMacDeckLinkErrorQueryingInputInterface = 107,
+  kMacDeckLinkErrorCreatingDisplayModeIterator = 108,
+  kMacDeckLinkCouldNotFindADisplayMode = 109,
+  kMacDeckLinkCouldNotSelectTheVideoFormatWeLike = 110,
+  kMacDeckLinkCouldNotStartCapturing = 111,
+  kMacDeckLinkUnsupportedPixelFormat = 112,
+  kMacAvFoundationReceivedAVCaptureSessionRuntimeErrorNotification = 113,
+  kAndroidApi2ErrorConfiguringCamera = 114,
+  kCrosHalV3DeviceDelegateFailedToFlush = 115,
+  kMaxValue = 115
+};
+
+// WARNING: Do not change the values assigned to the entries. They are used for
+// UMA logging.
+enum class VideoCaptureFrameDropReason {
+  kNone = 0,
+  kDeviceClientFrameHasInvalidFormat = 1,
+  kDeviceClientLibyuvConvertToI420Failed = 3,
+  kV4L2BufferErrorFlagWasSet = 4,
+  kV4L2InvalidNumberOfBytesInBuffer = 5,
+  kAndroidThrottling = 6,
+  kAndroidGetByteArrayElementsFailed = 7,
+  kAndroidApi1UnexpectedDataLength = 8,
+  kAndroidApi2AcquiredImageIsNull = 9,
+  kWinDirectShowUnexpectedSampleLength = 10,
+  kWinDirectShowFailedToGetMemoryPointerFromMediaSample = 11,
+  kWinMediaFoundationReceivedSampleIsNull = 12,
+  kWinMediaFoundationLockingBufferDelieveredNullptr = 13,
+  kWinMediaFoundationGetBufferByIndexReturnedNull = 14,
+  kBufferPoolMaxBufferCountExceeded = 15,
+  kBufferPoolBufferAllocationFailed = 16,
+  kMaxValue = 16
 };
 
 // Assert that the int:frequency mapping is correct.
@@ -83,13 +225,8 @@ struct CAPTURE_EXPORT VideoCaptureFormat {
   VideoCaptureFormat(const gfx::Size& frame_size,
                      float frame_rate,
                      VideoPixelFormat pixel_format);
-  VideoCaptureFormat(const gfx::Size& frame_size,
-                     float frame_rate,
-                     VideoPixelFormat pixel_format,
-                     VideoPixelStorage pixel_storage);
 
   static std::string ToString(const VideoCaptureFormat& format);
-  static std::string PixelStorageToString(VideoPixelStorage storage);
 
   // Compares the priority of the pixel formats. Returns true if |lhs| is the
   // preferred pixel format in comparison with |rhs|. Returns false otherwise.
@@ -112,7 +249,6 @@ struct CAPTURE_EXPORT VideoCaptureFormat {
   gfx::Size frame_size;
   float frame_rate;
   VideoPixelFormat pixel_format;
-  VideoPixelStorage pixel_storage;
 };
 
 typedef std::vector<VideoCaptureFormat> VideoCaptureFormats;
@@ -122,11 +258,23 @@ typedef std::vector<VideoCaptureFormat> VideoCaptureFormats;
 // format of frames in which the client would like to have captured frames
 // returned.
 struct CAPTURE_EXPORT VideoCaptureParams {
+  // Result struct for SuggestContraints() method.
+  struct SuggestedConstraints {
+    gfx::Size min_frame_size;
+    gfx::Size max_frame_size;
+    bool fixed_aspect_ratio;
+  };
+
   VideoCaptureParams();
 
   // Returns true if requested_format.IsValid() and all other values are within
   // their expected ranges.
   bool IsValid() const;
+
+  // Computes and returns suggested capture constraints based on the requested
+  // format and resolution change policy: minimum resolution, maximum
+  // resolution, and whether a fixed aspect ratio is required.
+  SuggestedConstraints SuggestConstraints() const;
 
   bool operator==(const VideoCaptureParams& other) const {
     return requested_format == other.requested_format &&
@@ -137,11 +285,19 @@ struct CAPTURE_EXPORT VideoCaptureParams {
   // Requests a resolution and format at which the capture will occur.
   VideoCaptureFormat requested_format;
 
+  VideoCaptureBufferType buffer_type;
+
   // Policy for resolution change.
   ResolutionChangePolicy resolution_change_policy;
 
   // User-specified power line frequency.
   PowerLineFrequency power_line_frequency;
+
+  // Flag indicating if face detection should be enabled. This is for
+  // allowing the driver to apply appropriate settings for optimal
+  // exposures around the face area. Currently only applicable on
+  // Android platform with Camera2 driver support.
+  bool enable_face_detection;
 };
 
 }  // namespace media

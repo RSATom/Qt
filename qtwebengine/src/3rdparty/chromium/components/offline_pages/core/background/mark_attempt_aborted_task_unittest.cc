@@ -7,11 +7,15 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/test/test_simple_task_runner.h"
+#include "base/test/test_mock_time_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/offline_pages/core/background/change_requests_state_task.h"
 #include "components/offline_pages/core/background/mark_attempt_started_task.h"
-#include "components/offline_pages/core/background/request_queue_in_memory_store.h"
+#include "components/offline_pages/core/background/request_queue_store.h"
+#include "components/offline_pages/core/background/request_queue_task_test_base.h"
+#include "components/offline_pages/core/background/test_request_queue_store.h"
+#include "components/offline_pages/core/offline_clock.h"
+
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace offline_pages {
@@ -20,62 +24,39 @@ const int64_t kRequestId1 = 42;
 const int64_t kRequestId2 = 44;
 const GURL kUrl1("http://example.com");
 const ClientId kClientId1("download", "1234");
-}  // namespace
 
-class MarkAttemptAbortedTaskTest : public testing::Test {
+class MarkAttemptAbortedTaskTest : public RequestQueueTaskTestBase {
  public:
-  MarkAttemptAbortedTaskTest();
-  ~MarkAttemptAbortedTaskTest() override;
+  MarkAttemptAbortedTaskTest() {}
+  ~MarkAttemptAbortedTaskTest() override {}
 
-  void PumpLoop();
-
-  void InitializeStore(RequestQueueStore* store);
   void AddItemToStore(RequestQueueStore* store);
-  void ChangeRequestsStateCallback(
-      std::unique_ptr<UpdateRequestsResult> result);
+  void ChangeRequestsStateCallback(UpdateRequestsResult result);
 
   void ClearResults();
 
   UpdateRequestsResult* last_result() const { return result_.get(); }
 
- private:
+ protected:
   void InitializeStoreDone(bool success);
   void AddRequestDone(ItemActionStatus status);
 
   std::unique_ptr<UpdateRequestsResult> result_;
-  scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle task_runner_handle_;
 };
 
-MarkAttemptAbortedTaskTest::MarkAttemptAbortedTaskTest()
-    : task_runner_(new base::TestSimpleTaskRunner),
-      task_runner_handle_(task_runner_) {}
-
-MarkAttemptAbortedTaskTest::~MarkAttemptAbortedTaskTest() {}
-
-void MarkAttemptAbortedTaskTest::PumpLoop() {
-  task_runner_->RunUntilIdle();
-}
-
-void MarkAttemptAbortedTaskTest::InitializeStore(RequestQueueStore* store) {
-  store->Initialize(base::Bind(&MarkAttemptAbortedTaskTest::InitializeStoreDone,
-                               base::Unretained(this)));
-  PumpLoop();
-}
-
 void MarkAttemptAbortedTaskTest::AddItemToStore(RequestQueueStore* store) {
-  base::Time creation_time = base::Time::Now();
+  base::Time creation_time = OfflineTimeNow();
   SavePageRequest request_1(kRequestId1, kUrl1, kClientId1, creation_time,
                             true);
   store->AddRequest(request_1,
-                    base::Bind(&MarkAttemptAbortedTaskTest::AddRequestDone,
-                               base::Unretained(this)));
+                    base::BindOnce(&MarkAttemptAbortedTaskTest::AddRequestDone,
+                                   base::Unretained(this)));
   PumpLoop();
 }
 
 void MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback(
-    std::unique_ptr<UpdateRequestsResult> result) {
-  result_ = std::move(result);
+    UpdateRequestsResult result) {
+  result_ = std::make_unique<UpdateRequestsResult>(std::move(result));
 }
 
 void MarkAttemptAbortedTaskTest::ClearResults() {
@@ -91,13 +72,12 @@ void MarkAttemptAbortedTaskTest::AddRequestDone(ItemActionStatus status) {
 }
 
 TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenStoreEmpty) {
-  RequestQueueInMemoryStore store;
-  InitializeStore(&store);
+  InitializeStore();
 
   MarkAttemptAbortedTask task(
-      &store, kRequestId1,
-      base::Bind(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
-                 base::Unretained(this)));
+      &store_, kRequestId1,
+      base::BindOnce(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
+                     base::Unretained(this)));
   task.Run();
   PumpLoop();
   ASSERT_TRUE(last_result());
@@ -109,23 +89,22 @@ TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenStoreEmpty) {
 }
 
 TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenExists) {
-  RequestQueueInMemoryStore store;
-  InitializeStore(&store);
-  AddItemToStore(&store);
+  InitializeStore();
+  AddItemToStore(&store_);
 
   // First mark attempt started.
   MarkAttemptStartedTask start_request_task(
-      &store, kRequestId1,
-      base::Bind(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
-                 base::Unretained(this)));
+      &store_, kRequestId1,
+      base::BindOnce(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
+                     base::Unretained(this)));
   start_request_task.Run();
   PumpLoop();
   ClearResults();
 
   MarkAttemptAbortedTask task(
-      &store, kRequestId1,
-      base::Bind(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
-                 base::Unretained(this)));
+      &store_, kRequestId1,
+      base::BindOnce(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
+                     base::Unretained(this)));
 
   task.Run();
   PumpLoop();
@@ -140,14 +119,13 @@ TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenExists) {
 }
 
 TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenItemMissing) {
-  RequestQueueInMemoryStore store;
-  InitializeStore(&store);
-  AddItemToStore(&store);
+  InitializeStore();
+  AddItemToStore(&store_);
 
   MarkAttemptAbortedTask task(
-      &store, kRequestId2,
-      base::Bind(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
-                 base::Unretained(this)));
+      &store_, kRequestId2,
+      base::BindOnce(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
+                     base::Unretained(this)));
   task.Run();
   PumpLoop();
   ASSERT_TRUE(last_result());
@@ -159,15 +137,14 @@ TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenItemMissing) {
 }
 
 TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenPaused) {
-  RequestQueueInMemoryStore store;
-  InitializeStore(&store);
-  AddItemToStore(&store);
+  InitializeStore();
+  AddItemToStore(&store_);
 
   // First mark attempt started.
   MarkAttemptStartedTask start_request_task(
-      &store, kRequestId1,
-      base::Bind(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
-                 base::Unretained(this)));
+      &store_, kRequestId1,
+      base::BindOnce(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
+                     base::Unretained(this)));
   start_request_task.Run();
   PumpLoop();
   ClearResults();
@@ -176,17 +153,17 @@ TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenPaused) {
     std::vector<int64_t> requests;
   requests.push_back(kRequestId1);
   ChangeRequestsStateTask pauseTask(
-      &store, requests, SavePageRequest::RequestState::PAUSED,
-      base::Bind(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
-                 base::Unretained(this)));
+      &store_, requests, SavePageRequest::RequestState::PAUSED,
+      base::BindOnce(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
+                     base::Unretained(this)));
   pauseTask.Run();
   PumpLoop();
 
   // Abort the task, the state should not change from PAUSED.
   MarkAttemptAbortedTask abortTask(
-      &store, kRequestId1,
-      base::Bind(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
-                 base::Unretained(this)));
+      &store_, kRequestId1,
+      base::BindOnce(&MarkAttemptAbortedTaskTest::ChangeRequestsStateCallback,
+                     base::Unretained(this)));
 
   abortTask.Run();
   PumpLoop();
@@ -200,4 +177,5 @@ TEST_F(MarkAttemptAbortedTaskTest, MarkAttemptAbortedWhenPaused) {
             last_result()->updated_items.at(0).request_state());
 }
 
+}  // namespace
 }  // namespace offline_pages

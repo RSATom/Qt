@@ -8,16 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_ACM2_ACM_SEND_TEST_H_
-#define WEBRTC_MODULES_AUDIO_CODING_ACM2_ACM_SEND_TEST_H_
+#ifndef MODULES_AUDIO_CODING_ACM2_ACM_SEND_TEST_H_
+#define MODULES_AUDIO_CODING_ACM2_ACM_SEND_TEST_H_
 
 #include <memory>
 #include <vector>
 
-#include "webrtc/modules/audio_coding/include/audio_coding_module.h"
-#include "webrtc/modules/audio_coding/neteq/tools/packet_source.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/system_wrappers/include/clock.h"
+#include "api/audio/audio_frame.h"
+#include "modules/audio_coding/include/audio_coding_module.h"
+#include "modules/audio_coding/neteq/tools/packet_source.h"
+#include "rtc_base/constructor_magic.h"
+#include "system_wrappers/include/clock.h"
 
 namespace webrtc {
 class AudioEncoder;
@@ -41,8 +42,9 @@ class AcmSendTestOldApi : public AudioPacketizationCallback,
                      int payload_type,
                      int frame_size_samples);
 
-  // Registers an external send codec. Returns true on success, false otherwise.
-  bool RegisterExternalCodec(AudioEncoder* external_speech_encoder);
+  // Registers an external send codec.
+  void RegisterExternalCodec(
+      std::unique_ptr<AudioEncoder> external_speech_encoder);
 
   // Inherited from PacketSource.
   std::unique_ptr<Packet> NextPacket() override;
@@ -85,4 +87,4 @@ class AcmSendTestOldApi : public AudioPacketizationCallback,
 
 }  // namespace test
 }  // namespace webrtc
-#endif  // WEBRTC_MODULES_AUDIO_CODING_ACM2_ACM_SEND_TEST_H_
+#endif  // MODULES_AUDIO_CODING_ACM2_ACM_SEND_TEST_H_

@@ -29,25 +29,27 @@ class PrintQueriesQueue : public base::RefCountedThreadSafe<PrintQueriesQueue> {
   // Queues a semi-initialized worker thread. Can be called from any thread.
   // Current use case is queuing from the I/O thread.
   // TODO(maruel):  Have them vanish after a timeout (~5 minutes?)
-  void QueuePrinterQuery(PrinterQuery* job);
+  void QueuePrinterQuery(PrinterQuery* query);
 
-  // Pops a queued PrintJobWorkerOwner object that was previously queued or
-  // create new one. Can be called from any thread.
+  // Pops a queued PrinterQuery object that was previously queued or creates
+  // a new one. Can be called from any thread.
   scoped_refptr<PrinterQuery> PopPrinterQuery(int document_cookie);
 
-  // Creates new query.
-  scoped_refptr<PrinterQuery> CreatePrinterQuery(int render_process_id,
-                                                 int render_frame_id);
+  // Creates new query. Virtual so that tests can override it.
+  virtual scoped_refptr<PrinterQuery> CreatePrinterQuery(int render_process_id,
+                                                         int render_frame_id);
 
   void Shutdown();
 
- private:
-  friend class base::RefCountedThreadSafe<PrintQueriesQueue>;
-  typedef std::vector<scoped_refptr<PrinterQuery> > PrinterQueries;
-
+ protected:
+  // Protected for unit tests.
   virtual ~PrintQueriesQueue();
 
-  // Used to serialize access to queued_workers_.
+ private:
+  friend class base::RefCountedThreadSafe<PrintQueriesQueue>;
+  using PrinterQueries = std::vector<scoped_refptr<PrinterQuery>>;
+
+  // Used to serialize access to |queued_queries_|.
   base::Lock lock_;
 
   PrinterQueries queued_queries_;
@@ -72,8 +74,11 @@ class PrintJobManager : public content::NotificationObserver {
   // Thread. Reference could be stored and used from any thread.
   scoped_refptr<PrintQueriesQueue> queue();
 
+  // Sets the queries queue for testing.
+  void SetQueueForTest(scoped_refptr<PrintQueriesQueue> queue);
+
  private:
-  typedef std::set<scoped_refptr<PrintJob> > PrintJobs;
+  using PrintJobs = std::set<scoped_refptr<PrintJob>>;
 
   // Processes a NOTIFY_PRINT_JOB_EVENT notification.
   void OnPrintJobEvent(PrintJob* print_job,
@@ -90,7 +95,7 @@ class PrintJobManager : public content::NotificationObserver {
 
   scoped_refptr<PrintQueriesQueue> queue_;
 
-  bool is_shutdown_;
+  bool is_shutdown_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(PrintJobManager);
 };

@@ -4,62 +4,60 @@
 
 import("//build/config/linux/pkg_config.gni")
 import("//media/media_options.gni")
+import("//tools/generate_stubs/rules.gni")
 
 # When libpulse is not directly linked, use stubs to allow for dlopening of the
 # binary.
-if (!link_pulseaudio) {
-  action("pulse_generate_stubs") {
+if (use_pulseaudio && !link_pulseaudio) {
+  generate_stubs("libpulse_stubs") {
     extra_header = "pulse/pulse_stub_header.fragment"
-
-    script = "../../tools/generate_stubs/generate_stubs.py"
-    sources = [
-      "pulse/pulse.sigs",
+    sigs = [ "pulse/pulse.sigs" ]
+    output_name = "pulse/pulse_stubs"
+    deps = [
+      "//base",
     ]
-    inputs = [
-      extra_header,
-    ]
-    stubs_filename_root = "pulse_stubs"
-
-    # TODO(ajwong): these need to be included in the pulse build.
-    outputs = [
-      "$target_gen_dir/pulse/$stubs_filename_root.cc",
-      "$target_gen_dir/pulse/$stubs_filename_root.h",
-    ]
-    args = [
-      "-i",
-      rebase_path("$target_gen_dir/pulse", root_build_dir),
-      "-o",
-      rebase_path("$target_gen_dir/pulse", root_build_dir),
-      "-t",
-      "posix_stubs",
-      "-e",
-      rebase_path(extra_header, root_build_dir),
-      "-s",
-      stubs_filename_root,
-      "-p",
-      "media/audio/pulse",
-    ]
-
-    args += rebase_path(sources, root_build_dir)
   }
 }
 
 config("platform_config") {
+  defines = []
+  if (is_chromecast) {
+    defines += [ "IS_CHROMECAST" ]
+  }
   if (use_alsa) {
-    defines = [ "USE_ALSA" ]
+    defines += [ "USE_ALSA" ]
   }
 }
 
 source_set("audio") {
-  visibility = [ "//media/*" ]
+  # Do not expand the visibility here without double-checking with OWNERS, this
+  # is a roll-up target which is part of the //media component. Most other DEPs
+  # should be using //media and not directly DEP this roll-up target.
+  visibility = [
+    "//media",
+
+    "//media/renderers",
+
+    # TODO(dalecurtis): CoreAudioUtil::IsCoreAudioSupported() should probably
+    # move into media/base/win.
+    "//media/device_monitors",
+
+    # TODO(dalecurtis): Move android audio pieces into //media/audio.
+    "//media/base/android",
+  ]
   sources = [
     "agc_audio_stream.h",
+    "alive_checker.cc",
+    "alive_checker.h",
     "audio_debug_file_writer.cc",
     "audio_debug_file_writer.h",
     "audio_debug_recording_helper.cc",
     "audio_debug_recording_helper.h",
     "audio_debug_recording_manager.cc",
     "audio_debug_recording_manager.h",
+    "audio_debug_recording_session.h",
+    "audio_debug_recording_session_impl.cc",
+    "audio_debug_recording_session_impl.h",
     "audio_device_description.cc",
     "audio_device_description.h",
     "audio_device_name.cc",
@@ -70,10 +68,14 @@ source_set("audio") {
     "audio_features.h",
     "audio_input_controller.cc",
     "audio_input_controller.h",
+    "audio_input_delegate.cc",
+    "audio_input_delegate.h",
     "audio_input_device.cc",
     "audio_input_device.h",
     "audio_input_ipc.cc",
     "audio_input_ipc.h",
+    "audio_input_sync_writer.cc",
+    "audio_input_sync_writer.h",
     "audio_io.h",
     "audio_manager.cc",
     "audio_manager.h",
@@ -85,6 +87,8 @@ source_set("audio") {
     "audio_output_delegate.h",
     "audio_output_device.cc",
     "audio_output_device.h",
+    "audio_output_device_thread_callback.cc",
+    "audio_output_device_thread_callback.h",
     "audio_output_dispatcher.cc",
     "audio_output_dispatcher.h",
     "audio_output_dispatcher_impl.cc",
@@ -99,12 +103,24 @@ source_set("audio") {
     "audio_output_stream_sink.h",
     "audio_power_monitor.cc",
     "audio_power_monitor.h",
+    "audio_processing.cc",
+    "audio_processing.h",
+    "audio_sink_parameters.cc",
+    "audio_sink_parameters.h",
     "audio_source_diverter.h",
+    "audio_source_parameters.cc",
+    "audio_source_parameters.h",
+    "audio_sync_reader.cc",
+    "audio_sync_reader.h",
     "audio_system.cc",
     "audio_system.h",
+    "audio_system_helper.cc",
+    "audio_system_helper.h",
     "audio_system_impl.cc",
     "audio_system_impl.h",
     "audio_thread.h",
+    "audio_thread_hang_monitor.cc",
+    "audio_thread_hang_monitor.h",
     "audio_thread_impl.cc",
     "audio_thread_impl.h",
     "clockless_audio_sink.cc",
@@ -117,12 +133,10 @@ source_set("audio") {
     "fake_audio_manager.h",
     "fake_audio_output_stream.cc",
     "fake_audio_output_stream.h",
-    "fake_audio_worker.cc",
-    "fake_audio_worker.h",
     "null_audio_sink.cc",
     "null_audio_sink.h",
-    "sample_rates.cc",
-    "sample_rates.h",
+    "power_observer_helper.cc",
+    "power_observer_helper.h",
     "scoped_task_runner_observer.cc",
     "scoped_task_runner_observer.h",
     "simple_sources.cc",
@@ -142,15 +156,13 @@ source_set("audio") {
   ]
   deps = [
     "//base",
-    "//media:shared_memory_support",
     "//media/base",
     "//url",
   ]
   libs = []
   configs += [
     ":platform_config",
-    "//media:media_config",
-    "//media:media_implementation",
+    "//media:subcomponent_config",
   ]
 
   if (is_mac) {
@@ -165,6 +177,10 @@ source_set("audio") {
       "mac/audio_low_latency_input_mac.h",
       "mac/audio_manager_mac.cc",
       "mac/audio_manager_mac.h",
+      "mac/core_audio_util_mac.cc",
+      "mac/core_audio_util_mac.h",
+      "mac/coreaudio_dispatch_override.cc",
+      "mac/coreaudio_dispatch_override.h",
       "mac/scoped_audio_unit.cc",
       "mac/scoped_audio_unit.h",
     ]
@@ -209,6 +225,8 @@ source_set("audio") {
       "android/audio_manager_android.h",
       "android/audio_record_input.cc",
       "android/audio_record_input.h",
+      "android/audio_track_output_stream.cc",
+      "android/audio_track_output_stream.h",
       "android/muteable_audio_output_stream.h",
       "android/opensles_input.cc",
       "android/opensles_input.h",
@@ -218,6 +236,7 @@ source_set("audio") {
       "android/opensles_util.h",
       "android/opensles_wrapper.cc",
     ]
+
     deps += [ "//media/base/android:media_jni_headers" ]
   }
 
@@ -251,7 +270,7 @@ source_set("audio") {
       "cras/cras_unified.h",
     ]
     configs += [ ":libcras" ]
-    deps += [ "//chromeos:chromeos" ]
+    deps += [ "//chromeos/audio" ]
   }
 
   if (use_pulseaudio) {
@@ -269,10 +288,7 @@ source_set("audio") {
     if (link_pulseaudio) {
       configs += [ ":libpulse" ]
     } else {
-      # TODO(ajwong): Technically, this dl should go in the action.
-      libs += [ "dl" ]
-      deps += [ ":pulse_generate_stubs" ]
-      sources += get_target_outputs(":pulse_generate_stubs")
+      deps += [ ":libpulse_stubs" ]
     }
   }
 
@@ -280,6 +296,16 @@ source_set("audio") {
     sources += [
       "fuchsia/audio_manager_fuchsia.cc",
       "fuchsia/audio_manager_fuchsia.h",
+      "fuchsia/audio_output_stream_fuchsia.cc",
+      "fuchsia/audio_output_stream_fuchsia.h",
+    ]
+    deps += [ "//third_party/fuchsia-sdk/sdk:media" ]
+  }
+
+  if (enable_webrtc) {
+    sources += [
+      "audio_input_stream_data_interceptor.cc",
+      "audio_input_stream_data_interceptor.h",
     ]
   }
 
@@ -298,19 +324,26 @@ if (use_pulseaudio && link_pulseaudio) {
   }
 }
 
+# Note: This is a roll-up only target; do not expand the visibility. DEPS should
+# depend on the //media:test_support target instead.
 static_library("test_support") {
+  visibility = [ "//media:test_support" ]
   testonly = true
   sources = [
+    "audio_debug_recording_test.cc",
+    "audio_debug_recording_test.h",
     "audio_device_info_accessor_for_tests.cc",
     "audio_device_info_accessor_for_tests.h",
+    "audio_system_test_util.cc",
+    "audio_system_test_util.h",
     "audio_unittest_util.cc",
     "audio_unittest_util.h",
+    "mock_audio_debug_recording_manager.cc",
+    "mock_audio_debug_recording_manager.h",
     "mock_audio_manager.cc",
     "mock_audio_manager.h",
     "mock_audio_source_callback.cc",
     "mock_audio_source_callback.h",
-    "test_audio_input_controller_factory.cc",
-    "test_audio_input_controller_factory.h",
     "test_audio_thread.cc",
     "test_audio_thread.h",
   ]
@@ -320,38 +353,54 @@ static_library("test_support") {
   ]
   deps = [
     "//base",
-    "//media",
+    "//base/test:test_support",
+
+    # Do not add any other //media deps except this; it will automatically pull
+    # a dep on //media which is required to ensure test_support targets all use
+    # the same //media component and not build a target's sources individually.
+    "//media/base:test_support",
     "//testing/gmock",
     "//testing/gtest",
   ]
+  if (use_alsa) {
+    sources += [
+      "alsa/mock_alsa_wrapper.cc",
+      "alsa/mock_alsa_wrapper.h",
+    ]
+  }
 }
 
 source_set("unit_tests") {
   testonly = true
   sources = [
+    "alive_checker_unittest.cc",
     "audio_debug_file_writer_unittest.cc",
     "audio_debug_recording_helper_unittest.cc",
     "audio_debug_recording_manager_unittest.cc",
+    "audio_debug_recording_session_impl_unittest.cc",
     "audio_input_controller_unittest.cc",
     "audio_input_device_unittest.cc",
+    "audio_input_sync_writer_unittest.cc",
     "audio_input_unittest.cc",
     "audio_manager_unittest.cc",
     "audio_output_controller_unittest.cc",
     "audio_output_device_unittest.cc",
     "audio_output_proxy_unittest.cc",
+    "audio_output_unittest.cc",
     "audio_power_monitor_unittest.cc",
+    "audio_sync_reader_unittest.cc",
     "audio_system_impl_unittest.cc",
-    "fake_audio_worker_unittest.cc",
+    "audio_thread_hang_monitor_unittest.cc",
+    "power_observer_helper_unittest.cc",
     "simple_sources_unittest.cc",
     "virtual_audio_input_stream_unittest.cc",
     "virtual_audio_output_stream_unittest.cc",
   ]
+
   deps = [
-    ":test_support",
     "//base",
     "//base/test:test_support",
-    "//media",
-    "//media/base:test_support",
+    "//media:test_support",
     "//testing/gmock",
     "//testing/gtest",
     "//url",
@@ -362,6 +411,10 @@ source_set("unit_tests") {
     "//build/config/compiler:no_size_t_to_int_warning",
     "//media:media_config",
   ]
+
+  if (enable_webrtc) {
+    sources += [ "audio_input_stream_data_interceptor_unittest.cc" ]
+  }
 
   if (is_android) {
     sources += [ "android/audio_android_unittest.cc" ]
@@ -386,7 +439,10 @@ source_set("unit_tests") {
     ]
 
     if (!is_chromecast) {
-      deps += [ "//chromeos:chromeos" ]
+      deps += [
+        "//chromeos/audio",
+        "//chromeos/dbus:test_support",
+      ]
     }
 
     if (use_cras) {
@@ -404,12 +460,14 @@ source_set("unit_tests") {
       "win/audio_low_latency_output_win_unittest.cc",
       "win/audio_output_win_unittest.cc",
       "win/core_audio_util_win_unittest.cc",
+      "win/device_enumeration_win_unittest.cc",
     ]
   }
 
   if (use_alsa) {
     sources += [
       "alsa/alsa_output_unittest.cc",
+      "alsa/alsa_util_unittest.cc",
       "audio_low_latency_input_output_unittest.cc",
     ]
   }

@@ -7,10 +7,15 @@
 #include <memory>
 
 #include "base/callback_helpers.h"
+#include "base/task/post_task.h"
 #include "content/browser/android/scoped_surface_request_manager.h"
+#include "content/browser/media/android/media_player_renderer_web_contents_observer.h"
 #include "content/browser/media/android/media_resource_getter_impl.h"
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
@@ -27,17 +32,41 @@ namespace content {
 namespace {
 
 media::MediaUrlInterceptor* g_media_url_interceptor = nullptr;
+const float kDefaultVolume = 1.0;
 
 }  // namespace
 
-MediaPlayerRenderer::MediaPlayerRenderer(int process_id, int routing_id)
+MediaPlayerRenderer::MediaPlayerRenderer(int process_id,
+                                         int routing_id,
+                                         WebContents* web_contents)
     : render_process_id_(process_id),
       routing_id_(routing_id),
       has_error_(false),
-      weak_factory_(this) {}
+      volume_(kDefaultVolume),
+      weak_factory_(this) {
+  DCHECK_EQ(static_cast<RenderFrameHostImpl*>(
+                RenderFrameHost::FromID(process_id, routing_id))
+                ->delegate()
+                ->GetAsWebContents(),
+            web_contents);
+
+  WebContentsImpl* web_contents_impl =
+      static_cast<WebContentsImpl*>(web_contents);
+  web_contents_muted_ = web_contents_impl && web_contents_impl->IsAudioMuted();
+
+  if (web_contents) {
+    MediaPlayerRendererWebContentsObserver::CreateForWebContents(web_contents);
+    web_contents_observer_ =
+        MediaPlayerRendererWebContentsObserver::FromWebContents(web_contents);
+    if (web_contents_observer_)
+      web_contents_observer_->AddMediaPlayerRenderer(this);
+  }
+}
 
 MediaPlayerRenderer::~MediaPlayerRenderer() {
   CancelScopedSurfaceRequest();
+  if (web_contents_observer_)
+    web_contents_observer_->RemoveMediaPlayerRenderer(this);
 }
 
 void MediaPlayerRenderer::Initialize(media::MediaResource* media_resource,
@@ -63,8 +92,8 @@ void MediaPlayerRenderer::Initialize(media::MediaResource* media_resource,
     return;
   }
 
-  BrowserThread::PostDelayedTask(
-      BrowserThread::UI, FROM_HERE,
+  base::PostDelayedTaskWithTraits(
+      FROM_HERE, {BrowserThread::UI},
       base::Bind(&MediaPlayerRenderer::CreateMediaPlayer,
                  weak_factory_.GetWeakPtr(),
                  media_resource->GetMediaUrlParams(), init_cb),
@@ -79,23 +108,26 @@ void MediaPlayerRenderer::CreateMediaPlayer(
   // Force the initialization of |media_resource_getter_| first. If it fails,
   // the RenderFrameHost may have been destroyed already.
   if (!GetMediaResourceGetter()) {
-    DLOG(ERROR) << "Unable to retreive MediaResourceGetter";
+    DLOG(ERROR) << "Unable to retrieve MediaResourceGetter";
     init_cb.Run(media::PIPELINE_ERROR_INITIALIZATION_FAILED);
     return;
   }
 
-  const std::string user_agent = GetContentClient()->GetUserAgent();
+  const std::string user_agent = GetContentClient()->browser()->GetUserAgent();
 
   media_player_.reset(new media::MediaPlayerBridge(
       kUnusedAndIrrelevantPlayerId, url_params.media_url,
-      url_params.first_party_for_cookies, user_agent,
+      url_params.site_for_cookies, user_agent,
       false,  // hide_url_log
-      this, base::Bind(&MediaPlayerRenderer::OnDecoderResourcesReleased,
-                       weak_factory_.GetWeakPtr()),
+      this,
+      base::Bind(&MediaPlayerRenderer::OnDecoderResourcesReleased,
+                 weak_factory_.GetWeakPtr()),
       GURL(),  // frame_url
       true));  // allow_crendentials
 
   media_player_->Initialize();
+  UpdateVolume();
+
   init_cb.Run(media::PIPELINE_OK);
 }
 
@@ -168,7 +200,14 @@ base::UnguessableToken MediaPlayerRenderer::InitiateScopedSurfaceRequest() {
 }
 
 void MediaPlayerRenderer::SetVolume(float volume) {
-  media_player_->SetVolume(volume);
+  volume_ = volume;
+  UpdateVolume();
+}
+
+void MediaPlayerRenderer::UpdateVolume() {
+  float volume = web_contents_muted_ ? 0 : volume_;
+  if (media_player_)
+    media_player_->SetVolume(volume);
 }
 
 base::TimeDelta MediaPlayerRenderer::GetMediaTime() {
@@ -237,10 +276,12 @@ void MediaPlayerRenderer::OnSeekComplete(int player_id,
 
 void MediaPlayerRenderer::OnError(int player_id, int error) {
   // Some errors are forwarded to the MediaPlayerListener, but are of no
-  // importance to us. Ignore these errors, which are reported as error 0 by
-  // MediaPlayerListener.
-  if (!error)
+  // importance to us. Ignore these errors, which are reported as
+  // MEDIA_ERROR_INVALID_CODE by MediaPlayerListener.
+  if (error ==
+      media::MediaPlayerAndroid::MediaErrorType::MEDIA_ERROR_INVALID_CODE) {
     return;
+  }
 
   LOG(ERROR) << __func__ << " Error: " << error;
   has_error_ = true;
@@ -260,11 +301,6 @@ void MediaPlayerRenderer::OnVideoSizeChanged(int player_id,
   }
 }
 
-media::MediaPlayerAndroid* MediaPlayerRenderer::GetFullscreenPlayer() {
-  NOTREACHED();
-  return nullptr;
-}
-
 media::MediaPlayerAndroid* MediaPlayerRenderer::GetPlayer(int player_id) {
   NOTREACHED();
   return nullptr;
@@ -274,6 +310,15 @@ bool MediaPlayerRenderer::RequestPlay(int player_id,
                                       base::TimeDelta duration,
                                       bool has_audio) {
   return true;
+}
+
+void MediaPlayerRenderer::OnUpdateAudioMutingState(bool muted) {
+  web_contents_muted_ = muted;
+  UpdateVolume();
+}
+
+void MediaPlayerRenderer::OnWebContentsDestroyed() {
+  web_contents_observer_ = nullptr;
 }
 
 void MediaPlayerRenderer::OnDecoderResourcesReleased(int player_id) {

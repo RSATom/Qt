@@ -2,15 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <memory>
 #include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/bit_cast.h"
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
-#include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/test_completion_callback.h"
 #include "net/filter/filter_source_stream_test_util.h"
@@ -60,11 +57,10 @@ class GzipSourceStreamTest : public ::testing::TestWithParam<GzipTestParam> {
   GzipSourceStreamTest() : output_buffer_size_(GetParam().buffer_size) {}
 
   // Helpful function to initialize the test fixture.|type| specifies which type
-  // of GzipSourceStream to create. It must be one of TYPE_GZIP,
-  // TYPE_GZIP_FALLBACK and TYPE_DEFLATE.
+  // of GzipSourceStream to create. It must be one of TYPE_GZIP and
+  // TYPE_DEFLATE.
   void Init(SourceStream::SourceType type) {
     EXPECT_TRUE(SourceStream::TYPE_GZIP == type ||
-                SourceStream::TYPE_GZIP_FALLBACK == type ||
                 SourceStream::TYPE_DEFLATE == type);
     source_data_len_ = kBigBufferSize - kEOFMargin;
 
@@ -75,7 +71,7 @@ class GzipSourceStreamTest : public ::testing::TestWithParam<GzipTestParam> {
     CompressGzip(source_data_, source_data_len_, encoded_data_,
                  &encoded_data_len_, type != SourceStream::TYPE_DEFLATE);
 
-    output_buffer_ = new IOBuffer(output_buffer_size_);
+    output_buffer_ = base::MakeRefCounted<IOBuffer>(output_buffer_size_);
     std::unique_ptr<MockSourceStream> source(new MockSourceStream());
     if (GetParam().read_result_type == ReadResultType::ONE_BYTE_AT_A_TIME)
       source->set_read_one_byte_at_a_time(true);
@@ -223,14 +219,16 @@ TEST_P(GzipSourceStreamTest, DeflateTwoReads) {
   EXPECT_EQ("DEFLATE", stream()->Description());
 }
 
-TEST_P(GzipSourceStreamTest, PassThroughAfterEOF) {
+// Check that any extra bytes after the end of the gzipped data are silently
+// ignored.
+TEST_P(GzipSourceStreamTest, IgnoreDataAfterEof) {
   Init(SourceStream::TYPE_DEFLATE);
-  char test_data[] = "Hello, World!";
+  const char kExtraData[] = "Hello, World!";
   std::string encoded_data_with_trailing_data(encoded_data(),
                                               encoded_data_len());
-  encoded_data_with_trailing_data.append(test_data, sizeof(test_data));
+  encoded_data_with_trailing_data.append(kExtraData, sizeof(kExtraData));
   source()->AddReadResult(encoded_data_with_trailing_data.c_str(),
-                          encoded_data_len() + sizeof(test_data), OK,
+                          encoded_data_with_trailing_data.length(), OK,
                           GetParam().mode);
   source()->AddReadResult(nullptr, 0, OK, GetParam().mode);
   // Compressed and uncompressed data get returned as separate Read() results,
@@ -238,7 +236,6 @@ TEST_P(GzipSourceStreamTest, PassThroughAfterEOF) {
   std::string actual_output;
   int rv = ReadStream(&actual_output);
   std::string expected_output(source_data(), source_data_len());
-  expected_output.append(test_data, sizeof(test_data));
   EXPECT_EQ(static_cast<int>(expected_output.size()), rv);
   EXPECT_EQ(expected_output, actual_output);
   EXPECT_EQ("DEFLATE", stream()->Description());
@@ -270,19 +267,6 @@ TEST_P(GzipSourceStreamTest, CorruptGzipHeader) {
   int rv = ReadStream(&actual_output);
   EXPECT_EQ(ERR_CONTENT_DECODING_FAILED, rv);
   EXPECT_EQ("GZIP", stream()->Description());
-}
-
-TEST_P(GzipSourceStreamTest, GzipFallback) {
-  Init(SourceStream::TYPE_GZIP_FALLBACK);
-  source()->AddReadResult(source_data(), source_data_len(), OK,
-                          GetParam().mode);
-  source()->AddReadResult(nullptr, 0, OK, GetParam().mode);
-
-  std::string actual_output;
-  int rv = ReadStream(&actual_output);
-  EXPECT_EQ(static_cast<int>(source_data_len()), rv);
-  EXPECT_EQ(std::string(source_data(), source_data_len()), actual_output);
-  EXPECT_EQ("GZIP_FALLBACK", stream()->Description());
 }
 
 // This test checks that the gzip stream source works correctly on 'golden' data

@@ -51,10 +51,12 @@
 // We mean it.
 //
 
-#include <QFileDialog>
-#include "../dialogs/qquickabstractfiledialog_p.h"
+#include <QtWidgets/qtwidgetsglobal.h>
 
 #if QT_CONFIG(filedialog)
+
+#include <QFileDialog>
+#include "../dialogs/qquickabstractfiledialog_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -66,10 +68,10 @@ public:
     QQuickQFileDialog(QObject *parent = 0);
     virtual ~QQuickQFileDialog();
 
-    virtual QList<QUrl> fileUrls() const Q_DECL_OVERRIDE;
+    QList<QUrl> fileUrls() const override;
 
 protected:
-    QPlatformFileDialogHelper *helper() Q_DECL_OVERRIDE;
+    QPlatformFileDialogHelper *helper() override;
 
     Q_DISABLE_COPY(QQuickQFileDialog)
 };
@@ -80,17 +82,17 @@ class QFileDialogHelper : public QPlatformFileDialogHelper
 public:
     QFileDialogHelper();
 
-    bool defaultNameFilterDisables() const Q_DECL_OVERRIDE { return true; }
-    void setDirectory(const QUrl &dir) Q_DECL_OVERRIDE { m_dialog.setDirectoryUrl(dir); }
-    QUrl directory() const Q_DECL_OVERRIDE { return m_dialog.directoryUrl(); }
-    void selectFile(const QUrl &f) Q_DECL_OVERRIDE { m_dialog.selectUrl(f); }
-    QList<QUrl> selectedFiles() const Q_DECL_OVERRIDE;
-    void setFilter() Q_DECL_OVERRIDE;
-    void selectNameFilter(const QString &f) Q_DECL_OVERRIDE { m_dialog.selectNameFilter(f); }
-    QString selectedNameFilter() const Q_DECL_OVERRIDE { return m_dialog.selectedNameFilter(); }
-    void exec() Q_DECL_OVERRIDE { m_dialog.exec(); }
-    bool show(Qt::WindowFlags f, Qt::WindowModality m, QWindow *parent) Q_DECL_OVERRIDE;
-    void hide() Q_DECL_OVERRIDE { m_dialog.hide(); }
+    bool defaultNameFilterDisables() const override { return true; }
+    void setDirectory(const QUrl &dir) override { m_dialog.setDirectoryUrl(dir); }
+    QUrl directory() const override { return m_dialog.directoryUrl(); }
+    void selectFile(const QUrl &f) override { m_dialog.selectUrl(f); }
+    QList<QUrl> selectedFiles() const override;
+    void setFilter() override;
+    void selectNameFilter(const QString &f) override { m_dialog.selectNameFilter(f); }
+    QString selectedNameFilter() const override { return m_dialog.selectedNameFilter(); }
+    void exec() override { m_dialog.exec(); }
+    bool show(Qt::WindowFlags f, Qt::WindowModality m, QWindow *parent) override;
+    void hide() override { m_dialog.hide(); }
 
 private Q_SLOTS:
     void currentChanged(const QString& path);

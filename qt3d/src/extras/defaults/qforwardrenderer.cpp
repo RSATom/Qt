@@ -280,11 +280,18 @@ QObject *QForwardRenderer::surface() const
 }
 
 /*!
+    \qmlproperty QSize ForwardRenderer::externalRenderTargetSize
+
+    Contains the size of the external render target. External render
+    targets are relevant when rendering does not target a window
+    surface (as set in \l {surface}).
+*/
+/*!
     \property QForwardRenderer::externalRenderTargetSize
 
     Contains the size of the external render target. External render
     targets are relevant when rendering does not target a window
-    surface (as set in \l {QForwardRenderer::surface()}{surface()}).
+    surface (as set in \l {surface}).
 */
 QSize QForwardRenderer::externalRenderTargetSize() const
 {
@@ -293,7 +300,7 @@ QSize QForwardRenderer::externalRenderTargetSize() const
 }
 
 /*!
-    \qmlproperty color ForwardRenderer::frustumCulling
+    \qmlproperty bool ForwardRenderer::frustumCulling
 
     Indicates if the renderer applies frustum culling to the scene.
 */
@@ -309,7 +316,7 @@ bool QForwardRenderer::isFrustumCullingEnabled() const
 }
 
 /*!
-    \qmlproperty color ForwardRenderer::gamma
+    \qmlproperty real ForwardRenderer::gamma
 
     Holds the gamma value the renderer applies to the scene.
 */

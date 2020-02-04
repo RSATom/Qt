@@ -21,15 +21,23 @@ const size_t kDefaultBufferSize = 8*1024;
 
 }  // namespace
 
-SocketInputStream::SocketInputStream(net::StreamSocket* socket)
-    : socket_(socket),
-      io_buffer_(new net::IOBuffer(kDefaultBufferSize)),
-      read_buffer_(new net::DrainableIOBuffer(io_buffer_.get(),
-                                              kDefaultBufferSize)),
+SocketInputStream::SocketInputStream(mojo::ScopedDataPipeConsumerHandle stream)
+    : stream_(std::move(stream)),
+      stream_watcher_(FROM_HERE, mojo::SimpleWatcher::ArmingPolicy::MANUAL),
+      read_size_(0),
+      io_buffer_(base::MakeRefCounted<net::IOBuffer>(kDefaultBufferSize)),
+      read_buffer_(
+          base::MakeRefCounted<net::DrainableIOBuffer>(io_buffer_,
+                                                       kDefaultBufferSize)),
       next_pos_(0),
       last_error_(net::OK),
       weak_ptr_factory_(this) {
-  DCHECK(socket->IsConnected());
+  stream_watcher_.Watch(
+      stream_.get(),
+      MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED,
+      MOJO_TRIGGER_CONDITION_SIGNALS_SATISFIED,
+      base::BindRepeating(&SocketInputStream::ReadMore,
+                          base::Unretained(this)));
 }
 
 SocketInputStream::~SocketInputStream() {
@@ -85,39 +93,74 @@ int SocketInputStream::UnreadByteCount() const {
   return read_buffer_->BytesConsumed() - next_pos_;
 }
 
-net::Error SocketInputStream::Refresh(const base::Closure& callback,
+net::Error SocketInputStream::Refresh(base::OnceClosure callback,
                                       int byte_limit) {
+  DCHECK(!read_callback_);
   DCHECK_NE(GetState(), CLOSED);
   DCHECK_NE(GetState(), READING);
   DCHECK_GT(byte_limit, 0);
 
   if (byte_limit > read_buffer_->BytesRemaining()) {
     LOG(ERROR) << "Out of buffer space, closing input stream.";
-    CloseStream(net::ERR_FILE_TOO_BIG, base::Closure());
+    CloseStream(net::ERR_FILE_TOO_BIG);
     return net::OK;
   }
 
-  if (!socket_->IsConnected()) {
-    LOG(ERROR) << "Socket was disconnected, closing input stream";
-    CloseStream(net::ERR_CONNECTION_CLOSED, base::Closure());
-    return net::OK;
+  read_size_ = byte_limit;
+  read_callback_ = std::move(callback);
+  stream_watcher_.ArmOrNotify();
+  last_error_ = net::ERR_IO_PENDING;
+  return net::ERR_IO_PENDING;
+}
+
+void SocketInputStream::ReadMore(
+    MojoResult result,
+    const mojo::HandleSignalsState& /* ignored */) {
+  DCHECK(read_callback_);
+  DCHECK_NE(0u, read_size_);
+
+  uint32_t num_bytes = read_size_;
+  if (result == MOJO_RESULT_OK) {
+    DVLOG(1) << "Refreshing input stream, limit of " << num_bytes << " bytes.";
+    result = stream_->ReadData(read_buffer_->data(), &num_bytes,
+                               MOJO_READ_DATA_FLAG_NONE);
+    DVLOG(1) << "Read returned mojo result" << result;
   }
 
-  DVLOG(1) << "Refreshing input stream, limit of " << byte_limit << " bytes.";
-  int result =
-      socket_->Read(read_buffer_.get(),
-                    byte_limit,
-                    base::Bind(&SocketInputStream::RefreshCompletionCallback,
-                               weak_ptr_factory_.GetWeakPtr(),
-                               callback));
-  DVLOG(1) << "Read returned " << result;
-  if (result == net::ERR_IO_PENDING) {
-    last_error_ = net::ERR_IO_PENDING;
-    return net::ERR_IO_PENDING;
+  if (result == MOJO_RESULT_SHOULD_WAIT) {
+    stream_watcher_.ArmOrNotify();
+    return;
   }
 
-  RefreshCompletionCallback(base::Closure(), result);
-  return net::OK;
+  read_size_ = 0;
+  if (result != MOJO_RESULT_OK) {
+    CloseStream(net::ERR_FAILED);
+    std::move(read_callback_).Run();
+    return;
+  }
+
+  // If an EOF has been received, close the stream.
+  if (result == MOJO_RESULT_OK && num_bytes == 0) {
+    CloseStream(net::ERR_CONNECTION_CLOSED);
+    std::move(read_callback_).Run();
+    return;
+  }
+
+  // If an error occurred before the completion callback could complete, ignore
+  // the result.
+  if (GetState() == CLOSED)
+    return;
+
+  last_error_ = net::OK;
+  read_buffer_->DidConsume(num_bytes);
+  // TODO(zea): investigating crbug.com/409985
+  CHECK_GT(UnreadByteCount(), 0);
+
+  DVLOG(1) << "Refresh complete with " << num_bytes << " new bytes. "
+           << "Current position " << next_pos_ << " of "
+           << read_buffer_->BytesConsumed() << ".";
+
+  std::move(read_callback_).Run();
 }
 
 void SocketInputStream::RebuildBuffer() {
@@ -162,39 +205,6 @@ SocketInputStream::State SocketInputStream::GetState() const {
   return READY;
 }
 
-void SocketInputStream::RefreshCompletionCallback(
-    const base::Closure& callback, int result) {
-  // If an error occurred before the completion callback could complete, ignore
-  // the result.
-  if (GetState() == CLOSED)
-    return;
-
-  // Result == 0 implies EOF, which is treated as an error.
-  if (result == 0)
-    result = net::ERR_CONNECTION_CLOSED;
-
-  DCHECK_NE(result, net::ERR_IO_PENDING);
-
-  if (result < net::OK) {
-    DVLOG(1) << "Failed to refresh socket: " << result;
-    CloseStream(static_cast<net::Error>(result), callback);
-    return;
-  }
-
-  DCHECK_GT(result, 0);
-  last_error_ = net::OK;
-  read_buffer_->DidConsume(result);
-  // TODO(zea): investigating crbug.com/409985
-  CHECK_GT(UnreadByteCount(), 0);
-
-  DVLOG(1) << "Refresh complete with " << result << " new bytes. "
-           << "Current position " << next_pos_
-           << " of " << read_buffer_->BytesConsumed() << ".";
-
-  if (!callback.is_null())
-    callback.Run();
-}
-
 void SocketInputStream::ResetInternal() {
   read_buffer_->SetOffset(0);
   next_pos_ = 0;
@@ -202,25 +212,28 @@ void SocketInputStream::ResetInternal() {
   weak_ptr_factory_.InvalidateWeakPtrs();  // Invalidate any callbacks.
 }
 
-void SocketInputStream::CloseStream(net::Error error,
-                                    const base::Closure& callback) {
+void SocketInputStream::CloseStream(net::Error error) {
   DCHECK_LT(error, net::ERR_IO_PENDING);
   ResetInternal();
   last_error_ = error;
   LOG(ERROR) << "Closing stream with result " << error;
-  if (!callback.is_null())
-    callback.Run();
 }
 
-SocketOutputStream::SocketOutputStream(net::StreamSocket* socket)
-    : socket_(socket),
-      io_buffer_(new net::IOBuffer(kDefaultBufferSize)),
-      write_buffer_(new net::DrainableIOBuffer(io_buffer_.get(),
-                                               kDefaultBufferSize)),
+SocketOutputStream::SocketOutputStream(
+    mojo::ScopedDataPipeProducerHandle stream)
+    : stream_(std::move(stream)),
+      stream_watcher_(FROM_HERE, mojo::SimpleWatcher::ArmingPolicy::MANUAL),
+      io_buffer_(
+          base::MakeRefCounted<net::IOBufferWithSize>(kDefaultBufferSize)),
       next_pos_(0),
       last_error_(net::OK),
       weak_ptr_factory_(this) {
-  DCHECK(socket->IsConnected());
+  stream_watcher_.Watch(
+      stream_.get(),
+      MOJO_HANDLE_SIGNAL_WRITABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED,
+      MOJO_TRIGGER_CONDITION_SIGNALS_SATISFIED,
+      base::BindRepeating(&SocketOutputStream::WriteMore,
+                          base::Unretained(this)));
 }
 
 SocketOutputStream::~SocketOutputStream() {
@@ -229,12 +242,12 @@ SocketOutputStream::~SocketOutputStream() {
 bool SocketOutputStream::Next(void** data, int* size) {
   DCHECK_NE(GetState(), CLOSED);
   DCHECK_NE(GetState(), FLUSHING);
-  if (next_pos_ == write_buffer_->size())
+  if (next_pos_ == io_buffer_->size())
     return false;
 
-  *data = write_buffer_->data() + next_pos_;
-  *size = write_buffer_->size() - next_pos_;
-  next_pos_ = write_buffer_->size();
+  *data = io_buffer_->data() + next_pos_;
+  *size = io_buffer_->size() - next_pos_;
+  next_pos_ = io_buffer_->size();
   return true;
 }
 
@@ -253,30 +266,61 @@ int64_t SocketOutputStream::ByteCount() const {
   return next_pos_;
 }
 
-net::Error SocketOutputStream::Flush(const base::Closure& callback) {
+net::Error SocketOutputStream::Flush(base::OnceClosure callback) {
+  DCHECK(!write_callback_);
   DCHECK_EQ(GetState(), READY);
 
-  if (!socket_->IsConnected()) {
-    LOG(ERROR) << "Socket was disconnected, closing output stream";
-    last_error_ = net::ERR_CONNECTION_CLOSED;
-    return net::OK;
+  if (!write_buffer_) {
+    write_buffer_ = base::MakeRefCounted<net::DrainableIOBuffer>(
+        io_buffer_.get(), next_pos_);
   }
 
-  DVLOG(1) << "Flushing " << next_pos_ << " bytes into socket.";
-  int result =
-      socket_->Write(write_buffer_.get(),
-                     next_pos_,
-                     base::Bind(&SocketOutputStream::FlushCompletionCallback,
-                                weak_ptr_factory_.GetWeakPtr(),
-                                callback));
-  DVLOG(1) << "Write returned " << result;
-  if (result == net::ERR_IO_PENDING) {
-    last_error_ = net::ERR_IO_PENDING;
-    return net::ERR_IO_PENDING;
-  }
+  last_error_ = net::ERR_IO_PENDING;
+  stream_watcher_.ArmOrNotify();
+  write_callback_ = std::move(callback);
+  return net::ERR_IO_PENDING;
+}
 
-  FlushCompletionCallback(base::Closure(), result);
-  return net::OK;
+void SocketOutputStream::WriteMore(MojoResult result,
+                                   const mojo::HandleSignalsState& state) {
+  DCHECK(write_callback_);
+  DCHECK(write_buffer_);
+
+  uint32_t num_bytes = write_buffer_->BytesRemaining();
+  DVLOG(1) << "Flushing " << num_bytes << " bytes into socket.";
+  if (result == MOJO_RESULT_OK) {
+    result = stream_->WriteData(write_buffer_->data(), &num_bytes,
+                                MOJO_WRITE_DATA_FLAG_NONE);
+  }
+  if (result == MOJO_RESULT_SHOULD_WAIT) {
+    stream_watcher_.ArmOrNotify();
+    return;
+  }
+  if (result != MOJO_RESULT_OK) {
+    LOG(ERROR) << "Failed to flush socket.";
+    last_error_ = net::ERR_FAILED;
+    std::move(write_callback_).Run();
+    return;
+  }
+  DVLOG(1) << "Wrote  " << num_bytes;
+  // If an error occurred before the completion callback could complete, ignore
+  // the result.
+  if (GetState() == CLOSED)
+    return;
+
+  DCHECK_GE(num_bytes, 0u);
+  last_error_ = net::OK;
+  write_buffer_->DidConsume(num_bytes);
+  if (write_buffer_->BytesRemaining() > 0) {
+    DVLOG(1) << "Partial flush complete. Retrying.";
+    // Only a partial write was completed. Flush again to finish the write.
+    Flush(std::move(write_callback_));
+    return;
+  }
+  DVLOG(1) << "Socket flush complete.";
+  write_buffer_ = nullptr;
+  next_pos_ = 0;
+  std::move(write_callback_).Run();
 }
 
 SocketOutputStream::State SocketOutputStream::GetState() const{
@@ -295,45 +339,6 @@ SocketOutputStream::State SocketOutputStream::GetState() const{
 
 net::Error SocketOutputStream::last_error() const {
   return last_error_;
-}
-
-void SocketOutputStream::FlushCompletionCallback(
-    const base::Closure& callback, int result) {
-  // If an error occurred before the completion callback could complete, ignore
-  // the result.
-  if (GetState() == CLOSED)
-    return;
-
-  // Result == 0 implies EOF, which is treated as an error.
-  if (result == 0)
-    result = net::ERR_CONNECTION_CLOSED;
-
-  DCHECK_NE(result, net::ERR_IO_PENDING);
-
-  if (result < net::OK) {
-    LOG(ERROR) << "Failed to flush socket.";
-    last_error_ = static_cast<net::Error>(result);
-    if (!callback.is_null())
-      callback.Run();
-    return;
-  }
-
-  DCHECK_GT(result, net::OK);
-  last_error_ = net::OK;
-
-  if (write_buffer_->BytesConsumed() + result < next_pos_) {
-    DVLOG(1) << "Partial flush complete. Retrying.";
-     // Only a partial write was completed. Flush again to finish the write.
-    write_buffer_->DidConsume(result);
-    Flush(callback);
-    return;
-  }
-
-  DVLOG(1) << "Socket flush complete.";
-  write_buffer_->SetOffset(0);
-  next_pos_ = 0;
-  if (!callback.is_null())
-    callback.Run();
 }
 
 }  // namespace gcm

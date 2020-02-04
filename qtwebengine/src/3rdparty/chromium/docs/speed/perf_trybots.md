@@ -1,94 +1,57 @@
 # Perf Try Bots
 
+Chrome has a performance lab with dozens of device and OS configurations.
+[Pinpoint](https://pinpoint-dot-chromeperf.appspot.com) is the service that lets
+you run performance tests in the lab. With Pinpoint, you can run try jobs, which
+let you put in a Gerrit patch, and it will run tip-of-tree with and without the
+patch applied.
+
 [TOC]
 
-## What are perf try bots?
+## Why perf try jobs?
 
-Chrome has a performance lab with dozens of device and OS configurations. You
-can run performance tests on an unsubmitted CL on these devices using the
-perf try bots.
-
-## Supported platforms
-
-The platforms available in the lab change over time. To find the currently
-available platforms, run `tools/perf/run_benchmark try --help`.
-
-Example output:
-
-```
-> tools/perf/run_benchmark try --help
-usage: Run telemetry benchmarks on trybot. You can add all the benchmark options available except the --browser option
-       [-h] [--repo_path <repo path>] [--deps_revision <deps revision>]
-       <trybot name> <benchmark name>
-
-positional arguments:
-  <trybot name>         specify which bots to run telemetry benchmarks on.  Allowed values are:
-                        Mac Builder
-                        all
-                        all-android
-                        all-linux
-                        all-mac
-                        all-win
-                        android-fyi
-                        android-nexus5
-                        android-nexus5X
-                        android-nexus6
-                        android-nexus7
-                        android-one
-                        android-webview-arm64-aosp
-                        android-webview-nexus6-aosp
-                        linux
-                        mac-10-11
-                        mac-10-12
-                        mac-10-12-mini-8gb
-                        mac-air
-                        mac-pro
-                        mac-retina
-                        staging-android-nexus5X
-                        staging-linux
-                        staging-mac-10-12
-                        staging-win
-                        win
-                        win-8
-                        win-x64
-                        winx64-10
-                        winx64-high-dpi
-                        winx64-zen
-                        winx64ati
-                        winx64intel
-                        winx64nvidia
-
-```
-
-## Supported benchmarks
-
-All the telemetry benchmarks are supported by the perf trybots. To get a full
-list, run `tools/perf/run_benchmark list`.
-
-To learn more about the benchmark, you can read about the
-[system health benchmarks](https://docs.google.com/document/d/1BM_6lBrPzpMNMtcyi2NFKGIzmzIQ1oH3OlNG27kDGNU/edit?ts=57e92782),
-which test Chrome's performance at a high level, and the
-[benchmark harnesses](https://docs.google.com/spreadsheets/d/1ZdQ9OHqEjF5v8dqNjd7lGUjJnK6sgi8MiqO7eZVMgD0/edit#gid=0),
-which cover more specific areas.
+* All of the devices exactly match the hardware and OS versions in the perf
+  continuous integration suite.
+* The devices have the "maintenance mutex" enabled, reducing noise from
+  background processes.
+* Some regressions take multiple repeats to reproduce, and Pinpoint
+  automatically runs multiple times and aggregates the results.
+* Some regressions reproduce on some devices but not others, and Pinpoint will
+  run the job on multiple devices.
 
 ## Starting a perf try job
 
-Use this command line:
+Visit [Pinpoint](https://pinpoint-dot-chromeperf.appspot.com) and click the perf try button in the bottom right corner of the screen.
 
-`tools/perf/run_benchmark try <trybot_name> <benchmark_name>`
+![Pinpoint Perf Try Button](images/pinpoint-perf-try-button.png)
 
-See above for how to choose a trybot and benchmark.
+You should see the following dialog popup:
 
-Run `tools/perf/run_benchmark try --help` for more information about available
-options.
+![Perf Try Dialog](images/pinpoint-perf-try-dialog.png)
+
+
+**Build Arguments**| **Description**
+--- | ---
+Bug ID | (optional) A bug ID. Pinpoint will post updates on the bug.
+Gerrit URL | The patch you want to run the benchmark on. Patches in dependent repos (e.g. v8, skia) are supported.
+Bot | The device type to run the test on. All hardware configurations in our perf lab are supported.
+
+<br>
+
+**Test Arguments**| **Description**
+--- | ---
+Benchmark | A telemetry benchmark. E.g. `system_health.common_desktop`<br><br>All the telemetry benchmarks are supported by the perf trybots. To get a full list, run `tools/perf/run_benchmark list`<br><br>To learn more about the benchmarks, you can read about the [system health benchmarks](https://docs.google.com/document/d/1BM_6lBrPzpMNMtcyi2NFKGIzmzIQ1oH3OlNG27kDGNU/edit?ts=57e92782), which test Chrome's performance at a high level, and the [benchmark harnesses](https://docs.google.com/spreadsheets/d/1ZdQ9OHqEjF5v8dqNjd7lGUjJnK6sgi8MiqO7eZVMgD0/edit#gid=0), which cover more specific areas.
+Story | (optional) A specific story from the benchmark to run.
+Extra Test Arguments | (optional) Extra arguments for the test. E.g. `--extra-chrome-categories="foo,bar"`<br><br>To see all arguments, run `tools/perf/run_benchmark run --help`
 
 ## Interpreting the results
 
-Perf trybots create a code review under the covers to hold the trybot results.
-The code review will list links to buildbot status pages for the try jobs.
-On each buildbot status page, you will see a "HTML Results" link. You can click
-it to see detailed information about the performance test results with and
-without your patch.
+### Detailed results
 
-**[Here is the documentation](https://github.com/catapult-project/catapult/blob/master/docs/metrics-results-ui.md)**
-on reading the results.
+On the Job result page, click the "Analyze benchmark results" link at the top. See the [metrics results UI documentation](https://github.com/catapult-project/catapult/blob/master/docs/metrics-results-ui.md) for more details on reading the results.
+
+### Traces
+
+On the Job result page, there is a chart containing two dots. The left dot represents HEAD and the right dot represents the patch. Clicking on the right dot reveals some colored bars; each box represents one benchmark run. Click on one of the runs to see trace links.
+
+![Trace links](images/pinpoint-trace-links.png)

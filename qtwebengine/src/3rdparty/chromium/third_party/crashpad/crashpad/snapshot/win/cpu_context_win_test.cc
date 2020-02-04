@@ -16,11 +16,11 @@
 
 #include <windows.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "gtest/gtest.h"
-#include "test/hex_string.h"
 #include "snapshot/cpu_context.h"
+#include "test/hex_string.h"
 
 namespace crashpad {
 namespace test {
@@ -80,20 +80,20 @@ void TestInitializeX86Context_FsaveWithoutFxsave() {
     EXPECT_EQ(cpu_context_x86.fxsave.fsw, 0x0004);
     EXPECT_EQ(cpu_context_x86.fxsave.ftw, 0x00f0);
     EXPECT_EQ(cpu_context_x86.fxsave.fop, 0x0bad);
-    EXPECT_EQ(cpu_context_x86.fxsave.fpu_ip, 0x01234567);
+    EXPECT_EQ(cpu_context_x86.fxsave.fpu_ip, 0x01234567u);
     EXPECT_EQ(cpu_context_x86.fxsave.fpu_cs, 0x0003);
-    EXPECT_EQ(cpu_context_x86.fxsave.fpu_dp, 0x89abcdef);
+    EXPECT_EQ(cpu_context_x86.fxsave.fpu_dp, 0x89abcdefu);
     EXPECT_EQ(cpu_context_x86.fxsave.fpu_ds, 0x0007);
     for (size_t st_mm = 0; st_mm < 7; ++st_mm) {
       EXPECT_EQ(
           BytesToHexString(cpu_context_x86.fxsave.st_mm[st_mm].st,
-                           arraysize(cpu_context_x86.fxsave.st_mm[st_mm].st)),
-          std::string(arraysize(cpu_context_x86.fxsave.st_mm[st_mm].st) * 2,
+                           base::size(cpu_context_x86.fxsave.st_mm[st_mm].st)),
+          std::string(base::size(cpu_context_x86.fxsave.st_mm[st_mm].st) * 2,
                       '0'))
           << "st_mm " << st_mm;
     }
     EXPECT_EQ(BytesToHexString(cpu_context_x86.fxsave.st_mm[7].st,
-                               arraysize(cpu_context_x86.fxsave.st_mm[7].st)),
+                               base::size(cpu_context_x86.fxsave.st_mm[7].st)),
               "0000000000000080ff7f");
 
     EXPECT_EQ(cpu_context_x86.dr0, 3u);

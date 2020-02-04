@@ -17,13 +17,11 @@
 #include "components/viz/common/viz_common_export.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 
-namespace cc {
+namespace viz {
+
 namespace mojom {
 class SurfaceIdDataView;
 }
-}  // namespace cc
-
-namespace viz {
 
 class VIZ_COMMON_EXPORT SurfaceId {
  public:
@@ -42,6 +40,10 @@ class VIZ_COMMON_EXPORT SurfaceId {
                       const LocalSurfaceId& local_surface_id)
       : frame_sink_id_(frame_sink_id), local_surface_id_(local_surface_id) {}
 
+  static constexpr SurfaceId MaxSequenceId(const FrameSinkId& frame_sink_id) {
+    return SurfaceId(frame_sink_id, LocalSurfaceId::MaxSequenceId());
+  }
+
   bool is_valid() const {
     return frame_sink_id_.is_valid() && local_surface_id_.is_valid();
   }
@@ -57,6 +59,19 @@ class VIZ_COMMON_EXPORT SurfaceId {
 
   std::string ToString() const;
 
+  std::string ToString(base::StringPiece frame_sink_debug_label) const;
+
+  // Returns whether this SurfaceId was generated after |other|.
+  bool IsNewerThan(const SurfaceId& other) const;
+
+  // Returns whether this SurfaceId is the same as or was generated after
+  // |other|.
+  bool IsSameOrNewerThan(const SurfaceId& other) const;
+
+  // Returns the smallest valid SurfaceId with the same FrameSinkId and embed
+  // token as this SurfaceId.
+  SurfaceId ToSmallestId() const;
+
   bool operator==(const SurfaceId& other) const {
     return frame_sink_id_ == other.frame_sink_id_ &&
            local_surface_id_ == other.local_surface_id_;
@@ -70,7 +85,7 @@ class VIZ_COMMON_EXPORT SurfaceId {
   }
 
  private:
-  friend struct mojo::StructTraits<cc::mojom::SurfaceIdDataView, SurfaceId>;
+  friend struct mojo::StructTraits<mojom::SurfaceIdDataView, SurfaceId>;
 
   FrameSinkId frame_sink_id_;
   LocalSurfaceId local_surface_id_;

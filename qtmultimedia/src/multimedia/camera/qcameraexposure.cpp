@@ -98,8 +98,8 @@ void QCameraExposurePrivate::initControls()
     Q_Q(QCameraExposure);
 
     QMediaService *service = camera->service();
-    exposureControl = 0;
-    flashControl = 0;
+    exposureControl = nullptr;
+    flashControl = nullptr;
     if (service) {
         exposureControl = qobject_cast<QCameraExposureControl *>(service->requestControl(QCameraExposureControl_iid));
         flashControl = qobject_cast<QCameraFlashControl *>(service->requestControl(QCameraFlashControl_iid));
@@ -217,7 +217,7 @@ QCameraExposure::~QCameraExposure()
 */
 bool QCameraExposure::isAvailable() const
 {
-    return d_func()->exposureControl != 0;
+    return d_func()->exposureControl != nullptr;
 }
 
 
@@ -702,5 +702,6 @@ void QCameraExposure::setAutoShutterSpeed()
     Signal emitted when the exposure compensation changes to \a value.
 */
 
-#include "moc_qcameraexposure.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qcameraexposure.cpp"

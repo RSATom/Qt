@@ -49,6 +49,8 @@
 #include "qioswindow.h"
 #include "quiview.h"
 
+#include <QtCore/private/qcore_mac_p.h>
+
 #include <QGuiApplication>
 #include <QtGui/private/qwindow_p.h>
 
@@ -67,7 +69,7 @@ static QUIView *focusView()
 
 @implementation QIOSLocaleListener
 
-- (id)init
+- (instancetype)init
 {
     if (self = [super init]) {
         NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
@@ -95,16 +97,15 @@ static QUIView *focusView()
 
 // -------------------------------------------------------------------------
 
-@interface QIOSKeyboardListener : UIGestureRecognizer <UIGestureRecognizerDelegate> {
-  @private
-    QT_PREPEND_NAMESPACE(QIOSInputContext) *m_context;
-}
+@interface QIOSKeyboardListener : UIGestureRecognizer <UIGestureRecognizerDelegate>
 @property BOOL hasDeferredScrollToCursor;
 @end
 
-@implementation QIOSKeyboardListener
+@implementation QIOSKeyboardListener {
+    QT_PREPEND_NAMESPACE(QIOSInputContext) *m_context;
+}
 
-- (id)initWithQIOSInputContext:(QT_PREPEND_NAMESPACE(QIOSInputContext) *)context
+- (instancetype)initWithQIOSInputContext:(QT_PREPEND_NAMESPACE(QIOSInputContext) *)context
 {
     if (self = [super initWithTarget:self action:@selector(gestureStateChanged:)]) {
 
@@ -536,6 +537,11 @@ void QIOSInputContext::scroll(int y)
     if (!rootView)
         return;
 
+    if (qt_apple_isApplicationExtension()) {
+        qWarning() << "can't scroll root view in application extension";
+        return;
+    }
+
     CATransform3D translationTransform = CATransform3DMakeTranslation(0.0, -y, 0.0);
     if (CATransform3DEqualToTransform(translationTransform, rootView.layer.sublayerTransform))
         return;
@@ -574,7 +580,7 @@ void QIOSInputContext::scroll(int y)
 
             // Raise all known windows to above the status-bar if we're scrolling the screen,
             // while keeping the relative window level between the windows the same.
-            NSArray *applicationWindows = [[UIApplication sharedApplication] windows];
+            NSArray<UIWindow *> *applicationWindows = [qt_apple_sharedApplication() windows];
             static QHash<UIWindow *, UIWindowLevel> originalWindowLevels;
             for (UIWindow *window in applicationWindows) {
                 if (keyboardScrollIsActive && !originalWindowLevels.contains(window))

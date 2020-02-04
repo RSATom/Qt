@@ -8,14 +8,16 @@
 #ifndef GrSurfaceProxy_DEFINED
 #define GrSurfaceProxy_DEFINED
 
+#include "../private/SkNoncopyable.h"
+#include "GrBackendSurface.h"
 #include "GrGpuResource.h"
 #include "GrSurface.h"
 
 #include "SkRect.h"
 
-class GrBackendTexture;
 class GrCaps;
 class GrOpList;
+class GrProxyProvider;
 class GrRenderTargetOpList;
 class GrRenderTargetProxy;
 class GrResourceProvider;
@@ -49,6 +51,32 @@ public:
         this->didRemoveRefOrPendingIO();
     }
 
+#ifdef SK_DEBUG
+    bool isUnique_debugOnly() const { // For asserts.
+        SkASSERT(fRefCnt >= 0 && fPendingWrites >= 0 && fPendingReads >= 0);
+        return 1 == fRefCnt + fPendingWrites + fPendingReads;
+    }
+#endif
+
+    void release() {
+        // The proxy itself may still have multiple refs. It can be owned by an SkImage and multiple
+        // SkDeferredDisplayLists at the same time if we are using DDLs.
+        SkASSERT(0 == fPendingReads);
+        SkASSERT(0 == fPendingWrites);
+
+        SkASSERT(fRefCnt == fTarget->fRefCnt);
+        SkASSERT(!fTarget->internalHasPendingIO());
+        // In the current hybrid world, the proxy and backing surface are ref/unreffed in
+        // synchrony. In this instance we're deInstantiating the proxy so, regardless of the
+        // number of refs on the backing surface, we're going to remove it. If/when the proxy
+        // is re-instantiated all the refs on the proxy (presumably due to multiple uses in ops)
+        // will be transfered to the new surface.
+        for (int refs = fTarget->fRefCnt; refs; --refs) {
+            fTarget->unref();
+        }
+        fTarget = nullptr;
+    }
+
     void validate() const {
 #ifdef SK_DEBUG
         SkASSERT(fRefCnt >= 0);
@@ -67,58 +95,9 @@ public:
 #endif
     }
 
-    int32_t getProxyRefCnt_TestOnly() const;
     int32_t getBackingRefCnt_TestOnly() const;
     int32_t getPendingReadCnt_TestOnly() const;
     int32_t getPendingWriteCnt_TestOnly() const;
-
-protected:
-    GrIORefProxy() : fTarget(nullptr), fRefCnt(1), fPendingReads(0), fPendingWrites(0) {}
-    GrIORefProxy(sk_sp<GrSurface> surface) : fRefCnt(1), fPendingReads(0), fPendingWrites(0) {
-        // Since we're manually forwarding on refs & unrefs we don't want sk_sp doing
-        // anything extra.
-        fTarget = surface.release();
-    }
-    virtual ~GrIORefProxy() {
-        // We don't unref 'fTarget' here since the 'unref' method will already
-        // have forwarded on the unref call that got use here.
-    }
-
-    // This GrIORefProxy was deferred before but has just been instantiated. To
-    // make all the reffing & unreffing work out we now need to transfer any deferred
-    // refs & unrefs to the new GrSurface
-    void transferRefs() {
-        SkASSERT(fTarget);
-
-        fTarget->fRefCnt += (fRefCnt-1); // don't xfer the proxy's creation ref
-        fTarget->fPendingReads += fPendingReads;
-        fTarget->fPendingWrites += fPendingWrites;
-    }
-
-    bool internalHasPendingIO() const {
-        if (fTarget) {
-            return fTarget->internalHasPendingIO();
-        }
-
-        return SkToBool(fPendingWrites | fPendingReads);
-    }
-
-    bool internalHasPendingWrite() const {
-        if (fTarget) {
-            return fTarget->internalHasPendingWrite();
-        }
-
-        return SkToBool(fPendingWrites);
-    }
-
-    // For deferred proxies this will be null. For wrapped proxies it will point to the
-    // wrapped resource.
-    GrSurface* fTarget;
-
-private:
-    // This class is used to manage conversion of refs to pending reads/writes.
-    friend class GrSurfaceProxyRef;
-    template <typename, GrIOType> friend class GrPendingIOResource;
 
     void addPendingRead() const {
         this->validate();
@@ -160,6 +139,58 @@ private:
         this->didRemoveRefOrPendingIO();
     }
 
+protected:
+    GrIORefProxy() : fTarget(nullptr), fRefCnt(1), fPendingReads(0), fPendingWrites(0) {}
+    GrIORefProxy(sk_sp<GrSurface> surface) : fRefCnt(1), fPendingReads(0), fPendingWrites(0) {
+        // Since we're manually forwarding on refs & unrefs we don't want sk_sp doing
+        // anything extra.
+        fTarget = surface.release();
+    }
+    virtual ~GrIORefProxy() {
+        // We don't unref 'fTarget' here since the 'unref' method will already
+        // have forwarded on the unref call that got us here.
+    }
+
+    // This GrIORefProxy was deferred before but has just been instantiated. To
+    // make all the reffing & unreffing work out we now need to transfer any deferred
+    // refs & unrefs to the new GrSurface
+    void transferRefs() {
+        SkASSERT(fTarget);
+
+        SkASSERT(fTarget->fRefCnt > 0);
+        fTarget->fRefCnt += (fRefCnt-1); // don't xfer the proxy's creation ref
+        fTarget->fPendingReads += fPendingReads;
+        fTarget->fPendingWrites += fPendingWrites;
+    }
+
+    int32_t internalGetProxyRefCnt() const {
+        return fRefCnt;
+    }
+
+    bool internalHasPendingIO() const {
+        if (fTarget) {
+            return fTarget->internalHasPendingIO();
+        }
+
+        return SkToBool(fPendingWrites | fPendingReads);
+    }
+
+    bool internalHasPendingWrite() const {
+        if (fTarget) {
+            return fTarget->internalHasPendingWrite();
+        }
+
+        return SkToBool(fPendingWrites);
+    }
+
+    // For deferred proxies this will be null. For wrapped proxies it will point to the
+    // wrapped resource.
+    GrSurface* fTarget;
+
+private:
+    // This class is used to manage conversion of refs to pending reads/writes.
+    template <typename> friend class GrProxyRef;
+
     void didRemoveRefOrPendingIO() const {
         if (0 == fPendingReads && 0 == fPendingWrites && 0 == fRefCnt) {
             delete this;
@@ -173,42 +204,68 @@ private:
 
 class GrSurfaceProxy : public GrIORefProxy {
 public:
-    static sk_sp<GrSurfaceProxy> MakeWrapped(sk_sp<GrSurface>);
-    static sk_sp<GrTextureProxy> MakeWrapped(sk_sp<GrTexture>);
+    enum class LazyInstantiationType {
+        kSingleUse,      // Instantiation callback is allowed to be called only once.
+        kMultipleUse,    // Instantiation callback can be called multiple times.
+        kDeinstantiate,  // Instantiation callback can be called multiple times,
+                         // but we will deinstantiate the proxy after every flush.
+    };
 
-    static sk_sp<GrTextureProxy> MakeDeferred(GrResourceProvider*,
-                                              const GrSurfaceDesc&, SkBackingFit,
-                                              SkBudgeted, uint32_t flags = 0);
+    enum class LazyState {
+        kNot,       // The proxy is instantiated or does not have a lazy callback
+        kPartially, // The proxy has a lazy callback but knows basic information about itself.
+        kFully,     // The proxy has a lazy callback and also doesn't know its width, height, etc.
+    };
 
+    LazyState lazyInstantiationState() const {
+        if (fTarget || !SkToBool(fLazyInstantiateCallback)) {
+            return LazyState::kNot;
+        } else {
+            if (fWidth <= 0) {
+                SkASSERT(fHeight <= 0);
+                return LazyState::kFully;
+            } else {
+                SkASSERT(fHeight > 0);
+                return LazyState::kPartially;
+            }
+        }
+    }
+
+    GrPixelConfig config() const { return fConfig; }
+    int width() const {
+        SkASSERT(LazyState::kFully != this->lazyInstantiationState());
+        return fWidth;
+    }
+    int height() const {
+        SkASSERT(LazyState::kFully != this->lazyInstantiationState());
+        return fHeight;
+    }
+
+    SkISize isize() const { return {fWidth, fHeight}; }
+
+    int worstCaseWidth() const;
+    int worstCaseHeight() const;
     /**
-     * Creates a proxy that will be mipmapped.
-     *
-     * @param desc          Description of the texture properties.
-     * @param budgeted      Does the texture count against the resource cache budget?
-     * @param texels        A contiguous array of mipmap levels
-     * @param mipLevelCount The amount of elements in the texels array
+     * Helper that gets the width and height of the surface as a bounding rectangle.
      */
-    static sk_sp<GrTextureProxy> MakeDeferredMipMap(GrResourceProvider*,
-                                                    const GrSurfaceDesc& desc, SkBudgeted budgeted,
-                                                    const GrMipLevel texels[], int mipLevelCount,
-                                                    SkDestinationSurfaceColorMode mipColorMode =
-                                                           SkDestinationSurfaceColorMode::kLegacy);
-
-    // TODO: need to refine ownership semantics of 'srcData' if we're in completely
-    // deferred mode
-    static sk_sp<GrTextureProxy> MakeDeferred(GrResourceProvider*,
-                                              const GrSurfaceDesc&, SkBudgeted,
-                                              const void* srcData, size_t rowBytes);
-
-    static sk_sp<GrTextureProxy> MakeWrappedBackend(GrContext*, GrBackendTexture&, GrSurfaceOrigin);
+    SkRect getBoundsRect() const {
+        SkASSERT(LazyState::kFully != this->lazyInstantiationState());
+        return SkRect::MakeIWH(this->width(), this->height());
+    }
+    /**
+     * Helper that gets the worst case width and height of the surface as a bounding rectangle.
+     */
+    SkRect getWorstCaseBoundsRect() const {
+        SkASSERT(LazyState::kFully != this->lazyInstantiationState());
+        return SkRect::MakeIWH(this->worstCaseWidth(), this->worstCaseHeight());
+    }
 
     GrSurfaceOrigin origin() const {
         SkASSERT(kTopLeft_GrSurfaceOrigin == fOrigin || kBottomLeft_GrSurfaceOrigin == fOrigin);
         return fOrigin;
     }
-    int width() const { return fWidth; }
-    int height() const { return fHeight; }
-    GrPixelConfig config() const { return fConfig; }
+
+    const GrBackendFormat& backendFormat() const { return fFormat; }
 
     class UniqueID {
     public:
@@ -218,7 +275,7 @@ public:
 
         // wrapped
         explicit UniqueID(const GrGpuResource::UniqueID& id) : fID(id.asUInt()) { }
-        // deferred
+        // deferred and lazy-callback
         UniqueID() : fID(GrGpuResource::CreateUniqueID()) { }
 
         uint32_t asUInt() const { return fID; }
@@ -266,10 +323,13 @@ public:
 
     virtual bool instantiate(GrResourceProvider* resourceProvider) = 0;
 
+    void deinstantiate();
+
     /**
-     * Helper that gets the width and height of the surface as a bounding rectangle.
+     * Proxies that are already instantiated and whose backing surface cannot be recycled to
+     * instantiate other proxies do not need to be considered by GrResourceAllocator.
      */
-    SkRect getBoundsRect() const { return SkRect::MakeIWH(this->width(), this->height()); }
+    bool canSkipResourceAllocator() const;
 
     /**
      * @return the texture proxy associated with the surface proxy, may be NULL.
@@ -283,10 +343,32 @@ public:
     virtual GrRenderTargetProxy* asRenderTargetProxy() { return nullptr; }
     virtual const GrRenderTargetProxy* asRenderTargetProxy() const { return nullptr; }
 
+    bool isInstantiated() const { return SkToBool(fTarget); }
+
+    // If the proxy is already instantiated, return its backing GrTexture; if not, return null.
+    GrSurface* peekSurface() const { return fTarget; }
+
+    // If this is a texture proxy and the proxy is already instantiated, return its backing
+    // GrTexture; if not, return null.
+    GrTexture* peekTexture() const { return fTarget ? fTarget->asTexture() : nullptr; }
+
+    // If this is a render target proxy and the proxy is already instantiated, return its backing
+    // GrRenderTarget; if not, return null.
+    GrRenderTarget* peekRenderTarget() const {
+        return fTarget ? fTarget->asRenderTarget() : nullptr;
+    }
+
     /**
      * Does the resource count against the resource budget?
      */
     SkBudgeted isBudgeted() const { return fBudgeted; }
+
+    /**
+     * The pixel values of this proxy's surface cannot be modified (e.g. doesn't support write
+     * pixels or MIP map level regen). Read-only proxies also bypass interval tracking and
+     * assignment in GrResourceAllocator.
+     */
+    bool readOnly() const { return fSurfaceFlags & GrInternalSurfaceFlags::kReadOnly; }
 
     void setLastOpList(GrOpList* opList);
     GrOpList* getLastOpList() { return fLastOpList; }
@@ -302,6 +384,7 @@ public:
      * @return the amount of GPU memory used in bytes
      */
     size_t gpuMemorySize() const {
+        SkASSERT(LazyState::kFully != this->lazyInstantiationState());
         if (fTarget) {
             return fTarget->gpuMemorySize();
         }
@@ -313,53 +396,57 @@ public:
     }
 
     // Helper function that creates a temporary SurfaceContext to perform the copy
-    // It always returns a kExact-backed proxy bc it is used when converting an SkSpecialImage
-    // to an SkImage. The copy is is not a render target and not multisampled.
-    static sk_sp<GrTextureProxy> Copy(GrContext*, GrSurfaceProxy* src,
-                                      SkIRect srcRect, SkBudgeted);
+    // The copy is is not a render target and not multisampled.
+    static sk_sp<GrTextureProxy> Copy(GrContext*, GrSurfaceProxy* src, GrMipMapped, SkIRect srcRect,
+                                      SkBackingFit, SkBudgeted);
 
     // Copy the entire 'src'
-    // It always returns a kExact-backed proxy bc it is used in SkGpuDevice::snapSpecial
-    static sk_sp<GrTextureProxy> Copy(GrContext* context, GrSurfaceProxy* src,
+    static sk_sp<GrTextureProxy> Copy(GrContext*, GrSurfaceProxy* src, GrMipMapped, SkBackingFit,
                                       SkBudgeted budgeted);
 
     // Test-only entry point - should decrease in use as proxies propagate
     static sk_sp<GrSurfaceContext> TestCopy(GrContext* context, const GrSurfaceDesc& dstDesc,
-                                            GrSurfaceProxy* srcProxy);
+                                            GrSurfaceOrigin, GrSurfaceProxy* srcProxy);
 
     bool isWrapped_ForTesting() const;
 
-    SkDEBUGCODE(bool isInstantiated() const { return SkToBool(fTarget); })
     SkDEBUGCODE(void validate(GrContext*) const;)
 
     // Provides access to functions that aren't part of the public API.
-    GrSurfaceProxyPriv priv();
-    const GrSurfaceProxyPriv priv() const;
+    inline GrSurfaceProxyPriv priv();
+    inline const GrSurfaceProxyPriv priv() const;
+
+    GrInternalSurfaceFlags testingOnly_getFlags() const;
 
 protected:
     // Deferred version
-    GrSurfaceProxy(const GrSurfaceDesc& desc, SkBackingFit fit, SkBudgeted budgeted, uint32_t flags)
-            : fConfig(desc.fConfig)
-            , fWidth(desc.fWidth)
-            , fHeight(desc.fHeight)
-            , fOrigin(desc.fOrigin)
-            , fFit(fit)
-            , fBudgeted(budgeted)
-            , fFlags(flags)
-            , fNeedsClear(SkToBool(desc.fFlags & kPerformInitialClear_GrSurfaceFlag))
-            , fGpuMemorySize(kInvalidGpuMemorySize)
-            , fLastOpList(nullptr) {
+    GrSurfaceProxy(const GrBackendFormat& format, const GrSurfaceDesc& desc,
+                   GrSurfaceOrigin origin, SkBackingFit fit,
+                   SkBudgeted budgeted, GrInternalSurfaceFlags surfaceFlags)
+            : GrSurfaceProxy(nullptr, LazyInstantiationType::kSingleUse, format, desc, origin, fit,
+                             budgeted, surfaceFlags) {
         // Note: this ctor pulls a new uniqueID from the same pool at the GrGpuResources
     }
 
-    // Wrapped version
-    GrSurfaceProxy(sk_sp<GrSurface> surface, SkBackingFit fit);
+    using LazyInstantiateCallback = std::function<sk_sp<GrSurface>(GrResourceProvider*)>;
+
+    // Lazy-callback version
+    GrSurfaceProxy(LazyInstantiateCallback&&, LazyInstantiationType,
+                   const GrBackendFormat& format, const GrSurfaceDesc&, GrSurfaceOrigin,
+                   SkBackingFit, SkBudgeted, GrInternalSurfaceFlags);
+
+    // Wrapped version.
+    GrSurfaceProxy(sk_sp<GrSurface>, GrSurfaceOrigin, SkBackingFit);
 
     virtual ~GrSurfaceProxy();
 
     friend class GrSurfaceProxyPriv;
 
     // Methods made available via GrSurfaceProxyPriv
+    int32_t getProxyRefCnt() const {
+        return this->internalGetProxyRefCnt();
+    }
+
     bool hasPendingIO() const {
         return this->internalHasPendingIO();
     }
@@ -368,43 +455,64 @@ protected:
         return this->internalHasPendingWrite();
     }
 
+    void computeScratchKey(GrScratchKey*) const;
+
     virtual sk_sp<GrSurface> createSurface(GrResourceProvider*) const = 0;
     void assign(sk_sp<GrSurface> surface);
 
-    sk_sp<GrSurface> createSurfaceImpl(GrResourceProvider*, int sampleCnt,
-                                       GrSurfaceFlags flags, bool isMipMapped,
-                                       SkDestinationSurfaceColorMode mipColorMode) const;
+    sk_sp<GrSurface> createSurfaceImpl(GrResourceProvider*, int sampleCnt, bool needsStencil,
+                                       GrSurfaceDescFlags, GrMipMapped) const;
 
-    bool instantiateImpl(GrResourceProvider* resourceProvider, int sampleCnt,
-                         GrSurfaceFlags flags, bool isMipMapped,
-                         SkDestinationSurfaceColorMode mipColorMode);
+    bool instantiateImpl(GrResourceProvider* resourceProvider, int sampleCnt, bool needsStencil,
+                         GrSurfaceDescFlags descFlags, GrMipMapped, const GrUniqueKey*);
 
-    // For wrapped resources, 'fConfig', 'fWidth', 'fHeight', and 'fOrigin; will always be filled in
-    // from the wrapped resource.
-    GrPixelConfig        fConfig;
-    int                  fWidth;
-    int                  fHeight;
-    GrSurfaceOrigin      fOrigin;
-    SkBackingFit         fFit;      // always exact for wrapped resources
-    mutable SkBudgeted   fBudgeted; // set from the backing resource for wrapped resources
-                                    // mutable bc of SkSurface/SkImage wishy-washiness
-    const uint32_t       fFlags;
+    // In many cases these flags aren't actually known until the proxy has been instantiated.
+    // However, Ganesh frequently needs to change its behavior based on these settings. For
+    // internally create proxies we will know these properties ahead of time. For wrapped
+    // proxies we will copy the properties off of the GrSurface. For lazy proxies we force the
+    // call sites to provide the required information ahead of time. At instantiation time
+    // we verify that the assumed properties match the actual properties.
+    GrInternalSurfaceFlags fSurfaceFlags;
 
-    const UniqueID       fUniqueID; // set from the backing resource for wrapped resources
+private:
+    // For wrapped resources, 'fFormat', 'fConfig', 'fWidth', 'fHeight', and 'fOrigin; will always
+    // be filled in from the wrapped resource.
+    GrBackendFormat        fFormat;
+    GrPixelConfig          fConfig;
+    int                    fWidth;
+    int                    fHeight;
+    GrSurfaceOrigin        fOrigin;
+    SkBackingFit           fFit;      // always kApprox for lazy-callback resources
+                                      // always kExact for wrapped resources
+    mutable SkBudgeted     fBudgeted; // always kYes for lazy-callback resources
+                                      // set from the backing resource for wrapped resources
+                                      // mutable bc of SkSurface/SkImage wishy-washiness
+
+    const UniqueID         fUniqueID; // set from the backing resource for wrapped resources
+
+    LazyInstantiateCallback fLazyInstantiateCallback;
+    // If this is set to kSingleuse, then after one call to fLazyInstantiateCallback we will cleanup
+    // the lazy callback and then delete it. This will allow for any refs and resources being held
+    // by the standard function to be released. This is specifically useful in non-dll cases where
+    // we make lazy proxies and instantiate them immediately.
+    // Note: This is ignored if fLazyInstantiateCallback is null.
+    LazyInstantiationType  fLazyInstantiationType;
+
+    SkDEBUGCODE(void validateSurface(const GrSurface*);)
+    SkDEBUGCODE(virtual void onValidateSurface(const GrSurface*) = 0;)
 
     static const size_t kInvalidGpuMemorySize = ~static_cast<size_t>(0);
     SkDEBUGCODE(size_t getRawGpuMemorySize_debugOnly() const { return fGpuMemorySize; })
 
-private:
     virtual size_t onUninstantiatedGpuMemorySize() const = 0;
 
-    bool                 fNeedsClear;
+    bool                   fNeedsClear;
 
     // This entry is lazily evaluated so, when the proxy wraps a resource, the resource
     // will be called but, when the proxy is deferred, it will compute the answer itself.
     // If the proxy computes its own answer that answer is checked (in debug mode) in
     // the instantiation method.
-    mutable size_t      fGpuMemorySize;
+    mutable size_t         fGpuMemorySize;
 
     // The last opList that wrote to or is currently going to write to this surface
     // The opList can be closed (e.g., no surface context is currently bound
@@ -413,7 +521,7 @@ private:
     // the opList used to create the current contents of this surface
     // and the opList of a destination surface to which this one is being drawn or copied.
     // This pointer is unreffed. OpLists own a ref on their surface proxies.
-    GrOpList* fLastOpList;
+    GrOpList*              fLastOpList;
 
     typedef GrIORefProxy INHERITED;
 };

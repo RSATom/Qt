@@ -12,35 +12,13 @@ namespace net {
 namespace {
 
 void CheckCertVerifyFlags(SSLConfig* ssl_config,
-                          bool rev_checking_enabled,
-                          bool verify_ev_cert,
-                          bool cert_io_enabled,
-                          bool rev_checking_required_local_anchors) {
-  ssl_config->rev_checking_enabled = rev_checking_enabled;
-  ssl_config->verify_ev_cert = verify_ev_cert;
-  ssl_config->cert_io_enabled = cert_io_enabled;
-  ssl_config->rev_checking_required_local_anchors =
-      rev_checking_required_local_anchors;
+                          bool disable_cert_verification_network_fetches) {
+  ssl_config->disable_cert_verification_network_fetches =
+      disable_cert_verification_network_fetches;
+
   int flags = ssl_config->GetCertVerifyFlags();
-  if (rev_checking_enabled)
-    EXPECT_TRUE(flags & CertVerifier::VERIFY_REV_CHECKING_ENABLED);
-  else
-    EXPECT_FALSE(flags & CertVerifier::VERIFY_REV_CHECKING_ENABLED);
-  if (verify_ev_cert)
-    EXPECT_TRUE(flags & CertVerifier::VERIFY_EV_CERT);
-  else
-    EXPECT_FALSE(flags & CertVerifier::VERIFY_EV_CERT);
-  if (cert_io_enabled)
-    EXPECT_TRUE(flags & CertVerifier::VERIFY_CERT_IO_ENABLED);
-  else
-    EXPECT_FALSE(flags & CertVerifier::VERIFY_CERT_IO_ENABLED);
-  if (rev_checking_required_local_anchors) {
-    EXPECT_TRUE(flags &
-                CertVerifier::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS);
-  } else {
-    EXPECT_FALSE(flags &
-                 CertVerifier::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS);
-  }
+  EXPECT_EQ(disable_cert_verification_network_fetches,
+            !!(flags & CertVerifier::VERIFY_DISABLE_NETWORK_FETCHES));
 }
 
 }  // namespace
@@ -48,40 +26,9 @@ void CheckCertVerifyFlags(SSLConfig* ssl_config,
 TEST(SSLConfigTest, GetCertVerifyFlags) {
   SSLConfig ssl_config;
   CheckCertVerifyFlags(&ssl_config,
-                       /*rev_checking_enabled=*/true,
-                       /*verify_ev_cert=*/true,
-                       /*cert_io_enabled=*/true,
-                       /*rev_checking_required_local_anchors=*/true);
-
+                       /*disable_cert_verification_network_fetches*/ false);
   CheckCertVerifyFlags(&ssl_config,
-                       /*rev_checking_enabled=*/false,
-                       /*verify_ev_cert=*/false,
-                       /*cert_io_enabled=*/false,
-                       /*rev_checking_required_local_anchors=*/false);
-
-  CheckCertVerifyFlags(&ssl_config,
-                       /*rev_checking_enabled=*/true,
-                       /*verify_ev_cert=*/false,
-                       /*cert_io_enabled=*/false,
-                       /*rev_checking_required_local_anchors=*/false);
-
-  CheckCertVerifyFlags(&ssl_config,
-                       /*rev_checking_enabled=*/false,
-                       /*verify_ev_cert=*/true,
-                       /*cert_io_enabled=*/false,
-                       /*rev_checking_required_local_anchors=*/false);
-
-  CheckCertVerifyFlags(&ssl_config,
-                       /*rev_checking_enabled=*/false,
-                       /*verify_ev_cert=*/false,
-                       /*cert_io_enabled=*/true,
-                       /*rev_checking_required_local_anchors=*/false);
-
-  CheckCertVerifyFlags(&ssl_config,
-                       /*rev_checking_enabled=*/false,
-                       /*verify_ev_cert=*/false,
-                       /*cert_io_enabled=*/false,
-                       /*rev_checking_required_local_anchors=*/true);
+                       /*disable_cert_verification_network_fetches*/ true);
 }
 
 }  // namespace net

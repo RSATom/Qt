@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <tuple>
 #include <utility>
 
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -17,7 +18,7 @@
 #include "device/bluetooth/test/mock_bluetooth_gatt_service.h"
 #include "extensions/browser/api/bluetooth_low_energy/bluetooth_low_energy_api.h"
 #include "extensions/browser/api/bluetooth_low_energy/bluetooth_low_energy_event_router.h"
-#include "extensions/common/test_util.h"
+#include "extensions/common/extension_builder.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -97,15 +98,15 @@ const char kTestDescriptorId1[] = "desc_id1";
 const char kTestDescriptorUuid1[] = "1222";
 const uint8_t kTestDescriptorDefaultValue1[] = {0x04, 0x05};
 
-class BluetoothLowEnergyApiTest : public ExtensionApiTest {
+class BluetoothLowEnergyApiTest : public extensions::ExtensionApiTest {
  public:
   BluetoothLowEnergyApiTest() {}
 
   ~BluetoothLowEnergyApiTest() override {}
 
   void SetUpOnMainThread() override {
-    ExtensionApiTest::SetUpOnMainThread();
-    empty_extension_ = extensions::test_util::CreateEmptyExtension();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
+    empty_extension_ = extensions::ExtensionBuilder("Test").Build();
     SetUpMocks();
   }
 
@@ -218,25 +219,25 @@ class BluetoothLowEnergyApiTest : public ExtensionApiTest {
   std::unique_ptr<testing::NiceMock<MockBluetoothGattDescriptor>> desc1_;
 
  private:
-  scoped_refptr<extensions::Extension> empty_extension_;
+  scoped_refptr<const extensions::Extension> empty_extension_;
 };
 
 ACTION_TEMPLATE(InvokeCallbackArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_0_VALUE_PARAMS()) {
-  ::std::tr1::get<k>(args).Run();
+  std::get<k>(args).Run();
 }
 
 ACTION_TEMPLATE(InvokeCallbackArgument,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_1_VALUE_PARAMS(p0)) {
-  ::std::tr1::get<k>(args).Run(p0);
+  std::get<k>(args).Run(p0);
 }
 
 ACTION_TEMPLATE(InvokeCallbackWithScopedPtrArg,
                 HAS_2_TEMPLATE_PARAMS(int, k, typename, T),
                 AND_1_VALUE_PARAMS(p0)) {
-  ::std::tr1::get<k>(args).Run(std::unique_ptr<T>(p0));
+  std::get<k>(args).Run(std::unique_ptr<T>(p0));
 }
 
 BluetoothGattConnection* CreateGattConnection(
@@ -722,7 +723,7 @@ IN_PROC_BROWSER_TEST_F(BluetoothLowEnergyApiTest, ReadCharacteristicValue) {
   listener.set_failure_message("fail");
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII(
       "bluetooth_low_energy/read_characteristic_value")));
-  listener.WaitUntilSatisfied();
+  EXPECT_TRUE(listener.WaitUntilSatisfied());
 
   listener.Reply("go");
 

@@ -8,6 +8,7 @@
 #ifndef SkSVGAttributeParser_DEFINED
 #define SkSVGAttributeParser_DEFINED
 
+#include "SkNoncopyable.h"
 #include "SkSVGTypes.h"
 
 class SkSVGAttributeParser : public SkNoncopyable {
@@ -27,6 +28,8 @@ public:
     bool parsePoints(SkSVGPointsType*);
     bool parseIRI(SkSVGStringType*);
     bool parseSpreadMethod(SkSVGSpreadMethod*);
+    bool parseVisibility(SkSVGVisibility*);
+    bool parseDashArray(SkSVGDashArray*);
 
 private:
     // Stack-only

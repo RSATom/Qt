@@ -14,8 +14,9 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "base/macros.h"
-#include "storage/browser/storage_browser_export.h"
+#include "base/unguessable_token.h"
 #include "storage/common/blob_storage/blob_storage_constants.h"
 
 class GURL;
@@ -28,7 +29,7 @@ class BlobEntry;
 // Implementation notes:
 // * When removing a uuid registration, we do not check for URL mappings to that
 //   uuid. The user must keep track of these.
-class STORAGE_EXPORT BlobStorageRegistry {
+class COMPONENT_EXPORT(STORAGE_BROWSER) BlobStorageRegistry {
  public:
   BlobStorageRegistry();
   ~BlobStorageRegistry();
@@ -68,11 +69,21 @@ class STORAGE_EXPORT BlobStorageRegistry {
   size_t blob_count() const { return blob_map_.size(); }
   size_t url_count() const { return url_to_uuid_.size(); }
 
+  void AddTokenMapping(const base::UnguessableToken& token,
+                       const GURL& url,
+                       const std::string& uuid);
+  void RemoveTokenMapping(const base::UnguessableToken& token);
+  bool GetTokenMapping(const base::UnguessableToken& token,
+                       GURL* url,
+                       std::string* uuid) const;
+
  private:
   friend class ViewBlobInternalsJob;
 
   std::unordered_map<std::string, std::unique_ptr<BlobEntry>> blob_map_;
   std::map<GURL, std::string> url_to_uuid_;
+  std::map<base::UnguessableToken, std::pair<GURL, std::string>>
+      token_to_url_and_uuid_;
 
   DISALLOW_COPY_AND_ASSIGN(BlobStorageRegistry);
 };

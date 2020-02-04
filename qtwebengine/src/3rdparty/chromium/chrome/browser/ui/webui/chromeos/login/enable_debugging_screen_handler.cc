@@ -15,7 +15,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/chromeos_switches.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/debug_daemon_client.h"
@@ -24,6 +24,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/strings/grit/components_strings.h"
+#include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {
@@ -221,7 +222,9 @@ void EnableDebuggingScreenHandler::OnRemoveRootfsVerification(bool success) {
   PrefService* prefs = g_browser_process->local_state();
   prefs->SetBoolean(prefs::kDebuggingFeaturesRequested, true);
   prefs->CommitPendingWrite();
-  chromeos::DBusThreadManager::Get()->GetPowerManagerClient()->RequestRestart();
+  chromeos::DBusThreadManager::Get()->GetPowerManagerClient()->RequestRestart(
+      power_manager::REQUEST_RESTART_OTHER,
+      "login debugging screen removing rootfs verification");
 }
 
 void EnableDebuggingScreenHandler::OnEnableDebuggingFeatures(bool success) {

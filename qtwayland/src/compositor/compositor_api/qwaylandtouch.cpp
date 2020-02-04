@@ -50,8 +50,7 @@
 QT_BEGIN_NAMESPACE
 
 QWaylandTouchPrivate::QWaylandTouchPrivate(QWaylandTouch *touch, QWaylandSeat *seat)
-    : wl_touch()
-    , seat(seat)
+    : seat(seat)
 {
     Q_UNUSED(touch);
 }
@@ -97,6 +96,20 @@ void QWaylandTouchPrivate::sendMotion(QWaylandClient *client, uint32_t time, int
 
     wl_touch_send_motion(focusResource->handle, time, touch_id,
                          wl_fixed_from_double(position.x()), wl_fixed_from_double(position.y()));
+}
+
+int QWaylandTouchPrivate::toSequentialWaylandId(int touchId)
+{
+    const int waylandId = ids.indexOf(touchId);
+    if (waylandId != -1)
+        return waylandId;
+    const int availableId = ids.indexOf(-1);
+    if (availableId != -1) {
+        ids[availableId] = touchId;
+        return availableId;
+    }
+    ids.append(touchId);
+    return ids.length() - 1;
 }
 
 /*!
@@ -213,7 +226,10 @@ void QWaylandTouch::sendFullTouchEvent(QWaylandSurface *surface, QTouchEvent *ev
     for (int i = 0; i < pointCount; ++i) {
         const QTouchEvent::TouchPoint &tp(points.at(i));
         // Convert the local pos in the compositor window to surface-relative.
-        sendTouchPointEvent(surface, tp.id(), tp.pos(), tp.state());
+        const int id = d->toSequentialWaylandId(tp.id());
+        sendTouchPointEvent(surface, id, tp.pos(), tp.state());
+        if (tp.state() == Qt::TouchPointReleased)
+            d->ids[id] = -1;
     }
     sendFrameEvent(surface->client());
 }

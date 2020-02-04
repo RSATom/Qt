@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <smmintrin.h>
+#include <smmintrin.h>  // SSE4.1
 
 #include "./vpx_dsp_rtcd.h"
 #include "vpx_dsp/x86/highbd_inv_txfm_sse2.h"
@@ -17,22 +17,8 @@
 #include "vpx_dsp/x86/inv_txfm_ssse3.h"
 #include "vpx_dsp/x86/transpose_sse2.h"
 
-static void highbd_idct8x8_half1d(__m128i *const io) {
-  const __m128i cp_4q_4q =
-      _mm_setr_epi32(cospi_4_64 << 2, 0, cospi_4_64 << 2, 0);
-  const __m128i cp_8q_8q =
-      _mm_setr_epi32(cospi_8_64 << 2, 0, cospi_8_64 << 2, 0);
-  const __m128i cp_12q_12q =
-      _mm_setr_epi32(cospi_12_64 << 2, 0, cospi_12_64 << 2, 0);
-  const __m128i cp_16q_16q =
-      _mm_setr_epi32(cospi_16_64 << 2, 0, cospi_16_64 << 2, 0);
-  const __m128i cp_20q_20q =
-      _mm_setr_epi32(cospi_20_64 << 2, 0, cospi_20_64 << 2, 0);
-  const __m128i cp_24q_24q =
-      _mm_setr_epi32(cospi_24_64 << 2, 0, cospi_24_64 << 2, 0);
-  const __m128i cp_28q_28q =
-      _mm_setr_epi32(cospi_28_64 << 2, 0, cospi_28_64 << 2, 0);
-  __m128i temp1[4], temp2[4], step1[8], step2[8];
+void vpx_highbd_idct8x8_half1d_sse4_1(__m128i *const io) {
+  __m128i step1[8], step2[8];
 
   transpose_32bit_4x4x2(io, io);
 
@@ -41,20 +27,15 @@ static void highbd_idct8x8_half1d(__m128i *const io) {
   step1[2] = io[4];
   step1[1] = io[2];
   step1[3] = io[6];
-  multiplication_and_add_2_ssse4_1(&io[1], &io[7], &cp_28q_28q, &cp_4q_4q,
-                                   &step1[4], &step1[7]);
-  multiplication_and_add_2_ssse4_1(&io[5], &io[3], &cp_12q_12q, &cp_20q_20q,
-                                   &step1[5], &step1[6]);
+  highbd_butterfly_sse4_1(io[1], io[7], cospi_28_64, cospi_4_64, &step1[4],
+                          &step1[7]);
+  highbd_butterfly_sse4_1(io[5], io[3], cospi_12_64, cospi_20_64, &step1[5],
+                          &step1[6]);
 
   // stage 2
-  temp2[0] = _mm_add_epi32(step1[0], step1[2]);
-  extend_64bit(temp2[0], temp1);
-  step2[0] = multiplication_round_shift(temp1, cp_16q_16q);
-  temp2[0] = _mm_sub_epi32(step1[0], step1[2]);
-  extend_64bit(temp2[0], temp1);
-  step2[1] = multiplication_round_shift(temp1, cp_16q_16q);
-  multiplication_and_add_2_ssse4_1(&step1[1], &step1[3], &cp_24q_24q, &cp_8q_8q,
-                                   &step2[2], &step2[3]);
+  highbd_butterfly_cospi16_sse4_1(step1[0], step1[2], &step2[0], &step2[1]);
+  highbd_butterfly_sse4_1(step1[1], step1[3], cospi_24_64, cospi_8_64,
+                          &step2[2], &step2[3]);
   step2[4] = _mm_add_epi32(step1[4], step1[5]);
   step2[5] = _mm_sub_epi32(step1[4], step1[5]);
   step2[6] = _mm_sub_epi32(step1[7], step1[6]);
@@ -66,41 +47,15 @@ static void highbd_idct8x8_half1d(__m128i *const io) {
   step1[2] = _mm_sub_epi32(step2[1], step2[2]);
   step1[3] = _mm_sub_epi32(step2[0], step2[3]);
   step1[4] = step2[4];
-  temp2[0] = _mm_sub_epi32(step2[6], step2[5]);
-  extend_64bit(temp2[0], temp1);
-  step1[5] = multiplication_round_shift(temp1, cp_16q_16q);
-  temp2[0] = _mm_add_epi32(step2[6], step2[5]);
-  extend_64bit(temp2[0], temp1);
-  step1[6] = multiplication_round_shift(temp1, cp_16q_16q);
+  highbd_butterfly_cospi16_sse4_1(step2[6], step2[5], &step1[6], &step1[5]);
   step1[7] = step2[7];
 
   // stage 4
-  io[0] = _mm_add_epi32(step1[0], step1[7]);
-  io[1] = _mm_add_epi32(step1[1], step1[6]);
-  io[2] = _mm_add_epi32(step1[2], step1[5]);
-  io[3] = _mm_add_epi32(step1[3], step1[4]);
-  io[4] = _mm_sub_epi32(step1[3], step1[4]);
-  io[5] = _mm_sub_epi32(step1[2], step1[5]);
-  io[6] = _mm_sub_epi32(step1[1], step1[6]);
-  io[7] = _mm_sub_epi32(step1[0], step1[7]);
+  highbd_idct8_stage4(step1, io);
 }
 
 static void highbd_idct8x8_12_half1d(__m128i *const io) {
-  const __m128i cp_28q_28q =
-      _mm_setr_epi32(cospi_28_64 << 2, 0, cospi_28_64 << 2, 0);
-  const __m128i cp_4q_4q =
-      _mm_setr_epi32(cospi_4_64 << 2, 0, cospi_4_64 << 2, 0);
-  const __m128i cp_n20q_n20q =
-      _mm_setr_epi32(-cospi_20_64 * 4, 0, -cospi_20_64 * 4, 0);
-  const __m128i cp_12q_12q =
-      _mm_setr_epi32(cospi_12_64 << 2, 0, cospi_12_64 << 2, 0);
-  const __m128i cp_16q_16q =
-      _mm_setr_epi32(cospi_16_64 << 2, 0, cospi_16_64 << 2, 0);
-  const __m128i cp_8q_8q =
-      _mm_setr_epi32(cospi_8_64 << 2, 0, cospi_8_64 << 2, 0);
-  const __m128i cp_24q_24q =
-      _mm_setr_epi32(cospi_24_64 << 2, 0, cospi_24_64 << 2, 0);
-  __m128i temp1[4], temp2[4], step1[8], step2[8];
+  __m128i temp1[2], step1[8], step2[8];
 
   transpose_32bit_4x4(io, io);
 
@@ -108,18 +63,18 @@ static void highbd_idct8x8_12_half1d(__m128i *const io) {
   step1[0] = io[0];
   step1[1] = io[2];
   extend_64bit(io[1], temp1);
-  step1[4] = multiplication_round_shift(temp1, cp_28q_28q);
-  step1[7] = multiplication_round_shift(temp1, cp_4q_4q);
+  step1[4] = multiplication_round_shift_sse4_1(temp1, cospi_28_64);
+  step1[7] = multiplication_round_shift_sse4_1(temp1, cospi_4_64);
   extend_64bit(io[3], temp1);
-  step1[5] = multiplication_round_shift(temp1, cp_n20q_n20q);
-  step1[6] = multiplication_round_shift(temp1, cp_12q_12q);
+  step1[5] = multiplication_round_shift_sse4_1(temp1, -cospi_20_64);
+  step1[6] = multiplication_round_shift_sse4_1(temp1, cospi_12_64);
 
   // stage 2
   extend_64bit(step1[0], temp1);
-  step2[0] = multiplication_round_shift(temp1, cp_16q_16q);
+  step2[0] = multiplication_round_shift_sse4_1(temp1, cospi_16_64);
   extend_64bit(step1[1], temp1);
-  step2[2] = multiplication_round_shift(temp1, cp_24q_24q);
-  step2[3] = multiplication_round_shift(temp1, cp_8q_8q);
+  step2[2] = multiplication_round_shift_sse4_1(temp1, cospi_24_64);
+  step2[3] = multiplication_round_shift_sse4_1(temp1, cospi_8_64);
   step2[4] = _mm_add_epi32(step1[4], step1[5]);
   step2[5] = _mm_sub_epi32(step1[4], step1[5]);
   step2[6] = _mm_sub_epi32(step1[7], step1[6]);
@@ -131,23 +86,11 @@ static void highbd_idct8x8_12_half1d(__m128i *const io) {
   step1[2] = _mm_sub_epi32(step2[0], step2[2]);
   step1[3] = _mm_sub_epi32(step2[0], step2[3]);
   step1[4] = step2[4];
-  temp2[0] = _mm_sub_epi32(step2[6], step2[5]);
-  extend_64bit(temp2[0], temp1);
-  step1[5] = multiplication_round_shift(temp1, cp_16q_16q);
-  temp2[0] = _mm_add_epi32(step2[6], step2[5]);
-  extend_64bit(temp2[0], temp1);
-  step1[6] = multiplication_round_shift(temp1, cp_16q_16q);
+  highbd_butterfly_cospi16_sse4_1(step2[6], step2[5], &step1[6], &step1[5]);
   step1[7] = step2[7];
 
   // stage 4
-  io[0] = _mm_add_epi32(step1[0], step1[7]);
-  io[1] = _mm_add_epi32(step1[1], step1[6]);
-  io[2] = _mm_add_epi32(step1[2], step1[5]);
-  io[3] = _mm_add_epi32(step1[3], step1[4]);
-  io[4] = _mm_sub_epi32(step1[3], step1[4]);
-  io[5] = _mm_sub_epi32(step1[2], step1[5]);
-  io[6] = _mm_sub_epi32(step1[1], step1[6]);
-  io[7] = _mm_sub_epi32(step1[0], step1[7]);
+  highbd_idct8_stage4(step1, io);
 }
 
 void vpx_highbd_idct8x8_64_add_sse4_1(const tran_low_t *input, uint16_t *dest,
@@ -183,13 +126,13 @@ void vpx_highbd_idct8x8_64_add_sse4_1(const tran_low_t *input, uint16_t *dest,
     io_short[6] = _mm_packs_epi32(io[10], io[14]);
     io_short[7] = _mm_packs_epi32(io[11], io[15]);
 
-    idct8_sse2(io_short);
-    idct8_sse2(io_short);
+    vpx_idct8_sse2(io_short);
+    vpx_idct8_sse2(io_short);
     round_shift_8x8(io_short, io);
   } else {
     __m128i temp[4];
 
-    highbd_idct8x8_half1d(io);
+    vpx_highbd_idct8x8_half1d_sse4_1(io);
 
     io[8] = _mm_load_si128((const __m128i *)(input + 4 * 8 + 0));
     io[12] = _mm_load_si128((const __m128i *)(input + 4 * 8 + 4));
@@ -199,7 +142,7 @@ void vpx_highbd_idct8x8_64_add_sse4_1(const tran_low_t *input, uint16_t *dest,
     io[14] = _mm_load_si128((const __m128i *)(input + 6 * 8 + 4));
     io[11] = _mm_load_si128((const __m128i *)(input + 7 * 8 + 0));
     io[15] = _mm_load_si128((const __m128i *)(input + 7 * 8 + 4));
-    highbd_idct8x8_half1d(&io[8]);
+    vpx_highbd_idct8x8_half1d_sse4_1(&io[8]);
 
     temp[0] = io[4];
     temp[1] = io[5];
@@ -209,24 +152,18 @@ void vpx_highbd_idct8x8_64_add_sse4_1(const tran_low_t *input, uint16_t *dest,
     io[5] = io[9];
     io[6] = io[10];
     io[7] = io[11];
-    highbd_idct8x8_half1d(io);
+    vpx_highbd_idct8x8_half1d_sse4_1(io);
+
     io[8] = temp[0];
     io[9] = temp[1];
     io[10] = temp[2];
     io[11] = temp[3];
-    highbd_idct8x8_half1d(&io[8]);
+    vpx_highbd_idct8x8_half1d_sse4_1(&io[8]);
 
-    io[0] = wraplow_16bit_shift5(io[0], io[8], _mm_set1_epi32(16));
-    io[1] = wraplow_16bit_shift5(io[1], io[9], _mm_set1_epi32(16));
-    io[2] = wraplow_16bit_shift5(io[2], io[10], _mm_set1_epi32(16));
-    io[3] = wraplow_16bit_shift5(io[3], io[11], _mm_set1_epi32(16));
-    io[4] = wraplow_16bit_shift5(io[4], io[12], _mm_set1_epi32(16));
-    io[5] = wraplow_16bit_shift5(io[5], io[13], _mm_set1_epi32(16));
-    io[6] = wraplow_16bit_shift5(io[6], io[14], _mm_set1_epi32(16));
-    io[7] = wraplow_16bit_shift5(io[7], io[15], _mm_set1_epi32(16));
+    highbd_idct8x8_final_round(io);
   }
 
-  recon_and_store_8(io, dest, stride, bd);
+  recon_and_store_8x8(io, dest, stride, bd);
 }
 
 void vpx_highbd_idct8x8_12_add_sse4_1(const tran_low_t *input, uint16_t *dest,
@@ -266,15 +203,8 @@ void vpx_highbd_idct8x8_12_add_sse4_1(const tran_low_t *input, uint16_t *dest,
     io[11] = temp[3];
     highbd_idct8x8_12_half1d(&io[8]);
 
-    io[0] = wraplow_16bit_shift5(io[0], io[8], _mm_set1_epi32(16));
-    io[1] = wraplow_16bit_shift5(io[1], io[9], _mm_set1_epi32(16));
-    io[2] = wraplow_16bit_shift5(io[2], io[10], _mm_set1_epi32(16));
-    io[3] = wraplow_16bit_shift5(io[3], io[11], _mm_set1_epi32(16));
-    io[4] = wraplow_16bit_shift5(io[4], io[12], _mm_set1_epi32(16));
-    io[5] = wraplow_16bit_shift5(io[5], io[13], _mm_set1_epi32(16));
-    io[6] = wraplow_16bit_shift5(io[6], io[14], _mm_set1_epi32(16));
-    io[7] = wraplow_16bit_shift5(io[7], io[15], _mm_set1_epi32(16));
+    highbd_idct8x8_final_round(io);
   }
 
-  recon_and_store_8(io, dest, stride, bd);
+  recon_and_store_8x8(io, dest, stride, bd);
 }

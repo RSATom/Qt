@@ -15,7 +15,7 @@
 #include "base/memory/shared_memory.h"
 #include "base/observer_list.h"
 #include "extensions/common/user_script.h"
-#include "third_party/WebKit/public/platform/WebString.h"
+#include "third_party/blink/public/platform/web_string.h"
 
 class GURL;
 
@@ -102,7 +102,7 @@ class UserScriptSet {
   std::map<GURL, blink::WebString> script_sources_;
 
   // The associated observers.
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
 
   DISALLOW_COPY_AND_ASSIGN(UserScriptSet);
 };

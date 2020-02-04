@@ -12,7 +12,7 @@
 namespace media {
 namespace cast {
 
-ReceiverRtcpSession::ReceiverRtcpSession(base::TickClock* clock,
+ReceiverRtcpSession::ReceiverRtcpSession(const base::TickClock* clock,
                                          uint32_t local_ssrc,
                                          uint32_t remote_ssrc)
     : clock_(clock),
@@ -23,7 +23,7 @@ ReceiverRtcpSession::ReceiverRtcpSession(base::TickClock* clock,
       lip_sync_ntp_timestamp_(0),
       parser_(local_ssrc, remote_ssrc) {}
 
-ReceiverRtcpSession::~ReceiverRtcpSession() {}
+ReceiverRtcpSession::~ReceiverRtcpSession() = default;
 
 bool ReceiverRtcpSession::IncomingRtcpPacket(const uint8_t* data,
                                              size_t length) {

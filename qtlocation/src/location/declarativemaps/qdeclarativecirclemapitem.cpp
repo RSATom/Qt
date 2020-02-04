@@ -65,7 +65,7 @@ QT_BEGIN_NAMESPACE
     \instantiates QDeclarativeCircleMapItem
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-maps
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The MapCircle type displays a geographic circle on a Map.
 
@@ -144,6 +144,7 @@ QGeoMapCircleGeometry::QGeoMapCircleGeometry()
 */
 void QGeoMapCircleGeometry::updateScreenPointsInvert(const QList<QDoubleVector2D> &circlePath, const QGeoMap &map)
 {
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map.geoProjection());
     // Not checking for !screenDirty anymore, as everything is now recalculated.
     clear();
     if (map.viewportWidth() == 0 || map.viewportHeight() == 0 || circlePath.size() < 3) // a circle requires at least 3 points;
@@ -160,23 +161,23 @@ void QGeoMapCircleGeometry::updateScreenPointsInvert(const QList<QDoubleVector2D
      */
 
     // 1)
-    double topLati = QLocationUtils::mercatorMaxLatitude();
-    double bottomLati = -(QLocationUtils::mercatorMaxLatitude());
-    double leftLongi = QLocationUtils::mapLeftLongitude(map.cameraData().center().longitude());
-    double rightLongi = QLocationUtils::mapRightLongitude(map.cameraData().center().longitude());
+    const double topLati = QLocationUtils::mercatorMaxLatitude();
+    const double bottomLati = -(QLocationUtils::mercatorMaxLatitude());
+    const double leftLongi = QLocationUtils::mapLeftLongitude(map.cameraData().center().longitude());
+    const double rightLongi = QLocationUtils::mapRightLongitude(map.cameraData().center().longitude());
 
     srcOrigin_ = QGeoCoordinate(topLati,leftLongi);
-    QDoubleVector2D tl = map.geoProjection().geoToWrappedMapProjection(QGeoCoordinate(topLati,leftLongi));
-    QDoubleVector2D tr = map.geoProjection().geoToWrappedMapProjection(QGeoCoordinate(topLati,rightLongi));
-    QDoubleVector2D br = map.geoProjection().geoToWrappedMapProjection(QGeoCoordinate(bottomLati,rightLongi));
-    QDoubleVector2D bl = map.geoProjection().geoToWrappedMapProjection(QGeoCoordinate(bottomLati,leftLongi));
+    const QDoubleVector2D tl = p.geoToWrappedMapProjection(QGeoCoordinate(topLati,leftLongi));
+    const QDoubleVector2D tr = p.geoToWrappedMapProjection(QGeoCoordinate(topLati,rightLongi));
+    const QDoubleVector2D br = p.geoToWrappedMapProjection(QGeoCoordinate(bottomLati,rightLongi));
+    const QDoubleVector2D bl = p.geoToWrappedMapProjection(QGeoCoordinate(bottomLati,leftLongi));
 
     QList<QDoubleVector2D> fill;
     fill << tl << tr << br << bl;
 
     QList<QDoubleVector2D> hole;
     for (const QDoubleVector2D &c: circlePath)
-        hole << map.geoProjection().wrapMapProjection(c);
+        hole << p.wrapMapProjection(c);
 
     c2t::clip2tri clipper;
     clipper.addSubjectPath(QClipperUtils::qListToPath(fill), true);
@@ -184,9 +185,9 @@ void QGeoMapCircleGeometry::updateScreenPointsInvert(const QList<QDoubleVector2D
     Paths difference = clipper.execute(c2t::clip2tri::Difference, QtClipperLib::pftEvenOdd, QtClipperLib::pftEvenOdd);
 
     // 2)
-    QDoubleVector2D lb = map.geoProjection().geoToWrappedMapProjection(srcOrigin_);
+    QDoubleVector2D lb = p.geoToWrappedMapProjection(srcOrigin_);
     QList<QList<QDoubleVector2D> > clippedPaths;
-    const QList<QDoubleVector2D> &visibleRegion = map.geoProjection().visibleRegion();
+    const QList<QDoubleVector2D> &visibleRegion = p.visibleGeometry();
     if (visibleRegion.size()) {
         clipper.clearClipper();
         for (const Path &p: difference)
@@ -210,19 +211,19 @@ void QGeoMapCircleGeometry::updateScreenPointsInvert(const QList<QDoubleVector2D
         // Prevent the conversion to and from clipper from introducing negative offsets which
         // in turn will make the geometry wrap around.
         lb.setX(qMax(tl.x(), lb.x()));
-        srcOrigin_ = map.geoProjection().mapProjectionToGeo(map.geoProjection().unwrapMapProjection(lb));
+        srcOrigin_ = p.mapProjectionToGeo(p.unwrapMapProjection(lb));
     } else {
         clippedPaths = QClipperUtils::pathsToQList(difference);
     }
 
     //3)
-    QDoubleVector2D origin = map.geoProjection().wrappedMapProjectionToItemPosition(lb);
+    QDoubleVector2D origin = p.wrappedMapProjectionToItemPosition(lb);
 
     QPainterPath ppi;
     for (const QList<QDoubleVector2D> &path: clippedPaths) {
         QDoubleVector2D lastAddedPoint;
         for (int i = 0; i < path.size(); ++i) {
-            QDoubleVector2D point = map.geoProjection().wrappedMapProjectionToItemPosition(path.at(i));
+            QDoubleVector2D point = p.wrappedMapProjectionToItemPosition(path.at(i));
             //point = point - origin; // Do this using ppi.translate()
 
             if (i == 0) {
@@ -326,6 +327,7 @@ QDeclarativeCircleMapItem::QDeclarativeCircleMapItem(QQuickItem *parent)
 :   QDeclarativeGeoMapItemBase(parent), border_(this), color_(Qt::transparent), dirtyMaterial_(true),
     updatingGeometry_(false)
 {
+    m_itemType = QGeoMap::MapCircle;
     setFlag(ItemHasContents, true);
     QObject::connect(&border_, SIGNAL(colorChanged(QColor)),
                      this, SLOT(markSourceDirtyAndUpdate()));
@@ -483,16 +485,24 @@ QSGNode *QDeclarativeCircleMapItem::updateMapItemPaintNode(QSGNode *oldNode, Upd
 */
 void QDeclarativeCircleMapItem::updatePolish()
 {
-    if (!map() || !circle_.isValid())
+    if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
+    if (!circle_.isValid()) {
+        geometry_.clear();
+        borderGeometry_.clear();
+        setWidth(0);
+        setHeight(0);
+        return;
+    }
 
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
     QScopedValueRollback<bool> rollback(updatingGeometry_);
     updatingGeometry_ = true;
 
     QList<QDoubleVector2D> circlePath = circlePath_;
 
     int pathCount = circlePath.size();
-    bool preserve = preserveCircleGeometry(circlePath, circle_.center(), circle_.radius());
+    bool preserve = preserveCircleGeometry(circlePath, circle_.center(), circle_.radius(), p);
     // using leftBound_ instead of the analytically calculated circle_.boundingGeoRectangle().topLeft());
     // to fix QTBUG-62154
     geometry_.setPreserveGeometry(true, leftBound_); // to set the geoLeftBound_
@@ -504,7 +514,7 @@ void QDeclarativeCircleMapItem::updatePolish()
         invertedCircle = true;
     } else {
         geometry_.updateSourcePoints(*map(), circlePath);
-        geometry_.updateScreenPoints(*map());
+        geometry_.updateScreenPoints(*map(), border_.width());
     }
 
     borderGeometry_.clear();
@@ -533,7 +543,7 @@ void QDeclarativeCircleMapItem::updatePolish()
         QDoubleVector2D borderLeftBoundWrapped;
         QList<QList<QDoubleVector2D > > clippedPaths = borderGeometry_.clipPath(*map(), closedPath, borderLeftBoundWrapped);
         if (clippedPaths.size()) {
-            borderLeftBoundWrapped = map()->geoProjection().geoToWrappedMapProjection(geometryOrigin);
+            borderLeftBoundWrapped = p.geoToWrappedMapProjection(geometryOrigin);
             borderGeometry_.pathToScreen(*map(), clippedPaths, borderLeftBoundWrapped);
             borderGeometry_.updateScreenPoints(*map(), border_.width());
             geoms << &borderGeometry_;
@@ -543,9 +553,17 @@ void QDeclarativeCircleMapItem::updatePolish()
     }
 
     QRectF combined = QGeoMapItemGeometry::translateToCommonOrigin(geoms);
-    setWidth(combined.width());
-    setHeight(combined.height());
 
+    if (invertedCircle || !preserve) {
+        setWidth(combined.width());
+        setHeight(combined.height());
+        setPositionOnMap(geometry_.origin(), geometry_.firstPointOffset());
+    } else {
+        setWidth(combined.width() + 2 * border_.width());
+        setHeight(combined.height() + 2 * border_.width());
+    }
+
+    // No offsetting here, even in normal case, because first point offset is already translated
     setPositionOnMap(geometry_.origin(), geometry_.firstPointOffset());
 }
 
@@ -565,13 +583,15 @@ void QDeclarativeCircleMapItem::afterViewportChanged(const QGeoMapViewportChange
 */
 void QDeclarativeCircleMapItem::updateCirclePath()
 {
-    if (!map())
+    if (!map() || map()->geoProjection().projectionType() != QGeoProjection::ProjectionWebMercator)
         return;
+
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(map()->geoProjection());
     QList<QGeoCoordinate> path;
     calculatePeripheralPoints(path, circle_.center(), circle_.radius(), CircleSamples, leftBound_);
     circlePath_.clear();
     for (const QGeoCoordinate &c : path)
-        circlePath_ << map()->geoProjection().geoToMapProjection(c);
+        circlePath_ << p.geoToMapProjection(c);
 }
 
 /*!
@@ -587,9 +607,22 @@ const QGeoShape &QDeclarativeCircleMapItem::geoShape() const
     return circle_;
 }
 
-QGeoMap::ItemType QDeclarativeCircleMapItem::itemType() const
+void QDeclarativeCircleMapItem::setGeoShape(const QGeoShape &shape)
 {
-    return QGeoMap::MapCircle;
+    if (shape == circle_)
+        return;
+
+    const QGeoCircle circle(shape); // if shape isn't a circle, circle will be created as a default-constructed circle
+    const bool centerHasChanged = circle.center() != circle_.center();
+    const bool radiusHasChanged = circle.radius() != circle_.radius();
+    circle_ = circle;
+
+    updateCirclePath();
+    markSourceDirtyAndUpdate();
+    if (centerHasChanged)
+        emit centerChanged(circle_.center());
+    if (radiusHasChanged)
+        emit radiusChanged(circle_.radius());
 }
 
 /*!
@@ -612,11 +645,11 @@ void QDeclarativeCircleMapItem::geometryChanged(const QRectF &newGeometry, const
 }
 
 bool QDeclarativeCircleMapItem::preserveCircleGeometry (QList<QDoubleVector2D> &path,
-                                    const QGeoCoordinate &center, qreal distance)
+                                    const QGeoCoordinate &center, qreal distance, const QGeoProjectionWebMercator &p)
 {
     // if circle crosses north/south pole, then don't preserve circular shape,
     if ( crossEarthPole(center, distance)) {
-        updateCirclePathForRendering(path, center, distance);
+        updateCirclePathForRendering(path, center, distance, p);
         return false;
     }
     return true;
@@ -642,7 +675,7 @@ bool QDeclarativeCircleMapItem::preserveCircleGeometry (QList<QDoubleVector2D> &
  */
 void QDeclarativeCircleMapItem::updateCirclePathForRendering(QList<QDoubleVector2D> &path,
                                                              const QGeoCoordinate &center,
-                                                             qreal distance)
+                                                             qreal distance, const QGeoProjectionWebMercator &p)
 {
     const qreal poleLat = 90;
     const qreal distanceToNorthPole = center.distanceTo(QGeoCoordinate(poleLat, 0));
@@ -651,11 +684,11 @@ void QDeclarativeCircleMapItem::updateCirclePathForRendering(QList<QDoubleVector
     bool crossSouthPole = distanceToSouthPole < distance;
 
     QList<int> wrapPathIndex;
-    QDoubleVector2D prev = map()->geoProjection().wrapMapProjection(path.at(0));
+    QDoubleVector2D prev = p.wrapMapProjection(path.at(0));
 
     for (int i = 1; i <= path.count(); ++i) {
         int index = i % path.count();
-        QDoubleVector2D point = map()->geoProjection().wrapMapProjection(path.at(index));
+        QDoubleVector2D point = p.wrapMapProjection(path.at(index));
         double diff = qAbs(point.x() - prev.x());
         if (diff > 0.5) {
             continue;
@@ -665,7 +698,7 @@ void QDeclarativeCircleMapItem::updateCirclePathForRendering(QList<QDoubleVector
     // find the points in path where wrapping occurs
     for (int i = 1; i <= path.count(); ++i) {
         int index = i % path.count();
-        QDoubleVector2D point = map()->geoProjection().wrapMapProjection(path.at(index));
+        QDoubleVector2D point = p.wrapMapProjection(path.at(index));
         if ( (qAbs(point.x() - prev.x())) >= 0.5 ) {
             wrapPathIndex << index;
             if (wrapPathIndex.size() == 2 || !(crossNorthPole && crossSouthPole))

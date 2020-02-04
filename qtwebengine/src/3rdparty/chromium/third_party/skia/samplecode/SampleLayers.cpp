@@ -5,8 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
 #include "SkCanvas.h"
 #include "SkBlurMaskFilter.h"
 #include "SkCamera.h"
@@ -21,9 +20,7 @@
 #include "SkShader.h"
 #include "SkTime.h"
 #include "SkTypeface.h"
-#include "SkUtils.h"
-#include "SkKey.h"
-#include "SkDrawFilter.h"
+#include "SkUTF.h"
 #include "SkClipOpPriv.h"
 
 static void make_paint(SkPaint* paint, const SkMatrix& localMatrix) {
@@ -98,29 +95,14 @@ static void test_fade(SkCanvas* canvas) {
     canvas->drawRect(r, paint);
 }
 
-class RedFilter : public SkDrawFilter {
-public:
-    bool filter(SkPaint* p, SkDrawFilter::Type) override {
-        fColor = p->getColor();
-        if (fColor == SK_ColorRED) {
-            p->setColor(SK_ColorGREEN);
-        }
-        return true;
-    }
-
-private:
-    SkColor fColor;
-};
-
-class LayersView : public SkView {
+class LayersView : public Sample {
 public:
     LayersView() {}
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Layers");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Layers");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -130,7 +112,7 @@ protected:
         canvas->drawColor(SK_ColorGRAY);
     }
 
-    void onDraw(SkCanvas* canvas) override {
+    void onDrawContent(SkCanvas* canvas) override {
         this->drawBG(canvas);
 
         if (true) {
@@ -191,23 +173,8 @@ protected:
         test_fade(canvas);
     }
 
-    SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
-        this->inval(nullptr);
-
-        return this->INHERITED::onFindClickHandler(x, y, modi);
-    }
-
-    bool onClick(Click* click) override {
-        return this->INHERITED::onClick(click);
-    }
-
-    virtual bool handleKey(SkKey) {
-        this->inval(nullptr);
-        return true;
-    }
-
 private:
-    typedef SkView INHERITED;
+    typedef Sample INHERITED;
 };
 DEF_SAMPLE( return new LayersView; )
 
@@ -220,7 +187,7 @@ DEF_SAMPLE( return new LayersView; )
 #include "Resources.h"
 #include "SkAnimTimer.h"
 
-class BackdropView : public SampleView {
+class BackdropView : public Sample {
     SkPoint fCenter;
     SkScalar fAngle;
     sk_sp<SkImage> fImage;
@@ -229,15 +196,14 @@ public:
     BackdropView() {
         fCenter.set(200, 150);
         fAngle = 0;
-        fImage = GetResourceAsImage("mandrill_512.png");
+        fImage = GetResourceAsImage("images/mandrill_512.png");
         fFilter = SkDilateImageFilter::Make(8, 8, nullptr);
     }
 
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "Backdrop");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "Backdrop");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -270,18 +236,16 @@ protected:
         return true;
     }
 
-    SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
-        this->inval(nullptr);
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
         return new Click(this);
     }
 
     bool onClick(Click* click) override {
-        this->inval(nullptr);
         fCenter = click->fCurr;
         return this->INHERITED::onClick(click);
     }
 
 private:
-    typedef SampleView INHERITED;
+    typedef Sample INHERITED;
 };
 DEF_SAMPLE( return new BackdropView; )

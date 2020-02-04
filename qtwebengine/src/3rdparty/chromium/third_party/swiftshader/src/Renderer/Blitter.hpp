@@ -25,29 +25,47 @@ namespace sw
 {
 	class Blitter
 	{
-		enum Options : unsigned char
+		struct Options
 		{
-			FILTER_POINT = 0x00,
-			WRITE_RED = 0x01,
-			WRITE_GREEN = 0x02,
-			WRITE_BLUE = 0x04,
-			WRITE_ALPHA = 0x08,
-			WRITE_RGBA = WRITE_RED | WRITE_GREEN | WRITE_BLUE | WRITE_ALPHA,
-			FILTER_LINEAR = 0x10,
-			CLEAR_OPERATION = 0x20,
-			USE_STENCIL = 0x40,
+			Options() = default;
+			Options(bool filter, bool useStencil, bool convertSRGB)
+				: writeMask(0xF), clearOperation(false), filter(filter), useStencil(useStencil), convertSRGB(convertSRGB), clampToEdge(false) {}
+			Options(unsigned int writeMask)
+				: writeMask(writeMask), clearOperation(true), filter(false), useStencil(false), convertSRGB(true), clampToEdge(false) {}
+
+			union
+			{
+				struct
+				{
+					bool writeRed : 1;
+					bool writeGreen : 1;
+					bool writeBlue : 1;
+					bool writeAlpha : 1;
+				};
+
+				unsigned char writeMask;
+			};
+
+			bool clearOperation : 1;
+			bool filter : 1;
+			bool useStencil : 1;
+			bool convertSRGB : 1;
+			bool clampToEdge : 1;
 		};
 
-		struct BlitState
+		struct State : Options
 		{
-			bool operator==(const BlitState &state) const
+			State() = default;
+			State(const Options &options) : Options(options) {}
+
+			bool operator==(const State &state) const
 			{
-				return memcmp(this, &state, sizeof(BlitState)) == 0;
+				return memcmp(this, &state, sizeof(State)) == 0;
 			}
 
 			Format sourceFormat;
 			Format destFormat;
-			Blitter::Options options;
+			int destSamples;
 		};
 
 		struct BlitData
@@ -56,6 +74,7 @@ namespace sw
 			void *dest;
 			int sPitchB;
 			int dPitchB;
+			int dSliceB;
 
 			float x0;
 			float y0;
@@ -75,25 +94,26 @@ namespace sw
 		Blitter();
 		virtual ~Blitter();
 
-		void clear(void* pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
-		void blit(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil = false);
+		void clear(void *pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
+		void blit(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, const Options &options);
 		void blit3D(Surface *source, Surface *dest);
 
 	private:
-		bool fastClear(void* pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
+		bool fastClear(void *pixel, sw::Format format, Surface *dest, const SliceRect &dRect, unsigned int rgbaMask);
 
-		bool read(Float4 &color, Pointer<Byte> element, Format format);
-		bool write(Float4 &color, Pointer<Byte> element, Format format, const Blitter::Options& options);
-		bool read(Int4 &color, Pointer<Byte> element, Format format);
-		bool write(Int4 &color, Pointer<Byte> element, Format format, const Blitter::Options& options);
+		bool read(Float4 &color, Pointer<Byte> element, const State &state);
+		bool write(Float4 &color, Pointer<Byte> element, const State &state);
+		bool read(Int4 &color, Pointer<Byte> element, const State &state);
+		bool write(Int4 &color, Pointer<Byte> element, const State &state);
 		static bool GetScale(float4& scale, Format format);
-		static bool ApplyScaleAndClamp(Float4& value, const BlitState& state);
-		static Int ComputeOffset(Int& x, Int& y, Int& pitchB, int bytes, bool quadLayout);
-		void blit(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, const Blitter::Options& options);
-		bool blitReactor(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, const Blitter::Options& options);
-		Routine *generate(BlitState &state);
+		static bool ApplyScaleAndClamp(Float4 &value, const State &state, bool preScaled = false);
+		static Int ComputeOffset(Int &x, Int &y, Int &pitchB, int bytes, bool quadLayout);
+		static Float4 LinearToSRGB(Float4 &color);
+		static Float4 sRGBtoLinear(Float4 &color);
+		bool blitReactor(Surface *source, const SliceRectF &sRect, Surface *dest, const SliceRect &dRect, const Options &options);
+		Routine *generate(const State &state);
 
-		RoutineCache<BlitState> *blitCache;
+		RoutineCache<State> *blitCache;
 		MutexLock criticalSection;
 	};
 }

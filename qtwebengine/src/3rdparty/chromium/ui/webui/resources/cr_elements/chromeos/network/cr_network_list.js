@@ -78,7 +78,13 @@ Polymer({
   /** @private */
   updateListItems_: function() {
     this.saveScroll(this.$.networkList);
-    this.listItems_ = this.networks.concat(this.customItems);
+    const beforeNetworks = this.customItems.filter(function(item) {
+      return item.showBeforeNetworksList == true;
+    });
+    const afterNetworks = this.customItems.filter(function(item) {
+      return item.showBeforeNetworksList == false;
+    });
+    this.listItems_ = beforeNetworks.concat(this.networks, afterNetworks);
     this.restoreScroll(this.$.networkList);
     this.updateScrollableContents();
     if (this.focusRequested_) {
@@ -91,9 +97,10 @@ Polymer({
   /** @private */
   focusFirstItem_: function() {
     // Select the first cr-network-list-item if there is one.
-    var item = this.$$('cr-network-list-item');
-    if (!item)
+    const item = this.$$('cr-network-list-item');
+    if (!item) {
       return;
+    }
     item.focus();
     this.focusRequested_ = false;
   },
@@ -104,8 +111,9 @@ Polymer({
    * @private
    */
   selectedItemChanged_: function() {
-    if (this.selectedItem)
+    if (this.selectedItem) {
       this.onItemAction_(this.selectedItem);
+    }
   },
 
   /**
@@ -113,9 +121,11 @@ Polymer({
    * @private
    */
   onItemAction_: function(item) {
-    if (item.hasOwnProperty('customItemName'))
+    if (item.hasOwnProperty('customItemName')) {
       this.fire('custom-item-selected', item);
-    else
+    } else {
       this.fire('selected', item);
+      this.focusRequested_ = true;
+    }
   },
 });

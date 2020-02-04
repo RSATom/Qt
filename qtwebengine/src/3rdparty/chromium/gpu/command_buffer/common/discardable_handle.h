@@ -6,11 +6,25 @@
 #define GPU_COMMAND_BUFFER_COMMON_DISCARDABLE_HANDLE_H_
 
 #include "base/memory/ref_counted.h"
+#include "gpu/command_buffer/common/id_type.h"
 #include "gpu/gpu_export.h"
 
 namespace gpu {
 
 class Buffer;
+
+struct SerializableSkiaHandle {
+  SerializableSkiaHandle() = default;
+  SerializableSkiaHandle(uint32_t handle_id,
+                         uint32_t shm_id,
+                         uint32_t byte_offset)
+      : handle_id(handle_id), shm_id(shm_id), byte_offset(byte_offset) {}
+  ~SerializableSkiaHandle() = default;
+
+  uint32_t handle_id = 0u;
+  uint32_t shm_id = 0u;
+  uint32_t byte_offset = 0u;
+};
 
 // DiscardableHandleBase is the base class for the discardable handle
 // implementation. In order to facilitate transfering handles across the
@@ -39,10 +53,13 @@ class GPU_EXPORT DiscardableHandleBase {
   // Ensures this is a valid allocation for use with a DiscardableHandleBase.
   static bool ValidateParameters(const Buffer* buffer, uint32_t byte_offset);
 
+  // Functions for tracing only.
+  bool IsDeletedForTracing() const;
+
   // Test only functions.
   bool IsLockedForTesting() const;
   bool IsDeletedForTesting() const;
-  scoped_refptr<Buffer> BufferForTesting() const { return buffer_; }
+  scoped_refptr<Buffer> BufferForTesting() const;
 
  protected:
   DiscardableHandleBase(scoped_refptr<Buffer> buffer,
@@ -66,6 +83,9 @@ class GPU_EXPORT DiscardableHandleBase {
 // handle (via the constructor), and can Lock an existing handle.
 class GPU_EXPORT ClientDiscardableHandle : public DiscardableHandleBase {
  public:
+  using Id = IdType32<ClientDiscardableHandle>;
+
+  ClientDiscardableHandle();  // Constructs an invalid handle.
   ClientDiscardableHandle(scoped_refptr<Buffer> buffer,
                           uint32_t byte_offset,
                           int32_t shm_id);
@@ -81,12 +101,16 @@ class GPU_EXPORT ClientDiscardableHandle : public DiscardableHandleBase {
   // Returns true if the handle has been deleted on service side and can be
   // re-used on the client.
   bool CanBeReUsed() const;
+
+  // Returns true if this handle is backed by valid shared memory.
+  bool IsValid() const { return shm_id() > 0; }
 };
 
 // ServiceDiscardableHandle can wrap an existing handle (via the constructor),
 // and can unlock and delete this handle.
 class GPU_EXPORT ServiceDiscardableHandle : public DiscardableHandleBase {
  public:
+  ServiceDiscardableHandle();  // Constructs an invalid handle.
   ServiceDiscardableHandle(scoped_refptr<Buffer> buffer,
                            uint32_t byte_offset,
                            int32_t shm_id);

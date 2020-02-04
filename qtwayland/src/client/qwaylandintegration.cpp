@@ -52,7 +52,12 @@
 #include "qwaylandwindowmanagerintegration_p.h"
 #include "qwaylandscreen_p.h"
 
-#include <QtFontDatabaseSupport/private/qgenericunixfontdatabase_p.h>
+#if defined(Q_OS_MACOS)
+#  include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
+#  include <QtFontDatabaseSupport/private/qfontengine_coretext_p.h>
+#else
+#  include <QtFontDatabaseSupport/private/qgenericunixfontdatabase_p.h>
+#endif
 #include <QtEventDispatcherSupport/private/qgenericunixeventdispatcher_p.h>
 #include <QtThemeSupport/private/qgenericunixthemes_p.h>
 
@@ -77,12 +82,17 @@
 
 #include "qwaylandshellintegration_p.h"
 #include "qwaylandshellintegrationfactory_p.h"
-#include "qwaylandxdgshellintegration_p.h"
-#include "qwaylandwlshellintegration_p.h"
-#include "qwaylandxdgshellv6integration_p.h"
 
 #include "qwaylandinputdeviceintegration_p.h"
 #include "qwaylandinputdeviceintegrationfactory_p.h"
+
+#ifndef QT_NO_ACCESSIBILITY_ATSPI_BRIDGE
+#include <QtLinuxAccessibilitySupport/private/bridge_p.h>
+#endif
+
+#if QT_CONFIG(xkbcommon)
+#include <QtXkbCommonSupport/private/qxkbcommon_p.h>
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -121,39 +131,27 @@ public:
 };
 
 QWaylandIntegration::QWaylandIntegration()
-    : mClientBufferIntegration(0)
-    , mInputDeviceIntegration(Q_NULLPTR)
-    , mFontDb(new QGenericUnixFontDatabase())
-    , mNativeInterface(new QWaylandNativeInterface(this))
-#if QT_CONFIG(accessibility)
-    , mAccessibility(new QPlatformAccessibility())
+#if defined(Q_OS_MACOS)
+    : mFontDb(new QCoreTextFontDatabaseEngineFactory<QCoreTextFontEngine>)
+#else
+    : mFontDb(new QGenericUnixFontDatabase())
 #endif
-    , mClientBufferIntegrationInitialized(false)
-    , mServerBufferIntegrationInitialized(false)
-    , mShellIntegrationInitialized(false)
+    , mNativeInterface(new QWaylandNativeInterface(this))
 {
     initializeInputDeviceIntegration();
     mDisplay.reset(new QWaylandDisplay(this));
+    if (!mDisplay->isInitialized()) {
+        mFailed = true;
+        return;
+    }
 #if QT_CONFIG(clipboard)
     mClipboard.reset(new QWaylandClipboard(mDisplay.data()));
 #endif
 #if QT_CONFIG(draganddrop)
     mDrag.reset(new QWaylandDrag(mDisplay.data()));
 #endif
-    QString icStr = QPlatformInputContextFactory::requested();
-    if (!icStr.isNull()) {
-        mInputContext.reset(QPlatformInputContextFactory::create(icStr));
-    } else {
-        //try to use the input context using the wl_text_input interface
-        QPlatformInputContext *ctx = new QWaylandInputContext(mDisplay.data());
-        mInputContext.reset(ctx);
 
-        //use the traditional way for on screen keyboards for now
-        if (!mInputContext.data()->isValid()) {
-            ctx = QPlatformInputContextFactory::create();
-            mInputContext.reset(ctx);
-        }
-    }
+    reconfigureInputContext();
 }
 
 QWaylandIntegration::~QWaylandIntegration()
@@ -180,6 +178,8 @@ bool QWaylandIntegration::hasCapability(QPlatformIntegration::Capability cap) co
         return true;
     case RasterGLSurface:
         return true;
+    case WindowActivation:
+        return false;
     default: return QPlatformIntegration::hasCapability(cap);
     }
 }
@@ -198,7 +198,7 @@ QPlatformOpenGLContext *QWaylandIntegration::createPlatformOpenGLContext(QOpenGL
 {
     if (mDisplay->clientBufferIntegration())
         return mDisplay->clientBufferIntegration()->createPlatformOpenGLContext(context->format(), context->shareHandle());
-    return 0;
+    return nullptr;
 }
 #endif  // opengl
 
@@ -270,6 +270,15 @@ QVariant QWaylandIntegration::styleHint(StyleHint hint) const
 #if QT_CONFIG(accessibility)
 QPlatformAccessibility *QWaylandIntegration::accessibility() const
 {
+    if (!mAccessibility) {
+#ifndef QT_NO_ACCESSIBILITY_ATSPI_BRIDGE
+        Q_ASSERT_X(QCoreApplication::eventDispatcher(), "QXcbIntegration",
+            "Initializing accessibility without event-dispatcher!");
+        mAccessibility.reset(new QSpiAccessibleBridge());
+#else
+        mAccessibility.reset(new QPlatformAccessibility());
+#endif
+    }
     return mAccessibility.data();
 }
 #endif
@@ -284,6 +293,13 @@ QWaylandDisplay *QWaylandIntegration::display() const
     return mDisplay.data();
 }
 
+QList<int> QWaylandIntegration::possibleKeys(const QKeyEvent *event) const
+{
+    if (auto *seat = mDisplay->currentInputDevice())
+        return seat->possibleKeys(event);
+    return {};
+}
+
 QStringList QWaylandIntegration::themeNames() const
 {
     return GenericWaylandTheme::themeNames();
@@ -294,11 +310,14 @@ QPlatformTheme *QWaylandIntegration::createPlatformTheme(const QString &name) co
     return GenericWaylandTheme::createUnixTheme(name);
 }
 
+// May be called from non-GUI threads
 QWaylandClientBufferIntegration *QWaylandIntegration::clientBufferIntegration() const
 {
-    if (!mClientBufferIntegrationInitialized)
+    // Do an inexpensive check first to avoid locking whenever possible
+    if (Q_UNLIKELY(!mClientBufferIntegrationInitialized))
         const_cast<QWaylandIntegration *>(this)->initializeClientBufferIntegration();
 
+    Q_ASSERT(mClientBufferIntegrationInitialized);
     return mClientBufferIntegration && mClientBufferIntegration->isValid() ? mClientBufferIntegration.data() : nullptr;
 }
 
@@ -318,51 +337,56 @@ QWaylandShellIntegration *QWaylandIntegration::shellIntegration() const
     return mShellIntegration.data();
 }
 
+// May be called from non-GUI threads
 void QWaylandIntegration::initializeClientBufferIntegration()
 {
-    mClientBufferIntegrationInitialized = true;
+    QMutexLocker lock(&mClientBufferInitLock);
+    if (mClientBufferIntegrationInitialized)
+        return;
 
-    QString targetKey;
-    bool disableHardwareIntegration = qEnvironmentVariableIsSet("QT_WAYLAND_DISABLE_HW_INTEGRATION");
-    disableHardwareIntegration = disableHardwareIntegration || !mDisplay->hardwareIntegration();
-    if (disableHardwareIntegration) {
-        QByteArray clientBufferIntegrationName = qgetenv("QT_WAYLAND_CLIENT_BUFFER_INTEGRATION");
-        if (clientBufferIntegrationName.isEmpty())
-            clientBufferIntegrationName = QByteArrayLiteral("wayland-egl");
-        targetKey = QString::fromLocal8Bit(clientBufferIntegrationName);
-    } else {
-        targetKey = mDisplay->hardwareIntegration()->clientBufferIntegration();
+    QString targetKey = QString::fromLocal8Bit(qgetenv("QT_WAYLAND_CLIENT_BUFFER_INTEGRATION"));
+
+    if (targetKey.isEmpty()) {
+        if (mDisplay->hardwareIntegration()
+                && mDisplay->hardwareIntegration()->clientBufferIntegration() != QLatin1String("wayland-eglstream-controller")
+                && mDisplay->hardwareIntegration()->clientBufferIntegration() != QLatin1String("linux-dmabuf-unstable-v1")) {
+            targetKey = mDisplay->hardwareIntegration()->clientBufferIntegration();
+        } else {
+            targetKey = QLatin1Literal("wayland-egl");
+        }
     }
 
     if (targetKey.isEmpty()) {
         qWarning("Failed to determine what client buffer integration to use");
-        return;
+    } else {
+        QStringList keys = QWaylandClientBufferIntegrationFactory::keys();
+        qCDebug(lcQpaWayland) << "Available client buffer integrations:" << keys;
+
+        if (keys.contains(targetKey))
+            mClientBufferIntegration.reset(QWaylandClientBufferIntegrationFactory::create(targetKey, QStringList()));
+
+        if (mClientBufferIntegration) {
+            qCDebug(lcQpaWayland) << "Initializing client buffer integration" << targetKey;
+            mClientBufferIntegration->initialize(mDisplay.data());
+        } else {
+            qCWarning(lcQpaWayland) << "Failed to load client buffer integration:" << targetKey;
+            qCWarning(lcQpaWayland) << "Available client buffer integrations:" << keys;
+        }
     }
 
-    QStringList keys = QWaylandClientBufferIntegrationFactory::keys();
-    if (keys.contains(targetKey)) {
-        mClientBufferIntegration.reset(QWaylandClientBufferIntegrationFactory::create(targetKey, QStringList()));
-    }
-    if (mClientBufferIntegration)
-        mClientBufferIntegration->initialize(mDisplay.data());
-    else
-        qWarning("Failed to load client buffer integration: %s\n", qPrintable(targetKey));
+    // This must be set last to make sure other threads don't use the
+    // integration before initialization is complete.
+    mClientBufferIntegrationInitialized = true;
 }
 
 void QWaylandIntegration::initializeServerBufferIntegration()
 {
     mServerBufferIntegrationInitialized = true;
 
-    QString targetKey;
+    QString targetKey = QString::fromLocal8Bit(qgetenv("QT_WAYLAND_SERVER_BUFFER_INTEGRATION"));
 
-    bool disableHardwareIntegration = qEnvironmentVariableIsSet("QT_WAYLAND_DISABLE_HW_INTEGRATION");
-    disableHardwareIntegration = disableHardwareIntegration || !mDisplay->hardwareIntegration();
-    if (disableHardwareIntegration) {
-        QByteArray serverBufferIntegrationName = qgetenv("QT_WAYLAND_SERVER_BUFFER_INTEGRATION");
-        targetKey = QString::fromLocal8Bit(serverBufferIntegrationName);
-    } else {
+    if (targetKey.isEmpty() && mDisplay->hardwareIntegration())
         targetKey = mDisplay->hardwareIntegration()->serverBufferIntegration();
-    }
 
     if (targetKey.isEmpty()) {
         qWarning("Failed to determine what server buffer integration to use");
@@ -370,26 +394,32 @@ void QWaylandIntegration::initializeServerBufferIntegration()
     }
 
     QStringList keys = QWaylandServerBufferIntegrationFactory::keys();
-    if (keys.contains(targetKey)) {
+    qCDebug(lcQpaWayland) << "Available server buffer integrations:" << keys;
+
+    if (keys.contains(targetKey))
         mServerBufferIntegration.reset(QWaylandServerBufferIntegrationFactory::create(targetKey, QStringList()));
-    }
-    if (mServerBufferIntegration)
+
+    if (mServerBufferIntegration) {
+        qCDebug(lcQpaWayland) << "Initializing server buffer integration" << targetKey;
         mServerBufferIntegration->initialize(mDisplay.data());
-    else
-        qWarning("Failed to load server buffer integration %s\n", qPrintable(targetKey));
+    } else {
+        qCWarning(lcQpaWayland) << "Failed to load server buffer integration: " <<  targetKey;
+        qCWarning(lcQpaWayland) << "Available server buffer integrations:" << keys;
+    }
 }
 
 void QWaylandIntegration::initializeShellIntegration()
 {
     mShellIntegrationInitialized = true;
 
-    QByteArray integrationName = qgetenv("QT_WAYLAND_SHELL_INTEGRATION");
-    QString targetKey = QString::fromLocal8Bit(integrationName);
+    QByteArray integrationNames = qgetenv("QT_WAYLAND_SHELL_INTEGRATION");
+    QString targetKeys = QString::fromLocal8Bit(integrationNames);
 
     QStringList preferredShells;
-    if (!targetKey.isEmpty()) {
-        preferredShells << targetKey;
+    if (!targetKeys.isEmpty()) {
+        preferredShells = targetKeys.split(QLatin1Char(';'));
     } else {
+        preferredShells << QLatin1String("xdg-shell");
         preferredShells << QLatin1String("xdg-shell-v6");
         QString useXdgShell = QString::fromLocal8Bit(qgetenv("QT_WAYLAND_USE_XDG_SHELL"));
         if (!useXdgShell.isEmpty() && useXdgShell != QLatin1String("0")) {
@@ -397,20 +427,20 @@ void QWaylandIntegration::initializeShellIntegration()
                           "please specify the shell using QT_WAYLAND_SHELL_INTEGRATION instead";
             preferredShells << QLatin1String("xdg-shell-v5");
         }
-        preferredShells << QLatin1String("wl-shell");
+        preferredShells << QLatin1String("wl-shell") << QLatin1String("ivi-shell");
     }
 
     Q_FOREACH (QString preferredShell, preferredShells) {
         mShellIntegration.reset(createShellIntegration(preferredShell));
         if (mShellIntegration) {
-            qDebug("Using the '%s' shell integration", qPrintable(preferredShell));
+            qCDebug(lcQpaWayland, "Using the '%s' shell integration", qPrintable(preferredShell));
             break;
         }
     }
 
-    if (!mShellIntegration || !mShellIntegration->initialize(mDisplay.data())) {
-        mShellIntegration.reset();
-        qWarning("Failed to load shell integration %s", qPrintable(targetKey));
+    if (!mShellIntegration) {
+        qCWarning(lcQpaWayland) << "Loading shell integration failed.";
+        qCWarning(lcQpaWayland) << "Attempted to load the following shells" << preferredShells;
     }
 }
 
@@ -440,17 +470,48 @@ void QWaylandIntegration::initializeInputDeviceIntegration()
     }
 }
 
+void QWaylandIntegration::reconfigureInputContext()
+{
+    if (!mDisplay) {
+        // This function can be called from QWaylandDisplay::registry_global() when we
+        // are in process of constructing QWaylandDisplay. Configuring input context
+        // in that case is done by calling reconfigureInputContext() from QWaylandIntegration
+        // constructor, after QWaylandDisplay has been constructed.
+        return;
+    }
+
+    const QString &requested = QPlatformInputContextFactory::requested();
+    if (requested == QLatin1String("qtvirtualkeyboard"))
+        qCWarning(lcQpaWayland) << "qtvirtualkeyboard currently is not supported at client-side,"
+                                   " use QT_IM_MODULE=qtvirtualkeyboard at compositor-side.";
+
+    if (requested.isNull())
+        mInputContext.reset(new QWaylandInputContext(mDisplay.data()));
+    else
+        mInputContext.reset(QPlatformInputContextFactory::create(requested));
+
+    const QString defaultInputContext(QStringLiteral("compose"));
+    if ((!mInputContext || !mInputContext->isValid()) && requested != defaultInputContext)
+        mInputContext.reset(QPlatformInputContextFactory::create(defaultInputContext));
+
+#if QT_CONFIG(xkbcommon)
+    QXkbCommon::setXkbContext(mInputContext.data(), mDisplay->xkbContext());
+#endif
+
+    // Even if compositor-side input context handling has been requested, we fallback to
+    // client-side handling if compositor does not provide the text-input extension. This
+    // is why we need to check here which input context actually is being used.
+    mDisplay->mUsingInputContextFromCompositor = qobject_cast<QWaylandInputContext *>(mInputContext.data());
+
+    qCDebug(lcQpaWayland) << "using input method:" << inputContext()->metaObject()->className();
+}
+
 QWaylandShellIntegration *QWaylandIntegration::createShellIntegration(const QString &integrationName)
 {
-    if (integrationName == QLatin1Literal("wl-shell")) {
-        return QWaylandWlShellIntegration::create(mDisplay.data());
-    } else if (integrationName == QLatin1Literal("xdg-shell-v5")) {
-        return QWaylandXdgShellIntegration::create(mDisplay.data());
-    } else if (integrationName == QLatin1Literal("xdg-shell-v6")) {
-        return QWaylandXdgShellV6Integration::create(mDisplay.data());
-    } else if (QWaylandShellIntegrationFactory::keys().contains(integrationName)) {
-        return QWaylandShellIntegrationFactory::create(integrationName, QStringList());
+    if (QWaylandShellIntegrationFactory::keys().contains(integrationName)) {
+        return QWaylandShellIntegrationFactory::create(integrationName, mDisplay.data());
     } else {
+        qCWarning(lcQpaWayland) << "No shell integration named" << integrationName << "found";
         return nullptr;
     }
 }

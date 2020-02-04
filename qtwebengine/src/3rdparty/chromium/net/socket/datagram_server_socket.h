@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/socket/datagram_socket.h"
 #include "net/socket/diff_serv_code_point.h"
@@ -40,7 +40,7 @@ class NET_EXPORT DatagramServerSocket : public DatagramSocket {
   virtual int RecvFrom(IOBuffer* buf,
                        int buf_len,
                        IPEndPoint* address,
-                       const CompletionCallback& callback) = 0;
+                       CompletionOnceCallback callback) = 0;
 
   // Send to a socket with a particular destination.
   // |buf| is the buffer to send.
@@ -53,7 +53,7 @@ class NET_EXPORT DatagramServerSocket : public DatagramSocket {
   virtual int SendTo(IOBuffer* buf,
                      int buf_len,
                      const IPEndPoint& address,
-                     const CompletionCallback& callback) = 0;
+                     CompletionOnceCallback callback) = 0;
 
   // Set the receive buffer size (in bytes) for the socket.
   // Returns a net error code.
@@ -63,13 +63,30 @@ class NET_EXPORT DatagramServerSocket : public DatagramSocket {
   // Returns a net error code.
   virtual int SetSendBufferSize(int32_t size) = 0;
 
-  // Allow the socket to share the local address to which the socket will
-  // be bound with other processes. Should be called before Listen().
+  // Allow the socket to share the local address to which the socket will be
+  // bound with other processes. If multiple processes are bound to the same
+  // local address at the same time, behavior is undefined; e.g., it is not
+  // guaranteed that incoming messages will be sent to all listening sockets.
+  //
+  // Should be called before Listen().
   virtual void AllowAddressReuse() = 0;
 
   // Allow sending and receiving packets to and from broadcast addresses.
   // Should be called before Listen().
   virtual void AllowBroadcast() = 0;
+
+  // Allow the socket to share the local address to which the socket will be
+  // bound with other processes and attempt to allow all such sockets to receive
+  // the same multicast messages.
+  //
+  // For best cross-platform results in allowing the messages to be shared, all
+  // sockets sharing the same address should join the same multicast group and
+  // interface. Also, the socket should listen to the specific multicast group
+  // address rather than a wildcard address (e.g. 0.0.0.0) on platforms where
+  // doing so is allowed.
+  //
+  // Should be called before Listen().
+  virtual void AllowAddressSharingForMulticast() = 0;
 
   // Join the multicast group with address |group_address|.
   // Returns a network error code.

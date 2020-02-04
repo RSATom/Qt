@@ -14,7 +14,7 @@ namespace content {
 
 struct CONTENT_EXPORT WebContentsMediaCaptureId {
  public:
-  WebContentsMediaCaptureId() = default;
+  constexpr WebContentsMediaCaptureId() = default;
   WebContentsMediaCaptureId(int render_process_id, int main_render_frame_id)
       : render_process_id(render_process_id),
         main_render_frame_id(main_render_frame_id) {}

@@ -10,12 +10,14 @@
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "components/crash/content/app/crash_export_thunks.h"
 #include "components/crash/content/app/crash_reporter_client.h"
 #include "components/crash/content/app/crash_switches.h"
 #include "third_party/crashpad/crashpad/client/crashpad_client.h"
@@ -29,7 +31,7 @@ void GetPlatformCrashpadAnnotations(
     std::map<std::string, std::string>* annotations) {
   CrashReporterClient* crash_reporter_client = GetCrashReporterClient();
   wchar_t exe_file[MAX_PATH] = {};
-  CHECK(::GetModuleFileName(nullptr, exe_file, arraysize(exe_file)));
+  CHECK(::GetModuleFileName(nullptr, exe_file, base::size(exe_file)));
   base::string16 product_name, version, special_build, channel_name;
   crash_reporter_client->GetProductNameAndVersion(
       exe_file, &product_name, &version, &special_build, &channel_name);
@@ -52,9 +54,13 @@ void GetPlatformCrashpadAnnotations(
 #endif
 }
 
-base::FilePath PlatformCrashpadInitialization(bool initial_client,
-                                              bool browser_process,
-                                              bool embedded_handler) {
+base::FilePath PlatformCrashpadInitialization(
+    bool initial_client,
+    bool browser_process,
+    bool embedded_handler,
+    const std::string& user_data_dir,
+    const base::FilePath& exe_path,
+    const std::vector<std::string>& initial_arguments) {
   base::FilePath database_path;  // Only valid in the browser process.
   base::FilePath metrics_path;  // Only valid in the browser process.
 
@@ -87,11 +93,14 @@ base::FilePath PlatformCrashpadInitialization(bool initial_client,
     // isn't present in the environment then the default URL will remain.
     env->GetVar(kServerUrlVar, &url);
 
-    wchar_t exe_file_path[MAX_PATH] = {};
-    CHECK(
-        ::GetModuleFileName(nullptr, exe_file_path, arraysize(exe_file_path)));
+    base::FilePath exe_file(exe_path);
+    if (exe_file.empty()) {
+      wchar_t exe_file_path[MAX_PATH] = {};
+      CHECK(::GetModuleFileName(nullptr, exe_file_path,
+                                base::size(exe_file_path)));
 
-    base::FilePath exe_file(exe_file_path);
+      exe_file = base::FilePath(exe_file_path);
+    }
 
     if (crash_reporter_client->GetShouldDumpLargerDumps()) {
       const uint32_t kIndirectMemoryLimit = 4 * 1024 * 1024;
@@ -103,10 +112,14 @@ base::FilePath PlatformCrashpadInitialization(bool initial_client,
     // If the handler is embedded in the binary (e.g. chrome, setup), we
     // reinvoke it with --type=crashpad-handler. Otherwise, we use the
     // standalone crashpad_handler.exe (for tests, etc.).
-    std::vector<std::string> start_arguments;
+    std::vector<std::string> start_arguments(initial_arguments);
     if (embedded_handler) {
       start_arguments.push_back(std::string("--type=") +
                                 switches::kCrashpadHandler);
+      if (!user_data_dir.empty()) {
+        start_arguments.push_back(std::string("--user-data-dir=") +
+                                  user_data_dir);
+      }
       // The prefetch argument added here has to be documented in
       // chrome_switches.cc, below the kPrefetchArgument* constants. A constant
       // can't be used here because crashpad can't depend on Chrome.
@@ -151,89 +164,12 @@ base::FilePath PlatformCrashpadInitialization(bool initial_client,
   return database_path;
 }
 
-namespace {
-
 // We need to prevent ICF from folding DumpProcessForHungInputThread(),
-// DumpProcessForHungInputNoCrashKeysThread() together, since that makes them
-// indistinguishable in crash dumps. We do this by making the function
-// bodies unique, and prevent optimization from shuffling things around.
-MSVC_DISABLE_OPTIMIZE()
-MSVC_PUSH_DISABLE_WARNING(4748)
-
-// TODO(dtapuska): Remove when enough information is gathered where the crash
-// reports without crash keys come from.
-DWORD WINAPI DumpProcessForHungInputThread(void* crash_keys_str) {
-  base::StringPairs crash_keys;
-  if (crash_keys_str && base::SplitStringIntoKeyValuePairs(
-                            reinterpret_cast<const char*>(crash_keys_str), ':',
-                            ',', &crash_keys)) {
-    for (const auto& crash_key : crash_keys) {
-      base::debug::SetCrashKeyValue(crash_key.first, crash_key.second);
-    }
-  }
+// together, since that makes them indistinguishable in crash dumps.
+// We do this by making the function body unique, and turning off inlining.
+NOINLINE DWORD WINAPI DumpProcessForHungInputThread(void* param) {
   DumpWithoutCrashing();
   return 0;
-}
-
-// TODO(dtapuska): Remove when enough information is gathered where the crash
-// reports without crash keys come from.
-DWORD WINAPI DumpProcessForHungInputNoCrashKeysThread(void* reason) {
-#pragma warning(push)
-#pragma warning(disable : 4311 4302)
-  base::debug::SetCrashKeyValue(
-      "hung-reason", base::IntToString(reinterpret_cast<int>(reason)));
-#pragma warning(pop)
-
-  DumpWithoutCrashing();
-  return 0;
-}
-
-MSVC_POP_WARNING()
-MSVC_ENABLE_OPTIMIZE()
-
-}  // namespace
-
-}  // namespace internal
-}  // namespace crash_reporter
-
-extern "C" {
-
-// Crashes the process after generating a dump for the provided exception. Note
-// that the crash reporter should be initialized before calling this function
-// for it to do anything.
-// NOTE: This function is used by SyzyASAN to invoke a crash. If you change the
-// the name or signature of this function you will break SyzyASAN instrumented
-// releases of Chrome. Please contact syzygy-team@chromium.org before doing so!
-int __declspec(dllexport) CrashForException(
-    EXCEPTION_POINTERS* info) {
-  crash_reporter::GetCrashpadClient().DumpAndCrash(info);
-  return EXCEPTION_CONTINUE_SEARCH;
-}
-
-// Injects a thread into a remote process to dump state when there is no crash.
-// |serialized_crash_keys| is a nul terminated string that represents serialized
-// crash keys sent from the browser. Keys and values are separated by ':', and
-// key/value pairs are separated by ','. All keys should be previously
-// registered as crash keys. This method is used solely to classify hung input.
-HANDLE __declspec(dllexport) __cdecl InjectDumpForHungInput(
-    HANDLE process,
-    void* serialized_crash_keys) {
-  return CreateRemoteThread(
-      process, nullptr, 0,
-      crash_reporter::internal::DumpProcessForHungInputThread,
-      serialized_crash_keys, 0, nullptr);
-}
-
-// Injects a thread into a remote process to dump state when there is no crash.
-// This method provides |reason| which will interpreted as an integer and logged
-// as a crash key.
-HANDLE __declspec(dllexport) __cdecl InjectDumpForHungInputNoCrashKeys(
-    HANDLE process,
-    int reason) {
-  return CreateRemoteThread(
-      process, nullptr, 0,
-      crash_reporter::internal::DumpProcessForHungInputNoCrashKeysThread,
-      reinterpret_cast<void*>(reason), 0, nullptr);
 }
 
 #if defined(ARCH_CPU_X86_64)
@@ -244,7 +180,7 @@ static int CrashForExceptionInNonABICompliantCodeRange(
     PCONTEXT ContextRecord,
     PDISPATCHER_CONTEXT DispatcherContext) {
   EXCEPTION_POINTERS info = { ExceptionRecord, ContextRecord };
-  return CrashForException(&info);
+  return CrashForException_ExportThunk(&info);
 }
 
 // See https://msdn.microsoft.com/en-us/library/ddssxxy8.aspx
@@ -264,10 +200,7 @@ struct ExceptionHandlerRecord {
   unsigned char thunk[12];
 };
 
-// These are GetProcAddress()d from V8 binding code.
-void __declspec(dllexport) __cdecl RegisterNonABICompliantCodeRange(
-    void* start,
-    size_t size_in_bytes) {
+void RegisterNonABICompliantCodeRangeImpl(void* start, size_t size_in_bytes) {
   ExceptionHandlerRecord* record =
       reinterpret_cast<ExceptionHandlerRecord*>(start);
 
@@ -295,7 +228,8 @@ void __declspec(dllexport) __cdecl RegisterNonABICompliantCodeRange(
   // mov imm64, rax
   record->thunk[0] = 0x48;
   record->thunk[1] = 0xb8;
-  void* handler = &CrashForExceptionInNonABICompliantCodeRange;
+  void* handler =
+      reinterpret_cast<void*>(&CrashForExceptionInNonABICompliantCodeRange);
   memcpy(&record->thunk[2], &handler, 8);
 
   // jmp rax
@@ -310,8 +244,7 @@ void __declspec(dllexport) __cdecl RegisterNonABICompliantCodeRange(
       &record->runtime_function, 1, reinterpret_cast<DWORD64>(start)));
 }
 
-void __declspec(dllexport) __cdecl UnregisterNonABICompliantCodeRange(
-    void* start) {
+void UnregisterNonABICompliantCodeRangeImpl(void* start) {
   ExceptionHandlerRecord* record =
       reinterpret_cast<ExceptionHandlerRecord*>(start);
 
@@ -319,4 +252,5 @@ void __declspec(dllexport) __cdecl UnregisterNonABICompliantCodeRange(
 }
 #endif  // ARCH_CPU_X86_64
 
-}  // extern "C"
+}  // namespace internal
+}  // namespace crash_reporter

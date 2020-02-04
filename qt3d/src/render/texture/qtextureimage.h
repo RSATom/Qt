@@ -49,7 +49,7 @@ namespace Qt3DRender {
 
 class QTextureImagePrivate;
 
-class QT3DRENDERSHARED_EXPORT QTextureImage : public QAbstractTextureImage
+class Q_3DRENDERSHARED_EXPORT QTextureImage : public QAbstractTextureImage
 {
     Q_OBJECT
     Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
@@ -82,11 +82,11 @@ Q_SIGNALS:
     void mirroredChanged(bool mirrored);
 
 protected:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
     void setStatus(Status status);
 
 private:
-    QTextureImageDataGeneratorPtr dataGenerator() const Q_DECL_OVERRIDE;
+    QTextureImageDataGeneratorPtr dataGenerator() const override;
     Q_DECLARE_PRIVATE(QTextureImage)
 };
 

@@ -40,37 +40,49 @@
 #include "permission_manager_qt.h"
 
 #include "content/browser/renderer_host/render_view_host_delegate.h"
+#include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/browser/permission_controller.h"
 #include "content/public/browser/permission_type.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
-#include "content/public/browser/web_contents.h"
 
 #include "type_conversion.h"
 #include "web_contents_delegate_qt.h"
+#include "web_engine_settings.h"
 
 namespace QtWebEngineCore {
 
-BrowserContextAdapter::PermissionType toQt(content::PermissionType type)
+ProfileAdapter::PermissionType toQt(content::PermissionType type)
 {
     switch (type) {
     case content::PermissionType::GEOLOCATION:
-        return BrowserContextAdapter::GeolocationPermission;
+        return ProfileAdapter::GeolocationPermission;
     case content::PermissionType::AUDIO_CAPTURE:
-        return BrowserContextAdapter::AudioCapturePermission;
+        return ProfileAdapter::AudioCapturePermission;
     case content::PermissionType::VIDEO_CAPTURE:
-        return BrowserContextAdapter::VideoCapturePermission;
-    case content::PermissionType::FLASH:
+        return ProfileAdapter::VideoCapturePermission;
+    case content::PermissionType::CLIPBOARD_READ:
+        return ProfileAdapter::ClipboardRead;
+    case content::PermissionType::CLIPBOARD_WRITE:
+        return ProfileAdapter::ClipboardWrite;
     case content::PermissionType::NOTIFICATIONS:
+        return ProfileAdapter::NotificationPermission;
+    case content::PermissionType::FLASH:
     case content::PermissionType::MIDI_SYSEX:
-    case content::PermissionType::PUSH_MESSAGING:
     case content::PermissionType::PROTECTED_MEDIA_IDENTIFIER:
     case content::PermissionType::MIDI:
     case content::PermissionType::DURABLE_STORAGE:
     case content::PermissionType::BACKGROUND_SYNC:
+    case content::PermissionType::SENSORS:
+    case content::PermissionType::ACCESSIBILITY_EVENTS:
+    case content::PermissionType::PAYMENT_HANDLER:
+    case content::PermissionType::BACKGROUND_FETCH:
+    case content::PermissionType::IDLE_DETECTION:
     case content::PermissionType::NUM:
+        NOTIMPLEMENTED() << "Unsupported permission type: " << static_cast<int>(type);
         break;
     }
-    return BrowserContextAdapter::UnsupportedPermission;
+    return ProfileAdapter::UnsupportedPermission;
 }
 
 PermissionManagerQt::PermissionManagerQt()
@@ -83,9 +95,9 @@ PermissionManagerQt::~PermissionManagerQt()
 {
 }
 
-void PermissionManagerQt::permissionRequestReply(const QUrl &origin, BrowserContextAdapter::PermissionType type, bool reply)
+void PermissionManagerQt::permissionRequestReply(const QUrl &origin, ProfileAdapter::PermissionType type, bool reply)
 {
-    QPair<QUrl, BrowserContextAdapter::PermissionType> key(origin, type);
+    QPair<QUrl, ProfileAdapter::PermissionType> key(origin, type);
     m_permissions[key] = reply;
     blink::mojom::PermissionStatus status = reply ? blink::mojom::PermissionStatus::GRANTED : blink::mojom::PermissionStatus::DENIED;
     {
@@ -98,7 +110,7 @@ void PermissionManagerQt::permissionRequestReply(const QUrl &origin, BrowserCont
                 ++it;
         }
     }
-    Q_FOREACH (const RequestOrSubscription &subscriber, m_subscribers) {
+    for (const RequestOrSubscription &subscriber : qAsConst(m_subscribers)) {
         if (subscriber.origin == origin && subscriber.type == type)
             subscriber.callback.Run(status);
     }
@@ -110,13 +122,13 @@ void PermissionManagerQt::permissionRequestReply(const QUrl &origin, BrowserCont
             std::vector<blink::mojom::PermissionStatus> result;
             result.reserve(it->types.size());
             for (content::PermissionType permission : it->types) {
-                const BrowserContextAdapter::PermissionType permissionType = toQt(permission);
-                if (permissionType == BrowserContextAdapter::UnsupportedPermission) {
+                const ProfileAdapter::PermissionType permissionType = toQt(permission);
+                if (permissionType == ProfileAdapter::UnsupportedPermission) {
                     result.push_back(blink::mojom::PermissionStatus::DENIED);
                     continue;
                 }
 
-                QPair<QUrl, BrowserContextAdapter::PermissionType> key(origin, permissionType);
+                QPair<QUrl, ProfileAdapter::PermissionType> key(origin, permissionType);
                 if (!m_permissions.contains(key)) {
                     answerable = false;
                     break;
@@ -136,9 +148,9 @@ void PermissionManagerQt::permissionRequestReply(const QUrl &origin, BrowserCont
     }
 }
 
-bool PermissionManagerQt::checkPermission(const QUrl &origin, BrowserContextAdapter::PermissionType type)
+bool PermissionManagerQt::checkPermission(const QUrl &origin, ProfileAdapter::PermissionType type)
 {
-    QPair<QUrl, BrowserContextAdapter::PermissionType> key(origin, type);
+    QPair<QUrl, ProfileAdapter::PermissionType> key(origin, type);
     return m_permissions.contains(key) && m_permissions[key];
 }
 
@@ -148,27 +160,39 @@ int PermissionManagerQt::RequestPermission(content::PermissionType permission,
                                             bool /*user_gesture*/,
                                             const base::Callback<void(blink::mojom::PermissionStatus)>& callback)
 {
-    int request_id = ++m_requestIdCount;
-    BrowserContextAdapter::PermissionType permissionType = toQt(permission);
-    if (permissionType == BrowserContextAdapter::UnsupportedPermission) {
+    WebContentsDelegateQt *contentsDelegate = static_cast<WebContentsDelegateQt *>(
+        content::WebContents::FromRenderFrameHost(frameHost)->GetDelegate());
+    Q_ASSERT(contentsDelegate);
+
+    ProfileAdapter::PermissionType permissionType = toQt(permission);
+    if (permissionType == ProfileAdapter::UnsupportedPermission) {
         callback.Run(blink::mojom::PermissionStatus::DENIED);
-        return kNoPendingOperation;
+        return content::PermissionController::kNoPendingOperation;
+    } else if (permissionType == ProfileAdapter::ClipboardRead) {
+        WebEngineSettings *settings = contentsDelegate->webEngineSettings();
+        if (settings->testAttribute(WebEngineSettings::JavascriptCanAccessClipboard)
+            && settings->testAttribute(WebEngineSettings::JavascriptCanPaste))
+            callback.Run(blink::mojom::PermissionStatus::GRANTED);
+        else
+            callback.Run(blink::mojom::PermissionStatus::DENIED);
+        return content::PermissionController::kNoPendingOperation;
     }
     // Audio and video-capture should not come this way currently
-    Q_ASSERT(permissionType != BrowserContextAdapter::AudioCapturePermission
-          && permissionType != BrowserContextAdapter::VideoCapturePermission);
+    Q_ASSERT(permissionType != ProfileAdapter::AudioCapturePermission
+          && permissionType != ProfileAdapter::VideoCapturePermission);
 
-    content::WebContents *webContents = frameHost->GetRenderViewHost()->GetDelegate()->GetAsWebContents();
-    WebContentsDelegateQt* contentsDelegate = static_cast<WebContentsDelegateQt*>(webContents->GetDelegate());
-    Q_ASSERT(contentsDelegate);
+    int request_id = ++m_requestIdCount;
     RequestOrSubscription request = {
         permissionType,
         toQt(requesting_origin),
         callback
     };
     m_requests.insert(request_id, request);
-    if (permissionType == BrowserContextAdapter::GeolocationPermission)
+    if (permissionType == ProfileAdapter::GeolocationPermission)
         contentsDelegate->requestGeolocationPermission(request.origin);
+    else if (permissionType == ProfileAdapter::NotificationPermission)
+        contentsDelegate->requestUserNotificationPermission(request.origin);
+
     return request_id;
 }
 
@@ -178,27 +202,35 @@ int PermissionManagerQt::RequestPermissions(const std::vector<content::Permissio
                                             bool /*user_gesture*/,
                                             const base::Callback<void(const std::vector<blink::mojom::PermissionStatus>&)>& callback)
 {
+    WebContentsDelegateQt *contentsDelegate = static_cast<WebContentsDelegateQt *>(
+        content::WebContents::FromRenderFrameHost(frameHost)->GetDelegate());
+    Q_ASSERT(contentsDelegate);
+
     bool answerable = true;
     std::vector<blink::mojom::PermissionStatus> result;
     result.reserve(permissions.size());
     for (content::PermissionType permission : permissions) {
-        const BrowserContextAdapter::PermissionType permissionType = toQt(permission);
-        if (permissionType == BrowserContextAdapter::UnsupportedPermission)
+        const ProfileAdapter::PermissionType permissionType = toQt(permission);
+        if (permissionType == ProfileAdapter::UnsupportedPermission)
             result.push_back(blink::mojom::PermissionStatus::DENIED);
-        else {
+        else if (permissionType == ProfileAdapter::ClipboardRead) {
+            WebEngineSettings *settings = contentsDelegate->webEngineSettings();
+            if (settings->testAttribute(WebEngineSettings::JavascriptCanAccessClipboard)
+                && settings->testAttribute(WebEngineSettings::JavascriptCanPaste))
+                result.push_back(blink::mojom::PermissionStatus::GRANTED);
+            else
+                result.push_back(blink::mojom::PermissionStatus::DENIED);
+        } else {
             answerable = false;
             break;
         }
     }
     if (answerable) {
         callback.Run(result);
-        return kNoPendingOperation;
+        return content::PermissionController::kNoPendingOperation;
     }
 
     int request_id = ++m_requestIdCount;
-    content::WebContents *webContents = frameHost->GetRenderViewHost()->GetDelegate()->GetAsWebContents();
-    WebContentsDelegateQt* contentsDelegate = static_cast<WebContentsDelegateQt*>(webContents->GetDelegate());
-    Q_ASSERT(contentsDelegate);
     MultiRequest request = {
         permissions,
         toQt(requesting_origin),
@@ -206,18 +238,13 @@ int PermissionManagerQt::RequestPermissions(const std::vector<content::Permissio
     };
     m_multiRequests.insert(request_id, request);
     for (content::PermissionType permission : permissions) {
-        const BrowserContextAdapter::PermissionType permissionType = toQt(permission);
-        if (permissionType == BrowserContextAdapter::GeolocationPermission)
+        const ProfileAdapter::PermissionType permissionType = toQt(permission);
+        if (permissionType == ProfileAdapter::GeolocationPermission)
             contentsDelegate->requestGeolocationPermission(request.origin);
+        else if (permissionType == ProfileAdapter::NotificationPermission)
+            contentsDelegate->requestUserNotificationPermission(request.origin);
     }
     return request_id;
-}
-
-void PermissionManagerQt::CancelPermissionRequest(int request_id)
-{
-    // Should we add API to cancel permissions in the UI level?
-    m_requests.remove(request_id);
-    m_multiRequests.remove(request_id);
 }
 
 blink::mojom::PermissionStatus PermissionManagerQt::GetPermissionStatus(
@@ -225,11 +252,11 @@ blink::mojom::PermissionStatus PermissionManagerQt::GetPermissionStatus(
     const GURL& requesting_origin,
     const GURL& /*embedding_origin*/)
 {
-    const BrowserContextAdapter::PermissionType permissionType = toQt(permission);
-    if (permissionType == BrowserContextAdapter::UnsupportedPermission)
+    const ProfileAdapter::PermissionType permissionType = toQt(permission);
+    if (permissionType == ProfileAdapter::UnsupportedPermission)
         return blink::mojom::PermissionStatus::DENIED;
 
-    QPair<QUrl, BrowserContextAdapter::PermissionType> key(toQt(requesting_origin), permissionType);
+    QPair<QUrl, ProfileAdapter::PermissionType> key(toQt(requesting_origin), permissionType);
     if (!m_permissions.contains(key))
         return blink::mojom::PermissionStatus::ASK;
     if (m_permissions[key])
@@ -237,23 +264,46 @@ blink::mojom::PermissionStatus PermissionManagerQt::GetPermissionStatus(
     return blink::mojom::PermissionStatus::DENIED;
 }
 
+blink::mojom::PermissionStatus PermissionManagerQt::GetPermissionStatusForFrame(
+        content::PermissionType permission,
+        content::RenderFrameHost *render_frame_host,
+        const GURL &requesting_origin)
+{
+    if (permission == content::PermissionType::CLIPBOARD_READ ||
+            permission == content::PermissionType::CLIPBOARD_WRITE) {
+        WebContentsDelegateQt *delegate = static_cast<WebContentsDelegateQt *>(
+                content::WebContents::FromRenderFrameHost(render_frame_host)->GetDelegate());
+        if (!delegate->webEngineSettings()->testAttribute(WebEngineSettings::JavascriptCanAccessClipboard))
+            return blink::mojom::PermissionStatus::DENIED;
+        if (permission == content::PermissionType::CLIPBOARD_READ &&
+                !delegate->webEngineSettings()->testAttribute(WebEngineSettings::JavascriptCanPaste))
+            return blink::mojom::PermissionStatus::DENIED;
+        return blink::mojom::PermissionStatus::GRANTED;
+    }
+
+    return GetPermissionStatus(
+                permission,
+                requesting_origin,
+                content::WebContents::FromRenderFrameHost(render_frame_host)->GetLastCommittedURL().GetOrigin());
+}
+
 void PermissionManagerQt::ResetPermission(
     content::PermissionType permission,
     const GURL& requesting_origin,
     const GURL& /*embedding_origin*/)
 {
-    const BrowserContextAdapter::PermissionType permissionType = toQt(permission);
-    if (permissionType == BrowserContextAdapter::UnsupportedPermission)
+    const ProfileAdapter::PermissionType permissionType = toQt(permission);
+    if (permissionType == ProfileAdapter::UnsupportedPermission)
         return;
 
-    QPair<QUrl, BrowserContextAdapter::PermissionType> key(toQt(requesting_origin), permissionType);
+    QPair<QUrl, ProfileAdapter::PermissionType> key(toQt(requesting_origin), permissionType);
     m_permissions.remove(key);
 }
 
 int PermissionManagerQt::SubscribePermissionStatusChange(
     content::PermissionType permission,
+    content::RenderFrameHost * /* render_frame_host */,
     const GURL& requesting_origin,
-    const GURL& /*embedding_origin*/,
     const base::Callback<void(blink::mojom::PermissionStatus)>& callback)
 {
     int subscriber_id = ++m_subscriberIdCount;
@@ -269,7 +319,7 @@ int PermissionManagerQt::SubscribePermissionStatusChange(
 void PermissionManagerQt::UnsubscribePermissionStatusChange(int subscription_id)
 {
     if (!m_subscribers.remove(subscription_id))
-        qWarning() << "PermissionManagerQt::UnsubscribePermissionStatusChange called on unknown subscription id" << subscription_id;
+        LOG(WARNING) << "PermissionManagerQt::UnsubscribePermissionStatusChange called on unknown subscription id" << subscription_id;
 }
 
 } // namespace QtWebEngineCore

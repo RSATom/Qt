@@ -5,8 +5,7 @@
 #include "components/password_manager/core/browser/suppressed_form_fetcher.h"
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/stub_password_manager_client.h"
@@ -55,7 +54,7 @@ class PasswordManagerClientWithMockStore : public StubPasswordManagerClient {
     mock_store_->ShutdownOnUIThread();
   }
 
-  MockPasswordStore& mock_password_store() const { return *mock_store_.get(); }
+  MockPasswordStore& mock_password_store() const { return *mock_store_; }
 
  protected:
   // StubPasswordManagerClient:
@@ -79,7 +78,8 @@ class SuppressedFormFetcherTest : public testing::Test {
   PasswordManagerClientWithMockStore* mock_client() { return &client_; }
 
  private:
-  base::MessageLoop message_loop_;  // Needed by the MockPasswordStore.
+  base::test::ScopedTaskEnvironment
+      task_environment_;  // Needed by the MockPasswordStore.
 
   MockConsumer consumer_;
   PasswordManagerClientWithMockStore client_;
@@ -135,13 +135,11 @@ TEST_F(SuppressedFormFetcherTest, FullStore) {
   std::vector<std::unique_ptr<PasswordForm>> simulated_store_results;
   std::vector<std::unique_ptr<PasswordForm>> expected_results;
   for (const auto& form_data : kSuppressedCredentials) {
-    expected_results.push_back(CreatePasswordFormFromDataForTesting(form_data));
-    simulated_store_results.push_back(
-        CreatePasswordFormFromDataForTesting(form_data));
+    expected_results.push_back(FillPasswordFormWithData(form_data));
+    simulated_store_results.push_back(FillPasswordFormWithData(form_data));
   }
   for (const auto& form_data : kNotSuppressedCredentials) {
-    simulated_store_results.push_back(
-        CreatePasswordFormFromDataForTesting(form_data));
+    simulated_store_results.push_back(FillPasswordFormWithData(form_data));
   }
 
   EXPECT_CALL(*mock_store(), GetLoginsForSameOrganizationName(kTestHttpURL, _));

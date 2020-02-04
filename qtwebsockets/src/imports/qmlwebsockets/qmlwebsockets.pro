@@ -1,4 +1,4 @@
-QT = core websockets qml qml-private core-private
+QT = websockets qml-private core-private
 
 TARGETPATH = QtWebSockets
 
@@ -12,8 +12,6 @@ SOURCES +=  qmlwebsockets_plugin.cpp \
 
 OTHER_FILES += qmldir
 
-DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0
-
-IMPORT_VERSION = 1.0
+IMPORT_VERSION = 1.$$QT_MINOR_VERSION
 
 load(qml_plugin)

@@ -22,8 +22,8 @@
 #include "device/usb/mock_usb_device_handle.h"
 #include "device/usb/mock_usb_service.h"
 #include "device/usb/mojo/device_impl.h"
-#include "device/usb/mojo/mock_permission_provider.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/associated_binding.h"
+#include "mojo/public/cpp/bindings/interface_request.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using ::testing::Invoke;
@@ -51,46 +51,48 @@ ACTION_P2(ExpectGuidAndThen, expected_guid, callback) {
 class USBDeviceManagerImplTest : public testing::Test {
  public:
   USBDeviceManagerImplTest() : message_loop_(new base::MessageLoop) {}
-  ~USBDeviceManagerImplTest() override {}
+  ~USBDeviceManagerImplTest() override = default;
 
  protected:
   UsbDeviceManagerPtr ConnectToDeviceManager() {
     UsbDeviceManagerPtr device_manager;
-    DeviceManagerImpl::Create(permission_provider_.GetWeakPtr(),
-                              mojo::MakeRequest(&device_manager));
+    if (!device_manager_instance_)
+      device_manager_instance_ = std::make_unique<DeviceManagerImpl>();
+
+    device_manager_instance_->AddBinding(mojo::MakeRequest(&device_manager));
     return device_manager;
   }
 
   MockDeviceClient device_client_;
 
  private:
-  MockPermissionProvider permission_provider_;
+  std::unique_ptr<DeviceManagerImpl> device_manager_instance_;
   std::unique_ptr<base::MessageLoop> message_loop_;
 };
 
 class MockDeviceManagerClient : public mojom::UsbDeviceManagerClient {
  public:
   MockDeviceManagerClient() : binding_(this) {}
-  ~MockDeviceManagerClient() {}
+  ~MockDeviceManagerClient() override = default;
 
-  UsbDeviceManagerClientPtr CreateInterfacePtrAndBind() {
-    UsbDeviceManagerClientPtr client;
+  mojom::UsbDeviceManagerClientAssociatedPtrInfo CreateInterfacePtrAndBind() {
+    mojom::UsbDeviceManagerClientAssociatedPtrInfo client;
     binding_.Bind(mojo::MakeRequest(&client));
     return client;
   }
 
   MOCK_METHOD1(DoOnDeviceAdded, void(mojom::UsbDeviceInfo*));
-  void OnDeviceAdded(UsbDeviceInfoPtr device_info) {
+  void OnDeviceAdded(UsbDeviceInfoPtr device_info) override {
     DoOnDeviceAdded(device_info.get());
   }
 
   MOCK_METHOD1(DoOnDeviceRemoved, void(mojom::UsbDeviceInfo*));
-  void OnDeviceRemoved(UsbDeviceInfoPtr device_info) {
+  void OnDeviceRemoved(UsbDeviceInfoPtr device_info) override {
     DoOnDeviceRemoved(device_info.get());
   }
 
  private:
-  mojo::Binding<mojom::UsbDeviceManagerClient> binding_;
+  mojo::AssociatedBinding<mojom::UsbDeviceManagerClient> binding_;
 };
 
 void ExpectDevicesAndThen(const std::set<std::string>& expected_guids,
@@ -136,7 +138,7 @@ TEST_F(USBDeviceManagerImplTest, GetDevices) {
   base::RunLoop loop;
   device_manager->GetDevices(
       std::move(options),
-      base::Bind(&ExpectDevicesAndThen, guids, loop.QuitClosure()));
+      base::BindOnce(&ExpectDevicesAndThen, guids, loop.QuitClosure()));
   loop.Run();
 }
 
@@ -152,7 +154,8 @@ TEST_F(USBDeviceManagerImplTest, GetDevice) {
   {
     base::RunLoop loop;
     UsbDevicePtr device;
-    device_manager->GetDevice(mock_device->guid(), mojo::MakeRequest(&device));
+    device_manager->GetDevice(mock_device->guid(), mojo::MakeRequest(&device),
+                              /*device_client=*/nullptr);
     // Close is a no-op if the device hasn't been opened but ensures that the
     // pipe was successfully connected.
     device->Close(loop.QuitClosure());
@@ -160,7 +163,8 @@ TEST_F(USBDeviceManagerImplTest, GetDevice) {
   }
 
   UsbDevicePtr bad_device;
-  device_manager->GetDevice("not a real guid", mojo::MakeRequest(&bad_device));
+  device_manager->GetDevice("not a real guid", mojo::MakeRequest(&bad_device),
+                            /*device_client=*/nullptr);
 
   {
     base::RunLoop loop;
@@ -193,7 +197,8 @@ TEST_F(USBDeviceManagerImplTest, Client) {
     guids.insert(device0->guid());
     base::RunLoop loop;
     device_manager->GetDevices(
-        nullptr, base::Bind(&ExpectDevicesAndThen, guids, loop.QuitClosure()));
+        nullptr,
+        base::BindOnce(&ExpectDevicesAndThen, guids, loop.QuitClosure()));
     loop.Run();
   }
 

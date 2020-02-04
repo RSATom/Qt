@@ -24,22 +24,22 @@ namespace sw
 	{
 	public:
 		PixelProgram(const PixelProcessor::State &state, const PixelShader *shader) :
-			PixelRoutine(state, shader), r(shader && shader->dynamicallyIndexedTemporaries),
-			loopDepth(-1), ifDepth(0), loopRepDepth(0), breakDepth(0), currentLabel(-1), whileTest(false)
+			PixelRoutine(state, shader), r(shader->indirectAddressableTemporaries)
 		{
-			for(int i = 0; i < 2048; ++i)
+			for(int i = 0; i < MAX_SHADER_CALL_SITES; ++i)
 			{
 				labelBlock[i] = 0;
 			}
 
+			loopDepth = -1;
 			enableStack[0] = Int4(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
 
-			if(shader && shader->containsBreakInstruction())
+			if(shader->containsBreakInstruction())
 			{
 				enableBreak = Int4(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
 			}
 
-			if(shader && shader->containsContinueInstruction())
+			if(shader->containsContinueInstruction())
 			{
 				enableContinue = Int4(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
 			}
@@ -55,7 +55,7 @@ namespace sw
 
 	private:
 		// Temporary registers
-		RegisterArray<4096> r;
+		RegisterArray<NUM_TEMPORARY_REGISTERS> r;
 
 		// Color outputs
 		Vector4f c[RENDERTARGETS];
@@ -67,23 +67,23 @@ namespace sw
 
 		// DX9 specific variables
 		Vector4f p0;
-		Array<Int, 4> aL;
-		Array<Int, 4> increment;
-		Array<Int, 4> iteration;
+		Array<Int, MAX_SHADER_NESTED_LOOPS> aL;
+		Array<Int, MAX_SHADER_NESTED_LOOPS> increment;
+		Array<Int, MAX_SHADER_NESTED_LOOPS> iteration;
 
 		Int loopDepth;    // FIXME: Add support for switch
 		Int stackIndex;   // FIXME: Inc/decrement callStack
-		Array<UInt, 16> callStack;
+		Array<UInt, MAX_SHADER_CALL_STACK_SIZE> callStack;
 
 		// Per pixel based on conditions reached
 		Int enableIndex;
-		Array<Int4, 1 + 24> enableStack;
+		Array<Int4, MAX_SHADER_ENABLE_STACK_SIZE> enableStack;
 		Int4 enableBreak;
 		Int4 enableContinue;
 		Int4 enableLeave;
 
-		void sampleTexture(Vector4f &c, const Src &sampler, Vector4f &uvwq, Vector4f &dsx, Vector4f &dsy, Vector4f &offset, SamplerFunction function);
-		void sampleTexture(Vector4f &c, int samplerIndex, Vector4f &uvwq, Vector4f &dsx, Vector4f &dsy, Vector4f &offset, SamplerFunction function);
+		Vector4f sampleTexture(const Src &sampler, Vector4f &uvwq, Float4 &bias, Vector4f &dsx, Vector4f &dsy, Vector4f &offset, SamplerFunction function);
+		Vector4f sampleTexture(int samplerIndex, Vector4f &uvwq, Float4 &bias, Vector4f &dsx, Vector4f &dsy, Vector4f &offset, SamplerFunction function);
 
 		// Raster operations
 		void clampColor(Vector4f oC[RENDERTARGETS]);
@@ -94,7 +94,8 @@ namespace sw
 		Vector4f readConstant(const Src &src, unsigned int offset = 0);
 		RValue<Pointer<Byte>> uniformAddress(int bufferIndex, unsigned int index);
 		RValue<Pointer<Byte>> uniformAddress(int bufferIndex, unsigned int index, Int& offset);
-		Int relativeAddress(const Shader::Parameter &var, int bufferIndex = -1);
+		Int relativeAddress(const Shader::Relative &rel, int bufferIndex = -1);
+		Int4 dynamicAddress(const Shader::Relative &rel);
 
 		Float4 linearToSRGB(const Float4 &x);
 
@@ -106,17 +107,18 @@ namespace sw
 		void M3X4(Vector4f &dst, Vector4f &src0, const Src &src1);
 		void M4X3(Vector4f &dst, Vector4f &src0, const Src &src1);
 		void M4X4(Vector4f &dst, Vector4f &src0, const Src &src1);
-		void TEXLD(Vector4f &dst, Vector4f &src0, const Src &src1, bool project, bool bias);
-		void TEXLDD(Vector4f &dst, Vector4f &src0, const Src &src1, Vector4f &src2, Vector4f &src3);
-		void TEXLDL(Vector4f &dst, Vector4f &src0, const Src &src1);
+		void TEX(Vector4f &dst, Vector4f &src0, const Src &src1, bool project, bool bias);
+		void TEXLOD(Vector4f &dst, Vector4f &src0, const Src &src1, Float4 &lod);
+		void TEXBIAS(Vector4f &dst, Vector4f &src0, const Src &src1, Float4 &bias);
 		void TEXSIZE(Vector4f &dst, Float4 &lod, const Src &src1);
 		void TEXKILL(Int cMask[4], Vector4f &src, unsigned char mask);
-		void TEXOFFSET(Vector4f &dst, Vector4f &src0, const Src &src1, Vector4f &src2, bool bias);
-		void TEXLDL(Vector4f &dst, Vector4f &src0, const Src &src1, Vector4f &src2, bool bias);
-		void TEXELFETCH(Vector4f &dst, Vector4f &src, const Src&);
-		void TEXELFETCH(Vector4f &dst, Vector4f &src, const Src&, Vector4f &src2);
-		void TEXGRAD(Vector4f &dst, Vector4f &src, const Src&, Vector4f &src2, Vector4f &src3);
-		void TEXGRAD(Vector4f &dst, Vector4f &src, const Src&, Vector4f &src2, Vector4f &src3, Vector4f &src4);
+		void TEXOFFSET(Vector4f &dst, Vector4f &src0, const Src &src1, Vector4f &offset);
+		void TEXOFFSETBIAS(Vector4f &dst, Vector4f &src0, const Src &src1, Vector4f &offset, Float4 &bias);
+		void TEXLODOFFSET(Vector4f &dst, Vector4f &src0, const Src &src1, Vector4f &offset, Float4 &lod);
+		void TEXELFETCH(Vector4f &dst, Vector4f &src, const Src &, Float4 &lod);
+		void TEXELFETCHOFFSET(Vector4f &dst, Vector4f &src, const Src &, Vector4f &offset, Float4 &lod);
+		void TEXGRAD(Vector4f &dst, Vector4f &src0, const Src &src1, Vector4f &dsx, Vector4f &dsy);
+		void TEXGRADOFFSET(Vector4f &dst, Vector4f &src, const Src &, Vector4f &dsx, Vector4f &dsy, Vector4f &offset);
 		void DISCARD(Int cMask[4], const Shader::Instruction *instruction);
 		void DFDX(Vector4f &dst, Vector4f &src);
 		void DFDY(Vector4f &dst, Vector4f &src);
@@ -127,6 +129,7 @@ namespace sw
 		void BREAK(Int4 &condition);
 		void CONTINUE();
 		void TEST();
+		void SCALAR();
 		void CALL(int labelIndex, int callSiteIndex);
 		void CALLNZ(int labelIndex, int callSiteIndex, const Src &src);
 		void CALLNZb(int labelIndex, int callSiteIndex, const Src &boolRegister);
@@ -150,19 +153,19 @@ namespace sw
 		void RET();
 		void LEAVE();
 
-		int ifDepth;
-		int loopRepDepth;
-		int breakDepth;
-		int currentLabel;
-		bool whileTest;
+		BoundedIndex<MAX_SHADER_NESTED_IFS> ifDepth = 0;
+		BoundedIndex<MAX_SHADER_NESTED_LOOPS> loopRepDepth = 0;
+		BoundedIndex<MAX_SHADER_CALL_SITES> currentLabel = -1;
+		bool scalar = false;
 
-		BasicBlock *ifFalseBlock[24 + 24];
-		BasicBlock *loopRepTestBlock[4];
-		BasicBlock *loopRepEndBlock[4];
-		BasicBlock *labelBlock[2048];
-		std::vector<BasicBlock*> callRetBlock[2048];
+		BasicBlock *ifFalseBlock[MAX_SHADER_NESTED_IFS];
+		BasicBlock *loopRepTestBlock[MAX_SHADER_NESTED_LOOPS];
+		BasicBlock *loopRepEndBlock[MAX_SHADER_NESTED_LOOPS];
+		BasicBlock *labelBlock[MAX_SHADER_CALL_SITES];
+		std::vector<BasicBlock*> callRetBlock[MAX_SHADER_CALL_SITES];
 		BasicBlock *returnBlock;
-		bool isConditionalIf[24 + 24];
+		bool isConditionalIf[MAX_SHADER_NESTED_IFS];
+		std::vector<Int4> restoreContinue;
 	};
 }
 

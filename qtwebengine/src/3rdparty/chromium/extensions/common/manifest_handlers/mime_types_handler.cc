@@ -7,10 +7,11 @@
 #include <stddef.h>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "content/public/common/webplugininfo.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/manifest.h"
@@ -27,6 +28,10 @@ const char* const kMIMETypeHandlersWhitelist[] = {
     extension_misc::kQuickOfficeInternalExtensionId,
     extension_misc::kQuickOfficeExtensionId,
     extension_misc::kMimeHandlerPrivateTestExtensionId};
+
+constexpr SkColor kPdfExtensionBackgroundColor = SkColorSetRGB(82, 86, 89);
+constexpr SkColor kQuickOfficeExtensionBackgroundColor =
+    SkColorSetRGB(241, 241, 241);
 
 // Stored on the Extension.
 struct MimeTypesHandlerInfo : public extensions::Extension::ManifestData {
@@ -47,7 +52,7 @@ MimeTypesHandlerInfo::~MimeTypesHandlerInfo() {
 // static
 std::vector<std::string> MimeTypesHandler::GetMIMETypeWhitelist() {
   std::vector<std::string> whitelist;
-  for (size_t i = 0; i < arraysize(kMIMETypeHandlersWhitelist); ++i)
+  for (size_t i = 0; i < base::size(kMIMETypeHandlersWhitelist); ++i)
     whitelist.push_back(kMIMETypeHandlersWhitelist[i]);
   return whitelist;
 }
@@ -68,6 +73,18 @@ bool MimeTypesHandler::CanHandleMIMEType(const std::string& mime_type) const {
 
 bool MimeTypesHandler::HasPlugin() const {
   return !handler_url_.empty();
+}
+
+SkColor MimeTypesHandler::GetBackgroundColor() const {
+  if (extension_id_ == extension_misc::kPdfExtensionId) {
+    return kPdfExtensionBackgroundColor;
+  }
+  if (extension_id_ == extension_misc::kQuickOfficeExtensionId ||
+      extension_id_ == extension_misc::kQuickOfficeInternalExtensionId ||
+      extension_id_ == extension_misc::kQuickOfficeComponentExtensionId) {
+    return kQuickOfficeExtensionBackgroundColor;
+  }
+  return content::WebPluginInfo::kDefaultBackgroundColor;
 }
 
 base::FilePath MimeTypesHandler::GetPluginPath() const {
@@ -96,22 +113,20 @@ MimeTypesHandlerParser::~MimeTypesHandlerParser() {
 
 bool MimeTypesHandlerParser::Parse(extensions::Extension* extension,
                                    base::string16* error) {
-  const base::ListValue* mime_types_value = NULL;
-  if (!extension->manifest()->GetList(keys::kMIMETypes,
-                                      &mime_types_value)) {
+  const base::Value* mime_types_value = nullptr;
+  if (!extension->manifest()->GetList(keys::kMIMETypes, &mime_types_value)) {
     *error = base::ASCIIToUTF16(errors::kInvalidMimeTypesHandler);
     return false;
   }
 
-  std::unique_ptr<MimeTypesHandlerInfo> info(new MimeTypesHandlerInfo);
+  auto info = std::make_unique<MimeTypesHandlerInfo>();
   info->handler_.set_extension_id(extension->id());
-  for (size_t i = 0; i < mime_types_value->GetSize(); ++i) {
-    std::string filter;
-    if (!mime_types_value->GetString(i, &filter)) {
+  for (const auto& entry : mime_types_value->GetList()) {
+    if (!entry.is_string()) {
       *error = base::ASCIIToUTF16(errors::kInvalidMIMETypes);
       return false;
     }
-    info->handler_.AddMIMEType(filter);
+    info->handler_.AddMIMEType(entry.GetString());
   }
 
   std::string mime_types_handler;
@@ -124,9 +139,12 @@ bool MimeTypesHandlerParser::Parse(extensions::Extension* extension,
   return true;
 }
 
-const std::vector<std::string> MimeTypesHandlerParser::Keys() const {
-  std::vector<std::string> keys;
-  keys.push_back(keys::kMIMETypes);
-  keys.push_back(keys::kMimeTypesHandler);
-  return keys;
+base::span<const char* const> MimeTypesHandlerParser::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kMIMETypes,
+                                          keys::kMimeTypesHandler};
+#if !defined(__GNUC__) || __GNUC__ > 5
+  return kKeys;
+#else
+  return base::make_span(kKeys, 2);
+#endif
 }

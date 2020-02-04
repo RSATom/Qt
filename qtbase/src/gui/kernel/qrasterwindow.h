@@ -53,12 +53,12 @@ class Q_GUI_EXPORT QRasterWindow : public QPaintDeviceWindow
     Q_DECLARE_PRIVATE(QRasterWindow)
 
 public:
-    explicit QRasterWindow(QWindow *parent = Q_NULLPTR);
+    explicit QRasterWindow(QWindow *parent = nullptr);
     ~QRasterWindow();
 
 protected:
-    int metric(PaintDeviceMetric metric) const Q_DECL_OVERRIDE;
-    QPaintDevice *redirected(QPoint *) const Q_DECL_OVERRIDE;
+    int metric(PaintDeviceMetric metric) const override;
+    QPaintDevice *redirected(QPoint *) const override;
 
 private:
     Q_DISABLE_COPY(QRasterWindow)

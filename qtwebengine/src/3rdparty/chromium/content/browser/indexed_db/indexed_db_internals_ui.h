@@ -12,7 +12,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "content/public/browser/download_interrupt_reasons.h"
+#include "components/download/public/common/download_interrupt_reasons.h"
 #include "content/public/browser/indexed_db_context.h"
 #include "content/public/browser/web_ui_controller.h"
 
@@ -24,9 +24,12 @@ namespace url {
 class Origin;
 }
 
+namespace download {
+class DownloadItem;
+}
+
 namespace content {
 
-class DownloadItem;
 class IndexedDBContextImpl;
 class StoragePartition;
 
@@ -59,8 +62,8 @@ class IndexedDBInternalsUI : public WebUIController {
                          const url::Origin& origin,
                          const base::FilePath& temp_path,
                          size_t connection_count,
-                         DownloadItem* item,
-                         DownloadInterruptReason interrupt_reason);
+                         download::DownloadItem* item,
+                         download::DownloadInterruptReason interrupt_reason);
 
   void ForceCloseOrigin(const base::ListValue* args);
   void ForceCloseOriginOnIndexedDBThread(
@@ -70,6 +73,16 @@ class IndexedDBInternalsUI : public WebUIController {
   void OnForcedClose(const base::FilePath& partition_path,
                      const url::Origin& origin,
                      size_t connection_count);
+
+  void ForceSchemaDowngradeOrigin(const base::ListValue* args);
+  void ForceSchemaDowngradeOriginOnIndexedDBThread(
+      const base::FilePath& partition_path,
+      const scoped_refptr<IndexedDBContextImpl> context,
+      const url::Origin& origin);
+  void OnForcedSchemaDowngrade(const base::FilePath& partition_path,
+                               const url::Origin& origin,
+                               size_t connection_count);
+
   bool GetOriginContext(const base::FilePath& path,
                         const url::Origin& origin,
                         scoped_refptr<IndexedDBContextImpl>* context);

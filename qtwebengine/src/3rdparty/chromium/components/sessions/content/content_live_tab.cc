@@ -4,6 +4,8 @@
 
 #include "components/sessions/content/content_live_tab.h"
 
+#include <memory>
+
 #include "base/memory/ptr_util.h"
 #include "components/sessions/content/content_platform_specific_tab_data.h"
 
@@ -44,12 +46,12 @@ int ContentLiveTab::GetPendingEntryIndex() {
 
 sessions::SerializedNavigationEntry ContentLiveTab::GetEntryAtIndex(int index) {
   return sessions::ContentSerializedNavigationBuilder::FromNavigationEntry(
-      index, *navigation_controller().GetEntryAtIndex(index));
+      index, navigation_controller().GetEntryAtIndex(index));
 }
 
 sessions::SerializedNavigationEntry ContentLiveTab::GetPendingEntry() {
   return sessions::ContentSerializedNavigationBuilder::FromNavigationEntry(
-      GetPendingEntryIndex(), *navigation_controller().GetPendingEntry());
+      GetPendingEntryIndex(), navigation_controller().GetPendingEntry());
 }
 
 int ContentLiveTab::GetEntryCount() {
@@ -58,11 +60,11 @@ int ContentLiveTab::GetEntryCount() {
 
 std::unique_ptr<sessions::PlatformSpecificTabData>
 ContentLiveTab::GetPlatformSpecificTabData() {
-  return base::MakeUnique<sessions::ContentPlatformSpecificTabData>(
+  return std::make_unique<sessions::ContentPlatformSpecificTabData>(
       web_contents());
 }
 
-const std::string& ContentLiveTab::GetUserAgentOverride() const {
+const std::string& ContentLiveTab::GetUserAgentOverride() {
   return web_contents()->GetUserAgentOverride();
 }
 

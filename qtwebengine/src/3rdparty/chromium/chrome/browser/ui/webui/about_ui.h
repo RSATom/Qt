@@ -20,6 +20,7 @@ class AboutUIHTMLSource : public content::URLDataSource {
  public:
   // Construct a data source for the specified |source_name|.
   AboutUIHTMLSource(const std::string& source_name, Profile* profile);
+  ~AboutUIHTMLSource() override;
 
   // content::URLDataSource implementation.
   std::string GetSource() const override;
@@ -29,7 +30,8 @@ class AboutUIHTMLSource : public content::URLDataSource {
       const content::URLDataSource::GotDataCallback& callback) override;
   std::string GetMimeType(const std::string& path) const override;
   bool ShouldAddContentSecurityPolicy() const override;
-  bool ShouldDenyXFrameOptions() const override;
+  std::string GetAccessControlAllowOriginForOrigin(
+      const std::string& origin) const override;
 
   // Send the response data.
   void FinishDataRequest(
@@ -39,8 +41,6 @@ class AboutUIHTMLSource : public content::URLDataSource {
   Profile* profile() { return profile_; }
 
  private:
-  ~AboutUIHTMLSource() override;
-
   std::string source_name_;
   Profile* profile_;
 

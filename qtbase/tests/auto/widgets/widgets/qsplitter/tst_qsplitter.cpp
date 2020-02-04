@@ -287,7 +287,7 @@ void tst_QSplitter::saveAndRestoreStateOfNotYetShownSplitter()
     QByteArray ba = spl->saveState();
     spl->restoreState(ba);
     spl->show();
-    QTest::qWait(500);
+    QVERIFY(QTest::qWaitForWindowActive(spl));
 
     QCOMPARE(l1->geometry().isValid(), true);
     QCOMPARE(l2->geometry().isValid(), true);
@@ -299,7 +299,7 @@ class TestSplitterStyle : public QProxyStyle
 {
 public:
     TestSplitterStyle() : handleWidth(5) {}
-    int pixelMetric(PixelMetric metric, const QStyleOption *option = 0, const QWidget *widget = 0) const Q_DECL_OVERRIDE
+    int pixelMetric(PixelMetric metric, const QStyleOption *option = 0, const QWidget *widget = 0) const override
     {
         if (metric == QStyle::PM_SplitterWidth)
             return handleWidth;
@@ -607,8 +607,7 @@ void tst_QSplitter::testShowHide()
     lay->addWidget(split);
     widget.setLayout(lay);
     topLevel.show();
-
-    QTest::qWait(100);
+    QVERIFY(QTest::qWaitForWindowActive(&topLevel));
 
     widget.hide();
     split->widget(0)->setHidden(hideWidget1);
@@ -658,13 +657,34 @@ public:
 class EventCounterSpy : public QObject
 {
 public:
-    EventCounterSpy(QWidget *parentWidget) : QObject(parentWidget)
+    EventCounterSpy(QWidget *obj) : objectToWatch(obj)
     { }
+
+    ~EventCounterSpy()
+    {
+        removeEventFilter();
+    }
+
+    void installEventFilter()
+    {
+        if (needRemoveEventFilter)
+            return;
+        needRemoveEventFilter = true;
+        qApp->installEventFilter(this);
+    }
+
+    void removeEventFilter()
+    {
+        if (!needRemoveEventFilter)
+            return;
+        needRemoveEventFilter = false;
+        qApp->removeEventFilter(this);
+    }
 
     bool eventFilter(QObject *watched, QEvent *event) override
     {
         // Watch for events in the parent widget and all its children
-        if (watched == parent() || watched->parent() == parent()) {
+        if (watched == objectToWatch || watched->parent() == objectToWatch) {
             if (event->type() == QEvent::Resize)
                 resizeCount++;
             else if (event->type() == QEvent::Paint)
@@ -676,6 +696,8 @@ public:
 
     int resizeCount = 0;
     int paintCount = 0;
+    bool needRemoveEventFilter = false;
+    QObject *objectToWatch;
 };
 
 void tst_QSplitter::replaceWidget_data()
@@ -713,6 +735,7 @@ void tst_QSplitter::replaceWidget()
 
     // Configure splitter
     QWidget *oldWidget = sp.widget(index);
+    QTest::qWait(100); // Make sure we record the right original size (after the window manager adds the frame)
     const QRect oldGeom = oldWidget ? oldWidget->geometry() : QRect();
     if (oldWidget) {
         // Collapse first, then hide, if necessary
@@ -733,31 +756,34 @@ void tst_QSplitter::replaceWidget()
     // to set a shorter label.
     QLabel *newWidget = new QLabel(QLatin1String("<b>NEW</b>"));
 
-    EventCounterSpy *ef = new EventCounterSpy(&sp);
-    qApp->installEventFilter(ef);
+    EventCounterSpy ef(&sp);
+    ef.installEventFilter();
     const QWidget *res = sp.replaceWidget(index, newWidget);
     QTest::qWait(100); // Give visibility and resizing some time
-    qApp->removeEventFilter(ef);
 
     // Check
     if (index < 0 || index >= count) {
         QVERIFY(!res);
         QVERIFY(!newWidget->parentWidget());
-        QCOMPARE(ef->resizeCount, 0);
-        QCOMPARE(ef->paintCount, 0);
+        QCOMPARE(ef.resizeCount, 0);
+        QCOMPARE(ef.paintCount, 0);
     } else {
         QCOMPARE(res, oldWidget);
         QVERIFY(!res->parentWidget());
         QVERIFY(!res->isVisible());
+        const int expectedResizeCount = visible ? 1 : 0; // new widget only
+        const int expectedPaintCount = visible && !collapsed ? 2 : 0; // splitter and new widget
+        QTRY_COMPARE(ef.resizeCount, expectedResizeCount);
+#ifndef Q_OS_WINRT // QTBUG-68297
+        QTRY_COMPARE(ef.paintCount, expectedPaintCount);
+#endif
         QCOMPARE(newWidget->parentWidget(), &sp);
         QCOMPARE(newWidget->isVisible(), visible);
         if (visible && !collapsed)
             QCOMPARE(newWidget->geometry(), oldGeom);
+#ifndef Q_OS_WINRT // QTBUG-68297
         QCOMPARE(newWidget->size().isEmpty(), !visible || collapsed);
-        const int expectedResizeCount = visible ? 1 : 0; // new widget only
-        const int expectedPaintCount = visible && !collapsed ? 2 : 0; // splitter and new widget
-        QCOMPARE(ef->resizeCount, expectedResizeCount);
-        QCOMPARE(ef->paintCount, expectedPaintCount);
+#endif
         delete res;
     }
     QCOMPARE(sp.count(), count);
@@ -797,25 +823,26 @@ void tst_QSplitter::replaceWidgetWithSplitterChild()
     const QList<int> sizes = sp.sizes();
     QWidget *sibling = srcIndex == -1 ? (new QLabel("<b>NEW</b>", &sp)) : sp.widget(srcIndex);
 
-    EventCounterSpy *ef = new EventCounterSpy(&sp);
-    qApp->installEventFilter(ef);
+    EventCounterSpy ef(&sp);
+    ef.installEventFilter();
     const QWidget *res = sp.replaceWidget(dstIndex, sibling);
     QTest::qWait(100); // Give visibility and resizing some time
-    qApp->removeEventFilter(ef);
 
     QVERIFY(!res);
     if (srcIndex == -1) {
         // Create and replace before recalc. The sibling is scheduled to be
         // added after replaceWidget(), when QSplitter receives a child event.
-        QVERIFY(ef->resizeCount > 0);
-        QVERIFY(ef->paintCount > 0);
+        QTRY_VERIFY(ef.resizeCount > 0);
+        QTRY_VERIFY(ef.paintCount > 0);
         QCOMPARE(sp.count(), count + 1);
+#ifndef Q_OS_WINRT // QTBUG-68297
         QCOMPARE(sp.sizes().mid(0, count), sizes);
+#endif
         QCOMPARE(sp.sizes().last(), sibling->width());
     } else {
         // No-op for the rest
-        QCOMPARE(ef->resizeCount, 0);
-        QCOMPARE(ef->paintCount, 0);
+        QCOMPARE(ef.resizeCount, 0);
+        QCOMPARE(ef.paintCount, 0);
         QCOMPARE(sp.count(), count);
         QCOMPARE(sp.sizes(), sizes);
     }
@@ -955,14 +982,13 @@ void tst_QSplitter::task169702_sizes()
 
     outerSplitter->setGeometry(100, 100, 500, 500);
     topLevel.show();
+    QVERIFY(QTest::qWaitForWindowActive(&topLevel));
 
-    QTest::qWait(100);
     testW->m_iFactor++;
     testW->updateGeometry();
-    QTest::qWait(500);
 
     //Make sure the minimimSizeHint is respected
-    QCOMPARE(testW->size().height(), testW->minimumSizeHint().height());
+    QTRY_COMPARE(testW->size().height(), testW->minimumSizeHint().height());
 }
 
 void tst_QSplitter::taskQTBUG_4101_ensureOneNonCollapsedWidget_data()
@@ -991,8 +1017,7 @@ void tst_QSplitter::taskQTBUG_4101_ensureOneNonCollapsedWidget()
         l->hide();
     else
         delete l;
-    QTest::qWait(100);
-    QVERIFY(s.sizes().at(0) > 0);
+    QTRY_VERIFY(s.sizes().at(0) > 0);
 }
 
 void tst_QSplitter::setLayout()

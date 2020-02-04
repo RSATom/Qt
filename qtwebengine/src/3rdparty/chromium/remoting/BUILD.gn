@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//components/nacl/features.gni")
 import("//media/media_options.gni")
 import("//remoting/build/config/remoting_build.gni")
 
@@ -38,7 +39,10 @@ group("remoting_all") {
   }
 
   if (is_ios) {
-    deps += [ "//remoting/ios:all" ]
+    deps += [
+      "//remoting/ios:all",
+      "//remoting/ios:ios_remoting_unittests",
+    ]
   }
 
   if (enable_remoting_host) {
@@ -153,7 +157,7 @@ test("remoting_unittests") {
     "//google_apis",
     "//remoting/base:unit_tests",
     "//remoting/client:unit_tests",
-    "//remoting/client/display:unit_tests",
+    "//remoting/client/audio:unit_tests",
     "//remoting/client/input:unit_tests",
     "//remoting/client/ui:unit_tests",
     "//remoting/protocol:unit_tests",
@@ -190,6 +194,12 @@ test("remoting_unittests") {
       "wtsapi32.lib",
     ]
   }
+
+  if (!is_chromeos) {
+    deps += [
+      "//remoting/client/display:unit_tests",
+    ]
+  }
 }
 
 if (enable_remoting_host) {
@@ -212,12 +222,14 @@ if (enable_remoting_host) {
       "//net:test_support",
       "//remoting/base",
       "//testing/gtest",
-      "//third_party/webrtc/modules/desktop_capture",
-      "//third_party/webrtc_overrides",
     ]
 
     if (enable_webrtc) {
-      deps += [ "//third_party/webrtc_overrides:init_webrtc" ]
+      deps += [
+        "//third_party/webrtc/modules/desktop_capture",
+        "//third_party/webrtc_overrides",
+        "//third_party/webrtc_overrides:init_webrtc"
+      ]
     }
 
     if (is_win) {

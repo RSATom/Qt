@@ -51,7 +51,7 @@ class QBarModelMapper;
 class QBarCategoryAxis;
 class QLegendMarker;
 
-class QT_CHARTS_PRIVATE_EXPORT QAbstractBarSeriesPrivate : public QAbstractSeriesPrivate
+class Q_CHARTS_PRIVATE_EXPORT QAbstractBarSeriesPrivate : public QAbstractSeriesPrivate
 {
     Q_OBJECT
 public:
@@ -134,6 +134,7 @@ protected:
     QString m_labelsFormat;
     QAbstractBarSeries::LabelsPosition m_labelsPosition;
     qreal m_labelsAngle;
+    int m_labelsPrecision;
     bool m_visualsDirty;
     bool m_labelsDirty;
 

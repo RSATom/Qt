@@ -56,6 +56,7 @@
 
 #include <QtCore/qbitarray.h>
 #include <QtCore/qdebug.h>
+#include <qmath.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -112,11 +113,13 @@ struct AnimatorEvaluationData
     int loopCount;
     int currentLoop;
     double playbackRate;
+    float normalizedLocalTime;
 };
 
 struct ClipEvaluationData
 {
     int currentLoop;
+    float normalizedLocalTime;
     double localTime;
     bool isFinalFrame;
 };
@@ -131,7 +134,7 @@ struct ChannelNameAndType
     int jointIndex;
     Qt3DCore::QNodeId mappingId;
     JointTransformComponent jointTransformComponent;
-    float pad; // Unused
+    int componentCount;
 
     static const int invalidIndex = -1;
 
@@ -142,11 +145,12 @@ struct ChannelNameAndType
         , jointIndex(-1)
         , mappingId()
         , jointTransformComponent(NoTransformComponent)
-        , pad(0)
+        , componentCount(-1)
     {}
 
     ChannelNameAndType(const QString &_name,
                        int _type,
+                       int componentCount,
                        Qt3DCore::QNodeId _mappingId = Qt3DCore::QNodeId(),
                        int _jointIndex = invalidIndex)
         : jointName()
@@ -155,7 +159,7 @@ struct ChannelNameAndType
         , jointIndex(_jointIndex)
         , mappingId(_mappingId)
         , jointTransformComponent(NoTransformComponent)
-        , pad(0)
+        , componentCount(componentCount)
     {}
 
     ChannelNameAndType(const QString &_name,
@@ -167,8 +171,20 @@ struct ChannelNameAndType
         , jointIndex(invalidIndex)
         , mappingId()
         , jointTransformComponent(_jointTransformComponent)
-        , pad(0)
-    {}
+        , componentCount(-1)
+    {
+        switch (_jointTransformComponent) {
+        case  NoTransformComponent:
+            break;
+        case Scale:
+        case Translation:
+            componentCount = 3;
+            break;
+        case Rotation:
+            componentCount = 4;
+            break;
+        };
+    }
 
     bool operator==(const ChannelNameAndType &rhs) const
     {
@@ -176,7 +192,8 @@ struct ChannelNameAndType
             && type == rhs.type
             && jointIndex == rhs.jointIndex
             && mappingId == rhs.mappingId
-            && jointTransformComponent == rhs.jointTransformComponent;
+            && jointTransformComponent == rhs.jointTransformComponent
+            && componentCount == rhs.componentCount;
     }
 };
 
@@ -189,7 +206,8 @@ inline QDebug operator<<(QDebug dbg, const ChannelNameAndType &nameAndType)
         << "mappingId =" << nameAndType.mappingId
         << "jointIndex =" << nameAndType.jointIndex
         << "jointName =" << nameAndType.jointName
-        << "jointTransformComponent =" << nameAndType.jointTransformComponent;
+        << "jointTransformComponent =" << nameAndType.jointTransformComponent
+        << "componentCount =" << nameAndType.componentCount;
     return dbg;
 }
 #endif
@@ -246,16 +264,27 @@ struct AnimationCallbackAndValue
     QVariant value;
 };
 
+inline constexpr double toSecs(qint64 nsecs) { return nsecs / 1.0e9; }
+inline qint64 toNsecs(double seconds) { return qRound64(seconds * 1.0e9); }
+
 template<typename Animator>
-AnimatorEvaluationData evaluationDataForAnimator(Animator animator, Clock* clock, qint64 nsSincePreviousFrame)
+AnimatorEvaluationData evaluationDataForAnimator(Animator animator,
+                                                 Clock* clock,
+                                                 qint64 nsSincePreviousFrame)
 {
+    const bool seeking = animator->isSeeking();
     AnimatorEvaluationData data;
     data.loopCount = animator->loops();
     data.currentLoop = animator->currentLoop();
-    data.playbackRate = clock != nullptr ? clock->playbackRate() : 1.0;
+    // The playback-rate is always 1.0 when seeking
+    data.playbackRate = ((clock != nullptr) && !seeking) ? clock->playbackRate() : 1.0;
     // Convert global time from nsec to sec
-    data.elapsedTime = double(nsSincePreviousFrame) / 1.0e9;
-    data.currentTime = animator->lastLocalTime();
+    data.elapsedTime = toSecs(nsSincePreviousFrame);
+    // When seeking we base it on the current time being at the start of the clip
+    data.currentTime = seeking ? 0.0 : animator->lastLocalTime();
+    // If we're not seeking the local normalized time will be calculate in
+    // evaluationDataForClip().
+    data.normalizedLocalTime = seeking ? animator->normalizedLocalTime() : -1.0;
     return data;
 }
 
@@ -269,8 +298,10 @@ inline bool isFinalFrame(double localTime,
             currentLoop >= loopCount - 1);
 }
 
-Q_AUTOTEST_EXPORT
-int componentsForType(int type);
+inline bool isValidNormalizedTime(float t)
+{
+    return !(t < 0.0f) && !(t > 1.0f);
+}
 
 Q_AUTOTEST_EXPORT
 ClipEvaluationData evaluationDataForClip(AnimationClip *clip,
@@ -279,11 +310,12 @@ ClipEvaluationData evaluationDataForClip(AnimationClip *clip,
 Q_AUTOTEST_EXPORT
 ComponentIndices channelComponentsToIndices(const Channel &channel,
                                             int dataType,
-                                            int offset = 0);
+                                            int expectedComponentCount,
+                                            int offset);
 
 Q_AUTOTEST_EXPORT
 ComponentIndices channelComponentsToIndicesHelper(const Channel &channelGroup,
-                                                  int dataType,
+                                                  int expectedComponentCount,
                                                   int offset,
                                                   const QVector<char> &suffixes);
 
@@ -299,7 +331,7 @@ Q_AUTOTEST_EXPORT
 QVector<Qt3DCore::QSceneChangePtr> preparePropertyChanges(Qt3DCore::QNodeId animatorId,
                                                           const QVector<MappingData> &mappingDataVec,
                                                           const QVector<float> &channelResults,
-                                                          bool finalFrame);
+                                                          bool finalFrame, float normalizedLocalTime);
 
 Q_AUTOTEST_EXPORT
 QVector<AnimationCallbackAndValue> prepareCallbacks(const QVector<MappingData> &mappingDataVec,

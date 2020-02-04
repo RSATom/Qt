@@ -1,155 +1,219 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.1)
-PROJECT(Snappy VERSION 1.1.5 LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.1)
+project(Snappy VERSION 1.1.7 LANGUAGES C CXX)
 
-SET(CMAKE_INCLUDE_CURRENT_DIR ON)
+# This project requires C++11.
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-INCLUDE(CheckIncludeFiles)
-INCLUDE(CheckLibraryExists)
-INCLUDE(CheckCXXSourceCompiles)
-INCLUDE(TestBigEndian)
-INCLUDE(CMakePackageConfigHelpers)
+# BUILD_SHARED_LIBS is a standard CMake variable, but we declare it here to make
+# it prominent in the GUI.
+option(BUILD_SHARED_LIBS "Build shared libraries(DLLs)." OFF)
 
-TEST_BIG_ENDIAN(WORDS_BIG_ENDIAN)
-IF (WORDS_BIG_ENDIAN)
-    MESSAGE(STATUS "Building on big endian system")
-    ADD_DEFINITIONS(-DWORDS_BIGENDIAN=1)
-ENDIF (WORDS_BIG_ENDIAN)
+option(SNAPPY_BUILD_TESTS "Build Snappy's own tests." ON)
 
-CHECK_INCLUDE_FILES("byteswap.h" HAVE_BYTESWAP_H)
-CHECK_INCLUDE_FILES("dlfcn.h" HAVE_DLFCN_H)
-CHECK_INCLUDE_FILES("inttypes.h" HAVE_INTTYPES_H)
-CHECK_INCLUDE_FILES("memory.h" HAVE_MEMORY_H)
-CHECK_INCLUDE_FILES("stddef.h" HAVE_STDDEF_H)
-CHECK_INCLUDE_FILES("stdint.h" HAVE_STDINT_H)
-CHECK_INCLUDE_FILES("stdlib.h" HAVE_STDLIB_H)
-CHECK_INCLUDE_FILES("strings.h" HAVE_STRINGS_H)
-CHECK_INCLUDE_FILES("string.h" HAVE_STRING_H)
-CHECK_INCLUDE_FILES("sys/byteswap.h" HAVE_SYS_BYTESWAP_H)
-CHECK_INCLUDE_FILES("sys/endian.h" HAVE_SYS_ENDIAN_H)
-CHECK_INCLUDE_FILES("sys/mman.h" HAVE_SYS_MMAN_H)
-CHECK_INCLUDE_FILES("sys/resource.h" HAVE_SYS_RESOURCE_H)
-CHECK_INCLUDE_FILES("sys/stat.h" HAVE_SYS_STAT_H)
-CHECK_INCLUDE_FILES("sys/time.h" HAVE_SYS_TIME_H)
-CHECK_INCLUDE_FILES("sys/types.h" HAVE_SYS_TYPES_H)
-CHECK_INCLUDE_FILES("sys/uio.h" HAVE_SYS_UIO_H)
-CHECK_INCLUDE_FILES("unistd.h" HAVE_UNISTD_H)
-CHECK_INCLUDE_FILES("windows.h" HAVE_WINDOWS_H)
+option(SNAPPY_REQUIRE_AVX "Target processors with AVX support." OFF)
 
-IF (NOT HAVE_SYS_UIO_H)
-    SET(HAVE_SYS_UIO_H 0)
-ENDIF (NOT HAVE_SYS_UIO_H)
+option(SNAPPY_REQUIRE_AVX2 "Target processors with AVX2 support." OFF)
 
-IF (NOT HAVE_STDINT_H)
-    SET(HAVE_STDINT_H 0)
-ENDIF (NOT HAVE_STDINT_H)
+include(TestBigEndian)
+test_big_endian(SNAPPY_IS_BIG_ENDIAN)
 
-IF (NOT HAVE_STDDEF_H)
-    SET(HAVE_STDDEF_H 0)
-ENDIF (NOT HAVE_STDDEF_H)
+include(CheckIncludeFile)
+check_include_file("byteswap.h" HAVE_BYTESWAP_H)
+check_include_file("sys/endian.h" HAVE_SYS_ENDIAN_H)
+check_include_file("sys/mman.h" HAVE_SYS_MMAN_H)
+check_include_file("sys/resource.h" HAVE_SYS_RESOURCE_H)
+check_include_file("sys/time.h" HAVE_SYS_TIME_H)
+check_include_file("sys/uio.h" HAVE_SYS_UIO_H)
+check_include_file("unistd.h" HAVE_UNISTD_H)
+check_include_file("windows.h" HAVE_WINDOWS_H)
 
-CHECK_LIBRARY_EXISTS(z zlibVersion "" HAVE_LIBZ)
-CHECK_LIBRARY_EXISTS(lzo2 lzo1x_1_15_compress "" HAVE_LIBLZO2)
+include(CheckLibraryExists)
+check_library_exists(z zlibVersion "" HAVE_LIBZ)
+check_library_exists(lzo2 lzo1x_1_15_compress "" HAVE_LIBLZO2)
 
-CHECK_CXX_SOURCE_COMPILES("int main(void) { return __builtin_expect(0, 1); }"
-        HAVE_BUILTIN_EXPECT)
+include(CheckCXXCompilerFlag)
+CHECK_CXX_COMPILER_FLAG("/arch:AVX" HAVE_VISUAL_STUDIO_ARCH_AVX)
+CHECK_CXX_COMPILER_FLAG("/arch:AVX2" HAVE_VISUAL_STUDIO_ARCH_AVX2)
+CHECK_CXX_COMPILER_FLAG("-mavx" HAVE_CLANG_MAVX)
+CHECK_CXX_COMPILER_FLAG("-mbmi2" HAVE_CLANG_MBMI2)
+if(SNAPPY_REQUIRE_AVX2)
+  if(HAVE_VISUAL_STUDIO_ARCH_AVX2)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+  endif(HAVE_VISUAL_STUDIO_ARCH_AVX2)
+  if(HAVE_CLANG_MAVX)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
+  endif(HAVE_CLANG_MAVX)
+  if(HAVE_CLANG_MBMI2)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mbmi2")
+  endif(HAVE_CLANG_MBMI2)
+elseif (SNAPPY_REQUIRE_AVX)
+  if(HAVE_VISUAL_STUDIO_ARCH_AVX)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
+  endif(HAVE_VISUAL_STUDIO_ARCH_AVX)
+  if(HAVE_CLANG_MAVX)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
+  endif(HAVE_CLANG_MAVX)
+endif(SNAPPY_REQUIRE_AVX2)
 
-CHECK_CXX_SOURCE_COMPILES("int main(void) { return __builtin_ctzll(0); }"
-        HAVE_BUILTIN_CTZ)
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("
+int main() {
+  return __builtin_expect(0, 1);
+}" HAVE_BUILTIN_EXPECT)
 
-FIND_PACKAGE(GTest QUIET)
-IF(GTEST_FOUND)
-    SET(HAVE_GTEST 1)
-ENDIF()
+check_cxx_source_compiles("
+int main() {
+  return __builtin_ctzll(0);
+}" HAVE_BUILTIN_CTZ)
 
-FIND_PACKAGE(Gflags QUIET)
-IF(GFLAGS_FOUND)
-    SET(HAVE_GFLAGS 1)
-ENDIF()
+check_cxx_source_compiles("
+#include <tmmintrin.h>
 
-CONFIGURE_FILE(${Snappy_SOURCE_DIR}/cmake/config.h.in config.h)
+int main() {
+  const __m128i *src = 0;
+  __m128i dest;
+  const __m128i shuffle_mask = _mm_load_si128(src);
+  const __m128i pattern = _mm_shuffle_epi8(_mm_loadl_epi64(src), shuffle_mask);
+  _mm_storeu_si128(&dest, pattern);
+  return 0;
+}" SNAPPY_HAVE_SSSE3)
 
-# Configure snappy-stubs-public.h.in
-SET(ac_cv_have_stdint_h ${HAVE_STDINT_H})
-SET(ac_cv_have_stddef_h ${HAVE_STDDEF_H})
-SET(ac_cv_have_sys_uio_h ${HAVE_SYS_UIO_H})
-CONFIGURE_FILE(${Snappy_SOURCE_DIR}/snappy-stubs-public.h.in
-               snappy-stubs-public.h)
+check_cxx_source_compiles("
+#include <immintrin.h>
+int main() {
+  return _bzhi_u32(0, 1);
+}" SNAPPY_HAVE_BMI2)
 
-IF (WIN32)
-    ADD_DEFINITIONS(-D_CRT_SECURE_NO_WARNINGS)
-ENDIF (WIN32)
+include(CheckSymbolExists)
+check_symbol_exists("mmap" "sys/mman.h" HAVE_FUNC_MMAP)
+check_symbol_exists("sysconf" "unistd.h" HAVE_FUNC_SYSCONF)
 
-# Define the main library.
-ADD_LIBRARY(snappy SHARED
-        snappy-c.cc
-        snappy-c.h
-        snappy-sinksource.cc
-        snappy-sinksource.h
-        snappy-stubs-internal.cc
-        snappy-stubs-public.h
-        snappy.cc
-        snappy.h)
+find_package(GTest QUIET)
+if(GTEST_FOUND)
+  set(HAVE_GTEST 1)
+endif(GTEST_FOUND)
 
-TARGET_COMPILE_DEFINITIONS(snappy PRIVATE -DHAVE_CONFIG_H)
+find_package(Gflags QUIET)
+if(GFLAGS_FOUND)
+  set(HAVE_GFLAGS 1)
+endif(GFLAGS_FOUND)
 
-SET_TARGET_PROPERTIES(snappy PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/cmake/config.h.in"
+  "${PROJECT_BINARY_DIR}/config.h"
+)
 
-INSTALL(FILES snappy.h
-        snappy-c.h
-        snappy-sinksource.h
-        ${Snappy_BINARY_DIR}/snappy-stubs-public.h
-        DESTINATION include)
+# We don't want to define HAVE_ macros in public headers. Instead, we use
+# CMake's variable substitution with 0/1 variables, which will be seen by the
+# preprocessor as constants.
+set(HAVE_SYS_UIO_H_01 ${HAVE_SYS_UIO_H})
+if(NOT HAVE_SYS_UIO_H_01)
+  set(HAVE_SYS_UIO_H_01 0)
+endif(NOT HAVE_SYS_UIO_H_01)
 
-INSTALL(TARGETS snappy
-        EXPORT SnappyTargets
-        RUNTIME DESTINATION bin
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib)
-INSTALL(EXPORT SnappyTargets NAMESPACE Snappy:: DESTINATION lib/cmake/Snappy)
+configure_file(
+  "${PROJECT_SOURCE_DIR}/snappy-stubs-public.h.in"
+  "${PROJECT_BINARY_DIR}/snappy-stubs-public.h")
 
-SET_TARGET_PROPERTIES(snappy PROPERTIES SOVERSION ${PROJECT_VERSION})
+add_library(snappy "")
+target_sources(snappy
+  PRIVATE
+    "${PROJECT_SOURCE_DIR}/snappy-internal.h"
+    "${PROJECT_SOURCE_DIR}/snappy-stubs-internal.h"
+    "${PROJECT_SOURCE_DIR}/snappy-c.cc"
+    "${PROJECT_SOURCE_DIR}/snappy-sinksource.cc"
+    "${PROJECT_SOURCE_DIR}/snappy-stubs-internal.cc"
+    "${PROJECT_SOURCE_DIR}/snappy.cc"
+    "${PROJECT_BINARY_DIR}/config.h"
 
-SET(INCLUDE_INSTALL_DIR include)
-SET(LIBRARY_INSTALL_DIR lib)
-SET(BINARY_INSTALL_DIR bin)
+  # Only CMake 3.3+ supports PUBLIC sources in targets exported by "install".
+  $<$<VERSION_GREATER:CMAKE_VERSION,3.2>:PUBLIC>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/snappy-c.h>
+    $<INSTALL_INTERFACE:include/snappy-c.h>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/snappy-sinksource.h>
+    $<INSTALL_INTERFACE:include/snappy-sinksource.h>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/snappy.h>
+    $<INSTALL_INTERFACE:include/snappy.h>
+    $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/snappy-stubs-public.h>
+    $<INSTALL_INTERFACE:include/snappy-stubs-public.h>
+)
+target_include_directories(snappy
+  PUBLIC
+    $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include>
+)
+set_target_properties(snappy
+  PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
 
-CONFIGURE_PACKAGE_CONFIG_FILE(cmake/SnappyConfig.cmake.in
-        ${Snappy_BINARY_DIR}/SnappyConfig.cmake
-        INSTALL_DESTINATION lib/Snappy/cmake
-        PATH_VARS INCLUDE_INSTALL_DIR LIBRARY_INSTALL_DIR BINARY_INSTALL_DIR
-        )
+target_compile_definitions(snappy PRIVATE -DHAVE_CONFIG_H)
+if(BUILD_SHARED_LIBS)
+  set_target_properties(snappy PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif(BUILD_SHARED_LIBS)
 
-WRITE_BASIC_PACKAGE_VERSION_FILE(${Snappy_BINARY_DIR}/SnappyConfigVersion.cmake
-        COMPATIBILITY SameMajorVersion)
-INSTALL(FILES ${Snappy_BINARY_DIR}/SnappyConfig.cmake
-        ${Snappy_BINARY_DIR}/SnappyConfigVersion.cmake
-        DESTINATION lib/cmake)
+if(SNAPPY_BUILD_TESTS)
+  enable_testing()
 
-ENABLE_TESTING()
+  add_executable(snappy_unittest "")
+  target_sources(snappy_unittest
+    PRIVATE
+      "${PROJECT_SOURCE_DIR}/snappy_unittest.cc"
+      "${PROJECT_SOURCE_DIR}/snappy-test.cc"
+  )
+  target_compile_definitions(snappy_unittest PRIVATE -DHAVE_CONFIG_H)
+  target_link_libraries(snappy_unittest snappy ${GFLAGS_LIBRARIES})
 
-IF (HAVE_LIBZ)
-    LIST(APPEND COMPRESSION_LIBS z)
-ENDIF (HAVE_LIBZ)
+  if(HAVE_LIBZ)
+    target_link_libraries(snappy_unittest z)
+  endif(HAVE_LIBZ)
+  if(HAVE_LIBLZO2)
+    target_link_libraries(snappy_unittest lzo2)
+  endif(HAVE_LIBLZO2)
 
-IF (HAVE_LIBLZO2)
-    LIST(APPEND COMPRESSION_LIBS lzo2)
-ENDIF (HAVE_LIBLZO2)
+  target_include_directories(snappy_unittest
+    BEFORE PRIVATE
+      "${PROJECT_SOURCE_DIR}"
+      "${GTEST_INCLUDE_DIRS}"
+      "${GFLAGS_INCLUDE_DIRS}"
+  )
 
-IF (HAVE_LIBLZF)
-    LIST(APPEND COMPRESSION_LIBS lzf)
-ENDIF (HAVE_LIBLZF)
+  add_test(
+    NAME snappy_unittest
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    COMMAND "${PROJECT_BINARY_DIR}/snappy_unittest")
+endif(SNAPPY_BUILD_TESTS)
 
-IF (HAVE_LIBQUICKLZ)
-    LIST(APPEND COMPRESSION_LIBS quicklz)
-ENDIF (HAVE_LIBQUICKLZ)
+include(GNUInstallDirs)
+install(TARGETS snappy
+  EXPORT SnappyTargets
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+install(
+  FILES
+    "${PROJECT_SOURCE_DIR}/snappy-c.h"
+    "${PROJECT_SOURCE_DIR}/snappy-sinksource.h"
+    "${PROJECT_SOURCE_DIR}/snappy.h"
+    "${PROJECT_BINARY_DIR}/snappy-stubs-public.h"
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
 
-ADD_EXECUTABLE(snappy-unittest snappy_unittest.cc snappy-test.cc)
-TARGET_COMPILE_DEFINITIONS(snappy-unittest PRIVATE -DHAVE_CONFIG_H)
-TARGET_LINK_LIBRARIES(snappy-unittest snappy ${COMPRESSION_LIBS}
-                      ${GFLAGS_LIBRARIES})
-TARGET_INCLUDE_DIRECTORIES(snappy-unittest BEFORE PRIVATE ${Snappy_SOURCE_DIR}
-                           ${GTEST_INCLUDE_DIRS} ${GFLAGS_INCLUDE_DIRS})
-
-ADD_TEST(NAME snappy-unittest
-         WORKING_DIRECTORY ${Snappy_SOURCE_DIR}
-         COMMAND ${Snappy_BINARY_DIR}/snappy-unittest)
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    "${PROJECT_BINARY_DIR}/SnappyConfigVersion.cmake"
+    COMPATIBILITY SameMajorVersion
+)
+install(
+  EXPORT SnappyTargets
+  NAMESPACE Snappy::
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Snappy"
+)
+install(
+  FILES
+    "${PROJECT_SOURCE_DIR}/cmake/SnappyConfig.cmake"
+    "${PROJECT_BINARY_DIR}/SnappyConfigVersion.cmake"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Snappy"
+)

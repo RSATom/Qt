@@ -94,7 +94,7 @@ public:
     void setMMRendererWindow(screen_window_t handle);
     void clearMMRendererWindow();
 
-    QQnxScreen *screen() const { return m_screen; }
+    QPlatformScreen *screen() const override;
     const QList<QQnxWindow*>& children() const { return m_childWindows; }
 
     QQnxWindow *findWindow(screen_window_t windowHandle);
@@ -112,12 +112,14 @@ public:
 
     bool shouldMakeFullScreen() const;
 
+    void windowPosted();
+    void handleActivationEvent();
+
 protected:
     virtual int pixelFormat() const = 0;
     virtual void resetBuffers() = 0;
 
     void initWindow();
-    void windowPosted();
 
     screen_context_t m_screenContext;
 
@@ -130,6 +132,8 @@ private:
     void updateZorder(screen_window_t window, int &zOrder);
     void applyWindowState();
     void setFocus(screen_window_t newFocusWindow);
+    bool showWithoutActivating() const;
+    bool focusable() const;
 
     screen_window_t m_window;
     QSize m_bufferSize;
@@ -151,6 +155,7 @@ private:
     QByteArray m_parentGroupName;
 
     bool m_isTopLevel;
+    bool m_firstActivateHandled;
 };
 
 QT_END_NAMESPACE

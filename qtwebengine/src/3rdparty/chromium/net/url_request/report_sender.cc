@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "net/base/elements_upload_data_stream.h"
 #include "net/base/load_flags.h"
 #include "net/base/request_priority.h"
@@ -24,7 +23,7 @@ class CallbackInfo : public base::SupportsUserData::Data {
                const net::ReportSender::ErrorCallback& error_callback)
       : success_callback_(success_callback), error_callback_(error_callback) {}
 
-  ~CallbackInfo() override {}
+  ~CallbackInfo() override = default;
 
   const net::ReportSender::SuccessCallback& success_callback() const {
     return success_callback_;
@@ -41,13 +40,14 @@ class CallbackInfo : public base::SupportsUserData::Data {
 
 namespace net {
 
+const int ReportSender::kLoadFlags = LOAD_BYPASS_CACHE | LOAD_DISABLE_CACHE;
+
 ReportSender::ReportSender(URLRequestContext* request_context,
                            net::NetworkTrafficAnnotationTag traffic_annotation)
     : request_context_(request_context),
       traffic_annotation_(traffic_annotation) {}
 
-ReportSender::~ReportSender() {
-}
+ReportSender::~ReportSender() = default;
 
 void ReportSender::Send(const GURL& report_uri,
                         base::StringPiece content_type,
@@ -59,11 +59,10 @@ void ReportSender::Send(const GURL& report_uri,
       report_uri, DEFAULT_PRIORITY, this, traffic_annotation_);
   url_request->SetUserData(
       &kUserDataKey,
-      base::MakeUnique<CallbackInfo>(success_callback, error_callback));
+      std::make_unique<CallbackInfo>(success_callback, error_callback));
 
-  url_request->SetLoadFlags(
-      LOAD_BYPASS_CACHE | LOAD_DISABLE_CACHE | LOAD_DO_NOT_SEND_AUTH_DATA |
-      LOAD_DO_NOT_SEND_COOKIES | LOAD_DO_NOT_SAVE_COOKIES);
+  url_request->SetLoadFlags(kLoadFlags);
+  url_request->set_allow_credentials(false);
 
   HttpRequestHeaders extra_headers;
   extra_headers.SetHeader(HttpRequestHeaders::kContentType, content_type);

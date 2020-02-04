@@ -6,100 +6,130 @@
 
 #if V8_TARGET_ARCH_MIPS64
 
+#include "src/assembler-inl.h"
+#include "src/base/bits.h"
 #include "src/base/division-by-constant.h"
 #include "src/bootstrapper.h"
-#include "src/codegen.h"
+#include "src/callable.h"
+#include "src/code-factory.h"
+#include "src/counters.h"
 #include "src/debug/debug.h"
-#include "src/mips64/macro-assembler-mips64.h"
+#include "src/external-reference-table.h"
+#include "src/frames-inl.h"
+#include "src/macro-assembler.h"
+#include "src/objects/heap-number.h"
 #include "src/register-configuration.h"
 #include "src/runtime/runtime.h"
+#include "src/snapshot/embedded-data.h"
+#include "src/snapshot/snapshot.h"
+#include "src/wasm/wasm-code-manager.h"
+
+// Satisfy cpplint check, but don't include platform-specific header. It is
+// included recursively via macro-assembler.h.
+#if 0
+#include "src/mips64/macro-assembler-mips64.h"
+#endif
 
 namespace v8 {
 namespace internal {
 
-// Floating point constants.
-const uint64_t kDoubleSignMask = Double::kSignMask;
-const uint32_t kDoubleExponentShift = HeapNumber::kMantissaBits;
-const uint32_t kDoubleNaNShift = kDoubleExponentShift - 1;
-const uint64_t kDoubleNaNMask = Double::kExponentMask | (1L << kDoubleNaNShift);
-
-const uint32_t kSingleSignMask = kBinary32SignMask;
-const uint32_t kSingleExponentMask = kBinary32ExponentMask;
-const uint32_t kSingleExponentShift = kBinary32ExponentShift;
-const uint32_t kSingleNaNShift = kSingleExponentShift - 1;
-const uint32_t kSingleNaNMask = kSingleExponentMask | (1 << kSingleNaNShift);
-
-MacroAssembler::MacroAssembler(Isolate* isolate, void* buffer, int size,
-                               CodeObjectRequired create_code_object)
-    : TurboAssembler(isolate, buffer, size, create_code_object) {}
-
-void MacroAssembler::Load(Register dst,
-                          const MemOperand& src,
-                          Representation r) {
-  DCHECK(!r.IsDouble());
-  if (r.IsInteger8()) {
-    Lb(dst, src);
-  } else if (r.IsUInteger8()) {
-    Lbu(dst, src);
-  } else if (r.IsInteger16()) {
-    Lh(dst, src);
-  } else if (r.IsUInteger16()) {
-    Lhu(dst, src);
-  } else if (r.IsInteger32()) {
-    Lw(dst, src);
+static inline bool IsZero(const Operand& rt) {
+  if (rt.is_reg()) {
+    return rt.rm() == zero_reg;
   } else {
-    Ld(dst, src);
+    return rt.immediate() == 0;
   }
 }
 
-
-void MacroAssembler::Store(Register src,
-                           const MemOperand& dst,
-                           Representation r) {
-  DCHECK(!r.IsDouble());
-  if (r.IsInteger8() || r.IsUInteger8()) {
-    Sb(src, dst);
-  } else if (r.IsInteger16() || r.IsUInteger16()) {
-    Sh(src, dst);
-  } else if (r.IsInteger32()) {
-    Sw(src, dst);
-  } else {
-    if (r.IsHeapObject()) {
-      AssertNotSmi(src);
-    } else if (r.IsSmi()) {
-      AssertSmi(src);
+int TurboAssembler::RequiredStackSizeForCallerSaved(SaveFPRegsMode fp_mode,
+                                                    Register exclusion1,
+                                                    Register exclusion2,
+                                                    Register exclusion3) const {
+  int bytes = 0;
+  RegList exclusions = 0;
+  if (exclusion1 != no_reg) {
+    exclusions |= exclusion1.bit();
+    if (exclusion2 != no_reg) {
+      exclusions |= exclusion2.bit();
+      if (exclusion3 != no_reg) {
+        exclusions |= exclusion3.bit();
+      }
     }
-    Sd(src, dst);
   }
+
+  RegList list = kJSCallerSaved & ~exclusions;
+  bytes += NumRegs(list) * kPointerSize;
+
+  if (fp_mode == kSaveFPRegs) {
+    bytes += NumRegs(kCallerSavedFPU) * kDoubleSize;
+  }
+
+  return bytes;
 }
 
-void TurboAssembler::LoadRoot(Register destination, Heap::RootListIndex index) {
-  Ld(destination, MemOperand(s6, index << kPointerSizeLog2));
+int TurboAssembler::PushCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
+                                    Register exclusion2, Register exclusion3) {
+  int bytes = 0;
+  RegList exclusions = 0;
+  if (exclusion1 != no_reg) {
+    exclusions |= exclusion1.bit();
+    if (exclusion2 != no_reg) {
+      exclusions |= exclusion2.bit();
+      if (exclusion3 != no_reg) {
+        exclusions |= exclusion3.bit();
+      }
+    }
+  }
+
+  RegList list = kJSCallerSaved & ~exclusions;
+  MultiPush(list);
+  bytes += NumRegs(list) * kPointerSize;
+
+  if (fp_mode == kSaveFPRegs) {
+    MultiPushFPU(kCallerSavedFPU);
+    bytes += NumRegs(kCallerSavedFPU) * kDoubleSize;
+  }
+
+  return bytes;
 }
 
-void TurboAssembler::LoadRoot(Register destination, Heap::RootListIndex index,
+int TurboAssembler::PopCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
+                                   Register exclusion2, Register exclusion3) {
+  int bytes = 0;
+  if (fp_mode == kSaveFPRegs) {
+    MultiPopFPU(kCallerSavedFPU);
+    bytes += NumRegs(kCallerSavedFPU) * kDoubleSize;
+  }
+
+  RegList exclusions = 0;
+  if (exclusion1 != no_reg) {
+    exclusions |= exclusion1.bit();
+    if (exclusion2 != no_reg) {
+      exclusions |= exclusion2.bit();
+      if (exclusion3 != no_reg) {
+        exclusions |= exclusion3.bit();
+      }
+    }
+  }
+
+  RegList list = kJSCallerSaved & ~exclusions;
+  MultiPop(list);
+  bytes += NumRegs(list) * kPointerSize;
+
+  return bytes;
+}
+
+void TurboAssembler::LoadRoot(Register destination, RootIndex index) {
+  Ld(destination, MemOperand(s6, RootRegisterOffsetForRootIndex(index)));
+}
+
+void TurboAssembler::LoadRoot(Register destination, RootIndex index,
                               Condition cond, Register src1,
                               const Operand& src2) {
   Branch(2, NegateCondition(cond), src1, src2);
-  Ld(destination, MemOperand(s6, index << kPointerSizeLog2));
+  Ld(destination, MemOperand(s6, RootRegisterOffsetForRootIndex(index)));
 }
 
-
-void MacroAssembler::StoreRoot(Register source,
-                               Heap::RootListIndex index) {
-  DCHECK(Heap::RootCanBeWrittenAfterInitialization(index));
-  Sd(source, MemOperand(s6, index << kPointerSizeLog2));
-}
-
-
-void MacroAssembler::StoreRoot(Register source,
-                               Heap::RootListIndex index,
-                               Condition cond,
-                               Register src1, const Operand& src2) {
-  DCHECK(Heap::RootCanBeWrittenAfterInitialization(index));
-  Branch(2, NegateCondition(cond), src1, src2);
-  Sd(source, MemOperand(s6, index << kPointerSizeLog2));
-}
 
 void TurboAssembler::PushCommonFrame(Register marker_reg) {
   if (marker_reg.is_valid()) {
@@ -108,14 +138,6 @@ void TurboAssembler::PushCommonFrame(Register marker_reg) {
   } else {
     Push(ra, fp);
     mov(fp, sp);
-  }
-}
-
-void MacroAssembler::PopCommonFrame(Register marker_reg) {
-  if (marker_reg.is_valid()) {
-    Pop(ra, fp, marker_reg);
-  } else {
-    Pop(ra, fp);
   }
 }
 
@@ -135,7 +157,7 @@ void MacroAssembler::PushSafepointRegisters() {
   // Safepoints expect a block of kNumSafepointRegisters values on the
   // stack, so adjust the stack for unsaved registers.
   const int num_unsaved = kNumSafepointRegisters - kNumSafepointSavedRegisters;
-  DCHECK(num_unsaved >= 0);
+  DCHECK_GE(num_unsaved, 0);
   if (num_unsaved > 0) {
     Dsubu(sp, sp, Operand(num_unsaved * kPointerSize));
   }
@@ -151,17 +173,6 @@ void MacroAssembler::PopSafepointRegisters() {
   }
 }
 
-
-void MacroAssembler::StoreToSafepointRegisterSlot(Register src, Register dst) {
-  Sd(src, SafepointRegisterSlot(dst));
-}
-
-
-void MacroAssembler::LoadFromSafepointRegisterSlot(Register dst, Register src) {
-  Ld(dst, SafepointRegisterSlot(src));
-}
-
-
 int MacroAssembler::SafepointRegisterStackIndex(int reg_code) {
   // The registers are pushed starting with the highest encoding,
   // which means that lowest encodings are closest to the stack pointer.
@@ -169,41 +180,15 @@ int MacroAssembler::SafepointRegisterStackIndex(int reg_code) {
 }
 
 
-MemOperand MacroAssembler::SafepointRegisterSlot(Register reg) {
-  return MemOperand(sp, SafepointRegisterStackIndex(reg.code()) * kPointerSize);
-}
-
-
-MemOperand MacroAssembler::SafepointRegistersAndDoublesSlot(Register reg) {
-  UNIMPLEMENTED_MIPS();
-  // General purpose registers are pushed last on the stack.
-  int doubles_size = DoubleRegister::kMaxNumRegisters * kDoubleSize;
-  int register_offset = SafepointRegisterStackIndex(reg.code()) * kPointerSize;
-  return MemOperand(sp, doubles_size + register_offset);
-}
-
-void MacroAssembler::InNewSpace(Register object,
-                                Register scratch,
-                                Condition cc,
-                                Label* branch) {
-  DCHECK(cc == eq || cc == ne);
-  CheckPageFlag(object, scratch, MemoryChunk::kIsInNewSpaceMask, cc, branch);
-}
-
-
 // Clobbers object, dst, value, and ra, if (ra_status == kRAHasBeenSaved)
 // The register 'object' contains a heap object pointer.  The heap object
 // tag is shifted away.
-void MacroAssembler::RecordWriteField(
-    Register object,
-    int offset,
-    Register value,
-    Register dst,
-    RAStatus ra_status,
-    SaveFPRegsMode save_fp,
-    RememberedSetAction remembered_set_action,
-    SmiCheck smi_check,
-    PointersToHereCheck pointers_to_here_check_for_value) {
+void MacroAssembler::RecordWriteField(Register object, int offset,
+                                      Register value, Register dst,
+                                      RAStatus ra_status,
+                                      SaveFPRegsMode save_fp,
+                                      RememberedSetAction remembered_set_action,
+                                      SmiCheck smi_check) {
   DCHECK(!AreAliased(value, dst, t8, object));
   // First, check if a write barrier is even needed. The tests below
   // catch stores of Smis.
@@ -220,6 +205,7 @@ void MacroAssembler::RecordWriteField(
 
   Daddu(dst, object, Operand(offset - kHeapObjectTag));
   if (emit_debug_code()) {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
     Label ok;
     And(t8, dst, Operand(kPointerSize - 1));
     Branch(&ok, eq, t8, Operand(zero_reg));
@@ -227,14 +213,8 @@ void MacroAssembler::RecordWriteField(
     bind(&ok);
   }
 
-  RecordWrite(object,
-              dst,
-              value,
-              ra_status,
-              save_fp,
-              remembered_set_action,
-              OMIT_SMI_CHECK,
-              pointers_to_here_check_for_value);
+  RecordWrite(object, dst, value, ra_status, save_fp, remembered_set_action,
+              OMIT_SMI_CHECK);
 
   bind(&done);
 
@@ -246,100 +226,102 @@ void MacroAssembler::RecordWriteField(
   }
 }
 
-
-// Clobbers object, dst, map, and ra, if (ra_status == kRAHasBeenSaved)
-void MacroAssembler::RecordWriteForMap(Register object,
-                                       Register map,
-                                       Register dst,
-                                       RAStatus ra_status,
-                                       SaveFPRegsMode fp_mode) {
-  if (emit_debug_code()) {
-    DCHECK(!dst.is(at));
-    Ld(dst, FieldMemOperand(map, HeapObject::kMapOffset));
-    Check(eq,
-          kWrongAddressOrValuePassedToRecordWrite,
-          dst,
-          Operand(isolate()->factory()->meta_map()));
+void TurboAssembler::SaveRegisters(RegList registers) {
+  DCHECK_GT(NumRegs(registers), 0);
+  RegList regs = 0;
+  for (int i = 0; i < Register::kNumRegisters; ++i) {
+    if ((registers >> i) & 1u) {
+      regs |= Register::from_code(i).bit();
+    }
   }
-
-  if (!FLAG_incremental_marking) {
-    return;
-  }
-
-  if (emit_debug_code()) {
-    Ld(at, FieldMemOperand(object, HeapObject::kMapOffset));
-    Check(eq,
-          kWrongAddressOrValuePassedToRecordWrite,
-          map,
-          Operand(at));
-  }
-
-  Label done;
-
-  // A single check of the map's pages interesting flag suffices, since it is
-  // only set during incremental collection, and then it's also guaranteed that
-  // the from object's page's interesting flag is also set.  This optimization
-  // relies on the fact that maps can never be in new space.
-  CheckPageFlag(map,
-                map,  // Used as scratch.
-                MemoryChunk::kPointersToHereAreInterestingMask,
-                eq,
-                &done);
-
-  Daddu(dst, object, Operand(HeapObject::kMapOffset - kHeapObjectTag));
-  if (emit_debug_code()) {
-    Label ok;
-    And(at, dst, Operand(kPointerSize - 1));
-    Branch(&ok, eq, at, Operand(zero_reg));
-    stop("Unaligned cell in write barrier");
-    bind(&ok);
-  }
-
-  // Record the actual write.
-  if (ra_status == kRAHasNotBeenSaved) {
-    push(ra);
-  }
-  RecordWriteStub stub(isolate(), object, map, dst, OMIT_REMEMBERED_SET,
-                       fp_mode);
-  CallStub(&stub);
-  if (ra_status == kRAHasNotBeenSaved) {
-    pop(ra);
-  }
-
-  bind(&done);
-
-  // Count number of write barriers in generated code.
-  isolate()->counters()->write_barriers_static()->Increment();
-  IncrementCounter(isolate()->counters()->write_barriers_dynamic(), 1, at, dst);
-
-  // Clobber clobbered registers when running with the debug-code flag
-  // turned on to provoke errors.
-  if (emit_debug_code()) {
-    li(dst, Operand(bit_cast<int64_t>(kZapValue + 12)));
-    li(map, Operand(bit_cast<int64_t>(kZapValue + 16)));
-  }
+  MultiPush(regs);
 }
 
+void TurboAssembler::RestoreRegisters(RegList registers) {
+  DCHECK_GT(NumRegs(registers), 0);
+  RegList regs = 0;
+  for (int i = 0; i < Register::kNumRegisters; ++i) {
+    if ((registers >> i) & 1u) {
+      regs |= Register::from_code(i).bit();
+    }
+  }
+  MultiPop(regs);
+}
+
+void TurboAssembler::CallRecordWriteStub(
+    Register object, Register address,
+    RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode) {
+  CallRecordWriteStub(
+      object, address, remembered_set_action, fp_mode,
+      isolate()->builtins()->builtin_handle(Builtins::kRecordWrite),
+      kNullAddress);
+}
+
+void TurboAssembler::CallRecordWriteStub(
+    Register object, Register address,
+    RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
+    Address wasm_target) {
+  CallRecordWriteStub(object, address, remembered_set_action, fp_mode,
+                      Handle<Code>::null(), wasm_target);
+}
+
+void TurboAssembler::CallRecordWriteStub(
+    Register object, Register address,
+    RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
+    Handle<Code> code_target, Address wasm_target) {
+  DCHECK_NE(code_target.is_null(), wasm_target == kNullAddress);
+  // TODO(albertnetymk): For now we ignore remembered_set_action and fp_mode,
+  // i.e. always emit remember set and save FP registers in RecordWriteStub. If
+  // large performance regression is observed, we should use these values to
+  // avoid unnecessary work.
+
+  RecordWriteDescriptor descriptor;
+  RegList registers = descriptor.allocatable_registers();
+
+  SaveRegisters(registers);
+  Register object_parameter(
+      descriptor.GetRegisterParameter(RecordWriteDescriptor::kObject));
+  Register slot_parameter(
+      descriptor.GetRegisterParameter(RecordWriteDescriptor::kSlot));
+  Register remembered_set_parameter(
+      descriptor.GetRegisterParameter(RecordWriteDescriptor::kRememberedSet));
+  Register fp_mode_parameter(
+      descriptor.GetRegisterParameter(RecordWriteDescriptor::kFPMode));
+
+  Push(object);
+  Push(address);
+
+  Pop(slot_parameter);
+  Pop(object_parameter);
+
+  Move(remembered_set_parameter, Smi::FromEnum(remembered_set_action));
+  Move(fp_mode_parameter, Smi::FromEnum(fp_mode));
+  if (code_target.is_null()) {
+    Call(wasm_target, RelocInfo::WASM_STUB_CALL);
+  } else {
+    Call(code_target, RelocInfo::CODE_TARGET);
+  }
+
+  RestoreRegisters(registers);
+}
 
 // Clobbers object, address, value, and ra, if (ra_status == kRAHasBeenSaved)
 // The register 'object' contains a heap object pointer.  The heap object
 // tag is shifted away.
-void MacroAssembler::RecordWrite(
-    Register object,
-    Register address,
-    Register value,
-    RAStatus ra_status,
-    SaveFPRegsMode fp_mode,
-    RememberedSetAction remembered_set_action,
-    SmiCheck smi_check,
-    PointersToHereCheck pointers_to_here_check_for_value) {
+void MacroAssembler::RecordWrite(Register object, Register address,
+                                 Register value, RAStatus ra_status,
+                                 SaveFPRegsMode fp_mode,
+                                 RememberedSetAction remembered_set_action,
+                                 SmiCheck smi_check) {
   DCHECK(!AreAliased(object, address, value, t8));
   DCHECK(!AreAliased(object, address, value, t9));
 
   if (emit_debug_code()) {
-    Ld(at, MemOperand(address));
-    Assert(
-        eq, kWrongAddressOrValuePassedToRecordWrite, at, Operand(value));
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    Ld(scratch, MemOperand(address));
+    Assert(eq, AbortReason::kWrongAddressOrValuePassedToRecordWrite, scratch,
+           Operand(value));
   }
 
   if (remembered_set_action == OMIT_REMEMBERED_SET &&
@@ -356,13 +338,9 @@ void MacroAssembler::RecordWrite(
     JumpIfSmi(value, &done);
   }
 
-  if (pointers_to_here_check_for_value != kPointersToHereAreAlwaysInteresting) {
-    CheckPageFlag(value,
-                  value,  // Used as scratch.
-                  MemoryChunk::kPointersToHereAreInterestingMask,
-                  eq,
-                  &done);
-  }
+  CheckPageFlag(value,
+                value,  // Used as scratch.
+                MemoryChunk::kPointersToHereAreInterestingMask, eq, &done);
   CheckPageFlag(object,
                 value,  // Used as scratch.
                 MemoryChunk::kPointersFromHereAreInterestingMask,
@@ -373,19 +351,21 @@ void MacroAssembler::RecordWrite(
   if (ra_status == kRAHasNotBeenSaved) {
     push(ra);
   }
-  RecordWriteStub stub(isolate(), object, value, address, remembered_set_action,
-                       fp_mode);
-  CallStub(&stub);
+  CallRecordWriteStub(object, address, remembered_set_action, fp_mode);
   if (ra_status == kRAHasNotBeenSaved) {
     pop(ra);
   }
 
   bind(&done);
 
-  // Count number of write barriers in generated code.
-  isolate()->counters()->write_barriers_static()->Increment();
-  IncrementCounter(isolate()->counters()->write_barriers_dynamic(), 1, at,
-                   value);
+  {
+    // Count number of write barriers in generated code.
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    isolate()->counters()->write_barriers_static()->Increment();
+    IncrementCounter(isolate()->counters()->write_barriers_dynamic(), 1,
+                     scratch, value);
+  }
 
   // Clobber clobbered registers when running with the debug-code flag
   // turned on to provoke errors.
@@ -393,156 +373,6 @@ void MacroAssembler::RecordWrite(
     li(address, Operand(bit_cast<int64_t>(kZapValue + 12)));
     li(value, Operand(bit_cast<int64_t>(kZapValue + 16)));
   }
-}
-
-void MacroAssembler::RecordWriteCodeEntryField(Register js_function,
-                                               Register code_entry,
-                                               Register scratch) {
-  const int offset = JSFunction::kCodeEntryOffset;
-
-  // Since a code entry (value) is always in old space, we don't need to update
-  // remembered set. If incremental marking is off, there is nothing for us to
-  // do.
-  if (!FLAG_incremental_marking) return;
-
-  DCHECK(js_function.is(a1));
-  DCHECK(code_entry.is(a4));
-  DCHECK(scratch.is(a5));
-  AssertNotSmi(js_function);
-
-  if (emit_debug_code()) {
-    Daddu(scratch, js_function, Operand(offset - kHeapObjectTag));
-    Ld(at, MemOperand(scratch));
-    Assert(eq, kWrongAddressOrValuePassedToRecordWrite, at,
-           Operand(code_entry));
-  }
-
-  // First, check if a write barrier is even needed. The tests below
-  // catch stores of Smis and stores into young gen.
-  Label done;
-
-  CheckPageFlag(code_entry, scratch,
-                MemoryChunk::kPointersToHereAreInterestingMask, eq, &done);
-  CheckPageFlag(js_function, scratch,
-                MemoryChunk::kPointersFromHereAreInterestingMask, eq, &done);
-
-  const Register dst = scratch;
-  Daddu(dst, js_function, Operand(offset - kHeapObjectTag));
-
-  // Save caller-saved registers. js_function and code_entry are in the
-  // caller-saved register list.
-  DCHECK(kJSCallerSaved & js_function.bit());
-  DCHECK(kJSCallerSaved & code_entry.bit());
-  MultiPush(kJSCallerSaved | ra.bit());
-
-  int argument_count = 3;
-
-  PrepareCallCFunction(argument_count, code_entry);
-
-  Move(a0, js_function);
-  Move(a1, dst);
-  li(a2, Operand(ExternalReference::isolate_address(isolate())));
-
-  {
-    AllowExternalCallThatCantCauseGC scope(this);
-    CallCFunction(
-        ExternalReference::incremental_marking_record_write_code_entry_function(
-            isolate()),
-        argument_count);
-  }
-
-  // Restore caller-saved registers.
-  MultiPop(kJSCallerSaved | ra.bit());
-
-  bind(&done);
-}
-
-void MacroAssembler::RememberedSetHelper(Register object,  // For debug tests.
-                                         Register address,
-                                         Register scratch,
-                                         SaveFPRegsMode fp_mode,
-                                         RememberedSetFinalAction and_then) {
-  Label done;
-  if (emit_debug_code()) {
-    Label ok;
-    JumpIfNotInNewSpace(object, scratch, &ok);
-    stop("Remembered set pointer is in new space");
-    bind(&ok);
-  }
-  // Load store buffer top.
-  ExternalReference store_buffer =
-      ExternalReference::store_buffer_top(isolate());
-  li(t8, Operand(store_buffer));
-  Ld(scratch, MemOperand(t8));
-  // Store pointer to buffer and increment buffer top.
-  Sd(address, MemOperand(scratch));
-  Daddu(scratch, scratch, kPointerSize);
-  // Write back new top of buffer.
-  Sd(scratch, MemOperand(t8));
-  // Call stub on end of buffer.
-  // Check for end of buffer.
-  And(t8, scratch, Operand(StoreBuffer::kStoreBufferMask));
-  DCHECK(!scratch.is(t8));
-  if (and_then == kFallThroughAtEnd) {
-    Branch(&done, ne, t8, Operand(zero_reg));
-  } else {
-    DCHECK(and_then == kReturnAtEnd);
-    Ret(ne, t8, Operand(zero_reg));
-  }
-  push(ra);
-  StoreBufferOverflowStub store_buffer_overflow(isolate(), fp_mode);
-  CallStub(&store_buffer_overflow);
-  pop(ra);
-  bind(&done);
-  if (and_then == kReturnAtEnd) {
-    Ret();
-  }
-}
-
-
-// -----------------------------------------------------------------------------
-// Allocation support.
-
-
-// Compute the hash code from the untagged key.  This must be kept in sync with
-// ComputeIntegerHash in utils.h and KeyedLoadGenericStub in
-// code-stub-hydrogen.cc
-void MacroAssembler::GetNumberHash(Register reg0, Register scratch) {
-  // First of all we assign the hash seed to scratch.
-  LoadRoot(scratch, Heap::kHashSeedRootIndex);
-  SmiUntag(scratch);
-
-  // Xor original key with a seed.
-  xor_(reg0, reg0, scratch);
-
-  // Compute the hash code from the untagged key.  This must be kept in sync
-  // with ComputeIntegerHash in utils.h.
-  //
-  // hash = ~hash + (hash << 15);
-  // The algorithm uses 32-bit integer values.
-  nor(scratch, reg0, zero_reg);
-  Lsa(reg0, scratch, reg0, 15);
-
-  // hash = hash ^ (hash >> 12);
-  srl(at, reg0, 12);
-  xor_(reg0, reg0, at);
-
-  // hash = hash + (hash << 2);
-  Lsa(reg0, reg0, reg0, 2);
-
-  // hash = hash ^ (hash >> 4);
-  srl(at, reg0, 4);
-  xor_(reg0, reg0, at);
-
-  // hash = hash * 2057;
-  sll(scratch, reg0, 11);
-  Lsa(reg0, reg0, reg0, 3);
-  addu(reg0, reg0, scratch);
-
-  // hash = hash ^ (hash >> 16);
-  srl(at, reg0, 16);
-  xor_(reg0, reg0, at);
-  And(reg0, reg0, Operand(0x3fffffff));
 }
 
 // ---------------------------------------------------------------------------
@@ -556,9 +386,11 @@ void TurboAssembler::Addu(Register rd, Register rs, const Operand& rt) {
       addiu(rd, rs, static_cast<int32_t>(rt.immediate()));
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      addu(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      addu(rd, rs, scratch);
     }
   }
 }
@@ -571,9 +403,11 @@ void TurboAssembler::Daddu(Register rd, Register rs, const Operand& rt) {
       daddiu(rd, rs, static_cast<int32_t>(rt.immediate()));
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      daddu(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      daddu(rd, rs, scratch);
     }
   }
 }
@@ -588,15 +422,17 @@ void TurboAssembler::Subu(Register rd, Register rs, const Operand& rt) {
             static_cast<int32_t>(
                 -rt.immediate()));  // No subiu instr, use addiu(x, y, -imm).
     } else {
-      DCHECK(!rs.is(at));
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
       if (-rt.immediate() >> 16 == 0 && !MustUseReg(rt.rmode())) {
         // Use load -imm and addu when loading -imm generates one instruction.
-        li(at, -rt.immediate());
-        addu(rd, rs, at);
+        li(scratch, -rt.immediate());
+        addu(rd, rs, scratch);
       } else {
         // li handles the relocation.
-        li(at, rt);
-        subu(rd, rs, at);
+        li(scratch, rt);
+        subu(rd, rs, scratch);
       }
     }
   }
@@ -610,18 +446,22 @@ void TurboAssembler::Dsubu(Register rd, Register rs, const Operand& rt) {
            static_cast<int32_t>(
                -rt.immediate()));  // No dsubiu instr, use daddiu(x, y, -imm).
   } else {
-    DCHECK(!rs.is(at));
+    DCHECK(rs != at);
     int li_count = InstrCountForLi64Bit(rt.immediate());
     int li_neg_count = InstrCountForLi64Bit(-rt.immediate());
     if (li_neg_count < li_count && !MustUseReg(rt.rmode())) {
       // Use load -imm and daddu when loading -imm generates one instruction.
       DCHECK(rt.immediate() != std::numeric_limits<int32_t>::min());
-      li(at, Operand(-rt.immediate()));
-      Daddu(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      li(scratch, Operand(-rt.immediate()));
+      Daddu(rd, rs, scratch);
     } else {
       // li handles the relocation.
-      li(at, rt);
-      dsubu(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      li(scratch, rt);
+      dsubu(rd, rs, scratch);
     }
   }
 }
@@ -631,9 +471,11 @@ void TurboAssembler::Mul(Register rd, Register rs, const Operand& rt) {
     mul(rd, rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    mul(rd, rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    mul(rd, rs, scratch);
   }
 }
 
@@ -647,13 +489,15 @@ void TurboAssembler::Mulh(Register rd, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant != kMips64r6) {
-      mult(rs, at);
+      mult(rs, scratch);
       mfhi(rd);
     } else {
-      muh(rd, rs, at);
+      muh(rd, rs, scratch);
     }
   }
 }
@@ -668,13 +512,15 @@ void TurboAssembler::Mulhu(Register rd, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant != kMips64r6) {
-      multu(rs, at);
+      multu(rs, scratch);
       mfhi(rd);
     } else {
-      muhu(rd, rs, at);
+      muhu(rd, rs, scratch);
     }
   }
 }
@@ -689,12 +535,14 @@ void TurboAssembler::Dmul(Register rd, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant == kMips64r6) {
-      dmul(rd, rs, at);
+      dmul(rd, rs, scratch);
     } else {
-      dmult(rs, at);
+      dmult(rs, scratch);
       mflo(rd);
     }
   }
@@ -710,12 +558,14 @@ void TurboAssembler::Dmulh(Register rd, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant == kMips64r6) {
-      dmuh(rd, rs, at);
+      dmuh(rd, rs, scratch);
     } else {
-      dmult(rs, at);
+      dmult(rs, scratch);
       mfhi(rd);
     }
   }
@@ -726,9 +576,11 @@ void TurboAssembler::Mult(Register rs, const Operand& rt) {
     mult(rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    mult(rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    mult(rs, scratch);
   }
 }
 
@@ -737,9 +589,11 @@ void TurboAssembler::Dmult(Register rs, const Operand& rt) {
     dmult(rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    dmult(rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    dmult(rs, scratch);
   }
 }
 
@@ -748,9 +602,11 @@ void TurboAssembler::Multu(Register rs, const Operand& rt) {
     multu(rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    multu(rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    multu(rs, scratch);
   }
 }
 
@@ -759,9 +615,11 @@ void TurboAssembler::Dmultu(Register rs, const Operand& rt) {
     dmultu(rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    dmultu(rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    dmultu(rs, scratch);
   }
 }
 
@@ -770,9 +628,11 @@ void TurboAssembler::Div(Register rs, const Operand& rt) {
     div(rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    div(rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    div(rs, scratch);
   }
 }
 
@@ -786,13 +646,15 @@ void TurboAssembler::Div(Register res, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant != kMips64r6) {
-      div(rs, at);
+      div(rs, scratch);
       mflo(res);
     } else {
-      div(res, rs, at);
+      div(res, rs, scratch);
     }
   }
 }
@@ -807,13 +669,15 @@ void TurboAssembler::Mod(Register rd, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant != kMips64r6) {
-      div(rs, at);
+      div(rs, scratch);
       mfhi(rd);
     } else {
-      mod(rd, rs, at);
+      mod(rd, rs, scratch);
     }
   }
 }
@@ -828,13 +692,15 @@ void TurboAssembler::Modu(Register rd, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant != kMips64r6) {
-      divu(rs, at);
+      divu(rs, scratch);
       mfhi(rd);
     } else {
-      modu(rd, rs, at);
+      modu(rd, rs, scratch);
     }
   }
 }
@@ -844,9 +710,11 @@ void TurboAssembler::Ddiv(Register rs, const Operand& rt) {
     ddiv(rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    ddiv(rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    ddiv(rs, scratch);
   }
 }
 
@@ -857,9 +725,11 @@ void TurboAssembler::Ddiv(Register rd, Register rs, const Operand& rt) {
       mflo(rd);
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      ddiv(rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      ddiv(rs, scratch);
       mflo(rd);
     }
   } else {
@@ -867,9 +737,11 @@ void TurboAssembler::Ddiv(Register rd, Register rs, const Operand& rt) {
       ddiv(rd, rs, rt.rm());
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      ddiv(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      ddiv(rd, rs, scratch);
     }
   }
 }
@@ -879,9 +751,11 @@ void TurboAssembler::Divu(Register rs, const Operand& rt) {
     divu(rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    divu(rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    divu(rs, scratch);
   }
 }
 
@@ -895,13 +769,15 @@ void TurboAssembler::Divu(Register res, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant != kMips64r6) {
-      divu(rs, at);
+      divu(rs, scratch);
       mflo(res);
     } else {
-      divu(res, rs, at);
+      divu(res, rs, scratch);
     }
   }
 }
@@ -911,9 +787,11 @@ void TurboAssembler::Ddivu(Register rs, const Operand& rt) {
     ddivu(rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    ddivu(rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    ddivu(rs, scratch);
   }
 }
 
@@ -927,13 +805,15 @@ void TurboAssembler::Ddivu(Register res, Register rs, const Operand& rt) {
     }
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
     if (kArchVariant != kMips64r6) {
-      ddivu(rs, at);
+      ddivu(rs, scratch);
       mflo(res);
     } else {
-      ddivu(res, rs, at);
+      ddivu(res, rs, scratch);
     }
   }
 }
@@ -945,9 +825,11 @@ void TurboAssembler::Dmod(Register rd, Register rs, const Operand& rt) {
       mfhi(rd);
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      ddiv(rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      ddiv(rs, scratch);
       mfhi(rd);
     }
   } else {
@@ -955,9 +837,11 @@ void TurboAssembler::Dmod(Register rd, Register rs, const Operand& rt) {
       dmod(rd, rs, rt.rm());
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      dmod(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      dmod(rd, rs, scratch);
     }
   }
 }
@@ -969,9 +853,11 @@ void TurboAssembler::Dmodu(Register rd, Register rs, const Operand& rt) {
       mfhi(rd);
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      ddivu(rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      ddivu(rs, scratch);
       mfhi(rd);
     }
   } else {
@@ -979,9 +865,11 @@ void TurboAssembler::Dmodu(Register rd, Register rs, const Operand& rt) {
       dmodu(rd, rs, rt.rm());
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      dmodu(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      dmodu(rd, rs, scratch);
     }
   }
 }
@@ -994,9 +882,11 @@ void TurboAssembler::And(Register rd, Register rs, const Operand& rt) {
       andi(rd, rs, static_cast<int32_t>(rt.immediate()));
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      and_(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      and_(rd, rs, scratch);
     }
   }
 }
@@ -1009,9 +899,11 @@ void TurboAssembler::Or(Register rd, Register rs, const Operand& rt) {
       ori(rd, rs, static_cast<int32_t>(rt.immediate()));
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      or_(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      or_(rd, rs, scratch);
     }
   }
 }
@@ -1024,9 +916,11 @@ void TurboAssembler::Xor(Register rd, Register rs, const Operand& rt) {
       xori(rd, rs, static_cast<int32_t>(rt.immediate()));
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      xor_(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      xor_(rd, rs, scratch);
     }
   }
 }
@@ -1036,18 +930,16 @@ void TurboAssembler::Nor(Register rd, Register rs, const Operand& rt) {
     nor(rd, rs, rt.rm());
   } else {
     // li handles the relocation.
-    DCHECK(!rs.is(at));
-    li(at, rt);
-    nor(rd, rs, at);
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    nor(rd, rs, scratch);
   }
 }
 
 void TurboAssembler::Neg(Register rs, const Operand& rt) {
-  DCHECK(rt.is_reg());
-  DCHECK(!at.is(rs));
-  DCHECK(!at.is(rt.rm()));
-  li(at, -1);
-  xor_(rs, rt.rm(), at);
+  dsubu(rs, zero_reg, rt.rm());
 }
 
 void TurboAssembler::Slt(Register rd, Register rs, const Operand& rt) {
@@ -1058,9 +950,12 @@ void TurboAssembler::Slt(Register rd, Register rs, const Operand& rt) {
       slti(rd, rs, static_cast<int32_t>(rt.immediate()));
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      slt(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      BlockTrampolinePoolScope block_trampoline_pool(this);
+      Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      slt(rd, rs, scratch);
     }
   }
 }
@@ -1079,10 +974,81 @@ void TurboAssembler::Sltu(Register rd, Register rs, const Operand& rt) {
       sltiu(rd, rs, static_cast<uint16_t>(rt.immediate()));
     } else {
       // li handles the relocation.
-      DCHECK(!rs.is(at));
-      li(at, rt);
-      sltu(rd, rs, at);
+      UseScratchRegisterScope temps(this);
+      BlockTrampolinePoolScope block_trampoline_pool(this);
+      Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
+      DCHECK(rs != scratch);
+      li(scratch, rt);
+      sltu(rd, rs, scratch);
     }
+  }
+}
+
+void TurboAssembler::Sle(Register rd, Register rs, const Operand& rt) {
+  if (rt.is_reg()) {
+    slt(rd, rt.rm(), rs);
+  } else {
+    // li handles the relocation.
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    slt(rd, scratch, rs);
+  }
+  xori(rd, rd, 1);
+}
+
+void TurboAssembler::Sleu(Register rd, Register rs, const Operand& rt) {
+  if (rt.is_reg()) {
+    sltu(rd, rt.rm(), rs);
+  } else {
+    // li handles the relocation.
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    sltu(rd, scratch, rs);
+  }
+  xori(rd, rd, 1);
+}
+
+void TurboAssembler::Sge(Register rd, Register rs, const Operand& rt) {
+  Slt(rd, rs, rt);
+  xori(rd, rd, 1);
+}
+
+void TurboAssembler::Sgeu(Register rd, Register rs, const Operand& rt) {
+  Sltu(rd, rs, rt);
+  xori(rd, rd, 1);
+}
+
+void TurboAssembler::Sgt(Register rd, Register rs, const Operand& rt) {
+  if (rt.is_reg()) {
+    slt(rd, rt.rm(), rs);
+  } else {
+    // li handles the relocation.
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    slt(rd, scratch, rs);
+  }
+}
+
+void TurboAssembler::Sgtu(Register rd, Register rs, const Operand& rt) {
+  if (rt.is_reg()) {
+    sltu(rd, rt.rm(), rs);
+  } else {
+    // li handles the relocation.
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    DCHECK(rs != scratch);
+    li(scratch, rt);
+    sltu(rd, scratch, rs);
   }
 }
 
@@ -1123,8 +1089,8 @@ void TurboAssembler::Lsa(Register rd, Register rt, Register rs, uint8_t sa,
   if (kArchVariant == kMips64r6 && sa <= 4) {
     lsa(rd, rt, rs, sa - 1);
   } else {
-    Register tmp = rd.is(rt) ? scratch : rd;
-    DCHECK(!tmp.is(rt));
+    Register tmp = rd == rt ? scratch : rd;
+    DCHECK(tmp != rt);
     sll(tmp, rs, sa);
     Addu(rd, rt, tmp);
   }
@@ -1136,8 +1102,8 @@ void TurboAssembler::Dlsa(Register rd, Register rt, Register rs, uint8_t sa,
   if (kArchVariant == kMips64r6 && sa <= 4) {
     dlsa(rd, rt, rs, sa - 1);
   } else {
-    Register tmp = rd.is(rt) ? scratch : rd;
-    DCHECK(!tmp.is(rt));
+    Register tmp = rd == rt ? scratch : rd;
+    DCHECK(tmp != rt);
     dsll(tmp, rs, sa);
     Daddu(rd, rt, tmp);
   }
@@ -1170,23 +1136,14 @@ void TurboAssembler::Bnvc(Register rs, Register rt, Label* L) {
 // Change endianness
 void TurboAssembler::ByteSwapSigned(Register dest, Register src,
                                     int operand_size) {
-  DCHECK(operand_size == 1 || operand_size == 2 || operand_size == 4 ||
-         operand_size == 8);
+  DCHECK(operand_size == 2 || operand_size == 4 || operand_size == 8);
   DCHECK(kArchVariant == kMips64r6 || kArchVariant == kMips64r2);
-  if (operand_size == 1) {
-    seb(src, src);
-    sll(src, src, 0);
-    dsbh(dest, src);
-    dshd(dest, dest);
-  } else if (operand_size == 2) {
-    seh(src, src);
-    sll(src, src, 0);
-    dsbh(dest, src);
-    dshd(dest, dest);
+  if (operand_size == 2) {
+    wsbh(dest, src);
+    seh(dest, dest);
   } else if (operand_size == 4) {
-    sll(src, src, 0);
-    dsbh(dest, src);
-    dshd(dest, dest);
+    wsbh(dest, src);
+    rotr(dest, dest, 16);
   } else {
     dsbh(dest, src);
     dshd(dest, dest);
@@ -1195,41 +1152,37 @@ void TurboAssembler::ByteSwapSigned(Register dest, Register src,
 
 void TurboAssembler::ByteSwapUnsigned(Register dest, Register src,
                                       int operand_size) {
-  DCHECK(operand_size == 1 || operand_size == 2 || operand_size == 4);
-  if (operand_size == 1) {
-    andi(src, src, 0xFF);
-    dsbh(dest, src);
-    dshd(dest, dest);
-  } else if (operand_size == 2) {
-    andi(src, src, 0xFFFF);
-    dsbh(dest, src);
-    dshd(dest, dest);
+  DCHECK(operand_size == 2 || operand_size == 4);
+  if (operand_size == 2) {
+    wsbh(dest, src);
+    andi(dest, dest, 0xFFFF);
   } else {
-    dsll32(src, src, 0);
-    dsrl32(src, src, 0);
-    dsbh(dest, src);
-    dshd(dest, dest);
+    wsbh(dest, src);
+    rotr(dest, dest, 16);
+    dinsu_(dest, zero_reg, 32, 32);
   }
 }
 
 void TurboAssembler::Ulw(Register rd, const MemOperand& rs) {
-  DCHECK(!rd.is(at));
-  DCHECK(!rs.rm().is(at));
+  DCHECK(rd != at);
+  DCHECK(rs.rm() != at);
   if (kArchVariant == kMips64r6) {
     Lw(rd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     DCHECK(kMipsLwrOffset <= 3 && kMipsLwlOffset <= 3);
     MemOperand source = rs;
     // Adjust offset for two accesses and check if offset + 3 fits into int16_t.
     AdjustBaseAndOffset(source, OffsetAccessType::TWO_ACCESSES, 3);
-    if (!rd.is(source.rm())) {
+    if (rd != source.rm()) {
       lwr(rd, MemOperand(source.rm(), source.offset() + kMipsLwrOffset));
       lwl(rd, MemOperand(source.rm(), source.offset() + kMipsLwlOffset));
     } else {
-      lwr(at, MemOperand(rs.rm(), rs.offset() + kMipsLwrOffset));
-      lwl(at, MemOperand(rs.rm(), rs.offset() + kMipsLwlOffset));
-      mov(rd, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      lwr(scratch, MemOperand(rs.rm(), rs.offset() + kMipsLwrOffset));
+      lwl(scratch, MemOperand(rs.rm(), rs.offset() + kMipsLwlOffset));
+      mov(rd, scratch);
     }
   }
 }
@@ -1238,20 +1191,20 @@ void TurboAssembler::Ulwu(Register rd, const MemOperand& rs) {
   if (kArchVariant == kMips64r6) {
     Lwu(rd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     Ulw(rd, rs);
     Dext(rd, rd, 0, 32);
   }
 }
 
 void TurboAssembler::Usw(Register rd, const MemOperand& rs) {
-  DCHECK(!rd.is(at));
-  DCHECK(!rs.rm().is(at));
-  DCHECK(!rd.is(rs.rm()));
+  DCHECK(rd != at);
+  DCHECK(rs.rm() != at);
+  DCHECK(rd != rs.rm());
   if (kArchVariant == kMips64r6) {
     Sw(rd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     DCHECK(kMipsSwrOffset <= 3 && kMipsSwlOffset <= 3);
     MemOperand source = rs;
     // Adjust offset for two accesses and check if offset + 3 fits into int16_t.
@@ -1262,83 +1215,87 @@ void TurboAssembler::Usw(Register rd, const MemOperand& rs) {
 }
 
 void TurboAssembler::Ulh(Register rd, const MemOperand& rs) {
-  DCHECK(!rd.is(at));
-  DCHECK(!rs.rm().is(at));
+  DCHECK(rd != at);
+  DCHECK(rs.rm() != at);
   if (kArchVariant == kMips64r6) {
     Lh(rd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     MemOperand source = rs;
     // Adjust offset for two accesses and check if offset + 1 fits into int16_t.
     AdjustBaseAndOffset(source, OffsetAccessType::TWO_ACCESSES, 1);
-    if (source.rm().is(at)) {
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    if (source.rm() == scratch) {
 #if defined(V8_TARGET_LITTLE_ENDIAN)
       Lb(rd, MemOperand(source.rm(), source.offset() + 1));
-      Lbu(at, source);
+      Lbu(scratch, source);
 #elif defined(V8_TARGET_BIG_ENDIAN)
       Lb(rd, source);
-      Lbu(at, MemOperand(source.rm(), source.offset() + 1));
+      Lbu(scratch, MemOperand(source.rm(), source.offset() + 1));
 #endif
     } else {
 #if defined(V8_TARGET_LITTLE_ENDIAN)
-      Lbu(at, source);
+      Lbu(scratch, source);
       Lb(rd, MemOperand(source.rm(), source.offset() + 1));
 #elif defined(V8_TARGET_BIG_ENDIAN)
-      Lbu(at, MemOperand(source.rm(), source.offset() + 1));
+      Lbu(scratch, MemOperand(source.rm(), source.offset() + 1));
       Lb(rd, source);
 #endif
     }
     dsll(rd, rd, 8);
-    or_(rd, rd, at);
+    or_(rd, rd, scratch);
   }
 }
 
 void TurboAssembler::Ulhu(Register rd, const MemOperand& rs) {
-  DCHECK(!rd.is(at));
-  DCHECK(!rs.rm().is(at));
+  DCHECK(rd != at);
+  DCHECK(rs.rm() != at);
   if (kArchVariant == kMips64r6) {
     Lhu(rd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     MemOperand source = rs;
     // Adjust offset for two accesses and check if offset + 1 fits into int16_t.
     AdjustBaseAndOffset(source, OffsetAccessType::TWO_ACCESSES, 1);
-    if (source.rm().is(at)) {
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    if (source.rm() == scratch) {
 #if defined(V8_TARGET_LITTLE_ENDIAN)
       Lbu(rd, MemOperand(source.rm(), source.offset() + 1));
-      Lbu(at, source);
+      Lbu(scratch, source);
 #elif defined(V8_TARGET_BIG_ENDIAN)
       Lbu(rd, source);
-      Lbu(at, MemOperand(source.rm(), source.offset() + 1));
+      Lbu(scratch, MemOperand(source.rm(), source.offset() + 1));
 #endif
     } else {
 #if defined(V8_TARGET_LITTLE_ENDIAN)
-      Lbu(at, source);
+      Lbu(scratch, source);
       Lbu(rd, MemOperand(source.rm(), source.offset() + 1));
 #elif defined(V8_TARGET_BIG_ENDIAN)
-      Lbu(at, MemOperand(source.rm(), source.offset() + 1));
+      Lbu(scratch, MemOperand(source.rm(), source.offset() + 1));
       Lbu(rd, source);
 #endif
     }
     dsll(rd, rd, 8);
-    or_(rd, rd, at);
+    or_(rd, rd, scratch);
   }
 }
 
 void TurboAssembler::Ush(Register rd, const MemOperand& rs, Register scratch) {
-  DCHECK(!rd.is(at));
-  DCHECK(!rs.rm().is(at));
-  DCHECK(!rs.rm().is(scratch));
-  DCHECK(!scratch.is(at));
+  DCHECK(rd != at);
+  DCHECK(rs.rm() != at);
+  DCHECK(rs.rm() != scratch);
+  DCHECK(scratch != at);
   if (kArchVariant == kMips64r6) {
     Sh(rd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     MemOperand source = rs;
     // Adjust offset for two accesses and check if offset + 1 fits into int16_t.
     AdjustBaseAndOffset(source, OffsetAccessType::TWO_ACCESSES, 1);
 
-    if (!scratch.is(rd)) {
+    if (scratch != rd) {
       mov(scratch, rd);
     }
 
@@ -1355,23 +1312,25 @@ void TurboAssembler::Ush(Register rd, const MemOperand& rs, Register scratch) {
 }
 
 void TurboAssembler::Uld(Register rd, const MemOperand& rs) {
-  DCHECK(!rd.is(at));
-  DCHECK(!rs.rm().is(at));
+  DCHECK(rd != at);
+  DCHECK(rs.rm() != at);
   if (kArchVariant == kMips64r6) {
     Ld(rd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     DCHECK(kMipsLdrOffset <= 7 && kMipsLdlOffset <= 7);
     MemOperand source = rs;
     // Adjust offset for two accesses and check if offset + 7 fits into int16_t.
     AdjustBaseAndOffset(source, OffsetAccessType::TWO_ACCESSES, 7);
-    if (!rd.is(source.rm())) {
+    if (rd != source.rm()) {
       ldr(rd, MemOperand(source.rm(), source.offset() + kMipsLdrOffset));
       ldl(rd, MemOperand(source.rm(), source.offset() + kMipsLdlOffset));
     } else {
-      ldr(at, MemOperand(rs.rm(), rs.offset() + kMipsLdrOffset));
-      ldl(at, MemOperand(rs.rm(), rs.offset() + kMipsLdlOffset));
-      mov(rd, at);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      ldr(scratch, MemOperand(rs.rm(), rs.offset() + kMipsLdrOffset));
+      ldl(scratch, MemOperand(rs.rm(), rs.offset() + kMipsLdlOffset));
+      mov(rd, scratch);
     }
   }
 }
@@ -1389,12 +1348,12 @@ void MacroAssembler::LoadWordPair(Register rd, const MemOperand& rs,
 }
 
 void TurboAssembler::Usd(Register rd, const MemOperand& rs) {
-  DCHECK(!rd.is(at));
-  DCHECK(!rs.rm().is(at));
+  DCHECK(rd != at);
+  DCHECK(rs.rm() != at);
   if (kArchVariant == kMips64r6) {
     Sd(rd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     DCHECK(kMipsSdrOffset <= 7 && kMipsSdlOffset <= 7);
     MemOperand source = rs;
     // Adjust offset for two accesses and check if offset + 7 fits into int16_t.
@@ -1418,7 +1377,7 @@ void TurboAssembler::Ulwc1(FPURegister fd, const MemOperand& rs,
   if (kArchVariant == kMips64r6) {
     Lwc1(fd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     Ulw(scratch, rs);
     mtc1(scratch, fd);
   }
@@ -1429,7 +1388,7 @@ void TurboAssembler::Uswc1(FPURegister fd, const MemOperand& rs,
   if (kArchVariant == kMips64r6) {
     Swc1(fd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     mfc1(scratch, fd);
     Usw(scratch, rs);
   }
@@ -1437,11 +1396,11 @@ void TurboAssembler::Uswc1(FPURegister fd, const MemOperand& rs,
 
 void TurboAssembler::Uldc1(FPURegister fd, const MemOperand& rs,
                            Register scratch) {
-  DCHECK(!scratch.is(at));
+  DCHECK(scratch != at);
   if (kArchVariant == kMips64r6) {
     Ldc1(fd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     Uld(scratch, rs);
     dmtc1(scratch, fd);
   }
@@ -1449,11 +1408,11 @@ void TurboAssembler::Uldc1(FPURegister fd, const MemOperand& rs,
 
 void TurboAssembler::Usdc1(FPURegister fd, const MemOperand& rs,
                            Register scratch) {
-  DCHECK(!scratch.is(at));
+  DCHECK(scratch != at);
   if (kArchVariant == kMips64r6) {
     Sdc1(fd, rs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
     dmfc1(scratch, fd);
     Usd(scratch, rs);
   }
@@ -1549,8 +1508,85 @@ void TurboAssembler::Sdc1(FPURegister fs, const MemOperand& src) {
   sdc1(fs, tmp);
 }
 
+void TurboAssembler::Ll(Register rd, const MemOperand& rs) {
+  bool is_one_instruction = (kArchVariant == kMips64r6) ? is_int9(rs.offset())
+                                                        : is_int16(rs.offset());
+  if (is_one_instruction) {
+    ll(rd, rs);
+  } else {
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    li(scratch, rs.offset());
+    daddu(scratch, scratch, rs.rm());
+    ll(rd, MemOperand(scratch, 0));
+  }
+}
+
+void TurboAssembler::Lld(Register rd, const MemOperand& rs) {
+  bool is_one_instruction = (kArchVariant == kMips64r6) ? is_int9(rs.offset())
+                                                        : is_int16(rs.offset());
+  if (is_one_instruction) {
+    lld(rd, rs);
+  } else {
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    li(scratch, rs.offset());
+    daddu(scratch, scratch, rs.rm());
+    lld(rd, MemOperand(scratch, 0));
+  }
+}
+
+void TurboAssembler::Sc(Register rd, const MemOperand& rs) {
+  bool is_one_instruction = (kArchVariant == kMips64r6) ? is_int9(rs.offset())
+                                                        : is_int16(rs.offset());
+  if (is_one_instruction) {
+    sc(rd, rs);
+  } else {
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    li(scratch, rs.offset());
+    daddu(scratch, scratch, rs.rm());
+    sc(rd, MemOperand(scratch, 0));
+  }
+}
+
+void TurboAssembler::Scd(Register rd, const MemOperand& rs) {
+  bool is_one_instruction = (kArchVariant == kMips64r6) ? is_int9(rs.offset())
+                                                        : is_int16(rs.offset());
+  if (is_one_instruction) {
+    scd(rd, rs);
+  } else {
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    li(scratch, rs.offset());
+    daddu(scratch, scratch, rs.rm());
+    scd(rd, MemOperand(scratch, 0));
+  }
+}
+
 void TurboAssembler::li(Register dst, Handle<HeapObject> value, LiFlags mode) {
+  if (FLAG_embedded_builtins) {
+    if (root_array_available_ && options().isolate_independent_code) {
+      IndirectLoadConstant(dst, value);
+      return;
+    }
+  }
   li(dst, Operand(value), mode);
+}
+
+void TurboAssembler::li(Register dst, ExternalReference value, LiFlags mode) {
+  if (FLAG_embedded_builtins) {
+    if (root_array_available_ && options().isolate_independent_code) {
+      IndirectLoadExternalReference(dst, value);
+      return;
+    }
+  }
+  li(dst, Operand(value), mode);
+}
+
+void TurboAssembler::li(Register dst, const StringConstantBase* string,
+                        LiFlags mode) {
+  li(dst, Operand::EmbeddedStringConstant(string), mode);
 }
 
 static inline int InstrCountForLiLower32Bit(int64_t value) {
@@ -1601,17 +1637,18 @@ int TurboAssembler::InstrCountForLi64Bit(int64_t value) {
                kArchVariant == kMips64r6) {
       return 2;
     } else if ((value & kImm16Mask) == 0 &&
-               ((value >> 31) & 0x1ffff) == ((0x20000 - bit31) & 0x1ffff) &&
+               ((value >> 31) & 0x1FFFF) == ((0x20000 - bit31) & 0x1FFFF) &&
                kArchVariant == kMips64r6) {
       return 2;
     } else if (is_int16(static_cast<int32_t>(value)) &&
                is_int16((value >> 32) + bit31) && kArchVariant == kMips64r6) {
       return 2;
     } else if (is_int16(static_cast<int32_t>(value)) &&
-               ((value >> 31) & 0x1ffff) == ((0x20000 - bit31) & 0x1ffff) &&
+               ((value >> 31) & 0x1FFFF) == ((0x20000 - bit31) & 0x1FFFF) &&
                kArchVariant == kMips64r6) {
       return 2;
-    } else if (base::bits::IsPowerOfTwo(value + 1)) {
+    } else if (base::bits::IsPowerOfTwo(value + 1) ||
+               value == std::numeric_limits<int64_t>::max()) {
       return 2;
     } else {
       int shift_cnt = base::bits::CountTrailingZeros64(value);
@@ -1678,6 +1715,8 @@ int TurboAssembler::InstrCountForLi64Bit(int64_t value) {
   return INT_MAX;
 }
 
+// All changes to if...else conditions here must be added to
+// InstrCountForLi64Bit as well.
 void TurboAssembler::li_optimized(Register rd, Operand j, LiFlags mode) {
   DCHECK(!j.is_reg());
   DCHECK(!MustUseReg(j.rmode()));
@@ -1710,8 +1749,8 @@ void TurboAssembler::li_optimized(Register rd, Operand j, LiFlags mode) {
       lui(rd, j.immediate() >> kLuiShift & kImm16Mask);
       dahi(rd, ((j.immediate() >> 32) + bit31) & kImm16Mask);
     } else if ((j.immediate() & kImm16Mask) == 0 &&
-               ((j.immediate() >> 31) & 0x1ffff) ==
-                   ((0x20000 - bit31) & 0x1ffff) &&
+               ((j.immediate() >> 31) & 0x1FFFF) ==
+                   ((0x20000 - bit31) & 0x1FFFF) &&
                kArchVariant == kMips64r6) {
       // 16 LSBs all set to zero.
       // 48 MSBs hold a signed value which can't be represented by signed
@@ -1726,16 +1765,17 @@ void TurboAssembler::li_optimized(Register rd, Operand j, LiFlags mode) {
       daddiu(rd, zero_reg, j.immediate() & kImm16Mask);
       dahi(rd, ((j.immediate() >> 32) + bit31) & kImm16Mask);
     } else if (is_int16(static_cast<int32_t>(j.immediate())) &&
-               ((j.immediate() >> 31) & 0x1ffff) ==
-                   ((0x20000 - bit31) & 0x1ffff) &&
+               ((j.immediate() >> 31) & 0x1FFFF) ==
+                   ((0x20000 - bit31) & 0x1FFFF) &&
                kArchVariant == kMips64r6) {
       // 48 LSBs contain an unsigned 16-bit number.
       // 16 MSBs contain a signed 16-bit number.
       daddiu(rd, zero_reg, j.immediate() & kImm16Mask);
       dati(rd, ((j.immediate() >> 48) + bit31) & kImm16Mask);
-    } else if (base::bits::IsPowerOfTwo(j.immediate() + 1)) {
-      // 64-bit values which have their "n" MSBs set to one, and their
-      // "64-n" LSBs set to zero. "n" must meet the restrictions 0 < n < 64.
+    } else if (base::bits::IsPowerOfTwo(j.immediate() + 1) ||
+               j.immediate() == std::numeric_limits<int64_t>::max()) {
+      // 64-bit values which have their "n" LSBs set to one, and their
+      // "64-n" MSBs set to zero. "n" must meet the restrictions 0 < n < 64.
       int shift_cnt = 64 - base::bits::CountTrailingZeros64(j.immediate() + 1);
       daddiu(rd, zero_reg, -1);
       if (shift_cnt < 32) {
@@ -1918,7 +1958,7 @@ void TurboAssembler::li(Register rd, Operand j, LiFlags mode) {
 }
 
 void TurboAssembler::MultiPush(RegList regs) {
-  int16_t num_to_push = NumberOfBitsSet(regs);
+  int16_t num_to_push = base::bits::CountPopulation(regs);
   int16_t stack_offset = num_to_push * kPointerSize;
 
   Dsubu(sp, sp, Operand(stack_offset));
@@ -1930,19 +1970,6 @@ void TurboAssembler::MultiPush(RegList regs) {
   }
 }
 
-
-void MacroAssembler::MultiPushReversed(RegList regs) {
-  int16_t num_to_push = NumberOfBitsSet(regs);
-  int16_t stack_offset = num_to_push * kPointerSize;
-
-  Dsubu(sp, sp, Operand(stack_offset));
-  for (int16_t i = 0; i < kNumRegisters; i++) {
-    if ((regs & (1 << i)) != 0) {
-      stack_offset -= kPointerSize;
-      Sd(ToRegister(i), MemOperand(sp, stack_offset));
-    }
-  }
-}
 
 void TurboAssembler::MultiPop(RegList regs) {
   int16_t stack_offset = 0;
@@ -1957,20 +1984,8 @@ void TurboAssembler::MultiPop(RegList regs) {
 }
 
 
-void MacroAssembler::MultiPopReversed(RegList regs) {
-  int16_t stack_offset = 0;
-
-  for (int16_t i = kNumRegisters - 1; i >= 0; i--) {
-    if ((regs & (1 << i)) != 0) {
-      Ld(ToRegister(i), MemOperand(sp, stack_offset));
-      stack_offset += kPointerSize;
-    }
-  }
-  daddiu(sp, sp, stack_offset);
-}
-
 void TurboAssembler::MultiPushFPU(RegList regs) {
-  int16_t num_to_push = NumberOfBitsSet(regs);
+  int16_t num_to_push = base::bits::CountPopulation(regs);
   int16_t stack_offset = num_to_push * kDoubleSize;
 
   Dsubu(sp, sp, Operand(stack_offset));
@@ -1982,19 +1997,6 @@ void TurboAssembler::MultiPushFPU(RegList regs) {
   }
 }
 
-
-void MacroAssembler::MultiPushReversedFPU(RegList regs) {
-  int16_t num_to_push = NumberOfBitsSet(regs);
-  int16_t stack_offset = num_to_push * kDoubleSize;
-
-  Dsubu(sp, sp, Operand(stack_offset));
-  for (int16_t i = 0; i < kNumRegisters; i++) {
-    if ((regs & (1 << i)) != 0) {
-      stack_offset -= kDoubleSize;
-      Sdc1(FPURegister::from_code(i), MemOperand(sp, stack_offset));
-    }
-  }
-}
 
 void TurboAssembler::MultiPopFPU(RegList regs) {
   int16_t stack_offset = 0;
@@ -2009,22 +2011,10 @@ void TurboAssembler::MultiPopFPU(RegList regs) {
 }
 
 
-void MacroAssembler::MultiPopReversedFPU(RegList regs) {
-  int16_t stack_offset = 0;
-
-  for (int16_t i = kNumRegisters - 1; i >= 0; i--) {
-    if ((regs & (1 << i)) != 0) {
-      Ldc1(FPURegister::from_code(i), MemOperand(sp, stack_offset));
-      stack_offset += kDoubleSize;
-    }
-  }
-  daddiu(sp, sp, stack_offset);
-}
-
 void TurboAssembler::Ext(Register rt, Register rs, uint16_t pos,
                          uint16_t size) {
-  DCHECK(pos < 32);
-  DCHECK(pos + size < 33);
+  DCHECK_LT(pos, 32);
+  DCHECK_LT(pos + size, 33);
   ext_(rt, rs, pos, size);
 }
 
@@ -2043,9 +2033,9 @@ void TurboAssembler::Dext(Register rt, Register rs, uint16_t pos,
 
 void TurboAssembler::Ins(Register rt, Register rs, uint16_t pos,
                          uint16_t size) {
-  DCHECK(pos < 32);
-  DCHECK(pos + size <= 32);
-  DCHECK(size != 0);
+  DCHECK_LT(pos, 32);
+  DCHECK_LE(pos + size, 32);
+  DCHECK_NE(size, 0);
   ins_(rt, rs, pos, size);
 }
 
@@ -2062,16 +2052,52 @@ void TurboAssembler::Dins(Register rt, Register rs, uint16_t pos,
   }
 }
 
+void TurboAssembler::ExtractBits(Register dest, Register source, Register pos,
+                                 int size, bool sign_extend) {
+  dsrav(dest, source, pos);
+  Dext(dest, dest, 0, size);
+  if (sign_extend) {
+    switch (size) {
+      case 8:
+        seb(dest, dest);
+        break;
+      case 16:
+        seh(dest, dest);
+        break;
+      case 32:
+        // sign-extend word
+        sll(dest, dest, 0);
+        break;
+      default:
+        UNREACHABLE();
+    }
+  }
+}
+
+void TurboAssembler::InsertBits(Register dest, Register source, Register pos,
+                                int size) {
+  Dror(dest, dest, pos);
+  Dins(dest, source, 0, size);
+  {
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    Dsubu(scratch, zero_reg, pos);
+    Dror(dest, dest, scratch);
+  }
+}
+
 void TurboAssembler::Neg_s(FPURegister fd, FPURegister fs) {
   if (kArchVariant == kMips64r6) {
     // r6 neg_s changes the sign for NaN-like operands as well.
     neg_s(fd, fs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
+    BlockTrampolinePoolScope block_trampoline_pool(this);
     Label is_nan, done;
     Register scratch1 = t8;
     Register scratch2 = t9;
-    BranchF32(nullptr, &is_nan, eq, fs, fs);
+    CompareIsNanF32(fs, fs);
+    BranchTrueShortF(&is_nan);
     Branch(USE_DELAY_SLOT, &done);
     // For NaN input, neg_s will return the same NaN value,
     // while the sign has to be changed separately.
@@ -2090,11 +2116,13 @@ void TurboAssembler::Neg_d(FPURegister fd, FPURegister fs) {
     // r6 neg_d changes the sign for NaN-like operands as well.
     neg_d(fd, fs);
   } else {
-    DCHECK(kArchVariant == kMips64r2);
+    DCHECK_EQ(kArchVariant, kMips64r2);
+    BlockTrampolinePoolScope block_trampoline_pool(this);
     Label is_nan, done;
     Register scratch1 = t8;
     Register scratch2 = t9;
-    BranchF64(nullptr, &is_nan, eq, fs, fs);
+    CompareIsNanF64(fs, fs);
+    BranchTrueShortF(&is_nan);
     Branch(USE_DELAY_SLOT, &done);
     // For NaN input, neg_d will return the same NaN value,
     // while the sign has to be changed separately.
@@ -2110,14 +2138,17 @@ void TurboAssembler::Neg_d(FPURegister fd, FPURegister fs) {
 
 void TurboAssembler::Cvt_d_uw(FPURegister fd, FPURegister fs) {
   // Move the data from fs to t8.
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   mfc1(t8, fs);
   Cvt_d_uw(fd, t8);
 }
 
 void TurboAssembler::Cvt_d_uw(FPURegister fd, Register rs) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+
   // Convert rs to a FP value in fd.
-  DCHECK(!rs.is(t9));
-  DCHECK(!rs.is(at));
+  DCHECK(rs != t9);
+  DCHECK(rs != at);
 
   // Zero extend int32 in rs.
   Dext(t9, rs, 0, 32);
@@ -2126,16 +2157,18 @@ void TurboAssembler::Cvt_d_uw(FPURegister fd, Register rs) {
 }
 
 void TurboAssembler::Cvt_d_ul(FPURegister fd, FPURegister fs) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   // Move the data from fs to t8.
   dmfc1(t8, fs);
   Cvt_d_ul(fd, t8);
 }
 
 void TurboAssembler::Cvt_d_ul(FPURegister fd, Register rs) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   // Convert rs to a FP value in fd.
 
-  DCHECK(!rs.is(t9));
-  DCHECK(!rs.is(at));
+  DCHECK(rs != t9);
+  DCHECK(rs != at);
 
   Label msb_clear, conversion_done;
 
@@ -2159,15 +2192,17 @@ void TurboAssembler::Cvt_d_ul(FPURegister fd, Register rs) {
 }
 
 void TurboAssembler::Cvt_s_uw(FPURegister fd, FPURegister fs) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   // Move the data from fs to t8.
   mfc1(t8, fs);
   Cvt_s_uw(fd, t8);
 }
 
 void TurboAssembler::Cvt_s_uw(FPURegister fd, Register rs) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   // Convert rs to a FP value in fd.
-  DCHECK(!rs.is(t9));
-  DCHECK(!rs.is(at));
+  DCHECK(rs != t9);
+  DCHECK(rs != at);
 
   // Zero extend int32 in rs.
   Dext(t9, rs, 0, 32);
@@ -2176,16 +2211,18 @@ void TurboAssembler::Cvt_s_uw(FPURegister fd, Register rs) {
 }
 
 void TurboAssembler::Cvt_s_ul(FPURegister fd, FPURegister fs) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   // Move the data from fs to t8.
   dmfc1(t8, fs);
   Cvt_s_ul(fd, t8);
 }
 
 void TurboAssembler::Cvt_s_ul(FPURegister fd, Register rs) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   // Convert rs to a FP value in fd.
 
-  DCHECK(!rs.is(t9));
-  DCHECK(!rs.is(at));
+  DCHECK(rs != t9);
+  DCHECK(rs != at);
 
   Label positive, conversion_done;
 
@@ -2232,36 +2269,45 @@ void MacroAssembler::Trunc_l_d(FPURegister fd, FPURegister fs) {
 void MacroAssembler::Trunc_l_ud(FPURegister fd,
                                 FPURegister fs,
                                 FPURegister scratch) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   // Load to GPR.
   dmfc1(t8, fs);
   // Reset sign bit.
-  li(at, 0x7fffffffffffffff);
-  and_(t8, t8, at);
+  {
+    UseScratchRegisterScope temps(this);
+    Register scratch1 = temps.Acquire();
+    li(scratch1, 0x7FFFFFFFFFFFFFFF);
+    and_(t8, t8, scratch1);
+  }
   dmtc1(t8, fs);
   trunc_l_d(fd, fs);
 }
 
 void TurboAssembler::Trunc_uw_d(FPURegister fd, FPURegister fs,
                                 FPURegister scratch) {
-  Trunc_uw_d(fs, t8, scratch);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Trunc_uw_d(t8, fs, scratch);
   mtc1(t8, fd);
 }
 
 void TurboAssembler::Trunc_uw_s(FPURegister fd, FPURegister fs,
                                 FPURegister scratch) {
-  Trunc_uw_s(fs, t8, scratch);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Trunc_uw_s(t8, fs, scratch);
   mtc1(t8, fd);
 }
 
 void TurboAssembler::Trunc_ul_d(FPURegister fd, FPURegister fs,
                                 FPURegister scratch, Register result) {
-  Trunc_ul_d(fs, t8, scratch, result);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Trunc_ul_d(t8, fs, scratch, result);
   dmtc1(t8, fd);
 }
 
 void TurboAssembler::Trunc_ul_s(FPURegister fd, FPURegister fs,
                                 FPURegister scratch, Register result) {
-  Trunc_ul_s(fs, t8, scratch, result);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Trunc_ul_s(t8, fs, scratch, result);
   dmtc1(t8, fd);
 }
 
@@ -2285,386 +2331,397 @@ void MacroAssembler::Ceil_w_d(FPURegister fd, FPURegister fs) {
   ceil_w_d(fd, fs);
 }
 
-void TurboAssembler::Trunc_uw_d(FPURegister fd, Register rs,
+void TurboAssembler::Trunc_uw_d(Register rd, FPURegister fs,
                                 FPURegister scratch) {
-  DCHECK(!fd.is(scratch));
-  DCHECK(!rs.is(at));
+  DCHECK(fs != scratch);
+  DCHECK(rd != at);
 
-  // Load 2^31 into scratch as its float representation.
-  li(at, 0x41E00000);
-  mtc1(zero_reg, scratch);
-  mthc1(at, scratch);
+  {
+    // Load 2^31 into scratch as its float representation.
+    UseScratchRegisterScope temps(this);
+    Register scratch1 = temps.Acquire();
+    li(scratch1, 0x41E00000);
+    mtc1(zero_reg, scratch);
+    mthc1(scratch1, scratch);
+  }
   // Test if scratch > fd.
   // If fd < 2^31 we can convert it normally.
   Label simple_convert;
-  BranchF(&simple_convert, NULL, lt, fd, scratch);
+  CompareF64(OLT, fs, scratch);
+  BranchTrueShortF(&simple_convert);
 
   // First we subtract 2^31 from fd, then trunc it to rs
   // and add 2^31 to rs.
-  sub_d(scratch, fd, scratch);
+  sub_d(scratch, fs, scratch);
   trunc_w_d(scratch, scratch);
-  mfc1(rs, scratch);
-  Or(rs, rs, 1 << 31);
+  mfc1(rd, scratch);
+  Or(rd, rd, 1 << 31);
 
   Label done;
   Branch(&done);
   // Simple conversion.
   bind(&simple_convert);
-  trunc_w_d(scratch, fd);
-  mfc1(rs, scratch);
+  trunc_w_d(scratch, fs);
+  mfc1(rd, scratch);
 
   bind(&done);
 }
 
-void TurboAssembler::Trunc_uw_s(FPURegister fd, Register rs,
+void TurboAssembler::Trunc_uw_s(Register rd, FPURegister fs,
                                 FPURegister scratch) {
-  DCHECK(!fd.is(scratch));
-  DCHECK(!rs.is(at));
+  DCHECK(fs != scratch);
+  DCHECK(rd != at);
 
-  // Load 2^31 into scratch as its float representation.
-  li(at, 0x4F000000);
-  mtc1(at, scratch);
-  // Test if scratch > fd.
-  // If fd < 2^31 we can convert it normally.
+  {
+    // Load 2^31 into scratch as its float representation.
+    UseScratchRegisterScope temps(this);
+    Register scratch1 = temps.Acquire();
+    li(scratch1, 0x4F000000);
+    mtc1(scratch1, scratch);
+  }
+  // Test if scratch > fs.
+  // If fs < 2^31 we can convert it normally.
   Label simple_convert;
-  BranchF32(&simple_convert, NULL, lt, fd, scratch);
+  CompareF32(OLT, fs, scratch);
+  BranchTrueShortF(&simple_convert);
 
-  // First we subtract 2^31 from fd, then trunc it to rs
-  // and add 2^31 to rs.
-  sub_s(scratch, fd, scratch);
+  // First we subtract 2^31 from fs, then trunc it to rd
+  // and add 2^31 to rd.
+  sub_s(scratch, fs, scratch);
   trunc_w_s(scratch, scratch);
-  mfc1(rs, scratch);
-  Or(rs, rs, 1 << 31);
+  mfc1(rd, scratch);
+  Or(rd, rd, 1 << 31);
 
   Label done;
   Branch(&done);
   // Simple conversion.
   bind(&simple_convert);
-  trunc_w_s(scratch, fd);
-  mfc1(rs, scratch);
+  trunc_w_s(scratch, fs);
+  mfc1(rd, scratch);
 
   bind(&done);
 }
 
-void TurboAssembler::Trunc_ul_d(FPURegister fd, Register rs,
+void TurboAssembler::Trunc_ul_d(Register rd, FPURegister fs,
                                 FPURegister scratch, Register result) {
-  DCHECK(!fd.is(scratch));
-  DCHECK(!AreAliased(rs, result, at));
+  DCHECK(fs != scratch);
+  DCHECK(result.is_valid() ? !AreAliased(rd, result, at) : !AreAliased(rd, at));
 
   Label simple_convert, done, fail;
   if (result.is_valid()) {
     mov(result, zero_reg);
     Move(scratch, -1.0);
     // If fd =< -1 or unordered, then the conversion fails.
-    BranchF(&fail, &fail, le, fd, scratch);
+    CompareF64(OLE, fs, scratch);
+    BranchTrueShortF(&fail);
+    CompareIsNanF64(fs, scratch);
+    BranchTrueShortF(&fail);
   }
 
   // Load 2^63 into scratch as its double representation.
-  li(at, 0x43e0000000000000);
+  li(at, 0x43E0000000000000);
   dmtc1(at, scratch);
 
-  // Test if scratch > fd.
-  // If fd < 2^63 we can convert it normally.
-  BranchF(&simple_convert, nullptr, lt, fd, scratch);
+  // Test if scratch > fs.
+  // If fs < 2^63 we can convert it normally.
+  CompareF64(OLT, fs, scratch);
+  BranchTrueShortF(&simple_convert);
 
-  // First we subtract 2^63 from fd, then trunc it to rs
-  // and add 2^63 to rs.
-  sub_d(scratch, fd, scratch);
+  // First we subtract 2^63 from fs, then trunc it to rd
+  // and add 2^63 to rd.
+  sub_d(scratch, fs, scratch);
   trunc_l_d(scratch, scratch);
-  dmfc1(rs, scratch);
-  Or(rs, rs, Operand(1UL << 63));
+  dmfc1(rd, scratch);
+  Or(rd, rd, Operand(1UL << 63));
   Branch(&done);
 
   // Simple conversion.
   bind(&simple_convert);
-  trunc_l_d(scratch, fd);
-  dmfc1(rs, scratch);
+  trunc_l_d(scratch, fs);
+  dmfc1(rd, scratch);
 
   bind(&done);
   if (result.is_valid()) {
     // Conversion is failed if the result is negative.
-    addiu(at, zero_reg, -1);
-    dsrl(at, at, 1);  // Load 2^62.
-    dmfc1(result, scratch);
-    xor_(result, result, at);
+    {
+      UseScratchRegisterScope temps(this);
+      Register scratch1 = temps.Acquire();
+      addiu(scratch1, zero_reg, -1);
+      dsrl(scratch1, scratch1, 1);  // Load 2^62.
+      dmfc1(result, scratch);
+      xor_(result, result, scratch1);
+    }
     Slt(result, zero_reg, result);
   }
 
   bind(&fail);
 }
 
-void TurboAssembler::Trunc_ul_s(FPURegister fd, Register rs,
+void TurboAssembler::Trunc_ul_s(Register rd, FPURegister fs,
                                 FPURegister scratch, Register result) {
-  DCHECK(!fd.is(scratch));
-  DCHECK(!AreAliased(rs, result, at));
+  DCHECK(fs != scratch);
+  DCHECK(result.is_valid() ? !AreAliased(rd, result, at) : !AreAliased(rd, at));
 
   Label simple_convert, done, fail;
   if (result.is_valid()) {
     mov(result, zero_reg);
     Move(scratch, -1.0f);
     // If fd =< -1 or unordered, then the conversion fails.
-    BranchF32(&fail, &fail, le, fd, scratch);
+    CompareF32(OLE, fs, scratch);
+    BranchTrueShortF(&fail);
+    CompareIsNanF32(fs, scratch);
+    BranchTrueShortF(&fail);
   }
 
-  // Load 2^63 into scratch as its float representation.
-  li(at, 0x5f000000);
-  mtc1(at, scratch);
+  {
+    // Load 2^63 into scratch as its float representation.
+    UseScratchRegisterScope temps(this);
+    Register scratch1 = temps.Acquire();
+    li(scratch1, 0x5F000000);
+    mtc1(scratch1, scratch);
+  }
 
-  // Test if scratch > fd.
-  // If fd < 2^63 we can convert it normally.
-  BranchF32(&simple_convert, nullptr, lt, fd, scratch);
+  // Test if scratch > fs.
+  // If fs < 2^63 we can convert it normally.
+  CompareF32(OLT, fs, scratch);
+  BranchTrueShortF(&simple_convert);
 
-  // First we subtract 2^63 from fd, then trunc it to rs
-  // and add 2^63 to rs.
-  sub_s(scratch, fd, scratch);
+  // First we subtract 2^63 from fs, then trunc it to rd
+  // and add 2^63 to rd.
+  sub_s(scratch, fs, scratch);
   trunc_l_s(scratch, scratch);
-  dmfc1(rs, scratch);
-  Or(rs, rs, Operand(1UL << 63));
+  dmfc1(rd, scratch);
+  Or(rd, rd, Operand(1UL << 63));
   Branch(&done);
 
   // Simple conversion.
   bind(&simple_convert);
-  trunc_l_s(scratch, fd);
-  dmfc1(rs, scratch);
+  trunc_l_s(scratch, fs);
+  dmfc1(rd, scratch);
 
   bind(&done);
   if (result.is_valid()) {
     // Conversion is failed if the result is negative or unordered.
-    addiu(at, zero_reg, -1);
-    dsrl(at, at, 1);  // Load 2^62.
-    dmfc1(result, scratch);
-    xor_(result, result, at);
+    {
+      UseScratchRegisterScope temps(this);
+      Register scratch1 = temps.Acquire();
+      addiu(scratch1, zero_reg, -1);
+      dsrl(scratch1, scratch1, 1);  // Load 2^62.
+      dmfc1(result, scratch);
+      xor_(result, result, scratch1);
+    }
     Slt(result, zero_reg, result);
   }
 
   bind(&fail);
 }
 
+template <typename RoundFunc>
+void TurboAssembler::RoundDouble(FPURegister dst, FPURegister src,
+                                 FPURoundingMode mode, RoundFunc round) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register scratch = t8;
+  if (kArchVariant == kMips64r6) {
+    cfc1(scratch, FCSR);
+    li(at, Operand(mode));
+    ctc1(at, FCSR);
+    rint_d(dst, src);
+    ctc1(scratch, FCSR);
+  } else {
+    Label done;
+    mfhc1(scratch, src);
+    Ext(at, scratch, HeapNumber::kExponentShift, HeapNumber::kExponentBits);
+    Branch(USE_DELAY_SLOT, &done, hs, at,
+           Operand(HeapNumber::kExponentBias + HeapNumber::kMantissaBits));
+    mov_d(dst, src);
+    round(this, dst, src);
+    dmfc1(at, dst);
+    Branch(USE_DELAY_SLOT, &done, ne, at, Operand(zero_reg));
+    cvt_d_l(dst, dst);
+    srl(at, scratch, 31);
+    sll(at, at, 31);
+    mthc1(at, dst);
+    bind(&done);
+  }
+}
+
+void TurboAssembler::Floor_d_d(FPURegister dst, FPURegister src) {
+  RoundDouble(dst, src, mode_floor,
+              [](TurboAssembler* tasm, FPURegister dst, FPURegister src) {
+                tasm->floor_l_d(dst, src);
+              });
+}
+
+void TurboAssembler::Ceil_d_d(FPURegister dst, FPURegister src) {
+  RoundDouble(dst, src, mode_ceil,
+              [](TurboAssembler* tasm, FPURegister dst, FPURegister src) {
+                tasm->ceil_l_d(dst, src);
+              });
+}
+
+void TurboAssembler::Trunc_d_d(FPURegister dst, FPURegister src) {
+  RoundDouble(dst, src, mode_trunc,
+              [](TurboAssembler* tasm, FPURegister dst, FPURegister src) {
+                tasm->trunc_l_d(dst, src);
+              });
+}
+
+void TurboAssembler::Round_d_d(FPURegister dst, FPURegister src) {
+  RoundDouble(dst, src, mode_round,
+              [](TurboAssembler* tasm, FPURegister dst, FPURegister src) {
+                tasm->round_l_d(dst, src);
+              });
+}
+
+template <typename RoundFunc>
+void TurboAssembler::RoundFloat(FPURegister dst, FPURegister src,
+                                FPURoundingMode mode, RoundFunc round) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register scratch = t8;
+  if (kArchVariant == kMips64r6) {
+    cfc1(scratch, FCSR);
+    li(at, Operand(mode));
+    ctc1(at, FCSR);
+    rint_s(dst, src);
+    ctc1(scratch, FCSR);
+  } else {
+    int32_t kFloat32ExponentBias = 127;
+    int32_t kFloat32MantissaBits = 23;
+    int32_t kFloat32ExponentBits = 8;
+    Label done;
+    mfc1(scratch, src);
+    Ext(at, scratch, kFloat32MantissaBits, kFloat32ExponentBits);
+    Branch(USE_DELAY_SLOT, &done, hs, at,
+           Operand(kFloat32ExponentBias + kFloat32MantissaBits));
+    mov_s(dst, src);
+    round(this, dst, src);
+    mfc1(at, dst);
+    Branch(USE_DELAY_SLOT, &done, ne, at, Operand(zero_reg));
+    cvt_s_w(dst, dst);
+    srl(at, scratch, 31);
+    sll(at, at, 31);
+    mtc1(at, dst);
+    bind(&done);
+  }
+}
+
+void TurboAssembler::Floor_s_s(FPURegister dst, FPURegister src) {
+  RoundFloat(dst, src, mode_floor,
+             [](TurboAssembler* tasm, FPURegister dst, FPURegister src) {
+               tasm->floor_w_s(dst, src);
+             });
+}
+
+void TurboAssembler::Ceil_s_s(FPURegister dst, FPURegister src) {
+  RoundFloat(dst, src, mode_ceil,
+             [](TurboAssembler* tasm, FPURegister dst, FPURegister src) {
+               tasm->ceil_w_s(dst, src);
+             });
+}
+
+void TurboAssembler::Trunc_s_s(FPURegister dst, FPURegister src) {
+  RoundFloat(dst, src, mode_trunc,
+             [](TurboAssembler* tasm, FPURegister dst, FPURegister src) {
+               tasm->trunc_w_s(dst, src);
+             });
+}
+
+void TurboAssembler::Round_s_s(FPURegister dst, FPURegister src) {
+  RoundFloat(dst, src, mode_round,
+             [](TurboAssembler* tasm, FPURegister dst, FPURegister src) {
+               tasm->round_w_s(dst, src);
+             });
+}
+
 void MacroAssembler::Madd_s(FPURegister fd, FPURegister fr, FPURegister fs,
                             FPURegister ft, FPURegister scratch) {
-  DCHECK(!fr.is(scratch) && !fs.is(scratch) && !ft.is(scratch));
+  DCHECK(fr != scratch && fs != scratch && ft != scratch);
   mul_s(scratch, fs, ft);
   add_s(fd, fr, scratch);
 }
 
 void MacroAssembler::Madd_d(FPURegister fd, FPURegister fr, FPURegister fs,
     FPURegister ft, FPURegister scratch) {
-  DCHECK(!fr.is(scratch) && !fs.is(scratch) && !ft.is(scratch));
+  DCHECK(fr != scratch && fs != scratch && ft != scratch);
   mul_d(scratch, fs, ft);
   add_d(fd, fr, scratch);
 }
 
 void MacroAssembler::Msub_s(FPURegister fd, FPURegister fr, FPURegister fs,
                             FPURegister ft, FPURegister scratch) {
-  DCHECK(!fr.is(scratch) && !fs.is(scratch) && !ft.is(scratch));
+  DCHECK(fr != scratch && fs != scratch && ft != scratch);
   mul_s(scratch, fs, ft);
   sub_s(fd, scratch, fr);
 }
 
 void MacroAssembler::Msub_d(FPURegister fd, FPURegister fr, FPURegister fs,
                             FPURegister ft, FPURegister scratch) {
-  DCHECK(!fr.is(scratch) && !fs.is(scratch) && !ft.is(scratch));
+  DCHECK(fr != scratch && fs != scratch && ft != scratch);
   mul_d(scratch, fs, ft);
   sub_d(fd, scratch, fr);
 }
 
-void TurboAssembler::BranchFCommon(SecondaryField sizeField, Label* target,
-                                   Label* nan, Condition cond, FPURegister cmp1,
-                                   FPURegister cmp2, BranchDelaySlot bd) {
-  BlockTrampolinePoolScope block_trampoline_pool(this);
-  if (cond == al) {
-    Branch(bd, target);
-    return;
-  }
-
+void TurboAssembler::CompareF(SecondaryField sizeField, FPUCondition cc,
+                              FPURegister cmp1, FPURegister cmp2) {
   if (kArchVariant == kMips64r6) {
     sizeField = sizeField == D ? L : W;
-  }
-
-  DCHECK(nan || target);
-  // Check for unordered (NaN) cases.
-  if (nan) {
-    bool long_branch =
-        nan->is_bound() ? !is_near(nan) : is_trampoline_emitted();
-    if (kArchVariant != kMips64r6) {
-      if (long_branch) {
-        Label skip;
-        c(UN, sizeField, cmp1, cmp2);
-        bc1f(&skip);
-        nop();
-        BranchLong(nan, bd);
-        bind(&skip);
-      } else {
-        c(UN, sizeField, cmp1, cmp2);
-        bc1t(nan);
-        if (bd == PROTECT) {
-          nop();
-        }
-      }
-    } else {
-      // Use kDoubleCompareReg for comparison result. It has to be unavailable
-      // to lithium
-      // register allocator.
-      DCHECK(!cmp1.is(kDoubleCompareReg) && !cmp2.is(kDoubleCompareReg));
-      if (long_branch) {
-        Label skip;
-        cmp(UN, sizeField, kDoubleCompareReg, cmp1, cmp2);
-        bc1eqz(&skip, kDoubleCompareReg);
-        nop();
-        BranchLong(nan, bd);
-        bind(&skip);
-      } else {
-        cmp(UN, sizeField, kDoubleCompareReg, cmp1, cmp2);
-        bc1nez(nan, kDoubleCompareReg);
-        if (bd == PROTECT) {
-          nop();
-        }
-      }
-    }
-  }
-
-  if (target) {
-    bool long_branch =
-        target->is_bound() ? !is_near(target) : is_trampoline_emitted();
-    if (long_branch) {
-      Label skip;
-      Condition neg_cond = NegateFpuCondition(cond);
-      BranchShortF(sizeField, &skip, neg_cond, cmp1, cmp2, bd);
-      BranchLong(target, bd);
-      bind(&skip);
-    } else {
-      BranchShortF(sizeField, target, cond, cmp1, cmp2, bd);
-    }
+    DCHECK(cmp1 != kDoubleCompareReg && cmp2 != kDoubleCompareReg);
+    cmp(cc, sizeField, kDoubleCompareReg, cmp1, cmp2);
+  } else {
+    c(cc, sizeField, cmp1, cmp2);
   }
 }
 
-void TurboAssembler::BranchShortF(SecondaryField sizeField, Label* target,
-                                  Condition cc, FPURegister cmp1,
-                                  FPURegister cmp2, BranchDelaySlot bd) {
-  if (kArchVariant != kMips64r6) {
-    BlockTrampolinePoolScope block_trampoline_pool(this);
-    if (target) {
-      // Here NaN cases were either handled by this function or are assumed to
-      // have been handled by the caller.
-      switch (cc) {
-        case lt:
-          c(OLT, sizeField, cmp1, cmp2);
-          bc1t(target);
-          break;
-        case ult:
-          c(ULT, sizeField, cmp1, cmp2);
-          bc1t(target);
-          break;
-        case gt:
-          c(ULE, sizeField, cmp1, cmp2);
-          bc1f(target);
-          break;
-        case ugt:
-          c(OLE, sizeField, cmp1, cmp2);
-          bc1f(target);
-          break;
-        case ge:
-          c(ULT, sizeField, cmp1, cmp2);
-          bc1f(target);
-          break;
-        case uge:
-          c(OLT, sizeField, cmp1, cmp2);
-          bc1f(target);
-          break;
-        case le:
-          c(OLE, sizeField, cmp1, cmp2);
-          bc1t(target);
-          break;
-        case ule:
-          c(ULE, sizeField, cmp1, cmp2);
-          bc1t(target);
-          break;
-        case eq:
-          c(EQ, sizeField, cmp1, cmp2);
-          bc1t(target);
-          break;
-        case ueq:
-          c(UEQ, sizeField, cmp1, cmp2);
-          bc1t(target);
-          break;
-        case ne:  // Unordered or not equal.
-          c(EQ, sizeField, cmp1, cmp2);
-          bc1f(target);
-          break;
-        case ogl:
-          c(UEQ, sizeField, cmp1, cmp2);
-          bc1f(target);
-          break;
-        default:
-          CHECK(0);
-      }
-    }
-  } else {
-    BlockTrampolinePoolScope block_trampoline_pool(this);
-    if (target) {
-      // Here NaN cases were either handled by this function or are assumed to
-      // have been handled by the caller.
-      // Unsigned conditions are treated as their signed counterpart.
-      // Use kDoubleCompareReg for comparison result, it is valid in fp64 (FR =
-      // 1) mode.
-      DCHECK(!cmp1.is(kDoubleCompareReg) && !cmp2.is(kDoubleCompareReg));
-      switch (cc) {
-        case lt:
-          cmp(OLT, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1nez(target, kDoubleCompareReg);
-          break;
-        case ult:
-          cmp(ULT, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1nez(target, kDoubleCompareReg);
-          break;
-        case gt:
-          cmp(ULE, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1eqz(target, kDoubleCompareReg);
-          break;
-        case ugt:
-          cmp(OLE, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1eqz(target, kDoubleCompareReg);
-          break;
-        case ge:
-          cmp(ULT, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1eqz(target, kDoubleCompareReg);
-          break;
-        case uge:
-          cmp(OLT, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1eqz(target, kDoubleCompareReg);
-          break;
-        case le:
-          cmp(OLE, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1nez(target, kDoubleCompareReg);
-          break;
-        case ule:
-          cmp(ULE, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1nez(target, kDoubleCompareReg);
-          break;
-        case eq:
-          cmp(EQ, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1nez(target, kDoubleCompareReg);
-          break;
-        case ueq:
-          cmp(UEQ, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1nez(target, kDoubleCompareReg);
-          break;
-        case ne:
-          cmp(EQ, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1eqz(target, kDoubleCompareReg);
-          break;
-        case ogl:
-          cmp(UEQ, sizeField, kDoubleCompareReg, cmp1, cmp2);
-          bc1eqz(target, kDoubleCompareReg);
-          break;
-        default:
-          CHECK(0);
-      }
-    }
-  }
+void TurboAssembler::CompareIsNanF(SecondaryField sizeField, FPURegister cmp1,
+                                   FPURegister cmp2) {
+  CompareF(sizeField, UN, cmp1, cmp2);
+}
 
+void TurboAssembler::BranchTrueShortF(Label* target, BranchDelaySlot bd) {
+  if (kArchVariant == kMips64r6) {
+    bc1nez(target, kDoubleCompareReg);
+  } else {
+    bc1t(target);
+  }
   if (bd == PROTECT) {
     nop();
+  }
+}
+
+void TurboAssembler::BranchFalseShortF(Label* target, BranchDelaySlot bd) {
+  if (kArchVariant == kMips64r6) {
+    bc1eqz(target, kDoubleCompareReg);
+  } else {
+    bc1f(target);
+  }
+  if (bd == PROTECT) {
+    nop();
+  }
+}
+
+void TurboAssembler::BranchTrueF(Label* target, BranchDelaySlot bd) {
+  bool long_branch =
+      target->is_bound() ? !is_near(target) : is_trampoline_emitted();
+  if (long_branch) {
+    Label skip;
+    BranchFalseShortF(&skip);
+    BranchLong(target, bd);
+    bind(&skip);
+  } else {
+    BranchTrueShortF(target, bd);
+  }
+}
+
+void TurboAssembler::BranchFalseF(Label* target, BranchDelaySlot bd) {
+  bool long_branch =
+      target->is_bound() ? !is_near(target) : is_trampoline_emitted();
+  if (long_branch) {
+    Label skip;
+    BranchTrueShortF(&skip);
+    BranchLong(target, bd);
+    bind(&skip);
+  } else {
+    BranchFalseShortF(target, bd);
   }
 }
 
@@ -2746,44 +2803,51 @@ void TurboAssembler::BranchShortMSA(MSABranchDF df, Label* target,
 }
 
 void TurboAssembler::FmoveLow(FPURegister dst, Register src_low) {
-  DCHECK(!src_low.is(at));
-  mfhc1(at, dst);
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  DCHECK(src_low != scratch);
+  mfhc1(scratch, dst);
   mtc1(src_low, dst);
-  mthc1(at, dst);
+  mthc1(scratch, dst);
 }
 
-void TurboAssembler::Move(FPURegister dst, float imm) {
-  li(at, Operand(bit_cast<int32_t>(imm)));
-  mtc1(at, dst);
+void TurboAssembler::Move(FPURegister dst, uint32_t src) {
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  li(scratch, Operand(static_cast<int32_t>(src)));
+  mtc1(scratch, dst);
 }
 
-void TurboAssembler::Move(FPURegister dst, double imm) {
-  int64_t imm_bits = bit_cast<int64_t>(imm);
+void TurboAssembler::Move(FPURegister dst, uint64_t src) {
   // Handle special values first.
-  if (imm_bits == bit_cast<int64_t>(0.0) && has_double_zero_reg_set_) {
+  if (src == bit_cast<uint64_t>(0.0) && has_double_zero_reg_set_) {
     mov_d(dst, kDoubleRegZero);
-  } else if (imm_bits == bit_cast<int64_t>(-0.0) && has_double_zero_reg_set_) {
+  } else if (src == bit_cast<uint64_t>(-0.0) && has_double_zero_reg_set_) {
     Neg_d(dst, kDoubleRegZero);
   } else {
-    uint32_t lo, hi;
-    DoubleAsTwoUInt32(imm, &lo, &hi);
-    // Move the low part of the double into the lower bits of the corresponding
-    // FPU register.
+    uint32_t lo = src & 0xFFFFFFFF;
+    uint32_t hi = src >> 32;
+    // Move the low part of the double into the lower of the corresponding FPU
+    // register of FPU register pair.
     if (lo != 0) {
-      li(at, lo);
-      mtc1(at, dst);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      li(scratch, Operand(lo));
+      mtc1(scratch, dst);
     } else {
       mtc1(zero_reg, dst);
     }
-    // Move the high part of the double into the high bits of the corresponding
-    // FPU register.
+    // Move the high part of the double into the higher of the corresponding FPU
+    // register of FPU register pair.
     if (hi != 0) {
-      li(at, hi);
-      mthc1(at, dst);
+      UseScratchRegisterScope temps(this);
+      Register scratch = temps.Acquire();
+      li(scratch, Operand(hi));
+      mthc1(scratch, dst);
     } else {
       mthc1(zero_reg, dst);
     }
-    if (dst.is(kDoubleRegZero)) has_double_zero_reg_set_ = true;
+    if (dst == kDoubleRegZero) has_double_zero_reg_set_ = true;
   }
 }
 
@@ -2809,6 +2873,134 @@ void TurboAssembler::Movn(Register rd, Register rs, Register rt) {
   }
 }
 
+void TurboAssembler::LoadZeroOnCondition(Register rd, Register rs,
+                                         const Operand& rt, Condition cond) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  switch (cond) {
+    case cc_always:
+      mov(rd, zero_reg);
+      break;
+    case eq:
+      if (rs == zero_reg) {
+        if (rt.is_reg()) {
+          LoadZeroIfConditionZero(rd, rt.rm());
+        } else {
+          if (rt.immediate() == 0) {
+            mov(rd, zero_reg);
+          } else {
+            nop();
+          }
+        }
+      } else if (IsZero(rt)) {
+        LoadZeroIfConditionZero(rd, rs);
+      } else {
+        Dsubu(t9, rs, rt);
+        LoadZeroIfConditionZero(rd, t9);
+      }
+      break;
+    case ne:
+      if (rs == zero_reg) {
+        if (rt.is_reg()) {
+          LoadZeroIfConditionNotZero(rd, rt.rm());
+        } else {
+          if (rt.immediate() != 0) {
+            mov(rd, zero_reg);
+          } else {
+            nop();
+          }
+        }
+      } else if (IsZero(rt)) {
+        LoadZeroIfConditionNotZero(rd, rs);
+      } else {
+        Dsubu(t9, rs, rt);
+        LoadZeroIfConditionNotZero(rd, t9);
+      }
+      break;
+
+    // Signed comparison.
+    case greater:
+      Sgt(t9, rs, rt);
+      LoadZeroIfConditionNotZero(rd, t9);
+      break;
+    case greater_equal:
+      Sge(t9, rs, rt);
+      LoadZeroIfConditionNotZero(rd, t9);
+      // rs >= rt
+      break;
+    case less:
+      Slt(t9, rs, rt);
+      LoadZeroIfConditionNotZero(rd, t9);
+      // rs < rt
+      break;
+    case less_equal:
+      Sle(t9, rs, rt);
+      LoadZeroIfConditionNotZero(rd, t9);
+      // rs <= rt
+      break;
+
+    // Unsigned comparison.
+    case Ugreater:
+      Sgtu(t9, rs, rt);
+      LoadZeroIfConditionNotZero(rd, t9);
+      // rs > rt
+      break;
+
+    case Ugreater_equal:
+      Sgeu(t9, rs, rt);
+      LoadZeroIfConditionNotZero(rd, t9);
+      // rs >= rt
+      break;
+    case Uless:
+      Sltu(t9, rs, rt);
+      LoadZeroIfConditionNotZero(rd, t9);
+      // rs < rt
+      break;
+    case Uless_equal:
+      Sleu(t9, rs, rt);
+      LoadZeroIfConditionNotZero(rd, t9);
+      // rs <= rt
+      break;
+    default:
+      UNREACHABLE();
+  }
+}
+
+void TurboAssembler::LoadZeroIfConditionNotZero(Register dest,
+                                                Register condition) {
+  if (kArchVariant == kMips64r6) {
+    seleqz(dest, dest, condition);
+  } else {
+    Movn(dest, zero_reg, condition);
+  }
+}
+
+void TurboAssembler::LoadZeroIfConditionZero(Register dest,
+                                             Register condition) {
+  if (kArchVariant == kMips64r6) {
+    selnez(dest, dest, condition);
+  } else {
+    Movz(dest, zero_reg, condition);
+  }
+}
+
+void TurboAssembler::LoadZeroIfFPUCondition(Register dest) {
+  if (kArchVariant == kMips64r6) {
+    dmfc1(kScratchReg, kDoubleCompareReg);
+    LoadZeroIfConditionNotZero(dest, kScratchReg);
+  } else {
+    Movt(dest, zero_reg);
+  }
+}
+
+void TurboAssembler::LoadZeroIfNotFPUCondition(Register dest) {
+  if (kArchVariant == kMips64r6) {
+    dmfc1(kScratchReg, kDoubleCompareReg);
+    LoadZeroIfConditionZero(dest, kScratchReg);
+  } else {
+    Movf(dest, zero_reg);
+  }
+}
+
 void TurboAssembler::Movt(Register rd, Register rs, uint16_t cc) {
   movt(rd, rs, cc);
 }
@@ -2819,6 +3011,138 @@ void TurboAssembler::Movf(Register rd, Register rs, uint16_t cc) {
 
 void TurboAssembler::Clz(Register rd, Register rs) { clz(rd, rs); }
 
+void TurboAssembler::Ctz(Register rd, Register rs) {
+  if (kArchVariant == kMips64r6) {
+    // We don't have an instruction to count the number of trailing zeroes.
+    // Start by flipping the bits end-for-end so we can count the number of
+    // leading zeroes instead.
+    rotr(rd, rs, 16);
+    wsbh(rd, rd);
+    bitswap(rd, rd);
+    Clz(rd, rd);
+  } else {
+    // Convert trailing zeroes to trailing ones, and bits to their left
+    // to zeroes.
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    Daddu(scratch, rs, -1);
+    Xor(rd, scratch, rs);
+    And(rd, rd, scratch);
+    // Count number of leading zeroes.
+    Clz(rd, rd);
+    // Subtract number of leading zeroes from 32 to get number of trailing
+    // ones. Remember that the trailing ones were formerly trailing zeroes.
+    li(scratch, 32);
+    Subu(rd, scratch, rd);
+  }
+}
+
+void TurboAssembler::Dctz(Register rd, Register rs) {
+  if (kArchVariant == kMips64r6) {
+    // We don't have an instruction to count the number of trailing zeroes.
+    // Start by flipping the bits end-for-end so we can count the number of
+    // leading zeroes instead.
+    dsbh(rd, rs);
+    dshd(rd, rd);
+    dbitswap(rd, rd);
+    dclz(rd, rd);
+  } else {
+    // Convert trailing zeroes to trailing ones, and bits to their left
+    // to zeroes.
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    Daddu(scratch, rs, -1);
+    Xor(rd, scratch, rs);
+    And(rd, rd, scratch);
+    // Count number of leading zeroes.
+    dclz(rd, rd);
+    // Subtract number of leading zeroes from 64 to get number of trailing
+    // ones. Remember that the trailing ones were formerly trailing zeroes.
+    li(scratch, 64);
+    Dsubu(rd, scratch, rd);
+  }
+}
+
+void TurboAssembler::Popcnt(Register rd, Register rs) {
+  // https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
+  //
+  // A generalization of the best bit counting method to integers of
+  // bit-widths up to 128 (parameterized by type T) is this:
+  //
+  // v = v - ((v >> 1) & (T)~(T)0/3);                           // temp
+  // v = (v & (T)~(T)0/15*3) + ((v >> 2) & (T)~(T)0/15*3);      // temp
+  // v = (v + (v >> 4)) & (T)~(T)0/255*15;                      // temp
+  // c = (T)(v * ((T)~(T)0/255)) >> (sizeof(T) - 1) * BITS_PER_BYTE; //count
+  //
+  // For comparison, for 32-bit quantities, this algorithm can be executed
+  // using 20 MIPS instructions (the calls to LoadConst32() generate two
+  // machine instructions each for the values being used in this algorithm).
+  // A(n unrolled) loop-based algorithm requires 25 instructions.
+  //
+  // For a 64-bit operand this can be performed in 24 instructions compared
+  // to a(n unrolled) loop based algorithm which requires 38 instructions.
+  //
+  // There are algorithms which are faster in the cases where very few
+  // bits are set but the algorithm here attempts to minimize the total
+  // number of instructions executed even when a large number of bits
+  // are set.
+  uint32_t B0 = 0x55555555;     // (T)~(T)0/3
+  uint32_t B1 = 0x33333333;     // (T)~(T)0/15*3
+  uint32_t B2 = 0x0F0F0F0F;     // (T)~(T)0/255*15
+  uint32_t value = 0x01010101;  // (T)~(T)0/255
+  uint32_t shift = 24;          // (sizeof(T) - 1) * BITS_PER_BYTE
+
+  UseScratchRegisterScope temps(this);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register scratch = temps.Acquire();
+  Register scratch2 = t8;
+  srl(scratch, rs, 1);
+  li(scratch2, B0);
+  And(scratch, scratch, scratch2);
+  Subu(scratch, rs, scratch);
+  li(scratch2, B1);
+  And(rd, scratch, scratch2);
+  srl(scratch, scratch, 2);
+  And(scratch, scratch, scratch2);
+  Addu(scratch, rd, scratch);
+  srl(rd, scratch, 4);
+  Addu(rd, rd, scratch);
+  li(scratch2, B2);
+  And(rd, rd, scratch2);
+  li(scratch, value);
+  Mul(rd, rd, scratch);
+  srl(rd, rd, shift);
+}
+
+void TurboAssembler::Dpopcnt(Register rd, Register rs) {
+  uint64_t B0 = 0x5555555555555555l;     // (T)~(T)0/3
+  uint64_t B1 = 0x3333333333333333l;     // (T)~(T)0/15*3
+  uint64_t B2 = 0x0F0F0F0F0F0F0F0Fl;     // (T)~(T)0/255*15
+  uint64_t value = 0x0101010101010101l;  // (T)~(T)0/255
+  uint64_t shift = 24;                   // (sizeof(T) - 1) * BITS_PER_BYTE
+
+  UseScratchRegisterScope temps(this);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register scratch = temps.Acquire();
+  Register scratch2 = t8;
+  dsrl(scratch, rs, 1);
+  li(scratch2, B0);
+  And(scratch, scratch, scratch2);
+  Dsubu(scratch, rs, scratch);
+  li(scratch2, B1);
+  And(rd, scratch, scratch2);
+  dsrl(scratch, scratch, 2);
+  And(scratch, scratch, scratch2);
+  Daddu(scratch, rd, scratch);
+  dsrl(rd, scratch, 4);
+  Daddu(rd, rd, scratch);
+  li(scratch2, B2);
+  And(rd, rd, scratch2);
+  li(scratch, value);
+  Dmul(rd, rd, scratch);
+  dsrl32(rd, rd, shift);
+}
+
 void MacroAssembler::EmitFPUTruncate(FPURoundingMode rounding_mode,
                                      Register result,
                                      DoubleRegister double_input,
@@ -2826,9 +3150,9 @@ void MacroAssembler::EmitFPUTruncate(FPURoundingMode rounding_mode,
                                      DoubleRegister double_scratch,
                                      Register except_flag,
                                      CheckForInexactConversion check_inexact) {
-  DCHECK(!result.is(scratch));
-  DCHECK(!double_input.is(double_scratch));
-  DCHECK(!except_flag.is(scratch));
+  DCHECK(result != scratch);
+  DCHECK(double_input != double_scratch);
+  DCHECK(except_flag != scratch);
 
   Label done;
 
@@ -2839,7 +3163,8 @@ void MacroAssembler::EmitFPUTruncate(FPURoundingMode rounding_mode,
   cvt_w_d(double_scratch, double_input);
   mfc1(result, double_scratch);
   cvt_d_w(double_scratch, double_scratch);
-  BranchF(&done, NULL, eq, double_input, double_scratch);
+  CompareF64(EQ, double_input, double_scratch);
+  BranchTrueShortF(&done);
 
   int32_t except_mask = kFCSRFlagMask;  // Assume interested in all exceptions.
 
@@ -2885,8 +3210,10 @@ void MacroAssembler::EmitFPUTruncate(FPURoundingMode rounding_mode,
 void TurboAssembler::TryInlineTruncateDoubleToI(Register result,
                                                 DoubleRegister double_input,
                                                 Label* done) {
-  DoubleRegister single_scratch = kLithiumScratchDouble.low();
-  Register scratch = at;
+  DoubleRegister single_scratch = kScratchDoubleReg.low();
+  UseScratchRegisterScope temps(this);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register scratch = temps.Acquire();
   Register scratch2 = t9;
 
   // Clear cumulative exception flags and save the FCSR.
@@ -2906,8 +3233,10 @@ void TurboAssembler::TryInlineTruncateDoubleToI(Register result,
   Branch(done, eq, scratch, Operand(zero_reg));
 }
 
-void TurboAssembler::TruncateDoubleToIDelayed(Zone* zone, Register result,
-                                              DoubleRegister double_input) {
+void TurboAssembler::TruncateDoubleToI(Isolate* isolate, Zone* zone,
+                                       Register result,
+                                       DoubleRegister double_input,
+                                       StubCallMode stub_mode) {
   Label done;
 
   TryInlineTruncateDoubleToI(result, double_input, &done);
@@ -2917,7 +3246,12 @@ void TurboAssembler::TruncateDoubleToIDelayed(Zone* zone, Register result,
   Dsubu(sp, sp, Operand(kDoubleSize));  // Put input on stack.
   Sdc1(double_input, MemOperand(sp, 0));
 
-  CallStubDelayed(new (zone) DoubleToIStub(nullptr, sp, result, 0, true, true));
+  if (stub_mode == StubCallMode::kCallWasmRuntimeStub) {
+    Call(wasm::WasmCode::kDoubleToI, RelocInfo::WASM_STUB_CALL);
+  } else {
+    Call(BUILTIN_CODE(isolate, DoubleToI), RelocInfo::CODE_TARGET);
+  }
+  Ld(result, MemOperand(sp, 0));
 
   Daddu(sp, sp, Operand(kDoubleSize));
   pop(ra);
@@ -2925,73 +3259,15 @@ void TurboAssembler::TruncateDoubleToIDelayed(Zone* zone, Register result,
   bind(&done);
 }
 
-
-void MacroAssembler::TruncateHeapNumberToI(Register result, Register object) {
-  Label done;
-  DoubleRegister double_scratch = f12;
-  DCHECK(!result.is(object));
-
-  Ldc1(double_scratch,
-       MemOperand(object, HeapNumber::kValueOffset - kHeapObjectTag));
-  TryInlineTruncateDoubleToI(result, double_scratch, &done);
-
-  // If we fell through then inline version didn't succeed - call stub instead.
-  push(ra);
-  DoubleToIStub stub(isolate(),
-                     object,
-                     result,
-                     HeapNumber::kValueOffset - kHeapObjectTag,
-                     true,
-                     true);
-  CallStub(&stub);
-  pop(ra);
-
-  bind(&done);
-}
-
-
-void MacroAssembler::TruncateNumberToI(Register object,
-                                       Register result,
-                                       Register heap_number_map,
-                                       Register scratch,
-                                       Label* not_number) {
-  Label done;
-  DCHECK(!result.is(object));
-
-  UntagAndJumpIfSmi(result, object, &done);
-  JumpIfNotHeapNumber(object, heap_number_map, scratch, not_number);
-  TruncateHeapNumberToI(result, object);
-
-  bind(&done);
-}
-
-
-void MacroAssembler::GetLeastBitsFromSmi(Register dst,
-                                         Register src,
-                                         int num_least_bits) {
-  // Ext(dst, src, kSmiTagSize, num_least_bits);
-  SmiUntag(dst, src);
-  And(dst, dst, Operand((1 << num_least_bits) - 1));
-}
-
-
-void MacroAssembler::GetLeastBitsFromInt32(Register dst,
-                                           Register src,
-                                           int num_least_bits) {
-  DCHECK(!src.is(dst));
-  And(dst, src, Operand((1 << num_least_bits) - 1));
-}
-
-
 // Emulated condtional branches do not emit a nop in the branch delay slot.
 //
 // BRANCH_ARGS_CHECK checks that conditional jump arguments are correct.
-#define BRANCH_ARGS_CHECK(cond, rs, rt) DCHECK(                                \
-    (cond == cc_always && rs.is(zero_reg) && rt.rm().is(zero_reg)) ||          \
-    (cond != cc_always && (!rs.is(zero_reg) || !rt.rm().is(zero_reg))))
+#define BRANCH_ARGS_CHECK(cond, rs, rt)                                  \
+  DCHECK((cond == cc_always && rs == zero_reg && rt.rm() == zero_reg) || \
+         (cond != cc_always && (rs != zero_reg || rt.rm() != zero_reg)))
 
 void TurboAssembler::Branch(int32_t offset, BranchDelaySlot bdslot) {
-  DCHECK(kArchVariant == kMips64r6 ? is_int26(offset) : is_int16(offset));
+  DCHECK_EQ(kArchVariant, kMips64r6 ? is_int26(offset) : is_int16(offset));
   BranchShort(offset, bdslot);
 }
 
@@ -3050,9 +3326,11 @@ void TurboAssembler::Branch(Label* L, Condition cond, Register rs,
 }
 
 void TurboAssembler::Branch(Label* L, Condition cond, Register rs,
-                            Heap::RootListIndex index, BranchDelaySlot bdslot) {
-  LoadRoot(at, index);
-  Branch(L, cond, rs, Operand(at), bdslot);
+                            RootIndex index, BranchDelaySlot bdslot) {
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  LoadRoot(scratch, index);
+  Branch(L, cond, rs, Operand(scratch), bdslot);
 }
 
 void TurboAssembler::BranchShortHelper(int16_t offset, Label* L,
@@ -3091,14 +3369,6 @@ void TurboAssembler::BranchShort(Label* L, BranchDelaySlot bdslot) {
 }
 
 
-static inline bool IsZero(const Operand& rt) {
-  if (rt.is_reg()) {
-    return rt.rm().is(zero_reg);
-  } else {
-    return rt.immediate() == 0;
-  }
-}
-
 int32_t TurboAssembler::GetOffset(int32_t offset, Label* L, OffsetSize bits) {
   if (L) {
     offset = branch_offset_helper(L, bits) >> 2;
@@ -3121,12 +3391,28 @@ Register TurboAssembler::GetRtAsRegisterHelper(const Operand& rt,
   return r2;
 }
 
+bool TurboAssembler::CalculateOffset(Label* L, int32_t& offset,
+                                     OffsetSize bits) {
+  if (!is_near(L, bits)) return false;
+  offset = GetOffset(offset, L, bits);
+  return true;
+}
+
+bool TurboAssembler::CalculateOffset(Label* L, int32_t& offset, OffsetSize bits,
+                                     Register& scratch, const Operand& rt) {
+  if (!is_near(L, bits)) return false;
+  scratch = GetRtAsRegisterHelper(rt, scratch);
+  offset = GetOffset(offset, L, bits);
+  return true;
+}
+
 bool TurboAssembler::BranchShortHelperR6(int32_t offset, Label* L,
                                          Condition cond, Register rs,
                                          const Operand& rt) {
   DCHECK(L == nullptr || offset == 0);
-  Register scratch = rs.is(at) ? t8 : at;
-  OffsetSize bits = OffsetSize::kOffset16;
+  UseScratchRegisterScope temps(this);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
 
   // Be careful to always use shifted_branch_offset only just before the
   // branch instruction, as the location will be remember for patching the
@@ -3135,56 +3421,42 @@ bool TurboAssembler::BranchShortHelperR6(int32_t offset, Label* L,
     BlockTrampolinePoolScope block_trampoline_pool(this);
     switch (cond) {
       case cc_always:
-        bits = OffsetSize::kOffset26;
-        if (!is_near(L, bits)) return false;
-        offset = GetOffset(offset, L, bits);
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
         bc(offset);
         break;
       case eq:
-        if (rs.code() == rt.rm().reg_code) {
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
           // Pre R6 beq is used here to make the code patchable. Otherwise bc
           // should be used which has no condition field so is not patchable.
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
           beq(rs, scratch, offset);
           nop();
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset21;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset21)) return false;
           beqzc(rs, offset);
         } else {
           // We don't want any other register but scratch clobbered.
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
           beqc(rs, scratch, offset);
         }
         break;
       case ne:
-        if (rs.code() == rt.rm().reg_code) {
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
           // Pre R6 bne is used here to make the code patchable. Otherwise we
           // should not generate any instruction.
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
           bne(rs, scratch, offset);
           nop();
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset21;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset21)) return false;
           bnezc(rs, offset);
         } else {
           // We don't want any other register but scratch clobbered.
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
           bnec(rs, scratch, offset);
         }
         break;
@@ -3192,103 +3464,75 @@ bool TurboAssembler::BranchShortHelperR6(int32_t offset, Label* L,
       // Signed comparison.
       case greater:
         // rs > rt
-        if (rs.code() == rt.rm().reg_code) {
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
           break;  // No code needs to be emitted.
-        } else if (rs.is(zero_reg)) {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+        } else if (rs == zero_reg) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
           bltzc(scratch, offset);
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16)) return false;
           bgtzc(rs, offset);
         } else {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          DCHECK(!rs.is(scratch));
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
+          DCHECK(rs != scratch);
           bltc(scratch, rs, offset);
         }
         break;
       case greater_equal:
         // rs >= rt
-        if (rs.code() == rt.rm().reg_code) {
-          bits = OffsetSize::kOffset26;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
           bc(offset);
-        } else if (rs.is(zero_reg)) {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+        } else if (rs == zero_reg) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
           blezc(scratch, offset);
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16)) return false;
           bgezc(rs, offset);
         } else {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          DCHECK(!rs.is(scratch));
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
+          DCHECK(rs != scratch);
           bgec(rs, scratch, offset);
         }
         break;
       case less:
         // rs < rt
-        if (rs.code() == rt.rm().reg_code) {
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
           break;  // No code needs to be emitted.
-        } else if (rs.is(zero_reg)) {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+        } else if (rs == zero_reg) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
           bgtzc(scratch, offset);
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16)) return false;
           bltzc(rs, offset);
         } else {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          DCHECK(!rs.is(scratch));
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
+          DCHECK(rs != scratch);
           bltc(rs, scratch, offset);
         }
         break;
       case less_equal:
         // rs <= rt
-        if (rs.code() == rt.rm().reg_code) {
-          bits = OffsetSize::kOffset26;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
           bc(offset);
-        } else if (rs.is(zero_reg)) {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+        } else if (rs == zero_reg) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
           bgezc(scratch, offset);
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16)) return false;
           blezc(rs, offset);
         } else {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          DCHECK(!rs.is(scratch));
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
+          DCHECK(rs != scratch);
           bgec(scratch, rs, offset);
         }
         break;
@@ -3296,100 +3540,74 @@ bool TurboAssembler::BranchShortHelperR6(int32_t offset, Label* L,
       // Unsigned comparison.
       case Ugreater:
         // rs > rt
-        if (rs.code() == rt.rm().reg_code) {
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
           break;  // No code needs to be emitted.
-        } else if (rs.is(zero_reg)) {
-          bits = OffsetSize::kOffset21;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+        } else if (rs == zero_reg) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset21, scratch, rt))
+            return false;
           bnezc(scratch, offset);
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset21;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset21)) return false;
           bnezc(rs, offset);
         } else {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          DCHECK(!rs.is(scratch));
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
+          DCHECK(rs != scratch);
           bltuc(scratch, rs, offset);
         }
         break;
       case Ugreater_equal:
         // rs >= rt
-        if (rs.code() == rt.rm().reg_code) {
-          bits = OffsetSize::kOffset26;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
           bc(offset);
-        } else if (rs.is(zero_reg)) {
-          bits = OffsetSize::kOffset21;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+        } else if (rs == zero_reg) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset21, scratch, rt))
+            return false;
           beqzc(scratch, offset);
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset26;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
           bc(offset);
         } else {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          DCHECK(!rs.is(scratch));
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
+          DCHECK(rs != scratch);
           bgeuc(rs, scratch, offset);
         }
         break;
       case Uless:
         // rs < rt
-        if (rs.code() == rt.rm().reg_code) {
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
           break;  // No code needs to be emitted.
-        } else if (rs.is(zero_reg)) {
-          bits = OffsetSize::kOffset21;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+        } else if (rs == zero_reg) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset21, scratch, rt))
+            return false;
           bnezc(scratch, offset);
         } else if (IsZero(rt)) {
           break;  // No code needs to be emitted.
         } else {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          DCHECK(!rs.is(scratch));
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
+          DCHECK(rs != scratch);
           bltuc(rs, scratch, offset);
         }
         break;
       case Uless_equal:
         // rs <= rt
-        if (rs.code() == rt.rm().reg_code) {
-          bits = OffsetSize::kOffset26;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+        if (rt.is_reg() && rs.code() == rt.rm().code()) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
           bc(offset);
-        } else if (rs.is(zero_reg)) {
-          bits = OffsetSize::kOffset26;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          offset = GetOffset(offset, L, bits);
+        } else if (rs == zero_reg) {
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset26, scratch, rt))
+            return false;
           bc(offset);
         } else if (IsZero(rt)) {
-          bits = OffsetSize::kOffset21;
-          if (!is_near(L, bits)) return false;
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset21)) return false;
           beqzc(rs, offset);
         } else {
-          bits = OffsetSize::kOffset16;
-          if (!is_near(L, bits)) return false;
-          scratch = GetRtAsRegisterHelper(rt, scratch);
-          DCHECK(!rs.is(scratch));
-          offset = GetOffset(offset, L, bits);
+          if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+            return false;
+          DCHECK(rs != scratch);
           bgeuc(scratch, rs, offset);
         }
         break;
@@ -3407,7 +3625,9 @@ bool TurboAssembler::BranchShortHelper(int16_t offset, Label* L, Condition cond,
   DCHECK(L == nullptr || offset == 0);
   if (!is_near(L, OffsetSize::kOffset16)) return false;
 
-  Register scratch = at;
+  UseScratchRegisterScope temps(this);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
   int32_t offset32;
 
   // Be careful to always use shifted_branch_offset only just before the
@@ -3551,7 +3771,7 @@ bool TurboAssembler::BranchShortCheck(int32_t offset, Label* L, Condition cond,
       return BranchShortHelper(offset, nullptr, cond, rs, rt, bdslot);
     }
   } else {
-    DCHECK(offset == 0);
+    DCHECK_EQ(offset, 0);
     if (kArchVariant == kMips64r6 && bdslot == PROTECT) {
       return BranchShortHelperR6(0, L, cond, rs, rt);
     } else {
@@ -3661,16 +3881,15 @@ bool TurboAssembler::BranchAndLinkShortHelperR6(int32_t offset, Label* L,
                                                 Condition cond, Register rs,
                                                 const Operand& rt) {
   DCHECK(L == nullptr || offset == 0);
-  Register scratch = rs.is(at) ? t8 : at;
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.hasAvailable() ? temps.Acquire() : t8;
   OffsetSize bits = OffsetSize::kOffset16;
 
   BlockTrampolinePoolScope block_trampoline_pool(this);
   DCHECK((cond == cc_always && is_int26(offset)) || is_int16(offset));
   switch (cond) {
     case cc_always:
-      bits = OffsetSize::kOffset26;
-      if (!is_near(L, bits)) return false;
-      offset = GetOffset(offset, L, bits);
+      if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
       balc(offset);
       break;
     case eq:
@@ -3689,16 +3908,14 @@ bool TurboAssembler::BranchAndLinkShortHelperR6(int32_t offset, Label* L,
     // Signed comparison.
     case greater:
       // rs > rt
-      if (rs.code() == rt.rm().reg_code) {
+      if (rs.code() == rt.rm().code()) {
         break;  // No code needs to be emitted.
-      } else if (rs.is(zero_reg)) {
-        if (!is_near(L, bits)) return false;
-        scratch = GetRtAsRegisterHelper(rt, scratch);
-        offset = GetOffset(offset, L, bits);
+      } else if (rs == zero_reg) {
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+          return false;
         bltzalc(scratch, offset);
       } else if (IsZero(rt)) {
-        if (!is_near(L, bits)) return false;
-        offset = GetOffset(offset, L, bits);
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset16)) return false;
         bgtzalc(rs, offset);
       } else {
         if (!is_near(L, bits)) return false;
@@ -3709,19 +3926,15 @@ bool TurboAssembler::BranchAndLinkShortHelperR6(int32_t offset, Label* L,
       break;
     case greater_equal:
       // rs >= rt
-      if (rs.code() == rt.rm().reg_code) {
-        bits = OffsetSize::kOffset26;
-        if (!is_near(L, bits)) return false;
-        offset = GetOffset(offset, L, bits);
+      if (rs.code() == rt.rm().code()) {
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
         balc(offset);
-      } else if (rs.is(zero_reg)) {
-        if (!is_near(L, bits)) return false;
-        scratch = GetRtAsRegisterHelper(rt, scratch);
-        offset = GetOffset(offset, L, bits);
+      } else if (rs == zero_reg) {
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+          return false;
         blezalc(scratch, offset);
       } else if (IsZero(rt)) {
-        if (!is_near(L, bits)) return false;
-        offset = GetOffset(offset, L, bits);
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset16)) return false;
         bgezalc(rs, offset);
       } else {
         if (!is_near(L, bits)) return false;
@@ -3732,16 +3945,14 @@ bool TurboAssembler::BranchAndLinkShortHelperR6(int32_t offset, Label* L,
       break;
     case less:
       // rs < rt
-      if (rs.code() == rt.rm().reg_code) {
+      if (rs.code() == rt.rm().code()) {
         break;  // No code needs to be emitted.
-      } else if (rs.is(zero_reg)) {
-        if (!is_near(L, bits)) return false;
-        scratch = GetRtAsRegisterHelper(rt, scratch);
-        offset = GetOffset(offset, L, bits);
+      } else if (rs == zero_reg) {
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+          return false;
         bgtzalc(scratch, offset);
       } else if (IsZero(rt)) {
-        if (!is_near(L, bits)) return false;
-        offset = GetOffset(offset, L, bits);
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset16)) return false;
         bltzalc(rs, offset);
       } else {
         if (!is_near(L, bits)) return false;
@@ -3752,19 +3963,15 @@ bool TurboAssembler::BranchAndLinkShortHelperR6(int32_t offset, Label* L,
       break;
     case less_equal:
       // rs <= r2
-      if (rs.code() == rt.rm().reg_code) {
-        bits = OffsetSize::kOffset26;
-        if (!is_near(L, bits)) return false;
-        offset = GetOffset(offset, L, bits);
+      if (rs.code() == rt.rm().code()) {
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset26)) return false;
         balc(offset);
-      } else if (rs.is(zero_reg)) {
-        if (!is_near(L, bits)) return false;
-        scratch = GetRtAsRegisterHelper(rt, scratch);
-        offset = GetOffset(offset, L, bits);
+      } else if (rs == zero_reg) {
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset16, scratch, rt))
+          return false;
         bgezalc(scratch, offset);
       } else if (IsZero(rt)) {
-        if (!is_near(L, bits)) return false;
-        offset = GetOffset(offset, L, bits);
+        if (!CalculateOffset(L, offset, OffsetSize::kOffset16)) return false;
         blezalc(rs, offset);
       } else {
         if (!is_near(L, bits)) return false;
@@ -3809,7 +4016,6 @@ bool TurboAssembler::BranchAndLinkShortHelperR6(int32_t offset, Label* L,
   }
   return true;
 }
-
 
 // Pre r6 we need to use a bgezal or bltzal, but they can't be used directly
 // with the slt instructions. We could use sub or add instead but we would miss
@@ -3920,7 +4126,7 @@ bool TurboAssembler::BranchAndLinkShortCheck(int32_t offset, Label* L,
       return BranchAndLinkShortHelper(offset, nullptr, cond, rs, rt, bdslot);
     }
   } else {
-    DCHECK(offset == 0);
+    DCHECK_EQ(offset, 0);
     if (kArchVariant == kMips64r6 && bdslot == PROTECT) {
       return BranchAndLinkShortHelperR6(0, L, cond, rs, rt);
     } else {
@@ -3928,6 +4134,28 @@ bool TurboAssembler::BranchAndLinkShortCheck(int32_t offset, Label* L,
     }
   }
   return false;
+}
+
+void TurboAssembler::LoadFromConstantsTable(Register destination,
+                                            int constant_index) {
+  DCHECK(RootsTable::IsImmortalImmovable(RootIndex::kBuiltinsConstantsTable));
+  LoadRoot(destination, RootIndex::kBuiltinsConstantsTable);
+  Ld(destination,
+     FieldMemOperand(destination,
+                     FixedArray::kHeaderSize + constant_index * kPointerSize));
+}
+
+void TurboAssembler::LoadRootRelative(Register destination, int32_t offset) {
+  Ld(destination, MemOperand(kRootRegister, offset));
+}
+
+void TurboAssembler::LoadRootRegisterOffset(Register destination,
+                                            intptr_t offset) {
+  if (offset == 0) {
+    Move(destination, kRootRegister);
+  } else {
+    Daddu(destination, kRootRegister, Operand(offset));
+  }
 }
 
 void TurboAssembler::Jump(Register target, Condition cond, Register rs,
@@ -3963,50 +4191,53 @@ void TurboAssembler::Jump(intptr_t target, RelocInfo::Mode rmode,
   }
   // The first instruction of 'li' may be placed in the delay slot.
   // This is not an issue, t9 is expected to be clobbered anyway.
-  li(t9, Operand(target, rmode));
-  Jump(t9, al, zero_reg, Operand(zero_reg), bd);
-  bind(&skip);
+  {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    li(t9, Operand(target, rmode));
+    Jump(t9, al, zero_reg, Operand(zero_reg), bd);
+    bind(&skip);
+  }
 }
 
 void TurboAssembler::Jump(Address target, RelocInfo::Mode rmode, Condition cond,
                           Register rs, const Operand& rt, BranchDelaySlot bd) {
   DCHECK(!RelocInfo::IsCodeTarget(rmode));
-  Jump(reinterpret_cast<intptr_t>(target), rmode, cond, rs, rt, bd);
+  Jump(static_cast<intptr_t>(target), rmode, cond, rs, rt, bd);
 }
 
 void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
                           Condition cond, Register rs, const Operand& rt,
                           BranchDelaySlot bd) {
   DCHECK(RelocInfo::IsCodeTarget(rmode));
-  Jump(reinterpret_cast<intptr_t>(code.address()), rmode, cond, rs, rt, bd);
-}
-
-int TurboAssembler::CallSize(Register target, Condition cond, Register rs,
-                             const Operand& rt, BranchDelaySlot bd) {
-  int size = 0;
-
-  if (cond == cc_always) {
-    size += 1;
-  } else {
-    size += 3;
+  if (FLAG_embedded_builtins) {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    if (root_array_available_ && options().isolate_independent_code) {
+      IndirectLoadConstant(t9, code);
+      Daddu(t9, t9, Operand(Code::kHeaderSize - kHeapObjectTag));
+      Jump(t9, cond, rs, rt, bd);
+      return;
+    } else if (options().inline_offheap_trampolines) {
+      int builtin_index = Builtins::kNoBuiltinId;
+      if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
+          Builtins::IsIsolateIndependent(builtin_index)) {
+        // Inline the trampoline.
+        RecordCommentForOffHeapTrampoline(builtin_index);
+        CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
+        EmbeddedData d = EmbeddedData::FromBlob();
+        Address entry = d.InstructionStartOfBuiltin(builtin_index);
+        li(t9, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+        Jump(t9, cond, rs, rt, bd);
+        return;
+      }
+    }
   }
-
-  if (bd == PROTECT && kArchVariant != kMips64r6) size += 1;
-
-  return size * kInstrSize;
+  Jump(static_cast<intptr_t>(code.address()), rmode, cond, rs, rt, bd);
 }
 
-
-// Note: To call gcc-compiled C code on mips, you must call thru t9.
+// Note: To call gcc-compiled C code on mips, you must call through t9.
 void TurboAssembler::Call(Register target, Condition cond, Register rs,
                           const Operand& rt, BranchDelaySlot bd) {
-#ifdef DEBUG
-  int size = IsPrevInstrCompactBranch() ? kInstrSize : 0;
-#endif
-
   BlockTrampolinePoolScope block_trampoline_pool(this);
-  Label start;
-  bind(&start);
   if (kArchVariant == kMips64r6 && bd == PROTECT) {
     if (cond == cc_always) {
       jialc(target, 0);
@@ -4026,48 +4257,97 @@ void TurboAssembler::Call(Register target, Condition cond, Register rs,
     // Emit a nop in the branch delay slot if required.
     if (bd == PROTECT) nop();
   }
-
-#ifdef DEBUG
-  CHECK_EQ(size + CallSize(target, cond, rs, rt, bd),
-           SizeOfCodeGeneratedSince(&start));
-#endif
-}
-
-int TurboAssembler::CallSize(Address target, RelocInfo::Mode rmode,
-                             Condition cond, Register rs, const Operand& rt,
-                             BranchDelaySlot bd) {
-  int size = CallSize(t9, cond, rs, rt, bd);
-  return size + 4 * kInstrSize;
 }
 
 void TurboAssembler::Call(Address target, RelocInfo::Mode rmode, Condition cond,
                           Register rs, const Operand& rt, BranchDelaySlot bd) {
   BlockTrampolinePoolScope block_trampoline_pool(this);
-  Label start;
-  bind(&start);
-  int64_t target_int = reinterpret_cast<int64_t>(target);
-  li(t9, Operand(target_int, rmode), ADDRESS_LOAD);
+  li(t9, Operand(static_cast<int64_t>(target), rmode), ADDRESS_LOAD);
   Call(t9, cond, rs, rt, bd);
-  DCHECK_EQ(CallSize(target, rmode, cond, rs, rt, bd),
-            SizeOfCodeGeneratedSince(&start));
-}
-
-int TurboAssembler::CallSize(Handle<Code> code, RelocInfo::Mode rmode,
-                             Condition cond, Register rs, const Operand& rt,
-                             BranchDelaySlot bd) {
-  return CallSize(code.address(), rmode, cond, rs, rt, bd);
 }
 
 void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode,
                           Condition cond, Register rs, const Operand& rt,
                           BranchDelaySlot bd) {
   BlockTrampolinePoolScope block_trampoline_pool(this);
-  Label start;
-  bind(&start);
+  if (FLAG_embedded_builtins) {
+    if (root_array_available_ && options().isolate_independent_code) {
+      IndirectLoadConstant(t9, code);
+      Daddu(t9, t9, Operand(Code::kHeaderSize - kHeapObjectTag));
+      Call(t9, cond, rs, rt, bd);
+      return;
+    } else if (options().inline_offheap_trampolines) {
+      int builtin_index = Builtins::kNoBuiltinId;
+      if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
+          Builtins::IsIsolateIndependent(builtin_index)) {
+        // Inline the trampoline.
+        RecordCommentForOffHeapTrampoline(builtin_index);
+        CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
+        EmbeddedData d = EmbeddedData::FromBlob();
+        Address entry = d.InstructionStartOfBuiltin(builtin_index);
+        li(t9, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+        Call(t9, cond, rs, rt, bd);
+        return;
+      }
+    }
+  }
   DCHECK(RelocInfo::IsCodeTarget(rmode));
   Call(code.address(), rmode, cond, rs, rt, bd);
-  DCHECK_EQ(CallSize(code, rmode, cond, rs, rt, bd),
-            SizeOfCodeGeneratedSince(&start));
+}
+
+void TurboAssembler::CallBuiltinPointer(Register builtin_pointer) {
+  STATIC_ASSERT(kSystemPointerSize == 8);
+  STATIC_ASSERT(kSmiShiftSize == 31);
+  STATIC_ASSERT(kSmiTagSize == 1);
+  STATIC_ASSERT(kSmiTag == 0);
+
+  // The builtin_pointer register contains the builtin index as a Smi.
+  SmiUntag(builtin_pointer, builtin_pointer);
+  Dlsa(builtin_pointer, kRootRegister, builtin_pointer, kSystemPointerSizeLog2);
+  Ld(builtin_pointer,
+     MemOperand(builtin_pointer, IsolateData::builtin_entry_table_offset()));
+  Call(builtin_pointer);
+}
+
+void TurboAssembler::StoreReturnAddressAndCall(Register target) {
+  // This generates the final instruction sequence for calls to C functions
+  // once an exit frame has been constructed.
+  //
+  // Note that this assumes the caller code (i.e. the Code object currently
+  // being generated) is immovable or that the callee function cannot trigger
+  // GC, since the callee function will return to it.
+
+  // Compute the return address in lr to return to after the jump below. The pc
+  // is already at '+ 8' from the current instruction; but return is after three
+  // instructions, so add another 4 to pc to get the return address.
+
+  Assembler::BlockTrampolinePoolScope block_trampoline_pool(this);
+  static constexpr int kNumInstructionsToJump = 4;
+  Label find_ra;
+  // Adjust the value in ra to point to the correct return location, 2nd
+  // instruction past the real call into C code (the jalr(t9)), and push it.
+  // This is the return address of the exit frame.
+  if (kArchVariant >= kMips64r6) {
+    addiupc(ra, kNumInstructionsToJump + 1);
+  } else {
+    // This no-op-and-link sequence saves PC + 8 in ra register on pre-r6 MIPS
+    nal();  // nal has branch delay slot.
+    Daddu(ra, ra, kNumInstructionsToJump * kInstrSize);
+  }
+  bind(&find_ra);
+
+  // This spot was reserved in EnterExitFrame.
+  Sd(ra, MemOperand(sp));
+  // Stack space reservation moved to the branch delay slot below.
+  // Stack is still aligned.
+
+  // Call the C routine.
+  mov(t9, target);  // Function pointer to t9 to conform to ABI for PIC.
+  jalr(t9);
+  // Set up sp in the delay slot.
+  daddiu(sp, sp, -kCArgsSlotsSize);
+  // Make sure the stored 'ra' points to this position.
+  DCHECK_EQ(kNumInstructionsToJump, InstructionsGeneratedSince(&find_ra));
 }
 
 void TurboAssembler::Ret(Condition cond, Register rs, const Operand& rt,
@@ -4080,17 +4360,22 @@ void TurboAssembler::BranchLong(Label* L, BranchDelaySlot bdslot) {
       (!L->is_bound() || is_near_r6(L))) {
     BranchShortHelperR6(0, L);
   } else {
-    EmitForbiddenSlotInstruction();
+    // Generate position independent long branch.
     BlockTrampolinePoolScope block_trampoline_pool(this);
-    {
-      BlockGrowBufferScope block_buf_growth(this);
-      // Buffer growth (and relocation) must be blocked for internal references
-      // until associated instructions are emitted and available to be patched.
-      RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE_ENCODED);
-      j(L);
+    int64_t imm64;
+    imm64 = branch_long_offset(L);
+    DCHECK(is_int32(imm64));
+    or_(t8, ra, zero_reg);
+    nal();                                        // Read PC into ra register.
+    lui(t9, (imm64 & kHiMaskOf32) >> kLuiShift);  // Branch delay slot.
+    ori(t9, t9, (imm64 & kImm16Mask));
+    daddu(t9, ra, t9);
+    if (bdslot == USE_DELAY_SLOT) {
+      or_(ra, t8, zero_reg);
     }
-    // Emit a nop in the branch delay slot if required.
-    if (bdslot == PROTECT) nop();
+    jr(t9);
+    // Emit a or_ in the branch delay slot if it's protected.
+    if (bdslot == PROTECT) or_(ra, t8, zero_reg);
   }
 }
 
@@ -4099,15 +4384,16 @@ void TurboAssembler::BranchAndLinkLong(Label* L, BranchDelaySlot bdslot) {
       (!L->is_bound() || is_near_r6(L))) {
     BranchAndLinkShortHelperR6(0, L);
   } else {
-    EmitForbiddenSlotInstruction();
+    // Generate position independent long branch and link.
     BlockTrampolinePoolScope block_trampoline_pool(this);
-    {
-      BlockGrowBufferScope block_buf_growth(this);
-      // Buffer growth (and relocation) must be blocked for internal references
-      // until associated instructions are emitted and available to be patched.
-      RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE_ENCODED);
-      jal(L);
-    }
+    int64_t imm64;
+    imm64 = branch_long_offset(L);
+    DCHECK(is_int32(imm64));
+    lui(t8, (imm64 & kHiMaskOf32) >> kLuiShift);
+    nal();                              // Read PC into ra register.
+    ori(t8, t8, (imm64 & kImm16Mask));  // Branch delay slot.
+    daddu(t8, ra, t8);
+    jalr(t8);
     // Emit a nop in the branch delay slot if required.
     if (bdslot == PROTECT) nop();
   }
@@ -4159,7 +4445,7 @@ void TurboAssembler::Drop(int count, Condition cond, Register reg,
 void MacroAssembler::Swap(Register reg1,
                           Register reg2,
                           Register scratch) {
-  if (scratch.is(no_reg)) {
+  if (scratch == no_reg) {
     Xor(reg1, reg1, Operand(reg2));
     Xor(reg2, reg2, Operand(reg1));
     Xor(reg1, reg1, Operand(reg2));
@@ -4172,53 +4458,25 @@ void MacroAssembler::Swap(Register reg1,
 
 void TurboAssembler::Call(Label* target) { BranchAndLink(target); }
 
-void TurboAssembler::Push(Smi* smi) {
-  li(at, Operand(smi));
-  push(at);
-}
-
-void TurboAssembler::Push(Handle<HeapObject> handle) {
-  li(at, Operand(handle));
-  push(at);
-}
-
-void MacroAssembler::PushObject(Handle<Object> handle) {
-  if (handle->IsHeapObject()) {
-    li(at, Operand(Handle<HeapObject>::cast(handle)));
-  } else {
-    li(at, Operand(Smi::cast(*handle)));
-  }
-  push(at);
-}
-
-void MacroAssembler::PushRegisterAsTwoSmis(Register src, Register scratch) {
-  DCHECK(!src.is(scratch));
-  mov(scratch, src);
-  dsrl32(src, src, 0);
-  dsll32(src, src, 0);
-  push(src);
-  dsll32(scratch, scratch, 0);
+void TurboAssembler::Push(Smi smi) {
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  li(scratch, Operand(smi));
   push(scratch);
 }
 
-
-void MacroAssembler::PopRegisterAsTwoSmis(Register dst, Register scratch) {
-  DCHECK(!dst.is(scratch));
-  pop(scratch);
-  dsrl32(scratch, scratch, 0);
-  pop(dst);
-  dsrl32(dst, dst, 0);
-  dsll32(dst, dst, 0);
-  or_(dst, dst, scratch);
+void TurboAssembler::Push(Handle<HeapObject> handle) {
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  li(scratch, Operand(handle));
+  push(scratch);
 }
 
 void MacroAssembler::MaybeDropFrames() {
   // Check whether we need to drop frames to restart a function on the stack.
-  ExternalReference restart_fp =
-      ExternalReference::debug_restart_fp_address(isolate());
-  li(a1, Operand(restart_fp));
+  li(a1, ExternalReference::debug_restart_fp_address(isolate()));
   Ld(a1, MemOperand(a1));
-  Jump(isolate()->builtins()->FrameDropperTrampoline(), RelocInfo::CODE_TARGET,
+  Jump(BUILTIN_CODE(isolate(), FrameDropperTrampoline), RelocInfo::CODE_TARGET,
        ne, a1, Operand(zero_reg));
 }
 
@@ -4227,17 +4485,19 @@ void MacroAssembler::MaybeDropFrames() {
 
 void MacroAssembler::PushStackHandler() {
   // Adjust this code if not the case.
-  STATIC_ASSERT(StackHandlerConstants::kSize == 1 * kPointerSize);
+  STATIC_ASSERT(StackHandlerConstants::kSize == 2 * kPointerSize);
   STATIC_ASSERT(StackHandlerConstants::kNextOffset == 0 * kPointerSize);
 
+  Push(Smi::zero());  // Padding.
+
   // Link the current handler as the next handler.
-  li(a6,
-     Operand(ExternalReference(IsolateAddressId::kHandlerAddress, isolate())));
-  Ld(a5, MemOperand(a6));
-  push(a5);
+  li(t2,
+     ExternalReference::Create(IsolateAddressId::kHandlerAddress, isolate()));
+  Ld(t1, MemOperand(t2));
+  push(t1);
 
   // Set this new handler as the current one.
-  Sd(sp, MemOperand(a6));
+  Sd(sp, MemOperand(t2));
 }
 
 
@@ -4246,382 +4506,16 @@ void MacroAssembler::PopStackHandler() {
   pop(a1);
   Daddu(sp, sp, Operand(static_cast<int64_t>(StackHandlerConstants::kSize -
                                              kPointerSize)));
-  li(at,
-     Operand(ExternalReference(IsolateAddressId::kHandlerAddress, isolate())));
-  Sd(a1, MemOperand(at));
-}
-
-
-void MacroAssembler::Allocate(int object_size,
-                              Register result,
-                              Register scratch1,
-                              Register scratch2,
-                              Label* gc_required,
-                              AllocationFlags flags) {
-  DCHECK(object_size <= kMaxRegularHeapObjectSize);
-  if (!FLAG_inline_new) {
-    if (emit_debug_code()) {
-      // Trash the registers to simulate an allocation failure.
-      li(result, 0x7091);
-      li(scratch1, 0x7191);
-      li(scratch2, 0x7291);
-    }
-    jmp(gc_required);
-    return;
-  }
-
-  DCHECK(!AreAliased(result, scratch1, scratch2, t9, at));
-
-  // Make object size into bytes.
-  if ((flags & SIZE_IN_WORDS) != 0) {
-    object_size *= kPointerSize;
-  }
-  DCHECK(0 == (object_size & kObjectAlignmentMask));
-
-  // Check relative positions of allocation top and limit addresses.
-  // ARM adds additional checks to make sure the ldm instruction can be
-  // used. On MIPS we don't have ldm so we don't need additional checks either.
-  ExternalReference allocation_top =
-      AllocationUtils::GetAllocationTopReference(isolate(), flags);
-  ExternalReference allocation_limit =
-      AllocationUtils::GetAllocationLimitReference(isolate(), flags);
-
-  intptr_t top = reinterpret_cast<intptr_t>(allocation_top.address());
-  intptr_t limit = reinterpret_cast<intptr_t>(allocation_limit.address());
-  DCHECK((limit - top) == kPointerSize);
-
-  // Set up allocation top address and allocation limit registers.
-  Register top_address = scratch1;
-  // This code stores a temporary value in t9.
-  Register alloc_limit = t9;
-  Register result_end = scratch2;
-  li(top_address, Operand(allocation_top));
-
-  if ((flags & RESULT_CONTAINS_TOP) == 0) {
-    // Load allocation top into result and allocation limit into alloc_limit.
-    Ld(result, MemOperand(top_address));
-    Ld(alloc_limit, MemOperand(top_address, kPointerSize));
-  } else {
-    if (emit_debug_code()) {
-      // Assert that result actually contains top on entry.
-      Ld(alloc_limit, MemOperand(top_address));
-      Check(eq, kUnexpectedAllocationTop, result, Operand(alloc_limit));
-    }
-    // Load allocation limit. Result already contains allocation top.
-    Ld(alloc_limit, MemOperand(top_address, static_cast<int32_t>(limit - top)));
-  }
-
-  // We can ignore DOUBLE_ALIGNMENT flags here because doubles and pointers have
-  // the same alignment on ARM64.
-  STATIC_ASSERT(kPointerAlignment == kDoubleAlignment);
-
-  if (emit_debug_code()) {
-    And(at, result, Operand(kDoubleAlignmentMask));
-    Check(eq, kAllocationIsNotDoubleAligned, at, Operand(zero_reg));
-  }
-
-  // Calculate new top and bail out if new space is exhausted. Use result
-  // to calculate the new top.
-  Daddu(result_end, result, Operand(object_size));
-  Branch(gc_required, Ugreater, result_end, Operand(alloc_limit));
-
-  Sd(result_end, MemOperand(top_address));
-
-  // Tag object.
-  Daddu(result, result, Operand(kHeapObjectTag));
-}
-
-
-void MacroAssembler::Allocate(Register object_size, Register result,
-                              Register result_end, Register scratch,
-                              Label* gc_required, AllocationFlags flags) {
-  if (!FLAG_inline_new) {
-    if (emit_debug_code()) {
-      // Trash the registers to simulate an allocation failure.
-      li(result, 0x7091);
-      li(scratch, 0x7191);
-      li(result_end, 0x7291);
-    }
-    jmp(gc_required);
-    return;
-  }
-
-  // |object_size| and |result_end| may overlap, other registers must not.
-  DCHECK(!AreAliased(object_size, result, scratch, t9, at));
-  DCHECK(!AreAliased(result_end, result, scratch, t9, at));
-
-  // Check relative positions of allocation top and limit addresses.
-  // ARM adds additional checks to make sure the ldm instruction can be
-  // used. On MIPS we don't have ldm so we don't need additional checks either.
-  ExternalReference allocation_top =
-      AllocationUtils::GetAllocationTopReference(isolate(), flags);
-  ExternalReference allocation_limit =
-      AllocationUtils::GetAllocationLimitReference(isolate(), flags);
-  intptr_t top = reinterpret_cast<intptr_t>(allocation_top.address());
-  intptr_t limit = reinterpret_cast<intptr_t>(allocation_limit.address());
-  DCHECK((limit - top) == kPointerSize);
-
-  // Set up allocation top address and object size registers.
-  Register top_address = scratch;
-  // This code stores a temporary value in t9.
-  Register alloc_limit = t9;
-  li(top_address, Operand(allocation_top));
-
-  if ((flags & RESULT_CONTAINS_TOP) == 0) {
-    // Load allocation top into result and allocation limit into alloc_limit.
-    Ld(result, MemOperand(top_address));
-    Ld(alloc_limit, MemOperand(top_address, kPointerSize));
-  } else {
-    if (emit_debug_code()) {
-      // Assert that result actually contains top on entry.
-      Ld(alloc_limit, MemOperand(top_address));
-      Check(eq, kUnexpectedAllocationTop, result, Operand(alloc_limit));
-    }
-    // Load allocation limit. Result already contains allocation top.
-    Ld(alloc_limit, MemOperand(top_address, static_cast<int32_t>(limit - top)));
-  }
-
-  // We can ignore DOUBLE_ALIGNMENT flags here because doubles and pointers have
-  // the same alignment on ARM64.
-  STATIC_ASSERT(kPointerAlignment == kDoubleAlignment);
-
-  if (emit_debug_code()) {
-    And(at, result, Operand(kDoubleAlignmentMask));
-    Check(eq, kAllocationIsNotDoubleAligned, at, Operand(zero_reg));
-  }
-
-  // Calculate new top and bail out if new space is exhausted. Use result
-  // to calculate the new top. Object size may be in words so a shift is
-  // required to get the number of bytes.
-  if ((flags & SIZE_IN_WORDS) != 0) {
-    Dlsa(result_end, result, object_size, kPointerSizeLog2);
-  } else {
-    Daddu(result_end, result, Operand(object_size));
-  }
-
-  Branch(gc_required, Ugreater, result_end, Operand(alloc_limit));
-
-  // Update allocation top. result temporarily holds the new top.
-  if (emit_debug_code()) {
-    And(at, result_end, Operand(kObjectAlignmentMask));
-    Check(eq, kUnalignedAllocationInNewSpace, at, Operand(zero_reg));
-  }
-
-  Sd(result_end, MemOperand(top_address));
-
-  // Tag object if.
-  Daddu(result, result, Operand(kHeapObjectTag));
-}
-
-void MacroAssembler::JumpIfNotUniqueNameInstanceType(Register reg,
-                                                     Label* not_unique_name) {
-  STATIC_ASSERT(kInternalizedTag == 0 && kStringTag == 0);
-  Label succeed;
-  And(at, reg, Operand(kIsNotStringMask | kIsNotInternalizedMask));
-  Branch(&succeed, eq, at, Operand(zero_reg));
-  Branch(not_unique_name, ne, reg, Operand(SYMBOL_TYPE));
-
-  bind(&succeed);
-}
-
-
-// Allocates a heap number or jumps to the label if the young space is full and
-// a scavenge is needed.
-void MacroAssembler::AllocateHeapNumber(Register result,
-                                        Register scratch1,
-                                        Register scratch2,
-                                        Register heap_number_map,
-                                        Label* need_gc,
-                                        MutableMode mode) {
-  // Allocate an object in the heap for the heap number and tag it as a heap
-  // object.
-  Allocate(HeapNumber::kSize, result, scratch1, scratch2, need_gc,
-           NO_ALLOCATION_FLAGS);
-
-  Heap::RootListIndex map_index = mode == MUTABLE
-      ? Heap::kMutableHeapNumberMapRootIndex
-      : Heap::kHeapNumberMapRootIndex;
-  AssertIsRoot(heap_number_map, map_index);
-
-  // Store heap number map in the allocated object.
-  Sd(heap_number_map, FieldMemOperand(result, HeapObject::kMapOffset));
-}
-
-
-void MacroAssembler::AllocateHeapNumberWithValue(Register result,
-                                                 FPURegister value,
-                                                 Register scratch1,
-                                                 Register scratch2,
-                                                 Label* gc_required) {
-  LoadRoot(t8, Heap::kHeapNumberMapRootIndex);
-  AllocateHeapNumber(result, scratch1, scratch2, t8, gc_required);
-  Sdc1(value, FieldMemOperand(result, HeapNumber::kValueOffset));
-}
-
-
-void MacroAssembler::AllocateJSValue(Register result, Register constructor,
-                                     Register value, Register scratch1,
-                                     Register scratch2, Label* gc_required) {
-  DCHECK(!result.is(constructor));
-  DCHECK(!result.is(scratch1));
-  DCHECK(!result.is(scratch2));
-  DCHECK(!result.is(value));
-
-  // Allocate JSValue in new space.
-  Allocate(JSValue::kSize, result, scratch1, scratch2, gc_required,
-           NO_ALLOCATION_FLAGS);
-
-  // Initialize the JSValue.
-  LoadGlobalFunctionInitialMap(constructor, scratch1, scratch2);
-  Sd(scratch1, FieldMemOperand(result, HeapObject::kMapOffset));
-  LoadRoot(scratch1, Heap::kEmptyFixedArrayRootIndex);
-  Sd(scratch1, FieldMemOperand(result, JSObject::kPropertiesOrHashOffset));
-  Sd(scratch1, FieldMemOperand(result, JSObject::kElementsOffset));
-  Sd(value, FieldMemOperand(result, JSValue::kValueOffset));
-  STATIC_ASSERT(JSValue::kSize == 4 * kPointerSize);
-}
-
-void MacroAssembler::InitializeFieldsWithFiller(Register current_address,
-                                                Register end_address,
-                                                Register filler) {
-  Label loop, entry;
-  Branch(&entry);
-  bind(&loop);
-  Sd(filler, MemOperand(current_address));
-  Daddu(current_address, current_address, kPointerSize);
-  bind(&entry);
-  Branch(&loop, ult, current_address, Operand(end_address));
-}
-
-void MacroAssembler::SubNanPreservePayloadAndSign_s(FPURegister fd,
-                                                    FPURegister fs,
-                                                    FPURegister ft) {
-  FloatRegister dest = fd.is(fs) || fd.is(ft) ? kLithiumScratchDouble : fd;
-  Label check_nan, save_payload, done;
-  Register scratch1 = t8;
-  Register scratch2 = t9;
-
-  sub_s(dest, fs, ft);
-  // Check if the result of subtraction is NaN.
-  BranchF32(nullptr, &check_nan, eq, fs, ft);
-  Branch(USE_DELAY_SLOT, &done);
-  dest.is(fd) ? nop() : mov_s(fd, dest);
-
-  bind(&check_nan);
-  // Check if first operand is a NaN.
-  mfc1(scratch1, fs);
-  BranchF32(nullptr, &save_payload, eq, fs, fs);
-  // Second operand must be a NaN.
-  mfc1(scratch1, ft);
-
-  bind(&save_payload);
-  // Reserve payload.
-  And(scratch1, scratch1,
-      Operand(kSingleSignMask | ((1 << kSingleNaNShift) - 1)));
-  mfc1(scratch2, dest);
-  And(scratch2, scratch2, Operand(kSingleNaNMask));
-  Or(scratch2, scratch2, scratch1);
-  mtc1(scratch2, fd);
-
-  bind(&done);
-}
-
-void MacroAssembler::SubNanPreservePayloadAndSign_d(FPURegister fd,
-                                                    FPURegister fs,
-                                                    FPURegister ft) {
-  FloatRegister dest = fd.is(fs) || fd.is(ft) ? kLithiumScratchDouble : fd;
-  Label check_nan, save_payload, done;
-  Register scratch1 = t8;
-  Register scratch2 = t9;
-
-  sub_d(dest, fs, ft);
-  // Check if the result of subtraction is NaN.
-  BranchF64(nullptr, &check_nan, eq, fs, ft);
-  Branch(USE_DELAY_SLOT, &done);
-  dest.is(fd) ? nop() : mov_d(fd, dest);
-
-  bind(&check_nan);
-  // Check if first operand is a NaN.
-  dmfc1(scratch1, fs);
-  BranchF64(nullptr, &save_payload, eq, fs, fs);
-  // Second operand must be a NaN.
-  dmfc1(scratch1, ft);
-
-  bind(&save_payload);
-  // Reserve payload.
-  li(at, Operand(kDoubleSignMask | (1L << kDoubleNaNShift)));
-  Dsubu(at, at, Operand(1));
-  And(scratch1, scratch1, at);
-  dmfc1(scratch2, dest);
-  And(scratch2, scratch2, Operand(kDoubleNaNMask));
-  Or(scratch2, scratch2, scratch1);
-  dmtc1(scratch2, fd);
-
-  bind(&done);
-}
-
-void MacroAssembler::CompareMapAndBranch(Register obj,
-                                         Register scratch,
-                                         Handle<Map> map,
-                                         Label* early_success,
-                                         Condition cond,
-                                         Label* branch_to) {
-  Ld(scratch, FieldMemOperand(obj, HeapObject::kMapOffset));
-  CompareMapAndBranch(scratch, map, early_success, cond, branch_to);
-}
-
-
-void MacroAssembler::CompareMapAndBranch(Register obj_map,
-                                         Handle<Map> map,
-                                         Label* early_success,
-                                         Condition cond,
-                                         Label* branch_to) {
-  Branch(branch_to, cond, obj_map, Operand(map));
-}
-
-
-void MacroAssembler::CheckMap(Register obj,
-                              Register scratch,
-                              Handle<Map> map,
-                              Label* fail,
-                              SmiCheckType smi_check_type) {
-  if (smi_check_type == DO_SMI_CHECK) {
-    JumpIfSmi(obj, fail);
-  }
-  Label success;
-  CompareMapAndBranch(obj, scratch, map, &success, ne, fail);
-  bind(&success);
-}
-
-
-void MacroAssembler::CheckMap(Register obj,
-                              Register scratch,
-                              Heap::RootListIndex index,
-                              Label* fail,
-                              SmiCheckType smi_check_type) {
-  if (smi_check_type == DO_SMI_CHECK) {
-    JumpIfSmi(obj, fail);
-  }
-  Ld(scratch, FieldMemOperand(obj, HeapObject::kMapOffset));
-  LoadRoot(at, index);
-  Branch(fail, ne, scratch, Operand(at));
-}
-
-
-void MacroAssembler::GetWeakValue(Register value, Handle<WeakCell> cell) {
-  li(value, Operand(cell));
-  Ld(value, FieldMemOperand(value, WeakCell::kValueOffset));
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  li(scratch,
+     ExternalReference::Create(IsolateAddressId::kHandlerAddress, isolate()));
+  Sd(a1, MemOperand(scratch));
 }
 
 void TurboAssembler::FPUCanonicalizeNaN(const DoubleRegister dst,
                                         const DoubleRegister src) {
   sub_d(dst, src, kDoubleRegZero);
-}
-
-void MacroAssembler::LoadWeakValue(Register value, Handle<WeakCell> cell,
-                                   Label* miss) {
-  GetWeakValue(value, cell);
-  JumpIfSmi(value, miss);
 }
 
 void TurboAssembler::MovFromFloatResult(const DoubleRegister dst) {
@@ -4676,8 +4570,8 @@ void TurboAssembler::MovToFloatParameters(DoubleRegister src1,
                                           DoubleRegister src2) {
   if (!IsMipsSoftFloatABI) {
     const DoubleRegister fparg2 = f13;
-    if (src2.is(f12)) {
-      DCHECK(!src1.is(fparg2));
+    if (src2 == f12) {
+      DCHECK(src1 != fparg2);
       Move(fparg2, src2);
       Move(f12, src1);
     } else {
@@ -4730,7 +4624,8 @@ void TurboAssembler::PrepareForTailCall(const ParameterCount& callee_args_count,
   }
 
   if (FLAG_debug_code) {
-    Check(lo, kStackAccessBelowStackPointer, src_reg, Operand(dst_reg));
+    Check(lo, AbortReason::kStackAccessBelowStackPointer, src_reg,
+          Operand(dst_reg));
   }
 
   // Restore caller's frame pointer and return address now as they will be
@@ -4759,11 +4654,9 @@ void TurboAssembler::PrepareForTailCall(const ParameterCount& callee_args_count,
 }
 
 void MacroAssembler::InvokePrologue(const ParameterCount& expected,
-                                    const ParameterCount& actual,
-                                    Label* done,
+                                    const ParameterCount& actual, Label* done,
                                     bool* definitely_mismatches,
-                                    InvokeFlag flag,
-                                    const CallWrapper& call_wrapper) {
+                                    InvokeFlag flag) {
   bool definitely_matches = false;
   *definitely_mismatches = false;
   Label regular_invoke;
@@ -4777,8 +4670,8 @@ void MacroAssembler::InvokePrologue(const ParameterCount& expected,
   // The code below is made a lot easier because the calling code already sets
   // up actual and expected registers according to the contract if values are
   // passed in registers.
-  DCHECK(actual.is_immediate() || actual.reg().is(a0));
-  DCHECK(expected.is_immediate() || expected.reg().is(a2));
+  DCHECK(actual.is_immediate() || actual.reg() == a0);
+  DCHECK(expected.is_immediate() || expected.reg() == a2);
 
   if (expected.is_immediate()) {
     DCHECK(actual.is_immediate());
@@ -4806,12 +4699,9 @@ void MacroAssembler::InvokePrologue(const ParameterCount& expected,
   }
 
   if (!definitely_matches) {
-    Handle<Code> adaptor =
-        isolate()->builtins()->ArgumentsAdaptorTrampoline();
+    Handle<Code> adaptor = BUILTIN_CODE(isolate(), ArgumentsAdaptorTrampoline);
     if (flag == CALL_FUNCTION) {
-      call_wrapper.BeforeCall(CallSize(adaptor));
       Call(adaptor);
-      call_wrapper.AfterCall();
       if (!*definitely_mismatches) {
         Branch(done);
       }
@@ -4826,12 +4716,20 @@ void MacroAssembler::CheckDebugHook(Register fun, Register new_target,
                                     const ParameterCount& expected,
                                     const ParameterCount& actual) {
   Label skip_hook;
-  ExternalReference debug_hook_active =
-      ExternalReference::debug_hook_on_function_call_address(isolate());
-  li(t0, Operand(debug_hook_active));
+
+  li(t0, ExternalReference::debug_hook_on_function_call_address(isolate()));
   Lb(t0, MemOperand(t0));
   Branch(&skip_hook, eq, t0, Operand(zero_reg));
+
   {
+    // Load receiver to pass it later to DebugOnFunctionCall hook.
+    if (actual.is_reg()) {
+      mov(t0, actual.reg());
+    } else {
+      li(t0, actual.immediate());
+    }
+    Dlsa(t0, sp, t0, kPointerSizeLog2);
+    Ld(t0, MemOperand(t0));
     FrameScope frame(this,
                      has_frame() ? StackFrame::NONE : StackFrame::INTERNAL);
     if (expected.is_reg()) {
@@ -4847,6 +4745,7 @@ void MacroAssembler::CheckDebugHook(Register fun, Register new_target,
     }
     Push(fun);
     Push(fun);
+    Push(t0);
     CallRuntime(Runtime::kDebugOnFunctionCall);
     Pop(fun);
     if (new_target.is_valid()) {
@@ -4864,42 +4763,38 @@ void MacroAssembler::CheckDebugHook(Register fun, Register new_target,
   bind(&skip_hook);
 }
 
-
 void MacroAssembler::InvokeFunctionCode(Register function, Register new_target,
                                         const ParameterCount& expected,
                                         const ParameterCount& actual,
-                                        InvokeFlag flag,
-                                        const CallWrapper& call_wrapper) {
+                                        InvokeFlag flag) {
   // You can't call a function without a valid frame.
   DCHECK(flag == JUMP_FUNCTION || has_frame());
-  DCHECK(function.is(a1));
-  DCHECK_IMPLIES(new_target.is_valid(), new_target.is(a3));
+  DCHECK(function == a1);
+  DCHECK_IMPLIES(new_target.is_valid(), new_target == a3);
 
-  if (call_wrapper.NeedsDebugHookCheck()) {
-    CheckDebugHook(function, new_target, expected, actual);
-  }
+  // On function call, call into the debugger if necessary.
+  CheckDebugHook(function, new_target, expected, actual);
 
   // Clear the new.target register if not given.
   if (!new_target.is_valid()) {
-    LoadRoot(a3, Heap::kUndefinedValueRootIndex);
+    LoadRoot(a3, RootIndex::kUndefinedValue);
   }
 
   Label done;
   bool definitely_mismatches = false;
-  InvokePrologue(expected, actual, &done, &definitely_mismatches, flag,
-                 call_wrapper);
+  InvokePrologue(expected, actual, &done, &definitely_mismatches, flag);
   if (!definitely_mismatches) {
     // We call indirectly through the code field in the function to
     // allow recompilation to take effect without changing any of the
     // call sites.
-    Register code = t0;
-    Ld(code, FieldMemOperand(function, JSFunction::kCodeEntryOffset));
+    Register code = kJavaScriptCallCodeStartRegister;
+    Ld(code, FieldMemOperand(function, JSFunction::kCodeOffset));
     if (flag == CALL_FUNCTION) {
-      call_wrapper.BeforeCall(CallSize(code));
+      Daddu(code, code, Operand(Code::kHeaderSize - kHeapObjectTag));
       Call(code);
-      call_wrapper.AfterCall();
     } else {
       DCHECK(flag == JUMP_FUNCTION);
+      Daddu(code, code, Operand(Code::kHeaderSize - kHeapObjectTag));
       Jump(code);
     }
     // Continue here if InvokePrologue does handle the invocation due to
@@ -4908,594 +4803,162 @@ void MacroAssembler::InvokeFunctionCode(Register function, Register new_target,
   }
 }
 
-
-void MacroAssembler::InvokeFunction(Register function,
-                                    Register new_target,
+void MacroAssembler::InvokeFunction(Register function, Register new_target,
                                     const ParameterCount& actual,
-                                    InvokeFlag flag,
-                                    const CallWrapper& call_wrapper) {
+                                    InvokeFlag flag) {
   // You can't call a function without a valid frame.
   DCHECK(flag == JUMP_FUNCTION || has_frame());
 
   // Contract with called JS functions requires that function is passed in a1.
-  DCHECK(function.is(a1));
+  DCHECK(function == a1);
   Register expected_reg = a2;
   Register temp_reg = t0;
   Ld(temp_reg, FieldMemOperand(a1, JSFunction::kSharedFunctionInfoOffset));
   Ld(cp, FieldMemOperand(a1, JSFunction::kContextOffset));
-  // The argument count is stored as int32_t on 64-bit platforms.
-  // TODO(plind): Smi on 32-bit platforms.
-  Lw(expected_reg,
-     FieldMemOperand(temp_reg,
-                     SharedFunctionInfo::kFormalParameterCountOffset));
+  // The argument count is stored as uint16_t
+  Lhu(expected_reg,
+      FieldMemOperand(temp_reg,
+                      SharedFunctionInfo::kFormalParameterCountOffset));
   ParameterCount expected(expected_reg);
-  InvokeFunctionCode(a1, new_target, expected, actual, flag, call_wrapper);
+  InvokeFunctionCode(a1, new_target, expected, actual, flag);
 }
-
 
 void MacroAssembler::InvokeFunction(Register function,
                                     const ParameterCount& expected,
                                     const ParameterCount& actual,
-                                    InvokeFlag flag,
-                                    const CallWrapper& call_wrapper) {
+                                    InvokeFlag flag) {
   // You can't call a function without a valid frame.
   DCHECK(flag == JUMP_FUNCTION || has_frame());
 
   // Contract with called JS functions requires that function is passed in a1.
-  DCHECK(function.is(a1));
+  DCHECK(function == a1);
 
   // Get the function and setup the context.
   Ld(cp, FieldMemOperand(a1, JSFunction::kContextOffset));
 
-  InvokeFunctionCode(a1, no_reg, expected, actual, flag, call_wrapper);
-}
-
-
-void MacroAssembler::InvokeFunction(Handle<JSFunction> function,
-                                    const ParameterCount& expected,
-                                    const ParameterCount& actual,
-                                    InvokeFlag flag,
-                                    const CallWrapper& call_wrapper) {
-  li(a1, function);
-  InvokeFunction(a1, expected, actual, flag, call_wrapper);
-}
-
-
-void MacroAssembler::IsObjectJSStringType(Register object,
-                                          Register scratch,
-                                          Label* fail) {
-  DCHECK(kNotStringTag != 0);
-
-  Ld(scratch, FieldMemOperand(object, HeapObject::kMapOffset));
-  Lbu(scratch, FieldMemOperand(scratch, Map::kInstanceTypeOffset));
-  And(scratch, scratch, Operand(kIsNotStringMask));
-  Branch(fail, ne, scratch, Operand(zero_reg));
+  InvokeFunctionCode(a1, no_reg, expected, actual, flag);
 }
 
 
 // ---------------------------------------------------------------------------
 // Support functions.
 
-void MacroAssembler::GetMapConstructor(Register result, Register map,
-                                       Register temp, Register temp2) {
-  Label done, loop;
-  ld(result, FieldMemOperand(map, Map::kConstructorOrBackPointerOffset));
-  bind(&loop);
-  JumpIfSmi(result, &done);
-  GetObjectType(result, temp, temp2);
-  Branch(&done, ne, temp2, Operand(MAP_TYPE));
-  ld(result, FieldMemOperand(result, Map::kConstructorOrBackPointerOffset));
-  Branch(&loop);
-  bind(&done);
-}
-
 void MacroAssembler::GetObjectType(Register object,
                                    Register map,
                                    Register type_reg) {
   Ld(map, FieldMemOperand(object, HeapObject::kMapOffset));
-  Lbu(type_reg, FieldMemOperand(map, Map::kInstanceTypeOffset));
+  Lhu(type_reg, FieldMemOperand(map, Map::kInstanceTypeOffset));
 }
 
 
 // -----------------------------------------------------------------------------
 // Runtime calls.
 
-void MacroAssembler::CallStub(CodeStub* stub,
-                              Condition cond,
-                              Register r1,
-                              const Operand& r2,
-                              BranchDelaySlot bd) {
-  DCHECK(AllowThisStubCall(stub));  // Stub calls are not allowed in some stubs.
-  Call(stub->GetCode(), RelocInfo::CODE_TARGET, cond, r1, r2, bd);
-}
-
-void TurboAssembler::CallStubDelayed(CodeStub* stub, Condition cond,
-                                     Register r1, const Operand& r2,
-                                     BranchDelaySlot bd) {
-  DCHECK(AllowThisStubCall(stub));  // Stub calls are not allowed in some stubs.
-
+void TurboAssembler::DaddOverflow(Register dst, Register left,
+                                  const Operand& right, Register overflow) {
   BlockTrampolinePoolScope block_trampoline_pool(this);
-
-  li(at, Operand::EmbeddedCode(stub));
-  Call(at);
-}
-
-void MacroAssembler::TailCallStub(CodeStub* stub,
-                                  Condition cond,
-                                  Register r1,
-                                  const Operand& r2,
-                                  BranchDelaySlot bd) {
-  Jump(stub->GetCode(), RelocInfo::CODE_TARGET, cond, r1, r2, bd);
-}
-
-bool TurboAssembler::AllowThisStubCall(CodeStub* stub) {
-  return has_frame() || !stub->SometimesSetsUpAFrame();
-}
-
-void MacroAssembler::ObjectToDoubleFPURegister(Register object,
-                                               FPURegister result,
-                                               Register scratch1,
-                                               Register scratch2,
-                                               Register heap_number_map,
-                                               Label* not_number,
-                                               ObjectToDoubleFlags flags) {
-  Label done;
-  if ((flags & OBJECT_NOT_SMI) == 0) {
-    Label not_smi;
-    JumpIfNotSmi(object, &not_smi);
-    // Remove smi tag and convert to double.
-    // dsra(scratch1, object, kSmiTagSize);
-    dsra32(scratch1, object, 0);
-    mtc1(scratch1, result);
-    cvt_d_w(result, result);
-    Branch(&done);
-    bind(&not_smi);
-  }
-  // Check for heap number and load double value from it.
-  Ld(scratch1, FieldMemOperand(object, HeapObject::kMapOffset));
-  Branch(not_number, ne, scratch1, Operand(heap_number_map));
-
-  if ((flags & AVOID_NANS_AND_INFINITIES) != 0) {
-    // If exponent is all ones the number is either a NaN or +/-Infinity.
-    Register exponent = scratch1;
-    Register mask_reg = scratch2;
-    Lwu(exponent, FieldMemOperand(object, HeapNumber::kExponentOffset));
-    li(mask_reg, HeapNumber::kExponentMask);
-
-    And(exponent, exponent, mask_reg);
-    Branch(not_number, eq, exponent, Operand(mask_reg));
-  }
-  Ldc1(result, FieldMemOperand(object, HeapNumber::kValueOffset));
-  bind(&done);
-}
-
-
-void MacroAssembler::SmiToDoubleFPURegister(Register smi,
-                                            FPURegister value,
-                                            Register scratch1) {
-  dsra32(scratch1, smi, 0);
-  mtc1(scratch1, value);
-  cvt_d_w(value, value);
-}
-
-static inline void BranchOvfHelper(TurboAssembler* tasm, Register overflow_dst,
-                                   Label* overflow_label,
-                                   Label* no_overflow_label) {
-  DCHECK(overflow_label || no_overflow_label);
-  if (!overflow_label) {
-    DCHECK(no_overflow_label);
-    tasm->Branch(no_overflow_label, ge, overflow_dst, Operand(zero_reg));
+  Register right_reg = no_reg;
+  Register scratch = t8;
+  if (!right.is_reg()) {
+    li(at, Operand(right));
+    right_reg = at;
   } else {
-    tasm->Branch(overflow_label, lt, overflow_dst, Operand(zero_reg));
-    if (no_overflow_label) tasm->Branch(no_overflow_label);
-  }
-}
-
-void MacroAssembler::AddBranchOvf(Register dst, Register left,
-                                  const Operand& right, Label* overflow_label,
-                                  Label* no_overflow_label, Register scratch) {
-  if (right.is_reg()) {
-    AddBranchOvf(dst, left, right.rm(), overflow_label, no_overflow_label,
-                 scratch);
-  } else {
-    if (kArchVariant == kMips64r6) {
-      Register right_reg = t9;
-      DCHECK(!left.is(right_reg));
-      li(right_reg, Operand(right));
-      AddBranchOvf(dst, left, right_reg, overflow_label, no_overflow_label);
-    } else {
-      Register overflow_dst = t9;
-      DCHECK(!dst.is(scratch));
-      DCHECK(!dst.is(overflow_dst));
-      DCHECK(!scratch.is(overflow_dst));
-      DCHECK(!left.is(overflow_dst));
-      if (dst.is(left)) {
-        mov(scratch, left);  // Preserve left.
-        // Left is overwritten.
-        Addu(dst, left, static_cast<int32_t>(right.immediate()));
-        xor_(scratch, dst, scratch);  // Original left.
-        // Load right since xori takes uint16 as immediate.
-        Addu(overflow_dst, zero_reg, right);
-        xor_(overflow_dst, dst, overflow_dst);
-        and_(overflow_dst, overflow_dst, scratch);
-      } else {
-        Addu(dst, left, static_cast<int32_t>(right.immediate()));
-        xor_(overflow_dst, dst, left);
-        // Load right since xori takes uint16 as immediate.
-        Addu(scratch, zero_reg, right);
-        xor_(scratch, dst, scratch);
-        and_(overflow_dst, scratch, overflow_dst);
-      }
-      BranchOvfHelper(this, overflow_dst, overflow_label, no_overflow_label);
-    }
-  }
-}
-
-void MacroAssembler::AddBranchOvf(Register dst, Register left, Register right,
-                                  Label* overflow_label,
-                                  Label* no_overflow_label, Register scratch) {
-  if (kArchVariant == kMips64r6) {
-    if (!overflow_label) {
-      DCHECK(no_overflow_label);
-      DCHECK(!dst.is(scratch));
-      Register left_reg = left.is(dst) ? scratch : left;
-      Register right_reg = right.is(dst) ? t9 : right;
-      DCHECK(!dst.is(left_reg));
-      DCHECK(!dst.is(right_reg));
-      Move(left_reg, left);
-      Move(right_reg, right);
-      addu(dst, left, right);
-      Bnvc(left_reg, right_reg, no_overflow_label);
-    } else {
-      Bovc(left, right, overflow_label);
-      addu(dst, left, right);
-      if (no_overflow_label) bc(no_overflow_label);
-    }
-  } else {
-    Register overflow_dst = t9;
-    DCHECK(!dst.is(scratch));
-    DCHECK(!dst.is(overflow_dst));
-    DCHECK(!scratch.is(overflow_dst));
-    DCHECK(!left.is(overflow_dst));
-    DCHECK(!right.is(overflow_dst));
-    DCHECK(!left.is(scratch));
-    DCHECK(!right.is(scratch));
-
-    if (left.is(right) && dst.is(left)) {
-      mov(overflow_dst, right);
-      right = overflow_dst;
-    }
-
-    if (dst.is(left)) {
-      mov(scratch, left);           // Preserve left.
-      addu(dst, left, right);       // Left is overwritten.
-      xor_(scratch, dst, scratch);  // Original left.
-      xor_(overflow_dst, dst, right);
-      and_(overflow_dst, overflow_dst, scratch);
-    } else if (dst.is(right)) {
-      mov(scratch, right);          // Preserve right.
-      addu(dst, left, right);       // Right is overwritten.
-      xor_(scratch, dst, scratch);  // Original right.
-      xor_(overflow_dst, dst, left);
-      and_(overflow_dst, overflow_dst, scratch);
-    } else {
-      addu(dst, left, right);
-      xor_(overflow_dst, dst, left);
-      xor_(scratch, dst, right);
-      and_(overflow_dst, scratch, overflow_dst);
-    }
-    BranchOvfHelper(this, overflow_dst, overflow_label, no_overflow_label);
-  }
-}
-
-void MacroAssembler::SubBranchOvf(Register dst, Register left,
-                                  const Operand& right, Label* overflow_label,
-                                  Label* no_overflow_label, Register scratch) {
-  DCHECK(overflow_label || no_overflow_label);
-  if (right.is_reg()) {
-    SubBranchOvf(dst, left, right.rm(), overflow_label, no_overflow_label,
-                 scratch);
-  } else {
-    Register overflow_dst = t9;
-    DCHECK(!dst.is(scratch));
-    DCHECK(!dst.is(overflow_dst));
-    DCHECK(!scratch.is(overflow_dst));
-    DCHECK(!left.is(overflow_dst));
-    DCHECK(!left.is(scratch));
-    if (dst.is(left)) {
-      mov(scratch, left);  // Preserve left.
-      // Left is overwritten.
-      Subu(dst, left, static_cast<int32_t>(right.immediate()));
-      // Load right since xori takes uint16 as immediate.
-      Addu(overflow_dst, zero_reg, right);
-      xor_(overflow_dst, scratch, overflow_dst);  // scratch is original left.
-      xor_(scratch, dst, scratch);                // scratch is original left.
-      and_(overflow_dst, scratch, overflow_dst);
-    } else {
-      Subu(dst, left, right);
-      xor_(overflow_dst, dst, left);
-      // Load right since xori takes uint16 as immediate.
-      Addu(scratch, zero_reg, right);
-      xor_(scratch, left, scratch);
-      and_(overflow_dst, scratch, overflow_dst);
-    }
-    BranchOvfHelper(this, overflow_dst, overflow_label, no_overflow_label);
-  }
-}
-
-void MacroAssembler::SubBranchOvf(Register dst, Register left, Register right,
-                                  Label* overflow_label,
-                                  Label* no_overflow_label, Register scratch) {
-  DCHECK(overflow_label || no_overflow_label);
-  Register overflow_dst = t9;
-  DCHECK(!dst.is(scratch));
-  DCHECK(!dst.is(overflow_dst));
-  DCHECK(!scratch.is(overflow_dst));
-  DCHECK(!overflow_dst.is(left));
-  DCHECK(!overflow_dst.is(right));
-  DCHECK(!scratch.is(left));
-  DCHECK(!scratch.is(right));
-
-  // This happens with some crankshaft code. Since Subu works fine if
-  // left == right, let's not make that restriction here.
-  if (left.is(right)) {
-    mov(dst, zero_reg);
-    if (no_overflow_label) {
-      Branch(no_overflow_label);
-    }
+    right_reg = right.rm();
   }
 
-  if (dst.is(left)) {
-    mov(scratch, left);  // Preserve left.
-    subu(dst, left, right);            // Left is overwritten.
-    xor_(overflow_dst, dst, scratch);  // scratch is original left.
-    xor_(scratch, scratch, right);     // scratch is original left.
-    and_(overflow_dst, scratch, overflow_dst);
-  } else if (dst.is(right)) {
-    mov(scratch, right);  // Preserve right.
-    subu(dst, left, right);  // Right is overwritten.
-    xor_(overflow_dst, dst, left);
-    xor_(scratch, left, scratch);  // Original right.
-    and_(overflow_dst, scratch, overflow_dst);
-  } else {
-    subu(dst, left, right);
-    xor_(overflow_dst, dst, left);
-    xor_(scratch, left, right);
-    and_(overflow_dst, scratch, overflow_dst);
-  }
-  BranchOvfHelper(this, overflow_dst, overflow_label, no_overflow_label);
-}
+  DCHECK(left != scratch && right_reg != scratch && dst != scratch &&
+         overflow != scratch);
+  DCHECK(overflow != left && overflow != right_reg);
 
-void TurboAssembler::DaddBranchOvf(Register dst, Register left,
-                                   const Operand& right, Label* overflow_label,
-                                   Label* no_overflow_label, Register scratch) {
-  if (right.is_reg()) {
-    DaddBranchOvf(dst, left, right.rm(), overflow_label, no_overflow_label,
-                  scratch);
-  } else {
-    Register overflow_dst = t9;
-    DCHECK(!dst.is(scratch));
-    DCHECK(!dst.is(overflow_dst));
-    DCHECK(!scratch.is(overflow_dst));
-    DCHECK(!left.is(overflow_dst));
-    li(overflow_dst, right);  // Load right.
-    if (dst.is(left)) {
-      mov(scratch, left);              // Preserve left.
-      Daddu(dst, left, overflow_dst);  // Left is overwritten.
-      xor_(scratch, dst, scratch);     // Original left.
-      xor_(overflow_dst, dst, overflow_dst);
-      and_(overflow_dst, overflow_dst, scratch);
-    } else {
-      Daddu(dst, left, overflow_dst);
-      xor_(scratch, dst, overflow_dst);
-      xor_(overflow_dst, dst, left);
-      and_(overflow_dst, scratch, overflow_dst);
-    }
-    BranchOvfHelper(this, overflow_dst, overflow_label, no_overflow_label);
-  }
-}
-
-void TurboAssembler::DaddBranchOvf(Register dst, Register left, Register right,
-                                   Label* overflow_label,
-                                   Label* no_overflow_label, Register scratch) {
-  Register overflow_dst = t9;
-  DCHECK(!dst.is(scratch));
-  DCHECK(!dst.is(overflow_dst));
-  DCHECK(!scratch.is(overflow_dst));
-  DCHECK(!left.is(overflow_dst));
-  DCHECK(!right.is(overflow_dst));
-  DCHECK(!left.is(scratch));
-  DCHECK(!right.is(scratch));
-
-  if (left.is(right) && dst.is(left)) {
-    mov(overflow_dst, right);
-    right = overflow_dst;
-  }
-
-  if (dst.is(left)) {
-    mov(scratch, left);           // Preserve left.
-    daddu(dst, left, right);      // Left is overwritten.
-    xor_(scratch, dst, scratch);  // Original left.
-    xor_(overflow_dst, dst, right);
-    and_(overflow_dst, overflow_dst, scratch);
-  } else if (dst.is(right)) {
-    mov(scratch, right);          // Preserve right.
-    daddu(dst, left, right);      // Right is overwritten.
-    xor_(scratch, dst, scratch);  // Original right.
-    xor_(overflow_dst, dst, left);
-    and_(overflow_dst, overflow_dst, scratch);
-  } else {
-    daddu(dst, left, right);
-    xor_(overflow_dst, dst, left);
-    xor_(scratch, dst, right);
-    and_(overflow_dst, scratch, overflow_dst);
-  }
-  BranchOvfHelper(this, overflow_dst, overflow_label, no_overflow_label);
-}
-
-void TurboAssembler::DsubBranchOvf(Register dst, Register left,
-                                   const Operand& right, Label* overflow_label,
-                                   Label* no_overflow_label, Register scratch) {
-  DCHECK(overflow_label || no_overflow_label);
-  if (right.is_reg()) {
-    DsubBranchOvf(dst, left, right.rm(), overflow_label, no_overflow_label,
-                  scratch);
-  } else {
-    Register overflow_dst = t9;
-    DCHECK(!dst.is(scratch));
-    DCHECK(!dst.is(overflow_dst));
-    DCHECK(!scratch.is(overflow_dst));
-    DCHECK(!left.is(overflow_dst));
-    DCHECK(!left.is(scratch));
-    li(overflow_dst, right);  // Load right.
-    if (dst.is(left)) {
-      mov(scratch, left);                         // Preserve left.
-      Dsubu(dst, left, overflow_dst);             // Left is overwritten.
-      xor_(overflow_dst, scratch, overflow_dst);  // scratch is original left.
-      xor_(scratch, dst, scratch);                // scratch is original left.
-      and_(overflow_dst, scratch, overflow_dst);
-    } else {
-      Dsubu(dst, left, overflow_dst);
-      xor_(scratch, left, overflow_dst);
-      xor_(overflow_dst, dst, left);
-      and_(overflow_dst, scratch, overflow_dst);
-    }
-    BranchOvfHelper(this, overflow_dst, overflow_label, no_overflow_label);
-  }
-}
-
-void TurboAssembler::DsubBranchOvf(Register dst, Register left, Register right,
-                                   Label* overflow_label,
-                                   Label* no_overflow_label, Register scratch) {
-  DCHECK(overflow_label || no_overflow_label);
-  Register overflow_dst = t9;
-  DCHECK(!dst.is(scratch));
-  DCHECK(!dst.is(overflow_dst));
-  DCHECK(!scratch.is(overflow_dst));
-  DCHECK(!overflow_dst.is(left));
-  DCHECK(!overflow_dst.is(right));
-  DCHECK(!scratch.is(left));
-  DCHECK(!scratch.is(right));
-
-  // This happens with some crankshaft code. Since Subu works fine if
-  // left == right, let's not make that restriction here.
-  if (left.is(right)) {
-    mov(dst, zero_reg);
-    if (no_overflow_label) {
-      Branch(no_overflow_label);
-    }
-  }
-
-  if (dst.is(left)) {
-    mov(scratch, left);                // Preserve left.
-    dsubu(dst, left, right);           // Left is overwritten.
-    xor_(overflow_dst, dst, scratch);  // scratch is original left.
-    xor_(scratch, scratch, right);     // scratch is original left.
-    and_(overflow_dst, scratch, overflow_dst);
-  } else if (dst.is(right)) {
-    mov(scratch, right);      // Preserve right.
-    dsubu(dst, left, right);  // Right is overwritten.
-    xor_(overflow_dst, dst, left);
-    xor_(scratch, left, scratch);  // Original right.
-    and_(overflow_dst, scratch, overflow_dst);
-  } else {
-    dsubu(dst, left, right);
-    xor_(overflow_dst, dst, left);
-    xor_(scratch, left, right);
-    and_(overflow_dst, scratch, overflow_dst);
-  }
-  BranchOvfHelper(this, overflow_dst, overflow_label, no_overflow_label);
-}
-
-static inline void BranchOvfHelperMult(TurboAssembler* tasm,
-                                       Register overflow_dst,
-                                       Label* overflow_label,
-                                       Label* no_overflow_label) {
-  DCHECK(overflow_label || no_overflow_label);
-  if (!overflow_label) {
-    DCHECK(no_overflow_label);
-    tasm->Branch(no_overflow_label, eq, overflow_dst, Operand(zero_reg));
-  } else {
-    tasm->Branch(overflow_label, ne, overflow_dst, Operand(zero_reg));
-    if (no_overflow_label) tasm->Branch(no_overflow_label);
-  }
-}
-
-void TurboAssembler::MulBranchOvf(Register dst, Register left,
-                                  const Operand& right, Label* overflow_label,
-                                  Label* no_overflow_label, Register scratch) {
-  DCHECK(overflow_label || no_overflow_label);
-  if (right.is_reg()) {
-    MulBranchOvf(dst, left, right.rm(), overflow_label, no_overflow_label,
-                 scratch);
-  } else {
-    Register overflow_dst = t9;
-    DCHECK(!dst.is(scratch));
-    DCHECK(!dst.is(overflow_dst));
-    DCHECK(!scratch.is(overflow_dst));
-    DCHECK(!left.is(overflow_dst));
-    DCHECK(!left.is(scratch));
-
-    if (dst.is(left)) {
-      Mul(scratch, left, static_cast<int32_t>(right.immediate()));
-      Mulh(overflow_dst, left, static_cast<int32_t>(right.immediate()));
-      mov(dst, scratch);
-    } else {
-      Mul(dst, left, static_cast<int32_t>(right.immediate()));
-      Mulh(overflow_dst, left, static_cast<int32_t>(right.immediate()));
-    }
-
-    dsra32(scratch, dst, 0);
-    xor_(overflow_dst, overflow_dst, scratch);
-
-    BranchOvfHelperMult(this, overflow_dst, overflow_label, no_overflow_label);
-  }
-}
-
-void TurboAssembler::MulBranchOvf(Register dst, Register left, Register right,
-                                  Label* overflow_label,
-                                  Label* no_overflow_label, Register scratch) {
-  DCHECK(overflow_label || no_overflow_label);
-  Register overflow_dst = t9;
-  DCHECK(!dst.is(scratch));
-  DCHECK(!dst.is(overflow_dst));
-  DCHECK(!scratch.is(overflow_dst));
-  DCHECK(!overflow_dst.is(left));
-  DCHECK(!overflow_dst.is(right));
-  DCHECK(!scratch.is(left));
-  DCHECK(!scratch.is(right));
-
-  if (dst.is(left) || dst.is(right)) {
-    Mul(scratch, left, right);
-    Mulh(overflow_dst, left, right);
+  if (dst == left || dst == right_reg) {
+    daddu(scratch, left, right_reg);
+    xor_(overflow, scratch, left);
+    xor_(at, scratch, right_reg);
+    and_(overflow, overflow, at);
     mov(dst, scratch);
   } else {
-    Mul(dst, left, right);
-    Mulh(overflow_dst, left, right);
+    daddu(dst, left, right_reg);
+    xor_(overflow, dst, left);
+    xor_(at, dst, right_reg);
+    and_(overflow, overflow, at);
+  }
+}
+
+void TurboAssembler::DsubOverflow(Register dst, Register left,
+                                  const Operand& right, Register overflow) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register right_reg = no_reg;
+  Register scratch = t8;
+  if (!right.is_reg()) {
+    li(at, Operand(right));
+    right_reg = at;
+  } else {
+    right_reg = right.rm();
+  }
+
+  DCHECK(left != scratch && right_reg != scratch && dst != scratch &&
+         overflow != scratch);
+  DCHECK(overflow != left && overflow != right_reg);
+
+  if (dst == left || dst == right_reg) {
+    dsubu(scratch, left, right_reg);
+    xor_(overflow, left, scratch);
+    xor_(at, left, right_reg);
+    and_(overflow, overflow, at);
+    mov(dst, scratch);
+  } else {
+    dsubu(dst, left, right_reg);
+    xor_(overflow, left, dst);
+    xor_(at, left, right_reg);
+    and_(overflow, overflow, at);
+  }
+}
+
+void TurboAssembler::MulOverflow(Register dst, Register left,
+                                 const Operand& right, Register overflow) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  Register right_reg = no_reg;
+  Register scratch = t8;
+  if (!right.is_reg()) {
+    li(at, Operand(right));
+    right_reg = at;
+  } else {
+    right_reg = right.rm();
+  }
+
+  DCHECK(left != scratch && right_reg != scratch && dst != scratch &&
+         overflow != scratch);
+  DCHECK(overflow != left && overflow != right_reg);
+
+  if (dst == left || dst == right_reg) {
+    Mul(scratch, left, right_reg);
+    Mulh(overflow, left, right_reg);
+    mov(dst, scratch);
+  } else {
+    Mul(dst, left, right_reg);
+    Mulh(overflow, left, right_reg);
   }
 
   dsra32(scratch, dst, 0);
-  xor_(overflow_dst, overflow_dst, scratch);
-
-  BranchOvfHelperMult(this, overflow_dst, overflow_label, no_overflow_label);
+  xor_(overflow, overflow, scratch);
 }
 
-void TurboAssembler::CallRuntimeDelayed(Zone* zone, Runtime::FunctionId fid,
-                                        SaveFPRegsMode save_doubles,
-                                        BranchDelaySlot bd) {
+void TurboAssembler::CallRuntimeWithCEntry(Runtime::FunctionId fid,
+                                           Register centry) {
   const Runtime::Function* f = Runtime::FunctionForId(fid);
   // TODO(1236192): Most runtime routines don't need the number of
   // arguments passed in because it is constant. At some point we
   // should remove this need and make the runtime routine entry code
   // smarter.
   PrepareCEntryArgs(f->nargs);
-  PrepareCEntryFunction(ExternalReference(f, isolate()));
-  CallStubDelayed(new (zone) CEntryStub(nullptr, 1, save_doubles));
+  PrepareCEntryFunction(ExternalReference::Create(f));
+  DCHECK(!AreAliased(centry, a0, a1));
+  Daddu(centry, centry, Operand(Code::kHeaderSize - kHeapObjectTag));
+  Call(centry);
 }
 
 void MacroAssembler::CallRuntime(const Runtime::Function* f, int num_arguments,
-                                 SaveFPRegsMode save_doubles,
-                                 BranchDelaySlot bd) {
+                                 SaveFPRegsMode save_doubles) {
   // All parameters are on the stack. v0 has the return value after call.
 
   // If the expected number of arguments of the runtime function is
@@ -5508,22 +4971,11 @@ void MacroAssembler::CallRuntime(const Runtime::Function* f, int num_arguments,
   // should remove this need and make the runtime routine entry code
   // smarter.
   PrepareCEntryArgs(num_arguments);
-  PrepareCEntryFunction(ExternalReference(f, isolate()));
-  CEntryStub stub(isolate(), 1, save_doubles);
-  CallStub(&stub, al, zero_reg, Operand(zero_reg), bd);
+  PrepareCEntryFunction(ExternalReference::Create(f));
+  Handle<Code> code =
+      CodeFactory::CEntry(isolate(), f->result_size, save_doubles);
+  Call(code, RelocInfo::CODE_TARGET);
 }
-
-
-void MacroAssembler::CallExternalReference(const ExternalReference& ext,
-                                           int num_arguments,
-                                           BranchDelaySlot bd) {
-  PrepareCEntryArgs(num_arguments);
-  PrepareCEntryFunction(ext);
-
-  CEntryStub stub(isolate(), 1);
-  CallStub(&stub, al, zero_reg, Operand(zero_reg), bd);
-}
-
 
 void MacroAssembler::TailCallRuntime(Runtime::FunctionId fid) {
   const Runtime::Function* function = Runtime::FunctionForId(fid);
@@ -5531,38 +4983,35 @@ void MacroAssembler::TailCallRuntime(Runtime::FunctionId fid) {
   if (function->nargs >= 0) {
     PrepareCEntryArgs(function->nargs);
   }
-  JumpToExternalReference(ExternalReference(fid, isolate()));
+  JumpToExternalReference(ExternalReference::Create(fid));
 }
 
 void MacroAssembler::JumpToExternalReference(const ExternalReference& builtin,
                                              BranchDelaySlot bd,
                                              bool builtin_exit_frame) {
   PrepareCEntryFunction(builtin);
-  CEntryStub stub(isolate(), 1, kDontSaveFPRegs, kArgvOnStack,
-                  builtin_exit_frame);
-  Jump(stub.GetCode(),
-       RelocInfo::CODE_TARGET,
-       al,
-       zero_reg,
-       Operand(zero_reg),
-       bd);
+  Handle<Code> code = CodeFactory::CEntry(isolate(), 1, kDontSaveFPRegs,
+                                          kArgvOnStack, builtin_exit_frame);
+  Jump(code, RelocInfo::CODE_TARGET, al, zero_reg, Operand(zero_reg), bd);
 }
 
-void MacroAssembler::SetCounter(StatsCounter* counter, int value,
-                                Register scratch1, Register scratch2) {
-  if (FLAG_native_code_counters && counter->Enabled()) {
-    li(scratch1, Operand(value));
-    li(scratch2, Operand(ExternalReference(counter)));
-    Sw(scratch1, MemOperand(scratch2));
-  }
+void MacroAssembler::JumpToInstructionStream(Address entry) {
+  li(kOffHeapTrampolineRegister, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+  Jump(kOffHeapTrampolineRegister);
 }
 
+void MacroAssembler::LoadWeakValue(Register out, Register in,
+                                   Label* target_if_cleared) {
+  Branch(target_if_cleared, eq, in, Operand(kClearedWeakHeapObjectLower32));
+
+  And(out, in, Operand(~kWeakHeapObjectMask));
+}
 
 void MacroAssembler::IncrementCounter(StatsCounter* counter, int value,
                                       Register scratch1, Register scratch2) {
-  DCHECK(value > 0);
+  DCHECK_GT(value, 0);
   if (FLAG_native_code_counters && counter->Enabled()) {
-    li(scratch2, Operand(ExternalReference(counter)));
+    li(scratch2, ExternalReference::Create(counter));
     Lw(scratch1, MemOperand(scratch2));
     Addu(scratch1, scratch1, Operand(value));
     Sw(scratch1, MemOperand(scratch2));
@@ -5572,9 +5021,9 @@ void MacroAssembler::IncrementCounter(StatsCounter* counter, int value,
 
 void MacroAssembler::DecrementCounter(StatsCounter* counter, int value,
                                       Register scratch1, Register scratch2) {
-  DCHECK(value > 0);
+  DCHECK_GT(value, 0);
   if (FLAG_native_code_counters && counter->Enabled()) {
-    li(scratch2, Operand(ExternalReference(counter)));
+    li(scratch2, ExternalReference::Create(counter));
     Lw(scratch1, MemOperand(scratch2));
     Subu(scratch1, scratch1, Operand(value));
     Sw(scratch1, MemOperand(scratch2));
@@ -5585,13 +5034,13 @@ void MacroAssembler::DecrementCounter(StatsCounter* counter, int value,
 // -----------------------------------------------------------------------------
 // Debugging.
 
-void TurboAssembler::Assert(Condition cc, BailoutReason reason, Register rs,
+void TurboAssembler::Assert(Condition cc, AbortReason reason, Register rs,
                             Operand rt) {
   if (emit_debug_code())
     Check(cc, reason, rs, rt);
 }
 
-void TurboAssembler::Check(Condition cc, BailoutReason reason, Register rs,
+void TurboAssembler::Check(Condition cc, AbortReason reason, Register rs,
                            Operand rt) {
   Label L;
   Branch(&L, cc, rs, rt);
@@ -5600,21 +5049,29 @@ void TurboAssembler::Check(Condition cc, BailoutReason reason, Register rs,
   bind(&L);
 }
 
-void TurboAssembler::Abort(BailoutReason reason) {
+void TurboAssembler::Abort(AbortReason reason) {
   Label abort_start;
   bind(&abort_start);
+  const char* msg = GetAbortReason(reason);
 #ifdef DEBUG
-  const char* msg = GetBailoutReason(reason);
-  if (msg != NULL) {
-    RecordComment("Abort message: ");
-    RecordComment(msg);
-  }
+  RecordComment("Abort message: ");
+  RecordComment(msg);
+#endif
 
-  if (FLAG_trap_on_abort) {
+  // Avoid emitting call to builtin if requested.
+  if (trap_on_abort()) {
     stop(msg);
     return;
   }
-#endif
+
+  if (should_abort_hard()) {
+    // We don't care if we constructed a frame. Just pretend we did.
+    FrameScope assume_frame(this, StackFrame::NONE);
+    PrepareCallCFunction(0, a0);
+    li(a0, Operand(static_cast<int>(reason)));
+    CallCFunction(ExternalReference::abort_with_reason(), 1);
+    return;
+  }
 
   Move(a0, Smi::FromInt(static_cast<int>(reason)));
 
@@ -5623,9 +5080,9 @@ void TurboAssembler::Abort(BailoutReason reason) {
     // We don't actually want to generate a pile of code for this, so just
     // claim there is a stack frame, without generating one.
     FrameScope scope(this, StackFrame::NONE);
-    Call(isolate()->builtins()->Abort(), RelocInfo::CODE_TARGET);
+    Call(BUILTIN_CODE(isolate(), Abort), RelocInfo::CODE_TARGET);
   } else {
-    Call(isolate()->builtins()->Abort(), RelocInfo::CODE_TARGET);
+    Call(BUILTIN_CODE(isolate(), Abort), RelocInfo::CODE_TARGET);
   }
   // Will not return here.
   if (is_trampoline_pool_blocked()) {
@@ -5636,26 +5093,10 @@ void TurboAssembler::Abort(BailoutReason reason) {
     // generated instructions is 10, so we use this as a maximum value.
     static const int kExpectedAbortInstructions = 10;
     int abort_instructions = InstructionsGeneratedSince(&abort_start);
-    DCHECK(abort_instructions <= kExpectedAbortInstructions);
+    DCHECK_LE(abort_instructions, kExpectedAbortInstructions);
     while (abort_instructions++ < kExpectedAbortInstructions) {
       nop();
     }
-  }
-}
-
-
-void MacroAssembler::LoadContext(Register dst, int context_chain_length) {
-  if (context_chain_length > 0) {
-    // Move up the chain of contexts to the context containing the slot.
-    Ld(dst, MemOperand(cp, Context::SlotOffset(Context::PREVIOUS_INDEX)));
-    for (int i = 1; i < context_chain_length; i++) {
-      Ld(dst, MemOperand(dst, Context::SlotOffset(Context::PREVIOUS_INDEX)));
-    }
-  } else {
-    // Slot is in the current function context.  Move it into the
-    // destination register in case we store into it (the write barrier
-    // cannot be allowed to destroy the context in esi).
-    Move(dst, cp);
   }
 }
 
@@ -5665,67 +5106,19 @@ void MacroAssembler::LoadNativeContextSlot(int index, Register dst) {
 }
 
 
-void MacroAssembler::LoadGlobalFunctionInitialMap(Register function,
-                                                  Register map,
-                                                  Register scratch) {
-  // Load the initial map. The global functions all have initial maps.
-  Ld(map, FieldMemOperand(function, JSFunction::kPrototypeOrInitialMapOffset));
-  if (emit_debug_code()) {
-    Label ok, fail;
-    CheckMap(map, scratch, Heap::kMetaMapRootIndex, &fail, DO_SMI_CHECK);
-    Branch(&ok);
-    bind(&fail);
-    Abort(kGlobalFunctionsMustHaveInitialMap);
-    bind(&ok);
-  }
-}
-
 void TurboAssembler::StubPrologue(StackFrame::Type type) {
-  li(at, Operand(StackFrame::TypeToMarker(type)));
-  PushCommonFrame(at);
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  li(scratch, Operand(StackFrame::TypeToMarker(type)));
+  PushCommonFrame(scratch);
 }
 
-void TurboAssembler::Prologue(bool code_pre_aging) {
-  PredictableCodeSizeScope predictible_code_size_scope(
-      this, kNoCodeAgeSequenceLength);
-  // The following three instructions must remain together and unmodified
-  // for code aging to work properly.
-  if (code_pre_aging) {
-    // Pre-age the code.
-    Code* stub = Code::GetPreAgedCodeAgeStub(isolate());
-    nop(Assembler::CODE_AGE_MARKER_NOP);
-    // Load the stub address to t9 and call it,
-    // GetCodeAge() extracts the stub address from this instruction.
-    li(t9,
-       Operand(reinterpret_cast<uint64_t>(stub->instruction_start())),
-       ADDRESS_LOAD);
-    nop();  // Prevent jalr to jal optimization.
-    jalr(t9, a0);
-    nop();  // Branch delay slot nop.
-    nop();  // Pad the empty space.
-  } else {
-    PushStandardFrame(a1);
-    nop(Assembler::CODE_AGE_SEQUENCE_NOP);
-    nop(Assembler::CODE_AGE_SEQUENCE_NOP);
-    nop(Assembler::CODE_AGE_SEQUENCE_NOP);
-  }
-}
-
-void MacroAssembler::EmitLoadFeedbackVector(Register vector) {
-  Ld(vector, MemOperand(fp, JavaScriptFrameConstants::kFunctionOffset));
-  Ld(vector, FieldMemOperand(vector, JSFunction::kFeedbackVectorOffset));
-  Ld(vector, FieldMemOperand(vector, Cell::kValueOffset));
-}
+void TurboAssembler::Prologue() { PushStandardFrame(a1); }
 
 void TurboAssembler::EnterFrame(StackFrame::Type type) {
-  int stack_offset, fp_offset;
-  if (type == StackFrame::INTERNAL) {
-    stack_offset = -4 * kPointerSize;
-    fp_offset = 2 * kPointerSize;
-  } else {
-    stack_offset = -3 * kPointerSize;
-    fp_offset = 1 * kPointerSize;
-  }
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  int stack_offset = -3 * kPointerSize;
+  const int fp_offset = 1 * kPointerSize;
   daddiu(sp, sp, stack_offset);
   stack_offset = -stack_offset - kPointerSize;
   Sd(ra, MemOperand(sp, stack_offset));
@@ -5734,14 +5127,8 @@ void TurboAssembler::EnterFrame(StackFrame::Type type) {
   stack_offset -= kPointerSize;
   li(t9, Operand(StackFrame::TypeToMarker(type)));
   Sd(t9, MemOperand(sp, stack_offset));
-  if (type == StackFrame::INTERNAL) {
-    DCHECK_EQ(stack_offset, kPointerSize);
-    li(t9, Operand(CodeObject()));
-    Sd(t9, MemOperand(sp, 0));
-  } else {
-    DCHECK_EQ(stack_offset, 0);
-  }
   // Adjust FP to point to saved FP.
+  DCHECK_EQ(stack_offset, 0);
   Daddu(fp, sp, Operand(fp_offset));
 }
 
@@ -5749,19 +5136,6 @@ void TurboAssembler::LeaveFrame(StackFrame::Type type) {
   daddiu(sp, fp, 2 * kPointerSize);
   Ld(ra, MemOperand(fp, 1 * kPointerSize));
   Ld(fp, MemOperand(fp, 0 * kPointerSize));
-}
-
-void MacroAssembler::EnterBuiltinFrame(Register context, Register target,
-                                       Register argc) {
-  Push(ra, fp);
-  Move(fp, sp);
-  Push(context, target, argc);
-}
-
-void MacroAssembler::LeaveBuiltinFrame(Register context, Register target,
-                                       Register argc) {
-  Pop(context, target, argc);
-  Pop(ra, fp);
 }
 
 void MacroAssembler::EnterExitFrame(bool save_doubles, int stack_space,
@@ -5788,8 +5162,12 @@ void MacroAssembler::EnterExitFrame(bool save_doubles, int stack_space,
   daddiu(sp, sp, -2 * kPointerSize - ExitFrameConstants::kFixedFrameSizeFromFp);
   Sd(ra, MemOperand(sp, 4 * kPointerSize));
   Sd(fp, MemOperand(sp, 3 * kPointerSize));
-  li(at, Operand(StackFrame::TypeToMarker(frame_type)));
-  Sd(at, MemOperand(sp, 2 * kPointerSize));
+  {
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    li(scratch, Operand(StackFrame::TypeToMarker(frame_type)));
+    Sd(scratch, MemOperand(sp, 2 * kPointerSize));
+  }
   // Set up new frame pointer.
   daddiu(fp, sp, ExitFrameConstants::kFixedFrameSizeFromFp);
 
@@ -5797,22 +5175,25 @@ void MacroAssembler::EnterExitFrame(bool save_doubles, int stack_space,
     Sd(zero_reg, MemOperand(fp, ExitFrameConstants::kSPOffset));
   }
 
-  // Accessed from ExitFrame::code_slot.
-  li(t8, Operand(CodeObject()), CONSTANT_SIZE);
-  Sd(t8, MemOperand(fp, ExitFrameConstants::kCodeOffset));
+  {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    // Accessed from ExitFrame::code_slot.
+    li(t8, CodeObject(), CONSTANT_SIZE);
+    Sd(t8, MemOperand(fp, ExitFrameConstants::kCodeOffset));
 
-  // Save the frame pointer and the context in top.
-  li(t8,
-     Operand(ExternalReference(IsolateAddressId::kCEntryFPAddress, isolate())));
-  Sd(fp, MemOperand(t8));
-  li(t8,
-     Operand(ExternalReference(IsolateAddressId::kContextAddress, isolate())));
-  Sd(cp, MemOperand(t8));
+    // Save the frame pointer and the context in top.
+    li(t8, ExternalReference::Create(IsolateAddressId::kCEntryFPAddress,
+                                     isolate()));
+    Sd(fp, MemOperand(t8));
+    li(t8,
+       ExternalReference::Create(IsolateAddressId::kContextAddress, isolate()));
+    Sd(cp, MemOperand(t8));
+  }
 
   const int frame_alignment = MacroAssembler::ActivationFrameAlignment();
   if (save_doubles) {
     // The stack is already aligned to 0 modulo 8 for stores with sdc1.
-    int kNumOfSavedRegisters = FPURegister::kMaxNumRegisters / 2;
+    int kNumOfSavedRegisters = FPURegister::kNumRegisters / 2;
     int space = kNumOfSavedRegisters * kDoubleSize;
     Dsubu(sp, sp, Operand(space));
     // Remember: we only need to save every 2nd double FPU value.
@@ -5823,9 +5204,9 @@ void MacroAssembler::EnterExitFrame(bool save_doubles, int stack_space,
   }
 
   // Reserve place for the return address, stack space and an optional slot
-  // (used by the DirectCEntryStub to hold the return value if a struct is
+  // (used by DirectCEntry to hold the return value if a struct is
   // returned) and align the frame preparing for calling the runtime function.
-  DCHECK(stack_space >= 0);
+  DCHECK_GE(stack_space, 0);
   Dsubu(sp, sp, Operand((stack_space + 2) * kPointerSize));
   if (frame_alignment > 0) {
     DCHECK(base::bits::IsPowerOfTwo(frame_alignment));
@@ -5834,18 +5215,20 @@ void MacroAssembler::EnterExitFrame(bool save_doubles, int stack_space,
 
   // Set the exit frame sp value to point just before the return address
   // location.
-  daddiu(at, sp, kPointerSize);
-  Sd(at, MemOperand(fp, ExitFrameConstants::kSPOffset));
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  daddiu(scratch, sp, kPointerSize);
+  Sd(scratch, MemOperand(fp, ExitFrameConstants::kSPOffset));
 }
 
-
 void MacroAssembler::LeaveExitFrame(bool save_doubles, Register argument_count,
-                                    bool restore_context, bool do_return,
+                                    bool do_return,
                                     bool argument_count_is_length) {
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   // Optionally restore all double registers.
   if (save_doubles) {
     // Remember: we only need to restore every 2nd double FPU value.
-    int kNumOfSavedRegisters = FPURegister::kMaxNumRegisters / 2;
+    int kNumOfSavedRegisters = FPURegister::kNumRegisters / 2;
     Dsubu(t8, fp, Operand(ExitFrameConstants::kFixedFrameSizeFromFp +
                           kNumOfSavedRegisters * kDoubleSize));
     for (int i = 0; i < kNumOfSavedRegisters; i++) {
@@ -5856,18 +5239,17 @@ void MacroAssembler::LeaveExitFrame(bool save_doubles, Register argument_count,
 
   // Clear top frame.
   li(t8,
-     Operand(ExternalReference(IsolateAddressId::kCEntryFPAddress, isolate())));
+     ExternalReference::Create(IsolateAddressId::kCEntryFPAddress, isolate()));
   Sd(zero_reg, MemOperand(t8));
 
   // Restore current context from top and clear it in debug mode.
-  if (restore_context) {
-    li(t8, Operand(ExternalReference(IsolateAddressId::kContextAddress,
-                                     isolate())));
-    Ld(cp, MemOperand(t8));
-  }
+  li(t8,
+     ExternalReference::Create(IsolateAddressId::kContextAddress, isolate()));
+  Ld(cp, MemOperand(t8));
+
 #ifdef DEBUG
   li(t8,
-     Operand(ExternalReference(IsolateAddressId::kContextAddress, isolate())));
+     ExternalReference::Create(IsolateAddressId::kContextAddress, isolate()));
   Sd(a3, MemOperand(t8));
 #endif
 
@@ -5916,8 +5298,12 @@ void MacroAssembler::AssertStackIsAligned() {
       if (frame_alignment > kPointerSize) {
         Label alignment_as_expected;
         DCHECK(base::bits::IsPowerOfTwo(frame_alignment));
-        andi(at, sp, frame_alignment_mask);
-        Branch(&alignment_as_expected, eq, at, Operand(zero_reg));
+        {
+          UseScratchRegisterScope temps(this);
+          Register scratch = temps.Acquire();
+          andi(scratch, sp, frame_alignment_mask);
+          Branch(&alignment_as_expected, eq, scratch, Operand(zero_reg));
+        }
         // Don't use Check here, as it will call Runtime_Abort re-entering here.
         stop("Unexpected stack alignment");
         bind(&alignment_as_expected);
@@ -5925,104 +5311,23 @@ void MacroAssembler::AssertStackIsAligned() {
     }
 }
 
-
-void MacroAssembler::JumpIfNotPowerOfTwoOrZero(
-    Register reg,
-    Register scratch,
-    Label* not_power_of_two_or_zero) {
-  Dsubu(scratch, reg, Operand(1));
-  Branch(USE_DELAY_SLOT, not_power_of_two_or_zero, lt,
-         scratch, Operand(zero_reg));
-  and_(at, scratch, reg);  // In the delay slot.
-  Branch(not_power_of_two_or_zero, ne, at, Operand(zero_reg));
-}
-
-
-void MacroAssembler::SmiTagCheckOverflow(Register reg, Register overflow) {
-  DCHECK(!reg.is(overflow));
-  mov(overflow, reg);  // Save original value.
-  SmiTag(reg);
-  xor_(overflow, overflow, reg);  // Overflow if (value ^ 2 * value) < 0.
-}
-
-
-void MacroAssembler::SmiTagCheckOverflow(Register dst,
-                                         Register src,
-                                         Register overflow) {
-  if (dst.is(src)) {
-    // Fall back to slower case.
-    SmiTagCheckOverflow(dst, overflow);
-  } else {
-    DCHECK(!dst.is(src));
-    DCHECK(!dst.is(overflow));
-    DCHECK(!src.is(overflow));
-    SmiTag(dst, src);
-    xor_(overflow, dst, src);  // Overflow if (value ^ 2 * value) < 0.
-  }
-}
-
-
-void MacroAssembler::SmiLoadUntag(Register dst, MemOperand src) {
+void TurboAssembler::SmiUntag(Register dst, const MemOperand& src) {
   if (SmiValuesAre32Bits()) {
-    Lw(dst, UntagSmiMemOperand(src.rm(), src.offset()));
+    Lw(dst, MemOperand(src.rm(), SmiWordOffset(src.offset())));
   } else {
+    DCHECK(SmiValuesAre31Bits());
     Lw(dst, src);
     SmiUntag(dst);
   }
 }
 
-
-void MacroAssembler::SmiLoadScale(Register dst, MemOperand src, int scale) {
-  if (SmiValuesAre32Bits()) {
-    // TODO(plind): not clear if lw or ld faster here, need micro-benchmark.
-    Lw(dst, UntagSmiMemOperand(src.rm(), src.offset()));
-    dsll(dst, dst, scale);
-  } else {
-    Lw(dst, src);
-    DCHECK(scale >= kSmiTagSize);
-    sll(dst, dst, scale - kSmiTagSize);
-  }
-}
-
-
-// Returns 2 values: the Smi and a scaled version of the int within the Smi.
-void MacroAssembler::SmiLoadWithScale(Register d_smi,
-                                      Register d_scaled,
-                                      MemOperand src,
-                                      int scale) {
-  if (SmiValuesAre32Bits()) {
-    Ld(d_smi, src);
-    dsra(d_scaled, d_smi, kSmiShift - scale);
-  } else {
-    Lw(d_smi, src);
-    DCHECK(scale >= kSmiTagSize);
-    sll(d_scaled, d_smi, scale - kSmiTagSize);
-  }
-}
-
-
-// Returns 2 values: the untagged Smi (int32) and scaled version of that int.
-void MacroAssembler::SmiLoadUntagWithScale(Register d_int,
-                                           Register d_scaled,
-                                           MemOperand src,
-                                           int scale) {
-  if (SmiValuesAre32Bits()) {
-    Lw(d_int, UntagSmiMemOperand(src.rm(), src.offset()));
-    dsll(d_scaled, d_int, scale);
-  } else {
-    Lw(d_int, src);
-    // Need both the int and the scaled in, so use two instructions.
-    SmiUntag(d_int);
-    sll(d_scaled, d_int, scale);
-  }
-}
-
-
 void MacroAssembler::UntagAndJumpIfSmi(Register dst,
                                        Register src,
                                        Label* smi_case) {
-  // DCHECK(!dst.is(src));
-  JumpIfSmi(src, smi_case, at, USE_DELAY_SLOT);
+  // DCHECK(dst!=src);
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  JumpIfSmi(src, smi_case, scratch, USE_DELAY_SLOT);
   SmiUntag(dst, src);
 }
 
@@ -6043,21 +5348,6 @@ void MacroAssembler::JumpIfNotSmi(Register value,
 }
 
 
-void MacroAssembler::JumpIfNotBothSmi(Register reg1,
-                                      Register reg2,
-                                      Label* on_not_both_smi) {
-  STATIC_ASSERT(kSmiTag == 0);
-  // TODO(plind): Find some better to fix this assert issue.
-#if defined(__APPLE__)
-  DCHECK_EQ(1, kSmiTagMask);
-#else
-  DCHECK_EQ((int64_t)1, kSmiTagMask);
-#endif
-  or_(at, reg1, reg2);
-  JumpIfNotSmi(at, on_not_both_smi);
-}
-
-
 void MacroAssembler::JumpIfEitherSmi(Register reg1,
                                      Register reg2,
                                      Label* on_either_smi) {
@@ -6069,15 +5359,19 @@ void MacroAssembler::JumpIfEitherSmi(Register reg1,
   DCHECK_EQ((int64_t)1, kSmiTagMask);
 #endif
   // Both Smi tags must be 1 (not Smi).
-  and_(at, reg1, reg2);
-  JumpIfSmi(at, on_either_smi);
+  UseScratchRegisterScope temps(this);
+  Register scratch = temps.Acquire();
+  and_(scratch, reg1, reg2);
+  JumpIfSmi(scratch, on_either_smi);
 }
 
 void MacroAssembler::AssertNotSmi(Register object) {
   if (emit_debug_code()) {
     STATIC_ASSERT(kSmiTag == 0);
-    andi(at, object, kSmiTagMask);
-    Check(ne, kOperandIsASmi, at, Operand(zero_reg));
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    andi(scratch, object, kSmiTagMask);
+    Check(ne, AbortReason::kOperandIsASmi, scratch, Operand(zero_reg));
   }
 }
 
@@ -6085,47 +5379,62 @@ void MacroAssembler::AssertNotSmi(Register object) {
 void MacroAssembler::AssertSmi(Register object) {
   if (emit_debug_code()) {
     STATIC_ASSERT(kSmiTag == 0);
-    andi(at, object, kSmiTagMask);
-    Check(eq, kOperandIsASmi, at, Operand(zero_reg));
+    UseScratchRegisterScope temps(this);
+    Register scratch = temps.Acquire();
+    andi(scratch, object, kSmiTagMask);
+    Check(eq, AbortReason::kOperandIsASmi, scratch, Operand(zero_reg));
   }
 }
 
-void MacroAssembler::AssertFixedArray(Register object) {
+void MacroAssembler::AssertConstructor(Register object) {
   if (emit_debug_code()) {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
     STATIC_ASSERT(kSmiTag == 0);
     SmiTst(object, t8);
-    Check(ne, kOperandIsASmiAndNotAFixedArray, t8, Operand(zero_reg));
-    GetObjectType(object, t8, t8);
-    Check(eq, kOperandIsNotAFixedArray, t8, Operand(FIXED_ARRAY_TYPE));
+    Check(ne, AbortReason::kOperandIsASmiAndNotAConstructor, t8,
+          Operand(zero_reg));
+
+    ld(t8, FieldMemOperand(object, HeapObject::kMapOffset));
+    Lbu(t8, FieldMemOperand(t8, Map::kBitFieldOffset));
+    And(t8, t8, Operand(Map::IsConstructorBit::kMask));
+    Check(ne, AbortReason::kOperandIsNotAConstructor, t8, Operand(zero_reg));
   }
 }
 
 void MacroAssembler::AssertFunction(Register object) {
   if (emit_debug_code()) {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
     STATIC_ASSERT(kSmiTag == 0);
     SmiTst(object, t8);
-    Check(ne, kOperandIsASmiAndNotAFunction, t8, Operand(zero_reg));
+    Check(ne, AbortReason::kOperandIsASmiAndNotAFunction, t8,
+          Operand(zero_reg));
     GetObjectType(object, t8, t8);
-    Check(eq, kOperandIsNotAFunction, t8, Operand(JS_FUNCTION_TYPE));
+    Check(eq, AbortReason::kOperandIsNotAFunction, t8,
+          Operand(JS_FUNCTION_TYPE));
   }
 }
 
 
 void MacroAssembler::AssertBoundFunction(Register object) {
   if (emit_debug_code()) {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
     STATIC_ASSERT(kSmiTag == 0);
     SmiTst(object, t8);
-    Check(ne, kOperandIsASmiAndNotABoundFunction, t8, Operand(zero_reg));
+    Check(ne, AbortReason::kOperandIsASmiAndNotABoundFunction, t8,
+          Operand(zero_reg));
     GetObjectType(object, t8, t8);
-    Check(eq, kOperandIsNotABoundFunction, t8, Operand(JS_BOUND_FUNCTION_TYPE));
+    Check(eq, AbortReason::kOperandIsNotABoundFunction, t8,
+          Operand(JS_BOUND_FUNCTION_TYPE));
   }
 }
 
 void MacroAssembler::AssertGeneratorObject(Register object) {
   if (!emit_debug_code()) return;
+  BlockTrampolinePoolScope block_trampoline_pool(this);
   STATIC_ASSERT(kSmiTag == 0);
   SmiTst(object, t8);
-  Check(ne, kOperandIsASmiAndNotAGeneratorObject, t8, Operand(zero_reg));
+  Check(ne, AbortReason::kOperandIsASmiAndNotAGeneratorObject, t8,
+        Operand(zero_reg));
 
   GetObjectType(object, t8, t8);
 
@@ -6134,10 +5443,13 @@ void MacroAssembler::AssertGeneratorObject(Register object) {
   // Check if JSGeneratorObject
   Branch(&done, eq, t8, Operand(JS_GENERATOR_OBJECT_TYPE));
 
+  // Check if JSAsyncFunctionObject (See MacroAssembler::CompareInstanceType)
+  Branch(&done, eq, t8, Operand(JS_ASYNC_FUNCTION_OBJECT_TYPE));
+
   // Check if JSAsyncGeneratorObject
   Branch(&done, eq, t8, Operand(JS_ASYNC_GENERATOR_OBJECT_TYPE));
 
-  Abort(kOperandIsNotAGeneratorObject);
+  Abort(AbortReason::kOperandIsNotAGeneratorObject);
 
   bind(&done);
 }
@@ -6147,95 +5459,54 @@ void MacroAssembler::AssertUndefinedOrAllocationSite(Register object,
   if (emit_debug_code()) {
     Label done_checking;
     AssertNotSmi(object);
-    LoadRoot(scratch, Heap::kUndefinedValueRootIndex);
+    LoadRoot(scratch, RootIndex::kUndefinedValue);
     Branch(&done_checking, eq, object, Operand(scratch));
-    Ld(t8, FieldMemOperand(object, HeapObject::kMapOffset));
-    LoadRoot(scratch, Heap::kAllocationSiteMapRootIndex);
-    Assert(eq, kExpectedUndefinedOrCell, t8, Operand(scratch));
+    GetObjectType(object, scratch, scratch);
+    Assert(eq, AbortReason::kExpectedUndefinedOrCell, scratch,
+           Operand(ALLOCATION_SITE_TYPE));
     bind(&done_checking);
   }
 }
 
 
-void MacroAssembler::AssertIsRoot(Register reg, Heap::RootListIndex index) {
-  if (emit_debug_code()) {
-    DCHECK(!reg.is(at));
-    LoadRoot(at, index);
-    Check(eq, kHeapNumberMapRegisterClobbered, reg, Operand(at));
-  }
-}
-
-
-void MacroAssembler::JumpIfNotHeapNumber(Register object,
-                                         Register heap_number_map,
-                                         Register scratch,
-                                         Label* on_not_heap_number) {
-  Ld(scratch, FieldMemOperand(object, HeapObject::kMapOffset));
-  AssertIsRoot(heap_number_map, Heap::kHeapNumberMapRootIndex);
-  Branch(on_not_heap_number, ne, scratch, Operand(heap_number_map));
-}
-
-
-void MacroAssembler::JumpIfNonSmisNotBothSequentialOneByteStrings(
-    Register first, Register second, Register scratch1, Register scratch2,
-    Label* failure) {
-  // Test that both first and second are sequential one-byte strings.
-  // Assume that they are non-smis.
-  Ld(scratch1, FieldMemOperand(first, HeapObject::kMapOffset));
-  Ld(scratch2, FieldMemOperand(second, HeapObject::kMapOffset));
-  Lbu(scratch1, FieldMemOperand(scratch1, Map::kInstanceTypeOffset));
-  Lbu(scratch2, FieldMemOperand(scratch2, Map::kInstanceTypeOffset));
-
-  JumpIfBothInstanceTypesAreNotSequentialOneByte(scratch1, scratch2, scratch1,
-                                                 scratch2, failure);
-}
-
-
-void MacroAssembler::JumpIfNotBothSequentialOneByteStrings(Register first,
-                                                           Register second,
-                                                           Register scratch1,
-                                                           Register scratch2,
-                                                           Label* failure) {
-  // Check that neither is a smi.
-  STATIC_ASSERT(kSmiTag == 0);
-  And(scratch1, first, Operand(second));
-  JumpIfSmi(scratch1, failure);
-  JumpIfNonSmisNotBothSequentialOneByteStrings(first, second, scratch1,
-                                               scratch2, failure);
-}
-
 void TurboAssembler::Float32Max(FPURegister dst, FPURegister src1,
                                 FPURegister src2, Label* out_of_line) {
-  if (src1.is(src2)) {
+  if (src1 == src2) {
     Move_s(dst, src1);
     return;
   }
 
   // Check if one of operands is NaN.
-  BranchF32(nullptr, out_of_line, eq, src1, src2);
+  CompareIsNanF32(src1, src2);
+  BranchTrueF(out_of_line);
 
   if (kArchVariant >= kMips64r6) {
     max_s(dst, src1, src2);
   } else {
     Label return_left, return_right, done;
 
-    BranchF32(&return_right, nullptr, lt, src1, src2);
-    BranchF32(&return_left, nullptr, lt, src2, src1);
+    CompareF32(OLT, src1, src2);
+    BranchTrueShortF(&return_right);
+    CompareF32(OLT, src2, src1);
+    BranchTrueShortF(&return_left);
 
     // Operands are equal, but check for +/-0.
-    mfc1(t8, src1);
-    dsll32(t8, t8, 0);
-    Branch(&return_left, eq, t8, Operand(zero_reg));
-    Branch(&return_right);
+    {
+      BlockTrampolinePoolScope block_trampoline_pool(this);
+      mfc1(t8, src1);
+      dsll32(t8, t8, 0);
+      Branch(&return_left, eq, t8, Operand(zero_reg));
+      Branch(&return_right);
+    }
 
     bind(&return_right);
-    if (!src2.is(dst)) {
+    if (src2 != dst) {
       Move_s(dst, src2);
     }
     Branch(&done);
 
     bind(&return_left);
-    if (!src1.is(dst)) {
+    if (src1 != dst) {
       Move_s(dst, src1);
     }
 
@@ -6250,36 +5521,42 @@ void TurboAssembler::Float32MaxOutOfLine(FPURegister dst, FPURegister src1,
 
 void TurboAssembler::Float32Min(FPURegister dst, FPURegister src1,
                                 FPURegister src2, Label* out_of_line) {
-  if (src1.is(src2)) {
+  if (src1 == src2) {
     Move_s(dst, src1);
     return;
   }
 
   // Check if one of operands is NaN.
-  BranchF32(nullptr, out_of_line, eq, src1, src2);
+  CompareIsNanF32(src1, src2);
+  BranchTrueF(out_of_line);
 
   if (kArchVariant >= kMips64r6) {
     min_s(dst, src1, src2);
   } else {
     Label return_left, return_right, done;
 
-    BranchF32(&return_left, nullptr, lt, src1, src2);
-    BranchF32(&return_right, nullptr, lt, src2, src1);
+    CompareF32(OLT, src1, src2);
+    BranchTrueShortF(&return_left);
+    CompareF32(OLT, src2, src1);
+    BranchTrueShortF(&return_right);
 
     // Left equals right => check for -0.
-    mfc1(t8, src1);
-    dsll32(t8, t8, 0);
-    Branch(&return_right, eq, t8, Operand(zero_reg));
-    Branch(&return_left);
+    {
+      BlockTrampolinePoolScope block_trampoline_pool(this);
+      mfc1(t8, src1);
+      dsll32(t8, t8, 0);
+      Branch(&return_right, eq, t8, Operand(zero_reg));
+      Branch(&return_left);
+    }
 
     bind(&return_right);
-    if (!src2.is(dst)) {
+    if (src2 != dst) {
       Move_s(dst, src2);
     }
     Branch(&done);
 
     bind(&return_left);
-    if (!src1.is(dst)) {
+    if (src1 != dst) {
       Move_s(dst, src1);
     }
 
@@ -6294,35 +5571,41 @@ void TurboAssembler::Float32MinOutOfLine(FPURegister dst, FPURegister src1,
 
 void TurboAssembler::Float64Max(FPURegister dst, FPURegister src1,
                                 FPURegister src2, Label* out_of_line) {
-  if (src1.is(src2)) {
+  if (src1 == src2) {
     Move_d(dst, src1);
     return;
   }
 
   // Check if one of operands is NaN.
-  BranchF64(nullptr, out_of_line, eq, src1, src2);
+  CompareIsNanF64(src1, src2);
+  BranchTrueF(out_of_line);
 
   if (kArchVariant >= kMips64r6) {
     max_d(dst, src1, src2);
   } else {
     Label return_left, return_right, done;
 
-    BranchF64(&return_right, nullptr, lt, src1, src2);
-    BranchF64(&return_left, nullptr, lt, src2, src1);
+    CompareF64(OLT, src1, src2);
+    BranchTrueShortF(&return_right);
+    CompareF64(OLT, src2, src1);
+    BranchTrueShortF(&return_left);
 
     // Left equals right => check for -0.
-    dmfc1(t8, src1);
-    Branch(&return_left, eq, t8, Operand(zero_reg));
-    Branch(&return_right);
+    {
+      BlockTrampolinePoolScope block_trampoline_pool(this);
+      dmfc1(t8, src1);
+      Branch(&return_left, eq, t8, Operand(zero_reg));
+      Branch(&return_right);
+    }
 
     bind(&return_right);
-    if (!src2.is(dst)) {
+    if (src2 != dst) {
       Move_d(dst, src2);
     }
     Branch(&done);
 
     bind(&return_left);
-    if (!src1.is(dst)) {
+    if (src1 != dst) {
       Move_d(dst, src1);
     }
 
@@ -6337,35 +5620,41 @@ void TurboAssembler::Float64MaxOutOfLine(FPURegister dst, FPURegister src1,
 
 void TurboAssembler::Float64Min(FPURegister dst, FPURegister src1,
                                 FPURegister src2, Label* out_of_line) {
-  if (src1.is(src2)) {
+  if (src1 == src2) {
     Move_d(dst, src1);
     return;
   }
 
   // Check if one of operands is NaN.
-  BranchF64(nullptr, out_of_line, eq, src1, src2);
+  CompareIsNanF64(src1, src2);
+  BranchTrueF(out_of_line);
 
   if (kArchVariant >= kMips64r6) {
     min_d(dst, src1, src2);
   } else {
     Label return_left, return_right, done;
 
-    BranchF64(&return_left, nullptr, lt, src1, src2);
-    BranchF64(&return_right, nullptr, lt, src2, src1);
+    CompareF64(OLT, src1, src2);
+    BranchTrueShortF(&return_left);
+    CompareF64(OLT, src2, src1);
+    BranchTrueShortF(&return_right);
 
     // Left equals right => check for -0.
-    dmfc1(t8, src1);
-    Branch(&return_right, eq, t8, Operand(zero_reg));
-    Branch(&return_left);
+    {
+      BlockTrampolinePoolScope block_trampoline_pool(this);
+      dmfc1(t8, src1);
+      Branch(&return_right, eq, t8, Operand(zero_reg));
+      Branch(&return_left);
+    }
 
     bind(&return_right);
-    if (!src2.is(dst)) {
+    if (src2 != dst) {
       Move_d(dst, src2);
     }
     Branch(&done);
 
     bind(&return_left);
-    if (!src1.is(dst)) {
+    if (src1 != dst) {
       Move_d(dst, src1);
     }
 
@@ -6376,20 +5665,6 @@ void TurboAssembler::Float64Min(FPURegister dst, FPURegister src1,
 void TurboAssembler::Float64MinOutOfLine(FPURegister dst, FPURegister src1,
                                          FPURegister src2) {
   add_d(dst, src1, src2);
-}
-
-void MacroAssembler::JumpIfBothInstanceTypesAreNotSequentialOneByte(
-    Register first, Register second, Register scratch1, Register scratch2,
-    Label* failure) {
-  const int kFlatOneByteStringMask =
-      kIsNotStringMask | kStringEncodingMask | kStringRepresentationMask;
-  const int kFlatOneByteStringTag =
-      kStringTag | kOneByteStringTag | kSeqStringTag;
-  DCHECK(kFlatOneByteStringTag <= 0xffff);  // Ensure this fits 16-bit immed.
-  andi(scratch1, first, kFlatOneByteStringMask);
-  Branch(failure, ne, scratch1, Operand(kFlatOneByteStringTag));
-  andi(scratch2, second, kFlatOneByteStringMask);
-  Branch(failure, ne, scratch2, Operand(kFlatOneByteStringTag));
 }
 
 static const int kRegisterPassedArguments = 8;
@@ -6406,32 +5681,6 @@ int TurboAssembler::CalculateStackPassedWords(int num_reg_arguments,
   }
   stack_passed_words += kCArgSlotCount;
   return stack_passed_words;
-}
-
-
-void MacroAssembler::EmitSeqStringSetCharCheck(Register string,
-                                               Register index,
-                                               Register value,
-                                               Register scratch,
-                                               uint32_t encoding_mask) {
-  Label is_object;
-  SmiTst(string, at);
-  Check(ne, kNonObject, at, Operand(zero_reg));
-
-  Ld(at, FieldMemOperand(string, HeapObject::kMapOffset));
-  Lbu(at, FieldMemOperand(at, Map::kInstanceTypeOffset));
-
-  andi(at, at, kStringRepresentationMask | kStringEncodingMask);
-  li(scratch, Operand(encoding_mask));
-  Check(eq, kUnexpectedStringType, at, Operand(scratch));
-
-  // TODO(plind): requires Smi size check code for mips32.
-
-  Ld(at, FieldMemOperand(string, String::kLengthOffset));
-  Check(lt, kIndexIsTooLarge, index, Operand(at));
-
-  DCHECK(Smi::kZero == 0);
-  Check(ge, kIndexIsNegative, index, Operand(zero_reg));
 }
 
 void TurboAssembler::PrepareCallCFunction(int num_reg_arguments,
@@ -6469,8 +5718,9 @@ void TurboAssembler::PrepareCallCFunction(int num_reg_arguments,
 void TurboAssembler::CallCFunction(ExternalReference function,
                                    int num_reg_arguments,
                                    int num_double_arguments) {
-  li(t8, Operand(function));
-  CallCFunctionHelper(t8, num_reg_arguments, num_double_arguments);
+  BlockTrampolinePoolScope block_trampoline_pool(this);
+  li(t9, function);
+  CallCFunctionHelper(t9, num_reg_arguments, num_double_arguments);
 }
 
 void TurboAssembler::CallCFunction(Register function, int num_reg_arguments,
@@ -6505,8 +5755,12 @@ void TurboAssembler::CallCFunctionHelper(Register function,
     if (frame_alignment > kPointerSize) {
       DCHECK(base::bits::IsPowerOfTwo(frame_alignment));
       Label alignment_as_expected;
-      And(at, sp, Operand(frame_alignment_mask));
-      Branch(&alignment_as_expected, eq, at, Operand(zero_reg));
+      {
+        UseScratchRegisterScope temps(this);
+        Register scratch = temps.Acquire();
+        And(scratch, sp, Operand(frame_alignment_mask));
+        Branch(&alignment_as_expected, eq, scratch, Operand(zero_reg));
+      }
       // Don't use Check here, as it will call Runtime_Abort possibly
       // re-entering here.
       stop("Unexpected alignment in CallCFunction");
@@ -6518,13 +5772,44 @@ void TurboAssembler::CallCFunctionHelper(Register function,
   // Just call directly. The function called cannot cause a GC, or
   // allow preemption, so the return address in the link register
   // stays correct.
+  {
+    BlockTrampolinePoolScope block_trampoline_pool(this);
+    if (function != t9) {
+      mov(t9, function);
+      function = t9;
+    }
 
-  if (!function.is(t9)) {
-    mov(t9, function);
-    function = t9;
+    // Save the frame pointer and PC so that the stack layout remains iterable,
+    // even without an ExitFrame which normally exists between JS and C frames.
+    if (isolate() != nullptr) {
+      // 't' registers are caller-saved so this is safe as a scratch register.
+      Register scratch1 = t1;
+      Register scratch2 = t2;
+      DCHECK(!AreAliased(scratch1, scratch2, function));
+
+      Label get_pc;
+      mov(scratch1, ra);
+      Call(&get_pc);
+
+      bind(&get_pc);
+      mov(scratch2, ra);
+      mov(ra, scratch1);
+
+      li(scratch1, ExternalReference::fast_c_call_caller_pc_address(isolate()));
+      Sd(scratch2, MemOperand(scratch1));
+      li(scratch1, ExternalReference::fast_c_call_caller_fp_address(isolate()));
+      Sd(fp, MemOperand(scratch1));
+    }
+
+    Call(function);
+
+    if (isolate() != nullptr) {
+      // We don't unset the PC; the FP is the source of truth.
+      Register scratch = t1;
+      li(scratch, ExternalReference::fast_c_call_caller_fp_address(isolate()));
+      Sd(zero_reg, MemOperand(scratch));
+    }
   }
-
-  Call(function);
 
   int stack_passed_arguments = CalculateStackPassedWords(
       num_reg_arguments, num_double_arguments);
@@ -6541,251 +5826,10 @@ void TurboAssembler::CallCFunctionHelper(Register function,
 
 void TurboAssembler::CheckPageFlag(Register object, Register scratch, int mask,
                                    Condition cc, Label* condition_met) {
-  And(scratch, object, Operand(~Page::kPageAlignmentMask));
+  And(scratch, object, Operand(~kPageAlignmentMask));
   Ld(scratch, MemOperand(scratch, MemoryChunk::kFlagsOffset));
   And(scratch, scratch, Operand(mask));
   Branch(condition_met, cc, scratch, Operand(zero_reg));
-}
-
-
-void MacroAssembler::JumpIfBlack(Register object,
-                                 Register scratch0,
-                                 Register scratch1,
-                                 Label* on_black) {
-  HasColor(object, scratch0, scratch1, on_black, 1, 1);  // kBlackBitPattern.
-  DCHECK(strcmp(Marking::kBlackBitPattern, "11") == 0);
-}
-
-
-void MacroAssembler::HasColor(Register object,
-                              Register bitmap_scratch,
-                              Register mask_scratch,
-                              Label* has_color,
-                              int first_bit,
-                              int second_bit) {
-  DCHECK(!AreAliased(object, bitmap_scratch, mask_scratch, t8));
-  DCHECK(!AreAliased(object, bitmap_scratch, mask_scratch, t9));
-
-  GetMarkBits(object, bitmap_scratch, mask_scratch);
-
-  Label other_color;
-  // Note that we are using two 4-byte aligned loads.
-  LoadWordPair(t9, MemOperand(bitmap_scratch, MemoryChunk::kHeaderSize));
-  And(t8, t9, Operand(mask_scratch));
-  Branch(&other_color, first_bit == 1 ? eq : ne, t8, Operand(zero_reg));
-  // Shift left 1 by adding.
-  Daddu(mask_scratch, mask_scratch, Operand(mask_scratch));
-  And(t8, t9, Operand(mask_scratch));
-  Branch(has_color, second_bit == 1 ? ne : eq, t8, Operand(zero_reg));
-
-  bind(&other_color);
-}
-
-
-void MacroAssembler::GetMarkBits(Register addr_reg,
-                                 Register bitmap_reg,
-                                 Register mask_reg) {
-  DCHECK(!AreAliased(addr_reg, bitmap_reg, mask_reg, no_reg));
-  // addr_reg is divided into fields:
-  // |63        page base        20|19    high      8|7   shift   3|2  0|
-  // 'high' gives the index of the cell holding color bits for the object.
-  // 'shift' gives the offset in the cell for this object's color.
-  And(bitmap_reg, addr_reg, Operand(~Page::kPageAlignmentMask));
-  Ext(mask_reg, addr_reg, kPointerSizeLog2, Bitmap::kBitsPerCellLog2);
-  const int kLowBits = kPointerSizeLog2 + Bitmap::kBitsPerCellLog2;
-  Ext(t8, addr_reg, kLowBits, kPageSizeBits - kLowBits);
-  Dlsa(bitmap_reg, bitmap_reg, t8, Bitmap::kBytesPerCellLog2);
-  li(t8, Operand(1));
-  dsllv(mask_reg, t8, mask_reg);
-}
-
-
-void MacroAssembler::JumpIfWhite(Register value, Register bitmap_scratch,
-                                 Register mask_scratch, Register load_scratch,
-                                 Label* value_is_white) {
-  DCHECK(!AreAliased(value, bitmap_scratch, mask_scratch, t8));
-  GetMarkBits(value, bitmap_scratch, mask_scratch);
-
-  // If the value is black or grey we don't need to do anything.
-  DCHECK(strcmp(Marking::kWhiteBitPattern, "00") == 0);
-  DCHECK(strcmp(Marking::kBlackBitPattern, "11") == 0);
-  DCHECK(strcmp(Marking::kGreyBitPattern, "10") == 0);
-  DCHECK(strcmp(Marking::kImpossibleBitPattern, "01") == 0);
-
-  // Since both black and grey have a 1 in the first position and white does
-  // not have a 1 there we only need to check one bit.
-  // Note that we are using a 4-byte aligned 8-byte load.
-  if (emit_debug_code()) {
-    LoadWordPair(load_scratch,
-                 MemOperand(bitmap_scratch, MemoryChunk::kHeaderSize));
-  } else {
-    Lwu(load_scratch, MemOperand(bitmap_scratch, MemoryChunk::kHeaderSize));
-  }
-  And(t8, mask_scratch, load_scratch);
-  Branch(value_is_white, eq, t8, Operand(zero_reg));
-}
-
-
-void MacroAssembler::LoadInstanceDescriptors(Register map,
-                                             Register descriptors) {
-  Ld(descriptors, FieldMemOperand(map, Map::kDescriptorsOffset));
-}
-
-
-void MacroAssembler::NumberOfOwnDescriptors(Register dst, Register map) {
-  Lwu(dst, FieldMemOperand(map, Map::kBitField3Offset));
-  DecodeField<Map::NumberOfOwnDescriptorsBits>(dst);
-}
-
-
-void MacroAssembler::EnumLength(Register dst, Register map) {
-  STATIC_ASSERT(Map::EnumLengthBits::kShift == 0);
-  Lwu(dst, FieldMemOperand(map, Map::kBitField3Offset));
-  And(dst, dst, Operand(Map::EnumLengthBits::kMask));
-  SmiTag(dst);
-}
-
-
-void MacroAssembler::LoadAccessor(Register dst, Register holder,
-                                  int accessor_index,
-                                  AccessorComponent accessor) {
-  Ld(dst, FieldMemOperand(holder, HeapObject::kMapOffset));
-  LoadInstanceDescriptors(dst, dst);
-  Ld(dst,
-     FieldMemOperand(dst, DescriptorArray::GetValueOffset(accessor_index)));
-  int offset = accessor == ACCESSOR_GETTER ? AccessorPair::kGetterOffset
-                                           : AccessorPair::kSetterOffset;
-  Ld(dst, FieldMemOperand(dst, offset));
-}
-
-
-void MacroAssembler::CheckEnumCache(Label* call_runtime) {
-  Register null_value = a5;
-  Register  empty_fixed_array_value = a6;
-  LoadRoot(empty_fixed_array_value, Heap::kEmptyFixedArrayRootIndex);
-  Label next, start;
-  mov(a2, a0);
-
-  // Check if the enum length field is properly initialized, indicating that
-  // there is an enum cache.
-  Ld(a1, FieldMemOperand(a2, HeapObject::kMapOffset));
-
-  EnumLength(a3, a1);
-  Branch(
-      call_runtime, eq, a3, Operand(Smi::FromInt(kInvalidEnumCacheSentinel)));
-
-  LoadRoot(null_value, Heap::kNullValueRootIndex);
-  jmp(&start);
-
-  bind(&next);
-  Ld(a1, FieldMemOperand(a2, HeapObject::kMapOffset));
-
-  // For all objects but the receiver, check that the cache is empty.
-  EnumLength(a3, a1);
-  Branch(call_runtime, ne, a3, Operand(Smi::kZero));
-
-  bind(&start);
-
-  // Check that there are no elements. Register a2 contains the current JS
-  // object we've reached through the prototype chain.
-  Label no_elements;
-  Ld(a2, FieldMemOperand(a2, JSObject::kElementsOffset));
-  Branch(&no_elements, eq, a2, Operand(empty_fixed_array_value));
-
-  // Second chance, the object may be using the empty slow element dictionary.
-  LoadRoot(at, Heap::kEmptySlowElementDictionaryRootIndex);
-  Branch(call_runtime, ne, a2, Operand(at));
-
-  bind(&no_elements);
-  Ld(a2, FieldMemOperand(a1, Map::kPrototypeOffset));
-  Branch(&next, ne, a2, Operand(null_value));
-}
-
-
-void MacroAssembler::ClampUint8(Register output_reg, Register input_reg) {
-  DCHECK(!output_reg.is(input_reg));
-  Label done;
-  li(output_reg, Operand(255));
-  // Normal branch: nop in delay slot.
-  Branch(&done, gt, input_reg, Operand(output_reg));
-  // Use delay slot in this branch.
-  Branch(USE_DELAY_SLOT, &done, lt, input_reg, Operand(zero_reg));
-  mov(output_reg, zero_reg);  // In delay slot.
-  mov(output_reg, input_reg);  // Value is in range 0..255.
-  bind(&done);
-}
-
-
-void MacroAssembler::ClampDoubleToUint8(Register result_reg,
-                                        DoubleRegister input_reg,
-                                        DoubleRegister temp_double_reg) {
-  Label above_zero;
-  Label done;
-  Label in_bounds;
-
-  Move(temp_double_reg, 0.0);
-  BranchF(&above_zero, NULL, gt, input_reg, temp_double_reg);
-
-  // Double value is less than zero, NaN or Inf, return 0.
-  mov(result_reg, zero_reg);
-  Branch(&done);
-
-  // Double value is >= 255, return 255.
-  bind(&above_zero);
-  Move(temp_double_reg, 255.0);
-  BranchF(&in_bounds, NULL, le, input_reg, temp_double_reg);
-  li(result_reg, Operand(255));
-  Branch(&done);
-
-  // In 0-255 range, round and truncate.
-  bind(&in_bounds);
-  cvt_w_d(temp_double_reg, input_reg);
-  mfc1(result_reg, temp_double_reg);
-  bind(&done);
-}
-
-void MacroAssembler::TestJSArrayForAllocationMemento(Register receiver_reg,
-                                                     Register scratch_reg,
-                                                     Label* no_memento_found) {
-  Label map_check;
-  Label top_check;
-  ExternalReference new_space_allocation_top_adr =
-      ExternalReference::new_space_allocation_top_address(isolate());
-  const int kMementoMapOffset = JSArray::kSize - kHeapObjectTag;
-  const int kMementoLastWordOffset =
-      kMementoMapOffset + AllocationMemento::kSize - kPointerSize;
-
-  // Bail out if the object is not in new space.
-  JumpIfNotInNewSpace(receiver_reg, scratch_reg, no_memento_found);
-  // If the object is in new space, we need to check whether it is on the same
-  // page as the current top.
-  Daddu(scratch_reg, receiver_reg, Operand(kMementoLastWordOffset));
-  li(at, Operand(new_space_allocation_top_adr));
-  Ld(at, MemOperand(at));
-  Xor(scratch_reg, scratch_reg, Operand(at));
-  And(scratch_reg, scratch_reg, Operand(~Page::kPageAlignmentMask));
-  Branch(&top_check, eq, scratch_reg, Operand(zero_reg));
-  // The object is on a different page than allocation top. Bail out if the
-  // object sits on the page boundary as no memento can follow and we cannot
-  // touch the memory following it.
-  Daddu(scratch_reg, receiver_reg, Operand(kMementoLastWordOffset));
-  Xor(scratch_reg, scratch_reg, Operand(receiver_reg));
-  And(scratch_reg, scratch_reg, Operand(~Page::kPageAlignmentMask));
-  Branch(no_memento_found, ne, scratch_reg, Operand(zero_reg));
-  // Continue with the actual map check.
-  jmp(&map_check);
-  // If top is on the same page as the current object, we need to check whether
-  // we are below top.
-  bind(&top_check);
-  Daddu(scratch_reg, receiver_reg, Operand(kMementoLastWordOffset));
-  li(at, Operand(new_space_allocation_top_adr));
-  Ld(at, MemOperand(at));
-  Branch(no_memento_found, ge, scratch_reg, Operand(at));
-  // Memento map check.
-  bind(&map_check);
-  Ld(scratch_reg, MemOperand(receiver_reg, kMementoMapOffset));
-  Branch(no_memento_found, ne, scratch_reg,
-         Operand(isolate()->factory()->allocation_memento_map()));
 }
 
 
@@ -6803,7 +5847,7 @@ Register GetRegisterThatIsNotOneOf(Register reg1,
   if (reg5.is_valid()) regs |= reg5.bit();
   if (reg6.is_valid()) regs |= reg6.bit();
 
-  const RegisterConfiguration* config = RegisterConfiguration::Crankshaft();
+  const RegisterConfiguration* config = RegisterConfiguration::Default();
   for (int i = 0; i < config->num_allocatable_general_registers(); ++i) {
     int code = config->GetAllocatableGeneralCode(i);
     Register candidate = Register::from_code(code);
@@ -6813,94 +5857,39 @@ Register GetRegisterThatIsNotOneOf(Register reg1,
   UNREACHABLE();
 }
 
-bool AreAliased(Register reg1, Register reg2, Register reg3, Register reg4,
-                Register reg5, Register reg6, Register reg7, Register reg8,
-                Register reg9, Register reg10) {
-  int n_of_valid_regs = reg1.is_valid() + reg2.is_valid() + reg3.is_valid() +
-                        reg4.is_valid() + reg5.is_valid() + reg6.is_valid() +
-                        reg7.is_valid() + reg8.is_valid() + reg9.is_valid() +
-                        reg10.is_valid();
+void TurboAssembler::ComputeCodeStartAddress(Register dst) {
+  // This push on ra and the pop below together ensure that we restore the
+  // register ra, which is needed while computing the code start address.
+  push(ra);
 
-  RegList regs = 0;
-  if (reg1.is_valid()) regs |= reg1.bit();
-  if (reg2.is_valid()) regs |= reg2.bit();
-  if (reg3.is_valid()) regs |= reg3.bit();
-  if (reg4.is_valid()) regs |= reg4.bit();
-  if (reg5.is_valid()) regs |= reg5.bit();
-  if (reg6.is_valid()) regs |= reg6.bit();
-  if (reg7.is_valid()) regs |= reg7.bit();
-  if (reg8.is_valid()) regs |= reg8.bit();
-  if (reg9.is_valid()) regs |= reg9.bit();
-  if (reg10.is_valid()) regs |= reg10.bit();
-  int n_of_non_aliasing_regs = NumRegs(regs);
-
-  return n_of_valid_regs != n_of_non_aliasing_regs;
-}
-
-
-CodePatcher::CodePatcher(Isolate* isolate, byte* address, int instructions,
-                         FlushICache flush_cache)
-    : address_(address),
-      size_(instructions * Assembler::kInstrSize),
-      masm_(isolate, address, size_ + Assembler::kGap, CodeObjectRequired::kNo),
-      flush_cache_(flush_cache) {
-  // Create a new macro assembler pointing to the address of the code to patch.
-  // The size is adjusted with kGap on order for the assembler to generate size
-  // bytes of instructions without failing with buffer size constraints.
-  DCHECK(masm_.reloc_info_writer.pos() == address_ + size_ + Assembler::kGap);
-}
-
-
-CodePatcher::~CodePatcher() {
-  // Indicate that code has changed.
-  if (flush_cache_ == FLUSH) {
-    Assembler::FlushICache(masm_.isolate(), address_, size_);
+  // The nal instruction puts the address of the current instruction into
+  // the return address (ra) register, which we can use later on.
+  if (kArchVariant == kMips64r6) {
+    addiupc(ra, 1);
+  } else {
+    nal();
+    nop();
   }
-  // Check that the code was patched as expected.
-  DCHECK(masm_.pc_ == address_ + size_);
-  DCHECK(masm_.reloc_info_writer.pos() == address_ + size_ + Assembler::kGap);
+  int pc = pc_offset();
+  li(dst, Operand(pc));
+  Dsubu(dst, ra, dst);
+
+  pop(ra);  // Restore ra
 }
 
-
-void CodePatcher::Emit(Instr instr) {
-  masm()->emit(instr);
+void TurboAssembler::ResetSpeculationPoisonRegister() {
+  li(kSpeculationPoisonRegister, -1);
 }
 
+void TurboAssembler::CallForDeoptimization(Address target, int deopt_id) {
+  NoRootArrayScope no_root_array(this);
 
-void CodePatcher::Emit(Address addr) {
-  // masm()->emit(reinterpret_cast<Instr>(addr));
+  // Save the deopt id in kRootRegister (we don't need the roots array from now
+  // on).
+  DCHECK_LE(deopt_id, 0xFFFF);
+  li(kRootRegister, deopt_id);
+  Call(target, RelocInfo::RUNTIME_ENTRY);
 }
-
-
-void CodePatcher::ChangeBranchCondition(Instr current_instr,
-                                        uint32_t new_opcode) {
-  current_instr = (current_instr & ~kOpcodeMask) | new_opcode;
-  masm_.emit(current_instr);
-}
-
-
-void MacroAssembler::TruncatingDiv(Register result,
-                                   Register dividend,
-                                   int32_t divisor) {
-  DCHECK(!dividend.is(result));
-  DCHECK(!dividend.is(at));
-  DCHECK(!result.is(at));
-  base::MagicNumbersForDivision<uint32_t> mag =
-  base::SignedDivisionByConstant(static_cast<uint32_t>(divisor));
-  li(at, Operand(static_cast<int32_t>(mag.multiplier)));
-  Mulh(result, dividend, Operand(at));
-  bool neg = (mag.multiplier & (static_cast<uint32_t>(1) << 31)) != 0;
-  if (divisor > 0 && neg) {
-    Addu(result, result, Operand(dividend));
-  }
-  if (divisor < 0 && !neg && mag.multiplier > 0) {
-    Subu(result, result, Operand(dividend));
-  }
-  if (mag.shift > 0) sra(result, result, mag.shift);
-  srl(at, dividend, 31);
-  Addu(result, result, Operand(at));
-}
-
 
 }  // namespace internal
 }  // namespace v8

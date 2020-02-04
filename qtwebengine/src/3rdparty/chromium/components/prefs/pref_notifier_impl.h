@@ -8,22 +8,21 @@
 #include <list>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
-#include "components/prefs/base_prefs_export.h"
 #include "components/prefs/pref_notifier.h"
 #include "components/prefs/pref_observer.h"
+#include "components/prefs/prefs_export.h"
 
 class PrefService;
 
 // The PrefNotifier implementation used by the PrefService.
-class COMPONENTS_PREFS_EXPORT PrefNotifierImpl
-    : public NON_EXPORTED_BASE(PrefNotifier) {
+class COMPONENTS_PREFS_EXPORT PrefNotifierImpl : public PrefNotifier {
  public:
   PrefNotifierImpl();
   explicit PrefNotifierImpl(PrefService* pref_service);
@@ -34,26 +33,35 @@ class COMPONENTS_PREFS_EXPORT PrefNotifierImpl
   void AddPrefObserver(const std::string& path, PrefObserver* observer);
   void RemovePrefObserver(const std::string& path, PrefObserver* observer);
 
+  // These observers are called for any pref changes.
+  //
+  // AVOID ADDING THESE. See the long comment in the identically-named
+  // functions on PrefService for background.
+  void AddPrefObserverAllPrefs(PrefObserver* observer);
+  void RemovePrefObserverAllPrefs(PrefObserver* observer);
+
   // We run the callback once, when initialization completes. The bool
   // parameter will be set to true for successful initialization,
   // false for unsuccessful.
-  void AddInitObserver(base::Callback<void(bool)> observer);
+  void AddInitObserver(base::OnceCallback<void(bool)> observer);
 
   void SetPrefService(PrefService* pref_service);
 
- protected:
   // PrefNotifier overrides.
   void OnPreferenceChanged(const std::string& pref_name) override;
+
+ protected:
+  // PrefNotifier overrides.
   void OnInitializationCompleted(bool succeeded) override;
 
   // A map from pref names to a list of observers. Observers get fired in the
   // order they are added. These should only be accessed externally for unit
   // testing.
-  typedef base::ObserverList<PrefObserver> PrefObserverList;
-  typedef base::hash_map<std::string, std::unique_ptr<PrefObserverList>>
+  typedef base::ObserverList<PrefObserver>::Unchecked PrefObserverList;
+  typedef std::unordered_map<std::string, std::unique_ptr<PrefObserverList>>
       PrefObserverMap;
 
-  typedef std::list<base::Callback<void(bool)>> PrefInitObserverList;
+  typedef std::list<base::OnceCallback<void(bool)>> PrefInitObserverList;
 
   const PrefObserverMap* pref_observers() const { return &pref_observers_; }
 
@@ -67,6 +75,9 @@ class COMPONENTS_PREFS_EXPORT PrefNotifierImpl
 
   PrefObserverMap pref_observers_;
   PrefInitObserverList init_observers_;
+
+  // Observers for changes to any preference.
+  PrefObserverList all_prefs_pref_observers_;
 
   base::ThreadChecker thread_checker_;
 

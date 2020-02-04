@@ -7,19 +7,19 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <memory>
-#include <queue>
 #include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/weak_ptr.h"
 #include "base/optional.h"
-#include "base/threading/thread_checker.h"
 #include "base/time/time.h"
+#include "components/blacklist/opt_out_blacklist/opt_out_blacklist.h"
+#include "components/blacklist/opt_out_blacklist/opt_out_blacklist_delegate.h"
+#include "components/blacklist/opt_out_blacklist/opt_out_store.h"
 #include "components/previews/core/previews_experiments.h"
-#include "components/previews/core/previews_opt_out_store.h"
 
 class GURL;
 
@@ -28,8 +28,8 @@ class Clock;
 }
 
 namespace previews {
-class PreviewsBlackListItem;
 
+// Must remain synchronized with PreviewsEligibilityReason in enums.xml.
 enum class PreviewsEligibilityReason {
   // The preview navigation was allowed.
   ALLOWED = 0,
@@ -54,7 +54,24 @@ enum class PreviewsEligibilityReason {
   // The host is explicitly blacklisted by the server, so the user was not shown
   // a preview.
   HOST_BLACKLISTED_BY_SERVER = 9,
-  LAST = 9,
+  // The host is not whitelisted by the server for a preview decision that uses
+  // server optimization hints.
+  HOST_NOT_WHITELISTED_BY_SERVER = 10,
+  // The preview is allowed but without an expected check of server optimization
+  // hints because they are not enabled (features::kOptimizationHints).
+  ALLOWED_WITHOUT_OPTIMIZATION_HINTS = 11,
+  // The preview type chosen as the committed preview.
+  COMMITTED = 12,
+  // Previews blocked by a Cache-Control:no-transform directive.
+  CACHE_CONTROL_NO_TRANSFORM = 13,
+  // The network is faster than the max slow page triggering threshold for the
+  // session.
+  NETWORK_NOT_SLOW_FOR_SESSION = 14,
+  // Device is offline.
+  DEVICE_OFFLINE = 15,
+  // URL contained Basic Authentication, i.e.: a username or password.
+  URL_HAS_BASIC_AUTH = 16,
+  LAST,
 };
 
 // Manages the state of black listed domains for the previews experiment. Loads
@@ -66,93 +83,56 @@ enum class PreviewsEligibilityReason {
 // browsing history), domains are reported as black listed. The list stores no
 // more than previews::params::MaxInMemoryHostsInBlackList hosts in-memory,
 // which defaults to 100.
-class PreviewsBlackList {
+class PreviewsBlackList : public blacklist::OptOutBlacklist {
  public:
-  // |opt_out_store| is the backing store to retrieve and store black list
-  // information, and can be null. When |opt_out_store| is null, the in-memory
-  // map will be immediately loaded to empty. If |opt_out_store| is non-null,
-  // it will be used to load the in-memory map asynchronously.
-  PreviewsBlackList(std::unique_ptr<PreviewsOptOutStore> opt_out_store,
-                    std::unique_ptr<base::Clock> clock);
-  ~PreviewsBlackList();
+  PreviewsBlackList(
+      std::unique_ptr<blacklist::OptOutStore> opt_out_store,
+      base::Clock* clock,
+      blacklist::OptOutBlacklistDelegate* blacklist_delegate,
+      blacklist::BlacklistData::AllowedTypesAndVersions allowed_types);
+  ~PreviewsBlackList() override;
 
   // Asynchronously adds a new navigation to to the in-memory black list and
   // backing store. |opt_out| is whether the user opted out of the preview or
   // navigated away from the page without opting out. |type| is only passed to
   // the backing store. If the in memory map has reached the max number of hosts
   // allowed, and |url| is a new host, a host will be evicted based on recency
-  // of the hosts most recent opt out.
-  void AddPreviewNavigation(const GURL& url, bool opt_out, PreviewsType type);
+  // of the hosts most recent opt out. It returns the time used for recording
+  // the moment when the navigation is added for logging.
+  base::Time AddPreviewNavigation(const GURL& url,
+                                  bool opt_out,
+                                  PreviewsType type);
 
   // Synchronously determines if |host_name| should be allowed to show previews.
   // Returns the reason the blacklist disallowed the preview, or
-  // PreviewsEligibilityReason::ALLOWED if the preview is allowed.
-  PreviewsEligibilityReason IsLoadedAndAllowed(const GURL& url,
-                                               PreviewsType type) const;
+  // PreviewsEligibilityReason::ALLOWED if the preview is allowed. Record
+  // checked reasons in |passed_reasons|. Virtualized in testing.
+  virtual PreviewsEligibilityReason IsLoadedAndAllowed(
+      const GURL& url,
+      PreviewsType type,
+      bool ignore_long_term_black_list_rules,
+      std::vector<PreviewsEligibilityReason>* passed_reasons) const;
 
-  // Asynchronously deletes all entries in the in-memory black list. Informs
-  // the backing store to delete entries between |begin_time| and |end_time|,
-  // and reloads entries into memory from the backing store. If the embedder
-  // passed in a null store, resets all history in the in-memory black list.
-  void ClearBlackList(base::Time begin_time, base::Time end_time);
-
-  // Returns a new PreviewsBlackListItem representing |host_name|. Adds the new
-  // item to |black_list_item_map|.
-  static PreviewsBlackListItem* GetOrCreateBlackListItemForMap(
-      BlackListItemMap* black_list_item_map,
-      const std::string& host_name);
-
-  // Returns a new PreviewsBlackListItem for the host indifferent black list
-  // that does not consider host name when determining eligibility.
-  static std::unique_ptr<PreviewsBlackListItem>
-  CreateHostIndifferentBlackListItem();
+ protected:
+  // blacklist::OptOutBlacklist (virtual for testing):
+  bool ShouldUseSessionPolicy(base::TimeDelta* duration,
+                              size_t* history,
+                              int* threshold) const override;
+  bool ShouldUsePersistentPolicy(base::TimeDelta* duration,
+                                 size_t* history,
+                                 int* threshold) const override;
+  bool ShouldUseHostPolicy(base::TimeDelta* duration,
+                           size_t* history,
+                           int* threshold,
+                           size_t* max_hosts) const override;
+  bool ShouldUseTypePolicy(base::TimeDelta* duration,
+                           size_t* history,
+                           int* threshold) const override;
+  blacklist::BlacklistData::AllowedTypesAndVersions GetAllowedTypes()
+      const override;
 
  private:
-  // Synchronous version of AddPreviewNavigation method.
-  void AddPreviewNavigationSync(const GURL& host_name,
-                                bool opt_out,
-                                PreviewsType type);
-
-  // Synchronous version of ClearBlackList method.
-  void ClearBlackListSync(base::Time begin_time, base::Time end_time);
-
-  // Callback passed to the backing store when loading black list information.
-  // Moves the |black_list_item_map| and |host_indifferent_black_list_item| into
-  // the in-memory black list and runs any outstanding tasks.
-  void LoadBlackListDone(
-      std::unique_ptr<BlackListItemMap> black_list_item_map,
-      std::unique_ptr<PreviewsBlackListItem> host_indifferent_black_list_item);
-
-  // Called while waiting for the black list to be loaded from the backing
-  // store.
-  // Enqueues a task to run when when loading black list information has
-  // completed. Maintains the order that tasks were called in.
-  void QueuePendingTask(base::Closure callback);
-
-  // Map maintaining the in-memory black list.
-  std::unique_ptr<BlackListItemMap> black_list_item_map_;
-
-  // Host indifferent opt out history.
-  std::unique_ptr<PreviewsBlackListItem> host_indifferent_black_list_item_;
-
-  // Whether the black list is done being loaded from the backing store.
-  bool loaded_;
-
-  // The time of the last opt out for this session.
-  base::Optional<base::Time> last_opt_out_time_;
-
-  // The backing store of the black list information.
-  std::unique_ptr<PreviewsOptOutStore> opt_out_store_;
-
-  // Callbacks to be run after loading information from the backing store has
-  // completed.
-  std::queue<base::Closure> pending_callbacks_;
-
-  std::unique_ptr<base::Clock> clock_;
-
-  base::ThreadChecker thread_checker_;
-
-  base::WeakPtrFactory<PreviewsBlackList> weak_factory_;
+  const blacklist::BlacklistData::AllowedTypesAndVersions allowed_types_;
 
   DISALLOW_COPY_AND_ASSIGN(PreviewsBlackList);
 };

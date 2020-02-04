@@ -1,124 +1,111 @@
-# Reproducing ClusterFuzz bugs locally
+# Reproducing libFuzzer and AFL crashes
 
-ClusterFuzz will report bugs in the bug tracker in the following form:
+libFuzzer and AFL crashes can be reproduced easily with the
+[ClusterFuzz Reproduce Tool]. However, if you are unable to use the tool (e.g.
+unsupported platform, some other tool issue), you can still reproduce the crash
+manually using the steps below:
+
+*** note
+**Requirements:** For Windows, you must convert the forward slashes (/) to
+backslashes (\\) in the commands below and use `set` command instead of `export`
+to set the environment variable (step 4). Note that these commands are intended
+to be used with cmd.exe, not PowerShell.
+***
+
+[TOC]
+
+## Crashes reported as Reproducible
+
+The majority of the bugs reported by ClusterFuzz have **Reproducible** label.
+That means there is a testcase that can be used to reliably reproduce the crash.
+
+1. Download the testcase from ClusterFuzz. If you are CCed on an issue filed by
+   ClusterFuzz, a link to it is next to "Reproducer testcase" in the bug
+   description.
+
+   For the rest of this walkthrough, we call the path of this
+   file: `$TESTCASE_PATH` and the fuzz target you want to reproduce a
+   crash on: `$FUZZER_NAME` (provided as "Fuzz target binary" in the bug
+   description).
+
+2. Generate gn build configuration:
 
 ```
-Detailed report: https://cluster-fuzz.appspot.com/testcase?key=...
-
-Fuzzer: libfuzzer_media_pipeline_integration_fuzzer
-Job Type: libfuzzer_chrome_asan
-Platform Id: linux
-
-Crash Type: Heap-buffer-overflow READ {*}
-Crash Address: 0x60500000c64d
-Crash State:
-  stack_frame1
-  stack_frame2
-  stack_frame3
-
-Recommended Security Severity: Medium
-
-Regressed: <LINK>
-
-Minimized Testcase (6.86 Kb): <LINK>
-
-Filer: ...
+gn args out/fuzz
 ```
 
-You can click the "Detailed report" link for the full stack trace, and
-additional information/links.
-
-## Steps to reproduce
-
-1. Download the testcase given by the "Minimized Testcase" link.
-
-2. (**Important**) In the following sections, `$FUZZER_NAME` will be the the
-   string specified after the "Fuzzer :" in the report, but *without* the
-   "libfuzzer_" or "afl_" prefix. In this case, the `$FUZZER_NAME` is
-   "media_pipeline_integration_fuzzer".
-
-3. Follow the steps in one of the subsequent sections (from a chromium
-   checkout).  The string specified after the "Job Type: " will be either
-   `afl_chrome_asan`, `libfuzzer_chrome_asan`, `libfuzzer_chrome_msan`, or
-   `libfuzzer_chrome_ubsan`, indicating which one to use.
+   This will open up an editor. Copy the gn configuration parameters from the
+   values provided in `GN Config` section in the ClusterFuzz testcase report.
 
 
-*Notes*:
+3. Build the fuzzer:
 
-* `is_debug`:  ClusterFuzz uses release builds by default (`is_debug=false`).
-For ASan builds, both Debug and Release configurations are supported.
-Check a job type of the report for presence of `_debug` suffix.
-
-* `ffmpeg_branding`: For Linux `ffmpeg_branding` should be set to `ChromeOS`.
-For other platforms, use `ffmpeg_branding=Chrome`.
-
-### Reproducing AFL + ASan bugs
-```bash
-$ gn gen out/afl '--args=is_debug=false use_afl=true is_asan=true enable_nacl=false proprietary_codecs=true ffmpeg_branding="ChromeOS"'
-$ ninja -C out/afl $FUZZER_NAME
-$ out/afl/$FUZZER_NAME < /path/to/repro
+```
+autoninja -C out/fuzz $FUZZER_NAME
 ```
 
-### Reproducing LibFuzzer + ASan bugs
+4. Set the `*SAN_OPTIONS` environment variable as provided in the
+   `Crash Stacktrace` section in the testcase report.
+   Here is an example value of `ASAN_OPTIONS` that is similar to its value on
+   ClusterFuzz:
 
-```bash
-$ gn gen out/libfuzzer '--args=is_debug=false use_libfuzzer=true is_asan=true enable_nacl=false proprietary_codecs=true ffmpeg_branding="ChromeOS"'
-$ ninja -C out/libfuzzer $FUZZER_NAME
-$ out/libfuzzer/$FUZZER_NAME /path/to/repro
+```
+export ASAN_OPTIONS=redzone=256:print_summary=1:handle_sigill=1:allocator_release_to_os_interval_ms=500:print_suppressions=0:strict_memcmp=1:allow_user_segv_handler=0:use_sigaltstack=1:handle_sigfpe=1:handle_sigbus=1:detect_stack_use_after_return=0:alloc_dealloc_mismatch=0:detect_leaks=0:print_scariness=1:allocator_may_return_null=1:handle_abort=1:check_malloc_usable_size=0:detect_container_overflow=0:quarantine_size_mb=256:detect_odr_violation=0:symbolize=1:handle_segv=1:fast_unwind_on_fatal=1
 ```
 
-### Reproducing LibFuzzer + MSan bugs
+5. Run the fuzz target:
 
-```bash
-# The gclient runhooks is necessary to pull in instrumented libraries.
-$ GYP_DEFINES='msan=1 use_prebuilt_instrumented_libraries=1' gclient runhooks
-$ gn gen out/libfuzzer '--args=is_debug=false use_libfuzzer=true is_msan=true msan_track_origins=2 use_prebuilt_instrumented_libraries=true enable_nacl=false proprietary_codecs=true ffmpeg_branding="ChromeOS"'
-$ ninja -C out/libfuzzer $FUZZER_NAME
-$ out/libfuzzer/$FUZZER_NAME /path/to/repro
+```
+out/fuzz/$FUZZER_NAME -runs=100 $TESTCASE_PATH
 ```
 
-### Reproducing LibFuzzer + UBSan bugs
+If you see an un-symbolized stacktrace, please see the instructions [here].
 
-```bash
-$ gn gen out/libfuzzer '--args=is_debug=false use_libfuzzer=true is_ubsan_security=true enable_nacl=false proprietary_codecs=true ffmpeg_branding="ChromeOS"'
-$ ninja -C out/libfuzzer $FUZZER_NAME
-$ export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
-$ out/libfuzzer/$FUZZER_NAME /path/to/repro
+[File a bug] if you run into any issues.
+
+## Crashes reported as Unreproducible
+
+ClusterFuzz generally does not report issues that it cannot reliably reproduce,
+unless the following condition is met. If a certain crash is occurring often
+enough, such a crash might be reported with **Unreproducible** label and an
+explicit clarification that there is no convenient way to reproduce it. There
+are two ways to work with such crashes.
+
+1. Try a speculative fix based on the stacktrace. Once the fix is landed, wait a
+   couple days and then check Crash Statistics section on the ClusterFuzz
+   testcase report page. If the fix works out, you will see that the crash is
+   not happening anymore. If the crash does not occur again for a little while,
+   ClusterFuzz will automatically close the issue as Verified.
+
+2. (libFuzzer only) Try to reproduce the whole fuzzing session. This workflow is
+   very similar to the one described above for the **Reproducible** crashes. The
+   only differences are:
+
+  * On step 1, instead of downloading a single testcase, you need to download
+    corpus backup. This can be done using the following command:
+```
+gsutil cp gs://clusterfuzz-libfuzzer-backup/corpus/libfuzzer/$FUZZER_NAME/latest.zip .
 ```
 
-### Symbolization
-
-Memory tools (ASan, MSan, UBSan) use [llvm-symbolizer] binary from the Clang
-distribution to symbolize the stack traces. To get a symbolized crash report,
-make sure `llvm-symbolizer` is in `PATH` or provide it in separate
-`ASAN_SYMBOLIZER_PATH` environment variable.
-
-In Chromium repository `llvm-symbolizer` is located in
-`third_party/llvm-build/Release+Asserts/bin` directory.
-
-```bash
-$ export ASAN_SYMBOLIZER_PATH=/path/to/chromium/src/third_party/llvm-build/Release+Asserts/bin/llvm-symbolizer
-$ out/libfuzzer/$FUZZER_NAME /path/to/repro
+  * Alternatively, you can navigate to the following URL in your browser and
+    download the `latest.zip` file:
+```
+https://pantheon.corp.google.com/storage/browser/clusterfuzz-libfuzzer-backup/corpus/libfuzzer/$FUZZER_NAME
 ```
 
-The same approach works for `MSAN_SYMBOLIZER_PATH` and `UBSAN_SYMBOLIZER_PATH`.
+  * Create an empty directory and unpack the corpus into it.
+  * Follow steps 2-4 in the **Reproducible** section above.
+  * On step 5, use the following command:
 
-Additional information regarding symbolization is available in sanitizers
-documentation: [AddressSanitizerCallStack].
+```
+out/fuzz/$FUZZER_NAME -timeout=25 -rss_limit_mb=2048 -print_final_stats=1 $CORPUS_DIRECTORY_FROM_THE_PREVIOUS_STEP
+```
 
+  * Wait and hope that the fuzzer will crash.
 
-### Debugging
+Waiting for a crash to occur may take some time (up to 1hr), but if it happens,
+you will be able to test the fix locally and/or somehow debug the issue.
 
-Please look at [AddressSanitizerAndDebugger] page for some tips on debugging of
-binaries built with ASan.
-
-If you want gdb to stop after an error has been reported, use:
-
-* `ASAN_OPTIONS=abort_on_error=1` for binaries built with ASan.
-* `MSAN_OPTIONS=abort_on_error=1` for binaries built with MSan.
-
-
-
-[AddressSanitizerAndDebugger]: https://github.com/google/sanitizers/wiki/AddressSanitizerAndDebugger
-[AddressSanitizerCallStack]: https://github.com/google/sanitizers/wiki/AddressSanitizerCallStack
-[llvm-symbolizer]: http://llvm.org/docs/CommandGuide/llvm-symbolizer.html
+[ClusterFuzz Reproduce Tool]: https://github.com/google/clusterfuzz-tools
+[File a bug]: https://bugs.chromium.org/p/chromium/issues/entry?component=Tools%3EStability%3ElibFuzzer&comment=What%20problem%20are%20you%20seeing
+[here]: getting_started.md#symbolize-stacktrace

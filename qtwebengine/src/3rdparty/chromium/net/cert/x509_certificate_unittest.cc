@@ -9,24 +9,22 @@
 #include <memory>
 
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/pickle.h"
 #include "base/sha1.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "crypto/rsa_private_key.h"
 #include "net/base/net_errors.h"
 #include "net/cert/asn1_util.h"
-#include "net/cert/x509_util_nss.h"
+#include "net/cert/pem_tokenizer.h"
+#include "net/cert/x509_util.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/test_certificate_data.h"
 #include "net/test/test_data_directory.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "url/url_features.h"
-
-#if defined(USE_NSS_CERTS)
-#include <cert.h>
-#endif
 
 using base::HexEncode;
 using base::Time;
@@ -106,12 +104,8 @@ void CheckGoogleCert(const scoped_refptr<X509Certificate>& google_cert,
   EXPECT_EQ(valid_to, valid_expiry.ToDoubleT());
 
   EXPECT_EQ(expected_fingerprint, X509Certificate::CalculateFingerprint256(
-                                      google_cert->os_cert_handle()));
+                                      google_cert->cert_buffer()));
 
-  std::vector<std::string> dns_names;
-  google_cert->GetDNSNames(&dns_names);
-  ASSERT_EQ(1U, dns_names.size());
-  EXPECT_EQ("www.google.com", dns_names[0]);
 }
 
 TEST(X509CertificateTest, GoogleCertParsing) {
@@ -162,17 +156,17 @@ TEST(X509CertificateTest, WebkitCertParsing) {
   EXPECT_EQ(1300491319, valid_expiry.ToDoubleT());  // Mar 18 23:35:19 2011 GMT
 
   std::vector<std::string> dns_names;
-  webkit_cert->GetDNSNames(&dns_names);
+  EXPECT_TRUE(webkit_cert->GetSubjectAltName(&dns_names, nullptr));
   ASSERT_EQ(2U, dns_names.size());
   EXPECT_EQ("*.webkit.org", dns_names[0]);
   EXPECT_EQ("webkit.org", dns_names[1]);
 
   // Test that the wildcard cert matches properly.
-  EXPECT_TRUE(webkit_cert->VerifyNameMatch("www.webkit.org", false));
-  EXPECT_TRUE(webkit_cert->VerifyNameMatch("foo.webkit.org", false));
-  EXPECT_TRUE(webkit_cert->VerifyNameMatch("webkit.org", false));
-  EXPECT_FALSE(webkit_cert->VerifyNameMatch("www.webkit.com", false));
-  EXPECT_FALSE(webkit_cert->VerifyNameMatch("www.foo.webkit.com", false));
+  EXPECT_TRUE(webkit_cert->VerifyNameMatch("www.webkit.org"));
+  EXPECT_TRUE(webkit_cert->VerifyNameMatch("foo.webkit.org"));
+  EXPECT_TRUE(webkit_cert->VerifyNameMatch("webkit.org"));
+  EXPECT_FALSE(webkit_cert->VerifyNameMatch("www.webkit.com"));
+  EXPECT_FALSE(webkit_cert->VerifyNameMatch("www.foo.webkit.com"));
 }
 
 TEST(X509CertificateTest, ThawteCertParsing) {
@@ -211,11 +205,6 @@ TEST(X509CertificateTest, ThawteCertParsing) {
 
   const Time& valid_expiry = thawte_cert->valid_expiry();
   EXPECT_EQ(1263772799, valid_expiry.ToDoubleT());  // Jan 17 23:59:59 2010 GMT
-
-  std::vector<std::string> dns_names;
-  thawte_cert->GetDNSNames(&dns_names);
-  ASSERT_EQ(1U, dns_names.size());
-  EXPECT_EQ("www.thawte.com", dns_names[0]);
 }
 
 // Test that all desired AttributeAndValue pairs can be extracted when only
@@ -268,6 +257,38 @@ TEST(X509CertificateTest, UnescapedSpecialCharacters) {
   EXPECT_EQ(0U, subject.domain_components.size());
 }
 
+TEST(X509CertificateTest, InvalidPrintableStringIsUtf8) {
+  base::FilePath certs_dir =
+      GetTestNetDataDirectory().AppendASCII("parse_certificate_unittest");
+
+  std::string file_data;
+  ASSERT_TRUE(base::ReadFileToString(
+      certs_dir.AppendASCII(
+          "subject_printable_string_containing_utf8_client_cert.pem"),
+      &file_data));
+
+  net::PEMTokenizer pem_tokenizer(file_data, {"CERTIFICATE"});
+  ASSERT_TRUE(pem_tokenizer.GetNext());
+  std::string cert_der(pem_tokenizer.data());
+  ASSERT_FALSE(pem_tokenizer.GetNext());
+
+  bssl::UniquePtr<CRYPTO_BUFFER> cert_handle =
+      x509_util::CreateCryptoBuffer(cert_der);
+  ASSERT_TRUE(cert_handle);
+
+  EXPECT_FALSE(
+      X509Certificate::CreateFromBuffer(bssl::UpRef(cert_handle.get()), {}));
+
+  X509Certificate::UnsafeCreateOptions options;
+  options.printable_string_is_utf8 = true;
+  scoped_refptr<X509Certificate> cert =
+      X509Certificate::CreateFromBufferUnsafeOptions(
+          bssl::UpRef(cert_handle.get()), {}, options);
+
+  const CertPrincipal& subject = cert->subject();
+  EXPECT_EQ("Foo@#_ Clïênt Cërt", subject.common_name);
+}
+
 TEST(X509CertificateTest, TeletexStringIsLatin1) {
   base::FilePath certs_dir =
       GetTestNetDataDirectory().AppendASCII("parse_certificate_unittest");
@@ -301,7 +322,7 @@ TEST(X509CertificateTest, TeletexStringControlChars) {
       subject.organization_names[0]);
 }
 
-TEST(X509CertificateTest, TeletexStringIsLatin1OrCp1252) {
+TEST(X509CertificateTest, TeletexStringIsLatin1NotCp1252) {
   base::FilePath certs_dir =
       GetTestNetDataDirectory().AppendASCII("parse_certificate_unittest");
 
@@ -310,28 +331,14 @@ TEST(X509CertificateTest, TeletexStringIsLatin1OrCp1252) {
   ASSERT_TRUE(cert);
 
   const CertPrincipal& subject = cert->subject();
-#if (defined(OS_MACOSX) && !defined(OS_IOS)) || \
-    (BUILDFLAG(USE_BYTE_CERTS) && !BUILDFLAG(USE_PLATFORM_ICU_ALTERNATIVES))
-  // Mac: TeletexString is decoded as CP1252.
-  // use_byte_certs: ICU ISO-8859-1 seems to be CP1252 actually.
-  //   (but with use_platform_icu_alternatives it's not.)
-  EXPECT_EQ(
-      "~\x7F\xE2\x82\xAC\xC2\x81\xE2\x80\x9A\xC6\x92\xE2\x80\x9E\xE2\x80\xA6"
-      "\xE2\x80\xA0\xE2\x80\xA1\xCB\x86\xE2\x80\xB0\xC5\xA0\xE2\x80\xB9\xC5\x92"
-      "\xC2\x8D\xC5\xBD\xC2\x8F\xC2\x90\xE2\x80\x98\xE2\x80\x99\xE2\x80\x9C\xE2"
-      "\x80\x9D\xE2\x80\xA2\xE2\x80\x93\xE2\x80\x94\xCB\x9C\xE2\x84\xA2\xC5\xA1"
-      "\xE2\x80\xBA\xC5\x93\xC2\x9D\xC5\xBE\xC5\xB8\xC2\xA0",
-      subject.organization_names[0]);
-#else
-  // NSS, Win, Android, iOS: TeletexString is decoded as latin1, so 127-160 get
-  // decoded to equivalent unicode control chars.
+  // TeletexString is decoded as latin1, so 127-160 get decoded to equivalent
+  // unicode control chars.
   EXPECT_EQ(
       "~\x7F\xC2\x80\xC2\x81\xC2\x82\xC2\x83\xC2\x84\xC2\x85\xC2\x86\xC2\x87"
       "\xC2\x88\xC2\x89\xC2\x8A\xC2\x8B\xC2\x8C\xC2\x8D\xC2\x8E\xC2\x8F\xC2\x90"
       "\xC2\x91\xC2\x92\xC2\x93\xC2\x94\xC2\x95\xC2\x96\xC2\x97\xC2\x98\xC2\x99"
       "\xC2\x9A\xC2\x9B\xC2\x9C\xC2\x9D\xC2\x9E\xC2\x9F\xC2\xA0",
       subject.organization_names[0]);
-#endif
 }
 
 TEST(X509CertificateTest, TeletexStringIsNotARealT61String) {
@@ -442,7 +449,7 @@ TEST(X509CertificateTest, SHA256FingerprintsCorrectly) {
        0x7f, 0x77, 0x49, 0x38, 0x42, 0x81, 0x26, 0x7f, 0xed, 0x38}};
 
   EXPECT_EQ(google_sha256_fingerprint, X509Certificate::CalculateFingerprint256(
-                                           google_cert->os_cert_handle()));
+                                           google_cert->cert_buffer()));
 }
 
 TEST(X509CertificateTest, CAFingerprints) {
@@ -460,49 +467,26 @@ TEST(X509CertificateTest, CAFingerprints) {
       ImportCertFromFile(certs_dir, "verisign_intermediate_ca_2016.pem");
   ASSERT_NE(static_cast<X509Certificate*>(NULL), intermediate_cert2.get());
 
-  X509Certificate::OSCertHandles intermediates;
-  intermediates.push_back(intermediate_cert1->os_cert_handle());
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
+  intermediates.push_back(bssl::UpRef(intermediate_cert1->cert_buffer()));
   scoped_refptr<X509Certificate> cert_chain1 =
-      X509Certificate::CreateFromHandle(server_cert->os_cert_handle(),
-                                        intermediates);
+      X509Certificate::CreateFromBuffer(bssl::UpRef(server_cert->cert_buffer()),
+                                        std::move(intermediates));
   ASSERT_TRUE(cert_chain1);
 
   intermediates.clear();
-  intermediates.push_back(intermediate_cert2->os_cert_handle());
+  intermediates.push_back(bssl::UpRef(intermediate_cert2->cert_buffer()));
   scoped_refptr<X509Certificate> cert_chain2 =
-      X509Certificate::CreateFromHandle(server_cert->os_cert_handle(),
-                                        intermediates);
+      X509Certificate::CreateFromBuffer(bssl::UpRef(server_cert->cert_buffer()),
+                                        std::move(intermediates));
   ASSERT_TRUE(cert_chain2);
 
   // No intermediate CA certicates.
   intermediates.clear();
   scoped_refptr<X509Certificate> cert_chain3 =
-      X509Certificate::CreateFromHandle(server_cert->os_cert_handle(),
-                                        intermediates);
+      X509Certificate::CreateFromBuffer(bssl::UpRef(server_cert->cert_buffer()),
+                                        std::move(intermediates));
   ASSERT_TRUE(cert_chain3);
-
-  SHA256HashValue cert_chain1_ca_fingerprint_256 = {
-      {0x51, 0x15, 0x30, 0x49, 0x97, 0x54, 0xf8, 0xb4, 0x17, 0x41, 0x6b,
-       0x58, 0x78, 0xb0, 0x89, 0xd2, 0xc3, 0xae, 0x66, 0xc1, 0x16, 0x80,
-       0xa0, 0x78, 0xe7, 0x53, 0x45, 0xa2, 0xfb, 0x80, 0xe1, 0x07}};
-  SHA256HashValue cert_chain2_ca_fingerprint_256 = {
-      {0x00, 0xbd, 0x2b, 0x0e, 0xdd, 0x83, 0x40, 0xb1, 0x74, 0x6c, 0xc3,
-       0x95, 0xc0, 0xe3, 0x55, 0xb2, 0x16, 0x58, 0x53, 0xfd, 0xb9, 0x3c,
-       0x52, 0xda, 0xdd, 0xa8, 0x22, 0x8b, 0x07, 0x00, 0x2d, 0xce}};
-  // The SHA-256 hash of nothing.
-  SHA256HashValue cert_chain3_ca_fingerprint_256 = {
-      {0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4,
-       0xc8, 0x99, 0x6f, 0xb9, 0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b,
-       0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55}};
-  EXPECT_EQ(cert_chain1_ca_fingerprint_256,
-            X509Certificate::CalculateCAFingerprint256(
-                cert_chain1->GetIntermediateCertificates()));
-  EXPECT_EQ(cert_chain2_ca_fingerprint_256,
-            X509Certificate::CalculateCAFingerprint256(
-                cert_chain2->GetIntermediateCertificates()));
-  EXPECT_EQ(cert_chain3_ca_fingerprint_256,
-            X509Certificate::CalculateCAFingerprint256(
-                cert_chain3->GetIntermediateCertificates()));
 
   SHA256HashValue cert_chain1_chain_fingerprint_256 = {
       {0xac, 0xff, 0xcc, 0x63, 0x0d, 0xd0, 0xa7, 0x19, 0x78, 0xb5, 0x8a,
@@ -517,17 +501,11 @@ TEST(X509CertificateTest, CAFingerprints) {
        0x6a, 0xa6, 0x02, 0x73, 0x30, 0x3e, 0x34, 0x1b, 0x43, 0xc2, 0x7c,
        0x98, 0x52, 0x9f, 0x34, 0x7f, 0x55, 0x97, 0xe9, 0x1a, 0x10}};
   EXPECT_EQ(cert_chain1_chain_fingerprint_256,
-            X509Certificate::CalculateChainFingerprint256(
-                cert_chain1->os_cert_handle(),
-                cert_chain1->GetIntermediateCertificates()));
+            cert_chain1->CalculateChainFingerprint256());
   EXPECT_EQ(cert_chain2_chain_fingerprint_256,
-            X509Certificate::CalculateChainFingerprint256(
-                cert_chain2->os_cert_handle(),
-                cert_chain2->GetIntermediateCertificates()));
+            cert_chain2->CalculateChainFingerprint256());
   EXPECT_EQ(cert_chain3_chain_fingerprint_256,
-            X509Certificate::CalculateChainFingerprint256(
-                cert_chain3->os_cert_handle(),
-                cert_chain3->GetIntermediateCertificates()));
+            cert_chain3->CalculateChainFingerprint256());
 }
 
 TEST(X509CertificateTest, ParseSubjectAltNames) {
@@ -558,17 +536,17 @@ TEST(X509CertificateTest, ParseSubjectAltNames) {
   static const uint8_t kIPv4Address[] = {
       0x7F, 0x00, 0x00, 0x02
   };
-  ASSERT_EQ(arraysize(kIPv4Address), ip_addresses[0].size());
+  ASSERT_EQ(base::size(kIPv4Address), ip_addresses[0].size());
   EXPECT_EQ(0, memcmp(ip_addresses[0].data(), kIPv4Address,
-                      arraysize(kIPv4Address)));
+                      base::size(kIPv4Address)));
 
   static const uint8_t kIPv6Address[] = {
       0xFE, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
   };
-  ASSERT_EQ(arraysize(kIPv6Address), ip_addresses[1].size());
+  ASSERT_EQ(base::size(kIPv6Address), ip_addresses[1].size());
   EXPECT_EQ(0, memcmp(ip_addresses[1].data(), kIPv6Address,
-                      arraysize(kIPv6Address)));
+                      base::size(kIPv6Address)));
 
   // Ensure the subjectAltName dirName has not influenced the handling of
   // the subject commonName.
@@ -585,41 +563,15 @@ TEST(X509CertificateTest, ParseSubjectAltNames) {
   EXPECT_EQ(0u, ip_addresses.size());
 }
 
-#if defined(USE_NSS_CERTS)
-TEST(X509CertificateTest, ParseClientSubjectAltNames) {
-  base::FilePath certs_dir = GetTestCertsDirectory();
-
-  // This cert contains one rfc822Name field, and one Microsoft UPN
-  // otherName field.
-  scoped_refptr<X509Certificate> san_cert =
-      ImportCertFromFile(certs_dir, "client_3.pem");
-  ASSERT_NE(static_cast<X509Certificate*>(NULL), san_cert.get());
-
-  std::vector<std::string> rfc822_names;
-  net::x509_util::GetRFC822SubjectAltNames(san_cert->os_cert_handle(),
-                                           &rfc822_names);
-  ASSERT_EQ(1U, rfc822_names.size());
-  EXPECT_EQ("santest@example.com", rfc822_names[0]);
-
-  std::vector<std::string> upn_names;
-  net::x509_util::GetUPNSubjectAltNames(san_cert->os_cert_handle(), &upn_names);
-  ASSERT_EQ(1U, upn_names.size());
-  EXPECT_EQ("santest@ad.corp.example.com", upn_names[0]);
-}
-#endif  // defined(USE_NSS_CERTS)
-
 TEST(X509CertificateTest, ExtractSPKIFromDERCert) {
   base::FilePath certs_dir = GetTestCertsDirectory();
   scoped_refptr<X509Certificate> cert =
       ImportCertFromFile(certs_dir, "nist.der");
   ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
 
-  std::string derBytes;
-  EXPECT_TRUE(X509Certificate::GetDEREncoded(cert->os_cert_handle(),
-                                             &derBytes));
-
   base::StringPiece spkiBytes;
-  EXPECT_TRUE(asn1::ExtractSPKIFromDERCert(derBytes, &spkiBytes));
+  EXPECT_TRUE(asn1::ExtractSPKIFromDERCert(
+      x509_util::CryptoBufferAsStringPiece(cert->cert_buffer()), &spkiBytes));
 
   uint8_t hash[base::kSHA1Length];
   base::SHA1HashBytes(reinterpret_cast<const uint8_t*>(spkiBytes.data()),
@@ -628,37 +580,14 @@ TEST(X509CertificateTest, ExtractSPKIFromDERCert) {
   EXPECT_EQ(0, memcmp(hash, kNistSPKIHash, sizeof(hash)));
 }
 
-TEST(X509CertificateTest, ExtractCRLURLsFromDERCert) {
-  base::FilePath certs_dir = GetTestCertsDirectory();
-  scoped_refptr<X509Certificate> cert =
-      ImportCertFromFile(certs_dir, "nist.der");
-  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
-
-  std::string derBytes;
-  EXPECT_TRUE(X509Certificate::GetDEREncoded(cert->os_cert_handle(),
-                                             &derBytes));
-
-  std::vector<base::StringPiece> crl_urls;
-  EXPECT_TRUE(asn1::ExtractCRLURLsFromDERCert(derBytes, &crl_urls));
-
-  EXPECT_EQ(1u, crl_urls.size());
-  if (crl_urls.size() > 0) {
-    EXPECT_EQ("http://SVRSecure-G3-crl.verisign.com/SVRSecureG3.crl",
-              crl_urls[0].as_string());
-  }
-}
-
 TEST(X509CertificateTest, HasTLSFeatureExtension) {
   base::FilePath certs_dir = GetTestCertsDirectory();
   scoped_refptr<X509Certificate> cert =
       ImportCertFromFile(certs_dir, "tls_feature_extension.pem");
   ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
 
-  std::string derBytes;
-  EXPECT_TRUE(
-      X509Certificate::GetDEREncoded(cert->os_cert_handle(), &derBytes));
-
-  EXPECT_TRUE(asn1::HasTLSFeatureExtension(derBytes));
+  EXPECT_TRUE(asn1::HasTLSFeatureExtension(
+      x509_util::CryptoBufferAsStringPiece(cert->cert_buffer())));
 }
 
 TEST(X509CertificateTest, DoesNotHaveTLSFeatureExtension) {
@@ -667,101 +596,151 @@ TEST(X509CertificateTest, DoesNotHaveTLSFeatureExtension) {
       ImportCertFromFile(certs_dir, "ok_cert.pem");
   ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
 
-  std::string derBytes;
-  EXPECT_TRUE(
-      X509Certificate::GetDEREncoded(cert->os_cert_handle(), &derBytes));
-
-  EXPECT_FALSE(asn1::HasTLSFeatureExtension(derBytes));
+  EXPECT_FALSE(asn1::HasTLSFeatureExtension(
+      x509_util::CryptoBufferAsStringPiece(cert->cert_buffer())));
 }
 
-// Tests X509CertificateCache via X509Certificate::CreateFromHandle.  We
-// call X509Certificate::CreateFromHandle several times and observe whether
-// it returns a cached or new OSCertHandle.
+TEST(X509CertificateTest, HasCanSignHttpExchangesDraftExtension) {
+  base::FilePath certs_dir = GetTestCertsDirectory();
+  scoped_refptr<X509Certificate> cert = ImportCertFromFile(
+      certs_dir, "can_sign_http_exchanges_draft_extension.pem");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
+
+  EXPECT_TRUE(asn1::HasCanSignHttpExchangesDraftExtension(
+      x509_util::CryptoBufferAsStringPiece(cert->cert_buffer())));
+}
+
+TEST(X509CertificateTest, HasCanSignHttpExchangesDraftExtensionInvalid) {
+  base::FilePath certs_dir = GetTestCertsDirectory();
+  scoped_refptr<X509Certificate> cert = ImportCertFromFile(
+      certs_dir, "can_sign_http_exchanges_draft_extension_invalid.pem");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
+
+  EXPECT_FALSE(asn1::HasCanSignHttpExchangesDraftExtension(
+      x509_util::CryptoBufferAsStringPiece(cert->cert_buffer())));
+}
+
+TEST(X509CertificateTest, DoesNotHaveCanSignHttpExchangesDraftExtension) {
+  base::FilePath certs_dir = GetTestCertsDirectory();
+  scoped_refptr<X509Certificate> cert =
+      ImportCertFromFile(certs_dir, "ok_cert.pem");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
+
+  EXPECT_FALSE(asn1::HasCanSignHttpExchangesDraftExtension(
+      x509_util::CryptoBufferAsStringPiece(cert->cert_buffer())));
+}
+
+TEST(X509CertificateTest, ExtractExtension) {
+  base::FilePath certs_dir = GetTestCertsDirectory();
+  scoped_refptr<X509Certificate> cert =
+      ImportCertFromFile(certs_dir, "ok_cert.pem");
+  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
+
+  static constexpr uint8_t kBasicConstraintsOID[] = {0x55, 0x1d, 0x13};
+  bool present, critical;
+  base::StringPiece contents;
+  ASSERT_TRUE(asn1::ExtractExtensionFromDERCert(
+      x509_util::CryptoBufferAsStringPiece(cert->cert_buffer()),
+      base::StringPiece(reinterpret_cast<const char*>(kBasicConstraintsOID),
+                        sizeof(kBasicConstraintsOID)),
+      &present, &critical, &contents));
+  EXPECT_TRUE(present);
+  EXPECT_TRUE(critical);
+  ASSERT_EQ(base::StringPiece("\x30\x00", 2), contents);
+
+  static constexpr uint8_t kNonsenseOID[] = {0x56, 0x1d, 0x13};
+  ASSERT_TRUE(asn1::ExtractExtensionFromDERCert(
+      x509_util::CryptoBufferAsStringPiece(cert->cert_buffer()),
+      base::StringPiece(reinterpret_cast<const char*>(kNonsenseOID),
+                        sizeof(kNonsenseOID)),
+      &present, &critical, &contents));
+  ASSERT_FALSE(present);
+}
+
+// Tests CRYPTO_BUFFER deduping via X509Certificate::CreateFromBuffer.  We
+// call X509Certificate::CreateFromBuffer several times and observe whether
+// it returns a cached or new CRYPTO_BUFFER.
 TEST(X509CertificateTest, Cache) {
-  X509Certificate::OSCertHandle google_cert_handle;
-  X509Certificate::OSCertHandle thawte_cert_handle;
+  bssl::UniquePtr<CRYPTO_BUFFER> google_cert_handle;
+  bssl::UniquePtr<CRYPTO_BUFFER> thawte_cert_handle;
 
   // Add a single certificate to the certificate cache.
-  google_cert_handle = X509Certificate::CreateOSCertHandleFromBytes(
+  google_cert_handle = X509Certificate::CreateCertBufferFromBytes(
       reinterpret_cast<const char*>(google_der), sizeof(google_der));
-  scoped_refptr<X509Certificate> cert1(X509Certificate::CreateFromHandle(
-      google_cert_handle, X509Certificate::OSCertHandles()));
-  X509Certificate::FreeOSCertHandle(google_cert_handle);
+  ASSERT_TRUE(google_cert_handle);
+  scoped_refptr<X509Certificate> cert1(
+      X509Certificate::CreateFromBuffer(std::move(google_cert_handle), {}));
   ASSERT_TRUE(cert1);
 
   // Add the same certificate, but as a new handle.
-  google_cert_handle = X509Certificate::CreateOSCertHandleFromBytes(
+  google_cert_handle = X509Certificate::CreateCertBufferFromBytes(
       reinterpret_cast<const char*>(google_der), sizeof(google_der));
-  scoped_refptr<X509Certificate> cert2(X509Certificate::CreateFromHandle(
-      google_cert_handle, X509Certificate::OSCertHandles()));
-  X509Certificate::FreeOSCertHandle(google_cert_handle);
+  ASSERT_TRUE(google_cert_handle);
+  scoped_refptr<X509Certificate> cert2(
+      X509Certificate::CreateFromBuffer(std::move(google_cert_handle), {}));
   ASSERT_TRUE(cert2);
 
   // A new X509Certificate should be returned.
   EXPECT_NE(cert1.get(), cert2.get());
   // But both instances should share the underlying OS certificate handle.
-  EXPECT_EQ(cert1->os_cert_handle(), cert2->os_cert_handle());
-  EXPECT_EQ(0u, cert1->GetIntermediateCertificates().size());
-  EXPECT_EQ(0u, cert2->GetIntermediateCertificates().size());
+  EXPECT_EQ(cert1->cert_buffer(), cert2->cert_buffer());
+  EXPECT_EQ(0u, cert1->intermediate_buffers().size());
+  EXPECT_EQ(0u, cert2->intermediate_buffers().size());
 
   // Add the same certificate, but this time with an intermediate. This
   // should result in the intermediate being cached. Note that this is not
   // a legitimate chain, but is suitable for testing.
-  google_cert_handle = X509Certificate::CreateOSCertHandleFromBytes(
+  google_cert_handle = X509Certificate::CreateCertBufferFromBytes(
       reinterpret_cast<const char*>(google_der), sizeof(google_der));
-  thawte_cert_handle = X509Certificate::CreateOSCertHandleFromBytes(
+  thawte_cert_handle = X509Certificate::CreateCertBufferFromBytes(
       reinterpret_cast<const char*>(thawte_der), sizeof(thawte_der));
-  X509Certificate::OSCertHandles intermediates;
-  intermediates.push_back(thawte_cert_handle);
-  scoped_refptr<X509Certificate> cert3(X509Certificate::CreateFromHandle(
-      google_cert_handle, intermediates));
-  X509Certificate::FreeOSCertHandle(google_cert_handle);
-  X509Certificate::FreeOSCertHandle(thawte_cert_handle);
+  ASSERT_TRUE(google_cert_handle);
+  ASSERT_TRUE(thawte_cert_handle);
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
+  intermediates.push_back(std::move(thawte_cert_handle));
+  scoped_refptr<X509Certificate> cert3(X509Certificate::CreateFromBuffer(
+      std::move(google_cert_handle), std::move(intermediates)));
   ASSERT_TRUE(cert3);
 
   // Test that the new certificate, even with intermediates, results in the
   // same underlying handle being used.
-  EXPECT_EQ(cert1->os_cert_handle(), cert3->os_cert_handle());
+  EXPECT_EQ(cert1->cert_buffer(), cert3->cert_buffer());
   // Though they use the same OS handle, the intermediates should be different.
-  EXPECT_NE(cert1->GetIntermediateCertificates().size(),
-      cert3->GetIntermediateCertificates().size());
+  EXPECT_NE(cert1->intermediate_buffers().size(),
+            cert3->intermediate_buffers().size());
 }
 
 TEST(X509CertificateTest, Pickle) {
-  X509Certificate::OSCertHandle google_cert_handle =
-      X509Certificate::CreateOSCertHandleFromBytes(
+  bssl::UniquePtr<CRYPTO_BUFFER> google_cert_handle =
+      X509Certificate::CreateCertBufferFromBytes(
           reinterpret_cast<const char*>(google_der), sizeof(google_der));
-  X509Certificate::OSCertHandle thawte_cert_handle =
-      X509Certificate::CreateOSCertHandleFromBytes(
+  ASSERT_TRUE(google_cert_handle);
+  bssl::UniquePtr<CRYPTO_BUFFER> thawte_cert_handle =
+      X509Certificate::CreateCertBufferFromBytes(
           reinterpret_cast<const char*>(thawte_der), sizeof(thawte_der));
+  ASSERT_TRUE(thawte_cert_handle);
 
-  X509Certificate::OSCertHandles intermediates;
-  intermediates.push_back(thawte_cert_handle);
-  scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromHandle(
-      google_cert_handle, intermediates);
-  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
-
-  X509Certificate::FreeOSCertHandle(google_cert_handle);
-  X509Certificate::FreeOSCertHandle(thawte_cert_handle);
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
+  intermediates.push_back(std::move(thawte_cert_handle));
+  scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromBuffer(
+      std::move(google_cert_handle), std::move(intermediates));
+  ASSERT_TRUE(cert);
 
   base::Pickle pickle;
   cert->Persist(&pickle);
 
   base::PickleIterator iter(pickle);
   scoped_refptr<X509Certificate> cert_from_pickle =
-      X509Certificate::CreateFromPickle(
-          &iter, X509Certificate::PICKLETYPE_CERTIFICATE_CHAIN_V3);
-  ASSERT_NE(static_cast<X509Certificate*>(NULL), cert_from_pickle.get());
-  EXPECT_TRUE(X509Certificate::IsSameOSCert(
-      cert->os_cert_handle(), cert_from_pickle->os_cert_handle()));
-  const X509Certificate::OSCertHandles& cert_intermediates =
-      cert->GetIntermediateCertificates();
-  const X509Certificate::OSCertHandles& pickle_intermediates =
-      cert_from_pickle->GetIntermediateCertificates();
+      X509Certificate::CreateFromPickle(&iter);
+  ASSERT_TRUE(cert_from_pickle);
+  EXPECT_TRUE(x509_util::CryptoBufferEqual(cert->cert_buffer(),
+                                           cert_from_pickle->cert_buffer()));
+  const auto& cert_intermediates = cert->intermediate_buffers();
+  const auto& pickle_intermediates = cert_from_pickle->intermediate_buffers();
   ASSERT_EQ(cert_intermediates.size(), pickle_intermediates.size());
   for (size_t i = 0; i < cert_intermediates.size(); ++i) {
-    EXPECT_TRUE(X509Certificate::IsSameOSCert(cert_intermediates[i],
-                                              pickle_intermediates[i]));
+    EXPECT_TRUE(x509_util::CryptoBufferEqual(cert_intermediates[i].get(),
+                                             pickle_intermediates[i].get()));
   }
 }
 
@@ -776,35 +755,125 @@ TEST(X509CertificateTest, IntermediateCertificates) {
           reinterpret_cast<const char*>(thawte_der), sizeof(thawte_der)));
   ASSERT_TRUE(thawte_cert);
 
-  X509Certificate::OSCertHandle google_handle;
+  bssl::UniquePtr<CRYPTO_BUFFER> google_handle;
   // Create object with no intermediates:
-  google_handle = X509Certificate::CreateOSCertHandleFromBytes(
+  google_handle = X509Certificate::CreateCertBufferFromBytes(
       reinterpret_cast<const char*>(google_der), sizeof(google_der));
-  X509Certificate::OSCertHandles intermediates1;
   scoped_refptr<X509Certificate> cert1;
-  cert1 = X509Certificate::CreateFromHandle(google_handle, intermediates1);
+  cert1 =
+      X509Certificate::CreateFromBuffer(bssl::UpRef(google_handle.get()), {});
   ASSERT_TRUE(cert1);
-  EXPECT_EQ(0u, cert1->GetIntermediateCertificates().size());
+  EXPECT_EQ(0u, cert1->intermediate_buffers().size());
 
   // Create object with 2 intermediates:
-  X509Certificate::OSCertHandles intermediates2;
-  intermediates2.push_back(webkit_cert->os_cert_handle());
-  intermediates2.push_back(thawte_cert->os_cert_handle());
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates2;
+  intermediates2.push_back(bssl::UpRef(webkit_cert->cert_buffer()));
+  intermediates2.push_back(bssl::UpRef(thawte_cert->cert_buffer()));
   scoped_refptr<X509Certificate> cert2;
-  cert2 = X509Certificate::CreateFromHandle(google_handle, intermediates2);
+  cert2 = X509Certificate::CreateFromBuffer(std::move(google_handle),
+                                            std::move(intermediates2));
   ASSERT_TRUE(cert2);
 
   // Verify it has all the intermediates:
-  const X509Certificate::OSCertHandles& cert2_intermediates =
-      cert2->GetIntermediateCertificates();
+  const auto& cert2_intermediates = cert2->intermediate_buffers();
   ASSERT_EQ(2u, cert2_intermediates.size());
-  EXPECT_TRUE(X509Certificate::IsSameOSCert(cert2_intermediates[0],
-                                            webkit_cert->os_cert_handle()));
-  EXPECT_TRUE(X509Certificate::IsSameOSCert(cert2_intermediates[1],
-                                            thawte_cert->os_cert_handle()));
+  EXPECT_TRUE(x509_util::CryptoBufferEqual(cert2_intermediates[0].get(),
+                                           webkit_cert->cert_buffer()));
+  EXPECT_TRUE(x509_util::CryptoBufferEqual(cert2_intermediates[1].get(),
+                                           thawte_cert->cert_buffer()));
+}
 
-  // Cleanup
-  X509Certificate::FreeOSCertHandle(google_handle);
+TEST(X509CertificateTest, Equals) {
+  CertificateList certs = CreateCertificateListFromFile(
+      GetTestCertsDirectory(), "multi-root-chain1.pem",
+      X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
+  ASSERT_EQ(4u, certs.size());
+
+  // Comparing X509Certificates with no intermediates.
+  EXPECT_TRUE(certs[0]->EqualsExcludingChain(certs[0].get()));
+  EXPECT_FALSE(certs[1]->EqualsExcludingChain(certs[0].get()));
+  EXPECT_FALSE(certs[0]->EqualsExcludingChain(certs[1].get()));
+  EXPECT_TRUE(certs[0]->EqualsIncludingChain(certs[0].get()));
+  EXPECT_FALSE(certs[1]->EqualsIncludingChain(certs[0].get()));
+  EXPECT_FALSE(certs[0]->EqualsIncludingChain(certs[1].get()));
+
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates1;
+  intermediates1.push_back(bssl::UpRef(certs[1]->cert_buffer()));
+  scoped_refptr<X509Certificate> cert0_with_intermediate =
+      X509Certificate::CreateFromBuffer(bssl::UpRef(certs[0]->cert_buffer()),
+                                        std::move(intermediates1));
+  ASSERT_TRUE(cert0_with_intermediate);
+
+  // Comparing X509Certificate with one intermediate to X509Certificate with no
+  // intermediates.
+  EXPECT_TRUE(certs[0]->EqualsExcludingChain(cert0_with_intermediate.get()));
+  EXPECT_TRUE(cert0_with_intermediate->EqualsExcludingChain(certs[0].get()));
+  EXPECT_FALSE(certs[0]->EqualsIncludingChain(cert0_with_intermediate.get()));
+  EXPECT_FALSE(cert0_with_intermediate->EqualsIncludingChain(certs[0].get()));
+
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates2;
+  intermediates2.push_back(bssl::UpRef(certs[2]->cert_buffer()));
+  scoped_refptr<X509Certificate> cert0_with_intermediate2 =
+      X509Certificate::CreateFromBuffer(bssl::UpRef(certs[0]->cert_buffer()),
+                                        std::move(intermediates1));
+  ASSERT_TRUE(cert0_with_intermediate2);
+
+  // Comparing X509Certificate with one intermediate to X509Certificate with
+  // one different intermediate.
+  EXPECT_TRUE(cert0_with_intermediate2->EqualsExcludingChain(
+      cert0_with_intermediate.get()));
+  EXPECT_TRUE(cert0_with_intermediate->EqualsExcludingChain(
+      cert0_with_intermediate2.get()));
+  EXPECT_FALSE(cert0_with_intermediate2->EqualsIncludingChain(
+      cert0_with_intermediate.get()));
+  EXPECT_FALSE(cert0_with_intermediate->EqualsIncludingChain(
+      cert0_with_intermediate2.get()));
+
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates12;
+  intermediates12.push_back(bssl::UpRef(certs[1]->cert_buffer()));
+  intermediates12.push_back(bssl::UpRef(certs[2]->cert_buffer()));
+  scoped_refptr<X509Certificate> cert0_with_intermediates12 =
+      X509Certificate::CreateFromBuffer(bssl::UpRef(certs[0]->cert_buffer()),
+                                        std::move(intermediates12));
+  ASSERT_TRUE(cert0_with_intermediates12);
+
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates21;
+  intermediates21.push_back(bssl::UpRef(certs[2]->cert_buffer()));
+  intermediates21.push_back(bssl::UpRef(certs[1]->cert_buffer()));
+  scoped_refptr<X509Certificate> cert0_with_intermediates21 =
+      X509Certificate::CreateFromBuffer(bssl::UpRef(certs[0]->cert_buffer()),
+                                        std::move(intermediates21));
+  ASSERT_TRUE(cert0_with_intermediates21);
+
+  // Comparing X509Certificate with two intermediates to X509Certificate with
+  // same two intermediates but in reverse order
+  EXPECT_TRUE(cert0_with_intermediates21->EqualsExcludingChain(
+      cert0_with_intermediates12.get()));
+  EXPECT_TRUE(cert0_with_intermediates12->EqualsExcludingChain(
+      cert0_with_intermediates21.get()));
+  EXPECT_FALSE(cert0_with_intermediates21->EqualsIncludingChain(
+      cert0_with_intermediates12.get()));
+  EXPECT_FALSE(cert0_with_intermediates12->EqualsIncludingChain(
+      cert0_with_intermediates21.get()));
+
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates12b;
+  intermediates12b.push_back(bssl::UpRef(certs[1]->cert_buffer()));
+  intermediates12b.push_back(bssl::UpRef(certs[2]->cert_buffer()));
+  scoped_refptr<X509Certificate> cert0_with_intermediates12b =
+      X509Certificate::CreateFromBuffer(bssl::UpRef(certs[0]->cert_buffer()),
+                                        std::move(intermediates12b));
+  ASSERT_TRUE(cert0_with_intermediates12b);
+
+  // Comparing X509Certificate with two intermediates to X509Certificate with
+  // same two intermediates in same order.
+  EXPECT_TRUE(cert0_with_intermediates12->EqualsExcludingChain(
+      cert0_with_intermediates12b.get()));
+  EXPECT_TRUE(cert0_with_intermediates12b->EqualsExcludingChain(
+      cert0_with_intermediates12.get()));
+  EXPECT_TRUE(cert0_with_intermediates12->EqualsIncludingChain(
+      cert0_with_intermediates12b.get()));
+  EXPECT_TRUE(cert0_with_intermediates12b->EqualsIncludingChain(
+      cert0_with_intermediates12.get()));
 }
 
 TEST(X509CertificateTest, IsIssuedByEncoded) {
@@ -855,22 +924,22 @@ TEST(X509CertificateTest, IsSelfSigned) {
   scoped_refptr<X509Certificate> cert(
       ImportCertFromFile(certs_dir, "mit.davidben.der"));
   ASSERT_NE(static_cast<X509Certificate*>(NULL), cert.get());
-  EXPECT_FALSE(X509Certificate::IsSelfSigned(cert->os_cert_handle()));
+  EXPECT_FALSE(X509Certificate::IsSelfSigned(cert->cert_buffer()));
 
   scoped_refptr<X509Certificate> self_signed(
       ImportCertFromFile(certs_dir, "aia-root.pem"));
   ASSERT_NE(static_cast<X509Certificate*>(NULL), self_signed.get());
-  EXPECT_TRUE(X509Certificate::IsSelfSigned(self_signed->os_cert_handle()));
+  EXPECT_TRUE(X509Certificate::IsSelfSigned(self_signed->cert_buffer()));
 
   scoped_refptr<X509Certificate> bad_name(
       ImportCertFromFile(certs_dir, "self-signed-invalid-name.pem"));
   ASSERT_NE(static_cast<X509Certificate*>(NULL), bad_name.get());
-  EXPECT_FALSE(X509Certificate::IsSelfSigned(bad_name->os_cert_handle()));
+  EXPECT_FALSE(X509Certificate::IsSelfSigned(bad_name->cert_buffer()));
 
   scoped_refptr<X509Certificate> bad_sig(
       ImportCertFromFile(certs_dir, "self-signed-invalid-sig.pem"));
   ASSERT_NE(static_cast<X509Certificate*>(NULL), bad_sig.get());
-  EXPECT_FALSE(X509Certificate::IsSelfSigned(bad_sig->os_cert_handle()));
+  EXPECT_FALSE(X509Certificate::IsSelfSigned(bad_sig->cert_buffer()));
 }
 
 TEST(X509CertificateTest, IsIssuedByEncodedWithIntermediates) {
@@ -900,11 +969,10 @@ TEST(X509CertificateTest, IsIssuedByEncodedWithIntermediates) {
   std::string policy_root_dn(reinterpret_cast<const char*>(kPolicyRootDN),
                              sizeof(kPolicyRootDN));
 
-  X509Certificate::OSCertHandles intermediates;
-  intermediates.push_back(policy_chain[1]->os_cert_handle());
-  scoped_refptr<X509Certificate> cert_chain =
-      X509Certificate::CreateFromHandle(policy_chain[0]->os_cert_handle(),
-                                        intermediates);
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
+  intermediates.push_back(bssl::UpRef(policy_chain[1]->cert_buffer()));
+  scoped_refptr<X509Certificate> cert_chain = X509Certificate::CreateFromBuffer(
+      bssl::UpRef(policy_chain[0]->cert_buffer()), std::move(intermediates));
   ASSERT_TRUE(cert_chain);
 
   std::vector<std::string> issuers;
@@ -936,25 +1004,6 @@ TEST(X509CertificateTest, IsIssuedByEncodedWithIntermediates) {
   issuers.push_back(mit_issuer);
   EXPECT_FALSE(cert_chain->IsIssuedByEncoded(issuers));
 }
-
-// Tests that FreeOSCertHandle ignores NULL on each OS.
-TEST(X509CertificateTest, FreeNullHandle) {
-  X509Certificate::FreeOSCertHandle(NULL);
-}
-
-#if defined(USE_NSS_CERTS)
-TEST(X509CertificateTest, GetDefaultNickname) {
-  base::FilePath certs_dir = GetTestCertsDirectory();
-
-  scoped_refptr<X509Certificate> test_cert(
-      ImportCertFromFile(certs_dir, "no_subject_common_name_cert.pem"));
-  ASSERT_NE(static_cast<X509Certificate*>(NULL), test_cert.get());
-
-  std::string nickname = test_cert->GetDefaultNickname(USER_CERT);
-  EXPECT_EQ("wtc@google.com's COMODO Client Authentication and "
-            "Secure Email CA ID", nickname);
-}
-#endif
 
 const struct CertificateFormatTestData {
   const char* file_name;
@@ -1044,7 +1093,7 @@ const struct CertificateFormatTestData {
 class X509CertificateParseTest
     : public testing::TestWithParam<CertificateFormatTestData> {
  public:
-  virtual ~X509CertificateParseTest() {}
+  virtual ~X509CertificateParseTest() = default;
   void SetUp() override { test_data_ = GetParam(); }
   void TearDown() override {}
 
@@ -1057,13 +1106,12 @@ TEST_P(X509CertificateParseTest, CanParseFormat) {
   CertificateList certs = CreateCertificateListFromFile(
       certs_dir, test_data_.file_name, test_data_.format);
   ASSERT_FALSE(certs.empty());
-  ASSERT_LE(certs.size(), arraysize(test_data_.chain_fingerprints));
+  ASSERT_LE(certs.size(), base::size(test_data_.chain_fingerprints));
   CheckGoogleCert(certs.front(), google_parse_fingerprint,
                   kGoogleParseValidFrom, kGoogleParseValidTo);
 
-  size_t i;
-  for (i = 0; i < arraysize(test_data_.chain_fingerprints); ++i) {
-    if (test_data_.chain_fingerprints[i] == NULL) {
+  for (size_t i = 0; i < base::size(test_data_.chain_fingerprints); ++i) {
+    if (!test_data_.chain_fingerprints[i]) {
       // No more test certificates expected - make sure no more were
       // returned before marking this test a success.
       EXPECT_EQ(i, certs.size());
@@ -1078,7 +1126,7 @@ TEST_P(X509CertificateParseTest, CanParseFormat) {
     // comparing fingerprints.
     EXPECT_EQ(
         *test_data_.chain_fingerprints[i],
-        X509Certificate::CalculateFingerprint256(certs[i]->os_cert_handle()));
+        X509Certificate::CalculateFingerprint256(certs[i]->cert_buffer()));
   }
 }
 
@@ -1090,18 +1138,12 @@ struct CertificateNameVerifyTestData {
   bool expected;
   // The hostname to match.
   const char* hostname;
-  // Common name, may be used if |dns_names| or |ip_addrs| are empty.
-  const char* common_name;
   // Comma separated list of certificate names to match against. Any occurrence
   // of '#' will be replaced with a null character before processing.
   const char* dns_names;
   // Comma separated list of certificate IP Addresses to match against. Each
   // address is x prefixed 16 byte hex code for v6 or dotted-decimals for v4.
   const char* ip_addrs;
-  // Whether to disable matching against the commonName. This is a negative
-  // condition so that tests can omit one or more of the above fields and
-  // allow default initialization to handle this case.
-  bool disable_fallback;
 };
 
 // GTest 'magic' pretty-printer, so that if/when a test fails, it knows how
@@ -1109,157 +1151,126 @@ struct CertificateNameVerifyTestData {
 // attempt to print out the first twenty bytes of the object, which depending
 // on platform and alignment, may result in an invalid read.
 void PrintTo(const CertificateNameVerifyTestData& data, std::ostream* os) {
-  ASSERT_TRUE(data.hostname && data.common_name);
+  ASSERT_TRUE(data.hostname);
+  ASSERT_TRUE(data.dns_names || data.ip_addrs);
   // Using StringPiece to allow for optional fields being NULL.
-  *os << " expected: " << data.expected
-      << "; hostname: " << data.hostname
-      << "; common_name: " << data.common_name
+  *os << " expected: " << data.expected << "; hostname: " << data.hostname
       << "; dns_names: " << base::StringPiece(data.dns_names)
-      << "; ip_addrs: " << base::StringPiece(data.ip_addrs)
-      << "; disable_fallback: " << data.disable_fallback;
+      << "; ip_addrs: " << base::StringPiece(data.ip_addrs);
 }
 
 const CertificateNameVerifyTestData kNameVerifyTestData[] = {
-    { true, "foo.com", "foo.com" },
-    { true, "f", "f" },
-    { false, "h", "i" },
-    { true, "bar.foo.com", "*.foo.com" },
-    { true, "www.test.fr", "common.name",
-        "*.test.com,*.test.co.uk,*.test.de,*.test.fr" },
-    { true, "wwW.tESt.fr",  "common.name",
-        ",*.*,*.test.de,*.test.FR,www" },
-    { false, "f.uk", ".uk" },
-    { false, "w.bar.foo.com", "?.bar.foo.com" },
-    { false, "www.foo.com", "(www|ftp).foo.com" },
-    { false, "www.foo.com", "www.foo.com#" },  // # = null char.
-    { false, "www.foo.com", "", "www.foo.com#*.foo.com,#,#" },
-    { false, "www.house.example", "ww.house.example" },
-    { false, "test.org", "", "www.test.org,*.test.org,*.org" },
-    { false, "w.bar.foo.com", "w*.bar.foo.com" },
-    { false, "www.bar.foo.com", "ww*ww.bar.foo.com" },
-    { false, "wwww.bar.foo.com", "ww*ww.bar.foo.com" },
-    { false, "wwww.bar.foo.com", "w*w.bar.foo.com" },
-    { false, "wwww.bar.foo.com", "w*w.bar.foo.c0m" },
-    { false, "WALLY.bar.foo.com", "wa*.bar.foo.com" },
-    { false, "wally.bar.foo.com", "*Ly.bar.foo.com" },
-    { true, "ww%57.foo.com", "", "www.foo.com" },
-    { true, "www&.foo.com", "www%26.foo.com" },
-    // Common name must not be used if subject alternative name was provided.
-    { false, "www.test.co.jp", "www.test.co.jp",
-        "*.test.de,*.jp,www.test.co.uk,www.*.co.jp" },
-    { false, "www.bar.foo.com", "www.bar.foo.com",
-      "*.foo.com,*.*.foo.com,*.*.bar.foo.com,*..bar.foo.com," },
-    { false, "www.bath.org", "www.bath.org", "", "20.30.40.50" },
-    { false, "66.77.88.99", "66.77.88.99", "www.bath.org" },
-    // Common name must not be used if fallback is disabled.
-    { false, "www.test.com", "www.test.com", nullptr, nullptr, true },
-    { false, "127.0.0.1", "127.0.0.1", nullptr, nullptr, true },
+    {true, "foo.com", "foo.com"},
+    {true, "f", "f"},
+    {false, "h", "i"},
+    {true, "bar.foo.com", "*.foo.com"},
+    {true, "www.test.fr", "*.test.com,*.test.co.uk,*.test.de,*.test.fr"},
+    {true, "wwW.tESt.fr", ",*.*,*.test.de,*.test.FR,www"},
+    {false, "f.uk", ".uk"},
+    {false, "w.bar.foo.com", "?.bar.foo.com"},
+    {false, "www.foo.com", "(www|ftp).foo.com"},
+    {false, "www.foo.com", "www.foo.com#"},  // # = null char.
+    {false, "www.foo.com", "www.foo.com#*.foo.com,#,#"},
+    {false, "www.house.example", "ww.house.example"},
+    {false, "test.org", "www.test.org,*.test.org,*.org"},
+    {false, "w.bar.foo.com", "w*.bar.foo.com"},
+    {false, "www.bar.foo.com", "ww*ww.bar.foo.com"},
+    {false, "wwww.bar.foo.com", "ww*ww.bar.foo.com"},
+    {false, "wwww.bar.foo.com", "w*w.bar.foo.com"},
+    {false, "wwww.bar.foo.com", "w*w.bar.foo.c0m"},
+    {false, "WALLY.bar.foo.com", "wa*.bar.foo.com"},
+    {false, "wally.bar.foo.com", "*Ly.bar.foo.com"},
+    {true, "ww%57.foo.com", "www.foo.com"},
+    {true, "www&.foo.com", "www%26.foo.com"},
     // IDN tests
-    { true, "xn--poema-9qae5a.com.br", "xn--poema-9qae5a.com.br" },
-    { true, "www.xn--poema-9qae5a.com.br", "*.xn--poema-9qae5a.com.br" },
-    { false, "xn--poema-9qae5a.com.br", "", "*.xn--poema-9qae5a.com.br,"
-                                            "xn--poema-*.com.br,"
-                                            "xn--*-9qae5a.com.br,"
-                                            "*--poema-9qae5a.com.br" },
+    {true, "xn--poema-9qae5a.com.br", "xn--poema-9qae5a.com.br"},
+    {true, "www.xn--poema-9qae5a.com.br", "*.xn--poema-9qae5a.com.br"},
+    {false, "xn--poema-9qae5a.com.br",
+     "*.xn--poema-9qae5a.com.br,"
+     "xn--poema-*.com.br,"
+     "xn--*-9qae5a.com.br,"
+     "*--poema-9qae5a.com.br"},
     // The following are adapted from the  examples quoted from
     // http://tools.ietf.org/html/rfc6125#section-6.4.3
     //  (e.g., *.example.com would match foo.example.com but
     //   not bar.foo.example.com or example.com).
-    { true, "foo.example.com", "*.example.com" },
-    { false, "bar.foo.example.com", "*.example.com" },
-    { false, "example.com", "*.example.com" },
+    {true, "foo.example.com", "*.example.com"},
+    {false, "bar.foo.example.com", "*.example.com"},
+    {false, "example.com", "*.example.com"},
     //   Partial wildcards are disallowed, though RFC 2818 rules allow them.
     //   That is, forms such as baz*.example.net, *baz.example.net, and
     //   b*z.example.net should NOT match domains. Instead, the wildcard must
     //   always be the left-most label, and only a single label.
-    { false, "baz1.example.net", "baz*.example.net" },
-    { false, "foobaz.example.net", "*baz.example.net" },
-    { false, "buzz.example.net", "b*z.example.net" },
-    { false, "www.test.example.net", "www.*.example.net" },
+    {false, "baz1.example.net", "baz*.example.net"},
+    {false, "foobaz.example.net", "*baz.example.net"},
+    {false, "buzz.example.net", "b*z.example.net"},
+    {false, "www.test.example.net", "www.*.example.net"},
     // Wildcards should not be valid for public registry controlled domains,
     // and unknown/unrecognized domains, at least three domain components must
     // be present.
-    { true, "www.test.example", "*.test.example" },
-    { true, "test.example.co.uk", "*.example.co.uk" },
-    { false, "test.example", "*.example" },
-    { false, "example.co.uk", "*.co.uk" },
-    { false, "foo.com", "*.com" },
-    { false, "foo.us", "*.us" },
-    { false, "foo", "*" },
+    {true, "www.test.example", "*.test.example"},
+    {true, "test.example.co.uk", "*.example.co.uk"},
+    {false, "test.example", "*.example"},
+    {false, "example.co.uk", "*.co.uk"},
+    {false, "foo.com", "*.com"},
+    {false, "foo.us", "*.us"},
+    {false, "foo", "*"},
     // IDN variants of wildcards and registry controlled domains.
-    { true, "www.xn--poema-9qae5a.com.br", "*.xn--poema-9qae5a.com.br" },
-    { true, "test.example.xn--mgbaam7a8h", "*.example.xn--mgbaam7a8h" },
-    { false, "xn--poema-9qae5a.com.br", "*.com.br" },
-    { false, "example.xn--mgbaam7a8h", "*.xn--mgbaam7a8h" },
+    {true, "www.xn--poema-9qae5a.com.br", "*.xn--poema-9qae5a.com.br"},
+    {true, "test.example.xn--mgbaam7a8h", "*.example.xn--mgbaam7a8h"},
+    {false, "xn--poema-9qae5a.com.br", "*.com.br"},
+    {false, "example.xn--mgbaam7a8h", "*.xn--mgbaam7a8h"},
     // Wildcards should be permissible for 'private' registry controlled
     // domains.
-    { true, "www.appspot.com", "*.appspot.com" },
-    { true, "foo.s3.amazonaws.com", "*.s3.amazonaws.com" },
+    {true, "www.appspot.com", "*.appspot.com"},
+    {true, "foo.s3.amazonaws.com", "*.s3.amazonaws.com"},
     // Multiple wildcards are not valid.
-    { false, "foo.example.com", "*.*.com" },
-    { false, "foo.bar.example.com", "*.bar.*.com" },
+    {false, "foo.example.com", "*.*.com"},
+    {false, "foo.bar.example.com", "*.bar.*.com"},
     // Absolute vs relative DNS name tests. Although not explicitly specified
     // in RFC 6125, absolute reference names (those ending in a .) should
     // match either absolute or relative presented names.
-    { true, "foo.com", "foo.com." },
-    { true, "foo.com.", "foo.com" },
-    { true, "foo.com.", "foo.com." },
-    { true, "f", "f." },
-    { true, "f.", "f" },
-    { true, "f.", "f." },
-    { true, "www-3.bar.foo.com", "*.bar.foo.com." },
-    { true, "www-3.bar.foo.com.", "*.bar.foo.com" },
-    { true, "www-3.bar.foo.com.", "*.bar.foo.com." },
-    { false, ".", "." },
-    { false, "example.com", "*.com." },
-    { false, "example.com.", "*.com" },
-    { false, "example.com.", "*.com." },
-    { false, "foo.", "*." },
-    { false, "foo", "*." },
-    { false, "foo.co.uk", "*.co.uk." },
-    { false, "foo.co.uk.", "*.co.uk." },
-    // IP addresses in common name; IPv4 only.
-    { true, "127.0.0.1", "127.0.0.1" },
-    { true, "192.168.1.1", "192.168.1.1" },
-    { true,  "676768", "0.10.83.160" },
-    { true,  "1.2.3", "1.2.0.3" },
-    { false, "192.169.1.1", "192.168.1.1" },
-    { false, "12.19.1.1", "12.19.1.1/255.255.255.0" },
-    { false, "FEDC:ba98:7654:3210:FEDC:BA98:7654:3210",
-      "FEDC:BA98:7654:3210:FEDC:ba98:7654:3210" },
-    { false, "1111:2222:3333:4444:5555:6666:7777:8888",
-      "1111:2222:3333:4444:5555:6666:7777:8888" },
-    { false, "::192.9.5.5", "[::192.9.5.5]" },
-    // No wildcard matching in valid IP addresses
-    { false, "::192.9.5.5", "*.9.5.5" },
-    { false, "2010:836B:4179::836B:4179", "*:836B:4179::836B:4179" },
-    { false, "192.168.1.11", "*.168.1.11" },
-    { false, "FEDC:BA98:7654:3210:FEDC:BA98:7654:3210", "*.]" },
-    // IP addresses in subject alternative name (common name ignored)
-    { true, "10.1.2.3", "", "", "10.1.2.3" },
-    { true,  "14.15", "", "", "14.0.0.15" },
-    { false, "10.1.2.7", "10.1.2.7", "", "10.1.2.6,10.1.2.8" },
-    { false, "10.1.2.8", "10.20.2.8", "foo" },
-    { true, "::4.5.6.7", "", "", "x00000000000000000000000004050607" },
-    { false, "::6.7.8.9", "::6.7.8.9", "::6.7.8.9",
-        "x00000000000000000000000006070808,x0000000000000000000000000607080a,"
-        "xff000000000000000000000006070809,6.7.8.9" },
-    { true, "FE80::200:f8ff:fe21:67cf", "no.common.name", "",
-        "x00000000000000000000000006070808,xfe800000000000000200f8fffe2167cf,"
-        "xff0000000000000000000000060708ff,10.0.0.1" },
+    {true, "foo.com", "foo.com."},
+    {true, "foo.com.", "foo.com"},
+    {true, "foo.com.", "foo.com."},
+    {true, "f", "f."},
+    {true, "f.", "f"},
+    {true, "f.", "f."},
+    {true, "www-3.bar.foo.com", "*.bar.foo.com."},
+    {true, "www-3.bar.foo.com.", "*.bar.foo.com"},
+    {true, "www-3.bar.foo.com.", "*.bar.foo.com."},
+    {false, ".", "."},
+    {false, "example.com", "*.com."},
+    {false, "example.com.", "*.com"},
+    {false, "example.com.", "*.com."},
+    {false, "foo.", "*."},
+    {false, "foo", "*."},
+    {false, "foo.co.uk", "*.co.uk."},
+    {false, "foo.co.uk.", "*.co.uk."},
+    // IP addresses in subject alternative name
+    {true, "10.1.2.3", "", "10.1.2.3"},
+    {true, "14.15", "", "14.0.0.15"},
+    {false, "10.1.2.7", "", "10.1.2.6,10.1.2.8"},
+    {false, "10.1.2.8", "foo"},
+    {true, "::4.5.6.7", "", "x00000000000000000000000004050607"},
+    {false, "::6.7.8.9", "::6.7.8.9",
+     "x00000000000000000000000006070808,x0000000000000000000000000607080a,"
+     "xff000000000000000000000006070809,6.7.8.9"},
+    {true, "FE80::200:f8ff:fe21:67cf", "",
+     "x00000000000000000000000006070808,xfe800000000000000200f8fffe2167cf,"
+     "xff0000000000000000000000060708ff,10.0.0.1"},
     // Numeric only hostnames (none of these are considered valid IP addresses).
-    { false,  "12345.6", "12345.6" },
-    { false, "121.2.3.512", "", "1*1.2.3.512,*1.2.3.512,1*.2.3.512,*.2.3.512",
-        "121.2.3.0"},
-    { false, "1.2.3.4.5.6", "*.2.3.4.5.6" },
-    { true, "1.2.3.4.5", "", "1.2.3.4.5" },
+    {false, "121.2.3.512", "1*1.2.3.512,*1.2.3.512,1*.2.3.512,*.2.3.512",
+     "121.2.3.0"},
+    {false, "1.2.3.4.5.6", "*.2.3.4.5.6"},
+    {true, "1.2.3.4.5", "1.2.3.4.5"},
     // Invalid host names.
-    { false, "junk)(£)$*!@~#", "junk)(£)$*!@~#" },
-    { false, "www.*.com", "www.*.com" },
-    { false, "w$w.f.com", "w$w.f.com" },
-    { false, "nocolonallowed:example", "", "nocolonallowed:example" },
-    { false, "www-1.[::FFFF:129.144.52.38]", "*.[::FFFF:129.144.52.38]" },
-    { false, "[::4.5.6.9]", "", "", "x00000000000000000000000004050609" },
+    {false, "junk)(£)$*!@~#", "junk)(£)$*!@~#"},
+    {false, "www.*.com", "www.*.com"},
+    {false, "w$w.f.com", "w$w.f.com"},
+    {false, "nocolonallowed:example", "nocolonallowed:example"},
+    {false, "www-1.[::FFFF:129.144.52.38]", "*.[::FFFF:129.144.52.38]"},
+    {false, "[::4.5.6.9]", "", "x00000000000000000000000004050609"},
 };
 
 class X509CertificateNameVerifyTest
@@ -1268,10 +1279,6 @@ class X509CertificateNameVerifyTest
 
 TEST_P(X509CertificateNameVerifyTest, VerifyHostname) {
   CertificateNameVerifyTestData test_data = GetParam();
-
-  std::string common_name(test_data.common_name);
-  ASSERT_EQ(std::string::npos, common_name.find(','));
-  std::replace(common_name.begin(), common_name.end(), '#', '\0');
 
   std::vector<std::string> dns_names, ip_addressses;
   if (test_data.dns_names) {
@@ -1317,9 +1324,8 @@ TEST_P(X509CertificateNameVerifyTest, VerifyHostname) {
   }
 
   EXPECT_EQ(test_data.expected,
-            X509Certificate::VerifyHostname(test_data.hostname, common_name,
-                                            dns_names, ip_addressses,
-                                            !test_data.disable_fallback));
+            X509Certificate::VerifyHostname(test_data.hostname, dns_names,
+                                            ip_addressses));
 }
 
 INSTANTIATE_TEST_CASE_P(, X509CertificateNameVerifyTest,
@@ -1336,14 +1342,7 @@ const struct PublicKeyInfoTestData {
      X509Certificate::kPublicKeyTypeRSA},
     {"prime256v1-ecdsa-ee-by-1024-rsa-intermediate.pem", 256,
      X509Certificate::kPublicKeyTypeECDSA},
-#if defined(OS_MACOSX) && !defined(OS_IOS) && !BUILDFLAG(USE_BYTE_CERTS)
-    // OS X has an key length limit of 4096 bits. This should manifest as an
-    // unknown key. If a future version of OS X changes this, large_key.pem may
-    // need to be renegerated with a larger key. See https://crbug.com/472291.
-    {"large_key.pem", 0, X509Certificate::kPublicKeyTypeUnknown},
-#else
     {"large_key.pem", 8200, X509Certificate::kPublicKeyTypeRSA},
-#endif
 };
 
 class X509CertificatePublicKeyInfoTest
@@ -1361,7 +1360,7 @@ TEST_P(X509CertificatePublicKeyInfoTest, GetPublicKeyInfo) {
   X509Certificate::PublicKeyType actual_type =
       X509Certificate::kPublicKeyTypeUnknown;
 
-  X509Certificate::GetPublicKeyInfo(cert->os_cert_handle(), &actual_bits,
+  X509Certificate::GetPublicKeyInfo(cert->cert_buffer(), &actual_bits,
                                     &actual_type);
 
   EXPECT_EQ(data.expected_bits, actual_bits);

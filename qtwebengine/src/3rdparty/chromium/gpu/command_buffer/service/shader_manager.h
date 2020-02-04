@@ -6,19 +6,21 @@
 #define GPU_COMMAND_BUFFER_SERVICE_SHADER_MANAGER_H_
 
 #include <string>
+#include <unordered_map>
 
-#include "base/containers/hash_tables.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/shader_translator.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
+
+namespace gl {
+class ProgressReporter;
+}
 
 namespace gpu {
 namespace gles2 {
-
-class ProgressReporter;
 
 enum ShaderVariableBaseType {
   SHADER_VARIABLE_INT = 0x01,
@@ -27,11 +29,15 @@ enum ShaderVariableBaseType {
   SHADER_VARIABLE_UNDEFINED_TYPE = 0x00
 };
 
+// Compiles shader_source into shader and gives informative logging if
+// the compilation fails.
+void CompileShaderWithLog(GLuint shader, const char* shader_source);
+
 // This is used to keep the source code for a shader. This is because in order
 // to emluate GLES2 the shaders will have to be re-written before passed to
 // the underlying OpenGL. But, when the user calls glGetShaderSource they
 // should get the source they passed in, not the re-written source.
-class GPU_EXPORT Shader : public base::RefCounted<Shader> {
+class GPU_GLES2_EXPORT Shader : public base::RefCounted<Shader> {
  public:
   enum TranslatedShaderSourceType {
     kANGLE,
@@ -49,6 +55,9 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
   void RequestCompile(scoped_refptr<ShaderTranslatorInterface> translator,
                       TranslatedShaderSourceType type);
 
+  // Returns true if we are ready to call DoCompile. If we have not yet called
+  // RequestCompile or if we've already compiled, returns false.
+  bool CanCompile() { return shader_state_ == kShaderStateCompileRequested; }
   void DoCompile();
   void RefreshTranslatedShaderSource();
 
@@ -85,9 +94,8 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
   }
 
   std::string last_compiled_signature() const {
-    if (translator_.get()) {
-      return last_compiled_source_ +
-             translator_->GetStringForOptionsThatWouldAffectCompilation();
+    if (options_affecting_compilation_) {
+      return last_compiled_source_ + options_affecting_compilation_->data;
     }
     return last_compiled_source_;
   }
@@ -100,27 +108,27 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
   const sh::OutputVariable* GetOutputVariableInfo(
       const std::string& name) const;
 
-  // If the original_name is not found, return NULL.
+  // If the original_name is not found, return nullptr.
   const std::string* GetAttribMappedName(
       const std::string& original_name) const;
 
-  // If the original_name is not found, return NULL.
+  // If the original_name is not found, return nullptr.
   const std::string* GetUniformMappedName(
       const std::string& original_name) const;
 
-  // If the original_name is not found, return NULL.
+  // If the original_name is not found, return nullptr.
   const std::string* GetVaryingMappedName(
       const std::string& original_name) const;
 
-  // If the original_name is not found, return NULL.
+  // If the original_name is not found, return nullptr.
   const std::string* GetInterfaceBlockMappedName(
       const std::string& original_name) const;
 
-  // If the original_name is not found, return NULL.
+  // If the original_name is not found, return nullptr.
   const std::string* GetOutputVariableMappedName(
       const std::string& original_name) const;
 
-  // If the hashed_name is not found, return NULL.
+  // If the hashed_name is not found, return nullptr.
   // Use this only when one of the more specific Get*Info methods can't be used.
   const std::string* GetOriginalNameFromHashedName(
       const std::string& hashed_name) const;
@@ -207,8 +215,13 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
   // of the underlying shader service id.
   void Destroy();
 
-  void IncUseCount();
-  void DecUseCount();
+  void IncUseCount() { ++use_count_; }
+
+  void DecUseCount() {
+    --use_count_;
+    DCHECK_GE(use_count_, 0);
+  }
+
   void MarkForDeletion();
   void DeleteServiceID();
 
@@ -235,6 +248,8 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
 
   // Translator to use, set when shader was last requested to be compiled.
   scoped_refptr<ShaderTranslatorInterface> translator_;
+  scoped_refptr<OptionsAffectingCompilationString>
+      options_affecting_compilation_;
 
   // True if compilation succeeded.
   bool valid_;
@@ -264,9 +279,9 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
 //
 // NOTE: To support shared resources an instance of this class will
 // need to be shared by multiple GLES2Decoders.
-class GPU_EXPORT ShaderManager {
+class GPU_GLES2_EXPORT ShaderManager {
  public:
-  ShaderManager(ProgressReporter* progress_reporter);
+  ShaderManager(gl::ProgressReporter* progress_reporter);
   ~ShaderManager();
 
   // Must call before destruction.
@@ -278,8 +293,8 @@ class GPU_EXPORT ShaderManager {
       GLuint service_id,
       GLenum shader_type);
 
-  // Gets an existing shader info for the given shader ID. Returns NULL if none
-  // exists.
+  // Gets an existing shader info for the given shader ID. Returns nullptr if
+  // none exists.
   Shader* GetShader(GLuint client_id);
 
   // Gets a client id for a given service id.
@@ -301,15 +316,15 @@ class GPU_EXPORT ShaderManager {
   friend class Shader;
 
   // Info for each shader by service side shader Id.
-  typedef base::hash_map<GLuint, scoped_refptr<Shader> > ShaderMap;
+  typedef std::unordered_map<GLuint, scoped_refptr<Shader>> ShaderMap;
   ShaderMap shaders_;
 
-  void RemoveShader(Shader* shader);
+  void RemoveShaderIfUnused(Shader* shader);
 
   // Used to notify the watchdog thread of progress during destruction,
   // preventing time-outs when destruction takes a long time. May be null when
   // using in-process command buffer.
-  ProgressReporter* progress_reporter_;
+  gl::ProgressReporter* progress_reporter_;
 
   DISALLOW_COPY_AND_ASSIGN(ShaderManager);
 };

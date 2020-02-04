@@ -9,14 +9,12 @@
 
 #include "base/callback_helpers.h"
 #include "base/json/json_reader.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_function.h"
 #include "extensions/browser/extension_function_dispatcher.h"
-#include "extensions/common/extension_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using extensions::ExtensionFunctionDispatcher;
@@ -88,44 +86,6 @@ std::string GetString(const base::DictionaryValue* val,
   if (!val->GetString(key, &result))
     ADD_FAILURE() << key << " does not exist or is not a string.";
   return result;
-}
-
-scoped_refptr<Extension> CreateExtension(
-    Manifest::Location location,
-    base::DictionaryValue* test_extension_value,
-    const std::string& id_input) {
-  std::string error;
-  const base::FilePath test_extension_path;
-  std::string id;
-  if (!id_input.empty())
-    id = crx_file::id_util::GenerateId(id_input);
-  scoped_refptr<Extension> extension(
-      Extension::Create(test_extension_path, location, *test_extension_value,
-                        Extension::NO_FLAGS, id, &error));
-  EXPECT_TRUE(error.empty()) << "Could not parse test extension " << error;
-  return extension;
-}
-
-scoped_refptr<Extension> CreateExtension(
-    base::DictionaryValue* test_extension_value) {
-  return CreateExtension(Manifest::INTERNAL, test_extension_value,
-                         std::string());
-}
-
-scoped_refptr<Extension> CreateEmptyExtensionWithLocation(
-    Manifest::Location location) {
-  std::unique_ptr<base::DictionaryValue> test_extension_value =
-      ParseDictionary("{\"name\": \"Test\", \"version\": \"1.0\"}");
-  return CreateExtension(location, test_extension_value.get(), std::string());
-}
-
-std::unique_ptr<base::Value> RunFunctionWithDelegateAndReturnSingleResult(
-    scoped_refptr<UIThreadExtensionFunction> function,
-    const std::string& args,
-    content::BrowserContext* context,
-    std::unique_ptr<extensions::ExtensionFunctionDispatcher> dispatcher) {
-  return RunFunctionWithDelegateAndReturnSingleResult(
-      function, args, context, std::move(dispatcher), NONE);
 }
 
 std::unique_ptr<base::Value> RunFunctionWithDelegateAndReturnSingleResult(
@@ -238,7 +198,7 @@ bool RunFunction(
   function->set_dispatcher(dispatcher->AsWeakPtr());
 
   function->set_browser_context(context);
-  function->set_include_incognito(flags & INCLUDE_INCOGNITO);
+  function->set_include_incognito_information(flags & INCLUDE_INCOGNITO);
   function->RunWithValidation()->Execute();
   response_helper.WaitForResponse();
 

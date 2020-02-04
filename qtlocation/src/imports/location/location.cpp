@@ -53,6 +53,7 @@
 #include <QtLocation/private/qdeclarativegeomapparameter_p.h>
 #include <QtLocation/private/qdeclarativegeomapcopyrightsnotice_p.h>
 #include <QtLocation/private/qdeclarativegeomapitemgroup_p.h>
+#include <QtLocation/private/qgeomapobject_p.h>
 
 //Place includes
 #include <QtLocation/private/qdeclarativecategory_p.h>
@@ -72,13 +73,6 @@
 
 #include <QtCore/QDebug>
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtLocation);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 
@@ -90,7 +84,7 @@ class QtLocationDeclarativeModule: public QQmlExtensionPlugin
                       FILE "plugin.json")
 
 public:
-    QtLocationDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QtLocationDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     virtual void registerTypes(const char *uri)
     {
         if (QLatin1String(uri) == QLatin1String("QtLocation")) {
@@ -180,6 +174,32 @@ public:
             qmlRegisterUncreatableType<QDeclarativeGeoCameraCapabilities>(uri, major, minor, "CameraCapabilities"
                                                                              , QStringLiteral("CameraCapabilities is not intended instantiable by developer."));
 
+            // Register the 5.11 types
+            minor = 11;
+            qmlRegisterType<QGeoMapObject>();
+            qmlRegisterType<QDeclarativeGeoManeuver, 11>(uri, major, minor, "RouteManeuver");
+            qmlRegisterType<QDeclarativeGeoMap, 11>(uri, major, minor, "Map");
+            qmlRegisterUncreatableType<QDeclarativeGeoMapItemBase, 11>(uri, major, minor, "GeoMapItemBase",
+                                        QStringLiteral("GeoMapItemBase is not intended instantiable by developer."));
+            qmlRegisterType<QDeclarativeGeoMapParameter>(uri, major, minor, "DynamicParameter");
+            qmlRegisterType<QDeclarativeGeoRoute, 11>(uri, major, minor, "Route");
+            qmlRegisterType<QDeclarativeGeoRouteQuery, 11>(uri, major, minor, "RouteQuery");
+            qmlRegisterType<QDeclarativeGeoServiceProvider, 11>(uri, major, minor, "Plugin");
+            qmlRegisterType<QDeclarativeGeoWaypoint>(uri, major, minor, "Waypoint");
+
+            // Register the 5.12 types
+            minor = 12;
+            qmlRegisterType<QDeclarativeGeoMapItemView, 12>(uri, major, minor, "MapItemView");
+            qmlRegisterType<QDeclarativeSearchResultModel, 12>(uri, major, minor, "PlaceSearchModel");
+            qmlRegisterType<QDeclarativeGeoMap, 12>(uri, major, minor, "Map");
+            qmlRegisterType<QDeclarativeGeoRoute, 12>(uri, major, minor, "Route");
+            qmlRegisterType<QDeclarativeGeoRouteLeg, 12>(uri, major, minor, "RouteLeg");
+
+            minor = 13;
+            qmlRegisterType<QDeclarativeGeoMap, 13>(uri, major, minor, "Map");
+            qmlRegisterType<QDeclarativeGeoRoute, 13>(uri, major, minor, "Route");
+            qmlRegisterType<QDeclarativeGeoRouteQuery, 13>(uri, major, minor, "RouteQuery");
+
             // Register the latest Qt version as QML type version
             qmlRegisterModule(uri, QT_VERSION_MAJOR, QT_VERSION_MINOR);
 
@@ -198,6 +218,6 @@ public:
     }
 };
 
-#include "location.moc"
-
 QT_END_NAMESPACE
+
+#include "location.moc"

@@ -29,12 +29,12 @@
 #include "previewframe.h"
 #include "previewwidget.h"
 
-#include <QtCore/QCoreApplication>
-#include <QtCore/QDebug>
-#include <QtGui/QPainter>
-#include <QtWidgets/QMdiArea>
-#include <QtWidgets/QMdiSubWindow>
-#include <QtGui/QPaintEvent>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qdebug.h>
+#include <QtGui/qpainter.h>
+#include <QtWidgets/qmdiarea.h>
+#include <QtWidgets/qmdisubwindow.h>
+#include <QtGui/qevent.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -44,7 +44,7 @@ namespace qdesigner_internal {
     public:
         PreviewMdiArea(QWidget *parent = 0) : QMdiArea(parent) {}
     protected:
-        bool viewportEvent ( QEvent * event );
+        bool viewportEvent(QEvent *event) override;
     };
 
     bool PreviewMdiArea::viewportEvent (QEvent * event) {
@@ -52,7 +52,7 @@ namespace qdesigner_internal {
             return QMdiArea::viewportEvent (event);
         QWidget *paintWidget = viewport();
         QPainter p(paintWidget);
-        p.fillRect(rect(), paintWidget->palette().color(backgroundRole()).dark());
+        p.fillRect(rect(), paintWidget->palette().color(backgroundRole()).darker());
         p.setPen(QPen(Qt::white));
         //: Palette editor background
         p.drawText(0, height() / 2,  width(), height(), Qt::AlignHCenter,
@@ -70,7 +70,7 @@ PreviewFrame::PreviewFrame(QWidget *parent) :
     setLineWidth(1);
 
     QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(QMargins());
     vbox->addWidget(m_mdiArea);
 
     setMinimumSize(ensureMdiSubWindow()->minimumSizeHint());

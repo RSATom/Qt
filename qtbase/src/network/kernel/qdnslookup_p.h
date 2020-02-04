@@ -55,10 +55,14 @@
 #include "QtCore/qmutex.h"
 #include "QtCore/qrunnable.h"
 #include "QtCore/qsharedpointer.h"
+#if QT_CONFIG(thread)
 #include "QtCore/qthreadpool.h"
+#endif
 #include "QtNetwork/qdnslookup.h"
 #include "QtNetwork/qhostaddress.h"
 #include "private/qobject_p.h"
+
+QT_REQUIRE_CONFIG(dnslookup);
 
 QT_BEGIN_NAMESPACE
 
@@ -118,7 +122,7 @@ public:
         , requestName(name)
         , nameserver(nameserver)
     { }
-    void run() Q_DECL_OVERRIDE;
+    void run() override;
 
 signals:
     void finished(const QDnsLookupReply &reply);
@@ -130,6 +134,7 @@ private:
     QHostAddress nameserver;
 };
 
+#if QT_CONFIG(thread)
 class QDnsLookupThreadPool : public QThreadPool
 {
     Q_OBJECT
@@ -145,6 +150,7 @@ private:
     QMutex signalsMutex;
     bool signalsConnected;
 };
+#endif // QT_CONFIG(thread)
 
 class QDnsRecordPrivate : public QSharedData
 {

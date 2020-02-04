@@ -32,6 +32,7 @@
 #include <GLES/gl.h>
 #include <GLES/glext.h>
 
+#include <algorithm>
 #include <limits>
 
 namespace es1
@@ -42,41 +43,6 @@ static bool validImageSize(GLint level, GLsizei width, GLsizei height)
 	if(level < 0 || level >= es1::IMPLEMENTATION_MAX_TEXTURE_LEVELS || width < 0 || height < 0)
 	{
 		return false;
-	}
-
-	return true;
-}
-
-static bool validateSubImageParams(bool compressed, GLsizei width, GLsizei height, GLint xoffset, GLint yoffset, GLenum target, GLint level, GLenum format, es1::Texture *texture)
-{
-	if(!texture)
-	{
-		return error(GL_INVALID_OPERATION, false);
-	}
-
-	if(compressed != texture->isCompressed(target, level))
-	{
-		return error(GL_INVALID_OPERATION, false);
-	}
-
-	if(format != GL_NONE_OES && format != texture->getFormat(target, level))
-	{
-		return error(GL_INVALID_OPERATION, false);
-	}
-
-	if(compressed)
-	{
-		if((width % 4 != 0 && width != texture->getWidth(target, 0)) ||
-		   (height % 4 != 0 && height != texture->getHeight(target, 0)))
-		{
-			return error(GL_INVALID_OPERATION, false);
-		}
-	}
-
-	if(xoffset + width > texture->getWidth(target, level) ||
-	   yoffset + height > texture->getHeight(target, level))
-	{
-		return error(GL_INVALID_VALUE, false);
 	}
 
 	return true;
@@ -200,15 +166,9 @@ void BindRenderbufferOES(GLenum target, GLuint renderbuffer)
 
 	if(context)
 	{
-		if(renderbuffer != 0 && !context->getRenderbuffer(renderbuffer))
-		{
-			// [OpenGL ES 2.0.25] Section 4.4.3 page 112
-			// [OpenGL ES 3.0.2] Section 4.4.2 page 201
-			// 'renderbuffer' must be either zero or the name of an existing renderbuffer object of
-			// type 'renderbuffertarget', otherwise an INVALID_OPERATION error is generated.
-			return error(GL_INVALID_OPERATION);
-		}
-
+		// [GL_EXT_framebuffer_object]
+		// If <renderbuffer> is not zero, then the resulting renderbuffer object
+		// is a new state vector, initialized with a zero-sized memory buffer
 		context->bindRenderbuffer(renderbuffer);
 	}
 }
@@ -231,11 +191,11 @@ void BindTexture(GLenum target, GLuint texture)
 		switch(target)
 		{
 		case GL_TEXTURE_2D:
-			context->bindTexture2D(texture);
-			return;
+			context->bindTexture(TEXTURE_2D, texture);
+			break;
 		case GL_TEXTURE_EXTERNAL_OES:
-			context->bindTextureExternal(texture);
-			return;
+			context->bindTexture(TEXTURE_EXTERNAL, texture);
+			break;
 		default:
 			return error(GL_INVALID_ENUM);
 		}
@@ -488,6 +448,11 @@ GLenum CheckFramebufferStatusOES(GLenum target)
 	{
 		es1::Framebuffer *framebuffer = context->getFramebuffer();
 
+		if(!framebuffer)
+		{
+			return GL_FRAMEBUFFER_UNDEFINED_OES;
+		}
+
 		return framebuffer->completeness();
 	}
 
@@ -642,7 +607,7 @@ void ColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)
 
 	if(context)
 	{
-		context->setColorMask(red == GL_TRUE, green == GL_TRUE, blue == GL_TRUE, alpha == GL_TRUE);
+		context->setColorMask(red != GL_FALSE, green != GL_FALSE, blue != GL_FALSE, alpha != GL_FALSE);
 	}
 }
 
@@ -684,7 +649,7 @@ void VertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normal
 
 	if(context)
 	{
-		context->setVertexAttribState(index, context->getArrayBuffer(), size, type, (normalized == GL_TRUE), stride, ptr);
+		context->setVertexAttribState(index, context->getArrayBuffer(), size, type, (normalized != GL_FALSE), stride, ptr);
 	}
 }
 
@@ -720,16 +685,10 @@ void CompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLs
 	switch(internalformat)
 	{
 	case GL_ETC1_RGB8_OES:
-		break;
 	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
 	case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-		if(!S3TC_SUPPORT)
-		{
-			return error(GL_INVALID_ENUM);
-		}
 		break;
 	case GL_DEPTH_COMPONENT16_OES:
-	case GL_DEPTH_COMPONENT32_OES:
 	case GL_DEPTH_STENCIL_OES:
 	case GL_DEPTH24_STENCIL8_OES:
 		return error(GL_INVALID_OPERATION);
@@ -759,7 +718,7 @@ void CompressedTexImage2D(GLenum target, GLint level, GLenum internalformat, GLs
 			return error(GL_INVALID_ENUM);
 		}
 
-		if(imageSize != egl::ComputeCompressedSize(width, height, internalformat))
+		if(imageSize != gl::ComputeCompressedSize(width, height, internalformat))
 		{
 			return error(GL_INVALID_VALUE);
 		}
@@ -805,13 +764,8 @@ void CompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yo
 	switch(format)
 	{
 	case GL_ETC1_RGB8_OES:
-		break;
 	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
 	case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-		if(!S3TC_SUPPORT)
-		{
-			return error(GL_INVALID_ENUM);
-		}
 		break;
 	default:
 		return error(GL_INVALID_ENUM);
@@ -826,7 +780,7 @@ void CompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yo
 
 	if(context)
 	{
-		if(imageSize != egl::ComputeCompressedSize(width, height, format))
+		if(imageSize != gl::ComputeCompressedSize(width, height, format))
 		{
 			return error(GL_INVALID_VALUE);
 		}
@@ -841,10 +795,13 @@ void CompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yo
 		{
 			es1::Texture2D *texture = context->getTexture2D();
 
-			if(validateSubImageParams(true, width, height, xoffset, yoffset, target, level, format, texture))
+			GLenum validationError = ValidateSubImageParams(true, false, target, level, xoffset, yoffset, width, height, format, GL_NONE_OES, texture);
+			if(validationError != GL_NO_ERROR)
 			{
-				texture->subImageCompressed(level, xoffset, yoffset, width, height, format, imageSize, data);
+				return error(validationError);
 			}
+
+			texture->subImageCompressed(level, xoffset, yoffset, width, height, format, imageSize, data);
 		}
 		else UNREACHABLE(target);
 	}
@@ -885,20 +842,21 @@ void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, 
 
 		es1::Framebuffer *framebuffer = context->getFramebuffer();
 
-		if(framebuffer->completeness() != GL_FRAMEBUFFER_COMPLETE_OES)
+		if(!framebuffer || (framebuffer->completeness() != GL_FRAMEBUFFER_COMPLETE_OES))
 		{
 			return error(GL_INVALID_FRAMEBUFFER_OPERATION_OES);
 		}
 
-		if(context->getFramebufferName() != 0 && framebuffer->getColorbuffer()->getSamples() > 1)
+		es1::Renderbuffer *source = framebuffer->getColorbuffer();
+
+		if(!source || source->getSamples() > 1)
 		{
 			return error(GL_INVALID_OPERATION);
 		}
 
-		es1::Renderbuffer *source = framebuffer->getColorbuffer();
 		GLenum colorbufferFormat = source->getFormat();
 
-		// [OpenGL ES 2.0.24] table 3.9
+		// [OpenGL ES 1.1.12] table 3.9
 		switch(internalformat)
 		{
 		case GL_ALPHA:
@@ -929,25 +887,36 @@ void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, 
 			if(colorbufferFormat != GL_RGBA &&
 			   colorbufferFormat != GL_RGBA4_OES &&
 			   colorbufferFormat != GL_RGB5_A1_OES &&
-			   colorbufferFormat != GL_RGBA8_OES)
+			   colorbufferFormat != GL_RGBA8_OES &&
+			   colorbufferFormat != GL_BGRA_EXT &&  // GL_EXT_texture_format_BGRA8888
+			   colorbufferFormat != GL_BGRA8_EXT)   // GL_EXT_texture_format_BGRA8888
 			{
 				return error(GL_INVALID_OPERATION);
 			}
 			break;
 		case GL_ETC1_RGB8_OES:
-			return error(GL_INVALID_OPERATION);
 		case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
 		case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-			if(S3TC_SUPPORT)
-			{
-				return error(GL_INVALID_OPERATION);
-			}
-			else
-			{
-				return error(GL_INVALID_ENUM);
-			}
+			return error(GL_INVALID_OPERATION);
+		case GL_BGRA_EXT:   // GL_EXT_texture_format_BGRA8888 doesn't mention the format to be accepted by glCopyTexImage2D.
 		default:
 			return error(GL_INVALID_ENUM);
+		}
+
+		// Determine the sized internal format.
+		if(gl::GetBaseInternalFormat(colorbufferFormat) == internalformat)
+		{
+			internalformat = colorbufferFormat;
+		}
+		else if(GetRedSize(colorbufferFormat) <= 8)
+		{
+			internalformat = gl::GetSizedInternalFormat(internalformat, GL_UNSIGNED_BYTE);
+		}
+		else
+		{
+			UNIMPLEMENTED();
+
+			return error(GL_INVALID_OPERATION);
 		}
 
 		if(target == GL_TEXTURE_2D)
@@ -1000,10 +969,9 @@ void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
 
 	if(context)
 	{
-
 		es1::Framebuffer *framebuffer = context->getFramebuffer();
 
-		if(framebuffer->completeness() != GL_FRAMEBUFFER_COMPLETE_OES)
+		if(!framebuffer || (framebuffer->completeness() != GL_FRAMEBUFFER_COMPLETE_OES))
 		{
 			return error(GL_INVALID_FRAMEBUFFER_OPERATION_OES);
 		}
@@ -1023,9 +991,10 @@ void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
 		}
 		else UNREACHABLE(target);
 
-		if(!validateSubImageParams(false, width, height, xoffset, yoffset, target, level, GL_NONE_OES, texture))
+		GLenum validationError = ValidateSubImageParams(false, true, target, level, xoffset, yoffset, width, height, GL_NONE_OES, GL_NONE_OES, texture);
+		if(validationError != GL_NO_ERROR)
 		{
-			return;
+			return error(validationError);
 		}
 
 		texture->copySubImage(target, level, xoffset, yoffset, x, y, width, height, framebuffer);
@@ -1538,7 +1507,7 @@ void FramebufferTexture2DOES(GLenum target, GLenum attachment, GLenum textarget,
 				return error(GL_INVALID_ENUM);
 			}
 
-			if(level != 0)
+			if((level < 0) || (level >= es1::IMPLEMENTATION_MAX_TEXTURE_LEVELS))
 			{
 				return error(GL_INVALID_VALUE);
 			}
@@ -1559,9 +1528,9 @@ void FramebufferTexture2DOES(GLenum target, GLenum attachment, GLenum textarget,
 
 		switch(attachment)
 		{
-		case GL_COLOR_ATTACHMENT0_OES:  framebuffer->setColorbuffer(textarget, texture);   break;
-		case GL_DEPTH_ATTACHMENT_OES:   framebuffer->setDepthbuffer(textarget, texture);   break;
-		case GL_STENCIL_ATTACHMENT_OES: framebuffer->setStencilbuffer(textarget, texture); break;
+		case GL_COLOR_ATTACHMENT0_OES:  framebuffer->setColorbuffer(textarget, texture, level);   break;
+		case GL_DEPTH_ATTACHMENT_OES:   framebuffer->setDepthbuffer(textarget, texture, level);   break;
+		case GL_STENCIL_ATTACHMENT_OES: framebuffer->setStencilbuffer(textarget, texture, level); break;
 		}
 	}
 }
@@ -1877,7 +1846,12 @@ void GetRenderbufferParameterivOES(GLenum target, GLenum pname, GLint* params)
 		{
 		case GL_RENDERBUFFER_WIDTH_OES:           *params = renderbuffer->getWidth();       break;
 		case GL_RENDERBUFFER_HEIGHT_OES:          *params = renderbuffer->getHeight();      break;
-		case GL_RENDERBUFFER_INTERNAL_FORMAT_OES: *params = renderbuffer->getFormat();      break;
+		case GL_RENDERBUFFER_INTERNAL_FORMAT_OES:
+			{
+				GLint internalformat = renderbuffer->getFormat();
+				*params = (internalformat == GL_NONE_OES) ? GL_RGBA4_OES : internalformat;
+			}
+			break;
 		case GL_RENDERBUFFER_RED_SIZE_OES:        *params = renderbuffer->getRedSize();     break;
 		case GL_RENDERBUFFER_GREEN_SIZE_OES:      *params = renderbuffer->getGreenSize();   break;
 		case GL_RENDERBUFFER_BLUE_SIZE_OES:       *params = renderbuffer->getBlueSize();    break;
@@ -2101,21 +2075,30 @@ void GetFramebufferAttachmentParameterivOES(GLenum target, GLenum attachment, GL
 
 		es1::Framebuffer *framebuffer = context->getFramebuffer();
 
+		if(!framebuffer)
+		{
+			return error(GL_INVALID_OPERATION);
+		}
+
 		GLenum attachmentType;
 		GLuint attachmentHandle;
+		Renderbuffer *renderbuffer = nullptr;
 		switch(attachment)
 		{
 		case GL_COLOR_ATTACHMENT0_OES:
 			attachmentType = framebuffer->getColorbufferType();
 			attachmentHandle = framebuffer->getColorbufferName();
+			renderbuffer = framebuffer->getColorbuffer();
 			break;
 		case GL_DEPTH_ATTACHMENT_OES:
 			attachmentType = framebuffer->getDepthbufferType();
 			attachmentHandle = framebuffer->getDepthbufferName();
+			renderbuffer = framebuffer->getDepthbuffer();
 			break;
 		case GL_STENCIL_ATTACHMENT_OES:
 			attachmentType = framebuffer->getStencilbufferType();
 			attachmentHandle = framebuffer->getStencilbufferName();
+			renderbuffer = framebuffer->getStencilbuffer();
 			break;
 		default:
 			return error(GL_INVALID_ENUM);
@@ -2150,7 +2133,7 @@ void GetFramebufferAttachmentParameterivOES(GLenum target, GLenum attachment, GL
 		case GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL_OES:
 			if(attachmentObjectType == GL_TEXTURE)
 			{
-				*params = 0; // FramebufferTexture2D will not allow level to be set to anything else in GL ES 2.0
+				*params = renderbuffer->getLevel();
 			}
 			else
 			{
@@ -2285,26 +2268,25 @@ const GLubyte* GetString(GLenum name)
 			"GL_OES_blend_func_separate "
 			"GL_OES_blend_subtract "
 			"GL_OES_compressed_ETC1_RGB8_texture "
-			"GL_OES_depth_texture "
 			"GL_OES_EGL_image "
 			"GL_OES_EGL_image_external "
 			"GL_OES_EGL_sync "
 			"GL_OES_element_index_uint "
+			"GL_OES_fbo_render_mipmap "
 			"GL_OES_framebuffer_object "
 			"GL_OES_packed_depth_stencil "
 			"GL_OES_read_format "
 			"GL_OES_rgb8_rgba8 "
 			"GL_OES_stencil8 "
 			"GL_OES_stencil_wrap "
+			"GL_OES_surfaceless_context "
 			"GL_OES_texture_mirrored_repeat "
 			"GL_OES_texture_npot "
 			"GL_EXT_blend_minmax "
 			"GL_EXT_read_format_bgra "
-			#if (S3TC_SUPPORT)
 			"GL_EXT_texture_compression_dxt1 "
 			"GL_ANGLE_texture_compression_dxt3 "
 			"GL_ANGLE_texture_compression_dxt5 "
-			#endif
 			"GL_EXT_texture_filter_anisotropic "
 			"GL_EXT_texture_format_BGRA8888";
 	default:
@@ -3444,9 +3426,6 @@ void RenderbufferStorageOES(GLenum target, GLenum internalformat, GLsizei width,
 
 		switch(internalformat)
 		{
-		case GL_DEPTH_COMPONENT16_OES:
-			context->setRenderbufferStorage(new es1::Depthbuffer(width, height, 0));
-			break;
 		case GL_RGBA4_OES:
 		case GL_RGB5_A1_OES:
 		case GL_RGB565_OES:
@@ -3454,11 +3433,14 @@ void RenderbufferStorageOES(GLenum target, GLenum internalformat, GLsizei width,
 		case GL_RGBA8_OES:
 			context->setRenderbufferStorage(new es1::Colorbuffer(width, height, internalformat, 0));
 			break;
+		case GL_DEPTH_COMPONENT16_OES:
+			context->setRenderbufferStorage(new es1::Depthbuffer(width, height, internalformat,  0));
+			break;
 		case GL_STENCIL_INDEX8_OES:
 			context->setRenderbufferStorage(new es1::Stencilbuffer(width, height, 0));
 			break;
 		case GL_DEPTH24_STENCIL8_OES:
-			context->setRenderbufferStorage(new es1::DepthStencilbuffer(width, height, 0));
+			context->setRenderbufferStorage(new es1::DepthStencilbuffer(width, height, internalformat, 0));
 			break;
 		default:
 			return error(GL_INVALID_ENUM);
@@ -3491,7 +3473,7 @@ void SampleCoverage(GLclampf value, GLboolean invert)
 
 	if(context)
 	{
-		context->setSampleCoverageParams(es1::clamp01(value), invert == GL_TRUE);
+		context->setSampleCoverageParams(es1::clamp01(value), invert != GL_FALSE);
 	}
 }
 
@@ -4226,7 +4208,6 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 		switch(type)
 		{
 		case GL_UNSIGNED_BYTE:
-		case GL_FLOAT:
 			break;
 		default:
 			return error(GL_INVALID_ENUM);
@@ -4237,7 +4218,6 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 		{
 		case GL_UNSIGNED_BYTE:
 		case GL_UNSIGNED_SHORT_5_6_5:
-		case GL_FLOAT:
 			break;
 		default:
 			return error(GL_INVALID_ENUM);
@@ -4249,7 +4229,6 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 		case GL_UNSIGNED_BYTE:
 		case GL_UNSIGNED_SHORT_4_4_4_4:
 		case GL_UNSIGNED_SHORT_5_5_5_1:
-		case GL_FLOAT:
 			break;
 		default:
 			return error(GL_INVALID_ENUM);
@@ -4265,17 +4244,9 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 		}
 		break;
 	case GL_ETC1_RGB8_OES:
-		return error(GL_INVALID_OPERATION);
 	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
 	case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-		if(S3TC_SUPPORT)
-		{
-			return error(GL_INVALID_OPERATION);
-		}
-		else
-		{
-			return error(GL_INVALID_ENUM);
-		}
+		return error(GL_INVALID_OPERATION);
 	case GL_DEPTH_STENCIL_OES:
 		switch(type)
 		{
@@ -4293,6 +4264,8 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 	{
 		return error(GL_INVALID_VALUE);
 	}
+
+	GLint sizedInternalFormat = gl::GetSizedInternalFormat(internalformat, type);
 
 	es1::Context *context = es1::getContext();
 
@@ -4320,7 +4293,7 @@ void TexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
 				return error(GL_INVALID_OPERATION);
 			}
 
-			texture->setImage(context, level, width, height, format, type, context->getUnpackAlignment(), pixels);
+			texture->setImage(level, width, height, sizedInternalFormat, format, type, context->getUnpackAlignment(), pixels);
 		}
 		else UNREACHABLE(target);
 	}
@@ -4537,11 +4510,6 @@ void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLs
 		return error(GL_INVALID_VALUE);
 	}
 
-	if(!es1::CheckTextureFormatType(format, type))
-	{
-		return error(GL_INVALID_ENUM);
-	}
-
 	if(width == 0 || height == 0 || !pixels)
 	{
 		return;
@@ -4555,10 +4523,13 @@ void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLs
 		{
 			es1::Texture2D *texture = context->getTexture2D();
 
-			if(validateSubImageParams(false, width, height, xoffset, yoffset, target, level, format, texture))
+			GLenum validationError = ValidateSubImageParams(false, false, target, level, xoffset, yoffset, width, height, format, type, texture);
+			if(validationError != GL_NO_ERROR)
 			{
-				texture->subImage(context, level, xoffset, yoffset, width, height, format, type, context->getUnpackAlignment(), pixels);
+				return error(validationError);
 			}
+
+			texture->subImage(level, xoffset, yoffset, width, height, format, type, context->getUnpackAlignment(), pixels);
 		}
 		else UNREACHABLE(target);
 	}
@@ -4727,46 +4698,215 @@ void DrawTexfvOES(const GLfloat *coords)
 
 extern "C" __eglMustCastToProperFunctionPointerType es1GetProcAddress(const char *procname)
 {
-	struct Extension
+	struct Function
 	{
 		const char *name;
 		__eglMustCastToProperFunctionPointerType address;
 	};
 
-	static const Extension glExtensions[] =
+	struct CompareFunctor
 	{
-		#define EXTENSION(name) {#name, (__eglMustCastToProperFunctionPointerType)name}
-
-		EXTENSION(glEGLImageTargetTexture2DOES),
-		EXTENSION(glEGLImageTargetRenderbufferStorageOES),
-		EXTENSION(glIsRenderbufferOES),
-		EXTENSION(glBindRenderbufferOES),
-		EXTENSION(glDeleteRenderbuffersOES),
-		EXTENSION(glGenRenderbuffersOES),
-		EXTENSION(glRenderbufferStorageOES),
-		EXTENSION(glGetRenderbufferParameterivOES),
-		EXTENSION(glIsFramebufferOES),
-		EXTENSION(glBindFramebufferOES),
-		EXTENSION(glDeleteFramebuffersOES),
-		EXTENSION(glGenFramebuffersOES),
-		EXTENSION(glCheckFramebufferStatusOES),
-		EXTENSION(glFramebufferRenderbufferOES),
-		EXTENSION(glFramebufferTexture2DOES),
-		EXTENSION(glGetFramebufferAttachmentParameterivOES),
-		EXTENSION(glGenerateMipmapOES),
-		EXTENSION(glBlendEquationOES),
-		EXTENSION(glBlendEquationSeparateOES),
-		EXTENSION(glBlendFuncSeparateOES),
-		EXTENSION(glPointSizePointerOES),
-
-		#undef EXTENSION
+		bool operator()(const Function &a, const Function &b) const
+		{
+			return strcmp(a.name, b.name) < 0;
+		}
 	};
 
-	for(unsigned int ext = 0; ext < sizeof(glExtensions) / sizeof(Extension); ext++)
+	// This array must be kept sorted with respect to strcmp(), so that binary search works correctly.
+	// The Unix command "LC_COLLATE=C sort" will generate the correct order.
+	static const Function glFunctions[] =
 	{
-		if(strcmp(procname, glExtensions[ext].name) == 0)
+		#define FUNCTION(name) {#name, (__eglMustCastToProperFunctionPointerType)name}
+
+		FUNCTION(glActiveTexture),
+		FUNCTION(glAlphaFunc),
+		FUNCTION(glAlphaFuncx),
+		FUNCTION(glBindBuffer),
+		FUNCTION(glBindFramebufferOES),
+		FUNCTION(glBindRenderbufferOES),
+		FUNCTION(glBindTexture),
+		FUNCTION(glBlendEquationOES),
+		FUNCTION(glBlendEquationSeparateOES),
+		FUNCTION(glBlendFunc),
+		FUNCTION(glBlendFuncSeparateOES),
+		FUNCTION(glBufferData),
+		FUNCTION(glBufferSubData),
+		FUNCTION(glCheckFramebufferStatusOES),
+		FUNCTION(glClear),
+		FUNCTION(glClearColor),
+		FUNCTION(glClearColorx),
+		FUNCTION(glClearDepthf),
+		FUNCTION(glClearDepthx),
+		FUNCTION(glClearStencil),
+		FUNCTION(glClientActiveTexture),
+		FUNCTION(glClipPlanef),
+		FUNCTION(glClipPlanex),
+		FUNCTION(glColor4f),
+		FUNCTION(glColor4ub),
+		FUNCTION(glColor4x),
+		FUNCTION(glColorMask),
+		FUNCTION(glColorPointer),
+		FUNCTION(glCompressedTexImage2D),
+		FUNCTION(glCompressedTexSubImage2D),
+		FUNCTION(glCopyTexImage2D),
+		FUNCTION(glCopyTexSubImage2D),
+		FUNCTION(glCullFace),
+		FUNCTION(glDeleteBuffers),
+		FUNCTION(glDeleteFramebuffersOES),
+		FUNCTION(glDeleteRenderbuffersOES),
+		FUNCTION(glDeleteTextures),
+		FUNCTION(glDepthFunc),
+		FUNCTION(glDepthMask),
+		FUNCTION(glDepthRangef),
+		FUNCTION(glDepthRangex),
+		FUNCTION(glDisable),
+		FUNCTION(glDisableClientState),
+		FUNCTION(glDrawArrays),
+		FUNCTION(glDrawElements),
+		FUNCTION(glDrawTexfOES),
+		FUNCTION(glDrawTexfvOES),
+		FUNCTION(glDrawTexiOES),
+		FUNCTION(glDrawTexivOES),
+		FUNCTION(glDrawTexsOES),
+		FUNCTION(glDrawTexsvOES),
+		FUNCTION(glDrawTexxOES),
+		FUNCTION(glDrawTexxvOES),
+		FUNCTION(glEGLImageTargetRenderbufferStorageOES),
+		FUNCTION(glEGLImageTargetTexture2DOES),
+		FUNCTION(glEnable),
+		FUNCTION(glEnableClientState),
+		FUNCTION(glFinish),
+		FUNCTION(glFlush),
+		FUNCTION(glFogf),
+		FUNCTION(glFogfv),
+		FUNCTION(glFogx),
+		FUNCTION(glFogxv),
+		FUNCTION(glFramebufferRenderbufferOES),
+		FUNCTION(glFramebufferTexture2DOES),
+		FUNCTION(glFrontFace),
+		FUNCTION(glFrustumf),
+		FUNCTION(glFrustumx),
+		FUNCTION(glGenBuffers),
+		FUNCTION(glGenFramebuffersOES),
+		FUNCTION(glGenRenderbuffersOES),
+		FUNCTION(glGenTextures),
+		FUNCTION(glGenerateMipmapOES),
+		FUNCTION(glGetBooleanv),
+		FUNCTION(glGetBufferParameteriv),
+		FUNCTION(glGetClipPlanef),
+		FUNCTION(glGetClipPlanex),
+		FUNCTION(glGetError),
+		FUNCTION(glGetFixedv),
+		FUNCTION(glGetFloatv),
+		FUNCTION(glGetFramebufferAttachmentParameterivOES),
+		FUNCTION(glGetIntegerv),
+		FUNCTION(glGetLightfv),
+		FUNCTION(glGetLightxv),
+		FUNCTION(glGetMaterialfv),
+		FUNCTION(glGetMaterialxv),
+		FUNCTION(glGetPointerv),
+		FUNCTION(glGetRenderbufferParameterivOES),
+		FUNCTION(glGetString),
+		FUNCTION(glGetTexEnvfv),
+		FUNCTION(glGetTexEnviv),
+		FUNCTION(glGetTexEnvxv),
+		FUNCTION(glGetTexParameterfv),
+		FUNCTION(glGetTexParameteriv),
+		FUNCTION(glGetTexParameterxv),
+		FUNCTION(glHint),
+		FUNCTION(glIsBuffer),
+		FUNCTION(glIsEnabled),
+		FUNCTION(glIsFramebufferOES),
+		FUNCTION(glIsRenderbufferOES),
+		FUNCTION(glIsTexture),
+		FUNCTION(glLightModelf),
+		FUNCTION(glLightModelfv),
+		FUNCTION(glLightModelx),
+		FUNCTION(glLightModelxv),
+		FUNCTION(glLightf),
+		FUNCTION(glLightfv),
+		FUNCTION(glLightx),
+		FUNCTION(glLightxv),
+		FUNCTION(glLineWidth),
+		FUNCTION(glLineWidthx),
+		FUNCTION(glLoadIdentity),
+		FUNCTION(glLoadMatrixf),
+		FUNCTION(glLoadMatrixx),
+		FUNCTION(glLogicOp),
+		FUNCTION(glMaterialf),
+		FUNCTION(glMaterialfv),
+		FUNCTION(glMaterialx),
+		FUNCTION(glMaterialxv),
+		FUNCTION(glMatrixMode),
+		FUNCTION(glMultMatrixf),
+		FUNCTION(glMultMatrixx),
+		FUNCTION(glMultiTexCoord4f),
+		FUNCTION(glMultiTexCoord4x),
+		FUNCTION(glNormal3f),
+		FUNCTION(glNormal3x),
+		FUNCTION(glNormalPointer),
+		FUNCTION(glOrthof),
+		FUNCTION(glOrthox),
+		FUNCTION(glPixelStorei),
+		FUNCTION(glPointParameterf),
+		FUNCTION(glPointParameterfv),
+		FUNCTION(glPointParameterx),
+		FUNCTION(glPointParameterxv),
+		FUNCTION(glPointSize),
+		FUNCTION(glPointSizePointerOES),
+		FUNCTION(glPointSizex),
+		FUNCTION(glPolygonOffset),
+		FUNCTION(glPolygonOffsetx),
+		FUNCTION(glPopMatrix),
+		FUNCTION(glPushMatrix),
+		FUNCTION(glReadPixels),
+		FUNCTION(glRenderbufferStorageOES),
+		FUNCTION(glRotatef),
+		FUNCTION(glRotatex),
+		FUNCTION(glSampleCoverage),
+		FUNCTION(glSampleCoveragex),
+		FUNCTION(glScalef),
+		FUNCTION(glScalex),
+		FUNCTION(glScissor),
+		FUNCTION(glShadeModel),
+		FUNCTION(glStencilFunc),
+		FUNCTION(glStencilMask),
+		FUNCTION(glStencilOp),
+		FUNCTION(glTexCoordPointer),
+		FUNCTION(glTexEnvf),
+		FUNCTION(glTexEnvfv),
+		FUNCTION(glTexEnvi),
+		FUNCTION(glTexEnviv),
+		FUNCTION(glTexEnvx),
+		FUNCTION(glTexEnvxv),
+		FUNCTION(glTexImage2D),
+		FUNCTION(glTexParameterf),
+		FUNCTION(glTexParameterfv),
+		FUNCTION(glTexParameteri),
+		FUNCTION(glTexParameteriv),
+		FUNCTION(glTexParameterx),
+		FUNCTION(glTexParameterxv),
+		FUNCTION(glTexSubImage2D),
+		FUNCTION(glTranslatef),
+		FUNCTION(glTranslatex),
+		FUNCTION(glVertexPointer),
+		FUNCTION(glViewport),
+
+		#undef FUNCTION
+	};
+
+	static const size_t numFunctions = sizeof glFunctions / sizeof(Function);
+	static const Function *const glFunctionsEnd = glFunctions + numFunctions;
+
+	Function needle;
+	needle.name = procname;
+
+	if(procname && strncmp("gl", procname, 2) == 0)
+	{
+		const Function *result = std::lower_bound(glFunctions, glFunctionsEnd, needle, CompareFunctor());
+		if(result != glFunctionsEnd && strcmp(procname, result->name) == 0)
 		{
-			return (__eglMustCastToProperFunctionPointerType)glExtensions[ext].address;
+			return (__eglMustCastToProperFunctionPointerType)result->address;
 		}
 	}
 

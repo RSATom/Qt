@@ -64,7 +64,7 @@ template <class T>
 class QSqlDriverCreator : public QSqlDriverCreatorBase
 {
 public:
-    QSqlDriver *createObject() const Q_DECL_OVERRIDE { return new T; }
+    QSqlDriver *createObject() const override { return new T; }
 };
 
 class Q_SQL_EXPORT QSqlDatabase
@@ -111,18 +111,14 @@ public:
 
     QSqlDriver* driver() const;
 
-    static
-#if !defined(Q_CC_MSVC) || _MSC_VER >= 1900
-    // ### Qt6: remove the #ifdef
-    const
-#endif
-    char *defaultConnection;
+    static const char *defaultConnection;
 
     static QSqlDatabase addDatabase(const QString& type,
                                  const QString& connectionName = QLatin1String(defaultConnection));
     static QSqlDatabase addDatabase(QSqlDriver* driver,
                                  const QString& connectionName = QLatin1String(defaultConnection));
     static QSqlDatabase cloneDatabase(const QSqlDatabase &other, const QString& connectionName);
+    static QSqlDatabase cloneDatabase(const QString &other, const QString& connectionName);
     static QSqlDatabase database(const QString& connectionName = QLatin1String(defaultConnection),
                                  bool open = true);
     static void removeDatabase(const QString& connectionName);

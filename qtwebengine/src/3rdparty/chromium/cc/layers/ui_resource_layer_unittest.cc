@@ -6,7 +6,6 @@
 
 #include "base/threading/thread_task_runner_handle.h"
 #include "cc/animation/animation_host.h"
-#include "cc/resources/resource_provider.h"
 #include "cc/resources/scoped_ui_resource.h"
 #include "cc/test/fake_layer_tree_host.h"
 #include "cc/test/geometry_test_utils.h"
@@ -28,7 +27,7 @@ namespace {
 class TestUIResourceLayer : public UIResourceLayer {
  public:
   static scoped_refptr<TestUIResourceLayer> Create() {
-    return make_scoped_refptr(new TestUIResourceLayer());
+    return base::WrapRefCounted(new TestUIResourceLayer());
   }
 
   using UIResourceLayer::resource_id;
@@ -36,7 +35,7 @@ class TestUIResourceLayer : public UIResourceLayer {
 
  protected:
   TestUIResourceLayer() : UIResourceLayer() { SetIsDrawable(true); }
-  ~TestUIResourceLayer() override {}
+  ~TestUIResourceLayer() override = default;
 };
 
 class UIResourceLayerTest : public testing::Test {
@@ -58,7 +57,7 @@ TEST_F(UIResourceLayerTest, SetBitmap) {
 
   layer_tree_host()->SetRootLayer(test_layer);
   Mock::VerifyAndClearExpectations(layer_tree_host());
-  EXPECT_EQ(test_layer->GetLayerTreeHostForTesting(), layer_tree_host());
+  EXPECT_EQ(test_layer->layer_tree_host(), layer_tree_host());
 
   test_layer->Update();
 
@@ -81,7 +80,7 @@ TEST_F(UIResourceLayerTest, SetUIResourceId) {
 
   layer_tree_host()->SetRootLayer(test_layer);
   Mock::VerifyAndClearExpectations(layer_tree_host());
-  EXPECT_EQ(test_layer->GetLayerTreeHostForTesting(), layer_tree_host());
+  EXPECT_EQ(test_layer->layer_tree_host(), layer_tree_host());
 
   test_layer->Update();
 

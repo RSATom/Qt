@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#include "base/memory/shared_memory.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/command_buffer_id.h"
 #include "ppapi/c/dev/pp_video_dev.h"
@@ -28,6 +28,11 @@
 #include "ppapi/shared_impl/api_id.h"
 #include "ppapi/shared_impl/ppb_image_data_shared.h"
 
+// Windows defines 'PostMessage', so we have to undef it.
+#ifdef PostMessage
+#undef PostMessage
+#endif
+
 struct PP_Flash_Menu;
 struct PP_BrowserFont_Trusted_Description;
 struct PP_NetAddress_IPv4;
@@ -36,10 +41,8 @@ struct PP_NetAddress_Private;
 struct PP_Size;
 
 namespace gpu {
-namespace gles2 {
-struct ContextCreationAttribHelper;
-}
 struct Capabilities;
+struct ContextCreationAttribs;
 }
 
 namespace ppapi {
@@ -130,7 +133,6 @@ class ResourceCreationAPI {
                                         PP_AudioSampleRate sample_rate,
                                         uint32_t sample_frame_count) = 0;
   virtual PP_Resource CreateCameraDevicePrivate(PP_Instance instance) = 0;
-  virtual PP_Resource CreateCompositor(PP_Instance instance) = 0;
   virtual PP_Resource CreateFileChooser(PP_Instance instance,
                                         PP_FileChooserMode_Dev mode,
                                         const PP_Var& accept_types) = 0;
@@ -143,9 +145,9 @@ class ResourceCreationAPI {
   virtual PP_Resource CreateGraphics3DRaw(
       PP_Instance instance,
       PP_Resource share_context,
-      const gpu::gles2::ContextCreationAttribHelper& attrib_helper,
+      const gpu::ContextCreationAttribs& attrib_helper,
       gpu::Capabilities* capabilities,
-      base::SharedMemoryHandle* shared_state,
+      const base::UnsafeSharedMemoryRegion** shared_state,
       gpu::CommandBufferId* command_buffer_id) = 0;
   virtual PP_Resource CreateHostResolver(PP_Instance instance) = 0;
   virtual PP_Resource CreateHostResolverPrivate(PP_Instance instance) = 0;
@@ -168,7 +170,6 @@ class ResourceCreationAPI {
       PP_Instance instance,
       const PP_NetAddress_Private& private_addr) = 0;
   virtual PP_Resource CreateNetworkMonitor(PP_Instance instance) = 0;
-  virtual PP_Resource CreateOutputProtectionPrivate(PP_Instance instance) = 0;
   virtual PP_Resource CreatePrinting(PP_Instance instance) = 0;
   virtual PP_Resource CreateTCPServerSocketPrivate(PP_Instance instance) = 0;
   virtual PP_Resource CreateTCPSocket1_0(PP_Instance instace) = 0;
@@ -177,9 +178,7 @@ class ResourceCreationAPI {
   virtual PP_Resource CreateUDPSocket(PP_Instance instace) = 0;
   virtual PP_Resource CreateUDPSocketPrivate(PP_Instance instace) = 0;
   virtual PP_Resource CreateVideoDecoder(PP_Instance instance) = 0;
-  virtual PP_Resource CreateVideoDestination(PP_Instance instance) = 0;
   virtual PP_Resource CreateVideoEncoder(PP_Instance instance) = 0;
-  virtual PP_Resource CreateVideoSource(PP_Instance instance) = 0;
   virtual PP_Resource CreateVpnProvider(PP_Instance instance) = 0;
   virtual PP_Resource CreateWebSocket(PP_Instance instance) = 0;
   virtual PP_Resource CreateX509CertificatePrivate(PP_Instance instance) = 0;
@@ -199,8 +198,6 @@ class ResourceCreationAPI {
   virtual PP_Resource CreateFlashMenu(PP_Instance instance,
                                       const PP_Flash_Menu* menu_data) = 0;
   virtual PP_Resource CreateFlashMessageLoop(PP_Instance instance) = 0;
-  virtual PP_Resource CreatePlatformVerificationPrivate(
-      PP_Instance instance) = 0;
   virtual PP_Resource CreateVideoCapture(PP_Instance instance) = 0;
   virtual PP_Resource CreateVideoDecoderDev(
       PP_Instance instance,

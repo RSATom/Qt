@@ -7,7 +7,9 @@
 #include "base/bind.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
 #include "build/build_config.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/gpu_feature_checker.h"
 #include "extensions/common/extension.h"
@@ -30,11 +32,6 @@ void RequirementsChecker::Start(ResultCallback callback) {
   const RequirementsInfo& requirements =
       RequirementsInfo::GetRequirements(extension());
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
-  if (requirements.npapi)
-    errors_.insert(NPAPI_NOT_SUPPORTED);
-#endif
-
 #if !defined(USE_AURA)
   if (requirements.window_shape)
     errors_.insert(WINDOW_SHAPE_NOT_SUPPORTED);
@@ -55,12 +52,6 @@ void RequirementsChecker::Start(ResultCallback callback) {
 base::string16 RequirementsChecker::GetErrorMessage() const {
   // Join the error messages into one string.
   std::vector<std::string> messages;
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
-  if (errors_.count(NPAPI_NOT_SUPPORTED)) {
-    messages.push_back(
-        l10n_util::GetStringUTF8(IDS_EXTENSION_NPAPI_NOT_SUPPORTED));
-  }
-#endif
   if (errors_.count(WEBGL_NOT_SUPPORTED)) {
     messages.push_back(
         l10n_util::GetStringUTF8(IDS_EXTENSION_WEBGL_NOT_SUPPORTED));
@@ -86,9 +77,9 @@ void RequirementsChecker::PostRunCallback() {
   // to maintain the assumption in
   // ExtensionService::LoadExtensionsFromCommandLineFlag(). Remove these helper
   // functions after crbug.com/708354 is addressed.
-  content::BrowserThread::PostTask(content::BrowserThread::UI, FROM_HERE,
-                                   base::Bind(&RequirementsChecker::RunCallback,
-                                              weak_ptr_factory_.GetWeakPtr()));
+  base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
+                           base::Bind(&RequirementsChecker::RunCallback,
+                                      weak_ptr_factory_.GetWeakPtr()));
 }
 
 void RequirementsChecker::RunCallback() {

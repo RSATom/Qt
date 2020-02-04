@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include "build/build_config.h"
 #include "cc/paint/paint_canvas.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/insets.h"
@@ -42,7 +43,8 @@ void ElideTextAndAdjustRange(const FontList& font_list,
                              Range* range) {
   const base::char16 start_char =
       (range->IsValid() ? text->at(range->start()) : 0);
-  *text = ElideText(*text, font_list, width, ELIDE_TAIL);
+  *text =
+      ElideText(*text, font_list, width, ELIDE_TAIL, gfx::Typesetter::HARFBUZZ);
   if (!range->IsValid())
     return;
   if (range->start() >= text->length() ||
@@ -86,8 +88,9 @@ void UpdateRenderText(const Rect& rect,
 
   render_text->SetColor(color);
   const int font_style = font_list.GetFontStyle();
-  render_text->SetStyle(ITALIC, (font_style & Font::ITALIC) != 0);
-  render_text->SetStyle(UNDERLINE, (font_style & Font::UNDERLINE) != 0);
+  render_text->SetStyle(TEXT_STYLE_ITALIC, (font_style & Font::ITALIC) != 0);
+  render_text->SetStyle(TEXT_STYLE_UNDERLINE,
+                        (font_style & Font::UNDERLINE) != 0);
   render_text->SetWeight(font_list.GetFontWeight());
 }
 
@@ -96,15 +99,17 @@ void UpdateRenderText(const Rect& rect,
 // static
 void Canvas::SizeStringFloat(const base::string16& text,
                              const FontList& font_list,
-                             float* width, float* height,
+                             float* width,
+                             float* height,
                              int line_height,
-                             int flags) {
+                             int flags,
+                             Typesetter typesetter) {
   DCHECK_GE(*width, 0);
   DCHECK_GE(*height, 0);
 
   if ((flags & MULTI_LINE) && *width != 0) {
     WordWrapBehavior wrap_behavior = TRUNCATE_LONG_WORDS;
-    if (flags & CHARACTER_BREAK)
+    if (flags & CHARACTER_BREAKABLE)
       wrap_behavior = WRAP_LONG_WORDS;
     else if (!(flags & NO_ELLIPSIS))
       wrap_behavior = ELIDE_LONG_WORDS;
@@ -113,7 +118,9 @@ void Canvas::SizeStringFloat(const base::string16& text,
     ElideRectangleText(text, font_list, *width, INT_MAX, wrap_behavior,
                        &strings);
     Rect rect(base::saturated_cast<int>(*width), INT_MAX);
-    std::unique_ptr<RenderText> render_text(RenderText::CreateInstance());
+
+    auto render_text = RenderText::CreateFor(typesetter);
+
     UpdateRenderText(rect, base::string16(), font_list, flags, 0,
                      render_text.get());
 
@@ -131,7 +138,8 @@ void Canvas::SizeStringFloat(const base::string16& text,
     *width = w;
     *height = h;
   } else {
-    std::unique_ptr<RenderText> render_text(RenderText::CreateInstance());
+    auto render_text = RenderText::CreateFor(typesetter);
+
     Rect rect(base::saturated_cast<int>(*width),
               base::saturated_cast<int>(*height));
     base::string16 adjusted_text = text;
@@ -157,11 +165,12 @@ void Canvas::DrawStringRectWithFlags(const base::string16& text,
 
   Rect rect(text_bounds);
 
-  std::unique_ptr<RenderText> render_text(RenderText::CreateInstance());
+  // Since we're drawing into a canvas anyway, just use Harfbuzz on Mac.
+  auto render_text = gfx::RenderText::CreateHarfBuzzInstance();
 
   if (flags & MULTI_LINE) {
     WordWrapBehavior wrap_behavior = IGNORE_LONG_WORDS;
-    if (flags & CHARACTER_BREAK)
+    if (flags & CHARACTER_BREAKABLE)
       wrap_behavior = WRAP_LONG_WORDS;
     else if (!(flags & NO_ELLIPSIS))
       wrap_behavior = ELIDE_LONG_WORDS;
@@ -190,7 +199,7 @@ void Canvas::DrawStringRectWithFlags(const base::string16& text,
       rect.set_height(line_height - line_padding);
 
       if (range.IsValid())
-        render_text->ApplyStyle(UNDERLINE, true, range);
+        render_text->ApplyStyle(TEXT_STYLE_UNDERLINE, true, range);
       render_text->SetDisplayRect(rect);
       render_text->Draw(this);
       rect += Vector2d(0, line_height);
@@ -221,7 +230,7 @@ void Canvas::DrawStringRectWithFlags(const base::string16& text,
     UpdateRenderText(rect, adjusted_text, font_list, flags, color,
                      render_text.get());
     if (range.IsValid())
-      render_text->ApplyStyle(UNDERLINE, true, range);
+      render_text->ApplyStyle(TEXT_STYLE_UNDERLINE, true, range);
     render_text->Draw(this);
   }
 
@@ -244,7 +253,8 @@ void Canvas::DrawFadedString(const base::string16& text,
     flags |= TEXT_ALIGN_TO_HEAD;
   flags |= NO_ELLIPSIS;
 
-  std::unique_ptr<RenderText> render_text(RenderText::CreateInstance());
+  // TODO(tapted): Remove Canvas::DrawFadedString() - it's unused.
+  auto render_text = RenderText::CreateInstanceDeprecated();
   Rect rect = display_rect;
   UpdateRenderText(rect, text, font_list, flags, color, render_text.get());
   render_text->SetElideBehavior(FADE_TAIL);

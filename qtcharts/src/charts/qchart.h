@@ -47,7 +47,7 @@ class QLegend;
 class QChartPrivate;
 class QBoxPlotSeries;
 
-class QT_CHARTS_EXPORT QChart : public QGraphicsWidget
+class Q_CHARTS_EXPORT QChart : public QGraphicsWidget
 {
     Q_OBJECT
     Q_PROPERTY(QChart::ChartTheme theme READ theme WRITE setTheme)
@@ -63,7 +63,7 @@ class QT_CHARTS_EXPORT QChart : public QGraphicsWidget
     Q_PROPERTY(bool plotAreaBackgroundVisible READ isPlotAreaBackgroundVisible WRITE setPlotAreaBackgroundVisible)
     Q_PROPERTY(bool localizeNumbers READ localizeNumbers WRITE setLocalizeNumbers)
     Q_PROPERTY(QLocale locale READ locale WRITE setLocale)
-    Q_PROPERTY(QRectF plotArea READ plotArea NOTIFY plotAreaChanged)
+    Q_PROPERTY(QRectF plotArea READ plotArea WRITE setPlotArea NOTIFY plotAreaChanged)
     Q_ENUMS(ChartTheme)
     Q_ENUMS(AnimationOption)
     Q_ENUMS(ChartType)
@@ -96,7 +96,7 @@ public:
     Q_DECLARE_FLAGS(AnimationOptions, AnimationOption)
 
 public:
-    explicit QChart(QGraphicsItem *parent = Q_NULLPTR, Qt::WindowFlags wFlags = Qt::WindowFlags());
+    explicit QChart(QGraphicsItem *parent = nullptr, Qt::WindowFlags wFlags = Qt::WindowFlags());
     ~QChart();
 
     void addSeries(QAbstractSeries *series);
@@ -104,16 +104,14 @@ public:
     void removeAllSeries();
     QList<QAbstractSeries *> series() const;
 
-    // *** deprecated ***
-    void setAxisX(QAbstractAxis *axis, QAbstractSeries *series = Q_NULLPTR);
-    void setAxisY(QAbstractAxis *axis, QAbstractSeries *series = Q_NULLPTR);
-    QAbstractAxis *axisX(QAbstractSeries *series = Q_NULLPTR) const;
-    QAbstractAxis *axisY(QAbstractSeries *series = Q_NULLPTR) const;
-    // ******************
+    Q_DECL_DEPRECATED void setAxisX(QAbstractAxis *axis, QAbstractSeries *series = nullptr);
+    Q_DECL_DEPRECATED void setAxisY(QAbstractAxis *axis, QAbstractSeries *series = nullptr);
+    Q_DECL_DEPRECATED QAbstractAxis *axisX(QAbstractSeries *series = nullptr) const;
+    Q_DECL_DEPRECATED QAbstractAxis *axisY(QAbstractSeries *series = nullptr) const;
 
     void addAxis(QAbstractAxis *axis, Qt::Alignment alignment);
     void removeAxis(QAbstractAxis *axis);
-    QList<QAbstractAxis*> axes(Qt::Orientations orientation = Qt::Horizontal|Qt::Vertical, QAbstractSeries *series = Q_NULLPTR) const;
+    QList<QAbstractAxis*> axes(Qt::Orientations orientation = Qt::Horizontal|Qt::Vertical, QAbstractSeries *series = nullptr) const;
 
     void createDefaultAxes();
 
@@ -162,6 +160,7 @@ public:
     QMargins margins() const;
 
     QRectF plotArea() const;
+    void setPlotArea(const QRectF &rect);
     void setPlotAreaBackgroundBrush(const QBrush &brush);
     QBrush plotAreaBackgroundBrush() const;
     void setPlotAreaBackgroundPen(const QPen &pen);
@@ -173,8 +172,8 @@ public:
     void setLocale(const QLocale &locale);
     QLocale locale() const;
 
-    QPointF mapToValue(const QPointF &position, QAbstractSeries *series = Q_NULLPTR);
-    QPointF mapToPosition(const QPointF &value, QAbstractSeries *series = Q_NULLPTR);
+    QPointF mapToValue(const QPointF &position, QAbstractSeries *series = nullptr);
+    QPointF mapToPosition(const QPointF &value, QAbstractSeries *series = nullptr);
 
     ChartType chartType() const;
 

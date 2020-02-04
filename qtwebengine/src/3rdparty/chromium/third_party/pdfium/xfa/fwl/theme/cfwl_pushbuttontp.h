@@ -11,15 +11,15 @@
 
 #include "xfa/fwl/theme/cfwl_widgettp.h"
 
-class CFWL_PushButtonTP : public CFWL_WidgetTP {
+class CFWL_PushButtonTP final : public CFWL_WidgetTP {
  public:
   CFWL_PushButtonTP();
   ~CFWL_PushButtonTP() override;
 
   // CFWL_WidgetTP
-  void DrawBackground(CFWL_ThemeBackground* pParams) override;
+  void DrawBackground(const CFWL_ThemeBackground& pParams) override;
 
- protected:
+ private:
   struct PBThemeData {
     FX_ARGB clrBorder[5];
     FX_ARGB clrStart[5];
@@ -34,13 +34,10 @@ class CFWL_PushButtonTP : public CFWL_WidgetTP {
   void SetBackgroudColor(uint32_t* pData);
   void SetCaptionColor(uint32_t* pData);
   void SetCornerColor(uint32_t* pData);
-
   int32_t GetColorID(uint32_t dwStates) const;
+  void SetThemeData();
 
   std::unique_ptr<PBThemeData> m_pThemeData;
-
- private:
-  void SetThemeData();
 };
 
 #endif  // XFA_FWL_THEME_CFWL_PUSHBUTTONTP_H_

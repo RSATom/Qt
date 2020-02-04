@@ -8,7 +8,6 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
@@ -16,6 +15,7 @@
 #include "components/ntp_snippets/content_suggestions_metrics.h"
 #include "components/ntp_snippets/features.h"
 #include "components/ntp_snippets/pref_names.h"
+#include "components/ntp_snippets/time_serialization.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/variations_associated_data.h"
@@ -142,10 +142,9 @@ std::string GetOptionalCategoryAsString(
 
 }  // namespace
 
-ClickBasedCategoryRanker::ClickBasedCategoryRanker(
-    PrefService* pref_service,
-    std::unique_ptr<base::Clock> clock)
-    : pref_service_(pref_service), clock_(std::move(clock)) {
+ClickBasedCategoryRanker::ClickBasedCategoryRanker(PrefService* pref_service,
+                                                   base::Clock* clock)
+    : pref_service_(pref_service), clock_(clock) {
   if (!ReadOrderFromPrefs(&ordered_categories_)) {
     // TODO(crbug.com/676273): Handle adding new hardcoded KnownCategories to
     // existing order from prefs. Currently such new category is completely
@@ -153,7 +152,7 @@ ClickBasedCategoryRanker::ClickBasedCategoryRanker(
     RestoreDefaultOrder();
   }
 
-  if (ReadLastDecayTimeFromPrefs() == base::Time::FromInternalValue(0)) {
+  if (ReadLastDecayTimeFromPrefs() == DeserializeTime(0)) {
     StoreLastDecayTimeToPrefs(clock_->Now());
   }
   promoted_category_ = DeterminePromotedCategory();
@@ -219,7 +218,7 @@ void ClickBasedCategoryRanker::ClearHistory(base::Time begin, base::Time end) {
     return;
   }
 
-  StoreLastDecayTimeToPrefs(base::Time::FromInternalValue(0));
+  StoreLastDecayTimeToPrefs(DeserializeTime(0));
 
   // The categories added through |AppendCategoryIfNecessary| cannot be
   // completely removed, since no one is required to reregister them. Instead
@@ -322,7 +321,7 @@ void ClickBasedCategoryRanker::OnSuggestionOpened(Category category) {
 
   DecayClicksIfNeeded();
 
-  std::vector<RankedCategory>::iterator current = FindCategory(category);
+  auto current = FindCategory(category);
   DCHECK_GE(current->clicks, 0);
   // The overflow is ignored. It is unlikely to happen, because of click count
   // decay.
@@ -330,7 +329,7 @@ void ClickBasedCategoryRanker::OnSuggestionOpened(Category category) {
 
   // Move the category up if appropriate.
   if (current != ordered_categories_.begin()) {
-    std::vector<RankedCategory>::iterator previous = current - 1;
+    auto previous = current - 1;
     const int passing_margin = GetPositionPassingMargin(previous);
     if (current->clicks >= previous->clicks + passing_margin) {
       const int new_index = previous - ordered_categories_.begin();
@@ -353,9 +352,9 @@ void ClickBasedCategoryRanker::OnCategoryDismissed(Category category) {
 
   const int penalty = GetDismissedCategoryPenalty();
   if (penalty != 0) {  // Dismissed category penalty is turned on?
-    std::vector<RankedCategory>::iterator current = FindCategory(category);
+    auto current = FindCategory(category);
     for (int downgrade = 0; downgrade < penalty; ++downgrade) {
-      std::vector<RankedCategory>::iterator next = current + 1;
+      auto next = current + 1;
       if (next == ordered_categories_.end()) {
         break;
       }
@@ -364,7 +363,7 @@ void ClickBasedCategoryRanker::OnCategoryDismissed(Category category) {
     }
 
     DCHECK(current != ordered_categories_.begin());
-    std::vector<RankedCategory>::iterator previous = current - 1;
+    auto previous = current - 1;
     int new_clicks = std::max(previous->clicks - GetPassingMargin(), 0);
     // The previous category may have more clicks (but not enough to pass the
     // margin, this is possible when penalty >= 2), therefore, we ensure that
@@ -461,7 +460,7 @@ base::Time ParseLastDismissedDate(const base::DictionaryValue& value) {
   int64_t parsed_value;
   if (value.GetString(kLastDismissedKey, &serialized_value) &&
       base::StringToInt64(serialized_value, &parsed_value)) {
-    return base::Time::FromInternalValue(parsed_value);
+    return DeserializeTime(parsed_value);
   }
   return base::Time();
 }
@@ -506,12 +505,12 @@ void ClickBasedCategoryRanker::StoreOrderToPrefs(
     const std::vector<RankedCategory>& ordered_categories) {
   base::ListValue list;
   for (const RankedCategory& category : ordered_categories) {
-    auto dictionary = base::MakeUnique<base::DictionaryValue>();
+    auto dictionary = std::make_unique<base::DictionaryValue>();
     dictionary->SetInteger(kCategoryIdKey, category.category.id());
     dictionary->SetInteger(kClicksKey, category.clicks);
     dictionary->SetString(
         kLastDismissedKey,
-        base::Int64ToString(category.last_dismissed.ToInternalValue()));
+        base::Int64ToString(SerializeTime(category.last_dismissed)));
     list.Append(std::move(dictionary));
   }
   pref_service_->Set(prefs::kClickBasedCategoryRankerOrderWithClicks, list);
@@ -543,7 +542,7 @@ void ClickBasedCategoryRanker::InsertCategoryRelativeToIfNecessary(
     return;
   }
 
-  std::vector<RankedCategory>::iterator anchor_it = FindCategory(anchor);
+  auto anchor_it = FindCategory(anchor);
   ordered_categories_.insert(anchor_it + (after ? 1 : 0),
                              RankedCategory(category_to_insert,
                                             /*clicks=*/anchor_it->clicks,
@@ -552,14 +551,14 @@ void ClickBasedCategoryRanker::InsertCategoryRelativeToIfNecessary(
 }
 
 base::Time ClickBasedCategoryRanker::ReadLastDecayTimeFromPrefs() const {
-  return base::Time::FromInternalValue(
+  return DeserializeTime(
       pref_service_->GetInt64(prefs::kClickBasedCategoryRankerLastDecayTime));
 }
 
 void ClickBasedCategoryRanker::StoreLastDecayTimeToPrefs(
     base::Time last_decay_time) {
   pref_service_->SetInt64(prefs::kClickBasedCategoryRankerLastDecayTime,
-                          last_decay_time.ToInternalValue());
+                          SerializeTime(last_decay_time));
 }
 
 bool ClickBasedCategoryRanker::IsEnoughClicksToDecay() const {

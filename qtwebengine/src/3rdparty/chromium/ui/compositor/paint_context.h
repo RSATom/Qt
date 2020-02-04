@@ -19,7 +19,6 @@ class DisplayItemList;
 
 namespace ui {
 class ClipRecorder;
-class CompositingRecorder;
 class PaintRecorder;
 class TransformRecorder;
 
@@ -29,7 +28,8 @@ class COMPOSITOR_EXPORT PaintContext {
   // |invalidation|.
   PaintContext(cc::DisplayItemList* list,
                float device_scale_factor,
-               const gfx::Rect& invalidation);
+               const gfx::Rect& invalidation,
+               bool is_pixel_canvas);
 
   // Clone a PaintContext with an additional |offset|.
   PaintContext(const PaintContext& other, const gfx::Vector2d& offset);
@@ -45,6 +45,13 @@ class COMPOSITOR_EXPORT PaintContext {
   // When true, IsRectInvalid() can be called, otherwise its result would be
   // invalid.
   bool CanCheckInvalid() const { return !invalidation_.IsEmpty(); }
+
+  // The device scale of the frame being painted.
+  float device_scale_factor() const { return device_scale_factor_; }
+
+  // Returns true if the paint commands are recorded at pixel size instead of
+  // DIP.
+  bool is_pixel_canvas() const { return is_pixel_canvas_; }
 
   // When true, the |bounds| touches an invalidated area, so should be
   // re-painted. When false, re-painting can be skipped. Bounds should be in
@@ -70,7 +77,6 @@ class COMPOSITOR_EXPORT PaintContext {
   // don't want to expose them on this class so that people must go through the
   // recorders to access them.
   friend class ClipRecorder;
-  friend class CompositingRecorder;
   friend class PaintRecorder;
   friend class TransformRecorder;
   // The Cache class also needs to access the DisplayItemList to append its
@@ -94,6 +100,8 @@ class COMPOSITOR_EXPORT PaintContext {
   // Offset from the PaintContext to the space of the paint root and the
   // |invalidation_|.
   gfx::Vector2d offset_;
+  // If enabled, the paint commands are recorded at pixel size.
+  const bool is_pixel_canvas_;
 
 #if DCHECK_IS_ON()
   // Used to verify that the |invalidation_| is only used to compare against

@@ -22,6 +22,7 @@
 #include "extensions/browser/api/declarative_webrequest/request_stage.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_constants.h"
+#include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/web_request/web_request_api_helpers.h"
 #include "extensions/browser/api/web_request/web_request_resource_type.h"
 #include "extensions/common/error_utils.h"
@@ -181,8 +182,7 @@ bool WebRequestConditionAttributeResourceType::IsFulfilled(
     const WebRequestData& request_data) const {
   if (!(request_data.stage & GetStages()))
     return false;
-  const auto resource_type = GetWebRequestResourceType(request_data.request);
-  return base::ContainsValue(types_, resource_type);
+  return base::ContainsValue(types_, request_data.request->web_request_type);
 }
 
 WebRequestConditionAttribute::Type
@@ -232,8 +232,7 @@ WebRequestConditionAttributeContentType::Create(
     return scoped_refptr<const WebRequestConditionAttribute>(NULL);
   }
   std::vector<std::string> content_types;
-  for (base::ListValue::const_iterator it = value_as_list->begin();
-       it != value_as_list->end(); ++it) {
+  for (auto it = value_as_list->begin(); it != value_as_list->end(); ++it) {
     std::string content_type;
     if (!it->GetAsString(&content_type)) {
       *error = ErrorUtils::FormatErrorMessage(kInvalidValue, name);
@@ -379,8 +378,7 @@ HeaderMatcher::~HeaderMatcher() {}
 std::unique_ptr<const HeaderMatcher> HeaderMatcher::Create(
     const base::ListValue* tests) {
   std::vector<std::unique_ptr<const HeaderMatchTest>> header_tests;
-  for (base::ListValue::const_iterator it = tests->begin();
-       it != tests->end(); ++it) {
+  for (auto it = tests->begin(); it != tests->end(); ++it) {
     const base::DictionaryValue* tests = NULL;
     if (!it->GetAsDictionary(&tests))
       return std::unique_ptr<const HeaderMatcher>();
@@ -502,7 +500,7 @@ HeaderMatcher::HeaderMatchTest::Create(const base::DictionaryValue* tests) {
 
     std::vector<std::unique_ptr<const StringMatchTest>>* tests =
         is_name ? &name_match : &value_match;
-    switch (content->GetType()) {
+    switch (content->type()) {
       case base::Value::Type::LIST: {
         const base::ListValue* list = NULL;
         CHECK(content->GetAsList(&list));
@@ -610,7 +608,7 @@ bool WebRequestConditionAttributeRequestHeaders::IsFulfilled(
     return false;
 
   const net::HttpRequestHeaders& headers =
-      request_data.request->extra_request_headers();
+      request_data.request->extra_request_headers;
 
   bool passed = false;  // Did some header pass TestNameValue?
   net::HttpRequestHeaders::Iterator it(headers);
@@ -691,6 +689,9 @@ bool WebRequestConditionAttributeResponseHeaders::IsFulfilled(
   std::string value;
   size_t iter = 0;
   while (!passed && headers->EnumerateHeaderLines(&iter, &name, &value)) {
+    if (ExtensionsAPIClient::Get()->ShouldHideResponseHeader(
+            request_data.request->url, name))
+      continue;
     passed |= header_matcher_->TestNameValue(name, value);
   }
 
@@ -758,8 +759,7 @@ bool WebRequestConditionAttributeThirdParty::IsFulfilled(
   const net::StaticCookiePolicy block_third_party_policy(
       net::StaticCookiePolicy::BLOCK_ALL_THIRD_PARTY_COOKIES);
   const int can_get_cookies = block_third_party_policy.CanAccessCookies(
-      request_data.request->url(),
-      request_data.request->first_party_for_cookies());
+      request_data.request->url, request_data.request->site_for_cookies);
   const bool is_first_party = (can_get_cookies == net::OK);
 
   return match_third_party_ ? !is_first_party : is_first_party;
@@ -806,8 +806,7 @@ bool ParseListOfStages(const base::Value& value, int* out_stages) {
 
   int stages = 0;
   std::string stage_name;
-  for (base::ListValue::const_iterator it = list->begin();
-       it != list->end(); ++it) {
+  for (auto it = list->begin(); it != list->end(); ++it) {
     if (!(it->GetAsString(&stage_name)))
       return false;
     if (stage_name == keys::kOnBeforeRequestEnum) {

@@ -37,18 +37,32 @@
 **
 ****************************************************************************/
 
+//
+//  W A R N I N G
+//  -------------
+//
+// This file is not part of the Qt API.  It exists purely as an
+// implementation detail.  This header file may change from version to
+// version without notice, or even be removed.
+//
+// We mean it.
+//
+
 #ifndef COLOR_CHOOSER_CONTROLLER_H
 #define COLOR_CHOOSER_CONTROLLER_H
 
-#include "qtwebenginecoreglobal.h"
+#include "qtwebenginecoreglobal_p.h"
 
 #include <QObject>
+
+QT_FORWARD_DECLARE_CLASS(QColor)
+QT_FORWARD_DECLARE_CLASS(QVariant)
 
 namespace QtWebEngineCore {
 
 class ColorChooserControllerPrivate;
 
-class QWEBENGINE_EXPORT ColorChooserController : public QObject {
+class Q_WEBENGINECORE_PRIVATE_EXPORT ColorChooserController : public QObject {
     Q_OBJECT
 public:
     ~ColorChooserController();

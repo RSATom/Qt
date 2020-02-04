@@ -9,7 +9,7 @@
 
 #include "base/memory/weak_ptr.h"
 #include "components/offline_pages/core/background/request_queue_store.h"
-#include "components/offline_pages/core/task.h"
+#include "components/offline_pages/task/task.h"
 
 namespace offline_pages {
 
@@ -25,7 +25,7 @@ namespace offline_pages {
 class InitializeStoreTask : public Task {
  public:
   InitializeStoreTask(RequestQueueStore* store,
-                      const RequestQueueStore::InitializeCallback& callback);
+                      RequestQueueStore::InitializeCallback callback);
   ~InitializeStoreTask() override;
 
   // TaskQueue::Task implementation.

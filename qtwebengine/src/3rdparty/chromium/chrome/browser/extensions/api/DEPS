@@ -1,12 +1,11 @@
 include_rules = [
   "+apps",
-  "+chrome/browser/apps",
-  "+components/about_handler",
-  "+components/guest_view/common",
-  "+device/hid",
+  "+services/device/public",
+
    # Enable remote assistance on Chrome OS
   "+remoting/base",
   "+remoting/host",
+  "+services/network",
 ]
 
 specific_include_rules = {

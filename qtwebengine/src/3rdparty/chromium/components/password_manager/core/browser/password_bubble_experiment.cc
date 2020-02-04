@@ -14,6 +14,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/driver/sync_user_settings.h"
 #include "components/variations/variations_associated_data.h"
 
 namespace password_bubble_experiment {
@@ -22,10 +23,6 @@ const char kSmartBubbleExperimentName[] = "PasswordSmartBubble";
 const char kSmartBubbleThresholdParam[] = "dismissal_count";
 
 void RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterBooleanPref(
-      password_manager::prefs::kWasAutoSignInFirstRunExperienceShown, false,
-      user_prefs::PrefRegistrySyncable::SYNCABLE_PRIORITY_PREF);
-
   registry->RegisterBooleanPref(
       password_manager::prefs::kWasSignInPasswordPromoClicked, false);
 
@@ -42,8 +39,8 @@ int GetSmartBubbleDismissalThreshold() {
 }
 
 bool IsSmartLockUser(const syncer::SyncService* sync_service) {
-  return password_manager_util::GetPasswordSyncState(sync_service) ==
-         password_manager::SYNCING_NORMAL_ENCRYPTION;
+  return password_manager_util::GetPasswordSyncState(sync_service) !=
+         password_manager::NOT_SYNCING;
 }
 
 bool ShouldShowAutoSignInPromptFirstRunExperience(PrefService* prefs) {
@@ -64,9 +61,14 @@ void TurnOffAutoSignin(PrefService* prefs) {
 bool ShouldShowChromeSignInPasswordPromo(
     PrefService* prefs,
     const syncer::SyncService* sync_service) {
-  if (!sync_service || !sync_service->IsSyncAllowed() ||
-      sync_service->IsFirstSetupComplete())
+  if (!sync_service ||
+      sync_service->HasDisableReason(
+          syncer::SyncService::DISABLE_REASON_PLATFORM_OVERRIDE) ||
+      sync_service->HasDisableReason(
+          syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY) ||
+      sync_service->GetUserSettings()->IsFirstSetupComplete()) {
     return false;
+  }
   // Don't show the promo more than 3 times.
   constexpr int kThreshold = 3;
   return !prefs->GetBoolean(

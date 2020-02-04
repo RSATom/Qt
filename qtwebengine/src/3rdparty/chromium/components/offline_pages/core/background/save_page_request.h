@@ -6,10 +6,16 @@
 #define COMPONENTS_OFFLINE_PAGES_CORE_BACKGROUND_SAVE_PAGE_REQUEST_H_
 
 #include <stdint.h>
+#include <iosfwd>
 
 #include "base/time/time.h"
+#include "components/offline_items_collection/core/fail_state.h"
+#include "components/offline_items_collection/core/pending_state.h"
 #include "components/offline_pages/core/offline_page_item.h"
 #include "url/gurl.h"
+
+using offline_items_collection::FailState;
+using offline_items_collection::PendingState;
 
 namespace offline_pages {
 
@@ -21,6 +27,11 @@ class SavePageRequest {
     AVAILABLE = 0,  // Request can be scheduled when preconditions are met.
     PAUSED = 1,     // Request is not available until it is unpaused.
     OFFLINING = 2,  // Request is actively offlining.
+  };
+
+  enum class AutoFetchNotificationState : int {
+    kUnknown = 0,
+    kShown = 1,  // The auto-fetch notification was shown.
   };
 
   SavePageRequest(int64_t request_id,
@@ -37,15 +48,20 @@ class SavePageRequest {
   void MarkAttemptStarted(const base::Time& start_time);
 
   // Marks attempt as completed and clears |last_attempt_time_|.
-  void MarkAttemptCompleted();
+  // Updates the |fail_state_|.
+  void MarkAttemptCompleted(FailState fail_state);
 
   // Marks attempt as aborted. This will change the state of an OFFLINING
   // request to be AVAILABLE.  It will not change the state of a PAUSED request.
   void MarkAttemptAborted();
 
-  // Mark the attempt as paused.  It is not available for future prerendering
-  // until it has been explicitly unpaused.
+  // Mark the attempt as paused.  It is not available for future background
+  // loading until it has been explicitly unpaused.
   void MarkAttemptPaused();
+
+  // Mark the attempt as deferred. This counts as a failed attempt so that
+  // deferred attempts are not unlimited.
+  void MarkAttemptDeferred(const base::Time& attempt_time);
 
   int64_t request_id() const { return request_id_; }
 
@@ -55,6 +71,12 @@ class SavePageRequest {
 
   RequestState request_state() const { return state_; }
   void set_request_state(RequestState new_state) { state_ = new_state; }
+
+  FailState fail_state() const { return fail_state_; }
+  void set_fail_state(FailState new_state) { fail_state_ = new_state; }
+
+  PendingState pending_state() const { return pending_state_; }
+  void set_pending_state(PendingState new_state) { pending_state_ = new_state; }
 
   const base::Time& creation_time() const { return creation_time_; }
 
@@ -88,6 +110,16 @@ class SavePageRequest {
     request_origin_ = request_origin;
   }
 
+  AutoFetchNotificationState auto_fetch_notification_state() const {
+    return auto_fetch_notification_state_;
+  }
+  void set_auto_fetch_notification_state(AutoFetchNotificationState state) {
+    auto_fetch_notification_state_ = state;
+  }
+
+  // Implemented in test_util.cc.
+  std::string ToString() const;
+
  private:
   // ID of this request.
   int64_t request_id_;
@@ -116,8 +148,14 @@ class SavePageRequest {
   // like AGSA or Now.)
   bool user_requested_;
 
-  // The current state of this request
+  // The current state of this request.
   RequestState state_;
+
+  // The reason the request failed downloading.
+  FailState fail_state_;
+
+  // The reason the request is available.
+  PendingState pending_state_;
 
   // The original URL of the page to be offlined. Empty if no redirect occurs.
   GURL original_url_;
@@ -125,7 +163,18 @@ class SavePageRequest {
   // The app package origin of this save page request. Empty if cannot be
   // determined or Chrome.
   std::string request_origin_;
+
+  // Notification state for auto_fetch requests.
+  AutoFetchNotificationState auto_fetch_notification_state_ =
+      AutoFetchNotificationState::kUnknown;
+
+  // Helper method to update the |fail_state_| of a request.
+  void UpdateFailState(FailState fail_state);
 };
+
+// Implemented in test_util.cc.
+std::ostream& operator<<(std::ostream& out,
+                         SavePageRequest::AutoFetchNotificationState value);
 
 }  // namespace offline_pages
 

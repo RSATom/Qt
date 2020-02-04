@@ -80,8 +80,8 @@ private:
     void stopListener();
 
     // SocketListener (delegate):
-    void openNotify(IOBluetoothRFCOMMChannel *channel) Q_DECL_OVERRIDE;
-    void openNotify(IOBluetoothL2CAPChannel *channel) Q_DECL_OVERRIDE;
+    void openNotify(IOBluetoothRFCOMMChannel *channel) override;
+    void openNotify(IOBluetoothL2CAPChannel *channel) override;
 
     QBluetoothServiceInfo::Protocol serverType;
     QBluetoothServer *q_ptr;

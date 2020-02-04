@@ -9,34 +9,60 @@
 #include <stdint.h>
 
 #include <string>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "net/base/net_export.h"
+#include "net/dns/public/dns_protocol.h"
+
+namespace base {
+class BigEndianWriter;
+}  // namespace base
 
 namespace net {
 
 class AddressList;
 class DnsQuery;
-class IOBufferWithSize;
+class IOBuffer;
 
 namespace dns_protocol {
 struct Header;
-}
+}  // namespace dns_protocol
 
 // Structure representing a Resource Record as specified in RFC 1035, Section
 // 4.1.3.
 struct NET_EXPORT_PRIVATE DnsResourceRecord {
   DnsResourceRecord();
+  explicit DnsResourceRecord(const DnsResourceRecord& other);
+  DnsResourceRecord(DnsResourceRecord&& other);
   ~DnsResourceRecord();
 
+  DnsResourceRecord& operator=(const DnsResourceRecord& other);
+  DnsResourceRecord& operator=(DnsResourceRecord&& other);
+
+  // A helper to set |owned_rdata| that also sets |rdata| to point to it.
+  // See the definition of |owned_rdata| below.
+  void SetOwnedRdata(std::string value);
+
+  // NAME (variable length) + TYPE (2 bytes) + CLASS (2 bytes) + TTL (4 bytes) +
+  // RDLENGTH (2 bytes) + RDATA (variable length)
+  //
+  // Uses |owned_rdata| for RDATA if non-empty.
+  size_t CalculateRecordSize() const;
+
   std::string name;  // in dotted form
-  uint16_t type;
-  uint16_t klass;
-  uint32_t ttl;
-  base::StringPiece rdata;  // points to the original response buffer
+  uint16_t type = 0;
+  uint16_t klass = 0;
+  uint32_t ttl = 0;
+  // Points to the original response buffer or otherwise to |owned_rdata|.
+  base::StringPiece rdata;
+  // Used to construct a DnsResponse from data. This field is empty if |rdata|
+  // points to the response buffer.
+  std::string owned_rdata;
 };
 
 // Iterator to walk over resource records of the DNS response packet.
@@ -105,8 +131,21 @@ class NET_EXPORT_PRIVATE DnsResponse {
   // largest possible response, to detect malformed responses.
   DnsResponse();
 
+  // Constructs a response message from |answers| and the originating |query|.
+  // After the successful construction, and the parser is also initialized.
+  DnsResponse(uint16_t id,
+              bool is_authoritative,
+              const std::vector<DnsResourceRecord>& answers,
+              const std::vector<DnsResourceRecord>& authority_records,
+              const std::vector<DnsResourceRecord>& additional_records,
+              const base::Optional<DnsQuery>& query,
+              uint8_t rcode = dns_protocol::kRcodeNOERROR);
+
   // Constructs a response buffer of given length. Used for TCP transactions.
   explicit DnsResponse(size_t length);
+
+  // Constructs a response from the passed buffer.
+  DnsResponse(scoped_refptr<IOBuffer> buffer, size_t size);
 
   // Constructs a response from |data|. Used for testing purposes only!
   DnsResponse(const void* data, size_t length, size_t answer_offset);
@@ -115,17 +154,23 @@ class NET_EXPORT_PRIVATE DnsResponse {
 
   // Internal buffer accessor into which actual bytes of response will be
   // read.
-  IOBufferWithSize* io_buffer() { return io_buffer_.get(); }
+  IOBuffer* io_buffer() { return io_buffer_.get(); }
+
+  // Size of the internal buffer.
+  size_t io_buffer_size() const { return io_buffer_size_; }
 
   // Assuming the internal buffer holds |nbytes| bytes, returns true iff the
-  // packet matches the |query| id and question.
-  bool InitParse(int nbytes, const DnsQuery& query);
+  // packet matches the |query| id and question. This should only be called if
+  // the response is constructed from a raw buffer.
+  bool InitParse(size_t nbytes, const DnsQuery& query);
 
   // Assuming the internal buffer holds |nbytes| bytes, initialize the parser
-  // without matching it against an existing query.
-  bool InitParseWithoutQuery(int nbytes);
+  // without matching it against an existing query. This should only be called
+  // if the response is constructed from a raw buffer.
+  bool InitParseWithoutQuery(size_t nbytes);
 
-  // Returns true if response is valid, that is, after successful InitParse.
+  // Returns true if response is valid, that is, after successful InitParse, or
+  // after successful construction of a new response from data.
   bool IsValid() const;
 
   // All of the methods below are valid only if the response is valid.
@@ -154,11 +199,23 @@ class NET_EXPORT_PRIVATE DnsResponse {
   Result ParseToAddressList(AddressList* addr_list, base::TimeDelta* ttl) const;
 
  private:
+  bool WriteHeader(base::BigEndianWriter* writer,
+                   const dns_protocol::Header& header);
+  bool WriteQuestion(base::BigEndianWriter* writer, const DnsQuery& query);
+  bool WriteRecord(base::BigEndianWriter* wirter,
+                   const DnsResourceRecord& record);
+  bool WriteAnswer(base::BigEndianWriter* wirter,
+                   const DnsResourceRecord& answer,
+                   const base::Optional<DnsQuery>& query);
+
   // Convenience for header access.
   const dns_protocol::Header* header() const;
 
   // Buffer into which response bytes are read.
-  scoped_refptr<IOBufferWithSize> io_buffer_;
+  scoped_refptr<IOBuffer> io_buffer_;
+
+  // Size of the buffer.
+  size_t io_buffer_size_;
 
   // Iterator constructed after InitParse positioned at the answer section.
   // It is never updated afterwards, so can be used in accessors.

@@ -65,7 +65,7 @@
 #include <qmetaobject.h>
 #include <qpainter.h>
 #include <qpointer.h>
-#include <qregexp.h>
+#include <qregularexpression.h>
 #include <quuid.h>
 #include <qwhatsthis.h>
 #include <qabstractnativeeventfilter.h>
@@ -115,11 +115,12 @@ QT_BEGIN_NAMESPACE
 */
 class QAxHostWidget : public QWidget
 {
+    Q_DISABLE_COPY(QAxHostWidget)
     friend class QAxClientSite;
 public:
     Q_OBJECT_CHECK
     QAxHostWidget(QWidget *parent, QAxClientSite *ax);
-    ~QAxHostWidget();
+    ~QAxHostWidget() override;
 
     QSize sizeHint() const override;
     QSize minimumSizeHint() const override;
@@ -173,6 +174,7 @@ class QAxClientSite : public IDispatch,
                     public IOleDocumentSite,
                     public IAdviseSink
 {
+    Q_DISABLE_COPY(QAxClientSite)
     friend class QAxHostWidget;
 public:
     QAxClientSite(QAxWidget *c);
@@ -209,22 +211,22 @@ public:
     }
 
     // IUnknown
-    unsigned long WINAPI AddRef();
-    unsigned long WINAPI Release();
+    unsigned long WINAPI AddRef() override;
+    unsigned long WINAPI Release() override;
     STDMETHOD(QueryInterface)(REFIID iid, void **iface);
 
     // IDispatch
-    HRESULT __stdcall GetTypeInfoCount(unsigned int *) { return E_NOTIMPL; }
-    HRESULT __stdcall GetTypeInfo(UINT, LCID, ITypeInfo **) { return E_NOTIMPL; }
-    HRESULT __stdcall GetIDsOfNames(const _GUID &, wchar_t **, unsigned int, unsigned long, long *) { return E_NOTIMPL; }
-    HRESULT __stdcall Invoke(DISPID dispIdMember,
-        REFIID riid,
-        LCID lcid,
-        WORD wFlags,
-        DISPPARAMS *pDispParams,
-        VARIANT *pVarResult,
-        EXCEPINFO *pExcepInfo,
-        UINT *puArgErr);
+    HRESULT __stdcall GetTypeInfoCount(unsigned int *) override
+    { return E_NOTIMPL; }
+    HRESULT __stdcall GetTypeInfo(UINT, LCID, ITypeInfo **) override
+    { return E_NOTIMPL; }
+    HRESULT __stdcall GetIDsOfNames(const _GUID &, wchar_t **, unsigned int,
+                                    unsigned long, long *) override
+    { return E_NOTIMPL; }
+    HRESULT __stdcall Invoke(DISPID dispIdMember, REFIID riid, LCID lcid,
+                             WORD wFlags, DISPPARAMS *pDispParams,
+                             VARIANT *pVarResult, EXCEPINFO *pExcepInfo,
+                             UINT *puArgErr) override;
     void emitAmbientPropertyChange(DISPID dispid);
 
     // IOleClientSite
@@ -473,7 +475,7 @@ static const wchar_t *qaxatom = L"QAxContainer4_Atom";
 class QAxNativeEventFilter : public QAbstractNativeEventFilter
 {
 public:
-    bool nativeEventFilter(const QByteArray &eventType, void *message, long *) Q_DECL_OVERRIDE;
+    bool nativeEventFilter(const QByteArray &eventType, void *message, long *) override;
 };
 Q_GLOBAL_STATIC(QAxNativeEventFilter, s_nativeEventFilter)
 
@@ -693,9 +695,31 @@ bool QAxClientSite::activateObject(bool initialized, const QByteArray &data)
 
         RECT rcPos = qaxQRect2Rect(QRect(qaxNativeWidgetPosition(host), qaxToNativeSize(host, sizehint)));
 
+        const HWND hostWnd = reinterpret_cast<HWND>(host->winId());
         m_spOleObject->DoVerb(OLEIVERB_INPLACEACTIVATE, 0, static_cast<IOleClientSite *>(this), 0,
-                              reinterpret_cast<HWND>(host->winId()),
+                              hostWnd,
                               &rcPos);
+
+        HWND controlWnd = {};
+        {
+            IOleWindow *oleWindow = nullptr;
+            m_spOleObject->QueryInterface(IID_IOleWindow, reinterpret_cast<void **>(&oleWindow));
+            if (oleWindow) {
+                oleWindow->GetWindow(&controlWnd);
+                oleWindow->Release();
+            }
+        }
+
+        if (controlWnd && !GetParent(controlWnd)) {
+            // re-parent control window
+            // this is necessary if the control is running in a "low integrity" process that isn't
+            // permitted to create a child window with hostWnd as parent
+            int winStyle = GetWindowLongPtr(controlWnd, GWL_STYLE);
+            winStyle &= ~WS_CAPTION; // remove title bar
+            winStyle |= WS_CHILD;    // convert to child window
+            SetWindowLongPtr(controlWnd, GWL_STYLE, winStyle);
+            SetParent(controlWnd, hostWnd);
+        }
 
         if (!m_spOleControl)
             m_spOleObject->QueryInterface(IID_IOleControl, reinterpret_cast<void **>(&m_spOleControl));
@@ -752,7 +776,7 @@ void QAxClientSite::releaseAll()
 {
     if (m_spOleControl)
         m_spOleControl->Release();
-    m_spOleControl = Q_NULLPTR;
+    m_spOleControl = nullptr;
     if (m_spOleObject) {
         m_spOleObject->SetClientSite(0);
         m_spOleObject->Unadvise(m_dwOleObject);
@@ -1259,7 +1283,7 @@ QMenu *QAxClientSite::generatePopup(HMENU subMenu, QWidget *parent)
             popupMenu = item.hSubMenu ? generatePopup(item.hSubMenu, popup) : 0;
             int res = menuItemEntry(subMenu, i, item, text, icon);
 
-            int lastSep = text.lastIndexOf(QRegExp(QLatin1String("[\\s]")));
+            int lastSep = text.lastIndexOf(QRegularExpression(QLatin1String("[\\s]")));
             if (lastSep != -1) {
                 QString keyString = text.right(text.length() - lastSep);
                 accel = keyString;

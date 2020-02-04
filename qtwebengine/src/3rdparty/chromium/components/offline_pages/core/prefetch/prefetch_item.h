@@ -5,8 +5,11 @@
 #ifndef COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_PREFETCH_ITEM_H_
 #define COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_PREFETCH_ITEM_H_
 
+#include <stdint.h>
+#include <iosfwd>
 #include <string>
 
+#include "base/files/file_path.h"
 #include "base/time/time.h"
 #include "components/offline_pages/core/client_id.h"
 #include "components/offline_pages/core/prefetch/prefetch_types.h"
@@ -19,14 +22,22 @@ namespace offline_pages {
 // successfully or not.
 // Instances of this class are in-memory representations of items in (or to be
 // inserted into) the persistent prefetching data store.
+//
+// Only used in tests.
 struct PrefetchItem {
   PrefetchItem();
-  explicit PrefetchItem(const PrefetchItem& other);
+  PrefetchItem(PrefetchItem&& other);
 
   ~PrefetchItem();
 
+  // These methods are implemented in test_util.cc, for testing only.
+  PrefetchItem(const PrefetchItem& other);
+  PrefetchItem& operator=(const PrefetchItem& other);
+  PrefetchItem& operator=(PrefetchItem&& other);
   bool operator==(const PrefetchItem& other) const;
   bool operator!=(const PrefetchItem& other) const;
+  bool operator<(const PrefetchItem& other) const;
+  std::string ToString() const;
 
   // Primary key that stays consistent between prefetch item, request and
   // offline page.
@@ -52,8 +63,28 @@ struct PrefetchItem {
   // left empty if they are the same.
   GURL final_archived_url;
 
-  // Number of times an attempt was made to generate an archive for this item.
-  int request_archive_attempt_count = 0;
+  // The URL to the thumbnail image representing the article.
+  GURL thumbnail_url;
+
+  // The URL to the favicon image of the article's hosting web site.
+  GURL favicon_url;
+
+  // A snippet of the article's contents.
+  std::string snippet;
+
+  // The publisher name/web site the article is attributed to.
+  std::string attribution;
+
+  // Number of attempts to request OPS to generate an archive for this item.
+  int generate_bundle_attempts = 0;
+
+  // Number of attempts to obtain from OPS information about the archive
+  // generation operation for this item.
+  int get_operation_attempts = 0;
+
+  // Number of attempts to request the downloads system to start downloading the
+  // archive for this item.
+  int download_initiation_attempts = 0;
 
   // Name used to identify the archiving operation being executed by the
   // prefetching service for processing this item's URL. It is used as the
@@ -74,8 +105,10 @@ struct PrefetchItem {
   // item. It holds a negative value otherwise.
   int64_t archive_body_length = -1;
 
-  // Time when this item was inserted into the store with the URL to be
-  // prefetched.
+  // The last time the URL was suggested to be prefetched. Normally this is the
+  // time the item was initially added but if the same URL is suggested multiple
+  // times, it will be updated with the timestamp of the last time.
+  // |creation_time| is used as a proxy for priority.
   base::Time creation_time;
 
   // Time used for the expiration of the item depending on the applicable policy
@@ -87,7 +120,19 @@ struct PrefetchItem {
   // The reason why the item was set to the FINISHED state. Should be
   // disregarded until reaching that state.
   PrefetchItemErrorCode error_code = PrefetchItemErrorCode::SUCCESS;
+
+  // The title of the page.
+  base::string16 title;
+
+  // The file path to the archive of the page.
+  base::FilePath file_path;
+
+  // The size of the archive file.
+  int64_t file_size = -1;
 };
+
+// Provided for test only. Implemented in test_util.cc.
+std::ostream& operator<<(std::ostream& out, const PrefetchItem& pi);
 
 }  // namespace offline_pages
 

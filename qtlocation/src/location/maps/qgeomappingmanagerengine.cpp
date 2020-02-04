@@ -152,7 +152,7 @@ void QGeoMappingManagerEngine::setSupportedMapTypes(const QList<QGeoMapType> &su
 
 QGeoCameraCapabilities QGeoMappingManagerEngine::cameraCapabilities(int mapId) const
 {
-    Q_UNUSED(mapId)
+    Q_UNUSED(mapId);
     Q_D(const QGeoMappingManagerEngine);
 
     if (mapId == 0)

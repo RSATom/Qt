@@ -8,9 +8,9 @@
 #include <memory>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "printing/backend/cups_ipp_util.h"
 #include "printing/backend/cups_printer.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace printing {
@@ -69,7 +69,7 @@ class PrintBackendCupsIppUtilTest : public ::testing::Test {
  protected:
   void SetUp() override {
     ipp_ = ippNew();
-    printer_ = base::MakeUnique<MockCupsOptionProvider>();
+    printer_ = std::make_unique<MockCupsOptionProvider>();
   }
 
   void TearDown() override {
@@ -148,8 +148,9 @@ TEST_F(PrintBackendCupsIppUtilTest, DuplexSupported) {
   PrinterSemanticCapsAndDefaults caps;
   CapsAndDefaultsFromPrinter(*printer_, &caps);
 
-  EXPECT_TRUE(caps.duplex_capable);
-  EXPECT_FALSE(caps.duplex_default);
+  EXPECT_THAT(caps.duplex_modes,
+              testing::UnorderedElementsAre(SIMPLEX, LONG_EDGE));
+  EXPECT_EQ(SIMPLEX, caps.duplex_default);
 }
 
 TEST_F(PrintBackendCupsIppUtilTest, DuplexNotSupported) {
@@ -160,8 +161,8 @@ TEST_F(PrintBackendCupsIppUtilTest, DuplexNotSupported) {
   PrinterSemanticCapsAndDefaults caps;
   CapsAndDefaultsFromPrinter(*printer_, &caps);
 
-  EXPECT_FALSE(caps.duplex_capable);
-  EXPECT_FALSE(caps.duplex_default);
+  EXPECT_THAT(caps.duplex_modes, testing::UnorderedElementsAre(SIMPLEX));
+  EXPECT_EQ(SIMPLEX, caps.duplex_default);
 }
 
 TEST_F(PrintBackendCupsIppUtilTest, A4PaperSupported) {

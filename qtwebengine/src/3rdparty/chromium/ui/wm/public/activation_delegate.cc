@@ -7,7 +7,7 @@
 #include "ui/aura/window.h"
 #include "ui/base/class_property.h"
 
-DECLARE_UI_CLASS_PROPERTY_TYPE(wm::ActivationDelegate*)
+DEFINE_UI_CLASS_PROPERTY_TYPE(wm::ActivationDelegate*)
 
 namespace wm {
 
@@ -18,7 +18,7 @@ void SetActivationDelegate(aura::Window* window, ActivationDelegate* delegate) {
   window->SetProperty(kActivationDelegateKey, delegate);
 }
 
-ActivationDelegate* GetActivationDelegate(aura::Window* window) {
+ActivationDelegate* GetActivationDelegate(const aura::Window* window) {
   return window->GetProperty(kActivationDelegateKey);
 }
 

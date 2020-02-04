@@ -3,557 +3,76 @@
 // found in the LICENSE file.
 
 // Contains constants for known URLs and portions thereof.
+// Except for WebUI UI/Host/SubPage constants. Those go in
+// chrome/common/webui_url_constants.h.
+//
+// - The constants are divided into sections: Cross platform, platform-specific,
+//   and feature-specific.
+// - When adding platform/feature specific constants, if there already exists an
+//   appropriate #if block, use that.
+// - Keep the constants sorted by name within its section.
+// - Use the same order in this header and url_constants.cc.
 
 #ifndef CHROME_COMMON_URL_CONSTANTS_H_
 #define CHROME_COMMON_URL_CONSTANTS_H_
 
 #include <stddef.h>
 
-#include <string>
-#include <vector>
-
 #include "build/build_config.h"
-#include "chrome/common/features.h"
-#include "components/signin/core/common/signin_features.h"
+#include "chrome/common/buildflags.h"
+#include "chrome/common/webui_url_constants.h"
 #include "content/public/common/url_constants.h"
-#include "media/media_features.h"
-#include "ppapi/features/features.h"
-#include "printing/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 
 namespace chrome {
 
-// chrome: URLs (including schemes). Should be kept in sync with the
-// components below.
-extern const char kChromeUIAboutURL[];
-extern const char kChromeUIAppsURL[];
-extern const char kChromeUIAppListStartPageURL[];
-extern const char kChromeUIBookmarksURL[];
-extern const char kChromeUICertificateViewerURL[];
-extern const char kChromeUICertificateViewerDialogURL[];
-extern const char kChromeUIChromeSigninURL[];
-extern const char kChromeUIChromeURLsURL[];
-extern const char kChromeUIComponentsURL[];
-extern const char kChromeUIConflictsURL[];
-extern const char kChromeUIConstrainedHTMLTestURL[];
-extern const char kChromeUICrashesURL[];
-extern const char kChromeUICreditsURL[];
-extern const char kChromeUIDevicesURL[];
-extern const char kChromeUIDevToolsCustomURL[];
-extern const char kChromeUIDevToolsURL[];
-extern const char kChromeUIDomainReliabilityInternalsURL[];
-extern const char kChromeUIDownloadsURL[];
-extern const char kChromeUIExtensionIconURL[];
-extern const char kChromeUIExtensionsFrameURL[];
-extern const char kChromeUIExtensionsURL[];
-extern const char kChromeUIFallbackIconURL[];
-extern const char kChromeUIFaviconURL[];
-extern const char kChromeUIFeedbackURL[];
-extern const char kChromeUIFlagsURL[];
-extern const char kChromeUIFlashURL[];
-extern const char kChromeUIGCMInternalsURL[];
-// TODO(dbeam): remove help-frame.
-extern const char kChromeUIHelpFrameURL[];
-extern const char kChromeUIHelpURL[];
-extern const char kChromeUIHistoryURL[];
-extern const char kDeprecatedChromeUIHistoryFrameURL[];
-extern const char kChromeUIIdentityInternalsURL[];
-extern const char kChromeUIInspectURL[];
-extern const char kChromeUIInstantURL[];
-extern const char kChromeUIInterstitialURL[];
-extern const char kChromeUIInvalidationsURL[];
-extern const char kChromeUIMdPolicyURL[];
-extern const char kChromeUIMdSettingsURL[];
-extern const char kChromeUIMediaEngagementHost[];
-extern const char kChromeUINaClURL[];
-extern const char kChromeUINetInternalsURL[];
-extern const char kChromeUINewProfileURL[];
-extern const char kChromeUINewTabURL[];
-extern const char kChromeUINTPTilesInternalsURL[];
-extern const char kChromeUIOmniboxURL[];
-extern const char kChromeUIPasswordManagerInternalsHost[];
-extern const char kChromeUIPolicyURL[];
-extern const char kChromeUIMdUserManagerUrl[];
-extern const char kChromeUIPrintURL[];
-extern const char kChromeUIQuitURL[];
-extern const char kChromeUIRestartURL[];
-extern const char kChromeUISettingsURL[];
-extern const char kChromeUIContentSettingsURL[];
-extern const char kChromeUISigninEmailConfirmationURL[];
-extern const char kChromeUISigninErrorURL[];
-extern const char kChromeUISiteDetailsPrefixURL[];
-extern const char kChromeUISiteEngagementHost[];
-extern const char kChromeUISuggestionsURL[];
-extern const char kChromeUISupervisedUserPassphrasePageURL[];
-extern const char kChromeUISyncConfirmationURL[];
-extern const char kChromeUITermsURL[];
-extern const char kChromeUIThemeURL[];
-extern const char kChromeUIThumbnailURL[];
-extern const char kChromeUIThumbnailListURL[];
-extern const char kChromeUIUberFrameURL[];
-extern const char kChromeUIUserActionsURL[];
-extern const char kChromeUIVersionURL[];
-extern const char kChromeUIWelcomeURL[];
-extern const char kChromeUIWelcomeWin10URL[];
+// "Learn more" URL for when profile settings are automatically reset.
+extern const char kAutomaticSettingsResetLearnMoreURL[];
 
-#if defined(OS_ANDROID)
-extern const char kChromeUIContextualSearchPromoURL[];
-extern const char kChromeUIJavaCrashURL[];
-extern const char kChromeUINativeScheme[];
-extern const char kChromeUINativeNewTabURL[];
-extern const char kChromeUINativeBookmarksURL[];
-extern const char kChromeUINativePhysicalWebDiagnosticsURL[];
-extern const char kChromeUINativeRecentTabsURL[];
-extern const char kChromeUINativeHistoryURL[];
-extern const char kChromeUIWebApksURL[];
-#endif  // defined(OS_ANDROID)
+// The URL for providing help when the Bluetooth adapter is off.
+extern const char kBluetoothAdapterOffHelpURL[];
 
-#if defined(OS_CHROMEOS)
-extern const char kChromeUIBluetoothPairingURL[];
-extern const char kChromeUICertificateManagerDialogURL[];
-extern const char kChromeUIChooseMobileNetworkURL[];
-extern const char kChromeUIDeviceEmulatorURL[];
-extern const char kChromeUIFirstRunURL[];
-extern const char kChromeUIKeyboardOverlayURL[];
-extern const char kChromeUIMobileSetupURL[];
-extern const char kChromeUIOobeURL[];
-extern const char kChromeUIOSCreditsURL[];
-extern const char kChromeUIProxySettingsURL[];
-extern const char kChromeUIScreenlockIconURL[];
-extern const char kChromeUISetTimeURL[];
-extern const char kChromeUISimUnlockURL[];
-extern const char kChromeUISlowURL[];
-extern const char kChromeUISystemInfoURL[];
-extern const char kChromeUITermsOemURL[];
-extern const char kChromeUIUserImageURL[];
-extern const char kChromeUIMdCupsSettingsURL[];
-extern const char kCupsPrintLearnMoreURL[];
-#endif  // defined(OS_CHROMEOS)
+// "Learn more" URL shown in the dialog to enable cloud services for Cast.
+extern const char kCastCloudServicesHelpURL[];
 
-#if defined(OS_WIN)
-extern const char kChromeUIMetroFlowURL[];
-#endif
+// The URL for the help center article to show when no Cast destination has been
+// found.
+extern const char kCastNoDestinationFoundURL[];
 
-#if (defined(OS_LINUX) && defined(TOOLKIT_VIEWS)) || defined(USE_AURA)
-extern const char kChromeUITabModalConfirmDialogURL[];
-#endif
+// The URL for the Bluetooth Overview help center article in the Web Bluetooth
+// Chooser.
+extern const char kChooserBluetoothOverviewURL[];
 
-#if BUILDFLAG(ENABLE_OOP_HEAP_PROFILING)
-extern const char kChromeUIMemoryInternalsURL[];
-#endif
+// The URL for the WebUsb help center article.
+extern const char kChooserUsbOverviewURL[];
 
-#if BUILDFLAG(ENABLE_WEBRTC)
-extern const char kChromeUIWebRtcLogsURL[];
-#endif
-
-extern const char kChromeUIMediaRouterURL[];
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
-extern const char kChromeUICastURL[];
-#endif
-
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
-extern const char kChromeUIDiscardsURL[];
-#endif
-
-// chrome components of URLs. Should be kept in sync with the full URLs above.
-extern const char kChromeUIAboutHost[];
-extern const char kChromeUIAboutPageFrameHost[];
-extern const char kChromeUIBlankHost[];
-extern const char kChromeUIAppLauncherPageHost[];
-extern const char kChromeUIAppListStartPageHost[];
-extern const char kChromeUIBluetoothInternalsHost[];
-extern const char kChromeUIBookmarksHost[];
-extern const char kChromeUICacheHost[];
-extern const char kChromeUICertificateViewerHost[];
-extern const char kChromeUICertificateViewerDialogHost[];
-extern const char kChromeUIChromeSigninHost[];
-extern const char kChromeUIChromeURLsHost[];
-extern const char kChromeUIComponentsHost[];
-extern const char kChromeUIConflictsHost[];
-extern const char kChromeUIConstrainedHTMLTestHost[];
-extern const char kChromeUICrashesHost[];
-extern const char kChromeUICrashHost[];
-extern const char kChromeUICreditsHost[];
-extern const char kChromeUIDefaultHost[];
-extern const char kChromeUIDelayedHangUIHost[];
-extern const char kChromeUIDeviceLogHost[];
-extern const char kChromeUIDevicesHost[];
-extern const char kChromeUIDevToolsHost[];
-extern const char kChromeUIDevToolsBundledPath[];
-extern const char kChromeUIDevToolsRemotePath[];
-extern const char kChromeUIDevToolsCustomPath[];
-extern const char kChromeUIDNSHost[];
-extern const char kChromeUIDomainReliabilityInternalsHost[];
-extern const char kChromeUIDownloadsHost[];
-extern const char kChromeUIDriveInternalsHost[];
-extern const char kChromeUIExtensionIconHost[];
-extern const char kChromeUIExtensionsFrameHost[];
-extern const char kChromeUIExtensionsHost[];
-extern const char kChromeUIFallbackIconHost[];
-extern const char kChromeUIFaviconHost[];
-extern const char kChromeUIFeedbackHost[];
-extern const char kChromeUIFlagsHost[];
-extern const char kChromeUIFlashHost[];
-extern const char kChromeUIGCMInternalsHost[];
-// TODO(dbeam): remove help-frame.
-extern const char kChromeUIHelpFrameHost[];
-extern const char kChromeUIHelpHost[];
-extern const char kChromeUIHangHost[];
-extern const char kChromeUIHangUIHost[];
-extern const char kChromeUIHistoryHost[];
-extern const char kDeprecatedChromeUIHistoryFrameHost[];
-extern const char kChromeUIIdentityInternalsHost[];
-extern const char kChromeUIInspectHost[];
-extern const char kChromeUIInstantHost[];
-extern const char kChromeUIInterstitialHost[];
-extern const char kChromeUIInvalidationsHost[];
-extern const char kChromeUIKillHost[];
-extern const char kChromeUILargeIconHost[];
-extern const char kChromeUILocalStateHost[];
-extern const char kChromeUIMdPolicyHost[];
-extern const char kChromeUIMdSettingsHost[];
-extern const char kChromeUINaClHost[];
-extern const char kChromeUINetExportHost[];
-extern const char kChromeUINetInternalsHost[];
-extern const char kChromeUINewTabHost[];
-extern const char kChromeUINTPTilesInternalsHost[];
-extern const char kChromeUIOfflineInternalsHost[];
-extern const char kChromeUIOmniboxHost[];
-extern const char kChromeUIPhysicalWebHost[];
-extern const char kChromeUIPolicyHost[];
-extern const char kChromeUIPrefsInternalsHost[];
-extern const char kChromeUIMdUserManagerHost[];
-extern const char kChromeUIPredictorsHost[];
-extern const char kChromeUIProfilerHost[];
-extern const char kChromeUIQuotaInternalsHost[];
-extern const char kChromeUIQuitHost[];
-extern const char kChromeUIRestartHost[];
-extern const char kChromeUISettingsHost[];
-extern const char kChromeUIShorthangHost[];
-extern const char kChromeUISigninEmailConfirmationHost[];
-extern const char kChromeUISigninErrorHost[];
-extern const char kChromeUISignInInternalsHost[];
-extern const char kChromeUISuggestionsHost[];
-extern const char kChromeUISupervisedUserInternalsHost[];
-extern const char kChromeUISupervisedUserPassphrasePageHost[];
-extern const char kChromeUISyncConfirmationHost[];
-extern const char kChromeUISyncHost[];
-extern const char kChromeUISyncFileSystemInternalsHost[];
-extern const char kChromeUISyncInternalsHost[];
-extern const char kChromeUISyncResourcesHost[];
-extern const char kChromeUISystemInfoHost[];
-extern const char kChromeUITaskSchedulerInternalsHost[];
-extern const char kChromeUITermsHost[];
-extern const char kChromeUIThemeHost[];
-extern const char kChromeUIThumbnailHost[];
-extern const char kChromeUIThumbnailHost2[];
-extern const char kChromeUIThumbnailListHost[];
-extern const char kChromeUITranslateInternalsHost[];
-extern const char kChromeUIUberFrameHost[];
-extern const char kChromeUIUberHost[];
-extern const char kChromeUIUsbInternalsHost[];
-extern const char kChromeUIUserActionsHost[];
-extern const char kChromeUIVersionHost[];
-extern const char kChromeUIWelcomeHost[];
-extern const char kChromeUIWelcomeWin10Host[];
-extern const char kChromeUIWorkersHost[];
-
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-extern const char kChromeUIPrintHost[];
-#endif  // ENABLE_PRINT_PREVIEW
-
-#if BUILDFLAG(ENABLE_DICE_SUPPORT)
-extern const char kChromeUISigninDiceInternalsHost[];
-#endif
-
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
-extern const char kChromeUIDiscardsHost[];
-#endif
-
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
-extern const char kChromeUILinuxProxyConfigHost[];
-#endif
-
-#if defined(OS_LINUX) || defined(OS_ANDROID)
-extern const char kChromeUISandboxHost[];
-#endif
-
-#if defined(OS_ANDROID)
-extern const char kChromeUIContextualSearchPromoHost[];
-extern const char kChromeUIOfflineInternalsURL[];
-extern const char kChromeUIPhysicalWebDiagnosticsHost[];
-extern const char kChromeUISnippetsInternalsHost[];
-extern const char kChromeUIWebApksHost[];
-#endif
-
-#if defined(OS_CHROMEOS)
-extern const char kChromeUIActivationMessageHost[];
-extern const char kChromeUIAppLaunchHost[];
-extern const char kChromeUIBluetoothPairingHost[];
-extern const char kChromeUICertificateManagerHost[];
-extern const char kChromeUIChooseMobileNetworkHost[];
-extern const char kChromeUICryptohomeHost[];
-extern const char kChromeUIDeviceEmulatorHost[];
-extern const char kChromeUIFirstRunHost[];
-extern const char kChromeUIKeyboardOverlayHost[];
-extern const char kChromeUILoginContainerHost[];
-extern const char kChromeUILoginHost[];
-extern const char kChromeUIMobileSetupHost[];
-extern const char kChromeUINetworkHost[];
-extern const char kChromeUIOobeHost[];
-extern const char kChromeUIOSCreditsHost[];
-extern const char kChromeUIPowerHost[];
-extern const char kChromeUIProxySettingsHost[];
-extern const char kChromeUIRotateHost[];
-extern const char kChromeUIScreenlockIconHost[];
-extern const char kChromeUISetTimeHost[];
-extern const char kChromeUISimUnlockHost[];
-extern const char kChromeUISlowHost[];
-extern const char kChromeUISlowTraceHost[];
-extern const char kChromeUIUserImageHost[];
-extern const char kChromeUIVoiceSearchHost[];
-
-extern const char kEULAPathFormat[];
-extern const char kOemEulaURLPath[];
-extern const char kOnlineEulaURLPath[];
-
-extern const char kChromeOSCreditsPath[];
-
-extern const char kChromeOSAssetHost[];
-extern const char kChromeOSAssetPath[];
-#endif  // defined(OS_CHROMEOS)
-
-#if defined(OS_WIN)
-extern const char kChromeUIMetroFlowHost[];
-#endif
-
-#if (defined(OS_LINUX) && defined(TOOLKIT_VIEWS)) || defined(USE_AURA)
-extern const char kChromeUITabModalConfirmDialogHost[];
-#endif
-
-#if BUILDFLAG(ENABLE_OOP_HEAP_PROFILING)
-extern const char kChromeUIMemoryInternalsHost[];
-#endif
-
-#if BUILDFLAG(ENABLE_WEBRTC)
-extern const char kChromeUIWebRtcLogsHost[];
-#endif
-
-extern const char kChromeUIMediaRouterHost[];
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
-extern const char kChromeUICastHost[];
-#endif
-
-// Options sub-pages.
-extern const char kAutofillSubPage[];
-extern const char kClearBrowserDataSubPage[];
-extern const char kContentSettingsSubPage[];
-extern const char kCreateProfileSubPage[];
-extern const char kDeprecatedOptionsContentSettingsExceptionsSubPage[];
-extern const char kDeprecatedExtensionsSubPage[];
-extern const char kHandlerSettingsSubPage[];
-extern const char kImportDataSubPage[];
-extern const char kLanguageOptionsSubPage[];
-extern const char kManageProfileSubPage[];
-extern const char kPasswordManagerSubPage[];
-extern const char kResetProfileSettingsSubPage[];
-extern const char kSearchEnginesSubPage[];
-extern const char kSignOutSubPage[];
-extern const char kSyncSetupSubPage[];
-extern const char kTriggeredResetProfileSettingsSubPage[];
-#if defined(OS_CHROMEOS)
-extern const char kAccessibilitySubPage[];
-extern const char kBluetoothSubPage[];
-extern const char kDateTimeSubPage[];
-extern const char kDisplaySubPage[];
-extern const char kHelpSubPage[];
-extern const char kInternetSubPage[];
-extern const char kNetworkDetailSubPage[];
-extern const char kPowerSubPage[];
-extern const char kStylusSubPage[];
-#endif
-
-// Extensions sub pages.
-extern const char kExtensionConfigureCommandsSubPage[];
-
-// URL used to indicate that an extension resource load request was invalid.
-extern const char kExtensionInvalidRequestURL[];
-
-extern const char kSyncGoogleDashboardURL[];
-
-// URL of the 'Activity controls' section of the privacy settings page.
-extern const char kGoogleAccountActivityControlsURL[];
-
-extern const char kContentSettingsExceptionsLearnMoreURL[];
-extern const char kPasswordManagerLearnMoreURL[];
-extern const char kUpgradeHelpCenterBaseURL[];
-extern const char kSmartLockHelpPage[];
-
-// "Learn more" URL for the Settings API, NTP bubble and other settings bubbles
-// showing which extension is controlling them.
-extern const char kExtensionControlledSettingLearnMoreURL[];
+// Link to the forum for Chrome Beta.
+extern const char kChromeBetaForumURL[];
 
 // General help links for Chrome, opened using various actions.
 extern const char kChromeHelpViaKeyboardURL[];
 extern const char kChromeHelpViaMenuURL[];
 extern const char kChromeHelpViaWebUIURL[];
 
-// Link to the forum for Chrome Beta.
-extern const char kChromeBetaForumURL[];
-
-#if defined(OS_CHROMEOS)
-// Accessibility help link for Chrome.
-extern const char kChromeAccessibilityHelpURL[];
-// Accessibility settings link for Chrome.
-extern const char kChromeAccessibilitySettingsURL[];
-// Palette help link for Chrome.
-extern const char kChromePaletteHelpURL[];
-#endif
-
-#if BUILDFLAG(ENABLE_ONE_CLICK_SIGNIN)
-// "Learn more" URL for the one click signin infobar.
-extern const char kChromeSyncLearnMoreURL[];
-
-// "Learn more" URL for the "Sign in with a different account" confirmation
-// dialog.
-extern const char kChromeSyncMergeTroubleshootingURL[];
-#endif
-
-#if defined(OS_MACOSX)
-// "Learn more" URL for the enterprise sign-in confirmation dialog.
-extern const char kChromeEnterpriseSignInLearnMoreURL[];
-#endif
-
-// "Learn more" URL for resetting profile preferences.
-extern const char kResetProfileSettingsLearnMoreURL[];
-
-// "Learn more" URL for when profile settings are automatically reset.
-extern const char kAutomaticSettingsResetLearnMoreURL[];
-
-// Management URL for Chrome Supervised Users.
-extern const char kLegacySupervisedUserManagementURL[];
-
-// Management URL for Chrome Supervised Users - version without scheme, used
-// for display.
-extern const char kLegacySupervisedUserManagementDisplayURL[];
-
-// Help URL for the settings page's search feature.
-extern const char kSettingsSearchHelpURL[];
-
-// Help URL for the Omnibox setting.
-extern const char kOmniboxLearnMoreURL[];
-
-// "What do these mean?" URL for the Page Info bubble.
-extern const char kPageInfoHelpCenterURL[];
-
-// "Learn more" URL for "Aw snap" page when showing "Reload" button.
-extern const char kCrashReasonURL[];
-
-// "Learn more" URL for "Aw snap" page when showing "Send feedback" button.
-extern const char kCrashReasonFeedbackDisplayedURL[];
-
-// "Learn more" URL for killed tab page.
-extern const char kKillReasonURL[];
-
-// "Learn more" URL for the Privacy section under Options.
-extern const char kPrivacyLearnMoreURL[];
-
-// "Learn more" URL for the "Do not track" setting in the privacy section.
-extern const char kDoNotTrackLearnMoreURL[];
-
-#if defined(OS_CHROMEOS)
-// "Learn more" URL for the attestation of content protection setting.
-extern const char kAttestationForContentProtectionLearnMoreURL[];
-#endif
-
-#if defined(OS_CHROMEOS) || defined(OS_ANDROID)
-// "Learn more" URL for the enhanced playback notification dialog.
-extern const char kEnhancedPlaybackNotificationLearnMoreURL[];
-#endif
-
-// The URL for the Chromium project used in the About dialog.
-extern const char kChromiumProjectURL[];
-
-// The URL for the "Learn more" page for the usage/crash reporting option in the
-// first run dialog.
-extern const char kLearnMoreReportingURL[];
-
-#if BUILDFLAG(ENABLE_PLUGINS)
-// The URL for the "Learn more" page for the outdated plugin infobar.
-extern const char kOutdatedPluginLearnMoreURL[];
-#endif
-
-// The URL for the "Learn more" page for the blocked plugin infobar.
-extern const char kBlockedPluginLearnMoreURL[];
-
-// The URL for the "Learn more" page for hotword search voice trigger.
-extern const char kHotwordLearnMoreURL[];
-
-// The URL for managing a user's audio history.
-extern const char kManageAudioHistoryURL[];
-
-// The URL for the "Learn more" page for register protocol handler infobars.
-extern const char kLearnMoreRegisterProtocolHandlerURL[];
-
-// The URL for the "Learn more" page for sync setup on the personal stuff page.
-extern const char kSyncLearnMoreURL[];
-
-// The URL for the "Learn more" page for download scanning.
-extern const char kDownloadScanningLearnMoreURL[];
-
-// The URL for the "Learn more" page for interrupted downloads.
-extern const char kDownloadInterruptedLearnMoreURL[];
-
-// The URL for the "Learn more" page on the sync setup dialog, when syncing
-// everything.
-extern const char kSyncEverythingLearnMoreURL[];
-
-// The URL for information on how to use the app launcher.
-extern const char kAppLauncherHelpURL[];
-
-// The URL for the "Learn more" page on sync encryption.
-extern const char kSyncEncryptionHelpURL[];
-
-// The URL for the "Learn more" link when there is a sync error.
-extern const char kSyncErrorsHelpURL[];
-
-#if defined(OS_CHROMEOS)
-// The URL for the "Learn more" link for natural scrolling on ChromeOS.
-extern const char kNaturalScrollHelpURL[];
-
-// The URL for the Learn More page about enterprise enrolled devices.
-extern const char kLearnMoreEnterpriseURL[];
-
-// The URL for the "learn more" link for Google Play Store (ARC) settings.
-extern const char kAndroidAppsLearnMoreURL[];
-
-// The URL for the "learn more" link for Instant Tethering.
-extern const char kInstantTetheringLearnMoreURL[];
-#endif
-
-// The URL for the Learn More link of the non-CWS bubble.
-extern const char kRemoveNonCWSExtensionURL[];
-
-#if defined(OS_WIN)
-extern const char kNotificationsHelpURL[];
-
-// The URL for the Learn More link in the Chrome Cleanup settings card.
-extern const char kChromeCleanerLearnMoreURL[];
-#endif
-
-// The Welcome Notification More Info URL.
-extern const char kNotificationWelcomeLearnMoreURL[];
-
-// Gets the hosts/domains that are shown in chrome://chrome-urls.
-extern const char* const kChromeHostURLs[];
-extern const size_t kNumberOfChromeHostURLs;
-
-// "Debug" pages which are dangerous and not for general consumption.
-extern const char* const kChromeDebugURLs[];
-extern const int kNumberOfChromeDebugURLs;
-
 // The chrome-native: scheme is used show pages rendered with platform specific
 // widgets instead of using HTML.
 extern const char kChromeNativeScheme[];
+
+// Pages under chrome-search.
+extern const char kChromeSearchLocalNtpHost[];
+extern const char kChromeSearchLocalNtpUrl[];
+
+// Host and URL for most visited iframes used on the Instant Extended NTP.
+extern const char kChromeSearchMostVisitedHost[];
+extern const char kChromeSearchMostVisitedUrl[];
+
+// URL for NTP custom background image selected from the user's machine and
+// filename for the version of the file in the Profile directory
+extern const char kChromeSearchLocalNtpBackgroundUrl[];
+extern const char kChromeSearchLocalNtpBackgroundFilename[];
+
+// Page under chrome-search.
+extern const char kChromeSearchRemoteNtpHost[];
 
 // The chrome-search: scheme is served by the same backend as chrome:.  However,
 // only specific URLDataSources are enabled to serve requests via the
@@ -573,81 +92,226 @@ extern const char kChromeNativeScheme[];
 //     coming from a blessed Instant process, and deny the request.
 extern const char kChromeSearchScheme[];
 
-// Pages under chrome-search.
-extern const char kChromeSearchLocalNtpHost[];
-extern const char kChromeSearchLocalNtpUrl[];
-extern const char kChromeSearchRemoteNtpHost[];
+// The URL for the Chromium project used in the About dialog.
+extern const char kChromiumProjectURL[];
 
-// Host and URL for most visited iframes used on the Instant Extended NTP.
-extern const char kChromeSearchMostVisitedHost[];
-extern const char kChromeSearchMostVisitedUrl[];
+// "Learn more" URL for the Cloud Print section under Options.
+extern const char kCloudPrintLearnMoreURL[];
 
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
-extern const char kChromeUIDiscardsHost[];
-extern const char kChromeUIDiscardsURL[];
-#endif
+// "Learn more" URL for the Cloud Print Preview certificate error.
+extern const char kCloudPrintCertificateErrorLearnMoreURL[];
 
-#if defined(OS_CHROMEOS)
-extern const char kCrosScheme[];
-#endif
+extern const char kContentSettingsExceptionsLearnMoreURL[];
+
+// "Learn more" URL for "Aw snap" page when showing "Reload" button.
+extern const char kCrashReasonURL[];
+
+// "Learn more" URL for "Aw snap" page when showing "Send feedback" button.
+extern const char kCrashReasonFeedbackDisplayedURL[];
+
+// "Learn more" URL for the "Do not track" setting in the privacy section.
+extern const char kDoNotTrackLearnMoreURL[];
+
+// The URL for the "Learn more" page for interrupted downloads.
+extern const char kDownloadInterruptedLearnMoreURL[];
+
+// The URL for the "Learn more" page for download scanning.
+extern const char kDownloadScanningLearnMoreURL[];
+
+// "Learn more" URL for the Settings API, NTP bubble and other settings bubbles
+// showing which extension is controlling them.
+extern const char kExtensionControlledSettingLearnMoreURL[];
+
+// URL used to indicate that an extension resource load request was invalid.
+extern const char kExtensionInvalidRequestURL[];
+
+// URL of the 'Activity controls' section of the privacy settings page.
+extern const char kGoogleAccountActivityControlsURL[];
+
+// URL of the Google Account.
+extern const char kGoogleAccountURL[];
+
+// URL of the Google Password Manager.
+extern const char kGooglePasswordManagerURL[];
+
+// The URL for the "Learn more" page for the usage/crash reporting option in the
+// first run dialog.
+extern const char kLearnMoreReportingURL[];
+
+// Management URL for Chrome Supervised Users - version without scheme, used
+// for display.
+extern const char kLegacySupervisedUserManagementDisplayURL[];
+
+// Management URL for Chrome Supervised Users.
+extern const char kLegacySupervisedUserManagementURL[];
+
+// The URL for the Learn More page about policies and enterprise enrollment.
+extern const char kManagedUiLearnMoreUrl[];
+
+// "myactivity.google.com" URL for the history checkbox in ClearBrowsingData.
+extern const char kMyActivityUrlInClearBrowsingData[];
+
+// Help URL for the Omnibox setting.
+extern const char kOmniboxLearnMoreURL[];
+
+// "What do these mean?" URL for the Page Info bubble.
+extern const char kPageInfoHelpCenterURL[];
+
+extern const char kPasswordManagerLearnMoreURL[];
+
+extern const char kPaymentMethodsLearnMoreURL[];
+
+// "Learn more" URL for the Privacy section under Options.
+extern const char kPrivacyLearnMoreURL[];
+
+// The URL for the Learn More link of the non-CWS bubble.
+extern const char kRemoveNonCWSExtensionURL[];
+
+// "Learn more" URL for resetting profile preferences.
+extern const char kResetProfileSettingsLearnMoreURL[];
+
+// Help URL for the settings page's search feature.
+extern const char kSettingsSearchHelpURL[];
+
+// The URL for the Learn More page about Sync and Google services.
+extern const char kSyncAndGoogleServicesLearnMoreURL[];
+
+// The URL for the "Learn more" page on sync encryption.
+extern const char kSyncEncryptionHelpURL[];
+
+// The URL for the "Learn more" link when there is a sync error.
+extern const char kSyncErrorsHelpURL[];
+
+extern const char kSyncGoogleDashboardURL[];
+
+// The URL for the "Learn more" page for sync setup on the personal stuff page.
+extern const char kSyncLearnMoreURL[];
+
+extern const char kUpgradeHelpCenterBaseURL[];
 
 #if defined(OS_ANDROID)
 extern const char kAndroidAppScheme[];
 #endif
 
-#if defined(OS_CHROMEOS)
-// "Learn more" URL for the Printing section under Options.
-extern const char kCrosPrintingLearnMoreURL[];
+#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+// "Learn more" URL for the enhanced playback notification dialog.
+extern const char kEnhancedPlaybackNotificationLearnMoreURL[];
 #endif
 
-// "Learn more" URL for the Cloud Print section under Options.
-extern const char kCloudPrintLearnMoreURL[];
+#if defined(OS_CHROMEOS)
+// The URL for the "learn more" link for Google Play Store (ARC) settings.
+extern const char kAndroidAppsLearnMoreURL[];
 
-// "Learn more" URL for the Cloud Print Preview No Destinations Promotion.
-extern const char kCloudPrintNoDestinationsLearnMoreURL[];
+// Accessibility help link for Chrome.
+extern const char kChromeAccessibilityHelpURL[];
+
+extern const char kChromeOSAssetHost[];
+extern const char kChromeOSAssetPath[];
+
+extern const char kChromeOSCreditsPath[];
+
+// Palette help link for Chrome.
+extern const char kChromePaletteHelpURL[];
+
+extern const char kCrosScheme[];
+
+extern const char kCupsPrintLearnMoreURL[];
 
 // The URL for the "Learn more" link the the Easy Unlock settings.
 extern const char kEasyUnlockLearnMoreUrl[];
 
-// Parameters that get appended to force SafeSearch.
-extern const char kSafeSearchSafeParameter[];
-extern const char kSafeSearchSsuiParameter[];
+// The path to the offline Chrome OS EULA.
+extern const char kEULAPathFormat[];
 
-// The URL for the "Learn more" link in the media access infobar.
-extern const char kMediaAccessLearnMoreUrl[];
+// The path format to the localized offline ARC++ Terms of Service.
+// Relative to |kChromeOSAssetPath|.
+extern const char kArcTermsPathFormat[];
+
+// The path format to the localized offline ARC++ Privacy Policy.
+// Relative to |kChromeOSAssetPath|.
+extern const char kArcPrivacyPolicyPathFormat[];
+
+// The URL for EOL notification
+extern const char kEolNotificationURL[];
+
+// The URL for providing more information about Google nameservers.
+extern const char kGoogleNameserversLearnMoreURL[];
+
+// The URL for the "learn more" link for Instant Tethering.
+extern const char kInstantTetheringLearnMoreURL[];
+
+// The URL for the "Learn more" link in the connected devices.
+extern const char kMultiDeviceLearnMoreURL[];
+
+// The URL for the "Learn more" link for Android Messages.
+extern const char kAndroidMessagesLearnMoreURL[];
 
 // The URL for the "Learn more" link in the language settings.
-// TODO(michaelpg): Compile on Chrome OS only when Options is removed.
 extern const char kLanguageSettingsLearnMoreUrl[];
 
-#if defined(GOOGLE_CHROME_BUILD) && defined(OS_LINUX) && !defined(OS_CHROMEOS)
-extern const char kLinuxWheezyPreciseDeprecationURL[];
-#endif
+// The URL for the Learn More page about enterprise enrolled devices.
+extern const char kLearnMoreEnterpriseURL[];
+
+// The URL for the Learn More page about Linux for Chromebooks.
+extern const char kLinuxAppsLearnMoreURL[];
+
+// Credits for Linux for Chromebooks.
+extern const char kLinuxCreditsPath[];
+
+// The URL for the "Learn more" link for natural scrolling on ChromeOS.
+extern const char kNaturalScrollHelpURL[];
+
+// The URL path to offline OEM EULA.
+extern const char kOemEulaURLPath[];
+
+// The URL path to offline ARC++ Terms of Service.
+extern const char kArcTermsURLPath[];
+
+// The URL path to offline ARC++ Privacy Policy.
+extern const char kArcPrivacyPolicyURLPath[];
+
+extern const char kOnlineEulaURLPath[];
+
+// The URL for the "learn more" link for TPM firmware update.
+extern const char kTPMFirmwareUpdateLearnMoreURL[];
+
+// The URL for the "Learn more" page for the time zone settings page.
+extern const char kTimeZoneSettingsLearnMoreURL[];
+
+// The URL for the "Learn more" page for the network file shares settings page.
+extern const char kSmbSharesLearnMoreURL[];
+#endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_MACOSX)
-// The URL for the Mac OS X 10.6/10.7/10.8 deprecation help center article.
-extern const char kMac10_678_DeprecationURL[];
+// "Learn more" URL for the enterprise sign-in confirmation dialog.
+extern const char kChromeEnterpriseSignInLearnMoreURL[];
+
+// The URL for the "learn more" link on the 10.9 obsolescence infobar.
+extern const char kMac10_9_ObsoleteURL[];
 #endif
 
 #if defined(OS_WIN)
+// The URL for the Learn More link in the Chrome Cleanup settings card.
+extern const char kChromeCleanerLearnMoreURL[];
+
 // The URL for the Windows XP/Vista deprecation help center article.
 extern const char kWindowsXPVistaDeprecationURL[];
 #endif
 
-// The URL for the Bluetooth Overview help center article in the Web Bluetooth
-// Chooser.
-extern const char kChooserBluetoothOverviewURL[];
-
-// The URL for providing help when the Bluetooth adapter is off.
-extern const char kBluetoothAdapterOffHelpURL[];
-
-// The URL for the WebUsb help center article.
-extern const char kChooserUsbOverviewURL[];
-
-#if defined(OS_CHROMEOS)
-// The URL for EOL notification
-extern const char kEolNotificationURL[];
+#if BUILDFLAG(ENABLE_ONE_CLICK_SIGNIN)
+// "Learn more" URL for the one click signin infobar.
+extern const char kChromeSyncLearnMoreURL[];
 #endif
+
+#if BUILDFLAG(ENABLE_PLUGINS)
+// The URL for the "Learn more" page for the blocked plugin infobar.
+extern const char kBlockedPluginLearnMoreURL[];
+
+// The URL for the "Learn more" page for the outdated plugin infobar.
+extern const char kOutdatedPluginLearnMoreURL[];
+#endif
+
+// Please do not append entries here. See the comments at the top of the file.
 
 }  // namespace chrome
 

@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/gles2_lib.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
@@ -16,6 +15,7 @@
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
+#include "gpu/command_buffer/service/shared_image_manager.h"
 #include "gpu/command_buffer/service/transfer_buffer_manager.h"
 #include "gpu/gles2_conform_support/egl/config.h"
 #include "gpu/gles2_conform_support/egl/display.h"
@@ -40,20 +40,28 @@
 // text in this case.
 
 namespace {
-const int32_t kCommandBufferSize = 1024 * 1024;
-const int32_t kTransferBufferSize = 512 * 1024;
 const bool kBindGeneratesResources = true;
 const bool kLoseContextWhenOutOfMemory = false;
 const bool kSupportClientSideArrays = true;
 }
 
 namespace egl {
+// static
+gpu::GpuFeatureInfo Context::platform_gpu_feature_info_;
+
+// static
+void Context::SetPlatformGpuFeatureInfo(
+    const gpu::GpuFeatureInfo& gpu_feature_info) {
+  platform_gpu_feature_info_ = gpu_feature_info;
+}
+
 Context::Context(Display* display, const Config* config)
     : display_(display),
       config_(config),
       is_current_in_some_thread_(false),
       is_destroyed_(false),
-      gpu_driver_bug_workarounds_(base::CommandLine::ForCurrentProcess()),
+      gpu_driver_bug_workarounds_(
+          platform_gpu_feature_info_.enabled_gpu_driver_bug_workarounds),
       translator_cache_(gpu::GpuPreferences()) {}
 
 Context::~Context() {
@@ -78,7 +86,7 @@ bool Context::SwapBuffers(Surface* current_surface) {
   DCHECK(HasService() && is_current_in_some_thread_);
   if (WasServiceContextLost())
     return false;
-  client_gl_context_->SwapBuffers();
+  client_gl_context_->SwapBuffers(1);
   return true;
 }
 
@@ -159,83 +167,74 @@ void Context::SetGpuControlClient(gpu::GpuControlClient*) {
   // The client is not currently called, so don't store it.
 }
 
-gpu::Capabilities Context::GetCapabilities() {
-  return decoder_->GetCapabilities();
+const gpu::Capabilities& Context::GetCapabilities() const {
+  return capabilities_;
 }
 
-int32_t Context::CreateImage(ClientBuffer buffer,
-                             size_t width,
-                             size_t height,
-                             unsigned internalformat) {
-  NOTIMPLEMENTED();
+int32_t Context::CreateImage(ClientBuffer buffer, size_t width, size_t height) {
+  NOTREACHED();
   return -1;
 }
 
 void Context::DestroyImage(int32_t id) {
-  NOTIMPLEMENTED();
+  NOTREACHED();
 }
 
-void Context::SignalQuery(uint32_t query, const base::Closure& callback) {
-  NOTIMPLEMENTED();
+void Context::SignalQuery(uint32_t query, base::OnceClosure callback) {
+  NOTREACHED();
+}
+
+void Context::CreateGpuFence(uint32_t gpu_fence_id, ClientGpuFence source) {
+  NOTREACHED();
+}
+
+void Context::GetGpuFence(
+    uint32_t gpu_fence_id,
+    base::OnceCallback<void(std::unique_ptr<gfx::GpuFence>)> callback) {
+  NOTREACHED();
 }
 
 void Context::SetLock(base::Lock*) {
-  NOTIMPLEMENTED();
+  NOTREACHED();
 }
 
 void Context::EnsureWorkVisible() {
-  // This is only relevant for out-of-process command buffers.
+  NOTREACHED();
 }
 
 gpu::CommandBufferNamespace Context::GetNamespaceID() const {
-  return gpu::CommandBufferNamespace::IN_PROCESS;
+  return gpu::CommandBufferNamespace::INVALID;
 }
 
 gpu::CommandBufferId Context::GetCommandBufferID() const {
   return gpu::CommandBufferId();
 }
 
-int32_t Context::GetStreamId() const {
-  return 0;
-}
-
-void Context::FlushOrderingBarrierOnStream(int32_t stream_id) {
-  // This is only relevant for out-of-process command buffers.
+void Context::FlushPendingWork() {
+  NOTREACHED();
 }
 
 uint64_t Context::GenerateFenceSyncRelease() {
-  return display_->GenerateFenceSyncRelease();
-}
-
-bool Context::IsFenceSyncRelease(uint64_t release) {
-  return display_->IsFenceSyncRelease(release);
-}
-
-bool Context::IsFenceSyncFlushed(uint64_t release) {
-  return display_->IsFenceSyncFlushed(release);
-}
-
-bool Context::IsFenceSyncFlushReceived(uint64_t release) {
-  return display_->IsFenceSyncFlushReceived(release);
+  NOTREACHED();
+  return 0;
 }
 
 bool Context::IsFenceSyncReleased(uint64_t release) {
-  NOTIMPLEMENTED();
+  NOTREACHED();
   return false;
 }
 
 void Context::SignalSyncToken(const gpu::SyncToken& sync_token,
-                              const base::Closure& callback) {
-  NOTIMPLEMENTED();
+                              base::OnceClosure callback) {
+  NOTREACHED();
 }
 
-void Context::WaitSyncTokenHint(const gpu::SyncToken& sync_token) {}
+void Context::WaitSyncToken(const gpu::SyncToken& sync_token) {
+  NOTREACHED();
+}
 
 bool Context::CanWaitUnverifiedSyncToken(const gpu::SyncToken& sync_token) {
   return false;
-}
-
-void Context::AddLatencyInfo(const std::vector<ui::LatencyInfo>& latency_info) {
 }
 
 void Context::ApplyCurrentContext(gl::GLSurface* current_surface) {
@@ -255,23 +254,28 @@ void Context::ApplyContextReleased() {
 }
 
 bool Context::CreateService(gl::GLSurface* gl_surface) {
+  gpu::SharedMemoryLimits limits;
+  gpu::GpuPreferences gpu_preferences;
+  gpu::GpuFeatureInfo gpu_feature_info;
   scoped_refptr<gpu::gles2::FeatureInfo> feature_info(
-      new gpu::gles2::FeatureInfo(gpu_driver_bug_workarounds_));
+      new gpu::gles2::FeatureInfo(gpu_driver_bug_workarounds_,
+                                  gpu_feature_info));
   scoped_refptr<gpu::gles2::ContextGroup> group(new gpu::gles2::ContextGroup(
-      gpu::GpuPreferences(), &mailbox_manager_, nullptr /* memory_tracker */,
+      gpu_preferences, true, &mailbox_manager_, nullptr /* memory_tracker */,
       &translator_cache_, &completeness_cache_, feature_info, true,
       &image_manager_, nullptr /* image_factory */,
-      nullptr /* progress_reporter */, gpu::GpuFeatureInfo(),
-      &discardable_manager_));
+      nullptr /* progress_reporter */, gpu_feature_info, &discardable_manager_,
+      &passthrough_discardable_manager_, &shared_image_manager_));
 
   transfer_buffer_manager_ =
-      base::MakeUnique<gpu::TransferBufferManager>(nullptr);
+      std::make_unique<gpu::TransferBufferManager>(nullptr);
   std::unique_ptr<gpu::CommandBufferDirect> command_buffer(
       new gpu::CommandBufferDirect(transfer_buffer_manager_.get()));
 
   std::unique_ptr<gpu::gles2::GLES2Decoder> decoder(
       gpu::gles2::GLES2Decoder::Create(command_buffer.get(),
-                                       command_buffer->service(), group.get()));
+                                       command_buffer->service(), &outputter_,
+                                       group.get()));
 
   command_buffer->set_handler(decoder.get());
 
@@ -281,10 +285,11 @@ bool Context::CreateService(gl::GLSurface* gl_surface) {
       gl::init::CreateGLContext(nullptr, gl_surface, context_attribs));
   if (!gl_context)
     return false;
+  platform_gpu_feature_info_.ApplyToGLContext(gl_context.get());
 
   gl_context->MakeCurrent(gl_surface);
 
-  gpu::gles2::ContextCreationAttribHelper helper;
+  gpu::ContextCreationAttribs helper;
   config_->GetAttrib(EGL_ALPHA_SIZE, &helper.alpha_size);
   config_->GetAttrib(EGL_DEPTH_SIZE, &helper.depth_size);
   config_->GetAttrib(EGL_STENCIL_SIZE, &helper.stencil_size);
@@ -293,47 +298,49 @@ bool Context::CreateService(gl::GLSurface* gl_surface) {
   helper.bind_generates_resource = kBindGeneratesResources;
   helper.fail_if_major_perf_caveat = false;
   helper.lose_context_when_out_of_memory = kLoseContextWhenOutOfMemory;
-  helper.context_type = gpu::gles2::CONTEXT_TYPE_OPENGLES2;
+  helper.context_type = gpu::CONTEXT_TYPE_OPENGLES2;
   helper.offscreen_framebuffer_size = gl_surface->GetSize();
 
-  if (!decoder->Initialize(gl_surface, gl_context.get(),
-                           gl_surface->IsOffscreen(),
-                           gpu::gles2::DisallowedFeatures(), helper)) {
+  auto result = decoder->Initialize(gl_surface, gl_context.get(),
+                                    gl_surface->IsOffscreen(),
+                                    gpu::gles2::DisallowedFeatures(), helper);
+  if (result != gpu::ContextResult::kSuccess)
     return false;
-  }
 
-  std::unique_ptr<gpu::gles2::GLES2CmdHelper> gles2_cmd_helper(
-      new gpu::gles2::GLES2CmdHelper(command_buffer.get()));
-  if (!gles2_cmd_helper->Initialize(kCommandBufferSize)) {
+  auto gles2_cmd_helper =
+      std::make_unique<gpu::gles2::GLES2CmdHelper>(command_buffer.get());
+  result = gles2_cmd_helper->Initialize(limits.command_buffer_size);
+  if (result != gpu::ContextResult::kSuccess) {
     decoder->Destroy(true);
     return false;
   }
+  // Client side Capabilities queries return reference, service side return
+  // value. Here two sides are joined together.
+  capabilities_ = decoder->GetCapabilities();
 
-  std::unique_ptr<gpu::TransferBuffer> transfer_buffer(
-      new gpu::TransferBuffer(gles2_cmd_helper.get()));
+  auto transfer_buffer =
+      std::make_unique<gpu::TransferBuffer>(gles2_cmd_helper.get());
 
-  gles2_cmd_helper_.reset(gles2_cmd_helper.release());
-  transfer_buffer_.reset(transfer_buffer.release());
-  command_buffer_.reset(command_buffer.release());
-  decoder_.reset(decoder.release());
+  gles2_cmd_helper_ = std::move(gles2_cmd_helper);
+  transfer_buffer_ = std::move(transfer_buffer);
+  command_buffer_ = std::move(command_buffer);
+  decoder_ = std::move(decoder);
   gl_context_ = gl_context.get();
 
-  std::unique_ptr<gpu::gles2::GLES2Implementation> context(
-      new gpu::gles2::GLES2Implementation(
-          gles2_cmd_helper_.get(), nullptr, transfer_buffer_.get(),
-          kBindGeneratesResources, kLoseContextWhenOutOfMemory,
-          kSupportClientSideArrays, this));
+  auto context = std::make_unique<gpu::gles2::GLES2Implementation>(
+      gles2_cmd_helper_.get(), nullptr, transfer_buffer_.get(),
+      kBindGeneratesResources, kLoseContextWhenOutOfMemory,
+      kSupportClientSideArrays, this);
 
-  if (!context->Initialize(kTransferBufferSize, kTransferBufferSize / 2,
-                           kTransferBufferSize * 2,
-                           gpu::SharedMemoryLimits::kNoLimit)) {
+  result = context->Initialize(limits);
+  if (result != gpu::ContextResult::kSuccess) {
     DestroyService();
     return false;
   }
 
   context->EnableFeatureCHROMIUM("pepper3d_allow_buffers_on_multiple_targets");
   context->EnableFeatureCHROMIUM("pepper3d_support_fixed_attribs");
-  client_gl_context_.reset(context.release());
+  client_gl_context_ = std::move(context);
   return true;
 }
 
@@ -347,11 +354,11 @@ void Context::DestroyService() {
   gl_context_ = nullptr;
 
   transfer_buffer_.reset();
+  gles2_cmd_helper_.reset();
+  command_buffer_.reset();
   if (decoder_)
     decoder_->Destroy(have_context);
   decoder_.reset();
-  gles2_cmd_helper_.reset();
-  command_buffer_.reset();
 }
 
 bool Context::HasService() const {

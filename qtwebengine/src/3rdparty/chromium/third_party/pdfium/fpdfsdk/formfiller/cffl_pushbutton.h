@@ -7,20 +7,19 @@
 #ifndef FPDFSDK_FORMFILLER_CFFL_PUSHBUTTON_H_
 #define FPDFSDK_FORMFILLER_CFFL_PUSHBUTTON_H_
 
+#include <memory>
+
 #include "fpdfsdk/formfiller/cffl_button.h"
 
-class CFFL_PushButton : public CFFL_Button {
+class CFFL_PushButton final : public CFFL_Button {
  public:
   CFFL_PushButton(CPDFSDK_FormFillEnvironment* pApp, CPDFSDK_Widget* pWidget);
   ~CFFL_PushButton() override;
 
-  // CFFL_Button
-  CPWL_Wnd* NewPDFWindow(const PWL_CREATEPARAM& cp) override;
-  bool OnChar(CPDFSDK_Annot* pAnnot, uint32_t nChar, uint32_t nFlags) override;
-  void OnDraw(CPDFSDK_PageView* pPageView,
-              CPDFSDK_Annot* pAnnot,
-              CFX_RenderDevice* pDevice,
-              CFX_Matrix* pUser2Device) override;
+  // CFFL_Button:
+  std::unique_ptr<CPWL_Wnd> NewPWLWindow(
+      const CPWL_Wnd::CreateParams& cp,
+      std::unique_ptr<CPWL_Wnd::PrivateData> pAttachedData) override;
 };
 
 #endif  // FPDFSDK_FORMFILLER_CFFL_PUSHBUTTON_H_

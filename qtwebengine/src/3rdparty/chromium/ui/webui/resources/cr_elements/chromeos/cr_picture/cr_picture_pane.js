@@ -11,12 +11,24 @@
 Polymer({
   is: 'cr-picture-pane',
 
+  behaviors: [CrPngBehavior],
+
   properties: {
+
     /** Whether the camera is present / available */
     cameraPresent: Boolean,
 
     /** Image source to show when imageType != CAMERA. */
-    imageSrc: String,
+    imageSrc: {
+      type: String,
+      observer: 'imageSrcChanged_',
+    },
+
+    /** Image URL to use when imageType != CAMERA. */
+    imageUrl: {
+      type: String,
+      value: '',
+    },
 
     /**
      * The type of image to display in the preview.
@@ -29,9 +41,14 @@ Polymer({
 
     /** Strings provided by host */
     discardImageLabel: String,
-    flipPhotoLabel: String,
     previewAltText: String,
     takePhotoLabel: String,
+    captureVideoLabel: String,
+    switchModeToCameraLabel: String,
+    switchModeToVideoLabel: String,
+
+    /** Whether camera video mode is enabled */
+    cameraVideoModeEnabled: Boolean,
 
     /** Whether the camera should be shown and active (started). */
     cameraActive_: {
@@ -46,29 +63,73 @@ Polymer({
    * event when the photo is completed.
    */
   takePhoto: function() {
-    var camera = /** @type {?CrCameraElement} */ (this.$$('#camera'));
-    if (camera)
+    const camera = /** @type {?CrCameraElement} */ (this.$$('#camera'));
+    if (camera) {
       camera.takePhoto();
+    }
+  },
+
+  /** Tells the pane to focus the main action button. */
+  focusActionButton: function() {
+    if (this.showDiscard_()) {
+      this.$.discardImage.focus();
+    } else if (this.cameraActive_) {
+      this.$$('#camera').focusTakePhotoButton();
+    }
   },
 
   /**
    * @return {boolean}
    * @private
    */
-  getCameraActive_() {
+  getCameraActive_: function() {
     return this.cameraPresent &&
         this.imageType == CrPicture.SelectionTypes.CAMERA;
   },
 
   /** @private */
   cameraActiveChanged_: function() {
-    var camera = /** @type {?CrCameraElement} */ (this.$$('#camera'));
-    if (!camera)
-      return;  // Camera will be started when attached.
-    if (this.cameraActive_)
+    const camera = /** @type {?CrCameraElement} */ (this.$$('#camera'));
+    if (!camera) {
+      return;
+    }  // Camera will be started when attached.
+    if (this.cameraActive_) {
       camera.startCamera();
-    else
+    } else {
       camera.stopCamera();
+    }
+  },
+
+  /** @private */
+  imageSrcChanged_: function() {
+    /**
+     * If current image URL is an object URL created below then revoke it to
+     * prevent this code from using more than one object URL per document.
+     */
+    if (this.imageUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(this.imageUrl);
+    }
+
+    /**
+     * Data URLs for PNG images can be large. Create an object URL to avoid
+     * URL length limits.
+     */
+    const image = /** @type {!HTMLImageElement} */ (this.$$('#image'));
+    if (this.imageSrc.startsWith('data:image/png')) {
+      const byteString = atob(this.imageSrc.split(',')[1]);
+      const bytes = new Uint8Array(byteString.length);
+      for (let i = 0; i < byteString.length; i++) {
+        bytes[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {'type': 'image/png'});
+      // Use first frame as placeholder while rest of image loads.
+      image.style.backgroundImage = 'url(' +
+          CrPngBehavior.convertImageSequenceToPng([this.imageSrc]) + ')';
+      this.imageUrl = URL.createObjectURL(blob);
+    } else {
+      image.style.backgroundImage = 'none';
+      this.imageUrl = this.imageSrc;
+    }
   },
 
   /**
@@ -100,8 +161,9 @@ Polymer({
    */
   getImgSrc_: function(url) {
     // Always use 2x user image for preview.
-    if (url.startsWith('chrome://theme'))
+    if (url.startsWith('chrome://theme')) {
       return url + '@2x';
+    }
 
     return url;
   },

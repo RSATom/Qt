@@ -263,7 +263,8 @@ QGeoRouteRequest &QGeoRouteRequest::operator= (const QGeoRouteRequest & other)
 */
 bool QGeoRouteRequest::operator ==(const QGeoRouteRequest &other) const
 {
-    return (d_ptr.constData() == other.d_ptr.constData());
+    return ( (d_ptr.constData() == other.d_ptr.constData())
+                        || (*d_ptr) == (*other.d_ptr));
 }
 
 /*!
@@ -271,7 +272,7 @@ bool QGeoRouteRequest::operator ==(const QGeoRouteRequest &other) const
 */
 bool QGeoRouteRequest::operator !=(const QGeoRouteRequest &other) const
 {
-    return (d_ptr.constData() != other.d_ptr.constData());
+    return !(operator==(other));
 }
 
 /*!
@@ -293,6 +294,27 @@ void QGeoRouteRequest::setWaypoints(const QList<QGeoCoordinate> &waypoints)
 QList<QGeoCoordinate> QGeoRouteRequest::waypoints() const
 {
     return d_ptr->waypoints;
+}
+
+/*!
+    Sets \a waypointMetadata as the metadata for the waypoints set in this request.
+    The metadata are intended as one QVariantMap per waypoint, given in the same order as
+    the waypoints.
+
+    The content of the QVariantMap is somehow backend-specific, but properties that can be specified using
+    \l Waypoint elements in QML can be assumed to be named and to work the same way across plugins, where supported.
+*/
+void QGeoRouteRequest::setWaypointsMetadata(const QList<QVariantMap> &waypointMetadata)
+{
+    d_ptr->waypointMetadata = waypointMetadata;
+}
+
+/*!
+    Returns the metadata for the waypoints in this request.
+*/
+QList<QVariantMap> QGeoRouteRequest::waypointsMetadata() const
+{
+    return d_ptr->waypointMetadata;
 }
 
 /*!
@@ -446,6 +468,51 @@ QGeoRouteRequest::ManeuverDetail QGeoRouteRequest::maneuverDetail() const
     return d_ptr->maneuverDetail;
 }
 
+/*!
+    Sets the departure time \a departureTime for the route calculation. This
+    information can be used by the backend to calculate a faster route, for
+    example, by avoiding traffic congestion during rush hour.
+
+    The default value is an invalid QDateTime.
+
+    \since 5.13
+*/
+void QGeoRouteRequest::setDepartureTime(const QDateTime &departureTime)
+{
+    d_ptr->departureTime = departureTime;
+}
+
+/*!
+    Returns the departure time in the request.
+
+    \since 5.13
+*/
+QDateTime QGeoRouteRequest::departureTime() const
+{
+    return d_ptr->departureTime;
+}
+
+/*!
+    Sets the extra parameters \a extraParameters for the route request.
+    The format of the extra parameters is plugin specific, and documented per plugin.
+
+    \since 5.11
+*/
+void QGeoRouteRequest::setExtraParameters(const QVariantMap &extraParameters)
+{
+    d_ptr->extraParameters = extraParameters;
+}
+
+/*!
+    Returns the extra parameters set for this route request.
+
+    \since 5.11
+*/
+QVariantMap QGeoRouteRequest::extraParameters() const
+{
+    return d_ptr->extraParameters;
+}
+
 /*******************************************************************************
 *******************************************************************************/
 
@@ -460,26 +527,30 @@ QGeoRouteRequestPrivate::QGeoRouteRequestPrivate()
 QGeoRouteRequestPrivate::QGeoRouteRequestPrivate(const QGeoRouteRequestPrivate &other)
     : QSharedData(other),
       waypoints(other.waypoints),
+      waypointMetadata(other.waypointMetadata),
       excludeAreas(other.excludeAreas),
       numberAlternativeRoutes(other.numberAlternativeRoutes),
       travelModes(other.travelModes),
       featureWeights(other.featureWeights),
       routeOptimization(other.routeOptimization),
       segmentDetail(other.segmentDetail),
-      maneuverDetail(other.maneuverDetail) {}
+      maneuverDetail(other.maneuverDetail),
+      extraParameters(other.extraParameters) {}
 
 QGeoRouteRequestPrivate::~QGeoRouteRequestPrivate() {}
 
 bool QGeoRouteRequestPrivate::operator ==(const QGeoRouteRequestPrivate &other) const
 {
     return ((waypoints == other.waypoints)
+            && (waypointMetadata == other.waypointMetadata)
             && (excludeAreas == other.excludeAreas)
             && (numberAlternativeRoutes == other.numberAlternativeRoutes)
             && (travelModes == other.travelModes)
             && (featureWeights == other.featureWeights)
             && (routeOptimization == other.routeOptimization)
             && (segmentDetail == other.segmentDetail)
-            && (maneuverDetail == other.maneuverDetail));
+            && (maneuverDetail == other.maneuverDetail)
+            && (extraParameters ==  other.extraParameters));
 }
 
 QT_END_NAMESPACE

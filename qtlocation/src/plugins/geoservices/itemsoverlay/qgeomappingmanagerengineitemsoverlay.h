@@ -51,7 +51,7 @@ public:
                                         QGeoServiceProvider::Error *error, QString *errorString);
     ~QGeoMappingManagerEngineItemsOverlay();
 
-    QGeoMap *createMap() Q_DECL_OVERRIDE;
+    QGeoMap *createMap() override;
 };
 
 QT_END_NAMESPACE

@@ -15,11 +15,11 @@
 #include "VertexRoutine.hpp"
 
 #include "VertexShader.hpp"
-#include "Vertex.hpp"
-#include "Half.hpp"
-#include "Renderer.hpp"
 #include "Constants.hpp"
-#include "Debug.hpp"
+#include "Renderer/Vertex.hpp"
+#include "Renderer/Renderer.hpp"
+#include "Common/Half.hpp"
+#include "Common/Debug.hpp"
 
 namespace sw
 {
@@ -27,8 +27,8 @@ namespace sw
 	extern bool symmetricNormalizedDepth;   // [-1, 1] instead of [0, 1]
 
 	VertexRoutine::VertexRoutine(const VertexProcessor::State &state, const VertexShader *shader)
-		: v(shader && shader->dynamicallyIndexedInput),
-		  o(shader && shader->dynamicallyIndexedOutput),
+		: v(shader && shader->indirectAddressableInput),
+		  o(shader && shader->indirectAddressableOutput),
 		  state(state)
 	{
 	}
@@ -62,7 +62,7 @@ namespace sw
 				*Pointer<UInt>(tagCache + tagIndex) = indexQ;
 
 				readInput(indexQ);
-				pipeline();
+				pipeline(indexQ);
 				postTransform();
 				computeClipFlags();
 

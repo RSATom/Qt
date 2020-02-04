@@ -88,7 +88,7 @@ Q_SIGNALS:
     void error(QBluetoothTransferReply::TransferError lastError);
 
 protected:
-    explicit QBluetoothTransferReply(QObject *parent = Q_NULLPTR);
+    explicit QBluetoothTransferReply(QObject *parent = nullptr);
     void setManager(QBluetoothTransferManager *manager);
     void setRequest(const QBluetoothTransferRequest &request);
 

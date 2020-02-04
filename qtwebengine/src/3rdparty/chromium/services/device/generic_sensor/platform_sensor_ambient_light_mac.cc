@@ -12,6 +12,7 @@
 #include "device/base/synchronization/shared_memory_seqlock_buffer.h"
 #include "services/device/generic_sensor/generic_sensor_consts.h"
 #include "services/device/generic_sensor/platform_sensor_provider_mac.h"
+#include "services/device/public/cpp/generic_sensor/sensor_traits.h"
 
 namespace {
 
@@ -42,16 +43,16 @@ double LMUvalueToLux(uint64_t raw_value) {
 
 namespace device {
 
+using mojom::SensorType;
+
 enum LmuFunctionIndex {
   kGetSensorReadingID = 0,  // getSensorReading(int *, int *)
 };
 
 PlatformSensorAmbientLightMac::PlatformSensorAmbientLightMac(
-    mojo::ScopedSharedBufferMapping mapping,
+    SensorReadingSharedBuffer* reading_buffer,
     PlatformSensorProvider* provider)
-    : PlatformSensor(mojom::SensorType::AMBIENT_LIGHT,
-                     std::move(mapping),
-                     provider),
+    : PlatformSensor(SensorType::AMBIENT_LIGHT, reading_buffer, provider),
       light_sensor_port_(nullptr),
       current_lux_(0.0) {}
 
@@ -65,13 +66,14 @@ bool PlatformSensorAmbientLightMac::CheckSensorConfiguration(
     const PlatformSensorConfiguration& configuration) {
   return configuration.frequency() > 0 &&
          configuration.frequency() <=
-             mojom::SensorConfiguration::kMaxAllowedFrequency;
+             SensorTraits<SensorType::AMBIENT_LIGHT>::kMaxAllowedFrequency;
 }
 
 PlatformSensorConfiguration
 PlatformSensorAmbientLightMac::GetDefaultConfiguration() {
   PlatformSensorConfiguration default_configuration;
-  default_configuration.set_frequency(kDefaultAmbientLightFrequencyHz);
+  default_configuration.set_frequency(
+      SensorTraits<SensorType::AMBIENT_LIGHT>::kDefaultFrequency);
   return default_configuration;
 }
 
@@ -166,9 +168,10 @@ bool PlatformSensorAmbientLightMac::ReadAndUpdate() {
   current_lux_ = lux;
 
   SensorReading reading;
-  reading.timestamp = (base::TimeTicks::Now() - base::TimeTicks()).InSecondsF();
-  reading.values[0] = current_lux_;
-  UpdateSensorReading(reading, true);
+  reading.als.timestamp =
+      (base::TimeTicks::Now() - base::TimeTicks()).InSecondsF();
+  reading.als.value = current_lux_;
+  UpdateSharedBufferAndNotifyClients(reading);
   return true;
 }
 

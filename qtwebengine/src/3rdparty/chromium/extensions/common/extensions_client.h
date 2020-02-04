@@ -12,10 +12,12 @@
 
 #include "base/strings/string_piece.h"
 #include "extensions/common/permissions/api_permission_set.h"
+#include "services/network/public/mojom/cors_origin_pattern.mojom.h"
 
 class GURL;
 
 namespace base {
+class CommandLine;
 class FilePath;
 }
 
@@ -23,6 +25,7 @@ namespace extensions {
 
 class APIPermissionSet;
 class Extension;
+class ExtensionsAPIProvider;
 class FeatureProvider;
 class JSONFeatureProviderSource;
 class PermissionMessageProvider;
@@ -34,12 +37,43 @@ class ExtensionsClient {
  public:
   typedef std::vector<std::string> ScriptingWhitelist;
 
-  virtual ~ExtensionsClient() {}
+  // Return the extensions client.
+  static ExtensionsClient* Get();
+
+  // Initialize the extensions system with this extensions client.
+  static void Set(ExtensionsClient* client);
+
+  ExtensionsClient();
+  virtual ~ExtensionsClient();
+
+  // Create a FeatureProvider for a specific feature type, e.g. "permission".
+  std::unique_ptr<FeatureProvider> CreateFeatureProvider(
+      const std::string& name) const;
+
+  // Returns the dictionary of the API features json file.
+  // TODO(devlin): We should find a way to remove this.
+  std::unique_ptr<JSONFeatureProviderSource> CreateAPIFeatureSource() const;
+
+  // Returns true iff a schema named |name| is generated.
+  bool IsAPISchemaGenerated(const std::string& name) const;
+
+  // Gets the generated API schema named |name|.
+  base::StringPiece GetAPISchema(const std::string& name) const;
+
+  // Adds a new API provider.
+  void AddAPIProvider(std::unique_ptr<ExtensionsAPIProvider> provider);
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Virtual Functions:
 
   // Initializes global state. Not done in the constructor because unit tests
   // can create additional ExtensionsClients because the utility thread runs
   // in-process.
   virtual void Initialize() = 0;
+
+  // Initializes web store URLs.
+  // Default values could be overriden with command line.
+  virtual void InitializeWebStoreUrls(base::CommandLine* command_line) = 0;
 
   // Returns the global PermissionMessageProvider to use to provide permission
   // warning strings.
@@ -48,15 +82,6 @@ class ExtensionsClient {
 
   // Returns the application name. For example, "Chromium" or "app_shell".
   virtual const std::string GetProductName() = 0;
-
-  // Create a FeatureProvider for a specific feature type, e.g. "permission".
-  virtual std::unique_ptr<FeatureProvider> CreateFeatureProvider(
-      const std::string& name) const = 0;
-
-  // Returns the dictionary of the API features json file.
-  // TODO(devlin): We should find a way to remove this.
-  virtual std::unique_ptr<JSONFeatureProviderSource> CreateAPIFeatureSource()
-      const = 0;
 
   // Takes the list of all hosts and filters out those with special
   // permission strings. Adds the regular hosts to |new_hosts|,
@@ -75,19 +100,14 @@ class ExtensionsClient {
   // any origin.
   virtual const ScriptingWhitelist& GetScriptingWhitelist() const = 0;
 
-  // Get the set of chrome:// hosts that |extension| can run content scripts on.
+  // Get the set of chrome:// hosts that |extension| can have host permissions
+  // for.
   virtual URLPatternSet GetPermittedChromeSchemeHosts(
       const Extension* extension,
       const APIPermissionSet& api_permissions) const = 0;
 
   // Returns false if content scripts are forbidden from running on |url|.
   virtual bool IsScriptableURL(const GURL& url, std::string* error) const = 0;
-
-  // Returns true iff a schema named |name| is generated.
-  virtual bool IsAPISchemaGenerated(const std::string& name) const = 0;
-
-  // Gets the generated API schema named |name|.
-  virtual base::StringPiece GetAPISchema(const std::string& name) const = 0;
 
   // Determines if certain fatal extensions errors should be surpressed
   // (i.e., only logged) or allowed (i.e., logged before crashing).
@@ -128,11 +148,24 @@ class ExtensionsClient {
   // Can be overridden in tests.
   virtual bool ExtensionAPIEnabledInExtensionServiceWorkers() const;
 
-  // Return the extensions client.
-  static ExtensionsClient* Get();
+  // Adds client specific permitted origins to |origin_patterns| for
+  // cross-origin communication for an extension context.
+  virtual void AddOriginAccessPermissions(
+      const Extension& extension,
+      bool is_extension_active,
+      std::vector<network::mojom::CorsOriginPatternPtr>* origin_patterns) const;
 
-  // Initialize the extensions system with this extensions client.
-  static void Set(ExtensionsClient* client);
+ private:
+  // Performs common initialization and calls Initialize() to allow subclasses
+  // to do any extra initialization.
+  void DoInitialize();
+
+  std::vector<std::unique_ptr<ExtensionsAPIProvider>> api_providers_;
+
+  // Whether DoInitialize() has been called.
+  bool initialize_called_ = false;
+
+  DISALLOW_COPY_AND_ASSIGN(ExtensionsClient);
 };
 
 }  // namespace extensions

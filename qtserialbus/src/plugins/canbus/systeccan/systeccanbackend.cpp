@@ -43,16 +43,19 @@
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qcoreevent.h>
 #include <QtCore/qdebug.h>
+#include <QtCore/qloggingcategory.h>
 #include <QtCore/qregularexpression.h>
 #include <QtCore/qtimer.h>
 
 QT_BEGIN_NAMESPACE
 
+Q_DECLARE_LOGGING_CATEGORY(QT_CANBUS_PLUGINS_SYSTECCAN)
+
 Q_GLOBAL_STATIC(QLibrary, systecLibrary)
 
 bool SystecCanBackend::canCreate(QString *errorReason)
 {
-    static bool symbolsResolved = resolveSymbols(systecLibrary());
+    static bool symbolsResolved = resolveSystecCanSymbols(systecLibrary());
     if (Q_UNLIKELY(!symbolsResolved)) {
         *errorReason = systecLibrary()->errorString();
         return false;
@@ -60,19 +63,49 @@ bool SystecCanBackend::canCreate(QString *errorReason)
     return true;
 }
 
+QCanBusDeviceInfo SystecCanBackend::createDeviceInfo(const QString &serialNumber,
+                                                     const QString &description,
+                                                     uint deviceNumber,
+                                                     int channelNumber)
+{
+    const QString name = QString::fromLatin1("can%1.%2").arg(deviceNumber).arg(channelNumber);
+    return QCanBusDevice::createDeviceInfo(name, serialNumber, description, channelNumber, false, false);
+}
+
+static QString descriptionString(uint productCode)
+{
+    switch (productCode & USBCAN_PRODCODE_MASK_PID) {
+    case USBCAN_PRODCODE_PID_GW001:       return QStringLiteral("USB-CANmodul (G1)");
+    case USBCAN_PRODCODE_PID_GW002:       return QStringLiteral("USB-CANmodul (G2)");
+    case USBCAN_PRODCODE_PID_MULTIPORT:   return QStringLiteral("Multiport CAN-to-USB (G3)");
+    case USBCAN_PRODCODE_PID_BASIC:       return QStringLiteral("USB-CANmodul1 (G3)");
+    case USBCAN_PRODCODE_PID_ADVANCED:    return QStringLiteral("USB-CANmodul2 (G3)");
+    case USBCAN_PRODCODE_PID_USBCAN8:     return QStringLiteral("USB-CANmodul8 (G3)");
+    case USBCAN_PRODCODE_PID_USBCAN16:    return QStringLiteral("USB-CANmodul16 (G3)");
+    case USBCAN_PRODCODE_PID_ADVANCED_G4: return QStringLiteral("USB-CANmodul2 (G4)");
+    case USBCAN_PRODCODE_PID_BASIC_G4:    return QStringLiteral("USB-CANmodul1 (G4)");
+    default:                              return QStringLiteral("Unknown");
+    }
+}
+
 static void DRV_CALLBACK_TYPE ucanEnumCallback(DWORD index, BOOL isUsed,
                                                tUcanHardwareInfoEx *hardwareInfo,
                                                tUcanHardwareInitInfo *initInfo,
                                                void *args)
 {
-    auto result = static_cast<QStringList *>(args);
+    auto result = static_cast<QList<QCanBusDeviceInfo> *>(args);
 
     Q_UNUSED(index);
     Q_UNUSED(isUsed);
 
-    result->append(QString::fromLatin1("can%1.0").arg(hardwareInfo->m_bDeviceNr));
-    if (USBCAN_CHECK_SUPPORT_TWO_CHANNEL(hardwareInfo))
-        result->append(QString::fromLatin1("can%1.1").arg(hardwareInfo->m_bDeviceNr));
+    const QString serialNumber = QString::number(hardwareInfo->m_dwSerialNr);
+    const QString description = descriptionString(hardwareInfo->m_dwProductCode);
+    result->append(std::move(SystecCanBackend::createDeviceInfo(serialNumber, description,
+                                                                hardwareInfo->m_bDeviceNr, 0)));
+    if (USBCAN_CHECK_SUPPORT_TWO_CHANNEL(hardwareInfo)) {
+        result->append(std::move(SystecCanBackend::createDeviceInfo(serialNumber, description,
+                                                                    hardwareInfo->m_bDeviceNr, 1)));
+    }
 
     initInfo->m_fTryNext = true; // continue enumerating with next device
 }
@@ -81,12 +114,8 @@ QList<QCanBusDeviceInfo> SystecCanBackend::interfaces()
 {
     QList<QCanBusDeviceInfo> result;
 
-    QStringList devices;
-    ::UcanEnumerateHardware(&ucanEnumCallback, &devices, false,
-                                                0, ~0, 0, ~0, 0, ~0);
+    ::UcanEnumerateHardware(&ucanEnumCallback, &result, false, 0, ~0, 0, ~0, 0, ~0);
 
-    for (const QString &s : qAsConst(devices))
-        result.append(createDeviceInfo(s, false, false));
     return result;
 }
 
@@ -110,7 +139,7 @@ protected:
     }
 
 private:
-    SystecCanBackendPrivate *dptr;
+    SystecCanBackendPrivate * const dptr;
 };
 
 SystecCanBackendPrivate::SystecCanBackendPrivate(SystecCanBackend *q) :
@@ -400,7 +429,7 @@ void SystecCanBackendPrivate::readAllReceivedMessages()
                            ? QCanBusFrame::RemoteRequestFrame
                            : QCanBusFrame::DataFrame);
 
-        newFrames.append(frame);
+        newFrames.append(std::move(frame));
     }
 
     q->enqueueReceivedFrames(newFrames);
@@ -450,17 +479,17 @@ bool SystecCanBackend::open()
     if (!d->open())
         return false;
 
-    // Apply all stored configurations except bitrate, because
-    // the bitrate can not be applied after opening the device
+    // Apply all stored configurations except bitrate and receive own,
+    // because these cannot be applied after opening the device
     const QVector<int> keys = configurationKeys();
     for (int key : keys) {
-        if (key == QCanBusDevice::BitRateKey)
+        if (key == BitRateKey || key == ReceiveOwnKey)
             continue;
         const QVariant param = configurationParameter(key);
         const bool success = d->setConfigurationParameter(key, param);
         if (Q_UNLIKELY(!success)) {
-            qWarning("Cannot apply parameter %d with value %ls.",
-                     key, qUtf16Printable(param.toString()));
+            qCWarning(QT_CANBUS_PLUGINS_SYSTECCAN, "Cannot apply parameter %d with value %ls.",
+                      key, qUtf16Printable(param.toString()));
         }
     }
 
@@ -505,7 +534,7 @@ bool SystecCanBackend::writeFrame(const QCanBusFrame &newData)
     }
 
     // CAN FD frame format is not supported by the hardware yet
-    if (Q_UNLIKELY(newData.payload().size() > 8)) {
+    if (Q_UNLIKELY(newData.hasFlexibleDataRateFormat())) {
         setError(tr("CAN FD frame format not supported"), QCanBusDevice::WriteError);
         return false;
     }

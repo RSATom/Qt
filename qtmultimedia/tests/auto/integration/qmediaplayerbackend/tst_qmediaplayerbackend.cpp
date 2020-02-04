@@ -39,6 +39,8 @@
 #include "../shared/mediafileselector.h"
 //TESTED_COMPONENT=src/multimedia
 
+#include <QtMultimedia/private/qtmultimedia-config_p.h>
+
 QT_USE_NAMESPACE
 
 /*
@@ -308,13 +310,17 @@ void tst_QMediaPlayerBackend::unloadMedia()
 
 void tst_QMediaPlayerBackend::loadMediaInLoadingState()
 {
-    const QUrl url("http://unavailable.media/");
+    if (!isWavSupported())
+        QSKIP("Sound format is not supported");
+
     QMediaPlayer player;
-    player.setMedia(QMediaContent(url));
+    player.setMedia(localWavFile);
     player.play();
+    QCOMPARE(player.mediaStatus(), QMediaPlayer::LoadingMedia);
     // Sets new media while old has not been finished.
-    player.setMedia(QMediaContent(url));
-    QTRY_COMPARE(player.mediaStatus(), QMediaPlayer::InvalidMedia);
+    player.setMedia(localWavFile);
+    QCOMPARE(player.mediaStatus(), QMediaPlayer::LoadingMedia);
+    QTRY_COMPARE(player.mediaStatus(), QMediaPlayer::LoadedMedia);
 }
 
 void tst_QMediaPlayerBackend::playPauseStop()
@@ -391,8 +397,8 @@ void tst_QMediaPlayerBackend::playPauseStop()
 
     QTest::qWait(2000);
 
-    QVERIFY(qAbs(player.position() - positionBeforePause) < 100);
-    QCOMPARE(positionSpy.count(), 0);
+    QVERIFY(qAbs(player.position() - positionBeforePause) < 150);
+    QCOMPARE(positionSpy.count(), 1);
 
     stateSpy.clear();
     statusSpy.clear();
@@ -785,16 +791,18 @@ void tst_QMediaPlayerBackend::seekPauseSeek()
 
     player.pause();
     QTRY_COMPARE(player.state(), QMediaPlayer::PausedState); // it might take some time for the operation to be completed
-    QTRY_VERIFY(!surface->m_frameList.isEmpty()); // we must see a frame at position 7000 here
+    QTRY_VERIFY_WITH_TIMEOUT(!surface->m_frameList.isEmpty(), 10000); // we must see a frame at position 7000 here
 
     // Make sure that the frame has a timestamp before testing - not all backends provides this
-    if (surface->m_frameList.back().startTime() < 0)
+    if (!surface->m_frameList.back().isValid() || surface->m_frameList.back().startTime() < 0)
         QSKIP("No timestamp");
 
     {
         QVideoFrame frame = surface->m_frameList.back();
+#if !QT_CONFIG(directshow)
         const qint64 elapsed = (frame.startTime() / 1000) - position; // frame.startTime() is microsecond, position is milliseconds.
         QVERIFY2(qAbs(elapsed) < (qint64)500, QByteArray::number(elapsed).constData());
+#endif
         QCOMPARE(frame.width(), 160);
         QCOMPARE(frame.height(), 120);
 
@@ -802,9 +810,9 @@ void tst_QMediaPlayerBackend::seekPauseSeek()
         QVERIFY(frame.map(QAbstractVideoBuffer::ReadOnly));
         QImage image(frame.bits(), frame.width(), frame.height(), QVideoFrame::imageFormatFromPixelFormat(frame.pixelFormat()));
         QVERIFY(!image.isNull());
-        QVERIFY(qRed(image.pixel(0, 0)) >= 240); // conversion from YUV => RGB, that's why it's not 255
-        QCOMPARE(qGreen(image.pixel(0, 0)), 0);
-        QCOMPARE(qBlue(image.pixel(0, 0)), 0);
+        QVERIFY(qRed(image.pixel(0, 0)) >= 230); // conversion from YUV => RGB, that's why it's not 255
+        QVERIFY(qGreen(image.pixel(0, 0)) < 20);
+        QVERIFY(qBlue(image.pixel(0, 0)) < 20);
         frame.unmap();
     }
 
@@ -818,17 +826,19 @@ void tst_QMediaPlayerBackend::seekPauseSeek()
 
     {
         QVideoFrame frame = surface->m_frameList.back();
+#if !QT_CONFIG(directshow)
         const qint64 elapsed = (frame.startTime() / 1000) - position;
         QVERIFY2(qAbs(elapsed) < (qint64)500, QByteArray::number(elapsed).constData());
+#endif
         QCOMPARE(frame.width(), 160);
         QCOMPARE(frame.height(), 120);
 
         QVERIFY(frame.map(QAbstractVideoBuffer::ReadOnly));
         QImage image(frame.bits(), frame.width(), frame.height(), QVideoFrame::imageFormatFromPixelFormat(frame.pixelFormat()));
         QVERIFY(!image.isNull());
-        QCOMPARE(qRed(image.pixel(0, 0)), 0);
-        QVERIFY(qGreen(image.pixel(0, 0)) >= 240);
-        QCOMPARE(qBlue(image.pixel(0, 0)), 0);
+        QVERIFY(qRed(image.pixel(0, 0)) < 20);
+        QVERIFY(qGreen(image.pixel(0, 0)) >= 230);
+        QVERIFY(qBlue(image.pixel(0, 0)) < 20);
         frame.unmap();
     }
 }
@@ -1258,7 +1268,7 @@ void tst_QMediaPlayerBackend::playlistObject()
     QCOMPARE(errorSpy.count(), 0);
     QCOMPARE(mediaStatusSpy.count(), 7); // 2 x (LoadingMedia -> BufferedMedia -> EndOfMedia) + NoMedia
 
-    player.setPlaylist(Q_NULLPTR);
+    player.setPlaylist(nullptr);
 
     mediaSpy.clear();
     currentMediaSpy.clear();
@@ -1283,7 +1293,7 @@ void tst_QMediaPlayerBackend::playlistObject()
     QCOMPARE(errorSpy.count(), 0);
     QCOMPARE(mediaStatusSpy.count(), 13); // 4 x (LoadingMedia -> BufferedMedia -> EndOfMedia) + NoMedia
 
-    player.setPlaylist(Q_NULLPTR);
+    player.setPlaylist(nullptr);
 
     mediaSpy.clear();
     currentMediaSpy.clear();
@@ -1307,7 +1317,7 @@ void tst_QMediaPlayerBackend::playlistObject()
     QCOMPARE(errorSpy.count(), 1);
     QCOMPARE(mediaStatusSpy.count(), 6); // Loading -> Invalid -> Loading -> Buffered -> EndOfMedia -> NoMedia
 
-    player.setPlaylist(Q_NULLPTR);
+    player.setPlaylist(nullptr);
 
     mediaSpy.clear();
     currentMediaSpy.clear();
@@ -1353,8 +1363,10 @@ void tst_QMediaPlayerBackend::surfaceTest_data()
     QTest::newRow("RGB formats")
             << formatsRGB;
 
+#if !QT_CONFIG(directshow)
     QTest::newRow("YVU formats")
             << formatsYUV;
+#endif
 
     QTest::newRow("RGB & YUV formats")
             << formatsRGB + formatsYUV;

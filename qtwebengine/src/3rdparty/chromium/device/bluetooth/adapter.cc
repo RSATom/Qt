@@ -10,7 +10,7 @@
 #include "device/bluetooth/adapter.h"
 #include "device/bluetooth/device.h"
 #include "device/bluetooth/discovery_session.h"
-#include "device/bluetooth/public/interfaces/connect_result_type_converter.h"
+#include "device/bluetooth/public/mojom/connect_result_type_converter.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
 namespace bluetooth {
@@ -149,7 +149,7 @@ void Adapter::OnStartDiscoverySession(
     std::unique_ptr<device::BluetoothDiscoverySession> session) {
   mojom::DiscoverySessionPtr session_ptr;
   mojo::MakeStrongBinding(
-      base::MakeUnique<DiscoverySession>(std::move(session)),
+      std::make_unique<DiscoverySession>(std::move(session)),
       mojo::MakeRequest(&session_ptr));
   std::move(callback).Run(std::move(session_ptr));
 }

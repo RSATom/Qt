@@ -67,11 +67,11 @@ public:
 private:
     void createSurface();
 
-    QWaylandXCompositeGLXIntegration *m_glxIntegration;
+    QWaylandXCompositeGLXIntegration *m_glxIntegration = nullptr;
 
-    Window m_xWindow;
+    Window m_xWindow = 0;
     GLXFBConfig m_config;
-    QWaylandBuffer *mBuffer;
+    QWaylandBuffer *mBuffer = nullptr;
 };
 
 }

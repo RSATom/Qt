@@ -11,6 +11,7 @@ Polymer({
   is: 'settings-cups-edit-printer-dialog',
 
   behaviors: [
+    CrScrollableBehavior,
     SetManufacturerModelBehavior,
   ],
 
@@ -20,6 +21,17 @@ Polymer({
      * @private {boolean}
      */
     needsReconfigured_: Boolean,
+
+    /**
+     * The current PPD in use by the printer.
+     * @private
+     */
+    existingUserPPDMessage_: String,
+
+    networkProtocolActive_: {
+      type: Boolean,
+      computed: 'isNetworkProtocol_(activePrinter.printerProtocol)',
+    },
   },
 
   observers: [
@@ -33,6 +45,11 @@ Polymer({
         .then(
             this.onGetPrinterPpdManufacturerAndModel_.bind(this),
             this.onGetPrinterPpdManufacturerAndModelFailed_.bind(this));
+    const basename = this.getBaseName(this.activePrinter.printerPPDPath);
+    if (basename) {
+      this.existingUserPPDMessage_ =
+          loadTimeData.getStringF('currentPpdMessage', basename);
+    }
   },
 
   /**
@@ -40,8 +57,9 @@ Polymer({
    * @private
    */
   printerInfoChanged_: function(change) {
-    if (change.path != 'activePrinter.printerName')
+    if (change.path != 'activePrinter.printerName') {
       this.needsReconfigured_ = true;
+    }
   },
 
   /**
@@ -109,5 +127,27 @@ Polymer({
    */
   onGetPrinterPpdManufacturerAndModelFailed_: function() {
     this.needsReconfigured_ = false;
+  },
+
+  /**
+   * @param {string} protocol
+   * @return {boolean} Whether |protocol| is a network protocol
+   * @private
+   */
+  isNetworkProtocol_: function(protocol) {
+    return ['ipp', 'ipps', 'http', 'https', 'socket', 'lpd'].includes(protocol);
+  },
+
+  /**
+   * @return {boolean} Whether the Save button is enabled.
+   * @private
+   */
+  canSavePrinter_: function() {
+    return settings.printing.isNameAndAddressValid(
+               this.activePrinter.printerName,
+               this.activePrinter.printerAddress) &&
+        settings.printing.isPPDInfoValid(
+            this.activePrinter.ppdManufacturer, this.activePrinter.ppdModel,
+            this.activePrinter.printerPPDPath);
   },
 });

@@ -59,6 +59,8 @@ private slots:
     void imageAtRightAlignedTab();
     void blockVisibility();
 
+    void largeImage();
+
 private:
     QTextDocument *doc;
 };
@@ -299,8 +301,11 @@ void tst_QTextDocumentLayout::imageAtRightAlignedTab()
     imgFormat.setName(name);
     cursor.insertImage(imgFormat);
 
-   // Everything should fit into the 300 pixels
-   QCOMPARE(doc->idealWidth(), 300.0);
+    // Everything should fit into the 300 pixels
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on winrt. Figure out why - QTBUG-68297", Continue);
+#endif
+    QCOMPARE(doc->idealWidth(), 300.0);
 }
 
 void tst_QTextDocumentLayout::blockVisibility()
@@ -342,6 +347,64 @@ void tst_QTextDocumentLayout::blockVisibility()
     }
 
     QCOMPARE(doc->size(), halfSize);
+}
+
+void tst_QTextDocumentLayout::largeImage()
+{
+     auto img = QImage(400, 500, QImage::Format_ARGB32_Premultiplied);
+     img.fill(Qt::black);
+
+     {
+         QTextDocument document;
+
+         document.addResource(QTextDocument::ImageResource,
+                 QUrl("data://test.png"), QVariant(img));
+         document.setPageSize({500, 504});
+
+         auto html = "<img src=\"data://test.png\">";
+         document.setHtml(html);
+
+         QCOMPARE(document.pageCount(), 2);
+     }
+
+     {
+         QTextDocument document;
+
+         document.addResource(QTextDocument::ImageResource,
+                 QUrl("data://test.png"), QVariant(img));
+         document.setPageSize({500, 508});
+
+         auto html = "<img src=\"data://test.png\">";
+         document.setHtml(html);
+
+         QCOMPARE(document.pageCount(), 1);
+     }
+
+     {
+         QTextDocument document;
+
+         document.addResource(QTextDocument::ImageResource,
+                 QUrl("data://test.png"), QVariant(img));
+         document.setPageSize({585, 250});
+
+         auto html = "<img src=\"data://test.png\">";
+         document.setHtml(html);
+
+         QCOMPARE(document.pageCount(), 3);
+     }
+
+     {
+         QTextDocument document;
+
+         document.addResource(QTextDocument::ImageResource,
+                 QUrl("data://test.png"), QVariant(img));
+         document.setPageSize({585, 258});
+
+         auto html = "<img src=\"data://test.png\">";
+         document.setHtml(html);
+
+         QCOMPARE(document.pageCount(), 2);
+     }
 }
 
 QTEST_MAIN(tst_QTextDocumentLayout)

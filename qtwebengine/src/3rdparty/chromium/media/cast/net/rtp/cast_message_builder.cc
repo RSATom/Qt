@@ -27,7 +27,7 @@ enum {
 }  // namespace
 
 CastMessageBuilder::CastMessageBuilder(
-    base::TickClock* clock,
+    const base::TickClock* clock,
     RtpPayloadFeedback* incoming_payload_feedback,
     const Framer* framer,
     uint32_t media_ssrc,
@@ -45,7 +45,7 @@ CastMessageBuilder::CastMessageBuilder(
   cast_msg_.ack_frame_id = FrameId::first() - 1;
 }
 
-CastMessageBuilder::~CastMessageBuilder() {}
+CastMessageBuilder::~CastMessageBuilder() = default;
 
 void CastMessageBuilder::CompleteFrameReceived(FrameId frame_id) {
   DCHECK_GE(frame_id, last_acked_frame_id());

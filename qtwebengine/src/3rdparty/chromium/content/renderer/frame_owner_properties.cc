@@ -7,8 +7,8 @@
 #include <algorithm>
 #include <iterator>
 
-#include "third_party/WebKit/public/platform/WebFeaturePolicy.h"
-#include "third_party/WebKit/public/platform/modules/permissions/permission.mojom.h"
+#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/platform/modules/permissions/permission.mojom.h"
 
 namespace content {
 
@@ -24,9 +24,6 @@ FrameOwnerProperties ConvertWebFrameOwnerPropertiesToFrameOwnerProperties(
   result.allow_payment_request =
       web_frame_owner_properties.allow_payment_request;
   result.required_csp = web_frame_owner_properties.required_csp.Utf8();
-  std::copy(web_frame_owner_properties.allowed_features.begin(),
-            web_frame_owner_properties.allowed_features.end(),
-            std::back_inserter(result.allowed_features));
 
   return result;
 }
@@ -44,8 +41,6 @@ ConvertFrameOwnerPropertiesToWebFrameOwnerProperties(
   result.allow_payment_request = frame_owner_properties.allow_payment_request;
   result.required_csp =
       blink::WebString::FromUTF8(frame_owner_properties.required_csp);
-  result.allowed_features = blink::WebVector<blink::WebFeaturePolicyFeature>(
-      frame_owner_properties.allowed_features);
 
   return result;
 }

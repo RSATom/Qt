@@ -31,10 +31,6 @@ class NetTestSuite : public base::TestSuite {
 
   void Shutdown() override;
 
-  // Returns the base::test::ScopedTaskEnvironment initialized by the current
-  // NetTestSuite.
-  static base::test::ScopedTaskEnvironment* GetScopedTaskEnvironment();
-
  protected:
   // Called from within Initialize(), but separate so that derived classes
   // can initialize the NetTestSuite instance only and not
@@ -50,7 +46,6 @@ class NetTestSuite : public base::TestSuite {
 
  private:
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
-  std::unique_ptr<base::test::ScopedTaskEnvironment> scoped_task_environment_;
   scoped_refptr<net::RuleBasedHostResolverProc> host_resolver_proc_;
   net::ScopedDefaultHostResolverProc scoped_host_resolver_proc_;
 };

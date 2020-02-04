@@ -221,7 +221,11 @@ static int escape124_decode_frame(AVCodecContext *avctx,
 
     // This call also guards the potential depth reads for the
     // codebook unpacking.
-    if (get_bits_left(&gb) < 64)
+    // Check if the amount we will read minimally is available on input.
+    // The 64 represent the immediately next 2 frame_* elements read, the 23/4320
+    // represent a lower bound of the space needed for skipped superblocks. Non
+    // skipped SBs need more space.
+    if (get_bits_left(&gb) < 64 + s->num_superblocks * 23LL / 4320)
         return -1;
 
     frame_flags = get_bits_long(&gb, 32);
@@ -267,6 +271,11 @@ static int escape124_decode_frame(AVCodecContext *avctx,
                     cb_size = s->num_superblocks << cb_depth;
                 }
             }
+            if (s->num_superblocks >= INT_MAX >> cb_depth) {
+                av_log(avctx, AV_LOG_ERROR, "Depth or num_superblocks are too large\n");
+                return AVERROR_INVALIDDATA;
+            }
+
             av_freep(&s->codebooks[i].blocks);
             s->codebooks[i] = unpack_codebook(&gb, cb_depth, cb_size);
             if (!s->codebooks[i].blocks)

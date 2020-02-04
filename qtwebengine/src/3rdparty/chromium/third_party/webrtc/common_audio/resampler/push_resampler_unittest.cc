@@ -8,9 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/common_audio/resampler/include/push_resampler.h"
-#include "webrtc/rtc_base/checks.h"  // RTC_DCHECK_IS_ON
-#include "webrtc/test/gtest.h"
+#include "common_audio/resampler/include/push_resampler.h"
+#include "rtc_base/checks.h"  // RTC_DCHECK_IS_ON
+#include "test/gtest.h"
 
 // Quality testing of PushResampler is handled through output_mixer_unittest.cc.
 
@@ -25,6 +25,7 @@ TEST(PushResamplerTest, VerifiesInputParameters) {
   PushResampler<int16_t> resampler;
   EXPECT_EQ(0, resampler.InitializeIfNeeded(16000, 16000, 1));
   EXPECT_EQ(0, resampler.InitializeIfNeeded(16000, 16000, 2));
+  EXPECT_EQ(0, resampler.InitializeIfNeeded(16000, 16000, 8));
 }
 
 #if RTC_DCHECK_IS_ON && GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
@@ -45,10 +46,6 @@ TEST(PushResamplerTest, VerifiesBadInputParameters3) {
   EXPECT_DEATH(resampler.InitializeIfNeeded(16000, 16000, 0), "num_channels");
 }
 
-TEST(PushResamplerTest, VerifiesBadInputParameters4) {
-  PushResampler<int16_t> resampler;
-  EXPECT_DEATH(resampler.InitializeIfNeeded(16000, 16000, 3), "num_channels");
-}
 #endif
 #endif
 

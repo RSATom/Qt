@@ -14,7 +14,6 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/task_runner.h"
 #include "base/task_runner_util.h"
 #include "net/base/io_buffer.h"
@@ -32,50 +31,44 @@ FileStream::Context::Context(base::File file,
                              const scoped_refptr<base::TaskRunner>& task_runner)
     : file_(std::move(file)),
       async_in_progress_(false),
-      last_operation_(NONE),
       orphaned_(false),
       task_runner_(task_runner) {}
 
-FileStream::Context::~Context() {
-}
+FileStream::Context::~Context() = default;
 
 int FileStream::Context::Read(IOBuffer* in_buf,
                               int buf_len,
-                              const CompletionCallback& callback) {
-  CheckNoAsyncInProgress();
+                              CompletionOnceCallback callback) {
+  DCHECK(!async_in_progress_);
 
   scoped_refptr<IOBuffer> buf = in_buf;
   const bool posted = base::PostTaskAndReplyWithResult(
-      task_runner_.get(),
-      FROM_HERE,
-      base::Bind(&Context::ReadFileImpl, base::Unretained(this), buf, buf_len),
-      base::Bind(&Context::OnAsyncCompleted,
-                 base::Unretained(this),
-                 IntToInt64(callback)));
+      task_runner_.get(), FROM_HERE,
+      base::BindOnce(&Context::ReadFileImpl, base::Unretained(this), buf,
+                     buf_len),
+      base::BindOnce(&Context::OnAsyncCompleted, base::Unretained(this),
+                     IntToInt64(std::move(callback))));
   DCHECK(posted);
 
   async_in_progress_ = true;
-  last_operation_ = READ;
   return ERR_IO_PENDING;
 }
 
 int FileStream::Context::Write(IOBuffer* in_buf,
                                int buf_len,
-                               const CompletionCallback& callback) {
-  CheckNoAsyncInProgress();
+                               CompletionOnceCallback callback) {
+  DCHECK(!async_in_progress_);
 
   scoped_refptr<IOBuffer> buf = in_buf;
   const bool posted = base::PostTaskAndReplyWithResult(
-      task_runner_.get(),
-      FROM_HERE,
-      base::Bind(&Context::WriteFileImpl, base::Unretained(this), buf, buf_len),
-      base::Bind(&Context::OnAsyncCompleted,
-                 base::Unretained(this),
-                 IntToInt64(callback)));
+      task_runner_.get(), FROM_HERE,
+      base::BindOnce(&Context::WriteFileImpl, base::Unretained(this), buf,
+                     buf_len),
+      base::BindOnce(&Context::OnAsyncCompleted, base::Unretained(this),
+                     IntToInt64(std::move(callback))));
   DCHECK(posted);
 
   async_in_progress_ = true;
-  last_operation_ = WRITE;
   return ERR_IO_PENDING;
 }
 
@@ -94,10 +87,6 @@ void FileStream::Context::OnFileOpened() {
 FileStream::Context::IOResult FileStream::Context::ReadFileImpl(
     scoped_refptr<IOBuffer> buf,
     int buf_len) {
-  // TODO(pkasting): Remove ScopedTracker below once crbug.com/477117 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "477117 FileStream::Context::ReadFileImpl"));
   int res = file_.ReadAtCurrentPosNoBestEffort(buf->data(), buf_len);
   if (res == -1)
     return IOResult::FromOSError(errno);

@@ -52,8 +52,11 @@
 //
 
 #include "qquickwebengineview_p.h"
+#include "render_view_context_menu_qt.h"
+#include "touch_handle_drawable_client.h"
 #include "web_contents_adapter_client.h"
 
+#include <QPointer>
 #include <QScopedPointer>
 #include <QSharedData>
 #include <QString>
@@ -61,8 +64,11 @@
 #include <QtGui/qaccessibleobject.h>
 
 namespace QtWebEngineCore {
-class WebContentsAdapter;
+class RenderWidgetHostViewQtDelegateQuick;
+class TouchHandleDrawableClient;
+class TouchSelectionMenuController;
 class UIDelegatesManager;
+class WebContentsAdapter;
 }
 
 QT_BEGIN_NAMESPACE
@@ -72,10 +78,12 @@ class QQmlContext;
 class QQuickWebEngineContextMenuRequest;
 class QQuickWebEngineSettings;
 class QQuickWebEngineFaviconProvider;
+class QQuickWebEngineProfilePrivate;
+class QQuickWebEngineTouchHandleProvider;
 
 QQuickWebEngineView::WebAction editorActionForKeyEvent(QKeyEvent* event);
 
-#ifdef ENABLE_QML_TESTSUPPORT_API
+#if QT_CONFIG(webengine_testsupport)
 class QQuickWebEngineTestSupport;
 #endif
 
@@ -86,75 +94,90 @@ public:
     QQuickWebEngineView *q_ptr;
     QQuickWebEngineViewPrivate();
     ~QQuickWebEngineViewPrivate();
-
+    void releaseProfile() override;
+    void initializeProfile();
     QtWebEngineCore::UIDelegatesManager *ui();
 
-    virtual QtWebEngineCore::RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegate(QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) Q_DECL_OVERRIDE;
-    virtual QtWebEngineCore::RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegateForPopup(QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) Q_DECL_OVERRIDE;
-    virtual void titleChanged(const QString&) Q_DECL_OVERRIDE;
-    virtual void urlChanged(const QUrl&) Q_DECL_OVERRIDE;
-    virtual void iconChanged(const QUrl&) Q_DECL_OVERRIDE;
-    virtual void loadProgressChanged(int progress) Q_DECL_OVERRIDE;
-    virtual void didUpdateTargetURL(const QUrl&) Q_DECL_OVERRIDE;
-    virtual void selectionChanged() Q_DECL_OVERRIDE { }
-    virtual void recentlyAudibleChanged(bool recentlyAudible) Q_DECL_OVERRIDE;
-    virtual QRectF viewportRect() const Q_DECL_OVERRIDE;
-    virtual qreal dpiScale() const Q_DECL_OVERRIDE;
-    virtual QColor backgroundColor() const Q_DECL_OVERRIDE;
-    virtual void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) Q_DECL_OVERRIDE;
-    virtual void loadCommitted() Q_DECL_OVERRIDE;
-    virtual void loadVisuallyCommitted() Q_DECL_OVERRIDE;
-    virtual void loadFinished(bool success, const QUrl &url, bool isErrorPage = false, int errorCode = 0, const QString &errorDescription = QString()) Q_DECL_OVERRIDE;
-    virtual void focusContainer() Q_DECL_OVERRIDE;
-    virtual void unhandledKeyEvent(QKeyEvent *event) Q_DECL_OVERRIDE;
-    virtual void adoptNewWindow(QSharedPointer<QtWebEngineCore::WebContentsAdapter> newWebContents, WindowOpenDisposition disposition, bool userGesture, const QRect &, const QUrl &targetUrl) Q_DECL_OVERRIDE;
-    virtual bool isBeingAdopted() Q_DECL_OVERRIDE;
-    virtual void close() Q_DECL_OVERRIDE;
-    virtual void windowCloseRejected() Q_DECL_OVERRIDE;
-    virtual void requestFullScreenMode(const QUrl &origin, bool fullscreen) Q_DECL_OVERRIDE;
-    virtual bool isFullScreenMode() const Q_DECL_OVERRIDE;
-    virtual void contextMenuRequested(const QtWebEngineCore::WebEngineContextMenuData &) Q_DECL_OVERRIDE;
-    virtual void navigationRequested(int navigationType, const QUrl &url, int &navigationRequestAction, bool isMainFrame) Q_DECL_OVERRIDE;
-    virtual void javascriptDialog(QSharedPointer<QtWebEngineCore::JavaScriptDialogController>) Q_DECL_OVERRIDE;
-    virtual void runFileChooser(QSharedPointer<QtWebEngineCore::FilePickerController>) Q_DECL_OVERRIDE;
-    virtual void showColorDialog(QSharedPointer<QtWebEngineCore::ColorChooserController>) Q_DECL_OVERRIDE;
-    virtual void didRunJavaScript(quint64, const QVariant&) Q_DECL_OVERRIDE;
-    virtual void didFetchDocumentMarkup(quint64, const QString&) Q_DECL_OVERRIDE { }
-    virtual void didFetchDocumentInnerText(quint64, const QString&) Q_DECL_OVERRIDE { }
-    virtual void didFindText(quint64, int) Q_DECL_OVERRIDE;
-    virtual void didPrintPage(quint64 requestId, const QByteArray &result) Q_DECL_OVERRIDE;
-    virtual void didPrintPageToPdf(const QString &filePath, bool success) Q_DECL_OVERRIDE;
-    virtual void passOnFocus(bool reverse) Q_DECL_OVERRIDE;
-    virtual void javaScriptConsoleMessage(JavaScriptConsoleMessageLevel level, const QString& message, int lineNumber, const QString& sourceID) Q_DECL_OVERRIDE;
-    virtual void authenticationRequired(QSharedPointer<QtWebEngineCore::AuthenticationDialogController>) Q_DECL_OVERRIDE;
-    virtual void runMediaAccessPermissionRequest(const QUrl &securityOrigin, MediaRequestFlags requestFlags) Q_DECL_OVERRIDE;
-    virtual void runMouseLockPermissionRequest(const QUrl &securityOrigin) Q_DECL_OVERRIDE;
-    virtual QObject *accessibilityParentObject() Q_DECL_OVERRIDE;
-    virtual QtWebEngineCore::WebEngineSettings *webEngineSettings() const Q_DECL_OVERRIDE;
-    virtual void allowCertificateError(const QSharedPointer<CertificateErrorController> &errorController) Q_DECL_OVERRIDE;
-    virtual void runGeolocationPermissionRequest(QUrl const&) Q_DECL_OVERRIDE;
-    virtual void showValidationMessage(const QRect &anchor, const QString &mainText, const QString &subText) Q_DECL_OVERRIDE;
-    virtual void hideValidationMessage() Q_DECL_OVERRIDE;
-    virtual void moveValidationMessage(const QRect &anchor) Q_DECL_OVERRIDE;
-    virtual void renderProcessTerminated(RenderProcessTerminationStatus terminationStatus,
-                                     int exitCode) Q_DECL_OVERRIDE;
-    virtual void requestGeometryChange(const QRect &geometry) Q_DECL_OVERRIDE { Q_UNUSED(geometry); }
-    virtual void updateScrollPosition(const QPointF &position) Q_DECL_OVERRIDE;
-    virtual void updateContentsSize(const QSizeF &size) Q_DECL_OVERRIDE;
+    QtWebEngineCore::RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegate(QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) override;
+    QtWebEngineCore::RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegateForPopup(QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) override;
+    void initializationFinished() override;
+    void titleChanged(const QString&) override;
+    void urlChanged(const QUrl&) override;
+    void iconChanged(const QUrl&) override;
+    void loadProgressChanged(int progress) override;
+    void didUpdateTargetURL(const QUrl&) override;
+    void selectionChanged() override { }
+    void recentlyAudibleChanged(bool recentlyAudible) override;
+    QRectF viewportRect() const override;
+    QColor backgroundColor() const override;
+    void loadStarted(const QUrl &provisionalUrl, bool isErrorPage = false) override;
+    void loadCommitted() override;
+    void loadVisuallyCommitted() override;
+    void loadFinished(bool success, const QUrl &url, bool isErrorPage = false, int errorCode = 0, const QString &errorDescription = QString()) override;
+    void focusContainer() override;
+    void unhandledKeyEvent(QKeyEvent *event) override;
+    void adoptNewWindow(QSharedPointer<QtWebEngineCore::WebContentsAdapter> newWebContents, WindowOpenDisposition disposition, bool userGesture, const QRect &, const QUrl &targetUrl) override;
+    bool isBeingAdopted() override;
+    void close() override;
+    void windowCloseRejected() override;
+    void requestFullScreenMode(const QUrl &origin, bool fullscreen) override;
+    bool isFullScreenMode() const override;
+    void contextMenuRequested(const QtWebEngineCore::WebEngineContextMenuData &) override;
+    void navigationRequested(int navigationType, const QUrl &url, int &navigationRequestAction, bool isMainFrame) override;
+    void javascriptDialog(QSharedPointer<QtWebEngineCore::JavaScriptDialogController>) override;
+    void runFileChooser(QSharedPointer<QtWebEngineCore::FilePickerController>) override;
+    void showColorDialog(QSharedPointer<QtWebEngineCore::ColorChooserController>) override;
+    void didRunJavaScript(quint64, const QVariant&) override;
+    void didFetchDocumentMarkup(quint64, const QString&) override { }
+    void didFetchDocumentInnerText(quint64, const QString&) override { }
+    void didFindText(quint64, int) override;
+    void didPrintPage(quint64 requestId, QSharedPointer<QByteArray>) override;
+    void didPrintPageToPdf(const QString &filePath, bool success) override;
+    bool passOnFocus(bool reverse) override;
+    void javaScriptConsoleMessage(JavaScriptConsoleMessageLevel level, const QString& message, int lineNumber, const QString& sourceID) override;
+    void authenticationRequired(QSharedPointer<QtWebEngineCore::AuthenticationDialogController>) override;
+    void runMediaAccessPermissionRequest(const QUrl &securityOrigin, MediaRequestFlags requestFlags) override;
+    void runMouseLockPermissionRequest(const QUrl &securityOrigin) override;
+    void runQuotaRequest(QWebEngineQuotaRequest) override;
+    void runRegisterProtocolHandlerRequest(QWebEngineRegisterProtocolHandlerRequest) override;
+    QObject *accessibilityParentObject() override;
+    QtWebEngineCore::WebEngineSettings *webEngineSettings() const override;
+    void allowCertificateError(const QSharedPointer<CertificateErrorController> &errorController) override;
+    void selectClientCert(const QSharedPointer<ClientCertSelectController> &selectController) override;
+    void runGeolocationPermissionRequest(QUrl const&) override;
+    void runUserNotificationPermissionRequest(QUrl const&) override;
+    void renderProcessTerminated(RenderProcessTerminationStatus terminationStatus, int exitCode) override;
+    void requestGeometryChange(const QRect &geometry, const QRect &frameGeometry) override;
+    void updateScrollPosition(const QPointF &position) override;
+    void updateContentsSize(const QSizeF &size) override;
+    void updateNavigationActions() override;
+    void updateEditActions() override;
     void startDragging(const content::DropData &dropData, Qt::DropActions allowedActions,
-                       const QPixmap &pixmap, const QPoint &offset) Q_DECL_OVERRIDE;
-    virtual bool isEnabled() const Q_DECL_OVERRIDE;
-    virtual void setToolTip(const QString &toolTipText) Q_DECL_OVERRIDE;
-    const QObject *holdingQObject() const Q_DECL_OVERRIDE;
+                       const QPixmap &pixmap, const QPoint &offset) override;
+    bool supportsDragging() const override;
+    bool isEnabled() const override;
+    void setToolTip(const QString &toolTipText) override;
+    QtWebEngineCore::TouchHandleDrawableClient *createTouchHandle(const QMap<int, QImage> &images) override;
+    void showTouchSelectionMenu(QtWebEngineCore::TouchSelectionMenuController *, const QRect &, const QSize &) override;
+    void hideTouchSelectionMenu() override;
+    const QObject *holdingQObject() const override;
+    ClientType clientType() override { return QtWebEngineCore::WebContentsAdapterClient::QmlClient; }
 
-    virtual QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContextAdapter() Q_DECL_OVERRIDE;
-    QtWebEngineCore::WebContentsAdapter *webContentsAdapter() Q_DECL_OVERRIDE;
+    QtWebEngineCore::ProfileAdapter *profileAdapter() override;
+    QtWebEngineCore::WebContentsAdapter *webContentsAdapter() override;
+    void printRequested() override;
+    void widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegate *newWidgetBase) override;
 
-    void setDevicePixelRatio(qreal);
+    void updateAction(QQuickWebEngineView::WebAction) const;
     void adoptWebContents(QtWebEngineCore::WebContentsAdapter *webContents);
     void setProfile(QQuickWebEngineProfile *profile);
+    void updateAdapter();
     void ensureContentsAdapter();
     void setFullScreenMode(bool);
+
+    static void bindViewAndWidget(QQuickWebEngineView *view, QtWebEngineCore::RenderWidgetHostViewQtDelegateQuick *widget);
+    void widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegateQuick *oldWidget,
+                       QtWebEngineCore::RenderWidgetHostViewQtDelegateQuick *newWidget);
 
     // QQmlListPropertyHelpers
     static void userScripts_append(QQmlListProperty<QQuickWebEngineScript> *p, QQuickWebEngineScript *script);
@@ -162,16 +185,17 @@ public:
     static QQuickWebEngineScript *userScripts_at(QQmlListProperty<QQuickWebEngineScript> *p, int idx);
     static void userScripts_clear(QQmlListProperty<QQuickWebEngineScript> *p);
 
+    QQuickWebEngineProfile *m_profile;
     QSharedPointer<QtWebEngineCore::WebContentsAdapter> adapter;
     QScopedPointer<QQuickWebEngineHistory> m_history;
-    QQuickWebEngineProfile *m_profile;
     QScopedPointer<QQuickWebEngineSettings> m_settings;
-#ifdef ENABLE_QML_TESTSUPPORT_API
+#if QT_CONFIG(webengine_testsupport)
     QQuickWebEngineTestSupport *m_testSupport;
 #endif
     QQmlComponent *contextMenuExtraItems;
     QtWebEngineCore::WebEngineContextMenuData m_contextMenuData;
-    QUrl explicitUrl;
+    QUrl m_url;
+    QString m_html;
     QUrl iconUrl;
     QQuickWebEngineFaviconProvider *faviconProvider;
     int loadProgress;
@@ -179,20 +203,26 @@ public:
     bool isLoading;
     bool m_activeFocusOnPress;
     bool m_navigationActionTriggered;
-    bool m_validationShowing;
     qreal devicePixelRatio;
     QMap<quint64, QJSValue> m_callbacks;
     QList<QSharedPointer<CertificateErrorController> > m_certificateErrorControllers;
     QQmlWebChannel *m_webChannel;
+    QPointer<QQuickWebEngineView> inspectedView;
+    QPointer<QQuickWebEngineView> devToolsView;
     uint m_webChannelWorld;
+    bool m_isBeingAdopted;
+    mutable QQuickWebEngineAction *actions[QQuickWebEngineView::WebActionCount];
+    QtWebEngineCore::RenderWidgetHostViewQtDelegateQuick *widget = nullptr;
+
+    bool profileInitialized() const;
 
 private:
     QScopedPointer<QtWebEngineCore::UIDelegatesManager> m_uIDelegatesManager;
     QList<QQuickWebEngineScript *> m_userScripts;
-    qreal m_dpiScale;
     QColor m_backgroundColor;
-    qreal m_defaultZoomFactor;
+    qreal m_zoomFactor;
     bool m_ui2Enabled;
+    bool m_profileInitialized;
 };
 
 #ifndef QT_NO_ACCESSIBILITY
@@ -200,18 +230,49 @@ class QQuickWebEngineViewAccessible : public QAccessibleObject
 {
 public:
     QQuickWebEngineViewAccessible(QQuickWebEngineView *o);
-    QAccessibleInterface *parent() const Q_DECL_OVERRIDE;
-    int childCount() const Q_DECL_OVERRIDE;
-    QAccessibleInterface *child(int index) const Q_DECL_OVERRIDE;
-    int indexOfChild(const QAccessibleInterface*) const Q_DECL_OVERRIDE;
-    QString text(QAccessible::Text) const Q_DECL_OVERRIDE;
-    QAccessible::Role role() const Q_DECL_OVERRIDE;
-    QAccessible::State state() const Q_DECL_OVERRIDE;
+    QAccessibleInterface *parent() const override;
+    int childCount() const override;
+    QAccessibleInterface *child(int index) const override;
+    int indexOfChild(const QAccessibleInterface*) const override;
+    QString text(QAccessible::Text) const override;
+    QAccessible::Role role() const override;
+    QAccessible::State state() const override;
 
 private:
     QQuickWebEngineView *engineView() const { return static_cast<QQuickWebEngineView*>(object()); }
 };
 #endif // QT_NO_ACCESSIBILITY
+
+class QQuickContextMenuBuilder : public QtWebEngineCore::RenderViewContextMenuQt
+{
+public:
+    QQuickContextMenuBuilder(const QtWebEngineCore::WebEngineContextMenuData &data, QQuickWebEngineView *view, QObject *menu);
+    void appendExtraItems(QQmlEngine *engine);
+
+private:
+    virtual bool hasInspector() override;
+    virtual bool isFullScreenMode() override;
+
+    virtual void addMenuItem(ContextMenuItem menuItem) override;
+    virtual bool isMenuItemEnabled(ContextMenuItem menuItem) override;
+
+    QQuickWebEngineView *m_view;
+    QObject *m_menu;
+};
+
+class Q_WEBENGINE_PRIVATE_EXPORT QQuickWebEngineTouchHandle : public QtWebEngineCore::TouchHandleDrawableClient {
+public:
+    QQuickWebEngineTouchHandle(QtWebEngineCore::UIDelegatesManager *ui, const QMap<int, QImage> &images);
+
+    void setImage(int orientation) override;
+    void setBounds(const QRect &bounds) override;
+    void setVisible(bool visible) override;
+    void setOpacity(float opacity) override;
+
+private:
+    QScopedPointer<QQuickItem> m_item;
+};
+
 QT_END_NAMESPACE
 
 #endif // QQUICKWEBENGINEVIEW_P_P_H

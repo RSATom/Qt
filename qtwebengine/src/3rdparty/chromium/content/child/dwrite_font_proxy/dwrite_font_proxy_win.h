@@ -16,10 +16,7 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
-
-namespace IPC {
-class Sender;
-}
+#include "third_party/blink/public/mojom/dwrite_font_proxy/dwrite_font_proxy.mojom.h"
 
 namespace content {
 
@@ -30,13 +27,22 @@ class DWriteFontFamilyProxy;
 // into a custom font collection.
 // This is needed because the sandbox interferes with DirectWrite's
 // communication with the system font service.
-class CONTENT_EXPORT DWriteFontCollectionProxy
+class DWriteFontCollectionProxy
     : public Microsoft::WRL::RuntimeClass<
           Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
           IDWriteFontCollection,
           IDWriteFontCollectionLoader,
           IDWriteFontFileLoader> {
  public:
+  // Factory method to avoid exporting the class and all it derives from.
+  static CONTENT_EXPORT HRESULT
+  Create(DWriteFontCollectionProxy** proxy_out,
+         IDWriteFactory* dwrite_factory,
+         blink::mojom::DWriteFontProxyPtrInfo proxy);
+
+  // Use Create() to construct these objects. Direct calls to the constructor
+  // are an error - it is only public because a WRL helper function creates the
+  // objects.
   DWriteFontCollectionProxy();
   ~DWriteFontCollectionProxy() override;
 
@@ -63,10 +69,11 @@ class CONTENT_EXPORT DWriteFontCollectionProxy
                       UINT32 font_file_reference_key_size,
                       IDWriteFontFileStream** font_file_stream) override;
 
-  HRESULT STDMETHODCALLTYPE
-  RuntimeClassInitialize(IDWriteFactory* factory, IPC::Sender* sender_override);
+  CONTENT_EXPORT HRESULT STDMETHODCALLTYPE
+  RuntimeClassInitialize(IDWriteFactory* factory,
+                         blink::mojom::DWriteFontProxyPtrInfo proxy);
 
-  void Unregister();
+  CONTENT_EXPORT void Unregister();
 
   bool LoadFamily(UINT32 family_index,
                   IDWriteFontCollection** containing_collection);
@@ -81,14 +88,17 @@ class CONTENT_EXPORT DWriteFontCollectionProxy
 
   bool CreateFamily(UINT32 family_index);
 
+  blink::mojom::DWriteFontProxy& GetFontProxy();
+
  private:
-  IPC::Sender* GetSender();
+  void SetProxy(blink::mojom::DWriteFontProxyPtrInfo);
 
   Microsoft::WRL::ComPtr<IDWriteFactory> factory_;
   std::vector<Microsoft::WRL::ComPtr<DWriteFontFamilyProxy>> families_;
   std::map<base::string16, UINT32> family_names_;
   UINT32 family_count_ = UINT_MAX;
-  IPC::Sender* sender_override_;
+  scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
+  scoped_refptr<blink::mojom::ThreadSafeDWriteFontProxyPtr> font_proxy_;
 
   DISALLOW_ASSIGN(DWriteFontCollectionProxy);
 };
@@ -97,7 +107,7 @@ class CONTENT_EXPORT DWriteFontCollectionProxy
 // stub, until something calls a method that requires actual font data. At that
 // point this will load the font files into a custom collection and
 // subsequently calls will be proxied to the resulting DirectWrite object.
-class CONTENT_EXPORT DWriteFontFamilyProxy
+class DWriteFontFamilyProxy
     : public Microsoft::WRL::RuntimeClass<
           Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
           IDWriteFontFamily> {
@@ -149,7 +159,7 @@ class CONTENT_EXPORT DWriteFontFamilyProxy
 
 // Implements the DirectWrite font file enumerator interface, backed by a list
 // of font files.
-class CONTENT_EXPORT FontFileEnumerator
+class FontFileEnumerator
     : public Microsoft::WRL::RuntimeClass<
           Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
           IDWriteFontFileEnumerator> {
@@ -179,7 +189,7 @@ class CONTENT_EXPORT FontFileEnumerator
 // Implements the DirectWrite font file stream interface that maps the file to
 // be loaded as a memory mapped file, and subsequently returns pointers into
 // the mapped memory block.
-class CONTENT_EXPORT FontFileStream
+class FontFileStream
     : public Microsoft::WRL::RuntimeClass<
           Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
           IDWriteFontFileStream> {

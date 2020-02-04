@@ -48,13 +48,16 @@ extern const char kAutofillProfileTag[];
 class AutofillProfileSyncableService
     : public base::SupportsUserData::Data,
       public syncer::SyncableService,
-      public AutofillWebDataServiceObserverOnDBThread {
+      public AutofillWebDataServiceObserverOnDBSequence {
  public:
+  AutofillProfileSyncableService(AutofillWebDataBackend* webdata_backend,
+                                 const std::string& app_locale);
+
   ~AutofillProfileSyncableService() override;
 
   // Creates a new AutofillProfileSyncableService and hangs it off of
   // |web_data_service|, which takes ownership. This method should only be
-  // called on |web_data_service|'s DB thread.
+  // called on |web_data_service|'s DB sequence.
   static void CreateForWebDataServiceAndBackend(
       AutofillWebDataService* web_data_service,
       AutofillWebDataBackend* webdata_backend,
@@ -75,10 +78,10 @@ class AutofillProfileSyncableService
   void StopSyncing(syncer::ModelType type) override;
   syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const override;
   syncer::SyncError ProcessSyncChanges(
-      const tracked_objects::Location& from_here,
+      const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override;
 
-  // AutofillWebDataServiceObserverOnDBThread implementation.
+  // AutofillWebDataServiceObserverOnDBSequence implementation.
   void AutofillProfileChanged(const AutofillProfileChange& change) override;
 
   // Provides a StartSyncFlare to the SyncableService. See
@@ -87,9 +90,6 @@ class AutofillProfileSyncableService
       const syncer::SyncableService::StartSyncFlare& flare);
 
  protected:
-  AutofillProfileSyncableService(AutofillWebDataBackend* webdata_backend,
-                                 const std::string& app_locale);
-
   // A convenience wrapper of a bunch of state we pass around while
   // associating models, and send to the WebDatabase for persistence.
   // We do this so we hold the write lock for only a small period.
@@ -108,9 +108,7 @@ class AutofillProfileSyncableService
 
   // For unit tests.
   AutofillProfileSyncableService();
-  void set_sync_processor(syncer::SyncChangeProcessor* sync_processor) {
-    sync_processor_.reset(sync_processor);
-  }
+  void set_sync_processor(syncer::SyncChangeProcessor* sync_processor);
 
   // Creates syncer::SyncData based on supplied |profile|.
   // Exposed for unit tests.
@@ -128,6 +126,10 @@ class AutofillProfileSyncableService
                            MergeSimilarProfiles_DifferentNames);
   FRIEND_TEST_ALL_PREFIXES(AutofillProfileSyncableServiceTest,
                            MergeSimilarProfiles_NonZeroUseCounts);
+  FRIEND_TEST_ALL_PREFIXES(AutofillProfileSyncableServiceTest,
+                           OverwriteProfileWithServerData_NonSettingsOrigin);
+  FRIEND_TEST_ALL_PREFIXES(AutofillProfileSyncableServiceTest,
+                           OverwriteProfileWithServerData_SettingsOrigin);
 
   // The map of the guid to profiles owned by the |profiles_| vector.
   typedef std::map<std::string, AutofillProfile*> GUIDToProfileMap;

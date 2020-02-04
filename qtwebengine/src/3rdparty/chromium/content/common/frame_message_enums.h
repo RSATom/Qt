@@ -5,7 +5,7 @@
 #ifndef CONTENT_COMMON_FRAME_MESSAGE_ENUMS_H_
 #define CONTENT_COMMON_FRAME_MESSAGE_ENUMS_H_
 
-#include "content/common/accessibility_mode.h"
+#include "ui/accessibility/ax_mode.h"
 
 struct FrameMsg_Navigate_Type {
  public:
@@ -59,22 +59,6 @@ struct FrameMsg_Navigate_Type {
     return value == HISTORY_SAME_DOCUMENT ||
            value == HISTORY_DIFFERENT_DOCUMENT;
   }
-};
-
-struct FrameMsg_UILoadMetricsReportType {
- public:
-  enum Value {
-    // Do not report metrics for this load.
-    NO_REPORT,
-
-    // Report metrics for this load, that originated from clicking on a link.
-    REPORT_LINK,
-
-    // Report metrics for this load, that originated from an Android OS intent.
-    REPORT_INTENT,
-
-    REPORT_TYPE_LAST = REPORT_INTENT,
-  };
 };
 
 #endif  // CONTENT_COMMON_FRAME_MESSAGE_ENUMS_H_

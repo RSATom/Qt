@@ -11,6 +11,7 @@
 #include "chrome/browser/extensions/api/storage/settings_sync_processor.h"
 #include "chrome/browser/extensions/api/storage/settings_sync_util.h"
 #include "chrome/browser/extensions/api/storage/syncable_settings_storage.h"
+#include "components/sync/model/sync_change_processor.h"
 #include "components/sync/model/sync_error_factory.h"
 #include "extensions/browser/api/storage/backend_task_runner.h"
 
@@ -29,7 +30,7 @@ void AddAllSyncData(const std::string& extension_id,
 }
 
 std::unique_ptr<base::DictionaryValue> EmptyDictionaryValue() {
-  return base::MakeUnique<base::DictionaryValue>();
+  return std::make_unique<base::DictionaryValue>();
 }
 
 ValueStoreFactory::ModelType ToFactoryModelType(syncer::ModelType sync_type) {
@@ -47,14 +48,14 @@ ValueStoreFactory::ModelType ToFactoryModelType(syncer::ModelType sync_type) {
 }  // namespace
 
 SyncStorageBackend::SyncStorageBackend(
-    const scoped_refptr<ValueStoreFactory>& storage_factory,
+    scoped_refptr<ValueStoreFactory> storage_factory,
     const SettingsStorageQuotaEnforcer::Limits& quota,
-    const scoped_refptr<SettingsObserverList>& observers,
+    scoped_refptr<SettingsObserverList> observers,
     syncer::ModelType sync_type,
     const syncer::SyncableService::StartSyncFlare& flare)
-    : storage_factory_(storage_factory),
+    : storage_factory_(std::move(storage_factory)),
       quota_(quota),
-      observers_(observers),
+      observers_(std::move(observers)),
       sync_type_(sync_type),
       flare_(flare) {
   DCHECK(IsOnBackendSequence());
@@ -74,7 +75,7 @@ SyncableSettingsStorage* SyncStorageBackend::GetOrCreateStorageWithSyncData(
     std::unique_ptr<base::DictionaryValue> sync_data) const {
   DCHECK(IsOnBackendSequence());
 
-  StorageObjMap::iterator maybe_storage = storage_objs_.find(extension_id);
+  auto maybe_storage = storage_objs_.find(extension_id);
   if (maybe_storage != storage_objs_.end()) {
     return maybe_storage->second.get();
   }
@@ -114,7 +115,7 @@ void SyncStorageBackend::DeleteStorage(const std::string& extension_id) {
   // exists) since the storage area may have been unloaded, but we still want
   // to clear the data from disk.
   // However, this triggers http://crbug.com/111072.
-  StorageObjMap::iterator maybe_storage = storage_objs_.find(extension_id);
+  auto maybe_storage = storage_objs_.find(extension_id);
   if (maybe_storage == storage_objs_.end())
     return;
   maybe_storage->second->Clear();
@@ -148,17 +149,16 @@ syncer::SyncDataList SyncStorageBackend::GetAllSyncData(syncer::ModelType type)
   std::set<std::string> known_extension_ids(
       GetKnownExtensionIDs(ToFactoryModelType(type)));
 
-  for (std::set<std::string>::const_iterator it = known_extension_ids.begin();
-       it != known_extension_ids.end();
+  for (auto it = known_extension_ids.cbegin(); it != known_extension_ids.cend();
        ++it) {
     ValueStore::ReadResult maybe_settings =
         GetOrCreateStorageWithSyncData(*it, EmptyDictionaryValue())->Get();
-    if (!maybe_settings->status().ok()) {
+    if (!maybe_settings.status().ok()) {
       LOG(WARNING) << "Failed to get settings for " << *it << ": "
-                   << maybe_settings->status().message;
+                   << maybe_settings.status().message;
       continue;
     }
-    AddAllSyncData(*it, maybe_settings->settings(), type, &all_sync_data);
+    AddAllSyncData(*it, maybe_settings.settings(), type, &all_sync_data);
   }
 
   return all_sync_data;
@@ -227,7 +227,7 @@ syncer::SyncMergeResult SyncStorageBackend::MergeDataAndStartSyncing(
 }
 
 syncer::SyncError SyncStorageBackend::ProcessSyncChanges(
-    const tracked_objects::Location& from_here,
+    const base::Location& from_here,
     const syncer::SyncChangeList& sync_changes) {
   DCHECK(IsOnBackendSequence());
   DCHECK(sync_processor_.get());

@@ -1,8 +1,5 @@
 include_rules = [
+  "+chromeos/dbus",
   "+mojo/public/cpp",
   "+third_party/libyuv",
 ]
-
-specific_include_rules = {
-  "video_capture_device_unittest.cc": [ "+mojo/edk/embedder" ],
-}

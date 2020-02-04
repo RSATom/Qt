@@ -43,8 +43,8 @@
 #include <QtCore/qt_windows.h>
 #include <qpa/qplatformdialoghelper.h>
 #include <qpa/qplatformtheme.h>
-#include <QtCore/QStringList>
-#include <QtCore/QSharedPointer>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qsharedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -78,7 +78,7 @@ public:
     virtual bool supportsNonModalDialog(const QWindow * /* parent */ = 0) const { return true; }
 
 protected:
-    QWindowsDialogHelperBase() {}
+    QWindowsDialogHelperBase() = default;
     QWindowsNativeDialogBase *nativeDialog() const;
     inline bool hasNativeDialog() const { return m_nativeDialog; }
     void timerEvent(QTimerEvent *) override;

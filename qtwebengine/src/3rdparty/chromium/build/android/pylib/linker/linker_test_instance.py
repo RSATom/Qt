@@ -5,18 +5,18 @@
 from pylib.base import test_instance
 from pylib.constants import host_paths
 from pylib.linker import test_case
+from pylib.utils import test_filter
 
 with host_paths.SysPath(host_paths.BUILD_COMMON_PATH):
   import unittest_util
 
-_MODERN_LINKER_MINIMUM_SDK_INT = 23
 
 class LinkerTestInstance(test_instance.TestInstance):
 
   def __init__(self, args):
     super(LinkerTestInstance, self).__init__()
     self._test_apk = args.test_apk
-    self._test_filter = args.test_filter
+    self._test_filter = test_filter.InitializeFilterFromArgs(args)
 
   @property
   def test_apk(self):
@@ -26,15 +26,11 @@ class LinkerTestInstance(test_instance.TestInstance):
   def test_filter(self):
     return self._test_filter
 
-  def GetTests(self, min_device_sdk):
+  def GetTests(self):
     tests = [
-      test_case.LinkerSharedRelroTest(is_modern_linker=False,
-                                      is_low_memory=False),
-      test_case.LinkerSharedRelroTest(is_modern_linker=False,
-                                      is_low_memory=True)
+      test_case.LinkerSharedRelroTest(is_low_memory=False),
+      test_case.LinkerSharedRelroTest(is_low_memory=True)
     ]
-    if min_device_sdk >= _MODERN_LINKER_MINIMUM_SDK_INT:
-      tests.append(test_case.LinkerSharedRelroTest(is_modern_linker=True))
 
     if self._test_filter:
       filtered_names = unittest_util.FilterTestNames(
@@ -53,4 +49,3 @@ class LinkerTestInstance(test_instance.TestInstance):
 
   def TestType(self):
     return 'linker'
-

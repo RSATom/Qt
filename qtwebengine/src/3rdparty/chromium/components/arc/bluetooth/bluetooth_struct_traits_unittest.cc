@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "device/bluetooth/bluetooth_uuid.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -74,9 +74,14 @@ TEST(BluetoothStructTraitsTest, DeserializeBluetoothAdvertisement) {
       arc::mojom::BluetoothAdvertisement::New();
   std::vector<arc::mojom::BluetoothAdvertisingDataPtr> adv_data;
 
-  // Create service UUIDs.
+  // Create 16bit service UUIDs.
   arc::mojom::BluetoothAdvertisingDataPtr data =
       arc::mojom::BluetoothAdvertisingData::New();
+  data->set_service_uuids_16({kUuid16});
+  adv_data.push_back(std::move(data));
+
+  // Create service UUIDs.
+  data = arc::mojom::BluetoothAdvertisingData::New();
   std::vector<device::BluetoothUUID> service_uuids;
   service_uuids.push_back((device::BluetoothUUID(kUuidStr)));
   data->set_service_uuids(service_uuids);
@@ -110,14 +115,15 @@ TEST(BluetoothStructTraitsTest, DeserializeBluetoothAdvertisement) {
 
   std::unique_ptr<device::BluetoothAdvertisement::UUIDList> converted_uuids =
       advertisement->service_uuids();
-  EXPECT_EQ(converted_uuids->size(), 1U);
-  EXPECT_EQ(*converted_uuids->begin(), kUuidStr);
+  EXPECT_EQ(converted_uuids->size(), 2U);
+  EXPECT_EQ(converted_uuids->at(0), kUuid16Str);
+  EXPECT_EQ(converted_uuids->at(1), kUuidStr);
 
   std::unique_ptr<device::BluetoothAdvertisement::ServiceData>
       converted_service = advertisement->service_data();
   EXPECT_EQ(converted_service->size(), 1U);
   EXPECT_EQ(converted_service->begin()->first, kUuid16Str);
-  for (size_t i = 0; i < arraysize(kServiceData); i++) {
+  for (size_t i = 0; i < base::size(kServiceData); i++) {
     EXPECT_EQ(kServiceData[i], converted_service->begin()->second[i]);
   }
 
@@ -128,7 +134,7 @@ TEST(BluetoothStructTraitsTest, DeserializeBluetoothAdvertisement) {
   EXPECT_EQ(cic & 0xff, kManufacturerData[0]);
   EXPECT_EQ((cic >> 8) & 0xff, kManufacturerData[1]);
   EXPECT_EQ(converted_manufacturer->begin()->second.size(),
-            arraysize(kManufacturerData) - sizeof(uint16_t));
+            base::size(kManufacturerData) - sizeof(uint16_t));
 }
 
 TEST(BluetoothStructTraitsTest, DeserializeBluetoothAdvertisementFailure) {

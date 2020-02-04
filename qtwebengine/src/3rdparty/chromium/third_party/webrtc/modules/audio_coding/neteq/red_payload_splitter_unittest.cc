@@ -10,18 +10,19 @@
 
 // Unit tests for RedPayloadSplitter class.
 
-#include "webrtc/modules/audio_coding/neteq/red_payload_splitter.h"
+#include "modules/audio_coding/neteq/red_payload_splitter.h"
 
 #include <assert.h>
 
 #include <memory>
 #include <utility>  // pair
 
-#include "webrtc/api/audio_codecs/builtin_audio_decoder_factory.h"
-#include "webrtc/modules/audio_coding/neteq/mock/mock_decoder_database.h"
-#include "webrtc/modules/audio_coding/neteq/packet.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/mock_audio_decoder_factory.h"
+#include "api/audio_codecs/builtin_audio_decoder_factory.h"
+#include "modules/audio_coding/neteq/decoder_database.h"
+#include "modules/audio_coding/neteq/packet.h"
+#include "rtc_base/numerics/safe_conversions.h"
+#include "test/gtest.h"
+#include "test/mock_audio_decoder_factory.h"
 
 using ::testing::Return;
 using ::testing::ReturnNull;
@@ -99,7 +100,8 @@ Packet CreateRedPayload(size_t num_payloads,
     // Not the last block; set F = 1.
     *payload_ptr |= 0x80;
     ++payload_ptr;
-    int this_offset = (num_payloads - i - 1) * timestamp_offset;
+    int this_offset =
+        rtc::checked_cast<int>((num_payloads - i - 1) * timestamp_offset);
     *payload_ptr = this_offset >> 6;
     ++payload_ptr;
     assert(kPayloadLength <= 1023);  // Max length described by 10 bits.
@@ -297,11 +299,12 @@ TEST(RedPayloadSplitter, CheckRedPayloads) {
   // easier to just register the payload types and let the actual implementation
   // do its job.
   DecoderDatabase decoder_database(
-      new rtc::RefCountedObject<MockAudioDecoderFactory>);
-  decoder_database.RegisterPayload(0, NetEqDecoder::kDecoderCNGnb, "cng-nb");
-  decoder_database.RegisterPayload(1, NetEqDecoder::kDecoderPCMu, "pcmu");
-  decoder_database.RegisterPayload(2, NetEqDecoder::kDecoderAVT, "avt");
-  decoder_database.RegisterPayload(3, NetEqDecoder::kDecoderILBC, "ilbc");
+      new rtc::RefCountedObject<MockAudioDecoderFactory>, absl::nullopt);
+  decoder_database.RegisterPayload(0, SdpAudioFormat("cn", 8000, 1));
+  decoder_database.RegisterPayload(1, SdpAudioFormat("pcmu", 8000, 1));
+  decoder_database.RegisterPayload(2,
+                                   SdpAudioFormat("telephone-event", 8000, 1));
+  decoder_database.RegisterPayload(3, SdpAudioFormat("ilbc", 8000, 1));
 
   RedPayloadSplitter splitter;
   splitter.CheckRedPayloads(&packet_list, decoder_database);
@@ -315,6 +318,30 @@ TEST(RedPayloadSplitter, CheckRedPayloads) {
     packet_list.pop_front();
   }
   EXPECT_TRUE(packet_list.empty());
+}
+
+// This test creates a RED packet where the payloads also have the payload type
+// for RED. That is, some kind of weird nested RED packet. This is not supported
+// and the splitter should discard all packets.
+TEST(RedPayloadSplitter, CheckRedPayloadsRecursiveRed) {
+  PacketList packet_list;
+  for (uint8_t i = 0; i <= 3; ++i) {
+    // Create packet with RED payload type, payload length 10 bytes, all 0.
+    packet_list.push_back(CreatePacket(kRedPayloadType, 10, 0));
+  }
+
+  // Use a real DecoderDatabase object here instead of a mock, since it is
+  // easier to just register the payload types and let the actual implementation
+  // do its job.
+  DecoderDatabase decoder_database(
+      new rtc::RefCountedObject<MockAudioDecoderFactory>, absl::nullopt);
+  decoder_database.RegisterPayload(kRedPayloadType,
+                                   SdpAudioFormat("red", 8000, 1));
+
+  RedPayloadSplitter splitter;
+  splitter.CheckRedPayloads(&packet_list, decoder_database);
+
+  EXPECT_TRUE(packet_list.empty());  // Should have dropped all packets.
 }
 
 // Packet A is split into A1, A2 and A3. But the length parameter is off, so

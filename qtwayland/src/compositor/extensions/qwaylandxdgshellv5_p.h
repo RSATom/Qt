@@ -41,7 +41,8 @@
 #define QWAYLANDXDGSHELLV5_P_H
 
 #include <QtWaylandCompositor/private/qwaylandcompositorextension_p.h>
-#include <QtWaylandCompositor/private/qwayland-server-xdg-shell.h>
+#include <QtWaylandCompositor/private/qwaylandshell_p.h>
+#include <QtWaylandCompositor/private/qwayland-server-xdg-shell-unstable-v5_p.h>
 
 #include <QtWaylandCompositor/QWaylandXdgShellV5>
 
@@ -61,8 +62,8 @@
 QT_BEGIN_NAMESPACE
 
 class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgShellV5Private
-        : public QWaylandCompositorExtensionPrivate
-        , public QtWaylandServer::xdg_shell
+        : public QWaylandShellPrivate
+        , public QtWaylandServer::xdg_shell_v5
 {
     Q_DECLARE_PUBLIC(QWaylandXdgShellV5)
 public:
@@ -95,7 +96,7 @@ protected:
 
 class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgSurfaceV5Private
         : public QWaylandCompositorExtensionPrivate
-        , public QtWaylandServer::xdg_surface
+        , public QtWaylandServer::xdg_surface_v5
 {
     Q_DECLARE_PUBLIC(QWaylandXdgSurfaceV5)
 public:
@@ -116,16 +117,16 @@ public:
     void setWindowType(Qt::WindowType windowType);
 
 private:
-    QWaylandXdgShellV5 *m_xdgShell;
-    QWaylandSurface *m_surface;
-    QWaylandXdgSurfaceV5 *m_parentSurface;
+    QWaylandXdgShellV5 *m_xdgShell = nullptr;
+    QWaylandSurface *m_surface = nullptr;
+    QWaylandXdgSurfaceV5 *m_parentSurface = nullptr;
 
-    Qt::WindowType m_windowType;
+    Qt::WindowType m_windowType = Qt::WindowType::Window;
 
     QString m_title;
     QString m_appId;
     QRect m_windowGeometry;
-    bool m_unsetWindowGeometry;
+    bool m_unsetWindowGeometry = true;
 
     QList<ConfigureEvent> m_pendingConfigures;
     ConfigureEvent m_lastAckedConfigure;
@@ -158,7 +159,7 @@ private:
 
 class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgPopupV5Private
         : public QWaylandCompositorExtensionPrivate
-        , public QtWaylandServer::xdg_popup
+        , public QtWaylandServer::xdg_popup_v5
 {
     Q_DECLARE_PUBLIC(QWaylandXdgPopupV5)
 
@@ -166,13 +167,13 @@ public:
     QWaylandXdgPopupV5Private();
     static QWaylandXdgPopupV5Private *get(QWaylandXdgPopupV5 *xdgPopup) { return xdgPopup->d_func(); }
 
-    QWaylandSurface *m_surface;
-    QWaylandSurface *m_parentSurface;
-    QWaylandXdgShellV5 *m_xdgShell;
+    QWaylandSurface *m_surface = nullptr;
+    QWaylandSurface *m_parentSurface = nullptr;
+    QWaylandXdgShellV5 *m_xdgShell = nullptr;
     QPoint m_position;
 
     void xdg_popup_destroy_resource(Resource *resource) override;
-    void xdg_popup_destroy(xdg_popup::Resource *resource) override;
+    void xdg_popup_destroy(xdg_popup_v5::Resource *resource) override;
 
     static QWaylandSurfaceRole s_role;
 };

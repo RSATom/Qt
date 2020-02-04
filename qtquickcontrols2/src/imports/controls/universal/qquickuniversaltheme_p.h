@@ -48,22 +48,16 @@
 // We mean it.
 //
 
-#include <QtGui/qfont.h>
-#include <QtQuickControls2/private/qquicktheme_p.h>
+#include <QtCore/qglobal.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQuickUniversalTheme : public QQuickTheme
+class QQuickTheme;
+
+class QQuickUniversalTheme
 {
 public:
-    explicit QQuickUniversalTheme();
-
-    const QFont *font(Font type = SystemFont) const override;
-
-private:
-    QFont systemFont;
-    QFont groupBoxTitleFont;
-    QFont tabButtonFont;
+    static void initialize(QQuickTheme *theme);
 };
 
 QT_END_NAMESPACE

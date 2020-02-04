@@ -9,7 +9,7 @@
 #include <cmath>
 
 #include "base/logging.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libpng/png.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -769,7 +769,6 @@ TEST(PNGCodec, EncodeBGRASkBitmapStridePadded) {
   const int kHeight = 20;
   const int kPaddedWidth = 32;
   const int kBytesPerPixel = 4;
-  const int kPaddedSize = kPaddedWidth * kHeight;
   const int kRowBytes = kPaddedWidth * kBytesPerPixel;
 
   SkImageInfo info = SkImageInfo::MakeN32Premul(kWidth, kHeight);
@@ -781,7 +780,9 @@ TEST(PNGCodec, EncodeBGRASkBitmapStridePadded) {
   // We write on the pad area here too.
   // The encoder should ignore the pad area.
   uint32_t* src_data = original_bitmap.getAddr32(0, 0);
-  for (int i = 0; i < kPaddedSize; i++) {
+  const int count =
+      original_bitmap.computeByteSize() / original_bitmap.bytesPerPixel();
+  for (int i = 0; i < count; i++) {
     src_data[i] = SkPreMultiplyARGB(i % 255, i % 250, i % 245, i % 240);
   }
 
@@ -922,13 +923,13 @@ TEST(PNGCodec, EncodeWithComment) {
       "\x00\x00\x00\x18tEXthave some\x00spaces in both\x8d\x69\x34\x2d";
 
   EXPECT_NE(std::search(encoded.begin(), encoded.end(), kExpected1,
-                        kExpected1 + arraysize(kExpected1)),
+                        kExpected1 + base::size(kExpected1)),
             encoded.end());
   EXPECT_NE(std::search(encoded.begin(), encoded.end(), kExpected2,
-                        kExpected2 + arraysize(kExpected2)),
+                        kExpected2 + base::size(kExpected2)),
             encoded.end());
   EXPECT_NE(std::search(encoded.begin(), encoded.end(), kExpected3,
-                        kExpected3 + arraysize(kExpected3)),
+                        kExpected3 + base::size(kExpected3)),
             encoded.end());
 }
 

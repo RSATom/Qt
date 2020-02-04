@@ -4,27 +4,30 @@
 
 #include "base/path_service.h"
 #include "base/posix/global_descriptors.h"
+#include "build/build_config.h"
 #include "content/browser/child_process_launcher.h"
 #include "content/browser/child_process_launcher_helper.h"
 #include "content/browser/child_process_launcher_helper_posix.h"
-#include "content/browser/renderer_host/render_sandbox_host_linux.h"
-#include "content/browser/zygote_host/zygote_communication_linux.h"
-#include "content/browser/zygote_host/zygote_host_impl_linux.h"
-#include "content/common/sandbox_linux/sandbox_linux.h"
+#include "content/browser/sandbox_host_linux.h"
+#include "content/public/browser/child_process_launcher_utils.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/browser/zygote_handle_linux.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
+#include "services/service_manager/sandbox/linux/sandbox_linux.h"
+#include "services/service_manager/zygote/common/common_sandbox_support_linux.h"
+#include "services/service_manager/zygote/common/zygote_handle.h"
+#include "services/service_manager/zygote/host/zygote_communication_linux.h"
+#include "services/service_manager/zygote/host/zygote_host_impl_linux.h"
 
 namespace content {
 namespace internal {
 
-mojo::edk::ScopedPlatformHandle
-ChildProcessLauncherHelper::PrepareMojoPipeHandlesOnClientThread() {
+base::Optional<mojo::NamedPlatformChannel>
+ChildProcessLauncherHelper::CreateNamedPlatformChannelOnClientThread() {
   DCHECK_CURRENTLY_ON(client_thread_id_);
-  return mojo::edk::ScopedPlatformHandle();
+  return base::nullopt;
 }
 
 void ChildProcessLauncherHelper::BeforeLaunchOnClientThread() {
@@ -33,29 +36,29 @@ void ChildProcessLauncherHelper::BeforeLaunchOnClientThread() {
 
 std::unique_ptr<FileMappedForLaunch>
 ChildProcessLauncherHelper::GetFilesToMap() {
-  DCHECK_CURRENTLY_ON(BrowserThread::PROCESS_LAUNCHER);
-  return CreateDefaultPosixFilesToMap(child_process_id(), mojo_client_handle(),
+  DCHECK(CurrentlyOnProcessLauncherTaskRunner());
+  return CreateDefaultPosixFilesToMap(child_process_id(),
+                                      mojo_channel_->remote_endpoint(),
                                       true /* include_service_required_files */,
                                       GetProcessType(), command_line());
 }
 
-void ChildProcessLauncherHelper::BeforeLaunchOnLauncherThread(
-    const FileDescriptorInfo& files_to_register,
+bool ChildProcessLauncherHelper::BeforeLaunchOnLauncherThread(
+    const PosixFileDescriptorInfo& files_to_register,
     base::LaunchOptions* options) {
   // Convert FD mapping to FileHandleMappingVector
-  std::unique_ptr<base::FileHandleMappingVector> fds_to_map =
-      files_to_register.GetMappingWithIDAdjustment(
-          base::GlobalDescriptors::kBaseDescriptor);
+  options->fds_to_remap = files_to_register.GetMappingWithIDAdjustment(
+      base::GlobalDescriptors::kBaseDescriptor);
 
   if (GetProcessType() == switches::kRendererProcess) {
-    const int sandbox_fd =
-        RenderSandboxHostLinux::GetInstance()->GetRendererSocket();
-    fds_to_map->push_back(std::make_pair(sandbox_fd, GetSandboxFD()));
+    const int sandbox_fd = SandboxHostLinux::GetInstance()->GetChildSocket();
+    options->fds_to_remap.push_back(
+        std::make_pair(sandbox_fd, service_manager::GetSandboxFD()));
   }
 
   options->environ = delegate_->GetEnvironment();
-  // fds_to_remap will de deleted in AfterLaunchOnLauncherThread() below.
-  options->fds_to_remap = fds_to_map.release();
+
+  return true;
 }
 
 ChildProcessLauncherHelper::Process
@@ -66,7 +69,7 @@ ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
     int* launch_result) {
   *is_synchronous_launch = true;
 
-  ZygoteHandle zygote_handle =
+  service_manager::ZygoteHandle zygote_handle =
       base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoZygote)
           ? nullptr
           : delegate_->GetZygote();
@@ -75,8 +78,23 @@ ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
     // be created lazily here, or in the delegate GetZygote() implementations.
     // Additionally, the delegate could provide a UseGenericZygote() method.
     base::ProcessHandle handle = zygote_handle->ForkRequest(
-        command_line()->argv(), std::move(files_to_register), GetProcessType());
+        command_line()->argv(), files_to_register->GetMapping(),
+        GetProcessType());
     *launch_result = LAUNCH_RESULT_SUCCESS;
+
+#if !defined(OS_OPENBSD)
+    if (handle) {
+      // This is just a starting score for a renderer or extension (the
+      // only types of processes that will be started this way).  It will
+      // get adjusted as time goes on.  (This is the same value as
+      // chrome::kLowestRendererOomScore in chrome/chrome_constants.h, but
+      // that's not something we can include here.)
+      const int kLowestRendererOomScore = 300;
+      service_manager::ZygoteHostImpl::GetInstance()->AdjustRendererOOMScore(
+          handle, kLowestRendererOomScore);
+    }
+#endif
+
     Process process;
     process.process = base::Process(handle);
     process.zygote = zygote_handle;
@@ -93,34 +111,38 @@ ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
 void ChildProcessLauncherHelper::AfterLaunchOnLauncherThread(
     const ChildProcessLauncherHelper::Process& process,
     const base::LaunchOptions& options) {
-  delete options.fds_to_remap;
 }
 
-base::TerminationStatus ChildProcessLauncherHelper::GetTerminationStatus(
+ChildProcessTerminationInfo ChildProcessLauncherHelper::GetTerminationInfo(
     const ChildProcessLauncherHelper::Process& process,
-    bool known_dead,
-    int* exit_code) {
+    bool known_dead) {
+  ChildProcessTerminationInfo info;
   if (process.zygote) {
-    return process.zygote->GetTerminationStatus(
-        process.process.Handle(), known_dead, exit_code);
+    info.status = process.zygote->GetTerminationStatus(
+        process.process.Handle(), known_dead, &info.exit_code);
+  } else if (known_dead) {
+    info.status = base::GetKnownDeadTerminationStatus(process.process.Handle(),
+                                                      &info.exit_code);
+  } else {
+    info.status =
+        base::GetTerminationStatus(process.process.Handle(), &info.exit_code);
   }
-  if (known_dead) {
-    return base::GetKnownDeadTerminationStatus(
-        process.process.Handle(), exit_code);
-  }
-  return base::GetTerminationStatus(process.process.Handle(), exit_code);
+  return info;
 }
 
 // static
-bool ChildProcessLauncherHelper::TerminateProcess(
-    const base::Process& process, int exit_code, bool wait) {
-  return process.Terminate(exit_code, wait);
+bool ChildProcessLauncherHelper::TerminateProcess(const base::Process& process,
+                                                  int exit_code) {
+  // TODO(https://crbug.com/818244): Determine whether we should also call
+  // EnsureProcessTerminated() to make sure of process-exit, and reap it.
+  return process.Terminate(exit_code, false);
 }
 
 // static
 void ChildProcessLauncherHelper::ForceNormalProcessTerminationSync(
     ChildProcessLauncherHelper::Process process) {
-  process.process.Terminate(RESULT_CODE_NORMAL_EXIT, false);
+  DCHECK(CurrentlyOnProcessLauncherTaskRunner());
+  process.process.Terminate(service_manager::RESULT_CODE_NORMAL_EXIT, false);
   // On POSIX, we must additionally reap the child.
   if (process.zygote) {
     // If the renderer was created via a zygote, we have to proxy the reaping
@@ -133,17 +155,16 @@ void ChildProcessLauncherHelper::ForceNormalProcessTerminationSync(
 
 void ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread(
     base::Process process,
-    bool background,
-    bool boost_for_pending_views) {
-  DCHECK_CURRENTLY_ON(BrowserThread::PROCESS_LAUNCHER);
+    const ChildProcessLauncherPriority& priority) {
+  DCHECK(CurrentlyOnProcessLauncherTaskRunner());
   if (process.CanBackgroundProcesses())
-    process.SetProcessBackgrounded(background);
+    process.SetProcessBackgrounded(priority.is_background());
 }
 
 // static
 void ChildProcessLauncherHelper::SetRegisteredFilesForService(
     const std::string& service_name,
-    catalog::RequiredFileMap required_files) {
+    std::map<std::string, base::FilePath> required_files) {
   SetFilesToShareForServicePosix(service_name, std::move(required_files));
 }
 

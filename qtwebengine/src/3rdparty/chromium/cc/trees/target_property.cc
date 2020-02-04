@@ -1,32 +1,20 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "cc/trees/target_property.h"
 
-#include "base/macros.h"
-
 namespace cc {
 
-namespace {
+static_assert(TargetProperty::LAST_TARGET_PROPERTY < kMaxTargetPropertyIndex,
+              "The number of cc target properties has exceeded the capacity of"
+              " TargetProperties");
 
-static_assert(TargetProperty::FIRST_TARGET_PROPERTY == 0,
-              "TargetProperty must be 0-based enum");
-
-// This should match the TargetProperty enum.
-static const char* const s_targetPropertyNames[] = {
-    "TRANSFORM",        "OPACITY", "FILTER",    "SCROLL_OFFSET",
-    "BACKGROUND_COLOR", "BOUNDS",  "VISIBILITY"};
-
-static_assert(static_cast<int>(TargetProperty::LAST_TARGET_PROPERTY) + 1 ==
-                  arraysize(s_targetPropertyNames),
-              "TargetPropertyEnumSize should equal the number of elements in "
-              "s_targetPropertyNames");
-
-}  // namespace
-
-const char* TargetProperty::GetName(TargetProperty::Type property) {
-  return s_targetPropertyNames[property];
-}
+// bitset will use a multiple of the architecture int size, which is at least 32
+// bits so make it explicit to have as many properties as fit into the memory
+// used.
+static_assert(kMaxTargetPropertyIndex % (8 * sizeof(uint32_t)) == 0,
+              "The maximum number of target properties should be a multiple of "
+              "sizeof(uint32_t)");
 
 }  // namespace cc

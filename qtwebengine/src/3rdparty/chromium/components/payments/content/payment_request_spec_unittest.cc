@@ -4,13 +4,14 @@
 
 #include "components/payments/content/payment_request_spec.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/modules/payments/payment_request.mojom.h"
+#include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace payments {
@@ -24,14 +25,14 @@ class PaymentRequestSpecTest : public testing::Test,
 
   void RecreateSpecWithMethodData(
       std::vector<mojom::PaymentMethodDataPtr> method_data) {
-    spec_ = base::MakeUnique<PaymentRequestSpec>(
+    spec_ = std::make_unique<PaymentRequestSpec>(
         mojom::PaymentOptions::New(), mojom::PaymentDetails::New(),
         std::move(method_data), this, "en-US");
   }
 
   void RecreateSpecWithOptionsAndDetails(mojom::PaymentOptionsPtr options,
                                          mojom::PaymentDetailsPtr details) {
-    spec_ = base::MakeUnique<PaymentRequestSpec>(
+    spec_ = std::make_unique<PaymentRequestSpec>(
         std::move(options), std::move(details),
         std::vector<mojom::PaymentMethodDataPtr>(), this, "en-US");
   }
@@ -53,21 +54,26 @@ TEST_F(PaymentRequestSpecTest, EmptyMethodData) {
 }
 
 TEST_F(PaymentRequestSpecTest, IsMethodSupportedThroughBasicCard) {
-  mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("visa");
-  entry->supported_methods.push_back("mastercard");
-  entry->supported_methods.push_back("invalid");
-  entry->supported_methods.push_back("");
-  entry->supported_methods.push_back("visa");
+  mojom::PaymentMethodDataPtr entry1 = mojom::PaymentMethodData::New();
+  entry1->supported_method = "visa";
   mojom::PaymentMethodDataPtr entry2 = mojom::PaymentMethodData::New();
-  entry2->supported_methods.push_back("basic-card");
-  entry2->supported_networks.push_back(mojom::BasicCardNetwork::UNIONPAY);
-  entry2->supported_networks.push_back(mojom::BasicCardNetwork::JCB);
-  entry2->supported_networks.push_back(mojom::BasicCardNetwork::VISA);
+  entry2->supported_method = "mastercard";
+  mojom::PaymentMethodDataPtr entry3 = mojom::PaymentMethodData::New();
+  entry3->supported_method = "invalid";
+  mojom::PaymentMethodDataPtr entry4 = mojom::PaymentMethodData::New();
+  entry4->supported_method = "visa";
+  mojom::PaymentMethodDataPtr entry5 = mojom::PaymentMethodData::New();
+  entry5->supported_method = "basic-card";
+  entry5->supported_networks.push_back(mojom::BasicCardNetwork::UNIONPAY);
+  entry5->supported_networks.push_back(mojom::BasicCardNetwork::JCB);
+  entry5->supported_networks.push_back(mojom::BasicCardNetwork::VISA);
 
   std::vector<mojom::PaymentMethodDataPtr> method_data;
-  method_data.push_back(std::move(entry));
+  method_data.push_back(std::move(entry1));
   method_data.push_back(std::move(entry2));
+  method_data.push_back(std::move(entry3));
+  method_data.push_back(std::move(entry4));
+  method_data.push_back(std::move(entry5));
 
   RecreateSpecWithMethodData(std::move(method_data));
 
@@ -85,18 +91,22 @@ TEST_F(PaymentRequestSpecTest, IsMethodSupportedThroughBasicCard) {
 // Order matters when parsing the supportedMethods and basic card networks.
 TEST_F(PaymentRequestSpecTest,
        IsMethodSupportedThroughBasicCard_DifferentOrder) {
-  mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("basic-card");
-  entry->supported_networks.push_back(mojom::BasicCardNetwork::UNIONPAY);
-  entry->supported_networks.push_back(mojom::BasicCardNetwork::VISA);
+  mojom::PaymentMethodDataPtr entry1 = mojom::PaymentMethodData::New();
+  entry1->supported_method = "basic-card";
+  entry1->supported_networks.push_back(mojom::BasicCardNetwork::UNIONPAY);
+  entry1->supported_networks.push_back(mojom::BasicCardNetwork::VISA);
   mojom::PaymentMethodDataPtr entry2 = mojom::PaymentMethodData::New();
-  entry2->supported_methods.push_back("visa");
-  entry2->supported_methods.push_back("unionpay");
-  entry2->supported_methods.push_back("jcb");
+  entry2->supported_method = "visa";
+  mojom::PaymentMethodDataPtr entry3 = mojom::PaymentMethodData::New();
+  entry3->supported_method = "unionpay";
+  mojom::PaymentMethodDataPtr entry4 = mojom::PaymentMethodData::New();
+  entry4->supported_method = "jcb";
 
   std::vector<mojom::PaymentMethodDataPtr> method_data;
-  method_data.push_back(std::move(entry));
+  method_data.push_back(std::move(entry1));
   method_data.push_back(std::move(entry2));
+  method_data.push_back(std::move(entry3));
+  method_data.push_back(std::move(entry4));
 
   RecreateSpecWithMethodData(std::move(method_data));
 
@@ -112,14 +122,22 @@ TEST_F(PaymentRequestSpecTest,
 // Test that parsing supported methods (with invalid values and duplicates)
 // works as expected.
 TEST_F(PaymentRequestSpecTest, SupportedMethods) {
-  mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("visa");
-  entry->supported_methods.push_back("mastercard");
-  entry->supported_methods.push_back("invalid");
-  entry->supported_methods.push_back("");
-  entry->supported_methods.push_back("visa");
+  mojom::PaymentMethodDataPtr entry1 = mojom::PaymentMethodData::New();
+  entry1->supported_method = "visa";
+  mojom::PaymentMethodDataPtr entry2 = mojom::PaymentMethodData::New();
+  entry2->supported_method = "mastercard";
+  mojom::PaymentMethodDataPtr entry3 = mojom::PaymentMethodData::New();
+  entry3->supported_method = "invalid";
+  mojom::PaymentMethodDataPtr entry4 = mojom::PaymentMethodData::New();
+  entry4->supported_method = "";
+  mojom::PaymentMethodDataPtr entry5 = mojom::PaymentMethodData::New();
+  entry5->supported_method = "visa";
   std::vector<mojom::PaymentMethodDataPtr> method_data;
-  method_data.push_back(std::move(entry));
+  method_data.push_back(std::move(entry1));
+  method_data.push_back(std::move(entry2));
+  method_data.push_back(std::move(entry3));
+  method_data.push_back(std::move(entry4));
+  method_data.push_back(std::move(entry5));
 
   RecreateSpecWithMethodData(std::move(method_data));
 
@@ -133,11 +151,11 @@ TEST_F(PaymentRequestSpecTest, SupportedMethods) {
 // invalid values and duplicates) works as expected.
 TEST_F(PaymentRequestSpecTest, SupportedMethods_MultipleEntries) {
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("visa");
+  entry->supported_method = "visa";
   mojom::PaymentMethodDataPtr entry2 = mojom::PaymentMethodData::New();
-  entry2->supported_methods.push_back("mastercard");
+  entry2->supported_method = "mastercard";
   mojom::PaymentMethodDataPtr entry3 = mojom::PaymentMethodData::New();
-  entry3->supported_methods.push_back("invalid");
+  entry3->supported_method = "invalid";
 
   std::vector<mojom::PaymentMethodDataPtr> method_data;
   method_data.push_back(std::move(entry));
@@ -157,12 +175,12 @@ TEST_F(PaymentRequestSpecTest, SupportedMethods_MultipleEntries) {
 TEST_F(PaymentRequestSpecTest, SupportedMethods_MultipleEntries_OneEmpty) {
   // First entry is valid.
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("visa");
+  entry->supported_method = "visa";
   // Empty method data entry.
   mojom::PaymentMethodDataPtr entry2 = mojom::PaymentMethodData::New();
   // Valid one follows the empty.
   mojom::PaymentMethodDataPtr entry3 = mojom::PaymentMethodData::New();
-  entry3->supported_methods.push_back("mastercard");
+  entry3->supported_method = "mastercard";
 
   std::vector<mojom::PaymentMethodDataPtr> method_data;
   method_data.push_back(std::move(entry));
@@ -179,7 +197,7 @@ TEST_F(PaymentRequestSpecTest, SupportedMethods_MultipleEntries_OneEmpty) {
 // Test that only specifying basic-card means that all are supported.
 TEST_F(PaymentRequestSpecTest, SupportedMethods_OnlyBasicCard) {
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("basic-card");
+  entry->supported_method = "basic-card";
   std::vector<mojom::PaymentMethodDataPtr> method_data;
   method_data.push_back(std::move(entry));
 
@@ -200,11 +218,13 @@ TEST_F(PaymentRequestSpecTest, SupportedMethods_OnlyBasicCard) {
 // Test that specifying a method AND basic-card means that all are supported,
 // but with the method as first.
 TEST_F(PaymentRequestSpecTest, SupportedMethods_BasicCard_WithSpecificMethod) {
-  mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("jcb");
-  entry->supported_methods.push_back("basic-card");
+  mojom::PaymentMethodDataPtr entry1 = mojom::PaymentMethodData::New();
+  entry1->supported_method = "jcb";
+  mojom::PaymentMethodDataPtr entry2 = mojom::PaymentMethodData::New();
+  entry2->supported_method = "basic-card";
   std::vector<mojom::PaymentMethodDataPtr> method_data;
-  method_data.push_back(std::move(entry));
+  method_data.push_back(std::move(entry1));
+  method_data.push_back(std::move(entry2));
 
   RecreateSpecWithMethodData(std::move(method_data));
 
@@ -224,18 +244,20 @@ TEST_F(PaymentRequestSpecTest, SupportedMethods_BasicCard_WithSpecificMethod) {
 // Test that specifying basic-card with a supported network (with previous
 // supported methods) will work as expected
 TEST_F(PaymentRequestSpecTest, SupportedMethods_BasicCard_Overlap) {
-  mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("mastercard");
-  entry->supported_methods.push_back("visa");
-  // Visa and mastercard are repeated, but in reverse order.
+  mojom::PaymentMethodDataPtr entry1 = mojom::PaymentMethodData::New();
+  entry1->supported_method = "mastercard";
   mojom::PaymentMethodDataPtr entry2 = mojom::PaymentMethodData::New();
-  entry2->supported_methods.push_back("basic-card");
-  entry2->supported_networks.push_back(mojom::BasicCardNetwork::VISA);
-  entry2->supported_networks.push_back(mojom::BasicCardNetwork::MASTERCARD);
-  entry2->supported_networks.push_back(mojom::BasicCardNetwork::UNIONPAY);
+  entry2->supported_method = "visa";
+  // Visa and mastercard are repeated, but in reverse order.
+  mojom::PaymentMethodDataPtr entry3 = mojom::PaymentMethodData::New();
+  entry3->supported_method = "basic-card";
+  entry3->supported_networks.push_back(mojom::BasicCardNetwork::VISA);
+  entry3->supported_networks.push_back(mojom::BasicCardNetwork::MASTERCARD);
+  entry3->supported_networks.push_back(mojom::BasicCardNetwork::UNIONPAY);
   std::vector<mojom::PaymentMethodDataPtr> method_data;
-  method_data.push_back(std::move(entry));
+  method_data.push_back(std::move(entry1));
   method_data.push_back(std::move(entry2));
+  method_data.push_back(std::move(entry3));
 
   RecreateSpecWithMethodData(std::move(method_data));
 
@@ -250,7 +272,7 @@ TEST_F(PaymentRequestSpecTest, SupportedMethods_BasicCard_Overlap) {
 TEST_F(PaymentRequestSpecTest,
        SupportedMethods_BasicCard_WithSupportedNetworks) {
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("basic-card");
+  entry->supported_method = "basic-card";
   entry->supported_networks.push_back(mojom::BasicCardNetwork::VISA);
   entry->supported_networks.push_back(mojom::BasicCardNetwork::UNIONPAY);
   std::vector<mojom::PaymentMethodDataPtr> method_data;
@@ -321,8 +343,12 @@ TEST_F(PaymentRequestSpecTest, ShippingOptionsSelection_NoOptionsAtAll) {
   EXPECT_EQ(nullptr, spec()->selected_shipping_option());
   EXPECT_TRUE(spec()->selected_shipping_option_error().empty());
 
-  // Call updateWith with still no options.
-  spec()->UpdateWith(mojom::PaymentDetails::New());
+  // Call updateWith with empty options.
+  {
+    mojom::PaymentDetailsPtr details = mojom::PaymentDetails::New();
+    details->shipping_options = std::vector<mojom::PaymentShippingOptionPtr>();
+    spec()->UpdateWith(std::move(details));
+  }
 
   // Now it's more serious. No option selected, but there is a generic error.
   EXPECT_EQ(nullptr, spec()->selected_shipping_option());
@@ -330,15 +356,46 @@ TEST_F(PaymentRequestSpecTest, ShippingOptionsSelection_NoOptionsAtAll) {
       l10n_util::GetStringUTF16(IDS_PAYMENTS_UNSUPPORTED_SHIPPING_ADDRESS),
       spec()->selected_shipping_option_error());
 
-  // Call updateWith with still no options, but a customized error string.
-  mojom::PaymentDetailsPtr details = mojom::PaymentDetails::New();
-  details->error = "No can do shipping.";
-  spec()->UpdateWith(std::move(details));
+  {
+    // Call updateWith with still no options, but a customized error string.
+    mojom::PaymentDetailsPtr details = mojom::PaymentDetails::New();
+    details->error = "No can do shipping.";
+    spec()->UpdateWith(std::move(details));
+  }
 
   // No option selected, but there is an error provided by the mercahnt.
   EXPECT_EQ(nullptr, spec()->selected_shipping_option());
   EXPECT_EQ(base::ASCIIToUTF16("No can do shipping."),
             spec()->selected_shipping_option_error());
+}
+
+// Test that the last shipping option is selected, even in the case of
+// updateWith.
+TEST_F(PaymentRequestSpecTest, UpdateWithNoShippingOptions) {
+  std::vector<mojom::PaymentShippingOptionPtr> shipping_options;
+  mojom::PaymentShippingOptionPtr option = mojom::PaymentShippingOption::New();
+  option->id = "option:1";
+  option->selected = false;
+  shipping_options.push_back(std::move(option));
+  mojom::PaymentShippingOptionPtr option2 = mojom::PaymentShippingOption::New();
+  option2->id = "option:2";
+  option2->selected = true;
+  shipping_options.push_back(std::move(option2));
+  mojom::PaymentDetailsPtr details = mojom::PaymentDetails::New();
+  details->shipping_options = std::move(shipping_options);
+
+  mojom::PaymentOptionsPtr options = mojom::PaymentOptions::New();
+  options->request_shipping = true;
+  RecreateSpecWithOptionsAndDetails(std::move(options), std::move(details));
+
+  EXPECT_EQ("option:2", spec()->selected_shipping_option()->id);
+  EXPECT_TRUE(spec()->selected_shipping_option_error().empty());
+
+  // Call updateWith with no shipping options
+  spec()->UpdateWith(mojom::PaymentDetails::New());
+
+  EXPECT_EQ("option:2", spec()->selected_shipping_option()->id);
+  EXPECT_TRUE(spec()->selected_shipping_option_error().empty());
 }
 
 TEST_F(PaymentRequestSpecTest, SingleCurrencyWithoutDisplayItems) {
@@ -428,6 +485,64 @@ TEST_F(PaymentRequestSpecTest, MultipleCurrenciesWithTwoDisplayItem) {
   // At least one of the display items has a different currency, this is a mixed
   // currency case.
   EXPECT_TRUE(spec()->IsMixedCurrency());
+}
+
+TEST_F(PaymentRequestSpecTest, RetryWithShippingAddressErrors) {
+  mojom::PaymentOptionsPtr options = mojom::PaymentOptions::New();
+  options->request_shipping = true;
+  RecreateSpecWithOptionsAndDetails(std::move(options),
+                                    mojom::PaymentDetails::New());
+
+  EXPECT_FALSE(spec()->has_shipping_address_error());
+
+  mojom::AddressErrorsPtr shipping_address_errors = mojom::AddressErrors::New();
+  shipping_address_errors->address_line = "Invalid address line";
+  shipping_address_errors->city = "Invalid city";
+
+  mojom::PaymentValidationErrorsPtr errors =
+      mojom::PaymentValidationErrors::New();
+  errors->shipping_address = std::move(shipping_address_errors);
+
+  spec()->Retry(std::move(errors));
+
+  EXPECT_EQ(base::UTF8ToUTF16("Invalid city"),
+            spec()->GetShippingAddressError(autofill::ADDRESS_HOME_CITY));
+  EXPECT_EQ(
+      base::UTF8ToUTF16("Invalid address line"),
+      spec()->GetShippingAddressError(autofill::ADDRESS_HOME_STREET_ADDRESS));
+
+  EXPECT_TRUE(spec()->has_shipping_address_error());
+}
+
+TEST_F(PaymentRequestSpecTest, RetryWithPayerErrors) {
+  mojom::PaymentOptionsPtr options = mojom::PaymentOptions::New();
+  options->request_payer_email = true;
+  options->request_payer_name = true;
+  options->request_payer_phone = true;
+  RecreateSpecWithOptionsAndDetails(std::move(options),
+                                    mojom::PaymentDetails::New());
+
+  EXPECT_FALSE(spec()->has_payer_error());
+
+  mojom::PayerErrorsPtr payer_errors = mojom::PayerErrors::New();
+  payer_errors->email = "Invalid email";
+  payer_errors->name = "Invalid name";
+  payer_errors->phone = "Invalid phone";
+
+  mojom::PaymentValidationErrorsPtr errors =
+      mojom::PaymentValidationErrors::New();
+  errors->payer = std::move(payer_errors);
+
+  spec()->Retry(std::move(errors));
+
+  EXPECT_EQ(base::UTF8ToUTF16("Invalid email"),
+            spec()->GetPayerError(autofill::EMAIL_ADDRESS));
+  EXPECT_EQ(base::UTF8ToUTF16("Invalid name"),
+            spec()->GetPayerError(autofill::NAME_FULL));
+  EXPECT_EQ(base::UTF8ToUTF16("Invalid phone"),
+            spec()->GetPayerError(autofill::PHONE_HOME_WHOLE_NUMBER));
+
+  EXPECT_TRUE(spec()->has_payer_error());
 }
 
 }  // namespace payments

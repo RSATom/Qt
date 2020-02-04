@@ -66,9 +66,9 @@ public:
     enum ItemType { Type = 0, UserType = 1000 };
     explicit QTreeWidgetItem(int type = Type);
     explicit QTreeWidgetItem(const QStringList &strings, int type = Type);
-    explicit QTreeWidgetItem(QTreeWidget *view, int type = Type);
-    QTreeWidgetItem(QTreeWidget *view, const QStringList &strings, int type = Type);
-    QTreeWidgetItem(QTreeWidget *view, QTreeWidgetItem *after, int type = Type);
+    explicit QTreeWidgetItem(QTreeWidget *treeview, int type = Type);
+    QTreeWidgetItem(QTreeWidget *treeview, const QStringList &strings, int type = Type);
+    QTreeWidgetItem(QTreeWidget *treeview, QTreeWidgetItem *after, int type = Type);
     explicit QTreeWidgetItem(QTreeWidgetItem *parent, int type = Type);
     QTreeWidgetItem(QTreeWidgetItem *parent, const QStringList &strings, int type = Type);
     QTreeWidgetItem(QTreeWidgetItem *parent, QTreeWidgetItem *after, int type = Type);
@@ -79,17 +79,17 @@ public:
 
     inline QTreeWidget *treeWidget() const { return view; }
 
-    inline void setSelected(bool select);
-    inline bool isSelected() const;
+    void setSelected(bool select);
+    bool isSelected() const;
 
-    inline void setHidden(bool hide);
-    inline bool isHidden() const;
+    void setHidden(bool hide);
+    bool isHidden() const;
 
-    inline void setExpanded(bool expand);
-    inline bool isExpanded() const;
+    void setExpanded(bool expand);
+    bool isExpanded() const;
 
-    inline void setFirstColumnSpanned(bool span);
-    inline bool isFirstColumnSpanned() const;
+    void setFirstColumnSpanned(bool span);
+    bool isFirstColumnSpanned() const;
 
     inline void setDisabled(bool disabled);
     inline bool isDisabled() const;
@@ -134,20 +134,28 @@ public:
     inline void setTextAlignment(int column, int alignment)
         { setData(column, Qt::TextAlignmentRole, alignment); }
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::background() instead")
     inline QColor backgroundColor(int column) const
-        { return qvariant_cast<QColor>(data(column, Qt::BackgroundColorRole)); }
+        { return qvariant_cast<QColor>(data(column, Qt::BackgroundRole)); }
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::setBackground() instead")
     inline void setBackgroundColor(int column, const QColor &color)
-        { setData(column, Qt::BackgroundColorRole, color); }
+        { setData(column, Qt::BackgroundRole, color); }
+#endif
 
     inline QBrush background(int column) const
         { return qvariant_cast<QBrush>(data(column, Qt::BackgroundRole)); }
     inline void setBackground(int column, const QBrush &brush)
         { setData(column, Qt::BackgroundRole, brush); }
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::foreground() instead")
     inline QColor textColor(int column) const
-        { return qvariant_cast<QColor>(data(column, Qt::TextColorRole)); }
+        { return qvariant_cast<QColor>(data(column, Qt::ForegroundRole)); }
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::setForeground() instead")
     inline void setTextColor(int column, const QColor &color)
-        { setData(column, Qt::TextColorRole, color); }
+        { setData(column, Qt::ForegroundRole, color); }
+#endif
 
     inline QBrush foreground(int column) const
         { return qvariant_cast<QBrush>(data(column, Qt::ForegroundRole)); }
@@ -178,7 +186,7 @@ public:
     inline QTreeWidgetItem *parent() const { return par; }
     inline QTreeWidgetItem *child(int index) const {
         if (index < 0 || index >= children.size())
-            return Q_NULLPTR;
+            return nullptr;
         executePendingSort();
         return children.at(index);
     }
@@ -207,6 +215,7 @@ private:
     QVariant childrenCheckState(int column) const;
     void itemChanged();
     void executePendingSort() const;
+    QTreeModel *treeModel(QTreeWidget *v = nullptr) const;
 
     int rtti;
     // One item has a vector of column entries. Each column has a vector of (role, value) pairs.
@@ -261,7 +270,7 @@ class Q_WIDGETS_EXPORT QTreeWidget : public QTreeView
     friend class QTreeModel;
     friend class QTreeWidgetItem;
 public:
-    explicit QTreeWidget(QWidget *parent = Q_NULLPTR);
+    explicit QTreeWidget(QWidget *parent = nullptr);
     ~QTreeWidget();
 
     int columnCount() const;
@@ -306,25 +315,37 @@ public:
     void setItemWidget(QTreeWidgetItem *item, int column, QWidget *widget);
     inline void removeItemWidget(QTreeWidgetItem *item, int column);
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::isSelected() instead")
     bool isItemSelected(const QTreeWidgetItem *item) const;
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::setSelected() instead")
     void setItemSelected(const QTreeWidgetItem *item, bool select);
+#endif
     QList<QTreeWidgetItem*> selectedItems() const;
     QList<QTreeWidgetItem*> findItems(const QString &text, Qt::MatchFlags flags,
                                       int column = 0) const;
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::isHidden() instead")
     bool isItemHidden(const QTreeWidgetItem *item) const;
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::setHidden() instead")
     void setItemHidden(const QTreeWidgetItem *item, bool hide);
 
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::isExpanded() instead")
     bool isItemExpanded(const QTreeWidgetItem *item) const;
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::setExpanded() instead")
     void setItemExpanded(const QTreeWidgetItem *item, bool expand);
 
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::isFirstColumnSpanned() instead")
     bool isFirstItemColumnSpanned(const QTreeWidgetItem *item) const;
+    QT_DEPRECATED_X ("Use QTreeWidgetItem::setFirstColumnSpanned() instead")
     void setFirstItemColumnSpanned(const QTreeWidgetItem *item, bool span);
+#endif
 
     QTreeWidgetItem *itemAbove(const QTreeWidgetItem *item) const;
     QTreeWidgetItem *itemBelow(const QTreeWidgetItem *item) const;
 
-    void setSelectionModel(QItemSelectionModel *selectionModel) Q_DECL_OVERRIDE;
+    void setSelectionModel(QItemSelectionModel *selectionModel) override;
 
 public Q_SLOTS:
     void scrollToItem(const QTreeWidgetItem *item,
@@ -339,6 +360,7 @@ Q_SIGNALS:
     void itemDoubleClicked(QTreeWidgetItem *item, int column);
     void itemActivated(QTreeWidgetItem *item, int column);
     void itemEntered(QTreeWidgetItem *item, int column);
+    // ### Qt 6: add changed roles
     void itemChanged(QTreeWidgetItem *item, int column);
     void itemExpanded(QTreeWidgetItem *item);
     void itemCollapsed(QTreeWidgetItem *item);
@@ -346,7 +368,7 @@ Q_SIGNALS:
     void itemSelectionChanged();
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
     virtual QStringList mimeTypes() const;
 #if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
     virtual QMimeData *mimeData(const QList<QTreeWidgetItem *> &items) const;
@@ -365,15 +387,17 @@ protected:
     QList<QTreeWidgetItem*> items(const QMimeData *data) const;
 
     QModelIndex indexFromItem(const QTreeWidgetItem *item, int column = 0) const;
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     QModelIndex indexFromItem(QTreeWidgetItem *item, int column = 0) const; // ### Qt 6: remove
+#endif
     QTreeWidgetItem *itemFromIndex(const QModelIndex &index) const;
 
 protected:
 #if QT_CONFIG(draganddrop)
-    void dropEvent(QDropEvent *event) Q_DECL_OVERRIDE;
+    void dropEvent(QDropEvent *event) override;
 #endif
 private:
-    void setModel(QAbstractItemModel *model) Q_DECL_OVERRIDE;
+    void setModel(QAbstractItemModel *model) override;
 
     Q_DECLARE_PRIVATE(QTreeWidget)
     Q_DISABLE_COPY(QTreeWidget)
@@ -393,37 +417,13 @@ private:
 };
 
 inline void QTreeWidget::removeItemWidget(QTreeWidgetItem *item, int column)
-{ setItemWidget(item, column, Q_NULLPTR); }
+{ setItemWidget(item, column, nullptr); }
 
 inline QTreeWidgetItem *QTreeWidget::itemAt(int ax, int ay) const
 { return itemAt(QPoint(ax, ay)); }
 
 inline void QTreeWidget::setHeaderLabel(const QString &alabel)
 { setHeaderLabels(QStringList(alabel)); }
-
-inline void QTreeWidgetItem::setSelected(bool aselect)
-{ if (view) view->setItemSelected(this, aselect); }
-
-inline bool QTreeWidgetItem::isSelected() const
-{ return (view ? view->isItemSelected(this) : false); }
-
-inline void QTreeWidgetItem::setHidden(bool ahide)
-{ if (view) view->setItemHidden(this, ahide); }
-
-inline bool QTreeWidgetItem::isHidden() const
-{ return (view ? view->isItemHidden(this) : false); }
-
-inline void QTreeWidgetItem::setExpanded(bool aexpand)
-{ if (view) view->setItemExpanded(this, aexpand); }
-
-inline bool QTreeWidgetItem::isExpanded() const
-{ return (view ? view->isItemExpanded(this) : false); }
-
-inline void QTreeWidgetItem::setFirstColumnSpanned(bool aspan)
-{ if (view) view->setFirstItemColumnSpanned(this, aspan); }
-
-inline bool QTreeWidgetItem::isFirstColumnSpanned() const
-{ return (view ? view->isFirstItemColumnSpanned(this) : false); }
 
 inline void QTreeWidgetItem::setDisabled(bool disabled)
 { setFlags(disabled ? (flags() & ~Qt::ItemIsEnabled) : flags() | Qt::ItemIsEnabled); }

@@ -13,20 +13,23 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
+
 namespace gles2 {
 
 class DebugMarkerManager;
-class GLES2DecoderClient;
 
-class GPU_EXPORT Logger {
+class GPU_GLES2_EXPORT Logger {
  public:
   static const int kMaxLogMessages = 256;
 
+  using LogMessageCallback = base::RepeatingCallback<void(const std::string&)>;
+
   Logger(const DebugMarkerManager* debug_marker_manager,
-         GLES2DecoderClient* client);
+         const LogMessageCallback& callback,
+         bool disable_gl_error_limit);
   ~Logger();
 
   void LogMessage(const char* filename, int line, const std::string& msg);
@@ -43,11 +46,12 @@ class GPU_EXPORT Logger {
  private:
   // Uses the current marker to add information to logs.
   const DebugMarkerManager* debug_marker_manager_;
-  GLES2DecoderClient* client_;
+  const LogMessageCallback log_message_callback_;
   std::string this_in_hex_;
 
   int log_message_count_;
   bool log_synthesized_gl_errors_;
+  bool disable_gl_error_limit_;
 
   DISALLOW_COPY_AND_ASSIGN(Logger);
 };
@@ -56,4 +60,3 @@ class GPU_EXPORT Logger {
 }  // namespace gpu
 
 #endif  // GPU_COMMAND_BUFFER_SERVICE_LOGGER_H_
-

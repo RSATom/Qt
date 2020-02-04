@@ -175,6 +175,7 @@ public:
         LineHeightType = 0x1049,
         BlockNonBreakableLines = 0x1050,
         BlockTrailingHorizontalRulerWidth = 0x1060,
+        HeadingLevel = 0x1070,
 
         // character properties
         FirstFontProperty = 0x1FE0,
@@ -187,6 +188,8 @@ public:
         FontStyleStrategy = 0x1FE4,
         FontKerning = 0x1FE5,
         FontHintingPreference = 0x1FE6,
+        FontFamilies = 0x1FE7,
+        FontStyleName = 0x1FE8,
         FontFamily = 0x2000,
         FontPointSize = 0x2001,
         FontSizeAdjustment = 0x2002,
@@ -249,6 +252,7 @@ public:
         ImageName = 0x5000,
         ImageWidth = 0x5010,
         ImageHeight = 0x5011,
+        ImageQuality = 0x5014,
 
         // internal
         /*
@@ -426,6 +430,16 @@ public:
     inline QString fontFamily() const
     { return stringProperty(FontFamily); }
 
+    inline void setFontFamilies(const QStringList &families)
+    { setProperty(FontFamilies, QVariant(families)); }
+    inline QVariant fontFamilies() const
+    { return property(FontFamilies); }
+
+    inline void setFontStyleName(const QString &styleName)
+    { setProperty(FontStyleName, styleName); }
+    inline QVariant fontStyleName() const
+    { return property(FontStyleName); }
+
     inline void setFontPointSize(qreal size)
     { setProperty(FontPointSize, size); }
     inline qreal fontPointSize() const
@@ -538,9 +552,13 @@ public:
     inline QString anchorHref() const
     { return stringProperty(AnchorHref); }
 
+#if QT_DEPRECATED_SINCE(5, 13)
+    QT_DEPRECATED_X("Use setAnchorNames() instead")
     inline void setAnchorName(const QString &name)
     { setAnchorNames(QStringList(name)); }
+    QT_DEPRECATED_X("Use anchorNames() instead")
     QString anchorName() const;
+#endif
 
     inline void setAnchorNames(const QStringList &names)
     { setProperty(AnchorName, names); }
@@ -623,6 +641,11 @@ public:
     inline void setIndent(int indent);
     inline int indent() const
     { return intProperty(BlockIndent); }
+
+    inline void setHeadingLevel(int alevel)
+    { setProperty(HeadingLevel, alevel); }
+    inline int headingLevel() const
+    { return intProperty(HeadingLevel); }
 
     inline void setLineHeight(qreal height, int heightType)
     { setProperty(LineHeight, height); setProperty(LineHeightType, heightType); }
@@ -748,6 +771,10 @@ public:
     inline qreal height() const
     { return doubleProperty(ImageHeight); }
 
+    inline void setQuality(int quality = 100);
+    inline int quality() const
+    { return intProperty(ImageQuality); }
+
 protected:
     explicit QTextImageFormat(const QTextFormat &format);
     friend class QTextFormat;
@@ -763,6 +790,9 @@ inline void QTextImageFormat::setWidth(qreal awidth)
 
 inline void QTextImageFormat::setHeight(qreal aheight)
 { setProperty(ImageHeight, aheight); }
+
+inline void QTextImageFormat::setQuality(int aquality)
+{ setProperty(ImageQuality, aquality); }
 
 class Q_GUI_EXPORT QTextFrameFormat : public QTextFormat
 {

@@ -65,7 +65,7 @@ class CharacteristicInfo: public QObject
     Q_PROPERTY(QString characteristicPermission READ getPermission NOTIFY characteristicChanged)
 
 public:
-    CharacteristicInfo();
+    CharacteristicInfo() = default;
     CharacteristicInfo(const QLowEnergyCharacteristic &characteristic);
     void setCharacteristic(const QLowEnergyCharacteristic &characteristic);
     QString getName() const;

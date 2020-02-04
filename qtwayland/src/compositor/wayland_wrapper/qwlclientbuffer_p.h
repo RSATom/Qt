@@ -59,7 +59,7 @@
 #include <QtWaylandCompositor/QWaylandSurface>
 #include <QtWaylandCompositor/QWaylandBufferRef>
 
-#include <wayland-server.h>
+#include <wayland-server-core.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -73,7 +73,7 @@ namespace QtWayland {
 struct surface_buffer_destroy_listener
 {
     struct wl_listener listener;
-    class ClientBuffer *surfaceBuffer;
+    class ClientBuffer *surfaceBuffer = nullptr;
 };
 
 class Q_WAYLAND_COMPOSITOR_EXPORT ClientBuffer
@@ -110,15 +110,15 @@ protected:
     void ref();
     void deref();
     void sendRelease();
-    void setDestroyed();
+    virtual void setDestroyed();
 
-    struct ::wl_resource *m_buffer;
+    struct ::wl_resource *m_buffer = nullptr;
     QRegion m_damage;
-    bool m_textureDirty;
+    bool m_textureDirty = false;
 
 private:
-    bool m_committed;
-    bool m_destroyed;
+    bool m_committed = false;
+    bool m_destroyed = false;
 
     QAtomicInt m_refCount;
 
@@ -139,7 +139,7 @@ public:
     QOpenGLTexture *toOpenGlTexture(int plane = 0) override;
 
 private:
-    QOpenGLTexture *m_shmTexture;
+    QOpenGLTexture *m_shmTexture = nullptr;
 #endif
 };
 

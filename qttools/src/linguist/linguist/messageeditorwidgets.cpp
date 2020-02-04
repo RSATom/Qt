@@ -45,6 +45,7 @@
 #include <QTextDocumentFragment>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QtGui/private/qtextdocument_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -170,7 +171,7 @@ FormWidget::FormWidget(const QString &label, bool isEditable, QWidget *parent)
           m_hideWhenEmpty(false)
 {
     QVBoxLayout *layout = new QVBoxLayout;
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
 
     m_label = new QLabel(this);
     QFont fnt;
@@ -224,7 +225,7 @@ public:
     ButtonWrapper(QWidget *wrapee, QWidget *relator)
     {
         QBoxLayout *box = new QVBoxLayout;
-        box->setMargin(0);
+        box->setContentsMargins(QMargins());
         setLayout(box);
         box->addWidget(wrapee, 0, Qt::AlignBottom);
         if (relator)
@@ -322,7 +323,7 @@ void FormMultiWidget::updateLayout()
     delete layout();
 
     QGridLayout *layout = new QGridLayout;
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     setLayout(layout);
 
     bool variants = m_multiEnabled && m_label->isEnabled();
@@ -331,14 +332,14 @@ void FormMultiWidget::updateLayout()
 
     if (variants) {
         QVBoxLayout *layoutForPlusButtons = new QVBoxLayout;
-        layoutForPlusButtons->setMargin(0);
+        layoutForPlusButtons->setContentsMargins(QMargins());
         for (int i = 0; i < m_plusButtons.count(); ++i)
             layoutForPlusButtons->addWidget(m_plusButtons.at(i), Qt::AlignTop);
         layout->addLayout(layoutForPlusButtons, 1, 0, Qt::AlignTop);
 
         const int minimumRowHeight = m_plusButtons.at(0)->sizeHint().height() / 2.0;
         QGridLayout *layoutForLabels = new QGridLayout;
-        layoutForLabels->setMargin(0);
+        layoutForLabels->setContentsMargins(QMargins());
         layoutForLabels->setRowMinimumHeight(0, minimumRowHeight);
         for (int j = 0; j < m_editors.count(); ++j) {
             layoutForLabels->addWidget(m_editors.at(j), 1 + j, 0, Qt::AlignVCenter);
@@ -390,13 +391,34 @@ void FormMultiWidget::setTranslation(const QString &text, bool userAction)
         setHidden(text.isEmpty());
 }
 
+// Copied from QTextDocument::toPlainText() and modified to
+// not replace QChar::Nbsp with QLatin1Char(' ')
+QString toPlainText(const QString &text)
+{
+    QString txt = text;
+    QChar *uc = txt.data();
+    QChar *e = uc + txt.size();
+
+    for (; uc != e; ++uc) {
+        switch (uc->unicode()) {
+        case 0xfdd0: // QTextBeginningOfFrame
+        case 0xfdd1: // QTextEndOfFrame
+        case QChar::ParagraphSeparator:
+        case QChar::LineSeparator:
+            *uc = QLatin1Char('\n');
+            break;
+        }
+    }
+    return txt;
+}
+
 QString FormMultiWidget::getTranslation() const
 {
     QString ret;
     for (int i = 0; i < m_editors.count(); ++i) {
         if (i)
             ret += QChar(Translator::BinaryVariantSeparator);
-        ret += m_editors.at(i)->toPlainText();
+        ret += toPlainText(m_editors.at(i)->document()->docHandle()->plainText());
     }
     return ret;
 }

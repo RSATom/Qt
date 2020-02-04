@@ -1,5 +1,5 @@
 /*
- *  Copyright 2015 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,34 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-// Android's FindClass() is trickier than usual because the app-specific
-// ClassLoader is not consulted when there is no app-specific frame on the
-// stack.  Consequently, we only look up all classes once in app/webrtc.
-// http://developer.android.com/training/articles/perf-jni.html#faq_FindClass
+#ifndef SDK_ANDROID_SRC_JNI_CLASSREFERENCEHOLDER_H_
+#define SDK_ANDROID_SRC_JNI_CLASSREFERENCEHOLDER_H_
 
-#ifndef WEBRTC_SDK_ANDROID_SRC_JNI_CLASSREFERENCEHOLDER_H_
-#define WEBRTC_SDK_ANDROID_SRC_JNI_CLASSREFERENCEHOLDER_H_
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-#include <jni.h>
-#include <map>
-#include <string>
+#include "sdk/android/src/jni/class_reference_holder.h"
 
-namespace webrtc_jni {
-
-// LoadGlobalClassReferenceHolder must be called in JNI_OnLoad.
-void LoadGlobalClassReferenceHolder();
-// FreeGlobalClassReferenceHolder must be called in JNI_UnLoad.
-void FreeGlobalClassReferenceHolder();
-
-// Returns a global reference guaranteed to be valid for the lifetime of the
-// process.
-jclass FindClass(JNIEnv* jni, const char* name);
-
-// Convenience macro defining JNI-accessible methods in the org.webrtc package.
-// Eliminates unnecessary boilerplate and line-wraps, reducing visual clutter.
-#define JOW(rettype, name) \
-  extern "C" JNIEXPORT rettype JNICALL Java_org_webrtc_##name
-
-}  // namespace webrtc_jni
-
-#endif  // WEBRTC_SDK_ANDROID_SRC_JNI_CLASSREFERENCEHOLDER_H_
+#endif  // SDK_ANDROID_SRC_JNI_CLASSREFERENCEHOLDER_H_

@@ -7,11 +7,10 @@
 
 #include <array>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/gl_utils.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 namespace gles2 {
@@ -21,7 +20,7 @@ class GLES2Decoder;
 // This class encapsulates the resources required to implement the
 // glBlitFramebuffer command, which somtimes requires to convert sRGB
 // to linear (RGBA) color format, or vice versa.
-class GPU_EXPORT SRGBConverter {
+class GPU_GLES2_EXPORT SRGBConverter {
  public:
   explicit SRGBConverter(const gles2::FeatureInfo* feature_info);
   ~SRGBConverter();
@@ -51,7 +50,7 @@ class GPU_EXPORT SRGBConverter {
       bool encode,
       bool enable_scissor_test);
 
-  void GenerateMipmap(const gles2::GLES2Decoder* decoder,
+  void GenerateMipmap(gles2::GLES2Decoder* decoder,
                       Texture* tex,
                       GLenum target);
 

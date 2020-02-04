@@ -9,67 +9,69 @@
 
 #include <vector>
 
-#include "core/fxcrt/ifx_locale.h"
-#include "xfa/fxfa/parser/cxfa_localemgr.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "xfa/fgas/crt/locale_iface.h"
 
-bool FX_DateFromCanonical(const CFX_WideString& wsDate, CFX_DateTime* datetime);
-bool FX_TimeFromCanonical(const CFX_WideStringC& wsTime,
+class CXFA_LocaleMgr;
+
+bool FX_DateFromCanonical(const WideString& wsDate, CFX_DateTime* datetime);
+bool FX_TimeFromCanonical(WideStringView wsTime,
                           CFX_DateTime* datetime,
-                          IFX_Locale* pLocale);
+                          LocaleIface* pLocale);
 
 class CFGAS_FormatString {
  public:
   explicit CFGAS_FormatString(CXFA_LocaleMgr* pLocaleMgr);
   ~CFGAS_FormatString();
 
-  void SplitFormatString(const CFX_WideString& wsFormatString,
-                         std::vector<CFX_WideString>* wsPatterns);
-  FX_LOCALECATEGORY GetCategory(const CFX_WideString& wsPattern);
+  void SplitFormatString(const WideString& wsFormatString,
+                         std::vector<WideString>* wsPatterns) const;
+  FX_LOCALECATEGORY GetCategory(const WideString& wsPattern) const;
 
-  bool ParseText(const CFX_WideString& wsSrcText,
-                 const CFX_WideString& wsPattern,
-                 CFX_WideString* wsValue);
-  bool ParseNum(const CFX_WideString& wsSrcNum,
-                const CFX_WideString& wsPattern,
-                CFX_WideString* wsValue);
-  bool ParseDateTime(const CFX_WideString& wsSrcDateTime,
-                     const CFX_WideString& wsPattern,
+  bool ParseText(const WideString& wsSrcText,
+                 const WideString& wsPattern,
+                 WideString* wsValue) const;
+  bool ParseNum(const WideString& wsSrcNum,
+                const WideString& wsPattern,
+                WideString* wsValue) const;
+  bool ParseDateTime(const WideString& wsSrcDateTime,
+                     const WideString& wsPattern,
                      FX_DATETIMETYPE eDateTimeType,
-                     CFX_DateTime* dtValue);
-  bool ParseZero(const CFX_WideString& wsSrcText,
-                 const CFX_WideString& wsPattern);
-  bool ParseNull(const CFX_WideString& wsSrcText,
-                 const CFX_WideString& wsPattern);
+                     CFX_DateTime* dtValue) const;
+  bool ParseZero(const WideString& wsSrcText,
+                 const WideString& wsPattern) const;
+  bool ParseNull(const WideString& wsSrcText,
+                 const WideString& wsPattern) const;
 
-  bool FormatText(const CFX_WideString& wsSrcText,
-                  const CFX_WideString& wsPattern,
-                  CFX_WideString* wsOutput);
-  bool FormatNum(const CFX_WideString& wsSrcNum,
-                 const CFX_WideString& wsPattern,
-                 CFX_WideString* wsOutput);
-  bool FormatDateTime(const CFX_WideString& wsSrcDateTime,
-                      const CFX_WideString& wsPattern,
+  bool FormatText(const WideString& wsSrcText,
+                  const WideString& wsPattern,
+                  WideString* wsOutput) const;
+  bool FormatNum(const WideString& wsSrcNum,
+                 const WideString& wsPattern,
+                 WideString* wsOutput) const;
+  bool FormatDateTime(const WideString& wsSrcDateTime,
+                      const WideString& wsPattern,
                       FX_DATETIMETYPE eDateTimeType,
-                      CFX_WideString* wsOutput);
-  bool FormatZero(const CFX_WideString& wsPattern, CFX_WideString* wsOutput);
-  bool FormatNull(const CFX_WideString& wsPattern, CFX_WideString* wsOutput);
+                      WideString* wsOutput) const;
+  bool FormatZero(const WideString& wsPattern, WideString* wsOutput) const;
+  bool FormatNull(const WideString& wsPattern, WideString* wsOutput) const;
 
  private:
-  CFX_WideString GetTextFormat(const CFX_WideString& wsPattern,
-                               const CFX_WideStringC& wsCategory);
-  IFX_Locale* GetNumericFormat(const CFX_WideString& wsPattern,
-                               int32_t* iDotIndex,
-                               uint32_t* dwStyle,
-                               CFX_WideString* wsPurgePattern);
-  bool FormatStrNum(const CFX_WideStringC& wsInputNum,
-                    const CFX_WideString& wsPattern,
-                    CFX_WideString* wsOutput);
-  FX_DATETIMETYPE GetDateTimeFormat(const CFX_WideString& wsPattern,
-                                    IFX_Locale** pLocale,
-                                    CFX_WideString* wsDatePattern,
-                                    CFX_WideString* wsTimePattern);
+  WideString GetTextFormat(const WideString& wsPattern,
+                           WideStringView wsCategory) const;
+  LocaleIface* GetNumericFormat(const WideString& wsPattern,
+                                int32_t* iDotIndex,
+                                uint32_t* dwStyle,
+                                WideString* wsPurgePattern) const;
+  bool FormatStrNum(WideStringView wsInputNum,
+                    const WideString& wsPattern,
+                    WideString* wsOutput) const;
+  FX_DATETIMETYPE GetDateTimeFormat(const WideString& wsPattern,
+                                    LocaleIface** pLocale,
+                                    WideString* wsDatePattern,
+                                    WideString* wsTimePattern) const;
 
-  CXFA_LocaleMgr* m_pLocaleMgr;
+  UnownedPtr<CXFA_LocaleMgr> const m_pLocaleMgr;
 };
 
 #endif  // XFA_FGAS_CRT_CFGAS_FORMATSTRING_H_

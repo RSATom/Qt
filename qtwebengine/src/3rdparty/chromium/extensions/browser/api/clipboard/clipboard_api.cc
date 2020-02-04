@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "extensions/browser/api/extensions_api_client.h"
@@ -44,7 +43,7 @@ void ClipboardAPI::OnClipboardDataChanged() {
     std::unique_ptr<Event> event(
         new Event(events::CLIPBOARD_ON_CLIPBOARD_DATA_CHANGED,
                   clipboard::OnClipboardDataChanged::kEventName,
-                  base::MakeUnique<base::ListValue>()));
+                  std::make_unique<base::ListValue>()));
     router->BroadcastEvent(std::move(event));
   }
 }
@@ -58,14 +57,15 @@ ExtensionFunction::ResponseAction ClipboardSetImageDataFunction::Run() {
 
   // Fill in the omitted additional data items with empty data.
   if (!params->additional_items)
-    params->additional_items = base::MakeUnique<AdditionalDataItemList>();
+    params->additional_items = std::make_unique<AdditionalDataItemList>();
 
   if (!IsAdditionalItemsParamValid(*params->additional_items)) {
     return RespondNow(Error("Unsupported additionalItems parameter data."));
   }
 
   ExtensionsAPIClient::Get()->SaveImageDataToClipboard(
-      params->image_data, params->type, std::move(*params->additional_items),
+      std::vector<char>(params->image_data.begin(), params->image_data.end()),
+      params->type, std::move(*params->additional_items),
       base::Bind(&ClipboardSetImageDataFunction::OnSaveImageDataSuccess, this),
       base::Bind(&ClipboardSetImageDataFunction::OnSaveImageDataError, this));
   return RespondLater();

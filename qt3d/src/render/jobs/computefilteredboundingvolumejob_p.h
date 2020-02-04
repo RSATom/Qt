@@ -62,16 +62,18 @@ namespace Qt3DRender {
 namespace Render {
 
 class Entity;
+class NodeManagers;
 class Sphere;
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT ComputeFilteredBoundingVolumeJob : public Qt3DCore::QAspectJob
+class Q_3DRENDERSHARED_PRIVATE_EXPORT ComputeFilteredBoundingVolumeJob : public Qt3DCore::QAspectJob
 {
 public:
     ComputeFilteredBoundingVolumeJob();
 
     void setRoot(Entity *root);
+    void setManagers(NodeManagers *manager);
     void ignoreSubTree(Entity *node);
-    void run() Q_DECL_OVERRIDE;
+    void run() override;
 
 protected:
     virtual void finished(const Qt3DRender::Render::Sphere &sphere);
@@ -79,6 +81,7 @@ protected:
 private:
     Entity *m_root;
     Entity *m_ignoreSubTree;
+    NodeManagers *m_manager;
 };
 
 typedef QSharedPointer<ComputeFilteredBoundingVolumeJob> ComputeFilteredBoundingVolumeJobPtr;

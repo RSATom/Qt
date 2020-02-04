@@ -60,7 +60,7 @@ class BluetoothBaseClass : public QObject
     Q_PROPERTY(QString info READ info WRITE setInfo NOTIFY infoChanged)
 
 public:
-    explicit BluetoothBaseClass(QObject *parent = 0);
+    explicit BluetoothBaseClass(QObject *parent = nullptr);
 
     QString error() const;
     void setError(const QString& error);

@@ -51,10 +51,6 @@
 
 #include "serviceinfo.h"
 
-ServiceInfo::ServiceInfo()
-{
-}
-
 ServiceInfo::ServiceInfo(QLowEnergyService *service):
     m_service(service)
 {

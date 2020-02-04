@@ -4,9 +4,10 @@
 
 #include "chrome/browser/ui/webui/local_state/local_state_ui.h"
 
+#include <memory>
+
 #include "base/json/json_string_value_serializer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -56,11 +57,13 @@ LocalStateUIHandler::~LocalStateUIHandler() {
 
 void LocalStateUIHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
-      "requestJson", base::Bind(&LocalStateUIHandler::HandleRequestJson,
-                                base::Unretained(this)));
+      "requestJson",
+      base::BindRepeating(&LocalStateUIHandler::HandleRequestJson,
+                          base::Unretained(this)));
 }
 
 void LocalStateUIHandler::HandleRequestJson(const base::ListValue* args) {
+  AllowJavascript();
   std::unique_ptr<base::DictionaryValue> local_state_values(
       g_browser_process->local_state()->GetPreferenceValues(
           PrefService::EXCLUDE_DEFAULTS));
@@ -76,8 +79,8 @@ void LocalStateUIHandler::HandleRequestJson(const base::ListValue* args) {
   if (!result)
     json = "Error loading Local State file.";
 
-  web_ui()->CallJavascriptFunctionUnsafe("localState.setLocalState",
-                                         base::Value(json));
+  const base::Value& callback_id = args->GetList()[0];
+  ResolveJavascriptCallback(callback_id, base::Value(json));
 }
 
 // Returns true if |pref_name| starts with one of the |valid_prefixes|.
@@ -117,8 +120,9 @@ LocalStateUI::LocalStateUI(content::WebUI* web_ui) : WebUIController(web_ui) {
       content::WebUIDataSource::Create(chrome::kChromeUILocalStateHost);
   html_source->SetDefaultResource(IDR_LOCAL_STATE_HTML);
   html_source->AddResourcePath("local_state.js", IDR_LOCAL_STATE_JS);
+  html_source->UseGzip();
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), html_source);
-  web_ui->AddMessageHandler(base::MakeUnique<LocalStateUIHandler>());
+  web_ui->AddMessageHandler(std::make_unique<LocalStateUIHandler>());
 }
 
 LocalStateUI::~LocalStateUI() {

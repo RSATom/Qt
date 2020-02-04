@@ -21,16 +21,6 @@ namespace extensions {
 namespace keys = manifest_keys;
 namespace errors = manifest_errors;
 
-namespace {
-
-struct TtsVoices : public Extension::ManifestData {
-  TtsVoices() {}
-  ~TtsVoices() override {}
-
-  std::vector<extensions::TtsVoice> voices;
-};
-
-}  // namespace
 
 TtsVoice::TtsVoice() : remote(false) {}
 
@@ -38,40 +28,17 @@ TtsVoice::TtsVoice(const TtsVoice& other) = default;
 
 TtsVoice::~TtsVoice() {}
 
-// static
-const std::vector<TtsVoice>* TtsVoice::GetTtsVoices(
-    const Extension* extension) {
-  TtsVoices* info = static_cast<TtsVoices*>(
-      extension->GetManifestData(keys::kTtsVoices));
-  return info ? &info->voices : NULL;
-}
+TtsVoices::TtsVoices() {}
+TtsVoices::~TtsVoices() {}
 
-TtsEngineManifestHandler::TtsEngineManifestHandler() {
-}
-
-TtsEngineManifestHandler::~TtsEngineManifestHandler() {
-}
-
-bool TtsEngineManifestHandler::Parse(Extension* extension,
-                                     base::string16* error) {
-  std::unique_ptr<TtsVoices> info(new TtsVoices);
-  const base::DictionaryValue* tts_dict = NULL;
-  if (!extension->manifest()->GetDictionary(keys::kTtsEngine, &tts_dict)) {
-    *error = base::ASCIIToUTF16(errors::kInvalidTts);
-    return false;
-  }
-
-  if (!tts_dict->HasKey(keys::kTtsVoices))
-    return true;
-
-  const base::ListValue* tts_voices = NULL;
-  if (!tts_dict->GetList(keys::kTtsVoices, &tts_voices)) {
-    *error = base::ASCIIToUTF16(errors::kInvalidTtsVoices);
-    return false;
-  }
-
+//  static
+bool TtsVoices::Parse(const base::ListValue* tts_voices,
+                      TtsVoices* out_voices,
+                      base::string16* error,
+                      Extension* extension) {
+  bool added_gender_warning = false;
   for (size_t i = 0; i < tts_voices->GetSize(); i++) {
-    const base::DictionaryValue* one_tts_voice = NULL;
+    const base::DictionaryValue* one_tts_voice = nullptr;
     if (!tts_voices->GetDictionary(i, &one_tts_voice)) {
       *error = base::ASCIIToUTF16(errors::kInvalidTtsVoices);
       return false;
@@ -93,14 +60,14 @@ bool TtsEngineManifestHandler::Parse(Extension* extension,
         return false;
       }
     }
-    if (one_tts_voice->HasKey(keys::kTtsVoicesGender)) {
-      if (!one_tts_voice->GetString(
-              keys::kTtsVoicesGender, &voice_data.gender) ||
-          (voice_data.gender != keys::kTtsGenderMale &&
-           voice_data.gender != keys::kTtsGenderFemale)) {
-        *error = base::ASCIIToUTF16(errors::kInvalidTtsVoicesGender);
-        return false;
-      }
+    // TODO(katie): After M73, consider deprecating this installation warning,
+    // since the warning landed in M70 and gender was deprecated in M71.
+    if (one_tts_voice->HasKey(keys::kTtsVoicesGender) &&
+        !added_gender_warning) {
+      extension->AddInstallWarning(
+          InstallWarning(errors::kTtsGenderIsDeprecated));
+      // No need to add a warning for each voice, that's noisy.
+      added_gender_warning = true;
     }
     if (one_tts_voice->HasKey(keys::kTtsVoicesRemote)) {
       if (!one_tts_voice->GetBoolean(
@@ -141,16 +108,51 @@ bool TtsEngineManifestHandler::Parse(Extension* extension,
         voice_data.event_types.insert(event_type);
       }
     }
-
-    info->voices.push_back(voice_data);
+    out_voices->voices.push_back(voice_data);
   }
+  return true;
+}
+
+// static
+const std::vector<TtsVoice>* TtsVoices::GetTtsVoices(
+    const Extension* extension) {
+  TtsVoices* info =
+      static_cast<TtsVoices*>(extension->GetManifestData(keys::kTtsVoices));
+  return info ? &info->voices : nullptr;
+}
+
+TtsEngineManifestHandler::TtsEngineManifestHandler() {}
+
+TtsEngineManifestHandler::~TtsEngineManifestHandler() {}
+
+bool TtsEngineManifestHandler::Parse(Extension* extension,
+                                     base::string16* error) {
+  auto info = std::make_unique<TtsVoices>();
+  const base::DictionaryValue* tts_dict = nullptr;
+  if (!extension->manifest()->GetDictionary(keys::kTtsEngine, &tts_dict)) {
+    *error = base::ASCIIToUTF16(errors::kInvalidTts);
+    return false;
+  }
+
+  if (!tts_dict->HasKey(keys::kTtsVoices))
+    return true;
+
+  const base::ListValue* tts_voices = nullptr;
+  if (!tts_dict->GetList(keys::kTtsVoices, &tts_voices)) {
+    *error = base::ASCIIToUTF16(errors::kInvalidTtsVoices);
+    return false;
+  }
+
+  if (!TtsVoices::Parse(tts_voices, info.get(), error, extension))
+    return false;
 
   extension->SetManifestData(keys::kTtsVoices, std::move(info));
   return true;
 }
 
-const std::vector<std::string> TtsEngineManifestHandler::Keys() const {
-  return SingleKey(keys::kTtsEngine);
+base::span<const char* const> TtsEngineManifestHandler::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kTtsEngine};
+  return kKeys;
 }
 
 }  // namespace extensions

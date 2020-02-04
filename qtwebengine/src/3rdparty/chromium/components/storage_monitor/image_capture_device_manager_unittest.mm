@@ -11,7 +11,6 @@
 #include "base/mac/foundation_util.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/memory/weak_ptr.h"
-#include "base/run_loop.h"
 #include "components/storage_monitor/image_capture_device.h"
 #include "components/storage_monitor/image_capture_device_manager.h"
 #include "components/storage_monitor/test_storage_monitor.h"
@@ -42,8 +41,8 @@ const char kTestFileContents[] = "test";
 
 @implementation MockICCameraDevice
 
-- (id)init {
-  if ((self = [super initWithDictionary:[NSDictionary dictionary]])) {
+- (instancetype)init {
+  if ((self = [super initWithDictionary:@{}])) {
   }
   return self;
 }
@@ -89,10 +88,10 @@ const char kTestFileContents[] = "test";
            downloadDelegate:(id<ICCameraDeviceDownloadDelegate>)downloadDelegate
         didDownloadSelector:(SEL)selector
                 contextInfo:(void*)contextInfo {
-  base::FilePath saveDir(base::SysNSStringToUTF8(
-      [[options objectForKey:ICDownloadsDirectoryURL] path]));
+  base::FilePath saveDir(
+      base::SysNSStringToUTF8([options[ICDownloadsDirectoryURL] path]));
   std::string saveAsFilename =
-      base::SysNSStringToUTF8([options objectForKey:ICSaveAsFilename]);
+      base::SysNSStringToUTF8(options[ICSaveAsFilename]);
   // It appears that the ImageCapture library adds an extension to the requested
   // filename. Do that here to require a rename.
   saveAsFilename += ".jpg";
@@ -103,8 +102,7 @@ const char kTestFileContents[] = "test";
 
   NSMutableDictionary* returnOptions =
       [NSMutableDictionary dictionaryWithDictionary:options];
-  [returnOptions setObject:base::SysUTF8ToNSString(saveAsFilename)
-                    forKey:ICSavedFilename];
+  returnOptions[ICSavedFilename] = base::SysUTF8ToNSString(saveAsFilename);
 
   [static_cast<NSObject<ICCameraDeviceDownloadDelegate>*>(downloadDelegate)
    didDownloadFile:file
@@ -120,13 +118,13 @@ const char kTestFileContents[] = "test";
   base::scoped_nsobject<NSString> name_;
 }
 
-- (id)initWithName:(NSString*)name;
+- (instancetype)initWithName:(NSString*)name;
 
 @end
 
 @implementation MockICCameraFolder
 
-- (id)initWithName:(NSString*)name {
+- (instancetype)initWithName:(NSString*)name {
   if ((self = [super init])) {
     name_.reset([name retain]);
   }
@@ -150,17 +148,20 @@ const char kTestFileContents[] = "test";
   base::scoped_nsobject<MockICCameraFolder> parent_;
 }
 
-- (id)init:(NSString*)name;
+- (instancetype)init:(NSString*)name;
 - (void)setParent:(NSString*)parent;
 
 @end
 
 @implementation MockICCameraFile
 
-- (id)init:(NSString*)name {
+- (instancetype)init:(NSString*)name {
   if ((self = [super init])) {
+    base::scoped_nsobject<NSDateFormatter> iso8601day(
+        [[NSDateFormatter alloc] init]);
+    [iso8601day setDateFormat:@"yyyy-MM-dd"];
     name_.reset([name retain]);
-    date_.reset([[NSDate dateWithNaturalLanguageString:@"12/12/12"] retain]);
+    date_.reset([[iso8601day dateFromString:@"2012-12-12"] retain]);
   }
   return self;
 }
@@ -240,6 +241,8 @@ class TestCameraListener
 
 class ImageCaptureDeviceManagerTest : public testing::Test {
  public:
+  ImageCaptureDeviceManagerTest() {}
+
   void SetUp() override { monitor_ = TestStorageMonitor::CreateAndInstall(); }
 
   void TearDown() override { TestStorageMonitor::Destroy(); }
@@ -262,6 +265,8 @@ class ImageCaptureDeviceManagerTest : public testing::Test {
             didRemoveDevice:device
                   moreGoing:NO];
   }
+
+  void RunUntilIdle() { thread_bundle_.RunUntilIdle(); }
 
  protected:
   content::TestBrowserThreadBundle thread_bundle_;
@@ -360,7 +365,7 @@ TEST_F(ImageCaptureDeviceManagerTest, DownloadFile) {
   // return us a not-found error.
   base::FilePath temp_file = temp_dir.GetPath().Append("tempfile");
   [camera downloadFile:std::string("nonexistent") localPath:temp_file];
-  base::RunLoop().RunUntilIdle();
+  RunUntilIdle();
   ASSERT_EQ(1U, listener_.downloads().size());
   EXPECT_EQ("nonexistent", listener_.downloads()[0]);
   EXPECT_EQ(base::File::FILE_ERROR_NOT_FOUND, listener_.last_error());
@@ -371,7 +376,7 @@ TEST_F(ImageCaptureDeviceManagerTest, DownloadFile) {
   // library behavior. Our code then renames the file onto the requested
   // destination.
   [camera downloadFile:kTestFileName localPath:temp_file];
-  base::RunLoop().RunUntilIdle();
+  RunUntilIdle();
 
   ASSERT_EQ(2U, listener_.downloads().size());
   EXPECT_EQ(kTestFileName, listener_.downloads()[1]);
@@ -408,7 +413,7 @@ TEST_F(ImageCaptureDeviceManagerTest, TestSubdirectories) {
   base::FilePath temp_file = temp_dir.GetPath().Append("tempfile");
 
   [camera downloadFile:("dir/" + kTestFileName) localPath:temp_file];
-  base::RunLoop().RunUntilIdle();
+  RunUntilIdle();
 
   char file_contents[5];
   ASSERT_EQ(4, base::ReadFile(temp_file, file_contents,

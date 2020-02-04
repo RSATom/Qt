@@ -12,12 +12,12 @@
 #include "base/strings/string_util.h"
 
 TextLogUploadList::TextLogUploadList(const base::FilePath& upload_log_path)
-    : UploadList(), upload_log_path_(upload_log_path) {}
+    : upload_log_path_(upload_log_path) {}
 
 TextLogUploadList::~TextLogUploadList() = default;
 
 base::TaskTraits TextLogUploadList::LoadingTaskTraits() {
-  return {base::MayBlock(), base::TaskPriority::BACKGROUND,
+  return {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
           base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN};
 }
 

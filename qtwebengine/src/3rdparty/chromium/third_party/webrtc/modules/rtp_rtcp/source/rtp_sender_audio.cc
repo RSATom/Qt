@@ -8,37 +8,37 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/rtp_rtcp/source/rtp_sender_audio.h"
+#include "modules/rtp_rtcp/source/rtp_sender_audio.h"
 
 #include <string.h>
-
 #include <memory>
 #include <utility>
 
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "webrtc/modules/rtp_rtcp/source/byte_io.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_header_extensions.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_packet_to_send.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/timeutils.h"
-#include "webrtc/rtc_base/trace_event.h"
+#include "absl/strings/match.h"
+#include "api/audio_codecs/audio_format.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "modules/rtp_rtcp/source/byte_io.h"
+#include "modules/rtp_rtcp/source/rtp_header_extensions.h"
+#include "modules/rtp_rtcp/source/rtp_packet.h"
+#include "modules/rtp_rtcp/source/rtp_packet_to_send.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/trace_event.h"
 
 namespace webrtc {
 
 RTPSenderAudio::RTPSenderAudio(Clock* clock, RTPSender* rtp_sender)
-    : clock_(clock),
-      rtp_sender_(rtp_sender) {}
+    : clock_(clock), rtp_sender_(rtp_sender) {}
 
 RTPSenderAudio::~RTPSenderAudio() {}
 
-int32_t RTPSenderAudio::RegisterAudioPayload(
-    const char payloadName[RTP_PAYLOAD_NAME_SIZE],
-    const int8_t payload_type,
-    const uint32_t frequency,
-    const size_t channels,
-    const uint32_t rate,
-    RtpUtility::Payload** payload) {
-  if (RtpUtility::StringCompare(payloadName, "cn", 2)) {
+int32_t RTPSenderAudio::RegisterAudioPayload(absl::string_view payload_name,
+                                             const int8_t payload_type,
+                                             const uint32_t frequency,
+                                             const size_t channels,
+                                             const uint32_t rate,
+                                             RtpUtility::Payload** payload) {
+  if (absl::EqualsIgnoreCase(payload_name, "cn")) {
     rtc::CritScope cs(&send_audio_critsect_);
     //  we can have multiple CNG payload types
     switch (frequency) {
@@ -57,7 +57,7 @@ int32_t RTPSenderAudio::RegisterAudioPayload(
       default:
         return -1;
     }
-  } else if (RtpUtility::StringCompare(payloadName, "telephone-event", 15)) {
+  } else if (absl::EqualsIgnoreCase(payload_name, "telephone-event")) {
     rtc::CritScope cs(&send_audio_critsect_);
     // Don't add it to the list
     // we dont want to allow send with a DTMF payloadtype
@@ -65,13 +65,10 @@ int32_t RTPSenderAudio::RegisterAudioPayload(
     dtmf_payload_freq_ = frequency;
     return 0;
   }
-  *payload = new RtpUtility::Payload;
-  (*payload)->typeSpecific.Audio.frequency = frequency;
-  (*payload)->typeSpecific.Audio.channels = channels;
-  (*payload)->typeSpecific.Audio.rate = rate;
-  (*payload)->audio = true;
-  (*payload)->name[RTP_PAYLOAD_NAME_SIZE - 1] = '\0';
-  strncpy((*payload)->name, payloadName, RTP_PAYLOAD_NAME_SIZE - 1);
+  *payload = new RtpUtility::Payload(
+      payload_name,
+      PayloadUnion(AudioPayload{
+          SdpAudioFormat(payload_name, frequency, channels), rate}));
   return 0;
 }
 
@@ -122,8 +119,7 @@ bool RTPSenderAudio::SendAudio(FrameType frame_type,
                                int8_t payload_type,
                                uint32_t rtp_timestamp,
                                const uint8_t* payload_data,
-                               size_t payload_size,
-                               const RTPFragmentationHeader* fragmentation) {
+                               size_t payload_size) {
   // From RFC 4733:
   // A source has wide latitude as to how often it sends event updates. A
   // natural interval is the spacing between non-event audio packets. [...]
@@ -194,7 +190,8 @@ bool RTPSenderAudio::SendAudio(FrameType frame_type,
         dtmf_duration_samples -= 0xffff;
         dtmf_length_samples_ -= 0xffff;
 
-        return SendTelephoneEventPacket(ended, dtmf_timestamp_,
+        return SendTelephoneEventPacket(
+            ended, dtmf_timestamp_,
             static_cast<uint16_t>(dtmf_duration_samples), false);
       } else {
         if (!SendTelephoneEventPacket(ended, dtmf_timestamp_,
@@ -226,21 +223,10 @@ bool RTPSenderAudio::SendAudio(FrameType frame_type,
   packet->SetExtension<AudioLevel>(frame_type == kAudioFrameSpeech,
                                    audio_level_dbov);
 
-  if (fragmentation && fragmentation->fragmentationVectorSize > 0) {
-    // Use the fragment info if we have one.
-    uint8_t* payload =
-        packet->AllocatePayload(1 + fragmentation->fragmentationLength[0]);
-    if (!payload)  // Too large payload buffer.
-      return false;
-    payload[0] = fragmentation->fragmentationPlType[0];
-    memcpy(payload + 1, payload_data + fragmentation->fragmentationOffset[0],
-           fragmentation->fragmentationLength[0]);
-  } else {
-    uint8_t* payload = packet->AllocatePayload(payload_size);
-    if (!payload)  // Too large payload buffer.
-      return false;
-    memcpy(payload, payload_data, payload_size);
-  }
+  uint8_t* payload = packet->AllocatePayload(payload_size);
+  if (!payload)  // Too large payload buffer.
+    return false;
+  memcpy(payload, payload_data, payload_size);
 
   if (!rtp_sender_->AssignSequenceNumber(packet.get()))
     return false;
@@ -255,7 +241,7 @@ bool RTPSenderAudio::SendAudio(FrameType frame_type,
   bool send_result = rtp_sender_->SendToNetwork(
       std::move(packet), kAllowRetransmission, RtpPacketSender::kHighPriority);
   if (first_packet_sent_()) {
-    LOG(LS_INFO) << "First audio RTP packet sent to pacer";
+    RTC_LOG(LS_INFO) << "First audio RTP packet sent to pacer";
   }
   return send_result;
 }
@@ -336,9 +322,6 @@ bool RTPSenderAudio::SendTelephoneEventPacket(bool ended,
     dtmfbuffer[1] = E | R | volume;
     ByteWriter<uint16_t>::WriteBigEndian(dtmfbuffer + 2, duration);
 
-    TRACE_EVENT_INSTANT2(
-        TRACE_DISABLED_BY_DEFAULT("webrtc_rtp"), "Audio::SendTelephoneEvent",
-        "timestamp", packet->Timestamp(), "seqnum", packet->SequenceNumber());
     result = rtp_sender_->SendToNetwork(std::move(packet), kAllowRetransmission,
                                         RtpPacketSender::kHighPriority);
     send_count--;

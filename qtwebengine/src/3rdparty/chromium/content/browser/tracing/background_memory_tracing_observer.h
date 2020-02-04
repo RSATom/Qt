@@ -9,12 +9,13 @@
 
 namespace content {
 
-class BackgroundMemoryTracingObserver
+class CONTENT_EXPORT BackgroundMemoryTracingObserver
     : public BackgroundTracingManagerImpl::EnabledStateObserver {
  public:
   static BackgroundMemoryTracingObserver* GetInstance();
 
   void OnScenarioActivated(const BackgroundTracingConfigImpl* config) override;
+  void OnScenarioAborted() override;
   void OnTracingEnabled(
       BackgroundTracingConfigImpl::CategoryPreset preset) override;
 

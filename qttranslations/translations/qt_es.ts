@@ -4,7 +4,6 @@
     <dependencies>
         <dependency catalog="qtbase_es"/>
         <dependency catalog="qtmultimedia_es"/>
-        <dependency catalog="qtquick1_es"/>
         <dependency catalog="qtscript_es"/>
         <dependency catalog="qtxmlpatterns_es"/>
     </dependencies>

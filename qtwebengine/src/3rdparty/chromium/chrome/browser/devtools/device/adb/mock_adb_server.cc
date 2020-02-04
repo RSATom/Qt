@@ -9,16 +9,18 @@
 
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/sequence_checker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
@@ -29,6 +31,7 @@
 #include "net/log/net_log_source.h"
 #include "net/socket/stream_socket.h"
 #include "net/socket/tcp_server_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 
 using content::BrowserThread;
 
@@ -252,10 +255,10 @@ SimpleHttpServer::~SimpleHttpServer() {
 SimpleHttpServer::Connection::Connection(net::StreamSocket* socket,
                                          const ParserFactory& factory)
     : socket_(socket),
-      parser_(factory.Run(base::Bind(&Connection::Send,
-                                     base::Unretained(this)))),
-      input_buffer_(new net::GrowableIOBuffer()),
-      output_buffer_(new net::GrowableIOBuffer()),
+      parser_(
+          factory.Run(base::Bind(&Connection::Send, base::Unretained(this)))),
+      input_buffer_(base::MakeRefCounted<net::GrowableIOBuffer>()),
+      output_buffer_(base::MakeRefCounted<net::GrowableIOBuffer>()),
       bytes_to_write_(0),
       read_closed_(false),
       weak_factory_(this) {
@@ -343,9 +346,9 @@ void SimpleHttpServer::Connection::WriteData() {
            output_buffer_->offset() + bytes_to_write_) << "Overflow";
 
   int write_result = socket_->Write(
-      output_buffer_.get(),
-      bytes_to_write_,
-      base::Bind(&Connection::OnDataWritten, base::Unretained(this)));
+      output_buffer_.get(), bytes_to_write_,
+      base::Bind(&Connection::OnDataWritten, base::Unretained(this)),
+      TRAFFIC_ANNOTATION_FOR_TESTS);
 
   if (write_result != net::ERR_IO_PENDING)
     OnDataWritten(write_result);
@@ -444,7 +447,7 @@ class AdbParser : public SimpleHttpServer::Parser,
       Send("FAIL", "device offline (x)");
     } else {
       mock_connection_ =
-          base::MakeUnique<MockAndroidConnection>(this, serial_, command);
+          std::make_unique<MockAndroidConnection>(this, serial_, command);
     }
   }
 
@@ -527,12 +530,15 @@ void MockAndroidConnection::Receive(const std::string& data) {
     return;
 
   std::string request(request_.substr(0, request_end_pos));
-  std::vector<std::string> tokens =
-      base::SplitString(request, " ", base::KEEP_WHITESPACE,
-                        base::SPLIT_WANT_NONEMPTY);
+  std::vector<base::StringPiece> lines = base::SplitStringPieceUsingSubstr(
+      request, "\r\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  CHECK_GE(2U, lines.size());
+  std::vector<std::string> tokens = base::SplitString(
+      lines[0], " ", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   CHECK_EQ(3U, tokens.size());
   CHECK_EQ("GET", tokens[0]);
   CHECK_EQ("HTTP/1.1", tokens[2]);
+  CHECK_EQ("Host: 0.0.0.0:0", lines[1]);
 
   std::string path(tokens[1]);
   if (path == kJsonPath)
@@ -619,16 +625,18 @@ void MockAndroidConnection::SendHTTPResponse(const std::string& body) {
 }
 
 void StartMockAdbServer(FlushMode flush_mode) {
-  BrowserThread::PostTaskAndReply(
-      BrowserThread::IO, FROM_HERE,
+  base::RunLoop run_loop;
+  base::PostTaskWithTraitsAndReply(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&StartMockAdbServerOnIOThread, flush_mode),
-      base::MessageLoop::QuitWhenIdleClosure());
-  content::RunMessageLoop();
+      run_loop.QuitClosure());
+  run_loop.Run();
 }
 
 void StopMockAdbServer() {
-  BrowserThread::PostTaskAndReply(BrowserThread::IO, FROM_HERE,
-                                  base::BindOnce(&StopMockAdbServerOnIOThread),
-                                  base::MessageLoop::QuitWhenIdleClosure());
-  content::RunMessageLoop();
+  base::RunLoop run_loop;
+  base::PostTaskWithTraitsAndReply(FROM_HERE, {BrowserThread::IO},
+                                   base::BindOnce(&StopMockAdbServerOnIOThread),
+                                   run_loop.QuitClosure());
+  run_loop.Run();
 }

@@ -13,14 +13,11 @@
 #include "ui/compositor/layer.h"
 
 namespace ui {
-class LayerOwnerDelegate;
 
 class COMPOSITOR_EXPORT LayerOwner {
  public:
-  LayerOwner();
+  explicit LayerOwner(std::unique_ptr<Layer> layer = nullptr);
   virtual ~LayerOwner();
-
-  void SetLayer(std::unique_ptr<Layer> layer);
 
   // Releases the owning reference to its layer, and returns it.
   // This is used when you need to animate the presentation of the owner just
@@ -40,13 +37,10 @@ class COMPOSITOR_EXPORT LayerOwner {
   ui::Layer* layer() { return layer_; }
   const ui::Layer* layer() const { return layer_; }
 
-  void set_layer_owner_delegate(LayerOwnerDelegate* delegate) {
-    layer_owner_delegate_ = delegate;
-  }
-
   bool OwnsLayer() const;
 
  protected:
+  void SetLayer(std::unique_ptr<Layer> layer);
   void DestroyLayer();
 
  private:
@@ -56,9 +50,7 @@ class COMPOSITOR_EXPORT LayerOwner {
   // the client may wish to animate the layer beyond the lifetime of the owner,
   // e.g. fading it out when it is destroyed.
   std::unique_ptr<Layer> layer_owner_;
-  Layer* layer_;
-
-  LayerOwnerDelegate* layer_owner_delegate_;
+  Layer* layer_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(LayerOwner);
 };

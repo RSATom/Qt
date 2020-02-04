@@ -38,10 +38,17 @@ SyncControlVSyncProvider::~SyncControlVSyncProvider() {}
 
 void SyncControlVSyncProvider::GetVSyncParameters(
     const UpdateVSyncCallback& callback) {
+  base::TimeTicks timebase;
+  base::TimeDelta interval;
+  if (GetVSyncParametersIfAvailable(&timebase, &interval))
+    callback.Run(timebase, interval);
+}
+
+bool SyncControlVSyncProvider::GetVSyncParametersIfAvailable(
+    base::TimeTicks* timebase_out,
+    base::TimeDelta* interval_out) {
   TRACE_EVENT0("gpu", "SyncControlVSyncProvider::GetVSyncParameters");
 #if defined(OS_LINUX)
-  base::TimeTicks timebase;
-
   // The actual clock used for the system time returned by glXGetSyncValuesOML
   // is unspecified. In practice, the clock used is likely to be either
   // CLOCK_REALTIME or CLOCK_MONOTONIC, so we compare the returned time to the
@@ -53,30 +60,28 @@ void SyncControlVSyncProvider::GetVSyncParameters(
   int64_t media_stream_counter;
   int64_t swap_buffer_counter;
   if (!GetSyncValues(&system_time, &media_stream_counter, &swap_buffer_counter))
-    return;
+    return false;
 
   // Both Intel and Mali drivers will return TRUE for GetSyncValues
   // but a value of 0 for MSC if they cannot access the CRTC data structure
   // associated with the surface. crbug.com/231945
-  bool prev_invalid_msc = invalid_msc_;
   invalid_msc_ = (media_stream_counter == 0);
-  if (invalid_msc_) {
-    LOG_IF(ERROR, !prev_invalid_msc) << "glXGetSyncValuesOML "
-        "should not return TRUE with a media stream counter of 0.";
-    return;
-  }
+  if (invalid_msc_)
+    return false;
 
   struct timespec real_time;
-  struct timespec monotonic_time;
   clock_gettime(CLOCK_REALTIME, &real_time);
-  clock_gettime(CLOCK_MONOTONIC, &monotonic_time);
+  // Note: A thread context switch could happen here, between the sampling of
+  // the two different clocks.
+  const base::TimeTicks monotonic_time = base::TimeTicks::Now();
+  DCHECK_EQ(base::TimeTicks::GetClock(),
+            base::TimeTicks::Clock::LINUX_CLOCK_MONOTONIC);
 
   int64_t real_time_in_microseconds =
       real_time.tv_sec * base::Time::kMicrosecondsPerSecond +
       real_time.tv_nsec / base::Time::kNanosecondsPerMicrosecond;
   int64_t monotonic_time_in_microseconds =
-      monotonic_time.tv_sec * base::Time::kMicrosecondsPerSecond +
-      monotonic_time.tv_nsec / base::Time::kNanosecondsPerMicrosecond;
+      monotonic_time.since_origin().InMicroseconds();
 
   // We need the time according to CLOCK_MONOTONIC, so if we've been given
   // a time from CLOCK_REALTIME, we need to convert.
@@ -90,7 +95,7 @@ void SyncControlVSyncProvider::GetVSyncParameters(
   // Return if |system_time| is more than 1 frames in the future.
   int64_t interval_in_microseconds = last_good_interval_.InMicroseconds();
   if (system_time > monotonic_time_in_microseconds + interval_in_microseconds)
-    return;
+    return false;
 
   // If |system_time| is slightly in the future, adjust it to the previous
   // frame and use the last frame counter to prevent issues in the callback.
@@ -100,9 +105,10 @@ void SyncControlVSyncProvider::GetVSyncParameters(
   }
   if (monotonic_time_in_microseconds - system_time >
       base::Time::kMicrosecondsPerSecond)
-    return;
+    return false;
 
-  timebase = base::TimeTicks::FromInternalValue(system_time);
+  const base::TimeTicks timebase =
+      base::TimeTicks() + base::TimeDelta::FromMicroseconds(system_time);
 
   // Only need the previous calculated interval for our filtering.
   while (last_computed_intervals_.size() > 1)
@@ -129,22 +135,14 @@ void SyncControlVSyncProvider::GetVSyncParameters(
     if (relative_change < kRelativeIntervalDifferenceThreshold) {
       if (new_interval.InMicroseconds() < kMinVsyncIntervalUs ||
           new_interval.InMicroseconds() > kMaxVsyncIntervalUs) {
-#if defined(USE_ASH)
-        // On ash platforms (ChromeOS essentially), the real refresh interval is
-        // queried from XRandR, regardless of the value calculated here, and
-        // this value is overriden by ui::CompositorVSyncManager.  The log
-        // should not be fatal in this case. Reconsider all this when XRandR
-        // support is added to non-ash platforms.
+        // For ChromeOS, we get the refresh interval from DRM through Ozone.
+        // For Linux, we could use XRandR.
         // http://crbug.com/340851
         LOG(ERROR)
-#else
-        LOG(FATAL)
-#endif  // USE_ASH
-            << "Calculated bogus refresh interval="
-            << new_interval.InMicroseconds()
-            << " us., last_timebase_=" << last_timebase_.ToInternalValue()
-            << " us., timebase=" << timebase.ToInternalValue()
-            << " us., last_media_stream_counter_=" << last_media_stream_counter_
+            << "Calculated bogus refresh interval=" << new_interval
+            << ", last_timebase_=" << last_timebase_
+            << ", timebase=" << timebase
+            << ", last_media_stream_counter_=" << last_media_stream_counter_
             << ", media_stream_counter=" << media_stream_counter;
       } else {
         last_good_interval_ = new_interval;
@@ -154,8 +152,20 @@ void SyncControlVSyncProvider::GetVSyncParameters(
 
   last_timebase_ = timebase;
   last_media_stream_counter_ = media_stream_counter;
-  callback.Run(timebase, last_good_interval_);
+  *timebase_out = timebase;
+  *interval_out = last_good_interval_;
+  return true;
+#else
+  return false;
 #endif  // defined(OS_LINUX)
+}
+
+bool SyncControlVSyncProvider::SupportGetVSyncParametersIfAvailable() const {
+#if defined(OS_LINUX)
+  return true;
+#else
+  return false;
+#endif
 }
 
 }  // namespace gl

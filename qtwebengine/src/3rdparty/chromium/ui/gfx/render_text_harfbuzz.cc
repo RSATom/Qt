@@ -8,21 +8,27 @@
 #include <set>
 
 #include "base/command_line.h"
+#include "base/containers/mru_cache.h"
+#include "base/feature_list.h"
+#include "base/hash.h"
 #include "base/i18n/base_i18n_switches.h"
 #include "base/i18n/bidi_line_iterator.h"
 #include "base/i18n/break_iterator.h"
 #include "base/i18n/char_iterator.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/profiler/scoped_tracker.h"
+#include "base/message_loop/message_loop_current.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/no_destructor.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
-#include "third_party/harfbuzz-ng/src/hb.h"
 #include "third_party/icu/source/common/unicode/ubidi.h"
 #include "third_party/icu/source/common/unicode/utf16.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "third_party/skia/include/core/SkFontMetrics.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/decorated_text.h"
@@ -33,8 +39,15 @@
 #include "ui/gfx/harfbuzz_font_skia.h"
 #include "ui/gfx/range/range_f.h"
 #include "ui/gfx/skia_util.h"
+#include "ui/gfx/switches.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/gfx/utf16_indexing.h"
+
+#if defined(OS_MACOSX)
+#include "base/mac/mac_util.h"
+#endif
+
+#include <hb.h>
 
 namespace gfx {
 
@@ -54,10 +67,13 @@ bool IsUnusualBlockCode(UBlockCode block_code) {
          block_code == UBLOCK_MISCELLANEOUS_SYMBOLS;
 }
 
+// Returns true if |character| is a bracket. This is used to avoid "matching"
+// brackets picking different font fallbacks, thereby appearing mismatched.
 bool IsBracket(UChar32 character) {
-  static const char kBrackets[] = { '(', ')', '{', '}', '<', '>', };
-  static const char* kBracketsEnd = kBrackets + arraysize(kBrackets);
-  return std::find(kBrackets, kBracketsEnd, character) != kBracketsEnd;
+  // 0x300c and 0x300d are「foo」 style brackets.
+  constexpr UChar32 kBrackets[] = {'(', ')', '{',       '}',
+                                   '<', '>', L'\u300c', L'\u300d'};
+  return base::ContainsValue(kBrackets, character);
 }
 
 // If the given scripts match, returns the one that isn't USCRIPT_INHERITED,
@@ -130,6 +146,16 @@ bool AsciiBreak(UChar32 first_char, UChar32 current_char) {
   return scripts_size != 0;
 }
 
+// When a string of "unusual" characters ends, the run usually breaks. However,
+// variation selectors should still attach to the run of unusual characters.
+// Detect this situation so that FindRunBreakingCharacter() can continue
+// tracking the unusual block. Otherwise, just returns |current|.
+UBlockCode MaybeCombineUnusualBlock(UBlockCode preceding, UBlockCode current) {
+  return IsUnusualBlockCode(preceding) && current == UBLOCK_VARIATION_SELECTORS
+             ? preceding
+             : current;
+}
+
 // Returns the boundary between a special and a regular character. Special
 // characters are brackets or characters that satisfy |IsUnusualBlockCode|.
 size_t FindRunBreakingCharacter(const base::string16& text,
@@ -149,7 +175,8 @@ size_t FindRunBreakingCharacter(const base::string16& text,
 
   while (iter.Advance() && iter.array_pos() < run_length) {
     const UChar32 current_char = iter.get();
-    const UBlockCode current_block = ublock_getCode(current_char);
+    const UBlockCode current_block =
+        MaybeCombineUnusualBlock(first_block, ublock_getCode(current_char));
     const bool block_break = current_block != first_block &&
         (first_block_unusual || IsUnusualBlockCode(current_block));
     if (block_break || current_char == '\n' ||
@@ -161,18 +188,18 @@ size_t FindRunBreakingCharacter(const base::string16& text,
   return run_break;
 }
 
-// Find the longest sequence of characters from 0 and up to |length| that
-// have at least one common UScriptCode value. Writes the common script value to
+// Find the longest sequence of characters from 0 and up to |length| that have
+// at least one common UScriptCode value. Writes the common script value to
 // |script| and returns the length of the sequence. Takes the characters' script
 // extensions into account. http://www.unicode.org/reports/tr24/#ScriptX
 //
 // Consider 3 characters with the script values {Kana}, {Hira, Kana}, {Kana}.
 // Without script extensions only the first script in each set would be taken
 // into account, resulting in 3 runs where 1 would be enough.
-int ScriptInterval(const base::string16& text,
-                   size_t start,
-                   size_t length,
-                   UScriptCode* script) {
+size_t ScriptInterval(const base::string16& text,
+                      size_t start,
+                      size_t length,
+                      UScriptCode* script) {
   DCHECK_GT(length, 0U);
 
   UScriptCode scripts[kMaxScripts] = { USCRIPT_INVALID_CODE };
@@ -207,8 +234,9 @@ bool IsNewlineSegment(const base::string16& text,
 
 // Helper template function for |TextRunHarfBuzz::GetClusterAt()|. |Iterator|
 // can be a forward or reverse iterator type depending on the text direction.
+// Returns true on success, or false if an error is encountered.
 template <class Iterator>
-void GetClusterAtImpl(size_t pos,
+bool GetClusterAtImpl(size_t pos,
                       Range range,
                       Iterator elements_begin,
                       Iterator elements_end,
@@ -216,10 +244,14 @@ void GetClusterAtImpl(size_t pos,
                       Range* chars,
                       Range* glyphs) {
   Iterator element = std::upper_bound(elements_begin, elements_end, pos);
+  if (element == elements_begin) {
+    *chars = range;
+    *glyphs = Range();
+    return false;
+  }
+
   chars->set_end(element == elements_end ? range.end() : *element);
   glyphs->set_end(reversed ? elements_end - element : element - elements_begin);
-
-  DCHECK(element != elements_begin);
   while (--element != elements_begin && *element == *(element - 1));
   chars->set_start(*element);
   glyphs->set_start(
@@ -231,6 +263,7 @@ void GetClusterAtImpl(size_t pos,
   DCHECK(!chars->is_empty());
   DCHECK(!glyphs->is_reversed());
   DCHECK(!glyphs->is_empty());
+  return true;
 }
 
 // Returns the line segment index for the |line|, |text_x| pair. |text_x| is
@@ -297,7 +330,7 @@ class HarfBuzzLineBreaker {
       segment.run = i;
       segment.char_range = run.range;
       segment.x_range = RangeF(SkScalarToFloat(text_x_),
-                               SkScalarToFloat(text_x_) + run.width);
+                               SkScalarToFloat(text_x_) + run.shape.width);
       AddLineSegment(segment);
     }
   }
@@ -446,7 +479,8 @@ class HarfBuzzLineBreaker {
         last_segment.char_range.set_end(segment.char_range.end());
         last_segment.x_range.set_end(SkScalarToFloat(text_x_) +
                                      segment.width());
-        if (run.is_rtl && last_segment.char_range.end() == run.range.end())
+        if (run.font_params.is_rtl &&
+            last_segment.char_range.end() == run.range.end())
           UpdateRTLSegmentRanges();
         line->size.set_width(line->size.width() + segment.width());
         text_x_ += segment.width();
@@ -455,21 +489,23 @@ class HarfBuzzLineBreaker {
       }
     }
     line->segments.push_back(segment);
-
-    SkPaint paint;
-    paint.setTypeface(run.skia_face);
-    paint.setTextSize(SkIntToScalar(run.font_size));
-    paint.setAntiAlias(run.render_params.antialiasing);
-    SkPaint::FontMetrics metrics;
-    paint.getFontMetrics(&metrics);
-
     line->size.set_width(line->size.width() + segment.width());
-    // TODO(dschuyler): Account for stylized baselines in string sizing.
-    max_descent_ = std::max(max_descent_, metrics.fDescent);
-    // fAscent is always negative.
-    max_ascent_ = std::max(max_ascent_, -metrics.fAscent);
 
-    if (run.is_rtl) {
+    SkFont font(run.font_params.skia_face, run.font_params.font_size);
+    font.setEdging(run.font_params.render_params.antialiasing
+                       ? SkFont::Edging::kAntiAlias
+                       : SkFont::Edging::kAlias);
+    SkFontMetrics metrics;
+    font.getMetrics(&metrics);
+
+    // max_descent_ is y-down, fDescent is y-down, baseline_offset is y-down
+    max_descent_ = std::max(max_descent_,
+                            metrics.fDescent + run.font_params.baseline_offset);
+    // max_ascent_ is y-up, fAscent is y-down, baseline_offset is y-down
+    max_ascent_ = std::max(
+        max_ascent_, -(metrics.fAscent + run.font_params.baseline_offset));
+
+    if (run.font_params.is_rtl) {
       rtl_segments_.push_back(
           SegmentHandle(lines_.size() - 1, line->segments.size() - 1));
       // If this is the last segment of an RTL run, reprocess the text-space x
@@ -636,21 +672,98 @@ sk_sp<SkTypeface> CreateSkiaTypeface(const Font& font,
 }
 #endif
 
+TextRunHarfBuzz::FontParams::FontParams(const Font& template_font)
+    : font(template_font) {}
+TextRunHarfBuzz::FontParams::~FontParams() = default;
+TextRunHarfBuzz::FontParams::FontParams(
+    const TextRunHarfBuzz::FontParams& other) = default;
+TextRunHarfBuzz::FontParams& TextRunHarfBuzz::FontParams::operator=(
+    const TextRunHarfBuzz::FontParams& other) = default;
+
+bool TextRunHarfBuzz::FontParams::operator==(const FontParams& other) const {
+  // Empirically, |script| and |weight| are the highest entropy members.
+  return script == other.script && weight == other.weight &&
+         skia_face == other.skia_face && render_params == other.render_params &&
+         font_size == other.font_size &&
+         baseline_offset == other.baseline_offset &&
+         baseline_type == other.baseline_type && italic == other.italic &&
+         strike == other.strike && underline == other.underline &&
+         heavy_underline == other.heavy_underline && is_rtl == other.is_rtl &&
+         level == other.level;
+}
+
+void TextRunHarfBuzz::FontParams::
+    ComputeRenderParamsFontSizeAndBaselineOffset() {
+  render_params = font.GetFontRenderParams();
+  if (font_size == 0)
+    font_size = font.GetFontSize();
+  baseline_offset = 0;
+  if (baseline_type != NORMAL_BASELINE) {
+    // Calculate a slightly smaller font. The ratio here is somewhat arbitrary.
+    // Proportions from 5/9 to 5/7 all look pretty good.
+    const float ratio = 5.0f / 9.0f;
+    font_size = ToRoundedInt(font.GetFontSize() * ratio);
+    switch (baseline_type) {
+      case SUPERSCRIPT:
+        baseline_offset = font.GetCapHeight() - font.GetHeight();
+        break;
+      case SUPERIOR:
+        baseline_offset =
+            ToRoundedInt(font.GetCapHeight() * ratio) - font.GetCapHeight();
+        break;
+      case SUBSCRIPT:
+        baseline_offset = font.GetHeight() - font.GetBaseline();
+        break;
+      case INFERIOR:  // Fall through.
+      default:
+        break;
+    }
+  }
+}
+
+size_t TextRunHarfBuzz::FontParams::Hash::operator()(
+    const FontParams& key) const {
+  // In practice, |font|, |skia_face|, |render_params|, and |baseline_offset|
+  // have not yet been set when this is called.
+  return static_cast<size_t>(key.italic) << 0 ^
+         static_cast<size_t>(key.strike) << 1 ^
+         static_cast<size_t>(key.underline) << 2 ^
+         static_cast<size_t>(key.heavy_underline) << 3 ^
+         static_cast<size_t>(key.is_rtl) << 4 ^
+         static_cast<size_t>(key.weight) << 8 ^
+         static_cast<size_t>(key.font_size) << 12 ^
+         static_cast<size_t>(key.baseline_type) << 16 ^
+         static_cast<size_t>(key.level) << 20 ^
+         static_cast<size_t>(key.script) << 24;
+}
+
+bool TextRunHarfBuzz::FontParams::SetFontAndRenderParams(
+    const Font& new_font,
+    const FontRenderParams& new_render_params) {
+  sk_sp<SkTypeface> new_skia_face(
+      internal::CreateSkiaTypeface(new_font, italic, weight));
+  if (!new_skia_face)
+    return false;
+
+  skia_face = new_skia_face;
+  font = new_font;
+  render_params = new_render_params;
+  return true;
+}
+
+TextRunHarfBuzz::ShapeOutput::ShapeOutput() = default;
+TextRunHarfBuzz::ShapeOutput::~ShapeOutput() = default;
+TextRunHarfBuzz::ShapeOutput::ShapeOutput(
+    const TextRunHarfBuzz::ShapeOutput& other) = default;
+TextRunHarfBuzz::ShapeOutput& TextRunHarfBuzz::ShapeOutput::operator=(
+    const TextRunHarfBuzz::ShapeOutput& other) = default;
+TextRunHarfBuzz::ShapeOutput::ShapeOutput(
+    TextRunHarfBuzz::ShapeOutput&& other) = default;
+TextRunHarfBuzz::ShapeOutput& TextRunHarfBuzz::ShapeOutput::operator=(
+    TextRunHarfBuzz::ShapeOutput&& other) = default;
+
 TextRunHarfBuzz::TextRunHarfBuzz(const Font& template_font)
-    : width(0.0f),
-      preceding_run_widths(0.0f),
-      is_rtl(false),
-      level(0),
-      script(USCRIPT_INVALID_CODE),
-      glyph_count(static_cast<size_t>(-1)),
-      font(template_font),
-      font_size(0),
-      baseline_offset(0),
-      baseline_type(0),
-      italic(false),
-      weight(Font::Weight::NORMAL),
-      strike(false),
-      underline(false) {}
+    : font_params(template_font) {}
 
 TextRunHarfBuzz::~TextRunHarfBuzz() {}
 
@@ -665,61 +778,81 @@ Range TextRunHarfBuzz::CharRangeToGlyphRange(const Range& char_range) const {
   GetClusterAt(char_range.start(), &temp_range, &start_glyphs);
   GetClusterAt(char_range.end() - 1, &temp_range, &end_glyphs);
 
-  return is_rtl ? Range(end_glyphs.start(), start_glyphs.end()) :
-      Range(start_glyphs.start(), end_glyphs.end());
+  return font_params.is_rtl ? Range(end_glyphs.start(), start_glyphs.end())
+                            : Range(start_glyphs.start(), end_glyphs.end());
 }
 
 size_t TextRunHarfBuzz::CountMissingGlyphs() const {
-  static const int kMissingGlyphId = 0;
-  size_t missing = 0;
-  for (size_t i = 0; i < glyph_count; ++i)
-    missing += (glyphs[i] == kMissingGlyphId) ? 1 : 0;
-  return missing;
+  return shape.missing_glyph_count;
 }
 
 void TextRunHarfBuzz::GetClusterAt(size_t pos,
                                    Range* chars,
                                    Range* glyphs) const {
-  DCHECK(range.Contains(Range(pos, pos + 1)));
   DCHECK(chars);
   DCHECK(glyphs);
 
-  if (glyph_count == 0) {
+  bool success = true;
+  if (shape.glyph_count == 0 || !range.Contains(Range(pos, pos + 1))) {
     *chars = range;
     *glyphs = Range();
-    return;
+    success = false;
   }
 
-  if (is_rtl) {
-    GetClusterAtImpl(pos, range, glyph_to_char.rbegin(), glyph_to_char.rend(),
-                     true, chars, glyphs);
-    return;
+  if (font_params.is_rtl) {
+    success &=
+        GetClusterAtImpl(pos, range, shape.glyph_to_char.rbegin(),
+                         shape.glyph_to_char.rend(), true, chars, glyphs);
+  } else {
+    success &=
+        GetClusterAtImpl(pos, range, shape.glyph_to_char.begin(),
+                         shape.glyph_to_char.end(), false, chars, glyphs);
   }
 
-  GetClusterAtImpl(pos, range, glyph_to_char.begin(), glyph_to_char.end(),
-                   false, chars, glyphs);
+  if (!success) {
+    std::string glyph_to_char_string;
+    for (size_t i = 0; i < shape.glyph_count && i < shape.glyph_to_char.size();
+         ++i) {
+      glyph_to_char_string += base::NumberToString(i) + "->" +
+                              base::UintToString(shape.glyph_to_char[i]) + ", ";
+    }
+    LOG(ERROR) << " TextRunHarfBuzz error, please report at crbug.com/724880:"
+               << " range: " << range.ToString()
+               << ", rtl: " << font_params.is_rtl << ","
+               << " level: '" << font_params.level
+               << "', script: " << font_params.script << ","
+               << " font: '" << font_params.font.GetActualFontNameForTesting()
+               << "',"
+               << " glyph_count: " << shape.glyph_count << ", pos: " << pos
+               << ","
+               << " glyph_to_char: " << glyph_to_char_string;
+  }
 }
 
 RangeF TextRunHarfBuzz::GetGraphemeBounds(RenderTextHarfBuzz* render_text,
                                           size_t text_index) const {
   DCHECK_LT(text_index, range.end());
-  if (glyph_count == 0)
-    return RangeF(preceding_run_widths, preceding_run_widths + width);
+  if (shape.glyph_count == 0)
+    return RangeF(preceding_run_widths, preceding_run_widths + shape.width);
 
   Range chars;
   Range glyphs;
   GetClusterAt(text_index, &chars, &glyphs);
-  const float cluster_begin_x = positions[glyphs.start()].x();
-  const float cluster_end_x = glyphs.end() < glyph_count ?
-      positions[glyphs.end()].x() : SkFloatToScalar(width);
+  const float cluster_begin_x = shape.positions[glyphs.start()].x();
+  const float cluster_end_x = glyphs.end() < shape.glyph_count
+                                  ? shape.positions[glyphs.end()].x()
+                                  : SkFloatToScalar(shape.width);
+  DCHECK_LE(cluster_begin_x, cluster_end_x);
 
   // A cluster consists of a number of code points and corresponds to a number
   // of glyphs that should be drawn together. A cluster can contain multiple
   // graphemes. In order to place the cursor at a grapheme boundary inside the
   // cluster, we simply divide the cluster width by the number of graphemes.
   // Note: The first call to GetGraphemeIterator() can be expensive, so avoid
-  // doing it unless it's actually needed (when length > 1).
-  if (chars.length() > 1 && render_text->GetGraphemeIterator()) {
+  // doing it unless it's actually needed (when |code_point_count| > 1).
+  ptrdiff_t code_point_count = UTF16IndexToOffset(render_text->GetDisplayText(),
+                                                  chars.start(), chars.end());
+  if (code_point_count > 1 && render_text->GetGraphemeIterator()) {
     int before = 0;
     int total = 0;
     base::i18n::BreakIterator* grapheme_iterator =
@@ -732,18 +865,22 @@ RangeF TextRunHarfBuzz::GetGraphemeBounds(RenderTextHarfBuzz* render_text,
       }
     }
     DCHECK_GT(total, 0);
+
+    // It's possible for |text_index| to point to a diacritical mark, at the end
+    // of |chars|. In this case all the grapheme boundaries come before it. Just
+    // provide the bounds of the last grapheme.
+    if (before == total)
+      --before;
+
     if (total > 1) {
-      if (is_rtl)
+      if (font_params.is_rtl)
         before = total - before - 1;
       DCHECK_GE(before, 0);
       DCHECK_LT(before, total);
-      const int cluster_width = cluster_end_x - cluster_begin_x;
-      const int grapheme_begin_x = cluster_begin_x + static_cast<int>(0.5f +
-          cluster_width * before / static_cast<float>(total));
-      const int grapheme_end_x = cluster_begin_x + static_cast<int>(0.5f +
-          cluster_width * (before + 1) / static_cast<float>(total));
-      return RangeF(preceding_run_widths + grapheme_begin_x,
-                    preceding_run_widths + grapheme_end_x);
+      const float cluster_start = preceding_run_widths + cluster_begin_x;
+      const float average_width = (cluster_end_x - cluster_begin_x) / total;
+      return RangeF(cluster_start + average_width * before,
+                    cluster_start + average_width * (before + 1));
     }
   }
 
@@ -751,17 +888,26 @@ RangeF TextRunHarfBuzz::GetGraphemeBounds(RenderTextHarfBuzz* render_text,
                 preceding_run_widths + cluster_end_x);
 }
 
-float TextRunHarfBuzz::GetGraphemeWidthForCharRange(
+RangeF TextRunHarfBuzz::GetGraphemeSpanForCharRange(
     RenderTextHarfBuzz* render_text,
     const Range& char_range) const {
   if (char_range.is_empty())
-    return 0;
+    return RangeF();
+
   DCHECK(!char_range.is_reversed());
   DCHECK(range.Contains(char_range));
-  size_t left_index = is_rtl ? char_range.end() - 1 : char_range.start();
-  size_t right_index = is_rtl ? char_range.start() : char_range.end() - 1;
-  return GetGraphemeBounds(render_text, right_index).GetMax() -
-         GetGraphemeBounds(render_text, left_index).GetMin();
+  size_t left_index = char_range.start();
+  size_t right_index =
+      UTF16OffsetToIndex(render_text->GetDisplayText(), char_range.end(), -1);
+  DCHECK_LE(left_index, right_index);
+  if (font_params.is_rtl)
+    std::swap(left_index, right_index);
+
+  const RangeF left_span = GetGraphemeBounds(render_text, left_index);
+  return left_index == right_index
+             ? left_span
+             : RangeF(left_span.start(),
+                      GetGraphemeBounds(render_text, right_index).end());
 }
 
 SkScalar TextRunHarfBuzz::GetGlyphWidthForCharRange(
@@ -784,10 +930,24 @@ SkScalar TextRunHarfBuzz::GetGlyphWidthForCharRange(
     return 0;
   }
 
-  return ((glyph_range.end() == glyph_count)
-              ? SkFloatToScalar(width)
-              : positions[glyph_range.end()].x()) -
-         positions[glyph_range.start()].x();
+  return ((glyph_range.end() == shape.glyph_count)
+              ? SkFloatToScalar(shape.width)
+              : shape.positions[glyph_range.end()].x()) -
+         shape.positions[glyph_range.start()].x();
+}
+
+void TextRunHarfBuzz::UpdateFontParamsAndShape(
+    const FontParams& new_font_params,
+    const ShapeOutput& new_shape) {
+  if (new_shape.missing_glyph_count < shape.missing_glyph_count) {
+    font_params = new_font_params;
+    shape = new_shape;
+    // Note that |new_shape.glyph_to_char| is indexed from the beginning of
+    // |range|, while |shape.glyph_to_char| is indexed from the beginning of
+    // its embedding text.
+    for (size_t i = 0; i < shape.glyph_to_char.size(); ++i)
+      shape.glyph_to_char[i] += range.start();
+  }
 }
 
 TextRunList::TextRunList() : width_(0.0f) {}
@@ -807,7 +967,7 @@ void TextRunList::InitIndexMap() {
   const size_t num_runs = runs_.size();
   std::vector<UBiDiLevel> levels(num_runs);
   for (size_t i = 0; i < num_runs; ++i)
-    levels[i] = runs_[i]->level;
+    levels[i] = runs_[i]->font_params.level;
   visual_to_logical_.resize(num_runs);
   ubidi_reorderVisual(&levels[0], num_runs, &visual_to_logical_[0]);
   logical_to_visual_.resize(num_runs);
@@ -820,7 +980,7 @@ void TextRunList::ComputePrecedingRunWidths() {
   for (size_t i = 0; i < runs_.size(); ++i) {
     const auto& run = runs_[visual_to_logical_[i]];
     run->preceding_run_widths = width_;
-    width_ += run->width;
+    width_ += run->shape.width;
   }
 }
 
@@ -831,6 +991,180 @@ size_t TextRunList::GetRunIndexAt(size_t position) const {
   }
   return runs_.size();
 }
+
+namespace {
+
+// ShapeRunWithFont cache. Views makes repeated calls to ShapeRunWithFont
+// with the same arguments in several places, and typesetting is very expensive.
+// To compensate for this, encapsulate all of the input arguments to
+// ShapeRunWithFont in ShapeRunWithFontInput, all of the output arguments in
+// TextRunHarfBuzz::ShapeOutput, and add ShapeRunCache to map between the two.
+// This is analogous to the blink::ShapeCache.
+// https://crbug.com/826265
+
+// Input for the stateless implementation of ShapeRunWithFont.
+struct ShapeRunWithFontInput {
+  ShapeRunWithFontInput(const base::string16& full_text,
+                        const TextRunHarfBuzz::FontParams& font_params,
+                        Range full_range,
+                        bool obscured,
+                        float glyph_width_for_test,
+                        int glyph_spacing,
+                        bool subpixel_rendering_suppressed)
+      : skia_face(font_params.skia_face),
+        render_params(font_params.render_params),
+        script(font_params.script),
+        font_size(font_params.font_size),
+        glyph_spacing(glyph_spacing),
+        glyph_width_for_test(glyph_width_for_test),
+        is_rtl(font_params.is_rtl),
+        obscured(obscured),
+        subpixel_rendering_suppressed(subpixel_rendering_suppressed) {
+    // hb_buffer_add_utf16 will read the previous and next 5 unicode characters
+    // (which can have a maximum length of 2 uint16_t) as "context" that is used
+    // only for Arabic (which is RTL). Read the previous and next 10 uint16_ts
+    // to ensure that we capture all of this context if we're using RTL.
+    size_t kContextSize = is_rtl ? 10 : 0;
+    size_t context_start = full_range.start() < kContextSize
+                               ? 0
+                               : full_range.start() - kContextSize;
+    size_t context_end =
+        std::min(full_text.length(), full_range.end() + kContextSize);
+    range = Range(full_range.start() - context_start,
+                  full_range.end() - context_start);
+    text = full_text.substr(context_start, context_end - context_start);
+
+    // Pre-compute the hash to avoid having to re-hash text at every comparison.
+    // Attempt to minimize collisions by including the font and text in the
+    // hash.
+    hash = (uintptr_t)skia_face.get() ^ base::Hash(text);
+  }
+
+  bool operator==(const ShapeRunWithFontInput& other) const {
+    return text == other.text && skia_face == other.skia_face &&
+           render_params == other.render_params &&
+           font_size == other.font_size && range == other.range &&
+           script == other.script && is_rtl == other.is_rtl &&
+           obscured == other.obscured &&
+           glyph_width_for_test == other.glyph_width_for_test &&
+           glyph_spacing == other.glyph_spacing &&
+           subpixel_rendering_suppressed == other.subpixel_rendering_suppressed;
+  }
+
+  struct Hash {
+    size_t operator()(const ShapeRunWithFontInput& key) const {
+      return key.hash;
+    }
+  };
+
+  sk_sp<SkTypeface> skia_face;
+  FontRenderParams render_params;
+  UScriptCode script;
+  int font_size;
+  int glyph_spacing;
+  float glyph_width_for_test;
+  bool is_rtl;
+  bool obscured;
+  bool subpixel_rendering_suppressed;
+
+  // The parts of the input text that may be read by hb_buffer_add_utf16.
+  base::string16 text;
+  // The conversion of the input range to a range within |text|.
+  Range range;
+  // The hash is cached to avoid repeated calls.
+  size_t hash = 0;
+};
+
+// An MRU cache of the results from calling ShapeRunWithFont. Use the same
+// maximum cache size as is used in blink::ShapeCache.
+constexpr int kShapeRunCacheSize = 10000;
+using ShapeRunCacheBase = base::HashingMRUCache<ShapeRunWithFontInput,
+                                                TextRunHarfBuzz::ShapeOutput,
+                                                ShapeRunWithFontInput::Hash>;
+class ShapeRunCache : public ShapeRunCacheBase {
+ public:
+  ShapeRunCache() : ShapeRunCacheBase(kShapeRunCacheSize) {}
+};
+
+void ShapeRunWithFont(const ShapeRunWithFontInput& in,
+                      TextRunHarfBuzz::ShapeOutput* out) {
+  TRACE_EVENT0("ui", "RenderTextHarfBuzz::ShapeRunWithFontInternal");
+
+  hb_font_t* harfbuzz_font =
+      CreateHarfBuzzFont(in.skia_face, SkIntToScalar(in.font_size),
+                         in.render_params, in.subpixel_rendering_suppressed);
+
+  // Create a HarfBuzz buffer and add the string to be shaped. The HarfBuzz
+  // buffer holds our text, run information to be used by the shaping engine,
+  // and the resulting glyph data.
+  hb_buffer_t* buffer = hb_buffer_create();
+  // Note that the value of the |item_offset| argument (here specified as
+  // |in.range.start()|) does affect the result, so we will have to adjust
+  // the computed offsets.
+  hb_buffer_add_utf16(
+      buffer, reinterpret_cast<const uint16_t*>(in.text.c_str()),
+      static_cast<int>(in.text.length()), in.range.start(), in.range.length());
+  hb_buffer_set_script(buffer, ICUScriptToHBScript(in.script));
+  hb_buffer_set_direction(buffer,
+                          in.is_rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
+  // TODO(ckocagil): Should we determine the actual language?
+  hb_buffer_set_language(buffer, hb_language_get_default());
+
+  // Shape the text.
+  hb_shape(harfbuzz_font, buffer, NULL, 0);
+
+  // Populate the run fields with the resulting glyph data in the buffer.
+  unsigned int glyph_count = 0;
+  hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(buffer, &glyph_count);
+  out->glyph_count = glyph_count;
+  hb_glyph_position_t* hb_positions =
+      hb_buffer_get_glyph_positions(buffer, NULL);
+  out->glyphs.resize(out->glyph_count);
+  out->glyph_to_char.resize(out->glyph_count);
+  out->positions.resize(out->glyph_count);
+  out->width = 0.0f;
+
+#if defined(OS_MACOSX)
+  // Mac 10.9 and 10.10 give a quirky offset for whitespace glyphs in RTL,
+  // which requires tests relying on the behavior of |glyph_width_for_test_|
+  // to also be given a zero x_offset, otherwise expectations get thrown off.
+  const bool force_zero_offset =
+      in.glyph_width_for_test > 0 && base::mac::IsAtMostOS10_10();
+#else
+  constexpr bool force_zero_offset = false;
+#endif
+  constexpr uint16_t kMissingGlyphId = 0;
+
+  DCHECK(in.obscured || in.glyph_spacing == 0);
+  out->missing_glyph_count = 0;
+  for (size_t i = 0; i < out->glyph_count; ++i) {
+    DCHECK_LE(infos[i].codepoint, std::numeric_limits<uint16_t>::max());
+    uint16_t glyph = static_cast<uint16_t>(infos[i].codepoint);
+    out->glyphs[i] = glyph;
+    if (glyph == kMissingGlyphId)
+      out->missing_glyph_count += 1;
+    DCHECK_GE(infos[i].cluster, in.range.start());
+    out->glyph_to_char[i] = infos[i].cluster - in.range.start();
+    const SkScalar x_offset =
+        force_zero_offset ? 0
+                          : HarfBuzzUnitsToSkiaScalar(hb_positions[i].x_offset);
+    const SkScalar y_offset =
+        HarfBuzzUnitsToSkiaScalar(hb_positions[i].y_offset);
+    out->positions[i].set(out->width + x_offset, -y_offset);
+    out->width += (in.glyph_width_for_test > 0)
+                      ? in.glyph_width_for_test
+                      : HarfBuzzUnitsToFloat(hb_positions[i].x_advance) +
+                            in.glyph_spacing;
+    // Round run widths if subpixel positioning is off to match native behavior.
+    if (!in.render_params.subpixel_positioning)
+      out->width = std::round(out->width);
+  }
+
+  hb_buffer_destroy(buffer);
+  hb_font_destroy(harfbuzz_font);
+}
+
+}  // namespace
 
 }  // namespace internal
 
@@ -882,7 +1216,9 @@ SizeF RenderTextHarfBuzz::GetStringSizeF() {
   return total_size_;
 }
 
-SelectionModel RenderTextHarfBuzz::FindCursorPosition(const Point& view_point) {
+SelectionModel RenderTextHarfBuzz::FindCursorPosition(
+    const Point& view_point,
+    const Point& drag_origin) {
   EnsureLayout();
   DCHECK(!lines().empty());
 
@@ -892,7 +1228,9 @@ SelectionModel RenderTextHarfBuzz::FindCursorPosition(const Point& view_point) {
   if (RenderText::kDragToEndIfOutsideVerticalBounds && !multiline() &&
       (line_index < 0 || line_index >= static_cast<int>(lines().size()))) {
     SelectionModel selection_start = GetSelectionModelForSelectionStart();
-    bool left = view_point.x() < GetCursorBounds(selection_start, true).x();
+    int edge = drag_origin.x() == 0 ? GetCursorBounds(selection_start, true).x()
+                                    : drag_origin.x();
+    bool left = view_point.x() < edge;
     return EdgeSelectionModel(left ? CURSOR_LEFT : CURSOR_RIGHT);
   }
   // Otherwise, clamp |line_index| to a valid value or drag to logical ends.
@@ -923,30 +1261,31 @@ SelectionModel RenderTextHarfBuzz::FindCursorPosition(const Point& view_point) {
       run.CharRangeToGlyphRange(segment.char_range).GetMin();
   const float segment_offset_relative_run =
       segment_min_glyph_index != 0
-          ? SkScalarToFloat(run.positions[segment_min_glyph_index].x())
+          ? SkScalarToFloat(run.shape.positions[segment_min_glyph_index].x())
           : 0;
   const float point_offset_relative_run =
       point_offset_relative_segment + segment_offset_relative_run;
 
   // TODO(crbug.com/676287): Use offset within the glyph to return the correct
   // grapheme position within a multi-grapheme glyph.
-  for (size_t i = 0; i < run.glyph_count; ++i) {
-    const float end = i + 1 == run.glyph_count
-                          ? run.width
-                          : SkScalarToFloat(run.positions[i + 1].x());
-    const float middle = (end + SkScalarToFloat(run.positions[i].x())) / 2;
-    const size_t index = DisplayIndexToTextIndex(run.glyph_to_char[i]);
+  for (size_t i = 0; i < run.shape.glyph_count; ++i) {
+    const float end = i + 1 == run.shape.glyph_count
+                          ? run.shape.width
+                          : SkScalarToFloat(run.shape.positions[i + 1].x());
+    const float middle =
+        (end + SkScalarToFloat(run.shape.positions[i].x())) / 2;
+    const size_t index = DisplayIndexToTextIndex(run.shape.glyph_to_char[i]);
     if (point_offset_relative_run < middle) {
-      return run.is_rtl ? SelectionModel(
-                              IndexOfAdjacentGrapheme(index, CURSOR_FORWARD),
-                              CURSOR_BACKWARD)
-                        : SelectionModel(index, CURSOR_FORWARD);
+      return run.font_params.is_rtl ? SelectionModel(IndexOfAdjacentGrapheme(
+                                                         index, CURSOR_FORWARD),
+                                                     CURSOR_BACKWARD)
+                                    : SelectionModel(index, CURSOR_FORWARD);
     }
     if (point_offset_relative_run < end) {
-      return run.is_rtl ? SelectionModel(index, CURSOR_FORWARD)
-                        : SelectionModel(
-                              IndexOfAdjacentGrapheme(index, CURSOR_FORWARD),
-                              CURSOR_BACKWARD);
+      return run.font_params.is_rtl ? SelectionModel(index, CURSOR_FORWARD)
+                                    : SelectionModel(IndexOfAdjacentGrapheme(
+                                                         index, CURSOR_FORWARD),
+                                                     CURSOR_BACKWARD);
     }
   }
 
@@ -963,32 +1302,94 @@ std::vector<RenderText::FontSpan> RenderTextHarfBuzz::GetFontSpansForTesting() {
   internal::TextRunList* run_list = GetRunList();
   std::vector<RenderText::FontSpan> spans;
   for (const auto& run : run_list->runs()) {
-    spans.push_back(RenderText::FontSpan(
-        run->font, Range(DisplayIndexToTextIndex(run->range.start()),
-                         DisplayIndexToTextIndex(run->range.end()))));
+    spans.push_back(
+        RenderText::FontSpan(run->font_params.font,
+                             Range(DisplayIndexToTextIndex(run->range.start()),
+                                   DisplayIndexToTextIndex(run->range.end()))));
   }
 
   return spans;
 }
 
-Range RenderTextHarfBuzz::GetGlyphBounds(size_t index) {
+std::vector<Rect> RenderTextHarfBuzz::GetSubstringBounds(const Range& range) {
   EnsureLayout();
+  DCHECK(!update_display_run_list_);
+  DCHECK(Range(0, text().length()).Contains(range));
+  const size_t start =
+      IsValidCursorIndex(range.GetMin())
+          ? range.GetMin()
+          : IndexOfAdjacentGrapheme(range.GetMin(), CURSOR_BACKWARD);
+  const size_t end =
+      IsValidCursorIndex(range.GetMax())
+          ? range.GetMax()
+          : IndexOfAdjacentGrapheme(range.GetMax(), CURSOR_FORWARD);
+  const Range display_range(TextIndexToDisplayIndex(start),
+                            TextIndexToDisplayIndex(end));
+  DCHECK(Range(0, GetDisplayText().length()).Contains(display_range));
+
+  std::vector<Rect> rects;
+  if (display_range.is_empty())
+    return rects;
+
+  internal::TextRunList* run_list = GetRunList();
+  for (size_t line_index = 0; line_index < lines().size(); ++line_index) {
+    const internal::Line& line = lines()[line_index];
+    // Only the last line can be empty.
+    DCHECK(!line.segments.empty() || (line_index == lines().size() - 1));
+    const float line_start_x =
+        line.segments.empty()
+            ? 0
+            : run_list->runs()[line.segments[0].run]->preceding_run_widths;
+
+    for (const internal::LineSegment& segment : line.segments) {
+      const Range intersection = segment.char_range.Intersect(display_range);
+      DCHECK(!intersection.is_reversed());
+      if (!intersection.is_empty()) {
+        const internal::TextRunHarfBuzz& run = *run_list->runs()[segment.run];
+        RangeF selected_span =
+            run.GetGraphemeSpanForCharRange(this, intersection);
+        int start_x = std::ceil(selected_span.start() - line_start_x);
+        int end_x = std::ceil(selected_span.end() - line_start_x);
+        Rect rect(start_x, 0, end_x - start_x, std::ceil(line.size.height()));
+        rects.push_back(rect + GetLineOffset(line_index));
+      }
+    }
+  }
+  return rects;
+}
+
+Range RenderTextHarfBuzz::GetCursorSpan(const Range& text_range) {
+  DCHECK(!text_range.is_reversed());
+  EnsureLayout();
+  const size_t index = text_range.start();
   const size_t run_index =
       GetRunContainingCaret(SelectionModel(index, CURSOR_FORWARD));
   internal::TextRunList* run_list = GetRunList();
   // Return edge bounds if the index is invalid or beyond the layout text size.
   if (run_index >= run_list->size())
     return Range(GetStringSize().width());
-  const size_t layout_index = TextIndexToDisplayIndex(index);
+
   internal::TextRunHarfBuzz* run = run_list->runs()[run_index].get();
-  RangeF bounds = run->GetGraphemeBounds(this, layout_index);
+
+  Range display_range(TextIndexToDisplayIndex(text_range.start()),
+                      TextIndexToDisplayIndex(text_range.end()));
+
+  // Although highly likely, there's no guarantee that a single text run is used
+  // for the entire cursor span. For example, Unicode Variation Selectors are
+  // incorrectly placed in the next run; see crbug.com/775404. (For these, the
+  // variation selector has zero width, so it's safe to ignore the second run).
+  // TODO(tapted): Change this to a DCHECK when crbug.com/775404 is fixed.
+  display_range = display_range.Intersect(run->range);
+
+  RangeF bounds = run->GetGraphemeSpanForCharRange(this, display_range);
   // If cursor is enabled, extend the last glyph up to the rightmost cursor
   // position since clients expect them to be contiguous.
   if (cursor_enabled() && run_index == run_list->size() - 1 &&
-      index == (run->is_rtl ? run->range.start() : run->range.end() - 1))
+      index ==
+          (run->font_params.is_rtl ? run->range.start() : run->range.end() - 1))
     bounds.set_end(std::ceil(bounds.end()));
-  return run->is_rtl ? RangeF(bounds.end(), bounds.start()).Round()
-                     : bounds.Round();
+  return run->font_params.is_rtl ? RangeF(bounds.end(), bounds.start()).Round()
+                                 : bounds.Round();
 }
 
 base::i18n::BreakIterator* RenderTextHarfBuzz::GetGraphemeIterator() {
@@ -1028,7 +1429,7 @@ SelectionModel RenderTextHarfBuzz::AdjacentCharSelectionModel(
     // grapheme in the appropriate direction.
     run = run_list->runs()[run_index].get();
     size_t caret = selection.caret_pos();
-    bool forward_motion = run->is_rtl == (direction == CURSOR_LEFT);
+    bool forward_motion = run->font_params.is_rtl == (direction == CURSOR_LEFT);
     if (forward_motion) {
       if (caret < DisplayIndexToTextIndex(run->range.end())) {
         caret = IndexOfAdjacentGrapheme(caret, CURSOR_FORWARD);
@@ -1047,7 +1448,7 @@ SelectionModel RenderTextHarfBuzz::AdjacentCharSelectionModel(
       return EdgeSelectionModel(direction);
     run = run_list->runs()[run_list->visual_to_logical(visual_index)].get();
   }
-  bool forward_motion = run->is_rtl == (direction == CURSOR_LEFT);
+  bool forward_motion = run->font_params.is_rtl == (direction == CURSOR_LEFT);
   return forward_motion ? FirstSelectionModelInsideRun(run) :
                           LastSelectionModelInsideRun(run);
 }
@@ -1064,109 +1465,28 @@ SelectionModel RenderTextHarfBuzz::AdjacentWordSelectionModel(
   if (!success)
     return selection;
 
-  // Match OS specific word break behavior.
-#if defined(OS_WIN)
-  size_t pos;
-  if (direction == CURSOR_RIGHT) {
-    pos = std::min(selection.caret_pos() + 1, text().length());
-    while (iter.Advance()) {
-      pos = iter.pos();
-      if (iter.IsWord() && pos > selection.caret_pos())
-        break;
-    }
-  } else {  // direction == CURSOR_LEFT
-    // Notes: We always iterate words from the beginning.
-    // This is probably fast enough for our usage, but we may
-    // want to modify WordIterator so that it can start from the
-    // middle of string and advance backwards.
-    pos = std::max<int>(selection.caret_pos() - 1, 0);
-    while (iter.Advance()) {
-      if (iter.IsWord()) {
-        size_t begin = iter.pos() - iter.GetString().length();
-        if (begin == selection.caret_pos()) {
-          // The cursor is at the beginning of a word.
-          // Move to previous word.
-          break;
-        } else if (iter.pos() >= selection.caret_pos()) {
-          // The cursor is in the middle or at the end of a word.
-          // Move to the top of current word.
-          pos = begin;
-          break;
-        }
-        pos = iter.pos() - iter.GetString().length();
-      }
-    }
-  }
-  return SelectionModel(pos, CURSOR_FORWARD);
-#else
   internal::TextRunList* run_list = GetRunList();
-  SelectionModel cur(selection);
+  SelectionModel current(selection);
   for (;;) {
-    cur = AdjacentCharSelectionModel(cur, direction);
-    size_t run = GetRunContainingCaret(cur);
+    current = AdjacentCharSelectionModel(current, direction);
+    size_t run = GetRunContainingCaret(current);
     if (run == run_list->size())
       break;
+    size_t cursor = current.caret_pos();
+#if defined(OS_WIN)
+    // Windows generally advances to the start of a word in either direction.
+    // TODO: Break on the end of a word when the neighboring text is
+    // punctuation.
+    if (iter.IsStartOfWord(cursor))
+      break;
+#else
     const bool is_forward =
-        run_list->runs()[run]->is_rtl == (direction == CURSOR_LEFT);
-    size_t cursor = cur.caret_pos();
+        run_list->runs()[run]->font_params.is_rtl == (direction == CURSOR_LEFT);
     if (is_forward ? iter.IsEndOfWord(cursor) : iter.IsStartOfWord(cursor))
       break;
+#endif  // defined(OS_WIN)
   }
-  return cur;
-#endif
-}
-
-std::vector<Rect> RenderTextHarfBuzz::GetSubstringBounds(const Range& range) {
-  DCHECK(!update_display_run_list_);
-  DCHECK(Range(0, text().length()).Contains(range));
-  const size_t start =
-      IsValidCursorIndex(range.GetMin())
-          ? range.GetMin()
-          : IndexOfAdjacentGrapheme(range.GetMin(), CURSOR_BACKWARD);
-  const size_t end =
-      IsValidCursorIndex(range.GetMax())
-          ? range.GetMax()
-          : IndexOfAdjacentGrapheme(range.GetMax(), CURSOR_FORWARD);
-  Range display_range(TextIndexToDisplayIndex(start),
-                      TextIndexToDisplayIndex(end));
-  DCHECK(Range(0, GetDisplayText().length()).Contains(display_range));
-
-  std::vector<Rect> rects;
-  if (display_range.is_empty())
-    return rects;
-
-  internal::TextRunList* run_list = GetRunList();
-  for (size_t line_index = 0; line_index < lines().size(); ++line_index) {
-    const internal::Line& line = lines()[line_index];
-    // Only the last line can be empty.
-    DCHECK(!line.segments.empty() || (line_index == lines().size() - 1));
-
-    float line_x = 0;
-    for (const internal::LineSegment& segment : line.segments) {
-      const Range intersection = segment.char_range.Intersect(display_range);
-      DCHECK(!intersection.is_reversed());
-      if (!intersection.is_empty()) {
-        const internal::TextRunHarfBuzz& run = *run_list->runs()[segment.run];
-        float width = SkScalarToFloat(
-            run.GetGraphemeWidthForCharRange(this, intersection));
-        float x = line_x;
-        if (run.is_rtl) {
-          x += SkScalarToFloat(run.GetGraphemeWidthForCharRange(
-              this, gfx::Range(intersection.end(), segment.char_range.end())));
-        } else {
-          x += SkScalarToFloat(run.GetGraphemeWidthForCharRange(
-              this,
-              gfx::Range(segment.char_range.start(), intersection.start())));
-        }
-        int end_x = std::ceil(x + width);
-        int start_x = std::ceil(x);
-        gfx::Rect rect(start_x, 0, end_x - start_x, line.size.height());
-        rects.push_back(rect + GetLineOffset(line_index));
-      }
-      line_x += segment.width();
-    }
-  }
-  return rects;
+  return current;
 }
 
 size_t RenderTextHarfBuzz::TextIndexToDisplayIndex(size_t index) {
@@ -1208,29 +1528,14 @@ void RenderTextHarfBuzz::EnsureLayout() {
     const base::string16& display_text = GetDisplayText();
     display_run_list_.reset(new internal::TextRunList);
 
-    if (!display_text.empty()) {
-      TRACE_EVENT0("ui", "RenderTextHarfBuzz:EnsureLayout1");
-
-      ItemizeTextToRuns(display_text, display_run_list_.get());
-
-      // TODO(ckocagil): Remove ScopedTracker below once crbug.com/441028 is
-      // fixed.
-      tracked_objects::ScopedTracker tracking_profile(
-          FROM_HERE_WITH_EXPLICIT_FUNCTION("441028 ShapeRunList() 1"));
-      ShapeRunList(display_text, display_run_list_.get());
-    }
+    if (!display_text.empty())
+      ItemizeAndShapeText(display_text, display_run_list_.get());
     update_display_run_list_ = false;
     std::vector<internal::Line> empty_lines;
     set_lines(&empty_lines);
   }
 
   if (lines().empty()) {
-    // TODO(ckocagil): Remove ScopedTracker below once crbug.com/441028 is
-    // fixed.
-    std::unique_ptr<tracked_objects::ScopedTracker> tracking_profile(
-        new tracked_objects::ScopedTracker(
-            FROM_HERE_WITH_EXPLICIT_FUNCTION("441028 HarfBuzzLineBreaker")));
-
     internal::TextRunList* run_list = GetRunList();
     const int height = std::max(font_list().GetHeight(), min_line_height());
     HarfBuzzLineBreaker line_breaker(
@@ -1239,14 +1544,20 @@ void RenderTextHarfBuzz::EnsureLayout() {
         word_wrap_behavior(), GetDisplayText(),
         multiline() ? &GetLineBreaks() : nullptr, *run_list);
 
-    tracking_profile.reset();
-
     if (multiline())
       line_breaker.ConstructMultiLines();
     else
       line_breaker.ConstructSingleLine();
     std::vector<internal::Line> lines;
     line_breaker.FinalizeLines(&lines, &total_size_);
+    if (multiline() && max_lines()) {
+      // TODO(crbug.com/866720): no more than max_lines() should be rendered.
+      // Remove the IsHomogeneous() condition for the following DCHECK when the
+      // bug is fixed.
+      if (IsHomogeneous()) {
+        DCHECK_LE(lines.size(), max_lines());
+      }
+    }
     set_lines(&lines);
   }
 }
@@ -1273,27 +1584,27 @@ void RenderTextHarfBuzz::DrawVisualText(internal::SkiaTextRenderer* renderer) {
         continue;
 
       const internal::TextRunHarfBuzz& run = *run_list->runs()[segment.run];
-      renderer->SetTypeface(run.skia_face);
-      renderer->SetTextSize(SkIntToScalar(run.font_size));
-      renderer->SetFontRenderParams(run.render_params,
+      renderer->SetTypeface(run.font_params.skia_face);
+      renderer->SetTextSize(SkIntToScalar(run.font_params.font_size));
+      renderer->SetFontRenderParams(run.font_params.render_params,
                                     subpixel_rendering_suppressed());
       Range glyphs_range = run.CharRangeToGlyphRange(segment.char_range);
-      std::unique_ptr<SkPoint[]> positions(new SkPoint[glyphs_range.length()]);
+      std::vector<SkPoint> positions(glyphs_range.length());
       SkScalar offset_x = preceding_segment_widths -
                           ((glyphs_range.GetMin() != 0)
-                               ? run.positions[glyphs_range.GetMin()].x()
+                               ? run.shape.positions[glyphs_range.GetMin()].x()
                                : 0);
       for (size_t j = 0; j < glyphs_range.length(); ++j) {
-        positions[j] = run.positions[(glyphs_range.is_reversed()) ?
-                                     (glyphs_range.start() - j) :
-                                     (glyphs_range.start() + j)];
-        positions[j].offset(SkIntToScalar(origin.x()) + offset_x,
-                            SkIntToScalar(origin.y() + run.baseline_offset));
+        positions[j] = run.shape.positions[(glyphs_range.is_reversed())
+                                               ? (glyphs_range.start() - j)
+                                               : (glyphs_range.start() + j)];
+        positions[j].offset(
+            SkIntToScalar(origin.x()) + offset_x,
+            SkIntToScalar(origin.y() + run.font_params.baseline_offset));
       }
-      for (BreakList<SkColor>::const_iterator it =
-               colors().GetBreak(segment.char_range.start());
+      for (auto it = colors().GetBreak(segment.char_range.start());
            it != colors().breaks().end() &&
-               it->first < segment.char_range.end();
+           it->first < segment.char_range.end();
            ++it) {
         const Range intersection =
             colors().GetRange(it).Intersect(segment.char_range);
@@ -1308,7 +1619,7 @@ void RenderTextHarfBuzz::DrawVisualText(internal::SkiaTextRenderer* renderer) {
         renderer->SetForegroundColor(it->second);
         renderer->DrawPosText(
             &positions[colored_glyphs.start() - glyphs_range.start()],
-            &run.glyphs[colored_glyphs.start()], colored_glyphs.length());
+            &run.shape.glyphs[colored_glyphs.start()], colored_glyphs.length());
         int start_x = SkScalarRoundToInt(
             positions[colored_glyphs.start() - glyphs_range.start()].x());
         int end_x = SkScalarRoundToInt(
@@ -1316,9 +1627,11 @@ void RenderTextHarfBuzz::DrawVisualText(internal::SkiaTextRenderer* renderer) {
                 ? (SkFloatToScalar(segment.width()) + preceding_segment_widths +
                    SkIntToScalar(origin.x()))
                 : positions[colored_glyphs.end() - glyphs_range.start()].x());
-        if (run.underline)
+        if (run.font_params.heavy_underline)
+          renderer->DrawUnderline(start_x, origin.y(), end_x - start_x, 2.0);
+        else if (run.font_params.underline)
           renderer->DrawUnderline(start_x, origin.y(), end_x - start_x);
-        if (run.strike)
+        if (run.font_params.strike)
           renderer->DrawStrike(start_x, origin.y(), end_x - start_x,
                                strike_thickness_factor());
       }
@@ -1357,21 +1670,52 @@ SelectionModel RenderTextHarfBuzz::LastSelectionModelInsideRun(
   return SelectionModel(position, CURSOR_FORWARD);
 }
 
+void RenderTextHarfBuzz::ItemizeAndShapeText(const base::string16& text,
+                                             internal::TextRunList* run_list) {
+  CommonizedRunsMap commonized_run_map;
+  ItemizeTextToRuns(text, run_list, &commonized_run_map);
+
+  for (auto iter = commonized_run_map.begin(); iter != commonized_run_map.end();
+       ++iter) {
+    internal::TextRunHarfBuzz::FontParams font_params = iter->first;
+    font_params.ComputeRenderParamsFontSizeAndBaselineOffset();
+    ShapeRuns(text, font_params, std::move(iter->second));
+  }
+
+  run_list->InitIndexMap();
+  run_list->ComputePrecedingRunWidths();
+}
+
 void RenderTextHarfBuzz::ItemizeTextToRuns(
     const base::string16& text,
-    internal::TextRunList* run_list_out) {
+    internal::TextRunList* out_run_list,
+    CommonizedRunsMap* out_commonized_run_map) {
+  TRACE_EVENT1("ui", "RenderTextHarfBuzz::ItemizeTextToRuns", "text_length",
+               text.length());
   DCHECK_NE(0U, text.length());
+  const Font& primary_font = font_list().GetPrimaryFont();
 
   // If ICU fails to itemize the text, we create a run that spans the entire
   // text. This is needed because leaving the runs set empty causes some clients
   // to misbehave since they expect non-zero text metrics from a non-empty text.
   base::i18n::BiDiLineIterator bidi_iterator;
-  if (!bidi_iterator.Open(text, GetTextDirection(text))) {
-    auto run = base::MakeUnique<internal::TextRunHarfBuzz>(
+  base::i18n::BiDiLineIterator::CustomBehavior behavior =
+      base::i18n::BiDiLineIterator::CustomBehavior::NONE;
+
+  // If the feature flag is enabled, use the special URL behaviour on the Bidi
+  // algorithm, if this is a URL.
+  if (base::FeatureList::IsEnabled(features::kLeftToRightUrls) &&
+      directionality_mode() == DIRECTIONALITY_AS_URL) {
+    behavior = base::i18n::BiDiLineIterator::CustomBehavior::AS_URL;
+  }
+
+  if (!bidi_iterator.Open(text, GetTextDirection(text), behavior)) {
+    auto run = std::make_unique<internal::TextRunHarfBuzz>(
         font_list().GetPrimaryFont());
     run->range = Range(0, text.length());
-    run_list_out->Add(std::move(run));
-    run_list_out->InitIndexMap();
+    internal::TextRunHarfBuzz::FontParams font_params(primary_font);
+    (*out_commonized_run_map)[font_params].push_back(run.get());
+    out_run_list->Add(std::move(run));
     return;
   }
 
@@ -1385,26 +1729,32 @@ void RenderTextHarfBuzz::ItemizeTextToRuns(
   DCHECK_LE(text.size(), baselines().max());
   for (const BreakList<bool>& style : styles())
     DCHECK_LE(text.size(), style.max());
-  internal::StyleIterator style(empty_colors, baselines(), weights(), styles());
+  internal::StyleIterator style(empty_colors, baselines(),
+                                font_size_overrides(), weights(), styles());
 
   for (size_t run_break = 0; run_break < text.length();) {
-    auto run = base::MakeUnique<internal::TextRunHarfBuzz>(
-        font_list().GetPrimaryFont());
-    run->range.set_start(run_break);
-    run->italic = style.style(ITALIC);
-    run->baseline_type = style.baseline();
-    run->strike = style.style(STRIKE);
-    run->underline = style.style(UNDERLINE);
-    run->weight = style.weight();
+    Range run_range;
+    internal::TextRunHarfBuzz::FontParams font_params(primary_font);
+    run_range.set_start(run_break);
+    font_params.italic = style.style(TEXT_STYLE_ITALIC);
+    font_params.baseline_type = style.baseline();
+    font_params.font_size = style.font_size_override();
+    font_params.strike = style.style(TEXT_STYLE_STRIKE);
+    font_params.underline = style.style(TEXT_STYLE_UNDERLINE);
+    font_params.heavy_underline = style.style(TEXT_STYLE_HEAVY_UNDERLINE);
+    font_params.weight = style.weight();
     int32_t script_item_break = 0;
-    bidi_iterator.GetLogicalRun(run_break, &script_item_break, &run->level);
+    bidi_iterator.GetLogicalRun(run_break, &script_item_break,
+                                &font_params.level);
     CHECK_GT(static_cast<size_t>(script_item_break), run_break);
-    ApplyForcedDirection(&run->level);
+    ApplyForcedDirection(&font_params.level);
     // Odd BiDi embedding levels correspond to RTL runs.
-    run->is_rtl = (run->level % 2) == 1;
+    font_params.is_rtl = (font_params.level % 2) == 1;
     // Find the length and script of this script run.
-    script_item_break = ScriptInterval(text, run_break,
-        script_item_break - run_break, &run->script) + run_break;
+    script_item_break =
+        ScriptInterval(text, run_break, script_item_break - run_break,
+                       &font_params.script) +
+        run_break;
 
     // Find the next break and advance the iterators as needed.
     const size_t new_run_break = std::min(
@@ -1418,87 +1768,39 @@ void RenderTextHarfBuzz::ItemizeTextToRuns(
     // prevent either an unusual character from forcing a fallback font on the
     // entire run, or brackets from being affected by a fallback font.
     // http://crbug.com/278913, http://crbug.com/396776
-    if (run_break > run->range.start())
-      run_break = FindRunBreakingCharacter(text, run->range.start(), run_break);
+    if (run_break > run_range.start())
+      run_break = FindRunBreakingCharacter(text, run_range.start(), run_break);
 
     DCHECK(IsValidCodePointIndex(text, run_break));
     style.UpdatePosition(DisplayIndexToTextIndex(run_break));
-    run->range.set_end(run_break);
+    run_range.set_end(run_break);
 
-    run_list_out->Add(std::move(run));
+    auto run = std::make_unique<internal::TextRunHarfBuzz>(
+        font_list().GetPrimaryFont());
+    (*out_commonized_run_map)[font_params].push_back(run.get());
+    run->range = run_range;
+    out_run_list->Add(std::move(run));
   }
 
   // Undo the temporarily applied composition underlines and selection colors.
   UndoCompositionAndSelectionStyles();
-
-  run_list_out->InitIndexMap();
 }
 
-bool RenderTextHarfBuzz::CompareFamily(
+void RenderTextHarfBuzz::ShapeRuns(
     const base::string16& text,
-    const Font& font,
-    const FontRenderParams& render_params,
-    internal::TextRunHarfBuzz* run,
-    Font* best_font,
-    FontRenderParams* best_render_params,
-    size_t* best_missing_glyphs) {
-  if (!ShapeRunWithFont(text, font, render_params, run))
-    return false;
+    const internal::TextRunHarfBuzz::FontParams& font_params,
+    std::vector<internal::TextRunHarfBuzz*> runs) {
+  TRACE_EVENT1("ui", "RenderTextHarfBuzz::ShapeRuns", "run_count", runs.size());
 
-  const size_t missing_glyphs = run->CountMissingGlyphs();
-  if (missing_glyphs < *best_missing_glyphs) {
-    *best_font = font;
-    *best_render_params = render_params;
-    *best_missing_glyphs = missing_glyphs;
-  }
-  return missing_glyphs == 0;
-}
-
-void RenderTextHarfBuzz::ShapeRunList(const base::string16& text,
-                                      internal::TextRunList* run_list) {
-  for (const auto& run : run_list->runs())
-    ShapeRun(text, run.get());
-  run_list->ComputePrecedingRunWidths();
-}
-
-void RenderTextHarfBuzz::ShapeRun(const base::string16& text,
-                                  internal::TextRunHarfBuzz* run) {
   const Font& primary_font = font_list().GetPrimaryFont();
-  const std::string primary_family = primary_font.GetFontName();
-  run->font_size = primary_font.GetFontSize();
-  run->baseline_offset = 0;
-  if (run->baseline_type != NORMAL_BASELINE) {
-    // Calculate a slightly smaller font. The ratio here is somewhat arbitrary.
-    // Proportions from 5/9 to 5/7 all look pretty good.
-    const float ratio = 5.0f / 9.0f;
-    run->font_size = ToRoundedInt(primary_font.GetFontSize() * ratio);
-    switch (run->baseline_type) {
-      case SUPERSCRIPT:
-        run->baseline_offset =
-            primary_font.GetCapHeight() - primary_font.GetHeight();
-        break;
-      case SUPERIOR:
-        run->baseline_offset =
-            ToRoundedInt(primary_font.GetCapHeight() * ratio) -
-            primary_font.GetCapHeight();
-        break;
-      case SUBSCRIPT:
-        run->baseline_offset =
-            primary_font.GetHeight() - primary_font.GetBaseline();
-        break;
-      case INFERIOR:  // Fall through.
-      default:
-        break;
-    }
-  }
-
-  Font best_font(primary_font);
-  FontRenderParams best_render_params;
-  size_t best_missing_glyphs = std::numeric_limits<size_t>::max();
 
   for (const Font& font : font_list().GetFonts()) {
-    if (CompareFamily(text, font, font.GetFontRenderParams(), run, &best_font,
-                      &best_render_params, &best_missing_glyphs))
+    internal::TextRunHarfBuzz::FontParams test_font_params = font_params;
+    if (test_font_params.SetFontAndRenderParams(font,
+                                                font.GetFontRenderParams())) {
+      ShapeRunsWithFont(text, test_font_params, &runs);
+    }
+    if (runs.empty())
       return;
   }
 
@@ -1506,44 +1808,57 @@ void RenderTextHarfBuzz::ShapeRun(const base::string16& text,
 
 #if defined(OS_WIN) || defined(OS_MACOSX)
   Font fallback_font(primary_font);
-  const base::char16* run_text = &(text[run->range.start()]);
-  if (GetFallbackFont(primary_font, run_text, run->range.length(),
+  const base::char16* run_text = &(text[runs.front()->range.start()]);
+  if (GetFallbackFont(primary_font, run_text, runs.front()->range.length(),
                       &fallback_font)) {
     preferred_fallback_family = fallback_font.GetFontName();
-    if (CompareFamily(text, fallback_font, fallback_font.GetFontRenderParams(),
-                      run, &best_font, &best_render_params,
-                      &best_missing_glyphs))
+    internal::TextRunHarfBuzz::FontParams test_font_params = font_params;
+    if (test_font_params.SetFontAndRenderParams(
+            fallback_font, fallback_font.GetFontRenderParams())) {
+      ShapeRunsWithFont(text, test_font_params, &runs);
+    }
+    if (runs.empty())
       return;
   }
 #endif
 
-  std::vector<Font> fallback_font_list = GetFallbackFonts(primary_font);
+  std::vector<Font> fallback_font_list;
+  {
+    SCOPED_UMA_HISTOGRAM_LONG_TIMER("RenderTextHarfBuzz.GetFallbackFontsTime");
+    TRACE_EVENT0("ui", "RenderTextHarfBuzz::GetFallbackFonts");
+    fallback_font_list = GetFallbackFonts(primary_font);
 
 #if defined(OS_WIN)
-  // Append fonts in the fallback list of the preferred fallback font.
-  // TODO(tapted): Investigate whether there's a case that benefits from this on
-  // Mac.
-  if (!preferred_fallback_family.empty()) {
-    std::vector<Font> fallback_fonts = GetFallbackFonts(fallback_font);
-    fallback_font_list.insert(fallback_font_list.end(), fallback_fonts.begin(),
-                              fallback_fonts.end());
-  }
+    // Append fonts in the fallback list of the preferred fallback font.
+    // TODO(tapted): Investigate whether there's a case that benefits from this
+    // on Mac.
+    if (!preferred_fallback_family.empty()) {
+      std::vector<Font> fallback_fonts = GetFallbackFonts(fallback_font);
+      fallback_font_list.insert(fallback_font_list.end(),
+                                fallback_fonts.begin(), fallback_fonts.end());
+    }
 
-  // Add Segoe UI and its associated linked fonts to the fallback font list to
-  // ensure that the fallback list covers the basic cases.
-  // http://crbug.com/467459. On some Windows configurations the default font
-  // could be a raster font like System, which would not give us a reasonable
-  // fallback font list.
-  if (!base::LowerCaseEqualsASCII(primary_font.GetFontName(), "segoe ui") &&
-      !base::LowerCaseEqualsASCII(preferred_fallback_family, "segoe ui")) {
-    std::vector<Font> default_fallback_families =
-        GetFallbackFonts(Font("Segoe UI", 13));
-    fallback_font_list.insert(fallback_font_list.end(),
-        default_fallback_families.begin(), default_fallback_families.end());
-  }
+    // Add Segoe UI and its associated linked fonts to the fallback font list to
+    // ensure that the fallback list covers the basic cases.
+    // http://crbug.com/467459. On some Windows configurations the default font
+    // could be a raster font like System, which would not give us a reasonable
+    // fallback font list.
+    if (!base::LowerCaseEqualsASCII(primary_font.GetFontName(), "segoe ui") &&
+        !base::LowerCaseEqualsASCII(preferred_fallback_family, "segoe ui")) {
+      std::vector<Font> default_fallback_families =
+          GetFallbackFonts(Font("Segoe UI", 13));
+      fallback_font_list.insert(fallback_font_list.end(),
+                                default_fallback_families.begin(),
+                                default_fallback_families.end());
+    }
 #endif
+  }
 
   // Use a set to track the fallback fonts and avoid duplicate entries.
+  SCOPED_UMA_HISTOGRAM_LONG_TIMER(
+      "RenderTextHarfBuzz.ShapeRunsWithFallbackFontsTime");
+  TRACE_EVENT1("ui", "RenderTextHarfBuzz::ShapeRunsWithFallbackFonts",
+               "fonts_count", fallback_font_list.size());
   std::set<Font, CaseInsensitiveCompare> fallback_fonts;
 
   // Try shaping with the fallback fonts.
@@ -1559,93 +1874,73 @@ void RenderTextHarfBuzz::ShapeRun(const base::string16& text,
 
     FontRenderParamsQuery query;
     query.families.push_back(font_name);
-    query.pixel_size = run->font_size;
-    query.style = run->italic ? Font::ITALIC : 0;
+    query.pixel_size = font_params.font_size;
+    query.style = font_params.italic ? Font::ITALIC : 0;
     FontRenderParams fallback_render_params = GetFontRenderParams(query, NULL);
-    if (CompareFamily(text, font, fallback_render_params, run, &best_font,
-                      &best_render_params, &best_missing_glyphs))
+    internal::TextRunHarfBuzz::FontParams test_font_params = font_params;
+    if (test_font_params.SetFontAndRenderParams(font, fallback_render_params)) {
+      ShapeRunsWithFont(text, test_font_params, &runs);
+    }
+    if (runs.empty()) {
+      TRACE_EVENT_INSTANT1("ui", "RenderTextHarfBuzz::FallbackFont",
+                           TRACE_EVENT_SCOPE_THREAD, "font_name",
+                           TRACE_STR_COPY(font_name.c_str()));
       return;
+    }
   }
 
-  if (best_missing_glyphs != std::numeric_limits<size_t>::max() &&
-      (best_font.GetFontName() == run->font.GetFontName() ||
-       ShapeRunWithFont(text, best_font, best_render_params, run)))
-    return;
-
-  run->glyph_count = 0;
-  run->width = 0.0f;
+  for (internal::TextRunHarfBuzz*& run : runs) {
+    if (run->shape.missing_glyph_count == std::numeric_limits<size_t>::max()) {
+      run->shape.glyph_count = 0;
+      run->shape.width = 0.0f;
+    }
+  }
 }
 
-bool RenderTextHarfBuzz::ShapeRunWithFont(const base::string16& text,
-                                          const Font& font,
-                                          const FontRenderParams& params,
-                                          internal::TextRunHarfBuzz* run) {
-  sk_sp<SkTypeface> skia_face(
-      internal::CreateSkiaTypeface(font, run->italic, run->weight));
-  if (!skia_face)
-    return false;
+void RenderTextHarfBuzz::ShapeRunsWithFont(
+    const base::string16& text,
+    const internal::TextRunHarfBuzz::FontParams& font_params,
+    std::vector<internal::TextRunHarfBuzz*>* in_out_runs) {
+  // ShapeRunWithFont can be extremely slow, so use cached results if possible.
+  // Only do this on the UI thread, to avoid synchronization overhead (and
+  // because almost all calls are on the UI thread. Also avoid caching long
+  // strings, to avoid blowing up the cache size.
+  constexpr size_t kMaxRunLengthToCache = 25;
+  static base::NoDestructor<internal::ShapeRunCache> cache;
 
-  run->skia_face = skia_face;
-  run->font = font;
-  run->render_params = params;
+  std::vector<internal::TextRunHarfBuzz*> runs_with_missing_glyphs;
+  for (internal::TextRunHarfBuzz*& run : *in_out_runs) {
+    // First do a cache lookup.
+    bool can_use_cache = base::MessageLoopCurrentForUI::IsSet() &&
+                         run->range.length() <= kMaxRunLengthToCache;
+    bool found_in_cache = false;
+    const internal::ShapeRunWithFontInput cache_key(
+        text, font_params, run->range, obscured(), glyph_width_for_test_,
+        glyph_spacing(), subpixel_rendering_suppressed());
+    if (can_use_cache) {
+      auto found = cache.get()->Get(cache_key);
+      if (found != cache.get()->end()) {
+        run->UpdateFontParamsAndShape(font_params, found->second);
+        found_in_cache = true;
+      }
+    }
 
-  hb_font_t* harfbuzz_font = CreateHarfBuzzFont(
-      run->skia_face, SkIntToScalar(run->font_size), run->render_params,
-      subpixel_rendering_suppressed());
+    // If that fails, compute the shape of the run, and add the result to the
+    // cache.
+    // TODO(ccameron): Coalesce calls to ShapeRunsWithFont when possible.
+    if (!found_in_cache) {
+      internal::TextRunHarfBuzz::ShapeOutput output;
+      ShapeRunWithFont(cache_key, &output);
+      run->UpdateFontParamsAndShape(font_params, output);
+      if (can_use_cache)
+        cache.get()->Put(cache_key, output);
+    }
 
-  // Create a HarfBuzz buffer and add the string to be shaped. The HarfBuzz
-  // buffer holds our text, run information to be used by the shaping engine,
-  // and the resulting glyph data.
-  hb_buffer_t* buffer = hb_buffer_create();
-  hb_buffer_add_utf16(buffer, reinterpret_cast<const uint16_t*>(text.c_str()),
-                      text.length(), run->range.start(), run->range.length());
-  hb_buffer_set_script(buffer, ICUScriptToHBScript(run->script));
-  hb_buffer_set_direction(buffer,
-      run->is_rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
-  // TODO(ckocagil): Should we determine the actual language?
-  hb_buffer_set_language(buffer, hb_language_get_default());
-
-  {
-    // TODO(ckocagil): Remove ScopedTracker below once crbug.com/441028 is
-    // fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION("441028 hb_shape()"));
-
-    // Shape the text.
-    hb_shape(harfbuzz_font, buffer, NULL, 0);
+    // Check to see if we still have missing glyphs.
+    if (run->shape.missing_glyph_count)
+      runs_with_missing_glyphs.push_back(run);
   }
-
-  // Populate the run fields with the resulting glyph data in the buffer.
-  unsigned int glyph_count = 0;
-  hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(buffer, &glyph_count);
-  run->glyph_count = glyph_count;
-  hb_glyph_position_t* hb_positions =
-      hb_buffer_get_glyph_positions(buffer, NULL);
-  run->glyphs.reset(new uint16_t[run->glyph_count]);
-  run->glyph_to_char.resize(run->glyph_count);
-  run->positions.reset(new SkPoint[run->glyph_count]);
-  run->width = 0.0f;
-
-  for (size_t i = 0; i < run->glyph_count; ++i) {
-    DCHECK_LE(infos[i].codepoint, std::numeric_limits<uint16_t>::max());
-    run->glyphs[i] = static_cast<uint16_t>(infos[i].codepoint);
-    run->glyph_to_char[i] = infos[i].cluster;
-    const SkScalar x_offset =
-        HarfBuzzUnitsToSkiaScalar(hb_positions[i].x_offset);
-    const SkScalar y_offset =
-        HarfBuzzUnitsToSkiaScalar(hb_positions[i].y_offset);
-    run->positions[i].set(run->width + x_offset, -y_offset);
-    run->width += (glyph_width_for_test_ > 0)
-                      ? glyph_width_for_test_
-                      : HarfBuzzUnitsToFloat(hb_positions[i].x_advance);
-    // Round run widths if subpixel positioning is off to match native behavior.
-    if (!run->render_params.subpixel_positioning)
-      run->width = std::floor(run->width + 0.5f);
-  }
-
-  hb_buffer_destroy(buffer);
-  hb_font_destroy(harfbuzz_font);
-  return true;
+  in_out_runs->swap(runs_with_missing_glyphs);
 }
 
 void RenderTextHarfBuzz::EnsureLayoutRunList() {
@@ -1653,16 +1948,8 @@ void RenderTextHarfBuzz::EnsureLayoutRunList() {
     layout_run_list_.Reset();
 
     const base::string16& text = layout_text();
-    if (!text.empty()) {
-      TRACE_EVENT0("ui", "RenderTextHarfBuzz:EnsureLayoutRunList");
-      ItemizeTextToRuns(text, &layout_run_list_);
-
-      // TODO(ckocagil): Remove ScopedTracker below once crbug.com/441028 is
-      // fixed.
-      tracked_objects::ScopedTracker tracking_profile(
-          FROM_HERE_WITH_EXPLICIT_FUNCTION("441028 ShapeRunList() 2"));
-      ShapeRunList(text, &layout_run_list_);
-    }
+    if (!text.empty())
+      ItemizeAndShapeText(text, &layout_run_list_);
 
     display_run_list_.reset();
     update_display_text_ = true;
@@ -1677,6 +1964,8 @@ void RenderTextHarfBuzz::EnsureLayoutRunList() {
   }
 }
 
+// Returns the current run list, |display_run_list_| if the text is elided, or
+// |layout_run_list_| otherwise.
 internal::TextRunList* RenderTextHarfBuzz::GetRunList() {
   DCHECK(!update_layout_run_list_);
   DCHECK(!update_display_run_list_);
@@ -1707,22 +1996,26 @@ bool RenderTextHarfBuzz::GetDecoratedTextForRange(
 
     if (!intersection.is_empty()) {
       int style = Font::NORMAL;
-      if (run.italic)
+      if (run.font_params.italic)
         style |= Font::ITALIC;
-      if (run.underline)
+      if (run.font_params.underline || run.font_params.heavy_underline)
         style |= Font::UNDERLINE;
 
       // Get range relative to the decorated text.
       DecoratedText::RangedAttribute attribute(
           Range(intersection.start() - range.GetMin(),
                 intersection.end() - range.GetMin()),
-          run.font.Derive(0, style, run.weight));
+          run.font_params.font.Derive(0, style, run.font_params.weight));
 
-      attribute.strike = run.strike;
+      attribute.strike = run.font_params.strike;
       decorated_text->attributes.push_back(attribute);
     }
   }
   return true;
+}
+
+void RenderTextHarfBuzz::SetGlyphWidthForTest(float test_width) {
+  glyph_width_for_test_ = test_width;
 }
 
 }  // namespace gfx

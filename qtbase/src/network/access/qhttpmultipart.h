@@ -46,6 +46,8 @@
 #include <QtCore/QIODevice>
 #include <QtNetwork/QNetworkRequest>
 
+QT_REQUIRE_CONFIG(http);
+
 QT_BEGIN_NAMESPACE
 
 
@@ -98,8 +100,8 @@ public:
         AlternativeType
     };
 
-    explicit QHttpMultiPart(QObject *parent = Q_NULLPTR);
-    explicit QHttpMultiPart(ContentType contentType, QObject *parent = Q_NULLPTR);
+    explicit QHttpMultiPart(QObject *parent = nullptr);
+    explicit QHttpMultiPart(ContentType contentType, QObject *parent = nullptr);
     ~QHttpMultiPart();
 
     void append(const QHttpPart &httpPart);

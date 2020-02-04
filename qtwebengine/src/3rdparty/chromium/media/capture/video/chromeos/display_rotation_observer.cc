@@ -11,34 +11,38 @@
 
 namespace media {
 
+// static
+scoped_refptr<ScreenObserverDelegate> ScreenObserverDelegate::Create(
+    DisplayRotationObserver* observer,
+    scoped_refptr<base::SingleThreadTaskRunner> display_task_runner) {
+  auto delegate = base::WrapRefCounted(
+      new ScreenObserverDelegate(observer, display_task_runner));
+  display_task_runner->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ScreenObserverDelegate::AddObserverOnDisplayThread,
+                     delegate));
+  return delegate;
+}
+
 ScreenObserverDelegate::ScreenObserverDelegate(
     DisplayRotationObserver* observer,
     scoped_refptr<base::SingleThreadTaskRunner> display_task_runner)
     : observer_(observer),
       display_task_runner_(std::move(display_task_runner)),
-      delegate_task_runner_(base::ThreadTaskRunnerHandle::Get()) {
-  display_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&ScreenObserverDelegate::AddObserverOnDisplayThread, this));
-}
+      delegate_task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
 
 void ScreenObserverDelegate::RemoveObserver() {
   DCHECK(delegate_task_runner_->BelongsToCurrentThread());
   observer_ = NULL;
   display_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&ScreenObserverDelegate::RemoveObserverOnDisplayThread, this));
+      base::BindOnce(&ScreenObserverDelegate::RemoveObserverOnDisplayThread,
+                     this));
 }
 
 ScreenObserverDelegate::~ScreenObserverDelegate() {
   DCHECK(!observer_);
 }
-
-void ScreenObserverDelegate::OnDisplayAdded(
-    const display::Display& /*new_display*/) {}
-
-void ScreenObserverDelegate::OnDisplayRemoved(
-    const display::Display& /*old_display*/) {}
 
 void ScreenObserverDelegate::OnDisplayMetricsChanged(
     const display::Display& display,
@@ -72,8 +76,9 @@ void ScreenObserverDelegate::SendDisplayRotation(
   DCHECK(display_task_runner_->BelongsToCurrentThread());
   delegate_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&ScreenObserverDelegate::SendDisplayRotationOnCaptureThread,
-                 this, display));
+      base::BindOnce(
+          &ScreenObserverDelegate::SendDisplayRotationOnCaptureThread, this,
+          display));
 }
 
 void ScreenObserverDelegate::SendDisplayRotationOnCaptureThread(

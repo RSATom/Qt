@@ -55,7 +55,7 @@ public:
         RemoveCategory
     };
 
-    explicit QPlaceIdReply(OperationType operationType, QObject *parent = Q_NULLPTR);
+    explicit QPlaceIdReply(OperationType operationType, QObject *parent = nullptr);
     virtual ~QPlaceIdReply();
 
     QPlaceReply::Type type() const;

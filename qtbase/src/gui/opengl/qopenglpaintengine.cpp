@@ -87,8 +87,27 @@
 
 #include <QDebug>
 
-QT_BEGIN_NAMESPACE
+#ifndef GL_KHR_blend_equation_advanced
+#define GL_KHR_blend_equation_advanced 1
+#define GL_MULTIPLY_KHR                   0x9294
+#define GL_SCREEN_KHR                     0x9295
+#define GL_OVERLAY_KHR                    0x9296
+#define GL_DARKEN_KHR                     0x9297
+#define GL_LIGHTEN_KHR                    0x9298
+#define GL_COLORDODGE_KHR                 0x9299
+#define GL_COLORBURN_KHR                  0x929A
+#define GL_HARDLIGHT_KHR                  0x929B
+#define GL_SOFTLIGHT_KHR                  0x929C
+#define GL_DIFFERENCE_KHR                 0x929E
+#define GL_EXCLUSION_KHR                  0x92A0
+#endif /* GL_KHR_blend_equation_advanced */
 
+#ifndef GL_KHR_blend_equation_advanced_coherent
+#define GL_KHR_blend_equation_advanced_coherent 1
+#define GL_BLEND_ADVANCED_COHERENT_KHR    0x9285
+#endif /* GL_KHR_blend_equation_advanced_coherent */
+
+QT_BEGIN_NAMESPACE
 
 
 Q_GUI_EXPORT QImage qt_imageForBrush(int brushStyle, bool invert);
@@ -244,13 +263,19 @@ GLuint QOpenGL2PaintEngineExPrivate::bindTexture(const QGradient &gradient)
 struct ImageWithBindOptions
 {
     const QImage &image;
-    QOpenGLTextureCache::BindOptions options;
+    QOpenGLTextureUploader::BindOptions options;
 };
 
 template<>
 GLuint QOpenGL2PaintEngineExPrivate::bindTexture(const ImageWithBindOptions &imageWithOptions)
 {
     return QOpenGLTextureCache::cacheForContext(ctx)->bindTexture(ctx, imageWithOptions.image, imageWithOptions.options);
+}
+
+inline static bool isPowerOfTwo(int x)
+{
+    // Assumption: x >= 1
+    return x == (x & -x);
 }
 
 void QOpenGL2PaintEngineExPrivate::updateBrushTexture()
@@ -285,16 +310,18 @@ void QOpenGL2PaintEngineExPrivate::updateBrushTexture()
         currentBrushImage = currentBrush.textureImage();
 
         int max_texture_size = ctx->d_func()->maxTextureSize();
-        if (currentBrushImage.width() > max_texture_size || currentBrushImage.height() > max_texture_size)
-            currentBrushImage = currentBrushImage.scaled(max_texture_size, max_texture_size, Qt::KeepAspectRatio);
+        QSize newSize = currentBrushImage.size();
+        newSize = newSize.boundedTo(QSize(max_texture_size, max_texture_size));
+        if (!QOpenGLContext::currentContext()->functions()->hasOpenGLFeature(QOpenGLFunctions::NPOTTextureRepeat)) {
+            if (!isPowerOfTwo(newSize.width()) || !isPowerOfTwo(newSize.height())) {
+                newSize.setHeight(qNextPowerOfTwo(newSize.height() - 1));
+                newSize.setWidth(qNextPowerOfTwo(newSize.width() - 1));
+            }
+        }
+        if (currentBrushImage.size() != newSize)
+            currentBrushImage = currentBrushImage.scaled(newSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
         GLuint wrapMode = GL_REPEAT;
-        if (QOpenGLContext::currentContext()->isOpenGLES()) {
-            // OpenGL ES does not support GL_REPEAT wrap modes for NPOT textures. So instead,
-            // we emulate GL_REPEAT by only taking the fractional part of the texture coords
-            // in the qopenglslTextureBrushSrcFragmentShader program.
-            wrapMode = GL_CLAMP_TO_EDGE;
-        }
 
         updateTexture(QT_BRUSH_TEXTURE_UNIT, currentBrushImage, wrapMode, filterMode, ForceUpdate);
     }
@@ -498,6 +525,21 @@ void QOpenGL2PaintEngineExPrivate::updateCompositionMode()
     // NOTE: The entire paint engine works on pre-multiplied data - which is why some of these
     //       composition modes look odd.
 //     qDebug() << "QOpenGL2PaintEngineExPrivate::updateCompositionMode() - Setting GL composition mode for " << q->state()->composition_mode;
+    if (ctx->functions()->hasOpenGLFeature(QOpenGLFunctions::BlendEquationAdvanced)) {
+       if (q->state()->composition_mode <= QPainter::CompositionMode_Plus) {
+           funcs.glDisable(GL_BLEND_ADVANCED_COHERENT_KHR);
+           funcs.glBlendEquation(GL_FUNC_ADD);
+       } else {
+           funcs.glEnable(GL_BLEND_ADVANCED_COHERENT_KHR);
+       }
+       shaderManager->setCompositionMode(q->state()->composition_mode);
+    } else {
+        if (q->state()->composition_mode > QPainter::CompositionMode_Plus) {
+            qWarning("Unsupported composition mode");
+            compositionModeDirty = false;
+            return;
+        }
+    }
     switch(q->state()->composition_mode) {
     case QPainter::CompositionMode_SourceOver:
         funcs.glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
@@ -537,6 +579,39 @@ void QOpenGL2PaintEngineExPrivate::updateCompositionMode()
         break;
     case QPainter::CompositionMode_Plus:
         funcs.glBlendFunc(GL_ONE, GL_ONE);
+        break;
+    case QPainter::CompositionMode_Multiply:
+        funcs.glBlendEquation(GL_MULTIPLY_KHR);
+        break;
+    case QPainter::CompositionMode_Screen:
+        funcs.glBlendEquation(GL_SCREEN_KHR);
+        break;
+    case QPainter::CompositionMode_Overlay:
+        funcs.glBlendEquation(GL_OVERLAY_KHR);
+        break;
+    case QPainter::CompositionMode_Darken:
+        funcs.glBlendEquation(GL_DARKEN_KHR);
+        break;
+    case QPainter::CompositionMode_Lighten:
+        funcs.glBlendEquation(GL_LIGHTEN_KHR);
+        break;
+    case QPainter::CompositionMode_ColorDodge:
+        funcs.glBlendEquation(GL_COLORDODGE_KHR);
+        break;
+    case QPainter::CompositionMode_ColorBurn:
+        funcs.glBlendEquation(GL_COLORBURN_KHR);
+        break;
+    case QPainter::CompositionMode_HardLight:
+        funcs.glBlendEquation(GL_HARDLIGHT_KHR);
+        break;
+    case QPainter::CompositionMode_SoftLight:
+        funcs.glBlendEquation(GL_SOFTLIGHT_KHR);
+        break;
+    case QPainter::CompositionMode_Difference:
+        funcs.glBlendEquation(GL_DIFFERENCE_KHR);
+        break;
+    case QPainter::CompositionMode_Exclusion:
+        funcs.glBlendEquation(GL_EXCLUSION_KHR);
         break;
     default:
         qWarning("Unsupported composition mode");
@@ -797,20 +872,18 @@ void QOpenGL2PaintEngineExPrivate::fill(const QVectorPath& path)
 
             if (data) {
                 cache = (QOpenGL2PEVectorPathCache *) data->data;
-                // Check if scale factor is exceeded for curved paths and generate curves if so...
-                if (path.isCurved()) {
-                    qreal scaleFactor = cache->iscale / inverseScale;
-                    if (scaleFactor < 0.5 || scaleFactor > 2.0) {
+                // Check if scale factor is exceeded and regenerate if so...
+                qreal scaleFactor = cache->iscale / inverseScale;
+                if (scaleFactor < 0.5 || scaleFactor > 2.0) {
 #ifdef QT_OPENGL_CACHE_AS_VBOS
-                        glDeleteBuffers(1, &cache->vbo);
-                        cache->vbo = 0;
-                        Q_ASSERT(cache->ibo == 0);
+                    glDeleteBuffers(1, &cache->vbo);
+                    cache->vbo = 0;
+                    Q_ASSERT(cache->ibo == 0);
 #else
-                        free(cache->vertices);
-                        Q_ASSERT(cache->indices == 0);
+                    free(cache->vertices);
+                    Q_ASSERT(cache->indices == 0);
 #endif
-                        updateCache = true;
-                    }
+                    updateCache = true;
                 }
             } else {
                 cache = new QOpenGL2PEVectorPathCache;
@@ -879,19 +952,17 @@ void QOpenGL2PaintEngineExPrivate::fill(const QVectorPath& path)
 
             if (data) {
                 cache = (QOpenGL2PEVectorPathCache *) data->data;
-                // Check if scale factor is exceeded for curved paths and generate curves if so...
-                if (path.isCurved()) {
-                    qreal scaleFactor = cache->iscale / inverseScale;
-                    if (scaleFactor < 0.5 || scaleFactor > 2.0) {
+                // Check if scale factor is exceeded and regenerate if so...
+                qreal scaleFactor = cache->iscale / inverseScale;
+                if (scaleFactor < 0.5 || scaleFactor > 2.0) {
 #ifdef QT_OPENGL_CACHE_AS_VBOS
-                        glDeleteBuffers(1, &cache->vbo);
-                        glDeleteBuffers(1, &cache->ibo);
+                    glDeleteBuffers(1, &cache->vbo);
+                    glDeleteBuffers(1, &cache->ibo);
 #else
-                        free(cache->vertices);
-                        free(cache->indices);
+                    free(cache->vertices);
+                    free(cache->indices);
 #endif
-                        updateCache = true;
-                    }
+                    updateCache = true;
                 }
             } else {
                 cache = new QOpenGL2PEVectorPathCache;
@@ -1491,25 +1562,27 @@ void QOpenGL2PaintEngineEx::drawImage(const QRectF& dest, const QImage& image, c
     ensureActive();
     d->transferMode(ImageDrawingMode);
 
-    QOpenGLTextureCache::BindOptions bindOption = QOpenGLTextureCache::PremultipliedAlphaBindOption;
+    QOpenGLTextureUploader::BindOptions bindOption = QOpenGLTextureUploader::PremultipliedAlphaBindOption;
     // Use specialized bind for formats we have specialized shaders for.
     switch (image.format()) {
     case QImage::Format_RGBA8888:
     case QImage::Format_ARGB32:
+    case QImage::Format_RGBA64:
         d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::NonPremultipliedImageSrc);
         bindOption = 0;
         break;
     case QImage::Format_Alpha8:
         if (ctx->functions()->hasOpenGLFeature(QOpenGLFunctions::TextureRGFormats)) {
             d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::AlphaImageSrc);
-            bindOption = QOpenGLTextureCache::UseRedFor8BitBindOption;
+            bindOption = QOpenGLTextureUploader::UseRedForAlphaAndLuminanceBindOption;
         } else
             d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::ImageSrc);
         break;
     case QImage::Format_Grayscale8:
+    case QImage::Format_Grayscale16:
         if (ctx->functions()->hasOpenGLFeature(QOpenGLFunctions::TextureRGFormats)) {
             d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::GrayscaleImageSrc);
-            bindOption = QOpenGLTextureCache::UseRedFor8BitBindOption;
+            bindOption = QOpenGLTextureUploader::UseRedForAlphaAndLuminanceBindOption;
         } else
             d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::ImageSrc);
         break;
@@ -1745,6 +1818,7 @@ void QOpenGL2PaintEngineExPrivate::drawCachedGlyphs(QFontEngine::GlyphFormat gly
             // we may have to re-bind brush textures after filling in the cache.
             brushTextureDirty = (QT_BRUSH_TEXTURE_UNIT == glypchCacheTextureUnit);
         }
+        cache->setPaintEnginePrivate(nullptr);
     }
 
     if (cache->width() == 0 || cache->height() == 0)

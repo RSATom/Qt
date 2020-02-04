@@ -31,6 +31,7 @@ it{
         151{"Europa orientale"}
         154{"Europa settentrionale"}
         155{"Europa occidentale"}
+        202{"Africa subsahariana"}
         419{"America Latina"}
         AC{"Isola Ascensione"}
         AD{"Andorra"}
@@ -89,7 +90,7 @@ it{
         CW{"Curaçao"}
         CX{"Isola Christmas"}
         CY{"Cipro"}
-        CZ{"Cèchia"}
+        CZ{"Cechia"}
         DE{"Germania"}
         DG{"Diego Garcia"}
         DJ{"Gibuti"}
@@ -106,6 +107,7 @@ it{
         ES{"Spagna"}
         ET{"Etiopia"}
         EU{"Unione Europea"}
+        EZ{"Eurozona"}
         FI{"Finlandia"}
         FJ{"Figi"}
         FK{"Isole Falkland (Isole Malvine)"}
@@ -217,7 +219,7 @@ it{
         PH{"Filippine"}
         PK{"Pakistan"}
         PL{"Polonia"}
-        PM{"Saint Pierre e Miquelon"}
+        PM{"Saint-Pierre e Miquelon"}
         PN{"Isole Pitcairn"}
         PR{"Portorico"}
         PS{"Palestina"}
@@ -272,12 +274,12 @@ it{
         UA{"Ucraina"}
         UG{"Uganda"}
         UM{"Altre isole americane del Pacifico"}
-        UN{"nazioni unite"}
+        UN{"Nazioni Unite"}
         US{"Stati Uniti"}
         UY{"Uruguay"}
         UZ{"Uzbekistan"}
         VA{"Città del Vaticano"}
-        VC{"Saint Vincent e Grenadines"}
+        VC{"Saint Vincent e Grenadine"}
         VE{"Venezuela"}
         VG{"Isole Vergini Britanniche"}
         VI{"Isole Vergini Americane"}
@@ -295,7 +297,7 @@ it{
     }
     Countries%short{
         GB{"UK"}
-        UN{"nazioni unite"}
+        UN{"ONU"}
         US{"USA"}
     }
     Countries%variant{
@@ -303,7 +305,6 @@ it{
         CG{"Congo (Repubblica)"}
         CI{"Côte d’Ivoire"}
         CZ{"Repubblica Ceca"}
-        TL{"Timor Leste"}
     }
-    Version{"2.1.32.60"}
+    Version{"2.1.44.86"}
 }

@@ -4,16 +4,14 @@
 
 #include "device/vr/vr_display_impl.h"
 
+#include <memory>
+
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/test/fake_vr_device.h"
-#include "device/vr/test/fake_vr_device_provider.h"
-#include "device/vr/test/fake_vr_display_impl_client.h"
 #include "device/vr/test/fake_vr_service_client.h"
-#include "device/vr/vr_device_manager.h"
-#include "device/vr/vr_service.mojom.h"
-#include "device/vr/vr_service_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace device {
@@ -22,114 +20,125 @@ class VRDisplayImplTest : public testing::Test {
  public:
   VRDisplayImplTest() {}
   ~VRDisplayImplTest() override {}
-  void onDisplaySynced(unsigned int number_of_devices) {}
-  void onPresentComplete(bool success) {
-    is_request_presenting_success_ = success;
-  }
+  void onDisplaySynced() {}
 
  protected:
   void SetUp() override {
-    provider_ = new FakeVRDeviceProvider();
-    device_ = new FakeVRDevice();
-    provider_->AddDevice(base::WrapUnique(device_));
-    device_manager_.reset(new VRDeviceManager(base::WrapUnique(provider_)));
-  }
-
-  std::unique_ptr<VRServiceImpl> BindService() {
+    device_ = std::make_unique<FakeVRDevice>(static_cast<mojom::XRDeviceId>(1));
+    device_->SetPose(mojom::VRPose::New());
     mojom::VRServiceClientPtr proxy;
-    clients_.push_back(new FakeVRServiceClient(mojo::MakeRequest(&proxy)));
-
-    auto service = base::WrapUnique(new VRServiceImpl(-1, -1));
-    service->SetClient(std::move(proxy),
-                       base::Bind(&VRDisplayImplTest::onDisplaySynced,
-                                  base::Unretained(this)));
-    return service;
+    client_ = std::make_unique<FakeVRServiceClient>(mojo::MakeRequest(&proxy));
   }
 
-  void RequestPresent(VRDisplayImpl* display_impl) {
-    // TODO(klausw,mthiesse): set up a VRSubmitFrameClient here? Currently,
-    // the FakeVRDisplay doesn't access the submit client, so a nullptr
-    // is ok.
-    device::mojom::VRSubmitFrameClientPtr submit_client = nullptr;
-    device::mojom::VRPresentationProviderRequest request = nullptr;
-    display_impl->RequestPresent(
-        true, std::move(submit_client), std::move(request),
-        base::Bind(&VRDisplayImplTest::onPresentComplete,
-                   base::Unretained(this)));
+  std::unique_ptr<VRDisplayImpl> MakeDisplay(
+      mojom::XRSessionControllerPtr* controller) {
+    mojom::XRFrameDataProviderPtr data_provider;
+    auto display = std::make_unique<VRDisplayImpl>(
+        device(), mojo::MakeRequest(&data_provider),
+        mojo::MakeRequest(controller));
+    static_cast<mojom::XRSessionController*>(display.get())
+        ->SetFrameDataRestricted(true);
+    return display;
   }
 
-  void ExitPresent(VRDisplayImpl* display_impl) { display_impl->ExitPresent(); }
-
-  void TearDown() override { base::RunLoop().RunUntilIdle(); }
-
-  VRDevice* device() { return device_; }
-
-  bool presenting() { return !!device_->presenting_display_; }
-
-  VRDisplayImpl* GetVRDisplayImpl(VRServiceImpl* service, VRDevice* device) {
-    return service->GetVRDisplayImplForTesting(device);
+  void RequestSession(VRDisplayImpl* display_impl) {
+    device_->RequestSession(
+        mojom::XRRuntimeSessionOptionsPtr(),
+        base::BindOnce(
+            [](device::mojom::XRSessionPtr session,
+               mojom::XRSessionControllerPtr immersive_session_controller) {}));
   }
+
+  void ExitPresent() {
+    device_->StopSession();
+  }
+
+  bool presenting() { return device_->IsPresenting(); }
+  VRDeviceBase* device() { return device_.get(); }
+  FakeVRServiceClient* client() { return client_.get(); }
 
   base::MessageLoop message_loop_;
-  bool is_request_presenting_success_ = false;
-  FakeVRDeviceProvider* provider_;
-  FakeVRDevice* device_;
-  std::vector<FakeVRServiceClient*> clients_;
-  std::unique_ptr<VRDeviceManager> device_manager_;
+  std::unique_ptr<FakeVRDevice> device_;
+  std::unique_ptr<FakeVRServiceClient> client_;
 
   DISALLOW_COPY_AND_ASSIGN(VRDisplayImplTest);
 };
 
 TEST_F(VRDisplayImplTest, DevicePresentationIsolation) {
-  auto service_1 = BindService();
-  auto service_2 = BindService();
+  mojom::XRSessionControllerPtr controller1;
+  std::unique_ptr<VRDisplayImpl> display_1 = MakeDisplay(&controller1);
+  static_cast<mojom::XRSessionController*>(display_1.get())
+      ->SetFrameDataRestricted(false);
 
-  VRDisplayImpl* display_1 = GetVRDisplayImpl(service_1.get(), device());
-  VRDisplayImpl* display_2 = GetVRDisplayImpl(service_2.get(), device());
+  mojom::XRSessionControllerPtr controller2;
+  std::unique_ptr<VRDisplayImpl> display_2 = MakeDisplay(&controller2);
+  static_cast<mojom::XRSessionController*>(display_2.get())
+      ->SetFrameDataRestricted(false);
 
   // When not presenting either service should be able to access the device.
-  EXPECT_TRUE(device()->IsAccessAllowed(display_1));
-  EXPECT_TRUE(device()->IsAccessAllowed(display_2));
+  EXPECT_FALSE(device()->HasExclusiveSession());
 
-  // Begin presenting to the fake device with service 1.
-  RequestPresent(display_1);
-  EXPECT_TRUE(is_request_presenting_success_);
+  bool was_called = false;
+  auto callback = [](bool expect_null, bool* was_called,
+                     mojom::XRFrameDataPtr data) {
+    *was_called = true;
+    EXPECT_EQ(expect_null, !data);
+  };
+
+  static_cast<mojom::XRFrameDataProvider*>(display_1.get())
+      ->GetFrameData(base::BindOnce(callback, false, &was_called));
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  was_called = false;
+
+  static_cast<mojom::XRFrameDataProvider*>(display_2.get())
+      ->GetFrameData(base::BindOnce(callback, false, &was_called));
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  was_called = false;
+
+  // Attempt to present.
+  RequestSession(display_1.get());
   EXPECT_TRUE(presenting());
+  EXPECT_TRUE(device()->HasExclusiveSession());
 
-  // Service 2 should not be able to present to the device while service 1
-  // is still presenting.
-  RequestPresent(display_2);
-  EXPECT_FALSE(is_request_presenting_success_);
-  EXPECT_TRUE(device()->IsAccessAllowed(display_1));
-  EXPECT_FALSE(device()->IsAccessAllowed(display_2));
+  // While a device is presenting, no one should have access to magic window.
+  static_cast<mojom::XRFrameDataProvider*>(display_1.get())
+      ->GetFrameData(base::BindOnce(callback, true, &was_called));
 
-  // Service 2 should not be able to exit presentation to the device.
-  ExitPresent(display_2);
-  EXPECT_TRUE(presenting());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  was_called = false;
+
+  static_cast<mojom::XRFrameDataProvider*>(display_2.get())
+      ->GetFrameData(base::BindOnce(callback, true, &was_called));
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  was_called = false;
 
   // Service 1 should be able to exit the presentation it initiated.
-  ExitPresent(display_1);
+  ExitPresent();
   EXPECT_FALSE(presenting());
+  EXPECT_FALSE(device()->HasExclusiveSession());
 
   // Once presentation had ended both services should be able to access the
   // device.
-  EXPECT_TRUE(device()->IsAccessAllowed(display_1));
-  EXPECT_TRUE(device()->IsAccessAllowed(display_2));
-}
-
-// This test case tests VRDevice class default behaviour when it
-// dispatch "vrdevicechanged" event. The expected behaviour is all
-// of the services related with this device will receive "vrdevicechanged"
-// event.
-TEST_F(VRDisplayImplTest, DeviceChangedDispatched) {
-  auto service_1 = BindService();
-  auto service_2 = BindService();
-
-  device()->OnChanged();
+  static_cast<mojom::XRFrameDataProvider*>(display_1.get())
+      ->GetFrameData(base::BindOnce(callback, false, &was_called));
 
   base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  was_called = false;
 
-  for (auto* client : clients_)
-    EXPECT_TRUE(client->CheckDeviceId(device()->id()));
+  static_cast<mojom::XRFrameDataProvider*>(display_2.get())
+      ->GetFrameData(base::BindOnce(callback, false, &was_called));
+
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(was_called);
+  was_called = false;
 }
+
 }

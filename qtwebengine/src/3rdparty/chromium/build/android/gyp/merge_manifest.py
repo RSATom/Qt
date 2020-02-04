@@ -14,6 +14,7 @@ import tempfile
 import xml.dom.minidom as minidom
 
 from util import build_utils
+from util import diff_utils
 
 # Tools library directory - relative to Android SDK root
 SDK_TOOLS_LIB_DIR = os.path.join('tools', 'lib')
@@ -31,7 +32,7 @@ TOOLS_NAMESPACE = 'http://schemas.android.com/tools'
 
 
 @contextlib.contextmanager
-def _PatchedManifest(manifest_path):
+def _ProcessManifest(manifest_path):
   """Patches an Android manifest to always include the 'tools' namespace
   declaration, as it is not propagated by the manifest merger from the SDK.
 
@@ -41,6 +42,7 @@ def _PatchedManifest(manifest_path):
   manifests = doc.getElementsByTagName('manifest')
   assert len(manifests) == 1
   manifest = manifests[0]
+  package = manifest.getAttribute('package')
 
   manifest.setAttribute('xmlns:%s' % TOOLS_NAMESPACE_PREFIX, TOOLS_NAMESPACE)
 
@@ -48,7 +50,7 @@ def _PatchedManifest(manifest_path):
   with tempfile.NamedTemporaryFile(prefix=tmp_prefix) as patched_manifest:
     doc.writexml(patched_manifest)
     patched_manifest.flush()
-    yield patched_manifest.name
+    yield patched_manifest.name, package
 
 
 def _BuildManifestMergerClasspath(build_vars):
@@ -64,36 +66,70 @@ def _BuildManifestMergerClasspath(build_vars):
 def main(argv):
   argv = build_utils.ExpandFileArgs(argv)
   parser = argparse.ArgumentParser(description=__doc__)
+  build_utils.AddDepfileOption(parser)
   parser.add_argument('--build-vars',
                       help='Path to GN build vars file',
                       required=True)
   parser.add_argument('--root-manifest',
                       help='Root manifest which to merge into',
                       required=True)
+  parser.add_argument(
+      '--expected-manifest', help='Expected contents for the merged manifest.')
+  parser.add_argument(
+      '--verify-expected-manifest',
+      action='store_true',
+      help='Fail if expected contents do not match merged manifest contents.')
   parser.add_argument('--output', help='Output manifest path', required=True)
   parser.add_argument('--extras',
                       help='GN list of additional manifest to merge')
   args = parser.parse_args(argv)
 
-  cmd = [
-    'java',
-    '-cp',
-    _BuildManifestMergerClasspath(build_utils.ReadBuildVars(args.build_vars)),
-    MANIFEST_MERGER_MAIN_CLASS,
-    '--out', args.output,
-  ]
+  classpath = _BuildManifestMergerClasspath(
+      build_utils.ReadBuildVars(args.build_vars))
 
-  extras = build_utils.ParseGnList(args.extras)
-  if extras:
-    cmd += ['--libs', ':'.join(extras)]
+  with build_utils.AtomicOutput(args.output) as f:
+    cmd = [
+      'java',
+      '-cp',
+      classpath,
+      MANIFEST_MERGER_MAIN_CLASS,
+      '--out', f.name,
+    ]
 
-  with _PatchedManifest(args.root_manifest) as root_manifest:
-    cmd += ['--main', root_manifest]
-    build_utils.CheckOutput(cmd,
-      # https://issuetracker.google.com/issues/63514300: The merger doesn't set
-      # a nonzero exit code for failures.
-      fail_func=lambda returncode, stderr: returncode != 0 or
-        build_utils.IsTimeStale(args.output, [root_manifest] + extras))
+    extras = build_utils.ParseGnList(args.extras)
+    if extras:
+      cmd += ['--libs', ':'.join(extras)]
+
+    with _ProcessManifest(args.root_manifest) as tup:
+      root_manifest, package = tup
+      cmd += ['--main', root_manifest, '--property', 'PACKAGE=' + package]
+      build_utils.CheckOutput(cmd,
+        # https://issuetracker.google.com/issues/63514300:
+        # The merger doesn't set a nonzero exit code for failures.
+        fail_func=lambda returncode, stderr: returncode != 0 or
+          build_utils.IsTimeStale(f.name, [root_manifest] + extras))
+
+  if args.expected_manifest:
+    diff = diff_utils.DiffFileContents(args.expected_manifest, args.output)
+    if diff:
+      print """
+{}
+
+Detected AndroidManifest change. Please update by running:
+
+cp {} {}
+
+See https://chromium.googlesource.com/chromium/src/+/HEAD/chrome/android/java/README.md
+for more info.
+""".format(diff, os.path.abspath(args.output),
+           os.path.abspath(args.expected_manifest))
+      if args.verify_expected_manifest:
+        sys.exit(1)
+
+  if args.depfile:
+    inputs = extras + classpath.split(':')
+    build_utils.WriteDepfile(args.depfile, args.output, inputs=inputs,
+                             add_pydeps=False)
 
 
 if __name__ == '__main__':

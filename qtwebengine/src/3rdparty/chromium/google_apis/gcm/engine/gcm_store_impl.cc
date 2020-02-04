@@ -11,9 +11,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -22,12 +20,12 @@
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "base/tracked_objects.h"
 #include "google_apis/gcm/base/encryptor.h"
 #include "google_apis/gcm/base/mcs_message.h"
 #include "google_apis/gcm/base/mcs_util.h"
 #include "google_apis/gcm/protocol/mcs.pb.h"
 #include "third_party/leveldatabase/env_chromium.h"
+#include "third_party/leveldatabase/leveldb_chrome.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
 #include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
 
@@ -124,7 +122,7 @@ std::string MakeRegistrationKey(const std::string& app_id) {
 }
 
 std::string ParseRegistrationKey(const std::string& key) {
-  return key.substr(arraysize(kRegistrationKeyStart) - 1);
+  return key.substr(base::size(kRegistrationKeyStart) - 1);
 }
 
 std::string MakeIncomingKey(const std::string& persistent_id) {
@@ -136,7 +134,7 @@ std::string MakeOutgoingKey(const std::string& persistent_id) {
 }
 
 std::string ParseOutgoingKey(const std::string& key) {
-  return key.substr(arraysize(kOutgoingMsgKeyStart) - 1);
+  return key.substr(base::size(kOutgoingMsgKeyStart) - 1);
 }
 
 std::string MakeGServiceSettingKey(const std::string& setting_name) {
@@ -144,7 +142,7 @@ std::string MakeGServiceSettingKey(const std::string& setting_name) {
 }
 
 std::string ParseGServiceSettingKey(const std::string& key) {
-  return key.substr(arraysize(kGServiceSettingKeyStart) - 1);
+  return key.substr(base::size(kGServiceSettingKeyStart) - 1);
 }
 
 std::string MakeAccountKey(const std::string& account_id) {
@@ -152,7 +150,7 @@ std::string MakeAccountKey(const std::string& account_id) {
 }
 
 std::string ParseAccountKey(const std::string& key) {
-  return key.substr(arraysize(kAccountKeyStart) - 1);
+  return key.substr(base::size(kAccountKeyStart) - 1);
 }
 
 std::string MakeHeartbeatKey(const std::string& scope) {
@@ -160,7 +158,7 @@ std::string MakeHeartbeatKey(const std::string& scope) {
 }
 
 std::string ParseHeartbeatKey(const std::string& key) {
-  return key.substr(arraysize(kHeartbeatKeyStart) - 1);
+  return key.substr(base::size(kHeartbeatKeyStart) - 1);
 }
 
 std::string MakeInstanceIDKey(const std::string& app_id) {
@@ -168,7 +166,7 @@ std::string MakeInstanceIDKey(const std::string& app_id) {
 }
 
 std::string ParseInstanceIDKey(const std::string& key) {
-  return key.substr(arraysize(kInstanceIDKeyStart) - 1);
+  return key.substr(base::size(kInstanceIDKeyStart) - 1);
 }
 
 // Note: leveldb::Slice keeps a pointer to the data in |s|, which must therefore
@@ -176,13 +174,6 @@ std::string ParseInstanceIDKey(const std::string& key) {
 // For example: MakeSlice(MakeOutgoingKey(x)) is invalid.
 leveldb::Slice MakeSlice(const base::StringPiece& s) {
   return leveldb::Slice(s.begin(), s.size());
-}
-
-bool DatabaseExists(const base::FilePath& path) {
-  // It's not enough to check that the directory exists, since DestroyDB
-  // sometimes leaves behind an empty directory
-  // (https://github.com/google/leveldb/issues/215).
-  return base::PathExists(path.Append(FILE_PATH_LITERAL("CURRENT")));
 }
 
 }  // namespace
@@ -294,14 +285,14 @@ LoadStatus GCMStoreImpl::Backend::OpenStoreAndLoadData(StoreOpenMode open_mode,
 
   // Checks if the store exists or not. Opening a db with create_if_missing
   // not set will still create a new directory if the store does not exist.
-  if (open_mode == DO_NOT_CREATE && !DatabaseExists(path_)) {
+  if (open_mode == DO_NOT_CREATE &&
+      !leveldb_chrome::PossiblyValidDB(path_, leveldb::Env::Default())) {
     DVLOG(2) << "Database " << path_.value() << " does not exist";
     return STORE_DOES_NOT_EXIST;
   }
 
-  leveldb::Options options;
+  leveldb_env::Options options;
   options.create_if_missing = open_mode == CREATE_IF_MISSING;
-  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
   options.paranoid_checks = true;
   leveldb::Status status =
       leveldb_env::OpenDB(options, path_.AsUTF8Unsafe(), &db_);
@@ -374,20 +365,21 @@ void GCMStoreImpl::Backend::Load(StoreOpenMode open_mode,
   if (result->device_android_id != 0 && result->device_security_token != 0) {
     int64_t file_size = 0;
     if (base::GetFileSize(path_, &file_size)) {
-      UMA_HISTOGRAM_COUNTS("GCM.StoreSizeKB",
-                           static_cast<int>(file_size / 1024));
+      UMA_HISTOGRAM_COUNTS_1M("GCM.StoreSizeKB",
+                              static_cast<int>(file_size / 1024));
     }
 
-    UMA_HISTOGRAM_COUNTS("GCM.RestoredRegistrations", gcm_registration_count);
-    UMA_HISTOGRAM_COUNTS("GCM.RestoredOutgoingMessages",
-                         result->outgoing_messages.size());
-    UMA_HISTOGRAM_COUNTS("GCM.RestoredIncomingMessages",
-                         result->incoming_messages.size());
+    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredRegistrations",
+                            gcm_registration_count);
+    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredOutgoingMessages",
+                            result->outgoing_messages.size());
+    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredIncomingMessages",
+                            result->incoming_messages.size());
 
-    UMA_HISTOGRAM_COUNTS("InstanceID.RestoredTokenCount",
-                         instance_id_token_count);
-    UMA_HISTOGRAM_COUNTS("InstanceID.RestoredIDCount",
-                         result->instance_id_data.size());
+    UMA_HISTOGRAM_COUNTS_1M("InstanceID.RestoredTokenCount",
+                            instance_id_token_count);
+    UMA_HISTOGRAM_COUNTS_1M("InstanceID.RestoredIDCount",
+                            result->instance_id_data.size());
   }
 
   DVLOG(1) << "Succeeded in loading "
@@ -414,7 +406,7 @@ void GCMStoreImpl::Backend::Destroy(const UpdateCallback& callback) {
   DVLOG(1) << "Destroying GCM store.";
   db_.reset();
   const leveldb::Status s =
-      leveldb::DestroyDB(path_.AsUTF8Unsafe(), leveldb::Options());
+      leveldb::DestroyDB(path_.AsUTF8Unsafe(), leveldb_env::Options());
   if (s.ok()) {
     foreground_task_runner_->PostTask(FROM_HERE, base::Bind(callback, true));
     return;
@@ -438,9 +430,9 @@ void GCMStoreImpl::Backend::SetDeviceCredentials(
   write_options.sync = true;
 
   std::string encrypted_token;
-  encryptor_->EncryptString(base::Uint64ToString(device_security_token),
+  encryptor_->EncryptString(base::NumberToString(device_security_token),
                             &encrypted_token);
-  std::string android_id_str = base::Uint64ToString(device_android_id);
+  std::string android_id_str = base::NumberToString(device_android_id);
   leveldb::Status s =
       db_->Put(write_options,
                MakeSlice(kDeviceAIDKey),
@@ -1009,7 +1001,7 @@ bool GCMStoreImpl::Backend::LoadOutgoingMessages(
     }
     DVLOG(1) << "Found outgoing message with id " << id << " of type "
              << base::UintToString(tag);
-    (*outgoing_messages)[id] = make_linked_ptr(message.release());
+    (*outgoing_messages)[id] = std::move(message);
   }
 
   return true;
@@ -1430,10 +1422,6 @@ void GCMStoreImpl::SetValueForTesting(const std::string& key,
 
 void GCMStoreImpl::LoadContinuation(const LoadCallback& callback,
                                     std::unique_ptr<LoadResult> result) {
-  // TODO(pkasting): Remove ScopedTracker below once crbug.com/477117 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "477117 GCMStoreImpl::LoadContinuation"));
   if (!result->success) {
     callback.Run(std::move(result));
     return;
@@ -1452,7 +1440,7 @@ void GCMStoreImpl::LoadContinuation(const LoadCallback& callback,
     if (app_message_counts_[data_message->category()] == kMessagesPerAppLimit)
       num_throttled_apps++;
   }
-  UMA_HISTOGRAM_COUNTS("GCM.NumThrottledApps", num_throttled_apps);
+  UMA_HISTOGRAM_COUNTS_1M("GCM.NumThrottledApps", num_throttled_apps);
   callback.Run(std::move(result));
 }
 

@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "core/fxcodec/jbig2/JBig2_ArithDecoder.h"
-#include "core/fxcrt/fx_basic.h"
 
 class CJBig2_Image;
 
@@ -23,7 +22,6 @@ class CJBig2_SymbolDict {
 
   std::unique_ptr<CJBig2_SymbolDict> DeepCopy() const;
 
-  // Takes ownership of |image|.
   void AddImage(std::unique_ptr<CJBig2_Image> image) {
     m_SDEXSYMS.push_back(std::move(image));
   }
@@ -34,11 +32,11 @@ class CJBig2_SymbolDict {
   const std::vector<JBig2ArithCtx>& GbContext() const { return m_gbContext; }
   const std::vector<JBig2ArithCtx>& GrContext() const { return m_grContext; }
 
-  void SetGbContext(const std::vector<JBig2ArithCtx>& gbContext) {
-    m_gbContext = gbContext;
+  void SetGbContext(std::vector<JBig2ArithCtx> gbContext) {
+    m_gbContext = std::move(gbContext);
   }
-  void SetGrContext(const std::vector<JBig2ArithCtx>& grContext) {
-    m_grContext = grContext;
+  void SetGrContext(std::vector<JBig2ArithCtx> grContext) {
+    m_grContext = std::move(grContext);
   }
 
  private:

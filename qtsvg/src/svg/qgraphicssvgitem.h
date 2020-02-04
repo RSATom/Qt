@@ -61,8 +61,8 @@ class Q_SVG_EXPORT QGraphicsSvgItem : public QGraphicsObject
     Q_PROPERTY(QSize maximumCacheSize READ maximumCacheSize WRITE setMaximumCacheSize)
 
 public:
-    QGraphicsSvgItem(QGraphicsItem *parentItem = Q_NULLPTR);
-    QGraphicsSvgItem(const QString &fileName, QGraphicsItem *parentItem = Q_NULLPTR);
+    QGraphicsSvgItem(QGraphicsItem *parentItem = nullptr);
+    QGraphicsSvgItem(const QString &fileName, QGraphicsItem *parentItem = nullptr);
 
     void setSharedRenderer(QSvgRenderer *renderer);
     QSvgRenderer *renderer() const;
@@ -80,7 +80,7 @@ public:
 
     void paint(QPainter *painter,
                const QStyleOptionGraphicsItem *option,
-               QWidget *widget = Q_NULLPTR) override;
+               QWidget *widget = nullptr) override;
 
     enum { Type = 13 };
     int type() const override;

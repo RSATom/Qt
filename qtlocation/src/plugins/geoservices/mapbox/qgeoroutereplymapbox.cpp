@@ -39,48 +39,58 @@
 ****************************************************************************/
 
 #include "qgeoroutereplymapbox.h"
-
+#include "qgeoroutingmanagerenginemapbox.h"
+#include <QtLocation/private/qgeorouteparser_p.h>
+#include <QtLocation/private/qgeoroute_p.h>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QJsonArray>
 #include <QtLocation/QGeoRouteSegment>
 #include <QtLocation/QGeoManeuver>
 
+namespace {
+
+class QGeoRouteMapbox : public QGeoRoute
+{
+public:
+    QGeoRouteMapbox(const QGeoRoute &other, const QVariantMap &metadata);
+};
+
+class QGeoRoutePrivateMapbox : public QGeoRoutePrivateDefault
+{
+public:
+    QGeoRoutePrivateMapbox(const QGeoRoutePrivateDefault &other, const QVariantMap &metadata);
+
+    virtual QString engineName() const override;
+    virtual QVariantMap metadata() const override;
+
+    QVariantMap m_metadata;
+};
+
+QGeoRouteMapbox::QGeoRouteMapbox(const QGeoRoute &other, const QVariantMap &metadata)
+    : QGeoRoute(QExplicitlySharedDataPointer<QGeoRoutePrivateMapbox>(new QGeoRoutePrivateMapbox(*static_cast<const QGeoRoutePrivateDefault *>(QGeoRoutePrivate::routePrivateData(other)), metadata)))
+{
+}
+
+QGeoRoutePrivateMapbox::QGeoRoutePrivateMapbox(const QGeoRoutePrivateDefault &other, const QVariantMap &metadata)
+    : QGeoRoutePrivateDefault(other)
+    , m_metadata(metadata)
+{
+}
+
+QString QGeoRoutePrivateMapbox::engineName() const
+{
+    return QStringLiteral("mapbox");
+}
+
+QVariantMap QGeoRoutePrivateMapbox::metadata() const
+{
+    return m_metadata;
+}
+
+} // namespace
+
 QT_BEGIN_NAMESPACE
-
-static QList<QGeoCoordinate> parsePolyline(const QString &line)
-{
-    QList<QGeoCoordinate> path;
-    QByteArray data(line.toLocal8Bit());
-
-    int mode = 0, shift = 0, value = 0, coord[2] = {0, 0};
-    for (int i = 0; i < data.length(); ++i) {
-        int c = data.at(i) - 63;
-        value |= (c & 0x1f) << shift;
-        shift += 5;
-        if (c & 0x20) continue;
-        coord[mode] += (value & 1) ? ~(value >> 1) : (value >> 1);
-        if (mode) path.append(QGeoCoordinate((double)coord[0]/1e5, (double)coord[1]/1e5));
-        mode = 1 - mode;
-        value = shift = 0;
-    }
-    return path;
-}
-
-static QList<QGeoCoordinate> parseGeometry(const QJsonValue &geometry)
-{
-    QList<QGeoCoordinate> path;
-    if (geometry.isString()) path = parsePolyline(geometry.toString());
-    if (geometry.isObject()) {
-        QJsonArray coords = geometry.toObject().value(QStringLiteral("coordinates")).toArray();
-        for (int i = 0; i < coords.count(); i++) {
-            QJsonArray coord = coords.at(i).toArray();
-            if (coord.count() != 2) continue;
-            path.append(QGeoCoordinate(coord.at(1).toDouble(), coord.at(0).toDouble()));
-        }
-    }
-    return path;
-}
 
 QGeoRouteReplyMapbox::QGeoRouteReplyMapbox(QNetworkReply *reply, const QGeoRouteRequest &request,
                                      QObject *parent)
@@ -101,73 +111,6 @@ QGeoRouteReplyMapbox::~QGeoRouteReplyMapbox()
 {
 }
 
-static QGeoRoute constructRoute(const QJsonObject &obj)
-{
-    QGeoRoute route;
-    route.setDistance(obj.value(QStringLiteral("distance")).toDouble());
-    route.setTravelTime(obj.value(QStringLiteral("duration")).toDouble());
-
-    QList<QGeoCoordinate> path = parseGeometry(obj.value(QStringLiteral("geometry")));
-    route.setPath(path);
-
-    QGeoRouteSegment firstSegment, lastSegment;
-    QJsonArray legs = obj.value(QStringLiteral("legs")).toArray();
-
-    for (int i = 0; i < legs.count(); i++) {
-        QJsonObject leg = legs.at(i).toObject();
-        QJsonArray steps = leg.value("steps").toArray();
-
-        for (int j = 0; j < steps.count(); j++) {
-            QJsonObject step = steps.at(j).toObject();
-            QJsonObject stepManeuver = step.value("maneuver").toObject();
-
-            QGeoRouteSegment segment;
-            segment.setDistance(step.value("distance").toDouble());
-            segment.setTravelTime(step.value(QStringLiteral("duration")).toDouble());
-
-            QGeoManeuver maneuver;
-            maneuver.setDistanceToNextInstruction(step.value("distance").toDouble());
-            maneuver.setInstructionText(stepManeuver.value("instruction").toString());
-            maneuver.setTimeToNextInstruction(step.value(QStringLiteral("duration")).toDouble());
-            QJsonArray location = stepManeuver.value(QStringLiteral("location")).toArray();
-            if (location.count() > 1)
-                maneuver.setPosition(QGeoCoordinate(location.at(0).toDouble(), location.at(1).toDouble()));
-
-            QString modifier = stepManeuver.value("modifier").toString();
-            int bearing1 = stepManeuver.value("bearing_before").toInt();
-            int bearing2 = stepManeuver.value("bearing_after").toInt();
-
-            if (modifier == "straight")
-                maneuver.setDirection(QGeoManeuver::DirectionForward);
-            else if (modifier == "slight right")
-                maneuver.setDirection(QGeoManeuver::DirectionLightRight);
-            else if (modifier == "right")
-                maneuver.setDirection(QGeoManeuver::DirectionRight);
-            else if (modifier == "sharp right")
-                maneuver.setDirection(QGeoManeuver::DirectionHardRight);
-            else if (modifier == "uturn")
-                maneuver.setDirection(bearing2 - bearing1 > 180 ? QGeoManeuver::DirectionUTurnLeft : QGeoManeuver::DirectionUTurnRight);
-            else if (modifier == "sharp left")
-                maneuver.setDirection(QGeoManeuver::DirectionHardLeft);
-            else if (modifier == "left")
-                maneuver.setDirection(QGeoManeuver::DirectionLeft);
-            else if (modifier == "slight left")
-                maneuver.setDirection(QGeoManeuver::DirectionLightLeft);
-            else
-                maneuver.setDirection(QGeoManeuver::NoDirection);
-
-            segment.setManeuver(maneuver);
-            segment.setPath(parseGeometry(step.value(QStringLiteral("geometry"))));
-
-            if (!firstSegment.isValid()) firstSegment = segment;
-            if (lastSegment.isValid()) lastSegment.setNextRouteSegment(segment);
-            lastSegment = segment;
-        }
-    }
-    route.setFirstRouteSegment(firstSegment);
-    return route;
-}
-
 void QGeoRouteReplyMapbox::networkReplyFinished()
 {
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
@@ -176,32 +119,43 @@ void QGeoRouteReplyMapbox::networkReplyFinished()
     if (reply->error() != QNetworkReply::NoError)
         return;
 
-    QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
-    if (document.isObject()) {
-        QJsonObject object = document.object();
+    QGeoRoutingManagerEngineMapbox *engine = qobject_cast<QGeoRoutingManagerEngineMapbox *>(parent());
+    const QGeoRouteParser *parser = engine->routeParser();
 
-        QString status = object.value(QStringLiteral("code")).toString();
-        if (status != QStringLiteral("Ok")) {
-            setError(QGeoRouteReply::UnknownError, object.value(QStringLiteral("message")).toString());
-            return;
-        }
+    QList<QGeoRoute> routes;
+    QString errorString;
 
-        QList<QGeoRoute> list;
-        QJsonArray routes = object.value(QStringLiteral("routes")).toArray();
-        for (int i = 0; i < qMin(routes.count(), request().numberAlternativeRoutes() + 1); i++) {
-            QGeoRoute route = constructRoute(routes.at(i).toObject());
-            list.append(route);
+    QByteArray routeReply = reply->readAll();
+    QGeoRouteReply::Error error = parser->parseReply(routes, errorString, routeReply);
+    // Setting the request into the result
+    for (QGeoRoute &route : routes) {
+        route.setRequest(request());
+        for (QGeoRoute &leg: route.routeLegs()) {
+            leg.setRequest(request());
         }
-        setRoutes(list);
+    }
+
+    QVariantMap metadata;
+    metadata["osrm.reply-json"] = routeReply;
+
+    QList<QGeoRoute> mapboxRoutes;
+    for (const QGeoRoute &route : routes.mid(0, request().numberAlternativeRoutes() + 1)) {
+        QGeoRouteMapbox mapboxRoute(route, metadata);
+        mapboxRoutes.append(mapboxRoute);
+    }
+
+    if (error == QGeoRouteReply::NoError) {
+        setRoutes(mapboxRoutes);
+        // setError(QGeoRouteReply::NoError, status);  // can't do this, or NoError is emitted and does damages
         setFinished(true);
     } else {
-        setError(QGeoRouteReply::ParseError, QStringLiteral("Couldn't parse json."));
+        setError(error, errorString);
     }
 }
 
 void QGeoRouteReplyMapbox::networkReplyError(QNetworkReply::NetworkError error)
 {
-    Q_UNUSED(error)
+    Q_UNUSED(error);
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
     reply->deleteLater();
     setError(QGeoRouteReply::CommunicationError, reply->errorString());

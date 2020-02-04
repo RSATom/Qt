@@ -51,23 +51,17 @@ QT_BEGIN_NAMESPACE
     \preliminary
     \instantiates QQuickMultiPointHandler
     \inherits PointerDeviceHandler
-    \inqmlmodule Qt.labs.handlers
-    \ingroup qtquick-handlers
+    \inqmlmodule QtQuick
     \brief Abstract handler for multi-point Pointer Events.
 
     An intermediate class (not registered as a QML type)
     for any type of handler which requires and acts upon a specific number
     of multiple touchpoints.
 */
-QQuickMultiPointHandler::QQuickMultiPointHandler(QObject *parent, int minimumPointCount)
+QQuickMultiPointHandler::QQuickMultiPointHandler(QQuickItem *parent, int minimumPointCount, int maximumPointCount)
     : QQuickPointerDeviceHandler(parent)
     , m_minimumPointCount(minimumPointCount)
-    , m_maximumPointCount(-1)
-    , m_pointDistanceThreshold(0)
-{
-}
-
-QQuickMultiPointHandler::~QQuickMultiPointHandler()
+    , m_maximumPointCount(maximumPointCount)
 {
 }
 
@@ -76,37 +70,109 @@ bool QQuickMultiPointHandler::wantsPointerEvent(QQuickPointerEvent *event)
     if (!QQuickPointerDeviceHandler::wantsPointerEvent(event))
         return false;
 
-    if (event->asPointerNativeGestureEvent())
-        return true;
+    if (event->asPointerScrollEvent())
+        return false;
 
-    if (sameAsCurrentPoints(event))
-        return true;
+    bool ret = false;
+#if QT_CONFIG(gestures)
+    if (event->asPointerNativeGestureEvent() && event->point(0)->state() != QQuickEventPoint::Released)
+        ret = true;
+#endif
 
+    // If points were pressed or released within parentItem, reset stored state
+    // and check eligible points again. This class of handlers is intended to
+    // handle a specific number of points, so a differing number of points will
+    // usually result in different behavior. But otherwise if the currentPoints
+    // are all still there in the event, we're good to go (do not reset
+    // m_currentPoints, because we don't want to lose the pressPosition, and do
+    // not want to reshuffle the order either).
     const QVector<QQuickEventPoint *> candidatePoints = eligiblePoints(event);
-    const bool ret = (candidatePoints.size() >= minimumPointCount() && candidatePoints.size() <= maximumPointCount());
-    if (ret)
-        m_currentPoints = candidatePoints;
+    if (candidatePoints.count() != m_currentPoints.count()) {
+        m_currentPoints.clear();
+        if (active()) {
+            setActive(false);
+            m_centroid.reset();
+            emit centroidChanged();
+        }
+    } else if (hasCurrentPoints(event)) {
+        return true;
+    }
+
+    ret = ret || (candidatePoints.size() >= minimumPointCount() && candidatePoints.size() <= maximumPointCount());
+    if (ret) {
+        const int c = candidatePoints.count();
+        m_currentPoints.resize(c);
+        for (int i = 0; i < c; ++i) {
+            m_currentPoints[i].reset(candidatePoints[i]);
+            m_currentPoints[i].localize(parentItem());
+        }
+    } else {
+        m_currentPoints.clear();
+    }
     return ret;
+}
+
+void QQuickMultiPointHandler::handlePointerEventImpl(QQuickPointerEvent *event)
+{
+    QQuickPointerHandler::handlePointerEventImpl(event);
+    // event's points can be reordered since the previous event, which is why m_currentPoints
+    // is _not_ a shallow copy of the QQuickPointerTouchEvent::m_touchPoints vector.
+    // So we have to update our m_currentPoints instances based on the given event.
+    for (QQuickHandlerPoint &p : m_currentPoints) {
+        const QQuickEventPoint *ep = event->pointById(p.id());
+        if (ep)
+            p.reset(ep);
+    }
+    QPointF sceneGrabPos = m_centroid.sceneGrabPosition();
+    m_centroid.reset(m_currentPoints);
+    m_centroid.m_sceneGrabPosition = sceneGrabPos; // preserve as it was
+    emit centroidChanged();
+}
+
+void QQuickMultiPointHandler::onActiveChanged()
+{
+    if (active()) {
+        m_centroid.m_sceneGrabPosition = m_centroid.m_scenePosition;
+    } else {
+        // Don't call m_centroid.reset() here, because in a QML onActiveChanged
+        // callback, we'd like to see what the position _was_, what the velocity _was_, etc.
+        // (having them undefined is not useful)
+        // But pressedButtons and pressedModifiers are meant to be more real-time than those
+        // (which seems a bit inconsistent, from one side).
+        m_centroid.m_pressedButtons = Qt::NoButton;
+        m_centroid.m_pressedModifiers = Qt::NoModifier;
+    }
+}
+
+void QQuickMultiPointHandler::onGrabChanged(QQuickPointerHandler *, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *)
+{
+    // If another handler or item takes over this set of points, assume it has
+    // decided that it's the better fit for them. Don't immediately re-grab
+    // at the next opportunity. This should help to avoid grab cycles
+    // (e.g. between DragHandler and PinchHandler).
+    if (transition == QQuickEventPoint::UngrabExclusive || transition == QQuickEventPoint::CancelGrabExclusive)
+        m_currentPoints.clear();
 }
 
 QVector<QQuickEventPoint *> QQuickMultiPointHandler::eligiblePoints(QQuickPointerEvent *event)
 {
     QVector<QQuickEventPoint *> ret;
     int c = event->pointCount();
-    QRectF parentBounds = parentItem()->mapRectToScene(parentItem()->boundingRect())
-            .marginsAdded(QMarginsF(m_pointDistanceThreshold, m_pointDistanceThreshold, m_pointDistanceThreshold, m_pointDistanceThreshold));
     // If one or more points are newly pressed or released, all non-released points are candidates for this handler.
-    // In other cases however, do not steal the grab: that is, if a point has a grabber,
-    // it's not a candidate for this handler.
+    // In other cases however, check whether it would be OK to steal the grab if the handler chooses to do that.
     bool stealingAllowed = event->isPressEvent() || event->isReleaseEvent();
     for (int i = 0; i < c; ++i) {
         QQuickEventPoint *p = event->point(i);
-        if (!stealingAllowed) {
-            QObject *exclusiveGrabber = p->exclusiveGrabber();
-            if (exclusiveGrabber && exclusiveGrabber != this)
+        if (QQuickPointerMouseEvent *me = event->asPointerMouseEvent()) {
+            if (me->buttons() == Qt::NoButton)
                 continue;
         }
-        if (p->state() != QQuickEventPoint::Released && parentBounds.contains(p->scenePosition()))
+        if (!stealingAllowed) {
+            QObject *exclusiveGrabber = p->exclusiveGrabber();
+            if (exclusiveGrabber && exclusiveGrabber != this && !canGrab(p))
+                continue;
+        }
+        if (p->state() != QQuickEventPoint::Released && wantsEventPoint(p))
             ret << p;
     }
     return ret;
@@ -120,7 +186,7 @@ QVector<QQuickEventPoint *> QQuickMultiPointHandler::eligiblePoints(QQuickPointe
      If a smaller number of touchpoints are in contact with the
      \l {PointerHandler::parent}{parent}, they will be ignored.
 
-     Any ignored points are eligible to activate other Pointer Handlers that
+     Any ignored points are eligible to activate other Input Handlers that
      have different constraints, on the same Item or on other Items.
 
      The default value is 2.
@@ -146,7 +212,7 @@ void QQuickMultiPointHandler::setMinimumPointCount(int c)
      chosen in the order that they are pressed, and the remaining points will
      be ignored.
 
-     Any ignored points are eligible to activate other Pointer Handlers that
+     Any ignored points are eligible to activate other Input Handlers that
      have different constraints, on the same Item or on other Items.
 
      The default value is the same as \l minimumPointCount.
@@ -160,70 +226,20 @@ void QQuickMultiPointHandler::setMaximumPointCount(int maximumPointCount)
     emit maximumPointCountChanged();
 }
 
-/*!
-     \qmlproperty real MultiPointHandler::pointDistanceThreshold
-
-     The margin beyond the bounds of the \l {PointerHandler::parent}{parent}
-     item within which a touch point can activate this handler. For example, on
-     a PinchHandler where the \l {PointerHandler::target}{target} is also the
-     \c parent, it's useful to set this to a distance at least half the width
-     of a typical user's finger, so that if the \c parent has been scaled down
-     to a very small size, the pinch gesture is still possible.
-
-     The default value is 0.
-
-     \image pointDistanceThreshold.png
-*/
-void QQuickMultiPointHandler::setPointDistanceThreshold(qreal pointDistanceThreshold)
+bool QQuickMultiPointHandler::hasCurrentPoints(QQuickPointerEvent *event)
 {
-    if (m_pointDistanceThreshold == pointDistanceThreshold)
-        return;
-
-    m_pointDistanceThreshold = pointDistanceThreshold;
-    emit pointDistanceThresholdChanged();
-}
-
-bool QQuickMultiPointHandler::sameAsCurrentPoints(QQuickPointerEvent *event)
-{
-    bool ret = true;
-    int c = event->pointCount();
-    if (c != m_currentPoints.size())
+    if (event->pointCount() < m_currentPoints.size() || m_currentPoints.size() == 0)
         return false;
     // TODO optimize: either ensure the points are sorted,
     // or use std::equal with a predicate
-    for (int i = 0; ret && i < c; ++i) {
-        if (event->point(i)->state() == QQuickEventPoint::Released)
+    for (const QQuickHandlerPoint &p : qAsConst(m_currentPoints)) {
+        const QQuickEventPoint *ep = event->pointById(p.id());
+        if (!ep)
             return false;
-        bool found = false;
-        int pointId = event->point(i)->pointId();
-        for (QQuickEventPoint *o : qAsConst(m_currentPoints))
-            if (o && pointId == o->pointId())
-                found = true;
-        if (!found)
-            ret = false;
+        if (ep->state() == QQuickEventPoint::Released)
+            return false;
     }
-    return ret;
-}
-
-// TODO make templates for these functions somehow?
-QPointF QQuickMultiPointHandler::touchPointCentroid()
-{
-    QPointF ret;
-    if (Q_UNLIKELY(m_currentPoints.size() == 0))
-        return ret;
-    for (QQuickEventPoint *point : qAsConst(m_currentPoints))
-        ret += point->scenePosition();
-    return ret / m_currentPoints.size();
-}
-
-QVector2D QQuickMultiPointHandler::touchPointCentroidVelocity()
-{
-    QVector2D ret;
-    if (Q_UNLIKELY(m_currentPoints.size() == 0))
-        return ret;
-    for (QQuickEventPoint *point : qAsConst(m_currentPoints))
-        ret += point->velocity();
-    return ret / m_currentPoints.size();
+    return true;
 }
 
 qreal QQuickMultiPointHandler::averageTouchPointDistance(const QPointF &ref)
@@ -231,8 +247,8 @@ qreal QQuickMultiPointHandler::averageTouchPointDistance(const QPointF &ref)
     qreal ret = 0;
     if (Q_UNLIKELY(m_currentPoints.size() == 0))
         return ret;
-    for (QQuickEventPoint *point : qAsConst(m_currentPoints))
-        ret += QVector2D(point->scenePosition() - ref).length();
+    for (const QQuickHandlerPoint &p : m_currentPoints)
+        ret += QVector2D(p.scenePosition() - ref).length();
     return ret / m_currentPoints.size();
 }
 
@@ -242,8 +258,8 @@ qreal QQuickMultiPointHandler::averageStartingDistance(const QPointF &ref)
     qreal ret = 0;
     if (Q_UNLIKELY(m_currentPoints.size() == 0))
         return ret;
-    for (QQuickEventPoint *point : qAsConst(m_currentPoints))
-        ret += QVector2D(point->sceneGrabPosition() - ref).length();
+    for (const QQuickHandlerPoint &p : m_currentPoints)
+        ret += QVector2D(p.sceneGrabPosition() - ref).length();
     return ret / m_currentPoints.size();
 }
 
@@ -251,9 +267,9 @@ QVector<QQuickMultiPointHandler::PointData> QQuickMultiPointHandler::angles(cons
 {
     QVector<PointData> angles;
     angles.reserve(m_currentPoints.count());
-    for (QQuickEventPoint *point : qAsConst(m_currentPoints)) {
-        qreal angle = QLineF(ref, point->scenePosition()).angle();
-        angles.append(PointData(point->pointId(), -angle));     // convert to clockwise, to be consistent with QQuickItem::rotation
+    for (const QQuickHandlerPoint &p : m_currentPoints) {
+        qreal angle = QLineF(ref, p.scenePosition()).angle();
+        angles.append(PointData(p.id(), -angle));     // convert to clockwise, to be consistent with QQuickItem::rotation
     }
     return angles;
 }
@@ -298,9 +314,11 @@ void QQuickMultiPointHandler::acceptPoints(const QVector<QQuickEventPoint *> &po
 
 bool QQuickMultiPointHandler::grabPoints(QVector<QQuickEventPoint *> points)
 {
+    if (points.isEmpty())
+        return false;
     bool allowed = true;
     for (QQuickEventPoint* point : points) {
-        if (!canGrab(point)) {
+        if (point->exclusiveGrabber() != this && !canGrab(point)) {
             allowed = false;
             break;
         }
@@ -311,5 +329,20 @@ bool QQuickMultiPointHandler::grabPoints(QVector<QQuickEventPoint *> points)
     }
     return allowed;
 }
+
+void QQuickMultiPointHandler::moveTarget(QPointF pos)
+{
+    target()->setPosition(pos);
+    m_centroid.m_position = target()->mapFromScene(m_centroid.m_scenePosition);
+}
+
+/*!
+    \readonly
+    \qmlproperty QtQuick::HandlerPoint QtQuick::MultiPointHandler::centroid
+
+    A point exactly in the middle of the currently-pressed touch points.
+    If only one point is pressed, it's the same as that point.
+    A handler that has a \l target will normally transform it relative to this point.
+*/
 
 QT_END_NAMESPACE

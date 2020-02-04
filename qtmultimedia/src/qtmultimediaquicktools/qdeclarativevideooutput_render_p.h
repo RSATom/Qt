@@ -74,25 +74,25 @@ public:
     QDeclarativeVideoRendererBackend(QDeclarativeVideoOutput *parent);
     ~QDeclarativeVideoRendererBackend();
 
-    bool init(QMediaService *service) Q_DECL_OVERRIDE;
-    void itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &changeData) Q_DECL_OVERRIDE;
-    void releaseSource() Q_DECL_OVERRIDE;
-    void releaseControl() Q_DECL_OVERRIDE;
-    QSize nativeSize() const Q_DECL_OVERRIDE;
-    void updateGeometry() Q_DECL_OVERRIDE;
-    QSGNode *updatePaintNode(QSGNode *oldNode, QQuickItem::UpdatePaintNodeData *data) Q_DECL_OVERRIDE;
-    QAbstractVideoSurface *videoSurface() const Q_DECL_OVERRIDE;
-    QRectF adjustedViewport() const Q_DECL_OVERRIDE;
+    bool init(QMediaService *service) override;
+    void itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &changeData) override;
+    void releaseSource() override;
+    void releaseControl() override;
+    QSize nativeSize() const override;
+    void updateGeometry() override;
+    QSGNode *updatePaintNode(QSGNode *oldNode, QQuickItem::UpdatePaintNodeData *data) override;
+    QAbstractVideoSurface *videoSurface() const override;
+    QRectF adjustedViewport() const override;
     QOpenGLContext *glContext() const;
 
     friend class QSGVideoItemSurface;
     void present(const QVideoFrame &frame);
     void stop();
 
-    void appendFilter(QAbstractVideoFilter *filter) Q_DECL_OVERRIDE;
-    void clearFilters() Q_DECL_OVERRIDE;
-    void releaseResources() Q_DECL_OVERRIDE;
-    void invalidateSceneGraph() Q_DECL_OVERRIDE;
+    void appendFilter(QAbstractVideoFilter *filter) override;
+    void clearFilters() override;
+    void releaseResources() override;
+    void invalidateSceneGraph() override;
 
 private:
     void scheduleDeleteFilterResources();
@@ -100,8 +100,10 @@ private:
     QPointer<QVideoRendererControl> m_rendererControl;
     QList<QSGVideoNodeFactoryInterface*> m_videoNodeFactories;
     QSGVideoItemSurface *m_surface;
+    QVideoSurfaceFormat m_surfaceFormat;
     QOpenGLContext *m_glContext;
     QVideoFrame m_frame;
+    QVideoFrame m_frameOnFlush;
     bool m_frameChanged;
     QSGVideoNodeFactory_YUV m_i420Factory;
     QSGVideoNodeFactory_RGB m_rgbFactory;

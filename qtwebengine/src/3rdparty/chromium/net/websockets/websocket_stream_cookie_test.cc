@@ -3,19 +3,22 @@
 // found in the LICENSE file.
 
 #include <string>
+#include <utility>
 
 #include "base/callback_forward.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "net/cookies/canonical_cookie.h"
+#include "net/cookies/canonical_cookie_test_helpers.h"
 #include "net/cookies/cookie_store.h"
+#include "net/http/http_request_headers.h"
 #include "net/socket/socket_test_util.h"
 #include "net/websockets/websocket_stream_create_test_base.h"
 #include "net/websockets/websocket_test_util.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -32,7 +35,7 @@ class TestBase : public WebSocketStreamCreateTestBase {
  public:
   void CreateAndConnect(const GURL& url,
                         const url::Origin& origin,
-                        const GURL& first_party_for_cookies,
+                        const GURL& site_for_cookies,
                         const std::string& cookie_header,
                         const std::string& response_body) {
     // We assume cookie_header ends with CRLF if not empty, as
@@ -46,8 +49,8 @@ class TestBase : public WebSocketStreamCreateTestBase {
                                             cookie_header, std::string(),
                                             std::string()),
         response_body);
-    CreateAndConnectStream(url, NoSubProtocols(), origin,
-                           first_party_for_cookies, "", nullptr);
+    CreateAndConnectStream(url, NoSubProtocols(), origin, site_for_cookies,
+                           HttpRequestHeaders(), nullptr);
   }
 
   std::string AddCRLFIfNotEmpty(const std::string& s) {
@@ -110,27 +113,29 @@ class WebSocketStreamServerSetCookieTest
     base::RunLoop().RunUntilIdle();
   }
 
-  static void GetCookiesHelperFunction(const base::Closure& task,
-                                       base::WeakPtr<bool> weak_is_called,
-                                       base::WeakPtr<std::string> weak_result,
-                                       const std::string& cookies) {
+  static void GetCookieListHelperFunction(base::OnceClosure task,
+                                          base::WeakPtr<bool> weak_is_called,
+                                          base::WeakPtr<CookieList> weak_result,
+                                          const CookieList& cookie_list) {
     *weak_is_called = true;
-    *weak_result = cookies;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, task);
+    *weak_result = cookie_list;
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(task));
   }
 };
 
 TEST_P(WebSocketStreamClientUseCookieTest, ClientUseCookie) {
   // For wss tests.
-  ssl_data_.push_back(base::MakeUnique<SSLSocketDataProvider>(ASYNC, OK));
+  url_request_context_host_.AddSSLSocketDataProvider(
+      std::make_unique<SSLSocketDataProvider>(ASYNC, OK));
 
   CookieStore* store =
       url_request_context_host_.GetURLRequestContext()->cookie_store();
 
   const GURL url(GetParam().url);
   const GURL cookie_url(GetParam().cookie_url);
-  const url::Origin origin(GURL("http://www.example.com"));
-  const GURL first_party_for_cookies("http://www.example.com/");
+  const url::Origin origin =
+      url::Origin::Create(GURL("http://www.example.com"));
+  const GURL site_for_cookies("http://www.example.com/");
   const std::string cookie_line(GetParam().cookie_line);
   const std::string cookie_header(AddCRLFIfNotEmpty(GetParam().cookie_header));
 
@@ -149,7 +154,7 @@ TEST_P(WebSocketStreamClientUseCookieTest, ClientUseCookie) {
   ASSERT_TRUE(is_called);
   ASSERT_TRUE(set_cookie_result);
 
-  CreateAndConnect(url, origin, first_party_for_cookies, cookie_header,
+  CreateAndConnect(url, origin, site_for_cookies, cookie_header,
                    WebSocketStandardResponse(""));
   WaitUntilConnectDone();
   EXPECT_FALSE(has_failed());
@@ -157,12 +162,14 @@ TEST_P(WebSocketStreamClientUseCookieTest, ClientUseCookie) {
 
 TEST_P(WebSocketStreamServerSetCookieTest, ServerSetCookie) {
   // For wss tests.
-  ssl_data_.push_back(base::MakeUnique<SSLSocketDataProvider>(ASYNC, OK));
+  url_request_context_host_.AddSSLSocketDataProvider(
+      std::make_unique<SSLSocketDataProvider>(ASYNC, OK));
 
   const GURL url(GetParam().url);
   const GURL cookie_url(GetParam().cookie_url);
-  const url::Origin origin(GURL("http://www.example.com"));
-  const GURL first_party_for_cookies("http://www.example.com/");
+  const url::Origin origin =
+      url::Origin::Create(GURL("http://www.example.com"));
+  const GURL site_for_cookies("http://www.example.com/");
   const std::string cookie_line(GetParam().cookie_line);
   const std::string cookie_header(AddCRLFIfNotEmpty(GetParam().cookie_header));
 
@@ -178,24 +185,24 @@ TEST_P(WebSocketStreamServerSetCookieTest, ServerSetCookie) {
   CookieStore* store =
       url_request_context_host_.GetURLRequestContext()->cookie_store();
 
-  CreateAndConnect(url, origin, first_party_for_cookies, "", response);
+  CreateAndConnect(url, origin, site_for_cookies, "", response);
   WaitUntilConnectDone();
   EXPECT_FALSE(has_failed());
 
   bool is_called = false;
-  std::string get_cookies_result;
+  CookieList get_cookie_list_result;
   base::WeakPtrFactory<bool> weak_is_called(&is_called);
-  base::WeakPtrFactory<std::string> weak_get_cookies_result(
-      &get_cookies_result);
+  base::WeakPtrFactory<CookieList> weak_get_cookie_list_result(
+      &get_cookie_list_result);
   base::RunLoop run_loop;
-  store->GetCookiesWithOptionsAsync(
+  store->GetCookieListWithOptionsAsync(
       cookie_url, CookieOptions(),
-      base::Bind(&GetCookiesHelperFunction, run_loop.QuitClosure(),
-                 weak_is_called.GetWeakPtr(),
-                 weak_get_cookies_result.GetWeakPtr()));
+      base::BindOnce(&GetCookieListHelperFunction, run_loop.QuitClosure(),
+                     weak_is_called.GetWeakPtr(),
+                     weak_get_cookie_list_result.GetWeakPtr()));
   run_loop.Run();
   EXPECT_TRUE(is_called);
-  EXPECT_EQ(cookie_line, get_cookies_result);
+  EXPECT_THAT(get_cookie_list_result, MatchesCookieLine(cookie_line));
 }
 
 // Test parameters definitions follow...

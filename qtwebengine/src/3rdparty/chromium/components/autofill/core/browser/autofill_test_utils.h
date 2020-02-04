@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+#include "components/autofill/core/browser/autofill_field.h"
+#include "components/autofill/core/browser/autofill_profile.h"
+#include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
 
@@ -20,14 +23,16 @@ class PrefRegistrySyncable;
 
 namespace autofill {
 
+class AutofillExternalDelegate;
 class AutofillProfile;
 class AutofillTable;
-class CreditCard;
 struct FormData;
 struct FormFieldData;
 
 // Common utilities shared amongst Autofill tests.
 namespace test {
+
+const char kEmptyOrigin[] = "";
 
 // The following methods return a PrefService that can be used for
 // Autofill-related testing in contexts where the PrefService would otherwise
@@ -60,16 +65,43 @@ void CreateTestSelectField(const std::vector<const char*>& values,
 // Populates |form| with data corresponding to a simple address form.
 // Note that this actually appends fields to the form data, which can be useful
 // for building up more complex test forms. Another version of the function is
-// provided in case the caller wants the vector of expected field |types|.
-void CreateTestAddressFormData(FormData* form);
+// provided in case the caller wants the vector of expected field |types|. Use
+// |unique_id| optionally ensure that each form has its own signature.
+void CreateTestAddressFormData(FormData* form, const char* unique_id = nullptr);
 void CreateTestAddressFormData(FormData* form,
-                               std::vector<ServerFieldTypeSet>* types);
+                               std::vector<ServerFieldTypeSet>* types,
+                               const char* unique_id = nullptr);
+
+// Populates |form| with data corresponding to a simple personal information
+// form, including name and email, but no address-related fields. Use
+// |unique_id| to optionally ensure that each form has its own signature.
+void CreateTestPersonalInformationFormData(FormData* form,
+                                           const char* unique_id = nullptr);
+
+// Populates |form| with data corresponding to a simple credit card form.
+// Note that this actually appends fields to the form data, which can be
+// useful for building up more complex test forms. Use |unique_id| to optionally
+// ensure that each form has its own signature.
+void CreateTestCreditCardFormData(FormData* form,
+                                  bool is_https,
+                                  bool use_month_type,
+                                  bool split_names = false,
+                                  const char* unique_id = nullptr);
+
+// Returns a full profile with valid info according to rules for Canada.
+AutofillProfile GetFullValidProfileForCanada();
+
+// Returns a full profile with valid info according to rules for China.
+AutofillProfile GetFullValidProfileForChina();
 
 // Returns a profile full of dummy info.
 AutofillProfile GetFullProfile();
 
 // Returns a profile full of dummy info, different to the above.
 AutofillProfile GetFullProfile2();
+
+// Returns a profile full of dummy info, different to the above.
+AutofillProfile GetFullCanadianProfile();
 
 // Returns an incomplete profile of dummy info.
 AutofillProfile GetIncompleteProfile1();
@@ -82,6 +114,12 @@ AutofillProfile GetVerifiedProfile();
 
 // Returns a verified profile full of dummy info, different to the above.
 AutofillProfile GetVerifiedProfile2();
+
+// Returns a server profile full of dummy info.
+AutofillProfile GetServerProfile();
+
+// Returns a server profile full of dummy info, different to the above.
+AutofillProfile GetServerProfile2();
 
 // Returns a credit card full of dummy info.
 CreditCard GetCreditCard();
@@ -99,15 +137,45 @@ CreditCard GetVerifiedCreditCard2();
 CreditCard GetMaskedServerCard();
 CreditCard GetMaskedServerCardAmex();
 
+// Returns a full server card full of dummy info.
+CreditCard GetFullServerCard();
+
+// Returns a randomly generated credit card of |record_type|. Note that the
+// card is not guaranteed to be valid/sane from a card validation standpoint.
+CreditCard GetRandomCreditCard(CreditCard::RecordType record_Type);
+
 // A unit testing utility that is common to a number of the Autofill unit
 // tests.  |SetProfileInfo| provides a quick way to populate a profile with
 // c-strings.
 void SetProfileInfo(AutofillProfile* profile,
-    const char* first_name, const char* middle_name,
-    const char* last_name, const char* email, const char* company,
-    const char* address1, const char* address2, const char* city,
-    const char* state, const char* zipcode, const char* country,
-    const char* phone);
+                    const char* first_name,
+                    const char* middle_name,
+                    const char* last_name,
+                    const char* email,
+                    const char* company,
+                    const char* address1,
+                    const char* address2,
+                    const char* dependent_locality,
+                    const char* city,
+                    const char* state,
+                    const char* zipcode,
+                    const char* country,
+                    const char* phone);
+
+// This one doesn't require the |dependent_locality|.
+void SetProfileInfo(AutofillProfile* profile,
+                    const char* first_name,
+                    const char* middle_name,
+                    const char* last_name,
+                    const char* email,
+                    const char* company,
+                    const char* address1,
+                    const char* address2,
+                    const char* city,
+                    const char* state,
+                    const char* zipcode,
+                    const char* country,
+                    const char* phone);
 
 void SetProfileInfoWithGuid(AutofillProfile* profile,
     const char* guid, const char* first_name, const char* middle_name,
@@ -140,6 +208,16 @@ void ReenableSystemServices();
 void SetServerCreditCards(AutofillTable* table,
                           const std::vector<CreditCard>& cards);
 
+// Adds an element at the end of |possible_field_types| and
+// |possible_field_types_validities| given |possible_type| and their
+// corresponding |validity_state|.
+void InitializePossibleTypesAndValidities(
+    std::vector<ServerFieldTypeSet>& possible_field_types,
+    std::vector<ServerFieldTypeValidityStatesMap>&
+        possible_field_types_validities,
+    const std::vector<ServerFieldType>& possible_type,
+    const std::vector<AutofillProfile::ValidityState>& validity_state = {});
+
 // Fills the upload |field| with the information passed by parameter. If the
 // value of a const char* parameter is NULL, the corresponding attribute won't
 // be set at all, as opposed to being set to empty string.
@@ -148,7 +226,24 @@ void FillUploadField(AutofillUploadContents::Field* field,
                      const char* name,
                      const char* control_type,
                      const char* autocomplete,
-                     unsigned autofill_type);
+                     unsigned autofill_type,
+                     unsigned validity_state = 0);
+
+void FillUploadField(AutofillUploadContents::Field* field,
+                     unsigned signature,
+                     const char* name,
+                     const char* control_type,
+                     const char* autocomplete,
+                     const std::vector<unsigned>& autofill_type,
+                     const std::vector<unsigned>& validity_state = {});
+
+void FillUploadField(AutofillUploadContents::Field* field,
+                     unsigned signature,
+                     const char* name,
+                     const char* control_type,
+                     const char* autocomplete,
+                     unsigned autofill_type,
+                     const std::vector<unsigned>& validity_states);
 
 // Fills the query form |field| with the information passed by parameter. If the
 // value of a const char* parameter is NULL, the corresponding attribute won't
@@ -157,6 +252,17 @@ void FillQueryField(AutofillQueryContents::Form::Field* field,
                     unsigned signature,
                     const char* name,
                     const char* control_type);
+
+// Calls the required functions on the given external delegate to cause the
+// delegate to display a popup.
+void GenerateTestAutofillPopup(
+    AutofillExternalDelegate* autofill_external_delegate);
+
+std::string ObfuscatedCardDigitsAsUTF8(const std::string& str);
+
+std::string LastYear();
+std::string NextYear();
+std::string TenYearsFromNow();
 
 }  // namespace test
 }  // namespace autofill

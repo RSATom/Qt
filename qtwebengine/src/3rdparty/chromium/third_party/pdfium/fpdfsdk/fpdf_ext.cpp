@@ -6,38 +6,70 @@
 
 #include "public/fpdf_ext.h"
 
-#include <memory>
-
 #include "core/fpdfapi/cpdf_modulemgr.h"
-#include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
-#include "core/fpdfdoc/cpdf_annot.h"
-#include "core/fpdfdoc/cpdf_interform.h"
+#include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "core/fpdfdoc/cpdf_metadata.h"
-#include "core/fxcrt/fx_basic.h"
-#include "core/fxcrt/fx_memory.h"
-#include "core/fxcrt/xml/cxml_content.h"
-#include "core/fxcrt/xml/cxml_element.h"
-#include "fpdfsdk/fsdk_define.h"
+#include "core/fxcrt/fx_extension.h"
+#include "fpdfsdk/cpdfsdk_helpers.h"
 #include "third_party/base/ptr_util.h"
 
 #ifdef PDF_ENABLE_XFA
 #include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
 #endif  // PDF_ENABLE_XFA
 
-bool FPDF_UnSupportError(int nError) {
-  CFSDK_UnsupportInfo_Adapter* pAdapter =
-      CPDF_ModuleMgr::Get()->GetUnsupportInfoAdapter();
-  if (!pAdapter)
-    return false;
+static_assert(static_cast<int>(UnsupportedFeature::kDocumentXFAForm) ==
+                  FPDF_UNSP_DOC_XFAFORM,
+              "UnsupportedFeature::kDocumentXFAForm value mismatch");
+static_assert(
+    static_cast<int>(UnsupportedFeature::kDocumentPortableCollection) ==
+        FPDF_UNSP_DOC_PORTABLECOLLECTION,
+    "UnsupportedFeature::kDocumentPortableCollection value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kDocumentAttachment) ==
+                  FPDF_UNSP_DOC_ATTACHMENT,
+              "UnsupportedFeature::kDocumentAttachment value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kDocumentSecurity) ==
+                  FPDF_UNSP_DOC_SECURITY,
+              "UnsupportedFeature::kDocumentSecurity value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kDocumentSharedReview) ==
+                  FPDF_UNSP_DOC_SHAREDREVIEW,
+              "UnsupportedFeature::kDocumentSharedReview value mismatch");
+static_assert(
+    static_cast<int>(UnsupportedFeature::kDocumentSharedFormAcrobat) ==
+        FPDF_UNSP_DOC_SHAREDFORM_ACROBAT,
+    "UnsupportedFeature::kDocumentSharedFormAcrobat value mismatch");
+static_assert(
+    static_cast<int>(UnsupportedFeature::kDocumentSharedFormFilesystem) ==
+        FPDF_UNSP_DOC_SHAREDFORM_FILESYSTEM,
+    "UnsupportedFeature::kDocumentSharedFormFilesystem value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kDocumentSharedFormEmail) ==
+                  FPDF_UNSP_DOC_SHAREDFORM_EMAIL,
+              "UnsupportedFeature::kDocumentSharedFormEmail value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kAnnotation3d) ==
+                  FPDF_UNSP_ANNOT_3DANNOT,
+              "UnsupportedFeature::kAnnotation3d value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kAnnotationMovie) ==
+                  FPDF_UNSP_ANNOT_MOVIE,
+              "UnsupportedFeature::kAnnotationMovie value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kAnnotationSound) ==
+                  FPDF_UNSP_ANNOT_SOUND,
+              "UnsupportedFeature::kAnnotationSound value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kAnnotationScreenMedia) ==
+                  FPDF_UNSP_ANNOT_SCREEN_MEDIA,
+              "UnsupportedFeature::kAnnotationScreenMedia value mismatch");
+static_assert(
+    static_cast<int>(UnsupportedFeature::kAnnotationScreenRichMedia) ==
+        FPDF_UNSP_ANNOT_SCREEN_RICHMEDIA,
+    "UnsupportedFeature::kAnnotationScreenRichMedia value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kAnnotationAttachment) ==
+                  FPDF_UNSP_ANNOT_ATTACHMENT,
+              "UnsupportedFeature::kAnnotationAttachment value mismatch");
+static_assert(static_cast<int>(UnsupportedFeature::kAnnotationSignature) ==
+                  FPDF_UNSP_ANNOT_SIG,
+              "UnsupportedFeature::kAnnotationSignature value mismatch");
 
-  UNSUPPORT_INFO* info = static_cast<UNSUPPORT_INFO*>(pAdapter->GetUnspInfo());
-  if (info && info->FSDK_UnSupport_Handler)
-    info->FSDK_UnSupport_Handler(info, nError);
-  return true;
-}
-
-DLLEXPORT FPDF_BOOL STDCALL
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
 FSDK_SetUnSpObjProcessHandler(UNSUPPORT_INFO* unsp_info) {
   if (!unsp_info || unsp_info->version != 1)
     return false;
@@ -47,142 +79,29 @@ FSDK_SetUnSpObjProcessHandler(UNSUPPORT_INFO* unsp_info) {
   return true;
 }
 
-void CheckUnSupportAnnot(CPDF_Document* pDoc, const CPDF_Annot* pPDFAnnot) {
-  CPDF_Annot::Subtype nAnnotSubtype = pPDFAnnot->GetSubtype();
-  if (nAnnotSubtype == CPDF_Annot::Subtype::THREED) {
-    FPDF_UnSupportError(FPDF_UNSP_ANNOT_3DANNOT);
-  } else if (nAnnotSubtype == CPDF_Annot::Subtype::SCREEN) {
-    const CPDF_Dictionary* pAnnotDict = pPDFAnnot->GetAnnotDict();
-    CFX_ByteString cbString;
-    if (pAnnotDict->KeyExist("IT"))
-      cbString = pAnnotDict->GetStringFor("IT");
-    if (cbString.Compare("Img") != 0)
-      FPDF_UnSupportError(FPDF_UNSP_ANNOT_SCREEN_MEDIA);
-  } else if (nAnnotSubtype == CPDF_Annot::Subtype::MOVIE) {
-    FPDF_UnSupportError(FPDF_UNSP_ANNOT_MOVIE);
-  } else if (nAnnotSubtype == CPDF_Annot::Subtype::SOUND) {
-    FPDF_UnSupportError(FPDF_UNSP_ANNOT_SOUND);
-  } else if (nAnnotSubtype == CPDF_Annot::Subtype::RICHMEDIA) {
-    FPDF_UnSupportError(FPDF_UNSP_ANNOT_SCREEN_RICHMEDIA);
-  } else if (nAnnotSubtype == CPDF_Annot::Subtype::FILEATTACHMENT) {
-    FPDF_UnSupportError(FPDF_UNSP_ANNOT_ATTACHMENT);
-  } else if (nAnnotSubtype == CPDF_Annot::Subtype::WIDGET) {
-    const CPDF_Dictionary* pAnnotDict = pPDFAnnot->GetAnnotDict();
-    CFX_ByteString cbString;
-    if (pAnnotDict->KeyExist("FT"))
-      cbString = pAnnotDict->GetStringFor("FT");
-    if (cbString.Compare("Sig") == 0)
-      FPDF_UnSupportError(FPDF_UNSP_ANNOT_SIG);
-  }
+FPDF_EXPORT void FPDF_CALLCONV FSDK_SetTimeFunction(time_t (*func)()) {
+  FXSYS_SetTimeFunction(func);
 }
 
-bool CheckSharedForm(const CXML_Element* pElement, CFX_ByteString cbName) {
-  int count = pElement->CountAttrs();
-  int i = 0;
-  for (i = 0; i < count; i++) {
-    CFX_ByteString space;
-    CFX_ByteString name;
-    CFX_WideString value;
-    pElement->GetAttrByIndex(i, &space, &name, &value);
-    if (space == "xmlns" && name == "adhocwf" &&
-        value == L"http://ns.adobe.com/AcrobatAdhocWorkflow/1.0/") {
-      CXML_Element* pVersion =
-          pElement->GetElement("adhocwf", cbName.AsStringC(), 0);
-      if (!pVersion)
-        continue;
-      CXML_Content* pContent = ToContent(pVersion->GetChild(0));
-      if (!pContent)
-        continue;
-      switch (pContent->m_Content.GetInteger()) {
-        case 1:
-          FPDF_UnSupportError(FPDF_UNSP_DOC_SHAREDFORM_ACROBAT);
-          break;
-        case 2:
-          FPDF_UnSupportError(FPDF_UNSP_DOC_SHAREDFORM_FILESYSTEM);
-          break;
-        case 0:
-          FPDF_UnSupportError(FPDF_UNSP_DOC_SHAREDFORM_EMAIL);
-          break;
-      }
-    }
-  }
-
-  uint32_t nCount = pElement->CountChildren();
-  for (i = 0; i < (int)nCount; i++) {
-    CXML_Element* pChild = ToElement(pElement->GetChild(i));
-    if (pChild && CheckSharedForm(pChild, cbName))
-      return true;
-  }
-  return false;
+FPDF_EXPORT void FPDF_CALLCONV
+FSDK_SetLocaltimeFunction(struct tm* (*func)(const time_t* tp)) {
+  FXSYS_SetLocaltimeFunction(func);
 }
 
-void CheckUnSupportError(CPDF_Document* pDoc, uint32_t err_code) {
-  // Security
-  if (err_code == FPDF_ERR_SECURITY) {
-    FPDF_UnSupportError(FPDF_UNSP_DOC_SECURITY);
-    return;
-  }
-  if (!pDoc)
-    return;
-
-  // Portfolios and Packages
-  CPDF_Dictionary* pRootDict = pDoc->GetRoot();
-  if (pRootDict) {
-    CFX_ByteString cbString;
-    if (pRootDict->KeyExist("Collection")) {
-      FPDF_UnSupportError(FPDF_UNSP_DOC_PORTABLECOLLECTION);
-      return;
-    }
-    if (pRootDict->KeyExist("Names")) {
-      CPDF_Dictionary* pNameDict = pRootDict->GetDictFor("Names");
-      if (pNameDict && pNameDict->KeyExist("EmbeddedFiles")) {
-        FPDF_UnSupportError(FPDF_UNSP_DOC_ATTACHMENT);
-        return;
-      }
-      if (pNameDict && pNameDict->KeyExist("JavaScript")) {
-        CPDF_Dictionary* pJSDict = pNameDict->GetDictFor("JavaScript");
-        CPDF_Array* pArray = pJSDict ? pJSDict->GetArrayFor("Names") : nullptr;
-        if (pArray) {
-          for (size_t i = 0; i < pArray->GetCount(); i++) {
-            CFX_ByteString cbStr = pArray->GetStringAt(i);
-            if (cbStr.Compare("com.adobe.acrobat.SharedReview.Register") == 0) {
-              FPDF_UnSupportError(FPDF_UNSP_DOC_SHAREDREVIEW);
-              return;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // SharedForm
-  CPDF_Metadata metaData(pDoc);
-  const CXML_Element* pElement = metaData.GetRoot();
-  if (pElement)
-    CheckSharedForm(pElement, "workflowType");
-
-#ifndef PDF_ENABLE_XFA
-  // XFA Forms
-  CPDF_InterForm interform(pDoc);
-  if (interform.HasXFAForm())
-    FPDF_UnSupportError(FPDF_UNSP_DOC_XFAFORM);
-#endif  // PDF_ENABLE_XFA
-}
-
-DLLEXPORT int STDCALL FPDFDoc_GetPageMode(FPDF_DOCUMENT document) {
+FPDF_EXPORT int FPDF_CALLCONV FPDFDoc_GetPageMode(FPDF_DOCUMENT document) {
   CPDF_Document* pDoc = CPDFDocumentFromFPDFDocument(document);
   if (!pDoc)
     return PAGEMODE_UNKNOWN;
 
-  CPDF_Dictionary* pRoot = pDoc->GetRoot();
+  const CPDF_Dictionary* pRoot = pDoc->GetRoot();
   if (!pRoot)
     return PAGEMODE_UNKNOWN;
 
-  CPDF_Object* pName = pRoot->GetObjectFor("PageMode");
+  const CPDF_Object* pName = pRoot->GetObjectFor("PageMode");
   if (!pName)
     return PAGEMODE_USENONE;
 
-  CFX_ByteString strPageMode = pName->GetString();
+  ByteString strPageMode = pName->GetString();
   if (strPageMode.IsEmpty() || strPageMode.EqualNoCase("UseNone"))
     return PAGEMODE_USENONE;
   if (strPageMode.EqualNoCase("UseOutlines"))

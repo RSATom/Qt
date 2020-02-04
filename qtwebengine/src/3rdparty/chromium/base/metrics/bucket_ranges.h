@@ -68,10 +68,10 @@ class BASE_EXPORT BucketRanges {
   // safety against overwriting an existing value since though it is wasteful
   // to have multiple identical persistent records, it is still safe.
   void set_persistent_reference(uint32_t ref) const {
-    subtle::NoBarrier_Store(&persistent_reference_, ref);
+    subtle::Release_Store(&persistent_reference_, ref);
   }
   uint32_t persistent_reference() const {
-    return subtle::NoBarrier_Load(&persistent_reference_);
+    return subtle::Acquire_Load(&persistent_reference_);
   }
 
  private:
@@ -99,6 +99,7 @@ class BASE_EXPORT BucketRanges {
 //////////////////////////////////////////////////////////////////////////////
 // Expose only for test.
 BASE_EXPORT extern const uint32_t kCrcTable[256];
+uint32_t Crc32(uint32_t sum, HistogramBase::Sample value);
 
 }  // namespace base
 

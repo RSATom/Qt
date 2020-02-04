@@ -1,4 +1,5 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qtwebengine.qdocconf)
 
 project                 = QtWebEngine
 description             = Qt WebEngine Reference Documentation
@@ -38,6 +39,12 @@ manifestmeta.highlighted.names += "QtWebEngine/WebEngine Widgets Simple Browser 
 
 tagfile                 = ../../../doc/qtwebengine/qtwebengine.tags
 
+# Custom module header for clang that pulls in also QtWebEngineWidgets
+moduleheader = QtWebEngineDoc
+
+# Additional include paths for clang
+includepaths = -I .
+
 depends += qtcore \
            qtgui \
            qtlocation \
@@ -48,19 +55,20 @@ depends += qtcore \
            qtqml \
            qtquick \
            qtquickcontrols \
-           qtquickcontrols2 \
            qtdoc \
            qtwebchannel \
            qtwebview \
            qtwidgets
 
 headerdirs  += .. \
-               ../../core \
-               ../../webenginewidgets
+               ../../core/api \
+               ../../webenginewidgets/api
 
 sourcedirs  += .. \
-                ../../core/ \
-               ../../webenginewidgets \
+                ../../core/api \
+                ../../core/doc \
+               ../../webenginewidgets/api \
+               ../../webenginewidgets/doc
 
 exampledirs +=  . \
                 ../../../examples \
@@ -76,4 +84,7 @@ navigation.landingpage = "Qt WebEngine"
 navigation.cppclassespage = "Qt WebEngine C++ Classes and Namespaces"
 navigation.qmltypespage = "Qt WebEngine QML Types"
 
-Cpp.ignoretokens += Q_WEBENGINE_EXPORT QWEBENGINEWIDGETS_EXPORT
+# \QWE macro expands to 'Qt WebEngine' without auto-linking anywhere.
+macro.QWE    = "Qt \\WebEngine"
+
+Cpp.ignoretokens += Q_WEBENGINE_EXPORT Q_WEBENGINECORE_EXPORT QWEBENGINEWIDGETS_EXPORT

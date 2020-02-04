@@ -41,6 +41,15 @@ class SystemSnapshot {
 
     //! \brief Windows.
     kOperatingSystemWindows,
+
+    //! \brief Linux.
+    kOperatingSystemLinux,
+
+    //! \brief Android.
+    kOperatingSystemAndroid,
+
+    //! \brief Fuchsia.
+    kOperatingSystemFuchsia,
   };
 
   //! \brief A system’s daylight saving time status.

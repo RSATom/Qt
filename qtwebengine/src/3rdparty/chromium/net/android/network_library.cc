@@ -10,7 +10,7 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/logging.h"
 #include "jni/AndroidNetworkLibrary_jni.h"
-#include "net/dns/dns_protocol.h"
+#include "net/dns/public/dns_protocol.h"
 
 using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF8;
@@ -23,8 +23,8 @@ namespace net {
 namespace android {
 
 void VerifyX509CertChain(const std::vector<std::string>& cert_chain,
-                         const std::string& auth_type,
-                         const std::string& host,
+                         base::StringPiece auth_type,
+                         base::StringPiece host,
                          CertVerifyStatusAndroid* status,
                          bool* is_issued_by_known_root,
                          std::vector<std::string>* verified_chain) {
@@ -60,22 +60,6 @@ void AddTestRootCertificate(const uint8_t* cert, size_t len) {
 void ClearTestRootCertificates() {
   JNIEnv* env = AttachCurrentThread();
   Java_AndroidNetworkLibrary_clearTestRootCertificates(env);
-}
-
-bool StoreKeyPair(const uint8_t* public_key,
-                  size_t public_len,
-                  const uint8_t* private_key,
-                  size_t private_len) {
-  JNIEnv* env = AttachCurrentThread();
-  ScopedJavaLocalRef<jbyteArray> public_array =
-      ToJavaByteArray(env, public_key, public_len);
-  ScopedJavaLocalRef<jbyteArray> private_array =
-      ToJavaByteArray(env, private_key, private_len);
-  jboolean ret =
-      Java_AndroidNetworkLibrary_storeKeyPair(env, public_array, private_array);
-  LOG_IF(WARNING, !ret) <<
-      "Call to Java_AndroidNetworkLibrary_storeKeyPair failed";
-  return ret;
 }
 
 bool IsCleartextPermitted(const std::string& host) {
@@ -139,12 +123,16 @@ std::string GetWifiSSID() {
           base::android::AttachCurrentThread()));
 }
 
-void GetDnsServers(std::vector<IPEndPoint>* dns_servers) {
+internal::ConfigParsePosixResult GetDnsServers(
+    std::vector<IPEndPoint>* dns_servers) {
   JNIEnv* env = AttachCurrentThread();
   std::vector<std::string> dns_servers_strings;
   base::android::JavaArrayOfByteArrayToStringVector(
-      env, Java_AndroidNetworkLibrary_getDnsServers(env).obj(),
-      &dns_servers_strings);
+      env, Java_AndroidNetworkLibrary_getDnsServers(env), &dns_servers_strings);
+  if (dns_servers_strings.size() == 0)
+    return internal::CONFIG_PARSE_POSIX_NO_NAMESERVERS;
+  if (dns_servers_strings.size() == 1 && dns_servers_strings[0].size() == 1)
+    return internal::CONFIG_PARSE_POSIX_PRIVATE_DNS_ACTIVE;
   for (const std::string& dns_address_string : dns_servers_strings) {
     IPAddress dns_address(
         reinterpret_cast<const uint8_t*>(dns_address_string.c_str()),
@@ -152,6 +140,11 @@ void GetDnsServers(std::vector<IPEndPoint>* dns_servers) {
     IPEndPoint dns_server(dns_address, dns_protocol::kDefaultPort);
     dns_servers->push_back(dns_server);
   }
+  return internal::CONFIG_PARSE_POSIX_OK;
+}
+
+void TagSocket(SocketDescriptor socket, uid_t uid, int32_t tag) {
+  Java_AndroidNetworkLibrary_tagSocket(AttachCurrentThread(), socket, uid, tag);
 }
 
 }  // namespace android

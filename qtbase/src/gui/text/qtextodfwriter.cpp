@@ -43,6 +43,7 @@
 
 #include "qtextodfwriter_p.h"
 
+#include <QImageReader>
 #include <QImageWriter>
 #include <QTextListFormat>
 #include <QTextList>
@@ -89,12 +90,12 @@ public:
         contentStream = device;
     }
 
-    virtual ~QXmlStreamStrategy()
+    ~QXmlStreamStrategy()
     {
         if (contentStream)
             contentStream->close();
     }
-    virtual void addFile(const QString &, const QString &, const QByteArray &) Q_DECL_OVERRIDE
+    virtual void addFile(const QString &, const QString &, const QByteArray &) override
     {
         // we ignore this...
     }
@@ -137,7 +138,7 @@ public:
         zip.close();
     }
 
-    virtual void addFile(const QString &fileName, const QString &mimeType, const QByteArray &bytes) Q_DECL_OVERRIDE
+    virtual void addFile(const QString &fileName, const QString &mimeType, const QByteArray &bytes) override
     {
         zip.addFile(fileName, bytes);
         addFile(fileName, mimeType);
@@ -183,6 +184,35 @@ static QString bulletChar(QTextListFormat::Style style)
     }
 }
 
+static QString borderStyleName(QTextFrameFormat::BorderStyle style)
+{
+    switch (style) {
+    case QTextFrameFormat::BorderStyle_None:
+        return QString::fromLatin1("none");
+    case QTextFrameFormat::BorderStyle_Dotted:
+        return QString::fromLatin1("dotted");
+    case QTextFrameFormat::BorderStyle_Dashed:
+        return QString::fromLatin1("dashed");
+    case QTextFrameFormat::BorderStyle_Solid:
+        return QString::fromLatin1("solid");
+    case QTextFrameFormat::BorderStyle_Double:
+        return QString::fromLatin1("double");
+    case QTextFrameFormat::BorderStyle_DotDash:
+        return QString::fromLatin1("dashed");
+    case QTextFrameFormat::BorderStyle_DotDotDash:
+        return QString::fromLatin1("dotted");
+    case QTextFrameFormat::BorderStyle_Groove:
+        return QString::fromLatin1("groove");
+    case QTextFrameFormat::BorderStyle_Ridge:
+        return QString::fromLatin1("ridge");
+    case QTextFrameFormat::BorderStyle_Inset:
+        return QString::fromLatin1("inset");
+    case QTextFrameFormat::BorderStyle_Outset:
+        return QString::fromLatin1("outset");
+    }
+    return QString::fromLatin1("");
+}
+
 void QTextOdfWriter::writeFrame(QXmlStreamWriter &writer, const QTextFrame *frame)
 {
     Q_ASSERT(frame);
@@ -190,8 +220,21 @@ void QTextOdfWriter::writeFrame(QXmlStreamWriter &writer, const QTextFrame *fram
 
     if (table) { // Start a table.
         writer.writeStartElement(tableNS, QString::fromLatin1("table"));
-        writer.writeEmptyElement(tableNS, QString::fromLatin1("table-column"));
-        writer.writeAttribute(tableNS, QString::fromLatin1("number-columns-repeated"), QString::number(table->columns()));
+        writer.writeAttribute(tableNS, QString::fromLatin1("style-name"),
+                              QString::fromLatin1("Table%1").arg(table->formatIndex()));
+        // check if column widths are set, if so add TableNS line above for all columns and link to style
+        if (m_tableFormatsWithColWidthConstraints.contains(table->formatIndex())) {
+            for (int colit = 0; colit < table->columns(); ++colit) {
+                writer.writeStartElement(tableNS, QString::fromLatin1("table-column"));
+                writer.writeAttribute(tableNS, QString::fromLatin1("style-name"),
+                                      QString::fromLatin1("Table%1.%2").arg(table->formatIndex()).arg(colit));
+                writer.writeEndElement();
+            }
+        } else {
+            writer.writeEmptyElement(tableNS, QString::fromLatin1("table-column"));
+            writer.writeAttribute(tableNS, QString::fromLatin1("number-columns-repeated"),
+                                  QString::number(table->columns()));
+        }
     } else if (frame->document() && frame->document()->rootFrame() != frame) { // start a section
         writer.writeStartElement(textNS, QString::fromLatin1("section"));
     }
@@ -219,7 +262,15 @@ void QTextOdfWriter::writeFrame(QXmlStreamWriter &writer, const QTextFrame *fram
                 if (cell.rowSpan() > 1)
                     writer.writeAttribute(tableNS, QString::fromLatin1("number-rows-spanned"), QString::number(cell.rowSpan()));
                 if (cell.format().isTableCellFormat()) {
-                    writer.writeAttribute(tableNS, QString::fromLatin1("style-name"), QString::fromLatin1("T%1").arg(cell.tableCellFormatIndex()));
+                    if (m_cellFormatsInTablesWithBorders.contains(cell.tableCellFormatIndex()) ) {
+                        // writing table:style-name tag in <table:table-cell> element
+                        writer.writeAttribute(tableNS, QString::fromLatin1("style-name"),
+                                              QString::fromLatin1("TB%1.%2").arg(table->formatIndex())
+                                              .arg(cell.tableCellFormatIndex()));
+                    } else {
+                        writer.writeAttribute(tableNS, QString::fromLatin1("style-name"),
+                                              QString::fromLatin1("T%1").arg(cell.tableCellFormatIndex()));
+                    }
                 }
             }
             writeBlock(writer, block);
@@ -307,7 +358,7 @@ void QTextOdfWriter::writeBlock(QXmlStreamWriter &writer, const QTextBlock &bloc
         int precedingSpaces = 0;
         int exportedIndex = 0;
         for (int i=0; i <= fragmentText.count(); ++i) {
-            QChar character = fragmentText[i];
+            QChar character = (i == fragmentText.count() ? QChar() : fragmentText.at(i));
             bool isSpace = character.unicode() == ' ';
 
             // find more than one space. -> <text:s text:c="2" />
@@ -326,7 +377,10 @@ void QTextOdfWriter::writeBlock(QXmlStreamWriter &writer, const QTextBlock &bloc
             if (i < fragmentText.count()) {
                 if (character.unicode() == 0x2028) { // soft-return
                     //if (exportedIndex < i)
-                        writer.writeCharacters(fragmentText.mid(exportedIndex, i - exportedIndex));
+                    writer.writeCharacters(fragmentText.mid(exportedIndex, i - exportedIndex));
+                    // adding tab before line-break, so last line in justified paragraph
+                    // will not stretch to the end
+                    writer.writeEmptyElement(textNS, QString::fromLatin1("tab"));
                     writer.writeEmptyElement(textNS, QString::fromLatin1("line-break"));
                     exportedIndex = i+1;
                     continue;
@@ -357,6 +411,29 @@ void QTextOdfWriter::writeBlock(QXmlStreamWriter &writer, const QTextBlock &bloc
         writer.writeEndElement(); // list-item
 }
 
+static bool probeImageData(QIODevice *device, QImage *image, QString *mimeType, qreal *width, qreal *height)
+{
+    QImageReader reader(device);
+    const QByteArray format = reader.format().toLower();
+    if (format == "png") {
+        *mimeType = QStringLiteral("image/png");
+    } else if (format == "jpg") {
+        *mimeType = QStringLiteral("image/jpg");
+    } else if (format == "svg") {
+        *mimeType = QStringLiteral("image/svg+xml");
+    } else {
+        *image = reader.read();
+        return false;
+    }
+
+    const QSize size = reader.size();
+
+    *width = size.width();
+    *height = size.height();
+
+    return true;
+}
+
 void QTextOdfWriter::writeInlineCharacter(QXmlStreamWriter &writer, const QTextFragment &fragment) const
 {
     writer.writeStartElement(drawNS, QString::fromLatin1("frame"));
@@ -367,46 +444,78 @@ void QTextOdfWriter::writeInlineCharacter(QXmlStreamWriter &writer, const QTextF
         QTextImageFormat imageFormat = fragment.charFormat().toImageFormat();
         writer.writeAttribute(drawNS, QString::fromLatin1("name"), imageFormat.name());
 
-        // vvv  Copy pasted mostly from Qt =================
+        QByteArray data;
+        QString mimeType;
+        qreal width = 0;
+        qreal height = 0;
+
         QImage image;
         QString name = imageFormat.name();
         if (name.startsWith(QLatin1String(":/"))) // auto-detect resources
             name.prepend(QLatin1String("qrc"));
         QUrl url = QUrl(name);
-        const QVariant data = m_document->resource(QTextDocument::ImageResource, url);
-        if (data.type() == QVariant::Image) {
-            image = qvariant_cast<QImage>(data);
-        } else if (data.type() == QVariant::ByteArray) {
-            image.loadFromData(data.toByteArray());
-        }
+        const QVariant variant = m_document->resource(QTextDocument::ImageResource, url);
+        if (variant.type() == QVariant::Image) {
+            image = qvariant_cast<QImage>(variant);
+        } else if (variant.type() == QVariant::ByteArray) {
+            data = variant.toByteArray();
 
-        if (image.isNull()) {
-            if (image.isNull()) { // try direct loading
-                name = imageFormat.name(); // remove qrc:/ prefix again
-                image.load(name);
+            QBuffer buffer(&data);
+            buffer.open(QIODevice::ReadOnly);
+            probeImageData(&buffer, &image, &mimeType, &width, &height);
+        } else {
+            // try direct loading
+            QFile file(imageFormat.name());
+            if (file.open(QIODevice::ReadOnly) && !probeImageData(&file, &image, &mimeType, &width, &height)) {
+                file.seek(0);
+                data = file.readAll();
             }
         }
 
-        // ^^^ Copy pasted mostly from Qt =================
         if (! image.isNull()) {
             QBuffer imageBytes;
-            QImageWriter imageWriter(&imageBytes, "png");
-            imageWriter.write(image);
+
+            int imgQuality = imageFormat.quality();
+            if (imgQuality >= 100 || imgQuality < 0 || image.hasAlphaChannel()) {
+                QImageWriter imageWriter(&imageBytes, "png");
+                imageWriter.write(image);
+
+                data = imageBytes.data();
+                mimeType = QStringLiteral("image/png");
+            } else {
+                // Write images without alpha channel as jpg with quality set by QTextImageFormat
+                QImageWriter imageWriter(&imageBytes, "jpg");
+                imageWriter.setQuality(imgQuality);
+                imageWriter.write(image);
+
+                data = imageBytes.data();
+                mimeType = QStringLiteral("image/jpg");
+            }
+
+            width = image.width();
+            height = image.height();
+        }
+
+        if (!data.isEmpty()) {
+            if (imageFormat.hasProperty(QTextFormat::ImageWidth)) {
+                width = imageFormat.width();
+            }
+            if (imageFormat.hasProperty(QTextFormat::ImageHeight)) {
+                height = imageFormat.height();
+            }
+
             QString filename = m_strategy->createUniqueImageName();
-            m_strategy->addFile(filename, QString::fromLatin1("image/png"), imageBytes.data());
 
-            // get the width/height from the format.
-            qreal width = (imageFormat.hasProperty(QTextFormat::ImageWidth)) ? imageFormat.width() : image.width();
+            m_strategy->addFile(filename, mimeType, data);
+
             writer.writeAttribute(svgNS, QString::fromLatin1("width"), pixelToPoint(width));
-            qreal height = (imageFormat.hasProperty(QTextFormat::ImageHeight)) ? imageFormat.height() : image.height();
             writer.writeAttribute(svgNS, QString::fromLatin1("height"), pixelToPoint(height));
-
+            writer.writeAttribute(textNS, QStringLiteral("anchor-type"), QStringLiteral("as-char"));
             writer.writeStartElement(drawNS, QString::fromLatin1("image"));
             writer.writeAttribute(xlinkNS, QString::fromLatin1("href"), filename);
             writer.writeEndElement(); // image
         }
     }
-
     writer.writeEndElement(); // frame
 }
 
@@ -421,7 +530,7 @@ void QTextOdfWriter::writeFormats(QXmlStreamWriter &writer, const QSet<int> &for
         switch (textFormat.type()) {
         case QTextFormat::CharFormat:
             if (textFormat.isTableCellFormat())
-                writeTableCellFormat(writer, textFormat.toTableCellFormat(), formatIndex);
+                writeTableCellFormat(writer, textFormat.toTableCellFormat(), formatIndex, allStyles);
             else
                 writeCharacterFormat(writer, textFormat.toCharFormat(), formatIndex);
             break;
@@ -432,10 +541,17 @@ void QTextOdfWriter::writeFormats(QXmlStreamWriter &writer, const QSet<int> &for
             writeListFormat(writer, textFormat.toListFormat(), formatIndex);
             break;
         case QTextFormat::FrameFormat:
-            writeFrameFormat(writer, textFormat.toFrameFormat(), formatIndex);
+            if (textFormat.isTableFormat())
+                writeTableFormat(writer, textFormat.toTableFormat(), formatIndex);
+            else
+                writeFrameFormat(writer, textFormat.toFrameFormat(), formatIndex);
             break;
+#if QT_DEPRECATED_SINCE(5, 3)
         case QTextFormat::TableFormat:
-            ;break;
+            // this case never happens, because TableFormat is a FrameFormat
+            Q_UNREACHABLE();
+            break;
+#endif
         }
     }
 
@@ -448,6 +564,36 @@ void QTextOdfWriter::writeBlockFormat(QXmlStreamWriter &writer, QTextBlockFormat
     writer.writeAttribute(styleNS, QString::fromLatin1("name"), QString::fromLatin1("p%1").arg(formatIndex));
     writer.writeAttribute(styleNS, QString::fromLatin1("family"), QString::fromLatin1("paragraph"));
     writer.writeStartElement(styleNS, QString::fromLatin1("paragraph-properties"));
+
+    if (format.hasProperty(QTextBlockFormat::LineHeightType)) {
+        const int blockLineHeightType = format.lineHeightType();
+        const qreal blockLineHeight = format.lineHeight();
+        QString type, value;
+        switch (blockLineHeightType) {
+        case QTextBlockFormat::SingleHeight:
+            type = QString::fromLatin1("line-height");
+            value = QString::fromLatin1("100%");
+            break;
+        case QTextBlockFormat::ProportionalHeight:
+            type = QString::fromLatin1("line-height");
+            value = QString::number(blockLineHeight) + QString::fromLatin1("%");
+            break;
+        case QTextBlockFormat::FixedHeight:
+            type = QString::fromLatin1("line-height");
+            value = pixelToPoint(qMax(qreal(0.), blockLineHeight));
+            break;
+        case QTextBlockFormat::MinimumHeight:
+            type = QString::fromLatin1("line-height-at-least");
+            value = pixelToPoint(qMax(qreal(0.), blockLineHeight));
+            break;
+        case QTextBlockFormat::LineDistanceHeight:
+            type = QString::fromLatin1("line-spacing");
+            value = pixelToPoint(qMax(qreal(0.), blockLineHeight));
+        }
+
+        if (!type.isNull())
+            writer.writeAttribute(styleNS, type, value);
+    }
 
     if (format.hasProperty(QTextFormat::BlockAlignment)) {
         const Qt::Alignment alignment = format.alignment() & Qt::AlignHorizontal_Mask;
@@ -693,33 +839,134 @@ void QTextOdfWriter::writeFrameFormat(QXmlStreamWriter &writer, QTextFrameFormat
 // PageBreakFlags   pageBreakPolicy () const
 }
 
-void QTextOdfWriter::writeTableCellFormat(QXmlStreamWriter &writer, QTextTableCellFormat format, int formatIndex) const
+void QTextOdfWriter::writeTableFormat(QXmlStreamWriter &writer, QTextTableFormat format, int formatIndex) const
 {
+    // start writing table style element
     writer.writeStartElement(styleNS, QString::fromLatin1("style"));
-    writer.writeAttribute(styleNS, QString::fromLatin1("name"), QString::fromLatin1("T%1").arg(formatIndex));
+    writer.writeAttribute(styleNS, QString::fromLatin1("name"),
+                          QString::fromLatin1("Table%1").arg(formatIndex));
     writer.writeAttribute(styleNS, QString::fromLatin1("family"), QString::fromLatin1("table"));
     writer.writeEmptyElement(styleNS, QString::fromLatin1("table-properties"));
 
+    if (m_tableFormatsWithBorders.contains(formatIndex)) {
+        // write border format collapsing to table style
+        writer.writeAttribute(tableNS, QString::fromLatin1("border-model"),
+                              QString::fromLatin1("collapsing"));
+    }
+    const char* align = nullptr;
+    switch (format.alignment()) {
+    case Qt::AlignLeft:
+        align = "left";
+        break;
+    case Qt::AlignRight:
+        align = "right";
+        break;
+    case Qt::AlignHCenter:
+        align = "center";
+        break;
+    case Qt::AlignJustify:
+        align = "margins";
+        break;
+    }
+    if (align)
+       writer.writeAttribute(tableNS, QString::fromLatin1("align"), QString::fromLatin1(align));
+    if (format.width().rawValue()) {
+        writer.writeAttribute(styleNS, QString::fromLatin1("width"),
+                              QString::number(format.width().rawValue()) + QLatin1String("pt"));
+    }
+    writer.writeEndElement();
+    // start writing table-column style element
+    if (format.columnWidthConstraints().size()) {
+        // write table-column-properties for columns with constraints
+        m_tableFormatsWithColWidthConstraints.insert(formatIndex); // needed for linking of columns to styles
+        for (int colit = 0; colit < format.columnWidthConstraints().size(); ++colit) {
+            writer.writeStartElement(styleNS, QString::fromLatin1("style"));
+            writer.writeAttribute(styleNS, QString::fromLatin1("name"),
+                                  QString::fromLatin1("Table%1.%2").arg(formatIndex).arg(colit));
+            writer.writeAttribute(styleNS, QString::fromLatin1("family"), QString::fromLatin1("table-column"));
+            writer.writeEmptyElement(styleNS, QString::fromLatin1("table-column-properties"));
+            QString columnWidth;
+            if (format.columnWidthConstraints().at(colit).type() == QTextLength::PercentageLength) {
+                columnWidth = QString::number(format.columnWidthConstraints().at(colit).rawValue())
+                        + QLatin1String("%");
+            } else if (format.columnWidthConstraints().at(colit).type() == QTextLength::FixedLength) {
+                columnWidth = QString::number(format.columnWidthConstraints().at(colit).rawValue())
+                        + QLatin1String("pt");
+            } else {
+                //!! HARD-CODING variableWidth Constraints to 100% / nr constraints
+                columnWidth = QString::number(100 / format.columnWidthConstraints().size())
+                                      + QLatin1String("%");
+            }
+            writer.writeAttribute(styleNS, QString::fromLatin1("column-width"), columnWidth);
+            writer.writeEndElement();
+        }
+    }
+}
 
-    qreal padding = format.topPadding();
-    if (padding > 0 && padding == format.bottomPadding()
-        && padding == format.leftPadding() && padding == format.rightPadding()) {
+void QTextOdfWriter::writeTableCellFormat(QXmlStreamWriter &writer, QTextTableCellFormat format,
+                                          int formatIndex, QVector<QTextFormat> &styles) const
+{
+    // check for all table cells here if they are in a table with border
+    if (m_cellFormatsInTablesWithBorders.contains(formatIndex)) {
+        const QVector<int> tableIdVector = m_cellFormatsInTablesWithBorders.value(formatIndex);
+        for (const auto &tableId : tableIdVector) {
+            const auto &tmpStyle = styles.at(tableId);
+            if (tmpStyle.isTableFormat()) {
+                QTextTableFormat tableFormatTmp = tmpStyle.toTableFormat();
+                tableCellStyleElement(writer, formatIndex, format, true, tableId, tableFormatTmp);
+            } else {
+                qDebug("QTextOdfWriter::writeTableCellFormat: ERROR writing table border format");
+            }
+        }
+    }
+    tableCellStyleElement(writer, formatIndex, format, false);
+}
+
+void QTextOdfWriter::tableCellStyleElement(QXmlStreamWriter &writer, const int &formatIndex,
+                                           const QTextTableCellFormat &format,
+                                           bool hasBorder, int tableId,
+                                           const QTextTableFormat tableFormatTmp) const {
+    writer.writeStartElement(styleNS, QString::fromLatin1("style"));
+    if (hasBorder) {
+        writer.writeAttribute(styleNS, QString::fromLatin1("name"),
+                              QString::fromLatin1("TB%1.%2").arg(tableId).arg(formatIndex));
+    } else {
+        writer.writeAttribute(styleNS, QString::fromLatin1("name"), QString::fromLatin1("T%1").arg(formatIndex));
+    }
+    writer.writeAttribute(styleNS, QString::fromLatin1("family"), QString::fromLatin1("table-cell"));
+    writer.writeEmptyElement(styleNS, QString::fromLatin1("table-cell-properties"));
+    if (hasBorder) {
+        writer.writeAttribute(foNS, QString::fromLatin1("border"),
+                              pixelToPoint(tableFormatTmp.border()) + QLatin1String(" ")
+                              + borderStyleName(tableFormatTmp.borderStyle()) + QLatin1String(" ")
+                              + tableFormatTmp.borderBrush().color().name(QColor::HexRgb));
+    }
+    qreal topPadding = format.topPadding();
+    qreal padding = topPadding + tableFormatTmp.cellPadding();
+    if (padding > 0 && topPadding == format.bottomPadding()
+        && topPadding == format.leftPadding() && topPadding == format.rightPadding()) {
         writer.writeAttribute(foNS, QString::fromLatin1("padding"), pixelToPoint(padding));
     }
     else {
         if (padding > 0)
             writer.writeAttribute(foNS, QString::fromLatin1("padding-top"), pixelToPoint(padding));
-        if (format.bottomPadding() > 0)
-            writer.writeAttribute(foNS, QString::fromLatin1("padding-bottom"), pixelToPoint(format.bottomPadding()));
-        if (format.leftPadding() > 0)
-            writer.writeAttribute(foNS, QString::fromLatin1("padding-left"), pixelToPoint(format.leftPadding()));
-        if (format.rightPadding() > 0)
-            writer.writeAttribute(foNS, QString::fromLatin1("padding-right"), pixelToPoint(format.rightPadding()));
+        padding = format.bottomPadding() + tableFormatTmp.cellPadding();
+        if (padding > 0)
+            writer.writeAttribute(foNS, QString::fromLatin1("padding-bottom"),
+                                  pixelToPoint(padding));
+        padding = format.leftPadding() + tableFormatTmp.cellPadding();
+        if (padding > 0)
+            writer.writeAttribute(foNS, QString::fromLatin1("padding-left"),
+                                  pixelToPoint(padding));
+        padding = format.rightPadding() + tableFormatTmp.cellPadding();
+        if (padding > 0)
+            writer.writeAttribute(foNS, QString::fromLatin1("padding-right"),
+                                  pixelToPoint(padding));
     }
 
     if (format.hasProperty(QTextFormat::TextVerticalAlignment)) {
         QString pos;
-        switch (format.verticalAlignment()) {
+        switch (format.verticalAlignment()) {  // TODO - review: doesn't handle all cases
         case QTextCharFormat::AlignMiddle:
             pos = QString::fromLatin1("middle"); break;
         case QTextCharFormat::AlignTop:
@@ -736,8 +983,6 @@ void QTextOdfWriter::writeTableCellFormat(QXmlStreamWriter &writer, QTextTableCe
     // ODF just search for style-table-cell-properties-attlist)
     // QTextFormat::BackgroundImageUrl
     // format.background
-    // QTextFormat::FrameBorder
-
     writer.writeEndElement(); // style
 }
 
@@ -768,11 +1013,11 @@ bool QTextOdfWriter::writeAll()
         m_strategy = new QXmlStreamStrategy(m_device);
 
     if (!m_device->isWritable() && ! m_device->open(QIODevice::WriteOnly)) {
-        qWarning("QTextOdfWriter::writeAll: the device can not be opened for writing");
+        qWarning("QTextOdfWriter::writeAll: the device cannot be opened for writing");
         return false;
     }
     QXmlStreamWriter writer(m_strategy->contentStream);
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
     if (m_codec)
         writer.setCodec(m_codec);
 #endif
@@ -815,8 +1060,28 @@ bool QTextOdfWriter::writeAll()
     const QList<int> copy = formats.toList();
     for (auto index : copy) {
         QTextObject *object = m_document->objectForFormat(allFormats[index]);
-        if (object)
+        if (object) {
             formats << object->formatIndex();
+            if (auto *tableobject = qobject_cast<QTextTable *>(object)) {
+                if (tableobject->format().borderStyle()) {
+                    int tableID = tableobject->formatIndex();
+                    m_tableFormatsWithBorders.insert(tableID);
+                    // loop through all rows and cols of table and store cell IDs,
+                    // create Hash with cell ID as Key and table IDs as Vector
+                    for (int rowindex = 0; rowindex < tableobject->rows(); ++rowindex) {
+                        for (int colindex = 0; colindex < tableobject->columns(); ++colindex) {
+                            const int cellFormatID = tableobject->cellAt(rowindex, colindex).tableCellFormatIndex();
+                            QVector<int> tableIdsTmp;
+                            if (m_cellFormatsInTablesWithBorders.contains(cellFormatID))
+                                tableIdsTmp = m_cellFormatsInTablesWithBorders.value(cellFormatID);
+                            if (!tableIdsTmp.contains(tableID))
+                                tableIdsTmp.append(tableID);
+                            m_cellFormatsInTablesWithBorders.insert(cellFormatID, tableIdsTmp);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     writeFormats(writer, formats);

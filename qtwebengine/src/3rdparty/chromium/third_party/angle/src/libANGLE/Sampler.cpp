@@ -16,16 +16,17 @@ namespace gl
 {
 
 Sampler::Sampler(rx::GLImplFactory *factory, GLuint id)
-    : RefCountObject(id), mImpl(factory->createSampler()), mLabel(), mSamplerState()
-{
-}
+    : RefCountObject(id), mState(), mImpl(factory->createSampler(mState)), mLabel()
+{}
 
 Sampler::~Sampler()
 {
     SafeDelete(mImpl);
 }
 
-void Sampler::setLabel(const std::string &label)
+void Sampler::onDestroy(const Context *context) {}
+
+void Sampler::setLabel(const Context *context, const std::string &label)
 {
     mLabel = label;
 }
@@ -37,122 +38,138 @@ const std::string &Sampler::getLabel() const
 
 void Sampler::setMinFilter(GLenum minFilter)
 {
-    mSamplerState.minFilter = minFilter;
+    mState.setMinFilter(minFilter);
 }
 
 GLenum Sampler::getMinFilter() const
 {
-    return mSamplerState.minFilter;
+    return mState.getMinFilter();
 }
 
 void Sampler::setMagFilter(GLenum magFilter)
 {
-    mSamplerState.magFilter = magFilter;
+    mState.setMagFilter(magFilter);
 }
 
 GLenum Sampler::getMagFilter() const
 {
-    return mSamplerState.magFilter;
+    return mState.getMagFilter();
 }
 
 void Sampler::setWrapS(GLenum wrapS)
 {
-    mSamplerState.wrapS = wrapS;
+    mState.setWrapS(wrapS);
 }
 
 GLenum Sampler::getWrapS() const
 {
-    return mSamplerState.wrapS;
+    return mState.getWrapS();
 }
 
 void Sampler::setWrapT(GLenum wrapT)
 {
-    mSamplerState.wrapT = wrapT;
+    mState.setWrapT(wrapT);
 }
 
 GLenum Sampler::getWrapT() const
 {
-    return mSamplerState.wrapT;
+    return mState.getWrapT();
 }
 
 void Sampler::setWrapR(GLenum wrapR)
 {
-    mSamplerState.wrapR = wrapR;
+    mState.setWrapR(wrapR);
 }
 
 GLenum Sampler::getWrapR() const
 {
-    return mSamplerState.wrapR;
+    return mState.getWrapR();
 }
 
 void Sampler::setMaxAnisotropy(float maxAnisotropy)
 {
-    mSamplerState.maxAnisotropy = maxAnisotropy;
+    mState.setMaxAnisotropy(maxAnisotropy);
 }
 
 float Sampler::getMaxAnisotropy() const
 {
-    return mSamplerState.maxAnisotropy;
+    return mState.getMaxAnisotropy();
 }
 
 void Sampler::setMinLod(GLfloat minLod)
 {
-    mSamplerState.minLod = minLod;
+    mState.setMinLod(minLod);
 }
 
 GLfloat Sampler::getMinLod() const
 {
-    return mSamplerState.minLod;
+    return mState.getMinLod();
 }
 
 void Sampler::setMaxLod(GLfloat maxLod)
 {
-    mSamplerState.maxLod = maxLod;
+    mState.setMaxLod(maxLod);
 }
 
 GLfloat Sampler::getMaxLod() const
 {
-    return mSamplerState.maxLod;
+    return mState.getMaxLod();
 }
 
 void Sampler::setCompareMode(GLenum compareMode)
 {
-    mSamplerState.compareMode = compareMode;
+    mState.setCompareMode(compareMode);
 }
 
 GLenum Sampler::getCompareMode() const
 {
-    return mSamplerState.compareMode;
+    return mState.getCompareMode();
 }
 
 void Sampler::setCompareFunc(GLenum compareFunc)
 {
-    mSamplerState.compareFunc = compareFunc;
+    mState.setCompareFunc(compareFunc);
 }
 
 GLenum Sampler::getCompareFunc() const
 {
-    return mSamplerState.compareFunc;
+    return mState.getCompareFunc();
 }
 
 void Sampler::setSRGBDecode(GLenum sRGBDecode)
 {
-    mSamplerState.sRGBDecode = sRGBDecode;
+    mState.setSRGBDecode(sRGBDecode);
 }
 
 GLenum Sampler::getSRGBDecode() const
 {
-    return mSamplerState.sRGBDecode;
+    return mState.getSRGBDecode();
+}
+
+void Sampler::setBorderColor(const ColorGeneric &color)
+{
+    mState.setBorderColor(color);
+}
+
+const ColorGeneric &Sampler::getBorderColor() const
+{
+    return mState.getBorderColor();
 }
 
 const SamplerState &Sampler::getSamplerState() const
 {
-    return mSamplerState;
+    return mState;
 }
 
 rx::SamplerImpl *Sampler::getImplementation() const
 {
     return mImpl;
+}
+
+void Sampler::syncState(const Context *context)
+{
+    // TODO(jmadill): Use actual dirty bits for sampler.
+    mImpl->syncState(context);
 }
 
 }  // namespace gl

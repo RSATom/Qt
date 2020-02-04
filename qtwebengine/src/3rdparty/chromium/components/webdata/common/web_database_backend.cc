@@ -30,7 +30,7 @@ WebDatabaseBackend::WebDatabaseBackend(
       delegate_(delegate) {}
 
 void WebDatabaseBackend::AddTable(std::unique_ptr<WebDatabaseTable> table) {
-  DCHECK(!db_.get());
+  DCHECK(!db_);
   tables_.push_back(std::move(table));
 }
 
@@ -44,7 +44,7 @@ void WebDatabaseBackend::InitDatabase() {
 void WebDatabaseBackend::ShutdownDatabase() {
   if (db_ && init_status_ == sql::INIT_OK)
     db_->CommitTransaction();
-  db_.reset(NULL);
+  db_.reset(nullptr);
   init_complete_ = true;  // Ensures the init sequence is not re-run.
   init_status_ = sql::INIT_FAILURE;
 }

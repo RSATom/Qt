@@ -43,14 +43,6 @@
 #include "qquickimaginetheme_p.h"
 #include "qquickninepatchimage_p.h"
 
-static inline void initResources()
-{
-    Q_INIT_RESOURCE(qmake_qtquickcontrols2imaginestyle);
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtQuick_Controls_2_Imagine);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 Q_LOGGING_CATEGORY(lcQtQuickControlsImagine, "qt.quick.controls.imagine")
@@ -64,29 +56,22 @@ public:
     QtQuickControls2ImagineStylePlugin(QObject *parent = nullptr);
 
     void registerTypes(const char *uri) override;
-    void initializeEngine(QQmlEngine *engine, const char *uri) override;
 
     QString name() const override;
-    QQuickProxyTheme *createTheme() const override;
+    void initializeTheme(QQuickTheme *theme) override;
 };
 
 QtQuickControls2ImagineStylePlugin::QtQuickControls2ImagineStylePlugin(QObject *parent) : QQuickStylePlugin(parent)
 {
-    initResources();
 }
 
 void QtQuickControls2ImagineStylePlugin::registerTypes(const char *uri)
 {
-    qmlRegisterModule(uri, 2, QT_VERSION_MINOR - 7); // Qt 5.10 -> 2.3, 5.11 -> 2.4, ...
+    qmlRegisterModule(uri, 2, QT_VERSION_MINOR); // Qt 5.12->2.12, 5.13->2.13...
     qmlRegisterUncreatableType<QQuickImagineStyle>(uri, 2, 3, "Imagine", tr("Imagine is an attached property"));
-}
-
-void QtQuickControls2ImagineStylePlugin::initializeEngine(QQmlEngine *engine, const char *uri)
-{
-    QQuickStylePlugin::initializeEngine(engine, uri);
 
     QByteArray import = QByteArray(uri) + ".impl";
-    qmlRegisterModule(import, 2, QT_VERSION_MINOR - 7); // Qt 5.10 -> 2.3, 5.11 -> 2.4, ...
+    qmlRegisterModule(import, 2, QT_VERSION_MINOR); // Qt 5.12->2.12, 5.13->2.13...
 
     qmlRegisterType<QQuickAnimatedImageSelector>(import, 2, 3, "AnimatedImageSelector");
     qmlRegisterType<QQuickImageSelector>(import, 2, 3, "ImageSelector");
@@ -96,12 +81,12 @@ void QtQuickControls2ImagineStylePlugin::initializeEngine(QQmlEngine *engine, co
 
 QString QtQuickControls2ImagineStylePlugin::name() const
 {
-    return QStringLiteral("imagine");
+    return QStringLiteral("Imagine");
 }
 
-QQuickProxyTheme *QtQuickControls2ImagineStylePlugin::createTheme() const
+void QtQuickControls2ImagineStylePlugin::initializeTheme(QQuickTheme *theme)
 {
-    return new QQuickImagineTheme;
+    QQuickImagineTheme::initialize(theme);
 }
 
 QT_END_NAMESPACE

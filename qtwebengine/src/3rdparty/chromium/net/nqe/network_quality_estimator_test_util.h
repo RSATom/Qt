@@ -5,6 +5,8 @@
 #ifndef NET_NQE_NETWORK_QUALITY_ESTIMATOR_TEST_UTIL_H_
 #define NET_NQE_NETWORK_QUALITY_ESTIMATOR_TEST_UTIL_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -26,8 +28,6 @@
 
 namespace net {
 
-class ExternalEstimateProvider;
-
 // Helps in setting the current network type and id.
 class TestNetworkQualityEstimator : public NetworkQualityEstimator {
  public:
@@ -38,25 +38,19 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
 
   TestNetworkQualityEstimator(
       const std::map<std::string, std::string>& variation_params,
-      std::unique_ptr<net::ExternalEstimateProvider>
-          external_estimate_provider);
-
-  TestNetworkQualityEstimator(
-      std::unique_ptr<net::ExternalEstimateProvider> external_estimate_provider,
-      const std::map<std::string, std::string>& variation_params,
       bool allow_local_host_requests_for_tests,
       bool allow_smaller_responses_for_tests,
-      bool add_default_platform_observations,
       std::unique_ptr<BoundTestNetLog> net_log);
 
   TestNetworkQualityEstimator(
-      std::unique_ptr<net::ExternalEstimateProvider> external_estimate_provider,
       const std::map<std::string, std::string>& variation_params,
       bool allow_local_host_requests_for_tests,
       bool allow_smaller_responses_for_tests,
-      bool add_default_platform_observations,
       bool suppress_notifications_for_testing,
       std::unique_ptr<BoundTestNetLog> net_log);
+
+  explicit TestNetworkQualityEstimator(
+      std::unique_ptr<NetworkQualityEstimatorParams> params);
 
   ~TestNetworkQualityEstimator() override;
 
@@ -70,19 +64,13 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
       const std::string& network_id);
 
   // Returns a GURL hosted at the embedded test server.
-  const GURL GetEchoURL() const;
+  const GURL GetEchoURL();
 
   // Returns a GURL hosted at the embedded test server which contains redirect
   // to another HTTPS URL.
-  const GURL GetRedirectURL() const;
+  const GURL GetRedirectURL();
 
   void set_effective_connection_type(EffectiveConnectionType type) {
-    // Callers should not set effective connection type along with the
-    // lower-layer metrics.
-    DCHECK(!start_time_null_http_rtt_ && !recent_http_rtt_ &&
-           !start_time_null_transport_rtt_ && !recent_transport_rtt_ &&
-           !start_time_null_downlink_throughput_kbps_ &&
-           !recent_downlink_throughput_kbps_);
     effective_connection_type_ = type;
   }
 
@@ -117,19 +105,18 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
       const base::TimeTicks& start_time,
       base::TimeDelta* http_rtt,
       base::TimeDelta* transport_rtt,
-      int32_t* downstream_throughput_kbps) const override;
+      base::TimeDelta* end_to_end_rtt,
+      int32_t* downstream_throughput_kbps,
+      size_t* observations_count,
+      size_t* end_to_end_rtt_observation_count) const override;
 
   void NotifyObserversOfRTTOrThroughputComputed() const override;
 
   void NotifyRTTAndThroughputEstimatesObserverIfPresent(
       RTTAndThroughputEstimatesObserver* observer) const override;
 
-  void set_start_time_null_http_rtt(const base::TimeDelta& http_rtt) {
-    // Callers should not set effective connection type along with the
-    // lower-layer metrics.
-    DCHECK(!effective_connection_type_ && !recent_effective_connection_type_);
-    start_time_null_http_rtt_ = http_rtt;
-  }
+  // Force set the HTTP RTT estimate.
+  void SetStartTimeNullHttpRtt(const base::TimeDelta http_rtt);
 
   void set_recent_http_rtt(const base::TimeDelta& recent_http_rtt) {
     // Callers should not set effective connection type along with the
@@ -137,18 +124,17 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
     DCHECK(!effective_connection_type_ && !recent_effective_connection_type_);
     recent_http_rtt_ = recent_http_rtt;
   }
-  // Returns the recent HTTP RTT that was set using |set_recent_http_rtt|. If
-  // the recent HTTP RTT has not been set, then the base implementation is
-  // called.
-  bool GetRecentHttpRTT(const base::TimeTicks& start_time,
-                        base::TimeDelta* rtt) const override;
 
-  void set_start_time_null_transport_rtt(const base::TimeDelta& transport_rtt) {
-    // Callers should not set effective connection type along with the
-    // lower-layer metrics.
-    DCHECK(!effective_connection_type_ && !recent_effective_connection_type_);
-    start_time_null_transport_rtt_ = transport_rtt;
-  }
+  // Returns the recent RTT that was set using set_recent_http_rtt() or
+  // set_recent_transport_rtt(). If the recent RTT has not been set, then the
+  // base implementation is called.
+  bool GetRecentRTT(nqe::internal::ObservationCategory observation_category,
+                    const base::TimeTicks& start_time,
+                    base::TimeDelta* rtt,
+                    size_t* observations_count) const override;
+
+  // Force set the transport RTT estimate.
+  void SetStartTimeNullTransportRtt(const base::TimeDelta transport_rtt);
 
   void set_recent_transport_rtt(const base::TimeDelta& recent_transport_rtt) {
     // Callers should not set effective connection type along with the
@@ -159,17 +145,8 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
 
   base::Optional<base::TimeDelta> GetTransportRTT() const override;
 
-  // Returns the recent transport RTT that was set using
-  // |set_recent_transport_rtt|. If the recent transport RTT has not been set,
-  // then the base implementation is called.
-  bool GetRecentTransportRTT(const base::TimeTicks& start_time,
-                             base::TimeDelta* rtt) const override;
-
   void set_start_time_null_downlink_throughput_kbps(
       int32_t downlink_throughput_kbps) {
-    // Callers should not set effective connection type along with the
-    // lower-layer metrics.
-    DCHECK(!effective_connection_type_ && !recent_effective_connection_type_);
     start_time_null_downlink_throughput_kbps_ = downlink_throughput_kbps;
   }
 
@@ -190,25 +167,25 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
   // |set_rtt_estimate_internal|. If it has not been set, then the base
   // implementation is called.
   base::TimeDelta GetRTTEstimateInternal(
-      const std::vector<NetworkQualityObservationSource>&
-          disallowed_observation_sources,
       base::TimeTicks start_time,
-      const base::Optional<NetworkQualityEstimator::Statistic>& statistic,
-      int percentile) const override;
+      nqe::internal::ObservationCategory observation_category,
+      int percentile,
+      size_t* observations_count) const override;
 
   void set_rtt_estimate_internal(base::TimeDelta value) {
     rtt_estimate_internal_ = value;
   }
 
-  void SetAccuracyRecordingIntervals(
-      const std::vector<base::TimeDelta>& accuracy_recording_intervals);
+  void set_start_time_null_end_to_end_rtt(const base::TimeDelta rtt) {
+    // Callers should not set effective connection type along with the
+    // lower-layer metrics.
+    DCHECK(!effective_connection_type_ && !recent_effective_connection_type_);
+    start_time_null_end_to_end_rtt_ = rtt;
+  }
 
-  const std::vector<base::TimeDelta>& GetAccuracyRecordingIntervals()
-      const override;
-
-  void set_rand_double(double rand_double) { rand_double_ = rand_double; }
-
-  double RandDouble() const override;
+  void set_start_time_null_end_to_end_rtt_observation_count(size_t count) {
+    end_to_end_rtt_observation_count_at_last_ect_computation_ = count;
+  }
 
   // Returns the number of entries in |net_log_| that have type set to |type|.
   int GetEntriesCount(NetLogEventType type) const;
@@ -226,13 +203,29 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
   void NotifyObserversOfRTTOrThroughputEstimatesComputed(
       const net::nqe::internal::NetworkQuality& network_quality);
 
-  // Notifies the registered observers that the network quality estimate has
-  // changed to |network_quality|.
-  void NotifyObserversOfEffectiveConnectionType(EffectiveConnectionType type);
+  // Updates the computed effective connection type to |type| and notifies the
+  // registered observers that the effective connection type has changed to
+  // |type|.
+  void SetAndNotifyObserversOfEffectiveConnectionType(
+      EffectiveConnectionType type);
+
+  void SetTransportRTTAtastECTSampleCount(size_t count) {
+    transport_rtt_observation_count_last_ect_computation_ = count;
+  }
+
+  void SetCurrentSignalStrength(int32_t signal_strength);
+
+  // Returns count of ping RTTs received from H2/spdy connections.
+  size_t ping_rtt_received_count() const { return ping_rtt_received_count_; }
+
+  const NetworkQualityEstimatorParams* params() const;
 
   using NetworkQualityEstimator::SetTickClockForTesting;
   using NetworkQualityEstimator::OnConnectionTypeChanged;
-  using NetworkQualityEstimator::OnUpdatedRTTAvailable;
+  using NetworkQualityEstimator::OnUpdatedTransportRTTAvailable;
+  using NetworkQualityEstimator::AddAndNotifyObserversOfRTT;
+  using NetworkQualityEstimator::AddAndNotifyObserversOfThroughput;
+  using NetworkQualityEstimator::IsHangingRequest;
 
  private:
   class LocalHttpTestServer : public EmbeddedTestServer {
@@ -240,10 +233,20 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
     explicit LocalHttpTestServer(const base::FilePath& document_root);
   };
 
+  TestNetworkQualityEstimator(
+      std::unique_ptr<NetworkQualityEstimatorParams> params,
+      std::unique_ptr<BoundTestNetLog> net_log);
+
+  void RecordSpdyPingLatency(const HostPortPair& host_port_pair,
+                             base::TimeDelta rtt) override;
+
   // NetworkQualityEstimator implementation that returns the overridden
-  // network
-  // id (instead of invoking platform APIs).
+  // network id and signal strength (instead of invoking platform APIs).
   nqe::internal::NetworkID GetCurrentNetworkID() const override;
+  int32_t GetCurrentSignalStrength() const override;
+
+  // Net log provided to network quality estimator.
+  std::unique_ptr<net::BoundTestNetLog> net_log_;
 
   // If set, GetEffectiveConnectionType() and GetRecentEffectiveConnectionType()
   // would return the set values, respectively.
@@ -252,9 +255,6 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
 
   NetworkChangeNotifier::ConnectionType current_network_type_;
   std::string current_network_id_;
-
-  bool accuracy_recording_intervals_set_;
-  std::vector<base::TimeDelta> accuracy_recording_intervals_;
 
   // If set, GetRecentHttpRTT() would return one of the set values.
   // |start_time_null_http_rtt_| is returned if the |start_time| is null.
@@ -278,15 +278,19 @@ class TestNetworkQualityEstimator : public NetworkQualityEstimator {
   // If set, GetRTTEstimateInternal() would return the set value.
   base::Optional<base::TimeDelta> rtt_estimate_internal_;
 
-  double rand_double_;
+  // If set, GetRTTEstimateInternal() would return the set value.
+  base::Optional<base::TimeDelta> start_time_null_end_to_end_rtt_;
+
+  int32_t current_cellular_signal_strength_ = INT32_MIN;
 
   LocalHttpTestServer embedded_test_server_;
 
   // If true, notifications are not sent to any of the observers.
   const bool suppress_notifications_for_testing_;
 
-  // Net log provided to network quality estimator.
-  std::unique_ptr<net::BoundTestNetLog> net_log_;
+  size_t ping_rtt_received_count_ = 0;
+
+  base::Optional<size_t> transport_rtt_observation_count_last_ect_computation_;
 
   DISALLOW_COPY_AND_ASSIGN(TestNetworkQualityEstimator);
 };

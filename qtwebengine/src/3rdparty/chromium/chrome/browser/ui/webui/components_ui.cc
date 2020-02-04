@@ -13,10 +13,10 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
@@ -31,7 +31,7 @@
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/ui/webui/chromeos/ui_account_tweaks.h"
+#include "components/user_manager/user_manager.h"
 #endif
 
 using content::WebUIMessageHandler;
@@ -42,6 +42,8 @@ content::WebUIDataSource* CreateComponentsUIHTMLSource(Profile* profile) {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIComponentsHost);
 
+  source->OverrideContentSecurityPolicyScriptSrc(
+      "script-src chrome://resources 'self' 'unsafe-eval';");
   source->AddLocalizedString("componentsTitle", IDS_COMPONENTS_TITLE);
   source->AddLocalizedString("componentsNoneInstalled",
                              IDS_COMPONENTS_NONE_INSTALLED);
@@ -51,12 +53,19 @@ content::WebUIDataSource* CreateComponentsUIHTMLSource(Profile* profile) {
   source->AddLocalizedString("statusLabel", IDS_COMPONENTS_STATUS_LABEL);
   source->AddLocalizedString("checkingLabel", IDS_COMPONENTS_CHECKING_LABEL);
 
+  source->AddBoolean(
+      "isGuest",
+#if defined(OS_CHROMEOS)
+      user_manager::UserManager::Get()->IsLoggedInAsGuest() ||
+          user_manager::UserManager::Get()->IsLoggedInAsPublicAccount()
+#else
+      profile->IsOffTheRecord()
+#endif
+  );
   source->SetJsonPath("strings.js");
   source->AddResourcePath("components.js", IDR_COMPONENTS_JS);
   source->SetDefaultResource(IDR_COMPONENTS_HTML);
-#if defined(OS_CHROMEOS)
-  chromeos::AddAccountUITweaksLocalizedValues(source, profile);
-#endif
+  source->UseGzip();
   return source;
 }
 
@@ -93,13 +102,13 @@ ComponentsDOMHandler::ComponentsDOMHandler() {
 void ComponentsDOMHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "requestComponentsData",
-      base::Bind(&ComponentsDOMHandler::HandleRequestComponentsData,
-                 base::Unretained(this)));
+      base::BindRepeating(&ComponentsDOMHandler::HandleRequestComponentsData,
+                          base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       "checkUpdate",
-      base::Bind(&ComponentsDOMHandler::HandleCheckUpdate,
-                 base::Unretained(this)));
+      base::BindRepeating(&ComponentsDOMHandler::HandleCheckUpdate,
+                          base::Unretained(this)));
 }
 
 void ComponentsDOMHandler::HandleRequestComponentsData(
@@ -137,7 +146,7 @@ void ComponentsDOMHandler::HandleCheckUpdate(const base::ListValue* args) {
 ///////////////////////////////////////////////////////////////////////////////
 
 ComponentsUI::ComponentsUI(content::WebUI* web_ui) : WebUIController(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<ComponentsDOMHandler>());
+  web_ui->AddMessageHandler(std::make_unique<ComponentsDOMHandler>());
 
   // Set up the chrome://components/ source.
   Profile* profile = Profile::FromWebUI(web_ui);
@@ -158,8 +167,9 @@ ComponentsUI::~ComponentsUI() {
 void ComponentsUI::OnDemandUpdate(const std::string& component_id) {
   component_updater::ComponentUpdateService* cus =
       g_browser_process->component_updater();
-  cus->GetOnDemandUpdater().OnDemandUpdate(component_id,
-                                           component_updater::Callback());
+  cus->GetOnDemandUpdater().OnDemandUpdate(
+      component_id, component_updater::OnDemandUpdater::Priority::FOREGROUND,
+      component_updater::Callback());
 }
 
 // static
@@ -170,16 +180,18 @@ std::unique_ptr<base::ListValue> ComponentsUI::LoadComponents() {
   component_ids = cus->GetComponentIDs();
 
   // Construct DictionaryValues to return to UI.
-  auto component_list = base::MakeUnique<base::ListValue>();
+  auto component_list = std::make_unique<base::ListValue>();
   for (size_t j = 0; j < component_ids.size(); ++j) {
     update_client::CrxUpdateItem item;
     if (cus->GetComponentDetails(component_ids[j], &item)) {
-      std::unique_ptr<base::DictionaryValue> component_entry(
-          new base::DictionaryValue());
+      auto component_entry = std::make_unique<base::DictionaryValue>();
       component_entry->SetString("id", component_ids[j]);
-      component_entry->SetString("name", item.component.name);
-      component_entry->SetString("version", item.component.version.GetString());
       component_entry->SetString("status", ServiceStatusToString(item.state));
+      if (item.component) {
+        component_entry->SetString("name", item.component->name);
+        component_entry->SetString("version",
+                                   item.component->version.GetString());
+      }
       component_list->Append(std::move(component_entry));
     }
   }
@@ -190,8 +202,8 @@ std::unique_ptr<base::ListValue> ComponentsUI::LoadComponents() {
 // static
 base::RefCountedMemory* ComponentsUI::GetFaviconResourceBytes(
       ui::ScaleFactor scale_factor) {
-  return ResourceBundle::GetSharedInstance().
-      LoadDataResourceBytesForScale(IDR_PLUGINS_FAVICON, scale_factor);
+  return ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
+      IDR_PLUGINS_FAVICON, scale_factor);
 }
 
 base::string16 ComponentsUI::ComponentEventToString(Events event) {
@@ -208,6 +220,8 @@ base::string16 ComponentsUI::ComponentEventToString(Events event) {
       return l10n_util::GetStringUTF16(IDS_COMPONENTS_EVT_STATUS_UPDATED);
     case Events::COMPONENT_NOT_UPDATED:
       return l10n_util::GetStringUTF16(IDS_COMPONENTS_EVT_STATUS_NOTUPDATED);
+    case Events::COMPONENT_UPDATE_ERROR:
+      return l10n_util::GetStringUTF16(IDS_COMPONENTS_EVT_STATUS_UPDATE_ERROR);
     case Events::COMPONENT_UPDATE_DOWNLOADING:
       return l10n_util::GetStringUTF16(IDS_COMPONENTS_EVT_STATUS_DOWNLOADING);
   }
@@ -239,7 +253,7 @@ base::string16 ComponentsUI::ServiceStatusToString(
     case update_client::ComponentState::kUpToDate:
       return l10n_util::GetStringUTF16(IDS_COMPONENTS_SVC_STATUS_UPTODATE);
     case update_client::ComponentState::kUpdateError:
-      return l10n_util::GetStringUTF16(IDS_COMPONENTS_SVC_STATUS_NOUPDATE);
+      return l10n_util::GetStringUTF16(IDS_COMPONENTS_SVC_STATUS_UPDATE_ERROR);
     case update_client::ComponentState::kUninstalled:  // Fall through.
     case update_client::ComponentState::kRun:
     case update_client::ComponentState::kLastStatus:
@@ -255,8 +269,8 @@ void ComponentsUI::OnEvent(Events event, const std::string& id) {
     if (event == Events::COMPONENT_UPDATED) {
       auto* component_updater = g_browser_process->component_updater();
       update_client::CrxUpdateItem item;
-      if (component_updater->GetComponentDetails(id, &item))
-        parameters.SetString("version", item.component.version.GetString());
+      if (component_updater->GetComponentDetails(id, &item) && item.component)
+        parameters.SetString("version", item.component->version.GetString());
     }
     parameters.SetString("id", id);
   }

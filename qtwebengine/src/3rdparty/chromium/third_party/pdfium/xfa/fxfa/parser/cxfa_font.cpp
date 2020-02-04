@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,88 +6,132 @@
 
 #include "xfa/fxfa/parser/cxfa_font.h"
 
-#include "core/fxge/fx_dib.h"
+#include "fxjs/xfa/cjx_font.h"
+#include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_fill.h"
 #include "xfa/fxfa/parser/cxfa_measurement.h"
-#include "xfa/fxfa/parser/cxfa_node.h"
 
-CXFA_Font::CXFA_Font(CXFA_Node* pNode) : CXFA_Data(pNode) {}
+namespace {
 
-float CXFA_Font::GetBaselineShift() {
-  return m_pNode->GetMeasure(XFA_ATTRIBUTE_BaselineShift).ToUnit(XFA_UNIT_Pt);
+const CXFA_Node::PropertyData kFontPropertyData[] = {
+    {XFA_Element::Fill, 1, 0},
+    {XFA_Element::Extras, 1, 0},
+    {XFA_Element::Unknown, 0, 0}};
+
+const CXFA_Node::AttributeData kFontAttributeData[] = {
+    {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::LineThrough, XFA_AttributeType::Integer, (void*)0},
+    {XFA_Attribute::Typeface, XFA_AttributeType::CData, (void*)L"Courier"},
+    {XFA_Attribute::FontHorizontalScale, XFA_AttributeType::CData,
+     (void*)L"100%"},
+    {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::KerningMode, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::None},
+    {XFA_Attribute::Underline, XFA_AttributeType::Integer, (void*)0},
+    {XFA_Attribute::BaselineShift, XFA_AttributeType::Measure, (void*)L"0in"},
+    {XFA_Attribute::OverlinePeriod, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::All},
+    {XFA_Attribute::LetterSpacing, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::LineThroughPeriod, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::All},
+    {XFA_Attribute::FontVerticalScale, XFA_AttributeType::CData,
+     (void*)L"100%"},
+    {XFA_Attribute::PsName, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Size, XFA_AttributeType::Measure, (void*)L"10pt"},
+    {XFA_Attribute::Posture, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::Normal},
+    {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
+    {XFA_Attribute::Weight, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::Normal},
+    {XFA_Attribute::UnderlinePeriod, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::All},
+    {XFA_Attribute::Overline, XFA_AttributeType::Integer, (void*)0},
+    {XFA_Attribute::GenericFamily, XFA_AttributeType::Enum,
+     (void*)XFA_AttributeValue::Serif},
+    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+
+}  // namespace
+
+CXFA_Font::CXFA_Font(CXFA_Document* doc, XFA_PacketType packet)
+    : CXFA_Node(
+          doc,
+          packet,
+          (XFA_XDPPACKET_Template | XFA_XDPPACKET_Config | XFA_XDPPACKET_Form),
+          XFA_ObjectType::Node,
+          XFA_Element::Font,
+          kFontPropertyData,
+          kFontAttributeData,
+          pdfium::MakeUnique<CJX_Font>(this)) {}
+
+CXFA_Font::~CXFA_Font() = default;
+
+float CXFA_Font::GetBaselineShift() const {
+  return JSObject()
+      ->GetMeasure(XFA_Attribute::BaselineShift)
+      .ToUnit(XFA_Unit::Pt);
 }
 
 float CXFA_Font::GetHorizontalScale() {
-  CFX_WideString wsValue;
-  m_pNode->TryCData(XFA_ATTRIBUTE_FontHorizontalScale, wsValue);
+  WideString wsValue = JSObject()->GetCData(XFA_Attribute::FontHorizontalScale);
   int32_t iScale = FXSYS_wtoi(wsValue.c_str());
   return iScale > 0 ? (float)iScale : 100.0f;
 }
 
 float CXFA_Font::GetVerticalScale() {
-  CFX_WideString wsValue;
-  m_pNode->TryCData(XFA_ATTRIBUTE_FontVerticalScale, wsValue);
+  WideString wsValue = JSObject()->GetCData(XFA_Attribute::FontVerticalScale);
   int32_t iScale = FXSYS_wtoi(wsValue.c_str());
   return iScale > 0 ? (float)iScale : 100.0f;
 }
 
 float CXFA_Font::GetLetterSpacing() {
-  CFX_WideStringC wsValue;
-  if (!m_pNode->TryCData(XFA_ATTRIBUTE_LetterSpacing, wsValue))
-    return 0;
-
-  CXFA_Measurement ms(wsValue);
-  if (ms.GetUnit() == XFA_UNIT_Em)
+  WideString wsValue = JSObject()->GetCData(XFA_Attribute::LetterSpacing);
+  CXFA_Measurement ms(wsValue.AsStringView());
+  if (ms.GetUnit() == XFA_Unit::Em)
     return ms.GetValue() * GetFontSize();
-  return ms.ToUnit(XFA_UNIT_Pt);
+  return ms.ToUnit(XFA_Unit::Pt);
 }
 
 int32_t CXFA_Font::GetLineThrough() {
-  int32_t iValue = 0;
-  m_pNode->TryInteger(XFA_ATTRIBUTE_LineThrough, iValue);
-  return iValue;
+  return JSObject()->GetInteger(XFA_Attribute::LineThrough);
 }
 
 int32_t CXFA_Font::GetUnderline() {
-  int32_t iValue = 0;
-  m_pNode->TryInteger(XFA_ATTRIBUTE_Underline, iValue);
-  return iValue;
+  return JSObject()->GetInteger(XFA_Attribute::Underline);
 }
 
-int32_t CXFA_Font::GetUnderlinePeriod() {
-  XFA_ATTRIBUTEENUM eAttr = XFA_ATTRIBUTEENUM_All;
-  m_pNode->TryEnum(XFA_ATTRIBUTE_UnderlinePeriod, eAttr);
-  return eAttr;
+XFA_AttributeValue CXFA_Font::GetUnderlinePeriod() {
+  return JSObject()
+      ->TryEnum(XFA_Attribute::UnderlinePeriod, true)
+      .value_or(XFA_AttributeValue::All);
 }
 
-float CXFA_Font::GetFontSize() {
-  CXFA_Measurement ms;
-  m_pNode->TryMeasure(XFA_ATTRIBUTE_Size, ms);
-  return ms.ToUnit(XFA_UNIT_Pt);
+float CXFA_Font::GetFontSize() const {
+  return JSObject()->GetMeasure(XFA_Attribute::Size).ToUnit(XFA_Unit::Pt);
 }
 
-void CXFA_Font::GetTypeface(CFX_WideStringC& wsTypeFace) {
-  m_pNode->TryCData(XFA_ATTRIBUTE_Typeface, wsTypeFace);
+WideString CXFA_Font::GetTypeface() {
+  return JSObject()->GetCData(XFA_Attribute::Typeface);
 }
 
 bool CXFA_Font::IsBold() {
-  XFA_ATTRIBUTEENUM eAttr = XFA_ATTRIBUTEENUM_Normal;
-  m_pNode->TryEnum(XFA_ATTRIBUTE_Weight, eAttr);
-  return eAttr == XFA_ATTRIBUTEENUM_Bold;
+  return JSObject()->GetEnum(XFA_Attribute::Weight) == XFA_AttributeValue::Bold;
 }
 
 bool CXFA_Font::IsItalic() {
-  XFA_ATTRIBUTEENUM eAttr = XFA_ATTRIBUTEENUM_Normal;
-  m_pNode->TryEnum(XFA_ATTRIBUTE_Posture, eAttr);
-  return eAttr == XFA_ATTRIBUTEENUM_Italic;
+  return JSObject()->GetEnum(XFA_Attribute::Posture) ==
+         XFA_AttributeValue::Italic;
 }
 
 void CXFA_Font::SetColor(FX_ARGB color) {
-  CXFA_Fill fill(m_pNode->GetProperty(0, XFA_Element::Fill));
-  fill.SetColor(color);
+  CXFA_Fill* node =
+      JSObject()->GetOrCreateProperty<CXFA_Fill>(0, XFA_Element::Fill);
+  if (!node)
+    return;
+
+  node->SetColor(color);
 }
 
 FX_ARGB CXFA_Font::GetColor() {
-  CXFA_Fill fill(m_pNode->GetChild(0, XFA_Element::Fill));
-  return fill ? fill.GetColor(true) : 0xFF000000;
+  CXFA_Fill* fill = GetChild<CXFA_Fill>(0, XFA_Element::Fill, false);
+  return fill ? fill->GetColor(true) : 0xFF000000;
 }

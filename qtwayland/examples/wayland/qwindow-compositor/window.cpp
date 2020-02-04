@@ -60,10 +60,6 @@
 #include <QtWaylandCompositor/qwaylandseat.h>
 
 Window::Window()
-    : m_backgroundTexture(0)
-    , m_compositor(0)
-    , m_grabState(NoGrab)
-    , m_dragIconView(0)
 {
 }
 
@@ -82,6 +78,7 @@ void Window::initializeGL()
     m_backgroundTexture->setMinificationFilter(QOpenGLTexture::Nearest);
     m_backgroundImageSize = backgroundImage.size();
     m_textureBlitter.create();
+    m_compositor->create(); // the compositor's hardware integration may depend on GL
 }
 
 void Window::drawBackground()
@@ -162,7 +159,7 @@ void Window::paintGL()
 
 View *Window::viewAt(const QPointF &point)
 {
-    View *ret = 0;
+    View *ret = nullptr;
     Q_FOREACH (View *view, m_compositor->views()) {
         if (view == m_dragIconView)
             continue;
@@ -184,7 +181,7 @@ void Window::startResize(int edge, bool anchored)
     m_grabState = ResizeGrab;
     m_resizeEdge = edge;
     m_resizeAnchored = anchored;
-    m_resizeAnchorPosition = getAnchorPosition(m_mouseView->position(), edge, m_mouseView->surface()->size());
+    m_resizeAnchorPosition = getAnchorPosition(m_mouseView->position(), edge, m_mouseView->surface()->destinationSize());
 }
 
 void Window::startDrag(View *dragIcon)
@@ -226,7 +223,7 @@ void Window::mouseReleaseEvent(QMouseEvent *e)
             View *view = viewAt(e->localPos());
             m_compositor->handleDrag(view, e);
         }
-        m_mouseView = 0;
+        m_mouseView = nullptr;
         m_grabState = NoGrab;
     }
 }

@@ -16,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "net/base/interval.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/disk_cache/blockfile/backend_impl.h"
@@ -74,7 +75,7 @@ class ChildrenDeleter
 
  private:
   friend class base::RefCounted<ChildrenDeleter>;
-  ~ChildrenDeleter() override {}
+  ~ChildrenDeleter() override = default;
 
   void DeleteChildren();
 
@@ -254,7 +255,7 @@ int SparseControl::StartIO(SparseOperation op,
                            int64_t offset,
                            net::IOBuffer* buf,
                            int buf_len,
-                           const CompletionCallback& callback) {
+                           CompletionOnceCallback callback) {
   DCHECK(init_);
   // We don't support simultaneous IO for sparse data.
   if (operation_ != kNoOperation)
@@ -278,9 +279,10 @@ int SparseControl::StartIO(SparseOperation op,
   // Copy the operation parameters.
   operation_ = op;
   offset_ = offset;
-  user_buf_ = buf ? new net::DrainableIOBuffer(buf, buf_len) : NULL;
+  user_buf_ =
+      buf ? base::MakeRefCounted<net::DrainableIOBuffer>(buf, buf_len) : NULL;
   buf_len_ = buf_len;
-  user_callback_ = callback;
+  user_callback_ = std::move(callback);
 
   result_ = 0;
   pending_ = false;
@@ -314,8 +316,8 @@ int SparseControl::GetAvailableRange(int64_t offset, int len, int64_t* start) {
   DCHECK(start);
 
   range_found_ = false;
-  int result = StartIO(
-      kGetRangeOperation, offset, NULL, len, CompletionCallback());
+  int result =
+      StartIO(kGetRangeOperation, offset, NULL, len, CompletionOnceCallback());
   if (range_found_) {
     *start = offset_;
     return result;
@@ -332,7 +334,7 @@ void SparseControl::CancelIO() {
   abort_ = true;
 }
 
-int SparseControl::ReadyToUse(const CompletionCallback& callback) {
+int SparseControl::ReadyToUse(CompletionOnceCallback callback) {
   if (!abort_)
     return net::OK;
 
@@ -340,7 +342,7 @@ int SparseControl::ReadyToUse(const CompletionCallback& callback) {
   // one extra reference due to the pending IO operation itself, but we'll
   // release that one before invoking user_callback_.
   entry_->AddRef();  // Balanced in DoAbortCallbacks.
-  abort_callbacks_.push_back(callback);
+  abort_callbacks_.push_back(std::move(callback));
   return net::ERR_IO_PENDING;
 }
 
@@ -394,11 +396,11 @@ int SparseControl::CreateSparseEntry() {
   children_map_.Resize(kNumSparseBits, true);
 
   // Save the header. The bitmap is saved in the destructor.
-  scoped_refptr<net::IOBuffer> buf(
-      new net::WrappedIOBuffer(reinterpret_cast<char*>(&sparse_header_)));
+  scoped_refptr<net::IOBuffer> buf = base::MakeRefCounted<net::WrappedIOBuffer>(
+      reinterpret_cast<char*>(&sparse_header_));
 
   int rv = entry_->WriteData(kSparseIndex, 0, buf.get(), sizeof(sparse_header_),
-                             CompletionCallback(), false);
+                             CompletionOnceCallback(), false);
   if (rv != sizeof(sparse_header_)) {
     DLOG(ERROR) << "Unable to save sparse_header_";
     return net::ERR_CACHE_OPERATION_NOT_SUPPORTED;
@@ -424,12 +426,12 @@ int SparseControl::OpenSparseEntry(int data_len) {
   if (map_len > kMaxMapSize || map_len % 4)
     return net::ERR_CACHE_OPERATION_NOT_SUPPORTED;
 
-  scoped_refptr<net::IOBuffer> buf(
-      new net::WrappedIOBuffer(reinterpret_cast<char*>(&sparse_header_)));
+  scoped_refptr<net::IOBuffer> buf = base::MakeRefCounted<net::WrappedIOBuffer>(
+      reinterpret_cast<char*>(&sparse_header_));
 
   // Read header.
   int rv = entry_->ReadData(kSparseIndex, 0, buf.get(), sizeof(sparse_header_),
-                            CompletionCallback());
+                            CompletionOnceCallback());
   if (rv != static_cast<int>(sizeof(sparse_header_)))
     return net::ERR_CACHE_READ_FAILURE;
 
@@ -441,9 +443,9 @@ int SparseControl::OpenSparseEntry(int data_len) {
     return net::ERR_CACHE_OPERATION_NOT_SUPPORTED;
 
   // Read the actual bitmap.
-  buf = new net::IOBuffer(map_len);
+  buf = base::MakeRefCounted<net::IOBuffer>(map_len);
   rv = entry_->ReadData(kSparseIndex, sizeof(sparse_header_), buf.get(),
-                        map_len, CompletionCallback());
+                        map_len, CompletionOnceCallback());
   if (rv != map_len)
     return net::ERR_CACHE_READ_FAILURE;
 
@@ -479,12 +481,13 @@ bool SparseControl::OpenChild() {
       child_->GetDataSize(kSparseIndex) < static_cast<int>(sizeof(child_data_)))
     return KillChildAndContinue(key, false);
 
-  scoped_refptr<net::WrappedIOBuffer> buf(
-      new net::WrappedIOBuffer(reinterpret_cast<char*>(&child_data_)));
+  scoped_refptr<net::WrappedIOBuffer> buf =
+      base::MakeRefCounted<net::WrappedIOBuffer>(
+          reinterpret_cast<char*>(&child_data_));
 
   // Read signature.
   int rv = child_->ReadData(kSparseIndex, 0, buf.get(), sizeof(child_data_),
-                            CompletionCallback());
+                            CompletionOnceCallback());
   if (rv != sizeof(child_data_))
     return KillChildAndContinue(key, true);  // This is a fatal failure.
 
@@ -503,12 +506,13 @@ bool SparseControl::OpenChild() {
 }
 
 void SparseControl::CloseChild() {
-  scoped_refptr<net::WrappedIOBuffer> buf(
-      new net::WrappedIOBuffer(reinterpret_cast<char*>(&child_data_)));
+  scoped_refptr<net::WrappedIOBuffer> buf =
+      base::MakeRefCounted<net::WrappedIOBuffer>(
+          reinterpret_cast<char*>(&child_data_));
 
   // Save the allocation bitmap before closing the child entry.
   int rv = child_->WriteData(kSparseIndex, 0, buf.get(), sizeof(child_data_),
-                             CompletionCallback(), false);
+                             CompletionOnceCallback(), false);
   if (rv != sizeof(child_data_))
     DLOG(ERROR) << "Failed to save child data";
   child_ = NULL;
@@ -571,12 +575,12 @@ void SparseControl::SetChildBit(bool value) {
 }
 
 void SparseControl::WriteSparseData() {
-  scoped_refptr<net::IOBuffer> buf(new net::WrappedIOBuffer(
-      reinterpret_cast<const char*>(children_map_.GetMap())));
+  scoped_refptr<net::IOBuffer> buf = base::MakeRefCounted<net::WrappedIOBuffer>(
+      reinterpret_cast<const char*>(children_map_.GetMap()));
 
   int len = children_map_.ArraySize() * 4;
   int rv = entry_->WriteData(kSparseIndex, sizeof(sparse_header_), buf.get(),
-                             len, CompletionCallback(), false);
+                             len, CompletionOnceCallback(), false);
   if (rv != len) {
     DLOG(ERROR) << "Unable to save sparse map";
   }
@@ -669,11 +673,12 @@ void SparseControl::InitChildData() {
   memset(&child_data_, 0, sizeof(child_data_));
   child_data_.header = sparse_header_;
 
-  scoped_refptr<net::WrappedIOBuffer> buf(
-      new net::WrappedIOBuffer(reinterpret_cast<char*>(&child_data_)));
+  scoped_refptr<net::WrappedIOBuffer> buf =
+      base::MakeRefCounted<net::WrappedIOBuffer>(
+          reinterpret_cast<char*>(&child_data_));
 
   int rv = child_->WriteData(kSparseIndex, 0, buf.get(), sizeof(child_data_),
-                             CompletionCallback(), false);
+                             CompletionOnceCallback(), false);
   if (rv != sizeof(child_data_))
     DLOG(ERROR) << "Failed to save child data";
   SetChildBit(true);
@@ -711,10 +716,10 @@ bool SparseControl::DoChildIO() {
 
   // We have more work to do. Let's not trigger a callback to the caller.
   finished_ = false;
-  CompletionCallback callback;
+  CompletionOnceCallback callback;
   if (!user_callback_.is_null()) {
-    callback =
-        base::Bind(&SparseControl::OnChildIOCompleted, base::Unretained(this));
+    callback = base::BindOnce(&SparseControl::OnChildIOCompleted,
+                              base::Unretained(this));
   }
 
   int rv = 0;
@@ -727,7 +732,7 @@ bool SparseControl::DoChildIO() {
                                                 child_len_));
       }
       rv = child_->ReadDataImpl(kSparseData, child_offset_, user_buf_.get(),
-                                child_len_, callback);
+                                child_len_, std::move(callback));
       break;
     case kWriteOperation:
       if (entry_->net_log().IsCapturing()) {
@@ -737,7 +742,7 @@ bool SparseControl::DoChildIO() {
                                                 child_len_));
       }
       rv = child_->WriteDataImpl(kSparseData, child_offset_, user_buf_.get(),
-                                 child_len_, callback, false);
+                                 child_len_, std::move(callback), false);
       break;
     case kGetRangeOperation:
       rv = DoGetAvailableRange();
@@ -768,68 +773,82 @@ int SparseControl::DoGetAvailableRange() {
   if (!child_)
     return child_len_;  // Move on to the next child.
 
+  // Blockfile splits sparse files into multiple child entries, each responsible
+  // for managing 1MiB of address space. This method is responsible for
+  // implementing GetAvailableRange within a single child.
+  //
+  // Input:
+  //   |child_offset_|, |child_len_|:
+  //     describe range in current child's address space the client requested.
+  //   |offset_| is equivalent to |child_offset_| but in global address space.
+  //
+  //   For example if this were child [2] and the original call was for
+  //   [0x200005, 0x200007) then |offset_| would be 0x200005, |child_offset_|
+  //   would be 5, and |child_len| would be 2.
+  //
+  // Output:
+  //   If nothing found:
+  //     return |child_len_|
+  //
+  //   If something found:
+  //     |result_| gets the length of the available range.
+  //     |offset_| gets the global address of beginning of the available range.
+  //     |range_found_| get true to signal SparseControl::GetAvailableRange().
+  //     return 0 to exit loop.
+  net::Interval<int> to_find(child_offset_, child_offset_ + child_len_);
+
+  // Within each child, valid portions are mostly tracked via the |child_map_|
+  // bitmap which marks which 1KiB 'blocks' have valid data. Scan the bitmap
+  // for the first contiguous range of set bits that's relevant to the range
+  // [child_offset_, child_offset_ + len)
+  int first_bit = child_offset_ >> 10;
+  int last_bit = (child_offset_ + child_len_ + kBlockSize - 1) >> 10;
+  int found = first_bit;
+  int bits_found = child_map_.FindBits(&found, last_bit, true);
+  net::Interval<int> bitmap_range(found * kBlockSize,
+                                  found * kBlockSize + bits_found * kBlockSize);
+
   // Bits on the bitmap should only be set when the corresponding block was
   // fully written (it's really being used). If a block is partially used, it
   // has to start with valid data, the length of the valid data is saved in
-  // |header.last_block_len| and the block itself should match
-  // |header.last_block|.
-  //
-  // In other words, (|header.last_block| + |header.last_block_len|) is the
-  // offset where the last write ended, and data in that block (which is not
-  // marked as used because it is not full) will only be reused if the next
-  // write continues at that point.
-  //
-  // This code has to find if there is any data between child_offset_ and
-  // child_offset_ + child_len_.
-  int last_bit = (child_offset_ + child_len_ + kBlockSize - 1) >> 10;
-  int start = child_offset_ >> 10;
-  int partial_start_bytes = PartialBlockLength(start);
-  int found = start;
-  int bits_found = child_map_.FindBits(&found, last_bit, true);
-  bool is_last_block_in_range = start < child_data_.header.last_block &&
-                                child_data_.header.last_block < last_bit;
-
-  int block_offset = child_offset_ & (kBlockSize - 1);
-  if (!bits_found && partial_start_bytes <= block_offset) {
-    if (!is_last_block_in_range)
-      return child_len_;
-    found = last_bit - 1;  // There are some bytes here.
+  // |header.last_block_len| and the block number saved in |header.last_block|.
+  // This is updated after every write; with |header.last_block| set to -1
+  // if no sub-KiB range is being tracked.
+  net::Interval<int> last_write_range;
+  if (child_data_.header.last_block >= 0) {
+    last_write_range =
+        net::Interval<int>(child_data_.header.last_block * kBlockSize,
+                           child_data_.header.last_block * kBlockSize +
+                               child_data_.header.last_block_len);
   }
 
-  // We are done. Just break the loop and reset result_ to our real result.
-  range_found_ = true;
+  // Often |last_write_range| is contiguously after |bitmap_range|, but not
+  // always. See if they can be combined.
+  if (!last_write_range.Empty() && !bitmap_range.Empty() &&
+      bitmap_range.max() == last_write_range.min()) {
+    bitmap_range.SetMax(last_write_range.max());
+    last_write_range.Clear();
+  }
 
-  int bytes_found = bits_found << 10;
-  bytes_found += PartialBlockLength(found + bits_found);
+  // Do any of them have anything relevant?
+  bitmap_range.IntersectWith(to_find);
+  last_write_range.IntersectWith(to_find);
 
-  // found now points to the first bytes. Lets see if we have data before it.
-  int empty_start = std::max((found << 10) - child_offset_, 0);
-  if (empty_start >= child_len_)
+  // Now return the earliest non-empty interval, if any.
+  net::Interval<int> result_range = bitmap_range;
+  if (bitmap_range.Empty() || (!last_write_range.Empty() &&
+                               last_write_range.min() < bitmap_range.min()))
+    result_range = last_write_range;
+
+  if (result_range.Empty()) {
+    // Nothing found, so we just skip over this child.
     return child_len_;
-
-  // At this point we have bytes_found stored after (found << 10), and we want
-  // child_len_ bytes after child_offset_. The first empty_start bytes after
-  // child_offset_ are invalid.
-
-  if (start == found)
-    bytes_found -= block_offset;
-
-  // If the user is searching past the end of this child, bits_found is the
-  // right result; otherwise, we have some empty space at the start of this
-  // query that we have to subtract from the range that we searched.
-  result_ = std::min(bytes_found, child_len_ - empty_start);
-
-  if (partial_start_bytes) {
-    result_ = std::min(partial_start_bytes - block_offset, child_len_);
-    empty_start = 0;
   }
 
-  // Only update offset_ when this query found zeros at the start.
-  if (empty_start)
-    offset_ += empty_start;
-
-  // This will actually break the loop.
-  buf_len_ = 0;
+  // Package up our results.
+  range_found_ = true;
+  offset_ += result_range.min() - child_offset_;
+  result_ = result_range.max() - result_range.min();
   return 0;
 }
 
@@ -881,25 +900,24 @@ void SparseControl::OnChildIOCompleted(int result) {
 
 void SparseControl::DoUserCallback() {
   DCHECK(!user_callback_.is_null());
-  CompletionCallback cb = user_callback_;
-  user_callback_.Reset();
+  CompletionOnceCallback cb = std::move(user_callback_);
   user_buf_ = NULL;
   pending_ = false;
   operation_ = kNoOperation;
   int rv = result_;
   entry_->Release();  // Don't touch object after this line.
-  cb.Run(rv);
+  std::move(cb).Run(rv);
 }
 
 void SparseControl::DoAbortCallbacks() {
-  std::vector<CompletionCallback> abort_callbacks;
+  std::vector<CompletionOnceCallback> abort_callbacks;
   abort_callbacks.swap(abort_callbacks_);
 
-  for (CompletionCallback& callback : abort_callbacks) {
+  for (CompletionOnceCallback& callback : abort_callbacks) {
     // Releasing all references to entry_ may result in the destruction of this
     // object so we should not be touching it after the last Release().
     entry_->Release();
-    callback.Run(net::OK);
+    std::move(callback).Run(net::OK);
   }
 }
 

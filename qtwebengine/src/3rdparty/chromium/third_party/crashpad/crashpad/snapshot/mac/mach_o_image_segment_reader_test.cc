@@ -16,7 +16,7 @@
 
 #include <mach-o/loader.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "gtest/gtest.h"
 
@@ -53,7 +53,7 @@ TEST(MachOImageSegmentReader, SegmentNameString) {
 
   // Segment names defined in <mach-o/loader.h>. All of these should come
   // through SegmentNameString() cleanly and without truncation.
-  const char* kSegmentTestData[] = {
+  static constexpr const char* kSegmentTestData[] = {
       SEG_TEXT,
       SEG_DATA,
       SEG_OBJC,
@@ -63,7 +63,7 @@ TEST(MachOImageSegmentReader, SegmentNameString) {
       SEG_IMPORT,
   };
 
-  for (size_t index = 0; index < arraysize(kSegmentTestData); ++index) {
+  for (size_t index = 0; index < base::size(kSegmentTestData); ++index) {
     EXPECT_EQ(
         MachOImageSegmentReader::SegmentNameString(kSegmentTestData[index]),
         kSegmentTestData[index])
@@ -91,7 +91,7 @@ TEST(MachOImageSegmentReader, SectionNameString) {
 
   // Section names defined in <mach-o/loader.h>. All of these should come
   // through SectionNameString() cleanly and without truncation.
-  const char* kSectionTestData[] = {
+  static constexpr const char* kSectionTestData[] = {
       SECT_TEXT,
       SECT_FVMLIB_INIT0,
       SECT_FVMLIB_INIT1,
@@ -106,7 +106,7 @@ TEST(MachOImageSegmentReader, SectionNameString) {
       SECT_ICON_TIFF,
   };
 
-  for (size_t index = 0; index < arraysize(kSectionTestData); ++index) {
+  for (size_t index = 0; index < base::size(kSectionTestData); ++index) {
     EXPECT_EQ(
         MachOImageSegmentReader::SectionNameString(kSectionTestData[index]),
         kSectionTestData[index])
@@ -115,12 +115,11 @@ TEST(MachOImageSegmentReader, SectionNameString) {
 }
 
 TEST(MachOImageSegmentReader, SegmentAndSectionNameString) {
-  struct SegmentAndSectionTestData {
+  static constexpr struct {
     const char* segment;
     const char* section;
     const char* output;
-  };
-  const SegmentAndSectionTestData kSegmentAndSectionTestData[] = {
+  } kSegmentAndSectionTestData[] = {
       {"segment", "section", "segment,section"},
       {"Segment", "Section", "Segment,Section"},
       {"SEGMENT", "SECTION", "SEGMENT,SECTION"},
@@ -170,9 +169,9 @@ TEST(MachOImageSegmentReader, SegmentAndSectionNameString) {
       {SEG_IMPORT, "", "__IMPORT,"},
   };
 
-  for (size_t index = 0; index < arraysize(kSegmentAndSectionTestData);
+  for (size_t index = 0; index < base::size(kSegmentAndSectionTestData);
        ++index) {
-    const SegmentAndSectionTestData& test = kSegmentAndSectionTestData[index];
+    const auto& test = kSegmentAndSectionTestData[index];
     EXPECT_EQ(MachOImageSegmentReader::SegmentAndSectionNameString(
                   test.segment, test.section),
               test.output)

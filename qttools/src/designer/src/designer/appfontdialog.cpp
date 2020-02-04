@@ -30,26 +30,27 @@
 
 #include <iconloader_p.h>
 
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QTreeView>
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QSpacerItem>
-#include <QtWidgets/QFileDialog>
-#include <QtGui/QStandardItemModel>
-#include <QtWidgets/QMessageBox>
-#include <QtGui/QFontDatabase>
-#include <QtWidgets/QDialogButtonBox>
+#include <QtWidgets/qtreeview.h>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qlayoutitem.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtGui/qfontdatabase.h>
+#include <QtWidgets/qdialogbuttonbox.h>
 
-#include <QtCore/QSettings>
-#include <QtCore/QCoreApplication>
-#include <QtCore/QStringList>
-#include <QtCore/QFileInfo>
-#include <QtCore/QtAlgorithms>
-#include <QtCore/QVector>
-#include <QtCore/QDebug>
+#include <QtCore/qsettings.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qalgorithms.h>
+#include <QtCore/qvector.h>
+#include <QtCore/qdebug.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -353,7 +354,7 @@ static void removeFonts(const QModelIndexList &selectedIndexes, AppFontModel *mo
         }
     }
 
-    qStableSort(rows.begin(), rows.end());
+    std::stable_sort(rows.begin(), rows.end());
     for (int i = rows.size() - 1; i >= 0; i--)
         model->removeRow(rows[i]);
 }

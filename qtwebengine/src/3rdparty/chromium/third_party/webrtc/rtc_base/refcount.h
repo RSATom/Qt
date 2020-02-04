@@ -1,5 +1,5 @@
 /*
- *  Copyright 2011 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -7,23 +7,13 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#ifndef WEBRTC_RTC_BASE_REFCOUNT_H_
-#define WEBRTC_RTC_BASE_REFCOUNT_H_
 
-#include "webrtc/rtc_base/refcountedobject.h"
+#ifndef RTC_BASE_REFCOUNT_H_
+#define RTC_BASE_REFCOUNT_H_
 
-namespace rtc {
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-// Reference count interface.
-class RefCountInterface {
- public:
-  virtual int AddRef() const = 0;
-  virtual int Release() const = 0;
+#include "rtc_base/ref_count.h"
 
- protected:
-  virtual ~RefCountInterface() {}
-};
-
-}  // namespace rtc
-
-#endif  // WEBRTC_RTC_BASE_REFCOUNT_H_
+#endif  // RTC_BASE_REFCOUNT_H_

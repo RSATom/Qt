@@ -8,22 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/neteq/tools/packet_source.h"
+#include "modules/audio_coding/neteq/tools/packet_source.h"
 
 namespace webrtc {
 namespace test {
 
-PacketSource::PacketSource() : use_ssrc_filter_(false), ssrc_(0) {}
+PacketSource::PacketSource() = default;
 
 PacketSource::~PacketSource() = default;
 
 void PacketSource::FilterOutPayloadType(uint8_t payload_type) {
   filter_.set(payload_type, true);
-}
-
-void PacketSource::SelectSsrc(uint32_t ssrc) {
-  use_ssrc_filter_ = true;
-  ssrc_ = ssrc;
 }
 
 }  // namespace test

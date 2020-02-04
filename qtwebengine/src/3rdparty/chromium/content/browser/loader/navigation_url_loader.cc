@@ -7,17 +7,16 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "content/browser/frame_host/navigation_request_info.h"
+#include "content/browser/loader/navigation_loader_interceptor.h"
 #include "content/browser/loader/navigation_url_loader_factory.h"
 #include "content/browser/loader/navigation_url_loader_impl.h"
-#include "content/browser/loader/navigation_url_loader_network_service.h"
 #include "content/public/browser/navigation_ui_data.h"
-#include "content/public/common/content_features.h"
+#include "services/network/public/cpp/features.h"
 
 namespace content {
 
-static NavigationURLLoaderFactory* g_factory = nullptr;
+static NavigationURLLoaderFactory* g_loader_factory = nullptr;
 
 std::unique_ptr<NavigationURLLoader> NavigationURLLoader::Create(
     ResourceContext* resource_context,
@@ -27,28 +26,21 @@ std::unique_ptr<NavigationURLLoader> NavigationURLLoader::Create(
     ServiceWorkerNavigationHandle* service_worker_handle,
     AppCacheNavigationHandle* appcache_handle,
     NavigationURLLoaderDelegate* delegate) {
-  if (g_factory) {
-    return g_factory->CreateLoader(
+  if (g_loader_factory) {
+    return g_loader_factory->CreateLoader(
         resource_context, storage_partition, std::move(request_info),
         std::move(navigation_ui_data), service_worker_handle, delegate);
   }
-  if (base::FeatureList::IsEnabled(features::kNetworkService)) {
-    return base::MakeUnique<NavigationURLLoaderNetworkService>(
-        resource_context, storage_partition, std::move(request_info),
-        std::move(navigation_ui_data), service_worker_handle, appcache_handle,
-        delegate);
-  } else {
-    return base::MakeUnique<NavigationURLLoaderImpl>(
-        resource_context, storage_partition, std::move(request_info),
-        std::move(navigation_ui_data), service_worker_handle, appcache_handle,
-        delegate);
-  }
+  return std::make_unique<NavigationURLLoaderImpl>(
+      resource_context, storage_partition, std::move(request_info),
+      std::move(navigation_ui_data), service_worker_handle, appcache_handle,
+      delegate, std::vector<std::unique_ptr<NavigationLoaderInterceptor>>());
 }
 
 void NavigationURLLoader::SetFactoryForTesting(
     NavigationURLLoaderFactory* factory) {
-  DCHECK(g_factory == nullptr || factory == nullptr);
-  g_factory = factory;
+  DCHECK(g_loader_factory == nullptr || factory == nullptr);
+  g_loader_factory = factory;
 }
 
 }  // namespace content

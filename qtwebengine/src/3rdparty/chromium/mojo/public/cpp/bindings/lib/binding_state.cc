@@ -3,8 +3,12 @@
 // found in the LICENSE file.
 
 #include "mojo/public/cpp/bindings/lib/binding_state.h"
-
 #include "mojo/public/cpp/bindings/lib/task_runner_helper.h"
+#include "mojo/public/cpp/bindings/mojo_buildflags.h"
+
+#if BUILDFLAG(MOJO_RANDOM_DELAYS_ENABLED)
+#include "mojo/public/cpp/bindings/lib/test_random_mojo_delays.h"
+#endif
 
 namespace mojo {
 namespace internal {
@@ -41,6 +45,8 @@ void BindingStateBase::Close() {
   if (!router_)
     return;
 
+  weak_ptr_factory_.InvalidateWeakPtrs();
+
   endpoint_client_.reset();
   router_->CloseMessagePipe();
   router_ = nullptr;
@@ -55,10 +61,10 @@ void BindingStateBase::CloseWithReason(uint32_t custom_reason,
 }
 
 ReportBadMessageCallback BindingStateBase::GetBadMessageCallback() {
-  return base::Bind(
-      [](const ReportBadMessageCallback& inner_callback,
+  return base::BindOnce(
+      [](ReportBadMessageCallback inner_callback,
          base::WeakPtr<BindingStateBase> binding, const std::string& error) {
-        inner_callback.Run(error);
+        std::move(inner_callback).Run(error);
         if (binding)
           binding->Close();
       },
@@ -69,24 +75,35 @@ void BindingStateBase::FlushForTesting() {
   endpoint_client_->FlushForTesting();
 }
 
+void BindingStateBase::EnableBatchDispatch() {
+  DCHECK(is_bound());
+  router_->EnableBatchDispatch();
+}
+
 void BindingStateBase::EnableTestingMode() {
   DCHECK(is_bound());
   router_->EnableTestingMode();
 }
 
+scoped_refptr<internal::MultiplexRouter> BindingStateBase::RouterForTesting() {
+  return router_;
+}
+
 void BindingStateBase::BindInternal(
     ScopedMessagePipeHandle handle,
-    scoped_refptr<base::SingleThreadTaskRunner> runner,
+    scoped_refptr<base::SequencedTaskRunner> runner,
     const char* interface_name,
     std::unique_ptr<MessageReceiver> request_validator,
     bool passes_associated_kinds,
     bool has_sync_methods,
     MessageReceiverWithResponderStatus* stub,
     uint32_t interface_version) {
-  DCHECK(!router_);
+  DCHECK(!is_bound()) << "Attempting to bind interface that is already bound: "
+                      << interface_name;
 
   auto sequenced_runner =
       GetTaskRunnerToUseFromUserProvidedTaskRunner(std::move(runner));
+
   MultiplexRouter::Config config =
       passes_associated_kinds
           ? MultiplexRouter::MULTI_INTERFACE
@@ -101,7 +118,12 @@ void BindingStateBase::BindInternal(
       router_->CreateLocalEndpointHandle(kMasterInterfaceId), stub,
       std::move(request_validator), has_sync_methods,
       std::move(sequenced_runner), interface_version));
+
+#if BUILDFLAG(MOJO_RANDOM_DELAYS_ENABLED)
+  MakeBindingRandomlyPaused(base::SequencedTaskRunnerHandle::Get(),
+                            weak_ptr_factory_.GetWeakPtr());
+#endif
 }
 
-}  // namesapce internal
+}  // namespace internal
 }  // namespace mojo

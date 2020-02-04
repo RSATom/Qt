@@ -6,11 +6,12 @@
 #define GOOGLE_APIS_GAIA_FAKE_OAUTH2_TOKEN_SERVICE_H_
 
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "google_apis/gaia/fake_oauth2_token_service_delegate.h"
 #include "google_apis/gaia/oauth2_token_service.h"
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 // Do-nothing implementation of OAuth2TokenService.
@@ -24,23 +25,27 @@ class FakeOAuth2TokenService : public OAuth2TokenService {
 
   // Helper routines to issue tokens for pending requests or complete them with
   // error.
-  void IssueAllTokensForAccount(const std::string& account_id,
-                                const std::string& access_token,
-                                const base::Time& expiration);
+  void IssueAllTokensForAccount(
+      const std::string& account_id,
+      const OAuth2AccessTokenConsumer::TokenResponse& token_response);
   void IssueErrorForAllPendingRequestsForAccount(
       const std::string& account_id,
       const GoogleServiceAuthError& auth_error);
+
+  void InvalidateTokenForMultilogin(const std::string& account_id,
+                                    const std::string& token) override{};
 
   FakeOAuth2TokenServiceDelegate* GetFakeOAuth2TokenServiceDelegate();
 
  protected:
   // OAuth2TokenService overrides.
-  void FetchOAuth2Token(RequestImpl* request,
-                        const std::string& account_id,
-                        net::URLRequestContextGetter* getter,
-                        const std::string& client_id,
-                        const std::string& client_secret,
-                        const ScopeSet& scopes) override;
+  void FetchOAuth2Token(
+      RequestImpl* request,
+      const std::string& account_id,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      const std::string& client_id,
+      const std::string& client_secret,
+      const ScopeSet& scopes) override;
 
   void InvalidateAccessTokenImpl(const std::string& account_id,
                                  const std::string& client_id,

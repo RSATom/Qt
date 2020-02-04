@@ -11,9 +11,12 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/task/task_traits.h"
 #include "net/cookies/cookie_monster.h"
+#include "net/log/net_log_with_source.h"
 
 namespace base {
 class FilePath;
@@ -24,10 +27,14 @@ namespace net {
 class CanonicalCookie;
 class CookieCryptoDelegate;
 
+// Returns recommended task priority for |background_task_runner|.
+base::TaskPriority COMPONENT_EXPORT(NET_EXTRAS)
+    GetCookieStoreBackgroundSequencePriority();
+
 // Implements the PersistentCookieStore interface in terms of a SQLite database.
 // For documentation about the actual member functions consult the documentation
 // of the parent class |CookieMonster::PersistentCookieStore|.
-class SQLitePersistentCookieStore
+class COMPONENT_EXPORT(NET_EXTRAS) SQLitePersistentCookieStore
     : public CookieMonster::PersistentCookieStore {
  public:
   // Contains the origin and a bool indicating whether or not the
@@ -47,29 +54,36 @@ class SQLitePersistentCookieStore
   // Deletes the cookies whose origins match those given in |cookies|.
   void DeleteAllInList(const std::list<CookieOrigin>& cookies);
 
-  // Closes the database backend and fires |callback| on the worker
-  // thread. After Close() is called, further calls to the
-  // PersistentCookieStore methods will do nothing, with Load() and
-  // LoadCookiesForKey() additionally calling their callback methods
-  // with an empty vector of CanonicalCookies.
-  void Close(const base::Closure& callback);
-
   // CookieMonster::PersistentCookieStore:
-  void Load(const LoadedCallback& loaded_callback) override;
+  void Load(const LoadedCallback& loaded_callback,
+            const NetLogWithSource& net_log) override;
   void LoadCookiesForKey(const std::string& key,
                          const LoadedCallback& callback) override;
   void AddCookie(const CanonicalCookie& cc) override;
   void UpdateCookieAccessTime(const CanonicalCookie& cc) override;
   void DeleteCookie(const CanonicalCookie& cc) override;
   void SetForceKeepSessionState() override;
+  void SetBeforeFlushCallback(base::RepeatingClosure callback) override;
   void Flush(base::OnceClosure callback) override;
+
+  // Returns how many operations are currently queued. For test use only;
+  // and the background thread needs to be wedged for accessing this to be
+  // non-racey. Also requires the client thread to be current.
+  size_t GetQueueLengthForTesting();
 
  private:
   ~SQLitePersistentCookieStore() override;
+  void CompleteLoad(const LoadedCallback& callback,
+                    std::vector<std::unique_ptr<CanonicalCookie>> cookie_list);
+  void CompleteKeyedLoad(
+      const std::string& key,
+      const LoadedCallback& callback,
+      std::vector<std::unique_ptr<CanonicalCookie>> cookie_list);
 
   class Backend;
 
-  scoped_refptr<Backend> backend_;
+  const scoped_refptr<Backend> backend_;
+  NetLogWithSource net_log_;
 
   DISALLOW_COPY_AND_ASSIGN(SQLitePersistentCookieStore);
 };

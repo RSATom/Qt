@@ -46,7 +46,7 @@ void InterfacePtrStateBase::Swap(InterfacePtrStateBase* other) {
 void InterfacePtrStateBase::Bind(
     ScopedMessagePipeHandle handle,
     uint32_t version,
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   DCHECK(!router_);
   DCHECK(!endpoint_client_);
   DCHECK(!handle_.is_valid());
@@ -80,6 +80,7 @@ bool InterfacePtrStateBase::InitializeEndpointClient(
           : (has_sync_methods
                  ? MultiplexRouter::SINGLE_INTERFACE_WITH_SYNC_METHODS
                  : MultiplexRouter::SINGLE_INTERFACE);
+  DCHECK(runner_->RunsTasksInCurrentSequence());
   router_ = new MultiplexRouter(std::move(handle_), config, true, runner_);
   endpoint_client_.reset(new InterfaceEndpointClient(
       router_->CreateLocalEndpointHandle(kMasterInterfaceId), nullptr,

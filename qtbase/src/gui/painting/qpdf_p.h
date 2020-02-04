@@ -171,7 +171,8 @@ public:
     enum PdfVersion
     {
         Version_1_4,
-        Version_A1b
+        Version_A1b,
+        Version_1_6
     };
 
     QPdfEngine();
@@ -186,28 +187,28 @@ public:
     void setPdfVersion(PdfVersion version);
 
     // reimplementations QPaintEngine
-    bool begin(QPaintDevice *pdev) Q_DECL_OVERRIDE;
-    bool end() Q_DECL_OVERRIDE;
+    bool begin(QPaintDevice *pdev) override;
+    bool end() override;
 
-    void drawPoints(const QPointF *points, int pointCount) Q_DECL_OVERRIDE;
-    void drawLines(const QLineF *lines, int lineCount) Q_DECL_OVERRIDE;
-    void drawRects(const QRectF *rects, int rectCount) Q_DECL_OVERRIDE;
-    void drawPolygon(const QPointF *points, int pointCount, PolygonDrawMode mode) Q_DECL_OVERRIDE;
-    void drawPath (const QPainterPath & path) Q_DECL_OVERRIDE;
+    void drawPoints(const QPointF *points, int pointCount) override;
+    void drawLines(const QLineF *lines, int lineCount) override;
+    void drawRects(const QRectF *rects, int rectCount) override;
+    void drawPolygon(const QPointF *points, int pointCount, PolygonDrawMode mode) override;
+    void drawPath (const QPainterPath & path) override;
 
-    void drawTextItem(const QPointF &p, const QTextItem &textItem) Q_DECL_OVERRIDE;
+    void drawTextItem(const QPointF &p, const QTextItem &textItem) override;
 
-    void drawPixmap (const QRectF & rectangle, const QPixmap & pixmap, const QRectF & sr) Q_DECL_OVERRIDE;
+    void drawPixmap (const QRectF & rectangle, const QPixmap & pixmap, const QRectF & sr) override;
     void drawImage(const QRectF &r, const QImage &pm, const QRectF &sr,
-                   Qt::ImageConversionFlags flags = Qt::AutoColor) Q_DECL_OVERRIDE;
-    void drawTiledPixmap (const QRectF & rectangle, const QPixmap & pixmap, const QPointF & point) Q_DECL_OVERRIDE;
+                   Qt::ImageConversionFlags flags = Qt::AutoColor) override;
+    void drawTiledPixmap (const QRectF & rectangle, const QPixmap & pixmap, const QPointF & point) override;
 
     void drawHyperlink(const QRectF &r, const QUrl &url);
 
-    void updateState(const QPaintEngineState &state) Q_DECL_OVERRIDE;
+    void updateState(const QPaintEngineState &state) override;
 
     int metric(QPaintDevice::PaintDeviceMetric metricType) const;
-    Type type() const Q_DECL_OVERRIDE;
+    Type type() const override;
     // end reimplementations QPaintEngine
 
     // Printer stuff...
@@ -241,7 +242,7 @@ public:
     void writeHeader();
     void writeTail();
 
-    int addImage(const QImage &image, bool *bitmap, qint64 serial_no);
+    int addImage(const QImage &image, bool *bitmap, bool lossless, qint64 serial_no);
     int addConstantAlphaObject(int brushAlpha, int penAlpha = 255);
     int addBrushPattern(const QTransform &matrix, bool *specifyColor, int *gStateObject);
 
@@ -300,6 +301,7 @@ private:
     void writePageRoot();
     void writeFonts();
     void embedFont(QFontSubset *font);
+    qreal calcUserUnit() const;
 
     QVector<int> xrefPositions;
     QDataStream* stream;

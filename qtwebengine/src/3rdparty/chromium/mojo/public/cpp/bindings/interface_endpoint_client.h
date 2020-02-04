@@ -13,6 +13,7 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/component_export.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -20,13 +21,11 @@
 #include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
-#include "mojo/public/cpp/bindings/bindings_export.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
 #include "mojo/public/cpp/bindings/disconnect_reason.h"
 #include "mojo/public/cpp/bindings/filter_chain.h"
 #include "mojo/public/cpp/bindings/lib/control_message_handler.h"
 #include "mojo/public/cpp/bindings/lib/control_message_proxy.h"
-#include "mojo/public/cpp/bindings/lib/debug_util.h"
 #include "mojo/public/cpp/bindings/message.h"
 #include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
 
@@ -38,9 +37,8 @@ class InterfaceEndpointController;
 // InterfaceEndpointClient handles message sending and receiving of an interface
 // endpoint, either the implementation side or the client side.
 // It should only be accessed and destructed on the creating sequence.
-class MOJO_CPP_BINDINGS_EXPORT InterfaceEndpointClient
-    : NON_EXPORTED_BASE(public MessageReceiverWithResponder),
-      NON_EXPORTED_BASE(private internal::LifeTimeTrackerForDebugging) {
+class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) InterfaceEndpointClient
+    : public MessageReceiverWithResponder {
  public:
   // |receiver| is okay to be null. If it is not null, it must outlive this
   // object.
@@ -115,6 +113,7 @@ class MOJO_CPP_BINDINGS_EXPORT InterfaceEndpointClient
   void QueryVersion(const base::Callback<void(uint32_t)>& callback);
   void RequireVersion(uint32_t version);
   void FlushForTesting();
+  void FlushAsyncForTesting(base::OnceClosure callback);
 
  private:
   // Maps from the id of a response to the MessageReceiver that handles the

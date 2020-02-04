@@ -6,17 +6,24 @@
 
 #include <utility>
 
+#include "ash/public/interfaces/assistant_controller.mojom.h"
+#include "ash/public/interfaces/constants.mojom.h"
 #include "base/bind.h"
 #include "base/values.h"
-#include "chrome/browser/chromeos/arc/voice_interaction/arc_voice_interaction_framework_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/webui/chromeos/assistant_optin/assistant_optin_ui.h"
+#include "chromeos/constants/chromeos_switches.h"
+#include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
+#include "content/public/browser/browser_context.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace chromeos {
 namespace settings {
 
 GoogleAssistantHandler::GoogleAssistantHandler(Profile* profile)
-    : profile_(profile) {}
+    : profile_(profile), weak_factory_(this) {}
 
 GoogleAssistantHandler::~GoogleAssistantHandler() {}
 
@@ -25,50 +32,43 @@ void GoogleAssistantHandler::OnJavascriptDisallowed() {}
 
 void GoogleAssistantHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
-      "setGoogleAssistantEnabled",
-      base::Bind(&GoogleAssistantHandler::HandleSetGoogleAssistantEnabled,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback(
-      "setGoogleAssistantContextEnabled",
-      base::Bind(
-          &GoogleAssistantHandler::HandleSetGoogleAssistantContextEnabled,
+      "showGoogleAssistantSettings",
+      base::BindRepeating(
+          &GoogleAssistantHandler::HandleShowGoogleAssistantSettings,
           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "showGoogleAssistantSettings",
-      base::Bind(&GoogleAssistantHandler::HandleShowGoogleAssistantSettings,
-                 base::Unretained(this)));
-}
-
-void GoogleAssistantHandler::HandleSetGoogleAssistantEnabled(
-    const base::ListValue* args) {
-  CHECK_EQ(1U, args->GetSize());
-  bool enabled;
-  CHECK(args->GetBoolean(0, &enabled));
-
-  auto* service =
-      arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile_);
-  if (service)
-    service->SetVoiceInteractionEnabled(enabled, base::BindOnce([](bool) {}));
-}
-
-void GoogleAssistantHandler::HandleSetGoogleAssistantContextEnabled(
-    const base::ListValue* args) {
-  CHECK_EQ(1U, args->GetSize());
-  bool enabled;
-  CHECK(args->GetBoolean(0, &enabled));
-
-  auto* service =
-      arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile_);
-  if (service)
-    service->SetVoiceInteractionContextEnabled(enabled);
+      "retrainAssistantVoiceModel",
+      base::BindRepeating(&GoogleAssistantHandler::HandleRetrainVoiceModel,
+                          base::Unretained(this)));
 }
 
 void GoogleAssistantHandler::HandleShowGoogleAssistantSettings(
     const base::ListValue* args) {
-  auto* service =
-      arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile_);
-  if (service)
-    service->ShowVoiceInteractionSettings();
+  CHECK_EQ(0U, args->GetSize());
+  if (chromeos::switches::IsAssistantEnabled()) {
+    // Opens Google Assistant settings.
+    service_manager::Connector* connector =
+        content::BrowserContext::GetConnectorFor(profile_);
+    ash::mojom::AssistantControllerPtr assistant_controller;
+    connector->BindInterface(ash::mojom::kServiceName, &assistant_controller);
+    assistant_controller->OpenAssistantSettings();
+  }
+}
+
+void GoogleAssistantHandler::HandleRetrainVoiceModel(
+    const base::ListValue* args) {
+  CHECK_EQ(0U, args->GetSize());
+  chromeos::AssistantOptInDialog::Show(
+      ash::mojom::FlowType::SPEAKER_ID_ENROLLMENT, base::DoNothing());
+}
+
+void GoogleAssistantHandler::BindAssistantSettingsManager() {
+  DCHECK(!settings_manager_.is_bound());
+
+  // Set up settings mojom.
+  service_manager::Connector* connector =
+      content::BrowserContext::GetConnectorFor(profile_);
+  connector->BindInterface(assistant::mojom::kServiceName, &settings_manager_);
 }
 
 }  // namespace settings

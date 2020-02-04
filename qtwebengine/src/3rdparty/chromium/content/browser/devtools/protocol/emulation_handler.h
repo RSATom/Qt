@@ -8,10 +8,15 @@
 #include "base/macros.h"
 #include "content/browser/devtools/protocol/devtools_domain_handler.h"
 #include "content/browser/devtools/protocol/emulation.h"
-#include "third_party/WebKit/public/web/WebDeviceEmulationParams.h"
+#include "third_party/blink/public/web/web_device_emulation_params.h"
+
+namespace net {
+class HttpRequestHeaders;
+}  // namespace net
 
 namespace content {
 
+class DevToolsAgentHostImpl;
 class RenderFrameHostImpl;
 class WebContentsImpl;
 
@@ -23,8 +28,13 @@ class EmulationHandler : public DevToolsDomainHandler,
   EmulationHandler();
   ~EmulationHandler() override;
 
+  static std::vector<EmulationHandler*> ForAgentHost(
+      DevToolsAgentHostImpl* host);
+
   void Wire(UberDispatcher* dispatcher) override;
-  void SetRenderFrameHost(RenderFrameHostImpl* host) override;
+  void SetRenderer(int process_host_id,
+                   RenderFrameHostImpl* frame_host) override;
+
   Response Disable() override;
 
   Response SetGeolocationOverride(Maybe<double> latitude,
@@ -32,8 +42,13 @@ class EmulationHandler : public DevToolsDomainHandler,
                                   Maybe<double> accuracy) override;
   Response ClearGeolocationOverride() override;
 
-  Response SetTouchEmulationEnabled(bool enabled,
-                                    Maybe<std::string> configuration) override;
+  Response SetEmitTouchEventsForMouse(
+      bool enabled,
+      Maybe<std::string> configuration) override;
+
+  Response SetUserAgentOverride(const std::string& user_agent,
+                                Maybe<std::string> accept_language,
+                                Maybe<std::string> platform) override;
 
   Response CanEmulate(bool* result) override;
   Response SetDeviceMetricsOverride(
@@ -47,7 +62,8 @@ class EmulationHandler : public DevToolsDomainHandler,
       Maybe<int> position_x,
       Maybe<int> position_y,
       Maybe<bool> dont_set_visible_size,
-      Maybe<Emulation::ScreenOrientation> screen_orientation) override;
+      Maybe<Emulation::ScreenOrientation> screen_orientation,
+      Maybe<protocol::Page::Viewport> viewport) override;
   Response ClearDeviceMetricsOverride() override;
 
   Response SetVisibleSize(int width, int height) override;
@@ -56,6 +72,8 @@ class EmulationHandler : public DevToolsDomainHandler,
   void SetDeviceEmulationParams(const blink::WebDeviceEmulationParams& params);
 
   bool device_emulation_enabled() { return device_emulation_enabled_; }
+
+  void ApplyOverrides(net::HttpRequestHeaders* headers);
 
  private:
   WebContentsImpl* GetWebContents();
@@ -66,8 +84,9 @@ class EmulationHandler : public DevToolsDomainHandler,
   std::string touch_emulation_configuration_;
 
   bool device_emulation_enabled_;
-  gfx::Size original_view_size_;
   blink::WebDeviceEmulationParams device_emulation_params_;
+  std::string user_agent_;
+  std::string accept_language_;
 
   RenderFrameHostImpl* host_;
 

@@ -29,10 +29,20 @@ separate [C++11 use in Chromium](https://chromium-cpp.appspot.com/) page.
   * "Chromium" is the name of the project, not the product, and should never
     appear in code, variable names, API names etc. Use "Chrome" instead.
 
-  * Functions used only for testing should be restricted to test-only scenarios
-    either by `#ifdefing` them appropriately (e.g. `#if defined(UNIT_TEST)`) or
-    by naming them with a `ForTesting` suffix. The latter will be checked at
-    presubmit time to ensure they're only called by test files.
+## Test-only Code
+
+  * Functions used only for testing should be restricted to test-only usages
+    with the `ForTesting` suffix. This is checked at presubmit time to ensure
+    these functions are only called by test files.
+
+  * Test-only constructors cannot have the `ForTesting` suffix. Instead, they
+    should be declared protected with a test-only subclass, or private with a
+    test-only friend class. They should be commented as `For testing only`.
+
+  * Test-only free functions should generally live within a test_support
+    target.
+
+  * `#if defined(UNIT_TEST)` is problematic and discouraged.
 
 ## Code formatting
 
@@ -43,8 +53,6 @@ separate [C++11 use in Chromium](https://chromium-cpp.appspot.com/) page.
     functions.
 
   * Prefer `(foo == 0)` to `(0 == foo)`.
-
-  * Function declaration order should match function definition order.
 
   * Prefer putting delegate classes in their own header files. Implementors of
     the delegate interface will often be included elsewhere, which will often
@@ -118,9 +126,8 @@ suffix). Consider whether composition could solve the problem instead.
 
 Simple accessors should generally be the only inline functions. These should be
 named `unix_hacker_style()`. Virtual functions should never be declared this way.
-For more detail, consult the [C++ Dos and
-Don'ts](https://www.chromium.org/developers/coding-style/cpp-dos-and-donts)
-section on inlining.
+For more detail, consult the [C++ Dos and Don'ts](c++-dos-and-donts.md) section
+on inlining.
 
 ## Logging
 
@@ -146,7 +153,7 @@ arguments:
 
 To `#ifdef` code for specific platforms, use the macros defined in
 `build/build_config.h` and in the Chromium build config files, not other macros
-set by specific compilers or build environments (e.g. `WIN32`). 
+set by specific compilers or build environments (e.g. `WIN32`).
 
 Place platform-specific #includes in their own section below the "normal"
 `#includes`. Repeat the standard `#include` order within this section:
@@ -162,7 +169,7 @@ Place platform-specific #includes in their own section below the "normal"
 
   #if defined(OS_WIN)
   #include <windows.h>
-  #include "base/win/scoped_comptr.h"
+  #include "base/win/com_init_util.h"
   #elif defined(OS_POSIX)
   #include "base/posix/global_descriptors.h"
   #endif
@@ -189,12 +196,13 @@ Place platform-specific #includes in their own section below the "normal"
     `uint64_t`, and so on are not necessarily the same. Use the right type for
     your purpose.
 
-  * When casting to and from different types, use `static_cast<>()` when you know
-    the conversion is safe. Use `checked_cast<>()` (from
-    `base/numerics/safe_conversions.h`) when you need to enforce via `CHECK()` that
-    the source value is in-range for the destination type. Use
-    `saturated_cast<>()` (from the same file) if you instead wish to clamp
-    out-of-range values.
+  * Follow [Google C++ casting
+    conventions](https://google.github.io/styleguide/cppguide.html#Casting)
+    to convert arithmetic types when you know the conversion is safe. Use
+    `checked_cast<>()` (from `base/numerics/safe_conversions.h`) when you
+    need to enforce via `CHECK()` that the source value is in-range for the
+    destination type. Use `saturated_cast<>()` (from the same file) if you
+    instead wish to clamp out-of-range values.
 
   * Do not use unsigned types to mean "this value should never be < 0". For
     that, use assertions or run-time checks (as appropriate).
@@ -346,6 +354,5 @@ these:
   * Unit tests and performance tests should be placed in the same directory as
     the functionality they're testing.
 
-  * The [C++ do's and
-    don'ts](https://sites.google.com/a/chromium.org/dev/developers/coding-style/cpp-dos-and-donts)
-    page has more helpful information.
+  * The [C++ Dos and Don'ts](c++-dos-and-donts.md) page has more helpful
+    information.

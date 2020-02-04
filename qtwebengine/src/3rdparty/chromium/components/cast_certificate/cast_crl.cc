@@ -7,8 +7,9 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <memory>
+
 #include "base/base64.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "components/cast_certificate/proto/revocation.pb.h"
 #include "crypto/sha2.h"
@@ -17,7 +18,7 @@
 #include "net/cert/internal/parsed_certificate.h"
 #include "net/cert/internal/path_builder.h"
 #include "net/cert/internal/signature_algorithm.h"
-#include "net/cert/internal/signature_policy.h"
+#include "net/cert/internal/simple_path_builder_delegate.h"
 #include "net/cert/internal/trust_store_in_memory.h"
 #include "net/cert/internal/verify_certificate_chain.h"
 #include "net/cert/internal/verify_signed_data.h"
@@ -87,13 +88,6 @@ bool ConvertTimeSeconds(uint64_t seconds,
                                                generalized_time);
 }
 
-// Specifies the signature verification policy.
-// The required algorithms are:
-// RSASSA PKCS#1 v1.5 with SHA-256, using RSA keys 2048-bits or longer.
-std::unique_ptr<net::SignaturePolicy> CreateCastSignaturePolicy() {
-  return base::MakeUnique<net::SimpleSignaturePolicy>(2048);
-}
-
 // Verifies the CRL is signed by a trusted CRL authority at the time the CRL
 // was issued. Verifies the signature of |tbs_crl| is valid based on the
 // certificate and signature in |crl|. The validity of |tbs_crl| is verified
@@ -122,16 +116,12 @@ bool VerifyCRL(const Crl& crl,
       net::der::Input(base::StringPiece(crl.signature())), 0);
 
   // Verify the signature.
-  auto signature_policy = CreateCastSignaturePolicy();
   std::unique_ptr<net::SignatureAlgorithm> signature_algorithm_type =
       net::SignatureAlgorithm::CreateRsaPkcs1(net::DigestAlgorithm::Sha256);
-  net::CertErrors verify_errors;
-  if (!VerifySignedData(*signature_algorithm_type,
-                        net::der::Input(&crl.tbs_crl()),
-                        signature_value_bit_string, parsed_cert->tbs().spki_tlv,
-                        signature_policy.get(), &verify_errors)) {
-    VLOG(2) << "CRL - Signature verification failed:\n"
-            << verify_errors.ToDebugString();
+  if (!VerifySignedData(
+          *signature_algorithm_type, net::der::Input(&crl.tbs_crl()),
+          signature_value_bit_string, parsed_cert->tbs().spki_tlv)) {
+    VLOG(2) << "CRL - Signature verification failed";
     return false;
   }
 
@@ -141,9 +131,15 @@ bool VerifyCRL(const Crl& crl,
     VLOG(2) << "CRL - Unable to parse verification time.";
     return false;
   }
+
+  // SimplePathBuilderDelegate will enforce required signature algorithms of
+  // RSASSA PKCS#1 v1.5 with SHA-256, and RSA keys 2048-bits or longer.
+  net::SimplePathBuilderDelegate path_builder_delegate(
+      2048, net::SimplePathBuilderDelegate::DigestPolicy::kWeakAllowSha1);
+
   net::CertPathBuilder::Result result;
   net::CertPathBuilder path_builder(
-      parsed_cert.get(), trust_store, signature_policy.get(), verification_time,
+      parsed_cert.get(), trust_store, &path_builder_delegate, verification_time,
       net::KeyPurpose::ANY_EKU, net::InitialExplicitPolicy::kFalse,
       {net::AnyPolicy()}, net::InitialPolicyMappingInhibit::kFalse,
       net::InitialAnyPolicyInhibit::kFalse, &result);
@@ -177,7 +173,7 @@ bool VerifyCRL(const Crl& crl,
   // "expiration" of the trust anchor is handled instead by its
   // presence in the trust store.
   *overall_not_after = not_after;
-  for (const auto& cert : result.GetBestValidPath()->path.certs) {
+  for (const auto& cert : result.GetBestValidPath()->certs) {
     net::der::GeneralizedTime cert_not_after = cert->tbs().validity_not_after;
     if (cert_not_after < *overall_not_after)
       *overall_not_after = cert_not_after;
@@ -201,7 +197,7 @@ class CastCRLImpl : public CastCRL {
               const net::der::GeneralizedTime& overall_not_after);
   ~CastCRLImpl() override;
 
-  bool CheckRevocation(const net::CertPath& trusted_chain,
+  bool CheckRevocation(const net::ParsedCertificateList& trusted_chain,
                        const base::Time& time) const override;
 
  private:
@@ -255,12 +251,11 @@ CastCRLImpl::~CastCRLImpl() {}
 
 // Verifies the revocation status of the certificate chain, at the specified
 // time.
-bool CastCRLImpl::CheckRevocation(const net::CertPath& trusted_chain,
-                                  const base::Time& time) const {
-  if (trusted_chain.IsEmpty())
+bool CastCRLImpl::CheckRevocation(
+    const net::ParsedCertificateList& trusted_chain,
+    const base::Time& time) const {
+  if (trusted_chain.empty())
     return false;
-
-  DCHECK(trusted_chain.last_cert_trust.IsTrustAnchor());
 
   // Check the validity of the CRL at the specified time.
   net::der::GeneralizedTime verification_time;
@@ -275,8 +270,8 @@ bool CastCRLImpl::CheckRevocation(const net::CertPath& trusted_chain,
 
   // Check revocation. This loop iterates over both certificates AND then the
   // trust anchor after exhausting the certs.
-  for (size_t i = 0; i < trusted_chain.certs.size(); ++i) {
-    const net::der::Input& spki_tlv = trusted_chain.certs[i]->tbs().spki_tlv;
+  for (size_t i = 0; i < trusted_chain.size(); ++i) {
+    const net::der::Input& spki_tlv = trusted_chain[i]->tbs().spki_tlv;
 
     // Calculate the public key's hash to check for revocation.
     std::string spki_hash = crypto::SHA256HashString(spki_tlv.AsString());
@@ -289,7 +284,7 @@ bool CastCRLImpl::CheckRevocation(const net::CertPath& trusted_chain,
     if (i > 0) {
       auto issuer_iter = revoked_serial_numbers_.find(spki_hash);
       if (issuer_iter != revoked_serial_numbers_.end()) {
-        const auto& subordinate = trusted_chain.certs[i - 1];
+        const auto& subordinate = trusted_chain[i - 1];
         uint64_t serial_number;
         // Only Google generated device certificates will be revoked by range.
         // These will always be less than 64 bits in length.
@@ -344,7 +339,7 @@ std::unique_ptr<CastCRL> ParseAndVerifyCRLUsingCustomTrustStore(
       LOG(ERROR) << "CRL - Verification failed.";
       return nullptr;
     }
-    return base::MakeUnique<CastCRLImpl>(tbs_crl, overall_not_after);
+    return std::make_unique<CastCRLImpl>(tbs_crl, overall_not_after);
   }
   LOG(ERROR) << "No supported version of revocation data.";
   return nullptr;

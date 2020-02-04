@@ -58,7 +58,7 @@ void AssociatedInterfacePtrStateBase::Bind(
     ScopedInterfaceEndpointHandle handle,
     uint32_t version,
     std::unique_ptr<MessageReceiver> validator,
-    scoped_refptr<base::SingleThreadTaskRunner> runner) {
+    scoped_refptr<base::SequencedTaskRunner> runner) {
   DCHECK(!endpoint_client_);
   DCHECK_EQ(0u, version_);
   DCHECK(handle.is_valid());
@@ -66,7 +66,7 @@ void AssociatedInterfacePtrStateBase::Bind(
   version_ = version;
   // The version is only queried from the client so the value passed here
   // will not be used.
-  endpoint_client_ = base::MakeUnique<InterfaceEndpointClient>(
+  endpoint_client_ = std::make_unique<InterfaceEndpointClient>(
       std::move(handle), nullptr, std::move(validator), false,
       GetTaskRunnerToUseFromUserProvidedTaskRunner(std::move(runner)), 0u);
 }

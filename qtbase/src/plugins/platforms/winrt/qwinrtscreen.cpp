@@ -42,12 +42,15 @@
 #include "qwinrtbackingstore.h"
 #include "qwinrtinputcontext.h"
 #include "qwinrtcursor.h"
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 #include "qwinrtdrag.h"
 #endif
 #include "qwinrtwindow.h"
+#include "qwinrtcanvas.h"
 #include <private/qeventdispatcher_winrt_p.h>
+#include <private/qhighdpiscaling_p.h>
 
+#include <QtCore/qdebug.h>
 #include <QtCore/QLoggingCategory>
 #include <QtGui/QSurfaceFormat>
 #include <QtGui/QGuiApplication>
@@ -88,15 +91,37 @@ typedef ITypedEventHandler<CoreWindow*, CharacterReceivedEventArgs*> CharacterRe
 typedef ITypedEventHandler<CoreWindow*, InputEnabledEventArgs*> InputEnabledHandler;
 typedef ITypedEventHandler<CoreWindow*, KeyEventArgs*> KeyHandler;
 typedef ITypedEventHandler<CoreWindow*, PointerEventArgs*> PointerHandler;
-typedef ITypedEventHandler<CoreWindow*, WindowSizeChangedEventArgs*> SizeChangedHandler;
 typedef ITypedEventHandler<CoreWindow*, VisibilityChangedEventArgs*> VisibilityChangedHandler;
 typedef ITypedEventHandler<DisplayInformation*, IInspectable*> DisplayInformationHandler;
 typedef ITypedEventHandler<ICorePointerRedirector*, PointerEventArgs*> RedirectHandler;
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
 typedef ITypedEventHandler<ApplicationView*, IInspectable*> VisibleBoundsChangedHandler;
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcQpaEvents, "qt.qpa.events")
+
+#if !defined(QT_NO_DEBUG_STREAM)
+QDebug operator<<(QDebug dbg, QWinRTScreen::MousePositionTransition transition)
+{
+    QDebugStateSaver saver(dbg);
+    dbg.nospace() << "QWinRTScreen::MousePositionTransition::";
+    switch (transition) {
+    case QWinRTScreen::MousePositionTransition::MovedOut:
+        dbg << "MovedOut";
+        break;
+    case QWinRTScreen::MousePositionTransition::MovedIn:
+        dbg << "MovedIn";
+        break;
+    case QWinRTScreen::MousePositionTransition::StayedOut:
+        dbg << "StayedOut";
+        break;
+    case QWinRTScreen::MousePositionTransition::StayedIn:
+        dbg << "StayedIn";
+        break;
+    }
+    return dbg;
+}
+#endif
 
 struct KeyInfo {
     KeyInfo()
@@ -451,10 +476,8 @@ typedef HRESULT (__stdcall IDisplayInformation::*DisplayCallbackRemover)(EventRe
 uint qHash(DisplayCallbackRemover key) { void *ptr = *(void **)(&key); return qHash(ptr); }
 typedef HRESULT (__stdcall ICorePointerRedirector::*RedirectorCallbackRemover)(EventRegistrationToken);
 uint qHash(RedirectorCallbackRemover key) { void *ptr = *(void **)(&key); return qHash(ptr); }
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
 typedef HRESULT (__stdcall IApplicationView2::*ApplicationView2CallbackRemover)(EventRegistrationToken);
 uint qHash(ApplicationView2CallbackRemover key) { void *ptr = *(void **)(&key); return qHash(ptr); }
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
 
 class QWinRTScreenPrivate
 {
@@ -462,7 +485,7 @@ public:
     QTouchDevice *touchDevice;
     ComPtr<ICoreWindow> coreWindow;
     ComPtr<ICorePointerRedirector> redirect;
-    ComPtr<Xaml::IDependencyObject> canvas;
+    ComPtr<QWinRTCanvas> canvas;
     ComPtr<IApplicationView> view;
     ComPtr<IDisplayInformation> displayInformation;
 
@@ -481,13 +504,14 @@ public:
     QHash<CoreWindowCallbackRemover, EventRegistrationToken> windowTokens;
     QHash<DisplayCallbackRemover, EventRegistrationToken> displayTokens;
     QHash<RedirectorCallbackRemover, EventRegistrationToken> redirectTokens;
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
     QHash<ApplicationView2CallbackRemover, EventRegistrationToken> view2Tokens;
     ComPtr<IApplicationView2> view2;
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
     QAtomicPointer<QWinRTWindow> mouseGrabWindow;
     QAtomicPointer<QWinRTWindow> keyboardGrabWindow;
-    QWindow *currentPressWindow = 0;
+    QWindow *currentPressWindow = nullptr;
+    QWindow *currentTargetWindow = nullptr;
+    bool firstMouseMove = true;
+    bool resizePending = false;
 };
 
 // To be called from the XAML thread
@@ -497,7 +521,7 @@ QWinRTScreen::QWinRTScreen()
     Q_D(QWinRTScreen);
     qCDebug(lcQpaWindows) << __FUNCTION__;
     d->orientation = Qt::PrimaryOrientation;
-    d->touchDevice = Q_NULLPTR;
+    d->touchDevice = nullptr;
 
     HRESULT hr;
     ComPtr<Xaml::IWindowStatics> windowStatics;
@@ -540,7 +564,7 @@ QWinRTScreen::QWinRTScreen()
     Q_ASSERT_SUCCEEDED(hr);
     d->nativeOrientation = static_cast<Qt::ScreenOrientation>(static_cast<int>(qtOrientationsFromNative(displayOrientation)));
     // Set initial pixel density
-    onDpiChanged(Q_NULLPTR, Q_NULLPTR);
+    onDpiChanged(nullptr, nullptr);
     d->orientation = d->nativeOrientation;
 
     ComPtr<IApplicationViewStatics2> applicationViewStatics;
@@ -551,34 +575,30 @@ QWinRTScreen::QWinRTScreen()
     hr = applicationViewStatics->GetForCurrentView(&d->view);
     RETURN_VOID_IF_FAILED("Could not access currentView");
 
-    // Create a canvas and set it as the window content. Eventually, this should have its own method so multiple "screens" can be added
-    ComPtr<Xaml::Controls::ICanvas> canvas;
-    hr = RoActivateInstance(HString::MakeReference(RuntimeClass_Windows_UI_Xaml_Controls_Canvas).Get(), &canvas);
-    Q_ASSERT_SUCCEEDED(hr);
+    d->canvas = Make<QWinRTCanvas>([this]() { return topWindow(); });
+
     ComPtr<Xaml::IFrameworkElement> frameworkElement;
-    hr = canvas.As(&frameworkElement);
+    hr = d->canvas.As(&frameworkElement);
     Q_ASSERT_SUCCEEDED(hr);
     hr = frameworkElement->put_Width(d->logicalRect.width());
     Q_ASSERT_SUCCEEDED(hr);
     hr = frameworkElement->put_Height(d->logicalRect.height());
     Q_ASSERT_SUCCEEDED(hr);
+
     ComPtr<Xaml::IUIElement> uiElement;
-    hr = canvas.As(&uiElement);
+    hr = d->canvas.As(&uiElement);
     Q_ASSERT_SUCCEEDED(hr);
-#ifndef QT_NO_DRAGANDDROP
+
+#if QT_CONFIG(draganddrop)
     QWinRTDrag::instance()->setUiElement(uiElement);
 #endif
     hr = window->put_Content(uiElement.Get());
     Q_ASSERT_SUCCEEDED(hr);
-    hr = canvas.As(&d->canvas);
-    Q_ASSERT_SUCCEEDED(hr);
 
     d->cursor.reset(new QWinRTCursor);
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
     hr = d->view.As(&d->view2);
     Q_ASSERT_SUCCEEDED(hr);
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
 }
 
 QWinRTScreen::~QWinRTScreen()
@@ -602,12 +622,10 @@ QWinRTScreen::~QWinRTScreen()
             hr = (d->redirect.Get()->*i.key())(i.value());
             Q_ASSERT_SUCCEEDED(hr);
         }
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
         for (QHash<ApplicationView2CallbackRemover, EventRegistrationToken>::const_iterator i = d->view2Tokens.begin(); i != d->view2Tokens.end(); ++i) {
             hr = (d->view2.Get()->*i.key())(i.value());
             Q_ASSERT_SUCCEEDED(hr);
         }
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
         return hr;
     });
     RETURN_VOID_IF_FAILED("Failed to unregister screen event callbacks");
@@ -649,12 +667,6 @@ QDpi QWinRTScreen::logicalDpi() const
 {
     Q_D(const QWinRTScreen);
     return QDpi(d->logicalDpi, d->logicalDpi);
-}
-
-qreal QWinRTScreen::pixelDensity() const
-{
-    Q_D(const QWinRTScreen);
-    return qMax(1, qRound(d->logicalDpi / 96));
 }
 
 qreal QWinRTScreen::scaleFactor() const
@@ -721,7 +733,10 @@ ICoreWindow *QWinRTScreen::coreWindow() const
 Xaml::IDependencyObject *QWinRTScreen::canvas() const
 {
     Q_D(const QWinRTScreen);
-    return d->canvas.Get();
+    Xaml::IDependencyObject *depCanvas;
+    if (SUCCEEDED(d->canvas.CopyTo(&depCanvas)))
+        return depCanvas;
+    return nullptr;
 }
 
 void QWinRTScreen::initialize()
@@ -746,14 +761,8 @@ void QWinRTScreen::initialize()
     Q_ASSERT_SUCCEEDED(hr);
     hr = d->coreWindow->add_PointerWheelChanged(Callback<PointerHandler>(this, &QWinRTScreen::onPointerUpdated).Get(), &d->windowTokens[&ICoreWindow::remove_PointerWheelChanged]);
     Q_ASSERT_SUCCEEDED(hr);
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
     hr = d->view2->add_VisibleBoundsChanged(Callback<VisibleBoundsChangedHandler>(this, &QWinRTScreen::onWindowSizeChanged).Get(), &d->view2Tokens[&IApplicationView2::remove_VisibleBoundsChanged]);
     Q_ASSERT_SUCCEEDED(hr);
-#else
-    hr = d->coreWindow->add_SizeChanged(Callback<SizeChangedHandler>(this, &QWinRTScreen::onWindowSizeChanged).Get(), &d->windowTokens[&ICoreWindow::remove_SizeChanged]);
-    Q_ASSERT_SUCCEEDED(hr)
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
-
     hr = d->coreWindow->add_Activated(Callback<ActivatedHandler>(this, &QWinRTScreen::onActivated).Get(), &d->windowTokens[&ICoreWindow::remove_Activated]);
     Q_ASSERT_SUCCEEDED(hr);
     hr = d->coreWindow->add_Closed(Callback<ClosedHandler>(this, &QWinRTScreen::onClosed).Get(), &d->windowTokens[&ICoreWindow::remove_Closed]);
@@ -764,7 +773,7 @@ void QWinRTScreen::initialize()
     Q_ASSERT_SUCCEEDED(hr);
     hr = d->displayInformation->add_DpiChanged(Callback<DisplayInformationHandler>(this, &QWinRTScreen::onDpiChanged).Get(), &d->displayTokens[&IDisplayInformation::remove_DpiChanged]);
     Q_ASSERT_SUCCEEDED(hr);
-    onOrientationChanged(Q_NULLPTR, Q_NULLPTR);
+    onOrientationChanged(nullptr, nullptr);
     onVisibilityChanged(nullptr, nullptr);
 
     hr = d->redirect->add_PointerRoutedReleased(Callback<RedirectHandler>(this, &QWinRTScreen::onRedirectReleased).Get(), &d->redirectTokens[&ICorePointerRedirector::remove_PointerRoutedReleased]);
@@ -789,7 +798,6 @@ void QWinRTScreen::setKeyboardRect(const QRectF &keyboardRect)
         return;
     }
     d->logicalRect = QRectF(windowSize.X, windowSize.Y, windowSize.Width, windowSize.Height);
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
     Rect visibleRect;
     hr = d->view2->get_VisibleBounds(&visibleRect);
     if (FAILED(hr)) {
@@ -797,9 +805,6 @@ void QWinRTScreen::setKeyboardRect(const QRectF &keyboardRect)
         return;
     }
     visibleRectF = QRectF(visibleRect.X, visibleRect.Y, visibleRect.Width, visibleRect.Height);
-#else
-    visibleRectF = d->logicalRect;
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
     // if keyboard is snapped to the bottom of the screen and would cover the cursor the content is
     // moved up to make it visible
     if (keyboardRect.intersects(mCursorRect)
@@ -846,9 +851,10 @@ void QWinRTScreen::addWindow(QWindow *window)
     }
 
     handleExpose();
+    d->firstMouseMove = true;
     QWindowSystemInterface::flushWindowSystemEvents(QEventLoop::ExcludeUserInputEvents);
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QWinRTDrag::instance()->setDropTarget(window);
 #endif
 }
@@ -858,16 +864,17 @@ void QWinRTScreen::removeWindow(QWindow *window)
     Q_D(QWinRTScreen);
     qCDebug(lcQpaWindows) << __FUNCTION__ << window;
 
+    handleExpose();
+
     const bool wasTopWindow = window == topWindow();
     if (!d->visibleWindows.removeAll(window))
         return;
 
     const Qt::WindowType type = window->type();
     if (wasTopWindow && type != Qt::Popup && type != Qt::ToolTip && type != Qt::Tool)
-        QWindowSystemInterface::handleWindowActivated(Q_NULLPTR, Qt::OtherFocusReason);
-    handleExpose();
+        QWindowSystemInterface::handleWindowActivated(nullptr, Qt::OtherFocusReason);
     QWindowSystemInterface::flushWindowSystemEvents(QEventLoop::ExcludeUserInputEvents);
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     if (wasTopWindow)
         QWinRTDrag::instance()->setDropTarget(topWindow());
 #endif
@@ -1073,6 +1080,7 @@ HRESULT QWinRTScreen::onCharacterReceived(ICoreWindow *, ICharacterReceivedEvent
 HRESULT QWinRTScreen::onPointerEntered(ICoreWindow *, IPointerEventArgs *args)
 {
     Q_D(QWinRTScreen);
+    qCDebug(lcQpaEvents) << __FUNCTION__;
 
     ComPtr<IPointerPoint> pointerPoint;
     if (SUCCEEDED(args->get_CurrentPoint(&pointerPoint))) {
@@ -1081,11 +1089,13 @@ HRESULT QWinRTScreen::onPointerEntered(ICoreWindow *, IPointerEventArgs *args)
         pointerPoint->get_Position(&point);
         QPoint pos(point.X * d->scaleFactor, point.Y * d->scaleFactor);
 
-        QWindow *targetWindow = topWindow();
+        d->currentTargetWindow = topWindow();
         if (d->mouseGrabWindow)
-            targetWindow = d->mouseGrabWindow.load()->window();
+            d->currentTargetWindow = d->mouseGrabWindow.load()->window();
 
-        QWindowSystemInterface::handleEnterEvent(targetWindow, pos, pos);
+        qCDebug(lcQpaEvents) << __FUNCTION__ << "handleEnterEvent" << d->currentTargetWindow << pos;
+        QWindowSystemInterface::handleEnterEvent(d->currentTargetWindow, pos, pos);
+        d->firstMouseMove = false;
     }
     return S_OK;
 }
@@ -1093,7 +1103,7 @@ HRESULT QWinRTScreen::onPointerEntered(ICoreWindow *, IPointerEventArgs *args)
 HRESULT QWinRTScreen::onPointerExited(ICoreWindow *, IPointerEventArgs *args)
 {
     Q_D(QWinRTScreen);
-
+    qCDebug(lcQpaEvents) << __FUNCTION__;
     ComPtr<IPointerPoint> pointerPoint;
     if (FAILED(args->get_CurrentPoint(&pointerPoint)))
         return E_INVALIDARG;
@@ -1104,11 +1114,12 @@ HRESULT QWinRTScreen::onPointerExited(ICoreWindow *, IPointerEventArgs *args)
 
     d->touchPoints.remove(id);
 
-    QWindow *targetWindow = nullptr;
     if (d->mouseGrabWindow)
-        targetWindow = d->mouseGrabWindow.load()->window();
+        d->currentTargetWindow = d->mouseGrabWindow.load()->window();
 
-    QWindowSystemInterface::handleLeaveEvent(targetWindow);
+    qCDebug(lcQpaEvents) << __FUNCTION__ << "handleLeaveEvent" << d->currentTargetWindow;
+    QWindowSystemInterface::handleLeaveEvent(d->currentTargetWindow);
+    d->currentTargetWindow = nullptr;
     return S_OK;
 }
 
@@ -1118,6 +1129,7 @@ ComPtr<IPointerPoint> qt_winrt_lastPointerPoint;
 HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
 {
     Q_D(QWinRTScreen);
+    qCDebug(lcQpaEvents) << __FUNCTION__;
     ComPtr<IPointerPoint> pointerPoint;
     if (FAILED(args->get_CurrentPoint(&pointerPoint)))
         return E_INVALIDARG;
@@ -1126,19 +1138,19 @@ HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
     // Common traits - point, modifiers, properties
     Point point;
     pointerPoint->get_Position(&point);
-    QPointF pos(point.X * d->scaleFactor, point.Y * d->scaleFactor);
+    const QPointF pos(point.X * d->scaleFactor, point.Y * d->scaleFactor);
     QPointF localPos = pos;
 
     const QPoint posPoint = pos.toPoint();
-    QWindow *windowUnderPointer = windowAt(posPoint);
-    QWindow *targetWindow = windowUnderPointer;
+    QWindow *windowUnderPointer = windowAt(QHighDpiScaling::mapPositionFromNative(posPoint, this));
+    d->currentTargetWindow = windowUnderPointer;
 
     if (d->mouseGrabWindow)
-        targetWindow = d->mouseGrabWindow.load()->window();
+        d->currentTargetWindow = d->mouseGrabWindow.load()->window();
 
-    if (targetWindow) {
+    if (d->currentTargetWindow) {
         const QPointF globalPosDelta = pos - posPoint;
-        localPos = targetWindow->mapFromGlobal(posPoint) + globalPosDelta;
+        localPos = d->currentTargetWindow->mapFromGlobal(posPoint) + globalPosDelta;
     }
 
     VirtualKeyModifiers modifiers;
@@ -1173,7 +1185,9 @@ HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
             boolean isHorizontal;
             properties->get_IsHorizontalMouseWheel(&isHorizontal);
             QPoint angleDelta(isHorizontal ? delta : 0, isHorizontal ? 0 : delta);
-            QWindowSystemInterface::handleWheelEvent(targetWindow, localPos, pos, QPoint(), angleDelta, mods);
+            qCDebug(lcQpaEvents) << __FUNCTION__ << "handleWheelEvent" << d->currentTargetWindow
+                                 << localPos << pos << angleDelta << mods;
+            QWindowSystemInterface::handleWheelEvent(d->currentTargetWindow, localPos, pos, QPoint(), angleDelta, mods);
             break;
         }
 
@@ -1207,15 +1221,26 @@ HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
         // menus.
         if (buttons != Qt::NoButton && d->currentPressWindow == nullptr && !d->mouseGrabWindow)
             d->currentPressWindow = windowUnderPointer;
-        if (!isPressed && d->currentPressWindow && d->mouseGrabWindow) {
+        if (buttons == Qt::NoButton && d->currentPressWindow && d->mouseGrabWindow) {
             const QPointF globalPosDelta = pos - posPoint;
             const QPointF localPressPos = d->currentPressWindow->mapFromGlobal(posPoint) + globalPosDelta;
 
+            qCDebug(lcQpaEvents) << __FUNCTION__ << "handleMouseEvent" << d->currentPressWindow
+                                 << localPressPos << pos << buttons << mods;
             QWindowSystemInterface::handleMouseEvent(d->currentPressWindow, localPressPos, pos, buttons, mods);
             d->currentPressWindow = nullptr;
         }
+        // If the mouse button is released outside of a window, targetWindow is 0, but the event
+        // has to be delivered to the window, that initially received the mouse press. Do not reset
+        // d->currentTargetWindow though, as it is used (and reset) in onPointerExited.
+        if (buttons == Qt::NoButton && d->currentPressWindow && !d->currentTargetWindow) {
+            d->currentTargetWindow = d->currentPressWindow;
+            d->currentPressWindow = nullptr;
+        }
 
-        QWindowSystemInterface::handleMouseEvent(targetWindow, localPos, pos, buttons, mods);
+        qCDebug(lcQpaEvents) << __FUNCTION__ << "handleMouseEvent" << d->currentTargetWindow
+                             << localPos << pos << buttons << mods;
+        QWindowSystemInterface::handleMouseEvent(d->currentTargetWindow, localPos, pos, buttons, mods);
 
         break;
     }
@@ -1241,10 +1266,11 @@ HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
         boolean isPressed;
         pointerPoint->get_IsInContact(&isPressed);
 
-        // Devices like the Hololens set a static pressure of 0.5 independent
-        // of the pressed state. In those cases we need to synthesize the
-        // pressure value. To our knowledge this does not apply to pens
-        if (pointerDeviceType == PointerDeviceType_Touch && pressure == 0.5f)
+        // Devices like the Hololens set a static pressure of 0.0 or 0.5
+        // (depending on the image) independent of the pressed state.
+        // In those cases we need to synthesize the pressure value. To our
+        // knowledge this does not apply to pens
+        if (pointerDeviceType == PointerDeviceType_Touch && (pressure == 0.0f || pressure == 0.5f))
             pressure = isPressed ? 1. : 0.;
 
         const QRectF areaRect(area.X * d->scaleFactor, area.Y * d->scaleFactor,
@@ -1256,7 +1282,8 @@ HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
             it.value().id = id;
         }
 
-        if (isPressed && it.value().pressure == 0.)
+        const bool wasPressEvent = isPressed && it.value().pressure == 0.;
+        if (wasPressEvent)
             it.value().state = Qt::TouchPointPressed;
         else if (!isPressed && it.value().pressure > 0.)
             it.value().state = Qt::TouchPointReleased;
@@ -1269,7 +1296,11 @@ HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
         it.value().normalPosition = QPointF(point.X/d->logicalRect.width(), point.Y/d->logicalRect.height());
         it.value().pressure = pressure;
 
-        QWindowSystemInterface::handleTouchEvent(targetWindow, d->touchDevice, d->touchPoints.values(), mods);
+        qCDebug(lcQpaEvents) << __FUNCTION__ << "handleTouchEvent" << d->currentTargetWindow
+                             << d->touchDevice << d->touchPoints.values() << mods;
+        QWindowSystemInterface::handleTouchEvent(d->currentTargetWindow, d->touchDevice, d->touchPoints.values(), mods);
+        if (wasPressEvent)
+            it.value().state = Qt::TouchPointStationary;
 
         // Fall-through for pen to generate tablet event
         if (pointerDeviceType != PointerDeviceType_Pen)
@@ -1288,7 +1319,10 @@ HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
         float rotation;
         properties->get_Twist(&rotation);
 
-        QWindowSystemInterface::handleTabletEvent(targetWindow, isPressed, pos, pos, 0,
+        qCDebug(lcQpaEvents) << __FUNCTION__ << "handleTabletEvent" << d->currentTargetWindow
+                             << isPressed << pos << pointerType << pressure << xTilt << yTilt
+                             << rotation << id << mods;
+        QWindowSystemInterface::handleTabletEvent(d->currentTargetWindow, isPressed, pos, pos, 0,
                                                   pointerType, pressure, xTilt, yTilt,
                                                   0, rotation, 0, id, mods);
 
@@ -1297,6 +1331,82 @@ HRESULT QWinRTScreen::onPointerUpdated(ICoreWindow *, IPointerEventArgs *args)
     }
 
     return S_OK;
+}
+
+void QWinRTScreen::emulateMouseMove(const QPointF &point, MousePositionTransition transition)
+{
+    Q_D(QWinRTScreen);
+    qCDebug(lcQpaEvents) << __FUNCTION__ << point << transition;
+    if (transition == MousePositionTransition::StayedOut)
+        return;
+    qt_winrt_lastPointerPoint = nullptr;
+    const QPointF pos(point.x() * d->scaleFactor, point.y() * d->scaleFactor);
+    QPointF localPos = pos;
+
+    const QPoint posPoint = pos.toPoint();
+    QWindow *windowUnderPointer = windowAt(QHighDpiScaling::mapPositionFromNative(posPoint, this));
+    d->currentTargetWindow = windowUnderPointer;
+
+    if (d->mouseGrabWindow)
+        d->currentTargetWindow = d->mouseGrabWindow.load()->window();
+
+    if (d->currentTargetWindow) {
+        const QPointF globalPosDelta = pos - posPoint;
+        localPos = d->currentTargetWindow->mapFromGlobal(posPoint) + globalPosDelta;
+    }
+
+    // In case of a mouse grab we have to store the target of a press event
+    // to be able to send one additional release event to this target when the mouse
+    // button is released. This is a similar approach to AutoMouseCapture in the
+    // windows qpa backend. Otherwise the release might not be propagated and the original
+    // press event receiver considers a button to still be pressed, as in Qt Quick Controls 1
+    // menus.
+    if (d->currentPressWindow && d->mouseGrabWindow) {
+        const QPointF globalPosDelta = pos - posPoint;
+        const QPointF localPressPos = d->currentPressWindow->mapFromGlobal(posPoint) + globalPosDelta;
+
+        qCDebug(lcQpaEvents) << __FUNCTION__ << "handleMouseEvent" << d->currentPressWindow
+                             << localPressPos << pos << Qt::NoButton << Qt::NoModifier;
+        QWindowSystemInterface::handleMouseEvent(d->currentPressWindow, localPressPos, pos,
+                                                 Qt::NoButton, Qt::NoModifier);
+        d->currentPressWindow = nullptr;
+    }
+    // If the mouse button is released outside of a window, targetWindow is 0, but the event
+    // has to be delivered to the window, that initially received the mouse press. Do not reset
+    // d->currentTargetWindow though, as it is used (and reset) in onPointerExited.
+    if (d->currentPressWindow && !d->currentTargetWindow) {
+        d->currentTargetWindow = d->currentPressWindow;
+        d->currentPressWindow = nullptr;
+    }
+
+    if (transition == MousePositionTransition::MovedOut) {
+        qCDebug(lcQpaEvents) << __FUNCTION__ << "handleLeaveEvent" << d->currentTargetWindow;
+        QWindowSystemInterface::handleLeaveEvent(d->currentTargetWindow);
+        return;
+    }
+
+    if (transition == MousePositionTransition::MovedIn || d->firstMouseMove) {
+        qCDebug(lcQpaEvents) << __FUNCTION__ << "handleEnterEvent" << d->currentTargetWindow
+                             << localPos << pos;
+        QWindowSystemInterface::handleEnterEvent(d->currentTargetWindow, localPos, pos);
+        d->firstMouseMove = false;
+    }
+    qCDebug(lcQpaEvents) << __FUNCTION__ << "handleMouseEvent" << d->currentTargetWindow
+                         << localPos << pos << Qt::NoButton << Qt::NoModifier;
+    QWindowSystemInterface::handleMouseEvent(d->currentTargetWindow, localPos, pos, Qt::NoButton,
+                                             Qt::NoModifier);
+}
+
+void QWinRTScreen::setResizePending()
+{
+    Q_D(QWinRTScreen);
+    d->resizePending = true;
+}
+
+bool QWinRTScreen::resizePending() const
+{
+    Q_D(const QWinRTScreen);
+    return d->resizePending;
 }
 
 HRESULT QWinRTScreen::onActivated(ICoreWindow *, IWindowActivatedEventArgs *args)
@@ -1400,14 +1510,11 @@ HRESULT QWinRTScreen::onRedirectReleased(ICorePointerRedirector *, IPointerEvent
 {
     // When dragging ends with a non-mouse input device then onRedirectRelease is invoked.
     // QTBUG-58781
+    qCDebug(lcQpaEvents) << __FUNCTION__;
     return onPointerUpdated(nullptr, args);
 }
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
-HRESULT QWinRTScreen::onWindowSizeChanged(IApplicationView *, IInspectable *)
-#else
-HRESULT QWinRTScreen::onWindowSizeChanged(ICoreWindow *, IWindowSizeChangedEventArgs *)
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
+HRESULT QWinRTScreen::onWindowSizeChanged(IApplicationView *w, IInspectable *)
 {
     Q_D(QWinRTScreen);
 
@@ -1418,19 +1525,18 @@ HRESULT QWinRTScreen::onWindowSizeChanged(ICoreWindow *, IWindowSizeChangedEvent
     RETURN_OK_IF_FAILED("Failed to get window bounds");
     d->logicalRect = QRectF(windowSize.X, windowSize.Y, windowSize.Width, windowSize.Height);
 
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
     Rect visibleRect;
     hr = d->view2->get_VisibleBounds(&visibleRect);
     RETURN_OK_IF_FAILED("Failed to get window visible bounds");
     d->visibleRect = QRectF(visibleRect.X, visibleRect.Y, visibleRect.Width, visibleRect.Height);
-#else
-    d->visibleRect = QRectF(windowSize.X, windowSize.Y, windowSize.Width, windowSize.Height);
-#endif // WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
 
     qCDebug(lcQpaWindows) << __FUNCTION__ << d->logicalRect;
     QWindowSystemInterface::handleScreenGeometryChange(screen(), geometry(), availableGeometry());
     QPlatformScreen::resizeMaximizedWindows();
     handleExpose();
+    // If we "emulate" a resize, w will be nullptr.Checking w shows whether it's a real resize
+    if (w)
+        d->resizePending = false;
     return S_OK;
 }
 

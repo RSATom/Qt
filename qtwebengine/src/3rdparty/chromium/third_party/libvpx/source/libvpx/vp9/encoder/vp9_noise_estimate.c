@@ -21,6 +21,15 @@
 #include "vp9/encoder/vp9_noise_estimate.h"
 #include "vp9/encoder/vp9_encoder.h"
 
+#if CONFIG_VP9_TEMPORAL_DENOISING
+// For SVC: only do noise estimation on top spatial layer.
+static INLINE int noise_est_svc(const struct VP9_COMP *const cpi) {
+  return (!cpi->use_svc ||
+          (cpi->use_svc &&
+           cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 1));
+}
+#endif
+
 void vp9_noise_estimate_init(NOISE_ESTIMATE *const ne, int width, int height) {
   ne->enabled = 0;
   ne->level = kLowLow;
@@ -34,7 +43,7 @@ void vp9_noise_estimate_init(NOISE_ESTIMATE *const ne, int width, int height) {
   } else if (width * height >= 1280 * 720) {
     ne->thresh = 140;
   } else if (width * height >= 640 * 360) {
-    ne->thresh = 100;
+    ne->thresh = 115;
   }
   ne->num_frames_estimate = 15;
 }
@@ -45,7 +54,7 @@ static int enable_noise_estimation(VP9_COMP *const cpi) {
 #endif
 // Enable noise estimation if denoising is on.
 #if CONFIG_VP9_TEMPORAL_DENOISING
-  if (cpi->oxcf.noise_sensitivity > 0 && denoise_svc(cpi) &&
+  if (cpi->oxcf.noise_sensitivity > 0 && noise_est_svc(cpi) &&
       cpi->common.width >= 320 && cpi->common.height >= 180)
     return 1;
 #endif
@@ -56,8 +65,8 @@ static int enable_noise_estimation(VP9_COMP *const cpi) {
   if (cpi->oxcf.pass == 0 && cpi->oxcf.rc_mode == VPX_CBR &&
       cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ && cpi->oxcf.speed >= 5 &&
       cpi->resize_state == ORIG && cpi->resize_pending == 0 && !cpi->use_svc &&
-      cpi->oxcf.content != VP9E_CONTENT_SCREEN && cpi->common.width >= 640 &&
-      cpi->common.height >= 360)
+      cpi->oxcf.content != VP9E_CONTENT_SCREEN &&
+      cpi->common.width * cpi->common.height >= 640 * 360)
     return 1;
   else
     return 0;
@@ -111,7 +120,7 @@ void vp9_update_noise_estimate(VP9_COMP *const cpi) {
   // Estimate is between current source and last source.
   YV12_BUFFER_CONFIG *last_source = cpi->Last_Source;
 #if CONFIG_VP9_TEMPORAL_DENOISING
-  if (cpi->oxcf.noise_sensitivity > 0 && denoise_svc(cpi)) {
+  if (cpi->oxcf.noise_sensitivity > 0 && noise_est_svc(cpi)) {
     last_source = &cpi->denoiser.last_source;
     // Tune these thresholds for different resolutions when denoising is
     // enabled.
@@ -131,7 +140,7 @@ void vp9_update_noise_estimate(VP9_COMP *const cpi) {
       (cpi->svc.number_spatial_layers == 1 &&
        (ne->last_w != cm->width || ne->last_h != cm->height))) {
 #if CONFIG_VP9_TEMPORAL_DENOISING
-    if (cpi->oxcf.noise_sensitivity > 0 && denoise_svc(cpi))
+    if (cpi->oxcf.noise_sensitivity > 0 && noise_est_svc(cpi))
       copy_frame(&cpi->denoiser.last_source, cpi->Source);
 #endif
     if (last_source != NULL) {
@@ -139,16 +148,18 @@ void vp9_update_noise_estimate(VP9_COMP *const cpi) {
       ne->last_h = cm->height;
     }
     return;
-  } else if (cm->current_video_frame > 60 &&
+  } else if (frame_counter > 60 && cpi->svc.num_encoded_top_layer > 1 &&
+             cpi->rc.frames_since_key > cpi->svc.number_spatial_layers &&
+             cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 1 &&
              cpi->rc.avg_frame_low_motion < (low_res ? 70 : 50)) {
     // Force noise estimation to 0 and denoiser off if content has high motion.
     ne->level = kLowLow;
     ne->count = 0;
     ne->num_frames_estimate = 10;
 #if CONFIG_VP9_TEMPORAL_DENOISING
-    if (cpi->oxcf.noise_sensitivity > 0 && denoise_svc(cpi) &&
+    if (cpi->oxcf.noise_sensitivity > 0 && noise_est_svc(cpi) &&
         cpi->svc.current_superframe > 1) {
-      vp9_denoiser_set_noise_level(&cpi->denoiser, ne->level);
+      vp9_denoiser_set_noise_level(cpi, ne->level);
       copy_frame(&cpi->denoiser.last_source, cpi->Source);
     }
 #endif
@@ -172,7 +183,6 @@ void vp9_update_noise_estimate(VP9_COMP *const cpi) {
     int mi_row, mi_col;
     int num_low_motion = 0;
     int frame_low_motion = 1;
-    if (cpi->use_skin_detection) vp9_compute_skin_map(cpi, BLOCK_16X16);
     for (mi_row = 0; mi_row < cm->mi_rows; mi_row++) {
       for (mi_col = 0; mi_col < cm->mi_cols; mi_col++) {
         int bl_index = mi_row * cm->mi_cols + mi_col;
@@ -191,35 +201,42 @@ void vp9_update_noise_estimate(VP9_COMP *const cpi) {
           int bl_index1 = bl_index + 1;
           int bl_index2 = bl_index + cm->mi_cols;
           int bl_index3 = bl_index2 + 1;
-          int is_skin = 0;
-          if (cpi->use_skin_detection) is_skin = cpi->skin_map[bl_index];
+          int consec_zeromv =
+              VPXMIN(cpi->consec_zero_mv[bl_index],
+                     VPXMIN(cpi->consec_zero_mv[bl_index1],
+                            VPXMIN(cpi->consec_zero_mv[bl_index2],
+                                   cpi->consec_zero_mv[bl_index3])));
           // Only consider blocks that are likely steady background. i.e, have
           // been encoded as zero/low motion x (= thresh_consec_zeromv) frames
           // in a row. consec_zero_mv[] defined for 8x8 blocks, so consider all
           // 4 sub-blocks for 16x16 block. Also, avoid skin blocks.
-          if (frame_low_motion &&
-              cpi->consec_zero_mv[bl_index] > thresh_consec_zeromv &&
-              cpi->consec_zero_mv[bl_index1] > thresh_consec_zeromv &&
-              cpi->consec_zero_mv[bl_index2] > thresh_consec_zeromv &&
-              cpi->consec_zero_mv[bl_index3] > thresh_consec_zeromv &&
-              !is_skin) {
-            // Compute variance.
-            unsigned int sse;
-            unsigned int variance = cpi->fn_ptr[bsize].vf(
-                src_y, src_ystride, last_src_y, last_src_ystride, &sse);
-            // Only consider this block as valid for noise measurement if the
-            // average term (sse - variance = N * avg^{2}, N = 16X16) of the
-            // temporal residual is small (avoid effects from lighting change).
-            if ((sse - variance) < thresh_sum_diff) {
-              unsigned int sse2;
-              const unsigned int spatial_variance = cpi->fn_ptr[bsize].vf(
-                  src_y, src_ystride, const_source, 0, &sse2);
-              // Avoid blocks with high brightness and high spatial variance.
-              if ((sse2 - spatial_variance) < thresh_sum_spatial &&
-                  spatial_variance < thresh_spatial_var) {
-                avg_est += low_res ? variance >> 4
-                                   : variance / ((spatial_variance >> 9) + 1);
-                num_samples++;
+          if (frame_low_motion && consec_zeromv > thresh_consec_zeromv) {
+            int is_skin = 0;
+            if (cpi->use_skin_detection) {
+              is_skin =
+                  vp9_compute_skin_block(src_y, src_u, src_v, src_ystride,
+                                         src_uvstride, bsize, consec_zeromv, 0);
+            }
+            if (!is_skin) {
+              unsigned int sse;
+              // Compute variance.
+              unsigned int variance = cpi->fn_ptr[bsize].vf(
+                  src_y, src_ystride, last_src_y, last_src_ystride, &sse);
+              // Only consider this block as valid for noise measurement if the
+              // average term (sse - variance = N * avg^{2}, N = 16X16) of the
+              // temporal residual is small (avoid effects from lighting
+              // change).
+              if ((sse - variance) < thresh_sum_diff) {
+                unsigned int sse2;
+                const unsigned int spatial_variance = cpi->fn_ptr[bsize].vf(
+                    src_y, src_ystride, const_source, 0, &sse2);
+                // Avoid blocks with high brightness and high spatial variance.
+                if ((sse2 - spatial_variance) < thresh_sum_spatial &&
+                    spatial_variance < thresh_spatial_var) {
+                  avg_est += low_res ? variance >> 4
+                                     : variance / ((spatial_variance >> 9) + 1);
+                  num_samples++;
+                }
               }
             }
           }
@@ -243,7 +260,7 @@ void vp9_update_noise_estimate(VP9_COMP *const cpi) {
       // Normalize.
       avg_est = avg_est / num_samples;
       // Update noise estimate.
-      ne->value = (int)((15 * ne->value + avg_est) >> 4);
+      ne->value = (int)((3 * ne->value + avg_est) >> 2);
       ne->count++;
       if (ne->count == ne->num_frames_estimate) {
         // Reset counter and check noise level condition.
@@ -251,14 +268,14 @@ void vp9_update_noise_estimate(VP9_COMP *const cpi) {
         ne->count = 0;
         ne->level = vp9_noise_estimate_extract_level(ne);
 #if CONFIG_VP9_TEMPORAL_DENOISING
-        if (cpi->oxcf.noise_sensitivity > 0 && denoise_svc(cpi))
-          vp9_denoiser_set_noise_level(&cpi->denoiser, ne->level);
+        if (cpi->oxcf.noise_sensitivity > 0 && noise_est_svc(cpi))
+          vp9_denoiser_set_noise_level(cpi, ne->level);
 #endif
       }
     }
   }
 #if CONFIG_VP9_TEMPORAL_DENOISING
-  if (cpi->oxcf.noise_sensitivity > 0 && denoise_svc(cpi))
+  if (cpi->oxcf.noise_sensitivity > 0 && noise_est_svc(cpi))
     copy_frame(&cpi->denoiser.last_source, cpi->Source);
 #endif
 }

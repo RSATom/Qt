@@ -7,7 +7,7 @@ import QtQuick.tooling 1.2
 // 'qmlplugindump -nonrelocatable QtQuick.PrivateWidgets 1.1'
 
 Module {
-    dependencies: []
+    dependencies: ["QtQuick 2.0"]
     Component {
         name: "QQuickAbstractColorDialog"
         prototype: "QQuickAbstractDialog"
@@ -143,6 +143,9 @@ Module {
         Property { name: "fileUrl"; type: "QUrl"; isReadonly: true }
         Property { name: "fileUrls"; type: "QList<QUrl>"; isReadonly: true }
         Property { name: "sidebarVisible"; type: "bool" }
+        Property { name: "defaultSuffix"; type: "string" }
+        Property { name: "shortcuts"; type: "QJSValue"; isReadonly: true }
+        Property { name: "__shortcuts"; type: "QJSValue"; isReadonly: true }
         Signal { name: "filterSelected" }
         Signal { name: "fileModeChanged" }
         Signal { name: "selectionAccepted" }
@@ -185,6 +188,10 @@ Module {
         Method {
             name: "setSidebarVisible"
             Parameter { name: "s"; type: "bool" }
+        }
+        Method {
+            name: "setDefaultSuffix"
+            Parameter { name: "suffix"; type: "string" }
         }
     }
     Component {

@@ -52,6 +52,7 @@
 #include <QtCore/qfileinfo.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qdebug.h>
+#include <QtCore/qfloat16.h>
 #include <QtCore/qlibraryinfo.h>
 #include <QtCore/private/qtools_p.h>
 #include <QtCore/qdiriterator.h>
@@ -59,6 +60,8 @@
 #include <QtCore/qthread.h>
 #include <QtCore/qwaitcondition.h>
 #include <QtCore/qmutex.h>
+
+#include <QtCore/qtestsupport_core.h>
 
 #include <QtTest/private/qtestlog_p.h>
 #include <QtTest/private/qtesttable_p.h>
@@ -75,6 +78,11 @@
 #include <QtTest/private/qtestutil_macos_p.h>
 #endif
 
+#if defined(Q_OS_DARWIN)
+#include <QtTest/private/qappletestlogger_p.h>
+#endif
+
+#include <cmath>
 #include <numeric>
 #include <algorithm>
 
@@ -84,7 +92,6 @@
 
 #if defined(Q_OS_LINUX)
 #include <sys/types.h>
-#include <unistd.h>
 #include <fcntl.h>
 #endif
 
@@ -98,6 +105,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <time.h>
+#include <unistd.h>
 # if !defined(Q_OS_INTEGRITY)
 #  include <sys/resource.h>
 # endif
@@ -208,8 +216,13 @@ static void stackTrace()
     if (debuggerPresent())
         return;
 
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+    const int msecsFunctionTime = qRound(QTestLog::msecsFunctionTime());
+    const int msecsTotalTime = qRound(QTestLog::msecsTotalTime());
+    fprintf(stderr, "\n=== Received signal at function time: %dms, total time: %dms, dumping stack ===\n",
+            msecsFunctionTime, msecsTotalTime);
+#endif
 #ifdef Q_OS_LINUX
-    fprintf(stderr, "\n========= Received signal, dumping stack ==============\n");
     char cmd[512];
     qsnprintf(cmd, 512, "gdb --pid %d 2>/dev/null <<EOF\n"
                          "set prompt\n"
@@ -221,9 +234,8 @@ static void stackTrace()
                          (int)getpid());
     if (system(cmd) == -1)
         fprintf(stderr, "calling gdb failed\n");
-    fprintf(stderr, "========= End of stack trace ==============\n");
+    fprintf(stderr, "=== End of stack trace ===\n");
 #elif defined(Q_OS_OSX)
-    fprintf(stderr, "\n========= Received signal, dumping stack ==============\n");
     char cmd[512];
     qsnprintf(cmd, 512, "lldb -p %d 2>/dev/null <<EOF\n"
                          "bt all\n"
@@ -232,13 +244,13 @@ static void stackTrace()
                          (int)getpid());
     if (system(cmd) == -1)
         fprintf(stderr, "calling lldb failed\n");
-    fprintf(stderr, "========= End of stack trace ==============\n");
+    fprintf(stderr, "=== End of stack trace ===\n");
 #endif
 }
 
 static bool installCoverageTool(const char * appname, const char * testname)
 {
-#ifdef __COVERAGESCANNER__
+#if defined(__COVERAGESCANNER__) && !QT_CONFIG(testlib_selfcover)
     if (!qEnvironmentVariableIsEmpty("QT_TESTCOCOON_ACTIVE"))
         return false;
     // Set environment variable QT_TESTCOCOON_ACTIVE to prevent an eventual subtest from
@@ -268,74 +280,82 @@ static bool isValidSlot(const QMetaMethod &sl)
         || name == "init" || name == "cleanup");
 }
 
+namespace QTestPrivate
+{
+    Q_TESTLIB_EXPORT Qt::MouseButtons qtestMouseButtons = Qt::NoButton;
+}
+
 namespace QTest
 {
-    class WatchDog;
+class WatchDog;
 
-    static QObject *currentTestObject = 0;
-    static QString mainSourcePath;
+static QObject *currentTestObject = 0;
+static QString mainSourcePath;
 
 #if defined(Q_OS_MACOS)
-    bool macNeedsActivate = false;
-    IOPMAssertionID powerID;
+bool macNeedsActivate = false;
+IOPMAssertionID powerID;
 #endif
 
-    class TestMethods {
-        Q_DISABLE_COPY(TestMethods)
-    public:
-        typedef std::vector<QMetaMethod> MetaMethods;
+class TestMethods {
+public:
+    Q_DISABLE_COPY_MOVE(TestMethods)
 
-        explicit TestMethods(const QObject *o, const MetaMethods &m = MetaMethods());
+    typedef std::vector<QMetaMethod> MetaMethods;
 
-        void invokeTests(QObject *testObject) const;
+    explicit TestMethods(const QObject *o, const MetaMethods &m = MetaMethods());
 
-        static QMetaMethod findMethod(const QObject *obj, const char *signature);
+    void invokeTests(QObject *testObject) const;
 
-    private:
-        bool invokeTest(int index, const char *data, WatchDog *watchDog) const;
-        void invokeTestOnData(int index) const;
+    static QMetaMethod findMethod(const QObject *obj, const char *signature);
 
-        QMetaMethod m_initTestCaseMethod; // might not exist, check isValid().
-        QMetaMethod m_initTestCaseDataMethod;
-        QMetaMethod m_cleanupTestCaseMethod;
-        QMetaMethod m_initMethod;
-        QMetaMethod m_cleanupMethod;
+private:
+    bool invokeTest(int index, const char *data, WatchDog *watchDog) const;
+    void invokeTestOnData(int index) const;
 
-        MetaMethods m_methods;
-    };
+    QMetaMethod m_initTestCaseMethod; // might not exist, check isValid().
+    QMetaMethod m_initTestCaseDataMethod;
+    QMetaMethod m_cleanupTestCaseMethod;
+    QMetaMethod m_initMethod;
+    QMetaMethod m_cleanupMethod;
 
-    TestMethods::TestMethods(const QObject *o, const MetaMethods &m)
-        : m_initTestCaseMethod(TestMethods::findMethod(o, "initTestCase()"))
-        , m_initTestCaseDataMethod(TestMethods::findMethod(o, "initTestCase_data()"))
-        , m_cleanupTestCaseMethod(TestMethods::findMethod(o, "cleanupTestCase()"))
-        , m_initMethod(TestMethods::findMethod(o, "init()"))
-        , m_cleanupMethod(TestMethods::findMethod(o, "cleanup()"))
-        , m_methods(m)
-    {
-        if (m.empty()) {
-            const QMetaObject *metaObject = o->metaObject();
-            const int count = metaObject->methodCount();
-            m_methods.reserve(count);
-            for (int i = 0; i < count; ++i) {
-                const QMetaMethod me = metaObject->method(i);
-                if (isValidSlot(me))
-                    m_methods.push_back(me);
-            }
+    MetaMethods m_methods;
+};
+
+TestMethods::TestMethods(const QObject *o, const MetaMethods &m)
+    : m_initTestCaseMethod(TestMethods::findMethod(o, "initTestCase()"))
+    , m_initTestCaseDataMethod(TestMethods::findMethod(o, "initTestCase_data()"))
+    , m_cleanupTestCaseMethod(TestMethods::findMethod(o, "cleanupTestCase()"))
+    , m_initMethod(TestMethods::findMethod(o, "init()"))
+    , m_cleanupMethod(TestMethods::findMethod(o, "cleanup()"))
+    , m_methods(m)
+{
+    if (m.empty()) {
+        const QMetaObject *metaObject = o->metaObject();
+        const int count = metaObject->methodCount();
+        m_methods.reserve(count);
+        for (int i = 0; i < count; ++i) {
+            const QMetaMethod me = metaObject->method(i);
+            if (isValidSlot(me))
+                m_methods.push_back(me);
         }
     }
+}
 
-    QMetaMethod TestMethods::findMethod(const QObject *obj, const char *signature)
-    {
-        const QMetaObject *metaObject = obj->metaObject();
-        const int funcIndex = metaObject->indexOfMethod(signature);
-        return funcIndex >= 0 ? metaObject->method(funcIndex) : QMetaMethod();
-    }
+QMetaMethod TestMethods::findMethod(const QObject *obj, const char *signature)
+{
+    const QMetaObject *metaObject = obj->metaObject();
+    const int funcIndex = metaObject->indexOfMethod(signature);
+    return funcIndex >= 0 ? metaObject->method(funcIndex) : QMetaMethod();
+}
 
-    static int keyDelay = -1;
-    static int mouseDelay = -1;
-    static int eventDelay = -1;
-    static int timeout = -1;
-    static bool noCrashHandler = false;
+static int keyDelay = -1;
+static int mouseDelay = -1;
+static int eventDelay = -1;
+#if QT_CONFIG(thread)
+static int timeout = -1;
+#endif
+static bool noCrashHandler = false;
 
 /*! \internal
     Invoke a method of the object without generating warning if the method does not exist
@@ -385,7 +405,7 @@ int Q_TESTLIB_EXPORT defaultKeyDelay()
     }
     return keyDelay;
 }
-
+#if QT_CONFIG(thread)
 static int defaultTimeout()
 {
     if (timeout == -1) {
@@ -397,6 +417,7 @@ static int defaultTimeout()
     }
     return timeout;
 }
+#endif
 
 Q_TESTLIB_EXPORT bool printAvailableFunctions = false;
 Q_TESTLIB_EXPORT QStringList testFunctions;
@@ -481,7 +502,7 @@ static void qPrintDataTags(FILE *stream)
     }
 }
 
-static int qToInt(char *str)
+static int qToInt(const char *str)
 {
     char *pEnd;
     int l = (int)strtol(str, &pEnd, 10);
@@ -492,9 +513,9 @@ static int qToInt(char *str)
     return l;
 }
 
-Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml)
+Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, const char *const argv[], bool qml)
 {
-    QTestLog::LogMode logFormat = QTestLog::Plain;
+    int logFormat = -1; // Not set
     const char *logFilename = 0;
 
     QTest::testFunctions.clear();
@@ -516,6 +537,7 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml)
          "                         xml      : XML document\n"
          "                         lightxml : A stream of XML tags\n"
          "                         teamcity : TeamCity format\n"
+         "                         tap      : Test Anything Protocol\n"
          "\n"
          "     *** Multiple loggers can be specified, but at most one can log to stdout.\n"
          "\n"
@@ -527,6 +549,7 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml)
          " -xml                : Output results as XML document\n"
          " -lightxml           : Output results as stream of XML tags\n"
          " -teamcity           : Output results in TeamCity format\n"
+         " -tap                : Output results in Test Anything Protocol format\n"
          "\n"
          "     *** If no output file is specified, stdout is assumed.\n"
          "     *** If no output format is specified, -txt is assumed.\n"
@@ -583,6 +606,7 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml)
                         " -plugins dir        : Specify a directory where to search for plugins.\n"
                         " -input dir/file     : Specify the root directory for test cases or a single test case file.\n"
                         " -translation file   : Specify the translation file.\n"
+                        " -file-selector dir  : Specify a file selector for the QML engine.\n"
                         );
             }
 
@@ -613,6 +637,8 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml)
             logFormat = QTestLog::LightXML;
         } else if (strcmp(argv[i], "-teamcity") == 0) {
             logFormat = QTestLog::TeamCity;
+        } else if (strcmp(argv[i], "-tap") == 0) {
+            logFormat = QTestLog::TAP;
         } else if (strcmp(argv[i], "-silent") == 0) {
             QTestLog::setVerboseLevel(-1);
         } else if (strcmp(argv[i], "-v1") == 0) {
@@ -647,15 +673,17 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml)
                     logFormat = QTestLog::XunitXML;
                 else if (strcmp(format, "teamcity") == 0)
                     logFormat = QTestLog::TeamCity;
+                else if (strcmp(format, "tap") == 0)
+                    logFormat = QTestLog::TAP;
                 else {
-                    fprintf(stderr, "output format must be one of txt, csv, lightxml, xml, teamcity or xunitxml\n");
+                    fprintf(stderr, "output format must be one of txt, csv, lightxml, xml, tap, teamcity or xunitxml\n");
                     exit(1);
                 }
                 if (strcmp(filename, "-") == 0 && QTestLog::loggerUsingStdout()) {
                     fprintf(stderr, "only one logger can log to stdout\n");
                     exit(1);
                 }
-                QTestLog::addLogger(logFormat, filename);
+                QTestLog::addLogger(QTestLog::LogMode(logFormat), filename);
             }
             delete [] filename;
             delete [] format;
@@ -789,9 +817,9 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml)
             // we load the QML files.  So just store the data for now.
             int colon = -1;
             int offset;
-            for (offset = 0; *(argv[i]+offset); ++offset) {
-                if (*(argv[i]+offset) == ':') {
-                    if (*(argv[i]+offset+1) == ':') {
+            for (offset = 0; argv[i][offset]; ++offset) {
+                if (argv[i][offset] == ':') {
+                    if (argv[i][offset + 1] == ':') {
                         // "::" is used as a test name separator.
                         // e.g. "ClickTests::test_click:row1".
                         ++offset;
@@ -817,10 +845,30 @@ Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml)
     QTestLog::setInstalledTestCoverage(installedTestCoverage);
 
     // If no loggers were created by the long version of the -o command-line
-    // option, create a logger using whatever filename and format were
-    // set using the old-style command-line options.
-    if (QTestLog::loggerCount() == 0)
-        QTestLog::addLogger(logFormat, logFilename);
+    // option, but a logger was requested via the old-style option, add it.
+    const bool explicitLoggerRequested = logFormat != -1;
+    if (QTestLog::loggerCount() == 0 && explicitLoggerRequested)
+        QTestLog::addLogger(QTestLog::LogMode(logFormat), logFilename);
+
+    bool addFallbackLogger = !explicitLoggerRequested;
+
+#if defined(QT_USE_APPLE_UNIFIED_LOGGING)
+    // Any explicitly requested loggers will be added by now, so we can check if they use stdout
+    const bool safeToAddAppleLogger = !AppleUnifiedLogger::willMirrorToStderr() || !QTestLog::loggerUsingStdout();
+    if (safeToAddAppleLogger && QAppleTestLogger::debugLoggingEnabled()) {
+        QTestLog::addLogger(QTestLog::Apple, nullptr);
+        if (AppleUnifiedLogger::willMirrorToStderr() && !logFilename)
+            addFallbackLogger = false; // Prevent plain test logger fallback below
+    }
+#endif
+
+    if (addFallbackLogger)
+        QTestLog::addLogger(QTestLog::Plain, logFilename);
+}
+
+// Temporary, backwards compatibility, until qtdeclarative's use of it is converted
+Q_TESTLIB_EXPORT void qtest_qParseArgs(int argc, char *argv[], bool qml) {
+    qtest_qParseArgs(argc, const_cast<const char *const *>(argv), qml);
 }
 
 QBenchmarkResult qMedian(const QVector<QBenchmarkResult> &container)
@@ -901,6 +949,10 @@ void TestMethods::invokeTestOnData(int index) const
             if (m_cleanupMethod.isValid())
                 m_cleanupMethod.invoke(QTest::currentTestObject, Qt::DirectConnection);
 
+            // Process any deleteLater(), like event-loop based apps would do. Fixes memleak reports.
+            if (QCoreApplication::instance())
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
             // If the test isn't a benchmark, finalize the result after cleanup() has finished.
             if (!isBenchmark)
                 QTestResult::finishedCurrentTestDataCleanup();
@@ -952,6 +1004,8 @@ void TestMethods::invokeTestOnData(int index) const
     }
 }
 
+#if QT_CONFIG(thread)
+
 class WatchDog : public QThread
 {
 public:
@@ -1002,6 +1056,17 @@ private:
     QMutex mutex;
     QWaitCondition waitCondition;
 };
+
+#else // !QT_CONFIG(thread)
+
+class WatchDog : public QObject
+{
+public:
+    void beginTest() {};
+    void testFinished() {};
+};
+
+#endif
 
 
 /*!
@@ -1069,6 +1134,7 @@ bool TestMethods::invokeTest(int index, const char *data, WatchDog *watchDog) co
                     QTestDataSetter s(curDataIndex >= dataCount ? static_cast<QTestData *>(0)
                                                       : table.testData(curDataIndex));
 
+                    QTestPrivate::qtestMouseButtons = Qt::NoButton;
                     if (watchDog)
                         watchDog->beginTest();
                     invokeTestOnData(index);
@@ -1125,12 +1191,39 @@ void *fetchData(QTestData *data, const char *tagName, int typeId)
 }
 
 /*!
+ * \internal
+ */
+char *formatString(const char *prefix, const char *suffix, size_t numArguments, ...)
+{
+    va_list ap;
+    va_start(ap, numArguments);
+
+    QByteArray arguments;
+    arguments += prefix;
+
+    if (numArguments > 0) {
+        arguments += va_arg(ap, const char *);
+
+        for (size_t i = 1; i < numArguments; ++i) {
+            arguments += ", ";
+            arguments += va_arg(ap, const char *);
+        }
+    }
+
+    va_end(ap);
+    arguments += suffix;
+    return qstrdup(arguments.constData());
+}
+
+/*!
   \fn char* QTest::toHexRepresentation(const char *ba, int length)
 
   Returns a pointer to a string that is the string \a ba represented
   as a space-separated sequence of hex characters. If the input is
   considered too long, it is truncated. A trucation is indicated in
-  the returned string as an ellipsis at the end.
+  the returned string as an ellipsis at the end. The caller has
+  ownership of the returned pointer and must ensure it is later passed
+  to operator delete[].
 
   \a length is the length of the string \a ba.
  */
@@ -1385,7 +1478,7 @@ void TestMethods::invokeTests(QObject *testObject) const
 
         if (!QTestResult::skipCurrentTest() && !previousFailed) {
             for (int i = 0, count = int(m_methods.size()); i < count; ++i) {
-                const char *data = Q_NULLPTR;
+                const char *data = nullptr;
                 if (i < QTest::testTags.size() && !QTest::testTags.at(i).isEmpty())
                     data = qstrdup(QTest::testTags.at(i).toLatin1().constData());
                 const bool ok = invokeTest(i, data, watchDog.data());
@@ -1423,8 +1516,13 @@ void FatalSignalHandler::signal(int signum)
 {
     const int msecsFunctionTime = qRound(QTestLog::msecsFunctionTime());
     const int msecsTotalTime = qRound(QTestLog::msecsTotalTime());
-    if (signum != SIGINT)
+    if (signum != SIGINT) {
         stackTrace();
+        if (qEnvironmentVariableIsSet("QTEST_PAUSE_ON_CRASH")) {
+            fprintf(stderr, "Pausing process %d for debugging\n", getpid());
+            raise(SIGSTOP);
+        }
+    }
     qFatal("Received signal %d\n"
            "         Function time: %dms Total time: %dms",
            signum, msecsFunctionTime, msecsTotalTime);
@@ -1527,10 +1625,10 @@ FatalSignalHandler::~FatalSignalHandler()
 // Helper class for resolving symbol names by dynamically loading "dbghelp.dll".
 class DebugSymbolResolver
 {
-    Q_DISABLE_COPY(DebugSymbolResolver)
+    Q_DISABLE_COPY_MOVE(DebugSymbolResolver)
 public:
     struct Symbol {
-        Symbol() : name(Q_NULLPTR), address(0) {}
+        Symbol() : name(nullptr), address(0) {}
 
         const char *name; // Must be freed by caller.
         DWORD64 address;
@@ -1578,17 +1676,19 @@ void DebugSymbolResolver::cleanup()
     if (m_dbgHelpLib)
         FreeLibrary(m_dbgHelpLib);
     m_dbgHelpLib = 0;
-    m_symFromAddr = Q_NULLPTR;
+    m_symFromAddr = nullptr;
 }
 
 DebugSymbolResolver::DebugSymbolResolver(HANDLE process)
-    : m_process(process), m_dbgHelpLib(0), m_symFromAddr(Q_NULLPTR)
+    : m_process(process), m_dbgHelpLib(0), m_symFromAddr(nullptr)
 {
     bool success = false;
     m_dbgHelpLib = LoadLibraryW(L"dbghelp.dll");
     if (m_dbgHelpLib) {
-        SymInitializeType symInitialize = (SymInitializeType)(GetProcAddress(m_dbgHelpLib, "SymInitialize"));
-        m_symFromAddr = (SymFromAddrType)(GetProcAddress(m_dbgHelpLib, "SymFromAddr"));
+        SymInitializeType symInitialize = reinterpret_cast<SymInitializeType>(
+            reinterpret_cast<QFunctionPointer>(GetProcAddress(m_dbgHelpLib, "SymInitialize")));
+        m_symFromAddr = reinterpret_cast<SymFromAddrType>(
+            reinterpret_cast<QFunctionPointer>(GetProcAddress(m_dbgHelpLib, "SymFromAddr")));
         success = symInitialize && m_symFromAddr && symInitialize(process, NULL, TRUE);
     }
     if (!success)
@@ -1662,15 +1762,8 @@ static LONG WINAPI windowsFaultHandler(struct _EXCEPTION_POINTERS *exInfo)
 }
 #endif // Q_OS_WIN) && !Q_OS_WINRT
 
-static void qputenvIfEmpty(const char *name, const QByteArray &value)
-{
-    if (qEnvironmentVariableIsEmpty(name))
-        qputenv(name, value);
-}
-
 static void initEnvironment()
 {
-    qputenvIfEmpty("QT_LOGGING_TO_CONSOLE", "1");
     qputenv("QT_QTESTLIB_RUNNING", "1");
 }
 
@@ -1748,8 +1841,6 @@ void QTest::qInit(QObject *testObject, int argc, char **argv)
 #endif
 
     QTestPrivate::parseBlackList();
-    QTestPrivate::parseGpuBlackList();
-
     QTestResult::reset();
 
     QTEST_ASSERT(testObject);
@@ -1967,7 +2058,7 @@ void QTest::ignoreMessage(QtMsgType type, const char *message)
     QTestLog::ignoreMessage(type, message);
 }
 
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
 /*!
     \overload
 
@@ -1987,7 +2078,7 @@ void QTest::ignoreMessage(QtMsgType type, const QRegularExpression &messagePatte
 {
     QTestLog::ignoreMessage(type, messagePattern);
 }
-#endif // QT_NO_REGULAREXPRESSION
+#endif // QT_CONFIG(regularexpression)
 
 /*! \internal
  */
@@ -2099,13 +2190,12 @@ QString QTest::qFindTestData(const QString& base, const char *file, int line, co
     if (found.isEmpty()) {
         const char *testObjectName = QTestResult::currentTestObjectName();
         if (testObjectName) {
-            QString testsPath = QLibraryInfo::location(QLibraryInfo::TestsPath);
-            QString candidate = QString::fromLatin1("%1/%2/%3")
+            const QString testsPath = QLibraryInfo::location(QLibraryInfo::TestsPath);
+            const QString candidate = QString::fromLatin1("%1/%2/%3")
                 .arg(testsPath, QFile::decodeName(testObjectName).toLower(), base);
             if (QFileInfo::exists(candidate)) {
                 found = candidate;
-            }
-            else if (QTestLog::verboseLevel() >= 2) {
+            } else if (QTestLog::verboseLevel() >= 2) {
                 QTestLog::info(qPrintable(
                     QString::fromLatin1("testdata %1 not found in tests install path [%2]; "
                                         "checking next location")
@@ -2126,11 +2216,11 @@ QString QTest::qFindTestData(const QString& base, const char *file, int line, co
             srcdir.setFile(QFile::decodeName(builddir) + QLatin1String("/") + srcdir.filePath());
         }
 
-        QString candidate = QString::fromLatin1("%1/%2").arg(srcdir.canonicalFilePath(), base);
-        if (QFileInfo::exists(candidate)) {
+        const QString canonicalPath = srcdir.canonicalFilePath();
+        const QString candidate = QString::fromLatin1("%1/%2").arg(canonicalPath, base);
+        if (!canonicalPath.isEmpty() && QFileInfo::exists(candidate)) {
             found = candidate;
-        }
-        else if (QTestLog::verboseLevel() >= 2) {
+        } else if (QTestLog::verboseLevel() >= 2) {
             QTestLog::info(qPrintable(
                 QString::fromLatin1("testdata %1 not found relative to source path [%2]")
                     .arg(base, QDir::toNativeSeparators(candidate))),
@@ -2140,31 +2230,48 @@ QString QTest::qFindTestData(const QString& base, const char *file, int line, co
 
     // 4. Try resources
     if (found.isEmpty()) {
-        QString candidate = QString::fromLatin1(":/%1").arg(base);
-        if (QFileInfo::exists(candidate))
+        const QString candidate = QString::fromLatin1(":/%1").arg(base);
+        if (QFileInfo::exists(candidate)) {
             found = candidate;
+        } else if (QTestLog::verboseLevel() >= 2) {
+            QTestLog::info(qPrintable(
+                QString::fromLatin1("testdata %1 not found in resources [%2]")
+                    .arg(base, QDir::toNativeSeparators(candidate))),
+                file, line);
+        }
     }
 
     // 5. Try current directory
     if (found.isEmpty()) {
         const QString candidate = QDir::currentPath() + QLatin1Char('/') + base;
-        if (QFileInfo::exists(candidate))
+        if (QFileInfo::exists(candidate)) {
             found = candidate;
+        } else if (QTestLog::verboseLevel() >= 2) {
+            QTestLog::info(qPrintable(
+                QString::fromLatin1("testdata %1 not found in current directory [%2]")
+                    .arg(base, QDir::toNativeSeparators(candidate))),
+                file, line);
+        }
     }
 
     // 6. Try main source directory
     if (found.isEmpty()) {
-        QString candidate = QTest::mainSourcePath % QLatin1Char('/') % base;
-        if (QFileInfo::exists(candidate))
+        const QString candidate = QTest::mainSourcePath % QLatin1Char('/') % base;
+        if (QFileInfo::exists(candidate)) {
             found = candidate;
+        } else if (QTestLog::verboseLevel() >= 2) {
+            QTestLog::info(qPrintable(
+                QString::fromLatin1("testdata %1 not found in main source directory [%2]")
+                    .arg(base, QDir::toNativeSeparators(candidate))),
+                file, line);
+        }
     }
 
     if (found.isEmpty()) {
         QTest::qWarn(qPrintable(
             QString::fromLatin1("testdata %1 could not be located!").arg(base)),
             file, line);
-    }
-    else if (QTestLog::verboseLevel() >= 1) {
+    } else if (QTestLog::verboseLevel() >= 1) {
         QTestLog::info(qPrintable(
             QString::fromLatin1("testdata %1 was located at %2").arg(base, QDir::toNativeSeparators(found))),
             file, line);
@@ -2238,7 +2345,7 @@ void QTest::addColumnInternal(int id, const char *name)
 */
 QTestData &QTest::newRow(const char *dataTag)
 {
-    QTEST_ASSERT_X(dataTag, "QTest::newRow()", "Data tag can not be null");
+    QTEST_ASSERT_X(dataTag, "QTest::newRow()", "Data tag cannot be null");
     QTestTable *tbl = QTestTable::currentTestTable();
     QTEST_ASSERT_X(tbl, "QTest::newRow()", "Cannot add testdata outside of a _data slot.");
     QTEST_ASSERT_X(tbl->elementCount(), "QTest::newRow()", "Must add columns before attempting to add rows.");
@@ -2288,7 +2395,7 @@ QTestData &QTest::addRow(const char *format, ...)
     return *tbl->newData(buf);
 }
 
-/*! \fn void QTest::addColumn(const char *name, T *dummy = 0)
+/*! \fn template <typename T> void QTest::addColumn(const char *name, T *dummy = 0)
 
     Adds a column with type \c{T} to the current test data.
     \a name is the name of the column. \a dummy is a workaround
@@ -2353,7 +2460,7 @@ bool QTest::currentTestFailed()
     Sleeps for \a ms milliseconds, blocking execution of the
     test. qSleep() will not do any event processing and leave your test
     unresponsive. Network communication might time out while
-    sleeping. Use \l qWait() to do non-blocking sleeping.
+    sleeping. Use \l {QTest::qWait()} to do non-blocking sleeping.
 
     \a ms must be greater than 0.
 
@@ -2364,20 +2471,13 @@ bool QTest::currentTestFailed()
     Example:
     \snippet code/src_qtestlib_qtestcase.cpp 23
 
-    \sa qWait()
+    \sa {QTest::qWait()}
 */
 void QTest::qSleep(int ms)
 {
+    // ### Qt 6, move to QtCore or remove altogether
     QTEST_ASSERT(ms > 0);
-
-#if defined(Q_OS_WINRT)
-    WaitForSingleObjectEx(GetCurrentThread(), ms, true);
-#elif defined(Q_OS_WIN)
-    Sleep(uint(ms));
-#else
-    struct timespec ts = { time_t(ms / 1000), (ms % 1000) * 1000 * 1000 };
-    nanosleep(&ts, NULL);
-#endif
+    QTestPrivate::qSleep(ms);
 }
 
 /*! \internal
@@ -2419,36 +2519,64 @@ bool QTest::compare_helper(bool success, const char *failureMsg,
     return QTestResult::compare(success, failureMsg, val1, val2, actual, expected, file, line);
 }
 
-/*! \fn bool QTest::qCompare(float const &t1, float const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const qfloat16 &t1, const qfloat16 &t2, const char *actual, const char *expected, const char *file, int line)
+    \internal
+ */
+bool QTest::qCompare(qfloat16 const &t1, qfloat16 const &t2, const char *actual, const char *expected,
+                     const char *file, int line)
+{
+    return compare_helper(qFuzzyCompare(t1, t2), "Compared qfloat16s are not the same (fuzzy compare)",
+                          toString(t1), toString(t2), actual, expected, file, line);
+}
+
+/*! \fn bool QTest::qCompare(const float &t1, const float &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
  */
 bool QTest::qCompare(float const &t1, float const &t2, const char *actual, const char *expected,
                     const char *file, int line)
 {
-    return compare_helper(qFuzzyCompare(t1, t2), "Compared floats are not the same (fuzzy compare)",
+    bool equal = false;
+    int cl1 = std::fpclassify(t1);
+    int cl2 = std::fpclassify(t2);
+    if (cl1 == FP_INFINITE)
+        equal = ((t1 < 0) == (t2 < 0)) && cl2 == FP_INFINITE;
+    else if (cl1 == FP_NAN)
+        equal = (cl2 == FP_NAN);
+    else
+        equal = qFuzzyCompare(t1, t2);
+    return compare_helper(equal, "Compared floats are not the same (fuzzy compare)",
                           toString(t1), toString(t2), actual, expected, file, line);
 }
 
-/*! \fn bool QTest::qCompare(double const &t1, double const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const double &t1, const double &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
  */
 bool QTest::qCompare(double const &t1, double const &t2, const char *actual, const char *expected,
                     const char *file, int line)
 {
-    return compare_helper(qFuzzyCompare(t1, t2), "Compared doubles are not the same (fuzzy compare)",
+    bool equal = false;
+    int cl1 = std::fpclassify(t1);
+    int cl2 = std::fpclassify(t2);
+    if (cl1 == FP_INFINITE)
+        equal = ((t1 < 0) == (t2 < 0)) && cl2 == FP_INFINITE;
+    else if (cl1 == FP_NAN)
+        equal = (cl2 == FP_NAN);
+    else
+        equal = qFuzzyCompare(t1, t2);
+    return compare_helper(equal, "Compared doubles are not the same (fuzzy compare)",
                           toString(t1), toString(t2), actual, expected, file, line);
 }
 
-/*! \fn bool QTest::qCompare(double const &t1, float const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const double &t1, const float &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
  */
 
-/*! \fn bool QTest::qCompare(float const &t1, double const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const float &t1, const double &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
  */
 
 #define TO_STRING_IMPL(TYPE, FORMAT) \
-template <> Q_TESTLIB_EXPORT char *QTest::toString<TYPE >(const TYPE &t) \
+template <> Q_TESTLIB_EXPORT char *QTest::toString<TYPE>(const TYPE &t) \
 { \
     char *msg = new char[128]; \
     qsnprintf(msg, 128, #FORMAT, t); \
@@ -2471,8 +2599,64 @@ TO_STRING_IMPL(quint64, %llu)
 TO_STRING_IMPL(bool, %d)
 TO_STRING_IMPL(signed char, %hhd)
 TO_STRING_IMPL(unsigned char, %hhu)
-TO_STRING_IMPL(float, %g)
-TO_STRING_IMPL(double, %lg)
+
+/*!
+  \internal
+
+  Be consistent about leading 0 in exponent.
+
+  POSIX specifies that %e (hence %g when using it) uses at least two digits in
+  the exponent, requiring a leading 0 on single-digit exponents; (at least)
+  MinGW includes a leading zero also on an already-two-digit exponent,
+  e.g. 9e-040, which differs from more usual platforms.  So massage that away.
+ */
+static void massageExponent(char *text)
+{
+    char *p = strchr(text, 'e');
+    if (!p)
+        return;
+    const char *const end = p + strlen(p); // *end is '\0'
+    p += (p[1] == '-' || p[1] == '+') ? 2 : 1;
+    if (p[0] != '0' || end - 2 <= p)
+        return;
+    // We have a leading 0 on an exponent of at least two more digits
+    const char *n = p + 1;
+    while (end - 2 > n && n[0] == '0')
+        ++n;
+    memmove(p, n, end + 1 - n);
+}
+
+// Be consistent about display of infinities and NaNs (snprintf()'s varies,
+// notably on MinGW, despite POSIX documenting "[-]inf" or "[-]infinity" for %f,
+// %e and %g, uppercasing for their capital versions; similar for "nan"):
+#define TO_STRING_FLOAT(TYPE, FORMAT) \
+template <> Q_TESTLIB_EXPORT char *QTest::toString<TYPE>(const TYPE &t) \
+{ \
+    char *msg = new char[128]; \
+    switch (std::fpclassify(t)) { \
+    case FP_INFINITE: \
+        qstrncpy(msg, (t < 0 ? "-inf" : "inf"), 128); \
+        break; \
+    case FP_NAN: \
+        qstrncpy(msg, "nan", 128); \
+        break; \
+    default: \
+        qsnprintf(msg, 128, #FORMAT, t); \
+        massageExponent(msg); \
+        break; \
+    } \
+    return msg; \
+}
+
+TO_STRING_FLOAT(float, %g)
+TO_STRING_FLOAT(double, %.12lg)
+
+template <> Q_TESTLIB_EXPORT char *QTest::toString<qfloat16>(const qfloat16 &t)
+{
+    char *msg = new char[16];
+    qsnprintf(msg, 16, "%.3g", static_cast<float>(t));
+    return msg;
+}
 
 template <> Q_TESTLIB_EXPORT char *QTest::toString<char>(const char &t)
 {
@@ -2525,8 +2709,11 @@ template <> Q_TESTLIB_EXPORT char *QTest::toString<char>(const char &t)
  */
 char *QTest::toString(const char *str)
 {
-    if (!str)
-        return 0;
+    if (!str) {
+        char *msg = new char[1];
+        *msg = '\0';
+        return msg;
+    }
     char *msg = new char[strlen(str) + 1];
     return qstrcpy(msg, str);
 }
@@ -2539,6 +2726,30 @@ char *QTest::toString(const void *p)
     qsnprintf(msg, 128, "%p", p);
     return msg;
 }
+
+/*! \fn char *QTest::toString(const QColor &color)
+    \internal
+ */
+
+/*! \fn char *QTest::toString(const QRegion &region)
+    \internal
+ */
+
+/*! \fn char *QTest::toString(const QHostAddress &addr)
+    \internal
+ */
+
+/*! \fn char *QTest::toString(QNetworkReply::NetworkError code)
+    \internal
+ */
+
+/*! \fn char *QTest::toString(const QNetworkCookie &cookie)
+    \internal
+ */
+
+/*! \fn char *QTest::toString(const QList<QNetworkCookie> &list)
+    \internal
+ */
 
 /*! \internal
  */
@@ -2554,51 +2765,59 @@ bool QTest::compare_string_helper(const char *t1, const char *t2, const char *ac
    \internal
 */
 
-/*! \fn bool QTest::compare_ptr_helper(const void *t1, const void *t2, const char *actual, const char *expected, const char *file, int line);
+/*! \fn bool QTest::compare_ptr_helper(const volatile void *t1, const volatile void *t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(T1 const &, T2 const &, const char *, const char *, const char *, int);
+/*! \fn bool QTest::compare_ptr_helper(const volatile void *t1, std::nullptr_t, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QIcon const &t1, QIcon const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::compare_ptr_helper(std::nullptr_t, const volatile void *t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QImage const &t1, QImage const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn template <typename T1, typename T2> bool QTest::qCompare(const T1 &t1, const T2 &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QPixmap const &t1, QPixmap const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const QIcon &t1, const QIcon &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(T const &t1, T const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const QImage &t1, const QImage &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(const T *t1, const T *t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const QPixmap &t1, const QPixmap &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(T *t, std::nullptr_t, const char *actual, const char *expected, const char *file, int line)
+/*! \fn template <typename T> bool QTest::qCompare(const T &t1, const T &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(std::nullptr_t, T *t, const char *actual, const char *expected, const char *file, int line)
+/*! \fn template <typename T> bool QTest::qCompare(const T *t1, const T *t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(T *t1, T *t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn template <typename T> bool QTest::qCompare(T *t, std::nullptr_t, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(const T1 *t1, const T2 *t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn template <typename T> bool QTest::qCompare(std::nullptr_t, T *t, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(T1 *t1, T2 *t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn template <typename T> bool QTest::qCompare(T *t1, T *t2, const char *actual, const char *expected, const char *file, int line)
+    \internal
+*/
+
+/*! \fn template <typename T1, typename T2> bool QTest::qCompare(const T1 *t1, const T2 *t2, const char *actual, const char *expected, const char *file, int line)
+    \internal
+*/
+
+/*! \fn template <typename T1, typename T2> bool QTest::qCompare(T1 *t1, T2 *t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
@@ -2618,55 +2837,55 @@ bool QTest::compare_string_helper(const char *t1, const char *t2, const char *ac
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QString const &t1, QLatin1String const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const QString &t1, const QLatin1String &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QLatin1String const &t1, QString const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const QLatin1String &t1, const QString &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QStringList const &t1, QStringList const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const QStringList &t1, const QStringList &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QList<T> const &t1, QList<T> const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn  template <typename T> bool QTest::qCompare(const QList<T> &t1, const QList<T> &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QFlags<T> const &t1, T const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn template <typename T> bool QTest::qCompare(const QFlags<T> &t1, const T &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(QFlags<T> const &t1, int const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn template <typename T> bool QTest::qCompare(const QFlags<T> &t1, const int &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(qint64 const &t1, qint32 const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const qint64 &t1, const qint32 &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(qint64 const &t1, quint32 const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const qint64 &t1, const quint32 &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(quint64 const &t1, quint32 const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const quint64 &t1, const quint32 &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(qint32 const &t1, qint64 const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const qint32 &t1, const qint64 &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(quint32 const &t1, qint64 const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const quint32 &t1, const qint64 &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qCompare(quint32 const &t1, quint64 const &t2, const char *actual, const char *expected, const char *file, int line)
+/*! \fn bool QTest::qCompare(const quint32 &t1, const quint64 &t2, const char *actual, const char *expected, const char *file, int line)
     \internal
 */
 
-/*! \fn bool QTest::qTest(const T& actual, const char *elementName, const char *actualStr, const char *expected, const char *file, int line)
+/*! \fn  template <typename T> bool QTest::qTest(const T& actual, const char *elementName, const char *actualStr, const char *expected, const char *file, int line)
     \internal
 */
 

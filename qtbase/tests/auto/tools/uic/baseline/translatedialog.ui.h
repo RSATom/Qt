@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'translatedialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,15 +40,12 @@
 #define TRANSLATEDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QCheckBox>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QGridLayout>
 #include <QtWidgets/QGroupBox>
 #include <QtWidgets/QHBoxLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QPushButton>
@@ -82,7 +79,7 @@ public:
     void setupUi(QDialog *TranslateDialog)
     {
         if (TranslateDialog->objectName().isEmpty())
-            TranslateDialog->setObjectName(QStringLiteral("TranslateDialog"));
+            TranslateDialog->setObjectName(QString::fromUtf8("TranslateDialog"));
         TranslateDialog->resize(407, 145);
         QSizePolicy sizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
         sizePolicy.setHorizontalStretch(0);
@@ -92,35 +89,35 @@ public:
         hboxLayout = new QHBoxLayout(TranslateDialog);
         hboxLayout->setSpacing(6);
         hboxLayout->setContentsMargins(11, 11, 11, 11);
-        hboxLayout->setObjectName(QStringLiteral("hboxLayout"));
+        hboxLayout->setObjectName(QString::fromUtf8("hboxLayout"));
         hboxLayout->setContentsMargins(9, 9, 9, 9);
         vboxLayout = new QVBoxLayout();
         vboxLayout->setSpacing(6);
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         vboxLayout->setContentsMargins(0, 0, 0, 0);
         gridLayout = new QGridLayout();
         gridLayout->setSpacing(6);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         gridLayout->setHorizontalSpacing(6);
         gridLayout->setVerticalSpacing(6);
         gridLayout->setContentsMargins(0, 0, 0, 0);
         ledTranslateTo = new QLineEdit(TranslateDialog);
-        ledTranslateTo->setObjectName(QStringLiteral("ledTranslateTo"));
+        ledTranslateTo->setObjectName(QString::fromUtf8("ledTranslateTo"));
 
         gridLayout->addWidget(ledTranslateTo, 1, 1, 1, 1);
 
         findWhat = new QLabel(TranslateDialog);
-        findWhat->setObjectName(QStringLiteral("findWhat"));
+        findWhat->setObjectName(QString::fromUtf8("findWhat"));
 
         gridLayout->addWidget(findWhat, 0, 0, 1, 1);
 
         translateTo = new QLabel(TranslateDialog);
-        translateTo->setObjectName(QStringLiteral("translateTo"));
+        translateTo->setObjectName(QString::fromUtf8("translateTo"));
 
         gridLayout->addWidget(translateTo, 1, 0, 1, 1);
 
         ledFindWhat = new QLineEdit(TranslateDialog);
-        ledFindWhat->setObjectName(QStringLiteral("ledFindWhat"));
+        ledFindWhat->setObjectName(QString::fromUtf8("ledFindWhat"));
 
         gridLayout->addWidget(ledFindWhat, 0, 1, 1, 1);
 
@@ -128,18 +125,18 @@ public:
         vboxLayout->addLayout(gridLayout);
 
         groupBox = new QGroupBox(TranslateDialog);
-        groupBox->setObjectName(QStringLiteral("groupBox"));
+        groupBox->setObjectName(QString::fromUtf8("groupBox"));
         vboxLayout1 = new QVBoxLayout(groupBox);
         vboxLayout1->setSpacing(6);
         vboxLayout1->setContentsMargins(11, 11, 11, 11);
-        vboxLayout1->setObjectName(QStringLiteral("vboxLayout1"));
+        vboxLayout1->setObjectName(QString::fromUtf8("vboxLayout1"));
         ckMatchCase = new QCheckBox(groupBox);
-        ckMatchCase->setObjectName(QStringLiteral("ckMatchCase"));
+        ckMatchCase->setObjectName(QString::fromUtf8("ckMatchCase"));
 
         vboxLayout1->addWidget(ckMatchCase);
 
         ckMarkFinished = new QCheckBox(groupBox);
-        ckMarkFinished->setObjectName(QStringLiteral("ckMarkFinished"));
+        ckMarkFinished->setObjectName(QString::fromUtf8("ckMarkFinished"));
 
         vboxLayout1->addWidget(ckMarkFinished);
 
@@ -155,26 +152,26 @@ public:
 
         vboxLayout2 = new QVBoxLayout();
         vboxLayout2->setSpacing(6);
-        vboxLayout2->setObjectName(QStringLiteral("vboxLayout2"));
+        vboxLayout2->setObjectName(QString::fromUtf8("vboxLayout2"));
         vboxLayout2->setContentsMargins(0, 0, 0, 0);
         findNxt = new QPushButton(TranslateDialog);
-        findNxt->setObjectName(QStringLiteral("findNxt"));
+        findNxt->setObjectName(QString::fromUtf8("findNxt"));
         findNxt->setFlat(false);
 
         vboxLayout2->addWidget(findNxt);
 
         translate = new QPushButton(TranslateDialog);
-        translate->setObjectName(QStringLiteral("translate"));
+        translate->setObjectName(QString::fromUtf8("translate"));
 
         vboxLayout2->addWidget(translate);
 
         translateAll = new QPushButton(TranslateDialog);
-        translateAll->setObjectName(QStringLiteral("translateAll"));
+        translateAll->setObjectName(QString::fromUtf8("translateAll"));
 
         vboxLayout2->addWidget(translateAll);
 
         cancel = new QPushButton(TranslateDialog);
-        cancel->setObjectName(QStringLiteral("cancel"));
+        cancel->setObjectName(QString::fromUtf8("cancel"));
 
         vboxLayout2->addWidget(cancel);
 
@@ -185,10 +182,10 @@ public:
 
         hboxLayout->addLayout(vboxLayout2);
 
-#ifndef QT_NO_SHORTCUT
+#if QT_CONFIG(shortcut)
         findWhat->setBuddy(ledFindWhat);
         translateTo->setBuddy(ledTranslateTo);
-#endif // QT_NO_SHORTCUT
+#endif // QT_CONFIG(shortcut)
         QWidget::setTabOrder(ledFindWhat, ledTranslateTo);
         QWidget::setTabOrder(ledTranslateTo, findNxt);
         QWidget::setTabOrder(findNxt, translate);
@@ -208,34 +205,34 @@ public:
 
     void retranslateUi(QDialog *TranslateDialog)
     {
-        TranslateDialog->setWindowTitle(QApplication::translate("TranslateDialog", "Qt Linguist", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        TranslateDialog->setWhatsThis(QApplication::translate("TranslateDialog", "This window allows you to search for some text in the translation source file.", nullptr));
-#endif // QT_NO_WHATSTHIS
-#ifndef QT_NO_WHATSTHIS
-        ledTranslateTo->setWhatsThis(QApplication::translate("TranslateDialog", "Type in the text to search for.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        findWhat->setText(QApplication::translate("TranslateDialog", "Find &source text:", nullptr));
-        translateTo->setText(QApplication::translate("TranslateDialog", "&Translate to:", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        ledFindWhat->setWhatsThis(QApplication::translate("TranslateDialog", "Type in the text to search for.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        groupBox->setTitle(QApplication::translate("TranslateDialog", "Search options", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        ckMatchCase->setWhatsThis(QApplication::translate("TranslateDialog", "Texts such as 'TeX' and 'tex' are considered as different when checked.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        ckMatchCase->setText(QApplication::translate("TranslateDialog", "Match &case", nullptr));
-        ckMarkFinished->setText(QApplication::translate("TranslateDialog", "Mark new translation as &finished", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        findNxt->setWhatsThis(QApplication::translate("TranslateDialog", "Click here to find the next occurrence of the text you typed in.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        findNxt->setText(QApplication::translate("TranslateDialog", "Find Next", nullptr));
-        translate->setText(QApplication::translate("TranslateDialog", "Translate", nullptr));
-        translateAll->setText(QApplication::translate("TranslateDialog", "Translate All", nullptr));
-#ifndef QT_NO_WHATSTHIS
-        cancel->setWhatsThis(QApplication::translate("TranslateDialog", "Click here to close this window.", nullptr));
-#endif // QT_NO_WHATSTHIS
-        cancel->setText(QApplication::translate("TranslateDialog", "Cancel", nullptr));
+        TranslateDialog->setWindowTitle(QCoreApplication::translate("TranslateDialog", "Qt Linguist", nullptr));
+#if QT_CONFIG(whatsthis)
+        TranslateDialog->setWhatsThis(QCoreApplication::translate("TranslateDialog", "This window allows you to search for some text in the translation source file.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+#if QT_CONFIG(whatsthis)
+        ledTranslateTo->setWhatsThis(QCoreApplication::translate("TranslateDialog", "Type in the text to search for.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        findWhat->setText(QCoreApplication::translate("TranslateDialog", "Find &source text:", nullptr));
+        translateTo->setText(QCoreApplication::translate("TranslateDialog", "&Translate to:", nullptr));
+#if QT_CONFIG(whatsthis)
+        ledFindWhat->setWhatsThis(QCoreApplication::translate("TranslateDialog", "Type in the text to search for.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        groupBox->setTitle(QCoreApplication::translate("TranslateDialog", "Search options", nullptr));
+#if QT_CONFIG(whatsthis)
+        ckMatchCase->setWhatsThis(QCoreApplication::translate("TranslateDialog", "Texts such as 'TeX' and 'tex' are considered as different when checked.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        ckMatchCase->setText(QCoreApplication::translate("TranslateDialog", "Match &case", nullptr));
+        ckMarkFinished->setText(QCoreApplication::translate("TranslateDialog", "Mark new translation as &finished", nullptr));
+#if QT_CONFIG(whatsthis)
+        findNxt->setWhatsThis(QCoreApplication::translate("TranslateDialog", "Click here to find the next occurrence of the text you typed in.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        findNxt->setText(QCoreApplication::translate("TranslateDialog", "Find Next", nullptr));
+        translate->setText(QCoreApplication::translate("TranslateDialog", "Translate", nullptr));
+        translateAll->setText(QCoreApplication::translate("TranslateDialog", "Translate All", nullptr));
+#if QT_CONFIG(whatsthis)
+        cancel->setWhatsThis(QCoreApplication::translate("TranslateDialog", "Click here to close this window.", nullptr));
+#endif // QT_CONFIG(whatsthis)
+        cancel->setText(QCoreApplication::translate("TranslateDialog", "Cancel", nullptr));
     } // retranslateUi
 
 };

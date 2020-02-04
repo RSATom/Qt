@@ -35,28 +35,39 @@ class ModelreplicaTest : public QObject
     Q_OBJECT
 
 public:
-    ModelreplicaTest();
+    ModelreplicaTest() = default;
 
 private Q_SLOTS:
-    void testCase1();
+    void basicFunctions();
+    void basicFunctions_data();
+    void nullModel();
 };
 
-ModelreplicaTest::ModelreplicaTest()
+void ModelreplicaTest::basicFunctions_data()
 {
+    QTest::addColumn<bool>("templated");
+    QTest::newRow("non-templated enableRemoting") << false;
+    QTest::newRow("templated enableRemoting") << true;
 }
 
-void ModelreplicaTest::testCase1()
+void ModelreplicaTest::basicFunctions()
 {
+    QFETCH(bool, templated);
+
     QRemoteObjectRegistryHost host(QUrl("tcp://localhost:5555"));
-    QStringListModel *model = new QStringListModel();
+    auto model = new QStringListModel();
     model->setStringList(QStringList() << "Track1" << "Track2" << "Track3");
-    MediaSimpleSource source(model);
-    host.enableRemoting<MediaSourceAPI>(&source);
+    MediaSimpleSource source;
+    source.setTracks(model);
+    if (templated)
+        host.enableRemoting<MediaSourceAPI>(&source);
+    else
+        host.enableRemoting(&source);
 
     QRemoteObjectNode client(QUrl("tcp://localhost:5555"));
     const QScopedPointer<MediaReplica> replica(client.acquire<MediaReplica>());
     QSignalSpy tracksSpy(replica->tracks(), &QAbstractItemModelReplica::initialized);
-    QVERIFY2(replica->waitForSource(100), "Failure");
+    QVERIFY(replica->waitForSource(100));
     QVERIFY(tracksSpy.wait());
     // Rep file only uses display role
     QCOMPARE(QVector<int>{Qt::DisplayRole}, replica->tracks()->availableRoles());
@@ -75,6 +86,31 @@ void ModelreplicaTest::testCase1()
     {
         QCOMPARE(model->data(model->index(i), Qt::DisplayRole), replica->tracks()->data(replica->tracks()->index(i, 0)));
     }
+}
+
+void ModelreplicaTest::nullModel()
+{
+    QRemoteObjectRegistryHost host(QUrl("tcp://localhost:5555"));
+    MediaSimpleSource source;
+    host.enableRemoting(&source);
+
+    QRemoteObjectNode client(QUrl("tcp://localhost:5555"));
+    const QScopedPointer<MediaReplica> replica(client.acquire<MediaReplica>());
+    QVERIFY(replica->waitForSource(100));
+
+    auto model = new QStringListModel(this);
+    model->setStringList(QStringList() << "Track1" << "Track2" << "Track3");
+    source.setTracks(model);
+
+    QTRY_VERIFY(replica->tracks());
+    QTRY_COMPARE(replica->tracks()->rowCount(), 3);
+    QTRY_COMPARE(replica->tracks()->data(replica->tracks()->index(0, 0)), "Track1");
+
+    model = new QStringListModel(this);
+    model->setStringList(QStringList() << "New Track1" << "New Track2" << "New Track3"  << "New Track4");
+    source.setTracks(model);
+    QTRY_COMPARE(replica->tracks()->rowCount(), 4);
+    QTRY_COMPARE(replica->tracks()->data(replica->tracks()->index(3, 0)), "New Track4");
 }
 
 QTEST_MAIN(ModelreplicaTest)

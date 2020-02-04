@@ -1,5 +1,5 @@
 /*
- *  Copyright 2005 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,54 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SOCKETSTREAM_H_
-#define WEBRTC_RTC_BASE_SOCKETSTREAM_H_
+#ifndef RTC_BASE_SOCKETSTREAM_H_
+#define RTC_BASE_SOCKETSTREAM_H_
 
-#include "webrtc/rtc_base/asyncsocket.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/stream.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
+#include "rtc_base/socket_stream.h"
 
-///////////////////////////////////////////////////////////////////////////////
-
-class SocketStream : public StreamInterface, public sigslot::has_slots<> {
- public:
-  explicit SocketStream(AsyncSocket* socket);
-  ~SocketStream() override;
-
-  void Attach(AsyncSocket* socket);
-  AsyncSocket* Detach();
-
-  AsyncSocket* GetSocket() { return socket_; }
-
-  StreamState GetState() const override;
-
-  StreamResult Read(void* buffer,
-                    size_t buffer_len,
-                    size_t* read,
-                    int* error) override;
-
-  StreamResult Write(const void* data,
-                     size_t data_len,
-                     size_t* written,
-                     int* error) override;
-
-  void Close() override;
-
- private:
-  void OnConnectEvent(AsyncSocket* socket);
-  void OnReadEvent(AsyncSocket* socket);
-  void OnWriteEvent(AsyncSocket* socket);
-  void OnCloseEvent(AsyncSocket* socket, int err);
-
-  AsyncSocket* socket_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(SocketStream);
-};
-
-///////////////////////////////////////////////////////////////////////////////
-
-}  // namespace rtc
-
-#endif  // WEBRTC_RTC_BASE_SOCKETSTREAM_H_
+#endif  // RTC_BASE_SOCKETSTREAM_H_

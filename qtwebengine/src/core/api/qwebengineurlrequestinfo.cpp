@@ -68,8 +68,10 @@ ASSERT_ENUMS_MATCH(QWebEngineUrlRequestInfo::ResourceTypeLast, content::RESOURCE
 
 ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::LinkNavigation, QWebEngineUrlRequestInfo::NavigationTypeLink)
 ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::TypedNavigation, QWebEngineUrlRequestInfo::NavigationTypeTyped)
-ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::FormSubmittedNavigation, QWebEngineUrlRequestInfo::NavigationTypeFormSubmitted)
-ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::BackForwardNavigation, QWebEngineUrlRequestInfo::NavigationTypeBackForward)
+ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::FormSubmittedNavigation,
+                   QWebEngineUrlRequestInfo::NavigationTypeFormSubmitted)
+ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::BackForwardNavigation,
+                   QWebEngineUrlRequestInfo::NavigationTypeBackForward)
 ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::ReloadNavigation, QWebEngineUrlRequestInfo::NavigationTypeReload)
 ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, QWebEngineUrlRequestInfo::NavigationTypeOther)
 
@@ -82,7 +84,7 @@ ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, Q
     The QWebEngineUrlRequestInfo is useful for setting extra header fields for requests
     or for redirecting certain requests without payload data to another URL.
     This class cannot be instantiated or copied by the user, instead it will
-    be created by Qt WebEngine and sent through the virtual function
+    be created by \QWE and sent through the virtual function
     QWebEngineUrlRequestInterceptor::interceptRequest() if an interceptor has been set.
 */
 
@@ -96,8 +98,8 @@ ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, Q
     interceptor on the profile enables intercepting, blocking, and modifying URL requests
     before they reach the networking stack of Chromium.
 
-    You can install the interceptor on a profile via QWebEngineProfile::setRequestInterceptor()
-    or QQuickWebEngineProfile::setRequestInterceptor().
+    You can install the interceptor on a profile via QWebEngineProfile::setUrlRequestInterceptor()
+    or QQuickWebEngineProfile::setUrlRequestInterceptor().
 
     When using the \l{Qt WebEngine Widgets Module}, \l{QWebEnginePage::acceptNavigationRequest()}
     offers further options to accept or block requests.
@@ -115,15 +117,18 @@ ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, Q
     \fn void QWebEngineUrlRequestInterceptor::interceptRequest(QWebEngineUrlRequestInfo &info)
 
     Reimplementing this virtual function makes it possible to intercept URL
-    requests. This function is executed on the IO thread, and therefore running
-    long tasks here will block networking.
+    requests. This method will be stalling the URL request until handled.
 
     \a info contains the information about the URL request and will track internally
     whether its members have been altered.
+
+    \warning All method calls to the profile on the main thread will block until
+    execution of this function is finished.
 */
 
-
-QWebEngineUrlRequestInfoPrivate::QWebEngineUrlRequestInfoPrivate(QWebEngineUrlRequestInfo::ResourceType resource, QWebEngineUrlRequestInfo::NavigationType navigation, const QUrl &u, const QUrl &fpu, const QByteArray &m)
+QWebEngineUrlRequestInfoPrivate::QWebEngineUrlRequestInfoPrivate(QWebEngineUrlRequestInfo::ResourceType resource,
+                                                                 QWebEngineUrlRequestInfo::NavigationType navigation,
+                                                                 const QUrl &u, const QUrl &fpu, const QByteArray &m)
     : resourceType(resource)
     , navigationType(navigation)
     , shouldBlockRequest(false)
@@ -131,24 +136,24 @@ QWebEngineUrlRequestInfoPrivate::QWebEngineUrlRequestInfoPrivate(QWebEngineUrlRe
     , firstPartyUrl(fpu)
     , method(m)
     , changed(false)
-{
-}
+{}
+
+/*!
+    \internal
+*/
+QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfo &&p) : d_ptr(p.d_ptr.take()) {}
 
 /*!
     \internal
 */
 
-QWebEngineUrlRequestInfo::~QWebEngineUrlRequestInfo()
-{
-
-}
+QWebEngineUrlRequestInfo::~QWebEngineUrlRequestInfo() {}
 
 /*!
     \internal
 */
 
-QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfoPrivate *p)
-    : d_ptr(p)
+QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfoPrivate *p) : d_ptr(p)
 {
     d_ptr->q_ptr = this;
 }
@@ -192,8 +197,7 @@ QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfoPriva
 
 QWebEngineUrlRequestInfo::ResourceType QWebEngineUrlRequestInfo::resourceType() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->resourceType;
+    return d_ptr->resourceType;
 }
 
 /*!
@@ -217,8 +221,7 @@ QWebEngineUrlRequestInfo::ResourceType QWebEngineUrlRequestInfo::resourceType() 
 
 QWebEngineUrlRequestInfo::NavigationType QWebEngineUrlRequestInfo::navigationType() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->navigationType;
+    return d_ptr->navigationType;
 }
 
 /*!
@@ -227,8 +230,7 @@ QWebEngineUrlRequestInfo::NavigationType QWebEngineUrlRequestInfo::navigationTyp
 
 QUrl QWebEngineUrlRequestInfo::requestUrl() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->url;
+    return d_ptr->url;
 }
 
 /*!
@@ -238,10 +240,8 @@ QUrl QWebEngineUrlRequestInfo::requestUrl() const
 
 QUrl QWebEngineUrlRequestInfo::firstPartyUrl() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->firstPartyUrl;
+    return d_ptr->firstPartyUrl;
 }
-
 
 /*!
     Returns the HTTP method of the request (for example, GET or POST).
@@ -249,8 +249,7 @@ QUrl QWebEngineUrlRequestInfo::firstPartyUrl() const
 
 QByteArray QWebEngineUrlRequestInfo::requestMethod() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->method;
+    return d_ptr->method;
 }
 
 /*!
@@ -258,8 +257,15 @@ QByteArray QWebEngineUrlRequestInfo::requestMethod() const
 */
 bool QWebEngineUrlRequestInfo::changed() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->changed;
+    return d_ptr->changed;
+}
+
+/*!
+    \internal
+*/
+void QWebEngineUrlRequestInfo::resetChanged()
+{
+    d_ptr->changed = false;
 }
 
 /*!
@@ -269,9 +275,8 @@ bool QWebEngineUrlRequestInfo::changed() const
 
 void QWebEngineUrlRequestInfo::redirect(const QUrl &url)
 {
-    Q_D(QWebEngineUrlRequestInfo);
-    d->changed = true;
-    d->url = url;
+    d_ptr->changed = true;
+    d_ptr->url = url;
 }
 
 /*!
@@ -282,9 +287,8 @@ void QWebEngineUrlRequestInfo::redirect(const QUrl &url)
 
 void QWebEngineUrlRequestInfo::block(bool shouldBlock)
 {
-    Q_D(QWebEngineUrlRequestInfo);
-    d->changed = true;
-    d->shouldBlockRequest = shouldBlock;
+    d_ptr->changed = true;
+    d_ptr->shouldBlockRequest = shouldBlock;
 }
 
 /*!
@@ -293,9 +297,8 @@ void QWebEngineUrlRequestInfo::block(bool shouldBlock)
 
 void QWebEngineUrlRequestInfo::setHttpHeader(const QByteArray &name, const QByteArray &value)
 {
-    Q_D(QWebEngineUrlRequestInfo);
-    d->changed = true;
-    d->extraHeaders.insert(name, value);
+    d_ptr->changed = true;
+    d_ptr->extraHeaders.insert(name, value);
 }
 
 QT_END_NAMESPACE

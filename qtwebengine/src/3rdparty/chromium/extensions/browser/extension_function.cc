@@ -8,10 +8,9 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/synchronization/lock.h"
 #include "content/public/browser/notification_source.h"
@@ -29,7 +28,6 @@
 #include "extensions/common/extension_messages.h"
 
 using content::BrowserThread;
-using content::RenderViewHost;
 using content::WebContents;
 using extensions::ErrorUtils;
 using extensions::ExtensionAPI;
@@ -46,33 +44,33 @@ void LogUma(bool success,
   // long execution time equates to a poorly-performing function.
   if (success) {
     if (elapsed_time < base::TimeDelta::FromMilliseconds(1)) {
-      UMA_HISTOGRAM_SPARSE_SLOWLY(
-          "Extensions.Functions.SucceededTime.LessThan1ms", histogram_value);
+      base::UmaHistogramSparse("Extensions.Functions.SucceededTime.LessThan1ms",
+                               histogram_value);
     } else if (elapsed_time < base::TimeDelta::FromMilliseconds(5)) {
-      UMA_HISTOGRAM_SPARSE_SLOWLY("Extensions.Functions.SucceededTime.1msTo5ms",
-                                  histogram_value);
+      base::UmaHistogramSparse("Extensions.Functions.SucceededTime.1msTo5ms",
+                               histogram_value);
     } else if (elapsed_time < base::TimeDelta::FromMilliseconds(10)) {
-      UMA_HISTOGRAM_SPARSE_SLOWLY(
-          "Extensions.Functions.SucceededTime.5msTo10ms", histogram_value);
+      base::UmaHistogramSparse("Extensions.Functions.SucceededTime.5msTo10ms",
+                               histogram_value);
     } else {
-      UMA_HISTOGRAM_SPARSE_SLOWLY("Extensions.Functions.SucceededTime.Over10ms",
-                                  histogram_value);
+      base::UmaHistogramSparse("Extensions.Functions.SucceededTime.Over10ms",
+                               histogram_value);
     }
     UMA_HISTOGRAM_TIMES("Extensions.Functions.SucceededTotalExecutionTime",
                         elapsed_time);
   } else {
     if (elapsed_time < base::TimeDelta::FromMilliseconds(1)) {
-      UMA_HISTOGRAM_SPARSE_SLOWLY("Extensions.Functions.FailedTime.LessThan1ms",
-                                  histogram_value);
+      base::UmaHistogramSparse("Extensions.Functions.FailedTime.LessThan1ms",
+                               histogram_value);
     } else if (elapsed_time < base::TimeDelta::FromMilliseconds(5)) {
-      UMA_HISTOGRAM_SPARSE_SLOWLY("Extensions.Functions.FailedTime.1msTo5ms",
-                                  histogram_value);
+      base::UmaHistogramSparse("Extensions.Functions.FailedTime.1msTo5ms",
+                               histogram_value);
     } else if (elapsed_time < base::TimeDelta::FromMilliseconds(10)) {
-      UMA_HISTOGRAM_SPARSE_SLOWLY("Extensions.Functions.FailedTime.5msTo10ms",
-                                  histogram_value);
+      base::UmaHistogramSparse("Extensions.Functions.FailedTime.5msTo10ms",
+                               histogram_value);
     } else {
-      UMA_HISTOGRAM_SPARSE_SLOWLY("Extensions.Functions.FailedTime.Over10ms",
-                                  histogram_value);
+      base::UmaHistogramSparse("Extensions.Functions.FailedTime.Over10ms",
+                               histogram_value);
     }
     UMA_HISTOGRAM_TIMES("Extensions.Functions.FailedTotalExecutionTime",
                         elapsed_time);
@@ -284,10 +282,6 @@ class UIThreadExtensionFunction::RenderFrameHostTracker
         function_->OnMessageReceived(message);
   }
 
-  bool OnMessageReceived(const IPC::Message& message) override {
-    return function_->OnMessageReceived(message);
-  }
-
   UIThreadExtensionFunction* function_;  // Owns us.
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameHostTracker);
@@ -298,7 +292,7 @@ ExtensionFunction::ExtensionFunction()
       profile_id_(NULL),
       name_(""),
       has_callback_(false),
-      include_incognito_(false),
+      include_incognito_information_(false),
       user_gesture_(false),
       bad_message_(false),
       histogram_value_(extensions::functions::UNKNOWN),
@@ -317,7 +311,7 @@ IOThreadExtensionFunction* ExtensionFunction::AsIOThreadExtensionFunction() {
   return NULL;
 }
 
-bool ExtensionFunction::HasPermission() {
+bool ExtensionFunction::HasPermission() const {
   Feature::Availability availability =
       ExtensionAPI::GetSharedInstance()->IsAvailable(
           name_, extension_.get(), source_context_type_, source_url(),
@@ -353,7 +347,7 @@ bool ExtensionFunction::user_gesture() const {
 
 ExtensionFunction::ResponseValue ExtensionFunction::NoArguments() {
   return ResponseValue(
-      new ArgumentListResponseValue(this, base::MakeUnique<base::ListValue>()));
+      new ArgumentListResponseValue(this, std::make_unique<base::ListValue>()));
 }
 
 ExtensionFunction::ResponseValue ExtensionFunction::OneArgument(
@@ -463,7 +457,7 @@ bool ExtensionFunction::ShouldSkipQuotaLimiting() const {
 
 bool ExtensionFunction::HasOptionalArgument(size_t index) {
   base::Value* value;
-  return args_->Get(index, &value) && !value->IsType(base::Value::Type::NONE);
+  return args_->Get(index, &value) && !value->is_none();
 }
 
 void ExtensionFunction::SendResponseImpl(bool success) {
@@ -476,7 +470,7 @@ void ExtensionFunction::SendResponseImpl(bool success) {
     response = BAD_MESSAGE;
     LOG(ERROR) << "Bad extension message " << name_;
   }
-  response_type_ = base::MakeUnique<ResponseType>(response);
+  response_type_ = std::make_unique<ResponseType>(response);
 
   // If results were never set, we send an empty argument list.
   if (!results_)
@@ -491,12 +485,13 @@ void ExtensionFunction::SendResponseImpl(bool success) {
 UIThreadExtensionFunction::UIThreadExtensionFunction()
     : context_(nullptr),
       render_frame_host_(nullptr),
-      service_worker_version_id_(extensions::kInvalidServiceWorkerVersionId) {}
+      service_worker_version_id_(blink::mojom::kInvalidServiceWorkerVersionId) {
+}
 
 UIThreadExtensionFunction::~UIThreadExtensionFunction() {
   if (dispatcher() && (render_frame_host() || is_from_service_worker())) {
-    dispatcher()->OnExtensionFunctionCompleted(extension(),
-                                               is_from_service_worker());
+    dispatcher()->OnExtensionFunctionCompleted(
+        extension(), is_from_service_worker(), name());
   }
 
   // The extension function should always respond to avoid leaks in the
@@ -570,14 +565,6 @@ void UIThreadExtensionFunction::SetRenderFrameHost(
       render_frame_host ? new RenderFrameHostTracker(this) : nullptr);
 }
 
-content::WebContents* UIThreadExtensionFunction::GetAssociatedWebContents() {
-  content::WebContents* web_contents = NULL;
-  if (dispatcher())
-    web_contents = dispatcher()->GetAssociatedWebContents();
-
-  return web_contents;
-}
-
 content::WebContents* UIThreadExtensionFunction::GetSenderWebContents() {
   return render_frame_host_ ?
       content::WebContents::FromRenderFrameHost(render_frame_host_) : nullptr;
@@ -630,58 +617,10 @@ void IOThreadExtensionFunction::Destruct() const {
   BrowserThread::DeleteOnIOThread::Destruct(this);
 }
 
-AsyncExtensionFunction::AsyncExtensionFunction() {
-}
-
-void AsyncExtensionFunction::SetError(const std::string& error) {
-  error_ = error;
-}
-
-const std::string& AsyncExtensionFunction::GetError() const {
-  return error_.empty() ? UIThreadExtensionFunction::GetError() : error_;
-}
-
-AsyncExtensionFunction::~AsyncExtensionFunction() {
-}
-
-void AsyncExtensionFunction::SetResult(std::unique_ptr<base::Value> result) {
-  results_.reset(new base::ListValue());
-  results_->Append(std::move(result));
-}
-
-void AsyncExtensionFunction::SetResultList(
-    std::unique_ptr<base::ListValue> results) {
-  results_ = std::move(results);
-}
-
 ExtensionFunction::ScopedUserGestureForTests::ScopedUserGestureForTests() {
   UserGestureForTests::GetInstance()->IncrementCount();
 }
 
 ExtensionFunction::ScopedUserGestureForTests::~ScopedUserGestureForTests() {
   UserGestureForTests::GetInstance()->DecrementCount();
-}
-
-ExtensionFunction::ResponseAction AsyncExtensionFunction::Run() {
-  if (RunAsync())
-    return RespondLater();
-  DCHECK(!results_);
-  return RespondNow(Error(error_));
-}
-
-// static
-bool AsyncExtensionFunction::ValidationFailure(
-    AsyncExtensionFunction* function) {
-  return false;
-}
-
-void AsyncExtensionFunction::SendResponse(bool success) {
-  ResponseValue response;
-  if (success) {
-    response = ArgumentList(std::move(results_));
-  } else {
-    response = results_ ? ErrorWithArguments(std::move(results_), error_)
-                        : Error(error_);
-  }
-  Respond(std::move(response));
 }

@@ -17,6 +17,7 @@
 #include "base/path_service.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -24,6 +25,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/net_export.h"
 #include "net/base/test_completion_callback.h"
+#include "net/disk_cache/backend_cleanup_tracker.h"
 #include "net/disk_cache/blockfile/backend_impl.h"
 #include "net/disk_cache/blockfile/rankings.h"
 #include "net/disk_cache/disk_cache.h"
@@ -44,7 +46,7 @@ using disk_cache::RankCrashes;
 // Starts a new process, to generate the files.
 int RunSlave(RankCrashes action) {
   base::FilePath exe;
-  PathService::Get(base::FILE_EXE, &exe);
+  base::PathService::Get(base::FILE_EXE, &exe);
 
   base::CommandLine cmdline(exe);
   cmdline.AppendArg(base::IntToString(action));
@@ -114,7 +116,7 @@ bool CreateTargetFolder(const base::FilePath& path, RankCrashes action,
     "remove_load2",
     "remove_load3"
   };
-  static_assert(arraysize(folders) == disk_cache::MAX_CRASH, "sync folders");
+  static_assert(base::size(folders) == disk_cache::MAX_CRASH, "sync folders");
   DCHECK(action > disk_cache::NO_CRASH && action < disk_cache::MAX_CRASH);
 
   *full_path = path.AppendASCII(folders[action]);
@@ -139,8 +141,9 @@ bool CreateCache(const base::FilePath& path,
                  disk_cache::Backend** cache,
                  net::TestCompletionCallback* cb) {
   int size = 1024 * 1024;
-  disk_cache::BackendImpl* backend =
-      new disk_cache::BackendImpl(path, thread->task_runner().get(), NULL);
+  disk_cache::BackendImpl* backend = new disk_cache::BackendImpl(
+      path, /* cleanup_tracker = */ nullptr, thread->task_runner().get(),
+      /* net_log = */ nullptr);
   backend->SetMaxSize(size);
   backend->SetType(net::DISK_CACHE);
   backend->SetFlags(disk_cache::kNoRandom);
@@ -165,7 +168,7 @@ int SimpleInsert(const base::FilePath& path, RankCrashes action,
   }
 
   disk_cache::Entry* entry;
-  int rv = cache->CreateEntry(test_name, &entry, cb.callback());
+  int rv = cache->CreateEntry(test_name, net::HIGHEST, &entry, cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
@@ -176,7 +179,7 @@ int SimpleInsert(const base::FilePath& path, RankCrashes action,
   disk_cache::g_rankings_crash = action;
   test_name = kCrashEntryName;
 
-  rv = cache->CreateEntry(test_name, &entry, cb.callback());
+  rv = cache->CreateEntry(test_name, net::HIGHEST, &entry, cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
@@ -195,7 +198,8 @@ int SimpleRemove(const base::FilePath& path, RankCrashes action,
     return GENERIC;
 
   disk_cache::Entry* entry;
-  int rv = cache->CreateEntry(kCrashEntryName, &entry, cb.callback());
+  int rv =
+      cache->CreateEntry(kCrashEntryName, net::HIGHEST, &entry, cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
@@ -203,7 +207,8 @@ int SimpleRemove(const base::FilePath& path, RankCrashes action,
   FlushQueue(cache);
 
   if (action >= disk_cache::REMOVE_TAIL_1) {
-    rv = cache->CreateEntry("some other key", &entry, cb.callback());
+    rv = cache->CreateEntry("some other key", net::HIGHEST, &entry,
+                            cb.callback());
     if (cb.GetResult(rv) != net::OK)
       return GENERIC;
 
@@ -211,7 +216,7 @@ int SimpleRemove(const base::FilePath& path, RankCrashes action,
     FlushQueue(cache);
   }
 
-  rv = cache->OpenEntry(kCrashEntryName, &entry, cb.callback());
+  rv = cache->OpenEntry(kCrashEntryName, net::HIGHEST, &entry, cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
@@ -234,20 +239,21 @@ int HeadRemove(const base::FilePath& path, RankCrashes action,
     return GENERIC;
 
   disk_cache::Entry* entry;
-  int rv = cache->CreateEntry("some other key", &entry, cb.callback());
+  int rv =
+      cache->CreateEntry("some other key", net::HIGHEST, &entry, cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   entry->Close();
   FlushQueue(cache);
-  rv = cache->CreateEntry(kCrashEntryName, &entry, cb.callback());
+  rv = cache->CreateEntry(kCrashEntryName, net::HIGHEST, &entry, cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   entry->Close();
   FlushQueue(cache);
 
-  rv = cache->OpenEntry(kCrashEntryName, &entry, cb.callback());
+  rv = cache->OpenEntry(kCrashEntryName, net::HIGHEST, &entry, cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
@@ -283,13 +289,14 @@ int LoadOperations(const base::FilePath& path, RankCrashes action,
   disk_cache::Entry* entry;
   for (int i = 0; i < 100; i++) {
     std::string key = GenerateKey(true);
-    rv = cache->CreateEntry(key, &entry, cb.callback());
+    rv = cache->CreateEntry(key, net::HIGHEST, &entry, cb.callback());
     if (cb.GetResult(rv) != net::OK)
       return GENERIC;
     entry->Close();
     FlushQueue(cache);
     if (50 == i && action >= disk_cache::REMOVE_LOAD_1) {
-      rv = cache->CreateEntry(kCrashEntryName, &entry, cb.callback());
+      rv = cache->CreateEntry(kCrashEntryName, net::HIGHEST, &entry,
+                              cb.callback());
       if (cb.GetResult(rv) != net::OK)
         return GENERIC;
       entry->Close();
@@ -300,12 +307,13 @@ int LoadOperations(const base::FilePath& path, RankCrashes action,
   if (action <= disk_cache::INSERT_LOAD_2) {
     disk_cache::g_rankings_crash = action;
 
-    rv = cache->CreateEntry(kCrashEntryName, &entry, cb.callback());
+    rv = cache->CreateEntry(kCrashEntryName, net::HIGHEST, &entry,
+                            cb.callback());
     if (cb.GetResult(rv) != net::OK)
       return GENERIC;
   }
 
-  rv = cache->OpenEntry(kCrashEntryName, &entry, cb.callback());
+  rv = cache->OpenEntry(kCrashEntryName, net::HIGHEST, &entry, cb.callback());
   if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
@@ -371,7 +379,7 @@ int main(int argc, const char* argv[]) {
   }
 
   base::FilePath path;
-  PathService::Get(base::DIR_SOURCE_ROOT, &path);
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &path);
   path = path.AppendASCII("net");
   path = path.AppendASCII("data");
   path = path.AppendASCII("cache_tests");

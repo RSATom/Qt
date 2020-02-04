@@ -53,9 +53,9 @@
 
 #include "qwintaskbarbutton.h"
 
-#include <QWindow>
-#include <QPointer>
-#include <qt_windows.h>
+#include <QtGui/qwindow.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qt_windows.h>
 
 struct ITaskbarList4;
 

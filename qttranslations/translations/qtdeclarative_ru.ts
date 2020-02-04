@@ -4,20 +4,8 @@
 <context>
     <name>Object</name>
     <message>
-        <source>Duplicate method name</source>
-        <translation>Дублирование имени метода</translation>
-    </message>
-    <message>
-        <source>Method names cannot begin with an upper case letter</source>
-        <translation>Имена методов не могут начинаться с заглавной буквы</translation>
-    </message>
-    <message>
-        <source>Illegal method name</source>
-        <translation>Недопустимое имя метода</translation>
-    </message>
-    <message>
         <source>Duplicate scoped enum name</source>
-        <translation type="unfinished">Дублирование имени перечисления</translation>
+        <translation>Дублирование имени перечисления</translation>
     </message>
     <message>
         <source>Duplicate signal name</source>
@@ -53,6 +41,13 @@
     <message>
         <source>InputMethod is an abstract class</source>
         <translation>InputMethod ― это абстрактный класс</translation>
+    </message>
+</context>
+<context>
+    <name>QQmlAbstractDelegateComponent</name>
+    <message>
+        <source>Cannot create instance of abstract class AbstractDelegateComponent.</source>
+        <translation>Нельзя создавать экземпляры абстрактного класса AbstractDelegateComponent.</translation>
     </message>
 </context>
 <context>
@@ -110,7 +105,7 @@
     </message>
     <message>
         <source>Scoped enum names must begin with an upper case letter</source>
-        <translation type="unfinished">Имена перечислений должны начинаться с заглавной буквы</translation>
+        <translation>Имена перечислений должны начинаться с заглавной буквы</translation>
     </message>
     <message>
         <source>Enum names must begin with an upper case letter</source>
@@ -142,11 +137,23 @@
     </message>
     <message>
         <source>Invalid alias location</source>
-        <translation>Нет свойства размещения псевдонима</translation>
+        <translation>Неверное размещение псевдонима</translation>
     </message>
     <message>
         <source>Invalid component id specification</source>
         <translation>Некорректная спецификация идентификатора компонента</translation>
+    </message>
+    <message>
+        <source>Duplicate method name</source>
+        <translation>Дублирование имени метода</translation>
+    </message>
+    <message>
+        <source>Method names cannot begin with an upper case letter</source>
+        <translation>Имена методов не могут начинаться с заглавной буквы</translation>
+    </message>
+    <message>
+        <source>Illegal method name</source>
+        <translation>Недопустимое имя метода</translation>
     </message>
     <message>
         <source>Invalid empty ID</source>
@@ -188,8 +195,8 @@
         <translation>createObject: значение не является объектом</translation>
     </message>
     <message>
-        <source>Object destroyed during incubation</source>
-        <translation>Объект уничтожен во время инкубации</translation>
+        <source>Object or context destroyed during incubation</source>
+        <translation>Объект или контекст уничтожен во время инкубации</translation>
     </message>
 </context>
 <context>
@@ -293,6 +300,10 @@
     <message>
         <source>The group of a DelegateModel cannot be changed within onChanged</source>
         <translation>Нельзя менять группу DelegateModel внутри onChanged</translation>
+    </message>
+    <message>
+        <source>The delegates of a DelegateModel cannot be changed within onUpdated.</source>
+        <translation>Делегаты DelegateModel нельзя менять внутри onUpdated.</translation>
     </message>
 </context>
 <context>
@@ -691,6 +702,10 @@
         <translation>Некорректный флаг «%0» в регулярном выражении</translation>
     </message>
     <message>
+        <source>Unexpected token &apos;.&apos;</source>
+        <translation>Неожиданный символ «.»</translation>
+    </message>
+    <message>
         <source>Stray newline in string literal</source>
         <translation>Ненужный перевод строки в строковом литерале</translation>
     </message>
@@ -705,6 +720,14 @@
     <message>
         <source>Octal escape sequences are not allowed</source>
         <translation>Восьмеричные esc-последовательности недопустимы</translation>
+    </message>
+    <message>
+        <source>At least one octal digit is required after &apos;0%1&apos;</source>
+        <translation>Необходима минимум одна восьмеричная цифра после «0%1»</translation>
+    </message>
+    <message>
+        <source>At least one binary digit is required after &apos;0%1&apos;</source>
+        <translation>Необходима минимум одна двоичная цифра после «0%1»</translation>
     </message>
     <message>
         <source>Decimal numbers can&apos;t start with &apos;0&apos;</source>
@@ -725,14 +748,6 @@
     <message>
         <source>Syntax error</source>
         <translation>Синтаксическая ошибка</translation>
-    </message>
-    <message>
-        <source>Unexpected token `%1&apos;</source>
-        <translation>Неожиданный символ «%1»</translation>
-    </message>
-    <message>
-        <source>Expected token `%1&apos;</source>
-        <translation>Ожидается символ «%1»</translation>
     </message>
     <message>
         <source>Unexpected object definition</source>
@@ -860,6 +875,14 @@
         <source>Invalid property type</source>
         <translation>Некорректный тип свойства</translation>
     </message>
+    <message>
+        <source>Cyclic alias</source>
+        <translation>Зацикленный псевдоним</translation>
+    </message>
+    <message>
+        <source>Invalid alias target</source>
+        <translation>Неверная цель псевдонима</translation>
+    </message>
 </context>
 <context>
     <name>QQmlPropertyValidator</name>
@@ -912,12 +935,20 @@
         <translation>Некорректный доступ к сгруппированному свойству</translation>
     </message>
     <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with type &quot;%2&quot;, which is not a value type</source>
+        <translation>Неверный доступ к групповому свойству: свойство «%1» типа «%2», не являющегося значением</translation>
+    </message>
+    <message>
         <source>Cannot assign to non-existent default property</source>
         <translation>Невозможно назначить несуществующему свойству по умолчанию</translation>
     </message>
     <message>
         <source>Cannot assign to non-existent property &quot;%1&quot;</source>
         <translation>Невозможно назначить несуществующему свойству «%1»</translation>
+    </message>
+    <message>
+        <source>Invalid use of id property with a value type</source>
+        <translation>Недопустимое использование свойства id с типом значения</translation>
     </message>
     <message>
         <source>Cannot assign primitives to lists</source>
@@ -1040,16 +1071,16 @@
         <translation>Невозможно назначить объект свойству «%1» списка</translation>
     </message>
     <message>
-        <source>Unexpected object assignment</source>
-        <translation>Неожиданное назначение объекта</translation>
+        <source>Unexpected object assignment for property &quot;%1&quot;</source>
+        <translation>Неожиданное присваивание объекта для свойства «%1»</translation>
+    </message>
+    <message>
+        <source>Cannot assign object of type &quot;%1&quot; to property of type &quot;%2&quot; as the former is neither the same as the latter nor a sub-class of it.</source>
+        <translation>Нельзя назначить объект типа «%1» свойству типа «%2», так как тип первого не совпадает со вторым и не является его производным.</translation>
     </message>
     <message>
         <source>Invalid property assignment: script expected</source>
         <translation>Некорректное присваивание свойства: ожидается сценарий</translation>
-    </message>
-    <message>
-        <source>Cannot assign object to property</source>
-        <translation>Невозможно назначить объект свойству</translation>
     </message>
 </context>
 <context>
@@ -1101,8 +1132,16 @@
         <translation>qmldir определяет тип как одиночный, но pragma Singleton не найдена в типе %1.</translation>
     </message>
     <message>
+        <source>File was compiled ahead of time with an incompatible version of Qt and the original file cannot be found. Please recompile</source>
+        <translation>Файл был предварительно собран с несовместимой версией Qt, а оригинальный файл найти не удалось. Пересоберите</translation>
+    </message>
+    <message>
         <source>No such file or directory</source>
         <translation>Нет такого файла или каталога</translation>
+    </message>
+    <message>
+        <source>File is empty</source>
+        <translation>Файл пуст</translation>
     </message>
     <message>
         <source>module &quot;%1&quot; is not installed</source>
@@ -1237,7 +1276,7 @@
     <name>QQuickDragHandler</name>
     <message>
         <source>DragAxis is only available as a grouped property of DragHandler</source>
-        <translation type="unfinished">DragAxis доступен только, как сгруппированное свойство DragHandler</translation>
+        <translation>DragAxis доступен только как сгруппированное свойство DragHandler</translation>
     </message>
 </context>
 <context>
@@ -1314,6 +1353,10 @@
 </context>
 <context>
     <name>QQuickMouseEvent</name>
+    <message>
+        <source>GestureEvent is only available in the context of handling the gestureStarted signal from MultiPointTouchArea</source>
+        <translation>GestureEvent доступен только в контексте обработки сигнала gestureStarted от MultiPointTouchArea</translation>
+    </message>
     <message>
         <source>MouseEvent is only available within handlers in MouseArea</source>
         <translation>MouseEvent доступен только внутри обработчиков в MouseArea</translation>
@@ -1418,6 +1461,14 @@
         <translation>PointerEvent доступен только, как параметр ряда сигналов PointerHandler</translation>
     </message>
     <message>
+        <source>PointerMouseEvent is only available as a parameter of several signals in PointerHandler</source>
+        <translation>PointerMouseEvent доступен только как параметр нескольких сигналов в PointerHandler</translation>
+    </message>
+    <message>
+        <source>PointerTouchEvent is only available as a parameter of several signals in PointerHandler</source>
+        <translation>PointerTouchEvent доступен только как параметр нескольких сигналов в PointerHandler</translation>
+    </message>
+    <message>
         <source>EventPoint is only available as a member of PointerEvent</source>
         <translation>EventPoint доступен только, как член PointerEvent</translation>
     </message>
@@ -1428,10 +1479,6 @@
     <message>
         <source>PointerDevice is only available as a property of PointerEvent</source>
         <translation>PointerDevice доступен только, как свойство PointerEvent</translation>
-    </message>
-    <message>
-        <source>PointingDeviceUniqueId is only available as a property of PointerEvent</source>
-        <translation>PointingDeviceUniqueId доступен только, как свойство PointerEvent</translation>
     </message>
     <message>
         <source>PointerHandler is an abstract base class</source>
@@ -1537,31 +1584,6 @@ Install a driver providing OpenGL 2.0 or higher, or, if this is not possible, ma
     </message>
 </context>
 <context>
-    <name>QQuickXmlListModel</name>
-    <message>
-        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
-        <translation>«%1» повторяет имя предыдущей роли и будет отключено.</translation>
-    </message>
-    <message>
-        <source>invalid query: &quot;%1&quot;</source>
-        <translation>Некорректный запрос: «%1»</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModelRole</name>
-    <message>
-        <source>An XmlRole query must not start with &apos;/&apos;</source>
-        <translation>Запрос XmlRole не должен начинаться с «/»</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlRoleList</name>
-    <message>
-        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
-        <translation>Запрос XmlListModel должен начинаться с «/» или «//»</translation>
-    </message>
-</context>
-<context>
     <name>SignalHandlerConverter</name>
     <message>
         <source>Non-existent attached object</source>
@@ -1614,8 +1636,8 @@ Install a driver providing OpenGL 2.0 or higher, or, if this is not possible, ma
         <translation>Некорректное имя «%2» для QML %1</translation>
     </message>
     <message>
-        <source>Cannot install %1 &apos;%2&apos; into unregistered namespace &apos;%3&apos;</source>
-        <translation>Нельзя устанавливать %1 «%2» в незарегистрированное пространство имён «%3»</translation>
+        <source>Invalid QML %1 name &quot;%2&quot;; type names must begin with an uppercase letter</source>
+        <translation>Имя «%2» недопустимо для QML %1, имена типов должны начинаться с заглавной буквы</translation>
     </message>
     <message>
         <source>Cannot install %1 &apos;%2&apos; into protected namespace &apos;%3&apos;</source>

@@ -8,39 +8,28 @@
 #include <jni.h>
 
 #include "base/android/scoped_java_ref.h"
+#include "base/time/time.h"
 #include "content/common/content_export.h"
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
-#include "third_party/WebKit/public/platform/WebKeyboardEvent.h"
-#include "third_party/WebKit/public/platform/WebMouseWheelEvent.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
+#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/platform/web_keyboard_event.h"
+#include "third_party/blink/public/platform/web_mouse_wheel_event.h"
+#include "ui/events/android/motion_event_android.h"
 
 namespace content {
 
-class WebMouseEventBuilder {
+class CONTENT_EXPORT WebMouseEventBuilder {
  public:
-  static blink::WebMouseEvent Build(blink::WebInputEvent::Type type,
-                                    double time_sec,
-                                    int window_x,
-                                    int window_y,
-                                    int modifiers,
+  static blink::WebMouseEvent Build(const ui::MotionEventAndroid& motion_event,
+                                    blink::WebInputEvent::Type type,
                                     int click_count,
-                                    int pointer_id,
-                                    float pressure,
-                                    float orientation_rad,
-                                    float tilt_x,
-                                    float tilt_y,
-                                    int action_button,
-                                    int tool_type);
+                                    int action_button);
 };
 
 class WebMouseWheelEventBuilder {
  public:
-  static blink::WebMouseWheelEvent Build(float ticks_x,
-                                         float ticks_y,
-                                         float tick_multiplier,
-                                         double time_sec,
-                                         int window_x,
-                                         int window_y);
+  static blink::WebMouseWheelEvent Build(
+      const ui::MotionEventAndroid& motion_event);
 };
 
 class CONTENT_EXPORT WebKeyboardEventBuilder {
@@ -50,7 +39,7 @@ class CONTENT_EXPORT WebKeyboardEventBuilder {
       const base::android::JavaRef<jobject>& android_key_event,
       blink::WebInputEvent::Type type,
       int modifiers,
-      double time_sec,
+      base::TimeTicks time,
       int keycode,
       int scancode,
       int unicode_character,
@@ -60,9 +49,9 @@ class CONTENT_EXPORT WebKeyboardEventBuilder {
 class WebGestureEventBuilder {
  public:
   static blink::WebGestureEvent Build(blink::WebInputEvent::Type type,
-                                      double time_sec,
-                                      int x,
-                                      int y);
+                                      base::TimeTicks time,
+                                      float x,
+                                      float y);
 };
 
 }  // namespace content

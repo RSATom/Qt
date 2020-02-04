@@ -12,10 +12,11 @@
  *   filePath: string,
  *   lastAccessTime: number,
  *   accessCount: number,
- *   isExpired: string
+ *   isExpired: string,
+ *   requestOrigin: string
  * }}
  */
-var OfflinePage;
+let OfflinePage;
 
 /**
  * @typedef {{
@@ -24,10 +25,11 @@ var OfflinePage;
  *   creationTime: number,
  *   id: string,
  *   namespace: string,
- *   lastAttempt: number
+ *   lastAttemptTime: number,
+ *   requestOrigin: string
  * }}
  */
-var SavePageRequest;
+let SavePageRequest;
 
 /**
  * @typedef {{
@@ -36,7 +38,7 @@ var SavePageRequest;
  *   prefetchIsLogging: boolean
  * }}
  */
-var IsLogging;
+let IsLogging;
 
 cr.define('offlineInternals', function() {
   /** @interface */
@@ -121,16 +123,26 @@ cr.define('offlineInternals', function() {
     getNetworkStatus: function() {},
 
     /**
-     * Schedules the default NWake task.
-     * @return {!Promise} A promise firing when the task has been scheduled.
+     * Schedules the default NWake task.  The returned Promise will reject if
+     *     there is an error while scheduling.
+     * @return {!Promise<string>} A promise firing when the task has been
+     *     scheduled.
      */
     scheduleNwake: function() {},
 
     /**
      * Cancels NWake task.
-     * @return {!Promise} A promise firing when the task has been cancelled.
+     * @return {!Promise} A promise firing when the task has been cancelled. The
+     *     returned Promise will reject if there is an error.
      */
     cancelNwake: function() {},
+
+    /**
+     * Shows the prefetching notification with an example origin.
+     * @return {!Promise<string>} A promise firing when the notification has
+     *   been shown.
+     */
+    showPrefetchNotification: function() {},
 
     /**
      * Sends and processes a request to generate page bundle.
@@ -224,6 +236,11 @@ cr.define('offlineInternals', function() {
     /** @override */
     cancelNwake: function() {
       return cr.sendWithPromise('cancelNwake');
+    },
+
+    /** @override */
+    showPrefetchNotification: function() {
+      return cr.sendWithPromise('showPrefetchNotification');
     },
 
     /** @override */

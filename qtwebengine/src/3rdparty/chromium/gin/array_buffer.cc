@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "gin/array_buffer.h"
+
 #include <stddef.h>
 #include <stdlib.h>
 
 #include "base/allocator/partition_allocator/page_allocator.h"
 #include "base/logging.h"
+#include "base/partition_alloc_buildflags.h"
 #include "build/build_config.h"
-#include "gin/array_buffer.h"
 #include "gin/per_isolate_data.h"
 
 #if defined(OS_POSIX)
@@ -17,7 +19,7 @@
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
 #endif
-#endif
+#endif  // defined(OS_POSIX)
 
 namespace gin {
 
@@ -33,6 +35,7 @@ static_assert(V8_ARRAY_BUFFER_INTERNAL_FIELD_COUNT == 2,
 // ArrayBufferAllocator -------------------------------------------------------
 
 void* ArrayBufferAllocator::Allocate(size_t length) {
+  // TODO(bbudge) Use partition allocator for malloc/calloc allocations.
   return calloc(1, length);
 }
 
@@ -40,72 +43,8 @@ void* ArrayBufferAllocator::AllocateUninitialized(size_t length) {
   return malloc(length);
 }
 
-void* ArrayBufferAllocator::Reserve(size_t length) {
-  void* const hint = nullptr;
-#if defined(OS_POSIX)
-  int const access_flag = PROT_NONE;
-  void* const ret =
-      mmap(hint, length, access_flag, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-  if (ret == MAP_FAILED) {
-    return nullptr;
-  }
-  return ret;
-#else
-  DWORD const access_flag = PAGE_NOACCESS;
-  return VirtualAlloc(hint, length, MEM_RESERVE, access_flag);
-#endif
-}
-
 void ArrayBufferAllocator::Free(void* data, size_t length) {
   free(data);
-}
-
-void ArrayBufferAllocator::Free(void* data,
-                                size_t length,
-                                AllocationMode mode) {
-  switch (mode) {
-    case AllocationMode::kNormal:
-      Free(data, length);
-      return;
-    case AllocationMode::kReservation: {
-#if defined(OS_POSIX)
-      int const ret = munmap(data, length);
-      CHECK(!ret);
-#else
-      BOOL const ret = VirtualFree(data, 0, MEM_RELEASE);
-      CHECK(ret);
-#endif
-      return;
-    }
-    default:
-      NOTREACHED();
-  }
-}
-
-void ArrayBufferAllocator::SetProtection(void* data,
-                                         size_t length,
-                                         Protection protection) {
-  switch (protection) {
-    case Protection::kNoAccess: {
-#if defined(OS_POSIX)
-      int ret = mprotect(data, length, PROT_NONE);
-      CHECK(!ret);
-#else
-      BOOL ret = VirtualFree(data, length, MEM_DECOMMIT);
-      CHECK(ret);
-#endif
-      break;
-    }
-    case Protection::kReadWrite:
-#if defined(OS_POSIX)
-      mprotect(data, length, PROT_READ | PROT_WRITE);
-#else
-      VirtualAlloc(data, length, MEM_COMMIT, PAGE_READWRITE);
-#endif
-      break;
-    default:
-      NOTREACHED();
-  }
 }
 
 ArrayBufferAllocator* ArrayBufferAllocator::SharedInstance() {
@@ -144,6 +83,7 @@ class ArrayBuffer::Private : public base::RefCounted<ArrayBuffer::Private> {
 
  private:
   friend class base::RefCounted<Private>;
+  using DataDeleter = void (*)(void* data, size_t length, void* info);
 
   Private(v8::Isolate* isolate, v8::Local<v8::ArrayBuffer> array);
   ~Private();
@@ -156,9 +96,8 @@ class ArrayBuffer::Private : public base::RefCounted<ArrayBuffer::Private> {
   v8::Isolate* isolate_;
   void* buffer_;
   size_t length_;
-  void* allocation_base_;
-  size_t allocation_length_;
-  v8::ArrayBuffer::Allocator::AllocationMode allocation_mode_;
+  DataDeleter deleter_;
+  void* deleter_data_;
 };
 
 scoped_refptr<ArrayBuffer::Private> ArrayBuffer::Private::From(
@@ -167,10 +106,10 @@ scoped_refptr<ArrayBuffer::Private> ArrayBuffer::Private::From(
     CHECK_EQ(WrapperInfo::From(v8::Local<v8::Object>::Cast(array)),
              &g_array_buffer_wrapper_info)
         << "Cannot mix blink and gin ArrayBuffers";
-    return make_scoped_refptr(static_cast<Private*>(
+    return base::WrapRefCounted(static_cast<Private*>(
         array->GetAlignedPointerFromInternalField(kEncodedValueIndex)));
   }
-  return make_scoped_refptr(new Private(isolate, array));
+  return base::WrapRefCounted(new Private(isolate, array));
 }
 
 ArrayBuffer::Private::Private(v8::Isolate* isolate,
@@ -181,14 +120,8 @@ ArrayBuffer::Private::Private(v8::Isolate* isolate,
   v8::ArrayBuffer::Contents contents = array->Externalize();
   buffer_ = contents.Data();
   length_ = contents.ByteLength();
-  allocation_base_ = contents.AllocationBase();
-  allocation_length_ = contents.AllocationLength();
-  allocation_mode_ = contents.AllocationMode();
-
-  DCHECK(reinterpret_cast<uintptr_t>(allocation_base_) <=
-         reinterpret_cast<uintptr_t>(buffer_));
-  DCHECK(reinterpret_cast<uintptr_t>(buffer_) + length_ <=
-         reinterpret_cast<uintptr_t>(allocation_base_) + allocation_length_);
+  deleter_ = contents.Deleter();
+  deleter_data_ = contents.DeleterData();
 
   array->SetAlignedPointerInInternalField(kWrapperInfoIndex,
                                           &g_array_buffer_wrapper_info);
@@ -200,8 +133,7 @@ ArrayBuffer::Private::Private(v8::Isolate* isolate,
 }
 
 ArrayBuffer::Private::~Private() {
-  PerIsolateData::From(isolate_)->allocator()->Free(
-      allocation_base_, allocation_length_, allocation_mode_);
+  deleter_(buffer_, length_, deleter_data_);
 }
 
 void ArrayBuffer::Private::FirstWeakCallback(
@@ -231,15 +163,9 @@ ArrayBuffer::ArrayBuffer(v8::Isolate* isolate,
   num_bytes_ = private_->length();
 }
 
-ArrayBuffer::~ArrayBuffer() {
-}
+ArrayBuffer::~ArrayBuffer() = default;
 
-ArrayBuffer& ArrayBuffer::operator=(const ArrayBuffer& other) {
-  private_ = other.private_;
-  bytes_ = other.bytes_;
-  num_bytes_ = other.num_bytes_;
-  return *this;
-}
+ArrayBuffer& ArrayBuffer::operator=(const ArrayBuffer& other) = default;
 
 // Converter<ArrayBuffer> -----------------------------------------------------
 
@@ -266,16 +192,10 @@ ArrayBufferView::ArrayBufferView(v8::Isolate* isolate,
       num_bytes_(view->ByteLength()) {
 }
 
-ArrayBufferView::~ArrayBufferView() {
-}
+ArrayBufferView::~ArrayBufferView() = default;
 
-ArrayBufferView& ArrayBufferView::operator=(const ArrayBufferView& other) {
-  array_buffer_ = other.array_buffer_;
-  offset_ = other.offset_;
-  num_bytes_ = other.num_bytes_;
-  return *this;
-}
-
+ArrayBufferView& ArrayBufferView::operator=(const ArrayBufferView& other) =
+    default;
 
 // Converter<ArrayBufferView> -------------------------------------------------
 

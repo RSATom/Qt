@@ -18,13 +18,12 @@
 #include "base/observer_list.h"
 #include "base/process/process.h"
 #include "content/browser/renderer_host/pepper/content_browser_pepper_host_factory.h"
-#include "content/browser/renderer_host/pepper/ssl_context_helper.h"
 #include "content/common/content_export.h"
 #include "content/common/pepper_renderer_instance_data.h"
 #include "content/public/browser/browser_ppapi_host.h"
 #include "content/public/common/process_type.h"
 #include "ipc/message_filter.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "ppapi/host/ppapi_host.h"
 
 #if !BUILDFLAG(ENABLE_PLUGINS)
@@ -100,10 +99,6 @@ class CONTENT_EXPORT BrowserPpapiHostImpl : public BrowserPpapiHost {
     return message_filter_;
   }
 
-  const scoped_refptr<SSLContextHelper>& ssl_context_helper() const {
-    return ssl_context_helper_;
-  }
-
  private:
   friend class BrowserPpapiHostTest;
 
@@ -137,7 +132,7 @@ class CONTENT_EXPORT BrowserPpapiHostImpl : public BrowserPpapiHost {
     PepperRendererInstanceData renderer_data;
     bool is_throttled;
 
-    base::ObserverList<InstanceObserver> observer_list;
+    base::ObserverList<InstanceObserver>::Unchecked observer_list;
   };
 
   std::unique_ptr<ppapi::host::PpapiHost> ppapi_host_;
@@ -152,8 +147,6 @@ class CONTENT_EXPORT BrowserPpapiHostImpl : public BrowserPpapiHost {
   // If true, this is an external plugin, i.e. created by the embedder using
   // BrowserPpapiHost::CreateExternalPluginProcess.
   bool external_plugin_;
-
-  scoped_refptr<SSLContextHelper> ssl_context_helper_;
 
   // Tracks all PP_Instances in this plugin and associated data.
   std::unordered_map<PP_Instance, std::unique_ptr<InstanceData>> instance_map_;

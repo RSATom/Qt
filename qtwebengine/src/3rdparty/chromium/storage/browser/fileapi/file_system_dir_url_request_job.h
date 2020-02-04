@@ -10,21 +10,22 @@
 #include <string>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "components/services/filesystem/public/interfaces/types.mojom.h"
 #include "net/url_request/url_request_job.h"
 #include "storage/browser/fileapi/file_system_url.h"
-#include "storage/browser/storage_browser_export.h"
 
 namespace storage {
 
 class FileSystemContext;
-struct DirectoryEntry;
 
 // A request job that handles reading filesystem: URLs for directories.
-class STORAGE_EXPORT FileSystemDirURLRequestJob : public net::URLRequestJob {
+class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemDirURLRequestJob
+    : public net::URLRequestJob {
  public:
   FileSystemDirURLRequestJob(
       net::URLRequest* request,
@@ -51,7 +52,7 @@ class STORAGE_EXPORT FileSystemDirURLRequestJob : public net::URLRequestJob {
   void StartAsync();
   void DidAttemptAutoMount(base::File::Error result);
   void DidReadDirectory(base::File::Error result,
-                        const std::vector<DirectoryEntry>& entries,
+                        std::vector<filesystem::mojom::DirectoryEntry> entries,
                         bool has_more);
 
   // Reads metadata for the |index|-th entry in the directory. Must be called
@@ -61,7 +62,7 @@ class STORAGE_EXPORT FileSystemDirURLRequestJob : public net::URLRequestJob {
                       base::File::Error result,
                       const base::File::Info& file_info);
 
-  std::vector<DirectoryEntry> entries_;
+  std::vector<filesystem::mojom::DirectoryEntry> entries_;
   std::string data_;
   FileSystemURL url_;
   const std::string storage_domain_;

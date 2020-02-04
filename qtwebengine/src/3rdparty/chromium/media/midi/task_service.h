@@ -5,12 +5,18 @@
 #ifndef MEDIA_MIDI_TASK_SERVICE_H_
 #define MEDIA_MIDI_TASK_SERVICE_H_
 
+#include <memory>
+#include <vector>
+
 #include "base/callback_forward.h"
+#include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/sequence_checker.h"
 #include "base/single_thread_task_runner.h"
+#include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
-#include "base/synchronization/read_write_lock.h"
+#include "base/thread_annotations.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "media/midi/midi_export.h"
@@ -22,7 +28,7 @@ namespace midi {
 class MIDI_EXPORT TaskService final {
  public:
   using RunnerId = size_t;
-  using InstanceId = int;
+  using InstanceId = int64_t;
 
   static constexpr RunnerId kDefaultRunnerId = 0;
 
@@ -35,25 +41,34 @@ class MIDI_EXPORT TaskService final {
   // invoked any more.
   // Returns true if call is bound or unbound correctly. Otherwise returns
   // false, that happens when the BindInstance() is called twice without
-  // unbinding the previous instance.
-  bool BindInstance();
-  bool UnbindInstance();
+  // unbinding the previous instance, or the UnbindInstance() is called without
+  // any successful BindInstance() call.
+  bool BindInstance() WARN_UNUSED_RESULT;
+  bool UnbindInstance() WARN_UNUSED_RESULT;
 
-  // Posts a task to run on a specified TaskRunner. |runner_id| should be
-  // kDefaultRunnerId or a positive number. If kDefaultRunnerId is specified
-  // the task runs on the thread on which BindInstance() is called. Other number
-  // will run the task on a dedicated thread that is bound to the |runner_id|.
+  // Checks if the current thread belongs to the specified runner.
+  bool IsOnTaskRunner(RunnerId runner_id);
+
+  // Posts a task to run on a specified TaskRunner. |runner_id| should be a
+  // positive number that represents a dedicated thread on that |task| will run.
+  // |task| will run even without a bound instance.
   void PostStaticTask(RunnerId runner_id, base::OnceClosure task);
 
   // Posts a task to run on a specified TaskRunner, and ensures that the bound
   // instance should not quit UnbindInstance() while a bound task is running.
-  // See PostStaticTask() for |runner_id|.
+  // |runner_id| should be |kDefaultRunnerId| or a positive number. If
+  // |kDefaultRunnerId| is specified, the task runs on the thread on which
+  // BindInstance() was called.
   void PostBoundTask(RunnerId runner, base::OnceClosure task);
   void PostBoundDelayedTask(RunnerId runner_id,
                             base::OnceClosure task,
                             base::TimeDelta delay);
 
+  void OverflowInstanceIdForTesting();
+
  private:
+  static constexpr TaskService::InstanceId kInvalidInstanceId = -1;
+
   // Returns a SingleThreadTaskRunner reference. Each TaskRunner will be
   // constructed on demand.
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(RunnerId runner_id);
@@ -63,25 +78,39 @@ class MIDI_EXPORT TaskService final {
                RunnerId runner_id,
                base::OnceClosure task);
 
+  // Returns true if |instance_id| is equal to |bound_instance_id_|.
+  bool IsInstanceIdStillBound(InstanceId instance_id);
+
+  // Holds InstanceId for the next bound instance, accessed on the BindInstance
+  // call thread without any protection.
+  InstanceId next_instance_id_ = kInvalidInstanceId;
+
   // Keeps a TaskRunner for the thread that calls BindInstance() as a default
   // task runner to run posted tasks.
-  scoped_refptr<base::SingleThreadTaskRunner> default_task_runner_;
+  scoped_refptr<base::SingleThreadTaskRunner> default_task_runner_
+      GUARDED_BY(lock_);
 
   // Holds threads to host SingleThreadTaskRunners.
-  std::vector<std::unique_ptr<base::Thread>> threads_;
-
-  // Holds readers writer lock to ensure that tasks run only while the instance
-  // is bound. Writer lock should not be taken while |lock_| is acquired.
-  base::subtle::ReadWriteLock task_lock_;
-
-  // Holds InstanceId for the next bound instance.
-  InstanceId next_instance_id_;
+  std::vector<std::unique_ptr<base::Thread>> threads_ GUARDED_BY(lock_);
 
   // Holds InstanceId for the current bound instance.
-  InstanceId bound_instance_id_;
+  InstanceId bound_instance_id_ GUARDED_BY(lock_) = kInvalidInstanceId;
 
-  // Protects all members other than |task_lock_|.
   base::Lock lock_;
+
+  // Signalled when the number of tasks in flight is 0 and ensures that
+  // UnbindInstance() does not return until all tasks have completed.
+  base::ConditionVariable no_tasks_in_flight_cv_
+      GUARDED_BY(tasks_in_flight_lock_);
+
+  // Number of tasks in flight.
+  int tasks_in_flight_ GUARDED_BY(tasks_in_flight_lock_) = 0;
+
+  base::Lock tasks_in_flight_lock_;
+
+  // Verifies all UnbindInstance() calls occur on the same sequence as
+  // BindInstance().
+  SEQUENCE_CHECKER(instance_binding_sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(TaskService);
 };

@@ -5,16 +5,16 @@
 #include "base/win/registry.h"
 
 #include <stdint.h>
+#include <windows.h>
 
 #include <cstring>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
-#include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/win/windows_version.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -170,20 +170,20 @@ TEST_F(RegistryTest, TruncatedCharTest) {
   const wchar_t kName[] = L"name";
   // kData size is not a multiple of sizeof(wchar_t).
   const uint8_t kData[] = {1, 2, 3, 4, 5};
-  EXPECT_EQ(5u, arraysize(kData));
-  ASSERT_EQ(ERROR_SUCCESS, key.WriteValue(kName, kData,
-                                          arraysize(kData), REG_BINARY));
+  EXPECT_EQ(5u, base::size(kData));
+  ASSERT_EQ(ERROR_SUCCESS,
+            key.WriteValue(kName, kData, base::size(kData), REG_BINARY));
 
   RegistryValueIterator iterator(HKEY_CURRENT_USER, foo_key.c_str());
   ASSERT_TRUE(iterator.Valid());
   EXPECT_STREQ(kName, iterator.Name());
   // ValueSize() is in bytes.
-  ASSERT_EQ(arraysize(kData), iterator.ValueSize());
+  ASSERT_EQ(base::size(kData), iterator.ValueSize());
   // Value() is NUL terminated.
   int end = (iterator.ValueSize() + sizeof(wchar_t) - 1) / sizeof(wchar_t);
   EXPECT_NE(L'\0', iterator.Value()[end-1]);
   EXPECT_EQ(L'\0', iterator.Value()[end]);
-  EXPECT_EQ(0, std::memcmp(kData, iterator.Value(), arraysize(kData)));
+  EXPECT_EQ(0, std::memcmp(kData, iterator.Value(), base::size(kData)));
   ++iterator;
   EXPECT_FALSE(iterator.Valid());
 }
@@ -361,7 +361,7 @@ class TestChangeDelegate {
    ~TestChangeDelegate() {}
 
    void OnKeyChanged() {
-     MessageLoop::current()->QuitWhenIdle();
+     RunLoop::QuitCurrentWhenIdleDeprecated();
      called_ = true;
    }
 
@@ -378,7 +378,7 @@ class TestChangeDelegate {
 TEST_F(RegistryTest, ChangeCallback) {
   RegKey key;
   TestChangeDelegate delegate;
-  MessageLoop message_loop;
+  test::ScopedTaskEnvironment scoped_task_environment;
 
   std::wstring foo_key(kRootKey);
   foo_key += L"\\Foo";

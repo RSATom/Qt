@@ -31,10 +31,10 @@
 
 #include "view3d_global.h"
 
-#include <QtCore/QList>
-#include <QtCore/QHash>
-#include <QtCore/QPointer>
-#include <QtDesigner/QDesignerFormEditorPluginInterface>
+#include <QtCore/qlist.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qpointer.h>
+#include <QtDesigner/qdesignerformeditorplugininterface.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -50,10 +50,10 @@ class VIEW3D_EXPORT QView3DPlugin : public QObject, public QDesignerFormEditorPl
 
 public:
     QView3DPlugin();
-    bool isInitialized() const Q_DECL_OVERRIDE;
-    void initialize(QDesignerFormEditorInterface *core) Q_DECL_OVERRIDE;
-    QAction *action() const Q_DECL_OVERRIDE;
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    bool isInitialized() const override;
+    void initialize(QDesignerFormEditorInterface *core) override;
+    QAction *action() const override;
+    QDesignerFormEditorInterface *core() const override;
 
 public slots:
     void activeFormWindowChanged(QDesignerFormWindowInterface *formWindow);

@@ -11,6 +11,9 @@
 #include "compiler/preprocessor/Input.h"
 #include "compiler/preprocessor/Lexer.h"
 
+namespace angle
+{
+
 namespace pp
 {
 
@@ -34,7 +37,7 @@ class Tokenizer : public Lexer
     };
 
     Tokenizer(Diagnostics *diagnostics);
-    ~Tokenizer();
+    ~Tokenizer() override;
 
     bool init(size_t count, const char *const string[], const int length[]);
 
@@ -54,5 +57,7 @@ class Tokenizer : public Lexer
 };
 
 }  // namespace pp
+
+}  // namespace angle
 
 #endif  // COMPILER_PREPROCESSOR_TOKENIZER_H_

@@ -179,9 +179,7 @@ QWindowsVistaStyle::QWindowsVistaStyle()
 /*!
   Destructor.
 */
-QWindowsVistaStyle::~QWindowsVistaStyle()
-{
-}
+QWindowsVistaStyle::~QWindowsVistaStyle() = default;
 
 //convert Qt state flags to uxtheme button states
 static int buttonStateId(int flags, int partId)
@@ -634,7 +632,7 @@ void QWindowsVistaStyle::drawPrimitive(PrimitiveElement element, const QStyleOpt
         {
             QPen pen = painter->pen();
             int margin = 3;
-            painter->setPen(option->palette.background().color().darker(114));
+            painter->setPen(option->palette.window().color().darker(114));
             if (option->state & State_Horizontal) {
                 int x1 = option->rect.center().x();
                 painter->drawLine(QPoint(x1, option->rect.top() + margin), QPoint(x1, option->rect.bottom() - margin));
@@ -706,7 +704,7 @@ void QWindowsVistaStyle::drawPrimitive(PrimitiveElement element, const QStyleOpt
                     if (sectionSize.width() > 0 && sectionSize.height() > 0) {
                         QString key = QString::fromLatin1("qvdelegate-%1-%2-%3-%4-%5").arg(sectionSize.width())
                                                             .arg(sectionSize.height()).arg(selected).arg(active).arg(hover);
-                        if (!QPixmapCache::find(key, pixmap)) {
+                        if (!QPixmapCache::find(key, &pixmap)) {
                             pixmap = QPixmap(sectionSize);
                             pixmap.fill(Qt::transparent);
 
@@ -990,7 +988,7 @@ void QWindowsVistaStyle::drawControl(ControlElement element, const QStyleOption 
                 XPThemeData theme(widget, 0, QWindowsXPStylePrivate::ToolBarTheme,
                                   TP_DROPDOWNBUTTON);
                 if (theme.isValid()) {
-                    const QSizeF size = theme.size() * QWindowsStylePrivate::nativeMetricScaleFactor(widget);
+                    const QSizeF size = theme.size() * QStyleHelper::dpiScaled(1);
                     if (!size.isEmpty()) {
                         mbiw = qRound(size.width());
                         mbih = qRound(size.height());
@@ -1055,7 +1053,7 @@ void QWindowsVistaStyle::drawControl(ControlElement element, const QStyleOption 
                     }
                     QString name = QString::fromLatin1("qiprogress-%1-%2").arg(pixmapSize.width()).arg(pixmapSize.height());
                     QPixmap pixmap;
-                    if (!QPixmapCache::find(name, pixmap)) {
+                    if (!QPixmapCache::find(name, &pixmap)) {
                         QImage image(pixmapSize, QImage::Format_ARGB32);
                         image.fill(Qt::transparent);
                         QPainter imagePainter(&image);
@@ -1365,7 +1363,7 @@ void QWindowsVistaStyle::drawControl(ControlElement element, const QStyleOption 
     case CE_ToolBar:
         if (const QStyleOptionToolBar *toolbar = qstyleoption_cast<const QStyleOptionToolBar *>(option)) {
             QPalette pal = option->palette;
-            pal.setColor(QPalette::Dark, option->palette.background().color().darker(130));
+            pal.setColor(QPalette::Dark, option->palette.window().color().darker(130));
             QStyleOptionToolBar copyOpt = *toolbar;
             copyOpt.palette = pal;
             QWindowsStyle::drawControl(element, &copyOpt, painter, widget);
@@ -1390,8 +1388,8 @@ void QWindowsVistaStyle::drawControl(ControlElement element, const QStyleOption 
                 painter->translate(-rect.left() + 1, -rect.top());
             }
 
-            painter->setBrush(option->palette.background().color().darker(110));
-            painter->setPen(option->palette.background().color().darker(130));
+            painter->setBrush(option->palette.window().color().darker(110));
+            painter->setPen(option->palette.window().color().darker(130));
             painter->drawRect(rect.adjusted(0, 1, -1, -3));
 
             int buttonMargin = 4;
@@ -1513,7 +1511,7 @@ void QWindowsVistaStyle::drawComplexControl(ComplexControl control, const QStyle
     if (d->transitionsEnabled() && canAnimate(option))
     {
 
-        if (control == CC_ScrollBar || control == CC_SpinBox ) {
+        if (control == CC_ScrollBar || control == CC_SpinBox || control == CC_ComboBox) {
 
             QObject *styleObject = option->styleObject; // Can be widget or qquickitem
 
@@ -1643,16 +1641,38 @@ void QWindowsVistaStyle::drawComplexControl(ComplexControl control, const QStyle
 
             } else {
                 if (sub & SC_ComboBoxFrame) {
-                    QStyleOptionButton btn;
-                    btn.QStyleOption::operator=(*option);
-                    btn.rect = option->rect.adjusted(-1, -1, 1, 1);
-                    if (sub & SC_ComboBoxArrow)
-                        btn.features = QStyleOptionButton::HasMenu;
-                    proxy()->drawControl(QStyle::CE_PushButton, &btn, painter, widget);
+                    XPThemeData theme(widget, painter, QWindowsXPStylePrivate::ComboboxTheme);
+                    theme.rect = option->rect;
+                    theme.partId = CP_READONLY;
+                    if (!(cmb->state & State_Enabled))
+                        theme.stateId = CBXS_DISABLED;
+                    else if (cmb->state & State_Sunken || cmb->state & State_On)
+                        theme.stateId = CBXS_PRESSED;
+                    else if (cmb->state & State_MouseOver)
+                        theme.stateId = CBXS_HOT;
+                    else
+                        theme.stateId = CBXS_NORMAL;
+                    d->drawBackground(theme);
+                }
+                if (sub & SC_ComboBoxArrow) {
+                    XPThemeData theme(widget, painter, QWindowsXPStylePrivate::ComboboxTheme);
+                    theme.rect = proxy()->subControlRect(CC_ComboBox, option, SC_ComboBoxArrow, widget);
+                    theme.partId = option->direction == Qt::RightToLeft ? CP_DROPDOWNBUTTONLEFT : CP_DROPDOWNBUTTONRIGHT;
+                    if (!(cmb->state & State_Enabled))
+                        theme.stateId = CBXS_DISABLED;
+                    else
+                        theme.stateId = CBXS_NORMAL;
+                    d->drawBackground(theme);
+                }
+                if ((sub & SC_ComboBoxEditField) && (flags & State_HasFocus)) {
+                    QStyleOptionFocusRect fropt;
+                    fropt.QStyleOption::operator=(*cmb);
+                    fropt.rect = proxy()->subControlRect(CC_ComboBox, option, SC_ComboBoxEditField, widget);
+                    proxy()->drawPrimitive(PE_FrameFocusRect, &fropt, painter, widget);
                 }
             }
-       }
-       break;
+        }
+        break;
     case CC_ScrollBar:
         if (const QStyleOptionSlider *scrollbar = qstyleoption_cast<const QStyleOptionSlider *>(option))
         {
@@ -2123,15 +2143,12 @@ QRect QWindowsVistaStyle::subControlRect(ComplexControl control, const QStyleOpt
 #if QT_CONFIG(combobox)
     case CC_ComboBox:
         if (const QStyleOptionComboBox *cb = qstyleoption_cast<const QStyleOptionComboBox *>(option)) {
-            int x = cb->rect.x(),
-                y = cb->rect.y(),
-                wi = cb->rect.width(),
-                he = cb->rect.height();
-            int xpos = x;
-            int margin = cb->frame ? 3 : 0;
-            int bmarg = cb->frame ? 2 : 0;
-            int arrowButtonWidth = bmarg + 16;
-            xpos += wi - arrowButtonWidth;
+            const int x = cb->rect.x(), y = cb->rect.y(), wi = cb->rect.width(), he = cb->rect.height();
+            const int margin = cb->frame ? 3 : 0;
+            const int bmarg = cb->frame ? 2 : 0;
+            const int arrowWidth = qRound(QStyleHelper::dpiScaled(16));
+            const int arrowButtonWidth = bmarg + arrowWidth;
+            const int xpos = x + wi - arrowButtonWidth;
 
             switch (subControl) {
             case SC_ComboBoxFrame:
@@ -2141,7 +2158,7 @@ QRect QWindowsVistaStyle::subControlRect(ComplexControl control, const QStyleOpt
                 rect.setRect(xpos, y , arrowButtonWidth, he);
                 break;
             case SC_ComboBoxEditField:
-                rect.setRect(x + margin, y + margin, wi - 2 * margin - 16, he - 2 * margin);
+                rect.setRect(x + margin, y + margin, wi - 2 * margin - arrowWidth, he - 2 * margin);
                 break;
             case SC_ComboBoxListBoxPopup:
                 rect = cb->rect;
@@ -2158,12 +2175,12 @@ QRect QWindowsVistaStyle::subControlRect(ComplexControl control, const QStyleOpt
         if (const QStyleOptionTitleBar *tb = qstyleoption_cast<const QStyleOptionTitleBar *>(option)) {
             if (!buttonVisible(subControl, tb))
                 return rect;
+            const qreal factor = QWindowsStylePrivate::nativeMetricScaleFactor(widget);
             const bool isToolTitle = false;
             const int height = tb->rect.height();
             const int width = tb->rect.width();
             const int buttonWidth =
-                qRound(qreal(GetSystemMetrics(SM_CXSIZE)) * QWindowsStylePrivate::nativeMetricScaleFactor(widget)
-                       - QStyleHelper::dpiScaled(4));
+                qRound(qreal(GetSystemMetrics(SM_CXSIZE)) * factor - QStyleHelper::dpiScaled(4));
 
             const int frameWidth = proxy()->pixelMetric(PM_MdiSubWindowFrameWidth, option, widget);
             const bool sysmenuHint  = (tb->titleBarFlags & Qt::WindowSystemMenuHint) != 0;
@@ -2177,31 +2194,31 @@ QRect QWindowsVistaStyle::subControlRect(ComplexControl control, const QStyleOpt
                 rect = QRect(frameWidth, 0, width - (buttonWidth + frameWidth + 10), height);
                 if (isToolTitle) {
                     if (sysmenuHint) {
-                        rect.adjust(0, 0, -buttonWidth - 3, 0);
+                        rect.adjust(0, 0, int(-buttonWidth - 3 * factor), 0);
                     }
                     if (minimizeHint || maximizeHint)
-                        rect.adjust(0, 0, -buttonWidth - 2, 0);
+                        rect.adjust(0, 0, int(-buttonWidth - 2 * factor), 0);
                 } else {
                     if (sysmenuHint) {
-                        const int leftOffset = height - 8;
-                        rect.adjust(leftOffset, 0, 0, 4);
+                        const int leftOffset = int(height - 8 * factor);
+                        rect.adjust(leftOffset, 0, 0, int(4 * factor));
                     }
                     if (minimizeHint)
-                        rect.adjust(0, 0, -buttonWidth - 2, 0);
+                        rect.adjust(0, 0, int(-buttonWidth - 2 * factor), 0);
                     if (maximizeHint)
-                        rect.adjust(0, 0, -buttonWidth - 2, 0);
+                        rect.adjust(0, 0, int(-buttonWidth - 2 * factor), 0);
                     if (contextHint)
-                        rect.adjust(0, 0, -buttonWidth - 2, 0);
+                        rect.adjust(0, 0, int(-buttonWidth - 2 * factor), 0);
                     if (shadeHint)
-                        rect.adjust(0, 0, -buttonWidth - 2, 0);
+                        rect.adjust(0, 0, int(-buttonWidth - 2 * factor), 0);
                 }
-                rect.translate(0, 2);
+                rect.translate(0, int(2 * factor));
                 rect = visualRect(option->direction, option->rect, rect);
                 break;
             case SC_TitleBarSysMenu:
                 {
-                    const int controlTop = 6;
-                    const int controlHeight = height - controlTop - 3;
+                    const int controlTop = int(6 * factor);
+                    const int controlHeight = int(height - controlTop - 3 * factor);
                     int iconExtent = proxy()->pixelMetric(PM_SmallIconSize);
                     QSize iconSize = tb->icon.actualSize(QSize(iconExtent, iconExtent));
                     if (tb->icon.isNull())
@@ -2209,7 +2226,7 @@ QRect QWindowsVistaStyle::subControlRect(ComplexControl control, const QStyleOpt
                     int hPad = (controlHeight - iconSize.height())/2;
                     int vPad = (controlHeight - iconSize.width())/2;
                     rect = QRect(frameWidth + hPad, controlTop + vPad, iconSize.width(), iconSize.height());
-                    rect.translate(0, 3);
+                    rect.translate(0, int(3 * factor));
                     rect = visualRect(option->direction, option->rect, rect);
                 }
                 break;

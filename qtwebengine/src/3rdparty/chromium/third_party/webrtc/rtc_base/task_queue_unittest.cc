@@ -15,16 +15,23 @@
 // clang-format on
 #endif
 
+#include <stdint.h>
 #include <memory>
+#include <utility>
 #include <vector>
 
-#include "webrtc/rtc_base/bind.h"
-#include "webrtc/rtc_base/event.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/task_queue.h"
-#include "webrtc/rtc_base/timeutils.h"
+#include "absl/memory/memory.h"
+#include "rtc_base/bind.h"
+#include "rtc_base/event.h"
+#include "rtc_base/task_queue.h"
+#include "rtc_base/task_queue_for_test.h"
+#include "rtc_base/time_utils.h"
+#include "test/gtest.h"
+
+using rtc::test::TaskQueueForTest;
 
 namespace rtc {
+
 namespace {
 // Noop on all platforms except Windows, where it turns on high precision
 // multimedia timers which increases the precision of TimeMillis() while in
@@ -44,11 +51,8 @@ class EnableHighResTimers {
   const bool enabled_;
 #endif
 };
-}
 
-namespace {
-void CheckCurrent(const char* expected_queue, Event* signal, TaskQueue* queue) {
-  EXPECT_TRUE(TaskQueue::IsCurrent(expected_queue));
+void CheckCurrent(Event* signal, TaskQueue* queue) {
   EXPECT_TRUE(queue->IsCurrent());
   if (signal)
     signal->Set();
@@ -64,52 +68,49 @@ TEST(TaskQueueTest, Construct) {
 
 TEST(TaskQueueTest, PostAndCheckCurrent) {
   static const char kQueueName[] = "PostAndCheckCurrent";
-  Event event(false, false);
+  Event event;
   TaskQueue queue(kQueueName);
 
   // We're not running a task, so there shouldn't be a current queue.
   EXPECT_FALSE(queue.IsCurrent());
   EXPECT_FALSE(TaskQueue::Current());
 
-  queue.PostTask(Bind(&CheckCurrent, kQueueName, &event, &queue));
+  queue.PostTask(Bind(&CheckCurrent, &event, &queue));
   EXPECT_TRUE(event.Wait(1000));
 }
 
 TEST(TaskQueueTest, PostCustomTask) {
   static const char kQueueName[] = "PostCustomImplementation";
-  Event event(false, false);
-  TaskQueue queue(kQueueName);
+  TaskQueueForTest queue(kQueueName);
 
   class CustomTask : public QueuedTask {
    public:
-    explicit CustomTask(Event* event) : event_(event) {}
+    CustomTask() {}
+    bool ran() const { return ran_; }
 
    private:
     bool Run() override {
-      event_->Set();
-      return false;  // Never allows the task to be deleted by the queue.
+      ran_ = true;
+      return false;  // Never allow the task to be deleted by the queue.
     }
 
-    Event* const event_;
-  } my_task(&event);
+    bool ran_ = false;
+  } my_task;
 
-  // Please don't do this in production code! :)
-  queue.PostTask(std::unique_ptr<QueuedTask>(&my_task));
-  EXPECT_TRUE(event.Wait(1000));
+  queue.SendTask(&my_task);
+  EXPECT_TRUE(my_task.ran());
 }
 
 TEST(TaskQueueTest, PostLambda) {
-  static const char kQueueName[] = "PostLambda";
-  Event event(false, false);
-  TaskQueue queue(kQueueName);
-
-  queue.PostTask([&event]() { event.Set(); });
-  EXPECT_TRUE(event.Wait(1000));
+  TaskQueueForTest queue("PostLambda");
+  bool ran = false;
+  queue.SendTask([&ran]() { ran = true; });
+  EXPECT_TRUE(ran);
 }
 
 TEST(TaskQueueTest, PostDelayedZero) {
   static const char kQueueName[] = "PostDelayedZero";
-  Event event(false, false);
+  Event event;
   TaskQueue queue(kQueueName);
 
   queue.PostDelayedTask([&event]() { event.Set(); }, 0);
@@ -118,7 +119,7 @@ TEST(TaskQueueTest, PostDelayedZero) {
 
 TEST(TaskQueueTest, PostFromQueue) {
   static const char kQueueName[] = "PostFromQueue";
-  Event event(false, false);
+  Event event;
   TaskQueue queue(kQueueName);
 
   queue.PostTask(
@@ -128,11 +129,11 @@ TEST(TaskQueueTest, PostFromQueue) {
 
 TEST(TaskQueueTest, PostDelayed) {
   static const char kQueueName[] = "PostDelayed";
-  Event event(false, false);
+  Event event;
   TaskQueue queue(kQueueName, TaskQueue::Priority::HIGH);
 
   uint32_t start = Time();
-  queue.PostDelayedTask(Bind(&CheckCurrent, kQueueName, &event, &queue), 100);
+  queue.PostDelayedTask(Bind(&CheckCurrent, &event, &queue), 100);
   EXPECT_TRUE(event.Wait(1000));
   uint32_t end = Time();
   // These tests are a little relaxed due to how "powerful" our test bots can
@@ -148,11 +149,11 @@ TEST(TaskQueueTest, DISABLED_PostDelayedHighRes) {
   EnableHighResTimers high_res_scope;
 
   static const char kQueueName[] = "PostDelayedHighRes";
-  Event event(false, false);
+  Event event;
   TaskQueue queue(kQueueName, TaskQueue::Priority::HIGH);
 
   uint32_t start = Time();
-  queue.PostDelayedTask(Bind(&CheckCurrent, kQueueName, &event, &queue), 3);
+  queue.PostDelayedTask(Bind(&CheckCurrent, &event, &queue), 3);
   EXPECT_TRUE(event.Wait(1000));
   uint32_t end = TimeMillis();
   // These tests are a little relaxed due to how "powerful" our test bots can
@@ -168,9 +169,8 @@ TEST(TaskQueueTest, PostMultipleDelayed) {
 
   std::vector<std::unique_ptr<Event>> events;
   for (int i = 0; i < 100; ++i) {
-    events.push_back(std::unique_ptr<Event>(new Event(false, false)));
-    queue.PostDelayedTask(
-        Bind(&CheckCurrent, kQueueName, events.back().get(), &queue), i);
+    events.push_back(absl::make_unique<Event>());
+    queue.PostDelayedTask(Bind(&CheckCurrent, events.back().get(), &queue), i);
   }
 
   for (const auto& e : events)
@@ -179,31 +179,23 @@ TEST(TaskQueueTest, PostMultipleDelayed) {
 
 TEST(TaskQueueTest, PostDelayedAfterDestruct) {
   static const char kQueueName[] = "PostDelayedAfterDestruct";
-  Event event(false, false);
+  Event run;
+  Event deleted;
   {
     TaskQueue queue(kQueueName);
-    queue.PostDelayedTask(Bind(&CheckCurrent, kQueueName, &event, &queue), 100);
+    queue.PostDelayedTask(
+        rtc::NewClosure([&run] { run.Set(); }, [&deleted] { deleted.Set(); }),
+        100);
   }
-  EXPECT_FALSE(event.Wait(200));  // Task should not run.
-}
-
-TEST(TaskQueueTest, PostAndReply) {
-  static const char kPostQueue[] = "PostQueue";
-  static const char kReplyQueue[] = "ReplyQueue";
-  Event event(false, false);
-  TaskQueue post_queue(kPostQueue);
-  TaskQueue reply_queue(kReplyQueue);
-
-  post_queue.PostTaskAndReply(
-      Bind(&CheckCurrent, kPostQueue, nullptr, &post_queue),
-      Bind(&CheckCurrent, kReplyQueue, &event, &reply_queue), &reply_queue);
-  EXPECT_TRUE(event.Wait(1000));
+  // Task might outlive the TaskQueue, but still should be deleted.
+  EXPECT_TRUE(deleted.Wait(200));
+  EXPECT_FALSE(run.Wait(0));  // and should not run.
 }
 
 TEST(TaskQueueTest, PostAndReuse) {
   static const char kPostQueue[] = "PostQueue";
   static const char kReplyQueue[] = "ReplyQueue";
-  Event event(false, false);
+  Event event;
   TaskQueue post_queue(kPostQueue);
   TaskQueue reply_queue(kReplyQueue);
 
@@ -240,70 +232,117 @@ TEST(TaskQueueTest, PostAndReuse) {
     Event* const event_;
   };
 
-  std::unique_ptr<QueuedTask> task(
+  std::unique_ptr<ReusedTask> task(
       new ReusedTask(&call_count, &reply_queue, &event));
 
   post_queue.PostTask(std::move(task));
   EXPECT_TRUE(event.Wait(1000));
 }
 
-TEST(TaskQueueTest, PostAndReplyLambda) {
-  static const char kPostQueue[] = "PostQueue";
-  static const char kReplyQueue[] = "ReplyQueue";
-  Event event(false, false);
+TEST(TaskQueueTest, PostCopyableClosure) {
+  struct CopyableClosure {
+    CopyableClosure(int* num_copies, int* num_moves, Event* event)
+        : num_copies(num_copies), num_moves(num_moves), event(event) {}
+    CopyableClosure(const CopyableClosure& other)
+        : num_copies(other.num_copies),
+          num_moves(other.num_moves),
+          event(other.event) {
+      ++*num_copies;
+    }
+    CopyableClosure(CopyableClosure&& other)
+        : num_copies(other.num_copies),
+          num_moves(other.num_moves),
+          event(other.event) {
+      ++*num_moves;
+    }
+    void operator()() { event->Set(); }
+
+    int* num_copies;
+    int* num_moves;
+    Event* event;
+  };
+
+  int num_copies = 0;
+  int num_moves = 0;
+  Event event;
+
+  static const char kPostQueue[] = "PostCopyableClosure";
   TaskQueue post_queue(kPostQueue);
-  TaskQueue reply_queue(kReplyQueue);
+  {
+    CopyableClosure closure(&num_copies, &num_moves, &event);
+    post_queue.PostTask(closure);
+    // Destroy closure to check with msan and tsan posted task has own copy.
+  }
 
-  bool my_flag = false;
-  post_queue.PostTaskAndReply([&my_flag]() { my_flag = true; },
-                              [&event]() { event.Set(); }, &reply_queue);
   EXPECT_TRUE(event.Wait(1000));
-  EXPECT_TRUE(my_flag);
+  EXPECT_EQ(num_copies, 1);
+  EXPECT_EQ(num_moves, 0);
 }
 
-// This test covers a particular bug that we had in the libevent implementation
-// where we could hit a deadlock while trying to post a reply task to a queue
-// that was being deleted.  The test isn't guaranteed to hit that case but it's
-// written in a way that makes it likely and by running with --gtest_repeat=1000
-// the bug would occur. Alas, now it should be fixed.
-TEST(TaskQueueTest, PostAndReplyDeadlock) {
-  Event event(false, false);
-  TaskQueue post_queue("PostQueue");
-  TaskQueue reply_queue("ReplyQueue");
+TEST(TaskQueueTest, PostMoveOnlyClosure) {
+  struct SomeState {
+    explicit SomeState(Event* event) : event(event) {}
+    ~SomeState() { event->Set(); }
+    Event* event;
+  };
+  struct MoveOnlyClosure {
+    MoveOnlyClosure(int* num_moves, std::unique_ptr<SomeState> state)
+        : num_moves(num_moves), state(std::move(state)) {}
+    MoveOnlyClosure(const MoveOnlyClosure&) = delete;
+    MoveOnlyClosure(MoveOnlyClosure&& other)
+        : num_moves(other.num_moves), state(std::move(other.state)) {
+      ++*num_moves;
+    }
+    void operator()() { state.reset(); }
 
-  post_queue.PostTaskAndReply([&event]() { event.Set(); }, []() {},
-                              &reply_queue);
+    int* num_moves;
+    std::unique_ptr<SomeState> state;
+  };
+
+  int num_moves = 0;
+  Event event;
+  std::unique_ptr<SomeState> state(new SomeState(&event));
+
+  static const char kPostQueue[] = "PostMoveOnlyClosure";
+  TaskQueue post_queue(kPostQueue);
+  post_queue.PostTask(MoveOnlyClosure(&num_moves, std::move(state)));
+
   EXPECT_TRUE(event.Wait(1000));
+  EXPECT_EQ(num_moves, 1);
 }
 
-void TestPostTaskAndReply(TaskQueue* work_queue,
-                          const char* work_queue_name,
-                          Event* event) {
-  ASSERT_FALSE(work_queue->IsCurrent());
-  work_queue->PostTaskAndReply(
-      Bind(&CheckCurrent, work_queue_name, nullptr, work_queue),
-      NewClosure([event]() { event->Set(); }));
-}
+TEST(TaskQueueTest, PostMoveOnlyCleanup) {
+  struct SomeState {
+    explicit SomeState(Event* event) : event(event) {}
+    ~SomeState() { event->Set(); }
+    Event* event;
+  };
+  struct MoveOnlyClosure {
+    void operator()() { state.reset(); }
 
-// Does a PostTaskAndReply from within a task to post and reply to the current
-// queue.  All in all there will be 3 tasks posted and run.
-TEST(TaskQueueTest, PostAndReply2) {
-  static const char kQueueName[] = "PostAndReply2";
-  static const char kWorkQueueName[] = "PostAndReply2_Worker";
-  Event event(false, false);
-  TaskQueue queue(kQueueName);
-  TaskQueue work_queue(kWorkQueueName);
+    std::unique_ptr<SomeState> state;
+  };
 
-  queue.PostTask(
-      Bind(&TestPostTaskAndReply, &work_queue, kWorkQueueName, &event));
-  EXPECT_TRUE(event.Wait(1000));
+  Event event_run;
+  Event event_cleanup;
+  std::unique_ptr<SomeState> state_run(new SomeState(&event_run));
+  std::unique_ptr<SomeState> state_cleanup(new SomeState(&event_cleanup));
+
+  static const char kPostQueue[] = "PostMoveOnlyCleanup";
+  TaskQueue post_queue(kPostQueue);
+  post_queue.PostTask(NewClosure(MoveOnlyClosure{std::move(state_run)},
+                                 MoveOnlyClosure{std::move(state_cleanup)}));
+
+  EXPECT_TRUE(event_cleanup.Wait(1000));
+  // Expect run closure to complete before cleanup closure.
+  EXPECT_TRUE(event_run.Wait(0));
 }
 
 // Tests posting more messages than a queue can queue up.
 // In situations like that, tasks will get dropped.
 TEST(TaskQueueTest, PostALot) {
   // To destruct the event after the queue has gone out of scope.
-  Event event(false, false);
+  Event event;
 
   int tasks_executed = 0;
   int tasks_cleaned_up = 0;

@@ -49,6 +49,7 @@
 #include <qsortfilterproxymodel.h>
 #include <qlineedit.h>
 #include <qlayout.h>
+#include <qtemporarydir.h>
 #include <private/qfiledialog_p.h>
 #if defined QT_BUILD_INTERNAL
 #include <private/qsidebar_p.h>
@@ -471,6 +472,9 @@ void tst_QFiledialog::completer()
         for (int i = 0; i < 10; ++i) {
             TemporaryFilePtr file(new QTemporaryFile(startPath + QStringLiteral("/rXXXXXX")));
             QVERIFY2(file->open(), qPrintable(file->errorString()));
+            // Force the temporary file to materialize with the requested name
+            (void) file->fileName();
+            QVERIFY(file->exists());
             files.append(file);
         }
     }
@@ -491,9 +495,6 @@ void tst_QFiledialog::completer()
     QAbstractItemModel *cModel = completer->completionModel();
     QVERIFY(cModel);
 
-    //wait a bit
-    QTest::qWait(500);
-
     // path C:\depot\qt\examples\dialogs\standarddialogs
     // files
     //       [debug] [release] [tmp] dialog dialog main makefile makefile.debug makefile.release standarddialgos
@@ -506,7 +507,7 @@ void tst_QFiledialog::completer()
     // \      -> \_viminfo
     // c:\depot  -> 'nothing'
     // c:\depot\ -> C:\depot\devtools, C:\depot\dteske
-    QCOMPARE(model->index(fd.directory().path()), model->index(startPath));
+    QTRY_COMPARE(model->index(fd.directory().path()), model->index(startPath));
 
     if (input.isEmpty()) {
         // Try to find a suitable directory under root that does not
@@ -619,13 +620,13 @@ void tst_QFiledialog::acceptMode()
 void tst_QFiledialog::confirmOverwrite()
 {
     QFileDialog fd;
-    QCOMPARE(fd.confirmOverwrite(), true);
-    fd.setConfirmOverwrite(true);
-    QCOMPARE(fd.confirmOverwrite(), true);
-    fd.setConfirmOverwrite(false);
-    QCOMPARE(fd.confirmOverwrite(), false);
-    fd.setConfirmOverwrite(true);
-    QCOMPARE(fd.confirmOverwrite(), true);
+    QCOMPARE(fd.testOption(QFileDialog::DontConfirmOverwrite), false);
+    fd.setOption(QFileDialog::DontConfirmOverwrite, false);
+    QCOMPARE(fd.testOption(QFileDialog::DontConfirmOverwrite), false);
+    fd.setOption(QFileDialog::DontConfirmOverwrite, true);
+    QCOMPARE(fd.testOption(QFileDialog::DontConfirmOverwrite), true);
+    fd.setOption(QFileDialog::DontConfirmOverwrite, false);
+    QCOMPARE(fd.testOption(QFileDialog::DontConfirmOverwrite), false);
 }
 
 void tst_QFiledialog::defaultSuffix()
@@ -807,8 +808,8 @@ void tst_QFiledialog::isReadOnly()
     //QCOMPARE(renameAction && renameAction->isEnabled(), true);
     //QCOMPARE(deleteAction && deleteAction->isEnabled(), true);
 
-    fd.setReadOnly(true);
-    QCOMPARE(fd.isReadOnly(), true);
+    fd.setOption(QFileDialog::ReadOnly, true);
+    QCOMPARE(fd.testOption(QFileDialog::ReadOnly), true);
 
     QCOMPARE(newButton && newButton->isEnabled(), false);
     QCOMPARE(renameAction && renameAction->isEnabled(), false);
@@ -852,11 +853,11 @@ void tst_QFiledialog::resolveSymlinks()
     QFileDialog fd;
 
     // default
-    QCOMPARE(fd.resolveSymlinks(), true);
-    fd.setResolveSymlinks(false);
-    QCOMPARE(fd.resolveSymlinks(), false);
-    fd.setResolveSymlinks(true);
-    QCOMPARE(fd.resolveSymlinks(), true);
+    QCOMPARE(fd.testOption(QFileDialog::DontResolveSymlinks), false);
+    fd.setOption(QFileDialog::DontResolveSymlinks, true);
+    QCOMPARE(fd.testOption(QFileDialog::DontResolveSymlinks), true);
+    fd.setOption(QFileDialog::DontResolveSymlinks, false);
+    QCOMPARE(fd.testOption(QFileDialog::DontResolveSymlinks), false);
 
     // the file dialog doesn't do anything based upon this, just passes it to the model
     // the model should fully test it, don't test it here
@@ -933,7 +934,6 @@ void tst_QFiledialog::selectFiles()
     QSignalSpy spyDirectoryEntered(&fd, SIGNAL(directoryEntered(QString)));
     QSignalSpy spyFilesSelected(&fd, SIGNAL(filesSelected(QStringList)));
     QSignalSpy spyFilterSelected(&fd, SIGNAL(filterSelected(QString)));
-    fd.show();
     fd.setFileMode(QFileDialog::ExistingFiles);
 
     QString filesPath = fd.directory().absolutePath();
@@ -1049,12 +1049,12 @@ void tst_QFiledialog::setMimeTypeFilters_data()
     QTest::addColumn<QString>("expectedSelectedMimeTypeFilter");
 
     const auto headerMime = QStringLiteral("text/x-chdr");
-    const auto jsonMime = QStringLiteral("application/json");
+    const auto pdfMime = QStringLiteral("application/pdf");
     const auto zipMime = QStringLiteral("application/zip");
 
     QTest::newRow("single mime filter (C header file)") << QStringList {headerMime} << headerMime << headerMime;
-    QTest::newRow("single mime filter (JSON file)") << QStringList {jsonMime} << jsonMime << jsonMime;
-    QTest::newRow("multiple mime filters") << QStringList {jsonMime, zipMime} << jsonMime << jsonMime;
+    QTest::newRow("single mime filter (JSON file)") << QStringList {pdfMime} << pdfMime << pdfMime;
+    QTest::newRow("multiple mime filters") << QStringList {pdfMime, zipMime} << pdfMime << pdfMime;
 }
 
 void tst_QFiledialog::setMimeTypeFilters()
@@ -1068,6 +1068,10 @@ void tst_QFiledialog::setMimeTypeFilters()
     fd.selectMimeTypeFilter(targetMimeTypeFilter);
 
     QCOMPARE(fd.selectedMimeTypeFilter(), expectedSelectedMimeTypeFilter);
+
+    auto *filters = fd.findChild<QComboBox*>("fileTypeCombo");
+    filters->setCurrentIndex(filters->count() - 1);
+    QCOMPARE(fd.selectedMimeTypeFilter(), mimeTypeFilters.last());
 }
 
 void tst_QFiledialog::setEmptyNameFilter()
@@ -1115,7 +1119,7 @@ void tst_QFiledialog::setNameFilter()
 
     QFileDialog fd;
     fd.setNameFilters(filters);
-    fd.setNameFilterDetailsVisible(nameFilterDetailsVisible);
+    fd.setOption(QFileDialog::HideNameFilterDetails, !nameFilterDetailsVisible);
     fd.selectNameFilter(selectFilter);
     QCOMPARE(fd.selectedNameFilter(), expectedSelectedFilter);
 }
@@ -1307,61 +1311,116 @@ void tst_QFiledialog::saveButtonText()
     QCOMPARE(button->text(), caption);
 }
 
+// Predicate for use with QTRY_VERIFY() that checks whether the file dialog list
+// has been populated (contains an entry).
+class DirPopulatedPredicate
+{
+public:
+    explicit DirPopulatedPredicate(QListView *list, const QString &needle) :
+        m_list(list), m_needle(needle) {}
+
+    operator bool() const
+    {
+        const auto model = m_list->model();
+        const auto root = m_list->rootIndex();
+        for (int r = 0, count = model->rowCount(root); r < count; ++r) {
+            if (m_needle == model->index(r, 0, root).data(Qt::DisplayRole).toString())
+                return true;
+        }
+        return false;
+    }
+
+private:
+    QListView *m_list;
+    QString m_needle;
+};
+
+// A predicate for use with QTRY_VERIFY() that ensures an entry of the file dialog
+// list is selected by pressing cursor down.
+class SelectDirTestPredicate
+{
+public:
+    explicit SelectDirTestPredicate(QListView *list, const QString &needle) :
+        m_list(list), m_needle(needle) {}
+
+    operator bool() const
+    {
+        if (m_needle == m_list->currentIndex().data(Qt::DisplayRole).toString())
+            return true;
+        QCoreApplication::processEvents();
+        QTest::keyClick(m_list, Qt::Key_Down);
+        return false;
+    }
+
+private:
+    QListView *m_list;
+    QString m_needle;
+};
+
 void tst_QFiledialog::clearLineEdit()
 {
-    QFileDialog fd(0, "caption", "foo");
+    // Play it really safe by creating a directory which should show first in
+    // a temporary dir
+    QTemporaryDir workDir(QDir::tempPath() + QLatin1String("/tst_qfd_clearXXXXXX"));
+    QVERIFY2(workDir.isValid(), qPrintable(workDir.errorString()));
+    const QString workDirPath = workDir.path();
+    const QString dirName = QLatin1String("aaaaa");
+    QVERIFY(QDir(workDirPath).mkdir(dirName));
+
+    QFileDialog fd(nullptr,
+                   QLatin1String(QTest::currentTestFunction()) + QLatin1String(" AnyFile"),
+                   "foo");
     fd.setViewMode(QFileDialog::List);
     fd.setFileMode(QFileDialog::AnyFile);
     fd.show();
 
-    //play it really safe by creating a directory
-    QDir::home().mkdir("_____aaaaaaaaaaaaaaaaaaaaaa");
-
     QLineEdit *lineEdit = fd.findChild<QLineEdit*>("fileNameEdit");
     QVERIFY(lineEdit);
     QCOMPARE(lineEdit->text(), QLatin1String("foo"));
-    fd.setDirectory(QDir::home());
 
     QListView* list = fd.findChild<QListView*>("listView");
     QVERIFY(list);
 
-    // saving a file the text shouldn't be cleared
-    fd.setDirectory(QDir::home());
+    // When in AnyFile mode, lineEdit's text shouldn't be cleared when entering
+    // a directory by activating one in the list
+    fd.setDirectory(workDirPath);
+    DirPopulatedPredicate dirPopulated(list, dirName);
+    QTRY_VERIFY(dirPopulated);
 
-    QTest::qWait(1000);
 #ifdef QT_KEYPAD_NAVIGATION
     list->setEditFocus(true);
 #endif
-    QTest::keyClick(list, Qt::Key_Down);
+
+    SelectDirTestPredicate selectTestDir(list, dirName);
+    QTRY_VERIFY(selectTestDir);
+
 #ifndef Q_OS_MAC
     QTest::keyClick(list, Qt::Key_Return);
 #else
     QTest::keyClick(list, Qt::Key_O, Qt::ControlModifier);
 #endif
 
-    QTest::qWait(2000);
-    QVERIFY(fd.directory().absolutePath() != QDir::home().absolutePath());
+    QTRY_VERIFY(fd.directory().absolutePath() != workDirPath);
     QVERIFY(!lineEdit->text().isEmpty());
 
-    // selecting a dir the text should be cleared so one can just hit ok
+    // When in Directory mode, lineEdit's text should be cleared when entering
+    // a directory by activating one in the list so one can just hit ok
     // and it selects that directory
     fd.setFileMode(QFileDialog::Directory);
-    fd.setDirectory(QDir::home());
+    fd.setWindowTitle(QLatin1String(QTest::currentTestFunction()) + QLatin1String(" Directory"));
+    fd.setDirectory(workDirPath);
+    QTRY_VERIFY(dirPopulated);
 
-    QTest::qWait(1000);
-    QTest::keyClick(list, Qt::Key_Down);
+    QTRY_VERIFY(selectTestDir);
+
 #ifndef Q_OS_MAC
     QTest::keyClick(list, Qt::Key_Return);
 #else
     QTest::keyClick(list, Qt::Key_O, Qt::ControlModifier);
 #endif
 
-    QTest::qWait(2000);
-    QVERIFY(fd.directory().absolutePath() != QDir::home().absolutePath());
+    QTRY_VERIFY(fd.directory().absolutePath() != workDirPath);
     QVERIFY(lineEdit->text().isEmpty());
-
-    //remove the dir
-    QDir::home().rmdir("_____aaaaaaaaaaaaaaaaaaaaaa");
 }
 
 void tst_QFiledialog::enableChooseButton()
@@ -1521,7 +1580,8 @@ public:
         const QWindow *window = QGuiApplication::topLevelWindows().constFirst();
 
         const QFileDialog *fileDialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
-        QVERIFY(fileDialog);
+        if (!fileDialog)
+            return;
 
         // The problem in QTBUG-57193 was from a platform input context plugin that was
         // connected to QWindow::focusObjectChanged(), and consequently accessed the focus

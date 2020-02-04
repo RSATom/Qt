@@ -13,8 +13,12 @@
 #include "base/memory/weak_ptr.h"
 #include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "content/public/browser/browser_thread.h"
 
 class GURL;
+struct ExtensionMsg_ExternalConnectionInfo;
+struct ExtensionMsg_TabTargetConnectionInfo;
+struct ServiceWorkerIdentifier;
 
 namespace content {
 class BrowserContext;
@@ -22,6 +26,8 @@ class BrowserContext;
 
 namespace extensions {
 class EventRouter;
+struct Message;
+struct PortId;
 
 // This class filters out incoming extension-specific IPC messages from the
 // renderer process. It is created and destroyed on the UI thread and handles
@@ -55,10 +61,12 @@ class ExtensionMessageFilter : public content::BrowserMessageFilter {
   void OnExtensionAddListener(const std::string& extension_id,
                               const GURL& listener_url,
                               const std::string& event_name,
+                              int64_t service_worker_version_id,
                               int worker_thread_id);
   void OnExtensionRemoveListener(const std::string& extension_id,
                                  const GURL& listener_url,
                                  const std::string& event_name,
+                                 int64_t service_worker_version_id,
                                  int worker_thread_id);
   void OnExtensionAddLazyListener(const std::string& extension_id,
                                   const std::string& event_name);
@@ -72,20 +80,43 @@ class ExtensionMessageFilter : public content::BrowserMessageFilter {
       const std::string& extension_id,
       const std::string& event_name,
       const GURL& worker_scope_url);
-  void OnExtensionAddFilteredListener(const std::string& extension_id,
-                                      const std::string& event_name,
-                                      const base::DictionaryValue& filter,
-                                      bool lazy);
-  void OnExtensionRemoveFilteredListener(const std::string& extension_id,
-                                         const std::string& event_name,
-                                         const base::DictionaryValue& filter,
-                                         bool lazy);
+  void OnExtensionAddFilteredListener(
+      const std::string& extension_id,
+      const std::string& event_name,
+      base::Optional<ServiceWorkerIdentifier> sw_identifier,
+      const base::DictionaryValue& filter,
+      bool lazy);
+  void OnExtensionRemoveFilteredListener(
+      const std::string& extension_id,
+      const std::string& event_name,
+      base::Optional<ServiceWorkerIdentifier> sw_identifier,
+      const base::DictionaryValue& filter,
+      bool lazy);
   void OnExtensionShouldSuspendAck(const std::string& extension_id,
                                    int sequence_id);
   void OnExtensionSuspendAck(const std::string& extension_id);
   void OnExtensionTransferBlobsAck(const std::vector<std::string>& blob_uuids);
   void OnExtensionWakeEventPage(int request_id,
                                 const std::string& extension_id);
+
+  void OnOpenChannelToExtension(int routing_id,
+                                const ExtensionMsg_ExternalConnectionInfo& info,
+                                const std::string& channel_name,
+                                const extensions::PortId& port_id);
+  void OnOpenChannelToNativeApp(int routing_id,
+                                const std::string& native_app_name,
+                                const extensions::PortId& port_id);
+  void OnOpenChannelToTab(int routing_id,
+                          const ExtensionMsg_TabTargetConnectionInfo& info,
+                          const std::string& extension_id,
+                          const std::string& channel_name,
+                          const extensions::PortId& port_id);
+  void OnOpenMessagePort(int routing_id, const extensions::PortId& port_id);
+  void OnCloseMessagePort(int routing_id,
+                          const extensions::PortId& port_id,
+                          bool force_close);
+  void OnPostMessage(const extensions::PortId& port_id,
+                     const extensions::Message& message);
 
   // Responds to the ExtensionHostMsg_WakeEventPage message.
   void SendWakeEventPageResponse(int request_id, bool success);

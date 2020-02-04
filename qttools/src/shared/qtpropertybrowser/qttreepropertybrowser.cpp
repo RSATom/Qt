@@ -323,7 +323,7 @@ QWidget *QtPropertyEditorDelegate::createEditor(QWidget *parent,
 void QtPropertyEditorDelegate::updateEditorGeometry(QWidget *editor,
         const QStyleOptionViewItem &option, const QModelIndex &index) const
 {
-    Q_UNUSED(index)
+    Q_UNUSED(index);
     editor->setGeometry(option.rect.adjusted(0, 0, 0, -1));
 }
 
@@ -428,7 +428,7 @@ static QIcon drawIndicatorIcon(const QPalette &palette, QStyle *style)
 void QtTreePropertyBrowserPrivate::init(QWidget *parent)
 {
     QHBoxLayout *layout = new QHBoxLayout(parent);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     m_treeWidget = new QtPropertyEditorView(parent);
     m_treeWidget->setEditorPrivate(this);
     m_treeWidget->setIconSize(QSize(18, 18));
@@ -550,7 +550,7 @@ void QtTreePropertyBrowserPrivate::propertyInserted(QtBrowserItem *index, QtBrow
     m_indexToItem[index] = newItem;
 
     newItem->setFlags(newItem->flags() | Qt::ItemIsEditable);
-    m_treeWidget->setItemExpanded(newItem, true);
+    newItem->setExpanded(true);
 
     updateItem(newItem);
 }

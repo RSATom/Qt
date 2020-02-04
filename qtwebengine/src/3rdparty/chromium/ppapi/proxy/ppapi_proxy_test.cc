@@ -64,7 +64,7 @@ PPB_Proxy_Private ppb_proxy_private = {
 // for the PluginProxyTestHarness and should only respond for PPP interfaces,
 // and the other handler is for the HostProxyTestHarness which should only
 // ever respond for PPB interfaces.
-base::ObserverList<ProxyTestHarnessBase> get_interface_handlers_;
+base::ObserverList<ProxyTestHarnessBase>::Unchecked get_interface_handlers_;
 
 const void* MockGetInterface(const char* name) {
   for (auto& observer : get_interface_handlers_) {
@@ -261,6 +261,20 @@ PluginProxyTestHarness::PluginDelegateMock::ShareSharedMemoryHandleWithRemote(
   return base::SharedMemory::DuplicateHandle(handle);
 }
 
+base::UnsafeSharedMemoryRegion PluginProxyTestHarness::PluginDelegateMock::
+    ShareUnsafeSharedMemoryRegionWithRemote(
+        const base::UnsafeSharedMemoryRegion& region,
+        base::ProcessId /* remote_pid */) {
+  return region.Duplicate();
+}
+
+base::ReadOnlySharedMemoryRegion PluginProxyTestHarness::PluginDelegateMock::
+    ShareReadOnlySharedMemoryRegionWithRemote(
+        const base::ReadOnlySharedMemoryRegion& region,
+        base::ProcessId /* remote_pid */) {
+  return region.Duplicate();
+}
+
 std::set<PP_Instance>*
 PluginProxyTestHarness::PluginDelegateMock::GetGloballySeenInstanceIDSet() {
   return &instance_id_set_;
@@ -451,9 +465,9 @@ void HostProxyTestHarness::SetUpHarnessWithChannel(
       &MockGetInterface,
       PpapiPermissions::AllPermissions()));
   ppapi::Preferences preferences;
-  host_dispatcher_->InitHostWithChannel(&delegate_mock_,
-                                        base::kNullProcessId, channel_handle,
-                                        is_client, preferences);
+  host_dispatcher_->InitHostWithChannel(&delegate_mock_, base::kNullProcessId,
+                                        channel_handle, is_client, preferences,
+                                        base::ThreadTaskRunnerHandle::Get());
   HostDispatcher::SetForInstance(pp_instance(), host_dispatcher_.get());
 }
 
@@ -496,6 +510,20 @@ HostProxyTestHarness::DelegateMock::ShareSharedMemoryHandleWithRemote(
     const base::SharedMemoryHandle& handle,
     base::ProcessId /*remote_pid*/) {
   return base::SharedMemory::DuplicateHandle(handle);
+}
+
+base::UnsafeSharedMemoryRegion
+HostProxyTestHarness::DelegateMock::ShareUnsafeSharedMemoryRegionWithRemote(
+    const base::UnsafeSharedMemoryRegion& region,
+    base::ProcessId /*remote_pid*/) {
+  return region.Duplicate();
+}
+
+base::ReadOnlySharedMemoryRegion
+HostProxyTestHarness::DelegateMock::ShareReadOnlySharedMemoryRegionWithRemote(
+    const base::ReadOnlySharedMemoryRegion& region,
+    base::ProcessId /*remote_pid*/) {
+  return region.Duplicate();
 }
 
 // HostProxyTest ---------------------------------------------------------------

@@ -43,7 +43,7 @@ BluetoothGattDescriptorClient::Properties::Properties(
   RegisterProperty(kValueProperty, &value);
 }
 
-BluetoothGattDescriptorClient::Properties::~Properties() {}
+BluetoothGattDescriptorClient::Properties::~Properties() = default;
 
 // The BluetoothGattDescriptorClient implementation used in production.
 class BluetoothGattDescriptorClientImpl
@@ -108,10 +108,10 @@ class BluetoothGattDescriptorClientImpl
 
     object_proxy->CallMethodWithErrorCallback(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothGattDescriptorClientImpl::OnValueSuccess,
-                   weak_ptr_factory_.GetWeakPtr(), callback),
-        base::Bind(&BluetoothGattDescriptorClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(), error_callback));
+        base::BindOnce(&BluetoothGattDescriptorClientImpl::OnValueSuccess,
+                       weak_ptr_factory_.GetWeakPtr(), callback),
+        base::BindOnce(&BluetoothGattDescriptorClientImpl::OnError,
+                       weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
   // BluetoothGattDescriptorClientImpl override.
@@ -138,10 +138,10 @@ class BluetoothGattDescriptorClientImpl
 
     object_proxy->CallMethodWithErrorCallback(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&BluetoothGattDescriptorClientImpl::OnSuccess,
-                   weak_ptr_factory_.GetWeakPtr(), callback),
-        base::Bind(&BluetoothGattDescriptorClientImpl::OnError,
-                   weak_ptr_factory_.GetWeakPtr(), error_callback));
+        base::BindOnce(&BluetoothGattDescriptorClientImpl::OnSuccess,
+                       weak_ptr_factory_.GetWeakPtr(), callback),
+        base::BindOnce(&BluetoothGattDescriptorClientImpl::OnError,
+                       weak_ptr_factory_.GetWeakPtr(), error_callback));
   }
 
   // dbus::ObjectManager::Interface override.
@@ -174,9 +174,10 @@ class BluetoothGattDescriptorClientImpl
 
  protected:
   // bluez::DBusClient override.
-  void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus,
+            const std::string& bluetooth_service_name) override {
     object_manager_ = bus->GetObjectManager(
-        bluetooth_object_manager::kBluetoothObjectManagerServiceName,
+        bluetooth_service_name,
         dbus::ObjectPath(
             bluetooth_object_manager::kBluetoothObjectManagerServicePath));
     object_manager_->RegisterInterface(
@@ -241,7 +242,8 @@ class BluetoothGattDescriptorClientImpl
   dbus::ObjectManager* object_manager_;
 
   // List of observers interested in event notifications from us.
-  base::ObserverList<BluetoothGattDescriptorClient::Observer> observers_;
+  base::ObserverList<BluetoothGattDescriptorClient::Observer>::Unchecked
+      observers_;
 
   // Weak pointer factory for generating 'this' pointers that might live longer
   // than we do.
@@ -252,9 +254,9 @@ class BluetoothGattDescriptorClientImpl
   DISALLOW_COPY_AND_ASSIGN(BluetoothGattDescriptorClientImpl);
 };
 
-BluetoothGattDescriptorClient::BluetoothGattDescriptorClient() {}
+BluetoothGattDescriptorClient::BluetoothGattDescriptorClient() = default;
 
-BluetoothGattDescriptorClient::~BluetoothGattDescriptorClient() {}
+BluetoothGattDescriptorClient::~BluetoothGattDescriptorClient() = default;
 
 // static
 BluetoothGattDescriptorClient* BluetoothGattDescriptorClient::Create() {

@@ -82,6 +82,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.view.ViewTreeObserver;
 import android.widget.ImageView;
 import android.widget.PopupMenu;
+import android.hardware.display.DisplayManager;
 
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
@@ -140,7 +141,6 @@ public class QtActivityDelegate
     private QtEditText m_editText = null;
     private InputMethodManager m_imm = null;
     private boolean m_quitApp = true;
-    private Process m_debuggerProcess = null; // debugger process
     private View m_dummyView = null;
     private boolean m_keyboardIsVisible = false;
     public boolean m_backKeyPressedSent = false;
@@ -151,7 +151,6 @@ public class QtActivityDelegate
     private CursorHandle m_cursorHandle;
     private CursorHandle m_leftSelectionHandle;
     private CursorHandle m_rightSelectionHandle;
-    private EditMenu m_editMenu;
     private EditPopupMenu m_editPopupMenu;
 
     public void setFullScreen(boolean enterFullScreen)
@@ -163,15 +162,13 @@ public class QtActivityDelegate
             m_activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             m_activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
             try {
-                if (Build.VERSION.SDK_INT >= 19) {
-                    int flags = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
-                    flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
-                    flags |= View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
-                    flags |= View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
-                    flags |= View.SYSTEM_UI_FLAG_FULLSCREEN;
-                    flags |= View.class.getDeclaredField("SYSTEM_UI_FLAG_IMMERSIVE_STICKY").getInt(null);
-                    m_activity.getWindow().getDecorView().setSystemUiVisibility(flags | View.INVISIBLE);
-                }
+                int flags = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+                flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
+                flags |= View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+                flags |= View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+                flags |= View.SYSTEM_UI_FLAG_FULLSCREEN;
+                flags |= View.class.getDeclaredField("SYSTEM_UI_FLAG_IMMERSIVE_STICKY").getInt(null);
+                m_activity.getWindow().getDecorView().setSystemUiVisibility(flags | View.INVISIBLE);
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -348,7 +345,9 @@ public class QtActivityDelegate
                 }
             } else if ((inputHints & ImhHiddenText) != 0) {
                 inputType |= android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;
-            } else if ((inputHints & ImhSensitiveData) != 0 || (inputHints & ImhNoPredictiveText) != 0) {
+            } else if ((inputHints & ImhSensitiveData) != 0 ||
+                ((inputHints & ImhNoPredictiveText) != 0 &&
+                  System.getenv("QT_ANDROID_ENABLE_WORKAROUND_TO_DISABLE_PREDICTIVE_TEXT") != null)) {
                 inputType |= android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
             }
 
@@ -484,77 +483,81 @@ public class QtActivityDelegate
     }
 
     // Values coming from QAndroidInputContext::CursorHandleShowMode
-    private static final int CursorHandleNotShown = 0;
-    private static final int CursorHandleShowNormal = 1;
-    private static final int CursorHandleShowSelection = 2;
-    private static final int CursorHandleShowPopup = 3;
+    private static final int CursorHandleNotShown       = 0;
+    private static final int CursorHandleShowNormal     = 1;
+    private static final int CursorHandleShowSelection  = 2;
+    private static final int CursorHandleShowEdit       = 0x100;
 
     /* called from the C++ code when the position of the cursor or selection handles needs to
        be adjusted.
        mode is one of QAndroidInputContext::CursorHandleShowMode
     */
-    public void updateHandles(int mode, int x1, int y1, int x2, int y2, boolean rtl)
+    public void updateHandles(int mode, int editX, int editY, int editButtons, int x1, int y1, int x2, int y2, boolean rtl)
     {
-        if (mode == CursorHandleNotShown) {
-            if (m_cursorHandle != null)
-                m_cursorHandle.hide();
-            if (m_rightSelectionHandle != null) {
-                m_rightSelectionHandle.hide();
-                m_leftSelectionHandle.hide();
-                m_rightSelectionHandle = null;
-                m_leftSelectionHandle = null;
-            }
-            if (m_editMenu != null)
-                m_editMenu.hide();
+        switch (mode & 0xff)
+        {
+            case CursorHandleNotShown:
+                if (m_cursorHandle != null) {
+                    m_cursorHandle.hide();
+                    m_cursorHandle = null;
+                }
+                if (m_rightSelectionHandle != null) {
+                    m_rightSelectionHandle.hide();
+                    m_leftSelectionHandle.hide();
+                    m_rightSelectionHandle = null;
+                    m_leftSelectionHandle = null;
+                }
+                if (m_editPopupMenu != null)
+                    m_editPopupMenu.hide();
+                break;
+
+            case CursorHandleShowNormal:
+                if (m_cursorHandle == null) {
+                    m_cursorHandle = new CursorHandle(m_activity, m_layout, QtNative.IdCursorHandle,
+                                                      android.R.attr.textSelectHandle, false);
+                }
+                m_cursorHandle.setPosition(x1, y1);
+                if (m_rightSelectionHandle != null) {
+                    m_rightSelectionHandle.hide();
+                    m_leftSelectionHandle.hide();
+                    m_rightSelectionHandle = null;
+                    m_leftSelectionHandle = null;
+                }
+                break;
+
+            case CursorHandleShowSelection:
+                if (m_rightSelectionHandle == null) {
+                    m_leftSelectionHandle = new CursorHandle(m_activity, m_layout, QtNative.IdLeftHandle,
+                                                             !rtl ? android.R.attr.textSelectHandleLeft :
+                                                                    android.R.attr.textSelectHandleRight,
+                                                             rtl);
+                    m_rightSelectionHandle = new CursorHandle(m_activity, m_layout, QtNative.IdRightHandle,
+                                                              !rtl ? android.R.attr.textSelectHandleRight :
+                                                                     android.R.attr.textSelectHandleLeft,
+                                                              rtl);
+                }
+                m_leftSelectionHandle.setPosition(x1,y1);
+                m_rightSelectionHandle.setPosition(x2,y2);
+                if (m_cursorHandle != null) {
+                    m_cursorHandle.hide();
+                    m_cursorHandle = null;
+                }
+                mode |= CursorHandleShowEdit;
+                break;
+        }
+
+        if (QtNative.hasClipboardText())
+            editButtons |= EditContextView.PASTE_BUTTON;
+        else
+            editButtons &= ~EditContextView.PASTE_BUTTON;
+
+        if ((mode & CursorHandleShowEdit) == CursorHandleShowEdit && editButtons != 0) {
+            m_editPopupMenu.setPosition(editX, editY, editButtons, m_cursorHandle, m_leftSelectionHandle,
+                                        m_rightSelectionHandle);
+        } else {
             if (m_editPopupMenu != null)
                 m_editPopupMenu.hide();
-        } else if (mode == CursorHandleShowNormal || mode == CursorHandleShowPopup) {
-            if (m_cursorHandle == null) {
-                m_cursorHandle = new CursorHandle(m_activity, m_layout, QtNative.IdCursorHandle,
-                                                  android.R.attr.textSelectHandle, false);
-            }
-            m_cursorHandle.setPosition(x1, y1);
-            if (m_rightSelectionHandle != null) {
-                m_rightSelectionHandle.hide();
-                m_leftSelectionHandle.hide();
-                m_rightSelectionHandle = null;
-                m_leftSelectionHandle = null;
-            }
-        } else if (mode == CursorHandleShowSelection) {
-            if (m_rightSelectionHandle == null) {
-                m_leftSelectionHandle = new CursorHandle(m_activity, m_layout, QtNative.IdLeftHandle,
-                                                         !rtl ? android.R.attr.textSelectHandleLeft :
-                                                                android.R.attr.textSelectHandleRight,
-                                                         rtl);
-                m_rightSelectionHandle = new CursorHandle(m_activity, m_layout, QtNative.IdRightHandle,
-                                                          !rtl ? android.R.attr.textSelectHandleRight :
-                                                                 android.R.attr.textSelectHandleLeft,
-                                                          rtl);
-            }
-            m_leftSelectionHandle.setPosition(x1,y1);
-            m_rightSelectionHandle.setPosition(x2,y2);
-            if (m_cursorHandle != null)
-                m_cursorHandle.hide();
-
-            if (m_editMenu == null)
-                m_editMenu = new EditMenu(m_activity);
-            m_editMenu.show();
         }
-
-        // show the edit popup menu
-        if (mode == CursorHandleShowPopup && (m_editMenu == null || !m_editMenu.isShown())
-                && QtNative.hasClipboardText()) {
-            if (m_editPopupMenu == null)
-                m_editPopupMenu = new EditPopupMenu(m_activity, m_layout);
-            if (y2 < m_editPopupMenu.getHeight())  {
-                // If the popup cannot be shown over the text, it must be shown under the anchors
-                y2 = y1 + 2 * m_editPopupMenu.getHeight();
-            }
-            m_editPopupMenu.setPosition(x2, y2);
-        } else if (m_editPopupMenu != null) {
-            m_editPopupMenu.hide();
-        }
-
     }
 
     public boolean loadApplication(Activity activity, ClassLoader classLoader, Bundle loaderParams)
@@ -596,11 +599,14 @@ public class QtActivityDelegate
         }
         QtNative.loadQtLibraries(loaderParams.getStringArrayList(NATIVE_LIBRARIES_KEY));
         ArrayList<String> libraries = loaderParams.getStringArrayList(BUNDLED_LIBRARIES_KEY);
-        QtNative.loadBundledLibraries(libraries, QtNativeLibrariesDir.nativeLibrariesDir(m_activity));
+        String nativeLibsDir = QtNativeLibrariesDir.nativeLibrariesDir(m_activity);
+        QtNative.loadBundledLibraries(libraries, nativeLibsDir);
         m_mainLib = loaderParams.getString(MAIN_LIBRARY_KEY);
         // older apps provide the main library as the last bundled library; look for this if the main library isn't provided
-        if (null == m_mainLib && libraries.size() > 0)
+        if (null == m_mainLib && libraries.size() > 0) {
             m_mainLib = libraries.get(libraries.size() - 1);
+            libraries.remove(libraries.size() - 1);
+        }
 
         if (loaderParams.containsKey(EXTRACT_STYLE_KEY)) {
             String path = loaderParams.getString(EXTRACT_STYLE_KEY);
@@ -655,66 +661,30 @@ public class QtActivityDelegate
             e.printStackTrace();
         }
 
-        return true;
-    }
+        DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(int displayId) { }
 
-    public static void debugLog(String msg)
-    {
-        Log.i(QtNative.QtTAG, "DEBUGGER: " + msg);
-    }
-
-    private class DebugWaitRunnable implements Runnable {
-
-        public DebugWaitRunnable(String pingPongSocket) throws  IOException {
-            socket = new LocalServerSocket(pingPongSocket);
-        }
-
-        public boolean wasFailure;
-        private LocalServerSocket socket;
-
-        public void run() {
-            final int napTime = 200; // milliseconds between file accesses
-            final int timeOut = 30000; // ms until we give up on ping and pong
-            final int maxAttempts = timeOut / napTime;
-
-            try {
-                LocalSocket connectionFromClient = socket.accept();
-                debugLog("Debug socket accepted");
-                BufferedReader inFromClient =
-                        new BufferedReader(new InputStreamReader(connectionFromClient.getInputStream()));
-                DataOutputStream outToClient = new DataOutputStream(connectionFromClient.getOutputStream());
-                outToClient.writeBytes("" + android.os.Process.myPid());
-
-                for (int i = 0; i < maxAttempts; i++) {
-                    String clientData = inFromClient.readLine();
-                    debugLog("Incoming socket " + clientData);
-                    if (!clientData.isEmpty())
-                        break;
-
-                    if (connectionFromClient.isClosed()) {
-                        wasFailure = true;
-                        break;
-                    }
-                    Thread.sleep(napTime);
-                }
-            } catch (IOException ioEx) {
-                ioEx.printStackTrace();
-                wasFailure = true;
-                Log.e(QtNative.QtTAG,"Can't start debugger" + ioEx.getMessage());
-            } catch (InterruptedException interruptEx) {
-                wasFailure = true;
-                Log.e(QtNative.QtTAG,"Can't start debugger" + interruptEx.getMessage());
+            @Override
+            public void onDisplayChanged(int displayId) {
+                m_currentRotation = m_activity.getWindowManager().getDefaultDisplay().getRotation();
+                QtNative.handleOrientationChanged(m_currentRotation, m_nativeOrientation);
             }
+
+            @Override
+            public void onDisplayRemoved(int displayId) { }
+        };
+
+        try {
+            DisplayManager displayManager = (DisplayManager) m_activity.getSystemService(Context.DISPLAY_SERVICE);
+            displayManager.registerDisplayListener(displayListener, null);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
-        public void shutdown() throws IOException
-        {
-            wasFailure = true;
-            try {
-                socket.close();
-            } catch (IOException ignored) { }
-        }
-    };
+        m_mainLib = QtNative.loadMainLibrary(m_mainLib, nativeLibsDir);
+        return m_mainLib != null;
+    }
 
     public boolean startApplication()
     {
@@ -724,169 +694,12 @@ public class QtActivityDelegate
             Bundle extras = m_activity.getIntent().getExtras();
             if (extras != null) {
                 try {
+                    // do NOT remove !!!!
                     final String dc = "--Added-by-androiddeployqt--/debugger.command";
-                    String debuggerCommand =
-                        new BufferedReader(new InputStreamReader(m_activity.getAssets().open(dc))).readLine();
-                    if ( /*(ai.flags&ApplicationInfo.FLAG_DEBUGGABLE) != 0
-                            &&*/ extras.containsKey("debug_ping")
-                            && extras.getString("debug_ping").equals("true")) {
-                        try {
-                            String packagePath =
-                                m_activity.getPackageManager().getApplicationInfo(m_activity.getPackageName(),
-                                                                                PackageManager.GET_CONFIGURATIONS).dataDir + "/";
-
-                            debugLog("extra parameters: " + extras);
-                            String packageName = m_activity.getPackageName();
-                            String pingFile = extras.getString("ping_file");
-                            String pongFile = extras.getString("pong_file");
-                            String gdbserverSocket = extras.getString("gdbserver_socket");
-                            String gdbserverCommand = packagePath + debuggerCommand + gdbserverSocket;
-                            String pingSocket = extras.getString("ping_socket");
-                            boolean usePing = pingFile != null;
-                            boolean usePong = pongFile != null;
-                            boolean useSocket = gdbserverSocket != null;
-                            boolean usePingSocket = pingSocket != null;
-                            int napTime = 200; // milliseconds between file accesses
-                            int timeOut = 30000; // ms until we give up on ping and pong
-                            int maxAttempts = timeOut / napTime;
-
-                            if (gdbserverSocket != null) {
-                                debugLog("removing gdb socket " + gdbserverSocket);
-                                new File(gdbserverSocket).delete();
-                            }
-
-                            if (usePing) {
-                                debugLog("removing ping file " + pingFile);
-                                File ping = new File(pingFile);
-                                if (ping.exists()) {
-                                    if (!ping.delete())
-                                        debugLog("ping file cannot be deleted");
-                                }
-                            }
-
-                            if (usePong) {
-                                debugLog("removing pong file " + pongFile);
-                                File pong = new File(pongFile);
-                                if (pong.exists()) {
-                                    if (!pong.delete())
-                                        debugLog("pong file cannot be deleted");
-                                }
-                            }
-
-                            debugLog("starting " + gdbserverCommand);
-                            m_debuggerProcess = Runtime.getRuntime().exec(gdbserverCommand);
-                            debugLog("gdbserver started");
-
-                            if (useSocket) {
-                                int i;
-                                for (i = 0; i < maxAttempts; ++i) {
-                                    debugLog("waiting for socket at " + gdbserverSocket + ", attempt " + i);
-                                    File file = new File(gdbserverSocket);
-                                    if (file.exists()) {
-                                        file.setReadable(true, false);
-                                        file.setWritable(true, false);
-                                        file.setExecutable(true, false);
-                                        break;
-                                    }
-                                    Thread.sleep(napTime);
-                                }
-
-                                if (i == maxAttempts) {
-                                    debugLog("time out when waiting for debug socket");
-                                    return false;
-                                }
-
-                                debugLog("socket ok");
-                            } else {
-                                debugLog("socket not used");
-                            }
-
-                            if (usePingSocket) {
-                                DebugWaitRunnable runnable = new DebugWaitRunnable(pingSocket);
-                                Thread waitThread = new Thread(runnable);
-                                waitThread.start();
-
-                                int i;
-                                for (i = 0; i < maxAttempts && waitThread.isAlive(); ++i) {
-                                    debugLog("Waiting for debug socket connect");
-                                    debugLog("go to sleep");
-                                    Thread.sleep(napTime);
-                                }
-
-                                if (i == maxAttempts) {
-                                    debugLog("time out when waiting for ping socket");
-                                    runnable.shutdown();
-                                    return false;
-                                }
-
-                                if (runnable.wasFailure) {
-                                    debugLog("Could not connect to debug client");
-                                    return false;
-                                } else {
-                                    debugLog("Got pid acknowledgment");
-                                }
-                            }
-
-                            if (usePing) {
-                                // Tell we are ready.
-                                debugLog("writing ping at " + pingFile);
-                                FileWriter writer = new FileWriter(pingFile);
-                                writer.write("" + android.os.Process.myPid());
-                                writer.close();
-                                File file = new File(pingFile);
-                                file.setReadable(true, false);
-                                file.setWritable(true, false);
-                                file.setExecutable(true, false);
-                                debugLog("wrote ping");
-                            } else {
-                                debugLog("ping not requested");
-                            }
-
-                            // Wait until other side is ready.
-                            if (usePong) {
-                                int i;
-                                for (i = 0; i < maxAttempts; ++i) {
-                                    debugLog("waiting for pong at " + pongFile + ", attempt " + i);
-                                    File file = new File(pongFile);
-                                    if (file.exists()) {
-                                        file.delete();
-                                        break;
-                                    }
-                                    debugLog("go to sleep");
-                                    Thread.sleep(napTime);
-                                }
-                                debugLog("Removing pingFile " + pingFile);
-                                new File(pingFile).delete();
-
-                                if (i == maxAttempts) {
-                                    debugLog("time out when waiting for pong file");
-                                    return false;
-                                }
-
-                                debugLog("got pong " + pongFile);
-                            } else {
-                                debugLog("pong not requested");
-                            }
-
-                        } catch (IOException ioe) {
-                            ioe.printStackTrace();
-                        } catch (SecurityException se) {
-                            se.printStackTrace();
-                        }
-                    }
-
-                    if (/*(ai.flags&ApplicationInfo.FLAG_DEBUGGABLE) != 0
-                            &&*/ extras.containsKey("qml_debug")
-                            && extras.getString("qml_debug").equals("true")) {
-                        String qmljsdebugger;
-                        if (extras.containsKey("qmljsdebugger")) {
-                            qmljsdebugger = extras.getString("qmljsdebugger");
-                            qmljsdebugger.replaceAll("\\s", ""); // remove whitespace for security
-                        } else {
-                            qmljsdebugger = "port:3768";
-                        }
-                        m_applicationParameters += "\t-qmljsdebugger=" + qmljsdebugger;
-                    }
+                    new BufferedReader(new InputStreamReader(m_activity.getAssets().open(dc))).readLine();
+                    // do NOT remove !!!!
+                    // The previous lines are needed to check if the debug mode is enabled.
+                    // We are not allowed to use extraenvvars or extraappparams in a non debuggable environment.
 
                     if (extras.containsKey("extraenvvars")) {
                         try {
@@ -921,6 +734,7 @@ public class QtActivityDelegate
     public void onTerminate()
     {
         QtNative.terminateQt();
+        QtNative.m_qtThread.exit();
     }
 
     public void onCreate(Bundle savedInstanceState)
@@ -932,11 +746,7 @@ public class QtActivityDelegate
                 @Override
                 public void run() {
                     try {
-                        String nativeLibraryDir = QtNativeLibrariesDir.nativeLibrariesDir(m_activity);
-                        QtNative.startApplication(m_applicationParameters,
-                            m_environmentVariables,
-                            m_mainLib,
-                            nativeLibraryDir);
+                        QtNative.startApplication(m_applicationParameters, m_environmentVariables, m_mainLib);
                         m_started = true;
                     } catch (Exception e) {
                         e.printStackTrace();
@@ -947,11 +757,19 @@ public class QtActivityDelegate
         }
         m_layout = new QtLayout(m_activity, startApplication);
 
+        int orientation = m_activity.getResources().getConfiguration().orientation;
+
         try {
             ActivityInfo info = m_activity.getPackageManager().getActivityInfo(m_activity.getComponentName(), PackageManager.GET_META_DATA);
-            if (info.metaData.containsKey("android.app.splash_screen_drawable")) {
+
+            String splashScreenKey = "android.app.splash_screen_drawable_"
+                + (orientation == Configuration.ORIENTATION_LANDSCAPE ? "landscape" : "portrait");
+            if (!info.metaData.containsKey(splashScreenKey))
+                splashScreenKey = "android.app.splash_screen_drawable";
+
+            if (info.metaData.containsKey(splashScreenKey)) {
                 m_splashScreenSticky = info.metaData.containsKey("android.app.splash_screen_sticky") && info.metaData.getBoolean("android.app.splash_screen_sticky");
-                int id = info.metaData.getInt("android.app.splash_screen_drawable");
+                int id = info.metaData.getInt(splashScreenKey);
                 m_splashScreen = new ImageView(m_activity);
                 m_splashScreen.setImageDrawable(m_activity.getResources().getDrawable(id));
                 m_splashScreen.setScaleType(ImageView.ScaleType.FIT_XY);
@@ -971,7 +789,6 @@ public class QtActivityDelegate
                                   new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                                                              ViewGroup.LayoutParams.MATCH_PARENT));
 
-        int orientation = m_activity.getResources().getConfiguration().orientation;
         int rotation = m_activity.getWindowManager().getDefaultDisplay().getRotation();
         boolean rot90 = (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270);
         boolean currentlyLandscape = (orientation == Configuration.ORIENTATION_LANDSCAPE);
@@ -1001,6 +818,7 @@ public class QtActivityDelegate
                 return true;
             }
         });
+        m_editPopupMenu = new EditPopupMenu(m_activity, m_layout);
     }
 
     public void hideSplashScreen()
@@ -1060,13 +878,6 @@ public class QtActivityDelegate
         } catch (Exception e) {
             e.printStackTrace();
         }
-
-        int rotation = m_activity.getWindowManager().getDefaultDisplay().getRotation();
-        if (rotation != m_currentRotation) {
-            QtNative.handleOrientationChanged(rotation, m_nativeOrientation);
-        }
-
-        m_currentRotation = rotation;
     }
 
     public void onDestroy()
@@ -1074,9 +885,8 @@ public class QtActivityDelegate
         if (m_quitApp) {
             QtNative.terminateQt();
             QtNative.setActivity(null, null);
-            if (m_debuggerProcess != null)
-                m_debuggerProcess.destroy();
-            System.exit(0);// FIXME remove it or find a better way
+            QtNative.m_qtThread.exit();
+            System.exit(0);
         }
     }
 

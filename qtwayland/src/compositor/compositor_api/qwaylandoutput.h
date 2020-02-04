@@ -104,7 +104,7 @@ public:
 
     QWaylandOutput();
     QWaylandOutput(QWaylandCompositor *compositor, QWindow *window);
-    ~QWaylandOutput();
+    ~QWaylandOutput() override;
 
     static QWaylandOutput *fromResource(wl_resource *resource);
     struct ::wl_resource *resourceForClient(QWaylandClient *client) const;
@@ -180,15 +180,14 @@ Q_SIGNALS:
     void modelChanged();
     void windowDestroyed();
 
-private Q_SLOTS:
-    void handleSetWidth(int newWidth);
-    void handleSetHeight(int newHeight);
-    void handleWindowDestroyed();
-
 protected:
     bool event(QEvent *event) override;
 
     virtual void initialize();
+
+private:
+    Q_PRIVATE_SLOT(d_func(), void _q_handleMaybeWindowPixelSizeChanged())
+    Q_PRIVATE_SLOT(d_func(), void _q_handleWindowDestroyed())
 };
 
 QT_END_NAMESPACE

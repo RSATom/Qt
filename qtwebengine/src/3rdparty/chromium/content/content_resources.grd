@@ -10,9 +10,6 @@
   <translations />
   <release seq="1">
     <includes>
-      <include name="IDR_ACCESSIBILITY_HTML" file="browser/resources/accessibility/accessibility.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
-      <include name="IDR_ACCESSIBILITY_CSS" file="browser/resources/accessibility/accessibility.css" compress="gzip" type="BINDATA" />
-      <include name="IDR_ACCESSIBILITY_JS" file="browser/resources/accessibility/accessibility.js" flattenhtml="true" compress="gzip" type="BINDATA" />
       <include name="IDR_APPCACHE_INTERNALS_HTML" file="browser/resources/appcache/appcache_internals.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
       <include name="IDR_APPCACHE_INTERNALS_JS" file="browser/resources/appcache/appcache_internals.js" flattenhtml="false" compress="gzip" type="BINDATA" />
       <include name="IDR_APPCACHE_INTERNALS_CSS" file="browser/resources/appcache/appcache_internals.css" flattenhtml="true" compress="gzip" type="BINDATA" />
@@ -22,53 +19,26 @@
       <include name="IDR_DEVTOOLS_TOUCH_CURSOR_ICON_2X" file="browser/resources/devtools/devtools_touch_cursor_2x.png" type="BINDATA" />
       <include name="IDR_GPU_INTERNALS_HTML" file="browser/resources/gpu/gpu_internals.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
       <include name="IDR_GPU_INTERNALS_JS" file="browser/resources/gpu/gpu_internals.js" flattenhtml="true" compress="gzip" type="BINDATA" />
+      <include name="IDR_HISTOGRAMS_INTERNALS_HTML" file="browser/resources/histograms/histograms_internals.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
+      <include name="IDR_HISTOGRAMS_INTERNALS_JS" file="browser/resources/histograms/histograms_internals.js" flattenhtml="true" compress="gzip" type="BINDATA" />
       <include name="IDR_INDEXED_DB_INTERNALS_HTML" file="browser/resources/indexed_db/indexeddb_internals.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
       <include name="IDR_INDEXED_DB_INTERNALS_JS" file="browser/resources/indexed_db/indexeddb_internals.js" flattenhtml="true" compress="gzip" type="BINDATA" />
       <include name="IDR_INDEXED_DB_INTERNALS_CSS" file="browser/resources/indexed_db/indexeddb_internals.css" flattenhtml="true" compress="gzip" type="BINDATA" />
       <include name="IDR_MEDIA_INTERNALS_HTML" file="browser/resources/media/media_internals.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
       <include name="IDR_MEDIA_INTERNALS_JS" file="browser/resources/media/media_internals.js" flattenhtml="true" compress="gzip" type="BINDATA" />
-      <include name="IDR_MOJO_CATALOG_MANIFEST" file="../services/catalog/manifest.json" type="BINDATA" />
-      <include name="IDR_MOJO_CONTENT_BROWSER_MANIFEST" file="${root_gen_dir}/content/public/app/browser_manifest.json" use_base_dir="false" type="BINDATA" />
-      <include name="IDR_MOJO_CONTENT_GPU_MANIFEST" file="${root_gen_dir}/content/public/app/gpu_manifest.json" use_base_dir="false" type="BINDATA" />
-      <include name="IDR_MOJO_CONTENT_PACKAGED_SERVICES_MANIFEST" file="${root_gen_dir}/content/public/app/packaged_services_manifest.json" use_base_dir="false" type="BINDATA" />
-      <include name="IDR_MOJO_CONTENT_PLUGIN_MANIFEST" file="${root_gen_dir}/content/public/app/plugin_manifest.json" use_base_dir="false" type="BINDATA" />
-      <include name="IDR_MOJO_CONTENT_RENDERER_MANIFEST" file="${root_gen_dir}/content/public/app/renderer_manifest.json" use_base_dir="false" type="BINDATA" />
-      <include name="IDR_MOJO_CONTENT_UTILITY_MANIFEST" file="${root_gen_dir}/content/public/app/utility_manifest.json" use_base_dir="false" type="BINDATA" />
       <include name="IDR_NETWORK_ERROR_LISTING_HTML" file="browser/resources/net/network_errors_listing.html" flattenhtml="true" allowexternalscript="true" type="BINDATA" />
       <include name="IDR_NETWORK_ERROR_LISTING_JS" file="browser/resources/net/network_errors_listing.js" flattenhtml="true" type="BINDATA" />
       <include name="IDR_NETWORK_ERROR_LISTING_CSS" file="browser/resources/net/network_errors_listing.css" flattenhtml="true" type="BINDATA" />
+      <include name="IDR_PROCESS_INTERNALS_HTML" file="browser/resources/process/process_internals.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
+      <include name="IDR_PROCESS_INTERNALS_MOJO_JS" file="${root_gen_dir}/content/browser/process_internals/process_internals.mojom.js" use_base_dir="false" type="BINDATA" compress="gzip" />
+      <include name="IDR_PROCESS_INTERNALS_CSS" file="browser/resources/process/process_internals.css" flattenhtml="true" compress="gzip" type="BINDATA" />
+      <include name="IDR_PROCESS_INTERNALS_JS" file="browser/resources/process/process_internals.js" flattenhtml="true" compress="gzip" type="BINDATA" />
       <include name="IDR_SERVICE_WORKER_INTERNALS_HTML" file="browser/resources/service_worker/serviceworker_internals.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
       <include name="IDR_SERVICE_WORKER_INTERNALS_JS" file="browser/resources/service_worker/serviceworker_internals.js" flattenhtml="true" compress="gzip" type="BINDATA" />
       <include name="IDR_SERVICE_WORKER_INTERNALS_CSS" file="browser/resources/service_worker/serviceworker_internals.css" flattenhtml="true" compress="gzip" type="BINDATA" />
+      <include name="IDR_URL_MOJO_JS" file="${root_gen_dir}/url/mojom/url.mojom.js" use_base_dir="false" type="BINDATA" compress="gzip" />
       <include name="IDR_WEBRTC_INTERNALS_HTML" file="browser/resources/media/webrtc_internals.html" flattenhtml="true" allowexternalscript="true" compress="gzip" type="BINDATA" />
       <include name="IDR_WEBRTC_INTERNALS_JS" file="browser/resources/media/webrtc_internals.js" flattenhtml="true" compress="gzip" type="BINDATA" />
-      <if expr="is_macosx">
-        <include name="IDR_GPU_SANDBOX_PROFILE" file="browser/gpu.sb" type="BINDATA" />
-        <include name="IDR_COMMON_SANDBOX_PROFILE" file="common/common.sb" type="BINDATA" />
-        <include name="IDR_PPAPI_SANDBOX_PROFILE" file="ppapi_plugin/ppapi.sb" type="BINDATA" />
-        <include name="IDR_RENDERER_SANDBOX_PROFILE" file="renderer/renderer.sb" type="BINDATA" />
-        <include name="IDR_RENDERER_SANDBOX_V2_PROFILE" file="renderer/renderer_v2.sb" type="BINDATA" />
-        <include name="IDR_UTILITY_SANDBOX_PROFILE" file="utility/utility.sb" type="BINDATA" />
-      </if>
-      <if expr="not is_ios">
-        <include name="IDR_MOJO_ASSOCIATED_BINDINGS_JS" file="../mojo/public/js/associated_bindings.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_BINDINGS_JS" file="../mojo/public/js/bindings.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_BUFFER_JS" file="../mojo/public/js/buffer.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_CODEC_JS" file="../mojo/public/js/codec.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_CONNECTOR_JS" file="../mojo/public/js/connector.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_CONTROL_MESSAGE_HANDLER_JS" file="../mojo/public/js/lib/control_message_handler.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_CONTROL_MESSAGE_PROXY_JS" file="../mojo/public/js/lib/control_message_proxy.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_INTERFACE_CONTROL_MESSAGES_MOJOM_JS" file="${root_gen_dir}/mojo/public/interfaces/bindings/interface_control_messages.mojom.js" use_base_dir="false" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_PIPE_CONTROL_MESSAGES_MOJOM_JS" file="${root_gen_dir}/mojo/public/interfaces/bindings/pipe_control_messages.mojom.js" use_base_dir="false" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_INTERFACE_TYPES_JS" file="../mojo/public/js/interface_types.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_ROUTER_JS" file="../mojo/public/js/router.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_UNICODE_JS" file="../mojo/public/js/unicode.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_VALIDATOR_JS" file="../mojo/public/js/validator.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_INTERFACE_ENDPOINT_CLIENT_JS" file="../mojo/public/js/lib/interface_endpoint_client.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_INTERFACE_ENDPOINT_HANDLE_JS" file="../mojo/public/js/lib/interface_endpoint_handle.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_PIPE_CONTROL_MESSAGE_HANDLER_JS" file="../mojo/public/js/lib/pipe_control_message_handler.js" flattenhtml="true" type="BINDATA" />
-        <include name="IDR_MOJO_PIPE_CONTROL_MESSAGE_PROXY_JS" file="../mojo/public/js/lib/pipe_control_message_proxy.js" flattenhtml="true" type="BINDATA" />
-      </if>
     </includes>
   </release>
 </grit>

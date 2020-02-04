@@ -37,7 +37,7 @@
 **
 ****************************************************************************/
 
-#include "qconnectionfactories.h"
+#include "qconnectionfactories_p.h"
 #include "qconnectionfactories_p.h"
 
 // BEGIN: Backends
@@ -76,21 +76,102 @@ inline bool fromDataStream(QDataStream &in, QRemoteObjectPacketTypeEnum &type, Q
     case InvokeReplyPacket: type = InvokeReplyPacket; break;
     case PropertyChangePacket: type = PropertyChangePacket; break;
     case ObjectList: type = ObjectList; break;
+    case Ping: type = Ping; break;
+    case Pong: type = Pong; break;
     default:
-        qCWarning(QT_REMOTEOBJECT_IO) << "Invalid packet received" << type;
+        qCWarning(QT_REMOTEOBJECT_IO) << "Invalid packet received" << _type;
     }
     if (type == Invalid)
         return false;
     if (type == ObjectList)
         return true;
     in >> name;
+    qCDebug(QT_REMOTEOBJECT_IO) << "Packet received of type" << type << "for object" << name;
     return true;
 }
 
-ClientIoDevice::ClientIoDevice(QObject *parent)
+/*!
+    All communication between nodes happens through some form of QIODevice with
+    an associated QDataStream to handle marshalling of Qt types. IoDeviceBase
+    is an abstract base class that provides a consistent interface to QtRO, yet
+    can be extended to support different types of QIODevice.
+ */
+IoDeviceBase::IoDeviceBase(QObject *parent)
     : QObject(parent), m_isClosing(false), m_curReadSize(0)
 {
     m_dataStream.setVersion(dataStreamVersion);
+}
+
+IoDeviceBase::~IoDeviceBase()
+{
+}
+
+bool IoDeviceBase::read(QRemoteObjectPacketTypeEnum &type, QString &name)
+{
+    qCDebug(QT_REMOTEOBJECT_IO) << deviceType() << "read()" << m_curReadSize << bytesAvailable();
+
+    if (m_curReadSize == 0) {
+        if (bytesAvailable() < static_cast<int>(sizeof(quint32)))
+            return false;
+
+        m_dataStream >> m_curReadSize;
+    }
+
+    qCDebug(QT_REMOTEOBJECT_IO) << deviceType() << "read()-looking for map" << m_curReadSize << bytesAvailable();
+
+    if (bytesAvailable() < m_curReadSize)
+        return false;
+
+    m_curReadSize = 0;
+    return fromDataStream(m_dataStream, type, name);
+}
+
+void IoDeviceBase::write(const QByteArray &data)
+{
+    if (connection()->isOpen() && !m_isClosing)
+        connection()->write(data);
+}
+
+void IoDeviceBase::write(const QByteArray &data, qint64 size)
+{
+    if (connection()->isOpen() && !m_isClosing)
+        connection()->write(data.data(), size);
+}
+
+void IoDeviceBase::close()
+{
+    m_isClosing = true;
+    doClose();
+}
+
+qint64 IoDeviceBase::bytesAvailable() const
+{
+    return connection()->bytesAvailable();
+}
+
+void IoDeviceBase::initializeDataStream()
+{
+    m_dataStream.setDevice(connection());
+    m_dataStream.resetStatus();
+}
+
+void IoDeviceBase::addSource(const QString &name)
+{
+    m_remoteObjects.insert(name);
+}
+
+void IoDeviceBase::removeSource(const QString &name)
+{
+    m_remoteObjects.remove(name);
+}
+
+QSet<QString> IoDeviceBase::remoteObjects() const
+{
+    return m_remoteObjects;
+}
+
+ClientIoDevice::ClientIoDevice(QObject *parent) : IoDeviceBase(parent)
+{
 }
 
 ClientIoDevice::~ClientIoDevice()
@@ -99,45 +180,10 @@ ClientIoDevice::~ClientIoDevice()
         close();
 }
 
-void ClientIoDevice::close()
+void ClientIoDevice::disconnectFromServer()
 {
-    m_isClosing = true;
-    doClose();
-}
-
-bool ClientIoDevice::read(QRemoteObjectPacketTypeEnum &type, QString &name)
-{
-    qCDebug(QT_REMOTEOBJECT_IO) << "ClientIODevice::read()" << m_curReadSize << bytesAvailable();
-
-    if (m_curReadSize == 0) {
-        if (bytesAvailable() < static_cast<int>(sizeof(quint32)))
-            return false;
-
-        m_dataStream >> m_curReadSize;
-    }
-
-    qCDebug(QT_REMOTEOBJECT_IO) << "ClientIODevice::read()-looking for map" << m_curReadSize << bytesAvailable();
-
-    if (bytesAvailable() < m_curReadSize)
-        return false;
-
-    m_curReadSize = 0;
-    return fromDataStream(m_dataStream, type, name);
-}
-
-void ClientIoDevice::write(const QByteArray &data)
-{
-    connection()->write(data);
-}
-
-void ClientIoDevice::write(const QByteArray &data, qint64 size)
-{
-    connection()->write(data.data(), size);
-}
-
-qint64 ClientIoDevice::bytesAvailable()
-{
-    return connection()->bytesAvailable();
+    doDisconnectFromServer();
+    emit shouldReconnect(this);
 }
 
 QUrl ClientIoDevice::url() const
@@ -145,78 +191,23 @@ QUrl ClientIoDevice::url() const
     return m_url;
 }
 
-void ClientIoDevice::addSource(const QString &name)
+QString ClientIoDevice::deviceType() const
 {
-    m_remoteObjects.insert(name);
+    return QStringLiteral("ClientIoDevice");
 }
 
-void ClientIoDevice::removeSource(const QString &name)
-{
-    m_remoteObjects.remove(name);
-}
-
-QSet<QString> ClientIoDevice::remoteObjects() const
-{
-    return m_remoteObjects;
-}
-
-ServerIoDevice::ServerIoDevice(QObject *parent)
-    : QObject(parent), m_isClosing(false), m_curReadSize(0)
-{
-    m_dataStream.setVersion(dataStreamVersion);
-}
-
-ServerIoDevice::~ServerIoDevice()
+/*!
+    The Qt servers create QIODevice derived classes from handleConnection. The
+    problem is that they behave differently, so this class adds some
+    consistency.
+ */
+ServerIoDevice::ServerIoDevice(QObject *parent) : IoDeviceBase(parent)
 {
 }
 
-bool ServerIoDevice::read(QRemoteObjectPacketTypeEnum &type, QString &name)
+QString ServerIoDevice::deviceType() const
 {
-    qCDebug(QT_REMOTEOBJECT_IO) << "ServerIODevice::read()" << m_curReadSize << bytesAvailable();
-
-    if (m_curReadSize == 0) {
-        if (bytesAvailable() < static_cast<int>(sizeof(quint32)))
-            return false;
-
-        m_dataStream >> m_curReadSize;
-    }
-
-    qCDebug(QT_REMOTEOBJECT_IO) << "ServerIODevice::read()-looking for map" << m_curReadSize << bytesAvailable();
-
-    if (bytesAvailable() < m_curReadSize)
-        return false;
-
-    m_curReadSize = 0;
-    return fromDataStream(m_dataStream, type, name);
-}
-
-void ServerIoDevice::close()
-{
-    m_isClosing = true;
-    doClose();
-}
-
-void ServerIoDevice::write(const QByteArray &data)
-{
-    if (connection()->isOpen() && !m_isClosing)
-        connection()->write(data);
-}
-
-void ServerIoDevice::write(const QByteArray &data, qint64 size)
-{
-    if (connection()->isOpen() && !m_isClosing)
-        connection()->write(data.data(), size);
-}
-
-qint64 ServerIoDevice::bytesAvailable()
-{
-    return connection()->bytesAvailable();
-}
-
-void ServerIoDevice::initializeDataStream()
-{
-    m_dataStream.setDevice(connection());
-    m_dataStream.resetStatus();
+    return QStringLiteral("ServerIoDevice");
 }
 
 QConnectionAbstractServer::QConnectionAbstractServer(QObject *parent)
@@ -235,10 +226,45 @@ ServerIoDevice *QConnectionAbstractServer::nextPendingConnection()
     return iodevice;
 }
 
+ExternalIoDevice::ExternalIoDevice(QIODevice *device, QObject *parent)
+    : IoDeviceBase(parent)
+    , m_device(device)
+{
+    initializeDataStream();
+    connect(m_device.data(), &QIODevice::aboutToClose, this, [this]() { this->m_isClosing = true; });
+    connect(m_device.data(), &QIODevice::readyRead, this, &ExternalIoDevice::readyRead);
+    auto meta = device->metaObject();
+    if (-1 == meta->indexOfSignal(SIGNAL(disconnected())))
+      connect(m_device.data(), SIGNAL(disconnected()), this, SIGNAL(disconnected()));
+}
+
+QIODevice *ExternalIoDevice::connection() const
+{
+    return m_device;
+}
+
+bool ExternalIoDevice::isOpen() const
+{
+    if (!m_device)
+        return false;
+    return m_device->isOpen() && IoDeviceBase::isOpen();
+}
+
+void ExternalIoDevice::doClose()
+{
+    if (isOpen())
+        m_device->close();
+}
+
+QString ExternalIoDevice::deviceType() const
+{
+    return QStringLiteral("ExternalIoDevice");
+}
+
 /*!
     \class QtROServerFactory
     \inmodule QtRemoteObjects
-    \brief A class holding information about server backends available on the Qt Remote Objects network
+    \brief A class that holds information about server backends available on the Qt Remote Objects network.
 */
 QtROServerFactory::QtROServerFactory()
 {
@@ -257,7 +283,7 @@ QtROServerFactory *QtROServerFactory::instance()
 /*!
     \class QtROClientFactory
     \inmodule QtRemoteObjects
-    \brief A class holding information about client backends available on the Qt Remote Objects network
+    \brief A class that holds information about client backends available on the Qt Remote Objects network.
 */
 QtROClientFactory::QtROClientFactory()
 {

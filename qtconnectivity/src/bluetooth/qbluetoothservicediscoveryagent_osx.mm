@@ -83,18 +83,18 @@ public:
     void _q_deviceDiscovered(const QBluetoothDeviceInfo &info);
     void _q_deviceDiscoveryError(QBluetoothDeviceDiscoveryAgent::Error);
     void _q_deviceDiscoveryFinished();
-    void _q_serviceDiscoveryFinished();
-
 
 private:
     // SDPInquiryDelegate:
-    void SDPInquiryFinished(IOBluetoothDevice *device) Q_DECL_OVERRIDE;
-    void SDPInquiryError(IOBluetoothDevice *device, IOReturn errorCode) Q_DECL_OVERRIDE;
+    void SDPInquiryFinished(IOBluetoothDevice *device) override;
+    void SDPInquiryError(IOBluetoothDevice *device, IOReturn errorCode) override;
 
     void performMinimalServiceDiscovery(const QBluetoothAddress &deviceAddress);
     void setupDeviceDiscoveryAgent();
     bool isDuplicatedService(const QBluetoothServiceInfo &serviceInfo) const;
     void serviceDiscoveryFinished();
+
+    bool serviceHasMathingUuid(const QBluetoothServiceInfo &serviceInfo) const;
 
     QBluetoothServiceDiscoveryAgent *q_ptr;
 
@@ -152,7 +152,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::stopDeviceDiscovery()
     Q_ASSERT_X(state == DeviceDiscovery, Q_FUNC_INFO, "invalid state");
 
     deviceDiscoveryAgent->stop();
-    deviceDiscoveryAgent.reset(Q_NULLPTR);
+    deviceDiscoveryAgent.reset(nullptr);
     state = Inactive;
 
     emit q_ptr->canceled();
@@ -268,7 +268,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::_q_deviceDiscoveryError(QBluetoothD
     errorString = QCoreApplication::translate(DEV_DISCOVERY, DD_UNKNOWN_ERROR);
 
     deviceDiscoveryAgent->stop();
-    deviceDiscoveryAgent.reset(Q_NULLPTR);
+    deviceDiscoveryAgent.reset(nullptr);
 
     state = QBluetoothServiceDiscoveryAgentPrivate::Inactive;
     emit q_ptr->error(error);
@@ -283,19 +283,14 @@ void QBluetoothServiceDiscoveryAgentPrivate::_q_deviceDiscoveryFinished()
         //Forward the device discovery error
         error = static_cast<QBluetoothServiceDiscoveryAgent::Error>(deviceDiscoveryAgent->error());
         errorString = deviceDiscoveryAgent->errorString();
-        deviceDiscoveryAgent.reset(Q_NULLPTR);
+        deviceDiscoveryAgent.reset(nullptr);
         state = Inactive;
         emit q_ptr->error(error);
         emit q_ptr->finished();
     } else {
-        deviceDiscoveryAgent.reset(Q_NULLPTR);
+        deviceDiscoveryAgent.reset(nullptr);
         startServiceDiscovery();
     }
-}
-
-void QBluetoothServiceDiscoveryAgentPrivate::_q_serviceDiscoveryFinished()
-{
-    // See SDPInquiryFinished.
 }
 
 void QBluetoothServiceDiscoveryAgentPrivate::SDPInquiryFinished(IOBluetoothDevice *device)
@@ -376,7 +371,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::performMinimalServiceDiscovery(cons
             if (!serviceInfo.isValid())
                 continue;
 
-            if (!uuidFilter.isEmpty() && !uuidFilter.contains(serviceInfo.serviceUuid()))
+            if (!uuidFilter.isEmpty() && !serviceHasMathingUuid(serviceInfo))
                 continue;
 
             if (!isDuplicatedService(serviceInfo)) {
@@ -397,12 +392,14 @@ void QBluetoothServiceDiscoveryAgentPrivate::setupDeviceDiscoveryAgent()
 
     deviceDiscoveryAgent.reset(new QBluetoothDeviceDiscoveryAgent(localAdapterAddress, q_ptr));
 
-    QObject::connect(deviceDiscoveryAgent.data(), SIGNAL(deviceDiscovered(const QBluetoothDeviceInfo &)),
-                     q_ptr, SLOT(_q_deviceDiscovered(const QBluetoothDeviceInfo &)));
-    QObject::connect(deviceDiscoveryAgent.data(), SIGNAL(finished()),
-                     q_ptr, SLOT(_q_deviceDiscoveryFinished()));
-    QObject::connect(deviceDiscoveryAgent.data(), SIGNAL(error(QBluetoothDeviceDiscoveryAgent::Error)),
-                     q_ptr, SLOT(_q_deviceDiscoveryError(QBluetoothDeviceDiscoveryAgent::Error)));
+    QObject::connect(deviceDiscoveryAgent.data(), &QBluetoothDeviceDiscoveryAgent::deviceDiscovered,
+                     this, &QBluetoothServiceDiscoveryAgentPrivate::_q_deviceDiscovered);
+    QObject::connect(deviceDiscoveryAgent.data(), &QBluetoothDeviceDiscoveryAgent::finished,
+                     this, &QBluetoothServiceDiscoveryAgentPrivate::_q_deviceDiscoveryFinished);
+    QObject::connect(deviceDiscoveryAgent.data(),
+                     QOverload<QBluetoothDeviceDiscoveryAgent::Error>::of(&QBluetoothDeviceDiscoveryAgent::error),
+                     this,
+                     &QBluetoothServiceDiscoveryAgentPrivate::_q_deviceDiscoveryError);
 }
 
 bool QBluetoothServiceDiscoveryAgentPrivate::isDuplicatedService(const QBluetoothServiceInfo &serviceInfo) const
@@ -429,6 +426,17 @@ void QBluetoothServiceDiscoveryAgentPrivate::serviceDiscoveryFinished()
         startServiceDiscovery();
 }
 
+bool QBluetoothServiceDiscoveryAgentPrivate::serviceHasMathingUuid(const QBluetoothServiceInfo &serviceInfo) const
+{
+    for (const auto &requestedUuid : uuidFilter) {
+        if (serviceInfo.serviceUuid() == requestedUuid)
+            return true;
+        if (serviceInfo.serviceClassUuids().contains(requestedUuid))
+            return true;
+    }
+    return false;
+}
+
 QBluetoothServiceDiscoveryAgent::QBluetoothServiceDiscoveryAgent(QObject *parent)
 : QObject(parent),
   d_ptr(new QBluetoothServiceDiscoveryAgentPrivate(this, QBluetoothAddress()))
@@ -441,7 +449,7 @@ QBluetoothServiceDiscoveryAgent::QBluetoothServiceDiscoveryAgent(const QBluetoot
 {
     if (!deviceAdapter.isNull()) {
         const QList<QBluetoothHostInfo> localDevices = QBluetoothLocalDevice::allDevices();
-        foreach (const QBluetoothHostInfo &hostInfo, localDevices) {
+        for (const QBluetoothHostInfo &hostInfo : localDevices) {
             if (hostInfo.address() == deviceAdapter)
                 return;
         }

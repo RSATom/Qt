@@ -80,15 +80,15 @@ static int check_modulus_and_exponent_sizes(const RSA *rsa) {
     return 0;
   }
 
-  /* Mitigate DoS attacks by limiting the exponent size. 33 bits was chosen as
-   * the limit based on the recommendations in [1] and [2]. Windows CryptoAPI
-   * doesn't support values larger than 32 bits [3], so it is unlikely that
-   * exponents larger than 32 bits are being used for anything Windows commonly
-   * does.
-   *
-   * [1] https://www.imperialviolet.org/2012/03/16/rsae.html
-   * [2] https://www.imperialviolet.org/2012/03/17/rsados.html
-   * [3] https://msdn.microsoft.com/en-us/library/aa387685(VS.85).aspx */
+  // Mitigate DoS attacks by limiting the exponent size. 33 bits was chosen as
+  // the limit based on the recommendations in [1] and [2]. Windows CryptoAPI
+  // doesn't support values larger than 32 bits [3], so it is unlikely that
+  // exponents larger than 32 bits are being used for anything Windows commonly
+  // does.
+  //
+  // [1] https://www.imperialviolet.org/2012/03/16/rsae.html
+  // [2] https://www.imperialviolet.org/2012/03/17/rsados.html
+  // [3] https://msdn.microsoft.com/en-us/library/aa387685(VS.85).aspx
   static const unsigned kMaxExponentBits = 33;
 
   if (BN_num_bits(rsa->e) > kMaxExponentBits) {
@@ -96,10 +96,10 @@ static int check_modulus_and_exponent_sizes(const RSA *rsa) {
     return 0;
   }
 
-  /* Verify |n > e|. Comparing |rsa_bits| to |kMaxExponentBits| is a small
-   * shortcut to comparing |n| and |e| directly. In reality, |kMaxExponentBits|
-   * is much smaller than the minimum RSA key size that any application should
-   * accept. */
+  // Verify |n > e|. Comparing |rsa_bits| to |kMaxExponentBits| is a small
+  // shortcut to comparing |n| and |e| directly. In reality, |kMaxExponentBits|
+  // is much smaller than the minimum RSA key size that any application should
+  // accept.
   if (rsa_bits <= kMaxExponentBits) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_KEY_SIZE_TOO_SMALL);
     return 0;
@@ -107,6 +107,143 @@ static int check_modulus_and_exponent_sizes(const RSA *rsa) {
   assert(BN_ucmp(rsa->n, rsa->e) > 0);
 
   return 1;
+}
+
+static int ensure_fixed_copy(BIGNUM **out, const BIGNUM *in, int width) {
+  if (*out != NULL) {
+    return 1;
+  }
+  BIGNUM *copy = BN_dup(in);
+  if (copy == NULL ||
+      !bn_resize_words(copy, width)) {
+    BN_free(copy);
+    return 0;
+  }
+  *out = copy;
+  CONSTTIME_SECRET(copy->d, sizeof(BN_ULONG) * width);
+
+  return 1;
+}
+
+// freeze_private_key finishes initializing |rsa|'s private key components.
+// After this function has returned, |rsa| may not be changed. This is needed
+// because |RSA| is a public struct and, additionally, OpenSSL 1.1.0 opaquified
+// it wrong (see https://github.com/openssl/openssl/issues/5158).
+static int freeze_private_key(RSA *rsa, BN_CTX *ctx) {
+  CRYPTO_MUTEX_lock_read(&rsa->lock);
+  int frozen = rsa->private_key_frozen;
+  CRYPTO_MUTEX_unlock_read(&rsa->lock);
+  if (frozen) {
+    return 1;
+  }
+
+  int ret = 0;
+  CRYPTO_MUTEX_lock_write(&rsa->lock);
+  if (rsa->private_key_frozen) {
+    ret = 1;
+    goto err;
+  }
+
+  // Pre-compute various intermediate values, as well as copies of private
+  // exponents with correct widths. Note that other threads may concurrently
+  // read from |rsa->n|, |rsa->e|, etc., so any fixes must be in separate
+  // copies. We use |mont_n->N|, |mont_p->N|, and |mont_q->N| as copies of |n|,
+  // |p|, and |q| with the correct minimal widths.
+
+  if (rsa->mont_n == NULL) {
+    rsa->mont_n = BN_MONT_CTX_new_for_modulus(rsa->n, ctx);
+    if (rsa->mont_n == NULL) {
+      goto err;
+    }
+  }
+  const BIGNUM *n_fixed = &rsa->mont_n->N;
+
+  // The only public upper-bound of |rsa->d| is the bit length of |rsa->n|. The
+  // ASN.1 serialization of RSA private keys unfortunately leaks the byte length
+  // of |rsa->d|, but normalize it so we only leak it once, rather than per
+  // operation.
+  if (rsa->d != NULL &&
+      !ensure_fixed_copy(&rsa->d_fixed, rsa->d, n_fixed->width)) {
+    goto err;
+  }
+
+  if (rsa->p != NULL && rsa->q != NULL) {
+    // TODO: p and q are also CONSTTIME_SECRET but not yet marked as such
+    // because the Montgomery code does things like test whether or not values
+    // are zero. So the secret marking probably needs to happen inside that
+    // code.
+
+    if (rsa->mont_p == NULL) {
+      rsa->mont_p = BN_MONT_CTX_new_consttime(rsa->p, ctx);
+      if (rsa->mont_p == NULL) {
+        goto err;
+      }
+    }
+    const BIGNUM *p_fixed = &rsa->mont_p->N;
+
+    if (rsa->mont_q == NULL) {
+      rsa->mont_q = BN_MONT_CTX_new_consttime(rsa->q, ctx);
+      if (rsa->mont_q == NULL) {
+        goto err;
+      }
+    }
+    const BIGNUM *q_fixed = &rsa->mont_q->N;
+
+    if (rsa->dmp1 != NULL && rsa->dmq1 != NULL) {
+      // Key generation relies on this function to compute |iqmp|.
+      if (rsa->iqmp == NULL) {
+        BIGNUM *iqmp = BN_new();
+        if (iqmp == NULL ||
+            !bn_mod_inverse_secret_prime(iqmp, rsa->q, rsa->p, ctx,
+                                         rsa->mont_p)) {
+          BN_free(iqmp);
+          goto err;
+        }
+        rsa->iqmp = iqmp;
+      }
+
+      // CRT components are only publicly bounded by their corresponding
+      // moduli's bit lengths. |rsa->iqmp| is unused outside of this one-time
+      // setup, so we do not compute a fixed-width version of it.
+      if (!ensure_fixed_copy(&rsa->dmp1_fixed, rsa->dmp1, p_fixed->width) ||
+          !ensure_fixed_copy(&rsa->dmq1_fixed, rsa->dmq1, q_fixed->width)) {
+        goto err;
+      }
+
+      // Compute |inv_small_mod_large_mont|. Note that it is always modulo the
+      // larger prime, independent of what is stored in |rsa->iqmp|.
+      if (rsa->inv_small_mod_large_mont == NULL) {
+        BIGNUM *inv_small_mod_large_mont = BN_new();
+        int ok;
+        if (BN_cmp(rsa->p, rsa->q) < 0) {
+          ok = inv_small_mod_large_mont != NULL &&
+               bn_mod_inverse_secret_prime(inv_small_mod_large_mont, rsa->p,
+                                           rsa->q, ctx, rsa->mont_q) &&
+               BN_to_montgomery(inv_small_mod_large_mont,
+                                inv_small_mod_large_mont, rsa->mont_q, ctx);
+        } else {
+          ok = inv_small_mod_large_mont != NULL &&
+               BN_to_montgomery(inv_small_mod_large_mont, rsa->iqmp,
+                                rsa->mont_p, ctx);
+        }
+        if (!ok) {
+          BN_free(inv_small_mod_large_mont);
+          goto err;
+        }
+        rsa->inv_small_mod_large_mont = inv_small_mod_large_mont;
+        CONSTTIME_SECRET(
+            rsa->inv_small_mod_large_mont->d,
+            sizeof(BN_ULONG) * rsa->inv_small_mod_large_mont->width);
+      }
+    }
+  }
+
+  rsa->private_key_frozen = 1;
+  ret = 1;
+
+err:
+  CRYPTO_MUTEX_unlock_write(&rsa->lock);
+  return ret;
 }
 
 size_t rsa_default_size(const RSA *rsa) {
@@ -154,7 +291,7 @@ int RSA_encrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
       i = RSA_padding_add_PKCS1_type_2(buf, rsa_size, in, in_len);
       break;
     case RSA_PKCS1_OAEP_PADDING:
-      /* Use the default parameters: SHA-1 for both hashes and no label. */
+      // Use the default parameters: SHA-1 for both hashes and no label.
       i = RSA_padding_add_PKCS1_OAEP_mgf1(buf, rsa_size, in, in_len,
                                           NULL, 0, NULL, NULL);
       break;
@@ -175,18 +312,18 @@ int RSA_encrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
   }
 
   if (BN_ucmp(f, rsa->n) >= 0) {
-    /* usually the padding functions would catch this */
-    OPENSSL_PUT_ERROR(RSA, RSA_R_DATA_TOO_LARGE);
+    // usually the padding functions would catch this
+    OPENSSL_PUT_ERROR(RSA, RSA_R_DATA_TOO_LARGE_FOR_MODULUS);
     goto err;
   }
 
   if (!BN_MONT_CTX_set_locked(&rsa->mont_n, &rsa->lock, rsa->n, ctx) ||
-      !BN_mod_exp_mont(result, f, rsa->e, rsa->n, ctx, rsa->mont_n)) {
+      !BN_mod_exp_mont(result, f, rsa->e, &rsa->mont_n->N, ctx, rsa->mont_n)) {
     goto err;
   }
 
-  /* put in leading 0 bytes if the number is less than the length of the
-   * modulus */
+  // put in leading 0 bytes if the number is less than the length of the
+  // modulus
   if (!BN_bn2bin_padded(out, rsa_size, result)) {
     OPENSSL_PUT_ERROR(RSA, ERR_R_INTERNAL_ERROR);
     goto err;
@@ -200,26 +337,23 @@ err:
     BN_CTX_end(ctx);
     BN_CTX_free(ctx);
   }
-  if (buf != NULL) {
-    OPENSSL_cleanse(buf, rsa_size);
-    OPENSSL_free(buf);
-  }
+  OPENSSL_free(buf);
 
   return ret;
 }
 
-/* MAX_BLINDINGS_PER_RSA defines the maximum number of cached BN_BLINDINGs per
- * RSA*. Then this limit is exceeded, BN_BLINDING objects will be created and
- * destroyed as needed. */
+// MAX_BLINDINGS_PER_RSA defines the maximum number of cached BN_BLINDINGs per
+// RSA*. Then this limit is exceeded, BN_BLINDING objects will be created and
+// destroyed as needed.
 #define MAX_BLINDINGS_PER_RSA 1024
 
-/* rsa_blinding_get returns a BN_BLINDING to use with |rsa|. It does this by
- * allocating one of the cached BN_BLINDING objects in |rsa->blindings|. If
- * none are free, the cache will be extended by a extra element and the new
- * BN_BLINDING is returned.
- *
- * On success, the index of the assigned BN_BLINDING is written to
- * |*index_used| and must be passed to |rsa_blinding_release| when finished. */
+// rsa_blinding_get returns a BN_BLINDING to use with |rsa|. It does this by
+// allocating one of the cached BN_BLINDING objects in |rsa->blindings|. If
+// none are free, the cache will be extended by a extra element and the new
+// BN_BLINDING is returned.
+//
+// On success, the index of the assigned BN_BLINDING is written to
+// |*index_used| and must be passed to |rsa_blinding_release| when finished.
 static BN_BLINDING *rsa_blinding_get(RSA *rsa, unsigned *index_used,
                                      BN_CTX *ctx) {
   assert(ctx != NULL);
@@ -249,8 +383,8 @@ static BN_BLINDING *rsa_blinding_get(RSA *rsa, unsigned *index_used,
 
   overflow = rsa->num_blindings >= MAX_BLINDINGS_PER_RSA;
 
-  /* We didn't find a free BN_BLINDING to use so increase the length of
-   * the arrays by one and use the newly created element. */
+  // We didn't find a free BN_BLINDING to use so increase the length of
+  // the arrays by one and use the newly created element.
 
   CRYPTO_MUTEX_unlock_write(&rsa->lock);
   ret = BN_BLINDING_new();
@@ -259,8 +393,8 @@ static BN_BLINDING *rsa_blinding_get(RSA *rsa, unsigned *index_used,
   }
 
   if (overflow) {
-    /* We cannot add any more cached BN_BLINDINGs so we use |ret|
-     * and mark it for destruction in |rsa_blinding_release|. */
+    // We cannot add any more cached BN_BLINDINGs so we use |ret|
+    // and mark it for destruction in |rsa_blinding_release|.
     *index_used = MAX_BLINDINGS_PER_RSA;
     return ret;
   }
@@ -302,12 +436,12 @@ err1:
   return NULL;
 }
 
-/* rsa_blinding_release marks the cached BN_BLINDING at the given index as free
- * for other threads to use. */
+// rsa_blinding_release marks the cached BN_BLINDING at the given index as free
+// for other threads to use.
 static void rsa_blinding_release(RSA *rsa, BN_BLINDING *blinding,
                                  unsigned blinding_index) {
   if (blinding_index == MAX_BLINDINGS_PER_RSA) {
-    /* This blinding wasn't cached. */
+    // This blinding wasn't cached.
     BN_BLINDING_free(blinding);
     return;
   }
@@ -317,7 +451,7 @@ static void rsa_blinding_release(RSA *rsa, BN_BLINDING *blinding,
   CRYPTO_MUTEX_unlock_write(&rsa->lock);
 }
 
-/* signing */
+// signing
 int rsa_default_sign_raw(RSA *rsa, size_t *out_len, uint8_t *out,
                          size_t max_out, const uint8_t *in, size_t in_len,
                          int padding) {
@@ -356,14 +490,12 @@ int rsa_default_sign_raw(RSA *rsa, size_t *out_len, uint8_t *out,
     goto err;
   }
 
+  CONSTTIME_DECLASSIFY(out, rsa_size);
   *out_len = rsa_size;
   ret = 1;
 
 err:
-  if (buf != NULL) {
-    OPENSSL_cleanse(buf, rsa_size);
-    OPENSSL_free(buf);
-  }
+  OPENSSL_free(buf);
 
   return ret;
 }
@@ -382,7 +514,7 @@ int rsa_default_decrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
   if (padding == RSA_NO_PADDING) {
     buf = out;
   } else {
-    /* Allocate a temporary buffer to hold the padded plaintext. */
+    // Allocate a temporary buffer to hold the padded plaintext.
     buf = OPENSSL_malloc(rsa_size);
     if (buf == NULL) {
       OPENSSL_PUT_ERROR(RSA, ERR_R_MALLOC_FAILURE);
@@ -405,7 +537,7 @@ int rsa_default_decrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
           RSA_padding_check_PKCS1_type_2(out, out_len, rsa_size, buf, rsa_size);
       break;
     case RSA_PKCS1_OAEP_PADDING:
-      /* Use the default parameters: SHA-1 for both hashes and no label. */
+      // Use the default parameters: SHA-1 for both hashes and no label.
       ret = RSA_padding_check_PKCS1_OAEP_mgf1(out, out_len, rsa_size, buf,
                                               rsa_size, NULL, 0, NULL, NULL);
       break;
@@ -418,13 +550,15 @@ int rsa_default_decrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
       goto err;
   }
 
+  CONSTTIME_DECLASSIFY(&ret, sizeof(ret));
   if (!ret) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_PADDING_CHECK_FAILED);
+  } else {
+    CONSTTIME_DECLASSIFY(out, out_len);
   }
 
 err:
-  if (padding != RSA_NO_PADDING && buf != NULL) {
-    OPENSSL_cleanse(buf, rsa_size);
+  if (padding != RSA_NO_PADDING) {
     OPENSSL_free(buf);
   }
 
@@ -476,7 +610,7 @@ int RSA_verify_raw(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
   if (padding == RSA_NO_PADDING) {
     buf = out;
   } else {
-    /* Allocate a temporary buffer to hold the padded plaintext. */
+    // Allocate a temporary buffer to hold the padded plaintext.
     buf = OPENSSL_malloc(rsa_size);
     if (buf == NULL) {
       OPENSSL_PUT_ERROR(RSA, ERR_R_MALLOC_FAILURE);
@@ -489,12 +623,12 @@ int RSA_verify_raw(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out,
   }
 
   if (BN_ucmp(f, rsa->n) >= 0) {
-    OPENSSL_PUT_ERROR(RSA, RSA_R_DATA_TOO_LARGE);
+    OPENSSL_PUT_ERROR(RSA, RSA_R_DATA_TOO_LARGE_FOR_MODULUS);
     goto err;
   }
 
   if (!BN_MONT_CTX_set_locked(&rsa->mont_n, &rsa->lock, rsa->n, ctx) ||
-      !BN_mod_exp_mont(result, f, rsa->e, rsa->n, ctx, rsa->mont_n)) {
+      !BN_mod_exp_mont(result, f, rsa->e, &rsa->mont_n->N, ctx, rsa->mont_n)) {
     goto err;
   }
 
@@ -562,12 +696,12 @@ int rsa_default_private_transform(RSA *rsa, uint8_t *out, const uint8_t *in,
   }
 
   if (BN_ucmp(f, rsa->n) >= 0) {
-    /* Usually the padding functions would catch this. */
-    OPENSSL_PUT_ERROR(RSA, RSA_R_DATA_TOO_LARGE);
+    // Usually the padding functions would catch this.
+    OPENSSL_PUT_ERROR(RSA, RSA_R_DATA_TOO_LARGE_FOR_MODULUS);
     goto err;
   }
 
-  if (!BN_MONT_CTX_set_locked(&rsa->mont_n, &rsa->lock, rsa->n, ctx)) {
+  if (!freeze_private_key(rsa, ctx)) {
     OPENSSL_PUT_ERROR(RSA, ERR_R_INTERNAL_ERROR);
     goto err;
   }
@@ -575,10 +709,10 @@ int rsa_default_private_transform(RSA *rsa, uint8_t *out, const uint8_t *in,
   const int do_blinding = (rsa->flags & RSA_FLAG_NO_BLINDING) == 0;
 
   if (rsa->e == NULL && do_blinding) {
-    /* We cannot do blinding or verification without |e|, and continuing without
-     * those countermeasures is dangerous. However, the Java/Android RSA API
-     * requires support for keys where only |d| and |n| (and not |e|) are known.
-     * The callers that require that bad behavior set |RSA_FLAG_NO_BLINDING|. */
+    // We cannot do blinding or verification without |e|, and continuing without
+    // those countermeasures is dangerous. However, the Java/Android RSA API
+    // requires support for keys where only |d| and |n| (and not |e|) are known.
+    // The callers that require that bad behavior set |RSA_FLAG_NO_BLINDING|.
     OPENSSL_PUT_ERROR(RSA, RSA_R_NO_PUBLIC_EXPONENT);
     goto err;
   }
@@ -595,24 +729,30 @@ int rsa_default_private_transform(RSA *rsa, uint8_t *out, const uint8_t *in,
   }
 
   if (rsa->p != NULL && rsa->q != NULL && rsa->e != NULL && rsa->dmp1 != NULL &&
-      rsa->dmq1 != NULL && rsa->iqmp != NULL) {
+      rsa->dmq1 != NULL && rsa->iqmp != NULL &&
+      // Require that we can reduce |f| by |rsa->p| and |rsa->q| in constant
+      // time, which requires primes be the same size, rounded to the Montgomery
+      // coefficient. (See |mod_montgomery|.) This is not required by RFC 8017,
+      // but it is true for keys generated by us and all common implementations.
+      bn_less_than_montgomery_R(rsa->q, rsa->mont_p) &&
+      bn_less_than_montgomery_R(rsa->p, rsa->mont_q)) {
     if (!mod_exp(result, f, rsa, ctx)) {
       goto err;
     }
-  } else if (!BN_mod_exp_mont_consttime(result, f, rsa->d, rsa->n, ctx,
+  } else if (!BN_mod_exp_mont_consttime(result, f, rsa->d_fixed, rsa->n, ctx,
                                         rsa->mont_n)) {
     goto err;
   }
 
-  /* Verify the result to protect against fault attacks as described in the
-   * 1997 paper "On the Importance of Checking Cryptographic Protocols for
-   * Faults" by Dan Boneh, Richard A. DeMillo, and Richard J. Lipton. Some
-   * implementations do this only when the CRT is used, but we do it in all
-   * cases. Section 6 of the aforementioned paper describes an attack that
-   * works when the CRT isn't used. That attack is much less likely to succeed
-   * than the CRT attack, but there have likely been improvements since 1997.
-   *
-   * This check is cheap assuming |e| is small; it almost always is. */
+  // Verify the result to protect against fault attacks as described in the
+  // 1997 paper "On the Importance of Checking Cryptographic Protocols for
+  // Faults" by Dan Boneh, Richard A. DeMillo, and Richard J. Lipton. Some
+  // implementations do this only when the CRT is used, but we do it in all
+  // cases. Section 6 of the aforementioned paper describes an attack that
+  // works when the CRT isn't used. That attack is much less likely to succeed
+  // than the CRT attack, but there have likely been improvements since 1997.
+  //
+  // This check is cheap assuming |e| is small; it almost always is.
   if (rsa->e != NULL) {
     BIGNUM *vrfy = BN_CTX_get(ctx);
     if (vrfy == NULL ||
@@ -629,6 +769,12 @@ int rsa_default_private_transform(RSA *rsa, uint8_t *out, const uint8_t *in,
     goto err;
   }
 
+  // The computation should have left |result| as a maximally-wide number, so
+  // that it and serializing does not leak information about the magnitude of
+  // the result.
+  //
+  // See Falko Strenzke, "Manger's Attack revisited", ICICS 2010.
+  assert(result->width == rsa->mont_n->N.width);
   if (!BN_bn2bin_padded(out, len, result)) {
     OPENSSL_PUT_ERROR(RSA, ERR_R_INTERNAL_ERROR);
     goto err;
@@ -648,6 +794,37 @@ err:
   return ret;
 }
 
+// mod_montgomery sets |r| to |I| mod |p|. |I| must already be fully reduced
+// modulo |p| times |q|. It returns one on success and zero on error.
+static int mod_montgomery(BIGNUM *r, const BIGNUM *I, const BIGNUM *p,
+                          const BN_MONT_CTX *mont_p, const BIGNUM *q,
+                          BN_CTX *ctx) {
+  // Reducing in constant-time with Montgomery reduction requires I <= p * R. We
+  // have I < p * q, so this follows if q < R. The caller should have checked
+  // this already.
+  if (!bn_less_than_montgomery_R(q, mont_p)) {
+    OPENSSL_PUT_ERROR(RSA, ERR_R_INTERNAL_ERROR);
+    return 0;
+  }
+
+  if (// Reduce mod p with Montgomery reduction. This computes I * R^-1 mod p.
+      !BN_from_montgomery(r, I, mont_p, ctx) ||
+      // Multiply by R^2 and do another Montgomery reduction to compute
+      // I * R^-1 * R^2 * R^-1 = I mod p.
+      !BN_to_montgomery(r, r, mont_p, ctx)) {
+    return 0;
+  }
+
+  // By precomputing R^3 mod p (normally |BN_MONT_CTX| only uses R^2 mod p) and
+  // adjusting the API for |BN_mod_exp_mont_consttime|, we could instead compute
+  // I * R mod p here and save a reduction per prime. But this would require
+  // changing the RSAZ code and may not be worth it. Note that the RSAZ code
+  // uses a different radix, so it uses R' = 2^1044. There we'd actually want
+  // R^2 * R', and would futher benefit from a precomputed R'^2. It currently
+  // converts |mont_p->RR| to R'^2.
+  return 1;
+}
+
 static int mod_exp(BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx) {
   assert(ctx != NULL);
 
@@ -660,82 +837,67 @@ static int mod_exp(BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx) {
   assert(rsa->dmq1 != NULL);
   assert(rsa->iqmp != NULL);
 
-  BIGNUM *r1, *m1, *vrfy;
+  BIGNUM *r1, *m1;
   int ret = 0;
 
   BN_CTX_start(ctx);
   r1 = BN_CTX_get(ctx);
   m1 = BN_CTX_get(ctx);
-  vrfy = BN_CTX_get(ctx);
   if (r1 == NULL ||
-      m1 == NULL ||
-      vrfy == NULL) {
+      m1 == NULL) {
     goto err;
   }
 
-  if (!BN_MONT_CTX_set_locked(&rsa->mont_p, &rsa->lock, rsa->p, ctx) ||
-      !BN_MONT_CTX_set_locked(&rsa->mont_q, &rsa->lock, rsa->q, ctx)) {
+  if (!freeze_private_key(rsa, ctx)) {
     goto err;
   }
 
-  if (!BN_MONT_CTX_set_locked(&rsa->mont_n, &rsa->lock, rsa->n, ctx)) {
-    goto err;
+  // Implementing RSA with CRT in constant-time is sensitive to which prime is
+  // larger. Canonicalize fields so that |p| is the larger prime.
+  const BIGNUM *dmp1 = rsa->dmp1_fixed, *dmq1 = rsa->dmq1_fixed;
+  const BN_MONT_CTX *mont_p = rsa->mont_p, *mont_q = rsa->mont_q;
+  if (BN_cmp(rsa->p, rsa->q) < 0) {
+    mont_p = rsa->mont_q;
+    mont_q = rsa->mont_p;
+    dmp1 = rsa->dmq1_fixed;
+    dmq1 = rsa->dmp1_fixed;
   }
 
-  /* compute I mod q */
-  if (!BN_mod(r1, I, rsa->q, ctx)) {
-    goto err;
-  }
+  // Use the minimal-width versions of |n|, |p|, and |q|. Either works, but if
+  // someone gives us non-minimal values, these will be slightly more efficient
+  // on the non-Montgomery operations.
+  const BIGNUM *n = &rsa->mont_n->N;
+  const BIGNUM *p = &mont_p->N;
+  const BIGNUM *q = &mont_q->N;
 
-  /* compute r1^dmq1 mod q */
-  if (!BN_mod_exp_mont_consttime(m1, r1, rsa->dmq1, rsa->q, ctx, rsa->mont_q)) {
-    goto err;
-  }
+  // This is a pre-condition for |mod_montgomery|. It was already checked by the
+  // caller.
+  assert(BN_ucmp(I, n) < 0);
 
-  /* compute I mod p */
-  if (!BN_mod(r1, I, rsa->p, ctx)) {
-    goto err;
-  }
-
-  /* compute r1^dmp1 mod p */
-  if (!BN_mod_exp_mont_consttime(r0, r1, rsa->dmp1, rsa->p, ctx, rsa->mont_p)) {
-    goto err;
-  }
-
-  if (!BN_sub(r0, r0, m1)) {
-    goto err;
-  }
-  /* This will help stop the size of r0 increasing, which does
-   * affect the multiply if it optimised for a power of 2 size */
-  if (BN_is_negative(r0)) {
-    if (!BN_add(r0, r0, rsa->p)) {
-      goto err;
-    }
-  }
-
-  if (!BN_mul(r1, r0, rsa->iqmp, ctx)) {
-    goto err;
-  }
-
-  if (!BN_mod(r0, r1, rsa->p, ctx)) {
-    goto err;
-  }
-
-  /* If p < q it is occasionally possible for the correction of
-   * adding 'p' if r0 is negative above to leave the result still
-   * negative. This can break the private key operations: the following
-   * second correction should *always* correct this rare occurrence.
-   * This will *never* happen with OpenSSL generated keys because
-   * they ensure p > q [steve] */
-  if (BN_is_negative(r0)) {
-    if (!BN_add(r0, r0, rsa->p)) {
-      goto err;
-    }
-  }
-  if (!BN_mul(r1, r0, rsa->q, ctx)) {
-    goto err;
-  }
-  if (!BN_add(r0, r1, m1)) {
+  if (// |m1| is the result modulo |q|.
+      !mod_montgomery(r1, I, q, mont_q, p, ctx) ||
+      !BN_mod_exp_mont_consttime(m1, r1, dmq1, q, ctx, mont_q) ||
+      // |r0| is the result modulo |p|.
+      !mod_montgomery(r1, I, p, mont_p, q, ctx) ||
+      !BN_mod_exp_mont_consttime(r0, r1, dmp1, p, ctx, mont_p) ||
+      // Compute r0 = r0 - m1 mod p. |p| is the larger prime, so |m1| is already
+      // fully reduced mod |p|.
+      !bn_mod_sub_consttime(r0, r0, m1, p, ctx) ||
+      // r0 = r0 * iqmp mod p. We use Montgomery multiplication to compute this
+      // in constant time. |inv_small_mod_large_mont| is in Montgomery form and
+      // r0 is not, so the result is taken out of Montgomery form.
+      !BN_mod_mul_montgomery(r0, r0, rsa->inv_small_mod_large_mont, mont_p,
+                             ctx) ||
+      // r0 = r0 * q + m1 gives the final result. Reducing modulo q gives m1, so
+      // it is correct mod p. Reducing modulo p gives (r0-m1)*iqmp*q + m1 = r0,
+      // so it is correct mod q. Finally, the result is bounded by [m1, n + m1),
+      // and the result is at least |m1|, so this must be the unique answer in
+      // [0, n).
+      !bn_mul_consttime(r0, r0, q, ctx) ||
+      !bn_uadd_consttime(r0, r0, m1) ||
+      // The result should be bounded by |n|, but fixed-width operations may
+      // bound the width slightly higher, so fix it.
+      !bn_resize_words(r0, n->width)) {
     goto err;
   }
 
@@ -753,20 +915,19 @@ static int ensure_bignum(BIGNUM **out) {
   return *out != NULL;
 }
 
-/* kBoringSSLRSASqrtTwo is the BIGNUM representation of ⌊2¹⁵³⁵×√2⌋. This is
- * chosen to give enough precision for 3072-bit RSA, the largest key size FIPS
- * specifies. Key sizes beyond this will round up.
- *
- * To verify this number, check that n² < 2³⁰⁷¹ < (n+1)², where n is value
- * represented here. Note the components are listed in little-endian order. Here
- * is some sample Python code to check:
- *
- *   >>> TOBN = lambda a, b: a << 32 | b
- *   >>> l = [ <paste the contents of kSqrtTwo> ]
- *   >>> n = sum(a * 2**(64*i) for i, a in enumerate(l))
- *   >>> n**2 < 2**3071 < (n+1)**2
- *   True
- */
+// kBoringSSLRSASqrtTwo is the BIGNUM representation of ⌊2¹⁵³⁵×√2⌋. This is
+// chosen to give enough precision for 3072-bit RSA, the largest key size FIPS
+// specifies. Key sizes beyond this will round up.
+//
+// To verify this number, check that n² < 2³⁰⁷¹ < (n+1)², where n is value
+// represented here. Note the components are listed in little-endian order. Here
+// is some sample Python code to check:
+//
+//   >>> TOBN = lambda a, b: a << 32 | b
+//   >>> l = [ <paste the contents of kSqrtTwo> ]
+//   >>> n = sum(a * 2**(64*i) for i, a in enumerate(l))
+//   >>> n**2 < 2**3071 < (n+1)**2
+//   True
 const BN_ULONG kBoringSSLRSASqrtTwo[] = {
     TOBN(0xdea06241, 0xf7aa81c2), TOBN(0xf6a1be3f, 0xca221307),
     TOBN(0x332a5e9f, 0x7bda1ebf), TOBN(0x0104dc01, 0xfe32352f),
@@ -783,43 +944,58 @@ const BN_ULONG kBoringSSLRSASqrtTwo[] = {
 };
 const size_t kBoringSSLRSASqrtTwoLen = OPENSSL_ARRAY_SIZE(kBoringSSLRSASqrtTwo);
 
-int rsa_less_than_words(const BN_ULONG *a, const BN_ULONG *b, size_t len) {
-  OPENSSL_COMPILE_ASSERT(sizeof(BN_ULONG) <= sizeof(crypto_word_t),
-                         crypto_word_t_too_small);
-  int ret = 0;
-  /* Process the words in little-endian order. */
-  for (size_t i = 0; i < len; i++) {
-    crypto_word_t eq = constant_time_eq_w(a[i], b[i]);
-    crypto_word_t lt = constant_time_lt_w(a[i], b[i]);
-    ret = constant_time_select_int(eq, ret, constant_time_select_int(lt, 1, 0));
-  }
-  return ret;
-}
-
-int rsa_greater_than_pow2(const BIGNUM *b, int n) {
-  if (BN_is_negative(b) || n == INT_MAX) {
-    return 0;
-  }
-
-  int b_bits = BN_num_bits(b);
-  return b_bits > n + 1 || (b_bits == n + 1 && !BN_is_pow2(b));
-}
-
-/* generate_prime sets |out| to a prime with length |bits| such that |out|-1 is
- * relatively prime to |e|. If |p| is non-NULL, |out| will also not be close to
- * |p|. */
+// generate_prime sets |out| to a prime with length |bits| such that |out|-1 is
+// relatively prime to |e|. If |p| is non-NULL, |out| will also not be close to
+// |p|. |sqrt2| must be ⌊2^(bits-1)×√2⌋ (or a slightly overestimate for large
+// sizes), and |pow2_bits_100| must be 2^(bits-100).
+//
+// This function fails with probability around 2^-21.
 static int generate_prime(BIGNUM *out, int bits, const BIGNUM *e,
-                          const BIGNUM *p, BN_CTX *ctx, BN_GENCB *cb) {
+                          const BIGNUM *p, const BIGNUM *sqrt2,
+                          const BIGNUM *pow2_bits_100, BN_CTX *ctx,
+                          BN_GENCB *cb) {
   if (bits < 128 || (bits % BN_BITS2) != 0) {
     OPENSSL_PUT_ERROR(RSA, ERR_R_INTERNAL_ERROR);
     return 0;
   }
+  assert(BN_is_pow2(pow2_bits_100));
+  assert(BN_is_bit_set(pow2_bits_100, bits - 100));
 
-  /* Ensure the bound on |tries| does not overflow. */
-  if (bits >= INT_MAX/5) {
+  // See FIPS 186-4 appendix B.3.3, steps 4 and 5. Note |bits| here is nlen/2.
+
+  // Use the limit from steps 4.7 and 5.8 for most values of |e|. When |e| is 3,
+  // the 186-4 limit is too low, so we use a higher one. Note this case is not
+  // reachable from |RSA_generate_key_fips|.
+  //
+  // |limit| determines the failure probability. We must find a prime that is
+  // not 1 mod |e|. By the prime number theorem, we'll find one with probability
+  // p = (e-1)/e * 2/(ln(2)*bits). Note the second term is doubled because we
+  // discard even numbers.
+  //
+  // The failure probability is thus (1-p)^limit. To convert that to a power of
+  // two, we take logs. -log_2((1-p)^limit) = -limit * ln(1-p) / ln(2).
+  //
+  // >>> def f(bits, e, limit):
+  // ...   p = (e-1.0)/e * 2.0/(math.log(2)*bits)
+  // ...   return -limit * math.log(1 - p) / math.log(2)
+  // ...
+  // >>> f(1024, 65537, 5*1024)
+  // 20.842750558272634
+  // >>> f(1536, 65537, 5*1536)
+  // 20.83294549602474
+  // >>> f(2048, 65537, 5*2048)
+  // 20.828047576234948
+  // >>> f(1024, 3, 8*1024)
+  // 22.222147925962307
+  // >>> f(1536, 3, 8*1536)
+  // 22.21518251065506
+  // >>> f(2048, 3, 8*2048)
+  // 22.211701985875937
+  if (bits >= INT_MAX/32) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_MODULUS_TOO_LARGE);
     return 0;
   }
+  int limit = BN_is_word(e, 3) ? bits * 8 : bits * 5;
 
   int ret = 0, tries = 0, rand_tries = 0;
   BN_CTX_start(ctx);
@@ -828,77 +1004,63 @@ static int generate_prime(BIGNUM *out, int bits, const BIGNUM *e,
     goto err;
   }
 
-  /* See FIPS 186-4 appendix B.3.3, steps 4 and 5. Note |bits| here is
-   * nlen/2. */
   for (;;) {
-    /* Generate a random number of length |bits| where the bottom bit is set
-     * (steps 4.2, 4.3, 5.2 and 5.3) and the top bit is set (implied by the
-     * bound checked below in steps 4.4 and 5.5). */
+    // Generate a random number of length |bits| where the bottom bit is set
+    // (steps 4.2, 4.3, 5.2 and 5.3) and the top bit is set (implied by the
+    // bound checked below in steps 4.4 and 5.5).
     if (!BN_rand(out, bits, BN_RAND_TOP_ONE, BN_RAND_BOTTOM_ODD) ||
         !BN_GENCB_call(cb, BN_GENCB_GENERATED, rand_tries++)) {
       goto err;
     }
 
     if (p != NULL) {
-      /* If |p| and |out| are too close, try again (step 5.4). */
-      if (!BN_sub(tmp, out, p)) {
+      // If |p| and |out| are too close, try again (step 5.4).
+      if (!bn_abs_sub_consttime(tmp, out, p, ctx)) {
         goto err;
       }
-      BN_set_negative(tmp, 0);
-      if (!rsa_greater_than_pow2(tmp, bits - 100)) {
+      if (BN_cmp(tmp, pow2_bits_100) <= 0) {
         continue;
       }
     }
 
-    /* If out < 2^(bits-1)×√2, try again (steps 4.4 and 5.5).
-     *
-     * We check the most significant words, so we retry if ⌊out/2^k⌋ <= ⌊b/2^k⌋,
-     * where b = 2^(bits-1)×√2 and k = max(0, bits - 1536). For key sizes up to
-     * 3072 (bits = 1536), k = 0, so we are testing that ⌊out⌋ <= ⌊b⌋. out is an
-     * integer and b is not, so this is equivalent to out < b. That is, the
-     * comparison is exact for FIPS key sizes.
-     *
-     * For larger keys, the comparison is approximate, leaning towards
-     * retrying. That is, we reject a negligible fraction of primes that are
-     * within the FIPS bound, but we will never accept a prime outside the
-     * bound, ensuring the resulting RSA key is the right size. Specifically, if
-     * the FIPS bound holds, we have ⌊out/2^k⌋ < out/2^k < b/2^k. This implies
-     * ⌊out/2^k⌋ <= ⌊b/2^k⌋. That is, the FIPS bound implies our bound and so we
-     * are slightly tighter. */
-    size_t out_len = (size_t)out->top;
-    assert(out_len == (size_t)bits / BN_BITS2);
-    size_t to_check = kBoringSSLRSASqrtTwoLen;
-    if (to_check > out_len) {
-      to_check = out_len;
-    }
-    if (!rsa_less_than_words(
-            kBoringSSLRSASqrtTwo + kBoringSSLRSASqrtTwoLen - to_check,
-            out->d + out_len - to_check, to_check)) {
+    // If out < 2^(bits-1)×√2, try again (steps 4.4 and 5.5). This is equivalent
+    // to out <= ⌊2^(bits-1)×√2⌋, or out <= sqrt2 for FIPS key sizes.
+    //
+    // For larger keys, the comparison is approximate, leaning towards
+    // retrying. That is, we reject a negligible fraction of primes that are
+    // within the FIPS bound, but we will never accept a prime outside the
+    // bound, ensuring the resulting RSA key is the right size.
+    if (BN_cmp(out, sqrt2) <= 0) {
       continue;
     }
 
-    /* Check gcd(out-1, e) is one (steps 4.5 and 5.6). */
-    if (!BN_sub(tmp, out, BN_value_one()) ||
-        !BN_gcd(tmp, tmp, e, ctx)) {
-      goto err;
-    }
-    if (BN_is_one(tmp)) {
-      /* Test |out| for primality (steps 4.5.1 and 5.6.1). */
-      int is_probable_prime;
-      if (!BN_primality_test(&is_probable_prime, out, BN_prime_checks, ctx, 1,
-                             cb)) {
+    // RSA key generation's bottleneck is discarding composites. If it fails
+    // trial division, do not bother computing a GCD or performing Rabin-Miller.
+    if (!bn_odd_number_is_obviously_composite(out)) {
+      // Check gcd(out-1, e) is one (steps 4.5 and 5.6).
+      int relatively_prime;
+      if (!BN_sub(tmp, out, BN_value_one()) ||
+          !bn_is_relatively_prime(&relatively_prime, tmp, e, ctx)) {
         goto err;
       }
-      if (is_probable_prime) {
-        ret = 1;
-        goto err;
+      if (relatively_prime) {
+        // Test |out| for primality (steps 4.5.1 and 5.6.1).
+        int is_probable_prime;
+        if (!BN_primality_test(&is_probable_prime, out, BN_prime_checks, ctx, 0,
+                               cb)) {
+          goto err;
+        }
+        if (is_probable_prime) {
+          ret = 1;
+          goto err;
+        }
       }
     }
 
-    /* If we've tried too many times to find a prime, abort (steps 4.7 and
-     * 5.8). */
+    // If we've tried too many times to find a prime, abort (steps 4.7 and
+    // 5.8).
     tries++;
-    if (tries >= bits * 5) {
+    if (tries >= limit) {
       OPENSSL_PUT_ERROR(RSA, RSA_R_TOO_MANY_ITERATIONS);
       goto err;
     }
@@ -912,22 +1074,41 @@ err:
   return ret;
 }
 
-int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb) {
-  /* See FIPS 186-4 appendix B.3. This function implements a generalized version
-   * of the FIPS algorithm. |RSA_generate_key_fips| performs additional checks
-   * for FIPS-compliant key generation. */
+// rsa_generate_key_impl generates an RSA key using a generalized version of
+// FIPS 186-4 appendix B.3. |RSA_generate_key_fips| performs additional checks
+// for FIPS-compliant key generation.
+//
+// This function returns one on success and zero on failure. It has a failure
+// probability of about 2^-20.
+static int rsa_generate_key_impl(RSA *rsa, int bits, const BIGNUM *e_value,
+                                 BN_GENCB *cb) {
+  // See FIPS 186-4 appendix B.3. This function implements a generalized version
+  // of the FIPS algorithm. |RSA_generate_key_fips| performs additional checks
+  // for FIPS-compliant key generation.
 
-  /* Always generate RSA keys which are a multiple of 128 bits. Round |bits|
-   * down as needed. */
+  // Always generate RSA keys which are a multiple of 128 bits. Round |bits|
+  // down as needed.
   bits &= ~127;
 
-  /* Reject excessively small keys. */
+  // Reject excessively small keys.
   if (bits < 256) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_KEY_SIZE_TOO_SMALL);
     return 0;
   }
 
+  // Reject excessively large public exponents. Windows CryptoAPI and Go don't
+  // support values larger than 32 bits, so match their limits for generating
+  // keys. (|check_modulus_and_exponent_sizes| uses a slightly more conservative
+  // value, but we don't need to support generating such keys.)
+  // https://github.com/golang/go/issues/3161
+  // https://msdn.microsoft.com/en-us/library/aa387685(VS.85).aspx
+  if (BN_num_bits(e_value) > 32) {
+    OPENSSL_PUT_ERROR(RSA, RSA_R_BAD_E_VALUE);
+    return 0;
+  }
+
   int ret = 0;
+  int prime_bits = bits / 2;
   BN_CTX *ctx = BN_CTX_new();
   if (ctx == NULL) {
     goto bn_err;
@@ -936,20 +1117,24 @@ int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb) {
   BIGNUM *totient = BN_CTX_get(ctx);
   BIGNUM *pm1 = BN_CTX_get(ctx);
   BIGNUM *qm1 = BN_CTX_get(ctx);
-  BIGNUM *gcd = BN_CTX_get(ctx);
-  if (totient == NULL || pm1 == NULL || qm1 == NULL || gcd == NULL) {
+  BIGNUM *sqrt2 = BN_CTX_get(ctx);
+  BIGNUM *pow2_prime_bits_100 = BN_CTX_get(ctx);
+  BIGNUM *pow2_prime_bits = BN_CTX_get(ctx);
+  if (totient == NULL || pm1 == NULL || qm1 == NULL || sqrt2 == NULL ||
+      pow2_prime_bits_100 == NULL || pow2_prime_bits == NULL ||
+      !BN_set_bit(pow2_prime_bits_100, prime_bits - 100) ||
+      !BN_set_bit(pow2_prime_bits, prime_bits)) {
     goto bn_err;
   }
 
-  /* We need the RSA components non-NULL. */
+  // We need the RSA components non-NULL.
   if (!ensure_bignum(&rsa->n) ||
       !ensure_bignum(&rsa->d) ||
       !ensure_bignum(&rsa->e) ||
       !ensure_bignum(&rsa->p) ||
       !ensure_bignum(&rsa->q) ||
       !ensure_bignum(&rsa->dmp1) ||
-      !ensure_bignum(&rsa->dmq1) ||
-      !ensure_bignum(&rsa->iqmp)) {
+      !ensure_bignum(&rsa->dmq1)) {
     goto bn_err;
   }
 
@@ -957,13 +1142,39 @@ int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb) {
     goto bn_err;
   }
 
-  int prime_bits = bits / 2;
+  // Compute sqrt2 >= ⌊2^(prime_bits-1)×√2⌋.
+  if (!bn_set_words(sqrt2, kBoringSSLRSASqrtTwo, kBoringSSLRSASqrtTwoLen)) {
+    goto bn_err;
+  }
+  int sqrt2_bits = kBoringSSLRSASqrtTwoLen * BN_BITS2;
+  assert(sqrt2_bits == (int)BN_num_bits(sqrt2));
+  if (sqrt2_bits > prime_bits) {
+    // For key sizes up to 3072 (prime_bits = 1536), this is exactly
+    // ⌊2^(prime_bits-1)×√2⌋.
+    if (!BN_rshift(sqrt2, sqrt2, sqrt2_bits - prime_bits)) {
+      goto bn_err;
+    }
+  } else if (prime_bits > sqrt2_bits) {
+    // For key sizes beyond 3072, this is approximate. We err towards retrying
+    // to ensure our key is the right size and round up.
+    if (!BN_add_word(sqrt2, 1) ||
+        !BN_lshift(sqrt2, sqrt2, prime_bits - sqrt2_bits)) {
+      goto bn_err;
+    }
+  }
+  assert(prime_bits == (int)BN_num_bits(sqrt2));
+
   do {
-    /* Generate p and q, each of size |prime_bits|, using the steps outlined in
-     * appendix FIPS 186-4 appendix B.3.3. */
-    if (!generate_prime(rsa->p, prime_bits, rsa->e, NULL, ctx, cb) ||
+    // Generate p and q, each of size |prime_bits|, using the steps outlined in
+    // appendix FIPS 186-4 appendix B.3.3.
+    //
+    // Each call to |generate_prime| fails with probability p = 2^-21. The
+    // probability that either call fails is 1 - (1-p)^2, which is around 2^-20.
+    if (!generate_prime(rsa->p, prime_bits, rsa->e, NULL, sqrt2,
+                        pow2_prime_bits_100, ctx, cb) ||
         !BN_GENCB_call(cb, 3, 0) ||
-        !generate_prime(rsa->q, prime_bits, rsa->e, rsa->p, ctx, cb) ||
+        !generate_prime(rsa->q, prime_bits, rsa->e, rsa->p, sqrt2,
+                        pow2_prime_bits_100, ctx, cb) ||
         !BN_GENCB_call(cb, 3, 1)) {
       goto bn_err;
     }
@@ -974,55 +1185,51 @@ int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb) {
       rsa->q = tmp;
     }
 
-    /* Calculate d = e^(-1) (mod lcm(p-1, q-1)), per FIPS 186-4. This differs
-     * from typical RSA implementations which use (p-1)*(q-1).
-     *
-     * Note this means the size of d might reveal information about p-1 and
-     * q-1. However, we do operations with Chinese Remainder Theorem, so we only
-     * use d (mod p-1) and d (mod q-1) as exponents. Using a minimal totient
-     * does not affect those two values. */
-    if (!BN_sub(pm1, rsa->p, BN_value_one()) ||
-        !BN_sub(qm1, rsa->q, BN_value_one()) ||
-        !BN_mul(totient, pm1, qm1, ctx) ||
-        !BN_gcd(gcd, pm1, qm1, ctx) ||
-        !BN_div(totient, NULL, totient, gcd, ctx) ||
-        !BN_mod_inverse(rsa->d, rsa->e, totient, ctx)) {
+    // Calculate d = e^(-1) (mod lcm(p-1, q-1)), per FIPS 186-4. This differs
+    // from typical RSA implementations which use (p-1)*(q-1).
+    //
+    // Note this means the size of d might reveal information about p-1 and
+    // q-1. However, we do operations with Chinese Remainder Theorem, so we only
+    // use d (mod p-1) and d (mod q-1) as exponents. Using a minimal totient
+    // does not affect those two values.
+    int no_inverse;
+    if (!bn_usub_consttime(pm1, rsa->p, BN_value_one()) ||
+        !bn_usub_consttime(qm1, rsa->q, BN_value_one()) ||
+        !bn_lcm_consttime(totient, pm1, qm1, ctx) ||
+        !bn_mod_inverse_consttime(rsa->d, &no_inverse, rsa->e, totient, ctx)) {
       goto bn_err;
     }
 
-    /* Check that |rsa->d| > 2^|prime_bits| and try again if it fails. See
-     * appendix B.3.1's guidance on values for d. */
-  } while (!rsa_greater_than_pow2(rsa->d, prime_bits));
+    // Retry if |rsa->d| <= 2^|prime_bits|. See appendix B.3.1's guidance on
+    // values for d.
+  } while (BN_cmp(rsa->d, pow2_prime_bits) <= 0);
 
-  if (/* Calculate n. */
-      !BN_mul(rsa->n, rsa->p, rsa->q, ctx) ||
-      /* Calculate d mod (p-1). */
-      !BN_mod(rsa->dmp1, rsa->d, pm1, ctx) ||
-      /* Calculate d mod (q-1) */
-      !BN_mod(rsa->dmq1, rsa->d, qm1, ctx)) {
+  if (// Calculate n.
+      !bn_mul_consttime(rsa->n, rsa->p, rsa->q, ctx) ||
+      // Calculate d mod (p-1).
+      !bn_div_consttime(NULL, rsa->dmp1, rsa->d, pm1, ctx) ||
+      // Calculate d mod (q-1)
+      !bn_div_consttime(NULL, rsa->dmq1, rsa->d, qm1, ctx)) {
     goto bn_err;
   }
+  bn_set_minimal_width(rsa->n);
 
-  /* Sanity-check that |rsa->n| has the specified size. This is implied by
-   * |generate_prime|'s bounds. */
+  // Sanity-check that |rsa->n| has the specified size. This is implied by
+  // |generate_prime|'s bounds.
   if (BN_num_bits(rsa->n) != (unsigned)bits) {
     OPENSSL_PUT_ERROR(RSA, ERR_R_INTERNAL_ERROR);
     goto err;
   }
 
-  /* Calculate inverse of q mod p. Note that although RSA key generation is far
-   * from constant-time, |bn_mod_inverse_secret_prime| uses the same modular
-   * exponentation logic as in RSA private key operations and, if the RSAZ-1024
-   * code is enabled, will be optimized for common RSA prime sizes. */
-  if (!BN_MONT_CTX_set_locked(&rsa->mont_p, &rsa->lock, rsa->p, ctx) ||
-      !bn_mod_inverse_secret_prime(rsa->iqmp, rsa->q, rsa->p, ctx,
-                                   rsa->mont_p)) {
+  // Call |freeze_private_key| to compute the inverse of q mod p, by way of
+  // |rsa->mont_p|.
+  if (!freeze_private_key(rsa, ctx)) {
     goto bn_err;
   }
 
-  /* The key generation process is complex and thus error-prone. It could be
-   * disastrous to generate and then use a bad key so double-check that the key
-   * makes sense. */
+  // The key generation process is complex and thus error-prone. It could be
+  // disastrous to generate and then use a bad key so double-check that the key
+  // makes sense.
   if (!RSA_check_key(rsa)) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_INTERNAL_ERROR);
     goto err;
@@ -1042,9 +1249,69 @@ err:
   return ret;
 }
 
+static void replace_bignum(BIGNUM **out, BIGNUM **in) {
+  BN_free(*out);
+  *out = *in;
+  *in = NULL;
+}
+
+static void replace_bn_mont_ctx(BN_MONT_CTX **out, BN_MONT_CTX **in) {
+  BN_MONT_CTX_free(*out);
+  *out = *in;
+  *in = NULL;
+}
+
+int RSA_generate_key_ex(RSA *rsa, int bits, const BIGNUM *e_value,
+                        BN_GENCB *cb) {
+  // |rsa_generate_key_impl|'s 2^-20 failure probability is too high at scale,
+  // so we run the FIPS algorithm four times, bringing it down to 2^-80. We
+  // should just adjust the retry limit, but FIPS 186-4 prescribes that value
+  // and thus results in unnecessary complexity.
+  for (int i = 0; i < 4; i++) {
+    ERR_clear_error();
+    // Generate into scratch space, to avoid leaving partial work on failure.
+    RSA *tmp = RSA_new();
+    if (tmp == NULL) {
+      return 0;
+    }
+    if (rsa_generate_key_impl(tmp, bits, e_value, cb)) {
+      replace_bignum(&rsa->n, &tmp->n);
+      replace_bignum(&rsa->e, &tmp->e);
+      replace_bignum(&rsa->d, &tmp->d);
+      replace_bignum(&rsa->p, &tmp->p);
+      replace_bignum(&rsa->q, &tmp->q);
+      replace_bignum(&rsa->dmp1, &tmp->dmp1);
+      replace_bignum(&rsa->dmq1, &tmp->dmq1);
+      replace_bignum(&rsa->iqmp, &tmp->iqmp);
+      replace_bn_mont_ctx(&rsa->mont_n, &tmp->mont_n);
+      replace_bn_mont_ctx(&rsa->mont_p, &tmp->mont_p);
+      replace_bn_mont_ctx(&rsa->mont_q, &tmp->mont_q);
+      replace_bignum(&rsa->d_fixed, &tmp->d_fixed);
+      replace_bignum(&rsa->dmp1_fixed, &tmp->dmp1_fixed);
+      replace_bignum(&rsa->dmq1_fixed, &tmp->dmq1_fixed);
+      replace_bignum(&rsa->inv_small_mod_large_mont,
+                     &tmp->inv_small_mod_large_mont);
+      rsa->private_key_frozen = tmp->private_key_frozen;
+      RSA_free(tmp);
+      return 1;
+    }
+    uint32_t err = ERR_peek_error();
+    RSA_free(tmp);
+    tmp = NULL;
+    // Only retry on |RSA_R_TOO_MANY_ITERATIONS|. This is so a caller-induced
+    // failure in |BN_GENCB_call| is still fatal.
+    if (ERR_GET_LIB(err) != ERR_LIB_RSA ||
+        ERR_GET_REASON(err) != RSA_R_TOO_MANY_ITERATIONS) {
+      return 0;
+    }
+  }
+
+  return 0;
+}
+
 int RSA_generate_key_fips(RSA *rsa, int bits, BN_GENCB *cb) {
-  /* FIPS 186-4 allows 2048-bit and 3072-bit RSA keys (1024-bit and 1536-bit
-   * primes, respectively) with the prime generation method we use. */
+  // FIPS 186-4 allows 2048-bit and 3072-bit RSA keys (1024-bit and 1536-bit
+  // primes, respectively) with the prime generation method we use.
   if (bits != 2048 && bits != 3072) {
     OPENSSL_PUT_ERROR(RSA, RSA_R_BAD_RSA_PARAMETERS);
     return 0;
@@ -1060,10 +1327,9 @@ int RSA_generate_key_fips(RSA *rsa, int bits, BN_GENCB *cb) {
 }
 
 DEFINE_METHOD_FUNCTION(RSA_METHOD, RSA_default_method) {
-  /* All of the methods are NULL to make it easier for the compiler/linker to
-   * drop unused functions. The wrapper functions will select the appropriate
-   * |rsa_default_*| implementation. */
+  // All of the methods are NULL to make it easier for the compiler/linker to
+  // drop unused functions. The wrapper functions will select the appropriate
+  // |rsa_default_*| implementation.
   OPENSSL_memset(out, 0, sizeof(RSA_METHOD));
   out->common.is_static = 1;
-  out->flags = RSA_FLAG_CACHE_PUBLIC | RSA_FLAG_CACHE_PRIVATE;
 }

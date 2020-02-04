@@ -16,4 +16,4 @@
 #include "third_party/tcmalloc/chromium/src/config_freebsd.h"
 #endif
 
-#endif // CONFIG_H_
+#endif  // CONFIG_H_

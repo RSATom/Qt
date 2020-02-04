@@ -13,8 +13,8 @@
 // limitations under the License.
 
 #include "PixelPipeline.hpp"
-#include "Renderer.hpp"
 #include "SamplerCore.hpp"
+#include "Renderer/Renderer.hpp"
 
 namespace sw
 {
@@ -49,7 +49,7 @@ namespace sw
 
 			if(state.textureStage[stage].usesTexture)
 			{
-				sampleTexture(texture, stage, stage);
+				texture = sampleTexture(stage, stage);
 			}
 
 			blendTexture(temp, texture, stage);
@@ -88,7 +88,7 @@ namespace sw
 			const Src &src1 = instruction->src[1];
 			const Src &src2 = instruction->src[2];
 
-			unsigned short version = shader->getVersion();
+			unsigned short shaderModel = shader->getShaderModel();
 			bool pairing = i + 1 < shader->getLength() && shader->getInstruction(i + 1)->coissue;   // First instruction of pair
 			bool coissue = instruction->coissue;                                                              // Second instruction of pair
 
@@ -101,10 +101,10 @@ namespace sw
 			if(src1.type != Shader::PARAMETER_VOID) s1 = fetchRegister(src1);
 			if(src2.type != Shader::PARAMETER_VOID) s2 = fetchRegister(src2);
 
-			Float4 x = version < 0x0104 ? v[2 + dst.index].x : v[2 + src0.index].x;
-			Float4 y = version < 0x0104 ? v[2 + dst.index].y : v[2 + src0.index].y;
-			Float4 z = version < 0x0104 ? v[2 + dst.index].z : v[2 + src0.index].z;
-			Float4 w = version < 0x0104 ? v[2 + dst.index].w : v[2 + src0.index].w;
+			Float4 x = shaderModel < 0x0104 ? v[2 + dst.index].x : v[2 + src0.index].x;
+			Float4 y = shaderModel < 0x0104 ? v[2 + dst.index].y : v[2 + src0.index].y;
+			Float4 z = shaderModel < 0x0104 ? v[2 + dst.index].z : v[2 + src0.index].z;
+			Float4 w = shaderModel < 0x0104 ? v[2 + dst.index].w : v[2 + src0.index].w;
 
 			switch(opcode)
 			{
@@ -126,7 +126,7 @@ namespace sw
 			case Shader::OPCODE_DP4: DP4(d, s0, s1);     break;
 			case Shader::OPCODE_LRP: LRP(d, s0, s1, s2); break;
 			case Shader::OPCODE_TEXCOORD:
-				if(version < 0x0104)
+				if(shaderModel < 0x0104)
 				{
 					TEXCOORD(d, x, y, z, dst.index);
 			}
@@ -143,11 +143,11 @@ namespace sw
 				}
 				break;
 			case Shader::OPCODE_TEXKILL:
-				if(version < 0x0104)
+				if(shaderModel < 0x0104)
 				{
 					TEXKILL(cMask, x, y, z);
 				}
-				else if(version == 0x0104)
+				else if(shaderModel == 0x0104)
 				{
 					if(dst.type == Shader::PARAMETER_TEXTURE)
 					{
@@ -161,11 +161,11 @@ namespace sw
 				else ASSERT(false);
 				break;
 			case Shader::OPCODE_TEX:
-				if(version < 0x0104)
+				if(shaderModel < 0x0104)
 				{
 					TEX(d, x, y, z, dst.index, false);
 				}
-				else if(version == 0x0104)
+				else if(shaderModel == 0x0104)
 				{
 					if(src0.type == Shader::PARAMETER_TEXTURE)
 					{
@@ -256,15 +256,15 @@ namespace sw
 				}
 			}
 		}
-	}
 
-	Bool PixelPipeline::alphaTest(Int cMask[4])
-	{
 		current.x = Min(current.x, Short4(0x0FFF)); current.x = Max(current.x, Short4(0x0000));
 		current.y = Min(current.y, Short4(0x0FFF)); current.y = Max(current.y, Short4(0x0000));
 		current.z = Min(current.z, Short4(0x0FFF)); current.z = Max(current.z, Short4(0x0000));
 		current.w = Min(current.w, Short4(0x0FFF)); current.w = Max(current.w, Short4(0x0000));
+	}
 
+	Bool PixelPipeline::alphaTest(Int cMask[4])
+	{
 		if(!state.alphaTestActive())
 		{
 			return true;
@@ -356,6 +356,7 @@ namespace sw
 		case FORMAT_G32R32F:
 		case FORMAT_X32B32G32R32F:
 		case FORMAT_A32B32G32R32F:
+	//	case FORMAT_X32B32G32R32F_UNSIGNED:   // Not renderable in any fixed-function API.
 			convertSigned12(oC, current);
 			PixelRoutine::fogBlend(oC, fog);
 
@@ -1207,7 +1208,7 @@ namespace sw
 		current.z = AddSat(current.z, specular.z);
 	}
 
-	void PixelPipeline::sampleTexture(Vector4s &c, int coordinates, int stage, bool project)
+	Vector4s PixelPipeline::sampleTexture(int coordinates, int stage, bool project)
 	{
 		Float4 x = v[2 + coordinates].x;
 		Float4 y = v[2 + coordinates].y;
@@ -1222,11 +1223,13 @@ namespace sw
 			perturbate = false;
 		}
 
-		sampleTexture(c, stage, x, y, z, w, project);
+		return sampleTexture(stage, x, y, z, w, project);
 	}
 
-	void PixelPipeline::sampleTexture(Vector4s &c, int stage, Float4 &u, Float4 &v, Float4 &w, Float4 &q, bool project)
+	Vector4s PixelPipeline::sampleTexture(int stage, Float4 &u, Float4 &v, Float4 &w, Float4 &q, bool project)
 	{
+		Vector4s c;
+
 		#if PERF_PROFILE
 			Long texTime = Ticks();
 		#endif
@@ -1238,7 +1241,7 @@ namespace sw
 
 		if(!project)
 		{
-			sampler[stage]->sampleTexture(texture, c, u, v, w, q, dsx, dsy);
+			c = SamplerCore(constants, state.sampler[stage]).sampleTexture(texture, u, v, w, q, q, dsx, dsy);
 		}
 		else
 		{
@@ -1248,12 +1251,14 @@ namespace sw
 			Float4 v_q = v * rq;
 			Float4 w_q = w * rq;
 
-			sampler[stage]->sampleTexture(texture, c, u_q, v_q, w_q, q, dsx, dsy);
+			c = SamplerCore(constants, state.sampler[stage]).sampleTexture(texture, u_q, v_q, w_q, q, q, dsx, dsy);
 		}
 
 		#if PERF_PROFILE
 			cycles[PERF_TEX] += Ticks() - texTime;
 		#endif
+
+		return c;
 	}
 
 	Short4 PixelPipeline::convertFixed12(RValue<Float4> cf)
@@ -1470,22 +1475,18 @@ namespace sw
 	{
 		// FIXME: Long fixed-point multiply fixup
 		{ dst.x = MulHigh(src0.x, src1.x); dst.x = AddSat(dst.x, dst.x); dst.x = AddSat(dst.x, dst.x); dst.x = AddSat(dst.x, dst.x); dst.x = AddSat(dst.x, dst.x); dst.x = AddSat(dst.x, src2.x); }
-		{
-		dst.y = MulHigh(src0.y, src1.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, src2.y);
-	}
-		{dst.z = MulHigh(src0.z, src1.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, src2.z); }
-		{dst.w = MulHigh(src0.w, src1.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, src2.w); }
+		{ dst.y = MulHigh(src0.y, src1.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, src2.y); }
+		{ dst.z = MulHigh(src0.z, src1.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, src2.z); }
+		{ dst.w = MulHigh(src0.w, src1.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, src2.w); }
 	}
 
 	void PixelPipeline::MUL(Vector4s &dst, Vector4s &src0, Vector4s &src1)
 	{
 		// FIXME: Long fixed-point multiply fixup
 		{ dst.x = MulHigh(src0.x, src1.x); dst.x = AddSat(dst.x, dst.x); dst.x = AddSat(dst.x, dst.x); dst.x = AddSat(dst.x, dst.x); dst.x = AddSat(dst.x, dst.x); }
-		{
-		dst.y = MulHigh(src0.y, src1.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y);
-	}
-		{dst.z = MulHigh(src0.z, src1.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); }
-		{dst.w = MulHigh(src0.w, src1.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); }
+		{ dst.y = MulHigh(src0.y, src1.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); dst.y = AddSat(dst.y, dst.y); }
+		{ dst.z = MulHigh(src0.z, src1.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); dst.z = AddSat(dst.z, dst.z); }
+		{ dst.w = MulHigh(src0.w, src1.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); dst.w = AddSat(dst.w, dst.w); }
 	}
 
 	void PixelPipeline::DP3(Vector4s &dst, Vector4s &src0, Vector4s &src1)
@@ -1647,7 +1648,7 @@ namespace sw
 		v_ = Float4(0.0f);
 		w_ = Float4(0.0f);
 
-		sampleTexture(dst, stage, u_, v_, w_, w_);
+		dst = sampleTexture(stage, u_, v_, w_, w_);
 	}
 
 	void PixelPipeline::TEXKILL(Int cMask[4], Float4 &u, Float4 &v, Float4 &s)
@@ -1665,7 +1666,7 @@ namespace sw
 	void PixelPipeline::TEXKILL(Int cMask[4], Vector4s &src)
 	{
 		Short4 test = src.x | src.y | src.z;
-		Int kill = SignMask(Pack(test, test)) ^ 0x0000000F;
+		Int kill = SignMask(PackSigned(test, test)) ^ 0x0000000F;
 
 		for(unsigned int q = 0; q < state.multiSample; q++)
 		{
@@ -1675,7 +1676,7 @@ namespace sw
 
 	void PixelPipeline::TEX(Vector4s &dst, Float4 &u, Float4 &v, Float4 &s, int sampler, bool project)
 	{
-		sampleTexture(dst, sampler, u, v, s, s, project);
+		dst = sampleTexture(sampler, u, v, s, s, project);
 	}
 
 	void PixelPipeline::TEXLD(Vector4s &dst, Vector4s &src, int sampler, bool project)
@@ -1684,7 +1685,7 @@ namespace sw
 		Float4 v = Float4(src.y) * Float4(1.0f / 0x0FFE);
 		Float4 s = Float4(src.z) * Float4(1.0f / 0x0FFE);
 
-		sampleTexture(dst, sampler, u, v, s, s, project);
+		dst = sampleTexture(sampler, u, v, s, s, project);
 	}
 
 	void PixelPipeline::TEXBEM(Vector4s &dst, Vector4s &src, Float4 &u, Float4 &v, Float4 &s, int stage)
@@ -1705,7 +1706,7 @@ namespace sw
 		Float4 u_ = u + du;
 		Float4 v_ = v + dv;
 
-		sampleTexture(dst, stage, u_, v_, s, s);
+		dst = sampleTexture(stage, u_, v_, s, s);
 	}
 
 	void PixelPipeline::TEXBEML(Vector4s &dst, Vector4s &src, Float4 &u, Float4 &v, Float4 &s, int stage)
@@ -1726,7 +1727,7 @@ namespace sw
 		Float4 u_ = u + du;
 		Float4 v_ = v + dv;
 
-		sampleTexture(dst, stage, u_, v_, s, s);
+		dst = sampleTexture(stage, u_, v_, s, s);
 
 		Short4 L;
 
@@ -1748,7 +1749,7 @@ namespace sw
 		Float4 v = Float4(src0.x) * Float4(1.0f / 0x0FFE);
 		Float4 s = Float4(src0.z) * Float4(1.0f / 0x0FFE);
 
-		sampleTexture(dst, stage, u, v, s, s);
+		dst = sampleTexture(stage, u, v, s, s);
 	}
 
 	void PixelPipeline::TEXREG2GB(Vector4s &dst, Vector4s &src0, int stage)
@@ -1757,7 +1758,7 @@ namespace sw
 		Float4 v = Float4(src0.z) * Float4(1.0f / 0x0FFE);
 		Float4 s = v;
 
-		sampleTexture(dst, stage, u, v, s, s);
+		dst = sampleTexture(stage, u, v, s, s);
 	}
 
 	void PixelPipeline::TEXREG2RGB(Vector4s &dst, Vector4s &src0, int stage)
@@ -1766,7 +1767,7 @@ namespace sw
 		Float4 v = Float4(src0.y) * Float4(1.0f / 0x0FFE);
 		Float4 s = Float4(src0.z) * Float4(1.0f / 0x0FFE);
 
-		sampleTexture(dst, stage, u, v, s, s);
+		dst = sampleTexture(stage, u, v, s, s);
 	}
 
 	void PixelPipeline::TEXM3X2DEPTH(Vector4s &dst, Float4 &u, Float4 &v, Float4 &s, Vector4s &src, bool signedScaling)
@@ -1790,7 +1791,7 @@ namespace sw
 
 		w_ = Float4(0.0f);
 
-		sampleTexture(dst, stage, u_, v_, w_, w_);
+		dst = sampleTexture(stage, u_, v_, w_, w_);
 	}
 
 	void PixelPipeline::TEXM3X3(Vector4s &dst, Float4 &u, Float4 &v, Float4 &s, Vector4s &src0, bool signedScaling)
@@ -1861,14 +1862,14 @@ namespace sw
 		v__ -= E[1] * u_;
 		w__ -= E[2] * u_;
 
-		sampleTexture(dst, stage, u__, v__, w__, w__);
+		dst = sampleTexture(stage, u__, v__, w__, w__);
 	}
 
 	void PixelPipeline::TEXM3X3TEX(Vector4s &dst, Float4 &u, Float4 &v, Float4 &s, int stage, Vector4s &src0, bool signedScaling)
 	{
 		TEXM3X3PAD(u, v, s, src0, 2, signedScaling);
 
-		sampleTexture(dst, stage, u_, v_, w_, w_);
+		dst = sampleTexture(stage, u_, v_, w_, w_);
 	}
 
 	void PixelPipeline::TEXM3X3VSPEC(Vector4s &dst, Float4 &x, Float4 &y, Float4 &z, int stage, Vector4s &src0)
@@ -1905,7 +1906,7 @@ namespace sw
 		v__ -= E[1] * u_;
 		w__ -= E[2] * u_;
 
-		sampleTexture(dst, stage, u__, v__, w__, w__);
+		dst = sampleTexture(stage, u__, v__, w__, w__);
 	}
 
 	void PixelPipeline::TEXDEPTH()

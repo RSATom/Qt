@@ -12,13 +12,15 @@
 #include <mmsystem.h>
 
 #include <algorithm>
+#include <limits>
 #include <string>
 
 #include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
+#include "base/optional.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -27,8 +29,8 @@
 #include "device/usb/usb_ids.h"
 #include "media/midi/message_util.h"
 #include "media/midi/midi_manager_winrt.h"
-#include "media/midi/midi_port_info.h"
 #include "media/midi/midi_service.h"
+#include "media/midi/midi_service.mojom.h"
 #include "media/midi/midi_switches.h"
 
 namespace midi {
@@ -103,8 +105,8 @@ constexpr size_t kSysExSizeLimit = 256 * 1024;
 constexpr size_t kBufferLength = 32 * 1024;
 
 // Global variables to identify MidiManager instance.
-constexpr int kInvalidInstanceId = -1;
-int g_active_instance_id = kInvalidInstanceId;
+constexpr int64_t kInvalidInstanceId = -1;
+int64_t g_active_instance_id = kInvalidInstanceId;
 MidiManagerWin* g_manager_instance = nullptr;
 
 // Obtains base::Lock instance pointer to lock instance_id.
@@ -114,8 +116,15 @@ base::Lock* GetInstanceIdLock() {
 }
 
 // Issues unique MidiManager instance ID.
-int IssueNextInstanceId() {
-  static int id = kInvalidInstanceId;
+int64_t IssueNextInstanceId(base::Optional<int64_t> override_id) {
+  static int64_t id = kInvalidInstanceId;
+  if (override_id) {
+    int64_t result = ++id;
+    id = *override_id;
+    return result;
+  }
+  if (id == std::numeric_limits<int64_t>::max())
+    return kInvalidInstanceId;
   return ++id;
 }
 
@@ -132,21 +141,21 @@ base::Lock* GetTaskLock() {
 }
 
 // Helper function to run a posted task on TaskRunner safely.
-void RunTask(int instance_id, const base::Closure& task) {
+void RunTask(int instance_id, base::OnceClosure task) {
   // Obtains task lock to ensure that the instance should not complete
   // Finalize() while running the |task|.
   base::AutoLock task_lock(*GetTaskLock());
   {
-    // If Finalize() finished before the lock avobe, do nothing.
+    // If destructor finished before the lock avobe, do nothing.
     base::AutoLock lock(*GetInstanceIdLock());
     if (instance_id != g_active_instance_id)
       return;
   }
-  task.Run();
+  std::move(task).Run();
 }
 
-// TODO(toyoshim): Factor out TaskRunner related functionaliries above, and
-// deprecate MidiScheduler. It should be available via MidiManager::scheduler().
+// TODO(toyoshim): Use midi::TaskService and deprecate its prototype
+// implementation above that is still used in this MidiManagerWin class.
 
 // Obtains base::Lock instance pointer to protect
 // |g_midi_in_get_num_devs_thread_id|.
@@ -289,12 +298,12 @@ class Port {
   void set_index(size_t index) {
     index_ = index;
     // TODO(toyoshim): Use hashed ID.
-    info_.id = base::StringPrintf("%s-%d", type_.c_str(), index_);
+    info_.id = base::StringPrintf("%s-%zd", type_.c_str(), index_);
   }
   size_t index() { return index_; }
   void set_device_id(uint32_t device_id) { device_id_ = device_id; }
   uint32_t device_id() { return device_id_; }
-  const MidiPortInfo& info() { return info_; }
+  const mojom::PortInfo& info() { return info_; }
 
   virtual bool Connect() {
     if (info_.state != mojom::PortState::DISCONNECTED)
@@ -324,7 +333,7 @@ class Port {
   const uint16_t product_id_;
   const uint32_t driver_version_;
   const std::string product_name_;
-  MidiPortInfo info_;
+  mojom::PortInfo info_;
 };  // class Port
 
 }  // namespace
@@ -366,15 +375,15 @@ class MidiManagerWin::InPort final : public Port {
         continue;
       }
       ports.push_back(
-          base::MakeUnique<InPort>(manager, instance_id, device_id, caps));
+          std::make_unique<InPort>(manager, instance_id, device_id, caps));
     }
     return ports;
   }
 
   void Finalize(scoped_refptr<base::SingleThreadTaskRunner> runner) {
     if (in_handle_ != kInvalidInHandle) {
-      runner->PostTask(FROM_HERE, base::Bind(&FinalizeInPort, in_handle_,
-                                             base::Passed(&hdr_)));
+      runner->PostTask(FROM_HERE, base::BindOnce(&FinalizeInPort, in_handle_,
+                                                 base::Passed(&hdr_)));
       manager_->port_manager()->UnregisterInHandle(in_handle_);
       in_handle_ = kInvalidInHandle;
     }
@@ -391,14 +400,14 @@ class MidiManagerWin::InPort final : public Port {
   }
 
   void NotifyPortStateSet(MidiManagerWin* manager) {
-    manager->PostReplyTask(base::Bind(&MidiManagerWin::SetInputPortState,
-                                      base::Unretained(manager), index_,
-                                      info_.state));
+    manager->PostReplyTask(base::BindOnce(
+        &MidiManagerWin::SetInputPortState, base::Unretained(manager),
+        static_cast<uint32_t>(index_), info_.state));
   }
 
   void NotifyPortAdded(MidiManagerWin* manager) {
-    manager->PostReplyTask(base::Bind(&MidiManagerWin::AddInputPort,
-                                      base::Unretained(manager), info_));
+    manager->PostReplyTask(base::BindOnce(&MidiManagerWin::AddInputPort,
+                                          base::Unretained(manager), info_));
   }
 
   // Port overrides:
@@ -476,27 +485,28 @@ class MidiManagerWin::OutPort final : public Port {
         LOG(ERROR) << "midiOutGetDevCaps fails on device " << device_id;
         continue;
       }
-      ports.push_back(base::MakeUnique<OutPort>(device_id, caps));
+      ports.push_back(std::make_unique<OutPort>(device_id, caps));
     }
     return ports;
   }
 
   void Finalize(scoped_refptr<base::SingleThreadTaskRunner> runner) {
     if (out_handle_ != kInvalidOutHandle) {
-      runner->PostTask(FROM_HERE, base::Bind(&FinalizeOutPort, out_handle_));
+      runner->PostTask(FROM_HERE,
+                       base::BindOnce(&FinalizeOutPort, out_handle_));
       out_handle_ = kInvalidOutHandle;
     }
   }
 
   void NotifyPortStateSet(MidiManagerWin* manager) {
-    manager->PostReplyTask(base::Bind(&MidiManagerWin::SetOutputPortState,
-                                      base::Unretained(manager), index_,
-                                      info_.state));
+    manager->PostReplyTask(base::BindOnce(
+        &MidiManagerWin::SetOutputPortState, base::Unretained(manager),
+        static_cast<uint32_t>(index_), info_.state));
   }
 
   void NotifyPortAdded(MidiManagerWin* manager) {
-    manager->PostReplyTask(base::Bind(&MidiManagerWin::AddOutputPort,
-                                      base::Unretained(manager), info_));
+    manager->PostReplyTask(base::BindOnce(&MidiManagerWin::AddOutputPort,
+                                          base::Unretained(manager), info_));
   }
 
   void Send(const std::vector<uint8_t>& data) {
@@ -643,12 +653,13 @@ MidiManagerWin::PortManager::HandleMidiInCallback(HMIDIIN hmi,
         static_cast<uint8_t>((param1 >> 16) & 0xff);
     const uint8_t kData[] = {status_byte, first_data_byte, second_data_byte};
     const size_t len = GetMessageLength(status_byte);
-    DCHECK_LE(len, arraysize(kData));
+    DCHECK_LE(len, base::size(kData));
     std::vector<uint8_t> data;
     data.assign(kData, kData + len);
-    manager->PostReplyTask(base::Bind(
-        &MidiManagerWin::ReceiveMidiData, base::Unretained(manager), index,
-        data, manager->port_manager()->CalculateInEventTime(index, param2)));
+    manager->PostReplyTask(base::BindOnce(
+        &MidiManagerWin::ReceiveMidiData, base::Unretained(manager),
+        static_cast<uint32_t>(index), data,
+        manager->port_manager()->CalculateInEventTime(index, param2)));
   } else {
     DCHECK_EQ(static_cast<UINT>(MIM_LONGDATA), msg);
     LPMIDIHDR hdr = reinterpret_cast<LPMIDIHDR>(param1);
@@ -656,9 +667,10 @@ MidiManagerWin::PortManager::HandleMidiInCallback(HMIDIIN hmi,
       const uint8_t* src = reinterpret_cast<const uint8_t*>(hdr->lpData);
       std::vector<uint8_t> data;
       data.assign(src, src + hdr->dwBytesRecorded);
-      manager->PostReplyTask(base::Bind(
-          &MidiManagerWin::ReceiveMidiData, base::Unretained(manager), index,
-          data, manager->port_manager()->CalculateInEventTime(index, param2)));
+      manager->PostReplyTask(base::BindOnce(
+          &MidiManagerWin::ReceiveMidiData, base::Unretained(manager),
+          static_cast<uint32_t>(index), data,
+          manager->port_manager()->CalculateInEventTime(index, param2)));
     }
     manager->port_manager()->RestoreInBuffer(index);
   }
@@ -683,10 +695,15 @@ MidiManagerWin::PortManager::HandleMidiOutCallback(HMIDIOUT hmo,
   }
 }
 
+// static
+void MidiManagerWin::OverflowInstanceIdForTesting() {
+  IssueNextInstanceId(std::numeric_limits<int64_t>::max());
+}
+
 MidiManagerWin::MidiManagerWin(MidiService* service)
     : MidiManager(service),
-      instance_id_(IssueNextInstanceId()),
-      port_manager_(base::MakeUnique<PortManager>()) {
+      instance_id_(IssueNextInstanceId(base::nullopt)),
+      port_manager_(std::make_unique<PortManager>()) {
   base::AutoLock lock(*GetInstanceIdLock());
   CHECK_EQ(kInvalidInstanceId, g_active_instance_id);
 
@@ -695,14 +712,48 @@ MidiManagerWin::MidiManagerWin(MidiService* service)
 }
 
 MidiManagerWin::~MidiManagerWin() {
-  base::AutoLock lock(*GetInstanceIdLock());
-  CHECK_EQ(kInvalidInstanceId, g_active_instance_id);
+  // Initialization failed. Exit without running actual finalization that should
+  // not be needed.
+  if (instance_id_ == kInvalidInstanceId)
+    return;
+
+  // Unregisters on the I/O thread. OnDevicesChanged() won't be called any more.
   CHECK(thread_runner_->BelongsToCurrentThread());
+  base::SystemMonitor::Get()->RemoveDevicesChangedObserver(this);
+
+  // Posts tasks that finalize each device port without MidiManager instance
+  // on TaskRunner. If another MidiManager instance is created, its
+  // initialization runs on the same task runner after all tasks posted here
+  // finish.
+  for (const auto& port : *port_manager_->inputs())
+    port->Finalize(service()->GetTaskRunner(kTaskRunner));
+  for (const auto& port : *port_manager_->outputs())
+    port->Finalize(service()->GetTaskRunner(kTaskRunner));
+
+  // Invalidate instance bound tasks.
+  {
+    base::AutoLock lock(*GetInstanceIdLock());
+    CHECK_EQ(instance_id_, g_active_instance_id);
+    g_active_instance_id = kInvalidInstanceId;
+    CHECK_EQ(this, g_manager_instance);
+    g_manager_instance = nullptr;
+  }
+
+  // Ensures that no bound task runs on TaskRunner so to destruct the instance
+  // safely.
+  // Tasks that did not started yet will do nothing after invalidate the
+  // instance ID above.
+  // Behind the lock below, we can safely access all members for finalization
+  // even on the I/O thread.
+  base::AutoLock lock(*GetTaskLock());
 }
 
 void MidiManagerWin::StartInitialization() {
   {
     base::AutoLock lock(*GetInstanceIdLock());
+    if (instance_id_ == kInvalidInstanceId)
+      return CompleteInitialization(mojom::Result::INITIALIZATION_ERROR);
+
     CHECK_EQ(kInvalidInstanceId, g_active_instance_id);
     g_active_instance_id = instance_id_;
     CHECK_EQ(nullptr, g_manager_instance);
@@ -713,58 +764,18 @@ void MidiManagerWin::StartInitialization() {
   base::SystemMonitor::Get()->AddDevicesChangedObserver(this);
 
   // Starts asynchronous initialization on TaskRunner.
-  PostTask(base::Bind(&MidiManagerWin::InitializeOnTaskRunner,
-                      base::Unretained(this)));
-}
-
-void MidiManagerWin::Finalize() {
-  // Unregisters on the I/O thread. OnDevicesChanged() won't be called any more.
-  CHECK(thread_runner_->BelongsToCurrentThread());
-  base::SystemMonitor::Get()->RemoveDevicesChangedObserver(this);
-  {
-    base::AutoLock lock(*GetInstanceIdLock());
-    CHECK_EQ(instance_id_, g_active_instance_id);
-    g_active_instance_id = kInvalidInstanceId;
-    CHECK_EQ(this, g_manager_instance);
-    g_manager_instance = nullptr;
-  }
-
-  // Ensures that no task runs on TaskRunner so to destruct the instance safely.
-  // Tasks that did not started yet will do nothing after invalidate the
-  // instance ID above.
-  // Behind the lock below, we can safely access all members for finalization
-  // even on the I/O thread.
-  base::AutoLock lock(*GetTaskLock());
-
-  // Posts tasks that finalize each device port without MidiManager instance
-  // on TaskRunner. If another MidiManager instance is created, its
-  // initialization runs on the same task runner after all tasks posted here
-  // finish.
-  for (const auto& port : *port_manager_->inputs())
-    port->Finalize(service()->GetTaskRunner(kTaskRunner));
-  for (const auto& port : *port_manager_->outputs())
-    port->Finalize(service()->GetTaskRunner(kTaskRunner));
+  PostTask(base::BindOnce(&MidiManagerWin::InitializeOnTaskRunner,
+                          base::Unretained(this)));
 }
 
 void MidiManagerWin::DispatchSendMidiData(MidiManagerClient* client,
                                           uint32_t port_index,
                                           const std::vector<uint8_t>& data,
-                                          double timestamp) {
-  if (timestamp != 0.0) {
-    base::TimeTicks time =
-        base::TimeTicks() + base::TimeDelta::FromMicroseconds(
-                                timestamp * base::Time::kMicrosecondsPerSecond);
-    base::TimeTicks now = base::TimeTicks::Now();
-    if (now < time) {
-      PostDelayedTask(
-          base::Bind(&MidiManagerWin::SendOnTaskRunner, base::Unretained(this),
+                                          base::TimeTicks timestamp) {
+  PostDelayedTask(
+      base::BindOnce(&MidiManagerWin::SendOnTaskRunner, base::Unretained(this),
                      client, port_index, data),
-          time - now);
-      return;
-    }
-  }
-  PostTask(base::Bind(&MidiManagerWin::SendOnTaskRunner, base::Unretained(this),
-                      client, port_index, data));
+      MidiService::TimestampToTimeDeltaDelay(timestamp));
 }
 
 void MidiManagerWin::OnDevicesChanged(
@@ -778,8 +789,8 @@ void MidiManagerWin::OnDevicesChanged(
       // Add case of other unrelated device types here.
       return;
     case base::SystemMonitor::DEVTYPE_UNKNOWN: {
-      PostTask(base::Bind(&MidiManagerWin::UpdateDeviceListOnTaskRunner,
-                          base::Unretained(this)));
+      PostTask(base::BindOnce(&MidiManagerWin::UpdateDeviceListOnTaskRunner,
+                              base::Unretained(this)));
       break;
     }
   }
@@ -791,28 +802,31 @@ void MidiManagerWin::ReceiveMidiData(uint32_t index,
   MidiManager::ReceiveMidiData(index, data.data(), data.size(), time);
 }
 
-void MidiManagerWin::PostTask(const base::Closure& task) {
+void MidiManagerWin::PostTask(base::OnceClosure task) {
   service()
       ->GetTaskRunner(kTaskRunner)
-      ->PostTask(FROM_HERE, base::Bind(&RunTask, instance_id_, task));
+      ->PostTask(FROM_HERE,
+                 base::BindOnce(&RunTask, instance_id_, std::move(task)));
 }
 
-void MidiManagerWin::PostDelayedTask(const base::Closure& task,
+void MidiManagerWin::PostDelayedTask(base::OnceClosure task,
                                      base::TimeDelta delay) {
   service()
       ->GetTaskRunner(kTaskRunner)
-      ->PostDelayedTask(FROM_HERE, base::Bind(&RunTask, instance_id_, task),
+      ->PostDelayedTask(FROM_HERE,
+                        base::BindOnce(&RunTask, instance_id_, std::move(task)),
                         delay);
 }
 
-void MidiManagerWin::PostReplyTask(const base::Closure& task) {
-  thread_runner_->PostTask(FROM_HERE, base::Bind(&RunTask, instance_id_, task));
+void MidiManagerWin::PostReplyTask(base::OnceClosure task) {
+  thread_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&RunTask, instance_id_, std::move(task)));
 }
 
 void MidiManagerWin::InitializeOnTaskRunner() {
   UpdateDeviceListOnTaskRunner();
-  PostReplyTask(base::Bind(&MidiManagerWin::CompleteInitialization,
-                           base::Unretained(this), mojom::Result::OK));
+  PostReplyTask(base::BindOnce(&MidiManagerWin::CompleteInitialization,
+                               base::Unretained(this), mojom::Result::OK));
 }
 
 void MidiManagerWin::UpdateDeviceListOnTaskRunner() {
@@ -870,8 +884,8 @@ void MidiManagerWin::SendOnTaskRunner(MidiManagerClient* client,
   CHECK_GT(port_manager_->outputs()->size(), port_index);
   (*port_manager_->outputs())[port_index]->Send(data);
   // |client| will be checked inside MidiManager::AccumulateMidiBytesSent.
-  PostReplyTask(base::Bind(&MidiManagerWin::AccumulateMidiBytesSent,
-                           base::Unretained(this), client, data.size()));
+  PostReplyTask(base::BindOnce(&MidiManagerWin::AccumulateMidiBytesSent,
+                               base::Unretained(this), client, data.size()));
 }
 
 MidiManager* MidiManager::Create(MidiService* service) {

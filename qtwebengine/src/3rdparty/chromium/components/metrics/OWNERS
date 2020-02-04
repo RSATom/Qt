@@ -1,7 +1,7 @@
-asvitkine@chromium.org
-holte@chromium.org
-isherman@chromium.org
-mpearson@chromium.org
-rkaplow@chromium.org
+file://base/metrics/OWNERS
+
+per-file *call_stack_profile*=wittman@chromium.org
+per-file BUILD.gn=wittman@chromium.org
+per-file DEPS=wittman@chromium.org
 
 # COMPONENT: Internals>Metrics

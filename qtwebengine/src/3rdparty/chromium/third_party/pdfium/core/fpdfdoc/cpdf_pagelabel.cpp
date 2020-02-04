@@ -13,16 +13,15 @@
 
 namespace {
 
-CFX_WideString MakeRoman(int num) {
+WideString MakeRoman(int num) {
   const int kArabic[] = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1};
-  const CFX_WideString kRoman[] = {L"m",  L"cm", L"d",  L"cd", L"c",
-                                   L"xc", L"l",  L"xl", L"x",  L"ix",
-                                   L"v",  L"iv", L"i"};
+  const WideString kRoman[] = {L"m",  L"cm", L"d",  L"cd", L"c",  L"xc", L"l",
+                               L"xl", L"x",  L"ix", L"v",  L"iv", L"i"};
   const int kMaxNum = 1000000;
 
   num %= kMaxNum;
   int i = 0;
-  CFX_WideString wsRomanNumber;
+  WideString wsRomanNumber;
   while (num > 0) {
     while (num >= kArabic[i]) {
       num = num - kArabic[i];
@@ -33,11 +32,11 @@ CFX_WideString MakeRoman(int num) {
   return wsRomanNumber;
 }
 
-CFX_WideString MakeLetters(int num) {
+WideString MakeLetters(int num) {
   if (num == 0)
-    return CFX_WideString();
+    return WideString();
 
-  CFX_WideString wsLetters;
+  WideString wsLetters;
   const int nMaxCount = 1000;
   const int nLetterCount = 26;
   --num;
@@ -50,24 +49,26 @@ CFX_WideString MakeLetters(int num) {
   return wsLetters;
 }
 
-CFX_WideString GetLabelNumPortion(int num, const CFX_ByteString& bsStyle) {
-  CFX_WideString wsNumPortion;
+WideString GetLabelNumPortion(int num, const ByteString& bsStyle) {
   if (bsStyle.IsEmpty())
+    return WideString();
+  if (bsStyle == "D")
+    return WideString::Format(L"%d", num);
+  if (bsStyle == "R") {
+    WideString wsNumPortion = MakeRoman(num);
+    wsNumPortion.MakeUpper();
     return wsNumPortion;
-  if (bsStyle == "D") {
-    wsNumPortion.Format(L"%d", num);
-  } else if (bsStyle == "R") {
-    wsNumPortion = MakeRoman(num);
-    wsNumPortion.MakeUpper();
-  } else if (bsStyle == "r") {
-    wsNumPortion = MakeRoman(num);
-  } else if (bsStyle == "A") {
-    wsNumPortion = MakeLetters(num);
-    wsNumPortion.MakeUpper();
-  } else if (bsStyle == "a") {
-    wsNumPortion = MakeLetters(num);
   }
-  return wsNumPortion;
+  if (bsStyle == "r")
+    return MakeRoman(num);
+  if (bsStyle == "A") {
+    WideString wsNumPortion = MakeLetters(num);
+    wsNumPortion.MakeUpper();
+    return wsNumPortion;
+  }
+  if (bsStyle == "a")
+    return MakeLetters(num);
+  return WideString();
 }
 
 }  // namespace
@@ -77,23 +78,23 @@ CPDF_PageLabel::CPDF_PageLabel(CPDF_Document* pDocument)
 
 CPDF_PageLabel::~CPDF_PageLabel() {}
 
-bool CPDF_PageLabel::GetLabel(int nPage, CFX_WideString* wsLabel) const {
+Optional<WideString> CPDF_PageLabel::GetLabel(int nPage) const {
   if (!m_pDocument)
-    return false;
+    return {};
 
   if (nPage < 0 || nPage >= m_pDocument->GetPageCount())
-    return false;
+    return {};
 
-  CPDF_Dictionary* pPDFRoot = m_pDocument->GetRoot();
+  const CPDF_Dictionary* pPDFRoot = m_pDocument->GetRoot();
   if (!pPDFRoot)
-    return false;
+    return {};
 
-  CPDF_Dictionary* pLabels = pPDFRoot->GetDictFor("PageLabels");
+  const CPDF_Dictionary* pLabels = pPDFRoot->GetDictFor("PageLabels");
   if (!pLabels)
-    return false;
+    return {};
 
   CPDF_NumberTree numberTree(pLabels);
-  CPDF_Object* pValue = nullptr;
+  const CPDF_Object* pValue = nullptr;
   int n = nPage;
   while (n >= 0) {
     pValue = numberTree.LookupValue(n);
@@ -102,47 +103,20 @@ bool CPDF_PageLabel::GetLabel(int nPage, CFX_WideString* wsLabel) const {
     n--;
   }
 
+  WideString label;
   if (pValue) {
     pValue = pValue->GetDirect();
-    if (CPDF_Dictionary* pLabel = pValue->AsDictionary()) {
+    if (const CPDF_Dictionary* pLabel = pValue->AsDictionary()) {
       if (pLabel->KeyExist("P"))
-        *wsLabel += pLabel->GetUnicodeTextFor("P");
+        label += pLabel->GetUnicodeTextFor("P");
 
-      CFX_ByteString bsNumberingStyle = pLabel->GetStringFor("S", "");
+      ByteString bsNumberingStyle = pLabel->GetStringFor("S", ByteString());
       int nLabelNum = nPage - n + pLabel->GetIntegerFor("St", 1);
-      CFX_WideString wsNumPortion =
-          GetLabelNumPortion(nLabelNum, bsNumberingStyle);
-      *wsLabel += wsNumPortion;
-      return true;
+      WideString wsNumPortion = GetLabelNumPortion(nLabelNum, bsNumberingStyle);
+      label += wsNumPortion;
+      return {label};
     }
   }
-  wsLabel->Format(L"%d", nPage + 1);
-  return true;
-}
-
-int32_t CPDF_PageLabel::GetPageByLabel(const CFX_ByteStringC& bsLabel) const {
-  if (!m_pDocument)
-    return -1;
-
-  CPDF_Dictionary* pPDFRoot = m_pDocument->GetRoot();
-  if (!pPDFRoot)
-    return -1;
-
-  int nPages = m_pDocument->GetPageCount();
-  for (int i = 0; i < nPages; i++) {
-    CFX_WideString str;
-    if (!GetLabel(i, &str))
-      continue;
-    if (PDF_EncodeText(str).Compare(bsLabel))
-      return i;
-  }
-
-  int nPage = FXSYS_atoi(CFX_ByteString(bsLabel).c_str());  // NUL terminate.
-  return nPage > 0 && nPage <= nPages ? nPage : -1;
-}
-
-int32_t CPDF_PageLabel::GetPageByLabel(const CFX_WideStringC& wsLabel) const {
-  // TODO(tsepez): check usage of c_str() below.
-  return GetPageByLabel(
-      PDF_EncodeText(wsLabel.unterminated_c_str()).AsStringC());
+  label = WideString::Format(L"%d", nPage + 1);
+  return {label};
 }

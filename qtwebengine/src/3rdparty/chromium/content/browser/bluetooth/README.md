@@ -7,12 +7,12 @@ This service is exposed to the web in the [blink bluetooth module].
 
 [Web Bluetooth specification]: https://webbluetoothcg.github.io/web-bluetooth/
 [/device/bluetooth]: /device/bluetooth
-[blink bluetooth module]: /third_party/WebKit/Source/modules/bluetooth/
+[blink bluetooth module]: /third_party/blink/renderer/modules/bluetooth/
 
 
 ## Testing
 
-Bluetooth layout tests in `third_party/WebKit/LayoutTests/bluetooth/` rely on
+Bluetooth web tests in `third_party/blink/web_tests/bluetooth/` rely on
 fake Bluetooth implementation classes constructed in
 `content/shell/browser/layout_test/layout_test_bluetooth_adapter_provider`.
 These tests span JavaScript binding to the `device/bluetooth` API layer.

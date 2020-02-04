@@ -46,7 +46,7 @@
 #include "qelapsedtimer.h"
 #include "qnetworkinterface.h"
 
-#if !defined(QT_NO_NETWORKPROXY) && !defined(QT_NO_HTTP)
+#if !defined(QT_NO_NETWORKPROXY)
 #include <qdebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -572,18 +572,13 @@ void QHttpSocketEngine::slotSocketReadNotification()
     }
 
     if (d->state == ReadResponseContent) {
-        char dummybuffer[4096];
-        while (d->pendingResponseData) {
-            int read = d->socket->read(dummybuffer, qMin(sizeof(dummybuffer), (size_t)d->pendingResponseData));
-            if (read == 0)
-                return;
-            if (read == -1) {
-                d->socket->disconnectFromHost();
-                emitWriteNotification();
-                return;
-            }
-            d->pendingResponseData -= read;
+        qint64 skipped = d->socket->skip(d->pendingResponseData);
+        if (skipped == -1) {
+            d->socket->disconnectFromHost();
+            emitWriteNotification();
+            return;
         }
+        d->pendingResponseData -= uint(skipped);
         if (d->pendingResponseData > 0)
             return;
         if (d->reply->d_func()->statusCode == 407)
@@ -632,10 +627,9 @@ void QHttpSocketEngine::slotSocketReadNotification()
         // from http spec is also allowed.
         if (proxyConnectionHeader.isEmpty())
             proxyConnectionHeader = d->reply->headerField("Connection");
-        proxyConnectionHeader = proxyConnectionHeader.toLower();
-        if (proxyConnectionHeader == "close") {
+        if (proxyConnectionHeader.compare("close", Qt::CaseInsensitive) == 0) {
             willClose = true;
-        } else if (proxyConnectionHeader == "keep-alive") {
+        } else if (proxyConnectionHeader.compare("keep-alive", Qt::CaseInsensitive) == 0) {
             willClose = false;
         } else {
             // no Proxy-Connection header, so use the default
@@ -655,7 +649,7 @@ void QHttpSocketEngine::slotSocketReadNotification()
         }
 
         if (priv->phase == QAuthenticatorPrivate::Done)
-            emit proxyAuthenticationRequired(d->proxy, &d->authenticator);
+            proxyAuthenticationRequired(d->proxy, &d->authenticator);
         // priv->phase will get reset to QAuthenticatorPrivate::Start if the authenticator got modified in the signal above.
         if (priv->phase == QAuthenticatorPrivate::Done) {
             setError(QAbstractSocket::ProxyAuthenticationRequiredError, tr("Authentication required"));
@@ -777,7 +771,7 @@ void QHttpSocketEngine::emitPendingReadNotification()
     Q_D(QHttpSocketEngine);
     d->readNotificationPending = false;
     if (d->readNotificationEnabled)
-        emit readNotification();
+        readNotification();
 }
 
 void QHttpSocketEngine::emitPendingWriteNotification()
@@ -785,14 +779,14 @@ void QHttpSocketEngine::emitPendingWriteNotification()
     Q_D(QHttpSocketEngine);
     d->writeNotificationPending = false;
     if (d->writeNotificationEnabled)
-        emit writeNotification();
+        writeNotification();
 }
 
 void QHttpSocketEngine::emitPendingConnectionNotification()
 {
     Q_D(QHttpSocketEngine);
     d->connectionNotificationPending = false;
-    emit connectionNotification();
+    connectionNotification();
 }
 
 void QHttpSocketEngine::emitReadNotification()
@@ -871,4 +865,4 @@ QAbstractSocketEngine *QHttpSocketEngineHandler::createSocketEngine(qintptr, QOb
 
 QT_END_NAMESPACE
 
-#endif
+#endif // !QT_NO_NETWORKPROXY

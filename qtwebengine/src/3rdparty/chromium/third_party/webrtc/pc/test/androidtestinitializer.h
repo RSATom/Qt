@@ -1,5 +1,5 @@
 /*
- *  Copyright 2015 The WebRTC project authors. All Rights Reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,13 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_PC_TEST_ANDROIDTESTINITIALIZER_H_
-#define WEBRTC_PC_TEST_ANDROIDTESTINITIALIZER_H_
+#ifndef PC_TEST_ANDROIDTESTINITIALIZER_H_
+#define PC_TEST_ANDROIDTESTINITIALIZER_H_
 
-namespace webrtc {
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-void InitializeAndroidObjects();
+#include "pc/test/android_test_initializer.h"
 
-}  // namespace webrtc
-
-#endif  // WEBRTC_PC_TEST_ANDROIDTESTINITIALIZER_H_
+#endif  // PC_TEST_ANDROIDTESTINITIALIZER_H_

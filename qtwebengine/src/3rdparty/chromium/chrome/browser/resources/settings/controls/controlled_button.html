@@ -14,8 +14,6 @@
     <style include="settings-shared">
       :host {
         --justify-margin: 8px;
-        -webkit-margin-end: calc(var(--cr-button-edge-spacing) * -1);
-        -webkit-margin-start: calc(var(--cr-button-edge-spacing) * -1);
         align-items: center;
         display: flex;
       }
@@ -33,23 +31,24 @@
       }
 
       :host(:not([end-justified])) cr-policy-pref-indicator {
-        -webkit-margin-end: calc(
-            var(--cr-controlled-by-spacing) - var(--justify-margin));
-        -webkit-margin-start: var(--cr-controlled-by-spacing);
+        margin-inline-start: var(--cr-controlled-by-spacing);
       }
 
       :host([end-justified]) cr-policy-pref-indicator {
-        -webkit-margin-end: var(--cr-controlled-by-spacing);
-        -webkit-margin-start: calc(
+        margin-inline-end: var(--cr-controlled-by-spacing);
+        margin-inline-start: calc(
             var(--cr-controlled-by-spacing) - var(--justify-margin));
         order: -1;
       }
     </style>
 
-    <paper-button disabled="[[enforced_]]">[[label]]</paper-button>
+    <paper-button class$="[[getClass_(actionButton)]]"
+      disabled="[[!buttonEnabled_(enforced_, disabled)]]">
+      [[label]]
+    </paper-button>
 
     <template is="dom-if" if="[[hasPrefPolicyIndicator(pref.*)]]" restamp>
-      <cr-policy-pref-indicator pref="[[pref]]" on-tap="onIndicatorTap_"
+      <cr-policy-pref-indicator pref="[[pref]]" on-click="onIndicatorTap_"
           icon-aria-label="[[label]]">
       </cr-policy-pref-indicator>
     </template>

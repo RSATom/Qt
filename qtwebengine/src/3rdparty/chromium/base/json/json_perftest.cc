@@ -7,6 +7,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/perf/perf_test.h"
 
@@ -16,17 +17,17 @@ namespace {
 // Generates a simple dictionary value with simple data types, a string and a
 // list.
 std::unique_ptr<DictionaryValue> GenerateDict() {
-  auto root = MakeUnique<DictionaryValue>();
+  auto root = std::make_unique<DictionaryValue>();
   root->SetDouble("Double", 3.141);
   root->SetBoolean("Bool", true);
   root->SetInteger("Int", 42);
   root->SetString("String", "Foo");
 
-  auto list = MakeUnique<ListValue>();
-  list->Set(0, MakeUnique<Value>(2.718));
-  list->Set(1, MakeUnique<Value>(false));
-  list->Set(2, MakeUnique<Value>(123));
-  list->Set(3, MakeUnique<Value>("Bar"));
+  auto list = std::make_unique<ListValue>();
+  list->Set(0, std::make_unique<Value>(2.718));
+  list->Set(1, std::make_unique<Value>(false));
+  list->Set(2, std::make_unique<Value>(123));
+  list->Set(3, std::make_unique<Value>("Bar"));
   root->Set("List", std::move(list));
 
   return root;
@@ -73,7 +74,13 @@ class JSONPerfTest : public testing::Test {
   }
 };
 
-TEST_F(JSONPerfTest, StressTest) {
+// Times out on Android (crbug.com/906686).
+#if defined(OS_ANDROID)
+#define MAYBE_StressTest DISABLED_StressTest
+#else
+#define MAYBE_StressTest StressTest
+#endif
+TEST_F(JSONPerfTest, MAYBE_StressTest) {
   for (int i = 0; i < 4; ++i) {
     for (int j = 0; j < 12; ++j) {
       TestWriteAndRead(i + 1, j + 1);

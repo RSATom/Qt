@@ -14,7 +14,9 @@
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/client/window_parenting_client.h"
+#include "ui/aura/env.h"
 #include "ui/aura/test/test_window_delegate.h"
+#include "ui/aura/test/window_occlusion_tracker_test_api.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/display/screen.h"
@@ -26,10 +28,13 @@
 #include "ui/views/test/test_views_delegate.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/test/widget_test.h"
+#include "ui/views/view_constants_aura.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/dialog_delegate.h"
 
 #if defined(OS_WIN)
+#include <windows.h>
+
 #include "ui/base/view_prop.h"
 #include "ui/base/win/window_event_target.h"
 #include "ui/views/win/hwnd_util.h"
@@ -38,7 +43,7 @@
 namespace views {
 namespace test {
 
-typedef ViewsTestBase DesktopNativeWidgetAuraTest;
+using DesktopNativeWidgetAuraTest = DesktopWidgetTest;
 
 // Verifies creating a Widget with a parent that is not in a RootWindow doesn't
 // crash.
@@ -50,7 +55,6 @@ TEST_F(DesktopNativeWidgetAuraTest, CreateWithParentNotInRootWindow) {
   params.bounds = gfx::Rect(0, 0, 200, 200);
   params.parent = window.get();
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.native_widget = new DesktopNativeWidgetAura(&widget);
   widget.Init(params);
 }
 
@@ -70,7 +74,6 @@ TEST_F(DesktopNativeWidgetAuraTest, DesktopAuraWindowSizeTest) {
 #endif
 
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  init_params.native_widget = new DesktopNativeWidgetAura(&widget);
   widget.Init(init_params);
 
   gfx::Rect bounds(0, 0, 100, 100);
@@ -99,7 +102,6 @@ TEST_F(DesktopNativeWidgetAuraTest, NativeViewInitiallyHidden) {
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  init_params.native_widget = new DesktopNativeWidgetAura(&widget);
   widget.Init(init_params);
   EXPECT_FALSE(widget.GetNativeView()->IsVisible());
 }
@@ -110,15 +112,14 @@ TEST_F(DesktopNativeWidgetAuraTest, NativeViewNoActivate) {
   Widget widget;
   Widget::InitParams init_params = CreateParams(Widget::InitParams::TYPE_POPUP);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  DesktopNativeWidgetAura* widget_aura = new DesktopNativeWidgetAura(&widget);
-  init_params.native_widget = widget_aura;
   widget.Init(init_params);
 
   EXPECT_FALSE(widget.CanActivate());
-  EXPECT_EQ(nullptr, aura::client::GetFocusClient(widget_aura->content_window())
+  EXPECT_EQ(nullptr, aura::client::GetFocusClient(widget.GetNativeWindow())
                          ->GetFocusedWindow());
 }
 
+#if defined(OS_WIN)
 // Verifies that if the DesktopWindowTreeHost is already shown, the native view
 // still reports not visible as we haven't shown the content window.
 TEST_F(DesktopNativeWidgetAuraTest, WidgetNotVisibleOnlyWindowTreeHostShown) {
@@ -126,39 +127,63 @@ TEST_F(DesktopNativeWidgetAuraTest, WidgetNotVisibleOnlyWindowTreeHostShown) {
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  init_params.native_widget = new DesktopNativeWidgetAura(&widget);
   widget.Init(init_params);
-  DesktopNativeWidgetAura* desktop_native_widget_aura =
-      static_cast<DesktopNativeWidgetAura*>(widget.native_widget());
-  desktop_native_widget_aura->host()->Show();
+  ShowWindow(widget.GetNativeView()->GetHost()->GetAcceleratedWidget(),
+             SW_SHOWNORMAL);
   EXPECT_FALSE(widget.IsVisible());
 }
+#endif
+
+TEST_F(DesktopNativeWidgetAuraTest, DesktopAuraWindowShowFrameless) {
+  Widget widget;
+  Widget::InitParams init_params =
+      CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
+  init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  widget.Init(init_params);
+
+  // Make sure that changing frame type doesn't crash when there's no non-client
+  // view.
+  ASSERT_EQ(nullptr, widget.non_client_view());
+  widget.DebugToggleFrameType();
+  widget.Show();
+
+#if defined(OS_WIN)
+  // On Windows also make sure that handling WM_SYSCOMMAND doesn't crash with
+  // custom frame. Frame type needs to be toggled again if Aero Glass is
+  // disabled.
+  if (widget.ShouldUseNativeFrame())
+    widget.DebugToggleFrameType();
+  SendMessage(widget.GetNativeWindow()->GetHost()->GetAcceleratedWidget(),
+              WM_SYSCOMMAND, SC_RESTORE, 0);
+#endif  // OS_WIN
+}
+
+#if defined(OS_CHROMEOS)
+// TODO(crbug.com/916272): investigate fixing and enabling on Chrome OS.
+#define MAYBE_GlobalCursorState DISABLED_GlobalCursorState
+#else
+#define MAYBE_GlobalCursorState GlobalCursorState
+#endif
 
 // Verify that the cursor state is shared between two native widgets.
-TEST_F(DesktopNativeWidgetAuraTest, GlobalCursorState) {
+TEST_F(DesktopNativeWidgetAuraTest, MAYBE_GlobalCursorState) {
   // Create two native widgets, each owning different root windows.
   Widget widget_a;
   Widget::InitParams init_params_a =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params_a.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  DesktopNativeWidgetAura* desktop_native_widget_aura_a =
-      new DesktopNativeWidgetAura(&widget_a);
-  init_params_a.native_widget = desktop_native_widget_aura_a;
   widget_a.Init(init_params_a);
 
   Widget widget_b;
   Widget::InitParams init_params_b =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params_b.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  DesktopNativeWidgetAura* desktop_native_widget_aura_b =
-      new DesktopNativeWidgetAura(&widget_b);
-  init_params_b.native_widget = desktop_native_widget_aura_b;
   widget_b.Init(init_params_b);
 
   aura::client::CursorClient* cursor_client_a = aura::client::GetCursorClient(
-      desktop_native_widget_aura_a->host()->window());
+      widget_a.GetNativeView()->GetHost()->window());
   aura::client::CursorClient* cursor_client_b = aura::client::GetCursorClient(
-      desktop_native_widget_aura_b->host()->window());
+      widget_b.GetNativeView()->GetHost()->window());
 
   // Verify the cursor can be locked using one client and unlocked using
   // another.
@@ -239,9 +264,6 @@ TEST_F(DesktopNativeWidgetAuraTest, DontAccessContentWindowDuringDestruction) {
     Widget::InitParams init_params =
         CreateParams(Widget::InitParams::TYPE_WINDOW);
     init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    DesktopNativeWidgetAura* desktop_native_widget_aura =
-        new DesktopNativeWidgetAura(&widget);
-    init_params.native_widget = desktop_native_widget_aura;
     widget.Init(init_params);
 
     // Owned by |widget|.
@@ -252,6 +274,72 @@ TEST_F(DesktopNativeWidgetAuraTest, DontAccessContentWindowDuringDestruction) {
 
     widget.Show();
   }
+}
+
+namespace {
+
+std::unique_ptr<Widget> CreateAndShowControlWidget(aura::Window* parent) {
+  auto widget = std::make_unique<Widget>();
+  Widget::InitParams params(Widget::InitParams::TYPE_CONTROL);
+  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  params.parent = parent;
+  params.native_widget = CreatePlatformNativeWidgetImpl(params, widget.get(),
+                                                        kStubCapture, nullptr);
+  widget->Init(params);
+  widget->Show();
+  return widget;
+}
+
+}  // namespace
+
+#if defined(OS_CHROMEOS)
+// TODO(crbug.com/916272): investigate fixing and enabling on Chrome OS.
+#define MAYBE_ReorderDoesntRecomputeOcclusion \
+  DISABLED_ReorderDoesntRecomputeOcclusion
+#else
+#define MAYBE_ReorderDoesntRecomputeOcclusion ReorderDoesntRecomputeOcclusion
+#endif
+
+TEST_F(DesktopNativeWidgetAuraTest, MAYBE_ReorderDoesntRecomputeOcclusion) {
+  // Create the parent widget.
+  Widget parent;
+  Widget::InitParams init_params =
+      CreateParams(Widget::InitParams::TYPE_WINDOW);
+  init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  parent.Init(init_params);
+  parent.Show();
+
+  aura::Window* parent_window = parent.GetNativeWindow();
+  parent_window->TrackOcclusionState();
+
+  View* contents_view = parent.GetContentsView();
+
+  // Create child widgets.
+  std::unique_ptr<Widget> w1(CreateAndShowControlWidget(parent_window));
+  std::unique_ptr<Widget> w2(CreateAndShowControlWidget(parent_window));
+  std::unique_ptr<Widget> w3(CreateAndShowControlWidget(parent_window));
+
+  // Create child views.
+  View* host_view1 = new View();
+  w1->GetNativeView()->SetProperty(kHostViewKey, host_view1);
+  contents_view->AddChildView(host_view1);
+
+  View* host_view2 = new View();
+  w2->GetNativeView()->SetProperty(kHostViewKey, host_view2);
+  contents_view->AddChildView(host_view2);
+
+  View* host_view3 = new View();
+  w3->GetNativeView()->SetProperty(kHostViewKey, host_view3);
+  contents_view->AddChildView(host_view3);
+
+  // Reorder child views. Expect occlusion to only be recomputed once.
+  aura::test::WindowOcclusionTrackerTestApi window_occlusion_tracker_test_api(
+      parent_window->env()->GetWindowOcclusionTracker());
+  const int num_times_occlusion_recomputed =
+      window_occlusion_tracker_test_api.GetNumTimesOcclusionRecomputed();
+  contents_view->ReorderChildView(host_view3, 0);
+  EXPECT_EQ(num_times_occlusion_recomputed + 1,
+            window_occlusion_tracker_test_api.GetNumTimesOcclusionRecomputed());
 }
 
 void QuitNestedLoopAndCloseWidget(std::unique_ptr<Widget> widget,
@@ -265,7 +353,6 @@ TEST_F(DesktopNativeWidgetAuraTest, WidgetCanBeDestroyedFromNestedLoop) {
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.bounds = gfx::Rect(0, 0, 200, 200);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.native_widget = new DesktopNativeWidgetAura(widget.get());
   widget->Init(params);
   widget->Show();
 
@@ -276,8 +363,8 @@ TEST_F(DesktopNativeWidgetAuraTest, WidgetCanBeDestroyedFromNestedLoop) {
   base::Closure quit_runloop = run_loop.QuitClosure();
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&QuitNestedLoopAndCloseWidget, base::Passed(&widget),
-                 base::Unretained(&quit_runloop)));
+      base::BindOnce(&QuitNestedLoopAndCloseWidget, std::move(widget),
+                     base::Unretained(&quit_runloop)));
   run_loop.Run();
 }
 
@@ -393,18 +480,7 @@ class DesktopAuraTopLevelWindowTest : public aura::WindowObserver {
   DISALLOW_COPY_AND_ASSIGN(DesktopAuraTopLevelWindowTest);
 };
 
-class DesktopAuraWidgetTest : public WidgetTest {
- public:
-  DesktopAuraWidgetTest() {}
-
-  void SetUp() override {
-    ViewsTestBase::SetUp();
-    test_views_delegate()->set_use_desktop_native_widgets(true);
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(DesktopAuraWidgetTest);
-};
+using DesktopAuraWidgetTest = DesktopWidgetTest;
 
 TEST_F(DesktopAuraWidgetTest, FullscreenWindowDestroyedBeforeOwnerTest) {
   DesktopAuraTopLevelWindowTest fullscreen_window;
@@ -525,8 +601,6 @@ void RunCloseWidgetDuringDispatchTest(WidgetTest* test,
   Widget* widget = new Widget;
   Widget::InitParams params =
       test->CreateParams(Widget::InitParams::TYPE_POPUP);
-  params.native_widget =
-      CreatePlatformDesktopNativeWidgetImpl(params, widget, nullptr);
   params.bounds = gfx::Rect(0, 0, 50, 100);
   widget->Init(params);
   widget->SetContentsView(new CloseWidgetView(last_event_type));
@@ -561,9 +635,16 @@ class ModalDialogDelegate : public DialogDelegateView {
 
 }  // namespace
 
+#if defined(OS_CHROMEOS)
+// TODO(crbug.com/916272): investigate fixing and enabling on Chrome OS.
+#define MAYBE_WindowMouseModalityTest DISABLED_WindowMouseModalityTest
+#else
+#define MAYBE_WindowMouseModalityTest WindowMouseModalityTest
+#endif
+
 // This test verifies that whether mouse events when a modal dialog is
 // displayed are eaten or recieved by the dialog.
-TEST_F(WidgetTest, WindowMouseModalityTest) {
+TEST_F(DesktopWidgetTest, MAYBE_WindowMouseModalityTest) {
   // Create a top level widget.
   Widget top_level_widget;
   Widget::InitParams init_params =
@@ -572,8 +653,6 @@ TEST_F(WidgetTest, WindowMouseModalityTest) {
   gfx::Rect initial_bounds(0, 0, 500, 500);
   init_params.bounds = initial_bounds;
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  init_params.native_widget = CreatePlatformDesktopNativeWidgetImpl(
-      init_params, &top_level_widget, nullptr);
   top_level_widget.Init(init_params);
   top_level_widget.Show();
   EXPECT_TRUE(top_level_widget.IsVisible());
@@ -636,8 +715,7 @@ TEST_F(WidgetTest, WindowMouseModalityTest) {
 #if defined(OS_WIN)
 // Tests whether we can activate the top level widget when a modal dialog is
 // active.
-// Flaky: crbug.com/613428
-TEST_F(WidgetTest, DISABLED_WindowModalityActivationTest) {
+TEST_F(DesktopWidgetTest, WindowModalityActivationTest) {
   TestDesktopWidgetDelegate widget_delegate;
   widget_delegate.InitWidget(CreateParams(Widget::InitParams::TYPE_WINDOW));
 
@@ -675,11 +753,9 @@ TEST_F(WidgetTest, DISABLED_WindowModalityActivationTest) {
 // messages via the WindowEventTarget interface implemented by the
 // HWNDMessageHandler class does not cause a crash due to an unprocessed
 // event
-TEST_F(WidgetTest, CharMessagesAsKeyboardMessagesDoesNotCrash) {
+TEST_F(DesktopWidgetTest, CharMessagesAsKeyboardMessagesDoesNotCrash) {
   Widget widget;
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
-  params.native_widget =
-      CreatePlatformDesktopNativeWidgetImpl(params, &widget, nullptr);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   widget.Init(params);
   widget.Show();

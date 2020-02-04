@@ -19,14 +19,11 @@
 #define PORT_ATOMIC_POINTER_H_
 
 #include <stdint.h>
-#ifdef LEVELDB_ATOMIC_PRESENT
+
 #include <atomic>
-#endif
+
 #ifdef OS_WIN
 #include <windows.h>
-#endif
-#ifdef OS_MACOSX
-#include <libkern/OSAtomic.h>
 #endif
 
 #if defined(_M_X64) || defined(__x86_64__)
@@ -54,9 +51,9 @@ namespace port {
 #define LEVELDB_HAVE_MEMORY_BARRIER
 
 // Mac OS
-#elif defined(OS_MACOSX)
+#elif defined(__APPLE__)
 inline void MemoryBarrier() {
-  OSMemoryBarrier();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 #define LEVELDB_HAVE_MEMORY_BARRIER
 
@@ -121,7 +118,7 @@ inline void MemoryBarrier() {
 
 #endif
 
-// AtomicPointer built using platform-specific MemoryBarrier()
+// AtomicPointer built using platform-specific MemoryBarrier().
 #if defined(LEVELDB_HAVE_MEMORY_BARRIER)
 class AtomicPointer {
  private:
@@ -142,8 +139,8 @@ class AtomicPointer {
   }
 };
 
-// AtomicPointer based on <cstdatomic>
-#elif defined(LEVELDB_ATOMIC_PRESENT)
+// AtomicPointer based on C++11 <atomic>.
+#else
 class AtomicPointer {
  private:
   std::atomic<void*> rep_;
@@ -163,70 +160,6 @@ class AtomicPointer {
     rep_.store(v, std::memory_order_relaxed);
   }
 };
-
-// Atomic pointer based on sparc memory barriers
-#elif defined(__sparcv9) && defined(__GNUC__)
-class AtomicPointer {
- private:
-  void* rep_;
- public:
-  AtomicPointer() { }
-  explicit AtomicPointer(void* v) : rep_(v) { }
-  inline void* Acquire_Load() const {
-    void* val;
-    __asm__ __volatile__ (
-        "ldx [%[rep_]], %[val] \n\t"
-         "membar #LoadLoad|#LoadStore \n\t"
-        : [val] "=r" (val)
-        : [rep_] "r" (&rep_)
-        : "memory");
-    return val;
-  }
-  inline void Release_Store(void* v) {
-    __asm__ __volatile__ (
-        "membar #LoadStore|#StoreStore \n\t"
-        "stx %[v], [%[rep_]] \n\t"
-        :
-        : [rep_] "r" (&rep_), [v] "r" (v)
-        : "memory");
-  }
-  inline void* NoBarrier_Load() const { return rep_; }
-  inline void NoBarrier_Store(void* v) { rep_ = v; }
-};
-
-// Atomic pointer based on ia64 acq/rel
-#elif defined(__ia64) && defined(__GNUC__)
-class AtomicPointer {
- private:
-  void* rep_;
- public:
-  AtomicPointer() { }
-  explicit AtomicPointer(void* v) : rep_(v) { }
-  inline void* Acquire_Load() const {
-    void* val    ;
-    __asm__ __volatile__ (
-        "ld8.acq %[val] = [%[rep_]] \n\t"
-        : [val] "=r" (val)
-        : [rep_] "r" (&rep_)
-        : "memory"
-        );
-    return val;
-  }
-  inline void Release_Store(void* v) {
-    __asm__ __volatile__ (
-        "st8.rel [%[rep_]] = %[v]  \n\t"
-        :
-        : [rep_] "r" (&rep_), [v] "r" (v)
-        : "memory"
-        );
-  }
-  inline void* NoBarrier_Load() const { return rep_; }
-  inline void NoBarrier_Store(void* v) { rep_ = v; }
-};
-
-// We have neither MemoryBarrier(), nor <atomic>
-#else
-#error Please implement AtomicPointer for this platform.
 
 #endif
 

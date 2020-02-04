@@ -2,6 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//printing/buildflags/buildflags.gni")
+import("//services/catalog/public/tools/catalog.gni")
+import("//services/service_manager/public/service_manifest.gni")
+import("//ui/base/ui_features.gni")
+
 source_set("test_support") {
   testonly = true
 
@@ -14,7 +19,7 @@ source_set("test_support") {
     "//components/content_settings/core/common",
     "//components/gcm_driver:gcm_driver",
     "//components/signin/core/browser",
-    "//mojo/edk/system",
+    "//mojo/core/embedder",
     "//net",
     "//testing/gtest",
     "//ui/base",
@@ -25,15 +30,25 @@ source_set("test_support") {
     "//base/test:test_support",
   ]
 
-  if (!is_ios) {
+  if (is_ios) {
+    sources += [
+      "ios_components_test_initializer.cc",
+      "ios_components_test_initializer.h",
+    ]
+
+    deps += [ "//services/network:test_support" ]
+  } else {
     deps += [
       "//components/invalidation/impl",
       "//components/policy/core/browser",
-      "//components/safe_json",
       "//ui/gl:test_support",
     ]
 
     public_deps += [ "//content/test:test_support" ]
+  }
+
+  if (enable_mus) {
+    deps += [ "//ui/aura:test_support" ]
   }
 }
 

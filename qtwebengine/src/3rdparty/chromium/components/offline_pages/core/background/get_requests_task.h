@@ -10,14 +10,14 @@
 
 #include "base/memory/weak_ptr.h"
 #include "components/offline_pages/core/background/request_queue_store.h"
-#include "components/offline_pages/core/task.h"
+#include "components/offline_pages/task/task.h"
 
 namespace offline_pages {
 
 class GetRequestsTask : public Task {
  public:
   GetRequestsTask(RequestQueueStore* store,
-                  const RequestQueueStore::GetRequestsCallback& callback);
+                  RequestQueueStore::GetRequestsCallback callback);
   ~GetRequestsTask() override;
 
   // Task implementation:

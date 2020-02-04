@@ -8,20 +8,24 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_AUDIO_NETWORK_ADAPTOR_IMPL_H_
-#define WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_AUDIO_NETWORK_ADAPTOR_IMPL_H_
+#ifndef MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_AUDIO_NETWORK_ADAPTOR_IMPL_H_
+#define MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_AUDIO_NETWORK_ADAPTOR_IMPL_H_
 
+#include <stdio.h>
 #include <memory>
 
-#include "webrtc/modules/audio_coding/audio_network_adaptor/controller.h"
-#include "webrtc/modules/audio_coding/audio_network_adaptor/controller_manager.h"
-#include "webrtc/modules/audio_coding/audio_network_adaptor/debug_dump_writer.h"
-#include "webrtc/modules/audio_coding/audio_network_adaptor/event_log_writer.h"
-#include "webrtc/modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "absl/types/optional.h"
+#include "api/audio_codecs/audio_encoder.h"
+#include "modules/audio_coding/audio_network_adaptor/controller.h"
+#include "modules/audio_coding/audio_network_adaptor/debug_dump_writer.h"
+#include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor.h"
+#include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
+#include "rtc_base/constructor_magic.h"
 
 namespace webrtc {
 
+class ControllerManager;
+class EventLogWriter;
 class RtcEventLog;
 
 class AudioNetworkAdaptorImpl final : public AudioNetworkAdaptor {
@@ -58,6 +62,8 @@ class AudioNetworkAdaptorImpl final : public AudioNetworkAdaptor {
 
   void StopDebugDump() override;
 
+  ANAStats GetStats() const override;
+
  private:
   void DumpNetworkMetrics();
 
@@ -73,9 +79,13 @@ class AudioNetworkAdaptorImpl final : public AudioNetworkAdaptor {
 
   Controller::NetworkMetrics last_metrics_;
 
+  absl::optional<AudioEncoderRuntimeConfig> prev_config_;
+
+  ANAStats stats_;
+
   RTC_DISALLOW_COPY_AND_ASSIGN(AudioNetworkAdaptorImpl);
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_AUDIO_NETWORK_ADAPTOR_IMPL_H_
+#endif  // MODULES_AUDIO_CODING_AUDIO_NETWORK_ADAPTOR_AUDIO_NETWORK_ADAPTOR_IMPL_H_

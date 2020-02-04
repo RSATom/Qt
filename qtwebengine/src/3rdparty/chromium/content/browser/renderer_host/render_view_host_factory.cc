@@ -9,7 +9,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
-#include "content/browser/renderer_host/render_widget_host_impl.h"
+#include "content/browser/renderer_host/render_widget_host_factory.h"
 
 namespace content {
 
@@ -26,6 +26,7 @@ RenderViewHost* RenderViewHostFactory::Create(
     RenderWidgetHostDelegate* widget_delegate,
     int32_t routing_id,
     int32_t main_frame_routing_id,
+    int32_t widget_routing_id,
     bool swapped_out,
     bool hidden) {
   // RenderViewHost creation can be either browser-driven (by the user opening a
@@ -34,7 +35,9 @@ RenderViewHost* RenderViewHostFactory::Create(
   // In the browser-driven case, the routing ID of the view is lazily assigned:
   // this is signified by passing MSG_ROUTING_NONE for |routing_id|.
   if (routing_id == MSG_ROUTING_NONE) {
+    DCHECK_EQ(widget_routing_id, MSG_ROUTING_NONE);
     routing_id = instance->GetProcess()->GetNextRoutingID();
+    widget_routing_id = instance->GetProcess()->GetNextRoutingID();
   } else {
     // Otherwise, in the renderer-driven case, the routing ID of the view is
     // already set. This is due to the fact that a sync render->browser IPC is
@@ -46,13 +49,14 @@ RenderViewHost* RenderViewHostFactory::Create(
   if (factory_) {
     return factory_->CreateRenderViewHost(instance, delegate, widget_delegate,
                                           routing_id, main_frame_routing_id,
-                                          swapped_out);
+                                          widget_routing_id, swapped_out);
   }
   return new RenderViewHostImpl(
       instance,
-      base::MakeUnique<RenderWidgetHostImpl>(
-          widget_delegate, instance->GetProcess(), routing_id, hidden),
-      delegate, main_frame_routing_id, swapped_out,
+      base::WrapUnique(RenderWidgetHostFactory::Create(
+          widget_delegate, instance->GetProcess(), widget_routing_id, nullptr,
+          hidden)),
+      delegate, routing_id, main_frame_routing_id, swapped_out,
       true /* has_initialized_audio_host */);
 }
 

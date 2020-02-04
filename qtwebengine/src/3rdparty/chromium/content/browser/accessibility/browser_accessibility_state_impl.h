@@ -10,8 +10,9 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
-#include "content/common/accessibility_mode.h"
 #include "content/public/browser/browser_accessibility_state.h"
+#include "ui/accessibility/ax_mode.h"
+#include "ui/accessibility/ax_mode_observer.h"
 
 namespace content {
 
@@ -34,7 +35,8 @@ namespace content {
 // mechanism).
 class CONTENT_EXPORT BrowserAccessibilityStateImpl
     : public base::RefCountedThreadSafe<BrowserAccessibilityStateImpl>,
-      public BrowserAccessibilityState {
+      public BrowserAccessibilityState,
+      public ui::AXModeObserver {
  public:
   BrowserAccessibilityStateImpl();
 
@@ -42,6 +44,10 @@ class CONTENT_EXPORT BrowserAccessibilityStateImpl
 
   void EnableAccessibility() override;
   void DisableAccessibility() override;
+  bool IsRendererAccessibilityEnabled() override;
+  ui::AXMode GetAccessibilityMode() const override;
+  void AddAccessibilityModeFlags(ui::AXMode mode) override;
+  void RemoveAccessibilityModeFlags(ui::AXMode mode) override;
   void ResetAccessibilityMode() override;
   void OnScreenReaderDetected() override;
   bool IsAccessibleBrowser() override;
@@ -49,15 +55,8 @@ class CONTENT_EXPORT BrowserAccessibilityStateImpl
 
   void UpdateHistogramsForTesting() override;
 
-  AccessibilityMode accessibility_mode() const { return accessibility_mode_; };
-
-  // Adds the given accessibility mode flags to the current accessibility
-  // mode bitmap.
-  void AddAccessibilityModeFlags(AccessibilityMode mode);
-
-  // Remove the given accessibility mode flags from the current accessibility
-  // mode bitmap.
-  void RemoveAccessibilityModeFlags(AccessibilityMode mode);
+  // AXModeObserver
+  void OnAXModeAdded(ui::AXMode mode) override;
 
   // Accessibility objects can have the "hot tracked" state set when
   // the mouse is hovering over them, but this makes tests flaky because
@@ -85,9 +84,10 @@ class CONTENT_EXPORT BrowserAccessibilityStateImpl
   // Leaky singleton, destructor generally won't be called.
   ~BrowserAccessibilityStateImpl() override;
 
+  void PlatformInitialize();
   void UpdatePlatformSpecificHistograms();
 
-  AccessibilityMode accessibility_mode_;
+  ui::AXMode accessibility_mode_;
 
   std::vector<base::Closure> histogram_callbacks_;
 

@@ -23,6 +23,8 @@
 
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+#include <GL/glcorearb.h>
+#include <GL/glext.h>
 
 #include <string>
 
@@ -42,22 +44,43 @@ namespace es2
 
 	int AllocateFirstFreeBits(unsigned int *bits, unsigned int allocationSize, unsigned int bitsSize);
 
-	bool IsCompressed(GLenum format, GLint clientVersion);
-	GLenum GetSizedInternalFormat(GLenum internalFormat, GLenum type);
-	GLenum ValidateCompressedFormat(GLenum format, GLint clientVersion, bool expectCompressedFormats);
-	GLenum ValidateSubImageParams(bool compressed, GLsizei width, GLsizei height, GLint xoffset, GLint yoffset, GLenum target, GLint level, GLenum sizedInternalFormat, Texture *texture);
-	GLenum ValidateSubImageParams(bool compressed, GLsizei width, GLsizei height, GLsizei depth, GLint xoffset, GLint yoffset, GLint zoffset, GLenum target, GLint level, GLenum sizedInternalFormat, Texture *texture);
-	bool IsValidReadPixelsFormatType(const Framebuffer *framebuffer, GLenum format, GLenum type, GLint clientVersion);
-	bool IsDepthTexture(GLenum format);
-	bool IsStencilTexture(GLenum format);
+	bool IsCompressed(GLint intenalformat);
+	bool IsSizedInternalFormat(GLint internalformat);   // Not compressed.
+	GLenum ValidateSubImageParams(bool compressed, bool copy, GLenum target, GLint level, GLint xoffset, GLint yoffset,
+	                              GLsizei width, GLsizei height, GLenum format, GLenum type, Texture *texture);
+	GLenum ValidateSubImageParams(bool compressed, bool copy, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
+	                              GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, Texture *texture);
+	bool ValidateCopyFormats(GLenum textureFormat, GLenum colorbufferFormat);
+	bool ValidateReadPixelsFormatType(const Framebuffer *framebuffer, GLenum format, GLenum type);
+	bool IsDepthTexture(GLint format);
+	bool IsStencilTexture(GLint format);
 	bool IsCubemapTextureTarget(GLenum target);
 	int CubeFaceIndex(GLenum cubeTarget);
 	bool IsTextureTarget(GLenum target);
-	bool ValidateTextureFormatType(GLenum format, GLenum type, GLint internalformat, GLint clientVersion);
+	GLenum ValidateTextureFormatType(GLenum format, GLenum type, GLint internalformat, GLenum target);
+	size_t GetTypeSize(GLenum type);
+	sw::Format ConvertReadFormatType(GLenum format, GLenum type);
 
-	bool IsColorRenderable(GLenum internalformat, GLint clientVersion, bool isTexture);
-	bool IsDepthRenderable(GLenum internalformat, GLint clientVersion);
-	bool IsStencilRenderable(GLenum internalformat, GLint clientVersion);
+	bool IsColorRenderable(GLint internalformat);
+	bool IsDepthRenderable(GLint internalformat);
+	bool IsStencilRenderable(GLint internalformat);
+	bool IsMipmappable(GLint internalformat);
+
+	GLuint GetAlphaSize(GLint internalformat);
+	GLuint GetRedSize(GLint internalformat);
+	GLuint GetGreenSize(GLint internalformat);
+	GLuint GetBlueSize(GLint internalformat);
+	GLuint GetDepthSize(GLint internalformat);
+	GLuint GetStencilSize(GLint internalformat);
+
+	GLenum GetColorComponentType(GLint internalformat);
+	GLenum GetComponentType(GLint internalformat, GLenum attachment);
+	bool IsNormalizedInteger(GLint internalformat);
+	bool IsNonNormalizedInteger(GLint internalformat);
+	bool IsFloatFormat(GLint internalformat);
+	bool IsSignedNonNormalizedInteger(GLint internalformat);
+	bool IsUnsignedNonNormalizedInteger(GLint internalformat);
+	GLenum GetColorEncoding(GLint internalformat);
 
 	// Parse the base uniform name and array index.  Returns the base name of the uniform. outSubscript is
 	// set to GL_INVALID_INDEX if the provided name is not an array or the array index is invalid.
@@ -74,25 +97,17 @@ namespace es2sw
 	sw::LogicalOperation ConvertLogicalOperation(GLenum logicalOperation);
 	sw::StencilOperation ConvertStencilOp(GLenum stencilOp);
 	sw::AddressingMode ConvertTextureWrap(GLenum wrap);
+	sw::CompareFunc ConvertCompareFunc(GLenum compareFunc, GLenum compareMode);
 	sw::SwizzleType ConvertSwizzleType(GLenum swizzleType);
 	sw::CullMode ConvertCullMode(GLenum cullFace, GLenum frontFace);
 	unsigned int ConvertColorMask(bool red, bool green, bool blue, bool alpha);
 	sw::MipmapType ConvertMipMapFilter(GLenum minFilter);
 	sw::FilterType ConvertTextureFilter(GLenum minFilter, GLenum magFilter, float maxAnisotropy);
 	bool ConvertPrimitiveType(GLenum primitiveType, GLsizei elementCount,  GLenum elementType, sw::DrawType &swPrimitiveType, int &primitiveCount, int &verticesPerPrimitive);
-	sw::Format ConvertRenderbufferFormat(GLenum format);
 }
 
 namespace sw2es
 {
-	GLuint GetAlphaSize(sw::Format colorFormat);
-	GLuint GetRedSize(sw::Format colorFormat);
-	GLuint GetGreenSize(sw::Format colorFormat);
-	GLuint GetBlueSize(sw::Format colorFormat);
-	GLuint GetDepthSize(sw::Format depthFormat);
-	GLuint GetStencilSize(sw::Format stencilFormat);
-	GLenum GetComponentType(sw::Format format, GLenum attachment);
-
 	GLenum ConvertBackBufferFormat(sw::Format format);
 	GLenum ConvertDepthStencilFormat(sw::Format format);
 }

@@ -57,6 +57,7 @@
 
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/stl_util.h"
 
 struct SuddenMotionSensor::GenericMacbookSensor {
   // Name of device to be read.
@@ -138,6 +139,7 @@ const SuddenMotionSensor::SensorDescriptor
   // Note:
   // - MacBook8,1 (12" MacBook, early 2015)
   // - MacBook9,1 (12" MacBook, early 2016)
+  // - MacBook10,1 (12" MacBook, mid 2017)
   // have no accelerometer sensors.
 
   // Tested by crc on a 13" MacBook Air.
@@ -236,6 +238,11 @@ const SuddenMotionSensor::SensorDescriptor
   // - MacBookPro11,5 (15" MacBook Pro, mid 2015)
   // - MacBookPro12,1 (13" MacBook Pro, early 2015)
   // - MacBookPro13,1 (13" MacBook Pro, late 2016)
+  // - MacBookPro13,2 (13" MacBook Pro, late 2016)
+  // - MacBookPro13,3 (15" MacBook Pro, late 2016)
+  // - MacBookPro14,1 (13" MacBook Pro, mid 2017)
+  // - MacBookPro14,2 (13" MacBook Pro, mid 2017)
+  // - MacBookPro14,3 (15" MacBook Pro, mid 2017)
   // have no accelerometer sensors.
 
   // Generic MacBook accelerometer sensor data, to be used for future models
@@ -332,7 +339,7 @@ bool SuddenMotionSensor::Init() {
 
   // Look for the current model in the supported sensor list.
   base::ScopedCFTypeRef<CFDataRef> board_id_data;
-  const int kNumSensors = arraysize(kSupportedSensors);
+  const int kNumSensors = base::size(kSupportedSensors);
 
   for (int i = 0; i < kNumSensors; ++i) {
     // Check if the supported sensor model name is a prefix

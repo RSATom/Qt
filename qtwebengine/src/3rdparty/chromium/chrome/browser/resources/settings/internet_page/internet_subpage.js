@@ -50,6 +50,12 @@ Polymer({
     thirdPartyVpnProviders: Array,
 
     /**
+     * List of Arc VPN providers.
+     * @type {!Array<!settings.ArcVpnProvider>|undefined}
+     */
+    arcVpnProviders: Array,
+
+    /**
      * Interface for networkingPrivate calls, passed from internet_page.
      * @type {!NetworkingPrivate}
      */
@@ -82,6 +88,34 @@ Polymer({
         return {};
       },
     },
+
+    /**
+     * Dictionary of lists of network states for Arc VPNs.
+     * @private {!Object<!Array<!CrOnc.NetworkStateProperties>>}
+     */
+    arcVpns_: {
+      type: Object,
+      value: function() {
+        return {};
+      }
+    },
+
+    /**
+     * List of potential Tether hosts whose "Google Play Services" notifications
+     * are disabled (these notifications are required to use Instant Tethering).
+     * @private {!Array<string>}
+     */
+    notificationsDisabledDeviceNames_: {
+      type: Array,
+      value: function() {
+        return [];
+      },
+    },
+  },
+
+  listeners: {
+    'network-list-changed': 'getNetworkStateList_',
+    'networks-changed': 'getNetworkStateList_',
   },
 
   observers: ['deviceStateChanged_(networkingPrivate, deviceState)'],
@@ -89,26 +123,24 @@ Polymer({
   /** @private {number|null} */
   scanIntervalId_: null,
 
-  /**
-   * Listener function for chrome.networkingPrivate.onNetworkListChanged event.
-   * @type {?function(!Array<string>)}
-   * @private
-   */
-  networkListChangedListener_: null,
+  /** @private  {settings.InternetPageBrowserProxy} */
+  browserProxy_: null,
 
-  /** override */
-  attached: function() {
-    this.networkListChangedListener_ = this.networkListChangedListener_ ||
-        this.onNetworkListChangedEvent_.bind(this);
-    this.networkingPrivate.onNetworkListChanged.addListener(
-        this.networkListChangedListener_);
+  /** @override */
+  created: function() {
+    this.browserProxy_ = settings.InternetPageBrowserProxyImpl.getInstance();
+  },
+
+  /** @override */
+  ready: function() {
+    this.browserProxy_.setGmsCoreNotificationsDisabledDeviceNamesCallback(
+        this.onNotificationsDisabledDeviceNamesReceived_.bind(this));
+    this.browserProxy_.requestGmsCoreNotificationsDisabledDeviceNames();
   },
 
   /** override */
   detached: function() {
     this.stopScanning_();
-    this.networkingPrivate.onNetworkListChanged.removeListener(
-        assert(this.networkListChangedListener_));
   },
 
   /**
@@ -124,6 +156,7 @@ Polymer({
     // Clear any stale data.
     this.networkStateList_ = [];
     this.thirdPartyVpns_ = {};
+    this.arcVpns_ = {};
     // Request the list of networks and start scanning if necessary.
     this.getNetworkStateList_();
     this.updateScanning_();
@@ -131,7 +164,8 @@ Polymer({
 
   /** @private */
   deviceStateChanged_: function() {
-    this.showSpinner = !!this.deviceState.Scanning;
+    this.showSpinner =
+        this.deviceState !== undefined && !!this.deviceState.Scanning;
 
     // Scans should only be triggered by the "networks" subpage.
     if (settings.getCurrentRoute() != settings.routes.INTERNET_NETWORKS) {
@@ -144,8 +178,9 @@ Polymer({
 
   /** @private */
   updateScanning_: function() {
-    if (!this.deviceState)
+    if (!this.deviceState) {
       return;
+    }
 
     if (this.shouldStartScan_()) {
       this.startScanning_();
@@ -162,8 +197,9 @@ Polymer({
    */
   shouldStartScan_: function() {
     // Scans should be kicked off from the Wi-Fi networks subpage.
-    if (this.deviceState.Type == CrOnc.Type.WI_FI)
+    if (this.deviceState.Type == CrOnc.Type.WI_FI) {
       return true;
+    }
 
     // Scans should be kicked off from the Mobile data subpage, as long as it
     // includes Tether networks.
@@ -178,36 +214,31 @@ Polymer({
 
   /** @private */
   startScanning_: function() {
-    if (this.scanIntervalId_ != null)
+    if (this.scanIntervalId_ != null) {
       return;
-    /** @const */ var INTERVAL_MS = 10 * 1000;
-    this.networkingPrivate.requestNetworkScan();
-    this.scanIntervalId_ = window.setInterval(function() {
-      this.networkingPrivate.requestNetworkScan();
-    }.bind(this), INTERVAL_MS);
+    }
+    const INTERVAL_MS = 10 * 1000;
+    this.networkingPrivate.requestNetworkScan(this.deviceState.Type);
+    this.scanIntervalId_ = window.setInterval(() => {
+      this.networkingPrivate.requestNetworkScan(this.deviceState.Type);
+    }, INTERVAL_MS);
   },
 
   /** @private */
   stopScanning_: function() {
-    if (this.scanIntervalId_ == null)
+    if (this.scanIntervalId_ == null) {
       return;
+    }
     window.clearInterval(this.scanIntervalId_);
     this.scanIntervalId_ = null;
   },
 
-  /**
-   * networkingPrivate.onNetworkListChanged event callback.
-   * @private
-   */
-  onNetworkListChangedEvent_: function() {
-    this.getNetworkStateList_();
-  },
-
   /** @private */
   getNetworkStateList_: function() {
-    if (!this.deviceState)
+    if (!this.deviceState) {
       return;
-    var filter = {
+    }
+    const filter = {
       networkType: this.deviceState.Type,
       visible: true,
       configured: false
@@ -220,43 +251,61 @@ Polymer({
    * @private
    */
   onGetNetworks_: function(networkStates) {
-    if (!this.deviceState)
-      return;  // Edge case when device states change before this callback.
+    if (!this.deviceState) {
+      return;
+    }  // Edge case when device states change before this callback.
 
     // For the Cellular/Mobile subpage, request Tether networks if available.
     if (this.deviceState.Type == CrOnc.Type.CELLULAR &&
         this.tetherDeviceState) {
-      var filter = {
+      const filter = {
         networkType: CrOnc.Type.TETHER,
         visible: true,
         configured: false
       };
-      this.networkingPrivate.getNetworks(filter, function(tetherNetworkStates) {
+      this.networkingPrivate.getNetworks(filter, tetherNetworkStates => {
         this.networkStateList_ = networkStates.concat(tetherNetworkStates);
-      }.bind(this));
+      });
       return;
     }
 
-    // For VPNs, separate out third party VPNs.
+    // For VPNs, separate out third party VPNs and Arc VPNs.
     if (this.deviceState.Type == CrOnc.Type.VPN) {
-      var builtinNetworkStates = [];
-      var thirdPartyVpns = {};
-      for (var i = 0; i < networkStates.length; ++i) {
-        var state = networkStates[i];
-        var providerType = state.VPN && state.VPN.ThirdPartyVPN &&
-            state.VPN.ThirdPartyVPN.ProviderName;
+      const builtinNetworkStates = [];
+      const thirdPartyVpns = {};
+      const arcVpns = {};
+      for (let i = 0; i < networkStates.length; ++i) {
+        const state = networkStates[i];
+        const providerType = this.get('VPN.ThirdPartyVPN.ProviderName', state);
         if (providerType) {
           thirdPartyVpns[providerType] = thirdPartyVpns[providerType] || [];
           thirdPartyVpns[providerType].push(state);
+        } else if (this.get('VPN.Type', state) == 'ARCVPN') {
+          const arcProviderName = this.get('VPN.Host', state);
+          if (state.ConnectionState != CrOnc.ConnectionState.CONNECTED) {
+            continue;
+          }
+          arcVpns[arcProviderName] = arcVpns[arcProviderName] || [];
+          arcVpns[arcProviderName].push(state);
         } else {
           builtinNetworkStates.push(state);
         }
       }
       networkStates = builtinNetworkStates;
       this.thirdPartyVpns_ = thirdPartyVpns;
+      this.arcVpns_ = arcVpns;
     }
 
     this.networkStateList_ = networkStates;
+  },
+
+  /**
+   * @param {!Array<string>} notificationsDisabledDeviceNames
+   * @private
+   */
+  onNotificationsDisabledDeviceNamesReceived_: function(
+      notificationsDisabledDeviceNames) {
+    this.notificationsDisabledDeviceNames_ = notificationsDisabledDeviceNames;
   },
 
   /**
@@ -304,8 +353,9 @@ Polymer({
    * @private
    */
   getToggleA11yString_: function(deviceState) {
-    if (!this.enableToggleIsVisible_(deviceState))
+    if (!this.enableToggleIsVisible_(deviceState)) {
       return '';
+    }
     switch (deviceState.Type) {
       case CrOnc.Type.TETHER:
       case CrOnc.Type.CELLULAR:
@@ -325,7 +375,17 @@ Polymer({
    * @private
    */
   getAddThirdPartyVpnA11yString_: function(vpnState) {
-    return this.i18n('internetAddThirdPartyVPN', vpnState.ProviderName);
+    return this.i18n(
+        'internetAddThirdPartyVPN', vpnState.ProviderName || '');
+  },
+
+  /**
+   * @param {!settings.ArcVpnProvider} arcVpn
+   * @return {string}
+   * @private
+   */
+  getAddArcVpnAllyString_: function(arcVpn) {
+    return this.i18n('internetAddArcVPNProvider', arcVpn.ProviderName);
   },
 
   /**
@@ -344,20 +404,21 @@ Polymer({
    * @private
    */
   showAddButton_: function(deviceState, globalPolicy) {
-    if (!deviceState || deviceState.Type != CrOnc.Type.WI_FI)
+    if (!deviceState || deviceState.Type != CrOnc.Type.WI_FI) {
       return false;
-    if (!this.deviceIsEnabled_(deviceState))
+    }
+    if (!this.deviceIsEnabled_(deviceState)) {
       return false;
+    }
     return this.allowAddConnection_(globalPolicy);
   },
 
   /** @private */
   onAddButtonTap_: function() {
     assert(this.deviceState);
-    if (loadTimeData.getBoolean('networkSettingsConfig'))
-      this.fire('show-config', {GUID: '', Type: this.deviceState.Type});
-    else
-      chrome.send('addNetwork', [this.deviceState.Type]);
+    const type = this.deviceState.Type;
+    assert(type != CrOnc.Type.CELLULAR);
+    this.fire('show-config', {GUID: '', Type: type});
   },
 
   /**
@@ -367,8 +428,17 @@ Polymer({
    * @private
    */
   onAddThirdPartyVpnTap_: function(event) {
-    var provider = event.model.item;
-    chrome.send('addNetwork', [CrOnc.Type.VPN, provider.ExtensionID]);
+    const provider = event.model.item;
+    this.browserProxy_.addThirdPartyVpn(provider.ExtensionID);
+  },
+
+  /**
+   * @param {!{model: !{item: !settings.ArcVpnProvider}}} event
+   * @private
+   */
+  onAddArcVpnTap_: function(event) {
+    const provider = event.model.item;
+    this.browserProxy_.addThirdPartyVpn(provider.AppID);
   },
 
   /**
@@ -381,12 +451,12 @@ Polymer({
   },
 
   /**
-   * Event triggered when the known networks button is tapped.
+   * Event triggered when the known networks button is clicked.
    * @private
    */
   onKnownNetworksTap_: function() {
     assert(this.deviceState.Type == CrOnc.Type.WI_FI);
-    this.fire('show-known-networks', {Type: this.deviceState.Type});
+    this.fire('show-known-networks', {type: this.deviceState.Type});
   },
 
   /**
@@ -394,14 +464,12 @@ Polymer({
    * @param {!Event} event
    * @private
    */
-  onDeviceEnabledTap_: function(event) {
+  onDeviceEnabledChange_: function(event) {
     assert(this.deviceState);
     this.fire('device-enabled-toggled', {
       enabled: !this.deviceIsEnabled_(this.deviceState),
       type: this.deviceState.Type
     });
-    // Make sure this does not propagate to onDetailsTap_.
-    event.stopPropagation();
   },
 
   /**
@@ -421,7 +489,28 @@ Polymer({
    * @private
    */
   haveThirdPartyVpnNetwork_: function(thirdPartyVpns, vpnState) {
-    var list = this.getThirdPartyVpnNetworks_(thirdPartyVpns, vpnState);
+    const list = this.getThirdPartyVpnNetworks_(thirdPartyVpns, vpnState);
+    return !!list.length;
+  },
+
+  /**
+   * @param {!Object<!Array<!CrOnc.NetworkStateProperties>>} arcVpns
+   * @param {!settings.ArcVpnProvider} arcVpnProvider
+   * @return {!Array<!CrOnc.NetworkStateProperties>}
+   * @private
+   */
+  getArcVpnNetworks_: function(arcVpns, arcVpnProvider) {
+    return arcVpns[arcVpnProvider.PackageName] || [];
+  },
+
+  /**
+   * @param {!Object<!Array<!CrOnc.NetworkStateProperties>>} arcVpns
+   * @param {!settings.ArcVpnProvider} arcVpnProvider
+   * @return {boolean}
+   * @private
+   */
+  haveArcVpnNetwork_: function(arcVpns, arcVpnProvider) {
+    const list = this.getArcVpnNetworks_(arcVpns, arcVpnProvider);
     return !!list.length;
   },
 
@@ -433,9 +522,9 @@ Polymer({
   onNetworkSelected_: function(e) {
     assert(this.globalPolicy);
     assert(this.defaultNetwork !== undefined);
-    var state = e.detail;
+    const state = e.detail;
     e.target.blur();
-    if (this.canConnect_(state, this.globalPolicy, this.defaultNetwork)) {
+    if (this.canConnect_(state)) {
       this.fire('network-connect', {networkProperties: state});
       return;
     }
@@ -443,23 +532,38 @@ Polymer({
   },
 
   /**
-   * Determines whether or not a network state can be connected to.
    * @param {!CrOnc.NetworkStateProperties} state The network state.
-   * @param {!chrome.networkingPrivate.GlobalPolicy} globalPolicy
-   * @param {?CrOnc.NetworkStateProperties} defaultNetwork
    * @private
    */
-  canConnect_: function(state, globalPolicy, defaultNetwork) {
-    if (state.ConnectionState != CrOnc.ConnectionState.NOT_CONNECTED)
+  isBlockedByPolicy_: function(state) {
+    if (state.Type != CrOnc.Type.WI_FI || this.isPolicySource(state.Source) ||
+        !this.globalPolicy) {
       return false;
-    if (state.Type == CrOnc.Type.WI_FI && globalPolicy &&
-        globalPolicy.AllowOnlyPolicyNetworksToConnect &&
-        !this.isPolicySource(state.Source)) {
+    }
+    return !!this.globalPolicy.AllowOnlyPolicyNetworksToConnect ||
+        (!!this.globalPolicy.AllowOnlyPolicyNetworksToConnectIfAvailable &&
+         !!this.deviceState && !!this.deviceState.ManagedNetworkAvailable) ||
+        (!!state.WiFi && !!state.WiFi.HexSSID &&
+         !!this.globalPolicy.BlacklistedHexSSIDs &&
+         this.globalPolicy.BlacklistedHexSSIDs.includes(state.WiFi.HexSSID));
+  },
+
+  /**
+   * Determines whether or not a network state can be connected to.
+   * @param {!CrOnc.NetworkStateProperties} state The network state.
+   * @private
+   */
+  canConnect_: function(state) {
+    if (state.ConnectionState != CrOnc.ConnectionState.NOT_CONNECTED) {
+      return false;
+    }
+    if (this.isBlockedByPolicy_(state)) {
       return false;
     }
     if (state.Type == CrOnc.Type.VPN &&
-        (!defaultNetwork ||
-         defaultNetwork.ConnectionState != CrOnc.ConnectionState.CONNECTED)) {
+        (!this.defaultNetwork ||
+         this.defaultNetwork.ConnectionState !=
+             CrOnc.ConnectionState.CONNECTED)) {
       return false;
     }
     return true;
@@ -526,12 +630,44 @@ Polymer({
    * @private
    */
   getNoNetworksString_: function(deviceState, tetherDeviceState) {
-    var type = deviceState.Type;
+    const type = deviceState.Type;
     if (type == CrOnc.Type.TETHER ||
         (type == CrOnc.Type.CELLULAR && this.tetherDeviceState)) {
       return this.i18nAdvanced('internetNoNetworksMobileData');
     }
 
     return this.i18n('internetNoNetworks');
+  },
+
+  /**
+   * @param {!Array<string>} notificationsDisabledDeviceNames
+   * @return {boolean}
+   * @private
+   */
+  showGmsCoreNotificationsSection_: function(notificationsDisabledDeviceNames) {
+    return notificationsDisabledDeviceNames.length > 0;
+  },
+
+  /**
+   * @param {!Array<string>} notificationsDisabledDeviceNames
+   * @return {string}
+   * @private
+   */
+  getGmsCoreNotificationsDevicesString_: function(
+      notificationsDisabledDeviceNames) {
+    if (notificationsDisabledDeviceNames.length == 1) {
+      return this.i18n(
+          'gmscoreNotificationsOneDeviceSubtitle',
+          notificationsDisabledDeviceNames[0]);
+    }
+
+    if (notificationsDisabledDeviceNames.length == 2) {
+      return this.i18n(
+          'gmscoreNotificationsTwoDevicesSubtitle',
+          notificationsDisabledDeviceNames[0],
+          notificationsDisabledDeviceNames[1]);
+    }
+
+    return this.i18n('gmscoreNotificationsManyDevicesSubtitle');
   },
 });

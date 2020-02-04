@@ -138,7 +138,7 @@ void QDeclarativeCamera::_q_availabilityChanged(QMultimedia::AvailabilityStatus 
     \header \li Property \li Description
     \row \li \l {CameraCapture} {imageCapture}
          \li Methods and properties for capturing still images.
-    \row \li \l {CameraRecorder} {videoRecording}
+    \row \li \l {CameraRecorder} {videoRecorder}
          \li Methods and properties for capturing movies.
     \row \li \l {CameraExposure} {exposure}
          \li Methods and properties for adjusting exposure (aperture, shutter speed etc).
@@ -177,12 +177,11 @@ QDeclarativeCamera::QDeclarativeCamera(QObject *parent) :
     QObject(parent),
     m_camera(0),
     m_metaData(0),
-    m_viewfinder(0),
     m_pendingState(ActiveState),
     m_componentComplete(false)
 {
-    m_camera = new QCamera;
-    m_currentCameraInfo = QCameraInfo(*m_camera);
+    m_currentCameraInfo = QCameraInfo::defaultCamera();
+    m_camera = new QCamera(m_currentCameraInfo);
 
     m_imageCapture = new QDeclarativeCameraCapture(m_camera);
     m_videoRecorder = new QDeclarativeCameraRecorder(m_camera);
@@ -190,6 +189,7 @@ QDeclarativeCamera::QDeclarativeCamera(QObject *parent) :
     m_flash = new QDeclarativeCameraFlash(m_camera);
     m_focus = new QDeclarativeCameraFocus(m_camera);
     m_imageProcessing = new QDeclarativeCameraImageProcessing(m_camera);
+    m_viewfinder = new QDeclarativeCameraViewfinder(m_camera);
 
     connect(m_camera, SIGNAL(captureModeChanged(QCamera::CaptureModes)),
             this, SIGNAL(captureModeChanged()));
@@ -251,7 +251,7 @@ void QDeclarativeCamera::componentComplete()
     preserved when changing the camera device.
 
     \sa displayName, position
-    \since QtMultimedia 5.4
+    \since 5.4
 */
 
 QString QDeclarativeCamera::deviceId() const
@@ -292,7 +292,7 @@ void QDeclarativeCamera::setDeviceId(const QString &name)
     preserved when changing the camera device.
 
     \sa deviceId
-    \since QtMultimedia 5.4
+    \since 5.4
 */
 
 QDeclarativeCamera::Position QDeclarativeCamera::position() const
@@ -329,7 +329,7 @@ void QDeclarativeCamera::setPosition(Position position)
 
     \readonly
     \sa deviceId
-    \since QtMultimedia 5.4
+    \since 5.4
 */
 
 QString QDeclarativeCamera::displayName() const
@@ -353,7 +353,7 @@ QString QDeclarativeCamera::displayName() const
 
     \readonly
     \sa VideoOutput::orientation
-    \since QtMultimedia 5.4
+    \since 5.4
 */
 
 int QDeclarativeCamera::orientation() const
@@ -960,14 +960,11 @@ QDeclarativeMediaMetaData *QDeclarativeCamera::metaData()
 
 QDeclarativeCameraViewfinder *QDeclarativeCamera::viewfinder()
 {
-    if (!m_viewfinder)
-        m_viewfinder = new QDeclarativeCameraViewfinder(m_camera);
-
     return m_viewfinder;
 }
 
 /*!
-    \qmlmethod list<size> QtMultimedia::Camera::supportedViewfinderResolutions(real minimumFrameRate = undefined, real maximumFrameRate = undefined)
+    \qmlmethod list<size> QtMultimedia::Camera::supportedViewfinderResolutions(real minimumFrameRate, real maximumFrameRate)
 
     Returns a list of supported viewfinder resolutions.
 
@@ -1003,7 +1000,7 @@ QJSValue QDeclarativeCamera::supportedViewfinderResolutions(qreal minimumFrameRa
 }
 
 /*!
-    \qmlmethod list<object> QtMultimedia::Camera::supportedViewfinderFrameRateRanges(size resolution = undefined)
+    \qmlmethod list<object> QtMultimedia::Camera::supportedViewfinderFrameRateRanges(size resolution)
 
     Returns a list of supported viewfinder frame rate ranges.
 

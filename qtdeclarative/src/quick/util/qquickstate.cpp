@@ -52,8 +52,8 @@ QT_BEGIN_NAMESPACE
 DEFINE_BOOL_CONFIG_OPTION(stateChangeDebug, STATECHANGE_DEBUG);
 
 QQuickStateAction::QQuickStateAction()
-: restore(true), actionDone(false), reverseEvent(false), deletableToBinding(false), fromBinding(0), event(0),
-  specifiedObject(0)
+: restore(true), actionDone(false), reverseEvent(false), deletableToBinding(false), fromBinding(nullptr), event(nullptr),
+  specifiedObject(nullptr)
 {
 }
 
@@ -61,7 +61,7 @@ QQuickStateAction::QQuickStateAction(QObject *target, const QString &propertyNam
                const QVariant &value)
 : restore(true), actionDone(false), reverseEvent(false), deletableToBinding(false),
   property(target, propertyName, qmlEngine(target)), toValue(value),
-  fromBinding(0), event(0),
+  fromBinding(nullptr), event(nullptr),
   specifiedObject(target), specifiedProperty(propertyName)
 {
     if (property.isValid())
@@ -71,7 +71,7 @@ QQuickStateAction::QQuickStateAction(QObject *target, const QString &propertyNam
 QQuickStateAction::QQuickStateAction(QObject *target, const QQmlProperty &property, const QString &propertyName, const QVariant &value)
 : restore(true), actionDone(false), reverseEvent(false), deletableToBinding(false),
   property(property), toValue(value),
-  fromBinding(0), event(0),
+  fromBinding(nullptr), event(nullptr),
   specifiedObject(target), specifiedProperty(propertyName)
 {
     if (property.isValid())
@@ -105,7 +105,7 @@ void QQuickStateActionEvent::clearBindings()
 {
 }
 
-bool QQuickStateActionEvent::override(QQuickStateActionEvent *other)
+bool QQuickStateActionEvent::mayOverride(QQuickStateActionEvent *other)
 {
     Q_UNUSED(other);
     return false;
@@ -121,7 +121,7 @@ QQuickStateOperation::QQuickStateOperation(QObjectPrivate &dd, QObject *parent)
     \instantiates QQuickState
     \inqmlmodule QtQuick
     \ingroup qtquick-states
-    \brief Defines configurations of objects and properties
+    \brief Defines configurations of objects and properties.
 
     A \e state is a set of batched changes from the default configuration.
 
@@ -192,7 +192,7 @@ bool QQuickState::isNamed() const
 bool QQuickState::isWhenKnown() const
 {
     Q_D(const QQuickState);
-    return d->when != 0;
+    return d->when != nullptr;
 }
 
 /*!
@@ -222,7 +222,7 @@ bool QQuickState::isWhenKnown() const
 QQmlBinding *QQuickState::when() const
 {
     Q_D(const QQuickState);
-    return d->when;
+    return d->when.data();
 }
 
 void QQuickState::setWhen(QQmlBinding *when)
@@ -362,7 +362,7 @@ void QQuickStateAction::deleteFromBinding()
 {
     if (fromBinding) {
         QQmlPropertyPrivate::removeBinding(property);
-        fromBinding = 0;
+        fromBinding = nullptr;
     }
 }
 
@@ -530,7 +530,7 @@ QQmlAbstractBinding *QQuickState::bindingInRevertList(QObject *target, const QSt
         }
     }
 
-    return 0;
+    return nullptr;
 }
 
 bool QQuickState::isStateActive() const
@@ -573,7 +573,7 @@ void QQuickState::apply(QQuickTransition *trans, QQuickState *revert)
             for (int jj = 0; jj < d->revertList.count(); ++jj) {
                 QQuickStateActionEvent *event = d->revertList.at(jj).event();
                 if (event && event->type() == action.event->type()) {
-                    if (action.event->override(event)) {
+                    if (action.event->mayOverride(event)) {
                         found = true;
 
                         if (action.event != d->revertList.at(jj).event() && action.event->needsCopy()) {
@@ -635,7 +635,7 @@ void QQuickState::apply(QQuickTransition *trans, QQuickState *revert)
             for (int jj = 0; !found && jj < applyList.count(); ++jj) {
                 const QQuickStateAction &action = applyList.at(jj);
                 if (action.event && action.event->type() == event->type()) {
-                    if (action.event->override(event))
+                    if (action.event->mayOverride(event))
                         found = true;
                 }
             }

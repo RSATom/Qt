@@ -67,9 +67,9 @@ namespace QPatternist
                   const NamePool::Ptr &np,
                   const VariableLoader::Ptr &variableLoader);
 
-        virtual QNetworkReply *createRequest(Operation op,
-                                             const QNetworkRequest & req,
-                                             QIODevice *outgoingData = 0);
+        QNetworkReply *createRequest(Operation op,
+                                     const QNetworkRequest & req,
+                                     QIODevice *outgoingData = 0) override;
 
     private:
         const QString               m_variableNS;

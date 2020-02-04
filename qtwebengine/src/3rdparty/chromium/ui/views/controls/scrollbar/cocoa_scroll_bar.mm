@@ -5,6 +5,7 @@
 #import "ui/views/controls/scrollbar/cocoa_scroll_bar.h"
 
 #import "base/mac/sdk_forward_declarations.h"
+#include "base/stl_util.h"
 #include "cc/paint/paint_shader.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
@@ -31,16 +32,12 @@ const int kScrollbarHideTimeoutMs = 500;
 const int kScrollbarThickness = 12;
 const int kExpandedScrollbarThickness = 16;
 
-// The thickness of the scrollbar thumb.
-const int kScrollbarThumbThickness = 8;
-
 // The width of the scroller track border.
 const int kScrollerTrackBorderWidth = 1;
 
-// The amount the thumb is inset from both the ends and the sides of the normal
-// and expanded tracks.
+// The amount the thumb is inset from the ends and the inside edge of track
+// border.
 const int kScrollbarThumbInset = 2;
-const int kExpandedScrollbarThumbInset = 3;
 
 // Scrollbar thumb colors.
 const SkColor kScrollerDefaultThumbColor = SkColorSetARGB(0x38, 0, 0, 0);
@@ -72,6 +69,8 @@ class CocoaScrollBarThumb : public BaseScrollBarThumb {
   // Returns true if the thumb is in pressed state.
   bool IsStatePressed() const;
 
+  void UpdateIsMouseOverTrack(bool mouse_over_track);
+
  protected:
   // View:
   gfx::Size CalculatePreferredSize() const override;
@@ -82,16 +81,14 @@ class CocoaScrollBarThumb : public BaseScrollBarThumb {
   void OnMouseExited(const ui::MouseEvent& event) override;
 
  private:
-  // Converts scroll_bar() into a CocoaScrollBar object and returns it.
-  CocoaScrollBar* cocoa_scroll_bar() {
-    return static_cast<CocoaScrollBar*>(scroll_bar());
-  }
+  // The CocoaScrollBar that owns us.
+  CocoaScrollBar* cocoa_scroll_bar_;  // weak.
 
   DISALLOW_COPY_AND_ASSIGN(CocoaScrollBarThumb);
 };
 
 CocoaScrollBarThumb::CocoaScrollBarThumb(CocoaScrollBar* scroll_bar)
-    : BaseScrollBarThumb(scroll_bar) {
+    : BaseScrollBarThumb(scroll_bar), cocoa_scroll_bar_(scroll_bar) {
   DCHECK(scroll_bar);
 
   // This is necessary, otherwise the thumb will be rendered below the views if
@@ -103,38 +100,54 @@ CocoaScrollBarThumb::CocoaScrollBarThumb(CocoaScrollBar* scroll_bar)
 CocoaScrollBarThumb::~CocoaScrollBarThumb() {}
 
 bool CocoaScrollBarThumb::IsStateHovered() const {
-  return GetState() == CustomButton::STATE_HOVERED;
+  return GetState() == Button::STATE_HOVERED;
 }
 
 bool CocoaScrollBarThumb::IsStatePressed() const {
-  return GetState() == CustomButton::STATE_PRESSED;
+  return GetState() == Button::STATE_PRESSED;
+}
+
+void CocoaScrollBarThumb::UpdateIsMouseOverTrack(bool mouse_over_track) {
+  // The state should not change if the thumb is pressed. The thumb will be
+  // set back to its hover or normal state when the mouse is released.
+  if (IsStatePressed())
+    return;
+
+  SetState(mouse_over_track ? Button::STATE_HOVERED : Button::STATE_NORMAL);
 }
 
 gfx::Size CocoaScrollBarThumb::CalculatePreferredSize() const {
-  return gfx::Size(kScrollbarThumbThickness, kScrollbarThumbThickness);
+  int thickness = cocoa_scroll_bar_->ScrollbarThickness();
+  return gfx::Size(thickness, thickness);
 }
 
 void CocoaScrollBarThumb::OnPaint(gfx::Canvas* canvas) {
   SkColor thumb_color = kScrollerDefaultThumbColor;
-  if (cocoa_scroll_bar()->GetScrollerStyle() == NSScrollerStyleOverlay ||
-      IsStateHovered() ||
-      IsStatePressed()) {
+  if (cocoa_scroll_bar_->GetScrollerStyle() == NSScrollerStyleOverlay ||
+      IsStateHovered() || IsStatePressed()) {
     thumb_color = kScrollerHoverThumbColor;
   }
 
-  gfx::Rect local_bounds(GetLocalBounds());
+  gfx::Rect bounds(GetLocalBounds());
+  bounds.Inset(kScrollbarThumbInset, kScrollbarThumbInset);
+  if (IsHorizontal())
+    bounds.Inset(0, kScrollerTrackBorderWidth, 0, 0);
+  else if (base::i18n::IsRTL())
+    bounds.Inset(0, 0, kScrollerTrackBorderWidth, 0);
+  else
+    bounds.Inset(kScrollerTrackBorderWidth, 0, 0, 0);
+
   cc::PaintFlags flags;
   flags.setAntiAlias(true);
   flags.setStyle(cc::PaintFlags::kFill_Style);
   flags.setColor(thumb_color);
-  const SkScalar radius =
-      std::min(local_bounds.width(), local_bounds.height());
-  canvas->DrawRoundRect(local_bounds, radius, flags);
+  const SkScalar radius = std::min(bounds.width(), bounds.height());
+  canvas->DrawRoundRect(bounds, radius, flags);
 }
 
 bool CocoaScrollBarThumb::OnMousePressed(const ui::MouseEvent& event) {
   // Ignore the mouse press if the scrollbar is hidden.
-  if (cocoa_scroll_bar()->IsScrollbarFullyHidden())
+  if (cocoa_scroll_bar_->IsScrollbarFullyHidden())
     return false;
 
   return BaseScrollBarThumb::OnMousePressed(event);
@@ -154,8 +167,8 @@ void CocoaScrollBarThumb::OnMouseExited(const ui::MouseEvent& event) {
   // The thumb should remain pressed when dragged, even if the mouse leaves
   // the scrollview. The thumb will be set back to its hover or normal state
   // when the mouse is released.
-  if (GetState() != CustomButton::STATE_PRESSED)
-    SetState(CustomButton::STATE_NORMAL);
+  if (GetState() != Button::STATE_PRESSED)
+    SetState(Button::STATE_NORMAL);
 }
 
 //////////////////////////////////////////////////////////////////
@@ -166,8 +179,7 @@ CocoaScrollBar::CocoaScrollBar(bool horizontal)
       hide_scrollbar_timer_(
           FROM_HERE,
           base::TimeDelta::FromMilliseconds(kScrollbarHideTimeoutMs),
-          base::Bind(&CocoaScrollBar::HideScrollbar, base::Unretained(this)),
-          false),
+          base::Bind(&CocoaScrollBar::HideScrollbar, base::Unretained(this))),
       thickness_animation_(this),
       last_contents_scroll_offset_(0),
       is_expanded_(false),
@@ -191,19 +203,7 @@ CocoaScrollBar::~CocoaScrollBar() {
 // CocoaScrollBar, BaseScrollBar:
 
 gfx::Rect CocoaScrollBar::GetTrackBounds() const {
-  gfx::Rect local_bounds(GetLocalBounds());
-
-  int inset = kScrollbarThumbInset;
-  if (is_expanded_) {
-    inset = thickness_animation_.CurrentValueBetween(
-        kScrollbarThumbInset, kExpandedScrollbarThumbInset);
-  }
-  local_bounds.Inset(inset, inset);
-
-  gfx::Size track_size = local_bounds.size();
-  track_size.SetToMax(GetThumb()->GetPreferredSize());
-  local_bounds.set_size(track_size);
-  return local_bounds;
+  return GetLocalBounds();
 }
 
 //////////////////////////////////////////////////////////////////
@@ -260,7 +260,7 @@ void CocoaScrollBar::OnPaint(gfx::Canvas* canvas) {
   cc::PaintFlags gradient;
   gradient.setShader(cc::PaintShader::MakeLinearGradient(
       gradient_bounds, kScrollerTrackGradientColors, nullptr,
-      arraysize(kScrollerTrackGradientColors), SkShader::kClamp_TileMode));
+      base::size(kScrollerTrackGradientColors), SkShader::kClamp_TileMode));
   canvas->DrawRect(track_rect, gradient);
 
   // Draw the inner border: top if horizontal, left if vertical.
@@ -297,7 +297,9 @@ void CocoaScrollBar::OnMouseReleased(const ui::MouseEvent& event) {
 }
 
 void CocoaScrollBar::OnMouseEntered(const ui::MouseEvent& event) {
-  if (scroller_style_ != NSScrollerStyleOverlay)
+  GetCocoaScrollBarThumb()->UpdateIsMouseOverTrack(true);
+
+  if (scroller_style_ == NSScrollerStyleLegacy)
     return;
 
   // If the scrollbar thumb did not completely fade away, then reshow it when
@@ -321,6 +323,7 @@ void CocoaScrollBar::OnMouseEntered(const ui::MouseEvent& event) {
 }
 
 void CocoaScrollBar::OnMouseExited(const ui::MouseEvent& event) {
+  GetCocoaScrollBarThumb()->UpdateIsMouseOverTrack(false);
   ResetOverlayScrollbar();
 }
 
@@ -448,6 +451,14 @@ void CocoaScrollBar::AnimationEnded(const gfx::Animation* animation) {
 //////////////////////////////////////////////////////////////////
 // CocoaScrollBar, public:
 
+int CocoaScrollBar::ScrollbarThickness() const {
+  if (scroller_style_ == NSScrollerStyleLegacy)
+    return kScrollbarThickness;
+
+  return thickness_animation_.CurrentValueBetween(kScrollbarThickness,
+                                                  kExpandedScrollbarThickness);
+}
+
 bool CocoaScrollBar::IsScrollbarFullyHidden() const {
   return layer()->opacity() == 0.0f;
 }
@@ -521,14 +532,6 @@ void CocoaScrollBar::ResetOverlayScrollbar() {
   }
 }
 
-int CocoaScrollBar::ScrollbarThickness() const {
-  if (scroller_style_ == NSScrollerStyleLegacy)
-    return kScrollbarThickness;
-
-  return thickness_animation_.CurrentValueBetween(kScrollbarThickness,
-                                                  kExpandedScrollbarThickness);
-}
-
 void CocoaScrollBar::SetScrolltrackVisible(bool visible) {
   has_scrolltrack_ = visible;
   SchedulePaint();
@@ -539,7 +542,8 @@ CocoaScrollBarThumb* CocoaScrollBar::GetCocoaScrollBarThumb() const {
 }
 
 // static
-base::Timer* BaseScrollBar::GetHideTimerForTest(BaseScrollBar* scroll_bar) {
+base::RetainingOneShotTimer* BaseScrollBar::GetHideTimerForTest(
+    BaseScrollBar* scroll_bar) {
   return &static_cast<CocoaScrollBar*>(scroll_bar)->hide_scrollbar_timer_;
 }
 

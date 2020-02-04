@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,70 +6,50 @@
 #define CONTENT_BROWSER_DEVTOOLS_WORKER_DEVTOOLS_AGENT_HOST_H_
 
 #include "base/macros.h"
+#include "base/unguessable_token.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
-#include "content/common/content_export.h"
-#include "ipc/ipc_listener.h"
+#include "third_party/blink/public/mojom/devtools/devtools_agent.mojom.h"
+#include "url/gurl.h"
 
 namespace content {
 
-class BrowserContext;
-
-class CONTENT_EXPORT WorkerDevToolsAgentHost : public DevToolsAgentHostImpl,
-                                               public IPC::Listener {
+class WorkerDevToolsAgentHost : public DevToolsAgentHostImpl {
  public:
-  typedef std::pair<int, int> WorkerId;
+  WorkerDevToolsAgentHost(
+      int process_id,
+      blink::mojom::DevToolsAgentPtr agent_ptr,
+      blink::mojom::DevToolsAgentHostRequest host_request,
+      const GURL& url,
+      const base::UnguessableToken& devtools_worker_token,
+      const std::string& parent_id,
+      base::OnceCallback<void(DevToolsAgentHostImpl*)> destroyed_callback);
 
   // DevToolsAgentHost override.
   BrowserContext* GetBrowserContext() override;
-
-  // DevToolsAgentHostImpl overrides.
-  void AttachSession(DevToolsSession* session) override;
-  void DetachSession(int session_id) override;
-  bool DispatchProtocolMessage(
-      DevToolsSession* session,
-      const std::string& message) override;
-
-  // IPC::Listener implementation.
-  bool OnMessageReceived(const IPC::Message& msg) override;
-
-  void PauseForDebugOnStart();
-  bool IsPausedForDebugOnStart();
-  bool IsReadyForInspection();
-
-  void WorkerReadyForInspection();
-  void WorkerRestarted(WorkerId worker_id);
-  void WorkerDestroyed();
-  bool IsTerminated();
-
- protected:
-  explicit WorkerDevToolsAgentHost(WorkerId worker_id);
-  ~WorkerDevToolsAgentHost() override;
-
-  enum WorkerState {
-    WORKER_UNINSPECTED,
-    WORKER_INSPECTED,
-    WORKER_TERMINATED,
-    WORKER_PAUSED_FOR_DEBUG_ON_START,
-    WORKER_READY_FOR_DEBUG_ON_START,
-    WORKER_PAUSED_FOR_REATTACH,
-  };
-
-  virtual void OnAttachedStateChanged(bool attached);
-  const WorkerId& worker_id() const { return worker_id_; }
+  std::string GetType() override;
+  std::string GetTitle() override;
+  std::string GetParentId() override;
+  GURL GetURL() override;
+  bool Activate() override;
+  void Reload() override;
+  bool Close() override;
 
  private:
-  friend class SharedWorkerDevToolsManagerTest;
+  ~WorkerDevToolsAgentHost() override;
+  void Disconnected();
 
-  void AttachToWorker();
-  void DetachFromWorker();
-  void WorkerCreated();
-  void OnDispatchOnInspectorFrontend(const DevToolsMessageChunk& message);
+  // DevToolsAgentHostImpl overrides.
+  bool AttachSession(DevToolsSession* session) override;
+  void DetachSession(DevToolsSession* session) override;
 
-  WorkerState state_;
-  WorkerId worker_id_;
+  const int process_id_;
+  const GURL url_;
+  const std::string parent_id_;
+  base::OnceCallback<void(DevToolsAgentHostImpl*)> destroyed_callback_;
+
   DISALLOW_COPY_AND_ASSIGN(WorkerDevToolsAgentHost);
 };
 
 }  // namespace content
 
-#endif  // CONTENT_BROWSER_DEVTOOLS_WORKER_DEVTOOLS_AGENT_HOST_H_
+#endif  // CONTENT_BROWSER_DEVTOOLS_DEDICATED_WORKER_DEVTOOLS_AGENT_HOST_H_

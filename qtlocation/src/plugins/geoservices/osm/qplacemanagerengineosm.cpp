@@ -108,6 +108,14 @@ QPlaceManagerEngineOsm::QPlaceManagerEngineOsm(const QVariantMap &parameters,
     else
         m_urlPrefix = QStringLiteral("http://nominatim.openstreetmap.org/search");
 
+
+    if (parameters.contains(QStringLiteral("osm.places.debug_query")))
+        m_debugQuery = parameters.value(QStringLiteral("osm.places.debug_query")).toBool();
+
+    if (parameters.contains(QStringLiteral("osm.places.page_size"))
+            && parameters.value(QStringLiteral("osm.places.page_size")).canConvert<int>())
+        m_pageSize = parameters.value(QStringLiteral("osm.places.page_size")).toInt();
+
     *error = QGeoServiceProvider::NoError;
     errorString->clear();
 }
@@ -134,25 +142,7 @@ QPlaceSearchReply *QPlaceManagerEngineOsm::search(const QPlaceSearchRequest &req
 
     //queryItems.addQueryItem(QStringLiteral("accept-language"), QStringLiteral("en"));
 
-    QGeoRectangle boundingBox;
-    QGeoShape searchArea = request.searchArea();
-    switch (searchArea.type()) {
-    case QGeoShape::CircleType: {
-        QGeoCircle c(searchArea);
-        qreal radius = c.radius();
-        if (radius < 0)
-            radius = 50000;
-
-        boundingBox = QGeoRectangle(c.center().atDistanceAndAzimuth(radius, -45),
-                                    c.center().atDistanceAndAzimuth(radius, 135));
-        break;
-    }
-    case QGeoShape::RectangleType:
-        boundingBox = searchArea;
-        break;
-    default:
-        ;
-    }
+    QGeoRectangle boundingBox = request.searchArea().boundingGeoRectangle();
 
     if (!boundingBox.isEmpty()) {
         queryItems.addQueryItem(QStringLiteral("bounded"), QStringLiteral("1"));
@@ -185,16 +175,23 @@ QPlaceSearchReply *QPlaceManagerEngineOsm::search(const QPlaceSearchRequest &req
         queryItems.addQueryItem(QStringLiteral("exclude_place_ids"), placeIds.join(QLatin1Char(',')));
 
     queryItems.addQueryItem(QStringLiteral("addressdetails"), QStringLiteral("1"));
+    queryItems.addQueryItem(QStringLiteral("limit"), (request.limit() > 0) ? QString::number(request.limit())
+                                                                           : QString::number(m_pageSize));
 
     QUrl requestUrl(m_urlPrefix);
     requestUrl.setQuery(queryItems);
 
-    QNetworkReply *networkReply = m_networkManager->get(QNetworkRequest(requestUrl));
+    QNetworkRequest rq(requestUrl);
+    rq.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
+    QNetworkReply *networkReply = m_networkManager->get(rq);
 
     QPlaceSearchReplyOsm *reply = new QPlaceSearchReplyOsm(request, networkReply, this);
     connect(reply, SIGNAL(finished()), this, SLOT(replyFinished()));
     connect(reply, SIGNAL(error(QPlaceReply::Error,QString)),
             this, SLOT(replyError(QPlaceReply::Error,QString)));
+
+    if (m_debugQuery)
+        reply->requestUrl = requestUrl.url(QUrl::None);
 
     return reply;
 }
@@ -223,7 +220,7 @@ QPlaceReply *QPlaceManagerEngineOsm::initializeCategories()
 
 QString QPlaceManagerEngineOsm::parentCategoryId(const QString &categoryId) const
 {
-    Q_UNUSED(categoryId)
+    Q_UNUSED(categoryId);
 
     // Only a two category levels
     return QString();

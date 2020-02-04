@@ -41,6 +41,7 @@
 #include <QtWaylandCompositor/QWaylandResource>
 #include <QtWaylandCompositor/QWaylandShell>
 #include <QtWaylandCompositor/QWaylandShellSurface>
+#include <QtWaylandCompositor/qwaylandquickchildren.h>
 
 #include <QtCore/QRect>
 
@@ -93,6 +94,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgSurfaceV6 : public QWaylandShellSur
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QWaylandXdgSurfaceV6)
+    Q_WAYLAND_COMPOSITOR_DECLARE_QUICK_CHILDREN(QWaylandXdgSurfaceV6)
     Q_PROPERTY(QWaylandXdgShellV6 *shell READ shell NOTIFY shellChanged)
     Q_PROPERTY(QWaylandSurface *surface READ surface NOTIFY surfaceChanged)
     Q_PROPERTY(QWaylandXdgToplevelV6 *toplevel READ toplevel NOTIFY toplevelCreated)
@@ -117,7 +119,7 @@ public:
     static QByteArray interfaceName();
     static QWaylandXdgSurfaceV6 *fromResource(::wl_resource *resource);
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
     QWaylandQuickShellIntegration *createIntegration(QWaylandQuickShellSurfaceItem *item) override;
 #endif
 

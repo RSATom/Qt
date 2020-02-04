@@ -41,6 +41,7 @@ public:
 		mMaxLod = 1000.0f;
 		mCompareMode = GL_NONE;
 		mCompareFunc = GL_LEQUAL;
+		mMaxAnisotropy = 1.0f;
 	}
 
 	void setMinFilter(GLenum minFilter) { mMinFilter = minFilter; }
@@ -50,8 +51,9 @@ public:
 	void setWrapR(GLenum wrapR) { mWrapModeR = wrapR; }
 	void setMinLod(GLfloat minLod) { mMinLod = minLod; }
 	void setMaxLod(GLfloat maxLod) { mMaxLod = maxLod; }
-	void setComparisonMode(GLenum comparisonMode) { mCompareMode = comparisonMode; }
-	void setComparisonFunc(GLenum comparisonFunc) { mCompareFunc = comparisonFunc; }
+	void setCompareMode(GLenum compareMode) { mCompareMode = compareMode; }
+	void setCompareFunc(GLenum compareFunc) { mCompareFunc = compareFunc; }
+	void setMaxAnisotropy(GLfloat maxAnisotropy) { mMaxAnisotropy = maxAnisotropy; }
 
 	GLenum getMinFilter() const { return mMinFilter; }
 	GLenum getMagFilter() const { return mMagFilter; }
@@ -60,8 +62,9 @@ public:
 	GLenum getWrapR() const { return mWrapModeR; }
 	GLfloat getMinLod() const { return mMinLod; }
 	GLfloat getMaxLod() const { return mMaxLod; }
-	GLenum getComparisonMode() const { return mCompareMode; }
-	GLenum getComparisonFunc() const { return mCompareFunc; }
+	GLenum getCompareMode() const { return mCompareMode; }
+	GLenum getCompareFunc() const { return mCompareFunc; }
+	GLfloat getMaxAnisotropy() const { return mMaxAnisotropy; }
 
 private:
 	GLenum mMinFilter;
@@ -75,6 +78,7 @@ private:
 	GLfloat mMaxLod;
 	GLenum mCompareMode;
 	GLenum mCompareFunc;
+	GLfloat mMaxAnisotropy;
 };
 
 }

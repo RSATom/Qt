@@ -1,6 +1,9 @@
-phajdan.jr@chromium.org
-sergiyb@chromium.org
+set noparent
+dpranke@chromium.org
+estaab@chromium.org
+jbudorick@chromium.org
+smut@google.com
 tandrii@chromium.org
 
-per-file recipes.cfg=recipe-roller@chromium.org
-per-file recipes.cfg=martiniss@chromium.org
+# TEAM: infra-dev@chromium.org
+# COMPONENT: Infra>Client>Chrome

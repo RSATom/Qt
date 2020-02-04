@@ -6,7 +6,7 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "sql/statement.h"
 
 namespace history {
@@ -37,9 +37,9 @@ class BookmarkIDMapping
  public:
   BookmarkIDMapping() {
     static_assert(
-        arraysize(kAndroidBookmarkColumn) <= HistoryAndBookmarkRow::COLUMN_END,
+        base::size(kAndroidBookmarkColumn) <= HistoryAndBookmarkRow::COLUMN_END,
         "kAndroidBookmarkColumn should not have more than COLUMN_END elements");
-    for (size_t i = 0; i < arraysize(kAndroidBookmarkColumn); ++i) {
+    for (size_t i = 0; i < base::size(kAndroidBookmarkColumn); ++i) {
       (*this)[kAndroidBookmarkColumn[i]] =
           static_cast<HistoryAndBookmarkRow::ColumnID>(i);
     }
@@ -53,10 +53,10 @@ BookmarkIDMapping* g_bookmark_id_mapping = NULL;
 class SearchIDMapping : public std::map<std::string, SearchRow::ColumnID> {
  public:
   SearchIDMapping() {
-    static_assert(arraysize(kAndroidSearchColumn) <= SearchRow::COLUMN_END,
+    static_assert(base::size(kAndroidSearchColumn) <= SearchRow::COLUMN_END,
                   "kAndroidSearchColumn should not have more than "
                   "COLUMN_END elements");
-    for (size_t i = 0; i < arraysize(kAndroidSearchColumn); ++i) {
+    for (size_t i = 0; i < base::size(kAndroidSearchColumn); ++i) {
       (*this)[kAndroidSearchColumn[i]] = static_cast<SearchRow::ColumnID>(i);
     }
   }
@@ -96,8 +96,7 @@ HistoryAndBookmarkRow::ColumnID HistoryAndBookmarkRow::GetColumnID(
   BookmarkIDMapping::const_iterator i = g_bookmark_id_mapping->find(name);
   if (i == g_bookmark_id_mapping->end())
     return HistoryAndBookmarkRow::COLUMN_END;
-  else
-    return i->second;
+  return i->second;
 }
 
 SearchRow::SearchRow() : id_(0), keyword_id_(0) {
@@ -119,8 +118,7 @@ SearchRow::ColumnID SearchRow::GetColumnID(const std::string& name) {
   SearchIDMapping::const_iterator i = g_search_id_mapping->find(name);
   if (i == g_search_id_mapping->end())
     return SearchRow::COLUMN_END;
-  else
-    return i->second;
+  return i->second;
 }
 
 AndroidURLRow::AndroidURLRow() : id(0), url_id(0) {

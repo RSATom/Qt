@@ -2,15 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-var binding = require('binding').Binding.create('certificateProvider');
-var certificateProviderInternal = require('binding').Binding.create(
-    'certificateProviderInternal').generate();
-var eventBindings = require('event_bindings');
+var binding =
+    apiBridge || require('binding').Binding.create('certificateProvider');
+var certificateProviderInternal =
+    getInternalApi ?
+        getInternalApi('certificateProviderInternal') :
+        require('binding').Binding.create(
+            'certificateProviderInternal').generate();
+var registerArgumentMassager = bindingUtil ?
+    $Function.bind(bindingUtil.registerEventArgumentMassager, bindingUtil) :
+    require('event_bindings').registerArgumentMassager;
 
 var certificateProviderSchema =
     requireNative('schema_registry').GetSchema('certificateProvider')
 var utils = require('utils');
-var validate = require('schemaUtils').validate;
+var validate = bindingUtil ? undefined : require('schemaUtils').validate;
+
+// Validates that the result passed by the extension to the event callback
+// matches the callback schema. Throws an exception in case of an error.
+function validateListenerResponse(eventName, expectedSchema, listenerResponse) {
+  if (bindingUtil)
+    bindingUtil.validateCustomSignature(eventName, listenerResponse);
+  else
+    validate(listenerResponse, expectedSchema);
+}
 
 // Custom bindings for chrome.certificateProvider API.
 // The bindings are used to implement callbacks for the API events. Internally
@@ -35,41 +50,42 @@ var validate = require('schemaUtils').validate;
 function handleEvent(eventName, internalReportFunc) {
   var eventSchema =
       utils.lookup(certificateProviderSchema.events, 'name', eventName);
-  var callbackSchema = utils.lookup(eventSchema.parameters, 'type', 'function');
+  var callbackSchema =
+      utils.lookup(eventSchema.parameters, 'type', 'function').parameters;
+  var fullEventName = 'certificateProvider.' + eventName;
 
-  eventBindings.registerArgumentMassager(
-      'certificateProvider.' + eventName,
-      function(args, dispatch) {
-        var responded = false;
+  if (bindingUtil)
+    bindingUtil.addCustomSignature(fullEventName, callbackSchema);
 
-        // Function provided to the extension as the event callback argument.
-        // The extension calls this to report results in reply to the event.
-        // It throws an exception if called more than once and if the provided
-        // results don't match the callback schema.
-        var reportFunc = function(reportArg1, reportArg2) {
-          if (responded) {
-            throw new Error(
-                'Event callback must not be called more than once.');
-          }
+  registerArgumentMassager(fullEventName, function(args, dispatch) {
+    var responded = false;
 
-          var reportArgs = [reportArg1];
-          if (reportArg2 !== undefined)
-            reportArgs.push(reportArg2);
-          var finalArgs = [];
-          try {
-            // Validates that the results reported by the extension matche the
-            // callback schema of the event. Throws an exception in case of an
-            // error.
-            validate(reportArgs, callbackSchema.parameters);
-            finalArgs = reportArgs;
-          } finally {
-            responded = true;
-            internalReportFunc.apply(
-                null, [args[0] /* requestId */].concat(finalArgs));
-          }
-        };
-        dispatch(args.slice(1).concat(reportFunc));
-      });
+    // Function provided to the extension as the event callback argument.
+    // The extension calls this to report results in reply to the event.
+    // It throws an exception if called more than once and if the provided
+    // results don't match the callback schema.
+    var reportFunc = function(reportArg1, reportArg2) {
+      if (responded)
+        throw new Error('Event callback must not be called more than once.');
+
+      var reportArgs = [reportArg1];
+      if (reportArg2 !== undefined)
+        reportArgs.push(reportArg2);
+      var finalArgs = [];
+      try {
+        // Validates that the results reported by the extension matche the
+        // callback schema of the event. Throws an exception in case of an
+        // error.
+        validateListenerResponse(fullEventName, callbackSchema, reportArgs);
+        finalArgs = reportArgs;
+      } finally {
+        responded = true;
+        internalReportFunc.apply(
+            null, [args[0] /* requestId */].concat(finalArgs));
+      }
+    };
+    dispatch(args.slice(1).concat(reportFunc));
+  });
 }
 
 handleEvent('onCertificatesRequested',
@@ -78,4 +94,5 @@ handleEvent('onCertificatesRequested',
 handleEvent('onSignDigestRequested',
             certificateProviderInternal.reportSignature);
 
-exports.$set('binding', binding.generate());
+if (!apiBridge)
+  exports.$set('binding', binding.generate());

@@ -8,14 +8,18 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
+#include "base/unguessable_token.h"
 #include "crypto/sha2.h"
 
 namespace content {
 
 namespace {
+
+bool g_preserve_stable_unique_name_for_testing = false;
 
 using FrameAdapter = UniqueNameHelper::FrameAdapter;
 
@@ -56,6 +60,7 @@ class PendingChildFrameAdapter : public UniqueNameHelper::FrameAdapter {
 constexpr char kFramePathPrefix[] = "<!--framePath /";
 constexpr int kFramePathPrefixLength = 15;
 constexpr int kFramePathSuffixLength = 3;
+constexpr char kDynamicFrameMarker[] = "<!--dynamicFrame";
 
 // 80% of unique names are shorter than this, and it also guarantees that this
 // won't ever increase the length of a unique name, as a hashed unique name is
@@ -156,9 +161,9 @@ std::string CalculateFrameHash(base::StringPiece name) {
 
   std::string hashed_name;
   uint8_t result[crypto::kSHA256Length];
-  crypto::SHA256HashString(name, result, arraysize(result));
+  crypto::SHA256HashString(name, result, base::size(result));
   hashed_name += "<!--frameHash";
-  hashed_name += base::HexEncode(result, arraysize(result));
+  hashed_name += base::HexEncode(result, base::size(result));
   hashed_name += "-->";
   return hashed_name;
 }
@@ -189,15 +194,40 @@ UniqueNameHelper::UniqueNameHelper(FrameAdapter* frame) : frame_(frame) {}
 UniqueNameHelper::~UniqueNameHelper() {}
 
 std::string UniqueNameHelper::GenerateNameForNewChildFrame(
-    const std::string& name) const {
-  PendingChildFrameAdapter adapter(frame_);
-  return CalculateNewName(&adapter, name);
+    const std::string& name,
+    bool is_created_by_script) const {
+  std::string unique_name_of_new_child;
+
+  // The deterministic part of unique name should be included if
+  // 1. The new subframe is not created by script or
+  // 2. The new subframe is created by script, but we are still asked for the
+  //    old, stable part for web tests (via
+  //    |g_preserve_stable_unique_name_for_testing|).
+  if (!is_created_by_script || g_preserve_stable_unique_name_for_testing) {
+    PendingChildFrameAdapter adapter(frame_);
+    unique_name_of_new_child = CalculateNewName(&adapter, name);
+  }
+
+  // The random part of unique name is only included for subframes created from
+  // scripts.
+  if (is_created_by_script) {
+    unique_name_of_new_child += kDynamicFrameMarker;
+    unique_name_of_new_child += base::UnguessableToken::Create().ToString();
+    unique_name_of_new_child += "-->";
+  }
+
+  return unique_name_of_new_child;
 }
 
 void UniqueNameHelper::UpdateName(const std::string& name) {
+  // Don't update the unique name if it should remain frozen.
+  if (frozen_)
+    return;
+
   // The unique name of the main frame is always the empty string.
   if (frame_->IsMainFrame())
     return;
+
   // It's important to clear this before calculating a new name, as the
   // calculation checks for collisions with existing unique names.
   unique_name_.clear();
@@ -219,15 +249,16 @@ std::string UniqueNameHelper::UpdateLegacyNameFromV24(
     // tree and go down from there, it is impossible for a frame path to contain
     // a unique name (which needs a replacement) that has not already been seen
     // and inserted into |replacements|.
-    size_t index = 0;
     for (const auto& replacement : *replacements) {
+      // Note: this find() call should only start searching from immediately
+      // after the most recent replacement, to guarantee each section of the
+      // name is only replaced once. But it was accidentally omitted from the
+      // initial version of the migration code.
       size_t next_index = legacy_name.find(replacement.old_name);
       if (next_index == std::string::npos)
         continue;
       legacy_name.replace(next_index, replacement.old_name.size(),
                           replacement.new_name);
-      index = next_index -
-              (replacement.old_name.size() - replacement.new_name.size());
     }
     return legacy_name;
   }
@@ -272,6 +303,19 @@ std::string UniqueNameHelper::CalculateLegacyNameForTesting(
     const FrameAdapter* frame,
     const std::string& name) {
   return CalculateNameInternal(frame, name);
+}
+
+// static
+void UniqueNameHelper::PreserveStableUniqueNameForTesting() {
+  g_preserve_stable_unique_name_for_testing = true;
+}
+
+std::string UniqueNameHelper::ExtractStableNameForTesting(
+    const std::string& unique_name) {
+  size_t i = unique_name.rfind(kDynamicFrameMarker);
+  if (i == std::string::npos)
+    return unique_name;
+  return unique_name.substr(0, i);
 }
 
 }  // namespace content

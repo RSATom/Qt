@@ -7,31 +7,20 @@
 
 #include <stdint.h>
 
-#include "cc/output/compositor_frame.h"
-#include "content/browser/renderer_host/event_with_latency_info.h"
+#include "cc/input/touch_action.h"
+#include "components/viz/common/quads/compositor_frame.h"
+#include "components/viz/common/surfaces/local_surface_id.h"
+#include "components/viz/common/surfaces/surface_id.h"
+#include "content/browser/renderer_host/frame_connector_delegate.h"
 #include "content/common/content_export.h"
-#include "content/common/input/input_event_ack_state.h"
-#include "ui/gfx/geometry/rect.h"
-
-namespace blink {
-class WebGestureEvent;
-}
+#include "content/common/frame_visual_properties.h"
 
 namespace IPC {
 class Message;
 }
 
-namespace viz {
-class SurfaceId;
-class SurfaceInfo;
-struct SurfaceSequence;
-}  // namespace viz
-
 namespace content {
 class RenderFrameProxyHost;
-class RenderWidgetHostViewBase;
-class RenderWidgetHostViewChildFrame;
-class WebCursor;
 
 // CrossProcessFrameConnector provides the platform view abstraction for
 // RenderWidgetHostViewChildFrame allowing RWHVChildFrame to remain ignorant
@@ -48,7 +37,7 @@ class WebCursor;
 //   |  -----------  |
 //   -----------------
 //
-// If frames 1 and 2 are in process A and B, there are 4 RenderFrameHosts:
+// If frames 1 and 2 are in process A and B, there are 4 hosts:
 //   A1 - RFH for frame 1 in process A
 //   B1 - RFPH for frame 1 in process B
 //   A2 - RFPH for frame 2 in process A
@@ -56,10 +45,10 @@ class WebCursor;
 //
 // B2, having a parent frame in a different process, will have a
 // RenderWidgetHostViewChildFrame. This RenderWidgetHostViewChildFrame needs
-// to communicate with A2 because the embedding process is an abstract
-// for the child frame -- it needs information necessary for compositing child
-// frame textures, and also can pass platform messages such as view resizing.
-// CrossProcessFrameConnector bridges between B2's
+// to communicate with A2 because the embedding frame represents the platform
+// that the child frame is rendering into -- it needs information necessary for
+// compositing child frame textures, and also can pass platform messages such as
+// view resizing. CrossProcessFrameConnector bridges between B2's
 // RenderWidgetHostViewChildFrame and A2 to allow for this communication.
 // (Note: B1 is only mentioned for completeness. It is not needed in this
 // example.)
@@ -67,112 +56,176 @@ class WebCursor;
 // CrossProcessFrameConnector objects are owned by the RenderFrameProxyHost
 // in the child frame's RenderFrameHostManager corresponding to the parent's
 // SiteInstance, A2 in the picture above. When a child frame navigates in a new
-// process, set_view() is called to update to the new view.
+// process, SetView() is called to update to the new view.
 //
-class CONTENT_EXPORT CrossProcessFrameConnector {
+class CONTENT_EXPORT CrossProcessFrameConnector
+    : public FrameConnectorDelegate {
  public:
   // |frame_proxy_in_parent_renderer| corresponds to A2 in the example above.
   explicit CrossProcessFrameConnector(
       RenderFrameProxyHost* frame_proxy_in_parent_renderer);
-  virtual ~CrossProcessFrameConnector();
+  ~CrossProcessFrameConnector() override;
 
   bool OnMessageReceived(const IPC::Message &msg);
 
   // |view| corresponds to B2's RenderWidgetHostViewChildFrame in the example
   // above.
-  void set_view(RenderWidgetHostViewChildFrame* view);
   RenderWidgetHostViewChildFrame* get_view_for_testing() { return view_; }
 
-  void RenderProcessGone();
+  // FrameConnectorDelegate implementation.
+  void SetView(RenderWidgetHostViewChildFrame* view) override;
+  RenderWidgetHostViewBase* GetParentRenderWidgetHostView() override;
+  RenderWidgetHostViewBase* GetRootRenderWidgetHostView() override;
+  void RenderProcessGone() override;
+  void FirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
+  void SendIntrinsicSizingInfoToParent(
+      const blink::WebIntrinsicSizingInfo&) override;
 
-  virtual void SetChildFrameSurface(const viz::SurfaceInfo& surface_info,
-                                    const viz::SurfaceSequence& sequence);
+  void UpdateCursor(const WebCursor& cursor) override;
+  gfx::PointF TransformPointToRootCoordSpace(
+      const gfx::PointF& point,
+      const viz::SurfaceId& surface_id) override;
+  bool TransformPointToLocalCoordSpaceLegacy(
+      const gfx::PointF& point,
+      const viz::SurfaceId& original_surface,
+      const viz::SurfaceId& local_surface_id,
+      gfx::PointF* transformed_point) override;
+  bool TransformPointToCoordSpaceForView(
+      const gfx::PointF& point,
+      RenderWidgetHostViewBase* target_view,
+      const viz::SurfaceId& local_surface_id,
+      gfx::PointF* transformed_point,
+      viz::EventSource source = viz::EventSource::ANY) override;
+  void ForwardAckedTouchpadZoomEvent(const blink::WebGestureEvent& event,
+                                     InputEventAckState ack_result) override;
+  void BubbleScrollEvent(const blink::WebGestureEvent& event) override;
+  bool HasFocus() override;
+  void FocusRootView() override;
+  bool LockMouse() override;
+  void UnlockMouse() override;
+  void EnableAutoResize(const gfx::Size& min_size,
+                        const gfx::Size& max_size) override;
+  void DisableAutoResize() override;
+  bool IsInert() const override;
+  cc::TouchAction InheritedEffectiveTouchAction() const override;
+  bool IsHidden() const override;
+  bool IsThrottled() const override;
+  bool IsSubtreeThrottled() const override;
+#if defined(USE_AURA)
+  void EmbedRendererWindowTreeClientInParent(
+      ws::mojom::WindowTreeClientPtr window_tree_client) override;
+#endif
+  void DidUpdateVisualProperties(
+      const cc::RenderFrameMetadata& metadata) override;
 
-  gfx::Rect ChildFrameRect();
-  void UpdateCursor(const WebCursor& cursor);
-  gfx::Point TransformPointToRootCoordSpace(const gfx::Point& point,
-                                            const viz::SurfaceId& surface_id);
-  // TransformPointToLocalCoordSpace() can only transform points between
-  // surfaces where one is embedded (not necessarily directly) within the
-  // other, and will return false if this is not the case. For points that can
-  // be in sibling surfaces, they must first be converted to the root
-  // surface's coordinate space.
-  bool TransformPointToLocalCoordSpace(const gfx::Point& point,
-                                       const viz::SurfaceId& original_surface,
-                                       const viz::SurfaceId& local_surface_id,
-                                       gfx::Point* transformed_point);
-  // Returns false if |target_view| and |view_| do not have the same root
-  // RenderWidgetHostView.
-  bool TransformPointToCoordSpaceForView(const gfx::Point& point,
-                                         RenderWidgetHostViewBase* target_view,
-                                         const viz::SurfaceId& local_surface_id,
-                                         gfx::Point* transformed_point);
+  // Set the visibility of immediate child views, i.e. views whose parent view
+  // is |view_|.
+  void SetVisibilityForChildViews(bool visible) const override;
 
-  // Pass acked touch events to the root view for gesture processing.
-  void ForwardProcessAckedTouchEvent(const TouchEventWithLatencyInfo& touch,
-                                     InputEventAckState ack_result);
-  // Gesture events with unused scroll deltas must be bubbled to ancestors
-  // who may consume the delta.
-  void BubbleScrollEvent(const blink::WebGestureEvent& event);
-
-  // Determines whether the root RenderWidgetHostView (and thus the current
-  // page) has focus.
-  bool HasFocus();
-  // Focuses the root RenderWidgetHostView.
-  void FocusRootView();
-
-  // Locks the mouse. Returns true if mouse is locked.
-  bool LockMouse();
-
-  // Unlocks the mouse if the mouse is locked.
-  void UnlockMouse();
-
-  // Returns the parent RenderWidgetHostView or nullptr it it doesn't have one.
-  virtual RenderWidgetHostViewBase* GetParentRenderWidgetHostView();
-
-  // Returns the view for the top-level frame under the same WebContents.
-  RenderWidgetHostViewBase* GetRootRenderWidgetHostView();
-
-  const gfx::Rect& viewport_intersection() const {
-    return viewport_intersection_rect_;
-  }
-
-  bool is_inert() const { return is_inert_; }
+  void SetScreenSpaceRect(const gfx::Rect& screen_space_rect) override;
 
   // Exposed for tests.
   RenderWidgetHostViewBase* GetRootRenderWidgetHostViewForTesting() {
     return GetRootRenderWidgetHostView();
   }
 
+  // These enums back crashed frame histograms - see MaybeLogCrash() and
+  // MaybeLogShownCrash() below.  Please do not modify or remove existing enum
+  // values.  When adding new values, please also update enums.xml. See
+  // enums.xml for descriptions of enum values.
+  enum class CrashVisibility {
+    kCrashedWhileVisible = 0,
+    kShownAfterCrashing = 1,
+    kNeverVisibleAfterCrash = 2,
+    kMaxValue = kNeverVisibleAfterCrash
+  };
+
+  enum class ShownAfterCrashingReason {
+    kTabWasShown = 0,
+    kViewportIntersection = 1,
+    kVisibility = 2,
+    kViewportIntersectionAfterTabWasShown = 3,
+    kVisibilityAfterTabWasShown = 4,
+    kMaxValue = kVisibilityAfterTabWasShown
+  };
+
+  // Returns whether the child widget is actually visible to the user.  This is
+  // different from the IsHidden override, and takes into account viewport
+  // intersection as well as the visibility of the RenderFrameHostDelegate.
+  bool IsVisible();
+
+  // This function is called by the RenderFrameHostDelegate to signal that it
+  // became visible.
+  void DelegateWasShown();
+
  private:
   friend class MockCrossProcessFrameConnector;
 
+  // Resets the rect and the viz::LocalSurfaceId of the connector to ensure the
+  // unguessable surface ID is not reused after a cross-process navigation.
+  void ResetScreenSpaceRect();
+
+  // Logs the Stability.ChildFrameCrash.Visibility metric after checking that a
+  // crash has indeed happened and checking that the crash has not already been
+  // logged in UMA.  Returns true if this metric was actually logged.
+  bool MaybeLogCrash(CrashVisibility visibility);
+
+  // Check if a crashed child frame has become visible, and if so, log the
+  // Stability.ChildFrameCrash.Visibility.ShownAfterCrashing* metrics.
+  void MaybeLogShownCrash(ShownAfterCrashingReason reason);
+
   // Handlers for messages received from the parent frame.
-  void OnFrameRectChanged(const gfx::Rect& frame_rect);
-  void OnUpdateViewportIntersection(const gfx::Rect& viewport_intersection);
+  void OnSynchronizeVisualProperties(
+      const viz::FrameSinkId& frame_sink_id,
+      const FrameVisualProperties& visual_properties);
+  void OnUpdateViewportIntersection(const gfx::Rect& viewport_intersection,
+                                    const gfx::Rect& compositor_visible_rect,
+                                    bool occluded_or_obscured);
   void OnVisibilityChanged(bool visible);
   void OnSetIsInert(bool);
-  void OnSatisfySequence(const viz::SurfaceSequence& sequence);
-  void OnRequireSequence(const viz::SurfaceId& id,
-                         const viz::SurfaceSequence& sequence);
-
-  void SetRect(const gfx::Rect& frame_rect);
+  void OnSetInheritedEffectiveTouchAction(cc::TouchAction);
+  void OnUpdateRenderThrottlingStatus(bool is_throttled,
+                                      bool subtree_throttled);
 
   // The RenderFrameProxyHost that routes messages to the parent frame's
   // renderer process.
   RenderFrameProxyHost* frame_proxy_in_parent_renderer_;
 
-  // The RenderWidgetHostView for the frame. Initially NULL.
-  RenderWidgetHostViewChildFrame* view_;
-
-  gfx::Rect child_frame_rect_;
-  gfx::Rect viewport_intersection_rect_;
   bool is_inert_ = false;
+  cc::TouchAction inherited_effective_touch_action_ =
+      cc::TouchAction::kTouchActionAuto;
 
-  bool is_scroll_bubbling_;
+  bool is_throttled_ = false;
+  bool subtree_throttled_ = false;
+
+  // Visibility state of the corresponding frame owner element in parent process
+  // which is set through CSS.
+  bool is_hidden_ = false;
+
+  // Used to make sure we only log UMA once per renderer crash.
+  bool is_crash_already_logged_ = false;
+
+  // Used to make sure that MaybeLogCrash only logs the UMA in case of an actual
+  // crash (in case it is called from the destructor of
+  // CrossProcessFrameConnector or when WebContentsImpl::WasShown is called).
+  bool has_crashed_ = false;
+
+  // Remembers whether or not the RenderFrameHostDelegate (i.e., tab) was
+  // shown after a crash. This is only used when recording renderer crashes.
+  bool delegate_was_shown_after_crash_ = false;
+
+  // The last pre-transform frame size received from the parent renderer.
+  // |last_received_local_frame_size_| may be in DIP if use zoom for DSF is
+  // off.
+  gfx::Size last_received_local_frame_size_;
+
+  // The last zoom level received from parent renderer, which is used to check
+  // if a new surface is created in case of zoom level change.
+  double last_received_zoom_level_ = 0.0;
+
+  DISALLOW_COPY_AND_ASSIGN(CrossProcessFrameConnector);
 };
 
 }  // namespace content
 
 #endif  // CONTENT_BROWSER_FRAME_HOST_CROSS_PROCESS_FRAME_CONNECTOR_H_
-

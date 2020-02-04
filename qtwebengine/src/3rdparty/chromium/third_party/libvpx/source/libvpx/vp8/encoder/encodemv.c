@@ -16,23 +16,17 @@
 
 #include <math.h>
 
-#ifdef VP8_ENTROPY_STATS
-extern unsigned int active_section;
-#endif
-
 static void encode_mvcomponent(vp8_writer *const w, const int v,
                                const struct mv_context *mvc) {
   const vp8_prob *p = mvc->prob;
   const int x = v < 0 ? -v : v;
 
-  if (x < mvnum_short) /* Small */
-  {
+  if (x < mvnum_short) { /* Small */
     vp8_write(w, 0, p[mvpis_short]);
     vp8_treed_write(w, vp8_small_mvtree, p + MVPshort, x, 3);
 
     if (!x) return; /* no sign bit */
-  } else            /* Large */
-  {
+  } else {          /* Large */
     int i = 0;
 
     vp8_write(w, 1, p[mvpis_short]);
@@ -311,9 +305,6 @@ void vp8_write_mvprobs(VP8_COMP *cpi) {
   vp8_writer *const w = cpi->bc;
   MV_CONTEXT *mvc = cpi->common.fc.mvc;
   int flags[2] = { 0, 0 };
-#ifdef VP8_ENTROPY_STATS
-  active_section = 4;
-#endif
   write_component_probs(w, &mvc[0], &vp8_default_mv_context[0],
                         &vp8_mv_update_probs[0], cpi->mb.MVcount[0], 0,
                         &flags[0]);
@@ -325,8 +316,4 @@ void vp8_write_mvprobs(VP8_COMP *cpi) {
     vp8_build_component_cost_table(
         cpi->mb.mvcost, (const MV_CONTEXT *)cpi->common.fc.mvc, flags);
   }
-
-#ifdef VP8_ENTROPY_STATS
-  active_section = 5;
-#endif
 }

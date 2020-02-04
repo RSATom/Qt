@@ -5,9 +5,9 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_SYNC_CALL_RESTRICTIONS_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_SYNC_CALL_RESTRICTIONS_H_
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/threading/thread_restrictions.h"
-#include "mojo/public/cpp/bindings/bindings_export.h"
 
 #if (!defined(NDEBUG) || defined(DCHECK_ALWAYS_ON))
 #define ENABLE_SYNC_CALL_RESTRICTIONS 1
@@ -15,18 +15,8 @@
 #define ENABLE_SYNC_CALL_RESTRICTIONS 0
 #endif
 
-class ChromeSelectFileDialogFactory;
-
 namespace sync_preferences {
 class PrefServiceSyncable;
-}
-
-namespace content {
-class BrowserTestBase;
-}
-
-namespace display {
-class ForwardingDisplayDelegate;
 }
 
 namespace leveldb {
@@ -38,14 +28,16 @@ class PersistentPrefStoreClient;
 }
 
 namespace ui {
-class Gpu;
-}
+class ClipboardClient;
+class HostContextFactoryPrivate;
+}  // namespace ui
 
-namespace views {
-class ClipboardMus;
+namespace viz {
+class HostFrameSinkManager;
 }
 
 namespace mojo {
+class ScopedAllowSyncCallForTesting;
 
 // In some processes, sync calls are disallowed. For example, in the browser
 // process we don't want any sync calls to child processes for performance,
@@ -54,47 +46,52 @@ namespace mojo {
 //
 // Before processing a sync call, the bindings call
 // SyncCallRestrictions::AssertSyncCallAllowed() to check whether sync calls are
-// allowed. By default, it is determined by the mojo system property
-// MOJO_PROPERTY_TYPE_SYNC_CALL_ALLOWED. If the default setting says no but you
-// have a very compelling reason to disregard that (which should be very very
-// rare), you can override it by constructing a ScopedAllowSyncCall object,
-// which allows making sync calls on the current sequence during its lifetime.
-class MOJO_CPP_BINDINGS_EXPORT SyncCallRestrictions {
+// allowed. By default sync calls are allowed but they may be globally
+// disallowed within a process by calling DisallowSyncCall().
+//
+// If globally disallowed but you but you have a very compelling reason to
+// disregard that (which should be very very rare), you can override it by
+// constructing a ScopedAllowSyncCall object which allows making sync calls on
+// the current sequence during its lifetime.
+class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) SyncCallRestrictions {
  public:
 #if ENABLE_SYNC_CALL_RESTRICTIONS
   // Checks whether the current sequence is allowed to make sync calls, and
   // causes a DCHECK if not.
   static void AssertSyncCallAllowed();
+
+  // Disables sync calls within the calling process. Any caller who wishes to
+  // make sync calls once this has been invoked must do so within the extent of
+  // a ScopedAllowSyncCall or ScopedAllowSyncCallForTesting.
+  static void DisallowSyncCall();
+
 #else
   // Inline the empty definitions of functions so that they can be compiled out.
   static void AssertSyncCallAllowed() {}
+  static void DisallowSyncCall() {}
 #endif
 
  private:
   // DO NOT ADD ANY OTHER FRIEND STATEMENTS, talk to mojo/OWNERS first.
   // BEGIN ALLOWED USAGE.
-  friend class content::BrowserTestBase;  // Test-only.
-  friend class ui::Gpu;  // http://crbug.com/620058
+  // SynchronousCompositorHost is used for Android webview.
+  friend class content::SynchronousCompositorHost;
   // LevelDBMojoProxy makes same-process sync calls from the DB thread.
   friend class leveldb::LevelDBMojoProxy;
   // Pref service connection is sync at startup.
   friend class prefs::PersistentPrefStoreClient;
   // Incognito pref service instances are created synchronously.
   friend class sync_preferences::PrefServiceSyncable;
-  // For file open and save dialogs created synchronously.
-  friend class ::ChromeSelectFileDialogFactory;
+  friend class mojo::ScopedAllowSyncCallForTesting;
+  // For synchronous system clipboard access.
+  friend class ui::ClipboardClient;
+  // For destroying the GL context/surface that draw to a platform window before
+  // the platform window is destroyed.
+  friend class viz::HostFrameSinkManager;
+  // For preventing frame swaps of wrong size during resize on Windows.
+  // (https://crbug.com/811945)
+  friend class ui::HostContextFactoryPrivate;
   // END ALLOWED USAGE.
-
-  // BEGIN USAGE THAT NEEDS TO BE FIXED.
-  // In the non-mus case, we called blocking OS functions in the ui::Clipboard
-  // implementation which weren't caught by sync call restrictions. Our blocking
-  // calls to mus, however, are.
-  friend class views::ClipboardMus;
-  // In ash::Shell::Init() it assumes that NativeDisplayDelegate will be
-  // synchronous at first. In mushrome ForwardingDisplayDelegate uses a
-  // synchronous call to get the display snapshots as a workaround.
-  friend class display::ForwardingDisplayDelegate;
-  // END USAGE THAT NEEDS TO BE FIXED.
 
 #if ENABLE_SYNC_CALL_RESTRICTIONS
   static void IncreaseScopedAllowCount();
@@ -116,13 +113,24 @@ class MOJO_CPP_BINDINGS_EXPORT SyncCallRestrictions {
 
    private:
 #if ENABLE_SYNC_CALL_RESTRICTIONS
-    base::ThreadRestrictions::ScopedAllowWait allow_wait_;
+    base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait_;
 #endif
 
     DISALLOW_COPY_AND_ASSIGN(ScopedAllowSyncCall);
   };
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(SyncCallRestrictions);
+};
+
+class ScopedAllowSyncCallForTesting {
+ public:
+  ScopedAllowSyncCallForTesting() {}
+  ~ScopedAllowSyncCallForTesting() {}
+
+ private:
+  SyncCallRestrictions::ScopedAllowSyncCall scoped_allow_sync_call_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScopedAllowSyncCallForTesting);
 };
 
 }  // namespace mojo

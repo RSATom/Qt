@@ -79,10 +79,10 @@ public:
     };
 
     DirectShowPlayerService(QObject *parent = 0);
-    ~DirectShowPlayerService();
+    ~DirectShowPlayerService() override;
 
-    QMediaControl* requestControl(const char *name);
-    void releaseControl(QMediaControl *control);
+    QMediaControl *requestControl(const char *name) override;
+    void releaseControl(QMediaControl *control) override;
 
     void load(const QMediaContent &media, QIODevice *stream);
     void play();
@@ -101,7 +101,7 @@ public:
     void setVideoOutput(IBaseFilter *filter);
 
 protected:
-    void customEvent(QEvent *event);
+    void customEvent(QEvent *event) override;
 
 private Q_SLOTS:
     void videoOutputChanged();
@@ -215,6 +215,7 @@ private:
     QMediaPlayer::Error m_error;
     QIODevice *m_stream;
     IFilterGraph2 *m_graph;
+    ICaptureGraphBuilder2 *m_graphBuilder;
     IBaseFilter *m_source;
     IBaseFilter *m_audioOutput;
     IBaseFilter *m_videoOutput;
@@ -224,13 +225,13 @@ private:
     qint64 m_duration;
     QMediaTimeRange m_playbackRange;
     QUrl m_url;
-    QMediaResourceList m_resources;
     QString m_errorString;
     QMutex m_mutex;
     bool m_buffering;
     bool m_seekable;
     bool m_atEnd;
     bool m_dontCacheNextSeekResult;
+    QVariantMap m_metadata;
 
     friend class DirectShowPlayerServiceThread;
 };

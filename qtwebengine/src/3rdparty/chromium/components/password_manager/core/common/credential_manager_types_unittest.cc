@@ -18,7 +18,7 @@ class CredentialManagerTypesTest : public testing::Test {
   CredentialManagerTypesTest()
       : origin_(GURL("https://example.test/")),
         icon_(GURL("https://fast-cdn.test/icon.png")),
-        federation_(url::Origin(GURL("https://federation.test/"))) {}
+        federation_(url::Origin::Create(GURL("https://federation.test/"))) {}
 
  protected:
   GURL origin_;
@@ -81,7 +81,7 @@ TEST_F(CredentialManagerTypesTest, CreatePasswordFormLocal) {
 
   // Local credentials have empty federation_origins, non-empty passwords, and
   // a signon realm that matches the origin.
-  EXPECT_TRUE(form->federation_origin.unique());
+  EXPECT_TRUE(form->federation_origin.opaque());
   EXPECT_EQ(info.password, form->password_value);
   EXPECT_EQ(origin_.spec(), form->signon_realm);
 }
@@ -95,7 +95,7 @@ TEST_F(CredentialManagerTypesTest, CreateObservedPasswordForm) {
   EXPECT_EQ(base::string16(), form->display_name);
   EXPECT_EQ(origin_, form->origin);
   EXPECT_EQ(autofill::PasswordForm::SCHEME_HTML, form->scheme);
-  EXPECT_TRUE(form->federation_origin.unique());
+  EXPECT_TRUE(form->federation_origin.opaque());
   EXPECT_EQ(base::string16(), form->password_value);
   EXPECT_EQ(origin_.spec(), form->signon_realm);
 }

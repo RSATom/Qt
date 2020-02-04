@@ -13,14 +13,17 @@
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/restore_type.h"
 #include "content/public/common/referrer.h"
+#include "content/public/common/transferrable_url_loader.mojom.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_response_info.h"
+#include "services/network/public/cpp/resource_request_body.h"
 #include "ui/base/page_transition_types.h"
 
 class GURL;
 
 namespace net {
+class HttpRequestHeaders;
 class HttpResponseHeaders;
 }  // namespace net
 
@@ -28,6 +31,7 @@ namespace content {
 struct GlobalRequestID;
 class NavigationData;
 class NavigationThrottle;
+class NavigationUIData;
 class RenderFrameHost;
 class SiteInstance;
 class WebContents;
@@ -46,6 +50,9 @@ class CONTENT_EXPORT NavigationHandle {
   //
   // These parameters are always available during the navigation. Note that
   // some may change during navigation (e.g. due to server redirects).
+
+  // Get a unique ID for this navigation.
+  virtual int64_t GetNavigationId() const = 0;
 
   // The URL the frame is navigating to. This may change during the navigation
   // when encountering a server redirect.
@@ -68,12 +75,19 @@ class CONTENT_EXPORT NavigationHandle {
   // of the main frame. This remains constant over the navigation lifetime.
   virtual bool IsParentMainFrame() = 0;
 
-  // Whether the navigation was initated by the renderer process. Examples of
+  // Whether the navigation was initiated by the renderer process. Examples of
   // renderer-initiated navigations include:
   //  * <a> link click
   //  * changing window.location.href
   //  * redirect via the <meta http-equiv="refresh"> tag
   //  * using window.history.pushState
+  //
+  // This method returns false for browser-initiated navigations, including:
+  //  * any navigation initiated from the omnibox
+  //  * navigations via suggestions in browser UI
+  //  * navigations via browser UI: Ctrl-R, refresh/forward/back/home buttons
+  //  * using window.history.forward() or window.history.back()
+  //  * any other "explicit" URL navigations, e.g. bookmarks
   virtual bool IsRendererInitiated() = 0;
 
   // Returns the FrameTreeNode ID for the frame in which the navigation is
@@ -88,11 +102,15 @@ class CONTENT_EXPORT NavigationHandle {
   virtual RenderFrameHost* GetParentFrame() = 0;
 
   // The WebContents the navigation is taking place in.
-  WebContents* GetWebContents();
+  virtual WebContents* GetWebContents();
 
   // The time the navigation started, recorded either in the renderer or in the
   // browser process. Corresponds to Navigation Timing API.
-  virtual const base::TimeTicks& NavigationStart() = 0;
+  virtual base::TimeTicks NavigationStart() = 0;
+
+  // The time the input leading to the navigation started. Will not be
+  // set if unknown.
+  virtual base::TimeTicks NavigationInputStart() = 0;
 
   // Whether or not the navigation was started within a context menu.
   virtual bool WasStartedFromContextMenu() const = 0;
@@ -114,13 +132,6 @@ class CONTENT_EXPORT NavigationHandle {
   // Used for specifying a base URL for pages loaded via data URLs.
   virtual const GURL& GetBaseURLForDataURL() = 0;
 
-  // Parameters available at network request start time ------------------------
-  //
-  // The following parameters are only available when the network request is
-  // made for the navigation (or at commit time if no network request is made).
-  // This corresponds to NavigationThrottle::WillSendRequest. They should not
-  // be queried before that.
-
   // Whether the navigation is done using HTTP POST method. This may change
   // during the navigation (e.g. after encountering a server redirect).
   //
@@ -129,6 +140,12 @@ class CONTENT_EXPORT NavigationHandle {
   // schemes like data: or file:).  Therefore //content public API exposes only
   // |bool IsPost()| as opposed to |const std::string& GetMethod()| method.
   virtual bool IsPost() = 0;
+
+  // Returns the POST body associated with this navigation. This will be null
+  // for GET and/or other non-POST requests (or if a response to a POST request
+  // was a redirect that changed the method to GET - for example 302).
+  virtual const scoped_refptr<network::ResourceRequestBody>&
+  GetResourceRequestBody() = 0;
 
   // Returns a sanitized version of the referrer for this request.
   virtual const Referrer& GetReferrer() = 0;
@@ -142,6 +159,9 @@ class CONTENT_EXPORT NavigationHandle {
   // Returns the page transition type.
   virtual ui::PageTransition GetPageTransition() = 0;
 
+  // Returns the NavigationUIData associated with the navigation.
+  virtual const NavigationUIData* GetNavigationUIData() = 0;
+
   // Whether the target URL cannot be handled by the browser's internal protocol
   // handlers.
   virtual bool IsExternalProtocol() = 0;
@@ -152,13 +172,12 @@ class CONTENT_EXPORT NavigationHandle {
   // be net::OK.
   virtual net::Error GetNetErrorCode() = 0;
 
-  // Returns the RenderFrameHost this navigation is taking place in. This can
-  // only be accessed after a response has been delivered for processing.
-  //
-  // If PlzNavigate is active, the RenderFrameHost returned will be the final
-  // host for the navigation. If PlzNavigate is inactive, the navigation may
-  // transfer to a new host up until the point that DidFinishNavigation is
-  // called.
+  // Returns the RenderFrameHost this navigation is committing in.  The
+  // RenderFrameHost returned will be the final host for the navigation. (Use
+  // WebContentsObserver::RenderFrameHostChanged() to observe RenderFrameHost
+  // changes that occur during navigation.) This can only be accessed after a
+  // response has been delivered for processing, or after the navigation fails
+  // with an error page.
   virtual RenderFrameHost* GetRenderFrameHost() = 0;
 
   // Whether the navigation happened without changing document. Examples of
@@ -215,6 +234,20 @@ class CONTENT_EXPORT NavigationHandle {
   // Returns the remote address of the socket which fetched this resource.
   virtual net::HostPortPair GetSocketAddress() = 0;
 
+  // Returns the headers used for this request.
+  virtual const net::HttpRequestHeaders& GetRequestHeaders() = 0;
+
+  // Remove a request's header. If the header is not present, it has no effect.
+  // Must be called during a redirect.
+  virtual void RemoveRequestHeader(const std::string& header_name) = 0;
+
+  // Set a request's header. If the header is already present, its value is
+  // overwritten. When modified during a navigation start, the headers will be
+  // applied to the initial network request. When modified during a redirect,
+  // the headers will be applied to the redirected request.
+  virtual void SetRequestHeader(const std::string& header_name,
+                                const std::string& header_value) = 0;
+
   // Returns the response headers for the request, or nullptr if there aren't
   // any response headers or they have not been received yet. The response
   // headers may change during the navigation (e.g. after encountering a server
@@ -228,6 +261,11 @@ class CONTENT_EXPORT NavigationHandle {
   // encountering a server redirect).
   virtual net::HttpResponseInfo::ConnectionInfo GetConnectionInfo() = 0;
 
+  // Returns the SSLInfo for a request that succeeded or failed due to a
+  // certificate error. In the case of other request failures or of a non-secure
+  // scheme, returns an empty object.
+  virtual const net::SSLInfo& GetSSLInfo() = 0;
+
   // Returns the ID of the URLRequest associated with this navigation. Can only
   // be called from NavigationThrottle::WillProcessResponse and
   // WebContentsObserver::ReadyToCommitNavigation.
@@ -236,16 +274,35 @@ class CONTENT_EXPORT NavigationHandle {
   // NavigationHandle.
   virtual const GlobalRequestID& GetGlobalRequestID() = 0;
 
+  // Returns true if this navigation resulted in a download. Returns false if
+  // this navigation did not result in a download, or if download status is not
+  // yet known for this navigation.  Download status is determined for a
+  // navigation when processing final (post redirect) HTTP response headers.
+  virtual bool IsDownload() = 0;
+
+  // Returns true if this navigation was initiated by a form submission.
+  virtual bool IsFormSubmission() = 0;
+
+  // Returns true if the target is an inner response of a signed exchange.
+  virtual bool IsSignedExchangeInnerResponse() = 0;
+
+  // Returns true if the navigation response was cached.
+  virtual bool WasResponseCached() = 0;
+
+  // Returns the proxy server used for this navigation, if any.
+  virtual const net::ProxyServer& GetProxyServer() = 0;
+
+  // Returns the value of the hrefTranslate attribute if this navigation was
+  // initiated from a link that had that attribute set.
+  virtual const std::string& GetHrefTranslate() = 0;
+
+  // Returns, if available, the origin of the document that has initiated the
+  // navigation for this NavigationHandle.
+  virtual const base::Optional<url::Origin>& GetInitiatorOrigin() = 0;
+
   // Testing methods ----------------------------------------------------------
   //
   // The following methods should be used exclusively for writing unit tests.
-
-  static std::unique_ptr<NavigationHandle> CreateNavigationHandleForTesting(
-      const GURL& url,
-      RenderFrameHost* render_frame_host,
-      bool committed = false,
-      net::Error error = net::OK,
-      bool is_same_document = false);
 
   // Registers a NavigationThrottle for tests. The throttle can
   // modify the request, pause the request or cancel the request. This will
@@ -257,38 +314,20 @@ class CONTENT_EXPORT NavigationHandle {
   virtual void RegisterThrottleForTesting(
       std::unique_ptr<NavigationThrottle> navigation_throttle) = 0;
 
-  // Simulates the network request starting.
-  virtual NavigationThrottle::ThrottleCheckResult
-  CallWillStartRequestForTesting(bool is_post,
-                                 const Referrer& sanitized_referrer,
-                                 bool has_user_gesture,
-                                 ui::PageTransition transition,
-                                 bool is_external_protocol) = 0;
+  // Returns whether this navigation is currently deferred.
+  virtual bool IsDeferredForTesting() = 0;
 
-  // Simulates the network request being redirected.
-  virtual NavigationThrottle::ThrottleCheckResult
-  CallWillRedirectRequestForTesting(const GURL& new_url,
-                                    bool new_method_is_post,
-                                    const GURL& new_referrer_url,
-                                    bool new_is_external_protocol) = 0;
-
-  // Simulates the reception of the network response.
-  virtual NavigationThrottle::ThrottleCheckResult
-  CallWillProcessResponseForTesting(
-      RenderFrameHost* render_frame_host,
-      const std::string& raw_response_headers) = 0;
-
-  // Simulates the navigation being committed.
-  virtual void CallDidCommitNavigationForTesting(const GURL& url) = 0;
-
-  // Simulates the navigation resuming. Most callers should just let the
-  // deferring NavigationThrottle do the resuming.
-  virtual void CallResumeForTesting() = 0;
+  // Whether this navigation was triggered by a x-origin redirect following a
+  // prior (most likely <a download>) download attempt.
+  virtual bool FromDownloadCrossOriginRedirect() = 0;
 
   // The NavigationData that the embedder returned from
   // ResourceDispatcherHostDelegate::GetNavigationData during commit. This will
   // be a clone of the NavigationData.
   virtual NavigationData* GetNavigationData() = 0;
+
+  virtual void RegisterSubresourceOverride(
+      mojom::TransferrableURLLoaderPtr transferrable_loader) = 0;
 };
 
 }  // namespace content

@@ -12,12 +12,11 @@
 namespace media {
 
 AudioBufferQueue::AudioBufferQueue() { Clear(); }
-AudioBufferQueue::~AudioBufferQueue() {}
+AudioBufferQueue::~AudioBufferQueue() = default;
 
 void AudioBufferQueue::Clear() {
   buffers_.clear();
-  current_buffer_ = buffers_.begin();
-  current_buffer_offset_ = 0;
+  front_buffer_offset_ = 0;
   frames_ = 0;
 }
 
@@ -25,7 +24,6 @@ void AudioBufferQueue::Append(const scoped_refptr<AudioBuffer>& buffer_in) {
   // Add the buffer to the queue. Inserting into deque invalidates all
   // iterators, so point to the first buffer.
   buffers_.push_back(buffer_in);
-  current_buffer_ = buffers_.begin();
 
   // Update the |frames_| counter since we have added frames.
   frames_ += buffer_in->frame_count();
@@ -60,10 +58,44 @@ int AudioBufferQueue::InternalRead(int frames,
                                    int source_frame_offset,
                                    int dest_frame_offset,
                                    AudioBus* dest) {
+  if (buffers_.empty())
+    return 0;
+
+  if (buffers_.front()->IsBitstreamFormat()) {
+    // For compressed bitstream formats, a partial compressed audio frame is
+    // less useful, since it can't generate any PCM frame out of it. Also, we
+    // want to keep the granularity as fine as possible so that discarding a
+    // small chunk of PCM frames is still possible. Thus, we only transfer a
+    // complete AudioBuffer at a time.
+    DCHECK(!dest_frame_offset ||
+           dest_frame_offset == dest->GetBitstreamFrames());
+    DCHECK(!source_frame_offset);
+
+    scoped_refptr<AudioBuffer> buffer = buffers_.front();
+    int taken = buffer->frame_count();
+
+    // if |dest| is NULL, there's no need to copy.
+    if (dest)
+      buffer->ReadFrames(buffer->frame_count(), 0, dest_frame_offset, dest);
+
+    if (advance_position) {
+      // Update the appropriate values since |taken| frames have been copied
+      // out.
+      frames_ -= taken;
+      DCHECK_GE(frames_, 0);
+
+      // Remove any buffers before the current buffer as there is no going
+      // backwards.
+      buffers_.pop_front();
+    }
+
+    return taken;
+  }
+
   // Counts how many frames are actually read from the buffer queue.
   int taken = 0;
-  BufferQueue::iterator current_buffer = current_buffer_;
-  int current_buffer_offset = current_buffer_offset_;
+  BufferQueue::iterator current_buffer = buffers_.begin();
+  int current_buffer_offset = front_buffer_offset_;
 
   int frames_to_skip = source_frame_offset;
   while (taken < frames) {
@@ -121,13 +153,11 @@ int AudioBufferQueue::InternalRead(int frames,
     // Update the appropriate values since |taken| frames have been copied out.
     frames_ -= taken;
     DCHECK_GE(frames_, 0);
-    DCHECK(current_buffer_ != buffers_.end() || frames_ == 0);
 
     // Remove any buffers before the current buffer as there is no going
     // backwards.
     buffers_.erase(buffers_.begin(), current_buffer);
-    current_buffer_ = buffers_.begin();
-    current_buffer_offset_ = current_buffer_offset;
+    front_buffer_offset_ = current_buffer_offset;
   }
 
   return taken;

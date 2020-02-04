@@ -7,36 +7,28 @@
 
 #include <stdint.h>
 
-#include <deque>
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "base/atomicops.h"
-#include "base/containers/hash_tables.h"
-#include "base/logging.h"
+#include "base/callback_forward.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "gpu/command_buffer/service/feature_info.h"
-#include "gpu/gpu_export.h"
-
-namespace gl {
-class GPUTimer;
-class GPUTimingClient;
-}
+#include "gpu/command_buffer/common/buffer.h"
+#include "gpu/command_buffer/common/common_cmd_format.h"
+#include "gpu/command_buffer/common/gl2_types.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 
-class GLES2Decoder;
-
-namespace gles2 {
-
-class FeatureInfo;
-
 // This class keeps track of the queries and their state
 // As Queries are not shared there is one QueryManager per context.
-class GPU_EXPORT QueryManager {
+class GPU_GLES2_EXPORT QueryManager {
  public:
-  class GPU_EXPORT Query : public base::RefCounted<Query> {
+  class GPU_GLES2_EXPORT Query : public base::RefCounted<Query> {
    public:
     Query(QueryManager* manager,
           GLenum target,
@@ -89,7 +81,10 @@ class GPU_EXPORT QueryManager {
 
     virtual void Destroy(bool have_context) = 0;
 
-    void AddCallback(base::Closure callback);
+    virtual void BeginProcessingCommands() {}
+    virtual void EndProcessingCommands() {}
+
+    void AddCallback(base::OnceClosure callback);
 
    protected:
     virtual ~Query();
@@ -139,18 +134,6 @@ class GPU_EXPORT QueryManager {
       manager_->EndQueryHelper(target);
     }
 
-    void SafelyResetDisjointValue() {
-      manager_->SafelyResetDisjointValue();
-    }
-
-    void UpdateDisjointValue() {
-      manager_->UpdateDisjointValue();
-    }
-
-    void BeginContinualDisjointUpdate() {
-      manager_->update_disjoints_continually_ = true;
-    }
-
     base::subtle::Atomic32 submit_count() const { return submit_count_; }
 
    private:
@@ -188,25 +171,20 @@ class GPU_EXPORT QueryManager {
     bool deleted_;
 
     // List of callbacks to run when result is available.
-    std::vector<base::Closure> callbacks_;
+    std::vector<base::OnceClosure> callbacks_;
   };
 
-  QueryManager(
-      GLES2Decoder* decoder,
-      FeatureInfo* feature_info);
-  ~QueryManager();
+  QueryManager();
+  virtual ~QueryManager();
 
   // Must call before destruction.
   void Destroy(bool have_context);
 
-  // Sets up a location to be incremented whenever a disjoint is detected.
-  error::Error SetDisjointSync(int32_t shm_id, uint32_t shm_offset);
-
   // Creates a Query for the given query.
-  Query* CreateQuery(GLenum target,
-                     GLuint client_id,
-                     scoped_refptr<gpu::Buffer> buffer,
-                     QuerySync* sync);
+  virtual Query* CreateQuery(GLenum target,
+                             GLuint client_id,
+                             scoped_refptr<gpu::Buffer> buffer,
+                             QuerySync* sync);
 
   // Gets the query info for the given query.
   Query* GetQuery(GLuint client_id);
@@ -229,6 +207,9 @@ class GPU_EXPORT QueryManager {
   void PauseQueries();
   void ResumeQueries();
 
+  void BeginProcessingCommands();
+  void EndProcessingCommands();
+
   // Processes pending queries. Returns false if any queries are pointing
   // to invalid shared memory. |did_finish| is true if this is called as
   // a result of calling glFinish().
@@ -237,20 +218,10 @@ class GPU_EXPORT QueryManager {
   // True if there are pending queries.
   bool HavePendingQueries();
 
-  // Do any updates we need to do when the frame has begun.
-  void ProcessFrameBeginUpdates();
-
-  GLES2Decoder* decoder() const {
-    return decoder_;
-  }
-
-  std::unique_ptr<gl::GPUTimer> CreateGPUTimer(bool elapsed_time);
-  bool GPUTimingAvailable();
-
   void GenQueries(GLsizei n, const GLuint* queries);
   bool IsValidQuery(GLuint id);
 
- private:
+ protected:
   void StartTracking(Query* query);
   void StopTracking(Query* query);
 
@@ -269,55 +240,30 @@ class GPU_EXPORT QueryManager {
 
   // Returns a target used for the underlying GL extension
   // used to emulate a query.
-  GLenum AdjustTargetForEmulation(GLenum target);
-
-  // Checks and notifies if a disjoint occurred.
-  void UpdateDisjointValue();
-
-  // Safely resets the disjoint value if no queries are active.
-  void SafelyResetDisjointValue();
-
-  // Used to validate shared memory and get GL errors.
-  GLES2Decoder* decoder_;
-
-  bool use_arb_occlusion_query2_for_occlusion_query_boolean_;
-  bool use_arb_occlusion_query_for_occlusion_query_boolean_;
-
-  // Whether we are tracking disjoint values every frame.
-  bool update_disjoints_continually_;
-
-  // The shared memory used for disjoint notifications.
-  int32_t disjoint_notify_shm_id_;
-  uint32_t disjoint_notify_shm_offset_;
-
-  // Current number of disjoints notified.
-  uint32_t disjoints_notified_;
+  virtual GLenum AdjustTargetForEmulation(GLenum target);
 
   // Counts the number of Queries allocated with 'this' as their manager.
   // Allows checking no Query will outlive this.
   unsigned query_count_;
 
   // Info for each query in the system.
-  typedef base::hash_map<GLuint, scoped_refptr<Query> > QueryMap;
+  using QueryMap = std::unordered_map<GLuint, scoped_refptr<Query>>;
   QueryMap queries_;
 
-  typedef base::hash_set<GLuint> GeneratedQueryIds;
+  using GeneratedQueryIds = std::unordered_set<GLuint>;
   GeneratedQueryIds generated_query_ids_;
 
   // A map of targets -> Query for current active queries.
-  typedef std::map<GLenum, scoped_refptr<Query> > ActiveQueryMap;
+  using ActiveQueryMap = std::map<GLenum, scoped_refptr<Query>>;
   ActiveQueryMap active_queries_;
 
   // Queries waiting for completion.
-  typedef std::deque<scoped_refptr<Query> > QueryQueue;
+  using QueryQueue = base::circular_deque<scoped_refptr<Query>>;
   QueryQueue pending_queries_;
-
-  scoped_refptr<gl::GPUTimingClient> gpu_timing_client_;
 
   DISALLOW_COPY_AND_ASSIGN(QueryManager);
 };
 
-}  // namespace gles2
 }  // namespace gpu
 
 #endif  // GPU_COMMAND_BUFFER_SERVICE_QUERY_MANAGER_H_

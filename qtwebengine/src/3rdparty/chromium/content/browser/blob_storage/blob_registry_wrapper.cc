@@ -4,10 +4,13 @@
 
 #include "content/browser/blob_storage/blob_registry_wrapper.h"
 
+#include "base/task/post_task.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/child_process_security_policy_impl.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/common/content_features.h"
 #include "storage/browser/blob/blob_registry_impl.h"
+#include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/fileapi/file_system_context.h"
 
 namespace content {
@@ -29,6 +32,16 @@ class BindingDelegate : public storage::BlobRegistryImpl::Delegate {
         ChildProcessSecurityPolicyImpl::GetInstance();
     return security_policy->CanReadFileSystemFile(process_id_, url);
   }
+  bool CanCommitURL(const GURL& url) override {
+    ChildProcessSecurityPolicyImpl* security_policy =
+        ChildProcessSecurityPolicyImpl::GetInstance();
+    return security_policy->CanCommitURL(process_id_, url);
+  }
+  bool IsProcessValid() override {
+    ChildProcessSecurityPolicyImpl* security_policy =
+        ChildProcessSecurityPolicyImpl::GetInstance();
+    return security_policy->HasSecurityState(process_id_);
+  }
 
  private:
   const int process_id_;
@@ -41,8 +54,8 @@ scoped_refptr<BlobRegistryWrapper> BlobRegistryWrapper::Create(
     scoped_refptr<ChromeBlobStorageContext> blob_storage_context,
     scoped_refptr<storage::FileSystemContext> file_system_context) {
   scoped_refptr<BlobRegistryWrapper> result(new BlobRegistryWrapper());
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&BlobRegistryWrapper::InitializeOnIOThread, result,
                      std::move(blob_storage_context),
                      std::move(file_system_context)));
@@ -50,15 +63,13 @@ scoped_refptr<BlobRegistryWrapper> BlobRegistryWrapper::Create(
 }
 
 BlobRegistryWrapper::BlobRegistryWrapper() {
-  DCHECK(base::FeatureList::IsEnabled(features::kMojoBlobs));
 }
 
-void BlobRegistryWrapper::Bind(
-    int process_id,
-    storage::mojom::BlobRegistryRequest request) {
+void BlobRegistryWrapper::Bind(int process_id,
+                               blink::mojom::BlobRegistryRequest request) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   blob_registry_->Bind(std::move(request),
-                       base::MakeUnique<BindingDelegate>(process_id));
+                       std::make_unique<BindingDelegate>(process_id));
 }
 
 BlobRegistryWrapper::~BlobRegistryWrapper() {}
@@ -67,8 +78,9 @@ void BlobRegistryWrapper::InitializeOnIOThread(
     scoped_refptr<ChromeBlobStorageContext> blob_storage_context,
     scoped_refptr<storage::FileSystemContext> file_system_context) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  blob_registry_ = base::MakeUnique<storage::BlobRegistryImpl>(
-      blob_storage_context->context(), std::move(file_system_context));
+  blob_registry_ = std::make_unique<storage::BlobRegistryImpl>(
+      blob_storage_context->context()->AsWeakPtr(),
+      std::move(file_system_context));
 }
 
 }  // namespace content

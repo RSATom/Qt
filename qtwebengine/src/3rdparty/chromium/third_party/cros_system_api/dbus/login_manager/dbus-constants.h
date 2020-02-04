@@ -11,12 +11,18 @@ const char kSessionManagerServicePath[] = "/org/chromium/SessionManager";
 const char kSessionManagerServiceName[] = "org.chromium.SessionManager";
 // Methods
 const char kSessionManagerEmitLoginPromptVisible[] = "EmitLoginPromptVisible";
+const char kSessionManagerEmitAshInitialized[] = "EmitAshInitialized";
+const char kSessionManagerEnableChromeTesting[] = "EnableChromeTesting";
+const char kSessionManagerSaveLoginPassword[] = "SaveLoginPassword";
 const char kSessionManagerStartSession[] = "StartSession";
 const char kSessionManagerStopSession[] = "StopSession";
 const char kSessionManagerRestartJob[] = "RestartJob";
 const char kSessionManagerStorePolicy[] = "StorePolicy";
+const char kSessionManagerStorePolicyEx[] = "StorePolicyEx";
 const char kSessionManagerStoreUnsignedPolicy[] = "StoreUnsignedPolicy";
+const char kSessionManagerStoreUnsignedPolicyEx[] = "StoreUnsignedPolicyEx";
 const char kSessionManagerRetrievePolicy[] = "RetrievePolicy";
+const char kSessionManagerRetrievePolicyEx[] = "RetrievePolicyEx";
 const char kSessionManagerStorePolicyForUser[] = "StorePolicyForUser";
 const char kSessionManagerStoreUnsignedPolicyForUser[] =
     "StoreUnsignedPolicyForUser";
@@ -27,10 +33,15 @@ const char kSessionManagerStoreDeviceLocalAccountPolicy[] =
     "StoreDeviceLocalAccountPolicy";
 const char kSessionManagerRetrieveDeviceLocalAccountPolicy[] =
     "RetrieveDeviceLocalAccountPolicy";
+const char kSessionManagerListStoredComponentPolicies[] =
+    "ListStoredComponentPolicies";
 const char kSessionManagerRetrieveSessionState[] = "RetrieveSessionState";
 const char kSessionManagerRetrieveActiveSessions[] = "RetrieveActiveSessions";
+const char kSessionManagerRetrievePrimarySession[] = "RetrievePrimarySession";
 const char kSessionManagerStartTPMFirmwareUpdate[] = "StartTPMFirmwareUpdate";
 const char kSessionManagerStartDeviceWipe[] = "StartDeviceWipe";
+const char kSessionManagerClearForcedReEnrollmentVpd[] =
+    "ClearForcedReEnrollmentVpd";
 const char kSessionManagerHandleSupervisedUserCreationStarting[] =
     "HandleSupervisedUserCreationStarting";
 const char kSessionManagerHandleSupervisedUserCreationFinished[] =
@@ -39,17 +50,18 @@ const char kSessionManagerLockScreen[] = "LockScreen";
 const char kSessionManagerHandleLockScreenShown[] = "HandleLockScreenShown";
 const char kSessionManagerHandleLockScreenDismissed[] =
     "HandleLockScreenDismissed";
+const char kSessionManagerIsScreenLocked[] = "IsScreenLocked";
 const char kSessionManagerSetFlagsForUser[] = "SetFlagsForUser";
 const char kSessionManagerGetServerBackedStateKeys[] =
     "GetServerBackedStateKeys";
 const char kSessionManagerInitMachineInfo[] = "InitMachineInfo";
 const char kSessionManagerCheckArcAvailability[] = "CheckArcAvailability";
-const char kSessionManagerStartArcInstance[] = "StartArcInstance";
+const char kSessionManagerStartArcMiniContainer[] = "StartArcMiniContainer";
+const char kSessionManagerUpgradeArcContainer[] = "UpgradeArcContainer";
 const char kSessionManagerStopArcInstance[] = "StopArcInstance";
 const char kSessionManagerSetArcCpuRestriction[] = "SetArcCpuRestriction";
 const char kSessionManagerEmitArcBooted[] = "EmitArcBooted";
 const char kSessionManagerGetArcStartTimeTicks[] = "GetArcStartTimeTicks";
-const char kSessionManagerRemoveArcData[] = "RemoveArcData";
 const char kSessionManagerStartContainer[] = "StartContainer";
 const char kSessionManagerStopContainer[] = "StopContainer";
 // Signals
@@ -73,9 +85,12 @@ const char kNone[] = INTERFACE ".None";
 const char kInvalidParameter[] = INTERFACE ".InvalidParameter";
 const char kArcCpuCgroupFail[] = INTERFACE ".ArcCpuCgroupFail";
 const char kArcInstanceRunning[] = INTERFACE ".ArcInstanceRunning";
+const char kArcContainerNotFound[] = INTERFACE ".ArcContainerNotFound";
 const char kContainerStartupFail[] = INTERFACE ".ContainerStartupFail";
 const char kContainerShutdownFail[] = INTERFACE ".ContainerShutdownFail";
+const char kDeleteFail[] = INTERFACE ".DeleteFail";
 const char kEmitFailed[] = INTERFACE ".EmitFailed";
+const char kGetServiceFail[] = INTERFACE ".kGetServiceFail";
 const char kInitMachineInfoFail[] = INTERFACE ".InitMachineInfoFail";
 const char kInvalidAccount[] = INTERFACE ".InvalidAccount";
 const char kLowFreeDisk[] = INTERFACE ".LowFreeDisk";
@@ -93,6 +108,8 @@ const char kSigEncodeFail[] = INTERFACE ".SigEncodeFail";
 const char kTestingChannelError[] = INTERFACE ".TestingChannelError";
 const char kUnknownPid[] = INTERFACE ".UnknownPid";
 const char kVerifyFail[] = INTERFACE ".VerifyFail";
+const char kSystemPropertyUpdateFailed[] =
+    INTERFACE ".SystemPropertyUpdateFailed";
 const char kVpdUpdateFailed[] = INTERFACE ".VpdUpdateFailed";
 
 #undef INTERFACE
@@ -103,6 +120,27 @@ enum ContainerCpuRestrictionState {
   CONTAINER_CPU_RESTRICTION_FOREGROUND = 0,
   CONTAINER_CPU_RESTRICTION_BACKGROUND = 1,
   NUM_CONTAINER_CPU_RESTRICTION_STATES = 2,
+};
+
+enum class ArcContainerStopReason {
+  // The ARC container is crashed.
+  CRASH = 0,
+
+  // Stopped by the user request, e.g. disabling ARC.
+  USER_REQUEST = 1,
+
+  // Session manager is shut down. So, ARC is also shut down along with it.
+  SESSION_MANAGER_SHUTDOWN = 2,
+
+  // Browser was shut down. ARC is also shut down along with it.
+  BROWSER_SHUTDOWN = 3,
+
+  // Disk space is too small to upgrade ARC.
+  LOW_DISK_SPACE = 4,
+
+  // Failed to upgrade ARC mini container into full container.
+  // Note that this will be used if the reason is other than low-disk-space.
+  UPGRADE_FAILURE = 5,
 };
 
 }  // namespace login_manager

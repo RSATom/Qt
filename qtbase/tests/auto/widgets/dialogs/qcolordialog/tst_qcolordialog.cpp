@@ -84,6 +84,9 @@ void tst_QColorDialog::testNativeActiveModalWidget()
     // Check that QApplication::activeModalWidget retruns the
     // color dialog when it is executing, even when using a native
     // dialog:
+#if defined(Q_OS_LINUX)
+    QSKIP("This test crashes sometimes. Although rarely, but it happens. See QTBUG-50842.");
+#endif
     TestNativeDialog d;
     QTimer::singleShot(1000, &d, SLOT(hide()));
     d.exec();
@@ -113,14 +116,17 @@ void tst_QColorDialog::testGetRgba()
 #ifdef Q_OS_MAC
     QEXPECT_FAIL("", "Sending QTest::keyClick to OSX color dialog helper fails, see QTBUG-24320", Continue);
 #endif
-    bool ok = false;
-    QTimer::singleShot(500, this, SLOT(postKeyReturn()));
-    QColorDialog::getRgba(0xffffffff, &ok);
-    QVERIFY(ok);
+    QTimer::singleShot(500, this, &tst_QColorDialog::postKeyReturn);
+    const QColor color = QColorDialog::getColor(QColor::fromRgba(0xffffffff), nullptr, QString(),
+                                                QColorDialog::ShowAlphaChannel);
+    QVERIFY(color.isValid());
 }
 
 void tst_QColorDialog::defaultOkButton()
 {
+#if defined(Q_OS_LINUX)
+    QSKIP("This test crashes sometimes. Although rarely, but it happens. See QTBUG-50842.");
+#endif
     QTimer::singleShot(4000, qApp, SLOT(quit()));
     QTimer::singleShot(0, this, SLOT(testGetRgba()));
     qApp->exec();

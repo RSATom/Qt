@@ -19,13 +19,20 @@ class ShaderImpl : angle::NonCopyable
 {
   public:
     ShaderImpl(const gl::ShaderState &data) : mData(data) {}
-    virtual ~ShaderImpl() { }
+    virtual ~ShaderImpl() {}
+
+    virtual void destroy() {}
 
     // Returns additional sh::Compile options.
-    virtual ShCompileOptions prepareSourceAndReturnOptions(std::stringstream *sourceStream,
+    virtual ShCompileOptions prepareSourceAndReturnOptions(const gl::Context *context,
+                                                           std::stringstream *sourceStream,
                                                            std::string *sourcePath) = 0;
+
+    // Uses the GL driver to compile the shader source in a worker thread.
+    virtual void compileAsync(const std::string &source) {}
+
     // Returns success for compiling on the driver. Returns success.
-    virtual bool postTranslateCompile(gl::Compiler *compiler, std::string *infoLog) = 0;
+    virtual bool postTranslateCompile(gl::ShCompilerInstance *compiler, std::string *infoLog) = 0;
 
     virtual std::string getDebugInfo() const = 0;
 
@@ -35,6 +42,6 @@ class ShaderImpl : angle::NonCopyable
     const gl::ShaderState &mData;
 };
 
-}
+}  // namespace rx
 
-#endif // LIBANGLE_RENDERER_SHADERIMPL_H_
+#endif  // LIBANGLE_RENDERER_SHADERIMPL_H_

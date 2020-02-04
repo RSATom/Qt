@@ -6,14 +6,12 @@
  */
 
 #include "gm.h"
-#include "sk_tool_utils.h"
-#if SK_SUPPORT_GPU
+#include "GrCaps.h"
 #include "GrContext.h"
 #include "GrRenderTargetContextPriv.h"
 #include "effects/GrRRectEffect.h"
 #include "ops/GrDrawOp.h"
-#include "ops/GrRectOpFactory.h"
-#endif
+#include "ops/GrFillRectOp.h"
 #include "SkRRect.h"
 
 namespace skiagm {
@@ -34,7 +32,7 @@ public:
 protected:
 
     void onOnceBeforeDraw() override {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        this->setBGColor(0xFFDDDDDD);
         this->setUpRRects();
     }
 
@@ -70,6 +68,12 @@ protected:
             return;
         }
 
+        GrContext* context = canvas->getGrContext();
+        if (kEffect_Type == fType && !context) {
+            skiagm::GM::DrawGpuOnlyMessage(canvas);
+            return;
+        }
+
         SkPaint paint;
         if (kAA_Draw_Type == fType) {
             paint.setAntiAlias(true);
@@ -82,11 +86,7 @@ protected:
                                                      SkIntToScalar(kImageHeight));
 #endif
 
-#if SK_SUPPORT_GPU
-        int lastEdgeType = (kEffect_Type == fType) ? kLast_GrProcessorEdgeType: 0;
-#else
-        int lastEdgeType = 0;
-#endif
+        int lastEdgeType = (kEffect_Type == fType) ? (int) GrClipEdgeType::kLast: 0;
 
         int y = 1;
         for (int et = 0; et <= lastEdgeType; ++et) {
@@ -102,28 +102,26 @@ protected:
                 canvas->save();
                     canvas->translate(SkIntToScalar(x), SkIntToScalar(y));
                     if (kEffect_Type == fType) {
-#if SK_SUPPORT_GPU
                         SkRRect rrect = fRRects[curRRect];
                         rrect.offset(SkIntToScalar(x), SkIntToScalar(y));
-                        GrPrimitiveEdgeType edgeType = (GrPrimitiveEdgeType) et;
-                        sk_sp<GrFragmentProcessor> fp(GrRRectEffect::Make(edgeType, rrect));
+                        GrClipEdgeType edgeType = (GrClipEdgeType) et;
+                        const auto& caps = *renderTargetContext->caps()->shaderCaps();
+                        auto fp = GrRRectEffect::Make(edgeType, rrect, caps);
                         if (fp) {
                             GrPaint grPaint;
                             grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
                             grPaint.addCoverageFragmentProcessor(std::move(fp));
-                            grPaint.setColor4f(GrColor4f(0, 0, 0, 1.f));
+                            grPaint.setColor4f({ 0, 0, 0, 1.f });
 
                             SkRect bounds = rrect.getBounds();
                             bounds.outset(2.f, 2.f);
 
                             renderTargetContext->priv().testingOnly_addDrawOp(
-                                    GrRectOpFactory::MakeNonAAFill(std::move(grPaint),
-                                                                   SkMatrix::I(), bounds,
-                                                                   GrAAType::kNone));
+                                    GrFillRectOp::Make(context, std::move(grPaint), GrAAType::kNone,
+                                                       SkMatrix::I(), bounds));
                         } else {
                             drew = false;
                         }
-#endif
                     } else if (kBW_Clip_Type == fType || kAA_Clip_Type == fType) {
                         bool aaClip = (kAA_Clip_Type == fType);
                         canvas->clipRRect(fRRects[curRRect], aaClip);
@@ -255,8 +253,6 @@ DEF_GM( return new RRectGM(RRectGM::kAA_Draw_Type); )
 DEF_GM( return new RRectGM(RRectGM::kBW_Draw_Type); )
 DEF_GM( return new RRectGM(RRectGM::kAA_Clip_Type); )
 DEF_GM( return new RRectGM(RRectGM::kBW_Clip_Type); )
-#if SK_SUPPORT_GPU
 DEF_GM( return new RRectGM(RRectGM::kEffect_Type); )
-#endif
 
 }

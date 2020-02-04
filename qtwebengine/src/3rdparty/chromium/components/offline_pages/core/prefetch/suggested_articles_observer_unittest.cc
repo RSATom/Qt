@@ -4,9 +4,11 @@
 
 #include "components/offline_pages/core/prefetch/suggested_articles_observer.h"
 
+#include "base/memory/ptr_util.h"
+#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/test_simple_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/offline_pages/core/client_namespace_constants.h"
 #include "components/offline_pages/core/prefetch/prefetch_dispatcher.h"
 #include "components/offline_pages/core/prefetch/prefetch_gcm_app_handler.h"
@@ -24,10 +26,15 @@ namespace offline_pages {
 
 namespace {
 
+const base::string16 kTestTitle = base::ASCIIToUTF16("Title 1");
+
 ContentSuggestion ContentSuggestionFromTestURL(const GURL& test_url) {
   auto category =
       Category::FromKnownCategory(ntp_snippets::KnownCategories::ARTICLES);
-  return ContentSuggestion(category, test_url.spec(), test_url);
+  ContentSuggestion suggestion =
+      ContentSuggestion(category, test_url.spec(), test_url);
+  suggestion.set_title(kTestTitle);
+  return suggestion;
 }
 
 }  // namespace
@@ -35,16 +42,17 @@ ContentSuggestion ContentSuggestionFromTestURL(const GURL& test_url) {
 class OfflinePageSuggestedArticlesObserverTest : public testing::Test {
  public:
   OfflinePageSuggestedArticlesObserverTest()
-      : task_runner_(new base::TestSimpleTaskRunner),
-        task_runner_handle_(task_runner_) {}
+      : task_runner_(new base::TestSimpleTaskRunner) {
+    message_loop_.SetTaskRunner(task_runner_);
+  }
 
   void SetUp() override {
-    prefetch_service_test_taco_ = base::MakeUnique<PrefetchServiceTestTaco>();
+    prefetch_service_test_taco_ = std::make_unique<PrefetchServiceTestTaco>();
     test_prefetch_dispatcher_ = new TestPrefetchDispatcher();
     prefetch_service_test_taco_->SetPrefetchDispatcher(
         base::WrapUnique(test_prefetch_dispatcher_));
     prefetch_service_test_taco_->SetSuggestedArticlesObserver(
-        base::MakeUnique<SuggestedArticlesObserver>());
+        std::make_unique<SuggestedArticlesObserver>());
     prefetch_service_test_taco_->CreatePrefetchService();
   }
 
@@ -56,7 +64,7 @@ class OfflinePageSuggestedArticlesObserverTest : public testing::Test {
 
   SuggestedArticlesObserver* observer() {
     return prefetch_service_test_taco_->prefetch_service()
-        ->GetSuggestedArticlesObserver();
+        ->GetSuggestedArticlesObserverForTesting();
   }
 
   TestPrefetchDispatcher* test_prefetch_dispatcher() {
@@ -68,8 +76,8 @@ class OfflinePageSuggestedArticlesObserverTest : public testing::Test {
       Category::FromKnownCategory(ntp_snippets::KnownCategories::ARTICLES);
 
  private:
+  base::MessageLoop message_loop_;
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle task_runner_handle_;
   std::unique_ptr<PrefetchServiceTestTaco> prefetch_service_test_taco_;
 
   // Owned by the PrefetchServiceTestTaco.
@@ -89,6 +97,8 @@ TEST_F(OfflinePageSuggestedArticlesObserverTest,
   EXPECT_EQ(1U, test_prefetch_dispatcher()->latest_prefetch_urls.size());
   EXPECT_EQ(test_url_1,
             test_prefetch_dispatcher()->latest_prefetch_urls[0].url);
+  EXPECT_EQ(kTestTitle,
+            test_prefetch_dispatcher()->latest_prefetch_urls[0].title);
   EXPECT_EQ(kSuggestedArticlesNamespace,
             test_prefetch_dispatcher()->latest_name_space);
 }

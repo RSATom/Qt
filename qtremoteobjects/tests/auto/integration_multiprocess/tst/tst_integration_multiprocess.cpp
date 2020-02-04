@@ -62,11 +62,25 @@ private slots:
         QTest::qWait(200);
     }
 
+    void testRun_data()
+    {
+        QTest::addColumn<bool>("templated");
+        QTest::newRow("non-templated enableRemoting") << false;
+        QTest::newRow("templated enableRemoting") << true;
+    }
+
     void testRun()
     {
+        QFETCH(bool, templated);
+
         qDebug() << "Starting server process";
         QProcess serverProc;
         serverProc.setProcessChannelMode(QProcess::ForwardedChannels);
+        if (templated) {
+            QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+            env.insert("TEMPLATED_REMOTING", "true");
+            serverProc.setProcessEnvironment(env);
+        }
         serverProc.start(findExecutable("server", {
             QCoreApplication::applicationDirPath() + "/../server/"
         }));

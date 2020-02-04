@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef V8_BUILTINS_BUILTINS_ARGUMENTS_GEN_H_
+#define V8_BUILTINS_BUILTINS_ARGUMENTS_GEN_H_
+
 #include "src/code-stub-assembler.h"
+#include "torque-generated/builtins-arguments-from-dsl-gen.h"
 
 namespace v8 {
 namespace internal {
@@ -11,23 +15,17 @@ typedef compiler::Node Node;
 typedef compiler::CodeAssemblerState CodeAssemblerState;
 typedef compiler::CodeAssemblerLabel CodeAssemblerLabel;
 
-class ArgumentsBuiltinsAssembler : public CodeStubAssembler {
+class ArgumentsBuiltinsAssembler : public CodeStubAssembler,
+                                   public ArgumentsBuiltinsFromDSLAssembler {
  public:
   explicit ArgumentsBuiltinsAssembler(CodeAssemblerState* state)
-      : CodeStubAssembler(state) {}
+      : CodeStubAssembler(state), ArgumentsBuiltinsFromDSLAssembler(state) {}
 
   Node* EmitFastNewStrictArguments(Node* context, Node* function);
   Node* EmitFastNewSloppyArguments(Node* context, Node* function);
   Node* EmitFastNewRestParameter(Node* context, Node* function);
 
  private:
-  // Calculates and returns the the frame pointer, argument count and formal
-  // parameter count to be used to access a function's parameters, taking
-  // argument adapter frames into account. The tuple is of the form:
-  // <frame_ptr, # parameters actually passed, formal parameter count>
-  std::tuple<Node*, Node*, Node*> GetArgumentsFrameAndCount(Node* function,
-                                                            ParameterMode mode);
-
   // Allocates an an arguments (either rest, strict or sloppy) together with the
   // FixedArray elements for the arguments and a parameter map (for sloppy
   // arguments only). A tuple is returned with pointers to the arguments object,
@@ -53,3 +51,5 @@ class ArgumentsBuiltinsAssembler : public CodeStubAssembler {
 
 }  // namespace internal
 }  // namespace v8
+
+#endif  // V8_BUILTINS_BUILTINS_ARGUMENTS_GEN_H_

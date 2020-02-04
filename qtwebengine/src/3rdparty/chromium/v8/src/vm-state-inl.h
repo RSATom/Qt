@@ -24,14 +24,18 @@ inline const char* StateToString(StateTag state) {
       return "JS";
     case GC:
       return "GC";
+    case PARSER:
+      return "PARSER";
+    case BYTECODE_COMPILER:
+      return "BYTECODE_COMPILER";
     case COMPILER:
       return "COMPILER";
     case OTHER:
       return "OTHER";
     case EXTERNAL:
       return "EXTERNAL";
-    default:
-      UNREACHABLE();
+    case IDLE:
+      return "IDLE";
   }
 }
 

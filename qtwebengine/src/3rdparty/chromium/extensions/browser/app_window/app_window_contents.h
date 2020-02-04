@@ -38,8 +38,7 @@ class AppWindowContentsImpl : public AppWindowContents,
                   const GURL& url) override;
   void LoadContents(int32_t creator_process_id) override;
   void NativeWindowChanged(NativeAppWindow* native_app_window) override;
-  void NativeWindowClosed() override;
-  void OnWindowReady() override;
+  void NativeWindowClosed(bool send_onclosed) override;
   content::WebContents* GetWebContents() const override;
   WindowController* GetWindowController() const override;
 
@@ -51,13 +50,10 @@ class AppWindowContentsImpl : public AppWindowContents,
 
   void UpdateDraggableRegions(content::RenderFrameHost* sender,
                               const std::vector<DraggableRegion>& regions);
-  void SuspendRenderFrameHost(content::RenderFrameHost* rfh);
 
   AppWindow* host_;  // This class is owned by |host_|
   GURL url_;
   std::unique_ptr<content::WebContents> web_contents_;
-  bool is_blocking_requests_;
-  bool is_window_ready_;
 
   DISALLOW_COPY_AND_ASSIGN(AppWindowContentsImpl);
 };

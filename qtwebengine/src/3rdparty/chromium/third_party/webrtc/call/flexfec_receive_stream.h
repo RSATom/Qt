@@ -8,21 +8,24 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_CALL_FLEXFEC_RECEIVE_STREAM_H_
-#define WEBRTC_CALL_FLEXFEC_RECEIVE_STREAM_H_
+#ifndef CALL_FLEXFEC_RECEIVE_STREAM_H_
+#define CALL_FLEXFEC_RECEIVE_STREAM_H_
 
 #include <stdint.h>
-
 #include <string>
 #include <vector>
 
-#include "webrtc/api/call/transport.h"
-#include "webrtc/config.h"
+#include "api/call/transport.h"
+#include "api/rtp_headers.h"
+#include "api/rtp_parameters.h"
+#include "call/rtp_packet_sink_interface.h"
 
 namespace webrtc {
 
-class FlexfecReceiveStream {
+class FlexfecReceiveStream : public RtpPacketSinkInterface {
  public:
+  ~FlexfecReceiveStream() override = default;
+
   struct Stats {
     std::string ToString(int64_t time_ms) const;
 
@@ -31,10 +34,9 @@ class FlexfecReceiveStream {
   };
 
   struct Config {
-    explicit Config(Transport* rtcp_send_transport)
-        : rtcp_send_transport(rtcp_send_transport) {
-      RTC_DCHECK(rtcp_send_transport);
-    }
+    explicit Config(Transport* rtcp_send_transport);
+    Config(const Config&);
+    ~Config();
 
     std::string ToString() const;
 
@@ -73,19 +75,11 @@ class FlexfecReceiveStream {
     std::vector<RtpExtension> rtp_header_extensions;
   };
 
-  // Starts stream activity.
-  // When a stream is active, it can receive and process packets.
-  virtual void Start() = 0;
-  // Stops stream activity.
-  // When a stream is stopped, it can't receive nor process packets.
-  virtual void Stop() = 0;
-
   virtual Stats GetStats() const = 0;
 
- protected:
-  virtual ~FlexfecReceiveStream() = default;
+  virtual const Config& GetConfig() const = 0;
 };
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_CALL_FLEXFEC_RECEIVE_STREAM_H_
+#endif  // CALL_FLEXFEC_RECEIVE_STREAM_H_

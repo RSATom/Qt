@@ -13,7 +13,6 @@
 
 namespace device {
 
-class GvrDelegateProvider;
 class GvrDevice;
 
 class DEVICE_VR_EXPORT GvrDeviceProvider : public VRDeviceProvider {
@@ -21,16 +20,18 @@ class DEVICE_VR_EXPORT GvrDeviceProvider : public VRDeviceProvider {
   GvrDeviceProvider();
   ~GvrDeviceProvider() override;
 
-  void GetDevices(std::vector<VRDevice*>* devices) override;
-  void Initialize() override;
+  void Initialize(
+      base::RepeatingCallback<void(mojom::XRDeviceId,
+                                   mojom::VRDisplayInfoPtr,
+                                   mojom::XRRuntimePtr)> add_device_callback,
+      base::RepeatingCallback<void(mojom::XRDeviceId)> remove_device_callback,
+      base::OnceClosure initialization_complete) override;
 
-  device::GvrDelegateProvider* GetDelegateProvider();
-
-  GvrDevice* Device() { return vr_device_.get(); }
+  bool Initialized() override;
 
  private:
-  void Initialize(device::GvrDelegateProvider* provider);
   std::unique_ptr<GvrDevice> vr_device_;
+  bool initialized_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(GvrDeviceProvider);
 };

@@ -8,10 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_EXAMPLES_PEERCONNECTION_SERVER_UTILS_H_
-#define WEBRTC_EXAMPLES_PEERCONNECTION_SERVER_UTILS_H_
+#ifndef EXAMPLES_PEERCONNECTION_SERVER_UTILS_H_
+#define EXAMPLES_PEERCONNECTION_SERVER_UTILS_H_
 
-#include <assert.h>
+#include <stddef.h>
 #include <string>
 
 #ifndef ARRAYSIZE
@@ -21,4 +21,4 @@
 std::string int2str(int i);
 std::string size_t2str(size_t i);
 
-#endif  // WEBRTC_EXAMPLES_PEERCONNECTION_SERVER_UTILS_H_
+#endif  // EXAMPLES_PEERCONNECTION_SERVER_UTILS_H_

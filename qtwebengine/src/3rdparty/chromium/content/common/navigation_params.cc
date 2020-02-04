@@ -7,9 +7,6 @@
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "content/common/service_worker/service_worker_types.h"
-#include "content/public/common/appcache_info.h"
-#include "content/public/common/browser_side_navigation_policy.h"
-#include "content/public/common/service_worker_modes.h"
 #include "content/public/common/url_constants.h"
 #include "url/gurl.h"
 #include "url/url_constants.h"
@@ -17,79 +14,71 @@
 
 namespace content {
 
-// PlzNavigate
-bool ShouldMakeNetworkRequestForURL(const GURL& url) {
-  CHECK(IsBrowserSideNavigationEnabled());
-
-  // Javascript URLs, srcdoc, schemes that don't load data should not send a
-  // request to the network stack.
-  if (url.SchemeIs(url::kJavaScriptScheme) || url.is_empty() ||
-      url == content::kAboutSrcDocURL) {
-    return false;
-  }
-
-  for (const auto& scheme : url::GetEmptyDocumentSchemes()) {
-    if (url.SchemeIs(scheme))
-      return false;
-  }
-
-  // For you information, even though a "data:" url doesn't generate actual
-  // network requests, it is handled by the network stack and so must return
-  // true. The reason is that a few "data:" urls can't be handled locally. For
-  // instance:
-  // - the ones that result in downloads.
-  // - the ones that are invalid. An error page must be served instead.
-  // - the ones that have an unsupported MIME type.
-  // - the ones that target the top-level frame on Android.
-
-  return true;
-}
-
-SourceLocation::SourceLocation() : line_number(0), column_number(0) {}
+SourceLocation::SourceLocation() = default;
 
 SourceLocation::SourceLocation(const std::string& url,
                                unsigned int line_number,
                                unsigned int column_number)
     : url(url), line_number(line_number), column_number(column_number) {}
 
-SourceLocation::~SourceLocation() {}
+SourceLocation::~SourceLocation() = default;
 
-CommonNavigationParams::CommonNavigationParams()
-    : transition(ui::PAGE_TRANSITION_LINK),
-      navigation_type(FrameMsg_Navigate_Type::DIFFERENT_DOCUMENT),
-      allow_download(true),
-      should_replace_current_entry(false),
-      report_type(FrameMsg_UILoadMetricsReportType::NO_REPORT),
-      previews_state(PREVIEWS_UNSPECIFIED),
-      navigation_start(base::TimeTicks::Now()),
-      method("GET"),
-      should_check_main_world_csp(CSPDisposition::CHECK) {}
+InitiatorCSPInfo::InitiatorCSPInfo() = default;
+InitiatorCSPInfo::InitiatorCSPInfo(
+    CSPDisposition should_check_main_world_csp,
+    const std::vector<ContentSecurityPolicy>& initiator_csp,
+    const base::Optional<CSPSource>& initiator_self_source)
+    : should_check_main_world_csp(should_check_main_world_csp),
+      initiator_csp(initiator_csp),
+      initiator_self_source(initiator_self_source) {}
+InitiatorCSPInfo::InitiatorCSPInfo(const InitiatorCSPInfo& other) = default;
+
+InitiatorCSPInfo::~InitiatorCSPInfo() = default;
+
+bool IsNavigationDownloadAllowed(NavigationDownloadPolicy policy) {
+  switch (policy) {
+    case NavigationDownloadPolicy::kDisallowViewSource:
+    case NavigationDownloadPolicy::kDisallowInterstitial:
+    case NavigationDownloadPolicy::kDisallowSandbox:
+      return false;
+    case NavigationDownloadPolicy::kAllow:
+    case NavigationDownloadPolicy::kAllowOpener:
+    case NavigationDownloadPolicy::kAllowOpenerNoGesture:
+    case NavigationDownloadPolicy::kAllowOpenerCrossOrigin:
+    case NavigationDownloadPolicy::kAllowOpenerCrossOriginNoGesture:
+      return true;
+  }
+}
+
+CommonNavigationParams::CommonNavigationParams() = default;
 
 CommonNavigationParams::CommonNavigationParams(
     const GURL& url,
+    const base::Optional<url::Origin>& initiator_origin,
     const Referrer& referrer,
     ui::PageTransition transition,
     FrameMsg_Navigate_Type::Value navigation_type,
-    bool allow_download,
+    NavigationDownloadPolicy download_policy,
     bool should_replace_current_entry,
-    base::TimeTicks ui_timestamp,
-    FrameMsg_UILoadMetricsReportType::Value report_type,
     const GURL& base_url_for_data_url,
     const GURL& history_url_for_data_url,
     PreviewsState previews_state,
-    const base::TimeTicks& navigation_start,
+    base::TimeTicks navigation_start,
     std::string method,
-    const scoped_refptr<ResourceRequestBody>& post_data,
+    const scoped_refptr<network::ResourceRequestBody>& post_data,
     base::Optional<SourceLocation> source_location,
-    CSPDisposition should_check_main_world_csp)
+    bool started_from_context_menu,
+    bool has_user_gesture,
+    const InitiatorCSPInfo& initiator_csp_info,
+    const std::string& href_translate,
+    base::TimeTicks input_start)
     : url(url),
+      initiator_origin(initiator_origin),
       referrer(referrer),
       transition(transition),
       navigation_type(navigation_type),
-      allow_download(allow_download),
+      download_policy(download_policy),
       should_replace_current_entry(should_replace_current_entry),
-      ui_timestamp(ui_timestamp),
-      report_type(report_type),
       base_url_for_data_url(base_url_for_data_url),
       history_url_for_data_url(history_url_for_data_url),
       previews_state(previews_state),
@@ -97,7 +86,11 @@ CommonNavigationParams::CommonNavigationParams(
       method(method),
       post_data(post_data),
       source_location(source_location),
-      should_check_main_world_csp(should_check_main_world_csp) {
+      started_from_context_menu(started_from_context_menu),
+      has_user_gesture(has_user_gesture),
+      initiator_csp_info(initiator_csp_info),
+      href_translate(href_translate),
+      input_start(input_start) {
   // |method != "POST"| should imply absence of |post_data|.
   if (method != "POST" && post_data) {
     NOTREACHED();
@@ -108,79 +101,12 @@ CommonNavigationParams::CommonNavigationParams(
 CommonNavigationParams::CommonNavigationParams(
     const CommonNavigationParams& other) = default;
 
-CommonNavigationParams::~CommonNavigationParams() {
-}
+CommonNavigationParams::~CommonNavigationParams() = default;
 
-BeginNavigationParams::BeginNavigationParams()
-    : load_flags(0),
-      has_user_gesture(false),
-      skip_service_worker(false),
-      request_context_type(REQUEST_CONTEXT_TYPE_LOCATION),
-      mixed_content_context_type(blink::WebMixedContentContextType::kBlockable),
-      is_form_submission(false) {}
+CommitNavigationParams::CommitNavigationParams() = default;
 
-BeginNavigationParams::BeginNavigationParams(
-    std::string headers,
-    int load_flags,
-    bool has_user_gesture,
-    bool skip_service_worker,
-    RequestContextType request_context_type,
-    blink::WebMixedContentContextType mixed_content_context_type,
-    bool is_form_submission,
-    const base::Optional<url::Origin>& initiator_origin)
-    : headers(headers),
-      load_flags(load_flags),
-      has_user_gesture(has_user_gesture),
-      skip_service_worker(skip_service_worker),
-      request_context_type(request_context_type),
-      mixed_content_context_type(mixed_content_context_type),
-      is_form_submission(is_form_submission),
-      initiator_origin(initiator_origin) {}
-
-BeginNavigationParams::BeginNavigationParams(
-    const BeginNavigationParams& other) = default;
-
-BeginNavigationParams::~BeginNavigationParams() {}
-
-StartNavigationParams::StartNavigationParams()
-    : transferred_request_child_id(-1),
-      transferred_request_request_id(-1) {
-}
-
-StartNavigationParams::StartNavigationParams(
-    const std::string& extra_headers,
-    int transferred_request_child_id,
-    int transferred_request_request_id)
-    : extra_headers(extra_headers),
-      transferred_request_child_id(transferred_request_child_id),
-      transferred_request_request_id(transferred_request_request_id) {
-}
-
-StartNavigationParams::StartNavigationParams(
-    const StartNavigationParams& other) = default;
-
-StartNavigationParams::~StartNavigationParams() {
-}
-
-RequestNavigationParams::RequestNavigationParams()
-    : is_overriding_user_agent(false),
-      can_load_local_resources(false),
-      nav_entry_id(0),
-      is_history_navigation_in_new_child(false),
-      has_committed_real_load(false),
-      intended_as_new_entry(false),
-      pending_history_list_offset(-1),
-      current_history_list_offset(-1),
-      current_history_list_length(0),
-      is_view_source(false),
-      should_clear_history_list(false),
-      should_create_service_worker(false),
-      service_worker_provider_id(kInvalidServiceWorkerProviderId),
-      appcache_host_id(kAppCacheNoHostId),
-      has_user_gesture(false) {
-}
-
-RequestNavigationParams::RequestNavigationParams(
+CommitNavigationParams::CommitNavigationParams(
+    const base::Optional<url::Origin>& origin_to_commit,
     bool is_overriding_user_agent,
     const std::vector<GURL>& redirects,
     const GURL& original_url,
@@ -190,15 +116,14 @@ RequestNavigationParams::RequestNavigationParams(
     int nav_entry_id,
     bool is_history_navigation_in_new_child,
     std::map<std::string, bool> subframe_unique_names,
-    bool has_committed_real_load,
     bool intended_as_new_entry,
     int pending_history_list_offset,
     int current_history_list_offset,
     int current_history_list_length,
     bool is_view_source,
-    bool should_clear_history_list,
-    bool has_user_gesture)
-    : is_overriding_user_agent(is_overriding_user_agent),
+    bool should_clear_history_list)
+    : origin_to_commit(origin_to_commit),
+      is_overriding_user_agent(is_overriding_user_agent),
       redirects(redirects),
       original_url(original_url),
       original_method(original_method),
@@ -207,34 +132,16 @@ RequestNavigationParams::RequestNavigationParams(
       nav_entry_id(nav_entry_id),
       is_history_navigation_in_new_child(is_history_navigation_in_new_child),
       subframe_unique_names(subframe_unique_names),
-      has_committed_real_load(has_committed_real_load),
       intended_as_new_entry(intended_as_new_entry),
       pending_history_list_offset(pending_history_list_offset),
       current_history_list_offset(current_history_list_offset),
       current_history_list_length(current_history_list_length),
       is_view_source(is_view_source),
-      should_clear_history_list(should_clear_history_list),
-      should_create_service_worker(false),
-      service_worker_provider_id(kInvalidServiceWorkerProviderId),
-      appcache_host_id(kAppCacheNoHostId),
-      has_user_gesture(has_user_gesture) {}
+      should_clear_history_list(should_clear_history_list) {}
 
-RequestNavigationParams::RequestNavigationParams(
-    const RequestNavigationParams& other) = default;
+CommitNavigationParams::CommitNavigationParams(
+    const CommitNavigationParams& other) = default;
 
-RequestNavigationParams::~RequestNavigationParams() {
-}
-
-NavigationParams::NavigationParams(
-    const CommonNavigationParams& common_params,
-    const StartNavigationParams& start_params,
-    const RequestNavigationParams& request_params)
-    : common_params(common_params),
-      start_params(start_params),
-      request_params(request_params) {
-}
-
-NavigationParams::~NavigationParams() {
-}
+CommitNavigationParams::~CommitNavigationParams() = default;
 
 }  // namespace content

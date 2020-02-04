@@ -42,7 +42,7 @@
 
 #include "shared_global_p.h"
 #include <abstractintrospection_p.h>
-#include <QtCore/QMap>
+#include <QtCore/qmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -54,9 +54,9 @@ namespace qdesigner_internal {
     class QDESIGNER_SHARED_EXPORT QDesignerIntrospection : public QDesignerIntrospectionInterface {
     public:
         QDesignerIntrospection();
-        virtual ~QDesignerIntrospection();
+        ~QDesignerIntrospection() override;
 
-        const QDesignerMetaObjectInterface* metaObject(const QObject *object) const Q_DECL_OVERRIDE;
+        const QDesignerMetaObjectInterface* metaObject(const QObject *object) const override;
 
         const QDesignerMetaObjectInterface* metaObjectForQMetaObject(const QMetaObject *metaObject) const;
     private:

@@ -64,6 +64,7 @@ private slots:
     void activeFocusOnTab8();
     void activeFocusOnTab9();
     void activeFocusOnTab10();
+    void activeFocusOnTab_infiniteLoop();
 
     void nextItemInFocusChain();
     void nextItemInFocusChain2();
@@ -85,6 +86,7 @@ private slots:
     void keyNavigation_RightToLeft();
     void keyNavigation_skipNotVisible();
     void keyNavigation_implicitSetting();
+    void keyNavigation_implicitDestroy();
     void keyNavigation_focusReason();
     void keyNavigation_loop();
     void layoutMirroring();
@@ -193,7 +195,7 @@ class KeyTestItem : public QQuickItem
 {
     Q_OBJECT
 public:
-    KeyTestItem(QQuickItem *parent=0) : QQuickItem(parent), mKey(0) {}
+    KeyTestItem(QQuickItem *parent=nullptr) : QQuickItem(parent), mKey(0) {}
 
 protected:
     void keyPressEvent(QKeyEvent *e) {
@@ -240,7 +242,7 @@ class HollowTestItem : public QQuickItem
     Q_PROPERTY(qreal holeRadius READ holeRadius WRITE setHoleRadius)
 
 public:
-    HollowTestItem(QQuickItem *parent = 0)
+    HollowTestItem(QQuickItem *parent = nullptr)
         : QQuickItem(parent),
           m_isPressed(false),
           m_isHovered(false),
@@ -301,7 +303,7 @@ class TabFenceItem : public QQuickItem
     Q_OBJECT
 
 public:
-    TabFenceItem(QQuickItem *parent = Q_NULLPTR)
+    TabFenceItem(QQuickItem *parent = nullptr)
         : QQuickItem(parent)
     {
         QQuickItemPrivate *d = QQuickItemPrivate::get(this);
@@ -316,7 +318,7 @@ class TabFenceItem2 : public QQuickItem
     Q_OBJECT
 
 public:
-    TabFenceItem2(QQuickItem *parent = Q_NULLPTR)
+    TabFenceItem2(QQuickItem *parent = nullptr)
         : QQuickItem(parent)
     {
         QQuickItemPrivate *d = QQuickItemPrivate::get(this);
@@ -343,7 +345,7 @@ void tst_QQuickItem::initTestCase()
 void tst_QQuickItem::cleanup()
 {
     QInputMethodPrivate *inputMethodPrivate = QInputMethodPrivate::get(qApp->inputMethod());
-    inputMethodPrivate->testContext = 0;
+    inputMethodPrivate->testContext = nullptr;
 }
 
 void tst_QQuickItem::activeFocusOnTab()
@@ -351,7 +353,7 @@ void tst_QQuickItem::activeFocusOnTab()
     if (!qt_tab_all_widgets())
         QSKIP("This function doesn't support NOT iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("activeFocusOnTab.qml"));
@@ -463,7 +465,7 @@ void tst_QQuickItem::activeFocusOnTab2()
     if (!qt_tab_all_widgets())
         QSKIP("This function doesn't support NOT iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("activeFocusOnTab.qml"));
@@ -503,7 +505,7 @@ void tst_QQuickItem::activeFocusOnTab3()
     if (!qt_tab_all_widgets())
         QSKIP("This function doesn't support NOT iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("activeFocusOnTab3.qml"));
@@ -685,7 +687,7 @@ void tst_QQuickItem::activeFocusOnTab4()
     if (!qt_tab_all_widgets())
         QSKIP("This function doesn't support NOT iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("activeFocusOnTab4.qml"));
@@ -717,7 +719,7 @@ void tst_QQuickItem::activeFocusOnTab5()
     if (!qt_tab_all_widgets())
         QSKIP("This function doesn't support NOT iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("activeFocusOnTab4.qml"));
@@ -751,7 +753,7 @@ void tst_QQuickItem::activeFocusOnTab6()
     if (qt_tab_all_widgets())
         QSKIP("This function doesn't support iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("activeFocusOnTab6.qml"));
@@ -809,7 +811,7 @@ void tst_QQuickItem::activeFocusOnTab7()
     if (qt_tab_all_widgets())
         QSKIP("This function doesn't support iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(300,300));
 
     window->setSource(testFileUrl("activeFocusOnTab7.qml"));
@@ -842,7 +844,7 @@ void tst_QQuickItem::activeFocusOnTab7()
 
 void tst_QQuickItem::activeFocusOnTab8()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(300,300));
 
     window->setSource(testFileUrl("activeFocusOnTab8.qml"));
@@ -894,7 +896,7 @@ void tst_QQuickItem::activeFocusOnTab9()
     if (qt_tab_all_widgets())
         QSKIP("This function doesn't support iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(300,300));
 
     window->setSource(testFileUrl("activeFocusOnTab9.qml"));
@@ -945,7 +947,7 @@ void tst_QQuickItem::activeFocusOnTab10()
     if (!qt_tab_all_widgets())
         QSKIP("This function doesn't support NOT iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(300,300));
 
     window->setSource(testFileUrl("activeFocusOnTab9.qml"));
@@ -1023,12 +1025,28 @@ void tst_QQuickItem::activeFocusOnTab10()
     delete window;
 }
 
+void tst_QQuickItem::activeFocusOnTab_infiniteLoop()
+{
+    // see QTBUG-68271
+    // create a window where the currently focused item is not visible
+    QScopedPointer<QQuickView>window(new QQuickView());
+    window->setSource(testFileUrl("activeFocusOnTab_infiniteLoop.qml"));
+    window->show();
+    auto *hiddenChild = findItem<QQuickItem>(window->rootObject(), "hiddenChild");
+    QVERIFY(hiddenChild);
+
+    // move the focus - this used to result in an infinite loop
+    auto *item = hiddenChild->nextItemInFocusChain();
+    // focus is moved to the root object since there is no other candidate
+    QCOMPARE(item, window->rootObject());
+}
+
 void tst_QQuickItem::nextItemInFocusChain()
 {
     if (!qt_tab_all_widgets())
         QSKIP("This function doesn't support NOT iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("activeFocusOnTab.qml"));
@@ -1104,7 +1122,7 @@ void tst_QQuickItem::nextItemInFocusChain2()
     if (qt_tab_all_widgets())
         QSKIP("This function doesn't support iterating all.");
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("activeFocusOnTab6.qml"));
@@ -1149,7 +1167,7 @@ void tst_QQuickItem::nextItemInFocusChain2()
 
 void tst_QQuickItem::nextItemInFocusChain3()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("nextItemInFocusChain3.qml"));
@@ -1177,7 +1195,7 @@ void verifyTabFocusChain(QQuickView *window, const char **focusChain, bool forwa
 
 void tst_QQuickItem::tabFence()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("tabFence.qml"));
@@ -1188,12 +1206,12 @@ void tst_QQuickItem::tabFence()
     QVERIFY(window->rootObject()->hasActiveFocus());
 
     const char *rootTabFocusChain[] = {
-          "input1", "input2", "input3", "input1", Q_NULLPTR
+          "input1", "input2", "input3", "input1", nullptr
     };
     verifyTabFocusChain(window, rootTabFocusChain, true /* forward */);
 
     const char *rootBacktabFocusChain[] = {
-          "input3", "input2", "input1", "input3", Q_NULLPTR
+          "input3", "input2", "input1", "input3", nullptr
     };
     verifyTabFocusChain(window, rootBacktabFocusChain, false /* forward */);
 
@@ -1204,19 +1222,19 @@ void tst_QQuickItem::tabFence()
     QVERIFY(item->hasActiveFocus());
 
     const char *fence1TabFocusChain[] = {
-          "input12", "input13", "input11", "input12", Q_NULLPTR
+          "input12", "input13", "input11", "input12", nullptr
     };
     verifyTabFocusChain(window, fence1TabFocusChain, true /* forward */);
 
     const char *fence1BacktabFocusChain[] = {
-          "input11", "input13", "input12", "input11", Q_NULLPTR
+          "input11", "input13", "input12", "input11", nullptr
     };
     verifyTabFocusChain(window, fence1BacktabFocusChain, false /* forward */);
 }
 
 void tst_QQuickItem::qtbug_50516()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl("qtbug_50516.qml"));
@@ -1261,7 +1279,7 @@ void tst_QQuickItem::qtbug_50516_2()
     QFETCH(QString, item1);
     QFETCH(QString, item2);
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(800,600));
 
     window->setSource(testFileUrl(filename));
@@ -1282,7 +1300,7 @@ void tst_QQuickItem::qtbug_50516_2()
 
 void tst_QQuickItem::keys()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     KeysTestObject *testObject = new KeysTestObject;
@@ -1471,7 +1489,7 @@ void tst_QQuickItem::standardKeys()
 
 void tst_QQuickItem::keysProcessingOrder()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     KeysTestObject *testObject = new KeysTestObject;
@@ -1532,7 +1550,7 @@ void tst_QQuickItem::keysim()
     QInputMethodPrivate *inputMethodPrivate = QInputMethodPrivate::get(qApp->inputMethod());
     inputMethodPrivate->testContext = &platformInputContext;
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     window->setSource(testFileUrl("keysim.qml"));
@@ -1650,7 +1668,7 @@ bool anchorsMirrored(QQuickItem *rootItem, const char * itemString)
 
 void tst_QQuickItem::layoutMirroring()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setSource(testFileUrl("layoutmirroring.qml"));
     window->show();
 
@@ -1801,7 +1819,7 @@ void tst_QQuickItem::layoutMirroringIllegalParent()
     component.setData("import QtQuick 2.0; QtObject { LayoutMirroring.enabled: true; LayoutMirroring.childrenInherit: true }", QUrl::fromLocalFile(""));
     QTest::ignoreMessage(QtWarningMsg, "<Unknown File>:1:21: QML QtObject: LayoutDirection attached property only works with Items and Windows");
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 }
 
 void tst_QQuickItem::keyNavigation_data()
@@ -1815,7 +1833,7 @@ void tst_QQuickItem::keyNavigation()
 {
     QFETCH(QString, source);
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     window->setSource(testFileUrl(source));
@@ -1892,7 +1910,7 @@ void tst_QQuickItem::keyNavigation()
 
 void tst_QQuickItem::keyNavigation_RightToLeft()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     window->setSource(testFileUrl("keynavigationtest.qml"));
@@ -1947,7 +1965,7 @@ void tst_QQuickItem::keyNavigation_RightToLeft()
 
 void tst_QQuickItem::keyNavigation_skipNotVisible()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     window->setSource(testFileUrl("keynavigationtest.qml"));
@@ -2022,7 +2040,7 @@ void tst_QQuickItem::keyNavigation_skipNotVisible()
 
 void tst_QQuickItem::keyNavigation_implicitSetting()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     window->setSource(testFileUrl("keynavigationtest_implicit.qml"));
@@ -2147,9 +2165,32 @@ void tst_QQuickItem::keyNavigation_implicitSetting()
     delete window;
 }
 
+// QTBUG-75399
+void tst_QQuickItem::keyNavigation_implicitDestroy()
+{
+    QQuickView view;
+    view.setSource(testFileUrl("keynavigationtest_implicitDestroy.qml"));
+    view.show();
+
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+
+    QQuickItem *root = view.rootObject();
+    QVERIFY(QMetaObject::invokeMethod(root, "createImplicitKeyNavigation"));
+
+    // process events is necessary to trigger upcoming memory access violation
+    QTest::qWait(0);
+
+    QVERIFY(root->hasActiveFocus());
+
+    QKeyEvent keyPress = QKeyEvent(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier, "", false, 1);
+    QGuiApplication::sendEvent(&view, &keyPress); // <-- access violation happens here
+    // this should fail the test, even if the access violation does not occur
+    QVERIFY(!keyPress.isAccepted());
+}
+
 void tst_QQuickItem::keyNavigation_focusReason()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     FocusEventFilter focusEventFilter;
@@ -2210,7 +2251,7 @@ void tst_QQuickItem::keyNavigation_focusReason()
 void tst_QQuickItem::keyNavigation_loop()
 {
     // QTBUG-47229
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(240,320));
 
     window->setSource(testFileUrl("keynavigationtest_loop.qml"));
@@ -2325,18 +2366,18 @@ void tst_QQuickItem::mapCoordinates()
     QFETCH(int, x);
     QFETCH(int, y);
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(300, 300));
     window->setSource(testFileUrl("mapCoordinates.qml"));
     window->show();
     qApp->processEvents();
 
     QQuickItem *root = qobject_cast<QQuickItem*>(window->rootObject());
-    QVERIFY(root != 0);
+    QVERIFY(root != nullptr);
     QQuickItem *a = findItem<QQuickItem>(window->rootObject(), "itemA");
-    QVERIFY(a != 0);
+    QVERIFY(a != nullptr);
     QQuickItem *b = findItem<QQuickItem>(window->rootObject(), "itemB");
-    QVERIFY(b != 0);
+    QVERIFY(b != nullptr);
 
     QVariant result;
 
@@ -2363,6 +2404,16 @@ void tst_QQuickItem::mapCoordinates()
     QVERIFY(QMetaObject::invokeMethod(root, "mapAFromGlobal",
             Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, x), Q_ARG(QVariant, y)));
     QCOMPARE(result.value<QPointF>(), qobject_cast<QQuickItem*>(a)->mapFromGlobal(QPointF(x, y)));
+
+    // for orphans we are primarily testing that we don't crash.
+    // when orphaned the final position is the original position of the item translated by x,y
+    QVERIFY(QMetaObject::invokeMethod(root, "mapOrphanToGlobal",
+            Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, x), Q_ARG(QVariant, y)));
+    QCOMPARE(result.value<QPointF>(), QPointF(150,150) + QPointF(x, y));
+
+    QVERIFY(QMetaObject::invokeMethod(root, "mapOrphanFromGlobal",
+            Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, x), Q_ARG(QVariant, y)));
+    QCOMPARE(result.value<QPointF>(), -QPointF(150,150) + QPointF(x, y));
 
     QString warning1 = testFileUrl("mapCoordinates.qml").toString() + ":35:5: QML Item: mapToItem() given argument \"1122\" which is neither null nor an Item";
     QString warning2 = testFileUrl("mapCoordinates.qml").toString() + ":35:5: QML Item: mapFromItem() given argument \"1122\" which is neither null nor an Item";
@@ -2396,18 +2447,18 @@ void tst_QQuickItem::mapCoordinatesRect()
     QFETCH(int, width);
     QFETCH(int, height);
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(300, 300));
     window->setSource(testFileUrl("mapCoordinatesRect.qml"));
     window->show();
     qApp->processEvents();
 
     QQuickItem *root = qobject_cast<QQuickItem*>(window->rootObject());
-    QVERIFY(root != 0);
+    QVERIFY(root != nullptr);
     QQuickItem *a = findItem<QQuickItem>(window->rootObject(), "itemA");
-    QVERIFY(a != 0);
+    QVERIFY(a != nullptr);
     QQuickItem *b = findItem<QQuickItem>(window->rootObject(), "itemB");
-    QVERIFY(b != 0);
+    QVERIFY(b != nullptr);
 
     QVariant result;
 
@@ -2478,7 +2529,7 @@ void tst_QQuickItem::transforms()
     component.setData("import QtQuick 2.3\nItem { transform: "+qml+"}", QUrl::fromLocalFile(""));
     QQuickItem *item = qobject_cast<QQuickItem*>(component.create());
     QVERIFY(item);
-    QCOMPARE(item->itemTransform(0,0), transform);
+    QCOMPARE(item->itemTransform(nullptr,nullptr), transform);
 }
 
 void tst_QQuickItem::childrenProperty()
@@ -2486,7 +2537,7 @@ void tst_QQuickItem::childrenProperty()
     QQmlComponent component(&engine, testFileUrl("childrenProperty.qml"));
 
     QObject *o = component.create();
-    QVERIFY(o != 0);
+    QVERIFY(o != nullptr);
 
     QCOMPARE(o->property("test1").toBool(), true);
     QCOMPARE(o->property("test2").toBool(), true);
@@ -2501,7 +2552,7 @@ void tst_QQuickItem::resourcesProperty()
     QQmlComponent component(&engine, testFileUrl("resourcesProperty.qml"));
 
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 
     QQmlProperty property(object, "resources", component.creationContext());
 
@@ -2533,7 +2584,7 @@ void tst_QQuickItem::resourcesProperty()
 
 void tst_QQuickItem::propertyChanges()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setBaseSize(QSize(300, 300));
     window->setSource(testFileUrl("propertychanges.qml"));
     window->show();
@@ -2624,7 +2675,7 @@ void tst_QQuickItem::nonexistentPropertyConnection()
 
 void tst_QQuickItem::childrenRect()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setSource(testFileUrl("childrenRect.qml"));
     window->setBaseSize(QSize(240,320));
     window->show();
@@ -2653,7 +2704,7 @@ void tst_QQuickItem::childrenRect()
 // QTBUG-11383
 void tst_QQuickItem::childrenRectBug()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
 
     QString warning = testFileUrl("childrenRectBug.qml").toString() + ":7:5: QML Item: Binding loop detected for property \"height\"";
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning));
@@ -2674,7 +2725,7 @@ void tst_QQuickItem::childrenRectBug()
 // QTBUG-11465
 void tst_QQuickItem::childrenRectBug2()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
 
     QString warning1 = testFileUrl("childrenRectBug2.qml").toString() + ":7:5: QML Item: Binding loop detected for property \"width\"";
     QTest::ignoreMessage(QtWarningMsg, qPrintable(warning1));
@@ -2708,7 +2759,7 @@ void tst_QQuickItem::childrenRectBug2()
 // QTBUG-12722
 void tst_QQuickItem::childrenRectBug3()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setSource(testFileUrl("childrenRectBug3.qml"));
     window->show();
 
@@ -2719,7 +2770,7 @@ void tst_QQuickItem::childrenRectBug3()
 // QTBUG-38732
 void tst_QQuickItem::childrenRectBottomRightCorner()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setSource(testFileUrl("childrenRectBottomRightCorner.qml"));
     window->show();
 
@@ -2811,7 +2862,7 @@ void tst_QQuickItem::changeListener()
 {
     QQuickWindow window;
     window.show();
-    QTest::qWaitForWindowExposed(&window);
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
 
     QQuickItem *item = new QQuickItem;
     TestListener itemListener;
@@ -2994,7 +3045,7 @@ void tst_QQuickItem::changeListener()
 // QTBUG-13893
 void tst_QQuickItem::transformCrash()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setSource(testFileUrl("transformCrash.qml"));
     window->show();
 
@@ -3003,7 +3054,7 @@ void tst_QQuickItem::transformCrash()
 
 void tst_QQuickItem::implicitSize()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setSource(testFileUrl("implicitsize.qml"));
     window->show();
 
@@ -3076,14 +3127,14 @@ void tst_QQuickItem::qtbug_16871()
 {
     QQmlComponent component(&engine, testFileUrl("qtbug_16871.qml"));
     QObject *o = component.create();
-    QVERIFY(o != 0);
+    QVERIFY(o != nullptr);
     delete o;
 }
 
 
 void tst_QQuickItem::visibleChildren()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->setSource(testFileUrl("visiblechildren.qml"));
     window->show();
 
@@ -3141,7 +3192,7 @@ void tst_QQuickItem::visibleChildren()
 
 void tst_QQuickItem::parentLoop()
 {
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
 
 #if QT_CONFIG(regularexpression)
     QRegularExpression msgRegexp = QRegularExpression("QQuickItem::setParentItem: Parent QQuickItem\\(.*\\) is already part of the subtree of QQuickItem\\(.*\\)");
@@ -3231,7 +3282,7 @@ void tst_QQuickItem::contains()
     QFETCH(bool, insideTarget);
     QFETCH(QList<QPoint>, points);
 
-    QQuickView *window = new QQuickView(0);
+    QQuickView *window = new QQuickView(nullptr);
     window->rootContext()->setContextProperty("circleShapeTest", circleTest);
     window->setBaseSize(QSize(400, 400));
     window->setSource(testFileUrl("hollowTestItem.qml"));
@@ -3253,12 +3304,12 @@ void tst_QQuickItem::contains()
         QCOMPARE(hollowItem->isHovered(), insideTarget);
 
         // check mouse press
-        QTest::mousePress(window, Qt::LeftButton, 0, point);
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, point);
         QTest::qWait(10);
         QCOMPARE(hollowItem->isPressed(), insideTarget);
 
         // check mouse release
-        QTest::mouseRelease(window, Qt::LeftButton, 0, point);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, point);
         QTest::qWait(10);
         QCOMPARE(hollowItem->isPressed(), false);
     }
@@ -3299,16 +3350,20 @@ void tst_QQuickItem::childAt()
     QCOMPARE(parent.childAt(75, 75), &child2);
     QCOMPARE(parent.childAt(149, 149), &child2);
     QCOMPARE(parent.childAt(25, 200), &child3);
-    QCOMPARE(parent.childAt(0, 150), static_cast<QQuickItem *>(0));
-    QCOMPARE(parent.childAt(300, 300), static_cast<QQuickItem *>(0));
+    QCOMPARE(parent.childAt(0, 150), static_cast<QQuickItem *>(nullptr));
+    QCOMPARE(parent.childAt(300, 300), static_cast<QQuickItem *>(nullptr));
 }
 
 void tst_QQuickItem::grab()
 {
+    if ((QGuiApplication::platformName() == QLatin1String("offscreen"))
+        || (QGuiApplication::platformName() == QLatin1String("minimal")))
+        QSKIP("Skipping due to grabToImage not functional on offscreen/minimimal platforms");
+
     QQuickView view;
     view.setSource(testFileUrl("grabToImage.qml"));
     view.show();
-    QTest::qWaitForWindowExposed(&view);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
 
     QQuickItem *root = qobject_cast<QQuickItem *>(view.rootObject());
     QVERIFY(root);

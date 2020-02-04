@@ -10,9 +10,10 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
+#include "components/variations/variations_crash_keys.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace variations {
@@ -23,7 +24,7 @@ namespace {
 class TestFieldTrialObserver : public base::FieldTrialList::Observer {
  public:
   TestFieldTrialObserver() {}
-  ~TestFieldTrialObserver() override {}
+  ~TestFieldTrialObserver() override { ClearCrashKeysInstanceForTesting(); }
 
   // base::FieldTrial::Observer:
   void OnFieldTrialGroupFinalized(const std::string& trial_name,
@@ -52,7 +53,7 @@ std::pair<std::string, std::string> MakeStringPair(const std::string& a,
 }  // namespace
 
 TEST(ChildProcessFieldTrialSyncerTest, FieldTrialState) {
-  base::MessageLoop message_loop;
+  base::test::ScopedTaskEnvironment task_environment;
   base::FieldTrialList field_trial_list(nullptr);
   // We don't use the descriptor here anyways so it's ok to pass -1.
   base::FieldTrialList::CreateTrialsFromCommandLine(
@@ -65,7 +66,7 @@ TEST(ChildProcessFieldTrialSyncerTest, FieldTrialState) {
   trial1->group();
 
   std::string states_string;
-  base::FieldTrialList::AllStatesToString(&states_string);
+  base::FieldTrialList::AllStatesToString(&states_string, false);
 
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       switches::kForceFieldTrials, states_string);

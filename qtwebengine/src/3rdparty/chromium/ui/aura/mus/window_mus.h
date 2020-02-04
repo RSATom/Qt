@@ -10,23 +10,24 @@
 #include <string>
 #include <vector>
 
-#include "services/ui/public/interfaces/cursor/cursor.mojom.h"
+#include "components/viz/common/surfaces/local_surface_id_allocation.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/mus/mus_types.h"
-
-namespace cc {
-class SurfaceInfo;
-}
+#include "ui/base/mojo/cursor.mojom.h"
 
 namespace gfx {
 class Rect;
 class Transform;
 }
 
-namespace ui {
+namespace ws {
 namespace mojom {
 enum class OrderDirection;
 }
+}
+
+namespace viz {
+class FrameSinkId;
 }
 
 namespace aura {
@@ -60,9 +61,12 @@ class AURA_EXPORT WindowMus {
   virtual ~WindowMus() {}
 
   // Returns the WindowMus associated with |window|.
+  static const WindowMus* Get(const Window* window) {
+    return const_cast<const WindowMus*>(Get(const_cast<Window*>(window)));
+  }
   static WindowMus* Get(Window* window);
 
-  Id server_id() const { return server_id_; }
+  ws::Id server_id() const { return server_id_; }
 
   WindowMusType window_mus_type() const { return window_mus_type_; }
 
@@ -76,21 +80,16 @@ class AURA_EXPORT WindowMus {
   virtual void RemoveChildFromServer(WindowMus* child) = 0;
   virtual void ReorderFromServer(WindowMus* child,
                                  WindowMus* relative,
-                                 ui::mojom::OrderDirection) = 0;
-  virtual void SetBoundsFromServer(
-      const gfx::Rect& bounds,
-      const base::Optional<viz::LocalSurfaceId>& local_surface_id) = 0;
+                                 ws::mojom::OrderDirection) = 0;
+  virtual void SetBoundsFromServer(const gfx::Rect& bounds) = 0;
   virtual void SetTransformFromServer(const gfx::Transform& transform) = 0;
   virtual void SetVisibleFromServer(bool visible) = 0;
   virtual void SetOpacityFromServer(float opacity) = 0;
-  virtual void SetCursorFromServer(const ui::CursorData& cursor) = 0;
+  virtual void SetCursorFromServer(const ui::Cursor& cursor) = 0;
   virtual void SetPropertyFromServer(const std::string& property_name,
                                      const std::vector<uint8_t>* data) = 0;
   virtual void SetFrameSinkIdFromServer(
       const viz::FrameSinkId& frame_sink_id) = 0;
-  virtual const viz::LocalSurfaceId& GetOrAllocateLocalSurfaceId(
-      const gfx::Size& new_size) = 0;
-  virtual void SetFallbackSurfaceInfo(const viz::SurfaceInfo& surface_info) = 0;
   // The window was deleted on the server side. DestroyFromServer() should
   // result in deleting |this|.
   virtual void DestroyFromServer() = 0;
@@ -100,10 +99,14 @@ class AURA_EXPORT WindowMus {
   virtual ChangeSource OnTransientChildAdded(WindowMus* child) = 0;
   virtual ChangeSource OnTransientChildRemoved(WindowMus* child) = 0;
 
-  // Returns the currently used viz::LocalSurfaceId to embed this Window. Local
-  // windows or windows that have not been embedded yet will have an invalid
-  // viz::LocalSurfaceId.
-  virtual const viz::LocalSurfaceId& GetLocalSurfaceId() = 0;
+  // Returns the currently used viz::LocalSurfaceIdAllocation to embed this
+  // Window. Local windows or windows that have not been embedded yet will have
+  // an invalid viz::LocalSurfaceIdAllocaton.
+  virtual const viz::LocalSurfaceIdAllocation&
+  GetLocalSurfaceIdAllocation() = 0;
+
+  // Returns true if the window has a LocalSurfaceId.
+  virtual bool HasLocalSurfaceId() = 0;
 
   // Called in the rare case when WindowTreeClient needs to change state and
   // can't go through one of the SetFooFromServer() functions above. Generally
@@ -120,22 +123,17 @@ class AURA_EXPORT WindowMus {
   // window (as compared to DestroyFromServer()).
   virtual void PrepareForDestroy() = 0;
 
-  // See TransientWindowClientObserver::OnWillRestackTransientChildAbove() for
-  // details on this and OnTransientRestackDone().
-  virtual void PrepareForTransientRestack(WindowMus* window) = 0;
-  virtual void OnTransientRestackDone(WindowMus* window) = 0;
-
   virtual void NotifyEmbeddedAppDisconnected() = 0;
 
-  virtual bool HasLocalLayerTreeFrameSink() = 0;
+  virtual float GetDeviceScaleFactor() = 0;
 
  private:
   // Just for set_server_id(), which other places should not call.
   friend class WindowTreeClient;
 
-  void set_server_id(Id id) { server_id_ = id; }
+  void set_server_id(ws::Id id) { server_id_ = id; }
 
-  Id server_id_ = kInvalidServerId;
+  ws::Id server_id_ = kInvalidServerId;
   const WindowMusType window_mus_type_;
 };
 

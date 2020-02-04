@@ -2,13 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// MSVC++ requires this to be set before any other includes to get M_SQRT1_2.
-#define _USE_MATH_DEFINES
-
-#include <cmath>
 #include <memory>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "media/base/audio_bus.h"
 #include "media/base/audio_parameters.h"
@@ -28,11 +24,13 @@ TEST(ChannelMixerTest, ConstructAllPossibleLayouts) {
     for (ChannelLayout output_layout = CHANNEL_LAYOUT_MONO;
          output_layout <= CHANNEL_LAYOUT_MAX;
          output_layout = static_cast<ChannelLayout>(output_layout + 1)) {
-      // DISCRETE can't be tested here based on the current approach.
+      // DISCRETE, BITSTREAM can't be tested here based on the current approach.
       // CHANNEL_LAYOUT_STEREO_AND_KEYBOARD_MIC is not mixable.
       // Stereo down mix should never be the output layout.
-      if (input_layout == CHANNEL_LAYOUT_DISCRETE ||
+      if (input_layout == CHANNEL_LAYOUT_BITSTREAM ||
+          input_layout == CHANNEL_LAYOUT_DISCRETE ||
           input_layout == CHANNEL_LAYOUT_STEREO_AND_KEYBOARD_MIC ||
+          output_layout == CHANNEL_LAYOUT_BITSTREAM ||
           output_layout == CHANNEL_LAYOUT_DISCRETE ||
           output_layout == CHANNEL_LAYOUT_STEREO_AND_KEYBOARD_MIC ||
           output_layout == CHANNEL_LAYOUT_STEREO_DOWNMIX) {
@@ -108,7 +106,7 @@ TEST_P(ChannelMixerTest, Mixing) {
   std::unique_ptr<AudioBus> input_bus =
       AudioBus::Create(input_channels, kFrames);
   AudioParameters input_audio(AudioParameters::AUDIO_PCM_LINEAR, input_layout,
-                              AudioParameters::kAudioCDSampleRate, 16, kFrames);
+                              AudioParameters::kAudioCDSampleRate, kFrames);
   if (input_layout == CHANNEL_LAYOUT_DISCRETE)
     input_audio.set_channels_for_discrete(input_channels);
 
@@ -117,8 +115,7 @@ TEST_P(ChannelMixerTest, Mixing) {
   std::unique_ptr<AudioBus> output_bus =
       AudioBus::Create(output_channels, kFrames);
   AudioParameters output_audio(AudioParameters::AUDIO_PCM_LINEAR, output_layout,
-                               AudioParameters::kAudioCDSampleRate, 16,
-                               kFrames);
+                               AudioParameters::kAudioCDSampleRate, kFrames);
   if (output_layout == CHANNEL_LAYOUT_DISCRETE)
     output_audio.set_channels_for_discrete(output_channels);
 
@@ -158,30 +155,46 @@ TEST_P(ChannelMixerTest, Mixing) {
 
 static float kStereoToMonoValues[] = { 0.5f, 0.75f };
 static float kMonoToStereoValues[] = { 0.5f };
-// Zero the center channel since it will be mixed at scale 1 vs M_SQRT1_2.
+// Zero the center channel since it will be mixed at scale 1 vs 1/sqrt(2).
 static float kFiveOneToMonoValues[] = { 0.1f, 0.2f, 0.0f, 0.4f, 0.5f, 0.6f };
 static float kFiveDiscreteValues[] = { 0.1f, 0.2f, 0.3f, 0.4f, 0.5f };
 
 // Run through basic sanity tests for some common conversions.
-INSTANTIATE_TEST_CASE_P(ChannelMixerTest, ChannelMixerTest, testing::Values(
-    ChannelMixerTestData(CHANNEL_LAYOUT_STEREO, CHANNEL_LAYOUT_MONO,
-                         kStereoToMonoValues, arraysize(kStereoToMonoValues),
-                         0.5f),
-    ChannelMixerTestData(CHANNEL_LAYOUT_MONO, CHANNEL_LAYOUT_STEREO,
-                         kMonoToStereoValues, arraysize(kMonoToStereoValues),
-                         1.0f),
-    ChannelMixerTestData(CHANNEL_LAYOUT_5_1, CHANNEL_LAYOUT_MONO,
-                         kFiveOneToMonoValues, arraysize(kFiveOneToMonoValues),
-                         static_cast<float>(M_SQRT1_2)),
-    ChannelMixerTestData(CHANNEL_LAYOUT_DISCRETE, 2,
-                         CHANNEL_LAYOUT_DISCRETE, 2,
-                         kStereoToMonoValues, arraysize(kStereoToMonoValues)),
-    ChannelMixerTestData(CHANNEL_LAYOUT_DISCRETE, 2,
-                         CHANNEL_LAYOUT_DISCRETE, 5,
-                         kStereoToMonoValues, arraysize(kStereoToMonoValues)),
-    ChannelMixerTestData(CHANNEL_LAYOUT_DISCRETE, 5,
-                         CHANNEL_LAYOUT_DISCRETE, 2,
-                         kFiveDiscreteValues, arraysize(kFiveDiscreteValues))
-));
+INSTANTIATE_TEST_CASE_P(
+    ChannelMixerTest,
+    ChannelMixerTest,
+    testing::Values(ChannelMixerTestData(CHANNEL_LAYOUT_STEREO,
+                                         CHANNEL_LAYOUT_MONO,
+                                         kStereoToMonoValues,
+                                         base::size(kStereoToMonoValues),
+                                         0.5f),
+                    ChannelMixerTestData(CHANNEL_LAYOUT_MONO,
+                                         CHANNEL_LAYOUT_STEREO,
+                                         kMonoToStereoValues,
+                                         base::size(kMonoToStereoValues),
+                                         1.0f),
+                    ChannelMixerTestData(CHANNEL_LAYOUT_5_1,
+                                         CHANNEL_LAYOUT_MONO,
+                                         kFiveOneToMonoValues,
+                                         base::size(kFiveOneToMonoValues),
+                                         ChannelMixer::kHalfPower),
+                    ChannelMixerTestData(CHANNEL_LAYOUT_DISCRETE,
+                                         2,
+                                         CHANNEL_LAYOUT_DISCRETE,
+                                         2,
+                                         kStereoToMonoValues,
+                                         base::size(kStereoToMonoValues)),
+                    ChannelMixerTestData(CHANNEL_LAYOUT_DISCRETE,
+                                         2,
+                                         CHANNEL_LAYOUT_DISCRETE,
+                                         5,
+                                         kStereoToMonoValues,
+                                         base::size(kStereoToMonoValues)),
+                    ChannelMixerTestData(CHANNEL_LAYOUT_DISCRETE,
+                                         5,
+                                         CHANNEL_LAYOUT_DISCRETE,
+                                         2,
+                                         kFiveDiscreteValues,
+                                         base::size(kFiveDiscreteValues))));
 
 }  // namespace media

@@ -16,15 +16,15 @@
 
 class CPDF_SimpleFont : public CPDF_Font {
  public:
-  CPDF_SimpleFont();
+  CPDF_SimpleFont(CPDF_Document* pDocument, CPDF_Dictionary* pFontDict);
   ~CPDF_SimpleFont() override;
 
   // CPDF_Font
-  int GetCharWidthF(uint32_t charcode) override;
+  uint32_t GetCharWidthF(uint32_t charcode) override;
   FX_RECT GetCharBBox(uint32_t charcode) override;
   int GlyphFromCharCode(uint32_t charcode, bool* pVertGlyph) override;
   bool IsUnicodeCompatible() const override;
-  CFX_WideString UnicodeFromCharCode(uint32_t charcode) const override;
+  WideString UnicodeFromCharCode(uint32_t charcode) const override;
   uint32_t CharCodeFromUnicode(wchar_t Unicode) const override;
 
   CPDF_FontEncoding* GetEncoding() { return &m_Encoding; }
@@ -37,15 +37,15 @@ class CPDF_SimpleFont : public CPDF_Font {
   bool LoadCommon();
   void LoadSubstFont();
   void LoadCharMetrics(int charcode);
+  void LoadPDFEncoding(bool bEmbedded, bool bTrueType);
 
   CPDF_FontEncoding m_Encoding;
+  int m_BaseEncoding = PDFFONT_ENCODING_BUILTIN;
+  bool m_bUseFontWidth;
+  std::vector<ByteString> m_CharNames;
   uint16_t m_GlyphIndex[256];
-  uint16_t m_ExtGID[256];
-  std::vector<CFX_ByteString> m_CharNames;
-  int m_BaseEncoding;
   uint16_t m_CharWidth[256];
   FX_RECT m_CharBBox[256];
-  bool m_bUseFontWidth;
 };
 
 #endif  // CORE_FPDFAPI_FONT_CPDF_SIMPLEFONT_H_

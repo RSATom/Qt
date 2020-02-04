@@ -2,13 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/**
+ * @typedef {{
+ *   managed: boolean,
+ *   otherFormsOfHistory: boolean,
+ * }}
+ */
+let FooterInfo;
+
 cr.define('md_history', function() {
-  var lazyLoadPromise = null;
+  let lazyLoadPromise = null;
   function ensureLazyLoaded() {
     if (!lazyLoadPromise) {
       lazyLoadPromise = new Promise(function(resolve, reject) {
-        Polymer.Base.importHref(
-            'chrome://history/lazy_load.html', resolve, reject, true);
+        Polymer.Base.importHref('lazy_load.html', resolve, reject, true);
       });
     }
     return lazyLoadPromise;
@@ -23,6 +30,7 @@ Polymer({
   is: 'history-app',
 
   behaviors: [
+    FindShortcutBehavior,
     Polymer.IronScrollTargetBehavior,
   ],
 
@@ -74,10 +82,16 @@ Polymer({
       observer: 'hasDrawerChanged_',
     },
 
-    // Used to display notices for profile sign-in status.
-    showSidebarFooter: Boolean,
-
-    hasSyncedResults: Boolean,
+    /** @type {FooterInfo} */
+    footerInfo: {
+      type: Object,
+      value: function() {
+        return {
+          managed: loadTimeData.getBoolean('isManaged'),
+          otherFormsOfHistory: false,
+        };
+      },
+    },
   },
 
   listeners: {
@@ -122,7 +136,7 @@ Polymer({
 
     // Focus the search field on load. Done here to ensure the history page
     // is rendered before we try to take focus.
-    var searchField =
+    const searchField =
         /** @type {HistoryToolbarElement} */ (this.$.toolbar).searchField;
     if (!searchField.narrow) {
       searchField.getSearchInput().focus();
@@ -138,8 +152,9 @@ Polymer({
 
   /** Overridden from IronScrollTargetBehavior */
   _scrollHandler: function() {
-    if (this.scrollTarget)
+    if (this.scrollTarget) {
       this.toolbarShadow_ = this.scrollTarget.scrollTop != 0;
+    }
   },
 
   /** @private */
@@ -154,8 +169,7 @@ Polymer({
 
   /** @private */
   onCrToolbarMenuTap_: function() {
-    var drawer = /** @type {!CrDrawerElement} */ (this.$.drawer.get());
-    drawer.align = document.documentElement.dir == 'ltr' ? 'left' : 'right';
+    const drawer = /** @type {!CrDrawerElement} */ (this.$.drawer.get());
     drawer.toggle();
     this.showMenuPromo_ = false;
   },
@@ -163,12 +177,18 @@ Polymer({
   /**
    * Listens for history-item being selected or deselected (through checkbox)
    * and changes the view of the top toolbar.
-   * @param {{detail: {countAddition: number}}} e
    */
-  checkboxSelected: function(e) {
-    var toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
+  checkboxSelected: function() {
+    const toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
     toolbar.count = /** @type {HistoryListElement} */ (this.$.history)
                         .getSelectedItemCount();
+  },
+
+  selectOrUnselectAll: function() {
+    const list = /** @type {HistoryListElement} */ (this.$.history);
+    const toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
+    list.selectOrUnselectAll();
+    toolbar.count = list.getSelectedItemCount();
   },
 
   /**
@@ -177,8 +197,8 @@ Polymer({
    * @private
    */
   unselectAll: function() {
-    var list = /** @type {HistoryListElement} */ (this.$.history);
-    var toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
+    const list = /** @type {HistoryListElement} */ (this.$.history);
+    const toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
     list.unselectAllItems();
     toolbar.count = 0;
   },
@@ -196,15 +216,8 @@ Polymer({
     this.set('queryState_.querying', false);
     this.set('queryResult_.info', info);
     this.set('queryResult_.results', results);
-    var list = /** @type {HistoryListElement} */ (this.$['history']);
+    const list = /** @type {HistoryListElement} */ (this.$['history']);
     list.historyResult(info, results);
-  },
-
-  /**
-   * Shows and focuses the search bar in the toolbar.
-   */
-  focusToolbarSearchField: function() {
-    this.$.toolbar.showSearchField();
   },
 
   /**
@@ -214,12 +227,12 @@ Polymer({
   onCanExecute_: function(e) {
     e = /** @type {cr.ui.CanExecuteEvent} */ (e);
     switch (e.command.id) {
-      case 'find-command':
-      case 'slash-command':
-        e.canExecute = !this.$.toolbar.searchField.isSearchFocused();
-        break;
       case 'delete-command':
         e.canExecute = this.$.toolbar.count > 0;
+        break;
+      case 'select-all-command':
+        e.canExecute = !this.$.toolbar.searchField.isSearchFocused() &&
+            !this.syncedTabsSelected_(this.selectedPage_);
         break;
     }
   },
@@ -229,10 +242,11 @@ Polymer({
    * @private
    */
   onCommand_: function(e) {
-    if (e.command.id == 'find-command' || e.command.id == 'slash-command')
-      this.focusToolbarSearchField();
-    else if (e.command.id == 'delete-command')
+    if (e.command.id == 'delete-command') {
       this.deleteSelected();
+    } else if (e.command.id == 'select-all-command') {
+      this.selectOrUnselectAll();
+    }
   },
 
   /**
@@ -279,16 +293,6 @@ Polymer({
     return querying && !incremental && searchTerm != '';
   },
 
-  /**
-   * @param {boolean} hasSyncedResults
-   * @param {string} selectedPage
-   * @return {boolean} Whether the (i) synced results notice should be shown.
-   * @private
-   */
-  showSyncNotice_: function(hasSyncedResults, selectedPage) {
-    return hasSyncedResults && selectedPage != 'syncedTabs';
-  },
-
   /** @private */
   selectedPageChanged_: function() {
     this.unselectAll();
@@ -299,17 +303,19 @@ Polymer({
   historyViewChanged_: function() {
     // This allows the synced-device-manager to render so that it can be set as
     // the scroll target.
-    requestAnimationFrame(function() {
+    requestAnimationFrame(() => {
       this._scrollHandler();
-    }.bind(this));
+    });
     this.recordHistoryPageView_();
   },
 
   /** @private */
   hasDrawerChanged_: function() {
-    var drawer = /** @type {?CrDrawerElement} */ (this.$.drawer.getIfExists());
-    if (!this.hasDrawer_ && drawer && drawer.open)
-      drawer.closeDrawer();
+    const drawer =
+        /** @type {?CrDrawerElement} */ (this.$.drawer.getIfExists());
+    if (!this.hasDrawer_ && drawer && drawer.open) {
+      drawer.cancel();
+    }
   },
 
   /**
@@ -328,14 +334,15 @@ Polymer({
 
   /** @private */
   closeDrawer_: function() {
-    var drawer = this.$.drawer.get();
-    if (drawer && drawer.open)
-      drawer.closeDrawer();
+    const drawer = this.$.drawer.get();
+    if (drawer && drawer.open) {
+      drawer.close();
+    }
   },
 
   /** @private */
   recordHistoryPageView_: function() {
-    var histogramValue = HistoryPageViewHistogram.END;
+    let histogramValue = HistoryPageViewHistogram.END;
     switch (this.selectedPage_) {
       case 'syncedTabs':
         histogramValue = this.isUserSignedIn_ ?
@@ -350,5 +357,19 @@ Polymer({
     md_history.BrowserService.getInstance().recordHistogram(
         'History.HistoryPageView', histogramValue,
         HistoryPageViewHistogram.END);
+  },
+
+  // Override FindShortcutBehavior methods.
+  handleFindShortcut: function(modalContextOpen) {
+    if (modalContextOpen) {
+      return false;
+    }
+    this.$.toolbar.searchField.showAndFocus();
+    return true;
+  },
+
+  // Override FindShortcutBehavior methods.
+  searchInputHasFocus: function() {
+    return this.$.toolbar.searchField.isSearchFocused();
   },
 });

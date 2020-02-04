@@ -86,7 +86,7 @@ QGeoRoutingManagerEngine::QGeoRoutingManagerEngine(const QVariantMap &parameters
     : QObject(parent),
       d_ptr(new QGeoRoutingManagerEnginePrivate())
 {
-    Q_UNUSED(parameters)
+    Q_UNUSED(parameters);
 }
 
 /*!
@@ -196,8 +196,8 @@ int QGeoRoutingManagerEngine::managerVersion() const
 */
 QGeoRouteReply *QGeoRoutingManagerEngine::updateRoute(const QGeoRoute &route, const QGeoCoordinate &position)
 {
-    Q_UNUSED(route)
-    Q_UNUSED(position)
+    Q_UNUSED(route);
+    Q_UNUSED(position);
     return new QGeoRouteReply(QGeoRouteReply::UnsupportedOptionError,
                               QLatin1String("The updating of routes is not supported by this service provider."), this);
 }

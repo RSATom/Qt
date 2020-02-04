@@ -42,6 +42,7 @@
 #include "qcocoatheme.h"
 #include "messages.h"
 
+#include <QtCore/QOperatingSystemVersion>
 #include <QtCore/QVariant>
 
 #include "qcocoasystemsettings.h"
@@ -52,11 +53,13 @@
 #include "qcocoahelpers.h"
 
 #include <QtCore/qfileinfo.h>
+#include <QtGui/private/qfont_p.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtGui/private/qcoregraphics_p.h>
 #include <QtGui/qpainter.h>
 #include <QtGui/qtextformat.h>
 #include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
+#include <QtFontDatabaseSupport/private/qfontengine_coretext_p.h>
 #include <QtThemeSupport/private/qabstractfileiconengine_p.h>
 #include <qpa/qplatformdialoghelper.h>
 #include <qpa/qplatformintegration.h>
@@ -75,51 +78,34 @@
 #endif
 #endif
 
-#include <Carbon/Carbon.h>
-
-@interface QT_MANGLE_NAMESPACE(QCocoaThemeNotificationReceiver) : NSObject {
-QCocoaTheme *mPrivate;
-}
-- (id)initWithPrivate:(QCocoaTheme *)priv;
-- (void)systemColorsDidChange:(NSNotification *)notification;
-@end
-
-QT_NAMESPACE_ALIAS_OBJC_CLASS(QCocoaThemeNotificationReceiver);
-
-@implementation QCocoaThemeNotificationReceiver
-- (id)initWithPrivate:(QCocoaTheme *)priv
-{
-    self = [super init];
-    mPrivate = priv;
-    return self;
-}
-
-- (void)systemColorsDidChange:(NSNotification *)notification
-{
-    Q_UNUSED(notification);
-    mPrivate->reset();
-    QWindowSystemInterface::handleThemeChange(Q_NULLPTR);
-}
-@end
+#include <CoreServices/CoreServices.h>
 
 QT_BEGIN_NAMESPACE
 
 const char *QCocoaTheme::name = "cocoa";
 
 QCocoaTheme::QCocoaTheme()
-    :m_systemPalette(0)
+    : m_systemPalette(nullptr)
 {
-    m_notificationReceiver = [[QT_MANGLE_NAMESPACE(QCocoaThemeNotificationReceiver) alloc] initWithPrivate:this];
-    [[NSNotificationCenter defaultCenter] addObserver:m_notificationReceiver
-                                             selector:@selector(systemColorsDidChange:)
-                                                 name:NSSystemColorsDidChangeNotification
-                                               object:nil];
+#if QT_MACOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_14)
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSMojave) {
+        m_appearanceObserver = QMacKeyValueObserver(NSApp, @"effectiveAppearance", [this] {
+            if (__builtin_available(macOS 10.14, *))
+                NSAppearance.currentAppearance = NSApp.effectiveAppearance;
+
+            handleSystemThemeChange();
+        });
+    }
+#endif
+
+    m_systemColorObserver = QMacNotificationObserver(nil,
+        NSSystemColorsDidChangeNotification, [this] {
+            handleSystemThemeChange();
+    });
 }
 
 QCocoaTheme::~QCocoaTheme()
 {
-    [[NSNotificationCenter defaultCenter] removeObserver:m_notificationReceiver];
-    [m_notificationReceiver release];
     reset();
     qDeleteAll(m_fonts);
 }
@@ -127,9 +113,23 @@ QCocoaTheme::~QCocoaTheme()
 void QCocoaTheme::reset()
 {
     delete m_systemPalette;
-    m_systemPalette = Q_NULLPTR;
+    m_systemPalette = nullptr;
     qDeleteAll(m_palettes);
     m_palettes.clear();
+}
+
+void QCocoaTheme::handleSystemThemeChange()
+{
+    reset();
+    m_systemPalette = qt_mac_createSystemPalette();
+    m_palettes = qt_mac_createRolePalettes();
+
+    if (QCoreTextFontEngine::fontSmoothing() == QCoreTextFontEngine::FontSmoothing::Grayscale) {
+        // Re-populate glyph caches based on the new appearance's assumed text fill color
+        QFontCache::instance()->clear();
+    }
+
+    QWindowSystemInterface::handleThemeChange(nullptr);
 }
 
 bool QCocoaTheme::usePlatformNativeDialog(DialogType dialogType) const
@@ -147,7 +147,7 @@ bool QCocoaTheme::usePlatformNativeDialog(DialogType dialogType) const
     return false;
 }
 
-QPlatformDialogHelper * QCocoaTheme::createPlatformDialogHelper(DialogType dialogType) const
+QPlatformDialogHelper *QCocoaTheme::createPlatformDialogHelper(DialogType dialogType) const
 {
     switch (dialogType) {
 #if defined(QT_WIDGETS_LIB) && QT_CONFIG(filedialog)
@@ -163,7 +163,7 @@ QPlatformDialogHelper * QCocoaTheme::createPlatformDialogHelper(DialogType dialo
         return new QCocoaFontDialogHelper();
 #endif
     default:
-        return 0;
+        return nullptr;
     }
 }
 
@@ -183,23 +183,19 @@ const QPalette *QCocoaTheme::palette(Palette type) const
     } else {
         if (m_palettes.isEmpty())
             m_palettes = qt_mac_createRolePalettes();
-        return m_palettes.value(type, 0);
+        return m_palettes.value(type, nullptr);
     }
-    return 0;
-}
-
-QHash<QPlatformTheme::Font, QFont *> qt_mac_createRoleFonts()
-{
-    QCoreTextFontDatabase *ctfd = static_cast<QCoreTextFontDatabase *>(QGuiApplicationPrivate::platformIntegration()->fontDatabase());
-    return ctfd->themeFonts();
+    return nullptr;
 }
 
 const QFont *QCocoaTheme::font(Font type) const
 {
     if (m_fonts.isEmpty()) {
-        m_fonts = qt_mac_createRoleFonts();
+        const auto *platformIntegration = QGuiApplicationPrivate::platformIntegration();
+        const auto *coreTextFontDb = static_cast<QCoreTextFontDatabase *>(platformIntegration->fontDatabase());
+        m_fonts = coreTextFontDb->themeFonts();
     }
-    return m_fonts.value(type, 0);
+    return m_fonts.value(type, nullptr);
 }
 
 //! \internal
@@ -275,7 +271,7 @@ QPixmap QCocoaTheme::standardPixmap(StandardPixmap sp, const QSizeF &size) const
     }
     if (iconType != 0) {
         QPixmap pixmap;
-        IconRef icon = Q_NULLPTR;
+        IconRef icon = nullptr;
         GetIconRef(kOnSystemDisk, kSystemIconsCreator, iconType, &icon);
 
         if (icon) {
@@ -347,6 +343,8 @@ QVariant QCocoaTheme::themeHint(ThemeHint hint) const
         return QVariant(int(HoverEffect));
     case QPlatformTheme::SpellCheckUnderlineStyle:
         return QVariant(int(QTextCharFormat::DotLine));
+    case QPlatformTheme::UseFullScreenForPopupMenu:
+        return QVariant(bool([[NSApplication sharedApplication] presentationOptions] & NSApplicationPresentationFullScreen));
     default:
         break;
     }

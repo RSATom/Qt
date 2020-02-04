@@ -39,6 +39,8 @@
 
 #include "qsurface.h"
 #include "qopenglcontext.h"
+#include <qpa/qplatformintegration.h>
+#include <QtGui/private/qguiapplication_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -80,6 +82,10 @@ QT_BEGIN_NAMESPACE
     in conjunction with OpenVG contexts.
     \value VulkanSurface The surface is a Vulkan compatible surface and can be used
     in conjunction with the Vulkan graphics API.
+    \value MetalSurface The surface is a Metal compatible surface and can be used
+    in conjunction with Apple's Metal graphics API. This surface type is supported
+    on macOS only.
+
  */
 
 
@@ -99,6 +105,10 @@ QT_BEGIN_NAMESPACE
 bool QSurface::supportsOpenGL() const
 {
     SurfaceType type = surfaceType();
+    if (type == RasterSurface) {
+        QPlatformIntegration *integ = QGuiApplicationPrivate::instance()->platformIntegration();
+        return integ->hasCapability(QPlatformIntegration::OpenGLOnRasterSurface);
+    }
     return type == OpenGLSurface || type == RasterGLSurface;
 }
 

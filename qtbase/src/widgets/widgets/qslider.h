@@ -68,13 +68,13 @@ public:
     };
     Q_ENUM(TickPosition)
 
-    explicit QSlider(QWidget *parent = Q_NULLPTR);
-    explicit QSlider(Qt::Orientation orientation, QWidget *parent = Q_NULLPTR);
+    explicit QSlider(QWidget *parent = nullptr);
+    explicit QSlider(Qt::Orientation orientation, QWidget *parent = nullptr);
 
     ~QSlider();
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
 
     void setTickPosition(TickPosition position);
     TickPosition tickPosition() const;
@@ -82,13 +82,13 @@ public:
     void setTickInterval(int ti);
     int tickInterval() const;
 
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
+    bool event(QEvent *event) override;
 
 protected:
-    void paintEvent(QPaintEvent *ev) Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *ev) override;
+    void mousePressEvent(QMouseEvent *ev) override;
+    void mouseReleaseEvent(QMouseEvent *ev) override;
+    void mouseMoveEvent(QMouseEvent *ev) override;
     void initStyleOption(QStyleOptionSlider *option) const;
 
 

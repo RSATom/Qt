@@ -81,7 +81,7 @@ struct TargetLoc
 };
 
 typedef QMultiMap<QString, TargetRec*> TargetMap;
-typedef QMultiMap<QString, DocumentNode*> DocumentNodeMultiMap;
+typedef QMultiMap<QString, PageNode*> PageNodeMultiMap;
 typedef QMap<QString, QmlTypeNode*> QmlTypeMap;
 typedef QMultiMap<QString, const ExampleNode*> ExampleNodeMap;
 typedef QVector<TargetLoc*> TargetList;
@@ -89,34 +89,49 @@ typedef QMap<QString, TargetList*> TargetListMap;
 
 class Tree
 {
- private:
     friend class QDocForest;
     friend class QDocDatabase;
 
+ private: // Note the constructor and destructor are private.
     typedef QMap<PropertyNode::FunctionRole, QString> RoleMap;
     typedef QMap<PropertyNode*, RoleMap> PropertyMap;
 
     Tree(const QString& camelCaseModuleName, QDocDatabase* qdb);
     ~Tree();
 
-    Node* findNodeForInclude(const QStringList& path) const;
-    ClassNode* findClassNode(const QStringList& path, const Node* start = 0) const;
-    NamespaceNode* findNamespaceNode(const QStringList& path) const;
-    FunctionNode* findFunctionNode(const QStringList& parentPath, const FunctionNode* clone);
-    const Node* findFunctionNode(const QString& target,
-                                 const QString& params,
-                                 const Node* relative,
-                                 Node::Genus genus) const;
+ public: // Of necessity, a few public functions remain.
+    const QString &camelCaseModuleName() const { return camelCaseModuleName_; }
+    const QString &physicalModuleName() const { return physicalModuleName_; }
+    const QString &indexFileName() const { return indexFileName_; }
+    long incrementLinkCount() { return --linkCount_; }
+    void clearLinkCount() { linkCount_ = 0; }
+    long linkCount() const { return linkCount_; }
+    const QString &indexTitle() const { return indexTitle_; }
+    void setIndexTitle(const QString &t) { indexTitle_ = t; }
+    NodeList &proxies() { return proxies_; }
+    void appendProxy(ProxyNode *t) { proxies_.append(t); }
+    void addToDontDocumentMap(QString &arg);
+    void markDontDocumentNodes();
 
+ private: // The rest of the class is private.
+    Aggregate *findAggregate(const QString &name);
+    Node* findNodeForInclude(const QStringList& path) const;
+    ClassNode* findClassNode(const QStringList& path, const Node* start = nullptr) const;
+    NamespaceNode* findNamespaceNode(const QStringList& path) const;
+    const FunctionNode *findFunctionNode(const QStringList &path,
+                                         const Parameters &parameters,
+                                         const Node *relative,
+                                         Node::Genus genus) const;
+    Node* findNodeRecursive(const QStringList& path,
+                            int pathIndex,
+                            const Node* start,
+                            bool (Node::*) () const) const;
+#if 0
     Node* findNodeRecursive(const QStringList& path,
                             int pathIndex,
                             const Node* start,
                             Node::NodeType type) const;
-    Node* findNodeRecursive(const QStringList& path,
-                            int pathIndex,
-                            Node* start,
-                            const NodeTypeList& types) const;
-
+#endif
     const Node* findNodeForTarget(const QStringList& path,
                                   const QString& target,
                                   const Node* node,
@@ -132,13 +147,13 @@ class Tree
                                    QString& ref) const;
 
     const Node* findNode(const QStringList &path,
-                         const Node* relative,     // = 0,
-                         int findFlags,            // = 0,
-                         Node::Genus genus) const; // = Node::DontCare) const;
+                         const Node *relative,
+                         int flags,
+                         Node::Genus genus) const;
 
     QmlTypeNode* findQmlTypeNode(const QStringList& path);
 
-    Node* findNodeByNameAndType(const QStringList& path, Node::NodeType type) const;
+    Node* findNodeByNameAndType(const QStringList& path, bool (Node::*isMatch) () const) const;
     Aggregate* findRelatesNode(const QStringList& path);
     QString getRef(const QString& target, const Node* node) const;
     void insertTarget(const QString& name,
@@ -148,44 +163,37 @@ class Tree
                       int priority);
     void resolveTargets(Aggregate* root);
     const Node* findUnambiguousTarget(const QString& target, Node::Genus genus, QString& ref) const;
-    const DocumentNode* findDocumentNodeByTitle(const QString& title) const;
+    const PageNode* findPageNodeByTitle(const QString& title) const;
 
     void addPropertyFunction(PropertyNode *property,
                              const QString &funcName,
                              PropertyNode::FunctionRole funcRole);
-    void resolveInheritance(Aggregate* n = 0);
-    void resolveInheritanceHelper(int pass, ClassNode* cn);
+    void resolveBaseClasses(Aggregate *n);
+    void resolveBaseClassesHelper(int pass, ClassNode* cn);
+    void resolvePropertyOverriddenFromPtrs(Aggregate *n);
     void resolveProperties();
     void resolveCppToQmlLinks();
     void resolveUsingClauses();
-    void fixInheritance(NamespaceNode *rootNode = 0);
+    void removePrivateAndInternalBases(NamespaceNode *rootNode);
     NamespaceNode *root() { return &root_; }
-
-    const FunctionNode *findFunctionNode(const QStringList &path,
-                                         const QString& params,
-                                         const Node *relative = 0,
-                                         int findFlags = 0,
-                                         Node::Genus genus = Node::DontCare) const;
     const NamespaceNode *root() const { return &root_; }
 
-    FunctionNode *findVirtualFunctionInBaseClasses(ClassNode *classe,
-                                                   FunctionNode *clone);
-    NodeList allBaseClasses(const ClassNode *classe) const;
+    ClassList allBaseClasses(const ClassNode *classe) const;
     QString refForAtom(const Atom* atom);
 
-    CNMap* getCollectionMap(Node::Genus genus);
+    CNMap* getCollectionMap(Node::NodeType type);
     const CNMap& groups() const { return groups_; }
     const CNMap& modules() const { return modules_; }
     const CNMap& qmlModules() const { return qmlModules_; }
     const CNMap& jsModules() const { return jsModules_; }
 
-    CollectionNode* getCollection(const QString& name, Node::Genus genus);
-    CollectionNode* findCollection(const QString& name, Node::Genus genus);
+    CollectionNode* getCollection(const QString& name, Node::NodeType type);
+    CollectionNode* findCollection(const QString& name, Node::NodeType type);
 
-    CollectionNode* findGroup(const QString& name) { return findCollection(name, Node::DOC); }
-    CollectionNode* findModule(const QString& name) { return findCollection(name, Node::CPP); }
-    CollectionNode* findQmlModule(const QString& name) { return findCollection(name, Node::QML); }
-    CollectionNode* findJsModule(const QString& name) { return findCollection(name, Node::JS); }
+    CollectionNode* findGroup(const QString& name) { return findCollection(name, Node::Group); }
+    CollectionNode* findModule(const QString& name) { return findCollection(name, Node::Module); }
+    CollectionNode* findQmlModule(const QString& name) { return findCollection(name, Node::QmlModule); }
+    CollectionNode* findJsModule(const QString& name) { return findCollection(name, Node::JsModule); }
 
     CollectionNode* addGroup(const QString& name) { return findGroup(name); }
     CollectionNode* addModule(const QString& name) { return findModule(name); }
@@ -202,7 +210,6 @@ class Tree
     void insertQmlType(const QString& key, QmlTypeNode* n);
     void addExampleNode(ExampleNode* n) { exampleNodeMap_.insert(n->title(), n); }
     ExampleNodeMap& exampleNodeMap() { return exampleNodeMap_; }
-    const Node* checkForCollision(const QString& name);
     void setIndexFileName(const QString& t) { indexFileName_ = t; }
 
     bool treeHasBeenAnalyzed() const { return treeHasBeenAnalyzed_; }
@@ -216,16 +223,8 @@ class Tree
                              bool broken);
     TargetList* getTargetList(const QString& module);
     QStringList getTargetListKeys() { return targetListMap_->keys(); }
-
- public:
-    const QString& camelCaseModuleName() const { return camelCaseModuleName_; }
-    const QString& physicalModuleName() const { return physicalModuleName_; }
-    const QString& indexFileName() const { return indexFileName_; }
-    long incrementLinkCount() { return --linkCount_; }
-    void clearLinkCount() { linkCount_ = 0; }
-    long linkCount() const { return linkCount_; }
-    const QString& indexTitle() const { return indexTitle_; }
-    void setIndexTitle(const QString &t) { indexTitle_ = t; }
+    FunctionNode *findFunctionNodeForTag(const QString &tag, Aggregate *parent = nullptr);
+    FunctionNode *findMacroNode(const QString &t, const Aggregate *parent = nullptr);
 
 private:
     bool treeHasBeenAnalyzed_;
@@ -238,7 +237,7 @@ private:
     QDocDatabase* qdb_;
     NamespaceNode root_;
     PropertyMap unresolvedPropertyMap;
-    DocumentNodeMultiMap    docNodesByTitle_;
+    PageNodeMultiMap        pageNodesByTitle_;
     TargetMap               nodesByTargetRef_;
     TargetMap               nodesByTargetTitle_;
     CNMap                   groups_;
@@ -248,6 +247,8 @@ private:
     QmlTypeMap              qmlTypeMap_;
     ExampleNodeMap          exampleNodeMap_;
     TargetListMap*          targetListMap_;
+    NodeList proxies_;
+    NodeMap                 dontDocumentMap_;
 };
 
 QT_END_NAMESPACE

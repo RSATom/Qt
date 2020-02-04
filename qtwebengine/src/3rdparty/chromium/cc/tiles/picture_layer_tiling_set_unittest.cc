@@ -7,15 +7,12 @@
 #include <map>
 #include <vector>
 
-#include "base/memory/ptr_util.h"
-#include "cc/resources/resource_provider.h"
-#include "cc/test/fake_output_surface.h"
 #include "cc/test/fake_output_surface_client.h"
 #include "cc/test/fake_picture_layer_tiling_client.h"
 #include "cc/test/fake_raster_source.h"
-#include "cc/test/fake_resource_provider.h"
-#include "cc/test/test_shared_bitmap_manager.h"
 #include "cc/trees/layer_tree_settings.h"
+#include "components/viz/client/client_resource_provider.h"
+#include "components/viz/test/fake_output_surface.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/geometry/size_conversions.h"
 
@@ -46,7 +43,7 @@ class TestablePictureLayerTilingSet : public PictureLayerTilingSet {
 std::unique_ptr<TestablePictureLayerTilingSet> CreateTilingSetWithSettings(
     PictureLayerTilingClient* client,
     const LayerTreeSettings& settings) {
-  return base::MakeUnique<TestablePictureLayerTilingSet>(
+  return std::make_unique<TestablePictureLayerTilingSet>(
       ACTIVE_TREE, client, settings.tiling_interest_area_padding,
       settings.skewport_target_time_in_seconds,
       settings.skewport_extrapolation_limit_in_screen_pixels,
@@ -244,15 +241,15 @@ class PictureLayerTilingSetTestWithResources : public testing::Test {
                float scale_increment,
                float ideal_contents_scale,
                float expected_scale) {
-    scoped_refptr<TestContextProvider> context_provider =
-        TestContextProvider::Create();
-    ASSERT_TRUE(context_provider->BindToCurrentThread());
-    auto shared_bitmap_manager = base::MakeUnique<TestSharedBitmapManager>();
-    std::unique_ptr<ResourceProvider> resource_provider =
-        FakeResourceProvider::Create(context_provider.get(),
-                                     shared_bitmap_manager.get());
+    scoped_refptr<viz::TestContextProvider> context_provider =
+        viz::TestContextProvider::Create();
+    ASSERT_EQ(context_provider->BindToCurrentThread(),
+              gpu::ContextResult::kSuccess);
+    std::unique_ptr<viz::ClientResourceProvider> resource_provider =
+        std::make_unique<viz::ClientResourceProvider>(true);
 
-    FakePictureLayerTilingClient client(resource_provider.get());
+    FakePictureLayerTilingClient client(resource_provider.get(),
+                                        context_provider.get());
     client.SetTileSize(gfx::Size(256, 256));
     gfx::Size layer_bounds(1000, 800);
     std::unique_ptr<TestablePictureLayerTilingSet> set =

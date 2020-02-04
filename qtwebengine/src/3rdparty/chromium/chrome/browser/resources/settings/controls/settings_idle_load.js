@@ -10,7 +10,6 @@
  */
 Polymer({
   is: 'settings-idle-load',
-  extends: 'template',
 
   behaviors: [Polymer.Templatizer],
 
@@ -22,8 +21,11 @@ Polymer({
     url: String,
   },
 
-  /** @private {TemplatizerNode} */
+  /** @private {?Element} */
   child_: null,
+
+  /** @private {?Element} */
+  instance_: null,
 
   /** @private {number} */
   idleCallback_: 0,
@@ -44,45 +46,60 @@ Polymer({
    *     DOM tree.
    */
   get: function() {
-    if (this.loading_)
+    if (this.loading_) {
       return this.loading_;
+    }
 
-    this.loading_ = new Promise(function(resolve, reject) {
-      this.importHref(this.url, function() {
+    this.loading_ = new Promise((resolve, reject) => {
+      this.importHref(this.url, () => {
         assert(!this.ctor);
-        this.templatize(this);
+        this.templatize(this.getContentChildren()[0]);
         assert(this.ctor);
 
-        var instance = this.stamp({});
+        this.instance_ = this.stamp({});
 
         assert(!this.child_);
-        this.child_ = instance.root.firstElementChild;
+        this.child_ = this.instance_.root.firstElementChild;
 
-        this.parentNode.insertBefore(instance.root, this);
+        this.parentNode.insertBefore(this.instance_.root, this);
         resolve(this.child_);
 
         this.fire('lazy-loaded');
-      }.bind(this), reject, true);
-    }.bind(this));
+      }, reject, true);
+    });
 
     return this.loading_;
+  },
+
+  /**
+   * TODO(dpapad): Delete this method once migration to Polymer 2 has finished.
+   * @param {string} prop
+   * @param {Object} value
+   */
+  _forwardParentProp: function(prop, value) {
+    if (this.child_) {
+      this.child_._templateInstance[prop] = value;
+    }
+  },
+
+  /**
+   * TODO(dpapad): Delete this method once migration to Polymer 2 has finished.
+   * @param {string} path
+   * @param {Object} value
+   */
+  _forwardParentPath: function(path, value) {
+    if (this.child_) {
+      this.child_._templateInstance.notifyPath(path, value, true);
+    }
   },
 
   /**
    * @param {string} prop
    * @param {Object} value
    */
-  _forwardParentProp: function(prop, value) {
-    if (this.child_)
-      this.child_._templateInstance[prop] = value;
+  _forwardHostPropV2: function(prop, value) {
+    if (this.instance_) {
+      this.instance_.forwardHostProp(prop, value);
+    }
   },
-
-  /**
-   * @param {string} path
-   * @param {Object} value
-   */
-  _forwardParentPath: function(path, value) {
-    if (this.child_)
-      this.child_._templateInstance.notifyPath(path, value, true);
-  }
 });

@@ -1,33 +1,22 @@
 // Copyright (c) 2015-2016 The Khronos Group Inc.
 //
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS
-// KHRONOS STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS
-// SPECIFICATIONS AND HEADER INFORMATION ARE LOCATED AT
-//    https://www.khronos.org/registry/
-//
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-#include "print.h"
+#include "source/print.h"
 
-#if defined(SPIRV_ANDROID) || defined(SPIRV_LINUX) || defined(SPIRV_MAC)
-namespace libspirv {
+#if defined(SPIRV_ANDROID) || defined(SPIRV_LINUX) || defined(SPIRV_MAC) || \
+    defined(SPIRV_FREEBSD)
+namespace spvtools {
 
 clr::reset::operator const char*() { return "\x1b[0m"; }
 
@@ -41,75 +30,84 @@ clr::yellow::operator const char*() { return "\x1b[33m"; }
 
 clr::blue::operator const char*() { return "\x1b[34m"; }
 
-}  // namespace libspirv
+}  // namespace spvtools
 #elif defined(SPIRV_WINDOWS)
 #include <windows.h>
 
-namespace libspirv {
+namespace spvtools {
+
+static void SetConsoleForegroundColorPrimary(HANDLE hConsole, WORD color) {
+  // Get screen buffer information from console handle
+  CONSOLE_SCREEN_BUFFER_INFO bufInfo;
+  GetConsoleScreenBufferInfo(hConsole, &bufInfo);
+
+  // Get background color
+  color = WORD(color | (bufInfo.wAttributes & 0xfff0));
+
+  // Set foreground color
+  SetConsoleTextAttribute(hConsole, color);
+}
+
+static void SetConsoleForegroundColor(WORD color) {
+  SetConsoleForegroundColorPrimary(GetStdHandle(STD_OUTPUT_HANDLE), color);
+  SetConsoleForegroundColorPrimary(GetStdHandle(STD_ERROR_HANDLE), color);
+}
 
 clr::reset::operator const char*() {
-  const DWORD color = 0Xf;
-  HANDLE hConsole;
-  hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  hConsole = GetStdHandle(STD_ERROR_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  return "";
+  if (isPrint) {
+    SetConsoleForegroundColor(0xf);
+    return "";
+  }
+  return "\x1b[0m";
 }
 
 clr::grey::operator const char*() {
-  const DWORD color = 0x8;
-  HANDLE hConsole;
-  hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  hConsole = GetStdHandle(STD_ERROR_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  return "";
+  if (isPrint) {
+    SetConsoleForegroundColor(FOREGROUND_INTENSITY);
+    return "";
+  }
+  return "\x1b[1;30m";
 }
 
 clr::red::operator const char*() {
-  const DWORD color = 0x4;
-  HANDLE hConsole;
-  hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  hConsole = GetStdHandle(STD_ERROR_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  return "";
+  if (isPrint) {
+    SetConsoleForegroundColor(FOREGROUND_RED);
+    return "";
+  }
+  return "\x1b[31m";
 }
 
 clr::green::operator const char*() {
-  const DWORD color = 0x2;
-  HANDLE hConsole;
-  hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  hConsole = GetStdHandle(STD_ERROR_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  return "";
+  if (isPrint) {
+    SetConsoleForegroundColor(FOREGROUND_GREEN);
+    return "";
+  }
+  return "\x1b[32m";
 }
 
 clr::yellow::operator const char*() {
-  const DWORD color = 0x6;
-  HANDLE hConsole;
-  hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  hConsole = GetStdHandle(STD_ERROR_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  return "";
+  if (isPrint) {
+    SetConsoleForegroundColor(FOREGROUND_RED | FOREGROUND_GREEN);
+    return "";
+  }
+  return "\x1b[33m";
 }
 
 clr::blue::operator const char*() {
-  const DWORD color = 0x1;
-  HANDLE hConsole;
-  hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  hConsole = GetStdHandle(STD_ERROR_HANDLE);
-  SetConsoleTextAttribute(hConsole, color);
-  return "";
+  // Blue all by itself is hard to see against a black background (the
+  // default on command shell), or a medium blue background (the default
+  // on PowerShell).  So increase its intensity.
+
+  if (isPrint) {
+    SetConsoleForegroundColor(FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+    return "";
+  }
+  return "\x1b[94m";
 }
 
-}  // namespace libspirv
+}  // namespace spvtools
 #else
-namespace libspirv {
+namespace spvtools {
 
 clr::reset::operator const char*() { return ""; }
 
@@ -123,5 +121,5 @@ clr::yellow::operator const char*() { return ""; }
 
 clr::blue::operator const char*() { return ""; }
 
-}  // namespace libspirv
+}  // namespace spvtools
 #endif

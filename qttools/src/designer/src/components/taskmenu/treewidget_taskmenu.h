@@ -29,8 +29,8 @@
 #ifndef TREEWIDGET_TASKMENU_H
 #define TREEWIDGET_TASKMENU_H
 
-#include <QtWidgets/QTreeWidget>
-#include <QtCore/QPointer>
+#include <QtWidgets/qtreewidget.h>
+#include <QtCore/qpointer.h>
 
 #include <qdesigner_taskmenu_p.h>
 #include <extensionfactory_p.h>
@@ -47,10 +47,10 @@ class TreeWidgetTaskMenu: public QDesignerTaskMenu
     Q_OBJECT
 public:
     explicit TreeWidgetTaskMenu(QTreeWidget *button, QObject *parent = 0);
-    virtual ~TreeWidgetTaskMenu();
+    ~TreeWidgetTaskMenu() override;
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private slots:
     void editItems();

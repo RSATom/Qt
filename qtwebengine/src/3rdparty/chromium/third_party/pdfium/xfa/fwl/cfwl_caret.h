@@ -11,14 +11,12 @@
 
 #include "xfa/fwl/cfwl_timer.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fxgraphics/cxfa_color.h"
+#include "xfa/fxgraphics/cxfa_gecolor.h"
 
 class CFWL_WidgetProperties;
 class CFWL_Widget;
 
-#define FWL_STATE_CAT_HightLight 1
-
-class CFWL_Caret : public CFWL_Widget {
+class CFWL_Caret final : public CFWL_Widget {
  public:
   CFWL_Caret(const CFWL_App* app,
              std::unique_ptr<CFWL_WidgetProperties> properties,
@@ -27,17 +25,17 @@ class CFWL_Caret : public CFWL_Widget {
 
   // CFWL_Widget
   FWL_Type GetClassID() const override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
   void OnDrawWidget(CXFA_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+                    const CFX_Matrix& matrix) override;
   void Update() override;
 
   void ShowCaret();
   void HideCaret();
 
  private:
-  class Timer : public CFWL_Timer {
+  class Timer final : public CFWL_Timer {
    public:
     explicit Timer(CFWL_Caret* pCaret);
     ~Timer() override {}
@@ -51,7 +49,7 @@ class CFWL_Caret : public CFWL_Widget {
                    const CFX_Matrix* pMatrix);
 
   std::unique_ptr<CFWL_Caret::Timer> m_pTimer;
-  CFX_UnownedPtr<CFWL_TimerInfo> m_pTimerInfo;
+  UnownedPtr<CFWL_TimerInfo> m_pTimerInfo;
 };
 
 #endif  // XFA_FWL_CFWL_CARET_H_

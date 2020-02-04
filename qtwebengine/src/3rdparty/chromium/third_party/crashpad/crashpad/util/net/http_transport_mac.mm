@@ -118,23 +118,23 @@ class HTTPBodyStreamCFReadStream {
   // Creates a new NSInputStream, which the caller owns.
   NSInputStream* CreateInputStream() {
     CFStreamClientContext context = {
-      .version = 0,
-      .info = this,
-      .retain = nullptr,
-      .release = nullptr,
-      .copyDescription = nullptr
+        .version = 0,
+        .info = this,
+        .retain = nullptr,
+        .release = nullptr,
+        .copyDescription = nullptr
     };
-    const CFReadStreamCallBacksV0 callbacks = {
-      .version = 0,
-      .open = &Open,
-      .openCompleted = &OpenCompleted,
-      .read = &Read,
-      .getBuffer = &GetBuffer,
-      .canRead = &CanRead,
-      .close = &Close,
-      .copyProperty = &CopyProperty,
-      .schedule = &Schedule,
-      .unschedule = &Unschedule
+    constexpr CFReadStreamCallBacksV0 callbacks = {
+        .version = 0,
+        .open = &Open,
+        .openCompleted = &OpenCompleted,
+        .read = &Read,
+        .getBuffer = &GetBuffer,
+        .canRead = &CanRead,
+        .close = &Close,
+        .copyProperty = &CopyProperty,
+        .schedule = &Schedule,
+        .unschedule = &Unschedule
     };
     CFReadStreamRef read_stream = CFReadStreamCreate(nullptr,
         reinterpret_cast<const CFReadStreamCallBacks*>(&callbacks), &context);
@@ -293,7 +293,7 @@ bool HTTPTransportMac::ExecuteSynchronously(std::string* response_body) {
       return false;
     }
     NSInteger http_status = [http_response statusCode];
-    if (http_status != 200) {
+    if (http_status < 200 || http_status > 203) {
       LOG(ERROR) << base::StringPrintf("HTTP status %ld",
                                        implicit_cast<long>(http_status));
       return false;

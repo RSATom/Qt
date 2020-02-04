@@ -51,11 +51,16 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
+/*!
+    \namespace Qt3DRender::Quick
+
+    \brief Internal namespace to import QML types.
+*/
 namespace Quick {
 
 class QScene2DPrivate;
 
-class QT3DQUICKSCENE2DSHARED_EXPORT QScene2D : public Qt3DCore::QNode
+class Q_3DQUICKSCENE2DSHARED_EXPORT QScene2D : public Qt3DCore::QNode
 {
     Q_OBJECT
 
@@ -101,7 +106,7 @@ protected:
     Q_DECLARE_PRIVATE(QScene2D)
 
 private:
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Quick

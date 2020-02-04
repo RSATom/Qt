@@ -51,7 +51,7 @@ class QLogicalDevicePrivate;
 class QAction;
 class QAxis;
 
-class QT3DINPUTSHARED_EXPORT QLogicalDevice : public Qt3DCore::QComponent
+class Q_3DINPUTSHARED_EXPORT QLogicalDevice : public Qt3DCore::QComponent
 {
     Q_OBJECT
 public:
@@ -68,7 +68,7 @@ public:
 
 private:
     Q_DECLARE_PRIVATE(QLogicalDevice)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // Qt3DInput

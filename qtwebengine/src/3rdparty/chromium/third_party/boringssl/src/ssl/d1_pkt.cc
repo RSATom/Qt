@@ -126,220 +126,76 @@
 #include "internal.h"
 
 
-int dtls1_get_record(SSL *ssl) {
-again:
-  switch (ssl->s3->recv_shutdown) {
-    case ssl_shutdown_none:
-      break;
-    case ssl_shutdown_fatal_alert:
-      OPENSSL_PUT_ERROR(SSL, SSL_R_PROTOCOL_IS_SHUTDOWN);
-      return -1;
-    case ssl_shutdown_close_notify:
-      return 0;
-  }
+BSSL_NAMESPACE_BEGIN
 
-  /* Read a new packet if there is no unconsumed one. */
-  if (ssl_read_buffer_len(ssl) == 0) {
-    int read_ret = ssl_read_buffer_extend_to(ssl, 0 /* unused */);
-    if (read_ret < 0 && dtls1_is_timer_expired(ssl)) {
-      /* Historically, timeouts were handled implicitly if the caller did not
-       * handle them.
-       *
-       * TODO(davidben): This was to support blocking sockets but affected
-       * non-blocking sockets. Can it be removed? */
-      int timeout_ret = DTLSv1_handle_timeout(ssl);
-      if (timeout_ret <= 0) {
-        return timeout_ret;
-      }
-      goto again;
-    }
-    if (read_ret <= 0) {
-      return read_ret;
-    }
-  }
-  assert(ssl_read_buffer_len(ssl) > 0);
-
-  CBS body;
-  uint8_t type, alert;
-  size_t consumed;
-  enum ssl_open_record_t open_ret =
-      dtls_open_record(ssl, &type, &body, &consumed, &alert,
-                       ssl_read_buffer(ssl), ssl_read_buffer_len(ssl));
-  ssl_read_buffer_consume(ssl, consumed);
-  switch (open_ret) {
-    case ssl_open_record_partial:
-      /* Impossible in DTLS. */
-      break;
-
-    case ssl_open_record_success: {
-      if (CBS_len(&body) > 0xffff) {
-        OPENSSL_PUT_ERROR(SSL, ERR_R_OVERFLOW);
-        return -1;
-      }
-
-      SSL3_RECORD *rr = &ssl->s3->rrec;
-      rr->type = type;
-      rr->length = (uint16_t)CBS_len(&body);
-      rr->data = (uint8_t *)CBS_data(&body);
-      return 1;
-    }
-
-    case ssl_open_record_discard:
-      goto again;
-
-    case ssl_open_record_close_notify:
-      return 0;
-
-    case ssl_open_record_fatal_alert:
-      return -1;
-
-    case ssl_open_record_error:
-      ssl3_send_alert(ssl, SSL3_AL_FATAL, alert);
-      return -1;
-  }
-
-  assert(0);
-  OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
-  return -1;
-}
-
-int dtls1_read_app_data(SSL *ssl, int *out_got_handshake, uint8_t *buf, int len,
-                        int peek) {
+ssl_open_record_t dtls1_open_app_data(SSL *ssl, Span<uint8_t> *out,
+                                      size_t *out_consumed, uint8_t *out_alert,
+                                      Span<uint8_t> in) {
   assert(!SSL_in_init(ssl));
 
-  *out_got_handshake = 0;
-  SSL3_RECORD *rr = &ssl->s3->rrec;
-
-again:
-  if (rr->length == 0) {
-    int ret = dtls1_get_record(ssl);
-    if (ret <= 0) {
-      return ret;
-    }
+  uint8_t type;
+  Span<uint8_t> record;
+  auto ret = dtls_open_record(ssl, &type, &record, out_consumed, out_alert, in);
+  if (ret != ssl_open_record_success) {
+    return ret;
   }
 
-  if (rr->type == SSL3_RT_HANDSHAKE) {
-    /* Parse the first fragment header to determine if this is a pre-CCS or
-     * post-CCS handshake record. DTLS resets handshake message numbers on each
-     * handshake, so renegotiations and retransmissions are ambiguous. */
+  if (type == SSL3_RT_HANDSHAKE) {
+    // Parse the first fragment header to determine if this is a pre-CCS or
+    // post-CCS handshake record. DTLS resets handshake message numbers on each
+    // handshake, so renegotiations and retransmissions are ambiguous.
     CBS cbs, body;
     struct hm_header_st msg_hdr;
-    CBS_init(&cbs, rr->data, rr->length);
+    CBS_init(&cbs, record.data(), record.size());
     if (!dtls1_parse_fragment(&cbs, &msg_hdr, &body)) {
-      ssl3_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);
       OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_HANDSHAKE_RECORD);
-      return -1;
+      *out_alert = SSL_AD_DECODE_ERROR;
+      return ssl_open_record_error;
     }
 
     if (msg_hdr.type == SSL3_MT_FINISHED &&
         msg_hdr.seq == ssl->d1->handshake_read_seq - 1) {
       if (msg_hdr.frag_off == 0) {
-        /* Retransmit our last flight of messages. If the peer sends the second
-         * Finished, they may not have received ours. Only do this for the
-         * first fragment, in case the Finished was fragmented. */
-        if (dtls1_check_timeout_num(ssl) < 0) {
-          return -1;
+        // Retransmit our last flight of messages. If the peer sends the second
+        // Finished, they may not have received ours. Only do this for the
+        // first fragment, in case the Finished was fragmented.
+        if (!dtls1_check_timeout_num(ssl)) {
+          *out_alert = 0;  // TODO(davidben): Send an alert?
+          return ssl_open_record_error;
         }
 
         dtls1_retransmit_outgoing_messages(ssl);
       }
-
-      rr->length = 0;
-      goto again;
+      return ssl_open_record_discard;
     }
 
-    /* Otherwise, this is a pre-CCS handshake message from an unsupported
-     * renegotiation attempt. Fall through to the error path. */
+    // Otherwise, this is a pre-CCS handshake message from an unsupported
+    // renegotiation attempt. Fall through to the error path.
   }
 
-  if (rr->type != SSL3_RT_APPLICATION_DATA) {
-    ssl3_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
+  if (type != SSL3_RT_APPLICATION_DATA) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_RECORD);
-    return -1;
+    *out_alert = SSL_AD_UNEXPECTED_MESSAGE;
+    return ssl_open_record_error;
   }
 
-  /* Discard empty records. */
-  if (rr->length == 0) {
-    goto again;
+  if (record.empty()) {
+    return ssl_open_record_discard;
   }
 
-  if (len <= 0) {
-    return len;
-  }
-
-  if ((unsigned)len > rr->length) {
-    len = rr->length;
-  }
-
-  OPENSSL_memcpy(buf, rr->data, len);
-  if (!peek) {
-    /* TODO(davidben): Should the record be truncated instead? This is a
-     * datagram transport. See https://crbug.com/boringssl/65. */
-    rr->length -= len;
-    rr->data += len;
-    if (rr->length == 0) {
-      /* The record has been consumed, so we may now clear the buffer. */
-      ssl_read_buffer_discard(ssl);
-    }
-  }
-
-  return len;
+  *out = record;
+  return ssl_open_record_success;
 }
 
-int dtls1_read_change_cipher_spec(SSL *ssl) {
-  SSL3_RECORD *rr = &ssl->s3->rrec;
-
-again:
-  if (rr->length == 0) {
-    int ret = dtls1_get_record(ssl);
-    if (ret <= 0) {
-      return ret;
-    }
-  }
-
-  /* Drop handshake records silently. The epochs match, so this must be a
-   * retransmit of a message we already received. */
-  if (rr->type == SSL3_RT_HANDSHAKE) {
-    rr->length = 0;
-    goto again;
-  }
-
-  /* Other record types are illegal in this epoch. Note all application data
-   * records come in the encrypted epoch. */
-  if (rr->type != SSL3_RT_CHANGE_CIPHER_SPEC) {
-    ssl3_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
-    OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_RECORD);
-    return -1;
-  }
-
-  if (rr->length != 1 || rr->data[0] != SSL3_MT_CCS) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_BAD_CHANGE_CIPHER_SPEC);
-    ssl3_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_ILLEGAL_PARAMETER);
-    return -1;
-  }
-
-  ssl_do_msg_callback(ssl, 0 /* read */, SSL3_RT_CHANGE_CIPHER_SPEC, rr->data,
-                      rr->length);
-
-  rr->length = 0;
-  ssl_read_buffer_discard(ssl);
-  return 1;
-}
-
-void dtls1_read_close_notify(SSL *ssl) {
-  /* Bidirectional shutdown doesn't make sense for an unordered transport. DTLS
-   * alerts also aren't delivered reliably, so we may even time out because the
-   * peer never received our close_notify. Report to the caller that the channel
-   * has fully shut down. */
-  if (ssl->s3->recv_shutdown == ssl_shutdown_none) {
-    ssl->s3->recv_shutdown = ssl_shutdown_close_notify;
-  }
-}
-
-int dtls1_write_app_data(SSL *ssl, int *out_needs_handshake, const uint8_t *buf,
+int dtls1_write_app_data(SSL *ssl, bool *out_needs_handshake, const uint8_t *in,
                          int len) {
   assert(!SSL_in_init(ssl));
-  *out_needs_handshake = 0;
+  *out_needs_handshake = false;
+
+  if (ssl->s3->write_shutdown != ssl_shutdown_none) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_PROTOCOL_IS_SHUTDOWN);
+    return -1;
+  }
 
   if (len > SSL3_RT_MAX_PLAIN_LENGTH) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_DTLS_MESSAGE_TOO_BIG);
@@ -355,7 +211,7 @@ int dtls1_write_app_data(SSL *ssl, int *out_needs_handshake, const uint8_t *buf,
     return 0;
   }
 
-  int ret = dtls1_write_record(ssl, SSL3_RT_APPLICATION_DATA, buf, (size_t)len,
+  int ret = dtls1_write_record(ssl, SSL3_RT_APPLICATION_DATA, in, (size_t)len,
                                dtls1_use_current_epoch);
   if (ret <= 0) {
     return ret;
@@ -363,29 +219,29 @@ int dtls1_write_app_data(SSL *ssl, int *out_needs_handshake, const uint8_t *buf,
   return len;
 }
 
-int dtls1_write_record(SSL *ssl, int type, const uint8_t *buf, size_t len,
+int dtls1_write_record(SSL *ssl, int type, const uint8_t *in, size_t len,
                        enum dtls1_use_epoch_t use_epoch) {
+  SSLBuffer *buf = &ssl->s3->write_buffer;
   assert(len <= SSL3_RT_MAX_PLAIN_LENGTH);
-  /* There should never be a pending write buffer in DTLS. One can't write half
-   * a datagram, so the write buffer is always dropped in
-   * |ssl_write_buffer_flush|. */
-  assert(!ssl_write_buffer_is_pending(ssl));
+  // There should never be a pending write buffer in DTLS. One can't write half
+  // a datagram, so the write buffer is always dropped in
+  // |ssl_write_buffer_flush|.
+  assert(buf->empty());
 
   if (len > SSL3_RT_MAX_PLAIN_LENGTH) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
     return -1;
   }
 
-  size_t max_out = len + SSL_max_seal_overhead(ssl);
-  uint8_t *out;
   size_t ciphertext_len;
-  if (!ssl_write_buffer_init(ssl, &out, max_out) ||
-      !dtls_seal_record(ssl, out, &ciphertext_len, max_out, type, buf, len,
-                        use_epoch)) {
-    ssl_write_buffer_clear(ssl);
+  if (!buf->EnsureCap(ssl_seal_align_prefix_len(ssl),
+                      len + SSL_max_seal_overhead(ssl)) ||
+      !dtls_seal_record(ssl, buf->remaining().data(), &ciphertext_len,
+                        buf->remaining().size(), type, in, len, use_epoch)) {
+    buf->Clear();
     return -1;
   }
-  ssl_write_buffer_set_len(ssl, ciphertext_len);
+  buf->DidWrite(ciphertext_len);
 
   int ret = ssl_write_buffer_flush(ssl);
   if (ret <= 0) {
@@ -402,16 +258,17 @@ int dtls1_dispatch_alert(SSL *ssl) {
   }
   ssl->s3->alert_dispatch = 0;
 
-  /* If the alert is fatal, flush the BIO now. */
+  // If the alert is fatal, flush the BIO now.
   if (ssl->s3->send_alert[0] == SSL3_AL_FATAL) {
-    BIO_flush(ssl->wbio);
+    BIO_flush(ssl->wbio.get());
   }
 
-  ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_ALERT, ssl->s3->send_alert,
-                      2);
+  ssl_do_msg_callback(ssl, 1 /* write */, SSL3_RT_ALERT, ssl->s3->send_alert);
 
   int alert = (ssl->s3->send_alert[0] << 8) | ssl->s3->send_alert[1];
   ssl_do_info_callback(ssl, SSL_CB_WRITE_ALERT, alert);
 
   return 1;
 }
+
+BSSL_NAMESPACE_END

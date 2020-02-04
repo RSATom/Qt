@@ -54,27 +54,18 @@
 #if QT_CONFIG(wayland_datadevice)
 #include <QtWaylandCompositor/private/qwldatadevice_p.h>
 #endif
+#include <QtWaylandCompositor/private/qwaylandutils_p.h>
 
 #include "extensions/qwlqtkey_p.h"
 #include "extensions/qwaylandtextinput.h"
 
 QT_BEGIN_NAMESPACE
 
-QWaylandSeatPrivate::QWaylandSeatPrivate(QWaylandSeat *seat)
-    : QObjectPrivate()
-    , QtWaylandServer::wl_seat()
-    , isInitialized(false)
-    , compositor(nullptr)
-    , mouseFocus(Q_NULLPTR)
-    , keyboardFocus(nullptr)
-    , capabilities()
+QWaylandSeatPrivate::QWaylandSeatPrivate(QWaylandSeat *seat) :
 #if QT_CONFIG(wayland_datadevice)
-    , data_device()
+    drag_handle(new QWaylandDrag(seat)),
 #endif
-#if QT_CONFIG(draganddrop)
-    , drag_handle(new QWaylandDrag(seat))
-#endif
-    , keymap(new QWaylandKeymap())
+    keymap(new QWaylandKeymap())
 {
 }
 
@@ -89,15 +80,15 @@ void QWaylandSeatPrivate::setCapabilities(QWaylandSeat::CapabilityFlags caps)
         QWaylandSeat::CapabilityFlags changed = caps ^ capabilities;
 
         if (changed & QWaylandSeat::Pointer) {
-            pointer.reset(pointer.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreatePointerDevice(q) : 0);
+            pointer.reset(pointer.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreatePointerDevice(q) : nullptr);
         }
 
         if (changed & QWaylandSeat::Keyboard) {
-            keyboard.reset(keyboard.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreateKeyboardDevice(q) : 0);
+            keyboard.reset(keyboard.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreateKeyboardDevice(q) : nullptr);
         }
 
         if (changed & QWaylandSeat::Touch) {
-            touch.reset(touch.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreateTouchDevice(q) : 0);
+            touch.reset(touch.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreateTouchDevice(q) : nullptr);
         }
 
         capabilities = caps;
@@ -186,7 +177,7 @@ void QWaylandSeatPrivate::seat_get_touch(wl_seat::Resource *resource, uint32_t i
  */
 
 /*!
- * Constructs a QWaylandSeat for the given \a compositor and with the given \a capabilityFlags.
+ * Constructs a QWaylandSeat for the given \a compositor and \a capabilityFlags.
  */
 QWaylandSeat::QWaylandSeat(QWaylandCompositor *compositor, CapabilityFlags capabilityFlags)
     : QWaylandObject(*new QWaylandSeatPrivate(this))
@@ -205,6 +196,14 @@ QWaylandSeat::~QWaylandSeat()
 {
 }
 
+/*!
+ * Initializes parts of the seat corresponding to the capabilities set in the constructor, or
+ * through setCapabilities().
+ *
+ * \note Normally, this function is called automatically after the seat and compositor have been
+ * created, so calling it manually is usually unnecessary.
+ */
+
 void QWaylandSeat::initialize()
 {
     Q_D(QWaylandSeat);
@@ -220,6 +219,11 @@ void QWaylandSeat::initialize()
     d->isInitialized = true;
 }
 
+/*!
+ * Returns true if the QWaylandSeat is initialized; false otherwise.
+ *
+ * The value \c true indicates that it's now possible for clients to start using the seat.
+ */
 bool QWaylandSeat::isInitialized() const
 {
     Q_D(const QWaylandSeat);
@@ -298,7 +302,93 @@ uint QWaylandSeat::sendTouchPointEvent(QWaylandSurface *surface, int id, const Q
 }
 
 /*!
- * Sends a frame event to the touch device of a \a client.
+ * \qmlmethod uint QtWaylandCompositor::WaylandSeat::sendTouchPointPressed(WaylandSurface surface, int id, point position)
+ *
+ * Sends a touch pressed event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch down event.
+ */
+
+/*!
+ * Sends a touch pressed event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch down event.
+ */
+uint QWaylandSeat::sendTouchPointPressed(QWaylandSurface *surface, int id, const QPointF &position)
+{
+    return sendTouchPointEvent(surface, id, position, Qt::TouchPointPressed);
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendTouchPointReleased(WaylandSurface surface, int id, point position)
+ *
+ * Sends a touch released event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch up event.
+ */
+
+/*!
+ * Sends a touch released event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch up event.
+ */
+uint QWaylandSeat::sendTouchPointReleased(QWaylandSurface *surface, int id, const QPointF &position)
+{
+    return sendTouchPointEvent(surface, id, position, Qt::TouchPointReleased);
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendTouchPointMoved(WaylandSurface surface, int id, point position)
+ *
+ * Sends a touch moved event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch motion event.
+ */
+
+/*!
+ * Sends a touch moved event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch motion event.
+ */
+uint QWaylandSeat::sendTouchPointMoved(QWaylandSurface *surface, int id, const QPointF &position)
+{
+    return sendTouchPointEvent(surface, id, position, Qt::TouchPointMoved);
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendTouchFrameEvent(WaylandClient client)
+ *
+ * Sends a frame event to the touch device of a \a client to indicate the end
+ * of a series of touch up, down, and motion events.
+ */
+
+/*!
+ * Sends a frame event to the touch device of a \a client to indicate the end
+ * of a series of touch up, down, and motion events.
  */
 void QWaylandSeat::sendTouchFrameEvent(QWaylandClient *client)
 {
@@ -306,6 +396,12 @@ void QWaylandSeat::sendTouchFrameEvent(QWaylandClient *client)
     if (!d->touch.isNull())
         d->touch->sendFrameEvent(client);
 }
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendTouchCancelEvent(WaylandClient client)
+ *
+ * Sends a cancel event to the touch device of a \a client.
+ */
 
 /*!
  * Sends a cancel event to the touch device of a \a client.
@@ -358,10 +454,50 @@ void QWaylandSeat::sendFullKeyEvent(QKeyEvent *event)
         return;
 
     if (!d->keyboard.isNull() && !event->isAutoRepeat()) {
+
+        uint scanCode = event->nativeScanCode();
+        if (scanCode == 0)
+            scanCode = d->keyboard->keyToScanCode(event->key());
+
+        if (scanCode == 0) {
+            qWarning() << "Can't send Wayland key event: Unable to get a valid scan code";
+            return;
+        }
+
         if (event->type() == QEvent::KeyPress)
-            d->keyboard->sendKeyPressEvent(event->nativeScanCode());
+            d->keyboard->sendKeyPressEvent(scanCode);
         else if (event->type() == QEvent::KeyRelease)
-            d->keyboard->sendKeyReleaseEvent(event->nativeScanCode());
+            d->keyboard->sendKeyReleaseEvent(scanCode);
+    }
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendKeyEvent(int qtKey, bool pressed)
+ * \since 5.12
+ *
+ * Sends a key press or release to the keyboard device.
+ */
+
+/*!
+ * Sends a key press or release to the keyboard device.
+ *
+ * \since 5.12
+ */
+void QWaylandSeat::sendKeyEvent(int qtKey, bool pressed)
+{
+    Q_D(QWaylandSeat);
+    if (!keyboardFocus()) {
+        qWarning("Cannot send Wayland key event, no keyboard focus, fix the compositor");
+        return;
+    }
+
+    if (auto scanCode = d->keyboard->keyToScanCode(qtKey)) {
+        if (pressed)
+            d->keyboard->sendKeyPressEvent(scanCode);
+        else
+            d->keyboard->sendKeyReleaseEvent(scanCode);
+    } else {
+        qWarning() << "Can't send Wayland key event: Unable to get scan code for" << Qt::Key(qtKey);
     }
 }
 
@@ -381,7 +517,7 @@ QWaylandSurface *QWaylandSeat::keyboardFocus() const
 {
     Q_D(const QWaylandSeat);
     if (d->keyboard.isNull() || !d->keyboard->focus())
-        return Q_NULLPTR;
+        return nullptr;
 
     return d->keyboard->focus();
 }
@@ -411,6 +547,11 @@ bool QWaylandSeat::setKeyboardFocus(QWaylandSurface *surface)
     emit keyboardFocusChanged(surface, oldSurface);
     return true;
 }
+
+
+/*!
+ * Returns the keymap object for this QWaylandSeat.
+ */
 
 QWaylandKeymap *QWaylandSeat::keymap()
 {
@@ -509,7 +650,9 @@ bool QWaylandSeat::isOwner(QInputEvent *inputEvent) const
  */
 QWaylandSeat *QWaylandSeat::fromSeatResource(struct ::wl_resource *resource)
 {
-    return static_cast<QWaylandSeatPrivate *>(QWaylandSeatPrivate::Resource::fromResource(resource)->seat_object)->q_func();
+    if (auto p = QtWayland::fromResource<QWaylandSeatPrivate *>(resource))
+        return p->q_func();
+    return nullptr;
 }
 
 /*!
@@ -528,5 +671,66 @@ void QWaylandSeat::handleMouseFocusDestroyed()
     QWaylandView *oldFocus = nullptr; // we have to send nullptr because the old focus is already destroyed at this point
     emit mouseFocusChanged(d->mouseFocus, oldFocus);
 }
+
+
+/*! \qmlsignal void QtWaylandCompositor::QWaylandSeat::keyboardFocusChanged(QWaylandSurface newFocus, QWaylandSurface oldFocus)
+ *
+ * This signal is emitted when setKeyboardFocus() is called or when a WaylandQuickItem has focus
+ * and the user starts pressing keys.
+ *
+ * \a newFocus has the surface that received keyboard focus; or \c nullptr if no surface has
+ * focus.
+ * \a oldFocus has the surface that lost keyboard focus; or \c nullptr if no surface had focus.
+ */
+
+/*!
+ * \fn void QWaylandSeat::keyboardFocusChanged(QWaylandSurface *newFocus, QWaylandSurface *oldFocus)
+ *
+ * This signal is emitted when setKeyboardFocus() is called.
+ *
+ * \a newFocus has the surface that received keyboard focus; or \c nullptr if no surface has
+ * focus.
+ * \a oldFocus has the surface that lost keyboard focus; or \c nullptr if no surface had focus.
+ */
+
+/*! \qmlsignal void QtWaylandCompositor::QWaylandSeat::cursorSurfaceRequest(QWaylandSurface surface, int hotspotX, int hotspotY)
+ *
+ * This signal is emitted when the client has requested for a specific \a surface to be the mouse
+ * cursor. For example, when the user hovers over a particular surface, and you want the cursor
+ * to change into a resize arrow.
+ *
+ * Both \a hotspotX and \a hotspotY are offsets from the top-left of a pointer surface, where a
+ * click should happen. For example, if the requested cursor surface is an arrow, the parameters
+ * indicate where the arrow's tip is, on that surface.
+ */
+
+
+/*!
+ * \fn void QWaylandSeat::cursorSurfaceRequest(QWaylandSurface *surface, int hotspotX, int hotspotY)
+ *
+ * This signal is emitted when the client has requested for a specific \a surface to be the mouse
+ * cursor. For example, when the user hovers over a particular surface, and you want the cursor
+ * to change into a resize arrow.
+ */
+
+/*!
+ * \property QWaylandSeat::drag
+ *
+ * This property holds the drag and drop operations and sends signals when they start and end.
+ * The property stores details like what image should be under the mouse cursor when the user
+ * drags it.
+ */
+
+/*!
+ * \property QWaylandSeat::keymap
+ * This property holds the keymap object.
+ *
+ * A keymap provides a way to translate actual key scan codes into a meaningful value.
+ * For example, if you use a keymap with a Norwegian layout, the key to the right of
+ * the letter L produces an Ø.
+ *
+ * Keymaps can also be used to customize key functions, such as to specify whether
+ * Control and CAPS lock should be swapped, and so on.
+ */
 
 QT_END_NAMESPACE

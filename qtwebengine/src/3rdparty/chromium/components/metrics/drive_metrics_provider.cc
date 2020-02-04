@@ -12,9 +12,9 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/task_scheduler/task_traits.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/time/time.h"
 
 namespace metrics {
@@ -32,10 +32,10 @@ void DriveMetricsProvider::ProvideSystemProfileMetrics(
                    hardware->mutable_user_data_drive());
 }
 
-void DriveMetricsProvider::GetDriveMetrics(const base::Closure& done_callback) {
+void DriveMetricsProvider::AsyncInit(const base::Closure& done_callback) {
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE,
-      {base::MayBlock(), base::TaskPriority::BACKGROUND,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::Bind(&DriveMetricsProvider::GetDriveMetricsOnBackgroundThread,
                  local_state_path_key_),
@@ -50,7 +50,7 @@ DriveMetricsProvider::SeekPenaltyResponse::SeekPenaltyResponse()
 DriveMetricsProvider::DriveMetrics
 DriveMetricsProvider::GetDriveMetricsOnBackgroundThread(
     int local_state_path_key) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::WILL_BLOCK);
 
   DriveMetricsProvider::DriveMetrics metrics;
   QuerySeekPenalty(base::FILE_EXE, &metrics.app_drive);
@@ -65,7 +65,7 @@ void DriveMetricsProvider::QuerySeekPenalty(
   DCHECK(response);
 
   base::FilePath path;
-  if (!PathService::Get(path_service_key, &path))
+  if (!base::PathService::Get(path_service_key, &path))
     return;
 
   base::TimeTicks start = base::TimeTicks::Now();

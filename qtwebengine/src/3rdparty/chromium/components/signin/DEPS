@@ -3,7 +3,6 @@ include_rules = [
   "+components/google/core",
   "+components/keyed_service/core",
   "+components/os_crypt",
-  "+components/pref_registry",
   "+components/prefs",
   "+components/sync_preferences",
   "+components/webdata/common",
@@ -13,3 +12,9 @@ include_rules = [
   "+net",
   "+sql",
 ]
+
+specific_include_rules = {
+  "test_signin_client\.h": [
+    "+services/network/test"
+  ]
+}

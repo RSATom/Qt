@@ -8,8 +8,7 @@
 #include <windows.h>
 
 #include "base/files/file_util.h"
-#include "base/task_scheduler/post_task.h"
-#include "base/threading/sequenced_worker_pool.h"
+#include "base/task/post_task.h"
 #include "ui/display/win/display_info.h"
 #include "ui/gfx/icc_profile.h"
 
@@ -17,10 +16,10 @@ namespace display {
 namespace win {
 namespace {
 
-BOOL CALLBACK EnumMonitorCallback(HMONITOR monitor,
-                                  HDC input_hdc,
-                                  LPRECT rect,
-                                  LPARAM data) {
+BOOL CALLBACK EnumMonitorForProfilePathCallback(HMONITOR monitor,
+                                                HDC input_hdc,
+                                                LPRECT rect,
+                                                LPARAM data) {
   base::string16 device_name;
   MONITORINFOEX monitor_info;
   ::ZeroMemory(&monitor_info, sizeof(monitor_info));
@@ -60,12 +59,9 @@ void ColorProfileReader::UpdateIfNeeded() {
   if (device_to_path_map_ == new_device_to_path_map)
     return;
 
-  if (!base::SequencedWorkerPool::IsEnabled())
-    return;
-
   update_in_flight_ = true;
   base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::BACKGROUND},
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::Bind(&ColorProfileReader::ReadProfilesOnBackgroundThread,
                  new_device_to_path_map),
       base::Bind(&ColorProfileReader::ReadProfilesCompleted,
@@ -75,7 +71,7 @@ void ColorProfileReader::UpdateIfNeeded() {
 // static
 ColorProfileReader::DeviceToPathMap ColorProfileReader::BuildDeviceToPathMap() {
   DeviceToPathMap device_to_path_map;
-  EnumDisplayMonitors(nullptr, nullptr, EnumMonitorCallback,
+  EnumDisplayMonitors(nullptr, nullptr, EnumMonitorForProfilePathCallback,
                       reinterpret_cast<LPARAM>(&device_to_path_map));
   return device_to_path_map;
 }
@@ -99,32 +95,33 @@ void ColorProfileReader::ReadProfilesCompleted(
     DeviceToDataMap device_to_data_map) {
   DCHECK(update_in_flight_);
   update_in_flight_ = false;
+  has_read_profiles_ = true;
 
-  display_id_to_color_space_map_.clear();
+  display_id_to_profile_map_.clear();
   for (auto entry : device_to_data_map) {
     const base::string16& device_name = entry.first;
     const std::string& profile_data = entry.second;
-    int64_t display_id =
-        DisplayInfo::DeviceIdFromDeviceName(device_name.c_str());
-
-    if (profile_data.empty()) {
-      display_id_to_color_space_map_[display_id] = default_color_space_;
-    } else {
-      display_id_to_color_space_map_[display_id] =
-          gfx::ICCProfile::FromData(profile_data.data(), profile_data.size())
-              .GetColorSpace();
+    if (!profile_data.empty()) {
+      int64_t display_id =
+          DisplayInfo::DeviceIdFromDeviceName(device_name.c_str());
+      display_id_to_profile_map_[display_id] =
+          gfx::ICCProfile::FromData(profile_data.data(), profile_data.size());
     }
   }
 
   client_->OnColorProfilesChanged();
 }
 
-const gfx::ColorSpace& ColorProfileReader::GetDisplayColorSpace(
+gfx::ColorSpace ColorProfileReader::GetDisplayColorSpace(
     int64_t display_id) const {
-  auto found = display_id_to_color_space_map_.find(display_id);
-  if (found == display_id_to_color_space_map_.end())
-    return default_color_space_;
-  return found->second;
+  gfx::ICCProfile icc_profile;
+  auto found = display_id_to_profile_map_.find(display_id);
+  if (found != display_id_to_profile_map_.end())
+    icc_profile = found->second;
+  if (has_read_profiles_)
+    icc_profile.HistogramDisplay(display_id);
+  return icc_profile.IsValid() ? icc_profile.GetColorSpace()
+                               : gfx::ColorSpace::CreateSRGB();
 }
 
 }  // namespace win
